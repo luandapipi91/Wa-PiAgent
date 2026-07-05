@@ -186,8 +186,9 @@ partners:                           # 委派关系（= 画布连线）
 ```
 插件市场（资源池）
 ├── 🔒 内置核心（不可删除）
-│   ├── pi-intercom        ← 通信桥
-│   └── pi-mcp-adapter     ← MCP 桥接器（不可取消）
+│   ├── pi-intercom             ← 通信桥（不显示在能力 tab）
+│   ├── pi-mcp-adapter          ← MCP 桥接器（不显示在能力 tab）
+│   └── pi-agent-browser-native ← agent 操控浏览器（显示在能力 tab，agent 级启用）
 └── 📦 已安装（可删除）
     ├── pi-web-access      ← 提供工具：web_search, fetch_url, pdf_extract
     ├── bigpowers          ← 提供 73 个技能
@@ -196,20 +197,42 @@ partners:                           # 委派关系（= 画布连线）
         ↓ 装了之后，去 Agent 配置分配
 
 Agent 配置（分配入口）— 每个 agent 独立
-└── 能力 tab
+└── 能力 tab（汇总卡 5 格：内置/插件/MCP/浏览器/技能）
     ├── 📁 内置工具       (read/bash/edit...)     ← 可勾选
     ├── 🌐 插件工具       (web_search/fetch_url)  ← 可勾选（产品✓ 研发✓ PM✗ 测试✗）
-    └── 🔌 MCP 工具       (chrome-devtools/figma) ← 可勾选（按 MCP server 分组）
+    ├── 🔌 MCP 工具       (chrome-devtools/figma) ← 可勾选（按 MCP server 分组）
+    └── 🤖 浏览器自动化   (agent_browser)         ← 可勾选（研发✓ 测试✓ 产品✗ PM✗）
 ```
 
 **为什么可行**：Pi 的 `--tools` flag 是 allowlist 语义。包加载的资源进入"进程可见集"，`--tools` 进一步过滤成"agent 实际能调用的"。HiAgent 不改 Pi 加载逻辑，只在 spawn 时按 agent 配置合成 `--tools` / `--skill` 参数。
 
-### 5.3 核心基础设施不显示
+### 5.3 核心基础设施（不可删除）
 
-pi-intercom 和 pi-mcp-adapter 是后台桥接器：
-- 它们提供的能力（intercom/contact_supervisor 工具）始终启用
-- 在 Agent 配置的"能力" tab 里**不显示**这个分组（用户改不了）
-- 只在插件市场显示为 🔒 内置核心
+以下三个包预装且锁定，在插件市场显示为 🔒 内置核心，不显示删除按钮：
+
+| 包 | 作用 | 能力 tab 中的显示 |
+|----|------|------------------|
+| `pi-intercom` | agent 间通信（ask/send/reply） | **不显示**（始终启用，用户改不了） |
+| `pi-mcp-adapter` | MCP 工具桥接 | **不显示**（始终激活，MCP 工具来源可用） |
+| `pi-agent-browser-native` | agent 操控浏览器（open/snapshot/click/screenshot/qa） | **显示为"🤖 浏览器自动化"分组**，agent 级启用/禁用 |
+
+pi-intercom 和 pi-mcp-adapter 是后台桥接器，提供的能力始终启用，用户改不了也不需要看到。
+
+pi-agent-browser-native 不同：它**显示在"能力" tab 里，agent 级启用/禁用**（研发/测试启用，产品/PM 可关闭）。理由：不是所有 agent 都需要操控浏览器，但包本身不可删（保证需要时立即可用）。
+
+**⚠️ 依赖说明**：pi-agent-browser-native 依赖上游 [agent-browser](https://github.com/vercel-labs/agent-browser) CLI（vercel-labs 项目，独立于 Pi 生态）。HiAgent **在首次启动时自动安装**这个依赖：
+
+- 检测 `agent-browser` 是否在 PATH
+- 没有则自动安装（按上游官方推荐方式：`npm install -g agent-browser` 或对应平台的安装脚本）
+- 安装过程在启动页显示进度（与 Bun sidecar 启动并行，不阻塞 UI）
+- 安装失败时降级：agent_browser 工具显示为"未就绪，点此重试"，但不影响其他能力，应用可正常使用
+
+自动安装的理由：pi-agent-browser-native 是内置核心能力，其依赖理应由 HiAgent 负责就绪，不应把安装负担转嫁给用户。
+
+**与产物预览（7.4）的区别**：
+- pi-agent-browser-native = **agent → 浏览器**（agent 自己访问页面，输出截图/快照给 LLM 看）
+- 产物预览 = **产物 → 用户**（agent 生成的 HTML，用户在内嵌浏览器看渲染结果）
+- 方向相反，互补共存。
 
 ## 六、UI 设计
 
