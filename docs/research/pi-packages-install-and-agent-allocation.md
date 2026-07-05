@@ -242,16 +242,21 @@ HiAgent 维护两套索引，支持双向查询：
 
 ## 四、内置核心（不可删除）
 
-以下两个包是 HiAgent 的核心基础设施，预装且锁定：
+以下三个包是 HiAgent 的核心基础设施，预装且锁定：
 
-| 包 | 作用 | 不可删的原因 |
-|----|------|-------------|
-| `pi-intercom` | agent 间通信（ask/send/reply） | 没有 it，动态委派无法发生 |
-| `pi-mcp-adapter` | MCP 工具桥接 | 没有 it，MCP 工具整个来源消失 |
+| 包 | 作用 | 能力 tab 中显示 | 不可删的原因 |
+|----|------|----------------|-------------|
+| `pi-intercom` | agent 间通信（ask/send/reply） | 不显示（始终启用） | 没有 it，动态委派无法发生 |
+| `pi-mcp-adapter` | MCP 工具桥接 | 不显示（始终激活） | 没有 it，MCP 工具整个来源消失 |
+| `pi-agent-browser-native` | agent 操控浏览器（open/snapshot/click/screenshot/qa） | 显示为"🤖 浏览器自动化"分组，agent 级启用 | 没有 it，研发做 web 开发时无法访问页面、QA |
 
-它们提供的能力（`intercom` / `contact_supervisor` 工具）始终对所有 agent 启用，不显示在 agent 配置的"能力" tab 里（用户改不了，也不需要看到）。
+pi-intercom 和 pi-mcp-adapter 提供的能力（`intercom` / `contact_supervisor` 工具）始终对所有 agent 启用，不显示在 agent 配置的"能力" tab 里。
 
-在插件市场 UI 里，它们标记为 🔒 内置核心，不显示删除按钮。
+pi-agent-browser-native 不同：显示在"能力" tab 的"🤖 浏览器自动化"分组，agent 级启用/禁用（研发/测试启用，产品/PM 可关闭）。但包本身不可删。
+
+**依赖自动安装**：pi-agent-browser-native 依赖上游 [agent-browser](https://github.com/vercel-labs/agent-browser) CLI（vercel-labs 项目，独立于 Pi 生态）。HiAgent **首次启动时自动安装**这个依赖（检测 PATH → 没有则自动安装 → 失败降级为"未就绪，点此重试"）。理由：内置核心能力的依赖理应由 HiAgent 负责就绪，不转嫁给用户。
+
+在插件市场 UI 里，三者标记为 🔒 内置核心，不显示删除按钮。
 
 ---
 
