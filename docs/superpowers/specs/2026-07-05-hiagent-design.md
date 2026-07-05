@@ -284,6 +284,56 @@ pi-intercom 和 pi-mcp-adapter 是后台桥接器：
 - 窗口管理（标题栏、系统托盘、尺寸记忆）
 - Bun sidecar 进程管控（启动、健康检查、关闭时优雅退出）
 - 前端 ↔ Bun 的 IPC 桥（如果不用 WebSocket 直连）
+- **WebviewWindow 管理**（产物预览的独立窗口）
+
+### 7.4 产物预览（Artifact Preview）
+
+agent 生成的 HTML/web 产物，在对话区点击 → 内嵌浏览器打开查看。
+
+**注意区分**：这不是 `pi-agent-browser-native`（那个是给 agent 用的浏览器，输出截图/快照给 agent 看）。产物预览是给**用户**用的内嵌浏览器，方向相反。
+
+#### 实现方案：A + C 混合
+
+| 方案 | 用途 | 实现 |
+|------|------|------|
+| **A. Bun 静态服务器**（日常预览） | 对话区分屏预览 | Bun 内核起静态文件服务器（端口 9777），serve 项目目录。点击预览 → 右侧 iframe 加载 `http://localhost:9777/prototypes/login.html` |
+| **C. 独立窗口**（大屏预览） | 全屏查看 | 点击 ⤢ 按钮 → Tauri `new WebviewWindow()` 弹独立原生窗口 |
+
+**为什么用 Bun 静态服务器而非 file://**：
+- 支持 localhost 场景（用户的 dev server 预览，如 `localhost:3000`）
+- 支持 SPA 路由、API 请求
+- 避免 file:// 的 CORS 限制
+
+#### 产物卡片（对话流内）
+
+agent 生成文件后，对话流里出现可点击的产物卡片：
+- 图标 + 文件名 + 类型 + 大小 + 生成时间
+- 缩略图预览（HTML 渲染缩略图）
+- "▶ 预览" 按钮 + "在新窗口打开" + "查看代码"
+
+#### 产物类型识别
+
+| 类型 | 处理方式 |
+|------|---------|
+| `.html` `.htm` `.svg` | 内嵌浏览器直接渲染 |
+| `.png` `.jpg` `.gif` `.webp` | 图片查看 |
+| `.pdf` | PDF viewer |
+| `.md` | Bun 转 HTML 再 serve |
+| dev server URL（`localhost:3000`） | iframe 加载 |
+| `.ts` `.js` `.py` `.json` `.css` 等 | Monaco 编辑器查看代码 |
+
+#### 数据流
+
+```
+agent 用 write 工具生成 login.html
+  → Pi tool_result 事件含文件路径
+  → 前端识别可预览类型 → 渲染产物卡片
+  → 用户点击"预览"
+  → 前端通知 Bun: {type:"preview", path:"/project/prototypes/login.html"}
+  → Bun 静态服务器已 serve /project → 返回 URL
+  → 前端右侧分屏 iframe 加载 localhost:9777/prototypes/login.html
+  → （可选）点 ⤢ → Tauri new WebviewWindow 全屏
+```
 
 ## 八、数据流
 
@@ -363,6 +413,7 @@ pi-intercom 和 pi-mcp-adapter 是后台桥接器：
 
 ### 10.2 MVP 暂不包含（后续迭代）
 
+- 产物预览（内嵌浏览器，见 7.4）—— 第二迭代优先级
 - 技能细粒度启用/禁用（先用 Pi 原生全量加载）
 - 插件市场 UI（先用 `pi install` 命令行）
 - Intercom 时间线全屏视图（先用底部状态条）
