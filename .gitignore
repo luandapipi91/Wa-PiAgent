@@ -1,0 +1,26 @@
+# Brainstorming session files (temporary mockups)
+.superpowers/
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# Pi local state (uncomment if you want to ignore project-local pi state)
+# .pi/
