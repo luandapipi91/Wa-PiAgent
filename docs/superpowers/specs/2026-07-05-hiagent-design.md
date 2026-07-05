@@ -179,7 +179,9 @@ partners:                           # 委派关系（= 画布连线）
 - 标准 Pi 字段（name/description/model/thinking/tools/skills 等）由 Pi 原生处理
 - HiAgent 扩展字段（displayName/avatar/mcpServers/partners）由编排内核解析
 
-### 5.2 资源三层模型
+### 5.2 资源三层模型（agent 级分配）
+
+**关键差异**：Pi 原生的资源过滤是"包级"的（settings.json 里控制某包加载哪些资源，加载后对所有 agent 共享）。HiAgent 把分配粒度下沉到"agent 级" —— 每个 agent 独立配置自己的工具/技能/MCP。技术细节见 `docs/research/pi-packages-install-and-agent-allocation.md`。
 
 ```
 插件市场（资源池）
@@ -193,12 +195,14 @@ partners:                           # 委派关系（= 画布连线）
 
         ↓ 装了之后，去 Agent 配置分配
 
-Agent 配置（分配入口）
-└── 能力 tab（每个 agent 独立）
+Agent 配置（分配入口）— 每个 agent 独立
+└── 能力 tab
     ├── 📁 内置工具       (read/bash/edit...)     ← 可勾选
-    ├── 🌐 插件工具       (web_search/fetch_url)  ← 可勾选
-    └── 🔌 MCP 工具       (chrome-devtools/figma) ← 可勾选
+    ├── 🌐 插件工具       (web_search/fetch_url)  ← 可勾选（产品✓ 研发✓ PM✗ 测试✗）
+    └── 🔌 MCP 工具       (chrome-devtools/figma) ← 可勾选（按 MCP server 分组）
 ```
+
+**为什么可行**：Pi 的 `--tools` flag 是 allowlist 语义。包加载的资源进入"进程可见集"，`--tools` 进一步过滤成"agent 实际能调用的"。HiAgent 不改 Pi 加载逻辑，只在 spawn 时按 agent 配置合成 `--tools` / `--skill` 参数。
 
 ### 5.3 核心基础设施不显示
 
@@ -311,16 +315,23 @@ pi-intercom 和 pi-mcp-adapter 是后台桥接器：
   → 产品继续 LLM turn
 ```
 
-### 8.3 装包到分配
+### 8.3 装包到分配（agent 级）
 
 ```
 ① 装包：插件市场 "+ 安装" → PackageManager 调 pi install npm:pi-web-access
    → 写入 ~/.pi/agent/settings.json packages 列表
-② 分配：Agent 配置 → 能力 tab → 勾选 web_search
-   → ConfigStore 写入 dev.md 的 tools 字段
-   → 下次 spawn pi 时 --tools read,bash,...,web_search
-③ 运行：研发 agent 只能用分配的工具
+   → pi-web-access 的工具进入"可用资源池"
+② 分配：Agent 配置 → 能力 tab → 勾选 web_search（只给研发，不给 PM）
+   → ConfigStore 写入 dev.md 的 tools 字段：read,bash,...,web_search
+   → ConfigStore 不改 pm.md（PM 的 tools 里没有 web_search）
+③ 运行：spawn 研发 pi 时
+   → pi --mode rpc --tools read,bash,edit,...,web_search
+   → spawn PM pi 时
+   → pi --mode rpc --tools read,grep（没有 web_search）
+④ 结果：研发能调 web_search，PM 调不了（即使包已全局加载）
 ```
+
+**双向追溯**：HiAgent 维护资源→agent 的反向索引，支持"web_search 被谁用了？产品✓ 研发✓ PM✗ 测试✗"这类查询。
 
 ## 九、技术栈
 
