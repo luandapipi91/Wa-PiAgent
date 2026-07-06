@@ -1,0 +1,13 @@
+{
+  "name": "@hiagent/kernel",
+  "version": "0.0.0",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --target bun --outfile dist/kernel.js",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": { "@hiagent/shared": "workspace:*" }
+}
