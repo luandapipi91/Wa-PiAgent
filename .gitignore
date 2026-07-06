@@ -21,6 +21,13 @@ Thumbs.db
 .env
 .env.local
 
+# Logs
+*.log
+
+# Vite / HiAgent local state
+.vite/
+.hiagent/
+
 # Pi local state (uncomment if you want to ignore project-local pi state)
 # .pi/
 .superpowers/
