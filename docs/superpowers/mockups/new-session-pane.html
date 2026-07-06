@@ -1,0 +1,226 @@
+<h2>新建会话面板 — 按你的描述</h2>
+<p class="subtitle">点项目 ➕ → 右侧主区切换为"新建会话"，输入框上方有项目/agent 下拉</p>
+
+<style>
+  .app {
+    display: grid; grid-template-columns: 240px 1fr; height: 580px;
+    background: #1e1e2e; border-radius: 10px; overflow: hidden;
+    border: 1px solid #313244; font-family: 'Segoe UI', sans-serif; color: #cdd6f4;
+  }
+
+  /* === Sidebar === */
+  .sb { background: #181825; display: flex; flex-direction: column; }
+  .sb-top {
+    padding: 10px; display: flex; align-items: center; gap: 6px;
+    border-bottom: 1px solid #313244;
+  }
+  .sb-logo { color: #89b4fa; font-weight: 700; font-size: 13px; flex: 1; }
+  .sb-icon-btn {
+    width: 24px; height: 24px; border-radius: 6px; background: #313244;
+    display: flex; align-items: center; justify-content: center; font-size: 11px; color: #a6adc8;
+  }
+  .sb-title { font-size: 9px; text-transform: uppercase; color: #6c7086; letter-spacing: 0.5px; padding: 10px 10px 4px; }
+  .sb-agent {
+    display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11px;
+  }
+  .sb-agent:hover { background: rgba(205,214,244,0.04); }
+  .sb-av {
+    width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 11px; flex-shrink: 0;
+  }
+  .av-dev { background: linear-gradient(135deg, #fab387, #f38ba8); }
+  .av-prod { background: linear-gradient(135deg, #89b4fa, #b4befe); }
+  .av-pm { background: linear-gradient(135deg, #f9e2af, #ebbc9e); }
+  .av-test { background: linear-gradient(135deg, #a6e3a1, #94e2d5); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; margin-left: auto; }
+  .dot-idle { background: #6c7086; }
+  .dot-think { background: #89b4fa; }
+  .sb-sep { height: 1px; background: #313244; margin: 6px 0; }
+
+  .sb-proj {
+    padding: 6px 10px; display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
+  }
+  .caret { color: #6c7086; font-size: 9px; width: 8px; }
+  .sb-proj .nm { flex: 1; }
+  .plus-btn {
+    width: 18px; height: 18px; border-radius: 4px; background: rgba(137,180,250,0.15);
+    color: #89b4fa; display: flex; align-items: center; justify-content: center; font-size: 12px;
+    border: 1px solid rgba(137,180,250,0.4);
+  }
+  .plus-btn.pulse {
+    background: #89b4fa; color: #1e1e2e;
+    box-shadow: 0 0 0 2px rgba(137,180,250,0.3);
+  }
+  .sb-sess {
+    padding: 4px 10px 4px 24px; display: flex; align-items: center; gap: 6px;
+    color: #a6adc8; font-size: 11px;
+  }
+  .sb-sess .t { margin-left: auto; color: #6c7086; font-size: 9px; }
+
+  /* === 主区：新建会话态 === */
+  .main { display: flex; flex-direction: column; background: #1e1e2e; }
+  .main-header {
+    padding: 10px 16px; border-bottom: 1px solid #313244; display: flex; align-items: center; gap: 8px;
+  }
+  .main-header .h { font-size: 13px; font-weight: 600; color: #cdd6f4; }
+  .main-header .sub { font-size: 10px; color: #6c7086; }
+
+  .new-pane {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .new-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .new-sub { color: #6c7086; font-size: 11px; margin-bottom: 28px; }
+
+  /* 输入框容器 */
+  .composer-wrap {
+    width: 100%; max-width: 560px; background: #313244; border-radius: 12px;
+    border: 1px solid #585b70;
+  }
+  /* 顶部：项目 + agent 下拉并排（关键） */
+  .composer-top {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    border-bottom: 1px solid #313244;
+  }
+  .dropdown {
+    display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px;
+    background: #1e1e2e; font-size: 11px; cursor: pointer; border: 1px solid transparent;
+  }
+  .dropdown:hover { border-color: #585b70; }
+  .dropdown.sel { border-color: #89b4fa; color: #89b4fa; }
+  .dropdown .em { font-size: 12px; }
+  .dropdown .arr { color: #6c7086; font-size: 9px; }
+  .dropdown.cwd { color: #6c7086; font-size: 10px; }
+
+  /* 输入框 */
+  .composer-input {
+    padding: 14px 12px; min-height: 80px; color: #cdd6f4; font-size: 12px;
+  }
+  .composer-input .ph { color: #6c7086; }
+  /* 底部：附件 / 模型 + 发送 */
+  .composer-bottom {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    border-top: 1px solid #313244;
+  }
+  .chip {
+    background: #1e1e2e; padding: 4px 8px; border-radius: 6px; font-size: 10px; color: #a6adc8;
+    display: flex; align-items: center; gap: 4px; cursor: pointer;
+  }
+  .send-btn {
+    margin-left: auto; background: #89b4fa; color: #1e1e2e; padding: 6px 14px;
+    border-radius: 6px; font-size: 11px; font-weight: 600;
+  }
+  .send-btn.disabled { background: #313244; color: #6c7086; }
+
+  /* 注释箭头 */
+  .annot {
+    position: absolute; font-size: 10px; color: #fab387; background: rgba(250,179,135,0.1);
+    padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(250,179,135,0.3);
+    white-space: nowrap;
+  }
+
+  .hint {
+    margin-top: 18px; color: #6c7086; font-size: 10px; text-align: center; max-width: 460px;
+    line-height: 1.6;
+  }
+
+  /* 流程图 */
+  .flow-mini {
+    display: flex; align-items: center; gap: 8px; margin-top: 20px; font-size: 10px; color: #a6adc8;
+  }
+  .flow-mini .step {
+    background: #313244; padding: 4px 10px; border-radius: 6px;
+  }
+  .flow-mini .step.now { background: #89b4fa; color: #1e1e2e; }
+  .flow-mini .ar { color: #6c7086; }
+</style>
+
+<div class="app">
+
+  <!-- Sidebar -->
+  <div class="sb">
+    <div class="sb-top">
+      <span class="sb-logo">● HiAgent</span>
+      <div class="sb-icon-btn">🔌</div>
+      <div class="sb-icon-btn">⚙️</div>
+    </div>
+
+    <div class="sb-title">我的智能体</div>
+    <div class="sb-agent"><div class="sb-av av-dev">⚙️</div>研发<div class="dot dot-think"></div></div>
+    <div class="sb-agent"><div class="sb-av av-prod">📋</div>产品<div class="dot dot-idle"></div></div>
+    <div class="sb-agent"><div class="sb-av av-pm">📅</div>PM<div class="dot dot-idle"></div></div>
+
+    <div class="sb-sep"></div>
+    <div class="sb-title">项目管理</div>
+    <div class="sb-proj">
+      <span class="caret">▼</span><span class="nm">项目 A</span>
+      <span class="plus-btn pulse" title="刚点过">＋</span>
+    </div>
+    <div class="sb-sess"><span style="opacity:0.5;">·</span>（暂无会话，点 ＋ 新建）</div>
+    <div class="sb-proj">
+      <span class="caret">▶</span><span class="nm">项目 B</span>
+      <span class="plus-btn">＋</span>
+    </div>
+  </div>
+
+  <!-- 主区：新建会话态 -->
+  <div class="main">
+    <div class="main-header">
+      <span class="h">新建会话</span>
+      <span class="sub">· 项目 A</span>
+    </div>
+
+    <div class="new-pane">
+      <div class="new-title">开始新会话</div>
+      <div class="new-sub">选好项目目录和角色，直接打字发送</div>
+
+      <div class="composer-wrap">
+        <!-- 关键：项目 + agent 下拉并排，在输入框上方 -->
+        <div class="composer-top">
+          <div class="dropdown sel">
+            <span class="em">📁</span>
+            <span>项目 A</span>
+            <span class="cwd">~/work/proj-a</span>
+            <span class="arr">▾</span>
+          </div>
+          <div class="dropdown sel">
+            <span class="em">⚙️</span>
+            <span>研发</span>
+            <span class="arr">▾</span>
+          </div>
+        </div>
+
+        <div class="composer-input">
+          <span class="ph">给研发发消息...</span>
+        </div>
+
+        <div class="composer-bottom">
+          <span class="chip">📎 附件</span>
+          <span class="chip">🎨 claude-sonnet-4</span>
+          <span class="send-btn disabled">发送 →</span>
+        </div>
+      </div>
+
+      <div class="hint">
+        💡 项目目录可在此切换（也可改 cwd）；agent 选谁谁就是会话主理人。<br>
+        发送第一条消息后，主区切到正常对话视图。
+      </div>
+
+      <div class="flow-mini">
+        <span class="step">sidebar 点 ＋</span>
+        <span class="ar">→</span>
+        <span class="step now">主区变新建会话面板</span>
+        <span class="ar">→</span>
+        <span class="step">发送第一条消息</span>
+        <span class="ar">→</span>
+        <span class="step">进入对话视图</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:18px;">
+  这个布局对吗？尤其确认：<br>
+  1. 项目/agent 是<strong style="color:#fab387;">输入框上方的下拉</strong>（不是大卡片横排）<br>
+  2. 顶部"新建会话"全局按钮的行为 = 也切到这个面板（项目默认选最近）
+</p>
