@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath, URL } from "node:url";
 
 export default defineConfig({
   plugins: [react()],
@@ -8,6 +9,6 @@ export default defineConfig({
     globals: true,
   },
   resolve: {
-    alias: { "@hiagent/shared": "../../packages/shared/src/index.ts" },
+    alias: { "@hiagent/shared": fileURLToPath(new URL("../shared/src/index.ts", import.meta.url)) },
   },
 });

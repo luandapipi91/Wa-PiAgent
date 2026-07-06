@@ -4,6 +4,21 @@
 
 ---
 
+## 2026-07-06 — 前端数据层：WS 客户端 + 4 个 Zustand store
+
+- **类型**：新增功能（前端）+ bug 修复（构建配置）
+- **摘要**：实现 Task 14 前端数据层——单例 WS 连接 + projects/session/agents/intercom 四个 store，供后续所有组件依赖；顺带修复 Vite alias 相对路径解析 bug。
+- **具体改动**：
+  - 新增 `packages/frontend/src/ws-instance.ts`：单例 WebSocket，`getWs()` 懒连接 kernel（ws://127.0.0.1:9776），`send(e)` 处理 OPEN/待开两态，`onMessage(cb)` 订阅分发
+  - 新增 `store/projects.ts`：useProjectsStore（projects/sessions/currentProjectId/currentSessionId + load/setAll/createProject/addProject/addSession/select×2）
+  - 新增 `store/session.ts`：useSessionStore（messagesBySession + append/clear）
+  - 新增 `store/agents.ts`：useAgentsStore（states/configs + setState/loadConfig/setConfig/getGlobalState）。getGlobalState 用 get() 读 states，按 `:${name}` 后缀过滤跨项目聚合，调 aggregateAgentState
+  - 新增 `store/intercom.ts`：useIntercomStore（asksBySession + addAsk/resolveAsk）
+  - 新增测试：store-projects.test.ts（2）、store-agents.test.ts（1）
+  - **bug 修复**：`vite.config.ts` / `vitest.config.ts` 的 `@hiagent/shared` alias 原用相对路径字符串（`../../packages/shared/...`），Vite 以引用方文件解析导致 import 解析失败；改为 `fileURLToPath(new URL("../shared/src/index.ts", import.meta.url))` 绝对路径（monorepo 标准写法）。Task 13 render 测试未引用 @hiagent/shared 故未暴露
+- **影响范围**：`packages/frontend/`（src/store/ 4 文件 + ws-instance.ts + 2 测试 + 2 config）
+- **验证**：`bun run test` 4 passed（store-projects 2 + store-agents 1 + render 1）；`bun run typecheck` 无错误
+
 ## 2026-07-06 — 文档同步：hiagent-design 对齐多项目重构
 
 - **类型**：文档修正
