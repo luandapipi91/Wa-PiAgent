@@ -1,0 +1,384 @@
+# Review package: 8134829..HEAD
+
+## Commits
+2a0d94a feat(frontend): WS 客户端 + 4 个 store（projects/session/agents/intercom）
+
+## Files changed
+ CHANGELOG.md                                   | 15 +++++++++++
+ bun.lock                                       |  8 ++++++
+ packages/frontend/src/store/agents.ts          | 27 +++++++++++++++++++
+ packages/frontend/src/store/intercom.ts        | 26 ++++++++++++++++++
+ packages/frontend/src/store/projects.ts        | 37 ++++++++++++++++++++++++++
+ packages/frontend/src/store/session.ts         | 19 +++++++++++++
+ packages/frontend/src/ws-instance.ts           | 30 +++++++++++++++++++++
+ packages/frontend/tests/store-agents.test.ts   | 13 +++++++++
+ packages/frontend/tests/store-projects.test.ts | 22 +++++++++++++++
+ packages/frontend/vite.config.ts               |  3 ++-
+ packages/frontend/vitest.config.ts             |  3 ++-
+ 11 files changed, 201 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index fe1f9fa..fe7f31a 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,16 +1,31 @@
+ # 变更日志
+ 
+ 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
+ 
+ ---
+ 
++## 2026-07-06 — 前端数据层：WS 客户端 + 4 个 Zustand store
++
++- **类型**：新增功能（前端）+ bug 修复（构建配置）
++- **摘要**：实现 Task 14 前端数据层——单例 WS 连接 + projects/session/agents/intercom 四个 store，供后续所有组件依赖；顺带修复 Vite alias 相对路径解析 bug。
++- **具体改动**：
++  - 新增 `packages/frontend/src/ws-instance.ts`：单例 WebSocket，`getWs()` 懒连接 kernel（ws://127.0.0.1:9776），`send(e)` 处理 OPEN/待开两态，`onMessage(cb)` 订阅分发
++  - 新增 `store/projects.ts`：useProjectsStore（projects/sessions/currentProjectId/currentSessionId + load/setAll/createProject/addProject/addSession/select×2）
++  - 新增 `store/session.ts`：useSessionStore（messagesBySession + append/clear）
++  - 新增 `store/agents.ts`：useAgentsStore（states/configs + setState/loadConfig/setConfig/getGlobalState）。getGlobalState 用 get() 读 states，按 `:${name}` 后缀过滤跨项目聚合，调 aggregateAgentState
++  - 新增 `store/intercom.ts`：useIntercomStore（asksBySession + addAsk/resolveAsk）
++  - 新增测试：store-projects.test.ts（2）、store-agents.test.ts（1）
++  - **bug 修复**：`vite.config.ts` / `vitest.config.ts` 的 `@hiagent/shared` alias 原用相对路径字符串（`../../packages/shared/...`），Vite 以引用方文件解析导致 import 解析失败；改为 `fileURLToPath(new URL("../shared/src/index.ts", import.meta.url))` 绝对路径（monorepo 标准写法）。Task 13 render 测试未引用 @hiagent/shared 故未暴露
++- **影响范围**：`packages/frontend/`（src/store/ 4 文件 + ws-instance.ts + 2 测试 + 2 config）
++- **验证**：`bun run test` 4 passed（store-projects 2 + store-agents 1 + render 1）；`bun run typecheck` 无错误
++
+ ## 2026-07-06 — 文档同步：hiagent-design 对齐多项目重构
+ 
+ - **类型**：文档修正
+ - **摘要**：以 `docs/superpowers/specs/2026-07-06-sidebar-projects-design.md`（多项目重构）为基准，回溯修正 `docs/superpowers/specs/2026-07-05-hiagent-design.md` 中已被推翻或扩展的单项目描述，消除两份文档的冲突。
+ - **具体改动**：
+   - 顶部状态行加 2026-07-06 多项目变更说明，指向 sidebar-projects-design
+   - 6.1 启动页 + sidebar 重写：原"角色/会话历史/底部状态条"三区 → "新建会话/我的智能体/项目管理"四区；启动页改为主区三态（empty / new-session / session）之一；底部 intercom 状态条按方案 C 移到会话 header
+   - 6.2 视图清单"启动页"行改为"新建会话面板"
+   - 第七节 mermaid UI1 节点 / MVP 必做边界 / 功能依赖链、8.2 前端模块表、11.1 第一条共 5 处"启动页"改为"新建会话面板"（review 补）
+   - 第五节新增 5.4 项目与会话实体（三层模型、类型定义、持久化布局、AgentState 维度变化）
+diff --git a/bun.lock b/bun.lock
+index 4ceb7e0..0369157 100644
+--- a/bun.lock
++++ b/bun.lock
+@@ -14,20 +14,22 @@
+       "version": "0.0.0",
+       "dependencies": {
+         "@hiagent/shared": "workspace:*",
+         "react": "^19.0.0",
+         "react-dom": "^19.0.0",
+         "reactflow": "^11.11.0",
+         "zustand": "^5.0.0",
+       },
+       "devDependencies": {
+         "@testing-library/react": "^16.0.0",
++        "@types/react": "^19.0.0",
++        "@types/react-dom": "^19.0.0",
+         "@vitejs/plugin-react": "^4.3.0",
+         "happy-dom": "^15.0.0",
+         "tailwindcss": "^3.4.0",
+         "vite": "^6.0.0",
+         "vitest": "^2.1.0",
+       },
+     },
+     "packages/kernel": {
+       "name": "@hiagent/kernel",
+       "version": "0.0.0",
+@@ -298,20 +300,24 @@
+     "@types/d3-transition": ["@types/d3-transition@3.0.9", "https://registry.npmmirror.com/@types/d3-transition/-/d3-transition-3.0.9.tgz", { "dependencies": { "@types/d3-selection": "*" } }, "sha512-uZS5shfxzO3rGlu0cC3bjmMFKsXv+SmZZcgp0KD22ts4uGXp5EVYGzu/0YdwZeKmddhcAccYtREJKkPfXkZuCg=="],
+ 
+     "@types/d3-zoom": ["@types/d3-zoom@3.0.8", "https://registry.npmmirror.com/@types/d3-zoom/-/d3-zoom-3.0.8.tgz", { "dependencies": { "@types/d3-interpolate": "*", "@types/d3-selection": "*" } }, "sha512-iqMC4/YlFCSlO8+2Ii1GGGliCAY4XdeG748w5vQUbevlbDu0zSjH/+jojorQVBK/se0j6DUFNPBGSqD3YWYnDw=="],
+ 
+     "@types/estree": ["@types/estree@1.0.9", "https://registry.npmmirror.com/@types/estree/-/estree-1.0.9.tgz", {}, "sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg=="],
+ 
+     "@types/geojson": ["@types/geojson@7946.0.16", "https://registry.npmmirror.com/@types/geojson/-/geojson-7946.0.16.tgz", {}, "sha512-6C8nqWur3j98U6+lXDfTUWIfgvZU+EumvpHKcYjujKH7woYyLj2sUmff0tRhrqM7BohUw7Pz3ZB1jj2gW9Fvmg=="],
+ 
+     "@types/node": ["@types/node@26.1.0", "https://registry.npmmirror.com/@types/node/-/node-26.1.0.tgz", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-O0A1G3xPGy4w7AgQdAQYUlQ+BKk2Oovw8eRpofyp5KdBZULnbe+WqaOVNrm705SHphCiG4XHsACrSmPu1f+Kgw=="],
+ 
++    "@types/react": ["@types/react@19.2.17", "https://registry.npmmirror.com/@types/react/-/react-19.2.17.tgz", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw=="],
++
++    "@types/react-dom": ["@types/react-dom@19.2.3", "https://registry.npmmirror.com/@types/react-dom/-/react-dom-19.2.3.tgz", { "peerDependencies": { "@types/react": "^19.2.0" } }, "sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ=="],
++
+     "@vitejs/plugin-react": ["@vitejs/plugin-react@4.7.0", "https://registry.npmmirror.com/@vitejs/plugin-react/-/plugin-react-4.7.0.tgz", { "dependencies": { "@babel/core": "^7.28.0", "@babel/plugin-transform-react-jsx-self": "^7.27.1", "@babel/plugin-transform-react-jsx-source": "^7.27.1", "@rolldown/pluginutils": "1.0.0-beta.27", "@types/babel__core": "^7.20.5", "react-refresh": "^0.17.0" }, "peerDependencies": { "vite": "^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0" } }, "sha512-gUu9hwfWvvEDBBmgtAowQCojwZmJ5mcLn3aufeCsitijs3+f2NsrPtlAWIR6OPiqljl96GVCUbLe0HyqIpVaoA=="],
+ 
+     "@vitest/expect": ["@vitest/expect@2.1.9", "https://registry.npmmirror.com/@vitest/expect/-/expect-2.1.9.tgz", { "dependencies": { "@vitest/spy": "2.1.9", "@vitest/utils": "2.1.9", "chai": "^5.1.2", "tinyrainbow": "^1.2.0" } }, "sha512-UJCIkTBenHeKT1TTlKMJWy1laZewsRIzYighyYiJKZreqtdxSos/S1t+ktRMQWu2CKqaarrkeszJx1cgC5tGZw=="],
+ 
+     "@vitest/mocker": ["@vitest/mocker@2.1.9", "https://registry.npmmirror.com/@vitest/mocker/-/mocker-2.1.9.tgz", { "dependencies": { "@vitest/spy": "2.1.9", "estree-walker": "^3.0.3", "magic-string": "^0.30.12" }, "peerDependencies": { "msw": "^2.4.9", "vite": "^5.0.0" }, "optionalPeers": ["msw", "vite"] }, "sha512-tVL6uJgoUdi6icpxmdrn5YNo3g3Dxv+IHJBr0GXHaEdTcw3F+cPKnsXFhli6nO+f/6SDKPHEK1UN+k+TQv0Ehg=="],
+ 
+     "@vitest/pretty-format": ["@vitest/pretty-format@2.1.9", "https://registry.npmmirror.com/@vitest/pretty-format/-/pretty-format-2.1.9.tgz", { "dependencies": { "tinyrainbow": "^1.2.0" } }, "sha512-KhRIdGV2U9HOUzxfiHmY8IFHTdqtOhIzCpd8WRdJiE7D/HUcZVD0EgQCVjm+Q9gkUXWgBvMmTtZgIG48wq7sOQ=="],
+ 
+     "@vitest/runner": ["@vitest/runner@2.1.9", "https://registry.npmmirror.com/@vitest/runner/-/runner-2.1.9.tgz", { "dependencies": { "@vitest/utils": "2.1.9", "pathe": "^1.1.2" } }, "sha512-ZXSSqTFIrzduD63btIfEyOmNcBmQvgOVsPNPe0jYtESiXkhd8u2erDLnMxmGrDCwHCCHE7hxwRDCT3pt0esT4g=="],
+ 
+@@ -358,20 +364,22 @@
+     "chokidar": ["chokidar@3.6.0", "https://registry.npmmirror.com/chokidar/-/chokidar-3.6.0.tgz", { "dependencies": { "anymatch": "~3.1.2", "braces": "~3.0.2", "glob-parent": "~5.1.2", "is-binary-path": "~2.1.0", "is-glob": "~4.0.1", "normalize-path": "~3.0.0", "readdirp": "~3.6.0" }, "optionalDependencies": { "fsevents": "~2.3.2" } }, "sha512-7VT13fmjotKpGipCW9JEQAusEPE+Ei8nl6/g4FBAmIm0GOOLMua9NDDo/DWp0ZAxCr3cPq5ZpBqmPAQgDda2Pw=="],
+ 
+     "classcat": ["classcat@5.0.5", "https://registry.npmmirror.com/classcat/-/classcat-5.0.5.tgz", {}, "sha512-JhZUT7JFcQy/EzW605k/ktHtncoo9vnyW/2GspNYwFlN1C/WmjuV/xtS04e9SOkL2sTdw0VAZ2UGCcQ9lR6p6w=="],
+ 
+     "commander": ["commander@4.1.1", "https://registry.npmmirror.com/commander/-/commander-4.1.1.tgz", {}, "sha512-NOKm8xhkzAjzFx8B2v5OAHT+u5pRQc2UCa2Vq9jYL/31o2wi9mxBA7LIFs3sV5VSC49z6pEhfbMULvShKj26WA=="],
+ 
+     "convert-source-map": ["convert-source-map@2.0.0", "https://registry.npmmirror.com/convert-source-map/-/convert-source-map-2.0.0.tgz", {}, "sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg=="],
+ 
+     "cssesc": ["cssesc@3.0.0", "https://registry.npmmirror.com/cssesc/-/cssesc-3.0.0.tgz", { "bin": { "cssesc": "bin/cssesc" } }, "sha512-/Tb/JcjK111nNScGob5MNtsntNM1aCNUDipB/TkwZFhyDrrE47SOx/18wF2bbjgc3ZzCSKW1T5nt5EbFoAz/Vg=="],
+ 
++    "csstype": ["csstype@3.2.3", "https://registry.npmmirror.com/csstype/-/csstype-3.2.3.tgz", {}, "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ=="],
++
+     "d3-color": ["d3-color@3.1.0", "https://registry.npmmirror.com/d3-color/-/d3-color-3.1.0.tgz", {}, "sha512-zg/chbXyeBtMQ1LbD/WSoW2DpC3I0mpmPdW+ynRTj/x2DAWYrIY7qeZIHidozwV24m4iavr15lNwIwLxRmOxhA=="],
+ 
+     "d3-dispatch": ["d3-dispatch@3.0.1", "https://registry.npmmirror.com/d3-dispatch/-/d3-dispatch-3.0.1.tgz", {}, "sha512-rzUyPU/S7rwUflMyLc1ETDeBj0NRuHKKAcvukozwhshr6g6c5d8zh4c2gQjY2bZ0dXeGLWc1PF174P2tVvKhfg=="],
+ 
+     "d3-drag": ["d3-drag@3.0.0", "https://registry.npmmirror.com/d3-drag/-/d3-drag-3.0.0.tgz", { "dependencies": { "d3-dispatch": "1 - 3", "d3-selection": "3" } }, "sha512-pWbUJLdETVA8lQNJecMxoXfH6x+mO2UQo8rSmZ+QqxcbyA3hfeprFgIT//HW2nlHChWeIIMwS2Fq+gEARkhTkg=="],
+ 
+     "d3-ease": ["d3-ease@3.0.1", "https://registry.npmmirror.com/d3-ease/-/d3-ease-3.0.1.tgz", {}, "sha512-wR/XK3D3XcLIZwpbvQwQ5fK+8Ykds1ip7A2Txe0yxncXSdq1L9skcG7blcedkOX+ZcgxGAmLX1FrRGbADwzi0w=="],
+ 
+     "d3-interpolate": ["d3-interpolate@3.0.1", "https://registry.npmmirror.com/d3-interpolate/-/d3-interpolate-3.0.1.tgz", { "dependencies": { "d3-color": "1 - 3" } }, "sha512-3bYs1rOD33uo8aqJfKP3JWPAibgw8Zm2+L9vBKEHJ2Rg+viTR7o5Mmv5mZcieN+FRYaAOWX5SJATX6k1PWz72g=="],
+ 
+diff --git a/packages/frontend/src/store/agents.ts b/packages/frontend/src/store/agents.ts
+new file mode 100644
+index 0000000..d8aa248
+--- /dev/null
++++ b/packages/frontend/src/store/agents.ts
+@@ -0,0 +1,27 @@
++import { create } from "zustand";
++import type { AgentConfig, AgentName, AgentState, AgentStateKey, AgentStatus } from "@hiagent/shared";
++import { aggregateAgentState } from "@hiagent/shared";
++import { send } from "../ws-instance";
++
++interface AgentsState {
++  states: Record<AgentStateKey, AgentState>;
++  configs: Partial<Record<AgentName, AgentConfig>>;
++  setState: (key: AgentStateKey, s: AgentState) => void;
++  loadConfig: (name: AgentName) => void;
++  setConfig: (name: AgentName, c: AgentConfig) => void;
++  getGlobalState: (name: AgentName) => AgentStatus;
++}
++
++export const useAgentsStore = create<AgentsState>((set, get) => ({
++  states: {},
++  configs: {},
++  setState: (key, s) => set(st => ({ states: { ...st.states, [key]: s } })),
++  loadConfig: (name) => send({ type: "agent:config:get", agentName: name }),
++  setConfig: (name, c) => set(st => ({ configs: { ...st.configs, [name]: c } })),
++  getGlobalState: (name) => {
++    const all = Object.entries(get().states)
++      .filter(([k]) => k.endsWith(`:${name}`))
++      .map(([, v]) => v);
++    return aggregateAgentState(all);
++  },
++}));
+diff --git a/packages/frontend/src/store/intercom.ts b/packages/frontend/src/store/intercom.ts
+new file mode 100644
+index 0000000..5f163e5
+--- /dev/null
++++ b/packages/frontend/src/store/intercom.ts
+@@ -0,0 +1,26 @@
++import { create } from "zustand";
++import type { AskItem } from "@hiagent/shared";
++
++interface IntercomState {
++  asksBySession: Record<string, AskItem[]>;
++  addAsk: (ask: AskItem) => void;
++  resolveAsk: (sessionId: string, id: string) => void;
++}
++
++export const useIntercomStore = create<IntercomState>((set) => ({
++  asksBySession: {},
++  addAsk: (ask) => set(s => ({
++    asksBySession: {
++      ...s.asksBySession,
++      [ask.sessionId]: [...(s.asksBySession[ask.sessionId] ?? []), ask],
++    },
++  })),
++  resolveAsk: (sessionId, id) => set(s => ({
++    asksBySession: {
++      ...s.asksBySession,
++      [sessionId]: (s.asksBySession[sessionId] ?? []).map(a =>
++        a.messageId === id ? { ...a, resolved: true, resolvedAt: Date.now() } : a
++      ),
++    },
++  })),
++}));
+diff --git a/packages/frontend/src/store/projects.ts b/packages/frontend/src/store/projects.ts
+new file mode 100644
+index 0000000..e4f280c
+--- /dev/null
++++ b/packages/frontend/src/store/projects.ts
+@@ -0,0 +1,37 @@
++import { create } from "zustand";
++import type { ProjectEntity, SessionEntity } from "@hiagent/shared";
++import { send } from "../ws-instance";
++
++interface ProjectsState {
++  projects: ProjectEntity[];
++  sessions: SessionEntity[];
++  currentProjectId: string | null;
++  currentSessionId: string | null;
++  load: () => void;
++  setAll: (projects: ProjectEntity[], sessions: SessionEntity[]) => void;
++  createProject: (name: string, cwd: string) => void;
++  addProject: (p: ProjectEntity) => void;
++  addSession: (s: SessionEntity) => void;
++  selectProject: (id: string) => void;
++  selectSession: (id: string) => void;
++  setCurrentSessionId: (id: string | null) => void;
++}
++
++export const useProjectsStore = create<ProjectsState>((set) => ({
++  projects: [],
++  sessions: [],
++  currentProjectId: null,
++  currentSessionId: null,
++  load: () => send({ type: "projects:list" }),
++  setAll: (projects, sessions) => set({ projects, sessions }),
++  createProject: (name, cwd) => send({ type: "project:create", name, cwd }),
++  addProject: (p) => set(s => ({ projects: [...s.projects, p], currentProjectId: p.id })),
++  addSession: (sess) => set(s => ({
++    sessions: [...s.sessions, sess],
++    currentSessionId: sess.id,
++    currentProjectId: sess.projectId,
++  })),
++  selectProject: (id) => set({ currentProjectId: id }),
++  selectSession: (id) => set({ currentSessionId: id }),
++  setCurrentSessionId: (id) => set({ currentSessionId: id }),
++}));
+diff --git a/packages/frontend/src/store/session.ts b/packages/frontend/src/store/session.ts
+new file mode 100644
+index 0000000..940b52d
+--- /dev/null
++++ b/packages/frontend/src/store/session.ts
+@@ -0,0 +1,19 @@
++import { create } from "zustand";
++import type { ChatMessage } from "@hiagent/shared";
++
++interface SessionState {
++  messagesBySession: Record<string, ChatMessage[]>;
++  append: (msg: ChatMessage) => void;
++  clear: () => void;
++}
++
++export const useSessionStore = create<SessionState>((set) => ({
++  messagesBySession: {},
++  append: (msg) => set(s => ({
++    messagesBySession: {
++      ...s.messagesBySession,
++      [msg.sessionId]: [...(s.messagesBySession[msg.sessionId] ?? []), msg],
++    },
++  })),
++  clear: () => set({ messagesBySession: {} }),
++}));
+diff --git a/packages/frontend/src/ws-instance.ts b/packages/frontend/src/ws-instance.ts
+new file mode 100644
+index 0000000..ac6a5a6
+--- /dev/null
++++ b/packages/frontend/src/ws-instance.ts
+@@ -0,0 +1,30 @@
++import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
++import { WS_PORT } from "@hiagent/shared";
++
++type Handler = (e: WSServerEvent) => void;
++const handlers = new Set<Handler>();
++let ws: WebSocket | null = null;
++
++export function getWs(): WebSocket {
++  if (!ws) {
++    ws = new WebSocket(`ws://127.0.0.1:${WS_PORT}`);
++    ws.onmessage = (ev) => {
++      try {
++        const e = JSON.parse(String(ev.data)) as WSServerEvent;
++        handlers.forEach(h => h(e));
++      } catch {}
++    };
++  }
++  return ws;
++}
++
++export function send(e: WSClientEvent): void {
++  const s = getWs();
++  if (s.readyState === WebSocket.OPEN) s.send(JSON.stringify(e));
++  else s.addEventListener("open", () => s.send(JSON.stringify(e)), { once: true });
++}
++
++export function onMessage(h: Handler): () => void {
++  handlers.add(h);
++  return () => handlers.delete(h);
++}
+diff --git a/packages/frontend/tests/store-agents.test.ts b/packages/frontend/tests/store-agents.test.ts
+new file mode 100644
+index 0000000..221216d
+--- /dev/null
++++ b/packages/frontend/tests/store-agents.test.ts
+@@ -0,0 +1,13 @@
++import { test, expect, beforeEach } from "vitest";
++import { useAgentsStore } from "../src/store/agents";
++
++beforeEach(() => useAgentsStore.setState({ states: {}, configs: {} }));
++
++test("getGlobalState 跨项目聚合", () => {
++  const { setState, getGlobalState } = useAgentsStore.getState();
++  setState("p1:dev", { name: "dev", status: "idle" });
++  setState("p2:dev", { name: "dev", status: "thinking" });
++  expect(getGlobalState("dev")).toBe("thinking");
++  setState("p3:dev", { name: "dev", status: "blocked" });
++  expect(getGlobalState("dev")).toBe("blocked");
++});
+diff --git a/packages/frontend/tests/store-projects.test.ts b/packages/frontend/tests/store-projects.test.ts
+new file mode 100644
+index 0000000..7ea0fd7
+--- /dev/null
++++ b/packages/frontend/tests/store-projects.test.ts
+@@ -0,0 +1,22 @@
++import { test, expect, beforeEach } from "vitest";
++import { useProjectsStore } from "../src/store/projects";
++
++beforeEach(() => useProjectsStore.setState({
++  projects: [], sessions: [], currentProjectId: null, currentSessionId: null,
++}));
++
++test("setAll 设置项目列表", () => {
++  useProjectsStore.getState().setAll(
++    [{ id: "p1", name: "P", cwd: "/p", createdAt: 0 }],
++    [],
++  );
++  expect(useProjectsStore.getState().projects).toHaveLength(1);
++});
++
++test("addSession 切到新会话", () => {
++  useProjectsStore.getState().addSession({
++    id: "s1", projectId: "p1", primaryAgent: "dev",
++    title: "t", createdAt: 0, lastActivity: 0,
++  });
++  expect(useProjectsStore.getState().currentSessionId).toBe("s1");
++});
+diff --git a/packages/frontend/vite.config.ts b/packages/frontend/vite.config.ts
+index ac45a0a..ba32f9e 100644
+--- a/packages/frontend/vite.config.ts
++++ b/packages/frontend/vite.config.ts
+@@ -1,10 +1,11 @@
+ import { defineConfig } from "vite";
+ import react from "@vitejs/plugin-react";
++import { fileURLToPath, URL } from "node:url";
+ 
+ export default defineConfig({
+   plugins: [react()],
+   server: { port: 5173 },
+   resolve: {
+-    alias: { "@hiagent/shared": "../../packages/shared/src/index.ts" },
++    alias: { "@hiagent/shared": fileURLToPath(new URL("../shared/src/index.ts", import.meta.url)) },
+   },
+ });
+diff --git a/packages/frontend/vitest.config.ts b/packages/frontend/vitest.config.ts
+index 5bef262..7931c75 100644
+--- a/packages/frontend/vitest.config.ts
++++ b/packages/frontend/vitest.config.ts
+@@ -1,13 +1,14 @@
+ import { defineConfig } from "vitest/config";
+ import react from "@vitejs/plugin-react";
++import { fileURLToPath, URL } from "node:url";
+ 
+ export default defineConfig({
+   plugins: [react()],
+   test: {
+     environment: "happy-dom",
+     globals: true,
+   },
+   resolve: {
+-    alias: { "@hiagent/shared": "../../packages/shared/src/index.ts" },
++    alias: { "@hiagent/shared": fileURLToPath(new URL("../shared/src/index.ts", import.meta.url)) },
+   },
+ });
