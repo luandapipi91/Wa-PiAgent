@@ -1438,7 +1438,11 @@ interface SessionFile {
   intercomEvents: AskItem[];
 }
 
-const EMPTY: SessionFile = { messages: [], intercomEvents: [] };
+// 注意：不能用模块级 const EMPTY + { ...EMPTY }，浅拷贝会使 messages/intercomEvents
+// 数组跨实例共享，appendMessage 的 push 会污染后续调用（Task 6 ProjectStore 已踩此坑）
+function emptySession(): SessionFile {
+  return { messages: [], intercomEvents: [] };
+}
 
 export class SessionStore {
   constructor(private dir: string = SESSIONS_DIR) {}
@@ -1456,7 +1460,7 @@ export class SessionStore {
         intercomEvents: data.intercomEvents ?? [],
       };
     } catch {
-      return { ...EMPTY };
+      return emptySession();
     }
   }
 
