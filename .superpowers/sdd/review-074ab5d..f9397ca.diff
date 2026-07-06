@@ -1,0 +1,48 @@
+# Review package: 074ab5d..HEAD
+
+## Commits
+f9397ca feat(frontend): NewSessionButton 组件（① 新建会话区）
+
+## Files changed
+ packages/frontend/src/components/NewSessionButton.tsx | 15 +++++++++++++++
+ packages/frontend/tests/NewSessionButton.test.tsx     | 10 ++++++++++
+ 2 files changed, 25 insertions(+)
+
+## Diff
+diff --git a/packages/frontend/src/components/NewSessionButton.tsx b/packages/frontend/src/components/NewSessionButton.tsx
+new file mode 100644
+index 0000000..adeac2e
+--- /dev/null
++++ b/packages/frontend/src/components/NewSessionButton.tsx
+@@ -0,0 +1,15 @@
++interface Props {
++  onNewSession: () => void;
++}
++
++export function NewSessionButton({ onNewSession }: Props) {
++  return (
++    <button
++      onClick={onNewSession}
++      className="w-full px-3 py-2 mb-2 text-left rounded border border-dashed border-surface2 text-subtext hover:border-blue hover:text-text text-sm"
++      data-testid="new-session-btn"
++    >
++      ➕ 新建会话
++    </button>
++  );
++}
+diff --git a/packages/frontend/tests/NewSessionButton.test.tsx b/packages/frontend/tests/NewSessionButton.test.tsx
+new file mode 100644
+index 0000000..a9d8315
+--- /dev/null
++++ b/packages/frontend/tests/NewSessionButton.test.tsx
+@@ -0,0 +1,10 @@
++import { test, expect, vi } from "vitest";
++import { render, screen, fireEvent } from "@testing-library/react";
++import { NewSessionButton } from "../src/components/NewSessionButton";
++
++test("点击触发 onNewSession", () => {
++  const fn = vi.fn();
++  render(<NewSessionButton onNewSession={fn} />);
++  fireEvent.click(screen.getByTestId("new-session-btn"));
++  expect(fn).toHaveBeenCalledOnce();
++});

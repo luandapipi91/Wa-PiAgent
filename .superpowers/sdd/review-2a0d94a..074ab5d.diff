@@ -1,0 +1,65 @@
+# Review package: 2a0d94a..HEAD
+
+## Commits
+074ab5d feat(frontend): 主题系统（角色 emoji/渐变 + 状态色）
+
+## Files changed
+ packages/frontend/src/theme/agents.ts | 11 +++++++++++
+ packages/frontend/src/theme/colors.ts |  7 +++++++
+ packages/frontend/tests/theme.test.ts | 17 +++++++++++++++++
+ 3 files changed, 35 insertions(+)
+
+## Diff
+diff --git a/packages/frontend/src/theme/agents.ts b/packages/frontend/src/theme/agents.ts
+new file mode 100644
+index 0000000..bfbb951
+--- /dev/null
++++ b/packages/frontend/src/theme/agents.ts
+@@ -0,0 +1,11 @@
++import { AGENT_DEFS } from "@hiagent/shared";
++import type { AgentName } from "@hiagent/shared";
++
++export function agentEmoji(name: AgentName): string {
++  return AGENT_DEFS[name].emoji;
++}
++
++export function agentGradient(name: AgentName): string {
++  const [a, b] = AGENT_DEFS[name].gradient;
++  return `linear-gradient(135deg, ${a}, ${b})`;
++}
+diff --git a/packages/frontend/src/theme/colors.ts b/packages/frontend/src/theme/colors.ts
+new file mode 100644
+index 0000000..fb653d1
+--- /dev/null
++++ b/packages/frontend/src/theme/colors.ts
+@@ -0,0 +1,7 @@
++import type { AgentStatus } from "@hiagent/shared";
++
++export const STATUS_COLORS: Record<AgentStatus, string> = {
++  idle: "#6c7086",
++  thinking: "#89b4fa",
++  blocked: "#fab387",
++};
+diff --git a/packages/frontend/tests/theme.test.ts b/packages/frontend/tests/theme.test.ts
+new file mode 100644
+index 0000000..f3e705d
+--- /dev/null
++++ b/packages/frontend/tests/theme.test.ts
+@@ -0,0 +1,17 @@
++import { test, expect } from "vitest";
++import { agentEmoji, agentGradient } from "../src/theme/agents";
++import { STATUS_COLORS } from "../src/theme/colors";
++
++test("agentEmoji 4 角色", () => {
++  expect(agentEmoji("product")).toBe("📋");
++  expect(agentEmoji("dev")).toBe("⚙️");
++});
++
++test("agentGradient 含两色", () => {
++  expect(agentGradient("dev")).toContain("#fab387");
++  expect(agentGradient("dev")).toContain("#f38ba8");
++});
++
++test("STATUS_COLORS 三态", () => {
++  expect(STATUS_COLORS.blocked).toBe("#fab387");
++});
