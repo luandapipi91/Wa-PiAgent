@@ -3,7 +3,7 @@
 > 基于 Pi Coding Agent 的本地多 agent 编排管理系统
 >
 > 日期：2026-07-05
-> 状态：设计中（最高风险项已验证，见 2026-07-06 更新）
+> 状态：设计中（最高风险项已验证 + UI 规格沉淀自原型，见 2026-07-06 更新）
 
 ## 一、项目概述
 
@@ -42,7 +42,7 @@ HiAgent 填补这个空白：**做一个编排管理层 + GUI，复用已存在�
 
 | 维度 | 结论 |
 |------|------|
-| Pi SDK | `createAgentSession` 可编程嵌入，但 GUI 控制用 `pi --mode rpc` JSON-RPC 更合适 |
+| Pi SDK | `createAgentSession` 可编程嵌入，但 GUI 控制用 `pi --mode rpc` JSONL 更合适 |
 | Pi 运行时 | Pi 原生发行包内含 Bun 二进制，全栈 Bun 是自然组合 |
 | 编排后端 | pi-intercom（对等通信，ask 阻塞语义）匹配动态委派场景 |
 | MCP 桥接 | pi-mcp-adapter 已把 MCP 工具转成 Pi 工具，无需自研 |
@@ -52,28 +52,69 @@ HiAgent 填补这个空白：**做一个编排管理层 + GUI，复用已存在�
 
 ### 3.1 分层架构
 
+```mermaid
+graph TB
+    subgraph L1["① Tauri 原生窗口"]
+        direction LR
+        FE["前端（WebView 内）<br/>React + Zustand + React Flow<br/>对话/画布/配置/时间线"]
+        RUST["Rust 主进程<br/>窗口管理 + 系统托盘<br/>Bun sidecar 生命周期"]
+        FE -. IPC .- RUST
+    end
+
+    subgraph L2["② Bun 编排内核（sidecar，端口 9776）"]
+        direction LR
+        AM["AgentManager<br/>Pi 进程生命周期"]
+        RPC["PiRpcClient<br/>JSONL 双向通信"]
+        IM["IntercomMonitor<br/>ask 队列跟踪"]
+        SA["StateAggregator<br/>事件聚合→WS"]
+        CS["ConfigStore<br/>agent.md 读写"]
+        PM["PackageManager<br/>pi install/remove"]
+        WS["WebSocket Server"]
+        AM --- RPC --- IM
+        SA --- AM
+        CS --- PM
+    end
+
+    subgraph L3["③ Pi Agent 集群（N 个独立进程）"]
+        direction LR
+        P1["产品 📋<br/>pi --mode rpc<br/>+ pi-intercom"]
+        P2["PM 📅<br/>pi --mode rpc<br/>+ pi-intercom"]
+        P3["研发 ⚙️<br/>pi --mode rpc<br/>+ pi-intercom"]
+        P4["测试 🧪<br/>pi --mode rpc<br/>+ pi-intercom"]
+    end
+
+    BROKER["pi-intercom broker<br/>Unix socket · ~/.pi/agent/intercom/broker.sock<br/>(auto-spawn daemon, 30s 空闲退出)"]
+
+    subgraph L4["④ 持久化"]
+        STORE["~/.pi/agent/<br/>agents/*.md · sessions/ · npm/<br/>intercom/broker.sock · settings.json"]
+    end
+
+    L1 ==>|"WebSocket (localhost:9776)"| L2
+    L2 ==>|"spawn + stdio JSONL"| L3
+    P1 & P2 & P3 & P4 -.->|"对等通信<br/>ask/send/reply"| BROKER
+    BROKER -.-> P1 & P2 & P3 & P4
+    L3 --> L4
+    CS --> L4
+    BROKER --> STORE
+
+    classDef layer fill:#1e1e2e,stroke:#89b4fa,stroke-width:2px,color:#cdd6f4
+    classDef infra fill:#181825,stroke:#fab387,stroke-width:2px,color:#cdd6f4
+    classDef store fill:#313244,stroke:#cba6f7,stroke-width:2px,stroke-dasharray: 5 5,color:#cdd6f4
+    class L1,L2,L3 layer
+    class BROKER infra
+    class L4,STORE store
 ```
-┌─────────────────────────────────────────────────┐
-│ ① Tauri 原生窗口（Rust 壳 + WebView2/WKWebView）  │
-│   前端：React + Zustand + React Flow             │
-│   Rust 后端：窗口管理 + Bun sidecar 生命周期     │
-└────────────────────┬────────────────────────────┘
-                     │ WebSocket (localhost:9776)
-┌────────────────────┴────────────────────────────┐
-│ ② Bun 编排内核（sidecar 进程）                    │
-│   AgentManager / PiRpcClient / IntercomMonitor   │
-│   StateAggregator / ConfigStore / PackageManager │
-└────────────────────┬────────────────────────────┘
-                     │ spawn + stdio JSONL
-┌────────────────────┴────────────────────────────┐
-│ ③ Pi Agent 集群（N 个独立 Bun 子进程）            │
-│   每个：pi --mode rpc + pi-intercom 扩展         │
-└────────────────────┬────────────────────────────┘
-                     │ pi-intercom broker (IPC)
-┌────────────────────┴────────────────────────────┐
-│ ④ 持久化（~/.pi/ + 项目 .pi/ + hiagent-config）   │
-└─────────────────────────────────────────────────┘
-```
+
+**四层说明**：
+- **① Tauri**：只管窗口壳 + 启停 Bun sidecar，无业务逻辑。前端在 WebView 内跑。
+- **② Bun 编排内核**：唯一与 Pi 进程交互的地方。前端不直接 spawn pi。
+- **③ Pi Agent 集群**：每个 agent 一个独立 `pi --mode rpc` 进程，进程级隔离，单 agent 崩溃不影响其他。
+- **④ 持久化**：文件系统作真相源，Bun 内核重启可恢复。
+
+**三种通信通道**：
+- 前端 ↔ 内核：**WebSocket**（localhost:9776，JSONL 消息）
+- 内核 ↔ Pi：**stdio JSONL**（每个 PiRpcClient 持有一个子进程的 stdin/stdout）
+- Pi ↔ Pi：**pi-intercom broker**（Unix socket，对等 ask/send/reply，内核通过 IntercomMonitor 旁路监听）
 
 ### 3.2 关键技术决策
 
@@ -88,7 +129,7 @@ HiAgent 填补这个空白：**做一个编排管理层 + GUI，复用已存在�
 
 #### 决策 2：pi --mode rpc 而非 SDK 内嵌
 
-每个 agent 是独立 `pi --mode rpc` 子进程，宿主通过 stdio 的 JSONL JSON-RPC 双向通信。
+每个 agent 是独立 `pi --mode rpc` 子进程，宿主通过 stdio 的 JSONL 双向通信。
 
 **理由**：
 - 进程级隔离：单个 agent 崩溃不影响其他
@@ -229,58 +270,254 @@ pi-agent-browser-native 不同：它**显示在"能力" tab 里，agent 级启�
 
 自动安装的理由：pi-agent-browser-native 是内置核心能力，其依赖理应由 HiAgent 负责就绪，不应把安装负担转嫁给用户。
 
-**与产物预览（7.4）的区别**：
+**与产物预览（8.4）的区别**：
 - pi-agent-browser-native = **agent → 浏览器**（agent 自己访问页面，输出截图/快照给 LLM 看）
 - 产物预览 = **产物 → 用户**（agent 生成的 HTML，用户在内嵌浏览器看渲染结果）
 - 方向相反，互补共存。
 
 ## 六、UI 设计
 
+> 以下规格沉淀自 `docs/superpowers/mockups/` 的 13 张原型 HTML，所有 hex 值与文案均与原型对齐。
+
+### 6.0 设计系统
+
+#### 配色（Catppuccin Mocha，深色主题）
+
+| 用途 | hex | 说明 |
+|------|-----|------|
+| 主背景（Base） | `#1e1e2e` | 画布、对话区背景 |
+| 次背景（Mantle） | `#181825` | sidebar、titlebar、输入区背景 |
+| 表面（Surface） | `#313244` | 输入框、卡片、工具栏背景 |
+| 表面高亮（Surface2） | `#585b70` | 边框、分隔线、禁用态 |
+| 文字主（Text） | `#cdd6f4` | 正文、标题 |
+| 文字次（Subtext） | `#a6adc8` | 次要正文 |
+| 弱化（Overlay） | `#6c7086` | 标签、副文案、占位符 |
+| 蓝（Blue） | `#89b4fa` | 主强调（产品色）、当前选中、thinking 态、primary 按钮 |
+| 绿（Green） | `#a6e3a1` | 成功、reply、内置工具、在线徽标 |
+| 橙（Peach） | `#fab387` | ask/委派、研发色、阻塞等待、警告 |
+| 黄（Yellow） | `#f9e2af` | PM 色、能力汇总 |
+| 紫（Mauve） | `#cba6f7` | MCP 工具分组色 |
+| 红（Red） | `#f38ba8` | 错误、删除、取消、研发渐变副色 |
+| Lavender | `#b4befe` | 产品渐变副色 |
+| Maroon | `#ebbc9e` | PM 渐变副色 |
+| Teal | `#94e2d5` | 测试渐变副色 |
+
+#### 四角色设定（头像渐变 + emoji + 职责文案）
+
+| 角色 | name | emoji | 渐变色 | 副文案（启动页） |
+|------|------|-------|--------|-----------------|
+| 产品 | product | 📋 | `#89b4fa → #b4befe` | 需求设计 |
+| PM | pm | 📅 | `#f9e2af → #ebbc9e` | 项目管理 |
+| 研发 | dev | ⚙️ | `#fab387 → #f38ba8` | 技术实现 |
+| 测试 | test | 🧪 | `#a6e3a1 → #94e2d5` | 质量验收 |
+
+头像规格：圆形，渐变背景，emoji 居中。启动页 44px、会话 header 28px、sidebar 22px、配置弹窗 52px（带 2px `#cdd6f4` 描边 + 右下角相机角标 `#89b4fa`）。
+
+#### 排印与间距
+
+| 项 | 值 |
+|----|----|
+| 字体 | `'Segoe UI', sans-serif`（macOS 下回退系统字体） |
+| 等宽 | `'Consolas', monospace`（系统提示词预览） |
+| 标题 | 28px/700（启动页大标题）、15px/600（配置 header）、13px/600（分区） |
+| 正文 | 12px/1.6（对话气泡）、11px（sidebar/列表）、10px（元信息） |
+| 小字 | 9px（状态徽标、tab 计数、时间戳） |
+| 通用圆角 | 卡片 8px、气泡 12px（带单角 4px 体现方向）、按钮 4-6px、徽标 pill |
+| 通用间距 | padding 10-16px、gap 6-12px、消息间距 14px |
+
+#### 状态语义（贯穿所有视图）
+
+| 状态 | 颜色 | 视觉表现 |
+|------|------|---------|
+| thinking | 蓝 `#89b4fa` | 节点边框 2px + `box-shadow:0 0 20px rgba(137,180,250,0.3)` |
+| blocked（等 reply） | 橙 `#fab387` | 节点边框 2px + pulse 动画（1.5s）+ `box-shadow` 呼吸 |
+| idle | 灰 `#6c7086` | 节点边框 2px，无发光 |
+| 当前选中（sidebar） | 蓝 `#89b4fa` | `border-left:2px solid` + 背景 `rgba(137,180,250,0.15)` |
+
 ### 6.1 主交互范式：对话优先
 
-**不是画布优先**。日常使用是对话视图，画布是辅助视图。
+**不是画布优先**。日常使用是对话视图，画布是辅助视图（见原型 `09-conversation-flow.html`）。
 
 **流程**：
-1. **启动页**：居中布局，4 个角色卡片（产品/PM/研发/测试）可视化选择，选中后输入框显示该角色图标，直接打字发送即进入会话
-2. **会话中（Codex 式左右结构）**：
-   - **左 sidebar**：角色列表（当前高亮）+ 会话历史 + 底部 intercom 状态条
-   - **右对话区**：顶部会话标题 + 消息流 + 底部输入框
-   - **委派内联显示**：产品 ask 研发作为对话流里的一条特殊消息，带干预按钮
-3. **编排画布（可选视图）**：对话区右上角"编排画布"按钮切换
+1. **启动页**：顶栏（HiAgent logo `#89b4fa` + 项目名 + 历史/插件/设置三按钮 `#313244` pill）→ 居中区"开始新会话"28px 标题 + "选择一个角色，告诉它你要做什么"副文案 → 4 角色卡片横排（gap 12px，min-width 100px，选中态蓝边框+发光）→ 下方居中输入框（max-width 640px，左侧角色 emoji，右侧"📎 附件 / 🎨 模型"chips + 蓝色"发送 →"按钮）→ 底部提示"💡 选好角色后直接打字发送即可开始。会话中 agent 可通过 intercom 委派给其他角色。"
+2. **会话中（Codex 式左右结构，grid 260px 1fr）**：
+   - **左 sidebar**（`#181825` 背景）：
+     - "+ 新会话"按钮（虚线边框 `#585b70`）
+     - "角色"分区：4 个 agent 行（22px 头像+名称，当前选中者带蓝左条+"当前"绿徽标；非选中者带状态点：研发橙点表示 blocked）
+     - "会话历史"分区：会话项（标题+`角色emoji·时间`），选中态 `rgba(137,180,250,0.1)` 背景
+     - **底部 intercom mini-状态条**（`rgba(250,179,135,0.06)` 背景）：`● 产品→研发 · ask · 23s` + 📡 图标
+   - **右对话区**：
+     - header（`#181825`）：28px 头像 + 会话标题 + `产品 · claude-sonnet-4 · thinking` 副文案 + 右侧"编排画布 / ⋯"按钮
+     - 消息流（flex column，gap 14px）：每条消息 28px 头像 + 气泡（用户 `#313244` 圆角 `4 12 12 12`；assistant `#181825` 圆角 `12 4 12 12`）+ 时间戳/token 数
+     - **委派内联卡片**：见 6.5
+     - 输入区（`#181825`）：`#313244` 框 + 角色 emoji + placeholder `给产品发消息...` + 蓝色 ↩ 按钮
+3. **编排画布（可选视图）**：对话区 header 右上角"编排画布"按钮切换
 
 ### 6.2 视图清单
 
-| 视图 | 触发方式 | 用途 |
-|------|---------|------|
-| 启动页 | 应用启动 / 新会话 | 选角色 + 开始 |
-| 会话视图（左右） | 发送第一条消息 | 日常对话主界面 |
-| 编排画布 | 对话区右上角按钮 | 全局协作关系可视化 |
-| Intercom 时间线 | 底部状态条点击 | 完整 agent 间通信历史 |
-| Agent 配置 | sidebar 角色右键 / 编辑 | 提示词/能力/技能/合作伙伴 |
-| 插件市场 | 顶栏"插件"按钮 | 装/卸包 |
+| 视图 | 触发方式 | 用途 | 原型 |
+|------|---------|------|------|
+| 启动页 | 应用启动 / 新会话 | 选角色 + 开始 | `09-conversation-flow.html` 屏① |
+| 会话视图（左右） | 发送第一条消息 | 日常对话主界面 | `09-conversation-flow.html` 屏② |
+| 编排画布 | 对话区右上角按钮 | 全局协作关系可视化 | `02-main-ui.html` |
+| Intercom 时间线 | 底部状态条"查看全部" | 完整 agent 间通信历史 | `08-intercom-timeline.html` |
+| Agent 配置 | 画布节点"编辑" / sidebar 双击 | 提示词/能力/技能/合作伙伴 | `04b-agent-config-v2.html` |
+| 能力 Tab（配置内） | Agent 配置切到"能力" | 三类工具勾选分配 | `07b-capabilities-tab-v2.html` |
+| 插件市场 | 顶栏"插件"按钮 | 装/卸包（MVP 外） | `05-package-market.html` |
+| 产物预览 | 对话流产物卡片"预览" | 内嵌浏览器看渲染结果（MVP 外） | `10-artifact-preview.html` |
 
-### 6.3 编排画布（辅助视图）
+### 6.3 编排画布（辅助视图，原型 `02-main-ui.html`）
 
-画布是"约束+监控"，不是"程序执行"：
-- **节点**：4 个 agent，圆形，显示头像/名称/状态/thinking token
-- **连线**：灰色虚线 = 可通信关系（来自 agent 的 partners 字段）
-- **活跃 ask**：橙色动画虚线 + 气泡显示 ask 内容 + 已等待时长
-- **状态颜色**：蓝边框=thinking / 橙边框=阻塞等待 / 灰边框=idle
+画布是"约束+监控"，不是"程序执行"。布局：titlebar（`● 4 agents 在线` 绿徽标 + ⚙）→ 画布 toolbar（"编排画布"标题 + "拖拽添加 agent · 连线表示可通信"提示 + `＋ agent / ▶ 运行 / ⏸` 按钮）→ 画布区（点阵背景 `radial-gradient #313244 1px`，20px 网格）→ 底部 Intercom 活动栏。
+
+- **节点**：圆角矩形（不是圆形），`border-radius:10px`，min-width 90px，padding `10px 14px`，内容：22px emoji + 名称 + 9px 状态行（`● thinking` / `⏸ 等待回复` / `○ idle`）+ 9px token 数。活跃节点带角标徽标（`ask →` / `← ask`，`#fab387` pill）
+- **连线**：灰色 `#6c7086` 虚线（dasharray `4,3`，2px）= 可通信关系（partners）
+- **活跃 ask 连线**：橙色 `#fab387` 虚线动画（dasharray `6,4`，2.5px，`stroke-dashoffset` 0.8s 循环）+ 气泡 tooltip（`#181825` 背景 + 橙边框，显示"ask (阻塞中 · 23s)" + 内容摘要）
+- **节点状态**：thinking 蓝边框+发光、blocked 橙边框+pulse 动画、idle 灰边框
+- **底部 Intercom 活动栏**：`INTERCOM` 标签 + 最新一条 `● 产品→研发: WebSocket vs SSE? (23s)` + 统计`总计 12 条消息 · 3 次 ask · 2 次 send` + "查看全部 ▾"
 
 **关键**：在画布上拖线 = 在 Agent 配置的"合作伙伴"里加 agent 名；在配置里勾选 = 画布上出现线。两个视图，一份数据。
 
-### 6.4 Intercom 时间线
+### 6.4 Intercom 时间线（原型 `08-intercom-timeline.html`）
 
-三色编码：
-- 🟠 橙 = ask（阻塞等待中，带计时）
-- 🔵 蓝 = send（异步通知）
-- 🟢 绿 = reply（回复，缩进嵌套在对应 ask 下）
+从底部活动栏"查看全部"展开的全屏抽屉，grid `1fr 380px` 左右布局。
 
-按时间分组（刚刚/10分钟前/1小时前），点击消息展开右侧详情：方向图示、内容、元信息（已等待/超时/队列位置）、触发上下文、三个干预动作。
+- **header**：📡 Intercom 时间线 + 三色统计胶囊（`● 3 ask` 橙 / `● 9 send` 蓝 / `● 12 reply` 绿）+ 筛选 chip（全部类型 ▾ / 全部 agent ▾）
+- **三色编码**（贯穿所有视图）：
+  - 🟠 ask 橙 `#fab387`：左边框 `border-left:3px solid`，背景 `rgba(250,179,135,0.12)`
+  - 🔵 send 蓝 `#89b4fa`：左边框 3px，背景 `#313244`
+  - 🟢 reply 绿 `#a6e3a1`：左边框 3px，背景 `rgba(166,227,161,0.06)`，**缩进嵌套**（margin-left 24px）在对应 ask 下
+- **列表项**：22px 头像 + 类型标签 + → + 对方头像 + `from → to` + 右侧时间/状态胶囊（`● 阻塞中 · 23s`）。活跃 ask 高亮（橙背景）
+- **时间分组**：刚刚 / 10 分钟前 / 1 小时前（uppercase `#6c7086` 小标题），更早折叠"... 还有 18 条更早的消息"
+- **右侧详情**（点击消息）：方向图示（from 头像 → ask/橙色虚线动画箭头 → to 头像，blocked 时 to 头像带橙发光）+ 消息内容卡 + 4 格元信息（发起时间 / 已等待 / 超时 `∞ 不设限` / 队列位置）+ 触发上下文块（`📌 触发上下文` + "→ 跳到产品的这条消息"链接）+ 三个干预动作按钮（见 6.5）
 
-## 七、组件职责
+### 6.5 委派卡片与干预（原型 `03-no-timeout.html` + `09-conversation-flow.html`）
 
-### 7.1 Bun 编排内核（端口 9776）
+**委派卡片**（对话流内联，原型 09）：
+- 容器：`rgba(250,179,135,0.1)` 背景 + `1px solid rgba(250,179,135,0.3)` 边框 + 8px 圆角
+- 头部：`↗ 委派给研发` 橙色标签 + `ask · 阻塞中 23s` 橙色 pill（计时器实时更新）
+- 内容：ask 原文（带引号）
+- 按钮行（原型 03 的精确文案与样式）：
+  - `🙋 我来回答`（`#313244` 底 + 绿字 `#a6e3a1`）
+  - `⚡ 催一下`（`#313244` 底 + 灰字 `#a6adc8`）
+  - `查看研发队列`（透明底 + `#6c7086`）
+
+**FIFO 队列视图**（点击"查看研发队列"或画布节点展开，原型 03）：
+- 状态行：`● 正在回复产品 (thinking · 2.4k tok)`
+- 队列行：`#1 产品`（蓝 pill `#89b4fa`）+ 内容 + `· 处理中`；`#2 PM`（灰 pill）+ 内容 + `· 已等 1m12s`
+
+**干预三动作**（设计文档 4.3）：
+
+| 按钮 | 样式 | 行为 | MVP |
+|------|------|------|-----|
+| 🙋 我来回答 | 详情页：`#a6e3a1` 实底绿按钮 | 用户输入 → 编排内核 inject-reply | ✅ 实现 |
+| ⚡ 催一下 | 详情页：`#313244` 底 + 灰边框 | 高优先级 steer 插给被问 agent | ⏸ 暂不实现 |
+| ✕ 取消 | 详情页：透明底 + 红边框 `#f38ba8` | 取消这次 ask | ⏸ 暂不实现 |
+
+点击"🙋 我来回答"→ 输入框展开 → 提交后卡片变绿（`border-green-300 bg-green-50`，"✓ 已回复"标签）。
+
+### 6.6 Agent 配置（原型 `04b-agent-config-v2.html` + `07b-capabilities-tab-v2.html`）
+
+左右布局 `grid 1fr 320px`，从画布节点"编辑"或 sidebar 双击进入。
+
+**Header**：52px 头像（带相机角标）+ 名称 + `~/.pi/agent/agents/dev.md · 已保存 · FIFO 串行` + "查看原始 .md" / "保存"按钮。
+
+**Tabs**（底部蓝色下划线表示选中）：基本信息 / 系统提示词 / 工具(7) / 技能(3) / 合作伙伴 / 能力。
+
+**左栏（表单）**：
+- 名称 / 显示名（两列）
+- 描述（input，"决定何时被委派"）
+- 模型 / thinking level（两列 select）
+- 系统提示词预览（`#181825` 等宽框，"📝 编辑" + "replace 模式"蓝标签）
+- 工具 chips：已启用绿色 pill（`✓ read` 带绿边框 `#a6e3a1`），intercom 单独蓝 pill
+- 技能列表项：名称 + 来源（bigpowers/superpowers）+ × 删除
+
+**右栏（合作伙伴）**：
+- "🤝 合作伙伴"标题 + "编辑关系"按钮
+- "↗ 可发起 ask 给（出向）"橙标题：伙伴卡片（36px 头像+名+职责+✓）
+- "↙ 可被 ask 自（入向）"绿标题：同结构
+- "添加伙伴..."虚线占位项
+- 画布预览（SVG mini-graph，出向蓝箭头/入向绿箭头/双向）
+- 统计：出向伙伴数 / 入向伙伴数
+
+**能力 Tab（07b，汇总顶部 4 格）**：
+- 顶部"📋 能力汇总"卡（黄边框 `#f9e2af`）："共 N 个工具可用" + 4 格统计（内置工具/插件工具/MCP工具/技能，各带主题色数字）
+- 📁 内置工具：绿色 chips（Pi 自带）
+- 🌐 插件工具：按包分组卡片（包名+版本+开关 toggle + 工具 chips，未启用项虚线 `+ tool`）
+- 🔌 MCP 工具：紫色分组，按 server 卡片（server 名+工具数+toggle + 灰字说明"研发未启用 · 测试 agent 已启用此 server 的全部工具"）+ "配置新的 MCP server"虚线按钮
+- **核心基础设施（pi-intercom/pi-mcp-adapter）不显示**：始终启用，用户改不了
+
+### 6.7 主界面（画布+会话面板，原型 `02-main-ui.html`，备选布局）
+
+注意：`02-main-ui.html` 是早期"画布优先"布局（左画布 1fr + 右会话面板 360px），**已被 09 的"对话优先"Codex 式布局取代**为日常主界面。但 02 仍是"编排画布"视图切换后的样子，且其右侧会话面板的 ask 高亮卡（`↗ 委派给研发 (ask · 阻塞中)` + `等待回复 · 已阻塞 23s`）和 reply 待到达预览（绿色半透明 `[ 研发正在思考回复... ]`）是有效参考。
+
+## 七、功能框架
+
+```mermaid
+graph LR
+    USER(["👤 用户"])
+
+    subgraph UI["用户交互层（React 前端）"]
+        direction TB
+        UI1["🚀 启动页<br/>角色选择 + 输入"]
+        UI2["💬 会话视图<br/>对话流 + 委派内联"]
+        UI3["🎨 编排画布<br/>节点关系监控"]
+        UI4["📡 Intercom 时间线<br/>通信历史"]
+        UI5["⚙️ Agent 配置<br/>提示词/能力/伙伴"]
+        UI6["🧩 插件市场<br/>装/卸包"]
+        UI7["🖥️ 产物预览<br/>内嵌浏览器"]
+    end
+
+    subgraph CORE["编排内核（Bun sidecar）"]
+        direction TB
+        C1["AgentManager<br/>多 agent 生命周期"]
+        C2["PiRpcClient<br/>pi --mode rpc 驱动"]
+        C3["IntercomMonitor<br/>ask/reply 跟踪 + 干预注入"]
+        C4["ConfigStore<br/>agent.md 配置"]
+        C5["StateAggregator<br/>事件聚合 → WS 推送"]
+        C6["PackageManager<br/>pi install/remove"]
+        C7["ArtifactPreview<br/>静态服务器 9777"]
+    end
+
+    subgraph ECO["Pi 生态（外部依赖）"]
+        direction TB
+        E1["pi --mode rpc<br/>单 agent 引擎"]
+        E2["pi-intercom<br/>对等通信 broker"]
+        E3["pi-mcp-adapter<br/>MCP 工具桥接"]
+        E4["插件包<br/>bigpowers / pi-web-access..."]
+    end
+
+    USER -->|选角色/打字/干预| UI
+    UI -->|WebSocket| CORE
+    CORE -->|spawn + JSONL| E1
+    CORE -->|读写配置/装包| ECO
+    E1 <-.->|ask/send/reply| E2
+
+    USER -.->|直接交互| UI2
+
+    classDef mvp fill:#1e1e2e,stroke:#89b4fa,stroke-width:2px,color:#cdd6f4
+    classDef later fill:#313244,stroke:#6c7086,stroke-width:1px,stroke-dasharray:4 3,color:#a6adc8
+    classDef ext fill:#181825,stroke:#fab387,stroke-width:1.5px,color:#cdd6f4
+
+    class UI1,UI2,UI3,UI5,C1,C2,C3,C4,C5,E1,E2,E3 mvp
+    class UI4,UI6,E4 later
+    class UI7,C7 later
+    class ECO ext
+```
+
+**MVP 边界**：
+- 🔵 **蓝框 = MVP 必做**（11.1 八项）：启动页、会话视图、编排画布、Agent 配置、内核六大组件（AgentManager/PiRpcClient/IntercomMonitor/ConfigStore/StateAggregator + WS）、Pi + intercom + mcp-adapter
+- ⚪ **虚线灰框 = MVP 暂不做**（11.2）：Intercom 时间线全屏、插件市场 UI、产物预览、PackageManager 完整 UI（先用命令行）
+
+**功能依赖链**（从用户视角）：
+1. 用户选角色发消息 → `启动页/会话视图` → WebSocket → `AgentManager.ensureStarted` → `PiRpcClient.prompt`
+2. agent LLM 调 intercom → `PiRpcClient` 收 tool_execution 事件 → `IntercomMonitor` 跟踪 ask → `StateAggregator` 推 `intercom:ask` WSEvent → 会话视图显示委派卡片
+3. 用户点"🙋 我来回答" → WebSocket → `IntercomMonitor.injectReply` → broker → ask 解除
+4. 用户编辑 agent → `Agent 配置` → `ConfigStore.saveAgent` → agent.md 落盘 → 下次 spawn 生效
+
+## 八、组件职责
+
+### 8.1 Bun 编排内核（端口 9776）
 
 | 组件 | 职责 |
 |------|------|
@@ -291,7 +528,7 @@ pi-agent-browser-native 不同：它**显示在"能力" tab 里，agent 级启�
 | **ConfigStore** | 读写 agent 定义、技能/工具分配、合作伙伴关系 |
 | **PackageManager** | 调用 `pi install npm:xxx` / `pi remove`，同步 settings.json |
 
-### 7.2 前端（React + Tauri WebView）
+### 8.2 前端（React + Tauri WebView）
 
 | 模块 | 职责 |
 |------|------|
@@ -302,14 +539,14 @@ pi-agent-browser-native 不同：它**显示在"能力" tab 里，agent 级启�
 | Agent 配置 | 表单 ↔ Markdown 双向同步，能力/技能/合作伙伴 tab |
 | 插件市场 | 包列表 + 装/卸 |
 
-### 7.3 Tauri Rust 壳
+### 8.3 Tauri Rust 壳
 
 - 窗口管理（标题栏、系统托盘、尺寸记忆）
 - Bun sidecar 进程管控（启动、健康检查、关闭时优雅退出）
 - 前端 ↔ Bun 的 IPC 桥（如果不用 WebSocket 直连）
 - **WebviewWindow 管理**（产物预览的独立窗口）
 
-### 7.4 产物预览（Artifact Preview）
+### 8.4 产物预览（Artifact Preview）
 
 agent 生成的 HTML/web 产物，在对话区点击 → 内嵌浏览器打开查看。
 
@@ -358,9 +595,9 @@ agent 用 write 工具生成 login.html
   → （可选）点 ⤢ → Tauri new WebviewWindow 全屏
 ```
 
-## 八、数据流
+## 九、数据流
 
-### 8.1 启动到对话
+### 9.1 启动到对话
 
 ```
 用户双击 HiAgent
@@ -375,7 +612,7 @@ agent 用 write 工具生成 login.html
   → StateAggregator 推给前端 → 对话区流式渲染
 ```
 
-### 8.2 委派（ask）
+### 9.2 委派（ask）
 
 ```
 产品 LLM 决定调用 intercom ask
@@ -388,7 +625,7 @@ agent 用 write 工具生成 login.html
   → 产品继续 LLM turn
 ```
 
-### 8.3 装包到分配（agent 级）
+### 9.3 装包到分配（agent 级）
 
 ```
 ① 装包：插件市场 "+ 安装" → PackageManager 调 pi install npm:pi-web-access
@@ -406,7 +643,7 @@ agent 用 write 工具生成 login.html
 
 **双向追溯**：HiAgent 维护资源→agent 的反向索引，支持"web_search 被谁用了？产品✓ 研发✓ PM✗ 测试✗"这类查询。
 
-## 九、技术栈
+## 十、技术栈
 
 | 层 | 技术 |
 |----|------|
@@ -421,9 +658,9 @@ agent 用 write 工具生成 login.html
 | 通信 | WebSocket（前端↔Bun） + stdio JSONL（Bun↔Pi） |
 | 持久化 | 文件系统（~/.pi/ + hiagent-config.json） |
 
-## 十、MVP 范围
+## 十一、MVP 范围
 
-### 10.1 MVP 必须包含
+### 11.1 MVP 必须包含
 
 1. **启动页**：4 角色卡片选择 + 输入框
 2. **会话视图**：Codex 式左右，单角色对话，流式渲染
@@ -434,9 +671,9 @@ agent 用 write 工具生成 login.html
 7. **编排画布**：4 节点 + 连线 + 实时状态
 8. **无超时 ask**：发送方注册 message 事件监听等 reply，不设超时（v0.6.0 broker 无超时 GC，天然支持）
 
-### 10.2 MVP 暂不包含（后续迭代）
+### 11.2 MVP 暂不包含（后续迭代）
 
-- 产物预览（内嵌浏览器，见 7.4）—— 第二迭代优先级
+- 产物预览（内嵌浏览器，见 8.4）—— 第二迭代优先级
 - 技能细粒度启用/禁用（先用 Pi 原生全量加载）
 - 插件市场 UI（先用 `pi install` 命令行）
 - Intercom 时间线全屏视图（先用底部状态条）
@@ -444,7 +681,7 @@ agent 用 write 工具生成 login.html
 - 会话历史搜索
 - 多项目切换
 
-## 十一、风险与对策
+## 十二、风险与对策
 
 | 风险 | 对策 |
 |------|------|
@@ -453,7 +690,7 @@ agent 用 write 工具生成 login.html
 | Pi RPC 协议变更 | 锁定 Pi 版本，编排内核做协议版本协商 |
 | 多 agent 并发资源占用 | MVP 固定 4 角色；后续按需 spawn |
 
-## 十二、参考实现
+## 十三、参考实现
 
 | 项目 | 借鉴点 |
 |------|--------|
@@ -464,7 +701,7 @@ agent 用 write 工具生成 login.html
 | pi-intercom | ask/send/reply 通信原语（直接复用） |
 | pi-mcp-adapter | MCP → Pi 工具桥接（直接复用） |
 
-## 十三、待确认问题
+## 十四、待确认问题
 
 1. **pi-intercom + `pi --mode rpc` 兼容性**（最高优先级）：✅ **已验证通过（2026-07-06）**。静态分析 + 5 个端到端测试全部通过，pi-intercom v0.6.0 在无头模式下完全可用。**LLM 自主调 intercom 工具的完整链路也已用 DeepSeek 模型实测跑通**（alice ask → bob reply 端到端）。详见 `docs/research/pi-intercom-rpc-compatibility.md`。**重要修正**：v0.6.0 的 broker 没有 ask 超时 GC 机制，ask 天然支持无限等待，4.1 节"包装 ask 把超时设为 Infinity"无需实现。
 2. **头像存储**：emoji 直接存 agent.md 的 avatar 字段（如 `avatar: ⚙️`）；自定义图片建议用文件路径（`~/.pi/agent/avatars/<name>.png`），避免 base64 膨胀配置文件。MVP 先只支持 emoji。
@@ -474,13 +711,22 @@ agent 用 write 工具生成 login.html
 
 ## 附录：UI Mockup 索引
 
-设计过程中产出的 8 张 mockup，存于 `.superpowers/brainstorm/`：
+设计过程中产出的 13 个文件，存于 `docs/superpowers/mockups/`：
 
-1. `01-architecture.html` — 整体分层架构
-2. `02-main-ui.html` — 主界面（早期画布优先版，已被 09 取代）
-3. `03-no-timeout.html` — 无超时 ask 机制
-4. `04b-agent-config-v2.html` — Agent 配置（左右布局 + 头像 + 合作伙伴）
-5. `06-resource-flow.html` — 资源管理（插件市场 vs agent 分配）
-6. `07b-capabilities-tab-v2.html` — 能力 tab（汇总顶部，三类工具）
-7. `08-intercom-timeline.html` — Intercom 时间线
-8. `09-conversation-flow.html` — 对话流程（启动页 + Codex 式会话）
+| # | 文件 | 内容 | 状态 |
+|---|------|------|------|
+| 1 | `01-architecture.html` | 整体分层架构（Tauri/Bun/Pi/持久化四层） | 参考 |
+| 2 | `02-main-ui.html` | 主界面（画布+会话面板，早期画布优先版） | 备选布局，见 6.7 |
+| 3 | `03-no-timeout.html` | 无超时 ask 机制 + FIFO 队列 + 三按钮干预 | ✅ 见 6.5 |
+| 4 | `04-agent-config.html` | Agent 配置（旧版） | 已被 04b 取代 |
+| 5 | `04b-agent-config-v2.html` | Agent 配置（左右布局 + 头像 + 合作伙伴） | ✅ 见 6.6 |
+| 6 | `05-package-market.html` | 插件市场（MVP 外） | 参考 |
+| 7 | `06-resource-flow.html` | 资源管理（插件市场 vs agent 分配） | 参考，见 5.2 |
+| 8 | `07-capabilities-tab.html` | 能力 tab（旧版） | 已被 07b 取代 |
+| 9 | `07b-capabilities-tab-v2.html` | 能力 tab（汇总顶部 4 格） | ✅ 见 6.6 |
+| 10 | `08-intercom-timeline.html` | Intercom 时间线（三色编码 + 详情） | ✅ 见 6.4 |
+| 11 | `09-conversation-flow.html` | 对话流程（启动页 + Codex 式会话） | ✅ 主界面，见 6.1 |
+| 12 | `10-artifact-preview.html` | 产物预览（内嵌浏览器，MVP 外） | 第二迭代 |
+| 13 | `waiting.html` | brainstorm 等待页 | 工具页 |
+
+> 所有 hex 配色、emoji、文案、组件结构均已在第六节沉淀，实现时以第六节为准、原型 HTML 作视觉参照。

@@ -7,7 +7,8 @@ import type { AgentConfig } from "hiagent-shared";
 import { AgentConfig as AgentConfigModal } from "./AgentConfig";
 
 function IntercomStatusBar() {
-  const unresolved = useIntercom(s => s.asks.filter(a => !a.resolved));
+  const asks = useIntercom(s => s.asks);
+  const unresolved = asks.filter(a => !a.resolved);
   if (unresolved.length === 0) return null;
   return (
     <div className="p-2 px-2.5 border-t border-surface flex gap-4 overflow-x-auto" style={{ background: "rgba(250,179,135,0.06)" }}>

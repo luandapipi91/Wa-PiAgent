@@ -1,10 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, Component, type ReactNode } from "react";
 import { wsClient } from "./ws-instance";
 import { useSession } from "./store/session";
 import { useAgents } from "./store/agents";
 import { useIntercom } from "./store/intercom";
 import { LaunchScreen } from "./components/LaunchScreen";
 import { SessionView } from "./components/SessionView";
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  constructor(props: any) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return <div className="h-screen flex items-center justify-center p-8 text-red"><pre>{this.state.error.message}\n{this.state.error.stack}</pre></div>;
+    }
+    return this.props.children;
+  }
+}
 
 export function App() {
   const [connected, setConnected] = useState(false);
@@ -32,7 +43,7 @@ export function App() {
     return () => { clearInterval(t); unsub(); };
   }, [setList, addMessage, updateState, addAsk, resolveAsk]);
 
-  if (!connected) return <div className="h-screen flex items-center justify-center text-overlay">正在连接内核...</div>;
-  if (!currentAgent) return <LaunchScreen />;
-  return <SessionView />;
+  if (!connected) return <ErrorBoundary><div className="h-screen flex items-center justify-center text-overlay">正在连接内核...</div></ErrorBoundary>;
+  if (!currentAgent) return <ErrorBoundary><LaunchScreen /></ErrorBoundary>;
+  return <ErrorBoundary><SessionView /></ErrorBoundary>;
 }
