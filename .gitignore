@@ -23,3 +23,4 @@ Thumbs.db
 
 # Pi local state (uncomment if you want to ignore project-local pi state)
 # .pi/
+.superpowers/
