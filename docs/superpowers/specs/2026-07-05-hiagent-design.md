@@ -4,6 +4,10 @@
 >
 > 日期：2026-07-05
 > 状态：设计中（最高风险项已验证 + UI 规格沉淀自原型，见 2026-07-06 更新）
+> 2026-07-06 更新：原 MVP 按 agentName 单维度组织（单项目），现扩展为多项目。
+> sidebar 与会话归属已重构为「项目 → 会话」两级模型，详见
+> `docs/superpowers/specs/2026-07-06-sidebar-projects-design.md`。
+> 本文档中凡涉及单项目/启动页/sidebar 三区的旧描述均以该文档为准。
 
 ## 一、项目概述
 
@@ -275,6 +279,92 @@ pi-agent-browser-native 不同：它**显示在"能力" tab 里，agent 级启�
 - 产物预览 = **产物 → 用户**（agent 生成的 HTML，用户在内嵌浏览器看渲染结果）
 - 方向相反，互补共存。
 
+### 5.4 项目与会话实体（多项目扩展，2026-07-06）
+
+> 原 MVP 按 agentName 单维度组织会话（单项目）。现扩展为「项目 → 会话」两级模型，让用户能建多个项目（各自独立 cwd + 独立会话历史），agent 配置全局共享。完整规格见 `2026-07-06-sidebar-projects-design.md`。
+
+#### 三层实体
+
+```
+Agent（全局，存 ~/.pi/agent/agents/*.md，配置全局共享不按项目隔离）
+  ├─ 研发 ⚙️
+  ├─ 产品 📋
+  ├─ PM 📅
+  └─ 测试 🧪
+
+Project（用户级，存 ~/.hiagent/projects.json）
+  ├─ id, name, cwd, createdAt
+
+Session（项目内，元数据在 projects.json，内容在 ~/.hiagent/sessions/<id>.json）
+  ├─ id, projectId, primaryAgent, title, createdAt, lastActivity
+  ├─ messages: ChatMessage[]         ← 主线消息流
+  └─ intercomEvents: AskItem[]       ← 主理 agent 发起或被 ask 时的委派事件
+```
+
+**会话与 agent 关系**：一个会话 = 一个主理 agent；会话内可见该 agent 发起或收到的所有 intercom 委派（多 agent 协作内联可见，被问 agent 不需要独立会话存在）。
+
+#### 类型定义
+
+```typescript
+// packages/shared/src/types.ts 新增
+
+interface ProjectEntity {
+  id: string;
+  name: string;
+  cwd: string;
+  createdAt: number;
+}
+
+interface SessionEntity {
+  id: string;
+  projectId: string;
+  primaryAgent: string;    // 主理 agent name（"dev" / "product" / ...）
+  title: string;           // 首条消息截断，或用户命名
+  createdAt: number;
+  lastActivity: number;
+}
+
+// ChatMessage 不变（id/role/text/timestamp）
+// AskItem 加 sessionId 字段
+interface AskItem {
+  messageId: string;
+  sessionId: string;       // ← 新增：归属哪个会话
+  from: string;
+  to: string;
+  text: string;
+  startedAt: number;
+  resolved?: boolean;
+}
+```
+
+#### 持久化布局
+
+```
+~/.hiagent/
+  ├─ projects.json              ← 项目元数据列表（含每个项目的 sessions 元数据）
+  └─ sessions/
+      ├─ <sessionId>.json       ← 单个会话的 messages + intercomEvents
+      └─ ...
+```
+
+- `projects.json` 结构：`{ projects: ProjectEntity[], sessions: SessionEntity[] }`（sessions 平铺但带 projectId，便于查询）
+- 每个会话内容独立文件，避免单文件膨胀
+- Agent 配置仍走 `~/.pi/agent/agents/*.md`（不动）
+
+#### AgentState 维度变化
+
+state 改为按 `(projectId, agentName)` 维度组织（同一研发 agent 在项目 A 和项目 B 是两个独立 pi 进程，状态独立）：
+
+```typescript
+// 旧
+states: Record<string /* agentName */, AgentState>
+
+// 新
+states: Record<string /* `${projectId}:${agentName}` */, AgentState>
+```
+
+**Sidebar 状态点按全局聚合**：只要这个 agent 在任意项目里 thinking/blocked，状态点就反映该状态（用户关心"角色忙不忙"而非"在哪个项目忙"）。优先级：blocked > thinking > idle。
+
 ## 六、UI 设计
 
 > 以下规格沉淀自 `docs/superpowers/mockups/` 的 13 张原型 HTML，所有 hex 值与文案均与原型对齐。
@@ -339,28 +429,33 @@ pi-agent-browser-native 不同：它**显示在"能力" tab 里，agent 级启�
 **不是画布优先**。日常使用是对话视图，画布是辅助视图（见原型 `09-conversation-flow.html`）。
 
 **流程**：
-1. **启动页**：顶栏（HiAgent logo `#89b4fa` + 项目名 + 历史/插件/设置三按钮 `#313244` pill）→ 居中区"开始新会话"28px 标题 + "选择一个角色，告诉它你要做什么"副文案 → 4 角色卡片横排（gap 12px，min-width 100px，选中态蓝边框+发光）→ 下方居中输入框（max-width 640px，左侧角色 emoji，右侧"📎 附件 / 🎨 模型"chips + 蓝色"发送 →"按钮）→ 底部提示"💡 选好角色后直接打字发送即可开始。会话中 agent 可通过 intercom 委派给其他角色。"
+1. **主区三态**（不再用独立启动页路由，由 `currentView` 决定）：
+   - **empty**（首次启动无项目）：引导建项目
+   - **new-session（新建会话面板）**：原"启动页"职责改为主区的一种态，输入框上方是 `📁 项目目录 ▾` + `🤖 agent ▾` **两个下拉并排**（不是大卡片横排）。项目下拉可选已有项目或"新建项目..."；agent 下拉是 4 个全局角色。两条触发入口：顶部"新建会话"全局按钮（项目默认选最近）/ 项目行右侧 ＋（预选该项目）
+   - **session（会话视图）**：发送成功或切会话后进入
 2. **会话中（Codex 式左右结构，grid 260px 1fr）**：
-   - **左 sidebar**（`#181825` 背景）：
-     - "+ 新会话"按钮（虚线边框 `#585b70`）
-     - "角色"分区：4 个 agent 行（22px 头像+名称，当前选中者带蓝左条+"当前"绿徽标；非选中者带状态点：研发橙点表示 blocked）
-     - "会话历史"分区：会话项（标题+`角色emoji·时间`），选中态 `rgba(137,180,250,0.1)` 背景
-     - **底部 intercom mini-状态条**（`rgba(250,179,135,0.06)` 背景）：`● 产品→研发 · ask · 23s` + 📡 图标
+   - **左 sidebar**（`#181825` 背景，重组为**四区**）：
+     - **① 新建会话**：顶部全局按钮，点击主区切到新建会话面板
+     - **② 我的智能体**：全局 agent 配置入口，4 个 agent 行（22px 头像+名称+状态点）。点击进 AgentConfig 弹窗（不切会话）。状态点按**全局聚合**（跨项目）：blocked > thinking > idle
+     - **③ 项目管理**（分隔线下）：项目可折叠列表，每行 `▶/▼ 项目名  ＋ ⚙️`（折叠/展开 + 项目内新建 + 项目设置）。展开后显示该项目下会话子列表：`{主理agent emoji} {会话标题} · {相对时间}`，选中态 `border-left:2px solid #89b4fa` + `rgba(137,180,250,0.15)` 背景
+     - **（无底部 intercom 状态条）**：已按方案 C 移到会话视图 header
    - **右对话区**：
-     - header（`#181825`）：28px 头像 + 会话标题 + `产品 · claude-sonnet-4 · thinking` 副文案 + 右侧"编排画布 / ⋯"按钮
+     - header（`#181825`）：28px 头像 + 会话标题 + **橙色 intercom 徽标**（只反映当前会话的活跃 ask：`● {from}→{to} · ask · {计时}`，无活跃则不显示）+ `主理agent · 模型 · 状态` 副文案 + 右侧"编排画布 / ⋯"按钮
      - 消息流（flex column，gap 14px）：每条消息 28px 头像 + 气泡（用户 `#313244` 圆角 `4 12 12 12`；assistant `#181825` 圆角 `12 4 12 12`）+ 时间戳/token 数
-     - **委派内联卡片**：见 6.5
+     - **委派内联卡片**：见 6.5（同一会话内联可见所有 intercom 委派，被问 agent 不需要独立会话存在）
      - 输入区（`#181825`）：`#313244` 框 + 角色 emoji + placeholder `给产品发消息...` + 蓝色 ↩ 按钮
 3. **编排画布（可选视图）**：对话区 header 右上角"编排画布"按钮切换
+
+> 多项目/sidebar 四区/新建会话面板的完整规格见 `docs/superpowers/specs/2026-07-06-sidebar-projects-design.md`，本节仅作主界面概述。
 
 ### 6.2 视图清单
 
 | 视图 | 触发方式 | 用途 | 原型 |
 |------|---------|------|------|
-| 启动页 | 应用启动 / 新会话 | 选角色 + 开始 | `09-conversation-flow.html` 屏① |
+| 新建会话面板 | 顶部"新建会话"按钮 / 项目行 ＋ | 选项目 + 选 agent + 开始（主区三态之一） | `09-conversation-flow.html` 屏①（改造：下拉并排替代卡片横排） |
 | 会话视图（左右） | 发送第一条消息 | 日常对话主界面 | `09-conversation-flow.html` 屏② |
 | 编排画布 | 对话区右上角按钮 | 全局协作关系可视化 | `02-main-ui.html` |
-| Intercom 时间线 | 底部状态条"查看全部" | 完整 agent 间通信历史 | `08-intercom-timeline.html` |
+| Intercom 时间线 | ~~底部状态条"查看全部"~~ | ⚠️ 此视图在多项目重构后不纳入设计——intercom 信息经会话 header 徽标（点击滚动到委派卡片）+ 内联委派卡片呈现，见 sidebar-projects-design 5.1 | `08-intercom-timeline.html` |
 | Agent 配置 | 画布节点"编辑" / sidebar 双击 | 提示词/能力/技能/合作伙伴 | `04b-agent-config-v2.html` |
 | 能力 Tab（配置内） | Agent 配置切到"能力" | 三类工具勾选分配 | `07b-capabilities-tab-v2.html` |
 | 插件市场 | 顶栏"插件"按钮 | 装/卸包（MVP 外） | `05-package-market.html` |
@@ -379,6 +474,8 @@ pi-agent-browser-native 不同：它**显示在"能力" tab 里，agent 级启�
 **关键**：在画布上拖线 = 在 Agent 配置的"合作伙伴"里加 agent 名；在配置里勾选 = 画布上出现线。两个视图，一份数据。
 
 ### 6.4 Intercom 时间线（原型 `08-intercom-timeline.html`）
+
+> ⚠️ **此视图已不纳入多项目设计（2026-07-06）**。sidebar-projects-design 方案 C 移除了 sidebar 底部状态条，且未保留"查看全部"全屏抽屉入口。intercom 信息现由**会话 header 橙色徽标**（点击滚动到对话流中对应的委派卡片）+ **6.5 内联委派卡片**呈现，见 sidebar-projects-design 5.1。本节保留仅作历史原型说明。
 
 从底部活动栏"查看全部"展开的全屏抽屉，grid `1fr 380px` 左右布局。
 
@@ -459,7 +556,7 @@ graph LR
 
     subgraph UI["用户交互层（React 前端）"]
         direction TB
-        UI1["🚀 启动页<br/>角色选择 + 输入"]
+        UI1["🚀 新建会话面板<br/>选项目 + 选角色 + 输入"]
         UI2["💬 会话视图<br/>对话流 + 委派内联"]
         UI3["🎨 编排画布<br/>节点关系监控"]
         UI4["📡 Intercom 时间线<br/>通信历史"]
@@ -506,11 +603,11 @@ graph LR
 ```
 
 **MVP 边界**：
-- 🔵 **蓝框 = MVP 必做**（11.1 八项）：启动页、会话视图、编排画布、Agent 配置、内核六大组件（AgentManager/PiRpcClient/IntercomMonitor/ConfigStore/StateAggregator + WS）、Pi + intercom + mcp-adapter
-- ⚪ **虚线灰框 = MVP 暂不做**（11.2）：Intercom 时间线全屏、插件市场 UI、产物预览、PackageManager 完整 UI（先用命令行）
+- 🔵 **蓝框 = MVP 必做**（11.1 八项）：新建会话面板（含项目/agent 下拉）、会话视图、编排画布、Agent 配置、内核六大组件（AgentManager/PiRpcClient/IntercomMonitor/ConfigStore/StateAggregator + WS）、Pi + intercom + mcp-adapter
+- ⚪ **虚线灰框 = MVP 暂不做**（11.2）：插件市场 UI、产物预览、PackageManager 完整 UI（先用命令行）；~~Intercom 时间线全屏~~ **已不纳入设计（2026-07-06）**：方案 C 移除 sidebar 底部状态条后该视图失去入口，intercom 信息改由会话 header 徽标 + 内联委派卡片呈现
 
 **功能依赖链**（从用户视角）：
-1. 用户选角色发消息 → `启动页/会话视图` → WebSocket → `AgentManager.ensureStarted` → `PiRpcClient.prompt`
+1. 用户选项目 + 选角色发消息 → `新建会话面板/会话视图` → WebSocket → `AgentManager.ensureStarted` → `PiRpcClient.prompt`
 2. agent LLM 调 intercom → `PiRpcClient` 收 tool_execution 事件 → `IntercomMonitor` 跟踪 ask → `StateAggregator` 推 `intercom:ask` WSEvent → 会话视图显示委派卡片
 3. 用户点"🙋 我来回答" → WebSocket → `IntercomMonitor.injectReply` → broker → ask 解除
 4. 用户编辑 agent → `Agent 配置` → `ConfigStore.saveAgent` → agent.md 落盘 → 下次 spawn 生效
@@ -521,7 +618,7 @@ graph LR
 
 | 组件 | 职责 |
 |------|------|
-| **AgentManager** | 管理 N 个 Pi 进程生命周期（spawn/kill/restart） |
+| **AgentManager** | 管理 N 个 Pi 进程生命周期（spawn/kill/restart）。按 `(projectId, agentName)` 双 key 组织——同一研发 agent 在项目 A 和项目 B 是两个独立 pi 进程，各自 cwd 取自 `project.cwd` |
 | **PiRpcClient** | spawn `pi --mode rpc`，JSONL 双向通信，pending request Map |
 | **IntercomMonitor** | 监听 broker，跟踪每个 agent 的 ask 队列与状态 |
 | **StateAggregator** | 快照+增量模式（借鉴 pi-task），推送前端 |
@@ -532,7 +629,7 @@ graph LR
 
 | 模块 | 职责 |
 |------|------|
-| 启动页 | 角色选择 + 输入框 |
+| 新建会话面板 | 选项目 + 选 agent + 输入框（主区三态之一） |
 | 会话视图 | Codex 式左右布局，消息流，委派内联显示 |
 | 编排画布 | React Flow，agent 节点 + 连线，实时状态 |
 | 时间线 | intercom 消息列表 + 详情面板 |
@@ -602,15 +699,17 @@ agent 用 write 工具生成 login.html
 ```
 用户双击 HiAgent
   → Tauri 启动 → spawn Bun sidecar（端口 9776）
-  → Bun 读 ~/.pi/agent/agents/*.md → 返回角色列表
-  → 前端显示启动页（4 个角色卡片）
-  → 用户选"产品"+ 输入"设计实时通知功能" + 发送
-  → 前端 WS 发 {type:"prompt", role:"product", text:"..."}
-  → Bun AgentManager spawn pi --mode rpc（产品 agent）
+  → Bun 读 ~/.pi/agent/agents/*.md + ~/.hiagent/projects.json → 返回角色列表 + 项目/会话元数据
+  → 前端按主区三态渲染：有项目显示会话视图/新建会话面板，无项目引导建项目
+  → 用户在新建会话面板选"项目 A"+ 选"产品"+ 输入"设计实时通知功能" + 发送
+  → 前端 WS 发 {type:"agent:prompt", projectId:"p1", sessionId:"<新生成>", agentName:"product", text:"..."}
+  → Bun AgentManager 用 (projectId, agentName) 作 key spawn pi --mode rpc（产品 agent，cwd = project.cwd）
   → PiRpcClient 发 {type:"prompt", message:"..."}
   → Pi 流式回传 message_update 事件
   → StateAggregator 推给前端 → 对话区流式渲染
 ```
+
+> **WS 协议**：所有 agent 相关事件都带 `projectId` + `sessionId` 字段，前端按这两个维度路由消息到正确会话。intercom 事件同样带 sessionId 归属。新增事件：`projects:list` / `project:create|update|delete` / `session:create|delete|rename`。
 
 ### 9.2 委派（ask）
 
@@ -662,7 +761,7 @@ agent 用 write 工具生成 login.html
 
 ### 11.1 MVP 必须包含
 
-1. **启动页**：4 角色卡片选择 + 输入框
+1. **新建会话面板**：项目目录 + agent 下拉并排 + 输入框（主区三态之一，不再是独立启动页）
 2. **会话视图**：Codex 式左右，单角色对话，流式渲染
 3. **Pi 集成**：spawn `pi --mode rpc`，prompt/abort 命令
 4. **pi-intercom 集成**：ask/send/reply 事件捕获
@@ -676,10 +775,10 @@ agent 用 write 工具生成 login.html
 - 产物预览（内嵌浏览器，见 8.4）—— 第二迭代优先级
 - 技能细粒度启用/禁用（先用 Pi 原生全量加载）
 - 插件市场 UI（先用 `pi install` 命令行）
-- Intercom 时间线全屏视图（先用底部状态条）
+- ~~Intercom 时间线全屏视图（先用底部状态条）~~ **已不纳入设计（2026-07-06）**：方案 C 移除 sidebar 底部状态条后失去入口，intercom 信息改由会话 header 徽标 + 内联委派卡片呈现，见 sidebar-projects-design 5.1
 - MCP server 配置 UI（先编辑 `.mcp.json`）
 - 会话历史搜索
-- 多项目切换
+- ~~多项目切换~~ **已转入实施（2026-07-06）**：多项目支持已扩展为本次范围（项目→会话两级模型 + 独立 cwd + 独立会话历史），详见 `2026-07-06-sidebar-projects-design.md`
 
 ## 十二、风险与对策
 
@@ -705,7 +804,8 @@ agent 用 write 工具生成 login.html
 
 1. **pi-intercom + `pi --mode rpc` 兼容性**（最高优先级）：✅ **已验证通过（2026-07-06）**。静态分析 + 5 个端到端测试全部通过，pi-intercom v0.6.0 在无头模式下完全可用。**LLM 自主调 intercom 工具的完整链路也已用 DeepSeek 模型实测跑通**（alice ask → bob reply 端到端）。详见 `docs/research/pi-intercom-rpc-compatibility.md`。**重要修正**：v0.6.0 的 broker 没有 ask 超时 GC 机制，ask 天然支持无限等待，4.1 节"包装 ask 把超时设为 Infinity"无需实现。
 2. **头像存储**：emoji 直接存 agent.md 的 avatar 字段（如 `avatar: ⚙️`）；自定义图片建议用文件路径（`~/.pi/agent/avatars/<name>.png`），避免 base64 膨胀配置文件。MVP 先只支持 emoji。
-3. **多项目**：MVP 固定单项目（启动时选 cwd，运行中不可切换）。后续在启动页加项目选择器，每个项目独立的 agent 配置与会话历史。
+3. **多项目**：✅ **已确认并扩展为完整多项目支持（2026-07-06）**。原"MVP 固定单项目（启动时选 cwd，运行中不可切换）"已被取代——现支持项目→会话两级模型、独立 cwd + 独立会话历史、agent 配置全局共享。完整规格见 `2026-07-06-sidebar-projects-design.md`。
+4. **前端框架 React vs Vue（待确认）**：本文档第十节技术栈写 **React 19 + Zustand**，而 `AGENTS.md` 第 6 条要求前端用 **Vue + @vue/test-utils**。两者矛盾，需在实施前对齐——若以 AGENTS.md 为准则需把第十节及第六节 React 相关描述改为 Vue。
 
 ---
 
