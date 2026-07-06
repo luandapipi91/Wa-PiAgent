@@ -42,7 +42,8 @@ export function LaunchScreen() {
 
   const send = () => {
     if (!selected || !text.trim()) return;
-    selectAgent(selected);
+    const agent = list.find(a => a.name === selected);
+    selectAgent(selected, agent?.displayName, agent?.avatar);
     setText("");
   };
 
