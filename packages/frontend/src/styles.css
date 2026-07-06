@@ -32,3 +32,4 @@ body {
   50% { box-shadow: 0 0 25px rgba(250,179,135,0.7); }
 }
 .animate-hiagent-pulse { animation: hiagent-pulse 1.5s infinite; }
+[data-pulse="true"] { animation: hiagent-pulse 1.5s infinite; }
