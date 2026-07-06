@@ -1,0 +1,314 @@
+<h2>Agent 配置 · 能力 tab（重画）</h2>
+<p class="subtitle">MCP 是核心桥接器（不可取消），它接入的工具与其他能力并列展示</p>
+
+<!-- Concept clarification -->
+<div class="section">
+  <div style="background: rgba(137,180,250,0.08); padding: 14px; border-radius: 6px; border-left: 3px solid #89b4fa; font-size: 13px; line-height: 1.7;">
+    <strong style="color: #89b4fa;">概念层次澄清：</strong><br/>
+    <strong>"能力"（Capabilities）</strong> = 一个 agent 能用的所有工具，按来源分三类：<br/>
+    &nbsp;&nbsp;① <strong>内置工具</strong>（read/bash/edit...）—— Pi 自带，可勾选<br/>
+    &nbsp;&nbsp;② <strong>插件工具</strong>（web_search/fetch_url...）—— 来自已装插件，可勾选<br/>
+    &nbsp;&nbsp;③ <strong>MCP 工具</strong>（chrome-devtools/figma...）—— 来自外部 MCP server，可勾选<br/><br/>
+    <strong>MCP 本身</strong>（pi-mcp-adapter）= 核心桥接器，<strong>不可取消</strong>（和 intercom 同级）。<br/>
+    它"激活"了 MCP 工具这个来源，但具体用哪些 MCP server / 工具，还是 agent 级可配。
+  </div>
+</div>
+
+<div class="mockup" style="margin-top: 16px;">
+  <div class="mockup-header">研发 Agent · 能力 tab（重新组织）</div>
+  <div class="mockup-body" style="padding: 0; background: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', sans-serif; font-size: 11px;">
+
+    <!-- Header -->
+    <div style="background: #181825; padding: 10px 14px; border-bottom: 1px solid #313244; display: flex; align-items: center; gap: 10px;">
+      <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #fab387, #f38ba8); display: flex; align-items: center; justify-content: center; font-size: 18px;">⚙️</div>
+      <div>
+        <div style="font-weight: 600;">研发 Agent</div>
+        <div style="font-size: 10px; color: #6c7086;">~/.pi/agent/agents/dev.md</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div style="background: #181825; padding: 0 14px; display: flex; gap: 2px; border-bottom: 1px solid #313244;">
+      <div style="padding: 6px 12px; color: #6c7086; font-size: 11px;">基本信息</div>
+      <div style="padding: 6px 12px; color: #6c7086; font-size: 11px;">系统提示词</div>
+      <div style="padding: 6px 12px; color: #89b4fa; border-bottom: 2px solid #89b4fa; font-size: 11px; font-weight: 600;">能力</div>
+      <div style="padding: 6px 12px; color: #6c7086; font-size: 11px;">技能</div>
+      <div style="padding: 6px 12px; color: #6c7086; font-size: 11px;">合作伙伴</div>
+    </div>
+
+    <!-- Body: single column, scrollable -->
+    <div style="padding: 16px; max-height: 540px; overflow-y: auto;">
+
+      <!-- Core infra (locked) -->
+      <div style="background: rgba(137,180,250,0.06); border: 1px solid rgba(137,180,250,0.2); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="color: #89b4fa; font-size: 12px; font-weight: 600;">🔒 核心基础设施</span>
+            <span style="color: #6c7086; font-size: 10px;">· 内置 · 不可取消</span>
+          </div>
+        </div>
+        <div style="color: #a6adc8; font-size: 10px; line-height: 1.6; margin-bottom: 8px;">
+          这两项是 HiAgent 运行的基础，所有 agent 始终具备，不可在 agent 级关闭。
+        </div>
+        <div style="display: flex; gap: 10px;">
+          <div style="flex: 1; background: #313244; border-radius: 6px; padding: 8px 10px; display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 14px;">📡</span>
+            <div style="flex: 1;">
+              <div style="font-weight: 600; color: #89b4fa; font-size: 11px;">pi-intercom</div>
+              <div style="font-size: 9px; color: #6c7086;">通信：ask / send / reply</div>
+            </div>
+            <span style="color: #6c7086; font-size: 12px;">🔒</span>
+          </div>
+          <div style="flex: 1; background: #313244; border-radius: 6px; padding: 8px 10px; display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 14px;">🔌</span>
+            <div style="flex: 1;">
+              <div style="font-weight: 600; color: #89b4fa; font-size: 11px;">pi-mcp-adapter</div>
+              <div style="font-size: 9px; color: #6c7086;">MCP 桥接（始终激活）</div>
+            </div>
+            <span style="color: #6c7086; font-size: 12px;">🔒</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Built-in tools -->
+      <div style="margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="color: #a6e3a1; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">📁 内置工具</div>
+          <span style="color: #6c7086; font-size: 10px;">Pi 自带 · 7 启用 / 7</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ read</span>
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ bash</span>
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ edit</span>
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ write</span>
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ grep</span>
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ find</span>
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ ls</span>
+        </div>
+      </div>
+
+      <!-- Plugin tools -->
+      <div style="margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="color: #fab387; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">🌐 插件工具</div>
+          <span style="color: #6c7086; font-size: 10px;">来自已装插件 · 2 启用 / 3 可用</span>
+        </div>
+
+        <!-- pi-web-access group -->
+        <div style="background: #313244; border-radius: 6px; padding: 10px; margin-bottom: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 13px;">🌐</span>
+              <span style="color: #a6adc8; font-size: 11px; font-weight: 500;">pi-web-access</span>
+              <span style="color: #6c7086; font-size: 9px;">npm · v3.4.1</span>
+            </div>
+            <div style="background: #a6e3a1; width: 28px; height: 16px; border-radius: 10px; position: relative; cursor: pointer;">
+              <div style="position: absolute; right: 2px; top: 2px; background: #1e1e2e; width: 12px; height: 12px; border-radius: 50%;"></div>
+            </div>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+            <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 2px 8px; border-radius: 10px; font-size: 10px; cursor: pointer;">✓ web_search</span>
+            <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 2px 8px; border-radius: 10px; font-size: 10px; cursor: pointer;">✓ fetch_url</span>
+            <span style="background: transparent; border: 1px dashed #585b70; color: #6c7086; padding: 2px 8px; border-radius: 10px; font-size: 10px; cursor: pointer;">+ pdf_extract</span>
+          </div>
+        </div>
+
+        <!-- gentle-pi tools (disabled) -->
+        <div style="background: #313244; border-radius: 6px; padding: 10px; opacity: 0.6;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 13px;">🎩</span>
+              <span style="color: #a6adc8; font-size: 11px; font-weight: 500;">gentle-pi</span>
+              <span style="color: #6c7086; font-size: 9px;">review guardrails</span>
+            </div>
+            <div style="background: #585b70; width: 28px; height: 16px; border-radius: 10px; position: relative; cursor: pointer;">
+              <div style="position: absolute; left: 2px; top: 2px; background: #a6adc8; width: 12px; height: 12px; border-radius: 50%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MCP tools (key redesign: MCP is locked infra, but tools from MCP servers are configurable) -->
+      <div style="margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="color: #cba6f7; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">🔌 MCP 工具</div>
+            <span style="background: rgba(137,180,250,0.15); color: #89b4fa; padding: 1px 6px; border-radius: 3px; font-size: 9px;">桥接已激活 🔒</span>
+          </div>
+          <span style="color: #6c7086; font-size: 10px;">来自外部 MCP server · 0 启用 / 3 可用</span>
+        </div>
+
+        <div style="background: rgba(137,180,250,0.04); border: 1px solid rgba(203,166,247,0.15); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px;">
+          <div style="color: #6c7086; font-size: 9px; line-height: 1.5;">
+            <strong style="color:#cba6f7;">MCP 桥接器始终激活</strong>（pi-mcp-adapter 不可取消）<br/>
+            以下工具来自已配置的 MCP server，可按 agent 启用/禁用。
+          </div>
+        </div>
+
+        <!-- chrome-devtools server -->
+        <div style="background: #313244; border-radius: 6px; padding: 10px; margin-bottom: 6px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 13px;">🔧</span>
+              <div>
+                <div style="color: #a6adc8; font-size: 11px; font-weight: 500;">chrome-devtools</div>
+                <div style="color: #6c7086; font-size: 9px;">MCP server · 8 个工具</div>
+              </div>
+            </div>
+            <div style="background: #585b70; width: 28px; height: 16px; border-radius: 10px; position: relative; cursor: pointer;">
+              <div style="position: absolute; left: 2px; top: 2px; background: #a6adc8; width: 12px; height: 12px; border-radius: 50%;"></div>
+            </div>
+          </div>
+          <div style="color: #6c7086; font-size: 9px; margin-top: 6px; font-style: italic;">
+            研发未启用 · 测试 agent 已启用此 server 的全部工具
+          </div>
+        </div>
+
+        <!-- figma server -->
+        <div style="background: #313244; border-radius: 6px; padding: 10px; margin-bottom: 6px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 13px;">🎨</span>
+              <div>
+                <div style="color: #a6adc8; font-size: 11px; font-weight: 500;">figma</div>
+                <div style="color: #6c7086; font-size: 9px;">MCP server · 12 个工具</div>
+              </div>
+            </div>
+            <div style="background: #585b70; width: 28px; height: 16px; border-radius: 10px; position: relative; cursor: pointer;">
+              <div style="position: absolute; left: 2px; top: 2px; background: #a6adc8; width: 12px; height: 12px; border-radius: 50%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- github server -->
+        <div style="background: #313244; border-radius: 6px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 13px;">🐙</span>
+              <div>
+                <div style="color: #a6adc8; font-size: 11px; font-weight: 500;">github</div>
+                <div style="color: #6c7086; font-size: 9px;">MCP server · 15 个工具</div>
+              </div>
+            </div>
+            <div style="background: #585b70; width: 28px; height: 16px; border-radius: 10px; position: relative; cursor: pointer;">
+              <div style="position: absolute; left: 2px; top: 2px; background: #a6adc8; width: 12px; height: 12px; border-radius: 50%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 8px;">
+          <span style="background: transparent; border: 1px dashed #cba6f7; color: #cba6f7; padding: 4px 12px; border-radius: 4px; font-size: 10px; cursor: pointer;">+ 配置新的 MCP server</span>
+        </div>
+      </div>
+
+      <!-- Summary -->
+      <div style="background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2); border-radius: 6px; padding: 10px;">
+        <div style="color: #f9e2af; font-size: 10px; font-weight: 600; margin-bottom: 6px;">📋 研发 agent 能力汇总</div>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; font-size: 10px; text-align: center;">
+          <div>
+            <div style="color: #a6e3a1; font-weight: 700; font-size: 14px;">7</div>
+            <div style="color: #6c7086;">内置工具</div>
+          </div>
+          <div>
+            <div style="color: #fab387; font-weight: 700; font-size: 14px;">2</div>
+            <div style="color: #6c7086;">插件工具</div>
+          </div>
+          <div>
+            <div style="color: #cba6f7; font-weight: 700; font-size: 14px;">0</div>
+            <div style="color: #6c7086;">MCP 工具</div>
+          </div>
+          <div>
+            <div style="color: #89b4fa; font-weight: 700; font-size: 14px;">3</div>
+            <div style="color: #6c7086;">技能</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Concept diagram -->
+<div class="section" style="margin-top: 20px;">
+  <h3>能力 = 内置 + 插件 + MCP 三类工具的并集</h3>
+  <div style="background: #181825; border-radius: 8px; padding: 18px; font-family: 'Segoe UI', sans-serif; font-size: 12px;">
+    <svg viewBox="0 0 600 220" style="width: 100%; height: 200px;">
+      <!-- Big container: 能力 -->
+      <rect x="10" y="10" width="580" height="200" rx="10" fill="none" stroke="#89b4fa" stroke-width="2" stroke-dasharray="6,3"/>
+      <text x="20" y="32" font-size="13" fill="#89b4fa" font-weight="bold">能力 (Capabilities) — 这个 agent 能用什么工具</text>
+
+      <!-- Core infra (locked, sits at top inside capabilities) -->
+      <rect x="30" y="50" width="540" height="40" rx="6" fill="rgba(137,180,250,0.1)" stroke="#89b4fa" stroke-width="1.5"/>
+      <text x="45" y="68" font-size="11" fill="#89b4fa" font-weight="bold">🔒 核心基础设施（始终激活 · 不可取消）</text>
+      <text x="45" y="83" font-size="10" fill="#a6adc8">📡 pi-intercom (通信)    ·    🔌 pi-mcp-adapter (MCP 桥接 — 让下面的 MCP 工具可用)</text>
+
+      <!-- Three sources -->
+      <!-- Built-in -->
+      <rect x="30" y="105" width="170" height="90" rx="6" fill="rgba(166,227,161,0.08)" stroke="#a6e3a1" stroke-width="1.5"/>
+      <text x="40" y="123" font-size="11" fill="#a6e3a1" font-weight="bold">📁 内置工具</text>
+      <text x="40" y="140" font-size="10" fill="#a6adc8">read / bash / edit / write</text>
+      <text x="40" y="155" font-size="10" fill="#a6adc8">grep / find / ls</text>
+      <text x="40" y="178" font-size="9" fill="#6c7086">✓ 可勾选启用/禁用</text>
+
+      <!-- Plugin -->
+      <rect x="215" y="105" width="170" height="90" rx="6" fill="rgba(250,179,135,0.08)" stroke="#fab387" stroke-width="1.5"/>
+      <text x="225" y="123" font-size="11" fill="#fab387" font-weight="bold">🌐 插件工具</text>
+      <text x="225" y="140" font-size="10" fill="#a6adc8">web_search (pi-web-access)</text>
+      <text x="225" y="155" font-size="10" fill="#a6adc8">fetch_url (pi-web-access)</text>
+      <text x="225" y="178" font-size="9" fill="#6c7086">✓ 可勾选启用/禁用</text>
+
+      <!-- MCP -->
+      <rect x="400" y="105" width="170" height="90" rx="6" fill="rgba(203,166,247,0.08)" stroke="#cba6f7" stroke-width="1.5"/>
+      <text x="410" y="123" font-size="11" fill="#cba6f7" font-weight="bold">🔌 MCP 工具</text>
+      <text x="410" y="140" font-size="10" fill="#a6adc8">chrome-devtools (8 工具)</text>
+      <text x="410" y="155" font-size="10" fill="#a6adc8">figma (12 工具)</text>
+      <text x="410" y="178" font-size="9" fill="#6c7086">✓ 可勾选启用/禁用</text>
+
+      <!-- Arrow from mcp-adapter down to MCP tools -->
+      <path d="M 300 90 L 485 105" stroke="#89b4fa" stroke-width="1.5" stroke-dasharray="3,2" fill="none"/>
+      <text x="340" y="100" font-size="8" fill="#89b4fa">桥接 →</text>
+    </svg>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 16px;">
+  <h3>关键设计点</h3>
+  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 12px;">
+    <div style="background: rgba(137,180,250,0.08); padding: 10px; border-left: 3px solid #89b4fa; border-radius: 4px;">
+      <strong style="color: #89b4fa;">MCP = 桥接器，不可取消：</strong>pi-mcp-adapter 和 pi-intercom 同级，是核心基础设施。它"激活"了 MCP 工具这个来源。
+    </div>
+    <div style="background: rgba(203,166,247,0.08); padding: 10px; border-left: 3px solid #cba6f7; border-radius: 4px;">
+      <strong style="color: #cba6f7;">MCP 工具 = agent 级可配：</strong>桥接器始终激活，但具体用哪些 MCP server / 工具，每个 agent 独立勾选。研发可以不用 MCP，测试可以用 chrome-devtools。
+    </div>
+    <div style="background: rgba(166,227,161,0.08); padding: 10px; border-left: 3px solid #a6e3a1; border-radius: 4px;">
+      <strong style="color: #a6e3a1;">三类工具并列：</strong>内置 / 插件 / MCP 在"能力" tab 下平级展示。从 agent 视角看，web_search 和 chrome-devtools 都是"我能用的工具"，只是来源不同。
+    </div>
+    <div style="background: rgba(250,179,135,0.08); padding: 10px; border-left: 3px solid #fab387; border-radius: 4px;">
+      <strong style="color: #fab387;">能力 ≠ 技能：</strong>能力是"工具"（agent 能执行什么动作）；技能是"知识"（agent 知道怎么做某事）。分开两个 tab。
+    </div>
+  </div>
+</div>
+
+<div class="options" style="margin-top: 20px;">
+  <div class="option" data-choice="approve" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>能力/MCP 语义清晰了</h3>
+      <p>桥接器锁定，工具按来源三类并列，agent 级勾选。继续下一张或写文档</p>
+    </div>
+  </div>
+  <div class="option" data-choice="tweak" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>某些点想调整</h3>
+      <p>分组、MCP server 配置入口、或概念层次</p>
+    </div>
+  </div>
+  <div class="option" data-choice="enough" onclick="toggleSelect(this)">
+    <div class="letter">✎</div>
+    <div class="content">
+      <h3>UI 看够了，开始写设计文档</h3>
+      <p>把所有 mockup + 决策沉淀成 spec</p>
+    </div>
+  </div>
+</div>

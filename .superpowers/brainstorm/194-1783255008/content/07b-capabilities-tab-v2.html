@@ -1,0 +1,211 @@
+<h2>Agent 配置 · 能力 tab v2</h2>
+<p class="subtitle">能力汇总提到顶部，核心基础设施不显示（反正改不了）</p>
+
+<div class="mockup">
+  <div class="mockup-header">研发 Agent · 能力 tab</div>
+  <div class="mockup-body" style="padding: 0; background: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', sans-serif; font-size: 11px;">
+
+    <!-- Header -->
+    <div style="background: #181825; padding: 10px 14px; border-bottom: 1px solid #313244; display: flex; align-items: center; gap: 10px;">
+      <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #fab387, #f38ba8); display: flex; align-items: center; justify-content: center; font-size: 18px;">⚙️</div>
+      <div>
+        <div style="font-weight: 600;">研发 Agent</div>
+        <div style="font-size: 10px; color: #6c7086;">~/.pi/agent/agents/dev.md</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div style="background: #181825; padding: 0 14px; display: flex; gap: 2px; border-bottom: 1px solid #313244;">
+      <div style="padding: 6px 12px; color: #6c7086; font-size: 11px;">基本信息</div>
+      <div style="padding: 6px 12px; color: #6c7086; font-size: 11px;">系统提示词</div>
+      <div style="padding: 6px 12px; color: #89b4fa; border-bottom: 2px solid #89b4fa; font-size: 11px; font-weight: 600;">能力</div>
+      <div style="padding: 6px 12px; color: #6c7086; font-size: 11px;">技能</div>
+      <div style="padding: 6px 12px; color: #6c7086; font-size: 11px;">合作伙伴</div>
+    </div>
+
+    <!-- Body -->
+    <div style="padding: 16px; max-height: 540px; overflow-y: auto;">
+
+      <!-- 能力汇总 (moved to top, replaces core infra) -->
+      <div style="background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <div style="color: #f9e2af; font-size: 12px; font-weight: 600;">📋 能力汇总</div>
+          <span style="color: #6c7086; font-size: 10px;">共 9 个工具可用</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; text-align: center;">
+          <div style="background: #313244; padding: 10px 6px; border-radius: 6px;">
+            <div style="color: #a6e3a1; font-weight: 700; font-size: 18px;">7</div>
+            <div style="color: #6c7086; font-size: 9px; margin-top: 2px;">📁 内置工具</div>
+          </div>
+          <div style="background: #313244; padding: 10px 6px; border-radius: 6px;">
+            <div style="color: #fab387; font-weight: 700; font-size: 18px;">2</div>
+            <div style="color: #6c7086; font-size: 9px; margin-top: 2px;">🌐 插件工具</div>
+          </div>
+          <div style="background: #313244; padding: 10px 6px; border-radius: 6px;">
+            <div style="color: #cba6f7; font-weight: 700; font-size: 18px;">0</div>
+            <div style="color: #6c7086; font-size: 9px; margin-top: 2px;">🔌 MCP 工具</div>
+          </div>
+          <div style="background: #313244; padding: 10px 6px; border-radius: 6px;">
+            <div style="color: #89b4fa; font-weight: 700; font-size: 18px;">3</div>
+            <div style="color: #6c7086; font-size: 9px; margin-top: 2px;">📚 技能</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Built-in tools -->
+      <div style="margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="color: #a6e3a1; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">📁 内置工具</div>
+          <span style="color: #6c7086; font-size: 10px;">Pi 自带 · 7 启用 / 7</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ read</span>
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ bash</span>
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ edit</span>
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ write</span>
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ grep</span>
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ find</span>
+          <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 3px 9px; border-radius: 12px; font-size: 10px; cursor: pointer;">✓ ls</span>
+        </div>
+      </div>
+
+      <!-- Plugin tools -->
+      <div style="margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="color: #fab387; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">🌐 插件工具</div>
+          <span style="color: #6c7086; font-size: 10px;">来自已装插件 · 2 启用 / 3 可用</span>
+        </div>
+
+        <div style="background: #313244; border-radius: 6px; padding: 10px; margin-bottom: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 13px;">🌐</span>
+              <span style="color: #a6adc8; font-size: 11px; font-weight: 500;">pi-web-access</span>
+              <span style="color: #6c7086; font-size: 9px;">npm · v3.4.1</span>
+            </div>
+            <div style="background: #a6e3a1; width: 28px; height: 16px; border-radius: 10px; position: relative; cursor: pointer;">
+              <div style="position: absolute; right: 2px; top: 2px; background: #1e1e2e; width: 12px; height: 12px; border-radius: 50%;"></div>
+            </div>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+            <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 2px 8px; border-radius: 10px; font-size: 10px; cursor: pointer;">✓ web_search</span>
+            <span style="background: rgba(166,227,161,0.15); border: 1px solid #a6e3a1; color: #a6e3a1; padding: 2px 8px; border-radius: 10px; font-size: 10px; cursor: pointer;">✓ fetch_url</span>
+            <span style="background: transparent; border: 1px dashed #585b70; color: #6c7086; padding: 2px 8px; border-radius: 10px; font-size: 10px; cursor: pointer;">+ pdf_extract</span>
+          </div>
+        </div>
+
+        <div style="background: #313244; border-radius: 6px; padding: 10px; opacity: 0.6;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 13px;">🎩</span>
+              <span style="color: #a6adc8; font-size: 11px; font-weight: 500;">gentle-pi</span>
+              <span style="color: #6c7086; font-size: 9px;">review guardrails</span>
+            </div>
+            <div style="background: #585b70; width: 28px; height: 16px; border-radius: 10px; position: relative; cursor: pointer;">
+              <div style="position: absolute; left: 2px; top: 2px; background: #a6adc8; width: 12px; height: 12px; border-radius: 50%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MCP tools -->
+      <div style="margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="color: #cba6f7; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">🔌 MCP 工具</div>
+          <span style="color: #6c7086; font-size: 10px;">来自外部 MCP server · 0 启用 / 3 可用</span>
+        </div>
+
+        <div style="background: #313244; border-radius: 6px; padding: 10px; margin-bottom: 6px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 13px;">🔧</span>
+              <div>
+                <div style="color: #a6adc8; font-size: 11px; font-weight: 500;">chrome-devtools</div>
+                <div style="color: #6c7086; font-size: 9px;">MCP server · 8 个工具</div>
+              </div>
+            </div>
+            <div style="background: #585b70; width: 28px; height: 16px; border-radius: 10px; position: relative; cursor: pointer;">
+              <div style="position: absolute; left: 2px; top: 2px; background: #a6adc8; width: 12px; height: 12px; border-radius: 50%;"></div>
+            </div>
+          </div>
+          <div style="color: #6c7086; font-size: 9px; margin-top: 6px; font-style: italic;">
+            研发未启用 · 测试 agent 已启用此 server 的全部工具
+          </div>
+        </div>
+
+        <div style="background: #313244; border-radius: 6px; padding: 10px; margin-bottom: 6px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 13px;">🎨</span>
+              <div>
+                <div style="color: #a6adc8; font-size: 11px; font-weight: 500;">figma</div>
+                <div style="color: #6c7086; font-size: 9px;">MCP server · 12 个工具</div>
+              </div>
+            </div>
+            <div style="background: #585b70; width: 28px; height: 16px; border-radius: 10px; position: relative; cursor: pointer;">
+              <div style="position: absolute; left: 2px; top: 2px; background: #a6adc8; width: 12px; height: 12px; border-radius: 50%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: #313244; border-radius: 6px; padding: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 13px;">🐙</span>
+              <div>
+                <div style="color: #a6adc8; font-size: 11px; font-weight: 500;">github</div>
+                <div style="color: #6c7086; font-size: 9px;">MCP server · 15 个工具</div>
+              </div>
+            </div>
+            <div style="background: #585b70; width: 28px; height: 16px; border-radius: 10px; position: relative; cursor: pointer;">
+              <div style="position: absolute; left: 2px; top: 2px; background: #a6adc8; width: 12px; height: 12px; border-radius: 50%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 8px;">
+          <span style="background: transparent; border: 1px dashed #cba6f7; color: #cba6f7; padding: 4px 12px; border-radius: 4px; font-size: 10px; cursor: pointer;">+ 配置新的 MCP server</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 16px;">
+  <h3>v2 改动</h3>
+  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 12px;">
+    <div style="background: rgba(166,227,161,0.08); padding: 10px; border-left: 3px solid #a6e3a1; border-radius: 4px;">
+      <strong style="color: #a6e3a1;">✓ 去掉核心基础设施区块：</strong><br/>
+      pi-intercom / pi-mcp-adapter 是后台桥接器，用户改不了，不需要在 UI 里显示。它们默默工作。
+    </div>
+    <div style="background: rgba(245,158,11,0.08); padding: 10px; border-left: 3px solid #f9e2af; border-radius: 4px;">
+      <strong style="color: #f9e2af;">✓ 能力汇总提到顶部：</strong><br/>
+      进入能力 tab 第一眼就看到总数（7 内置 / 2 插件 / 0 MCP / 3 技能）。下面是三类工具的详细配置。
+    </div>
+  </div>
+</div>
+
+<div class="options" style="margin-top: 20px;">
+  <div class="option" data-choice="approve" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>好，继续</h3>
+      <p>开始写设计文档，或看下一张（intercom 时间线 / agent 创建向导）</p>
+    </div>
+  </div>
+  <div class="option" data-choice="tweak" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>还想调整</h3>
+      <p>汇总卡样式、分组顺序、或其他</p>
+    </div>
+  </div>
+  <div class="option" data-choice="enough" onclick="toggleSelect(this)">
+    <div class="letter">✎</div>
+    <div class="content">
+      <h3>UI 看够了，写设计文档</h3>
+      <p>把所有 mockup + 决策沉淀成 spec</p>
+    </div>
+  </div>
+</div>

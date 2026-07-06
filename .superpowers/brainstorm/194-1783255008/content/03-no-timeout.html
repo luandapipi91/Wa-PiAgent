@@ -1,0 +1,179 @@
+<h2>"ask 不设超时" 机制的设计含义</h2>
+<p class="subtitle">你的决策：产品可以无限等研发。这是特性，不是 bug。但需要把它设计好。</p>
+
+<div class="section">
+  <h3>先确认技术真相：不设限是免费的</h3>
+  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px;">
+    <div style="background: rgba(166,227,161,0.1); padding: 12px; border-radius: 6px; text-align: center;">
+      <div style="font-size: 22px;">💰</div>
+      <div style="font-weight: 600; color: #a6e3a1; margin-top: 4px;">¥0</div>
+      <div style="font-size: 11px; color: #a6adc8; margin-top: 2px;">等待期间<br/>无 LLM 调用</div>
+    </div>
+    <div style="background: rgba(166,227,161,0.1); padding: 12px; border-radius: 6px; text-align: center;">
+      <div style="font-size: 22px;">🧠</div>
+      <div style="font-weight: 600; color: #a6e3a1; margin-top: 4px;">0 token</div>
+      <div style="font-size: 11px; color: #a6adc8; margin-top: 2px;">上下文冻结<br/>不增长</div>
+    </div>
+    <div style="background: rgba(137,180,250,0.1); padding: 12px; border-radius: 6px; text-align: center;">
+      <div style="font-size: 22px;">♾️</div>
+      <div style="font-weight: 600; color: #89b4fa; margin-top: 4px;">无限等</div>
+      <div style="font-size: 11px; color: #a6adc8; margin-top: 2px;">真实协作语义<br/>不催不放弃</div>
+    </div>
+    <div style="background: rgba(250,179,135,0.1); padding: 12px; border-radius: 6px; text-align: center;">
+      <div style="font-size: 22px;">⚠️</div>
+      <div style="font-weight: 600; color: #fab387; margin-top: 4px;">需兜底</div>
+      <div style="font-size: 11px; color: #a6adc8; margin-top: 2px;">进程保活<br/>用户可介入</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>"不设限" 必须设计好的 3 件事</h3>
+  <div style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+
+    <!-- Problem 1 -->
+    <div style="background: rgba(250,179,135,0.06); border-left: 3px solid #fab387; padding: 14px; border-radius: 4px;">
+      <div style="font-weight: 600; color: #fab387; margin-bottom: 8px;">① 研发回复前，产品进程必须活着</div>
+      <div style="font-size: 12px; color: #cdd6f4; line-height: 1.6;">
+        pi-intercom 默认 10 分钟超时是 tool 层的（防呆）。<br/>
+        你的机制：<strong>编排内核包装 ask，把超时设为 Infinity</strong>。tool 永远 await，直到：<br/>
+        <span style="color:#a6e3a1;">✓ 研发通过 intercom reply 回复</span><br/>
+        <span style="color:#a6e3a1;">✓ 用户手动替答（编排内核合成一个 reply）</span><br/>
+        <span style="color:#a6e3a1;">✓ 用户手动取消这次 ask</span><br/>
+        <span style="color:#a6e3a1;">✓ 产品或研发进程被关闭</span>
+      </div>
+    </div>
+
+    <!-- Problem 2 -->
+    <div style="background: rgba(137,180,250,0.06); border-left: 3px solid #89b4fa; padding: 14px; border-radius: 4px;">
+      <div style="font-weight: 600; color: #89b4fa; margin-bottom: 8px;">② 队列透明：研发同时被多人 ask 怎么办？</div>
+      <div style="font-size: 12px; color: #cdd6f4; line-height: 1.6;">
+        不设限意味着可能积压。IntercomMonitor 必须跟踪并可视化每个 agent 的 pending 队列：<br/>
+        <span style="color:#cdd6f4;">• 研发节点上显示 <code style="background:#313244;padding:1px 5px;border-radius:3px;font-size:11px;">队列: 2 (产品, PM)</code></span><br/>
+        <span style="color:#cdd6f4;">• 当前处理的是哪一个（FIFO？还是研发 LLM 自己挑？）</span><br/>
+        <span style="color:#cdd6f4;">• 每个等待者已等了多久（不是"还剩多久"，是"已等"）</span>
+      </div>
+    </div>
+
+    <!-- Problem 3 -->
+    <div style="background: rgba(166,227,161,0.06); border-left: 3px solid #a6e3a1; padding: 14px; border-radius: 4px;">
+      <div style="font-weight: 600; color: #a6e3a1; margin-bottom: 8px;">③ 用户必须能随时介入（但不强制）</div>
+      <div style="font-size: 12px; color: #cdd6f4; line-height: 1.6;">
+        不设超时 = 不会自动放弃 = 用户必须自己有手段结束/加速。<br/>
+        但这是<strong>可选的干预</strong>，不是强制的倒计时。永远挂在那等也是合法状态。
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Mockup: 队列与干预面板 -->
+<div class="mockup" style="margin-top: 20px;">
+  <div class="mockup-header">画布上"无超时等待"的可视化（对比之前的 mockup）</div>
+  <div class="mockup-body" style="padding: 20px; background: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', sans-serif; font-size: 12px;">
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+
+      <!-- LEFT: 之前的有倒计时 -->
+      <div style="background: #181825; border-radius: 8px; padding: 14px;">
+        <div style="color: #f38ba8; font-size: 11px; font-weight: 600; margin-bottom: 8px;">✗ 旧设计（有超时压力）</div>
+        <div style="background: rgba(250,179,135,0.12); border-left: 3px solid #fab387; border-radius: 4px; padding: 8px 10px;">
+          <div style="font-size: 10px; color: #fab387; font-weight: 600;">↗ 委派给研发 (ask)</div>
+          <div style="font-size: 11px; margin-top: 3px;">"WebSocket 还是 SSE?"</div>
+          <div style="font-size: 9px; color: #f38ba8; margin-top: 4px;">⏱ 等待回复 · 已阻塞 23s（10min 后超时）</div>
+        </div>
+        <div style="color: #6c7086; font-size: 10px; margin-top: 8px; font-style: italic;">
+          问题：倒计时给用户压力，超时后 LLM 自己瞎决定
+        </div>
+      </div>
+
+      <!-- RIGHT: 新设计无超时 -->
+      <div style="background: #181825; border-radius: 8px; padding: 14px;">
+        <div style="color: #a6e3a1; font-size: 11px; font-weight: 600; margin-bottom: 8px;">✓ 新设计（无超时，可介入）</div>
+        <div style="background: rgba(137,180,250,0.12); border-left: 3px solid #89b4fa; border-radius: 4px; padding: 8px 10px;">
+          <div style="font-size: 10px; color: #89b4fa; font-weight: 600;">↗ 委派给研发 (ask · 排队 #1)</div>
+          <div style="font-size: 11px; margin-top: 3px;">"WebSocket 还是 SSE?"</div>
+          <div style="font-size: 9px; color: #6c7086; margin-top: 4px;">⏳ 已等待 23s · 研发空闲，预计很快回复</div>
+          <div style="display: flex; gap: 4px; margin-top: 6px;">
+            <button style="background: #313244; border: 1px solid #585b70; color: #cdd6f4; font-size: 9px; padding: 2px 7px; border-radius: 3px; cursor: pointer;">🙋 我来回答</button>
+            <button style="background: #313244; border: 1px solid #585b70; color: #cdd6f4; font-size: 9px; padding: 2px 7px; border-radius: 3px; cursor: pointer;">催一下</button>
+            <button style="background: transparent; border: 1px solid #585b70; color: #6c7086; font-size: 9px; padding: 2px 7px; border-radius: 3px; cursor: pointer;">取消</button>
+          </div>
+        </div>
+        <div style="color: #6c7086; font-size: 10px; margin-top: 8px; font-style: italic;">
+          无压力 · 等多久都行 · 想介入才介入
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 研发被多人 ask 的队列视图 -->
+    <div style="margin-top: 16px; background: #181825; border-radius: 8px; padding: 14px;">
+      <div style="color: #89b4fa; font-size: 11px; font-weight: 600; margin-bottom: 10px;">研发节点详情（点击画布上的研发节点展开）</div>
+
+      <div style="display: grid; grid-template-columns: 120px 1fr; gap: 12px; font-size: 11px;">
+        <div style="color: #6c7086;">状态</div>
+        <div><span style="color: #fab387;">● 正在回复产品</span> <span style="color:#6c7086;">(thinking · 2.4k tok)</span></div>
+
+        <div style="color: #6c7086;">队列 (2)</div>
+        <div>
+          <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 4px;">
+            <span style="background: #89b4fa; color: #1e1e2e; padding: 1px 6px; border-radius: 8px; font-size: 9px; font-weight: 600;">#1 产品</span>
+            <span style="color: #cdd6f4;">WebSocket vs SSE?</span>
+            <span style="color: #6c7086; font-size: 10px;">· 处理中</span>
+          </div>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <span style="background: #6c7086; color: #cdd6f4; padding: 1px 6px; border-radius: 8px; font-size: 9px;">#2 PM</span>
+            <span style="color: #a6adc8;">接口字段命名规范?</span>
+            <span style="color: #6c7086; font-size: 10px;">· 已等 1m12s</span>
+          </div>
+        </div>
+
+        <div style="color: #6c7086;">研发配置</div>
+        <div style="color: #a6adc8;">model: claude-sonnet · maxConcurrency: 1（一次处理一个 ask）</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="section" style="margin-top: 20px;">
+  <h3>需要你确认的设计决策</h3>
+  <div style="background: rgba(245,158,11,0.08); padding: 14px; border-radius: 6px; border-left: 3px solid #f59e0b; font-size: 13px; line-height: 1.7;">
+    <strong>1. ask 超时 = Infinity</strong> ✅ 已确认（你的决策）<br/>
+    <strong>2. 队列调度：</strong>研发被多人 ask 时，<strong>FIFO</strong>（先到先处理）还是<strong>研发 LLM 自己选</strong>（看上下文挑重要的答）？<br/>
+    <strong>3. 并发处理：</strong>研发可以<strong>同时回复多个 ask</strong>（maxConcurrency &gt; 1，一个 turn 处理一个，但多个 turn 并行）还是<strong>串行</strong>（一次一个）？<br/>
+    <strong>4. "催一下"按钮</strong>：点了之后做什么？给研发插队一条高优先级 steer 消息？还是给用户一个输入框直接打字给研发？
+  </div>
+</div>
+
+<div class="options" style="margin-top: 20px;">
+  <div class="option" data-choice="fifo-serial" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>FIFO + 串行（推荐，最简单）</h3>
+      <p>研发按 ask 到达顺序处理，一次只处理一个。其他排队等。可预测、可调试。maxConcurrency=1。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="llm-picks-serial" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>研发 LLM 自己挑 + 串行</h3>
+      <p>研发看到队列，LLM 决定先答哪个（可能先答简单的）。更智能但不可预测。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="parallel" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>并行处理（maxConcurrency=N）</h3>
+      <p>研发可同时回复多个 ask，每个开独立 turn。最快但上下文最复杂、最烧 token。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="discuss" onclick="toggleSelect(this)">
+    <div class="letter">?</div>
+    <div class="content">
+      <h3>在终端讨论</h3>
+      <p>队列/并发/催促的语义想再想想</p>
+    </div>
+  </div>
+</div>

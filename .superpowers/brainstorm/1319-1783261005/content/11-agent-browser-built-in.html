@@ -1,0 +1,220 @@
+<h2>pi-agent-browser-native 作为内置能力</h2>
+<p class="subtitle">agent 自己用浏览器（做 web 开发时打开 localhost、QA、截图）—— 与产物预览互补</p>
+
+<div class="section">
+  <div style="background: rgba(137,180,250,0.08); padding: 14px; border-radius: 6px; border-left: 3px solid #89b4fa; font-size: 13px; line-height: 1.7;">
+    <strong style="color: #89b4fa;">两个浏览器功能，方向相反但都要：</strong><br/>
+    🌐 <strong>产物预览</strong>（7.4）= <strong>产物 → 用户</strong>。agent 生成 login.html，用户在内嵌浏览器看效果。<br/>
+    🤖 <strong>agent_browser</strong>（本节）= <strong>agent → 浏览器</strong>。研发做 web 开发时，agent 自己打开 localhost:3000 截图检查、点击 QA。<br/><br/>
+    <strong>定位：</strong>pi-agent-browser-native 设为<strong>内置预装</strong>（🔒 不可删），但<strong>agent 级启用</strong>（不是所有 agent 都需要 —— 产品可能不需要，研发做网页开发需要）。
+  </div>
+</div>
+
+<!-- Two browser features comparison -->
+<div class="split" style="margin-top: 16px;">
+
+  <div class="mockup">
+    <div class="mockup-header">🌐 产物预览（给用户看）— 7.4</div>
+    <div class="mockup-body" style="padding: 14px; background: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', sans-serif; font-size: 11px; min-height: 200px;">
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="color: #6c7086; font-size: 10px;">流程：</div>
+        <div style="background: #313244; padding: 8px; border-radius: 6px; font-size: 10px;">
+          <strong style="color: #fab387;">研发</strong> 生成 login.html<br/>
+          <span style="color: #6c7086;">↓ write 工具</span><br/>
+          对话区出现产物卡片<br/>
+          <span style="color: #6c7086;">↓ 用户点击预览</span><br/>
+          <strong style="color: #89b4fa;">用户</strong>在内嵌浏览器看效果
+        </div>
+        <div style="background: rgba(137,180,250,0.08); padding: 8px; border-radius: 6px; font-size: 10px;">
+          <strong>实现：</strong>Bun 静态服务器 + iframe / WebviewWindow<br/>
+          <strong>看到的人：</strong>用户<br/>
+          <strong>触发：</strong>用户点击
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">🤖 agent_browser（给 agent 用）— 新增</div>
+    <div class="mockup-body" style="padding: 14px; background: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', sans-serif; font-size: 11px; min-height: 200px;">
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="color: #6c7086; font-size: 10px;">流程：</div>
+        <div style="background: #313244; padding: 8px; border-radius: 6px; font-size: 10px;">
+          <strong style="color: #fab387;">研发</strong> 要做 web 开发<br/>
+          <span style="color: #6c7086;">↓ agent 调 agent_browser 工具</span><br/>
+          打开 localhost:3000，截图，检查元素<br/>
+          <span style="color: #6c7086;">↓ 工具返回快照+截图路径</span><br/>
+          <strong style="color: #fab387;">研发</strong> 看截图决定怎么改代码
+        </div>
+        <div style="background: rgba(250,179,135,0.08); padding: 8px; border-radius: 6px; font-size: 10px;">
+          <strong>实现：</strong>pi-agent-browser-native 扩展（调上游 agent-browser CLI）<br/>
+          <strong>看到的人：</strong>agent（LLM）<br/>
+          <strong>触发：</strong>agent 自己调用工具
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Updated capability hierarchy -->
+<div class="section" style="margin-top: 20px;">
+  <h3>更新后的能力体系</h3>
+  <div style="background: #181825; border-radius: 8px; padding: 16px; font-family: 'Segoe UI', sans-serif; font-size: 12px;">
+    <svg viewBox="0 0 600 280" style="width: 100%; height: 260px;">
+      <!-- Big container: 能力 -->
+      <rect x="10" y="10" width="580" height="260" rx="10" fill="none" stroke="#89b4fa" stroke-width="2" stroke-dasharray="6,3"/>
+      <text x="20" y="32" font-size="13" fill="#89b4fa" font-weight="bold">能力 (Capabilities) — 这个 agent 能用什么工具</text>
+
+      <!-- Core infra (locked) -->
+      <rect x="30" y="50" width="540" height="40" rx="6" fill="rgba(137,180,250,0.1)" stroke="#89b4fa" stroke-width="1.5"/>
+      <text x="45" y="68" font-size="11" fill="#89b4fa" font-weight="bold">🔒 核心基础设施（始终激活 · 不可取消）</text>
+      <text x="45" y="83" font-size="10" fill="#a6adc8">📡 pi-intercom · 🔌 pi-mcp-adapter · 🤖 pi-agent-browser-native（新增）</text>
+
+      <!-- Four sources -->
+      <!-- Built-in -->
+      <rect x="30" y="105" width="125" height="75" rx="6" fill="rgba(166,227,161,0.08)" stroke="#a6e3a1" stroke-width="1.5"/>
+      <text x="40" y="123" font-size="10" fill="#a6e3a1" font-weight="bold">📁 内置工具</text>
+      <text x="40" y="138" font-size="9" fill="#a6adc8">read/bash/edit</text>
+      <text x="40" y="151" font-size="9" fill="#a6adc8">grep/find/ls</text>
+      <text x="40" y="170" font-size="8" fill="#6c7086">✓ 可勾选</text>
+
+      <!-- Plugin -->
+      <rect x="170" y="105" width="125" height="75" rx="6" fill="rgba(250,179,135,0.08)" stroke="#fab387" stroke-width="1.5"/>
+      <text x="180" y="123" font-size="10" fill="#fab387" font-weight="bold">🌐 插件工具</text>
+      <text x="180" y="138" font-size="9" fill="#a6adc8">web_search</text>
+      <text x="180" y="151" font-size="9" fill="#a6adc8">fetch_url</text>
+      <text x="180" y="170" font-size="8" fill="#6c7086">✓ 可勾选</text>
+
+      <!-- MCP -->
+      <rect x="310" y="105" width="125" height="75" rx="6" fill="rgba(203,166,247,0.08)" stroke="#cba6f7" stroke-width="1.5"/>
+      <text x="320" y="123" font-size="10" fill="#cba6f7" font-weight="bold">🔌 MCP 工具</text>
+      <text x="320" y="138" font-size="9" fill="#a6adc8">chrome-devtools</text>
+      <text x="320" y="151" font-size="9" fill="#a6adc8">figma/github</text>
+      <text x="320" y="170" font-size="8" fill="#6c7086">✓ 可勾选</text>
+
+      <!-- NEW: Browser automation -->
+      <rect x="450" y="105" width="120" height="75" rx="6" fill="rgba(137,180,250,0.12)" stroke="#89b4fa" stroke-width="2"/>
+      <text x="460" y="123" font-size="10" fill="#89b4fa" font-weight="bold">🤖 浏览器自动化</text>
+      <text x="460" y="138" font-size="9" fill="#a6adc8">agent_browser</text>
+      <text x="460" y="151" font-size="9" fill="#a6adc8">open/snapshot/click</text>
+      <text x="460" y="170" font-size="8" fill="#89b4fa">✓ 可勾选（内置）</text>
+
+      <!-- Bottom note -->
+      <rect x="30" y="200" width="540" height="50" rx="6" fill="rgba(166,227,161,0.06)" stroke="#a6e3a1" stroke-width="1" stroke-dasharray="3,2"/>
+      <text x="45" y="218" font-size="10" fill="#a6e3a1" font-weight="bold">💡 区分</text>
+      <text x="45" y="234" font-size="9" fill="#a6adc8">🤖 agent_browser（本图）= agent 自己用浏览器去访问页面（给 LLM 看截图/快照）</text>
+      <text x="45" y="246" font-size="9" fill="#a6adc8">🌐 产物预览（7.4）= 用户在内嵌浏览器看 agent 生成的产物（给用户看渲染结果）</text>
+    </svg>
+  </div>
+</div>
+
+<!-- Agent config: browser toggle -->
+<div class="mockup" style="margin-top: 16px;">
+  <div class="mockup-header">研发 Agent · 能力 tab（新增浏览器自动化分组）</div>
+  <div class="mockup-body" style="padding: 14px; background: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', sans-serif; font-size: 11px;">
+
+    <!-- Summary (updated counts) -->
+    <div style="background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2); border-radius: 8px; padding: 10px; margin-bottom: 14px;">
+      <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; text-align: center;">
+        <div><div style="color: #a6e3a1; font-weight: 700; font-size: 16px;">7</div><div style="color: #6c7086; font-size: 9px;">📁 内置</div></div>
+        <div><div style="color: #fab387; font-weight: 700; font-size: 16px;">2</div><div style="color: #6c7086; font-size: 9px;">🌐 插件</div></div>
+        <div><div style="color: #cba6f7; font-weight: 700; font-size: 16px;">0</div><div style="color: #6c7086; font-size: 9px;">🔌 MCP</div></div>
+        <div><div style="color: #89b4fa; font-weight: 700; font-size: 16px;">1</div><div style="color: #6c7086; font-size: 9px;">🤖 浏览器</div></div>
+        <div><div style="color: #f9e2af; font-weight: 700; font-size: 16px;">3</div><div style="color: #6c7086; font-size: 9px;">📚 技能</div></div>
+      </div>
+    </div>
+
+    <!-- Browser automation group -->
+    <div style="margin-bottom: 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span style="color: #89b4fa; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">🤖 浏览器自动化</span>
+          <span style="background: rgba(137,180,250,0.15); color: #89b4fa; padding: 1px 6px; border-radius: 3px; font-size: 9px;">🔒 内置预装</span>
+        </div>
+        <span style="color: #6c7086; font-size: 10px;">1 启用 / 1 可用</span>
+      </div>
+
+      <div style="background: #313244; border-radius: 6px; padding: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 13px;">🤖</span>
+            <div>
+              <div style="color: #a6adc8; font-size: 11px; font-weight: 500;">agent_browser</div>
+              <div style="color: #6c7086; font-size: 9px;">来自 pi-agent-browser-native · open/snapshot/click/screenshot/qa</div>
+            </div>
+          </div>
+          <div style="background: #a6e3a1; width: 28px; height: 16px; border-radius: 10px; position: relative; cursor: pointer;">
+            <div style="position: absolute; right: 2px; top: 2px; background: #1e1e2e; width: 12px; height: 12px; border-radius: 50%;"></div>
+          </div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;">
+          <span style="background: rgba(166,227,161,0.15); color: #a6e3a1; padding: 2px 7px; border-radius: 10px; font-size: 9px;">✓ open</span>
+          <span style="background: rgba(166,227,161,0.15); color: #a6e3a1; padding: 2px 7px; border-radius: 10px; font-size: 9px;">✓ snapshot</span>
+          <span style="background: rgba(166,227,161,0.15); color: #a6e3a1; padding: 2px 7px; border-radius: 10px; font-size: 9px;">✓ click</span>
+          <span style="background: rgba(166,227,161,0.15); color: #a6e3a1; padding: 2px 7px; border-radius: 10px; font-size: 9px;">✓ screenshot</span>
+          <span style="background: rgba(166,227,161,0.15); color: #a6e3a1; padding: 2px 7px; border-radius: 10px; font-size: 9px;">✓ qa</span>
+        </div>
+        <div style="color: #6c7086; font-size: 9px; margin-top: 6px;">
+          💡 研发做 web 开发时用：打开 localhost、截图检查、QA 流程
+        </div>
+      </div>
+    </div>
+
+    <!-- Comparison: other agents -->
+    <div style="background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2); border-radius: 6px; padding: 10px;">
+      <div style="color: #f9e2af; font-size: 10px; font-weight: 600; margin-bottom: 6px;">📊 各 agent 的浏览器自动化</div>
+      <div style="display: grid; grid-template-columns: 60px 1fr 1fr 1fr 1fr; gap: 4px; font-size: 10px;">
+        <span></span><span style="text-align:center;">📋产品</span><span style="text-align:center;color:#fab387;">⚙️研发</span><span style="text-align:center;">📅PM</span><span style="text-align:center;">🧪测试</span>
+      </div>
+      <div style="display: grid; grid-template-columns: 60px 1fr 1fr 1fr 1fr; gap: 4px; font-size: 10px; margin-top: 4px;">
+        <span style="color:#6c7086;">浏览器</span>
+        <span style="text-align:center;color:#6c7086;">—</span>
+        <span style="text-align:center;color:#a6e3a1;">✓</span>
+        <span style="text-align:center;color:#6c7086;">—</span>
+        <span style="text-align:center;color:#a6e3a1;">✓</span>
+      </div>
+      <div style="color: #6c7086; font-size: 9px; margin-top: 4px;">
+        产品/PM 不需要；研发做网页开发、测试做 QA 时需要
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Dependency note -->
+<div class="section" style="margin-top: 16px;">
+  <h3>⚠️ 依赖说明</h3>
+  <div style="background: rgba(243,139,168,0.08); padding: 12px; border-left: 3px solid #f38ba8; border-radius: 4px; font-size: 12px; line-height: 1.6;">
+    <strong style="color: #f38ba8;">pi-agent-browser-native 依赖上游 agent-browser CLI</strong><br/>
+    这个扩展本身只是 Pi 的工具包装器，真正驱动浏览器的是 <a href="https://github.com/vercel-labs/agent-browser" style="color:#89b4fa;">vercel-labs/agent-browser</a> CLI。<br/>
+    <strong>HiAgent 的处理：</strong><br/>
+    • 启动时检测 <code>agent-browser</code> 是否在 PATH<br/>
+    • 没有则提示用户安装（或在设置里一键安装）<br/>
+    • 检测失败时，agent_browser 工具显示为"未就绪"，但不影响其他能力
+  </div>
+</div>
+
+<div class="options" style="margin-top: 20px;">
+  <div class="option" data-choice="approve" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>这个设计合理，加进文档</h3>
+      <p>内置预装 + agent 级启用，与产物预览互补</p>
+    </div>
+  </div>
+  <div class="option" data-choice="all-agents" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>所有 agent 都默认启用</h3>
+      <p>不要 agent 级勾选，4 个角色都给浏览器能力</p>
+    </div>
+  </div>
+  <div class="option" data-choice="tweak" onclick="toggleSelect(this)">
+    <div class="letter">~</div>
+    <div class="content">
+      <h3>其他想调整</h3>
+      <p>分组方式、依赖处理、UI 位置</p>
+    </div>
+  </div>
+</div>
