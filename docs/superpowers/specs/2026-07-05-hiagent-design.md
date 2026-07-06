@@ -3,7 +3,7 @@
 > 基于 Pi Coding Agent 的本地多 agent 编排管理系统
 >
 > 日期：2026-07-05
-> 状态：设计中
+> 状态：设计中（最高风险项已验证，见 2026-07-06 更新）
 
 ## 一、项目概述
 
@@ -109,7 +109,7 @@ get_state / get_messages / get_available_models / get_session_stats
 - **`send`**：异步通知（"PM 委派研发"）—— fire-and-forget
 - **`reply`**：回复（自动指向最近的 ask）
 
-**理由**：动态双向委派需要的是对等运行时通信，不是预定义 DAG。pi-intercom 的 `ask` 阻塞语义精确匹配场景。
+**理由**：动态双向委派需要的是对等运行时通信，不是预定义 DAG。pi-intercom 的 `ask` 阻塞语义精确匹配场景。✅ **已验证（2026-07-06）**：ask/send/reply 三原语在 `pi --mode rpc` 无头模式下端到端跑通，broker 路由 + reply 配对 ask 解除等待全部正常。
 
 ## 四、核心机制设计
 
@@ -120,7 +120,7 @@ get_state / get_messages / get_available_models / get_session_stats
 **技术真相**：
 - ask 是一次 tool call，等待期间 LLM 不调用，**消耗 0 token / 0 费用**
 - 只是 tool 在 await，上下文冻结在内存
-- pi-intercom 默认 10 分钟超时（防呆），HiAgent 编排内核包装 ask 把超时设为 `Infinity`
+- ✅ **已验证（2026-07-06，pi-intercom v0.6.0）**：broker **没有 ask 超时 GC 机制**，ask 阻塞完全在客户端（发送方注册 message 事件监听等 reply），**天然支持无限等待，无需"包装设为 Infinity"**。客户端 send 的 10 秒超时是 broker 握手超时，不影响 ask 阻塞。（注：GitHub main 分支源码含 `getAskTimeoutMs` 默认 10 分钟的 ask edge GC，未来升级到该版本后需通过 config 覆盖；当前 v0.6.0 无此问题。详见 `docs/research/pi-intercom-rpc-compatibility.md`）
 
 **结束 ask 的合法路径**：
 1. 研发通过 intercom reply 回复（正常流程）
@@ -432,7 +432,7 @@ agent 用 write 工具生成 login.html
 5. **委派内联显示**：对话流里的 ask 消息 + 干预按钮
 6. **Agent 配置**：基本信息 + 系统提示词 + 能力 tab（工具勾选）
 7. **编排画布**：4 节点 + 连线 + 实时状态
-8. **无超时 ask**：编排内核包装，超时 = Infinity
+8. **无超时 ask**：发送方注册 message 事件监听等 reply，不设超时（v0.6.0 broker 无超时 GC，天然支持）
 
 ### 10.2 MVP 暂不包含（后续迭代）
 
@@ -448,7 +448,7 @@ agent 用 write 工具生成 login.html
 
 | 风险 | 对策 |
 |------|------|
-| pi-intercom 在 `pi --mode rpc` 无头模式下未验证 | MVP 第一周做兼容性验证；不行则改用 SDK 内嵌 |
+| ~~pi-intercom 在 `pi --mode rpc` 无头模式下未验证~~ | ✅ **已验证通过（2026-07-06）**：4 个端到端测试全通过，pi-intercom v0.6.0 在无头模式完全可用，无需回退 SDK。详见 `docs/research/pi-intercom-rpc-compatibility.md` |
 | Bun sidecar 在 Tauri 2 的进程管理 | 用 Tauri 的 sidecar API；fallback 用 `Bun.spawn` detached |
 | Pi RPC 协议变更 | 锁定 Pi 版本，编排内核做协议版本协商 |
 | 多 agent 并发资源占用 | MVP 固定 4 角色；后续按需 spawn |
@@ -466,9 +466,7 @@ agent 用 write 工具生成 login.html
 
 ## 十三、待确认问题
 
-以下三项需要在实现阶段最早验证，决定 MVP 可行性：
-
-1. **pi-intercom + `pi --mode rpc` 兼容性**（最高优先级）：pi-intercom 的 broker 用 Unix socket/命名管道通信，理论上与 Pi 运行模式无关。但需要在 MVP 第一周实测：spawn 一个 `pi --mode rpc` 进程加载 pi-intercom 扩展，验证 ask/send/reply 在无头模式下正常工作。如果不兼容，回退方案是用 SDK 内嵌（`createAgentSession` + 监听事件模拟 intercom 语义）。
+1. **pi-intercom + `pi --mode rpc` 兼容性**（最高优先级）：✅ **已验证通过（2026-07-06）**。静态分析 + 5 个端到端测试全部通过，pi-intercom v0.6.0 在无头模式下完全可用。**LLM 自主调 intercom 工具的完整链路也已用 DeepSeek 模型实测跑通**（alice ask → bob reply 端到端）。详见 `docs/research/pi-intercom-rpc-compatibility.md`。**重要修正**：v0.6.0 的 broker 没有 ask 超时 GC 机制，ask 天然支持无限等待，4.1 节"包装 ask 把超时设为 Infinity"无需实现。
 2. **头像存储**：emoji 直接存 agent.md 的 avatar 字段（如 `avatar: ⚙️`）；自定义图片建议用文件路径（`~/.pi/agent/avatars/<name>.png`），避免 base64 膨胀配置文件。MVP 先只支持 emoji。
 3. **多项目**：MVP 固定单项目（启动时选 cwd，运行中不可切换）。后续在启动页加项目选择器，每个项目独立的 agent 配置与会话历史。
 
