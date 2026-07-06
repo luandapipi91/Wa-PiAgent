@@ -1,0 +1,14 @@
+{
+  "name": "hiagent-kernel",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "hiagent-shared": "workspace:*",
+    "pi-intercom": "file:/Users/pipi/.pi/agent/npm/node_modules/pi-intercom"
+  }
+}
