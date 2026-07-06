@@ -1,0 +1,250 @@
+<h2>主界面布局：编排画布 + 会话面板</h2>
+<p class="subtitle">核心是左侧可视化编排画布，右侧是选中 agent 的会话/状态详情</p>
+
+<div class="mockup">
+  <div class="mockup-header">HiAgent 主窗口（Tauri 原生窗口 1280×800）</div>
+  <div class="mockup-body" style="padding: 0; background: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', sans-serif; font-size: 12px;">
+
+    <!-- Title bar -->
+    <div style="background: #181825; padding: 6px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #313244;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-weight: 600; color: #89b4fa;">HiAgent</span>
+        <span style="color: #6c7086; font-size: 11px;">项目: my-app</span>
+      </div>
+      <div style="display: flex; gap: 6px; align-items: center;">
+        <span style="background: #a6e3a1; color: #1e1e2e; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">● 4 agents 在线</span>
+        <span style="color: #6c7086; font-size: 16px; cursor: pointer;">⚙</span>
+      </div>
+    </div>
+
+    <!-- Main layout: Canvas + Right Panel -->
+    <div style="display: grid; grid-template-columns: 1fr 360px; height: 520px;">
+
+      <!-- LEFT: Canvas -->
+      <div style="border-right: 1px solid #313244; position: relative; overflow: hidden;">
+
+        <!-- Canvas toolbar -->
+        <div style="background: #181825; padding: 6px 10px; border-bottom: 1px solid #313244; display: flex; gap: 8px; align-items: center;">
+          <span style="font-weight: 600; color: #89b4fa;">编排画布</span>
+          <span style="color: #6c7086; font-size: 11px;">│ 拖拽添加 agent · 连线表示可通信</span>
+          <div style="margin-left: auto; display: flex; gap: 4px;">
+            <span style="background: #313244; padding: 2px 8px; border-radius: 3px; font-size: 10px; cursor: pointer;">＋ agent</span>
+            <span style="background: #313244; padding: 2px 8px; border-radius: 3px; font-size: 10px; cursor: pointer;">▶ 运行</span>
+            <span style="background: #313244; padding: 2px 8px; border-radius: 3px; font-size: 10px; cursor: pointer;">⏸</span>
+          </div>
+        </div>
+
+        <!-- Canvas area with agents -->
+        <div style="position: relative; width: 100%; height: 480px; background:
+          radial-gradient(circle, #313244 1px, transparent 1px);
+          background-size: 20px 20px; background-color: #1e1e2e;">
+
+          <!-- Connection lines (SVG) -->
+          <svg style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;">
+            <!-- 产品 -> 研发 (active ask, 阻塞中, 橙色虚线动画) -->
+            <line x1="195" y1="105" x2="380" y2="105" stroke="#fab387" stroke-width="2.5" stroke-dasharray="6,4">
+              <animate attributeName="stroke-dashoffset" from="0" to="-20" dur="0.8s" repeatCount="indefinite"/>
+            </line>
+            <!-- 产品 -> PM (passive 可通信, 灰色) -->
+            <path d="M 160 130 Q 240 220 160 310" stroke="#6c7086" stroke-width="2" fill="none" stroke-dasharray="4,3"/>
+            <!-- PM -> 研发 -->
+            <path d="M 195 330 Q 320 280 380 130" stroke="#6c7086" stroke-width="2" fill="none" stroke-dasharray="4,3"/>
+            <!-- 研发 -> 测试 -->
+            <line x1="455" y1="130" x2="455" y2="280" stroke="#6c7086" stroke-width="2" stroke-dasharray="4,3"/>
+            <!-- 产品 -> 测试 (弧线) -->
+            <path d="M 160 130 Q 480 40 455 285" stroke="#6c7086" stroke-width="2" fill="none" stroke-dasharray="4,3"/>
+          </svg>
+
+          <!-- Agent: 产品 (active/thinking) -->
+          <div style="position: absolute; left: 100px; top: 65px; z-index: 2;">
+            <div style="background: #1e1e2e; border: 2px solid #89b4fa; border-radius: 10px; padding: 10px 14px; min-width: 90px; text-align: center; box-shadow: 0 0 20px rgba(137,180,250,0.3);">
+              <div style="font-size: 22px;">📋</div>
+              <div style="font-weight: 600; color: #89b4fa; margin-top: 2px;">产品</div>
+              <div style="font-size: 9px; color: #fab387; margin-top: 2px;">● thinking</div>
+              <div style="font-size: 9px; color: #6c7086; margin-top: 1px;">2.4k tok</div>
+            </div>
+            <!-- Ask indicator badge -->
+            <div style="position: absolute; top: -6px; right: -8px; background: #fab387; color: #1e1e2e; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 8px;">
+              ask →
+            </div>
+          </div>
+
+          <!-- Agent: PM (idle) -->
+          <div style="position: absolute; left: 100px; top: 305px; z-index: 2;">
+            <div style="background: #1e1e2e; border: 2px solid #6c7086; border-radius: 10px; padding: 10px 14px; min-width: 90px; text-align: center;">
+              <div style="font-size: 22px;">📅</div>
+              <div style="font-weight: 600; color: #cdd6f4; margin-top: 2px;">PM</div>
+              <div style="font-size: 9px; color: #6c7086; margin-top: 2px;">○ idle</div>
+              <div style="font-size: 9px; color: #6c7086; margin-top: 1px;">1.1k tok</div>
+            </div>
+          </div>
+
+          <!-- Agent: 研发 (blocked, waiting reply) -->
+          <div style="position: absolute; left: 380px; top: 65px; z-index: 2;">
+            <div style="background: #1e1e2e; border: 2px solid #fab387; border-radius: 10px; padding: 10px 14px; min-width: 90px; text-align: center; box-shadow: 0 0 15px rgba(250,179,135,0.4); animation: pulse 1.5s infinite;">
+              <div style="font-size: 22px;">⚙️</div>
+              <div style="font-weight: 600; color: #fab387; margin-top: 2px;">研发</div>
+              <div style="font-size: 9px; color: #fab387; margin-top: 2px;">⏸ 等待回复</div>
+              <div style="font-size: 9px; color: #6c7086; margin-top: 1px;">3.8k tok</div>
+            </div>
+            <!-- Incoming ask badge -->
+            <div style="position: absolute; top: -6px; left: -8px; background: #fab387; color: #1e1e2e; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 8px;">
+              ← ask
+            </div>
+          </div>
+
+          <!-- Agent: 测试 (idle) -->
+          <div style="position: absolute; left: 380px; top: 305px; z-index: 2;">
+            <div style="background: #1e1e2e; border: 2px solid #6c7086; border-radius: 10px; padding: 10px 14px; min-width: 90px; text-align: center;">
+              <div style="font-size: 22px;">🧪</div>
+              <div style="font-weight: 600; color: #cdd6f4; margin-top: 2px;">测试</div>
+              <div style="font-size: 9px; color: #6c7086; margin-top: 2px;">○ idle</div>
+              <div style="font-size: 9px; color: #6c7086; margin-top: 1px;">0 tok</div>
+            </div>
+          </div>
+
+          <!-- Active ask tooltip on the line -->
+          <div style="position: absolute; left: 250px; top: 78px; background: #181825; border: 1px solid #fab387; border-radius: 6px; padding: 5px 8px; font-size: 10px; z-index: 3; max-width: 180px;">
+            <div style="color: #fab387; font-weight: 600;">ask (阻塞中 · 23s)</div>
+            <div style="color: #a6adc8; margin-top: 2px;">"WebSocket 还是 SSE?"</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- RIGHT: Detail Panel -->
+      <div style="background: #181825; display: flex; flex-direction: column;">
+
+        <!-- Tabs -->
+        <div style="display: flex; border-bottom: 1px solid #313244; font-size: 11px;">
+          <div style="padding: 8px 14px; background: #1e1e2e; color: #89b4fa; border-bottom: 2px solid #89b4fa; font-weight: 600;">📋 产品</div>
+          <div style="padding: 8px 14px; color: #6c7086;">⚙️ 研发 <span style="background:#fab387;color:#1e1e2e;padding:1px 5px;border-radius:8px;font-size:9px;margin-left:3px;">!</span></div>
+          <div style="padding: 8px 10px; color: #6c7086;">＋</div>
+        </div>
+
+        <!-- Conversation -->
+        <div style="flex: 1; padding: 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+
+          <!-- User message -->
+          <div style="align-self: flex-end; max-width: 85%;">
+            <div style="background: #89b4fa; color: #1e1e2e; padding: 6px 10px; border-radius: 10px 10px 2px 10px; font-size: 11px;">
+              帮我设计一个实时通知功能的需求文档
+            </div>
+            <div style="text-align: right; font-size: 9px; color: #6c7086; margin-top: 2px;">你 · 刚刚</div>
+          </div>
+
+          <!-- Agent response -->
+          <div style="align-self: flex-start; max-width: 85%;">
+            <div style="background: #313244; padding: 6px 10px; border-radius: 10px 10px 10px 2px; font-size: 11px;">
+              我来设计实时通知功能。先评估技术方案...
+            </div>
+            <div style="font-size: 9px; color: #6c7086; margin-top: 2px;">产品 · 30s</div>
+          </div>
+
+          <!-- Intercom ask (highlighted) -->
+          <div style="background: rgba(250,179,135,0.12); border-left: 3px solid #fab387; border-radius: 4px; padding: 6px 10px; margin: 4px 0;">
+            <div style="font-size: 10px; color: #fab387; font-weight: 600;">↗ 委派给研发 (ask · 阻塞中)</div>
+            <div style="font-size: 11px; color: #cdd6f4; margin-top: 3px;">"这个需求用 WebSocket 还是 SSE？评估实时性和复杂度"</div>
+            <div style="font-size: 9px; color: #6c7086; margin-top: 3px;">等待回复 · 已阻塞 23s</div>
+          </div>
+
+          <!-- Incoming reply preview (will appear) -->
+          <div style="background: rgba(166,227,161,0.08); border-left: 3px solid #a6e3a1; border-radius: 4px; padding: 6px 10px; opacity: 0.5;">
+            <div style="font-size: 10px; color: #a6e3a1; font-weight: 600;">↙ 研发回复 (待到达)</div>
+            <div style="font-size: 9px; color: #6c7086; margin-top: 2px; font-style: italic;">[ 研发正在思考回复... ]</div>
+          </div>
+
+        </div>
+
+        <!-- Input area -->
+        <div style="border-top: 1px solid #313244; padding: 8px;">
+          <div style="background: #313244; border-radius: 6px; padding: 6px 10px; display: flex; align-items: center;">
+            <input style="background: transparent; border: none; color: #cdd6f4; flex: 1; font-size: 11px; outline: none;" placeholder="给产品发消息，或 /命令..." />
+            <span style="color: #6c7086; font-size: 14px; margin-left: 6px; cursor: pointer;">↩</span>
+          </div>
+          <div style="display: flex; gap: 6px; margin-top: 6px; font-size: 10px;">
+            <span style="background: #313244; padding: 2px 6px; border-radius: 3px; color: #6c7086;">/skills</span>
+            <span style="background: #313244; padding: 2px 6px; border-radius: 3px; color: #6c7086;">/model</span>
+            <span style="background: #313244; padding: 2px 6px; border-radius: 3px; color: #6c7086;">/compact</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Bottom: Intercom Activity Bar -->
+    <div style="background: #181825; border-top: 1px solid #313244; padding: 6px 12px; display: flex; align-items: center; gap: 12px; font-size: 10px;">
+      <span style="color: #6c7086; font-weight: 600;">INTERCOM</span>
+      <span style="color: #fab387;">● 产品→研发: WebSocket vs SSE? (23s)</span>
+      <span style="color: #6c7086;">│ 总计 12 条消息 · 3 次 ask · 2 次 send</span>
+      <span style="margin-left: auto; color: #6c7086; cursor: pointer;">查看全部 ▾</span>
+    </div>
+
+  </div>
+</div>
+
+<style>
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 15px rgba(250,179,135,0.4); }
+    50% { box-shadow: 0 0 25px rgba(250,179,135,0.7); }
+  }
+</style>
+
+<div class="section" style="margin-top: 20px;">
+  <h3>界面亮点说明</h3>
+  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 12px;">
+    <div style="background: rgba(137,180,250,0.08); padding: 10px; border-left: 3px solid #89b4fa; border-radius: 4px;">
+      <strong style="color: #89b4fa;">画布上的连线语义：</strong><br/>
+      • <span style="color:#fab387;">橙色虚线动画</span> = 活跃的 ask（阻塞等待中）<br/>
+      • 灰色虚线 = 可通信关系（约束）<br/>
+      • 节点边框颜色 = 状态（蓝=思考/橙=阻塞/灰=空闲）
+    </div>
+    <div style="background: rgba(250,179,135,0.08); padding: 10px; border-left: 3px solid #fab387; border-radius: 4px;">
+      <strong style="color: #fab387;">右侧会话面板：</strong><br/>
+      • Tab 切换 4 个 agent 会话<br/>
+      • intercom ask/send 消息高亮显示<br/>
+      • 阻塞中的 ask 实时倒计时<br/>
+      • 角色图标有未读徽标
+    </div>
+    <div style="background: rgba(166,227,161,0.08); padding: 10px; border-left: 3px solid #a6e3a1; border-radius: 4px;">
+      <strong style="color: #a6e3a1;">底部 Intercom 活动栏：</strong><br/>
+      • 实时显示最新一条 ask/send<br/>
+      • 统计：总消息数、ask 次数、send 次数<br/>
+      • 点击展开完整消息时间线
+    </div>
+    <div style="background: rgba(245,158,11,0.08); padding: 10px; border-left: 3px solid #f59e0b; border-radius: 4px;">
+      <strong style="color: #f59e0b;">画布是"约束+监控"，不是"程序"：</strong><br/>
+      • 拖拽 agent 节点 + 连线定义"谁能找谁"<br/>
+      • 运行时 agent 在约束内自由发起 intercom<br/>
+      • 你实时看到谁在 ask 谁、阻塞多久<br/>
+      • 不是按拓扑序执行的 DAG
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 24px;">
+  <h3>这个主界面布局如何？</h3>
+  <div class="options">
+    <div class="option" data-choice="approve" onclick="toggleSelect(this)">
+      <div class="letter">✓</div>
+      <div class="content">
+        <h3>布局合理，继续看其他视图</h3>
+        <p>想看：Agent 配置编辑器 / 技能管理 / Intercom 时间线详情</p>
+      </div>
+    </div>
+    <div class="option" data-choice="tweak-layout" onclick="toggleSelect(this)">
+      <div class="letter">~</div>
+      <div class="content">
+        <h3>布局想调整</h3>
+        <p>右侧面板太宽/太窄，或画布该占更大比例，或想看其他布局方案</p>
+      </div>
+    </div>
+    <div class="option" data-choice="questions" onclick="toggleSelect(this)">
+      <div class="letter">?</div>
+      <div class="content">
+        <h3>有疑问，在终端讨论</h3>
+        <p>某些交互细节、状态可视化、数据流想再确认</p>
+      </div>
+    </div>
+  </div>
+</div>
