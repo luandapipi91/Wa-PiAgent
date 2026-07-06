@@ -6,9 +6,12 @@ import { MessageItem } from "./MessageItem";
 import { AskCard } from "./AskCard";
 
 export function MessageList({ agentName }: { agentName: string }) {
-  const messages = useSession(s => s.messages[agentName] ?? []);
-  const agent = useAgents(s => s.list.find(a => a.name === agentName));
-  const asks = useIntercom(s => s.asks.filter(a => a.from === agentName || a.to === agentName));
+  const allMessages = useSession(s => s.messages);
+  const messages = allMessages[agentName] ?? [];
+  const list = useAgents(s => s.list);
+  const agent = list.find(a => a.name === agentName);
+  const allAsks = useIntercom(s => s.asks);
+  const asks = allAsks.filter(a => a.from === agentName || a.to === agentName);
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, asks]);
   return (
