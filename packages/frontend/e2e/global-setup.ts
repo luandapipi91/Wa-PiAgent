@@ -9,6 +9,7 @@ async function globalSetup() {
   const child = spawn("bun", ["run", "--filter", "@hiagent/kernel", "dev"], {
     env: { ...process.env, HIAGENT_DIR: E2E_HIAGENT_DIR },
     stdio: ["ignore", "pipe", "pipe"],
+    shell: true, // Windows 下 bun 是 npm 装的 .cmd shim，需要 shell 解析，否则 spawn ENOENT
   });
   child.stdout?.on("data", () => {});  // 防 stdout 缓冲写满阻塞
   child.stderr?.on("data", () => {});
