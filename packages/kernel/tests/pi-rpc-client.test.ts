@@ -8,18 +8,20 @@ import type { AgentName } from "@hiagent/shared";
 function mockSpawn() {
   let stdoutBuf = "";
   const stdout = new EventEmitter();
+  let lastArgs: string[] = [];
   const child = {
     stdin: { write: (s: string) => { stdoutBuf += s; }, end: () => {} },
-    stdout,  // EventEmitter 自带 on/emit，PiRpcClient 用 stdout.on("data", cb)
+    stdout,
     stderr: new EventEmitter(),
     killed: false,
     kill: () => { child.killed = true; },
-    // 测试辅助：向 client 推一行 JSON
     emitLine: (obj: unknown) => stdout.emit("data", Buffer.from(JSON.stringify(obj) + "\n")),
-    // 测试辅助：读/重置 stdin 写入缓冲
     getStdoutBuf: () => stdoutBuf,
     resetStdoutBuf: () => { stdoutBuf = ""; },
+    getLastArgs: () => lastArgs,
   };
+  // 返回一个包装函数，记录 args
+  (child as any).__spawnFn = (_cmd: string, args: string[]) => { lastArgs = args; return child; };
   return child;
 }
 
@@ -87,5 +89,29 @@ test("onEvent 收 state 变化", async () => {
   mock.emitLine({ type: "state_change", state: { status: "thinking" } });
   const ev = events.find(e => e.kind === "state");
   expect(ev && ev.kind === "state" && ev.state.status).toBe("thinking");
+  await client.dispose();
+});
+
+test("start 根据 config 传 --system-prompt/--tools/--model", async () => {
+  const mock = mockSpawn();
+  const capturedArgs: string[] = [];
+  const config: import("@hiagent/shared").AgentConfig = {
+    name: "dev", displayName: "研发", avatar: "⚙️", avatarColor: "a-b",
+    description: "技术", model: "deepseek/deepseek-v4-flash",
+    thinking: "high", systemPromptMode: "replace", inheritProjectContext: true,
+    inheritSkills: false, tools: ["read", "bash", "intercom"], skills: [], mcpServers: [],
+    partners: { askTo: [], askFrom: [] }, systemPromptBody: "你是资深工程师",
+  };
+  const client = new PiRpcClient({
+    agentName: "dev", cwd: "/work",
+    onEvent: () => {},
+    config,
+    spawnFn: (_cmd: string, args: string[]) => { capturedArgs.push(...args); return mock as any; },
+  });
+  await client.start();
+  expect(capturedArgs).toContain("--system-prompt");
+  expect(capturedArgs).toContain("你是资深工程师");
+  expect(capturedArgs.some((a, i) => a === "--tools" && capturedArgs[i+1]?.includes("read"))).toBe(true);
+  expect(capturedArgs.some((a, i) => a === "--model" && capturedArgs[i+1]?.includes("deepseek"))).toBe(true);
   await client.dispose();
 });

@@ -1,4 +1,4 @@
-import type { AgentName, ChatMessage, AgentState, AskItem } from "@hiagent/shared";
+import type { AgentName, ChatMessage, AgentState, AskItem, AgentConfig } from "@hiagent/shared";
 import { randomUUID } from "node:crypto";
 
 export type PiEvent =
@@ -28,6 +28,7 @@ export interface PiRpcClientOpts {
   onEvent: (e: PiEvent) => void;
   spawnFn?: (cmd: string, args: string[], opts: SpawnOptions["opts"]) => MockChild;
   sessionId?: string;  // pi-intercom 会话名，默认用 agentName
+  config?: AgentConfig;  // agent 配置（系统提示词/工具/模型）
 }
 
 export class PiRpcClient {
@@ -47,15 +48,22 @@ export class PiRpcClient {
 
   async start(): Promise<void> {
     const spawnFn = this.opts.spawnFn ?? defaultSpawn;
-    // 注意：pi 不认 --cwd 参数，工作目录通过 spawn 的 cwd 选项传入
-    this.child = spawnFn("pi", [
-      "--mode", "rpc",
-      "--name", this.sessionName,
-    ], {
+    // 根据 config 构造 pi 启动参数（系统提示词/工具白名单/模型）
+    const args = ["--mode", "rpc", "--name", this.sessionName];
+    const c = this.opts.config;
+    if (c) {
+      if (c.model) args.push("--model", c.model);
+      if (c.tools.length) args.push("--tools", c.tools.join(","));
+      // 系统提示词：replace 模式用 body 覆盖；append 模式追加
+      if (c.systemPromptBody) {
+        args.push(c.systemPromptMode === "replace" ? "--system-prompt" : "--append-system-prompt", c.systemPromptBody);
+      }
+    }
+    this.child = spawnFn("pi", args, {
       cwd: this.opts.cwd,
       stdio: ["pipe", "pipe", "pipe"],
     });
-    console.log(`[kernel] spawn pi: name=${this.sessionName} cwd=${this.opts.cwd}`);
+    console.log(`[kernel] spawn pi: name=${this.sessionName} cwd=${this.opts.cwd} model=${c?.model ?? "default"}`);
     this.child.stdout.on("data", (chunk: Buffer) => {
       this.stdoutBuf += chunk.toString();
       let nl: number;
