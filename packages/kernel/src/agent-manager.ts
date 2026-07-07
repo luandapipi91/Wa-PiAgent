@@ -1,5 +1,5 @@
 import type { AgentName, AgentState, AgentStateKey } from "@hiagent/shared";
-import { makeAgentStateKey } from "@hiagent/shared";
+import { makeAgentStateKey, HIAGENT_PI_AGENT_DIR } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import { PiRpcClient, type PiEvent, type PiRpcClientOpts } from "./pi-rpc-client";
@@ -39,6 +39,7 @@ export class AgentManager {
       sessionId: `${projectId}-${agentName}`,  // pi-intercom 会话名
       config: config ?? undefined,
       spawnFn: this.opts.spawnFn,
+      env: { PI_CODING_AGENT_DIR: HIAGENT_PI_AGENT_DIR },  // 让 Pi 把数据存到 .hiagent/pi-agent
       onEvent: (e) => {
         if (e.kind === "state") this.states.set(key, e.state);
         this.opts.onEvent(key, e);

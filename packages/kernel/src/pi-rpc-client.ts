@@ -1,17 +1,17 @@
-import type { AgentName, ChatMessage, AgentState, AskItem, AgentConfig } from "@hiagent/shared";
-import { randomUUID } from "node:crypto";
+import type { AgentName, AgentMessage, AgentState, AgentConfig } from "@hiagent/shared";
+import type { SessionMessage } from "@hiagent/shared";
+import { HIAGENT_PI_AGENT_DIR } from "@hiagent/shared";
 
 export type PiEvent =
-  | { kind: "message"; message: ChatMessage }
+  | { kind: "message"; message: SessionMessage }
   | { kind: "state"; state: AgentState }
-  | { kind: "intercom:ask"; ask: AskItem }
-  | { kind: "intercom:reply"; askMessageId: string }
   | { kind: "error"; message: string };
+// 注：intercom:ask / intercom:reply 废弃（broker-proxy 删了）
 
 interface SpawnOptions {
   cmd: string;
   args: string[];
-  opts: { cwd: string; stdio: [string, string, string] };
+  opts: { cwd: string; stdio: [string, string, string]; env: Record<string, string | undefined> };
 }
 
 interface MockChild {
@@ -29,18 +29,19 @@ export interface PiRpcClientOpts {
   spawnFn?: (cmd: string, args: string[], opts: SpawnOptions["opts"]) => MockChild;
   sessionId?: string;  // pi-intercom 会话名，默认用 agentName
   config?: AgentConfig;  // agent 配置（系统提示词/工具/模型）
+  env?: Record<string, string | undefined>;
 }
 
 export class PiRpcClient {
   private child: MockChild | null = null;
   private stdoutBuf = "";
   private pendingId = 0;
+  private pendingRpcResolvers = new Map<number, (data: unknown) => void>();
   private readonly sessionName: string;
   // 当前 prompt 的会话 id，用于给 message 事件补 sessionId（一个 client 服务多会话）
   private currentSessionId = "";
-  // 流式回复累积：message_start 时建 id，message_update 累积 text，message_end 发最终
-  private streamingMsgId = "";
-  private streamingText = "";
+  // 流式回复累积 content 数组（透传 Pi 富消息）
+  private streamingContent: any[] = [];
 
   constructor(private opts: PiRpcClientOpts) {
     this.sessionName = opts.sessionId ?? opts.agentName;
@@ -48,8 +49,8 @@ export class PiRpcClient {
 
   async start(): Promise<void> {
     const spawnFn = this.opts.spawnFn ?? defaultSpawn;
-    // broker 公开名由代理占据，真实进程用内部名
-    const brokerName = `${this.sessionName}-real`;
+    // 去 -real 后缀：删 broker-proxy 后不再有占位代理，真实进程直接用 sessionName
+    const brokerName = this.sessionName;
     const args = ["--mode", "rpc", "--name", brokerName];
     const c = this.opts.config;
     if (c) {
@@ -63,6 +64,7 @@ export class PiRpcClient {
     this.child = spawnFn("pi", args, {
       cwd: this.opts.cwd,
       stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, PI_CODING_AGENT_DIR: HIAGENT_PI_AGENT_DIR, ...this.opts.env },
     });
     console.log(`[kernel] spawn pi: name=${brokerName} cwd=${this.opts.cwd} model=${c?.model ?? "default"}`);
     this.child.stdout.on("data", (chunk: Buffer) => {
@@ -90,15 +92,23 @@ export class PiRpcClient {
     await this.send({ type: "abort" });
   }
 
+  async getMessages(): Promise<AgentMessage[]> {
+    const id = ++this.pendingId;
+    return new Promise((resolve) => {
+      this.pendingRpcResolvers.set(id, (data: any) => resolve(data?.messages ?? []));
+      this.send({ type: "get_messages" }, id);
+    });
+  }
+
   async dispose(): Promise<void> {
     if (this.child && !this.child.killed) this.child.kill();
     this.child = null;
   }
 
-  private async send(obj: unknown): Promise<void> {
+  private async send(obj: unknown, preoccupiedId?: number): Promise<void> {
     if (!this.child) throw new Error("PiRpcClient 未启动");
     const payload = typeof obj === "object" && obj !== null
-      ? { ...(obj as object), id: ++this.pendingId }
+      ? { ...(obj as object), id: preoccupiedId ?? ++this.pendingId }
       : obj;
     this.child.stdin.write(JSON.stringify(payload) + "\n");
   }
@@ -107,7 +117,7 @@ export class PiRpcClient {
     let obj: any;
     try { obj = JSON.parse(line); } catch { return; }
     switch (obj.type) {
-      // pi 0.80 RPC：request/response（get_state/prompt 的确认或失败）
+      // pi 0.80 RPC：request/response（get_state/prompt 的确认或失败 / get_messages 的数据）
       case "response": {
         if (obj.success === false) {
           this.opts.onEvent({
@@ -118,8 +128,13 @@ export class PiRpcClient {
             kind: "state",
             state: { name: this.opts.agentName, status: "idle" },
           });
+        } else if (obj.success === true && obj.id != null) {
+          const resolver = this.pendingRpcResolvers.get(obj.id);
+          if (resolver) {
+            this.pendingRpcResolvers.delete(obj.id);
+            resolver(obj.data);
+          }
         }
-        // prompt 成功确认（success:true）不做事，等流式事件
         break;
       }
       // 流式生命周期：agent 开始工作 → thinking
@@ -130,71 +145,52 @@ export class PiRpcClient {
           state: { name: this.opts.agentName, status: "thinking" },
         });
         break;
-      // assistant 消息开始：初始化流式累积器
+      // assistant 消息开始：重置流式 content 累积器
       case "message_start": {
         const msg = obj.message;
         if (msg?.role === "assistant") {
-          this.streamingMsgId = randomUUID();
-          this.streamingText = "";
-          // 发空消息占位（前端立即显示 agent 正在回复）
+          this.streamingContent = [];
           this.opts.onEvent({
             kind: "message",
             message: {
-              id: this.streamingMsgId,
+              message: { ...msg, content: [] },
+              agentName: this.opts.agentName,
               sessionId: this.currentSessionId,
-              role: "assistant",
-              text: "",
-              timestamp: Date.now(),
             },
           });
         }
         break;
       }
-      // 流式增量：累积 text，更新同 id 消息
+      // 流式增量：累积 content 数组，透传最新 partial
       case "message_update": {
         const evt = obj.assistantMessageEvent;
-        // 只处理正文增量（text_delta / text），跳过 thinking_delta
-        if (evt && (evt.type === "text_delta" || evt.type === "text")) {
-          this.streamingText += evt.delta ?? "";
-          if (this.streamingMsgId) {
-            this.opts.onEvent({
-              kind: "message",
-              message: {
-                id: this.streamingMsgId,
-                sessionId: this.currentSessionId,
-                role: "assistant",
-                text: this.streamingText,
-                timestamp: Date.now(),
-              },
-            });
-          }
+        if (evt?.partial?.content) {
+          this.streamingContent = evt.partial.content as any[];
+          this.opts.onEvent({
+            kind: "message",
+            message: {
+              message: { ...evt.partial, content: this.streamingContent },
+              agentName: this.opts.agentName,
+              sessionId: this.currentSessionId,
+            },
+          });
         }
         break;
       }
-      // 消息完成：发最终完整 text（覆盖流式占位）
+      // 消息完成：透传完整 message（不再 filter 成 text）
       case "message_end": {
         const msg = obj.message;
         if (msg?.role === "assistant") {
-          const content: any[] = Array.isArray(msg.content) ? msg.content : [];
-          const text = content
-            .filter((c: any) => c.type === "text")
-            .map((c: any) => c.text ?? "")
-            .join("");
-          // 用流式期间的同一个 id，前端 upsert 更新最终文本
-          const id = this.streamingMsgId || randomUUID();
           this.opts.onEvent({
             kind: "message",
             message: {
-              id,
+              message: msg as AgentMessage,
+              agentName: this.opts.agentName,
               sessionId: this.currentSessionId,
-              role: "assistant",
-              text: text || this.streamingText,
-              timestamp: Date.now(),
             },
           });
-          this.streamingMsgId = "";
-          this.streamingText = "";
         }
+        this.streamingContent = [];
         break;
       }
       // 回合/agent 结束 → idle
@@ -232,7 +228,7 @@ function defaultSpawn(cmd: string, args: string[], opts: SpawnOptions["opts"]): 
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: process.env,  // 继承环境（含 PATH，让 pi 命令可被找到）
+    env: opts.env ?? process.env,  // 继承环境（含 PATH + PI_CODING_AGENT_DIR），让 pi 命令可被找到
   });
   // 监听 pi 进程退出（诊断用：pi 启动失败会立即退出）
   proc.exited.then((code: number | null) => {

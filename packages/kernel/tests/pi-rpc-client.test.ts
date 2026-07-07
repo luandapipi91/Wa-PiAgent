@@ -53,7 +53,7 @@ test("prompt 写入 stdin", async () => {
   await client.dispose();
 });
 
-test("onEvent 收 message_end → assistant message 事件", async () => {
+test("onEvent 收 message_end → 透传完整 AssistantMessage（含 content blocks）", async () => {
   const mock = mockSpawn();
   const events: PiEvent[] = [];
   const client = new PiRpcClient({
@@ -62,18 +62,29 @@ test("onEvent 收 message_end → assistant message 事件", async () => {
     spawnFn: () => mock as any,
   });
   await client.start();
-  // pi 0.80 协议：message_end 时 message.content 含 type:text 元素
   mock.emitLine({
     type: "message_end",
     message: {
       role: "assistant",
-      content: [{ type: "text", text: "你好" }, { type: "thinking", thinking: "思考" }],
+      content: [
+        { type: "thinking", thinking: "我先想想" },
+        { type: "text", text: "你好" },
+        { type: "toolCall", id: "call_1", name: "read", arguments: { path: "/a" } },
+      ],
+      model: "test-model",
+      stopReason: "stop",
+      timestamp: 12345,
     },
   });
   const ev = events.find(e => e.kind === "message");
   expect(ev).toBeDefined();
-  expect(ev && ev.kind === "message" && ev.message.text).toBe("你好");
-  expect(ev && ev.kind === "message" && ev.message.role).toBe("assistant");
+  expect(ev && ev.kind === "message" && (ev.message.message as any).role).toBe("assistant");
+  const content = ev && ev.kind === "message" && (ev.message.message as any).content as any[];
+  expect(content).toHaveLength(3);
+  expect(content.find((c: any) => c.type === "thinking")?.thinking).toBe("我先想想");
+  expect(content.find((c: any) => c.type === "text")?.text).toBe("你好");
+  expect(content.find((c: any) => c.type === "toolCall")?.name).toBe("read");
+  expect(ev && ev.kind === "message" && ev.message.agentName).toBe("dev");
   await client.dispose();
 });
 
@@ -113,5 +124,49 @@ test("start 根据 config 传 --system-prompt/--tools/--model", async () => {
   expect(capturedArgs).toContain("你是资深工程师");
   expect(capturedArgs.some((a, i) => a === "--tools" && capturedArgs[i+1]?.includes("read"))).toBe(true);
   expect(capturedArgs.some((a, i) => a === "--model" && capturedArgs[i+1]?.includes("deepseek"))).toBe(true);
+  await client.dispose();
+});
+
+test("getMessages 发 get_messages 并按 id 匹配 response", async () => {
+  const mock = mockSpawn();
+  const client = new PiRpcClient({
+    agentName: "dev", cwd: "/work",
+    onEvent: () => {},
+    spawnFn: () => mock as any,
+  });
+  await client.start();
+  mock.resetStdoutBuf();
+  const p = client.getMessages();
+  const sent = mock.getStdoutBuf();
+  expect(sent).toContain('"type":"get_messages"');
+  const lines = sent.trim().split("\n");
+  const lastLine = lines[lines.length - 1];
+  const sentId = JSON.parse(lastLine).id;
+  mock.emitLine({
+    type: "response",
+    success: true,
+    id: sentId,
+    data: { messages: [{ role: "user", content: "历史", timestamp: 1 }] },
+  });
+  const msgs = await p;
+  expect(msgs).toHaveLength(1);
+  expect((msgs[0] as any).content).toBe("历史");
+  await client.dispose();
+});
+
+test("spawn env 含 PI_CODING_AGENT_DIR", async () => {
+  const mock = mockSpawn();
+  let capturedEnv: Record<string, string | undefined> = {};
+  const client = new PiRpcClient({
+    agentName: "dev", cwd: "/work",
+    onEvent: () => {},
+    spawnFn: (_cmd: string, _args: string[], opts: any) => {
+      capturedEnv = opts.env;
+      return mock as any;
+    },
+  });
+  await client.start();
+  expect(capturedEnv.PI_CODING_AGENT_DIR).toBeDefined();
+  expect(capturedEnv.PI_CODING_AGENT_DIR).toContain("pi-agent");
   await client.dispose();
 });
