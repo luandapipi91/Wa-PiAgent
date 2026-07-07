@@ -1,30 +1,18 @@
-import { test, expect, vi, beforeEach } from "vitest";
+import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { App } from "../src/App";
 import { useProjectsStore } from "../src/store/projects";
 
-// happy-dom 无原生 WebSocket，补一个空构造，避免 ws-instance 真实 new WebSocket 报错
-// （ws-instance 的行为由下方 vi.mock 覆盖，这里只防 App useEffect 里 getWs() 兜底路径）
-class MockWebSocket {
-  static CONNECTING = 0;
-  static OPEN = 1;
-  static CLOSING = 2;
-  static CLOSED = 3;
-  readyState = 1;
-  addEventListener() {}
-  send() {}
-  close() {}
-}
-vi.stubGlobal("WebSocket", MockWebSocket);
-
-vi.mock("../src/ws-instance", () => ({
+// WebSocket polyfill 由 preload（happydom-setup → installWebSocketMock，defineProperty 覆盖
+// bun 内置）统一处理，这里无需再 stubGlobal。ws-instance 的行为由下方 mock.module 覆盖。
+mock.module("../src/ws-instance", () => ({
   getWs: () => ({ readyState: 1, addEventListener: () => {}, send: () => {} }),
   send: () => {},
   onMessage: () => () => {},
 }));
 
 // mock reactflow：Canvas 内的 ReactFlow 透传节点（用 rf-mock 区分 Canvas 外层 testid）
-vi.mock("reactflow", () => ({
+mock.module("reactflow", () => ({
   default: ({ nodes }: any) => (
     <div data-testid="rf-mock">{nodes.map((n: any) => <span key={n.id}>{n.id}</span>)}</div>
   ),

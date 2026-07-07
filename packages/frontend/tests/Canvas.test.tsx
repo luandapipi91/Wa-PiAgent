@@ -1,10 +1,10 @@
-import { test, expect, beforeEach, vi } from "vitest";
+import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import { Canvas } from "../src/components/canvas/Canvas";
 import { useAgentsStore } from "../src/store/agents";
 
 // mock reactflow：把 nodes/edges 透传到测试可断言的 DOM
-vi.mock("reactflow", () => ({
+mock.module("reactflow", () => ({
   default: ({ nodes, edges }: any) => (
     <div data-testid="canvas-mock">
       <div data-testid="nodes">{nodes.map((n: any) => <span key={n.id}>{n.id}</span>)}</div>
