@@ -5,10 +5,11 @@ import { test, expect } from "@playwright/test";
 test.describe.serial("应用主流程", () => {
 
 // Task 35: 首次启动空态 → 建项目（只跑一次，为后续 test 提供项目）
+// 非 Tauri 环境 createProjectFromDir 降级到 prompt（只问目录路径，项目名取 basename）
 test("首次启动空态引导建项目", async ({ page }) => {
   page.on("dialog", async d => {
-    if (d.message().includes("项目名")) await d.accept("E2E主项目");
-    else if (d.message().includes("cwd")) await d.accept("/tmp/e2e-main");
+    // pickDirectoryOrPrompt 在非 Tauri 环境弹一次 prompt 问目录路径
+    if (d.message().includes("目录")) await d.accept("/tmp/e2e-main");
   });
   await page.goto("/");
   await expect(page.getByTestId("empty-state")).toBeVisible();

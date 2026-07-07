@@ -8,7 +8,7 @@ interface Props {
   onSelectAgent: (name: AgentName) => void;
   onSelectSession: (id: string) => void;
   onNewSessionInProject: (projectId: string) => void;
-  onProjectSettings: (projectId: string) => void;
+  onSelectProject: (projectId: string) => void;
   onNewProject: () => void;
 }
 
@@ -24,7 +24,7 @@ export function Sidebar(props: Props) {
       <ProjectList
         onSelectSession={props.onSelectSession}
         onNewSessionInProject={props.onNewSessionInProject}
-        onProjectSettings={props.onProjectSettings}
+        onSelectProject={props.onSelectProject}
         onNewProject={props.onNewProject}
       />
     </aside>

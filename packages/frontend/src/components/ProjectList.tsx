@@ -4,12 +4,12 @@ import { ProjectItem } from "./ProjectItem";
 interface Props {
   onSelectSession: (id: string) => void;
   onNewSessionInProject: (projectId: string) => void;
-  onProjectSettings: (projectId: string) => void;
+  onSelectProject: (projectId: string) => void;
   onNewProject: () => void;
 }
 
 export function ProjectList(props: Props) {
-  const { projects, sessions, currentSessionId } = useProjectsStore();
+  const { projects, sessions, currentSessionId, currentProjectId } = useProjectsStore();
   return (
     <div className="flex-1 overflow-auto">
       <div className="text-xs text-overlay px-2 py-1 border-t border-surface2 mt-2">项目管理</div>
@@ -19,6 +19,7 @@ export function ProjectList(props: Props) {
           project={p}
           sessions={sessions}
           currentSessionId={currentSessionId}
+          selected={p.id === currentProjectId}
           {...props}
         />
       ))}

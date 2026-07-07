@@ -46,11 +46,11 @@ export function App() {
         onSelectAgent={(name) => setConfigAgent(name)}
         onSelectSession={(id) => { useProjectsStore.getState().selectSession(id); setView("session"); }}
         onNewSessionInProject={(pid) => { useProjectsStore.getState().selectProject(pid); setView("new-session"); }}
-        onProjectSettings={() => {}}
-        onNewProject={() => { const name = prompt("项目名"); const cwd = prompt("cwd"); if (name && cwd) useProjectsStore.getState().createProject(name, cwd); }}
+        onSelectProject={(pid) => { useProjectsStore.getState().selectProject(pid); useProjectsStore.getState().setCurrentSessionId(null); setView("new-session"); }}
+        onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
-        {view === "empty" && <EmptyState onNewProject={() => useProjectsStore.getState().createProject(prompt("项目名")!, prompt("cwd")!)} />}
+        {view === "empty" && <EmptyState onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }} />}
         {view === "new-session" && <NewSessionPane />}
         {view === "session" && currentSessionId && <SessionView sessionId={currentSessionId} onSwitchToCanvas={() => setView("canvas")} />}
         {view === "canvas" && (
