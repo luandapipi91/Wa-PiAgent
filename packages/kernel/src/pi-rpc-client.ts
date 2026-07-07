@@ -37,6 +37,9 @@ export class PiRpcClient {
   private readonly sessionName: string;
   // 当前 prompt 的会话 id，用于给 message 事件补 sessionId（一个 client 服务多会话）
   private currentSessionId = "";
+  // 流式回复累积：message_start 时建 id，message_update 累积 text，message_end 发最终
+  private streamingMsgId = "";
+  private streamingText = "";
 
   constructor(private opts: PiRpcClientOpts) {
     this.sessionName = opts.sessionId ?? opts.agentName;
@@ -118,28 +121,70 @@ export class PiRpcClient {
           state: { name: this.opts.agentName, status: "thinking" },
         });
         break;
-      // 消息完成：提取 assistant 的 text content 发完整 message
-      case "message_end": {
+      // assistant 消息开始：初始化流式累积器
+      case "message_start": {
         const msg = obj.message;
         if (msg?.role === "assistant") {
-          const content: any[] = Array.isArray(msg.content) ? msg.content : [];
-          // content 元素：{type:"text",text:"..."} / {type:"thinking",...}，只取 text
-          const text = content
-            .filter((c: any) => c.type === "text")
-            .map((c: any) => c.text ?? "")
-            .join("");
-          if (text) {
+          this.streamingMsgId = randomUUID();
+          this.streamingText = "";
+          // 发空消息占位（前端立即显示 agent 正在回复）
+          this.opts.onEvent({
+            kind: "message",
+            message: {
+              id: this.streamingMsgId,
+              sessionId: this.currentSessionId,
+              role: "assistant",
+              text: "",
+              timestamp: Date.now(),
+            },
+          });
+        }
+        break;
+      }
+      // 流式增量：累积 text，更新同 id 消息
+      case "message_update": {
+        const evt = obj.assistantMessageEvent;
+        // 只处理正文增量（text_delta / text），跳过 thinking_delta
+        if (evt && (evt.type === "text_delta" || evt.type === "text")) {
+          this.streamingText += evt.delta ?? "";
+          if (this.streamingMsgId) {
             this.opts.onEvent({
               kind: "message",
               message: {
-                id: randomUUID(),
+                id: this.streamingMsgId,
                 sessionId: this.currentSessionId,
                 role: "assistant",
-                text,
+                text: this.streamingText,
                 timestamp: Date.now(),
               },
             });
           }
+        }
+        break;
+      }
+      // 消息完成：发最终完整 text（覆盖流式占位）
+      case "message_end": {
+        const msg = obj.message;
+        if (msg?.role === "assistant") {
+          const content: any[] = Array.isArray(msg.content) ? msg.content : [];
+          const text = content
+            .filter((c: any) => c.type === "text")
+            .map((c: any) => c.text ?? "")
+            .join("");
+          // 用流式期间的同一个 id，前端 upsert 更新最终文本
+          const id = this.streamingMsgId || randomUUID();
+          this.opts.onEvent({
+            kind: "message",
+            message: {
+              id,
+              sessionId: this.currentSessionId,
+              role: "assistant",
+              text: text || this.streamingText,
+              timestamp: Date.now(),
+            },
+          });
+          this.streamingMsgId = "";
+          this.streamingText = "";
         }
         break;
       }
