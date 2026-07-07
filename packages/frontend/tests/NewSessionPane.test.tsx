@@ -1,4 +1,4 @@
-import { test, expect, beforeEach } from "vitest";
+import { test, expect, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { NewSessionPane } from "../src/components/NewSessionPane";
 import { useProjectsStore } from "../src/store/projects";

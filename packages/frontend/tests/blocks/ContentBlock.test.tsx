@@ -1,4 +1,4 @@
-import { test, expect } from "vitest";
+import { test, expect } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ThinkingPanel } from "../../src/components/blocks/ThinkingPanel";
 import { TextBlock } from "../../src/components/blocks/TextBlock";
