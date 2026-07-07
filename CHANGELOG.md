@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-07-07 — Bun sidecar 编译 + Tauri sidecar 配置
+
+- **类型**：新增功能（构建链）
+- **摘要**：实现 Task 31——kernel build 改用 `bun build --compile` 产出独立可执行二进制 `hiagent-kernel`（69MB Mach-O），并复制带 Rust target triple 后缀的副本（`hiagent-kernel-x86_64-apple-darwin`）供 Tauri sidecar 解析；tauri.conf.json 加 `bundle.externalBin`，capabilities 加 shell execute/spawn 权限。
+- **具体改动**：
+  - 改 `packages/kernel/package.json`：build 脚本加 `--compile` + 调 `scripts/copy-sidecar.mjs` 复制 triple 后缀副本；新增 `build:bundle` 保留 JS bundle 产出（Task 33 集成测试用）
+  - 新增 `packages/kernel/scripts/copy-sidecar.mjs`：Node arch/platform → Rust target triple 映射（darwin-x64→x86_64-apple-darwin 等），复制 sidecar 副本
+  - 改 `src-tauri/tauri.conf.json`：`bundle.externalBin` 指向 `../packages/kernel/dist/hiagent-kernel`
+  - 新增 `src-tauri/capabilities/default.json`：core:default + shell:allow-execute/spawn + sidecar scope
+- **影响范围**：`packages/kernel/`（package.json + scripts/copy-sidecar.mjs）、`src-tauri/`（tauri.conf.json + capabilities/）
+- **验证**：`bun run --filter @hiagent/kernel build` 产出 `dist/hiagent-kernel` + `dist/hiagent-kernel-x86_64-apple-darwin`（可执行，端口占用报错证明功能正常）；`cargo build` Finished；`bun test packages/kernel` 35 passed
+
+---
+
 ## 2026-07-07 — Tauri 项目初始化（Cargo + tauri.conf + 空壳窗口）
 
 - **类型**：新增功能（Tauri 壳）
