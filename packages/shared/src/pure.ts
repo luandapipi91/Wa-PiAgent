@@ -34,7 +34,7 @@ export function parseAgentStateKey(key: AgentStateKey): { projectId: string; age
 }
 
 // 生成会话 id（前端 NewSessionPane 发 agent:prompt 时用作请求追踪 id）
-import { randomUUID } from "node:crypto";
+// 用全局 crypto.randomUUID()（浏览器 Web Crypto API + Node 19+ + Bun 均原生支持）
 export function randomSessionId(): string {
-  return `s-${randomUUID()}`;
+  return `s-${crypto.randomUUID()}`;
 }

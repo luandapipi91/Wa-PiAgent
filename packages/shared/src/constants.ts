@@ -3,8 +3,11 @@ import type { AgentName } from "./types";
 export const WS_PORT = 9776;
 export const PREVIEW_PORT = 9777;
 
-const HOME = process.env.HOME || process.env.USERPROFILE || ".";
-export const HIAGENT_DIR = `${HOME}/.hiagent`;
+// 兼容浏览器（无 process 全局）与 Node/Bun（kernel sidecar）
+const env = typeof process !== "undefined" ? process.env : {};
+const HOME = env.HOME || env.USERPROFILE || ".";
+// 支持 env 覆盖（E2E 测试用独立目录隔离，生产部署也可自定义数据目录）
+export const HIAGENT_DIR = env.HIAGENT_DIR || `${HOME}/.hiagent`;
 export const PROJECTS_FILE = `${HIAGENT_DIR}/projects.json`;
 export const SESSIONS_DIR = `${HIAGENT_DIR}/sessions`;
 export const PI_AGENTS_DIR = `${HOME}/.pi/agent/agents`;
