@@ -55,7 +55,9 @@ interface ProcSpec { label: string; cmd: [string, string[]]; }
 
 function spawnProcs(spec: ProcSpec) {
   const [bin, args] = spec.cmd;
-  return spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+  // Windows 下 spawn 默认不解析 PATHEXT,找不到 bun.cmd;加 shell:true 走 cmd 解析。
+  // POSIX 不需要 shell,但加上无害(命令本身无 shell 元字符)。
+  return spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], shell: true });
 }
 
 main().catch((e) => { console.error("[dev] 启动失败:", e); process.exit(1); });
