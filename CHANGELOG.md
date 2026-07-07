@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-07 — 新增跨平台端口清理纯函数（Task 1: scripts/port.ts）
+
+- **类型**：新增功能（scripts 工具）
+- **摘要**：实现跨平台端口占用检测与清理纯函数 `findPidOnPort(port)` / `killPort(port)`，供后续 `scripts/dev.ts` 启动前清理 9776/5180 端口占用。Windows 用 `netstat`/`taskkill`，POSIX 用 `lsof`/`kill -9`；无占用静默返回。
+- **影响范围**：新增 `scripts/port.ts`、`scripts/__tests__/port.test.ts`（bun:test，2 个用例：空闲端口返回 null、killPort 不抛错）
+
+---
+
 ## 2026-07-07 — Pi 原生消息模型重构（透传富消息 + 废弃旁路系统 + .hiagent 隔离）
 
 - **类型**：架构重构（kernel + shared + frontend，跨 9 个任务）
