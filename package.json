@@ -3,6 +3,7 @@
   "private": true,
   "workspaces": ["packages/*"],
   "scripts": {
+    "dev": "bun run scripts/dev.ts",
     "dev:kernel": "bun run --filter @hiagent/kernel dev",
     "dev:frontend": "bun run --filter @hiagent/frontend dev",
     "test": "bun test",

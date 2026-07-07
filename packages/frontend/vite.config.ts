@@ -14,7 +14,7 @@ export default defineConfig(() => {
 
   return {
     plugins: [react()],
-    server: { port: 5173 },
+    server: { port: 5180 },
     define: defineEntries,
     resolve: {
       alias: { "@hiagent/shared": fileURLToPath(new URL("../shared/src/index.ts", import.meta.url)) },

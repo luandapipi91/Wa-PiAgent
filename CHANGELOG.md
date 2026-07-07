@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-07 — 根 dev 脚本 + frontend/playwright 端口 5173→5180（Task 4）
+
+- **类型**：配置变更
+- **摘要**：根 `package.json` scripts 最前加 `"dev": "bun run scripts/dev.ts"`（一键起 kernel+frontend+自动开浏览器，指向 Task 3 的 `scripts/dev.ts`）；frontend `vite.config.ts` 端口 5173→5180 避开 Vite 默认冲突；`playwright.config.ts` 的 baseURL + webServer.url 同步改 5180。手动验证：后台跑 `bun run dev`，`[kernel]`/`[web]` 日志正常、浏览器自动开 5180、Ctrl+C 后端口释放无残留。
+- **影响范围**：`package.json`、`packages/frontend/vite.config.ts`、`packages/frontend/playwright.config.ts`
+
+---
+
 ## 2026-07-07 — 新增跨平台端口清理纯函数（Task 1: scripts/port.ts）
 
 - **类型**：新增功能（scripts 工具）
