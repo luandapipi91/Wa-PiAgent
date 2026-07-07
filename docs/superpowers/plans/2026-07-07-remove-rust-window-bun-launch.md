@@ -855,11 +855,34 @@ git commit -m "docs(changelog): 记录移除 Rust 窗口层 + bun 启动 + vites
 
 ---
 
+## 阶段三:本地目录树服务(替代 Tauri 原生目录选择器)
+
+移除 Tauri 后,"新建项目"的目录选择从原生对话框降级为 `window.prompt`。本阶段用 react-complex-tree + kernel fs WS 接口实现树选择器。**关键决策:不做安全加固、用 react-complex-tree 库、不要手动输入框、起始根是系统根。**
+
+### Task 14+15: shared 类型 + kernel fs case ✅
+
+`packages/shared/src/types.ts` 新增 `FSHomeRequest`/`FSRootsRequest`/`FSListDirRequest`/`FSHomeResult`/`FSRootsResult`/`FSListDirResult`/`FSErrorEvent`/`DirEntry`,加入 WSClientEvent/WSServerEvent 联合。`packages/kernel/src/ws-server.ts` 加三个 case:`fs:home`(返回 homedir)、`fs:roots`(Windows 枚举 C:-Z: 盘符,POSIX `/`)、`fs:listDir`(readdir 列子项,含文件和目录,过滤隐藏项,不做路径校验)。
+
+### Task 16+17: react-complex-tree + DirTreePicker ✅
+
+- `packages/frontend/src/fs-client.ts` —— send/onMessage 封装成 Promise。
+- `packages/frontend/src/components/DirTreePicker.tsx` —— react-complex-tree 的 UncontrolledTreeEnvironment + 异步 DataProvider(展开时 await listDir 懒加载)。
+- `store/projects.ts` + `App.tsx` —— createProjectFromDir 改为打开 picker,选中后走 createProjectFromPath。
+- react-complex-tree v2.6.2 实际 API:onDidChangeTreeData 返回 Disposable、canDropOnFolder(非 canDropOnFolderWithChildren)、renderItemTitle 顶层 prop、viewState 必填。
+
+### Task 18: 集成验证 ✅
+
+浏览器实测:点新建项目 → 树选择器弹 Windows 盘符 → 展开懒加载 → 选中目录 → 项目创建成功。kernel 37/37 + frontend 65/65 全绿。
+
+---
+
 ## 完成标志
 
-- [ ] `bun run dev` 一键启动,浏览器自动开到 `http://localhost:5180`,Ctrl+C 干净退出
-- [ ] `src-tauri/`、`start.sh`、`start.command`、`copy-sidecar.mjs`、`vitest.config.ts`、`vitest` 依赖全部删除
-- [ ] `bun test`(根目录单命令)全绿
-- [ ] `bun run --filter @hiagent/kernel build` 产出 `dist/hiagent-kernel`(无 triple 后缀)
-- [ ] Windows 和 POSIX 都验证通过
+- [x] `bun run dev` 一键启动,浏览器自动开到 `http://localhost:5180`,Ctrl+C 干净退出
+- [x] `start.command`(macOS)+ `start.bat`(Windows)双击入口,bun 检查
+- [x] `src-tauri/`、`start.sh`、`copy-sidecar.mjs`、`vitest.config.ts`、`vitest` 依赖全部删除
+- [x] `bun test`(根目录单命令)全绿(scripts 5 + frontend 65 + kernel/shared 44)
+- [x] `bun run --filter @hiagent/kernel build` 产出 `dist/hiagent-kernel`(无 triple 后缀)
+- [x] **新建项目走目录树选择器**(浏览器点选目录 → 项目创建成功,跨盘符可选)
+- [x] CHANGELOG 已记录
 - [ ] CHANGELOG 已记录

@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-07-07 — 移除 Rust 窗口层 + bun 一键启动 + 全 bun:test + 目录树选择器（整体收尾）
+
+- **类型**：架构重构（跨 18 task，三阶段）
+- **摘要**：移除 Tauri/Rust 窗口层，改用 `bun run dev` 一键启动前后端（并行 kernel 9776 WS + frontend 5180 Vite，自动开浏览器，SIGINT 清理）；测试工具链 vitest → bun:test（24 文件迁移，全仓库单一 runner）；新增本地目录树选择器（react-complex-tree + kernel `fs:listDir`/`fs:roots`/`fs:home` WS 接口）替代 Tauri 原生目录选择器。
+- **阶段一（启动层）**：`scripts/{port,open-browser,dev}.ts` + 双击入口 `start.command`/`start.bat`；端口 5173→5180；删 `src-tauri/`、`start.sh`；kernel build 去 Tauri sidecar triple 命名。
+- **阶段二（测试迁移）**：happy-dom preload + bunfig.toml；22 个 vitest 文件迁 bun:test（含 vi.mock→mock.module、vi.fn→mock、vi.spyOn→defineProperty）；删 vitest 依赖。修 3 个基础设施问题（WebSocket polyfill defineProperty、afterEach DOM 清理、原型方法 spy）。
+- **阶段三（目录树）**：kernel `fs:home`/`fs:roots`(Windows 盘符枚举)/`fs:listDir`(列系统任意目录)三 case；前端 `DirTreePicker`(react-complex-tree 异步 DataProvider 懒加载)+ `fs-client` + 接入新建项目流程。**明确不做安全加固**（用户决策）。
+- **影响范围**：删 `src-tauri/`、`start.sh`、`packages/kernel/scripts/copy-sidecar.mjs`、`packages/frontend/vitest.config.ts`；新增 `scripts/`、`packages/frontend/src/{fs-client,components/DirTreePicker}`、`packages/frontend/{tests/happydom-setup,bunfig}`；改 `package.json`、`packages/{kernel/src/ws-server,shared/src/types,frontend/src/{store/projects,App,vite.config,playwright}}`。
+- **验证**：scripts 5/5、frontend 65/65、kernel+shared 44/44 全绿；`bun run dev` 浏览器实测目录选择器走通（点选盘符→展开→选中→项目创建）。
+
+---
+
 ## 2026-07-07 — frontend 测试框架 vitest → bun:test 基础设施 + 迁第一个文件（Task 8+9）
 
 - **类型**：配置变更 / 测试基建

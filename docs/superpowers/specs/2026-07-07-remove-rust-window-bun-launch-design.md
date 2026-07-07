@@ -182,3 +182,33 @@ Tauri 窗口层在当前阶段带来的价值低于其维护成本(编译慢、�
 - **不写 Windows 专用 `.bat`/`.ps1` 启动脚本。** `scripts/dev.ts` 通过 bun 子进程 API 实现跨平台,不需要平台专用脚本。
 - **不引入 concurrently 等并行工具。** `scripts/dev.ts` 自己 spawn,零新依赖。
 - **不改历史文档。** MVP plan(`2026-07-06-hiagent-mvp.md`)里"Tauri 窗口"描述是历史记录,违反精准修改原则不改。
+
+## §8 阶段三:本地目录树服务(替代 Tauri 原生目录选择器)
+
+移除 Tauri 后,"新建项目"的目录选择从原生对话框降级为 `window.prompt` 手输路径。纯浏览器受 Web 沙箱限制拿不到本地绝对路径,而 kernel 需要绝对路径才能操作项目。本阶段用 **react-complex-tree** 库 + kernel 的 `fs:listDir`/`fs:roots`/`fs:home` WS 接口实现树选择器:用户像 Win 资源管理器那样展开/选中目录,拿到绝对路径,继续走现有 `project:create` 流程(kernel 创建项目逻辑不动)。
+
+### §8.1 安全(明确不做加固)
+
+**不做任何安全加固** —— 不绑 127.0.0.1、不校验 Origin、不校验路径。`fs:listDir` 能列系统任意目录(含 `/etc`、`C:\Windows`)。**用户明确不注重安全问题**,本阶段只为"选系统任意目录作项目目录"服务。
+
+### §8.2 kernel 侧:新增 fs WS 消息
+
+**`packages/shared/src/types.ts` 新增类型:** `FSHomeRequest`/`FSRootsRequest`/`FSListDirRequest`(→ WSClientEvent);`FSHomeResult`/`FSRootsResult`/`FSListDirResult`/`FSErrorEvent`(→ WSServerEvent);`DirEntry { name; isDir }`。
+
+**`packages/kernel/src/ws-server.ts` switch 新增三个 case:**
+- `fs:home` → 返回 `os.homedir()`
+- `fs:roots` → Windows 枚举 C: 到 Z: 用 `existsSync` 检测盘符;POSIX 返回 `["/"]`
+- `fs:listDir` → **不做路径校验**;`readdir(path, { withFileTypes: true })` 取子项(含文件和目录,过滤 `.` 开头隐藏项);读取出错返回 `fs:error`
+
+### §8.3 前端侧:DirTreePicker(react-complex-tree)
+
+- **`packages/frontend/src/fs-client.ts`** —— 把 fire-and-forget 的 send/onMessage 封装成 Promise(`listDir`/`getRoots`/`getHome`),供 DataProvider 调用。
+- **`packages/frontend/src/components/DirTreePicker.tsx`** —— 用 react-complex-tree 的 `UncontrolledTreeEnvironment` + `Tree` + 自定义 `TreeDataProvider`。`getTreeItem` 在节点首次展开时 `await listDir` 填充 children(懒加载);目录 📁 / 文件 📄 不同图标;选中目录后 onPick 拿绝对路径;禁用拖拽/重排/重命名;**无手动输入框**。
+- **`store/projects.ts`** —— `createProjectFromDir` 改为 `set({ dirPickerOpen: true })`,App 渲染 `<DirTreePicker>`;新增 `createProjectFromPath(cwd)` 走 `basename` + `project:create`。
+- **react-complex-tree 实际 API 偏差(实现时修正):** `onDidChangeTreeData` 返回 `Disposable` 对象(非函数)、prop 名是 `canDropOnFolder`(非 `canDropOnFolderWithChildren`)、`renderItemTitle` 是顶层 prop、`viewState={{}}` 必填。
+
+### §8.4 阶段三范围边界
+
+- 改:`ws-server.ts`(fs case)、`shared/types.ts`、`store/projects.ts`、`App.tsx`
+- 新增:`fs-client.ts`、`components/DirTreePicker.tsx`、`tests/DirTreePicker.test.tsx`
+- 不碰:kernel 的 broker/intercom、project-store.ts(创建项目逻辑不动)、`pick-directory.ts`(留 basename,不删)、`index.ts`/ws-server fetch(不做安全加固)
