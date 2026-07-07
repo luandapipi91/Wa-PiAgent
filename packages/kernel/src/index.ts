@@ -23,7 +23,8 @@ async function main() {
   // StateAggregator：Pi 事件 → WS 事件，输出到 broadcast
   const agentManager = new AgentManager({
     projectStore,
-    onEvent: () => {},  // 下面立即用真实闭包重建
+    configStore,
+    onEvent: () => {},
   });
   const stateAggregator = new StateAggregator({
     sessionStore,

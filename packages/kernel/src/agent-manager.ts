@@ -1,10 +1,12 @@
 import type { AgentName, AgentState, AgentStateKey } from "@hiagent/shared";
 import { makeAgentStateKey } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
+import type { ConfigStore } from "./config-store";
 import { PiRpcClient, type PiEvent, type PiRpcClientOpts } from "./pi-rpc-client";
 
 export interface AgentManagerOpts {
   projectStore: ProjectStore;
+  configStore?: ConfigStore;  // 可选：测试用 mock spawn 不需 config；生产传真实 ConfigStore
   onEvent: (key: AgentStateKey, e: PiEvent) => void;
   spawnFn?: PiRpcClientOpts["spawnFn"];
 }
@@ -27,10 +29,14 @@ export class AgentManager {
     if (!project) throw new Error(`项目不存在: ${projectId}`);
     if (!project.cwd) throw new Error(`项目工作目录缺失: ${project.name ?? projectId}`);
 
+    // 读 agent 配置（系统提示词/工具/模型），传给 pi spawn
+    const config = this.opts.configStore ? await this.opts.configStore.getAgent(agentName) : null;
+
     const client = new PiRpcClient({
       agentName,
       cwd: project.cwd,
       sessionId: `${projectId}-${agentName}`,  // pi-intercom 会话名
+      config: config ?? undefined,
       spawnFn: this.opts.spawnFn,
       onEvent: (e) => {
         if (e.kind === "state") this.states.set(key, e.state);
