@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-07-07 — Tauri 项目初始化（Cargo + tauri.conf + 空壳窗口）
+
+- **类型**：新增功能（Tauri 壳）
+- **摘要**：实现 Task 30——创建 Tauri 2.x 项目骨架，`cargo build` 编译通过，产出可执行的 HiAgent 空壳窗口二进制（Task 32 接管 kernel sidecar 生命周期）。
+- **具体改动**：
+  - 新增 `src-tauri/Cargo.toml`：包名 `hiagent`，`[lib] name = "hiagent_lib"`（对齐 main.rs 的 `hiagent_lib::run()`，Tauri 2 官方模板约定）；依赖 `tauri 2` + `tauri-plugin-shell 2` + `serde` + `serde_json`
+  - 新增 `src-tauri/tauri.conf.json`：devUrl `http://localhost:5173`（对齐 frontend vite server.port），frontendDist 指向 `../packages/frontend/dist`，窗口 1280×800
+  - 新增 `src-tauri/build.rs` + `src/main.rs`（`windows_subsystem = windows` 防 release 弹控制台）+ `src/lib.rs`（空壳 `tauri::Builder` + shell plugin，Task 32 填 sidecar）
+  - 新增 `src-tauri/icons/`：4 个 RGBA PNG 占位（32/128/128@2x/512），用 Python `zlib`+`struct` 生成（CRC 与 color type 经校验合法；Tauri 要求 RGBA color type 6）
+- **影响范围**：`src-tauri/`（全新目录，不影响 packages/*）
+- **验证**：`cargo build` Finished，产物 `target/debug/hiagent`（Mach-O 31MB debug）。弹窗 dev `[需交互环境]` 留 Task 32 全链路验证
+
+---
+
 ## 2026-07-07 — 编排画布视图切换：App 加 canvas 态 + 返回会话
 
 - **类型**：新增功能（前端）
