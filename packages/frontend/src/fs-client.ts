@@ -24,7 +24,7 @@ export function listDir(path: string): Promise<DirEntry[]> {
   return new Promise((resolve) => {
     const off = onMessage((e) => {
       if (e.type === "fs:listDir" && e.path === path) { resolve(e.entries); off(); }
-      else if (e.type === "fs:error") { resolve([]); off(); }
+      else if (e.type === "fs:error" && e.path === path) { resolve([]); off(); }
     });
     send({ type: "fs:listDir", path });
   });
