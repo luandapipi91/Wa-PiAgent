@@ -48,8 +48,9 @@ export class PiRpcClient {
 
   async start(): Promise<void> {
     const spawnFn = this.opts.spawnFn ?? defaultSpawn;
-    // 根据 config 构造 pi 启动参数（系统提示词/工具白名单/模型）
-    const args = ["--mode", "rpc", "--name", this.sessionName];
+    // broker 公开名由代理占据，真实进程用内部名
+    const brokerName = `${this.sessionName}-real`;
+    const args = ["--mode", "rpc", "--name", brokerName];
     const c = this.opts.config;
     if (c) {
       if (c.model) args.push("--model", c.model);
@@ -63,7 +64,7 @@ export class PiRpcClient {
       cwd: this.opts.cwd,
       stdio: ["pipe", "pipe", "pipe"],
     });
-    console.log(`[kernel] spawn pi: name=${this.sessionName} cwd=${this.opts.cwd} model=${c?.model ?? "default"}`);
+    console.log(`[kernel] spawn pi: name=${brokerName} cwd=${this.opts.cwd} model=${c?.model ?? "default"}`);
     this.child.stdout.on("data", (chunk: Buffer) => {
       this.stdoutBuf += chunk.toString();
       let nl: number;
