@@ -86,6 +86,13 @@ export class ProjectStore {
     await this.save(data);
   }
 
+  // 改 session 归属项目（老数据迁移用：孤儿 session 归入默认项目）
+  async reassignSession(sessionId: string, projectId: string): Promise<void> {
+    const data = await this.load();
+    const s = data.sessions.find(x => x.id === sessionId);
+    if (s) { s.projectId = projectId; await this.save(data); }
+  }
+
   async touchSession(id: string): Promise<void> {
     const data = await this.load();
     const s = data.sessions.find(x => x.id === id);
