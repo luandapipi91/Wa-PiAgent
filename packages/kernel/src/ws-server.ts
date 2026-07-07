@@ -2,10 +2,14 @@ import type {
   WSClientEvent, WSServerEvent, AgentName,
 } from "@hiagent/shared";
 import { WS_PORT } from "@hiagent/shared";
+import type { DirEntry } from "@hiagent/shared";
 import type { ConfigStore } from "./config-store";
 import type { ProjectStore } from "./project-store";
 import type { AgentManager } from "./agent-manager";
 import type { StateAggregator } from "./state-aggregator";
+import { readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 
 export interface WSServerOpts {
   configStore: ConfigStore;
@@ -159,6 +163,35 @@ export class WSServer {
       case "agent:config:save": {
         const errs = await this.opts.configStore.saveAgent(event.config);
         if (errs.length) reply({ type: "error", message: errs.join("; ") });
+        break;
+      }
+      case "fs:home": {
+        reply({ type: "fs:home", home: homedir() });
+        break;
+      }
+      case "fs:roots": {
+        if (process.platform === "win32") {
+          const roots: string[] = [];
+          for (let i = 67; i <= 90; i++) {  // 'C'(67) 到 'Z'(90)
+            const drive = String.fromCharCode(i) + ":\\";
+            if (existsSync(drive)) roots.push(drive);
+          }
+          reply({ type: "fs:roots", roots });
+        } else {
+          reply({ type: "fs:roots", roots: ["/"] });
+        }
+        break;
+      }
+      case "fs:listDir": {
+        try {
+          const dirents = await readdir(event.path, { withFileTypes: true });
+          const entries: DirEntry[] = dirents
+            .map((d) => ({ name: d.name, isDir: d.isDirectory() }))
+            .filter((e) => !e.name.startsWith("."));
+          reply({ type: "fs:listDir", path: event.path, entries });
+        } catch (e) {
+          reply({ type: "fs:error", reason: String(e instanceof Error ? e.message : e) });
+        }
         break;
       }
     }

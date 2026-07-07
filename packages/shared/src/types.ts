@@ -175,7 +175,8 @@ export type WSClientEvent =
   | ProjectCreateEvent | ProjectUpdateEvent | ProjectDeleteEvent
   | SessionRenameEvent | SessionDeleteEvent
   | AgentConfigGetEvent | AgentConfigSaveEvent
-  | ProjectsListRequest | SessionMessagesRequest;
+  | ProjectsListRequest | SessionMessagesRequest
+  | FSHomeRequest | FSRootsRequest | FSListDirRequest;
 
 // kernel → 前端
 export interface MessageUpdateEvent {
@@ -219,10 +220,21 @@ export interface ErrorEvent {
   message: string;
 }
 
+// fs 相关（kernel 读本地目录，供前端目录树选择器）
+export interface FSHomeRequest { type: "fs:home"; }
+export interface FSRootsRequest { type: "fs:roots"; }
+export interface FSListDirRequest { type: "fs:listDir"; path: string; }
+export interface FSHomeResult { type: "fs:home"; home: string; }
+export interface FSRootsResult { type: "fs:roots"; roots: string[]; }
+export interface DirEntry { name: string; isDir: boolean; }
+export interface FSListDirResult { type: "fs:listDir"; path: string; entries: DirEntry[]; }
+export interface FSErrorEvent { type: "fs:error"; reason: string; }
+
 export type WSServerEvent =
   | MessageUpdateEvent | StateChangeEvent
   | ProjectsListEvent | ProjectCreatedEvent | SessionCreatedEvent
   | SessionMessagesEvent
-  | AgentConfigEvent | ErrorEvent;
+  | AgentConfigEvent | ErrorEvent
+  | FSHomeResult | FSRootsResult | FSListDirResult | FSErrorEvent;
 
 export type WSEvent = WSClientEvent | WSServerEvent;
