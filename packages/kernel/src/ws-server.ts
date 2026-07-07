@@ -1,7 +1,8 @@
 import type {
-  WSClientEvent, WSServerEvent, AgentName,
+  WSClientEvent, WSServerEvent, AgentName, ChatMessage,
 } from "@hiagent/shared";
 import { WS_PORT, makeAgentStateKey } from "@hiagent/shared";
+import { randomUUID } from "node:crypto";
 import type { ConfigStore } from "./config-store";
 import type { ProjectStore } from "./project-store";
 import type { SessionStore } from "./session-store";
@@ -106,8 +107,7 @@ export class WSServer {
         break;
       }
       case "agent:prompt": {
-        // session 元数据由 kernel 用 randomUUID 创建（前端传的 sessionId 仅作请求追踪，
-        // 实际 session.id 由 ProjectStore 生成并经 session:created 广播回前端）
+        // session 元数据：前端传的 sessionId 仅作请求追踪，实际 session.id 由 ProjectStore 创建
         const { sessions } = await this.opts.projectStore.load();
         const existing = sessions.find(s => s.id === event.sessionId);
         const session = existing ?? await this.opts.projectStore.createSession({
@@ -116,12 +116,22 @@ export class WSServer {
         });
         this.broadcast({ type: "session:created", session });
         await this.opts.projectStore.touchSession(session.id);
-        // 启动/提示失败不抛——转成 error 事件回请求者，避免 WS 消息处理崩溃
+        // 广播用户消息（让前端立即显示用户输入）
+        const userMsg: ChatMessage = {
+          id: randomUUID(), sessionId: session.id,
+          role: "user", text: event.text, timestamp: Date.now(),
+        };
+        this.broadcast({
+          type: "agent:message", projectId: event.projectId,
+          sessionId: session.id, agentName: event.agentName, message: userMsg,
+        });
+        await this.opts.sessionStore.appendMessage(session.id, userMsg);
+        // 启动/提示失败不抛——转成 error 事件，避免 WS 消息处理崩溃
         try {
           const client = await this.opts.agentManager.ensureStarted(event.projectId, event.agentName);
-          await client.prompt(event.text);
+          await client.prompt(event.text, session.id);
         } catch (err) {
-          reply({ type: "error", message: `agent 启动失败: ${(err as Error).message}` });
+          this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}` });
         }
         break;
       }

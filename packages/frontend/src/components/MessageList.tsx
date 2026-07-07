@@ -20,14 +20,16 @@ export function MessageList({ sessionId }: Props) {
 
 function MessageBubble({ msg }: { msg: ChatMessage }) {
   const isUser = msg.role === "user";
+  const isError = msg.text.startsWith("⚠️");
   return (
     <div className="flex gap-2" data-testid={`msg-${msg.id}`}>
       <div
         className="max-w-[70%] px-3 py-2"
         style={{
-          background: isUser ? "#313244" : "#181825",
+          background: isError ? "rgba(243,139,168,0.15)" : isUser ? "#313244" : "#181825",
+          border: isError ? "1px solid #f38ba8" : "none",
           borderRadius: isUser ? "4px 12px 12px 12px" : "12px 4px 12px 12px",
-          color: "#cdd6f4",
+          color: isError ? "#f38ba8" : "#cdd6f4",
         }}
       >
         <div className="text-xs text-overlay mb-0.5">{isUser ? "你" : "agent"}</div>

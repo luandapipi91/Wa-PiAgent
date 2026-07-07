@@ -25,6 +25,7 @@ export class AgentManager {
     const { projects } = await this.opts.projectStore.load();
     const project = projects.find(p => p.id === projectId);
     if (!project) throw new Error(`项目不存在: ${projectId}`);
+    if (!project.cwd) throw new Error(`项目工作目录缺失: ${project.name ?? projectId}`);
 
     const client = new PiRpcClient({
       agentName,

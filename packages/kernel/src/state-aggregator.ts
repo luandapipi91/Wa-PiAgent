@@ -34,6 +34,14 @@ export class StateAggregator {
         });
         break;
       }
+      case "error": {
+        // pi prompt 失败等错误透传给前端（带 agent 上下文，便于定位）
+        this.opts.onServerEvent({
+          type: "error",
+          message: `[${agentName}] ${e.message}`,
+        });
+        break;
+      }
       // intercom ask/reply 由 routeAsk/routeReply 处理（来自 IntercomMonitor）
     }
   }

@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-07-07 — 修复消息流全链路（pi RPC 协议 + 错误透传 + stdout 适配）
+
+- **类型**：bug 修复（kernel + 前端事件链路）
+- **摘要**：发送消息后无回复——根因是多重：①前端没处理 agent:message/agent:state/error 事件 ②PiRpcClient 不认 pi 0.80 的 response 协议 ③pi 的 --cwd 参数不存在 ④Bun.spawn 的 stdout 是 Web Streams 非 Node EventEmitter ⑤bun 全局装的残缺 pi（缺 proper-lockfile 依赖）被优先解析。逐层修复后，消息流全链路打通，错误（如 No API key）正确显示在前端。
+- **具体改动**：
+  - **前端事件处理（App.tsx）**：onMessage 补全 agent:message（注入 session store）、agent:state（更新 agents store）、intercom:ask/reply（intercom store）、error（注入消息流红色显示 或 alert）。此前只处理项目/会话管理事件，agent 回复和错误全被丢弃
+  - **MessageList**：错误消息（⚠️ 开头）红色边框样式区分
+  - **PiRpcClient.handleLine**：加 `response` 类型处理——pi 0.80 RPC 用 request/response（非流式 message_update），prompt 成功发 message 事件、失败发 error 事件；加 currentSessionId 让 message 定位到正确会话
+  - **PiRpcClient.start**：去掉 pi 不认的 `--cwd` 参数（工作目录通过 spawn cwd 选项传）
+  - **defaultSpawn**：Bun.spawn 的 stdout/stderr 是 ReadableStream（Web Streams），新增 `toNodeStream` 适配器转成 Node `.on("data")` 风格；加 `proc.exited` 退出监听 + stderr 转发日志；`killed` 改 getter 反映真实状态；显式 `env: process.env`
+  - **StateAggregator**：routePiEvent 加 error kind → 广播 WS error 事件（带 agent 上下文）
+  - **ws-server agent:prompt**：发 prompt 前广播 user message（让前端立即显示用户输入）；prompt 调用传 session.id；错误从 reply 改 broadcast
+  - **AgentManager**：ensureStarted 加 cwd 校验（缺失时抛错而非传 null 给 pi）
+  - **环境**：卸载 bun 全局残缺 pi（缺 proper-lockfile），保留 nvm 完整版
+- **影响范围**：`packages/frontend/`（App.tsx + MessageList.tsx）、`packages/kernel/`（pi-rpc-client.ts + state-aggregator.ts + ws-server.ts + agent-manager.ts）
+- **验证**：agent-browser 真实流程——发消息后前端显示 `⚠️ [dev] No API key found...`（pi 真实错误透传）；`bun test` 39 passed + `vitest` 42 passed
+- **剩余阻塞**：pi 的 model `deepseek/deepseek-v4-flash` 需配 `DEEPSEEK_API_KEY` 才能产生真实回复（用户凭证）
+
+---
+
 ## 2026-07-07 — 新建项目原生目录选择器 + 项目切换
 
 - **类型**：新增功能（Tauri 集成 + 前端交互）
