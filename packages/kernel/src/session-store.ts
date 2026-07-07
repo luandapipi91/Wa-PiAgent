@@ -45,7 +45,13 @@ export class SessionStore {
 
   async appendMessage(sessionId: string, msg: ChatMessage): Promise<void> {
     const data = await this.read(sessionId);
-    data.messages.push(msg);
+    // 按 id 去重：同 id 消息原地更新（流式增量），不同 id 追加
+    const idx = data.messages.findIndex(m => m.id === msg.id);
+    if (idx >= 0) {
+      data.messages[idx] = msg;
+    } else {
+      data.messages.push(msg);
+    }
     await this.write(sessionId, data);
   }
 

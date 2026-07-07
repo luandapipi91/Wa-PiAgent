@@ -45,3 +45,16 @@ test("appendAsk + resolveAsk", async () => {
   expect(asks[0].resolvedAt).toBeDefined();
   rmSync(dir, { recursive: true, force: true });
 });
+
+test("appendMessage 同 id 更新不重复追加（流式去重）", async () => {
+  const dir = tempDir();
+  const store = new SessionStore(dir);
+  // 模拟流式消息：message_start → message_update → message_end
+  await store.appendMessage("s1", mkMsg("m1", "s1", ""));
+  await store.appendMessage("s1", mkMsg("m1", "s1", "Hello"));
+  await store.appendMessage("s1", mkMsg("m1", "s1", "Hello world"));
+  const msgs = await store.loadMessages("s1");
+  expect(msgs).toHaveLength(1);
+  expect(msgs[0].text).toBe("Hello world");  // 保留最新版本
+  rmSync(dir, { recursive: true, force: true });
+});
