@@ -98,13 +98,13 @@ ensure_broker() {
         return 0
     fi
 
-    warn "broker socket 不存在（$BROKER_SOCK），尝试自愈..."
+    warn "broker socket 不存在（${BROKER_SOCK}），尝试自愈..."
 
     # 清理僵尸 broker 进程（进程在但 socket 丢了）
     local stale
     stale=$(pgrep -f "pi-intercom/broker/broker.ts" 2>/dev/null || true)
     if [ -n "$stale" ]; then
-        warn "发现僵尸 broker 进程（$stale），清理中..."
+        warn "发现僵尸 broker 进程（${stale}），清理中..."
         echo "$stale" | xargs kill -9 2>/dev/null || true
         sleep 1
     fi
