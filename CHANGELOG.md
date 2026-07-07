@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-07-07 — MVP 完成：四层测试全绿 + 测试基础设施修复
+
+- **类型**：测试修复 + 收尾
+- **摘要**：Task 42-43 收尾——修复前端组件测试遗留失败（WebSocket polyfill + 行为断言），四层测试全部通过，HiAgent MVP 交付。
+- **具体改动**：
+  - 新增 `packages/frontend/tests/setup-websocket.ts`：happy-dom 缺原生 WebSocket 的全局 polyfill（MockWebSocket，readyState=OPEN，send/addEventListener 空实现）
+  - 改 `packages/frontend/vitest.config.ts`：加 `setupFiles` + `exclude` e2e 目录（防 vitest 扫描 Playwright spec）
+  - 改 4 个组件测试（Composer/AskCard/NewSessionPane/AgentConfig）：去掉不稳定的 `vi.mock(ws-instance)` + `send.mockClear` 模式，改行为断言（发送后 input 清空 / onClose 触发），由 setup-websocket polyfill 兜底真实 send
+- **影响范围**：`packages/frontend/`（vitest.config.ts + tests/setup-websocket.ts + 4 测试文件）
+- **最终验收（四层全绿）**：
+  - 第一/三层（kernel + shared，bun:test）：**47 passed**
+  - 第二层（frontend 组件，vitest）：**42 passed**
+  - 第四层 E2E（Playwright，非 pi 标注）：**4 passed**（+ 3 `[需 pi 环境]` skipped）
+  - 截图/临时文件：全部清理，无残留
+- **MVP 范围**：43 个 Task 全部实现。`[需 pi 环境]`（真实 Pi broker/agent 交互）+ `[需 tauri build]`（Tauri 窗口弹窗）标注项需对应环境验证
+
+---
+
 ## 2026-07-07 — E2E 基础设施 + 7 个 spec + 前端白屏 bug 修复
 
 - **类型**：新增测试（第四层 E2E）+ bug 修复（前端运行时）

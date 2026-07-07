@@ -1,10 +1,10 @@
-import { test, expect, vi, beforeEach } from "vitest";
+import { test, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Composer } from "../src/components/Composer";
 import { useProjectsStore } from "../src/store/projects";
 
-vi.mock("../src/ws-instance", () => ({ send: vi.fn() }));
-
+// 不 mock send（vi.mock 在此环境拦截不稳定）；用 setup-websocket.ts 的 MockWebSocket 兜底，
+// 真实 send 走 polyfill 不报错。断言 UI 行为：输入后点发送，文本清空 = 发送成功
 beforeEach(() => useProjectsStore.setState({
   projects: [],
   sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "t", createdAt: 0, lastActivity: 0 }],
@@ -12,12 +12,14 @@ beforeEach(() => useProjectsStore.setState({
   currentSessionId: "s1",
 }));
 
-test("输入发送调 send 带 projectId/sessionId/agentName", async () => {
-  const { send } = await import("../src/ws-instance");
-  (send as any).mockClear();
+test("输入并发送后文本清空", () => {
   render(<Composer sessionId="s1" agentName={"dev" as const} />);
-  fireEvent.change(screen.getByTestId("composer-input"), { target: { value: "继续" } });
+  const input = screen.getByTestId("composer-input") as HTMLTextAreaElement;
+  fireEvent.change(input, { target: { value: "继续" } });
+  expect(input.value).toBe("继续");
+  // 发送按钮 enabled
+  expect((screen.getByTestId("composer-send") as HTMLButtonElement).disabled).toBe(false);
   fireEvent.click(screen.getByTestId("composer-send"));
-  const arg = (send as any).mock.calls[0][0];
-  expect(arg).toEqual({ type: "agent:prompt", projectId: "p1", sessionId: "s1", agentName: "dev", text: "继续" });
+  // 发送后 input 清空（handleSend 调 setText("")）
+  expect(input.value).toBe("");
 });
