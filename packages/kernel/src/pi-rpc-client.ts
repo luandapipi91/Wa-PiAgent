@@ -36,7 +36,8 @@ export class PiRpcClient {
   private child: MockChild | null = null;
   private stdoutBuf = "";
   private pendingId = 0;
-  private pendingRpcResolvers = new Map<number, (data: unknown) => void>();
+  // resolver 存 { resolve, reject }：dispose 时可 reject 在途请求，避免 getMessages 永挂
+  private pendingRpcResolvers = new Map<number, { resolve: (data: unknown) => void; reject: (err: Error) => void }>();
   private readonly sessionName: string;
   // 当前 prompt 的会话 id，用于给 message 事件补 sessionId（一个 client 服务多会话）
   private currentSessionId = "";
@@ -94,8 +95,11 @@ export class PiRpcClient {
 
   async getMessages(): Promise<AgentMessage[]> {
     const id = ++this.pendingId;
-    return new Promise((resolve) => {
-      this.pendingRpcResolvers.set(id, (data: any) => resolve(data?.messages ?? []));
+    return new Promise((resolve, reject) => {
+      this.pendingRpcResolvers.set(id, {
+        resolve: (data: any) => resolve(data?.messages ?? []),
+        reject,
+      });
       this.send({ type: "get_messages" }, id);
     });
   }
@@ -103,6 +107,11 @@ export class PiRpcClient {
   async dispose(): Promise<void> {
     if (this.child && !this.child.killed) this.child.kill();
     this.child = null;
+    // 清理在途 RPC：reject 所有 pending resolver，避免调用方 getMessages 永挂
+    for (const { reject } of this.pendingRpcResolvers.values()) {
+      reject(new Error("PiRpcClient disposed"));
+    }
+    this.pendingRpcResolvers.clear();
   }
 
   private async send(obj: unknown, preoccupiedId?: number): Promise<void> {
@@ -132,7 +141,7 @@ export class PiRpcClient {
           const resolver = this.pendingRpcResolvers.get(obj.id);
           if (resolver) {
             this.pendingRpcResolvers.delete(obj.id);
-            resolver(obj.data);
+            resolver.resolve(obj.data);
           }
         }
         break;
