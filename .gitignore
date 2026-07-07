@@ -30,3 +30,8 @@ Thumbs.db
 
 # Pi local state (uncomment if you want to ignore project-local pi state)
 # .pi/
+
+# kernel 测试残留（ws-server 集成测试产生的临时文件）
+packages/kernel/tests/ws-proj*
+packages/kernel/tests/ws-sess*
+packages/kernel/tests/.tmp-*

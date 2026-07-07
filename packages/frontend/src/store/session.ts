@@ -3,17 +3,26 @@ import type { ChatMessage } from "@hiagent/shared";
 
 interface SessionState {
   messagesBySession: Record<string, ChatMessage[]>;
+  // upsert：同 id 消息更新（流式增量），不同 id 追加
   append: (msg: ChatMessage) => void;
   clear: () => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
   messagesBySession: {},
-  append: (msg) => set(s => ({
-    messagesBySession: {
-      ...s.messagesBySession,
-      [msg.sessionId]: [...(s.messagesBySession[msg.sessionId] ?? []), msg],
-    },
-  })),
+  append: (msg) => set(s => {
+    const list = s.messagesBySession[msg.sessionId] ?? [];
+    const idx = list.findIndex(m => m.id === msg.id);
+    // 同 id 存在 → 更新（流式增量）；不存在 → 追加
+    const newList = idx >= 0
+      ? list.map((m, i) => i === idx ? msg : m)
+      : [...list, msg];
+    return {
+      messagesBySession: {
+        ...s.messagesBySession,
+        [msg.sessionId]: newList,
+      },
+    };
+  }),
   clear: () => set({ messagesBySession: {} }),
 }));

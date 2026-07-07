@@ -8,8 +8,6 @@ import { AgentConfig } from "./components/AgentConfig";
 import { Canvas } from "./components/canvas/Canvas";
 import { useProjectsStore } from "./store/projects";
 import { useSessionStore } from "./store/session";
-import { useAgentsStore } from "./store/agents";
-import { useIntercomStore } from "./store/intercom";
 import { onMessage, getWs } from "./ws-instance";
 
 type View = "empty" | "new-session" | "session" | "canvas";
@@ -30,29 +28,9 @@ export function App() {
         case "projects:list": ps.setAll(e.projects, e.sessions); break;
         case "project:created": ps.addProject(e.project); break;
         case "session:created": ps.addSession(e.session); break;
-        case "agent:message": {
-          // agent 回复注入当前会话消息流（kernel 已带 sessionId）
-          useSessionStore.getState().append(e.message);
-          break;
-        }
-        case "agent:state": {
-          // 状态更新（idle/thinking/blocked）
-          useAgentsStore.getState().setState(
-            `${e.projectId}:${e.agentName}` as import("@hiagent/shared").AgentStateKey,
-            e.state,
-          );
-          break;
-        }
-        case "intercom:ask": {
-          useIntercomStore.getState().addAsk(e.ask);
-          break;
-        }
-        case "intercom:reply": {
-          useIntercomStore.getState().resolveAsk(e.sessionId, e.askMessageId);
-          break;
-        }
         case "error": {
           // kernel/pi 错误：注入当前会话作为系统错误消息（红色显示）
+          // 注：agent:message/state/intercom 由 SessionView 处理（带 sessionId 过滤），此处不重复
           const sid = useProjectsStore.getState().currentSessionId;
           if (sid) {
             useSessionStore.getState().append({
@@ -63,7 +41,6 @@ export function App() {
               timestamp: Date.now(),
             });
           } else {
-            // 无当前会话时用 alert 提示
             window.alert(e.message);
           }
           break;
