@@ -8,8 +8,8 @@ export const PREVIEW_PORT = 9777;
 // process.env.HIAGENT_DIR 等静态替换为构建时值（E2E 隔离目录用）。
 // 但 typeof process 判断在替换前已求值为 "undefined"，所以这里双源读取兜底。
 const nodeEnv = typeof process !== "undefined" ? process.env : {};
-// @ts-expect-error import.meta.env 浏览器才有，Node/Bun 下无此属性
-const browserEnv = (typeof import.meta !== "undefined" && import.meta.env) ? import.meta.env : {};
+// import.meta.env 浏览器（vite）才有；Node/Bun 下 import.meta.env 为 undefined，由 && 兜底
+const browserEnv = (typeof import.meta !== "undefined" && (import.meta as any).env) ? (import.meta as any).env : {};
 const env = { ...nodeEnv, ...browserEnv };
 const HOME = env.HOME || env.USERPROFILE || ".";
 // 支持 env 覆盖（E2E 测试用独立目录隔离，生产部署也可自定义数据目录）
