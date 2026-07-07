@@ -1,4 +1,4 @@
-import { test, expect, vi } from "vitest";
+import { test, expect, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ConfirmDialog } from "../src/components/ui/ConfirmDialog";
 
@@ -17,14 +17,14 @@ test("danger=true 时确认按钮变红", () => {
 });
 
 test("点确认触发 onConfirm", () => {
-  const fn = vi.fn();
+  const fn = mock();
   render(<ConfirmDialog title="t" message="m" onConfirm={fn} onCancel={() => {}} />);
   fireEvent.click(screen.getByTestId("confirm-ok"));
   expect(fn).toHaveBeenCalledOnce();
 });
 
 test("点取消触发 onCancel", () => {
-  const fn = vi.fn();
+  const fn = mock();
   render(<ConfirmDialog title="t" message="m" onConfirm={() => {}} onCancel={fn} />);
   fireEvent.click(screen.getByTestId("confirm-cancel"));
   expect(fn).toHaveBeenCalledOnce();

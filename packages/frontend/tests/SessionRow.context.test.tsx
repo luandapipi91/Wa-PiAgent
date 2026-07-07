@@ -1,4 +1,4 @@
-import { test, expect, vi } from "vitest";
+import { test, expect, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { SessionRow } from "../src/components/SessionRow";
 import type { SessionEntity } from "@hiagent/shared";
@@ -9,16 +9,18 @@ const session: SessionEntity = {
 };
 
 test("右键触发 onContextMenu 并阻止默认行为", () => {
-  const fn = vi.fn();
+  const fn = mock();
   render(
     <div>
       <SessionRow session={session} selected={false} onSelect={() => {}} onContextMenu={fn} />
     </div>
   );
   const btn = screen.getByTestId("session-s1");
-  // 模拟右键事件
+  // 模拟右键事件。preventDefault 继承自 MouseEvent.prototype，bun 的 mock(obj, key)
+  // 只能 patch 自有属性，故用 Object.defineProperty 在实例上覆盖成 mock。
   const event = new MouseEvent("contextmenu", { bubbles: true });
-  const preventDefault = vi.spyOn(event, "preventDefault");
+  const preventDefault = mock();
+  Object.defineProperty(event, "preventDefault", { configurable: true, writable: true, value: preventDefault });
   fireEvent(btn, event);
   expect(preventDefault).toHaveBeenCalled();
   expect(fn).toHaveBeenCalledTimes(1);

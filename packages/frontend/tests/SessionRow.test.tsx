@@ -1,4 +1,4 @@
-import { test, expect, vi } from "vitest";
+import { test, expect, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { SessionRow } from "../src/components/SessionRow";
 import type { SessionEntity } from "@hiagent/shared";
@@ -22,7 +22,7 @@ test("选中态蓝左条", () => {
 });
 
 test("点击 onSelect", () => {
-  const fn = vi.fn();
+  const fn = mock();
   render(<table><tbody><SessionRow session={session} selected={false} onSelect={fn} /></tbody></table>);
   fireEvent.click(screen.getByTestId("session-s1"));
   expect(fn).toHaveBeenCalledWith("s1");

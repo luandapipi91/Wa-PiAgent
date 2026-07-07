@@ -1,4 +1,4 @@
-import { test, expect, vi, beforeEach } from "vitest";
+import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AgentConfig } from "../src/components/AgentConfig";
 import { useAgentsStore } from "../src/store/agents";
@@ -12,7 +12,7 @@ const mockConfig = {
   systemPromptBody: "你是工程师",
 };
 
-vi.mock("../src/ws-instance", () => ({
+mock.module("../src/ws-instance", () => ({
   send: () => {},
   onMessage: (cb: any) => { cb({ type: "agent:config", agentName: "dev", config: mockConfig }); return () => {}; },
 }));
@@ -33,7 +33,7 @@ test("切到系统提示词 tab 显示正文", () => {
 
 test("点保存触发 onClose", () => {
   // 不 mock send 为 vi.fn（拦截不稳定）；断言行为：点保存后 onClose 被调用
-  const onClose = vi.fn();
+  const onClose = mock();
   render(<AgentConfig agentName="dev" onClose={onClose} />);
   fireEvent.click(screen.getByText("保存"));
   expect(onClose).toHaveBeenCalled();
