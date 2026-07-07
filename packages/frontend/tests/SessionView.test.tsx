@@ -1,8 +1,8 @@
 import { test, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import type { SessionMessage } from "@hiagent/shared";
 import { SessionView } from "../src/components/SessionView";
 import { useProjectsStore } from "../src/store/projects";
-import { useIntercomStore } from "../src/store/intercom";
 import { useAgentsStore } from "../src/store/agents";
 import { useSessionStore } from "../src/store/session";
 
@@ -20,7 +20,6 @@ beforeEach(() => {
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0 }],
     currentProjectId: "p1", currentSessionId: "s1",
   });
-  useIntercomStore.setState({ asksBySession: {} });
   useAgentsStore.setState({ states: {}, configs: {} });
   useSessionStore.setState({ messagesBySession: {} });
 });
@@ -31,26 +30,17 @@ test("渲染 header 标题 + 项目目录", () => {
   expect(screen.getByText(/\/work\/p1/)).toBeTruthy();
 });
 
-test("无活跃 ask 不显示徽标", () => {
-  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
-  expect(screen.queryByTestId("intercom-badge")).toBeNull();
-});
-
-test("有活跃 ask 显示徽标", () => {
-  useIntercomStore.setState({
-    asksBySession: { s1: [{ messageId: "a1", sessionId: "s1", from: "product", to: "dev", text: "问", startedAt: Date.now(), resolved: false }] },
-  });
-  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
-  expect(screen.getByTestId("intercom-badge")).toBeTruthy();
-});
-
 test("收到 session:messages 响应后填充历史消息", () => {
   // 直接测 store 的 setMessages（SessionView onMessage 收到响应后调它）
-  useSessionStore.getState().setMessages("s1", [
-    { id: "h1", sessionId: "s1", role: "user", text: "历史问题", timestamp: 1 },
-    { id: "h2", sessionId: "s1", role: "assistant", text: "历史回复", timestamp: 2 },
-  ]);
+  // SessionMessage 形态：message 为 Pi 原生消息（带 role/timestamp），非旧 ChatMessage
+  const history: SessionMessage[] = [
+    { agentName: undefined, message: { role: "user", content: "历史问题", timestamp: 1 } },
+    { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "历史回复" }], model: "pi-test", stopReason: "end_turn", timestamp: 2 } },
+  ];
+  useSessionStore.getState().setMessages("s1", history);
   const msgs = useSessionStore.getState().messagesBySession["s1"];
   expect(msgs).toHaveLength(2);
-  expect(msgs[0].text).toBe("历史问题");
+  const first = msgs[0].message as any;
+  expect(first.role).toBe("user");
+  expect(first.content).toBe("历史问题");
 });

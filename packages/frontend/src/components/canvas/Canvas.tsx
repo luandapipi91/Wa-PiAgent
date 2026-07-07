@@ -3,7 +3,6 @@ import ReactFlow, { Background } from "reactflow";
 import "reactflow/dist/style.css";
 import type { AgentName } from "@hiagent/shared";
 import { useAgentsStore } from "../../store/agents";
-import { useIntercomStore } from "../../store/intercom";
 import { CanvasNode } from "./CanvasNode";
 import type { CanvasNodeData } from "./types";
 
@@ -30,7 +29,9 @@ const nodeTypes = { agent: CanvasNode };
 
 export function Canvas() {
   const states = useAgentsStore(s => s.states);
-  const asksBySession = useIntercomStore(s => s.asksBySession);
+  // 委派展示降级：intercom 旁路系统移除后暂用空对象占位，
+  // 后续需求从消息流（DelegateCard/DelegateReceived）重建 ask→edge 映射。
+  const asksBySession: Record<string, never[]> = {};
 
   // 4 个 agent 节点：画布是全局视图，取该 agent 任一项目状态（第一个匹配）
   const nodes = useMemo(() => NAMES.map(name => {
@@ -45,27 +46,20 @@ export function Canvas() {
     };
   }), [states]);
 
-  // 所有活跃 ask（跨会话）作为橙色动画连线
-  const activeAsks = useMemo(() => {
-    return Object.values(asksBySession).flat().filter(a => !a.resolved);
-  }, [asksBySession]);
-
   const edges = useMemo(() => {
+    // 默认 partners 连线（灰色虚线）
     const partnerEdges = DEFAULT_PARTNERS.map(([f, t]) => ({
       id: `${f}-${t}`,
       source: f,
       target: t,
       style: { stroke: "#6c7086", strokeDasharray: "4,3", strokeWidth: 2 },
     }));
-    const askEdges = activeAsks.map(a => ({
-      id: `ask-${a.messageId}`,
-      source: a.from,
-      target: a.to,
-      animated: true,
-      style: { stroke: "#fab387", strokeDasharray: "6,4", strokeWidth: 2.5 },
-    }));
-    return [...partnerEdges, ...askEdges];
-  }, [activeAsks]);
+    // 委派 ask 连线降级：asksBySession 暂为空占位，故无橙色动画连线。
+    // 后续需求从消息流（DelegateCard/DelegateReceived）重建 ask→edge 映射后再恢复。
+    return partnerEdges;
+    // asksBySession 保留引用，便于后续重建逻辑直接接入
+    void asksBySession;
+  }, [asksBySession]);
 
   return (
     <div className="flex-1 h-full" data-testid="canvas">
