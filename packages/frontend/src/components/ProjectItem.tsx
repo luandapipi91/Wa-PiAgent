@@ -1,4 +1,5 @@
 import { useState, useEffect, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import type { ProjectEntity, SessionEntity } from "@hiagent/shared";
 import { SessionRow } from "./SessionRow";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
@@ -108,8 +109,8 @@ export function ProjectItem(props: Props) {
         />
       ))}
 
-      {/* 右键 popup 菜单 */}
-      {menu && (
+      {/* 右键 popup 菜单（Portal 到 body 避免被侧边栏 overflow-hidden 裁剪） */}
+      {menu && createPortal(
         <div
           className="fixed z-50 rounded-md py-1 text-sm"
           style={{
@@ -133,7 +134,8 @@ export function ProjectItem(props: Props) {
             style={{ color: "#f38ba8" }}
             data-testid="menu-delete"
           >删除聊天</button>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* 删除确认框 */}
