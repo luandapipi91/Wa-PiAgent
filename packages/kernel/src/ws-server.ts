@@ -190,7 +190,7 @@ export class WSServer {
             .filter((e) => !e.name.startsWith("."));
           reply({ type: "fs:listDir", path: event.path, entries });
         } catch (e) {
-          reply({ type: "fs:error", reason: String(e instanceof Error ? e.message : e) });
+          reply({ type: "fs:error", path: event.path, reason: String(e instanceof Error ? e.message : e) });
         }
         break;
       }

@@ -5,16 +5,36 @@ import { test, expect } from "@playwright/test";
 test.describe.serial("应用主流程", () => {
 
 // Task 35: 首次启动空态 → 建项目（只跑一次，为后续 test 提供项目）
-// 非 Tauri 环境 createProjectFromDir 降级到 prompt（只问目录路径，项目名取 basename）
+// createProjectFromDir 现已改为打开目录树选择器（DirTreePicker，不再触发 window.prompt），
+// 故 E2E 不再走 UI 选择器，直接经 WS 建测试项目，浏览器只断言结果（与 multi-project 一致的常规做法）。
 test("首次启动空态引导建项目", async ({ page }) => {
-  page.on("dialog", async d => {
-    // pickDirectoryOrPrompt 在非 Tauri 环境弹一次 prompt 问目录路径
-    if (d.message().includes("目录")) await d.accept("/tmp/e2e-main");
-  });
   await page.goto("/");
   await expect(page.getByTestId("empty-state")).toBeVisible();
-  await page.getByTestId("empty-new-project").click();
+
+  // 绕过 UI 选择器，在浏览器内直接开 WS 发 project:create 建项目
+  const created = await page.evaluate(async () => {
+    const ws = new WebSocket("ws://127.0.0.1:9776");
+    await new Promise<void>((res, rej) => {
+      ws.addEventListener("open", () => res(), { once: true });
+      ws.addEventListener("error", () => rej(new Error("ws connect failed")), { once: true });
+    });
+    const done = new Promise<unknown>((res) => {
+      ws.addEventListener("message", (ev) => {
+        const e = JSON.parse(String((ev as MessageEvent).data));
+        if (e.type === "project:created") res(e.project);
+      });
+    });
+    ws.send(JSON.stringify({ type: "project:create", name: "e2e-main", cwd: "/tmp/e2e-main" }));
+    const project = await done;
+    ws.close();
+    return project;
+  });
+  expect(created).toBeTruthy();
+
+  // 项目出现后 view 由 empty 切到 new-session（projects.length > 0 且无 currentSessionId）
   await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
+  // 项目名出现在 sidebar
+  await expect(page.getByText("e2e-main").first()).toBeVisible({ timeout: 5000 });
 });
 
 // 辅助：进入 session 视图（每个 test 的 page 是新的，需各自发消息进 session）

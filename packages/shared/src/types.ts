@@ -228,7 +228,7 @@ export interface FSHomeResult { type: "fs:home"; home: string; }
 export interface FSRootsResult { type: "fs:roots"; roots: string[]; }
 export interface DirEntry { name: string; isDir: boolean; }
 export interface FSListDirResult { type: "fs:listDir"; path: string; entries: DirEntry[]; }
-export interface FSErrorEvent { type: "fs:error"; reason: string; }
+export interface FSErrorEvent { type: "fs:error"; path: string; reason: string; }
 
 export type WSServerEvent =
   | MessageUpdateEvent | StateChangeEvent
