@@ -7,7 +7,7 @@ import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
 import { AskCard } from "./AskCard";
 import { agentEmoji } from "../theme/agents";
-import { onMessage } from "../ws-instance";
+import { onMessage, send } from "../ws-instance";
 
 // 稳定的空数组引用：避免 session 不存在时 `?? []` 每次返回新引用，
 // 触发 React 19 useSyncExternalStore 的「snapshot 不稳定」infinite loop。
@@ -22,7 +22,13 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
   const getGlobalState = useAgentsStore(s => s.getGlobalState);
 
   useEffect(() => {
+    // 请求历史会话消息（切到历史会话时加载持久化内容）
+    send({ type: "session:messages", sessionId });
     const off = onMessage(e => {
+      if (e.type === "session:messages" && e.sessionId === sessionId) {
+        // 批量填充历史消息（覆盖，非追加——避免重复）
+        useSessionStore.getState().setMessages(sessionId, e.messages);
+      }
       if (e.type === "agent:message" && e.sessionId === sessionId) useSessionStore.getState().append(e.message);
       if (e.type === "intercom:ask" && e.sessionId === sessionId) useIntercomStore.getState().addAsk(e.ask);
       if (e.type === "intercom:reply" && e.sessionId === sessionId) useIntercomStore.getState().resolveAsk(sessionId, e.askMessageId);
