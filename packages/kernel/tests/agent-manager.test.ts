@@ -84,3 +84,20 @@ test("onEvent 携带正确 key", async () => {
   await am.disposeAll();
   rmSync(f, { force: true });
 });
+
+test("onDispose 回调在 disposeAll 时触发", async () => {
+  const f = tempProjectFile();
+  const ps = new ProjectStore(f);
+  const p = await ps.createProject({ name: "P", cwd: "/p" });
+  const disposed: string[] = [];
+  const am = new AgentManager({
+    projectStore: ps,
+    onEvent: () => {},
+    spawnFn: mockSpawn,
+    onDispose: (key) => disposed.push(key),
+  });
+  await am.ensureStarted(p.id, "dev");
+  await am.disposeAll();
+  expect(disposed).toContain(`${p.id}:dev`);
+  rmSync(f, { force: true });
+});

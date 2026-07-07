@@ -2,11 +2,12 @@ import { ConfigStore } from "./config-store";
 import { ProjectStore } from "./project-store";
 import { SessionStore } from "./session-store";
 import { AgentManager } from "./agent-manager";
+import { BrokerProxyManager } from "./broker-proxy";
 import { IntercomMonitor } from "./intercom-monitor";
 import { StateAggregator } from "./state-aggregator";
 import { WSServer } from "./ws-server";
 import { migrateLegacySessions } from "./migrate";
-import { WS_PORT } from "@hiagent/shared";
+import { parseAgentStateKey, WS_PORT } from "@hiagent/shared";
 
 async function main() {
   const configStore = new ConfigStore();
@@ -25,6 +26,10 @@ async function main() {
     projectStore,
     configStore,
     onEvent: () => {},
+    onDispose: (key) => {
+      const { projectId, agentName } = parseAgentStateKey(key);
+      brokerProxy.onAgentOffline(projectId, agentName).catch(() => {});
+    },
   });
   const stateAggregator = new StateAggregator({
     sessionStore,
@@ -35,9 +40,20 @@ async function main() {
   (agentManager as unknown as { opts: { onEvent: (k: never, e: never) => void } }).opts.onEvent =
     (key, e) => stateAggregator.routePiEvent(key as never, e as never);
 
-  const intercomMonitor = new IntercomMonitor({
+  // BrokerProxyManager：代理 agent 到 broker，接管消息拦截和转发
+  const brokerProxy = new BrokerProxyManager({
+    projectStore,
+    agentManager,
     onAsk: (a) => stateAggregator.routeAsk(a),
     onReply: (id, sid) => stateAggregator.routeReply(id, sid),
+  });
+  await brokerProxy.start();
+
+  // IntercomMonitor 仅保留 broker 事件监听（session_joined/left 等），
+  // 消息拦截和转发全部由 BrokerProxyManager 处理。
+  const intercomMonitor = new IntercomMonitor({
+    onAsk: () => {},  // 回调由 BrokerProxyManager 接管
+    onReply: () => {},
   });
   await intercomMonitor.connect();
 

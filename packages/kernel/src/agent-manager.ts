@@ -8,6 +8,7 @@ export interface AgentManagerOpts {
   projectStore: ProjectStore;
   configStore?: ConfigStore;  // 可选：测试用 mock spawn 不需 config；生产传真实 ConfigStore
   onEvent: (key: AgentStateKey, e: PiEvent) => void;
+  onDispose?: (key: AgentStateKey) => void;  // agent 退出时通知外部（如 BrokerProxyManager 重新注册代理）
   spawnFn?: PiRpcClientOpts["spawnFn"];
 }
 
@@ -63,7 +64,10 @@ export class AgentManager {
   }
 
   async disposeAll(): Promise<void> {
-    for (const client of this.agents.values()) await client.dispose();
+    for (const [key, client] of this.agents) {
+      await client.dispose();
+      this.opts.onDispose?.(key);  // 通知外部（如 BrokerProxyManager 重新注册代理）
+    }
     this.agents.clear();
     this.states.clear();
   }
