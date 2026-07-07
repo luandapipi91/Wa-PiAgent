@@ -6,6 +6,7 @@ import { SessionView } from "./components/SessionView";
 import { EmptyState } from "./components/EmptyState";
 import { AgentConfig } from "./components/AgentConfig";
 import { Canvas } from "./components/canvas/Canvas";
+import { DirTreePicker } from "./components/DirTreePicker";
 import { useProjectsStore } from "./store/projects";
 import { useSessionStore } from "./store/session";
 import { onMessage, getWs } from "./ws-instance";
@@ -90,6 +91,12 @@ export function App() {
         )}
       </main>
       {configAgent && <AgentConfig agentName={configAgent} onClose={() => setConfigAgent(null)} />}
+      {useProjectsStore(s => s.dirPickerOpen) && (
+        <DirTreePicker
+          onPick={(cwd) => useProjectsStore.getState().createProjectFromPath(cwd)}
+          onCancel={() => useProjectsStore.getState().closeDirPicker()}
+        />
+      )}
     </div>
   );
 }

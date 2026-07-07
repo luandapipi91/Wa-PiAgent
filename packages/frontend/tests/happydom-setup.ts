@@ -4,6 +4,16 @@ import { afterEach } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { installWebSocketMock } from "./setup-websocket";
 
+// 组件直接 import 的 .css（如 react-complex-tree/lib/style-modern.css）在 bun:test
+// 下无法处理，统一 mock 成空模块，避免加载即崩。
+Bun.plugin({
+  name: "ignore-css",
+  setup(build) {
+    build.onResolve({ filter: /\.css$/ }, (args) => ({ path: args.path, namespace: "ignore-css" }));
+    build.onLoad({ filter: /\.css$/, namespace: "ignore-css" }, () => ({ contents: "", loader: "js" }));
+  },
+});
+
 // 顺序很关键：必须先 register happy-dom（它会接管 globalThis），
 // 再覆盖 WebSocket——否则 bun 内置 WebSocket 会被 register 重置回来。
 GlobalRegistrator.register();

@@ -1,17 +1,20 @@
 import { create } from "zustand";
 import type { ProjectEntity, SessionEntity } from "@hiagent/shared";
 import { send } from "../ws-instance";
-import { pickDirectoryOrPrompt, basename } from "../pick-directory";
+import { basename } from "../pick-directory";
 
 interface ProjectsState {
   projects: ProjectEntity[];
   sessions: SessionEntity[];
   currentProjectId: string | null;
   currentSessionId: string | null;
+  dirPickerOpen: boolean;
   load: () => void;
   setAll: (projects: ProjectEntity[], sessions: SessionEntity[]) => void;
   createProject: (name: string, cwd: string) => void;
-  createProjectFromDir: () => Promise<void>;
+  createProjectFromDir: () => void;
+  closeDirPicker: () => void;
+  createProjectFromPath: (cwd: string) => void;
   addProject: (p: ProjectEntity) => void;
   addSession: (s: SessionEntity) => void;
   selectProject: (id: string) => void;
@@ -24,13 +27,16 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
   sessions: [],
   currentProjectId: null,
   currentSessionId: null,
+  dirPickerOpen: false,
   load: () => send({ type: "projects:list" }),
   setAll: (projects, sessions) => set({ projects, sessions }),
   createProject: (name, cwd) => send({ type: "project:create", name, cwd }),
-  // 新建项目：弹目录选择器（Tauri）或 prompt 输入（非 Tauri），项目名取 basename
-  createProjectFromDir: async () => {
-    const cwd = await pickDirectoryOrPrompt();
-    if (!cwd) return;
+  // 新建项目：打开目录树选择器（DirTreePicker），用户点选目录后走 createProjectFromPath
+  createProjectFromDir: () => { set({ dirPickerOpen: true }); },
+  closeDirPicker: () => set({ dirPickerOpen: false }),
+  // 目录树点选后：项目名取 basename，发 project:create
+  createProjectFromPath: (cwd: string) => {
+    set({ dirPickerOpen: false });
     const name = basename(cwd);
     send({ type: "project:create", name, cwd });
   },
