@@ -56,15 +56,18 @@ Tauri 窗口层在当前阶段带来的价值低于其维护成本(编译慢、�
 }
 ```
 
-**`scripts/dev.ts` 职责(约 40-60 行,零新依赖):**
+**`scripts/dev.ts` 职责(约 50-70 行,零新依赖):**
 
-1. **端口清理** —— kill 占用 9776(kernel WS)、5173(frontend Vite)的进程。跨平台:Windows 用 `taskkill`,POSIX 用 `kill`。
+1. **端口清理** —— kill 占用 9776(kernel WS)、5180(frontend Vite)的进程。跨平台:Windows 用 `taskkill`,POSIX 用 `kill`。
 2. **并行 spawn 两个子进程:**
    - kernel:`bun run --filter @hiagent/kernel dev`(即 `bun run src/index.ts`,bun 内置文件监听热重载)
    - frontend:`bun run --filter @hiagent/frontend dev`(Vite HMR)
 3. **日志前缀** —— kernel 行加 `[kernel]`、frontend 行加 `[web]`,混合输出易区分。
 4. **统一 Ctrl+C 清理** —— 监听 SIGINT,kill 两个子进程后退出(不留孤儿进程占端口)。
-5. **健康提示** —— frontend 起来后打印 `▶ http://localhost:5173`。
+5. **自动打开浏览器** —— frontend Vite 就绪后(检测到 stdout 出现 `Local: http://localhost:5180`),自动用系统默认浏览器打开 `http://localhost:5180`。跨平台:Windows `cmd /c start`、macOS `open`、Linux `xdg-open`。
+6. **健康提示** —— 同时打印 `▶ http://localhost:5180`。
+
+**默认端口变更:** frontend Vite dev server 端口从 5173 改为 **5180**(改 `packages/frontend/vite.config.ts` 的 `server.port`),避开 Vite 默认端口的占用冲突。kernel WS 端口 9776 不变。
 
 **热重载策略:** 各自原生热重载。kernel 用 `bun run src/index.ts`(bun 内置文件监听,改代码自动重启);frontend 用 vite 自带 HMR。两边独立,不需要 concurrently 类工具,不需要保留 fswatch 去抖逻辑。
 
@@ -139,8 +142,7 @@ Tauri 窗口层在当前阶段带来的价值低于其维护成本(编译慢、�
 4. **依赖增删(`packages/frontend/package.json`):**
    - 删:`vitest`
    - 新增:`@happy-dom/global-registrator`
-   - 保留:`@testing-library/react`(bun 兼容)、`happy-dom`(global-registrator 依赖它,现有 vitest 已带)
-   - `@vitejs/plugin-react`:**在 plan 阶段确认** `vite.config.ts` 构建是否也用;若仅测试用则删,若构建共用则保留。
+- 保留:`@testing-library/react`(bun 兼容)、`happy-dom`(global-registrator 依赖它,现有 vitest 已带)、`@vitejs/plugin-react`(`vite.config.ts:2` 构建/dev 共用,**确认保留**)
 
 5. **删 `packages/frontend/vitest.config.ts`。**
 
@@ -156,7 +158,7 @@ Tauri 窗口层在当前阶段带来的价值低于其维护成本(编译慢、�
 |----|-------|---------|---------|
 | ① 单元/组件(bun:test) | **适用** | `bun test`(kernel + shared + frontend 全部) | 全绿;frontend 24 个组件测试迁移后断言不弱化(用 RTL 的 render/fireEvent/screen 正常工作) |
 | ② (合并入①) | — | bun:test + happy-dom + @testing-library/react 组件测试 | render/fireEvent/screen 工作;9 个 vi.mock 文件迁到 mock.module 后 mock 生效 |
-| ③ API(curl) | **适用** | `bun run dev` 起后:curl `http://localhost:5173` 返回 frontend HTML;WS 连 `ws://127.0.0.1:9776` 握手成功;Ctrl+C 后端口释放(lsof/netstat 验证无遗留) | 三项通过 |
+| ③ API(curl) | **适用** | `bun run dev` 起后:curl `http://localhost:5180` 返回 frontend HTML;WS 连 `ws://127.0.0.1:9776` 握手成功;Ctrl+C 后端口 9776/5180 释放(lsof/netstat 验证无遗留);浏览器被自动打开到 `http://localhost:5180` | 四项通过 |
 | ④ E2E(Playwright) | **适用(回归)** | 现有 e2e 套件(`app-flow.spec.ts` 等) | 移除 Tauri 后浏览器流程不坏 |
 
 **额外强约束(本次特有):**
