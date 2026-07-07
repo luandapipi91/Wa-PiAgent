@@ -2,20 +2,17 @@ import { test, expect } from "bun:test";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { StateAggregator } from "../src/state-aggregator";
-import { SessionStore } from "../src/session-store";
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import type { WSServerEvent } from "@hiagent/shared";
 
 function setup() {
   const sf = join(import.meta.dir, ".tmp-sa-" + Math.random().toString(36).slice(2) + ".json");
-  const sd = join(import.meta.dir, ".tmp-sa-sess-" + Math.random().toString(36).slice(2));
   const ps = new ProjectStore(sf);
-  const ss = new SessionStore(sd);
   const events: WSServerEvent[] = [];
   const am = new AgentManager({ projectStore: ps, onEvent: () => {}, spawnFn: (() => ({})) as any });
-  const sa = new StateAggregator({ sessionStore: ss, agentManager: am, onServerEvent: e => events.push(e) });
-  return { sf, sd, ps, ss, events, am, sa, cleanup: () => { rmSync(sf, { force: true }); rmSync(sd, { recursive: true, force: true }); } };
+  const sa = new StateAggregator({ agentManager: am, onServerEvent: e => events.push(e) });
+  return { sf, ps, events, am, sa, cleanup: () => { rmSync(sf, { force: true }); } };
 }
 
 test("routePiEvent message → agent:message 透传 SessionMessage", () => {

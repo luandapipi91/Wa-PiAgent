@@ -3,8 +3,6 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
-import { SessionStore } from "../src/session-store";
-import { IntercomMonitor } from "../src/intercom-monitor";
 import { StateAggregator } from "../src/state-aggregator";
 import { WSServer } from "../src/ws-server";
 import type { WSClientEvent, WSServerEvent, AgentMessage } from "@hiagent/shared";
@@ -15,11 +13,9 @@ test("[第三层] session:messages 走 PiRpcClient.getMessages", async () => {
   const tmp = (s: string) => join(import.meta.dir, ".tmp-sm-" + s + Math.random().toString(36).slice(2));
   const cfgDir = tmp("cfg");
   const projFile = tmp("proj.json");
-  const sessDir = tmp("sess");
 
   const configStore = new ConfigStore(cfgDir);
   const projectStore = new ProjectStore(projFile);
-  const sessionStore = new SessionStore(sessDir);
 
   // 预置：建项目 + 会话（不再预置消息，历史来自 Pi session）
   const project = await projectStore.createProject({ name: "P", cwd: "/tmp" });
@@ -42,10 +38,8 @@ test("[第三层] session:messages 走 PiRpcClient.getMessages", async () => {
     abort: async () => {},
     disposeAll: async () => {},
   } as any;
-
-  const intercomMonitor = new IntercomMonitor({ onAsk: () => {}, onReply: () => {}, connectFn: async () => ({ on: () => {}, write: () => {}, destroy: () => {} }) as any });
-  const stateAggregator = new StateAggregator({ sessionStore, agentManager, onServerEvent: () => {} });
-  const server = new WSServer({ configStore, projectStore, sessionStore, agentManager, intercomMonitor, stateAggregator, port: 0 });
+  const stateAggregator = new StateAggregator({ agentManager, onServerEvent: () => {} });
+  const server = new WSServer({ configStore, projectStore, agentManager, stateAggregator, port: 0 });
   await server.start();
 
   const ws = new WebSocket(`ws://127.0.0.1:${server.actualPort}`);
@@ -81,18 +75,15 @@ test("[第三层] session:messages 走 PiRpcClient.getMessages", async () => {
   await server.stop();
   rmSync(cfgDir, { recursive: true, force: true });
   rmSync(projFile, { force: true });
-  rmSync(sessDir, { recursive: true, force: true });
 });
 
 test("[第三层] session:messages 会话不存在返回空数组", async () => {
   const tmp = (s: string) => join(import.meta.dir, ".tmp-sm2-" + s + Math.random().toString(36).slice(2));
   const cfgDir = tmp("cfg");
   const projFile = tmp("proj.json");
-  const sessDir = tmp("sess");
 
   const configStore = new ConfigStore(cfgDir);
   const projectStore = new ProjectStore(projFile);
-  const sessionStore = new SessionStore(sessDir);
 
   const fakeClient = { getMessages: async () => [{ role: "user", content: "x", timestamp: 1 }] };
   const agentManager = {
@@ -100,9 +91,8 @@ test("[第三层] session:messages 会话不存在返回空数组", async () => 
     abort: async () => {},
     disposeAll: async () => {},
   } as any;
-  const intercomMonitor = new IntercomMonitor({ onAsk: () => {}, onReply: () => {}, connectFn: async () => ({ on: () => {}, write: () => {}, destroy: () => {} }) as any });
-  const stateAggregator = new StateAggregator({ sessionStore, agentManager, onServerEvent: () => {} });
-  const server = new WSServer({ configStore, projectStore, sessionStore, agentManager, intercomMonitor, stateAggregator, port: 0 });
+  const stateAggregator = new StateAggregator({ agentManager, onServerEvent: () => {} });
+  const server = new WSServer({ configStore, projectStore, agentManager, stateAggregator, port: 0 });
   await server.start();
 
   const ws = new WebSocket(`ws://127.0.0.1:${server.actualPort}`);
@@ -130,5 +120,4 @@ test("[第三层] session:messages 会话不存在返回空数组", async () => 
   await server.stop();
   rmSync(cfgDir, { recursive: true, force: true });
   rmSync(projFile, { force: true });
-  rmSync(sessDir, { recursive: true, force: true });
 });

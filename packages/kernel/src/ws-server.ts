@@ -4,17 +4,13 @@ import type {
 import { WS_PORT } from "@hiagent/shared";
 import type { ConfigStore } from "./config-store";
 import type { ProjectStore } from "./project-store";
-import type { SessionStore } from "./session-store";
 import type { AgentManager } from "./agent-manager";
-import type { IntercomMonitor } from "./intercom-monitor";
 import type { StateAggregator } from "./state-aggregator";
 
 export interface WSServerOpts {
   configStore: ConfigStore;
   projectStore: ProjectStore;
-  sessionStore: SessionStore;
   agentManager: AgentManager;
-  intercomMonitor: IntercomMonitor;
   stateAggregator: StateAggregator;
   port?: number;
 }
@@ -66,7 +62,6 @@ export class WSServer {
   async stop(): Promise<void> {
     this.server?.stop();
     await this.opts.agentManager.disposeAll();
-    this.opts.intercomMonitor.dispose();
   }
 
   private async handle(event: WSClientEvent, reply: (e: WSServerEvent) => void): Promise<void> {
@@ -154,10 +149,6 @@ export class WSServer {
       }
       case "agent:abort": {
         await this.opts.agentManager.abort(event.projectId, event.agentName);
-        break;
-      }
-      case "intercom:inject-reply": {
-        await this.opts.intercomMonitor.injectReply(event.askMessageId, event.text);
         break;
       }
       case "agent:config:get": {

@@ -79,7 +79,7 @@ test("onEvent 收 message_end → 透传完整 AssistantMessage（含 content bl
   const ev = events.find(e => e.kind === "message");
   expect(ev).toBeDefined();
   expect(ev && ev.kind === "message" && (ev.message.message as any).role).toBe("assistant");
-  const content = ev && ev.kind === "message" && (ev.message.message as any).content as any[];
+  const content = (ev && ev.kind === "message" && (ev.message.message as any).content) as any[];
   expect(content).toHaveLength(3);
   expect(content.find((c: any) => c.type === "thinking")?.thinking).toBe("我先想想");
   expect(content.find((c: any) => c.type === "text")?.text).toBe("你好");
