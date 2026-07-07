@@ -341,8 +341,16 @@ test("relay 收到回复后转发给原始发送方", async () => {
     onReply,
   });
 
-  // 手动设置 relay client
-  const relayClient = createdClients[0] ?? null;
+  // 手工构造 mock relay client（不依赖 createdClients，避免 afterEach 清空导致 null）
+  const { EventEmitter } = require("node:events") as typeof import("node:events");
+  const relayClient = {
+    sessionId: "relay-sid",
+    connect: mock().mockResolvedValue(undefined),
+    disconnect: mock().mockResolvedValue(undefined),
+    send: mock().mockResolvedValue({ id: "fw-1", delivered: true }),
+    isConnected: mock().mockReturnValue(true),
+    on: mock(),
+  };
   (bp as any).relayClient = relayClient;
   (bp as any).started = true;
 
@@ -367,15 +375,13 @@ test("relay 收到回复后转发给原始发送方", async () => {
   await (bp as any).handleRelayReply(replyFrom, replyMessage);
 
   // 验证 relay.send 被调用，转发给原始发送方
-  if (relayClient) {
-    expect(relayClient.send).toHaveBeenCalled();
-    const sendCall = relayClient.send.mock.calls.find(
-      (c: any[]) => c[0] === "original-sender-sid"
-    );
-    expect(sendCall).toBeDefined();
-    expect(sendCall[1].text).toBe("answer from agent");
-    expect(sendCall[1].replyTo).toBe("orig-msg-1");
-  }
+  expect(relayClient.send).toHaveBeenCalled();
+  const sendCall = relayClient.send.mock.calls.find(
+    (c: any[]) => c[0] === "original-sender-sid"
+  );
+  expect(sendCall).toBeDefined();
+  expect(sendCall[1].text).toBe("answer from agent");
+  expect(sendCall[1].replyTo).toBe("orig-msg-1");
 
   // pending 队列中该消息应被移除
   const remaining = (bp as any).pending.get(key);
