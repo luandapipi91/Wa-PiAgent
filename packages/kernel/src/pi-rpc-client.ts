@@ -6,7 +6,7 @@ export type PiEvent =
   | { kind: "message"; message: SessionMessage }
   | { kind: "state"; state: AgentState }
   | { kind: "error"; message: string };
-// 注：intercom:ask / intercom:reply 废弃（broker-proxy 删了）
+// 注：intercom:ask / intercom:reply 走 Pi 原生 pi-intercom，本进程不旁路处理
 
 interface SpawnOptions {
   cmd: string;
@@ -50,7 +50,7 @@ export class PiRpcClient {
 
   async start(): Promise<void> {
     const spawnFn = this.opts.spawnFn ?? defaultSpawn;
-    // 去 -real 后缀：删 broker-proxy 后不再有占位代理，真实进程直接用 sessionName
+    // 真实进程直接用 sessionName（旧版旁路占位代理已删，改用 Pi 原生 intercom）
     const brokerName = this.sessionName;
     const args = ["--mode", "rpc", "--name", brokerName];
     const c = this.opts.config;
@@ -222,8 +222,7 @@ export class PiRpcClient {
           },
         });
         break;
-      // intercom ask/reply 由 IntercomMonitor 从 broker 旁路监听，
-      // 这里不处理；PiRpcClient 只管 pi 主线 RPC
+      // intercom ask/reply 走 Pi 原生 pi-intercom，PiRpcClient 只管 pi 主线 RPC
     }
   }
 }

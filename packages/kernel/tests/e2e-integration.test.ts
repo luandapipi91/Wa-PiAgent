@@ -3,9 +3,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
-import { SessionStore } from "../src/session-store";
 import { AgentManager } from "../src/agent-manager";
-import { IntercomMonitor } from "../src/intercom-monitor";
 import { StateAggregator } from "../src/state-aggregator";
 import { WSServer } from "../src/ws-server";
 import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
@@ -16,11 +14,9 @@ test("[第三层] 建项目→发消息→自动建会话", async () => {
   const tmp = (s: string) => join(import.meta.dir, ".tmp-e2e-" + s + Math.random().toString(36).slice(2));
   const cfgDir = tmp("cfg");
   const projFile = tmp("proj.json");
-  const sessDir = tmp("sess");
 
   const configStore = new ConfigStore(cfgDir);
   const projectStore = new ProjectStore(projFile);
-  const sessionStore = new SessionStore(sessDir);
 
   // mock Pi 子进程：stdin 吞掉，stdout 不产生事件（测试不验证 Pi 回复）
   const mockChild = {
@@ -36,22 +32,14 @@ test("[第三层] 建项目→发消息→自动建会话", async () => {
     spawnFn: (() => mockChild) as any,
   });
 
-  // mock IntercomMonitor：不连真实 broker，dispose 安全（socket 为 null）
-  const intercomMonitor = new IntercomMonitor({
-    onAsk: () => {},
-    onReply: () => {},
-    connectFn: async () => ({ on: () => {}, write: () => {}, destroy: () => {} }) as any,
-  });
-
   const stateAggregator = new StateAggregator({
-    sessionStore,
     agentManager,
     onServerEvent: () => {},
   });
 
   const server = new WSServer({
-    configStore, projectStore, sessionStore,
-    agentManager, intercomMonitor, stateAggregator,
+    configStore, projectStore,
+    agentManager, stateAggregator,
     port: 0,  // 随机端口，避免与运行中的 kernel 冲突
   });
   await server.start();
@@ -91,5 +79,4 @@ test("[第三层] 建项目→发消息→自动建会话", async () => {
   await server.stop();
   rmSync(cfgDir, { recursive: true, force: true });
   rmSync(projFile, { force: true });
-  rmSync(sessDir, { recursive: true, force: true });
 });

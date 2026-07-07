@@ -4,11 +4,8 @@ import { join } from "node:path";
 import { WSServer } from "../src/ws-server";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
-import { SessionStore } from "../src/session-store";
 import { AgentManager } from "../src/agent-manager";
-import { IntercomMonitor } from "../src/intercom-monitor";
 import { StateAggregator } from "../src/state-aggregator";
-import { WS_PORT } from "@hiagent/shared";
 import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
 
 function tmp(p: string) { return join(import.meta.dir, p + Math.random().toString(36).slice(2)); }
@@ -16,17 +13,13 @@ function tmp(p: string) { return join(import.meta.dir, p + Math.random().toStrin
 async function withServer<T>(fn: (send: (e: WSClientEvent) => void, recv: () => Promise<WSServerEvent>) => Promise<T>): Promise<T> {
   const configStore = new ConfigStore(tmp("ws-cfg"));
   const projectStore = new ProjectStore(tmp("ws-proj.json"));
-  const sessionStore = new SessionStore(tmp("ws-sess"));
   const agentManager = new AgentManager({ projectStore, onEvent: () => {}, spawnFn: (() => ({})) as any });
-  const intercomMonitor = new IntercomMonitor({
-    onAsk: () => {}, onReply: () => {}, connectFn: async () => ({}) as any,
-  });
   const stateAggregator = new StateAggregator({
-    sessionStore, agentManager, onServerEvent: () => {},
+    agentManager, onServerEvent: () => {},
   });
   const server = new WSServer({
-    configStore, projectStore, sessionStore,
-    agentManager, intercomMonitor, stateAggregator,
+    configStore, projectStore,
+    agentManager, stateAggregator,
     port: 0,  // 随机端口，避免冲突
   });
   await server.start();

@@ -108,17 +108,6 @@ export interface SessionMessage {
   sessionId?: string;        // 路由用，PiRpcClient 填 currentSessionId
 }
 
-export interface AskItem {
-  messageId: string;
-  sessionId: string;
-  from: AgentName;
-  to: AgentName;
-  text: string;
-  startedAt: number;
-  resolvedAt?: number;
-  resolved?: boolean;
-}
-
 export interface AgentState {
   name: AgentName;
   status: AgentStatus;
@@ -141,12 +130,6 @@ export interface AbortEvent {
   projectId: string;
   sessionId: string;
   agentName: AgentName;
-}
-export interface InjectReplyEvent {
-  type: "intercom:inject-reply";
-  sessionId: string;
-  askMessageId: string;
-  text: string;
 }
 export interface ProjectCreateEvent {
   type: "project:create";
@@ -188,7 +171,7 @@ export interface SessionMessagesRequest {
 }
 
 export type WSClientEvent =
-  | PromptEvent | AbortEvent | InjectReplyEvent
+  | PromptEvent | AbortEvent
   | ProjectCreateEvent | ProjectUpdateEvent | ProjectDeleteEvent
   | SessionRenameEvent | SessionDeleteEvent
   | AgentConfigGetEvent | AgentConfigSaveEvent
@@ -207,16 +190,6 @@ export interface StateChangeEvent {
   projectId: string;
   agentName: AgentName;
   state: AgentState;
-}
-export interface IntercomAskEvent {
-  type: "intercom:ask";
-  sessionId: string;
-  ask: AskItem;
-}
-export interface IntercomReplyEvent {
-  type: "intercom:reply";
-  sessionId: string;
-  askMessageId: string;
 }
 export interface ProjectsListEvent {
   type: "projects:list";
@@ -248,7 +221,6 @@ export interface ErrorEvent {
 
 export type WSServerEvent =
   | MessageUpdateEvent | StateChangeEvent
-  | IntercomAskEvent | IntercomReplyEvent
   | ProjectsListEvent | ProjectCreatedEvent | SessionCreatedEvent
   | SessionMessagesEvent
   | AgentConfigEvent | ErrorEvent;

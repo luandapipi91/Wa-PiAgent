@@ -1,13 +1,11 @@
 import type {
-  WSServerEvent, AgentStateKey, AgentName,
+  WSServerEvent, AgentStateKey,
 } from "@hiagent/shared";
 import { parseAgentStateKey } from "@hiagent/shared";
 import type { PiEvent } from "./pi-rpc-client";
-import type { SessionStore } from "./session-store";
 import type { AgentManager } from "./agent-manager";
 
 export interface StateAggregatorOpts {
-  sessionStore: SessionStore;   // Task 5 随 broker-proxy 一起清（asks 部分还在用）
   agentManager: AgentManager;
   onServerEvent: (e: WSServerEvent) => void;
 }
@@ -41,7 +39,7 @@ export class StateAggregator {
         });
         break;
       }
-      // intercom ask/reply 由 broker-proxy/intercom-monitor 处理（Task 5 删除）
+      // intercom ask/reply 现走 Pi 原生 pi-intercom，StateAggregator 不再旁路处理
     }
   }
 

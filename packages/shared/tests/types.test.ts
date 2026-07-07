@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import type {
   AgentName, AgentConfig, ProjectEntity, SessionEntity,
-  ChatMessage, AskItem, AgentState, AgentStateKey,
+  ChatMessage, AgentState, AgentStateKey,
 } from "../src/types";
 
 test("AgentName 四值", () => {
@@ -24,12 +24,4 @@ test("AgentConfig 含 partners", () => {
     mcpServers: [], partners: { askTo: ["product"], askFrom: ["product"] },
   };
   expect(c.partners.askTo).toEqual(["product"]);
-});
-
-test("AskItem 含 sessionId", () => {
-  const a: AskItem = {
-    messageId: "m1", sessionId: "s1", from: "product", to: "dev",
-    text: "问", startedAt: 0, resolved: false,
-  };
-  expect(a.sessionId).toBe("s1");
 });
