@@ -26,16 +26,14 @@ export const useSessionStore = create<SessionState>((set) => ({
       },
     };
   }),
+  // 加载历史消息（merge 而非覆盖——避免覆盖切回时已通过实时事件收到的消息）
   setMessages: (sessionId, messages) => set(s => {
-    // 按 id 去重（流式消息各版本在磁盘可能重复，加载时合并）
-    const seen = new Set<string>();
-    const deduped = messages.filter(m => {
-      if (seen.has(m.id)) return false;
-      seen.add(m.id);
-      return true;
-    });
+    const existing = s.messagesBySession[sessionId] ?? [];
+    const existingIds = new Set(existing.map(m => m.id));
+    // 只添加 store 中尚不存在的消息（历史加载 + 实时事件已在 store 中的保留后者）
+    const newFromHistory = messages.filter(m => !existingIds.has(m.id));
     return {
-      messagesBySession: { ...s.messagesBySession, [sessionId]: deduped },
+      messagesBySession: { ...s.messagesBySession, [sessionId]: [...existing, ...newFromHistory] },
     };
   }),
   clear: () => set({ messagesBySession: {} }),
