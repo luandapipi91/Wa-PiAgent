@@ -1,24 +1,23 @@
-// HiAgent Tauri 主进程：启动时 spawn kernel sidecar，窗口关闭时 kill
+// HiAgent Tauri 主进程：启动时 spawn kernel sidecar + 监听二进制变化热重启，
+// 窗口关闭时 kill sidecar
 mod sidecar;
 
-use std::sync::Mutex;
+use sidecar::KernelChild;
 use tauri::Manager;
-use tauri_plugin_shell::process::CommandChild;
-
-/// 持有 kernel sidecar 子进程句柄，供窗口关闭时清理
-struct KernelChild(Mutex<Option<CommandChild>>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(KernelChild(Mutex::new(None)))
+        .manage(KernelChild(std::sync::Mutex::new(None)))
         .setup(|app| {
             let child = sidecar::spawn_kernel(&app.handle())
                 .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
             let state: tauri::State<KernelChild> = app.state();
             *state.0.lock().unwrap() = Some(child);
+            // 启动 kernel 二进制文件监听（开发期热更新）
+            sidecar::watch_kernel_binary(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
