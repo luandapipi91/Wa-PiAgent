@@ -5,10 +5,11 @@ import { NewSessionPane } from "./components/NewSessionPane";
 import { SessionView } from "./components/SessionView";
 import { EmptyState } from "./components/EmptyState";
 import { AgentConfig } from "./components/AgentConfig";
+import { Canvas } from "./components/canvas/Canvas";
 import { useProjectsStore } from "./store/projects";
 import { onMessage, getWs } from "./ws-instance";
 
-type View = "empty" | "new-session" | "session";
+type View = "empty" | "new-session" | "session" | "canvas";
 
 export function App() {
   // 只订阅渲染所需的最小状态；actions 在回调里用 getState() 取，避免 stale closure
@@ -51,7 +52,18 @@ export function App() {
       <main className="flex-1 flex flex-col overflow-hidden">
         {view === "empty" && <EmptyState onNewProject={() => useProjectsStore.getState().createProject(prompt("项目名")!, prompt("cwd")!)} />}
         {view === "new-session" && <NewSessionPane />}
-        {view === "session" && currentSessionId && <SessionView sessionId={currentSessionId} onSwitchToCanvas={() => {}} />}
+        {view === "session" && currentSessionId && <SessionView sessionId={currentSessionId} onSwitchToCanvas={() => setView("canvas")} />}
+        {view === "canvas" && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <button
+              onClick={() => setView(currentSessionId ? "session" : "new-session")}
+              className="p-2 text-sm text-subtext hover:text-text"
+            >
+              ← 返回会话
+            </button>
+            <Canvas />
+          </div>
+        )}
       </main>
       {configAgent && <AgentConfig agentName={configAgent} onClose={() => setConfigAgent(null)} />}
     </div>
