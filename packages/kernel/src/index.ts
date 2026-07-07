@@ -5,12 +5,17 @@ import { AgentManager } from "./agent-manager";
 import { IntercomMonitor } from "./intercom-monitor";
 import { StateAggregator } from "./state-aggregator";
 import { WSServer } from "./ws-server";
+import { migrateLegacySessions } from "./migrate";
 import { WS_PORT } from "@hiagent/shared";
 
 async function main() {
   const configStore = new ConfigStore();
   const projectStore = new ProjectStore();
   const sessionStore = new SessionStore();
+
+  // 老数据迁移：server.start() 前完成，确保首条 projects:list 已含迁移后的项目
+  const migrated = await migrateLegacySessions(projectStore);
+  if (migrated) console.log("[kernel] 已迁移老数据至默认项目");
 
   // 先建一个占位 broadcast，待 WSServer 实例化后绑定真实实现
   let broadcast: (e: import("@hiagent/shared").WSServerEvent) => void = () => {};

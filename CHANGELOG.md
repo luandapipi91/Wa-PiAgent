@@ -4,6 +4,21 @@
 
 ---
 
+## 2026-07-07 — 老数据迁移 + 启动到对话全链路集成测试
+
+- **类型**：新增功能（kernel 迁移）+ 测试（第三层集成）
+- **摘要**：实现 Task 33——老用户首次启动新版（项目模型）时，无项目但有孤儿 session → 自动建「默认项目」并 reassign 归入；新增第三层集成测试覆盖「真实 WS + 建项目 + 发消息触发自动建会话」全链路。Phase 6（Tauri 集成）收尾。
+- **具体改动**：
+  - 改 `packages/kernel/src/project-store.ts`：新增 `reassignSession(sessionId, projectId)`，迁移用——改 session 归属项目
+  - 新增 `packages/kernel/src/migrate.ts`：`migrateLegacySessions(projectStore)`，修正计划原实现里「空 patch 循环 no-op」的 bug，真正把孤儿 session（projectId 指向不存在项目）reassign 到新建的默认项目
+  - 改 `packages/kernel/src/index.ts`：`server.start()` 前调 `migrateLegacySessions`，迁移成功打印日志
+  - 新增测试 `packages/kernel/tests/migrate.test.ts`（3）：不迁移×2（新用户/已有项目）+ 迁移成功（孤儿 session 归入默认项目）
+  - 新增测试 `packages/kernel/tests/e2e-integration.test.ts`（1）：第三层——真实 Bun.serve WS + WebSocket 客户端，建项目→发 agent:prompt→kernel 自动建会话→广播 session:created，断言 projectId/primaryAgent/title
+- **影响范围**：`packages/kernel/`（project-store.ts + migrate.ts + index.ts + 2 测试）
+- **验证**：`bun test packages/kernel` **39 passed**（原 35 + migrate 3 + e2e 1），77 expect calls
+
+---
+
 ## 2026-07-07 — Rust 主进程管理 kernel sidecar 生命周期
 
 - **类型**：新增功能（Tauri 主进程）
