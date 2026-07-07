@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"HiAgent 默认窗口权限：允许 shell plugin 执行 sidecar（kernel）","local":true,"windows":["main"],"permissions":["core:default","shell:allow-execute","shell:allow-spawn",{"identifier":"shell:allow-execute","allow":[{"args":true,"name":"sidecar","sidecar":true}]}]}}
