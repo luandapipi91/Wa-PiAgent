@@ -12,13 +12,13 @@ mkdirSync(E2E_HIAGENT_DIR, { recursive: true });
 
 export default defineConfig({
   testDir: "./e2e",
-  use: { baseURL: "http://localhost:5173", headless: true },
+  use: { baseURL: "http://localhost:5180", headless: true },
   // globalSetup 启动隔离 kernel（独立 HIAGENT_DIR），globalTeardown 清理
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
   webServer: {
     command: "bun run dev",
-    url: "http://localhost:5173",
+    url: "http://localhost:5180",
     reuseExistingServer: !process.env.CI,
     env: { HIAGENT_DIR: E2E_HIAGENT_DIR },
   },
