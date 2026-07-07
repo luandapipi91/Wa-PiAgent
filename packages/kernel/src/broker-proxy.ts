@@ -78,6 +78,7 @@ export class BrokerProxyManager {
             text: message.content.text,
             replyTo: message.replyTo,  // 保留原始 replyTo，让 waitForReply 匹配
           });
+          this.opts.onReply(message.replyTo, originalSenderId);
         } catch (err) {
           console.warn(`[kernel] 转发回复失败: ${(err as Error).message}`);
         }
@@ -154,7 +155,7 @@ export class BrokerProxyManager {
     this.opts.onAsk({
       messageId: message.id,
       sessionId: entry.projectId,  // 用 projectId 作为 sessionId 上下文
-      from: entry.agentName,       // 这是目标 agent——实际 from 来自发送方
+      from: from.name || from.id.slice(0, 8),
       to: entry.agentName,
       text: message.content.text,
       startedAt: Date.now(),

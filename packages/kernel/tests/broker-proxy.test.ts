@@ -245,6 +245,7 @@ test("handleProxyMessage 缓存消息、通知 onAsk、启动 agent", async () =
   const askArg: AskItem = onAsk.mock.calls[0]?.[0];
   expect(askArg.messageId).toBe("msg-1");
   expect(askArg.text).toBe("hello from sender");
+  expect(askArg.from).toBe("sender");
   expect(askArg.to).toBe("pm");
 
   // 验证消息已缓存到 pending
@@ -382,6 +383,9 @@ test("relay 收到回复后转发给原始发送方", async () => {
   expect(sendCall).toBeDefined();
   expect(sendCall[1].text).toBe("answer from agent");
   expect(sendCall[1].replyTo).toBe("orig-msg-1");
+
+  // 验证 onReply 被调用
+  expect(onReply).toHaveBeenCalledWith("orig-msg-1", "original-sender-sid");
 
   // pending 队列中该消息应被移除
   const remaining = (bp as any).pending.get(key);
