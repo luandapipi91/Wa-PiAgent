@@ -26,8 +26,17 @@ export const useSessionStore = create<SessionState>((set) => ({
       },
     };
   }),
-  setMessages: (sessionId, messages) => set(s => ({
-    messagesBySession: { ...s.messagesBySession, [sessionId]: messages },
-  })),
+  setMessages: (sessionId, messages) => set(s => {
+    // 按 id 去重（流式消息各版本在磁盘可能重复，加载时合并）
+    const seen = new Set<string>();
+    const deduped = messages.filter(m => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+    return {
+      messagesBySession: { ...s.messagesBySession, [sessionId]: deduped },
+    };
+  }),
   clear: () => set({ messagesBySession: {} }),
 }));
