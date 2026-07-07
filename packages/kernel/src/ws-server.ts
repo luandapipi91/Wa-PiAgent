@@ -1,8 +1,7 @@
 import type {
-  WSClientEvent, WSServerEvent, AgentName, ChatMessage,
+  WSClientEvent, WSServerEvent, AgentName,
 } from "@hiagent/shared";
-import { WS_PORT, makeAgentStateKey } from "@hiagent/shared";
-import { randomUUID } from "node:crypto";
+import { WS_PORT } from "@hiagent/shared";
 import type { ConfigStore } from "./config-store";
 import type { ProjectStore } from "./project-store";
 import type { SessionStore } from "./session-store";
@@ -107,9 +106,21 @@ export class WSServer {
         break;
       }
       case "session:messages": {
-        // 加载历史会话消息（定向回请求者，不广播）
-        const messages = await this.opts.sessionStore.loadMessages(event.sessionId);
-        reply({ type: "session:messages", sessionId: event.sessionId, messages });
+        // 历史消息从 Pi session 拉（不再读拍扁文件）—— 设计文档核心目标
+        const { sessions } = await this.opts.projectStore.load();
+        const session = sessions.find(s => s.id === event.sessionId);
+        if (!session) {
+          reply({ type: "session:messages", sessionId: event.sessionId, messages: [] });
+          break;
+        }
+        try {
+          const client = await this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent);
+          const agentMessages = await client.getMessages();
+          const messages = agentMessages.map(m => ({ message: m, agentName: session.primaryAgent }));
+          reply({ type: "session:messages", sessionId: event.sessionId, messages });
+        } catch (err) {
+          reply({ type: "session:messages", sessionId: event.sessionId, messages: [] });
+        }
         break;
       }
       case "agent:prompt": {
@@ -122,16 +133,16 @@ export class WSServer {
         });
         this.broadcast({ type: "session:created", session });
         await this.opts.projectStore.touchSession(session.id);
-        // 广播用户消息（让前端立即显示用户输入）
-        const userMsg: ChatMessage = {
-          id: randomUUID(), sessionId: session.id,
-          role: "user", text: event.text, timestamp: Date.now(),
+        // 广播用户消息（让前端立即显示用户输入）—— 包装成 SessionMessage
+        const userMsg = {
+          message: { role: "user" as const, content: event.text, timestamp: Date.now() },
+          agentName: event.agentName,
+          sessionId: session.id,
         };
         this.broadcast({
           type: "agent:message", projectId: event.projectId,
           sessionId: session.id, agentName: event.agentName, message: userMsg,
         });
-        await this.opts.sessionStore.appendMessage(session.id, userMsg);
         // 启动/提示失败不抛——转成 error 事件，避免 WS 消息处理崩溃
         try {
           const client = await this.opts.agentManager.ensureStarted(event.projectId, event.agentName);

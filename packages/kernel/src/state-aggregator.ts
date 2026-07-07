@@ -1,5 +1,5 @@
 import type {
-  WSServerEvent, AgentStateKey, AgentName, AskItem, ChatMessage,
+  WSServerEvent, AgentStateKey, AgentName,
 } from "@hiagent/shared";
 import { parseAgentStateKey } from "@hiagent/shared";
 import type { PiEvent } from "./pi-rpc-client";
@@ -7,7 +7,7 @@ import type { SessionStore } from "./session-store";
 import type { AgentManager } from "./agent-manager";
 
 export interface StateAggregatorOpts {
-  sessionStore: SessionStore;
+  sessionStore: SessionStore;   // Task 5 随 broker-proxy 一起清（asks 部分还在用）
   agentManager: AgentManager;
   onServerEvent: (e: WSServerEvent) => void;
 }
@@ -19,13 +19,12 @@ export class StateAggregator {
     const { projectId, agentName } = parseAgentStateKey(key);
     switch (e.kind) {
       case "message": {
-        const msg: ChatMessage = { ...e.message };
+        const sessionId = e.message.sessionId ?? "";
         this.opts.onServerEvent({
           type: "agent:message", projectId,
-          sessionId: msg.sessionId, agentName, message: msg,
+          sessionId,
+          agentName, message: e.message,
         });
-        // 异步持久化（不阻塞事件流）
-        this.opts.sessionStore.appendMessage(msg.sessionId, msg).catch(() => {});
         break;
       }
       case "state": {
@@ -42,18 +41,8 @@ export class StateAggregator {
         });
         break;
       }
-      // intercom ask/reply 由 routeAsk/routeReply 处理（来自 IntercomMonitor）
+      // intercom ask/reply 由 broker-proxy/intercom-monitor 处理（Task 5 删除）
     }
-  }
-
-  routeAsk(ask: AskItem): void {
-    this.opts.onServerEvent({ type: "intercom:ask", sessionId: ask.sessionId, ask });
-    this.opts.sessionStore.appendAsk(ask.sessionId, ask).catch(() => {});
-  }
-
-  routeReply(askMessageId: string, sessionId: string): void {
-    this.opts.onServerEvent({ type: "intercom:reply", sessionId, askMessageId });
-    this.opts.sessionStore.resolveAsk(sessionId, askMessageId).catch(() => {});
   }
 
   // 启动时全量推送（前端连上后调用）

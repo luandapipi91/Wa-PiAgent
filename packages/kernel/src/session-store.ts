@@ -1,17 +1,17 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { SESSIONS_DIR } from "@hiagent/shared";
-import type { ChatMessage, AskItem } from "@hiagent/shared";
+import type { AskItem } from "@hiagent/shared";
 
 interface SessionFile {
-  messages: ChatMessage[];
   intercomEvents: AskItem[];
+  // 注：messages 部分已废弃（历史消息改从 Pi session 拉，ws-server session:messages 走 PiRpcClient.getMessages）
 }
 
-// 注意：不能用模块级 const EMPTY + { ...EMPTY }，浅拷贝会使 messages/intercomEvents
-// 数组跨实例共享，appendMessage 的 push 会污染后续调用（Task 6 ProjectStore 已踩此坑）
+// 注意：不能用模块级 const EMPTY + { ...EMPTY }，浅拷贝会使 intercomEvents
+// 数组跨实例共享，appendAsk 的 push 会污染后续调用（Task 6 ProjectStore 已踩此坑）
 function emptySession(): SessionFile {
-  return { messages: [], intercomEvents: [] };
+  return { intercomEvents: [] };
 }
 
 export class SessionStore {
@@ -26,7 +26,6 @@ export class SessionStore {
       const raw = await readFile(this.path(sessionId), "utf8");
       const data = JSON.parse(raw) as Partial<SessionFile>;
       return {
-        messages: data.messages ?? [],
         intercomEvents: data.intercomEvents ?? [],
       };
     } catch {
@@ -37,22 +36,6 @@ export class SessionStore {
   private async write(sessionId: string, data: SessionFile): Promise<void> {
     await mkdir(this.dir, { recursive: true });
     await writeFile(this.path(sessionId), JSON.stringify(data, null, 2), "utf8");
-  }
-
-  async loadMessages(sessionId: string): Promise<ChatMessage[]> {
-    return (await this.read(sessionId)).messages;
-  }
-
-  async appendMessage(sessionId: string, msg: ChatMessage): Promise<void> {
-    const data = await this.read(sessionId);
-    // 按 id 去重：同 id 消息原地更新（流式增量），不同 id 追加
-    const idx = data.messages.findIndex(m => m.id === msg.id);
-    if (idx >= 0) {
-      data.messages[idx] = msg;
-    } else {
-      data.messages.push(msg);
-    }
-    await this.write(sessionId, data);
   }
 
   async loadAsks(sessionId: string): Promise<AskItem[]> {
