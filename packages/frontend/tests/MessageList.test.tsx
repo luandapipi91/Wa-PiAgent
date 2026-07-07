@@ -1,4 +1,4 @@
-import { test, expect, beforeEach } from "vitest";
+import { test, expect, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import type { SessionMessage } from "@hiagent/shared";
 import { MessageList } from "../src/components/MessageList";

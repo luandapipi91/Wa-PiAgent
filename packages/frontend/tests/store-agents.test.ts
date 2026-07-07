@@ -1,4 +1,4 @@
-import { test, expect, beforeEach } from "vitest";
+import { test, expect, beforeEach } from "bun:test";
 import { useAgentsStore } from "../src/store/agents";
 
 beforeEach(() => useAgentsStore.setState({ states: {}, configs: {} }));

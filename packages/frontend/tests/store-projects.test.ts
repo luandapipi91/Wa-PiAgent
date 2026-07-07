@@ -1,4 +1,4 @@
-import { test, expect, beforeEach } from "vitest";
+import { test, expect, beforeEach } from "bun:test";
 import { useProjectsStore } from "../src/store/projects";
 
 beforeEach(() => useProjectsStore.setState({

@@ -1,4 +1,4 @@
-import { test, expect } from "vitest";
+import { test, expect } from "bun:test";
 import { agentEmoji, agentGradient } from "../src/theme/agents";
 import { STATUS_COLORS } from "../src/theme/colors";
 
