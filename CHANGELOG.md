@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-07-07 — 修订 pi-native-message-model 设计文档（二次核查修正 9 处问题）
+
+- **类型**：文档修订
+- **摘要**：对 `docs/superpowers/specs/2026-07-07-pi-native-message-model.md` 做二次核查后修正 9 处事实/类型/行号错误。最重要的撤回：1.1 节"错误三"原称 broker-proxy"靠 `**Reply from X:**` 文本解析、脆弱"，核查 `broker-proxy.ts` 源码后确认其用的是 `pi-intercom/broker/client` 结构化 API，**论据失效**。废弃决策保留（改用 Pi 原生 intercom），但论据改为"职责重叠"（路由/会话名占位/状态影子三层重复）。
+- **其它修正**：
+  - `CustomMessage` 类型：`role: "custom"` → 顶层 `type: "custom_message" | "custom"`（与 3.3 节真实 session 样本一致，避免委派卡片渲染失效）
+  - `PI_AGENTS_DIR` 路径：`~/.pi/agent/agents` → `~/.hiagent/agents`，补"配置隔离 vs broker socket 共享"分层说明
+  - 4.3.1 `getMessages` 示例代码 id 自增 bug 修复（`send` 接受可选 id 参数）
+  - 3.2/4.2 类型定义对齐（补 signature/redacted 字段省略说明）
+  - 多处行号勘误（send 97-103→98-104、AskCard import 7→8 等）
+- **影响范围**：`docs/superpowers/specs/2026-07-07-pi-native-message-model.md`（仅文档，无代码改动）
+
+---
+
 ## 2026-07-07 — 修复会话消息重复（切换会话后显示多条重复回复）
 
 - **类型**：bug 修复
