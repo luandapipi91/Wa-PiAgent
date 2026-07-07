@@ -1,4 +1,4 @@
-import { test, expect, vi, beforeEach } from "vitest";
+import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Sidebar } from "../src/components/Sidebar";
 import { useProjectsStore } from "../src/store/projects";
@@ -20,7 +20,7 @@ test("渲染四区容器 + 新建会话按钮", () => {
 });
 
 test("透传 onNewSession", () => {
-  const fn = vi.fn();
+  const fn = mock();
   render(<Sidebar onNewSession={fn} onSelectAgent={() => {}} onSelectSession={() => {}} onNewSessionInProject={() => {}} onProjectSettings={() => {}} onNewProject={() => {}} />);
   fireEvent.click(screen.getByTestId("new-session-btn"));
   expect(fn).toHaveBeenCalledOnce();

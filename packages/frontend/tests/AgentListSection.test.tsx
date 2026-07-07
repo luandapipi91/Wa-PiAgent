@@ -1,4 +1,4 @@
-import { test, expect, vi, beforeEach } from "vitest";
+import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AgentListSection } from "../src/components/AgentListSection";
 import { useAgentsStore } from "../src/store/agents";
@@ -22,7 +22,7 @@ test("状态点反映全局聚合", () => {
 });
 
 test("点击触发 onSelectAgent", () => {
-  const fn = vi.fn();
+  const fn = mock();
   render(<AgentListSection onSelectAgent={fn} />);
   fireEvent.click(screen.getByTestId("agent-dev"));
   expect(fn).toHaveBeenCalledWith("dev");
