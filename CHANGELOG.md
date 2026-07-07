@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-07 — frontend 测试框架 vitest → bun:test 基础设施 + 迁第一个文件（Task 8+9）
+
+- **类型**：配置变更 / 测试基建
+- **摘要**：frontend 组件测试从 vitest 迁到 bun:test 的第一步。新增 `tests/happydom-setup.ts`（preload：注册 happy-dom 全局 + 复用 WebSocket polyfill）与 `bunfig.toml`（`[test] preload`），替代 vitest 的 environment+setupFiles 机制；删 `vitest.config.ts`；迁最简单的 `Composer.test.tsx`（无 `vi.mock`）验证迁移模式可行；`package.json` test 脚本 `vitest run` → `bun test`。验证：`cd packages/frontend && bun test tests/Composer.test.tsx` 1 pass / 0 fail。
+- **影响范围**：新增 `packages/frontend/tests/happydom-setup.ts`、`packages/frontend/bunfig.toml`；改 `packages/frontend/tests/Composer.test.tsx`、`packages/frontend/package.json`（+devDep `@happy-dom/global-registrator`、test 脚本）；删 `packages/frontend/vitest.config.ts`。注：其余 23 个测试仍 `import ... from "vitest"`，后续 task 逐个迁移。
+
+---
+
 ## 2026-07-07 — 根 dev 脚本 + frontend/playwright 端口 5173→5180（Task 4）
 
 - **类型**：配置变更

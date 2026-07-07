@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "vitest run",
+    "test": "bun test",
     "e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },
@@ -28,6 +28,7 @@
     "vitest": "^2.1.0",
     "@testing-library/react": "^16.0.0",
     "happy-dom": "^15.0.0",
+    "@happy-dom/global-registrator": "^20.10.6",
     "@playwright/test": "^1.49.0"
   }
 }
