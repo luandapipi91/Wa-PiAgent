@@ -43,12 +43,69 @@ export interface SessionEntity {
   lastActivity: number;
 }
 
+/** @deprecated 富消息模型上线后，新消息走 SessionMessage。仅 agent:prompt 的用户输入包装还在用，Task 4 会清理。 */
 export interface ChatMessage {
   id: string;
   sessionId: string;
   role: "user" | "assistant";
   text: string;
   timestamp: number;
+}
+
+// ===== Pi 原生消息类型（镜像 @mariozechner/pi-ai，避免运行时依赖）=====
+// 说明：Pi 原生类型还带 textSignature/thinkingSignature/redacted/thoughtSignature
+// 等签名/脱敏字段，前端渲染用不到，这里按"最小可渲染集"省略。
+
+export interface TextContent { type: "text"; text: string; }
+export interface ThinkingContent { type: "thinking"; thinking: string; redacted?: boolean; }
+export interface ToolCall { type: "toolCall"; id: string; name: string; arguments: Record<string, any>; }
+export interface ImageContent { type: "image"; data: string; mimeType: string; }
+
+export interface UserMessage {
+  role: "user";
+  content: string | (TextContent | ImageContent)[];
+  timestamp: number;
+}
+
+export interface AssistantMessage {
+  role: "assistant";
+  content: (TextContent | ThinkingContent | ToolCall)[];
+  model: string;
+  stopReason: string;
+  timestamp: number;
+  // 简化：忽略 usage/api/provider/responseModel/responseId/errorMessage（前端用不到）
+}
+
+export interface ToolResultMessage {
+  role: "toolResult";
+  toolCallId: string;
+  toolName: string;
+  content: (TextContent | ImageContent)[];
+  isError: boolean;
+  timestamp: number;
+}
+
+// Pi custom 消息（intercom 等扩展注入）
+// ⚠️ 关键：Pi 真实数据里这类消息的区分字段是顶层 type，不是 role
+// （真实样本：{"type":"custom_message",...} / {"type":"custom",...}）
+export interface CustomMessage {
+  type: "custom_message" | "custom";   // ← Pi 顶层 type，不是 role
+  customType: string;                   // "intercom_message" / "intercom_sent" / ...
+  display?: boolean;
+  content?: string;
+  details?: unknown;
+  timestamp: number;
+}
+
+// 前三者用 role 字段区分；CustomMessage 没有 role，用顶层 type 区分
+export type RoleMessage = UserMessage | AssistantMessage | ToolResultMessage;
+export type AgentMessage = RoleMessage | CustomMessage;
+
+// HiAgent 投影：一条 Pi 消息 + HiAgent 元信息
+export interface SessionMessage {
+  message: AgentMessage;     // Pi 原生消息，原样透传
+  agentName?: AgentName;     // 哪个 agent 发的（assistant/toolResult 才有意义）
+  sessionId?: string;        // 路由用，PiRpcClient 填 currentSessionId
 }
 
 export interface AskItem {
@@ -143,7 +200,7 @@ export interface MessageUpdateEvent {
   projectId: string;
   sessionId: string;
   agentName: AgentName;
-  message: ChatMessage;
+  message: SessionMessage;   // ← 从 ChatMessage 改
 }
 export interface StateChangeEvent {
   type: "agent:state";
@@ -177,7 +234,7 @@ export interface SessionCreatedEvent {
 export interface SessionMessagesEvent {
   type: "session:messages";
   sessionId: string;
-  messages: ChatMessage[];
+  messages: SessionMessage[];   // ← 从 ChatMessage[] 改
 }
 export interface AgentConfigEvent {
   type: "agent:config";
