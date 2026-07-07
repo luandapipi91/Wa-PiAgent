@@ -20,6 +20,8 @@ export class IntercomMonitor {
     const sock = this.opts.connectFn
       ? await this.opts.connectFn()
       : await this.connectReal();
+    // broker 不可用时 connectReal 返回 null：跳过监听，intercom 降级
+    if (!sock) return;
     this.socket = sock;
     sock.on("data", (chunk: Buffer) => {
       this.buf += chunk.toString();
@@ -88,23 +90,26 @@ export class IntercomMonitor {
   }
 
   // 生产连接：broker socket 路径由 pi-intercom 决定（win32 Named Pipe / Unix socket）
-  private async connectReal(): Promise<Socket> {
+  // broker 可能未启动（如 E2E 无 pi 环境）→ resolve(null) 降级，不阻塞 kernel 主流程
+  private async connectReal(): Promise<Socket | null> {
     const { connect } = await import("node:net");
-    // 通过动态 import pi-intercom 拿 socket 路径，避免硬编码平台分支
     let socketPath: string;
     try {
       const mod = await import("pi-intercom/broker/paths");
       socketPath = (mod as any).getBrokerSocketPath();
     } catch {
-      // 回退：等 broker 起来后用默认路径
       const home = process.env.HOME || process.env.USERPROFILE || ".";
       socketPath = process.platform === "win32"
         ? `\\\\.\\pipe\\pi-intercom-${(home as string).replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase()}`
         : `${home}/.pi/agent/intercom/broker.sock`;
     }
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const sock = connect(socketPath, () => resolve(sock));
-      sock.on("error", reject);
+      // broker 不可用：降级为 null，kernel 继续起 WS server（intercom 功能失效但不崩）
+      sock.on("error", () => {
+        console.warn(`[kernel] intercom broker 未就绪（${socketPath}），intercom 功能降级`);
+        resolve(null);
+      });
     });
   }
 }

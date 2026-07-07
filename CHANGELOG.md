@@ -4,6 +4,29 @@
 
 ---
 
+## 2026-07-07 — E2E 基础设施 + 7 个 spec + 前端白屏 bug 修复
+
+- **类型**：新增测试（第四层 E2E）+ bug 修复（前端运行时）
+- **摘要**：实现 Task 34-41——Playwright E2E 基础设施（globalSetup 启隔离 kernel）+ 7 个 spec（4 个串行主流程 passed，3 个 `[需 pi 环境]` skip）。E2E 首跑暴露两个前端白屏 bug（shared 包在浏览器环境崩），修复后全绿。
+- **具体改动**：
+  - **bug 修复（E2E 发现的真实运行时问题）**：
+    - `packages/shared/src/constants.ts`：`process.env` 访问加 `typeof process !== "undefined"` 守卫——浏览器无 process 全局，shared 被 frontend import 时模块加载即崩（白屏）。同时加 `HIAGENT_DIR` env 覆盖支持（E2E 隔离 + 生产可配置）
+    - `packages/shared/src/pure.ts`：`randomSessionId` 去掉 `node:crypto` import，改用全局 `crypto.randomUUID()`（浏览器 Web Crypto API + Node 19+ + Bun 均原生）
+    - `packages/kernel/src/intercom-monitor.ts`：`connectReal` broker 连接失败时 `resolve(null)` 降级（不再 reject），`connect` 加 null 守卫——pi-intercom broker 未启动时 kernel 崩溃（ENOENT），现降级为 warn 日志继续起 WS server
+  - **E2E 基础设施**：
+    - `packages/frontend/playwright.config.ts`：globalSetup 启隔离 kernel（独立 `HIAGENT_DIR` 随机目录），globalTeardown 杀进程清目录；webServer 注入 HIAGENT_DIR env
+    - `packages/frontend/e2e/global-setup.ts`/`global-teardown.ts`：kernel 进程启停 + 端口轮询 + 目录清理
+  - **E2E spec（7 个）**：
+    - `app-flow.spec.ts`（Task 35-39 合并）：`describe.serial` 串行——首次启动建项目→发消息建会话→编排画布 4 节点→Agent 配置 modal 切 tab。合并原因：独立 spec 各自建项目但 kernel 全局共享 HIAGENT_DIR，状态污染
+    - `intercom.spec.ts`（Task 37）`[需 pi 环境]`：AskCard 委派 + 我来回答
+    - `multi-project.spec.ts`（Task 40）`[需 pi 环境]`：多项目 cwd 隔离
+    - `migrate.spec.ts`（Task 41）`[需 pi 环境]`：老数据迁移建默认项目
+  - 装 `@playwright/test@^1.49` + chromium 二进制
+- **影响范围**：`packages/shared/`（constants.ts + pure.ts）、`packages/kernel/`（intercom-monitor.ts）、`packages/frontend/`（playwright.config.ts + e2e/ 7 文件 + package.json）
+- **验证**：`bunx playwright test` **4 passed + 3 skipped**（非 pi 标注项全绿）；`bun test packages/shared` 8 passed（bug 修复无回归）
+
+---
+
 ## 2026-07-07 — 老数据迁移 + 启动到对话全链路集成测试
 
 - **类型**：新增功能（kernel 迁移）+ 测试（第三层集成）
