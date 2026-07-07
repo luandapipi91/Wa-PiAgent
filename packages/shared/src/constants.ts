@@ -3,8 +3,14 @@ import type { AgentName } from "./types";
 export const WS_PORT = 9776;
 export const PREVIEW_PORT = 9777;
 
-// 兼容浏览器（无 process 全局）与 Node/Bun（kernel sidecar）
-const env = typeof process !== "undefined" ? process.env : {};
+// 兼容浏览器（vite import.meta.env / 无 process 全局）与 Node/Bun（process.env）
+// 浏览器 bundle 里 process 是 undefined；vite 通过 vite.config.ts 的 define 把
+// process.env.HIAGENT_DIR 等静态替换为构建时值（E2E 隔离目录用）。
+// 但 typeof process 判断在替换前已求值为 "undefined"，所以这里双源读取兜底。
+const nodeEnv = typeof process !== "undefined" ? process.env : {};
+// @ts-expect-error import.meta.env 浏览器才有，Node/Bun 下无此属性
+const browserEnv = (typeof import.meta !== "undefined" && import.meta.env) ? import.meta.env : {};
+const env = { ...nodeEnv, ...browserEnv };
 const HOME = env.HOME || env.USERPROFILE || ".";
 // 支持 env 覆盖（E2E 测试用独立目录隔离，生产部署也可自定义数据目录）
 export const HIAGENT_DIR = env.HIAGENT_DIR || `${HOME}/.hiagent`;
