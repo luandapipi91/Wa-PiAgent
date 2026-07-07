@@ -6,7 +6,8 @@ const isWindows = process.platform === "win32";
 /** 查端口占用的 PID,无占用返回 null */
 export async function findPidOnPort(port: number): Promise<number | null> {
   // 命令拼接;用 buffer 收集输出后正则提取 PID
-  const cmd = isWindows ? `netstat -ano | findstr :${port}` : `lsof -ti :${port}`;
+  // Windows 用 /R 正则配合 ":端口 " (端口后跟空格) 精确匹配,避免 :1999 命中 :19999
+  const cmd = isWindows ? `netstat -ano | findstr /R ":${port} "` : `lsof -ti :${port}`;
   return new Promise((resolve) => {
     const shell = isWindows ? "cmd.exe" : "/bin/sh";
     const shellArgs = isWindows ? ["/c", cmd] : ["-c", cmd];
@@ -32,6 +33,9 @@ export async function killPort(port: number): Promise<void> {
   return new Promise((resolve) => {
     const shell = isWindows ? "cmd.exe" : "/bin/sh";
     const shellArgs = isWindows ? ["/c", cmd] : ["-c", cmd];
-    spawn(shell, shellArgs, { stdio: "ignore" }).on("close", () => resolve());
+    // spawn 失败也需 resolve,否则 promise 永挂 / 抛未捕获错误
+    spawn(shell, shellArgs, { stdio: "ignore" })
+      .on("close", () => resolve())
+      .on("error", () => resolve());
   });
 }
