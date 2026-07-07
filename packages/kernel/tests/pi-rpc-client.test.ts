@@ -51,7 +51,7 @@ test("prompt 写入 stdin", async () => {
   await client.dispose();
 });
 
-test("onEvent 收 message_update → message 事件", async () => {
+test("onEvent 收 message_end → assistant message 事件", async () => {
   const mock = mockSpawn();
   const events: PiEvent[] = [];
   const client = new PiRpcClient({
@@ -60,8 +60,18 @@ test("onEvent 收 message_update → message 事件", async () => {
     spawnFn: () => mock as any,
   });
   await client.start();
-  mock.emitLine({ type: "message_update", role: "assistant", text: "回复" });
-  expect(events.find(e => e.kind === "message")).toBeDefined();
+  // pi 0.80 协议：message_end 时 message.content 含 type:text 元素
+  mock.emitLine({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "你好" }, { type: "thinking", thinking: "思考" }],
+    },
+  });
+  const ev = events.find(e => e.kind === "message");
+  expect(ev).toBeDefined();
+  expect(ev && ev.kind === "message" && ev.message.text).toBe("你好");
+  expect(ev && ev.kind === "message" && ev.message.role).toBe("assistant");
   await client.dispose();
 });
 

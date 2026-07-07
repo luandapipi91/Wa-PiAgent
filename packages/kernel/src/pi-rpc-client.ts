@@ -95,27 +95,39 @@ export class PiRpcClient {
     let obj: any;
     try { obj = JSON.parse(line); } catch { return; }
     switch (obj.type) {
-      // pi 0.80 RPC 协议：request/response（get_state / prompt / abort 等）
+      // pi 0.80 RPC：request/response（get_state/prompt 的确认或失败）
       case "response": {
-        // 失败响应：透传 error 给前端
         if (obj.success === false) {
           this.opts.onEvent({
             kind: "error",
             message: obj.error ?? `${obj.command ?? "rpc"} 失败`,
           });
-          // 失败后 agent 回到 idle
           this.opts.onEvent({
             kind: "state",
             state: { name: this.opts.agentName, status: "idle" },
           });
-          break;
         }
-        // 成功响应：按 command 分发
-        if (obj.command === "prompt" && obj.success !== false) {
-          const d = obj.data ?? {};
-          const text = d.text ?? d.message
-            ?? (Array.isArray(d.messages) ? d.messages.map((m: any) => m.content ?? m.text).join("\n") : null)
-            ?? (typeof d === "string" ? d : null);
+        // prompt 成功确认（success:true）不做事，等流式事件
+        break;
+      }
+      // 流式生命周期：agent 开始工作 → thinking
+      case "agent_start":
+      case "turn_start":
+        this.opts.onEvent({
+          kind: "state",
+          state: { name: this.opts.agentName, status: "thinking" },
+        });
+        break;
+      // 消息完成：提取 assistant 的 text content 发完整 message
+      case "message_end": {
+        const msg = obj.message;
+        if (msg?.role === "assistant") {
+          const content: any[] = Array.isArray(msg.content) ? msg.content : [];
+          // content 元素：{type:"text",text:"..."} / {type:"thinking",...}，只取 text
+          const text = content
+            .filter((c: any) => c.type === "text")
+            .map((c: any) => c.text ?? "")
+            .join("");
           if (text) {
             this.opts.onEvent({
               kind: "message",
@@ -128,25 +140,15 @@ export class PiRpcClient {
               },
             });
           }
-          // prompt 完成后 agent 回到 idle
-          this.opts.onEvent({
-            kind: "state",
-            state: { name: this.opts.agentName, status: "idle" },
-          });
         }
         break;
       }
-      case "message_update":
-        // 流式增量（pi 可能在 prompt 处理中推送）
+      // 回合/agent 结束 → idle
+      case "turn_end":
+      case "agent_end":
         this.opts.onEvent({
-          kind: "message",
-          message: {
-            id: randomUUID(),
-            sessionId: this.currentSessionId,
-            role: obj.role === "user" ? "user" : "assistant",
-            text: obj.text ?? "",
-            timestamp: Date.now(),
-          },
+          kind: "state",
+          state: { name: this.opts.agentName, status: "idle" },
         });
         break;
       case "state_change":
