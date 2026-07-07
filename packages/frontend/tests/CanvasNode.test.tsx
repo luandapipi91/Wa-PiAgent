@@ -1,8 +1,8 @@
-import { test, expect, vi } from "vitest";
+import { test, expect, mock } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import { CanvasNode } from "../src/components/canvas/CanvasNode";
 
-vi.mock("reactflow", () => ({
+mock.module("reactflow", () => ({
   Handle: () => null,
   Position: { Top: "top", Bottom: "bottom" },
 }));

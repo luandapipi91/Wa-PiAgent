@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, vi } from "vitest";
+import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import type { SessionMessage } from "@hiagent/shared";
 import { SessionView } from "../src/components/SessionView";
@@ -6,9 +6,10 @@ import { useProjectsStore } from "../src/store/projects";
 import { useAgentsStore } from "../src/store/agents";
 import { useSessionStore } from "../src/store/session";
 
-// ws-instance mock：onMessage 暴露触发器，让测试能模拟 kernel 响应
-const { mockHandlers } = vi.hoisted(() => ({ mockHandlers: { list: [] as Array<(e: any) => void> } }));
-vi.mock("../src/ws-instance", () => ({
+// ws-instance mock：onMessage 暴露触发器，让测试能模拟 kernel 响应。
+// bun mock.module 不 hoist，但 factory 闭包可引用模块作用域的 mockHandlers。
+const mockHandlers = { list: [] as Array<(e: any) => void> };
+mock.module("../src/ws-instance", () => ({
   send: () => {},
   onMessage: (cb: any) => { mockHandlers.list.push(cb); return () => {}; },
 }));

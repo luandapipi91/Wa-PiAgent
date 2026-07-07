@@ -1,11 +1,14 @@
-import { test, expect, vi, beforeEach } from "vitest";
+import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ProjectItem } from "../src/components/ProjectItem";
 import type { SessionEntity } from "@hiagent/shared";
 
-// mock ws-instance：捕获 send 调用，断言删除/重命名事件被正确发送
-const { sendMock } = vi.hoisted(() => ({ sendMock: vi.fn() }));
-vi.mock("../src/ws-instance", () => ({ send: sendMock }));
+// mock ws-instance：捕获 send 调用，断言删除/重命名事件被正确发送。
+// bun 的 mock.module 不像 vitest vi.mock 自动 hoist，但 factory 闭包可引用本模块作用域
+// 的 sendMock（mock.module 在 import 解析时注册 mock，实际 factory 在首次 import
+// ws-instance 时执行，此时 sendMock 已初始化）。
+const sendMock = mock();
+mock.module("../src/ws-instance", () => ({ send: sendMock }));
 
 const project = { id: "p1", name: "项目A", cwd: "/a", createdAt: 0 };
 

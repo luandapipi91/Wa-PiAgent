@@ -1,10 +1,10 @@
-import { test, expect, vi, beforeEach } from "vitest";
+import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import { App } from "../src/App";
 import { useProjectsStore } from "../src/store/projects";
 
 // App 现在会调用 getWs()/onMessage()/load()，需 mock ws-instance，避免真实 WebSocket 连接。
-vi.mock("../src/ws-instance", () => ({
+mock.module("../src/ws-instance", () => ({
   getWs: () => ({ readyState: 1, addEventListener: () => {}, send: () => {} }),
   send: () => {},
   onMessage: () => () => {},
