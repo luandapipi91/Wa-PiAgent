@@ -5,6 +5,8 @@ interface SessionState {
   messagesBySession: Record<string, ChatMessage[]>;
   // upsert：同 id 消息更新（流式增量），不同 id 追加
   append: (msg: ChatMessage) => void;
+  // 设置整个会话的消息列表（加载历史会话用，覆盖非追加）
+  setMessages: (sessionId: string, messages: ChatMessage[]) => void;
   clear: () => void;
 }
 
@@ -24,5 +26,8 @@ export const useSessionStore = create<SessionState>((set) => ({
       },
     };
   }),
+  setMessages: (sessionId, messages) => set(s => ({
+    messagesBySession: { ...s.messagesBySession, [sessionId]: messages },
+  })),
   clear: () => set({ messagesBySession: {} }),
 }));

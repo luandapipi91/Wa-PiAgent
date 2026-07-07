@@ -106,6 +106,12 @@ export class WSServer {
         this.broadcast({ type: "projects:list", projects: data.projects, sessions: data.sessions });
         break;
       }
+      case "session:messages": {
+        // 加载历史会话消息（定向回请求者，不广播）
+        const messages = await this.opts.sessionStore.loadMessages(event.sessionId);
+        reply({ type: "session:messages", sessionId: event.sessionId, messages });
+        break;
+      }
       case "agent:prompt": {
         // session 元数据：前端传的 sessionId 仅作请求追踪，实际 session.id 由 ProjectStore 创建
         const { sessions } = await this.opts.projectStore.load();

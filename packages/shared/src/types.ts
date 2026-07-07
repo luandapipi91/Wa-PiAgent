@@ -125,13 +125,17 @@ export interface AgentConfigSaveEvent {
   config: AgentConfig;
 }
 export interface ProjectsListRequest { type: "projects:list"; }
+export interface SessionMessagesRequest {
+  type: "session:messages";
+  sessionId: string;
+}
 
 export type WSClientEvent =
   | PromptEvent | AbortEvent | InjectReplyEvent
   | ProjectCreateEvent | ProjectUpdateEvent | ProjectDeleteEvent
   | SessionRenameEvent | SessionDeleteEvent
   | AgentConfigGetEvent | AgentConfigSaveEvent
-  | ProjectsListRequest;
+  | ProjectsListRequest | SessionMessagesRequest;
 
 // kernel → 前端
 export interface MessageUpdateEvent {
@@ -170,6 +174,11 @@ export interface SessionCreatedEvent {
   type: "session:created";
   session: SessionEntity;
 }
+export interface SessionMessagesEvent {
+  type: "session:messages";
+  sessionId: string;
+  messages: ChatMessage[];
+}
 export interface AgentConfigEvent {
   type: "agent:config";
   agentName: AgentName;
@@ -184,6 +193,7 @@ export type WSServerEvent =
   | MessageUpdateEvent | StateChangeEvent
   | IntercomAskEvent | IntercomReplyEvent
   | ProjectsListEvent | ProjectCreatedEvent | SessionCreatedEvent
+  | SessionMessagesEvent
   | AgentConfigEvent | ErrorEvent;
 
 export type WSEvent = WSClientEvent | WSServerEvent;
