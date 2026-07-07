@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-07 — 修复会话消息重复（切换会话后显示多条重复回复）
+
+- **类型**：bug 修复
+- **摘要**：流式消息 message_start/update/end 三个阶段均触发 sessionStore.appendMessage 持久化到磁盘，导致同 id 消息被多次 push。切换会话加载历史时 setMessages 也不去重，同一回复显示多个副本。
+- **修复**：
+  - `session-store.ts`: appendMessage 改为同 id 更新而非追加（与前端 store.append 行为一致）
+  - `session.ts` (frontend): setMessages 加载历史时按 id 去重（防御性处理已有脏数据）
+- **影响范围**：`packages/kernel/src/session-store.ts`、`packages/frontend/src/store/session.ts`
+
 ## 2026-07-07 — start.sh 加 broker 自愈（解决 kernel 启动崩溃）
 
 - **类型**：修复（启动可靠性）
