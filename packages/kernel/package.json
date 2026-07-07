@@ -5,7 +5,7 @@
   "exports": { ".": "./src/index.ts" },
   "scripts": {
     "dev": "bun run src/index.ts",
-    "build": "bun build src/index.ts --compile --target bun --outfile dist/hiagent-kernel && bun run scripts/copy-sidecar.mjs",
+    "build": "bun build src/index.ts --compile --target bun --outfile dist/hiagent-kernel",
     "build:bundle": "bun build src/index.ts --target bun --outfile dist/kernel.js",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
