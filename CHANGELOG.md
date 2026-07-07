@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-07-07 — Pi 原生消息模型重构（透传富消息 + 废弃旁路系统 + .hiagent 隔离）
+
+- **类型**：架构重构（kernel + shared + frontend，跨 9 个任务）
+- **摘要**：把消息流从 kernel 自管的拍扁 ChatMessage + 多套旁路系统（broker-proxy / intercom-monitor / intercom store / AskCard），统一收敛到 **Pi 原生富消息模型**——kernel 透传 Pi 的 `AgentMessage`（含 thinking/text/toolCall/intercom 等内容块），历史会话改由 `PiRpcClient.getMessages()` 实时拉取 Pi session（不再读拍扁的 sessions 文件），前端按内容块类型富渲染。配置从 `~/.pi/agent` 隔离到独立的 `~/.hiagent/agents`（HIAGENT_PI_AGENT_DIR），实现 HiAgent 与 Pi CLI 互不污染。
+- **核心改动**（39 files, +659 / −1875，净减 1216 行）：
+  - **shared**：新增 Pi 原生消息类型（`AgentMessage` / `SessionMessage`），WS 事件 `message` 字段换型；新增 `HIAGENT_PI_AGENT_DIR`，`PI_AGENTS_DIR` 迁至 `.hiagent/agents`
+  - **kernel**：`PiRpcClient` 透传富 AgentMessage + 新增 `getMessages()` + 去 `-real` 后缀 + `PI_CODING_AGENT_DIR` env 注入；`ws-server` 的 `session:messages` 改走 `getMessages`；`StateAggregator` 透传 SessionMessage；`session-store` 废弃 messages 字段；**删除 `broker-proxy.ts` + `intercom-monitor.ts` 整套旁路系统**（职责重叠：路由/会话名占位/状态影子三层重复）；`pendingRpcResolvers` dispose 清理避免 getMessages 永挂
+  - **frontend**：`session` store 换 SessionMessage（append 新签名 `(sessionId, msg)`）；新增 `MessageRow` + `ContentBlock`（thinking/text/toolCall/delegate 富渲染，react-markdown）；**删除 `useIntercomStore` + `AskCard`**，SessionView/Canvas 清理旁路引用，会话内委派展示统一收敛到 Pi 原生消息流的 DelegateCard
+- **影响范围**：`packages/shared/`（types.ts + constants.ts）、`packages/kernel/`（pi-rpc-client / ws-server / state-aggregator / session-store / agent-manager / index + 删 broker-proxy / intercom-monitor）、`packages/frontend/`（store/session + MessageRow/ContentBlock/TextBlock/ToolCallPanel/DelegateCard/DelegateReceived + SessionView/Canvas/App + 删 intercom.ts/AskCard）
+- **四层测试验证（Task 9 收尾）**：
+  - 第一/三层（kernel + shared，bun:test）：**37 passed**（含 session:messages→getMessages、agent:prompt→session:created 富消息集成测试）
+  - 第二层（frontend 组件，vitest）：**61 passed**（23 文件，含 ContentBlock 富渲染）
+  - 第四层 E2E（Playwright）：本环境无 pi（`bun` 子进程 spawn 不可用），setup 15s 超时后 clean fail，无 hang、无残留进程
+  - typecheck：kernel 全绿；frontend 剩余 **7 个预存 tsc 错误**（TextBlock remarkGfm 来自 react-markdown v10 API 变化、ProjectList/Sidebar/AgentConfig 测试 onProjectSettings/name 类型），均非本次重构引入
+- **后续遗留**：Canvas 委派 ask 动画连线降级（asksBySession 占位空，后续从 DelegateCard 消息流重建）；frontend 7 个预存 tsc 错误待统一治理
+
+---
+
 ## 2026-07-07 — 修订 pi-native-message-model 设计文档（二次核查修正 9 处问题）
 
 - **类型**：文档修订
