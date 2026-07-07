@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-07-07 — start.sh 加 broker 自愈（解决 kernel 启动崩溃）
+
+- **类型**：修复（启动可靠性）
+- **摘要**：
+  - 根因：kernel 启动时无条件连接 pi-intercom broker socket（`~/.pi/agent/intercom/broker.sock`），但 broker 进程常出现"僵尸"状态——进程还在，socket 文件却被删除，导致 kernel `ENOENT` 崩溃退出（code=1）
+  - 修复：`start.sh` 新增 `ensure_broker` 步骤，在 kernel 启动前检测 socket 可用性，不可用则自动清理僵尸进程 + 重启 broker + 等待 socket 就绪
+  - 现在双击 `start.command` 即使 broker 异常也会自愈，不再崩溃
+- **影响范围**：`start.sh`（新增 `ensure_broker` 函数 + main 调用）
+- **验证**：模拟故障（杀 broker + 删 socket）→ `ensure_broker` 自愈成功（3 秒内 socket 恢复）→ 连接验证通过
+
+---
+
 ## 2026-07-07 — 多智能体委派：Kernel 代理方案
 
 - **类型**：新增功能

@@ -17,6 +17,9 @@ tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+notify = "6"
+# tokio 只用 time::sleep + sync::mpsc，走 tauri async_runtime（已含 tokio），但显式声明避免靠传递依赖
+tokio = { version = "1", features = ["time", "sync", "rt"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

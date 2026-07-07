@@ -24,3 +24,6 @@ export const AGENT_DEFS: Record<AgentName, AgentDef> = {
   dev:     { emoji: "⚙️", gradient: ["#fab387", "#f38ba8"], label: "技术实现" },
   test:    { emoji: "🧪", gradient: ["#a6e3a1", "#94e2d5"], label: "质量验收" },
 };
+
+/** 所有 Agent 名称列表，用于批量操作（如预启动所有 agent 进程） */
+export const ALL_AGENT_NAMES: AgentName[] = ["product", "pm", "dev", "test"];
