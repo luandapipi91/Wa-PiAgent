@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-07-07 — 新建项目原生目录选择器 + 项目切换
+
+- **类型**：新增功能（Tauri 集成 + 前端交互）
+- **摘要**：新建项目流程从「两次 prompt 手输路径」升级为「点按钮 → 系统原生文件夹选择器 → 自动取目录名建项目」；补齐点项目名切换当前项目的缺失交互；移除无用的齿轮（改名）按钮。
+- **具体改动**：
+  - **Tauri dialog 接入（Rust 3 件套）**：Cargo.toml 加 `tauri-plugin-dialog`，lib.rs Builder 加 `.plugin(tauri_plugin_dialog::init())`，capabilities/default.json 加 `dialog:allow-open` 权限
+  - **前端目录选择封装层**：新增 `packages/frontend/src/pick-directory.ts`——`pickDirectory()`（Tauri 环境动态 import plugin-dialog 调原生选择器）、`pickDirectoryOrPrompt()`（非 Tauri 降级 prompt）、`basename()`（取目录名）。动态 import 避免非 Tauri 环境加载即崩
+  - **store 新增 createProjectFromDir**：`projects.ts` 加 action，调 pickDirectoryOrPrompt 拿目录，basename 取项目名，发 project:create。修了 Edit 导致的重复声明 bug
+  - **App.tsx**：EmptyState/Sidebar 的 onNewProject 改调 createProjectFromDir（去 prompt）；新增 onSelectProject 切换项目
+  - **项目切换**：ProjectItem 项目名 span 改可点击 button（hover 高亮 + title 显示 cwd），ProjectList 传 selected 高亮当前项目；App onSelectProject 切 currentProjectId + 清 session + 进 new-session 态
+  - **移除齿轮按钮**：onProjectSettings 原是空函数，ProjectItem 去掉 ⚙️ 按钮，Sidebar/ProjectList/App 连带清理
+- **影响范围**：`src-tauri/`（Cargo.toml + lib.rs + capabilities）、`packages/frontend/`（pick-directory.ts + store/projects.ts + App.tsx + Sidebar/ProjectList/ProjectItem + e2e/app-flow.spec.ts）
+- **验证**：`cargo build` 通过；`bunx vitest run` 42 passed；`bunx playwright test` 4 passed
+
+---
+
 ## 2026-07-07 — MVP 完成：四层测试全绿 + 测试基础设施修复
 
 - **类型**：测试修复 + 收尾

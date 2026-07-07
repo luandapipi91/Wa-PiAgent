@@ -12,6 +12,7 @@ struct KernelChild(Mutex<Option<CommandChild>>);
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(KernelChild(Mutex::new(None)))
         .setup(|app| {
             let child = sidecar::spawn_kernel(&app.handle())
