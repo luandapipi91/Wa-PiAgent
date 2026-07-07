@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-07-07 — Rust 主进程管理 kernel sidecar 生命周期
+
+- **类型**：新增功能（Tauri 主进程）
+- **摘要**：实现 Task 32——Tauri 启动时 spawn `hiagent-kernel` sidecar（WS 9776），窗口关闭时 kill 防泄漏；sidecar 的 stdout/stderr 转发到 Rust 进程 stderr（带 `[kernel]` 前缀）便于调试。
+- **具体改动**：
+  - 新增 `src-tauri/src/sidecar.rs`：`spawn_kernel(app)` 用 `app.shell().sidecar("hiagent-kernel").spawn()` 拉起子进程，异步消费 `CommandEvent` 流（Stdout/Stderr/Terminated）转发到 eprintln，避免管道缓冲写满阻塞
+  - 改 `src-tauri/src/lib.rs`：声明 `mod sidecar`，用 `KernelChild(Mutex<Option<CommandChild>>)` 托管状态；`setup` 时调 `spawn_kernel` 存入 State；`on_window_event` 的 `CloseRequested` 时 take 出 child 调 `kill()`
+- **影响范围**：`src-tauri/src/`（sidecar.rs 新增 + lib.rs 改写）
+- **验证**：`cargo build` Finished；**运行时验证通过**——跑 debug 二进制，Tauri 主进程（PID 1370）成功 spawn kernel sidecar（PID 1375），kernel 监听 `ws://127.0.0.1:9776` 并输出「[kernel] WS 监听 ws://127.0.0.1:9776」；清理后端口与进程正确释放
+
+---
+
 ## 2026-07-07 — Bun sidecar 编译 + Tauri sidecar 配置
 
 - **类型**：新增功能（构建链）
