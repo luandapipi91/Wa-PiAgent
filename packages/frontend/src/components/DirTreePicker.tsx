@@ -31,24 +31,36 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
 
   const dataProvider = useMemo(() => {
     const items: Record<TreeItemIndex, TreeItem<FsNodeData>> = {};
+    let rootLoading: Promise<void> | null = null;
 
-    const init = async () => {
-      const roots = await getRoots();
-      const rootChildren: TreeItemIndex[] = roots.map((_, i) => `root_${i}`);
-      items["root"] = { index: "root", children: rootChildren, isFolder: true, data: { path: "", name: "此电脑", isDir: true } };
-      roots.forEach((r, i) => {
-        const idx = `root_${i}`;
-        items[idx] = { index: idx, children: undefined, isFolder: true, data: { path: r, name: r, isDir: true } };
-      });
+    // 确保 root item 已初始化（懒加载 + 去重）
+    const ensureRoot = async () => {
+      if (items["root"]) return;
+      if (!rootLoading) {
+        rootLoading = (async () => {
+          const roots = await getRoots();
+          const rootChildren: TreeItemIndex[] = roots.map((_, i) => `root_${i}`);
+          items["root"] = { index: "root", children: rootChildren, isFolder: true, data: { path: "", name: "此电脑", isDir: true } };
+          roots.forEach((r, i) => {
+            const idx = `root_${i}`;
+            items[idx] = { index: idx, children: undefined, isFolder: true, data: { path: r, name: r, isDir: true } };
+          });
+        })();
+      }
+      await rootLoading;
     };
-    void init();
 
     return {
       async getTreeItem(itemId: TreeItemIndex): Promise<TreeItem<FsNodeData>> {
+        // root item：懒加载（等待异步初始化完成）
+        if (itemId === "root") {
+          await ensureRoot();
+          return items["root"];
+        }
         const existing = items[itemId];
         if (existing) {
           if (existing.children === undefined && existing.data?.isDir) {
-            const entries = await listDir(existing.data.path);
+            const entries = (await listDir(existing.data.path)).filter(e => e.isDir);
             existing.children = entries.map((_, i) => `${itemId}_${i}`);
             entries.forEach((e, i) => {
               items[`${itemId}_${i}`] = {

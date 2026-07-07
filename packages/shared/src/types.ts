@@ -218,6 +218,7 @@ export interface AgentConfigEvent {
 export interface ErrorEvent {
   type: "error";
   message: string;
+  agentName?: AgentName;
 }
 
 // fs 相关（kernel 读本地目录，供前端目录树选择器）

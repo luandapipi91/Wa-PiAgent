@@ -10,6 +10,7 @@ import type { StateAggregator } from "./state-aggregator";
 import { readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import { makeDefaultAgentConfig } from "./agent-md";
 
 export interface WSServerOpts {
   configStore: ConfigStore;
@@ -147,7 +148,7 @@ export class WSServer {
           const client = await this.opts.agentManager.ensureStarted(event.projectId, event.agentName);
           await client.prompt(event.text, session.id);
         } catch (err) {
-          this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}` });
+          this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}`, agentName: event.agentName });
         }
         break;
       }
@@ -156,8 +157,8 @@ export class WSServer {
         break;
       }
       case "agent:config:get": {
-        const config = await this.opts.configStore.getAgent(event.agentName);
-        if (config) reply({ type: "agent:config", agentName: event.agentName, config });  // 定向
+        const config = await this.opts.configStore.getAgent(event.agentName) ?? makeDefaultAgentConfig(event.agentName);
+        reply({ type: "agent:config", agentName: event.agentName, config });  // 定向
         break;
       }
       case "agent:config:save": {

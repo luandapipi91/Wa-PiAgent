@@ -36,6 +36,7 @@ export class StateAggregator {
         this.opts.onServerEvent({
           type: "error",
           message: `[${agentName}] ${e.message}`,
+          agentName,
         });
         break;
       }
