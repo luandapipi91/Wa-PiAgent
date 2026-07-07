@@ -2,33 +2,14 @@ import { test, expect } from "bun:test";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { SessionStore } from "../src/session-store";
-import type { ChatMessage, AskItem } from "@hiagent/shared";
+import type { AskItem } from "@hiagent/shared";
 
 function tempDir() {
   return join(import.meta.dir, ".tmp-sessions-" + Math.random().toString(36).slice(2));
 }
 
-const mkMsg = (id: string, sessionId: string, text: string): ChatMessage => ({
-  id, sessionId, role: "user", text, timestamp: 0,
-});
-
-test("appendMessage 持久化并可读回", async () => {
-  const dir = tempDir();
-  const store = new SessionStore(dir);
-  await store.appendMessage("s1", mkMsg("m1", "s1", "你好"));
-  const msgs = await store.loadMessages("s1");
-  expect(msgs).toHaveLength(1);
-  expect(msgs[0].text).toBe("你好");
-  rmSync(dir, { recursive: true, force: true });
-});
-
-test("loadMessages 不存在返回空", async () => {
-  const dir = tempDir();
-  const store = new SessionStore(dir);
-  expect(await store.loadMessages("nope")).toEqual([]);
-  rmSync(dir, { recursive: true, force: true });
-});
-
+// 注：messages 部分（loadMessages/appendMessage）已废弃，历史消息改从 Pi session 拉。
+// 这里只保留 asks 部分（Task 5 随 broker-proxy 删除）。
 test("appendAsk + resolveAsk", async () => {
   const dir = tempDir();
   const store = new SessionStore(dir);
@@ -43,18 +24,5 @@ test("appendAsk + resolveAsk", async () => {
   asks = await store.loadAsks("s1");
   expect(asks[0].resolved).toBe(true);
   expect(asks[0].resolvedAt).toBeDefined();
-  rmSync(dir, { recursive: true, force: true });
-});
-
-test("appendMessage 同 id 更新不重复追加（流式去重）", async () => {
-  const dir = tempDir();
-  const store = new SessionStore(dir);
-  // 模拟流式消息：message_start → message_update → message_end
-  await store.appendMessage("s1", mkMsg("m1", "s1", ""));
-  await store.appendMessage("s1", mkMsg("m1", "s1", "Hello"));
-  await store.appendMessage("s1", mkMsg("m1", "s1", "Hello world"));
-  const msgs = await store.loadMessages("s1");
-  expect(msgs).toHaveLength(1);
-  expect(msgs[0].text).toBe("Hello world");  // 保留最新版本
   rmSync(dir, { recursive: true, force: true });
 });
