@@ -33,12 +33,18 @@ export function App() {
           // 注：agent:message/state/intercom 由 SessionView 处理（带 sessionId 过滤），此处不重复
           const sid = useProjectsStore.getState().currentSessionId;
           if (sid) {
-            useSessionStore.getState().append({
-              id: `err-${Date.now()}`,
+            // 构造 SessionMessage（新 append 签名：sessionId + SessionMessage）
+            // error 不属于具体 agent，agentName 用任意合法默认；stopReason 标 "error" 供渲染层识别
+            useSessionStore.getState().append(sid, {
+              message: {
+                role: "assistant",
+                content: [{ type: "text", text: `⚠️ ${e.message}` }],
+                model: "system",
+                stopReason: "error",
+                timestamp: Date.now(),
+              },
+              agentName: "dev",
               sessionId: sid,
-              role: "assistant",
-              text: `⚠️ ${e.message}`,
-              timestamp: Date.now(),
             });
           } else {
             window.alert(e.message);
