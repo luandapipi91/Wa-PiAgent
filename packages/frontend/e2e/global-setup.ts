@@ -1,10 +1,38 @@
 // E2E globalSetup：启动隔离 kernel（端口 9776），把进程 pid 存到全局供 teardown 清理
 import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_HIAGENT_DIR } from "../playwright.config";
 
+// 预置 agent.md 测试数据：E2E 用独立 HIAGENT_DIR，里面默认无 agent 配置，
+// 导致 agent:config:get 返回 null、AgentConfig modal 的 PartnersTab 不渲染。
+// 这里写入 dev.md（含 partners 配置），让 configStore.getAgent("dev") 返回真实数据。
+// 格式与 packages/kernel/tests/agent-md.test.ts 的 DEV_MD 一致（parseAgentMd 已验证）。
+const DEV_AGENT_MD = `---
+name: dev
+displayName: 研发
+avatar: "⚙️"
+avatarColor: "#fab387-#f38ba8"
+description: 后端研发
+model: anthropic/claude-sonnet-4
+thinking: high
+systemPromptMode: replace
+inheritProjectContext: true
+inheritSkills: false
+tools: read, bash, edit
+skills: architecture-review
+mcpServers: []
+partners:
+  askTo: [product, test]
+  askFrom: [product, pm, test]
+---
+你是一名资深后端工程师。`;
+
 async function globalSetup() {
+  // 预置 agent 配置（在 kernel 启动前写入，确保 configStore 首次读取就有数据）
+  mkdirSync(join(E2E_HIAGENT_DIR, "agents"), { recursive: true });
+  writeFileSync(join(E2E_HIAGENT_DIR, "agents", "dev.md"), DEV_AGENT_MD, "utf8");
+
   // 启动 kernel，注入独立 HIAGENT_DIR（覆盖 ~/.hiagent）
   const child = spawn("bun", ["run", "--filter", "@hiagent/kernel", "dev"], {
     env: { ...process.env, HIAGENT_DIR: E2E_HIAGENT_DIR },
