@@ -44,7 +44,7 @@ export function App() {
                 stopReason: "error",
                 timestamp: Date.now(),
               },
-              agentName: "dev",
+              agentName: e.agentName ?? "dev",
               sessionId: sid,
             });
           } else {

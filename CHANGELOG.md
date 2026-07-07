@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-07 — Agent Browser 真实业务测试 + 4 个 bug 修复
+
+- **类型**：测试 + 修复
+- **摘要**：使用 Playwright/Agent Browser 对应用进行真实业务测试（新建项目→多轮对话→智能体设置），发现并修复 4 个 bug：(1) ErrorEvent 缺少 agentName 导致前端错误显示为 "dev"；(2) 智能体配置缺失（~/.hiagent/agents/ 不存在）导致设置页永久"加载中..."；(3) 新建项目目录树第二次打开为空（竞态条件）；(4) state-aggregator 错误未传递结构化 agentName。
+- **影响范围**：`shared/src/types.ts`（ErrorEvent 加 agentName 可选字段）、`frontend/src/App.tsx`（用事件中的 agentName 替换硬编码 "dev"）、`frontend/src/components/DirTreePicker.tsx`（root 懒加载去重修复竞态）、`kernel/src/ws-server.ts`（error 广播含 agentName + config null 时返回默认配置）、`kernel/src/state-aggregator.ts`（error 事件加 agentName）、`kernel/src/agent-md.ts`（新增 makeDefaultAgentConfig）。
+- **验证**：Playwright 实测新建项目、两轮对话、4 个智能体 × 6 tab 全部走通；目录选择器关闭再打开正常显示盘符；目录选择器仅显示目录不显示文件。
+
+---
+
 ## 2026-07-07 — 移除 Rust 窗口层 + bun 一键启动 + 全 bun:test + 目录树选择器（整体收尾）
 
 - **类型**：架构重构（跨 18 task，三阶段）

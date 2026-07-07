@@ -115,3 +115,26 @@ export function validateAgentConfig(c: AgentConfig): string[] {
   if (!["replace", "append"].includes(c.systemPromptMode)) errs.push(`非法 systemPromptMode: ${c.systemPromptMode}`);
   return errs;
 }
+
+import { AGENT_DEFS } from "@hiagent/shared";
+
+/** 当 agent.md 不存在时，生成一份默认 AgentConfig */
+export function makeDefaultAgentConfig(name: AgentName): AgentConfig {
+  const def = AGENT_DEFS[name];
+  return {
+    name,
+    displayName: def.label,
+    avatar: def.emoji,
+    avatarColor: `${def.gradient[0]}-${def.gradient[1]}`,
+    description: "",
+    model: "glm-4.6",
+    thinking: "medium",
+    systemPromptMode: "replace",
+    inheritProjectContext: true,
+    inheritSkills: true,
+    tools: [],
+    skills: [],
+    mcpServers: [],
+    partners: { askTo: [], askFrom: [] },
+  };
+}
