@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-07-07 — 编排画布视图切换：App 加 canvas 态 + 返回会话
+
+- **类型**：新增功能（前端）
+- **摘要**：实现 Task 29——App 主区 View 类型增加 `"canvas"`，SessionView header 的「编排画布」按钮从空函数接入实际切换；canvas 视图顶部加「← 返回会话」按钮，按当前是否有 session 决定回到 session 还是 new-session 态。
+- **具体改动**：
+  - 改 `packages/frontend/src/App.tsx`：`View` 类型加 `"canvas"`，新增 canvas 分支（返回按钮 + `<Canvas />`），`onSwitchToCanvas` 由 `() => {}` 改为 `() => setView("canvas")`
+  - 新增测试 `packages/frontend/tests/App-canvas.test.tsx`（2）：点编排画布切到 canvas、canvas 点返回会话回到 session。补 happy-dom 缺失的 WebSocket polyfill（既有 App-routing 测试同款报错的根因，本测试自包含解决）
+- **影响范围**：`packages/frontend/`（src/App.tsx + tests/App-canvas.test.tsx）
+- **验证**：`bunx vitest run tests/App-canvas.test.tsx` 2 passed。注：既有 App-routing 2 failed 为 happy-dom 缺 WebSocket 的遗留问题（stash 验证改动前后一致），非本次回归
+
+---
+
 ## 2026-07-07 — 编排画布：Canvas 组件（4 节点 + partners + 活跃 ask 连线）
 
 - **类型**：新增功能（前端）
