@@ -4,6 +4,72 @@
 
 ---
 
+## 2026-07-07 — 多智能体委派：Kernel 代理方案
+
+- **类型**：新增功能
+- **摘要**：实现 BrokerProxyManager，kernel 在 pi-intercom broker 上为每个 agent 注册轻量代理 session。当其他 agent 通过 intercom 工具向目标 agent 发消息时，代理接收消息 → 按需启动真实 Pi 进程 → relay 转发。支持链式委派（Agent1→Agent2→Agent3），200+ agent 可扩展（仅 socket 连接，无需预启动进程）。POC 9 步全流程已验证通过。
+- **影响范围**：
+  - 新增 `packages/kernel/src/broker-proxy.ts`（236 行，代理注册+消息缓存+relay 转发+回复路由）
+  - 修改 `packages/kernel/src/index.ts`（组装 BrokerProxyManager）
+  - 修改 `packages/kernel/src/agent-manager.ts`（新增 onDispose 回调）
+  - 修改 `packages/kernel/src/pi-rpc-client.ts`（broker 注册名加 -real 后缀）
+  - 新增 `packages/kernel/tests/broker-proxy.test.ts`（13 tests）
+  - 新增 `packages/kernel/tests/e2e-delegation.test.ts`（E2E 委派流程）
+
+## 2026-07-07 — kernel 全自动热更新（改源码自动重编+重启 sidecar）
+
+- **类型**：新增功能（开发期 DX 优化）
+- **摘要**：
+  - 改 `packages/kernel/src` 或 `packages/shared/src` 后无需按 R，自动重编 kernel 二进制 → Rust 检测到新二进制 → kill 旧 sidecar + spawn 新 sidecar
+  - 两段式职责分离：bash watch 进程负责**编译**（fswatch + bun build），Rust notify 负责**重启**（监听 dist 目录 + kill/respawn）
+  - 窗口不闪、Vite HMR 不中断、Rust 不重编；前端改动仍由 Vite HMR 自动处理（未改动）
+  - R 键保留为手动兜底（全量重启）；fswatch 缺失时降级并提示 `brew install fswatch`
+- **影响范围**：
+  - `src-tauri/Cargo.toml`：新增 `notify = "6"` + `tokio`（features: time/sync/rt）
+  - `src-tauri/src/sidecar.rs`：新增 `triple_for_host()`、`restart_kernel()`、`watch_kernel_binary()`；`KernelChild` 移入此文件
+  - `src-tauri/src/lib.rs`：setup 末尾启动 watcher；引用调整
+  - `start.sh`：新增 `start_watch`/`stop_watch` 函数；fswatch 检测与降级提示；菜单文案更新
+- **依赖**：`fswatch`（macOS，`brew install fswatch`）
+- **验证**：cargo build 通过；watch 子系统端到端测试通过（touch 源码 → 2 秒内重编完成）；Rust triple 与 copy-sidecar.mjs 一致性验证通过
+
+---
+
+## 2026-07-07 — 修复 start.command 双击启动失败
+
+- **类型**：修复（环境/启动脚本）
+- **摘要**：
+  - 根因：`start.sh`（bash）在 `set -uo pipefail` 下 `source ~/.zshrc`，zsh 专用语法（autoload/setopt）导致脚本静默 abort
+  - 修复：改为 grep+sed 只提取 `DEEPSEEK_API_KEY`，不再 source 整份 zsh 配置
+  - 次要问题：Write 工具覆盖文件后执行权限丢失（644），导致"没有正确的访问权限"，已 chmod +x
+- **影响范围**：`start.sh`（DEEPSEEK_API_KEY 提取逻辑）、`start.command`（新建，双击入口包装）
+
+---
+
+## 2026-07-07 — 安装 Rust 环境
+
+- **类型**：配置变更（开发环境）
+- **摘要**：通过 rustup 安装 Rust 工具链（rustc 1.96.1 / cargo 1.96.1 / rustup 1.29.0），为 Tauri 后端开发做准备
+- **影响范围**：系统级（`~/.cargo/bin`、`~/.rustup`），无项目文件改动
+
+---
+
+## 2026-07-07 — 会话列表倒序 + 右键 popup 菜单 + 删除确认框
+
+- **类型**：新增功能（前端会话交互）
+- **摘要**：
+  - 会话列表按 `lastActivity` 倒序显示（最新会话在顶部）
+  - 右键会话弹出 popup 菜单（含「重命名会话」「删除聊天」）
+  - 点删除弹出 confirm 确认框（红色危险按钮），确认后发送 `session:delete`
+- **影响范围**：
+  - 新增 `packages/frontend/src/components/ui/Modal.tsx`（公共弹窗容器：fixed 遮罩 + 居中卡片 + ESC/点击遮罩关闭）
+  - 新增 `packages/frontend/src/components/ui/ConfirmDialog.tsx`（基于 Modal 的确认框，支持 danger 红色按钮）
+  - 改 `packages/frontend/src/components/SessionRow.tsx`（加 `onContextMenu` 可选 prop）
+  - 改 `packages/frontend/src/components/ProjectItem.tsx`（排序 + popup 菜单状态 + confirm 集成）
+  - 新增测试：`tests/Modal.test.tsx`、`tests/ConfirmDialog.test.tsx`、`tests/SessionRow.context.test.tsx`、`tests/ProjectItem.sort-menu.test.tsx`（共 18 个用例）
+- **后端**：无改动（`session:delete` / `session:rename` 已就绪，删除后广播 `projects:list` 自动刷新）
+
+---
+
 ## 2026-07-07 — 修复消息流全链路（pi RPC 协议 + 错误透传 + stdout 适配）
 
 - **类型**：bug 修复（kernel + 前端事件链路）
