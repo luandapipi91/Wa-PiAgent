@@ -154,6 +154,21 @@ test("getMessages 发 get_messages 并按 id 匹配 response", async () => {
   await client.dispose();
 });
 
+test("dispose 时在途的 getMessages Promise 应 reject（而非永挂）", async () => {
+  const mock = mockSpawn();
+  const client = new PiRpcClient({
+    agentName: "dev", cwd: "/work",
+    onEvent: () => {},
+    spawnFn: () => mock as any,
+  });
+  await client.start();
+  // 发起 getMessages 但不回 response，模拟在途请求
+  const p = client.getMessages();
+  // 立即 dispose，应在途 Promise reject 而不是永挂
+  await client.dispose();
+  await expect(p).rejects.toThrow(/disposed/i);
+});
+
 test("spawn env 含 PI_CODING_AGENT_DIR", async () => {
   const mock = mockSpawn();
   let capturedEnv: Record<string, string | undefined> = {};
