@@ -168,7 +168,7 @@ export class AgentManager {
   async prompt(sessionId: string, text: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`会话未启动: ${sessionId}`);
-    if (session.state.isStreaming || session.hasQueuedMessages()) {
+    if (session.isStreaming || session.pendingMessageCount > 0) {
       await session.prompt(text, { streamingBehavior: "followUp" });
     } else {
       await session.prompt(text);
@@ -183,18 +183,15 @@ export class AgentManager {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`会话未启动: ${sessionId}`);
 
-    // 1. 中断当前运行
-    session.abort();
-    await session.waitForIdle();
+    // 1. 中断当前运行（abort 返回 Promise，await 即等待 idle）
+    await session.abort();
 
     // 2. 清空全部队列
-    session.clearAllQueues();
+    session.clearQueue();
 
-    // 3. 剩余消息用 session.followUp() 入队（避免触发新 prompt）
-    //    直接用 session.followUp 而非 session.prompt，因为 abort 后 agent idle，
-    //    session.prompt(rt, {streamingBehavior:"followUp"}) 会启动新回合而非排队
+    // 3. 剩余消息用 session.followUp() 入队（SDK API: followUp(text)）
     for (const rt of remainingTexts) {
-      session.followUp({ role: "user", content: rt, timestamp: Date.now() });
+      await session.followUp(rt);
     }
 
     // 4. 目标消息作为新回合开始
@@ -213,12 +210,26 @@ export class AgentManager {
 
   /** 清空 steer 引导队列（session 不存在时静默忽略） */
   clearSteeringQueue(sessionId: string): void {
-    this.sessions.get(sessionId)?.clearSteeringQueue();
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    // SDK 的 clearQueue() 返回 { steering, followUp }，我们只需要清 steering
+    const queued = session.clearQueue();
+    // 把 followUp 恢复回去
+    for (const msg of queued.followUp) {
+      session.followUp(msg).catch(() => {});
+    }
   }
 
   /** 清空 followUp 排队队列（session 不存在时静默忽略） */
   clearFollowUpQueue(sessionId: string): void {
-    this.sessions.get(sessionId)?.clearFollowUpQueue();
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    // SDK 的 clearQueue() 返回 { steering, followUp }，我们只需要清 followUp
+    const queued = session.clearQueue();
+    // 把 steering 恢复回去
+    for (const msg of queued.steering) {
+      session.steer(msg).catch(() => {});
+    }
   }
 
   /** 中止当前会话的进行中请求（无 session 时静默忽略，便于幂等清理） */
