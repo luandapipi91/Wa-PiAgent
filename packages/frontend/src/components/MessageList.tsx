@@ -161,9 +161,12 @@ function formatArgs(args: Record<string, any>): string {
   if (keys.length === 0) return "";
   const parts = keys.map(k => {
     const v = args[k];
-    if (typeof v === "string" && v.length > 60) return `${k}: "${v.slice(0, 50)}..."`;
-    if (typeof v === "string") return `${k}: "${v}"`;
-    return `${k}: ${JSON.stringify(v)}`;
+    if (typeof v === "string") {
+      return v.length > 60 ? `${k}: "${v.slice(0, 50)}..."` : `${k}: "${v}"`;
+    }
+    // 对象/数组：序列化后截断
+    const s = JSON.stringify(v);
+    return s.length > 80 ? `${k}: ${s.slice(0, 77)}...` : `${k}: ${s}`;
   });
   return parts.join(", ");
 }
