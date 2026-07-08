@@ -140,13 +140,8 @@ export class WSServer {
         });
         if (isNew) this.broadcast({ type: "session:created", session });
         await this.opts.projectStore.touchSession(session.id);
-        // 广播用户消息（让前端立即显示用户输入）—— 用 sdk:event + message_start，不再用 agent:message
-        const userMsg = { role: "user" as const, content: event.text, timestamp: Date.now() };
-        this.broadcast({
-          type: "sdk:event", projectId: event.projectId,
-          sessionId: session.id, agentName: event.agentName,
-          event: { type: "message_start", message: userMsg },
-        });
+        // 用户消息不再手动广播——SDK session.prompt() 内部会产生 message_start(user) 事件，
+        // 通过 AgentManager.subscribe → sdk:event 自动透传给前端
         // 启动/提示失败不抛——转成 error 事件，避免 WS 消息处理崩溃
         try {
           await this.opts.agentManager.ensureStarted(event.projectId, event.agentName, session.id);
