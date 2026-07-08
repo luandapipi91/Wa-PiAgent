@@ -21,7 +21,7 @@ mock.module("reactflow", () => ({
 
 beforeEach(() => useProjectsStore.setState({
   projects: [{ id: "p1", name: "P", cwd: "/p", createdAt: 0 }],
-  sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "t", createdAt: 0, lastActivity: 0 }],
+  sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "t", createdAt: 0, lastActivity: 0, piSessionFile: "" }],
   currentProjectId: "p1",
   currentSessionId: "s1",
 }));

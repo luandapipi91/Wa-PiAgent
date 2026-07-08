@@ -7,7 +7,7 @@ import { useProjectsStore } from "../src/store/projects";
 // 真实 send 走 polyfill 不报错。断言 UI 行为：输入后点发送，文本清空 = 发送成功
 beforeEach(() => useProjectsStore.setState({
   projects: [],
-  sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "t", createdAt: 0, lastActivity: 0 }],
+  sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "t", createdAt: 0, lastActivity: 0, piSessionFile: "" }],
   currentProjectId: "p1",
   currentSessionId: "s1",
 }));

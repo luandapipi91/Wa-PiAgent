@@ -18,7 +18,7 @@ beforeEach(() => {
   mockHandlers.list = [];
   useProjectsStore.setState({
     projects: [{ id: "p1", name: "P", cwd: "/work/p1", createdAt: 0 }],
-    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0 }],
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "" }],
     currentProjectId: "p1", currentSessionId: "s1",
   });
   useAgentsStore.setState({ states: {}, configs: {} });

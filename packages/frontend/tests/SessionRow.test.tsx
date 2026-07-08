@@ -5,7 +5,7 @@ import type { SessionEntity } from "@hiagent/shared";
 
 const session: SessionEntity = {
   id: "s1", projectId: "p1", primaryAgent: "dev",
-  title: "测试会话", createdAt: 0, lastActivity: Date.now() - 120000,
+  title: "测试会话", createdAt: 0, lastActivity: Date.now() - 120000, piSessionFile: "",
 };
 
 test("显示 emoji + 标题 + 相对时间", () => {
