@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-08 — pi-intercom 打包为项目依赖，消除运行时 npm install
+
+- **类型**：修复
+- **摘要**：将 pi-intercom 从运行时 npm install（通过 `settings.json` 的 `npm:pi-intercom` 触发 `DefaultResourceLoader` → `npm install`）改为作为 `@hiagent/kernel` 的项目依赖打包。`ensureIntercomInstalled()` 现在通过 `import.meta.resolve("pi-intercom")` 解析本地路径写入 settings.json，Pi SDK 以本地路径加载，彻底消除 `npm install pi-intercom --prefix ~/.hiagent/npm --legacy-peer-deps` 及其 code 190 错误。同时支持旧 `npm:pi-intercom` 格式自动迁移。
+- **影响范围**：`packages/kernel/package.json`、`packages/kernel/src/intercom-setup.ts`（重写）、`packages/kernel/tests/intercom-setup.test.ts`（重写）
+
+---
+
 ## 2026-07-08 — Pi SDK 模式重构
 
 - **类型**：重构
