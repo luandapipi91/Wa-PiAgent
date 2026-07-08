@@ -14,9 +14,9 @@ const project = { id: "p1", name: "项目A", cwd: "/a", createdAt: 0 };
 
 // 三个会话，lastActivity 故意乱序，验证排序后倒序显示
 const sessions: SessionEntity[] = [
-  { id: "old",   projectId: "p1", primaryAgent: "dev",  title: "旧会话", createdAt: 0, lastActivity: 1000 },
-  { id: "new",   projectId: "p1", primaryAgent: "pm",   title: "新会话", createdAt: 0, lastActivity: 3000 },
-  { id: "mid",   projectId: "p1", primaryAgent: "test", title: "中会话", createdAt: 0, lastActivity: 2000 },
+  { id: "old",   projectId: "p1", primaryAgent: "dev",  title: "旧会话", createdAt: 0, lastActivity: 1000, piSessionFile: "" },
+  { id: "new",   projectId: "p1", primaryAgent: "pm",   title: "新会话", createdAt: 0, lastActivity: 3000, piSessionFile: "" },
+  { id: "mid",   projectId: "p1", primaryAgent: "test", title: "中会话", createdAt: 0, lastActivity: 2000, piSessionFile: "" },
 ];
 
 beforeEach(() => {

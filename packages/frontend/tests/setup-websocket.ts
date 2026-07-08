@@ -24,7 +24,6 @@ export class MockWebSocket {
 }
 
 // 用 defineProperty 强制替换全局 WebSocket（bun:test 下普通赋值静默失败）。
-// @ts-expect-error 全局 WebSocket 类型与本 mock 不完全一致
 export function installWebSocketMock() {
   Object.defineProperty(globalThis, "WebSocket", {
     configurable: true,

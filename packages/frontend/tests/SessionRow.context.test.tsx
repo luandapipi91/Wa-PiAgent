@@ -5,7 +5,7 @@ import type { SessionEntity } from "@hiagent/shared";
 
 const session: SessionEntity = {
   id: "s1", projectId: "p1", primaryAgent: "dev",
-  title: "测试会话", createdAt: 0, lastActivity: 0,
+  title: "测试会话", createdAt: 0, lastActivity: 0, piSessionFile: "",
 };
 
 test("右键触发 onContextMenu 并阻止默认行为", () => {

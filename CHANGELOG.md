@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-08 — Pi SDK 模式重构
+
+- **类型**：重构
+- **摘要**：将 kernel 从 spawn `pi --mode rpc` 子进程 + JSON-RPC 协议改为同进程 `createAgentSession` SDK 直连。AgentManager 用 `Map<sessionId, AgentSession>` 管理多会话，事件用 `sdk:event` 信封全量透传前端。删除 pi-rpc-client.ts 和 state-aggregator.ts。pi-intercom 通过 `session.setSessionName()` + `~/.hiagent/settings.json` packages 配置兼容。
+- **影响范围**：`packages/kernel/src/agent-manager.ts`（重写）、`packages/kernel/src/ws-server.ts`、`packages/kernel/src/index.ts`、`packages/kernel/src/project-store.ts`、`packages/kernel/src/intercom-setup.ts`（新增）、`packages/shared/src/types.ts`、`packages/shared/src/constants.ts`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/App.tsx`、`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/src/components/SessionView.tsx`、删除 `pi-rpc-client.ts`/`state-aggregator.ts` 及其测试
+
+---
+
 ## 2026-07-08 — Composer / NewSessionPane 发送防抖
 
 - **类型**：修复

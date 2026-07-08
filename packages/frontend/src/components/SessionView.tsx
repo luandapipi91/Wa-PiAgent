@@ -22,8 +22,8 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
         // 批量填充历史消息（覆盖，非追加——避免重复）
         useSessionStore.getState().setMessages(sessionId, e.messages);
       }
-      if (e.type === "agent:message" && e.sessionId === sessionId) useSessionStore.getState().append(sessionId, e.message);
-      if (e.type === "agent:state") useAgentsStore.getState().setState(`${e.projectId}:${e.agentName}`, e.state);
+      // sdk:event 由 App.tsx 全局 onMessage 路由到 store/session.ts handleSDKEvent 处理
+      // 这里不再处理 agent:message / agent:state（已删除，改用 sdk:event 信封）
     });
     return off;
   }, [sessionId]);

@@ -10,7 +10,7 @@ beforeEach(() => useProjectsStore.setState({
 test("渲染项目 + 会话", () => {
   useProjectsStore.setState({
     projects: [{ id: "p1", name: "项目A", cwd: "/a", createdAt: 0 }],
-    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "会话1", createdAt: 0, lastActivity: Date.now() }],
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "会话1", createdAt: 0, lastActivity: Date.now(), piSessionFile: "" }],
     currentProjectId: null, currentSessionId: null,
   });
   render(<ProjectList onSelectSession={() => {}} onNewSessionInProject={() => {}} onProjectSettings={() => {}} onNewProject={() => {}} />);
