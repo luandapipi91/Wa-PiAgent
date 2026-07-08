@@ -10,5 +10,8 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "@hiagent/shared": "workspace:*" }
+  "dependencies": {
+    "@hiagent/shared": "workspace:*",
+    "@earendil-works/pi-coding-agent": "^0.80.0"
+  }
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { AGENT_DEFS, randomSessionId } from "@hiagent/shared";
 import type { AgentName } from "@hiagent/shared";
 import { useProjectsStore } from "../store/projects";
@@ -12,12 +12,16 @@ export function NewSessionPane() {
   const [text, setText] = useState("");
   const initialProject = currentProjectId ?? projects[0]?.id ?? null;
   const [projectId, setProjectId] = useState<string | null>(initialProject);
+  // 会话 ID 只生成一次并复用，避免快速连发多条消息创建多个重复 session
+  const [sessionId] = useState(() => randomSessionId());
+  const sendingRef = useRef(false);
 
   const handleSend = () => {
-    if (!projectId || !text.trim()) return;
-    const sessionId = randomSessionId();
+    if (!projectId || !text.trim() || sendingRef.current) return;
+    sendingRef.current = true;
     send({ type: "agent:prompt", projectId, sessionId, agentName, text });
     setText("");
+    setTimeout(() => { sendingRef.current = false; }, 500);
   };
 
   return (

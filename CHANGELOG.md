@@ -4,6 +4,102 @@
 
 ---
 
+## 2026-07-08 — Composer / NewSessionPane 发送防抖
+
+- **类型**：修复
+- **摘要**：两个组件的 `handleSend` 无防抖保护。React 批量更新 state 导致 `setText("")` 和下一次 Enter/点击之间有竞态窗口 — text 还是旧值，`send()` 被调用两次。修复：加 `sendingRef` 标志位，send 前置 `true`，500ms 后 `setTimeout` 复位，gate 处 `sendingRef.current` 拦截重复发送。
+- **影响范围**：`packages/frontend/src/components/Composer.tsx`、`packages/frontend/src/components/NewSessionPane.tsx`
+
+---
+
+## 2026-07-08 — 修复会话列表 UI 重复（session:created 重复广播）
+
+- **类型**：修复
+- **摘要**：`agent:prompt` handler 每次都会广播 `session:created`，即使复用已有 session。前端 `addSession` 直接 push 不去重，同一 sessionId 连发多条消息就在侧边栏出现多次。修复：(1) kernel 只在真正新建 session 时广播 `session:created`；(2) 前端 `addSession` 加去重逻辑（兜底）。
+- **影响范围**：`packages/kernel/src/ws-server.ts`（`agent:prompt` 加 `isNew` 判断）、`packages/frontend/src/store/projects.ts`（`addSession` 去重）
+
+---
+
+## 2026-07-08 — 修复 NewSessionPane 首条消息用户消息丢失
+
+- **类型**：修复
+- **摘要**：`NewSessionPane` 发消息后 kernel 先广播 `session:created`、再广播 `agent:message`（用户消息）。`session:created` 触发前端切到 `SessionView`，但 `SessionView` 的 `onMessage` 订阅在 `useEffect` 中注册，此时 `agent:message` 早已到达并被 `App.tsx` 丢弃（因 App 不处理 `agent:message`）。修复：`App.tsx` 的 `onMessage` 增加 `agent:message` 处理，直接 `append` 到 session store（`append` 靠 msgKey 去重，SessionView 二次处理安全）。
+- **影响范围**：`packages/frontend/src/App.tsx`（onMessage 加 `agent:message` case）
+
+---
+
+## 2026-07-08 — 修复 NewSessionPane 连发消息产生多个重复 session 的 bug
+
+- **类型**：修复
+- **摘要**：两个层面的问题：(1) `NewSessionPane.handleSend()` 每次调用都 `randomSessionId()` 生成新 ID，快速连发消息导致 kernel 收到多个不同 sessionId；(2) kernel `createSession()` 忽略前端传来的 sessionId，始终用 `randomUUID()` 生成新 ID。连锁反应：每条消息都创建新 session。修复：前端 sessionId 改为 `useState` 生成一次复用；后端 `createSession` 加可选 `id` 参数，`agent:prompt` handler 传入前端 sessionId。
+- **影响范围**：`packages/frontend/src/components/NewSessionPane.tsx`（sessionId 生成一次）、`packages/kernel/src/project-store.ts`（`createSession` 加可选 id）、`packages/kernel/src/ws-server.ts`（`agent:prompt` 传入前端 sessionId）
+
+---
+
+## 2026-07-08 — 修复首条消息用户/agent 顺序颠倒 bug
+
+- **类型**：修复
+- **摘要**：首条消息场景下存在竞态条件：SessionView 挂载前，kernel 广播的 user `agent:message` 被 App.tsx 丢弃；SessionView 挂载后，Pi 流式 assistant 消息先到达 `append()`，然后 `session:messages` 响应通过 `setMessages()` 把 user 消息追到数组末尾，导致 UI 显示为 assistant 在前、user 在后。修复：`setMessages` 合并后按 timestamp 排序。
+- **影响范围**：`packages/frontend/src/store/session.ts`（`setMessages` 加 timestamp 排序）
+
+---
+
+## 2026-07-08 — 项目列表右键菜单：查看文件夹 + 删除项目
+
+- **类型**：新增功能
+- **摘要**：项目列表新增项目级右键菜单，支持两个操作：(1) 查看文件夹 — 发送 `project:open-dir` WS 命令，kernel 端用系统文件浏览器（macOS `open` / Windows `start` / Linux `xdg-open`）打开项目目录；(2) 删除项目 — 弹出确认框后发送 `project:delete` 删除项目及其所有会话。kernel 端 `project:delete` 已就绪，仅补充前端 UI。
+- **影响范围**：`packages/shared/src/types.ts`（新增 `ProjectOpenDirEvent`）、`packages/kernel/src/ws-server.ts`（新增 `project:open-dir` handler）、`packages/frontend/src/components/ProjectItem.tsx`（新增项目右键菜单 + 删除确认框）、`packages/kernel/tests/ws-server.test.ts`（新增集成测试）
+
+---
+
+## 2026-07-08 — 修复前端 flaky 测试「点击空白处关闭 popup 菜单」
+
+- **类型**：修复
+- **摘要**：测试在全量运行时因 DOM 残留和 happy-dom 事件冒泡行为差异导致间歇失败。修复：(1) 组件 `ProjectItem.tsx` 中 `requestAnimationFrame` → `setTimeout(fn,0)`、`window.addEventListener` → `document.addEventListener`，提升测试环境兼容性；(2) 测试文件添加 `afterEach(cleanup)` 清理 DOM 残留；(3) `fireEvent.click(window.document.body)` → `fireEvent.click(window.document)` 直接在 document 上触发 click。
+- **影响范围**：`packages/frontend/src/components/ProjectItem.tsx`、`packages/frontend/tests/ProjectItem.sort-menu.test.tsx`
+
+---
+
+## 2026-07-08 — 修复新建会话始终显示相同聊天内容的 bug
+
+- **类型**：修复
+- **摘要**：根因是 Pi RPC 协议不支持单进程多会话（`prompt` 和 `get_messages` 都不接受 session 参数），但 AgentManager 以 `(projectId, agentName)` 为 key 让多个 HiAgent 会话共享一个 Pi 进程，导致所有会话操作同一个 Pi 内部会话。修复方案：AgentManager 进程管理粒度改为 `(projectId, agentName, sessionId)`，每个 HiAgent 会话独立一个 Pi 进程。`ws-server.ts` 所有 `ensureStarted`/`abort` 调用同步传入 `sessionId`。
+- **影响范围**：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/ws-server.test.ts`、`packages/kernel/tests/session-messages.test.ts`
+
+---
+
+## 2026-07-08 — dev 启动端口清理增强 + Vite 端口变更自适应
+
+- **类型**：修复
+- **摘要**：(1) `killPort` kill 后改为轮询等待端口真正空闲（最多 3s，每 200ms 检测），解决 TIME_WAIT 窗口期端口未释放导致启动失败的问题；(2) `dev.ts` 改为从 Vite 输出解析实际端口，Vite 因端口占用自动换端口时浏览器也能正确打开。
+- **影响范围**：`scripts/port.ts`（`killPort` 加轮询）、`scripts/dev.ts`（端口检测逻辑）
+
+---
+
+## 2026-07-08 — killPort 兜底清理失败修复
+
+- **类型**：修复
+- **摘要**：`killPort` 当 `findPidOnPort` 返回 null 时直接 return，但 `lsof -ti` 有时拿不到 PID（进程僵死/TIME_WAIT），端口实际仍被占用导致启动失败。修复：PID 查不到时加 `isPortInUse` 二次确认 + shell 管道强制清理兜底，并在 kill 后 sleep 200ms 等 OS 释放端口。
+- **影响范围**：`scripts/port.ts`（`killPort` 函数）
+
+---
+
+## 2026-07-08 — pi 环境本地化：从全局依赖改为项目本地依赖
+
+- **类型**：配置变更 / 重构
+- **摘要**：将 `@earendil-works/pi-coding-agent` 从全局安装改为 `@hiagent/kernel` 的本地 dependency。`defaultSpawn` 改用 `import.meta.resolveSync` 解析本地 `dist/cli.js` 路径，由 `process.execPath` (bun) 执行，彻底消除对全局 `pi` 命令的依赖。`bun install` 自动拉取 pi，支持项目分发后直接使用无需额外安装。
+- **影响范围**：`packages/kernel/package.json`（新增 dependency）、`packages/kernel/src/pi-rpc-client.ts`（新增 `resolvePiBin()`，`defaultSpawn` 改为本地路径 + bun 执行）、`bun.lock`（新增 pi 及其传递依赖）
+
+---
+
+## 2026-07-08 — Windows 兼容：pi 进程 spawn 修复
+
+- **类型**：修复
+- **摘要**：`defaultSpawn` 中 `Bun.spawn` 未加 `shell: true`，导致 Windows 下无法找到 npm 全局安装的 `pi.cmd` shim（Bun 默认不解析 PATHEXT）。遵循 `scripts/dev.ts` 已有的跨平台 spawn 模式，加 `shell: true` 让 cmd.exe/shell 解析命令路径。POSIX 下此变更无害。
+- **影响范围**：`packages/kernel/src/pi-rpc-client.ts`（`defaultSpawn` 函数）
+
+---
+
 ## 2026-07-07 — Agent Browser 真实业务测试 + 4 个 bug 修复
 
 - **类型**：测试 + 修复

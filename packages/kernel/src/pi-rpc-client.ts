@@ -1,6 +1,7 @@
 import type { AgentName, AgentMessage, AgentState, AgentConfig } from "@hiagent/shared";
 import type { SessionMessage } from "@hiagent/shared";
 import { HIAGENT_PI_AGENT_DIR } from "@hiagent/shared";
+import { resolve, dirname } from "node:path";
 
 export type PiEvent =
   | { kind: "message"; message: SessionMessage }
@@ -86,7 +87,8 @@ export class PiRpcClient {
 
   async prompt(text: string, sessionId?: string): Promise<void> {
     if (sessionId) this.currentSessionId = sessionId;
-    await this.send({ type: "prompt", message: text });
+    // steer 引导模式：agent 运行中也能插入消息，在下一轮 LLM 调用前生效
+    await this.send({ type: "prompt", message: text, streamingBehavior: "steer" });
   }
 
   async abort(): Promise<void> {
@@ -227,16 +229,26 @@ export class PiRpcClient {
   }
 }
 
+// 解析本地 pi CLI 路径（不再依赖全局安装）
+// import.meta.resolveSync 找到 @earendil-works/pi-coding-agent 包入口（dist/index.js），
+// 同目录下的 cli.js 即为 pi 二进制入口
+function resolvePiBin(): string {
+  const entry = import.meta.resolveSync("@earendil-works/pi-coding-agent");
+  return resolve(dirname(entry), "cli.js");
+}
+
 // 生产 spawn：Bun.spawn
+// 用 process.execPath (bun) 执行本地 pi CLI（不再依赖全局 pi 命令）
 // 把 Bun 的 Web Streams（ReadableStream）适配成 Node EventEmitter 风格（.on("data", cb)）
 // 供 PiRpcClient.start 的 stdout.on("data") 调用
-function defaultSpawn(cmd: string, args: string[], opts: SpawnOptions["opts"]): MockChild {
-  const proc = Bun.spawn([cmd, ...args], {
+function defaultSpawn(_cmd: string, args: string[], opts: SpawnOptions["opts"]): MockChild {
+  const piPath = resolvePiBin();
+  const proc = Bun.spawn([process.execPath, piPath, ...args], {
     cwd: opts.cwd,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: opts.env ?? process.env,  // 继承环境（含 PATH + PI_CODING_AGENT_DIR），让 pi 命令可被找到
+    env: opts.env ?? process.env,  // 继承环境（含 PATH + PI_CODING_AGENT_DIR）
   });
   // 监听 pi 进程退出（诊断用：pi 启动失败会立即退出）
   proc.exited.then((code: number | null) => {

@@ -29,9 +29,11 @@ export function App() {
         case "projects:list": ps.setAll(e.projects, e.sessions); break;
         case "project:created": ps.addProject(e.project); break;
         case "session:created": ps.addSession(e.session); break;
+        // agent:message 也在这里处理：SessionView 挂载前的用户消息不能被丢弃
+        // append 靠 msgKey(role+timestamp) 自动去重，SessionView 二次处理安全
+        case "agent:message": useSessionStore.getState().append(e.sessionId, e.message); break;
         case "error": {
           // kernel/pi 错误：注入当前会话作为系统错误消息（红色显示）
-          // 注：agent:message/state/intercom 由 SessionView 处理（带 sessionId 过滤），此处不重复
           const sid = useProjectsStore.getState().currentSessionId;
           if (sid) {
             // 构造 SessionMessage（新 append 签名：sessionId + SessionMessage）

@@ -41,11 +41,15 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
     send({ type: "project:create", name, cwd });
   },
   addProject: (p) => set(s => ({ projects: [...s.projects, p], currentProjectId: p.id })),
-  addSession: (sess) => set(s => ({
-    sessions: [...s.sessions, sess],
-    currentSessionId: sess.id,
-    currentProjectId: sess.projectId,
-  })),
+  addSession: (sess) => set(s => {
+    // 去重：同 id session 已存在则忽略（kernel 可能重复广播 session:created）
+    if (s.sessions.some(x => x.id === sess.id)) return s;
+    return {
+      sessions: [...s.sessions, sess],
+      currentSessionId: sess.id,
+      currentProjectId: sess.projectId,
+    };
+  }),
   selectProject: (id) => set({ currentProjectId: id }),
   selectSession: (id) => set({ currentSessionId: id }),
   setCurrentSessionId: (id) => set({ currentSessionId: id }),

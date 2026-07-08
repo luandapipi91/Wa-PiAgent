@@ -39,15 +39,42 @@ export async function findPidOnPort(port: number): Promise<number | null> {
   });
 }
 
-/** kill 占用端口的进程;无占用或拿不到 PID 时,若端口仍被占则尽力 kill */
+/** kill 占用端口的进程;完成后轮询等待端口真正空闲（最多 3s） */
 export async function killPort(port: number): Promise<void> {
+  // 第一轮：PID kill
   const pid = await findPidOnPort(port);
-  if (pid == null) return;  // 拿不到 PID(空闲 或 PowerShell 不可用),直接返回
+  if (pid != null) await killPid(pid);
+
+  // 兜底：lsof -ti 有时拿不到 PID（进程僵死/TIME_WAIT），用 shell 管道强制清理
+  if (await isPortInUse(port)) {
+    const child = isWindows
+      ? spawn("powershell.exe", ["-NoProfile", "-Command",
+          `Get-NetTCPConnection -LocalPort ${port} -State Listen | Stop-Process -Force`], { stdio: "ignore" })
+      : spawn("/bin/sh", ["-c", `lsof -ti :${port} | xargs kill -9 2>/dev/null; true`], { stdio: "ignore" });
+    await new Promise<void>((resolve) => {
+      child.on("close", () => resolve());
+      child.on("error", () => resolve());
+    });
+  }
+
+  // 轮询等待端口真正空闲（处理 TIME_WAIT 等瞬时状态）
+  for (let i = 0; i < 15; i++) {
+    if (!(await isPortInUse(port))) return;
+    await sleep(200);
+  }
+  // 3 秒后仍被占就算了（可能被其他进程占用），不阻塞启动
+}
+
+function killPid(pid: number): Promise<void> {
   const child = isWindows
     ? spawn("taskkill", ["/PID", String(pid), "/F"], { stdio: "ignore" })
     : spawn("/bin/sh", ["-c", `kill -9 ${pid}`], { stdio: "ignore" });
   return new Promise((resolve) => {
     child.on("close", () => resolve());
-    child.on("error", () => resolve());  // spawn 失败也 resolve,避免 promise 永挂
+    child.on("error", () => resolve());
   });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }

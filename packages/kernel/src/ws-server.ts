@@ -10,6 +10,7 @@ import type { StateAggregator } from "./state-aggregator";
 import { readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import { spawn } from "node:child_process";
 import { makeDefaultAgentConfig } from "./agent-md";
 
 export interface WSServerOpts {
@@ -93,6 +94,16 @@ export class WSServer {
         this.broadcast({ type: "projects:list", projects: data.projects, sessions: data.sessions });
         break;
       }
+      case "project:open-dir": {
+        const data = await this.opts.projectStore.load();
+        const project = data.projects.find(p => p.id === event.projectId);
+        if (project?.cwd && existsSync(project.cwd)) {
+          const openCmd = process.platform === "darwin" ? "open"
+            : process.platform === "win32" ? "start" : "xdg-open";
+          spawn(openCmd, [project.cwd], { shell: true, stdio: "ignore" });
+        }
+        break;
+      }
       case "session:rename": {
         await this.opts.projectStore.renameSession(event.sessionId, event.title);
         const data = await this.opts.projectStore.load();
@@ -114,7 +125,7 @@ export class WSServer {
           break;
         }
         try {
-          const client = await this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent);
+          const client = await this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id);
           const agentMessages = await client.getMessages();
           const messages = agentMessages.map(m => ({ message: m, agentName: session.primaryAgent }));
           reply({ type: "session:messages", sessionId: event.sessionId, messages });
@@ -124,14 +135,16 @@ export class WSServer {
         break;
       }
       case "agent:prompt": {
-        // session 元数据：前端传的 sessionId 仅作请求追踪，实际 session.id 由 ProjectStore 创建
+        // 用前端传的 sessionId 查找已有 session；找不到则用该 id 创建，确保前后端一致
         const { sessions } = await this.opts.projectStore.load();
         const existing = sessions.find(s => s.id === event.sessionId);
+        const isNew = !existing;
         const session = existing ?? await this.opts.projectStore.createSession({
           projectId: event.projectId, primaryAgent: event.agentName,
           title: event.text.slice(0, 20),
+          id: event.sessionId,
         });
-        this.broadcast({ type: "session:created", session });
+        if (isNew) this.broadcast({ type: "session:created", session });
         await this.opts.projectStore.touchSession(session.id);
         // 广播用户消息（让前端立即显示用户输入）—— 包装成 SessionMessage
         const userMsg = {
@@ -145,7 +158,7 @@ export class WSServer {
         });
         // 启动/提示失败不抛——转成 error 事件，避免 WS 消息处理崩溃
         try {
-          const client = await this.opts.agentManager.ensureStarted(event.projectId, event.agentName);
+          const client = await this.opts.agentManager.ensureStarted(event.projectId, event.agentName, session.id);
           await client.prompt(event.text, session.id);
         } catch (err) {
           this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}`, agentName: event.agentName });
@@ -153,7 +166,7 @@ export class WSServer {
         break;
       }
       case "agent:abort": {
-        await this.opts.agentManager.abort(event.projectId, event.agentName);
+        await this.opts.agentManager.abort(event.projectId, event.agentName, event.sessionId);
         break;
       }
       case "agent:config:get": {

@@ -58,12 +58,12 @@ export class ProjectStore {
   }
 
   async createSession(input: {
-    projectId: string; primaryAgent: AgentName; title: string;
+    projectId: string; primaryAgent: AgentName; title: string; id?: string;
   }): Promise<SessionEntity> {
     const data = await this.load();
     const now = Date.now();
     const session: SessionEntity = {
-      id: randomUUID(), projectId: input.projectId,
+      id: input.id ?? randomUUID(), projectId: input.projectId,
       primaryAgent: input.primaryAgent, title: input.title,
       createdAt: now, lastActivity: now,
     };
