@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { ProjectStore } from "../src/project-store";
+import { HIAGENT_DIR } from "@hiagent/shared";
 
 function tempFile() {
   return join(import.meta.dir, ".tmp-projects-" + Math.random().toString(36).slice(2) + ".json");
@@ -58,4 +59,17 @@ test("updateProject 改名", async () => {
   const { projects } = await store.load();
   expect(projects[0].name).toBe("新");
   rmSync(f, { force: true });
+});
+
+test("createSession 生成 piSessionFile 路径", async () => {
+  const tmpFile = `/tmp/hiagent-test-${Date.now()}.json`;
+  const store = new ProjectStore(tmpFile);
+  const project = await store.createProject({ name: "测试项目", cwd: "/tmp" });
+  const session = await store.createSession({
+    projectId: project.id,
+    primaryAgent: "dev",
+    title: "测试会话",
+  });
+  expect(session.piSessionFile).toBe(`${HIAGENT_DIR}/sessions/${session.id}.jsonl`);
+  rmSync(tmpFile, { force: true });
 });
