@@ -94,10 +94,10 @@ export class AgentManager {
       this.opts.createAgentSessionFn ??
       (sdk.createAgentSession as CreateAgentSessionFn);
 
-    // 共享 auth/model：进程级单例（多次创建 session 复用同一 AuthStorage / ModelRegistry）
-    // 用 (this as any)._xxx ??= 模式做惰性初始化，避免每次 ensureStarted 重建
+    // 共享 auth/model：实例级惰性单例（多次 ensureStarted 复用同一 AuthStorage / ModelRegistry）
+    // AuthStorage 从 HIAGENT_DIR/auth.json 读凭证（SDK 默认读 ~/.pi/agent/auth.json，这里对齐 HiAgent 目录）
     const authStorage = ((this as any)._authStorage ??=
-      sdk.AuthStorage.create());
+      sdk.AuthStorage.create(`${HIAGENT_DIR}/auth.json`));
     const modelRegistry = ((this as any)._modelRegistry ??=
       sdk.ModelRegistry.create(authStorage));
 
