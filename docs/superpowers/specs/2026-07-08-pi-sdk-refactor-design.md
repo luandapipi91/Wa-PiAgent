@@ -184,6 +184,43 @@ export type WSServerEvent =
 
 删除 `MessageUpdateEvent` 和 `StateChangeEvent`（被 `SDKEventEnvelope` 替代）。
 
+### 3.7 pi-intercom 兼容性
+
+HiAgent 当前依赖 pi-intercom 扩展实现 agent 间委派（`DelegateCard` / `DelegateReceived` 前端渲染）。本次 SDK 重构需保证 intercom 功能不中断。
+
+**pi-intercom 会话名机制（源码验证结论）**：
+
+| 环节 | 机制 |
+|---|---|
+| 会话名来源 | `pi.getSessionName()` → 读 session jsonl 里最近一条 `session_info` 条目的 `name` 字段 |
+| RPC 模式设置方式 | CLI `--name` 参数 → `session.setSessionName(name)` → 写入 `session_info` 条目 |
+| SDK 模式设置方式 | `createAgentSession` 无 `name` 选项，但 `AgentSession.setSessionName(name)` 方法可用 |
+| pi-intercom 路由 | broker 按 `to` 参数匹配：先按 session ID 精确匹配，再按 name（大小写不敏感）匹配 |
+| 无名回退 | 会话名为空时，pi-intercom 回退为 `subagent-chat-<sessionId前8位>` |
+
+**迁移方案**：`ensureStarted` 里 `createAgentSession` 后立即调 `session.setSessionName()`，用 HiAgent 的 agent 标识作为 intercom 会话名：
+
+```typescript
+// ensureStarted 里，createAgentSession 之后：
+const { session } = await createAgentSession({ /* ... */ });
+// 设置 pi-intercom 会话名（对齐原 RPC --name 参数）
+// 格式与原 agent-manager.ts 保持一致：projectId-agentName-sessionId
+session.setSessionName(`${projectId}-${agentName}-${sessionId}`);
+```
+
+**前端兼容性**：
+- intercom 的 `intercom` 工具调用走标准 `tool_execution_*` 事件 → 全量透传到前端，`DelegateCard` 渲染不变
+- intercom 的入站消息走 `custom_message` 类型 → 通过 `message_start`/`message_update`/`message_end` 透传，`DelegateReceived` 渲染不变
+- 前端 `MessageList.tsx` 现有的 `block.name === "intercom"` 和 `customType === "intercom_message"` 判断逻辑不需要改动
+
+**扩展加载**：pi-intercom 作为 Pi 扩展通过 `DefaultResourceLoader` 从 `~/.hiagent/extensions/` 加载（需安装到该目录），与 SDK 模式兼容。broker 是 `detached + unref + stdio:"ignore"` 的独立 daemon 进程，不碰主进程 stdio，与同进程 SDK 无冲突。
+
+**验证要点**（实现阶段需验证）：
+1. `session.setSessionName()` 后 `session.getSessionName()` 返回正确值
+2. pi-intercom broker 能发现同名 session 并正确路由 ask/reply
+3. `tool_execution_*` 事件透传到前端后 `DelegateCard` 正常渲染
+4. `custom_message` 事件透传到前端后 `DelegateReceived` 正常渲染
+
 ---
 
 ## 4. AgentManager 重构细节
@@ -237,6 +274,9 @@ async ensureStarted(projectId: string, agentName: AgentName, sessionId: string):
     authStorage: this.authStorage,
     modelRegistry: this.modelRegistry,
   });
+
+  // 设置 pi-intercom 会话名（对齐原 RPC --name 参数，见 3.7 节）
+  session.setSessionName(`${projectId}-${agentName}-${sessionId}`);
 
   const unsubscribe = session.subscribe((event) => {
     this.opts.onEvent(sessionId, projectId, agentName, event);
@@ -487,5 +527,6 @@ customExtensions?: string[]; // → additionalExtensionPaths
 2. `AgentManager` 用 `Map<sessionId, AgentSession>` 管理，`createAgentSession` + `subscribe` 直连 SDK
 3. 前端 `sdk:event` 信封类型透传 SDK 原生事件，`store/session.ts` 消费原生事件
 4. `~/.hiagent/` 作为 SDK `agentDir`，会话 jsonl 存 `~/.hiagent/sessions/<id>.jsonl`
-5. 四层测试全部通过：kernel 单元测试、前端组件测试、API 集成测试、E2E
-6. `CHANGELOG.md` 记录本次重构
+5. pi-intercom 兼容：`session.setSessionName()` 设置会话名，broker 路由正常，前端 `DelegateCard`/`DelegateReceived` 渲染不变
+6. 四层测试全部通过：kernel 单元测试、前端组件测试、API 集成测试、E2E
+7. `CHANGELOG.md` 记录本次重构
