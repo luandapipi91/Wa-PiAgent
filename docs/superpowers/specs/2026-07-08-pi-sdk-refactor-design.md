@@ -184,54 +184,94 @@ export type WSServerEvent =
 
 删除 `MessageUpdateEvent` 和 `StateChangeEvent`（被 `SDKEventEnvelope` 替代）。
 
-### 3.7 pi-intercom 兼容性
+### 3.7 伙伴委托工具（替代 pi-intercom）
 
-HiAgent 当前依赖 pi-intercom 扩展实现 agent 间委派（`DelegateCard` / `DelegateReceived` 前端渲染）。本次 SDK 重构需保证 intercom 功能不中断。
+HiAgent 原依赖 pi-intercom 扩展（独立 broker daemon + Unix socket）实现 agent 间委托。经调研 pi.dev/packages 上的 subagent 类扩展（@gotgenes/pi-subagents 等），均不适配 HiAgent 场景——核心硬伤是它们**硬禁止链式委托**（`applyRecursionGuard` 删除子 agent 的委托工具），而 HiAgent 要求 A→B→C 链式 + 深度限制。
 
-**pi-intercom 会话名机制（源码验证结论）**：
+**改为自研 `delegate` 工具**：用 SDK `defineTool` 注册自定义工具，agent 调用时创建**临时子 session**（inMemory，不落盘，跑完即弃），`prompt` 后取回复返回，`dispose`。天然支持链式（await 嵌套），深度限制防环。
 
-| 环节 | 机制 |
-|---|---|
-| 会话名来源 | `pi.getSessionName()` → 读 session jsonl 里最近一条 `session_info` 条目的 `name` 字段 |
-| RPC 模式设置方式 | CLI `--name` 参数 → `session.setSessionName(name)` → 写入 `session_info` 条目 |
-| SDK 模式设置方式 | `createAgentSession` 无 `name` 选项，但 `AgentSession.setSessionName(name)` 方法可用 |
-| pi-intercom 路由 | broker 按 `to` 参数匹配：先按 session ID 精确匹配，再按 name（大小写不敏感）匹配 |
-| 无名回退 | 会话名为空时，pi-intercom 回退为 `subagent-chat-<sessionId前8位>` |
+**调研结论**（pi.dev/packages）：
 
-**迁移方案**：`ensureStarted` 里 `createAgentSession` 后立即调 `session.setSessionName()`，用 HiAgent 的 agent 标识作为 intercom 会话名：
+| 扩展 | 链式委托 | session 模型 | 结论 |
+|---|---|---|---|
+| pi-intercom | 支持（broker 路由） | 独立进程 + socket | 绕路，同进程不需要 |
+| @gotgenes/pi-subagents | **硬禁止**（applyRecursionGuard） | 临时子 session | 核心硬伤，fork 改造量大 |
+| pi-subagents (nicobailon) | 否 | spawn 子进程 | 与单进程冲突 |
+| pi-crew | 否 | worktree 团队 | 模型不匹配 |
+
+**委托工具设计**：
 
 ```typescript
-// ensureStarted 里，createAgentSession 之后：
-const { session } = await createAgentSession({ /* ... */ });
-// 设置 pi-intercom 会话名（对齐原 RPC --name 参数）
-// 格式与原 agent-manager.ts 保持一致：projectId-agentName-sessionId
-session.setSessionName(`${projectId}-${agentName}-${sessionId}`);
+// delegate-tool.ts
+defineTool({
+  name: "delegate",
+  label: "委托伙伴",
+  description: "向指定伙伴 agent 提问并等待回复",
+  parameters: Type.Object({
+    to: Type.String({ description: "伙伴 agent 名称（product/pm/dev/test）" }),
+    question: Type.String({ description: "要提问的内容" }),
+    _depth: Type.Optional(Type.Number({ description: "内部参数，委托深度", default: 0 })),
+  }),
+  execute: async (toolCallId, params) => {
+    // 1. 校验 to 是否在当前 agent 的 partners.askTo 里
+    // 2. 深度检查（_depth >= MAX_DEPTH 则拒绝，MAX_DEPTH = 5）
+    // 3. 从 ConfigStore 读目标 agent 配置（提示词/模型/工具）
+    // 4. 创建临时子 session（SessionManager.inMemory()，不落盘）
+    //    - 子 session 也注入 delegate 工具（深度 +1），支持链式 A→B→C
+    // 5. await session.prompt(question)
+    // 6. 取最后一条 assistant 消息的文本内容
+    // 7. session.dispose()，返回工具结果
+  }
+})
 ```
 
-**前端兼容性**：
-- intercom 的 `intercom` 工具调用走标准 `tool_execution_*` 事件 → 全量透传到前端，`DelegateCard` 渲染不变
-- intercom 的入站消息走 `custom_message` 类型 → 通过 `message_start`/`message_update`/`message_end` 透传，`DelegateReceived` 渲染不变
-- 前端 `MessageList.tsx` 现有的 `block.name === "intercom"` 和 `customType === "intercom_message"` 判断逻辑不需要改动
+**链式委托 A→B→C 机制**：
+- A 调 `delegate({ to: "pm", question: "..." })`
+- 工具 execute 内 `createAgentSession`（inMemory）创建 pm 的临时子 session
+- pm 的子 session 也注入了 `delegate` 工具（`customTools`）
+- pm 调 `delegate({ to: "test", question: "...", _depth: 1 })`
+- test 的临时子 session 同样有 delegate 工具（`_depth: 2`）
+- 深度达 5 时拒绝，返回错误
 
-**扩展加载**：pi-intercom 作为 Pi 扩展通过 `DefaultResourceLoader` 加载。SDK 的 `agentDir` 改为 `~/.hiagent/` 后，`DefaultResourceLoader` 从 `~/.hiagent/settings.json` 读 packages 配置、从 `~/.hiagent/npm/` 加载扩展。
+**深度限制防环**：环允许（A→B→C→A 不报错），但 `_depth >= 5` 时直接拒绝并返回错误消息。`_depth` 通过工具参数自动传递，LLM 不需要手动设置。
 
-**pi-intercom 安装迁移**（当前安装在 `~/.pi/agent/`，需迁移到 `~/.hiagent/`）：
+**agent 感知伙伴**：系统提示词注入 partners 信息。`ensureStarted` 时在 `systemPromptOverride` 或 `agentsFilesOverride` 里追加：
+```
+你可以使用 delegate 工具委托以下伙伴：
+- pm（项目管理）：[partners.askTo 含 pm 时]
+- test（质量验收）：[partners.askTo 含 test 时]
+委托时提供伙伴名称和问题，等待回复后继续工作。
+```
 
-| 步骤 | 操作 |
+**临时子 session 配置**：
+- `SessionManager.inMemory()`：不落盘，跑完即弃
+- 从 ConfigStore 读目标 agent 的 `AgentConfig`（model/tools/systemPromptBody）
+- `customTools` 包含 `delegate` 工具（传入目标 agent 的 partners 作为可委托列表）
+- 共享 `authStorage` / `modelRegistry`（从 AgentManager 注入）
+
+**删除 pi-intercom 相关代码**：
+
+| 删除项 | 原因 |
 |---|---|
-| 1. settings.json | 在 `~/.hiagent/settings.json` 写入 `{"packages": ["npm:pi-intercom"]}`（若已存在则合并 packages 字段） |
-| 2. 安装扩展 | 调用 `pi install npm:pi-intercom`（指定 `--agent-dir ~/.hiagent`），或程序化调用 SDK 的包安装 API |
-| 3. 首次启动 | kernel 启动时检查 `~/.hiagent/settings.json` 是否有 packages 配置，若无则写入默认配置并安装 pi-intercom |
+| `intercom-setup.ts` | 不再需要 pi-intercom 扩展 |
+| `packages/kernel/package.json` 的 `pi-intercom` 依赖 | 不再需要 |
+| `~/.hiagent/settings.json` 的 packages 配置 | 不再需要 |
+| `session.setSessionName()` 调用 | 不再需要 intercom 会话名 |
+| 前端 `DelegateReceived` 组件 | 进程内委托不产生 `custom_message`，只有 `tool_execution_*` |
+| 前端 `MessageList.tsx` 的 `block.name === "intercom"` | 改为 `block.name === "delegate"` |
 
-broker 是 `detached + unref + stdio:"ignore"` 的独立 daemon 进程，不碰主进程 stdio，与同进程 SDK 无冲突。
-
-**partners 配置兼容**：`AgentConfig.partners`（`askTo` / `askFrom`）只在 agent.md 和前端 UI 使用，kernel 运行时不读它（intercom 实际路由靠系统提示词引导 agent 调用 `intercom` 工具）。SDK 重构不影响 partners 配置的存储和读取，`ConfigStore` / `agent-md.ts` 保持不变。
+**前端兼容性**：
+- `delegate` 工具调用走标准 `tool_execution_start/update/end` 事件 → 全量透传到前端
+- 前端 `DelegateCard` 渲染改为匹配 `block.name === "delegate"`
+- `DelegateReceived` 删除（进程内委托不产生入站 `custom_message`）
 
 **验证要点**（实现阶段需验证）：
-1. `session.setSessionName()` 后 `session.getSessionName()` 返回正确值
-2. pi-intercom broker 能发现同名 session 并正确路由 ask/reply
-3. `tool_execution_*` 事件透传到前端后 `DelegateCard` 正常渲染
-4. `custom_message` 事件透传到前端后 `DelegateReceived` 正常渲染
+1. agent 调 `delegate` 工具后，临时子 session 创建并 prompt 成功
+2. 链式 A→B→C 正常工作，每层创建独立临时 session
+3. 深度达 5 时拒绝并返回错误
+4. `partners.askTo` 校验：委托不在列表的 agent 返回错误
+5. 子 session 跑完后 dispose，不残留
+6. 前端 `DelegateCard` 正确渲染 `delegate` 工具调用
 
 ---
 
@@ -287,8 +327,27 @@ async ensureStarted(projectId: string, agentName: AgentName, sessionId: string):
     modelRegistry: this.modelRegistry,
   });
 
-  // 设置 pi-intercom 会话名（对齐原 RPC --name 参数，见 3.7 节）
-  session.setSessionName(`${projectId}-${agentName}-${sessionId}`);
+  // 注入 delegate 委托工具（见 3.7 节）
+  const delegateTool = createDelegateTool({
+    fromAgent: agentName,
+    fromConfig: config,
+    configStore: this.opts.configStore,
+    authStorage,
+    modelRegistry,
+  });
+
+  const { session } = await createFn({
+    cwd: project.cwd,
+    agentDir: HIAGENT_DIR,
+    sessionManager: SessionManager.open(sessionEntity.piSessionFile),
+    resourceLoader: loader,
+    model,
+    thinkingLevel: config?.thinking ?? "medium",
+    tools: config?.tools?.length ? config.tools : ["read", "bash", "edit", "write"],
+    customTools: [delegateTool],
+    authStorage,
+    modelRegistry,
+  });
 
   const unsubscribe = session.subscribe((event) => {
     this.opts.onEvent(sessionId, projectId, agentName, event);
@@ -510,6 +569,10 @@ interface SessionState {
 | 删除 `state-aggregator.ts` | 不再需要 |
 | 删除 `kernel/tests/pi-rpc-client.test.ts` | 对应文件已删 |
 | 删除 `kernel/tests/state-aggregator.test.ts` | 对应文件已删 |
+| 删除 `intercom-setup.ts` | pi-intercom 扩展不再需要，改为自研 delegate 工具 |
+| 删除 `packages/kernel/package.json` 的 `pi-intercom` 依赖 | 不再需要 |
+| 前端 `DelegateReceived.tsx` 删除 | 进程内委托不产生入站 custom_message |
+| 前端 `MessageList.tsx` 的 `block.name === "intercom"` 改为 `"delegate"` | 工具名变更 |
 | `migrate.ts` 保留但简化 | 旧会话元数据保留，`piSessionFile` 字段对旧数据为 undefined（旧消息历史丢失，干净切换） |
 | `shared/types.ts` 删除 `ChatMessage`、`PiEvent`、归并事件类型 | 废弃代码清理 |
 | `constants.ts` 删除 `HIAGENT_PI_AGENT_DIR`、`SESSIONS_DIR` | 改用 `HIAGENT_DIR`，sessions 路径由 AgentManager 拼 |
@@ -539,6 +602,6 @@ customExtensions?: string[]; // → additionalExtensionPaths
 2. `AgentManager` 用 `Map<sessionId, AgentSession>` 管理，`createAgentSession` + `subscribe` 直连 SDK
 3. 前端 `sdk:event` 信封类型透传 SDK 原生事件，`store/session.ts` 消费原生事件
 4. `~/.hiagent/` 作为 SDK `agentDir`，会话 jsonl 存 `~/.hiagent/sessions/<id>.jsonl`
-5. pi-intercom 兼容：`session.setSessionName()` 设置会话名，`~/.hiagent/settings.json` 配置 packages，扩展正确加载，broker 路由正常，前端 `DelegateCard`/`DelegateReceived` 渲染不变
+5. 伙伴委托：`delegate` 工具创建临时子 session（inMemory），链式 A→B→C 正常，深度限制 5 层防环，前端 `DelegateCard` 渲染 `delegate` 工具调用
 6. 四层测试全部通过：kernel 单元测试、前端组件测试、API 集成测试、E2E
 7. `CHANGELOG.md` 记录本次重构
