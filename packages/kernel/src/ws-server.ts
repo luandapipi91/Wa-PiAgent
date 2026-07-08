@@ -156,6 +156,30 @@ export class WSServer {
         await this.opts.agentManager.abort(event.sessionId);
         break;
       }
+      case "steer:promote": {
+        try {
+          await this.opts.agentManager.promoteToSteer(event.sessionId, event.text, event.remainingTexts);
+        } catch (err) {
+          this.broadcast({ type: "error", message: `引导失败: ${(err as Error).message}` });
+        }
+        break;
+      }
+      case "steer:immediate": {
+        try {
+          await this.opts.agentManager.immediate(event.sessionId, event.text, event.remainingTexts);
+        } catch (err) {
+          this.broadcast({ type: "error", message: `立即执行失败: ${(err as Error).message}` });
+        }
+        break;
+      }
+      case "steer:cancel": {
+        this.opts.agentManager.clearSteeringQueue(event.sessionId);
+        break;
+      }
+      case "steer:clear-queue": {
+        this.opts.agentManager.clearFollowUpQueue(event.sessionId);
+        break;
+      }
       case "agent:config:get": {
         const config = await this.opts.configStore.getAgent(event.agentName) ?? makeDefaultAgentConfig(event.agentName);
         reply({ type: "agent:config", agentName: event.agentName, config });  // 定向
