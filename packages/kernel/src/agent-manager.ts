@@ -164,11 +164,61 @@ export class AgentManager {
     return session;
   }
 
-  /** 发送用户输入，使用 steer 流式行为（边生成边转向，支持中途打断改写） */
+  /** 发送用户输入。agent 运行中或有排队消息时 followUp 排队；空闲时直接 prompt。 */
   async prompt(sessionId: string, text: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`会话未启动: ${sessionId}`);
-    await session.prompt(text, { streamingBehavior: "steer" });
+    if (session.state.isStreaming || session.hasQueuedMessages()) {
+      await session.prompt(text, { streamingBehavior: "followUp" });
+    } else {
+      await session.prompt(text);
+    }
+  }
+
+  /** 
+   * 清空队列 + abort + 剩余重入队 + 发目标消息。
+   * promoteToSteer 和 immediate 共享实现。
+   */
+  private async _jumpQueue(sessionId: string, text: string, remainingTexts: string[]): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session) throw new Error(`会话未启动: ${sessionId}`);
+
+    // 1. 中断当前运行
+    session.abort();
+    await session.waitForIdle();
+
+    // 2. 清空全部队列
+    session.clearAllQueues();
+
+    // 3. 剩余消息用 session.followUp() 入队（避免触发新 prompt）
+    //    直接用 session.followUp 而非 session.prompt，因为 abort 后 agent idle，
+    //    session.prompt(rt, {streamingBehavior:"followUp"}) 会启动新回合而非排队
+    for (const rt of remainingTexts) {
+      session.followUp({ role: "user", content: rt, timestamp: Date.now() });
+    }
+
+    // 4. 目标消息作为新回合开始
+    await session.prompt(text);
+  }
+
+  /** 提升排队消息为引导（abort → 清空 → 剩余重入队 → 目标消息作为新回合） */
+  async promoteToSteer(sessionId: string, text: string, remainingTexts: string[]): Promise<void> {
+    await this._jumpQueue(sessionId, text, remainingTexts);
+  }
+
+  /** 立即执行排队消息（abort → 清空 → 剩余重入队 → 目标消息作为新回合） */
+  async immediate(sessionId: string, text: string, remainingTexts: string[]): Promise<void> {
+    await this._jumpQueue(sessionId, text, remainingTexts);
+  }
+
+  /** 清空 steer 引导队列（session 不存在时静默忽略） */
+  clearSteeringQueue(sessionId: string): void {
+    this.sessions.get(sessionId)?.clearSteeringQueue();
+  }
+
+  /** 清空 followUp 排队队列（session 不存在时静默忽略） */
+  clearFollowUpQueue(sessionId: string): void {
+    this.sessions.get(sessionId)?.clearFollowUpQueue();
   }
 
   /** 中止当前会话的进行中请求（无 session 时静默忽略，便于幂等清理） */
