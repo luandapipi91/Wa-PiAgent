@@ -29,9 +29,9 @@ export function App() {
         case "projects:list": ps.setAll(e.projects, e.sessions); break;
         case "project:created": ps.addProject(e.project); break;
         case "session:created": ps.addSession(e.session); break;
-        // agent:message 也在这里处理：SessionView 挂载前的用户消息不能被丢弃
-        // append 靠 msgKey(role+timestamp) 自动去重，SessionView 二次处理安全
-        case "agent:message": useSessionStore.getState().append(e.sessionId, e.message); break;
+        // sdk:event：所有 SDK 流式事件统一走 store.handleSDKEvent 分发
+        // （message_start/update/end、agent_start/end 等由 store 管理两态）
+        case "sdk:event": useSessionStore.getState().handleSDKEvent(e.sessionId, e); break;
         case "error": {
           // kernel/pi 错误：注入当前会话作为系统错误消息（红色显示）
           const sid = useProjectsStore.getState().currentSessionId;
