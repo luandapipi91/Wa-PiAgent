@@ -1,7 +1,8 @@
 import { test, expect } from "bun:test";
 import type {
   AgentName, AgentConfig, ProjectEntity, SessionEntity,
-  ChatMessage, AgentState, AgentStateKey,
+  AgentState, AgentStateKey,
+  AssistantMessageEvent, SDKEvent, SDKEventEnvelope, WSServerEvent,
 } from "../src/types";
 
 test("AgentName 四值", () => {
@@ -24,4 +25,35 @@ test("AgentConfig 含 partners", () => {
     mcpServers: [], partners: { askTo: ["product"], askFrom: ["product"] },
   };
   expect(c.partners.askTo).toEqual(["product"]);
+});
+
+test("SessionEntity 含 piSessionFile 字段", () => {
+  const s: SessionEntity = {
+    id: "s1", projectId: "p1", primaryAgent: "dev",
+    title: "t", createdAt: 0, lastActivity: 0,
+    piSessionFile: "~/.hiagent/sessions/s1.jsonl",
+  };
+  expect(s.piSessionFile).toContain("s1.jsonl");
+});
+
+test("SDKEventEnvelope 包裹 SDKEvent", () => {
+  const ev: SDKEvent = { type: "agent_start" };
+  const env: SDKEventEnvelope = {
+    type: "sdk:event",
+    projectId: "p1", sessionId: "s1", agentName: "dev",
+    event: ev,
+  };
+  const server: WSServerEvent = env;
+  expect(server.type).toBe("sdk:event");
+});
+
+test("AssistantMessageEvent done 变体可赋值", () => {
+  const e: AssistantMessageEvent = {
+    type: "done", reason: "stop",
+    message: {
+      role: "assistant", content: [], model: "m",
+      stopReason: "stop", timestamp: 0,
+    },
+  };
+  expect(e.type).toBe("done");
 });

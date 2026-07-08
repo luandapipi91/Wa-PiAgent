@@ -41,15 +41,7 @@ export interface SessionEntity {
   title: string;
   createdAt: number;
   lastActivity: number;
-}
-
-/** @deprecated 富消息模型上线后，新消息走 SessionMessage。仅 agent:prompt 的用户输入包装还在用，Task 4 会清理。 */
-export interface ChatMessage {
-  id: string;
-  sessionId: string;
-  role: "user" | "assistant";
-  text: string;
-  timestamp: number;
+  piSessionFile: string;  // SDK jsonl 文件路径 ~/.hiagent/sessions/<id>.jsonl
 }
 
 // ===== Pi 原生消息类型（镜像 @mariozechner/pi-ai，避免运行时依赖）=====
@@ -100,6 +92,21 @@ export interface CustomMessage {
 // 前三者用 role 字段区分；CustomMessage 没有 role，用顶层 type 区分
 export type RoleMessage = UserMessage | AssistantMessage | ToolResultMessage;
 export type AgentMessage = RoleMessage | CustomMessage;
+
+// 镜像 @earendil-works/pi-ai AssistantMessageEvent（流式增量事件）
+export type AssistantMessageEvent =
+  | { type: "start"; partial: AssistantMessage }
+  | { type: "text_start"; contentIndex: number; partial: AssistantMessage }
+  | { type: "text_delta"; contentIndex: number; delta: string; partial: AssistantMessage }
+  | { type: "text_end"; contentIndex: number; content: string; partial: AssistantMessage }
+  | { type: "thinking_start"; contentIndex: number; partial: AssistantMessage }
+  | { type: "thinking_delta"; contentIndex: number; delta: string; partial: AssistantMessage }
+  | { type: "thinking_end"; contentIndex: number; content: string; partial: AssistantMessage }
+  | { type: "toolcall_start"; contentIndex: number; partial: AssistantMessage }
+  | { type: "toolcall_delta"; contentIndex: number; delta: string; partial: AssistantMessage }
+  | { type: "toolcall_end"; contentIndex: number; toolCall: ToolCall; partial: AssistantMessage }
+  | { type: "done"; reason: "stop" | "length" | "toolUse"; message: AssistantMessage }
+  | { type: "error"; reason: "aborted" | "error"; error: AssistantMessage };
 
 // HiAgent 投影：一条 Pi 消息 + HiAgent 元信息
 export interface SessionMessage {
@@ -183,19 +190,6 @@ export type WSClientEvent =
   | FSHomeRequest | FSRootsRequest | FSListDirRequest;
 
 // kernel → 前端
-export interface MessageUpdateEvent {
-  type: "agent:message";
-  projectId: string;
-  sessionId: string;
-  agentName: AgentName;
-  message: SessionMessage;   // ← 从 ChatMessage 改
-}
-export interface StateChangeEvent {
-  type: "agent:state";
-  projectId: string;
-  agentName: AgentName;
-  state: AgentState;
-}
 export interface ProjectsListEvent {
   type: "projects:list";
   projects: ProjectEntity[];
@@ -235,8 +229,30 @@ export interface DirEntry { name: string; isDir: boolean; }
 export interface FSListDirResult { type: "fs:listDir"; path: string; entries: DirEntry[]; }
 export interface FSErrorEvent { type: "fs:error"; path: string; reason: string; }
 
+// 镜像 SDK AgentSessionEvent 联合类型，作为 WS 透传事件
+export type SDKEvent =
+  | { type: "agent_start" }
+  | { type: "agent_end"; messages: AgentMessage[]; willRetry: boolean }
+  | { type: "turn_start" }
+  | { type: "turn_end"; message: AgentMessage; toolResults: ToolResultMessage[] }
+  | { type: "message_start"; message: AgentMessage }
+  | { type: "message_update"; message: AgentMessage; assistantMessageEvent: AssistantMessageEvent }
+  | { type: "message_end"; message: AgentMessage }
+  | { type: "tool_execution_start"; toolCallId: string; toolName: string; args: any }
+  | { type: "tool_execution_update"; toolCallId: string; toolName: string; args: any; partialResult: any }
+  | { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean };
+
+// WS 事件信封：包裹 sessionId 上下文，原始 SDK 事件原样透传
+export interface SDKEventEnvelope {
+  type: "sdk:event";
+  projectId: string;
+  sessionId: string;
+  agentName: AgentName;
+  event: SDKEvent;
+}
+
 export type WSServerEvent =
-  | MessageUpdateEvent | StateChangeEvent
+  | SDKEventEnvelope
   | ProjectsListEvent | ProjectCreatedEvent | SessionCreatedEvent
   | SessionMessagesEvent
   | AgentConfigEvent | ErrorEvent
