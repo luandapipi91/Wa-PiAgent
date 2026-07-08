@@ -141,15 +141,18 @@ function ToolCallBlock({ toolCall, result }: { toolCall: ToolCall; result?: Tool
         <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
       </button>
       {open && (
-        result ? (
-          <div className="mt-1 pl-3 border-l-2 text-xs font-mono" style={{ color: "#a6adc8", borderColor: "#45475a", whiteSpace: "pre-wrap" }}>
-            {result.content.map((c: any, i: number) => c.type === "text" && <div key={i}>{c.text}</div>)}
+        <div className="mt-1 pl-3 border-l-2 text-xs" style={{ borderColor: "#45475a" }}>
+          {/* 原始参数内容 */}
+          <div className="font-mono" style={{ color: "#a6adc8", whiteSpace: "pre-wrap" }}>
+            {JSON.stringify(toolCall.arguments, null, 2)}
           </div>
-        ) : (
-          <div className="mt-1 pl-3 border-l-2 text-xs italic" style={{ color: "#6c7086", borderColor: "#45475a" }}>
-            等待执行...
-          </div>
-        )
+          {/* 执行结果（如有） */}
+          {result && (
+            <div className="mt-1 pt-1 border-t" style={{ borderColor: "#45475a", color: success ? "#a6e3a1" : "#f38ba8" }}>
+              {result.content.map((c: any, i: number) => c.type === "text" && <div key={i}>{c.text}</div>)}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
