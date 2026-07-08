@@ -76,15 +76,22 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
       {/* 队列面板：agent 运行中或有队列时显示 */}
       {(isRunning || hasQueue) && (
         <div className="px-4 py-2 border-b border-surface2 text-sm" style={{ background: "#11111b" }} data-testid="queue-panel">
-          {/* 状态栏：时间 + 停止 */}
+          {/* 状态栏：时间 + 停止 + 清空 */}
           {isRunning && (
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-overlay">
+            <div className="flex items-center mb-1">
+              <span className="text-overlay flex-1">
                 🟠 思考中... {elapsed}s
               </span>
-              <button onClick={handleStop} className="px-2 py-0.5 rounded text-xs" style={{ background: "#f38ba8", color: "#1e1e2e" }} data-testid="btn-stop">
-                停止
-              </button>
+              <div className="flex items-center" style={{ gap: 20 }}>
+                <button onClick={handleStop} className="px-2 py-0.5 rounded text-xs" style={{ background: "#f38ba8", color: "#1e1e2e" }} data-testid="btn-stop">
+                  停止
+                </button>
+                {followUp.length > 0 && (
+                  <button onClick={handleClearFollowUp} className="text-xs px-2 py-0.5 rounded" style={{ background: "#313244", color: "#f38ba8" }} data-testid="btn-clear-queue">
+                    清空
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -112,15 +119,12 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
                 <span className="text-overlay text-xs">
                   排队 {followUp.length} 条
                 </span>
-                <button onClick={handleClearFollowUp} className="text-xs px-2 py-0.5 rounded" style={{ background: "#313244", color: "#f38ba8" }} data-testid="btn-clear-queue">
-                  清空
-                </button>
               </div>
               <div className="rounded" style={{ background: "#1e1e2e" }}>
                 {followUp.map((msg, i) => (
                   <div key={i} className="flex items-center justify-between px-2 py-1.5" style={{ borderBottom: i < followUp.length - 1 ? "1px solid #313244" : "none" }}>
                     <span className="text-subtext truncate flex-1">{msg}</span>
-                    <div className="flex gap-1 ml-2">
+                    <div className="flex ml-2" style={{ gap: 20 }}>
                       <button onClick={() => handlePromote(msg)} className="text-xs px-1.5 py-0.5 rounded" style={{ background: "#a6e3a1", color: "#1e1e2e" }} data-testid="btn-promote">
                         引导
                       </button>
