@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-08 — Steer 消息队列控制
+
+- **类型**：新增功能
+- **摘要**：实现消息队列控制 — agent 运行中用户消息默认 followUp 排队，支持「引导」升级、「立即」执行、「取消」引导、「清空」排队。新增 4 个 WS steer 协议事件 + queue_update SDKEvent + AgentManager 5 个队列方法。
+- **影响范围**：`shared/src/types.ts`（4 个 Steer 事件 + queue_update SDKEvent）、`kernel/src/agent-manager.ts`（prompt 改 followUp + _jumpQueue/promoteToSteer/immediate/clearSteeringQueue/clearFollowUpQueue）、`kernel/src/ws-server.ts`（4 个 steer handler）、`kernel/tests/agent-manager.test.ts`（mock 更新 + 4 个队列测试）
+- **验证**：shared typecheck 通过；shared 10/10 + kernel non-SDK 15/15 全绿
+
+---
+
 ## 2026-07-08 — pi-intercom 打包为项目依赖，消除运行时 npm install
 
 - **类型**：修复
