@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { AGENT_DEFS, randomSessionId } from "@hiagent/shared";
 import type { AgentName } from "@hiagent/shared";
 import { useProjectsStore } from "../store/projects";
@@ -15,6 +15,16 @@ export function NewSessionPane() {
   // 会话 ID 只生成一次并复用，避免快速连发多条消息创建多个重复 session
   const [sessionId] = useState(() => randomSessionId());
   const sendingRef = useRef(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const autoResize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 300) + "px";
+  }, []);
+
+  useEffect(() => { autoResize(); }, [text, autoResize]);
 
   const handleSend = () => {
     if (!projectId || !text.trim() || sendingRef.current) return;
@@ -49,12 +59,14 @@ export function NewSessionPane() {
           </select>
         </div>
         <textarea
+          ref={textareaRef}
           value={text}
           onChange={e => setText(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
           placeholder="给研发发消息..."
           className="w-full bg-transparent text-text p-3 outline-none resize-none"
-          rows={3}
+          rows={1}
+          style={{ maxHeight: 300, overflowY: "auto" }}
           data-testid="new-session-input"
         />
         <div className="flex items-center justify-between p-2 border-t border-surface2">
