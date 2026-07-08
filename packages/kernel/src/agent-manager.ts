@@ -1,4 +1,4 @@
-// AgentManager：从「管 PiRpcClient 子进程」改为「管 AgentSession 对象」
+// AgentManager：管 AgentSession 对象
 //
 // 设计要点：
 // - 用 Map<sessionId, AgentSession> 管理生命周期（不再用 projectId:agentName:sessionId 三 key）

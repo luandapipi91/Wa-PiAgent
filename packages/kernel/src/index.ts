@@ -23,7 +23,7 @@ async function main() {
   });
   broadcast = (e) => server.broadcast(e);
 
-  // AgentManager.onEvent 直接广播 sdk:event（不再经过 StateAggregator 聚合）
+  // AgentManager.onEvent 直接广播 sdk:event
   // SDK AgentSessionEvent 与 shared SDKEvent 结构兼容但 TS 判为不同类型，event 用 any 桥接
   const agentManager = new AgentManager({
     projectStore,

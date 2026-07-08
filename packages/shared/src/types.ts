@@ -112,7 +112,7 @@ export type AssistantMessageEvent =
 export interface SessionMessage {
   message: AgentMessage;     // Pi 原生消息，原样透传
   agentName?: AgentName;     // 哪个 agent 发的（assistant/toolResult 才有意义）
-  sessionId?: string;        // 路由用，PiRpcClient 填 currentSessionId
+  sessionId?: string;        // 路由用，会话 ID
 }
 
 export interface AgentState {
