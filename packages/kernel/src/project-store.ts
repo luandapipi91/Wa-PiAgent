@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-import { PROJECTS_FILE } from "@hiagent/shared";
+import { PROJECTS_FILE, HIAGENT_DIR } from "@hiagent/shared";
 import type { ProjectEntity, SessionEntity, AgentName } from "@hiagent/shared";
 
 interface ProjectsFile {
@@ -62,10 +62,13 @@ export class ProjectStore {
   }): Promise<SessionEntity> {
     const data = await this.load();
     const now = Date.now();
+    // 先算出 id，再用同一 id 拼 piSessionFile 路径，避免 id 不一致
+    const id = input.id ?? randomUUID();
     const session: SessionEntity = {
-      id: input.id ?? randomUUID(), projectId: input.projectId,
+      id, projectId: input.projectId,
       primaryAgent: input.primaryAgent, title: input.title,
       createdAt: now, lastActivity: now,
+      piSessionFile: `${HIAGENT_DIR}/sessions/${id}.jsonl`,
     };
     data.sessions.push(session);
     await this.save(data);
