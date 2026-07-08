@@ -232,6 +232,18 @@ export class AgentManager {
     }
   }
 
+  /** 发送引导消息入队（不打断当前 agent，等待下回合生效） */
+  steerMessage(sessionId: string, text: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    session.steer(text).catch(() => {});
+  }
+
+  /** 清空全部队列（steering + followUp） — session 不存在时静默忽略 */
+  clearAllQueues(sessionId: string): void {
+    this.sessions.get(sessionId)?.clearQueue();
+  }
+
   /** 中止当前会话的进行中请求（无 session 时静默忽略，便于幂等清理） */
   async abort(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
