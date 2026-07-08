@@ -17,10 +17,15 @@ interface RenderedRow {
 
 export function MessageList({ sessionId }: Props) {
   const messages = useSessionStore(s => s.messagesBySession[sessionId] ?? EMPTY);
+  // 流式中的 assistant 消息：未到 message_end 前单独渲染在列表末尾
+  const streaming = useSessionStore(s => s.streamingBySession[sessionId] ?? null);
   const rows = preprocess(messages);
   return (
     <div className="flex-1 overflow-auto p-4 flex flex-col gap-3.5" data-testid="message-list">
       {rows.map((row, i) => <MessageRow key={i} row={row} sessionId={sessionId} />)}
+      {streaming && (
+        <MessageRow row={{ main: streaming, toolResults: new Map() }} sessionId={sessionId} />
+      )}
     </div>
   );
 }
