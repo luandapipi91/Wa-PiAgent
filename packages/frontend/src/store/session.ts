@@ -83,18 +83,26 @@ export const useSessionStore = create<SessionState>((set) => ({
         }
         break;
       }
-      // 流式结束：assistant 的 streaming 移到 messages 并清空占位
-      // user 的 message_end 忽略——user 消息在 message_start 时已加入 messages
+      // 流式结束：assistant — 合并到同 turn 的最后一条 assistant 消息
       case "message_end": {
         const msg = event.message as any;
         if (msg.role !== "assistant") break;
-        set(s => ({
-          streamingBySession: { ...s.streamingBySession, [sessionId]: null },
-          messagesBySession: {
-            ...s.messagesBySession,
-            [sessionId]: [...(s.messagesBySession[sessionId] ?? []), { message: msg, agentName }],
-          },
-        }));
+        set(s => {
+          const list = [...(s.messagesBySession[sessionId] ?? [])];
+          const last = list[list.length - 1];
+          // SDK 对同 turn 的每个 block（thinking/text/toolCall）发独立 message_start/end；
+          // 检查最后一条是否也是同一 agent 的 assistant，是则合并 content 数组
+          if (last && last.agentName === agentName && (last.message as any).role === "assistant") {
+            const merged = { ...(last.message as any), content: [...(last.message as any).content, ...(msg.content ?? [])] };
+            list[list.length - 1] = { ...last, message: merged };
+          } else {
+            list.push({ message: msg, agentName });
+          }
+          return {
+            streamingBySession: { ...s.streamingBySession, [sessionId]: null },
+            messagesBySession: { ...s.messagesBySession, [sessionId]: list },
+          };
+        });
         break;
       }
       // agent 开始处理：标记 thinking
