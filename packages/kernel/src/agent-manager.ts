@@ -1,77 +1,229 @@
-import type { AgentName, AgentState, AgentStateKey } from "@hiagent/shared";
-import { makeAgentStateKey, HIAGENT_PI_AGENT_DIR } from "@hiagent/shared";
+// AgentManager：从「管 PiRpcClient 子进程」改为「管 AgentSession 对象」
+//
+// 设计要点：
+// - 用 Map<sessionId, AgentSession> 管理生命周期（不再用 projectId:agentName:sessionId 三 key）
+// - 通过 createAgentSessionFn 注入 createAgentSession（测试用 mock，生产用真实 SDK）
+// - ensureStarted 里调 session.setSessionName() 设置 pi-intercom 会话名
+// - session.subscribe() 把 SDK 事件转发给上层 onEvent
+//
+// 依赖注入：
+// - createAgentSessionFn 可选参数，缺省时动态 import 真实 SDK（避免类型循环依赖）
+// - _authStorage / _modelRegistry 用 (this as any)._xxx ??= 模式做进程级单例
+
+import type { AgentName, AgentConfig } from "@hiagent/shared";
+import { HIAGENT_DIR } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
-import { PiRpcClient, type PiEvent, type PiRpcClientOpts } from "./pi-rpc-client";
+import type {
+  AgentSession,
+  AgentSessionEvent,
+} from "@earendil-works/pi-coding-agent";
+
+// 可注入的 createAgentSession 签名（与 SDK 的 createAgentSession 对齐，但用 any 避免 SDK 类型穿透）
+// 测试用 mock 替换；生产路径走真实 SDK
+type CreateAgentSessionFn = (opts: {
+  cwd: string;
+  agentDir: string;
+  sessionManager: any;
+  resourceLoader: any;
+  model?: any;
+  thinkingLevel?: string;
+  tools?: string[];
+  authStorage: any;
+  modelRegistry: any;
+}) => Promise<{ session: AgentSession }>;
 
 export interface AgentManagerOpts {
   projectStore: ProjectStore;
-  configStore?: ConfigStore;  // 可选：测试用 mock spawn 不需 config；生产传真实 ConfigStore
-  onEvent: (key: AgentStateKey, e: PiEvent) => void;
-  spawnFn?: PiRpcClientOpts["spawnFn"];
+  // configStore 可空：测试用 mock createAgentSession 时不需要真实配置
+  configStore: ConfigStore | null;
+  // 上层事件回调：携带 sessionId/projectId/agentName 上下文，转发 SDK 原始事件
+  onEvent: (
+    sessionId: string,
+    projectId: string,
+    agentName: AgentName,
+    e: AgentSessionEvent,
+  ) => void;
+  // 测试注入 mock；生产留空 → 走真实 SDK 动态 import
+  createAgentSessionFn?: CreateAgentSessionFn;
 }
 
-// 按 (projectId, agentName, sessionId) 三 key 管理 Pi 进程生命周期。
-// 每个 HiAgent 会话独立一个 Pi 进程（Pi RPC 不支持单进程多会话）。
-// 同 key 复用同一个 PiRpcClient；不同 key 独立进程。cwd 取自 project.cwd。
 export class AgentManager {
-  // 进程 map：key = "projectId:agentName:sessionId"（每个会话独立 Pi 进程）
-  private agents = new Map<string, PiRpcClient>();
-  // 状态 map：key = "projectId:agentName"（前端按 agent 维度订阅状态）
-  private states = new Map<AgentStateKey, AgentState>();
+  // sessionId → AgentSession（核心数据结构，一个 HiAgent 会话对应一个 SDK session）
+  private sessions = new Map<string, AgentSession>();
+  // sessionId → unsubscribe 函数（dispose 时解绑事件订阅）
+  private unsubscribers = new Map<string, () => void>();
 
   constructor(private opts: AgentManagerOpts) {}
 
-  async ensureStarted(projectId: string, agentName: AgentName, sessionId: string): Promise<PiRpcClient> {
-    const procKey = `${projectId}:${agentName}:${sessionId}`;
-    const existing = this.agents.get(procKey);
+  /**
+   * 启动或复用一个 AgentSession。
+   * 同 sessionId 命中 Map 缓存则直接返回；否则创建新 session、设置 intercom 会话名、订阅事件。
+   */
+  async ensureStarted(
+    projectId: string,
+    agentName: AgentName,
+    sessionId: string,
+  ): Promise<AgentSession> {
+    // 命中缓存直接返回（同 session 复用，不重复创建 SDK session）
+    const existing = this.sessions.get(sessionId);
     if (existing) return existing;
 
-    const { projects } = await this.opts.projectStore.load();
-    const project = projects.find(p => p.id === projectId);
+    // 从 ProjectStore 拉 project + session 实体（校验存在性 + 拿 cwd / piSessionFile）
+    const { projects, sessions } = await this.opts.projectStore.load();
+    const project = projects.find((p) => p.id === projectId);
     if (!project) throw new Error(`项目不存在: ${projectId}`);
-    if (!project.cwd) throw new Error(`项目工作目录缺失: ${project.name ?? projectId}`);
-
-    // 读 agent 配置（系统提示词/工具/模型），传给 pi spawn
-    const config = this.opts.configStore ? await this.opts.configStore.getAgent(agentName) : null;
-
-    const stateKey = makeAgentStateKey(projectId, agentName);
-    const client = new PiRpcClient({
-      agentName,
-      cwd: project.cwd,
-      sessionId: `${projectId}-${agentName}-${sessionId}`,  // pi-intercom 会话名（含 HiAgent sessionId，确保进程隔离）
-      config: config ?? undefined,
-      spawnFn: this.opts.spawnFn,
-      env: { PI_CODING_AGENT_DIR: HIAGENT_PI_AGENT_DIR },  // 让 Pi 把数据存到 .hiagent/pi-agent
-      onEvent: (e) => {
-        if (e.kind === "state") this.states.set(stateKey, e.state);
-        this.opts.onEvent(stateKey, e);
-      },
-    });
-    await client.start();
-    this.agents.set(procKey, client);
-    return client;
-  }
-
-  async abort(projectId: string, agentName: AgentName, sessionId: string): Promise<void> {
-    const procKey = `${projectId}:${agentName}:${sessionId}`;
-    const client = this.agents.get(procKey);
-    if (client) await client.abort();
-  }
-
-  getState(key: AgentStateKey): AgentState | undefined {
-    return this.states.get(key);
-  }
-
-  getAllStates(): Map<AgentStateKey, AgentState> {
-    return new Map(this.states);
-  }
-
-  async disposeAll(): Promise<void> {
-    for (const [, client] of this.agents) {
-      await client.dispose();
+    if (!project.cwd) {
+      throw new Error(`项目工作目录缺失: ${project.name ?? projectId}`);
     }
-    this.agents.clear();
-    this.states.clear();
+
+    const sessionEntity = sessions.find((s) => s.id === sessionId);
+    if (!sessionEntity) throw new Error(`会话不存在: ${sessionId}`);
+    if (!sessionEntity.piSessionFile) {
+      throw new Error(`会话 piSessionFile 缺失: ${sessionId}`);
+    }
+
+    // 读 agent 配置（系统提示词 / 工具 / 模型 / thinking level）
+    const config = this.opts.configStore
+      ? await this.opts.configStore.getAgent(agentName)
+      : null;
+
+    // 动态 import SDK（避免类型循环依赖；只在真正需要创建 session 时加载）
+    const sdk = await import("@earendil-works/pi-coding-agent");
+    const createFn: CreateAgentSessionFn =
+      this.opts.createAgentSessionFn ??
+      (sdk.createAgentSession as CreateAgentSessionFn);
+
+    // 共享 auth/model：进程级单例（多次创建 session 复用同一 AuthStorage / ModelRegistry）
+    // 用 (this as any)._xxx ??= 模式做惰性初始化，避免每次 ensureStarted 重建
+    const authStorage = ((this as any)._authStorage ??=
+      sdk.AuthStorage.create());
+    const modelRegistry = ((this as any)._modelRegistry ??=
+      sdk.ModelRegistry.create(authStorage));
+
+    // AgentConfig → SDK ResourceLoader 选项映射
+    // - systemPromptMode === "replace"：整体覆盖系统提示词
+    // - systemPromptMode === "append"：在默认 agentsFiles 后追加虚拟文件
+    const loader = new sdk.DefaultResourceLoader({
+      cwd: project.cwd,
+      agentDir: HIAGENT_DIR,
+      systemPromptOverride:
+        config?.systemPromptMode === "replace" && config.systemPromptBody
+          ? () => config.systemPromptBody!
+          : undefined,
+      agentsFilesOverride:
+        config?.systemPromptMode === "append" && config.systemPromptBody
+          ? (current: {
+              agentsFiles: Array<{ path: string; content: string }>;
+            }) => ({
+              agentsFiles: [
+                ...current.agentsFiles,
+                {
+                  path: `/virtual/${config.name}.md`,
+                  content: config.systemPromptBody!,
+                },
+              ],
+            })
+          : undefined,
+    });
+    await loader.reload();
+
+    // 解析 config.model 字符串 → SDK Model 对象
+    // resolveCliModel 未从 SDK 根 export，需要从深层模块动态 import
+    const model = config?.model
+      ? await resolveModel(config.model, modelRegistry)
+      : undefined;
+
+    // 调 createAgentSession 创建 SDK session
+    const { session } = await createFn({
+      cwd: project.cwd,
+      agentDir: HIAGENT_DIR,
+      // SessionManager.open 打开已有 jsonl 文件（由 ProjectStore.createSession 预生成路径）
+      sessionManager: sdk.SessionManager.open(sessionEntity.piSessionFile),
+      resourceLoader: loader,
+      model,
+      thinkingLevel: config?.thinking ?? "medium",
+      // 无显式 tools 时用默认四件套（read/bash/edit/write）
+      tools: config?.tools?.length
+        ? config.tools
+        : ["read", "bash", "edit", "write"],
+      authStorage,
+      modelRegistry,
+    });
+
+    // 设置 pi-intercom 会话名（对齐原 RPC --name 参数，格式：projectId-agentName-sessionId）
+    session.setSessionName(`${projectId}-${agentName}-${sessionId}`);
+
+    // 订阅 SDK 事件并转发给上层 onEvent（携带路由上下文）
+    const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+      this.opts.onEvent(sessionId, projectId, agentName, event);
+    });
+    this.sessions.set(sessionId, session);
+    this.unsubscribers.set(sessionId, unsubscribe);
+
+    return session;
   }
+
+  /** 发送用户输入，使用 steer 流式行为（边生成边转向，支持中途打断改写） */
+  async prompt(sessionId: string, text: string): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session) throw new Error(`会话未启动: ${sessionId}`);
+    await session.prompt(text, { streamingBehavior: "steer" });
+  }
+
+  /** 中止当前会话的进行中请求（无 session 时静默忽略，便于幂等清理） */
+  async abort(sessionId: string): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (session) await session.abort();
+  }
+
+  /** 读取会话历史消息（session 不存在时返回空数组） */
+  getMessages(sessionId: string): any[] {
+    return this.sessions.get(sessionId)?.messages ?? [];
+  }
+
+  /** 清理单个会话：先解绑事件订阅，再 dispose session，最后从 Map 移除 */
+  async disposeSession(sessionId: string): Promise<void> {
+    this.unsubscribers.get(sessionId)?.();
+    this.unsubscribers.delete(sessionId);
+    this.sessions.get(sessionId)?.dispose();
+    this.sessions.delete(sessionId);
+  }
+
+  /** 清理所有会话（进程退出 / 测试 teardown 用） */
+  async disposeAll(): Promise<void> {
+    // 复制 keys 避免 disposeSession 修改 Map 时迭代异常
+    for (const id of [...this.sessions.keys()]) {
+      await this.disposeSession(id);
+    }
+  }
+}
+
+/**
+ * 把 AgentConfig.model 字符串（如 "anthropic/claude-sonnet-4-5"）解析成 SDK Model 对象。
+ *
+ * SDK 的 resolveCliModel 没有从包根 export，只能从深层模块动态 import。
+ * 这里用 import.meta.resolve 拿到 SDK 根路径，再推导出 model-resolver.js 的绝对路径。
+ * 该路径在 SDK 0.80.x 验证有效；如果未来 SDK 改了内部结构，这里会抛 import 错误（fail-fast）。
+ */
+async function resolveModel(
+  modelPattern: string,
+  modelRegistry: any,
+): Promise<any | undefined> {
+  // 从 SDK 根入口路径推导 model-resolver 模块路径
+  const rootUrl = import.meta.resolve("@earendil-works/pi-coding-agent");
+  const rootPath = new URL(rootUrl).pathname;
+  const resolverPath = rootPath.replace(
+    "/dist/index.js",
+    "/dist/core/model-resolver.js",
+  );
+  const { resolveCliModel } = await import(resolverPath);
+  const result = resolveCliModel({
+    cliModel: modelPattern,
+    modelRegistry,
+  });
+  if (result.error) {
+    throw new Error(`模型解析失败 (${modelPattern}): ${result.error}`);
+  }
+  return result.model;
 }
