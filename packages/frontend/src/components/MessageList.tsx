@@ -137,7 +137,7 @@ function ToolCallBlock({ toolCall, result }: { toolCall: ToolCall; result?: Tool
       >
         {success ? <span style={{ color: "#a6e3a1" }}>✓</span> : <span>🔧</span>}
         <span style={{ color: "#cdd6f4" }}>{toolCall.name}</span>
-        <span style={{ color: "#6c7086" }}>({JSON.stringify(toolCall.arguments)})</span>
+        <span style={{ color: "#6c7086" }}>({formatArgs(toolCall.arguments)})</span>
         <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
       </button>
       {open && (
@@ -153,4 +153,17 @@ function ToolCallBlock({ toolCall, result }: { toolCall: ToolCall; result?: Tool
       )}
     </div>
   );
+}
+
+/** 格式化工具调用参数 — 截断长值避免撑爆 UI */
+function formatArgs(args: Record<string, any>): string {
+  const keys = Object.keys(args);
+  if (keys.length === 0) return "";
+  const parts = keys.map(k => {
+    const v = args[k];
+    if (typeof v === "string" && v.length > 60) return `${k}: "${v.slice(0, 50)}..."`;
+    if (typeof v === "string") return `${k}: "${v}"`;
+    return `${k}: ${JSON.stringify(v)}`;
+  });
+  return parts.join(", ");
 }
