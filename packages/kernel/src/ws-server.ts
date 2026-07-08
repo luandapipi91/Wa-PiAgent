@@ -120,7 +120,8 @@ export class WSServer {
         }
         try {
           const sdkSession = await this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id);
-          const messages = sdkSession.messages.map(m => ({ message: m, agentName: session.primaryAgent }));
+          // SDK AgentMessage 与 shared AgentMessage 结构兼容但 TS 判为不同类型，用 any 桥接
+          const messages = (sdkSession.messages as any[]).map(m => ({ message: m, agentName: session.primaryAgent }));
           reply({ type: "session:messages", sessionId: event.sessionId, messages });
         } catch {
           reply({ type: "session:messages", sessionId: event.sessionId, messages: [] });

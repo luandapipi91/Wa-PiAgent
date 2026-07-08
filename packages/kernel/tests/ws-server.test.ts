@@ -70,7 +70,7 @@ async function withServer<T>(
     return queue.shift()!;
   };
   try { return await fn(send, recv); }
-  finally { ws.close(); await server.stop(); rmSync(configStore["dir"] ?? "", { recursive: true, force: true }); }
+  finally { ws.close(); await server.stop(); }
 }
 
 test("projects:list 返回空", async () => {
@@ -220,8 +220,8 @@ test("agent:abort 调 agentManager.abort(sessionId)（不传 projectId/agentName
     send({ type: "agent:prompt", projectId, sessionId: "s-abort", agentName: "dev", text: "x" });
     await recv(); // session:created
     await new Promise(r => setTimeout(r, 50));
-    // 发 abort
-    send({ type: "agent:abort", sessionId: "s-abort" });
+    // 发 abort（WSClientEvent 协议仍要求 projectId/agentName，即使 server 已不再使用）
+    send({ type: "agent:abort", projectId, sessionId: "s-abort", agentName: "dev" });
     await new Promise(r => setTimeout(r, 50));
     expect(calls.abort).toContain("s-abort");
   });
