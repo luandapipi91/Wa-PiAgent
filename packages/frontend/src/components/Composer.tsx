@@ -7,9 +7,10 @@ import { agentEmoji } from "../theme/agents";
 interface Props {
   sessionId: string;
   agentName: AgentName;
+  isRunning?: boolean;
 }
 
-export function Composer({ sessionId, agentName }: Props) {
+export function Composer({ sessionId, agentName, isRunning }: Props) {
   const [text, setText] = useState("");
   const sendingRef = useRef(false);
   const { sessions, currentProjectId } = useProjectsStore();
@@ -38,7 +39,7 @@ export function Composer({ sessionId, agentName }: Props) {
               handleSend();
             }
           }}
-          placeholder={`给${agentName}发消息...`}
+          placeholder={isRunning ? "输入要加入队列的消息..." : `给${agentName}发消息...`}
           className="flex-1 bg-transparent text-text outline-none resize-none text-sm"
           rows={1}
           data-testid="composer-input"
@@ -49,7 +50,7 @@ export function Composer({ sessionId, agentName }: Props) {
           className="px-3 py-1 rounded text-sm"
           style={{ background: text.trim() ? "#89b4fa" : "#585b70", color: "#1e1e2e" }}
           data-testid="composer-send"
-        >↩</button>
+        >{isRunning ? "↑" : "↩"}</button>
       </div>
     </div>
   );

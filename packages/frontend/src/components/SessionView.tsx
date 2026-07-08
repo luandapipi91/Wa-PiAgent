@@ -144,7 +144,7 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
       )}
 
       <MessageList sessionId={sessionId} />
-      <Composer sessionId={sessionId} agentName={session.primaryAgent} />
+      <Composer sessionId={sessionId} agentName={session.primaryAgent} isRunning={status === "thinking"} />
     </div>
   );
 }
