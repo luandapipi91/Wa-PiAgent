@@ -1,10 +1,8 @@
-import type { SessionMessage, ToolResultMessage } from "@hiagent/shared";
+import type { SessionMessage, ToolResultMessage, ToolCall } from "@hiagent/shared";
 import { useSessionStore } from "../store/session";
-import { ThinkingPanel } from "./blocks/ThinkingPanel";
-import { TextBlock } from "./blocks/TextBlock";
-import { ToolCallPanel } from "./blocks/ToolCallPanel";
-import { DelegateCard } from "./blocks/DelegateCard";
-import { DelegateReceived } from "./blocks/DelegateReceived";
+import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const EMPTY: SessionMessage[] = [];
 
@@ -17,7 +15,6 @@ interface RenderedRow {
 
 export function MessageList({ sessionId }: Props) {
   const messages = useSessionStore(s => s.messagesBySession[sessionId] ?? EMPTY);
-  // 流式中的 assistant 消息：未到 message_end 前单独渲染在列表末尾
   const streaming = useSessionStore(s => s.streamingBySession[sessionId] ?? null);
   const rows = preprocess(messages);
   return (
@@ -48,46 +45,106 @@ function preprocess(messages: SessionMessage[]): RenderedRow[] {
 function MessageRow({ row, sessionId }: { row: RenderedRow; sessionId: string }) {
   const m = row.main.message as any;
   const isUser = m.role === "user";
-  return (
-    <div className={`flex gap-2.5 ${isUser ? "flex-row-reverse" : "flex-row"}`} data-testid={`msg-${sessionId}-${m.timestamp}`}>
-      <Avatar isUser={isUser} />
-      <div className="max-w-[70%]">
-        {!isUser && <div className="text-xs text-overlay mb-0.5">{row.main.agentName ?? "agent"}</div>}
-        <div className="px-3 py-2 rounded-lg" style={{ background: isUser ? "#313244" : "#181825", color: "#cdd6f4", borderRadius: isUser ? "4px 12px 12px 12px" : "12px 4px 12px 12px" }}>
-          {renderContent(m, row.toolResults)}
+
+  if (isUser) {
+    return (
+      <div className="flex flex-row-reverse gap-2.5" data-testid={`msg-${sessionId}-${m.timestamp}`}>
+        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs flex-shrink-0" style={{ background: "linear-gradient(135deg,#6c7086,#9399b2)" }}>
+          我
         </div>
+        <div className="max-w-[70%] px-3 py-2 rounded-lg text-sm" style={{ background: "#313244", color: "#cdd6f4", borderRadius: "4px 12px 12px 12px" }}>
+          <p>{typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? "")}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 分离 assistant 消息的三种 block 类型
+  const blocks: any[] = Array.isArray(m.content) ? m.content : [];
+  const thinkingBlocks = blocks.filter((b: any) => b.type === "thinking");
+  const textBlocks = blocks.filter((b: any) => b.type === "text");
+  const toolCallBlocks = blocks.filter((b: any) => b.type === "toolCall");
+
+  return (
+    <div className="flex gap-2.5" data-testid={`msg-${sessionId}-${m.timestamp}`}>
+      <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs flex-shrink-0" style={{ background: "linear-gradient(135deg,#89b4fa,#b4befe)" }}>
+        🤖
+      </div>
+      <div className="max-w-[85%] min-w-0">
+        <div className="text-xs text-overlay mb-0.5">{row.main.agentName ?? "agent"}</div>
+
+        {/* 主回复内容 — 文字 + markdown */}
+        <div className="text-sm" style={{ color: "#cdd6f4" }}>
+          {textBlocks.map((block: any, i: number) => (
+            <div key={i} className="prose prose-invert max-w-none prose-sm" data-testid="text-block">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.text}</ReactMarkdown>
+            </div>
+          ))}
+        </div>
+
+        {/* 思考过程 — 折叠面板 */}
+        {thinkingBlocks.length > 0 && (
+          <div className="mt-3 space-y-1">
+            {thinkingBlocks.map((block: any, i: number) => (
+              <ThinkingBlock key={i} thinking={block.thinking} />
+            ))}
+          </div>
+        )}
+
+        {/* 工具调用 — 折叠面板 */}
+        {toolCallBlocks.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {toolCallBlocks.map((block: any, i: number) => (
+              <ToolCallBlock key={i} toolCall={block} result={row.toolResults.get(block.id)} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function renderContent(m: any, toolResults: Map<string, ToolResultMessage>) {
-  if (m.role === "user") {
-    const text = typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? "");
-    return <TextBlock text={text} />;
-  }
-  if (m.role === "assistant") {
-    return (m.content as any[]).map((block, i) => {
-      switch (block.type) {
-        case "thinking": return <ThinkingPanel key={i} thinking={block.thinking} />;
-        case "text": return <TextBlock key={i} text={block.text} />;
-        case "toolCall":
-          if (block.name === "intercom") return <DelegateCard key={i} toolCall={block} result={toolResults.get(block.id)} />;
-          return <ToolCallPanel key={i} toolCall={block} result={toolResults.get(block.id)} />;
-        default: return null;
-      }
-    });
-  }
-  if (m.type === "custom_message" && m.customType === "intercom_message") {
-    return <DelegateReceived details={m.details} />;
-  }
-  return null;
+function ThinkingBlock({ thinking }: { thinking: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div data-testid="thinking-panel">
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-xs flex items-center gap-1 select-none"
+        style={{ color: "#6c7086", cursor: "pointer" }}
+      >
+        <span>💭 思考过程 已完成</span>
+        <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="mt-1 pl-3 border-l-2 text-xs italic" style={{ color: "#6c7086", borderColor: "#45475a" }}>
+          {thinking}
+        </div>
+      )}
+    </div>
+  );
 }
 
-function Avatar({ isUser }: { isUser: boolean }) {
+function ToolCallBlock({ toolCall, result }: { toolCall: ToolCall; result?: ToolResultMessage }) {
+  const [open, setOpen] = useState(false);
+  const success = result && !result.isError;
   return (
-    <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs flex-shrink-0" style={{ background: isUser ? "linear-gradient(135deg,#6c7086,#9399b2)" : "linear-gradient(135deg,#89b4fa,#b4befe)" }}>
-      {isUser ? "我" : "🤖"}
+    <div data-testid={`toolcall-${toolCall.id}`}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-xs flex items-center gap-1 select-none font-mono"
+        style={{ color: success ? "#a6e3a1" : "#6c7086", cursor: "pointer" }}
+      >
+        {success ? <span style={{ color: "#a6e3a1" }}>✓</span> : <span>🔧</span>}
+        <span style={{ color: "#cdd6f4" }}>{toolCall.name}</span>
+        <span style={{ color: "#6c7086" }}>({JSON.stringify(toolCall.arguments)})</span>
+        <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && result && (
+        <div className="mt-1 pl-3 border-l-2 text-xs font-mono" style={{ color: "#a6adc8", borderColor: "#45475a", whiteSpace: "pre-wrap" }}>
+          {result.content.map((c: any, i: number) => c.type === "text" && <div key={i}>{c.text}</div>)}
+        </div>
+      )}
     </div>
   );
 }

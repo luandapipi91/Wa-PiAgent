@@ -38,4 +38,5 @@ packages/kernel/tests/.tmp-*
 
 # superpowers SDD 归档（本地开发用，不入库）
 .superpowers/
-.reasonix/.playwright-mcp/
+.reasonix/
+.playwright-mcp/
