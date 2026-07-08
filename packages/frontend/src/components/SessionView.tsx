@@ -13,6 +13,7 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
   const session = useProjectsStore(s => s.sessions.find(x => x.id === sessionId));
   const project = useProjectsStore(s => s.projects.find(p => p.id === session?.projectId));
   const getGlobalState = useAgentsStore(s => s.getGlobalState);
+  const queue = useSessionStore(s => s.queueBySession[sessionId]);
 
   useEffect(() => {
     // 请求历史会话消息（切到历史会话时加载持久化内容）
@@ -30,6 +31,9 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
 
   if (!session) return null;
   const state = getGlobalState(session.primaryAgent);
+  const steeringCount = queue?.steering?.length ?? 0;
+  const followUpCount = queue?.followUp?.length ?? 0;
+  const queueTotal = steeringCount + followUpCount;
 
   return (
     <div className="flex-1 flex flex-col h-full" data-testid="session-view">
@@ -38,6 +42,13 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <span className="text-text font-semibold">{session.title}</span>
+            {queueTotal > 0 && (
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "#313244", color: "#f9e2af" }} data-testid="queue-badge">
+                队列: {queueTotal}
+                {steeringCount > 0 && <span title="引导队列"> 🎯{steeringCount}</span>}
+                {followUpCount > 0 && <span title="排队队列"> ⏳{followUpCount}</span>}
+              </span>
+            )}
           </div>
           <div className="text-xs text-overlay">{session.primaryAgent} · {project?.cwd ?? ""} · {state}</div>
         </div>

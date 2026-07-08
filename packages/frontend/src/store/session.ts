@@ -8,6 +8,8 @@ interface SessionState {
   streamingBySession: Record<string, SessionMessage | null>;
   // 会话级 agent 状态：thinking=处理中，idle=空闲，blocked=等待用户
   statusBySession: Record<string, AgentStatus>;
+  // 会话级消息队列：steering 引导队列 + followUp 排队队列
+  queueBySession: Record<string, { steering: readonly string[]; followUp: readonly string[] }>;
   // 原有方法保留：append 用于 error 兜底、setMessages 用于 session:messages 历史
   append: (sessionId: string, msg: SessionMessage) => void;
   setMessages: (sessionId: string, messages: SessionMessage[]) => void;
@@ -26,6 +28,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   messagesBySession: {},
   streamingBySession: {},
   statusBySession: {},
+  queueBySession: {},
 
   append: (sessionId, msg) => set(s => {
     const list = s.messagesBySession[sessionId] ?? [];
@@ -101,6 +104,12 @@ export const useSessionStore = create<SessionState>((set) => ({
       // agent 结束：回 idle
       case "agent_end":
         set(s => ({ statusBySession: { ...s.statusBySession, [sessionId]: "idle" } }));
+        break;
+      // 队列更新：steering / followUp 消息列表
+      case "queue_update":
+        set(s => ({
+          queueBySession: { ...s.queueBySession, [sessionId]: { steering: event.steering, followUp: event.followUp } },
+        }));
         break;
       // turn_start/turn_end/tool_execution_* 暂不在 store 处理：渲染层不消费
       default:
