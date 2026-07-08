@@ -138,6 +138,26 @@ export interface AbortEvent {
   sessionId: string;
   agentName: AgentName;
 }
+export interface SteerPromoteEvent {
+  type: "steer:promote";
+  sessionId: string;
+  text: string;
+  remainingTexts: string[];
+}
+export interface SteerImmediateEvent {
+  type: "steer:immediate";
+  sessionId: string;
+  text: string;
+  remainingTexts: string[];
+}
+export interface SteerCancelEvent {
+  type: "steer:cancel";
+  sessionId: string;
+}
+export interface SteerClearQueueEvent {
+  type: "steer:clear-queue";
+  sessionId: string;
+}
 export interface ProjectCreateEvent {
   type: "project:create";
   name: string;
@@ -183,6 +203,7 @@ export interface SessionMessagesRequest {
 
 export type WSClientEvent =
   | PromptEvent | AbortEvent
+  | SteerPromoteEvent | SteerImmediateEvent | SteerCancelEvent | SteerClearQueueEvent
   | ProjectCreateEvent | ProjectUpdateEvent | ProjectDeleteEvent | ProjectOpenDirEvent
   | SessionRenameEvent | SessionDeleteEvent
   | AgentConfigGetEvent | AgentConfigSaveEvent
@@ -240,7 +261,8 @@ export type SDKEvent =
   | { type: "message_end"; message: AgentMessage }
   | { type: "tool_execution_start"; toolCallId: string; toolName: string; args: any }
   | { type: "tool_execution_update"; toolCallId: string; toolName: string; args: any; partialResult: any }
-  | { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean };
+  | { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean }
+  | { type: "queue_update"; steering: readonly string[]; followUp: readonly string[] };
 
 // WS 事件信封：包裹 sessionId 上下文，原始 SDK 事件原样透传
 export interface SDKEventEnvelope {
