@@ -78,6 +78,22 @@ test("message_end 把 streamingMessage 移到 messages 并清空 streaming", () 
   expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
 });
 
+test("message_end(user) 不重复添加——user 消息在 message_start 时已加入", () => {
+  // 先模拟 message_start(user) 已加入 messages
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [{ message: { role: "user", content: "你好", timestamp: 1 }, agentName: "dev" }],
+    },
+  });
+  // message_end(user) 不应再添加
+  const env = envelope({
+    type: "message_end",
+    message: { role: "user", content: "你好", timestamp: 1 },
+  });
+  useSessionStore.getState().handleSDKEvent("s1", env);
+  expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
+});
+
 test("agent_start 设置 status=thinking", () => {
   const env = envelope({ type: "agent_start" });
   useSessionStore.getState().handleSDKEvent("s1", env);
