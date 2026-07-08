@@ -134,10 +134,7 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
             </div>
           )}
 
-          {/* 空队列提示 */}
-          {isRunning && !hasQueue && (
-            <div className="text-overlay text-xs text-center py-1">（无排队消息）</div>
-          )}
+          {/* 空队列：只保留停止/计时器，不显示占位文字 */}
 
           {/* 提示 */}
           {followUp.length > 0 && (
