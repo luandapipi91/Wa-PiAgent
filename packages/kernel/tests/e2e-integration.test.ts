@@ -4,11 +4,10 @@ import { join } from "node:path";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
 import { AgentManager } from "../src/agent-manager";
-import { StateAggregator } from "../src/state-aggregator";
 import { WSServer } from "../src/ws-server";
 import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
 
-// 第三层集成测试：真实 WS server（Bun.serve）+ mock Pi 子进程
+// 第三层集成测试：真实 WS server（Bun.serve）+ mock createAgentSessionFn
 // 覆盖「建项目 → 发首条消息 → kernel 自动建会话 → 广播 session:created」全链路
 test("[第三层] 建项目→发消息→自动建会话", async () => {
   const tmp = (s: string) => join(import.meta.dir, ".tmp-e2e-" + s + Math.random().toString(36).slice(2));
@@ -18,28 +17,26 @@ test("[第三层] 建项目→发消息→自动建会话", async () => {
   const configStore = new ConfigStore(cfgDir);
   const projectStore = new ProjectStore(projFile);
 
-  // mock Pi 子进程：stdin 吞掉，stdout 不产生事件（测试不验证 Pi 回复）
-  const mockChild = {
-    stdin: { write: () => {}, end: () => {} },
-    stdout: { on: () => {} },
-    stderr: { on: () => {} },
-    killed: false,
-    kill: () => { mockChild.killed = true; },
+  // mock createAgentSessionFn：返回伪 session（不真正调 SDK）
+  // 测试不验证 SDK 回复，只验证 session:created 广播链路
+  const fakeSession = {
+    messages: [],
+    setSessionName: () => {},
+    subscribe: () => () => {},  // 返回 unsubscribe
+    prompt: async () => {},
+    abort: async () => {},
+    dispose: () => {},
   };
   const agentManager = new AgentManager({
     projectStore,
+    configStore,  // 真实 configStore（读 agent.md 默认配置）
     onEvent: () => {},
-    spawnFn: (() => mockChild) as any,
-  });
-
-  const stateAggregator = new StateAggregator({
-    agentManager,
-    onServerEvent: () => {},
+    createAgentSessionFn: (async () => ({ session: fakeSession as any })) as any,
   });
 
   const server = new WSServer({
     configStore, projectStore,
-    agentManager, stateAggregator,
+    agentManager,
     port: 0,  // 随机端口，避免与运行中的 kernel 冲突
   });
   await server.start();

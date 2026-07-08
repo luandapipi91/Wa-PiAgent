@@ -6,7 +6,6 @@ import type { DirEntry } from "@hiagent/shared";
 import type { ConfigStore } from "./config-store";
 import type { ProjectStore } from "./project-store";
 import type { AgentManager } from "./agent-manager";
-import type { StateAggregator } from "./state-aggregator";
 import { readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -17,7 +16,6 @@ export interface WSServerOpts {
   configStore: ConfigStore;
   projectStore: ProjectStore;
   agentManager: AgentManager;
-  stateAggregator: StateAggregator;
   port?: number;
 }
 
@@ -28,17 +26,12 @@ export class WSServer {
 
   constructor(private opts: WSServerOpts) {}
 
-  // 广播给所有客户端（StateAggregator 的 onServerEvent 调用）
-  private broadcast(e: WSServerEvent): void {
+  // 广播给所有客户端（AgentManager.onEvent 在 index.ts 里直接调此方法）
+  broadcast(e: WSServerEvent): void {
     const payload = JSON.stringify(e);
     for (const ws of this.clients) {
       try { ws.send(payload); } catch {}
     }
-  }
-
-  // 暴露给 index.ts：把 StateAggregator 的输出接到 broadcast
-  bindAggregatorBroadcast(): void {
-    (this.opts.stateAggregator as any).opts.onServerEvent = (e: WSServerEvent) => this.broadcast(e);
   }
 
   async start(): Promise<void> {
@@ -62,7 +55,6 @@ export class WSServer {
       },
     });
     this.actualPort = this.server.port;
-    this.bindAggregatorBroadcast();
   }
 
   async stop(): Promise<void> {
@@ -111,13 +103,15 @@ export class WSServer {
         break;
       }
       case "session:delete": {
+        // 先清理 SDK session（解绑事件订阅 + dispose），再删 ProjectStore 里的会话记录
+        await this.opts.agentManager.disposeSession(event.sessionId);
         await this.opts.projectStore.deleteSession(event.sessionId);
         const data = await this.opts.projectStore.load();
         this.broadcast({ type: "projects:list", projects: data.projects, sessions: data.sessions });
         break;
       }
       case "session:messages": {
-        // 历史消息从 Pi session 拉（不再读拍扁文件）—— 设计文档核心目标
+        // 历史消息从 ensureStarted 返回的 AgentSession.messages 同步读（不再读拍扁文件，也不再 await getMessages）
         const { sessions } = await this.opts.projectStore.load();
         const session = sessions.find(s => s.id === event.sessionId);
         if (!session) {
@@ -125,11 +119,10 @@ export class WSServer {
           break;
         }
         try {
-          const client = await this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id);
-          const agentMessages = await client.getMessages();
-          const messages = agentMessages.map(m => ({ message: m, agentName: session.primaryAgent }));
+          const sdkSession = await this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id);
+          const messages = sdkSession.messages.map(m => ({ message: m, agentName: session.primaryAgent }));
           reply({ type: "session:messages", sessionId: event.sessionId, messages });
-        } catch (err) {
+        } catch {
           reply({ type: "session:messages", sessionId: event.sessionId, messages: [] });
         }
         break;
@@ -146,27 +139,25 @@ export class WSServer {
         });
         if (isNew) this.broadcast({ type: "session:created", session });
         await this.opts.projectStore.touchSession(session.id);
-        // 广播用户消息（让前端立即显示用户输入）—— 包装成 SessionMessage
-        const userMsg = {
-          message: { role: "user" as const, content: event.text, timestamp: Date.now() },
-          agentName: event.agentName,
-          sessionId: session.id,
-        };
+        // 广播用户消息（让前端立即显示用户输入）—— 用 sdk:event + message_start，不再用 agent:message
+        const userMsg = { role: "user" as const, content: event.text, timestamp: Date.now() };
         this.broadcast({
-          type: "agent:message", projectId: event.projectId,
-          sessionId: session.id, agentName: event.agentName, message: userMsg,
+          type: "sdk:event", projectId: event.projectId,
+          sessionId: session.id, agentName: event.agentName,
+          event: { type: "message_start", message: userMsg },
         });
         // 启动/提示失败不抛——转成 error 事件，避免 WS 消息处理崩溃
         try {
-          const client = await this.opts.agentManager.ensureStarted(event.projectId, event.agentName, session.id);
-          await client.prompt(event.text, session.id);
+          await this.opts.agentManager.ensureStarted(event.projectId, event.agentName, session.id);
+          await this.opts.agentManager.prompt(session.id, event.text);
         } catch (err) {
           this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}`, agentName: event.agentName });
         }
         break;
       }
       case "agent:abort": {
-        await this.opts.agentManager.abort(event.projectId, event.agentName, event.sessionId);
+        // 新 API：只按 sessionId 中止（AgentManager 内部 Map<sessionId, AgentSession>）
+        await this.opts.agentManager.abort(event.sessionId);
         break;
       }
       case "agent:config:get": {
