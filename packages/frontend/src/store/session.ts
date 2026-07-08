@@ -42,11 +42,19 @@ export const useSessionStore = create<SessionState>((set) => ({
     const existing = s.messagesBySession[sessionId] ?? [];
     const existingKeys = new Set(existing.map(msgKey));
     const newFromHistory = messages.filter(m => !existingKeys.has(msgKey(m)));
-    const merged = [...existing, ...newFromHistory];
-    // 按时间戳排序：首条消息场景下 assistant 流式消息可能先于 session:messages 到达，
-    // 导致 setMessages 追进来的 user 消息被排到 assistant 之后
-    merged.sort((a, b) => (a.message as any).timestamp - (b.message as any).timestamp);
-    return { messagesBySession: { ...s.messagesBySession, [sessionId]: merged } };
+    const all = [...existing, ...newFromHistory].sort((a: any, b: any) => a.message.timestamp - b.message.timestamp);
+    // 合并相邻同 agent 的 assistant 消息（SDK 按 block 拆分发送，渲染时需聚合成一条）
+    const compacted: SessionMessage[] = [];
+    for (const msg of all) {
+      const last = compacted[compacted.length - 1];
+      const m = msg.message as any;
+      if (last && last.agentName === msg.agentName && (last.message as any).role === "assistant" && m.role === "assistant") {
+        (last.message as any).content = [...(last.message as any).content, ...(m.content ?? [])];
+      } else {
+        compacted.push(msg);
+      }
+    }
+    return { messagesBySession: { ...s.messagesBySession, [sessionId]: compacted } };
   }),
 
   clear: () => set({ messagesBySession: {}, streamingBySession: {}, statusBySession: {} }),
