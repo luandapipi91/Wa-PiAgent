@@ -3,10 +3,15 @@ import { ProjectStore } from "./project-store";
 import { AgentManager } from "./agent-manager";
 import { WSServer } from "./ws-server";
 import { migrateLegacySessions } from "./migrate";
+import { ensureIntercomInstalled } from "./intercom-setup";
 import { WS_PORT } from "@hiagent/shared";
 import type { WSServerEvent } from "@hiagent/shared";
 
 async function main() {
+  // 首次启动：确保 pi-intercom 扩展已配置到 ~/.hiagent/settings.json
+  // （幂等，已配置则直接返回；Pi SDK 首次加载时据此自动拉取安装）
+  await ensureIntercomInstalled();
+
   const configStore = new ConfigStore();
   const projectStore = new ProjectStore();
 
