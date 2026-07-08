@@ -115,11 +115,6 @@ export function ProjectItem(props: Props) {
           data-testid={`project-name-${project.id}`}
           title={project.cwd}
         >{project.name}</button>
-        <button
-          onClick={() => props.onNewSessionInProject(project.id)}
-          className="text-overlay hover:text-blue px-1"
-          data-testid={`new-in-${project.id}`}
-        >＋</button>
       </div>
 
       {/* 会话列表 */}
