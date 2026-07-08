@@ -80,9 +80,11 @@ export const useSessionStore = create<SessionState>((set) => ({
         }
         break;
       }
-      // 流式结束：streaming 移到 messages 并清空占位
+      // 流式结束：assistant 的 streaming 移到 messages 并清空占位
+      // user 的 message_end 忽略——user 消息在 message_start 时已加入 messages
       case "message_end": {
         const msg = event.message as any;
+        if (msg.role !== "assistant") break;
         set(s => ({
           streamingBySession: { ...s.streamingBySession, [sessionId]: null },
           messagesBySession: {
