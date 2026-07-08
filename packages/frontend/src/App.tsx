@@ -72,7 +72,7 @@ export function App() {
         onNewSession={() => setView("new-session")}
         onSelectAgent={(name) => setConfigAgent(name)}
         onSelectSession={(id) => { useProjectsStore.getState().selectSession(id); setView("session"); }}
-        onNewSessionInProject={(pid) => { useProjectsStore.getState().selectProject(pid); setView("new-session"); }}
+        onNewSessionInProject={(pid) => { useProjectsStore.getState().selectProject(pid); useProjectsStore.getState().setCurrentSessionId(null); setView("new-session"); }}
         onSelectProject={(pid) => { useProjectsStore.getState().selectProject(pid); useProjectsStore.getState().setCurrentSessionId(null); setView("new-session"); }}
         onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }}
       />

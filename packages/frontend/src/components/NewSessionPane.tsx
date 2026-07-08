@@ -12,6 +12,8 @@ export function NewSessionPane() {
   const [text, setText] = useState("");
   const initialProject = currentProjectId ?? projects[0]?.id ?? null;
   const [projectId, setProjectId] = useState<string | null>(initialProject);
+  // currentProjectId 变化时同步（点项目旁 + 号时可能已在新建页，不会重新挂载）
+  useEffect(() => { if (currentProjectId) setProjectId(currentProjectId); }, [currentProjectId]);
   // 会话 ID 只生成一次并复用，避免快速连发多条消息创建多个重复 session
   const [sessionId] = useState(() => randomSessionId());
   const sendingRef = useRef(false);
