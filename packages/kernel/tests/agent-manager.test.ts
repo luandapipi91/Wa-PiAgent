@@ -14,6 +14,13 @@ const fakeSession: Partial<AgentSession> = {
   setSessionName: mock(() => {}),
   subscribe: mock(() => fakeUnsubscribe),
   messages: [],
+  state: { isStreaming: false } as any,
+  hasQueuedMessages: mock(() => false),
+  waitForIdle: mock(async () => {}),
+  clearAllQueues: mock(() => {}),
+  followUp: mock(() => {}),
+  clearSteeringQueue: mock(() => {}),
+  clearFollowUpQueue: mock(() => {}),
 };
 
 const mockCreateAgentSession = mock(async () => ({
@@ -29,6 +36,14 @@ beforeEach(() => {
   (fakeSession.setSessionName as any).mockClear();
   (fakeSession.subscribe as any).mockClear();
   (fakeSession.dispose as any).mockClear();
+  (fakeSession.hasQueuedMessages as any).mockClear();
+  (fakeSession.waitForIdle as any).mockClear();
+  (fakeSession.clearAllQueues as any).mockClear();
+  (fakeSession.followUp as any).mockClear();
+  (fakeSession.clearSteeringQueue as any).mockClear();
+  (fakeSession.clearFollowUpQueue as any).mockClear();
+  (fakeSession.state as any).isStreaming = false;
+  (fakeSession.hasQueuedMessages as any).mockImplementation(() => false);
   fakeUnsubscribe.mockClear();
 });
 
@@ -89,23 +104,44 @@ test("ensureStarted 复用已存在的 session（同 sessionId 不重复创建�
   expect(mockCreateAgentSession).toHaveBeenCalledTimes(1);
 });
 
-test("prompt 调用 session.prompt，使用 steer 流式行为", async () => {
+test("prompt — agent 空闲且无排队 → 直接 prompt（不带 streamingBehavior）", async () => {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({
     projectId: project.id, primaryAgent: "dev", title: "测试",
   });
 
+  (fakeSession.state as any).isStreaming = false;
+  (fakeSession.hasQueuedMessages as any).mockReturnValue(false);
+
   const am = new AgentManager({
-    projectStore,
-    configStore: null as any,
-    onEvent: () => {},
+    projectStore, configStore: null as any, onEvent: () => {},
     createAgentSessionFn: mockCreateAgentSession,
   });
   await am.ensureStarted(project.id, "dev", session.id);
   await am.prompt(session.id, "你好");
 
-  expect(fakeSession.prompt).toHaveBeenCalledWith("你好", { streamingBehavior: "steer" });
+  expect(fakeSession.prompt).toHaveBeenCalledWith("你好");
+});
+
+test("prompt — agent 运行中 → followUp 排队", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  (fakeSession.state as any).isStreaming = true;
+  (fakeSession.hasQueuedMessages as any).mockReturnValue(true);
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+  await am.prompt(session.id, "排队消息");
+
+  expect(fakeSession.prompt).toHaveBeenCalledWith("排队消息", { streamingBehavior: "followUp" });
 });
 
 test("abort 调用 session.abort", async () => {
@@ -125,6 +161,72 @@ test("abort 调用 session.abort", async () => {
   await am.abort(session.id);
 
   expect(fakeSession.abort).toHaveBeenCalledTimes(1);
+});
+
+test("promoteToSteer — abort → clearAllQueues → 剩余重入 followUp → prompt", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  await am.promoteToSteer(session.id, "引导消息", ["剩余A", "剩余B"]);
+
+  expect(fakeSession.abort).toHaveBeenCalledTimes(1);
+  expect(fakeSession.waitForIdle).toHaveBeenCalledTimes(1);
+  expect(fakeSession.clearAllQueues).toHaveBeenCalledTimes(1);
+  expect(fakeSession.followUp).toHaveBeenCalledWith({ role: "user", content: "剩余A", timestamp: expect.any(Number) });
+  expect(fakeSession.followUp).toHaveBeenCalledWith({ role: "user", content: "剩余B", timestamp: expect.any(Number) });
+  expect(fakeSession.prompt).toHaveBeenCalledWith("引导消息");
+});
+
+test("clearSteeringQueue — 调用 session.clearSteeringQueue()", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+  am.clearSteeringQueue(session.id);
+
+  expect(fakeSession.clearSteeringQueue).toHaveBeenCalledTimes(1);
+});
+
+test("clearFollowUpQueue — 调用 session.clearFollowUpQueue()", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+  am.clearFollowUpQueue(session.id);
+
+  expect(fakeSession.clearFollowUpQueue).toHaveBeenCalledTimes(1);
+});
+
+test("clearSteeringQueue / clearFollowUpQueue — session 不存在时静默忽略", async () => {
+  const am = new AgentManager({
+    projectStore: newProjectStore(), configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  am.clearSteeringQueue("nonexistent");
+  am.clearFollowUpQueue("nonexistent");
 });
 
 test("disposeSession 清理 session 和 unsubscribe", async () => {
