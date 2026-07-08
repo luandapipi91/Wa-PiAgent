@@ -73,7 +73,25 @@ function MessageRow({ row, sessionId }: { row: RenderedRow; sessionId: string })
       <div className="max-w-[85%] min-w-0">
         <div className="text-xs text-overlay mb-0.5">{row.main.agentName ?? "agent"}</div>
 
-        {/* 主回复内容 — 文字 + markdown */}
+        {/* 思考过程 — 折叠面板（上方） */}
+        {thinkingBlocks.length > 0 && (
+          <div className="space-y-1 mb-2">
+            {thinkingBlocks.map((block: any, i: number) => (
+              <ThinkingBlock key={i} thinking={block.thinking} />
+            ))}
+          </div>
+        )}
+
+        {/* 工具调用 — 折叠面板（中间） */}
+        {toolCallBlocks.length > 0 && (
+          <div className="space-y-1 mb-2">
+            {toolCallBlocks.map((block: any, i: number) => (
+              <ToolCallBlock key={i} toolCall={block} result={row.toolResults.get(block.id)} />
+            ))}
+          </div>
+        )}
+
+        {/* 主回复内容 — 文字 + markdown（最下方） */}
         <div className="text-sm" style={{ color: "#cdd6f4" }}>
           {textBlocks.map((block: any, i: number) => (
             <div key={i} className="prose prose-invert max-w-none prose-sm" data-testid="text-block">
@@ -81,24 +99,6 @@ function MessageRow({ row, sessionId }: { row: RenderedRow; sessionId: string })
             </div>
           ))}
         </div>
-
-        {/* 思考过程 — 折叠面板 */}
-        {thinkingBlocks.length > 0 && (
-          <div className="mt-3 space-y-1">
-            {thinkingBlocks.map((block: any, i: number) => (
-              <ThinkingBlock key={i} thinking={block.thinking} />
-            ))}
-          </div>
-        )}
-
-        {/* 工具调用 — 折叠面板 */}
-        {toolCallBlocks.length > 0 && (
-          <div className="mt-2 space-y-1">
-            {toolCallBlocks.map((block: any, i: number) => (
-              <ToolCallBlock key={i} toolCall={block} result={row.toolResults.get(block.id)} />
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -140,10 +140,16 @@ function ToolCallBlock({ toolCall, result }: { toolCall: ToolCall; result?: Tool
         <span style={{ color: "#6c7086" }}>({JSON.stringify(toolCall.arguments)})</span>
         <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
       </button>
-      {open && result && (
-        <div className="mt-1 pl-3 border-l-2 text-xs font-mono" style={{ color: "#a6adc8", borderColor: "#45475a", whiteSpace: "pre-wrap" }}>
-          {result.content.map((c: any, i: number) => c.type === "text" && <div key={i}>{c.text}</div>)}
-        </div>
+      {open && (
+        result ? (
+          <div className="mt-1 pl-3 border-l-2 text-xs font-mono" style={{ color: "#a6adc8", borderColor: "#45475a", whiteSpace: "pre-wrap" }}>
+            {result.content.map((c: any, i: number) => c.type === "text" && <div key={i}>{c.text}</div>)}
+          </div>
+        ) : (
+          <div className="mt-1 pl-3 border-l-2 text-xs italic" style={{ color: "#6c7086", borderColor: "#45475a" }}>
+            等待执行...
+          </div>
+        )
       )}
     </div>
   );
