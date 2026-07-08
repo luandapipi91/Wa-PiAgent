@@ -213,7 +213,19 @@ session.setSessionName(`${projectId}-${agentName}-${sessionId}`);
 - intercom 的入站消息走 `custom_message` 类型 → 通过 `message_start`/`message_update`/`message_end` 透传，`DelegateReceived` 渲染不变
 - 前端 `MessageList.tsx` 现有的 `block.name === "intercom"` 和 `customType === "intercom_message"` 判断逻辑不需要改动
 
-**扩展加载**：pi-intercom 作为 Pi 扩展通过 `DefaultResourceLoader` 从 `~/.hiagent/extensions/` 加载（需安装到该目录），与 SDK 模式兼容。broker 是 `detached + unref + stdio:"ignore"` 的独立 daemon 进程，不碰主进程 stdio，与同进程 SDK 无冲突。
+**扩展加载**：pi-intercom 作为 Pi 扩展通过 `DefaultResourceLoader` 加载。SDK 的 `agentDir` 改为 `~/.hiagent/` 后，`DefaultResourceLoader` 从 `~/.hiagent/settings.json` 读 packages 配置、从 `~/.hiagent/npm/` 加载扩展。
+
+**pi-intercom 安装迁移**（当前安装在 `~/.pi/agent/`，需迁移到 `~/.hiagent/`）：
+
+| 步骤 | 操作 |
+|---|---|
+| 1. settings.json | 在 `~/.hiagent/settings.json` 写入 `{"packages": ["npm:pi-intercom"]}`（若已存在则合并 packages 字段） |
+| 2. 安装扩展 | 调用 `pi install npm:pi-intercom`（指定 `--agent-dir ~/.hiagent`），或程序化调用 SDK 的包安装 API |
+| 3. 首次启动 | kernel 启动时检查 `~/.hiagent/settings.json` 是否有 packages 配置，若无则写入默认配置并安装 pi-intercom |
+
+broker 是 `detached + unref + stdio:"ignore"` 的独立 daemon 进程，不碰主进程 stdio，与同进程 SDK 无冲突。
+
+**partners 配置兼容**：`AgentConfig.partners`（`askTo` / `askFrom`）只在 agent.md 和前端 UI 使用，kernel 运行时不读它（intercom 实际路由靠系统提示词引导 agent 调用 `intercom` 工具）。SDK 重构不影响 partners 配置的存储和读取，`ConfigStore` / `agent-md.ts` 保持不变。
 
 **验证要点**（实现阶段需验证）：
 1. `session.setSessionName()` 后 `session.getSessionName()` 返回正确值
@@ -527,6 +539,6 @@ customExtensions?: string[]; // → additionalExtensionPaths
 2. `AgentManager` 用 `Map<sessionId, AgentSession>` 管理，`createAgentSession` + `subscribe` 直连 SDK
 3. 前端 `sdk:event` 信封类型透传 SDK 原生事件，`store/session.ts` 消费原生事件
 4. `~/.hiagent/` 作为 SDK `agentDir`，会话 jsonl 存 `~/.hiagent/sessions/<id>.jsonl`
-5. pi-intercom 兼容：`session.setSessionName()` 设置会话名，broker 路由正常，前端 `DelegateCard`/`DelegateReceived` 渲染不变
+5. pi-intercom 兼容：`session.setSessionName()` 设置会话名，`~/.hiagent/settings.json` 配置 packages，扩展正确加载，broker 路由正常，前端 `DelegateCard`/`DelegateReceived` 渲染不变
 6. 四层测试全部通过：kernel 单元测试、前端组件测试、API 集成测试、E2E
 7. `CHANGELOG.md` 记录本次重构
