@@ -11,17 +11,20 @@ export interface AgentManagerOpts {
   spawnFn?: PiRpcClientOpts["spawnFn"];
 }
 
-// 按 (projectId, agentName) 双 key 管理 Pi 进程生命周期。
+// 按 (projectId, agentName, sessionId) 三 key 管理 Pi 进程生命周期。
+// 每个 HiAgent 会话独立一个 Pi 进程（Pi RPC 不支持单进程多会话）。
 // 同 key 复用同一个 PiRpcClient；不同 key 独立进程。cwd 取自 project.cwd。
 export class AgentManager {
-  private agents = new Map<AgentStateKey, PiRpcClient>();
+  // 进程 map：key = "projectId:agentName:sessionId"（每个会话独立 Pi 进程）
+  private agents = new Map<string, PiRpcClient>();
+  // 状态 map：key = "projectId:agentName"（前端按 agent 维度订阅状态）
   private states = new Map<AgentStateKey, AgentState>();
 
   constructor(private opts: AgentManagerOpts) {}
 
-  async ensureStarted(projectId: string, agentName: AgentName): Promise<PiRpcClient> {
-    const key = makeAgentStateKey(projectId, agentName);
-    const existing = this.agents.get(key);
+  async ensureStarted(projectId: string, agentName: AgentName, sessionId: string): Promise<PiRpcClient> {
+    const procKey = `${projectId}:${agentName}:${sessionId}`;
+    const existing = this.agents.get(procKey);
     if (existing) return existing;
 
     const { projects } = await this.opts.projectStore.load();
@@ -32,26 +35,27 @@ export class AgentManager {
     // 读 agent 配置（系统提示词/工具/模型），传给 pi spawn
     const config = this.opts.configStore ? await this.opts.configStore.getAgent(agentName) : null;
 
+    const stateKey = makeAgentStateKey(projectId, agentName);
     const client = new PiRpcClient({
       agentName,
       cwd: project.cwd,
-      sessionId: `${projectId}-${agentName}`,  // pi-intercom 会话名
+      sessionId: `${projectId}-${agentName}-${sessionId}`,  // pi-intercom 会话名（含 HiAgent sessionId，确保进程隔离）
       config: config ?? undefined,
       spawnFn: this.opts.spawnFn,
       env: { PI_CODING_AGENT_DIR: HIAGENT_PI_AGENT_DIR },  // 让 Pi 把数据存到 .hiagent/pi-agent
       onEvent: (e) => {
-        if (e.kind === "state") this.states.set(key, e.state);
-        this.opts.onEvent(key, e);
+        if (e.kind === "state") this.states.set(stateKey, e.state);
+        this.opts.onEvent(stateKey, e);
       },
     });
     await client.start();
-    this.agents.set(key, client);
+    this.agents.set(procKey, client);
     return client;
   }
 
-  async abort(projectId: string, agentName: AgentName): Promise<void> {
-    const key = makeAgentStateKey(projectId, agentName);
-    const client = this.agents.get(key);
+  async abort(projectId: string, agentName: AgentName, sessionId: string): Promise<void> {
+    const procKey = `${projectId}:${agentName}:${sessionId}`;
+    const client = this.agents.get(procKey);
     if (client) await client.abort();
   }
 

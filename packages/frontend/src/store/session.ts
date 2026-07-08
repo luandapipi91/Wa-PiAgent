@@ -27,7 +27,11 @@ export const useSessionStore = create<SessionState>((set) => ({
     const existing = s.messagesBySession[sessionId] ?? [];
     const existingKeys = new Set(existing.map(msgKey));
     const newFromHistory = messages.filter(m => !existingKeys.has(msgKey(m)));
-    return { messagesBySession: { ...s.messagesBySession, [sessionId]: [...existing, ...newFromHistory] } };
+    const merged = [...existing, ...newFromHistory];
+    // 按时间戳排序：首条消息场景下 assistant 流式消息可能先于 session:messages 到达，
+    // 导致 setMessages 追进来的 user 消息被排到 assistant 之后
+    merged.sort((a, b) => (a.message as any).timestamp - (b.message as any).timestamp);
+    return { messagesBySession: { ...s.messagesBySession, [sessionId]: merged } };
   }),
   clear: () => set({ messagesBySession: {} }),
 }));

@@ -36,21 +36,24 @@ function tempProjectFile() {
   return join(import.meta.dir, ".tmp-am-" + Math.random().toString(36).slice(2) + ".json");
 }
 
-test("ensureStarted 用 projectId+agentName 双 key", async () => {
+test("ensureStarted 用 projectId+agentName+sessionId 三 key，同 session 复用、不同 session 独立进程", async () => {
   const f = tempProjectFile();
   const ps = new ProjectStore(f);
   const p = await ps.createProject({ name: "P", cwd: "/work" });
   const am = new AgentManager({ projectStore: ps, onEvent: () => {}, spawnFn: mockSpawn });
-  const c1 = await am.ensureStarted(p.id, "dev");
-  const c2 = await am.ensureStarted(p.id, "dev");
+  const c1 = await am.ensureStarted(p.id, "dev", "s1");
+  const c2 = await am.ensureStarted(p.id, "dev", "s1");
   expect(c1).toBe(c2);  // 同 key 复用
+  // 不同 sessionId 是不同进程
+  const c3 = await am.ensureStarted(p.id, "dev", "s2");
+  expect(c1).not.toBe(c3);
   const events: [string, string][] = [];
   const am2 = new AgentManager({
     projectStore: ps,
     onEvent: (key, e) => events.push([key, e.kind]),
     spawnFn: mockSpawn,
   });
-  await am2.ensureStarted(p.id, "product");
+  await am2.ensureStarted(p.id, "product", "s1");
   await am.disposeAll();
   await am2.disposeAll();
   rmSync(f, { force: true });
@@ -62,8 +65,8 @@ test("不同 projectId 是独立进程", async () => {
   const p1 = await ps.createProject({ name: "A", cwd: "/a" });
   const p2 = await ps.createProject({ name: "B", cwd: "/b" });
   const am = new AgentManager({ projectStore: ps, onEvent: () => {}, spawnFn: mockSpawn });
-  const c1 = await am.ensureStarted(p1.id, "dev");
-  const c2 = await am.ensureStarted(p2.id, "dev");
+  const c1 = await am.ensureStarted(p1.id, "dev", "s1");
+  const c2 = await am.ensureStarted(p2.id, "dev", "s1");
   expect(c1).not.toBe(c2);
   await am.disposeAll();
   rmSync(f, { force: true });
@@ -79,7 +82,7 @@ test("onEvent 携带正确 key", async () => {
     onEvent: (key) => seen.push(key),
     spawnFn: mockSpawn,
   });
-  await am.ensureStarted(p.id, "dev");
+  await am.ensureStarted(p.id, "dev", "s1");
   expect(seen).toContain(`${p.id}:dev`);
   await am.disposeAll();
   rmSync(f, { force: true });

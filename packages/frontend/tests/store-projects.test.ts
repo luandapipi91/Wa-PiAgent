@@ -20,3 +20,10 @@ test("addSession 切到新会话", () => {
   });
   expect(useProjectsStore.getState().currentSessionId).toBe("s1");
 });
+
+test("addSession 同 id 重复添加不产生重复", () => {
+  const sess = { id: "s1", projectId: "p1", primaryAgent: "dev" as const, title: "t", createdAt: 0, lastActivity: 0 };
+  useProjectsStore.getState().addSession(sess);
+  useProjectsStore.getState().addSession(sess);  // 重复添加同一 session
+  expect(useProjectsStore.getState().sessions).toHaveLength(1);  // 应去重
+});

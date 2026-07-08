@@ -1,5 +1,5 @@
-import { test, expect, mock, beforeEach } from "bun:test";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { ProjectItem } from "../src/components/ProjectItem";
 import type { SessionEntity } from "@hiagent/shared";
 
@@ -21,6 +21,11 @@ const sessions: SessionEntity[] = [
 
 beforeEach(() => {
   sendMock.mockClear();
+});
+
+// 每个测试后清理 DOM，避免残留元素干扰后续测试
+afterEach(() => {
+  cleanup();
 });
 
 function renderIt() {
@@ -87,9 +92,10 @@ test("点击空白处关闭 popup 菜单", async () => {
   renderIt();
   fireEvent.contextMenu(screen.getByTestId("session-new"));
   expect(screen.getByTestId("session-context-menu")).toBeTruthy();
-  // 触发 window click（requestAnimationFrame 后绑定的监听）
-  await new Promise(r => setTimeout(r, 20));  // 等一帧让 raf 执行
-  fireEvent.click(window.document.body);
+  // 等 setTimeout(fn, 0) 将 click 监听器绑定到 document
+  await new Promise(r => setTimeout(r, 10));
+  // 在 document 上触发 click（冒泡到 document 监听器，兼容 happy-dom）
+  fireEvent.click(window.document);
   await waitFor(() => {
     expect(screen.queryByTestId("session-context-menu")).toBeNull();
   });

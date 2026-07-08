@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import type { AgentName } from "@hiagent/shared";
 import { send } from "../ws-instance";
 import { useProjectsStore } from "../store/projects";
@@ -11,14 +11,18 @@ interface Props {
 
 export function Composer({ sessionId, agentName }: Props) {
   const [text, setText] = useState("");
+  const sendingRef = useRef(false);
   const { sessions, currentProjectId } = useProjectsStore();
   const session = sessions.find(s => s.id === sessionId);
   const projectId = session?.projectId ?? currentProjectId ?? "";
 
   const handleSend = () => {
-    if (!text.trim()) return;
+    if (!text.trim() || sendingRef.current) return;
+    sendingRef.current = true;
     send({ type: "agent:prompt", projectId, sessionId, agentName, text });
     setText("");
+    // 500ms 后解锁，防止 React 批量更新窗口期内重复发送
+    setTimeout(() => { sendingRef.current = false; }, 500);
   };
 
   return (

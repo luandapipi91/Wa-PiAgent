@@ -5,7 +5,6 @@ import { openBrowser } from "./open-browser";
 
 const KERNEL_WS_PORT = 9776;
 const FRONTEND_PORT = 5180;
-const FRONTEND_URL = `http://localhost:${FRONTEND_PORT}`;
 
 async function main() {
   // 1. 端口清理(兜底,防止上次没干净)
@@ -23,14 +22,21 @@ async function main() {
   });
 
   let browserOpened = false;
+  let actualFrontendPort = FRONTEND_PORT;  // Vite 可能因端口占用自动换端口
   frontend.stdout.on("data", (d: Buffer) => {
     const line = d.toString();
     process.stdout.write(`[web] ${line}`);
-    // Vite 就绪输出含 "Local:   http://localhost:5180",检测到就开浏览器(只开一次)
-    if (!browserOpened && line.includes(`localhost:${FRONTEND_PORT}`)) {
+    // Vite 就绪输出: "➜  Local:   http://localhost:5180/" 或 "http://localhost:5181/"
+    const m = line.match(/Local:\s+http:\/\/localhost:(\d+)/);
+    if (m) actualFrontendPort = Number(m[1]);
+    if (!browserOpened && m) {
       browserOpened = true;
-      console.log("[dev] ▶ 打开浏览器 %s", FRONTEND_URL);
-      openBrowser(FRONTEND_URL);
+      const url = `http://localhost:${actualFrontendPort}`;
+      if (actualFrontendPort !== FRONTEND_PORT) {
+        console.log("[dev] ⚠ Vite 换端口 %d → %d", FRONTEND_PORT, actualFrontendPort);
+      }
+      console.log("[dev] ▶ 打开浏览器 %s", url);
+      openBrowser(url);
     }
   });
   kernel.stdout.on("data", (d: Buffer) => process.stdout.write(`[kernel] ${d.toString()}`));

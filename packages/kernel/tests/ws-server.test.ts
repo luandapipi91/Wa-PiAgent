@@ -13,7 +13,7 @@ function tmp(p: string) { return join(import.meta.dir, p + Math.random().toStrin
 async function withServer<T>(fn: (send: (e: WSClientEvent) => void, recv: () => Promise<WSServerEvent>) => Promise<T>): Promise<T> {
   const configStore = new ConfigStore(tmp("ws-cfg"));
   const projectStore = new ProjectStore(tmp("ws-proj.json"));
-  const agentManager = new AgentManager({ projectStore, onEvent: () => {}, spawnFn: (() => ({})) as any });
+  const agentManager = new AgentManager({ projectStore, onEvent: () => {}, spawnFn: ((() => ({})) as any) });
   const stateAggregator = new StateAggregator({
     agentManager, onServerEvent: () => {},
   });
@@ -68,5 +68,45 @@ test("session:create 隐含于 agent:prompt（首条消息建会话）", async (
     const ev = await recv() as any;
     expect(ev.type).toBe("session:created");
     expect(ev.session.projectId).toBe(projectId);
+  });
+});
+
+test("复用已有 session 不发 session:created（防止前端重复渲染）", async () => {
+  await withServer(async (send, recv) => {
+    send({ type: "project:create", name: "P", cwd: "/p" });
+    const created = await recv() as any;
+    const projectId = created.project.id;
+    const sid = "s-reuse";
+    // 第一条消息：创建 session
+    send({ type: "agent:prompt", projectId, sessionId: sid, agentName: "dev", text: "你好" });
+    let ev = await recv() as any;
+    expect(ev.type).toBe("session:created");  // 首次建 session 应广播
+    // 消费掉后续的 agent:message（user）+ agent:state 等
+    while (true) {
+      ev = await recv() as any;
+      if (ev.type === "agent:message" && (ev.message as any)?.message?.role === "user") break;
+    }
+    // 第二条消息：同 sessionId，不应广播 session:created
+    send({ type: "agent:prompt", projectId, sessionId: sid, agentName: "dev", text: "再发一条" });
+    // 收集接下来 300ms 内的所有事件，确认没有 session:created
+    const events: string[] = [];
+    const done = Date.now() + 300;
+    while (Date.now() < done) {
+      try {
+        const e = await Promise.race([recv(), new Promise<any>(r => setTimeout(r, 350, null))]);
+        if (e) events.push(e.type);
+      } catch { break; }
+    }
+    expect(events.filter(t => t === "session:created")).toHaveLength(0);
+  });
+});
+
+test("project:open-dir 对不存在的项目不崩溃", async () => {
+  await withServer(async (send, _recv) => {
+    // 发 project:open-dir 指向不存在的项目 ID，验证不抛错
+    send({ type: "project:open-dir", projectId: "nonexistent" });
+    // 等 100ms 让 handler 执行完毕
+    await new Promise(r => setTimeout(r, 100));
+    // 不崩溃即通过
   });
 });

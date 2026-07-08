@@ -34,7 +34,7 @@ test("[第三层] session:messages 走 PiRpcClient.getMessages", async () => {
   };
   // mock agentManager：ensureStarted 返回 fakeClient（不真正 spawn pi）
   const agentManager = {
-    ensureStarted: async () => fakeClient,
+    ensureStarted: async (_pid: string, _an: string, _sid: string) => fakeClient,
     abort: async () => {},
     disposeAll: async () => {},
   } as any;
@@ -87,7 +87,7 @@ test("[第三层] session:messages 会话不存在返回空数组", async () => 
 
   const fakeClient = { getMessages: async () => [{ role: "user", content: "x", timestamp: 1 }] };
   const agentManager = {
-    ensureStarted: async () => fakeClient,
+    ensureStarted: async (_pid: string, _an: string, _sid: string) => fakeClient,
     abort: async () => {},
     disposeAll: async () => {},
   } as any;

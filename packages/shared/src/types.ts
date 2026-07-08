@@ -146,6 +146,10 @@ export interface ProjectDeleteEvent {
   type: "project:delete";
   projectId: string;
 }
+export interface ProjectOpenDirEvent {
+  type: "project:open-dir";
+  projectId: string;
+}
 export interface SessionRenameEvent {
   type: "session:rename";
   sessionId: string;
@@ -172,7 +176,7 @@ export interface SessionMessagesRequest {
 
 export type WSClientEvent =
   | PromptEvent | AbortEvent
-  | ProjectCreateEvent | ProjectUpdateEvent | ProjectDeleteEvent
+  | ProjectCreateEvent | ProjectUpdateEvent | ProjectDeleteEvent | ProjectOpenDirEvent
   | SessionRenameEvent | SessionDeleteEvent
   | AgentConfigGetEvent | AgentConfigSaveEvent
   | ProjectsListRequest | SessionMessagesRequest
