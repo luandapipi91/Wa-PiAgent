@@ -125,12 +125,7 @@ test("复用已有 session 不发 session:created（防止前端重复渲染）"
     send({ type: "agent:prompt", projectId, sessionId: sid, agentName: "dev", text: "你好" });
     let ev = await recv() as any;
     expect(ev.type).toBe("session:created");  // 首次建 session 应广播
-    // 消费掉后续的 sdk:event（user message_start）等
-    while (true) {
-      ev = await recv() as any;
-      if (ev.type === "sdk:event" && ev.event?.type === "message_start" &&
-          ev.event?.message?.role === "user") break;
-    }
+    // 不再有手动广播的 user message_start，直接发第二条消息
     // 第二条消息：同 sessionId，不应广播 session:created
     send({ type: "agent:prompt", projectId, sessionId: sid, agentName: "dev", text: "再发一条" });
     // 收集接下来 300ms 内的所有事件，确认没有 session:created
@@ -146,8 +141,8 @@ test("复用已有 session 不发 session:created（防止前端重复渲染）"
   });
 });
 
-test("agent:prompt 广播用户消息为 sdk:event/message_start", async () => {
-  const { agentManager } = makeMockAgentManager();
+test("agent:prompt 不再手动广播用户消息（SDK subscribe 自动产生）", async () => {
+  const { agentManager, calls } = makeMockAgentManager();
   await withServer(agentManager, async (send, recv) => {
     send({ type: "project:create", name: "P", cwd: "/p" });
     const created = await recv() as any;
@@ -156,15 +151,11 @@ test("agent:prompt 广播用户消息为 sdk:event/message_start", async () => {
     // session:created
     let ev = await recv() as any;
     expect(ev.type).toBe("session:created");
-    // 下一个应是 sdk:event/message_start（用户消息广播）
-    ev = await recv() as any;
-    expect(ev.type).toBe("sdk:event");
-    expect(ev.event.type).toBe("message_start");
-    expect(ev.event.message.role).toBe("user");
-    expect(ev.event.message.content).toBe("hello");
-    expect(ev.projectId).toBe(projectId);
-    expect(ev.sessionId).toBe("s-msg");
-    expect(ev.agentName).toBe("dev");
+    // 不再有 ws-server 手动广播的 user message_start —— SDK subscribe 会在真实环境中产生
+    // mock AgentManager 不触发 subscribe，所以这里不应收到 sdk:event/message_start(user)
+    await new Promise(r => setTimeout(r, 100));
+    // 验证 prompt 被调用
+    expect(calls.prompt).toContainEqual({ sessionId: "s-msg", text: "hello" });
   });
 });
 

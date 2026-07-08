@@ -125,8 +125,12 @@ afterAll(async () => {
   expect(eventTypes).toContain("agent_start");
   expect(eventTypes).toContain("agent_end");
 
-  // 验证有 assistant 消息
-  const msgEnds = sdkEvents.filter(e => e.event.type === "message_end" && e.event.message?.role === "assistant");
-  expect(msgEnds.length).toBeGreaterThan(0);
-  console.log("assistant 回复:", JSON.stringify(msgEnds[0].event.message).slice(0, 200));
+  // 验证 user 消息只出现一次（不再有 ws-server 手动广播导致的重复）
+  const userMsgStarts = sdkEvents.filter(e => e.event.type === "message_start" && e.event.message?.role === "user");
+  expect(userMsgStarts.length).toBe(1);
+
+  // 验证 assistant 消息只出现一次
+  const assistantMsgEnds = sdkEvents.filter(e => e.event.type === "message_end" && e.event.message?.role === "assistant");
+  expect(assistantMsgEnds.length).toBe(1);
+  console.log("assistant 回复:", JSON.stringify(assistantMsgEnds[0].event.message).slice(0, 200));
 }, 120000);
