@@ -102,16 +102,15 @@ export function ProjectItem(props: Props) {
     <div data-testid={`project-${project.id}`}>
       {/* 项目头部 */}
       <div
-        className="flex items-center gap-1 px-2 py-1.5 rounded"
-        style={selected ? { background: "rgba(137,180,250,0.15)" } : undefined}
+        className={`flex items-center gap-1 px-2 py-1.5 rounded-sm transition-colors ${selected ? "bg-accent-soft" : "hover:bg-surface-hover"}`}
         onContextMenu={handleProjectContextMenu}
       >
-        <button onClick={() => setExpanded(e => !e)} className="text-overlay w-4">
+        <button onClick={() => setExpanded(e => !e)} className="text-tertiary w-4 text-xs">
           {expanded ? "▼" : "▶"}
         </button>
         <button
           onClick={() => props.onSelectProject(project.id)}
-          className="text-sm text-text flex-1 truncate text-left hover:text-blue"
+          className="text-sm text-primary flex-1 truncate text-left transition-colors hover:text-brand"
           data-testid={`project-name-${project.id}`}
           title={project.cwd}
         >{project.name}</button>
@@ -131,24 +130,23 @@ export function ProjectItem(props: Props) {
       {/* 会话右键菜单 */}
       {sessionMenu && createPortal(
         <div
-          className="fixed z-50 rounded-md py-1 text-sm"
+          className="fixed z-50 rounded-md py-1 text-sm border border-hairline"
           style={{
             left: sessionMenu.x, top: sessionMenu.y,
-            background: "#313244",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.4)", minWidth: 140,
+            background: "var(--surface)",
+            boxShadow: "var(--shadow-lg)", minWidth: 140,
           }}
           onClick={e => e.stopPropagation()}
           data-testid="session-context-menu"
         >
           <button
             onClick={() => handleRename(sessionMenu.session)}
-            className="w-full text-left px-3 py-1.5 text-text hover:bg-[#45475a]"
+            className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
             data-testid="menu-rename"
           >重命名会话</button>
           <button
             onClick={() => handleDeleteClick(sessionMenu.session)}
-            className="w-full text-left px-3 py-1.5 hover:bg-[#45475a]"
-            style={{ color: "#f38ba8" }}
+            className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
             data-testid="menu-delete"
           >删除聊天</button>
         </div>,
@@ -158,24 +156,23 @@ export function ProjectItem(props: Props) {
       {/* 项目右键菜单 */}
       {projectMenu && createPortal(
         <div
-          className="fixed z-50 rounded-md py-1 text-sm"
+          className="fixed z-50 rounded-md py-1 text-sm border border-hairline"
           style={{
             left: projectMenu.x, top: projectMenu.y,
-            background: "#313244",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.4)", minWidth: 140,
+            background: "var(--surface)",
+            boxShadow: "var(--shadow-lg)", minWidth: 140,
           }}
           onClick={e => e.stopPropagation()}
           data-testid="project-context-menu"
         >
           <button
             onClick={handleOpenDir}
-            className="w-full text-left px-3 py-1.5 text-text hover:bg-[#45475a]"
+            className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
             data-testid="menu-open-dir"
           >查看文件夹</button>
           <button
             onClick={handleProjectDeleteClick}
-            className="w-full text-left px-3 py-1.5 hover:bg-[#45475a]"
-            style={{ color: "#f38ba8" }}
+            className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
             data-testid="menu-delete-project"
           >删除项目</button>
         </div>,

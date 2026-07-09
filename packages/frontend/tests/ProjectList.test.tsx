@@ -18,7 +18,9 @@ test("渲染项目 + 会话", () => {
   expect(screen.getByText("会话1")).toBeTruthy();
 });
 
-test("项目内 ＋ 触发 onNewSessionInProject", () => {
+// 该用例对应的"项目名旁 + 号"按钮已在 9c97fd8 移除（点击项目名即可新建会话），
+// testid `new-in-p1` 不复存在，故跳过。保留用例以备将来恢复该交互时参考。
+test.skip("项目内 ＋ 触发 onNewSessionInProject", () => {
   useProjectsStore.setState({
     projects: [{ id: "p1", name: "P", cwd: "/a", createdAt: 0 }],
     sessions: [], currentProjectId: null, currentSessionId: null,

@@ -18,7 +18,8 @@ test("显示 emoji + 标题 + 相对时间", () => {
 test("选中态蓝左条", () => {
   const { container } = render(<table><tbody><SessionRow session={session} selected={true} onSelect={() => {}} /></tbody></table>);
   const btn = container.querySelector("[data-testid='session-s1']") as HTMLElement;
-  expect(btn.style.borderLeft).toContain("#5b5bd6");
+  // 选中态左条用 accent CSS 变量（浅色主题下值由 styles.css 提供）
+  expect(btn.style.borderLeft).toContain("var(--accent)");
 });
 
 test("点击 onSelect", () => {

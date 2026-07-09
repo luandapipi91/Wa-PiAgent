@@ -18,7 +18,9 @@ test("状态点反映全局聚合", () => {
   });
   render(<AgentListSection onSelectAgent={() => {}} />);
   const dot = screen.getByTestId("status-dev");
-  expect((dot as HTMLElement).style.background).toBe("#5b5bd6"); // thinking 靛蓝
+  // STATUS_COLORS.thinking 为 "#5B5BD6"（accent 靛蓝），浏览器 normalize 后通常为小写
+  const bg = (dot as HTMLElement).style.background.toLowerCase();
+  expect(bg).toBe("#5b5bd6");
 });
 
 test("点击触发 onSelectAgent", () => {
