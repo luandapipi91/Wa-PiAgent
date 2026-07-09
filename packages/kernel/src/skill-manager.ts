@@ -104,6 +104,7 @@ export class SkillManager {
    */
   async addDir(path: string): Promise<void> {
     if (!existsSync(path)) throw new Error("目录不存在");
+    if (path === this.builtinDir) throw new Error("内置目录无需重复添加");
     const settings = await this.readSettings();
     const dirs = settings.skills ?? [];
     if (!dirs.includes(path)) {
