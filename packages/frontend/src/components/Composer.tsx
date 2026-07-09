@@ -59,7 +59,7 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
         <button
           onClick={handleSend}
           disabled={!text.trim()}
-          className="w-9 h-9 rounded-sm flex items-center justify-center text-base flex-shrink-0 transition-transform border-0 cursor-pointer disabled:cursor-not-allowed"
+          className="w-9 h-9 rounded-sm flex items-center justify-center text-base flex-shrink-0 transition-transform enabled:hover:scale-105 border-0 cursor-pointer disabled:cursor-not-allowed"
           style={{
             background: text.trim() ? "var(--brand)" : "var(--hairline-strong)",
             color: "var(--on-brand)",
