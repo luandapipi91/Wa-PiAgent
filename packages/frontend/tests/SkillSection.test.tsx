@@ -3,10 +3,22 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { SkillSection } from "../src/components/settings/SkillSection";
 import { useSkillsStore } from "../src/store/skills";
 
+// 捕获 store 原始 action 方法，避免测试间 mock 泄漏
+const originalActions = {
+  toggleSkill: useSkillsStore.getState().toggleSkill,
+  addDir: useSkillsStore.getState().addDir,
+  removeDir: useSkillsStore.getState().removeDir,
+  load: useSkillsStore.getState().load,
+};
+
 beforeEach(() => {
   useSkillsStore.setState({
     skills: [], allSkills: [], dirs: [], disabledSkills: [],
     builtinDir: "/home/.hiagent/skills", loading: false,
+    toggleSkill: originalActions.toggleSkill,
+    addDir: originalActions.addDir,
+    removeDir: originalActions.removeDir,
+    load: originalActions.load,
   });
 });
 
