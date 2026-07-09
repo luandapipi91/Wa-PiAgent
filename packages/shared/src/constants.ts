@@ -16,6 +16,8 @@ const HOME = env.HOME || env.USERPROFILE || ".";
 export const HIAGENT_DIR = env.HIAGENT_DIR || `${HOME}/.hiagent`;
 export const PROJECTS_FILE = `${HIAGENT_DIR}/projects.json`;
 export const PI_AGENTS_DIR = `${HIAGENT_DIR}/agents`;   // ← 改：从 ~/.pi/agent/agents 改为 .hiagent/agents
+export const PROVIDERS_FILE = `${HIAGENT_DIR}/providers.json`;
+export const GENERATED_DIR = `${HIAGENT_DIR}/.generated`;   // 自动生成的 Pi extension 文件目录
 
 export interface AgentDef {
   emoji: string;
