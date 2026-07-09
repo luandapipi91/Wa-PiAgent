@@ -1,4 +1,70 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-body { margin: 0; font-family: 'Segoe UI', sans-serif; }
+
+/* ===== HiAgent Light Design Tokens ===== */
+/* 单一真相源：DESIGN.md 所有 token 在此定义。
+   tailwind.config.js 引用这些变量；组件用 Tailwind 类或 var(--xxx)。 */
+:root {
+  /* —— 品牌与强调 —— */
+  --brand: #1D1D1F;
+  --brand-soft: #2C2C2E;
+  --on-brand: #FFFFFF;
+  --accent: #5B5BD6;
+  --accent-soft: #EEEEFF;
+  --on-accent: #FFFFFF;
+
+  /* —— 文字层级 —— */
+  --text-primary: #1D1D1F;
+  --text-secondary: #6E6E73;
+  --text-tertiary: #A1A1A6;
+
+  /* —— 表面与背景 —— */
+  --canvas: #F5F5F7;
+  --canvas-grad-end: #F0F0F3;
+  --surface: #FFFFFF;
+  --surface-elevated: #FAFAFA;
+  --surface-hover: #F0F0F3;
+
+  /* —— 描边 —— */
+  --hairline: #E5E5EA;
+  --hairline-strong: #D1D1D6;
+
+  /* —— 语义色 —— */
+  --success: #34A853;
+  --success-soft: #E6F4EA;
+  --warning: #B45309;
+  --warning-soft: #FEF3C7;
+  --danger: #DC2626;
+  --danger-soft: #FEE2E2;
+  --on-danger: #FFFFFF;
+
+  /* —— 圆角 —— */
+  --rounded-sm: 8px;
+  --rounded-md: 12px;
+  --rounded-lg: 16px;
+  --rounded-xl: 20px;
+  --rounded-pill: 9999px;
+
+  /* —— 阴影（多层低透明度叠加） —— */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.03);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.04);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,.08), 0 4px 8px rgba(0,0,0,.04);
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'PingFang SC', 'Plus Jakarta Sans', sans-serif;
+  background: linear-gradient(160deg, var(--canvas) 0%, var(--canvas-grad-end) 100%);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 浅色滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--hairline-strong); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+
+/* spinner 动画 */
+@keyframes spin { to { transform: rotate(360deg); } }
