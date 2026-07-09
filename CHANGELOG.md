@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-09 — 共用 ComposerInput 胶囊输入组件（composer-redesign Task 8）
+
+- **类型**：新增功能
+- **摘要**：新增可复用胶囊输入组件 `packages/frontend/src/components/ui/ComposerInput.tsx`，组合 textarea 自适应高度、附件按钮/文件选择、`ModelSelector`、`ThinkingToggle`、发送按钮以及附件 Chip 列表；选择本地文件后通过 `AttachmentPathModal` 补填绝对路径并生成 `AttachmentDraft`。暴露 `text`/`setText`、`model`/`setModel`、`thinking`/`setThinking`、`attachments`/`setAttachments`、`onSend`、`sendDisabled`、`placeholder` props，供 `Composer` 与 `NewSessionPane` 复用。
+- **影响范围**：`packages/frontend/src/components/ui/ComposerInput.tsx`、`packages/frontend/tests/ComposerInput.test.tsx`
+- **验证**：`bun test packages/frontend/tests/ComposerInput.test.tsx` 1/1 通过；`bun test` 全量 128 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
 ## 2026-07-09 — 附件路径补填弹窗（composer-redesign Task 7）
 
 - **类型**：新增功能
