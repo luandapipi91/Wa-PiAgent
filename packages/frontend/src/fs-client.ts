@@ -29,3 +29,16 @@ export function listDir(path: string): Promise<DirEntry[]> {
     send({ type: "fs:listDir", path });
   });
 }
+
+export function readFile(path: string): Promise<{ content: string; mimeType?: string }> {
+  return new Promise((resolve, reject) => {
+    const off = onMessage((e: any) => {
+      if (e.type === "fs:readFile" && e.path === path) {
+        off();
+        if (e.error) reject(new Error(e.error));
+        else resolve({ content: e.content, mimeType: e.mimeType });
+      }
+    });
+    send({ type: "fs:readFile", path });
+  });
+}
