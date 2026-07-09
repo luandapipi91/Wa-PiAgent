@@ -204,7 +204,7 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
     <>
       <style>{TREE_STYLES}</style>
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" data-testid="dir-picker">
-      <div className="bg-base w-[600px] max-h-[80vh] rounded-lg flex flex-col">
+      <div className="bg-surface w-[600px] max-h-[80vh] rounded-lg flex flex-col border border-hairline shadow-lg" style={{ background: "#FFFFFF" }}>
         <div className="p-4 border-b border-surface0 text-text font-medium">
           选择项目目录
           {selectedPath && <span className="ml-3 text-xs text-blue font-mono">{selectedPath}</span>}
@@ -234,7 +234,8 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
           <button
             onClick={() => selectedPath && onPick(selectedPath)}
             disabled={!selectedPath}
-            className="px-3 py-1 text-sm bg-blue text-white rounded disabled:opacity-40"
+            className="px-3 py-1 text-sm rounded disabled:opacity-40"
+            style={{ background: "#1D1D1F", color: "#FFFFFF" }}
             data-testid="dir-pick"
           >选择</button>
         </div>
