@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-09 — 技能管理
+
+- **类型**：新增功能
+- **摘要**：系统设置页新增「技能」菜单。支持管理技能加载目录（内置 `~/.hiagent/skills/` 不可删 + 用户自定义目录增删）、查看已加载技能列表、单独启用/禁用技能。同名技能去重（内置优先）。配置变更后自动 reload 所有活跃会话热生效。
+- **影响范围**：`shared/src/skills.ts`（新增类型+WS事件）、`shared/src/constants.ts`（BUILTIN_SKILLS_DIR）、`shared/src/types.ts`（WS联合扩展）、`kernel/src/skill-manager.ts`（扫描/去重/目录管理/toggle）、`kernel/src/agent-manager.ts`（reloadAllSessions）、`kernel/src/ws-server.ts`+`index.ts`（WS接入+启动注册）、`frontend/src/store/skills.ts`、`frontend/src/components/settings/SkillSection.tsx`、`frontend/src/store/settings.ts`（activeSection扩展）、`frontend/src/components/SettingsModal.tsx`、`frontend/src/App.tsx`
+
 ## 2026-07-09 — 系统设置页 + 模型供应商管理
 
 - **类型**：新增功能

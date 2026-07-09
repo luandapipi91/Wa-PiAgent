@@ -28,6 +28,7 @@ export function App() {
     getWs();
     useProjectsStore.getState().load();  // getState() 取最新 action
     useProvidersStore.getState().load();
+    useSkillsStore.getState().load();
     const off = onMessage(e => {
       const ps = useProjectsStore.getState();  // 每次事件取最新，避免 stale
       switch (e.type) {
