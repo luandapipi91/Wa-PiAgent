@@ -71,8 +71,8 @@ export function NewSessionPane() {
           style={{ maxHeight: 300, overflowY: "auto", minHeight: 80 }}
           data-testid="new-session-input"
         />
-        <div className="flex items-center justify-between p-2.5 border-t border-hairline">
-          <span className="text-[11.5px] text-tertiary">📎 附件 &nbsp; 🎨 模型</span>
+        <div className="flex items-center justify-end gap-2 p-2.5 border-t border-hairline">
+          <span className="text-[11.5px] text-tertiary cursor-pointer hover:text-secondary transition-colors">🎨 模型</span>
           <button
             onClick={handleSend}
             disabled={!projectId || !text.trim()}

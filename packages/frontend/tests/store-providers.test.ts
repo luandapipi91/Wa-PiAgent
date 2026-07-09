@@ -1,15 +1,5 @@
-import { test, expect, beforeEach, mock } from "bun:test";
-import { useProvidersStore } from "../src/store/providers";
-import * as wsInstance from "../src/ws-instance";
+import { test, expect, mock } from "bun:test";
 import type { ModelProvider } from "@hiagent/shared";
-
-// mock send，避免真连 WS
-const sendMock = mock();
-beforeEach(() => {
-  sendMock.mockClear();
-  mock.module("../src/ws-instance", () => ({ send: sendMock, onMessage: () => () => {} }));
-  useProvidersStore.setState({ providers: [], loading: false });
-});
 
 function sampleProvider(): ModelProvider {
   return {
@@ -19,24 +9,50 @@ function sampleProvider(): ModelProvider {
   };
 }
 
-test("load 发 provider:list", () => {
+test("load 发 provider:list", async () => {
+  const sendMock = mock();
+  mock.module("../src/ws-instance", () => ({
+    send: sendMock,
+    onMessage: () => () => {},
+  }));
+  const { useProvidersStore } = await import("../src/store/providers");
+  useProvidersStore.setState({ providers: [], loading: false });
   useProvidersStore.getState().load();
   expect(sendMock).toHaveBeenCalledWith({ type: "provider:list" });
 });
 
-test("save 发 provider:save", () => {
+test("save 发 provider:save", async () => {
+  const sendMock = mock();
+  mock.module("../src/ws-instance", () => ({
+    send: sendMock,
+    onMessage: () => () => {},
+  }));
+  const { useProvidersStore } = await import("../src/store/providers");
+  useProvidersStore.setState({ providers: [], loading: false });
   const p = sampleProvider();
   useProvidersStore.getState().save(p);
   expect(sendMock).toHaveBeenCalledWith({ type: "provider:save", provider: p });
 });
 
-test("remove 发 provider:delete", () => {
+test("remove 发 provider:delete", async () => {
+  const sendMock = mock();
+  mock.module("../src/ws-instance", () => ({
+    send: sendMock,
+    onMessage: () => () => {},
+  }));
+  const { useProvidersStore } = await import("../src/store/providers");
+  useProvidersStore.setState({ providers: [], loading: false });
   useProvidersStore.getState().remove("p1");
   expect(sendMock).toHaveBeenCalledWith({ type: "provider:delete", id: "p1" });
 });
 
-test("setProviders 更新本地列表", () => {
-  const p = sampleProvider();
-  useProvidersStore.getState().setProviders([p]);
+test("setProviders 更新本地列表", async () => {
+  const sendMock = mock();
+  mock.module("../src/ws-instance", () => ({
+    send: sendMock,
+    onMessage: () => () => {},
+  }));
+  const { useProvidersStore } = await import("../src/store/providers");
+  useProvidersStore.getState().setProviders([sampleProvider()]);
   expect(useProvidersStore.getState().providers).toHaveLength(1);
 });

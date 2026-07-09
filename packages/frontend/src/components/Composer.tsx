@@ -56,6 +56,7 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
           style={{ maxHeight: 300, overflowY: "auto" }}
           data-testid="composer-input"
         />
+        <span className="text-[11px] text-tertiary cursor-pointer hover:text-secondary transition-colors whitespace-nowrap select-none">🎨 模型</span>
         <button
           onClick={handleSend}
           disabled={!text.trim()}
