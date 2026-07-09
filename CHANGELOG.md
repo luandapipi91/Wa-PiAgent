@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-09 — 前端 fs-client 新增 readFile（composer-redesign Task 9）
+
+- **类型**：新增功能
+- **摘要**：在 `packages/frontend/src/fs-client.ts` 中新增 `readFile(path)` Promise 封装，发送 WS `fs:readFile` 请求并监听对应的 `fs:readFile` 响应；成功返回 `{ content, mimeType }`，失败时按响应的 `error` 字段 reject。新增对应单元测试覆盖成功与错误路径。
+- **影响范围**：`packages/frontend/src/fs-client.ts`、`packages/frontend/tests/fs-client.test.ts`
+- **验证**：`bun test packages/frontend/tests/fs-client.test.ts` 2/2 通过；`bun test` 全量 130 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
 ## 2026-07-09 — 共用 ComposerInput 胶囊输入组件（composer-redesign Task 8）
 
 - **类型**：新增功能
