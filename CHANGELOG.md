@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-09 — Composer 重构收尾（composer-redesign Tasks 10-18）
+
+- **类型**：新增功能 / 重构
+- **摘要**：完成 Composer 重构主体工作。前端 `Composer` 与 `NewSessionPane` 统一接入可复用 `ComposerInput` 胶囊输入组件与 `composer-prefs` Zustand store，实现模型切换、思考强度（thinking level）开关、附件（图片/文件/文本片段）选择与展示；per-session 偏好与全局默认值通过 IndexedDB 持久化。供应商模型新增 `supportsVision` 开关，kernel `agent:prompt` 支持按请求切换模型与 thinking level，图片附件根据模型 vision 支持能力决定直接作为 images 发送或降级为文本引用；新增 `fs:readFile` WS 接口供前端读取本地文件内容。同步完成四层验收测试：单元测试（frontend/kernel/shared）、组件测试（ComposerInput/NewSessionPane/Composer 等）、API 集成测试（composer-attachments）、E2E 测试（Playwright composer.spec）。
+- **影响范围**：`packages/frontend/src/components/{Composer,NewSessionPane}.tsx`、`packages/frontend/src/store/composer-prefs.ts`、`packages/frontend/src/components/ui/ComposerInput.tsx`、`packages/frontend/src/components/settings/ProviderFormModal.tsx`、`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/src/index.ts`、`packages/kernel/tests/composer-attachments.test.ts`、`packages/frontend/e2e/composer.spec.ts` 等
+- **验证**：`bun test`（frontend 134 pass / 1 skip / 2 fail；kernel + shared 130 pass / 3 skip / 0 fail），其中 frontend 2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关；`bunx playwright test packages/frontend/e2e/composer.spec.ts` 4/4 通过
+
 ## 2026-07-09 — 前端 fs-client 新增 readFile（composer-redesign Task 9）
 
 - **类型**：新增功能
