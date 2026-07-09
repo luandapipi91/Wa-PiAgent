@@ -37,9 +37,9 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
   };
 
   return (
-    <div className="p-3" style={{ background: "#181825" }} data-testid="composer">
-      <div className="flex gap-2 items-end rounded-lg p-2" style={{ background: "#313244" }}>
-        <span className="text-lg">{agentEmoji(agentName)}</span>
+    <div className="px-6 py-3 pb-5" data-testid="composer">
+      <div className="flex gap-2.5 items-end rounded-lg p-1 pl-3.5 bg-surface border border-hairline shadow-md max-w-[860px] mx-auto transition-all duration-150 focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--accent-soft),var(--shadow-md)]">
+        <span className="text-lg pb-0.5">{agentEmoji(agentName)}</span>
         <textarea
           ref={textareaRef}
           value={text}
@@ -51,7 +51,7 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
             }
           }}
           placeholder={isRunning ? "输入要加入队列的消息..." : `给${agentName}发消息...`}
-          className="flex-1 bg-transparent text-text outline-none resize-none text-sm"
+          className="flex-1 bg-transparent text-primary outline-none resize-none text-sm py-2.5 placeholder:text-tertiary"
           rows={1}
           style={{ maxHeight: 300, overflowY: "auto" }}
           data-testid="composer-input"
@@ -59,8 +59,11 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
         <button
           onClick={handleSend}
           disabled={!text.trim()}
-          className="px-3 py-1 rounded text-sm"
-          style={{ background: text.trim() ? "#89b4fa" : "#585b70", color: "#1e1e2e" }}
+          className="w-9 h-9 rounded-sm flex items-center justify-center text-base flex-shrink-0 transition-transform border-0 cursor-pointer disabled:cursor-not-allowed"
+          style={{
+            background: text.trim() ? "var(--brand)" : "var(--hairline-strong)",
+            color: "var(--on-brand)",
+          }}
           data-testid="composer-send"
         >{isRunning ? "↑" : "↩"}</button>
       </div>

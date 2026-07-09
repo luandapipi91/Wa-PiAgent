@@ -18,7 +18,7 @@ export function MessageList({ sessionId }: Props) {
   const streaming = useSessionStore(s => s.streamingBySession[sessionId] ?? null);
   const rows = preprocess(messages);
   return (
-    <div className="flex-1 overflow-auto p-4 flex flex-col gap-3.5" data-testid="message-list">
+    <div className="flex-1 overflow-auto p-4 flex flex-col gap-4" data-testid="message-list">
       {rows.map((row, i) => <MessageRow key={i} row={row} sessionId={sessionId} />)}
       {streaming && (
         <MessageRow row={{ main: streaming, toolResults: new Map() }} sessionId={sessionId} />
@@ -48,11 +48,11 @@ function MessageRow({ row, sessionId }: { row: RenderedRow; sessionId: string })
 
   if (isUser) {
     return (
-      <div className="flex flex-row-reverse gap-2.5" data-testid={`msg-${sessionId}-${m.timestamp}`}>
-        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs flex-shrink-0" style={{ background: "linear-gradient(135deg,#6c7086,#9399b2)" }}>
+      <div className="flex flex-row-reverse gap-2.5 max-w-[78%] ml-auto" data-testid={`msg-${sessionId}-${m.timestamp}`}>
+        <div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-[11.5px] flex-shrink-0 text-secondary">
           我
         </div>
-        <div className="max-w-[70%] px-3 py-2 rounded-lg text-sm" style={{ background: "#313244", color: "#cdd6f4", borderRadius: "4px 12px 12px 12px" }}>
+        <div className="px-3.5 py-2.5 text-[13.5px] bg-brand text-white" style={{ borderRadius: "14px 4px 14px 14px", lineHeight: 1.55 }}>
           <p>{typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? "")}</p>
         </div>
       </div>
@@ -65,17 +65,20 @@ function MessageRow({ row, sessionId }: { row: RenderedRow; sessionId: string })
   const textBlocks = blocks.filter((b: any) => b.type === "text");
   const toolCallBlocks = blocks.filter((b: any) => b.type === "toolCall");
 
+  // 错误消息（stopReason === "error"）：红色文字
+  const isError = m.stopReason === "error";
+
   return (
     <div className="flex gap-2.5" data-testid={`msg-${sessionId}-${m.timestamp}`}>
-      <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs flex-shrink-0" style={{ background: "linear-gradient(135deg,#89b4fa,#b4befe)" }}>
+      <div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-sm flex-shrink-0">
         🤖
       </div>
-      <div className="max-w-[85%] min-w-0">
-        <div className="text-xs text-overlay mb-0.5">{row.main.agentName ?? "agent"}</div>
+      <div className="max-w-[78%] min-w-0">
+        <div className="text-[11px] text-tertiary mb-0.5 font-semibold">{row.main.agentName ?? "agent"}</div>
 
         {/* 思考过程 — 折叠面板（上方） */}
         {thinkingBlocks.length > 0 && (
-          <div className="space-y-1 mb-2">
+          <div className="space-y-1 mb-1.5">
             {thinkingBlocks.map((block: any, i: number) => (
               <ThinkingBlock key={i} thinking={block.thinking} />
             ))}
@@ -84,7 +87,7 @@ function MessageRow({ row, sessionId }: { row: RenderedRow; sessionId: string })
 
         {/* 工具调用 — 折叠面板（中间） */}
         {toolCallBlocks.length > 0 && (
-          <div className="space-y-1 mb-2">
+          <div className="space-y-1 mb-1.5">
             {toolCallBlocks.map((block: any, i: number) => (
               <ToolCallBlock key={i} toolCall={block} result={row.toolResults.get(block.id)} />
             ))}
@@ -92,9 +95,9 @@ function MessageRow({ row, sessionId }: { row: RenderedRow; sessionId: string })
         )}
 
         {/* 主回复内容 — 文字 + markdown（最下方） */}
-        <div className="text-sm" style={{ color: "#cdd6f4" }}>
+        <div className={`text-[13.5px] ${isError ? "text-danger" : "text-primary"}`} style={{ lineHeight: 1.55 }}>
           {textBlocks.map((block: any, i: number) => (
-            <div key={i} className="prose prose-invert max-w-none prose-sm" data-testid="text-block">
+            <div key={i} className="prose prose-sm max-w-none" data-testid="text-block">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.text}</ReactMarkdown>
             </div>
           ))}
@@ -110,14 +113,14 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
     <div data-testid="thinking-panel">
       <button
         onClick={() => setOpen(!open)}
-        className="text-xs flex items-center gap-1 select-none"
-        style={{ color: "#6c7086", cursor: "pointer" }}
+        className="inline-flex items-center gap-1.5 select-none text-[11.5px] text-tertiary px-2 py-0.5 rounded-pill bg-surface-elevated border border-hairline transition-colors hover:text-secondary"
+        style={{ cursor: "pointer" }}
       >
         <span>💭 思考过程 已完成</span>
         <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
       </button>
       {open && (
-        <div className="mt-1 pl-3 border-l-2 text-xs italic" style={{ color: "#6c7086", borderColor: "#45475a" }}>
+        <div className="mt-1 pl-3 border-l-2 border-hairline text-[11.5px] italic text-tertiary">
           {thinking}
         </div>
       )}
@@ -132,23 +135,23 @@ function ToolCallBlock({ toolCall, result }: { toolCall: ToolCall; result?: Tool
     <div data-testid={`toolcall-${toolCall.id}`}>
       <button
         onClick={() => setOpen(!open)}
-        className="text-xs flex items-center gap-1 select-none font-mono"
-        style={{ color: success ? "#a6e3a1" : "#6c7086", cursor: "pointer" }}
+        className={`inline-flex items-center gap-1 select-none text-[11.5px] font-mono px-2 py-0.5 rounded-pill border transition-colors ${success ? "bg-success-soft text-success border-success-soft" : "bg-surface-elevated text-tertiary border-hairline hover:text-secondary"}`}
+        style={{ cursor: "pointer" }}
       >
-        {success ? <span style={{ color: "#a6e3a1" }}>✓</span> : <span>🔧</span>}
-        <span style={{ color: "#cdd6f4" }}>{toolCall.name}</span>
-        <span style={{ color: "#6c7086" }}>({formatArgs(toolCall.arguments)})</span>
+        {success ? <span>✓</span> : <span>🔧</span>}
+        <span className={success ? "text-success" : "text-primary"}>{toolCall.name}</span>
+        <span className="text-tertiary">({formatArgs(toolCall.arguments)})</span>
         <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
       </button>
       {open && (
-        <div className="mt-1 pl-3 border-l-2 text-xs" style={{ borderColor: "#45475a" }}>
+        <div className="mt-1 pl-3 border-l-2 border-hairline text-[11.5px] font-mono">
           {/* 原始参数内容 */}
-          <div className="font-mono" style={{ color: "#a6adc8", whiteSpace: "pre-wrap" }}>
+          <div className="text-secondary whitespace-pre-wrap">
             {JSON.stringify(toolCall.arguments, null, 2)}
           </div>
           {/* 执行结果（如有） */}
           {result && (
-            <div className="mt-1 pt-1 border-t" style={{ borderColor: "#45475a", color: success ? "#a6e3a1" : "#f38ba8" }}>
+            <div className={`mt-1 pt-1 border-t border-hairline ${success ? "text-success" : "text-danger"}`}>
               {result.content.map((c: any, i: number) => c.type === "text" && <div key={i}>{c.text}</div>)}
             </div>
           )}
