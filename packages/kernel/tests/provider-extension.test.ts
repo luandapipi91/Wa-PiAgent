@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, afterAll } from "bun:test";
 import { rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -6,6 +6,7 @@ import {
   generateProviderExtension,
   ensureProviderExtensionRegistered,
 } from "../src/provider-extension";
+import { GENERATED_DIR } from "@hiagent/shared";
 import type { ModelProvider } from "@hiagent/shared";
 
 function sampleProvider(overrides: Partial<ModelProvider> = {}): ModelProvider {
@@ -80,7 +81,7 @@ test("ensureProviderExtensionRegistered 写 extension 文件 + settings.json pac
   await ensureProviderExtensionRegistered(dir, store);
 
   // extension 文件存在
-  const extFile = join(dir, ".generated", "provider-extension.ts");
+  const extFile = join(GENERATED_DIR, "provider-extension.ts");
   expect(existsSync(extFile)).toBe(true);
   const code = readFileSync(extFile, "utf8");
   expect(code).toContain('registerProvider("my-deepseek"');
@@ -90,6 +91,7 @@ test("ensureProviderExtensionRegistered 写 extension 文件 + settings.json pac
   expect(settings.packages).toContain(extFile);
 
   rmSync(dir, { recursive: true, force: true });
+  rmSync(extFile, { force: true });
 });
 
 test("ensureProviderExtensionRegistered 幂等不重复写", async () => {
@@ -103,9 +105,10 @@ test("ensureProviderExtensionRegistered 幂等不重复写", async () => {
 
   const settings = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
   // packages 中 extension 路径只出现一次
-  const extPath = join(dir, ".generated", "provider-extension.ts");
+  const extPath = join(GENERATED_DIR, "provider-extension.ts");
   const count = settings.packages.filter((p: string) => p === extPath).length;
   expect(count).toBe(1);
 
   rmSync(dir, { recursive: true, force: true });
+  rmSync(extPath, { force: true });
 });

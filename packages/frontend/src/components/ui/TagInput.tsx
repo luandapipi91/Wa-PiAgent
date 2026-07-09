@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type ChangeEvent } from "react";
+import { useRef, useState, type KeyboardEvent, type ChangeEvent } from "react";
 import { splitModelIds } from "@hiagent/shared";
 
 interface TagInputProps {
@@ -10,6 +10,7 @@ interface TagInputProps {
 /** 通用 tag 录入：输入 | 添加（分隔即 flush），回车提交，× 移除 */
 export function TagInput({ value, onChange, placeholder }: TagInputProps) {
   const [text, setText] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // 输入变化：若含 |，把 | 前的部分加入 tags，| 后的剩余留输入框继续
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -49,7 +50,7 @@ export function TagInput({ value, onChange, placeholder }: TagInputProps) {
     <div
       className="flex flex-wrap items-center gap-1.5 px-2 py-1.5 rounded-sm border border-hairline bg-surface"
       data-testid="tag-input"
-      onClick={() => document.getElementById("tag-input-field")?.focus()}
+      onClick={() => inputRef.current?.focus()}
     >
       {value.map((tag, i) => (
         <span
@@ -67,7 +68,7 @@ export function TagInput({ value, onChange, placeholder }: TagInputProps) {
         </span>
       ))}
       <input
-        id="tag-input-field"
+        ref={inputRef}
         type="text"
         value={text}
         onChange={handleChange}

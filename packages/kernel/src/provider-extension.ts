@@ -63,9 +63,9 @@ export async function ensureProviderExtensionRegistered(
   const code = generateProviderExtension(providers);
 
   // 写 extension 文件（每次覆盖，保证与 providers.json 同步）
-  const extDir = join(dir, ".generated");
+  const extDir = GENERATED_DIR;
   await mkdir(extDir, { recursive: true });
-  const extFile = join(extDir, "provider-extension.ts");
+  const extFile = join(GENERATED_DIR, "provider-extension.ts");
   await writeFile(extFile, code, "utf8");
 
   // 把 extension 路径加入 settings.json.packages（幂等）
