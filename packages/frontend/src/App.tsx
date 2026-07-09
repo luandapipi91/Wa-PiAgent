@@ -12,6 +12,7 @@ import { useSettingsStore } from "./store/settings";
 import { useProvidersStore } from "./store/providers";
 import { useProjectsStore } from "./store/projects";
 import { useSessionStore } from "./store/session";
+import { useSkillsStore } from "./store/skills";
 import { onMessage, getWs } from "./ws-instance";
 
 type View = "empty" | "new-session" | "session" | "canvas";
@@ -60,6 +61,8 @@ export function App() {
         }
         case "provider:list": useProvidersStore.getState().setProviders(e.providers); break;
         case "provider:changed": useProvidersStore.getState().setProviders(e.providers); break;
+        case "skill:list": useSkillsStore.getState().setAll(e); break;
+        case "skill:changed": useSkillsStore.getState().setAll(e); break;
       }
     });
     return off;
