@@ -260,8 +260,12 @@ export class WSServer {
         break;
       }
       case "skill:list": {
-        const result = await this.opts.skillManager.scan();
-        reply({ type: "skill:list", ...result });
+        try {
+          const result = await this.opts.skillManager.scan();
+          reply({ type: "skill:list", ...result });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
         break;
       }
       case "skill:toggle": {
