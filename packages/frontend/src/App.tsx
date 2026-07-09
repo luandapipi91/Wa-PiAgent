@@ -7,6 +7,9 @@ import { EmptyState } from "./components/EmptyState";
 import { AgentConfig } from "./components/AgentConfig";
 import { Canvas } from "./components/canvas/Canvas";
 import { DirTreePicker } from "./components/DirTreePicker";
+import { SettingsModal } from "./components/SettingsModal";
+import { useSettingsStore } from "./store/settings";
+import { useProvidersStore } from "./store/providers";
 import { useProjectsStore } from "./store/projects";
 import { useSessionStore } from "./store/session";
 import { onMessage, getWs } from "./ws-instance";
@@ -54,6 +57,8 @@ export function App() {
           }
           break;
         }
+        case "provider:list": useProvidersStore.getState().setProviders(e.providers); break;
+        case "provider:changed": useProvidersStore.getState().setProviders(e.providers); break;
       }
     });
     return off;
@@ -99,6 +104,7 @@ export function App() {
           onCancel={() => useProjectsStore.getState().closeDirPicker()}
         />
       )}
+      {useSettingsStore(s => s.showSettings) && <SettingsModal onClose={() => useSettingsStore.getState().close()} />}
     </div>
   );
 }
