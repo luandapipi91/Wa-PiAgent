@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-09 — 附件路径补填弹窗（composer-redesign Task 7）
+
+- **类型**：新增功能
+- **摘要**：新增 `AttachmentPathModal` 弹窗组件，用于在用户选择本地文件后补填浏览器无法暴露的绝对路径。组件接收 `fileName`、`onConfirm(path)`、`onCancel()` 三个 props，基于现有 `Modal` 容器实现，包含路径输入框、取消/确认按钮；输入为空时确认按钮禁用，点击确认回传 trimmed 后的路径。
+- **影响范围**：`packages/frontend/src/components/ui/AttachmentPathModal.tsx`、`packages/frontend/tests/AttachmentPathModal.test.tsx`
+- **验证**：`bun test packages/frontend/tests/AttachmentPathModal.test.tsx` 1/1 通过；`bun test` 全量 127 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
 ## 2026-07-09 — AttachmentChip 组件（composer-redesign Task 6）
 
 - **类型**：新增功能
