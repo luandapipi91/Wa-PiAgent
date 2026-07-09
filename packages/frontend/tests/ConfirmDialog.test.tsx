@@ -13,7 +13,7 @@ test("渲染标题 + 描述 + 默认按钮文案", () => {
 test("danger=true 时确认按钮变红", () => {
   render(<ConfirmDialog title="t" message="m" danger onConfirm={() => {}} onCancel={() => {}} />);
   const ok = screen.getByTestId("confirm-ok") as HTMLElement;
-  expect(ok.style.background).toBe("#f38ba8");
+  expect(ok.style.background).toBe("#dc2626");
 });
 
 test("点确认触发 onConfirm", () => {

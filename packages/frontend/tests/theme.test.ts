@@ -8,10 +8,12 @@ test("agentEmoji 4 角色", () => {
 });
 
 test("agentGradient 含两色", () => {
-  expect(agentGradient("dev")).toContain("#fab387");
-  expect(agentGradient("dev")).toContain("#f38ba8");
+  expect(agentGradient("dev")).toContain("#1D1D1F");
+  expect(agentGradient("dev")).toContain("#2C2C2E");
 });
 
 test("STATUS_COLORS 三态", () => {
-  expect(STATUS_COLORS.blocked).toBe("#fab387");
+  expect(STATUS_COLORS.thinking).toBe("#5B5BD6");
+  expect(STATUS_COLORS.idle).toBe("#A1A1A6");
+  expect(STATUS_COLORS.blocked).toBe("#B45309");
 });

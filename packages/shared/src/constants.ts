@@ -24,10 +24,10 @@ export interface AgentDef {
 }
 
 export const AGENT_DEFS: Record<AgentName, AgentDef> = {
-  product: { emoji: "📋", gradient: ["#89b4fa", "#b4befe"], label: "需求设计" },
-  pm:      { emoji: "📅", gradient: ["#f9e2af", "#ebbc9e"], label: "项目管理" },
-  dev:     { emoji: "⚙️", gradient: ["#fab387", "#f38ba8"], label: "技术实现" },
-  test:    { emoji: "🧪", gradient: ["#a6e3a1", "#94e2d5"], label: "质量验收" },
+  product: { emoji: "📋", gradient: ["#5B5BD6", "#8B8BFF"], label: "需求设计" },
+  pm:      { emoji: "📅", gradient: ["#B45309", "#D97706"], label: "项目管理" },
+  dev:     { emoji: "⚙️", gradient: ["#1D1D1F", "#2C2C2E"], label: "技术实现" },
+  test:    { emoji: "🧪", gradient: ["#34A853", "#4BA26F"], label: "质量验收" },
 };
 
 /** 所有 Agent 名称列表，用于批量操作（如预启动所有 agent 进程） */
