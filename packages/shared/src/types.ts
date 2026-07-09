@@ -1,5 +1,10 @@
 // HiAgent 共享类型定义
 
+import type {
+  ProviderListEvent, ProviderSaveEvent, ProviderDeleteEvent, ProviderTestEvent,
+  ProviderListResult, ProviderTestResult, ProviderChangedEvent,
+} from "./providers";
+
 export type AgentName = "product" | "pm" | "dev" | "test";
 export type AgentStateKey = `${string}:${AgentName}`;
 export type AgentStatus = "idle" | "thinking" | "blocked";
@@ -208,6 +213,7 @@ export type WSClientEvent =
   | SessionRenameEvent | SessionDeleteEvent
   | AgentConfigGetEvent | AgentConfigSaveEvent
   | ProjectsListRequest | SessionMessagesRequest
+  | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
   | FSHomeRequest | FSRootsRequest | FSListDirRequest;
 
 // kernel → 前端
@@ -278,6 +284,7 @@ export type WSServerEvent =
   | ProjectsListEvent | ProjectCreatedEvent | SessionCreatedEvent
   | SessionMessagesEvent
   | AgentConfigEvent | ErrorEvent
+  | ProviderListResult | ProviderTestResult | ProviderChangedEvent
   | FSHomeResult | FSRootsResult | FSListDirResult | FSErrorEvent;
 
 export type WSEvent = WSClientEvent | WSServerEvent;
