@@ -8,6 +8,7 @@ export interface ProviderModel {
   id: string;              // 模型 ID，如 "deepseek-chat"
   contextWindow: number;   // 上下文窗口（tokens），默认 128000
   maxTokens: number;       // 最大输出（tokens），默认 4096
+  supportsVision?: boolean; // 是否支持视觉/图片输入
 }
 
 /** 供应商（纯自定义） */
