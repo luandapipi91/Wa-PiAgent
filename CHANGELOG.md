@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-09 — IndexedDB 封装 composer 偏好（composer-redesign Task 2）
+
+- **类型**：新增功能
+- **摘要**：新增 `packages/frontend/src/store/composer-db.ts`，使用 `idb` 封装 IndexedDB 读写 per-session composer 偏好（model/thinking/attachments）与全局默认值；暴露 `getSessionPrefs` / `setSessionPrefs` / `deleteSessionPrefs` / `getDefaults` / `setDefaults` 五个接口。由于 Task 1 未导出 `AttachmentDraft`，本次在 `packages/shared/src/types.ts` 补充该类型，供 composer-db 及后续组件使用。前端测试环境通过 `fake-indexeddb` 提供 IndexedDB polyfill。
+- **影响范围**：`packages/frontend/src/store/composer-db.ts`、`packages/frontend/tests/composer-db.test.ts`、`packages/frontend/tests/happydom-setup.ts`、`packages/frontend/package.json`、`packages/shared/src/types.ts`
+- **验证**：`bun test packages/frontend/tests/composer-db.test.ts` 2/2 通过；`bun run test` 通过 230 项，仅存在 2 个与本次改动无关的预失败（`packages/frontend/tests/store-providers.test.ts`）。`bun run --filter @hiagent/shared typecheck` 通过；`@hiagent/frontend` typecheck 仍有既有错误，与本次改动无关。
+
 ## 2026-07-09 — 扩展共享类型（composer-redesign Task 1）
 
 - **类型**：新增功能

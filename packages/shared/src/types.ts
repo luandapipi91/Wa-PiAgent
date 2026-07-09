@@ -150,6 +150,12 @@ export type AttachmentRef =
   | { kind: "file"; name: string; path: string; size: number }
   | { kind: "snippet"; name: string; content: string };
 
+// 附件草稿：composer 本地状态/IndexedDB 中使用的附件元数据，结构与 AttachmentRef 相同
+export type AttachmentDraft =
+  | { kind: "image"; name: string; path: string; size: number }
+  | { kind: "file"; name: string; path: string; size: number }
+  | { kind: "snippet"; name: string; content: string };
+
 export interface AbortEvent {
   type: "agent:abort";
   projectId: string;
