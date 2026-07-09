@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-09 — 系统设置页 + 模型供应商管理
+
+- **类型**：新增功能
+- **摘要**：新增「⚙ 系统设置」入口与全屏设置页，提供自定义 LLM 供应商管理。支持增删改查供应商（名称/baseURL/apiKey/API格式/模型列表），模型 ID 通过 tag 录入（| 分隔/回车添加），每个模型可配置上下文窗口与最大输出，支持连通测试。供应商通过 Pi extension 的 `pi.registerProvider()` 注册，会话可用 `<slug>/<modelId>` 引用。
+- **影响范围**：`shared/src/providers.ts`（新增类型+WS事件+纯函数）、`shared/src/constants.ts`（PROVIDERS_FILE/GENERATED_DIR）、`shared/src/types.ts`（WS联合扩展）、`kernel/src/provider-store.ts`（持久化）、`kernel/src/provider-extension.ts`（Pi extension生成）、`kernel/src/provider-test.ts`（连通测试）、`kernel/src/ws-server.ts`+`index.ts`（WS接入+启动注册）、`frontend/src/store/{settings,providers}.ts`、`frontend/src/components/{SettingsButton,SettingsModal}.tsx`、`frontend/src/components/settings/*`、`frontend/src/components/ui/TagInput.tsx`、`Sidebar.tsx`、`App.tsx`
+
 ## 2026-07-08 — Steer 消息队列控制
 
 - **类型**：新增功能
