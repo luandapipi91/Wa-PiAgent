@@ -1,10 +1,12 @@
 import { ConfigStore } from "./config-store";
 import { ProjectStore } from "./project-store";
+import { ProviderStore } from "./provider-store";
 import { AgentManager } from "./agent-manager";
 import { WSServer } from "./ws-server";
 import { migrateLegacySessions } from "./migrate";
 import { ensureIntercomInstalled } from "./intercom-setup";
-import { WS_PORT } from "@hiagent/shared";
+import { ensureProviderExtensionRegistered } from "./provider-extension";
+import { WS_PORT, HIAGENT_DIR } from "@hiagent/shared";
 import type { WSServerEvent } from "@hiagent/shared";
 
 async function main() {
@@ -14,6 +16,10 @@ async function main() {
 
   const configStore = new ConfigStore();
   const projectStore = new ProjectStore();
+  const providerStore = new ProviderStore();
+
+  // 启动时把已有 providers 注册成 Pi extension（幂等）
+  await ensureProviderExtensionRegistered(HIAGENT_DIR, providerStore);
 
   const migrated = await migrateLegacySessions(projectStore);
   if (migrated) console.log("[kernel] 已迁移老数据至默认项目");
@@ -23,6 +29,8 @@ async function main() {
   let broadcast: (e: WSServerEvent) => void = () => {};
   const server = new WSServer({
     configStore, projectStore,
+    providerStore,
+    dataDir: HIAGENT_DIR,
     agentManager: null as any,  // 占位，下面赋值
     port: WS_PORT,
   });

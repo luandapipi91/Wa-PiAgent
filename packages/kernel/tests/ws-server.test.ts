@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { WSServer } from "../src/ws-server";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
+import { ProviderStore } from "../src/provider-store";
 import type { AgentMessage } from "@hiagent/shared";
 import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
 
@@ -53,8 +54,12 @@ async function withServer<T>(
 ): Promise<T> {
   const configStore = new ConfigStore(tmp("ws-cfg"));
   const projectStore = new ProjectStore(tmp("ws-proj.json"));
+  const providerStore = new ProviderStore(tmp("ws-prov.json"));
+  const dataDir = tmp("ws-dir");
   const server = new WSServer({
     configStore, projectStore,
+    providerStore,
+    dataDir,
     agentManager,
     port: 0,  // 随机端口，避免冲突
   });
