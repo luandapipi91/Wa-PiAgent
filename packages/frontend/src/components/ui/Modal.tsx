@@ -22,14 +22,14 @@ export function Modal({ children, onClose, width = 480, ...rest }: ModalProps) {
   return (
     <div
       className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ background: "rgba(0,0,0,0.5)" }}
-      onClick={onClose}  // 点击遮罩关闭
+      style={{ background: "rgba(0,0,0,0.25)" }}
+      onClick={onClose}
       data-testid="modal-overlay"
     >
       <div
-        className="rounded-lg flex flex-col"
-        style={{ background: "#1e1e2e", width }}
-        onClick={e => e.stopPropagation()}  // 点击卡片不关闭
+        className="rounded-lg flex flex-col border border-hairline"
+        style={{ background: "var(--surface)", width, boxShadow: "var(--shadow-lg)" }}
+        onClick={e => e.stopPropagation()}
         data-testid={rest["data-testid"] ?? "modal-content"}
       >
         {children}
