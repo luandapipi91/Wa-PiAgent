@@ -40,3 +40,4 @@ packages/kernel/tests/.tmp-*
 .superpowers/
 .reasonix/
 .playwright-mcp/
+.worktrees/
