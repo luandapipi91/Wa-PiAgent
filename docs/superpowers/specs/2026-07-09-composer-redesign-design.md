@@ -84,7 +84,16 @@
 
 ### 4.2 NewSessionPane 输入区
 
-新建会话页的输入区同样采用胶囊布局，与 `Composer` 共用同一套控件组件。
+新建会话页的输入区同样采用胶囊布局，与 `Composer` **共用同一套控件组件**，具备完全一致的能力：
+
+- 模型选择器（从 providers 读取可用模型）。
+- 思考强度开关 `disabled` / `high`。
+- 附件按钮与附件预览 chips。
+- 发送按钮。
+
+区别仅在于：
+- `Composer` 发送时已知 `sessionId`，直接走 `agent:prompt`。
+- `NewSessionPane` 需要先创建 session（沿用现有 `randomSessionId()` 复用机制），再发送第一条消息。
 
 ## 5. 状态管理
 
