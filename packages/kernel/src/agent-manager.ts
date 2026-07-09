@@ -10,10 +10,11 @@
 // - createAgentSessionFn 可选参数，缺省时动态 import 真实 SDK（避免类型循环依赖）
 // - _authStorage / _modelRegistry 用 (this as any)._xxx ??= 模式做进程级单例
 
-import type { AgentName, AgentConfig, AttachmentRef } from "@hiagent/shared";
+import type { AgentName, AgentConfig, AttachmentRef, ModelProvider } from "@hiagent/shared";
 import { HIAGENT_DIR } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
+import type { ProviderStore } from "./provider-store";
 import type {
   AgentSession,
   AgentSessionEvent,
@@ -45,6 +46,8 @@ export interface AgentManagerOpts {
   projectStore: ProjectStore;
   // configStore 可空：测试用 mock createAgentSession 时不需要真实配置
   configStore: ConfigStore | null;
+  // providerStore 可空：用于判断当前模型是否支持图片输入；测试可 mock
+  providerStore?: ProviderStore;
   // 上层事件回调：携带 sessionId/projectId/agentName 上下文，转发 SDK 原始事件
   onEvent: (
     sessionId: string,
@@ -199,28 +202,15 @@ export class AgentManager {
     }
 
     // 构建最终 prompt 文本与图片附件
-    const textParts: string[] = [];
-    const images: ImageContent[] = [];
-    for (const a of opts?.attachments ?? []) {
-      if (a.kind === "snippet") {
-        textParts.push(`[片段: ${a.name}]\n${a.content}`);
-      } else {
-        textParts.push(`[附件: ${a.name}]`);
-        if (a.kind === "image") {
-          const data = await readFile(a.path, "base64");
-          images.push({
-            type: "image",
-            data,
-            mimeType: inferImageMimeType(a.path),
-          });
-        } else if (a.kind === "file") {
-          const content = await readFile(a.path, "utf8");
-          textParts.push(content);
-        }
-      }
-    }
-    textParts.push(text);
-    const finalText = textParts.join("\n\n");
+    // 根据当前模型是否支持 vision 决定是否直接发送图片；不支持时降级为文本引用
+    const providers = this.opts.providerStore ? await this.opts.providerStore.load() : [];
+    const modelId = (session as any).model?.id as string | undefined;
+    const { text: finalText, images } = await buildPromptContent(
+      text,
+      opts?.attachments ?? [],
+      modelId,
+      providers,
+    );
 
     if (session.isStreaming || session.pendingMessageCount > 0) {
       await session.prompt(finalText, images.length
@@ -350,6 +340,52 @@ export class AgentManager {
  * 这里用 import.meta.resolve 拿到 SDK 根路径，再推导出 model-resolver.js 的绝对路径。
  * 该路径在 SDK 0.80.x 验证有效；如果未来 SDK 改了内部结构，这里会抛 import 错误（fail-fast）。
  */
+/** 构建 prompt 最终文本与图片内容列表。 */
+interface PromptContent {
+  text: string;
+  images: ImageContent[];
+}
+
+async function buildPromptContent(
+  text: string,
+  attachments: AttachmentRef[],
+  modelId: string | undefined,
+  providers: ModelProvider[],
+): Promise<PromptContent> {
+  const textParts: string[] = [];
+  const images: ImageContent[] = [];
+  for (const a of attachments) {
+    if (a.kind === "snippet") {
+      textParts.push(`[片段: ${a.name}]\n${a.content}`);
+    } else {
+      textParts.push(`[附件: ${a.name}]`);
+      if (a.kind === "image") {
+        const supportsVision = modelId ? shouldSendAsImage(modelId, providers) : false;
+        if (!supportsVision) {
+          textParts.push(`<附件图片（模型不支持）: ${a.path}>`);
+          continue;
+        }
+        const data = await readFile(a.path, "base64");
+        images.push({
+          type: "image",
+          data,
+          mimeType: inferImageMimeType(a.path),
+        });
+      } else if (a.kind === "file") {
+        const content = await readFile(a.path, "utf8");
+        textParts.push(content);
+      }
+    }
+  }
+  textParts.push(text);
+  return { text: textParts.join("\n\n"), images };
+}
+
+/** 判断指定模型是否支持图片输入。 */
+export function shouldSendAsImage(modelId: string, providers: ModelProvider[]): boolean {
+  return providers.some(p => p.models.some(m => m.id === modelId && m.supportsVision));
+}
+
 /** 根据文件扩展名推断图片 MIME 类型。 */
 function inferImageMimeType(path: string): string {
   const lower = path.toLowerCase();
