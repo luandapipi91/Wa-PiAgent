@@ -41,3 +41,4 @@ packages/kernel/tests/.tmp-*
 .reasonix/
 .playwright-mcp/
 .worktrees/
+.worktrees/
