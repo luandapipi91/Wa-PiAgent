@@ -1,5 +1,6 @@
-import { test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { AgentManager } from "../src/agent-manager";
+import { test, describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
+import { AgentManager, shouldSendAsImage } from "../src/agent-manager";
+import type { ModelProvider } from "@hiagent/shared";
 import { ProjectStore } from "../src/project-store";
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { rmSync } from "node:fs";
@@ -28,6 +29,7 @@ const fakeSession: Partial<AgentSession> = {
   setThinkingLevel: mock(() => {}),
   subscribe: mock(() => fakeUnsubscribe),
   messages: [],
+  model: { id: "test-model" } as any,
   isStreaming: false,
   pendingMessageCount: 0,
   clearQueue: mock(() => ({ steering: [], followUp: [] })),
@@ -206,8 +208,24 @@ test("prompt — 图片附件读取为 base64 并传给 session.prompt", async (
   tmpFiles.push(imgPath);
   await import("node:fs/promises").then((fs) => fs.writeFile(imgPath, Buffer.from("fake-image")));
 
+  // 默认 fakeSession.model 为 test-model，标记其支持 vision 以保留原测试断言
+  fakeSession.model = { id: "test-model" } as any;
+  const providerStore = {
+    load: mock(async () => [
+      {
+        id: "p1",
+        name: "Test",
+        baseUrl: "",
+        apiKey: "",
+        api: "openai-completions",
+        models: [{ id: "test-model", contextWindow: 128000, maxTokens: 4096, supportsVision: true }],
+      },
+    ]),
+  };
+
   const am = new AgentManager({
     projectStore, configStore: null as any, onEvent: () => {},
+    providerStore: providerStore as any,
     createAgentSessionFn: mockCreateAgentSession,
   });
   await am.ensureStarted(project.id, "dev", session.id);
@@ -365,4 +383,132 @@ test("getMessages 在 session 不存在时返回空数组", () => {
     createAgentSessionFn: mockCreateAgentSession,
   });
   expect(am.getMessages("不存在的-session")).toEqual([]);
+});
+
+describe("shouldSendAsImage", () => {
+  it("returns false if model does not support vision", () => {
+    const providers: ModelProvider[] = [
+      {
+        id: "p1",
+        name: "DeepSeek",
+        baseUrl: "",
+        apiKey: "",
+        api: "openai-completions",
+        models: [{ id: "deepseek-chat", contextWindow: 128000, maxTokens: 4096, supportsVision: false }],
+      },
+    ];
+    expect(shouldSendAsImage("deepseek-chat", providers)).toBe(false);
+  });
+
+  it("returns true if model supports vision", () => {
+    const providers: ModelProvider[] = [
+      {
+        id: "p1",
+        name: "OpenAI",
+        baseUrl: "",
+        apiKey: "",
+        api: "openai-completions",
+        models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096, supportsVision: true }],
+      },
+    ];
+    expect(shouldSendAsImage("gpt-4o", providers)).toBe(true);
+  });
+
+  it("returns false when providers list is empty", () => {
+    expect(shouldSendAsImage("gpt-4o", [])).toBe(false);
+  });
+});
+
+test("prompt — 模型不支持 vision 时图片附件降级为文本引用", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  fakeSession.model = { id: "deepseek-chat" } as any;
+
+  const imgPath = `/tmp/hiagent-img-${Date.now()}.png`;
+  tmpFiles.push(imgPath);
+  await import("node:fs/promises").then((fs) => fs.writeFile(imgPath, Buffer.from("fake-image")));
+
+  const providerStore = {
+    load: mock(async () => [
+      {
+        id: "p1",
+        name: "DeepSeek",
+        baseUrl: "",
+        apiKey: "",
+        api: "openai-completions",
+        models: [{ id: "deepseek-chat", contextWindow: 128000, maxTokens: 4096, supportsVision: false }],
+      },
+    ]),
+  };
+
+  const am = new AgentManager({
+    projectStore,
+    configStore: null as any,
+    providerStore: providerStore as any,
+    onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+  await am.prompt(session.id, "描述这张图", {
+    attachments: [{ kind: "image", path: imgPath, name: "示例.png", size: 0 }],
+  });
+
+  expect(fakeSession.prompt).toHaveBeenCalledTimes(1);
+  const [calledText, calledOpts] = (fakeSession.prompt as any).mock.calls[0];
+  expect(calledText).toContain("描述这张图");
+  expect(calledText).toContain("示例.png");
+  expect(calledText).toContain(`<附件图片（模型不支持）: ${imgPath}>`);
+  expect(calledOpts?.images).toBeUndefined();
+});
+
+test("prompt — 模型支持 vision 时图片附件作为 ImageContent 发送", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  fakeSession.model = { id: "gpt-4o" } as any;
+
+  const imgPath = `/tmp/hiagent-img-${Date.now()}.png`;
+  tmpFiles.push(imgPath);
+  await import("node:fs/promises").then((fs) => fs.writeFile(imgPath, Buffer.from("fake-image")));
+
+  const providerStore = {
+    load: mock(async () => [
+      {
+        id: "p1",
+        name: "OpenAI",
+        baseUrl: "",
+        apiKey: "",
+        api: "openai-completions",
+        models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096, supportsVision: true }],
+      },
+    ]),
+  };
+
+  const am = new AgentManager({
+    projectStore,
+    configStore: null as any,
+    providerStore: providerStore as any,
+    onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+  await am.prompt(session.id, "描述这张图", {
+    attachments: [{ kind: "image", path: imgPath, name: "示例.png", size: 0 }],
+  });
+
+  expect(fakeSession.prompt).toHaveBeenCalledTimes(1);
+  const [calledText, calledOpts] = (fakeSession.prompt as any).mock.calls[0];
+  expect(calledText).toContain("描述这张图");
+  expect(calledText).toContain("示例.png");
+  expect(calledOpts.images).toHaveLength(1);
+  expect(calledOpts.images[0].type).toBe("image");
+  expect(calledOpts.images[0].mimeType).toBe("image/png");
+  expect(calledOpts.images[0].data).toBe(Buffer.from("fake-image").toString("base64"));
 });
