@@ -18,7 +18,7 @@ test("状态点反映全局聚合", () => {
   });
   render(<AgentListSection onSelectAgent={() => {}} />);
   const dot = screen.getByTestId("status-dev");
-  expect((dot as HTMLElement).style.background).toBe("#89b4fa"); // thinking 蓝
+  expect((dot as HTMLElement).style.background).toBe("#5b5bd6"); // thinking 靛蓝
 });
 
 test("点击触发 onSelectAgent", () => {

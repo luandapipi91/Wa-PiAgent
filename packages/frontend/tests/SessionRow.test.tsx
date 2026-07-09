@@ -18,7 +18,7 @@ test("显示 emoji + 标题 + 相对时间", () => {
 test("选中态蓝左条", () => {
   const { container } = render(<table><tbody><SessionRow session={session} selected={true} onSelect={() => {}} /></tbody></table>);
   const btn = container.querySelector("[data-testid='session-s1']") as HTMLElement;
-  expect(btn.style.borderLeft).toContain("#89b4fa");
+  expect(btn.style.borderLeft).toContain("#5b5bd6");
 });
 
 test("点击 onSelect", () => {
