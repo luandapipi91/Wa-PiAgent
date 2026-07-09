@@ -122,6 +122,7 @@ export class SkillManager {
     if (path === this.builtinDir) throw new Error("内置目录不可删除");
     const settings = await this.readSettings();
     const dirs = settings.skills ?? [];
+    if (!dirs.includes(path)) return;
     settings.skills = dirs.filter(d => d !== path);
     await this.writeSettings(settings);
   }
@@ -140,6 +141,7 @@ export class SkillManager {
         await this.writeSettings(settings);
       }
     } else {
+      if (!list.includes(skillName)) return;
       settings.disabledSkills = list.filter(n => n !== skillName);
       await this.writeSettings(settings);
     }
