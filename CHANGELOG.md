@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-09 — 补充 composer-prefs 缺失测试（composer-redesign Task 3 fix round）
+
+- **类型**：测试补充
+- **摘要**：修复 review 中指出的测试缺口：为 `loadDefaults` 新增从 IndexedDB 加载默认值到 state 的用例；为 `loadSession` 新增读取已存 session 偏好以及无记录时回退到默认值的用例；为 `setDefaults` 新增更新 state 并持久化到 IndexedDB 的用例。`composer-prefs.test.ts` 测试用例由 1 个扩展为 5 个。
+- **影响范围**：`packages/frontend/tests/composer-prefs.test.ts`
+- **验证**：`bun test packages/frontend/tests/composer-prefs.test.ts` 5/5 通过；`bun test` 全量 117 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
 ## 2026-07-09 — Composer 偏好 Zustand Store（composer-redesign Task 3）
 
 - **类型**：新增功能
