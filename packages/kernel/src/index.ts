@@ -3,10 +3,12 @@ import { ProjectStore } from "./project-store";
 import { ProviderStore } from "./provider-store";
 import { AgentManager } from "./agent-manager";
 import { WSServer } from "./ws-server";
+import { SkillManager } from "./skill-manager";
 import { migrateLegacySessions } from "./migrate";
 import { ensureIntercomInstalled } from "./intercom-setup";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
-import { WS_PORT, HIAGENT_DIR } from "@hiagent/shared";
+import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR } from "@hiagent/shared";
+import { mkdir } from "node:fs/promises";
 import type { WSServerEvent } from "@hiagent/shared";
 
 async function main() {
@@ -14,9 +16,13 @@ async function main() {
   // （幂等，已配置则直接返回；Pi SDK 首次加载时据此自动拉取安装）
   await ensureIntercomInstalled();
 
+  // 确保内置技能目录存在
+  await mkdir(BUILTIN_SKILLS_DIR, { recursive: true });
+
   const configStore = new ConfigStore();
   const projectStore = new ProjectStore();
   const providerStore = new ProviderStore();
+  const skillManager = new SkillManager(HIAGENT_DIR);
 
   // 启动时把已有 providers 注册成 Pi extension（幂等）
   await ensureProviderExtensionRegistered(HIAGENT_DIR, providerStore);
@@ -30,6 +36,7 @@ async function main() {
   const server = new WSServer({
     configStore, projectStore,
     providerStore,
+    skillManager,
     dataDir: HIAGENT_DIR,
     agentManager: null as any,  // 占位，下面赋值
     port: WS_PORT,
