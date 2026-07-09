@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 // Task 18: Composer 重构 E2E 测试
@@ -110,26 +110,31 @@ test.describe.serial("Composer 重构", () => {
     const tmpPath = join(tmpDir, "e2e-attachment.txt");
     writeFileSync(tmpPath, "这是 E2E 文件附件内容", "utf8");
 
-    // 选择文件（触发 hidden file input）
-    await page.setInputFiles('[data-testid="composer-input"] input[type="file"]', tmpPath);
+    try {
+      // 选择文件（触发 hidden file input）
+      await page.setInputFiles('[data-testid="composer-input"] input[type="file"]', tmpPath);
 
-    // 补填绝对路径弹窗
-    await expect(page.getByTestId("path-input")).toBeVisible();
-    await page.getByTestId("path-input").fill(tmpPath);
-    await page.getByTestId("confirm-path").click();
+      // 补填绝对路径弹窗
+      await expect(page.getByTestId("path-input")).toBeVisible();
+      await page.getByTestId("path-input").fill(tmpPath);
+      await page.getByTestId("confirm-path").click();
 
-    // 附件 chip 出现在列表
-    await expect(page.getByTestId("attachment-list")).toContainText("e2e-attachment.txt");
+      // 附件 chip 出现在列表
+      await expect(page.getByTestId("attachment-list")).toContainText("e2e-attachment.txt");
 
-    const textarea = page.locator('[data-testid="composer-input"] textarea');
-    await textarea.fill("查看文件附件");
-    await page.getByTestId("composer-send").click();
+      const textarea = page.locator('[data-testid="composer-input"] textarea');
+      await textarea.fill("查看文件附件");
+      await page.getByTestId("composer-send").click();
 
-    // 发送后附件列表清空
-    await expect(page.getByTestId("attachment-list")).not.toBeVisible();
-    await expect(textarea).toHaveValue("");
-    // 消息列表中出现引用
-    await expect(page.getByText("[附件: e2e-attachment.txt]").first()).toBeVisible({ timeout: 8000 });
+      // 发送后附件列表清空
+      await expect(page.getByTestId("attachment-list")).not.toBeVisible();
+      await expect(textarea).toHaveValue("");
+      // 消息列表中出现引用
+      await expect(page.getByText("[附件: e2e-attachment.txt]").first()).toBeVisible({ timeout: 8000 });
+    } finally {
+      // 清理临时附件文件
+      if (existsSync(tmpPath)) unlinkSync(tmpPath);
+    }
   });
 
   test("片段附件发送流程", async ({ page }) => {
