@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { rmSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { WSServer } from "../src/ws-server";
 import { ConfigStore } from "../src/config-store";
@@ -259,5 +259,34 @@ test("project:open-dir 对不存在的项目不崩溃", async () => {
     // 等 100ms 让 handler 执行完毕
     await new Promise(r => setTimeout(r, 100));
     // 不崩溃即通过
+  });
+});
+
+test("fs:readFile 返回文件 base64 内容与 mimeType", async () => {
+  const { agentManager } = makeMockAgentManager();
+  const filePath = tmp("readfile-") + ".txt";
+  writeFileSync(filePath, "hello world");
+  try {
+    await withServer(agentManager, async (send, recv) => {
+      send({ type: "fs:readFile", path: filePath });
+      const resp = await recv() as any;
+      expect(resp.type).toBe("fs:readFile");
+      expect(resp.path).toBe(filePath);
+      expect(resp.mimeType).toBe("text/plain");
+      expect(resp.content).toBe(Buffer.from("hello world").toString("base64"));
+    });
+  } finally {
+    rmSync(filePath, { force: true });
+  }
+});
+
+test("fs:readFile 文件不存在返回 fs:error", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv) => {
+    send({ type: "fs:readFile", path: "/nonexistent/path/to/file.txt" });
+    const resp = await recv() as any;
+    expect(resp.type).toBe("fs:error");
+    expect(resp.path).toBe("/nonexistent/path/to/file.txt");
+    expect(resp.reason).toContain("ENOENT");
   });
 });
