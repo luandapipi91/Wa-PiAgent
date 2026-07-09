@@ -1,9 +1,11 @@
-import { test, expect } from "bun:test";
+import { test, describe, it, expect } from "bun:test";
 import type {
   AgentName, AgentConfig, ProjectEntity, SessionEntity,
   AgentState, AgentStateKey,
   AssistantMessageEvent, SDKEvent, SDKEventEnvelope, WSServerEvent,
+  PromptEvent, FSReadFileRequest,
 } from "../src/types";
+import type { ProviderModel } from "../src/providers";
 
 test("AgentName 四值", () => {
   const names: AgentName[] = ["product", "pm", "dev", "test"];
@@ -56,4 +58,36 @@ test("AssistantMessageEvent done 变体可赋值", () => {
     },
   };
   expect(e.type).toBe("done");
+});
+
+describe("PromptEvent attachments", () => {
+  it("accepts model, thinking and attachments", () => {
+    const e: PromptEvent = {
+      type: "agent:prompt",
+      projectId: "p1",
+      sessionId: "s1",
+      agentName: "dev",
+      text: "hello",
+      model: "deepseek-chat",
+      thinking: "high",
+      attachments: [{ kind: "file", name: "readme.md", path: "/tmp/readme.md", size: 123 }],
+    };
+    expect(e.model).toBe("deepseek-chat");
+    expect(e.thinking).toBe("high");
+    expect(e.attachments).toHaveLength(1);
+  });
+});
+
+describe("FSReadFile types", () => {
+  it("has request/result types", () => {
+    const req: FSReadFileRequest = { type: "fs:readFile", path: "/tmp/a.txt" };
+    expect(req.type).toBe("fs:readFile");
+  });
+});
+
+describe("ProviderModel supportsVision", () => {
+  it("optional supportsVision field", () => {
+    const m: ProviderModel = { id: "gpt-4o", contextWindow: 128000, maxTokens: 4096, supportsVision: true };
+    expect(m.supportsVision).toBe(true);
+  });
 });

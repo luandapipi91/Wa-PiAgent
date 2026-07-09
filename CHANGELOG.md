@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-09 — 扩展共享类型（composer-redesign Task 1）
+
+- **类型**：新增功能
+- **摘要**：为重构聊天输入组件扩展共享类型。`PromptEvent` 新增 `model`/`thinking`/`attachments` 可选字段；新增 `AttachmentRef` 联合类型（image/file/snippet）；新增 `FSReadFileRequest`/`FSReadFileResult` WS 事件并加入 `WSClientEvent`/`WSServerEvent` 联合；`ProviderModel` 新增 `supportsVision` 可选字段。
+- **影响范围**：`packages/shared/src/types.ts`、`packages/shared/src/providers.ts`、`packages/shared/tests/types.test.ts`
+- **验证**：`bun run --filter @hiagent/shared typecheck` 通过；`bun test packages/shared/tests/types.test.ts` 9/9 通过
+
 ## 2026-07-09 — 技能管理
 
 - **类型**：新增功能
