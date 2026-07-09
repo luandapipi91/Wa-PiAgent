@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { WSServer } from "../src/ws-server";
 import { SkillManager } from "../src/skill-manager";
@@ -9,12 +9,6 @@ import { ProjectStore } from "../src/project-store";
 import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
 
 function tmp(p: string) { return join(import.meta.dir, p + Math.random().toString(36).slice(2)); }
-
-function createSkill(dir: string, name: string, description: string) {
-  const skillDir = join(dir, name);
-  mkdirSync(skillDir, { recursive: true });
-  writeFileSync(join(skillDir, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n---\n# ${name}`);
-}
 
 function makeMockAgentManager() {
   const calls = { reloadAll: 0 };
