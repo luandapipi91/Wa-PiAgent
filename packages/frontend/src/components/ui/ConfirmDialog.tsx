@@ -18,23 +18,22 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   return (
     <Modal onClose={onCancel} width={400} data-testid="confirm-dialog">
-      <div className="p-4 border-b border-surface2">
-        <div className="text-text font-semibold">{title}</div>
+      <div className="p-4 border-b border-hairline">
+        <div className="text-primary font-bold text-sm">{title}</div>
       </div>
-      <div className="p-4 text-sm text-subtext">{message}</div>
-      <div className="flex justify-end gap-2 p-3 border-t border-surface2">
+      <div className="p-4 text-sm text-secondary leading-relaxed">{message}</div>
+      <div className="flex justify-end gap-2 p-3 border-t border-hairline">
         <button
           onClick={onCancel}
-          className="px-3 py-1.5 rounded text-sm"
-          style={{ background: "#313244", color: "#cdd6f4" }}
+          className="px-3 py-1.5 rounded-sm text-sm bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary"
           data-testid="confirm-cancel"
         >{cancelText}</button>
         <button
           onClick={onConfirm}
-          className="px-3 py-1.5 rounded text-sm"
+          className="px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer"
           style={{
-            background: danger ? "#f38ba8" : "#89b4fa",
-            color: "#1e1e2e",
+            background: danger ? "var(--danger)" : "var(--brand)",
+            color: danger ? "var(--on-danger)" : "var(--on-brand)",
           }}
           data-testid="confirm-ok"
         >{confirmText}</button>
