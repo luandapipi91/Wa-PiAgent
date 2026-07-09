@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-09 — Composer 偏好 Zustand Store（composer-redesign Task 3）
+
+- **类型**：新增功能
+- **摘要**：在 Task 2 的 IndexedDB 封装之上新增 `packages/frontend/src/store/composer-prefs.ts`，使用 Zustand 暴露 composer 偏好给 React 组件。提供 `useComposerPrefsStore`，包含 `loadDefaults`、`loadSession`、`setSessionPrefs`、`setDefaults` 四个 action；`setSessionPrefs` 会同时更新 per-session 状态并将 model/thinking 回写为全局默认值，数据通过 `composer-db.ts` 持久化到 IndexedDB。
+- **影响范围**：`packages/frontend/src/store/composer-prefs.ts`、`packages/frontend/tests/composer-prefs.test.ts`
+- **验证**：`bun test packages/frontend/tests/composer-prefs.test.ts` 1/1 通过；`bun test` 全量 113 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
 ## 2026-07-09 — IndexedDB 封装 composer 偏好（composer-redesign Task 2）
 
 - **类型**：新增功能
