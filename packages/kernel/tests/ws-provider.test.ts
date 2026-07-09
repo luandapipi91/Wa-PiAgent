@@ -5,6 +5,7 @@ import { WSServer } from "../src/ws-server";
 import { ProviderStore } from "../src/provider-store";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
+import { SkillManager } from "../src/skill-manager";
 import type { WSClientEvent, WSServerEvent, ModelProvider } from "@hiagent/shared";
 
 function tmp(p: string) { return join(import.meta.dir, p + Math.random().toString(36).slice(2)); }
@@ -27,6 +28,7 @@ async function withProviderServer<T>(
     configStore: new ConfigStore(tmp("ws-cfg")),
     projectStore: new ProjectStore(tmp("ws-proj.json")),
     providerStore: new ProviderStore(join(dataDir, "providers.json")),
+    skillManager: new SkillManager(tmp("ws-skill-dir")),
     dataDir,
     agentManager: makeMockAgentManager(),
     port: 0,

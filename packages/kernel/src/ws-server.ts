@@ -7,6 +7,7 @@ import type { ConfigStore } from "./config-store";
 import type { ProjectStore } from "./project-store";
 import type { AgentManager } from "./agent-manager";
 import type { ProviderStore } from "./provider-store";
+import type { SkillManager } from "./skill-manager";
 import { testProviderConnection } from "./provider-test";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { readdir } from "node:fs/promises";
@@ -18,8 +19,9 @@ import { makeDefaultAgentConfig } from "./agent-md";
 export interface WSServerOpts {
   configStore: ConfigStore;
   projectStore: ProjectStore;
-  agentManager: AgentManager;
   providerStore: ProviderStore;
+  skillManager: SkillManager;
+  agentManager: AgentManager;
   dataDir?: string;
   port?: number;
 }
@@ -255,6 +257,41 @@ export class WSServer {
           models: event.models,
         });
         reply({ type: "provider:test", ok: result.ok, error: result.error });
+        break;
+      }
+      case "skill:list": {
+        const result = await this.opts.skillManager.scan();
+        reply({ type: "skill:list", ...result });
+        break;
+      }
+      case "skill:toggle": {
+        await this.opts.skillManager.toggleSkill(event.skillName, event.disabled);
+        // reload 所有会话让禁用/启用热生效
+        await this.opts.agentManager.reloadAllSessions();
+        const result = await this.opts.skillManager.scan();
+        this.broadcast({ type: "skill:changed", ...result });
+        break;
+      }
+      case "skillDir:add": {
+        try {
+          await this.opts.skillManager.addDir(event.path);
+          await this.opts.agentManager.reloadAllSessions();
+          const result = await this.opts.skillManager.scan();
+          this.broadcast({ type: "skill:changed", ...result });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "skillDir:remove": {
+        try {
+          await this.opts.skillManager.removeDir(event.path);
+          await this.opts.agentManager.reloadAllSessions();
+          const result = await this.opts.skillManager.scan();
+          this.broadcast({ type: "skill:changed", ...result });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
         break;
       }
     }
