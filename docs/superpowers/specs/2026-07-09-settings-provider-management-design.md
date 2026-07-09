@@ -412,7 +412,7 @@ store 内部通过 `ws-instance` 的 `send()` 发事件；kernel 的 `provider:c
 - `generateProviderExtension(providers)`：给定 providers 数组 → 生成的 extension 文本包含正确的 registerProvider 调用、slug、model 字段
 - `splitModelIds(input)`：`"a|b|c"` / `"a|"` / `"  "` / 单次输入流 → 预期拆分结果
 
-### 第二层：组件测试（Vitest + @testing-library/react + happy-dom）
+### 第二层：组件测试（bun:test + @testing-library/react + happy-dom）
 
 - `TagInput`：渲染初始 tags；模拟输入 `a|` → 出现 tag `a`；模拟回车 → tag 提交；点 × → 移除；粘贴 `a|b|c` → 3 tags
 - `ProviderFormModal`：必填校验（空时保存禁用）；tag 增删联动模型表格行；表格 contextWindow/maxTokens 可编辑；测试连接按钮点击后状态变化（mock test action）
