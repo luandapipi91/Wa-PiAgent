@@ -10,7 +10,7 @@
 // - createAgentSessionFn 可选参数，缺省时动态 import 真实 SDK（避免类型循环依赖）
 // - _authStorage / _modelRegistry 用 (this as any)._xxx ??= 模式做进程级单例
 
-import type { AgentName, AgentConfig } from "@hiagent/shared";
+import type { AgentName, AgentConfig, AttachmentRef } from "@hiagent/shared";
 import { HIAGENT_DIR } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
@@ -18,6 +18,14 @@ import type {
   AgentSession,
   AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
+import { readFile } from "node:fs/promises";
+
+// SDK ImageContent 的最小镜像，避免依赖 @earendil-works/pi-ai 根 export
+interface ImageContent {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
 
 // 可注入的 createAgentSession 签名（与 SDK 的 createAgentSession 对齐，但用 any 避免 SDK 类型穿透）
 // 测试用 mock 替换；生产路径走真实 SDK
@@ -165,13 +173,63 @@ export class AgentManager {
   }
 
   /** 发送用户输入。agent 运行中或有排队消息时 followUp 排队；空闲时直接 prompt。 */
-  async prompt(sessionId: string, text: string): Promise<void> {
+  async prompt(
+    sessionId: string,
+    text: string,
+    opts?: {
+      model?: string;
+      thinking?: "disabled" | "high";
+      attachments?: AttachmentRef[];
+    },
+  ): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`会话未启动: ${sessionId}`);
+
+    // 按请求切换模型
+    if (opts?.model) {
+      const modelRegistry = (session as any).modelRegistry;
+      const model = await resolveModel(opts.model, modelRegistry);
+      await session.setModel(model);
+    }
+
+    // 按请求切换 thinking level："disabled" 映射为 SDK 的 "off"
+    if (opts?.thinking) {
+      const level = opts.thinking === "disabled" ? "off" : opts.thinking;
+      session.setThinkingLevel(level);
+    }
+
+    // 构建最终 prompt 文本与图片附件
+    const textParts: string[] = [];
+    const images: ImageContent[] = [];
+    for (const a of opts?.attachments ?? []) {
+      if (a.kind === "snippet") {
+        textParts.push(`[片段: ${a.name}]\n${a.content}`);
+      } else {
+        textParts.push(`[附件: ${a.name}]`);
+        if (a.kind === "image") {
+          const data = await readFile(a.path, "base64");
+          images.push({
+            type: "image",
+            data,
+            mimeType: inferImageMimeType(a.path),
+          });
+        } else if (a.kind === "file") {
+          const content = await readFile(a.path, "utf8");
+          textParts.push(content);
+        }
+      }
+    }
+    textParts.push(text);
+    const finalText = textParts.join("\n\n");
+
     if (session.isStreaming || session.pendingMessageCount > 0) {
-      await session.prompt(text, { streamingBehavior: "followUp" });
+      await session.prompt(finalText, images.length
+        ? { images, streamingBehavior: "followUp" }
+        : { streamingBehavior: "followUp" });
+    } else if (images.length) {
+      await session.prompt(finalText, { images });
     } else {
-      await session.prompt(text);
+      await session.prompt(finalText);
     }
   }
 
@@ -292,6 +350,18 @@ export class AgentManager {
  * 这里用 import.meta.resolve 拿到 SDK 根路径，再推导出 model-resolver.js 的绝对路径。
  * 该路径在 SDK 0.80.x 验证有效；如果未来 SDK 改了内部结构，这里会抛 import 错误（fail-fast）。
  */
+/** 根据文件扩展名推断图片 MIME 类型。 */
+function inferImageMimeType(path: string): string {
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".bmp")) return "image/bmp";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  return "image/png";
+}
+
 async function resolveModel(
   modelPattern: string,
   modelRegistry: any,

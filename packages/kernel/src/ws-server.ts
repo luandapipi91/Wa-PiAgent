@@ -175,7 +175,11 @@ export class WSServer {
         // 启动/提示失败不抛——转成 error 事件，避免 WS 消息处理崩溃
         try {
           await this.opts.agentManager.ensureStarted(event.projectId, event.agentName, session.id);
-          await this.opts.agentManager.prompt(session.id, event.text);
+          await this.opts.agentManager.prompt(session.id, event.text, {
+            model: event.model,
+            thinking: event.thinking,
+            attachments: event.attachments,
+          });
         } catch (err) {
           this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}`, agentName: event.agentName });
         }
