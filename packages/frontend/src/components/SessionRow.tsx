@@ -30,16 +30,18 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
     <button
       ref={btnRef}
       onClick={() => onSelect(session.id)}
-      className="w-full flex items-center gap-2 px-2 py-1.5 text-left text-sm"
+      className="w-full flex items-center gap-2 px-2 py-1.5 text-left text-[13px] rounded-sm transition-colors hover:bg-surface-hover"
       style={{
-        borderLeft: selected ? "2px solid #89b4fa" : "2px solid transparent",
-        background: selected ? "rgba(137,180,250,0.15)" : "transparent",
+        borderLeft: selected ? "2px solid var(--accent)" : "2px solid transparent",
+        background: selected ? "var(--accent-soft)" : undefined,
+        color: selected ? "var(--accent)" : "var(--text-secondary)",
+        fontWeight: selected ? 600 : 400,
       }}
       data-testid={`session-${session.id}`}
     >
-      <span>{agentEmoji(session.primaryAgent)}</span>
-      <span className="text-text flex-1 truncate">{session.title}</span>
-      <span className="text-xs text-overlay">{formatRelativeTime(session.lastActivity)}</span>
+      <span className="text-sm">{agentEmoji(session.primaryAgent)}</span>
+      <span className="flex-1 truncate">{session.title}</span>
+      <span className="text-[11px] text-tertiary flex-shrink-0">{formatRelativeTime(session.lastActivity)}</span>
     </button>
   );
 }

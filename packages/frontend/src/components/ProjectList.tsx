@@ -12,7 +12,7 @@ export function ProjectList(props: Props) {
   const { projects, sessions, currentSessionId, currentProjectId } = useProjectsStore();
   return (
     <div className="flex-1 overflow-auto">
-      <div className="text-xs text-overlay px-2 py-1 border-t border-surface2 mt-2">项目管理</div>
+      <div className="text-[11px] font-bold text-tertiary px-2 py-1 border-t border-hairline mt-2 uppercase tracking-wide">项目</div>
       {projects.map(p => (
         <ProjectItem
           key={p.id}
@@ -25,7 +25,7 @@ export function ProjectList(props: Props) {
       ))}
       <button
         onClick={props.onNewProject}
-        className="w-full text-left px-2 py-1.5 text-xs text-overlay hover:text-blue"
+        className="w-full text-left px-2 py-1.5 text-xs text-tertiary transition-colors hover:text-brand"
         data-testid="new-project-btn"
       >＋ 新建项目</button>
     </div>

@@ -15,10 +15,14 @@ interface Props {
 export function Sidebar(props: Props) {
   return (
     <aside
-      className="flex flex-col gap-1 p-2 overflow-hidden"
-      style={{ width: 260, background: "#181825" }}
+      className="flex flex-col gap-1.5 p-3.5 overflow-hidden border-r border-hairline"
+      style={{ width: 264, background: "var(--surface-elevated)" }}
       data-testid="sidebar"
     >
+      <div className="flex items-center gap-2 px-2 pb-2.5">
+        <img src="/logo.svg" alt="HiAgent" className="w-7 h-7" style={{ borderRadius: 7 }} />
+        <span className="font-extrabold text-[17px] tracking-tight text-primary">HiAgent</span>
+      </div>
       <NewSessionButton onNewSession={props.onNewSession} />
       <AgentListSection onSelectAgent={props.onSelectAgent} />
       <ProjectList
