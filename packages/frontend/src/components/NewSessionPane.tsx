@@ -37,15 +37,15 @@ export function NewSessionPane() {
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-6" data-testid="new-session-pane">
-      <h2 className="text-2xl font-bold text-text mb-2">开始新会话</h2>
-      <p className="text-subtext mb-6">选好项目目录和角色，直接打字发送</p>
-      <div className="w-full max-w-2xl bg-surface rounded-lg overflow-hidden" style={{ background: "#313244" }}>
-        <div className="flex gap-2 p-2 border-b border-surface2">
+    <div className="flex-1 flex flex-col items-center justify-center p-10" data-testid="new-session-pane">
+      <h2 className="text-[26px] font-extrabold tracking-tight text-primary mb-2">开始新会话</h2>
+      <p className="text-sm text-secondary mb-7">选好项目目录和角色，直接打字发送</p>
+      <div className="w-full max-w-2xl rounded-lg overflow-hidden bg-surface border border-hairline shadow-md">
+        <div className="flex gap-2 p-2.5 border-b border-hairline bg-surface-elevated">
           <select
             value={projectId ?? ""}
             onChange={e => setProjectId(e.target.value || null)}
-            className="flex-1 bg-mantle text-text rounded px-2 py-1 text-sm"
+            className="flex-1 bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[12.5px]"
             data-testid="project-select"
           >
             {projects.length === 0 && <option value="">（无项目，请先新建）</option>}
@@ -54,7 +54,7 @@ export function NewSessionPane() {
           <select
             value={agentName}
             onChange={e => setAgentName(e.target.value as AgentName)}
-            className="bg-mantle text-text rounded px-2 py-1 text-sm"
+            className="bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[12.5px]"
             data-testid="agent-select"
           >
             {NAMES.map(n => <option key={n} value={n}>{AGENT_DEFS[n].emoji} {AGENT_DEFS[n].label}</option>)}
@@ -66,23 +66,26 @@ export function NewSessionPane() {
           onChange={e => setText(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
           placeholder="给研发发消息..."
-          className="w-full bg-transparent text-text p-3 outline-none resize-none"
+          className="w-full bg-transparent text-primary p-4 outline-none resize-none text-sm placeholder:text-tertiary"
           rows={1}
-          style={{ maxHeight: 300, overflowY: "auto" }}
+          style={{ maxHeight: 300, overflowY: "auto", minHeight: 80 }}
           data-testid="new-session-input"
         />
-        <div className="flex items-center justify-between p-2 border-t border-surface2">
-          <span className="text-xs text-overlay">📎 附件 🎨 模型</span>
+        <div className="flex items-center justify-between p-2.5 border-t border-hairline">
+          <span className="text-[11.5px] text-tertiary">📎 附件 &nbsp; 🎨 模型</span>
           <button
             onClick={handleSend}
             disabled={!projectId || !text.trim()}
-            className="px-3 py-1 rounded text-sm"
-            style={{ background: text.trim() && projectId ? "#89b4fa" : "#585b70", color: "#1e1e2e" }}
+            className="px-4 py-1.5 rounded-pill text-[13px] font-semibold border-0 cursor-pointer disabled:cursor-not-allowed transition-colors"
+            style={{
+              background: text.trim() && projectId ? "var(--brand)" : "var(--hairline-strong)",
+              color: "var(--on-brand)",
+            }}
             data-testid="new-session-send"
           >发送 →</button>
         </div>
       </div>
-      <p className="text-xs text-overlay mt-4">💡 项目目录可在此切换；agent 选谁谁是主理人</p>
+      <p className="text-[11.5px] text-tertiary mt-4">💡 项目目录可在此切换；agent 选谁谁是主理人</p>
     </div>
   );
 }
