@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-09 — ModelSelector 组件（composer-redesign Task 4）
+
+- **类型**：新增功能
+- **摘要**：新增可复用模型选择器组件 `packages/frontend/src/components/ui/ModelSelector.tsx`，从 `useProvidersStore` 读取已配置供应商及其模型，渲染为原生 `<select>` 下拉框；无模型时显示"未配置模型"提示。组件接受 `value`/`onChange`/`disabled` 三个 props。
+- **影响范围**：`packages/frontend/src/components/ui/ModelSelector.tsx`、`packages/frontend/tests/ModelSelector.test.tsx`
+- **验证**：`bun test packages/frontend/tests/ModelSelector.test.tsx` 4/4 通过；`bun test` 全量 121 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
 ## 2026-07-09 — 补充 composer-prefs 缺失测试（composer-redesign Task 3 fix round）
 
 - **类型**：测试补充
