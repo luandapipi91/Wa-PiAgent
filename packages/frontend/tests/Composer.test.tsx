@@ -1,25 +1,66 @@
-import { test, expect, beforeEach } from "bun:test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "bun:test";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Composer } from "../src/components/Composer";
+import * as ws from "../src/ws-instance";
+import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useProjectsStore } from "../src/store/projects";
 
-// 不 mock send（vi.mock 在此环境拦截不稳定）；用 setup-websocket.ts 的 MockWebSocket 兜底，
-// 真实 send 走 polyfill 不报错。断言 UI 行为：输入后点发送，文本清空 = 发送成功
-beforeEach(() => useProjectsStore.setState({
-  projects: [],
-  sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "t", createdAt: 0, lastActivity: 0, piSessionFile: "" }],
-  currentProjectId: "p1",
-  currentSessionId: "s1",
-}));
+describe("Composer", () => {
+  beforeEach(() => {
+    useProjectsStore.setState({
+      projects: [],
+      sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "t", createdAt: 0, lastActivity: 0, piSessionFile: "" }],
+      currentProjectId: "p1",
+      currentSessionId: "s1",
+    });
+    useComposerPrefsStore.setState({
+      defaults: { model: null, thinking: "disabled" },
+      bySession: {},
+    });
+    vi.spyOn(ws, "send").mockImplementation(() => {});
+  });
 
-test("输入并发送后文本清空", () => {
-  render(<Composer sessionId="s1" agentName={"dev" as const} />);
-  const input = screen.getByTestId("composer-input") as HTMLTextAreaElement;
-  fireEvent.change(input, { target: { value: "继续" } });
-  expect(input.value).toBe("继续");
-  // 发送按钮 enabled
-  expect((screen.getByTestId("composer-send") as HTMLButtonElement).disabled).toBe(false);
-  fireEvent.click(screen.getByTestId("composer-send"));
-  // 发送后 input 清空（handleSend 调 setText("")）
-  expect(input.value).toBe("");
+  it("sends prompt with model, thinking and attachments", async () => {
+    useComposerPrefsStore.setState({
+      bySession: {
+        s1: {
+          model: "claude-sonnet",
+          thinking: "high",
+          attachments: [{ kind: "snippet", name: "note", content: "context" }],
+        },
+      },
+    });
+
+    render(<Composer sessionId="s1" agentName="dev" />);
+    const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    await waitFor(() => {
+      expect(ws.send).toHaveBeenCalledWith(expect.objectContaining({
+        type: "agent:prompt",
+        projectId: "p1",
+        sessionId: "s1",
+        agentName: "dev",
+        text: "hello",
+        model: "claude-sonnet",
+        thinking: "high",
+        attachments: [{ kind: "snippet", name: "note", content: "context" }],
+      }));
+    });
+  });
+
+  it("clears text after sending and drops attachments from session prefs", async () => {
+    render(<Composer sessionId="s1" agentName="dev" />);
+    const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
+    fireEvent.change(textarea, { target: { value: "继续" } });
+    expect(textarea.value).toBe("继续");
+
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    await waitFor(() => {
+      expect(textarea.value).toBe("");
+      expect(useComposerPrefsStore.getState().bySession["s1"]?.attachments).toEqual([]);
+    });
+  });
 });
