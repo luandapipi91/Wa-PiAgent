@@ -95,7 +95,7 @@ function MessageRow({ row, sessionId }: { row: RenderedRow; sessionId: string })
         )}
 
         {/* 主回复内容 — 文字 + markdown（最下方） */}
-        <div className={`text-[13.5px] ${isError ? "text-danger" : "text-primary"}`} style={{ lineHeight: 1.55 }}>
+        <div className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`} style={{ lineHeight: 1.55, borderRadius: "4px 14px 14px 14px" }}>
           {textBlocks.map((block: any, i: number) => (
             <div key={i} className="prose prose-sm max-w-none" data-testid="text-block">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.text}</ReactMarkdown>
