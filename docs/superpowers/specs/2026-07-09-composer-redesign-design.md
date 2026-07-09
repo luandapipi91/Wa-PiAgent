@@ -187,8 +187,8 @@ export interface PromptEvent {
 }
 
 type AttachmentRef =
-  | { kind: "image"; name: string; path: string }
-  | { kind: "file"; name: string; path: string }
+  | { kind: "image"; name: string; path: string; size: number }
+  | { kind: "file"; name: string; path: string; size: number }
   | { kind: "snippet"; name: string; content: string };
 ```
 
