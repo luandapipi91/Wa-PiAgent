@@ -6,6 +6,9 @@ import type { DirEntry } from "@hiagent/shared";
 import type { ConfigStore } from "./config-store";
 import type { ProjectStore } from "./project-store";
 import type { AgentManager } from "./agent-manager";
+import type { ProviderStore } from "./provider-store";
+import { testProviderConnection } from "./provider-test";
+import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -16,6 +19,8 @@ export interface WSServerOpts {
   configStore: ConfigStore;
   projectStore: ProjectStore;
   agentManager: AgentManager;
+  providerStore: ProviderStore;
+  dataDir?: string;
   port?: number;
 }
 
@@ -217,6 +222,39 @@ export class WSServer {
         } catch (e) {
           reply({ type: "fs:error", path: event.path, reason: String(e instanceof Error ? e.message : e) });
         }
+        break;
+      }
+      case "provider:list": {
+        const providers = await this.opts.providerStore.load();
+        reply({ type: "provider:list", providers });
+        break;
+      }
+      case "provider:save": {
+        await this.opts.providerStore.save(event.provider);
+        if (this.opts.dataDir) {
+          await ensureProviderExtensionRegistered(this.opts.dataDir, this.opts.providerStore);
+        }
+        const providers = await this.opts.providerStore.load();
+        this.broadcast({ type: "provider:changed", providers });
+        break;
+      }
+      case "provider:delete": {
+        await this.opts.providerStore.delete(event.id);
+        if (this.opts.dataDir) {
+          await ensureProviderExtensionRegistered(this.opts.dataDir, this.opts.providerStore);
+        }
+        const providers = await this.opts.providerStore.load();
+        this.broadcast({ type: "provider:changed", providers });
+        break;
+      }
+      case "provider:test": {
+        const result = await testProviderConnection({
+          baseUrl: event.baseUrl,
+          apiKey: event.apiKey,
+          api: event.api,
+          models: event.models,
+        });
+        reply({ type: "provider:test", ok: result.ok, error: result.error });
         break;
       }
     }
