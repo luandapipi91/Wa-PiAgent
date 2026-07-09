@@ -1,12 +1,62 @@
+/** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        base: "#1e1e2e", mantle: "#181825", surface: "#313244", surface2: "#585b70",
-        text: "#cdd6f4", subtext: "#a6adc8", overlay: "#6c7086",
-        blue: "#89b4fa", green: "#a6e3a1", peach: "#fab387", yellow: "#f9e2af",
-        mauve: "#cba6f7", red: "#f38ba8", lavender: "#b4befe", maroon: "#ebbc9e", teal: "#94e2d5",
+        // 引用 styles.css 的 CSS 变量，实现单一真相源
+        canvas: "var(--canvas)",
+        surface: {
+          DEFAULT: "var(--surface)",
+          elevated: "var(--surface-elevated)",
+          hover: "var(--surface-hover)",
+        },
+        brand: {
+          DEFAULT: "var(--brand)",
+          soft: "var(--brand-soft)",
+        },
+        accent: {
+          DEFAULT: "var(--accent)",
+          soft: "var(--accent-soft)",
+        },
+        primary: "var(--text-primary)",
+        secondary: "var(--text-secondary)",
+        tertiary: "var(--text-tertiary)",
+        hairline: {
+          DEFAULT: "var(--hairline)",
+          strong: "var(--hairline-strong)",
+        },
+        success: {
+          DEFAULT: "var(--success)",
+          soft: "var(--success-soft)",
+        },
+        warning: {
+          DEFAULT: "var(--warning)",
+          soft: "var(--warning-soft)",
+        },
+        danger: {
+          DEFAULT: "var(--danger)",
+          soft: "var(--danger-soft)",
+        },
+      },
+      borderRadius: {
+        sm: "var(--rounded-sm)",
+        md: "var(--rounded-md)",
+        lg: "var(--rounded-lg)",
+        xl: "var(--rounded-xl)",
+        pill: "var(--rounded-pill)",
+      },
+      boxShadow: {
+        sm: "var(--shadow-sm)",
+        md: "var(--shadow-md)",
+        lg: "var(--shadow-lg)",
+      },
+      fontFamily: {
+        sans: ["-apple-system", "BlinkMacSystemFont", "SF Pro Display", "PingFang SC", "Plus Jakarta Sans", "sans-serif"],
+        mono: ["SF Mono", "JetBrains Mono", "IBM Plex Mono", "monospace"],
+      },
+      transitionTimingFunction: {
+        soft: "cubic-bezier(0.4, 0, 0.2, 1)",
       },
     },
   },
