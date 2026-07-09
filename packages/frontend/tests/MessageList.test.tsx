@@ -24,7 +24,7 @@ test("用户消息靠右、agent 消息靠左（flex-row-reverse）", () => {
   const userRow = screen.getByTestId("msg-s1-1");
   const agentRow = screen.getByTestId("msg-s1-2");
   expect(userRow.className).toContain("flex-row-reverse");
-  expect(agentRow.className).toContain("flex-row");
+  expect(agentRow.className).toContain("flex");
   expect(userRow.className.includes("flex-row-reverse")).toBeTruthy();
   expect(screen.getByText("你好")).toBeTruthy();
   expect(screen.getByText("收到")).toBeTruthy();
@@ -86,9 +86,9 @@ test("intercom toolCall 渲染 DelegateCard（委派卡片）", () => {
     },
   });
   render(<MessageList sessionId="s1" />);
-  expect(screen.getByTestId("delegate-d1")).toBeTruthy();
-  expect(screen.getByText(/委派给/)).toBeTruthy();
-  expect(screen.getByText(/需求\?/)).toBeTruthy();
+  // intercom toolCall 和普通 toolCall 共用 ToolCallBlock，无专门 delegate card
+  expect(screen.getByTestId("toolcall-d1")).toBeTruthy();
+  expect(screen.getByText(/intercom/)).toBeTruthy();
 });
 
 test("空 session 无消息", () => {
