@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-09 — AttachmentChip 组件（composer-redesign Task 6）
+
+- **类型**：新增功能
+- **摘要**：新增可复用附件 Chip 组件 `packages/frontend/src/components/ui/AttachmentChip.tsx`，接收 `AttachmentDraft` 与 `onRemove` props，根据附件类型渲染不同图标（image → 📷，snippet → 📝，file → 📄），snippet 超长时截断为 20 字符并追加 `…`；移除按钮补充 `type="button"` 与 `aria-label="移除附件"`。
+- **影响范围**：`packages/frontend/src/components/ui/AttachmentChip.tsx`、`packages/frontend/tests/AttachmentChip.test.tsx`
+- **验证**：`bun test packages/frontend/tests/AttachmentChip.test.tsx` 4/4 通过；`bun test` 全量 126 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
 ## 2026-07-09 — ModelSelector 组件（composer-redesign Task 4）
 
 - **类型**：新增功能

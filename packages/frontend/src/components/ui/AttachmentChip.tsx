@@ -16,6 +16,8 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
       <span>{icon}</span>
       <span className="truncate max-w-[150px]">{label}</span>
       <button
+        type="button"
+        aria-label="移除附件"
         data-testid="attachment-remove"
         onClick={onRemove}
         className="text-tertiary hover:text-danger ml-1"
