@@ -78,3 +78,17 @@ test("save 后文件结构为 { providers: [...] }", async () => {
   expect(raw.providers).toHaveLength(1);
   rmSync(f, { force: true });
 });
+
+test("supportsVision persists through save/load", async () => {
+  const f = tmpFile();
+  const store = new ProviderStore(f);
+  await store.save(
+    sampleProvider({
+      models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096, supportsVision: true }],
+    })
+  );
+  const loaded = await store.load();
+  expect(loaded).toHaveLength(1);
+  expect(loaded[0].models[0].supportsVision).toBe(true);
+  rmSync(f, { force: true });
+});
