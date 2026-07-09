@@ -67,7 +67,7 @@ export function App() {
   }, [projects.length, currentSessionId]);
 
   return (
-    <div className="flex h-screen" style={{ background: "#1e1e2e" }}>
+    <div className="flex h-screen bg-canvas">
       <Sidebar
         onNewSession={() => setView("new-session")}
         onSelectAgent={(name) => setConfigAgent(name)}
@@ -84,7 +84,7 @@ export function App() {
           <div className="flex-1 flex flex-col overflow-hidden">
             <button
               onClick={() => setView(currentSessionId ? "session" : "new-session")}
-              className="p-2 text-sm text-subtext hover:text-text"
+              className="p-2 text-sm text-secondary hover:text-primary"
             >
               ← 返回会话
             </button>

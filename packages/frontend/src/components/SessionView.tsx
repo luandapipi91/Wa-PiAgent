@@ -62,32 +62,38 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
   return (
     <div className="flex-1 flex flex-col h-full" data-testid="session-view">
       {/* 顶部状态栏 */}
-      <header className="flex items-center gap-2 px-4 py-2 border-b border-surface2" style={{ background: "#181825" }}>
+      <header className="flex items-center gap-3 px-5 py-3 border-b border-hairline bg-surface">
         <span className="text-xl">{agentEmoji(session.primaryAgent)}</span>
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-text font-semibold">{session.title}</span>
+            <span className="text-[14px] font-bold text-primary">{session.title}</span>
           </div>
-          <div className="text-xs text-overlay">{session.primaryAgent} · {project?.cwd ?? ""} · {agentState}</div>
+          <div className="text-[11.5px] text-tertiary mt-px">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-success mr-1 align-middle" />
+            {session.primaryAgent} · {project?.cwd ?? ""} · {agentState}
+          </div>
         </div>
-        <button onClick={onSwitchToCanvas} className="text-sm text-subtext hover:text-text">编排画布</button>
+        <button onClick={onSwitchToCanvas} className="px-3 py-1.5 text-xs font-semibold rounded-sm border border-hairline bg-surface text-secondary transition-colors hover:border-brand hover:text-brand">
+          编排画布
+        </button>
       </header>
 
       {/* 队列面板：agent 运行中或有队列时显示 */}
       {(isRunning || hasQueue) && (
-        <div className="px-4 py-2 border-b border-surface2 text-sm" style={{ background: "#11111b" }} data-testid="queue-panel">
-          {/* 状态栏：时间 + 停止 + 清空 */}
+        <div className="px-5 py-2.5 border-b border-hairline bg-surface-elevated" data-testid="queue-panel">
+          {/* 状态栏：spinner + 计时 + 停止 + 清空 */}
           {isRunning && (
             <div className="flex items-center mb-1">
-              <span className="text-overlay flex-1">
-                🟠 思考中... {elapsed}s
+              <span className="flex items-center gap-2 text-[12.5px] text-secondary flex-1">
+                <span className="inline-block w-3.5 h-3.5 rounded-full" style={{ border: "2px solid var(--accent-soft)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
+                思考中 · {elapsed}s
               </span>
-              <div className="flex items-center" style={{ gap: 10 }}>
-                <button onClick={handleStop} className="px-2 py-0.5 rounded text-xs" style={{ background: "#f38ba8", color: "#1e1e2e" }} data-testid="btn-stop">
+              <div className="flex items-center gap-2">
+                <button onClick={handleStop} className="px-2.5 py-0.5 rounded-pill text-[11.5px] font-semibold bg-danger-soft text-danger border-0 cursor-pointer" data-testid="btn-stop">
                   停止
                 </button>
                 {followUp.length > 0 && (
-                  <button onClick={handleClearFollowUp} className="text-xs px-2 py-0.5 rounded" style={{ background: "#313244", color: "#f38ba8" }} data-testid="btn-clear-queue">
+                  <button onClick={handleClearFollowUp} className="text-[11.5px] px-2 py-0.5 rounded-pill bg-danger-soft text-danger border-0 cursor-pointer" data-testid="btn-clear-queue">
                     清空
                   </button>
                 )}
@@ -97,15 +103,15 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
 
           {/* 引导中消息 */}
           {steering.length > 0 && (
-            <div className="mb-2 p-2 rounded" style={{ background: "#1e1e2e" }}>
+            <div className="mt-2 p-2.5 rounded-sm bg-warning-soft" style={{ borderLeft: "3px solid var(--warning)" }}>
               <div className="flex items-center justify-between">
-                <span className="text-peach text-xs font-semibold">引导中:</span>
-                <button onClick={handleCancelSteer} className="text-xs px-2 py-0.5 rounded" style={{ background: "#313244", color: "#f38ba8" }} data-testid="btn-cancel-steer">
+                <span className="text-warning text-[11.5px] font-bold">引导中</span>
+                <button onClick={handleCancelSteer} className="text-[11.5px] px-2 py-0.5 rounded-pill bg-danger-soft text-danger border-0 cursor-pointer" data-testid="btn-cancel-steer">
                   取消
                 </button>
               </div>
               {steering.map((msg, i) => (
-                <div key={i} className="text-text mt-1 pl-2 border-l-2" style={{ borderColor: "#fab387" }}>
+                <div key={i} className="text-[12px] text-secondary mt-1 pl-2">
                   {msg}
                 </div>
               ))}
@@ -116,19 +122,19 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
           {followUp.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-overlay text-xs">
+                <span className="text-tertiary text-[11.5px]">
                   排队 {followUp.length} 条
                 </span>
               </div>
-              <div className="rounded" style={{ background: "#1e1e2e" }}>
+              <div className="rounded-sm bg-surface border border-hairline">
                 {followUp.map((msg, i) => (
-                  <div key={i} className="flex items-center justify-between px-2 py-1.5" style={{ borderBottom: i < followUp.length - 1 ? "1px solid #313244" : "none" }}>
-                    <span className="text-subtext truncate flex-1">{msg}</span>
-                    <div className="flex ml-2" style={{ gap: 10 }}>
-                      <button onClick={() => handlePromote(msg)} className="text-xs px-1.5 py-0.5 rounded" style={{ background: "#a6e3a1", color: "#1e1e2e" }} data-testid="btn-promote">
+                  <div key={i} className={`flex items-center justify-between px-2.5 py-1.5 ${i < followUp.length - 1 ? "border-b border-hairline" : ""}`}>
+                    <span className="text-secondary truncate flex-1 text-[12.5px]">{msg}</span>
+                    <div className="flex ml-2 gap-2">
+                      <button onClick={() => handlePromote(msg)} className="text-[11.5px] px-1.5 py-0.5 rounded-pill bg-accent-soft text-accent border-0 cursor-pointer" data-testid="btn-promote">
                         引导
                       </button>
-                      <button onClick={() => handleImmediate(msg)} className="text-xs px-1.5 py-0.5 rounded" style={{ background: "#89b4fa", color: "#1e1e2e" }} data-testid="btn-immediate">
+                      <button onClick={() => handleImmediate(msg)} className="text-[11.5px] px-1.5 py-0.5 rounded-pill bg-success-soft text-success border-0 cursor-pointer" data-testid="btn-immediate">
                         立即
                       </button>
                     </div>
@@ -138,11 +144,9 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
             </div>
           )}
 
-          {/* 空队列：只保留停止/计时器，不显示占位文字 */}
-
           {/* 提示 */}
           {followUp.length > 0 && (
-            <div className="text-overlay text-xs mt-1">💡 引导：下回合立即生效 │ 立即：中断当前并立即执行</div>
+            <div className="text-tertiary text-[11.5px] mt-1">💡 引导：下回合立即生效 │ 立即：中断当前并立即执行</div>
           )}
         </div>
       )}
