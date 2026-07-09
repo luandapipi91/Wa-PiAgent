@@ -4,6 +4,10 @@ import type {
   ProviderListEvent, ProviderSaveEvent, ProviderDeleteEvent, ProviderTestEvent,
   ProviderListResult, ProviderTestResult, ProviderChangedEvent,
 } from "./providers";
+import type {
+  SkillListEvent, SkillToggleEvent, SkillDirAddEvent, SkillDirRemoveEvent,
+  SkillListResult, SkillChangedEvent,
+} from "./skills";
 
 export type AgentName = "product" | "pm" | "dev" | "test";
 export type AgentStateKey = `${string}:${AgentName}`;
@@ -214,6 +218,7 @@ export type WSClientEvent =
   | AgentConfigGetEvent | AgentConfigSaveEvent
   | ProjectsListRequest | SessionMessagesRequest
   | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
+  | SkillListEvent | SkillToggleEvent | SkillDirAddEvent | SkillDirRemoveEvent
   | FSHomeRequest | FSRootsRequest | FSListDirRequest;
 
 // kernel → 前端
@@ -285,6 +290,7 @@ export type WSServerEvent =
   | SessionMessagesEvent
   | AgentConfigEvent | ErrorEvent
   | ProviderListResult | ProviderTestResult | ProviderChangedEvent
+  | SkillListResult | SkillChangedEvent
   | FSHomeResult | FSRootsResult | FSListDirResult | FSErrorEvent;
 
 export type WSEvent = WSClientEvent | WSServerEvent;

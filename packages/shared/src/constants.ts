@@ -18,6 +18,7 @@ export const PROJECTS_FILE = `${HIAGENT_DIR}/projects.json`;
 export const PI_AGENTS_DIR = `${HIAGENT_DIR}/agents`;   // ← 改：从 ~/.pi/agent/agents 改为 .hiagent/agents
 export const PROVIDERS_FILE = `${HIAGENT_DIR}/providers.json`;
 export const GENERATED_DIR = `${HIAGENT_DIR}/.generated`;   // 自动生成的 Pi extension 文件目录
+export const BUILTIN_SKILLS_DIR = `${HIAGENT_DIR}/skills`;   // 内置技能目录，kernel 启动时创建，不可删
 
 export interface AgentDef {
   emoji: string;
