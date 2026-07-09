@@ -7,11 +7,25 @@ import { rmSync } from "node:fs";
 // mock createAgentSession 返回 fake AgentSession
 // 测试不依赖真实 SDK 的 createAgentSession（避免子进程 / 网络 / 文件系统副作用）
 const fakeUnsubscribe = mock(() => {});
+const fakeModel = {
+  id: "test-model",
+  provider: "anthropic",
+  name: "Test Model",
+  api: {},
+  baseUrl: "",
+  reasoning: false,
+};
+const fakeModelRegistry = {
+  getAll: () => [fakeModel],
+  hasConfiguredAuth: () => true,
+};
 const fakeSession: Partial<AgentSession> = {
   prompt: mock(async () => {}),
   abort: mock(async () => {}),
   dispose: mock(() => {}),
   setSessionName: mock(() => {}),
+  setModel: mock(async () => {}),
+  setThinkingLevel: mock(() => {}),
   subscribe: mock(() => fakeUnsubscribe),
   messages: [],
   isStreaming: false,
@@ -19,6 +33,7 @@ const fakeSession: Partial<AgentSession> = {
   clearQueue: mock(() => ({ steering: [], followUp: [] })),
   followUp: mock(async () => {}),
   steer: mock(async () => {}),
+  modelRegistry: fakeModelRegistry as any,
 };
 
 const mockCreateAgentSession = mock(async () => ({
@@ -32,6 +47,8 @@ beforeEach(() => {
   (fakeSession.prompt as any).mockClear();
   (fakeSession.abort as any).mockClear();
   (fakeSession.setSessionName as any).mockClear();
+  (fakeSession.setModel as any).mockClear();
+  (fakeSession.setThinkingLevel as any).mockClear();
   (fakeSession.subscribe as any).mockClear();
   (fakeSession.dispose as any).mockClear();
   (fakeSession.clearQueue as any).mockClear();
@@ -134,6 +151,78 @@ test("prompt — agent 运行中 → followUp 排队", async () => {
   await am.prompt(session.id, "排队消息");
 
   expect(fakeSession.prompt).toHaveBeenCalledWith("排队消息", { streamingBehavior: "followUp" });
+});
+
+test("prompt — 传入 model 时调用 setModel", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+  await am.prompt(session.id, "你好", { model: "anthropic/test-model" });
+
+  expect(fakeSession.setModel).toHaveBeenCalledTimes(1);
+  const setModelArg = (fakeSession.setModel as any).mock.calls[0][0];
+  expect(setModelArg.id).toBe("test-model");
+  expect(setModelArg.provider).toBe("anthropic");
+});
+
+test("prompt — 传入 thinking 时映射为 SDK thinking level", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+  await am.prompt(session.id, "你好", { thinking: "disabled" });
+
+  expect(fakeSession.setThinkingLevel).toHaveBeenCalledWith("off");
+
+  (fakeSession.setThinkingLevel as any).mockClear();
+  await am.prompt(session.id, "你好", { thinking: "high" });
+  expect(fakeSession.setThinkingLevel).toHaveBeenCalledWith("high");
+});
+
+test("prompt — 图片附件读取为 base64 并传给 session.prompt", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  // 构造一个临时图片文件
+  const imgPath = `/tmp/hiagent-img-${Date.now()}.png`;
+  tmpFiles.push(imgPath);
+  await import("node:fs/promises").then((fs) => fs.writeFile(imgPath, Buffer.from("fake-image")));
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+  await am.prompt(session.id, "描述这张图", {
+    attachments: [{ kind: "image", path: imgPath, name: "示例.png", size: 0 }],
+  });
+
+  expect(fakeSession.prompt).toHaveBeenCalledTimes(1);
+  const [calledText, calledOpts] = (fakeSession.prompt as any).mock.calls[0];
+  expect(calledText).toContain("描述这张图");
+  expect(calledText).toContain("示例.png");
+  expect(calledOpts.images).toHaveLength(1);
+  expect(calledOpts.images[0].type).toBe("image");
+  expect(calledOpts.images[0].mimeType).toBe("image/png");
+  expect(calledOpts.images[0].data).toBe(Buffer.from("fake-image").toString("base64"));
 });
 
 test("abort 调用 session.abort", async () => {
