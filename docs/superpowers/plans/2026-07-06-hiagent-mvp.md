@@ -144,7 +144,7 @@ thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
-tools: read, bash, edit, write, grep, find, ls, web_search, fetch_url
+tools: read, bash, edit, write, grep, find, ls, web_search, fetch_content
 skills: []
 mcpServers: []
 partners:

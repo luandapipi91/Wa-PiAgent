@@ -15,7 +15,7 @@ async function main() {
   let kernel: ChildProcess = spawnKernel();
   let frontend: ChildProcess = spawnFrontend();
 
-  let browserOpened = false;
+  let lastOpenedFrontendPort: number | null = null;
   let actualFrontendPort = FRONTEND_PORT;  // Vite 可能因端口占用自动换端口
 
   function bindFrontendEvents(proc: ChildProcess) {
@@ -23,15 +23,19 @@ async function main() {
       const line = d.toString();
       process.stdout.write(`[web] ${line}`);
       const m = line.match(/Local:\s+http:\/\/localhost:(\d+)/);
-      if (m) actualFrontendPort = Number(m[1]);
-      if (!browserOpened && m) {
-        browserOpened = true;
-        const url = `http://localhost:${actualFrontendPort}`;
-        if (actualFrontendPort !== FRONTEND_PORT) {
+      if (!m) return;
+      actualFrontendPort = Number(m[1]);
+      // 端口变化时重新打开浏览器（首次启动或按 R 重启后 Vite 换端口）
+      if (lastOpenedFrontendPort !== actualFrontendPort) {
+        if (lastOpenedFrontendPort != null) {
+          console.log("[dev] ⚠ Vite 换端口 %d → %d", lastOpenedFrontendPort, actualFrontendPort);
+        } else if (actualFrontendPort !== FRONTEND_PORT) {
           console.log("[dev] ⚠ Vite 换端口 %d → %d", FRONTEND_PORT, actualFrontendPort);
         }
+        const url = `http://localhost:${actualFrontendPort}`;
         console.log("[dev] ▶ 打开浏览器 %s", url);
         openBrowser(url);
+        lastOpenedFrontendPort = actualFrontendPort;
       }
     });
     proc.stderr!.on("data", (d: Buffer) => process.stderr.write(`[web] ${d.toString()}`));

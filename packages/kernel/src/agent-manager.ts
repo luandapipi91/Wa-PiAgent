@@ -11,7 +11,7 @@
 // - _authStorage / _modelRegistry 用 (this as any)._xxx ??= 模式做进程级单例
 
 import type { AgentName, AgentConfig, AttachmentRef, ThinkingLevel } from "@hiagent/shared";
-import { HIAGENT_DIR } from "@hiagent/shared";
+import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
@@ -59,6 +59,8 @@ export class AgentManager {
   private sessionCwd = new Map<string, string>();
   // sessionId → unsubscribe 函数（dispose 时解绑事件订阅）
   private unsubscribers = new Map<string, () => void>();
+  // sessionId → promote/immediate 操作锁，防止快速连点导致并发 race
+  private jumpQueueLocks = new Map<string, Promise<void>>();
   // 并发创建锁：同 sessionId 同时只创建一次，防止快速连发导致重复初始化同一 jsonl
   private starting = new Map<string, Promise<AgentSession>>();
   // 标记在创建过程中被 dispose 的 sessionId，防止已清理的会话在创建完成后重新泄漏回 Map
@@ -169,10 +171,8 @@ export class AgentManager {
       sessionManager: sdk.SessionManager.open(sessionEntity.piSessionFile),
       resourceLoader: loader,
       thinkingLevel: config?.thinking ?? "medium",
-      // 无显式 tools 时用默认四件套（read/bash/edit/write）
-      tools: config?.tools?.length
-        ? config.tools
-        : ["read", "bash", "edit", "write"],
+      // 无显式 tools 时用默认工具集（含 Pi 内置 + pi-web-access 网络工具）
+      tools: config?.tools?.length ? config.tools : DEFAULT_AGENT_TOOLS,
       authStorage,
       modelRegistry,
     });
@@ -251,11 +251,14 @@ export class AgentManager {
     }
   }
 
-  /** 
+  /**
    * 清空队列 + abort + 剩余重入队 + 发目标消息。
    * promoteToSteer 和 immediate 共享实现。
+   * @param interrupt 为 true 时目标消息使用 streamingBehavior: "steer"，即使 abort 后
+   *                  agent 仍在运行，也会以 steer 方式中断当前并立即处理，避免
+   *                  "Agent is already processing" 报错。
    */
-  private async _jumpQueue(sessionId: string, text: string, remainingTexts: string[]): Promise<void> {
+  private async _jumpQueue(sessionId: string, text: string, remainingTexts: string[], interrupt: boolean = false): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`会话未启动: ${sessionId}`);
 
@@ -271,17 +274,46 @@ export class AgentManager {
     }
 
     // 4. 目标消息作为新回合开始
-    await session.prompt(text);
+    if (interrupt) {
+      // steer 模式在 streaming 时中断当前，在 idle 时等价于直接 prompt。
+      // 若 abort 后 agent activeRun 仍存在（例如正在执行 tool calls），直接 prompt
+      // 会在 agent 层抛 "already processing"，此时降级为 steer 排队，仍能尽快生效。
+      try {
+        await session.prompt(text, { streamingBehavior: "steer" });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes("already processing")) {
+          await session.steer(text);
+        } else {
+          throw err;
+        }
+      }
+    } else {
+      await session.prompt(text);
+    }
+  }
+
+  /**
+   * 对 _jumpQueue 加 per-session 串行锁。
+   * 连续点击"引导"/"立即"时，后一次操作必须等待前一次完成，避免并发 race。
+   */
+  private async _lockedJumpQueue(sessionId: string, text: string, remainingTexts: string[], interrupt: boolean): Promise<void> {
+    const previous = this.jumpQueueLocks.get(sessionId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => { })
+      .then(() => this._jumpQueue(sessionId, text, remainingTexts, interrupt));
+    this.jumpQueueLocks.set(sessionId, next);
+    await next;
   }
 
   /** 提升排队消息为引导（abort → 清空 → 剩余重入队 → 目标消息作为新回合） */
   async promoteToSteer(sessionId: string, text: string, remainingTexts: string[]): Promise<void> {
-    await this._jumpQueue(sessionId, text, remainingTexts);
+    await this._lockedJumpQueue(sessionId, text, remainingTexts, false);
   }
 
   /** 立即执行排队消息（abort → 清空 → 剩余重入队 → 目标消息作为新回合） */
   async immediate(sessionId: string, text: string, remainingTexts: string[]): Promise<void> {
-    await this._jumpQueue(sessionId, text, remainingTexts);
+    await this._lockedJumpQueue(sessionId, text, remainingTexts, true);
   }
 
   /** 清空 steer 引导队列（session 不存在时静默忽略） */
@@ -340,6 +372,7 @@ export class AgentManager {
     this.sessions.get(sessionId)?.dispose();
     this.sessions.delete(sessionId);
     this.sessionCwd.delete(sessionId);
+    this.jumpQueueLocks.delete(sessionId);
   }
 
   /** 清理所有会话（进程退出 / 测试 teardown 用） */

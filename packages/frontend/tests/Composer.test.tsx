@@ -68,4 +68,29 @@ describe("Composer", () => {
       expect(useComposerPrefsStore.getState().bySession["s1"]?.attachments).toEqual([]);
     });
   });
+
+  it("still allows sending while agent is running (followUp queue)", async () => {
+    useComposerPrefsStore.setState({
+      bySession: {
+        s1: { model: "gpt-4o", thinking: "disabled", attachments: [] },
+      },
+    });
+    render(<Composer sessionId="s1" agentName="dev" isRunning />);
+    const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
+    fireEvent.change(textarea, { target: { value: "排队消息" } });
+
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    await waitFor(() => {
+      expect(ws.send).toHaveBeenCalledWith(expect.objectContaining({
+        type: "agent:prompt",
+        projectId: "p1",
+        sessionId: "s1",
+        agentName: "dev",
+        text: "排队消息",
+        model: "gpt-4o",
+        thinking: "disabled",
+      }));
+    });
+  });
 });

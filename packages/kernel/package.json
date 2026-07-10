@@ -2,7 +2,9 @@
   "name": "@hiagent/kernel",
   "version": "0.0.0",
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "dev": "bun run src/index.ts",
     "build": "bun build src/index.ts --compile --target bun --outfile dist/hiagent-kernel",
@@ -11,8 +13,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@hiagent/shared": "workspace:*",
     "@earendil-works/pi-coding-agent": "^0.80.0",
-    "pi-intercom": "^0.6.0"
+    "@hiagent/shared": "workspace:*",
+    "pi-intercom": "^0.6.0",
+    "pi-web-access": "^0.13.0"
   }
 }

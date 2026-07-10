@@ -10,7 +10,7 @@ import {
   type TreeItemIndex,
 } from "react-complex-tree";
 import "react-complex-tree/lib/style-modern.css";
-import { getHome, getRoots, listDir } from "../../fs-client";
+import { getHome, getRoots, listDir, searchFilesStream, type SearchMatch } from "../../fs-client";
 
 const TREE_STYLES = `
 .rct-tree-item-title-container {
@@ -67,25 +67,6 @@ function findParentId(
   return null;
 }
 
-function hideFileItems(
-  allItems: Record<TreeItemIndex, TreeItem<FsNodeData>>,
-): Record<TreeItemIndex, TreeItem<FsNodeData>> {
-  const keepIds = new Set<TreeItemIndex>(["root"]);
-  for (const [id, item] of Object.entries(allItems)) {
-    if (item.data.isDir) keepIds.add(id);
-  }
-
-  const items: Record<TreeItemIndex, TreeItem<FsNodeData>> = {};
-  for (const id of keepIds) {
-    const item = allItems[id];
-    items[id] = {
-      ...item,
-      children: item.children?.filter((cid) => keepIds.has(cid)),
-    };
-  }
-  return items;
-}
-
 function filterTreeItems(
   allItems: Record<TreeItemIndex, TreeItem<FsNodeData>>,
   query: string,
@@ -133,6 +114,59 @@ function filterTreeItems(
   return { items, expandIds };
 }
 
+// 根据后端搜索结果构建一棵只包含匹配项及其父目录链的树
+function buildSearchTree(
+  matches: { name: string; isDir: boolean; path: string }[],
+  roots: string[],
+): Record<TreeItemIndex, TreeItem<FsNodeData>> {
+  const items: Record<TreeItemIndex, TreeItem<FsNodeData>> = {
+    root: { index: "root", children: [], isFolder: true, data: { path: "", name: "此电脑", isDir: true } },
+  };
+
+  for (const [i, r] of roots.entries()) {
+    const rootId = `root_${i}`;
+    items.root.children!.push(rootId);
+    items[rootId] = { index: rootId, children: [], isFolder: true, data: { path: r, name: r, isDir: true } };
+  }
+
+  for (const match of matches) {
+    const rootIdx = roots.findIndex(r => match.path.startsWith(r));
+    if (rootIdx < 0) continue;
+
+    const rootId = `root_${rootIdx}`;
+    const rootPath = roots[rootIdx];
+    const rel = match.path.slice(rootPath.length).replace(/^[/\\]/, "");
+    const segments = rel.split(/[/\\]/).filter(Boolean);
+    let currentPath = rootPath;
+    let parentId = rootId;
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const nextPath = join(currentPath, seg);
+      const isLast = i === segments.length - 1;
+      const isDir = isLast ? match.isDir : true;
+
+      if (!items[nextPath]) {
+        items[nextPath] = {
+          index: nextPath,
+          children: isDir ? [] : undefined,
+          isFolder: isDir,
+          data: { path: nextPath, name: seg, isDir: isDir },
+        };
+      }
+      const parent = items[parentId];
+      if (parent.children && !parent.children.includes(nextPath)) {
+        parent.children.push(nextPath);
+      }
+
+      currentPath = nextPath;
+      parentId = nextPath;
+    }
+  }
+
+  return items;
+}
+
 export function FilePicker({ onPick, onCancel, multiSelect = true }: Props) {
   const [focusedItem, setFocusedItem] = useState<TreeItemIndex | undefined>();
   const [selectedItems, setSelectedItems] = useState<TreeItemIndex[]>([]);
@@ -142,14 +176,19 @@ export function FilePicker({ onPick, onCancel, multiSelect = true }: Props) {
   const [treeItems, setTreeItems] = useState<Record<TreeItemIndex, TreeItem<FsNodeData>>>({
     root: { index: "root", children: [], isFolder: true, data: { path: "", name: "加载中…", isDir: true } },
   });
+  const [searchTreeItems, setSearchTreeItems] = useState<Record<TreeItemIndex, TreeItem<FsNodeData>> | null>(null);
+  const [searchDuration, setSearchDuration] = useState<number | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
   const treeItemsRef = useRef(treeItems);
   treeItemsRef.current = treeItems;
   const showHiddenRef = useRef(showHidden);
   showHiddenRef.current = showHidden;
+  const rootsRef = useRef<string[]>([]);
 
   useEffect(() => {
     (async () => {
       const roots = await getRoots();
+      rootsRef.current = roots;
       const rootChildren: TreeItemIndex[] = roots.map((_, i) => `root_${i}`);
       const items: Record<TreeItemIndex, TreeItem<FsNodeData>> = {
         root: { index: "root", children: rootChildren, isFolder: true, data: { path: "", name: "此电脑", isDir: true } },
@@ -274,32 +313,94 @@ export function FilePicker({ onPick, onCancel, multiSelect = true }: Props) {
     setFocusedItem(item.index);
   }, []);
 
-  const { displayItems, searchExpandIds } = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return { displayItems: treeItems, searchExpandIds: null };
+  const { displayItems, isSearching } = useMemo(() => {
+    const searching = searchQuery.trim().length > 0;
+    if (!searching) {
+      return { displayItems: treeItems, isSearching: false };
+    }
+    if (searchTreeItems) {
+      return { displayItems: searchTreeItems, isSearching: true };
     }
     const result = filterTreeItems(treeItems, searchQuery.trim());
-    return { displayItems: result.items, searchExpandIds: result.expandIds };
-  }, [treeItems, searchQuery]);
+    return { displayItems: result.items, isSearching: true };
+  }, [treeItems, searchQuery, searchTreeItems]);
 
-  const isSearching = searchQuery.trim().length > 0;
+  // 后端全文搜索：debounce 300ms，流式接收进度并增量渲染
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (!query) {
+      setSearchTreeItems(null);
+      setSearchDuration(null);
+      setSearchLoading(false);
+      return;
+    }
+
+    setSearchLoading(true);
+    const allMatches = new Map<string, SearchMatch>();
+    const rebuild = () => {
+      const roots = rootsRef.current;
+      setSearchTreeItems(buildSearchTree(Array.from(allMatches.values()), roots));
+    };
+
+    let cleanup: (() => void) | null = null;
+    const timer = setTimeout(() => {
+      cleanup = searchFilesStream(
+        query,
+        {
+          roots: rootsRef.current,
+          maxResults: 200,
+          showHidden: showHiddenRef.current,
+        },
+        {
+          onProgress: (ms) => {
+            for (const m of ms) allMatches.set(m.path, m);
+            rebuild();
+          },
+          onDone: (r) => {
+            setSearchDuration(r.durationMs);
+            setSearchLoading(false);
+          },
+        },
+      );
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+      cleanup?.();
+      setSearchLoading(false);
+    };
+  }, [searchQuery]);
+
+  // 搜索结果出现时，把有子节点的节点合并到 expandedItems 中（允许用户后续折叠）
+  useEffect(() => {
+    if (!searchTreeItems) return;
+    const needExpand: TreeItemIndex[] = [];
+    for (const [id, item] of Object.entries(searchTreeItems)) {
+      if (item.children && item.children.length > 0 && item.isFolder) {
+        needExpand.push(id);
+      }
+    }
+    if (needExpand.length === 0) return;
+    setExpandedItems(prev => Array.from(new Set([...prev, ...needExpand])));
+  }, [searchTreeItems]);
+
   const hasSearchResults = isSearching
     ? Object.keys(displayItems).length > 1
     : true;
 
   const selections = useMemo(() => {
     return selectedItems
-      .map((id) => treeItems[id]?.data)
+      .map((id) => (searchTreeItems?.[id] ?? treeItems[id])?.data)
       .filter(Boolean) as FilePickerSelection[];
-  }, [selectedItems, treeItems]);
+  }, [selectedItems, treeItems, searchTreeItems]);
 
   const viewState = useMemo(() => ({
     "file-picker": {
-      expandedItems: searchExpandIds ?? expandedItems,
+      expandedItems,
       focusedItem,
       selectedItems,
     },
-  }), [expandedItems, searchExpandIds, focusedItem, selectedItems]);
+  }), [expandedItems, focusedItem, selectedItems]);
 
   return (
     <>
@@ -315,17 +416,34 @@ export function FilePicker({ onPick, onCancel, multiSelect = true }: Props) {
                 </span>
               )}
             </div>
-            <input
-              type="text"
-              className="w-48 px-3 py-1.5 text-sm border border-hairline rounded bg-surface0 text-text placeholder:text-tertiary focus:outline-none focus:border-blue"
-              placeholder="搜索文件名…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              data-testid="file-picker-search"
-            />
+            <div className="flex flex-col items-end gap-1">
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  className="w-48 px-3 py-1.5 text-sm border border-hairline rounded bg-surface0 text-text placeholder:text-tertiary focus:outline-none focus:border-blue pr-8"
+                  placeholder="搜索文件名…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  data-testid="file-picker-search"
+                />
+                {searchLoading && (
+                  <span
+                    className="absolute right-2 w-3.5 h-3.5 border-2 border-hairline border-t-blue rounded-full animate-spin"
+                    data-testid="file-picker-search-loading"
+                  />
+                )}
+              </div>
+              {isSearching && searchDuration !== null && (
+                <span className="text-[11px] text-tertiary" data-testid="search-duration">
+                  搜索耗时 {searchDuration}ms
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex-1 overflow-auto p-2 text-text" style={{ minHeight: 320 }}>
-            {isSearching && !hasSearchResults ? (
+            {isSearching && searchLoading && !hasSearchResults ? (
+              <div className="flex items-center justify-center h-32 text-sm text-tertiary">搜索中…</div>
+            ) : isSearching && !hasSearchResults ? (
               <div className="flex items-center justify-center h-32 text-sm text-tertiary">无匹配结果</div>
             ) : (
               <ControlledTreeEnvironment<FsNodeData>

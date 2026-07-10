@@ -33,6 +33,24 @@ mock.module("../src/fs-client", () => ({
   getHome: () => Promise.resolve("C:\\Users\\test"),
   getRoots: () => Promise.resolve(["C:\\", "D:\\"]),
   listDir: listDirMock,
+  searchFilesStream: (_query: string, opts: any, handlers: any) => {
+    const matches: any[] = [];
+    const roots = opts.roots.length > 0 ? opts.roots : ["C:\\"];
+    const lowerQuery = _query.toLowerCase();
+    for (const root of roots) {
+      const dirs = root === "C:\\" ? ["Users", "Windows", "Program Files"] : ["Projects", "Downloads"];
+      for (const name of dirs) {
+        if (name.toLowerCase().includes(lowerQuery)) {
+          matches.push({ name, isDir: true, path: `${root}${name}` });
+        }
+      }
+    }
+    const timer = setTimeout(() => {
+      if (matches.length) handlers.onProgress(matches);
+      handlers.onDone({ durationMs: 0, truncated: false });
+    }, 10);
+    return () => clearTimeout(timer);
+  },
 }));
 
 const { DirTreePicker } = await import("../src/components/DirTreePicker");

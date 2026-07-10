@@ -6,15 +6,18 @@ import { WSServer } from "./ws-server";
 import { SkillManager } from "./skill-manager";
 import { migrateLegacySessions } from "./migrate";
 import { ensureIntercomInstalled } from "./intercom-setup";
+import { ensureWebAccessInstalled } from "./web-access-setup";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR } from "@hiagent/shared";
 import { mkdir } from "node:fs/promises";
 import type { WSServerEvent } from "@hiagent/shared";
 
 async function main() {
-  // 首次启动：确保 pi-intercom 扩展已配置到 ~/.hiagent/settings.json
-  // （幂等，已配置则直接返回；Pi SDK 首次加载时据此自动拉取安装）
+  // 首次启动：确保核心扩展已配置到 ~/.hiagent/settings.json
+  // pi-intercom：agent 间通信
   await ensureIntercomInstalled();
+  // pi-web-access：网络搜索与 URL 抓取（web_search / fetch_content / get_search_content）
+  await ensureWebAccessInstalled();
 
   // 确保内置技能目录存在
   await mkdir(BUILTIN_SKILLS_DIR, { recursive: true });

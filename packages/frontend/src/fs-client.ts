@@ -80,3 +80,76 @@ export function uploadFile(projectId: string, name: string, content: string, tim
     send({ type: "fs:upload", id, projectId, name, content });
   });
 }
+
+export function searchFiles(
+  query: string,
+  opts: { root?: string; maxResults?: number; showHidden?: boolean; onlyDirs?: boolean; timeoutMs?: number } = {},
+): Promise<{ query: string; matches: { name: string; isDir: boolean; path: string }[]; durationMs: number; truncated: boolean }> {
+  const id = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const off = onMessage((e: any) => {
+      if (e.type === "fs:search" && e.requestId === id) {
+        clearTimeout(timer);
+        off();
+        resolve(e);
+      }
+    });
+    const timer = setTimeout(() => {
+      off();
+      reject(new Error("搜索超时"));
+    }, opts.timeoutMs ?? 30000);
+    send({ type: "fs:search", query, root: opts.root, maxResults: opts.maxResults, showHidden: opts.showHidden, onlyDirs: opts.onlyDirs, requestId: id });
+  });
+}
+
+export interface SearchMatch { name: string; isDir: boolean; path: string; }
+
+export interface SearchStreamHandlers {
+  onProgress: (matches: SearchMatch[]) => void;
+  onDone: (result: { durationMs: number; truncated: boolean }) => void;
+}
+
+export function searchFilesStream(
+  query: string,
+  opts: { roots: string[]; maxResults?: number; showHidden?: boolean; onlyDirs?: boolean },
+  handlers: SearchStreamHandlers,
+): () => void {
+  const requests = opts.roots.length > 0
+    ? opts.roots.map((root) => ({ root, requestId: crypto.randomUUID() }))
+    : [{ root: undefined as string | undefined, requestId: crypto.randomUUID() }];
+  const pending = new Set(requests.map((r) => r.requestId));
+  let totalDuration = 0;
+  let anyTruncated = false;
+  let cleaned = false;
+
+  const off = onMessage((e: any) => {
+    if (cleaned) return;
+    if (e.type === "fs:search:progress" && pending.has(e.requestId)) {
+      handlers.onProgress(e.matches);
+    } else if (e.type === "fs:search" && pending.has(e.requestId)) {
+      handlers.onProgress(e.matches);
+      pending.delete(e.requestId);
+      totalDuration += e.durationMs;
+      if (e.truncated) anyTruncated = true;
+      if (pending.size === 0) {
+        handlers.onDone({ durationMs: totalDuration, truncated: anyTruncated });
+        off();
+        cleaned = true;
+      }
+    }
+  });
+
+  for (const r of requests) {
+    send({ type: "fs:search", query, root: r.root, maxResults: opts.maxResults, showHidden: opts.showHidden, onlyDirs: opts.onlyDirs, requestId: r.requestId });
+  }
+
+  return () => {
+    if (!cleaned) {
+      off();
+      cleaned = true;
+    }
+    for (const r of requests) {
+      send({ type: "fs:search:cancel", requestId: r.requestId });
+    }
+  };
+}

@@ -166,7 +166,7 @@ model: anthropic/claude-sonnet-4
 thinking: high
 
 # 工具分配（三类来源混在一起，spawn 时转成 --tools 参数）
-tools: read, bash, edit, write, grep, find, ls, web_search, fetch_url
+tools: read, bash, edit, write, grep, find, ls, web_search, fetch_content
 
 # 技能分配（显式列表，不继承全局）
 inheritSkills: false
@@ -183,7 +183,7 @@ HiAgent 编排内核在 spawn 每个 Pi 进程时，按 agent 配置合成启动
 
 ```
 pi --mode rpc \
-    --tools read,bash,edit,write,grep,find,ls,web_search,fetch_url \  # 来自 tools 字段
+    --tools read,bash,edit,write,grep,find,ls,web_search,fetch_content \  # 来自 tools 字段
     --skill ~/.pi/agent/skills/architecture-review/SKILL.md \          # 来自 skills 字段
     --skill ~/.pi/agent/skills/debug-methodically/SKILL.md \
     --no-skills                                                        # 禁用全局技能继承

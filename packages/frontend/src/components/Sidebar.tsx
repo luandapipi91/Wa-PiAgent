@@ -1,4 +1,5 @@
 import type { AgentName } from "@hiagent/shared";
+import type { View } from "../App";
 import { NewSessionButton } from "./NewSessionButton";
 import { AgentListSection } from "./AgentListSection";
 import { ProjectList } from "./ProjectList";
@@ -12,6 +13,7 @@ interface Props {
   onNewSessionInProject: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
   onNewProject: () => void;
+  currentView?: View;
 }
 
 export function Sidebar(props: Props) {
@@ -32,6 +34,7 @@ export function Sidebar(props: Props) {
         onNewSessionInProject={props.onNewSessionInProject}
         onSelectProject={props.onSelectProject}
         onNewProject={props.onNewProject}
+        currentView={props.currentView}
       />
       <SettingsButton onClick={() => useSettingsStore.getState().open()} />
     </aside>

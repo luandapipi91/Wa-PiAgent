@@ -10,7 +10,7 @@ import type { ProviderStore } from "./provider-store";
 import type { SkillManager } from "./skill-manager";
 import { testProviderConnection } from "./provider-test";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
-import { readdir, readFile, mkdir, writeFile, lstat, copyFile } from "node:fs/promises";
+import { readdir, readFile, mkdir, writeFile, copyFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
@@ -55,7 +55,59 @@ async function uniquePath(dir: string, name: string): Promise<string> {
   }
 }
 
+export async function searchFiles(
+  root: string,
+  query: string,
+  showHidden: boolean,
+  maxResults: number,
+  maxDepth: number,
+  onlyDirs: boolean = false,
+  onMatch?: (m: DirEntry) => void,
+  shouldStop?: () => boolean,
+): Promise<{ matches: DirEntry[]; truncated: boolean }> {
+  const lowerQuery = query.toLowerCase();
+  const matches: DirEntry[] = [];
+  const queue: { dir: string; depth: number }[] = [{ dir: root, depth: 0 }];
+  const visited = new Set<string>();
+
+  while (queue.length > 0 && matches.length < maxResults) {
+    if (shouldStop?.()) break;
+    const { dir, depth } = queue.shift()!;
+    if (depth > maxDepth) continue;
+    if (visited.has(dir)) continue;
+    visited.add(dir);
+
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (matches.length >= maxResults) break;
+      if (!showHidden && entry.name.startsWith(".")) continue;
+
+      const fullPath = join(dir, entry.name);
+      const isDir = entry.isDirectory();
+      if (entry.name.toLowerCase().includes(lowerQuery)) {
+        if (!onlyDirs || isDir) {
+          const match = { name: entry.name, isDir, path: fullPath };
+          matches.push(match);
+          onMatch?.(match);
+        }
+      }
+      if (isDir && !entry.isSymbolicLink()) {
+        queue.push({ dir: fullPath, depth: depth + 1 });
+      }
+    }
+  }
+
+  return { matches, truncated: matches.length >= maxResults };
+}
+
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB
+const activeSearches = new Set<string>();
 
 export interface WSServerOpts {
   configStore: ConfigStore;
@@ -262,9 +314,20 @@ export class WSServer {
       case "fs:listDir": {
         try {
           const dirents = await readdir(event.path, { withFileTypes: true });
-          const entries: DirEntry[] = dirents
-            .map((d) => ({ name: d.name, isDir: d.isDirectory() }))
-            .filter((e) => event.showHidden || !e.name.startsWith("."));
+          const entries: DirEntry[] = (await Promise.all(
+            dirents.map(async (d) => {
+              let isDir = d.isDirectory();
+              if (d.isSymbolicLink()) {
+                try {
+                  const s = await stat(join(event.path, d.name));
+                  isDir = s.isDirectory();
+                } catch {
+                  isDir = false;
+                }
+              }
+              return { name: d.name, isDir };
+            })
+          )).filter((e) => event.showHidden || !e.name.startsWith("."));
           reply({ type: "fs:listDir", path: event.path, entries });
         } catch (e) {
           reply({ type: "fs:error", path: event.path, reason: String(e instanceof Error ? e.message : e) });
@@ -309,7 +372,7 @@ export class WSServer {
           if (!project) throw new Error(`项目不存在: ${event.projectId}`);
           if (!project.cwd) throw new Error(`项目工作目录缺失: ${project.name ?? event.projectId}`);
 
-          const sourceStat = await lstat(event.source);
+          const sourceStat = await stat(event.source);
           const isDir = sourceStat.isDirectory();
 
           if (isDir) {
@@ -326,6 +389,65 @@ export class WSServer {
         } catch (e) {
           reply({ type: "fs:copy", id: event.id, path: "", error: String(e instanceof Error ? e.message : e) });
         }
+        break;
+      }
+      case "fs:search": {
+        const requestId = event.requestId || crypto.randomUUID();
+        activeSearches.add(requestId);
+        const start = Date.now();
+        const query = event.query;
+        const root = event.root ?? homedir();
+        const maxResults = event.maxResults ?? 100;
+        const showHidden = event.showHidden ?? false;
+        const onlyDirs = event.onlyDirs ?? false;
+
+        let buffer: DirEntry[] = [];
+        let lastFlush = start;
+        const flush = () => {
+          if (buffer.length === 0 || !activeSearches.has(requestId)) return;
+          reply({
+            type: "fs:search:progress",
+            requestId,
+            query,
+            matches: buffer,
+            durationMs: Date.now() - start,
+            truncated: false,
+          });
+          buffer = [];
+          lastFlush = Date.now();
+        };
+        const onMatch = (m: DirEntry) => {
+          buffer.push(m);
+          if (buffer.length >= 50 || Date.now() - lastFlush > 200) flush();
+        };
+
+        try {
+          const { matches, truncated } = await searchFiles(
+            root, query, showHidden, maxResults, 12, onlyDirs,
+            onMatch, () => !activeSearches.has(requestId),
+          );
+          flush();
+          if (activeSearches.has(requestId)) {
+            reply({
+              type: "fs:search",
+              requestId,
+              query,
+              matches,
+              durationMs: Date.now() - start,
+              truncated,
+            });
+          }
+        } catch (e) {
+          if (activeSearches.has(requestId)) {
+            reply({ type: "fs:search", requestId, query, matches: [], durationMs: Date.now() - start, truncated: false });
+          }
+        } finally {
+          activeSearches.delete(requestId);
+        }
+        break;
+      }
+      case "fs:search:cancel": {
+        if (event.requestId) activeSearches.delete(event.requestId);
         break;
       }
       case "provider:list": {

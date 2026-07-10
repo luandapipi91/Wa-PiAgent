@@ -209,7 +209,7 @@ thinking: high
 systemPromptMode: replace           # replace | append
 inheritProjectContext: true
 inheritSkills: false
-tools: read, bash, edit, write, grep, find, ls, web_search, fetch_url
+tools: read, bash, edit, write, grep, find, ls, web_search, fetch_content
 skills: architecture-review, debug-methodically, write-tests-first
 # HiAgent 扩展字段
 mcpServers: []                      # 启用的 MCP server 名单
@@ -235,7 +235,7 @@ partners:                           # 委派关系（= 画布连线）
 │   ├── pi-mcp-adapter          ← MCP 桥接器（不显示在能力 tab）
 │   └── pi-agent-browser-native ← agent 操控浏览器（显示在能力 tab，agent 级启用）
 └── 📦 已安装（可删除）
-    ├── pi-web-access      ← 提供工具：web_search, fetch_url, pdf_extract
+    ├── pi-web-access      ← 提供工具：web_search, fetch_content, pdf_extract
     ├── bigpowers          ← 提供 73 个技能
     └── superpowers-zh     ← 提供 12 个技能
 
@@ -244,7 +244,7 @@ partners:                           # 委派关系（= 画布连线）
 Agent 配置（分配入口）— 每个 agent 独立
 └── 能力 tab（汇总卡 5 格：内置/插件/MCP/浏览器/技能）
     ├── 📁 内置工具       (read/bash/edit...)     ← 可勾选
-    ├── 🌐 插件工具       (web_search/fetch_url)  ← 可勾选（产品✓ 研发✓ PM✗ 测试✗）
+    ├── 🌐 插件工具       (web_search/fetch_content)  ← 可勾选（产品✓ 研发✓ PM✗ 测试✗）
     ├── 🔌 MCP 工具       (chrome-devtools/figma) ← 可勾选（按 MCP server 分组）
     └── 🤖 浏览器自动化   (agent_browser)         ← 可勾选（研发✓ 测试✓ 产品✗ PM✗）
 ```

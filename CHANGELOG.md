@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-07-10 — dev 脚本按 R 重启时前端端口漂移修复
+
+- **类型**：修复
+- **摘要**：修复 `bun run dev` 按 `R` 重启后，Vite 可能换端口但浏览器仍停留在旧端口的问题。`scripts/dev.ts` 改用 `lastOpenedFrontendPort` 追踪最近一次打开的端口，检测到 `Local:` URL 的端口变化时自动重新打开浏览器；`packages/frontend/vite.config.ts` 增加 `strictPort: true`，让 Vite 优先固守 5180 端口。保持端口不变时不重复开新标签页。
+- **影响范围**：`scripts/dev.ts`、`packages/frontend/vite.config.ts`
+- **验证**：`bun run typecheck` 全通过；`bun run test` 339 pass / 0 fail（DirTreePicker 等前端测试通过）
+
+## 2026-07-10 — 安装 grep/find/ls 与网络搜索抓取工具支持
+
+- **类型**：新增功能
+- **摘要**：为 HiAgent agent 扩展默认工具集。`grep` / `find` / `ls` 为 Pi 内置文件工具，直接加入默认 fallback；`web_search` / `fetch_content` / `get_search_content` 由 `pi-web-access` 扩展提供，已作为 `@hiagent/kernel` 依赖打包，并在 kernel 启动时通过 `ensureWebAccessInstalled()` 自动注册到 `~/.hiagent/settings.json`（幂等、支持从旧 `npm:pi-web-access` 格式迁移）。新增 `DEFAULT_AGENT_TOOLS` 常量统一默认工具集，避免多处硬编码。
+- **影响范围**：`packages/kernel/package.json`、`packages/kernel/src/index.ts`、`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/web-access-setup.ts`、`packages/shared/src/constants.ts`、`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/web-access-setup.test.ts`、`packages/shared/tests/constants.test.ts`
+- **验证**：新增测试覆盖 web-access 自动注册（首次/幂等/迁移/保留其他包）与默认工具集断言；`bun run typecheck` 全通过，`bun test packages/kernel/tests packages/shared/tests` 152 pass / 0 fail
+
 ## 2026-07-09 — Composer 重构收尾（composer-redesign Tasks 10-18）
 
 - **类型**：新增功能 / 重构

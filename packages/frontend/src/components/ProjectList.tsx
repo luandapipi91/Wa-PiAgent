@@ -1,4 +1,5 @@
 import { useProjectsStore } from "../store/projects";
+import type { View } from "../App";
 import { ProjectItem } from "./ProjectItem";
 
 interface Props {
@@ -6,10 +7,12 @@ interface Props {
   onNewSessionInProject: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
   onNewProject: () => void;
+  currentView?: View;
 }
 
 export function ProjectList(props: Props) {
   const { projects, sessions, currentSessionId, currentProjectId } = useProjectsStore();
+  const isNewSessionView = props.currentView === "new-session";
   return (
     <div className="flex-1 overflow-auto">
       <div className="text-[11px] font-bold text-tertiary px-2 py-1 border-t border-hairline mt-2 uppercase tracking-wide">项目</div>
@@ -20,7 +23,10 @@ export function ProjectList(props: Props) {
           sessions={sessions}
           currentSessionId={currentSessionId}
           selected={p.id === currentProjectId}
-          {...props}
+          isNewSessionView={isNewSessionView}
+          onSelectSession={props.onSelectSession}
+          onNewSessionInProject={props.onNewSessionInProject}
+          onSelectProject={props.onSelectProject}
         />
       ))}
       <button

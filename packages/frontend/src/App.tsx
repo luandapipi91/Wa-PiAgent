@@ -17,7 +17,7 @@ import { useToastStore } from "./store/toast";
 import { onMessage, getWs } from "./ws-instance";
 import { ToastContainer } from "./components/ui/Toast";
 
-type View = "empty" | "new-session" | "session" | "canvas";
+export type View = "empty" | "new-session" | "session" | "canvas";
 
 export function App() {
   // 只订阅渲染所需的最小状态；actions 在回调里用 getState() 取，避免 stale closure
@@ -87,6 +87,7 @@ export function App() {
         onNewSessionInProject={(pid) => { useProjectsStore.getState().selectProject(pid); useProjectsStore.getState().setCurrentSessionId(null); setView("new-session"); }}
         onSelectProject={(pid) => { useProjectsStore.getState().selectProject(pid); useProjectsStore.getState().setCurrentSessionId(null); setView("new-session"); }}
         onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }}
+        currentView={view}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {view === "empty" && <EmptyState onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }} />}
