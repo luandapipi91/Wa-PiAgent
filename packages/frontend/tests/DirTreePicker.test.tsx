@@ -1,65 +1,81 @@
-// DirTreePicker 组件测试：mock fs-client，验证渲染根、取消回调、选中触发 onPick、搜索过滤。
+// DirTreePicker 组件测试：让组件使用真实 fs-client，通过传输 seam 注入伪 WS 响应，
+// 验证渲染根、取消回调、选中触发 onPick、搜索过滤。
+// 不再 mock.module("../src/fs-client")：bun 的 mock.module 跨文件缓存会泄漏给
+// fs-client.test.ts（后者拿到伪造 listDir 而全挂）且无法按文件注销。
 import { test, expect, mock, beforeEach, afterAll } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { _setFsTransport, type FsTransport } from "../src/fs-client";
 
-// mock fs-client：getRoots 返回虚拟盘符，listDir 按路径返回测试目录结构
-const listDirMock = mock((path: string, showHidden?: boolean) => {
-  if (path === "C:\\") return Promise.resolve([
+// 伪 WS 传输：按 fs:* 请求类型回放响应（数据与原 mock 完全一致）。
+const handlers = new Set<(e: any) => void>();
+const emit = (e: any) => handlers.forEach(h => h(e));
+const sendCalls: any[] = [];
+
+function entriesFor(path: string, showHidden?: boolean): any[] {
+  if (path === "C:\\") return [
     { name: "Users", isDir: true },
     { name: "Windows", isDir: true },
     { name: "Program Files", isDir: true },
     { name: "pagefile.sys", isDir: false },
     { name: "README.txt", isDir: false },
     ...(showHidden ? [{ name: ".hidden-root", isDir: true }, { name: ".hidden-file", isDir: false }] : []),
-  ]);
-  if (path === "C:\\Users") return Promise.resolve([
+  ];
+  if (path === "C:\\Users") return [
     { name: "test", isDir: true },
     { name: "Public", isDir: true },
     { name: "package.json", isDir: false },
     ...(showHidden ? [{ name: ".hidden-users", isDir: true }] : []),
-  ]);
-  if (path === "C:\\Windows") return Promise.resolve([
+  ];
+  if (path === "C:\\Windows") return [
     { name: "System32", isDir: true },
     { name: "notepad.exe", isDir: false },
-  ]);
-  if (path === "D:\\") return Promise.resolve([
+  ];
+  if (path === "D:\\") return [
     { name: "Projects", isDir: true },
     { name: "Downloads", isDir: true },
-  ]);
-  return Promise.resolve([]);
+  ];
+  return [];
+}
+
+function searchMatches(root: string | undefined, query: string): any[] {
+  const r = root && root.length > 0 ? root : "C:\\";
+  const dirs = r === "C:\\" ? ["Users", "Windows", "Program Files"] : ["Projects", "Downloads"];
+  const q = query.toLowerCase();
+  return dirs
+    .filter(n => n.toLowerCase().includes(q))
+    .map(n => ({ name: n, isDir: true, path: `${r}${n}` }));
+}
+
+const sendMock = mock((e: any) => {
+  sendCalls.push(e);
+  switch (e.type) {
+    case "fs:home": emit({ type: "fs:home", home: "C:\\Users\\test" }); break;
+    case "fs:roots": emit({ type: "fs:roots", roots: ["C:\\", "D:\\"] }); break;
+    case "fs:listDir": emit({ type: "fs:listDir", path: e.path, entries: entriesFor(e.path, e.showHidden) }); break;
+    case "fs:search": {
+      // 流式：有匹配先 progress，再 done，模拟 kernel 搜索事件流（real fs-client 聚合后回调）
+      const matches = searchMatches(e.root, e.query);
+      setTimeout(() => {
+        if (matches.length) emit({ type: "fs:search:progress", requestId: e.requestId, query: e.query, matches });
+        emit({ type: "fs:search", requestId: e.requestId, query: e.query, matches, durationMs: 0, truncated: false });
+      }, 10);
+      break;
+    }
+    default: break;
+  }
 });
 
-mock.module("../src/fs-client", () => ({
-  getHome: () => Promise.resolve("C:\\Users\\test"),
-  getRoots: () => Promise.resolve(["C:\\", "D:\\"]),
-  listDir: listDirMock,
-  searchFilesStream: (_query: string, opts: any, handlers: any) => {
-    const matches: any[] = [];
-    const roots = opts.roots.length > 0 ? opts.roots : ["C:\\"];
-    const lowerQuery = _query.toLowerCase();
-    for (const root of roots) {
-      const dirs = root === "C:\\" ? ["Users", "Windows", "Program Files"] : ["Projects", "Downloads"];
-      for (const name of dirs) {
-        if (name.toLowerCase().includes(lowerQuery)) {
-          matches.push({ name, isDir: true, path: `${root}${name}` });
-        }
-      }
-    }
-    const timer = setTimeout(() => {
-      if (matches.length) handlers.onProgress(matches);
-      handlers.onDone({ durationMs: 0, truncated: false });
-    }, 10);
-    return () => clearTimeout(timer);
-  },
-}));
+const transport: FsTransport = {
+  send: sendMock,
+  onMessage: (h: (e: any) => void) => { handlers.add(h); return () => handlers.delete(h); },
+};
 
+_setFsTransport(transport);
 const { DirTreePicker } = await import("../src/components/DirTreePicker");
 
-// 本文件 mock 了 ../src/fs-client，bun 的 mock.module 跨文件缓存会泄漏给 fs-client.test.ts
-// （使后者导入到伪造的 listDir）。文件测试结束后注销全部 mock，恢复真实模块供后续文件。
-afterAll(() => mock.restore());
+afterAll(() => _setFsTransport(null));
 
-beforeEach(() => { document.body.innerHTML = ""; listDirMock.mockClear(); });
+beforeEach(() => { document.body.innerHTML = ""; handlers.clear(); sendCalls.length = 0; sendMock.mockClear(); });
 
 test("打开显示盘符根节点", async () => {
   render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
@@ -343,7 +359,7 @@ test("默认目录模式下可展开用户子目录（懒加载）", async () =>
 
   // 应触发 listDir 懒加载 C:\Windows
   await waitFor(() => {
-    expect(listDirMock).toHaveBeenCalledWith("C:\\Windows", false);
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: "fs:listDir", path: "C:\\Windows", showHidden: false }));
   }, { timeout: 3000 });
 
   // System32 子目录应出现
@@ -375,7 +391,7 @@ test("搜索过滤后目录仍保留懒加载占位符可展开", async () => {
 
   // 懒加载应被触发
   await waitFor(() => {
-    expect(listDirMock).toHaveBeenCalledWith("C:\\Windows", false);
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: "fs:listDir", path: "C:\\Windows", showHidden: false }));
   }, { timeout: 3000 });
 });
 
