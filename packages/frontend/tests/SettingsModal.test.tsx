@@ -5,8 +5,8 @@ import { useSettingsStore } from "../src/store/settings";
 import { useProvidersStore } from "../src/store/providers";
 
 beforeEach(() => {
-  useSettingsStore.setState({ showSettings: false });
-  useProvidersStore.setState({ providers: [] });
+  useSettingsStore.setState(useSettingsStore.getInitialState(), true);
+  useProvidersStore.setState(useProvidersStore.getInitialState(), true);
 });
 
 test("渲染设置标题 + 左侧模型管理菜单", () => {

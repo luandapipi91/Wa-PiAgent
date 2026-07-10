@@ -1,6 +1,7 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { ProjectItem } from "../src/components/ProjectItem";
+import { useProjectUiStore } from "../src/store/project-ui";
 import type { SessionEntity } from "@hiagent/shared";
 
 // mock ws-instance：捕获 send 调用，断言删除/重命名事件被正确发送。
@@ -19,8 +20,10 @@ const sessions: SessionEntity[] = [
   { id: "mid",   projectId: "p1", primaryAgent: "test", title: "中会话", createdAt: 0, lastActivity: 2000, piSessionFile: "" },
 ];
 
-beforeEach(() => {
+beforeEach(async () => {
   sendMock.mockClear();
+  useProjectUiStore.setState({ collapsedProjectIds: [] });
+  await useProjectUiStore.persist.rehydrate();
 });
 
 // 每个测试后清理 DOM，避免残留元素干扰后续测试
@@ -99,4 +102,19 @@ test("点击空白处关闭 popup 菜单", async () => {
   await waitFor(() => {
     expect(screen.queryByTestId("session-context-menu")).toBeNull();
   });
+});
+
+test("项目折叠状态会持久化：折叠后重新挂载仍保持折叠", () => {
+  renderIt();
+  expect(screen.getByTestId("session-new")).toBeTruthy();
+
+  fireEvent.click(screen.getByTestId("project-toggle-p1"));
+  cleanup();
+
+  // 重新挂载组件，模拟刷新页面后恢复持久化状态
+  renderIt();
+  expect(screen.queryByTestId("session-new")).toBeNull();
+
+  fireEvent.click(screen.getByTestId("project-toggle-p1"));
+  expect(screen.getByTestId("session-new")).toBeTruthy();
 });

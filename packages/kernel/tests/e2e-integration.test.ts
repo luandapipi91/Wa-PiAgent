@@ -3,6 +3,8 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
+import { ProviderStore } from "../src/provider-store";
+import { SkillManager } from "../src/skill-manager";
 import { AgentManager } from "../src/agent-manager";
 import { WSServer } from "../src/ws-server";
 import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
@@ -16,6 +18,8 @@ test("[第三层] 建项目→发消息→自动建会话", async () => {
 
   const configStore = new ConfigStore(cfgDir);
   const projectStore = new ProjectStore(projFile);
+  const providerStore = new ProviderStore(join(projFile, "..", "providers.json"));
+  const skillManager = new SkillManager(join(projFile, "..", "skills"));
 
   // mock createAgentSessionFn：返回伪 session（不真正调 SDK）
   // 测试不验证 SDK 回复，只验证 session:created 广播链路
@@ -35,7 +39,7 @@ test("[第三层] 建项目→发消息→自动建会话", async () => {
   });
 
   const server = new WSServer({
-    configStore, projectStore,
+    configStore, projectStore, providerStore, skillManager,
     agentManager,
     port: 0,  // 随机端口，避免与运行中的 kernel 冲突
   });

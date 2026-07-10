@@ -16,7 +16,7 @@ test("点击遮罩触发 onClose", () => {
   const fn = mock();
   render(<Modal onClose={fn}><div>x</div></Modal>);
   fireEvent.click(screen.getByTestId("modal-overlay"));
-  expect(fn).toHaveBeenCalledOnce();
+  expect(fn).toHaveBeenCalledTimes(1);
 });
 
 test("点击卡片内容不触发 onClose", () => {
@@ -30,7 +30,7 @@ test("ESC 触发 onClose", () => {
   const fn = mock();
   render(<Modal onClose={fn}><div>x</div></Modal>);
   fireEvent.keyDown(window, { key: "Escape" });
-  expect(fn).toHaveBeenCalledOnce();
+  expect(fn).toHaveBeenCalledTimes(1);
 });
 
 test("自定义 data-testid 透传到卡片", () => {

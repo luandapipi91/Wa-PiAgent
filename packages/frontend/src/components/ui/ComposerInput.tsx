@@ -1,31 +1,47 @@
 import { useRef, useCallback, useState } from "react";
-import type { AttachmentDraft } from "@hiagent/shared";
+import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
+import { uploadFile } from "../../fs-client";
 import { ModelSelector } from "./ModelSelector";
-import { ThinkingToggle } from "./ThinkingToggle";
+import { ThinkingSelector } from "./ThinkingSelector";
 import { AttachmentChip } from "./AttachmentChip";
-import { AttachmentPathModal } from "./AttachmentPathModal";
 
 interface Props {
   text: string;
   setText: (text: string) => void;
   model: string | null;
   setModel: (model: string) => void;
-  thinking: "disabled" | "high";
-  setThinking: (thinking: "disabled" | "high") => void;
+  thinking: ThinkingLevel;
+  setThinking: (thinking: ThinkingLevel) => void;
   attachments: AttachmentDraft[];
-  setAttachments: (attachments: AttachmentDraft[]) => void;
+  setAttachments: (value: AttachmentDraft[] | ((prev: AttachmentDraft[]) => AttachmentDraft[])) => void;
+  projectId?: string;
   onSend: () => void;
   sendDisabled?: boolean;
   placeholder?: string;
 }
 
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result);
+      const base64 = result.includes(",") ? result.split(",")[1] : result;
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error("读取文件失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
 export function ComposerInput({
   text, setText, model, setModel, thinking, setThinking,
-  attachments, setAttachments, onSend, sendDisabled, placeholder,
+  attachments, setAttachments, projectId, onSend, sendDisabled, placeholder,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [pendingFile, setPendingFile] = useState<{ file: File; kind: "image" | "file" } | null>(null);
+  const [pendingUploads, setPendingUploads] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const uploading = pendingUploads > 0;
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -34,30 +50,56 @@ export function ComposerInput({
     el.style.height = Math.min(el.scrollHeight, 300) + "px";
   }, []);
 
+  const uploadFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !projectId) return;
+    const list = Array.from(files);
+    setUploadError(null);
+    setPendingUploads(n => n + list.length);
+    for (const file of list) {
+      try {
+        const content = await readFileAsBase64(file);
+        const { path } = await uploadFile(projectId, file.name, content);
+        const kind = file.type.startsWith("image/") ? "image" : "file";
+        setAttachments(prev => [...prev, { kind, name: file.name, path, size: file.size }]);
+      } catch (err) {
+        setUploadError(err instanceof Error ? err.message : "上传失败");
+      } finally {
+        setPendingUploads(n => n - 1);
+      }
+    }
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const kind = file.type.startsWith("image/") ? "image" : "file";
-    setPendingFile({ file, kind });
+    void uploadFiles(e.target.files);
     e.target.value = "";
   };
 
-  const confirmPath = (path: string) => {
-    if (!pendingFile) return;
-    const { file, kind } = pendingFile;
-    setAttachments([...attachments, { kind, name: file.name, path, size: file.size }]);
-    setPendingFile(null);
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = e.clipboardData.files;
+    if (files.length > 0) {
+      e.preventDefault();
+      void uploadFiles(files);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    void uploadFiles(e.dataTransfer.files);
   };
 
   const removeAttachment = (idx: number) => {
-    setAttachments(attachments.filter((_, i) => i !== idx));
+    setAttachments(prev => prev.filter((_, i) => i !== idx));
   };
 
   const canSend = !sendDisabled && text.trim() && model !== null;
 
   return (
     <div className="w-full max-w-[860px] mx-auto" data-testid="composer-input">
-      <div className="rounded-2xl bg-surface border border-hairline shadow-md overflow-hidden focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--accent-soft),var(--shadow-md)] transition-all duration-150">
+      <div
+        className="rounded-2xl bg-surface border border-hairline shadow-md overflow-hidden focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--accent-soft),var(--shadow-md)] transition-all duration-150"
+        onDragOver={e => e.preventDefault()}
+        onDrop={handleDrop}
+      >
         <textarea
           ref={textareaRef}
           value={text}
@@ -68,6 +110,7 @@ export function ComposerInput({
               if (canSend) onSend();
             }
           }}
+          onPaste={handlePaste}
           placeholder={placeholder}
           rows={1}
           className="w-full bg-transparent text-primary outline-none resize-none text-sm p-4 placeholder:text-tertiary"
@@ -77,12 +120,14 @@ export function ComposerInput({
           <div className="flex items-center gap-3">
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="text-lg text-secondary hover:text-primary"
+              disabled={uploading}
+              className="text-lg text-secondary hover:text-primary disabled:opacity-50"
               title="添加附件"
             >📎</button>
             <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} />
             <ModelSelector value={model} onChange={setModel} />
-            <ThinkingToggle value={thinking} onChange={setThinking} />
+            <ThinkingSelector value={thinking} onChange={setThinking} />
+            {uploading && <span className="text-xs text-tertiary" data-testid="upload-spinner">上传中...</span>}
           </div>
           <button
             data-testid="composer-send"
@@ -93,19 +138,15 @@ export function ComposerInput({
           >↑</button>
         </div>
       </div>
+      {uploadError && (
+        <div className="text-xs text-danger mt-2 px-1" data-testid="upload-error">{uploadError}</div>
+      )}
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-2 px-1" data-testid="attachment-list">
           {attachments.map((a, i) => (
             <AttachmentChip key={i} attachment={a} onRemove={() => removeAttachment(i)} />
           ))}
         </div>
-      )}
-      {pendingFile && (
-        <AttachmentPathModal
-          fileName={pendingFile.file.name}
-          onConfirm={confirmPath}
-          onCancel={() => setPendingFile(null)}
-        />
       )}
     </div>
   );

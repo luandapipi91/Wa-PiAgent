@@ -74,6 +74,16 @@ test("removeDir 内置目录抛错", async () => {
   expect(mgr.removeDir(builtinDir)).rejects.toThrow("内置目录不可删除");
 });
 
+test("addDir 拒绝明显非技能的超大目录", async () => {
+  const bigDir = join(dir, "big-non-skill");
+  mkdirSync(bigDir, { recursive: true });
+  for (let i = 0; i < 35; i++) {
+    mkdirSync(join(bigDir, `folder-${i}`), { recursive: true });
+  }
+  const mgr = new SkillManager(dir);
+  await expect(mgr.addDir(bigDir)).rejects.toThrow("未检测到 SKILL.md");
+});
+
 test("removeDir 用户目录后 settings.json 移除", async () => {
   const userDir = join(dir, "user-skills");
   mkdirSync(userDir, { recursive: true });

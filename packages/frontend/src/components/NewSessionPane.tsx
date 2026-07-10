@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { AGENT_DEFS, randomSessionId } from "@hiagent/shared";
-import type { AgentName, AttachmentDraft } from "@hiagent/shared";
+import type { AgentName, AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
 import { useProjectsStore } from "../store/projects";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { send } from "../ws-instance";
@@ -27,7 +27,7 @@ export function NewSessionPane() {
   useEffect(() => { void loadDefaults(); }, [loadDefaults]);
 
   const [model, setModel] = useState<string | null>(defaults.model);
-  const [thinking, setThinking] = useState<"disabled" | "high">(defaults.thinking);
+  const [thinking, setThinking] = useState<ThinkingLevel>(defaults.thinking);
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
 
   useEffect(() => {
@@ -86,6 +86,7 @@ export function NewSessionPane() {
         setThinking={t => { setThinking(t); setDefaults({ thinking: t }); }}
         attachments={attachments}
         setAttachments={setAttachments}
+        projectId={projectId ?? undefined}
         onSend={handleSend}
         sendDisabled={!projectId}
         placeholder="给研发发消息..."

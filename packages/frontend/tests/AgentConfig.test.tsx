@@ -1,12 +1,13 @@
 import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
+import { AgentConfig as AgentConfigType } from "@hiagent/shared";
 import { AgentConfig } from "../src/components/AgentConfig";
 import { useAgentsStore } from "../src/store/agents";
 
-const mockConfig = {
+const mockConfig: AgentConfigType = {
   name: "dev", displayName: "研发", avatar: "⚙️", avatarColor: "a-b",
-  description: "后端", model: "claude", thinking: "high" as const,
-  systemPromptMode: "replace" as const, inheritProjectContext: true, inheritSkills: false,
+  description: "后端", model: "claude", thinking: "high",
+  systemPromptMode: "replace", inheritProjectContext: true, inheritSkills: false,
   tools: ["read"], skills: [], mcpServers: [],
   partners: { askTo: ["product"], askFrom: ["product"] },
   systemPromptBody: "你是工程师",

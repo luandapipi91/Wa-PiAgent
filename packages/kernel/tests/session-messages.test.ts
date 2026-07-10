@@ -3,6 +3,8 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
+import { ProviderStore } from "../src/provider-store";
+import { SkillManager } from "../src/skill-manager";
 import { WSServer } from "../src/ws-server";
 import type { WSClientEvent, WSServerEvent, AgentMessage } from "@hiagent/shared";
 
@@ -15,6 +17,8 @@ test("[第三层] session:messages 走 AgentSession.messages", async () => {
 
   const configStore = new ConfigStore(cfgDir);
   const projectStore = new ProjectStore(projFile);
+  const providerStore = new ProviderStore(join(projFile, "..", "providers.json"));
+  const skillManager = new SkillManager(join(projFile, "..", "skills"));
 
   // 预置：建项目 + 会话（不再预置消息，历史来自 SDK session）
   const project = await projectStore.createProject({ name: "P", cwd: "/tmp" });
@@ -39,7 +43,7 @@ test("[第三层] session:messages 走 AgentSession.messages", async () => {
     disposeSession: async () => {},
     disposeAll: async () => {},
   } as any;
-  const server = new WSServer({ configStore, projectStore, agentManager, port: 0 });
+  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, agentManager, port: 0 });
   await server.start();
 
   const ws = new WebSocket(`ws://127.0.0.1:${server.actualPort}`);
@@ -84,6 +88,8 @@ test("[第三层] session:messages 会话不存在返回空数组", async () => 
 
   const configStore = new ConfigStore(cfgDir);
   const projectStore = new ProjectStore(projFile);
+  const providerStore = new ProviderStore(join(projFile, "..", "providers.json"));
+  const skillManager = new SkillManager(join(projFile, "..", "skills"));
 
   const fakeSession = { messages: [{ role: "user", content: "x", timestamp: 1 }] };
   const agentManager = {
@@ -93,7 +99,7 @@ test("[第三层] session:messages 会话不存在返回空数组", async () => 
     disposeSession: async () => {},
     disposeAll: async () => {},
   } as any;
-  const server = new WSServer({ configStore, projectStore, agentManager, port: 0 });
+  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, agentManager, port: 0 });
   await server.start();
 
   const ws = new WebSocket(`ws://127.0.0.1:${server.actualPort}`);

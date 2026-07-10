@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WSServer } from "../src/ws-server";
@@ -136,7 +136,98 @@ describe("composer attachments integration", () => {
     }
   });
 
-  it("agent:prompt 携带 file 附件时，最终 prompt 文本包含附件引用与文件内容", async () => {
+  it("fs:upload 对同名文件自动追加序号", async () => {
+    const fileDir = makeTempDir("hiagent-upload-dup-");
+    const uploadDir = join(fileDir, ".hiagent", "uploads");
+    mkdirSync(uploadDir, { recursive: true });
+    writeFileSync(join(uploadDir, "notes.txt"), "existing", "utf8");
+
+    try {
+      await withComposerServer(async (send, recv) => {
+        send({ type: "project:create", name: "P", cwd: fileDir });
+        const created = (await recv()) as any;
+        const projectId = created.project.id;
+
+        const content = Buffer.from("new content").toString("base64");
+        send({ type: "fs:upload", id: "u2", projectId, name: "notes.txt", content });
+
+        const resp = (await recv()) as any;
+        expect(resp.path).toBe(join(uploadDir, "notes (1).txt"));
+        expect(readFileSync(resp.path, "utf8")).toBe("new content");
+      });
+    } finally {
+      rmSync(fileDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fs:upload 拒绝路径穿越文件名", async () => {
+    const fileDir = makeTempDir("hiagent-upload-traversal-");
+
+    try {
+      await withComposerServer(async (send, recv) => {
+        send({ type: "project:create", name: "P", cwd: fileDir });
+        const created = (await recv()) as any;
+        const projectId = created.project.id;
+
+        const content = Buffer.from("x").toString("base64");
+        send({ type: "fs:upload", id: "u3", projectId, name: "../escape.txt", content });
+
+        const resp = (await recv()) as any;
+        expect(resp.path).toBe(join(fileDir, ".hiagent", "uploads", "escape.txt"));
+        expect(existsSync(resp.path)).toBe(true);
+      });
+    } finally {
+      rmSync(fileDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fs:upload 将 .. / . 文件名替换为安全名称", async () => {
+    const fileDir = makeTempDir("hiagent-upload-dot-");
+
+    try {
+      await withComposerServer(async (send, recv) => {
+        send({ type: "project:create", name: "P", cwd: fileDir });
+        const created = (await recv()) as any;
+        const projectId = created.project.id;
+
+        const content = Buffer.from("x").toString("base64");
+        send({ type: "fs:upload", id: "u4", projectId, name: "..", content });
+
+        const resp = (await recv()) as any;
+        expect(resp.path).toBe(join(fileDir, ".hiagent", "uploads", "upload"));
+        expect(existsSync(resp.path)).toBe(true);
+      });
+    } finally {
+      rmSync(fileDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fs:upload 将文件写入项目目录 .hiagent/uploads 并返回绝对路径", async () => {
+    const fileDir = makeTempDir("hiagent-upload-");
+
+    try {
+      await withComposerServer(async (send, recv) => {
+        send({ type: "project:create", name: "P", cwd: fileDir });
+        const created = (await recv()) as any;
+        const projectId = created.project.id;
+
+        const content = Buffer.from("uploaded content").toString("base64");
+        send({ type: "fs:upload", id: "u1", projectId, name: "notes.txt", content });
+
+        const resp = (await recv()) as any;
+        expect(resp.type).toBe("fs:upload");
+        expect(resp.id).toBe("u1");
+        expect(resp.error).toBeUndefined();
+        expect(resp.path).toBe(join(fileDir, ".hiagent", "uploads", "notes.txt"));
+        expect(existsSync(resp.path)).toBe(true);
+        expect(readFileSync(resp.path, "utf8")).toBe("uploaded content");
+      });
+    } finally {
+      rmSync(fileDir, { recursive: true, force: true });
+    }
+  });
+
+  it("agent:prompt 携带 file 附件时，最终 prompt 文本包含 @路径引用块", async () => {
     const fileDir = makeTempDir("hiagent-attach-");
     const filePath = join(fileDir, "notes.txt");
     writeFileSync(filePath, "这是附件内容");
@@ -165,9 +256,48 @@ describe("composer attachments integration", () => {
 
         const calls = getPromptCalls();
         expect(calls).toHaveLength(1);
-        expect(calls[0].text).toContain("[附件: notes.txt]");
-        expect(calls[0].text).toContain("这是附件内容");
         expect(calls[0].text).toContain("分析这个文件");
+        expect(calls[0].text).toContain("Attachments:");
+        expect(calls[0].text).toContain("[@notes.txt]");
+        expect(calls[0].text).not.toContain("这是附件内容");
+      });
+    } finally {
+      rmSync(fileDir, { recursive: true, force: true });
+    }
+  });
+
+  it("agent:prompt 携带 image 附件时，最终 prompt 文本用 @路径引用而不是 base64", async () => {
+    const fileDir = makeTempDir("hiagent-img-");
+    const imgPath = join(fileDir, "shot.png");
+    writeFileSync(imgPath, "\x89PNG\r\n\x1a\n");
+
+    try {
+      await withComposerServer(async (send, recv, getPromptCalls) => {
+        send({ type: "project:create", name: "P", cwd: fileDir });
+        const created = (await recv()) as any;
+        const projectId = created.project.id;
+
+        send({
+          type: "agent:prompt",
+          projectId,
+          sessionId: "s-img",
+          agentName: "dev",
+          text: "看这张图",
+          model: "test-provider/test-model",
+          attachments: [{ kind: "image", name: "shot.png", path: imgPath, size: 0 }],
+        });
+
+        const ev = (await recv()) as any;
+        expect(ev.type).toBe("session:created");
+
+        await waitFor(() => getPromptCalls().length > 0);
+
+        const calls = getPromptCalls();
+        expect(calls).toHaveLength(1);
+        expect(calls[0].text).toContain("看这张图");
+        expect(calls[0].text).toContain("Attachments:");
+        expect(calls[0].text).toContain("[@shot.png]");
+        expect(calls[0].opts).toBeUndefined();
       });
     } finally {
       rmSync(fileDir, { recursive: true, force: true });

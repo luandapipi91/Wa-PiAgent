@@ -4,6 +4,7 @@ import type { ProjectEntity, SessionEntity } from "@hiagent/shared";
 import { SessionRow } from "./SessionRow";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { send } from "../ws-instance";
+import { useProjectUiStore } from "../store/project-ui";
 
 interface Props {
   project: ProjectEntity;
@@ -20,7 +21,8 @@ interface SessionMenuState { x: number; y: number; session: SessionEntity; }
 interface ProjectMenuState { x: number; y: number; }
 
 export function ProjectItem(props: Props) {
-  const [expanded, setExpanded] = useState(true);
+  const expanded = useProjectUiStore(s => s.isExpanded(props.project.id));
+  const toggleProject = useProjectUiStore(s => s.toggleProject);
   // 会话右键菜单
   const [sessionMenu, setSessionMenu] = useState<SessionMenuState | null>(null);
   // 项目右键菜单
@@ -105,11 +107,18 @@ export function ProjectItem(props: Props) {
         className={`flex items-center gap-1 px-2 py-1.5 rounded-sm transition-colors ${selected ? "bg-accent-soft" : "hover:bg-surface-hover"}`}
         onContextMenu={handleProjectContextMenu}
       >
-        <button onClick={() => setExpanded(e => !e)} className="text-tertiary w-4 text-xs">
-          {expanded ? "▼" : "▶"}
+        <button
+          onClick={() => toggleProject(project.id)}
+          className="text-tertiary w-5 text-xs flex items-center justify-center"
+          data-testid={`project-toggle-${project.id}`}
+        >
+          {expanded ? "📂" : "📁"}
         </button>
         <button
-          onClick={() => props.onSelectProject(project.id)}
+          onClick={() => {
+            toggleProject(project.id);
+            props.onSelectProject(project.id);
+          }}
           className="text-sm text-primary flex-1 truncate text-left transition-colors hover:text-brand"
           data-testid={`project-name-${project.id}`}
           title={project.cwd}

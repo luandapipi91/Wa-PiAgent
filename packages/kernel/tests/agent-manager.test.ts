@@ -1,6 +1,5 @@
 import { test, describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
-import { AgentManager, shouldSendAsImage } from "../src/agent-manager";
-import type { ModelProvider } from "@hiagent/shared";
+import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { rmSync } from "node:fs";
@@ -53,8 +52,8 @@ beforeEach(() => {
   (fakeSession.clearQueue as any).mockClear();
   (fakeSession.followUp as any).mockClear();
   (fakeSession.steer as any).mockClear();
-  fakeSession.isStreaming = false;
-  fakeSession.pendingMessageCount = 0;
+  (fakeSession as any).isStreaming = false;
+  (fakeSession as any).pendingMessageCount = 0;
   fakeUnsubscribe.mockClear();
 });
 
@@ -112,6 +111,109 @@ test("ensureStarted 复用已存在的 session（同 sessionId 不重复创建�
   expect(mockCreateAgentSession).toHaveBeenCalledTimes(1);
 });
 
+test("ensureStarted 并发调用同 sessionId 只创建一次", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  let calls = 0;
+  const slowCreate = mock(async () => {
+    calls++;
+    await new Promise((r) => setTimeout(r, 60));
+    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+
+  const am = new AgentManager({
+    projectStore,
+    configStore: null as any,
+    onEvent: () => {},
+    createAgentSessionFn: slowCreate as any,
+  });
+
+  const [a, b] = await Promise.all([
+    am.ensureStarted(project.id, "dev", session.id),
+    am.ensureStarted(project.id, "dev", session.id),
+  ]);
+
+  expect(a).toBe(b);
+  expect(calls).toBe(1);
+  expect(slowCreate).toHaveBeenCalledTimes(1);
+});
+
+test("ensureStarted 创建失败时清理 starting 锁并允许重试", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  let calls = 0;
+  const failingCreate = mock(async () => {
+    calls++;
+    await new Promise((r) => setTimeout(r, 30));
+    throw new Error("创建失败");
+  });
+
+  const am = new AgentManager({
+    projectStore,
+    configStore: null as any,
+    onEvent: () => {},
+    createAgentSessionFn: failingCreate as any,
+  });
+
+  const results = await Promise.allSettled([
+    am.ensureStarted(project.id, "dev", session.id),
+    am.ensureStarted(project.id, "dev", session.id),
+  ]);
+
+  expect(results[0].status).toBe("rejected");
+  expect(results[1].status).toBe("rejected");
+  expect(calls).toBe(1);
+
+  // 失败后重新创建应能重试，而不是永远阻塞在失败的 Promise 上
+  const recoveryAm = new AgentManager({
+    projectStore,
+    configStore: null as any,
+    onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  const sdkSession = await recoveryAm.ensureStarted(project.id, "dev", session.id);
+  expect(sdkSession).toBe(fakeSession as AgentSession);
+});
+
+test("ensureStarted 创建过程中被 dispose 时清理资源并拒绝", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  (fakeSession.dispose as any).mockClear();
+  fakeUnsubscribe.mockClear();
+
+  const slowCreate = mock(async () => {
+    await new Promise((r) => setTimeout(r, 60));
+    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+
+  const am = new AgentManager({
+    projectStore,
+    configStore: null as any,
+    onEvent: () => {},
+    createAgentSessionFn: slowCreate as any,
+  });
+
+  const startPromise = am.ensureStarted(project.id, "dev", session.id);
+  // 在创建完成前 dispose，模拟 session:delete 与 agent:prompt 并发
+  await am.disposeSession(session.id);
+
+  await expect(startPromise).rejects.toThrow("会话已清理");
+  expect(fakeUnsubscribe).toHaveBeenCalledTimes(1);
+  expect(fakeSession.dispose).toHaveBeenCalledTimes(1);
+});
+
 test("prompt — agent 空闲且无排队 → 直接 prompt（不带 streamingBehavior）", async () => {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
@@ -119,8 +221,8 @@ test("prompt — agent 空闲且无排队 → 直接 prompt（不带 streamingBe
     projectId: project.id, primaryAgent: "dev", title: "测试",
   });
 
-  fakeSession.isStreaming = false;
-  fakeSession.pendingMessageCount = 0;
+  (fakeSession as any).isStreaming = false;
+  (fakeSession as any).pendingMessageCount = 0;
 
   const am = new AgentManager({
     projectStore, configStore: null as any, onEvent: () => {},
@@ -139,8 +241,8 @@ test("prompt — agent 运行中 → followUp 排队", async () => {
     projectId: project.id, primaryAgent: "dev", title: "测试",
   });
 
-  fakeSession.isStreaming = true;
-  fakeSession.pendingMessageCount = 1;
+  (fakeSession as any).isStreaming = true;
+  (fakeSession as any).pendingMessageCount = 1;
 
   const am = new AgentManager({
     projectStore, configStore: null as any, onEvent: () => {},
@@ -184,61 +286,19 @@ test("prompt — 传入 thinking 时映射为 SDK thinking level", async () => {
     createAgentSessionFn: mockCreateAgentSession,
   });
   await am.ensureStarted(project.id, "dev", session.id);
-  await am.prompt(session.id, "你好", { model: "anthropic/test-model", thinking: "disabled" });
 
-  expect(fakeSession.setThinkingLevel).toHaveBeenCalledWith("off");
+  const cases: Array<[import("@hiagent/shared").ThinkingLevel, string]> = [
+    ["disabled", "off"],
+    ["medium", "medium"],
+    ["high", "high"],
+    ["max", "xhigh"],
+  ];
 
-  (fakeSession.setThinkingLevel as any).mockClear();
-  await am.prompt(session.id, "你好", { model: "anthropic/test-model", thinking: "high" });
-  expect(fakeSession.setThinkingLevel).toHaveBeenCalledWith("high");
-});
-
-test("prompt — 图片附件读取为 base64 并传给 session.prompt", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  // 构造一个临时图片文件
-  const imgPath = `/tmp/hiagent-img-${Date.now()}.png`;
-  tmpFiles.push(imgPath);
-  await import("node:fs/promises").then((fs) => fs.writeFile(imgPath, Buffer.from("fake-image")));
-
-  // 默认 fakeSession.model 为 test-model，标记其支持 vision 以保留原测试断言
-  fakeSession.model = { id: "test-model" } as any;
-  const providerStore = {
-    load: mock(async () => [
-      {
-        id: "p1",
-        name: "Test",
-        baseUrl: "",
-        apiKey: "",
-        api: "openai-completions",
-        models: [{ id: "test-model", contextWindow: 128000, maxTokens: 4096, supportsVision: true }],
-      },
-    ]),
-  };
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    providerStore: providerStore as any,
-    createAgentSessionFn: mockCreateAgentSession,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
-  await am.prompt(session.id, "描述这张图", {
-    model: "anthropic/test-model",
-    attachments: [{ kind: "image", path: imgPath, name: "示例.png", size: 0 }],
-  });
-
-  expect(fakeSession.prompt).toHaveBeenCalledTimes(1);
-  const [calledText, calledOpts] = (fakeSession.prompt as any).mock.calls[0];
-  expect(calledText).toContain("描述这张图");
-  expect(calledText).toContain("示例.png");
-  expect(calledOpts.images).toHaveLength(1);
-  expect(calledOpts.images[0].type).toBe("image");
-  expect(calledOpts.images[0].mimeType).toBe("image/png");
-  expect(calledOpts.images[0].data).toBe(Buffer.from("fake-image").toString("base64"));
+  for (const [input, expected] of cases) {
+    (fakeSession.setThinkingLevel as any).mockClear();
+    await am.prompt(session.id, "你好", { model: "anthropic/test-model", thinking: input });
+    expect(fakeSession.setThinkingLevel).toHaveBeenCalledWith(expected);
+  }
 });
 
 test("abort 调用 session.abort", async () => {
@@ -383,132 +443,35 @@ test("getMessages 在 session 不存在时返回空数组", () => {
   expect(am.getMessages("不存在的-session")).toEqual([]);
 });
 
-describe("shouldSendAsImage", () => {
-  it("returns false if model does not support vision", () => {
-    const providers: ModelProvider[] = [
-      {
-        id: "p1",
-        name: "DeepSeek",
-        baseUrl: "",
-        apiKey: "",
-        api: "openai-completions",
-        models: [{ id: "deepseek-chat", contextWindow: 128000, maxTokens: 4096, supportsVision: false }],
-      },
-    ];
-    expect(shouldSendAsImage("deepseek-chat", providers)).toBe(false);
-  });
-
-  it("returns true if model supports vision", () => {
-    const providers: ModelProvider[] = [
-      {
-        id: "p1",
-        name: "OpenAI",
-        baseUrl: "",
-        apiKey: "",
-        api: "openai-completions",
-        models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096, supportsVision: true }],
-      },
-    ];
-    expect(shouldSendAsImage("gpt-4o", providers)).toBe(true);
-  });
-
-  it("returns false when providers list is empty", () => {
-    expect(shouldSendAsImage("gpt-4o", [])).toBe(false);
-  });
-});
-
-test("prompt — 模型不支持 vision 时图片附件降级为文本引用", async () => {
+test("prompt — 图片附件统一用 @路径引用", async () => {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({
     projectId: project.id, primaryAgent: "dev", title: "测试",
   });
 
-  fakeSession.model = { id: "deepseek-chat" } as any;
+  (fakeSession as any).model = { id: "test-model" };
 
   const imgPath = `/tmp/hiagent-img-${Date.now()}.png`;
   tmpFiles.push(imgPath);
   await import("node:fs/promises").then((fs) => fs.writeFile(imgPath, Buffer.from("fake-image")));
 
-  const providerStore = {
-    load: mock(async () => [
-      {
-        id: "p1",
-        name: "DeepSeek",
-        baseUrl: "",
-        apiKey: "",
-        api: "openai-completions",
-        models: [{ id: "deepseek-chat", contextWindow: 128000, maxTokens: 4096, supportsVision: false }],
-      },
-    ]),
-  };
-
   const am = new AgentManager({
     projectStore,
     configStore: null as any,
-    providerStore: providerStore as any,
     onEvent: () => {},
     createAgentSessionFn: mockCreateAgentSession,
   });
   await am.ensureStarted(project.id, "dev", session.id);
   await am.prompt(session.id, "描述这张图", {
-    model: "deepseek-chat",
+    model: "test-model",
     attachments: [{ kind: "image", path: imgPath, name: "示例.png", size: 0 }],
   });
 
   expect(fakeSession.prompt).toHaveBeenCalledTimes(1);
   const [calledText, calledOpts] = (fakeSession.prompt as any).mock.calls[0];
   expect(calledText).toContain("描述这张图");
-  expect(calledText).toContain("示例.png");
-  expect(calledText).toContain(`<附件图片（模型不支持）: ${imgPath}>`);
-  expect(calledOpts?.images).toBeUndefined();
-});
-
-test("prompt — 模型支持 vision 时图片附件作为 ImageContent 发送", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  fakeSession.model = { id: "gpt-4o" } as any;
-
-  const imgPath = `/tmp/hiagent-img-${Date.now()}.png`;
-  tmpFiles.push(imgPath);
-  await import("node:fs/promises").then((fs) => fs.writeFile(imgPath, Buffer.from("fake-image")));
-
-  const providerStore = {
-    load: mock(async () => [
-      {
-        id: "p1",
-        name: "OpenAI",
-        baseUrl: "",
-        apiKey: "",
-        api: "openai-completions",
-        models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096, supportsVision: true }],
-      },
-    ]),
-  };
-
-  const am = new AgentManager({
-    projectStore,
-    configStore: null as any,
-    providerStore: providerStore as any,
-    onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
-  await am.prompt(session.id, "描述这张图", {
-    model: "gpt-4o",
-    attachments: [{ kind: "image", path: imgPath, name: "示例.png", size: 0 }],
-  });
-
-  expect(fakeSession.prompt).toHaveBeenCalledTimes(1);
-  const [calledText, calledOpts] = (fakeSession.prompt as any).mock.calls[0];
-  expect(calledText).toContain("描述这张图");
-  expect(calledText).toContain("示例.png");
-  expect(calledOpts.images).toHaveLength(1);
-  expect(calledOpts.images[0].type).toBe("image");
-  expect(calledOpts.images[0].mimeType).toBe("image/png");
-  expect(calledOpts.images[0].data).toBe(Buffer.from("fake-image").toString("base64"));
+  expect(calledText).toContain("Attachments:");
+  expect(calledText).toMatch(/@hiagent-img-\d+\.png/);
+  expect(calledOpts).toBeUndefined();
 });

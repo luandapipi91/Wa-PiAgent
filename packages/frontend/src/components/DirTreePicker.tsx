@@ -34,6 +34,7 @@ interface FsNodeData {
 interface Props {
   onPick: (cwd: string) => void;
   onCancel: () => void;
+  showFiles?: boolean;
 }
 
 function join(parent: string, name: string): string {
@@ -56,14 +57,35 @@ function findParentId(
   return null;
 }
 
+// 在非搜索状态下按 showFiles 过滤：false 时隐藏文件节点，只保留目录
+function hideFileItems(
+  allItems: Record<TreeItemIndex, TreeItem<FsNodeData>>,
+): Record<TreeItemIndex, TreeItem<FsNodeData>> {
+  const keepIds = new Set<TreeItemIndex>(["root"]);
+  for (const [id, item] of Object.entries(allItems)) {
+    if (item.data.isDir) keepIds.add(id);
+  }
+
+  const items: Record<TreeItemIndex, TreeItem<FsNodeData>> = {};
+  for (const id of keepIds) {
+    const item = allItems[id];
+    items[id] = {
+      ...item,
+      children: item.children?.filter((cid) => keepIds.has(cid)),
+    };
+  }
+  return items;
+}
+
 // 根据搜索关键字过滤 treeItems，返回过滤后的 items 和需要展开的节点 ID 列表
 function filterTreeItems(
   allItems: Record<TreeItemIndex, TreeItem<FsNodeData>>,
   query: string,
+  showFiles: boolean,
 ): { items: Record<TreeItemIndex, TreeItem<FsNodeData>>; expandIds: TreeItemIndex[] } {
   const lowerQuery = query.toLowerCase();
 
-  // 收集所有名称匹配关键字的节点
+  // 收集所有名称匹配关键字的节点（包括文件，用于定位其父目录）
   const matchingIds = new Set<TreeItemIndex>();
   for (const [id, item] of Object.entries(allItems)) {
     if (id === "root") continue;
@@ -83,6 +105,16 @@ function filterTreeItems(
     let current: TreeItemIndex | null = matchId;
     while ((current = findParentId(current, allItems))) {
       keepIds.add(current);
+    }
+  }
+
+  // 不显示文件时，把匹配的文件节点从保留列表中移除（其父目录链仍保留）
+  if (!showFiles) {
+    for (const id of matchingIds) {
+      const item = allItems[id];
+      if (item && !item.data.isDir) {
+        keepIds.delete(id);
+      }
     }
   }
 
@@ -108,7 +140,7 @@ function filterTreeItems(
   return { items, expandIds };
 }
 
-export function DirTreePicker({ onPick, onCancel }: Props) {
+export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [focusedItem, setFocusedItem] = useState<TreeItemIndex | undefined>();
   const [selectedItems, setSelectedItems] = useState<TreeItemIndex[]>([]);
@@ -159,7 +191,7 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
 
       // 逐层预加载到 home
       while (segIdx < allSegments.length) {
-        const entries = (await listDir(currentPath)).filter(e => e.isDir && (showHiddenRef.current || !e.name.startsWith(".")));
+        const entries = (await listDir(currentPath, showHiddenRef.current)).filter(e => showHiddenRef.current || !e.name.startsWith("."));
         const childList: TreeItemIndex[] = [];
         const newChildren: Record<string, TreeItem<FsNodeData>> = {};
 
@@ -168,9 +200,9 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
           childList.push(childId);
           newChildren[childId] = {
             index: childId,
-            children: [`${LD}${childId}`],
-            isFolder: true,
-            data: { path: join(currentPath, e.name), name: e.name, isDir: true },
+            children: e.isDir ? [`${LD}${childId}`] : undefined,
+            isFolder: e.isDir,
+            data: { path: join(currentPath, e.name), name: e.name, isDir: e.isDir },
           };
         }
 
@@ -219,16 +251,16 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
     for (const parentId of needLoad) {
       const parent = items[parentId];
       if (!parent) continue;
-      const entries = (await listDir(parent.data.path)).filter(e => e.isDir && (showHiddenRef.current || !e.name.startsWith(".")));
+      const entries = (await listDir(parent.data.path, showHiddenRef.current)).filter(e => showHiddenRef.current || !e.name.startsWith("."));
       const realChildren: TreeItemIndex[] = [];
       for (const [i, e] of entries.entries()) {
         const childId = `${parentId}_${i}`;
         realChildren.push(childId);
         next[childId] = {
           index: childId,
-          children: [`${LD}${childId}`],
-          isFolder: true,
-          data: { path: join(parent.data.path, e.name), name: e.name, isDir: true },
+          children: e.isDir ? [`${LD}${childId}`] : undefined,
+          isFolder: e.isDir,
+          data: { path: join(parent.data.path, e.name), name: e.name, isDir: e.isDir },
         };
       }
       next[parentId] = { ...parent, children: realChildren };
@@ -252,7 +284,15 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
       setSelectedItems(ids);
       setFocusedItem(ids[0]);
       const item = treeItemsRef.current[ids[0]];
-      if (item?.data?.path) setSelectedPath(item.data.path);
+      if (item?.data?.path) {
+        if (item.data.isDir) {
+          setSelectedPath(item.data.path);
+        } else {
+          const parentId = findParentId(ids[0], treeItemsRef.current);
+          const parent = parentId ? treeItemsRef.current[parentId] : null;
+          setSelectedPath(parent?.data?.path ?? item.data.path);
+        }
+      }
     } else {
       setSelectedItems([]);
       setFocusedItem(undefined);
@@ -266,11 +306,12 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
   // 搜索过滤：根据 searchQuery 过滤 treeItems，计算展开列表
   const { displayItems, searchExpandIds } = useMemo(() => {
     if (!searchQuery.trim()) {
-      return { displayItems: treeItems, searchExpandIds: null };
+      const items = showFiles ? treeItems : hideFileItems(treeItems);
+      return { displayItems: items, searchExpandIds: null };
     }
-    const result = filterTreeItems(treeItems, searchQuery.trim());
+    const result = filterTreeItems(treeItems, searchQuery.trim(), showFiles);
     return { displayItems: result.items, searchExpandIds: result.expandIds };
-  }, [treeItems, searchQuery]);
+  }, [treeItems, searchQuery, showFiles]);
 
   const isSearching = searchQuery.trim().length > 0;
   const hasSearchResults = isSearching
@@ -290,22 +331,21 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
       <style>{TREE_STYLES}</style>
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" data-testid="dir-picker">
       <div className="bg-surface w-[600px] max-h-[80vh] rounded-lg flex flex-col border border-hairline shadow-lg" style={{ background: "#FFFFFF" }}>
-        <div className="p-4 border-b border-surface0 text-text font-medium">
-          选择项目目录
-          {selectedPath && <span className="ml-3 text-xs text-blue font-mono">{selectedPath}</span>}
+        <div className="p-4 border-b border-surface0 flex items-center justify-between gap-3">
+          <div className="text-text font-medium truncate">
+            选择项目目录
+            {selectedPath && <span className="ml-3 text-xs text-blue font-mono">{selectedPath}</span>}
+          </div>
+          <input
+            type="text"
+            className="w-48 px-3 py-1.5 text-sm border border-hairline rounded bg-surface0 text-text placeholder:text-tertiary focus:outline-none focus:border-blue"
+            placeholder="搜索文件名…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            data-testid="dir-search"
+          />
         </div>
         <div className="flex-1 overflow-auto p-2 text-text" style={{ minHeight: 320 }}>
-          {/* 搜索框 */}
-          <div className="mb-2">
-            <input
-              type="text"
-              className="w-full px-3 py-1.5 text-sm border border-hairline rounded bg-surface0 text-text placeholder:text-tertiary focus:outline-none focus:border-blue"
-              placeholder="搜索目录…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              data-testid="dir-search"
-            />
-          </div>
           {isSearching && !hasSearchResults ? (
             <div className="flex items-center justify-center h-32 text-sm text-tertiary">无匹配结果</div>
           ) : (

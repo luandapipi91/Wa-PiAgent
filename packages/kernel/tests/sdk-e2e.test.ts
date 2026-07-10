@@ -56,12 +56,16 @@ afterAll(async () => {
 
   const { ConfigStore } = await import("../src/config-store");
   const { ProjectStore } = await import("../src/project-store");
+  const { ProviderStore } = await import("../src/provider-store");
+  const { SkillManager } = await import("../src/skill-manager");
   const { AgentManager } = await import("../src/agent-manager");
   const { WSServer } = await import("../src/ws-server");
 
   const configStore = new ConfigStore();
   const projectStore = new ProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: TEST_DIR });
+  const providerStore = new ProviderStore();
+  const skillManager = new SkillManager(TEST_DIR);
 
   // 验证 agent 配置能读到
   const devConfig = await configStore.getAgent("dev");
@@ -69,7 +73,7 @@ afterAll(async () => {
   if (!devConfig) throw new Error("dev agent 配置未找到");
 
   const serverInstance = new WSServer({
-    configStore, projectStore, agentManager: null as any, port: 19880,
+    configStore, projectStore, providerStore, skillManager, agentManager: null as any, port: 19880,
   });
 
   const agentManager = new AgentManager({
