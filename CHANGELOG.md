@@ -4,6 +4,83 @@
 
 ---
 
+## 2026-07-09 — Composer 重构收尾（composer-redesign Tasks 10-18）
+
+- **类型**：新增功能 / 重构
+- **摘要**：完成 Composer 重构主体工作。前端 `Composer` 与 `NewSessionPane` 统一接入可复用 `ComposerInput` 胶囊输入组件与 `composer-prefs` Zustand store，实现模型切换、思考强度（thinking level）开关、附件（图片/文件/文本片段）选择与展示；per-session 偏好与全局默认值通过 IndexedDB 持久化。供应商模型新增 `supportsVision` 开关，kernel `agent:prompt` 支持按请求切换模型与 thinking level，图片附件根据模型 vision 支持能力决定直接作为 images 发送或降级为文本引用；新增 `fs:readFile` WS 接口供前端读取本地文件内容。同步完成四层验收测试：单元测试（frontend/kernel/shared）、组件测试（ComposerInput/NewSessionPane/Composer 等）、API 集成测试（composer-attachments）、E2E 测试（Playwright composer.spec）。
+- **影响范围**：`packages/frontend/src/components/{Composer,NewSessionPane}.tsx`、`packages/frontend/src/store/composer-prefs.ts`、`packages/frontend/src/components/ui/ComposerInput.tsx`、`packages/frontend/src/components/settings/ProviderFormModal.tsx`、`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/src/index.ts`、`packages/kernel/tests/composer-attachments.test.ts`、`packages/frontend/e2e/composer.spec.ts` 等
+- **验证**：`bun test`（frontend 134 pass / 1 skip / 2 fail；kernel + shared 130 pass / 3 skip / 0 fail），其中 frontend 2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关；`bunx playwright test packages/frontend/e2e/composer.spec.ts` 4/4 通过
+
+## 2026-07-09 — 前端 fs-client 新增 readFile（composer-redesign Task 9）
+
+- **类型**：新增功能
+- **摘要**：在 `packages/frontend/src/fs-client.ts` 中新增 `readFile(path)` Promise 封装，发送 WS `fs:readFile` 请求并监听对应的 `fs:readFile` 响应；成功返回 `{ content, mimeType }`，失败时按响应的 `error` 字段 reject。新增对应单元测试覆盖成功与错误路径。
+- **影响范围**：`packages/frontend/src/fs-client.ts`、`packages/frontend/tests/fs-client.test.ts`
+- **验证**：`bun test packages/frontend/tests/fs-client.test.ts` 2/2 通过；`bun test` 全量 130 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
+## 2026-07-09 — 共用 ComposerInput 胶囊输入组件（composer-redesign Task 8）
+
+- **类型**：新增功能
+- **摘要**：新增可复用胶囊输入组件 `packages/frontend/src/components/ui/ComposerInput.tsx`，组合 textarea 自适应高度、附件按钮/文件选择、`ModelSelector`、`ThinkingToggle`、发送按钮以及附件 Chip 列表；选择本地文件后通过 `AttachmentPathModal` 补填绝对路径并生成 `AttachmentDraft`。暴露 `text`/`setText`、`model`/`setModel`、`thinking`/`setThinking`、`attachments`/`setAttachments`、`onSend`、`sendDisabled`、`placeholder` props，供 `Composer` 与 `NewSessionPane` 复用。
+- **影响范围**：`packages/frontend/src/components/ui/ComposerInput.tsx`、`packages/frontend/tests/ComposerInput.test.tsx`
+- **验证**：`bun test packages/frontend/tests/ComposerInput.test.tsx` 1/1 通过；`bun test` 全量 128 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
+## 2026-07-09 — 附件路径补填弹窗（composer-redesign Task 7）
+
+- **类型**：新增功能
+- **摘要**：新增 `AttachmentPathModal` 弹窗组件，用于在用户选择本地文件后补填浏览器无法暴露的绝对路径。组件接收 `fileName`、`onConfirm(path)`、`onCancel()` 三个 props，基于现有 `Modal` 容器实现，包含路径输入框、取消/确认按钮；输入为空时确认按钮禁用，点击确认回传 trimmed 后的路径。
+- **影响范围**：`packages/frontend/src/components/ui/AttachmentPathModal.tsx`、`packages/frontend/tests/AttachmentPathModal.test.tsx`
+- **验证**：`bun test packages/frontend/tests/AttachmentPathModal.test.tsx` 1/1 通过；`bun test` 全量 127 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
+## 2026-07-09 — AttachmentChip 组件（composer-redesign Task 6）
+
+- **类型**：新增功能
+- **摘要**：新增可复用附件 Chip 组件 `packages/frontend/src/components/ui/AttachmentChip.tsx`，接收 `AttachmentDraft` 与 `onRemove` props，根据附件类型渲染不同图标（image → 📷，snippet → 📝，file → 📄），snippet 超长时截断为 20 字符并追加 `…`；移除按钮补充 `type="button"` 与 `aria-label="移除附件"`。
+- **影响范围**：`packages/frontend/src/components/ui/AttachmentChip.tsx`、`packages/frontend/tests/AttachmentChip.test.tsx`
+- **验证**：`bun test packages/frontend/tests/AttachmentChip.test.tsx` 4/4 通过；`bun test` 全量 126 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
+## 2026-07-09 — ModelSelector 组件（composer-redesign Task 4）
+
+- **类型**：新增功能
+- **摘要**：新增可复用模型选择器组件 `packages/frontend/src/components/ui/ModelSelector.tsx`，从 `useProvidersStore` 读取已配置供应商及其模型，渲染为原生 `<select>` 下拉框；无模型时显示"未配置模型"提示。组件接受 `value`/`onChange`/`disabled` 三个 props。
+- **影响范围**：`packages/frontend/src/components/ui/ModelSelector.tsx`、`packages/frontend/tests/ModelSelector.test.tsx`
+- **验证**：`bun test packages/frontend/tests/ModelSelector.test.tsx` 4/4 通过；`bun test` 全量 121 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
+## 2026-07-09 — 补充 composer-prefs 缺失测试（composer-redesign Task 3 fix round）
+
+- **类型**：测试补充
+- **摘要**：修复 review 中指出的测试缺口：为 `loadDefaults` 新增从 IndexedDB 加载默认值到 state 的用例；为 `loadSession` 新增读取已存 session 偏好以及无记录时回退到默认值的用例；为 `setDefaults` 新增更新 state 并持久化到 IndexedDB 的用例。`composer-prefs.test.ts` 测试用例由 1 个扩展为 5 个。
+- **影响范围**：`packages/frontend/tests/composer-prefs.test.ts`
+- **验证**：`bun test packages/frontend/tests/composer-prefs.test.ts` 5/5 通过；`bun test` 全量 117 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
+## 2026-07-09 — Composer 偏好 Zustand Store（composer-redesign Task 3）
+
+- **类型**：新增功能
+- **摘要**：在 Task 2 的 IndexedDB 封装之上新增 `packages/frontend/src/store/composer-prefs.ts`，使用 Zustand 暴露 composer 偏好给 React 组件。提供 `useComposerPrefsStore`，包含 `loadDefaults`、`loadSession`、`setSessionPrefs`、`setDefaults` 四个 action；`setSessionPrefs` 会同时更新 per-session 状态并将 model/thinking 回写为全局默认值，数据通过 `composer-db.ts` 持久化到 IndexedDB。
+- **影响范围**：`packages/frontend/src/store/composer-prefs.ts`、`packages/frontend/tests/composer-prefs.test.ts`
+- **验证**：`bun test packages/frontend/tests/composer-prefs.test.ts` 1/1 通过；`bun test` 全量 113 pass / 1 skip / 2 fail，2 个失败为 `store-providers.test.ts` 预存问题，与本次改动无关
+
+## 2026-07-09 — IndexedDB 封装 composer 偏好（composer-redesign Task 2）
+
+- **类型**：新增功能
+- **摘要**：新增 `packages/frontend/src/store/composer-db.ts`，使用 `idb` 封装 IndexedDB 读写 per-session composer 偏好（model/thinking/attachments）与全局默认值；暴露 `getSessionPrefs` / `setSessionPrefs` / `deleteSessionPrefs` / `getDefaults` / `setDefaults` 五个接口。由于 Task 1 未导出 `AttachmentDraft`，本次在 `packages/shared/src/types.ts` 补充该类型，供 composer-db 及后续组件使用。前端测试环境通过 `fake-indexeddb` 提供 IndexedDB polyfill。
+- **影响范围**：`packages/frontend/src/store/composer-db.ts`、`packages/frontend/tests/composer-db.test.ts`、`packages/frontend/tests/happydom-setup.ts`、`packages/frontend/package.json`、`packages/shared/src/types.ts`
+- **验证**：`bun test packages/frontend/tests/composer-db.test.ts` 4/4 通过（含 fix round 补充的 2 个用例）；`bun run test` 通过 230 项，仅存在 2 个与本次改动无关的预失败（`packages/frontend/tests/store-providers.test.ts`）。`bun run --filter @hiagent/shared typecheck` 通过；`@hiagent/frontend` typecheck 仍有既有错误，与本次改动无关。
+
+## 2026-07-09 — 补充 composer-db 缺失测试（composer-redesign Task 2 fix round）
+
+- **类型**：测试补充
+- **摘要**：修复 review 中指出的测试缺口：为 `deleteSessionPrefs` 新增删除后读取返回 `undefined` 的用例；为 `getDefaults` 新增 IndexedDB 中无记录时返回 `{ model: null, thinking: "disabled" }` 兜底的用例。`composer-db.test.ts` 测试用例由 2 个扩展为 4 个。
+- **影响范围**：`packages/frontend/tests/composer-db.test.ts`
+- **验证**：`bun test packages/frontend/tests/composer-db.test.ts` 4/4 通过；全量前端测试仍仅存在 2 个与本次改动无关的预失败（`packages/frontend/tests/store-providers.test.ts`）。
+
+## 2026-07-09 — 扩展共享类型（composer-redesign Task 1）
+
+- **类型**：新增功能
+- **摘要**：为重构聊天输入组件扩展共享类型。`PromptEvent` 新增 `model`/`thinking`/`attachments` 可选字段；新增 `AttachmentRef` 联合类型（image/file/snippet）；新增 `FSReadFileRequest`/`FSReadFileResult` WS 事件并加入 `WSClientEvent`/`WSServerEvent` 联合；`ProviderModel` 新增 `supportsVision` 可选字段。
+- **影响范围**：`packages/shared/src/types.ts`、`packages/shared/src/providers.ts`、`packages/shared/tests/types.test.ts`
+- **验证**：`bun run --filter @hiagent/shared typecheck` 通过；`bun test packages/shared/tests/types.test.ts` 9/9 通过
+
 ## 2026-07-09 — DirTreePicker 搜索过滤功能
 
 - **类型**：新增功能

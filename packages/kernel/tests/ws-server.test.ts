@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { rmSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { WSServer } from "../src/ws-server";
 import { ConfigStore } from "../src/config-store";
@@ -15,7 +15,7 @@ function tmp(p: string) { return join(import.meta.dir, p + Math.random().toStrin
 // prompt/abort/disposeSession 记录调用，便于断言
 function makeMockAgentManager(messages: AgentMessage[] = []) {
   const calls = {
-    prompt: [] as Array<{ sessionId: string; text: string }>,
+    prompt: [] as Array<{ sessionId: string; text: string; opts?: any }>,
     abort: [] as string[],
     disposeSession: [] as string[],
     ensureStarted: [] as Array<{ projectId: string; agentName: string; sessionId: string }>,
@@ -34,8 +34,8 @@ function makeMockAgentManager(messages: AgentMessage[] = []) {
       calls.ensureStarted.push({ projectId, agentName, sessionId });
       return fakeSession;
     },
-    prompt: async (sessionId: string, text: string) => {
-      calls.prompt.push({ sessionId, text });
+    prompt: async (sessionId: string, text: string, opts?: any) => {
+      calls.prompt.push({ sessionId, text, opts });
     },
     abort: async (sessionId: string) => {
       calls.abort.push(sessionId);
@@ -118,7 +118,7 @@ test("session:create 隐含于 agent:prompt（首条消息建会话）", async (
     // 验证调了 agentManager.prompt(sessionId, text) —— 新 API 不再传 projectId/agentName
     // 等 ensureStarted 完成（事件链结束后 prompt 应已被调用）
     await new Promise(r => setTimeout(r, 100));
-    expect(calls.prompt).toContainEqual({ sessionId: "s-fake", text: "你好" });
+    expect(calls.prompt.some(c => c.sessionId === "s-fake" && c.text === "你好")).toBe(true);
   });
 });
 
@@ -163,7 +163,38 @@ test("agent:prompt 不再手动广播用户消息（SDK subscribe 自动产生�
     // mock AgentManager 不触发 subscribe，所以这里不应收到 sdk:event/message_start(user)
     await new Promise(r => setTimeout(r, 100));
     // 验证 prompt 被调用
-    expect(calls.prompt).toContainEqual({ sessionId: "s-msg", text: "hello" });
+    expect(calls.prompt.some(c => c.sessionId === "s-msg" && c.text === "hello")).toBe(true);
+  });
+});
+
+test("agent:prompt 透传 model/thinking/attachments 给 AgentManager.prompt", async () => {
+  const { agentManager, calls } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv) => {
+    send({ type: "project:create", name: "P", cwd: "/p" });
+    const created = await recv() as any;
+    const projectId = created.project.id;
+    const attachments = [{ kind: "image" as const, path: "/tmp/x.png", name: "x.png", size: 0 }];
+    send({
+      type: "agent:prompt",
+      projectId,
+      sessionId: "s-opts",
+      agentName: "dev",
+      text: "hi",
+      model: "anthropic/claude",
+      thinking: "high",
+      attachments,
+    });
+    const ev = await recv() as any;
+    expect(ev.type).toBe("session:created");
+    await new Promise(r => setTimeout(r, 100));
+    const call = calls.prompt.find(c => c.sessionId === "s-opts");
+    expect(call).toBeDefined();
+    expect(call!.text).toBe("hi");
+    expect(call!.opts).toEqual({
+      model: "anthropic/claude",
+      thinking: "high",
+      attachments,
+    });
   });
 });
 
@@ -259,5 +290,34 @@ test("project:open-dir 对不存在的项目不崩溃", async () => {
     // 等 100ms 让 handler 执行完毕
     await new Promise(r => setTimeout(r, 100));
     // 不崩溃即通过
+  });
+});
+
+test("fs:readFile 返回文件 base64 内容与 mimeType", async () => {
+  const { agentManager } = makeMockAgentManager();
+  const filePath = tmp("readfile-") + ".txt";
+  writeFileSync(filePath, "hello world");
+  try {
+    await withServer(agentManager, async (send, recv) => {
+      send({ type: "fs:readFile", path: filePath });
+      const resp = await recv() as any;
+      expect(resp.type).toBe("fs:readFile");
+      expect(resp.path).toBe(filePath);
+      expect(resp.mimeType).toBe("text/plain");
+      expect(resp.content).toBe(Buffer.from("hello world").toString("base64"));
+    });
+  } finally {
+    rmSync(filePath, { force: true });
+  }
+});
+
+test("fs:readFile 文件不存在返回 fs:error", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv) => {
+    send({ type: "fs:readFile", path: "/nonexistent/path/to/file.txt" });
+    const resp = await recv() as any;
+    expect(resp.type).toBe("fs:error");
+    expect(resp.path).toBe("/nonexistent/path/to/file.txt");
+    expect(resp.reason).toContain("ENOENT");
   });
 });

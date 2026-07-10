@@ -10,11 +10,34 @@ import type { ProviderStore } from "./provider-store";
 import type { SkillManager } from "./skill-manager";
 import { testProviderConnection } from "./provider-test";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
+import { extname } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
+
+function getMimeType(filePath: string): string {
+  const map: Record<string, string> = {
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".html": "text/html",
+    ".css": "text/css",
+    ".js": "text/javascript",
+    ".mjs": "text/javascript",
+    ".json": "application/json",
+    ".ts": "text/typescript",
+    ".tsx": "text/typescript-jsx",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".pdf": "application/pdf",
+  };
+  const ext = extname(filePath).toLowerCase();
+  return map[ext] ?? (Bun.file(filePath).type || "application/octet-stream");
+}
 
 export interface WSServerOpts {
   configStore: ConfigStore;
@@ -152,7 +175,11 @@ export class WSServer {
         // 启动/提示失败不抛——转成 error 事件，避免 WS 消息处理崩溃
         try {
           await this.opts.agentManager.ensureStarted(event.projectId, event.agentName, session.id);
-          await this.opts.agentManager.prompt(session.id, event.text);
+          await this.opts.agentManager.prompt(session.id, event.text, {
+            model: event.model,
+            thinking: event.thinking,
+            attachments: event.attachments,
+          });
         } catch (err) {
           this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}`, agentName: event.agentName });
         }
@@ -221,6 +248,17 @@ export class WSServer {
             .map((d) => ({ name: d.name, isDir: d.isDirectory() }))
             .filter((e) => !e.name.startsWith("."));
           reply({ type: "fs:listDir", path: event.path, entries });
+        } catch (e) {
+          reply({ type: "fs:error", path: event.path, reason: String(e instanceof Error ? e.message : e) });
+        }
+        break;
+      }
+      case "fs:readFile": {
+        try {
+          const buffer = await readFile(event.path);
+          const content = buffer.toString("base64");
+          const mimeType = getMimeType(event.path);
+          reply({ type: "fs:readFile", path: event.path, content, mimeType });
         } catch (e) {
           reply({ type: "fs:error", path: event.path, reason: String(e instanceof Error ? e.message : e) });
         }
