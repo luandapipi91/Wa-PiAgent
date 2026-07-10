@@ -53,7 +53,7 @@ export function ComposerInput({
     setAttachments(attachments.filter((_, i) => i !== idx));
   };
 
-  const canSend = !sendDisabled && text.trim();
+  const canSend = !sendDisabled && text.trim() && model !== null;
 
   return (
     <div className="w-full max-w-[860px] mx-auto" data-testid="composer-input">

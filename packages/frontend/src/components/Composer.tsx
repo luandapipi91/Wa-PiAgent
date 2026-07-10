@@ -29,7 +29,7 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
   const attachments = prefs?.attachments ?? [];
 
   const handleSend = () => {
-    if (!text.trim() || sendingRef.current || !projectId) return;
+    if (!text.trim() || !model || sendingRef.current || !projectId) return;
     sendingRef.current = true;
     send({
       type: "agent:prompt",
@@ -37,7 +37,7 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
       sessionId,
       agentName,
       text,
-      model: model ?? undefined,
+      model,
       thinking,
       attachments: attachments.length > 0 ? attachments : undefined,
     });

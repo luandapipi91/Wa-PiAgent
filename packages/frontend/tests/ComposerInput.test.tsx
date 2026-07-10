@@ -13,7 +13,7 @@ test("calls onSend with text when clicking send", () => {
     <ComposerInput
       text="hello"
       setText={mock()}
-      model={null}
+      model="gpt-4o"
       setModel={mock()}
       thinking="disabled"
       setThinking={mock()}

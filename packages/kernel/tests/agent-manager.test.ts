@@ -8,16 +8,13 @@ import { rmSync } from "node:fs";
 // mock createAgentSession 返回 fake AgentSession
 // 测试不依赖真实 SDK 的 createAgentSession（避免子进程 / 网络 / 文件系统副作用）
 const fakeUnsubscribe = mock(() => {});
-const fakeModel = {
-  id: "test-model",
-  provider: "anthropic",
-  name: "Test Model",
-  api: {},
-  baseUrl: "",
-  reasoning: false,
-};
+const fakeModels = [
+  { id: "test-model", provider: "anthropic", name: "Test Model", api: {}, baseUrl: "", reasoning: false },
+  { id: "deepseek-chat", provider: "deepseek", name: "DeepSeek Chat", api: {}, baseUrl: "", reasoning: false },
+  { id: "gpt-4o", provider: "openai", name: "GPT-4o", api: {}, baseUrl: "", reasoning: false },
+];
 const fakeModelRegistry = {
-  getAll: () => [fakeModel],
+  getAll: () => fakeModels,
   hasConfiguredAuth: () => true,
 };
 const fakeSession: Partial<AgentSession> = {
@@ -130,7 +127,7 @@ test("prompt — agent 空闲且无排队 → 直接 prompt（不带 streamingBe
     createAgentSessionFn: mockCreateAgentSession,
   });
   await am.ensureStarted(project.id, "dev", session.id);
-  await am.prompt(session.id, "你好");
+  await am.prompt(session.id, "你好", { model: "anthropic/test-model" });
 
   expect(fakeSession.prompt).toHaveBeenCalledWith("你好");
 });
@@ -150,7 +147,7 @@ test("prompt — agent 运行中 → followUp 排队", async () => {
     createAgentSessionFn: mockCreateAgentSession,
   });
   await am.ensureStarted(project.id, "dev", session.id);
-  await am.prompt(session.id, "排队消息");
+  await am.prompt(session.id, "排队消息", { model: "anthropic/test-model" });
 
   expect(fakeSession.prompt).toHaveBeenCalledWith("排队消息", { streamingBehavior: "followUp" });
 });
@@ -187,12 +184,12 @@ test("prompt — 传入 thinking 时映射为 SDK thinking level", async () => {
     createAgentSessionFn: mockCreateAgentSession,
   });
   await am.ensureStarted(project.id, "dev", session.id);
-  await am.prompt(session.id, "你好", { thinking: "disabled" });
+  await am.prompt(session.id, "你好", { model: "anthropic/test-model", thinking: "disabled" });
 
   expect(fakeSession.setThinkingLevel).toHaveBeenCalledWith("off");
 
   (fakeSession.setThinkingLevel as any).mockClear();
-  await am.prompt(session.id, "你好", { thinking: "high" });
+  await am.prompt(session.id, "你好", { model: "anthropic/test-model", thinking: "high" });
   expect(fakeSession.setThinkingLevel).toHaveBeenCalledWith("high");
 });
 
@@ -230,6 +227,7 @@ test("prompt — 图片附件读取为 base64 并传给 session.prompt", async (
   });
   await am.ensureStarted(project.id, "dev", session.id);
   await am.prompt(session.id, "描述这张图", {
+    model: "anthropic/test-model",
     attachments: [{ kind: "image", path: imgPath, name: "示例.png", size: 0 }],
   });
 
@@ -454,6 +452,7 @@ test("prompt — 模型不支持 vision 时图片附件降级为文本引用", a
   });
   await am.ensureStarted(project.id, "dev", session.id);
   await am.prompt(session.id, "描述这张图", {
+    model: "deepseek-chat",
     attachments: [{ kind: "image", path: imgPath, name: "示例.png", size: 0 }],
   });
 
@@ -500,6 +499,7 @@ test("prompt — 模型支持 vision 时图片附件作为 ImageContent 发送",
   });
   await am.ensureStarted(project.id, "dev", session.id);
   await am.prompt(session.id, "描述这张图", {
+    model: "gpt-4o",
     attachments: [{ kind: "image", path: imgPath, name: "示例.png", size: 0 }],
   });
 
