@@ -81,6 +81,36 @@ test("toolResult 按 toolCallId 关联到前一个 assistant 消息，不单独�
   expect(screen.getByText("文件内容")).toBeTruthy();
 });
 
+test("成功的 toolCall（result 且非 isError）→ ✓ 图标 + 绿色（success）样式", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        assistantMsg(1, [{ type: "toolCall", id: "ok1", name: "read", arguments: { path: "/a" } }]),
+        { agentName: "product", message: { role: "toolResult", toolCallId: "ok1", toolName: "read", content: [{ type: "text", text: "内容" }], isError: false, timestamp: 2 } },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.getByText("✓")).toBeTruthy();
+  const btn = screen.getByTestId("toolcall-ok1").querySelector("button")!;
+  expect(btn.className).toContain("text-success");
+});
+
+test("失败的 toolCall（result.isError）→ ✗ 图标 + 红色（danger）样式", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        assistantMsg(1, [{ type: "toolCall", id: "e1", name: "bash", arguments: { command: "bad" } }]),
+        { agentName: "product", message: { role: "toolResult", toolCallId: "e1", toolName: "bash", content: [{ type: "text", text: "命令失败" }], isError: true, timestamp: 2 } },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.getByText("✗")).toBeTruthy();
+  const btn = screen.getByTestId("toolcall-e1").querySelector("button")!;
+  expect(btn.className).toContain("text-danger");
+});
+
 test("intercom toolCall 渲染 DelegateCard（委派卡片）", () => {
   useSessionStore.setState({
     messagesBySession: {
@@ -391,4 +421,70 @@ test("streaming 有内容 → 不显示 loading，正常渲染流式消息", () 
   render(<MessageList sessionId="s1" />);
   expect(screen.queryByTestId("loading-s1")).toBeNull();
   expect(screen.getByText("部分回复")).toBeTruthy();
+});
+
+// ── 多 block 回合：流式期间全程只有一个机器人头像 ──
+// SDK 对同 turn 的每个 block（thinking/text/toolCall）发独立 message_start/end。
+// block N（如 thinking）message_end 后已定稿进 messages，block N+1（如 text）message_start
+// 又把 streaming 填满——若各行其道会渲染出「已提交 assistant 行 + 流式 assistant 行」两个头像。
+// 期望：同 agent 同回合的流式增量并入最后一条已定稿 assistant 行，全程一个头像。
+
+test("同 agent 多 block 回合流式中：已提交 thinking 行 + 流式 text 行 → 合并为单行（仅一个头像）", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "你好", timestamp: 1 } },
+        { agentName: "dev", message: { role: "assistant", content: [{ type: "thinking", thinking: "我先想想" }], model: "m", stopReason: "end_turn", timestamp: 2 } },
+      ],
+    },
+    streamingBySession: {
+      s1: { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "正在回答" }], model: "m", stopReason: "stop", timestamp: 3 } },
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  // 只有一个机器人头像
+  expect(screen.getAllByText("🤖")).toHaveLength(1);
+  // 已提交 thinking（折叠面板按钮）与流式 text 同处一行，均可见
+  expect(screen.getByText("正在回答")).toBeTruthy();
+  expect(screen.getByText(/思考过程/)).toBeTruthy();
+});
+
+// ── 同一回合合并：历史加载/工具调用把一个回合拆成多条 assistant（中间夹 toolResult）──
+// 一个 agent 回合（中间没有用户消息）无论被 SDK/历史拆成多少条 assistant，都应聚合成一行/一个头像。
+// toolResult 不单独成行（preprocess 已把它挂到前一个 assistant），但会隔断相邻 assistant 的合并——
+// 这里验证渲染层跨过 toolResult 把同一 agent 的连续 assistant 合并。
+
+test("同一 agent 回合被 toolResult 拆成两条 assistant（中间无用户消息）→ 合并为单行（一个头像）", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "查一下", timestamp: 1 } },
+        { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "好的" }, { type: "toolCall", id: "c1", name: "search", arguments: { q: "x" } }], model: "m", stopReason: "tool_use", timestamp: 2 } },
+        { agentName: "dev", message: { role: "toolResult", toolCallId: "c1", toolName: "search", content: [{ type: "text", text: "结果" }], isError: false, timestamp: 3 } },
+        { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "答案是" }], model: "m", stopReason: "end_turn", timestamp: 4 } },
+      ],
+    },
+    streamingBySession: {},
+  });
+  render(<MessageList sessionId="s1" />);
+  // 同一回合只渲染一个机器人头像（不应被 toolResult 隔断成两行）
+  expect(screen.getAllByText("🤖")).toHaveLength(1);
+  // 两段 assistant 文本都在同一行可见
+  expect(screen.getByText("好的")).toBeTruthy();
+  expect(screen.getByText("答案是")).toBeTruthy();
+});
+
+test("不同 agent 的连续 assistant 不合并（各自一个头像）", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "dev 说" }], model: "m", stopReason: "end_turn", timestamp: 1 } },
+        { agentName: "product", message: { role: "assistant", content: [{ type: "text", text: "product 说" }], model: "m", stopReason: "end_turn", timestamp: 2 } },
+      ],
+    },
+    streamingBySession: {},
+  });
+  render(<MessageList sessionId="s1" />);
+  // 不同 agent = 不同回合，各自一个头像
+  expect(screen.getAllByText("🤖")).toHaveLength(2);
 });
