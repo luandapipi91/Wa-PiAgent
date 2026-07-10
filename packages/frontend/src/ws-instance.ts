@@ -12,7 +12,10 @@ export function getWs(): WebSocket {
       try {
         const e = JSON.parse(String(ev.data)) as WSServerEvent;
         handlers.forEach(h => h(e));
-      } catch {}
+      } catch (err) {
+        // 不再静默吞错：记录解析/handler 异常，便于排查（畸形帧或 handler 抛错）
+        console.warn("[ws] message parse/handle failed:", err);
+      }
     };
   }
   return ws;

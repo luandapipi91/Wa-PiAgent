@@ -1,5 +1,5 @@
 // DirTreePicker 组件测试：mock fs-client，验证渲染根、取消回调、选中触发 onPick、搜索过滤。
-import { test, expect, mock, beforeEach } from "bun:test";
+import { test, expect, mock, beforeEach, afterAll } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 // mock fs-client：getRoots 返回虚拟盘符，listDir 按路径返回测试目录结构
@@ -54,6 +54,10 @@ mock.module("../src/fs-client", () => ({
 }));
 
 const { DirTreePicker } = await import("../src/components/DirTreePicker");
+
+// 本文件 mock 了 ../src/fs-client，bun 的 mock.module 跨文件缓存会泄漏给 fs-client.test.ts
+// （使后者导入到伪造的 listDir）。文件测试结束后注销全部 mock，恢复真实模块供后续文件。
+afterAll(() => mock.restore());
 
 beforeEach(() => { document.body.innerHTML = ""; listDirMock.mockClear(); });
 

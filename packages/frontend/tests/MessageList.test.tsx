@@ -1,10 +1,16 @@
 import { test, expect, beforeEach } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { SessionMessage } from "@hiagent/shared";
-import { MessageList } from "../src/components/MessageList";
+import { MessageList, buildResendPrompt } from "../src/components/MessageList";
 import { useSessionStore } from "../src/store/session";
+import { useProjectsStore } from "../src/store/projects";
+import { useComposerPrefsStore } from "../src/store/composer-prefs";
 
-beforeEach(() => useSessionStore.setState({ messagesBySession: {} }));
+beforeEach(() => {
+  useSessionStore.setState({ messagesBySession: {} });
+  useProjectsStore.setState({ sessions: [] });
+  useComposerPrefsStore.setState({ bySession: {} });
+});
 
 // 构造助手消息的便捷工厂：AssistantMessage 需要 content/model/stopReason/timestamp 完整字段
 function assistantMsg(timestamp: number, content: any[], agentName: SessionMessage["agentName"] = "product"): SessionMessage {
@@ -275,4 +281,114 @@ test("用户手动回到底部后恢复自动滚动", async () => {
   await waitFor(() => {
     expect(list.scrollTop).toBe(1000);
   }, { timeout: 1000 });
+});
+
+// ── 重新发送按钮 ──
+
+test("buildResendPrompt: 有会话+模型+文本 → 返回 agent:prompt 负载", () => {
+  const p = buildResendPrompt({
+    session: { projectId: "p1", primaryAgent: "dev" },
+    sessionId: "s1", text: "你好", model: "deepseek-chat", thinking: "high",
+  });
+  expect(p).not.toBeNull();
+  expect(p!.type).toBe("agent:prompt");
+  expect(p!.projectId).toBe("p1");
+  expect(p!.agentName).toBe("dev");
+  expect(p!.model).toBe("deepseek-chat");
+  expect(p!.thinking).toBe("high");
+  expect(p!.text).toBe("你好");
+});
+
+test("buildResendPrompt: 缺会话/模型/空文本 → 返回 null（不发送）", () => {
+  const base = { sessionId: "s1", text: "hi", model: "m" as string | null, thinking: "high" as const };
+  expect(buildResendPrompt({ ...base, session: undefined })).toBeNull();
+  expect(buildResendPrompt({ ...base, session: { projectId: "p1", primaryAgent: "dev" }, model: null })).toBeNull();
+  expect(buildResendPrompt({ ...base, session: { projectId: "p1", primaryAgent: "dev" }, text: "   " })).toBeNull();
+});
+
+test("最后一条为失败 assistant → 其前一条用户消息下方出现「重新发送」", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "失败的那条", timestamp: 1 } },
+        { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "⚠️ 模型调用失败" }], model: "system", stopReason: "error", timestamp: 2 } },
+      ],
+    },
+    streamingBySession: {},
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.getByTestId("resend-s1-1")).toBeTruthy();
+});
+
+test("最后一条为正常 assistant → 无「重新发送」按钮", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+        { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "ok" }], model: "m", stopReason: "stop", timestamp: 2 } },
+      ],
+    },
+    streamingBySession: {},
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.queryByTestId("resend-s1-1")).toBeNull();
+});
+
+test("正在流式生成时（streaming 存在）→ 不显示「重新发送」", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+        { agentName: "dev", message: { role: "assistant", content: [], model: "m", stopReason: "error", timestamp: 2 } },
+      ],
+    },
+    streamingBySession: { s1: { agentName: "dev", message: { role: "assistant", content: [], model: "m", stopReason: "stop", timestamp: 3 } } },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.queryByTestId("resend-s1-1")).toBeNull();
+});
+
+test("点击「重新发送」→ 原地重试：裁掉失败回合（用户消息+错误），不叠加", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "失败的那条", timestamp: 1 } },
+        { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "⚠️ 模型调用失败" }], model: "system", stopReason: "error", timestamp: 2 } },
+      ],
+    },
+    streamingBySession: {},
+  });
+  useProjectsStore.setState({ sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev" }] as any });
+  useComposerPrefsStore.setState({ bySession: { s1: { model: "deepseek-chat", thinking: "high", attachments: [] } } });
+  render(<MessageList sessionId="s1" />);
+  fireEvent.click(screen.getByTestId("resend-s1-1"));
+  const s = useSessionStore.getState();
+  // 失败回合被裁掉，立即乐观重建用户消息（不叠加，仍 1 条）+ loading 占位
+  expect(s.messagesBySession["s1"]).toHaveLength(1);
+  expect((s.messagesBySession["s1"][0].message as any).role).toBe("user");
+  expect(s.streamingBySession["s1"]).toBeTruthy();
+});
+
+// ── AI loading 气泡（乐观占位 / 首字到达前）──
+
+test("streaming 占位（空 content）→ 渲染 loading 气泡「正在思考…」", () => {
+  useSessionStore.setState({
+    streamingBySession: {
+      s1: { message: { role: "assistant", content: [], model: "pending", stopReason: "pending", timestamp: 1 }, agentName: "dev" },
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.getByTestId("loading-s1")).toBeTruthy();
+  expect(screen.getByText("正在思考…")).toBeTruthy();
+});
+
+test("streaming 有内容 → 不显示 loading，正常渲染流式消息", () => {
+  useSessionStore.setState({
+    streamingBySession: {
+      s1: { message: { role: "assistant", content: [{ type: "text", text: "部分回复" }], model: "m", stopReason: "stop", timestamp: 1 }, agentName: "dev" },
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.queryByTestId("loading-s1")).toBeNull();
+  expect(screen.getByText("部分回复")).toBeTruthy();
 });

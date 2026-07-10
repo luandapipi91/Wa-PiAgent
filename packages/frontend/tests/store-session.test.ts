@@ -5,11 +5,12 @@ import { useSessionStore } from "../src/store/session";
 import type { SDKEventEnvelope } from "@hiagent/shared";
 
 beforeEach(() => {
-  // 每个 case 前重置三个状态，避免相互污染
+  // 每个 case 前重置状态，避免相互污染
   useSessionStore.setState({
     messagesBySession: {},
     streamingBySession: {},
     statusBySession: {},
+    optimisticEchoBySession: {},
   });
 });
 
@@ -143,4 +144,114 @@ test("handleSDKEvent 不影响其他 session 的状态", () => {
   useSessionStore.getState().handleSDKEvent("s1", env);
   expect(useSessionStore.getState().messagesBySession["s2"]).toHaveLength(1);
   expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+});
+
+test("message_end 失败且 content 为空 → 不新增 assistant 行、仅清空 streaming", () => {
+  // 先模拟 streaming 占位 + 一条 user 消息
+  useSessionStore.setState({
+    streamingBySession: {
+      s1: { message: { role: "assistant", content: [], model: "m", stopReason: "stop", timestamp: 2 }, agentName: "dev" },
+    },
+    messagesBySession: { s1: [{ agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } }] },
+  });
+  const env = envelope({
+    type: "message_end",
+    message: { role: "assistant", content: [], model: "m", stopReason: "error", timestamp: 2 },
+  });
+  useSessionStore.getState().handleSDKEvent("s1", env);
+  // streaming 清空
+  expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
+  // 不新增 assistant 行（仍只有 1 条 user 消息）—— 避免渲染裸头像行
+  expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
+});
+
+test("message_end 失败但有部分内容 → 照常合并（保留部分回复，红色渲染）", () => {
+  useSessionStore.setState({
+    streamingBySession: {
+      s1: { message: { role: "assistant", content: [], model: "m", stopReason: "stop", timestamp: 2 }, agentName: "dev" },
+    },
+    messagesBySession: { s1: [{ agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } }] },
+  });
+  const env = envelope({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "部分回复" }], model: "m", stopReason: "error", timestamp: 2 },
+  });
+  useSessionStore.getState().handleSDKEvent("s1", env);
+  expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
+  // 合并出一条 assistant 行（共 2 条）
+  expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(2);
+});
+
+test("truncate(sessionId, fromIndex) 保留 [0, fromIndex)，丢弃其后所有行（重发原地重试用）", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "失败的那条", timestamp: 1 } },
+        { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "⚠️ 失败" }], model: "system", stopReason: "error", timestamp: 2 } },
+      ],
+    },
+  });
+  useSessionStore.getState().truncate("s1", 0);  // 从失败用户行(index 0)起裁
+  expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(0);
+});
+
+test("truncate 仅裁掉指定索引及之后，保留前序消息", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "早", timestamp: 1 } },
+        { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "好" }], model: "m", stopReason: "stop", timestamp: 2 } },
+        { agentName: undefined, message: { role: "user", content: "失败的那条", timestamp: 3 } },
+        { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "⚠️" }], model: "system", stopReason: "error", timestamp: 4 } },
+      ],
+    },
+  });
+  useSessionStore.getState().truncate("s1", 2);  // 裁掉 index 2（失败用户行）及之后
+  const msgs = useSessionStore.getState().messagesBySession["s1"];
+  expect(msgs).toHaveLength(2);
+  expect((msgs[1].message as any).content[0].text).toBe("好");
+});
+
+// ── 乐观发送（optimistic UI）──
+
+test("optimisticSend 立即追加用户消息 + 占位 assistant streaming + status=thinking", () => {
+  useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+  const s = useSessionStore.getState();
+  expect(s.messagesBySession["s1"]).toHaveLength(1);
+  expect((s.messagesBySession["s1"][0].message as any).role).toBe("user");
+  expect((s.messagesBySession["s1"][0].message as any).content).toBe("你好");
+  // 占位流式 assistant（让 MessageList 渲染 loading 气泡）
+  expect(s.streamingBySession["s1"]).toBeTruthy();
+  expect((s.streamingBySession["s1"]!.message as any).role).toBe("assistant");
+  // 顶部 spinner 立即可见
+  expect(s.statusBySession["s1"]).toBe("thinking");
+  // 标记：等待 SDK message_start(user) 回声替换占位
+  expect(s.optimisticEchoBySession["s1"]).toBe(true);
+});
+
+test("message_start(user) 回声 → 替换乐观占位（不重复行），用 SDK 权威 timestamp，清标记", () => {
+  useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+  const env = envelope({
+    type: "message_start",
+    message: { role: "user", content: "你好", timestamp: 999 },
+  });
+  useSessionStore.getState().handleSDKEvent("s1", env);
+  const s = useSessionStore.getState();
+  expect(s.messagesBySession["s1"]).toHaveLength(1);  // 不重复
+  expect((s.messagesBySession["s1"][0].message as any).timestamp).toBe(999);  // SDK 权威 ts
+  expect(s.optimisticEchoBySession["s1"]).toBe(false);
+});
+
+test("message_start(user) 无乐观占位 → 照常追加（不误替换历史用户消息）", () => {
+  // 先有一条 assistant 历史，再收到 user message_start（非乐观路径）
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [{ agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "历史" }], model: "m", stopReason: "stop", timestamp: 1 } }],
+    },
+  });
+  const env = envelope({ type: "message_start", message: { role: "user", content: "新问题", timestamp: 2 } });
+  useSessionStore.getState().handleSDKEvent("s1", env);
+  const msgs = useSessionStore.getState().messagesBySession["s1"];
+  expect(msgs).toHaveLength(2);  // 追加，不替换
+  expect((msgs[1].message as any).content).toBe("新问题");
 });

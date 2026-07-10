@@ -41,8 +41,9 @@ export function App() {
         // （message_start/update/end、agent_start/end 等由 store 管理两态）
         case "sdk:event": useSessionStore.getState().handleSDKEvent(e.sessionId, e); break;
         case "error": {
-          // kernel/pi 错误：注入当前会话作为系统错误消息（红色显示）
-          const sid = useProjectsStore.getState().currentSessionId;
+          // kernel/pi 错误：注入出错的会话作为系统错误消息（红色显示）。
+          // 优先用事件携带的 sessionId 精确路由；缺省回落 currentSessionId。
+          const sid = e.sessionId ?? useProjectsStore.getState().currentSessionId;
           if (sid) {
             // 构造 SessionMessage（新 append 签名：sessionId + SessionMessage）
             // error 不属于具体 agent，agentName 用任意合法默认；stopReason 标 "error" 供渲染层识别
