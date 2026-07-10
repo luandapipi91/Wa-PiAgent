@@ -239,7 +239,7 @@ export type WSClientEvent =
   | ProjectsListRequest | SessionMessagesRequest
   | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
   | SkillListEvent | SkillToggleEvent | SkillDirAddEvent | SkillDirRemoveEvent
-  | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest | FSUploadRequest | FSCopyRequest;
+  | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest | FSUploadRequest | FSCopyRequest | FSSearchRequest | FSSearchCancelRequest;
 
 // kernel → 前端
 export interface ProjectsListEvent {
@@ -277,7 +277,7 @@ export interface FSRootsRequest { type: "fs:roots"; }
 export interface FSListDirRequest { type: "fs:listDir"; path: string; showHidden?: boolean; }
 export interface FSHomeResult { type: "fs:home"; home: string; }
 export interface FSRootsResult { type: "fs:roots"; roots: string[]; }
-export interface DirEntry { name: string; isDir: boolean; }
+export interface DirEntry { name: string; isDir: boolean; path?: string; }
 export interface FSListDirResult { type: "fs:listDir"; path: string; entries: DirEntry[]; }
 export interface FSReadFileRequest { type: "fs:readFile"; path: string; }
 export interface FSReadFileResult { type: "fs:readFile"; path: string; content: string; mimeType?: string; error?: string; }
@@ -285,6 +285,10 @@ export interface FSUploadRequest { type: "fs:upload"; id: string; projectId: str
 export interface FSUploadResult { type: "fs:upload"; id: string; path: string; error?: string; }
 export interface FSCopyRequest { type: "fs:copy"; id: string; projectId: string; source: string; }
 export interface FSCopyResult { type: "fs:copy"; id: string; path: string; error?: string; }
+export interface FSSearchRequest { type: "fs:search"; query: string; root?: string; maxResults?: number; showHidden?: boolean; onlyDirs?: boolean; requestId?: string; }
+export interface FSSearchCancelRequest { type: "fs:search:cancel"; requestId: string; }
+export interface FSSearchProgressEvent { type: "fs:search:progress"; requestId: string; query: string; matches: DirEntry[]; durationMs: number; truncated: boolean; }
+export interface FSSearchResult { type: "fs:search"; requestId?: string; query: string; matches: DirEntry[]; durationMs: number; truncated: boolean; }
 export interface FSErrorEvent { type: "fs:error"; path: string; reason: string; }
 
 // 镜像 SDK AgentSessionEvent 联合类型，作为 WS 透传事件
@@ -317,6 +321,6 @@ export type WSServerEvent =
   | AgentConfigEvent | ErrorEvent
   | ProviderListResult | ProviderTestResult | ProviderChangedEvent
   | SkillListResult | SkillChangedEvent
-  | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSCopyResult | FSErrorEvent;
+  | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSCopyResult | FSSearchResult | FSSearchProgressEvent | FSErrorEvent;
 
 export type WSEvent = WSClientEvent | WSServerEvent;

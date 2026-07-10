@@ -35,3 +35,17 @@ export const AGENT_DEFS: Record<AgentName, AgentDef> = {
 
 /** 所有 Agent 名称列表，用于批量操作（如预启动所有 agent 进程） */
 export const ALL_AGENT_NAMES: AgentName[] = ["product", "pm", "dev", "test"];
+
+/** Agent 未显式配置 tools 时的默认工具集 */
+export const DEFAULT_AGENT_TOOLS = [
+  "read",
+  "bash",
+  "edit",
+  "write",
+  "grep",
+  "find",
+  "ls",
+  "web_search",
+  "fetch_content",
+  "get_search_content",
+];

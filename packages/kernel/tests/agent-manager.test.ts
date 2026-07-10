@@ -92,6 +92,68 @@ test("ensureStarted 创建 AgentSession 并设置 intercom 会话名", async () 
   expect(fakeSession.subscribe).toHaveBeenCalledTimes(1);
 });
 
+test("ensureStarted 无显式 tools 时使用默认工具集（含 grep/find/ls 与网络工具）", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const am = new AgentManager({
+    projectStore,
+    configStore: null as any,
+    onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  expect(mockCreateAgentSession).toHaveBeenCalledTimes(1);
+  expect(mockCreateAgentSession).toHaveBeenCalledWith(
+    expect.objectContaining({
+      tools: expect.arrayContaining([
+        "read",
+        "bash",
+        "edit",
+        "write",
+        "grep",
+        "find",
+        "ls",
+        "web_search",
+        "fetch_content",
+        "get_search_content",
+      ]),
+    }),
+  );
+});
+
+test("ensureStarted 使用 agent 显式配置的 tools", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const configStore = {
+    getAgent: mock(async () => ({
+      name: "dev",
+      tools: ["read"],
+    })),
+  } as any;
+
+  const am = new AgentManager({
+    projectStore,
+    configStore,
+    onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  expect(mockCreateAgentSession).toHaveBeenCalledTimes(1);
+  expect(mockCreateAgentSession).toHaveBeenCalledWith(
+    expect.objectContaining({ tools: ["read"] }),
+  );
+});
+
 test("ensureStarted 复用已存在的 session（同 sessionId 不重复创建）", async () => {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
@@ -342,6 +404,59 @@ test("promoteToSteer — abort → clearQueue → 剩余重入 followUp → prom
   expect(fakeSession.followUp).toHaveBeenCalledWith("剩余B");
   // 目标消息直接 prompt
   expect(fakeSession.prompt).toHaveBeenCalledWith("引导消息");
+});
+
+test("immediate — abort → clearQueue → 剩余重入 followUp → 目标消息以 steer 模式 prompt", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  await am.immediate(session.id, "立即执行", ["剩余A", "剩余B"]);
+
+  expect(fakeSession.abort).toHaveBeenCalledTimes(1);
+  expect(fakeSession.clearQueue).toHaveBeenCalledTimes(1);
+  expect(fakeSession.followUp).toHaveBeenCalledWith("剩余A");
+  expect(fakeSession.followUp).toHaveBeenCalledWith("剩余B");
+  // 目标消息用 steer 模式，避免 abort 后仍 streaming 时报错
+  expect(fakeSession.prompt).toHaveBeenCalledWith("立即执行", { streamingBehavior: "steer" });
+});
+
+test("immediate 快速连点会串行执行，不并发调用 prompt", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const promptCalls: { start: number; end: number }[] = [];
+  (fakeSession.prompt as any).mockImplementation(async () => {
+    const start = Date.now();
+    await new Promise((r) => setTimeout(r, 50));
+    promptCalls.push({ start, end: Date.now() });
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const p1 = am.immediate(session.id, "第一条", []);
+  const p2 = am.immediate(session.id, "第二条", []);
+  await Promise.all([p1, p2]);
+
+  expect(fakeSession.prompt).toHaveBeenCalledTimes(2);
+  expect(promptCalls.length).toBe(2);
+  // 第二次 prompt 的开始时间应不早于第一次的结束时间（允许 10ms 误差）
+  expect(promptCalls[1].start).toBeGreaterThanOrEqual(promptCalls[0].end - 10);
 });
 
 test("clearSteeringQueue — 调用 session.clearQueue()", async () => {

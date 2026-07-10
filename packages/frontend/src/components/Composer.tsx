@@ -63,7 +63,7 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
         }}
         projectId={projectId}
         onSend={handleSend}
-        sendDisabled={!projectId || isRunning}
+        sendDisabled={!projectId}
         placeholder={isRunning ? "输入要加入队列的消息..." : `给${agentName}发消息...`}
       />
     </div>
