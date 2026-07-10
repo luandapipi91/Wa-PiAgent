@@ -20,6 +20,7 @@ import type {
   AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
 import { relative } from "node:path";
+import { buildAdditionalExtensionPaths } from "./extensions";
 
 // 可注入的 createAgentSession 签名（与 SDK 的 createAgentSession 对齐，但用 any 避免 SDK 类型穿透）
 // 测试用 mock 替换；生产路径走真实 SDK
@@ -141,6 +142,8 @@ export class AgentManager {
     const loader = new sdk.DefaultResourceLoader({
       cwd: project.cwd,
       agentDir: HIAGENT_DIR,
+      // 扩展改用 additionalExtensionPaths 纯内存注入（见 extensions.ts）
+      additionalExtensionPaths: buildAdditionalExtensionPaths(),
       systemPromptOverride:
         config?.systemPromptMode === "replace" && config.systemPromptBody
           ? () => config.systemPromptBody!
@@ -440,14 +443,17 @@ async function resolveModel(
   modelPattern: string,
   modelRegistry: any,
 ): Promise<any | undefined> {
-  // 从 SDK 根入口路径推导 model-resolver 模块路径
+  // 从 SDK 根入口推导 model-resolver 模块路径。
+  // 必须直接对 import.meta.resolve 返回的 file:// URL 做字符串替换后再 import；
+  // 不能用 new URL(url).pathname —— 在 Windows 上它会把 "file:///H:/..." 转成
+  // "/H:/..."（带前导斜杠），导致 Bun 动态 import 报 "Cannot find module"。
+  // （POSIX 绝对路径本就以 / 开头，所以该写法历史上在 macOS/Linux 上恰好可用。）
   const rootUrl = import.meta.resolve("@earendil-works/pi-coding-agent");
-  const rootPath = new URL(rootUrl).pathname;
-  const resolverPath = rootPath.replace(
+  const resolverUrl = rootUrl.replace(
     "/dist/index.js",
     "/dist/core/model-resolver.js",
   );
-  const { resolveCliModel } = await import(resolverPath);
+  const { resolveCliModel } = await import(resolverUrl);
   const result = resolveCliModel({
     cliModel: modelPattern,
     modelRegistry,

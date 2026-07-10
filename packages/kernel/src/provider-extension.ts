@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { slugifyProviderName, GENERATED_DIR } from "@hiagent/shared";
 import type { ModelProvider } from "@hiagent/shared";
@@ -51,35 +51,22 @@ ${registrations}
 }
 
 /**
- * 写 extension 文件到 dir/.generated/provider-extension.ts，
- * 并把该路径加入 dir/settings.json 的 packages（幂等）。
- * 参照 intercom-setup.ts 的 settings.json 写入模式。
+ * 生成 provider extension 文件到 GENERATED_DIR/provider-extension.ts。
+ *
+ * 该文件由 extensions.ts 的 buildAdditionalExtensionPaths() 经
+ * DefaultResourceLoader.additionalExtensionPaths 纯内存注入加载，
+ * 无需再写入 settings.json.packages（旧机制已废弃，见 extensions.ts）。
+ *
+ * providers 变更时由 index.ts（启动）/ ws-server.ts（provider:save/delete）重新调用，
+ * 新创建的 session 会读到最新内容（热更新机制不变）。
  */
 export async function ensureProviderExtensionRegistered(
-  dir: string,
   store: ProviderStore,
 ): Promise<void> {
   const providers = await store.load();
   const code = generateProviderExtension(providers);
 
   // 写 extension 文件（每次覆盖，保证与 providers.json 同步）
-  const extDir = GENERATED_DIR;
-  await mkdir(extDir, { recursive: true });
-  const extFile = join(GENERATED_DIR, "provider-extension.ts");
-  await writeFile(extFile, code, "utf8");
-
-  // 把 extension 路径加入 settings.json.packages（幂等）
-  const settingsPath = join(dir, "settings.json");
-  let settings: { packages?: string[]; [k: string]: unknown } = {};
-  try {
-    settings = JSON.parse(await readFile(settingsPath, "utf8"));
-  } catch {
-    // 文件不存在，用空对象
-  }
-  const packages = settings.packages ?? [];
-  if (!packages.includes(extFile)) {
-    packages.push(extFile);
-    settings.packages = packages;
-    await writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
-  }
+  await mkdir(GENERATED_DIR, { recursive: true });
+  await writeFile(join(GENERATED_DIR, "provider-extension.ts"), code, "utf8");
 }

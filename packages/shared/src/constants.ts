@@ -36,7 +36,9 @@ export const AGENT_DEFS: Record<AgentName, AgentDef> = {
 /** 所有 Agent 名称列表，用于批量操作（如预启动所有 agent 进程） */
 export const ALL_AGENT_NAMES: AgentName[] = ["product", "pm", "dev", "test"];
 
-/** Agent 未显式配置 tools 时的默认工具集 */
+/** Agent 未显式配置 tools 时的默认工具集。
+ *  全用 Pi 内置工具：内置 bash/read 已自带输出截断（2000 行 / 50KB，
+ *  bash 留尾部、read 留头部），无需第三方压缩扩展。 */
 export const DEFAULT_AGENT_TOOLS = [
   "read",
   "bash",

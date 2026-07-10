@@ -71,44 +71,46 @@ test("generateProviderExtension anthropic 格式正确映射", () => {
   expect(code).toContain('api: "anthropic-messages"');
 });
 
-test("ensureProviderExtensionRegistered 写 extension 文件 + settings.json packages", async () => {
+test("ensureProviderExtensionRegistered 写 extension 文件到 GENERATED_DIR", async () => {
   const dir = join(import.meta.dir, ".tmp-ext-" + Math.random().toString(36).slice(2));
-  // 先放 providers.json 让 store 能读到
   const { ProviderStore } = await import("../src/provider-store");
   const store = new ProviderStore(join(dir, "providers.json"));
   await store.save(sampleProvider());
 
-  await ensureProviderExtensionRegistered(dir, store);
+  await ensureProviderExtensionRegistered(store);
 
-  // extension 文件存在
+  // extension 文件生成到 GENERATED_DIR
   const extFile = join(GENERATED_DIR, "provider-extension.ts");
   expect(existsSync(extFile)).toBe(true);
   const code = readFileSync(extFile, "utf8");
   expect(code).toContain('registerProvider("my-deepseek"');
 
-  // settings.json packages 含 extension 路径
-  const settings = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.packages).toContain(extFile);
+  // 不再写 settings.json.packages（迁移后改由 additionalExtensionPaths 注入）
+  expect(existsSync(join(dir, "settings.json"))).toBe(false);
 
   rmSync(dir, { recursive: true, force: true });
   rmSync(extFile, { force: true });
 });
 
-test("ensureProviderExtensionRegistered 幂等不重复写", async () => {
+test("ensureProviderExtensionRegistered 多次调用覆盖式重写并反映最新 providers", async () => {
   const dir = join(import.meta.dir, ".tmp-ext2-" + Math.random().toString(36).slice(2));
   const { ProviderStore } = await import("../src/provider-store");
   const store = new ProviderStore(join(dir, "providers.json"));
-  await store.save(sampleProvider());
+  await store.save(sampleProvider({ name: "First Provider" }));
 
-  await ensureProviderExtensionRegistered(dir, store);
-  await ensureProviderExtensionRegistered(dir, store);  // 二次调用
+  await ensureProviderExtensionRegistered(store);
+  await ensureProviderExtensionRegistered(store);  // 二次调用（覆盖，不报错）
 
-  const settings = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
-  // packages 中 extension 路径只出现一次
-  const extPath = join(GENERATED_DIR, "provider-extension.ts");
-  const count = settings.packages.filter((p: string) => p === extPath).length;
-  expect(count).toBe(1);
+  // 更新 provider 后再调用，文件内容应反映最新 providers
+  await store.delete("p1");
+  await store.save(sampleProvider({ id: "p2", name: "Second Provider" }));
+  await ensureProviderExtensionRegistered(store);
+
+  const extFile = join(GENERATED_DIR, "provider-extension.ts");
+  const code = readFileSync(extFile, "utf8");
+  expect(code).toContain('registerProvider("second-provider"');
+  expect(code).not.toContain('registerProvider("first-provider"');
 
   rmSync(dir, { recursive: true, force: true });
-  rmSync(extPath, { force: true });
+  rmSync(extFile, { force: true });
 });
