@@ -321,3 +321,47 @@ test("fs:readFile 文件不存在返回 fs:error", async () => {
     expect(resp.reason).toContain("ENOENT");
   });
 });
+
+test("fs:listDir 默认过滤隐藏目录", async () => {
+  const { agentManager } = makeMockAgentManager();
+  const dirPath = tmp("listdir-");
+  const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  mkdirSync(dirPath, { recursive: true });
+  mkdirSync(join(dirPath, "visible"));
+  mkdirSync(join(dirPath, ".hidden"));
+  writeFileSync(join(dirPath, "file.txt"), "x");
+  try {
+    await withServer(agentManager, async (send, recv) => {
+      send({ type: "fs:listDir", path: dirPath });
+      const resp = await recv() as any;
+      expect(resp.type).toBe("fs:listDir");
+      expect(resp.path).toBe(dirPath);
+      const names = resp.entries.map((e: any) => e.name).sort();
+      expect(names).toEqual(["file.txt", "visible"]);
+    });
+  } finally {
+    rmSync(dirPath, { recursive: true, force: true });
+  }
+});
+
+test("fs:listDir showHidden=true 返回隐藏目录", async () => {
+  const { agentManager } = makeMockAgentManager();
+  const dirPath = tmp("listdir-hidden-");
+  const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  mkdirSync(dirPath, { recursive: true });
+  mkdirSync(join(dirPath, "visible"));
+  mkdirSync(join(dirPath, ".hidden"));
+  writeFileSync(join(dirPath, "file.txt"), "x");
+  try {
+    await withServer(agentManager, async (send, recv) => {
+      send({ type: "fs:listDir", path: dirPath, showHidden: true });
+      const resp = await recv() as any;
+      expect(resp.type).toBe("fs:listDir");
+      expect(resp.path).toBe(dirPath);
+      const names = resp.entries.map((e: any) => e.name).sort();
+      expect(names).toEqual([".hidden", "file.txt", "visible"]);
+    });
+  } finally {
+    rmSync(dirPath, { recursive: true, force: true });
+  }
+});

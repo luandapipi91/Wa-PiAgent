@@ -72,9 +72,9 @@ test.describe.serial("Composer 重构", () => {
     const selector = page.getByTestId("model-selector");
     await expect(selector).toBeVisible();
 
-    // 初始为空（未选择），切换到 model-b（option label 为 E2E/model-b，value 为 model-b）
+    // 初始为空（未选择），切换到 model-b（option label 为 E2E/model-b，value 为 e2e/model-b）
     await selector.selectOption({ label: "E2E/model-b" });
-    await expect(selector).toHaveValue("model-b");
+    await expect(selector).toHaveValue("e2e/model-b");
 
     const textarea = page.locator('[data-testid="composer-input"] textarea');
     await textarea.fill("使用 model-b 发送");
@@ -86,23 +86,23 @@ test.describe.serial("Composer 重构", () => {
     await expect(page.getByText("使用 model-b 发送").first()).toBeVisible({ timeout: 8000 });
   });
 
-  test("思考开关状态持久化", async ({ page }) => {
-    const sessionId = await enterSession(page, "思考开关持久化测试");
+  test("思考强度选择持久化", async ({ page }) => {
+    const sessionId = await enterSession(page, "思考强度持久化测试");
 
-    const toggle = page.getByTestId("thinking-toggle");
-    await expect(toggle).toHaveText("思考 关");
+    const selector = page.getByTestId("thinking-selector");
+    await expect(selector).toHaveValue("disabled");
 
-    await toggle.click();
-    await expect(toggle).toHaveText("思考 high");
+    await selector.selectOption("high");
+    await expect(selector).toHaveValue("high");
 
     // 等待 IndexedDB 异步写入完成后再刷新
     await page.waitForTimeout(500);
 
-    // 刷新后重新进入同一会话，思考开关应从 IndexedDB 恢复为 high
+    // 刷新后重新进入同一会话，思考强度应从 IndexedDB 恢复为 high
     await page.reload();
     await page.getByTestId(`session-${sessionId}`).click();
     await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId("thinking-toggle")).toHaveText("思考 high");
+    await expect(page.getByTestId("thinking-selector")).toHaveValue("high");
   });
 
   test("文件附件发送流程", async ({ page }) => {
@@ -113,15 +113,10 @@ test.describe.serial("Composer 重构", () => {
     writeFileSync(tmpPath, "这是 E2E 文件附件内容", "utf8");
 
     try {
-      // 选择文件（触发 hidden file input）
+      // 选择文件（触发 hidden file input）后自动上传到项目目录
       await page.setInputFiles('[data-testid="composer-input"] input[type="file"]', tmpPath);
 
-      // 补填绝对路径弹窗
-      await expect(page.getByTestId("path-input")).toBeVisible();
-      await page.getByTestId("path-input").fill(tmpPath);
-      await page.getByTestId("confirm-path").click();
-
-      // 附件 chip 出现在列表
+      // 等待上传完成、附件 chip 出现在列表
       await expect(page.getByTestId("attachment-list")).toContainText("e2e-attachment.txt");
 
       const textarea = page.locator('[data-testid="composer-input"] textarea');
@@ -131,8 +126,9 @@ test.describe.serial("Composer 重构", () => {
       // 发送后附件列表清空
       await expect(page.getByTestId("attachment-list")).not.toBeVisible();
       await expect(textarea).toHaveValue("");
-      // 消息列表中出现引用
-      await expect(page.getByText("[附件: e2e-attachment.txt]").first()).toBeVisible({ timeout: 8000 });
+      // 消息列表中只显示用户原文，不出现 @路径引用或 [附件: ...]
+      await expect(page.getByText("查看文件附件").first()).toBeVisible({ timeout: 8000 });
+      await expect(page.locator("text=@.hiagent/uploads")).not.toBeVisible();
     } finally {
       // 清理临时附件文件
       if (existsSync(tmpPath)) unlinkSync(tmpPath);

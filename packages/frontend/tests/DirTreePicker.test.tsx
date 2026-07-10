@@ -6,15 +6,20 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 mock.module("../src/fs-client", () => ({
   getHome: () => Promise.resolve("C:\\Users\\test"),
   getRoots: () => Promise.resolve(["C:\\", "D:\\"]),
-  listDir: (path: string) => {
+  listDir: (path: string, showHidden?: boolean) => {
     if (path === "C:\\") return Promise.resolve([
       { name: "Users", isDir: true },
       { name: "Windows", isDir: true },
       { name: "Program Files", isDir: true },
+      { name: "pagefile.sys", isDir: false },
+      { name: "README.txt", isDir: false },
+      ...(showHidden ? [{ name: ".hidden-root", isDir: true }, { name: ".hidden-file", isDir: false }] : []),
     ]);
     if (path === "C:\\Users") return Promise.resolve([
       { name: "test", isDir: true },
       { name: "Public", isDir: true },
+      { name: "package.json", isDir: false },
+      ...(showHidden ? [{ name: ".hidden-users", isDir: true }] : []),
     ]);
     if (path === "D:\\") return Promise.resolve([
       { name: "Projects", isDir: true },
@@ -63,7 +68,7 @@ test("点击取消触发 onCancel", () => {
   const onCancel = mock();
   render(<DirTreePicker onPick={() => {}} onCancel={onCancel} />);
   fireEvent.click(screen.getByTestId("dir-cancel"));
-  expect(onCancel).toHaveBeenCalledOnce();
+  expect(onCancel).toHaveBeenCalledTimes(1);
 });
 
 test("点击盘符选中后「选择」可点且触发 onPick", async () => {
@@ -90,7 +95,7 @@ test("搜索框渲染", async () => {
   await waitFor(() => {
     const input = screen.getByTestId("dir-search") as HTMLInputElement;
     expect(input).toBeTruthy();
-    expect(input.placeholder).toBe("搜索目录…");
+    expect(input.placeholder).toBe("搜索文件名…");
   }, { timeout: 3000 });
 });
 
@@ -184,4 +189,139 @@ test("搜索时仍可选择匹配的目录", async () => {
   // 点击选择按钮
   fireEvent.click(screen.getByTestId("dir-pick"));
   expect(onPick).toHaveBeenCalledWith("C:\\Windows");
+});
+
+test("默认不显示文件节点，只显示目录", async () => {
+  render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  expect(screen.queryByText(/pagefile\.sys/)).toBeNull();
+  expect(screen.queryByText(/package\.json/)).toBeNull();
+});
+
+test("showFiles=true 时显示文件节点", async () => {
+  render(<DirTreePicker onPick={() => {}} onCancel={() => {}} showFiles />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📄\s*pagefile\.sys/)).toBeTruthy();
+  }, { timeout: 3000 });
+  expect(screen.getByText(/📄\s*README\.txt/)).toBeTruthy();
+  expect(screen.getByText(/📄\s*package\.json/)).toBeTruthy();
+});
+
+test("showFiles=false 时输入文件名过滤会定位到包含该文件的目录，但不显示文件", async () => {
+  render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  const searchInput = screen.getByTestId("dir-search") as HTMLInputElement;
+  fireEvent.change(searchInput, { target: { value: "package" } });
+
+  // C:\Users 因包含 package.json 而被保留
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+  }, { timeout: 3000 });
+  expect(screen.getByText(/📁\s*C:\\/)).toBeTruthy();
+
+  // 文件节点本身不显示
+  expect(screen.queryByText(/package\.json/)).toBeNull();
+  // 不相关目录被过滤掉
+  expect(screen.queryByText(/📁\s*Windows/)).toBeNull();
+});
+
+test("showFiles=true 时输入文件名过滤会显示匹配文件及其父目录链", async () => {
+  render(<DirTreePicker onPick={() => {}} onCancel={() => {}} showFiles />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📄\s*pagefile\.sys/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  const searchInput = screen.getByTestId("dir-search") as HTMLInputElement;
+  fireEvent.change(searchInput, { target: { value: "package" } });
+
+  // package.json 文件及其父级 C:\Users、C:\ 应保留
+  await waitFor(() => {
+    expect(screen.getByText(/package\.json/)).toBeTruthy();
+  }, { timeout: 3000 });
+  expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+  expect(screen.getByText(/📁\s*C:\\/)).toBeTruthy();
+
+  // 不相关目录被过滤掉
+  expect(screen.queryByText(/📁\s*Windows/)).toBeNull();
+  expect(screen.queryByText(/📄\s*pagefile\.sys/)).toBeNull();
+});
+
+test("showFiles=true 时点击文件节点选中其父目录", async () => {
+  const onPick = mock();
+  render(<DirTreePicker onPick={onPick} onCancel={() => {}} showFiles />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📄\s*package\.json/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  fireEvent.click(screen.getByText(/📄\s*package\.json/));
+
+  // 顶部路径应显示文件所在目录
+  await waitFor(() => {
+    const headerEl = document.querySelector('.text-blue.font-mono');
+    expect(headerEl?.textContent).toBe("C:\\Users");
+  }, { timeout: 3000 });
+
+  fireEvent.click(screen.getByTestId("dir-pick"));
+  expect(onPick).toHaveBeenCalledWith("C:\\Users");
+});
+
+// ── 显示隐藏目录测试 ──
+
+test("默认不显示隐藏目录，开启开关后显示隐藏目录", async () => {
+  render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
+
+  // 等待 C:\ 子目录加载完成
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  // 默认不显示隐藏目录
+  expect(screen.queryByText(/📁\s*\.hidden-root/)).toBeNull();
+
+  // 点击显示隐藏目录开关
+  const toggle = screen.getByText("显示隐藏目录");
+  fireEvent.click(toggle);
+
+  // 隐藏目录应该出现
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*\.hidden-root/)).toBeTruthy();
+  }, { timeout: 3000 });
+});
+
+test("开启显示隐藏目录后，隐藏目录可被选择", async () => {
+  const onPick = mock();
+  render(<DirTreePicker onPick={onPick} onCancel={() => {}} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  // 开启显示隐藏目录
+  fireEvent.click(screen.getByText("显示隐藏目录"));
+
+  // 等待隐藏目录出现并点击
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*\.hidden-root/)).toBeTruthy();
+  }, { timeout: 3000 });
+  fireEvent.click(screen.getByText(/📁\s*\.hidden-root/));
+
+  // 选择按钮应可用并触发 onPick
+  await waitFor(() => {
+    const headerEl = document.querySelector('.text-blue.font-mono');
+    expect(headerEl?.textContent).toBe("C:\\.hidden-root");
+  }, { timeout: 3000 });
+
+  fireEvent.click(screen.getByTestId("dir-pick"));
+  expect(onPick).toHaveBeenCalledWith("C:\\.hidden-root");
 });

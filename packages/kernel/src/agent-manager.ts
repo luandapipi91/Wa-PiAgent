@@ -10,7 +10,7 @@
 // - createAgentSessionFn 可选参数，缺省时动态 import 真实 SDK（避免类型循环依赖）
 // - _authStorage / _modelRegistry 用 (this as any)._xxx ??= 模式做进程级单例
 
-import type { AgentName, AgentConfig, AttachmentRef, ModelProvider } from "@hiagent/shared";
+import type { AgentName, AgentConfig, AttachmentRef, ThinkingLevel } from "@hiagent/shared";
 import { HIAGENT_DIR } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
@@ -19,14 +19,7 @@ import type {
   AgentSession,
   AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
-import { readFile } from "node:fs/promises";
-
-// SDK ImageContent 的最小镜像，避免依赖 @earendil-works/pi-ai 根 export
-interface ImageContent {
-  type: "image";
-  data: string;
-  mimeType: string;
-}
+import { relative } from "node:path";
 
 // 可注入的 createAgentSession 签名（与 SDK 的 createAgentSession 对齐，但用 any 避免 SDK 类型穿透）
 // 测试用 mock 替换；生产路径走真实 SDK
@@ -62,14 +55,21 @@ export interface AgentManagerOpts {
 export class AgentManager {
   // sessionId → AgentSession（核心数据结构，一个 HiAgent 会话对应一个 SDK session）
   private sessions = new Map<string, AgentSession>();
+  // sessionId → 项目工作目录，用于把附件绝对路径转成相对路径
+  private sessionCwd = new Map<string, string>();
   // sessionId → unsubscribe 函数（dispose 时解绑事件订阅）
   private unsubscribers = new Map<string, () => void>();
+  // 并发创建锁：同 sessionId 同时只创建一次，防止快速连发导致重复初始化同一 jsonl
+  private starting = new Map<string, Promise<AgentSession>>();
+  // 标记在创建过程中被 dispose 的 sessionId，防止已清理的会话在创建完成后重新泄漏回 Map
+  private disposed = new Set<string>();
 
   constructor(private opts: AgentManagerOpts) {}
 
   /**
    * 启动或复用一个 AgentSession。
    * 同 sessionId 命中 Map 缓存则直接返回；否则创建新 session、设置 intercom 会话名、订阅事件。
+   * 并发调用时共享同一个创建 Promise，避免重复创建 SDK session 导致 jsonl 文件 EEXIST。
    */
   async ensureStarted(
     projectId: string,
@@ -80,6 +80,27 @@ export class AgentManager {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing;
 
+    // 同 sessionId 正在创建中则复用创建 Promise
+    const inFlight = this.starting.get(sessionId);
+    if (inFlight) return await inFlight;
+
+    // 之前被 dispose 过的 sessionId 允许重新创建
+    this.disposed.delete(sessionId);
+
+    const promise = this._createSession(projectId, agentName, sessionId);
+    this.starting.set(sessionId, promise);
+    try {
+      return await promise;
+    } finally {
+      this.starting.delete(sessionId);
+    }
+  }
+
+  private async _createSession(
+    projectId: string,
+    agentName: AgentName,
+    sessionId: string,
+  ): Promise<AgentSession> {
     // 从 ProjectStore 拉 project + session 实体（校验存在性 + 拿 cwd / piSessionFile）
     const { projects, sessions } = await this.opts.projectStore.load();
     const project = projects.find((p) => p.id === projectId);
@@ -163,8 +184,18 @@ export class AgentManager {
     const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
       this.opts.onEvent(sessionId, projectId, agentName, event);
     });
+
+    // 如果创建过程中被 dispose，则清理刚创建的 session，避免泄漏回 Map
+    if (this.disposed.has(sessionId)) {
+      this.disposed.delete(sessionId);
+      unsubscribe();
+      session.dispose();
+      throw new Error(`会话已清理: ${sessionId}`);
+    }
+
     this.sessions.set(sessionId, session);
     this.unsubscribers.set(sessionId, unsubscribe);
+    this.sessionCwd.set(sessionId, project.cwd);
 
     return session;
   }
@@ -175,7 +206,7 @@ export class AgentManager {
     text: string,
     opts?: {
       model?: string;
-      thinking?: "disabled" | "high";
+      thinking?: ThinkingLevel;
       attachments?: AttachmentRef[];
     },
   ): Promise<void> {
@@ -192,30 +223,29 @@ export class AgentManager {
     const model = await resolveModel(opts.model, modelRegistry);
     await session.setModel(model);
 
-    // 按请求切换 thinking level："disabled" 映射为 SDK 的 "off"
+    // 按请求切换 thinking level：
+    // - "disabled" 映射为 SDK 的 "off"
+    // - "max" 映射为 "xhigh"：DeepSeek 的 thinkingLevelMap 把 xhigh → API "max"；
+    //   SDK 内部 clampThinkingLevel 会在模型不支持 xhigh 时自动降级到 high
+    // - "medium" / "high" 透传
     if (opts?.thinking) {
-      const level = opts.thinking === "disabled" ? "off" : opts.thinking;
+      const level =
+        opts.thinking === "disabled" ? "off" :
+        opts.thinking === "max" ? "xhigh" :
+        opts.thinking;
       session.setThinkingLevel(level);
     }
 
-    // 构建最终 prompt 文本与图片附件
-    // 根据当前模型是否支持 vision 决定是否直接发送图片；不支持时降级为文本引用
-    const providers = this.opts.providerStore ? await this.opts.providerStore.load() : [];
-    // 用 resolveModel 后的真实 model id 去匹配 provider 配置（opts.model 可能是 provider/id 格式）
-    const modelId = model.id as string;
-    const { text: finalText, images } = await buildPromptContent(
+    // 构建最终 prompt 文本：snippet 直接内联，文件/图片统一用 @相对路径 引用
+    const cwd = this.sessionCwd.get(sessionId);
+    const { text: finalText } = buildPromptContent(
       text,
       opts?.attachments ?? [],
-      modelId,
-      providers,
+      cwd,
     );
 
     if (session.isStreaming || session.pendingMessageCount > 0) {
-      await session.prompt(finalText, images.length
-        ? { images, streamingBehavior: "followUp" }
-        : { streamingBehavior: "followUp" });
-    } else if (images.length) {
-      await session.prompt(finalText, { images });
+      await session.prompt(finalText, { streamingBehavior: "followUp" });
     } else {
       await session.prompt(finalText);
     }
@@ -303,10 +333,13 @@ export class AgentManager {
 
   /** 清理单个会话：先解绑事件订阅，再 dispose session，最后从 Map 移除 */
   async disposeSession(sessionId: string): Promise<void> {
+    // 标记已被 dispose：若创建仍在进行中，_createSession 完成时会据此清理并放弃
+    this.disposed.add(sessionId);
     this.unsubscribers.get(sessionId)?.();
     this.unsubscribers.delete(sessionId);
     this.sessions.get(sessionId)?.dispose();
     this.sessions.delete(sessionId);
+    this.sessionCwd.delete(sessionId);
   }
 
   /** 清理所有会话（进程退出 / 测试 teardown 用） */
@@ -338,62 +371,36 @@ export class AgentManager {
  * 这里用 import.meta.resolve 拿到 SDK 根路径，再推导出 model-resolver.js 的绝对路径。
  * 该路径在 SDK 0.80.x 验证有效；如果未来 SDK 改了内部结构，这里会抛 import 错误（fail-fast）。
  */
-/** 构建 prompt 最终文本与图片内容列表。 */
+/** 构建 prompt 最终文本。snippet 直接内联；文件/图片统一用项目相对路径 @引用。 */
 interface PromptContent {
   text: string;
-  images: ImageContent[];
 }
 
-async function buildPromptContent(
+function buildPromptContent(
   text: string,
   attachments: AttachmentRef[],
-  modelId: string | undefined,
-  providers: ModelProvider[],
-): Promise<PromptContent> {
+  cwd?: string,
+): PromptContent {
   const textParts: string[] = [];
-  const images: ImageContent[] = [];
+  const fileRefs: string[] = [];
+
   for (const a of attachments) {
     if (a.kind === "snippet") {
       textParts.push(`[片段: ${a.name}]\n${a.content}`);
     } else {
-      textParts.push(`[附件: ${a.name}]`);
-      if (a.kind === "image") {
-        const supportsVision = modelId ? shouldSendAsImage(modelId, providers) : false;
-        if (!supportsVision) {
-          textParts.push(`<附件图片（模型不支持）: ${a.path}>`);
-          continue;
-        }
-        const data = await readFile(a.path, "base64");
-        images.push({
-          type: "image",
-          data,
-          mimeType: inferImageMimeType(a.path),
-        });
-      } else if (a.kind === "file") {
-        const content = await readFile(a.path, "utf8");
-        textParts.push(content);
-      }
+      const rel = cwd ? relative(cwd, a.path).replace(/\\/g, "/") : a.path;
+      fileRefs.push(`@${rel}`);
     }
   }
+
   textParts.push(text);
-  return { text: textParts.join("\n\n"), images };
-}
 
-/** 判断指定模型是否支持图片输入。 */
-export function shouldSendAsImage(modelId: string, providers: ModelProvider[]): boolean {
-  return providers.some(p => p.models.some(m => m.id === modelId && m.supportsVision));
-}
+  if (fileRefs.length > 0) {
+    const refsText = `[${fileRefs.join(",\n")}]`;
+    textParts.push(`Attachments:\n${refsText}`);
+  }
 
-/** 根据文件扩展名推断图片 MIME 类型。 */
-function inferImageMimeType(path: string): string {
-  const lower = path.toLowerCase();
-  if (lower.endsWith(".png")) return "image/png";
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-  if (lower.endsWith(".gif")) return "image/gif";
-  if (lower.endsWith(".webp")) return "image/webp";
-  if (lower.endsWith(".bmp")) return "image/bmp";
-  if (lower.endsWith(".svg")) return "image/svg+xml";
-  return "image/png";
+  return { text: textParts.join("\n\n") };
 }
 
 async function resolveModel(

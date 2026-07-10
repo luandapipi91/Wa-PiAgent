@@ -3,7 +3,7 @@ import type {
   AgentName, AgentConfig, ProjectEntity, SessionEntity,
   AgentState, AgentStateKey,
   AssistantMessageEvent, SDKEvent, SDKEventEnvelope, WSServerEvent,
-  PromptEvent, FSReadFileRequest,
+  PromptEvent, FSListDirRequest, FSReadFileRequest, FSUploadRequest, FSUploadResult,
 } from "../src/types";
 import type { ProviderModel } from "../src/providers";
 
@@ -78,10 +78,28 @@ describe("PromptEvent attachments", () => {
   });
 });
 
+describe("FSListDir types", () => {
+  it("accepts optional showHidden flag", () => {
+    const req: FSListDirRequest = { type: "fs:listDir", path: "/tmp" };
+    const reqHidden: FSListDirRequest = { type: "fs:listDir", path: "/tmp", showHidden: true };
+    expect(req.showHidden).toBeUndefined();
+    expect(reqHidden.showHidden).toBe(true);
+  });
+});
+
 describe("FSReadFile types", () => {
   it("has request/result types", () => {
     const req: FSReadFileRequest = { type: "fs:readFile", path: "/tmp/a.txt" };
     expect(req.type).toBe("fs:readFile");
+  });
+});
+
+describe("FSUpload types", () => {
+  it("has request/result types with correlation id", () => {
+    const req: FSUploadRequest = { type: "fs:upload", id: "u1", projectId: "p1", name: "a.txt", content: "abc" };
+    const res: FSUploadResult = { type: "fs:upload", id: "u1", path: "/project/a.txt" };
+    expect(req.id).toBe(res.id);
+    expect(res.path).toContain("a.txt");
   });
 });
 

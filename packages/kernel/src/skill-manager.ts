@@ -1,5 +1,4 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { existsSync, readdirSync, statSync, readFileSync } from "node:fs";
+import { readFile, writeFile, mkdir, opendir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { SkillInfo } from "@hiagent/shared";
 
@@ -26,6 +25,50 @@ const MAX_DEPTH = 3;
 const MAX_PER_DIR = 200;
 /** 全量扫描最多访问的条目总数 */
 const MAX_TOTAL_ENTRIES = 5000;
+/** 单个技能目录扫描超时（毫秒） */
+const SKILL_SCAN_TIMEOUT_MS = 8_000;
+/** 添加目录时快速验证超时（毫秒） */
+const ADD_DIR_TIMEOUT_MS = 3_000;
+/** 添加目录时快速验证最多访问条目数 */
+const ADD_DIR_VALIDATION_MAX_ENTRIES = 1_000;
+/** 非技能目录判定阈值：验证完该数量条目仍未找到 SKILL.md 则拒绝 */
+const ADD_DIR_NON_SKILL_THRESHOLD = 30;
+
+/** 扫描时跳过的常见大目录/构建产物目录 */
+const EXCLUDED_DIRS = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  "out",
+  "coverage",
+  "vendor",
+  ".venv",
+  "__pycache__",
+  ".cache",
+  ".turbo",
+  ".idea",
+  ".vscode",
+  "Pods",
+  ".gradle",
+  ".svelte-kit",
+  ".nuxt",
+  ".output",
+]);
+
+class ScanTimeoutError extends Error {}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, context?: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new ScanTimeoutError(context ?? `操作超时（${ms}ms）`));
+      }, ms);
+    }),
+  ]);
+}
 
 /**
  * 解析 SKILL.md 的 YAML frontmatter，提取 name 和 description。
@@ -42,60 +85,149 @@ function parseSkillFrontmatter(content: string): SkillInfo | null {
 }
 
 /**
- * 轻量递归扫描指定目录，查找 SKILL.md 并解析 frontmatter。
- * 硬限制深度和条目数，几万递归文件的目录也能毫秒级完成。
+ * 轻量异步递归扫描指定目录，查找 SKILL.md 并解析 frontmatter。
+ * 使用 fs/promises 避免阻塞事件循环，硬限制深度、条目数和超时，
+ * 即使几万递归文件的目录也不会让 kernel 卡死。
  */
-function scanSkillsDir(dir: string): SkillInfo[] {
+async function scanSkillsDir(dir: string): Promise<SkillInfo[]> {
   const skills: SkillInfo[] = [];
   let totalEntries = 0;
 
-  function walk(currentDir: string, depth: number) {
+  async function walk(currentDir: string, depth: number) {
     if (depth > MAX_DEPTH || totalEntries >= MAX_TOTAL_ENTRIES) return;
-    let entries: string[];
+
+    let handle: Awaited<ReturnType<typeof opendir>> | undefined;
     try {
-      entries = readdirSync(currentDir);
+      handle = await opendir(currentDir);
     } catch {
       return;
     }
-    // 截断超大单层目录
-    if (entries.length > MAX_PER_DIR) entries = entries.slice(0, MAX_PER_DIR);
 
-    for (const name of entries) {
-      if (totalEntries >= MAX_TOTAL_ENTRIES) break;
-      if (name.startsWith(".")) continue; // 跳过隐藏目录/文件
-      const fullPath = join(currentDir, name);
-      totalEntries++;
-      try {
-        const st = statSync(fullPath);
-        if (st.isDirectory() && depth < MAX_DEPTH) {
-          // 先检查当前目录下是否有 SKILL.md（一技能一目录模式）
-          const skillFile = join(fullPath, "SKILL.md");
-          try {
-            const content = readFileSync(skillFile, "utf8");
-            const info = parseSkillFrontmatter(content);
-            if (info) {
-              skills.push(info);
-              continue; // 找到 SKILL.md 就不递归进入该目录
-            }
-          } catch {
-            // 没有 SKILL.md，继续递归
+    try {
+      let inspected = 0;
+      for await (const entry of handle) {
+        if (totalEntries >= MAX_TOTAL_ENTRIES) break;
+
+        inspected++;
+        if (inspected > MAX_PER_DIR) break;
+
+        totalEntries++;
+
+        const name = entry.name;
+        if (name.startsWith(".")) continue;
+        if (EXCLUDED_DIRS.has(name)) continue;
+        if (!entry.isDirectory()) continue;
+
+        const fullPath = join(currentDir, name);
+
+        // 先检查当前目录下是否有 SKILL.md（一技能一目录模式）
+        try {
+          const content = await readFile(join(fullPath, "SKILL.md"), "utf8");
+          const info = parseSkillFrontmatter(content);
+          if (info) {
+            skills.push(info);
+            continue; // 找到 SKILL.md 就不递归进入该目录
           }
-          walk(fullPath, depth + 1);
+        } catch {
+          // 没有 SKILL.md，继续递归
         }
+
+        await walk(fullPath, depth + 1);
+      }
+    } catch {
+      // 目录在扫描过程中被删除或权限变化，直接跳过
+    } finally {
+      try {
+        await handle.close();
       } catch {
-        // 权限不足等，跳过
+        // 关闭句柄失败不影响结果
       }
     }
   }
 
-  walk(dir, 1);
+  await walk(dir, 1);
   return skills;
+}
+
+/**
+ * 快速判断一个目录是否像技能目录（自身或子目录包含 SKILL.md）。
+ * 返回找到状态以及已检查的条目数，用于 addDir 时拒绝明显非技能的超大目录。
+ */
+async function hasSkillMd(dir: string): Promise<{ found: boolean; inspectedCount: number }> {
+  let found = false;
+  let inspectedCount = 0;
+
+  // 先检查目录本身是否就是技能目录
+  try {
+    const content = await readFile(join(dir, "SKILL.md"), "utf8");
+    if (parseSkillFrontmatter(content)) {
+      return { found: true, inspectedCount: 0 };
+    }
+  } catch {
+    // 不是单技能目录，继续检查子目录
+  }
+
+  async function walk(currentDir: string, depth: number) {
+    if (found) return;
+    if (depth > MAX_DEPTH) return;
+    if (inspectedCount >= ADD_DIR_VALIDATION_MAX_ENTRIES) return;
+
+    let handle: Awaited<ReturnType<typeof opendir>> | undefined;
+    try {
+      handle = await opendir(currentDir);
+    } catch {
+      return;
+    }
+
+    try {
+      let inspectedInDir = 0;
+      for await (const entry of handle) {
+        if (found) break;
+        if (inspectedCount >= ADD_DIR_VALIDATION_MAX_ENTRIES) break;
+
+        inspectedInDir++;
+        if (inspectedInDir > MAX_PER_DIR) break;
+
+        inspectedCount++;
+
+        const name = entry.name;
+        if (name.startsWith(".")) continue;
+        if (EXCLUDED_DIRS.has(name)) continue;
+        if (!entry.isDirectory()) continue;
+
+        const fullPath = join(currentDir, name);
+
+        try {
+          const content = await readFile(join(fullPath, "SKILL.md"), "utf8");
+          if (parseSkillFrontmatter(content)) {
+            found = true;
+            break;
+          }
+        } catch {
+          // 该子目录不是技能目录，继续递归
+        }
+
+        await walk(fullPath, depth + 1);
+      }
+    } catch {
+      // 扫描过程中权限变化等，安全跳过
+    } finally {
+      try {
+        await handle.close();
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  await walk(dir, 1);
+  return { found, inspectedCount };
 }
 
 /**
  * 技能管理器：扫描/去重/目录管理/启用禁用。
  * 数据持久化在 dataDir/settings.json 的 skills / disabledSkills 字段。
- * 使用自实现轻量递归扫描（不依赖 Pi SDK loadSkills），硬限制深度和条目数。
+ * 使用自实现轻量异步递归扫描（不依赖 Pi SDK loadSkills），硬限制深度、条目数和超时。
  */
 export class SkillManager {
   /** 内置技能目录（dataDir/skills），不可删除 */
@@ -135,6 +267,7 @@ export class SkillManager {
   /**
    * 扫描所有技能目录，返回去重 + 禁用过滤后的技能列表。
    * 扫描顺序：内置目录优先，然后 settings.skills 中的用户目录。
+   * 单个目录扫描超时时会跳过该目录并记录错误，避免一个坏目录拖垮整个 kernel。
    */
   async scan(): Promise<ScanResult> {
     const settings = await this.readSettings();
@@ -146,11 +279,21 @@ export class SkillManager {
     const allSkills: SkillInfo[] = [];
 
     for (const dir of [this.builtinDir, ...userDirs]) {
-      for (const skill of scanSkillsDir(dir)) {
-        if (!seen.has(skill.name)) {
-          seen.add(skill.name);
-          allSkills.push(skill);
+      try {
+        const list = await withTimeout(
+          scanSkillsDir(dir),
+          SKILL_SCAN_TIMEOUT_MS,
+          `扫描目录超时: ${dir}`,
+        );
+        for (const skill of list) {
+          if (!seen.has(skill.name)) {
+            seen.add(skill.name);
+            allSkills.push(skill);
+          }
         }
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.error(`[skill-manager] 扫描目录失败或超时，已跳过: ${dir} (${reason})`);
       }
     }
 
@@ -165,11 +308,36 @@ export class SkillManager {
 
   /**
    * 添加用户技能目录。
-   * @throws 目录不存在时抛出 "目录不存在"
+   * @throws 目录不存在/不是目录时抛出对应错误
+   * @throws 路径为内置目录时抛出 "内置目录无需重复添加"
+   * @throws 未检测到 SKILL.md 且目录明显非技能目录时抛出提示
    */
   async addDir(path: string): Promise<void> {
-    if (!existsSync(path)) throw new Error("目录不存在");
+    let st;
+    try {
+      st = await stat(path);
+    } catch {
+      throw new Error("目录不存在");
+    }
+    if (!st.isDirectory()) throw new Error("路径不是目录");
     if (path === this.builtinDir) throw new Error("内置目录无需重复添加");
+
+    // 快速验证：防止用户误选 /Library 之类的超大目录导致后续扫描负担
+    const check = await withTimeout(
+      hasSkillMd(path),
+      ADD_DIR_TIMEOUT_MS,
+      "目录验证超时",
+    ).catch((err) => {
+      if (err instanceof ScanTimeoutError) {
+        throw new Error("目录验证超时，请检查目录是否过大");
+      }
+      throw err;
+    });
+
+    if (!check.found && check.inspectedCount > ADD_DIR_NON_SKILL_THRESHOLD) {
+      throw new Error("未检测到 SKILL.md，请选择一个技能目录或包含技能目录的父目录");
+    }
+
     const settings = await this.readSettings();
     const dirs = settings.userSkillDirs ?? [];
     if (!dirs.includes(path)) {

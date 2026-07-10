@@ -13,7 +13,7 @@ test("renders file name and calls onRemove", () => {
 test("snippet content is truncated beyond 20 characters", () => {
   const onRemove = mock();
   const longContent = "this is a very long snippet text that should be truncated";
-  render(<AttachmentChip attachment={{ kind: "snippet", content: longContent }} onRemove={onRemove} />);
+  render(<AttachmentChip attachment={{ kind: "snippet", name: "long-snippet", content: longContent }} onRemove={onRemove} />);
   expect(screen.getByText(longContent.slice(0, 20) + "…")).toBeTruthy();
 });
 

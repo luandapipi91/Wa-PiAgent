@@ -6,5 +6,5 @@ test("点击触发 onNewSession", () => {
   const fn = mock();
   render(<NewSessionButton onNewSession={fn} />);
   fireEvent.click(screen.getByTestId("new-session-btn"));
-  expect(fn).toHaveBeenCalledOnce();
+  expect(fn).toHaveBeenCalledTimes(1);
 });

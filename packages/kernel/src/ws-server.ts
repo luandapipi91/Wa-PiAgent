@@ -10,11 +10,11 @@ import type { ProviderStore } from "./provider-store";
 import type { SkillManager } from "./skill-manager";
 import { testProviderConnection } from "./provider-test";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, mkdir, writeFile, symlink, lstat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
-import { extname } from "node:path";
+import { extname, basename, join } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 
 function getMimeType(filePath: string): string {
@@ -38,6 +38,24 @@ function getMimeType(filePath: string): string {
   const ext = extname(filePath).toLowerCase();
   return map[ext] ?? (Bun.file(filePath).type || "application/octet-stream");
 }
+
+/** 在项目目录下生成不重复的文件路径；仅保留文件名并拒绝 `.` / `..`，防止路径穿越。 */
+async function uniquePath(dir: string, name: string): Promise<string> {
+  let safe = basename(name).replace(/[\\/]/g, "_") || "upload";
+  if (safe === "." || safe === "..") safe = "upload";
+  const candidate = join(dir, safe);
+  if (!existsSync(candidate)) return candidate;
+  const ext = extname(safe);
+  const stem = basename(safe, ext);
+  let i = 1;
+  while (true) {
+    const next = join(dir, `${stem} (${i})${ext}`);
+    if (!existsSync(next)) return next;
+    i++;
+  }
+}
+
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB
 
 export interface WSServerOpts {
   configStore: ConfigStore;
@@ -246,7 +264,7 @@ export class WSServer {
           const dirents = await readdir(event.path, { withFileTypes: true });
           const entries: DirEntry[] = dirents
             .map((d) => ({ name: d.name, isDir: d.isDirectory() }))
-            .filter((e) => !e.name.startsWith("."));
+            .filter((e) => event.showHidden || !e.name.startsWith("."));
           reply({ type: "fs:listDir", path: event.path, entries });
         } catch (e) {
           reply({ type: "fs:error", path: event.path, reason: String(e instanceof Error ? e.message : e) });
@@ -261,6 +279,48 @@ export class WSServer {
           reply({ type: "fs:readFile", path: event.path, content, mimeType });
         } catch (e) {
           reply({ type: "fs:error", path: event.path, reason: String(e instanceof Error ? e.message : e) });
+        }
+        break;
+      }
+      case "fs:upload": {
+        try {
+          const data = await this.opts.projectStore.load();
+          const project = data.projects.find(p => p.id === event.projectId);
+          if (!project) throw new Error(`项目不存在: ${event.projectId}`);
+          if (!project.cwd) throw new Error(`项目工作目录缺失: ${project.name ?? event.projectId}`);
+          const buffer = Buffer.from(event.content, "base64");
+          if (buffer.byteLength > MAX_UPLOAD_BYTES) {
+            throw new Error(`文件超过 ${MAX_UPLOAD_BYTES / 1024 / 1024}MB 上限`);
+          }
+          const uploadDir = join(project.cwd, ".hiagent", "uploads");
+          await mkdir(uploadDir, { recursive: true });
+          const filePath = await uniquePath(uploadDir, event.name);
+          await writeFile(filePath, buffer);
+          reply({ type: "fs:upload", id: event.id, path: filePath });
+        } catch (e) {
+          reply({ type: "fs:upload", id: event.id, path: "", error: String(e instanceof Error ? e.message : e) });
+        }
+        break;
+      }
+      case "fs:link": {
+        try {
+          const data = await this.opts.projectStore.load();
+          const project = data.projects.find(p => p.id === event.projectId);
+          if (!project) throw new Error(`项目不存在: ${event.projectId}`);
+          if (!project.cwd) throw new Error(`项目工作目录缺失: ${project.name ?? event.projectId}`);
+
+          const targetStat = await lstat(event.target);
+          if (!targetStat.isDirectory()) throw new Error(`目标不是文件夹: ${event.target}`);
+
+          const uploadDir = join(project.cwd, ".hiagent", "uploads");
+          await mkdir(uploadDir, { recursive: true });
+          const name = basename(event.target);
+          const linkPath = await uniquePath(uploadDir, name);
+          const linkType = process.platform === "win32" ? "junction" : "dir";
+          await symlink(event.target, linkPath, linkType);
+          reply({ type: "fs:link", id: event.id, path: linkPath });
+        } catch (e) {
+          reply({ type: "fs:link", id: event.id, path: "", error: String(e instanceof Error ? e.message : e) });
         }
         break;
       }

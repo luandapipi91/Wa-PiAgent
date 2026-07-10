@@ -1,20 +1,20 @@
 import { create } from "zustand";
-import type { AttachmentDraft } from "@hiagent/shared";
+import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
 import { getDefaults, getSessionPrefs, setDefaults, setSessionPrefs as dbSetSessionPrefs } from "./composer-db";
 
 export interface SessionPrefs {
   model: string | null;
-  thinking: "disabled" | "high";
+  thinking: ThinkingLevel;
   attachments: AttachmentDraft[];
 }
 
 interface ComposerPrefsState {
-  defaults: { model: string | null; thinking: "disabled" | "high" };
+  defaults: { model: string | null; thinking: ThinkingLevel };
   bySession: Record<string, SessionPrefs>;
   loadDefaults: () => Promise<void>;
   loadSession: (sessionId: string) => Promise<void>;
   setSessionPrefs: (sessionId: string, prefs: Partial<SessionPrefs>) => void;
-  setDefaults: (prefs: Partial<{ model: string | null; thinking: "disabled" | "high" }>) => void;
+  setDefaults: (prefs: Partial<{ model: string | null; thinking: ThinkingLevel }>) => void;
 }
 
 export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({

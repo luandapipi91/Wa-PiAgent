@@ -4,7 +4,7 @@ import { ProviderFormModal } from "../src/components/settings/ProviderFormModal"
 import { useProvidersStore } from "../src/store/providers";
 
 beforeEach(() => {
-  useProvidersStore.setState({ providers: [] });
+  useProvidersStore.setState(useProvidersStore.getInitialState(), true);
 });
 
 test("渲染表单字段", () => {

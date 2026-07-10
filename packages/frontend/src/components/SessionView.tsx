@@ -48,13 +48,13 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
   const handleStop = () => send({ type: "agent:abort", projectId: session.projectId, sessionId, agentName: session.primaryAgent });
   const handlePromote = (text: string) => {
     const idx = followUp.indexOf(text);
-    const remaining = idx >= 0 ? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)] : followUp;
-    send({ type: "steer:promote", sessionId, text, remainingTexts: remaining });
+    const remaining = idx >= 0 ? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)] : [...followUp];
+    send({ type: "steer:promote", sessionId, text, remainingTexts: remaining as string[] });
   };
   const handleImmediate = (text: string) => {
     const idx = followUp.indexOf(text);
-    const remaining = idx >= 0 ? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)] : followUp;
-    send({ type: "steer:immediate", sessionId, text, remainingTexts: remaining });
+    const remaining = idx >= 0 ? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)] : [...followUp];
+    send({ type: "steer:immediate", sessionId, text, remainingTexts: remaining as string[] });
   };
   const handleCancelSteer = () => send({ type: "steer:cancel", sessionId });
   const handleClearFollowUp = () => send({ type: "steer:clear-queue", sessionId });

@@ -13,6 +13,9 @@ export type AgentName = "product" | "pm" | "dev" | "test";
 export type AgentStateKey = `${string}:${AgentName}`;
 export type AgentStatus = "idle" | "thinking" | "blocked";
 
+// Composer / Prompt 的思考强度档位（UI 选择器）
+export type ThinkingLevel = "disabled" | "medium" | "high" | "max";
+
 export interface Partners {
   askTo: AgentName[];
   askFrom: AgentName[];
@@ -141,19 +144,21 @@ export interface PromptEvent {
   agentName: AgentName;
   text: string;
   model?: string;
-  thinking?: "disabled" | "high";
+  thinking?: ThinkingLevel;
   attachments?: AttachmentRef[];
 }
 
 export type AttachmentRef =
   | { kind: "image"; name: string; path: string; size: number }
   | { kind: "file"; name: string; path: string; size: number }
+  | { kind: "folder"; name: string; path: string }
   | { kind: "snippet"; name: string; content: string };
 
 // 附件草稿：composer 本地状态/IndexedDB 中使用的附件元数据，结构与 AttachmentRef 相同
 export type AttachmentDraft =
   | { kind: "image"; name: string; path: string; size: number }
   | { kind: "file"; name: string; path: string; size: number }
+  | { kind: "folder"; name: string; path: string }
   | { kind: "snippet"; name: string; content: string };
 
 export interface AbortEvent {
@@ -234,7 +239,7 @@ export type WSClientEvent =
   | ProjectsListRequest | SessionMessagesRequest
   | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
   | SkillListEvent | SkillToggleEvent | SkillDirAddEvent | SkillDirRemoveEvent
-  | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest;
+  | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest | FSUploadRequest | FSLinkRequest;
 
 // kernel → 前端
 export interface ProjectsListEvent {
@@ -269,13 +274,17 @@ export interface ErrorEvent {
 // fs 相关（kernel 读本地目录，供前端目录树选择器）
 export interface FSHomeRequest { type: "fs:home"; }
 export interface FSRootsRequest { type: "fs:roots"; }
-export interface FSListDirRequest { type: "fs:listDir"; path: string; }
+export interface FSListDirRequest { type: "fs:listDir"; path: string; showHidden?: boolean; }
 export interface FSHomeResult { type: "fs:home"; home: string; }
 export interface FSRootsResult { type: "fs:roots"; roots: string[]; }
 export interface DirEntry { name: string; isDir: boolean; }
 export interface FSListDirResult { type: "fs:listDir"; path: string; entries: DirEntry[]; }
 export interface FSReadFileRequest { type: "fs:readFile"; path: string; }
 export interface FSReadFileResult { type: "fs:readFile"; path: string; content: string; mimeType?: string; error?: string; }
+export interface FSUploadRequest { type: "fs:upload"; id: string; projectId: string; name: string; content: string; }
+export interface FSUploadResult { type: "fs:upload"; id: string; path: string; error?: string; }
+export interface FSLinkRequest { type: "fs:link"; id: string; projectId: string; target: string; }
+export interface FSLinkResult { type: "fs:link"; id: string; path: string; error?: string; }
 export interface FSErrorEvent { type: "fs:error"; path: string; reason: string; }
 
 // 镜像 SDK AgentSessionEvent 联合类型，作为 WS 透传事件
@@ -308,6 +317,6 @@ export type WSServerEvent =
   | AgentConfigEvent | ErrorEvent
   | ProviderListResult | ProviderTestResult | ProviderChangedEvent
   | SkillListResult | SkillChangedEvent
-  | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSErrorEvent;
+  | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSLinkResult | FSErrorEvent;
 
 export type WSEvent = WSClientEvent | WSServerEvent;

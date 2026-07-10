@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import type { AgentName, AttachmentDraft } from "@hiagent/shared";
+import type { AgentName, AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
 import { send } from "../ws-instance";
 import { useProjectsStore } from "../store/projects";
 import { useComposerPrefsStore } from "../store/composer-prefs";
@@ -56,7 +56,12 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
         thinking={thinking}
         setThinking={t => setSessionPrefs(sessionId, { thinking: t })}
         attachments={attachments}
-        setAttachments={ats => setSessionPrefs(sessionId, { attachments: ats })}
+        setAttachments={updater => {
+          const current = useComposerPrefsStore.getState().bySession[sessionId]?.attachments ?? [];
+          const next = typeof updater === "function" ? (updater as (prev: AttachmentDraft[]) => AttachmentDraft[])(current) : updater;
+          setSessionPrefs(sessionId, { attachments: next });
+        }}
+        projectId={projectId}
         onSend={handleSend}
         sendDisabled={!projectId || isRunning}
         placeholder={isRunning ? "输入要加入队列的消息..." : `给${agentName}发消息...`}

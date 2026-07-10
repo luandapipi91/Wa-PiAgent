@@ -6,7 +6,7 @@ interface Props { text: string; }
 export function TextBlock({ text }: Props) {
   return (
     <div className="text-sm prose prose-invert max-w-none" data-testid="text-block">
-      <ReactMarkdown remarkGfm={remarkGfm}>{text}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
     </div>
   );
 }

@@ -13,7 +13,7 @@ test("渲染项目 + 会话", () => {
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "会话1", createdAt: 0, lastActivity: Date.now(), piSessionFile: "" }],
     currentProjectId: null, currentSessionId: null,
   });
-  render(<ProjectList onSelectSession={() => {}} onNewSessionInProject={() => {}} onProjectSettings={() => {}} onNewProject={() => {}} />);
+  render(<ProjectList onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={() => {}} />);
   expect(screen.getByText("项目A")).toBeTruthy();
   expect(screen.getByText("会话1")).toBeTruthy();
 });
@@ -26,14 +26,14 @@ test.skip("项目内 ＋ 触发 onNewSessionInProject", () => {
     sessions: [], currentProjectId: null, currentSessionId: null,
   });
   const fn = mock();
-  render(<ProjectList onSelectSession={() => {}} onNewSessionInProject={fn} onProjectSettings={() => {}} onNewProject={() => {}} />);
+  render(<ProjectList onSelectSession={() => {}} onNewSessionInProject={fn} onSelectProject={() => {}} onNewProject={() => {}} />);
   fireEvent.click(screen.getByTestId("new-in-p1"));
   expect(fn).toHaveBeenCalledWith("p1");
 });
 
 test("新建项目按钮", () => {
   const fn = mock();
-  render(<ProjectList onSelectSession={() => {}} onNewSessionInProject={() => {}} onProjectSettings={() => {}} onNewProject={fn} />);
+  render(<ProjectList onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={fn} />);
   fireEvent.click(screen.getByTestId("new-project-btn"));
-  expect(fn).toHaveBeenCalledOnce();
+  expect(fn).toHaveBeenCalledTimes(1);
 });

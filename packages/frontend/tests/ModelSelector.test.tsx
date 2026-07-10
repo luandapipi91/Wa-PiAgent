@@ -31,10 +31,10 @@ describe("ModelSelector", () => {
 
   test("changing value triggers onChange", () => {
     const onChange = mock();
-    render(<ModelSelector value="m1" onChange={onChange} />);
+    render(<ModelSelector value="test/m1" onChange={onChange} />);
     const select = screen.getByTestId("model-selector") as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "m2" } });
-    expect(onChange).toHaveBeenCalledWith("m2");
+    fireEvent.change(select, { target: { value: "test/m2" } });
+    expect(onChange).toHaveBeenCalledWith("test/m2");
   });
 
   test("disables the select when disabled is true", () => {

@@ -106,7 +106,7 @@ test("baseUrl 结尾无 / 自动补全路径", async () => {
     api: "openai-completions",
     models,
   });
-  const [url] = fetchMock.mock.calls[0];
+  const [url] = fetchMock.mock.calls[0] as any;
   // 不应出现双斜杠
   expect(String(url)).not.toContain("//models");
 });

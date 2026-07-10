@@ -20,13 +20,13 @@ export function getRoots(): Promise<string[]> {
   });
 }
 
-export function listDir(path: string): Promise<DirEntry[]> {
+export function listDir(path: string, showHidden?: boolean): Promise<DirEntry[]> {
   return new Promise((resolve) => {
     const off = onMessage((e) => {
       if (e.type === "fs:listDir" && e.path === path) { resolve(e.entries); off(); }
       else if (e.type === "fs:error" && e.path === path) { resolve([]); off(); }
     });
-    send({ type: "fs:listDir", path });
+    send({ type: "fs:listDir", path, showHidden });
   });
 }
 
@@ -40,5 +40,43 @@ export function readFile(path: string): Promise<{ content: string; mimeType?: st
       }
     });
     send({ type: "fs:readFile", path });
+  });
+}
+
+export function linkFolder(projectId: string, target: string, timeoutMs = 30000): Promise<{ path: string }> {
+  const id = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const off = onMessage((e: any) => {
+      if (e.type === "fs:link" && e.id === id) {
+        clearTimeout(timer);
+        off();
+        if (e.error) reject(new Error(e.error));
+        else resolve({ path: e.path });
+      }
+    });
+    const timer = setTimeout(() => {
+      off();
+      reject(new Error("创建文件夹链接超时"));
+    }, timeoutMs);
+    send({ type: "fs:link", id, projectId, target });
+  });
+}
+
+export function uploadFile(projectId: string, name: string, content: string, timeoutMs = 30000): Promise<{ path: string }> {
+  const id = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const off = onMessage((e: any) => {
+      if (e.type === "fs:upload" && e.id === id) {
+        clearTimeout(timer);
+        off();
+        if (e.error) reject(new Error(e.error));
+        else resolve({ path: e.path });
+      }
+    });
+    const timer = setTimeout(() => {
+      off();
+      reject(new Error("上传超时"));
+    }, timeoutMs);
+    send({ type: "fs:upload", id, projectId, name, content });
   });
 }

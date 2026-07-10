@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import type { AttachmentDraft } from "@hiagent/shared";
+import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
 
 const DB_NAME = "hiagent-composer";
 const DB_VERSION = 1;
@@ -7,7 +7,7 @@ const DB_VERSION = 1;
 interface ComposerSessionRecord {
   sessionId: string;
   model: string | null;
-  thinking: "disabled" | "high";
+  thinking: ThinkingLevel;
   attachments: AttachmentDraft[];
   updatedAt: number;
 }
@@ -19,7 +19,7 @@ interface ComposerDB extends DBSchema {
   };
   defaults: {
     key: string;
-    value: { model: string | null; thinking: "disabled" | "high" };
+    value: { model: string | null; thinking: ThinkingLevel };
   };
 }
 
@@ -59,7 +59,7 @@ export async function deleteSessionPrefs(sessionId: string): Promise<void> {
 
 const DEFAULTS_KEY = "composer-defaults";
 
-export async function getDefaults(): Promise<{ model: string | null; thinking: "disabled" | "high" }> {
+export async function getDefaults(): Promise<{ model: string | null; thinking: ThinkingLevel }> {
   try {
     return (await (await getDb()).get("defaults", DEFAULTS_KEY)) ?? { model: null, thinking: "disabled" };
   } catch {
@@ -67,7 +67,7 @@ export async function getDefaults(): Promise<{ model: string | null; thinking: "
   }
 }
 
-export async function setDefaults(prefs: { model: string | null; thinking: "disabled" | "high" }): Promise<void> {
+export async function setDefaults(prefs: { model: string | null; thinking: ThinkingLevel }): Promise<void> {
   try {
     await (await getDb()).put("defaults", prefs, DEFAULTS_KEY);
   } catch {}

@@ -21,14 +21,14 @@ test("点确认触发 onConfirm", () => {
   const fn = mock();
   render(<ConfirmDialog title="t" message="m" onConfirm={fn} onCancel={() => {}} />);
   fireEvent.click(screen.getByTestId("confirm-ok"));
-  expect(fn).toHaveBeenCalledOnce();
+  expect(fn).toHaveBeenCalledTimes(1);
 });
 
 test("点取消触发 onCancel", () => {
   const fn = mock();
   render(<ConfirmDialog title="t" message="m" onConfirm={() => {}} onCancel={fn} />);
   fireEvent.click(screen.getByTestId("confirm-cancel"));
-  expect(fn).toHaveBeenCalledOnce();
+  expect(fn).toHaveBeenCalledTimes(1);
 });
 
 test("自定义按钮文案", () => {

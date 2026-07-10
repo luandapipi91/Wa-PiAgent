@@ -42,27 +42,59 @@ function preprocess(messages: SessionMessage[]): RenderedRow[] {
   return rows;
 }
 
+function stripAttachmentRefs(content: string): string {
+  return content.replace(/\n\nAttachments:\n\[[\s\S]*?\]$/g, "");
+}
+
+function formatTime(timestamp: number): string {
+  const now = new Date();
+  const d = new Date(timestamp);
+
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  const isYesterday = (a: Date, b: Date) => {
+    const yesterday = new Date(b);
+    yesterday.setDate(yesterday.getDate() - 1);
+    return isSameDay(a, yesterday);
+  };
+
+  const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+  if (isSameDay(d, now)) return time;
+  if (isYesterday(d, now)) return `昨天 ${time}`;
+  return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${time}`;
+}
+
 function MessageRow({ row, sessionId }: { row: RenderedRow; sessionId: string }) {
   const m = row.main.message as any;
   const isUser = m.role === "user";
 
   if (isUser) {
+    const displayText = stripAttachmentRefs(
+      typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? "")
+    );
     return (
       <div className="flex flex-row-reverse gap-2.5 max-w-[78%] ml-auto" data-testid={`msg-${sessionId}-${m.timestamp}`}>
         <div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-[11.5px] flex-shrink-0 text-secondary">
           我
         </div>
-        <div className="px-3.5 py-2.5 text-[13.5px] bg-brand text-white" style={{ borderRadius: "14px 4px 14px 14px", lineHeight: 1.55 }}>
-          <p>{typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? "")}</p>
+        <div className="flex flex-col items-end">
+          <div className="text-[11px] text-tertiary mb-0.5 font-semibold">我 · {formatTime(m.timestamp)}</div>
+          <div className="px-3.5 py-2.5 text-[13.5px] bg-surface text-primary border border-hairline" style={{ borderRadius: "14px 4px 14px 14px", lineHeight: 1.55 }}>
+            <p>{displayText}</p>
+          </div>
         </div>
       </div>
     );
   }
 
-  // 分离 assistant 消息的三种 block 类型
+  // 分离 assistant 消息的三种 block 类型（过滤掉空 text block）
   const blocks: any[] = Array.isArray(m.content) ? m.content : [];
   const thinkingBlocks = blocks.filter((b: any) => b.type === "thinking");
-  const textBlocks = blocks.filter((b: any) => b.type === "text");
+  const textBlocks = blocks.filter((b: any) => b.type === "text" && b.text?.trim());
   const toolCallBlocks = blocks.filter((b: any) => b.type === "toolCall");
 
   // 错误消息（stopReason === "error"）：红色文字
@@ -74,7 +106,7 @@ function MessageRow({ row, sessionId }: { row: RenderedRow; sessionId: string })
         🤖
       </div>
       <div className="max-w-[78%] min-w-0">
-        <div className="text-[11px] text-tertiary mb-0.5 font-semibold">{row.main.agentName ?? "agent"}</div>
+        <div className="text-[11px] text-tertiary mb-0.5 font-semibold">{row.main.agentName ?? "agent"} · {formatTime(m.timestamp)}</div>
 
         {/* 思考过程 — 折叠面板（上方） */}
         {thinkingBlocks.length > 0 && (
@@ -95,13 +127,15 @@ function MessageRow({ row, sessionId }: { row: RenderedRow; sessionId: string })
         )}
 
         {/* 主回复内容 — 文字 + markdown（最下方） */}
-        <div className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`} style={{ lineHeight: 1.55, borderRadius: "4px 14px 14px 14px" }}>
-          {textBlocks.map((block: any, i: number) => (
-            <div key={i} className="prose prose-sm max-w-none" data-testid="text-block">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.text}</ReactMarkdown>
-            </div>
-          ))}
-        </div>
+        {textBlocks.length > 0 && (
+          <div className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`} style={{ lineHeight: 3.1, borderRadius: "4px 14px 14px 14px" }}>
+            {textBlocks.map((block: any, i: number) => (
+              <div key={i} className="prose prose-sm max-w-none" data-testid="text-block">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.text}</ReactMarkdown>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
