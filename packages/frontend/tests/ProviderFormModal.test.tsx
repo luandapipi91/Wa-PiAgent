@@ -78,3 +78,25 @@ test("保存调用 store.save", () => {
   expect(saved.name).toBe("Test");
   expect(saved.models[0].id).toBe("m1");
 });
+
+test("添加模型后显示 supportsVision 开关并影响保存数据", () => {
+  const saveMock = mock();
+  useProvidersStore.setState({ save: saveMock });
+  render(<ProviderFormModal onClose={() => {}} />);
+
+  fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Test" } });
+  fireEvent.change(screen.getByTestId("field-baseUrl"), { target: { value: "https://api.test.com/v1" } });
+  fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-x" } });
+  fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "gpt-4o|" } });
+
+  const visionCheckbox = screen.getByTestId("model-vision-0") as HTMLInputElement;
+  expect(visionCheckbox).toBeTruthy();
+  expect(visionCheckbox.checked).toBe(false);
+
+  fireEvent.click(visionCheckbox);
+  expect(visionCheckbox.checked).toBe(true);
+
+  fireEvent.click(screen.getByTestId("provider-save-btn"));
+  const saved = saveMock.mock.calls[0][0];
+  expect(saved.models[0].supportsVision).toBe(true);
+});

@@ -19,6 +19,10 @@ Bun.plugin({
 GlobalRegistrator.register();
 installWebSocketMock();
 
+// 为前端测试提供可用的 IndexedDB（happy-dom 未实现）
+// @ts-ignore：fake-indexeddb 的 types 在 exports 解析上有问题，运行时无影响
+await import("fake-indexeddb/auto");
+
 // @testing-library/react 的 auto-cleanup 只在模块首次加载时注册一次 afterEach，
 // 仅对「触发首次加载的那个文件」生效。bun 多文件共享同一 happy-dom document →
 // 跨文件 body 残留，getByTestId 会命中上个文件遗留的元素。这里在每个文件 preload

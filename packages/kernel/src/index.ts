@@ -50,6 +50,7 @@ async function main() {
   const agentManager = new AgentManager({
     projectStore,
     configStore,
+    providerStore,
     onEvent: (sessionId, projectId, agentName, event) => {
       console.log(`[kernel] sdk event: ${(event as any).type}`);
       broadcast({ type: "sdk:event", projectId, sessionId, agentName, event: event as any });

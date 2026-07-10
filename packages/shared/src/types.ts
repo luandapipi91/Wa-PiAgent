@@ -140,7 +140,22 @@ export interface PromptEvent {
   sessionId: string;
   agentName: AgentName;
   text: string;
+  model?: string;
+  thinking?: "disabled" | "high";
+  attachments?: AttachmentRef[];
 }
+
+export type AttachmentRef =
+  | { kind: "image"; name: string; path: string; size: number }
+  | { kind: "file"; name: string; path: string; size: number }
+  | { kind: "snippet"; name: string; content: string };
+
+// 附件草稿：composer 本地状态/IndexedDB 中使用的附件元数据，结构与 AttachmentRef 相同
+export type AttachmentDraft =
+  | { kind: "image"; name: string; path: string; size: number }
+  | { kind: "file"; name: string; path: string; size: number }
+  | { kind: "snippet"; name: string; content: string };
+
 export interface AbortEvent {
   type: "agent:abort";
   projectId: string;
@@ -219,7 +234,7 @@ export type WSClientEvent =
   | ProjectsListRequest | SessionMessagesRequest
   | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
   | SkillListEvent | SkillToggleEvent | SkillDirAddEvent | SkillDirRemoveEvent
-  | FSHomeRequest | FSRootsRequest | FSListDirRequest;
+  | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest;
 
 // kernel → 前端
 export interface ProjectsListEvent {
@@ -259,6 +274,8 @@ export interface FSHomeResult { type: "fs:home"; home: string; }
 export interface FSRootsResult { type: "fs:roots"; roots: string[]; }
 export interface DirEntry { name: string; isDir: boolean; }
 export interface FSListDirResult { type: "fs:listDir"; path: string; entries: DirEntry[]; }
+export interface FSReadFileRequest { type: "fs:readFile"; path: string; }
+export interface FSReadFileResult { type: "fs:readFile"; path: string; content: string; mimeType?: string; error?: string; }
 export interface FSErrorEvent { type: "fs:error"; path: string; reason: string; }
 
 // 镜像 SDK AgentSessionEvent 联合类型，作为 WS 透传事件
@@ -291,6 +308,6 @@ export type WSServerEvent =
   | AgentConfigEvent | ErrorEvent
   | ProviderListResult | ProviderTestResult | ProviderChangedEvent
   | SkillListResult | SkillChangedEvent
-  | FSHomeResult | FSRootsResult | FSListDirResult | FSErrorEvent;
+  | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSErrorEvent;
 
 export type WSEvent = WSClientEvent | WSServerEvent;

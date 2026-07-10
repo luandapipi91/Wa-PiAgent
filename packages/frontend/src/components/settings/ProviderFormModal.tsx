@@ -123,6 +123,7 @@ export function ProviderFormModal({ initial, onClose }: Props) {
                     <th className="text-left px-2 py-1 font-normal">模型 ID</th>
                     <th className="text-left px-2 py-1 font-normal">上下文窗口</th>
                     <th className="text-left px-2 py-1 font-normal">最大输出</th>
+                    <th className="text-left px-2 py-1 font-normal">图片</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -151,6 +152,17 @@ export function ProviderFormModal({ initial, onClose }: Props) {
                             [id]: { ...prev[id], maxTokens: Number(e.target.value) || 0 },
                           }))}
                           className="w-24 px-1 py-0.5 rounded-sm border border-hairline bg-surface text-primary outline-none"
+                        />
+                      </td>
+                      <td className="px-2 py-1">
+                        <input
+                          data-testid={`model-vision-${i}`}
+                          type="checkbox"
+                          checked={modelConfigs[id]?.supportsVision ?? false}
+                          onChange={e => setModelConfigs(prev => ({
+                            ...prev,
+                            [id]: { ...prev[id], supportsVision: e.target.checked },
+                          }))}
                         />
                       </td>
                     </tr>
