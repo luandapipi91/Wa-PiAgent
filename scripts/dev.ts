@@ -1,5 +1,5 @@
-// 一键启动:并行起 kernel(9776 WS)+ frontend(Vite 5180),自动开浏览器,SIGINT 清理。
-import { spawn } from "node:child_process";
+// 一键启动:并行起 kernel(9776 WS)+ frontend(Vite 5180),自动开浏览器,SIGINT 清理,按 R 重载前后端。
+import { spawn, type ChildProcess } from "node:child_process";
 import { killPort } from "./port";
 import { openBrowser } from "./open-browser";
 
@@ -12,37 +12,38 @@ async function main() {
   await Promise.all([killPort(KERNEL_WS_PORT), killPort(FRONTEND_PORT)]);
 
   // 2. 并行 spawn 两个子进程
-  const kernel = spawnProcs({
-    label: "kernel",
-    cmd: ["bun", ["run", "--filter", "@hiagent/kernel", "dev"]],
-  });
-  const frontend = spawnProcs({
-    label: "web",
-    cmd: ["bun", ["run", "--filter", "@hiagent/frontend", "dev"]],
-  });
+  let kernel: ChildProcess = spawnKernel();
+  let frontend: ChildProcess = spawnFrontend();
 
   let browserOpened = false;
   let actualFrontendPort = FRONTEND_PORT;  // Vite 可能因端口占用自动换端口
-  frontend.stdout.on("data", (d: Buffer) => {
-    const line = d.toString();
-    process.stdout.write(`[web] ${line}`);
-    // Vite 就绪输出: "➜  Local:   http://localhost:5180/" 或 "http://localhost:5181/"
-    const m = line.match(/Local:\s+http:\/\/localhost:(\d+)/);
-    if (m) actualFrontendPort = Number(m[1]);
-    if (!browserOpened && m) {
-      browserOpened = true;
-      const url = `http://localhost:${actualFrontendPort}`;
-      if (actualFrontendPort !== FRONTEND_PORT) {
-        console.log("[dev] ⚠ Vite 换端口 %d → %d", FRONTEND_PORT, actualFrontendPort);
+
+  function bindFrontendEvents(proc: ChildProcess) {
+    proc.stdout!.on("data", (d: Buffer) => {
+      const line = d.toString();
+      process.stdout.write(`[web] ${line}`);
+      const m = line.match(/Local:\s+http:\/\/localhost:(\d+)/);
+      if (m) actualFrontendPort = Number(m[1]);
+      if (!browserOpened && m) {
+        browserOpened = true;
+        const url = `http://localhost:${actualFrontendPort}`;
+        if (actualFrontendPort !== FRONTEND_PORT) {
+          console.log("[dev] ⚠ Vite 换端口 %d → %d", FRONTEND_PORT, actualFrontendPort);
+        }
+        console.log("[dev] ▶ 打开浏览器 %s", url);
+        openBrowser(url);
       }
-      console.log("[dev] ▶ 打开浏览器 %s", url);
-      openBrowser(url);
-    }
-  });
-  kernel.stdout.on("data", (d: Buffer) => process.stdout.write(`[kernel] ${d.toString()}`));
-  // stderr 同样打前缀
-  kernel.stderr.on("data", (d: Buffer) => process.stderr.write(`[kernel] ${d.toString()}`));
-  frontend.stderr.on("data", (d: Buffer) => process.stderr.write(`[web] ${d.toString()}`));
+    });
+    proc.stderr!.on("data", (d: Buffer) => process.stderr.write(`[web] ${d.toString()}`));
+  }
+
+  function bindKernelEvents(proc: ChildProcess) {
+    proc.stdout!.on("data", (d: Buffer) => process.stdout.write(`[kernel] ${d.toString()}`));
+    proc.stderr!.on("data", (d: Buffer) => process.stderr.write(`[kernel] ${d.toString()}`));
+  }
+
+  bindKernelEvents(kernel);
+  bindFrontendEvents(frontend);
 
   // 3. 统一 SIGINT/SIGTERM 清理
   const cleanup = async () => {
@@ -55,6 +56,33 @@ async function main() {
   };
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
+
+  // 4. 按 R 重新加载前后端代码（kill 两个子进程并重新 spawn）
+  async function reloadAll() {
+    console.log("\n[dev] 重新加载前后端代码...");
+    for (const p of [kernel, frontend]) {
+      try { p.kill("SIGTERM"); } catch {}
+    }
+    await Promise.all([killPort(KERNEL_WS_PORT), killPort(FRONTEND_PORT)]);
+
+    kernel = spawnKernel();
+    frontend = spawnFrontend();
+    bindKernelEvents(kernel);
+    bindFrontendEvents(frontend);
+  }
+
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", async (key: string) => {
+      if (key === "r" || key === "R") {
+        await reloadAll();
+      } else if (key === "" || key === "") { // Ctrl+C / Ctrl+D
+        await cleanup();
+      }
+    });
+  }
 }
 
 interface ProcSpec { label: string; cmd: [string, string[]]; }
@@ -64,6 +92,20 @@ function spawnProcs(spec: ProcSpec) {
   // Windows 下 spawn 默认不解析 PATHEXT,找不到 bun.cmd;加 shell:true 走 cmd 解析。
   // POSIX 不需要 shell,但加上无害(命令本身无 shell 元字符)。
   return spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], shell: true });
+}
+
+function spawnKernel() {
+  return spawnProcs({
+    label: "kernel",
+    cmd: ["bun", ["run", "--filter", "@hiagent/kernel", "dev"]],
+  });
+}
+
+function spawnFrontend() {
+  return spawnProcs({
+    label: "web",
+    cmd: ["bun", ["run", "--filter", "@hiagent/frontend", "dev"]],
+  });
 }
 
 main().catch((e) => { console.error("[dev] 启动失败:", e); process.exit(1); });
