@@ -46,6 +46,10 @@ function join(parent: string, name: string): string {
 // 占位符前缀：`__ld__<parentId>` → onMissingItems 中解析出 parentId 做懒加载
 const LD = "__ld__";
 
+function isPlaceholderId(id: TreeItemIndex): boolean {
+  return typeof id === "string" && id.startsWith(LD);
+}
+
 // 在 treeItems 中查找某个 childId 的父节点 ID
 function findParentId(
   childId: TreeItemIndex,
@@ -71,7 +75,7 @@ function hideFileItems(
     const item = allItems[id];
     items[id] = {
       ...item,
-      children: item.children?.filter((cid) => keepIds.has(cid)),
+      children: item.children?.filter((cid) => keepIds.has(cid) || isPlaceholderId(cid)),
     };
   }
   return items;
@@ -118,13 +122,13 @@ function filterTreeItems(
     }
   }
 
-  // 构建过滤后的 items，更新 children 数组只保留白名单内的子节点
+  // 构建过滤后的 items，更新 children 数组只保留白名单内的子节点，但保留占位符 ID 以便目录可继续懒加载展开
   const items: Record<TreeItemIndex, TreeItem<FsNodeData>> = {};
   for (const id of keepIds) {
     const item = allItems[id];
     items[id] = {
       ...item,
-      children: item.children?.filter((cid) => keepIds.has(cid)),
+      children: item.children?.filter((cid) => keepIds.has(cid) || isPlaceholderId(cid)),
     };
   }
 
@@ -362,7 +366,7 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
             onSelectItems={handleSelectItems}
             onFocusItem={handleFocusItem}
             renderItemTitle={({ item }) => (
-              <span>{item.data?.isDir ? "📁 " : "📄 "}{item.data?.name}</span>
+              <span>{item.isFolder ? "📁 " : "📄 "}{item.data?.name}</span>
             )}
           >
             <Tree treeId="dir-tree" rootItem="root" treeLabel="目录" />
