@@ -73,3 +73,11 @@ test("createSession 生成 piSessionFile 路径", async () => {
   expect(session.piSessionFile).toBe(`${HIAGENT_DIR}/sessions/${session.id}.jsonl`);
   rmSync(tmpFile, { force: true });
 });
+
+test("createProject 相同 cwd 抛错", async () => {
+  const f = tempFile();
+  const store = new ProjectStore(f);
+  await store.createProject({ name: "项目A", cwd: "/work/same" });
+  expect(store.createProject({ name: "项目B", cwd: "/work/same" })).rejects.toThrow("相同目录的项目已存在");
+  rmSync(f, { force: true });
+});

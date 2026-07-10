@@ -18,6 +18,8 @@ async function main() {
 
   // 确保内置技能目录存在
   await mkdir(BUILTIN_SKILLS_DIR, { recursive: true });
+  // 确保 sessions 目录存在（Pi SDK SessionManager.open 需要）
+  await mkdir(`${HIAGENT_DIR}/sessions`, { recursive: true });
 
   const configStore = new ConfigStore();
   const projectStore = new ProjectStore();

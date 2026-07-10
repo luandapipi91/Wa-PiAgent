@@ -6,6 +6,15 @@ export function SkillSection() {
   const { allSkills, dirs, disabledSkills, builtinDir, toggleSkill, addDir, removeDir } = useSkillsStore();
   const [dirExpanded, setDirExpanded] = useState(false);
   const [showDirPicker, setShowDirPicker] = useState(false);
+  const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
+
+  const toggleExpand = (name: string) => {
+    setExpandedSkills(prev => {
+      const next = new Set(prev);
+      next.has(name) ? next.delete(name) : next.add(name);
+      return next;
+    });
+  };
 
   return (
     <div className="flex flex-col gap-3 p-4 overflow-auto">
@@ -38,7 +47,7 @@ export function SkillSection() {
             ))}
             <button
               onClick={() => setShowDirPicker(true)}
-              className="self-start px-2 py-1 text-xs text-secondary border border-hairline rounded-sm hover:text-primary mt-1"
+              className="self-end px-2 py-1 text-xs text-secondary border border-hairline rounded-sm hover:text-primary mt-1"
               data-testid="skill-add-dir-btn"
             >+ 添加技能目录</button>
           </div>
@@ -53,23 +62,32 @@ export function SkillSection() {
         )}
         {allSkills.map(skill => {
           const disabled = disabledSkills.includes(skill.name);
+          const expanded = expandedSkills.has(skill.name);
           return (
-            <label
-              key={skill.name}
-              className="flex items-center gap-2 py-1 cursor-pointer"
-              style={{ opacity: disabled ? 0.5 : 1 }}
-            >
-              <input
-                type="checkbox"
-                checked={!disabled}
-                onChange={() => toggleSkill(skill.name)}
-                data-testid={`skill-checkbox-${skill.name}`}
-                className="cursor-pointer"
-              />
-              <span className="text-sm text-primary">{skill.name}</span>
-              <span className="text-xs text-tertiary">— {skill.description}</span>
-              {disabled && <span className="text-xs" style={{ color: "var(--danger)" }}>[禁用]</span>}
-            </label>
+            <div key={skill.name}>
+              <div
+                className="flex items-center gap-2 py-1 cursor-pointer select-none"
+                style={{ opacity: disabled ? 0.5 : 1 }}
+                onClick={() => toggleExpand(skill.name)}
+              >
+                <input
+                  type="checkbox"
+                  checked={!disabled}
+                  onChange={(e) => { e.stopPropagation(); toggleSkill(skill.name); }}
+                  data-testid={`skill-checkbox-${skill.name}`}
+                  className="cursor-pointer"
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <span className="text-sm text-primary">{skill.name}</span>
+                <span className="text-xs text-tertiary">{expanded ? "▾" : "▸"}</span>
+                {disabled && <span className="text-xs" style={{ color: "var(--danger)" }}>[禁用]</span>}
+              </div>
+              {expanded && (
+                <div className="pl-7 pb-1">
+                  <span className="text-xs text-tertiary">{skill.description}</span>
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
