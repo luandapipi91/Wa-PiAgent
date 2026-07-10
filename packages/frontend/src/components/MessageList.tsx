@@ -97,10 +97,44 @@ export function MessageList({ sessionId }: Props) {
     };
   }, []);
 
+  // 同回合多 block 合并：SDK 对一个 turn 的每个 block（thinking/text/toolCall）发独立
+  // message_start/end，store 在每个 block 的 message_end 即定稿进 messages 并清空 streaming。
+  // 于是「block N 已定稿 + block N+1 流式中」会同时渲染两条 assistant 行 → 两个机器人头像。
+  // 这里把同 agent 的流式增量并入最后一条已定稿 assistant 行，让整个回合始终是一个头像/一行。
+  const lastRow = rows[rows.length - 1];
+  const mergeStreamingIntoLast = !!streaming
+    && !!lastRow
+    && (lastRow.main.message as any).role === "assistant"
+    && lastRow.main.agentName === streaming.agentName;
+
+  let displayRows = rows;
+  if (mergeStreamingIntoLast) {
+    const lastMain = lastRow.main.message as any;
+    const streamingMain = streaming!.message as any;
+    const merged: RenderedRow = {
+      main: {
+        agentName: lastRow.main.agentName,
+        message: {
+          ...lastMain,
+          content: [...(lastMain.content ?? []), ...(streamingMain.content ?? [])],
+        },
+      },
+      toolResults: lastRow.toolResults,
+    };
+    displayRows = [...rows.slice(0, -1), merged];
+  }
+
   return (
     <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-auto p-4 flex flex-col gap-4" data-testid="message-list">
-      {rows.map((row, i) => <MessageRow key={i} row={row} sessionId={sessionId} showResend={i === resendUserIdx} onResend={i === resendUserIdx ? (text: string) => handleResend(text, i) : undefined} />)}
-      {streaming && (
+      {displayRows.map((row, i) => {
+        // 合并后的末行正处于流式中，不挂「重新发送」（流式中本就不显示）
+        const isMergedStreamingRow = mergeStreamingIntoLast && i === displayRows.length - 1;
+        const showResend = !isMergedStreamingRow && i === resendUserIdx;
+        return (
+          <MessageRow key={i} row={row} sessionId={sessionId} showResend={showResend} onResend={showResend ? (text: string) => handleResend(text, i) : undefined} />
+        );
+      })}
+      {streaming && !mergeStreamingIntoLast && (
         <StreamingRow streaming={streaming} sessionId={sessionId} />
       )}
     </div>
@@ -119,7 +153,36 @@ function preprocess(messages: SessionMessage[]): RenderedRow[] {
       lastAssistantIdx = m.role === "assistant" ? rows.length - 1 : -1;
     }
   }
-  return rows;
+  return collapseSameTurnAssistants(rows);
+}
+
+/**
+ * 同一 agent 回合内连续的 assistant 行合并成一行（一个头像）。
+ * 一个 agent 回合可能被 SDK/历史拆成多条 assistant 消息（工具调用：text+toolCall → toolResult → text），
+ * 只要中间没有用户消息（没有换回合），就属于同一回合，应聚合成一条：拼接 content、合并 toolResults。
+ * 用户消息天然作为回合边界（role !== assistant 即隔断），不同 agent 也不合并。
+ */
+function collapseSameTurnAssistants(rows: RenderedRow[]): RenderedRow[] {
+  const out: RenderedRow[] = [];
+  for (const row of rows) {
+    const prev = out[out.length - 1];
+    const prevMsg = prev?.main.message as any;
+    const curMsg = row.main.message as any;
+    const sameTurn = !!prev
+      && prevMsg.role === "assistant"
+      && curMsg.role === "assistant"
+      && prev.main.agentName === row.main.agentName;
+    if (sameTurn) {
+      prev.main = {
+        agentName: prev.main.agentName,
+        message: { ...prevMsg, content: [...(prevMsg.content ?? []), ...(curMsg.content ?? [])] },
+      };
+      for (const [k, v] of row.toolResults) prev.toolResults.set(k, v);
+    } else {
+      out.push({ main: row.main, toolResults: new Map(row.toolResults) });
+    }
+  }
+  return out;
 }
 
 function stripAttachmentRefs(content: string): string {
@@ -299,16 +362,25 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
 
 function ToolCallBlock({ toolCall, result }: { toolCall: ToolCall; result?: ToolResultMessage }) {
   const [open, setOpen] = useState(false);
-  const success = result && !result.isError;
+  // 三态：成功（result 且非 error）→ ✓ 绿；失败（result.isError）→ ✗ 红；未返回 → 🔧 中性
+  const failed = !!result && !!result.isError;
+  const success = !!result && !result.isError;
+  const pillClass = success
+    ? "bg-success-soft text-success border-success-soft"
+    : failed
+      ? "bg-danger-soft text-danger border-danger-soft"
+      : "bg-surface-elevated text-tertiary border-hairline hover:text-secondary";
+  const icon = success ? "✓" : failed ? "✗" : "🔧";
+  const nameClass = success ? "text-success" : failed ? "text-danger" : "text-primary";
   return (
     <div data-testid={`toolcall-${toolCall.id}`}>
       <button
         onClick={() => setOpen(!open)}
-        className={`inline-flex items-center gap-1 select-none text-[11.5px] font-mono px-2 py-0.5 rounded-pill border transition-colors ${success ? "bg-success-soft text-success border-success-soft" : "bg-surface-elevated text-tertiary border-hairline hover:text-secondary"}`}
+        className={`inline-flex items-center gap-1 select-none text-[11.5px] font-mono px-2 py-0.5 rounded-pill border transition-colors ${pillClass}`}
         style={{ cursor: "pointer" }}
       >
-        {success ? <span>✓</span> : <span>🔧</span>}
-        <span className={success ? "text-success" : "text-primary"}>{toolCall.name}</span>
+        <span>{icon}</span>
+        <span className={nameClass}>{toolCall.name}</span>
         <span className="text-tertiary">({formatArgs(toolCall.arguments)})</span>
         <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
       </button>
