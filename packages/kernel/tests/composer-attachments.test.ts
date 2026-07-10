@@ -66,7 +66,10 @@ async function withComposerServer<T>(
     clearQueue: mock(() => ({ steering: [], followUp: [] })),
     followUp: mock(async () => {}),
     steer: mock(async () => {}),
-    modelRegistry: { getAll: () => [], hasConfiguredAuth: () => true },
+    modelRegistry: {
+      getAll: () => [{ id: "test-model", provider: "test-provider", name: "Test", api: {}, baseUrl: "" }],
+      hasConfiguredAuth: () => true,
+    },
   } as any;
 
   const createAgentSessionFn = mock(async () => ({ session: fakeSession }));
@@ -150,6 +153,7 @@ describe("composer attachments integration", () => {
           sessionId: "s-file",
           agentName: "dev",
           text: "分析这个文件",
+          model: "test-provider/test-model",
           attachments: [{ kind: "file", name: "notes.txt", path: filePath, size: 0 }],
         });
 
@@ -185,6 +189,7 @@ describe("composer attachments integration", () => {
           sessionId: "s-snippet",
           agentName: "dev",
           text: "解释这段代码",
+          model: "test-provider/test-model",
           attachments: [{ kind: "snippet", name: "utils.ts", content: "const x = 1;" }],
         });
 

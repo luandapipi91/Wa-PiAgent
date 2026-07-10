@@ -28,6 +28,7 @@ describe("NewSessionPane", () => {
   });
 
   it("clears text after sending", () => {
+    useComposerPrefsStore.setState({ defaults: { model: "gpt-4o", thinking: "disabled" } });
     render(<NewSessionPane />);
     const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
     fireEvent.change(textarea, { target: { value: "你好" } });
@@ -65,6 +66,7 @@ describe("NewSessionPane", () => {
   });
 
   it("sends prompt with attachments", async () => {
+    useComposerPrefsStore.setState({ defaults: { model: "gpt-4o", thinking: "disabled" } });
     render(<NewSessionPane />);
 
     await waitFor(() => {

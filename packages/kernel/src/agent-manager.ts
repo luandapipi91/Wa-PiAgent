@@ -139,20 +139,14 @@ export class AgentManager {
     });
     await loader.reload();
 
-    // 解析 config.model 字符串 → SDK Model 对象
-    // resolveCliModel 未从 SDK 根 export，需要从深层模块动态 import
-    const model = config?.model
-      ? await resolveModel(config.model, modelRegistry)
-      : undefined;
-
     // 调 createAgentSession 创建 SDK session
+    // 不再使用 agent config 里的默认模型：所有消息必须跟随用户显式选择的模型
     const { session } = await createFn({
       cwd: project.cwd,
       agentDir: HIAGENT_DIR,
       // SessionManager.open 打开已有 jsonl 文件（由 ProjectStore.createSession 预生成路径）
       sessionManager: sdk.SessionManager.open(sessionEntity.piSessionFile),
       resourceLoader: loader,
-      model,
       thinkingLevel: config?.thinking ?? "medium",
       // 无显式 tools 时用默认四件套（read/bash/edit/write）
       tools: config?.tools?.length
@@ -188,12 +182,15 @@ export class AgentManager {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`会话未启动: ${sessionId}`);
 
-    // 按请求切换模型
-    if (opts?.model) {
-      const modelRegistry = (session as any).modelRegistry;
-      const model = await resolveModel(opts.model, modelRegistry);
-      await session.setModel(model);
+    // 所有消息必须跟随用户显式选择的模型，禁止回退到 agent config 或 SDK 默认模型
+    if (!opts?.model) {
+      throw new Error("未选择模型，请先在模型选择器中选择一个模型");
     }
+
+    // 按请求切换模型
+    const modelRegistry = (session as any).modelRegistry;
+    const model = await resolveModel(opts.model, modelRegistry);
+    await session.setModel(model);
 
     // 按请求切换 thinking level："disabled" 映射为 SDK 的 "off"
     if (opts?.thinking) {
@@ -204,7 +201,8 @@ export class AgentManager {
     // 构建最终 prompt 文本与图片附件
     // 根据当前模型是否支持 vision 决定是否直接发送图片；不支持时降级为文本引用
     const providers = this.opts.providerStore ? await this.opts.providerStore.load() : [];
-    const modelId = (session as any).model?.id as string | undefined;
+    // 用 resolveModel 后的真实 model id 去匹配 provider 配置（opts.model 可能是 provider/id 格式）
+    const modelId = model.id as string;
     const { text: finalText, images } = await buildPromptContent(
       text,
       opts?.attachments ?? [],

@@ -51,6 +51,11 @@ describe("Composer", () => {
   });
 
   it("clears text after sending and drops attachments from session prefs", async () => {
+    useComposerPrefsStore.setState({
+      bySession: {
+        s1: { model: "gpt-4o", thinking: "disabled", attachments: [] },
+      },
+    });
     render(<Composer sessionId="s1" agentName="dev" />);
     const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
     fireEvent.change(textarea, { target: { value: "继续" } });

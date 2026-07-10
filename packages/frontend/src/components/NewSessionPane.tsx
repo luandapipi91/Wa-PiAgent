@@ -36,7 +36,7 @@ export function NewSessionPane() {
   }, [defaults.model, defaults.thinking]);
 
   const handleSend = () => {
-    if (!projectId || !text.trim() || sendingRef.current) return;
+    if (!projectId || !text.trim() || !model || sendingRef.current) return;
     sendingRef.current = true;
     send({
       type: "agent:prompt",
@@ -44,7 +44,7 @@ export function NewSessionPane() {
       sessionId,
       agentName,
       text,
-      model: model ?? undefined,
+      model,
       thinking,
       attachments: attachments.length > 0 ? attachments : undefined,
     });

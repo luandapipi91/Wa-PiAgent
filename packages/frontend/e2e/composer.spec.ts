@@ -57,6 +57,8 @@ test.describe.serial("Composer 重构", () => {
   async function enterSession(page: import("@playwright/test").Page, text: string): Promise<string> {
     await page.goto("/");
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
+    // 必须先选择模型，否则发送按钮被禁用
+    await page.getByTestId("model-selector").selectOption({ label: "E2E/model-a" });
     await page.locator('[data-testid="composer-input"] textarea').fill(text);
     await page.getByTestId("composer-send").click();
     await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
@@ -157,7 +159,7 @@ test.describe.serial("Composer 重构", () => {
           const store = tx.objectStore("sessions");
           const put = store.put({
             sessionId: sid,
-            model: null,
+            model: "model-a",
             thinking: "disabled",
             attachments: [{ kind: "snippet", name: "test-snippet", content: "console.log('e2e');" }],
             updatedAt: Date.now(),
