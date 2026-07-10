@@ -17,6 +17,18 @@ test("snippet content is truncated beyond 20 characters", () => {
   expect(screen.getByText(longContent.slice(0, 20) + "…")).toBeTruthy();
 });
 
+test("folder attachment renders folder icon", () => {
+  const onRemove = mock();
+  render(
+    <AttachmentChip
+      attachment={{ kind: "folder", name: "docs", path: "/tmp/docs" }}
+      onRemove={onRemove}
+    />,
+  );
+  const chip = screen.getByText("docs").parentElement;
+  expect(chip?.textContent).toContain("📁");
+});
+
 test("image attachment renders camera icon", () => {
   const onRemove = mock();
   render(

@@ -10,7 +10,7 @@ import type { ProviderStore } from "./provider-store";
 import type { SkillManager } from "./skill-manager";
 import { testProviderConnection } from "./provider-test";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
-import { readdir, readFile, mkdir, writeFile, symlink, lstat } from "node:fs/promises";
+import { readdir, readFile, mkdir, writeFile, lstat, copyFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
@@ -302,25 +302,29 @@ export class WSServer {
         }
         break;
       }
-      case "fs:link": {
+      case "fs:copy": {
         try {
           const data = await this.opts.projectStore.load();
           const project = data.projects.find(p => p.id === event.projectId);
           if (!project) throw new Error(`项目不存在: ${event.projectId}`);
           if (!project.cwd) throw new Error(`项目工作目录缺失: ${project.name ?? event.projectId}`);
 
-          const targetStat = await lstat(event.target);
-          if (!targetStat.isDirectory()) throw new Error(`目标不是文件夹: ${event.target}`);
+          const sourceStat = await lstat(event.source);
+          const isDir = sourceStat.isDirectory();
 
-          const uploadDir = join(project.cwd, ".hiagent", "uploads");
-          await mkdir(uploadDir, { recursive: true });
-          const name = basename(event.target);
-          const linkPath = await uniquePath(uploadDir, name);
-          const linkType = process.platform === "win32" ? "junction" : "dir";
-          await symlink(event.target, linkPath, linkType);
-          reply({ type: "fs:link", id: event.id, path: linkPath });
+          if (isDir) {
+            // 文件夹直接返回真实路径，不再创建软链接
+            reply({ type: "fs:copy", id: event.id, path: event.source });
+          } else {
+            const uploadDir = join(project.cwd, ".hiagent", "uploads");
+            await mkdir(uploadDir, { recursive: true });
+            const name = basename(event.source);
+            const destPath = await uniquePath(uploadDir, name);
+            await copyFile(event.source, destPath);
+            reply({ type: "fs:copy", id: event.id, path: destPath });
+          }
         } catch (e) {
-          reply({ type: "fs:link", id: event.id, path: "", error: String(e instanceof Error ? e.message : e) });
+          reply({ type: "fs:copy", id: event.id, path: "", error: String(e instanceof Error ? e.message : e) });
         }
         break;
       }
