@@ -4,6 +4,7 @@ import { Composer } from "../src/components/Composer";
 import * as ws from "../src/ws-instance";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useProjectsStore } from "../src/store/projects";
+import { useSessionStore } from "../src/store/session";
 
 describe("Composer", () => {
   beforeEach(() => {
@@ -17,6 +18,7 @@ describe("Composer", () => {
       defaults: { model: null, thinking: "disabled" },
       bySession: {},
     });
+    useSessionStore.setState({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, optimisticEchoBySession: {} });
     vi.spyOn(ws, "send").mockImplementation(() => {});
   });
 
@@ -92,5 +94,24 @@ describe("Composer", () => {
         thinking: "disabled",
       }));
     });
+  });
+
+  it("乐观发送：点击发送立即入列用户消息 + 占位 AI loading + status thinking（不等 SDK 回声）", () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "gpt-4o", thinking: "disabled", attachments: [] } },
+    });
+    render(<Composer sessionId="s1" agentName="dev" />);
+    const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
+    fireEvent.change(textarea, { target: { value: "马上看到我" } });
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    const s = useSessionStore.getState();
+    // 用户消息立即显示
+    expect(s.messagesBySession["s1"]).toHaveLength(1);
+    expect((s.messagesBySession["s1"][0].message as any).content).toBe("马上看到我");
+    // 占位流式 assistant（loading 气泡）+ 顶部 spinner 立即可见
+    expect(s.streamingBySession["s1"]).toBeTruthy();
+    expect(s.statusBySession["s1"]).toBe("thinking");
+    expect(s.optimisticEchoBySession["s1"]).toBe(true);
   });
 });

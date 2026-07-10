@@ -3,6 +3,7 @@ import type { AgentName, AttachmentDraft, ThinkingLevel } from "@hiagent/shared"
 import { send } from "../ws-instance";
 import { useProjectsStore } from "../store/projects";
 import { useComposerPrefsStore } from "../store/composer-prefs";
+import { useSessionStore } from "../store/session";
 import { ComposerInput } from "./ui/ComposerInput";
 
 interface Props {
@@ -31,6 +32,8 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
   const handleSend = () => {
     if (!text.trim() || !model || sendingRef.current || !projectId) return;
     sendingRef.current = true;
+    // 乐观 UI：立即显示用户消息 + AI loading，不等 SDK 回声（首条尤其慢：ensureStarted 要 import SDK + 加载资源）
+    useSessionStore.getState().optimisticSend(sessionId, text, agentName);
     send({
       type: "agent:prompt",
       projectId,

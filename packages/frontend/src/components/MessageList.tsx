@@ -1,5 +1,8 @@
-import type { SessionMessage, ToolResultMessage, ToolCall } from "@hiagent/shared";
+import type { SessionMessage, ToolResultMessage, ToolCall, PromptEvent, AgentName, ThinkingLevel } from "@hiagent/shared";
 import { useSessionStore } from "../store/session";
+import { useProjectsStore } from "../store/projects";
+import { useComposerPrefsStore } from "../store/composer-prefs";
+import { send } from "../ws-instance";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -22,6 +25,33 @@ export function MessageList({ sessionId }: Props) {
   const messages = useSessionStore(s => s.messagesBySession[sessionId] ?? EMPTY);
   const streaming = useSessionStore(s => s.streamingBySession[sessionId] ?? null);
   const rows = preprocess(messages);
+  const session = useProjectsStore(s => s.sessions.find(x => x.id === sessionId));
+
+  // 「重新发送」：仅当最后一条是失败的 assistant 回合（且当前无新回合在流式）时，
+  // 在它前一条用户消息下方显示按钮；重发或发新消息后按钮自动消失。
+  let resendUserIdx = -1;
+  const lastMsg = rows[rows.length - 1]?.main.message as any;
+  if (!streaming && lastMsg?.role === "assistant" && lastMsg?.stopReason === "error") {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if ((rows[i].main.message as any).role === "user") { resendUserIdx = i; break; }
+    }
+  }
+  const handleResend = useCallback((text: string, index: number) => {
+    // 原地重试：先裁掉该用户消息及之后所有行（失败的 assistant/错误），
+    // 再乐观重建用户消息 + loading（与首次发送一致，不等 SDK 回声），最后发 prompt。
+    // SDK 的 message_start(user) 回声会替换乐观占位（同步 timestamp），避免叠加。
+    useSessionStore.getState().truncate(sessionId, index);
+    const prefs = useComposerPrefsStore.getState().bySession[sessionId];
+    const payload = buildResendPrompt({
+      session, sessionId, text,
+      model: prefs?.model,
+      thinking: prefs?.thinking ?? "disabled",
+    });
+    if (payload && session) {
+      useSessionStore.getState().optimisticSend(sessionId, text, session.primaryAgent);
+      send(payload);
+    }
+  }, [session, sessionId]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [userScrolled, setUserScrolled] = useState(false);
@@ -69,9 +99,9 @@ export function MessageList({ sessionId }: Props) {
 
   return (
     <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-auto p-4 flex flex-col gap-4" data-testid="message-list">
-      {rows.map((row, i) => <MessageRow key={i} row={row} sessionId={sessionId} />)}
+      {rows.map((row, i) => <MessageRow key={i} row={row} sessionId={sessionId} showResend={i === resendUserIdx} onResend={i === resendUserIdx ? (text: string) => handleResend(text, i) : undefined} />)}
       {streaming && (
-        <MessageRow row={{ main: streaming, toolResults: new Map() }} sessionId={sessionId} />
+        <StreamingRow streaming={streaming} sessionId={sessionId} />
       )}
     </div>
   );
@@ -96,6 +126,30 @@ function stripAttachmentRefs(content: string): string {
   return content.replace(/\n\nAttachments:\n\[[\s\S]*?\]$/g, "");
 }
 
+/**
+ * 构造「重新发送」的 agent:prompt 负载。
+ * 用当前选择的模型重发；缺会话/模型/文本时返回 null（调用方不发）。
+ * 纯函数，便于单测（不触网）。
+ */
+export function buildResendPrompt(args: {
+  session: { projectId: string; primaryAgent: AgentName } | undefined;
+  sessionId: string;
+  text: string;
+  model: string | null | undefined;
+  thinking: ThinkingLevel;
+}): PromptEvent | null {
+  if (!args.session || !args.model || !args.text.trim()) return null;
+  return {
+    type: "agent:prompt",
+    projectId: args.session.projectId,
+    sessionId: args.sessionId,
+    agentName: args.session.primaryAgent,
+    text: args.text,
+    model: args.model,
+    thinking: args.thinking,
+  };
+}
+
 function formatTime(timestamp: number): string {
   const now = new Date();
   const d = new Date(timestamp);
@@ -118,7 +172,28 @@ function formatTime(timestamp: number): string {
   return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${time}`;
 }
 
-function MessageRow({ row, sessionId }: { row: RenderedRow; sessionId: string }) {
+/** 流式行：首字到达前（content 为空）渲染 loading 气泡；有内容后交给 MessageRow。 */
+function StreamingRow({ streaming, sessionId }: { streaming: SessionMessage; sessionId: string }) {
+  const m = streaming.message as any;
+  const hasContent = Array.isArray(m.content) && m.content.some((b: any) =>
+    (b.type === "text" && typeof b.text === "string" && b.text.trim().length > 0) ||
+    b.type === "thinking" || b.type === "toolCall");
+  if (hasContent) return <MessageRow row={{ main: streaming, toolResults: new Map() }} sessionId={sessionId} />;
+  return (
+    <div className="flex gap-2.5" data-testid={`loading-${sessionId}`}>
+      <div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-sm flex-shrink-0">🤖</div>
+      <div className="max-w-[78%]">
+        <div className="text-[11px] text-tertiary mb-0.5 font-semibold">{streaming.agentName ?? "agent"} · {formatTime(m.timestamp)}</div>
+        <div className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-surface border border-hairline" style={{ borderRadius: "4px 14px 14px 14px" }}>
+          <span className="inline-block w-3 h-3 rounded-full" style={{ border: "2px solid var(--accent-soft)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
+          <span className="text-[12.5px] text-tertiary">正在思考…</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MessageRow({ row, sessionId, showResend, onResend }: { row: RenderedRow; sessionId: string; showResend?: boolean; onResend?: (text: string) => void }) {
   const m = row.main.message as any;
   const isUser = m.role === "user";
 
@@ -136,6 +211,16 @@ function MessageRow({ row, sessionId }: { row: RenderedRow; sessionId: string })
           <div className="px-3.5 py-2.5 text-[13.5px] bg-surface text-primary border border-hairline" style={{ borderRadius: "14px 4px 14px 14px", lineHeight: 1.55 }}>
             <p>{displayText}</p>
           </div>
+          {showResend && (
+            <button
+              type="button"
+              data-testid={`resend-${sessionId}-${m.timestamp}`}
+              onClick={() => onResend?.(displayText)}
+              className="mt-1 self-end text-[12px] text-secondary hover:text-primary border border-hairline rounded-pill px-2 py-0.5 transition-colors"
+            >
+              ↻ 重新发送
+            </button>
+          )}
         </div>
       </div>
     );
