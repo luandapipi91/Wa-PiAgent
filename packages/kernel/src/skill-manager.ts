@@ -1,11 +1,12 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SkillInfo } from "@hiagent/shared";
 
 /** settings.json 中与技能相关的字段 */
 interface SkillSettings {
-  skills?: string[];
+  /** 用户技能目录（HiAgent 内部字段，Pi SDK 不读此字段，避免触发 SDK 递归扫描） */
+  userSkillDirs?: string[];
   disabledSkills?: string[];
   [k: string]: unknown;
 }
@@ -19,10 +20,82 @@ interface ScanResult {
   builtinDir: string;
 }
 
+/** 递归扫描最大深度（skill-dir / skill-name / SKILL.md = 3 层） */
+const MAX_DEPTH = 3;
+/** 单层目录最多遍历条目数 */
+const MAX_PER_DIR = 200;
+/** 全量扫描最多访问的条目总数 */
+const MAX_TOTAL_ENTRIES = 5000;
+
+/**
+ * 解析 SKILL.md 的 YAML frontmatter，提取 name 和 description。
+ * 格式：`---\nname: xxx\ndescription: yyy\n---`
+ */
+function parseSkillFrontmatter(content: string): SkillInfo | null {
+  const m = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (!m) return null;
+  const fm = m[1];
+  const name = fm.match(/^name:\s*(.+)$/m)?.[1]?.trim();
+  const desc = fm.match(/^description:\s*(.+)$/m)?.[1]?.trim();
+  if (!name) return null;
+  return { name, description: desc ?? "" };
+}
+
+/**
+ * 轻量递归扫描指定目录，查找 SKILL.md 并解析 frontmatter。
+ * 硬限制深度和条目数，几万递归文件的目录也能毫秒级完成。
+ */
+function scanSkillsDir(dir: string): SkillInfo[] {
+  const skills: SkillInfo[] = [];
+  let totalEntries = 0;
+
+  function walk(currentDir: string, depth: number) {
+    if (depth > MAX_DEPTH || totalEntries >= MAX_TOTAL_ENTRIES) return;
+    let entries: string[];
+    try {
+      entries = readdirSync(currentDir);
+    } catch {
+      return;
+    }
+    // 截断超大单层目录
+    if (entries.length > MAX_PER_DIR) entries = entries.slice(0, MAX_PER_DIR);
+
+    for (const name of entries) {
+      if (totalEntries >= MAX_TOTAL_ENTRIES) break;
+      if (name.startsWith(".")) continue; // 跳过隐藏目录/文件
+      const fullPath = join(currentDir, name);
+      totalEntries++;
+      try {
+        const st = statSync(fullPath);
+        if (st.isDirectory() && depth < MAX_DEPTH) {
+          // 先检查当前目录下是否有 SKILL.md（一技能一目录模式）
+          const skillFile = join(fullPath, "SKILL.md");
+          try {
+            const content = readFileSync(skillFile, "utf8");
+            const info = parseSkillFrontmatter(content);
+            if (info) {
+              skills.push(info);
+              continue; // 找到 SKILL.md 就不递归进入该目录
+            }
+          } catch {
+            // 没有 SKILL.md，继续递归
+          }
+          walk(fullPath, depth + 1);
+        }
+      } catch {
+        // 权限不足等，跳过
+      }
+    }
+  }
+
+  walk(dir, 1);
+  return skills;
+}
+
 /**
  * 技能管理器：扫描/去重/目录管理/启用禁用。
- * 数据持久化在 dataDir/settings.json 的 skills / disabledSkills 字段，
- * 技能扫描委托给 Pi SDK 的 loadSkills()。
+ * 数据持久化在 dataDir/settings.json 的 skills / disabledSkills 字段。
+ * 使用自实现轻量递归扫描（不依赖 Pi SDK loadSkills），硬限制深度和条目数。
  */
 export class SkillManager {
   /** 内置技能目录（dataDir/skills），不可删除 */
@@ -65,27 +138,19 @@ export class SkillManager {
    */
   async scan(): Promise<ScanResult> {
     const settings = await this.readSettings();
-    const userDirs = settings.skills ?? [];
+    const userDirs = settings.userSkillDirs ?? [];
     const disabledSkills = settings.disabledSkills ?? [];
 
-    // 用 Pi SDK loadSkills 扫描
-    // 内置目录放在 skillPaths 第一位确保优先去重
-    // includeDefaults = false → 不扫 Pi 默认的 ~/.pi/agent/skills/ 等
-    const { loadSkills } = await import("@earendil-works/pi-coding-agent");
-    const result = loadSkills({
-      cwd: this.dataDir,
-      agentDir: this.dataDir,
-      skillPaths: [this.builtinDir, ...userDirs],
-      includeDefaults: false,
-    });
-
-    // 去重：loadSkills 内部已处理同名冲突（先扫到的优先），此处二次确保内置目录优先
+    // 去重：内置目录优先
     const seen = new Set<string>();
     const allSkills: SkillInfo[] = [];
-    for (const skill of result.skills) {
-      if (!seen.has(skill.name)) {
-        seen.add(skill.name);
-        allSkills.push({ name: skill.name, description: skill.description });
+
+    for (const dir of [this.builtinDir, ...userDirs]) {
+      for (const skill of scanSkillsDir(dir)) {
+        if (!seen.has(skill.name)) {
+          seen.add(skill.name);
+          allSkills.push(skill);
+        }
       }
     }
 
@@ -106,10 +171,10 @@ export class SkillManager {
     if (!existsSync(path)) throw new Error("目录不存在");
     if (path === this.builtinDir) throw new Error("内置目录无需重复添加");
     const settings = await this.readSettings();
-    const dirs = settings.skills ?? [];
+    const dirs = settings.userSkillDirs ?? [];
     if (!dirs.includes(path)) {
       dirs.push(path);
-      settings.skills = dirs;
+      settings.userSkillDirs = dirs;
       await this.writeSettings(settings);
     }
   }
@@ -121,9 +186,9 @@ export class SkillManager {
   async removeDir(path: string): Promise<void> {
     if (path === this.builtinDir) throw new Error("内置目录不可删除");
     const settings = await this.readSettings();
-    const dirs = settings.skills ?? [];
+    const dirs = settings.userSkillDirs ?? [];
     if (!dirs.includes(path)) return;
-    settings.skills = dirs.filter(d => d !== path);
+    settings.userSkillDirs = dirs.filter(d => d !== path);
     await this.writeSettings(settings);
   }
 

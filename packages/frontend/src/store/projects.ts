@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { ProjectEntity, SessionEntity } from "@hiagent/shared";
 import { send } from "../ws-instance";
 import { basename } from "../pick-directory";
+import { useToastStore } from "./toast";
 
 interface ProjectsState {
   projects: ProjectEntity[];
@@ -34,13 +35,21 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
   // 新建项目：打开目录树选择器（DirTreePicker），用户点选目录后走 createProjectFromPath
   createProjectFromDir: () => { set({ dirPickerOpen: true }); },
   closeDirPicker: () => set({ dirPickerOpen: false }),
-  // 目录树点选后：项目名取 basename，发 project:create
+  // 目录树点选后：项目名取 basename，发 project:create（cwd 重复时 toast 提示）
   createProjectFromPath: (cwd: string) => {
     set({ dirPickerOpen: false });
+    if (useProjectsStore.getState().projects.some(p => p.cwd === cwd)) {
+      useToastStore.getState().add("相同目录的项目已存在");
+      return;
+    }
     const name = basename(cwd);
     send({ type: "project:create", name, cwd });
   },
-  addProject: (p) => set(s => ({ projects: [...s.projects, p], currentProjectId: p.id })),
+  addProject: (p) => set(s => {
+    // cwd 去重：同一目录的项目已存在则忽略（kernel 也会拒绝重复创建）
+    if (s.projects.some(x => x.cwd === p.cwd)) return s;
+    return { projects: [...s.projects, p], currentProjectId: p.id };
+  }),
   addSession: (sess) => set(s => {
     // 去重：同 id session 已存在则忽略（kernel 可能重复广播 session:created）
     if (s.sessions.some(x => x.id === sess.id)) return s;

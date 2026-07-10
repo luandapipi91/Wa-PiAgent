@@ -33,6 +33,10 @@ export class ProjectStore {
 
   async createProject(input: { name: string; cwd: string }): Promise<ProjectEntity> {
     const data = await this.load();
+    // cwd 去重：同一目录不允许重复添加
+    if (data.projects.some(p => p.cwd === input.cwd)) {
+      throw new Error("相同目录的项目已存在");
+    }
     const project: ProjectEntity = {
       id: randomUUID(), name: input.name, cwd: input.cwd, createdAt: Date.now(),
     };

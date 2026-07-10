@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-09 — DirTreePicker 搜索过滤功能
+
+- **类型**：新增功能
+- **摘要**：目录选择器（DirTreePicker）新增搜索框，支持输入关键字过滤已加载的目录树。匹配规则：不区分大小写，匹配目录名中包含关键字的节点；自动保留匹配节点的完整父级链并展开；清空搜索恢复完整树；无匹配时显示"无匹配结果"提示。
+- **影响范围**：`packages/frontend/src/components/DirTreePicker.tsx`（新增 searchQuery 状态、filterTreeItems/findParentId 工具函数、搜索输入框 UI、空状态提示）、`packages/frontend/tests/DirTreePicker.test.tsx`（新增 5 个搜索过滤测试用例，更新 mock 数据）
+
 ## 2026-07-09 — 技能管理
 
 - **类型**：新增功能

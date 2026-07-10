@@ -45,16 +45,83 @@ function join(parent: string, name: string): string {
 // 占位符前缀：`__ld__<parentId>` → onMissingItems 中解析出 parentId 做懒加载
 const LD = "__ld__";
 
+// 在 treeItems 中查找某个 childId 的父节点 ID
+function findParentId(
+  childId: TreeItemIndex,
+  items: Record<TreeItemIndex, TreeItem<FsNodeData>>,
+): TreeItemIndex | null {
+  for (const [id, item] of Object.entries(items)) {
+    if (item.children?.includes(childId)) return id;
+  }
+  return null;
+}
+
+// 根据搜索关键字过滤 treeItems，返回过滤后的 items 和需要展开的节点 ID 列表
+function filterTreeItems(
+  allItems: Record<TreeItemIndex, TreeItem<FsNodeData>>,
+  query: string,
+): { items: Record<TreeItemIndex, TreeItem<FsNodeData>>; expandIds: TreeItemIndex[] } {
+  const lowerQuery = query.toLowerCase();
+
+  // 收集所有名称匹配关键字的节点
+  const matchingIds = new Set<TreeItemIndex>();
+  for (const [id, item] of Object.entries(allItems)) {
+    if (id === "root") continue;
+    if (item.data.name.toLowerCase().includes(lowerQuery)) {
+      matchingIds.add(id);
+    }
+  }
+
+  if (matchingIds.size === 0) {
+    return { items: { root: allItems.root }, expandIds: [] };
+  }
+
+  // 从匹配节点向上追溯到根，收集所有祖先
+  const keepIds = new Set(matchingIds);
+  keepIds.add("root");
+  for (const matchId of matchingIds) {
+    let current: TreeItemIndex | null = matchId;
+    while ((current = findParentId(current, allItems))) {
+      keepIds.add(current);
+    }
+  }
+
+  // 构建过滤后的 items，更新 children 数组只保留白名单内的子节点
+  const items: Record<TreeItemIndex, TreeItem<FsNodeData>> = {};
+  for (const id of keepIds) {
+    const item = allItems[id];
+    items[id] = {
+      ...item,
+      children: item.children?.filter((cid) => keepIds.has(cid)),
+    };
+  }
+
+  // 自动展开所有有子节点的已保留节点
+  const expandIds: TreeItemIndex[] = [];
+  for (const id of keepIds) {
+    const item = items[id];
+    if (item.children && item.children.length > 0 && item.isFolder) {
+      expandIds.push(id);
+    }
+  }
+
+  return { items, expandIds };
+}
+
 export function DirTreePicker({ onPick, onCancel }: Props) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [focusedItem, setFocusedItem] = useState<TreeItemIndex | undefined>();
   const [selectedItems, setSelectedItems] = useState<TreeItemIndex[]>([]);
   const [expandedItems, setExpandedItems] = useState<TreeItemIndex[]>([]);
+  const [showHidden, setShowHidden] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [treeItems, setTreeItems] = useState<Record<TreeItemIndex, TreeItem<FsNodeData>>>({
     root: { index: "root", children: [], isFolder: true, data: { path: "", name: "加载中…", isDir: true } },
   });
   const treeItemsRef = useRef(treeItems);
   treeItemsRef.current = treeItems;
+  const showHiddenRef = useRef(showHidden);
+  showHiddenRef.current = showHidden;
 
   // 加载根节点 + 预加载 home 路径 + 批量展开
   useEffect(() => {
@@ -92,7 +159,7 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
 
       // 逐层预加载到 home
       while (segIdx < allSegments.length) {
-        const entries = (await listDir(currentPath)).filter(e => e.isDir);
+        const entries = (await listDir(currentPath)).filter(e => e.isDir && (showHiddenRef.current || !e.name.startsWith(".")));
         const childList: TreeItemIndex[] = [];
         const newChildren: Record<string, TreeItem<FsNodeData>> = {};
 
@@ -132,7 +199,7 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
         setSelectedItems([expandIds[expandIds.length - 1]]);
       }
     })();
-  }, []);
+  }, [showHidden]);
 
   // onMissingItems：树发现 children 中有不存在的 ID → 懒加载该目录的子节点
   const handleMissingItems = useCallback(async (missingIds: TreeItemIndex[]) => {
@@ -152,7 +219,7 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
     for (const parentId of needLoad) {
       const parent = items[parentId];
       if (!parent) continue;
-      const entries = (await listDir(parent.data.path)).filter(e => e.isDir);
+      const entries = (await listDir(parent.data.path)).filter(e => e.isDir && (showHiddenRef.current || !e.name.startsWith(".")));
       const realChildren: TreeItemIndex[] = [];
       for (const [i, e] of entries.entries()) {
         const childId = `${parentId}_${i}`;
@@ -196,9 +263,27 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
     setFocusedItem(item.index);
   }, []);
 
+  // 搜索过滤：根据 searchQuery 过滤 treeItems，计算展开列表
+  const { displayItems, searchExpandIds } = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return { displayItems: treeItems, searchExpandIds: null };
+    }
+    const result = filterTreeItems(treeItems, searchQuery.trim());
+    return { displayItems: result.items, searchExpandIds: result.expandIds };
+  }, [treeItems, searchQuery]);
+
+  const isSearching = searchQuery.trim().length > 0;
+  const hasSearchResults = isSearching
+    ? Object.keys(displayItems).length > 1 // 除了 root 还有其他节点
+    : true;
+
   const viewState = useMemo(() => ({
-    "dir-tree": { expandedItems, focusedItem, selectedItems },
-  }), [expandedItems, focusedItem, selectedItems]);
+    "dir-tree": {
+      expandedItems: searchExpandIds ?? expandedItems,
+      focusedItem,
+      selectedItems,
+    },
+  }), [expandedItems, searchExpandIds, focusedItem, selectedItems]);
 
   return (
     <>
@@ -210,8 +295,22 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
           {selectedPath && <span className="ml-3 text-xs text-blue font-mono">{selectedPath}</span>}
         </div>
         <div className="flex-1 overflow-auto p-2 text-text" style={{ minHeight: 320 }}>
+          {/* 搜索框 */}
+          <div className="mb-2">
+            <input
+              type="text"
+              className="w-full px-3 py-1.5 text-sm border border-hairline rounded bg-surface0 text-text placeholder:text-tertiary focus:outline-none focus:border-blue"
+              placeholder="搜索目录…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              data-testid="dir-search"
+            />
+          </div>
+          {isSearching && !hasSearchResults ? (
+            <div className="flex items-center justify-center h-32 text-sm text-tertiary">无匹配结果</div>
+          ) : (
           <ControlledTreeEnvironment<FsNodeData>
-            items={treeItems}
+            items={displayItems}
             viewState={viewState}
             getItemTitle={(item) => item.data.name}
             canDragAndDrop={false}
@@ -228,8 +327,32 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
           >
             <Tree treeId="dir-tree" rootItem="root" treeLabel="目录" />
           </ControlledTreeEnvironment>
+          )}
         </div>
-        <div className="p-3 border-t border-surface0 flex gap-2 justify-end">
+        <div className="p-3 border-t border-surface0 flex gap-2 justify-between items-center">
+          <label className="flex items-center gap-2 text-xs text-tertiary cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showHidden}
+              onChange={(e) => setShowHidden(e.target.checked)}
+              className="sr-only"
+            />
+            <span className="relative inline-block" style={{ width: 32, height: 18 }}>
+              <span
+                className="absolute inset-0 rounded-full transition-colors"
+                style={{ background: showHidden ? "var(--brand)" : "var(--hairline-strong)" }}
+              />
+              <span
+                className="absolute rounded-full bg-white shadow-sm transition-transform"
+                style={{
+                  width: 14, height: 14, top: 2, left: 2,
+                  transform: showHidden ? "translateX(14px)" : "translateX(0)",
+                }}
+              />
+            </span>
+            显示隐藏目录
+          </label>
+          <div className="flex gap-2">
           <button onClick={onCancel} className="px-3 py-1 text-sm text-subtext hover:text-text" data-testid="dir-cancel">取消</button>
           <button
             onClick={() => selectedPath && onPick(selectedPath)}
@@ -238,6 +361,7 @@ export function DirTreePicker({ onPick, onCancel }: Props) {
             style={{ background: "#1D1D1F", color: "#FFFFFF" }}
             data-testid="dir-pick"
           >选择</button>
+          </div>
         </div>
       </div>
     </div>

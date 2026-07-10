@@ -13,7 +13,9 @@ import { useProvidersStore } from "./store/providers";
 import { useProjectsStore } from "./store/projects";
 import { useSessionStore } from "./store/session";
 import { useSkillsStore } from "./store/skills";
+import { useToastStore } from "./store/toast";
 import { onMessage, getWs } from "./ws-instance";
+import { ToastContainer } from "./components/ui/Toast";
 
 type View = "empty" | "new-session" | "session" | "canvas";
 
@@ -56,7 +58,7 @@ export function App() {
               sessionId: sid,
             });
           } else {
-            window.alert(e.message);
+            useToastStore.getState().add(e.message);
           }
           break;
         }
@@ -110,6 +112,7 @@ export function App() {
         />
       )}
       {useSettingsStore(s => s.showSettings) && <SettingsModal onClose={() => useSettingsStore.getState().close()} />}
+      <ToastContainer />
     </div>
   );
 }
