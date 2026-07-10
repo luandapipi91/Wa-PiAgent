@@ -1,5 +1,5 @@
 import { test, expect, beforeEach } from "bun:test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { SessionMessage } from "@hiagent/shared";
 import { MessageList } from "../src/components/MessageList";
 import { useSessionStore } from "../src/store/session";
@@ -181,6 +181,98 @@ test("更早的消息显示月日和时间", () => {
   const day = String(ts.getDate()).padStart(2, "0");
   expect(screen.getByText(new RegExp(`^dev · ${month}-${day} 08:07$`))).toBeTruthy();
 });
+
+// ── 自动滚动测试 ──
+
+function setScrollMetrics(el: HTMLElement, { scrollHeight, clientHeight, scrollTop }: { scrollHeight: number; clientHeight: number; scrollTop: number }) {
+  Object.defineProperty(el, "scrollHeight", { value: scrollHeight, configurable: true });
+  Object.defineProperty(el, "clientHeight", { value: clientHeight, configurable: true });
+  el.scrollTop = scrollTop;
+}
+
+test("新消息自动滚动到底部", async () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [{ agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } }],
+    },
+  });
   render(<MessageList sessionId="s1" />);
-  expect(screen.getByText(/我 · 14:22/)).toBeTruthy();
+  const list = screen.getByTestId("message-list");
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 0 });
+
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+        assistantMsg(2, [{ type: "text", text: "reply" }]),
+      ],
+    },
+  });
+
+  await waitFor(() => {
+    expect(list.scrollTop).toBe(1000);
+  }, { timeout: 1000 });
+});
+
+test("用户手动向上滚动后暂停自动滚动", async () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [{ agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } }],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const list = screen.getByTestId("message-list");
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 0 });
+
+  // 用户向上滚动（远离底部）
+  list.scrollTop = 500;
+  fireEvent.scroll(list);
+
+  // 追加新消息
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+        assistantMsg(2, [{ type: "text", text: "reply" }]),
+      ],
+    },
+  });
+
+  // 等待一帧，确认没有自动滚回底部
+  await new Promise(r => setTimeout(r, 50));
+  expect(list.scrollTop).toBe(500);
+});
+
+test("用户手动回到底部后恢复自动滚动", async () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [{ agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } }],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const list = screen.getByTestId("message-list");
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 0 });
+
+  // 向上滚动暂停
+  list.scrollTop = 500;
+  fireEvent.scroll(list);
+
+  // 用户回到底部
+  list.scrollTop = 700; // scrollHeight - clientHeight = 700，视为底部
+  fireEvent.scroll(list);
+
+  // 追加新消息
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+        assistantMsg(2, [{ type: "text", text: "reply" }]),
+        assistantMsg(3, [{ type: "text", text: "more" }]),
+      ],
+    },
+  });
+
+  await waitFor(() => {
+    expect(list.scrollTop).toBe(1000);
+  }, { timeout: 1000 });
 });
