@@ -239,7 +239,7 @@ export type WSClientEvent =
   | ProjectsListRequest | SessionMessagesRequest
   | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
   | SkillListEvent | SkillToggleEvent | SkillDirAddEvent | SkillDirRemoveEvent
-  | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest | FSUploadRequest | FSLinkRequest;
+  | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest | FSUploadRequest | FSCopyRequest;
 
 // kernel → 前端
 export interface ProjectsListEvent {
@@ -283,8 +283,8 @@ export interface FSReadFileRequest { type: "fs:readFile"; path: string; }
 export interface FSReadFileResult { type: "fs:readFile"; path: string; content: string; mimeType?: string; error?: string; }
 export interface FSUploadRequest { type: "fs:upload"; id: string; projectId: string; name: string; content: string; }
 export interface FSUploadResult { type: "fs:upload"; id: string; path: string; error?: string; }
-export interface FSLinkRequest { type: "fs:link"; id: string; projectId: string; target: string; }
-export interface FSLinkResult { type: "fs:link"; id: string; path: string; error?: string; }
+export interface FSCopyRequest { type: "fs:copy"; id: string; projectId: string; source: string; }
+export interface FSCopyResult { type: "fs:copy"; id: string; path: string; error?: string; }
 export interface FSErrorEvent { type: "fs:error"; path: string; reason: string; }
 
 // 镜像 SDK AgentSessionEvent 联合类型，作为 WS 透传事件
@@ -317,6 +317,6 @@ export type WSServerEvent =
   | AgentConfigEvent | ErrorEvent
   | ProviderListResult | ProviderTestResult | ProviderChangedEvent
   | SkillListResult | SkillChangedEvent
-  | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSLinkResult | FSErrorEvent;
+  | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSCopyResult | FSErrorEvent;
 
 export type WSEvent = WSClientEvent | WSServerEvent;

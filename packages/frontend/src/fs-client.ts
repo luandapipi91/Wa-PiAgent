@@ -43,11 +43,11 @@ export function readFile(path: string): Promise<{ content: string; mimeType?: st
   });
 }
 
-export function linkFolder(projectId: string, target: string, timeoutMs = 30000): Promise<{ path: string }> {
+export function copyToUploads(projectId: string, source: string, timeoutMs = 30000): Promise<{ path: string }> {
   const id = crypto.randomUUID();
   return new Promise((resolve, reject) => {
     const off = onMessage((e: any) => {
-      if (e.type === "fs:link" && e.id === id) {
+      if (e.type === "fs:copy" && e.id === id) {
         clearTimeout(timer);
         off();
         if (e.error) reject(new Error(e.error));
@@ -56,9 +56,9 @@ export function linkFolder(projectId: string, target: string, timeoutMs = 30000)
     });
     const timer = setTimeout(() => {
       off();
-      reject(new Error("创建文件夹链接超时"));
+      reject(new Error("复制到上传目录超时"));
     }, timeoutMs);
-    send({ type: "fs:link", id, projectId, target });
+    send({ type: "fs:copy", id, projectId, source });
   });
 }
 

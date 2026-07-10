@@ -1,9 +1,10 @@
 import { useRef, useCallback, useState } from "react";
 import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
-import { uploadFile } from "../../fs-client";
+import { uploadFile, copyToUploads } from "../../fs-client";
 import { ModelSelector } from "./ModelSelector";
 import { ThinkingSelector } from "./ThinkingSelector";
 import { AttachmentChip } from "./AttachmentChip";
+import { FilePicker, type FilePickerSelection } from "./FilePicker";
 
 interface Props {
   text: string;
@@ -41,7 +42,32 @@ export function ComposerInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingUploads, setPendingUploads] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const uploading = pendingUploads > 0;
+
+  const isImageName = (name: string) => /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(name);
+
+  const addAttachment = (draft: AttachmentDraft) => {
+    setAttachments(prev => [...prev, draft]);
+  };
+
+  const handlePick = async (selections: FilePickerSelection[]) => {
+    if (!projectId || selections.length === 0) return;
+    setUploadError(null);
+    setPendingUploads(n => n + selections.length);
+    for (const sel of selections) {
+      try {
+        const { path } = await copyToUploads(projectId, sel.path);
+        const kind = sel.isDir ? "folder" : isImageName(sel.name) ? "image" : "file";
+        addAttachment({ kind, name: sel.name, path, size: 0 } as AttachmentDraft);
+      } catch (err) {
+        setUploadError(err instanceof Error ? err.message : "添加附件失败");
+      } finally {
+        setPendingUploads(n => n - 1);
+      }
+    }
+    setPickerOpen(false);
+  };
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -119,12 +145,19 @@ export function ComposerInput({
         <div className="flex items-center justify-between px-3 py-2 border-t border-hairline">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => setPickerOpen(true)}
               disabled={uploading}
               className="text-lg text-secondary hover:text-primary disabled:opacity-50"
               title="添加附件"
             >📎</button>
             <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} />
+            {pickerOpen && projectId && (
+              <FilePicker
+                onPick={handlePick}
+                onCancel={() => setPickerOpen(false)}
+                multiSelect
+              />
+            )}
             <ModelSelector value={model} onChange={setModel} />
             <ThinkingSelector value={thinking} onChange={setThinking} />
             {uploading && <span className="text-xs text-tertiary" data-testid="upload-spinner">上传中...</span>}

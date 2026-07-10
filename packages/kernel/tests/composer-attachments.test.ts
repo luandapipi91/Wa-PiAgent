@@ -304,8 +304,36 @@ describe("composer attachments integration", () => {
     }
   });
 
-  it("agent:prompt 携带 snippet 附件时，最终 prompt 文本包含片段引用与片段内容", async () => {
-    const fileDir = makeTempDir("hiagent-snippet-");
+  it("fs:copy 对文件夹直接返回原始真实路径，不再创建软链接", async () => {
+    const fileDir = makeTempDir("hiagent-copy-folder-");
+    const sourceDir = join(fileDir, "big-data");
+    mkdirSync(sourceDir);
+    writeFileSync(join(sourceDir, "data.txt"), "folder content");
+
+    try {
+      await withComposerServer(async (send, recv) => {
+        send({ type: "project:create", name: "P", cwd: fileDir });
+        const created = (await recv()) as any;
+        const projectId = created.project.id;
+
+        send({ type: "fs:copy", id: "c1", projectId, source: sourceDir });
+
+        const resp = (await recv()) as any;
+        expect(resp.type).toBe("fs:copy");
+        expect(resp.error).toBeUndefined();
+        expect(resp.path).toBe(sourceDir);
+        expect(existsSync(resp.path)).toBe(true);
+        expect(readFileSync(join(resp.path, "data.txt"), "utf8")).toBe("folder content");
+      });
+    } finally {
+      rmSync(fileDir, { recursive: true, force: true });
+    }
+  });
+
+  it("agent:prompt 携带 folder 附件时，最终 prompt 文本包含 @相对路径引用", async () => {
+    const fileDir = makeTempDir("hiagent-folder-attach-");
+    const sourceDir = join(fileDir, "docs");
+    mkdirSync(sourceDir);
 
     try {
       await withComposerServer(async (send, recv, getPromptCalls) => {
@@ -313,14 +341,18 @@ describe("composer attachments integration", () => {
         const created = (await recv()) as any;
         const projectId = created.project.id;
 
+        send({ type: "fs:copy", id: "c2", projectId, source: sourceDir });
+        const copied = (await recv()) as any;
+        const folderPath = copied.path as string;
+
         send({
           type: "agent:prompt",
           projectId,
-          sessionId: "s-snippet",
+          sessionId: "s-folder",
           agentName: "dev",
-          text: "解释这段代码",
+          text: "看这个项目文档",
           model: "test-provider/test-model",
-          attachments: [{ kind: "snippet", name: "utils.ts", content: "const x = 1;" }],
+          attachments: [{ kind: "folder", name: "docs", path: folderPath }],
         });
 
         const ev = (await recv()) as any;
@@ -330,9 +362,9 @@ describe("composer attachments integration", () => {
 
         const calls = getPromptCalls();
         expect(calls).toHaveLength(1);
-        expect(calls[0].text).toContain("[片段: utils.ts]");
-        expect(calls[0].text).toContain("const x = 1;");
-        expect(calls[0].text).toContain("解释这段代码");
+        expect(calls[0].text).toContain("看这个项目文档");
+        expect(calls[0].text).toContain("Attachments:");
+        expect(calls[0].text).toContain("[@docs]");
       });
     } finally {
       rmSync(fileDir, { recursive: true, force: true });
