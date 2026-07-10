@@ -3,35 +3,41 @@ import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 // mock fs-client：getRoots 返回虚拟盘符，listDir 按路径返回测试目录结构
+const listDirMock = mock((path: string, showHidden?: boolean) => {
+  if (path === "C:\\") return Promise.resolve([
+    { name: "Users", isDir: true },
+    { name: "Windows", isDir: true },
+    { name: "Program Files", isDir: true },
+    { name: "pagefile.sys", isDir: false },
+    { name: "README.txt", isDir: false },
+    ...(showHidden ? [{ name: ".hidden-root", isDir: true }, { name: ".hidden-file", isDir: false }] : []),
+  ]);
+  if (path === "C:\\Users") return Promise.resolve([
+    { name: "test", isDir: true },
+    { name: "Public", isDir: true },
+    { name: "package.json", isDir: false },
+    ...(showHidden ? [{ name: ".hidden-users", isDir: true }] : []),
+  ]);
+  if (path === "C:\\Windows") return Promise.resolve([
+    { name: "System32", isDir: true },
+    { name: "notepad.exe", isDir: false },
+  ]);
+  if (path === "D:\\") return Promise.resolve([
+    { name: "Projects", isDir: true },
+    { name: "Downloads", isDir: true },
+  ]);
+  return Promise.resolve([]);
+});
+
 mock.module("../src/fs-client", () => ({
   getHome: () => Promise.resolve("C:\\Users\\test"),
   getRoots: () => Promise.resolve(["C:\\", "D:\\"]),
-  listDir: (path: string, showHidden?: boolean) => {
-    if (path === "C:\\") return Promise.resolve([
-      { name: "Users", isDir: true },
-      { name: "Windows", isDir: true },
-      { name: "Program Files", isDir: true },
-      { name: "pagefile.sys", isDir: false },
-      { name: "README.txt", isDir: false },
-      ...(showHidden ? [{ name: ".hidden-root", isDir: true }, { name: ".hidden-file", isDir: false }] : []),
-    ]);
-    if (path === "C:\\Users") return Promise.resolve([
-      { name: "test", isDir: true },
-      { name: "Public", isDir: true },
-      { name: "package.json", isDir: false },
-      ...(showHidden ? [{ name: ".hidden-users", isDir: true }] : []),
-    ]);
-    if (path === "D:\\") return Promise.resolve([
-      { name: "Projects", isDir: true },
-      { name: "Downloads", isDir: true },
-    ]);
-    return Promise.resolve([]);
-  },
+  listDir: listDirMock,
 }));
 
 const { DirTreePicker } = await import("../src/components/DirTreePicker");
 
-beforeEach(() => { document.body.innerHTML = ""; });
+beforeEach(() => { document.body.innerHTML = ""; listDirMock.mockClear(); });
 
 test("打开显示盘符根节点", async () => {
   render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
@@ -296,6 +302,58 @@ test("默认不显示隐藏目录，开启开关后显示隐藏目录", async ()
   // 隐藏目录应该出现
   await waitFor(() => {
     expect(screen.getByText(/📁\s*\.hidden-root/)).toBeTruthy();
+  }, { timeout: 3000 });
+});
+
+test("默认目录模式下可展开用户子目录（懒加载）", async () => {
+  render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  // 找到 Windows 目录项的展开箭头并点击
+  const windowsText = screen.getByText(/📁\s*Windows/);
+  const titleContainer = windowsText.closest(".rct-tree-item-title-container");
+  const arrow = titleContainer?.querySelector(".rct-tree-item-arrow");
+  expect(arrow).toBeTruthy();
+  fireEvent.click(arrow!);
+
+  // 应触发 listDir 懒加载 C:\Windows
+  await waitFor(() => {
+    expect(listDirMock).toHaveBeenCalledWith("C:\\Windows", false);
+  }, { timeout: 3000 });
+
+  // System32 子目录应出现
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*System32/)).toBeTruthy();
+  }, { timeout: 3000 });
+});
+
+test("搜索过滤后目录仍保留懒加载占位符可展开", async () => {
+  render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  const searchInput = screen.getByTestId("dir-search") as HTMLInputElement;
+  fireEvent.change(searchInput, { target: { value: "Windows" } });
+
+  // Windows 目录被保留
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  // 展开 Windows
+  const windowsText = screen.getByText(/📁\s*Windows/);
+  const titleContainer = windowsText.closest(".rct-tree-item-title-container");
+  const arrow = titleContainer?.querySelector(".rct-tree-item-arrow");
+  fireEvent.click(arrow!);
+
+  // 懒加载应被触发
+  await waitFor(() => {
+    expect(listDirMock).toHaveBeenCalledWith("C:\\Windows", false);
   }, { timeout: 3000 });
 });
 

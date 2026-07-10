@@ -341,7 +341,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true }: Props) {
                 onSelectItems={handleSelectItems}
                 onFocusItem={handleFocusItem}
                 renderItemTitle={({ item }) => (
-                  <span>{item.data?.isDir ? "📁 " : "📄 "}{item.data?.name}</span>
+                  <span>{item.isFolder ? "📁 " : "📄 "}{item.data?.name}</span>
                 )}
               >
                 <Tree treeId="file-picker" rootItem="root" treeLabel="文件" />
