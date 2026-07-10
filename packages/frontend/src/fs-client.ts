@@ -1,6 +1,34 @@
 // 把 fs 系列 WS 消息封装成 Promise，供 react-complex-tree DataProvider 异步调用。
-import { send, onMessage } from "./ws-instance";
+import { send as wsSend, onMessage as wsOnMessage } from "./ws-instance";
 import type { DirEntry } from "@hiagent/shared";
+
+/**
+ * 底层 WS 传输抽象。默认走真实 ws-instance；单测可通过 `_setFsTransport` 注入伪传输，
+ * 避免 bun `mock.module` 跨文件缓存污染（多个测试文件 mock 同一模块会互相覆盖、
+ * 且无法按文件注销，导致依赖真实模块的测试拿到伪造实现）。
+ */
+export interface FsTransport {
+  send: (e: any) => void;
+  onMessage: (h: (e: any) => void) => () => void;
+}
+
+const defaultTransport: FsTransport = {
+  // 用包装函数而非直接引用 wsSend/wsOnMessage：前者在调用时读取 live binding，
+  // 使 `vi.spyOn(ws,"send")` / `vi.mock("../src/ws-instance")` 等运行时替换对 fs-client 生效
+  // （直接赋值会在模块加载时固化原始实现，测试 spy 不到）。
+  send: (e) => wsSend(e),
+  onMessage: (h) => wsOnMessage(h),
+};
+let transport: FsTransport = defaultTransport;
+
+/** 测试注入传输层；传 null 恢复默认（真实 ws-instance）。 */
+export function _setFsTransport(t: FsTransport | null): void {
+  transport = t ?? defaultTransport;
+}
+
+// 通过当前 transport 收发（运行时读取，故 _setFsTransport 即时生效）。
+const send = (e: any): void => transport.send(e);
+const onMessage = (h: (e: any) => void): (() => void) => transport.onMessage(h);
 
 export function getHome(): Promise<string> {
   return new Promise((resolve) => {
@@ -127,7 +155,9 @@ export function searchFilesStream(
     if (e.type === "fs:search:progress" && pending.has(e.requestId)) {
       handlers.onProgress(e.matches);
     } else if (e.type === "fs:search" && pending.has(e.requestId)) {
-      handlers.onProgress(e.matches);
+      // 终帧：仅在确有匹配时回调 onProgress。空匹配（kernel 对无结果搜索只发 done）
+      // 不应触发下游 rebuild——否则会建出仅含根目录的空树，被误判为「有结果」而无法显示「无匹配」。
+      if (e.matches?.length) handlers.onProgress(e.matches);
       pending.delete(e.requestId);
       totalDuration += e.durationMs;
       if (e.truncated) anyTruncated = true;

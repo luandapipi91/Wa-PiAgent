@@ -1,18 +1,17 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
-import type { WSServerEvent } from "@hiagent/shared";
+import { describe, test, expect, mock, beforeEach, afterAll } from "bun:test";
+import { listDir, readFile, uploadFile, _setFsTransport, type FsTransport } from "../src/fs-client";
 
-const handlers = new Set<(e: WSServerEvent) => void>();
+// 不再 mock.module("../src/ws-instance")：bun 的 mock.module 跨文件缓存会与其它测试文件
+// 互相覆盖、且无法按文件注销。改为通过 fs-client 暴露的传输 seam 注入伪传输。
+const handlers = new Set<(e: any) => void>();
 const sendMock = mock();
-
-mock.module("../src/ws-instance", () => ({
+const transport: FsTransport = {
   send: sendMock,
-  onMessage: (h: (e: WSServerEvent) => void) => {
-    handlers.add(h);
-    return () => handlers.delete(h);
-  },
-}));
+  onMessage: (h: (e: any) => void) => { handlers.add(h); return () => handlers.delete(h); },
+};
 
-import { listDir, readFile, uploadFile } from "../src/fs-client";
+_setFsTransport(transport);
+afterAll(() => _setFsTransport(null));
 
 describe("fs-client readFile", () => {
   beforeEach(() => {
