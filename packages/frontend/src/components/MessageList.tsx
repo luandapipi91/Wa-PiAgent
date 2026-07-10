@@ -1,10 +1,15 @@
 import type { SessionMessage, ToolResultMessage, ToolCall } from "@hiagent/shared";
 import { useSessionStore } from "../store/session";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 const EMPTY: SessionMessage[] = [];
+
+// 自动滚动：用户手动滚动离开后，空闲超过此时间恢复自动滚动（ms）
+const SCROLL_IDLE_TIMEOUT = 3000;
+// 距离底部多少像素内视为“已在底部”
+const BOTTOM_THRESHOLD = 20;
 
 interface Props { sessionId: string; }
 
@@ -17,8 +22,53 @@ export function MessageList({ sessionId }: Props) {
   const messages = useSessionStore(s => s.messagesBySession[sessionId] ?? EMPTY);
   const streaming = useSessionStore(s => s.streamingBySession[sessionId] ?? null);
   const rows = preprocess(messages);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [userScrolled, setUserScrolled] = useState(false);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isNearBottom = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD;
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const el = containerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    if (isNearBottom()) {
+      setUserScrolled(false);
+    } else {
+      setUserScrolled(true);
+      idleTimerRef.current = setTimeout(() => {
+        setUserScrolled(false);
+      }, SCROLL_IDLE_TIMEOUT);
+    }
+  }, [isNearBottom]);
+
+  // 消息或流式内容变化时，若用户未主动滚动离开底部，则自动滚到底
+  useEffect(() => {
+    if (!userScrolled) {
+      scrollToBottom();
+    }
+  }, [messages, streaming, userScrolled, scrollToBottom]);
+
+  // 卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    };
+  }, []);
+
   return (
-    <div className="flex-1 overflow-auto p-4 flex flex-col gap-4" data-testid="message-list">
+    <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-auto p-4 flex flex-col gap-4" data-testid="message-list">
       {rows.map((row, i) => <MessageRow key={i} row={row} sessionId={sessionId} />)}
       {streaming && (
         <MessageRow row={{ main: streaming, toolResults: new Map() }} sessionId={sessionId} />
