@@ -251,7 +251,7 @@ export class WSServer {
             attachments: event.attachments,
           });
         } catch (err) {
-          this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}`, agentName: event.agentName });
+          this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}`, agentName: event.agentName, sessionId: session.id });
         }
         break;
       }
@@ -457,18 +457,14 @@ export class WSServer {
       }
       case "provider:save": {
         await this.opts.providerStore.save(event.provider);
-        if (this.opts.dataDir) {
-          await ensureProviderExtensionRegistered(this.opts.dataDir, this.opts.providerStore);
-        }
+        await ensureProviderExtensionRegistered(this.opts.providerStore);
         const providers = await this.opts.providerStore.load();
         this.broadcast({ type: "provider:changed", providers });
         break;
       }
       case "provider:delete": {
         await this.opts.providerStore.delete(event.id);
-        if (this.opts.dataDir) {
-          await ensureProviderExtensionRegistered(this.opts.dataDir, this.opts.providerStore);
-        }
+        await ensureProviderExtensionRegistered(this.opts.providerStore);
         const providers = await this.opts.providerStore.load();
         this.broadcast({ type: "provider:changed", providers });
         break;

@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { DEFAULT_AGENT_TOOLS } from "../src/constants";
 
-test("DEFAULT_AGENT_TOOLS 包含 Pi 内置文件工具与 pi-web-access 网络工具", () => {
+test("DEFAULT_AGENT_TOOLS 含 Pi 内置文件工具与 pi-web-access 网络工具", () => {
   expect(DEFAULT_AGENT_TOOLS).toContain("read");
   expect(DEFAULT_AGENT_TOOLS).toContain("bash");
   expect(DEFAULT_AGENT_TOOLS).toContain("edit");

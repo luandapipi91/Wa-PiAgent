@@ -5,19 +5,17 @@ import { AgentManager } from "./agent-manager";
 import { WSServer } from "./ws-server";
 import { SkillManager } from "./skill-manager";
 import { migrateLegacySessions } from "./migrate";
-import { ensureIntercomInstalled } from "./intercom-setup";
-import { ensureWebAccessInstalled } from "./web-access-setup";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
+import { migrateSettingsPackages } from "./extensions";
+import { extractSdkErrorMessage } from "./sdk-errors";
 import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR } from "@hiagent/shared";
 import { mkdir } from "node:fs/promises";
 import type { WSServerEvent } from "@hiagent/shared";
 
 async function main() {
-  // 首次启动：确保核心扩展已配置到 ~/.hiagent/settings.json
-  // pi-intercom：agent 间通信
-  await ensureIntercomInstalled();
-  // pi-web-access：网络搜索与 URL 抓取（web_search / fetch_content / get_search_content）
-  await ensureWebAccessInstalled();
+  // 一次性迁移：清空旧版本写入 settings.json.packages 的扩展路径，
+  // 避免「packages 残留 + additionalExtensionPaths」双重加载同一扩展（见 extensions.ts）
+  await migrateSettingsPackages();
 
   // 确保内置技能目录存在
   await mkdir(BUILTIN_SKILLS_DIR, { recursive: true });
@@ -30,7 +28,7 @@ async function main() {
   const skillManager = new SkillManager(HIAGENT_DIR);
 
   // 启动时把已有 providers 注册成 Pi extension（幂等）
-  await ensureProviderExtensionRegistered(HIAGENT_DIR, providerStore);
+  await ensureProviderExtensionRegistered(providerStore);
 
   const migrated = await migrateLegacySessions(projectStore);
   if (migrated) console.log("[kernel] 已迁移老数据至默认项目");
@@ -57,6 +55,13 @@ async function main() {
     onEvent: (sessionId, projectId, agentName, event) => {
       console.log(`[kernel] sdk event: ${(event as any).type}`);
       broadcast({ type: "sdk:event", projectId, sessionId, agentName, event: event as any });
+      // SDK 运行时错误（不可用模型 / 鉴权失败 / 网络等）不抛异常，而是编码进
+      // message_end{stopReason:"error", errorMessage}。ws-server 的 try/catch 抓不到，
+      // 前端又不读这些字段 → 静默。这里翻译成 {type:"error"}，复用前端红色 ⚠️ 渲染管线。
+      const errMsg = extractSdkErrorMessage(event as any);
+      if (errMsg) {
+        broadcast({ type: "error", message: errMsg, agentName, sessionId });
+      }
     },
   });
   // 回填真实 agentManager（绕开 TS 的「构造时已确定」语义；opts 为 private 故用 any 桥接）

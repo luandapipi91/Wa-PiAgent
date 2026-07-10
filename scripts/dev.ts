@@ -52,9 +52,7 @@ async function main() {
   // 3. 统一 SIGINT/SIGTERM 清理
   const cleanup = async () => {
     console.log("\n[dev] 退出,清理子进程...");
-    for (const p of [kernel, frontend]) {
-      try { process.kill(p.pid!, "SIGTERM"); } catch {}
-    }
+    await Promise.all([stopProc(kernel), stopProc(frontend)]);
     await Promise.all([killPort(KERNEL_WS_PORT), killPort(FRONTEND_PORT)]);
     process.exit(0);
   };
@@ -64,9 +62,7 @@ async function main() {
   // 4. 按 R 重新加载前后端代码（kill 两个子进程并重新 spawn）
   async function reloadAll() {
     console.log("\n[dev] 重新加载前后端代码...");
-    for (const p of [kernel, frontend]) {
-      try { p.kill("SIGTERM"); } catch {}
-    }
+    await Promise.all([stopProc(kernel), stopProc(frontend)]);
     await Promise.all([killPort(KERNEL_WS_PORT), killPort(FRONTEND_PORT)]);
 
     kernel = spawnKernel();
@@ -90,6 +86,34 @@ async function main() {
 }
 
 interface ProcSpec { label: string; cmd: [string, string[]]; }
+
+const isWindows = process.platform === "win32";
+
+/**
+ * 终止 spawn 出的子进程及其整棵进程树。
+ * spawn 用了 shell:true,直接 kill 只会杀掉外层 cmd.exe/sh,
+ * 真正占端口的孙进程(bun.exe/node.exe)会成为孤儿继续监听 → 下次 reload EADDRINUSE。
+ * 故 Windows 用 taskkill /T /F 杀整棵树;POSIX 直接发 SIGTERM。
+ */
+async function stopProc(p: ChildProcess): Promise<void> {
+  if (p.pid == null) return;
+  try {
+    if (isWindows) {
+      await runCmd("taskkill", ["/PID", String(p.pid), "/T", "/F"]);
+    } else {
+      p.kill("SIGTERM");
+    }
+  } catch {}
+}
+
+/** spawn 一个命令并等其退出(用于清理,忽略输出与失败) */
+function runCmd(bin: string, args: string[]): Promise<void> {
+  const child = spawn(bin, args, { stdio: "ignore" });
+  return new Promise((resolve) => {
+    child.on("close", () => resolve());
+    child.on("error", () => resolve());
+  });
+}
 
 function spawnProcs(spec: ProcSpec) {
   const [bin, args] = spec.cmd;

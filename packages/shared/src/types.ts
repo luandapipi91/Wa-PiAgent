@@ -77,7 +77,10 @@ export interface AssistantMessage {
   model: string;
   stopReason: string;
   timestamp: number;
-  // 简化：忽略 usage/api/provider/responseModel/responseId/errorMessage（前端用不到）
+  // 运行时错误文案：SDK 把 provider 失败编码成 stopReason:"error" 的消息时携带。
+  // kernel 读取它翻译成 {type:"error"} 广播给前端；前端渲染层不直接消费。
+  errorMessage?: string;
+  // 简化：忽略 usage/api/provider/responseModel/responseId（前端用不到）
 }
 
 export interface ToolResultMessage {
@@ -269,6 +272,7 @@ export interface ErrorEvent {
   type: "error";
   message: string;
   agentName?: AgentName;
+  sessionId?: string;  // 真正出错的会话；前端据此精确路由，缺省回落 currentSessionId
 }
 
 // fs 相关（kernel 读本地目录，供前端目录树选择器）
