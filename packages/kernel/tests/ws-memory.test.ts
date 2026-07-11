@@ -72,7 +72,7 @@ test("memory:list 返回解析后的记忆列表", async () => {
       await writeFile(join(dataDir, "pi-hermes-memory", "MEMORY.md"), "测试记忆", "utf8");
     },
     async (send, recv) => {
-      send({ type: "memory:list" });
+      send({ type: "memory:list", projectId: "any" });
       const resp = await recv() as any;
       expect(resp.type).toBe("memory:list");
       expect(resp.memories).toHaveLength(1);
@@ -89,7 +89,7 @@ test("memory:list 多条 § 分隔全部返回", async () => {
       await writeFile(join(dataDir, "pi-hermes-memory", "MEMORY.md"), "条目A\n§\n条目B", "utf8");
     },
     async (send, recv) => {
-      send({ type: "memory:list" });
+      send({ type: "memory:list", projectId: "any" });
       const resp = await recv() as any;
       expect(resp.memories).toHaveLength(2);
       expect(resp.memories[0].text).toBe("条目A");
@@ -107,11 +107,11 @@ test("memory:update 编辑后广播 memory:changed", async () => {
       await writeFile(join(dataDir, "pi-hermes-memory", "MEMORY.md"), "旧内容", "utf8");
     },
     async (send, recv) => {
-      send({ type: "memory:list" });
+      send({ type: "memory:list", projectId: "any" });
       const list = await recv() as any;
       const entryId = list.memories[0].id;
 
-      send({ type: "memory:update", entryId, text: "新内容" });
+      send({ type: "memory:update", projectId: "any", entryId, text: "新内容" });
       const changed = await recv() as any;
       expect(changed.type).toBe("memory:changed");
       expect(changed.memories[0].text).toBe("新内容");
@@ -123,7 +123,7 @@ test("memory:update 不存在的 entryId 返回 error", async () => {
   await withMemoryServer(
     async () => {},
     async (send, recv) => {
-      send({ type: "memory:update", entryId: "pi-hermes-memory/MEMORY.md:0", text: "新" });
+      send({ type: "memory:update", projectId: "any", entryId: "pi-hermes-memory/MEMORY.md:0", text: "新" });
       const resp = await recv() as any;
       expect(resp.type).toBe("error");
     },
@@ -139,11 +139,11 @@ test("memory:archive 广播 memory:changed 且条目进入归档", async () => {
       await writeFile(join(dataDir, "pi-hermes-memory", "MEMORY.md"), "条目A\n§\n条目B", "utf8");
     },
     async (send, recv) => {
-      send({ type: "memory:list" });
+      send({ type: "memory:list", projectId: "any" });
       const list = await recv() as any;
       const targetId = list.memories[0].id;
 
-      send({ type: "memory:archive", entryId: targetId });
+      send({ type: "memory:archive", projectId: "any", entryId: targetId });
       const changed = await recv() as any;
       expect(changed.type).toBe("memory:changed");
       expect(changed.memories).toHaveLength(1);
@@ -163,16 +163,16 @@ test("memory:restore 把归档条目恢复回列表并广播", async () => {
       await writeFile(join(dataDir, "pi-hermes-memory", "MEMORY.md"), "条目A", "utf8");
     },
     async (send, recv) => {
-      send({ type: "memory:list" });
+      send({ type: "memory:list", projectId: "any" });
       const list = await recv() as any;
       const targetId = list.memories[0].id;
 
       // 先归档
-      send({ type: "memory:archive", entryId: targetId });
+      send({ type: "memory:archive", projectId: "any", entryId: targetId });
       await recv() as any;
 
       // 再恢复
-      send({ type: "memory:restore", entryId: targetId });
+      send({ type: "memory:restore", projectId: "any", entryId: targetId });
       const changed = await recv() as any;
       expect(changed.type).toBe("memory:changed");
       const texts = changed.memories.map((m: any) => m.text);
@@ -191,15 +191,15 @@ test("memory:purge 从归档彻底删除并广播", async () => {
       await writeFile(join(dataDir, "pi-hermes-memory", "MEMORY.md"), "条目A", "utf8");
     },
     async (send, recv) => {
-      send({ type: "memory:list" });
+      send({ type: "memory:list", projectId: "any" });
       const list = await recv() as any;
       const targetId = list.memories[0].id;
 
-      send({ type: "memory:archive", entryId: targetId });
+      send({ type: "memory:archive", projectId: "any", entryId: targetId });
       const afterArchive = await recv() as any;
       expect(afterArchive.archived).toHaveLength(1);
 
-      send({ type: "memory:purge", entryId: targetId });
+      send({ type: "memory:purge", projectId: "any", entryId: targetId });
       const changed = await recv() as any;
       expect(changed.type).toBe("memory:changed");
       expect(changed.archived).toHaveLength(0);

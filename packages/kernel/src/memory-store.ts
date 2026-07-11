@@ -82,10 +82,11 @@ export interface MemoryStoreOpts {
 export class MemoryStore {
   constructor(private opts: MemoryStoreOpts) {}
 
-  /** 列出所有记忆 + 归档记忆 */
-  async list(): Promise<{ memories: MemoryEntry[]; archived: ArchivedMemory[] }> {
+  /** 列出所有记忆 + 归档记忆
+   * @param projectId 当前项目 ID；传入时读取对应项目的 projects-memory，不传则只返回全局记忆
+   */
+  async list(projectId?: string): Promise<{ memories: MemoryEntry[]; archived: ArchivedMemory[] }> {
     const memories: MemoryEntry[] = [];
-    const cwd = await this.getCurrentCwd();
 
     // 全局来源
     for (const src of GLOBAL_SOURCES) {
@@ -95,6 +96,7 @@ export class MemoryStore {
     }
 
     // 项目来源
+    const cwd = projectId ? await this.getProjectCwd(projectId) : null;
     if (cwd) {
       const projectDir = join(this.opts.hiagentDir, PROJECTS_MEMORY_DIR, this.projectNameFromCwd(cwd));
       for (const src of PROJECT_SOURCES) {
@@ -281,6 +283,32 @@ export class MemoryStore {
       }
     }
 
+    // 全局记忆文件也作为参考指令注入（MEMORY.md / USER.md / failures.md）
+    for (const src of GLOBAL_SOURCES) {
+      const p = join(this.opts.hiagentDir, src.relativePath);
+      if (existsSync(p)) {
+        const content = await readFile(p, "utf8");
+        if (content.trim()) {
+          const name = src.relativePath.replace(/\\/g, "/").split("/").pop() ?? src.relativePath;
+          result.push({ path: p, name, scope: "global", content });
+        }
+      }
+    }
+
+    // 项目级记忆文件
+    if (cwd) {
+      const projectDir = join(this.opts.hiagentDir, PROJECTS_MEMORY_DIR, this.projectNameFromCwd(cwd));
+      for (const src of PROJECT_SOURCES) {
+        const p = join(projectDir, src.relativePath);
+        if (existsSync(p)) {
+          const content = await readFile(p, "utf8");
+          if (content.trim()) {
+            result.push({ path: p, name: src.relativePath, scope: "project", content });
+          }
+        }
+      }
+    }
+
     return result;
   }
 
@@ -289,6 +317,7 @@ export class MemoryStore {
     const { projects } = await this.opts.projectStore.load();
     return projects.find(p => p.id === projectId)?.cwd ?? null;
   }
+
   /** 读记忆配置开关 */
   async getConfig(): Promise<MemoryConfig> {
     try {
@@ -336,14 +365,6 @@ export class MemoryStore {
     const relPath = id.slice(0, colonIdx).replace(/\//g, "/");
     // 尝试拼接 hiagentDir（全局或 projects-memory 下的路径都相对于 hiagentDir）
     return join(this.opts.hiagentDir, relPath);
-  }
-
-  /** 从 ProjectStore 拿当前项目 cwd */
-  private async getCurrentCwd(): Promise<string | null> {
-    const { projects } = await this.opts.projectStore.load();
-    // 取第一个项目作为当前项目（简化：hiagent 单项目场景为主）
-    // 实际使用时由 ws-server 传入 projectId 指定
-    return projects[0]?.cwd ?? null;
   }
 
   /** 从 cwd 生成项目目录名（与 pi-hermes-memory 的 projects-memory/<basename> 对齐） */

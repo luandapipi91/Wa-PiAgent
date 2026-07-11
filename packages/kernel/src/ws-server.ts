@@ -546,7 +546,7 @@ export class WSServer {
       // ===== 记忆管理 =====
       case "memory:list": {
         try {
-          const result = await this.opts.memoryStore.list();
+          const result = await this.opts.memoryStore.list(event.projectId);
           reply({ type: "memory:list", ...result });
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
@@ -556,7 +556,7 @@ export class WSServer {
       case "memory:update": {
         try {
           await this.opts.memoryStore.update(event.entryId, event.text);
-          const result = await this.opts.memoryStore.list();
+          const result = await this.opts.memoryStore.list(event.projectId);
           this.broadcast({ type: "memory:changed", ...result });
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
@@ -566,7 +566,7 @@ export class WSServer {
       case "memory:archive": {
         try {
           await this.opts.memoryStore.archive(event.entryId);
-          const result = await this.opts.memoryStore.list();
+          const result = await this.opts.memoryStore.list(event.projectId);
           this.broadcast({ type: "memory:changed", ...result });
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
@@ -576,7 +576,7 @@ export class WSServer {
       case "memory:restore": {
         try {
           await this.opts.memoryStore.restore(event.entryId);
-          const result = await this.opts.memoryStore.list();
+          const result = await this.opts.memoryStore.list(event.projectId);
           this.broadcast({ type: "memory:changed", ...result });
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
@@ -586,7 +586,7 @@ export class WSServer {
       case "memory:purge": {
         try {
           await this.opts.memoryStore.purge(event.entryId);
-          const result = await this.opts.memoryStore.list();
+          const result = await this.opts.memoryStore.list(event.projectId);
           this.broadcast({ type: "memory:changed", ...result });
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
