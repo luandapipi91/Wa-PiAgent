@@ -495,7 +495,7 @@ export class WSServer {
       case "skill:toggle": {
         await this.opts.skillManager.toggleSkill(event.skillName, event.disabled);
         // reload 所有会话让禁用/启用热生效
-        this.opts.agentManager.markAllDirty();
+        this.opts.agentManager.markSkillsDirty();
         const result = await this.opts.skillManager.scan();
         this.broadcast({ type: "skill:changed", ...result });
         break;
@@ -503,7 +503,7 @@ export class WSServer {
       case "skillDir:add": {
         try {
           await this.opts.skillManager.addDir(event.path);
-          this.opts.agentManager.markAllDirty();
+          this.opts.agentManager.markSkillsDirty();
           const result = await this.opts.skillManager.scan();
           this.broadcast({ type: "skill:changed", ...result });
         } catch (err) {
@@ -514,7 +514,7 @@ export class WSServer {
       case "skillDir:remove": {
         try {
           await this.opts.skillManager.removeDir(event.path);
-          this.opts.agentManager.markAllDirty();
+          this.opts.agentManager.markSkillsDirty();
           const result = await this.opts.skillManager.scan();
           this.broadcast({ type: "skill:changed", ...result });
         } catch (err) {
