@@ -37,9 +37,10 @@ export const AGENT_DEFS: Record<AgentName, AgentDef> = {
 export const ALL_AGENT_NAMES: AgentName[] = ["product", "pm", "dev", "test"];
 
 /** Agent 未显式配置 tools 时的默认工具集。
- *  含 Pi 内置工具、pi-web-access 网络工具，以及 pi-hermes-memory 记忆工具。
+ *  含 Pi 内置工具、pi-web-access 网络工具，以及 amaster memory 记忆工具。
  *  注意：createAgentSession 的 tools 参数会被 SDK 当作 allowlist 使用，
- *  未列出的扩展注册工具（如 memory）会被过滤掉，因此必须在这里显式放行。 */
+ *  customTools（memory_add/replace/remove/read）同样要过这道 allowlist，
+ *  未列出的工具会被过滤掉，因此必须在这里显式放行。 */
 export const DEFAULT_AGENT_TOOLS = [
   "read",
   "bash",
@@ -51,7 +52,10 @@ export const DEFAULT_AGENT_TOOLS = [
   "web_search",
   "fetch_content",
   "get_search_content",
-  "memory",
-  "memory_search",
+  // amaster memory 记忆工具（host-controlled，经 customTools 注入，须显式放行）
+  "memory_add",
+  "memory_replace",
+  "memory_remove",
+  "memory_read",
   "session_search",
 ];

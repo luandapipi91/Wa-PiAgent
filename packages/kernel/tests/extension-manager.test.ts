@@ -10,15 +10,12 @@ function tmpDir(): string {
 }
 
 const FAKE_LENS_PATH = "/fake/pi-lens/dist/index.js";
-const FAKE_MEMORY_PATH = "/fake/pi-hermes-memory/dist/index.js";
-// 注入 fake 解析器，避免单测依赖真实 pi-lens / pi-hermes-memory 安装
+// 注入 fake 解析器，避免单测依赖真实 pi-lens 安装
 const FAKE_VERSIONS: Record<string, string> = {
   "pi-lens": "3.8.68",
-  "pi-hermes-memory": "0.7.23",
 };
 const injectOpts = {
-  resolveEntryPath: (pkg: string) =>
-    pkg === "pi-hermes-memory" ? FAKE_MEMORY_PATH : FAKE_LENS_PATH,
+  resolveEntryPath: (pkg: string) => `/fake/${pkg}/dist/index.js`,
   readVersion: (pkg: string) => FAKE_VERSIONS[pkg] ?? "0.0.0",
 };
 
@@ -29,16 +26,12 @@ afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 test("list 首启播种：defaultEnabled 插件路径写入 settings.extensions", async () => {
   const mgr = new ExtensionManager(dir, injectOpts);
   const { plugins } = await mgr.list();
-  expect(plugins).toHaveLength(2);
+  expect(plugins).toHaveLength(1);
   expect(plugins[0].id).toBe("pi-lens");
   expect(plugins[0].enabled).toBe(true);
   expect(plugins[0].version).toBe("3.8.68");
-  expect(plugins[1].id).toBe("pi-hermes-memory");
-  expect(plugins[1].enabled).toBe(true);
-  expect(plugins[1].version).toBe("0.7.23");
   const settings = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
   expect(settings.extensions).toContain(FAKE_LENS_PATH);
-  expect(settings.extensions).toContain(FAKE_MEMORY_PATH);
 });
 
 test("toggle 禁用后路径从 settings.extensions 移除", async () => {
