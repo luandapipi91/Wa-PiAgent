@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { SessionMessage, AgentStatus, AgentName, SDKEventEnvelope } from "@hiagent/shared";
+import { useProjectsStore } from "./projects";
 
 interface SessionState {
   // 已定稿消息：渲染主列表来源
@@ -11,6 +12,9 @@ interface SessionState {
   // 会话级「开始思考」时间戳（ms）：status 转为 thinking 时记录，agent_end 清空。
   // 供 SessionView 的计时器按会话独立计算已思考时长（切会话不重置/不沿用）。
   thinkingSinceBySession: Record<string, number | null>;
+  // 未读标记：非当前会话收到「回复完成」（agent_end）时置 true，进入该会话清掉。
+  // 供会话列表 SessionRow 显示 new 角标。
+  unreadBySession: Record<string, boolean>;
   // 乐观发送标记：true 表示该 session 有一条待 SDK message_start(user) 回声确认的占位用户消息
   optimisticEchoBySession: Record<string, boolean>;
   // 会话级消息队列：steering 引导队列 + followUp 排队队列
@@ -27,6 +31,10 @@ interface SessionState {
    *  供 message_start(user) 回声识别并替换占位（同步 timestamp，避免切回会话重复）。 */
   optimisticSend: (sessionId: string, text: string, agentName: AgentName) => void;
   clear: () => void;
+  /** 标记会话有未读新回复（后台收到 agent_end 时）。 */
+  markUnread: (sessionId: string) => void;
+  /** 清除会话未读标记（进入/查看该会话时）。 */
+  markRead: (sessionId: string) => void;
   // 新增：处理 sdk:event 信封事件（流式两态管理核心入口）
   handleSDKEvent: (sessionId: string, envelope: SDKEventEnvelope) => void;
 }
@@ -43,6 +51,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   statusBySession: {},
   thinkingSinceBySession: {},
   optimisticEchoBySession: {},
+  unreadBySession: {},
   queueBySession: {},
 
   append: (sessionId, msg) => set(s => {
@@ -72,7 +81,15 @@ export const useSessionStore = create<SessionState>((set) => ({
     return { messagesBySession: { ...s.messagesBySession, [sessionId]: compacted } };
   }),
 
-  clear: () => set({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, thinkingSinceBySession: {}, optimisticEchoBySession: {} }),
+  clear: () => set({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, thinkingSinceBySession: {}, optimisticEchoBySession: {}, unreadBySession: {} }),
+
+  markUnread: (sessionId) => set(s => ({ unreadBySession: { ...s.unreadBySession, [sessionId]: true } })),
+  markRead: (sessionId) => set(s => {
+    if (!s.unreadBySession[sessionId]) return {};  // 已读则不触发重渲染
+    const next = { ...s.unreadBySession };
+    delete next[sessionId];
+    return { unreadBySession: next };
+  }),
 
   optimisticSend: (sessionId, text, agentName) => set(s => {
     const ts = Date.now();
@@ -182,13 +199,16 @@ export const useSessionStore = create<SessionState>((set) => ({
           thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: s.thinkingSinceBySession[sessionId] ?? Date.now() },
         }));
         break;
-      // agent 结束：回 idle，清起算时间
-      case "agent_end":
+      // agent 结束：回 idle，清起算时间；若该会话非当前会话（用户在别处），标记未读新回复
+      case "agent_end": {
+        const away = sessionId !== useProjectsStore.getState().currentSessionId;
         set(s => ({
           statusBySession: { ...s.statusBySession, [sessionId]: "idle" },
           thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: null },
+          unreadBySession: away ? { ...s.unreadBySession, [sessionId]: true } : s.unreadBySession,
         }));
         break;
+      }
       // 队列更新：steering / followUp 消息列表
       case "queue_update":
         set(s => ({

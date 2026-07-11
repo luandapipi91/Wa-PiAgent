@@ -21,6 +21,8 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
   const thinkingSince = useSessionStore(s => s.thinkingSinceBySession[sessionId] ?? null);
 
   useEffect(() => {
+    // 进入该会话即视为「已读」，清掉会话列表的 new 角标
+    useSessionStore.getState().markRead(sessionId);
     send({ type: "session:messages", sessionId });
     const off = onMessage(e => {
       if (e.type === "session:messages" && e.sessionId === sessionId) {
