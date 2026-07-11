@@ -774,3 +774,26 @@ test("markSkillsDirty 不走 reload 路径（与 markAllDirty 独立）", async 
   // Task 3 阶段 _reloadIfDirty 还未实现重建分支，skillDirty 命中应既不 reload 也不重建
   expect(fakeSession.reload).not.toHaveBeenCalled();
 });
+
+test("disposeSession 清理 sessionMeta 和 skillDirty", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  // 标脏并确认内部 Map 已写入
+  am.markSkillsDirty();
+  expect((am as any).sessionMeta.has(session.id)).toBe(true);
+  expect((am as any).skillDirty.has(session.id)).toBe(true);
+
+  await am.disposeSession(session.id);
+
+  // 清理后内部 Map 不应再包含该 session
+  expect((am as any).sessionMeta.has(session.id)).toBe(false);
+  expect((am as any).skillDirty.has(session.id)).toBe(false);
+});
