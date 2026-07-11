@@ -16,6 +16,8 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
   const btnRef = useRef<HTMLButtonElement>(null);
   // 该会话是否有未读新回复（后台收到回复完成时置位，进入会话清掉）
   const unread = useSessionStore(s => !!s.unreadBySession[session.id]);
+  // 该会话是否正在运行（agent 处理中）：运行时右侧时间位换成 loading 转圈，结束恢复时间
+  const isRunning = useSessionStore(s => s.statusBySession[session.id] === "thinking");
 
   // 用原生事件监听确保 preventDefault 能阻止浏览器右键菜单
   useEffect(() => {
@@ -44,7 +46,22 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
     >
       <span className="text-sm">{agentEmoji(session.primaryAgent)}</span>
       <span className="flex-1 truncate">{session.title}</span>
-      <span className="text-[11px] text-tertiary flex-shrink-0">{formatRelativeTime(session.lastActivity)}</span>
+      {/* 右侧：运行中显示 loading 转圈，否则显示相对时间 */}
+      {isRunning ? (
+        <span
+          data-testid={`session-running-${session.id}`}
+          aria-label="运行中"
+          className="flex-shrink-0 inline-flex items-center justify-center"
+          style={{ width: 14, height: 14 }}
+        >
+          <span
+            className="inline-block rounded-full"
+            style={{ width: 11, height: 11, border: "2px solid var(--accent-soft)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }}
+          />
+        </span>
+      ) : (
+        <span className="text-[11px] text-tertiary flex-shrink-0">{formatRelativeTime(session.lastActivity)}</span>
+      )}
       {/* 未读新回复：右上角 45° 斜标（标签感） */}
       {unread && (
         <span
