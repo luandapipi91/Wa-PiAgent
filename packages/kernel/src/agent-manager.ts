@@ -292,6 +292,14 @@ export class AgentManager {
     // 设置 pi-intercom 会话名（对齐原 RPC --name 参数，格式：projectId-agentName-sessionId）
     session.setSessionName(`${projectId}-${agentName}-${sessionId}`);
 
+    // 绑定扩展：触发 session_start，让 pi-hermes-memory 等扩展从磁盘加载持久状态。
+    // 不调用 bindExtensions 时，扩展的工具虽已注册，但初始化逻辑（如 loadFromDisk）
+    // 不会执行，导致 memory add 覆盖而非追加已有记忆。
+    // 测试用 mock session 可能没有该方法，加存在性保护。
+    if (typeof (session as any).bindExtensions === "function") {
+      await (session as any).bindExtensions({});
+    }
+
     // 订阅 SDK 事件并转发给上层 onEvent（携带路由上下文）
     const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
       this.opts.onEvent(sessionId, projectId, agentName, event);
@@ -366,7 +374,7 @@ export class AgentManager {
 
   /**
    * 清空队列 + abort + 剩余重入队 + 发目标消息。
-   * promoteToSteer 和 immediate 共享实现。
+   * immediate 专用；promoteToSteer 已改为不打断当前 agent，仅移动队列。
    * @param interrupt 为 true 时目标消息使用 streamingBehavior: "steer"，即使 abort 后
    *                  agent 仍在运行，也会以 steer 方式中断当前并立即处理，避免
    *                  "Agent is already processing" 报错。
@@ -375,11 +383,21 @@ export class AgentManager {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`会话未启动: ${sessionId}`);
 
-    // 1. 中断当前运行（abort 返回 Promise，await 即等待 idle）
-    await session.abort();
+    // 1. 先清空全部队列并取出旧队列。
+    //    必须在 abort 之前清空，否则 agent core 在 abort 过程中会自动 drain
+    //    followUp 队列，导致排队消息被意外发送、队列状态乱掉。
+    const queued = session.clearQueue();
 
-    // 2. 清空全部队列
-    session.clearQueue();
+    // 2. 中断当前运行（abort 返回 Promise，await 即等待 idle）。
+    //    若 abort 失败，把原始 followUp 队列恢复回去，避免用户排队消息丢失。
+    try {
+      await session.abort();
+    } catch (err) {
+      for (const msg of queued.followUp) {
+        session.followUp(msg).catch(() => {});
+      }
+      throw err;
+    }
 
     // 3. 剩余消息用 session.followUp() 入队（SDK API: followUp(text)）
     for (const rt of remainingTexts) {
@@ -407,21 +425,41 @@ export class AgentManager {
   }
 
   /**
-   * 对 _jumpQueue 加 per-session 串行锁。
+   * 对 per-session 队列操作加串行锁。
    * 连续点击"引导"/"立即"时，后一次操作必须等待前一次完成，避免并发 race。
    */
-  private async _lockedJumpQueue(sessionId: string, text: string, remainingTexts: string[], interrupt: boolean): Promise<void> {
+  private async _lockedQueueOp(sessionId: string, op: () => Promise<void>): Promise<void> {
     const previous = this.jumpQueueLocks.get(sessionId) ?? Promise.resolve();
-    const next = previous
-      .catch(() => { })
-      .then(() => this._jumpQueue(sessionId, text, remainingTexts, interrupt));
+    const next = previous.catch(() => { }).then(op);
     this.jumpQueueLocks.set(sessionId, next);
     await next;
   }
 
-  /** 提升排队消息为引导（abort → 清空 → 剩余重入队 → 目标消息作为新回合） */
+  /**
+   * 对 _jumpQueue 加 per-session 串行锁。
+   * 连续点击"引导"/"立即"时，后一次操作必须等待前一次完成，避免并发 race。
+   */
+  private async _lockedJumpQueue(sessionId: string, text: string, remainingTexts: string[], interrupt: boolean): Promise<void> {
+    await this._lockedQueueOp(sessionId, () => this._jumpQueue(sessionId, text, remainingTexts, interrupt));
+  }
+
+  /** 提升排队消息为引导（不打断当前 agent，把目标消息从 followUp 移到 steering） */
   async promoteToSteer(sessionId: string, text: string, remainingTexts: string[]): Promise<void> {
-    await this._lockedJumpQueue(sessionId, text, remainingTexts, false);
+    await this._lockedQueueOp(sessionId, async () => {
+      const session = this.sessions.get(sessionId);
+      if (!session) throw new Error(`会话未启动: ${sessionId}`);
+
+      // 把目标消息从 followUp 队列移到 steering 队列，当前 agent 继续运行，
+      // 目标消息会在当前 assistant turn 结束后、下回合 LLM 调用前生效。
+      const queued = session.clearQueue();
+      for (const msg of queued.steering) {
+        await session.steer(msg);
+      }
+      await session.steer(text);
+      for (const rt of remainingTexts) {
+        await session.followUp(rt);
+      }
+    });
   }
 
   /** 立即执行排队消息（abort → 清空 → 剩余重入队 → 目标消息作为新回合） */
