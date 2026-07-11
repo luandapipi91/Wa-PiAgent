@@ -23,10 +23,13 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
   useEffect(() => {
     // 进入该会话即视为「已读」，清掉会话列表的 new 角标
     useSessionStore.getState().markRead(sessionId);
+    // 标记历史加载中：响应到达前置 true，MessageList 在无消息时显示 loading
+    useSessionStore.getState().setHistoryLoading(sessionId, true);
     send({ type: "session:messages", sessionId });
     const off = onMessage(e => {
       if (e.type === "session:messages" && e.sessionId === sessionId) {
         useSessionStore.getState().setMessages(sessionId, e.messages);
+        useSessionStore.getState().setHistoryLoading(sessionId, false);
       }
     });
     return off;

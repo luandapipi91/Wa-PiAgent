@@ -22,8 +22,12 @@ interface RenderedRow {
 export function MessageList({ sessionId }: Props) {
   const messages = useSessionStore(s => s.messagesBySession[sessionId] ?? EMPTY);
   const streaming = useSessionStore(s => s.streamingBySession[sessionId] ?? null);
+  const historyLoading = useSessionStore(s => s.historyLoadingBySession[sessionId] ?? false);
   const rows = preprocess(messages);
   const session = useProjectsStore(s => s.sessions.find(x => x.id === sessionId));
+
+  // 历史加载中且尚无消息（且未在流式）：显示居中 loading，避免切换会话时对话区空白
+  const showHistoryLoading = historyLoading && messages.length === 0 && !streaming;
 
   // 「重新发送」：仅当最后一条是失败的 assistant 回合（且当前无新回合在流式）时，
   // 在它前一条用户消息下方显示按钮；重发或发新消息后按钮自动消失。
@@ -140,6 +144,14 @@ export function MessageList({ sessionId }: Props) {
           <StreamingRow streaming={streaming} sessionId={sessionId} />
         )}
       </div>
+      {showHistoryLoading && (
+        <div className="absolute inset-0 flex items-center justify-center" data-testid={`history-loading-${sessionId}`}>
+          <div className="inline-flex items-center gap-2 text-tertiary text-[13px]">
+            <span className="inline-block w-4 h-4 rounded-full" style={{ border: "2px solid var(--accent-soft)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
+            加载会话…
+          </div>
+        </div>
+      )}
       {/* 平时（非回复或用户翻阅历史）不在底部时，显示浮动「滚动到底部」按钮 */}
       {!stickBottom && (
         <button
