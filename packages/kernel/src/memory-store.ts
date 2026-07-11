@@ -39,6 +39,41 @@ const ARCHIVE_FILE = "memory-archive.json";
 const HERMES_CONFIG_FILE = "hermes-memory-config.json";
 const PROJECTS_MEMORY_DIR = "projects-memory";
 
+/** 匹配 HTML 注释（支持多行） */
+const HTML_COMMENT_REGEX = /<!--[\s\S]*?-->/g;
+
+/** 移除文本中的 HTML 注释，并尝试提取最后修改日期（优先 last， fallback created） */
+function stripHtmlComments(text: string): { text: string; updatedAt?: string } {
+  let updatedAt: string | undefined;
+  const cleaned = text.replace(HTML_COMMENT_REGEX, (match) => {
+    const lastMatch = match.match(/last=(\d{4}-\d{2}-\d{2})/);
+    if (lastMatch) {
+      updatedAt = lastMatch[1];
+    } else {
+      const createdMatch = match.match(/created=(\d{4}-\d{2}-\d{2})/);
+      if (createdMatch && !updatedAt) updatedAt = createdMatch[1];
+    }
+    return "";
+  });
+  return { text: cleaned, updatedAt };
+}
+
+/** 判断去除 HTML 注释后是否为空条目（与 parse 对齐） */
+function isEmptyMemoryPart(text: string): boolean {
+  return stripHtmlComments(text).text.trim().length === 0;
+}
+
+/** 替换正文时保留原始 part 末尾的 HTML 注释元数据 */
+function replaceTextKeepingComment(originalPart: string, newText: string): string {
+  const commentMatch = originalPart.match(/(<!--[\s\S]*?-->)/);
+  if (!commentMatch) return newText;
+  const comment = commentMatch[1];
+  const beforeComment = originalPart.slice(0, commentMatch.index).trimEnd();
+  const prefixEnd = beforeComment.length > 0 ? originalPart.indexOf(beforeComment) : commentMatch.index;
+  const prefix = originalPart.slice(0, prefixEnd);
+  return `${prefix}${newText}\n${comment}`;
+}
+
 export interface MemoryStoreOpts {
   hiagentDir: string;
   projectStore: ProjectStore;
@@ -88,17 +123,26 @@ export class MemoryStore {
       return []; // 文件不存在，跳过
     }
 
-    const parts = content.split("§").map(s => s.trim()).filter(s => s.length > 0);
+    const parts = content.split("§");
     const relPath = relative(this.opts.hiagentDir, absPath).replace(/\\/g, "/");
 
-    return parts.map((text, rawIndex) => ({
-      id: `${relPath}:${rawIndex}`,
-      text,
-      category,
-      scope,
-      sourceFile: absPath,
-      rawIndex,
-    }));
+    // 过滤空/纯注释条目，rawIndex 与 update/archive 的 nonEmptyIndices 对齐
+    const nonEmptyParts = parts
+      .map((text, originalIdx) => ({ text, originalIdx }))
+      .filter(({ text }) => !isEmptyMemoryPart(text));
+
+    return nonEmptyParts.map(({ text }, rawIndex) => {
+      const stripped = stripHtmlComments(text);
+      return {
+        id: `${relPath}:${rawIndex}`,
+        text: stripped.text.trim(),
+        category,
+        scope,
+        sourceFile: absPath,
+        rawIndex,
+        updatedAt: stripped.updatedAt,
+      };
+    });
   }
 
   // —— CRUD 方法在后续 step 实现 ——
@@ -115,16 +159,16 @@ export class MemoryStore {
     }
 
     const parts = content.split("§");
-    // 过滤空条目的索引对齐：与 parseMemoryFile 一致
+    // 过滤空/纯注释条目的索引对齐：与 parseMemoryFile 一致
     const nonEmptyIndices: number[] = [];
-    parts.forEach((p, i) => { if (p.trim().length > 0) nonEmptyIndices.push(i); });
+    parts.forEach((p, i) => { if (!isEmptyMemoryPart(p)) nonEmptyIndices.push(i); });
 
     const partIndex = nonEmptyIndices[rawIndex];
     if (partIndex === undefined) {
       throw new Error("条目不存在，可能已被插件修改，请刷新列表");
     }
 
-    parts[partIndex] = text;
+    parts[partIndex] = replaceTextKeepingComment(parts[partIndex], text);
     await writeFile(sourceFile, parts.join("§"), "utf8");
   }
 
@@ -142,11 +186,11 @@ export class MemoryStore {
 
     const parts = content.split("§");
     const nonEmptyIndices: number[] = [];
-    parts.forEach((p, i) => { if (p.trim().length > 0) nonEmptyIndices.push(i); });
+    parts.forEach((p, i) => { if (!isEmptyMemoryPart(p)) nonEmptyIndices.push(i); });
     const partIndex = nonEmptyIndices[rawIndex];
     if (partIndex === undefined) throw new Error("条目不存在");
 
-    const archivedText = parts[partIndex].trim();
+    const archivedText = stripHtmlComments(parts[partIndex]).text.trim();
     parts.splice(partIndex, 1);
     await writeFile(sourceFile, parts.join("§"), "utf8");
 
