@@ -261,6 +261,15 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
   const envRef = useRef<TreeEnvironmentRef>(null);
   // 定位到的目录节点 id：树渲染后据此 focusItem（高亮 + 滚动到可见），执行一次后清空
   const focusTargetRef = useRef<TreeItemIndex | null>(null);
+  // 当前展示数据源（搜索态用搜索树，否则浏览树）：供手风琴折叠时查找父子关系
+  const displaySourceRef = useRef(treeItems);
+  displaySourceRef.current = searchTreeItems ?? treeItems;
+  // 用户最近聚焦的目录路径：作为搜索根的最高优先级来源
+  const activeDirRef = useRef<string | null>(null);
+  const expandedItemsRef = useRef(expandedItems);
+  expandedItemsRef.current = expandedItems;
+  // 记录已自动展开的搜索结果节点：增量更新时只展开新出现的，不重展开用户已折叠的
+  const autoExpandedRef = useRef<Set<TreeItemIndex>>(new Set());
 
   useEffect(() => {
     (async () => {
@@ -335,8 +344,22 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
     if (changed) setTreeItems(next);
   }, []);
 
+  // 手风琴展开：展开 item 时，折叠其同级兄弟文件夹（同一父节点下只保留一个展开）
   const handleExpandItem = useCallback((item: TreeItem<FsNodeData>) => {
-    setExpandedItems((prev) => (prev.includes(item.index) ? prev : [...prev, item.index]));
+    setExpandedItems((prev) => {
+      const src = displaySourceRef.current;
+      const parentId = findParentId(item.index, src);
+      if (parentId == null) {
+        return prev.includes(item.index) ? prev : [...prev, item.index];
+      }
+      // 同级兄弟文件夹（排除当前 item）→ 折叠
+      const siblingFolders = (src[parentId].children ?? []).filter(
+        (cid) => cid !== item.index && src[cid]?.isFolder,
+      );
+      const remove = new Set(siblingFolders);
+      const kept = prev.filter((id) => !remove.has(id));
+      return kept.includes(item.index) ? kept : [...kept, item.index];
+    });
   }, []);
 
   const handleCollapseItem = useCallback((item: TreeItem<FsNodeData>) => {
@@ -352,10 +375,15 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
     const nextIds = multiSelect ? ids : [ids[ids.length - 1]];
     setSelectedItems(nextIds);
     setFocusedItem(nextIds[0]);
+    // 聚焦目录 → 更新活动目录（搜索根的最高优先级来源）
+    const it = displaySourceRef.current[nextIds[0]];
+    if (it?.data?.isDir && it.data.path) activeDirRef.current = it.data.path;
   }, [multiSelect]);
 
   const handleFocusItem = useCallback((item: TreeItem<FsNodeData>) => {
     setFocusedItem(item.index);
+    // 聚焦目录 → 更新活动目录
+    if (item.data?.isDir && item.data.path) activeDirRef.current = item.data.path;
   }, []);
 
   const { displayItems, isSearching } = useMemo(() => {
@@ -370,21 +398,69 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
     return { displayItems: result.items, isSearching: true };
   }, [treeItems, searchQuery, searchTreeItems]);
 
-  // 后端全文搜索：debounce 300ms，流式接收进度并增量渲染
+  // 确定搜索根：聚焦目录 > 展开链最深目录 > defaultPath > 所有盘符根
+  // 用 ref 读取最新值，不作为 effect 依赖，避免搜索 effect 因引用变化重跑
+  const determineSearchRootsRef = useRef<() => string[]>(() => []);
+  determineSearchRootsRef.current = () => {
+    if (activeDirRef.current) return [activeDirRef.current];
+    const src = treeItemsRef.current;
+    let deepest: string | null = null;
+    for (const id of expandedItemsRef.current) {
+      const it = src[id];
+      if (it?.data?.isDir && (!deepest || it.data.path.length > deepest.length)) {
+        deepest = it.data.path;
+      }
+    }
+    if (deepest) return [deepest];
+    if (defaultPath && defaultPath.trim()) return [defaultPath.trim()];
+    return rootsRef.current;
+  };
+
+  // 后端全文搜索：debounce 300ms，流式接收进度并增量渲染。
+  // 搜索范围限定到活动目录子树，搜索过程中不随聚焦变化重搜。
+  // 注意：autoExpandedRef 仅在 query 真正变化时重置，避免 effect 因依赖
+  //（如 determineSearchRoots 引用变化 / StrictMode 双执行）重跑时清空已展开记录，
+  // 导致用户折叠的节点被下一批增量结果重新展开。
+  const lastQueryRef = useRef("");
   useEffect(() => {
     const query = searchQuery.trim();
     if (!query) {
+      lastQueryRef.current = "";
       setSearchTreeItems(null);
       setSearchDuration(null);
       setSearchLoading(false);
       return;
     }
 
+    // 仅当 query 文本真正变化时重置自动展开记录（effect 重跑但 query 不变时不重置）
+    if (lastQueryRef.current !== query) {
+      autoExpandedRef.current = new Set();
+      lastQueryRef.current = query;
+    }
+    // 搜索开始时一次性确定 roots，过程中不再变化
+    const searchRoots = determineSearchRootsRef.current();
+
     setSearchLoading(true);
     const allMatches = new Map<string, SearchMatch>();
     const rebuild = () => {
-      const roots = rootsRef.current;
-      setSearchTreeItems(buildSearchTree(Array.from(allMatches.values()), roots));
+      const tree = buildSearchTree(Array.from(allMatches.values()), searchRoots);
+      // 搜索树中有子节点的目录首次出现时即标记为「已自动展开」并加入 expandedItems，
+      // 使结果立即可见；同时避免后续 autoExpand effect 因 searchTreeItems 与
+      // expandedItems 的 setState 批处理时序，在用户折叠后又把节点重新展开。
+      const newFolderIds: TreeItemIndex[] = [];
+      for (const [id, item] of Object.entries(tree)) {
+        if (id !== "root" && item.children && item.children.length > 0 && item.isFolder) {
+          const tid = id as TreeItemIndex;
+          if (!autoExpandedRef.current.has(tid)) {
+            autoExpandedRef.current.add(tid);
+            newFolderIds.push(tid);
+          }
+        }
+      }
+      setSearchTreeItems(tree);
+      if (newFolderIds.length > 0) {
+        setExpandedItems(prev => Array.from(new Set([...prev, ...newFolderIds])));
+      }
     };
 
     let cleanup: (() => void) | null = null;
@@ -392,7 +468,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
       cleanup = searchFilesStream(
         query,
         {
-          roots: rootsRef.current,
+          roots: searchRoots,
           maxResults: 200,
           showHidden: showHiddenRef.current,
         },
@@ -416,22 +492,29 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
     };
   }, [searchQuery]);
 
-  // 搜索结果出现时，把有子节点的节点合并到 expandedItems 中（允许用户后续折叠）
-  useEffect(() => {
-    if (!searchTreeItems) return;
-    const needExpand: TreeItemIndex[] = [];
-    for (const [id, item] of Object.entries(searchTreeItems)) {
-      if (item.children && item.children.length > 0 && item.isFolder) {
-        needExpand.push(id);
-      }
-    }
-    if (needExpand.length === 0) return;
-    setExpandedItems(prev => Array.from(new Set([...prev, ...needExpand])));
-  }, [searchTreeItems]);
+  // autoExpand effect 已被 rebuild 内联接管（rebuild 在构建搜索树时同步标记并展开新目录），
+  // 此处不再重复处理，避免与 rebuild 的 setState 产生批处理时序竞态。
+  // 用户折叠的节点因已在 autoExpandedRef 中记录，后续增量 rebuild 不会重新展开。
 
   const hasSearchResults = isSearching
     ? Object.keys(displayItems).length > 1
     : true;
+
+  // 当前搜索范围（用于 UI 提示）：与 determineSearchRoots 同一优先级链
+  const currentSearchRoot = useMemo(() => {
+    if (activeDirRef.current) return activeDirRef.current;
+    const src = treeItemsRef.current;
+    let deepest: string | null = null;
+    for (const id of expandedItems) {
+      const it = src[id];
+      if (it?.data?.isDir && (!deepest || it.data.path.length > deepest.length)) {
+        deepest = it.data.path;
+      }
+    }
+    if (deepest) return deepest;
+    if (defaultPath && defaultPath.trim()) return defaultPath.trim();
+    return rootsRef.current.length > 0 ? rootsRef.current.join(", ") : "";
+  }, [expandedItems, defaultPath]);
 
   const selections = useMemo(() => {
     return selectedItems
@@ -481,6 +564,11 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
               {isSearching && searchDuration !== null && (
                 <span className="text-[11px] text-tertiary" data-testid="search-duration">
                   搜索耗时 {searchDuration}ms
+                </span>
+              )}
+              {!isSearching && currentSearchRoot && (
+                <span className="text-[11px] text-tertiary max-w-[220px] truncate" data-testid="search-scope-hint" title={currentSearchRoot}>
+                  搜索范围: {currentSearchRoot}
                 </span>
               )}
             </div>
