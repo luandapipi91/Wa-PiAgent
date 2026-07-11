@@ -226,7 +226,9 @@ function setScrollMetrics(el: HTMLElement, { scrollHeight, clientHeight, scrollT
   el.scrollTop = scrollTop;
 }
 
-test("新消息自动滚动到底部", async () => {
+// ── 自动滚动：仅在 AI 回复（streaming）时跟随；平时不抢滚动 ──
+
+test("AI 回复（streaming）中且停在底部 → 自动跟随滚动到底部", async () => {
   useSessionStore.setState({
     messagesBySession: {
       s1: [{ agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } }],
@@ -234,14 +236,13 @@ test("新消息自动滚动到底部", async () => {
   });
   render(<MessageList sessionId="s1" />);
   const list = screen.getByTestId("message-list");
-  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 0 });
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 700 }); // 停在底部
+  fireEvent.scroll(list);
 
+  // AI 开始回复
   useSessionStore.setState({
-    messagesBySession: {
-      s1: [
-        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
-        assistantMsg(2, [{ type: "text", text: "reply" }]),
-      ],
+    streamingBySession: {
+      s1: { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "回复" }], model: "m", stopReason: "stop", timestamp: 2 } },
     },
   });
 
@@ -250,7 +251,7 @@ test("新消息自动滚动到底部", async () => {
   }, { timeout: 1000 });
 });
 
-test("用户手动向上滚动后暂停自动滚动", async () => {
+test("AI 回复中用户向上翻阅 → 不自动跟随（不阻碍用户阅读）", async () => {
   useSessionStore.setState({
     messagesBySession: {
       s1: [{ agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } }],
@@ -258,28 +259,34 @@ test("用户手动向上滚动后暂停自动滚动", async () => {
   });
   render(<MessageList sessionId="s1" />);
   const list = screen.getByTestId("message-list");
-  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 0 });
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 700 });
+  fireEvent.scroll(list); // stickBottom=true
 
-  // 用户向上滚动（远离底部）
-  list.scrollTop = 500;
-  fireEvent.scroll(list);
-
-  // 追加新消息
+  // AI 回复并跟随到底
   useSessionStore.setState({
-    messagesBySession: {
-      s1: [
-        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
-        assistantMsg(2, [{ type: "text", text: "reply" }]),
-      ],
+    streamingBySession: {
+      s1: { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "回复" }], model: "m", stopReason: "stop", timestamp: 2 } },
+    },
+  });
+  await waitFor(() => expect(list.scrollTop).toBe(1000), { timeout: 1000 });
+
+  // 用户向上翻阅离开底部
+  list.scrollTop = 300;
+  fireEvent.scroll(list); // stickBottom=false
+
+  // 回复内容继续增长
+  useSessionStore.setState({
+    streamingBySession: {
+      s1: { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "更长的回复内容" }], model: "m", stopReason: "stop", timestamp: 2 } },
     },
   });
 
-  // 等待一帧，确认没有自动滚回底部
+  // 等待一帧，确认未被抢回底部
   await new Promise(r => setTimeout(r, 50));
-  expect(list.scrollTop).toBe(500);
+  expect(list.scrollTop).toBe(300);
 });
 
-test("用户手动回到底部后恢复自动滚动", async () => {
+test("非回复时（停在底部）新增消息 → 不自动滚动", async () => {
   useSessionStore.setState({
     messagesBySession: {
       s1: [{ agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } }],
@@ -287,30 +294,74 @@ test("用户手动回到底部后恢复自动滚动", async () => {
   });
   render(<MessageList sessionId="s1" />);
   const list = screen.getByTestId("message-list");
-  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 0 });
-
-  // 向上滚动暂停
-  list.scrollTop = 500;
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 700 }); // 停在底部
   fireEvent.scroll(list);
 
-  // 用户回到底部
-  list.scrollTop = 700; // scrollHeight - clientHeight = 700，视为底部
-  fireEvent.scroll(list);
-
-  // 追加新消息
+  // 新增一条非流式消息（无 streaming）
   useSessionStore.setState({
     messagesBySession: {
       s1: [
         { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
         assistantMsg(2, [{ type: "text", text: "reply" }]),
-        assistantMsg(3, [{ type: "text", text: "more" }]),
       ],
     },
   });
 
-  await waitFor(() => {
-    expect(list.scrollTop).toBe(1000);
-  }, { timeout: 1000 });
+  await new Promise(r => setTimeout(r, 50));
+  expect(list.scrollTop).toBe(700); // 未被拉到底（1000）
+});
+
+// ── 滚动到底部浮动按钮 ──
+
+test("不在底部时显示「滚动到底部」浮动按钮", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+        assistantMsg(2, [{ type: "text", text: "reply" }]),
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const list = screen.getByTestId("message-list");
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 0 });
+  fireEvent.scroll(list); // 离开底部
+  expect(screen.getByTestId("scroll-bottom-s1")).toBeTruthy();
+});
+
+test("停在底部时不显示浮动按钮", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+        assistantMsg(2, [{ type: "text", text: "reply" }]),
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const list = screen.getByTestId("message-list");
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 700 });
+  fireEvent.scroll(list); // 在底部
+  expect(screen.queryByTestId("scroll-bottom-s1")).toBeNull();
+});
+
+test("点击浮动按钮 → 滚动到底部并隐藏", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+        assistantMsg(2, [{ type: "text", text: "reply" }]),
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const list = screen.getByTestId("message-list");
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 0 });
+  fireEvent.scroll(list);
+
+  fireEvent.click(screen.getByTestId("scroll-bottom-s1"));
+  expect(list.scrollTop).toBe(1000);
+  expect(screen.queryByTestId("scroll-bottom-s1")).toBeNull();
 });
 
 // ── 重新发送按钮 ──
