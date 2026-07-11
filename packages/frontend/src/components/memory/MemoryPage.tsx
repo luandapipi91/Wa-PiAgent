@@ -83,8 +83,15 @@ export function MemoryPage() {
       {/* 工具栏 */}
       <div className="flex items-center gap-2.5 px-5 py-2.5" style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}>
         {activeTab === "instructions" ? (
-          // 指令文件筛选
-          <div className="flex items-center gap-2.5">
+          // 指令文件筛选：左侧 scope chips，右侧项目选择器
+          <>
+            <div className="flex gap-1.5">
+              {(["all", "project", "global"] as const).map(f => (
+                <FilterChip key={f} active={scopeFilter === f} onClick={() => setScopeFilter(f)}
+                  label={f === "all" ? "全部" : f === "project" ? "项目" : "全局"} />
+              ))}
+            </div>
+            <div className="flex-1" />
             <select
               className="text-[11.5px] px-2.5 py-1 rounded-md"
               style={{
@@ -100,13 +107,7 @@ export function MemoryPage() {
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
-            <div className="flex gap-1.5">
-              {(["all", "project", "global"] as const).map(f => (
-                <FilterChip key={f} active={scopeFilter === f} onClick={() => setScopeFilter(f)}
-                  label={f === "all" ? "全部" : f === "project" ? "项目" : "全局"} />
-              ))}
-            </div>
-          </div>
+          </>
         ) : (
           // 记忆筛选
           <>
