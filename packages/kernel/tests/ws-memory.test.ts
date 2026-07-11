@@ -207,6 +207,56 @@ test("memory:purge 从归档彻底删除并广播", async () => {
   );
 });
 
+// ===== memory:add =====
+
+test("memory:add 全局记忆后广播 memory:changed", async () => {
+  await withMemoryServer(
+    async () => {},
+    async (send, recv) => {
+      send({ type: "memory:add", scope: "global", text: "手动添加的全局记忆" });
+      const resp = await recv() as any;
+      expect(resp.type).toBe("memory:changed");
+      const texts = resp.memories.map((m: any) => m.text);
+      expect(texts).toContain("手动添加的全局记忆");
+    },
+  );
+});
+
+test("memory:add 项目记忆落到项目目录并广播", async () => {
+  await withMemoryServer(
+    async (dataDir) => {
+      const projectCwd = join(dataDir, "fake-project");
+      await mkdir(projectCwd, { recursive: true });
+      const ps = new ProjectStore(join(dataDir, "projects.json"));
+      await ps.createProject({ name: "fake-project", cwd: projectCwd });
+    },
+    async (send, recv, _mockAM, dataDir) => {
+      const ps = new ProjectStore(join(dataDir, "projects.json"));
+      const { projects } = await ps.load();
+      const projectId = projects[0].id;
+
+      send({ type: "memory:add", scope: "project", projectId, text: "手动添加的项目记忆" });
+      const resp = await recv() as any;
+      expect(resp.type).toBe("memory:changed");
+      const found = resp.memories.find(
+        (m: any) => m.text === "手动添加的项目记忆" && m.scope === "project",
+      );
+      expect(found).toBeTruthy();
+    },
+  );
+});
+
+test("memory:add 项目记忆缺少 projectId 返回 error", async () => {
+  await withMemoryServer(
+    async () => {},
+    async (send, recv) => {
+      send({ type: "memory:add", scope: "project", text: "无项目" });
+      const resp = await recv() as any;
+      expect(resp.type).toBe("error");
+    },
+  );
+});
+
 // ===== instruction:list =====
 
 test("instruction:list 返回全局和项目级指令文件", async () => {

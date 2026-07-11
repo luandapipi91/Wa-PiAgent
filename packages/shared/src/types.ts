@@ -14,7 +14,7 @@ import type {
 } from "./extensions";
 import type {
   MemoryListEvent, MemoryUpdateEvent, MemoryArchiveEvent, MemoryRestoreEvent,
-  MemoryPurgeEvent, InstructionListEvent, MemoryConfigGetEvent, MemoryConfigSetEvent,
+  MemoryPurgeEvent, MemoryAddEvent, InstructionListEvent, MemoryConfigGetEvent, MemoryConfigSetEvent,
   MemoryListResult, MemoryChangedEvent, InstructionListResult, MemoryConfigEvent,
 } from "./memory";
 
@@ -252,7 +252,7 @@ export type WSClientEvent =
   | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
   | SkillListEvent | SkillToggleEvent | SkillDirAddEvent | SkillDirRemoveEvent
   | ExtensionListEvent | ExtensionToggleEvent
-  | MemoryListEvent | MemoryUpdateEvent | MemoryArchiveEvent | MemoryRestoreEvent | MemoryPurgeEvent
+  | MemoryListEvent | MemoryUpdateEvent | MemoryArchiveEvent | MemoryRestoreEvent | MemoryPurgeEvent | MemoryAddEvent
   | InstructionListEvent
   | MemoryConfigGetEvent | MemoryConfigSetEvent
   | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest | FSUploadRequest | FSCopyRequest | FSSearchRequest | FSSearchCancelRequest;
