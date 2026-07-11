@@ -13,6 +13,14 @@ import { mkdir } from "node:fs/promises";
 import type { WSServerEvent } from "@hiagent/shared";
 
 async function main() {
+  // 让 Pi SDK 的全局 getAgentDir() 返回 ~/.hiagent，而非默认 ~/.pi/agent。
+  // SDK 大量组件（auth/settings/sessions/bin/intercom/npm/models/prompts/tools/themes
+  // 及 pi-intercom / pi-web-access 等扩展）直接调 config.getAgentDir()，该函数只读
+  // PI_CODING_AGENT_DIR 环境变量、忽略传入的 agentDir 参数；不设则全部 fallback 到 ~/.pi/agent，
+  // 与 hiagent 数据目录割裂（agentDir 参数只对 DefaultResourceLoader/SettingsManager 等少数入口生效）。
+  // 必须在任意 SDK 代码 import/执行前设置。同时顺带解决 pi-web-access 配置透传（见 memory）。
+  process.env.PI_CODING_AGENT_DIR = HIAGENT_DIR;
+
   // 一次性迁移：清空旧版本写入 settings.json.packages 的扩展路径，
   // 避免「packages 残留 + additionalExtensionPaths」双重加载同一扩展（见 extensions.ts）
   await migrateSettingsPackages();
