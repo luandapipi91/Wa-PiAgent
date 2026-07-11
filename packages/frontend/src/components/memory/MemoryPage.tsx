@@ -30,15 +30,12 @@ export function MemoryPage() {
     load();
   }, [load]);
 
-  // 切到指令文件 Tab 时加载；selectedProjectId 为空则用第一个项目兜底
+  // 切到指令文件 Tab 且已选项目时加载；null → 有值时也触发刷新
   useEffect(() => {
-    if (activeTab !== "instructions") return;
-    const pid = selectedProjectId ?? projects[0]?.id;
-    if (pid) {
-      if (!selectedProjectId) setSelectedProjectId(pid);
-      loadInstructions(pid);
+    if (activeTab === "instructions" && selectedProjectId) {
+      loadInstructions(selectedProjectId);
     }
-  }, [selectedProjectId, activeTab, loadInstructions, projects]);
+  }, [selectedProjectId, activeTab, loadInstructions]);
 
   // 筛选后的记忆
   const filteredMemories = memories

@@ -129,6 +129,42 @@ test("message_end(user) 不重复添加——user 消息在 message_start 时已
   expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
 });
 
+test("message_end(toolResult) 追加工具结果消息到 messages，供渲染层关联 toolCall", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        {
+          agentName: "dev",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "tc1", name: "session_search", arguments: { query: "auth" } }],
+            model: "m",
+            stopReason: "tool_use",
+            timestamp: 1,
+          },
+        },
+      ],
+    },
+  });
+  const env = envelope({
+    type: "message_end",
+    message: {
+      role: "toolResult",
+      toolCallId: "tc1",
+      toolName: "session_search",
+      content: [{ type: "text", text: "找到 3 条结果" }],
+      isError: false,
+      timestamp: 2,
+    },
+  });
+  useSessionStore.getState().handleSDKEvent("s1", env);
+  const msgs = useSessionStore.getState().messagesBySession["s1"];
+  expect(msgs).toHaveLength(2);
+  expect((msgs[1].message as any).role).toBe("toolResult");
+  expect((msgs[1].message as any).toolCallId).toBe("tc1");
+  expect((msgs[1].agentName as any)).toBe("dev");
+});
+
 test("agent_start 设置 status=thinking", () => {
   const env = envelope({ type: "agent_start" });
   useSessionStore.getState().handleSDKEvent("s1", env);

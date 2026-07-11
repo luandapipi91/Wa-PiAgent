@@ -9,13 +9,15 @@ import { useSessionStore } from "../src/store/session";
 // ws-instance mock：onMessage 暴露触发器，让测试能模拟 kernel 响应。
 // bun mock.module 不 hoist，但 factory 闭包可引用模块作用域的 mockHandlers。
 const mockHandlers = { list: [] as Array<(e: any) => void> };
+const sentEvents: any[] = [];
 mock.module("../src/ws-instance", () => ({
-  send: () => {},
+  send: (e: any) => { sentEvents.push(e); },
   onMessage: (cb: any) => { mockHandlers.list.push(cb); return () => {}; },
 }));
 
 beforeEach(() => {
   mockHandlers.list = [];
+  sentEvents.length = 0;
   useProjectsStore.setState({
     projects: [{ id: "p1", name: "P", cwd: "/work/p1", createdAt: 0 }],
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "" }],
@@ -99,6 +101,42 @@ test("空闲时排队消息显示「立即」按钮", () => {
   render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
   expect(screen.getByTestId("btn-immediate")).toBeTruthy();
   expect(screen.getByTestId("btn-promote")).toBeTruthy();
+});
+
+test("点击引导按钮发送 steer:promote 事件", async () => {
+  useSessionStore.setState({
+    statusBySession: { s1: "idle" },
+    queueBySession: { s1: { steering: [], followUp: ["消息A", "消息B"] } },
+  });
+  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  const btn = screen.getAllByTestId("btn-promote")[0];
+  await act(async () => { btn.click(); });
+  const steerEvents = sentEvents.filter(e => e.type === "steer:promote");
+  expect(steerEvents).toHaveLength(1);
+  expect(steerEvents[0]).toEqual({
+    type: "steer:promote",
+    sessionId: "s1",
+    text: "消息A",
+    remainingTexts: ["消息B"],
+  });
+});
+
+test("点击立即按钮发送 steer:immediate 事件", async () => {
+  useSessionStore.setState({
+    statusBySession: { s1: "idle" },
+    queueBySession: { s1: { steering: [], followUp: ["消息A", "消息B"] } },
+  });
+  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  const btn = screen.getAllByTestId("btn-immediate")[0];
+  await act(async () => { btn.click(); });
+  const steerEvents = sentEvents.filter(e => e.type === "steer:immediate");
+  expect(steerEvents).toHaveLength(1);
+  expect(steerEvents[0]).toEqual({
+    type: "steer:immediate",
+    sessionId: "s1",
+    text: "消息A",
+    remainingTexts: ["消息B"],
+  });
 });
 
 test("切换会话后思考计时显示对应会话的已思考时长（不重置、不沿用旧会话）", async () => {
