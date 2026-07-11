@@ -17,11 +17,15 @@ interface SessionState {
   unreadBySession: Record<string, boolean>;
   // 乐观发送标记：true 表示该 session 有一条待 SDK message_start(user) 回声确认的占位用户消息
   optimisticEchoBySession: Record<string, boolean>;
+  // 历史加载标记：切换会话后已发 session:messages 但未收到响应（首次进入、无消息时用于显示 loading）
+  historyLoadingBySession: Record<string, boolean>;
   // 会话级消息队列：steering 引导队列 + followUp 排队队列
   queueBySession: Record<string, { steering: readonly string[]; followUp: readonly string[] }>;
   // 原有方法保留：append 用于 error 兜底、setMessages 用于 session:messages 历史
   append: (sessionId: string, msg: SessionMessage) => void;
   setMessages: (sessionId: string, messages: SessionMessage[]) => void;
+  /** 标记某会话历史是否正在加载（SessionView 发请求置 true、收响应置 false）。 */
+  setHistoryLoading: (sessionId: string, loading: boolean) => void;
   /** 原地重试用：保留 messages[0, fromIndex)，丢弃 [fromIndex, end)。
    *  重发失败回合前调用——裁掉失败的用户消息及其后所有行，
    *  由随后 SDK 的 message_start(user) 回声重建用户行，避免重发叠加。 */
@@ -51,6 +55,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   statusBySession: {},
   thinkingSinceBySession: {},
   optimisticEchoBySession: {},
+  historyLoadingBySession: {},
   unreadBySession: {},
   queueBySession: {},
 
@@ -81,7 +86,13 @@ export const useSessionStore = create<SessionState>((set) => ({
     return { messagesBySession: { ...s.messagesBySession, [sessionId]: compacted } };
   }),
 
-  clear: () => set({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, thinkingSinceBySession: {}, optimisticEchoBySession: {}, unreadBySession: {} }),
+  setHistoryLoading: (sessionId, loading) => set(s => {
+    // 状态相同则不触发重渲染
+    if (!!s.historyLoadingBySession[sessionId] === loading) return {};
+    return { historyLoadingBySession: { ...s.historyLoadingBySession, [sessionId]: loading } };
+  }),
+
+  clear: () => set({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, thinkingSinceBySession: {}, optimisticEchoBySession: {}, historyLoadingBySession: {}, unreadBySession: {} }),
 
   markUnread: (sessionId) => set(s => ({ unreadBySession: { ...s.unreadBySession, [sessionId]: true } })),
   markRead: (sessionId) => set(s => {

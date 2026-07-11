@@ -12,6 +12,7 @@ beforeEach(() => {
     streamingBySession: {},
     statusBySession: {},
     optimisticEchoBySession: {},
+    historyLoadingBySession: {},
   });
 });
 
@@ -25,6 +26,19 @@ function envelope(event: SDKEventEnvelope["event"], sessionId = "s1"): SDKEventE
     event,
   };
 }
+
+// ── 历史加载标记：SessionView 发请求置 true、收响应置 false ──
+
+test("setHistoryLoading：按会话隔离地切换加载标志", () => {
+  useSessionStore.getState().setHistoryLoading("s1", true);
+  useSessionStore.getState().setHistoryLoading("s2", true);
+  expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(true);
+  expect(useSessionStore.getState().historyLoadingBySession["s2"]).toBe(true);
+  // 仅清 s1，不影响 s2
+  useSessionStore.getState().setHistoryLoading("s1", false);
+  expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(false);
+  expect(useSessionStore.getState().historyLoadingBySession["s2"]).toBe(true);
+});
 
 // ── 未读标记：非当前会话收到回复完成（agent_end）标记 new，进入会话清掉 ──
 

@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, mock } from "bun:test";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import type { SessionMessage } from "@hiagent/shared";
 import { SessionView } from "../src/components/SessionView";
 import { useProjectsStore } from "../src/store/projects";
@@ -44,6 +44,41 @@ test("收到 session:messages 响应后填充历史消息", () => {
   const first = msgs[0].message as any;
   expect(first.role).toBe("user");
   expect(first.content).toBe("历史问题");
+});
+
+test("首次进入会话历史未到时显示加载指示，响应到达后消失", async () => {
+  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  // 发出 session:messages 后、历史未到 → 对话区显示 loading
+  await screen.findByTestId("history-loading-s1");
+
+  // 模拟 kernel 响应：触发已注册的 onMessage 监听
+  const history: SessionMessage[] = [
+    { agentName: undefined, message: { role: "user", content: "历史问题", timestamp: 1 } },
+  ];
+  await act(async () => {
+    mockHandlers.list.forEach(h => h({ type: "session:messages", sessionId: "s1", messages: history }));
+  });
+
+  // 响应到达 → 加载消失、历史消息出现
+  await waitFor(() => {
+    expect(screen.queryByTestId("history-loading-s1")).toBeNull();
+    expect(screen.getByText("历史问题")).toBeTruthy();
+  });
+  // store 标志同步清掉
+  expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(false);
+});
+
+test("会话已有消息时进入不显示历史加载（避免刷新闪烁）", async () => {
+  // 预置 s1 已有历史消息（模拟再次进入已访问过的会话）
+  useSessionStore.getState().setMessages("s1", [
+    { agentName: undefined, message: { role: "user", content: "已存在", timestamp: 1 } },
+  ]);
+  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  // 有消息则即便 loading 标志为 true 也不显示加载指示
+  await waitFor(() => {
+    expect(screen.queryByTestId("history-loading-s1")).toBeNull();
+    expect(screen.getByText("已存在")).toBeTruthy();
+  });
 });
 
 test("切换会话后思考计时显示对应会话的已思考时长（不重置、不沿用旧会话）", async () => {
