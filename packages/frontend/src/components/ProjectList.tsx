@@ -14,7 +14,7 @@ export function ProjectList(props: Props) {
   const { projects, sessions, currentSessionId, currentProjectId } = useProjectsStore();
   const isNewSessionView = props.currentView === "new-session";
   return (
-    <div className="flex-1 overflow-auto">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden">
       <div className="text-[11px] font-bold text-tertiary px-2 py-1 border-t border-hairline mt-2 uppercase tracking-wide">项目</div>
       {projects.map(p => (
         <ProjectItem
