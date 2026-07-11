@@ -13,6 +13,7 @@ import { useProvidersStore } from "./store/providers";
 import { useProjectsStore } from "./store/projects";
 import { useSessionStore } from "./store/session";
 import { useSkillsStore } from "./store/skills";
+import { useExtensionsStore } from "./store/extensions";
 import { useToastStore } from "./store/toast";
 import { onMessage, getWs } from "./ws-instance";
 import { ToastContainer } from "./components/ui/Toast";
@@ -31,6 +32,7 @@ export function App() {
     useProjectsStore.getState().load();  // getState() 取最新 action
     useProvidersStore.getState().load();
     useSkillsStore.getState().load();
+    useExtensionsStore.getState().load();
     const off = onMessage(e => {
       const ps = useProjectsStore.getState();  // 每次事件取最新，避免 stale
       switch (e.type) {
@@ -67,6 +69,8 @@ export function App() {
         case "provider:changed": useProvidersStore.getState().setProviders(e.providers); break;
         case "skill:list": useSkillsStore.getState().setAll(e); break;
         case "skill:changed": useSkillsStore.getState().setAll(e); break;
+        case "extension:list": useExtensionsStore.getState().setAll(e); break;
+        case "extension:changed": useExtensionsStore.getState().setAll(e); break;
       }
     });
     return off;
