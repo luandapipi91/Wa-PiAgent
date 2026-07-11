@@ -115,6 +115,9 @@ export class AgentManager {
   /** 命中缓存时：若该会话被标脏，reload 一次并清脏（单会话失败不阻断）。 */
   private async _reloadIfDirty(sessionId: string, session: AgentSession): Promise<void> {
     if (!this.dirty.has(sessionId)) return;
+    // 正在流式输出 / 有排队消息时跳过 reload，保留 dirty 等下次 idle 时再试，
+    // 避免在生成过程中热替换工具/系统提示词。
+    if (session.isStreaming || session.pendingMessageCount > 0) return;
     this.dirty.delete(sessionId);
     try {
       // SDK AgentSession.reload() 重读 settings.json（disabledSkills / extensions 等）
