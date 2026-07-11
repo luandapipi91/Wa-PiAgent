@@ -1,0 +1,85 @@
+// amaster-memory.ts — 对 @amaster.ai/pi-memory 的 host-controlled 包装
+//
+// 目标：让 kernel 自己决定全局/项目记忆的存储目录，而不是依赖 Pi 扩展加载时的 cwd。
+// 所有读写经此层委托给 amaster MemoryStore，确保 § 分隔格式由 amaster 单一维护，
+// 避免外部裸写文件触发 amaster 的 drift 检测。
+//
+// 作用域目录约定：
+// - 全局：<hiagentDir>/memories/global/{MEMORY.md,USER.md}
+// - 项目：<hiagentDir>/projects-memory/<cwd-basename>/{MEMORY.md,USER.md}
+//
+// amaster 的 MemoryStore 仅区分 memory(MEMORY.md) 与 user(USER.md) 两个 target；
+// failure 等其它分类不在此层管理。
+
+import { MemoryStore } from "@amaster.ai/pi-memory";
+export type { MemoryTarget } from "@amaster.ai/pi-memory";
+import type { MemoryTarget } from "@amaster.ai/pi-memory";
+import { join } from "node:path";
+
+/** 单个作用域（全局或某项目）的记忆读写门面 */
+export interface AmasterStore {
+  /** 该 store 落盘的绝对目录 */
+  readonly dir: string;
+  /** 追加一条记忆（空串或命中 promptware 扫描会被拒绝并抛错） */
+  add(target: MemoryTarget, content: string): Promise<void>;
+  /** 按 oldText 精确匹配替换；返回是否命中 */
+  replace(target: MemoryTarget, oldText: string, newContent: string): Promise<boolean>;
+  /** 按 oldText 精确匹配删除；返回是否命中 */
+  remove(target: MemoryTarget, oldText: string): Promise<boolean>;
+  /** 读取 live 条目原文（同步 getEntries 前需 loadFromDisk，本方法已封装） */
+  entries(target: MemoryTarget): Promise<string[]>;
+  /** 读取冻结的系统提示词快照（已做 promptware 清洗，注入提示词用） */
+  snapshot(target: MemoryTarget): Promise<string>;
+}
+
+/** 全局记忆 store：<hiagentDir>/memories/global */
+export function getGlobalMemoryStore(hiagentDir: string): AmasterStore {
+  return createStore(join(hiagentDir, "memories", "global"));
+}
+
+/** 项目记忆 store：<hiagentDir>/projects-memory/<cwd basename> */
+export function getProjectMemoryStore(hiagentDir: string, cwd: string): AmasterStore {
+  return createStore(join(hiagentDir, "projects-memory", projectNameFromCwd(cwd)));
+}
+
+/** 按 cwd 生成项目目录名（basename；与历史 projects-memory/<basename> 约定对齐） */
+export function projectNameFromCwd(cwd: string): string {
+  const parts = cwd.replace(/\\/g, "/").replace(/\/$/, "").split("/");
+  return parts[parts.length - 1] || "default";
+}
+
+function createStore(dir: string): AmasterStore {
+  // MemoryStore 自身保证 add/replace/remove 经 withFileLock + drift 校验后落盘，
+  // 无需调用方先 loadFromDisk；但同步的 getEntries / formatForSystemPrompt 需先 load。
+  const store = new MemoryStore({ dir });
+
+  return {
+    dir,
+    async add(target, content) {
+      assertOk(await store.add(target, content), "记忆写入失败");
+    },
+    async replace(target, oldText, newContent) {
+      const r = await store.replace(target, oldText, newContent);
+      return r.success;
+    },
+    async remove(target, oldText) {
+      const r = await store.remove(target, oldText);
+      return r.success;
+    },
+    async entries(target) {
+      await store.loadFromDisk();
+      return store.getEntries(target);
+    },
+    async snapshot(target) {
+      await store.loadFromDisk();
+      return store.formatForSystemPrompt(target);
+    },
+  };
+}
+
+/** amaster 的失败结果（含 drift / 超限 / 未命中外的错误）统一转抛 */
+function assertOk(r: { success: boolean; error?: string }, fallback: string): void {
+  if (!r.success) {
+    throw new Error(r.error ?? fallback);
+  }
+}
