@@ -593,6 +593,16 @@ export class WSServer {
         }
         break;
       }
+      case "memory:add": {
+        try {
+          await this.opts.memoryStore.add(event.scope, event.text, event.projectId);
+          const result = await this.opts.memoryStore.list(event.projectId);
+          this.broadcast({ type: "memory:changed", ...result });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
       case "instruction:list": {
         try {
           const instructions = await this.opts.memoryStore.listInstructions(event.projectId);

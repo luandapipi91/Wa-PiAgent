@@ -66,6 +66,15 @@ export interface MemoryPurgeEvent {
   projectId: string;
   entryId: string;
 }
+export interface MemoryAddEvent {
+  type: "memory:add";
+  /** 写入作用域：global 全局，project 当前项目（需带 projectId） */
+  scope: MemoryScope;
+  /** scope=project 时必填，定位项目 cwd */
+  projectId?: string;
+  /** 记忆正文 */
+  text: string;
+}
 export interface InstructionListEvent {
   type: "instruction:list";
   projectId: string;
