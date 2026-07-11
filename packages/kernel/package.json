@@ -16,6 +16,7 @@
     "@earendil-works/pi-coding-agent": "^0.80.0",
     "@hiagent/shared": "workspace:*",
     "pi-intercom": "^0.6.0",
-    "pi-web-access": "^0.13.0"
+    "pi-web-access": "^0.13.0",
+    "pi-lens": "^3.8.0"
   }
 }
