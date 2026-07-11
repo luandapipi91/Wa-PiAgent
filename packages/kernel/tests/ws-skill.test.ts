@@ -12,7 +12,7 @@ import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
 function tmp(p: string) { return join(import.meta.dir, p + Math.random().toString(36).slice(2)); }
 
 function makeMockAgentManager() {
-  const calls = { reloadAll: 0, markAllDirty: 0 };
+  const calls = { reloadAll: 0, markAllDirty: 0, markSkillsDirty: 0 };
   return {
     ensureStarted: async () => ({ messages: [], prompt: async () => {}, abort: async () => {}, dispose: () => {} }),
     prompt: async () => {},
@@ -20,12 +20,13 @@ function makeMockAgentManager() {
     disposeSession: async () => {},
     disposeAll: async () => {},
     markAllDirty: () => { calls.markAllDirty++; },
+    markSkillsDirty: () => { calls.markSkillsDirty++; },
     calls,
   } as any;
 }
 
 async function withSkillServer<T>(
-  fn: (send: (e: WSClientEvent) => void, recv: () => Promise<WSServerEvent>) => Promise<T>,
+  fn: (send: (e: WSClientEvent) => void, recv: () => Promise<WSServerEvent>, calls: { markAllDirty: number; markSkillsDirty: number }) => Promise<T>,
 ): Promise<T> {
   const dataDir = tmp("ws-skill");
   mkdirSync(join(dataDir, "skills"), { recursive: true });
@@ -51,12 +52,12 @@ async function withSkillServer<T>(
     while (queue.length === 0) await new Promise(r => setTimeout(r, 20));
     return queue.shift()!;
   };
-  try { return await fn(send, recv); }
+  try { return await fn(send, recv, mockAM.calls); }
   finally { ws.close(); await server.stop(); rmSync(dataDir, { recursive: true, force: true }); }
 }
 
 test("skill:list 返回技能列表 + 目录 + builtinDir", async () => {
-  await withSkillServer(async (send, recv) => {
+  await withSkillServer(async (send, recv, _calls) => {
     send({ type: "skill:list" });
     const e = await recv() as any;
     expect(e.type).toBe("skill:list");
@@ -65,19 +66,21 @@ test("skill:list 返回技能列表 + 目录 + builtinDir", async () => {
   });
 });
 
-test("skillDir:add 成功后 markAllDirty 被调用 + 广播 changed", async () => {
-  await withSkillServer(async (send, recv) => {
+test("skillDir:add 成功后 markSkillsDirty 被调用 + 广播 changed", async () => {
+  await withSkillServer(async (send, recv, calls) => {
     const userDir = tmp("user-skills");
     mkdirSync(userDir, { recursive: true });
     send({ type: "skillDir:add", path: userDir });
     const changed = await recv() as any;
     expect(changed.type).toBe("skill:changed");
     expect(changed.dirs).toContain(userDir);
+    expect(calls.markSkillsDirty).toBe(1);
+    expect(calls.markAllDirty).toBe(0);
   });
 });
 
 test("skillDir:add 不存在的路径返回 error", async () => {
-  await withSkillServer(async (send, recv) => {
+  await withSkillServer(async (send, recv, _calls) => {
     send({ type: "skillDir:add", path: "/nonexistent/path" });
     const e = await recv() as any;
     expect(e.type).toBe("error");
@@ -85,18 +88,19 @@ test("skillDir:add 不存在的路径返回 error", async () => {
   });
 });
 
-test("skill:toggle 禁用后 skills 不含但 allSkills 含", async () => {
-  await withSkillServer(async (send, recv) => {
+test("skill:toggle 禁用后 skills 不含但 allSkills 含 + markSkillsDirty", async () => {
+  await withSkillServer(async (send, recv, calls) => {
     // 先确认有技能（通过扫描内置目录 — 这里可能为空，但 toggle 逻辑仍可测）
     send({ type: "skill:toggle", skillName: "fake-skill", disabled: true });
     const changed = await recv() as any;
     expect(changed.type).toBe("skill:changed");
     expect(changed.disabledSkills).toContain("fake-skill");
+    expect(calls.markSkillsDirty).toBe(1);
   });
 });
 
 test("skillDir:remove 内置目录返回 error", async () => {
-  await withSkillServer(async (send, recv) => {
+  await withSkillServer(async (send, recv, _calls) => {
     // 先拿 builtinDir
     send({ type: "skill:list" });
     const list = await recv() as any;
