@@ -91,7 +91,6 @@ export function NewSessionPane() {
         sendDisabled={!projectId}
         placeholder="给研发发消息..."
       />
-      <p className="text-[11.5px] text-tertiary mt-4">💡 项目目录可在此切换；agent 选谁谁是主理人</p>
     </div>
   );
 }

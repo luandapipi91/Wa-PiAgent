@@ -193,7 +193,7 @@ export class AgentManager {
       // （"operating inside pi" + "Pi documentation" 段，会把底层暴露给 agent）。
       // 显式 replace 配置优先用用户 body；其余（含无配置）一律用 hiagent 默认提示词。
       systemPromptOverride: () =>
-        config?.systemPromptMode === "replace" && config.systemPromptBody
+        config?.systemPromptMode === "append" && config.systemPromptBody
           ? config.systemPromptBody!
           : HIAGENT_DEFAULT_SYSTEM_PROMPT,
       agentsFilesOverride:
