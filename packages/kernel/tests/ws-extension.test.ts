@@ -40,6 +40,7 @@ async function withExtServer<T>(
       resolveEntryPath: () => "/fake/pi-lens/dist/index.js",
       readVersion: () => "3.8.68",
     }),
+    memoryStore: null as any,
     agentManager: mockAM,
     dataDir,
     port: 0,
