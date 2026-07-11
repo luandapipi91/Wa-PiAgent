@@ -53,6 +53,23 @@ export interface AgentManagerOpts {
   createAgentSessionFn?: CreateAgentSessionFn;
 }
 
+/**
+ * hiagent 默认系统提示词（systemPromptOverride 的兜底，即「默认 replace 模式」）。
+ *
+ * 始终作为 DefaultResourceLoader.systemPromptOverride 的返回值，使 loader.getSystemPrompt()
+ * 非空 → buildSystemPrompt 走 customPrompt 分支，绕过 SDK 默认提示词。SDK 默认提示词里写死了
+ * "You are ... operating inside pi, a coding agent harness." 和整段 "Pi documentation"
+ * （指示 agent 被问到 skills 时去读 docs/skills.md 等），会把「底层是 pi」直接暴露给 agent。
+ *
+ * 代价：customPrompt 分支不会自动生成 SDK 默认分支里的 "Available tools: ..." 工具清单和部分
+ * 动态 guidelines；工具本身仍通过 tool schema 注入，agent 照常可用。文案可按需调整。
+ */
+const HIAGENT_DEFAULT_SYSTEM_PROMPT =
+  "You are an expert coding assistant operating inside hiagent. " +
+  "You help users by reading files, executing commands, editing code, and writing new files.\n\n" +
+  "Use the available tools to explore and modify the codebase. " +
+  "Be concise in your responses. Show file paths clearly when working with files.";
+
 export class AgentManager {
   // sessionId → AgentSession（核心数据结构，一个 HiAgent 会话对应一个 SDK session）
   private sessions = new Map<string, AgentSession>();
@@ -172,10 +189,13 @@ export class AgentManager {
       agentDir: HIAGENT_DIR,
       // 扩展改用 additionalExtensionPaths 纯内存注入（见 extensions.ts）
       additionalExtensionPaths: buildAdditionalExtensionPaths(),
-      systemPromptOverride:
+      // 默认 replace 模式：始终提供 customPrompt，绕过 SDK 默认提示词
+      // （"operating inside pi" + "Pi documentation" 段，会把底层暴露给 agent）。
+      // 显式 replace 配置优先用用户 body；其余（含无配置）一律用 hiagent 默认提示词。
+      systemPromptOverride: () =>
         config?.systemPromptMode === "replace" && config.systemPromptBody
-          ? () => config.systemPromptBody!
-          : undefined,
+          ? config.systemPromptBody!
+          : HIAGENT_DEFAULT_SYSTEM_PROMPT,
       agentsFilesOverride:
         config?.systemPromptMode === "append" && config.systemPromptBody
           ? (current: {
