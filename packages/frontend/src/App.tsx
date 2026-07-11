@@ -14,11 +14,13 @@ import { useProjectsStore } from "./store/projects";
 import { useSessionStore } from "./store/session";
 import { useSkillsStore } from "./store/skills";
 import { useExtensionsStore } from "./store/extensions";
+import { useMemoryStore } from "./store/memory";
 import { useToastStore } from "./store/toast";
 import { onMessage, getWs } from "./ws-instance";
 import { ToastContainer } from "./components/ui/Toast";
+import { MemoryPage } from "./components/memory/MemoryPage";
 
-export type View = "empty" | "new-session" | "session" | "canvas";
+export type View = "empty" | "new-session" | "session" | "canvas" | "memory";
 
 export function App() {
   // 只订阅渲染所需的最小状态；actions 在回调里用 getState() 取，避免 stale closure
@@ -71,6 +73,16 @@ export function App() {
         case "skill:changed": useSkillsStore.getState().setAll(e); break;
         case "extension:list": useExtensionsStore.getState().setAll(e); break;
         case "extension:changed": useExtensionsStore.getState().setAll(e); break;
+        case "memory:list":
+        case "memory:changed":
+          useMemoryStore.getState().setMemories(e as any);
+          break;
+        case "instruction:list":
+          useMemoryStore.getState().setInstructions(e as any);
+          break;
+        case "memory:config":
+          useMemoryStore.getState().setConfig(e as any);
+          break;
       }
     });
     return off;
@@ -78,10 +90,11 @@ export function App() {
 
   // 派生 view
   useEffect(() => {
+    if (view === "memory") return; // 手动切到记忆页时不自动覆盖
     if (projects.length === 0) setView("empty");
     else if (currentSessionId) setView("session");
     else setView("new-session");
-  }, [projects.length, currentSessionId]);
+  }, [projects.length, currentSessionId, view]);
 
   return (
     <div className="flex h-screen bg-canvas">
@@ -92,6 +105,7 @@ export function App() {
         onNewSessionInProject={(pid) => { useProjectsStore.getState().selectProject(pid); useProjectsStore.getState().setCurrentSessionId(null); setView("new-session"); }}
         onSelectProject={(pid) => { useProjectsStore.getState().selectProject(pid); useProjectsStore.getState().setCurrentSessionId(null); setView("new-session"); }}
         onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }}
+        onOpenMemory={() => setView("memory")}
         currentView={view}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
@@ -109,6 +123,7 @@ export function App() {
             <Canvas />
           </div>
         )}
+        {view === "memory" && <MemoryPage />}
       </main>
       {configAgent && <AgentConfig agentName={configAgent} onClose={() => setConfigAgent(null)} />}
       {useProjectsStore(s => s.dirPickerOpen) && (
