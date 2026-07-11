@@ -214,6 +214,10 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
   treeItemsRef.current = treeItems;
   const showHiddenRef = useRef(showHidden);
   showHiddenRef.current = showHidden;
+  const selectedPathRef = useRef(selectedPath);
+  selectedPathRef.current = selectedPath;
+  // 记录已自动展开的搜索结果节点：增量更新时只展开新出现的，不重展开用户已折叠的
+  const autoExpandedRef = useRef<Set<TreeItemIndex>>(new Set());
   const rootsRef = useRef<string[]>([]);
 
   // 加载根节点 + 预加载 home 路径 + 批量展开
@@ -389,13 +393,18 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
       return;
     }
 
+    // 新搜索：重置自动展开记录，让新结果可被自动展开
+    autoExpandedRef.current = new Set();
+
+    // 搜索范围限定到当前选中文件夹的子树（无选中时退化为所有盘符根）
+    const searchRoots = selectedPathRef.current ? [selectedPathRef.current] : rootsRef.current;
+
     setSearchLoading(true);
     const allMatches = new Map<string, SearchMatch>();
     const rebuild = () => {
-      const roots = rootsRef.current;
       const matches = Array.from(allMatches.values());
       const filtered = showFiles ? matches : matches.filter((m) => m.isDir);
-      setSearchTreeItems(buildSearchTree(filtered, roots));
+      setSearchTreeItems(buildSearchTree(filtered, searchRoots));
     };
 
     let cleanup: (() => void) | null = null;
@@ -403,7 +412,7 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
       cleanup = searchFilesStream(
         query,
         {
-          roots: rootsRef.current,
+          roots: searchRoots,
           maxResults: showFiles ? 50 : 200,
           showHidden: showHiddenRef.current,
           onlyDirs: !showFiles,
@@ -428,13 +437,16 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
     };
   }, [searchQuery, showFiles]);
 
-  // 搜索结果出现时，把有子节点的节点合并到 expandedItems 中（允许用户后续折叠）
+  // 搜索结果出现时，把有子节点的节点合并到 expandedItems 中（允许用户后续折叠）。
+  // 仅展开「首次出现」的可展开节点：增量更新时已被自动展开过的节点不重展开，
+  // 避免用户折叠后被下一批结果重置。
   useEffect(() => {
     if (!searchTreeItems) return;
     const needExpand: TreeItemIndex[] = [];
     for (const [id, item] of Object.entries(searchTreeItems)) {
-      if (item.children && item.children.length > 0 && item.isFolder) {
+      if (item.children && item.children.length > 0 && item.isFolder && !autoExpandedRef.current.has(id)) {
         needExpand.push(id);
+        autoExpandedRef.current.add(id);
       }
     }
     if (needExpand.length === 0) return;
