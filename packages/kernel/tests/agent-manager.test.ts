@@ -396,7 +396,7 @@ test("abort 先清空队列、再 abort、最后恢复 followUp，避免 abort �
   expect(fakeSession.steer).not.toHaveBeenCalled();
 });
 
-test("promoteToSteer — abort → clearQueue → 剩余重入 followUp → prompt", async () => {
+test("promoteToSteer 把目标消息从 followUp 移到 steering，不打断当前 agent", async () => {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({
@@ -409,15 +409,51 @@ test("promoteToSteer — abort → clearQueue → 剩余重入 followUp → prom
   });
   await am.ensureStarted(project.id, "dev", session.id);
 
-  await am.promoteToSteer(session.id, "引导消息", ["剩余A", "剩余B"]);
+  (fakeSession.clearQueue as any).mockReturnValue({
+    steering: ["已有引导"],
+    followUp: ["目标", "剩余A", "剩余B"],
+  });
 
-  expect(fakeSession.abort).toHaveBeenCalledTimes(1);
-  expect(fakeSession.clearQueue).toHaveBeenCalledTimes(1);
-  // 剩余消息用 session.followUp 入队（SDK API: followUp(text)）
+  await am.promoteToSteer(session.id, "目标", ["剩余A", "剩余B"]);
+
+  // 引导不应该 abort / prompt，只是把消息移到 steering 队列
+  expect(fakeSession.abort).not.toHaveBeenCalled();
+  expect(fakeSession.prompt).not.toHaveBeenCalled();
+  // 原有 steering 保留，目标追加到 steering
+  expect(fakeSession.steer).toHaveBeenCalledWith("已有引导");
+  expect(fakeSession.steer).toHaveBeenCalledWith("目标");
+  // 剩余消息按前端传入的 remainingTexts 恢复为 followUp
   expect(fakeSession.followUp).toHaveBeenCalledWith("剩余A");
   expect(fakeSession.followUp).toHaveBeenCalledWith("剩余B");
-  // 目标消息直接 prompt
-  expect(fakeSession.prompt).toHaveBeenCalledWith("引导消息");
+});
+
+test("immediate 先清空队列再 abort，避免 abort 时 agent core 自动 drain 队列消息", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const order: string[] = [];
+  (fakeSession.clearQueue as any).mockImplementation(() => {
+    order.push("clearQueue");
+    return { steering: [], followUp: ["排队A", "排队B"] };
+  });
+  (fakeSession.abort as any).mockImplementation(async () => {
+    order.push("abort");
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  await am.immediate(session.id, "立即执行", ["剩余A", "剩余B"]);
+
+  // 必须先清空队列再 abort，否则 agent core 会在 abort 过程中 drain 队列，
+  // 导致排队消息被自动发送、队列状态乱掉。
+  expect(order).toEqual(["clearQueue", "abort"]);
 });
 
 test("immediate — abort → clearQueue → 剩余重入 followUp → 目标消息以 steer 模式 prompt", async () => {
