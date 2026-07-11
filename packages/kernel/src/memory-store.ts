@@ -8,6 +8,7 @@
 // - 与 pi-hermes-memory 之间无 API 调用，只通过文件系统通信
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import type {
   MemoryEntry, ArchivedMemory, InstructionFile, MemoryConfig,
@@ -204,9 +205,77 @@ export class MemoryStore {
     const archived = await this.loadArchive();
     await this.saveArchive(archived.filter(a => a.id !== id));
   }
-  async listInstructions(_projectId: string): Promise<InstructionFile[]> { return []; }
-  async getConfig(): Promise<MemoryConfig> { return { reviewEnabled: true, memoryPolicyStyle: "full" }; }
-  async setConfig(_opts: Partial<MemoryConfig>): Promise<void> {}
+  /** 扫描已加载的指令文件（全局 + 项目） */
+  async listInstructions(projectId: string): Promise<InstructionFile[]> {
+    const result: InstructionFile[] = [];
+    const candidates = ["AGENTS.md", "CLAUDE.md"];
+
+    // 全局：~/.hiagent/AGENTS.md 或 CLAUDE.md（取第一个命中）
+    for (const name of candidates) {
+      const p = join(this.opts.hiagentDir, name);
+      if (existsSync(p)) {
+        result.push({
+          path: p, name, scope: "global",
+          content: await readFile(p, "utf8"),
+        });
+        break;
+      }
+    }
+
+    // 项目级：cwd 下的 AGENTS.md 或 CLAUDE.md
+    const cwd = await this.getProjectCwd(projectId);
+    if (cwd) {
+      for (const name of candidates) {
+        const p = join(cwd, name);
+        if (existsSync(p)) {
+          result.push({
+            path: p, name, scope: "project",
+            content: await readFile(p, "utf8"),
+          });
+          break;
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /** 按 projectId 从 ProjectStore 查 cwd */
+  private async getProjectCwd(projectId: string): Promise<string | null> {
+    const { projects } = await this.opts.projectStore.load();
+    return projects.find(p => p.id === projectId)?.cwd ?? null;
+  }
+  /** 读记忆配置开关 */
+  async getConfig(): Promise<MemoryConfig> {
+    try {
+      const raw = await readFile(join(this.opts.hiagentDir, HERMES_CONFIG_FILE), "utf8");
+      const data = JSON.parse(raw);
+      return {
+        reviewEnabled: data.reviewEnabled ?? true,
+        memoryPolicyStyle: data.memoryPolicyStyle ?? "full",
+      };
+    } catch {
+      return { reviewEnabled: true, memoryPolicyStyle: "full" };
+    }
+  }
+
+  /** 写记忆配置开关（合并写入，不覆盖其他字段） */
+  async setConfig(opts: {
+    reviewEnabled?: boolean;
+    memoryPolicyStyle?: "full" | "compact" | "none";
+  }): Promise<void> {
+    const configPath = join(this.opts.hiagentDir, HERMES_CONFIG_FILE);
+    let existing: Record<string, unknown> = {};
+    try {
+      existing = JSON.parse(await readFile(configPath, "utf8"));
+    } catch {
+      // 文件不存在，从空开始
+    }
+    if (opts.reviewEnabled !== undefined) existing.reviewEnabled = opts.reviewEnabled;
+    if (opts.memoryPolicyStyle !== undefined) existing.memoryPolicyStyle = opts.memoryPolicyStyle;
+    await mkdir(this.opts.hiagentDir, { recursive: true });
+    await writeFile(configPath, JSON.stringify(existing, null, 2), "utf8");
+  }
 
   // —— 辅助方法 ——
 
@@ -260,7 +329,4 @@ export class MemoryStore {
       "utf8",
     );
   }
-
-  // 引用 HERMES_CONFIG_FILE，避免未使用告警（setConfig/getConfig 在后续 task 实现）
-  protected readonly _configFile = HERMES_CONFIG_FILE;
 }

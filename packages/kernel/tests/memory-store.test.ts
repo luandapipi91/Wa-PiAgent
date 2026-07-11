@@ -143,3 +143,131 @@ test("purge 从 sidecar 彻底删除，不写回文件", async () => {
   const { archived } = await store.list();
   expect(archived).toEqual([]);
 });
+
+// ===== Task 4: listInstructions =====
+
+test("listInstructions 扫描全局 + 项目级 AGENTS.md", async () => {
+  // 全局：hiagentDir 下的 AGENTS.md
+  await writeFile(join(tmpDir, "AGENTS.md"), "全局指令内容", "utf8");
+  // 项目级：项目 cwd 下的 AGENTS.md
+  const projectCwd = join(tmpDir, "fake-project");
+  await mkdir(projectCwd, { recursive: true });
+  await writeFile(join(projectCwd, "AGENTS.md"), "项目指令内容", "utf8");
+
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
+  const instructions = await store.listInstructions("p1");
+
+  expect(instructions).toHaveLength(2);
+  const globalInst = instructions.find(i => i.scope === "global");
+  const projectInst = instructions.find(i => i.scope === "project");
+  expect(globalInst).toBeTruthy();
+  expect(globalInst!.name).toBe("AGENTS.md");
+  expect(projectInst).toBeTruthy();
+  expect(projectInst!.content).toBe("项目指令内容");
+});
+
+test("listInstructions CLAUDE.md 作为备选指令文件", async () => {
+  // 只有 CLAUDE.md 没有 AGENTS.md
+  await writeFile(join(tmpDir, "CLAUDE.md"), "全局 CLAUDE", "utf8");
+  const projectCwd = join(tmpDir, "fake-project");
+  await mkdir(projectCwd, { recursive: true });
+  await writeFile(join(projectCwd, "CLAUDE.md"), "项目 CLAUDE", "utf8");
+
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
+  const instructions = await store.listInstructions("p1");
+
+  expect(instructions).toHaveLength(2);
+  expect(instructions.every(i => i.name === "CLAUDE.md")).toBe(true);
+});
+
+test("listInstructions AGENTS.md 优先于 CLAUDE.md", async () => {
+  // 两个都存在，只取 AGENTS.md
+  await writeFile(join(tmpDir, "AGENTS.md"), "全局 AGENTS", "utf8");
+  await writeFile(join(tmpDir, "CLAUDE.md"), "全局 CLAUDE", "utf8");
+
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const instructions = await store.listInstructions("p1");
+
+  const globalInst = instructions.find(i => i.scope === "global");
+  expect(globalInst!.name).toBe("AGENTS.md");
+  expect(globalInst!.content).toBe("全局 AGENTS");
+});
+
+test("listInstructions 文件不存在时返回空数组", async () => {
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const instructions = await store.listInstructions("p1");
+  expect(instructions).toEqual([]);
+});
+
+test("listInstructions projectId 不存在时只返回全局", async () => {
+  await writeFile(join(tmpDir, "AGENTS.md"), "全局指令", "utf8");
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const instructions = await store.listInstructions("nonexistent-id");
+  expect(instructions).toHaveLength(1);
+  expect(instructions[0].scope).toBe("global");
+});
+
+// ===== Task 4: getConfig / setConfig =====
+
+const HERMES_CONFIG_FILE = "hermes-memory-config.json";
+
+test("getConfig 文件不存在时返回默认值", async () => {
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const config = await store.getConfig();
+  expect(config.reviewEnabled).toBe(true);
+  expect(config.memoryPolicyStyle).toBe("full");
+});
+
+test("getConfig 读取已有配置文件", async () => {
+  await writeFile(
+    join(tmpDir, HERMES_CONFIG_FILE),
+    JSON.stringify({ reviewEnabled: false, memoryPolicyStyle: "compact" }),
+    "utf8",
+  );
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const config = await store.getConfig();
+  expect(config.reviewEnabled).toBe(false);
+  expect(config.memoryPolicyStyle).toBe("compact");
+});
+
+test("getConfig 配置文件缺失字段时用默认值补齐", async () => {
+  await writeFile(
+    join(tmpDir, HERMES_CONFIG_FILE),
+    JSON.stringify({ reviewEnabled: false }),
+    "utf8",
+  );
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const config = await store.getConfig();
+  expect(config.reviewEnabled).toBe(false);
+  expect(config.memoryPolicyStyle).toBe("full"); // 缺失字段用默认值
+});
+
+test("setConfig 写入后 getConfig 读回新值", async () => {
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  await store.setConfig({ reviewEnabled: false, memoryPolicyStyle: "none" });
+  const config = await store.getConfig();
+  expect(config.reviewEnabled).toBe(false);
+  expect(config.memoryPolicyStyle).toBe("none");
+});
+
+test("setConfig 保留已有配置项不覆盖", async () => {
+  // 先写入一个有其他字段的配置
+  await writeFile(
+    join(tmpDir, HERMES_CONFIG_FILE),
+    JSON.stringify({
+      reviewEnabled: true,
+      memoryPolicyStyle: "full",
+      nudgeInterval: 5,
+      autoConsolidate: true,
+    }),
+    "utf8",
+  );
+
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  await store.setConfig({ reviewEnabled: false });
+
+  const raw = JSON.parse(await readFile(join(tmpDir, HERMES_CONFIG_FILE), "utf8"));
+  expect(raw.reviewEnabled).toBe(false);
+  expect(raw.nudgeInterval).toBe(5); // 其他字段保留
+  expect(raw.autoConsolidate).toBe(true);
+});
