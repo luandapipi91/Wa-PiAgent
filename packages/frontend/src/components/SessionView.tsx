@@ -16,16 +16,9 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
   const queue = useSessionStore(s => s.queueBySession[sessionId]);
   const status = useSessionStore(s => s.statusBySession[sessionId] ?? "idle");
 
-  // 执行计时器：按会话独立的 thinkingSince 计算已思考时长，切会话不会重置/沿用。
+  // 思考起算时间（按会话独立，切会话不重置/不沿用）。每秒计时交给 <ThinkingTimer> 独立持有，
+  // 避免每秒 setElapsed 重渲染整个 SessionView（含 MessageList 的 markdown）造成计时卡顿。
   const thinkingSince = useSessionStore(s => s.thinkingSinceBySession[sessionId] ?? null);
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (thinkingSince == null) { setElapsed(0); return; }
-    const tick = () => setElapsed(Math.floor((Date.now() - thinkingSince) / 1000));
-    tick();
-    const timer = setInterval(tick, 1000);
-    return () => clearInterval(timer);
-  }, [thinkingSince]);
 
   useEffect(() => {
     send({ type: "session:messages", sessionId });
@@ -85,7 +78,7 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
             <div className="flex items-center mb-1">
               <span className="flex items-center gap-2 text-[12.5px] text-secondary flex-1">
                 <span className="inline-block w-3.5 h-3.5 rounded-full" style={{ border: "2px solid var(--accent-soft)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
-                思考中 · {elapsed}s
+                思考中 · <ThinkingTimer thinkingSince={thinkingSince} />s
               </span>
               <div className="flex items-center gap-2">
                 <button onClick={handleStop} className="px-2.5 py-0.5 rounded-pill text-[11.5px] font-semibold bg-danger-soft text-danger border-0 cursor-pointer" data-testid="btn-stop">
@@ -154,4 +147,21 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
       <Composer sessionId={sessionId} agentName={session.primaryAgent} isRunning={status === "thinking"} />
     </div>
   );
+}
+
+/**
+ * 独立的思考计时器：把「每秒 setElapsed」的重渲染隔离在本组件内，
+ * 不向上冒泡到 SessionView（进而避免连带重渲染 MessageList 的 markdown）造成计时卡顿。
+ * elapsed 始终按真实时间 thinkingSince 推算，切会话/重渲染均准确。
+ */
+function ThinkingTimer({ thinkingSince }: { thinkingSince: number | null }) {
+  const [elapsed, setElapsed] = useState(() => thinkingSince == null ? 0 : Math.floor((Date.now() - thinkingSince) / 1000));
+  useEffect(() => {
+    if (thinkingSince == null) { setElapsed(0); return; }
+    const tick = () => setElapsed(Math.floor((Date.now() - thinkingSince) / 1000));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [thinkingSince]);
+  return <>{elapsed}</>;
 }
