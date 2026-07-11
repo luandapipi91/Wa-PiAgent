@@ -6,6 +6,7 @@ import {
   getGlobalMemoryStore,
   getProjectMemoryStore,
   projectNameFromCwd,
+  createMemoryTools,
 } from "../src/amaster-memory";
 
 let tmpDir: string;
@@ -113,6 +114,32 @@ test("amaster 持久化为 § 分隔格式，可被外部按 § 解析", async (
   const raw = readFileSync(join(tmpDir, "memories", "global", "MEMORY.md"), "utf8");
   expect(raw).toContain("§");
   expect(raw.split("§").length).toBeGreaterThanOrEqual(2);
+});
+
+test("snapshotAll 合并 memory + user 快照", async () => {
+  const store = getGlobalMemoryStore(tmpDir);
+  await store.add("memory", "记忆条目");
+  await store.add("user", "用户条目");
+
+  const all = await store.snapshotAll();
+  expect(all).toContain("记忆条目");
+  expect(all).toContain("用户条目");
+});
+
+test("snapshotAll 无内容时返回空串", async () => {
+  const store = getGlobalMemoryStore(tmpDir);
+  expect(await store.snapshotAll()).toBe("");
+});
+
+test("raw 暴露底层 MemoryStore 供 createMemoryTools 使用", async () => {
+  const store = getGlobalMemoryStore(tmpDir);
+  expect(store.raw).toBeTruthy();
+  expect(typeof store.raw.add).toBe("function");
+
+  // createMemoryTools 绑定 raw 后返回 4 个 tool
+  const tools = createMemoryTools(store.raw);
+  const names = tools.map((t: any) => t.name);
+  expect(names).toEqual(expect.arrayContaining(["memory_add", "memory_replace", "memory_remove", "memory_read"]));
 });
 
 test("projectNameFromCwd 处理 Windows 反斜杠与尾部分隔符", () => {

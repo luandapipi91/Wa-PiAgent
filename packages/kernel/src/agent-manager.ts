@@ -18,9 +18,11 @@ import type { ProviderStore } from "./provider-store";
 import type {
   AgentSession,
   AgentSessionEvent,
+  ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { relative, isAbsolute } from "node:path";
 import { buildAdditionalExtensionPaths } from "./extensions";
+import { createMemoryTools, getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import type { SkillManager } from "./skill-manager";
 
 // 可注入的 createAgentSession 签名（与 SDK 的 createAgentSession 对齐，但用 any 避免 SDK 类型穿透）
@@ -33,6 +35,8 @@ type CreateAgentSessionFn = (opts: {
   model?: any;
   thinkingLevel?: string;
   tools?: string[];
+  // host-controlled 记忆工具（memory_add/replace/remove/read），绑定当前项目 store
+  customTools?: ToolDefinition[];
   authStorage: any;
   modelRegistry: any;
 }) => Promise<{ session: AgentSession }>;
@@ -241,6 +245,18 @@ export class AgentManager {
     // additionalSkillPaths 构造时固定，skill 配置变更后需重建会话才能刷新（见 _reloadIfDirty）。
     const additionalSkillPaths = await resolveEnabledSkillPaths(this.opts.skillManager);
 
+    // host-controlled 记忆：预取全局+项目记忆快照注入系统提示词（systemPromptOverride 是同步的，
+    // 必须在构造 loader 前异步算好再闭包捕获）。记忆读取失败不应阻塞会话创建，降级为空快照。
+    const memorySnapshot = await buildMemorySnapshot(HIAGENT_DIR, project.cwd).catch(
+      (err) => {
+        console.error(`[kernel] 读取记忆快照失败，跳过注入:`, err);
+        return "";
+      },
+    );
+    // agent 记忆工具绑定到当前项目 store（memory_add/replace/remove/read）；
+    // 全局记忆只作为只读上下文注入提示词，不由 agent 写入。
+    const memoryCustomTools = createMemoryTools(getProjectMemoryStore(HIAGENT_DIR, project.cwd).raw);
+
     // AgentConfig → SDK ResourceLoader 选项映射
     // - systemPromptMode === "replace"：整体覆盖系统提示词
     // - systemPromptMode === "append"：在默认 agentsFiles 后追加虚拟文件
@@ -253,10 +269,14 @@ export class AgentManager {
       // 默认 replace 模式：始终提供 customPrompt，绕过 SDK 默认提示词
       // （"operating inside pi" + "Pi documentation" 段，会把底层暴露给 agent）。
       // 显式 replace 配置优先用用户 body；其余（含无配置）一律用 hiagent 默认提示词。
-      systemPromptOverride: () =>
-        config?.systemPromptMode === "append" && config.systemPromptBody
-          ? config.systemPromptBody!
-          : HIAGENT_DEFAULT_SYSTEM_PROMPT,
+      // 记忆快照（已 promptware 清洗）追加到提示词末尾，无内容则不加。
+      systemPromptOverride: () => {
+        const base =
+          config?.systemPromptMode === "append" && config.systemPromptBody
+            ? config.systemPromptBody!
+            : HIAGENT_DEFAULT_SYSTEM_PROMPT;
+        return memorySnapshot ? `${base}\n\n${memorySnapshot}` : base;
+      },
       agentsFilesOverride:
         config?.systemPromptMode === "append" && config.systemPromptBody
           ? (current: {
@@ -285,6 +305,8 @@ export class AgentManager {
       thinkingLevel: config?.thinking ?? "medium",
       // 无显式 tools 时用默认工具集（含 Pi 内置 + pi-web-access 网络工具）
       tools: config?.tools?.length ? config.tools : DEFAULT_AGENT_TOOLS,
+      // 记忆工具（host-controlled，绑定项目 store）
+      customTools: memoryCustomTools,
       authStorage,
       modelRegistry,
     });
@@ -292,9 +314,8 @@ export class AgentManager {
     // 设置 pi-intercom 会话名（对齐原 RPC --name 参数，格式：projectId-agentName-sessionId）
     session.setSessionName(`${projectId}-${agentName}-${sessionId}`);
 
-    // 绑定扩展：触发 session_start，让 pi-hermes-memory 等扩展从磁盘加载持久状态。
-    // 不调用 bindExtensions 时，扩展的工具虽已注册，但初始化逻辑（如 loadFromDisk）
-    // 不会执行，导致 memory add 覆盖而非追加已有记忆。
+    // 绑定扩展：触发 session_start，让 pi-intercom / pi-web-access / pi-lens 等扩展加载持久状态。
+    // 记忆不再走扩展（改由 customTools + 提示词快照），但其余扩展仍需 bindExtensions 初始化。
     // 测试用 mock session 可能没有该方法，加存在性保护。
     if (typeof (session as any).bindExtensions === "function") {
       await (session as any).bindExtensions({});
@@ -618,6 +639,20 @@ async function resolveModel(
     throw new Error(`模型解析失败 (${modelPattern}): ${result.error}`);
   }
   return result.model;
+}
+
+/**
+ * 构造注入系统提示词的记忆快照：全局 memory+user，叠加项目 memory+user。
+ * 返回 amaster 已做 promptware 清洗的冻结快照；无任何记忆时返回空串。
+ * 只读——agent 写记忆走 customTools（绑项目 store），全局记忆由用户经 UI 维护。
+ */
+async function buildMemorySnapshot(hiagentDir: string, projectCwd: string): Promise<string> {
+  const parts: string[] = [];
+  const globalSnap = await getGlobalMemoryStore(hiagentDir).snapshotAll();
+  if (globalSnap) parts.push(globalSnap);
+  const projectSnap = await getProjectMemoryStore(hiagentDir, projectCwd).snapshotAll();
+  if (projectSnap) parts.push(projectSnap);
+  return parts.join("\n\n");
 }
 
 /**
