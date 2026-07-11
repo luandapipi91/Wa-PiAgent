@@ -69,8 +69,8 @@ test("技能列表渲染 + checkbox toggle", () => {
   const toggleMock = mock();
   useSkillsStore.setState({
     allSkills: [
-      { name: "brave-search", description: "web 搜索" },
-      { name: "pdf-tools", description: "PDF 处理" },
+      { name: "brave-search", description: "web 搜索", path: "/skills/brave-search" },
+      { name: "pdf-tools", description: "PDF 处理", path: "/skills/pdf-tools" },
     ],
     disabledSkills: ["pdf-tools"],
     toggleSkill: toggleMock,

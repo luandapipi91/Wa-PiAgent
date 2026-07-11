@@ -104,8 +104,8 @@ test("setAll 更新本地状态", async () => {
   });
   useSkillsStore.getState().setAll({
     type: "skill:list",
-    skills: [{ name: "a", description: "desc" }],
-    allSkills: [{ name: "a", description: "desc" }],
+    skills: [{ name: "a", description: "desc", path: "/skills/a" }],
+    allSkills: [{ name: "a", description: "desc", path: "/skills/a" }],
     dirs: ["/builtin", "/user"],
     disabledSkills: [],
     builtinDir: "/builtin",

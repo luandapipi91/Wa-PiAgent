@@ -73,15 +73,16 @@ function withTimeout<T>(promise: Promise<T>, ms: number, context?: string): Prom
 /**
  * 解析 SKILL.md 的 YAML frontmatter，提取 name 和 description。
  * 格式：`---\nname: xxx\ndescription: yyy\n---`
+ * @param dir 该 SKILL.md 所在目录（即 skill 目录），填入 SkillInfo.path
  */
-function parseSkillFrontmatter(content: string): SkillInfo | null {
+function parseSkillFrontmatter(content: string, dir: string): SkillInfo | null {
   const m = content.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!m) return null;
   const fm = m[1];
   const name = fm.match(/^name:\s*(.+)$/m)?.[1]?.trim();
   const desc = fm.match(/^description:\s*(.+)$/m)?.[1]?.trim();
   if (!name) return null;
-  return { name, description: desc ?? "" };
+  return { name, description: desc ?? "", path: dir };
 }
 
 /**
@@ -123,7 +124,7 @@ async function scanSkillsDir(dir: string): Promise<SkillInfo[]> {
         // 先检查当前目录下是否有 SKILL.md（一技能一目录模式）
         try {
           const content = await readFile(join(fullPath, "SKILL.md"), "utf8");
-          const info = parseSkillFrontmatter(content);
+          const info = parseSkillFrontmatter(content, fullPath);
           if (info) {
             skills.push(info);
             continue; // 找到 SKILL.md 就不递归进入该目录
@@ -160,7 +161,7 @@ async function hasSkillMd(dir: string): Promise<{ found: boolean; inspectedCount
   // 先检查目录本身是否就是技能目录
   try {
     const content = await readFile(join(dir, "SKILL.md"), "utf8");
-    if (parseSkillFrontmatter(content)) {
+    if (parseSkillFrontmatter(content, dir)) {
       return { found: true, inspectedCount: 0 };
     }
   } catch {
@@ -199,7 +200,7 @@ async function hasSkillMd(dir: string): Promise<{ found: boolean; inspectedCount
 
         try {
           const content = await readFile(join(fullPath, "SKILL.md"), "utf8");
-          if (parseSkillFrontmatter(content)) {
+          if (parseSkillFrontmatter(content, fullPath)) {
             found = true;
             break;
           }
