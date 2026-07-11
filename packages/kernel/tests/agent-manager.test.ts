@@ -755,3 +755,22 @@ test("skillManager 为空时 additionalSkillPaths 为空数组（不破坏现有
 
   expect(capturedLoaders[0].additionalSkillPaths).toEqual([]);
 });
+
+test("markSkillsDirty 不走 reload 路径（与 markAllDirty 独立）", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+  (fakeSession.reload as any).mockClear();
+
+  am.markSkillsDirty();                                  // 新方法：标脏但不走 reload
+  await am.ensureStarted(project.id, "dev", session.id); // 命中缓存
+
+  // Task 3 阶段 _reloadIfDirty 还未实现重建分支，skillDirty 命中应既不 reload 也不重建
+  expect(fakeSession.reload).not.toHaveBeenCalled();
+});

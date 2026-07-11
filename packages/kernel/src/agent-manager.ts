@@ -89,6 +89,11 @@ export class AgentManager {
   private disposed = new Set<string>();
   // deferred reload：技能/扩展配置变更后标脏；会话下次命中缓存时 reload 一次并清脏。
   private dirty = new Set<string>();
+  // deferred 重建：skill 配置变更（目录增删 / skill 禁用）后标脏；会话下次命中缓存且 idle 时重建。
+  // 与 dirty（reload 路径，extension toggle 用）分开，因为 additionalSkillPaths 构造时固定，必须重建才能刷新。
+  private skillDirty = new Set<string>();
+  // sessionId → {projectId, agentName}，重建会话时复用（_reloadIfDirty 没有 projectId/agentName 入参）
+  private sessionMeta = new Map<string, { projectId: string; agentName: AgentName }>();
 
   constructor(private opts: AgentManagerOpts) {}
 
@@ -131,6 +136,15 @@ export class AgentManager {
    */
   markAllDirty(): void {
     for (const id of this.sessions.keys()) this.dirty.add(id);
+  }
+
+  /**
+   * 标记当前所有活跃会话为待重建（skill 目录增删 / skill 禁用后调用）。
+   * 不立即重建——各会话在下次被 ensureStarted（切换/使用）且 idle 时各自重建一次。
+   * 与 markAllDirty 区别：走重建而非 reload，因为 additionalSkillPaths 构造时固定。
+   */
+  markSkillsDirty(): void {
+    for (const id of this.sessions.keys()) this.skillDirty.add(id);
   }
 
   /** 命中缓存时：若该会话被标脏，reload 一次并清脏（单会话失败不阻断）。 */
@@ -257,6 +271,7 @@ export class AgentManager {
     this.sessions.set(sessionId, session);
     this.unsubscribers.set(sessionId, unsubscribe);
     this.sessionCwd.set(sessionId, project.cwd);
+    this.sessionMeta.set(sessionId, { projectId, agentName });
 
     return session;
   }
@@ -424,17 +439,26 @@ export class AgentManager {
     return this.sessions.get(sessionId)?.messages ?? [];
   }
 
-  /** 清理单个会话：先解绑事件订阅，再 dispose session，最后从 Map 移除 */
-  async disposeSession(sessionId: string): Promise<void> {
-    // 标记已被 dispose：若创建仍在进行中，_createSession 完成时会据此清理并放弃
-    this.disposed.add(sessionId);
+  /** 拆除单个会话的内部资源（unsubscribe + dispose + 清各 Map），不动 disposed 标记。
+   *  disposeSession（用户删除）与 _reloadIfDirty 重建共用。重建不能动 disposed，
+   *  否则 _createSession 末尾的 disposed 检查会把新 session 当「创建中被清理」丢弃。 */
+  private _teardownSession(sessionId: string): void {
     this.unsubscribers.get(sessionId)?.();
     this.unsubscribers.delete(sessionId);
     this.sessions.get(sessionId)?.dispose();
     this.sessions.delete(sessionId);
     this.sessionCwd.delete(sessionId);
+    this.sessionMeta.delete(sessionId);
     this.jumpQueueLocks.delete(sessionId);
     this.dirty.delete(sessionId);
+    this.skillDirty.delete(sessionId);
+  }
+
+  /** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */
+  async disposeSession(sessionId: string): Promise<void> {
+    // 标记已被 dispose：若创建仍在进行中，_createSession 完成时会据此清理并放弃
+    this.disposed.add(sessionId);
+    this._teardownSession(sessionId);
   }
 
   /** 清理所有会话（进程退出 / 测试 teardown 用） */
