@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   buildAdditionalExtensionPaths,
   migrateSettingsPackages,
+  resolveExtensionEntryFile,
 } from "../src/extensions";
 import { GENERATED_DIR } from "@hiagent/shared";
 
@@ -75,4 +76,11 @@ test("migrateSettingsPackages 无 settings.json 时 no-op（不抛错、不创�
   await expect(migrateSettingsPackages(dir)).resolves.toBeUndefined();
   expect(existsSync(join(dir, "settings.json"))).toBe(false);
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("buildAdditionalExtensionPaths 不含可选插件 pi-lens（由 settings.extensions 驱动）", () => {
+  const paths = buildAdditionalExtensionPaths();
+  // 精确比对 pi-lens 入口路径，避免与本工作区目录名 pi-lens-plugin-menu 的子串误匹配
+  const piLensEntry = resolveExtensionEntryFile("pi-lens");
+  expect(paths.includes(piLensEntry)).toBe(false);
 });
