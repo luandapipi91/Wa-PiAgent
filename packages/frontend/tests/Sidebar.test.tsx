@@ -10,7 +10,7 @@ beforeEach(() => {
 });
 
 test("渲染四区容器 + 新建会话按钮", () => {
-  render(<Sidebar onNewSession={() => {}} onSelectAgent={() => {}} onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={() => {}} />);
+  render(<Sidebar onNewSession={() => {}} onSelectAgent={() => {}} onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={() => {}} onOpenMemory={() => {}} />);
   expect(screen.getByTestId("sidebar")).toBeTruthy();
   expect(screen.getByText(/新建会话/)).toBeTruthy();
   // 分组标题改为大写"智能体"
@@ -21,7 +21,7 @@ test("渲染四区容器 + 新建会话按钮", () => {
 
 test("透传 onNewSession", () => {
   const fn = mock();
-  render(<Sidebar onNewSession={fn} onSelectAgent={() => {}} onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={() => {}} />);
+  render(<Sidebar onNewSession={fn} onSelectAgent={() => {}} onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={() => {}} onOpenMemory={() => {}} />);
   fireEvent.click(screen.getByTestId("new-session-btn"));
   expect(fn).toHaveBeenCalledTimes(1);
 });
