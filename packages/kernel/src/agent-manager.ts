@@ -66,6 +66,8 @@ export class AgentManager {
   private starting = new Map<string, Promise<AgentSession>>();
   // 标记在创建过程中被 dispose 的 sessionId，防止已清理的会话在创建完成后重新泄漏回 Map
   private disposed = new Set<string>();
+  // deferred reload：技能/扩展配置变更后标脏；会话下次命中缓存时 reload 一次并清脏。
+  private dirty = new Set<string>();
 
   constructor(private opts: AgentManagerOpts) {}
 
@@ -79,9 +81,12 @@ export class AgentManager {
     agentName: AgentName,
     sessionId: string,
   ): Promise<AgentSession> {
-    // 命中缓存直接返回（同 session 复用，不重复创建 SDK session）
+    // 命中缓存：deferred reload（若有）后直接返回（同 session 复用，不重复创建）
     const existing = this.sessions.get(sessionId);
-    if (existing) return existing;
+    if (existing) {
+      await this._reloadIfDirty(sessionId, existing);
+      return existing;
+    }
 
     // 同 sessionId 正在创建中则复用创建 Promise
     const inFlight = this.starting.get(sessionId);
@@ -96,6 +101,29 @@ export class AgentManager {
       return await promise;
     } finally {
       this.starting.delete(sessionId);
+    }
+  }
+
+  /**
+   * 标记当前所有活跃会话为待 reload（技能/扩展配置变更后调用）。
+   * 不立即 reload——各会话在下次被 ensureStarted（切换/使用）时各自 reload 一次。
+   */
+  markAllDirty(): void {
+    for (const id of this.sessions.keys()) this.dirty.add(id);
+  }
+
+  /** 命中缓存时：若该会话被标脏，reload 一次并清脏（单会话失败不阻断）。 */
+  private async _reloadIfDirty(sessionId: string, session: AgentSession): Promise<void> {
+    if (!this.dirty.has(sessionId)) return;
+    // 正在流式输出 / 有排队消息时跳过 reload，保留 dirty 等下次 idle 时再试，
+    // 避免在生成过程中热替换工具/系统提示词。
+    if (session.isStreaming || session.pendingMessageCount > 0) return;
+    this.dirty.delete(sessionId);
+    try {
+      // SDK AgentSession.reload() 重读 settings.json（disabledSkills / extensions 等）
+      await (session as any).reload();
+    } catch (err) {
+      console.error(`[kernel] session ${sessionId} deferred reload 失败:`, err);
     }
   }
 
@@ -376,6 +404,7 @@ export class AgentManager {
     this.sessions.delete(sessionId);
     this.sessionCwd.delete(sessionId);
     this.jumpQueueLocks.delete(sessionId);
+    this.dirty.delete(sessionId);
   }
 
   /** 清理所有会话（进程退出 / 测试 teardown 用） */
@@ -383,19 +412,6 @@ export class AgentManager {
     // 复制 keys 避免 disposeSession 修改 Map 时迭代异常
     for (const id of [...this.sessions.keys()]) {
       await this.disposeSession(id);
-    }
-  }
-
-  /** reload 所有活跃会话（技能/provider 配置变更后调用，让新配置热生效） */
-  async reloadAllSessions(): Promise<void> {
-    for (const [id, session] of [...this.sessions.entries()]) {
-      try {
-        // SDK AgentSession.reload() 热重载 skills/extensions/prompts
-        await (session as any).reload();
-      } catch (err) {
-        console.error(`[kernel] session ${id} reload 失败:`, err);
-        // 单个失败不阻断其他会话
-      }
     }
   }
 }

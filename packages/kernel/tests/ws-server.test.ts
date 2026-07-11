@@ -6,6 +6,7 @@ import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
 import { ProviderStore } from "../src/provider-store";
 import { SkillManager } from "../src/skill-manager";
+import { ExtensionManager } from "../src/extension-manager";
 import type { AgentMessage } from "@hiagent/shared";
 import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
 
@@ -45,6 +46,7 @@ function makeMockAgentManager(messages: AgentMessage[] = []) {
       calls.disposeSession.push(sessionId);
     },
     disposeAll: async () => {},
+    markAllDirty: () => {},
   } as any;
   return { agentManager, calls };
 }
@@ -62,6 +64,7 @@ async function withServer<T>(
     configStore, projectStore,
     providerStore,
     skillManager,
+    extensionManager: new ExtensionManager(dataDir, { resolveEntryPath: () => "/fake/pi-lens/dist/index.js", readVersion: () => "0.0.0" }),
     dataDir,
     agentManager,
     port: 0,  // 随机端口，避免冲突
