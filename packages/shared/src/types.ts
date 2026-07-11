@@ -8,6 +8,10 @@ import type {
   SkillListEvent, SkillToggleEvent, SkillDirAddEvent, SkillDirRemoveEvent,
   SkillListResult, SkillChangedEvent,
 } from "./skills";
+import type {
+  ExtensionListEvent, ExtensionToggleEvent,
+  ExtensionListResult, ExtensionChangedEvent,
+} from "./extensions";
 
 export type AgentName = "product" | "pm" | "dev" | "test";
 export type AgentStateKey = `${string}:${AgentName}`;
@@ -242,6 +246,7 @@ export type WSClientEvent =
   | ProjectsListRequest | SessionMessagesRequest
   | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
   | SkillListEvent | SkillToggleEvent | SkillDirAddEvent | SkillDirRemoveEvent
+  | ExtensionListEvent | ExtensionToggleEvent
   | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest | FSUploadRequest | FSCopyRequest | FSSearchRequest | FSSearchCancelRequest;
 
 // kernel → 前端
@@ -325,6 +330,7 @@ export type WSServerEvent =
   | AgentConfigEvent | ErrorEvent
   | ProviderListResult | ProviderTestResult | ProviderChangedEvent
   | SkillListResult | SkillChangedEvent
+  | ExtensionListResult | ExtensionChangedEvent
   | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSCopyResult | FSSearchResult | FSSearchProgressEvent | FSErrorEvent;
 
 export type WSEvent = WSClientEvent | WSServerEvent;
