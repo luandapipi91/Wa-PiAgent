@@ -12,6 +12,11 @@ import type {
   ExtensionListEvent, ExtensionToggleEvent,
   ExtensionListResult, ExtensionChangedEvent,
 } from "./extensions";
+import type {
+  MemoryListEvent, MemoryUpdateEvent, MemoryArchiveEvent, MemoryRestoreEvent,
+  MemoryPurgeEvent, InstructionListEvent, MemoryConfigGetEvent, MemoryConfigSetEvent,
+  MemoryListResult, MemoryChangedEvent, InstructionListResult, MemoryConfigEvent,
+} from "./memory";
 
 export type AgentName = "product" | "pm" | "dev" | "test";
 export type AgentStateKey = `${string}:${AgentName}`;
@@ -247,6 +252,9 @@ export type WSClientEvent =
   | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
   | SkillListEvent | SkillToggleEvent | SkillDirAddEvent | SkillDirRemoveEvent
   | ExtensionListEvent | ExtensionToggleEvent
+  | MemoryListEvent | MemoryUpdateEvent | MemoryArchiveEvent | MemoryRestoreEvent | MemoryPurgeEvent
+  | InstructionListEvent
+  | MemoryConfigGetEvent | MemoryConfigSetEvent
   | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest | FSUploadRequest | FSCopyRequest | FSSearchRequest | FSSearchCancelRequest;
 
 // kernel → 前端
@@ -331,6 +339,8 @@ export type WSServerEvent =
   | ProviderListResult | ProviderTestResult | ProviderChangedEvent
   | SkillListResult | SkillChangedEvent
   | ExtensionListResult | ExtensionChangedEvent
+  | MemoryListResult | MemoryChangedEvent
+  | InstructionListResult | MemoryConfigEvent
   | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSCopyResult | FSSearchResult | FSSearchProgressEvent | FSErrorEvent;
 
 export type WSEvent = WSClientEvent | WSServerEvent;
