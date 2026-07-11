@@ -92,6 +92,7 @@ export function MemoryPage() {
               ))}
             </div>
             <div className="flex-1" />
+            {scopeFilter === "project" && (
             <select
               className="text-[11.5px] px-2.5 py-1 rounded-md"
               style={{
@@ -107,6 +108,7 @@ export function MemoryPage() {
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
+            )}
           </>
         ) : (
           // 记忆筛选
