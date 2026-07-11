@@ -465,10 +465,21 @@ export class AgentManager {
     this.sessions.get(sessionId)?.clearQueue();
   }
 
-  /** 中止当前会话的进行中请求（无 session 时静默忽略，便于幂等清理） */
+  /** 中止当前会话的进行中请求（无 session 时静默忽略，便于幂等清理）。
+   *  先把 followUp 队列取出、abort、idle 后再恢复，避免 abort 后 agent core 自动 drain
+   *  队列继续发送；steering 消息针对当前 run，当前 run 已中止，故不恢复。 */
   async abort(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
-    if (session) await session.abort();
+    if (!session) return;
+
+    const queued = session.clearQueue();
+    try {
+      await session.abort();
+    } finally {
+      for (const msg of queued.followUp) {
+        session.followUp(msg).catch(() => {});
+      }
+    }
   }
 
   /** 读取会话历史消息（session 不存在时返回空数组） */
