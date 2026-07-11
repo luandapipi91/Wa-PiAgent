@@ -92,6 +92,13 @@ export const OPTIONAL_EXTENSIONS: readonly OptionalExtensionDef[] = [
     description: "实时代码反馈：LSP 诊断、lint、类型检查、结构分析",
     defaultEnabled: true,
   },
+  {
+    id: "pi-hermes-memory",
+    package: "pi-hermes-memory",
+    displayName: "记忆",
+    description: "持久化记忆：跨会话记住偏好、纠正和经验",
+    defaultEnabled: true,
+  },
 ];
 
 /**
