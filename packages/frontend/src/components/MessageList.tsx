@@ -55,6 +55,8 @@ export function MessageList({ sessionId }: Props) {
   // stickBottom：用户是否「停在底部」。用户向上翻阅即置 false——此时即便 AI 在回复，
   // 也不抢滚动（不阻碍用户阅读历史）；用户回到底部或点浮动按钮再置 true。
   const [stickBottom, setStickBottom] = useState(true);
+  // 记录已为其执行过「进入即滚到底」的会话，避免同会话内重复滚动。
+  const didInitScrollRef = useRef<string | null>(null);
 
   const isNearBottom = useCallback(() => {
     const el = containerRef.current;
@@ -77,11 +79,19 @@ export function MessageList({ sessionId }: Props) {
     if (streaming && stickBottom) scrollToBottom();
   }, [streaming, stickBottom, scrollToBottom]);
 
-  // 非 streaming 的消息变化（定稿/错误/重发）后重算 stickBottom，让浮动按钮可见性准确。
-  // 只更新标记、不滚动，不影响用户位置。
+  // 切换会话：重置停留状态为新会话「在底部」。
   useEffect(() => {
-    setStickBottom(isNearBottom());
-  }, [messages, isNearBottom]);
+    setStickBottom(true);
+  }, [sessionId]);
+
+  // 进入会话（含切换）：消息加载后一次性滚到底显示最新回复；同会话后续消息变化不再自动滚。
+  // 这不属于「平时抢滚动」——仅在每个会话首次进入时触发一次。
+  useEffect(() => {
+    if (sessionId && messages.length > 0 && didInitScrollRef.current !== sessionId) {
+      didInitScrollRef.current = sessionId;
+      scrollToBottom();
+    }
+  }, [sessionId, messages, scrollToBottom]);
 
   const handleScrollToBottom = useCallback(() => {
     scrollToBottom();

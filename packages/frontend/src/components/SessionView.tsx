@@ -16,17 +16,16 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
   const queue = useSessionStore(s => s.queueBySession[sessionId]);
   const status = useSessionStore(s => s.statusBySession[sessionId] ?? "idle");
 
-  // 执行计时器：agent_start 启动，agent_end 停止
+  // 执行计时器：按会话独立的 thinkingSince 计算已思考时长，切会话不会重置/沿用。
+  const thinkingSince = useSessionStore(s => s.thinkingSinceBySession[sessionId] ?? null);
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
-    if (status === "thinking") {
-      const start = Date.now() - elapsed * 1000;
-      const timer = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
-      return () => clearInterval(timer);
-    } else {
-      setElapsed(0);
-    }
-  }, [status]);
+    if (thinkingSince == null) { setElapsed(0); return; }
+    const tick = () => setElapsed(Math.floor((Date.now() - thinkingSince) / 1000));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [thinkingSince]);
 
   useEffect(() => {
     send({ type: "session:messages", sessionId });
