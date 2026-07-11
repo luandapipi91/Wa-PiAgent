@@ -44,22 +44,26 @@ export interface MemoryArchiveFile {
 // ===== WS 协议事件（记忆管理）=====
 
 // 前端 → kernel
-export interface MemoryListEvent { type: "memory:list"; }
+export interface MemoryListEvent { type: "memory:list"; projectId: string; }
 export interface MemoryUpdateEvent {
   type: "memory:update";
+  projectId: string;
   entryId: string;
   text: string;
 }
 export interface MemoryArchiveEvent {
   type: "memory:archive";
+  projectId: string;
   entryId: string;
 }
 export interface MemoryRestoreEvent {
   type: "memory:restore";
+  projectId: string;
   entryId: string;
 }
 export interface MemoryPurgeEvent {
   type: "memory:purge";
+  projectId: string;
   entryId: string;
 }
 export interface InstructionListEvent {
