@@ -9,7 +9,7 @@ const session: SessionEntity = {
   title: "测试会话", createdAt: 0, lastActivity: Date.now() - 120000, piSessionFile: "",
 };
 
-beforeEach(() => { useSessionStore.setState({ unreadBySession: {} }); });
+beforeEach(() => { useSessionStore.setState({ unreadBySession: {}, statusBySession: {} }); });
 
 test("显示 emoji + 标题 + 相对时间", () => {
   render(<table><tbody><SessionRow session={session} selected={false} onSelect={() => {}} /></tbody></table>);
@@ -46,4 +46,20 @@ test("已读会话不显示 new 角标", () => {
   useSessionStore.setState({ unreadBySession: {} });
   render(<SessionRow session={session} selected={false} onSelect={() => {}} />);
   expect(screen.queryByTestId("unread-tag-s1")).toBeNull();
+});
+
+// ── 运行中：右侧时间位替换为 loading，结束后恢复时间 ──
+
+test("会话运行中（thinking）显示 loading、隐藏时间", () => {
+  useSessionStore.setState({ statusBySession: { s1: "thinking" } });
+  render(<SessionRow session={session} selected={false} onSelect={() => {}} />);
+  expect(screen.getByTestId("session-running-s1")).toBeTruthy();
+  expect(screen.queryByText("2m")).toBeNull();
+});
+
+test("会话空闲显示时间、无 loading", () => {
+  useSessionStore.setState({ statusBySession: {} });
+  render(<SessionRow session={session} selected={false} onSelect={() => {}} />);
+  expect(screen.getByText("2m")).toBeTruthy();
+  expect(screen.queryByTestId("session-running-s1")).toBeNull();
 });
