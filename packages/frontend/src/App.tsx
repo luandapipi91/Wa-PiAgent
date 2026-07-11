@@ -18,9 +18,8 @@ import { useMemoryStore } from "./store/memory";
 import { useToastStore } from "./store/toast";
 import { onMessage, getWs } from "./ws-instance";
 import { ToastContainer } from "./components/ui/Toast";
-import { MemoryPage } from "./components/memory/MemoryPage";
 
-export type View = "empty" | "new-session" | "session" | "canvas" | "memory";
+export type View = "empty" | "new-session" | "session" | "canvas";
 
 export function App() {
   // 只订阅渲染所需的最小状态；actions 在回调里用 getState() 取，避免 stale closure
@@ -90,11 +89,10 @@ export function App() {
 
   // 派生 view
   useEffect(() => {
-    if (view === "memory") return; // 手动切到记忆页时不自动覆盖
     if (projects.length === 0) setView("empty");
     else if (currentSessionId) setView("session");
     else setView("new-session");
-  }, [projects.length, currentSessionId, view]);
+  }, [projects.length, currentSessionId]);
 
   return (
     <div className="flex h-screen bg-canvas">
@@ -105,7 +103,6 @@ export function App() {
         onNewSessionInProject={(pid) => { useProjectsStore.getState().selectProject(pid); useProjectsStore.getState().setCurrentSessionId(null); setView("new-session"); }}
         onSelectProject={(pid) => { useProjectsStore.getState().selectProject(pid); useProjectsStore.getState().setCurrentSessionId(null); setView("new-session"); }}
         onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }}
-        onOpenMemory={() => setView("memory")}
         currentView={view}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
@@ -123,7 +120,6 @@ export function App() {
             <Canvas />
           </div>
         )}
-        {view === "memory" && <MemoryPage />}
       </main>
       {configAgent && <AgentConfig agentName={configAgent} onClose={() => setConfigAgent(null)} />}
       {useProjectsStore(s => s.dirPickerOpen) && (

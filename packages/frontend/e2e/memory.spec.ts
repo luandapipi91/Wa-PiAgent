@@ -7,13 +7,20 @@
 // 求值 playwright.config.ts 的 randomUUID()，拿到与 globalSetup 不同的目录。
 import { test, expect } from "@playwright/test";
 
+// 记忆管理现作为「系统设置」面板的一个分区。
+// 此辅助函数打开设置弹窗并切到「记忆」分区。
+async function openMemorySection(page: import("@playwright/test").Page) {
+  await page.goto("/");
+  await page.getByTestId("settings-btn").click();
+  await expect(page.getByTestId("settings-modal")).toBeVisible();
+  await page.getByTestId("settings-nav-memory").click();
+  await expect(page.getByTestId("memory-page")).toBeVisible({ timeout: 5000 });
+}
+
 test.describe.serial("记忆管理", () => {
 
   test("进入记忆页，查看记忆列表", async ({ page }) => {
-    await page.goto("/");
-    // 点击侧边栏「记忆」入口
-    await page.getByTestId("sidebar-memory-btn").click();
-    await expect(page.getByTestId("memory-page")).toBeVisible({ timeout: 5000 });
+    await openMemorySection(page);
 
     // 确认标题与默认「已保存」Tab 存在
     await expect(page.getByTestId("tab-已保存")).toBeVisible();
@@ -23,9 +30,7 @@ test.describe.serial("记忆管理", () => {
   });
 
   test("编辑一条记忆", async ({ page }) => {
-    await page.goto("/");
-    await page.getByTestId("sidebar-memory-btn").click();
-    await expect(page.getByTestId("memory-page")).toBeVisible({ timeout: 5000 });
+    await openMemorySection(page);
     // 等记忆卡片渲染
     await expect(page.locator('[data-testid^="memory-card-"]').first()).toBeVisible({ timeout: 5000 });
 
@@ -42,9 +47,7 @@ test.describe.serial("记忆管理", () => {
   });
 
   test("归档一条记忆 → 切到归档 Tab 查看", async ({ page }) => {
-    await page.goto("/");
-    await page.getByTestId("sidebar-memory-btn").click();
-    await expect(page.getByTestId("memory-page")).toBeVisible({ timeout: 5000 });
+    await openMemorySection(page);
     await expect(page.locator('[data-testid^="memory-card-"]').first()).toBeVisible({ timeout: 5000 });
 
     // 点击第一张卡片的「归档」按钮
@@ -56,9 +59,7 @@ test.describe.serial("记忆管理", () => {
   });
 
   test("切换到指令文件 Tab", async ({ page }) => {
-    await page.goto("/");
-    await page.getByTestId("sidebar-memory-btn").click();
-    await expect(page.getByTestId("memory-page")).toBeVisible({ timeout: 5000 });
+    await openMemorySection(page);
 
     // 切到指令文件 Tab
     await page.getByTestId("tab-指令文件").click();
@@ -72,9 +73,7 @@ test.describe.serial("记忆管理", () => {
   });
 
   test("开关切换 — 自动学习", async ({ page }) => {
-    await page.goto("/");
-    await page.getByTestId("sidebar-memory-btn").click();
-    await expect(page.getByTestId("memory-page")).toBeVisible({ timeout: 5000 });
+    await openMemorySection(page);
 
     // 点击「自动学习」开关（toggle-review label 包裹 ToggleSwitch）
     // 默认 reviewEnabled=true → 内部 toggle 为 toggle-on，点击后变 toggle-off

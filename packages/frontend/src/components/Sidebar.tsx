@@ -13,7 +13,6 @@ interface Props {
   onNewSessionInProject: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
   onNewProject: () => void;
-  onOpenMemory: () => void;
   currentView?: View;
 }
 
@@ -37,14 +36,6 @@ export function Sidebar(props: Props) {
         onNewProject={props.onNewProject}
         currentView={props.currentView}
       />
-      <button
-        onClick={props.onOpenMemory}
-        className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-[13.5px] text-secondary hover:bg-[var(--surface-hover)]"
-        data-testid="sidebar-memory-btn"
-      >
-        <span>🧠</span>
-        <span>记忆</span>
-      </button>
       <SettingsButton onClick={() => useSettingsStore.getState().open()} />
     </aside>
   );
