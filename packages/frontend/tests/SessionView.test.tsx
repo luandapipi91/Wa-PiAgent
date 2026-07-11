@@ -81,6 +81,26 @@ test("会话已有消息时进入不显示历史加载（避免刷新闪烁）",
   });
 });
 
+test("运行中时排队消息隐藏「立即」按钮，保留「引导」按钮", () => {
+  useSessionStore.setState({
+    statusBySession: { s1: "thinking" },
+    queueBySession: { s1: { steering: [], followUp: ["排队消息"] } },
+  });
+  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  expect(screen.getByTestId("btn-promote")).toBeTruthy();
+  expect(screen.queryByTestId("btn-immediate")).toBeNull();
+});
+
+test("空闲时排队消息显示「立即」按钮", () => {
+  useSessionStore.setState({
+    statusBySession: { s1: "idle" },
+    queueBySession: { s1: { steering: [], followUp: ["排队消息"] } },
+  });
+  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  expect(screen.getByTestId("btn-immediate")).toBeTruthy();
+  expect(screen.getByTestId("btn-promote")).toBeTruthy();
+});
+
 test("切换会话后思考计时显示对应会话的已思考时长（不重置、不沿用旧会话）", async () => {
   const now = Date.now();
   useProjectsStore.setState({

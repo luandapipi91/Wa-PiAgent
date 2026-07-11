@@ -131,9 +131,11 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
                       <button onClick={() => handlePromote(msg)} className="text-[11.5px] px-1.5 py-0.5 rounded-pill bg-accent-soft text-accent border-0 cursor-pointer" data-testid="btn-promote">
                         引导
                       </button>
-                      <button onClick={() => handleImmediate(msg)} className="text-[11.5px] px-1.5 py-0.5 rounded-pill bg-success-soft text-success border-0 cursor-pointer" data-testid="btn-immediate">
-                        立即
-                      </button>
+                      {!isRunning && (
+                        <button onClick={() => handleImmediate(msg)} className="text-[11.5px] px-1.5 py-0.5 rounded-pill bg-success-soft text-success border-0 cursor-pointer" data-testid="btn-immediate">
+                          立即
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -143,7 +145,11 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
 
           {/* 提示 */}
           {followUp.length > 0 && (
-            <div className="text-tertiary text-[11.5px] mt-1">💡 引导：下回合立即生效 │ 立即：中断当前并立即执行</div>
+            <div className="text-tertiary text-[11.5px] mt-1">
+              {isRunning
+                ? "💡 引导：下回合立即生效 │ 停止当前后可点击“立即”"
+                : "💡 引导：下回合立即生效 │ 立即：立即执行该消息"}
+            </div>
           )}
         </div>
       )}
