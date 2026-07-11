@@ -9,6 +9,8 @@ import { send } from "../ws-instance";
 type ActiveTab = "saved" | "archived" | "instructions";
 type CategoryFilter = "all" | "memory" | "user" | "failure";
 type ScopeFilter = "all" | "global" | "project";
+/** 记忆页顶部作用域选择：global 全局记忆，project 当前选中项目记忆 */
+type MemoryScope = "global" | "project";
 
 interface MemoryState {
   // 数据
@@ -21,6 +23,8 @@ interface MemoryState {
   activeTab: ActiveTab;
   categoryFilter: CategoryFilter;
   scopeFilter: ScopeFilter;
+  /** 记忆作用域：控制列表过滤与手动添加落点 */
+  memoryScope: MemoryScope;
   searchQuery: string;
   loading: boolean;
 
@@ -34,10 +38,12 @@ interface MemoryState {
   archive: (projectId: string, entryId: string) => void;
   restore: (projectId: string, entryId: string) => void;
   purge: (projectId: string, entryId: string) => void;
+  add: (scope: MemoryScope, text: string, projectId?: string) => void;
   setConfigValue: (opts: Partial<MemoryConfig>) => void;
   setTab: (tab: ActiveTab) => void;
   setCategoryFilter: (f: CategoryFilter) => void;
   setScopeFilter: (f: ScopeFilter) => void;
+  setMemoryScope: (s: MemoryScope) => void;
   setSearchQuery: (q: string) => void;
 }
 
@@ -50,6 +56,7 @@ export const useMemoryStore = create<MemoryState>((set) => ({
   activeTab: "saved",
   categoryFilter: "all",
   scopeFilter: "all",
+  memoryScope: "project",
   searchQuery: "",
   loading: false,
 
@@ -70,9 +77,11 @@ export const useMemoryStore = create<MemoryState>((set) => ({
   archive: (projectId, entryId) => send({ type: "memory:archive", projectId, entryId }),
   restore: (projectId, entryId) => send({ type: "memory:restore", projectId, entryId }),
   purge: (projectId, entryId) => send({ type: "memory:purge", projectId, entryId }),
+  add: (scope, text, projectId) => send({ type: "memory:add", scope, text, projectId }),
   setConfigValue: (opts) => send({ type: "memory:config:set", ...opts }),
   setTab: (tab) => set({ activeTab: tab }),
   setCategoryFilter: (f) => set({ categoryFilter: f }),
   setScopeFilter: (f) => set({ scopeFilter: f }),
+  setMemoryScope: (s) => set({ memoryScope: s }),
   setSearchQuery: (q) => set({ searchQuery: q }),
 }));

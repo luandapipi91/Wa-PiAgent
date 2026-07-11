@@ -9,28 +9,33 @@ import { MemoryEmpty } from "./MemoryEmpty";
 export function MemoryPage() {
   const {
     memories, archived, instructions, config,
-    activeTab, categoryFilter, scopeFilter, searchQuery,
+    activeTab, categoryFilter, scopeFilter, memoryScope, searchQuery,
     load, loadInstructions, setMemories, setInstructions, setConfig,
-    update, archive, restore, purge, setConfigValue,
-    setTab, setCategoryFilter, setScopeFilter, setSearchQuery,
+    update, archive, restore, purge, add, setConfigValue,
+    setTab, setCategoryFilter, setScopeFilter, setMemoryScope, setSearchQuery,
   } = useMemoryStore();
 
   const currentProjectId = useProjectsStore(s => s.currentProjectId);
   const projects = useProjectsStore(s => s.projects);
 
-  // 指令文件 Tab 的项目选择器：默认跟随 currentProjectId，用户可手动切换
+  // 项目选择器：默认跟随 currentProjectId，用户可手动切换（记忆「项目」作用域与指令文件 Tab 共用）
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(currentProjectId);
+  // 手动添加记忆表单
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newMemoryText, setNewMemoryText] = useState("");
+
+  // 当前查看的项目：优先用户手选，回退当前打开项目
+  const activeProjectId = selectedProjectId ?? currentProjectId;
 
   // currentProjectId 变化时同步本地选择
   useEffect(() => {
     setSelectedProjectId(currentProjectId);
   }, [currentProjectId]);
 
+  // 记忆列表随查看项目重新加载（全局记忆包含在任意项目返回里，前端按 memoryScope 过滤）
   useEffect(() => {
-    if (currentProjectId) {
-      load(currentProjectId);
-    }
-  }, [load, currentProjectId]);
+    if (activeProjectId) load(activeProjectId);
+  }, [load, activeProjectId]);
 
   // 切到指令文件 Tab 且已选项目时加载；null → 有值时也触发刷新
   useEffect(() => {
@@ -39,8 +44,9 @@ export function MemoryPage() {
     }
   }, [selectedProjectId, activeTab, loadInstructions]);
 
-  // 筛选后的记忆
+  // 筛选后的记忆：先按作用域（全局/项目）过滤，再按分类与搜索词
   const filteredMemories = memories
+    .filter(m => m.scope === memoryScope)
     .filter(m => categoryFilter === "all" || m.category === categoryFilter)
     .filter(m => !searchQuery || m.text.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -114,25 +120,91 @@ export function MemoryPage() {
             )}
           </>
         ) : (
-          // 记忆筛选
+          // 记忆筛选：作用域选择器 →（项目作用域时）项目选择器 → 搜索 → 分类 → 添加
           <>
+            <select
+              className="text-[11.5px] px-2.5 py-1.5 rounded-md shrink-0"
+              style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
+              value={memoryScope}
+              onChange={e => setMemoryScope(e.target.value as "global" | "project")}
+              data-testid="memory-scope-select"
+            >
+              <option value="global">全局记忆</option>
+              <option value="project">项目记忆</option>
+            </select>
+
+            {memoryScope === "project" && (
+              <select
+                className="text-[11.5px] px-2.5 py-1.5 rounded-md shrink-0"
+                style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
+                value={activeProjectId ?? ""}
+                onChange={e => setSelectedProjectId(e.target.value)}
+                data-testid="memory-project-select"
+              >
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            )}
+
             <input
-              className="flex-1 text-[12px] px-3 py-1.5 rounded-lg"
+              className="flex-1 text-[12px] px-3 py-1.5 rounded-lg min-w-0"
               style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
               placeholder="🔍 搜索记忆..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               data-testid="memory-search"
             />
-            <div className="flex gap-1.5">
+            <div className="flex gap-1.5 shrink-0">
               {(["all", "memory", "user", "failure"] as const).map(f => (
                 <FilterChip key={f} active={categoryFilter === f} onClick={() => setCategoryFilter(f)}
                   label={f === "all" ? "全部" : f === "memory" ? "记忆" : f === "user" ? "用户" : "失败"} />
               ))}
             </div>
+            {activeTab === "saved" && (
+              <button
+                onClick={() => setShowAddForm(v => !v)}
+                className="text-[11px] font-semibold px-3 py-1.5 rounded-md text-white shrink-0"
+                style={{ background: "var(--accent)", border: "none" }}
+                data-testid="memory-add-button"
+              >+ 添加</button>
+            )}
           </>
         )}
       </div>
+
+      {/* 手动添加记忆表单（仅「已保存」Tab 展开时） */}
+      {showAddForm && activeTab === "saved" && (
+        <div className="px-5 py-3" style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}>
+          <textarea
+            className="w-full text-[12px] p-2.5 rounded-lg resize-none"
+            style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)", minHeight: 72 }}
+            placeholder={`输入要保存的${memoryScope === "global" ? "全局" : "项目"}记忆...`}
+            value={newMemoryText}
+            onChange={e => setNewMemoryText(e.target.value)}
+            data-testid="memory-add-textarea"
+          />
+          <div className="flex justify-end gap-2 mt-2">
+            <button
+              onClick={() => { setShowAddForm(false); setNewMemoryText(""); }}
+              className="text-[11px] px-3 py-1 rounded-md"
+              style={{ border: "1px solid var(--hairline)", color: "var(--text-secondary)" }}
+            >取消</button>
+            <button
+              onClick={() => {
+                const text = newMemoryText.trim();
+                if (!text) return;
+                add(memoryScope, text, memoryScope === "project" ? (activeProjectId ?? undefined) : undefined);
+                setNewMemoryText("");
+                setShowAddForm(false);
+              }}
+              className="text-[11px] font-semibold px-3 py-1 rounded-md text-white"
+              style={{ background: "var(--accent)", border: "none" }}
+              data-testid="memory-add-save"
+            >保存</button>
+          </div>
+        </div>
+      )}
 
       {/* 列表内容 */}
       <div className="flex-1 overflow-y-auto px-5 py-3.5">
@@ -142,8 +214,8 @@ export function MemoryPage() {
             : filteredMemories.map(m => (
               <MemoryCard
                 key={m.id} entry={m}
-                onEdit={(text) => currentProjectId && update(currentProjectId, m.id, text)}
-                onArchive={() => currentProjectId && archive(currentProjectId, m.id)}
+                onEdit={(text) => activeProjectId && update(activeProjectId, m.id, text)}
+                onArchive={() => activeProjectId && archive(activeProjectId, m.id)}
               />
             ))
         )}
@@ -153,8 +225,8 @@ export function MemoryPage() {
             : archived.map(m => (
               <MemoryCard
                 key={m.id} entry={m} mode="archived"
-                onRestore={() => currentProjectId && restore(currentProjectId, m.id)}
-                onPurge={() => currentProjectId && purge(currentProjectId, m.id)}
+                onRestore={() => activeProjectId && restore(activeProjectId, m.id)}
+                onPurge={() => activeProjectId && purge(activeProjectId, m.id)}
               />
             ))
         )}
