@@ -173,8 +173,16 @@ export const useSessionStore = create<SessionState>((set) => ({
         break;
       }
       // 流式结束：assistant — 合并到同 turn 的最后一条 assistant 消息
+      // toolResult — 单独成消息，渲染层 preprocess 会按 toolCallId 挂到前一个 assistant
       case "message_end": {
         const msg = event.message as any;
+        if (msg.role === "toolResult") {
+          set(s => {
+            const list = [...(s.messagesBySession[sessionId] ?? []), { message: msg, agentName }];
+            return { messagesBySession: { ...s.messagesBySession, [sessionId]: list } };
+          });
+          break;
+        }
         if (msg.role !== "assistant") break;
         // 失败但无实质内容（空 content / 仅空 text block）：跳过合并，避免渲染「裸头像」行。
         // 该错误的可见表示由 kernel 广播的 {type:"error"} → App.tsx 注入的红色 ⚠️ 横幅承担。
