@@ -37,8 +37,9 @@ export const AGENT_DEFS: Record<AgentName, AgentDef> = {
 export const ALL_AGENT_NAMES: AgentName[] = ["product", "pm", "dev", "test"];
 
 /** Agent 未显式配置 tools 时的默认工具集。
- *  全用 Pi 内置工具：内置 bash/read 已自带输出截断（2000 行 / 50KB，
- *  bash 留尾部、read 留头部），无需第三方压缩扩展。 */
+ *  含 Pi 内置工具、pi-web-access 网络工具，以及 pi-hermes-memory 记忆工具。
+ *  注意：createAgentSession 的 tools 参数会被 SDK 当作 allowlist 使用，
+ *  未列出的扩展注册工具（如 memory）会被过滤掉，因此必须在这里显式放行。 */
 export const DEFAULT_AGENT_TOOLS = [
   "read",
   "bash",
@@ -50,4 +51,7 @@ export const DEFAULT_AGENT_TOOLS = [
   "web_search",
   "fetch_content",
   "get_search_content",
+  "memory",
+  "memory_search",
+  "session_search",
 ];
