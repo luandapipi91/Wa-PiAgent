@@ -3,6 +3,7 @@ import { rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { WSServer } from "../src/ws-server";
 import { SkillManager } from "../src/skill-manager";
+import { ExtensionManager } from "../src/extension-manager";
 import { ProviderStore } from "../src/provider-store";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
@@ -11,14 +12,14 @@ import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
 function tmp(p: string) { return join(import.meta.dir, p + Math.random().toString(36).slice(2)); }
 
 function makeMockAgentManager() {
-  const calls = { reloadAll: 0 };
+  const calls = { reloadAll: 0, markAllDirty: 0 };
   return {
     ensureStarted: async () => ({ messages: [], prompt: async () => {}, abort: async () => {}, dispose: () => {} }),
     prompt: async () => {},
     abort: async () => {},
     disposeSession: async () => {},
     disposeAll: async () => {},
-    reloadAllSessions: async () => { calls.reloadAll++; },
+    markAllDirty: () => { calls.markAllDirty++; },
     calls,
   } as any;
 }
@@ -34,6 +35,7 @@ async function withSkillServer<T>(
     projectStore: new ProjectStore(tmp("ws-proj.json")),
     providerStore: new ProviderStore(join(dataDir, "providers.json")),
     skillManager: new SkillManager(dataDir),
+    extensionManager: new ExtensionManager(dataDir, { resolveEntryPath: () => "/fake/pi-lens/dist/index.js", readVersion: () => "0.0.0" }),
     agentManager: mockAM,
     dataDir,
     port: 0,
@@ -62,7 +64,7 @@ test("skill:list 返回技能列表 + 目录 + builtinDir", async () => {
   });
 });
 
-test("skillDir:add 成功后 reload 被调用 + 广播 changed", async () => {
+test("skillDir:add 成功后 markAllDirty 被调用 + 广播 changed", async () => {
   await withSkillServer(async (send, recv) => {
     const userDir = tmp("user-skills");
     mkdirSync(userDir, { recursive: true });

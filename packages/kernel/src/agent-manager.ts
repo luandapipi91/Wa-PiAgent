@@ -414,19 +414,6 @@ export class AgentManager {
       await this.disposeSession(id);
     }
   }
-
-  /** reload 所有活跃会话（技能/provider 配置变更后调用，让新配置热生效） */
-  async reloadAllSessions(): Promise<void> {
-    for (const [id, session] of [...this.sessions.entries()]) {
-      try {
-        // SDK AgentSession.reload() 热重载 skills/extensions/prompts
-        await (session as any).reload();
-      } catch (err) {
-        console.error(`[kernel] session ${id} reload 失败:`, err);
-        // 单个失败不阻断其他会话
-      }
-    }
-  }
 }
 
 /**

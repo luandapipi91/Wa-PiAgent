@@ -8,6 +8,7 @@ import type { ProjectStore } from "./project-store";
 import type { AgentManager } from "./agent-manager";
 import type { ProviderStore } from "./provider-store";
 import type { SkillManager } from "./skill-manager";
+import type { ExtensionManager } from "./extension-manager";
 import { testProviderConnection } from "./provider-test";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { readdir, readFile, mkdir, writeFile, copyFile, stat } from "node:fs/promises";
@@ -114,6 +115,7 @@ export interface WSServerOpts {
   projectStore: ProjectStore;
   providerStore: ProviderStore;
   skillManager: SkillManager;
+  extensionManager: ExtensionManager;
   agentManager: AgentManager;
   dataDir?: string;
   port?: number;
@@ -491,7 +493,7 @@ export class WSServer {
       case "skill:toggle": {
         await this.opts.skillManager.toggleSkill(event.skillName, event.disabled);
         // reload 所有会话让禁用/启用热生效
-        await this.opts.agentManager.reloadAllSessions();
+        this.opts.agentManager.markAllDirty();
         const result = await this.opts.skillManager.scan();
         this.broadcast({ type: "skill:changed", ...result });
         break;
@@ -499,7 +501,7 @@ export class WSServer {
       case "skillDir:add": {
         try {
           await this.opts.skillManager.addDir(event.path);
-          await this.opts.agentManager.reloadAllSessions();
+          this.opts.agentManager.markAllDirty();
           const result = await this.opts.skillManager.scan();
           this.broadcast({ type: "skill:changed", ...result });
         } catch (err) {
@@ -510,9 +512,30 @@ export class WSServer {
       case "skillDir:remove": {
         try {
           await this.opts.skillManager.removeDir(event.path);
-          await this.opts.agentManager.reloadAllSessions();
+          this.opts.agentManager.markAllDirty();
           const result = await this.opts.skillManager.scan();
           this.broadcast({ type: "skill:changed", ...result });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "extension:list": {
+        try {
+          const { plugins } = await this.opts.extensionManager.list();
+          reply({ type: "extension:list", plugins });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "extension:toggle": {
+        try {
+          await this.opts.extensionManager.toggle(event.id, event.enabled);
+          // deferred：不立即 reload，标脏后各会话下次使用时各自 reload
+          this.opts.agentManager.markAllDirty();
+          const { plugins } = await this.opts.extensionManager.list();
+          this.broadcast({ type: "extension:changed", plugins });
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
         }
