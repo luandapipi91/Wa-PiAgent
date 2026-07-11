@@ -28,7 +28,7 @@ partners:
 ---
 你是一名资深后端工程师。`;
 
-// 预置记忆测试数据：pi-hermes-memory/MEMORY.md（§ 分隔多条）+ USER.md。
+// 预置记忆测试数据：memories/global/MEMORY.md（§ 分隔多条）+ USER.md（amaster memory 目录）。
 // memory.spec.ts 通过文件系统断言列表/编辑/归档；必须在 kernel 启动前写入，
 // 保证 MemoryStore.list() 首次读取就有数据。
 const SEED_MEMORY_MD = "E2E 记忆条目一\n§\nE2E 记忆条目二";
@@ -40,9 +40,9 @@ async function globalSetup() {
   writeFileSync(join(E2E_HIAGENT_DIR, "agents", "dev.md"), DEV_AGENT_MD, "utf8");
 
   // 预置记忆测试数据（memory.spec.ts 依赖）
-  mkdirSync(join(E2E_HIAGENT_DIR, "pi-hermes-memory"), { recursive: true });
-  writeFileSync(join(E2E_HIAGENT_DIR, "pi-hermes-memory", "MEMORY.md"), SEED_MEMORY_MD, "utf8");
-  writeFileSync(join(E2E_HIAGENT_DIR, "pi-hermes-memory", "USER.md"), SEED_USER_MD, "utf8");
+  mkdirSync(join(E2E_HIAGENT_DIR, "memories", "global"), { recursive: true });
+  writeFileSync(join(E2E_HIAGENT_DIR, "memories", "global", "MEMORY.md"), SEED_MEMORY_MD, "utf8");
+  writeFileSync(join(E2E_HIAGENT_DIR, "memories", "global", "USER.md"), SEED_USER_MD, "utf8");
   // 预置全局指令文件（指令文件 Tab 测试依赖）
   writeFileSync(join(E2E_HIAGENT_DIR, "AGENTS.md"), "# 全局指令\n这是 E2E 测试的全局指令文件", "utf8");
 

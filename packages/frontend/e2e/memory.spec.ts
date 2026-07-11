@@ -2,7 +2,7 @@
 //
 // 覆盖 spec 场景：进入记忆页 → 查看列表 → 编辑 → 归档 → 指令文件 Tab → 双开关。
 // 测试数据由 global-setup.ts 在 kernel 启动前预置到隔离 HIAGENT_DIR：
-//   pi-hermes-memory/MEMORY.md（两条 § 分隔记忆）+ USER.md + 全局 AGENTS.md。
+//   memories/global/MEMORY.md（两条 § 分隔记忆）+ USER.md + 全局 AGENTS.md。
 // 注意：不能在测试里直接写 E2E_HIAGENT_DIR —— Playwright worker 进程会重新
 // 求值 playwright.config.ts 的 randomUUID()，拿到与 globalSetup 不同的目录。
 import { test, expect } from "@playwright/test";
@@ -24,14 +24,16 @@ test.describe.serial("记忆管理", () => {
 
     // 确认标题与默认「已保存」Tab 存在
     await expect(page.getByTestId("tab-已保存")).toBeVisible();
-    // 预置的记忆条目渲染出来（MemoryPage 挂载后自动 load → memory:list）
+    // 预置记忆为全局记忆，页面默认「项目」作用域；切到「全局记忆」后应渲染预置条目
+    await page.getByTestId("memory-scope-select").selectOption("global");
     await expect(page.getByText("E2E 记忆条目一").first()).toBeVisible({ timeout: 5000 });
     await expect(page.getByText("E2E 记忆条目二").first()).toBeVisible();
   });
 
   test("编辑一条记忆", async ({ page }) => {
     await openMemorySection(page);
-    // 等记忆卡片渲染
+    // 切到全局记忆（预置数据所在作用域），等记忆卡片渲染
+    await page.getByTestId("memory-scope-select").selectOption("global");
     await expect(page.locator('[data-testid^="memory-card-"]').first()).toBeVisible({ timeout: 5000 });
 
     // 点击第一张卡片的「编辑」按钮
@@ -48,6 +50,7 @@ test.describe.serial("记忆管理", () => {
 
   test("归档一条记忆 → 切到归档 Tab 查看", async ({ page }) => {
     await openMemorySection(page);
+    await page.getByTestId("memory-scope-select").selectOption("global");
     await expect(page.locator('[data-testid^="memory-card-"]').first()).toBeVisible({ timeout: 5000 });
 
     // 点击第一张卡片的「归档」按钮
