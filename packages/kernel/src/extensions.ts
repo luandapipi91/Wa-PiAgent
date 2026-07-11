@@ -88,7 +88,7 @@ export const OPTIONAL_EXTENSIONS: readonly OptionalExtensionDef[] = [
   {
     id: "pi-lens",
     package: "pi-lens",
-    displayName: "Pi Lens",
+    displayName: "LSP 诊断",
     description: "实时代码反馈：LSP 诊断、lint、类型检查、结构分析",
     defaultEnabled: true,
   },
