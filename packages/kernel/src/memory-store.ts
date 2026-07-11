@@ -101,15 +101,129 @@ export class MemoryStore {
   }
 
   // —— CRUD 方法在后续 step 实现 ——
-  async update(_id: string, _text: string): Promise<void> { throw new Error("未实现"); }
-  async archive(_id: string): Promise<void> { throw new Error("未实现"); }
-  async restore(_id: string): Promise<void> { throw new Error("未实现"); }
-  async purge(_id: string): Promise<void> { throw new Error("未实现"); }
+  /** 编辑记忆：按 id 定位 § 段落，原地替换文本 */
+  async update(id: string, text: string): Promise<void> {
+    const sourceFile = await this.resolveSourceFile(id);
+    const rawIndex = this.extractRawIndex(id);
+
+    let content: string;
+    try {
+      content = await readFile(sourceFile, "utf8");
+    } catch {
+      throw new Error("记忆文件不存在，可能已被插件修改");
+    }
+
+    const parts = content.split("§");
+    // 过滤空条目的索引对齐：与 parseMemoryFile 一致
+    const nonEmptyIndices: number[] = [];
+    parts.forEach((p, i) => { if (p.trim().length > 0) nonEmptyIndices.push(i); });
+
+    const partIndex = nonEmptyIndices[rawIndex];
+    if (partIndex === undefined) {
+      throw new Error("条目不存在，可能已被插件修改，请刷新列表");
+    }
+
+    parts[partIndex] = text;
+    await writeFile(sourceFile, parts.join("§"), "utf8");
+  }
+
+  /** 归档（软删除）：从源文件移除 → 写入 sidecar */
+  async archive(id: string): Promise<void> {
+    const sourceFile = await this.resolveSourceFile(id);
+    const rawIndex = this.extractRawIndex(id);
+
+    let content: string;
+    try {
+      content = await readFile(sourceFile, "utf8");
+    } catch {
+      throw new Error("记忆文件不存在");
+    }
+
+    const parts = content.split("§");
+    const nonEmptyIndices: number[] = [];
+    parts.forEach((p, i) => { if (p.trim().length > 0) nonEmptyIndices.push(i); });
+    const partIndex = nonEmptyIndices[rawIndex];
+    if (partIndex === undefined) throw new Error("条目不存在");
+
+    const archivedText = parts[partIndex].trim();
+    parts.splice(partIndex, 1);
+    await writeFile(sourceFile, parts.join("§"), "utf8");
+
+    // 写入 sidecar
+    const archived = await this.loadArchive();
+    const category = this.categoryFromSourceFile(sourceFile);
+    const scope = this.scopeFromSourceFile(sourceFile);
+    archived.push({
+      id,
+      text: archivedText,
+      category,
+      scope,
+      sourceFile,
+      rawIndex,
+      archivedAt: new Date().toISOString(),
+    });
+    await this.saveArchive(archived);
+  }
+
+  /** 从文件路径推断分类 */
+  private categoryFromSourceFile(absPath: string): MemoryCategory {
+    const normalized = absPath.replace(/\\/g, "/");
+    if (normalized.includes("USER.md")) return "user";
+    if (normalized.includes("failures.md")) return "failure";
+    return "memory";
+  }
+
+  /** 从文件路径推断作用域 */
+  private scopeFromSourceFile(absPath: string): MemoryScope {
+    const normalized = absPath.replace(/\\/g, "/");
+    return normalized.includes(`${PROJECTS_MEMORY_DIR}/`) ? "project" : "global";
+  }
+  /** 恢复：从 sidecar 移除 → 追加回源文件末尾 */
+  async restore(id: string): Promise<void> {
+    const archived = await this.loadArchive();
+    const entry = archived.find(a => a.id === id);
+    if (!entry) throw new Error("归档条目不存在");
+
+    // 追加回源文件
+    let content = "";
+    try {
+      content = await readFile(entry.sourceFile, "utf8");
+    } catch {
+      // 文件可能不存在了（被插件清空），从空开始
+    }
+    const trimmed = content.trim();
+    const newContent = trimmed.length > 0 ? `${trimmed}\n§\n${entry.text}` : entry.text;
+    await mkdir(entry.sourceFile.replace(/[/\\][^/\\]+$/, ""), { recursive: true });
+    await writeFile(entry.sourceFile, newContent, "utf8");
+
+    // 从 sidecar 移除
+    await this.saveArchive(archived.filter(a => a.id !== id));
+  }
+  /** 彻底删除：从 sidecar 移除，不写回源文件 */
+  async purge(id: string): Promise<void> {
+    const archived = await this.loadArchive();
+    await this.saveArchive(archived.filter(a => a.id !== id));
+  }
   async listInstructions(_projectId: string): Promise<InstructionFile[]> { return []; }
   async getConfig(): Promise<MemoryConfig> { return { reviewEnabled: true, memoryPolicyStyle: "full" }; }
   async setConfig(_opts: Partial<MemoryConfig>): Promise<void> {}
 
   // —— 辅助方法 ——
+
+  /** 从 id（"相对路径:rawIndex"）提取 rawIndex */
+  private extractRawIndex(id: string): number {
+    const colonIdx = id.lastIndexOf(":");
+    if (colonIdx === -1) throw new Error(`无效的记忆 ID: ${id}`);
+    return parseInt(id.slice(colonIdx + 1), 10);
+  }
+
+  /** 从 id 解析源文件绝对路径 */
+  private async resolveSourceFile(id: string): Promise<string> {
+    const colonIdx = id.lastIndexOf(":");
+    const relPath = id.slice(0, colonIdx).replace(/\//g, "/");
+    // 尝试拼接 hiagentDir（全局或 projects-memory 下的路径都相对于 hiagentDir）
+    return join(this.opts.hiagentDir, relPath);
+  }
 
   /** 从 ProjectStore 拿当前项目 cwd */
   private async getCurrentCwd(): Promise<string | null> {
