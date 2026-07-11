@@ -30,6 +30,7 @@ const fakeSession: Partial<AgentSession> = {
   model: { id: "test-model" } as any,
   isStreaming: false,
   pendingMessageCount: 0,
+  isCompacting: false,
   clearQueue: mock(() => ({ steering: [], followUp: [] })),
   followUp: mock(async () => {}),
   steer: mock(async () => {}),
@@ -57,6 +58,7 @@ beforeEach(() => {
   (fakeSession.steer as any).mockClear();
   (fakeSession as any).isStreaming = false;
   (fakeSession as any).pendingMessageCount = 0;
+  (fakeSession as any).isCompacting = false;
   (fakeSession.reload as any).mockClear();
   fakeUnsubscribe.mockClear();
 });
@@ -796,4 +798,115 @@ test("disposeSession 清理 sessionMeta 和 skillDirty", async () => {
   // 清理后内部 Map 不应再包含该 session
   expect((am as any).sessionMeta.has(session.id)).toBe(false);
   expect((am as any).skillDirty.has(session.id)).toBe(false);
+});
+
+// 重建测试用的工厂：每次返回独立 mock session（独立 dispose/subscribe）
+function makeFreshSession() {
+  return {
+    ...fakeSession,
+    prompt: mock(async () => {}),
+    abort: mock(async () => {}),
+    dispose: mock(() => {}),
+    setSessionName: mock(() => {}),
+    setModel: mock(async () => {}),
+    setThinkingLevel: mock(() => {}),
+    subscribe: mock(() => mock(() => {})),
+    clearQueue: mock(() => ({ steering: [], followUp: [] })),
+    followUp: mock(async () => {}),
+    steer: mock(async () => {}),
+    reload: mock(async () => {}),
+    messages: [],
+    model: { id: "test-model" } as any,
+    modelRegistry: fakeModelRegistry as any,
+    isStreaming: false,
+    pendingMessageCount: 0,
+    isCompacting: false,
+  } as any as AgentSession;
+}
+
+test("markSkillsDirty + idle → 重建会话（dispose 旧、创建新、返回新 session）", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const created: AgentSession[] = [];
+  const createFn = mock(async () => {
+    const s = makeFreshSession();
+    created.push(s);
+    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: createFn as any,
+  });
+  const first = await am.ensureStarted(project.id, "dev", session.id);
+  expect(created).toHaveLength(1);
+
+  am.markSkillsDirty();
+  const second = await am.ensureStarted(project.id, "dev", session.id);  // idle → 重建
+
+  expect(created).toHaveLength(2);                       // 重建调了一次 createFn
+  expect(second).toBe(created[1]);                       // 返回新 session
+  expect(second).not.toBe(first);                        // 与旧 session 不同
+  expect((created[0].dispose as any)).toHaveBeenCalledTimes(1);  // 旧 session 被 dispose
+  // 重建后 skillDirty 清除，再次命中不重建
+  await am.ensureStarted(project.id, "dev", session.id);
+  expect(created).toHaveLength(2);
+});
+
+test("markSkillsDirty 后 streaming 时跳过重建，保留 skillDirty（idle 后补重建）", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const created: AgentSession[] = [];
+  const createFn = mock(async () => {
+    const s = makeFreshSession();
+    created.push(s);
+    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: createFn as any,
+  });
+  const first = await am.ensureStarted(project.id, "dev", session.id);
+  (first as any).isStreaming = true;  // 模拟生成中
+
+  am.markSkillsDirty();
+  const r = await am.ensureStarted(project.id, "dev", session.id);  // streaming → 跳过
+  expect(created).toHaveLength(1);
+  expect(r).toBe(first);  // 返回旧 session，未重建
+
+  (first as any).isStreaming = false;  // idle
+  const r2 = await am.ensureStarted(project.id, "dev", session.id);  // 补重建
+  expect(created).toHaveLength(2);
+  expect(r2).toBe(created[1]);
+});
+
+test("markAllDirty 仍走 reload 路径（不被重建逻辑影响）", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const created: AgentSession[] = [];
+  const createFn = mock(async () => {
+    const s = makeFreshSession();
+    created.push(s);
+    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: createFn as any,
+  });
+  const first = await am.ensureStarted(project.id, "dev", session.id);
+  (first.reload as any).mockClear();
+
+  am.markAllDirty();
+  const r = await am.ensureStarted(project.id, "dev", session.id);  // dirty → reload
+  expect(first.reload as any).toHaveBeenCalledTimes(1);
+  expect(r).toBe(first);  // reload 不换 session
+  expect(created).toHaveLength(1);  // 未重建
 });
