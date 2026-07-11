@@ -110,8 +110,8 @@ export class AgentManager {
     // 命中缓存：deferred reload（若有）后直接返回（同 session 复用，不重复创建）
     const existing = this.sessions.get(sessionId);
     if (existing) {
-      await this._reloadIfDirty(sessionId, existing);
-      return existing;
+      // _reloadIfDirty 可能重建会话并返回新 session（skillDirty 路径），用返回值而非旧引用
+      return await this._reloadIfDirty(sessionId, existing);
     }
 
     // 同 sessionId 正在创建中则复用创建 Promise
@@ -147,19 +147,56 @@ export class AgentManager {
     for (const id of this.sessions.keys()) this.skillDirty.add(id);
   }
 
-  /** 命中缓存时：若该会话被标脏，reload 一次并清脏（单会话失败不阻断）。 */
-  private async _reloadIfDirty(sessionId: string, session: AgentSession): Promise<void> {
-    if (!this.dirty.has(sessionId)) return;
-    // 正在流式输出 / 有排队消息时跳过 reload，保留 dirty 等下次 idle 时再试，
-    // 避免在生成过程中热替换工具/系统提示词。
-    if (session.isStreaming || session.pendingMessageCount > 0) return;
-    this.dirty.delete(sessionId);
-    try {
-      // SDK AgentSession.reload() 重读 settings.json（disabledSkills / extensions 等）
-      await (session as any).reload();
-    } catch (err) {
-      console.error(`[kernel] session ${sessionId} deferred reload 失败:`, err);
+  /**
+   * 命中缓存时：按 dirty 来源决定 reload 还是重建，返回当前生效的 session。
+   * - skillDirty（skill 配置变更）→ 重建：additionalSkillPaths 构造时固定，reload 刷不进，必须重建 loader。
+   * - dirty（extension toggle 等 SDK 原生 settings 变更）→ 轻量 reload。
+   * 进行中（streaming / pending / compacting）时一律跳过，保留 dirty 等 idle。
+   */
+  private async _reloadIfDirty(
+    sessionId: string,
+    session: AgentSession,
+  ): Promise<AgentSession> {
+    const isBusy =
+      session.isStreaming ||
+      session.pendingMessageCount > 0 ||
+      (session as any).isCompacting;
+
+    // skill 配置变更 → 重建
+    if (this.skillDirty.has(sessionId)) {
+      if (isBusy) return session;  // 进行中，保留 skillDirty 等 idle
+      this.skillDirty.delete(sessionId);
+      const meta = this.sessionMeta.get(sessionId);
+      if (!meta) {
+        // 无上下文无法重建，降级 reload
+        try { await (session as any).reload(); } catch (err) {
+          console.error(`[kernel] session ${sessionId} 降级 reload 失败:`, err);
+        }
+        return session;
+      }
+      // 重建：拆除旧 session（不动 disposed）+ 重新 _createSession（重开同一 piSessionFile，历史不丢）。
+      // 用 starting 锁防止重建期间并发 ensureStarted 重复创建。
+      this._teardownSession(sessionId);
+      const promise = this._createSession(meta.projectId, meta.agentName, sessionId);
+      this.starting.set(sessionId, promise);
+      try {
+        return await promise;
+      } finally {
+        this.starting.delete(sessionId);
+      }
     }
+
+    // 其它 dirty → 轻量 reload
+    if (this.dirty.has(sessionId)) {
+      if (isBusy) return session;  // 进行中，保留 dirty 等 idle
+      this.dirty.delete(sessionId);
+      try {
+        await (session as any).reload();
+      } catch (err) {
+        console.error(`[kernel] session ${sessionId} deferred reload 失败:`, err);
+      }
+    }
+    return session;
   }
 
   private async _createSession(
