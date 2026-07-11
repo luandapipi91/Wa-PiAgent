@@ -125,7 +125,7 @@ export function ProjectItem(props: Props) {
               props.onSelectProject(project.id);
             }
           }}
-          className="text-sm text-primary flex-1 truncate text-left transition-colors hover:text-brand"
+          className="text-sm text-primary flex-1 min-w-0 truncate text-left transition-colors hover:text-brand"
           data-testid={`project-name-${project.id}`}
           title={project.cwd}
         >{project.name}</button>
