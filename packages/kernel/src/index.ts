@@ -66,6 +66,7 @@ async function main() {
     projectStore,
     configStore,
     providerStore,
+    skillManager,
     onEvent: (sessionId, projectId, agentName, event) => {
       console.log(`[kernel] sdk event: ${(event as any).type}`);
       broadcast({ type: "sdk:event", projectId, sessionId, agentName, event: event as any });

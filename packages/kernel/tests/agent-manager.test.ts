@@ -2,7 +2,9 @@ import { test, describe, it, expect, mock, beforeEach, afterEach } from "bun:tes
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { rmSync } from "node:fs";
+import { rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { SkillManager } from "../src/skill-manager";
 
 // mock createAgentSession 返回 fake AgentSession
 // 测试不依赖真实 SDK 的 createAgentSession（避免子进程 / 网络 / 文件系统副作用）
@@ -658,4 +660,98 @@ test("dirty 会话正在 streaming 时跳过 reload 且保留 dirty（idle 后�
   (fakeSession as any).isStreaming = false;
   await am.ensureStarted(project.id, "dev", session.id);
   expect(fakeSession.reload).toHaveBeenCalledTimes(1);
+});
+
+// 临时 skill 目录（Task 2 测试用）
+function tmpSkillRoot() {
+  const root = `/tmp/hiagent-skill-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  mkdirSync(join(root, "skills"), { recursive: true });  // builtin（空）
+  return root;
+}
+function createSkillAt(dir: string, name: string, desc: string) {
+  mkdirSync(join(dir, name), { recursive: true });
+  writeFileSync(join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: ${desc}\n---\n# ${name}\n`);
+}
+
+test("ensureStarted 把启用 skill 路径作为 additionalSkillPaths 传给 loader", async () => {
+  const skillRoot = tmpSkillRoot();
+  tmpFiles.push(skillRoot);  // 复用现有 afterEach 清理
+  const userDir = join(skillRoot, "user-skills");
+  mkdirSync(userDir, { recursive: true });
+  createSkillAt(userDir, "my-skill", "测试技能");
+  const skillManager = new SkillManager(skillRoot);
+  await skillManager.addDir(userDir);
+
+  const capturedLoaders: any[] = [];
+  const createFn = mock(async (opts: any) => {
+    capturedLoaders.push(opts.resourceLoader);
+    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    skillManager,
+    createAgentSessionFn: createFn as any,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  expect(capturedLoaders).toHaveLength(1);
+  const paths = capturedLoaders[0].additionalSkillPaths as string[];
+  expect(paths.some((p) => p === join(userDir, "my-skill"))).toBe(true);
+});
+
+test("additionalSkillPaths 不含 builtin 来源的 skill（由 SDK 自动扫，避免碰撞）", async () => {
+  const skillRoot = tmpSkillRoot();
+  tmpFiles.push(skillRoot);
+  createSkillAt(join(skillRoot, "skills"), "builtin-skill", "内置");  // builtin
+  const userDir = join(skillRoot, "user-skills");
+  mkdirSync(userDir, { recursive: true });
+  createSkillAt(userDir, "user-skill", "用户");
+  const skillManager = new SkillManager(skillRoot);
+  await skillManager.addDir(userDir);
+
+  const capturedLoaders: any[] = [];
+  const createFn = mock(async (opts: any) => {
+    capturedLoaders.push(opts.resourceLoader);
+    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    skillManager,
+    createAgentSessionFn: createFn as any,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const paths = capturedLoaders[0].additionalSkillPaths as string[];
+  expect(paths.some((p) => p === join(userDir, "user-skill"))).toBe(true);
+  expect(paths.some((p) => p === join(join(skillRoot, "skills"), "builtin-skill"))).toBe(false);
+});
+
+test("skillManager 为空时 additionalSkillPaths 为空数组（不破坏现有无 skillManager 场景）", async () => {
+  const capturedLoaders: any[] = [];
+  const createFn = mock(async (opts: any) => {
+    capturedLoaders.push(opts.resourceLoader);
+    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: createFn as any,
+    // 不传 skillManager
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  expect(capturedLoaders[0].additionalSkillPaths).toEqual([]);
 });
