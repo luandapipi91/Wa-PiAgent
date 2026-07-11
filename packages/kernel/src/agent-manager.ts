@@ -19,8 +19,9 @@ import type {
   AgentSession,
   AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
-import { relative } from "node:path";
+import { relative, isAbsolute } from "node:path";
 import { buildAdditionalExtensionPaths } from "./extensions";
+import type { SkillManager } from "./skill-manager";
 
 // 可注入的 createAgentSession 签名（与 SDK 的 createAgentSession 对齐，但用 any 避免 SDK 类型穿透）
 // 测试用 mock 替换；生产路径走真实 SDK
@@ -49,6 +50,9 @@ export interface AgentManagerOpts {
     agentName: AgentName,
     e: AgentSessionEvent,
   ) => void;
+  // skillManager 可空：测试用 mock createAgentSession 且不关心 skill 时可不传；
+  // 生产注入真实 SkillManager，_createSession 用其 scan() 取启用 skill 路径喂给 SDK loader
+  skillManager?: SkillManager;
   // 测试注入 mock；生产留空 → 走真实 SDK 动态 import
   createAgentSessionFn?: CreateAgentSessionFn;
 }
@@ -181,6 +185,11 @@ export class AgentManager {
     const modelRegistry = ((this as any)._modelRegistry ??=
       sdk.ModelRegistry.create(authStorage));
 
+    // 解析启用 skill 的目录路径，喂给 SDK additionalSkillPaths。
+    // 只含 userSkillDirs 来源的 skill（builtin 由 SDK includeDefaults 自动扫，重复传入会触发碰撞诊断）。
+    // additionalSkillPaths 构造时固定，skill 配置变更后需重建会话才能刷新（见 _reloadIfDirty）。
+    const additionalSkillPaths = await resolveEnabledSkillPaths(this.opts.skillManager);
+
     // AgentConfig → SDK ResourceLoader 选项映射
     // - systemPromptMode === "replace"：整体覆盖系统提示词
     // - systemPromptMode === "append"：在默认 agentsFiles 后追加虚拟文件
@@ -189,6 +198,7 @@ export class AgentManager {
       agentDir: HIAGENT_DIR,
       // 扩展改用 additionalExtensionPaths 纯内存注入（见 extensions.ts）
       additionalExtensionPaths: buildAdditionalExtensionPaths(),
+      additionalSkillPaths,
       // 默认 replace 模式：始终提供 customPrompt，绕过 SDK 默认提示词
       // （"operating inside pi" + "Pi documentation" 段，会把底层暴露给 agent）。
       // 显式 replace 配置优先用用户 body；其余（含无配置）一律用 hiagent 默认提示词。
@@ -498,4 +508,26 @@ async function resolveModel(
     throw new Error(`模型解析失败 (${modelPattern}): ${result.error}`);
   }
   return result.model;
+}
+
+/**
+ * 解析启用 skill 的目录路径列表，供 SDK additionalSkillPaths 使用。
+ * 只含来自 userSkillDirs 的 skill（scan().dirs 中除 builtinDir 外的目录），builtin 留给 SDK 自动扫。
+ * skillManager 为空（测试场景）时返回空数组。
+ */
+async function resolveEnabledSkillPaths(
+  skillManager: SkillManager | undefined,
+): Promise<string[]> {
+  if (!skillManager) return [];
+  const { skills, dirs, builtinDir } = await skillManager.scan();
+  const userDirs = dirs.filter((d) => d !== builtinDir);
+  return skills
+    .filter((s) => userDirs.some((d) => isUnderPath(s.path, d)))
+    .map((s) => s.path);
+}
+
+/** 判断 child 是否在 parent 目录下（含相等）。跨平台用 relative 判定，避免盘符/大小写/分隔符差异。 */
+function isUnderPath(child: string, parent: string): boolean {
+  const rel = relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
