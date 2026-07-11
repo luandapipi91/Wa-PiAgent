@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-07-11
+
+### 新增功能
+- **记忆管理**：集成 pi-hermes-memory 插件，新增记忆管理页（侧边栏「记忆」入口）
+  - 记忆查看/编辑/归档/恢复/彻底删除
+  - 分类筛选（记忆/用户/失败）+ 搜索
+  - 双开关：自动学习 + 注入提示
+- **指令文件展示**：只读展示已加载的 AGENTS.md / CLAUDE.md，支持全局/项目筛选
+- **影响范围**：packages/kernel（memory-store, ws-server, extensions）、packages/frontend（MemoryPage, store/memory, App, Sidebar）、packages/shared（memory 类型定义）
+- **验证**：kernel 单元测试 169 pass / 0 fail；frontend 组件测试 232 pass（MemoryPage 6/6）；E2E memory.spec.ts 5/5 通过
+
 ## 2026-07-10 — dev 脚本按 R 重启时前端端口漂移修复
 
 - **类型**：修复
