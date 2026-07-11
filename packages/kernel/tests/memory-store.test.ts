@@ -144,7 +144,90 @@ test("purge 从 sidecar 彻底删除，不写回文件", async () => {
   expect(archived).toEqual([]);
 });
 
-// ===== Task 4: listInstructions =====
+// ===== HTML 注释过滤 =====
+
+test("list 过滤掉纯 HTML 注释条目", async () => {
+  await writeFile(
+    join(hermesDir, "MEMORY.md"),
+    "条目A\n§\n<!-- created=2026-07-11, last=2026-07-11 -->\n§\n条目B",
+    "utf8",
+  );
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const { memories } = await store.list();
+
+  expect(memories).toHaveLength(2);
+  expect(memories[0].text).toBe("条目A");
+  expect(memories[1].text).toBe("条目B");
+});
+
+test("list 从混合文本中移除 HTML 注释但保留正文", async () => {
+  await writeFile(
+    join(hermesDir, "MEMORY.md"),
+    "条目A\n<!-- created=2026-07-10, last=2026-07-11 -->\n§\n条目B",
+    "utf8",
+  );
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const { memories } = await store.list();
+
+  expect(memories[0].text).toBe("条目A");
+  expect(memories[0].text).not.toContain("<!--");
+  expect(memories[1].text).toBe("条目B");
+});
+
+test("list 提取 HTML 注释中的 last 日期到 updatedAt", async () => {
+  await writeFile(
+    join(hermesDir, "MEMORY.md"),
+    "条目A\n<!-- created=2026-07-10, last=2026-07-11 -->",
+    "utf8",
+  );
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const { memories } = await store.list();
+
+  expect(memories[0].updatedAt).toBe("2026-07-11");
+});
+
+test("update 替换正文时保留 HTML 注释元数据", async () => {
+  await writeFile(
+    join(hermesDir, "MEMORY.md"),
+    "旧内容\n<!-- created=2026-07-10, last=2026-07-11 -->\n§\n条目B",
+    "utf8",
+  );
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const { memories } = await store.list();
+  const targetId = memories[0].id;
+
+  await store.update(targetId, "新内容");
+
+  const raw = await readFile(join(hermesDir, "MEMORY.md"), "utf8");
+  expect(raw).toContain("新内容");
+  expect(raw).not.toContain("旧内容");
+  expect(raw).toContain("<!-- created=2026-07-10, last=2026-07-11 -->");
+  expect(raw).toContain("条目B");
+});
+
+test("archive 移除带注释的条目且归档文本不含注释", async () => {
+  await writeFile(
+    join(hermesDir, "MEMORY.md"),
+    "条目A\n<!-- created=2026-07-10, last=2026-07-11 -->\n§\n条目B",
+    "utf8",
+  );
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const { memories } = await store.list();
+  const targetId = memories[0].id;
+
+  await store.archive(targetId);
+
+  const raw = await readFile(join(hermesDir, "MEMORY.md"), "utf8");
+  expect(raw).not.toContain("条目A");
+  expect(raw).not.toContain("<!-- created=2026-07-10, last=2026-07-11 -->");
+  expect(raw).toContain("条目B");
+
+  const { archived } = await store.list();
+  expect(archived).toHaveLength(1);
+  expect(archived[0].text).toBe("条目A");
+  expect(archived[0].text).not.toContain("<!--");
+});
+
 
 test("listInstructions 扫描全局 + 项目级 AGENTS.md", async () => {
   // 全局：hiagentDir 下的 AGENTS.md
