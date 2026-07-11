@@ -2,6 +2,7 @@ import { Modal } from "./ui/Modal";
 import { ProviderSection } from "./settings/ProviderSection";
 import { SkillSection } from "./settings/SkillSection";
 import { ExtensionSection } from "./settings/ExtensionSection";
+import { MemorySection } from "./settings/MemorySection";
 import { useSettingsStore } from "../store/settings";
 
 interface Props {
@@ -41,12 +42,21 @@ export function SettingsModal({ onClose }: Props) {
               ? { background: "var(--surface-hover)", color: "var(--brand)" }
               : { color: "var(--secondary)" }}
           >插件</button>
+          <button
+            onClick={() => setSection("memory")}
+            className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
+            style={activeSection === "memory"
+              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              : { color: "var(--secondary)" }}
+            data-testid="settings-nav-memory"
+          >记忆</button>
         </nav>
         {/* 右侧内容 */}
         <div className="flex-1 overflow-auto">
           {activeSection === "models" && <ProviderSection />}
           {activeSection === "skills" && <SkillSection />}
           {activeSection === "plugins" && <ExtensionSection />}
+          {activeSection === "memory" && <MemorySection />}
         </div>
       </div>
     </Modal>
