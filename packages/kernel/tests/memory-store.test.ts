@@ -1,6 +1,6 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "node:path";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { MemoryStore } from "../src/memory-store";
 import type { ProjectStore } from "../src/project-store";
 
@@ -76,5 +76,70 @@ test("list 文件不存在时返回空数组不报错", async () => {
   const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const { memories, archived } = await store.list();
   expect(memories).toEqual([]);
+  expect(archived).toEqual([]);
+});
+
+test("update 按定位 § 段落替换文本", async () => {
+  await writeFile(join(hermesDir, "MEMORY.md"), "旧内容1\n§\n旧内容2", "utf8");
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const { memories } = await store.list();
+  const targetId = memories[1].id; // "pi-hermes-memory/MEMORY.md:1"
+
+  await store.update(targetId, "新内容2");
+
+  const raw = await readFile(join(hermesDir, "MEMORY.md"), "utf8");
+  expect(raw).toContain("新内容2");
+  expect(raw).toContain("旧内容1");
+  expect(raw).not.toContain("旧内容2");
+});
+
+test("archive 从文件移除条目并写入 sidecar", async () => {
+  await writeFile(join(hermesDir, "MEMORY.md"), "条目A\n§\n条目B", "utf8");
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const { memories } = await store.list();
+  const targetId = memories[0].id;
+
+  await store.archive(targetId);
+
+  // 文件里应该只剩条目B
+  const raw = await readFile(join(hermesDir, "MEMORY.md"), "utf8");
+  expect(raw).not.toContain("条目A");
+  expect(raw).toContain("条目B");
+
+  // sidecar 里有归档记录
+  const { archived } = await store.list();
+  expect(archived).toHaveLength(1);
+  expect(archived[0].text).toBe("条目A");
+  expect(archived[0].archivedAt).toBeTruthy();
+});
+
+test("restore 从 sidecar 移除并追加回源文件", async () => {
+  await writeFile(join(hermesDir, "MEMORY.md"), "条目A", "utf8");
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const { memories } = await store.list();
+  const targetId = memories[0].id;
+  await store.archive(targetId); // 先归档
+
+  await store.restore(targetId); // 再恢复
+
+  // 文件里应该有恢复的条目
+  const raw = await readFile(join(hermesDir, "MEMORY.md"), "utf8");
+  expect(raw).toContain("条目A");
+
+  // sidecar 应该为空
+  const { archived } = await store.list();
+  expect(archived).toEqual([]);
+});
+
+test("purge 从 sidecar 彻底删除，不写回文件", async () => {
+  await writeFile(join(hermesDir, "MEMORY.md"), "条目A", "utf8");
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const { memories } = await store.list();
+  const targetId = memories[0].id;
+  await store.archive(targetId);
+
+  await store.purge(targetId);
+
+  const { archived } = await store.list();
   expect(archived).toEqual([]);
 });
