@@ -96,6 +96,24 @@ describe("Composer", () => {
     });
   });
 
+  it("agent 思考中发送消息不乐观显示（入队等待，不立即显示用户消息+AI loading）", () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "gpt-4o", thinking: "disabled", attachments: [] } },
+    });
+    render(<Composer sessionId="s1" agentName="dev" isRunning />);
+    const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
+    fireEvent.change(textarea, { target: { value: "排队等一下" } });
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    const s = useSessionStore.getState();
+    // 消息已发给 kernel（由 kernel 入队）
+    expect(ws.send).toHaveBeenCalledWith(expect.objectContaining({ type: "agent:prompt", text: "排队等一下" }));
+    // 但前端不乐观显示：不追加用户消息、不设占位 streaming、不改 status
+    expect(s.messagesBySession["s1"] ?? []).toHaveLength(0);
+    expect(s.streamingBySession["s1"]).toBeFalsy();
+    expect(s.optimisticEchoBySession["s1"]).toBeFalsy();
+  });
+
   it("乐观发送：点击发送立即入列用户消息 + 占位 AI loading + status thinking（不等 SDK 回声）", () => {
     useComposerPrefsStore.setState({
       bySession: { s1: { model: "gpt-4o", thinking: "disabled", attachments: [] } },

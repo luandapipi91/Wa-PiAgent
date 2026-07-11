@@ -32,8 +32,12 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
   const handleSend = () => {
     if (!text.trim() || !model || sendingRef.current || !projectId) return;
     sendingRef.current = true;
-    // 乐观 UI：立即显示用户消息 + AI loading，不等 SDK 回声（首条尤其慢：ensureStarted 要 import SDK + 加载资源）
-    useSessionStore.getState().optimisticSend(sessionId, text, agentName);
+    // agent 思考中：消息发给 kernel 入队（followUp），前端不乐观显示——
+    // 避免用户误以为消息已开始处理；排队状态由 queue_update 事件驱动的排队列表呈现。
+    // 空闲时：乐观 UI 立即显示用户消息 + AI loading，不等 SDK 回声（首回合 ensureStarted 慢）。
+    if (!isRunning) {
+      useSessionStore.getState().optimisticSend(sessionId, text, agentName);
+    }
     send({
       type: "agent:prompt",
       projectId,
