@@ -27,8 +27,10 @@ export function MemoryPage() {
   }, [currentProjectId]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (currentProjectId) {
+      load(currentProjectId);
+    }
+  }, [load, currentProjectId]);
 
   // 切到指令文件 Tab 且已选项目时加载；null → 有值时也触发刷新
   useEffect(() => {
@@ -140,8 +142,8 @@ export function MemoryPage() {
             : filteredMemories.map(m => (
               <MemoryCard
                 key={m.id} entry={m}
-                onEdit={(text) => update(m.id, text)}
-                onArchive={() => archive(m.id)}
+                onEdit={(text) => currentProjectId && update(currentProjectId, m.id, text)}
+                onArchive={() => currentProjectId && archive(currentProjectId, m.id)}
               />
             ))
         )}
@@ -151,8 +153,8 @@ export function MemoryPage() {
             : archived.map(m => (
               <MemoryCard
                 key={m.id} entry={m} mode="archived"
-                onRestore={() => restore(m.id)}
-                onPurge={() => purge(m.id)}
+                onRestore={() => currentProjectId && restore(currentProjectId, m.id)}
+                onPurge={() => currentProjectId && purge(currentProjectId, m.id)}
               />
             ))
         )}

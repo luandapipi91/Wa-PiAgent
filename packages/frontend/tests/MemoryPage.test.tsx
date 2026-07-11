@@ -103,5 +103,5 @@ test("记忆卡片编辑 — 点击编辑展开文本框，保存后回调", () 
   fireEvent.change(textarea, { target: { value: "修改后内容" } });
   fireEvent.click(screen.getByTestId("memory-edit-save"));
 
-  expect(editMock).toHaveBeenCalledWith("test:0", "修改后内容");
+  expect(editMock).toHaveBeenCalledWith("p1", "test:0", "修改后内容");
 });

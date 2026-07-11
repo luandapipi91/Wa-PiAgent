@@ -25,15 +25,15 @@ interface MemoryState {
   loading: boolean;
 
   // actions
-  load: () => void;
+  load: (projectId: string) => void;
   loadInstructions: (projectId: string) => void;
   setMemories: (data: MemoryListResult | MemoryChangedEvent) => void;
   setInstructions: (data: InstructionListResult) => void;
   setConfig: (data: MemoryConfigEvent) => void;
-  update: (entryId: string, text: string) => void;
-  archive: (entryId: string) => void;
-  restore: (entryId: string) => void;
-  purge: (entryId: string) => void;
+  update: (projectId: string, entryId: string, text: string) => void;
+  archive: (projectId: string, entryId: string) => void;
+  restore: (projectId: string, entryId: string) => void;
+  purge: (projectId: string, entryId: string) => void;
   setConfigValue: (opts: Partial<MemoryConfig>) => void;
   setTab: (tab: ActiveTab) => void;
   setCategoryFilter: (f: CategoryFilter) => void;
@@ -53,9 +53,9 @@ export const useMemoryStore = create<MemoryState>((set) => ({
   searchQuery: "",
   loading: false,
 
-  load: () => {
+  load: (projectId) => {
     set({ loading: true });
-    send({ type: "memory:list" });
+    send({ type: "memory:list", projectId });
     send({ type: "memory:config:get" });
   },
   loadInstructions: (projectId) => send({ type: "instruction:list", projectId }),
@@ -66,10 +66,10 @@ export const useMemoryStore = create<MemoryState>((set) => ({
   }),
   setInstructions: (data) => set({ instructions: data.instructions }),
   setConfig: (data) => set({ config: data.config }),
-  update: (entryId, text) => send({ type: "memory:update", entryId, text }),
-  archive: (entryId) => send({ type: "memory:archive", entryId }),
-  restore: (entryId) => send({ type: "memory:restore", entryId }),
-  purge: (entryId) => send({ type: "memory:purge", entryId }),
+  update: (projectId, entryId, text) => send({ type: "memory:update", projectId, entryId, text }),
+  archive: (projectId, entryId) => send({ type: "memory:archive", projectId, entryId }),
+  restore: (projectId, entryId) => send({ type: "memory:restore", projectId, entryId }),
+  purge: (projectId, entryId) => send({ type: "memory:purge", projectId, entryId }),
   setConfigValue: (opts) => send({ type: "memory:config:set", ...opts }),
   setTab: (tab) => set({ activeTab: tab }),
   setCategoryFilter: (f) => set({ categoryFilter: f }),
