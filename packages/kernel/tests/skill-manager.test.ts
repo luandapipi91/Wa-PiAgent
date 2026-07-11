@@ -128,3 +128,18 @@ test("去重：内置目录同名技能优先于用户目录", async () => {
   expect(dup).toBeTruthy();
   expect(dup!.description).toBe("内置版本");  // 内置优先
 });
+
+test("scan 返回的 SkillInfo 含 skill 目录绝对路径", async () => {
+  createSkill(join(dir, "skills"), "brave-search", "web 搜索");
+  const userDir = join(dir, "user-skills");
+  mkdirSync(userDir, { recursive: true });
+  createSkill(userDir, "user-skill", "用户技能");
+
+  const mgr = new SkillManager(dir);
+  await mgr.addDir(userDir);
+  const result = await mgr.scan();
+  const builtin = result.allSkills.find(s => s.name === "brave-search");
+  const user = result.allSkills.find(s => s.name === "user-skill");
+  expect(builtin?.path).toBe(join(join(dir, "skills"), "brave-search"));
+  expect(user?.path).toBe(join(userDir, "user-skill"));
+});

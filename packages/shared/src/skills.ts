@@ -4,6 +4,7 @@
 export interface SkillInfo {
   name: string;
   description: string;
+  path: string;        // skill 目录绝对路径（含 SKILL.md 的目录），用于喂给 SDK additionalSkillPaths
 }
 
 // ===== WS 协议事件（技能管理）=====
