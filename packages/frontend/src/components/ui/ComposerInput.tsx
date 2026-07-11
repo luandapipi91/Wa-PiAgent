@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState } from "react";
 import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
 import { uploadFile, copyToUploads } from "../../fs-client";
+import { useProjectsStore } from "../../store/projects";
 import { ModelSelector } from "./ModelSelector";
 import { ThinkingSelector } from "./ThinkingSelector";
 import { AttachmentChip } from "./AttachmentChip";
@@ -44,6 +45,8 @@ export function ComposerInput({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const uploading = pendingUploads > 0;
+  // 附件选择器默认定位到当前项目目录（cwd），方便就近选取项目内文件
+  const projectCwd = useProjectsStore(s => s.projects.find(p => p.id === projectId)?.cwd);
 
   const isImageName = (name: string) => /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(name);
 
@@ -156,6 +159,7 @@ export function ComposerInput({
                 onPick={handlePick}
                 onCancel={() => setPickerOpen(false)}
                 multiSelect
+                defaultPath={projectCwd}
               />
             )}
             <ModelSelector value={model} onChange={setModel} />

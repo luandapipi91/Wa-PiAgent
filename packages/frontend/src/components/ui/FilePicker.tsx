@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ControlledTreeEnvironment,
   Tree,
+  type TreeEnvironmentRef,
   type TreeItem,
   type TreeItemIndex,
 } from "react-complex-tree";
@@ -43,6 +44,8 @@ interface Props {
   onPick: (selections: FilePickerSelection[]) => void;
   onCancel: () => void;
   multiSelect?: boolean;
+  // 打开时默认定位并展开到此路径（通常传当前项目 cwd）；为空则回退到用户主目录
+  defaultPath?: string;
 }
 
 function join(parent: string, name: string): string {
@@ -65,6 +68,77 @@ function findParentId(
     if (item.children?.includes(childId)) return id;
   }
   return null;
+}
+
+// 沿 targetPath 逐级 listDir，把从盘符根到目标路径的每一层展开并载入到 items（原地修改）。
+// 返回需展开的节点 id 列表与是否成功定位到目标（路径不在任何根下/中途不存在时 ok=false）。
+// Windows 盘符与目录名大小写无关比较：项目 cwd 可能以小写盘符存库，而根目录返回大写。
+async function walkToTarget(
+  items: Record<TreeItemIndex, TreeItem<FsNodeData>>,
+  targetPath: string,
+  showHidden: boolean,
+): Promise<{ expandIds: TreeItemIndex[]; ok: boolean; targetId?: TreeItemIndex }> {
+  const sep = targetPath.includes("\\") ? "\\" : "/";
+  const isWin = sep === "\\";
+  const pathsEqual = (a: string, b: string): boolean =>
+    isWin ? a.toLowerCase() === b.toLowerCase() : a === b;
+  const allSegments = targetPath.split(sep).filter(Boolean);
+  const expandIds: TreeItemIndex[] = ["root"];
+
+  let currentId: TreeItemIndex | undefined;
+  const lowerTarget = targetPath.toLowerCase();
+  for (const [id, item] of Object.entries(items)) {
+    if (id === "root") continue;
+    const rootPath = item.data.path;
+    if (isWin ? lowerTarget.startsWith(rootPath.toLowerCase()) : targetPath.startsWith(rootPath)) {
+      currentId = id;
+      break;
+    }
+  }
+  if (!currentId) return { expandIds, ok: false };
+  expandIds.push(currentId);
+
+  let currentPath = items[currentId].data.path;
+  let segIdx = 0;
+  if (currentPath && currentPath !== "/") {
+    segIdx = currentPath.split(sep).filter(Boolean).length;
+  }
+
+  while (segIdx < allSegments.length) {
+    const entries = (await listDir(currentPath, showHidden)).filter(e => showHidden || !e.name.startsWith("."));
+    const childList: TreeItemIndex[] = [];
+    const newChildren: Record<string, TreeItem<FsNodeData>> = {};
+
+    for (const e of entries) {
+      const childId = `${currentId}_${childList.length}`;
+      childList.push(childId);
+      newChildren[childId] = {
+        index: childId,
+        children: e.isDir ? [`${LD}${childId}`] : undefined,
+        isFolder: e.isDir,
+        data: { path: join(currentPath, e.name), name: e.name, isDir: e.isDir },
+      };
+    }
+
+    items[currentId] = { ...items[currentId], children: childList };
+    Object.assign(items, newChildren);
+
+    const expected = join(currentPath, allSegments[segIdx]);
+    let found = false;
+    for (const [cid, citem] of Object.entries(newChildren)) {
+      if (pathsEqual(citem.data.path, expected)) {
+        expandIds.push(cid);
+        currentId = cid;
+        currentPath = citem.data.path;
+        found = true;
+        break;
+      }
+    }
+    if (!found) return { expandIds, ok: false };
+    segIdx++;
+  }
+
+  return { expandIds, ok: true, targetId: currentId };
 }
 
 function filterTreeItems(
@@ -167,7 +241,7 @@ function buildSearchTree(
   return items;
 }
 
-export function FilePicker({ onPick, onCancel, multiSelect = true }: Props) {
+export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }: Props) {
   const [focusedItem, setFocusedItem] = useState<TreeItemIndex | undefined>();
   const [selectedItems, setSelectedItems] = useState<TreeItemIndex[]>([]);
   const [expandedItems, setExpandedItems] = useState<TreeItemIndex[]>([]);
@@ -184,6 +258,9 @@ export function FilePicker({ onPick, onCancel, multiSelect = true }: Props) {
   const showHiddenRef = useRef(showHidden);
   showHiddenRef.current = showHidden;
   const rootsRef = useRef<string[]>([]);
+  const envRef = useRef<TreeEnvironmentRef>(null);
+  // 定位到的目录节点 id：树渲染后据此 focusItem（高亮 + 滚动到可见），执行一次后清空
+  const focusTargetRef = useRef<TreeItemIndex | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -198,62 +275,30 @@ export function FilePicker({ onPick, onCancel, multiSelect = true }: Props) {
       }
 
       const home = await getHome();
-      const sep = home.includes("\\") ? "\\" : "/";
-      const allSegments = home.split(sep).filter(Boolean);
-      const expandIds: TreeItemIndex[] = ["root"];
-
-      let currentId: TreeItemIndex | undefined;
-      for (const [id, item] of Object.entries(items)) {
-        if (id === "root") continue;
-        if (home.startsWith(item.data.path)) { currentId = id; break; }
-      }
-      if (!currentId) { setTreeItems({ ...items }); return; }
-      expandIds.push(currentId);
-
-      let currentPath = items[currentId].data.path;
-      let segIdx = 0;
-      if (currentPath && currentPath !== "/") {
-        segIdx = currentPath.split(sep).filter(Boolean).length;
-      }
-
-      while (segIdx < allSegments.length) {
-        const entries = (await listDir(currentPath, showHiddenRef.current)).filter(e => showHiddenRef.current || !e.name.startsWith("."));
-        const childList: TreeItemIndex[] = [];
-        const newChildren: Record<string, TreeItem<FsNodeData>> = {};
-
-        for (const e of entries) {
-          const childId = `${currentId}_${childList.length}`;
-          childList.push(childId);
-          newChildren[childId] = {
-            index: childId,
-            children: e.isDir ? [`${LD}${childId}`] : undefined,
-            isFolder: e.isDir,
-            data: { path: join(currentPath, e.name), name: e.name, isDir: e.isDir },
-          };
-        }
-
-        items[currentId] = { ...items[currentId], children: childList };
-        Object.assign(items, newChildren);
-
-        const expected = join(currentPath, allSegments[segIdx]);
-        let found = false;
-        for (const [cid, citem] of Object.entries(newChildren)) {
-          if (citem.data.path === expected) {
-            expandIds.push(cid);
-            currentId = cid;
-            currentPath = expected;
-            found = true;
-            break;
-          }
-        }
-        if (!found) break;
-        segIdx++;
+      const targetPath = defaultPath && defaultPath.trim() ? defaultPath.trim() : home;
+      let result = await walkToTarget(items, targetPath, showHiddenRef.current);
+      // 指定了 defaultPath 但定位失败（路径不存在/不在任何根下）时回退到主目录
+      if (!result.ok && targetPath !== home) {
+        result = await walkToTarget(items, home, showHiddenRef.current);
       }
 
       setTreeItems({ ...items });
-      setExpandedItems(expandIds);
+      setExpandedItems(result.expandIds);
+      // 默认聚焦定位到的目录节点：设 focusedItem 触发高亮，并记下待滚动聚焦目标
+      if (result.targetId) {
+        setFocusedItem(result.targetId);
+        focusTargetRef.current = result.targetId;
+      }
     })();
-  }, [showHidden]);
+  }, [showHidden, defaultPath]);
+
+  // 树渲染提交后滚动并聚焦到定位目录（effects 在 DOM 提交后运行，节点已在视口；仅执行一次）
+  useEffect(() => {
+    const id = focusTargetRef.current;
+    if (!id) return;
+    envRef.current?.focusItem(id, "file-picker");
+    focusTargetRef.current = null;
+  }, [treeItems]);
 
   const handleMissingItems = useCallback(async (missingIds: TreeItemIndex[]) => {
     const needLoad = new Set<TreeItemIndex>();
@@ -447,6 +492,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true }: Props) {
               <div className="flex items-center justify-center h-32 text-sm text-tertiary">无匹配结果</div>
             ) : (
               <ControlledTreeEnvironment<FsNodeData>
+                ref={envRef}
                 items={displayItems}
                 viewState={viewState}
                 getItemTitle={(item) => item.data.name}
