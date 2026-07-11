@@ -1,5 +1,5 @@
 // MemoryPage.tsx — 记忆管理页主容器
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useMemoryStore } from "../../store/memory";
 import { useProjectsStore } from "../../store/projects";
 import { MemoryCard } from "./MemoryCard";
@@ -16,16 +16,25 @@ export function MemoryPage() {
   } = useMemoryStore();
 
   const currentProjectId = useProjectsStore(s => s.currentProjectId);
+  const projects = useProjectsStore(s => s.projects);
+
+  // 指令文件 Tab 的项目选择器：默认跟随 currentProjectId，用户可手动切换
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(currentProjectId);
+
+  // currentProjectId 变化时同步本地选择
+  useEffect(() => {
+    setSelectedProjectId(currentProjectId);
+  }, [currentProjectId]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   useEffect(() => {
-    if (currentProjectId && activeTab === "instructions") {
-      loadInstructions(currentProjectId);
+    if (selectedProjectId && activeTab === "instructions") {
+      loadInstructions(selectedProjectId);
     }
-  }, [currentProjectId, activeTab, loadInstructions]);
+  }, [selectedProjectId, activeTab, loadInstructions]);
 
   // 筛选后的记忆
   const filteredMemories = memories
@@ -75,11 +84,28 @@ export function MemoryPage() {
       <div className="flex items-center gap-2.5 px-5 py-2.5" style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}>
         {activeTab === "instructions" ? (
           // 指令文件筛选
-          <div className="flex gap-1.5">
-            {(["all", "project", "global"] as const).map(f => (
-              <FilterChip key={f} active={scopeFilter === f} onClick={() => setScopeFilter(f)}
-                label={f === "all" ? "全部" : f === "project" ? "项目" : "全局"} />
-            ))}
+          <div className="flex items-center gap-2.5">
+            <select
+              className="text-[11.5px] px-2.5 py-1 rounded-md"
+              style={{
+                background: "var(--surface)",
+                border: "1px solid var(--hairline)",
+                color: "var(--text-primary)",
+              }}
+              value={selectedProjectId ?? ""}
+              onChange={e => setSelectedProjectId(e.target.value)}
+              data-testid="instruction-project-select"
+            >
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <div className="flex gap-1.5">
+              {(["all", "project", "global"] as const).map(f => (
+                <FilterChip key={f} active={scopeFilter === f} onClick={() => setScopeFilter(f)}
+                  label={f === "all" ? "全部" : f === "project" ? "项目" : "全局"} />
+              ))}
+            </div>
           </div>
         ) : (
           // 记忆筛选
