@@ -5,7 +5,7 @@ export function ExtensionSection() {
 
   return (
     <div className="flex flex-col gap-2 p-4 overflow-auto">
-      <span className="text-xs font-bold text-tertiary uppercase tracking-wide">已安装插件</span>
+      <span className="text-xs font-bold text-tertiary uppercase tracking-wide">已启用插件</span>
       {plugins.length === 0 && (
         <span className="text-sm text-tertiary py-2">暂无插件</span>
       )}
