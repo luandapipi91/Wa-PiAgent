@@ -64,7 +64,7 @@ test("list 包含项目级记忆，scope=project", async () => {
   await mkdir(projectDir, { recursive: true });
   await writeFile(join(projectDir, "MEMORY.md"), "项目记忆\n§\nCI 用 pnpm", "utf8");
   const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/my-project") });
-  const { memories } = await store.list();
+  const { memories } = await store.list("p1");
 
   const projectEntries = memories.filter(m => m.scope === "project");
   expect(projectEntries).toHaveLength(2);
