@@ -9,9 +9,7 @@ import remarkGfm from "remark-gfm";
 
 const EMPTY: SessionMessage[] = [];
 
-// 自动滚动：用户手动滚动离开后，空闲超过此时间恢复自动滚动（ms）
-const SCROLL_IDLE_TIMEOUT = 3000;
-// 距离底部多少像素内视为“已在底部”
+// 自动滚动：距离底部多少像素内视为“已在底部”
 const BOTTOM_THRESHOLD = 20;
 
 interface Props { sessionId: string; }
@@ -54,8 +52,9 @@ export function MessageList({ sessionId }: Props) {
   }, [session, sessionId]);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const [userScrolled, setUserScrolled] = useState(false);
-  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // stickBottom：用户是否「停在底部」。用户向上翻阅即置 false——此时即便 AI 在回复，
+  // 也不抢滚动（不阻碍用户阅读历史）；用户回到底部或点浮动按钮再置 true。
+  const [stickBottom, setStickBottom] = useState(true);
 
   const isNearBottom = useCallback(() => {
     const el = containerRef.current;
@@ -69,33 +68,25 @@ export function MessageList({ sessionId }: Props) {
   }, []);
 
   const handleScroll = useCallback(() => {
-    if (idleTimerRef.current) {
-      clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = null;
-    }
-    if (isNearBottom()) {
-      setUserScrolled(false);
-    } else {
-      setUserScrolled(true);
-      idleTimerRef.current = setTimeout(() => {
-        setUserScrolled(false);
-      }, SCROLL_IDLE_TIMEOUT);
-    }
+    setStickBottom(isNearBottom());
   }, [isNearBottom]);
 
-  // 消息或流式内容变化时，若用户未主动滚动离开底部，则自动滚到底
+  // 仅在 AI 回复（streaming）且用户停在底部时跟随滚动到底部。
+  // 平时（非回复）不自动滚动——避免抢走用户正在阅读历史时的位置。
   useEffect(() => {
-    if (!userScrolled) {
-      scrollToBottom();
-    }
-  }, [messages, streaming, userScrolled, scrollToBottom]);
+    if (streaming && stickBottom) scrollToBottom();
+  }, [streaming, stickBottom, scrollToBottom]);
 
-  // 卸载时清理定时器
+  // 非 streaming 的消息变化（定稿/错误/重发）后重算 stickBottom，让浮动按钮可见性准确。
+  // 只更新标记、不滚动，不影响用户位置。
   useEffect(() => {
-    return () => {
-      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    };
-  }, []);
+    setStickBottom(isNearBottom());
+  }, [messages, isNearBottom]);
+
+  const handleScrollToBottom = useCallback(() => {
+    scrollToBottom();
+    setStickBottom(true);
+  }, [scrollToBottom]);
 
   // 同回合多 block 合并：SDK 对一个 turn 的每个 block（thinking/text/toolCall）发独立
   // message_start/end，store 在每个 block 的 message_end 即定稿进 messages 并清空 streaming。
@@ -125,17 +116,32 @@ export function MessageList({ sessionId }: Props) {
   }
 
   return (
-    <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-auto p-4 flex flex-col gap-4" data-testid="message-list">
-      {displayRows.map((row, i) => {
-        // 合并后的末行正处于流式中，不挂「重新发送」（流式中本就不显示）
-        const isMergedStreamingRow = mergeStreamingIntoLast && i === displayRows.length - 1;
-        const showResend = !isMergedStreamingRow && i === resendUserIdx;
-        return (
-          <MessageRow key={i} row={row} sessionId={sessionId} showResend={showResend} onResend={showResend ? (text: string) => handleResend(text, i) : undefined} />
-        );
-      })}
-      {streaming && !mergeStreamingIntoLast && (
-        <StreamingRow streaming={streaming} sessionId={sessionId} />
+    <div className="relative flex-1 min-h-0 overflow-hidden">
+      <div ref={containerRef} onScroll={handleScroll} className="absolute inset-0 overflow-auto p-4 flex flex-col gap-4" data-testid="message-list">
+        {displayRows.map((row, i) => {
+          // 合并后的末行正处于流式中，不挂「重新发送」（流式中本就不显示）
+          const isMergedStreamingRow = mergeStreamingIntoLast && i === displayRows.length - 1;
+          const showResend = !isMergedStreamingRow && i === resendUserIdx;
+          return (
+            <MessageRow key={i} row={row} sessionId={sessionId} showResend={showResend} onResend={showResend ? (text: string) => handleResend(text, i) : undefined} />
+          );
+        })}
+        {streaming && !mergeStreamingIntoLast && (
+          <StreamingRow streaming={streaming} sessionId={sessionId} />
+        )}
+      </div>
+      {/* 平时（非回复或用户翻阅历史）不在底部时，显示浮动「滚动到底部」按钮 */}
+      {!stickBottom && (
+        <button
+          type="button"
+          onClick={handleScrollToBottom}
+          data-testid={`scroll-bottom-${sessionId}`}
+          aria-label="滚动到底部"
+          title="滚动到底部"
+          className="absolute bottom-3 right-4 z-10 w-9 h-9 rounded-full bg-surface border border-hairline shadow-md flex items-center justify-center text-secondary hover:text-primary transition-colors"
+        >
+          ↓
+        </button>
       )}
     </div>
   );
