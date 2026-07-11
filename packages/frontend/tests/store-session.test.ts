@@ -2,6 +2,7 @@
 // 说明：项目测试栈为 bun:test（非 vitest），按项目既有规范编写。
 import { test, expect, beforeEach } from "bun:test";
 import { useSessionStore } from "../src/store/session";
+import { useProjectsStore } from "../src/store/projects";
 import type { SDKEventEnvelope } from "@hiagent/shared";
 
 beforeEach(() => {
@@ -24,6 +25,25 @@ function envelope(event: SDKEventEnvelope["event"], sessionId = "s1"): SDKEventE
     event,
   };
 }
+
+// ── 未读标记：非当前会话收到回复完成（agent_end）标记 new，进入会话清掉 ──
+
+test("agent_end：非当前会话标记未读；当前会话不标记", () => {
+  useProjectsStore.setState({ currentSessionId: "s-cur" });
+  // 非当前会话 s1 完成 → 未读
+  useSessionStore.getState().handleSDKEvent("s1", envelope({ type: "agent_end", messages: [], willRetry: false }));
+  expect(useSessionStore.getState().unreadBySession["s1"]).toBe(true);
+  // 当前会话 s-cur 完成 → 不标记
+  useSessionStore.getState().handleSDKEvent("s-cur", envelope({ type: "agent_end", messages: [], willRetry: false }));
+  expect(useSessionStore.getState().unreadBySession["s-cur"]).toBeFalsy();
+});
+
+test("markUnread / markRead 维护 unreadBySession", () => {
+  useSessionStore.getState().markUnread("s1");
+  expect(useSessionStore.getState().unreadBySession["s1"]).toBe(true);
+  useSessionStore.getState().markRead("s1");
+  expect(useSessionStore.getState().unreadBySession["s1"]).toBeFalsy();
+});
 
 test("message_start(user) 添加用户消息到 messages", () => {
   const env = envelope({

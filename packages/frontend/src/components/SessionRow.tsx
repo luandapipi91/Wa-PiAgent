@@ -2,6 +2,7 @@ import { useRef, useEffect, type MouseEvent } from "react";
 import type { SessionEntity } from "@hiagent/shared";
 import { formatRelativeTime } from "@hiagent/shared";
 import { agentEmoji } from "../theme/agents";
+import { useSessionStore } from "../store/session";
 
 interface Props {
   session: SessionEntity;
@@ -13,6 +14,8 @@ interface Props {
 
 export function SessionRow({ session, selected, onSelect, onContextMenu }: Props) {
   const btnRef = useRef<HTMLButtonElement>(null);
+  // 该会话是否有未读新回复（后台收到回复完成时置位，进入会话清掉）
+  const unread = useSessionStore(s => !!s.unreadBySession[session.id]);
 
   // 用原生事件监听确保 preventDefault 能阻止浏览器右键菜单
   useEffect(() => {
@@ -30,7 +33,7 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
     <button
       ref={btnRef}
       onClick={() => onSelect(session.id)}
-      className="w-full flex items-center gap-2 px-2 py-1.5 text-left text-[13px] rounded-sm transition-colors hover:bg-surface-hover"
+      className="relative w-full flex items-center gap-2 px-2 py-1.5 text-left text-[13px] rounded-sm transition-colors hover:bg-surface-hover"
       style={{
         borderLeft: selected ? "2px solid var(--accent)" : "2px solid transparent",
         background: selected ? "var(--accent-soft)" : undefined,
@@ -42,6 +45,17 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
       <span className="text-sm">{agentEmoji(session.primaryAgent)}</span>
       <span className="flex-1 truncate">{session.title}</span>
       <span className="text-[11px] text-tertiary flex-shrink-0">{formatRelativeTime(session.lastActivity)}</span>
+      {/* 未读新回复：右上角 45° 斜标（标签感） */}
+      {unread && (
+        <span
+          data-testid={`unread-tag-${session.id}`}
+          aria-label="有新回复"
+          className="absolute top-0 right-2 rotate-45 text-[8.5px] font-extrabold leading-none px-1.5 py-0.5 select-none pointer-events-none"
+          style={{ background: "var(--accent)", color: "#fff", borderRadius: 2, boxShadow: "0 1px 2px rgba(0,0,0,0.18)" }}
+        >
+          new
+        </span>
+      )}
     </button>
   );
 }

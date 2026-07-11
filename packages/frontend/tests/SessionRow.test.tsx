@@ -1,12 +1,15 @@
-import { test, expect, mock } from "bun:test";
+import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { SessionRow } from "../src/components/SessionRow";
+import { useSessionStore } from "../src/store/session";
 import type { SessionEntity } from "@hiagent/shared";
 
 const session: SessionEntity = {
   id: "s1", projectId: "p1", primaryAgent: "dev",
   title: "测试会话", createdAt: 0, lastActivity: Date.now() - 120000, piSessionFile: "",
 };
+
+beforeEach(() => { useSessionStore.setState({ unreadBySession: {} }); });
 
 test("显示 emoji + 标题 + 相对时间", () => {
   render(<table><tbody><SessionRow session={session} selected={false} onSelect={() => {}} /></tbody></table>);
@@ -27,4 +30,20 @@ test("点击 onSelect", () => {
   render(<table><tbody><SessionRow session={session} selected={false} onSelect={fn} /></tbody></table>);
   fireEvent.click(screen.getByTestId("session-s1"));
   expect(fn).toHaveBeenCalledWith("s1");
+});
+
+// ── 未读 new 角标（后台收到回复完成时显示，45° 斜标）──
+
+test("未读会话显示 45° new 角标", () => {
+  useSessionStore.setState({ unreadBySession: { s1: true } });
+  render(<SessionRow session={session} selected={false} onSelect={() => {}} />);
+  const tag = screen.getByTestId("unread-tag-s1");
+  expect(tag.textContent).toBe("new");
+  expect(tag.className).toContain("rotate-45"); // 45° 斜着
+});
+
+test("已读会话不显示 new 角标", () => {
+  useSessionStore.setState({ unreadBySession: {} });
+  render(<SessionRow session={session} selected={false} onSelect={() => {}} />);
+  expect(screen.queryByTestId("unread-tag-s1")).toBeNull();
 });
