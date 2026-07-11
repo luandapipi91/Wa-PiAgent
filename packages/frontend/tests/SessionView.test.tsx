@@ -45,3 +45,27 @@ test("收到 session:messages 响应后填充历史消息", () => {
   expect(first.role).toBe("user");
   expect(first.content).toBe("历史问题");
 });
+
+test("切换会话后思考计时显示对应会话的已思考时长（不重置、不沿用旧会话）", async () => {
+  const now = Date.now();
+  useProjectsStore.setState({
+    projects: [{ id: "p1", name: "P", cwd: "/work/p1", createdAt: 0 }],
+    sessions: [
+      { id: "s1", projectId: "p1", primaryAgent: "dev", title: "t1", createdAt: 0, lastActivity: 0, piSessionFile: "" },
+      { id: "s2", projectId: "p1", primaryAgent: "dev", title: "t2", createdAt: 0, lastActivity: 0, piSessionFile: "" },
+    ],
+    currentProjectId: "p1", currentSessionId: "s1",
+  });
+  useSessionStore.setState({
+    statusBySession: { s1: "thinking", s2: "thinking" },
+    thinkingSinceBySession: { s1: now - 5000, s2: now - 10000 },
+  });
+
+  const { rerender } = render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  // s1 已思考约 5s
+  expect(await screen.findByText(/思考中 · (5|6)s/)).toBeTruthy();
+
+  // 切换到 s2：应显示 s2 的约 10s，而不是沿用 s1 的 5s 或重置成 0
+  rerender(<SessionView sessionId="s2" onSwitchToCanvas={() => {}} />);
+  expect(await screen.findByText(/思考中 · (10|11)s/)).toBeTruthy();
+});

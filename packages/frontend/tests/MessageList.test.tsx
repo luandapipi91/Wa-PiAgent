@@ -364,6 +364,35 @@ test("点击浮动按钮 → 滚动到底部并隐藏", () => {
   expect(screen.queryByTestId("scroll-bottom-s1")).toBeNull();
 });
 
+// ── 切换会话：自动滚到最新回复（一次性，非「平时抢滚动」）──
+
+test("切换会话 → 自动滚到最新回复", async () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+        assistantMsg(2, [{ type: "text", text: "s1 reply" }]),
+      ],
+      s2: [
+        { agentName: undefined, message: { role: "user", content: "yo", timestamp: 1 } },
+        assistantMsg(2, [{ type: "text", text: "s2 reply" }]),
+      ],
+    },
+  });
+  const { rerender } = render(<MessageList sessionId="s1" />);
+  const list = screen.getByTestId("message-list");
+  // s1 停在非底部
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 100 });
+  fireEvent.scroll(list);
+
+  // 切换到 s2
+  rerender(<MessageList sessionId="s2" />);
+
+  await waitFor(() => {
+    expect(list.scrollTop).toBe(1000); // 自动滚到最新回复
+  }, { timeout: 1000 });
+});
+
 // ── 重新发送按钮 ──
 
 test("buildResendPrompt: 有会话+模型+文本 → 返回 agent:prompt 负载", () => {

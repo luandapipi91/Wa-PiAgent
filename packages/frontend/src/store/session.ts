@@ -8,6 +8,9 @@ interface SessionState {
   streamingBySession: Record<string, SessionMessage | null>;
   // 会话级 agent 状态：thinking=处理中，idle=空闲，blocked=等待用户
   statusBySession: Record<string, AgentStatus>;
+  // 会话级「开始思考」时间戳（ms）：status 转为 thinking 时记录，agent_end 清空。
+  // 供 SessionView 的计时器按会话独立计算已思考时长（切会话不重置/不沿用）。
+  thinkingSinceBySession: Record<string, number | null>;
   // 乐观发送标记：true 表示该 session 有一条待 SDK message_start(user) 回声确认的占位用户消息
   optimisticEchoBySession: Record<string, boolean>;
   // 会话级消息队列：steering 引导队列 + followUp 排队队列
@@ -38,6 +41,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   messagesBySession: {},
   streamingBySession: {},
   statusBySession: {},
+  thinkingSinceBySession: {},
   optimisticEchoBySession: {},
   queueBySession: {},
 
@@ -68,7 +72,7 @@ export const useSessionStore = create<SessionState>((set) => ({
     return { messagesBySession: { ...s.messagesBySession, [sessionId]: compacted } };
   }),
 
-  clear: () => set({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, optimisticEchoBySession: {} }),
+  clear: () => set({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, thinkingSinceBySession: {}, optimisticEchoBySession: {} }),
 
   optimisticSend: (sessionId, text, agentName) => set(s => {
     const ts = Date.now();
@@ -86,6 +90,8 @@ export const useSessionStore = create<SessionState>((set) => ({
       },
       // 顶部 spinner 立即转（不等 SDK agent_start）
       statusBySession: { ...s.statusBySession, [sessionId]: "thinking" },
+      // 计时从这里开始（用户发送即起算）
+      thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: ts },
       optimisticEchoBySession: { ...s.optimisticEchoBySession, [sessionId]: true },
     };
   }),
@@ -169,13 +175,19 @@ export const useSessionStore = create<SessionState>((set) => ({
         });
         break;
       }
-      // agent 开始处理：标记 thinking
+      // agent 开始处理：标记 thinking；记录起算时间（若 optimisticSend 已记则保留，避免覆盖更早的发送时刻）
       case "agent_start":
-        set(s => ({ statusBySession: { ...s.statusBySession, [sessionId]: "thinking" } }));
+        set(s => ({
+          statusBySession: { ...s.statusBySession, [sessionId]: "thinking" },
+          thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: s.thinkingSinceBySession[sessionId] ?? Date.now() },
+        }));
         break;
-      // agent 结束：回 idle
+      // agent 结束：回 idle，清起算时间
       case "agent_end":
-        set(s => ({ statusBySession: { ...s.statusBySession, [sessionId]: "idle" } }));
+        set(s => ({
+          statusBySession: { ...s.statusBySession, [sessionId]: "idle" },
+          thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: null },
+        }));
         break;
       // 队列更新：steering / followUp 消息列表
       case "queue_update":
