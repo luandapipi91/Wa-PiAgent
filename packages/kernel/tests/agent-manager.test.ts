@@ -369,12 +369,14 @@ test("prompt — 传入 thinking 时映射为 SDK thinking level", async () => {
   }
 });
 
-test("abort 调用 session.abort", async () => {
+test("abort 先清空队列、再 abort、最后恢复 followUp，避免 abort 后继续发送队列消息", async () => {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({
     projectId: project.id, primaryAgent: "dev", title: "测试",
   });
+
+  (fakeSession.clearQueue as any).mockReturnValue({ steering: [], followUp: ["排队A", "排队B"] });
 
   const am = new AgentManager({
     projectStore,
@@ -385,7 +387,13 @@ test("abort 调用 session.abort", async () => {
   await am.ensureStarted(project.id, "dev", session.id);
   await am.abort(session.id);
 
+  // 顺序：清空 → abort → 恢复 followUp
+  expect(fakeSession.clearQueue).toHaveBeenCalledTimes(1);
   expect(fakeSession.abort).toHaveBeenCalledTimes(1);
+  expect(fakeSession.followUp).toHaveBeenCalledWith("排队A");
+  expect(fakeSession.followUp).toHaveBeenCalledWith("排队B");
+  // steering 针对当前 run，abort 后不再恢复
+  expect(fakeSession.steer).not.toHaveBeenCalled();
 });
 
 test("promoteToSteer — abort → clearQueue → 剩余重入 followUp → prompt", async () => {
