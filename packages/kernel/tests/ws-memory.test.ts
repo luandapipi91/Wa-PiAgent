@@ -68,8 +68,8 @@ async function withMemoryServer<T>(
 test("memory:list 返回解析后的记忆列表", async () => {
   await withMemoryServer(
     async (dataDir) => {
-      await mkdir(join(dataDir, "pi-hermes-memory"), { recursive: true });
-      await writeFile(join(dataDir, "pi-hermes-memory", "MEMORY.md"), "测试记忆", "utf8");
+      await mkdir(join(dataDir, "memories", "global"), { recursive: true });
+      await writeFile(join(dataDir, "memories", "global", "MEMORY.md"), "测试记忆", "utf8");
     },
     async (send, recv) => {
       send({ type: "memory:list", projectId: "any" });
@@ -85,8 +85,8 @@ test("memory:list 返回解析后的记忆列表", async () => {
 test("memory:list 多条 § 分隔全部返回", async () => {
   await withMemoryServer(
     async (dataDir) => {
-      await mkdir(join(dataDir, "pi-hermes-memory"), { recursive: true });
-      await writeFile(join(dataDir, "pi-hermes-memory", "MEMORY.md"), "条目A\n§\n条目B", "utf8");
+      await mkdir(join(dataDir, "memories", "global"), { recursive: true });
+      await writeFile(join(dataDir, "memories", "global", "MEMORY.md"), "条目A\n§\n条目B", "utf8");
     },
     async (send, recv) => {
       send({ type: "memory:list", projectId: "any" });
@@ -103,8 +103,8 @@ test("memory:list 多条 § 分隔全部返回", async () => {
 test("memory:update 编辑后广播 memory:changed", async () => {
   await withMemoryServer(
     async (dataDir) => {
-      await mkdir(join(dataDir, "pi-hermes-memory"), { recursive: true });
-      await writeFile(join(dataDir, "pi-hermes-memory", "MEMORY.md"), "旧内容", "utf8");
+      await mkdir(join(dataDir, "memories", "global"), { recursive: true });
+      await writeFile(join(dataDir, "memories", "global", "MEMORY.md"), "旧内容", "utf8");
     },
     async (send, recv) => {
       send({ type: "memory:list", projectId: "any" });
@@ -123,7 +123,7 @@ test("memory:update 不存在的 entryId 返回 error", async () => {
   await withMemoryServer(
     async () => {},
     async (send, recv) => {
-      send({ type: "memory:update", projectId: "any", entryId: "pi-hermes-memory/MEMORY.md:0", text: "新" });
+      send({ type: "memory:update", projectId: "any", entryId: "memories/global/MEMORY.md:0", text: "新" });
       const resp = await recv() as any;
       expect(resp.type).toBe("error");
     },
@@ -135,8 +135,8 @@ test("memory:update 不存在的 entryId 返回 error", async () => {
 test("memory:archive 广播 memory:changed 且条目进入归档", async () => {
   await withMemoryServer(
     async (dataDir) => {
-      await mkdir(join(dataDir, "pi-hermes-memory"), { recursive: true });
-      await writeFile(join(dataDir, "pi-hermes-memory", "MEMORY.md"), "条目A\n§\n条目B", "utf8");
+      await mkdir(join(dataDir, "memories", "global"), { recursive: true });
+      await writeFile(join(dataDir, "memories", "global", "MEMORY.md"), "条目A\n§\n条目B", "utf8");
     },
     async (send, recv) => {
       send({ type: "memory:list", projectId: "any" });
@@ -159,8 +159,8 @@ test("memory:archive 广播 memory:changed 且条目进入归档", async () => {
 test("memory:restore 把归档条目恢复回列表并广播", async () => {
   await withMemoryServer(
     async (dataDir) => {
-      await mkdir(join(dataDir, "pi-hermes-memory"), { recursive: true });
-      await writeFile(join(dataDir, "pi-hermes-memory", "MEMORY.md"), "条目A", "utf8");
+      await mkdir(join(dataDir, "memories", "global"), { recursive: true });
+      await writeFile(join(dataDir, "memories", "global", "MEMORY.md"), "条目A", "utf8");
     },
     async (send, recv) => {
       send({ type: "memory:list", projectId: "any" });
@@ -187,8 +187,8 @@ test("memory:restore 把归档条目恢复回列表并广播", async () => {
 test("memory:purge 从归档彻底删除并广播", async () => {
   await withMemoryServer(
     async (dataDir) => {
-      await mkdir(join(dataDir, "pi-hermes-memory"), { recursive: true });
-      await writeFile(join(dataDir, "pi-hermes-memory", "MEMORY.md"), "条目A", "utf8");
+      await mkdir(join(dataDir, "memories", "global"), { recursive: true });
+      await writeFile(join(dataDir, "memories", "global", "MEMORY.md"), "条目A", "utf8");
     },
     async (send, recv) => {
       send({ type: "memory:list", projectId: "any" });

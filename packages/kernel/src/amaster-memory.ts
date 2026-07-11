@@ -34,12 +34,17 @@ export interface AmasterStore {
 
 /** 全局记忆 store：<hiagentDir>/memories/global */
 export function getGlobalMemoryStore(hiagentDir: string): AmasterStore {
-  return createStore(join(hiagentDir, "memories", "global"));
+  return createAmasterStore(join(hiagentDir, "memories", "global"));
 }
 
 /** 项目记忆 store：<hiagentDir>/projects-memory/<cwd basename> */
 export function getProjectMemoryStore(hiagentDir: string, cwd: string): AmasterStore {
-  return createStore(join(hiagentDir, "projects-memory", projectNameFromCwd(cwd)));
+  return createAmasterStore(join(hiagentDir, "projects-memory", projectNameFromCwd(cwd)));
+}
+
+/** 按任意目录构造 store：用于从 entry id / 归档 sourceFile 反推 store（见 memory-store.ts） */
+export function createAmasterStore(dir: string): AmasterStore {
+  return createStore(dir);
 }
 
 /** 按 cwd 生成项目目录名（basename；与历史 projects-memory/<basename> 约定对齐） */
