@@ -65,6 +65,7 @@ async function withServer<T>(
     providerStore,
     skillManager,
     extensionManager: new ExtensionManager(dataDir, { resolveEntryPath: () => "/fake/pi-lens/dist/index.js", readVersion: () => "0.0.0" }),
+    memoryStore: null as any,
     dataDir,
     agentManager,
     port: 0,  // 随机端口，避免冲突

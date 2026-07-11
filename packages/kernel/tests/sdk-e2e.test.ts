@@ -76,6 +76,7 @@ afterAll(async () => {
   const serverInstance = new WSServer({
     configStore, projectStore, providerStore, skillManager,
     extensionManager: new ExtensionManager(TEST_DIR, { resolveEntryPath: () => "/fake/pi-lens/dist/index.js", readVersion: () => "0.0.0" }),
+    memoryStore: null as any,
     agentManager: null as any, port: 19880,
   });
 

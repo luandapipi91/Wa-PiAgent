@@ -5,6 +5,7 @@ import { AgentManager } from "./agent-manager";
 import { WSServer } from "./ws-server";
 import { SkillManager } from "./skill-manager";
 import { ExtensionManager } from "./extension-manager";
+import { MemoryStore } from "./memory-store";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { migrateSettingsPackages } from "./extensions";
@@ -36,6 +37,7 @@ async function main() {
   const providerStore = new ProviderStore();
   const skillManager = new SkillManager(HIAGENT_DIR);
   const extensionManager = new ExtensionManager(HIAGENT_DIR);
+  const memoryStore = new MemoryStore({ hiagentDir: HIAGENT_DIR, projectStore });
 
   // 启动时把已有 providers 注册成 Pi extension（幂等）
   await ensureProviderExtensionRegistered(providerStore);
@@ -51,6 +53,7 @@ async function main() {
     providerStore,
     skillManager,
     extensionManager,
+    memoryStore,
     dataDir: HIAGENT_DIR,
     agentManager: null as any,  // 占位，下面赋值
     port: WS_PORT,

@@ -9,6 +9,7 @@ import type { AgentManager } from "./agent-manager";
 import type { ProviderStore } from "./provider-store";
 import type { SkillManager } from "./skill-manager";
 import type { ExtensionManager } from "./extension-manager";
+import type { MemoryStore } from "./memory-store";
 import { testProviderConnection } from "./provider-test";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { readdir, readFile, mkdir, writeFile, copyFile, stat } from "node:fs/promises";
@@ -116,6 +117,7 @@ export interface WSServerOpts {
   providerStore: ProviderStore;
   skillManager: SkillManager;
   extensionManager: ExtensionManager;
+  memoryStore: MemoryStore;
   agentManager: AgentManager;
   dataDir?: string;
   port?: number;
@@ -536,6 +538,86 @@ export class WSServer {
           this.opts.agentManager.markAllDirty();
           const { plugins } = await this.opts.extensionManager.list();
           this.broadcast({ type: "extension:changed", plugins });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      // ===== 记忆管理 =====
+      case "memory:list": {
+        try {
+          const result = await this.opts.memoryStore.list();
+          reply({ type: "memory:list", ...result });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "memory:update": {
+        try {
+          await this.opts.memoryStore.update(event.entryId, event.text);
+          const result = await this.opts.memoryStore.list();
+          this.broadcast({ type: "memory:changed", ...result });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "memory:archive": {
+        try {
+          await this.opts.memoryStore.archive(event.entryId);
+          const result = await this.opts.memoryStore.list();
+          this.broadcast({ type: "memory:changed", ...result });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "memory:restore": {
+        try {
+          await this.opts.memoryStore.restore(event.entryId);
+          const result = await this.opts.memoryStore.list();
+          this.broadcast({ type: "memory:changed", ...result });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "memory:purge": {
+        try {
+          await this.opts.memoryStore.purge(event.entryId);
+          const result = await this.opts.memoryStore.list();
+          this.broadcast({ type: "memory:changed", ...result });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "instruction:list": {
+        try {
+          const instructions = await this.opts.memoryStore.listInstructions(event.projectId);
+          reply({ type: "instruction:list", instructions });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "memory:config:get": {
+        try {
+          const config = await this.opts.memoryStore.getConfig();
+          reply({ type: "memory:config", config });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "memory:config:set": {
+        try {
+          await this.opts.memoryStore.setConfig(event);
+          // 配置变更后标脏所有会话，下次 idle 时 reload 读新配置
+          this.opts.agentManager.markAllDirty();
+          const config = await this.opts.memoryStore.getConfig();
+          this.broadcast({ type: "memory:config", config });
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
         }
