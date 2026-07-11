@@ -5,6 +5,7 @@ import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
 import { ProviderStore } from "../src/provider-store";
 import { SkillManager } from "../src/skill-manager";
+import { ExtensionManager } from "../src/extension-manager";
 import { WSServer } from "../src/ws-server";
 import type { WSClientEvent, WSServerEvent, AgentMessage } from "@hiagent/shared";
 
@@ -43,7 +44,7 @@ test("[第三层] session:messages 走 AgentSession.messages", async () => {
     disposeSession: async () => {},
     disposeAll: async () => {},
   } as any;
-  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, agentManager, port: 0 });
+  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, ".."), { resolveEntryPath: () => "/fake/pi-lens/dist/index.js", readVersion: () => "0.0.0" }), agentManager, port: 0 });
   await server.start();
 
   const ws = new WebSocket(`ws://127.0.0.1:${server.actualPort}`);
@@ -99,7 +100,7 @@ test("[第三层] session:messages 会话不存在返回空数组", async () => 
     disposeSession: async () => {},
     disposeAll: async () => {},
   } as any;
-  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, agentManager, port: 0 });
+  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, ".."), { resolveEntryPath: () => "/fake/pi-lens/dist/index.js", readVersion: () => "0.0.0" }), agentManager, port: 0 });
   await server.start();
 
   const ws = new WebSocket(`ws://127.0.0.1:${server.actualPort}`);

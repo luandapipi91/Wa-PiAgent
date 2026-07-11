@@ -4,6 +4,7 @@ import { ProviderStore } from "./provider-store";
 import { AgentManager } from "./agent-manager";
 import { WSServer } from "./ws-server";
 import { SkillManager } from "./skill-manager";
+import { ExtensionManager } from "./extension-manager";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { migrateSettingsPackages } from "./extensions";
@@ -34,6 +35,7 @@ async function main() {
   const projectStore = new ProjectStore();
   const providerStore = new ProviderStore();
   const skillManager = new SkillManager(HIAGENT_DIR);
+  const extensionManager = new ExtensionManager(HIAGENT_DIR);
 
   // 启动时把已有 providers 注册成 Pi extension（幂等）
   await ensureProviderExtensionRegistered(providerStore);
@@ -48,6 +50,7 @@ async function main() {
     configStore, projectStore,
     providerStore,
     skillManager,
+    extensionManager,
     dataDir: HIAGENT_DIR,
     agentManager: null as any,  // 占位，下面赋值
     port: WS_PORT,
@@ -74,6 +77,9 @@ async function main() {
   });
   // 回填真实 agentManager（绕开 TS 的「构造时已确定」语义；opts 为 private 故用 any 桥接）
   (server as any).opts.agentManager = agentManager;
+
+  // 首启播种可选插件（默认启用 pi-lens）；后续由面板 toggle
+  await extensionManager.list();
 
   await server.start();
   console.log(`[kernel] WS 监听 ws://127.0.0.1:${server.actualPort}`);
