@@ -8,6 +8,7 @@ import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
 import { ProviderStore } from "../src/provider-store";
 import { SkillManager } from "../src/skill-manager";
+import { ExtensionManager } from "../src/extension-manager";
 import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
 
 function makeTempDir(prefix: string) {
@@ -86,6 +87,7 @@ async function withComposerServer<T>(
     projectStore,
     providerStore,
     skillManager,
+    extensionManager: new ExtensionManager(dataDir, { resolveEntryPath: () => "/fake/pi-lens/dist/index.js", readVersion: () => "0.0.0" }),
     dataDir,
     agentManager,
     port: 0,

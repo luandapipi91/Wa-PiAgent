@@ -39,7 +39,7 @@ function resolveDeclaredEntry(declared: string): string | undefined {
  * 解析 npm Pi 扩展的入口文件路径。
  * 优先级：package.json 的 pi.extensions 声明 → 约定 extensions/index 或 index → 包 main。
  */
-function resolveExtensionEntryFile(pkgName: string): string {
+export function resolveExtensionEntryFile(pkgName: string): string {
   const pkgJsonPath = require.resolve(`${pkgName}/package.json`);
   const pkgRoot = dirname(pkgJsonPath);
   const pkg = require(`${pkgName}/package.json`) as { pi?: { extensions?: string[] } };
@@ -70,6 +70,29 @@ const PKG_EXTENSIONS = [
   "pi-intercom",
   "pi-web-access",
 ] as const;
+
+/**
+ * 可选插件定义：用户可在「插件」面板启用/禁用。
+ * 与 PKG_EXTENSIONS（核心、常驻、走 additionalExtensionPaths）互斥：
+ * 可选插件由 settings.json.extensions（SDK 原生字段）驱动，由 ExtensionManager 管理。
+ */
+export interface OptionalExtensionDef {
+  id: string;            // 稳定标识，前端用
+  package: string;       // npm 包名
+  displayName: string;
+  description: string;
+  defaultEnabled: boolean;
+}
+
+export const OPTIONAL_EXTENSIONS: readonly OptionalExtensionDef[] = [
+  {
+    id: "pi-lens",
+    package: "pi-lens",
+    displayName: "Pi Lens",
+    description: "实时代码反馈：LSP 诊断、lint、类型检查、结构分析",
+    defaultEnabled: true,
+  },
+];
 
 /**
  * 构造注入 DefaultResourceLoader.additionalExtensionPaths 的全部扩展入口。

@@ -58,6 +58,7 @@ afterAll(async () => {
   const { ProjectStore } = await import("../src/project-store");
   const { ProviderStore } = await import("../src/provider-store");
   const { SkillManager } = await import("../src/skill-manager");
+  const { ExtensionManager } = await import("../src/extension-manager");
   const { AgentManager } = await import("../src/agent-manager");
   const { WSServer } = await import("../src/ws-server");
 
@@ -73,7 +74,9 @@ afterAll(async () => {
   if (!devConfig) throw new Error("dev agent 配置未找到");
 
   const serverInstance = new WSServer({
-    configStore, projectStore, providerStore, skillManager, agentManager: null as any, port: 19880,
+    configStore, projectStore, providerStore, skillManager,
+    extensionManager: new ExtensionManager(TEST_DIR, { resolveEntryPath: () => "/fake/pi-lens/dist/index.js", readVersion: () => "0.0.0" }),
+    agentManager: null as any, port: 19880,
   });
 
   const agentManager = new AgentManager({

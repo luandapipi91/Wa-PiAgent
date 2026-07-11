@@ -31,6 +31,7 @@ const fakeSession: Partial<AgentSession> = {
   clearQueue: mock(() => ({ steering: [], followUp: [] })),
   followUp: mock(async () => {}),
   steer: mock(async () => {}),
+  reload: mock(async () => {}),
   modelRegistry: fakeModelRegistry as any,
 };
 
@@ -54,6 +55,7 @@ beforeEach(() => {
   (fakeSession.steer as any).mockClear();
   (fakeSession as any).isStreaming = false;
   (fakeSession as any).pendingMessageCount = 0;
+  (fakeSession.reload as any).mockClear();
   fakeUnsubscribe.mockClear();
 });
 
@@ -589,4 +591,71 @@ test("prompt — 图片附件统一用 @路径引用", async () => {
   expect(calledText).toContain("Attachments:");
   expect(calledText).toMatch(/@hiagent-img-\d+\.png/);
   expect(calledOpts).toBeUndefined();
+});
+
+test("markAllDirty 后命中缓存时 deferred reload 一次并清脏", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);   // 首次创建（不在 dirty）
+  (fakeSession.reload as any).mockClear();
+
+  am.markAllDirty();                                        // 标脏
+  await am.ensureStarted(project.id, "dev", session.id);   // 命中缓存 → reload 一次
+
+  expect(fakeSession.reload).toHaveBeenCalledTimes(1);
+
+  // 清脏后再次命中不再 reload
+  await am.ensureStarted(project.id, "dev", session.id);
+  expect(fakeSession.reload).toHaveBeenCalledTimes(1);
+});
+
+test("未标脏的会话命中缓存时不 reload", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+  (fakeSession.reload as any).mockClear();
+
+  await am.ensureStarted(project.id, "dev", session.id);   // 命中缓存但未标脏
+  expect(fakeSession.reload).not.toHaveBeenCalled();
+});
+
+test("dirty 会话正在 streaming 时跳过 reload 且保留 dirty（idle 后补 reload）", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+  (fakeSession.reload as any).mockClear();
+  (fakeSession as any).isStreaming = true;   // 模拟后台 agent 正在流式输出
+
+  am.markAllDirty();
+  await am.ensureStarted(project.id, "dev", session.id);   // 命中缓存但 streaming → 跳过
+  expect(fakeSession.reload).not.toHaveBeenCalled();
+
+  // idle 后再次命中 → dirty 仍保留，补一次 reload
+  (fakeSession as any).isStreaming = false;
+  await am.ensureStarted(project.id, "dev", session.id);
+  expect(fakeSession.reload).toHaveBeenCalledTimes(1);
 });
