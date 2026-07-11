@@ -50,8 +50,8 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
         <span
           data-testid={`unread-tag-${session.id}`}
           aria-label="有新回复"
-          className="absolute top-0 right-2 rotate-45 text-[8.5px] font-extrabold leading-none px-1.5 py-0.5 select-none pointer-events-none"
-          style={{ background: "var(--accent)", color: "#fff", borderRadius: 2, boxShadow: "0 1px 2px rgba(0,0,0,0.18)" }}
+          className="absolute -top-0.5 -right-1 rotate-45 text-[8.5px] font-extrabold leading-none px-1.5 py-0.5 select-none pointer-events-none"
+          style={{ background: "var(--accent)", color: "#fff", borderRadius: 7, boxShadow: "0 1px 2px rgba(0,0,0,0.18)" }}
         >
           new
         </span>
