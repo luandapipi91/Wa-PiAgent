@@ -160,6 +160,31 @@ test("ensureStarted 使用 agent 显式配置的 tools", async () => {
   );
 });
 
+test("ensureStarted 注入 memory customTools（绑定项目 store）", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  expect(mockCreateAgentSession).toHaveBeenCalledWith(
+    expect.objectContaining({ customTools: expect.any(Array) }),
+  );
+  const calls = (mockCreateAgentSession as any).mock.calls;
+  const customTools = calls[calls.length - 1][0].customTools;
+  expect(customTools.length).toBeGreaterThan(0);
+  const names = customTools.map((t: any) => t.name);
+  expect(names).toEqual(
+    expect.arrayContaining(["memory_add", "memory_replace", "memory_remove", "memory_read"]),
+  );
+});
+
 test("ensureStarted 复用已存在的 session（同 sessionId 不重复创建）", async () => {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });

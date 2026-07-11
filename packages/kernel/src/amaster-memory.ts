@@ -11,8 +11,10 @@
 // amaster 的 MemoryStore 仅区分 memory(MEMORY.md) 与 user(USER.md) 两个 target；
 // failure 等其它分类不在此层管理。
 
-import { MemoryStore } from "@amaster.ai/pi-memory";
+import { MemoryStore, createMemoryTools } from "@amaster.ai/pi-memory";
 export type { MemoryTarget } from "@amaster.ai/pi-memory";
+/** 透传 amaster 的 createMemoryTools（绑定 raw store 生成 agent 可用的记忆 tool 集） */
+export { createMemoryTools } from "@amaster.ai/pi-memory";
 import type { MemoryTarget } from "@amaster.ai/pi-memory";
 import { join } from "node:path";
 
@@ -20,6 +22,8 @@ import { join } from "node:path";
 export interface AmasterStore {
   /** 该 store 落盘的绝对目录 */
   readonly dir: string;
+  /** 底层 amaster MemoryStore（供 createMemoryTools 等需要原始实例的场合） */
+  readonly raw: MemoryStore;
   /** 追加一条记忆（空串或命中 promptware 扫描会被拒绝并抛错） */
   add(target: MemoryTarget, content: string): Promise<void>;
   /** 按 oldText 精确匹配替换；返回是否命中 */
@@ -30,6 +34,8 @@ export interface AmasterStore {
   entries(target: MemoryTarget): Promise<string[]>;
   /** 读取冻结的系统提示词快照（已做 promptware 清洗，注入提示词用） */
   snapshot(target: MemoryTarget): Promise<string>;
+  /** memory + user 合并快照（一次 loadFromDisk），无内容返回空串 */
+  snapshotAll(): Promise<string>;
 }
 
 /** 全局记忆 store：<hiagentDir>/memories/global */
@@ -60,6 +66,7 @@ function createStore(dir: string): AmasterStore {
 
   return {
     dir,
+    raw: store,
     async add(target, content) {
       assertOk(await store.add(target, content), "记忆写入失败");
     },
@@ -78,6 +85,10 @@ function createStore(dir: string): AmasterStore {
     async snapshot(target) {
       await store.loadFromDisk();
       return store.formatForSystemPrompt(target);
+    },
+    async snapshotAll() {
+      await store.loadFromDisk();
+      return store.formatAllForSystemPrompt();
     },
   };
 }
