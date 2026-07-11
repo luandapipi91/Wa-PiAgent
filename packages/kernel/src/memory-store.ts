@@ -1,77 +1,46 @@
 // memory-store.ts — 记忆与指令文件管理服务
 //
 // 设计要点：
-// - 读写 pi-hermes-memory 的 Markdown 文件（MEMORY.md/USER.md/failures.md），按 § 分隔条目
-// - 归档使用 sidecar JSON（~/.hiagent/memory-archive.json），不修改插件的文件结构
-// - 记忆配置开关读写 hermes-memory-config.json
-// - 指令文件扫描全局（~/.hiagent）+ 项目 cwd 下的 AGENTS.md/CLAUDE.md
-// - 与 pi-hermes-memory 之间无 API 调用，只通过文件系统通信
+// - 记忆读写全部委托 amaster-memory（@amaster.ai/pi-memory host-controlled 包装层）：
+//   全局 <hiagentDir>/memories/global，项目 <hiagentDir>/projects-memory/<basename>。
+//   § 分隔格式由 amaster 单一维护，避免外部裸写触发 drift 检测。
+// - 归档使用 sidecar JSON（~/.hiagent/memory-archive.json），hiagent 自管，不进 amaster 文件。
+// - 记忆配置开关读写 hermes-memory-config.json。
+// - 指令文件仅扫描 AGENTS.md / CLAUDE.md（全局 + 项目 cwd）；记忆内容已由 memory tab
+//   展示、并由 AgentManager 注入系统提示词快照，不再作为指令文件重复注入。
+// - entry id 编码 "<relPath>:<rawIndex>"，relPath 相对 hiagentDir，rawIndex 为该 store+target
+//   下 entries 的下标；变更时按 id 反查 store 并取 entries[rawIndex] 作为 oldText 调 amaster。
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, dirname } from "node:path";
 import type {
   MemoryEntry, ArchivedMemory, InstructionFile, MemoryConfig,
   MemoryArchiveFile, MemoryCategory, MemoryScope,
 } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
-
-/** 记忆文件来源定义 */
-interface MemorySourceDef {
-  relativePath: string;   // 相对于 hiagentDir 或 projectsMemoryDir 的路径
-  category: MemoryCategory;
-}
-
-/** 全局记忆文件来源 */
-const GLOBAL_SOURCES: MemorySourceDef[] = [
-  { relativePath: "pi-hermes-memory/MEMORY.md", category: "memory" },
-  { relativePath: "pi-hermes-memory/USER.md", category: "user" },
-  { relativePath: "pi-hermes-memory/failures.md", category: "failure" },
-];
-
-/** 项目级记忆文件来源 */
-const PROJECT_SOURCES: MemorySourceDef[] = [
-  { relativePath: "MEMORY.md", category: "memory" },
-  { relativePath: "failures.md", category: "failure" },
-];
+import {
+  getGlobalMemoryStore,
+  getProjectMemoryStore,
+  createAmasterStore,
+  projectNameFromCwd,
+  type AmasterStore,
+  type MemoryTarget,
+} from "./amaster-memory";
 
 const ARCHIVE_FILE = "memory-archive.json";
 const HERMES_CONFIG_FILE = "hermes-memory-config.json";
 const PROJECTS_MEMORY_DIR = "projects-memory";
+const GLOBAL_REL_PREFIX = "memories/global";
 
-/** 匹配 HTML 注释（支持多行） */
-const HTML_COMMENT_REGEX = /<!--[\s\S]*?-->/g;
-
-/** 移除文本中的 HTML 注释，并尝试提取最后修改日期（优先 last， fallback created） */
-function stripHtmlComments(text: string): { text: string; updatedAt?: string } {
-  let updatedAt: string | undefined;
-  const cleaned = text.replace(HTML_COMMENT_REGEX, (match) => {
-    const lastMatch = match.match(/last=(\d{4}-\d{2}-\d{2})/);
-    if (lastMatch) {
-      updatedAt = lastMatch[1];
-    } else {
-      const createdMatch = match.match(/created=(\d{4}-\d{2}-\d{2})/);
-      if (createdMatch && !updatedAt) updatedAt = createdMatch[1];
-    }
-    return "";
-  });
-  return { text: cleaned, updatedAt };
+/** amaster target → hiagent category */
+function categoryForTarget(target: MemoryTarget): MemoryCategory {
+  return target === "user" ? "user" : "memory";
 }
 
-/** 判断去除 HTML 注释后是否为空条目（与 parse 对齐） */
-function isEmptyMemoryPart(text: string): boolean {
-  return stripHtmlComments(text).text.trim().length === 0;
-}
-
-/** 替换正文时保留原始 part 末尾的 HTML 注释元数据 */
-function replaceTextKeepingComment(originalPart: string, newText: string): string {
-  const commentMatch = originalPart.match(/(<!--[\s\S]*?-->)/);
-  if (!commentMatch) return newText;
-  const comment = commentMatch[1];
-  const beforeComment = originalPart.slice(0, commentMatch.index).trimEnd();
-  const prefixEnd = beforeComment.length > 0 ? originalPart.indexOf(beforeComment) : commentMatch.index;
-  const prefix = originalPart.slice(0, prefixEnd);
-  return `${prefix}${newText}\n${comment}`;
+/** 从 relPath 推断 target */
+function targetFromRelPath(relPath: string): MemoryTarget {
+  return relPath.replace(/\\/g, "/").endsWith("USER.md") ? "user" : "memory";
 }
 
 export interface MemoryStoreOpts {
@@ -82,176 +51,103 @@ export interface MemoryStoreOpts {
 export class MemoryStore {
   constructor(private opts: MemoryStoreOpts) {}
 
-  /** 列出所有记忆 + 归档记忆
-   * @param projectId 当前项目 ID；传入时读取对应项目的 projects-memory，不传则只返回全局记忆
+  /**
+   * 列出所有记忆 + 归档记忆
+   * @param projectId 当前项目 ID；传入时额外读取对应项目记忆，不传则只返回全局记忆
    */
   async list(projectId?: string): Promise<{ memories: MemoryEntry[]; archived: ArchivedMemory[] }> {
     const memories: MemoryEntry[] = [];
 
-    // 全局来源
-    for (const src of GLOBAL_SOURCES) {
-      const absPath = join(this.opts.hiagentDir, src.relativePath);
-      const entries = await this.parseMemoryFile(absPath, src.category, "global");
-      memories.push(...entries);
-    }
+    const globalStore = getGlobalMemoryStore(this.opts.hiagentDir);
+    memories.push(...await this.toEntries(globalStore, "memory", "global", `${GLOBAL_REL_PREFIX}/MEMORY.md`));
+    memories.push(...await this.toEntries(globalStore, "user", "global", `${GLOBAL_REL_PREFIX}/USER.md`));
 
-    // 项目来源
     const cwd = projectId ? await this.getProjectCwd(projectId) : null;
     if (cwd) {
-      const projectDir = join(this.opts.hiagentDir, PROJECTS_MEMORY_DIR, this.projectNameFromCwd(cwd));
-      for (const src of PROJECT_SOURCES) {
-        const absPath = join(projectDir, src.relativePath);
-        const entries = await this.parseMemoryFile(absPath, src.category, "project");
-        memories.push(...entries);
-      }
+      const name = projectNameFromCwd(cwd);
+      const projectStore = getProjectMemoryStore(this.opts.hiagentDir, cwd);
+      const relBase = `${PROJECTS_MEMORY_DIR}/${name}`;
+      memories.push(...await this.toEntries(projectStore, "memory", "project", `${relBase}/MEMORY.md`));
+      memories.push(...await this.toEntries(projectStore, "user", "project", `${relBase}/USER.md`));
     }
 
-    // 归档
     const archived = await this.loadArchive();
-
     return { memories, archived };
   }
 
-  /** 解析单个记忆文件的 § 分隔条目 */
-  private async parseMemoryFile(
-    absPath: string,
-    category: MemoryCategory,
+  /** 把单个 store+target 的 entries 映射为 MemoryEntry[] */
+  private async toEntries(
+    store: AmasterStore,
+    target: MemoryTarget,
     scope: MemoryScope,
+    relPath: string,
   ): Promise<MemoryEntry[]> {
-    let content: string;
-    try {
-      content = await readFile(absPath, "utf8");
-    } catch {
-      return []; // 文件不存在，跳过
-    }
-
-    const parts = content.split("§");
-    const relPath = relative(this.opts.hiagentDir, absPath).replace(/\\/g, "/");
-
-    // 过滤空/纯注释条目，rawIndex 与 update/archive 的 nonEmptyIndices 对齐
-    const nonEmptyParts = parts
-      .map((text, originalIdx) => ({ text, originalIdx }))
-      .filter(({ text }) => !isEmptyMemoryPart(text));
-
-    return nonEmptyParts.map(({ text }, rawIndex) => {
-      const stripped = stripHtmlComments(text);
-      return {
-        id: `${relPath}:${rawIndex}`,
-        text: stripped.text.trim(),
-        category,
-        scope,
-        sourceFile: absPath,
-        rawIndex,
-        updatedAt: stripped.updatedAt,
-      };
-    });
-  }
-
-  // —— CRUD 方法在后续 step 实现 ——
-  /** 编辑记忆：按 id 定位 § 段落，原地替换文本 */
-  async update(id: string, text: string): Promise<void> {
-    const sourceFile = await this.resolveSourceFile(id);
-    const rawIndex = this.extractRawIndex(id);
-
-    let content: string;
-    try {
-      content = await readFile(sourceFile, "utf8");
-    } catch {
-      throw new Error("记忆文件不存在，可能已被插件修改");
-    }
-
-    const parts = content.split("§");
-    // 过滤空/纯注释条目的索引对齐：与 parseMemoryFile 一致
-    const nonEmptyIndices: number[] = [];
-    parts.forEach((p, i) => { if (!isEmptyMemoryPart(p)) nonEmptyIndices.push(i); });
-
-    const partIndex = nonEmptyIndices[rawIndex];
-    if (partIndex === undefined) {
-      throw new Error("条目不存在，可能已被插件修改，请刷新列表");
-    }
-
-    parts[partIndex] = replaceTextKeepingComment(parts[partIndex], text);
-    await writeFile(sourceFile, parts.join("§"), "utf8");
-  }
-
-  /** 归档（软删除）：从源文件移除 → 写入 sidecar */
-  async archive(id: string): Promise<void> {
-    const sourceFile = await this.resolveSourceFile(id);
-    const rawIndex = this.extractRawIndex(id);
-
-    let content: string;
-    try {
-      content = await readFile(sourceFile, "utf8");
-    } catch {
-      throw new Error("记忆文件不存在");
-    }
-
-    const parts = content.split("§");
-    const nonEmptyIndices: number[] = [];
-    parts.forEach((p, i) => { if (!isEmptyMemoryPart(p)) nonEmptyIndices.push(i); });
-    const partIndex = nonEmptyIndices[rawIndex];
-    if (partIndex === undefined) throw new Error("条目不存在");
-
-    const archivedText = stripHtmlComments(parts[partIndex]).text.trim();
-    parts.splice(partIndex, 1);
-    await writeFile(sourceFile, parts.join("§"), "utf8");
-
-    // 写入 sidecar
-    const archived = await this.loadArchive();
-    const category = this.categoryFromSourceFile(sourceFile);
-    const scope = this.scopeFromSourceFile(sourceFile);
-    archived.push({
-      id,
-      text: archivedText,
-      category,
+    const texts = await store.entries(target);
+    const sourceFile = join(this.opts.hiagentDir, relPath);
+    return texts.map((text, rawIndex) => ({
+      id: `${relPath}:${rawIndex}`,
+      text,
+      category: categoryForTarget(target),
       scope,
       sourceFile,
       rawIndex,
+    }));
+  }
+
+  /**
+   * 手动添加记忆（UI「+ 添加」入口）。
+   * 固定写入 memory target（USER target 由 agent / amaster 维护）。
+   */
+  async add(scope: MemoryScope, text: string, projectId?: string): Promise<void> {
+    const store = await this.getStoreForScope(scope, projectId);
+    await store.add("memory", text);
+  }
+
+  /** 编辑记忆：按 id 反查 store，取 oldText 调 amaster replace */
+  async update(id: string, text: string): Promise<void> {
+    const { store, target, oldText } = await this.resolveForMutation(id);
+    const ok = await store.replace(target, oldText, text);
+    if (!ok) throw new Error("条目不存在或已被修改，请刷新列表");
+  }
+
+  /** 归档（软删除）：从 store 移除 → 写入 sidecar */
+  async archive(id: string): Promise<void> {
+    const { store, target, oldText, meta } = await this.resolveForMutation(id);
+    const ok = await store.remove(target, oldText);
+    if (!ok) throw new Error("条目不存在或已被修改，请刷新列表");
+
+    const archived = await this.loadArchive();
+    archived.push({
+      id,
+      text: oldText,
+      category: meta.category,
+      scope: meta.scope,
+      sourceFile: meta.sourceFile,
+      rawIndex: meta.rawIndex,
       archivedAt: new Date().toISOString(),
     });
     await this.saveArchive(archived);
   }
 
-  /** 从文件路径推断分类 */
-  private categoryFromSourceFile(absPath: string): MemoryCategory {
-    const normalized = absPath.replace(/\\/g, "/");
-    if (normalized.includes("USER.md")) return "user";
-    if (normalized.includes("failures.md")) return "failure";
-    return "memory";
-  }
-
-  /** 从文件路径推断作用域 */
-  private scopeFromSourceFile(absPath: string): MemoryScope {
-    const normalized = absPath.replace(/\\/g, "/");
-    return normalized.includes(`${PROJECTS_MEMORY_DIR}/`) ? "project" : "global";
-  }
-  /** 恢复：从 sidecar 移除 → 追加回源文件末尾 */
+  /** 恢复：从 sidecar 移除 → 追加回 store */
   async restore(id: string): Promise<void> {
     const archived = await this.loadArchive();
     const entry = archived.find(a => a.id === id);
     if (!entry) throw new Error("归档条目不存在");
 
-    // 追加回源文件
-    let content = "";
-    try {
-      content = await readFile(entry.sourceFile, "utf8");
-    } catch {
-      // 文件可能不存在了（被插件清空），从空开始
-    }
-    const trimmed = content.trim();
-    const newContent = trimmed.length > 0 ? `${trimmed}\n§\n${entry.text}` : entry.text;
-    await mkdir(entry.sourceFile.replace(/[/\\][^/\\]+$/, ""), { recursive: true });
-    await writeFile(entry.sourceFile, newContent, "utf8");
-
-    // 从 sidecar 移除
+    const store = createAmasterStore(dirname(entry.sourceFile));
+    const target: MemoryTarget = entry.category === "user" ? "user" : "memory";
+    await store.add(target, entry.text);
     await this.saveArchive(archived.filter(a => a.id !== id));
   }
-  /** 彻底删除：从 sidecar 移除，不写回源文件 */
+
+  /** 彻底删除：从 sidecar 移除，不写回 store */
   async purge(id: string): Promise<void> {
     const archived = await this.loadArchive();
     await this.saveArchive(archived.filter(a => a.id !== id));
   }
-  /** 扫描已加载的指令文件（全局 + 项目） */
+
+  /** 扫描已加载的指令文件（全局 + 项目），仅 AGENTS.md / CLAUDE.md */
   async listInstructions(projectId: string): Promise<InstructionFile[]> {
     const result: InstructionFile[] = [];
     const candidates = ["AGENTS.md", "CLAUDE.md"];
@@ -260,10 +156,7 @@ export class MemoryStore {
     for (const name of candidates) {
       const p = join(this.opts.hiagentDir, name);
       if (existsSync(p)) {
-        result.push({
-          path: p, name, scope: "global",
-          content: await readFile(p, "utf8"),
-        });
+        result.push({ path: p, name, scope: "global", content: await readFile(p, "utf8") });
         break;
       }
     }
@@ -274,48 +167,13 @@ export class MemoryStore {
       for (const name of candidates) {
         const p = join(cwd, name);
         if (existsSync(p)) {
-          result.push({
-            path: p, name, scope: "project",
-            content: await readFile(p, "utf8"),
-          });
+          result.push({ path: p, name, scope: "project", content: await readFile(p, "utf8") });
           break;
         }
       }
     }
 
-    // 全局记忆文件也作为参考指令注入（MEMORY.md / USER.md / failures.md）
-    for (const src of GLOBAL_SOURCES) {
-      const p = join(this.opts.hiagentDir, src.relativePath);
-      if (existsSync(p)) {
-        const content = await readFile(p, "utf8");
-        if (content.trim()) {
-          const name = src.relativePath.replace(/\\/g, "/").split("/").pop() ?? src.relativePath;
-          result.push({ path: p, name, scope: "global", content });
-        }
-      }
-    }
-
-    // 项目级记忆文件
-    if (cwd) {
-      const projectDir = join(this.opts.hiagentDir, PROJECTS_MEMORY_DIR, this.projectNameFromCwd(cwd));
-      for (const src of PROJECT_SOURCES) {
-        const p = join(projectDir, src.relativePath);
-        if (existsSync(p)) {
-          const content = await readFile(p, "utf8");
-          if (content.trim()) {
-            result.push({ path: p, name: src.relativePath, scope: "project", content });
-          }
-        }
-      }
-    }
-
     return result;
-  }
-
-  /** 按 projectId 从 ProjectStore 查 cwd */
-  private async getProjectCwd(projectId: string): Promise<string | null> {
-    const { projects } = await this.opts.projectStore.load();
-    return projects.find(p => p.id === projectId)?.cwd ?? null;
   }
 
   /** 读记忆配置开关 */
@@ -352,26 +210,49 @@ export class MemoryStore {
 
   // —— 辅助方法 ——
 
-  /** 从 id（"相对路径:rawIndex"）提取 rawIndex */
-  private extractRawIndex(id: string): number {
+  /** 按 scope 取 store；project scope 必须能解析出 cwd，否则抛错 */
+  private async getStoreForScope(scope: MemoryScope, projectId?: string): Promise<AmasterStore> {
+    if (scope === "global") return getGlobalMemoryStore(this.opts.hiagentDir);
+    if (!projectId) throw new Error("项目记忆需要 projectId");
+    const cwd = await this.getProjectCwd(projectId);
+    if (!cwd) throw new Error(`项目不存在: ${projectId}`);
+    return getProjectMemoryStore(this.opts.hiagentDir, cwd);
+  }
+
+  /** 从 id 反查 store + target + 当前 oldText（变更前调用，保证命中最新文本） */
+  private async resolveForMutation(id: string): Promise<{
+    store: AmasterStore;
+    target: MemoryTarget;
+    oldText: string;
+    meta: { category: MemoryCategory; scope: MemoryScope; sourceFile: string; rawIndex: number };
+  }> {
     const colonIdx = id.lastIndexOf(":");
     if (colonIdx === -1) throw new Error(`无效的记忆 ID: ${id}`);
-    return parseInt(id.slice(colonIdx + 1), 10);
+    const relPath = id.slice(0, colonIdx).replace(/\\/g, "/");
+    const rawIndex = parseInt(id.slice(colonIdx + 1), 10);
+
+    const target = targetFromRelPath(relPath);
+    const scope: MemoryScope = relPath.startsWith(GLOBAL_REL_PREFIX) ? "global" : "project";
+    const sourceFile = join(this.opts.hiagentDir, relPath);
+    const store = createAmasterStore(dirname(sourceFile));
+
+    const entries = await store.entries(target);
+    const oldText = entries[rawIndex];
+    if (oldText === undefined) {
+      throw new Error("条目不存在或已被修改，请刷新列表");
+    }
+    return {
+      store,
+      target,
+      oldText,
+      meta: { category: categoryForTarget(target), scope, sourceFile, rawIndex },
+    };
   }
 
-  /** 从 id 解析源文件绝对路径 */
-  private async resolveSourceFile(id: string): Promise<string> {
-    const colonIdx = id.lastIndexOf(":");
-    const relPath = id.slice(0, colonIdx).replace(/\//g, "/");
-    // 尝试拼接 hiagentDir（全局或 projects-memory 下的路径都相对于 hiagentDir）
-    return join(this.opts.hiagentDir, relPath);
-  }
-
-  /** 从 cwd 生成项目目录名（与 pi-hermes-memory 的 projects-memory/<basename> 对齐） */
-  private projectNameFromCwd(cwd: string): string {
-    // pi-hermes-memory 用 cwd 的 basename 作为项目标识
-    const parts = cwd.replace(/\\/g, "/").replace(/\/$/, "").split("/");
-    return parts[parts.length - 1] || "default";
+  /** 按 projectId 从 ProjectStore 查 cwd */
+  private async getProjectCwd(projectId: string): Promise<string | null> {
+    const { projects } = await this.opts.projectStore.load();
+    return projects.find(p => p.id === projectId)?.cwd ?? null;
   }
 
   /** 加载归档 sidecar */
