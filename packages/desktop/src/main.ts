@@ -31,7 +31,7 @@ function iconPath(): string {
 async function main() {
   log.info(`启动 desktop, platform=${process.platform}`);
 
-  // 廉价单实例：必须先检测，否则 killPort 会把已有实例杀掉。
+  // 廉价单实例：端口被占即视为已有实例运行，打开浏览器后退出。
   // stale-orphan（端口被崩溃的非服务进程占住）场景 v1 best-effort 不处理。
   if (await isPortInUse(WS_PORT)) {
     log.info("检测到已有实例，打开浏览器后退出");
@@ -65,7 +65,7 @@ async function main() {
 
 async function cleanup(kernel: KernelHandle, tray: TrayHandle): Promise<void> {
   log.info("退出清理");
-  // 优雅关停：kernel.stop() 自带 server 关闭；不再对自启端口用 killPort 兜底。
+  // 优雅关停：kernel.stop() 自带 server 关闭。
   try {
     await kernel.stop();
   } catch (e) {
@@ -75,6 +75,12 @@ async function cleanup(kernel: KernelHandle, tray: TrayHandle): Promise<void> {
     await tray.kill();
   } catch (e) {
     log.error("tray.kill 失败", e);
+  }
+  // 等待所有排队日志写入落盘后再退出，避免末尾「退出清理」/错误行被截断。
+  try {
+    await log.flush();
+  } catch {
+    // best-effort：flush 失败不阻塞退出
   }
   process.exit(0);
 }

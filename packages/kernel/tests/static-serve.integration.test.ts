@@ -67,4 +67,7 @@ maybeTest("静态伺服：返回 index.html 与资产", async () => {
   const asset = await (await fetch(`http://127.0.0.1:${usedPort}/assets/x.js`)).text();
   expect(root).toBe("<html>ok</html>");
   expect(asset).toBe("console.log(1)");
+  // 资产形路径但文件缺失：回退 index.html（SPA 路由），不漏 426
+  const missing = await (await fetch(`http://127.0.0.1:${usedPort}/assets/does-not-exist.js`)).text();
+  expect(missing).toBe("<html>ok</html>");
 });

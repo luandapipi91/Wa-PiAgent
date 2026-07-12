@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-07-12 — 桌面托盘二进制末审小修（refactor）
+
+### 重构
+- **删 dead `killPort`（YAGNI）**：`packages/desktop/src/util/port.ts` 的 `killPort`（搬自 `scripts/port.ts` 的副本）在 desktop 运行时从未被 import——单实例逻辑改为 `isPortInUse` 检测 + 直接退出，不再需要杀端口能力。删除 `killPort` 函数与 `spawn` import；`main.ts` 中两条引用 `killPort` 的过时注释一并清理（保留 `isPortInUse`）。注：`scripts/port.ts` 的同名函数仍被 `scripts/dev.ts` 使用，未受影响
+  - **影响范围**：packages/desktop（src/util/port.ts、src/main.ts）
+  - **验证**：`grep killPort packages/desktop` 仅剩一条删除说明注释；desktop 11 pass / 0 fail
+- **kernel 静态资产缺失回退 index.html（SPA）**：`packages/kernel/src/ws-server.ts` 的 `fetch` 处理在 `staticDir` 已设置但请求的资产文件缺失（`file.size === 0`）时，原先错误返回 `426 WS only`，违反 SPA 路由约定。改为：缺失资产 → 伺服 `${staticDir}/index.html`（content-type `text/html`）；仅在 `staticDir` 完全未设置（dev 模式）才保留 426 兜底
+  - **影响范围**：packages/kernel（src/ws-server.ts、tests/static-serve.integration.test.ts）
+  - **验证**：新增断言——请求 `/assets/does-not-exist.js` 返回 index.html body；集成测试 1 pass / 3 expect；root suite 560 pass / 0 fail
+- **desktop logger 退出前 flush**：`packages/desktop/src/log.ts` 的 `createLogger` 此前 fire-and-forget `mkdir().then(appendFile())`，`main.ts` `cleanup` 里的 `process.exit(0)` 可能截断末尾「退出清理」/错误日志行。`Logger` 接口新增 `flush(): Promise<void>`，实现用 `Set<Promise>` 跟踪 in-flight 写入、`Promise.allSettled` 等齐；`cleanup` 在 `process.exit(0)` 前 best-effort `await log.flush()`（try/catch 兜底）
+  - **影响范围**：packages/desktop（src/log.ts、src/main.ts）
+  - **验证**：log 单测仍 pass（flush 已加但原测试用 setTimeout 等待，未受影响）；desktop 11 pass / 0 fail；typecheck 通过
+
+### 验证（整体）
+- `bun run typecheck` 四包全过（shared / frontend / kernel / desktop）
+- `bun run test` 根套件 560 pass / 5 skip / 0 fail
+- `cd packages/kernel && bun test tests/static-serve.integration.test.ts` 1 pass / 3 expect（含新增 SPA 回退断言）
+- `cd packages/desktop && bun test` 11 pass / 0 fail
+- 注：未运行 `bun run pack:win`，`dist/desktop/win-x64/HiAgent.exe` 保持字节不变，供并行真机测试
+
 ## 2026-07-12
 
 ### 新增功能
