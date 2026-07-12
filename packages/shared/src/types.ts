@@ -17,6 +17,7 @@ import type {
   MemoryPurgeEvent, MemoryAddEvent, InstructionListEvent, MemoryConfigGetEvent, MemoryConfigSetEvent,
   MemoryListResult, MemoryChangedEvent, InstructionListResult, MemoryConfigEvent,
 } from "./memory";
+import type { AskReply } from "./ask";
 
 export type AgentName = "product" | "pm" | "dev" | "test";
 export type AgentStateKey = `${string}:${AgentName}`;
@@ -179,6 +180,18 @@ export interface AbortEvent {
   sessionId: string;
   agentName: AgentName;
 }
+// ask_user_question 应答（client → kernel），直达 AskRegistry，不经 steer/followUp 队列
+export interface AskAnswerEvent {
+  type: "agent:answer";
+  sessionId: string;
+  toolCallId: string;
+  reply: AskReply;
+}
+export interface AskCancelAskEvent {
+  type: "agent:cancel-ask";
+  sessionId: string;
+  toolCallId: string;
+}
 export interface SteerPromoteEvent {
   type: "steer:promote";
   sessionId: string;
@@ -244,6 +257,7 @@ export interface SessionMessagesRequest {
 
 export type WSClientEvent =
   | PromptEvent | AbortEvent
+  | AskAnswerEvent | AskCancelAskEvent
   | SteerPromoteEvent | SteerImmediateEvent | SteerCancelEvent | SteerClearQueueEvent
   | ProjectCreateEvent | ProjectUpdateEvent | ProjectDeleteEvent | ProjectOpenDirEvent
   | SessionRenameEvent | SessionDeleteEvent

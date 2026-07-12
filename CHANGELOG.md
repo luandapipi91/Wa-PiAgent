@@ -6,6 +6,16 @@
 
 ## 2026-07-12
 
+### 新增功能
+- **ask_user_question 结构化澄清提问工具**：agent 可在任务中调用 `ask_user_question` 工具向用户提出 1-4 个结构化问题（每问 2-4 选项，支持单/多选、自由文本、per-question 备注），代替瞎猜；前端在 composer 上方停靠 AskDock 表单完成人机交互
+  - shared：新增 `ask.ts`（AskParams/AskReply/AskAnswer 类型 + validateAskParams/replyToAnswers 纯函数 + ASK_RESERVED_LABELS）；`DEFAULT_AGENT_TOOLS` 加入白名单；WSClientEvent 加 `agent:answer`/`agent:cancel-ask`
+  - kernel：`AskRegistry` 进程单例（ask 阻塞/resolve/cancel/cancelAll/幂等/AbortSignal）；`makeAskTool` 用 `defineTool`+TypeBox 定义工具并入 `customTools`（与 memory 工具合并，不覆盖）；中断点（abort/_jumpQueue/_teardownSession）调 cancelAll 作废 pending；ws-server 处理 agent:answer/cancel-ask 直达 registry；reconcileDanglingAsks 重启兜底
+  - frontend：`selectPendingAsks`/`selectEffectiveStatus` 派生选择器；AskFormCard 表单组件（单/多选、Other、preview、备注、提交/取消）；AskDock 停靠区；pending 时 composer 禁用；历史 ToolCall 显示「问答」label
+- **影响范围**：packages/shared（ask.ts, types.ts, constants.ts, index.ts, tests/ask.test.ts）、packages/kernel（ask-registry.ts, ask-tool.ts, agent-manager.ts, ws-server.ts 及对应测试）、packages/frontend（store/ask.ts, components/ask/AskFormCard.tsx, components/ask/AskDock.tsx, SessionView.tsx, Composer.tsx, ui/ComposerInput.tsx, MessageList.tsx 及对应测试）
+- **验证**：shared 36 pass / kernel 232 pass / frontend 264 pass（0 fail）；三包 typecheck 通过；四层测试第 1-3 层（单元/组件/集成）已覆盖，第 4 层 E2E 待真实模型环境补充
+
+## 2026-07-12
+
 ### 修复
 - **pi-lens（LSP 诊断）两个独立根因导致 agent 报告"LSP 不可用"**：
   - 根因1 双重加载：`~/.hiagent/settings.json.extensions` 积累多条 pi-lens 路径（bun install 产生新 `.bun` 缓存 hash 后旧路径残留），SDK 双重加载同一扩展，两实例在 `session_start` 互相判定为"并发副实例"双双跳过 `handleSessionStart`，LSP 服务从未初始化。修复：`ExtensionManager.list()/toggle()` 增加 `pathBelongsToPackage` 归属判定，对每个可选插件收敛同包所有历史路径为当前唯一路径（启用）或全部移除（禁用），保留外部路径。同时清理用户 settings.json 中 2 条重复 pi-lens + 1 条废弃 pi-hermes-memory
