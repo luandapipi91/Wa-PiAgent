@@ -24,6 +24,21 @@ interface ExtensionSettings {
   [k: string]: unknown;
 }
 
+/**
+ * 判断一条 settings.extensions 路径是否属于指定 npm 包。
+ * npm/bun 布局下，包入口路径必含 `node_modules/<pkgName>/` 片段
+ * （含 .bun 缓存的 `pi-lens@hash/node_modules/pi-lens/` 形态）。
+ * 用于收敛同包历史路径，避免 bun install 产生新 hash 后旧路径残留导致双重加载。
+ */
+function pathBelongsToPackage(extPath: string, pkgName: string): boolean {
+  const sep = /[\\/]/;  // 跨平台：兼容 Windows 反斜杠与 POSIX 正斜杠
+  const segments = extPath.split(sep);
+  const nodeModulesIdx = segments.lastIndexOf("node_modules");
+  if (nodeModulesIdx === -1 || nodeModulesIdx === segments.length - 1) return false;
+  // node_modules 后第一个段即包名（scoped 包含 @scope/name，这里可选插件都是裸名）
+  return segments[nodeModulesIdx + 1] === pkgName;
+}
+
 export interface ExtensionManagerOpts {
   /** 解析插件入口绝对路径（默认用 extensions.ts 的 resolveExtensionEntryFile） */
   resolveEntryPath?: (pkgName: string) => string;
@@ -77,13 +92,22 @@ export class ExtensionManager {
    * 首启播种：settings.extensions 字段尚不存在时，把 defaultEnabled 的插件入口路径
    * 补写并持久化。字段一旦存在（即便被 toggle 清空成 []），视为用户已有明确意图，不再重播——
    * 否则禁用后下次 list() 又会把 defaultEnabled 插件加回来，导致无法真正禁用。
-   * 包未安装时该插件标记为 enabled=false，不播种（避免写入无效路径）。
+   * 包未安装时该插件标记为 enabled: false，不播种（避免写入无效路径）。
+   *
+   * 路径收敛：每个可选插件在 settings.extensions 中的历史路径（bun install 产生新 .bun
+   * 缓存 hash 后遗留的旧路径）会被收敛为当前解析到的唯一路径。避免同包多路径导致 SDK
+   * 双重加载——两实例互判并发副实例而双双跳过 LSP 初始化（pi-lens 回归 bug）。
    */
   async list(): Promise<{ plugins: ExtensionPluginInfo[] }> {
     const settings = await this.readSettings();
     const isFirstBoot = settings.extensions === undefined;
-    const current = new Set(settings.extensions ?? []);
+    const rawPaths = settings.extensions ?? [];
     let changed = false;
+
+    // 收敛后的路径集合：先保留不属于任何可选插件的外部路径
+    const current: string[] = rawPaths.filter(
+      (p) => !OPTIONAL_EXTENSIONS.some((d) => pathBelongsToPackage(p, d.package)),
+    );
 
     const plugins: ExtensionPluginInfo[] = OPTIONAL_EXTENSIONS.map((def) => {
       let path: string;
@@ -92,21 +116,34 @@ export class ExtensionManager {
       } catch {
         return { id: def.id, displayName: def.displayName, description: def.description, enabled: false };
       }
-      if (isFirstBoot && def.defaultEnabled && !current.has(path)) {
-        current.add(path);
+      // 该插件在旧 settings 中的历史路径（含已失效的 .bun hash 变体）
+      const legacyPaths = rawPaths.filter((p) => pathBelongsToPackage(p, def.package));
+      const wasEnabled = legacyPaths.length > 0;
+
+      if (isFirstBoot && def.defaultEnabled) {
+        current.push(path);
         changed = true;
+      } else if (wasEnabled) {
+        // 启用态：用当前路径替换所有历史路径（收敛去重）
+        if (!current.includes(path)) {
+          current.push(path);
+        }
+        // 历史路径多于 1 条或含非当前路径 → 需要写入收敛结果
+        if (legacyPaths.length > 1 || !legacyPaths.includes(path)) {
+          changed = true;
+        }
       }
       return {
         id: def.id,
         displayName: def.displayName,
         description: def.description,
-        enabled: current.has(path),
+        enabled: wasEnabled || (isFirstBoot && def.defaultEnabled),
         version: this.readVersion(def.package),
       };
     });
 
     if (changed) {
-      await this.writeSettings({ ...settings, extensions: [...current] });
+      await this.writeSettings({ ...settings, extensions: current });
     }
 
     return { plugins };
@@ -114,6 +151,7 @@ export class ExtensionManager {
 
   /**
    * 启用/禁用插件：把对应入口路径不可变地加入/移出 settings.extensions。
+   * 同 list()，对同包历史路径做收敛：禁用时移除该包所有历史路径（含失效的 .bun hash 变体）。
    * @throws 未知 id 抛 "未知插件"；包未安装抛 "插件未安装"。
    */
   async toggle(id: string, enabled: boolean): Promise<void> {
@@ -128,9 +166,12 @@ export class ExtensionManager {
     }
 
     const settings = await this.readSettings();
-    const current = new Set(settings.extensions ?? []);
-    if (enabled) current.add(path);
-    else current.delete(path);
-    await this.writeSettings({ ...settings, extensions: [...current] });
+    const rawPaths = settings.extensions ?? [];
+    // 移除该插件所有历史路径（收敛），保留外部路径；启用时加回当前唯一路径
+    const current = rawPaths.filter((p) => !pathBelongsToPackage(p, def.package));
+    if (enabled && !current.includes(path)) {
+      current.push(path);
+    }
+    await this.writeSettings({ ...settings, extensions: current });
   }
 }
