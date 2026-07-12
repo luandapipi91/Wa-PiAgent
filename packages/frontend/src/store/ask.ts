@@ -1,7 +1,7 @@
 // ask_user_question 前端派生状态：从 messagesBySession 派生 pending 提问 + 有效的会话状态。
 import { useMemo } from "react";
 import { useSessionStore } from "./session";
-import type { AgentStatus, AgentName, AskParams, SessionMessage } from "@hiagent/shared";
+import type { AgentName, AskParams, SessionMessage } from "@hiagent/shared";
 
 export interface PendingAsk {
   toolCallId: string;
@@ -27,11 +27,6 @@ export function selectPendingAsks(messages: SessionMessage[]): PendingAsk[] {
     }
   }
   return pending;
-}
-
-/** pending 提问存在时强制 blocked，否则透传原始状态。纯函数。 */
-export function selectEffectiveStatus(raw: AgentStatus, hasPending: boolean): AgentStatus {
-  return hasPending ? "blocked" : raw;
 }
 
 /** hook：订阅某会话的 pending 提问列表。 */

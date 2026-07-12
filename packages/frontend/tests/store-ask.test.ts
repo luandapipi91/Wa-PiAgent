@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { selectPendingAsks, selectEffectiveStatus } from "../src/store/ask";
+import { selectPendingAsks } from "../src/store/ask";
 import type { SessionMessage } from "@hiagent/shared";
 
 function assistantMsg(toolCalls: any[], timestamp = 1): SessionMessage {
@@ -32,11 +32,4 @@ test("selectPendingAsks: 多个 pending；忽略非 ask 的 toolCall", () => {
   ])];
   const pending = selectPendingAsks(msgs);
   expect(pending.map(p => p.toolCallId).sort()).toEqual(["tc1", "tc3"]);
-});
-
-test("selectEffectiveStatus: 有 pending → blocked；否则透传 raw", () => {
-  expect(selectEffectiveStatus("thinking", true)).toBe("blocked");
-  expect(selectEffectiveStatus("idle", true)).toBe("blocked");
-  expect(selectEffectiveStatus("thinking", false)).toBe("thinking");
-  expect(selectEffectiveStatus("idle", false)).toBe("idle");
 });

@@ -1068,3 +1068,79 @@ test("disposeSession 取消 pending ask", async () => {
   await am.disposeSession(session.id);
   expect((await p).cancelled).toBe(true);
 });
+
+// ─── Task 8: reconcile 兜底接线测试 ─────────────────────────────────────────
+// 覆盖 _createSession 里的重启兜底分支：当 session.messages 含「无 toolResult 的
+// ask_user_question 调用」时，ensureStarted 应把 reconcileDanglingAsks 返回的
+// reconciled 数组赋给 (session as any).agent.state.messages。
+// 注：reconcileDanglingAsks 的纯函数行为由 ask-tool.test.ts 覆盖，这里只验证「接线赋值生效」。
+test("ensureStarted 把 reconciled 数组赋给 session.agent.state.messages（有 dangling ask 时）", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  // 构造一条 dangling ask 调用的历史：assistant 消息含 ask_user_question toolCall，无对应 toolResult。
+  const danglingMessages: unknown[] = [
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "toolCall",
+          id: "tc-dangling",
+          name: "ask_user_question",
+          arguments: askParams,
+        },
+      ],
+      model: "test-model",
+      stopReason: "tool_use",
+      timestamp: 1,
+    },
+  ];
+
+  // 局部 fake session：messages 含 dangling ask；agent.state.messages 可写，用于断言赋值发生。
+  // 仿照 makeFreshSession 但带 messages + agent.state.messages，不改全局 fakeSession。
+  const localSession = {
+    ...fakeSession,
+    prompt: mock(async () => {}),
+    abort: mock(async () => {}),
+    dispose: mock(() => {}),
+    setSessionName: mock(() => {}),
+    setModel: mock(async () => {}),
+    setThinkingLevel: mock(() => {}),
+    subscribe: mock(() => mock(() => {})),
+    clearQueue: mock(() => ({ steering: [], followUp: [] })),
+    followUp: mock(async () => {}),
+    steer: mock(async () => {}),
+    reload: mock(async () => {}),
+    messages: danglingMessages,
+    model: { id: "test-model" } as any,
+    modelRegistry: fakeModelRegistry as any,
+    isStreaming: false,
+    pendingMessageCount: 0,
+    isCompacting: false,
+    // reconcile 兜底的赋值目标：(session as any).agent.state.messages
+    agent: { state: { messages: danglingMessages } },
+  } as any as AgentSession;
+
+  const createFn = mock(async () => ({
+    session: localSession,
+    extensionsResult: { extensions: [], errors: [], runtime: {} as any },
+  }));
+
+  const am = new AgentManager({
+    projectStore,
+    configStore: null as any,
+    onEvent: () => {},
+    createAgentSessionFn: createFn as any,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  // 断言：reconcile 注入了一条 cancelled toolResult，
+  // 且该 reconciled 数组被赋给 session.agent.state.messages。
+  const assigned = (localSession as any).agent.state.messages as unknown[];
+  expect(assigned.length).toBe(danglingMessages.length + 1);
+  const last = assigned[assigned.length - 1] as Record<string, unknown>;
+  expect(last.role).toBe("toolResult");
+  expect(last.isError).toBe(false);
+  expect(last.toolCallId).toBe("tc-dangling");
+});
