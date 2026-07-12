@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-07-12 — P2 桌面文件夹组装（launcher exe + bun + kernel.js + node_modules + web）
+
+### 新增功能
+- **桌面分发从单 exe 改为 FOLDER 布局（P2 pivot）**：`packages/desktop/scripts/build.ts` 重写为文件夹组装器，产物从 `dist/desktop/<平台>/HiAgent.exe` 变为 `dist/desktop/<平台>/HiAgent/` 文件夹（launcher exe + bun.exe + kernel.js + node_modules/ + web/）。launcher（P1）已预期此布局——通过 `dirname(process.execPath)` 解析同级 `bun.exe`/`kernel.js`/`web`，spawn `bun.exe run kernel.js` 解释运行 kernel 子进程，SDK 动态 `require.resolve`/`import.meta.resolve` 从磁盘 `node_modules/` 正常解析（根治 `Cannot find module 'pi-intercom/package.json'`）
+  - **构建管线**：[0]测试钩子 → [1]vite build + 清理 embedded → [2]genicon → [3]物化 traybin + 生成嵌入清单（launcher 仅嵌入 tray icon + systray helper，不再嵌入 web）→ [4]构建 kernel.js（`--target bun` 一次构建、所有平台共用）→ [5]每目标文件夹组装（编译 launcher exe + PE patch / 复制 host bun.exe / 复制 kernel.js / `bun install --production` 安装 kernel npm 运行时依赖 / 复制 web/）
+  - **kernel.js**：`bun build src/desktop-server.ts --target bun` 打包 2923 模块为 12MB JS bundle；静态代码内联，动态 `require.resolve` 从同级 `node_modules` 解析
+  - **node_modules**：folder `package.json` 列 kernel 的 npm 运行时依赖（排除 `workspace:*` 的 `@hiagent/kernel`/`@hiagent/shared`——已内联进 kernel.js），`bun install --production` 安装 506 包（pi-coding-agent + pi-intercom + pi-web-access + pi-lens + @amaster.ai/pi-memory + typebox + ast-grep win32 native + transitive）
+  - **bun.exe**：HOST 平台直接复制 `process.execPath`（win-on-win）；非 HOST 平台 TODO（github releases 拉取）
+  - **影响范围**：packages/desktop（scripts/build.ts）
+  - **验证**：smoke test — launcher 启动后 kernel 子进程 2s 内就绪，端口 9776 Listen，`curl http://127.0.0.1:9776/` 返回 200 + index.html，日志无 `Cannot find module` / 无 `agent 启动失败`，含 `[kernel] 桌面 server 监听 http://127.0.0.1:9776`
+
 ## 2026-07-12 — 桌面托盘二进制末审小修（refactor）
 
 ### 重构
