@@ -1,0 +1,9 @@
+appId: ai.hiagent.desktop
+productName: HiAgent
+directories:
+  output: release
+  buildResources: build-assets
+files:
+  - src/**
+  - package.json
+# extraResources / target 在 Task 6 补
