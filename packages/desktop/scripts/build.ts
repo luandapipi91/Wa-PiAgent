@@ -19,7 +19,9 @@ async function step0TestGate() {
   if (values["no-test"]) { console.log("[build] 跳过测试钩子(--no-test)"); return; }
   console.log("[build] 步骤0: 打包前测试钩子");
   run("bun", ["run", "typecheck"]);
-  run("bun", ["run", "test"]);   // 根脚本已排除 e2e
+  run("bun", ["run", "test"]);   // 根脚本已排除 e2e（kernel 集成测试在 happy-dom 下自跳过）
+  // kernel HTTP 集成测试需原生 fetch（root 的 happy-dom preload 会破坏其 fetch），单独从 kernel 目录跑
+  run("bun", ["test", "tests/static-serve.integration.test.ts"], join(ROOT, "packages", "kernel"));
 }
 
 async function step1Materialize() {
