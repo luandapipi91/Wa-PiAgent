@@ -12,7 +12,6 @@
     "build:all": "bun run build:win && bun run build:mac && bun run build:linux"
   },
   "dependencies": {
-    "@hiagent/kernel": "workspace:*",
     "@hiagent/shared": "workspace:*",
     "fs-extra": "^10.0.0",
     "systray2": "2.1.4"
