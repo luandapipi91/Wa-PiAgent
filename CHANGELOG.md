@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-07-12 — 桌面单 exe 回归（--external SDK + node_modules，kernel 进程内）
+
+### 重构
+- **桌面分发从 P2 文件夹(launcher+bun+kernel.js) 回归单 exe + node_modules 布局**：spike 发现 bun `--compile` 编译产物中 **scoped 包无法从磁盘 `node_modules` 解析**（bun#1.3.14 bug），但 **非 scoped 包可以**。据此调整：`--external` 只外部化非 scoped 扩展包（`pi-intercom`/`pi-web-access`/`pi-lens`），scoped 包（`@earendil-works/pi-coding-agent`/`@amaster.ai/pi-memory`）+ `typebox` + workspace 包 + `systray2`/`fs-extra` 全部 bundle 进 exe（2973 模块内联）。产物为 `HiAgent.exe`(117MB) + `node_modules/`(669MB) 两件套，无 `launcher.exe`/`bun.exe`/`kernel.js`/`web/`
+  - **main.ts**：从 P1 的 launcher(spawn kernel.js 子进程) 回退到 4085e42d 的 **in-process** 编排（`bootKernel({staticDir})` → tray → browser → lifecycle），kernel 在 exe 进程内运行；`kernel-boot.ts` 恢复为 `startKernel` 薄包装
+  - **build.ts**：`--external=pi-intercom --external=pi-web-access --external=pi-lens`（替代 `--packages external`）；workspace 包由 bundle 内联（不再需要磁盘 `node_modules/@hiagent/*` 条目）；folder `package.json` 列全量 npm deps（扩展的传递依赖仍需落盘——SDK jiti 加载器用 Node 兼容解析从磁盘读取）
+  - **删除 `desktop-server.ts`**：P1/P2 的 spawn kernel 入口不再需要
+  - **影响范围**：packages/desktop（scripts/build.ts、src/main.ts、src/kernel-boot.ts）、packages/kernel（src/desktop-server.ts 删除）
+  - **验证**：smoke test — exe 启动后 kernel 2s 内就绪，端口 9776 LISTENING，`curl` HTTP 200，日志 `kernel 就绪` + `[kernel] WS 监听 ws://127.0.0.1:9776`，无 `Cannot find module`
+
 ## 2026-07-12 — P2 桌面文件夹组装（launcher exe + bun + kernel.js + node_modules + web）
 
 ### 新增功能
