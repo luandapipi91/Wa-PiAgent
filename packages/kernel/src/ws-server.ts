@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { extname, basename, join } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
+import { askRegistry } from "./ask-registry";
 
 function getMimeType(filePath: string): string {
   const map: Record<string, string> = {
@@ -262,6 +263,16 @@ export class WSServer {
       case "agent:abort": {
         // 新 API：只按 sessionId 中止（AgentManager 内部 Map<sessionId, AgentSession>）
         await this.opts.agentManager.abort(event.sessionId);
+        break;
+      }
+      case "agent:answer": {
+        // ask_user_question 应答：直达 AskRegistry.resolve（幂等，未知 toolCallId no-op）
+        askRegistry.resolve(event.sessionId, event.toolCallId, event.reply);
+        break;
+      }
+      case "agent:cancel-ask": {
+        // ask_user_question 取消：直达 AskRegistry.cancel（幂等）
+        askRegistry.cancel(event.sessionId, event.toolCallId);
         break;
       }
       case "steer:promote": {

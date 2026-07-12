@@ -6,6 +6,8 @@ import { rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SkillManager } from "../src/skill-manager";
 import { BUILTIN_SKILLS_DIR } from "@hiagent/shared";
+import type { AskParams } from "@hiagent/shared";
+import { askRegistry } from "../src/ask-registry";
 
 // mock createAgentSession 返回 fake AgentSession
 // 测试不依赖真实 SDK 的 createAgentSession（避免子进程 / 网络 / 文件系统副作用）
@@ -46,6 +48,7 @@ const mockCreateAgentSession = mock(async () => ({
 
 // 每个测试前清理 mock 调用记录，避免相互干扰
 beforeEach(() => {
+  askRegistry.reset();
   mockCreateAgentSession.mockClear();
   (fakeSession.prompt as any).mockClear();
   (fakeSession.abort as any).mockClear();
@@ -1021,4 +1024,47 @@ test("ensureStarted 把 ask_user_question 工具作为 customTools 传给 create
   // 用 find 按 name 查找，避免对 memory 工具数量/顺序的硬编码假设。
   const askTool = (captured[0].customTools as any[]).find((t: any) => t.name === "ask_user_question");
   expect(askTool).toBeDefined();
+});
+
+// ─── Task 4: 中断清理（cancelAll）测试 ───────────────────────────────────────
+// abort / immediate(_jumpQueue interrupt) / disposeSession 都应调
+// askRegistry.cancelAll(sessionId)，把该 session 的 pending ask 以 cancelled 解决。
+const askParams: AskParams = { questions: [
+  { question: "Q?", header: "h", options: [{ label: "A", description: "x" }, { label: "B", description: "y" }] },
+] };
+
+test("abort 取消该 session 的 pending ask（同步 cancelAll）", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+  const am = new AgentManager({ projectStore, configStore: null as any, onEvent: () => {}, createAgentSessionFn: mockCreateAgentSession });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const p = askRegistry.ask(session.id, "tc1", askParams, new AbortController().signal);
+  await am.abort(session.id);
+  expect((await p).cancelled).toBe(true);
+});
+
+test("immediate(_jumpQueue interrupt) 取消 pending ask", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+  const am = new AgentManager({ projectStore, configStore: null as any, onEvent: () => {}, createAgentSessionFn: mockCreateAgentSession });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const p = askRegistry.ask(session.id, "tc1", askParams, new AbortController().signal);
+  await am.immediate(session.id, "立即执行", []);
+  expect((await p).cancelled).toBe(true);
+});
+
+test("disposeSession 取消 pending ask", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+  const am = new AgentManager({ projectStore, configStore: null as any, onEvent: () => {}, createAgentSessionFn: mockCreateAgentSession });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const p = askRegistry.ask(session.id, "tc1", askParams, new AbortController().signal);
+  await am.disposeSession(session.id);
+  expect((await p).cancelled).toBe(true);
 });

@@ -24,6 +24,7 @@ import { relative, isAbsolute } from "node:path";
 import { buildAdditionalExtensionPaths } from "./extensions";
 import { createAgentMemoryTools, getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import { makeAskTool, reconcileDanglingAsks } from "./ask-tool";
+import { askRegistry } from "./ask-registry";
 import type { SkillManager } from "./skill-manager";
 
 // 可注入的 createAgentSession 签名（与 SDK 的 createAgentSession 对齐，但用 any 避免 SDK 类型穿透）
@@ -427,6 +428,8 @@ export class AgentManager {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`会话未启动: ${sessionId}`);
 
+    askRegistry.cancelAll(sessionId);   // 中断类（immediate）作废 pending 提问
+
     // 1. 先清空全部队列并取出旧队列。
     //    必须在 abort 之前清空，否则 agent core 在 abort 过程中会自动 drain
     //    followUp 队列，导致排队消息被意外发送、队列状态乱掉。
@@ -554,6 +557,8 @@ export class AgentManager {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
+    askRegistry.cancelAll(sessionId);  // 作废该 session 的 pending ask
+
     const queued = session.clearQueue();
     try {
       await session.abort();
@@ -573,6 +578,7 @@ export class AgentManager {
    *  disposeSession（用户删除）与 _reloadIfDirty 重建共用。重建不能动 disposed，
    *  否则 _createSession 末尾的 disposed 检查会把新 session 当「创建中被清理」丢弃。 */
   private _teardownSession(sessionId: string): void {
+    askRegistry.cancelAll(sessionId);  // 拆除资源时作废 pending ask
     this.unsubscribers.get(sessionId)?.();
     this.unsubscribers.delete(sessionId);
     this.sessions.get(sessionId)?.dispose();
