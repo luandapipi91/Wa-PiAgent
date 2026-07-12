@@ -7,6 +7,9 @@ import { parseArgs } from "node:util";
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const PKG = join(import.meta.dir, "..");
 const EMBED = join(PKG, "src", "embedded");
+const STUB_PATH = join(PKG, "src", "embedded-assets.ts");
+const STUB_CONTENT = `// 本文件由 packages/desktop/scripts/build.ts 在打包时临时重新生成为嵌入资源清单\n// （各 \`import aN from "./embedded/..." with { type: "file" }\`）。此空 stub 是入库基线。\nexport const EMBEDDED_ASSETS: { src: string; dest: string }[] = [];\n`;
+function writeStub(): Promise<void> { return writeFile(STUB_PATH, STUB_CONTENT); }
 const { values } = parseArgs({ options: { target: { type: "string", multiple: true }, "no-test": { type: "boolean" } } });
 
 function run(bin: string, args: string[], cwd = ROOT) {
@@ -18,6 +21,7 @@ function run(bin: string, args: string[], cwd = ROOT) {
 async function step0TestGate() {
   if (values["no-test"]) { console.log("[build] 跳过测试钩子(--no-test)"); return; }
   console.log("[build] 步骤0: 打包前测试钩子");
+  await writeStub();  // 防御：确保 typecheck 看到的是干净的 stub（避免上一次失败 build 的残留清单污染）
   run("bun", ["run", "typecheck"]);
   run("bun", ["run", "test"]);   // 根脚本已排除 e2e（kernel 集成测试在 happy-dom 下自跳过）
   // kernel HTTP 集成测试需原生 fetch（root 的 happy-dom preload 会破坏其 fetch），单独从 kernel 目录跑
@@ -51,7 +55,8 @@ async function step3Manifest() {
   const dest = (p: string) => p.slice(EMBED.length).replace(/^[\\/]+/, "").replace(/\\/g, "/");
   const imports = files.map((p, i) => `import a${i} from ${JSON.stringify(rel(p))} with { type: "file" };`).join("\n");
   const arr = `export const EMBEDDED_ASSETS = [\n${files.map((p, i) => `  { src: a${i}, dest: ${JSON.stringify(dest(p))} }`).join(",\n")}\n];`;
-  await writeFile(join(PKG, "src", "embedded-assets.ts"), `${imports}\n\n${arr}\n`);
+  // @ts-nocheck：双保险，即便本文件被残留到下一次 typecheck，也不会污染 tsc（step0 也会先恢复 stub）。
+  await writeFile(join(PKG, "src", "embedded-assets.ts"), `// @ts-nocheck\n${imports}\n\n${arr}\n`);
   console.log(`[build] 清单 ${files.length} 项`);
 }
 
@@ -91,10 +96,14 @@ async function step4Compile() {
 }
 
 (async () => {
-  await step0TestGate();
-  await step1Materialize();
-  step2Genicon();
-  await step3Manifest();
-  await step4Compile();
-  console.log("[build] ✅ 完成");
+  try {
+    await step0TestGate();
+    await step1Materialize();
+    step2Genicon();
+    await step3Manifest();
+    await step4Compile();
+    console.log("[build] ✅ 完成");
+  } finally {
+    await writeStub();   // 恢复 stub，保持工作区干净（无论 build 成功或失败）
+  }
 })();
