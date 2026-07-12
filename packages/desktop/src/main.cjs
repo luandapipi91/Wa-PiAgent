@@ -24,10 +24,23 @@ app.whenReady().then(async () => {
   const gotLock = app.requestSingleInstanceLock();
   if (!gotLock) { log.info("已有实例，退出"); app.quit(); return; }
   app.on("second-instance", () => {
-    if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); }
+    if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); }
   });
   log.info(`Electron main 就绪, isPackaged=${app.isPackaged}`);
 
+  // 窗口 + 托盘【立即】出现（显示"启动中"），不等内核——内核首启被 Defender 扫描要数分钟，
+  // 不能让用户这几分钟啥都看不到。内核后台起好后再 loadURL 切到真实页面。
+  createWindow();
+  mainWindow.loadURL("data:text/html;charset=utf-8,<body style='font-family:system-ui;padding:48px;color:#333'>HiAgent 启动中，正在加载内核…</body>");
+  mainWindow.focus();
+  const { startTray } = require("./tray.cjs");
+  startTray({
+    iconPath: path.join(__dirname, "assets", "icon.ico"),
+    onOpen: () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); } },
+    onQuit: () => app.quit(),
+  });
+
+  // kernel sidecar（解释运行；首启 Defender 扫描可能要几分钟，第二次起变快）
   const { startSidecar, WS_PORT } = require("./kernel-sidecar.cjs");
   const { resolveKernelDir, resolveWebDir } = require("./util/paths.cjs");
   const kernelDir = resolveKernelDir(app.isPackaged, process.resourcesPath, process.env);
@@ -35,17 +48,11 @@ app.whenReady().then(async () => {
   const bunExe = path.join(kernelDir, process.platform === "win32" ? "bun.exe" : "bun");
   try {
     sidecar = await startSidecar({ isPackaged: app.isPackaged, kernelDir, webDir, bunExe, log });
-  } catch (e) { log.error("kernel 启动失败", e); app.quit(); return; }
-
-  createWindow();
-  mainWindow.loadURL(`http://127.0.0.1:${WS_PORT}`);
-
-  const { startTray } = require("./tray.cjs");
-  startTray({
-    iconPath: path.join(__dirname, "assets", "icon.ico"),
-    onOpen: () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); } },
-    onQuit: () => app.quit(),
-  });
+    mainWindow.loadURL(`http://127.0.0.1:${WS_PORT}`);   // 内核就绪 → 切到真实 hiagent 页面
+  } catch (e) {
+    log.error("kernel 启动失败", e);
+    mainWindow.loadURL("data:text/html;charset=utf-8,<body style='font-family:system-ui;padding:48px;color:#a00'>内核启动失败：" + String(e.message || e) + "</body>");
+  }
 });
 
 async function cleanup() {
