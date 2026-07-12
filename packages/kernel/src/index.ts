@@ -14,7 +14,9 @@ import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR } from "@hiagent/shared";
 import { mkdir } from "node:fs/promises";
 import type { WSServerEvent } from "@hiagent/shared";
 
-async function main() {
+export async function startKernel(
+  opts?: { staticDir?: string; port?: number }
+): Promise<{ port: number; stop: () => Promise<void> }> {
   // 让 Pi SDK 的全局 getAgentDir() 返回 ~/.hiagent，而非默认 ~/.pi/agent。
   // SDK 大量组件（auth/settings/sessions/bin/intercom/npm/models/prompts/tools/themes
   // 及 pi-intercom / pi-web-access 等扩展）直接调 config.getAgentDir()，该函数只读
@@ -56,7 +58,8 @@ async function main() {
     memoryStore,
     dataDir: HIAGENT_DIR,
     agentManager: null as any,  // 占位，下面赋值
-    port: WS_PORT,
+    port: opts?.port ?? WS_PORT,
+    ...(opts?.staticDir ? { staticDir: opts.staticDir } : {}),
   });
   broadcast = (e) => server.broadcast(e);
 
@@ -88,6 +91,9 @@ async function main() {
 
   await server.start();
   console.log(`[kernel] WS 监听 ws://127.0.0.1:${server.actualPort}`);
+  return { port: server.actualPort, stop: () => server.stop() };
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+if (import.meta.main) {
+  startKernel().catch(e => { console.error(e); process.exit(1); });
+}

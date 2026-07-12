@@ -20,7 +20,16 @@ import { extname, basename, join } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
 
-function getMimeType(filePath: string): string {
+/** 把 URL 路径解析成 staticDir 下的文件路径；未知/越权路径回退 index.html（SPA）。 */
+export function resolveStaticPath(urlPath: string, staticDir: string): string {
+  const clean = urlPath.split("?")[0].split("#")[0];
+  // 只允许纯资产形 /a/b.c；其余（含 .. 、空、根、未知深路径）回退首页
+  if (!/^\/[A-Za-z0-9_@\-./]+\.[A-Za-z0-9]+$/.test(clean)) return `${staticDir}/index.html`;
+  if (clean.includes("..")) return `${staticDir}/index.html`;
+  return `${staticDir}${clean}`;
+}
+
+export function getMimeType(filePath: string): string {
   const map: Record<string, string> = {
     ".txt": "text/plain",
     ".md": "text/markdown",
@@ -122,6 +131,7 @@ export interface WSServerOpts {
   agentManager: AgentManager;
   dataDir?: string;
   port?: number;
+  staticDir?: string;
 }
 
 export class WSServer {
@@ -143,7 +153,20 @@ export class WSServer {
     this.server = Bun.serve({
       port: this.opts.port ?? WS_PORT,
       fetch: (req, server) => {
-        if (server.upgrade(req)) return;
+        if (server.upgrade(req)) return;            // WS 握手
+        if (this.opts.staticDir) {
+          const url = new URL(req.url).pathname;
+          const filePath = resolveStaticPath(url, this.opts.staticDir);
+          const file = Bun.file(filePath);
+          if (file.size > 0) {
+            return new Response(file, { headers: { "content-type": getMimeType(filePath) } });
+          }
+          // 资产形路径但文件缺失：回退 index.html（SPA 路由），不漏 426
+          const indexFile = Bun.file(`${this.opts.staticDir}/index.html`);
+          if (indexFile.size > 0) {
+            return new Response(indexFile, { headers: { "content-type": "text/html" } });
+          }
+        }
         return new Response("WS only", { status: 426 });
       },
       websocket: {

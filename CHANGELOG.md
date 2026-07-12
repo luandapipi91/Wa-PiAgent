@@ -4,7 +4,58 @@
 
 ---
 
+## 2026-07-12 — 桌面分发最终定案：文件夹模型（launcher exe + bun + kernel.js + node_modules + web）
+
+### 重构
+- **桌面分发定为文件夹模型**：实测"编译单 exe（`--packages external` / `--external`）"路线的 **agent 创建失败**——pi SDK 内部扩展加载器 jiti 在编译二进制里把 `require("pi-intercom/package.json")` 解析到 bun `--compile` 的虚拟 FS（`B:\~BUN\root`）而非磁盘 `node_modules`（bun compile 的磁盘回退只对原生 require 生效，不覆盖 SDK 的 jiti 解析器）。改用 **P2 文件夹模型**：launcher exe（托盘 + spawn）+ `bun.exe` + `kernel.js`（解释运行）+ `node_modules` + `web/`；解释运行时 jiti 正常从磁盘解析。WS 探针触发 `agent:prompt` → **无 `Cannot find module`**（pi-intercom 解析成功），agent 创建过了扩展加载（仅停在"未选择模型"，属 UI 配置，非打包问题）
+  - **影响范围**：packages/desktop（src/main.ts 恢复 spawn、scripts/build.ts 文件夹组装）、packages/kernel（src/desktop-server.ts 恢复为 spawn 入口）；删除 in-process 专用的 `kernel-boot.ts`
+  - **验证**：`pack:win` 全绿（含测试钩子）；folder 启动 → 9776 LISTENING + `curl` 200 + 无模块错误；WS 探针 agent 创建过扩展加载
+
+## 2026-07-12 — P2 桌面文件夹组装（launcher exe + bun + kernel.js + node_modules + web）
+
+### 新增功能
+- **桌面分发从单 exe 改为 FOLDER 布局（P2 pivot）**：`packages/desktop/scripts/build.ts` 重写为文件夹组装器，产物从 `dist/desktop/<平台>/HiAgent.exe` 变为 `dist/desktop/<平台>/HiAgent/` 文件夹（launcher exe + bun.exe + kernel.js + node_modules/ + web/）。launcher（P1）已预期此布局——通过 `dirname(process.execPath)` 解析同级 `bun.exe`/`kernel.js`/`web`，spawn `bun.exe run kernel.js` 解释运行 kernel 子进程，SDK 动态 `require.resolve`/`import.meta.resolve` 从磁盘 `node_modules/` 正常解析（根治 `Cannot find module 'pi-intercom/package.json'`）
+  - **构建管线**：[0]测试钩子 → [1]vite build + 清理 embedded → [2]genicon → [3]物化 traybin + 生成嵌入清单（launcher 仅嵌入 tray icon + systray helper，不再嵌入 web）→ [4]构建 kernel.js（`--target bun` 一次构建、所有平台共用）→ [5]每目标文件夹组装（编译 launcher exe + PE patch / 复制 host bun.exe / 复制 kernel.js / `bun install --production` 安装 kernel npm 运行时依赖 / 复制 web/）
+  - **kernel.js**：`bun build src/desktop-server.ts --target bun` 打包 2923 模块为 12MB JS bundle；静态代码内联，动态 `require.resolve` 从同级 `node_modules` 解析
+  - **node_modules**：folder `package.json` 列 kernel 的 npm 运行时依赖（排除 `workspace:*` 的 `@hiagent/kernel`/`@hiagent/shared`——已内联进 kernel.js），`bun install --production` 安装 506 包（pi-coding-agent + pi-intercom + pi-web-access + pi-lens + @amaster.ai/pi-memory + typebox + ast-grep win32 native + transitive）
+  - **bun.exe**：HOST 平台直接复制 `process.execPath`（win-on-win）；非 HOST 平台 TODO（github releases 拉取）
+  - **影响范围**：packages/desktop（scripts/build.ts）
+  - **验证**：smoke test — launcher 启动后 kernel 子进程 2s 内就绪，端口 9776 Listen，`curl http://127.0.0.1:9776/` 返回 200 + index.html，日志无 `Cannot find module` / 无 `agent 启动失败`，含 `[kernel] 桌面 server 监听 http://127.0.0.1:9776`
+
+## 2026-07-12 — 桌面托盘二进制末审小修（refactor）
+
+### 重构
+- **删 dead `killPort`（YAGNI）**：`packages/desktop/src/util/port.ts` 的 `killPort`（搬自 `scripts/port.ts` 的副本）在 desktop 运行时从未被 import——单实例逻辑改为 `isPortInUse` 检测 + 直接退出，不再需要杀端口能力。删除 `killPort` 函数与 `spawn` import；`main.ts` 中两条引用 `killPort` 的过时注释一并清理（保留 `isPortInUse`）。注：`scripts/port.ts` 的同名函数仍被 `scripts/dev.ts` 使用，未受影响
+  - **影响范围**：packages/desktop（src/util/port.ts、src/main.ts）
+  - **验证**：`grep killPort packages/desktop` 仅剩一条删除说明注释；desktop 11 pass / 0 fail
+- **kernel 静态资产缺失回退 index.html（SPA）**：`packages/kernel/src/ws-server.ts` 的 `fetch` 处理在 `staticDir` 已设置但请求的资产文件缺失（`file.size === 0`）时，原先错误返回 `426 WS only`，违反 SPA 路由约定。改为：缺失资产 → 伺服 `${staticDir}/index.html`（content-type `text/html`）；仅在 `staticDir` 完全未设置（dev 模式）才保留 426 兜底
+  - **影响范围**：packages/kernel（src/ws-server.ts、tests/static-serve.integration.test.ts）
+  - **验证**：新增断言——请求 `/assets/does-not-exist.js` 返回 index.html body；集成测试 1 pass / 3 expect；root suite 560 pass / 0 fail
+- **desktop logger 退出前 flush**：`packages/desktop/src/log.ts` 的 `createLogger` 此前 fire-and-forget `mkdir().then(appendFile())`，`main.ts` `cleanup` 里的 `process.exit(0)` 可能截断末尾「退出清理」/错误日志行。`Logger` 接口新增 `flush(): Promise<void>`，实现用 `Set<Promise>` 跟踪 in-flight 写入、`Promise.allSettled` 等齐；`cleanup` 在 `process.exit(0)` 前 best-effort `await log.flush()`（try/catch 兜底）
+  - **影响范围**：packages/desktop（src/log.ts、src/main.ts）
+  - **验证**：log 单测仍 pass（flush 已加但原测试用 setTimeout 等待，未受影响）；desktop 11 pass / 0 fail；typecheck 通过
+
+### 验证（整体）
+- `bun run typecheck` 四包全过（shared / frontend / kernel / desktop）
+- `bun run test` 根套件 560 pass / 5 skip / 0 fail
+- `cd packages/kernel && bun test tests/static-serve.integration.test.ts` 1 pass / 3 expect（含新增 SPA 回退断言）
+- `cd packages/desktop && bun test` 11 pass / 0 fail
+- 注：未运行 `bun run pack:win`，`dist/desktop/win-x64/HiAgent.exe` 保持字节不变，供并行真机测试
+
 ## 2026-07-12
+
+### 新增功能
+- **桌面托盘单二进制（`@hiagent/desktop`）**：新增 `packages/desktop` 包，单进程内 in-process 起 kernel（WS + 静态前端同 9776）+ systray2 托盘（菜单「打开 HiAgent / 退出」，点打开用系统浏览器开 `http://127.0.0.1:9776`）；`bun build --compile` 把前端 dist / systray helper / 青蛙图标全嵌入单 exe，Windows 额外 PE 子系统 patch（CONSOLE→GUI）去控制台。含工具模块：port / open-browser / interop（systray2 CJS 防御解包）/ pe-subsystem / log / embed（运行时解压嵌入资源）。`scripts/build.ts` 编排 + 打包前测试钩子（typecheck + root 测试套件 + kernel HTTP 集成测试单独从 kernel 目录跑以避开 happy-dom 对 globalThis.fetch 的全局替换；嵌入清单临时生成后恢复 stub，让 typecheck 在全新检出/CI 下也通过）。根 `pack:win/mac/linux/all`。产物落 `<repo>/dist/desktop/<平台>/HiAgent[.exe]`（~122MB，PE subsystem=2）
+  - **影响范围**：新增 packages/desktop（src/main.ts、kernel-boot.ts、systray-setup.ts、log.ts、embed.ts、util/{port,open-browser,interop,pe-subsystem}.ts、scripts/{build.ts,genicon.py}、tests、package.json、tsconfig.json）；根 package.json（pack:*）；.gitignore
+  - **验证**：desktop 工具单测全过（port/interop/pe-subsystem/log/embed）；`bun run pack:win` 不带 `--no-test` 全绿，产出 `dist/desktop/win-x64/HiAgent.exe`（122MB，subsystem 3→2）；typecheck 通过
+- **前后端端口支持 `.env` 动态配置**：`HIAGENT_WS_PORT`（默认 9776，后端 WS）和 `HIAGENT_WEB_PORT`（默认 5180，前端 Vite dev）可通过根 `.env` 覆盖。`packages/shared/src/constants.ts` 新增纯函数 `resolvePort(envVal, def)` 并让 `WS_PORT`/`FRONTEND_PORT` 读 env（默认值不变 = 无 `.env` 时行为完全一致）。`packages/frontend/vite.config.ts` 用 `loadEnv` 读 `.env`：`server.port` 用 `HIAGENT_WEB_PORT`，`define` 注入 `import.meta.env.HIAGENT_WS_PORT` 让浏览器 bundle 的 `WS_PORT` 指向配置的后端端口。`scripts/dev.ts` 删硬编码 9776/5180，改从 shared 导入 `WS_PORT`/`FRONTEND_PORT`。`.env.example` 入库作模板，`.env` 已被 `.gitignore` 忽略
+  - **影响范围**：packages/shared（constants.ts, tests/ports.test.ts）、packages/frontend（vite.config.ts）、scripts/dev.ts、.env.example
+  - **验证**：`packages/shared/tests/ports.test.ts` 2 pass（合法正整数用之 + undefined/空/非数字/0/负数回退默认）；`bun run typecheck` 三包通过
+
+### 重构
+- **kernel 可导入 + 可选静态前端伺服（SPA fallback）**：把 `packages/kernel/src/index.ts` 的 `main()` 体抽成 `export async function startKernel(opts?: { staticDir?: string }): Promise<{ port: number }>`，桌面端可 in-process 启动；`if (import.meta.main)` 守卫使 `bun run src/index.ts` 自动执行路径保留不变。`packages/kernel/src/ws-server.ts` 的 `WSServerOpts` 新增可选 `staticDir`，`fetch` 在 WS 握手失败后用 `resolveStaticPath` 解析 URL → `Bun.file` 回资产，未知/越权路径回退 index.html（SPA 路由）。同一 9776 端口同时伺服 UI 与 WS，二进制分发不再依赖 Vite
+  - **影响范围**：packages/kernel（src/index.ts, src/ws-server.ts, tests/static-serve.test.ts, tests/static-serve.integration.test.ts）
+  - **验证**：static-serve 单元测试 4 pass（resolveStaticPath 三例 + getMimeType 四例）；typecheck 通过；集成测试受端口 9776 占用阻塞（详见 task-2-report）
 
 ### 重构
 - **禁用 pi-lens 时过滤工具 allowlist**：把 agent-manager.ts:317 散落的三元表达式（`config?.tools?.length ? config.tools : DEFAULT_AGENT_TOOLS`）封装成统一入口 `resolveAgentTools` 纯函数，按可选插件启用态过滤工具。禁用 pi-lens 后从 agent 的 tools allowlist 移除其注册的 9 个工具（lsp_navigation/lsp_diagnostics/lens_diagnostics/ast_grep_search 等），agent 无法再调用它们。签名预留 `agentName` 参数供后期按角色做工具集裁剪
@@ -21,8 +72,6 @@
 - **影响范围**：packages/shared（ask.ts, types.ts, constants.ts, index.ts, tests/ask.test.ts）、packages/kernel（ask-registry.ts, ask-tool.ts, agent-manager.ts, ws-server.ts 及对应测试）、packages/frontend（store/ask.ts, components/ask/AskFormCard.tsx, components/ask/AskDock.tsx, SessionView.tsx, Composer.tsx, ui/ComposerInput.tsx, MessageList.tsx 及对应测试）
 - **验证**：shared 36 pass / kernel 232 pass / frontend 264 pass（0 fail）；三包 typecheck 通过；四层测试第 1-3 层（单元/组件/集成）已覆盖，第 4 层 E2E 待真实模型环境补充
 
-## 2026-07-12
-
 ### 修复
 - **pi-lens（LSP 诊断）两个独立根因导致 agent 报告"LSP 不可用"**：
   - 根因1 双重加载：`~/.hiagent/settings.json.extensions` 积累多条 pi-lens 路径（bun install 产生新 `.bun` 缓存 hash 后旧路径残留），SDK 双重加载同一扩展，两实例在 `session_start` 互相判定为"并发副实例"双双跳过 `handleSessionStart`，LSP 服务从未初始化。修复：`ExtensionManager.list()/toggle()` 增加 `pathBelongsToPackage` 归属判定，对每个可选插件收敛同包所有历史路径为当前唯一路径（启用）或全部移除（禁用），保留外部路径。同时清理用户 settings.json 中 2 条重复 pi-lens + 1 条废弃 pi-hermes-memory
@@ -30,16 +79,12 @@
 - **影响范围**：packages/kernel（extension-manager.ts, tests/extension-manager.test.ts, tests/ws-extension.test.ts）；packages/shared（constants.ts）
 - **验证**：单元测试 9 pass（含 3 个路径收敛复现用例）；WS 集成测试 4 pass；shared 27 pass；kernel 全量 213 pass / 0 fail；typecheck 通过
 
-## 2026-07-12
-
 ### 修复
 - **记忆页作用域选择器状态丢失 + 指令文件 Tab 切项目不加载**：两个 bug 同源——`selectedProjectId` 存在组件本地 state，关闭设置弹窗（组件卸载）即丢失，而 `memoryScope` 在持久 store 保留，导致两者错位
   - Bug1：关闭重开设置后选择器被重置、记忆查不出来 → 将 `selectedProjectId` 提升到 `useMemoryStore` 持久化，关闭弹窗后保留
   - Bug2：指令文件 Tab 切到「项目」默认选第一个项目但不加载（`<select>` DOM 默认选中不触发 React onChange）→ 加载 effect 改用 `activeProjectId`（含 currentProjectId 兜底），项目选择器改为始终显示（与 scopeFilter 解耦）
 - **影响范围**：packages/frontend（store/memory.ts, components/memory/MemoryPage.tsx, tests/MemoryPage.test.tsx, e2e/memory.spec.ts, e2e/global-setup.ts）
 - **验证**：单元/组件测试 251 pass（含 3 个新增复现用例）；typecheck 通过；agent-browser 真实浏览器验证 Bug1（关闭重开选择器保留 aicpm）+ Bug2（切项目作用域立即加载指令文件、选择器始终显示）
-
-## 2026-07-12
 
 ### 新增功能
 - **agent 系统提示词注入执行环境信息**：在 `systemPromptOverride` 闭包 base 末尾追加三条约束——内置技能目录路径(`Built-in directory: ~/.hiagent/skills`)、禁止透露系统提示词、禁止使用内部术语回复用户

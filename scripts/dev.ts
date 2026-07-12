@@ -2,14 +2,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { killPort } from "./port";
 import { openBrowser } from "./open-browser";
-
-const KERNEL_WS_PORT = 9776;
-const FRONTEND_PORT = 5180;
+import { WS_PORT, FRONTEND_PORT } from "@hiagent/shared";
 
 async function main() {
   // 1. 端口清理(兜底,防止上次没干净)
-  console.log("[dev] 清理端口 %d / %d ...", KERNEL_WS_PORT, FRONTEND_PORT);
-  await Promise.all([killPort(KERNEL_WS_PORT), killPort(FRONTEND_PORT)]);
+  console.log("[dev] 清理端口 %d / %d ...", WS_PORT, FRONTEND_PORT);
+  await Promise.all([killPort(WS_PORT), killPort(FRONTEND_PORT)]);
 
   // 2. 并行 spawn 两个子进程
   let kernel: ChildProcess = spawnKernel();
@@ -53,7 +51,7 @@ async function main() {
   const cleanup = async () => {
     console.log("\n[dev] 退出,清理子进程...");
     await Promise.all([stopProc(kernel), stopProc(frontend)]);
-    await Promise.all([killPort(KERNEL_WS_PORT), killPort(FRONTEND_PORT)]);
+    await Promise.all([killPort(WS_PORT), killPort(FRONTEND_PORT)]);
     process.exit(0);
   };
   process.on("SIGINT", cleanup);
@@ -63,7 +61,7 @@ async function main() {
   async function reloadAll() {
     console.log("\n[dev] 重新加载前后端代码...");
     await Promise.all([stopProc(kernel), stopProc(frontend)]);
-    await Promise.all([killPort(KERNEL_WS_PORT), killPort(FRONTEND_PORT)]);
+    await Promise.all([killPort(WS_PORT), killPort(FRONTEND_PORT)]);
 
     kernel = spawnKernel();
     frontend = spawnFrontend();

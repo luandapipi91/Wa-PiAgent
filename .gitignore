@@ -47,3 +47,8 @@ packages/kernel/tests/.tmp-*
 .claude/
 
 .spike/
+
+# desktop 构建中间产物（build.ts 生成，不入库）
+packages/desktop/src/embedded/
+# 注：packages/desktop/src/embedded-assets.ts 是入库的 typed stub（让 typecheck 在
+# 全新检出下也能通过），build.ts 在打包时临时重新生成、用完恢复，必须保持 tracked。

@@ -1,0 +1,69 @@
+# hiagent 发版打包流水线 (Gitee Go)
+#
+# 触发: push tag v*
+# 步骤: setup bun+pillow → install → pack:all(含测试钩子, Linux 单 runner 跨平台交叉编译) → 校验和 → Gitee Release API 上传
+# Schema 参考: https://help.gitee.com/gitee-go/
+# 字段名以 Gitee Go 平台实际接受为准; 推送后在流水线编辑器里核对一次。
+name: hiagent-release
+displayName: 发版打包
+triggers:
+  push:
+    tags:
+      - v*
+stages:
+  - name: build-release
+    steps:
+      - step: script
+        name: setup
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> $GITEE_ENV_PATH
+          # pack 脚本用 Pillow 生成/处理图标
+          python -m pip install --upgrade pip
+          python -m pip install pillow
+      - step: script
+        name: install
+        # 固定走 npmjs 官方源; npmmirror 国内 CI 曾出现 systray2 tarball 损坏
+        run: BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun install --frozen-lockfile
+      - step: script
+        name: pack
+        # pack:all 内部已挂 test 钩子, 且用 bun --target 在单 Linux runner 上交叉编译 win/mac/linux
+        run: bun run pack:all
+      - step: script
+        name: checksums
+        run: |
+          cd dist/desktop
+          # 三平台产物: HiAgent (linux/mac), HiAgent.exe (win)
+          sha256sum */HiAgent */HiAgent.exe > checksums.txt 2>/dev/null || true
+          echo "=== checksums.txt ==="
+          cat checksums.txt
+      - step: script
+        name: upload-release
+        run: |
+          # Gitee Release 资产上传 (attach_files API)
+          # 环境变量:
+          #   GITEE_TOKEN  — Gitee 私人令牌 (在仓库流水线变量里配置)
+          #   GITEE_REF    — 触发 ref, 形如 refs/tags/v1.2.3
+          # owner / repo / release-id 首次运行时核对填写:
+          #   - owner: hiagent (改为实际 owner)
+          #   - repo:  hiagent
+          #   - release-id: 先调 GET /api/v5/repos/<owner>/<repo>/releases/tags/<tag> 拿到 id
+          TAG="${GITEE_REF##*/}"
+          OWNER="hiagent"
+          REPO="hiagent"
+          echo "Releasing tag=$TAG for $OWNER/$REPO"
+          # 1. 拿到 release id
+          RELEASE_ID=$(curl -fsSL \
+            -H "Authorization: token $GITEE_TOKEN" \
+            "https://gitee.com/api/v5/repos/$OWNER/$REPO/releases/tags/$TAG" \
+            | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          echo "release id=$RELEASE_ID"
+          # 2. 逐个上传资产
+          for f in dist/desktop/*/HiAgent dist/desktop/*/HiAgent.exe dist/desktop/checksums.txt; do
+            [ -f "$f" ] || continue
+            echo "uploading $f"
+            curl -fsSL -X POST \
+              "https://gitee.com/api/v5/repos/$OWNER/$REPO/releases/$RELEASE_ID/attach_files" \
+              -H "Authorization: token $GITEE_TOKEN" \
+              -F "file=@$f"
+          done
