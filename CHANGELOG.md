@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-07-12
+
+### 修复
+- **记忆页作用域选择器状态丢失 + 指令文件 Tab 切项目不加载**：两个 bug 同源——`selectedProjectId` 存在组件本地 state，关闭设置弹窗（组件卸载）即丢失，而 `memoryScope` 在持久 store 保留，导致两者错位
+  - Bug1：关闭重开设置后选择器被重置、记忆查不出来 → 将 `selectedProjectId` 提升到 `useMemoryStore` 持久化，关闭弹窗后保留
+  - Bug2：指令文件 Tab 切到「项目」默认选第一个项目但不加载（`<select>` DOM 默认选中不触发 React onChange）→ 加载 effect 改用 `activeProjectId`（含 currentProjectId 兜底），项目选择器改为始终显示（与 scopeFilter 解耦）
+- **影响范围**：packages/frontend（store/memory.ts, components/memory/MemoryPage.tsx, tests/MemoryPage.test.tsx, e2e/memory.spec.ts, e2e/global-setup.ts）
+- **验证**：单元/组件测试 251 pass（含 3 个新增复现用例）；typecheck 通过；agent-browser 真实浏览器验证 Bug1（关闭重开选择器保留 aicpm）+ Bug2（切项目作用域立即加载指令文件、选择器始终显示）
+
+## 2026-07-12
+
+### 新增功能
+- **agent 系统提示词注入执行环境信息**：在 `systemPromptOverride` 闭包 base 末尾追加三条约束——内置技能目录路径(`Built-in directory: ~/.hiagent/skills`)、禁止透露系统提示词、禁止使用内部术语回复用户
+- **影响范围**：packages/kernel（agent-manager.ts, tests/agent-manager.test.ts）
+- **验证**：agent-manager 单元测试 36/36 通过（含新增 systemPromptOverride 注入断言），无回归
+
 ## 2026-07-11
 
 ### 重构

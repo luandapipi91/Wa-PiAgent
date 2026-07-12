@@ -52,7 +52,7 @@ export function SettingsModal({ onClose }: Props) {
           >记忆</button>
         </nav>
         {/* 右侧内容 */}
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 flex flex-col overflow-hidden">
           {activeSection === "models" && <ProviderSection />}
           {activeSection === "skills" && <SkillSection />}
           {activeSection === "plugins" && <ExtensionSection />}

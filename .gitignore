@@ -43,3 +43,4 @@ packages/kernel/tests/.tmp-*
 .playwright-mcp/
 .worktrees/
 .worktrees/
+.zcode/

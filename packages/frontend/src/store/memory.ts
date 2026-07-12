@@ -25,6 +25,9 @@ interface MemoryState {
   scopeFilter: ScopeFilter;
   /** 记忆作用域：控制列表过滤与手动添加落点 */
   memoryScope: MemoryScope;
+  /** 选中查看的项目（记忆作用域 + 指令文件 Tab 共用）。持久化到 store，
+   *  关闭设置弹窗后保留，避免重开时与 memoryScope 错位 */
+  selectedProjectId: string | null;
   searchQuery: string;
   loading: boolean;
 
@@ -44,6 +47,7 @@ interface MemoryState {
   setCategoryFilter: (f: CategoryFilter) => void;
   setScopeFilter: (f: ScopeFilter) => void;
   setMemoryScope: (s: MemoryScope) => void;
+  setSelectedProjectId: (id: string | null) => void;
   setSearchQuery: (q: string) => void;
 }
 
@@ -57,6 +61,7 @@ export const useMemoryStore = create<MemoryState>((set) => ({
   categoryFilter: "all",
   scopeFilter: "all",
   memoryScope: "global",
+  selectedProjectId: null,
   searchQuery: "",
   loading: false,
 
@@ -83,5 +88,6 @@ export const useMemoryStore = create<MemoryState>((set) => ({
   setCategoryFilter: (f) => set({ categoryFilter: f }),
   setScopeFilter: (f) => set({ scopeFilter: f }),
   setMemoryScope: (s) => set({ memoryScope: s }),
+  setSelectedProjectId: (id) => set({ selectedProjectId: id }),
   setSearchQuery: (q) => set({ searchQuery: q }),
 }));

@@ -36,6 +36,7 @@ beforeEach(() => {
     categoryFilter: "all",
     scopeFilter: "all",
     memoryScope: "global",
+    selectedProjectId: "p1",
     searchQuery: "",
   });
 });
@@ -210,4 +211,78 @@ test("添加空内容不会触发 memory:add", () => {
   fireEvent.click(screen.getByTestId("memory-add-button"));
   fireEvent.click(screen.getByTestId("memory-add-save"));
   expect(addMock).not.toHaveBeenCalled();
+});
+
+// —— Bug 1 复现：关闭重开设置后，作用域选择器应保留上次选中的项目 ——
+// 根因：selectedProjectId 原存在组件本地 state，弹窗卸载即丢失；
+//       而 memoryScope 在持久 store 保留 → 两者错位，列表为空。
+// 修复：selectedProjectId 提升到 store，关闭重开后仍保留。
+test("Bug1: 关闭重开设置后，项目作用域仍显示上次选中的项目及其记忆", () => {
+  // 模拟「上次选了 aicpm 项目」的持久 store 状态（关闭弹窗后保留）
+  useProjectsStore.setState({
+    currentProjectId: null, // 无项目上下文打开设置
+    projects: [
+      { id: "aicpm", name: "aicpm", cwd: "/tmp/aicpm", createdAt: 0 },
+    ],
+  });
+  useMemoryStore.setState({
+    memoryScope: "project",
+    selectedProjectId: "aicpm",
+    memories: [
+      { id: "g:0", text: "全局记忆", category: "memory", scope: "global", sourceFile: "/g", rawIndex: 0 },
+      { id: "aicpm:0", text: "aicpm 项目记忆", category: "memory", scope: "project", sourceFile: "/a", rawIndex: 0 },
+    ],
+  });
+  // 重新渲染（模拟关闭设置后重开 → MemoryPage 重新挂载，但 store 状态保留）
+  render(<MemoryPage />);
+  // 按钮应显示项目名「aicpm」，而非兜底的「项目记忆」
+  expect(screen.getByTestId("memory-scope-select").textContent).toContain("aicpm");
+  // 项目记忆应可见（非空）
+  expect(screen.getByText("aicpm 项目记忆")).toBeTruthy();
+  expect(screen.queryByText("全局记忆")).toBeNull();
+});
+
+// —— Bug 2 复现：指令文件 Tab 切到「项目」默认选第一个项目时应加载 ——
+// 根因：<select> 首次渲染 DOM 默认选第一个 option，但不触发 React onChange，
+//       selectedProjectId 仍为 null → 加载 effect 不执行。
+// 修复：selectedProjectId 提升到 store 并用 activeProjectId 兜底；选择器始终显示。
+test("Bug2: 指令文件 Tab 下项目选择器始终显示，且进入即加载当前项目指令", () => {
+  const loadInstructionsMock = mock();
+  useProjectsStore.setState({
+    currentProjectId: "p1",
+    projects: [
+      { id: "p1", name: "项目1", cwd: "/tmp/p1", createdAt: 0 },
+    ],
+  });
+  useMemoryStore.setState({
+    selectedProjectId: "p1",
+    scopeFilter: "global", // 即使在「全局」作用域下，选择器也应可见
+    loadInstructions: loadInstructionsMock,
+  });
+  render(<MemoryPage />);
+  // 切到指令文件 Tab
+  fireEvent.click(screen.getByTestId("tab-指令文件"));
+  // 选择器始终可见（不受 scopeFilter 影响）
+  expect(screen.getByTestId("instruction-project-select")).toBeTruthy();
+  // 进入 Tab 即应触发加载（用 activeProjectId = p1）
+  expect(loadInstructionsMock).toHaveBeenCalledWith("p1");
+});
+
+// —— Bug 2 补充：无项目上下文时，指令文件 Tab 用 currentProjectId 兜底加载 ——
+test("Bug2: selectedProjectId 为 null 时用 currentProjectId 兜底加载指令文件", () => {
+  const loadInstructionsMock = mock();
+  useProjectsStore.setState({
+    currentProjectId: "p2",
+    projects: [
+      { id: "p2", name: "项目2", cwd: "/tmp/p2", createdAt: 0 },
+    ],
+  });
+  useMemoryStore.setState({
+    selectedProjectId: null, // store 里尚未选过
+    loadInstructions: loadInstructionsMock,
+  });
+  render(<MemoryPage />);
+  fireEvent.click(screen.getByTestId("tab-指令文件"));
+  // activeProjectId = selectedProjectId ?? currentProjectId = "p2"
+  expect(loadInstructionsMock).toHaveBeenCalledWith("p2");
 });
