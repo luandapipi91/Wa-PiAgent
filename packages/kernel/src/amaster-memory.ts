@@ -53,10 +53,14 @@ export function createAmasterStore(dir: string): AmasterStore {
   return createStore(dir);
 }
 
-/** 按 cwd 生成项目目录名（basename；与历史 projects-memory/<basename> 约定对齐） */
+/** 按 cwd 生成项目目录名（basename；与历史 projects-memory/<basename> 约定对齐）。
+ *  净化 Windows 非法文件名字符（如盘根 cwd `H:` 的冒号），避免 mkdir 失败。 */
 export function projectNameFromCwd(cwd: string): string {
   const parts = cwd.replace(/\\/g, "/").replace(/\/$/, "").split("/");
-  return parts[parts.length - 1] || "default";
+  const raw = (parts[parts.length - 1] || "default")
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "") // 去非法字符（含盘符冒号）
+    .trim();
+  return raw || "default";
 }
 
 function createStore(dir: string): AmasterStore {

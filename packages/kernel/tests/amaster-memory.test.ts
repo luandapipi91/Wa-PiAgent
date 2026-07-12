@@ -147,3 +147,19 @@ test("projectNameFromCwd 处理 Windows 反斜杠与尾部分隔符", () => {
   expect(projectNameFromCwd("/home/u/my-app/")).toBe("my-app");
   expect(projectNameFromCwd("solo")).toBe("solo");
 });
+
+test("projectNameFromCwd 净化盘根等非法字符，避免 mkdir 失败", () => {
+  expect(projectNameFromCwd("H:")).toBe("H");
+  expect(projectNameFromCwd("H:\\")).toBe("H");
+  expect(projectNameFromCwd("D:\\proj<bad>|name")).toBe("projbadname");
+  // 全部被净化掉时回退 default
+  expect(projectNameFromCwd(":")).toBe("default");
+});
+
+test("盘根 cwd 的项目记忆目录可正常写入与读取", async () => {
+  const store = getProjectMemoryStore(tmpDir, "H:");
+  await store.add("memory", "盘根项目记忆");
+  // 目录应为 projects-memory/H（不含冒号）
+  expect(store.dir).toBe(join(tmpDir, "projects-memory", "H"));
+  expect(await store.entries("memory")).toContain("盘根项目记忆");
+});

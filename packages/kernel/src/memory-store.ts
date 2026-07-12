@@ -64,11 +64,17 @@ export class MemoryStore {
 
     const cwd = projectId ? await this.getProjectCwd(projectId) : null;
     if (cwd) {
-      const name = projectNameFromCwd(cwd);
-      const projectStore = getProjectMemoryStore(this.opts.hiagentDir, cwd);
-      const relBase = `${PROJECTS_MEMORY_DIR}/${name}`;
-      memories.push(...await this.toEntries(projectStore, "memory", "project", `${relBase}/MEMORY.md`));
-      memories.push(...await this.toEntries(projectStore, "user", "project", `${relBase}/USER.md`));
+      // 项目记忆目录不可访问（如 cwd 为盘根/含非法字符、磁盘已移除）时，跳过项目记忆，
+      // 仅返回全局记忆，避免整个列表抛错。
+      try {
+        const name = projectNameFromCwd(cwd);
+        const projectStore = getProjectMemoryStore(this.opts.hiagentDir, cwd);
+        const relBase = `${PROJECTS_MEMORY_DIR}/${name}`;
+        memories.push(...await this.toEntries(projectStore, "memory", "project", `${relBase}/MEMORY.md`));
+        memories.push(...await this.toEntries(projectStore, "user", "project", `${relBase}/USER.md`));
+      } catch (err) {
+        console.error(`[kernel] 读取项目记忆失败 (cwd=${cwd}):`, err);
+      }
     }
 
     const archived = await this.loadArchive();
