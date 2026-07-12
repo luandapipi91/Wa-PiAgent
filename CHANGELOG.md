@@ -7,6 +7,13 @@
 ## 2026-07-12
 
 ### 重构
+- **kernel 可导入 + 可选静态前端伺服（SPA fallback）**：把 `packages/kernel/src/index.ts` 的 `main()` 体抽成 `export async function startKernel(opts?: { staticDir?: string }): Promise<{ port: number }>`，桌面端可 in-process 启动；`if (import.meta.main)` 守卫使 `bun run src/index.ts` 自动执行路径保留不变。`packages/kernel/src/ws-server.ts` 的 `WSServerOpts` 新增可选 `staticDir`，`fetch` 在 WS 握手失败后用 `resolveStaticPath` 解析 URL → `Bun.file` 回资产，未知/越权路径回退 index.html（SPA 路由）。同一 9776 端口同时伺服 UI 与 WS，二进制分发不再依赖 Vite
+  - **影响范围**：packages/kernel（src/index.ts, src/ws-server.ts, tests/static-serve.test.ts, tests/static-serve.integration.test.ts）
+  - **验证**：static-serve 单元测试 4 pass（resolveStaticPath 三例 + getMimeType 四例）；typecheck 通过；集成测试受端口 9776 占用阻塞（详见 task-2-report）
+
+## 2026-07-12
+
+### 重构
 - **禁用 pi-lens 时过滤工具 allowlist**：把 agent-manager.ts:317 散落的三元表达式（`config?.tools?.length ? config.tools : DEFAULT_AGENT_TOOLS`）封装成统一入口 `resolveAgentTools` 纯函数，按可选插件启用态过滤工具。禁用 pi-lens 后从 agent 的 tools allowlist 移除其注册的 9 个工具（lsp_navigation/lsp_diagnostics/lens_diagnostics/ast_grep_search 等），agent 无法再调用它们。签名预留 `agentName` 参数供后期按角色做工具集裁剪
   - shared：`constants.ts` 新增 `EXTENSION_TOOL_MAP`（插件 id → 工具名映射）+ `resolveAgentTools` 纯函数；`tests/constants.test.ts` 覆盖启用/禁用/空集/不可变四种态
   - kernel：`AgentManagerOpts` 注入可选 `extensionManager`；`_createSession` 改调 `resolveAgentTools`（经 `getEnabledExtensionIds` 读插件态）；`index.ts` 构造时传入
