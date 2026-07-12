@@ -49,8 +49,15 @@ describe("AskFormCard", () => {
 
   it("取消 → 发 agent:cancel-ask", () => {
     render(<AskFormCard sessionId="s1" toolCallId="tc1" params={params} />);
-    // 取消按钮在 header 和 footer 各一个，取第一个（header）
-    fireEvent.click(screen.getAllByRole("button", { name: "取消" })[0]);
+    // footer 的「取消」文字按钮
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].type).toBe("agent:cancel-ask");
+  });
+
+  it("右上角 ✕（终止）→ 发 agent:cancel-ask", () => {
+    render(<AskFormCard sessionId="s1" toolCallId="tc1" params={params} />);
+    fireEvent.click(screen.getByRole("button", { name: "终止提问" }));
     expect(sent).toHaveLength(1);
     expect(sent[0].type).toBe("agent:cancel-ask");
   });
@@ -85,5 +92,23 @@ describe("AskFormCard", () => {
     fireEvent.click(screen.getByText("C"));
     fireEvent.click(screen.getByRole("button", { name: "提交" }));
     expect(sent[0].reply.replies[0].selected.sort()).toEqual(["A", "C"]);
+  });
+
+  it("选「其他」取消普通选项选择；未输入文字时提交禁用；输入后可提交", () => {
+    render(<AskFormCard sessionId="s1" toolCallId="tc1" params={params} />);
+    // 先选一个普通选项
+    fireEvent.click(screen.getByText("PostgreSQL"));
+    // 再选「其他」→ 普通选项被清空，进入 other 模式
+    fireEvent.click(screen.getByText("其他…"));
+    const submit = screen.getByRole("button", { name: "提交" }) as HTMLButtonElement;
+    // 未输入文字 → 提交禁用
+    expect(submit.disabled).toBe(true);
+    // 输入文字 → 可提交，selected 为空、customText 为输入值
+    const input = screen.getByPlaceholderText("输入自定义答案…") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "Redis" } });
+    expect((screen.getByRole("button", { name: "提交" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "提交" }));
+    expect(sent[0].reply.replies[0].selected).toEqual([]);
+    expect(sent[0].reply.replies[0].customText).toBe("Redis");
   });
 });
