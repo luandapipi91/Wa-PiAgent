@@ -6,6 +6,16 @@
 
 ## 2026-07-12
 
+### 新增功能
+- **ask_user_question 结构化澄清提问工具**：agent 可在任务中调用 `ask_user_question` 工具向用户提出 1-4 个结构化问题（每问 2-4 选项，支持单/多选、自由文本、per-question 备注），代替瞎猜；前端在 composer 上方停靠 AskDock 表单完成人机交互
+  - shared：新增 `ask.ts`（AskParams/AskReply/AskAnswer 类型 + validateAskParams/replyToAnswers 纯函数 + ASK_RESERVED_LABELS）；`DEFAULT_AGENT_TOOLS` 加入白名单；WSClientEvent 加 `agent:answer`/`agent:cancel-ask`
+  - kernel：`AskRegistry` 进程单例（ask 阻塞/resolve/cancel/cancelAll/幂等/AbortSignal）；`makeAskTool` 用 `defineTool`+TypeBox 定义工具并入 `customTools`（与 memory 工具合并，不覆盖）；中断点（abort/_jumpQueue/_teardownSession）调 cancelAll 作废 pending；ws-server 处理 agent:answer/cancel-ask 直达 registry；reconcileDanglingAsks 重启兜底
+  - frontend：`selectPendingAsks`/`selectEffectiveStatus` 派生选择器；AskFormCard 表单组件（单/多选、Other、preview、备注、提交/取消）；AskDock 停靠区；pending 时 composer 禁用；历史 ToolCall 显示「问答」label
+- **影响范围**：packages/shared（ask.ts, types.ts, constants.ts, index.ts, tests/ask.test.ts）、packages/kernel（ask-registry.ts, ask-tool.ts, agent-manager.ts, ws-server.ts 及对应测试）、packages/frontend（store/ask.ts, components/ask/AskFormCard.tsx, components/ask/AskDock.tsx, SessionView.tsx, Composer.tsx, ui/ComposerInput.tsx, MessageList.tsx 及对应测试）
+- **验证**：shared 36 pass / kernel 232 pass / frontend 264 pass（0 fail）；三包 typecheck 通过；四层测试第 1-3 层（单元/组件/集成）已覆盖，第 4 层 E2E 待真实模型环境补充
+
+## 2026-07-12
+
 ### 修复
 - **记忆页作用域选择器状态丢失 + 指令文件 Tab 切项目不加载**：两个 bug 同源——`selectedProjectId` 存在组件本地 state，关闭设置弹窗（组件卸载）即丢失，而 `memoryScope` 在持久 store 保留，导致两者错位
   - Bug1：关闭重开设置后选择器被重置、记忆查不出来 → 将 `selectedProjectId` 提升到 `useMemoryStore` 持久化，关闭弹窗后保留
