@@ -4,7 +4,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { waitForPort } = require("./util/port.cjs");
 
-const WS_PORT = 9776;
+const WS_PORT = Number(process.env.HIAGENT_WS_PORT) > 0 ? Number(process.env.HIAGENT_WS_PORT) : 9776;
 
 function killTree(pid) {
   try {
