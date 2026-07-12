@@ -114,6 +114,14 @@ test("add 项目记忆缺少 projectId 抛错", async () => {
   await expect(store.add("project", "无项目")).rejects.toThrow();
 });
 
+test("list 项目 cwd 为盘根等非法 basename 时不抛错，正常返回全局记忆", async () => {
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("H:") });
+  await store.add("global", "全局A");
+  // 盘根 cwd 经净化为合法目录名 H，不应抛 ENOENT
+  const { memories } = await store.list("p1");
+  expect(memories.find(m => m.text === "全局A" && m.scope === "global")).toBeTruthy();
+});
+
 // ===== update / archive / restore / purge =====
 
 test("update 按 id 定位条目并替换文本", async () => {
