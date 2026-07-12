@@ -58,4 +58,5 @@ export const DEFAULT_AGENT_TOOLS = [
   "memory_remove",
   "memory_read",
   "session_search",
+  "ask_user_question",
 ];
