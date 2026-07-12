@@ -23,6 +23,7 @@ import type {
 import { relative, isAbsolute } from "node:path";
 import { buildAdditionalExtensionPaths } from "./extensions";
 import { createAgentMemoryTools, getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
+import { makeAskTool, reconcileDanglingAsks } from "./ask-tool";
 import type { SkillManager } from "./skill-manager";
 
 // 可注入的 createAgentSession 签名（与 SDK 的 createAgentSession 对齐，但用 any 避免 SDK 类型穿透）
@@ -313,11 +314,25 @@ export class AgentManager {
       thinkingLevel: config?.thinking ?? "medium",
       // 无显式 tools 时用默认工具集（含 Pi 内置 + pi-web-access 网络工具）
       tools: config?.tools?.length ? config.tools : DEFAULT_AGENT_TOOLS,
-      // 记忆工具（host-controlled，绑定项目 store）
-      customTools: memoryCustomTools,
+      // 记忆工具（host-controlled，绑定项目 store）+ ask_user_question 工具。
+      // 注意：必须合并进同一数组，不能覆盖——memory 工具由 createAgentMemoryTools 构造，
+      // 直接覆盖会破坏现有记忆功能。memory 已落地，按计划 Self-Review「memory 重构落地后追加」。
+      customTools: [...memoryCustomTools, makeAskTool(sessionId)],
       authStorage,
       modelRegistry,
     });
+
+    // 重启兜底：对历史里「无 result 的 ask 调用」注入 cancelled，避免 agent 卡死。
+    // try/catch 保护：session.agent.state.messages 赋值依赖 SDK 内部结构，
+    // 某些 SDK 版本可能不生效或抛错，此时降级为不注入但绝不崩溃。
+    try {
+      const reconciled = reconcileDanglingAsks(session.messages as unknown[]);
+      if (reconciled.length !== (session.messages as unknown[]).length) {
+        (session as any).agent.state.messages = reconciled;
+      }
+    } catch {
+      // SDK 内部结构不符时不注入但不崩溃（降级）
+    }
 
     // 设置 pi-intercom 会话名（对齐原 RPC --name 参数，格式：projectId-agentName-sessionId）
     session.setSessionName(`${projectId}-${agentName}-${sessionId}`);

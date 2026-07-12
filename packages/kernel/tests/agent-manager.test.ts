@@ -1002,3 +1002,23 @@ test("markAllDirty 仍走 reload 路径（不被重建逻辑影响）", async ()
   expect(r).toBe(first);  // reload 不换 session
   expect(created).toHaveLength(1);  // 未重建
 });
+
+test("ensureStarted 把 ask_user_question 工具作为 customTools 传给 createFn", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const captured: any[] = [];
+  const createFn = mock(async (opts: any) => {
+    captured.push(opts);
+    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+  const am = new AgentManager({ projectStore, configStore: null as any, onEvent: () => {}, createAgentSessionFn: createFn as any });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  expect(captured[0].customTools).toBeDefined();
+  // customTools 现为 [...memoryCustomTools, makeAskTool(sessionId)]——ask 工具在末尾，
+  // 用 find 按 name 查找，避免对 memory 工具数量/顺序的硬编码假设。
+  const askTool = (captured[0].customTools as any[]).find((t: any) => t.name === "ask_user_question");
+  expect(askTool).toBeDefined();
+});
