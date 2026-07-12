@@ -44,3 +44,5 @@ packages/kernel/tests/.tmp-*
 .worktrees/
 .worktrees/
 .zcode/
+# 特性开发 worktree 隔离目录
+.claude/worktrees/
