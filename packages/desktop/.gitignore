@@ -1,3 +1,4 @@
 release/
 .bun-cache/
 build-assets/
+resources/
