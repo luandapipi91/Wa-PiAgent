@@ -1,16 +1,21 @@
-// P2 文件夹组装构建编排：
+// 单 exe（--external SDK + default bundle workspace）+ node_modules 文件夹组装构建编排：
 //   [0] 测试钩子（typecheck + root suite + kernel HTTP 集成）
-//   [1] vite build frontend
-//   [2] genicon → launcher 托盘图标
-//   [3] 物化 launcher 嵌入资源（traybin + icons）→ 生成 embedded-assets.ts 清单
-//   [4] 构建 kernel.js（platform-neutral，一次构建，所有目标共用）
-//   [5] 每目标文件夹组装：launcher exe / bun.exe / kernel.js / node_modules / web
+//   [1] vite build frontend + 物化嵌入资源（web + traybin）到 src/embedded
+//   [2] genicon → 托盘图标
+//   [3] 生成 embedded-assets.ts 清单（walk src/embedded 全量：web + traybin + icons）
+//   [4] 每目标文件夹组装：单 exe（--external SDK 包，workspace/systray2/fs-extra bundle 进 exe；
+//        web/traybin/icons 以 {type:"file"} 嵌入）+ folder package.json + bun install --production
 //
-// P2 与 P1 的核心区别：产物从单 exe 变为 FOLDER（launcher exe + bun 解释运行的 kernel + 磁盘 node_modules）。
-// launcher 仍嵌入自己的 tray icon + systray helper（EMBEDDED_ASSETS），但 kernel/web 不再嵌入——
-// 它们作为 launcher exe 的同级文件存在，让 SDK 的动态 require.resolve / import.meta.resolve 正常工作。
+// 关键：--external 只外部化 SDK npm 包（pi-coding-agent / pi-intercom / ...），运行时从 exe
+// 同级 node_modules 解析（含 SDK 动态 require("pi-intercom/package.json")）。workspace 包
+// （@hiagent/kernel、@hiagent/shared）被 bundle 进 exe（bun 能 bundle TS 源，跨包 import
+// 在编译期内联）—— 不需要磁盘 node_modules 条目。
+// {type:"file"} 资源（web/traybin/icons）正常嵌入 exe 字节，不受 --external 影响。
+//
+// 产物：dist/desktop/<平台>/HiAgent/ 内含 HiAgent.exe + node_modules/（+ folder package.json/lockfile）。
+// 无 launcher.exe / bun.exe / kernel.js / web/ —— kernel 进程内、web 嵌入、exe 即 bun。
 import { spawnSync } from "node:child_process";
-import { cp, copyFile, mkdir, rm, readdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, rm, readdir, readFile, writeFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -20,7 +25,6 @@ const KERNEL_PKG = join(ROOT, "packages", "kernel");
 const FRONTEND_PKG = join(ROOT, "packages", "frontend");
 const EMBED = join(PKG, "src", "embedded");
 const DIST = join(ROOT, "dist", "desktop");
-const KERNEL_STAGING = join(DIST, ".kernel-staging");
 
 const STUB_PATH = join(PKG, "src", "embedded-assets.ts");
 const STUB_CONTENT = `// 本文件由 packages/desktop/scripts/build.ts 在打包时临时重新生成为嵌入资源清单\n// （各 \`import aN from "./embedded/..." with { type: "file" }\`）。此空 stub 是入库基线。\nexport const EMBEDDED_ASSETS: { src: string; dest: string }[] = [];\n`;
@@ -74,14 +78,19 @@ async function step0TestGate() {
   runOrDie("bun", ["test", "tests/static-serve.integration.test.ts"], join(ROOT, "packages", "kernel"));
 }
 
-// ---- 步骤 1: vite build + 清理 embedded ----
+// ---- 步骤 1: vite build + 物化嵌入资源（web + traybin）----
 
-async function step1ViteBuild() {
-  console.log("[build] 步骤1: vite build frontend + 清理 embedded/");
+async function step1ViteAndMaterialize() {
+  console.log("[build] 步骤1: vite build frontend + 物化 web/traybin 到 src/embedded");
   runOrDie("bun", ["run", "--filter", "@hiagent/frontend", "build"]);
-  // 清理 embedded/（P1 残留的 web/ 等不再需要）；genicon 和 traybin 物化在后续步骤重建。
-  await rm(EMBED, { recursive: true, force: true });
-  await mkdir(EMBED, { recursive: true });
+  await rm(join(EMBED, "web"), { recursive: true, force: true });
+  await rm(join(EMBED, "traybin"), { recursive: true, force: true });
+  await cp(join(FRONTEND_PKG, "dist"), join(EMBED, "web"), { recursive: true });
+  await mkdir(join(EMBED, "traybin"), { recursive: true });
+  const helperDir = join(PKG, "node_modules", "systray2", "traybin");
+  for (const f of ["tray_windows_release.exe", "tray_darwin_release", "tray_linux_release"]) {
+    await cp(join(helperDir, f), join(EMBED, "traybin", f));
+  }
 }
 
 // ---- 步骤 2: genicon ----
@@ -91,18 +100,10 @@ function step2Genicon() {
   runOrDie("python", ["scripts/genicon.py", join(ROOT, "logo.svg"), join(EMBED, "icons")], PKG);
 }
 
-// ---- 步骤 3: 物化 launcher 嵌入资源（traybin + icons）+ 生成清单 ----
+// ---- 步骤 3: 生成 embedded-assets.ts 清单 ----
 
-async function step3MaterializeAndManifest() {
-  console.log("[build] 步骤3: 物化 traybin + 生成 embedded-assets.ts 清单");
-  // traybin: systray2 helper（launcher 运行时解压到 ~/.hiagent/.cache/traybin/ 供 systray2 用）
-  await mkdir(join(EMBED, "traybin"), { recursive: true });
-  const helperDir = join(PKG, "node_modules", "systray2", "traybin");
-  for (const f of ["tray_windows_release.exe", "tray_darwin_release", "tray_linux_release"]) {
-    await cp(join(helperDir, f), join(EMBED, "traybin", f));
-  }
-
-  // 生成 embedded-assets.ts：walk src/embedded 全量（traybin + icons，不含 web）
+async function step3Manifest() {
+  console.log("[build] 步骤3: 生成 embedded-assets.ts 清单（walk src/embedded 全量）");
   const files: string[] = [];
   for await (const p of walk(EMBED)) files.push(p);
   const rel = (p: string) => "./embedded/" + p.slice(EMBED.length).replace(/^[\\/]+/, "").replace(/\\/g, "/");
@@ -121,20 +122,7 @@ async function* walk(dir: string): AsyncGenerator<string> {
   }
 }
 
-// ---- 步骤 4: 构建 kernel.js（一次构建，所有目标共用）----
-
-function step4BuildKernel() {
-  console.log("[build] 步骤4: 构建 kernel.js (platform-neutral, --target bun)");
-  // --target bun = 打包成 bun 解释执行的 JS（非 compile）；静态依赖内联进 kernel.js，
-  // 运行时动态 require.resolve / import.meta.resolve 从同级 node_modules 解析。
-  runOrDie(
-    "bun",
-    ["build", "src/desktop-server.ts", "--target", "bun", "--outfile", join(KERNEL_STAGING, "kernel.js")],
-    KERNEL_PKG,
-  );
-}
-
-// ---- 步骤 5: 文件夹组装 ----
+// ---- 步骤 4: 每目标文件夹组装（单 exe --external SDK + node_modules）----
 
 const TARGET_DIR: Record<string, string> = {
   "bun-windows-x64": "win-x64",
@@ -143,36 +131,57 @@ const TARGET_DIR: Record<string, string> = {
   "bun-linux-x64": "linux-x64",
 };
 
-async function step5Assemble() {
+/**
+ * 只外部化非 scoped 的扩展包：这些包在运行时被 kernel 的 extensions.ts 通过
+ * `require.resolve("pkg/package.json")` 解析（bun 编译产物的 require 只能从磁盘
+ * 解析非 scoped 包；scoped 包有 bun#1.3.14 编译二进制解析 bug，不可外部化）。
+ *
+ * scoped 包（@earendil-works/pi-coding-agent、@amaster.ai/pi-memory）不在此列表 →
+ * 被 bundle 进 exe（bun 能 bundle TS 源；动态 import("@earendil-works/...") 由
+ * bun 在编译期内联为 bundled 模块引用）。typebox 同理（静态 import，可 bundle）。
+ *
+ * 扩展包自身的传递依赖（包括 scoped 的，如 pi-lens → @earendil-works/pi-tui）
+ * 由 SDK 的 jiti 加载器在运行时从磁盘 node_modules 解析（jiti 用 Node 兼容解析，
+ * 不受 bun 编译二进制 scoped 解析 bug 影响）。故 folder node_modules 仍需全量 npm deps。
+ */
+const EXTERNAL_PACKAGES = [
+  "pi-intercom",
+  "pi-web-access",
+  "pi-lens",
+];
+
+async function step4Assemble() {
   const targets = values.target ?? ["bun-windows-x64"];
 
-  // 提取 kernel npm 运行时依赖（排除 workspace:* — @hiagent/kernel / @hiagent/shared 已内联进 kernel.js）
+  // 收集 kernel + desktop 的 npm 运行时依赖（排除 workspace:* —— 它们被 bundle 进 exe）
   const kernelPkg = JSON.parse(await readFile(join(KERNEL_PKG, "package.json"), "utf8"));
-  const deps: Record<string, string> = {};
-  for (const [name, version] of Object.entries<string>(kernelPkg.dependencies)) {
+  const desktopPkg = JSON.parse(await readFile(join(PKG, "package.json"), "utf8"));
+  const npmDeps: Record<string, string> = {};
+  for (const [name, version] of Object.entries<string>({ ...kernelPkg.dependencies, ...desktopPkg.dependencies })) {
     if (version === "workspace:*") continue;
-    deps[name] = version;
+    npmDeps[name] = version;
   }
 
   for (const t of targets) {
     const dirName = TARGET_DIR[t] ?? t;
     const folder = join(DIST, dirName, "HiAgent");
     const isWin = t.includes("windows");
-    console.log(`[build] 步骤5: 组装 ${t} → ${folder}`);
+    console.log(`[build] 步骤4: 组装 ${t} → ${folder}`);
 
     // 清理 + 创建目标文件夹
     await rm(folder, { recursive: true, force: true });
     await mkdir(folder, { recursive: true });
 
-    // 5a. 编译 launcher
+    // 4a. 编译单 exe（--external SDK 包；workspace/systray2/fs-extra 被 bundle；{type:"file"} 资源嵌入）
     const outfile = join(folder, isWin ? "HiAgent.exe" : "HiAgent");
+    const externalArgs = EXTERNAL_PACKAGES.flatMap((p) => ["--external", p]);
     runOrDie(
       "bun",
-      ["build", join(PKG, "src", "main.ts"), "--compile", `--target=${t}`, `--outfile=${outfile}`],
+      ["build", join(PKG, "src", "main.ts"), "--compile", ...externalArgs, `--target=${t}`, `--outfile=${outfile}`],
       PKG,
     );
 
-    // 5b. Windows PE 子系统 patch（CONSOLE → GUI）
+    // 4b. Windows PE 子系统 patch（CONSOLE → GUI）
     if (isWin) {
       console.log("[build] Windows PE 子系统 patch");
       const { patchPeSubsystemToGui } = await import(join(PKG, "src", "util", "pe-subsystem.ts"));
@@ -180,25 +189,17 @@ async function step5Assemble() {
       console.log(`[build] subsystem ${r.before} -> ${r.after}`);
     }
 
-    // 5c. bun.exe：HOST 平台直接复制 process.execPath（win-on-win）
-    const bunExeName = isWin ? "bun.exe" : "bun";
-    if ((isWin && process.platform === "win32") || (!isWin && process.platform !== "win32")) {
-      await copyFile(process.execPath, join(folder, bunExeName));
-      console.log(`[build] 复制 host bun → ${bunExeName}`);
-    } else {
-      // TODO(follow-up): 非 HOST 平台需从 github releases 拉取对应 bun runtime
-      console.log(`[build] TODO: ${t} 非 HOST 平台，需从 github releases 拉取 bun（暂跳过）`);
-    }
+    // 4c. folder package.json：列全部 npm 运行时依赖（SDK + systray2 + fs-extra）。
+    //     workspace 包不需要（已 bundle 进 exe）。
+    const folderPkg = {
+      name: "hiagent-desktop-runtime",
+      version: "0.0.0",
+      type: "module",
+      dependencies: npmDeps,
+    };
+    await writeFile(join(folder, "package.json"), JSON.stringify(folderPkg, null, 2));
 
-    // 5d. kernel.js（从 staging 复制，所有目标共用同一份）
-    await copyFile(join(KERNEL_STAGING, "kernel.js"), join(folder, "kernel.js"));
-    console.log("[build] 复制 kernel.js");
-
-    // 5e. node_modules：写 package.json + bun install --production
-    await writeFile(
-      join(folder, "package.json"),
-      JSON.stringify({ name: "hiagent-desktop", version: "0.0.0", type: "module", dependencies: deps }, null, 2),
-    );
+    // 4d. bun install --production（folder node_modules）—— SDK + 传递依赖一并落盘
     console.log("[build] bun install --production（folder node_modules）");
     const installEnv = { BUN_CONFIG_REGISTRY: "https://registry.npmjs.org/" };
     let installCode = run("bun", ["install", "--production", "--cwd", folder], ROOT, installEnv);
@@ -217,9 +218,16 @@ async function step5Assemble() {
       process.exit(1);
     }
 
-    // 5f. web/（前端 dist 复制为同级 web/）
-    await cp(join(FRONTEND_PKG, "dist"), join(folder, "web"), { recursive: true });
-    console.log("[build] 复制 web/");
+    // 4e. 校验外部化的 SDK 扩展包在 node_modules 中存在（运行时从磁盘解析）
+    for (const name of EXTERNAL_PACKAGES) {
+      const p = join(folder, "node_modules", name, "package.json");
+      const ok = await access(p).then(() => true).catch(() => false);
+      if (!ok) {
+        console.error(`[build] 校验失败：folder node_modules 缺失 ${name}`);
+        process.exit(1);
+      }
+    }
+    console.log(`[build] folder node_modules 校验通过（${EXTERNAL_PACKAGES.length} SDK 包）`);
   }
 }
 
@@ -228,11 +236,10 @@ async function step5Assemble() {
 (async () => {
   try {
     await step0TestGate();
-    await step1ViteBuild();
+    await step1ViteAndMaterialize();
     step2Genicon();
-    await step3MaterializeAndManifest();
-    step4BuildKernel();
-    await step5Assemble();
+    await step3Manifest();
+    await step4Assemble();
     console.log("[build] 完成");
   } finally {
     await writeStub(); // 恢复 stub，保持工作区干净
