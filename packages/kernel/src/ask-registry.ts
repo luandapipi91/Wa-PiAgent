@@ -27,12 +27,14 @@ export class AskRegistry {
       entry.resolve = (o) => { if (entry.done) return; entry.done = true; this.remove(sessionId, toolCallId); resolve(o); };
       entry.onAbort = () => entry.resolve({ cancelled: true });
     });
-    if (signal.aborted) entry.resolve({ cancelled: true });
-    else signal.addEventListener("abort", entry.onAbort, { once: true });
-
+    // 先插入 entry 到 map，再检查 signal.aborted：否则预 aborted 时 resolve() 触发的
+    // remove() 是 no-op（entry 尚未插入），会把一个 done:true 的 entry 永久留在 map 里。
     let inner = this.bySession.get(sessionId);
     if (!inner) { inner = new Map(); this.bySession.set(sessionId, inner); }
     inner.set(toolCallId, entry);
+
+    if (signal.aborted) entry.resolve({ cancelled: true });
+    else signal.addEventListener("abort", entry.onAbort, { once: true });
     return promise;
   }
 
