@@ -6,6 +6,13 @@
 
 ## 2026-07-12
 
+### 重构
+- **禁用 pi-lens 时过滤工具 allowlist**：把 agent-manager.ts:317 散落的三元表达式（`config?.tools?.length ? config.tools : DEFAULT_AGENT_TOOLS`）封装成统一入口 `resolveAgentTools` 纯函数，按可选插件启用态过滤工具。禁用 pi-lens 后从 agent 的 tools allowlist 移除其注册的 9 个工具（lsp_navigation/lsp_diagnostics/lens_diagnostics/ast_grep_search 等），agent 无法再调用它们。签名预留 `agentName` 参数供后期按角色做工具集裁剪
+  - shared：`constants.ts` 新增 `EXTENSION_TOOL_MAP`（插件 id → 工具名映射）+ `resolveAgentTools` 纯函数；`tests/constants.test.ts` 覆盖启用/禁用/空集/不可变四种态
+  - kernel：`AgentManagerOpts` 注入可选 `extensionManager`；`_createSession` 改调 `resolveAgentTools`（经 `getEnabledExtensionIds` 读插件态）；`index.ts` 构造时传入
+  - **影响范围**：packages/shared（constants.ts, tests/constants.test.ts）、packages/kernel（agent-manager.ts, index.ts）
+  - **验证**：shared 5 pass / kernel 54 pass（agent-manager + extension-manager + ws-extension 无回归）；两包 typecheck 通过
+
 ### 新增功能
 - **ask_user_question 结构化澄清提问工具**：agent 可在任务中调用 `ask_user_question` 工具向用户提出 1-4 个结构化问题（每问 2-4 选项，支持单/多选、自由文本、per-question 备注），代替瞎猜；前端在 composer 上方停靠 AskDock 表单完成人机交互
   - shared：新增 `ask.ts`（AskParams/AskReply/AskAnswer 类型 + validateAskParams/replyToAnswers 纯函数 + ASK_RESERVED_LABELS）；`DEFAULT_AGENT_TOOLS` 加入白名单；WSClientEvent 加 `agent:answer`/`agent:cancel-ask`

@@ -72,3 +72,40 @@ export const DEFAULT_AGENT_TOOLS = [
   "read_enclosing",      // 读取符号的封闭作用域
   "ask_user_question",
 ];
+
+/** 各可选插件注册的工具名（插件禁用时从 allowlist 过滤掉）。
+ *  键 = OPTIONAL_EXTENSIONS 里的插件 id（见 kernel/extensions.ts）。 */
+export const EXTENSION_TOOL_MAP: Record<string, string[]> = {
+  "pi-lens": [
+    "lsp_navigation",
+    "lsp_diagnostics",
+    "lens_diagnostics",
+    "ast_grep_search",
+    "ast_grep_replace",
+    "ast_grep_outline",
+    "module_report",
+    "read_symbol",
+    "read_enclosing",
+  ],
+};
+
+/**
+ * 按「可选插件启用态」过滤工具 allowlist 的纯函数。
+ * - baseTools：agent 配置的 tools 或 DEFAULT_AGENT_TOOLS
+ * - enabledExtensionIds：当前启用的插件 id 集合（由 ExtensionManager.list() 提供）
+ * - agentName：预留参数，后期按角色（product/pm/test 不需要代码工具）做进一步过滤
+ */
+export function resolveAgentTools(
+  baseTools: string[],
+  enabledExtensionIds: Set<string>,
+  _agentName?: string,
+): string[] {
+  let tools = baseTools;
+  for (const [extId, extTools] of Object.entries(EXTENSION_TOOL_MAP)) {
+    if (!enabledExtensionIds.has(extId)) {
+      const remove = new Set(extTools);
+      tools = tools.filter((t) => !remove.has(t));
+    }
+  }
+  return tools;
+}
