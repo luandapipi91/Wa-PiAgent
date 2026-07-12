@@ -162,3 +162,36 @@ test("切换会话后思考计时显示对应会话的已思考时长（不重�
   rerender(<SessionView sessionId="s2" onSwitchToCanvas={() => {}} />);
   expect(await screen.findByText(/思考中 · (10|11)s/)).toBeTruthy();
 });
+
+test("有 pending ask 时渲染 AskDock 且 composer 禁用", () => {
+  // 预置一条带 ask_user_question toolCall 的 assistant 消息（无 toolResult）
+  const askCall = { type: "toolCall", id: "tc-ask-1", name: "ask_user_question", arguments: { questions: [{ question: "Q?", header: "h", options: [{ label: "A", description: "x" }, { label: "B", description: "y" }] }] } };
+  const history: SessionMessage[] = [
+    { agentName: "dev", message: { role: "assistant", content: [askCall], model: "pi-test", stopReason: "tool_use", timestamp: 1 } as any },
+  ];
+  useSessionStore.getState().setMessages("s1", history);
+
+  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  // dock 渲染
+  expect(screen.getByTestId("ask-dock-s1")).toBeTruthy();
+  // 表单卡片渲染
+  expect(screen.getByTestId("ask-card-tc-ask-1")).toBeTruthy();
+  // composer textarea 禁用（ask 阻塞）
+  const textarea = screen.getByTestId("composer-input").querySelector("textarea")! as HTMLTextAreaElement;
+  expect(textarea.disabled).toBe(true);
+});
+
+test("无 pending ask 时不渲染 AskDock", () => {
+  // 预置普通消息（非 ask toolCall）
+  const history: SessionMessage[] = [
+    { agentName: undefined, message: { role: "user", content: "普通问题", timestamp: 1 } },
+  ];
+  useSessionStore.getState().setMessages("s1", history);
+
+  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  // dock 不存在
+  expect(screen.queryByTestId("ask-dock-s1")).toBeNull();
+  // composer textarea 未禁用
+  const textarea = screen.getByTestId("composer-input").querySelector("textarea")! as HTMLTextAreaElement;
+  expect(textarea.disabled).toBe(false);
+});

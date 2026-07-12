@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { useProjectsStore } from "../store/projects";
 import { useAgentsStore } from "../store/agents";
 import { useSessionStore } from "../store/session";
+import { useIsBlocked } from "../store/ask";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
+import { AskDock } from "./ask/AskDock";
 import { agentEmoji } from "../theme/agents";
 import { onMessage, send } from "../ws-instance";
 
@@ -15,6 +17,7 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
   const getGlobalState = useAgentsStore(s => s.getGlobalState);
   const queue = useSessionStore(s => s.queueBySession[sessionId]);
   const status = useSessionStore(s => s.statusBySession[sessionId] ?? "idle");
+  const isBlocked = useIsBlocked(sessionId);
 
   // 思考起算时间（按会话独立，切会话不重置/不沿用）。每秒计时交给 <ThinkingTimer> 独立持有，
   // 避免每秒 setElapsed 重渲染整个 SessionView（含 MessageList 的 markdown）造成计时卡顿。
@@ -67,7 +70,7 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
           </div>
           <div className="text-[11.5px] text-tertiary mt-px">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-success mr-1 align-middle" />
-            {session.primaryAgent} · {project?.cwd ?? ""} · {agentState}
+            {session.primaryAgent} · {project?.cwd ?? ""} · {isBlocked ? "等待回复" : agentState}
           </div>
         </div>
         <button onClick={onSwitchToCanvas} className="px-3 py-1.5 text-xs font-semibold rounded-sm border border-hairline bg-surface text-secondary transition-colors hover:border-brand hover:text-brand">
@@ -155,7 +158,8 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
       )}
 
       <MessageList sessionId={sessionId} />
-      <Composer sessionId={sessionId} agentName={session.primaryAgent} isRunning={status === "thinking"} />
+      <AskDock sessionId={sessionId} />
+      <Composer sessionId={sessionId} agentName={session.primaryAgent} isRunning={status === "thinking"} disabled={isBlocked} />
     </div>
   );
 }

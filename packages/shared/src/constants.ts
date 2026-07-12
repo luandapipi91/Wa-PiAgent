@@ -70,4 +70,5 @@ export const DEFAULT_AGENT_TOOLS = [
   "module_report",       // 模块依赖报告
   "read_symbol",         // 按符号读取代码
   "read_enclosing",      // 读取符号的封闭作用域
+  "ask_user_question",
 ];

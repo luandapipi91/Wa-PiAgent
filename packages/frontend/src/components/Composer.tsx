@@ -10,9 +10,10 @@ interface Props {
   sessionId: string;
   agentName: AgentName;
   isRunning?: boolean;
+  disabled?: boolean;
 }
 
-export function Composer({ sessionId, agentName, isRunning }: Props) {
+export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
   const [text, setText] = useState("");
   const sendingRef = useRef(false);
   const { sessions, currentProjectId } = useProjectsStore();
@@ -30,6 +31,7 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
   const attachments = prefs?.attachments ?? [];
 
   const handleSend = () => {
+    if (disabled) return;
     if (!text.trim() || !model || sendingRef.current || !projectId) return;
     sendingRef.current = true;
     // agent 思考中：消息发给 kernel 入队（followUp），前端不乐观显示——
@@ -71,7 +73,8 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
         projectId={projectId}
         onSend={handleSend}
         sendDisabled={!projectId}
-        placeholder={isRunning ? "输入要加入队列的消息..." : `给${agentName}发消息...`}
+        disabled={disabled}
+        placeholder={disabled ? "请先回答上方提问…" : (isRunning ? "输入要加入队列的消息..." : `给${agentName}发消息...`)}
       />
     </div>
   );

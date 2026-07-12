@@ -19,6 +19,7 @@ interface Props {
   projectId?: string;
   onSend: () => void;
   sendDisabled?: boolean;
+  disabled?: boolean;
   placeholder?: string;
 }
 
@@ -37,7 +38,7 @@ function readFileAsBase64(file: File): Promise<string> {
 
 export function ComposerInput({
   text, setText, model, setModel, thinking, setThinking,
-  attachments, setAttachments, projectId, onSend, sendDisabled, placeholder,
+  attachments, setAttachments, projectId, onSend, sendDisabled, disabled, placeholder,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -120,7 +121,7 @@ export function ComposerInput({
     setAttachments(prev => prev.filter((_, i) => i !== idx));
   };
 
-  const canSend = !sendDisabled && text.trim() && model !== null;
+  const canSend = !sendDisabled && !disabled && !!text.trim() && model !== null;
 
   return (
     <div className="w-full max-w-[860px] mx-auto" data-testid="composer-input">
@@ -131,6 +132,7 @@ export function ComposerInput({
       >
         <textarea
           ref={textareaRef}
+          disabled={disabled}
           value={text}
           onChange={e => { setText(e.target.value); autoResize(); }}
           onKeyDown={e => {

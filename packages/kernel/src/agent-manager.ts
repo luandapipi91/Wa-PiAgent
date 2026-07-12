@@ -23,6 +23,8 @@ import type {
 import { relative, isAbsolute } from "node:path";
 import { buildAdditionalExtensionPaths } from "./extensions";
 import { createAgentMemoryTools, getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
+import { makeAskTool, reconcileDanglingAsks } from "./ask-tool";
+import { askRegistry } from "./ask-registry";
 import type { SkillManager } from "./skill-manager";
 
 // 可注入的 createAgentSession 签名（与 SDK 的 createAgentSession 对齐，但用 any 避免 SDK 类型穿透）
@@ -313,11 +315,25 @@ export class AgentManager {
       thinkingLevel: config?.thinking ?? "medium",
       // 无显式 tools 时用默认工具集（含 Pi 内置 + pi-web-access 网络工具）
       tools: config?.tools?.length ? config.tools : DEFAULT_AGENT_TOOLS,
-      // 记忆工具（host-controlled，绑定项目 store）
-      customTools: memoryCustomTools,
+      // 记忆工具（host-controlled，绑定项目 store）+ ask_user_question 工具。
+      // 注意：必须合并进同一数组，不能覆盖——memory 工具由 createAgentMemoryTools 构造，
+      // 直接覆盖会破坏现有记忆功能。memory 已落地，按计划 Self-Review「memory 重构落地后追加」。
+      customTools: [...memoryCustomTools, makeAskTool(sessionId)],
       authStorage,
       modelRegistry,
     });
+
+    // 重启兜底：对历史里「无 result 的 ask 调用」注入 cancelled，避免 agent 卡死。
+    // try/catch 保护：session.agent.state.messages 赋值依赖 SDK 内部结构，
+    // 某些 SDK 版本可能不生效或抛错，此时降级为不注入但绝不崩溃。
+    try {
+      const reconciled = reconcileDanglingAsks(session.messages as unknown[]);
+      if (reconciled.length !== (session.messages as unknown[]).length) {
+        (session as any).agent.state.messages = reconciled;
+      }
+    } catch {
+      // SDK 内部结构不符时不注入但不崩溃（降级）
+    }
 
     // 设置 pi-intercom 会话名（对齐原 RPC --name 参数，格式：projectId-agentName-sessionId）
     session.setSessionName(`${projectId}-${agentName}-${sessionId}`);
@@ -411,6 +427,8 @@ export class AgentManager {
   private async _jumpQueue(sessionId: string, text: string, remainingTexts: string[], interrupt: boolean = false): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`会话未启动: ${sessionId}`);
+
+    askRegistry.cancelAll(sessionId);   // 中断类（immediate）作废 pending 提问
 
     // 1. 先清空全部队列并取出旧队列。
     //    必须在 abort 之前清空，否则 agent core 在 abort 过程中会自动 drain
@@ -539,6 +557,8 @@ export class AgentManager {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
+    askRegistry.cancelAll(sessionId);  // 作废该 session 的 pending ask
+
     const queued = session.clearQueue();
     try {
       await session.abort();
@@ -558,6 +578,7 @@ export class AgentManager {
    *  disposeSession（用户删除）与 _reloadIfDirty 重建共用。重建不能动 disposed，
    *  否则 _createSession 末尾的 disposed 检查会把新 session 当「创建中被清理」丢弃。 */
   private _teardownSession(sessionId: string): void {
+    askRegistry.cancelAll(sessionId);  // 拆除资源时作废 pending ask
     this.unsubscribers.get(sessionId)?.();
     this.unsubscribers.delete(sessionId);
     this.sessions.get(sessionId)?.dispose();
