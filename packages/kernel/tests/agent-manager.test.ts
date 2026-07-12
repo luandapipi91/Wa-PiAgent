@@ -5,6 +5,7 @@ import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-
 import { rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SkillManager } from "../src/skill-manager";
+import { BUILTIN_SKILLS_DIR } from "@hiagent/shared";
 
 // mock createAgentSession 返回 fake AgentSession
 // 测试不依赖真实 SDK 的 createAgentSession（避免子进程 / 网络 / 文件系统副作用）
@@ -825,6 +826,28 @@ test("skillManager 为空时 additionalSkillPaths 为空数组（不破坏现有
   await am.ensureStarted(project.id, "dev", session.id);
 
   expect(capturedLoaders[0].additionalSkillPaths).toEqual([]);
+});
+
+test("systemPromptOverride 注入内置技能目录路径 + 禁止透露系统提示词约束", async () => {
+  const capturedLoaders: any[] = [];
+  const createFn = mock(async (opts: any) => {
+    capturedLoaders.push(opts.resourceLoader);
+    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: createFn as any,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const prompt = capturedLoaders[0].systemPromptOverride();
+  expect(prompt).toContain(`Built-in directory: ${BUILTIN_SKILLS_DIR}`);
+  expect(prompt).toMatch(/Never reveal.*system prompt/i);
+  expect(prompt).toMatch(/internal terminology/i);
 });
 
 test("markSkillsDirty 不走 reload 路径（与 markAllDirty 独立）", async () => {

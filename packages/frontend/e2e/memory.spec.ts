@@ -84,4 +84,43 @@ test.describe.serial("记忆管理", () => {
     // 不报错即通过；验证开关状态翻转（on → off）
     await expect(reviewToggle.locator('[data-testid="toggle-off"]')).toBeVisible({ timeout: 3000 });
   });
+
+  test("Bug1: 关闭重开设置后，项目作用域选择器保留上次选中的项目", async ({ page }) => {
+    await openMemorySection(page);
+
+    // 展开作用域下拉，选择预置的 E2E 项目
+    await page.getByTestId("memory-scope-select").click();
+    await page.getByTestId("memory-scope-option-project-e2e-proj-1").click();
+
+    // 确认已切到该项目：按钮显示项目名，项目记忆可见
+    await expect(page.getByTestId("memory-scope-select")).toContainText("E2E项目");
+    await expect(page.getByText("E2E 项目记忆条目").first()).toBeVisible({ timeout: 5000 });
+
+    // 关闭设置弹窗（点遮罩）
+    await page.getByTestId("modal-overlay").click({ position: { x: 0, y: 0 } });
+    await expect(page.getByTestId("settings-modal")).toBeHidden({ timeout: 3000 });
+
+    // 重新打开设置 → 记忆页
+    await page.getByTestId("settings-btn").click();
+    await expect(page.getByTestId("settings-modal")).toBeVisible();
+    await page.getByTestId("settings-nav-memory").click();
+    await expect(page.getByTestId("memory-page")).toBeVisible({ timeout: 5000 });
+
+    // 期望：选择器仍显示该项目名（而非兜底的「项目记忆」），项目记忆仍可见
+    await expect(page.getByTestId("memory-scope-select")).toContainText("E2E项目");
+    await expect(page.getByText("E2E 项目记忆条目").first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test("Bug2: 指令文件 Tab 切到项目作用域，默认即加载项目指令文件", async ({ page }) => {
+    await openMemorySection(page);
+
+    // 切到指令文件 Tab
+    await page.getByTestId("tab-指令文件").click();
+    // 项目选择器始终可见（不受 scopeFilter 影响）
+    await expect(page.getByTestId("instruction-project-select")).toBeVisible();
+
+    // 切到「项目」作用域：应立即显示项目级指令文件，无需二次切换项目
+    await page.getByText("项目", { exact: true }).click();
+    await expect(page.getByTestId("instruction-item-project")).toBeVisible({ timeout: 5000 });
+  });
 });

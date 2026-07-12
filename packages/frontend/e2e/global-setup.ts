@@ -34,6 +34,16 @@ partners:
 const SEED_MEMORY_MD = "E2E 记忆条目一\n§\nE2E 记忆条目二";
 const SEED_USER_MD = "E2E 用户偏好记忆";
 
+// 预置一个测试项目（含项目级 AGENTS.md 指令文件 + 项目记忆），供记忆页作用域切换 E2E 使用。
+// 必须在 kernel 启动前写入 projects.json，保证 projects:list 首次返回就有数据。
+const SEED_PROJECT_CWD = join(E2E_HIAGENT_DIR, "e2e-project");
+const SEED_PROJECTS_JSON = JSON.stringify({
+  projects: [{
+    id: "e2e-proj-1", name: "E2E项目", cwd: SEED_PROJECT_CWD, createdAt: 0,
+  }],
+  sessions: [],
+}, null, 2);
+
 async function globalSetup() {
   // 预置 agent 配置（在 kernel 启动前写入，确保 configStore 首次读取就有数据）
   mkdirSync(join(E2E_HIAGENT_DIR, "agents"), { recursive: true });
@@ -45,6 +55,15 @@ async function globalSetup() {
   writeFileSync(join(E2E_HIAGENT_DIR, "memories", "global", "USER.md"), SEED_USER_MD, "utf8");
   // 预置全局指令文件（指令文件 Tab 测试依赖）
   writeFileSync(join(E2E_HIAGENT_DIR, "AGENTS.md"), "# 全局指令\n这是 E2E 测试的全局指令文件", "utf8");
+
+  // 预置测试项目：projects.json + 项目 cwd 下的 AGENTS.md（项目级指令文件）
+  // + 项目记忆文件（让记忆页「项目」作用域有数据可查）。
+  // 项目记忆目录由 projectNameFromCwd(cwd) 决定（basename），即 projects-memory/<basename>/MEMORY.md
+  mkdirSync(SEED_PROJECT_CWD, { recursive: true });
+  writeFileSync(join(SEED_PROJECT_CWD, "AGENTS.md"), "# E2E 项目指令\n这是项目级指令文件", "utf8");
+  writeFileSync(join(E2E_HIAGENT_DIR, "projects.json"), SEED_PROJECTS_JSON, "utf8");
+  mkdirSync(join(E2E_HIAGENT_DIR, "projects-memory", "e2e-project"), { recursive: true });
+  writeFileSync(join(E2E_HIAGENT_DIR, "projects-memory", "e2e-project", "MEMORY.md"), "E2E 项目记忆条目", "utf8");
 
   // 启动 kernel，注入独立 HIAGENT_DIR（覆盖 ~/.hiagent）
   const child = spawn("bun", ["run", "--filter", "@hiagent/kernel", "dev"], {

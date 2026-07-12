@@ -9,28 +9,29 @@ import { MemoryEmpty } from "./MemoryEmpty";
 export function MemoryPage() {
   const {
     memories, archived, instructions, config,
-    activeTab, categoryFilter, scopeFilter, memoryScope, searchQuery,
+    activeTab, categoryFilter, scopeFilter, memoryScope, selectedProjectId, searchQuery,
     load, loadInstructions, setMemories, setInstructions, setConfig,
     update, archive, restore, purge, add, setConfigValue,
-    setTab, setCategoryFilter, setScopeFilter, setMemoryScope, setSearchQuery,
+    setTab, setCategoryFilter, setScopeFilter, setMemoryScope, setSelectedProjectId, setSearchQuery,
   } = useMemoryStore();
 
   const currentProjectId = useProjectsStore(s => s.currentProjectId);
   const projects = useProjectsStore(s => s.projects);
 
-  // 项目选择器：默认跟随 currentProjectId，用户可手动切换（记忆「项目」作用域与指令文件 Tab 共用）
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(currentProjectId);
   // 手动添加记忆表单
   const [showAddForm, setShowAddForm] = useState(false);
   const [newMemoryText, setNewMemoryText] = useState("");
 
-  // 当前查看的项目：优先用户手选，回退当前打开项目
+  // 当前查看的项目：优先用户手选（持久 store），回退当前打开项目
   const activeProjectId = selectedProjectId ?? currentProjectId;
 
-  // currentProjectId 变化时同步本地选择
+  // 首次进入记忆页：若 store 里尚未选过项目且当前有打开的项目，初始化为该项目。
+  // 关闭重开设置弹窗时 selectedProjectId 已在 store 中保留，不会被覆盖。
   useEffect(() => {
-    setSelectedProjectId(currentProjectId);
-  }, [currentProjectId]);
+    if (selectedProjectId === null && currentProjectId) {
+      setSelectedProjectId(currentProjectId);
+    }
+  }, [selectedProjectId, currentProjectId, setSelectedProjectId]);
 
   // 记忆列表随查看项目重新加载；未选项目时用空 projectId（kernel 返回全局记忆），
   // 保证「系统设置 > 记忆」在无项目上下文时仍能看到全局记忆。前端按 memoryScope 过滤。
@@ -38,12 +39,13 @@ export function MemoryPage() {
     load(activeProjectId ?? "");
   }, [load, activeProjectId]);
 
-  // 切到指令文件 Tab 且已选项目时加载；null → 有值时也触发刷新
+  // 指令文件 Tab：进入该 Tab 或切换项目/作用域时加载。
+  // 入参用 activeProjectId（含 currentProjectId 兜底），避免 selectedProjectId 为 null 时不加载。
   useEffect(() => {
-    if (activeTab === "instructions" && selectedProjectId) {
-      loadInstructions(selectedProjectId);
+    if (activeTab === "instructions" && activeProjectId) {
+      loadInstructions(activeProjectId);
     }
-  }, [selectedProjectId, activeTab, loadInstructions]);
+  }, [activeProjectId, activeTab, loadInstructions]);
 
   // 筛选后的记忆：先按作用域（全局/项目）过滤，再按分类与搜索词
   const filteredMemories = memories
@@ -102,7 +104,6 @@ export function MemoryPage() {
               ))}
             </div>
             <div className="flex-1" />
-            {scopeFilter === "project" && (
             <select
               className="text-[11.5px] px-2.5 py-1 rounded-md"
               style={{
@@ -118,7 +119,6 @@ export function MemoryPage() {
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
-            )}
           </>
         ) : (
           // 记忆筛选：作用域下拉（默认全局记忆，展开含「全局记忆」+ 项目列表）→ 搜索 → 分类 → 添加
