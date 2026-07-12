@@ -7,6 +7,9 @@
 ## 2026-07-12
 
 ### 新增功能
+- **桌面托盘单二进制（`@hiagent/desktop`）**：新增 `packages/desktop` 包，单进程内 in-process 起 kernel（WS + 静态前端同 9776）+ systray2 托盘（菜单「打开 HiAgent / 退出」，点打开用系统浏览器开 `http://127.0.0.1:9776`）；`bun build --compile` 把前端 dist / systray helper / 青蛙图标全嵌入单 exe，Windows 额外 PE 子系统 patch（CONSOLE→GUI）去控制台。含工具模块：port / open-browser / interop（systray2 CJS 防御解包）/ pe-subsystem / log / embed（运行时解压嵌入资源）。`scripts/build.ts` 编排 + 打包前测试钩子（typecheck + root 测试套件 + kernel HTTP 集成测试单独从 kernel 目录跑以避开 happy-dom 对 globalThis.fetch 的全局替换；嵌入清单临时生成后恢复 stub，让 typecheck 在全新检出/CI 下也通过）。根 `pack:win/mac/linux/all`。产物落 `<repo>/dist/desktop/<平台>/HiAgent[.exe]`（~122MB，PE subsystem=2）
+  - **影响范围**：新增 packages/desktop（src/main.ts、kernel-boot.ts、systray-setup.ts、log.ts、embed.ts、util/{port,open-browser,interop,pe-subsystem}.ts、scripts/{build.ts,genicon.py}、tests、package.json、tsconfig.json）；根 package.json（pack:*）；.gitignore
+  - **验证**：desktop 工具单测全过（port/interop/pe-subsystem/log/embed）；`bun run pack:win` 不带 `--no-test` 全绿，产出 `dist/desktop/win-x64/HiAgent.exe`（122MB，subsystem 3→2）；typecheck 通过
 - **前后端端口支持 `.env` 动态配置**：`HIAGENT_WS_PORT`（默认 9776，后端 WS）和 `HIAGENT_WEB_PORT`（默认 5180，前端 Vite dev）可通过根 `.env` 覆盖。`packages/shared/src/constants.ts` 新增纯函数 `resolvePort(envVal, def)` 并让 `WS_PORT`/`FRONTEND_PORT` 读 env（默认值不变 = 无 `.env` 时行为完全一致）。`packages/frontend/vite.config.ts` 用 `loadEnv` 读 `.env`：`server.port` 用 `HIAGENT_WEB_PORT`，`define` 注入 `import.meta.env.HIAGENT_WS_PORT` 让浏览器 bundle 的 `WS_PORT` 指向配置的后端端口。`scripts/dev.ts` 删硬编码 9776/5180，改从 shared 导入 `WS_PORT`/`FRONTEND_PORT`。`.env.example` 入库作模板，`.env` 已被 `.gitignore` 忽略
   - **影响范围**：packages/shared（constants.ts, tests/ports.test.ts）、packages/frontend（vite.config.ts）、scripts/dev.ts、.env.example
   - **验证**：`packages/shared/tests/ports.test.ts` 2 pass（合法正整数用之 + undefined/空/非数字/0/负数回退默认）；`bun run typecheck` 三包通过
