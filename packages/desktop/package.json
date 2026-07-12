@@ -14,6 +14,7 @@
   "dependencies": {
     "@hiagent/kernel": "workspace:*",
     "@hiagent/shared": "workspace:*",
+    "fs-extra": "^10.0.0",
     "systray2": "2.1.4"
   },
   "devDependencies": {
