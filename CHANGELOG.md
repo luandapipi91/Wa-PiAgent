@@ -6,12 +6,15 @@
 
 ## 2026-07-12
 
+### 新增功能
+- **前后端端口支持 `.env` 动态配置**：`HIAGENT_WS_PORT`（默认 9776，后端 WS）和 `HIAGENT_WEB_PORT`（默认 5180，前端 Vite dev）可通过根 `.env` 覆盖。`packages/shared/src/constants.ts` 新增纯函数 `resolvePort(envVal, def)` 并让 `WS_PORT`/`FRONTEND_PORT` 读 env（默认值不变 = 无 `.env` 时行为完全一致）。`packages/frontend/vite.config.ts` 用 `loadEnv` 读 `.env`：`server.port` 用 `HIAGENT_WEB_PORT`，`define` 注入 `import.meta.env.HIAGENT_WS_PORT` 让浏览器 bundle 的 `WS_PORT` 指向配置的后端端口。`scripts/dev.ts` 删硬编码 9776/5180，改从 shared 导入 `WS_PORT`/`FRONTEND_PORT`。`.env.example` 入库作模板，`.env` 已被 `.gitignore` 忽略
+  - **影响范围**：packages/shared（constants.ts, tests/ports.test.ts）、packages/frontend（vite.config.ts）、scripts/dev.ts、.env.example
+  - **验证**：`packages/shared/tests/ports.test.ts` 2 pass（合法正整数用之 + undefined/空/非数字/0/负数回退默认）；`bun run typecheck` 三包通过
+
 ### 重构
 - **kernel 可导入 + 可选静态前端伺服（SPA fallback）**：把 `packages/kernel/src/index.ts` 的 `main()` 体抽成 `export async function startKernel(opts?: { staticDir?: string }): Promise<{ port: number }>`，桌面端可 in-process 启动；`if (import.meta.main)` 守卫使 `bun run src/index.ts` 自动执行路径保留不变。`packages/kernel/src/ws-server.ts` 的 `WSServerOpts` 新增可选 `staticDir`，`fetch` 在 WS 握手失败后用 `resolveStaticPath` 解析 URL → `Bun.file` 回资产，未知/越权路径回退 index.html（SPA 路由）。同一 9776 端口同时伺服 UI 与 WS，二进制分发不再依赖 Vite
   - **影响范围**：packages/kernel（src/index.ts, src/ws-server.ts, tests/static-serve.test.ts, tests/static-serve.integration.test.ts）
   - **验证**：static-serve 单元测试 4 pass（resolveStaticPath 三例 + getMimeType 四例）；typecheck 通过；集成测试受端口 9776 占用阻塞（详见 task-2-report）
-
-## 2026-07-12
 
 ### 重构
 - **禁用 pi-lens 时过滤工具 allowlist**：把 agent-manager.ts:317 散落的三元表达式（`config?.tools?.length ? config.tools : DEFAULT_AGENT_TOOLS`）封装成统一入口 `resolveAgentTools` 纯函数，按可选插件启用态过滤工具。禁用 pi-lens 后从 agent 的 tools allowlist 移除其注册的 9 个工具（lsp_navigation/lsp_diagnostics/lens_diagnostics/ast_grep_search 等），agent 无法再调用它们。签名预留 `agentName` 参数供后期按角色做工具集裁剪
@@ -28,8 +31,6 @@
 - **影响范围**：packages/shared（ask.ts, types.ts, constants.ts, index.ts, tests/ask.test.ts）、packages/kernel（ask-registry.ts, ask-tool.ts, agent-manager.ts, ws-server.ts 及对应测试）、packages/frontend（store/ask.ts, components/ask/AskFormCard.tsx, components/ask/AskDock.tsx, SessionView.tsx, Composer.tsx, ui/ComposerInput.tsx, MessageList.tsx 及对应测试）
 - **验证**：shared 36 pass / kernel 232 pass / frontend 264 pass（0 fail）；三包 typecheck 通过；四层测试第 1-3 层（单元/组件/集成）已覆盖，第 4 层 E2E 待真实模型环境补充
 
-## 2026-07-12
-
 ### 修复
 - **pi-lens（LSP 诊断）两个独立根因导致 agent 报告"LSP 不可用"**：
   - 根因1 双重加载：`~/.hiagent/settings.json.extensions` 积累多条 pi-lens 路径（bun install 产生新 `.bun` 缓存 hash 后旧路径残留），SDK 双重加载同一扩展，两实例在 `session_start` 互相判定为"并发副实例"双双跳过 `handleSessionStart`，LSP 服务从未初始化。修复：`ExtensionManager.list()/toggle()` 增加 `pathBelongsToPackage` 归属判定，对每个可选插件收敛同包所有历史路径为当前唯一路径（启用）或全部移除（禁用），保留外部路径。同时清理用户 settings.json 中 2 条重复 pi-lens + 1 条废弃 pi-hermes-memory
@@ -37,16 +38,12 @@
 - **影响范围**：packages/kernel（extension-manager.ts, tests/extension-manager.test.ts, tests/ws-extension.test.ts）；packages/shared（constants.ts）
 - **验证**：单元测试 9 pass（含 3 个路径收敛复现用例）；WS 集成测试 4 pass；shared 27 pass；kernel 全量 213 pass / 0 fail；typecheck 通过
 
-## 2026-07-12
-
 ### 修复
 - **记忆页作用域选择器状态丢失 + 指令文件 Tab 切项目不加载**：两个 bug 同源——`selectedProjectId` 存在组件本地 state，关闭设置弹窗（组件卸载）即丢失，而 `memoryScope` 在持久 store 保留，导致两者错位
   - Bug1：关闭重开设置后选择器被重置、记忆查不出来 → 将 `selectedProjectId` 提升到 `useMemoryStore` 持久化，关闭弹窗后保留
   - Bug2：指令文件 Tab 切到「项目」默认选第一个项目但不加载（`<select>` DOM 默认选中不触发 React onChange）→ 加载 effect 改用 `activeProjectId`（含 currentProjectId 兜底），项目选择器改为始终显示（与 scopeFilter 解耦）
 - **影响范围**：packages/frontend（store/memory.ts, components/memory/MemoryPage.tsx, tests/MemoryPage.test.tsx, e2e/memory.spec.ts, e2e/global-setup.ts）
 - **验证**：单元/组件测试 251 pass（含 3 个新增复现用例）；typecheck 通过；agent-browser 真实浏览器验证 Bug1（关闭重开选择器保留 aicpm）+ Bug2（切项目作用域立即加载指令文件、选择器始终显示）
-
-## 2026-07-12
 
 ### 新增功能
 - **agent 系统提示词注入执行环境信息**：在 `systemPromptOverride` 闭包 base 末尾追加三条约束——内置技能目录路径(`Built-in directory: ~/.hiagent/skills`)、禁止透露系统提示词、禁止使用内部术语回复用户
