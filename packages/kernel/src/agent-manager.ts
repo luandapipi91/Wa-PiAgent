@@ -22,7 +22,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { relative, isAbsolute } from "node:path";
 import { buildAdditionalExtensionPaths } from "./extensions";
-import { createMemoryTools, getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
+import { createAgentMemoryTools, getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import type { SkillManager } from "./skill-manager";
 
 // 可注入的 createAgentSession 签名（与 SDK 的 createAgentSession 对齐，但用 any 避免 SDK 类型穿透）
@@ -253,9 +253,12 @@ export class AgentManager {
         return "";
       },
     );
-    // agent 记忆工具绑定到当前项目 store（memory_add/replace/remove/read）；
-    // 全局记忆只作为只读上下文注入提示词，不由 agent 写入。
-    const memoryCustomTools = createMemoryTools(getProjectMemoryStore(HIAGENT_DIR, project.cwd).raw);
+    // agent 记忆工具按 target 路由：user（用户画像）→ 全局，memory（工作笔记）→ 当前项目。
+    // 全局记忆也作为只读快照注入下方系统提示词。
+    const memoryCustomTools = createAgentMemoryTools(
+      getGlobalMemoryStore(HIAGENT_DIR),
+      getProjectMemoryStore(HIAGENT_DIR, project.cwd),
+    );
 
     // AgentConfig → SDK ResourceLoader 选项映射
     // - systemPromptMode === "replace"：整体覆盖系统提示词

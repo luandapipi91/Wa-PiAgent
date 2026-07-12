@@ -7,6 +7,7 @@ import {
   getProjectMemoryStore,
   projectNameFromCwd,
   createMemoryTools,
+  createAgentMemoryTools,
 } from "../src/amaster-memory";
 
 let tmpDir: string;
@@ -140,6 +141,23 @@ test("raw 暴露底层 MemoryStore 供 createMemoryTools 使用", async () => {
   const tools = createMemoryTools(store.raw);
   const names = tools.map((t: any) => t.name);
   expect(names).toEqual(expect.arrayContaining(["memory_add", "memory_replace", "memory_remove", "memory_read"]));
+});
+
+test("createAgentMemoryTools：target=user 写全局，target=memory 写项目", async () => {
+  const globalStore = getGlobalMemoryStore(tmpDir);
+  const projectStore = getProjectMemoryStore(tmpDir, join(tmpDir, "my-app"));
+  const tools = createAgentMemoryTools(globalStore, projectStore);
+  const addTool = tools.find((t: any) => t.name === "memory_add") as any;
+
+  // target=user → 全局 USER.md
+  await addTool.execute("call1", { target: "user", content: "用户名 co" }, undefined, undefined, undefined);
+  expect(await globalStore.entries("user")).toContain("用户名 co");
+  expect(await projectStore.entries("user")).not.toContain("用户名 co");
+
+  // target=memory → 项目 MEMORY.md
+  await addTool.execute("call2", { target: "memory", content: "项目用 pnpm" }, undefined, undefined, undefined);
+  expect(await projectStore.entries("memory")).toContain("项目用 pnpm");
+  expect(await globalStore.entries("memory")).not.toContain("项目用 pnpm");
 });
 
 test("projectNameFromCwd 处理 Windows 反斜杠与尾部分隔符", () => {

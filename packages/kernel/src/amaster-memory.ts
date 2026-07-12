@@ -16,6 +16,7 @@ export type { MemoryTarget } from "@amaster.ai/pi-memory";
 /** 透传 amaster 的 createMemoryTools（绑定 raw store 生成 agent 可用的记忆 tool 集） */
 export { createMemoryTools } from "@amaster.ai/pi-memory";
 import type { MemoryTarget } from "@amaster.ai/pi-memory";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 
 /** 单个作用域（全局或某项目）的记忆读写门面 */
@@ -51,6 +52,29 @@ export function getProjectMemoryStore(hiagentDir: string, cwd: string): AmasterS
 /** 按任意目录构造 store：用于从 entry id / 归档 sourceFile 反推 store（见 memory-store.ts） */
 export function createAmasterStore(dir: string): AmasterStore {
   return createStore(dir);
+}
+
+/**
+ * 构造 agent 记忆工具，按 target 路由到底层 store：
+ * - target=user（用户画像）→ 全局 store（用户偏好天然跨项目）
+ * - target=memory（工作笔记）→ 当前项目 store
+ *
+ * 复用 amaster createMemoryTools 的 tool 定义与提示词文案（agent 已理解 user/memory 语义），
+ * 仅把底层 store 调用按 target 分流。amaster 工具运行期只会调用 add/replace/remove/read。
+ */
+export function createAgentMemoryTools(
+  globalStore: AmasterStore,
+  projectStore: AmasterStore,
+): ToolDefinition[] {
+  const route = (target: MemoryTarget): MemoryStore =>
+    target === "user" ? globalStore.raw : projectStore.raw;
+  const router = {
+    add: (t: MemoryTarget, c: string) => route(t).add(t, c),
+    replace: (t: MemoryTarget, o: string, n: string) => route(t).replace(t, o, n),
+    remove: (t: MemoryTarget, o: string) => route(t).remove(t, o),
+    read: (t: MemoryTarget) => route(t).read(t),
+  } as unknown as MemoryStore;
+  return createMemoryTools(router);
 }
 
 /** 按 cwd 生成项目目录名（basename；与历史 projects-memory/<basename> 约定对齐）。
