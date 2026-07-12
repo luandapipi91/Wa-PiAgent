@@ -1,11 +1,12 @@
 {
-  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": ["bun"],
     "moduleResolution": "bundler",
     "module": "esnext",
     "target": "esnext",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "allowJs": true,
+    "checkJs": false
   },
-  "include": ["src", "scripts", "tests"]
+  "include": ["tests", "scripts"]
 }
