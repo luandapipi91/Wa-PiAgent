@@ -161,6 +161,11 @@ export class WSServer {
           if (file.size > 0) {
             return new Response(file, { headers: { "content-type": getMimeType(filePath) } });
           }
+          // 资产形路径但文件缺失：回退 index.html（SPA 路由），不漏 426
+          const indexFile = Bun.file(`${this.opts.staticDir}/index.html`);
+          if (indexFile.size > 0) {
+            return new Response(indexFile, { headers: { "content-type": "text/html" } });
+          }
         }
         return new Response("WS only", { status: 426 });
       },
