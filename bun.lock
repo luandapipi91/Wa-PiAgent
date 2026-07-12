@@ -48,6 +48,7 @@
         "pi-intercom": "^0.6.0",
         "pi-lens": "^3.8.0",
         "pi-web-access": "^0.13.0",
+        "typebox": "1.1.38",
       },
     },
     "packages/shared": {

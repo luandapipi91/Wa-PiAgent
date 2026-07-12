@@ -143,21 +143,54 @@ test("raw 暴露底层 MemoryStore 供 createMemoryTools 使用", async () => {
   expect(names).toEqual(expect.arrayContaining(["memory_add", "memory_replace", "memory_remove", "memory_read"]));
 });
 
-test("createAgentMemoryTools：target=user 写全局，target=memory 写项目", async () => {
+test("createAgentMemoryTools：默认 scope（user→全局，memory→项目）", async () => {
   const globalStore = getGlobalMemoryStore(tmpDir);
   const projectStore = getProjectMemoryStore(tmpDir, join(tmpDir, "my-app"));
   const tools = createAgentMemoryTools(globalStore, projectStore);
   const addTool = tools.find((t: any) => t.name === "memory_add") as any;
 
-  // target=user → 全局 USER.md
+  // target=user 默认 → 全局 USER.md
   await addTool.execute("call1", { target: "user", content: "用户名 co" }, undefined, undefined, undefined);
   expect(await globalStore.entries("user")).toContain("用户名 co");
   expect(await projectStore.entries("user")).not.toContain("用户名 co");
 
-  // target=memory → 项目 MEMORY.md
+  // target=memory 默认 → 项目 MEMORY.md
   await addTool.execute("call2", { target: "memory", content: "项目用 pnpm" }, undefined, undefined, undefined);
   expect(await projectStore.entries("memory")).toContain("项目用 pnpm");
   expect(await globalStore.entries("memory")).not.toContain("项目用 pnpm");
+});
+
+test("createAgentMemoryTools：显式 scope 覆盖默认路由", async () => {
+  const globalStore = getGlobalMemoryStore(tmpDir);
+  const projectStore = getProjectMemoryStore(tmpDir, join(tmpDir, "my-app"));
+  const tools = createAgentMemoryTools(globalStore, projectStore);
+  const addTool = tools.find((t: any) => t.name === "memory_add") as any;
+
+  // target=memory + scope=global → 全局 MEMORY.md（默认本是项目）
+  await addTool.execute("c1", { target: "memory", scope: "global", content: "全局工作笔记" }, undefined, undefined, undefined);
+  expect(await globalStore.entries("memory")).toContain("全局工作笔记");
+  expect(await projectStore.entries("memory")).not.toContain("全局工作笔记");
+
+  // target=user + scope=project → 项目 USER.md（默认本是全局）
+  await addTool.execute("c2", { target: "user", scope: "project", content: "项目用户设定" }, undefined, undefined, undefined);
+  expect(await projectStore.entries("user")).toContain("项目用户设定");
+  expect(await globalStore.entries("user")).not.toContain("项目用户设定");
+});
+
+test("createAgentMemoryTools：memory_read 按 scope 读对应 store", async () => {
+  const globalStore = getGlobalMemoryStore(tmpDir);
+  const projectStore = getProjectMemoryStore(tmpDir, join(tmpDir, "my-app"));
+  await globalStore.add("memory", "全局M");
+  await projectStore.add("memory", "项目M");
+  const tools = createAgentMemoryTools(globalStore, projectStore);
+  const readTool = tools.find((t: any) => t.name === "memory_read") as any;
+
+  const g = await readTool.execute("r1", { target: "memory", scope: "global" }, undefined, undefined, undefined);
+  expect(JSON.stringify(g)).toContain("全局M");
+  expect(JSON.stringify(g)).not.toContain("项目M");
+
+  const p = await readTool.execute("r2", { target: "memory", scope: "project" }, undefined, undefined, undefined);
+  expect(JSON.stringify(p)).toContain("项目M");
 });
 
 test("projectNameFromCwd 处理 Windows 反斜杠与尾部分隔符", () => {
