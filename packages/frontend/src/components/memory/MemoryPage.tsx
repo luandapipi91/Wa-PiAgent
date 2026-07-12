@@ -32,9 +32,10 @@ export function MemoryPage() {
     setSelectedProjectId(currentProjectId);
   }, [currentProjectId]);
 
-  // 记忆列表随查看项目重新加载（全局记忆包含在任意项目返回里，前端按 memoryScope 过滤）
+  // 记忆列表随查看项目重新加载；未选项目时用空 projectId（kernel 返回全局记忆），
+  // 保证「系统设置 > 记忆」在无项目上下文时仍能看到全局记忆。前端按 memoryScope 过滤。
   useEffect(() => {
-    if (activeProjectId) load(activeProjectId);
+    load(activeProjectId ?? "");
   }, [load, activeProjectId]);
 
   // 切到指令文件 Tab 且已选项目时加载；null → 有值时也触发刷新
@@ -199,8 +200,8 @@ export function MemoryPage() {
             : filteredMemories.map(m => (
               <MemoryCard
                 key={m.id} entry={m}
-                onEdit={(text) => activeProjectId && update(activeProjectId, m.id, text)}
-                onArchive={() => activeProjectId && archive(activeProjectId, m.id)}
+                onEdit={(text) => update(activeProjectId ?? "", m.id, text)}
+                onArchive={() => archive(activeProjectId ?? "", m.id)}
               />
             ))
         )}
@@ -210,8 +211,8 @@ export function MemoryPage() {
             : archived.map(m => (
               <MemoryCard
                 key={m.id} entry={m} mode="archived"
-                onRestore={() => activeProjectId && restore(activeProjectId, m.id)}
-                onPurge={() => activeProjectId && purge(activeProjectId, m.id)}
+                onRestore={() => restore(activeProjectId ?? "", m.id)}
+                onPurge={() => purge(activeProjectId ?? "", m.id)}
               />
             ))
         )}
