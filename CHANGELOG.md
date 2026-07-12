@@ -7,6 +7,15 @@
 ## 2026-07-12
 
 ### 修复
+- **pi-lens（LSP 诊断）两个独立根因导致 agent 报告"LSP 不可用"**：
+  - 根因1 双重加载：`~/.hiagent/settings.json.extensions` 积累多条 pi-lens 路径（bun install 产生新 `.bun` 缓存 hash 后旧路径残留），SDK 双重加载同一扩展，两实例在 `session_start` 互相判定为"并发副实例"双双跳过 `handleSessionStart`，LSP 服务从未初始化。修复：`ExtensionManager.list()/toggle()` 增加 `pathBelongsToPackage` 归属判定，对每个可选插件收敛同包所有历史路径为当前唯一路径（启用）或全部移除（禁用），保留外部路径。同时清理用户 settings.json 中 2 条重复 pi-lens + 1 条废弃 pi-hermes-memory
+  - 根因2 工具被白名单过滤：`createAgentSession` 的 `tools` 参数被 SDK 当作 allowlist，pi-lens 注册的 9 个工具（lsp_navigation/lsp_diagnostics/ast_grep_* 等）不在 `DEFAULT_AGENT_TOOLS` 白名单 → 即便扩展加载成功 agent 也找不到工具。修复：白名单显式放行 pi-lens 全部 9 个工具
+- **影响范围**：packages/kernel（extension-manager.ts, tests/extension-manager.test.ts, tests/ws-extension.test.ts）；packages/shared（constants.ts）
+- **验证**：单元测试 9 pass（含 3 个路径收敛复现用例）；WS 集成测试 4 pass；shared 27 pass；kernel 全量 213 pass / 0 fail；typecheck 通过
+
+## 2026-07-12
+
+### 修复
 - **记忆页作用域选择器状态丢失 + 指令文件 Tab 切项目不加载**：两个 bug 同源——`selectedProjectId` 存在组件本地 state，关闭设置弹窗（组件卸载）即丢失，而 `memoryScope` 在持久 store 保留，导致两者错位
   - Bug1：关闭重开设置后选择器被重置、记忆查不出来 → 将 `selectedProjectId` 提升到 `useMemoryStore` 持久化，关闭弹窗后保留
   - Bug2：指令文件 Tab 切到「项目」默认选第一个项目但不加载（`<select>` DOM 默认选中不触发 React onChange）→ 加载 effect 改用 `activeProjectId`（含 currentProjectId 兜底），项目选择器改为始终显示（与 scopeFilter 解耦）

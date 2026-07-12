@@ -37,7 +37,7 @@ async function withExtServer<T>(
     providerStore: new ProviderStore(join(dataDir, "providers.json")),
     skillManager: new SkillManager(dataDir),
     extensionManager: new ExtensionManager(dataDir, {
-      resolveEntryPath: () => "/fake/pi-lens/dist/index.js",
+      resolveEntryPath: () => "/fake/node_modules/pi-lens/dist/index.js",
       readVersion: () => "3.8.68",
     }),
     memoryStore: null as any,
@@ -91,4 +91,52 @@ test("extension:toggle 未知 id 返回 error", async () => {
     expect(e.type).toBe("error");
     expect(e.message).toContain("未知插件");
   });
+});
+
+test("extension:list 收敛同包历史路径（bun install 残留修复）", async () => {
+  const { writeFileSync, readFileSync } = await import("node:fs");
+  // 独立场景：直接构造残留 settings 再起 server
+  const dataDir = tmp("ws-ext-cleanup");
+  mkdirSync(join(dataDir, "skills"), { recursive: true });
+  writeFileSync(join(dataDir, "settings.json"), JSON.stringify({
+    extensions: [
+      "/fake/.bun/pi-lens@old-hash/node_modules/pi-lens/dist/index.js",
+      "/fake/.bun/pi-lens@new-hash/node_modules/pi-lens/dist/index.js",
+    ],
+  }));
+  const mockAM = makeMockAgentManager();
+  const server = new WSServer({
+    configStore: new ConfigStore(tmp("ws-cfg2")),
+    projectStore: new ProjectStore(tmp("ws-proj2.json")),
+    providerStore: new ProviderStore(join(dataDir, "providers.json")),
+    skillManager: new SkillManager(dataDir),
+    extensionManager: new ExtensionManager(dataDir, {
+      resolveEntryPath: () => "/fake/.bun/pi-lens@new-hash/node_modules/pi-lens/dist/index.js",
+      readVersion: () => "3.8.68",
+    }),
+    memoryStore: null as any,
+    agentManager: mockAM,
+    dataDir,
+    port: 0,
+  });
+  await server.start();
+  const ws = new WebSocket(`ws://127.0.0.1:${server.actualPort}`);
+  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+  const queue: any[] = [];
+  ws.onmessage = (ev) => queue.push(JSON.parse(String(ev.data)));
+  ws.send(JSON.stringify({ type: "extension:list" }));
+  while (queue.length === 0) await new Promise(r => setTimeout(r, 20));
+  const listEvent = queue.shift();
+  ws.close();
+  await server.stop();
+  // 读收敛后的 settings.json
+  const settings = JSON.parse(readFileSync(join(dataDir, "settings.json"), "utf8"));
+  rmSync(dataDir, { recursive: true, force: true });
+
+  expect(listEvent.type).toBe("extension:list");
+  expect(listEvent.plugins[0].enabled).toBe(true);
+  // settings.json 应已收敛为唯一路径（两条历史 → 一条当前）
+  expect(settings.extensions).toEqual([
+    "/fake/.bun/pi-lens@new-hash/node_modules/pi-lens/dist/index.js",
+  ]);
 });

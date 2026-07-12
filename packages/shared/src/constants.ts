@@ -37,10 +37,12 @@ export const AGENT_DEFS: Record<AgentName, AgentDef> = {
 export const ALL_AGENT_NAMES: AgentName[] = ["product", "pm", "dev", "test"];
 
 /** Agent 未显式配置 tools 时的默认工具集。
- *  含 Pi 内置工具、pi-web-access 网络工具，以及 amaster memory 记忆工具。
+ *  含 Pi 内置工具、pi-web-access 网络工具、amaster memory 记忆工具，
+ *  以及 pi-lens（LSP 诊断插件）注册的代码智能工具。
  *  注意：createAgentSession 的 tools 参数会被 SDK 当作 allowlist 使用，
- *  customTools（memory_add/replace/remove/read）同样要过这道 allowlist，
- *  未列出的工具会被过滤掉，因此必须在这里显式放行。 */
+ *  customTools（memory_add/replace/remove/read）和扩展注册的工具
+ *  （lsp_navigation 等）同样要过这道 allowlist，未列出的工具会被过滤掉，
+ *  因此必须在这里显式放行。 */
 export const DEFAULT_AGENT_TOOLS = [
   "read",
   "bash",
@@ -58,4 +60,14 @@ export const DEFAULT_AGENT_TOOLS = [
   "memory_remove",
   "memory_read",
   "session_search",
+  // pi-lens（LSP 诊断插件）注册的代码智能工具
+  "lsp_navigation",      // LSP 代码导航：定义/引用/类型/hover 等
+  "lsp_diagnostics",     // LSP 诊断：类型错误/告警（构建/测试前用）
+  "lens_diagnostics",    // lens 综合诊断
+  "ast_grep_search",     // ast-grep 结构化代码搜索
+  "ast_grep_replace",    // ast-grep 结构化代码替换
+  "ast_grep_outline",    // ast-grep 代码大纲
+  "module_report",       // 模块依赖报告
+  "read_symbol",         // 按符号读取代码
+  "read_enclosing",      // 读取符号的封闭作用域
 ];
