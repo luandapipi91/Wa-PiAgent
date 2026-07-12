@@ -132,4 +132,19 @@ describe("Composer", () => {
     expect(s.statusBySession["s1"]).toBe("thinking");
     expect(s.optimisticEchoBySession["s1"]).toBe(true);
   });
+
+  it("disabled=true 时 textarea 禁用、点发送不触发 agent:prompt", () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "gpt-4o", thinking: "disabled", attachments: [] } },
+    });
+    render(<Composer sessionId="s1" agentName="dev" disabled />);
+    const textarea = screen.getByTestId("composer-input").querySelector("textarea")! as HTMLTextAreaElement;
+    // textarea 处于 disabled，无法通过 fireEvent.change 修改 value（受 disabled attr 控制）
+    expect(textarea.disabled).toBe(true);
+    // 发送按钮点击后不应新增任何 agent:prompt（spy 在 describe 内跨 it 累积，故比较点击前后增量）
+    const before = (ws.send as any).mock.calls.length;
+    fireEvent.click(screen.getByTestId("composer-send"));
+    const after = (ws.send as any).mock.calls.length;
+    expect(after).toBe(before);
+  });
 });

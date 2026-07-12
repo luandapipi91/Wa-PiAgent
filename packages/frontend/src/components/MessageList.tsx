@@ -408,7 +408,7 @@ function ToolCallBlock({ toolCall, result }: { toolCall: ToolCall; result?: Tool
         style={{ cursor: "pointer" }}
       >
         <span>{icon}</span>
-        <span className={nameClass}>{toolCall.name}</span>
+        <span className={nameClass}>{toolCall.name === "ask_user_question" ? "问答" : toolCall.name}</span>
         <span className="text-tertiary">({formatArgs(toolCall.arguments)})</span>
         <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
       </button>
