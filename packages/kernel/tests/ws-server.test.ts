@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, beforeEach } from "bun:test";
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { WSServer } from "../src/ws-server";
@@ -7,8 +7,11 @@ import { ProjectStore } from "../src/project-store";
 import { ProviderStore } from "../src/provider-store";
 import { SkillManager } from "../src/skill-manager";
 import { ExtensionManager } from "../src/extension-manager";
-import type { AgentMessage } from "@hiagent/shared";
+import type { AgentMessage, AskParams } from "@hiagent/shared";
 import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
+import { askRegistry } from "../src/ask-registry";
+
+beforeEach(() => askRegistry.reset());
 
 function tmp(p: string) { return join(import.meta.dir, p + Math.random().toString(36).slice(2)); }
 
@@ -368,4 +371,37 @@ test("fs:listDir showHidden=true 返回隐藏目录", async () => {
   } finally {
     rmSync(dirPath, { recursive: true, force: true });
   }
+});
+
+// ─── Task 4: ws-server ask 应答事件（agent:answer / agent:cancel-ask）────────
+const askParams: AskParams = { questions: [
+  { question: "Q?", header: "h", options: [{ label: "A", description: "x" }, { label: "B", description: "y" }] },
+] };
+
+test("agent:answer → resolve pending ask，返回 answers", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send) => {
+    const p = askRegistry.ask("s1", "tc1", askParams, new AbortController().signal);
+    send({ type: "agent:answer", sessionId: "s1", toolCallId: "tc1", reply: { replies: [{ questionIndex: 0, selected: ["A"] }] } });
+    const out = await p;
+    expect(out.cancelled).toBe(false);
+    expect(out.answers?.[0]).toMatchObject({ kind: "option", answer: "A" });
+  });
+});
+
+test("agent:cancel-ask → cancel pending ask", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send) => {
+    const p = askRegistry.ask("s1", "tc1", askParams, new AbortController().signal);
+    send({ type: "agent:cancel-ask", sessionId: "s1", toolCallId: "tc1" });
+    expect((await p).cancelled).toBe(true);
+  });
+});
+
+test("agent:answer 对未知 toolCallId 幂等（不抛错、不影响）", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send) => {
+    send({ type: "agent:answer", sessionId: "s1", toolCallId: "unknown", reply: { replies: [] } });
+    await new Promise(r => setTimeout(r, 50));  // 不崩溃即通过
+  });
 });
