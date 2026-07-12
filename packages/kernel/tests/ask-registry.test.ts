@@ -67,3 +67,17 @@ test("同 session 并发多个 toolCallId 互不干扰", async () => {
   askRegistry.cancel("s1", "a");
   expect((await a).cancelled).toBe(true);
 });
+
+test("预 aborted signal：ask 立即返回 cancelled 且不留残留 entry", async () => {
+  const ctrl = new AbortController();
+  ctrl.abort();  // 预先 abort
+  const p = askRegistry.ask("s1", "tc1", params, ctrl.signal);
+  expect((await p).cancelled).toBe(true);
+  // 预 aborted 时 entry 应已从 map 移除——同 id 再 resolve 必须是 no-op，
+  // 否则说明残留了一个 done:true 的 entry（泄漏）。
+  expect(() => askRegistry.resolve("s1", "tc1", reply)).not.toThrow();
+  // 再次 ask 同 id 应能正常 resolve（说明前一个 entry 已被清理）
+  const p2 = askRegistry.ask("s1", "tc1", params, new AbortController().signal);
+  askRegistry.resolve("s1", "tc1", reply);
+  expect((await p2).cancelled).toBe(false);
+});
