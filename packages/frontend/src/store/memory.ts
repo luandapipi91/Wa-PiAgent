@@ -56,7 +56,7 @@ export const useMemoryStore = create<MemoryState>((set) => ({
   activeTab: "saved",
   categoryFilter: "all",
   scopeFilter: "all",
-  memoryScope: "project",
+  memoryScope: "global",
   searchQuery: "",
   loading: false,
 

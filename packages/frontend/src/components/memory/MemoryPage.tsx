@@ -1,5 +1,5 @@
 // MemoryPage.tsx — 记忆管理页主容器
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useMemoryStore } from "../../store/memory";
 import { useProjectsStore } from "../../store/projects";
 import { MemoryCard } from "./MemoryCard";
@@ -120,32 +120,17 @@ export function MemoryPage() {
             )}
           </>
         ) : (
-          // 记忆筛选：作用域选择器 →（项目作用域时）项目选择器 → 搜索 → 分类 → 添加
+          // 记忆筛选：作用域下拉（默认全局记忆，展开含「全局记忆」+ 项目列表）→ 搜索 → 分类 → 添加
           <>
-            <select
-              className="text-[11.5px] px-2.5 py-1.5 rounded-md shrink-0"
-              style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-              value={memoryScope}
-              onChange={e => setMemoryScope(e.target.value as "global" | "project")}
-              data-testid="memory-scope-select"
-            >
-              <option value="global">全局记忆</option>
-              <option value="project">项目记忆</option>
-            </select>
-
-            {memoryScope === "project" && (
-              <select
-                className="text-[11.5px] px-2.5 py-1.5 rounded-md shrink-0"
-                style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-                value={activeProjectId ?? ""}
-                onChange={e => setSelectedProjectId(e.target.value)}
-                data-testid="memory-project-select"
-              >
-                {projects.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            )}
+            <MemoryScopeDropdown
+              memoryScope={memoryScope}
+              selectedProjectId={selectedProjectId}
+              projects={projects}
+              onSelect={(scope, projectId) => {
+                setMemoryScope(scope);
+                if (projectId) setSelectedProjectId(projectId);
+              }}
+            />
 
             <input
               className="flex-1 text-[12px] px-3 py-1.5 rounded-lg min-w-0"
@@ -277,6 +262,75 @@ function FilterChip({ active, onClick, label }: {
         border: active ? "none" : "1px solid var(--hairline)",
       }}
     >{label}</button>
+  );
+}
+
+function MemoryScopeDropdown({ memoryScope, selectedProjectId, projects, onSelect }: {
+  memoryScope: "global" | "project";
+  selectedProjectId: string | null;
+  projects: { id: string; name: string }[];
+  onSelect: (scope: "global" | "project", projectId?: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = memoryScope === "global"
+    ? "全局记忆"
+    : (projects.find(p => p.id === selectedProjectId)?.name ?? "项目记忆");
+
+  const itemStyle = (active: boolean): CSSProperties => ({
+    color: active ? "var(--accent)" : "var(--text-primary)",
+    background: active ? "var(--accent-soft)" : "transparent",
+  });
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1 text-[11.5px] px-2.5 py-1.5 rounded-md"
+        style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
+        data-testid="memory-scope-select"
+      >
+        {label}
+        <span className="text-[9px] opacity-70">▾</span>
+      </button>
+      {open && (
+        <>
+          {/* 透明遮罩：点击外部关闭菜单 */}
+          <div
+            className="fixed inset-0 z-10"
+            data-testid="memory-scope-backdrop"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            className="absolute left-0 z-20 mt-1 py-1 rounded-md min-w-[148px] max-h-80 overflow-y-auto shadow-lg"
+            style={{ background: "var(--surface)", border: "1px solid var(--hairline)" }}
+            data-testid="memory-scope-menu"
+          >
+            <button
+              type="button"
+              onClick={() => { onSelect("global"); setOpen(false); }}
+              className="block w-full text-left text-[11.5px] px-3 py-1.5"
+              style={itemStyle(memoryScope === "global")}
+              data-testid="memory-scope-option-global"
+            >🌐 全局记忆</button>
+            {projects.length > 0 && (
+              <div className="my-1" style={{ borderTop: "1px solid var(--hairline)" }} />
+            )}
+            {projects.map(p => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => { onSelect("project", p.id); setOpen(false); }}
+                className="block w-full text-left text-[11.5px] px-3 py-1.5 truncate"
+                style={itemStyle(memoryScope === "project" && selectedProjectId === p.id)}
+                data-testid={`memory-scope-option-project-${p.id}`}
+                title={p.name}
+              >📁 {p.name}</button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

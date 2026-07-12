@@ -24,16 +24,13 @@ test.describe.serial("记忆管理", () => {
 
     // 确认标题与默认「已保存」Tab 存在
     await expect(page.getByTestId("tab-已保存")).toBeVisible();
-    // 预置记忆为全局记忆，页面默认「项目」作用域；切到「全局记忆」后应渲染预置条目
-    await page.getByTestId("memory-scope-select").selectOption("global");
+    // 默认「全局记忆」作用域，预置的全局记忆应直接渲染
     await expect(page.getByText("E2E 记忆条目一").first()).toBeVisible({ timeout: 5000 });
     await expect(page.getByText("E2E 记忆条目二").first()).toBeVisible();
   });
 
   test("编辑一条记忆", async ({ page }) => {
     await openMemorySection(page);
-    // 切到全局记忆（预置数据所在作用域），等记忆卡片渲染
-    await page.getByTestId("memory-scope-select").selectOption("global");
     await expect(page.locator('[data-testid^="memory-card-"]').first()).toBeVisible({ timeout: 5000 });
 
     // 点击第一张卡片的「编辑」按钮
@@ -50,7 +47,6 @@ test.describe.serial("记忆管理", () => {
 
   test("归档一条记忆 → 切到归档 Tab 查看", async ({ page }) => {
     await openMemorySection(page);
-    await page.getByTestId("memory-scope-select").selectOption("global");
     await expect(page.locator('[data-testid^="memory-card-"]').first()).toBeVisible({ timeout: 5000 });
 
     // 点击第一张卡片的「归档」按钮
