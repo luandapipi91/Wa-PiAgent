@@ -11,7 +11,7 @@
 // - _authStorage / _modelRegistry 用 (this as any)._xxx ??= 模式做进程级单例
 
 import type { AgentName, AgentConfig, AttachmentRef, ThinkingLevel } from "@hiagent/shared";
-import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR } from "@hiagent/shared";
+import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, resolveAgentTools } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
@@ -26,6 +26,7 @@ import { createAgentMemoryTools, getGlobalMemoryStore, getProjectMemoryStore } f
 import { makeAskTool, reconcileDanglingAsks } from "./ask-tool";
 import { askRegistry } from "./ask-registry";
 import type { SkillManager } from "./skill-manager";
+import type { ExtensionManager } from "./extension-manager";
 
 // 可注入的 createAgentSession 签名（与 SDK 的 createAgentSession 对齐，但用 any 避免 SDK 类型穿透）
 // 测试用 mock 替换；生产路径走真实 SDK
@@ -59,6 +60,9 @@ export interface AgentManagerOpts {
   // skillManager 可空：测试用 mock createAgentSession 且不关心 skill 时可不传；
   // 生产注入真实 SkillManager，_createSession 用其 scan() 取启用 skill 路径喂给 SDK loader
   skillManager?: SkillManager;
+  // extensionManager 可空：用于按可选插件启用态过滤工具 allowlist（如禁用 pi-lens 后移除 lsp_*）。
+  // 不传时 resolveAgentTools 不做插件过滤（返回空集），保持测试兼容
+  extensionManager?: ExtensionManager;
   // 测试注入 mock；生产留空 → 走真实 SDK 动态 import
   createAgentSessionFn?: CreateAgentSessionFn;
 }
@@ -151,6 +155,16 @@ export class AgentManager {
    */
   markSkillsDirty(): void {
     for (const id of this.sessions.keys()) this.skillDirty.add(id);
+  }
+
+  /**
+   * 读取当前启用的可选插件 id 集合，供 resolveAgentTools 过滤工具 allowlist。
+   * 无 extensionManager 时返回空集（resolveAgentTools 不过滤任何工具），保持测试兼容。
+   */
+  private async getEnabledExtensionIds(): Promise<Set<string>> {
+    if (!this.opts.extensionManager) return new Set();
+    const { plugins } = await this.opts.extensionManager.list();
+    return new Set(plugins.filter((p) => p.enabled).map((p) => p.id));
   }
 
   /**
@@ -304,6 +318,15 @@ export class AgentManager {
     });
     await loader.reload();
 
+    // 按可选插件启用态过滤工具 allowlist（如禁用 pi-lens 后移除 lsp_* 等工具）。
+    // resolveAgentTools 是统一封装入口，后期按 agentName 角色化也加在这里。
+    const enabledExtensionIds = await this.getEnabledExtensionIds();
+    const tools = resolveAgentTools(
+      config?.tools?.length ? config.tools : DEFAULT_AGENT_TOOLS,
+      enabledExtensionIds,
+      agentName,
+    );
+
     // 调 createAgentSession 创建 SDK session
     // 不再使用 agent config 里的默认模型：所有消息必须跟随用户显式选择的模型
     const { session } = await createFn({
@@ -313,8 +336,7 @@ export class AgentManager {
       sessionManager: sdk.SessionManager.open(sessionEntity.piSessionFile),
       resourceLoader: loader,
       thinkingLevel: config?.thinking ?? "medium",
-      // 无显式 tools 时用默认工具集（含 Pi 内置 + pi-web-access 网络工具）
-      tools: config?.tools?.length ? config.tools : DEFAULT_AGENT_TOOLS,
+      tools,
       // 记忆工具（host-controlled，绑定项目 store）+ ask_user_question 工具。
       // 注意：必须合并进同一数组，不能覆盖——memory 工具由 createAgentMemoryTools 构造，
       // 直接覆盖会破坏现有记忆功能。memory 已落地，按计划 Self-Review「memory 重构落地后追加」。
