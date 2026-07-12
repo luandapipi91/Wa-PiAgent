@@ -29,6 +29,12 @@ app.whenReady().then(() => {
   });
   log.info(`Electron main 就绪, isPackaged=${app.isPackaged}`);
   createWindow();
+  const { startTray } = require("./tray.cjs");
+  startTray({
+    iconPath: path.join(__dirname, "assets", "icon.ico"),
+    onOpen: () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); } },
+    onQuit: () => app.quit(),
+  });
 });
 
 // Win/Linux：窗口全关 = 退出（托盘「退出」也调 app.quit）
