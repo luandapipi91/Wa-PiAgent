@@ -1,7 +1,8 @@
 // 组装 resources/kernel/(bun.exe + kernel.js + node_modules) + resources/web/(前端 dist)。
 // 复用 tray-binary P2 的文件夹组装逻辑（解释 kernel sidecar = 已验证形态）。
 import { spawnSync } from "node:child_process";
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
@@ -14,7 +15,119 @@ function run(bin: string, args: string[], cwd = ROOT) {
   if (r.status !== 0) { console.error(`[sidecar] 失败: ${bin}`); process.exit(1); }
 }
 
-export async function buildSidecar(target: string) {
+// 目标平台 → bun 解压目录名 + 期望二进制名
+const BUN_TARGET = {
+  win: { archive: "bun-windows-x64.zip", dir: "bun-windows-x64", bin: "bun.exe" },
+  linux: { archive: "bun-linux-x64.zip", dir: "bun-linux-x64", bin: "bun" },
+} as const;
+
+// 下载 URL（按优先级；github 可能被墙，npmmirror 是国内镜像）
+function bunDownloadUrls(archive: string): string[] {
+  return [
+    `https://github.com/oven-sh/bun/releases/latest/download/${archive}`,
+    `https://registry.npmmirror.com/-/binary/bun/bun-v1.3.14/${archive}`,
+  ];
+}
+
+async function downloadToFile(url: string, dest: string): Promise<boolean> {
+  try {
+    console.log(`[sidecar] 下载 ${url}`);
+    const r = await fetch(url, { redirect: "follow" });
+    if (!r.ok || !r.body) { console.warn(`[sidecar] HTTP ${r.status} ${url}`); return false; }
+    const buf = Buffer.from(await r.arrayBuffer());
+    await writeFile(dest, buf);
+    const size = (await stat(dest)).size;
+    if (size < 1_000_000) { console.warn(`[sidecar] 下载过小 (${size}B)，丢弃`); await rm(dest, { force: true }); return false; }
+    console.log(`[sidecar] 下载 OK ${(size / 1024 / 1024).toFixed(1)} MB`);
+    return true;
+  } catch (e) {
+    console.warn(`[sidecar] 下载失败 ${url}: ${(e as Error).message}`);
+    return false;
+  }
+}
+
+// 解压 zip 到 dir；Windows 用 PowerShell Expand-Archive，Linux 用系统 unzip。
+function extractZip(zip: string, outDir: string): void {
+  if (process.platform === "win32") {
+    // Expand-Archive 需 Windows 风格路径（POSIX /tmp 会被拒）
+    const toWin = (p: string) => p.replace(/\//g, "\\").replace(/^\\(\w+)\\/, "$1:\\");
+    const ps = `Expand-Archive -Path '${toWin(zip)}' -DestinationPath '${toWin(outDir)}' -Force`;
+    const r = spawnSync("powershell", ["-NoProfile", "-Command", ps], { stdio: "inherit" });
+    if (r.status !== 0) throw new Error(`PowerShell Expand-Archive 失败 (exit=${r.status})`);
+  } else {
+    run("unzip", ["-o", zip, "-d", outDir]);
+  }
+}
+
+// 找到解压目录里的 bun 二进制（zip 内含 bun-<plat>-x64/bun[.exe]）。
+async function findBunBinary(extractedRoot: string, binName: string): Promise<string | null> {
+  if ((await stat(extractedRoot)).isDirectory()) {
+    const entries = await readdir(extractedRoot);
+    for (const e of entries) {
+      const child = join(extractedRoot, e);
+      if ((await stat(child)).isDirectory()) {
+        const inner = await readdir(child);
+        if (inner.includes(binName)) return join(child, binName);
+      } else if (e === binName) {
+        return child;
+      }
+    }
+  }
+  return null;
+}
+
+// 取目标平台的 bun 二进制：优先下载；下载不可用时仅在 host 与 target 平台一致时回退复制 host bun。
+async function fetchTargetBun(target: "win" | "linux", kernelDir: string): Promise<void> {
+  const spec = BUN_TARGET[target];
+  const outBin = join(kernelDir, spec.bin);
+  const tmpZip = join(tmpdir(), `hiagent-${spec.archive}`);
+  const tmpExtract = join(tmpdir(), `hiagent-bun-extract-${process.pid}`);
+  await rm(tmpExtract, { recursive: true, force: true });
+
+  // 1) 尝试下载（多镜像）
+  for (const url of bunDownloadUrls(spec.archive)) {
+    if (await downloadToFile(url, tmpZip)) {
+      try {
+        await mkdir(tmpExtract, { recursive: true });
+        extractZip(tmpZip, tmpExtract);
+        const found = await findBunBinary(tmpExtract, spec.bin);
+        if (found) {
+          await cp(found, outBin);
+          console.log(`[sidecar] 解压并放置 ${spec.bin} ← ${found}`);
+          await rm(tmpZip, { force: true });
+          await rm(tmpExtract, { recursive: true, force: true });
+          return;
+        }
+        console.warn(`[sidecar] 解压后未找到 ${spec.bin}，尝试下一镜像`);
+      } catch (e) {
+        console.warn(`[sidecar] 解压失败: ${(e as Error).message}`);
+      }
+    }
+  }
+  await rm(tmpZip, { force: true });
+  await rm(tmpExtract, { recursive: true, force: true });
+
+  // 2) 兜底：仅当 host 与 target 平台一致时复制 host bun
+  const hostMatchesTarget =
+    (target === "win" && process.platform === "win32") ||
+    (target === "linux" && process.platform === "linux");
+  if (hostMatchesTarget) {
+    console.warn(`[sidecar] ⚠️ 所有镜像下载失败，回退复制 host bun (${process.execPath})——仅 host==target 时安全`);
+    await cp(process.execPath, outBin);
+    return;
+  }
+
+  // 3) host != target：必须报错（绝不能把 host 平台的 bun 当作 target 的发出去）
+  throw new Error(
+    `[sidecar] 无法下载 target=${target} 的 bun 二进制，且 host 平台 (${process.platform}) 不匹配 target——` +
+    `拒绝将 host bun 当作 ${target} 分发。请检查网络/代理或预置 bun 二进制。`
+  );
+}
+
+export async function buildSidecar(target: "win" | "linux" | string) {
+  if (target !== "win" && target !== "linux") {
+    throw new Error(`[sidecar] 不支持的 target: ${target}（仅 win / linux）`);
+  }
   const kernelDir = join(RES, "kernel");
   const webDir = join(RES, "web");
   await rm(RES, { recursive: true, force: true });
@@ -34,8 +147,8 @@ export async function buildSidecar(target: string) {
   }, null, 2));
   run("bun", ["install", "--production", "--cwd", kernelDir]); // CI 加 BUN_CONFIG_REGISTRY
 
-  // 3. bun 运行时（host 平台复制 process.execPath；非 host 待 wine/跨平台补）
-  await cp(process.execPath, join(kernelDir, process.platform === "win32" ? "bun.exe" : "bun"));
+  // 3. bun 运行时（下载 TARGET 平台 bun；不再无条件复制 host bun，避免 Linux CI 误把 Linux bun 当 bun.exe 发出去）
+  await fetchTargetBun(target, kernelDir);
 
   // 4. web（前端 dist）
   run("bun", ["run", "--filter", "@hiagent/frontend", "build"]);
