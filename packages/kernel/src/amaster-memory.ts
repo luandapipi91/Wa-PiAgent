@@ -11,12 +11,13 @@
 // amaster 的 MemoryStore 仅区分 memory(MEMORY.md) 与 user(USER.md) 两个 target；
 // failure 等其它分类不在此层管理。
 
-import { MemoryStore, createMemoryTools } from "@amaster.ai/pi-memory";
+import { MemoryStore } from "@amaster.ai/pi-memory";
 export type { MemoryTarget } from "@amaster.ai/pi-memory";
 /** 透传 amaster 的 createMemoryTools（绑定 raw store 生成 agent 可用的记忆 tool 集） */
 export { createMemoryTools } from "@amaster.ai/pi-memory";
 import type { MemoryTarget } from "@amaster.ai/pi-memory";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { join } from "node:path";
 
 /** 单个作用域（全局或某项目）的记忆读写门面 */
@@ -55,26 +56,111 @@ export function createAmasterStore(dir: string): AmasterStore {
 }
 
 /**
- * 构造 agent 记忆工具，按 target 路由到底层 store：
- * - target=user（用户画像）→ 全局 store（用户偏好天然跨项目）
- * - target=memory（工作笔记）→ 当前项目 store
+ * 构造 agent 记忆工具，含可选 `scope` 参数由 agent 决定写入全局还是项目。
  *
- * 复用 amaster createMemoryTools 的 tool 定义与提示词文案（agent 已理解 user/memory 语义），
- * 仅把底层 store 调用按 target 分流。amaster 工具运行期只会调用 add/replace/remove/read。
+ * - target：memory（笔记 MEMORY.md）/ user（用户画像 USER.md）
+ * - scope：可选 global / project。**默认值**——target=user → global，target=memory → project。
+ *   agent 可显式传 scope 覆盖（如把某条工作笔记显式存到全局）。
+ *
+ * 自定义 TypeBox schema + execute，按 (target, scope) 路由到对应 amaster store。
+ * 全局+项目记忆快照另由 AgentManager 注入系统提示词（只读上下文）。
  */
 export function createAgentMemoryTools(
   globalStore: AmasterStore,
   projectStore: AmasterStore,
 ): ToolDefinition[] {
-  const route = (target: MemoryTarget): MemoryStore =>
-    target === "user" ? globalStore.raw : projectStore.raw;
-  const router = {
-    add: (t: MemoryTarget, c: string) => route(t).add(t, c),
-    replace: (t: MemoryTarget, o: string, n: string) => route(t).replace(t, o, n),
-    remove: (t: MemoryTarget, o: string) => route(t).remove(t, o),
-    read: (t: MemoryTarget) => route(t).read(t),
-  } as unknown as MemoryStore;
-  return createMemoryTools(router);
+  const SCOPE_DESC =
+    "Where this entry lives: 'global' (cross-project) or 'project' (current project only). " +
+    "Omit for the default — 'global' for the user target, 'project' for the memory target.";
+  const targetSchema = Type.Union([Type.Literal("memory"), Type.Literal("user")], {
+    description: "Which memory file: 'memory' (your notes → MEMORY.md) or 'user' (user profile → USER.md).",
+  });
+  const scopeSchema = Type.Union([Type.Literal("global"), Type.Literal("project")], {
+    description: SCOPE_DESC,
+  });
+
+  const resolveScope = (target: MemoryTarget, scope: unknown): "global" | "project" =>
+    scope === "global" || scope === "project" ? scope : target === "user" ? "global" : "project";
+  const storeFor = (target: MemoryTarget, scope: unknown): MemoryStore =>
+    resolveScope(target, scope) === "global" ? globalStore.raw : projectStore.raw;
+  const jsonResult = (v: unknown) => ({
+    content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v, null, 2) }],
+    details: undefined,
+  });
+  const str = (v: unknown): string => (typeof v === "string" ? v : "");
+
+  return [
+    {
+      name: "memory_add",
+      label: "Memory",
+      description:
+        "Append a new entry to memory. Save durable information that survives across sessions " +
+        "(user preferences, corrections, stable environment facts, conventions). Do NOT save task progress or temporary state. " +
+        "TARGETS: 'user' for who the user is; 'memory' for your own notes. " +
+        "SCOPE: omit for default (user→global, memory→project), or set 'global'/'project' explicitly.",
+      promptSnippet: "Append durable facts to MEMORY.md or USER.md (global or project scope).",
+      parameters: Type.Object({
+        target: targetSchema,
+        scope: Type.Optional(scopeSchema),
+        content: Type.String({ description: "The entry content to append." }),
+      }),
+      async execute(_id: string, params: Record<string, unknown>) {
+        const t = str(params.target) === "user" ? "user" : "memory";
+        return jsonResult(await storeFor(t, params.scope).add(t, str(params.content)));
+      },
+    },
+    {
+      name: "memory_replace",
+      label: "Memory",
+      description:
+        "Replace an existing memory entry. Find it by a short unique substring (oldText), replace with newContent. " +
+        "Use this to update outdated entries instead of remove+add. SCOPE defaults like memory_add.",
+      promptSnippet: "Update an existing MEMORY.md or USER.md entry.",
+      parameters: Type.Object({
+        target: targetSchema,
+        scope: Type.Optional(scopeSchema),
+        oldText: Type.String({ description: "A short substring uniquely identifying the entry to replace." }),
+        newContent: Type.String({ description: "The replacement entry content." }),
+      }),
+      async execute(_id: string, params: Record<string, unknown>) {
+        const t = str(params.target) === "user" ? "user" : "memory";
+        return jsonResult(await storeFor(t, params.scope).replace(t, str(params.oldText), str(params.newContent)));
+      },
+    },
+    {
+      name: "memory_remove",
+      label: "Memory",
+      description:
+        "Remove a memory entry by a short unique substring (oldText). Use when an entry is wrong or no longer relevant. " +
+        "SCOPE defaults like memory_add.",
+      promptSnippet: "Delete an entry from MEMORY.md or USER.md.",
+      parameters: Type.Object({
+        target: targetSchema,
+        scope: Type.Optional(scopeSchema),
+        oldText: Type.String({ description: "A short substring uniquely identifying the entry to remove." }),
+      }),
+      async execute(_id: string, params: Record<string, unknown>) {
+        const t = str(params.target) === "user" ? "user" : "memory";
+        return jsonResult(await storeFor(t, params.scope).remove(t, str(params.oldText)));
+      },
+    },
+    {
+      name: "memory_read",
+      label: "Memory",
+      description:
+        "Return live entries and usage for a memory store. Inspect what's saved before deciding to add/replace/remove. " +
+        "SCOPE defaults like memory_add.",
+      promptSnippet: "Read the current contents of MEMORY.md or USER.md.",
+      parameters: Type.Object({
+        target: targetSchema,
+        scope: Type.Optional(scopeSchema),
+      }),
+      async execute(_id: string, params: Record<string, unknown>) {
+        const t = str(params.target) === "user" ? "user" : "memory";
+        return jsonResult(await storeFor(t, params.scope).read(t));
+      },
+    },
+  ] as unknown as ToolDefinition[];
 }
 
 /** 按 cwd 生成项目目录名（basename；与历史 projects-memory/<basename> 约定对齐）。
