@@ -7,7 +7,11 @@
     "dev:kernel": "bun run --filter @hiagent/kernel dev",
     "dev:frontend": "bun run --filter @hiagent/frontend dev",
     "test": "bun test --path-ignore-patterns \"**/e2e/**\"",
-    "typecheck": "bun run --filter '*' --if-present typecheck"
+    "typecheck": "bun run --filter '*' --if-present typecheck",
+    "pack:win":   "bun run --filter @hiagent/desktop build:win",
+    "pack:mac":   "bun run --filter @hiagent/desktop build:mac",
+    "pack:linux": "bun run --filter @hiagent/desktop build:linux",
+    "pack:all":   "bun run --filter @hiagent/desktop build:all"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

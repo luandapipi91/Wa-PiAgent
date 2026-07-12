@@ -1,7 +1,10 @@
 import type { AgentName } from "./types";
 
-export const WS_PORT = 9776;
-export const PREVIEW_PORT = 9777;
+/** 端口解析：合法正整数用之，否则用默认。 */
+export function resolvePort(envVal: string | undefined, def: number): number {
+  const n = Number(envVal);
+  return Number.isFinite(n) && n > 0 ? n : def;
+}
 
 // 兼容浏览器（vite import.meta.env / 无 process 全局）与 Node/Bun（process.env）
 // 浏览器 bundle 里 process 是 undefined；vite 通过 vite.config.ts 的 define 把
@@ -12,6 +15,10 @@ const nodeEnv = typeof process !== "undefined" ? process.env : {};
 const browserEnv = (typeof import.meta !== "undefined" && (import.meta as any).env) ? (import.meta as any).env : {};
 const env = { ...nodeEnv, ...browserEnv };
 const HOME = env.HOME || env.USERPROFILE || ".";
+export const WS_PORT = resolvePort(env.HIAGENT_WS_PORT, 9776);
+export const PREVIEW_PORT = resolvePort(env.HIAGENT_PREVIEW_PORT, 9777);
+/** 前端 dev 端口（Vite）；desktop 不用（走同源 9776）。 */
+export const FRONTEND_PORT = resolvePort(env.HIAGENT_WEB_PORT, 5180);
 // 支持 env 覆盖（E2E 测试用独立目录隔离，生产部署也可自定义数据目录）
 export const HIAGENT_DIR = env.HIAGENT_DIR || `${HOME}/.hiagent`;
 export const PROJECTS_FILE = `${HIAGENT_DIR}/projects.json`;
