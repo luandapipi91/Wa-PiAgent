@@ -1,75 +1,99 @@
-// extension-manager.ts — 可选 Pi 扩展的启用/禁用管理
-//
-// 设计要点：
-// - 镜像 skill-manager.ts：读写 dataDir/settings.json，不可变更新。
-// - 可选扩展（如 pi-lens）通过 settings.json.extensions（SDK 原生字段）驱动；
-//   SDK DefaultResourceLoader.reload() 会重读该字段，故 toggle 后由 AgentManager
-//   在会话下次使用时 deferred reload 即可热生效（见 agent-manager.ts）。
-// - 核心扩展（pi-intercom / pi-web-access）不走这里，仍由 additionalExtensionPaths 常驻，
-//   二者互斥，避免双重加载。
-// - 入口解析/版本读取可注入，便于单测隔离（默认用 npm require 解析）。
+// 包名校验（npm 来源专用）
+export function validatePackageName(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
 
+  // 提取 version 后缀（允许 name@version）
+  const atIdx = trimmed.lastIndexOf("@");
+  let name = atIdx > 0 ? trimmed.slice(0, atIdx) : trimmed;
+  const version = atIdx > 0 ? trimmed.slice(atIdx + 1) : undefined;
+
+  // scope 包以 @ 开头，第一个 @ 不属于 version 分隔符
+  if (name.startsWith("@") && name.indexOf("/") === -1) return null;
+
+  // npm package name spec
+  if (!/^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(name)) return null;
+  if (name.length > 214) return null;
+
+  // 拒绝危险字符
+  const dangerous = /[\\;&|$`!<>'"\s]/;
+  if (dangerous.test(name)) return null;
+  if (version && dangerous.test(version)) return null;
+
+  return version ? `${name}@${version}` : name;
+}
+
+// 输入格式解析
+interface ParsedInput {
+  source: "npm" | "git" | "local";
+  name: string;   // npm 包名 / git repo URL / 本地路径
+  version?: string; // 仅 npm
+}
+
+export function parseExtensionInput(raw: string): ParsedInput | null {
+  let input = raw.trim();
+
+  // 去掉 CLI 前缀
+  input = input.replace(/^pi\s+install\s+/i, "").replace(/^install\s+/i, "");
+
+  if (input.startsWith("git:")) {
+    const repo = input.slice(4).trim();
+    if (!repo) return null;
+    return { source: "git", name: repo };
+  }
+
+  if (input.startsWith("npm:")) {
+    const validated = validatePackageName(input.slice(4).trim());
+    if (!validated) return null;
+    const atIdx = validated.lastIndexOf("@");
+    if (atIdx > 0 && !validated.startsWith("@")) {
+      return { source: "npm", name: validated.slice(0, atIdx), version: validated.slice(atIdx + 1) };
+    }
+    return { source: "npm", name: validated };
+  }
+
+  if (input.startsWith("/") || input.startsWith("./") || input.startsWith("~/")) {
+    return { source: "local", name: input };
+  }
+
+  // 默认 npm
+  const validated = validatePackageName(input);
+  if (!validated) return null;
+  const atIdx = validated.lastIndexOf("@");
+  if (atIdx > 0 && !validated.startsWith("@")) {
+    return { source: "npm", name: validated.slice(0, atIdx), version: validated.slice(atIdx + 1) };
+  }
+  return { source: "npm", name: validated };
+}
+
+// packages/kernel/src/extension-manager.ts
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
-import { createRequire } from "node:module";
-import type { ExtensionPluginInfo } from "@hiagent/shared";
-import { OPTIONAL_EXTENSIONS, resolveExtensionEntryFile } from "./extensions";
+import { join, resolve, isAbsolute } from "node:path";
+import { existsSync } from "node:fs";
+import type { PackageInfo } from "@hiagent/shared";
+import { NpmPackageService } from "./npm-package-service";
 
-const require = createRequire(import.meta.url);
-
-/** settings.json 中与扩展相关的字段 */
 interface ExtensionSettings {
-  /** SDK 原生字段：已解析入口路径数组，由 DefaultResourceLoader 读取 */
-  extensions?: string[];
+  npmCommand?: string[];
+  packages?: string[];
   [k: string]: unknown;
 }
 
-/**
- * 判断一条 settings.extensions 路径是否属于指定 npm 包。
- * npm/bun 布局下，包入口路径必含 `node_modules/<pkgName>/` 片段
- * （含 .bun 缓存的 `pi-lens@hash/node_modules/pi-lens/` 形态）。
- * 用于收敛同包历史路径，避免 bun install 产生新 hash 后旧路径残留导致双重加载。
- */
-function pathBelongsToPackage(extPath: string, pkgName: string): boolean {
-  const sep = /[\\/]/;  // 跨平台：兼容 Windows 反斜杠与 POSIX 正斜杠
-  const segments = extPath.split(sep);
-  const nodeModulesIdx = segments.lastIndexOf("node_modules");
-  if (nodeModulesIdx === -1 || nodeModulesIdx === segments.length - 1) return false;
-  // node_modules 后第一个段即包名（scoped 包含 @scope/name，这里可选插件都是裸名）
-  return segments[nodeModulesIdx + 1] === pkgName;
-}
-
-export interface ExtensionManagerOpts {
-  /** 解析插件入口绝对路径（默认用 extensions.ts 的 resolveExtensionEntryFile） */
-  resolveEntryPath?: (pkgName: string) => string;
-  /** 读取插件版本（默认读 npm 包 package.json，失败返回 undefined） */
-  readVersion?: (pkgName: string) => string | undefined;
-}
+const RUNTIME_DIR = `${process.env.HOME}/.hiagent/runtime`;
 
 export class ExtensionManager {
+  private pkgService: NpmPackageService;
+  private injected: boolean;
+
   constructor(
     private dataDir: string,
-    private opts: ExtensionManagerOpts = {},
-  ) {}
-
-  // ---- 入口/版本解析（可注入）----
-
-  private resolveEntryPath(pkgName: string): string {
-    return this.opts.resolveEntryPath
-      ? this.opts.resolveEntryPath(pkgName)
-      : resolveExtensionEntryFile(pkgName);
+    pkgService?: NpmPackageService,
+  ) {
+    this.injected = !!pkgService;
+    this.pkgService = pkgService ?? new NpmPackageService(RUNTIME_DIR);
   }
 
-  private readVersion(pkgName: string): string | undefined {
-    if (this.opts.readVersion) return this.opts.readVersion(pkgName);
-    try {
-      return (require(`${pkgName}/package.json`) as { version?: string }).version;
-    } catch {
-      return undefined;
-    }
-  }
-
-  // ---- settings.json 读写（镜像 SkillManager）----
+  // ---- settings.json 读写 ----
 
   private async readSettings(): Promise<ExtensionSettings> {
     try {
@@ -85,93 +109,235 @@ export class ExtensionManager {
     await writeFile(join(this.dataDir, "settings.json"), JSON.stringify(settings, null, 2), "utf8");
   }
 
-  // ---- 公共 API ----
-
-  /**
-   * 列出全部可选插件及其启用态。
-   * 首启播种：settings.extensions 字段尚不存在时，把 defaultEnabled 的插件入口路径
-   * 补写并持久化。字段一旦存在（即便被 toggle 清空成 []），视为用户已有明确意图，不再重播——
-   * 否则禁用后下次 list() 又会把 defaultEnabled 插件加回来，导致无法真正禁用。
-   * 包未安装时该插件标记为 enabled: false，不播种（避免写入无效路径）。
-   *
-   * 路径收敛：每个可选插件在 settings.extensions 中的历史路径（bun install 产生新 .bun
-   * 缓存 hash 后遗留的旧路径）会被收敛为当前解析到的唯一路径。避免同包多路径导致 SDK
-   * 双重加载——两实例互判并发副实例而双双跳过 LSP 初始化（pi-lens 回归 bug）。
-   */
-  async list(): Promise<{ plugins: ExtensionPluginInfo[] }> {
-    const settings = await this.readSettings();
-    const isFirstBoot = settings.extensions === undefined;
-    const rawPaths = settings.extensions ?? [];
-    let changed = false;
-
-    // 收敛后的路径集合：先保留不属于任何可选插件的外部路径
-    const current: string[] = rawPaths.filter(
-      (p) => !OPTIONAL_EXTENSIONS.some((d) => pathBelongsToPackage(p, d.package)),
-    );
-
-    const plugins: ExtensionPluginInfo[] = OPTIONAL_EXTENSIONS.map((def) => {
-      let path: string;
-      try {
-        path = this.resolveEntryPath(def.package);
-      } catch {
-        return { id: def.id, displayName: def.displayName, description: def.description, enabled: false };
-      }
-      // 该插件在旧 settings 中的历史路径（含已失效的 .bun hash 变体）
-      const legacyPaths = rawPaths.filter((p) => pathBelongsToPackage(p, def.package));
-      const wasEnabled = legacyPaths.length > 0;
-
-      if (isFirstBoot && def.defaultEnabled) {
-        current.push(path);
-        changed = true;
-      } else if (wasEnabled) {
-        // 启用态：用当前路径替换所有历史路径（收敛去重）
-        if (!current.includes(path)) {
-          current.push(path);
-        }
-        // 历史路径多于 1 条或含非当前路径 → 需要写入收敛结果
-        if (legacyPaths.length > 1 || !legacyPaths.includes(path)) {
-          changed = true;
-        }
-      }
-      return {
-        id: def.id,
-        displayName: def.displayName,
-        description: def.description,
-        enabled: wasEnabled || (isFirstBoot && def.defaultEnabled),
-        version: this.readVersion(def.package),
-      };
-    });
-
-    if (changed) {
-      await this.writeSettings({ ...settings, extensions: current });
+  /** 确保 npmCommand 存在，首启写入默认值 */
+  private async ensureNpmCommand(settings: ExtensionSettings): Promise<ExtensionSettings> {
+    if (!settings.npmCommand) {
+      settings.npmCommand = ["bun"];
+      await this.writeSettings(settings);
     }
-
-    return { plugins };
+    if (!this.injected) {
+      this.pkgService = new NpmPackageService(RUNTIME_DIR, { npmCommand: settings.npmCommand });
+    }
+    return settings;
   }
 
-  /**
-   * 启用/禁用插件：把对应入口路径不可变地加入/移出 settings.extensions。
-   * 同 list()，对同包历史路径做收敛：禁用时移除该包所有历史路径（含失效的 .bun hash 变体）。
-   * @throws 未知 id 抛 "未知插件"；包未安装抛 "插件未安装"。
-   */
-  async toggle(id: string, enabled: boolean): Promise<void> {
-    const def = OPTIONAL_EXTENSIONS.find((d) => d.id === id);
-    if (!def) throw new Error(`未知插件: ${id}`);
+  // ---- 包名匹配辅助 ----
 
-    let path: string;
-    try {
-      path = this.resolveEntryPath(def.package);
-    } catch {
-      throw new Error(`插件未安装: ${def.package}`);
+  /** 从 packages 数组中提取包名（去掉 npm: 前缀和 @version 后缀） */
+  private extractNames(packages: string[]): Map<string, string> {
+    const map = new Map<string, string>();
+    for (const p of packages) {
+      if (p.startsWith("npm:")) {
+        const rest = p.slice(4);
+        const atIdx = rest.lastIndexOf("@");
+        const name = atIdx > 0 ? rest.slice(0, atIdx) : rest;
+        map.set(name, p);
+      } else {
+        map.set(p, p);
+      }
+    }
+    return map;
+  }
+
+  // ---- 公共 API ----
+
+  async list(): Promise<{ packages: PackageInfo[] }> {
+    let settings = await this.readSettings();
+    settings = await this.ensureNpmCommand(settings);
+
+    const pkgs = settings.packages ?? [];
+    const result: PackageInfo[] = [];
+
+    for (const p of pkgs) {
+      if (p.startsWith("npm:")) {
+        const rest = p.slice(4);
+        const atIdx = rest.lastIndexOf("@");
+        const name = atIdx > 0 ? rest.slice(0, atIdx) : rest;
+        const version = atIdx > 0 ? rest.slice(atIdx + 1) : undefined;
+
+        const installedVersion = this.pkgService.getInstalledVersion(name);
+        let latestVersion: string | undefined;
+        try { latestVersion = await this.pkgService.getLatestVersion(name); } catch {}
+
+        result.push({
+          name,
+          source: "npm",
+          version: installedVersion ?? version,
+          latestVersion: latestVersion && latestVersion !== installedVersion ? latestVersion : undefined,
+          description: this.pkgService.getDescription(name),
+          enabled: true,
+        });
+      } else if (p.startsWith("git:")) {
+        result.push({
+          name: p.slice(4),
+          source: "git",
+          enabled: true,
+        });
+      } else {
+        result.push({
+          name: p,
+          source: "local",
+          description: this.pkgService.getDescription(p) ?? undefined,
+          enabled: true,
+        });
+      }
     }
 
-    const settings = await this.readSettings();
-    const rawPaths = settings.extensions ?? [];
-    // 移除该插件所有历史路径（收敛），保留外部路径；启用时加回当前唯一路径
-    const current = rawPaths.filter((p) => !pathBelongsToPackage(p, def.package));
-    if (enabled && !current.includes(path)) {
-      current.push(path);
+    return { packages: result };
+  }
+
+  async install(rawInput: string): Promise<PackageInfo> {
+    const parsed = parseExtensionInput(rawInput);
+    if (!parsed) throw new Error("无效的插件名称格式");
+
+    let settings = await this.readSettings();
+    settings = await this.ensureNpmCommand(settings);
+    const pkgs = settings.packages ?? [];
+    const existing = this.extractNames(pkgs);
+
+    if (existing.has(parsed.name)) {
+      const existingVersion = this.pkgService.getInstalledVersion(parsed.name);
+      throw new Error(existingVersion
+        ? `已安装 v${existingVersion}，请使用升级`
+        : `已安装 ${parsed.name}`);
     }
-    await this.writeSettings({ ...settings, extensions: current });
+
+    let entry: string;
+    let version: string | undefined;
+
+    switch (parsed.source) {
+      case "npm": {
+        const result = await this.pkgService.install(parsed.name, parsed.version);
+        version = result.version;
+        entry = `npm:${parsed.name}@${version}`;
+        break;
+      }
+      case "git":
+        entry = `git:${parsed.name}`;
+        break;
+      case "local": {
+        const abs = isAbsolute(parsed.name) ? parsed.name : resolve(parsed.name);
+        if (!existsSync(join(abs, "package.json"))) {
+          throw new Error(`路径不存在或不是有效的 Pi 包: ${abs}`);
+        }
+        entry = abs;
+        break;
+      }
+      default:
+        throw new Error(`不支持的来源类型: ${parsed.source}`);
+    }
+
+    const updated = [...pkgs, entry];
+    await this.writeSettings({ ...settings, packages: updated });
+
+    return {
+      name: parsed.name,
+      source: parsed.source,
+      version,
+      description: parsed.source === "npm" ? this.pkgService.getDescription(parsed.name) : undefined,
+      enabled: true,
+    };
+  }
+
+  async uninstall(name: string): Promise<void> {
+    let settings = await this.readSettings();
+    settings = await this.ensureNpmCommand(settings);
+    const pkgs = settings.packages ?? [];
+    const existing = this.extractNames(pkgs);
+
+    const matched = existing.get(name);
+    if (!matched) throw new Error(`未安装: ${name}`);
+
+    // npm 来源：卸载 node_modules 中的包
+    if (matched.startsWith("npm:")) {
+      await this.pkgService.uninstall(name);
+    }
+    // git 和 local 来源：不从磁盘删除，只从 packages 移除
+
+    const updated = pkgs.filter((p) => p !== matched);
+    await this.writeSettings({ ...settings, packages: updated });
+  }
+
+  async upgrade(name: string): Promise<PackageInfo> {
+    let settings = await this.readSettings();
+    settings = await this.ensureNpmCommand(settings);
+    const pkgs = settings.packages ?? [];
+    const existing = this.extractNames(pkgs);
+
+    const matched = existing.get(name);
+    if (!matched) throw new Error(`未安装: ${name}`);
+
+    if (!matched.startsWith("npm:")) {
+      if (matched.startsWith("git:")) {
+        // git: 无自动升级，提示用户手动修改 ref
+        throw new Error("Git 来源插件暂不支持自动升级，请先卸载后重新安装新版本");
+      }
+      throw new Error("本地路径插件不支持升级");
+    }
+
+    const result = await this.pkgService.upgrade(name);
+    const entry = `npm:${name}@${result.version}`;
+    const updated = pkgs.map((p) => p === matched ? entry : p);
+    await this.writeSettings({ ...settings, packages: updated });
+
+    return {
+      name,
+      source: "npm",
+      version: result.version,
+      description: this.pkgService.getDescription(name),
+      enabled: true,
+    };
+  }
+
+  async enable(name: string): Promise<void> {
+    let settings = await this.readSettings();
+    settings = await this.ensureNpmCommand(settings);
+    const pkgs = settings.packages ?? [];
+
+    // 从旧版 settings.extensions 迁移：查找匹配的路径
+    const extPaths = (settings as any).extensions as string[] | undefined;
+
+    // 检查是否已在 packages 中
+    const existing = this.extractNames(pkgs);
+    if (existing.has(name)) return; // already enabled
+
+    // 查找原始 packages 条目（可能之前被 disable 移除了）
+    // 从 settings.extensions 或 node_modules 中找到该包
+    let entry: string | undefined;
+    if (extPaths) {
+      const found = extPaths.find((p) => p.includes(`/node_modules/${name}/`));
+      if (found) {
+        const installedVersion = this.pkgService.getInstalledVersion(name);
+        if (installedVersion) {
+          entry = `npm:${name}@${installedVersion}`;
+        }
+      }
+    }
+
+    if (!entry) {
+      // 检查 node_modules 是否有该包
+      const installedVersion = this.pkgService.getInstalledVersion(name);
+      if (installedVersion) {
+        entry = `npm:${name}@${installedVersion}`;
+      } else {
+        throw new Error(`未找到已安装的包: ${name}，请先安装`);
+      }
+    }
+
+    const updated = [...pkgs, entry];
+    await this.writeSettings({ ...settings, packages: updated, extensions: undefined });
+  }
+
+  async disable(name: string): Promise<void> {
+    let settings = await this.readSettings();
+    settings = await this.ensureNpmCommand(settings);
+    const pkgs = settings.packages ?? [];
+    const existing = this.extractNames(pkgs);
+
+    const matched = existing.get(name);
+    if (!matched) return; // already disabled — no-op
+
+    const updated = pkgs.filter((p) => p !== matched);
+    await this.writeSettings({ ...settings, packages: updated });
   }
 }
