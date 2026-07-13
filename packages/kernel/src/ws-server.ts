@@ -652,7 +652,7 @@ export class WSServer {
       }
       case "extension:install": {
         try {
-          const info = await this.opts.extensionManager.install(event.name);
+          await this.opts.extensionManager.install(event.name);
           this.opts.agentManager.markAllDirty();
           const { packages } = await this.opts.extensionManager.list();
           this.broadcast({ type: "extension:changed", packages });
@@ -675,7 +675,7 @@ export class WSServer {
       }
       case "extension:upgrade": {
         try {
-          const info = await this.opts.extensionManager.upgrade(event.name);
+          await this.opts.extensionManager.upgrade(event.name);
           this.opts.agentManager.markAllDirty();
           const { packages } = await this.opts.extensionManager.list();
           this.broadcast({ type: "extension:changed", packages });

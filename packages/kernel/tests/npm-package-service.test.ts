@@ -35,8 +35,20 @@ test("getDescription 返回 description 字段", () => {
   expect(svc.getDescription("desc-pkg")).toBe("A test package");
 });
 
-test("构造函数接受自定义 npmCommand", () => {
-  const svc = new NpmPackageService(dir, { npmCommand: ["pnpm"] });
-  // 通过 spawn 行为间接验证——install 会使用 pnpm
+test("构造函数接受自定义 npmCommand 且实际被 spawn 使用", async () => {
+  // 验证自定义 npmCommand 透传到 spawn：用一个 PATH 里不存在的命令触发 Bun.spawn 的
+  // "Executable not found" 错误——错误信息里包含该命令名，证明 spawn 用的是自定义命令
+  // 而非默认 "bun"。
+  const customCmd = "this-cmd-does-not-exist-xyz";
+  const svc = new NpmPackageService(dir, { npmCommand: [customCmd] });
   expect(svc).toBeDefined();
+  try {
+    await svc.install("any-pkg");
+    // 若走到这里说明 spawn 未抛错（不应该发生），强制失败
+    expect.unreachable("expected spawn to fail with Executable not found");
+  } catch (err) {
+    const msg = (err as Error).message;
+    // Bun.spawn 在可执行文件不存在时抛 "Executable not found in $PATH: \"<cmd>\""
+    expect(msg).toContain(customCmd);
+  }
 });
