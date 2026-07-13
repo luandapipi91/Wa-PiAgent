@@ -5,7 +5,6 @@ import { NewSessionPane } from "./components/NewSessionPane";
 import { SessionView } from "./components/SessionView";
 import { EmptyState } from "./components/EmptyState";
 import { AgentConfig } from "./components/AgentConfig";
-import { Canvas } from "./components/canvas/Canvas";
 import { DirTreePicker } from "./components/DirTreePicker";
 import { SettingsModal } from "./components/SettingsModal";
 import { useSettingsStore } from "./store/settings";
@@ -19,7 +18,7 @@ import { useToastStore } from "./store/toast";
 import { onMessage, getWs } from "./ws-instance";
 import { ToastContainer } from "./components/ui/Toast";
 
-export type View = "empty" | "new-session" | "session" | "canvas";
+export type View = "empty" | "new-session" | "session";
 
 export function App() {
   // 只订阅渲染所需的最小状态；actions 在回调里用 getState() 取，避免 stale closure
@@ -108,18 +107,7 @@ export function App() {
       <main className="flex-1 flex flex-col overflow-hidden">
         {view === "empty" && <EmptyState onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }} />}
         {view === "new-session" && <NewSessionPane />}
-        {view === "session" && currentSessionId && <SessionView sessionId={currentSessionId} onSwitchToCanvas={() => setView("canvas")} />}
-        {view === "canvas" && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <button
-              onClick={() => setView(currentSessionId ? "session" : "new-session")}
-              className="p-2 text-sm text-secondary hover:text-primary"
-            >
-              ← 返回会话
-            </button>
-            <Canvas />
-          </div>
-        )}
+        {view === "session" && currentSessionId && <SessionView sessionId={currentSessionId} />}
       </main>
       {configAgent && <AgentConfig agentName={configAgent} onClose={() => setConfigAgent(null)} />}
       {useProjectsStore(s => s.dirPickerOpen) && (

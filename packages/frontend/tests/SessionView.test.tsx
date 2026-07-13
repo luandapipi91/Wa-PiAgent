@@ -28,7 +28,7 @@ beforeEach(() => {
 });
 
 test("渲染 header 标题 + 项目目录", () => {
-  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  render(<SessionView sessionId="s1" />);
   expect(screen.getByText("测试")).toBeTruthy();
   expect(screen.getByText(/\/work\/p1/)).toBeTruthy();
 });
@@ -49,7 +49,7 @@ test("收到 session:messages 响应后填充历史消息", () => {
 });
 
 test("首次进入会话历史未到时显示加载指示，响应到达后消失", async () => {
-  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  render(<SessionView sessionId="s1" />);
   // 发出 session:messages 后、历史未到 → 对话区显示 loading
   await screen.findByTestId("history-loading-s1");
 
@@ -75,7 +75,7 @@ test("会话已有消息时进入不显示历史加载（避免刷新闪烁）",
   useSessionStore.getState().setMessages("s1", [
     { agentName: undefined, message: { role: "user", content: "已存在", timestamp: 1 } },
   ]);
-  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  render(<SessionView sessionId="s1" />);
   // 有消息则即便 loading 标志为 true 也不显示加载指示
   await waitFor(() => {
     expect(screen.queryByTestId("history-loading-s1")).toBeNull();
@@ -88,7 +88,7 @@ test("运行中时排队消息隐藏「立即」按钮，保留「引导」按�
     statusBySession: { s1: "thinking" },
     queueBySession: { s1: { steering: [], followUp: ["排队消息"] } },
   });
-  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  render(<SessionView sessionId="s1" />);
   expect(screen.getByTestId("btn-promote")).toBeTruthy();
   expect(screen.queryByTestId("btn-immediate")).toBeNull();
 });
@@ -98,7 +98,7 @@ test("空闲时排队消息显示「立即」按钮", () => {
     statusBySession: { s1: "idle" },
     queueBySession: { s1: { steering: [], followUp: ["排队消息"] } },
   });
-  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  render(<SessionView sessionId="s1" />);
   expect(screen.getByTestId("btn-immediate")).toBeTruthy();
   expect(screen.getByTestId("btn-promote")).toBeTruthy();
 });
@@ -108,7 +108,7 @@ test("点击引导按钮发送 steer:promote 事件", async () => {
     statusBySession: { s1: "idle" },
     queueBySession: { s1: { steering: [], followUp: ["消息A", "消息B"] } },
   });
-  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  render(<SessionView sessionId="s1" />);
   const btn = screen.getAllByTestId("btn-promote")[0];
   await act(async () => { btn.click(); });
   const steerEvents = sentEvents.filter(e => e.type === "steer:promote");
@@ -126,7 +126,7 @@ test("点击立即按钮发送 steer:immediate 事件", async () => {
     statusBySession: { s1: "idle" },
     queueBySession: { s1: { steering: [], followUp: ["消息A", "消息B"] } },
   });
-  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  render(<SessionView sessionId="s1" />);
   const btn = screen.getAllByTestId("btn-immediate")[0];
   await act(async () => { btn.click(); });
   const steerEvents = sentEvents.filter(e => e.type === "steer:immediate");
@@ -154,12 +154,12 @@ test("切换会话后思考计时显示对应会话的已思考时长（不重�
     thinkingSinceBySession: { s1: now - 5000, s2: now - 10000 },
   });
 
-  const { rerender } = render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  const { rerender } = render(<SessionView sessionId="s1" />);
   // s1 已思考约 5s
   expect(await screen.findByText(/思考中 · (5|6)s/)).toBeTruthy();
 
   // 切换到 s2：应显示 s2 的约 10s，而不是沿用 s1 的 5s 或重置成 0
-  rerender(<SessionView sessionId="s2" onSwitchToCanvas={() => {}} />);
+  rerender(<SessionView sessionId="s2" />);
   expect(await screen.findByText(/思考中 · (10|11)s/)).toBeTruthy();
 });
 
@@ -171,7 +171,7 @@ test("有 pending ask 时渲染 AskDock 且 composer 禁用", () => {
   ];
   useSessionStore.getState().setMessages("s1", history);
 
-  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  render(<SessionView sessionId="s1" />);
   // dock 渲染
   expect(screen.getByTestId("ask-dock-s1")).toBeTruthy();
   // 表单卡片渲染
@@ -188,7 +188,7 @@ test("无 pending ask 时不渲染 AskDock", () => {
   ];
   useSessionStore.getState().setMessages("s1", history);
 
-  render(<SessionView sessionId="s1" onSwitchToCanvas={() => {}} />);
+  render(<SessionView sessionId="s1" />);
   // dock 不存在
   expect(screen.queryByTestId("ask-dock-s1")).toBeNull();
   // composer textarea 未禁用
