@@ -183,3 +183,50 @@ export function searchFilesStream(
     }
   };
 }
+
+export function appendRecording(projectId: string, recId: string, chunk: string, timeoutMs = 30000): Promise<void> {
+  const id = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const off = onMessage((e: any) => {
+      if (e.type === "fs:recording:append" && e.id === id) {
+        clearTimeout(timer); off();
+        if (e.error) reject(new Error(e.error)); else resolve();
+      }
+    });
+    const timer = setTimeout(() => { off(); reject(new Error("录音分片落盘超时")); }, timeoutMs);
+    send({ type: "fs:recording:append", id, projectId, recId, chunk });
+  });
+}
+
+export function finalizeRecording(projectId: string, recId: string, finalName: string, timeoutMs = 30000): Promise<{ path: string }> {
+  const id = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const off = onMessage((e: any) => {
+      if (e.type === "fs:recording:finalize" && e.id === id) {
+        clearTimeout(timer); off();
+        if (e.error) reject(new Error(e.error)); else resolve({ path: e.path });
+      }
+    });
+    const timer = setTimeout(() => { off(); reject(new Error("录音 finalize 超时")); }, timeoutMs);
+    send({ type: "fs:recording:finalize", id, projectId, recId, finalName });
+  });
+}
+
+export function discardRecording(projectId: string, recId: string, timeoutMs = 10000): Promise<void> {
+  const id = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const off = onMessage((e: any) => {
+      if (e.type === "fs:recording:discard" && e.id === id) {
+        clearTimeout(timer); off();
+        if (e.error) reject(new Error(e.error)); else resolve();
+      }
+    });
+    const timer = setTimeout(() => { off(); resolve(); }, timeoutMs);  // discard 容错：超时也 resolve
+    send({ type: "fs:recording:discard", id, projectId, recId });
+  });
+}
+
+/** 把附件绝对路径转成可被 <audio>/<img> 直接加载的 kernel /file URL。 */
+export function pathToUploadUrl(absPath: string): string {
+  return "/file?path=" + encodeURIComponent(absPath);
+}
