@@ -5,11 +5,13 @@ import { MessageList, buildResendPrompt } from "../src/components/MessageList";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
+import { useToastStore } from "../src/store/toast";
 
 beforeEach(() => {
   useSessionStore.setState({ messagesBySession: {} });
   useProjectsStore.setState({ sessions: [] });
   useComposerPrefsStore.setState({ bySession: {} });
+  useToastStore.setState({ toasts: [] });
 });
 
 // 构造助手消息的便捷工厂：AssistantMessage 需要 content/model/stopReason/timestamp 完整字段
@@ -567,4 +569,44 @@ test("不同 agent 的连续 assistant 不合并（各自一个头像）", () =>
   render(<MessageList sessionId="s1" />);
   // 不同 agent = 不同回合，各自一个头像
   expect(screen.getAllByText("🤖")).toHaveLength(2);
+});
+
+// ── 复制按钮 ──
+
+test("assistant 文字消息显示「复制」按钮", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [assistantMsg(1, [{ type: "text", text: "这是回答" }])],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.getByTestId("copy-s1-1")).toBeTruthy();
+});
+
+test("无文字内容的 assistant 消息不显示「复制」按钮", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [assistantMsg(1, [{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "ls" } }])],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.queryByTestId("copy-s1-1")).toBeNull();
+});
+
+test("点击「复制」将回答文本写入剪贴板并提示成功", async () => {
+  let copied = "";
+  Object.defineProperty(navigator, "clipboard", {
+    value: { writeText: (text: string) => { copied = text; return Promise.resolve(); } },
+    writable: true,
+    configurable: true,
+  });
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [assistantMsg(1, [{ type: "text", text: "第一段" }, { type: "text", text: "第二段" }])],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  fireEvent.click(screen.getByTestId("copy-s1-1"));
+  await waitFor(() => expect(copied).toBe("第一段\n\n第二段"));
+  expect(useToastStore.getState().toasts.some(t => t.message === "已复制到剪贴板")).toBe(true);
 });
