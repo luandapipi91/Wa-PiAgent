@@ -24,7 +24,10 @@ export function generateProviderExtension(providers: ModelProvider[]): string {
     const modelsCode = provider.models.map(m => `      {
         id: ${JSON.stringify(m.id)},
         name: ${JSON.stringify(m.id)},
-        reasoning: false,
+        // 默认 reasoning:true：DeepSeek 等推理模型思考默认 enabled，只有标 reasoning:true，
+        // Pi 在 thinkingLevel=off 时才会下发 thinking:{type:"disabled"}，对话框的"关闭思考"才生效。
+        // 见 https://pi.dev/docs/latest/models#thinking-level-map
+        reasoning: true,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: ${m.contextWindow},

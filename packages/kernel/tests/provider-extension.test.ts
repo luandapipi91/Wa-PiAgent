@@ -71,6 +71,14 @@ test("generateProviderExtension anthropic 格式正确映射", () => {
   expect(code).toContain('api: "anthropic-messages"');
 });
 
+test("generateProviderExtension 模型默认标记 reasoning: true（对话框思考 off 时才下发 thinking disabled）", () => {
+  const code = generateProviderExtension([sampleProvider()]);
+  // DeepSeek 思考默认 enabled。模型标 reasoning:true 后，Pi 在 thinkingLevel=off
+  // 才会发送 thinking:{type:"disabled"}，对话框的"关闭思考"才真正生效。
+  // 见 https://pi.dev/docs/latest/models Model Configuration / Thinking Level Map。
+  expect(code).toContain("reasoning: true");
+});
+
 test("ensureProviderExtensionRegistered 写 extension 文件到 GENERATED_DIR", async () => {
   const dir = join(import.meta.dir, ".tmp-ext-" + Math.random().toString(36).slice(2));
   const { ProviderStore } = await import("../src/provider-store");
