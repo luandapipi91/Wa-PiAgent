@@ -164,6 +164,7 @@ export interface PromptEvent {
 export type AttachmentRef =
   | { kind: "image"; name: string; path: string; size: number }
   | { kind: "file"; name: string; path: string; size: number }
+  | { kind: "audio"; name: string; path: string; size: number; durationMs?: number }
   | { kind: "folder"; name: string; path: string }
   | { kind: "snippet"; name: string; content: string };
 
@@ -171,6 +172,7 @@ export type AttachmentRef =
 export type AttachmentDraft =
   | { kind: "image"; name: string; path: string; size: number }
   | { kind: "file"; name: string; path: string; size: number }
+  | { kind: "audio"; name: string; path: string; size: number; durationMs?: number }
   | { kind: "folder"; name: string; path: string }
   | { kind: "snippet"; name: string; content: string };
 
@@ -269,7 +271,8 @@ export type WSClientEvent =
   | MemoryListEvent | MemoryUpdateEvent | MemoryArchiveEvent | MemoryRestoreEvent | MemoryPurgeEvent | MemoryAddEvent
   | InstructionListEvent
   | MemoryConfigGetEvent | MemoryConfigSetEvent
-  | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest | FSUploadRequest | FSCopyRequest | FSSearchRequest | FSSearchCancelRequest;
+  | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest | FSUploadRequest | FSCopyRequest | FSSearchRequest | FSSearchCancelRequest
+  | FSRecordingAppendRequest | FSRecordingFinalizeRequest | FSRecordingDiscardRequest;
 
 // kernel → 前端
 export interface ProjectsListEvent {
@@ -322,6 +325,14 @@ export interface FSSearchProgressEvent { type: "fs:search:progress"; requestId: 
 export interface FSSearchResult { type: "fs:search"; requestId?: string; query: string; matches: DirEntry[]; durationMs: number; truncated: boolean; }
 export interface FSErrorEvent { type: "fs:error"; path: string; reason: string; }
 
+// 录音：边录边落盘协议（与 fs:upload 同通道，id 关联请求-响应）
+export interface FSRecordingAppendRequest { type: "fs:recording:append"; id: string; projectId: string; recId: string; chunk: string; }
+export interface FSRecordingAppendResult { type: "fs:recording:append"; id: string; error?: string; }
+export interface FSRecordingFinalizeRequest { type: "fs:recording:finalize"; id: string; projectId: string; recId: string; finalName: string; }
+export interface FSRecordingFinalizeResult { type: "fs:recording:finalize"; id: string; path: string; error?: string; }
+export interface FSRecordingDiscardRequest { type: "fs:recording:discard"; id: string; projectId: string; recId: string; }
+export interface FSRecordingDiscardResult { type: "fs:recording:discard"; id: string; error?: string; }
+
 // 镜像 SDK AgentSessionEvent 联合类型，作为 WS 透传事件
 export type SDKEvent =
   | { type: "agent_start" }
@@ -355,6 +366,7 @@ export type WSServerEvent =
   | ExtensionListResult | ExtensionChangedEvent
   | MemoryListResult | MemoryChangedEvent
   | InstructionListResult | MemoryConfigEvent
-  | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSCopyResult | FSSearchResult | FSSearchProgressEvent | FSErrorEvent;
+  | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSCopyResult | FSSearchResult | FSSearchProgressEvent | FSErrorEvent
+  | FSRecordingAppendResult | FSRecordingFinalizeResult | FSRecordingDiscardResult;
 
 export type WSEvent = WSClientEvent | WSServerEvent;
