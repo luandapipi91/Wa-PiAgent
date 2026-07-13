@@ -1,0 +1,26 @@
+import { test, expect } from "bun:test";
+import type { ConfigEnv, UserConfig } from "vite";
+import configFactory from "../vite.config";
+
+test("dev server 默认把 /file 代理到 kernel 9776 端口", async () => {
+  // 避免测试环境变量覆盖默认值，确保断言的是默认端口
+  delete process.env.HIAGENT_WS_PORT;
+  const cfg = (await (configFactory as (env: ConfigEnv) => UserConfig | Promise<UserConfig>)({
+    mode: "development",
+    command: "serve",
+  })) as UserConfig;
+  expect(cfg.server).toBeDefined();
+  expect(cfg.server?.proxy).toBeDefined();
+  expect(cfg.server?.proxy?.["/file"]).toBeDefined();
+  expect(cfg.server?.proxy?.["/file"].target).toBe("http://127.0.0.1:9776");
+});
+
+test("dev server 可按 HIAGENT_WS_PORT 覆盖 /file 代理端口", async () => {
+  process.env.HIAGENT_WS_PORT = "12345";
+  const cfg = (await (configFactory as (env: ConfigEnv) => UserConfig | Promise<UserConfig>)({
+    mode: "development",
+    command: "serve",
+  })) as UserConfig;
+  expect(cfg.server?.proxy?.["/file"].target).toBe("http://127.0.0.1:12345");
+  delete process.env.HIAGENT_WS_PORT;
+});

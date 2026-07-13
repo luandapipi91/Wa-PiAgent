@@ -17,9 +17,21 @@ export default defineConfig(({ mode }) => {
     if (val !== undefined) defineEntries[`import.meta.env.${key}`] = JSON.stringify(val);
   }
 
+  const wsPort = Number(envVars.HIAGENT_WS_PORT) || 9776;
+
   return {
     plugins: [react()],
-    server: { port: webPort, strictPort: true },
+    server: {
+      port: webPort,
+      strictPort: true,
+      // 开发时 /file 由 kernel 服务，Vite 默认会回退到 index.html，导致 <audio>/<img> 拿不到真实文件
+      proxy: {
+        "/file": {
+          target: `http://127.0.0.1:${wsPort}`,
+          changeOrigin: true,
+        },
+      },
+    },
     define: defineEntries,
     resolve: {
       alias: { "@hiagent/shared": fileURLToPath(new URL("../shared/src/index.ts", import.meta.url)) },
