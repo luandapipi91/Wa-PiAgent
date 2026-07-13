@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { AttachmentDraft } from "@hiagent/shared";
-import { getRecordingManager, type StartArgs, type RecordingResult } from "../recording/recorder";
+import { getRecordingManager, formatDuration, type StartArgs, type RecordingResult } from "../recording/recorder";
 import { useComposerPrefsStore } from "./composer-prefs";
 
 export type RecordingStatus = "idle" | "recording" | "paused";
@@ -80,7 +80,7 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
       // audio draft 写入归属会话 composer
       const draft: AttachmentDraft = {
         kind: "audio" as const,
-        name: result.path.split(/[\\/]/).pop() ?? "recording.webm",
+        name: `录音 ${formatDuration(result.durationMs)}.webm`,
         path: result.path,
         size: result.size,
         ...(result.durationMs ? { durationMs: result.durationMs } : {}),

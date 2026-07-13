@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
-import { getDefaults, getSessionPrefs, setDefaults, setSessionPrefs as dbSetSessionPrefs } from "./composer-db";
+import { getDefaults, getNewSessionIds, getSessionPrefs, setDefaults, setNewSessionIds, setSessionPrefs as dbSetSessionPrefs } from "./composer-db";
 
 export interface SessionPrefs {
   model: string | null;
@@ -11,19 +11,31 @@ export interface SessionPrefs {
 interface ComposerPrefsState {
   defaults: { model: string | null; thinking: ThinkingLevel };
   bySession: Record<string, SessionPrefs>;
+  newSessionIds: Record<string, string>;
   loadDefaults: () => Promise<void>;
   loadSession: (sessionId: string) => Promise<void>;
   setSessionPrefs: (sessionId: string, prefs: Partial<SessionPrefs>) => void;
   setDefaults: (prefs: Partial<{ model: string | null; thinking: ThinkingLevel }>) => void;
+  setNewSessionId: (key: string, id: string) => void;
 }
 
 export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
   defaults: { model: null, thinking: "disabled" },
   bySession: {},
+  newSessionIds: {},
 
   loadDefaults: async () => {
-    const defs = await getDefaults();
-    set({ defaults: defs });
+    const [defs, ids] = await Promise.all([getDefaults(), getNewSessionIds()]);
+    set(s => {
+      const next: Partial<ComposerPrefsState> = {};
+      // 避免异步加载的默认值把用户已经选好的模型覆盖回 null（测试/跨文件竞速场景）
+      next.defaults = defs.model != null ? defs : s.defaults;
+      const changed =
+        Object.keys(ids).length !== Object.keys(s.newSessionIds).length ||
+        Object.entries(ids).some(([k, v]) => s.newSessionIds[k] !== v);
+      if (changed) next.newSessionIds = ids;
+      return next as ComposerPrefsState;
+    });
   },
 
   loadSession: async (sessionId) => {
@@ -61,6 +73,15 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
       const next = { ...s.defaults, ...prefs };
       void setDefaults(next);
       return { defaults: next };
+    });
+  },
+
+  setNewSessionId: (key, id) => {
+    set(s => {
+      if (s.newSessionIds[key] === id) return s;
+      const next = { ...s.newSessionIds, [key]: id };
+      void setNewSessionIds(next);
+      return { newSessionIds: next };
     });
   },
 }));
