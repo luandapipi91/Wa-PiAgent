@@ -1,31 +1,25 @@
-// ===== 可选插件（扩展）管理类型定义 =====
+// ===== 动态插件管理类型定义 =====
 
-/** 可选插件信息（驱动 UI 展示与启用态） */
-export interface ExtensionPluginInfo {
-  id: string;            // 稳定标识（前端用）
-  displayName: string;
-  description: string;
-  enabled: boolean;
-  version?: string;
+/** 已安装插件信息 */
+export interface PackageInfo {
+  name: string;             // npm 包名 / git repo / 本地路径
+  source: "npm" | "git" | "local";  // 来源类型
+  version?: string;         // 已安装版本（npm）
+  latestVersion?: string;   // npm registry 最新版本
+  description?: string;     // 从 package.json 读取
+  enabled: boolean;         // 是否在 packages 数组中
 }
 
-// ===== WS 协议事件（插件管理）=====
+// ===== WS 协议事件 =====
 
 // 前端 → kernel
 export interface ExtensionListEvent { type: "extension:list"; }
-export interface ExtensionToggleEvent {
-  type: "extension:toggle";
-  id: string;
-  enabled: boolean;      // true=启用，false=禁用
-}
+export interface ExtensionInstallEvent { type: "extension:install"; name: string; }
+export interface ExtensionUninstallEvent { type: "extension:uninstall"; name: string; }
+export interface ExtensionUpgradeEvent { type: "extension:upgrade"; name: string; }
+export interface ExtensionToggleEvent { type: "extension:toggle"; name: string; enabled: boolean; }
 
-// kernel → 前端（extension:list 和 extension:changed 结构相同）
-export interface ExtensionListResult {
-  type: "extension:list";
-  plugins: ExtensionPluginInfo[];
-}
-
-export interface ExtensionChangedEvent {
-  type: "extension:changed";
-  plugins: ExtensionPluginInfo[];
-}
+// kernel → 前端
+export interface ExtensionListResult { type: "extension:list"; packages: PackageInfo[]; }
+export interface ExtensionChangedEvent { type: "extension:changed"; packages: PackageInfo[]; }
+export interface ExtensionErrorEvent { type: "extension:error"; name: string; error: string; }
