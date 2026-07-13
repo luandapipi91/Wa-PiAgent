@@ -3,6 +3,7 @@ const { app, BrowserWindow, Menu, session, desktopCapturer } = require("electron
 const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs");
+const fsp = require("node:fs/promises");
 const { createLogger } = require("./util/log.cjs");
 
 const HIAGENT_DIR = process.env.HIAGENT_DIR || path.join(os.homedir(), ".hiagent");
@@ -56,6 +57,31 @@ function createSplash() {
   });
   splashWindow.loadURL(buildSplashURL());
   splashWindow.on("closed", () => { splashWindow = null; });
+}
+
+// packaged 下运行时只有 hiagent-kernel(=bun)，PATH 上缺少 node/npm/bun。
+// pi-lens 的 LSP 自动安装需要 bun 来装 npm 包(typescript-language-server 等)，
+// 装好的 bin 脚本 shebang 又需要 node。因此在 ~/.hiagent/bin 下创建
+// bun / node 符号链接指向 hiagent-kernel，并把该目录追加到 sidecar 的 PATH。
+async function ensureRuntimeBinLinks({ runtimeDir, hiagentDir, log }) {
+  if (!app.isPackaged) return null;
+  const binDir = path.join(hiagentDir, "bin");
+  const kernelName = process.platform === "win32" ? "hiagent-kernel.exe" : "hiagent-kernel";
+  const target = path.join(runtimeDir, kernelName);
+  await fsp.mkdir(binDir, { recursive: true });
+  if (process.platform === "win32") {
+    // Windows 下符号链接需要权限/开发模式；先保留扩展点，回退到不覆盖 PATH。
+    log.info("[runtime-bin] Windows shim 待实现");
+    return binDir;
+  }
+  const bunLink = path.join(binDir, "bun");
+  const nodeLink = path.join(binDir, "node");
+  await fsp.rm(bunLink, { force: true });
+  await fsp.rm(nodeLink, { force: true });
+  await fsp.symlink(target, bunLink);
+  await fsp.symlink(target, nodeLink);
+  log.info(`[runtime-bin] bun/node -> ${target}`);
+  return binDir;
 }
 
 // 更新启动页进度条与文案（p<0 表示错误态：文案红色）
@@ -174,6 +200,21 @@ app.whenReady().then(async () => {
       return;
     }
     clearInterval(installTrickle);
+  }
+
+  // 2a+) 为 packaged 运行环境补充 bun/node 命令，让 pi-lens 能自动安装/运行 LSP 工具。
+  // pi-lens 的 TS/JSON/CSS 等 LSP 服务器通过 npm 包安装，脚本 shebang 需要 node；打包版只有 hiagent-kernel(=bun)。
+  if (app.isPackaged) {
+    try {
+      const binDir = await ensureRuntimeBinLinks({ runtimeDir, hiagentDir: HIAGENT_DIR, log });
+      if (binDir) {
+        const sep = process.platform === "win32" ? ";" : ":";
+        process.env.PATH = (process.env.PATH || "") + sep + binDir;
+        log.info(`[runtime-bin] PATH 追加 ${binDir}`);
+      }
+    } catch (e) {
+      log.error("[runtime-bin] 创建符号链接失败", e);
+    }
   }
 
   // 2b) 启动内核（packaged 从 runtimeDir 跑；dev 从源码跑）
