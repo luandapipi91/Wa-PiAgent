@@ -2,7 +2,7 @@
 
 **日期**: 2026-07-13  
 **类型**: 新增功能  
-**状态**: 设计确认
+**状态**: 设计确认（已吸收审查反馈）
 
 ---
 
@@ -83,25 +83,74 @@ interface PackageInfo {
 
 解析逻辑：去掉 `pi install ` / `install ` 前缀，再去掉 `npm:` 前缀，取剩余纯包名。
 
+### 4.1 包名校验（安全关键）
+
+解析后的名称必须通过严格校验后才允许安装。校验规则：
+
+- **允许格式**：裸名（`pi-intercom`）、scope 包（`@scope/name`）、带版本（`name@1.0.0`、`@scope/name@^2.0`）
+- **拒绝**：
+  - 路径字符：`/` `\\` `..` `./` `~/`
+  - URL 前缀：`http:` `https:` `git:` `ssh:` `git+`
+  - Shell 元字符：`;` `|` `&` `$` `` ` `` `!` `<` `>` `'` `"`
+  - npm 前缀残留：`npm:`（解析后不应再有）
+  - 空字符串、纯空白
+
+```typescript
+// 示例校验函数
+function validatePackageName(raw: string): string | null {
+  // 提取 version 后缀（允许 name@version）
+  const atIdx = raw.lastIndexOf("@");
+  let name = atIdx > 0 ? raw.slice(0, atIdx) : raw;
+  const version = atIdx > 0 ? raw.slice(atIdx + 1) : undefined;
+
+  // npm package name spec: 1-214 chars, lowercase, no URL-like
+  if (!/^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(name)) return null;
+  if (name.length > 214) return null;
+
+  // 拒绝路径字符、URL 前缀、shell 元字符（name 和 version 都检查）
+  const dangerous = /[\\/;&|$`!<>'\"]/;
+  if (dangerous.test(name)) return null;
+  if (version && dangerous.test(version)) return null;
+  if (/^(https?:|git:|ssh:|git\+)/.test(name)) return null;
+
+  return version ? `${name}@${version}` : name;
+}
+```
+
+校验失败的输入直接拒绝，返回明确错误信息，不传给 `bun add`。
+
 ## 5. 操作流程
 
 ### 5.1 安装
 
 ```
-1. 解析输入 → 包名
-2. 检查 packages 数组是否已有该包 → 是则拒绝："已安装 vX.X.X，请使用升级"
-3. cd ~/.hiagent/runtime && bun add <包名>
-4. 从 package.json 读取版本和描述
-5. settings.json.packages 追加 "npm:<包名>"
-6. 返回成功，广播 extension:changed
+1. 解析输入 → 包名 + 可选版本
+2. 调用 validatePackageName() 校验 → 失败则拒绝，返回错误
+3. 检查 packages 数组是否已有同名包 → 是则拒绝："已安装 vX.X.X，请使用升级"
+4. 执行安装（见 5.1.1）
+5. 从 node_modules/<pkg>/package.json 读取实际安装版本和描述
+6. settings.json.packages 写入 "npm:<包名>@<实际版本>"（锁定版本）
+7. 返回成功，广播 extension:changed
+```
+
+#### 5.1.1 安装执行
+
+使用数组参数调用 `bun add`，避免 shell 注入：
+
+```typescript
+// runtimeDir = ~/.hiagent/runtime
+const args = version ? ["add", `${name}@${version}`] : ["add", name];
+const proc = Bun.spawn(["bun", ...args], { cwd: runtimeDir, stdio: ["pipe", "pipe", "pipe"] });
+const exitCode = await proc.exited;
+if (exitCode !== 0) throw new Error(`安装失败: exit code ${exitCode}`);
 ```
 
 ### 5.2 卸载
 
 ```
 1. 检查 packages 数组是否有该包 → 否则拒绝
-2. cd ~/.hiagent/runtime && bun remove <包名>
-3. 从 settings.json.packages 移除
+2. Bun.spawn(["bun", "remove", name], { cwd: runtimeDir })
+3. 从 settings.json.packages 移除对应条目
 4. 返回成功，广播 extension:changed
 ```
 
@@ -109,20 +158,75 @@ interface PackageInfo {
 
 ```
 1. 检查 packages 数组是否有该包 → 否则拒绝
-2. cd ~/.hiagent/runtime && bun update <包名>
-3. 重新读取版本号
-4. 返回成功，广播 extension:changed
+2. Bun.spawn(["bun", "update", name], { cwd: runtimeDir })
+3. 从 node_modules/<pkg>/package.json 读取新版本号
+4. settings.json.packages 更新为 "npm:<包名>@<新版本>"
+5. 返回成功，广播 extension:changed
 ```
 
-### 5.4 启用/禁用
+### 5.4 启用
 
 ```
-1. 启用：确保包名在 packages 数组中（已在则 no-op）
-2. 禁用：从 packages 数组中移除（不删 node_modules，避免反复安装）
-3. 广播 extension:changed
+1. 从 packages 中找到该包条目并提取锁定的版本
+2. 检查 node_modules/<pkg>/package.json 是否存在
+   → 存在：校验版本是否与锁定版本一致
+     → 一致：直接加入 packages 数组
+     → 不一致：重新 Bun.spawn(["bun", "add", `${name}@${lockedVersion}`], ...)
+   → 不存在：Bun.spawn(["bun", "add", `${name}@${lockedVersion}`], ...)
+3. 如重新安装，更新 packages 中的版本为实际安装版本
+4. 广播 extension:changed
 ```
 
-## 6. 冲突处理
+### 5.5 禁用
+
+```
+1. 从 packages 数组中移除（不删 node_modules）
+2. 广播 extension:changed
+```
+
+## 6. 架构分层
+
+为避免 ExtensionManager 职责膨胀，按现有项目风格拆分为两层：
+
+```
+ExtensionManager           ← 状态管理 + WS 事件编排
+  └── NpmPackageService    ← bun add/remove/update + npm registry 查询
+```
+
+### NpmPackageService
+
+```typescript
+class NpmPackageService {
+  constructor(private runtimeDir: string) {}
+  async install(name: string, version?: string): Promise<{ version: string }>;
+  async uninstall(name: string): Promise<void>;
+  async upgrade(name: string): Promise<{ version: string }>;
+  async getLatestVersion(name: string): Promise<string | undefined>;
+}
+```
+
+- 所有 `bun` 命令通过 `Bun.spawn` 数组参数执行
+- 可注入 mock 便于单测（与现有 `resolveEntryPath` / `readVersion` 注入模式一致）
+- npm registry 查询用 `npm view <pkg> version` 或 `bun pm ls` 对比
+
+### ExtensionManager
+
+```typescript
+class ExtensionManager {
+  constructor(private dataDir: string, private pkgService: NpmPackageService) {}
+  async list(): Promise<{ packages: PackageInfo[] }>;
+  async install(rawInput: string): Promise<PackageInfo>;
+  async uninstall(name: string): Promise<void>;
+  async upgrade(name: string): Promise<PackageInfo>;
+  async enable(name: string): Promise<void>;
+  async disable(name: string): Promise<void>;
+}
+```
+
+- 只负责 settings.json 读写 + 输入解析/校验 + 编排 pkgService 调用
+- 不做任何 shell 命令或 registry 查询
+
+## 7. 冲突处理
 
 | 场景 | 策略 |
 |------|------|
@@ -131,7 +235,7 @@ interface PackageInfo {
 | 工具/技能名冲突 | 由 Pi SDK 原生机制处理（后注册覆盖先注册） |
 | 功能重叠 | 不做自动检测，由用户通过启用/禁用控制 |
 
-## 7. Electron 兼容性
+## 8. Electron 兼容性
 
 现有打包流程无需改动：
 
@@ -140,7 +244,7 @@ interface PackageInfo {
 - Pi SDK 的 `agentDir` 指向 `~/.hiagent/`，`DefaultResourceLoader` 自动发现 packages
 - 动态安装的插件在 `~/.hiagent/runtime/node_modules/`，打包产物不包含
 
-## 8. UI 设计
+## 9. UI 设计
 
 ### 8.1 布局
 
@@ -190,7 +294,7 @@ interface PackageInfo {
 - 已禁用插件半透明显示
 - 操作状态实时反馈（安装中 loading / 失败红色提示）
 
-## 9. 文件改动清单
+## 10. 文件改动清单
 
 ### Kernel (`packages/kernel/src/`)
 
@@ -201,6 +305,8 @@ interface PackageInfo {
 | `agent-manager.ts` | 确认 `DefaultResourceLoader` 正常读取 `packages` 字段（agentDir 指向 HIAGENT_DIR） |
 | `ws-server.ts` | 注册 `extension:install` / `extension:uninstall` / `extension:upgrade` / `extension:toggle` 事件处理 |
 | `index.ts` | 移除 `migrateSettingsPackages()` 调用 |
+| `npm-package-service.ts` | **新增**：NpmPackageService，封装 bun add/remove/update + registry 查询 |
+| `extension-manager.test.ts` | 新增单元测试：包名校验、版本锁定、启用版本校验 |
 
 ### Frontend (`packages/frontend/src/`)
 
@@ -213,7 +319,7 @@ interface PackageInfo {
 
 | 文件 | 改动 |
 |------|------|
-| `extensions.ts` | 更新 `ExtensionPluginInfo` → `PackageInfo`；新增 WS 事件类型 |
+| `extensions.ts` | 更新 `ExtensionPluginInfo` → `PackageInfo`；新增 WS 事件类型；物理删除 `migrateSettingsPackages()` |
 
 ### 根
 
@@ -221,20 +327,23 @@ interface PackageInfo {
 |------|------|
 | `CHANGELOG.md` | 记录变更 |
 
-## 10. 测试要求
+## 11. 测试要求
 
 按照项目 AGENTS.md 四层测试金字塔：
 
-1. **单元测试**（bun:test）：包名解析函数、settings.json 读写、toggle 逻辑
+1. **单元测试**（bun:test）：包名校验函数、settings.json 读写、NpmPackageService mock、启用/禁用逻辑、additionalExtensionPaths + packages 共存去重验证
 2. **组件测试**（Vitest）：ExtensionSection 渲染、安装输入、卡片列表、开关交互
 3. **API 测试**：WS 协议 install/uninstall/upgrade/toggle/list 端点
 4. **E2E**（Playwright）：完整安装→启用→禁用→升级→卸载流程
 
-## 11. 风险评估
+## 12. 风险评估
 
 | 风险 | 等级 | 缓解 |
 |------|------|------|
-| `migrateSettingsPackages()` 清空 packages 字段 | 高 | 已在方案中移除该函数 |
-| bun install 在 packaged 环境失败 | 中 | 沿用现有 runtime-deps 机制，已验证可行 |
-| SDK 对 packages 字段的 `additionalExtensionPaths` 互斥 | 中 | Pi SDK 设计就是二者共存：additionalExtensionPaths 注入额外路径，packages 声明来源 |
-| 升级后插件不兼容 | 低 | 用户可降级（卸载后装旧版）或禁用 |
+| 包名注入，命令拼接不安全 | 🔴 CRITICAL | 严格格式校验 + `Bun.spawn` 数组参数，拒绝路径/URL/shell 元字符 |
+| `migrateSettingsPackages()` 被误调用清空用户数据 | 🔴 HIGH | 从 `extensions.ts` **物理删除**该函数，不留残留代码 |
+| packages 不锁定版本导致不可重复 | 🟡 HIGH | 安装/升级后立即写回 `npm:name@版本`，以实际安装版本为真相来源 |
+| additionalExtensionPaths 与 packages 共存语义未验证 | 🟡 HIGH | 增加专项测试：同名包同时出现在两个轨道，验证 SDK 去重行为 |
+| 启用时 node_modules 版本与锁定不一致 | 🟡 MEDIUM | 启用前校验版本，不匹配自动重新安装 |
+| bun install 在 packaged 环境失败 | 🟢 LOW | 沿用现有 runtime-deps 机制，已验证可行 |
+| 升级后插件不兼容 | 🟢 LOW | 用户可降级（卸载后装旧版）或禁用 |
