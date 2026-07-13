@@ -1,6 +1,7 @@
 import { test, expect, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AttachmentChip } from "../src/components/ui/AttachmentChip";
+import type { AttachmentDraft } from "@hiagent/shared";
 
 test("renders file name and calls onRemove", () => {
   const onRemove = mock();
@@ -47,4 +48,21 @@ test("remove button has accessible label and type button", () => {
   const removeButton = screen.getByLabelText("移除附件");
   expect(removeButton.tagName).toBe("BUTTON");
   expect((removeButton as HTMLButtonElement).type).toBe("button");
+});
+
+test("audio chip 渲染文件名 + <audio> 试听 + 移除按钮", () => {
+  const a: AttachmentDraft = { kind: "audio", name: "rec.webm", path: "/p/.hiagent/uploads/rec.webm", size: 10, durationMs: 2000 };
+  const onRemove = () => {};
+  render(<AttachmentChip attachment={a} onRemove={onRemove} />);
+  expect(screen.getByText("rec.webm")).toBeTruthy();
+  const audio = document.querySelector("audio") as HTMLAudioElement;
+  expect(audio).toBeTruthy();
+  expect(audio?.getAttribute("src")).toBe("/file?path=" + encodeURIComponent("/p/.hiagent/uploads/rec.webm"));
+  expect(screen.getByLabelText("移除附件")).toBeTruthy();
+});
+
+test("非 audio（file）chip 不渲染 <audio>", () => {
+  const a: AttachmentDraft = { kind: "file", name: "a.txt", path: "/p/a.txt", size: 1 };
+  render(<AttachmentChip attachment={a} onRemove={() => {}} />);
+  expect(document.querySelector("audio")).toBeNull();
 });
