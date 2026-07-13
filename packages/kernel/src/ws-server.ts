@@ -47,6 +47,8 @@ export function getMimeType(filePath: string): string {
     ".gif": "image/gif",
     ".svg": "image/svg+xml",
     ".pdf": "application/pdf",
+    ".webm": "audio/webm",
+    ".weba": "audio/webm",
   };
   const ext = extname(filePath).toLowerCase();
   return map[ext] ?? (Bun.file(filePath).type || "application/octet-stream");
@@ -178,7 +180,9 @@ export class WSServer {
           const filePath = resolveUploadFile(url, projects);
           if (!filePath) return new Response("Forbidden", { status: 403 });
           const file = Bun.file(filePath);
-          if (file.size > 0) return new Response(file);   // Bun.file 自动处理 Range（音频 seek）
+          if (file.size > 0) {
+            return new Response(file, { headers: { "content-type": getMimeType(filePath) } });
+          }
           return new Response("Not found", { status: 404 });
         }
         if (this.opts.staticDir) {
