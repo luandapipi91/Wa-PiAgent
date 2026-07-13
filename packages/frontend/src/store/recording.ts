@@ -95,9 +95,16 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
   },
 }));
 
+function beforeUnloadHandler(e: BeforeUnloadEvent) {
+  e.preventDefault();
+  e.returnValue = "正在录音，退出将丢失未保存录音";
+}
+
 useRecordingStore.subscribe((state, prevState) => {
   if (state.status === prevState?.status) return;
-  window.onbeforeunload = state.status !== "idle"
-    ? () => "正在录音，退出将丢失未保存录音"
-    : null;
+  if (state.status !== "idle") {
+    window.addEventListener("beforeunload", beforeUnloadHandler);
+  } else {
+    window.removeEventListener("beforeunload", beforeUnloadHandler);
+  }
 });

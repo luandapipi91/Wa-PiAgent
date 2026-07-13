@@ -4,8 +4,6 @@ import { RecordingCapsule } from "../src/components/ui/RecordingCapsule";
 import { useRecordingStore } from "../src/store/recording";
 import { useProjectsStore } from "../src/store/projects";
 
-const fakeEngine = { start: async () => {}, pause: () => {}, resume: () => {}, stop: async () => ({ path: "", size: 0, durationMs: 0 }) };
-
 const { start: originalStart, pause: originalPause, resume: originalResume, stop: originalStop } = useRecordingStore.getState();
 
 beforeEach(() => {
@@ -57,10 +55,41 @@ test("非归属会话：显示 ownerLabel", () => {
   expect(screen.getByText("项目A · 会话A")).toBeTruthy();
 });
 
-test("recording 时设置 window.onbeforeunload，idle 时清空", () => {
+test("recording 时阻止 beforeunload，idle 时不阻止", () => {
   useRecordingStore.setState({ status: "recording" });
-  const beforeUnload = window.onbeforeunload as unknown as (() => string) | null;
-  expect(beforeUnload?.()).toBe("正在录音，退出将丢失未保存录音");
+  const e = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(e);
+  expect(e.defaultPrevented).toBe(true);
+  expect((e as BeforeUnloadEvent).returnValue).toBe("正在录音，退出将丢失未保存录音");
+
   useRecordingStore.setState({ status: "idle" });
-  expect(window.onbeforeunload).toBeNull();
+  const e2 = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(e2);
+  expect(e2.defaultPrevented).toBe(false);
+});
+
+test("点击暂停调用 store.pause", () => {
+  let paused = false;
+  useRecordingStore.setState({
+    status: "recording", source: "mic", owningSessionId: "s1", ownerLabel: "x", elapsedMs: 1000,
+    pause: () => { paused = true; },
+    resume: () => {},
+    stop: async () => ({ path: "", size: 0, durationMs: 0 }),
+  } as any);
+  render(<RecordingCapsule />);
+  fireEvent.click(screen.getByLabelText("暂停录音"));
+  expect(paused).toBe(true);
+});
+
+test("点击继续调用 store.resume", () => {
+  let resumed = false;
+  useRecordingStore.setState({
+    status: "paused", source: "mic", owningSessionId: "s1", ownerLabel: "x", elapsedMs: 1000,
+    pause: () => {},
+    resume: () => { resumed = true; },
+    stop: async () => ({ path: "", size: 0, durationMs: 0 }),
+  } as any);
+  render(<RecordingCapsule />);
+  fireEvent.click(screen.getByLabelText("继续录音"));
+  expect(resumed).toBe(true);
 });
