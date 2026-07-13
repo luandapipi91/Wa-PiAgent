@@ -14,11 +14,6 @@ const SEED_FILES = ["kernel.js", "package.json", "bun.lock"];
 
 async function exists(p) { try { await fsp.access(p); return true; } catch { return false; } }
 
-function registryLabel(url) {
-  if (url.includes("npmmirror")) return "阿里源";
-  if (url.includes("npmjs.org")) return "官方源";
-  return url;
-}
 
 // 复制 seed 文件到 runtime 目录（升级时覆盖旧 kernel.js / package.json / bun.lock）
 async function syncSeed(seedDir, runtimeDir, log) {
@@ -77,7 +72,7 @@ async function ensureRuntimeDeps({ isPackaged, seedDir, runtimeDir, kernelExe, v
   await syncSeed(seedDir, runtimeDir, log);
 
   const primary = process.env.HIAGENT_REGISTRY || DEFAULT_REGISTRY;
-  if (onStatus) onStatus(`正在下载依赖…（源：${registryLabel(primary)}）`);
+  if (onStatus) onStatus(`正在下载依赖…`);
   try {
     await runInstall({ kernelExe, runtimeDir, registry: primary, log, onStatus });
   } catch (e1) {
