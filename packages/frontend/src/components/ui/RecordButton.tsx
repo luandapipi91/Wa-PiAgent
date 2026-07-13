@@ -57,6 +57,7 @@ export function RecordButton({ sessionId, projectId }: Props) {
       e.preventDefault();
       openSwitcher();
     };
+    // happy-dom 不会把 contextmenu 派发到 React 合成事件，这里额外监听原生事件以保证测试可触发
     el.addEventListener("contextmenu", handler);
     return () => el.removeEventListener("contextmenu", handler);
   }, []);
