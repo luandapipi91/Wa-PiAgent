@@ -33,6 +33,7 @@ function renderComposer(props?: Partial<React.ComponentProps<typeof ComposerInpu
       attachments={[]}
       setAttachments={mock() as any}
       projectId="p1"
+      sessionId="s1"
       onSend={mock()}
       placeholder="输入..."
       {...props}

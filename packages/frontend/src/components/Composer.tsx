@@ -71,6 +71,7 @@ export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
           setSessionPrefs(sessionId, { attachments: next });
         }}
         projectId={projectId}
+        sessionId={sessionId}
         onSend={handleSend}
         sendDisabled={!projectId}
         disabled={disabled}

@@ -19,7 +19,8 @@ interface ComposerDB extends DBSchema {
   };
   defaults: {
     key: string;
-    value: { model: string | null; thinking: ThinkingLevel };
+    // keyless store；按 key 存不同形状（DEFAULTS_KEY / RECORDING_KEY）——联合类型兼容两种
+    value: { model: string | null; thinking: ThinkingLevel } | RecordingPrefs;
   };
 }
 
@@ -58,17 +59,38 @@ export async function deleteSessionPrefs(sessionId: string): Promise<void> {
 }
 
 const DEFAULTS_KEY = "composer-defaults";
+type DefaultsPrefs = { model: string | null; thinking: ThinkingLevel };
 
-export async function getDefaults(): Promise<{ model: string | null; thinking: ThinkingLevel }> {
+export async function getDefaults(): Promise<DefaultsPrefs> {
   try {
-    return (await (await getDb()).get("defaults", DEFAULTS_KEY)) ?? { model: null, thinking: "disabled" };
+    const stored = await (await getDb()).get("defaults", DEFAULTS_KEY);
+    return (stored as DefaultsPrefs | undefined) ?? { model: null, thinking: "disabled" };
   } catch {
     return { model: null, thinking: "disabled" };
   }
 }
 
-export async function setDefaults(prefs: { model: string | null; thinking: ThinkingLevel }): Promise<void> {
+export async function setDefaults(prefs: DefaultsPrefs): Promise<void> {
   try {
     await (await getDb()).put("defaults", prefs, DEFAULTS_KEY);
+  } catch {}
+}
+
+const RECORDING_KEY = "recording-prefs";
+
+export interface RecordingPrefs { lastSource: "mic" | "system"; }
+
+export async function getRecordingPrefs(): Promise<RecordingPrefs | undefined> {
+  try {
+    const stored = await (await getDb()).get("defaults", RECORDING_KEY);
+    return stored as RecordingPrefs | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function setRecordingPrefs(prefs: RecordingPrefs): Promise<void> {
+  try {
+    await (await getDb()).put("defaults", prefs, RECORDING_KEY);
   } catch {}
 }
