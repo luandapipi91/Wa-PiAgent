@@ -4,8 +4,6 @@
 // - 用 DefaultResourceLoader.additionalExtensionPaths 纯内存注入扩展，
 //   替代旧的「每个扩展一个 *-setup.ts 写 settings.json.packages」模式。
 // - 加扩展只需在 PKG_EXTENSIONS 追加一行 + package.json 加依赖。
-// - 启动时 migrateSettingsPackages() 清空 settings.json.packages，
-//   避免「packages 残留 + additionalExtensionPaths」双重加载同一扩展。
 //
 // 入口解析 resolveExtensionEntryFile：
 // - import.meta.resolve 返回包 main 入口；Pi 扩展包 main 通常即扩展入口（如 index.ts）。
@@ -13,10 +11,9 @@
 
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { GENERATED_DIR, HIAGENT_DIR } from "@hiagent/shared";
+import { GENERATED_DIR } from "@hiagent/shared";
 
 const require = createRequire(import.meta.url);
 
@@ -72,30 +69,6 @@ const PKG_EXTENSIONS = [
 ] as const;
 
 /**
- * 可选插件定义：用户可在「插件」面板启用/禁用。
- * 与 PKG_EXTENSIONS（核心、常驻、走 additionalExtensionPaths）互斥：
- * 可选插件由 settings.json.extensions（SDK 原生字段）驱动，由 ExtensionManager 管理。
- */
-export interface OptionalExtensionDef {
-  id: string;            // 稳定标识，前端用
-  package: string;       // npm 包名
-  displayName: string;
-  description: string;
-  defaultEnabled: boolean;
-}
-
-export const OPTIONAL_EXTENSIONS: readonly OptionalExtensionDef[] = [
-  {
-    id: "pi-lens",
-    package: "pi-lens",
-    displayName: "LSP 诊断",
-    description: "实时代码反馈：LSP 诊断、lint、类型检查、结构分析",
-    defaultEnabled: true,
-  },
-  // pi-hermes-memory 已替换为 kernel 内建 amaster memory（host-controlled MemoryStore）
-];
-
-/**
  * 构造注入 DefaultResourceLoader.additionalExtensionPaths 的全部扩展入口。
  * 含 hiagent 自生成的 provider-extension（运行时从 providers.json 生成到 GENERATED_DIR）。
  */
@@ -105,31 +78,4 @@ export function buildAdditionalExtensionPaths(): string[] {
   const providerExt = join(GENERATED_DIR, "provider-extension.ts");
   if (existsSync(providerExt)) paths.push(providerExt);
   return paths;
-}
-
-/**
- * 一次性迁移：清空 settings.json.packages。
- *
- * 旧版本把扩展本地路径写进 packages（由 DefaultResourceLoader 读取）；
- * 现在改用 additionalExtensionPaths 纯内存注入，若不清理会与 additionalExtensionPaths 双重加载同一扩展。
- * packages 字段 hiagent 不再使用；skills/disabledSkills 仍由 SkillManager 独立读写，互不影响。
- *
- * 幂等：无 packages 字段或无 settings.json 则 no-op。
- *
- * @param dir 数据目录，默认 HIAGENT_DIR；测试时注入临时目录以隔离
- */
-export async function migrateSettingsPackages(dir: string = HIAGENT_DIR): Promise<void> {
-  const settingsPath = join(dir, "settings.json");
-  let settings: { packages?: unknown; [k: string]: unknown };
-  try {
-    settings = JSON.parse(await readFile(settingsPath, "utf8"));
-  } catch {
-    // 文件不存在或解析失败 —— 无需迁移
-    return;
-  }
-  if (settings.packages !== undefined) {
-    delete settings.packages;
-    await writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
-    console.log("[kernel] 已迁移：清空 settings.json.packages（扩展改用 additionalExtensionPaths）");
-  }
 }
