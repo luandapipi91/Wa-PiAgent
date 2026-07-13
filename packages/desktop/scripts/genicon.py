@@ -1,34 +1,28 @@
-# 用 PIL 精确手绘 logo.svg（绿底青蛙线稿）-> Windows .ico / mac/linux .png。
+# 从 logo.svg 直接栅格化生成各平台图标（app icon / tray icon）。
+# 直接栅格化 SVG（而非手绘重现），保证 logo.svg 一改、图标即随之精确还原（含设计稿留白）。
+# 依赖：cairosvg（SVG->PNG）、PIL（多尺寸合成 .ico）。
 # 用法: python genicon.py <logo.svg> <out_dir>
-import sys, os
-from PIL import Image, ImageDraw
+import sys, os, io
+import cairosvg
+from PIL import Image
 
-def render(S=512):
-    k = S/120.0
-    img = Image.new("RGBA",(S,S),(0,0,0,0)); d = ImageDraw.Draw(img)
-    d.rounded_rectangle([0,0,S-1,S-1], radius=int(26*k), fill=(75,162,111,255))
-    def C(x,y,r,fill=None,outline=None,w=0.0):
-        xx,yy,rr=x*k,y*k,r*k; box=[xx-rr,yy-rr,xx+rr,yy+rr]
-        if fill is not None: d.ellipse(box,fill=fill)
-        if outline is not None and w: d.ellipse(box,outline=outline,width=max(1,int(w*k)))
-    C(60,64,38,outline=(255,255,255,255),w=2.5)
-    for ex in (38,82):
-        C(ex,30,18,fill=(255,255,255,255),outline=(255,255,255,255),w=2.5); C(ex,31,11,fill=(22,23,27,255))
-    for (x,y,r) in [(33,24,5),(77,24,5),(41,34,2.5),(85,34,2.5)]: C(x,y,r,fill=(255,255,255,255))
-    for (x,y) in [(24,65),(96,65)]: C(x,y,6,fill=(255,255,255,int(255*0.18)))
-    p0=(40*k,78*k); p1=(60*k,95*k); p2=(80*k,78*k); pts=[p0]
-    for i in range(1,49):
-        t=i/48.0
-        pts.append(((1-t)**2*p0[0]+2*(1-t)*t*p1[0]+t*t*p2[0], (1-t)**2*p0[1]+2*(1-t)*t*p1[1]+t*t*p2[1]))
-    d.line(pts,fill=(255,255,255,255),width=max(2,int(2.8*k)),joint="curve")
-    return img
+ICO_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+
+
+def render(size, svg_path):
+    png = cairosvg.svg2png(url=svg_path, output_width=size, output_height=size)
+    return Image.open(io.BytesIO(png)).convert("RGBA")
+
 
 if __name__ == "__main__":
-    _svg, out = sys.argv[1], sys.argv[2]
+    svg, out = sys.argv[1], sys.argv[2]
     os.makedirs(out, exist_ok=True)
-    img = render(512)
-    img.save(os.path.join(out,"tray_windows.ico"), format="ICO", sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])
-    img.resize((128,128)).save(os.path.join(out,"tray_darwin.png"))
-    img.resize((64,64)).save(os.path.join(out,"tray_linux.png"))
-    render(1024).save(os.path.join(out,"icon-mac.png"))  # macOS .app/.dmg 用，>=512 才合规
+    # App icons
+    render(1024, svg).save(os.path.join(out, "icon-mac.png"))                    # macOS .app/.dmg（>=512 合规）
+    render(512, svg).save(os.path.join(out, "icon.png"))                         # Linux + desktop 启动页 logo
+    render(512, svg).save(os.path.join(out, "icon.ico"), format="ICO", sizes=ICO_SIZES)        # Windows 应用图标
+    # Tray icons（同图，尺寸按平台惯例）
+    render(512, svg).save(os.path.join(out, "tray_windows.ico"), format="ICO", sizes=ICO_SIZES)
+    render(128, svg).save(os.path.join(out, "tray_darwin.png"))
+    render(64, svg).save(os.path.join(out, "tray_linux.png"))
     print("icons ->", out)
