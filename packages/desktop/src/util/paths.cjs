@@ -27,4 +27,10 @@ function resolveWebDir(isPackaged, resourcesPath, env) {
   return path.join(devRepoRoot(), "packages", "frontend", "dist");
 }
 
-module.exports = { resolveKernelDir, resolveWebDir };
+// runtime 目录：用户可写（~/.hiagent/runtime）。packaged 下首启在此动态安装 node_modules（原生 addon）并跑 kernel.js。
+// .app 内 Resources/kernel 是只读 seed，无法就地 install，故复制 seed 到 runtime 再装。
+function resolveRuntimeDir(hiagentDir) {
+  return path.join(hiagentDir, "runtime");
+}
+
+module.exports = { resolveKernelDir, resolveWebDir, resolveRuntimeDir };
