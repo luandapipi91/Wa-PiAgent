@@ -115,21 +115,25 @@ test("extension:install 成功 → 广播 extension:changed (含新包) + markAl
   });
 });
 
-test("extension:toggle 禁用已安装包 → 广播 changed + 持久化 + markAllDirty", async () => {
+test("extension:toggle 禁用已安装包 → 广播 changed（仍可见 enabled:false）+ 持久化 + markAllDirty", async () => {
   // 预置 settings.json：已存在 npm:test-pkg@9.9.9
   await withExtServer(async (send, recv, mockAM) => {
     send({ type: "extension:toggle", name: "test-pkg", enabled: false });
     const changed = await recv() as any;
     expect(changed.type).toBe("extension:changed");
-    // disable 将条目从 packages 数组移除，list 不再返回该包
-    expect(findPkg(changed.packages, "test-pkg")).toBeUndefined();
+    // disable 后条目仍在 list 里，但 enabled:false（从 disabledPackages 来源）
+    const disabled = findPkg(changed.packages, "test-pkg");
+    expect(disabled).toBeDefined();
+    expect(disabled!.enabled).toBe(false);
     expect(mockAM.calls.markAllDirty).toBeGreaterThanOrEqual(1);
 
-    // 再次 list 确认持久化（packages 仍为空）
+    // 再次 list 确认持久化（仍可见 enabled:false）
     send({ type: "extension:list" });
     const list = await recv() as any;
     expect(list.type).toBe("extension:list");
-    expect(findPkg(list.packages, "test-pkg")).toBeUndefined();
+    const stillThere = findPkg(list.packages, "test-pkg");
+    expect(stillThere).toBeDefined();
+    expect(stillThere!.enabled).toBe(false);
   }, { initialSettings: { npmCommand: ["bun"], packages: ["npm:test-pkg@9.9.9"] } });
 });
 
