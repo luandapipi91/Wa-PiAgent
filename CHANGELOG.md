@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-13 — 桌面 shell 迁到 Electron（为录音系统声音 spec B 铺基座）
+
+### 重构
+- **桌面 shell 从 tray-binary（systray2+系统浏览器）迁到 Electron**：Electron main（单实例锁+BrowserWindow+生命周期+托盘 打开/退出）+ kernel **解释 sidecar**（`bun.exe run kernel.js`+node_modules，放 `resources/kernel/`；编译 exe 已证伪——pi SDK jiti 撞 bun compile 虚拟 FS → agent 创建挂）+ electron-builder 打包（Win portable+Linux AppImage）。前端零改动（BrowserWindow load `http://127.0.0.1:9776`）。**录音系统声音（spec B）的 Win 真机 POC 已过**（`setDisplayMediaRequestHandler`+`audio:'loopback'` 去框抓系统声音）
+  - **影响范围**：packages/desktop 整体改写为 Electron（`src/{main,tray,kernel-sidecar}.cjs`、`src/util/{port,paths,menu,log}.cjs`、`scripts/{build-kernel-sidecar.ts,build.ts}`、`electron-builder.yml`、青蛙 `icon.ico`）；根 `package.json` `pack:win/linux/all`；`.workflow/release.yml`（electron-builder+wine）；删除 tray-binary 遗物（systray2/embed/pe-subsystem/interop/open-browser）
+  - **验证**：7 任务 TDD/真机烟测全过；终审 opus = Ready with minors（2 Important 已修：fetch 目标平台 bun、`WS_PORT` 读 env）；打包后 `win-unpacked` 启动→窗口+托盘+内核就绪+agent 创建过扩展加载（pi-intercom 从磁盘解析）
+  - **已知**：Win 首启 Defender 扫未签名 exe 要数分钟（代码签名=后续）；macOS=phase 2（无 Gitee Go runner）；CI wine/schema=Gitee push 验收
+
 ## 2026-07-12 — 桌面分发最终定案：文件夹模型（launcher exe + bun + kernel.js + node_modules + web）
 
 ### 重构
