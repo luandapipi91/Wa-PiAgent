@@ -87,6 +87,7 @@ export function NewSessionPane() {
         attachments={attachments}
         setAttachments={setAttachments}
         projectId={projectId ?? undefined}
+        sessionId={sessionId}
         onSend={handleSend}
         sendDisabled={!projectId}
         placeholder="给研发发消息..."

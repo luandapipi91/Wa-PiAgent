@@ -6,6 +6,7 @@ import { ModelSelector } from "./ModelSelector";
 import { ThinkingSelector } from "./ThinkingSelector";
 import { AttachmentChip } from "./AttachmentChip";
 import { FilePicker, type FilePickerSelection } from "./FilePicker";
+import { RecordButton } from "./RecordButton";
 
 interface Props {
   text: string;
@@ -17,6 +18,7 @@ interface Props {
   attachments: AttachmentDraft[];
   setAttachments: (value: AttachmentDraft[] | ((prev: AttachmentDraft[]) => AttachmentDraft[])) => void;
   projectId?: string;
+  sessionId: string;
   onSend: () => void;
   sendDisabled?: boolean;
   disabled?: boolean;
@@ -38,7 +40,7 @@ function readFileAsBase64(file: File): Promise<string> {
 
 export function ComposerInput({
   text, setText, model, setModel, thinking, setThinking,
-  attachments, setAttachments, projectId, onSend, sendDisabled, disabled, placeholder,
+  attachments, setAttachments, projectId, sessionId, onSend, sendDisabled, disabled, placeholder,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -155,6 +157,7 @@ export function ComposerInput({
               className="text-lg text-secondary hover:text-primary disabled:opacity-50"
               title="添加附件"
             >📎</button>
+            <RecordButton sessionId={sessionId} projectId={projectId} />
             <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelect} />
             {pickerOpen && projectId && (
               <FilePicker
