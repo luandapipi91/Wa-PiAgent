@@ -1,0 +1,23 @@
+appId: ai.hiagent.desktop
+productName: HiAgent
+directories:
+  output: release
+files:
+  - src/**
+  - package.json
+  - node_modules/**      # electron-builder 自动只打包运行时依赖；electron 本体由它处理
+extraResources:
+  - from: resources/kernel
+    to: kernel
+    filter: ["**/*"]
+  - from: resources/web
+    to: web
+    filter: ["**/*"]
+asarUnpack:
+  - resources/**          # sidecar 含原生二进制(bun.exe/ast-grep)，需解包到磁盘才能 spawn
+win:
+  target: [portable]
+  icon: src/assets/icon.ico
+linux:
+  target: [AppImage]
+  icon: src/assets/icon.png
