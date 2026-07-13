@@ -10,7 +10,8 @@ import type {
 } from "./skills";
 import type {
   ExtensionListEvent, ExtensionToggleEvent,
-  ExtensionListResult, ExtensionChangedEvent,
+  ExtensionInstallEvent, ExtensionUninstallEvent, ExtensionUpgradeEvent,
+  ExtensionListResult, ExtensionChangedEvent, ExtensionErrorEvent,
 } from "./extensions";
 import type {
   MemoryListEvent, MemoryUpdateEvent, MemoryArchiveEvent, MemoryRestoreEvent,
@@ -268,6 +269,7 @@ export type WSClientEvent =
   | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
   | SkillListEvent | SkillToggleEvent | SkillDirAddEvent | SkillDirRemoveEvent
   | ExtensionListEvent | ExtensionToggleEvent
+  | ExtensionInstallEvent | ExtensionUninstallEvent | ExtensionUpgradeEvent
   | MemoryListEvent | MemoryUpdateEvent | MemoryArchiveEvent | MemoryRestoreEvent | MemoryPurgeEvent | MemoryAddEvent
   | InstructionListEvent
   | MemoryConfigGetEvent | MemoryConfigSetEvent
@@ -363,7 +365,7 @@ export type WSServerEvent =
   | AgentConfigEvent | ErrorEvent
   | ProviderListResult | ProviderTestResult | ProviderChangedEvent
   | SkillListResult | SkillChangedEvent
-  | ExtensionListResult | ExtensionChangedEvent
+  | ExtensionListResult | ExtensionChangedEvent | ExtensionErrorEvent
   | MemoryListResult | MemoryChangedEvent
   | InstructionListResult | MemoryConfigEvent
   | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSCopyResult | FSSearchResult | FSSearchProgressEvent | FSErrorEvent
