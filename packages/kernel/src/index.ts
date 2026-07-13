@@ -10,8 +10,10 @@ import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { migrateSettingsPackages } from "./extensions";
 import { extractSdkErrorMessage } from "./sdk-errors";
+import { cleanupRecordingTemp } from "./recording-store";
 import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR } from "@hiagent/shared";
 import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import type { WSServerEvent } from "@hiagent/shared";
 
 export async function startKernel(
@@ -46,6 +48,14 @@ export async function startKernel(
 
   const migrated = await migrateLegacySessions(projectStore);
   if (migrated) console.log("[kernel] 已迁移老数据至默认项目");
+
+  // 启动清理：上次崩溃/异常退出遗留的录音临时分片
+  try {
+    const { projects } = await projectStore.load();
+    await Promise.all(projects.map(p => p.cwd ? cleanupRecordingTemp(join(p.cwd, ".hiagent", "uploads")) : Promise.resolve()));
+  } catch (e) {
+    console.warn("[kernel] 清理录音临时文件失败:", e);
+  }
 
   // 用占位 agentManager 先建 server（解决循环依赖：onEvent 要用 server.broadcast）
   // broadcast 在 ws-server.ts 已改为 public，AgentManager.onEvent 可直接调

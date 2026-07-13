@@ -19,6 +19,7 @@ import { spawn } from "node:child_process";
 import { extname, basename, join } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
+import { appendChunk, finalizeRecording, discardRecording } from "./recording-store";
 
 /** 把 URL 路径解析成 staticDir 下的文件路径；未知/越权路径回退 index.html（SPA）。 */
 export function resolveStaticPath(urlPath: string, staticDir: string): string {
@@ -486,6 +487,45 @@ export class WSServer {
       }
       case "fs:search:cancel": {
         if (event.requestId) activeSearches.delete(event.requestId);
+        break;
+      }
+      case "fs:recording:append": {
+        try {
+          const data = await this.opts.projectStore.load();
+          const project = data.projects.find(p => p.id === event.projectId);
+          if (!project?.cwd) throw new Error(`项目不存在或无工作目录: ${event.projectId}`);
+          const uploadDir = join(project.cwd, ".hiagent", "uploads");
+          await appendChunk(uploadDir, event.recId, event.chunk);
+          reply({ type: "fs:recording:append", id: event.id });
+        } catch (e) {
+          reply({ type: "fs:recording:append", id: event.id, error: String(e instanceof Error ? e.message : e) });
+        }
+        break;
+      }
+      case "fs:recording:finalize": {
+        try {
+          const data = await this.opts.projectStore.load();
+          const project = data.projects.find(p => p.id === event.projectId);
+          if (!project?.cwd) throw new Error(`项目不存在或无工作目录: ${event.projectId}`);
+          const uploadDir = join(project.cwd, ".hiagent", "uploads");
+          const path = await finalizeRecording(uploadDir, event.recId, event.finalName);
+          reply({ type: "fs:recording:finalize", id: event.id, path });
+        } catch (e) {
+          reply({ type: "fs:recording:finalize", id: event.id, path: "", error: String(e instanceof Error ? e.message : e) });
+        }
+        break;
+      }
+      case "fs:recording:discard": {
+        try {
+          const data = await this.opts.projectStore.load();
+          const project = data.projects.find(p => p.id === event.projectId);
+          if (!project?.cwd) throw new Error(`项目不存在或无工作目录: ${event.projectId}`);
+          const uploadDir = join(project.cwd, ".hiagent", "uploads");
+          await discardRecording(uploadDir, event.recId);
+          reply({ type: "fs:recording:discard", id: event.id });
+        } catch (e) {
+          reply({ type: "fs:recording:discard", id: event.id, error: String(e instanceof Error ? e.message : e) });
+        }
         break;
       }
       case "provider:list": {
