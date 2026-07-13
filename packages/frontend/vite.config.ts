@@ -10,14 +10,14 @@ export default defineConfig(({ mode }) => {
   // 静态替换为构建时字面量。E2E 用 HIAGENT_DIR 隔离测试目录；不注入则前端回退用户真实 ~/.hiagent。
   // HIAGENT_WS_PORT 同理注入，让浏览器 bundle 的 WS_PORT 指向 .env 配置的后端端口。
   const defineEntries: Record<string, string> = {
-    "import.meta.env.HIAGENT_WS_PORT": JSON.stringify(envVars.HIAGENT_WS_PORT || "9776"),
+    "import.meta.env.HIAGENT_WS_PORT": JSON.stringify(process.env.HIAGENT_WS_PORT ?? envVars.HIAGENT_WS_PORT ?? "9776"),
   };
   for (const key of ["HIAGENT_DIR", "HOME", "USERPROFILE"]) {
     const val = process.env[key] ?? envVars[key];
     if (val !== undefined) defineEntries[`import.meta.env.${key}`] = JSON.stringify(val);
   }
 
-  const wsPort = Number(envVars.HIAGENT_WS_PORT) || 9776;
+  const wsPort = Number(process.env.HIAGENT_WS_PORT) || Number(envVars.HIAGENT_WS_PORT) || 9776;
 
   return {
     plugins: [react()],

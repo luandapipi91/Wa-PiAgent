@@ -19,4 +19,13 @@ async function waitForPort(port, timeoutMs) {
   return false;
 }
 
-module.exports = { isPortInUse, waitForPort };
+/** 从 startPort 开始顺序探测，返回第一个可用端口 */
+async function findAvailablePort(startPort, maxTries = 100) {
+  for (let i = 0; i < maxTries; i++) {
+    const port = startPort + i;
+    if (!(await isPortInUse(port))) return port;
+  }
+  throw new Error(`未找到可用端口（${startPort} ~ ${startPort + maxTries - 1}）`);
+}
+
+module.exports = { isPortInUse, waitForPort, findAvailablePort };
