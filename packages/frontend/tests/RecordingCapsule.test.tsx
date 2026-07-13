@@ -110,18 +110,23 @@ test("点击音源 icon 展开切换选项", () => {
   expect(screen.getByText("🖥 系统音频")).toBeTruthy();
 });
 
-test("录音状态小圆点位于时间后、暂停/停止之前", () => {
+test("录音状态小圆点位于时间后、暂停/停止靠右", () => {
   useRecordingStore.setState({ status: "recording", source: "mic", owningSessionId: "s1", ownerLabel: "x", elapsedMs: 1000 });
   render(<RecordingCapsule />);
   const dot = screen.getByTestId("recording-status-dot");
   const timer = screen.getByTestId("recording-timer");
   const pause = screen.getByLabelText("暂停录音");
   const stop = screen.getByLabelText("停止录音");
-  // timer 在 dot 之前；pause/stop 在 dot 之后
-  expect(dot.compareDocumentPosition(timer) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
-  expect(dot.compareDocumentPosition(pause) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(dot.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  // 停止按钮在控制行最右侧（最后一个子元素）
+  const actions = screen.getByTestId("recording-capsule-actions");
   const controls = screen.getByTestId("recording-capsule-controls");
-  expect(controls.lastElementChild).toBe(stop);
+
+  // timer 在 dot 之前；操作按钮容器在 dot 之后
+  expect(dot.compareDocumentPosition(timer) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  expect(dot.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // 暂停、停止在操作容器内，且容器靠右（ml-auto）
+  expect(actions.contains(pause)).toBe(true);
+  expect(actions.contains(stop)).toBe(true);
+  expect(actions.className).toContain("ml-auto");
+  // 操作容器是控制行最后一个子元素
+  expect(controls.lastElementChild).toBe(actions);
 });

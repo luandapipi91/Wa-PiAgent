@@ -59,7 +59,7 @@ test("audio chip 渲染文件名 + <audio> 试听 + 移除按钮", () => {
   expect(audio).toBeTruthy();
   expect(audio?.getAttribute("src")).toBe("/file?path=" + encodeURIComponent("/p/.hiagent/uploads/rec.webm"));
   expect(audio?.className).toContain("w-full");
-  expect(audio?.className).not.toContain("w-[240px]");
+  expect(audio?.className).toContain("min-w-[220px]");
   expect(screen.getByLabelText("移除附件")).toBeTruthy();
 });
 

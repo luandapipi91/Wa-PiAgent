@@ -30,7 +30,7 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
         >✕</button>
       </span>
       {attachment.kind === "audio" && (
-        <audio controls src={pathToUploadUrl(attachment.path)} className="h-10 w-full" data-testid="attachment-audio" />
+        <audio controls src={pathToUploadUrl(attachment.path)} className="h-10 w-full min-w-[220px]" data-testid="attachment-audio" />
       )}
     </span>
   );
