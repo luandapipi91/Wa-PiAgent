@@ -110,13 +110,18 @@ test("点击音源 icon 展开切换选项", () => {
   expect(screen.getByText("🖥 系统音频")).toBeTruthy();
 });
 
-test("录音状态小圆点位于第二行右侧", () => {
+test("录音状态小圆点位于时间后、暂停/停止之前", () => {
   useRecordingStore.setState({ status: "recording", source: "mic", owningSessionId: "s1", ownerLabel: "x", elapsedMs: 1000 });
   render(<RecordingCapsule />);
   const dot = screen.getByTestId("recording-status-dot");
+  const timer = screen.getByTestId("recording-timer");
+  const pause = screen.getByLabelText("暂停录音");
+  const stop = screen.getByLabelText("停止录音");
+  // timer 在 dot 之前；pause/stop 在 dot 之后
+  expect(dot.compareDocumentPosition(timer) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  expect(dot.compareDocumentPosition(pause) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(dot.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // 停止按钮在控制行最右侧（最后一个子元素）
   const controls = screen.getByTestId("recording-capsule-controls");
-  expect(controls.contains(dot)).toBe(true);
-  expect(controls.lastElementChild).toBe(dot);
-  const header = screen.getByTestId("recording-capsule-header");
-  expect(header.contains(dot)).toBe(false);
+  expect(controls.lastElementChild).toBe(stop);
 });
