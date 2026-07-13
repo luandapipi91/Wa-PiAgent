@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { RecordingCapsule } from "../src/components/ui/RecordingCapsule";
 import { useRecordingStore } from "../src/store/recording";
 import { useProjectsStore } from "../src/store/projects";
+import { useToastStore } from "../src/store/toast";
 import { _setRecordingManager, type RecordingEngine } from "../src/recording/recorder";
 
 function fakeEngine(spies?: { paused?: () => void; resumed?: () => void; stopped?: () => void }): RecordingEngine {
@@ -26,6 +27,7 @@ beforeEach(() => {
     error: undefined,
   });
   useProjectsStore.setState({ currentSessionId: "s1" } as any);
+  useToastStore.setState({ toasts: [] });
   _setRecordingManager({ start: async () => {}, pause: () => {}, resume: () => {}, stop: async () => ({ path: "", size: 0, durationMs: 0 }) });
 });
 
@@ -87,4 +89,12 @@ test("点击继续调用 store.resume", () => {
   render(<RecordingCapsule />);
   fireEvent.click(screen.getByLabelText("继续录音"));
   expect(resumed).toBe(true);
+});
+
+test("点击切换音源展开选项", () => {
+  useRecordingStore.setState({ status: "recording", source: "mic", owningSessionId: "s1", ownerLabel: "x", elapsedMs: 1000 });
+  render(<RecordingCapsule />);
+  fireEvent.click(screen.getByText("切换音源"));
+  expect(screen.getByText("🎤 麦克风")).toBeTruthy();
+  expect(screen.getByText("🖥 系统音频")).toBeTruthy();
 });

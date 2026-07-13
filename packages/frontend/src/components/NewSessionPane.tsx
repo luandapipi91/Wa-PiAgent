@@ -28,7 +28,12 @@ export function NewSessionPane() {
 
   const [model, setModel] = useState<string | null>(defaults.model);
   const [thinking, setThinking] = useState<ThinkingLevel>(defaults.thinking);
-  const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
+  const prefs = useComposerPrefsStore(s => s.bySession[sessionId]);
+  const attachments = prefs?.attachments ?? [];
+  const setAttachments = (next: AttachmentDraft[] | ((prev: AttachmentDraft[]) => AttachmentDraft[])) => {
+    const resolved = typeof next === "function" ? next(attachments) : next;
+    useComposerPrefsStore.getState().setSessionPrefs(sessionId, { attachments: resolved });
+  };
 
   useEffect(() => {
     setModel(defaults.model);

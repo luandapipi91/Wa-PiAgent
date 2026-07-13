@@ -17,6 +17,7 @@ import { useMemoryStore } from "./store/memory";
 import { useToastStore } from "./store/toast";
 import { onMessage, getWs } from "./ws-instance";
 import { ToastContainer } from "./components/ui/Toast";
+import { RecordingCapsule } from "./components/ui/RecordingCapsule";
 
 export type View = "empty" | "new-session" | "session";
 
@@ -118,6 +119,7 @@ export function App() {
       )}
       {useSettingsStore(s => s.showSettings) && <SettingsModal onClose={() => useSettingsStore.getState().close()} />}
       <ToastContainer />
+      <RecordingCapsule />
     </div>
   );
 }
