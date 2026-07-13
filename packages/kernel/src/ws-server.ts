@@ -16,7 +16,7 @@ import { readdir, readFile, mkdir, writeFile, copyFile, stat } from "node:fs/pro
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
-import { extname, basename, join } from "node:path";
+import { extname, basename, join, resolve } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
 import { appendChunk, finalizeRecording, discardRecording } from "./recording-store";
@@ -50,6 +50,26 @@ export function getMimeType(filePath: string): string {
   };
   const ext = extname(filePath).toLowerCase();
   return map[ext] ?? (Bun.file(filePath).type || "application/octet-stream");
+}
+
+/**
+ * 解析 /file?path=<abs>：仅当 path 解析后落在某项目 .hiagent/uploads 下才放行。
+ * 防 .. 穿越与非 uploads 路径。返回安全绝对路径，否则 null。
+ */
+export function resolveUploadFile(url: URL, projects: { cwd: string }[]): string | null {
+  const raw = url.searchParams.get("path");
+  if (!raw) return null;
+  const resolved = resolve(raw);              // 解析 .. 与相对段
+  if (resolved.includes("..")) return null;   // resolve 后仍含 .. → 拒
+  for (const p of projects) {
+    if (!p.cwd) continue;
+    const uploadsRoot = resolve(join(p.cwd, ".hiagent", "uploads"));
+    // 确保是 uploadsRoot 的子路径（带尾部分隔符防前缀同名）
+    const rel = resolved.startsWith(uploadsRoot + "/") || resolved === uploadsRoot
+      ? resolved.slice(uploadsRoot.length) : null;
+    if (rel !== null && !rel.startsWith("..")) return resolved;
+  }
+  return null;
 }
 
 /** 在项目目录下生成不重复的文件路径；仅保留文件名并拒绝 `.` / `..`，防止路径穿越。 */
@@ -153,16 +173,24 @@ export class WSServer {
   async start(): Promise<void> {
     this.server = Bun.serve({
       port: this.opts.port ?? WS_PORT,
-      fetch: (req, server) => {
+      fetch: async (req, server) => {
         if (server.upgrade(req)) return;            // WS 握手
-        if (this.opts.staticDir) {
-          const url = new URL(req.url).pathname;
-          const filePath = resolveStaticPath(url, this.opts.staticDir);
+        const url = new URL(req.url);
+        if (url.pathname === "/file") {
+          const { projects } = await this.opts.projectStore.load();
+          const filePath = resolveUploadFile(url, projects);
+          if (!filePath) return new Response("Forbidden", { status: 403 });
           const file = Bun.file(filePath);
+          if (file.size > 0) return new Response(file);   // Bun.file 自动处理 Range（音频 seek）
+          return new Response("Not found", { status: 404 });
+        }
+        if (this.opts.staticDir) {
+          const urlPath = new URL(req.url).pathname;
+          const staticFilePath = resolveStaticPath(urlPath, this.opts.staticDir);
+          const file = Bun.file(staticFilePath);
           if (file.size > 0) {
-            return new Response(file, { headers: { "content-type": getMimeType(filePath) } });
+            return new Response(file, { headers: { "content-type": getMimeType(staticFilePath) } });
           }
-          // 资产形路径但文件缺失：回退 index.html（SPA 路由），不漏 426
           const indexFile = Bun.file(`${this.opts.staticDir}/index.html`);
           if (indexFile.size > 0) {
             return new Response(indexFile, { headers: { "content-type": "text/html" } });
