@@ -20,16 +20,23 @@
 
 移除旧的可选内置插件硬编码机制（`OPTIONAL_EXTENSIONS`），改为：
 
+```json
+{
+  "npmCommand": ["bun"],
+  "packages": [
+    "npm:superpowers-zh@1.6.0",
+    "git:github.com/user/repo@v1",
+    "/absolute/path/to/local-pkg"
+  ]
+}
 ```
-settings.json
-├── packages: string[]     # 动态插件 npm 来源（SDK 原生字段）
-└── skills / disabledSkills / ...
-```
+
+`npmCommand` 告诉 Pi SDK 和 HiAgent 使用哪个包管理器（bun），而非硬编码。
 
 | 轨道 | 加载方式 | 内容 | 管理方 |
 |------|---------|------|--------|
 | 核心扩展 | `additionalExtensionPaths` | pi-intercom, pi-web-access | 硬编码（不变） |
-| 动态插件 | `packages` 字段 | 用户安装的 npm 包 | ExtensionManager 管理 |
+| 动态插件 | `packages` 字段 | npm / git / 本地路径 | ExtensionManager 管理 |
 
 ### 2.2 生命周期
 
@@ -72,18 +79,9 @@ interface PackageInfo {
 
 ## 4. 输入格式解析
 
-用户输入自动识别多种格式，提取 npm 包名：
 
-| 输入 | 解析结果 |
-|------|---------|
-| `pi install npm:pi-intercom` | `pi-intercom` |
-| `install npm:pi-intercom` | `pi-intercom` |
-| `npm:pi-intercom` | `pi-intercom` |
-| `pi-intercom` | `pi-intercom` |
 
-解析逻辑：去掉 `pi install ` / `install ` 前缀，再去掉 `npm:` 前缀，取剩余纯包名。
 
-### 4.1 包名校验（安全关键）
 
 解析后的名称必须通过严格校验后才允许安装。校验规则：
 
@@ -117,11 +115,9 @@ function validatePackageName(raw: string): string | null {
 }
 ```
 
-校验失败的输入直接拒绝，返回明确错误信息，不传给 `bun add`。
 
-## 5. 操作流程
 
-### 5.1 安装
+
 
 ```
 1. 解析输入 → 包名 + 可选版本
@@ -133,7 +129,7 @@ function validatePackageName(raw: string): string | null {
 7. 返回成功，广播 extension:changed
 ```
 
-#### 5.1.1 安装执行
+
 
 使用数组参数调用 `bun add`，避免 shell 注入：
 
@@ -145,7 +141,7 @@ const exitCode = await proc.exited;
 if (exitCode !== 0) throw new Error(`安装失败: exit code ${exitCode}`);
 ```
 
-### 5.2 卸载
+
 
 ```
 1. 检查 packages 数组是否有该包 → 否则拒绝
@@ -154,7 +150,7 @@ if (exitCode !== 0) throw new Error(`安装失败: exit code ${exitCode}`);
 4. 返回成功，广播 extension:changed
 ```
 
-### 5.3 升级
+
 
 ```
 1. 检查 packages 数组是否有该包 → 否则拒绝
@@ -164,7 +160,7 @@ if (exitCode !== 0) throw new Error(`安装失败: exit code ${exitCode}`);
 5. 返回成功，广播 extension:changed
 ```
 
-### 5.4 启用
+
 
 ```
 1. 从 packages 中找到该包条目并提取锁定的版本
@@ -177,14 +173,14 @@ if (exitCode !== 0) throw new Error(`安装失败: exit code ${exitCode}`);
 4. 广播 extension:changed
 ```
 
-### 5.5 禁用
+
 
 ```
 1. 从 packages 数组中移除（不删 node_modules）
 2. 广播 extension:changed
 ```
 
-## 6. 架构分层
+
 
 为避免 ExtensionManager 职责膨胀，按现有项目风格拆分为两层：
 
@@ -226,7 +222,7 @@ class ExtensionManager {
 - 只负责 settings.json 读写 + 输入解析/校验 + 编排 pkgService 调用
 - 不做任何 shell 命令或 registry 查询
 
-## 7. 冲突处理
+
 
 | 场景 | 策略 |
 |------|------|
@@ -235,7 +231,7 @@ class ExtensionManager {
 | 工具/技能名冲突 | 由 Pi SDK 原生机制处理（后注册覆盖先注册） |
 | 功能重叠 | 不做自动检测，由用户通过启用/禁用控制 |
 
-## 8. Electron 兼容性
+
 
 现有打包流程无需改动：
 
@@ -244,7 +240,7 @@ class ExtensionManager {
 - Pi SDK 的 `agentDir` 指向 `~/.hiagent/`，`DefaultResourceLoader` 自动发现 packages
 - 动态安装的插件在 `~/.hiagent/runtime/node_modules/`，打包产物不包含
 
-## 9. UI 设计
+
 
 ### 8.1 布局
 
@@ -294,7 +290,7 @@ class ExtensionManager {
 - 已禁用插件半透明显示
 - 操作状态实时反馈（安装中 loading / 失败红色提示）
 
-## 10. 文件改动清单
+
 
 ### Kernel (`packages/kernel/src/`)
 
@@ -305,7 +301,7 @@ class ExtensionManager {
 | `agent-manager.ts` | 确认 `DefaultResourceLoader` 正常读取 `packages` 字段（agentDir 指向 HIAGENT_DIR） |
 | `ws-server.ts` | 注册 `extension:install` / `extension:uninstall` / `extension:upgrade` / `extension:toggle` 事件处理 |
 | `index.ts` | 移除 `migrateSettingsPackages()` 调用 |
-| `npm-package-service.ts` | **新增**：NpmPackageService，封装 bun add/remove/update + registry 查询 |
+
 | `extension-manager.test.ts` | 新增单元测试：包名校验、版本锁定、启用版本校验 |
 
 ### Frontend (`packages/frontend/src/`)
@@ -327,23 +323,23 @@ class ExtensionManager {
 |------|------|
 | `CHANGELOG.md` | 记录变更 |
 
-## 11. 测试要求
+
 
 按照项目 AGENTS.md 四层测试金字塔：
 
-1. **单元测试**（bun:test）：包名校验函数、settings.json 读写、NpmPackageService mock、启用/禁用逻辑、additionalExtensionPaths + packages 共存去重验证
+
 2. **组件测试**（Vitest）：ExtensionSection 渲染、安装输入、卡片列表、开关交互
 3. **API 测试**：WS 协议 install/uninstall/upgrade/toggle/list 端点
 4. **E2E**（Playwright）：完整安装→启用→禁用→升级→卸载流程
 
-## 12. 风险评估
+
 
 | 风险 | 等级 | 缓解 |
 |------|------|------|
-| 包名注入，命令拼接不安全 | 🔴 CRITICAL | 严格格式校验 + `Bun.spawn` 数组参数，拒绝路径/URL/shell 元字符 |
+
 | `migrateSettingsPackages()` 被误调用清空用户数据 | 🔴 HIGH | 从 `extensions.ts` **物理删除**该函数，不留残留代码 |
 | packages 不锁定版本导致不可重复 | 🟡 HIGH | 安装/升级后立即写回 `npm:name@版本`，以实际安装版本为真相来源 |
 | additionalExtensionPaths 与 packages 共存语义未验证 | 🟡 HIGH | 增加专项测试：同名包同时出现在两个轨道，验证 SDK 去重行为 |
 | 启用时 node_modules 版本与锁定不一致 | 🟡 MEDIUM | 启用前校验版本，不匹配自动重新安装 |
 | bun install 在 packaged 环境失败 | 🟢 LOW | 沿用现有 runtime-deps 机制，已验证可行 |
-| 升级后插件不兼容 | 🟢 LOW | 用户可降级（卸载后装旧版）或禁用 |
+
