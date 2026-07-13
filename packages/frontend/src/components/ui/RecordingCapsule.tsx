@@ -114,13 +114,18 @@ export function RecordingCapsule() {
           )}
         </div>
         {!isOwner && <span className="text-xs text-tertiary truncate max-w-[140px]">{ownerLabel}</span>}
-        <span className="font-mono tabular-nums text-lg text-secondary">{formatDuration(elapsedMs)}</span>
+        <span data-testid="recording-timer" aria-live="polite" aria-label="录音时长" className="font-mono tabular-nums text-lg text-secondary">{formatDuration(elapsedMs)}</span>
+        <span
+          data-testid="recording-status-dot"
+          className={`inline-block w-2.5 h-2.5 rounded-full ${dotColor} ${status === "recording" ? "animate-pulse" : ""}`}
+        />
 
         {status === "recording"
           ? (
             <button
               type="button"
               aria-label="暂停录音"
+              title="暂停录音"
               onClick={pause}
               className="text-xl text-secondary hover:text-primary"
             >⏸</button>
@@ -129,6 +134,7 @@ export function RecordingCapsule() {
             <button
               type="button"
               aria-label="继续录音"
+              title="继续录音"
               onClick={resume}
               className="text-xl text-secondary hover:text-primary"
             >▶</button>
@@ -136,13 +142,10 @@ export function RecordingCapsule() {
         <button
           type="button"
           aria-label="停止录音"
+          title="停止录音"
           onClick={() => void stop()}
           className="text-xl text-danger hover:opacity-80"
         >⏹</button>
-        <span
-          data-testid="recording-status-dot"
-          className={`ml-auto inline-block w-2.5 h-2.5 rounded-full ${dotColor} ${status === "recording" ? "animate-pulse" : ""}`}
-        />
       </div>
     </div>
   );
