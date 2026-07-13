@@ -8,6 +8,7 @@ import { Composer } from "./Composer";
 import { AskDock } from "./ask/AskDock";
 import { agentEmoji } from "../theme/agents";
 import { onMessage, send } from "../ws-instance";
+import { RecordingCapsule } from "./ui/RecordingCapsule";
 
 interface Props { sessionId: string; }
 
@@ -73,6 +74,7 @@ export function SessionView({ sessionId }: Props) {
             {session.primaryAgent} · {project?.cwd ?? ""} · {isBlocked ? "等待回复" : agentState}
           </div>
         </div>
+        <RecordingCapsule />
       </header>
 
       {/* 队列面板：agent 运行中或有队列时显示 */}
