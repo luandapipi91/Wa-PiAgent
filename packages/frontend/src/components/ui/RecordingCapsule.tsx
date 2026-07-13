@@ -78,16 +78,16 @@ export function RecordingCapsule() {
       onPointerLeave={onPointerUp}
     >
       <div
+        data-testid="recording-capsule-header"
         className="flex items-center gap-2 cursor-grab active:cursor-grabbing"
         onPointerDown={onPointerDown}
         title="拖动"
       >
         <span className="text-secondary">⠿</span>
         <span className="text-xs font-medium text-secondary">录音中</span>
-        <span className={`ml-auto inline-block w-2.5 h-2.5 rounded-full ${dotColor} ${status === "recording" ? "animate-pulse" : ""}`} />
       </div>
 
-      <div className="flex items-center gap-3 flex-nowrap">
+      <div data-testid="recording-capsule-controls" className="flex items-center gap-3 flex-nowrap">
         <div className="relative">
           <button
             type="button"
@@ -139,6 +139,10 @@ export function RecordingCapsule() {
           onClick={() => void stop()}
           className="text-xl text-danger hover:opacity-80"
         >⏹</button>
+        <span
+          data-testid="recording-status-dot"
+          className={`ml-auto inline-block w-2.5 h-2.5 rounded-full ${dotColor} ${status === "recording" ? "animate-pulse" : ""}`}
+        />
       </div>
     </div>
   );

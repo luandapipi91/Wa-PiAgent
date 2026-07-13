@@ -109,3 +109,14 @@ test("点击音源 icon 展开切换选项", () => {
   expect(screen.getByText("🎤 麦克风")).toBeTruthy();
   expect(screen.getByText("🖥 系统音频")).toBeTruthy();
 });
+
+test("录音状态小圆点位于第二行右侧", () => {
+  useRecordingStore.setState({ status: "recording", source: "mic", owningSessionId: "s1", ownerLabel: "x", elapsedMs: 1000 });
+  render(<RecordingCapsule />);
+  const dot = screen.getByTestId("recording-status-dot");
+  const controls = screen.getByTestId("recording-capsule-controls");
+  expect(controls.contains(dot)).toBe(true);
+  expect(controls.lastElementChild).toBe(dot);
+  const header = screen.getByTestId("recording-capsule-header");
+  expect(header.contains(dot)).toBe(false);
+});
