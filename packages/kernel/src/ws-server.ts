@@ -628,8 +628,8 @@ export class WSServer {
       }
       case "extension:list": {
         try {
-          const { plugins } = await this.opts.extensionManager.list();
-          reply({ type: "extension:list", plugins });
+          const { packages } = await this.opts.extensionManager.list();
+          reply({ type: "extension:list", packages });
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
         }
@@ -637,13 +637,50 @@ export class WSServer {
       }
       case "extension:toggle": {
         try {
-          await this.opts.extensionManager.toggle(event.id, event.enabled);
-          // deferred：不立即 reload，标脏后各会话下次使用时各自 reload
+          if (event.enabled) {
+            await this.opts.extensionManager.enable(event.name);
+          } else {
+            await this.opts.extensionManager.disable(event.name);
+          }
           this.opts.agentManager.markAllDirty();
-          const { plugins } = await this.opts.extensionManager.list();
-          this.broadcast({ type: "extension:changed", plugins });
+          const { packages } = await this.opts.extensionManager.list();
+          this.broadcast({ type: "extension:changed", packages });
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "extension:install": {
+        try {
+          const info = await this.opts.extensionManager.install(event.name);
+          this.opts.agentManager.markAllDirty();
+          const { packages } = await this.opts.extensionManager.list();
+          this.broadcast({ type: "extension:changed", packages });
+          reply({ type: "extension:changed", packages });
+        } catch (err) {
+          reply({ type: "extension:error", name: event.name, error: (err as Error).message });
+        }
+        break;
+      }
+      case "extension:uninstall": {
+        try {
+          await this.opts.extensionManager.uninstall(event.name);
+          this.opts.agentManager.markAllDirty();
+          const { packages } = await this.opts.extensionManager.list();
+          this.broadcast({ type: "extension:changed", packages });
+        } catch (err) {
+          reply({ type: "extension:error", name: event.name, error: (err as Error).message });
+        }
+        break;
+      }
+      case "extension:upgrade": {
+        try {
+          const info = await this.opts.extensionManager.upgrade(event.name);
+          this.opts.agentManager.markAllDirty();
+          const { packages } = await this.opts.extensionManager.list();
+          this.broadcast({ type: "extension:changed", packages });
+        } catch (err) {
+          reply({ type: "extension:error", name: event.name, error: (err as Error).message });
         }
         break;
       }

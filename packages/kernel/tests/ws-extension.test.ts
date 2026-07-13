@@ -36,10 +36,7 @@ async function withExtServer<T>(
     projectStore: new ProjectStore(tmp("ws-proj.json")),
     providerStore: new ProviderStore(join(dataDir, "providers.json")),
     skillManager: new SkillManager(dataDir),
-    extensionManager: new ExtensionManager(dataDir, {
-      resolveEntryPath: () => "/fake/node_modules/pi-lens/dist/index.js",
-      readVersion: () => "3.8.68",
-    }),
+    extensionManager: new ExtensionManager(dataDir),
     memoryStore: null as any,
     agentManager: mockAM,
     dataDir,
@@ -71,7 +68,7 @@ test("extension:list 返回插件（首启播种默认启用）", async () => {
 
 test("extension:toggle 禁用 → markAllDirty + 广播 changed + 持久化", async () => {
   await withExtServer(async (send, recv, mockAM) => {
-    send({ type: "extension:toggle", id: "pi-lens", enabled: false });
+    send({ type: "extension:toggle", name: "pi-lens", enabled: false });
     const changed = await recv() as any;
     expect(changed.type).toBe("extension:changed");
     expect(changed.plugins[0].enabled).toBe(false);
@@ -86,7 +83,7 @@ test("extension:toggle 禁用 → markAllDirty + 广播 changed + 持久化", as
 
 test("extension:toggle 未知 id 返回 error", async () => {
   await withExtServer(async (send, recv) => {
-    send({ type: "extension:toggle", id: "nope", enabled: true });
+    send({ type: "extension:toggle", name: "nope", enabled: true });
     const e = await recv() as any;
     expect(e.type).toBe("error");
     expect(e.message).toContain("未知插件");
@@ -110,10 +107,7 @@ test("extension:list 收敛同包历史路径（bun install 残留修复）", as
     projectStore: new ProjectStore(tmp("ws-proj2.json")),
     providerStore: new ProviderStore(join(dataDir, "providers.json")),
     skillManager: new SkillManager(dataDir),
-    extensionManager: new ExtensionManager(dataDir, {
-      resolveEntryPath: () => "/fake/.bun/pi-lens@new-hash/node_modules/pi-lens/dist/index.js",
-      readVersion: () => "3.8.68",
-    }),
+    extensionManager: new ExtensionManager(dataDir),
     memoryStore: null as any,
     agentManager: mockAM,
     dataDir,
