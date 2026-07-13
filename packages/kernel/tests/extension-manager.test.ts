@@ -126,7 +126,7 @@ test("uninstall 从 packages 移除", async () => {
   expect(settings.packages).not.toContain("npm:test-pkg@1.0.0");
 });
 
-test("disable 从 packages 移除但保留 node_modules", async () => {
+test("disable 把条目从 packages 移到 disabledPackages（仍可见 enabled:false）", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
     packages: ["npm:test-pkg@1.0.0"],
@@ -136,28 +136,163 @@ test("disable 从 packages 移除但保留 node_modules", async () => {
 
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
   expect(settings.packages).toEqual([]);
+  expect(settings.disabledPackages).toEqual(["npm:test-pkg@1.0.0"]);
+
+  // disable 后该包仍出现在 list() 里，enabled:false
+  const { packages } = await mgr.list();
+  const found = packages.find(p => p.name === "test-pkg");
+  expect(found).toBeDefined();
+  expect(found!.enabled).toBe(false);
 });
 
-test("enable 将包重新加入 packages（检查 node_modules 版本）", async () => {
+test("disable 对已禁用包幂等（no-op，不写）", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
     packages: [],
-    extensions: ["/fake/node_modules/test-pkg/index.js"],
+    disabledPackages: ["npm:test-pkg@1.0.0"],
+  }), "utf8");
+  const mgr = mockManager(dir);
+  await mgr.disable("test-pkg"); // should not throw
+
+  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.disabledPackages).toEqual(["npm:test-pkg@1.0.0"]);
+  expect(settings.packages).toEqual([]);
+});
+
+test("disable 对未安装包抛错", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    packages: [],
+  }), "utf8");
+  const mgr = mockManager(dir);
+  await expect(mgr.disable("nope")).rejects.toThrow("未安装");
+});
+
+test("enable 把 disabled 包移回 packages（enabled:true）", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    packages: [],
+    disabledPackages: ["npm:test-pkg@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
   await mgr.enable("test-pkg");
 
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.packages).toContain("npm:test-pkg@9.9.9");
-  expect(settings.extensions).toBeUndefined();
+  expect(settings.packages).toContain("npm:test-pkg@1.0.0");
+  expect(settings.disabledPackages).toEqual([]);
+
+  // list 中该包 enabled:true
+  const { packages } = await mgr.list();
+  const found = packages.find(p => p.name === "test-pkg");
+  expect(found).toBeDefined();
+  expect(found!.enabled).toBe(true);
 });
 
-test("不可变更新：保留 settings.json 其他字段", async () => {
+test("enable 对已启用包幂等（no-op）", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    packages: ["npm:test-pkg@1.0.0"],
+    disabledPackages: [],
+  }), "utf8");
+  const mgr = mockManager(dir);
+  await mgr.enable("test-pkg");
+
+  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.packages).toEqual(["npm:test-pkg@1.0.0"]);
+  expect(settings.disabledPackages).toEqual([]);
+});
+
+test("enable 兜底：从 node_modules 恢复（在两列表皆无时）", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    packages: [],
+    disabledPackages: [],
+  }), "utf8");
+  const mgr = mockManager(dir);
+  // mockPkgService.getInstalledVersion("test-pkg") 返回 "9.9.9"
+  await mgr.enable("test-pkg");
+
+  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.packages).toContain("npm:test-pkg@9.9.9");
+});
+
+test("list 把 disabledPackages 条目标为 enabled:false", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    packages: ["npm:enabled-pkg@1.0.0"],
+    disabledPackages: ["npm:disabled-pkg@2.0.0", "git:github.com/x/y", "/local/path"],
+  }), "utf8");
+  const mgr = mockManager(dir);
+  const { packages } = await mgr.list();
+
+  const enabled = packages.find(p => p.name === "enabled-pkg");
+  expect(enabled).toBeDefined();
+  expect(enabled!.enabled).toBe(true);
+
+  const disabled = packages.find(p => p.name === "disabled-pkg");
+  expect(disabled).toBeDefined();
+  expect(disabled!.enabled).toBe(false);
+
+  const gitPkg = packages.find(p => p.source === "git");
+  expect(gitPkg).toBeDefined();
+  expect(gitPkg!.enabled).toBe(false);
+
+  const localPkg = packages.find(p => p.source === "local");
+  expect(localPkg).toBeDefined();
+  expect(localPkg!.enabled).toBe(false);
+});
+
+test("uninstall 同时支持 packages 和 disabledPackages", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    packages: ["npm:other@2.0.0"],
+    disabledPackages: ["npm:test-pkg@1.0.0"],
+  }), "utf8");
+  const mgr = mockManager(dir);
+  await mgr.uninstall("test-pkg");
+
+  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.disabledPackages).toEqual([]);
+  expect(settings.packages).toEqual(["npm:other@2.0.0"]);
+});
+
+test("uninstall 对两列表皆无的包抛错", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    packages: [],
+    disabledPackages: [],
+  }), "utf8");
+  const mgr = mockManager(dir);
+  await expect(mgr.uninstall("nope")).rejects.toThrow("未安装");
+});
+
+test("install 命中 disabledPackages 时抛「已禁用，请先启用」", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    packages: [],
+    disabledPackages: ["npm:test-pkg@1.0.0"],
+  }), "utf8");
+  const mgr = mockManager(dir);
+  await expect(mgr.install("test-pkg")).rejects.toThrow("该插件已禁用，请先启用");
+});
+
+test("upgrade 对仅在 disabledPackages 的包抛「请先启用后升级」", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    packages: [],
+    disabledPackages: ["npm:test-pkg@1.0.0"],
+  }), "utf8");
+  const mgr = mockManager(dir);
+  await expect(mgr.upgrade("test-pkg")).rejects.toThrow("该插件已禁用，请先启用后升级");
+});
+
+test("不可变更新：保留 settings.json 其他字段（含 disabledPackages）", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
     disabledSkills: ["x"],
     other: 1,
     packages: [],
+    disabledPackages: ["npm:legacy@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
   await mgr.install("new-pkg");
@@ -165,4 +300,5 @@ test("不可变更新：保留 settings.json 其他字段", async () => {
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
   expect(settings.disabledSkills).toEqual(["x"]);
   expect(settings.other).toBe(1);
+  expect(settings.disabledPackages).toEqual(["npm:legacy@1.0.0"]);
 });

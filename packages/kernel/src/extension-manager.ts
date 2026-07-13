@@ -76,6 +76,7 @@ import { NpmPackageService } from "./npm-package-service";
 interface ExtensionSettings {
   npmCommand?: string[];
   packages?: string[];
+  disabledPackages?: string[];
   [k: string]: unknown;
 }
 
@@ -146,9 +147,10 @@ export class ExtensionManager {
     settings = await this.ensureNpmCommand(settings);
 
     const pkgs = settings.packages ?? [];
+    const disabledPkgs = settings.disabledPackages ?? [];
     const result: PackageInfo[] = [];
 
-    for (const p of pkgs) {
+    const parseEntry = async (p: string, enabled: boolean): Promise<PackageInfo> => {
       if (p.startsWith("npm:")) {
         const rest = p.slice(4);
         const atIdx = rest.lastIndexOf("@");
@@ -156,31 +158,43 @@ export class ExtensionManager {
         const version = atIdx > 0 ? rest.slice(atIdx + 1) : undefined;
 
         const installedVersion = this.pkgService.getInstalledVersion(name);
-        let latestVersion: string | undefined;
-        try { latestVersion = await this.pkgService.getLatestVersion(name); } catch {}
 
-        result.push({
+        if (enabled) {
+          let latestVersion: string | undefined;
+          try { latestVersion = await this.pkgService.getLatestVersion(name); } catch {}
+          return {
+            name,
+            source: "npm",
+            version: installedVersion ?? version,
+            latestVersion: latestVersion && latestVersion !== installedVersion ? latestVersion : undefined,
+            description: this.pkgService.getDescription(name),
+            enabled: true,
+          };
+        }
+        return {
           name,
           source: "npm",
           version: installedVersion ?? version,
-          latestVersion: latestVersion && latestVersion !== installedVersion ? latestVersion : undefined,
           description: this.pkgService.getDescription(name),
-          enabled: true,
-        });
-      } else if (p.startsWith("git:")) {
-        result.push({
-          name: p.slice(4),
-          source: "git",
-          enabled: true,
-        });
-      } else {
-        result.push({
-          name: p,
-          source: "local",
-          description: this.pkgService.getDescription(p) ?? undefined,
-          enabled: true,
-        });
+          enabled: false,
+        };
       }
+      if (p.startsWith("git:")) {
+        return { name: p.slice(4), source: "git", enabled };
+      }
+      return {
+        name: p,
+        source: "local",
+        description: this.pkgService.getDescription(p) ?? undefined,
+        enabled,
+      };
+    };
+
+    for (const p of pkgs) {
+      result.push(await parseEntry(p, true));
+    }
+    for (const p of disabledPkgs) {
+      result.push(await parseEntry(p, false));
     }
 
     return { packages: result };
@@ -193,13 +207,18 @@ export class ExtensionManager {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
     const pkgs = settings.packages ?? [];
+    const disabledPkgs = settings.disabledPackages ?? [];
     const existing = this.extractNames(pkgs);
+    const disabledNames = this.extractNames(disabledPkgs);
 
     if (existing.has(parsed.name)) {
       const existingVersion = this.pkgService.getInstalledVersion(parsed.name);
       throw new Error(existingVersion
         ? `已安装 v${existingVersion}，请使用升级`
         : `已安装 ${parsed.name}`);
+    }
+    if (disabledNames.has(parsed.name)) {
+      throw new Error(`该插件已禁用，请先启用`);
     }
 
     let entry: string;
@@ -243,29 +262,42 @@ export class ExtensionManager {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
     const pkgs = settings.packages ?? [];
-    const existing = this.extractNames(pkgs);
+    const disabledPkgs = settings.disabledPackages ?? [];
+    const existingPkgs = this.extractNames(pkgs);
+    const existingDisabled = this.extractNames(disabledPkgs);
 
-    const matched = existing.get(name);
-    if (!matched) throw new Error(`未安装: ${name}`);
+    const matchedPkgs = existingPkgs.get(name);
+    const matchedDisabled = existingDisabled.get(name);
+
+    if (!matchedPkgs && !matchedDisabled) throw new Error(`未安装: ${name}`);
 
     // npm 来源：卸载 node_modules 中的包
+    const matched = matchedPkgs ?? matchedDisabled!;
     if (matched.startsWith("npm:")) {
       await this.pkgService.uninstall(name);
     }
-    // git 和 local 来源：不从磁盘删除，只从 packages 移除
+    // git 和 local 来源：不从磁盘删除，只从对应列表移除
 
-    const updated = pkgs.filter((p) => p !== matched);
-    await this.writeSettings({ ...settings, packages: updated });
+    const updatedPkgs = matchedPkgs ? pkgs.filter((p) => p !== matchedPkgs) : pkgs;
+    const updatedDisabled = matchedDisabled ? disabledPkgs.filter((p) => p !== matchedDisabled) : disabledPkgs;
+    await this.writeSettings({ ...settings, packages: updatedPkgs, disabledPackages: updatedDisabled });
   }
 
   async upgrade(name: string): Promise<PackageInfo> {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
     const pkgs = settings.packages ?? [];
+    const disabledPkgs = settings.disabledPackages ?? [];
     const existing = this.extractNames(pkgs);
+    const disabledNames = this.extractNames(disabledPkgs);
 
     const matched = existing.get(name);
-    if (!matched) throw new Error(`未安装: ${name}`);
+    if (!matched) {
+      if (disabledNames.has(name)) {
+        throw new Error(`该插件已禁用，请先启用后升级`);
+      }
+      throw new Error(`未安装: ${name}`);
+    }
 
     if (!matched.startsWith("npm:")) {
       if (matched.startsWith("git:")) {
@@ -293,51 +325,54 @@ export class ExtensionManager {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
     const pkgs = settings.packages ?? [];
+    const disabledPkgs = settings.disabledPackages ?? [];
+    const existingPkgs = this.extractNames(pkgs);
+    const existingDisabled = this.extractNames(disabledPkgs);
 
-    // 从旧版 settings.extensions 迁移：查找匹配的路径
-    const extPaths = (settings as any).extensions as string[] | undefined;
+    // 已启用（在 packages 中）→ no-op
+    if (existingPkgs.has(name)) return;
 
-    // 检查是否已在 packages 中
-    const existing = this.extractNames(pkgs);
-    if (existing.has(name)) return; // already enabled
-
-    // 查找原始 packages 条目（可能之前被 disable 移除了）
-    // 从 settings.extensions 或 node_modules 中找到该包
-    let entry: string | undefined;
-    if (extPaths) {
-      const found = extPaths.find((p) => p.includes(`/node_modules/${name}/`));
-      if (found) {
-        const installedVersion = this.pkgService.getInstalledVersion(name);
-        if (installedVersion) {
-          entry = `npm:${name}@${installedVersion}`;
-        }
-      }
+    const matchedDisabled = existingDisabled.get(name);
+    if (matchedDisabled) {
+      // 从 disabledPackages 移回 packages
+      const updatedDisabled = disabledPkgs.filter((p) => p !== matchedDisabled);
+      const updatedPkgs = [...pkgs, matchedDisabled];
+      await this.writeSettings({ ...settings, packages: updatedPkgs, disabledPackages: updatedDisabled });
+      return;
     }
 
-    if (!entry) {
-      // 检查 node_modules 是否有该包
-      const installedVersion = this.pkgService.getInstalledVersion(name);
-      if (installedVersion) {
-        entry = `npm:${name}@${installedVersion}`;
-      } else {
-        throw new Error(`未找到已安装的包: ${name}，请先安装`);
-      }
+    // 两者皆无 → node_modules 兜底
+    const installedVersion = this.pkgService.getInstalledVersion(name);
+    if (installedVersion) {
+      const entry = `npm:${name}@${installedVersion}`;
+      const updatedPkgs = [...pkgs, entry];
+      await this.writeSettings({ ...settings, packages: updatedPkgs });
+      return;
     }
-
-    const updated = [...pkgs, entry];
-    await this.writeSettings({ ...settings, packages: updated, extensions: undefined });
+    throw new Error(`未找到已安装的包: ${name}，请先安装`);
   }
 
   async disable(name: string): Promise<void> {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
     const pkgs = settings.packages ?? [];
-    const existing = this.extractNames(pkgs);
+    const disabledPkgs = settings.disabledPackages ?? [];
+    const existingPkgs = this.extractNames(pkgs);
+    const existingDisabled = this.extractNames(disabledPkgs);
 
-    const matched = existing.get(name);
-    if (!matched) return; // already disabled — no-op
+    const matched = existingPkgs.get(name);
+    if (matched) {
+      // 从 packages 移到 disabledPackages
+      const updatedPkgs = pkgs.filter((p) => p !== matched);
+      const updatedDisabled = [...disabledPkgs, matched];
+      await this.writeSettings({ ...settings, packages: updatedPkgs, disabledPackages: updatedDisabled });
+      return;
+    }
 
-    const updated = pkgs.filter((p) => p !== matched);
-    await this.writeSettings({ ...settings, packages: updated });
+    // 已在 disabledPackages → no-op（幂等）
+    if (existingDisabled.has(name)) return;
+
+    // 两者皆无 → 未安装
+    throw new Error(`未安装: ${name}`);
   }
 }
