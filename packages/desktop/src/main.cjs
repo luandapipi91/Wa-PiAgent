@@ -1,5 +1,5 @@
 // Electron main：启动页(splash) + kernel sidecar + BrowserWindow + 生命周期 + 退出清理。
-const { app, BrowserWindow, Menu } = require("electron");
+const { app, BrowserWindow, Menu, session, desktopCapturer } = require("electron");
 const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs");
@@ -116,6 +116,10 @@ app.whenReady().then(async () => {
   if (!gotLock) { log.info("已有实例，退出"); app.quit(); return; }
   app.on("second-instance", activateApp);
   log.info(`Electron main 就绪, isPackaged=${app.isPackaged}`);
+
+  // 录音前提：自动批准 getDisplayMedia（系统回环音频，无共享框）+ 麦克风免弹窗（spec B）
+  const { setupRecordingHandlers } = require("./util/recording-handlers.cjs");
+  setupRecordingHandlers(session.defaultSession, desktopCapturer);
 
   // 1) 启动页【立即】出现 + 主窗口隐藏创建（等内核就绪再渲染显示）
   createSplash();
