@@ -134,7 +134,11 @@ class RecordingManager implements RecordingEngine {
     try { void discardRecording(this.projectId, this.recId); } catch {}
     this.onTick = null;
     if (this.tickTimer) { clearInterval(this.tickTimer); this.tickTimer = null; }
-    // 让进行中的 stop（若有）在 onstop 里 reject
+    // 自洁：失败后立即停 recorder，触发 onstop → cleanup() 释放 tracks，
+    // 不依赖外部 stop()（append 失败时 store 无从感知）。guard 防 onerror 路径已自动 stop 的二次调用。
+    try {
+      if (this.recorder && this.recorder.state !== "inactive") this.recorder.stop();
+    } catch {}
   }
 
   private releaseTracks(): void { this.stream?.getTracks().forEach(t => t.stop()); }
