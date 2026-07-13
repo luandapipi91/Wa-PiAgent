@@ -163,8 +163,8 @@ export class AgentManager {
    */
   private async getEnabledExtensionIds(): Promise<Set<string>> {
     if (!this.opts.extensionManager) return new Set();
-    const { plugins } = await this.opts.extensionManager.list();
-    return new Set(plugins.filter((p) => p.enabled).map((p) => p.id));
+    const { packages } = await this.opts.extensionManager.list();
+    return new Set(packages.filter((p) => p.enabled).map((p) => p.name));
   }
 
   /**

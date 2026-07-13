@@ -36,7 +36,7 @@ async function withSkillServer<T>(
     projectStore: new ProjectStore(tmp("ws-proj.json")),
     providerStore: new ProviderStore(join(dataDir, "providers.json")),
     skillManager: new SkillManager(dataDir),
-    extensionManager: new ExtensionManager(dataDir, { resolveEntryPath: () => "/fake/pi-lens/dist/index.js", readVersion: () => "0.0.0" }),
+    extensionManager: new ExtensionManager(dataDir),
     memoryStore: null as any,
     agentManager: mockAM,
     dataDir,

@@ -41,7 +41,7 @@ test("[第三层] 建项目→发消息→自动建会话", async () => {
 
   const server = new WSServer({
     configStore, projectStore, providerStore, skillManager,
-    extensionManager: new ExtensionManager(join(projFile, ".."), { resolveEntryPath: () => "/fake/pi-lens/dist/index.js", readVersion: () => "0.0.0" }),
+    extensionManager: new ExtensionManager(join(projFile, "..")),
     memoryStore: null as any,
     agentManager,
     port: 0,  // 随机端口，避免与运行中的 kernel 冲突

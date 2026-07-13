@@ -8,7 +8,6 @@ import { ExtensionManager } from "./extension-manager";
 import { MemoryStore } from "./memory-store";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
-import { migrateSettingsPackages } from "./extensions";
 import { extractSdkErrorMessage } from "./sdk-errors";
 import { cleanupRecordingTemp } from "./recording-store";
 import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR } from "@hiagent/shared";
@@ -26,10 +25,6 @@ export async function startKernel(
   // 与 hiagent 数据目录割裂（agentDir 参数只对 DefaultResourceLoader/SettingsManager 等少数入口生效）。
   // 必须在任意 SDK 代码 import/执行前设置。同时顺带解决 pi-web-access 配置透传（见 memory）。
   process.env.PI_CODING_AGENT_DIR = HIAGENT_DIR;
-
-  // 一次性迁移：清空旧版本写入 settings.json.packages 的扩展路径，
-  // 避免「packages 残留 + additionalExtensionPaths」双重加载同一扩展（见 extensions.ts）
-  await migrateSettingsPackages();
 
   // 确保内置技能目录存在
   await mkdir(BUILTIN_SKILLS_DIR, { recursive: true });
@@ -95,9 +90,6 @@ export async function startKernel(
   });
   // 回填真实 agentManager（绕开 TS 的「构造时已确定」语义；opts 为 private 故用 any 桥接）
   (server as any).opts.agentManager = agentManager;
-
-  // 首启播种可选插件（默认启用 pi-lens）；后续由面板 toggle
-  await extensionManager.list();
 
   await server.start();
   console.log(`[kernel] WS 监听 ws://127.0.0.1:${server.actualPort}`);
