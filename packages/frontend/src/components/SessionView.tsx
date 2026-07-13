@@ -9,9 +9,9 @@ import { AskDock } from "./ask/AskDock";
 import { agentEmoji } from "../theme/agents";
 import { onMessage, send } from "../ws-instance";
 
-interface Props { sessionId: string; onSwitchToCanvas: () => void; }
+interface Props { sessionId: string; }
 
-export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
+export function SessionView({ sessionId }: Props) {
   const session = useProjectsStore(s => s.sessions.find(x => x.id === sessionId));
   const project = useProjectsStore(s => s.projects.find(p => p.id === session?.projectId));
   const getGlobalState = useAgentsStore(s => s.getGlobalState);
@@ -73,9 +73,6 @@ export function SessionView({ sessionId, onSwitchToCanvas }: Props) {
             {session.primaryAgent} · {project?.cwd ?? ""} · {isBlocked ? "等待回复" : agentState}
           </div>
         </div>
-        <button onClick={onSwitchToCanvas} className="px-3 py-1.5 text-xs font-semibold rounded-sm border border-hairline bg-surface text-secondary transition-colors hover:border-brand hover:text-brand">
-          编排画布
-        </button>
       </header>
 
       {/* 队列面板：agent 运行中或有队列时显示 */}
