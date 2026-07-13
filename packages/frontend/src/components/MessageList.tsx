@@ -6,6 +6,7 @@ import { send } from "../ws-instance";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useToastStore } from "../store/toast";
 
 const EMPTY: SessionMessage[] = [];
 
@@ -322,6 +323,7 @@ function MessageRow({ row, sessionId, showResend, onResend }: { row: RenderedRow
   const thinkingBlocks = blocks.filter((b: any) => b.type === "thinking");
   const textBlocks = blocks.filter((b: any) => b.type === "text" && b.text?.trim());
   const toolCallBlocks = blocks.filter((b: any) => b.type === "toolCall");
+  const fullText = textBlocks.map((b: any) => b.text).join("\n\n");
 
   // 错误消息（stopReason === "error"）：红色文字
   const isError = m.stopReason === "error";
@@ -354,12 +356,17 @@ function MessageRow({ row, sessionId, showResend, onResend }: { row: RenderedRow
 
         {/* 主回复内容 — 文字 + markdown（最下方） */}
         {textBlocks.length > 0 && (
-          <div className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`} style={{ lineHeight: 3.1, borderRadius: "4px 14px 14px 14px" }}>
-            {textBlocks.map((block: any, i: number) => (
-              <div key={i} className="prose prose-sm max-w-none" data-testid="text-block">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.text}</ReactMarkdown>
-              </div>
-            ))}
+          <div className="flex flex-col gap-1">
+            <div className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`} style={{ lineHeight: 3.1, borderRadius: "4px 14px 14px 14px" }}>
+              {textBlocks.map((block: any, i: number) => (
+                <div key={i} className="prose prose-sm max-w-none" data-testid="text-block">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.text}</ReactMarkdown>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end">
+              <CopyButton text={fullText} testId={`copy-${sessionId}-${m.timestamp}`} />
+            </div>
           </div>
         )}
       </div>
@@ -385,6 +392,33 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+function CopyButton({ text, testId }: { text: string; testId?: string }) {
+  const addToast = useToastStore(s => s.add);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      addToast("已复制到剪贴板", "success");
+    } catch {
+      addToast("复制失败", "error");
+    }
+  };
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={handleCopy}
+      className="p-1 rounded-md text-tertiary opacity-60 hover:opacity-100 hover:text-primary hover:bg-surface-elevated transition-colors"
+      title="复制"
+      aria-label="复制回答"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </svg>
+    </button>
   );
 }
 
