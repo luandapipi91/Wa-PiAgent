@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-13 — 新增: 动态插件系统
+
+- **新增功能**: 动态插件系统，支持在设置面板中安装/卸载/升级/启用/禁用 npm 插件
+- **架构变更**: 扩展加载改为双轨制 — 核心扩展走 additionalExtensionPaths，动态插件走 packages 字段
+- **移除**: OPTIONAL_EXTENSIONS 硬编码机制、migrateSettingsPackages()
+- **新增文件**: packages/kernel/src/npm-package-service.ts
+- **影响范围**: kernel(extension-manager, extensions, index, ws-server), shared(extensions), frontend(ExtensionSection, store/extensions)
+
 ## 2026-07-13 — 桌面 shell 迁到 Electron（为录音系统声音 spec B 铺基座）
 
 ### 重构
