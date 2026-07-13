@@ -91,10 +91,21 @@ test("点击继续调用 store.resume", () => {
   expect(resumed).toBe(true);
 });
 
-test("点击切换音源展开选项", () => {
+test("录音胶囊宽度足够且图标不换行", () => {
   useRecordingStore.setState({ status: "recording", source: "mic", owningSessionId: "s1", ownerLabel: "x", elapsedMs: 1000 });
   render(<RecordingCapsule />);
-  fireEvent.click(screen.getByText("切换音源"));
+  const capsule = screen.getByTestId("recording-capsule");
+  expect(parseInt(capsule.style.minWidth, 10)).toBeGreaterThanOrEqual(280);
+  const row = capsule.querySelector("[class*='flex-nowrap']");
+  expect(row).toBeTruthy();
+});
+
+test("点击音源 icon 展开切换选项", () => {
+  useRecordingStore.setState({ status: "recording", source: "mic", owningSessionId: "s1", ownerLabel: "x", elapsedMs: 1000 });
+  render(<RecordingCapsule />);
+  expect(screen.queryByText("切换音源")).toBeNull();
+  const icon = screen.getByLabelText("切换音源");
+  fireEvent.click(icon);
   expect(screen.getByText("🎤 麦克风")).toBeTruthy();
   expect(screen.getByText("🖥 系统音频")).toBeTruthy();
 });

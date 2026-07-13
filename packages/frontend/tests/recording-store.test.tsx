@@ -70,6 +70,7 @@ test("stop 成功后：idle + audio draft 写入归属会话 composer", async ()
   expect(drafts.length).toBe(1);
   expect(drafts[0].kind).toBe("audio");
   expect((drafts[0] as any).path).toBe("/p/uploads/rec.webm");
+  expect(drafts[0].name).toBe("录音 0:02.webm");
 });
 
 test("start 失败：status 回 idle + error，且 rethrow", async () => {

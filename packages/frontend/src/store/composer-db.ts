@@ -19,8 +19,8 @@ interface ComposerDB extends DBSchema {
   };
   defaults: {
     key: string;
-    // keyless store；按 key 存不同形状（DEFAULTS_KEY / RECORDING_KEY）——联合类型兼容两种
-    value: { model: string | null; thinking: ThinkingLevel } | RecordingPrefs;
+    // keyless store；按 key 存不同形状（DEFAULTS_KEY / RECORDING_KEY / NEW_SESSION_IDS_KEY）
+    value: { model: string | null; thinking: ThinkingLevel } | RecordingPrefs | Record<string, string>;
   };
 }
 
@@ -92,5 +92,22 @@ export async function getRecordingPrefs(): Promise<RecordingPrefs | undefined> {
 export async function setRecordingPrefs(prefs: RecordingPrefs): Promise<void> {
   try {
     await (await getDb()).put("defaults", prefs, RECORDING_KEY);
+  } catch {}
+}
+
+const NEW_SESSION_IDS_KEY = "new-session-ids";
+
+export async function getNewSessionIds(): Promise<Record<string, string>> {
+  try {
+    const stored = await (await getDb()).get("defaults", NEW_SESSION_IDS_KEY);
+    return (stored as Record<string, string> | undefined) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+export async function setNewSessionIds(ids: Record<string, string>): Promise<void> {
+  try {
+    await (await getDb()).put("defaults", ids, NEW_SESSION_IDS_KEY);
   } catch {}
 }

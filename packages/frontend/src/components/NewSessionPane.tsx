@@ -16,9 +16,23 @@ export function NewSessionPane() {
   const [projectId, setProjectId] = useState<string | null>(initialProject);
   // currentProjectId 变化时同步（点项目旁 + 号时可能已在新建页，不会重新挂载）
   useEffect(() => { if (currentProjectId) setProjectId(currentProjectId); }, [currentProjectId]);
-  // 会话 ID 只生成一次并复用，避免快速连发多条消息创建多个重复 session
-  const [sessionId] = useState(() => randomSessionId());
+  // 新建会话的 sessionId 按当前项目持久化，切换再回来仍能对应同一组 composer 附件/录音
+  const newSessionKey = projectId ?? "__global__";
+  const newSessionIds = useComposerPrefsStore(s => s.newSessionIds);
+  const setNewSessionId = useComposerPrefsStore(s => s.setNewSessionId);
+  const [sessionId, setSessionId] = useState(() => newSessionIds[newSessionKey] ?? randomSessionId());
   const sendingRef = useRef(false);
+
+  useEffect(() => {
+    const stored = newSessionIds[newSessionKey];
+    if (stored && stored !== sessionId) {
+      setSessionId(stored);
+    } else if (!stored) {
+      const fresh = randomSessionId();
+      setSessionId(fresh);
+      setNewSessionId(newSessionKey, fresh);
+    }
+  }, [newSessionKey, newSessionIds[newSessionKey], setNewSessionId, sessionId]);
 
   const defaults = useComposerPrefsStore(s => s.defaults);
   const setDefaults = useComposerPrefsStore(s => s.setDefaults);

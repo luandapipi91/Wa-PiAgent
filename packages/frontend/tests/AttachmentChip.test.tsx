@@ -51,10 +51,10 @@ test("remove button has accessible label and type button", () => {
 });
 
 test("audio chip 渲染文件名 + <audio> 试听 + 移除按钮", () => {
-  const a: AttachmentDraft = { kind: "audio", name: "rec.webm", path: "/p/.hiagent/uploads/rec.webm", size: 10, durationMs: 2000 };
+  const a: AttachmentDraft = { kind: "audio", name: "录音 0:02.webm", path: "/p/.hiagent/uploads/rec.webm", size: 10, durationMs: 2000 };
   const onRemove = () => {};
   render(<AttachmentChip attachment={a} onRemove={onRemove} />);
-  expect(screen.getByText("rec.webm")).toBeTruthy();
+  expect(screen.getByText("录音 0:02.webm")).toBeTruthy();
   const audio = document.querySelector("audio") as HTMLAudioElement;
   expect(audio).toBeTruthy();
   expect(audio?.getAttribute("src")).toBe("/file?path=" + encodeURIComponent("/p/.hiagent/uploads/rec.webm"));

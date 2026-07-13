@@ -4,7 +4,9 @@ import { describe, it, expect, beforeEach } from "bun:test";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import {
   getDefaults,
+  getNewSessionIds,
   setDefaults as dbSetDefaults,
+  setNewSessionIds as dbSetNewSessionIds,
   setSessionPrefs as dbSetSessionPrefs,
 } from "../src/store/composer-db";
 
@@ -37,6 +39,7 @@ describe("composer-prefs store", () => {
     useComposerPrefsStore.setState({
       defaults: { model: null, thinking: "disabled" },
       bySession: {},
+      newSessionIds: {},
     });
   });
 
@@ -96,10 +99,12 @@ describe("composer-prefs store", () => {
     expect(await getDefaults()).toEqual({ model: "persisted-model", thinking: "high" });
   });
 
-  it("updates session prefs and defaults", () => {
-    useComposerPrefsStore.getState().setSessionPrefs("s1", { model: "gpt-4o", thinking: "high" });
-    const state = useComposerPrefsStore.getState();
-    expect(state.bySession["s1"].model).toBe("gpt-4o");
-    expect(state.defaults.model).toBe("gpt-4o");
+  it("setNewSessionId persists new session ids to IndexedDB", async () => {
+    await dbSetNewSessionIds({ p1: "ns-1" });
+
+    await useComposerPrefsStore.getState().loadDefaults();
+
+    expect(useComposerPrefsStore.getState().newSessionIds).toEqual({ p1: "ns-1" });
+    expect(await getNewSessionIds()).toEqual({ p1: "ns-1" });
   });
 });

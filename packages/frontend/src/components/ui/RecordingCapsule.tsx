@@ -7,13 +7,14 @@ import { formatDuration } from "../../recording/recorder";
 
 const DEFAULT_RIGHT = 16;
 const DEFAULT_TOP = 16;
+const CAPSULE_WIDTH = 280;
 
 export function RecordingCapsule() {
   const { status, source, owningSessionId, ownerLabel, elapsedMs, pause, resume, stop } = useRecordingStore();
   const currentSessionId = useProjectsStore(s => s.currentSessionId);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [pos, setPos] = useState(() => ({
-    x: typeof window !== "undefined" ? window.innerWidth - DEFAULT_RIGHT - 260 : DEFAULT_RIGHT,
+    x: typeof window !== "undefined" ? window.innerWidth - DEFAULT_RIGHT - CAPSULE_WIDTH : DEFAULT_RIGHT,
     y: DEFAULT_TOP,
   }));
 
@@ -44,7 +45,7 @@ export function RecordingCapsule() {
   useEffect(() => {
     function onResize() {
       setPos(p => ({
-        x: Math.min(Math.max(p.x, 0), window.innerWidth - 240),
+        x: Math.min(Math.max(p.x, 0), window.innerWidth - CAPSULE_WIDTH),
         y: Math.min(Math.max(p.y, 0), window.innerHeight - 80),
       }));
     }
@@ -71,7 +72,7 @@ export function RecordingCapsule() {
     <div
       data-testid="recording-capsule"
       className="fixed z-50 flex flex-col gap-2 px-4 py-3 rounded-lg border border-hairline bg-surface shadow-lg select-none"
-      style={{ left: pos.x, top: pos.y, minWidth: 220 }}
+      style={{ left: pos.x, top: pos.y, minWidth: CAPSULE_WIDTH }}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={onPointerUp}
@@ -86,10 +87,32 @@ export function RecordingCapsule() {
         <span className={`ml-auto inline-block w-2.5 h-2.5 rounded-full ${dotColor} ${status === "recording" ? "animate-pulse" : ""}`} />
       </div>
 
-      <div className="flex items-center gap-3">
-        <span className="text-xl" title={source === "mic" ? "麦克风" : "系统音频"}>
-          {source === "mic" ? "🎤" : "🖥"}
-        </span>
+      <div className="flex items-center gap-3 flex-nowrap">
+        <div className="relative">
+          <button
+            type="button"
+            aria-label="切换音源"
+            title={source === "mic" ? "麦克风" : "系统音频"}
+            onClick={() => setSwitcherOpen(o => !o)}
+            className="text-xl hover:opacity-80"
+          >
+            {source === "mic" ? "🎤" : "🖥"}
+          </button>
+          {switcherOpen && (
+            <div className="absolute top-full left-0 mt-1 z-50 bg-surface border border-hairline rounded-sm shadow-md text-xs whitespace-nowrap">
+              <button
+                type="button"
+                onClick={() => pickSource("mic")}
+                className={`block w-full text-left px-3 py-1.5 hover:bg-surface-hover ${source === "mic" ? "text-primary" : ""}`}
+              >🎤 麦克风</button>
+              <button
+                type="button"
+                onClick={() => pickSource("system")}
+                className={`block w-full text-left px-3 py-1.5 hover:bg-surface-hover ${source === "system" ? "text-primary" : ""}`}
+              >🖥 系统音频</button>
+            </div>
+          )}
+        </div>
         {!isOwner && <span className="text-xs text-tertiary truncate max-w-[140px]">{ownerLabel}</span>}
         <span className="font-mono tabular-nums text-lg text-secondary">{formatDuration(elapsedMs)}</span>
 
@@ -116,30 +139,6 @@ export function RecordingCapsule() {
           onClick={() => void stop()}
           className="text-xl text-danger hover:opacity-80"
         >⏹</button>
-      </div>
-
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setSwitcherOpen(o => !o)}
-          className="text-xs text-tertiary hover:text-primary underline"
-        >
-          切换音源
-        </button>
-        {switcherOpen && (
-          <div className="absolute top-full left-0 mt-1 z-50 bg-surface border border-hairline rounded-sm shadow-md text-xs">
-            <button
-              type="button"
-              onClick={() => pickSource("mic")}
-              className={`block w-full text-left px-3 py-1.5 hover:bg-surface-hover ${source === "mic" ? "text-primary" : ""}`}
-            >🎤 麦克风</button>
-            <button
-              type="button"
-              onClick={() => pickSource("system")}
-              className={`block w-full text-left px-3 py-1.5 hover:bg-surface-hover ${source === "system" ? "text-primary" : ""}`}
-            >🖥 系统音频</button>
-          </div>
-        )}
       </div>
     </div>
   );
