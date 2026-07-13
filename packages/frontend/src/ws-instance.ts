@@ -5,9 +5,19 @@ type Handler = (e: WSServerEvent) => void;
 const handlers = new Set<Handler>();
 let ws: WebSocket | null = null;
 
+function getWsUrl(): string {
+  if (import.meta.env.DEV) {
+    return `ws://127.0.0.1:${WS_PORT}`;
+  }
+  if (typeof window !== "undefined" && window.location) {
+    return `ws://${window.location.host}`;
+  }
+  return `ws://127.0.0.1:${WS_PORT}`;
+}
+
 export function getWs(): WebSocket {
   if (!ws) {
-    ws = new WebSocket(`ws://127.0.0.1:${WS_PORT}`);
+    ws = new WebSocket(getWsUrl());
     ws.onmessage = (ev) => {
       try {
         const e = JSON.parse(String(ev.data)) as WSServerEvent;

@@ -78,3 +78,12 @@ function killPid(pid: number): Promise<void> {
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
+
+/** 从 startPort 开始顺序探测，返回第一个可用端口 */
+export async function findAvailablePort(startPort: number, maxTries = 100): Promise<number> {
+  for (let i = 0; i < maxTries; i++) {
+    const port = startPort + i;
+    if (!(await isPortInUse(port))) return port;
+  }
+  throw new Error(`未找到可用端口（${startPort} ~ ${startPort + maxTries - 1}）`);
+}

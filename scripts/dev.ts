@@ -1,13 +1,16 @@
 // 一键启动:并行起 kernel(9776 WS)+ frontend(Vite 5180),自动开浏览器,SIGINT 清理,按 R 重载前后端。
 import { spawn, type ChildProcess } from "node:child_process";
-import { killPort } from "./port";
+import { killPort, findAvailablePort } from "./port";
 import { openBrowser } from "./open-browser";
 import { WS_PORT, FRONTEND_PORT } from "@hiagent/shared";
 
 async function main() {
-  // 1. 端口清理(兜底,防止上次没干净)
+  // 1. 端口清理(兜底,防止上次没干净) + 动态选择 kernel 端口
   console.log("[dev] 清理端口 %d / %d ...", WS_PORT, FRONTEND_PORT);
   await Promise.all([killPort(WS_PORT), killPort(FRONTEND_PORT)]);
+  const actualWsPort = await findAvailablePort(WS_PORT);
+  process.env.HIAGENT_WS_PORT = String(actualWsPort);
+  console.log("[dev] kernel 实际端口 %d", actualWsPort);
 
   // 2. 并行 spawn 两个子进程
   let kernel: ChildProcess = spawnKernel();
@@ -61,7 +64,11 @@ async function main() {
   async function reloadAll() {
     console.log("\n[dev] 重新加载前后端代码...");
     await Promise.all([stopProc(kernel), stopProc(frontend)]);
-    await Promise.all([killPort(WS_PORT), killPort(FRONTEND_PORT)]);
+    await killPort(WS_PORT);
+    const actualWsPort = await findAvailablePort(WS_PORT);
+    process.env.HIAGENT_WS_PORT = String(actualWsPort);
+    console.log("[dev] kernel 实际端口 %d", actualWsPort);
+    await killPort(FRONTEND_PORT);
 
     kernel = spawnKernel();
     frontend = spawnFrontend();

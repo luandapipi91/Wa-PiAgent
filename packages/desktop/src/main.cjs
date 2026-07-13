@@ -5,6 +5,7 @@ const os = require("node:os");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const { createLogger } = require("./util/log.cjs");
+const { findAvailablePort } = require("./util/port.cjs");
 
 const HIAGENT_DIR = process.env.HIAGENT_DIR || path.join(os.homedir(), ".hiagent");
 const log = createLogger(path.join(HIAGENT_DIR, "logs", "desktop.log"));
@@ -170,13 +171,25 @@ app.whenReady().then(async () => {
   }
 
   // 2) kernel sidecar（解释运行；首启 Defender 扫描可能要几分钟）
-  const { startSidecar, WS_PORT } = require("./kernel-sidecar.cjs");
+  const { startSidecar } = require("./kernel-sidecar.cjs");
   const { resolveKernelDir, resolveWebDir, resolveRuntimeDir } = require("./util/paths.cjs");
   const seedDir = resolveKernelDir(app.isPackaged, process.resourcesPath, process.env); // packaged=只读 seed；dev=repo 源码
   const webDir = resolveWebDir(app.isPackaged, process.resourcesPath, process.env);
   const runtimeDir = resolveRuntimeDir(HIAGENT_DIR); // ~/.hiagent/runtime 可写
   // packaged 下 sidecar 二进制已重命名为 hiagent-kernel（分发进程名不暴露 bun）；dev 仍用 host bun。
   const kernelExe = path.join(seedDir, process.platform === "win32" ? "hiagent-kernel.exe" : "hiagent-kernel");
+
+  // 2a) 探测可用端口：默认/配置端口被占用时自动后移
+  const desiredPort = Number(process.env.HIAGENT_WS_PORT) > 0 ? Number(process.env.HIAGENT_WS_PORT) : 9776;
+  let actualPort;
+  try {
+    actualPort = await findAvailablePort(desiredPort);
+    log.info(`选中 kernel 端口 ${actualPort}${actualPort === desiredPort ? "" : `（原 ${desiredPort} 被占用）`}`);
+  } catch (e) {
+    log.error("未找到可用端口", e);
+    setProgress(-1, "未找到可用端口，请关闭占用 9776 附近端口的程序后重试");
+    return;
+  }
 
   // 2a) 首启依赖检测/动态安装（packaged：~/.hiagent/runtime 下用阿里源装原生 addon 等）
   let runDir = seedDir;
@@ -222,12 +235,12 @@ app.whenReady().then(async () => {
   let kp = 85;
   const trickle = setInterval(() => { kp = Math.min(95, kp + 4); setProgress(kp, "正在启动内核…"); }, 1500);
   try {
-    sidecar = await startSidecar({ isPackaged: app.isPackaged, kernelDir: runDir, webDir, kernelExe, log });
+    sidecar = await startSidecar({ isPackaged: app.isPackaged, kernelDir: runDir, webDir, kernelExe, log, port: actualPort });
     clearInterval(trickle);
     setProgress(98, "正在加载界面…");
     // 内核页面渲染完成 → 关启动页、显示主窗口
     mainWindow.webContents.once("did-finish-load", () => { setProgress(100, "就绪"); revealMainWindow(); });
-    mainWindow.loadURL(`http://127.0.0.1:${WS_PORT}`);
+    mainWindow.loadURL(`http://127.0.0.1:${actualPort}`);
   } catch (e) {
     clearInterval(trickle);
     log.error("kernel 启动失败", e);

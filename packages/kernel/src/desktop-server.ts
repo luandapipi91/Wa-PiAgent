@@ -3,7 +3,8 @@
 import { startKernel } from "./index";
 
 const webDir = process.env.HIAGENT_WEB_DIR;
-startKernel(webDir ? { staticDir: webDir } : {})
+const port = Number(process.env.HIAGENT_WS_PORT) > 0 ? Number(process.env.HIAGENT_WS_PORT) : undefined;
+startKernel(webDir ? { staticDir: webDir, port } : { port })
   .then(({ port }) => console.log(`[kernel] 桌面 server 监听 http://127.0.0.1:${port}`))
   .catch((e) => {
     console.error("[kernel] 启动失败:", e);
