@@ -72,6 +72,7 @@ export function App() {
         case "skill:changed": useSkillsStore.getState().setAll(e); break;
         case "extension:list": useExtensionsStore.getState().setAll(e); break;
         case "extension:changed": useExtensionsStore.getState().setAll(e); break;
+        case "extension:error": useExtensionsStore.getState().setError(e); break;
         case "memory:list":
         case "memory:changed":
           useMemoryStore.getState().setMemories(e as any);
