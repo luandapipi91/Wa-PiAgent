@@ -1,4 +1,4 @@
-import { appendFile, mkdir, rename, unlink, rm, stat } from "node:fs/promises";
+import { appendFile, mkdir, rename, unlink, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, basename, extname } from "node:path";
 

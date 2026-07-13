@@ -16,7 +16,7 @@ import { readdir, readFile, mkdir, writeFile, copyFile, stat } from "node:fs/pro
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
-import { extname, basename, join, resolve } from "node:path";
+import { extname, basename, join, resolve, sep } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
 import { appendChunk, finalizeRecording, discardRecording } from "./recording-store";
@@ -60,14 +60,11 @@ export function resolveUploadFile(url: URL, projects: { cwd: string }[]): string
   const raw = url.searchParams.get("path");
   if (!raw) return null;
   const resolved = resolve(raw);              // 解析 .. 与相对段
-  if (resolved.includes("..")) return null;   // resolve 后仍含 .. → 拒
   for (const p of projects) {
     if (!p.cwd) continue;
     const uploadsRoot = resolve(join(p.cwd, ".hiagent", "uploads"));
-    // 确保是 uploadsRoot 的子路径（带尾部分隔符防前缀同名）
-    const rel = resolved.startsWith(uploadsRoot + "/") || resolved === uploadsRoot
-      ? resolved.slice(uploadsRoot.length) : null;
-    if (rel !== null && !rel.startsWith("..")) return resolved;
+    // 确保是 uploadsRoot 的子路径（含 .. 的合法文件名也放行，只要最终落在 uploads 下）
+    if (resolved === uploadsRoot || resolved.startsWith(uploadsRoot + sep)) return resolved;
   }
   return null;
 }
@@ -185,7 +182,7 @@ export class WSServer {
           return new Response("Not found", { status: 404 });
         }
         if (this.opts.staticDir) {
-          const urlPath = new URL(req.url).pathname;
+          const urlPath = url.pathname;
           const staticFilePath = resolveStaticPath(urlPath, this.opts.staticDir);
           const file = Bun.file(staticFilePath);
           if (file.size > 0) {
@@ -193,6 +190,7 @@ export class WSServer {
           }
           const indexFile = Bun.file(`${this.opts.staticDir}/index.html`);
           if (indexFile.size > 0) {
+            // SPA fallback：未知路由回退到前端入口
             return new Response(indexFile, { headers: { "content-type": "text/html" } });
           }
         }

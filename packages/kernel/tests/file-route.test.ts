@@ -24,8 +24,7 @@ test("缺少 path 参数返回 null", () => {
   expect(resolveUploadFile(u, projects)).toBeNull();
 });
 
-test("多个项目：命中其中任一 uploads 即放行", () => {
-  const multi = [{ cwd: "/a" }, { cwd: "/b" }];
-  const u = new URL("http://x/file?path=" + encodeURIComponent("/b/.hiagent/uploads/x.webm"));
-  expect(resolveUploadFile(u, multi)).toBe("/b/.hiagent/uploads/x.webm");
+test("文件名含 .. 但最终落在 uploads 内应放行", () => {
+  const u = new URL("http://x/file?path=" + encodeURIComponent("/home/me/proj/.hiagent/uploads/clip..take2.webm"));
+  expect(resolveUploadFile(u, projects)).toBe("/home/me/proj/.hiagent/uploads/clip..take2.webm");
 });
