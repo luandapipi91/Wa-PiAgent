@@ -1,0 +1,66 @@
+import { test, expect, beforeEach } from "bun:test";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { RecordingCapsule } from "../src/components/ui/RecordingCapsule";
+import { useRecordingStore } from "../src/store/recording";
+import { useProjectsStore } from "../src/store/projects";
+
+const fakeEngine = { start: async () => {}, pause: () => {}, resume: () => {}, stop: async () => ({ path: "", size: 0, durationMs: 0 }) };
+
+const { start: originalStart, pause: originalPause, resume: originalResume, stop: originalStop } = useRecordingStore.getState();
+
+beforeEach(() => {
+  useRecordingStore.setState({
+    status: "idle",
+    source: "mic",
+    owningProjectId: "",
+    owningSessionId: "",
+    ownerLabel: "",
+    startedAt: 0,
+    elapsedMs: 0,
+    error: undefined,
+    start: originalStart,
+    pause: originalPause,
+    resume: originalResume,
+    stop: originalStop,
+  });
+  useProjectsStore.setState({ currentSessionId: "s1" } as any);
+});
+
+test("idle 时不渲染", () => {
+  render(<RecordingCapsule />);
+  expect(screen.queryByTestId("recording-capsule")).toBeNull();
+});
+
+test("recording：显示计时、音源、暂停 + 停止；点停止调 store.stop", async () => {
+  useRecordingStore.setState({ status: "recording", source: "system", owningSessionId: "s1", ownerLabel: "项目A · 会话A", elapsedMs: 65000 });
+  let stopped = false;
+  useRecordingStore.setState({ stop: async () => { stopped = true; } } as any);
+  render(<RecordingCapsule />);
+  expect(screen.getByText("1:05")).toBeTruthy();           // formatDuration(65000)
+  expect(screen.getByText("🖥")).toBeTruthy();              // 系统音频 icon
+  fireEvent.click(screen.getByLabelText("停止录音"));
+  await waitFor(() => expect(stopped).toBe(true));
+});
+
+test("paused：显示继续按钮", () => {
+  useRecordingStore.setState({ status: "paused", source: "mic", owningSessionId: "s1", ownerLabel: "x", elapsedMs: 1000 });
+  useRecordingStore.setState({ resume: () => {}, stop: async () => {} } as any);
+  render(<RecordingCapsule />);
+  expect(screen.getByLabelText("继续录音")).toBeTruthy();
+});
+
+test("非归属会话：显示 ownerLabel", () => {
+  useProjectsStore.setState({ currentSessionId: "s-other" } as any);
+  useRecordingStore.setState({ status: "recording", source: "mic", owningSessionId: "s1", ownerLabel: "项目A · 会话A", elapsedMs: 0 });
+  useRecordingStore.setState({ pause: () => {}, stop: async () => {} } as any);
+  render(<RecordingCapsule />);
+  expect(screen.getByText("项目A · 会话A")).toBeTruthy();
+});
+
+test("recording 时设置 window.onbeforeunload，idle 时清空", () => {
+  useRecordingStore.setState({ status: "recording" });
+  const beforeUnload = window.onbeforeunload as unknown as (() => string) | null;
+  expect(beforeUnload?.()).toBe("正在录音，退出将丢失未保存录音");
+  useRecordingStore.setState({ status: "idle" });
+  expect(window.onbeforeunload).toBeNull();
+});
