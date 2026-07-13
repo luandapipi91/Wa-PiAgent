@@ -45,8 +45,10 @@ export function parseExtensionInput(raw: string): ParsedInput | null {
   if (input.startsWith("npm:")) {
     const validated = validatePackageName(input.slice(4).trim());
     if (!validated) return null;
+    // lastIndexOf("@") 对 "@scope/pkg" 返回 0（scope 的 @），对 "@scope/pkg@1.0.0" 返回 version 分隔符位置。
+    // "> 0" 已正确排除 scope-only 名；旧版 `&& !startsWith("@")` 守卫会让 @scope/pkg@1.0.0 永远无法拆分。
     const atIdx = validated.lastIndexOf("@");
-    if (atIdx > 0 && !validated.startsWith("@")) {
+    if (atIdx > 0) {
       return { source: "npm", name: validated.slice(0, atIdx), version: validated.slice(atIdx + 1) };
     }
     return { source: "npm", name: validated };
@@ -60,7 +62,7 @@ export function parseExtensionInput(raw: string): ParsedInput | null {
   const validated = validatePackageName(input);
   if (!validated) return null;
   const atIdx = validated.lastIndexOf("@");
-  if (atIdx > 0 && !validated.startsWith("@")) {
+  if (atIdx > 0) {
     return { source: "npm", name: validated.slice(0, atIdx), version: validated.slice(atIdx + 1) };
   }
   return { source: "npm", name: validated };
@@ -71,6 +73,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, resolve, isAbsolute } from "node:path";
 import { existsSync } from "node:fs";
 import type { PackageInfo } from "@hiagent/shared";
+import { HIAGENT_DIR } from "@hiagent/shared";
 import { NpmPackageService } from "./npm-package-service";
 
 interface ExtensionSettings {
@@ -80,7 +83,9 @@ interface ExtensionSettings {
   [k: string]: unknown;
 }
 
-const RUNTIME_DIR = `${process.env.HOME}/.hiagent/runtime`;
+// 复用 @hiagent/shared 的 HIAGENT_DIR（已跨平台解析 HOME/USERPROFILE/HIAGENT_DIR），
+// 避免 Windows + Electron 下 HOME 未定义导致 cwd 变成 "undefined/.hiagent/runtime"。
+const RUNTIME_DIR = join(HIAGENT_DIR, "runtime");
 
 export class ExtensionManager {
   private pkgService: NpmPackageService;
@@ -124,11 +129,14 @@ export class ExtensionManager {
 
   // ---- 包名匹配辅助 ----
 
-  /** 从 packages 数组中提取包名（去掉 npm: 前缀和 @version 后缀） */
+  /** 从 packages 数组中提取包名（去掉 npm:/git: 前缀和 @version 后缀） */
   private extractNames(packages: string[]): Map<string, string> {
     const map = new Map<string, string>();
     for (const p of packages) {
-      if (p.startsWith("npm:")) {
+      if (p.startsWith("git:")) {
+        // git:github.com/user/repo → bare name（与 list() 输出的 name 一致）
+        map.set(p.slice(4), p);
+      } else if (p.startsWith("npm:")) {
         const rest = p.slice(4);
         const atIdx = rest.lastIndexOf("@");
         const name = atIdx > 0 ? rest.slice(0, atIdx) : rest;

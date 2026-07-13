@@ -302,3 +302,104 @@ test("不可变更新：保留 settings.json 其他字段（含 disabledPackages
   expect(settings.other).toBe(1);
   expect(settings.disabledPackages).toEqual(["npm:legacy@1.0.0"]);
 });
+
+// ---- SHOULD-FIX 5 新增覆盖：upgrade happy-path / git 生命周期 / scoped+version 解析 ----
+
+test("upgrade happy-path：升级 npm 包并更新 settings 条目为新版本", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    packages: ["npm:test-pkg@1.0.0"],
+  }), "utf8");
+  const mgr = mockManager(dir);
+  const info = await mgr.upgrade("test-pkg");
+  // mock upgrade 返回 version "9.9.9"
+  expect(info.name).toBe("test-pkg");
+  expect(info.source).toBe("npm");
+  expect(info.version).toBe("9.9.9");
+  expect(info.enabled).toBe(true);
+
+  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  // 旧条目被替换为新版本
+  expect(settings.packages).toContain("npm:test-pkg@9.9.9");
+  expect(settings.packages).not.toContain("npm:test-pkg@1.0.0");
+});
+
+test("git 来源生命周期：install→disable→enable→uninstall 按 bare name 查找（验证 fix #2）", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    packages: [],
+  }), "utf8");
+  const mgr = mockManager(dir);
+  const repo = "github.com/user/repo";
+  const info = await mgr.install(`git:${repo}`);
+  expect(info.name).toBe(repo);
+  expect(info.source).toBe("git");
+
+  let settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.packages).toEqual([`git:${repo}`]);
+
+  // disable 按 bare name（repo）查找，证明 extractNames 已正确剥掉 git: 前缀
+  await mgr.disable(repo);
+  settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.packages).toEqual([]);
+  expect(settings.disabledPackages).toEqual([`git:${repo}`]);
+
+  // enable 按 bare name 移回
+  await mgr.enable(repo);
+  settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.packages).toEqual([`git:${repo}`]);
+  expect(settings.disabledPackages).toEqual([]);
+
+  // uninstall 按 bare name 移除
+  await mgr.uninstall(repo);
+  settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.packages).toEqual([]);
+  expect(settings.disabledPackages).toEqual([]);
+});
+
+test("scoped+version 安装：@scope/pkg@1.0.0 拆分为 name + version（验证 fix #3）", async () => {
+  // 用 spy 捕获 mock install 的入参
+  const calls: Array<{ name: string; version?: string }> = [];
+  const scopedMock = {
+    ...mockPkgService,
+    install: async (name: string, version?: string) => {
+      calls.push({ name, version });
+      return { version: version ?? "9.9.9" };
+    },
+    getInstalledVersion: (_name: string) => "1.0.0" as string | undefined,
+  };
+  const mgr = new ExtensionManager(dir, scopedMock as unknown as NpmPackageService);
+
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({ npmCommand: ["bun"] }), "utf8");
+  const info = await mgr.install("@scope/pkg@1.0.0");
+  expect(info.name).toBe("@scope/pkg");
+  expect(info.version).toBe("1.0.0");
+
+  // install 被以拆分后的 name + version 调用
+  expect(calls).toEqual([{ name: "@scope/pkg", version: "1.0.0" }]);
+
+  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  // 写入条目为 npm:@scope/pkg@<resolved>
+  expect(settings.packages).toContain("npm:@scope/pkg@1.0.0");
+});
+
+test("parseExtensionInput scoped+version：@scope/pkg@1.0.0 正确拆分", () => {
+  const r = parseExtensionInput("@scope/pkg@1.0.0");
+  expect(r?.source).toBe("npm");
+  expect(r?.name).toBe("@scope/pkg");
+  expect(r?.version).toBe("1.0.0");
+});
+
+test("parseExtensionInput scoped-only：@scope/pkg 无 version 不误拆", () => {
+  const r = parseExtensionInput("@scope/pkg");
+  expect(r?.source).toBe("npm");
+  expect(r?.name).toBe("@scope/pkg");
+  expect(r?.version).toBeUndefined();
+});
+
+test("parseExtensionInput npm: 前缀 + scoped+version", () => {
+  const r = parseExtensionInput("npm:@scope/pkg@2.0.0");
+  expect(r?.source).toBe("npm");
+  expect(r?.name).toBe("@scope/pkg");
+  expect(r?.version).toBe("2.0.0");
+});

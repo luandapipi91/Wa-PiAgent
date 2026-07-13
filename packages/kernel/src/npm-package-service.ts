@@ -1,6 +1,6 @@
 // packages/kernel/src/npm-package-service.ts
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 export interface NpmPackageServiceOpts {
   /** 包管理器命令，默认 ["bun"]，从 settings.json.npmCommand 读取 */
@@ -71,9 +71,18 @@ export class NpmPackageService {
         cwd: this.runtimeDir,
         stdio: ["pipe", "pipe", "pipe"],
       });
-      const viewExit = await view.exited;
-      if (viewExit !== 0) return undefined;
-      return (await new Response(view.stdout).text()).trim() || undefined;
+      // 加超时：离线/慢网络时 5s 后 kill，避免 list() 阻塞 Settings 面板
+      const VERSION_TIMEOUT_MS = 5000;
+      const timer = setTimeout(() => {
+        try { view.kill(); } catch {}
+      }, VERSION_TIMEOUT_MS);
+      try {
+        const viewExit = await view.exited;
+        if (viewExit !== 0) return undefined;
+        return (await new Response(view.stdout).text()).trim() || undefined;
+      } finally {
+        clearTimeout(timer);
+      }
     } catch {
       return undefined;
     }
@@ -84,7 +93,7 @@ export class NpmPackageService {
     try {
       const pkgJson = join(this.runtimeDir, "node_modules", name, "package.json");
       if (!existsSync(pkgJson)) return undefined;
-      const pkg = JSON.parse(require("node:fs").readFileSync(pkgJson, "utf8"));
+      const pkg = JSON.parse(readFileSync(pkgJson, "utf8"));
       return pkg.version;
     } catch {
       return undefined;
@@ -96,7 +105,7 @@ export class NpmPackageService {
     try {
       const pkgJson = join(this.runtimeDir, "node_modules", name, "package.json");
       if (!existsSync(pkgJson)) return undefined;
-      const pkg = JSON.parse(require("node:fs").readFileSync(pkgJson, "utf8"));
+      const pkg = JSON.parse(readFileSync(pkgJson, "utf8"));
       return pkg.description;
     } catch {
       return undefined;

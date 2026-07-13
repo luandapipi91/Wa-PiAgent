@@ -17,7 +17,7 @@ export function ExtensionSection() {
   const [confirmUninstall, setConfirmUninstall] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
 
-  const handleInstall = async () => {
+  const handleInstall = () => {
     const name = inputValue.trim();
     if (!name) return;
     setInstalling(true);
@@ -109,8 +109,13 @@ export function ExtensionSection() {
                   <p className="text-xs text-secondary mt-1 line-clamp-1">{pkg.description}</p>
                 )}
 
-                {/* 启用/禁用开关 */}
-                <label className="flex items-center gap-2 mt-2 cursor-pointer" style={{ width: "fit-content" }}>
+                {/* 启用/禁用开关：onClick 绑在 <label> 上，文字点击也能切换 */}
+                <label
+                  className="flex items-center gap-2 mt-2 cursor-pointer"
+                  style={{ width: "fit-content" }}
+                  onClick={() => togglePackage(pkg.name, !pkg.enabled)}
+                  data-testid={`ext-toggle-${pkg.name}`}
+                >
                   <span
                     className="relative inline-block rounded-full transition-colors"
                     style={{
@@ -118,8 +123,6 @@ export function ExtensionSection() {
                       height: 22,
                       background: pkg.enabled ? "var(--success)" : "#cbd5e1",
                     }}
-                    onClick={() => togglePackage(pkg.name, !pkg.enabled)}
-                    data-testid={`ext-toggle-${pkg.name}`}
                   >
                     <span
                       className="absolute top-0.5 rounded-full bg-white transition-all"
