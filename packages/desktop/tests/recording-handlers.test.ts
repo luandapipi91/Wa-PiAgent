@@ -34,11 +34,19 @@ test("getDisplayMedia handler 返回 loopback 音频且不抛", async () => {
   expect(result.audio).toBe("loopback");
 });
 
-test("permission handler 一律放行（免弹窗）", () => {
+test("permission handler 仅放行媒体/录音相关权限", () => {
   const { session } = makeFakeSession();
   setupRecordingHandlers(session as any, { getSources: async () => [] } as any);
+
   let granted = false;
-  session._prh({}, "media", (v: boolean) => { granted = v; });
+  session._prh(null, "media", (v: boolean) => { granted = v; });
   expect(granted).toBe(true);
-  expect(session._pch()).toBe(true);
+
+  session._prh(null, "notifications", (v: boolean) => { granted = v; });
+  expect(granted).toBe(false);
+
+  expect(session._pch(null, "media")).toBe(true);
+  expect(session._pch(null, "display-capture")).toBe(true);
+  expect(session._pch(null, "notifications")).toBe(false);
+  expect(session._pch(null, "geolocation")).toBe(false);
 });
