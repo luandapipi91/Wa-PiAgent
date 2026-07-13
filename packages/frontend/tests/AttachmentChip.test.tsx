@@ -50,16 +50,14 @@ test("remove button has accessible label and type button", () => {
   expect((removeButton as HTMLButtonElement).type).toBe("button");
 });
 
-test("audio chip 渲染文件名 + <audio> 试听 + 移除按钮", () => {
+test("audio chip 渲染文件名 + 麦克风图标 + 移除按钮，不渲染 <audio>", () => {
   const a: AttachmentDraft = { kind: "audio", name: "录音 0:02.webm", path: "/p/.hiagent/uploads/rec.webm", size: 10, durationMs: 2000 };
   const onRemove = () => {};
   render(<AttachmentChip attachment={a} onRemove={onRemove} />);
   expect(screen.getByText("录音 0:02.webm")).toBeTruthy();
-  const audio = document.querySelector("audio") as HTMLAudioElement;
-  expect(audio).toBeTruthy();
-  expect(audio?.getAttribute("src")).toBe("/file?path=" + encodeURIComponent("/p/.hiagent/uploads/rec.webm"));
-  expect(audio?.className).toContain("w-full");
-  expect(audio?.className).toContain("min-w-[220px]");
+  const chip = screen.getByTestId("attachment-chip");
+  expect(chip.textContent).toContain("🎤");
+  expect(document.querySelector("audio")).toBeNull();
   expect(screen.getByLabelText("移除附件")).toBeTruthy();
 });
 

@@ -1,5 +1,4 @@
 import type { AttachmentDraft } from "@hiagent/shared";
-import { pathToUploadUrl } from "../../fs-client";
 
 interface Props {
   attachment: AttachmentDraft;
@@ -29,9 +28,6 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
           className="text-tertiary hover:text-danger ml-1"
         >✕</button>
       </span>
-      {attachment.kind === "audio" && (
-        <audio controls src={pathToUploadUrl(attachment.path)} className="h-10 w-full min-w-[220px]" data-testid="attachment-audio" />
-      )}
     </span>
   );
 }
