@@ -1,5 +1,5 @@
-// spawn 解释运行的 kernel sidecar：dev 下 bun.exe run <repo>/packages/kernel/src/desktop-server.ts；
-// packaged 下 <kernelDir>/bun.exe run <kernelDir>/kernel.js。等 9776 ready；退出时 kill 子进程树。
+// spawn 解释运行的 kernel sidecar：dev 下 bun run <repo>/packages/kernel/src/desktop-server.ts；
+// packaged 下 <kernelDir>/hiagent-kernel(.exe) run <kernelDir>/kernel.js。等 9776 ready；退出时 kill 子进程树。
 const { spawn, spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { waitForPort } = require("./util/port.cjs");
@@ -13,12 +13,12 @@ function killTree(pid) {
   } catch {}
 }
 
-async function startSidecar({ isPackaged, kernelDir, webDir, bunExe, log }) {
-  // dev: repo 下用 bun 跑 kernel 源码入口；packaged: kernelDir 里 bun.exe run kernel.js
+async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log }) {
+  // dev: repo 下用 bun 跑 kernel 源码入口；packaged: kernelDir 里 hiagent-kernel(.exe) run kernel.js
   // Windows dev 路径上 "bun" 是 .cmd shim——Node 20+ 出于 CVE-2024-27980 默认拒绝 spawn
   // .cmd/.bat（spawn EINVAL），必须 shell:true 让 cmd.exe 解析 PATHEXT。
   const isWin = process.platform === "win32";
-  const cmd = isPackaged ? bunExe : "bun";
+  const cmd = isPackaged ? kernelExe : "bun";
   const arg = isPackaged
     ? ["run", path.join(kernelDir, "kernel.js")]
     : ["run", path.join(kernelDir, "src", "desktop-server.ts")];
