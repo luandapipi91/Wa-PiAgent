@@ -11,7 +11,7 @@ beforeEach(() => {
   useComposerPrefsStore.setState({ bySession: {} });
 });
 
-function fakeEngine(): { engine: RecordingEngine; startArgs: StartArgs | null; stopped: boolean } {
+function fakeEngine(): { engine: RecordingEngine; startArgs: StartArgs | null } {
   let startArgs: StartArgs | null = null;
   const engine: RecordingEngine = {
     start: async (a) => { startArgs = a; },
@@ -19,7 +19,7 @@ function fakeEngine(): { engine: RecordingEngine; startArgs: StartArgs | null; s
     resume: () => {},
     stop: async (): Promise<RecordingResult> => ({ path: "/p/uploads/rec.webm", size: 100, durationMs: 2000 }),
   };
-  return { engine, get startArgs() { return startArgs; }, stopped: false } as any;
+  return { engine, get startArgs() { return startArgs; } } as any;
 }
 
 test("start 进入 recording 并记录归属", async () => {
@@ -78,4 +78,35 @@ test("start 失败：status 回 idle + error，且 rethrow", async () => {
   await expect(useRecordingStore.getState().start({ source: "mic", projectId: "p1", sessionId: "s1", ownerLabel: "x" })).rejects.toThrow("无设备");
   expect(useRecordingStore.getState().status).toBe("idle");
   expect(useRecordingStore.getState().error).toBe("无设备");
+});
+
+test("stop 失败：status 回 idle + error", async () => {
+  const engine: RecordingEngine = {
+    start: async () => {},
+    pause: () => {},
+    resume: () => {},
+    stop: async () => { throw new Error("保存失败"); },
+  };
+  _setRecordingManager(engine);
+  await useRecordingStore.getState().start({ source: "mic", projectId: "p1", sessionId: "s1", ownerLabel: "x" });
+  await useRecordingStore.getState().stop();
+  expect(useRecordingStore.getState().status).toBe("idle");
+  expect(useRecordingStore.getState().error).toBe("保存失败");
+});
+
+test("durationMs 为 0 时不写入 draft", async () => {
+  const engine: RecordingEngine = {
+    start: async () => {},
+    pause: () => {},
+    resume: () => {},
+    stop: async () => ({ path: "/p/uploads/rec.webm", size: 100, durationMs: 0 }),
+  };
+  _setRecordingManager(engine);
+  useComposerPrefsStore.setState({ bySession: { s1: { model: null, thinking: "disabled", attachments: [] } } });
+  await useRecordingStore.getState().start({ source: "mic", projectId: "p1", sessionId: "s1", ownerLabel: "x" });
+  await useRecordingStore.getState().stop();
+  const drafts = useComposerPrefsStore.getState().bySession["s1"].attachments;
+  expect(drafts.length).toBe(1);
+  expect(drafts[0].kind).toBe("audio");
+  expect("durationMs" in drafts[0]).toBe(false);
 });

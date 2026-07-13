@@ -79,12 +79,12 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
       const result: RecordingResult = await getRecordingManager().stop();
       // audio draft 写入归属会话 composer
       const draft: AttachmentDraft = {
-        kind: "audio",
+        kind: "audio" as const,
         name: result.path.split(/[\\/]/).pop() ?? "recording.webm",
         path: result.path,
         size: result.size,
         ...(result.durationMs ? { durationMs: result.durationMs } : {}),
-      } as AttachmentDraft;
+      };
       const existing = useComposerPrefsStore.getState().bySession[owningSessionId]?.attachments ?? [];
       useComposerPrefsStore.getState().setSessionPrefs(owningSessionId, { attachments: [...existing, draft] });
     } catch (e) {
@@ -100,11 +100,16 @@ function beforeUnloadHandler(e: BeforeUnloadEvent) {
   e.returnValue = "正在录音，退出将丢失未保存录音";
 }
 
+let beforeUnloadRegistered = false;
 useRecordingStore.subscribe((state, prevState) => {
   if (state.status === prevState?.status) return;
-  if (state.status !== "idle") {
+  const active = state.status !== "idle";
+  if (active === beforeUnloadRegistered) return;
+  if (active) {
     window.addEventListener("beforeunload", beforeUnloadHandler);
+    beforeUnloadRegistered = true;
   } else {
     window.removeEventListener("beforeunload", beforeUnloadHandler);
+    beforeUnloadRegistered = false;
   }
 });

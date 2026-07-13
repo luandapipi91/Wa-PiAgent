@@ -52,7 +52,7 @@ export async function startKernel(
   // 启动清理：上次崩溃/异常退出遗留的录音临时分片
   try {
     const { projects } = await projectStore.load();
-    await Promise.all(projects.map(p => p.cwd ? cleanupRecordingTemp(join(p.cwd, ".hiagent", "uploads")) : Promise.resolve()));
+    await Promise.allSettled(projects.map(p => p.cwd ? cleanupRecordingTemp(join(p.cwd, ".hiagent", "uploads")) : Promise.resolve()));
   } catch (e) {
     console.warn("[kernel] 清理录音临时文件失败:", e);
   }
