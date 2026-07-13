@@ -19,4 +19,6 @@ test("getMimeType: 常见类型", () => {
   expect(getMimeType("a.js")).toBe("text/javascript");
   expect(getMimeType("a.css")).toBe("text/css");
   expect(getMimeType("a.svg")).toBe("image/svg+xml");
+  expect(getMimeType("a.webm")).toBe("audio/webm");
+  expect(getMimeType("a.weba")).toBe("audio/webm");
 });
