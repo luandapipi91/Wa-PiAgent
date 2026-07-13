@@ -24,7 +24,9 @@ async function step0TestGate(noTest: boolean) {
   const target = values.target ?? "win";
   await step0TestGate(!!values["no-test"]);
   console.log("[build] 步骤1: 组装 kernel sidecar + web");
-  await buildSidecar(target);
+  // electron-builder 用 --mac；sidecar 平台名为 darwin
+  const sidecarTarget = target === "mac" ? "darwin" : target;
+  await buildSidecar(sidecarTarget);
   console.log(`[build] 步骤2: electron-builder 出 ${target}`);
   run("npx", ["electron-builder", `--${target}`]);
   console.log("[build] ✅ 完成 → packages/desktop/release/");

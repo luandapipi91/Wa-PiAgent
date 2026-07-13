@@ -1,7 +1,7 @@
 // 组装 resources/kernel/(bun.exe + kernel.js + node_modules) + resources/web/(前端 dist)。
 // 复用 tray-binary P2 的文件夹组装逻辑（解释 kernel sidecar = 已验证形态）。
 import { spawnSync } from "node:child_process";
-import { cp, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,6 +19,11 @@ function run(bin: string, args: string[], cwd = ROOT) {
 const BUN_TARGET = {
   win: { archive: "bun-windows-x64.zip", dir: "bun-windows-x64", bin: "bun.exe" },
   linux: { archive: "bun-linux-x64.zip", dir: "bun-linux-x64", bin: "bun" },
+  darwin: {
+    archive: process.arch === "arm64" ? "bun-darwin-arm64.zip" : "bun-darwin-x64.zip",
+    dir: process.arch === "arm64" ? "bun-darwin-arm64" : "bun-darwin-x64",
+    bin: "bun",
+  },
 } as const;
 
 // 下载 URL（按优先级；github 可能被墙，npmmirror 是国内镜像）
@@ -77,7 +82,7 @@ async function findBunBinary(extractedRoot: string, binName: string): Promise<st
 }
 
 // 取目标平台的 bun 二进制：优先下载；下载不可用时仅在 host 与 target 平台一致时回退复制 host bun。
-async function fetchTargetBun(target: "win" | "linux", kernelDir: string): Promise<void> {
+async function fetchTargetBun(target: "win" | "linux" | "darwin", kernelDir: string): Promise<void> {
   const spec = BUN_TARGET[target];
   const outBin = join(kernelDir, spec.bin);
   const tmpZip = join(tmpdir(), `hiagent-${spec.archive}`);
@@ -110,7 +115,8 @@ async function fetchTargetBun(target: "win" | "linux", kernelDir: string): Promi
   // 2) 兜底：仅当 host 与 target 平台一致时复制 host bun
   const hostMatchesTarget =
     (target === "win" && process.platform === "win32") ||
-    (target === "linux" && process.platform === "linux");
+    (target === "linux" && process.platform === "linux") ||
+    (target === "darwin" && process.platform === "darwin");
   if (hostMatchesTarget) {
     console.warn(`[sidecar] ⚠️ 所有镜像下载失败，回退复制 host bun (${process.execPath})——仅 host==target 时安全`);
     await cp(process.execPath, outBin);
@@ -124,9 +130,9 @@ async function fetchTargetBun(target: "win" | "linux", kernelDir: string): Promi
   );
 }
 
-export async function buildSidecar(target: "win" | "linux" | string) {
-  if (target !== "win" && target !== "linux") {
-    throw new Error(`[sidecar] 不支持的 target: ${target}（仅 win / linux）`);
+export async function buildSidecar(target: "win" | "linux" | "darwin" | string) {
+  if (target !== "win" && target !== "linux" && target !== "darwin") {
+    throw new Error(`[sidecar] 不支持的 target: ${target}（仅 win / linux / darwin）`);
   }
   const kernelDir = join(RES, "kernel");
   const webDir = join(RES, "web");
@@ -149,6 +155,11 @@ export async function buildSidecar(target: "win" | "linux" | string) {
 
   // 3. bun 运行时（下载 TARGET 平台 bun；不再无条件复制 host bun，避免 Linux CI 误把 Linux bun 当 bun.exe 发出去）
   await fetchTargetBun(target, kernelDir);
+  // 重命名 bun → hiagent-kernel（分发进程名不暴露 bun；Bun CLI 不依赖自身文件名）
+  const finalBin = target === "win" ? "hiagent-kernel.exe" : "hiagent-kernel";
+  await rename(join(kernelDir, BUN_TARGET[target].bin), join(kernelDir, finalBin));
+  // POSIX 目标需保证可执行位（下载/解压偶尔丢失）
+  if (target !== "win") run("chmod", ["+x", join(kernelDir, finalBin)]);
 
   // 4. web（前端 dist）
   run("bun", ["run", "--filter", "@hiagent/frontend", "build"]);

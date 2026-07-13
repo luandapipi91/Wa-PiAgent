@@ -30,4 +30,5 @@ if __name__ == "__main__":
     img.save(os.path.join(out,"tray_windows.ico"), format="ICO", sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])
     img.resize((128,128)).save(os.path.join(out,"tray_darwin.png"))
     img.resize((64,64)).save(os.path.join(out,"tray_linux.png"))
+    render(1024).save(os.path.join(out,"icon-mac.png"))  # macOS .app/.dmg 用，>=512 才合规
     print("icons ->", out)

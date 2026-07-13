@@ -1,16 +1,17 @@
 {
   "name": "@hiagent/desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "src/main.cjs",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "dev": "electron .",
+    "dev": "unset ELECTRON_RUN_AS_NODE && electron .",
     "build:win": "bun run scripts/build.ts --target=win",
     "build:linux": "bun run scripts/build.ts --target=linux",
-    "build:all": "bun run build:win && bun run build:linux"
+    "build:mac": "bun run scripts/build.ts --target=mac",
+    "build:all": "bun run build:win && bun run build:linux && bun run build:mac"
   },
   "dependencies": {},
   "devDependencies": {
