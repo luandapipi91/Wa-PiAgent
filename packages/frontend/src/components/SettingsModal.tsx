@@ -3,6 +3,7 @@ import { ProviderSection } from "./settings/ProviderSection";
 import { SkillSection } from "./settings/SkillSection";
 import { ExtensionSection } from "./settings/ExtensionSection";
 import { MemorySection } from "./settings/MemorySection";
+import { McpSection } from "./settings/McpSection";
 import { useSettingsStore } from "../store/settings";
 
 interface Props {
@@ -50,6 +51,14 @@ export function SettingsModal({ onClose }: Props) {
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-memory"
           >记忆</button>
+          <button
+            onClick={() => setSection("mcp")}
+            className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
+            style={activeSection === "mcp"
+              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              : { color: "var(--secondary)" }}
+            data-testid="settings-nav-mcp"
+          >MCP 连接器</button>
         </nav>
         {/* 右侧内容 */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -57,6 +66,7 @@ export function SettingsModal({ onClose }: Props) {
           {activeSection === "skills" && <SkillSection />}
           {activeSection === "plugins" && <ExtensionSection />}
           {activeSection === "memory" && <MemorySection />}
+          {activeSection === "mcp" && <McpSection />}
         </div>
       </div>
     </Modal>

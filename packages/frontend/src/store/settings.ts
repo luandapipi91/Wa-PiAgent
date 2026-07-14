@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type SettingsSection = "models" | "skills" | "plugins" | "memory";
+export type SettingsSection = "models" | "skills" | "plugins" | "memory" | "mcp";
 
 interface SettingsState {
   showSettings: boolean;
