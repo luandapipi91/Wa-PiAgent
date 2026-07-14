@@ -80,8 +80,10 @@ export const DEFAULT_AGENT_TOOLS = [
   "ask_user_question",
 ];
 
-/** 各可选插件注册的工具名（插件禁用时从 allowlist 过滤掉）。
- *  键 = OPTIONAL_EXTENSIONS 里的插件 id（见 kernel/extensions.ts）。 */
+/** 已知扩展注册的工具名（扩展未启用时从 agent 工具 allowlist 过滤掉）。
+ *  键 = 扩展包名，与 settings.json.packages 的 npm:<name>@<version> 中 <name> 一致
+ *  （即 ExtensionManager.list() 返回的 PackageInfo.name）。
+ *  目前仅 pi-lens；其它动态插件若注册工具，也需在此登记，否则会被 allowlist 过滤。 */
 export const EXTENSION_TOOL_MAP: Record<string, string[]> = {
   "pi-lens": [
     "lsp_navigation",
