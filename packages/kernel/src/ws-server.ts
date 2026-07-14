@@ -828,12 +828,14 @@ export class WSServer {
             });
 
             let testResult = { ok: false, error: "" };
-            const timeout = setTimeout(() => {
-              testResult = { ok: false, error: "连接测试超时" };
-              session.dispose();
-            }, 30000);
 
             await new Promise<void>((resolvePromise) => {
+              const timeout = setTimeout(() => {
+                testResult = { ok: false, error: "连接测试超时" };
+                try { session.dispose(); } catch {}
+                resolvePromise();
+              }, 30000);
+
               session.subscribe((ev: any) => {
                 if (ev.type === "agent_end") {
                   clearTimeout(timeout);
@@ -885,11 +887,12 @@ export class WSServer {
               modelRegistry,
             });
 
-            const timeout = setTimeout(() => {
-              session.dispose();
-            }, 60000);
-
             await new Promise<void>((resolvePromise) => {
+              const timeout = setTimeout(() => {
+                try { session.dispose(); } catch {}
+                resolvePromise();
+              }, 60000);
+
               session.subscribe((ev: any) => {
                 if (ev.type === "agent_end") {
                   clearTimeout(timeout);
@@ -905,7 +908,7 @@ export class WSServer {
             });
             reply({ type: "mcp:testResult", serverName: event.serverName, success: true });
           } catch (err) {
-            reply({ type: "error", message: (err as Error).message });
+            reply({ type: "mcp:testResult", serverName: event.serverName, success: false, error: `Pi 启动失败: ${(err as Error).message}` });
           }
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
