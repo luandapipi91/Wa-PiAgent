@@ -13,6 +13,7 @@ import { useProjectsStore } from "./store/projects";
 import { useSessionStore } from "./store/session";
 import { useSkillsStore } from "./store/skills";
 import { useExtensionsStore } from "./store/extensions";
+import { useMcpStore } from "./store/mcp";
 import { useMemoryStore } from "./store/memory";
 import { useToastStore } from "./store/toast";
 import { useComposerPrefsStore } from "./store/composer-prefs";
@@ -85,6 +86,16 @@ export function App() {
           break;
         case "memory:config":
           useMemoryStore.getState().setConfig(e as any);
+          break;
+        case "mcp:list":
+        case "mcp:changed":
+          useMcpStore.getState().setServers(e as any);
+          break;
+        case "mcp:testResult":
+          useMcpStore.getState().setTestResult(e as any);
+          break;
+        case "mcp:tools":
+          useMcpStore.getState().setToolsResult(e as any);
           break;
       }
     });
