@@ -17,7 +17,6 @@
     "@hiagent/shared": "workspace:*",
     "pi-intercom": "^0.6.0",
     "pi-web-access": "^0.13.0",
-    "pi-lens": "^3.8.0",
     "@amaster.ai/pi-memory": "^0.1.5",
     "typebox": "1.1.38"
   }

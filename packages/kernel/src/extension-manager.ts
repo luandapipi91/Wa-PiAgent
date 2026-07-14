@@ -208,7 +208,7 @@ export class ExtensionManager {
     return { packages: result };
   }
 
-  async install(rawInput: string): Promise<PackageInfo> {
+  async install(rawInput: string, onProgress?: (line: string) => void): Promise<PackageInfo> {
     const parsed = parseExtensionInput(rawInput);
     if (!parsed) throw new Error("无效的插件名称格式");
 
@@ -234,7 +234,7 @@ export class ExtensionManager {
 
     switch (parsed.source) {
       case "npm": {
-        const result = await this.pkgService.install(parsed.name, parsed.version);
+        const result = await this.pkgService.install(parsed.name, parsed.version, onProgress);
         version = result.version;
         entry = `npm:${parsed.name}@${version}`;
         break;

@@ -12,6 +12,7 @@ import type {
   ExtensionListEvent, ExtensionToggleEvent,
   ExtensionInstallEvent, ExtensionUninstallEvent, ExtensionUpgradeEvent,
   ExtensionListResult, ExtensionChangedEvent, ExtensionErrorEvent,
+  ExtensionProgressEvent, ExtensionInstallDoneEvent,
 } from "./extensions";
 import type {
   MemoryListEvent, MemoryUpdateEvent, MemoryArchiveEvent, MemoryRestoreEvent,
@@ -366,6 +367,7 @@ export type WSServerEvent =
   | ProviderListResult | ProviderTestResult | ProviderChangedEvent
   | SkillListResult | SkillChangedEvent
   | ExtensionListResult | ExtensionChangedEvent | ExtensionErrorEvent
+  | ExtensionProgressEvent | ExtensionInstallDoneEvent
   | MemoryListResult | MemoryChangedEvent
   | InstructionListResult | MemoryConfigEvent
   | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSCopyResult | FSSearchResult | FSSearchProgressEvent | FSErrorEvent

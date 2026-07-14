@@ -69,13 +69,60 @@ const PKG_EXTENSIONS = [
 ] as const;
 
 /**
+ * 读取 npm 包 package.json 的 pi.extensions 声明。
+ * 用作「该包是否为 Pi 扩展」的判定信号：非 Pi 扩展 / 无声明 / 无法解析时返回 undefined。
+ * 动态加载时据此 gate，避免把任意已启用 npm 包的 main 当扩展入口导入（执行其副作用）。
+ */
+function readPiExtensionsDeclaration(pkgName: string): string[] | undefined {
+  try {
+    const pkg = require(`${pkgName}/package.json`) as { pi?: { extensions?: string[] } };
+    const exts = pkg?.pi?.extensions;
+    return Array.isArray(exts) && exts.length > 0 ? exts : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * 构造注入 DefaultResourceLoader.additionalExtensionPaths 的全部扩展入口。
  * 含 hiagent 自生成的 provider-extension（运行时从 providers.json 生成到 GENERATED_DIR）。
+ *
+ * @param dynamicPkgNames 运行时安装并启用的第三方扩展包名（来自 ExtensionManager.list()）。
+ *   仅纳入声明了 pi.extensions 的包（Pi 扩展信号），其余静默跳过。默认空数组（向后兼容）。
  */
-export function buildAdditionalExtensionPaths(): string[] {
+export function buildAdditionalExtensionPaths(dynamicPkgNames: string[] = []): string[] {
   const paths = PKG_EXTENSIONS.map(resolveExtensionEntryFile);
+  // 动态安装的第三方扩展：把已启用且为 Pi 扩展的包入口并入 loader 路径，
+  // 否则 SDK 永远不会加载它们 → 它们的工具/钩子不注册（即动态插件「装了但没生效」的根因）。
+  for (const name of dynamicPkgNames) {
+    if (!readPiExtensionsDeclaration(name)) continue;  // 非 Pi 扩展，跳过
+    try {
+      paths.push(resolveExtensionEntryFile(name));
+    } catch (err) {
+      console.error(`[kernel] 解析动态扩展入口失败 ${name}:`, err);
+    }
+  }
   // provider-extension 由 main()/ws-server 动态生成，首启或测试前可能尚未存在
   const providerExt = join(GENERATED_DIR, "provider-extension.ts");
   if (existsSync(providerExt)) paths.push(providerExt);
   return paths;
+}
+
+/**
+ * 从 DefaultResourceLoader.getExtensions().runtime.tools 提取已加载扩展注册的工具名。
+ * runtime.tools 是 Map<string, RegisteredTool>，键即工具名（扩展经 pi.registerTool({name}) 注册）。
+ * loader 为空 / 无 getExtensions / 结构不符时返回空数组（容错，绝不抛错）。
+ *
+ * 注意：runtime.tools 已只含「实际被 loader 加载」的扩展工具——builtin（pi-intercom/pi-web-access）
+ * 加 已启用第三方扩展（由 buildAdditionalExtensionPaths 的 dynamicPkgNames gate）。
+ * 因此直接全部并入 allowlist 即可，无需再按 enabledExtensionIds 二次过滤。
+ */
+export function extractRuntimeToolNames(loader: unknown): string[] {
+  try {
+    const tools = (loader as any)?.getExtensions?.()?.runtime?.tools;
+    if (!(tools instanceof Map)) return [];
+    return [...tools.keys()];
+  } catch {
+    return [];
+  }
 }

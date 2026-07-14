@@ -5,7 +5,17 @@ import {
   resolveAgentTools,
 } from "../src/constants";
 
-test("DEFAULT_AGENT_TOOLS 含 Pi 内置文件工具、pi-web-access 网络工具与 amaster memory 记忆工具", () => {
+// pi-lens 已彻底移除：这些工具名不应再出现在默认 allowlist 或扩展映射里
+const REMOVED_LENS_TOOLS = [
+  "ast_grep_search",
+  "ast_grep_replace",
+  "ast_grep_outline",
+  "module_report",
+  "read_symbol",
+  "read_enclosing",
+];
+
+test("DEFAULT_AGENT_TOOLS 含 Pi 内置文件工具、网络工具与 amaster memory 记忆工具", () => {
   expect(DEFAULT_AGENT_TOOLS).toContain("read");
   expect(DEFAULT_AGENT_TOOLS).toContain("bash");
   expect(DEFAULT_AGENT_TOOLS).toContain("edit");
@@ -22,46 +32,68 @@ test("DEFAULT_AGENT_TOOLS 含 Pi 内置文件工具、pi-web-access 网络工具
   expect(DEFAULT_AGENT_TOOLS).toContain("memory_remove");
   expect(DEFAULT_AGENT_TOOLS).toContain("memory_read");
   expect(DEFAULT_AGENT_TOOLS).toContain("session_search");
+  expect(DEFAULT_AGENT_TOOLS).toContain("ask_user_question");
 });
 
-// ---- resolveAgentTools：按可选插件启用态过滤工具 allowlist ----
-
-test("resolveAgentTools: pi-lens 启用 → 9 个 lens 工具全部保留", () => {
-  const result = resolveAgentTools(DEFAULT_AGENT_TOOLS, new Set(["pi-lens"]));
-  for (const tool of EXTENSION_TOOL_MAP["pi-lens"]) {
-    expect(result).toContain(tool);
+test("DEFAULT_AGENT_TOOLS 不再包含 pi-lens 专属工具", () => {
+  for (const tool of REMOVED_LENS_TOOLS) {
+    expect(DEFAULT_AGENT_TOOLS).not.toContain(tool);
   }
-  // 非 lens 工具不受影响
-  expect(result).toContain("read");
-  expect(result).toContain("memory_read");
 });
 
-test("resolveAgentTools: pi-lens 禁用 → 9 个 lens 工具被过滤，其余工具不受影响", () => {
-  const result = resolveAgentTools(DEFAULT_AGENT_TOOLS, new Set());
-  // lens 工具全部移除
-  for (const tool of EXTENSION_TOOL_MAP["pi-lens"]) {
-    expect(result).not.toContain(tool);
-  }
-  // 基础工具/记忆工具/网络工具原样保留
-  expect(result).toContain("read");
-  expect(result).toContain("edit");
-  expect(result).toContain("bash");
-  expect(result).toContain("memory_add");
-  expect(result).toContain("web_search");
-  expect(result).toContain("ask_user_question");
-  // 过滤后数量 = 默认集 - 9 个 lens 工具
-  expect(result.length).toBe(DEFAULT_AGENT_TOOLS.length - EXTENSION_TOOL_MAP["pi-lens"].length);
+test("EXTENSION_TOOL_MAP 不再包含 pi-lens 键", () => {
+  expect(EXTENSION_TOOL_MAP).not.toHaveProperty("pi-lens");
 });
 
-test("resolveAgentTools: 空插件集等价于全部禁用 → 过滤掉所有可选插件工具", () => {
-  const base = ["read", "lsp_navigation", "ast_grep_search", "edit"];
-  const result = resolveAgentTools(base, new Set());
-  expect(result).toEqual(["read", "edit"]);
+// ---- resolveAgentTools：按已启用扩展「注入」工具（替代旧的从默认集过滤）----
+// 第 4 个参数 toolMap 可注入伪注册表，便于测试，默认用 EXTENSION_TOOL_MAP
+
+test("resolveAgentTools: 注入已启用扩展的工具（保留 base 顺序）", () => {
+  const fakeMap = { "demo-ext": ["demo_tool_a", "demo_tool_b"] };
+  const result = resolveAgentTools(["read", "edit"], new Set(["demo-ext"]), undefined, fakeMap);
+  expect(result).toEqual(["read", "edit", "demo_tool_a", "demo_tool_b"]);
+});
+
+test("resolveAgentTools: 未启用的扩展工具不被注入", () => {
+  const fakeMap = { "demo-ext": ["demo_tool_a"] };
+  const result = resolveAgentTools(["read"], new Set(), undefined, fakeMap);
+  expect(result).toEqual(["read"]);
+});
+
+test("resolveAgentTools: 已注入工具与 base 重复时去重", () => {
+  const fakeMap = { "demo-ext": ["read", "demo_tool_a"] };
+  const result = resolveAgentTools(["read", "edit"], new Set(["demo-ext"]), undefined, fakeMap);
+  expect(result).toEqual(["read", "edit", "demo_tool_a"]);
 });
 
 test("resolveAgentTools: 不修改原数组（不可变）", () => {
-  const base = ["read", "lsp_navigation", "edit"];
+  const base = ["read", "edit"];
   const snapshot = [...base];
-  resolveAgentTools(base, new Set());
+  resolveAgentTools(base, new Set(), undefined, {});
   expect(base).toEqual(snapshot);
+});
+
+// ---- 动态工具发现（option B）：第 5 个参数 harvestedTools 注入 loader.reload() 后
+// 从 runtime.tools 枚举出的工具名。替代手动维护 EXTENSION_TOOL_MAP 的静态登记。
+
+test("resolveAgentTools: 注入运行时发现的扩展工具名（harvested）", () => {
+  const result = resolveAgentTools(["read"], new Set(), undefined, {}, ["hypa_shell", "hypa_read"]);
+  expect(result).toEqual(["read", "hypa_shell", "hypa_read"]);
+});
+
+test("resolveAgentTools: harvested 与 base / toolMap 去重", () => {
+  const result = resolveAgentTools(
+    ["read", "bash"],
+    new Set(["e"]),
+    undefined,
+    { e: ["hypa_shell"] },
+    ["read", "hypa_shell", "hypa_ls"],
+  );
+  // read(base) + bash(base) + hypa_shell(toolMap) + hypa_ls(harvested，去重 hypa_shell 已存在)
+  expect(result).toEqual(["read", "bash", "hypa_shell", "hypa_ls"]);
+});
+
+test("resolveAgentTools: harvested 默认空（向后兼容 4 参调用）", () => {
+  const result = resolveAgentTools(["read"], new Set(["e"]), undefined, { e: ["demo_tool_a"] });
+  expect(result).toEqual(["read", "demo_tool_a"]);
 });

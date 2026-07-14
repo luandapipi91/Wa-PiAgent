@@ -98,3 +98,12 @@ body {
   from { opacity: 0; transform: translateY(-12px) scale(0.96); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* 插件安装：不定进度条（包管理器输出无确定百分比，仅做活动指示；只动 transform） */
+@keyframes ext-install-indeterminate {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(360%); }
+}
+.ext-install-bar {
+  animation: ext-install-indeterminate 1.1s ease-in-out infinite;
+}

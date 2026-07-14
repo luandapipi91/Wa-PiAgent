@@ -150,7 +150,7 @@ export async function buildSidecar(target: "win" | "linux" | "darwin" | string) 
     name: "hiagent-kernel-sidecar", private: true,
     dependencies: {
       "@earendil-works/pi-coding-agent": "^0.80.0", "pi-intercom": "^0.6.0",
-      "pi-web-access": "^0.13.0", "pi-lens": "^3.8.0", "@amaster.ai/pi-memory": "^0.1.5",
+      "pi-web-access": "^0.13.0", "@amaster.ai/pi-memory": "^0.1.5",
       typebox: "1.1.38",
     },
   }, null, 2));

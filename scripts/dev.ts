@@ -2,9 +2,62 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { killPort, findAvailablePort } from "./port";
 import { openBrowser } from "./open-browser";
-import { WS_PORT, FRONTEND_PORT } from "@hiagent/shared";
+// @hiagent/shared 改为动态 import:静态 import 在 node_modules 缺失时会直接崩,
+// 无法进入自修复流程。改为运行时检测 + 自动 bun install(见 ensureDeps)。
+
+/**
+ * 自修复:检测 @hiagent/shared 是否可解析,缺失则自动 bun install 后重启自身进程。
+ * 必须重启 —— bun 在进程启动时缓存 node_modules 解析结果,同进程内即使 install
+ * 重建了 workspace symlink,import 仍命中"找不到"缓存。HIAGENT_DEPS_REPAIRED 防死循环。
+ */
+async function ensureDeps(): Promise<void> {
+  try {
+    await import("@hiagent/shared");
+    return; // 已就绪
+  } catch {
+    // 缺失,走修复
+  }
+  if (process.env.HIAGENT_DEPS_REPAIRED === "1") {
+    console.error("[dev] 上次 bun install 后 @hiagent/shared 仍无法解析,请手动运行 `bun install` 排查");
+    process.exit(1);
+  }
+  console.log("[dev] 依赖缺失(@hiagent/shared 无法解析),自动执行 bun install 修复...");
+  const code = await runCmdInherit("bun", ["install"]);
+  if (code !== 0) {
+    console.error("[dev] bun install 失败(退出码 %d),请手动运行排查", code);
+    process.exit(1);
+  }
+  console.log("[dev] 依赖已修复,重启启动脚本以加载新依赖...");
+  process.env.HIAGENT_DEPS_REPAIRED = "1";
+  await relaunchSelf();
+}
+
+/** 用新进程重新执行当前脚本,当前进程挂起等待子进程退出后镜像其退出码。 */
+function relaunchSelf(): Promise<never> {
+  const [exe, script, ...extra] = process.argv;
+  const child = spawn(exe, [script, ...extra], { stdio: "inherit" });
+  return new Promise<never>((resolve) => {
+    child.on("close", (code) => { process.exit(code ?? 0); resolve(); });
+    child.on("error", (e) => { console.error("[dev] 重启失败:", e); process.exit(1); });
+  });
+}
+
+/** spawn 并继承 stdio(让 install 进度可见),返回退出码 */
+function runCmdInherit(bin: string, args: string[]): Promise<number> {
+  const child = spawn(bin, args, { stdio: "inherit", shell: true });
+  return new Promise((resolve) => {
+    child.on("close", (code) => resolve(code ?? 1));
+    child.on("error", () => resolve(1));
+  });
+}
 
 async function main() {
+  await ensureDeps();
+  const { WS_PORT, FRONTEND_PORT } = await import("@hiagent/shared");
+  await runDev(WS_PORT, FRONTEND_PORT);
+}
+
+async function runDev(WS_PORT: number, FRONTEND_PORT: number) {
   // 1. 端口清理(兜底,防止上次没干净) + 动态选择 kernel 端口
   console.log("[dev] 清理端口 %d / %d ...", WS_PORT, FRONTEND_PORT);
   await Promise.all([killPort(WS_PORT), killPort(FRONTEND_PORT)]);

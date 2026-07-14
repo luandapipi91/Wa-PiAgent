@@ -652,11 +652,16 @@ export class WSServer {
       }
       case "extension:install": {
         try {
-          await this.opts.extensionManager.install(event.name);
+          // 包管理器日志行流式回推给请求者（仅请求者持有占位卡片）
+          const onProgress = (message: string) =>
+            reply({ type: "extension:progress", name: event.name, message });
+          await this.opts.extensionManager.install(event.name, onProgress);
           this.opts.agentManager.markAllDirty();
           const { packages } = await this.opts.extensionManager.list();
           this.broadcast({ type: "extension:changed", packages });
           reply({ type: "extension:changed", packages });
+          // 成功终态：前端据此清除占位卡（真实卡片由上面的 changed 提供）
+          reply({ type: "extension:install:done", name: event.name });
         } catch (err) {
           reply({ type: "extension:error", name: event.name, error: (err as Error).message });
         }

@@ -11,7 +11,7 @@
 // - _authStorage / _modelRegistry 用 (this as any)._xxx ??= 模式做进程级单例
 
 import type { AgentName, AgentConfig, AttachmentRef, ThinkingLevel } from "@hiagent/shared";
-import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, resolveAgentTools } from "@hiagent/shared";
+import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, EXTENSION_TOOL_MAP, resolveAgentTools } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
@@ -21,7 +21,7 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { relative, isAbsolute } from "node:path";
-import { buildAdditionalExtensionPaths } from "./extensions";
+import { buildAdditionalExtensionPaths, extractRuntimeToolNames } from "./extensions";
 import { createAgentMemoryTools, getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import { makeAskTool, reconcileDanglingAsks } from "./ask-tool";
 import { askRegistry } from "./ask-registry";
@@ -60,8 +60,8 @@ export interface AgentManagerOpts {
   // skillManager 可空：测试用 mock createAgentSession 且不关心 skill 时可不传；
   // 生产注入真实 SkillManager，_createSession 用其 scan() 取启用 skill 路径喂给 SDK loader
   skillManager?: SkillManager;
-  // extensionManager 可空：用于按可选插件启用态过滤工具 allowlist（如禁用 pi-lens 后移除 lsp_*）。
-  // 不传时 resolveAgentTools 不做插件过滤（返回空集），保持测试兼容
+  // extensionManager 可空：用于按已启用动态插件注入其注册工具到 agent allowlist。
+  // 不传时 resolveAgentTools 注入空集（即只用 base 工具），保持测试兼容
   extensionManager?: ExtensionManager;
   // 测试注入 mock；生产留空 → 走真实 SDK 动态 import
   createAgentSessionFn?: CreateAgentSessionFn;
@@ -276,14 +276,18 @@ export class AgentManager {
       getProjectMemoryStore(HIAGENT_DIR, project.cwd),
     );
 
+    // 当前启用的动态扩展：决定哪些第三方 Pi 扩展被加载（additionalExtensionPaths）。
+    // 注意：extension 开关即时生效必须重建 loader（additionalExtensionPaths 构造时固定）。
+    const enabledExtensionIds = await this.getEnabledExtensionIds();
+
     // AgentConfig → SDK ResourceLoader 选项映射
     // - systemPromptMode === "replace"：整体覆盖系统提示词
     // - systemPromptMode === "append"：在默认 agentsFiles 后追加虚拟文件
     const loader = new sdk.DefaultResourceLoader({
       cwd: project.cwd,
       agentDir: HIAGENT_DIR,
-      // 扩展改用 additionalExtensionPaths 纯内存注入（见 extensions.ts）
-      additionalExtensionPaths: buildAdditionalExtensionPaths(),
+      // 扩展改用 additionalExtensionPaths 纯内存注入：builtin + 已启用动态扩展
+      additionalExtensionPaths: buildAdditionalExtensionPaths([...enabledExtensionIds]),
       additionalSkillPaths,
       // 默认 replace 模式：始终提供 customPrompt，绕过 SDK 默认提示词
       // （"operating inside pi" + "Pi documentation" 段，会把底层暴露给 agent）。
@@ -318,13 +322,15 @@ export class AgentManager {
     });
     await loader.reload();
 
-    // 按可选插件启用态过滤工具 allowlist（如禁用 pi-lens 后移除 lsp_* 等工具）。
-    // resolveAgentTools 是统一封装入口，后期按 agentName 角色化也加在这里。
-    const enabledExtensionIds = await this.getEnabledExtensionIds();
+    // 动态工具发现：loader.reload() 后 runtime.tools 已包含所有实际加载扩展注册的工具名
+    // （builtin + 已启用动态扩展），并入 allowlist 供 SDK 使用。
+    const harvestedTools = extractRuntimeToolNames(loader);
     const tools = resolveAgentTools(
       config?.tools?.length ? config.tools : DEFAULT_AGENT_TOOLS,
       enabledExtensionIds,
       agentName,
+      EXTENSION_TOOL_MAP,
+      harvestedTools,
     );
 
     // 调 createAgentSession 创建 SDK session
@@ -360,7 +366,7 @@ export class AgentManager {
     // 设置 pi-intercom 会话名（对齐原 RPC --name 参数，格式：projectId-agentName-sessionId）
     session.setSessionName(`${projectId}-${agentName}-${sessionId}`);
 
-    // 绑定扩展：触发 session_start，让 pi-intercom / pi-web-access / pi-lens 等扩展加载持久状态。
+    // 绑定扩展：触发 session_start，让 pi-intercom / pi-web-access 等扩展加载持久状态。
     // 记忆不再走扩展（改由 customTools + 提示词快照），但其余扩展仍需 bindExtensions 初始化。
     // 测试用 mock session 可能没有该方法，加存在性保护。
     if (typeof (session as any).bindExtensions === "function") {

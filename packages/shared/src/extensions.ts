@@ -23,3 +23,7 @@ export interface ExtensionToggleEvent { type: "extension:toggle"; name: string; 
 export interface ExtensionListResult { type: "extension:list"; packages: PackageInfo[]; }
 export interface ExtensionChangedEvent { type: "extension:changed"; packages: PackageInfo[]; }
 export interface ExtensionErrorEvent { type: "extension:error"; name: string; error: string; }
+/** 安装/升级期间流式推送的包管理器日志行；name 为用户原始输入 */
+export interface ExtensionProgressEvent { type: "extension:progress"; name: string; message: string; }
+/** 安装成功终态信号；前端据此清除占位卡（真实卡片由 extension:changed 提供）；name 为用户原始输入 */
+export interface ExtensionInstallDoneEvent { type: "extension:install:done"; name: string; }

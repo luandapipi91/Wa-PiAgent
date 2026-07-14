@@ -61,9 +61,9 @@ function createSplash() {
 }
 
 // packaged 下运行时只有 hiagent-kernel(=bun)，PATH 上缺少 node/npm/bun。
-// pi-lens 的 LSP 自动安装需要 bun 来装 npm 包(typescript-language-server 等)，
-// 装好的 bin 脚本 shebang 又需要 node。因此在 ~/.hiagent/bin 下创建
-// bun / node 符号链接指向 hiagent-kernel，并把该目录追加到 sidecar 的 PATH。
+// 动态插件可能需要 bun 来装 npm 包，装好的 bin 脚本 shebang 又需要 node。
+// 因此在 ~/.hiagent/bin 下创建 bun / node 符号链接指向 hiagent-kernel，
+// 并把该目录追加到 sidecar 的 PATH。
 async function ensureRuntimeBinLinks({ runtimeDir, hiagentDir, log }) {
   if (!app.isPackaged) return null;
   const binDir = path.join(hiagentDir, "bin");
@@ -215,8 +215,8 @@ app.whenReady().then(async () => {
     clearInterval(installTrickle);
   }
 
-  // 2a+) 为 packaged 运行环境补充 bun/node 命令，让 pi-lens 能自动安装/运行 LSP 工具。
-  // pi-lens 的 TS/JSON/CSS 等 LSP 服务器通过 npm 包安装，脚本 shebang 需要 node；打包版只有 hiagent-kernel(=bun)。
+  // 2a+) 为 packaged 运行环境补充 bun/node 命令，供动态插件安装/运行 npm 包工具。
+  // 打包版只有 hiagent-kernel(=bun)，部分 npm 包脚本的 shebang 需要 node。
   if (app.isPackaged) {
     try {
       const binDir = await ensureRuntimeBinLinks({ runtimeDir, hiagentDir: HIAGENT_DIR, log });
