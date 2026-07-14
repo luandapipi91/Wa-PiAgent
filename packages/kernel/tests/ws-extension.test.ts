@@ -41,9 +41,32 @@ function makeMockPkgService() {
   } as any;
 }
 
+/**
+ * 可流式的 mock pkgService：install 时按序调用 onProgress 回调模拟包管理器日志行。
+ * 用于验证 ws-server 把 onProgress 转发为 extension:progress 事件。
+ */
+function makeStreamingPkgService(lines: string[], version = "1.0.0") {
+  const known = new Set<string>(["stream-pkg"]);
+  return {
+    install: async (_name: string, _version?: string, onProgress?: (line: string) => void) => {
+      for (const line of lines) onProgress?.(line);
+      known.add(_name);
+      return { version };
+    },
+    uninstall: async (name: string) => { known.delete(name); },
+    upgrade: async (_name: string) => ({ version }),
+    getInstalledVersion: (name: string): string | undefined =>
+      known.has(name) ? version : undefined,
+    getLatestVersion: async (_name: string): Promise<string | undefined> => version,
+    getDescription: (_name: string): string | undefined => "Streaming mock",
+  } as any;
+}
+
 interface ExtServerOpts {
   /** 初始 settings.json 内容（在 server 启动前写入 dataDir） */
   initialSettings?: Record<string, unknown>;
+  /** 自定义 pkgService（默认用离线 makeMockPkgService） */
+  pkgService?: any;
 }
 
 async function withExtServer<T>(
@@ -66,7 +89,7 @@ async function withExtServer<T>(
     providerStore: new ProviderStore(join(dataDir, "providers.json")),
     skillManager: new SkillManager(dataDir),
     // 注入 mock pkgService，避免真实子进程
-    extensionManager: new ExtensionManager(dataDir, makeMockPkgService()),
+    extensionManager: new ExtensionManager(dataDir, opts.pkgService ?? makeMockPkgService()),
     memoryStore: null as any,
     agentManager: mockAM,
     dataDir,
@@ -89,6 +112,30 @@ async function withExtServer<T>(
 // 从收到的 packages 中按名查找条目（断言辅助）
 function findPkg(packages: PackageInfo[] | undefined, name: string): PackageInfo | undefined {
   return packages?.find(p => p.name === name);
+}
+
+/**
+ * 持续 recv 直到谓词命中或超时。避免 RED 阶段（行为未实现）时 recv 永久阻塞。
+ * 返回到停止为止收到的所有事件。
+ */
+async function recvUntil(
+  recv: () => Promise<WSServerEvent>,
+  predicate: (e: WSServerEvent) => boolean,
+  timeoutMs = 1500,
+): Promise<WSServerEvent[]> {
+  const events: WSServerEvent[] = [];
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let fired = false;
+    const ev = await Promise.race([
+      recv().then((e) => { fired = true; return e; }),
+      new Promise<null>((r) => setTimeout(() => r(null), 30)),
+    ]);
+    if (!fired || ev === null) continue;
+    events.push(ev);
+    if (predicate(ev)) break;
+  }
+  return events;
 }
 
 test("extension:list 首次启动返回空 packages（无自动播种）", async () => {
@@ -145,4 +192,44 @@ test("extension:toggle 启用未知包 → error 回复（含「请先安装」�
     expect(e.message).toContain("未找到已安装的包");
     expect(e.message).toContain("请先安装");
   });
+});
+
+test("extension:install 期间流式推送 extension:progress，成功后推送 install:done", async () => {
+  const lines = ["正在解析依赖", "下载 stream-pkg@1.0.0"];
+  await withExtServer(async (send, recv) => {
+    send({ type: "extension:install", name: "stream-pkg" });
+    const events = await recvUntil(recv, (e: any) => e.type === "extension:install:done");
+
+    const progress = events.filter((e: any) => e.type === "extension:progress");
+    expect(progress.length).toBe(lines.length);
+    expect(progress.map((p: any) => p.message)).toEqual(lines);
+    expect(progress.every((p: any) => p.name === "stream-pkg")).toBe(true);
+
+    const doneEvt = events.find((e: any) => e.type === "extension:install:done") as any;
+    expect(doneEvt).toBeDefined();
+    expect(doneEvt.name).toBe("stream-pkg");
+
+    // 真实列表仍通过 extension:changed 下发
+    expect(events.some((e: any) => e.type === "extension:changed")).toBe(true);
+  }, { pkgService: makeStreamingPkgService(lines) });
+});
+
+test("extension:install 失败 → extension:error（name 为原始输入），无 install:done", async () => {
+  const failing = {
+    install: async () => { throw new Error("网络超时"); },
+    uninstall: async () => {},
+    upgrade: async () => ({ version: "1.0.0" }),
+    getInstalledVersion: () => undefined,
+    getLatestVersion: async () => undefined,
+    getDescription: () => undefined,
+  } as any;
+  await withExtServer(async (send, recv) => {
+    send({ type: "extension:install", name: "bad-pkg" });
+    const events = await recvUntil(recv, (e: any) => e.type === "extension:error");
+    const errEvt = events.find((e: any) => e.type === "extension:error") as any;
+    expect(errEvt).toBeDefined();
+    expect(errEvt.name).toBe("bad-pkg");
+    expect(errEvt.error).toContain("网络超时");
+    expect(events.some((e: any) => e.type === "extension:install:done")).toBe(false);
+  }, { pkgService: failing });
 });

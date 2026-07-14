@@ -17,22 +17,26 @@ export class NpmPackageService {
     this.npmCommand = opts.npmCommand ?? ["bun"];
   }
 
-  /** 执行包管理器子进程，返回 exitCode + stderr */
-  private async spawn(args: string[]): Promise<{ exitCode: number; stderr: string }> {
+  /** 执行包管理器子进程，返回 exitCode + stderr；onProgress 按行转发 stdout/stderr */
+  private async spawn(args: string[], onProgress?: (line: string) => void): Promise<{ exitCode: number; stderr: string }> {
     const [cmd, ...rest] = [...this.npmCommand, ...args];
     const proc = Bun.spawn([cmd, ...rest], {
       cwd: this.runtimeDir,
       stdio: ["pipe", "pipe", "pipe"],
     });
+    // 并发排空 stdout/stderr 防止管道阻塞；按行回推进度
+    const [stderr] = await Promise.all([
+      drainLines(proc.stderr, onProgress),
+      drainLines(proc.stdout, onProgress),
+    ]);
     const exitCode = await proc.exited;
-    const stderr = await new Response(proc.stderr).text();
     return { exitCode, stderr };
   }
 
   /** 安装 npm 包 */
-  async install(name: string, version?: string): Promise<{ version: string }> {
+  async install(name: string, version?: string, onProgress?: (line: string) => void): Promise<{ version: string }> {
     const pkg = version ? `${name}@${version}` : name;
-    const { exitCode, stderr } = await this.spawn(["add", pkg]);
+    const { exitCode, stderr } = await this.spawn(["add", pkg], onProgress);
     if (exitCode !== 0) {
       throw new Error(`安装失败: ${stderr || `exit code ${exitCode}`}`);
     }
@@ -111,4 +115,52 @@ export class NpmPackageService {
       return undefined;
     }
   }
+}
+
+/**
+ * 排空可读字节流，按行调用 onProgress；返回流的完整文本（用于 stderr 错误信息）。
+ * 跨 chunk 边界正确处理：未以换行结尾的尾部缓冲会在下个 chunk 继续拼接。
+ * 空白行被跳过（包管理器输出常有空行，避免噪声进度）。
+ */
+export async function drainLines(
+  stream: ReadableStream<Uint8Array> | null,
+  onProgress?: (line: string) => void,
+): Promise<string> {
+  if (!stream) return "";
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let full = "";
+  let buf = "";
+
+  const flushCompleteLines = () => {
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).replace(/\r$/, "");
+      buf = buf.slice(nl + 1);
+      if (onProgress && line.trim()) onProgress(line);
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunkText = decoder.decode(value, { stream: true });
+    full += chunkText;
+    if (onProgress) {
+      buf += chunkText;
+      flushCompleteLines();
+    }
+  }
+
+  // 刷新 decoder 末尾残余字节
+  const tail = decoder.decode();
+  if (tail) full += tail;
+  if (onProgress) {
+    buf += tail;
+    flushCompleteLines();
+    // 末行无换行结尾也回推一次
+    if (buf.trim()) onProgress(buf.replace(/\r$/, ""));
+  }
+
+  return full;
 }

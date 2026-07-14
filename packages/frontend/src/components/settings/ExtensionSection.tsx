@@ -2,34 +2,36 @@
 import { useState } from "react";
 import { useExtensionsStore } from "../../store/extensions";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { ExtensionInstallCard } from "./ExtensionInstallCard";
 
 export function ExtensionSection() {
   const {
     packages,
+    installs,
     error,
     installPackage,
     uninstallPackage,
     upgradePackage,
     togglePackage,
+    retryInstall,
+    removeInstall,
   } = useExtensionsStore();
 
   const [inputValue, setInputValue] = useState("");
   const [confirmUninstall, setConfirmUninstall] = useState<string | null>(null);
-  const [installing, setInstalling] = useState(false);
 
   const handleInstall = () => {
     const name = inputValue.trim();
     if (!name) return;
-    setInstalling(true);
     installPackage(name);
     setInputValue("");
-    // 安装结果通过 WS extension:changed 异步返回
-    setTimeout(() => setInstalling(false), 2000);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") handleInstall();
   };
+
+  const installEntries = Object.values(installs);
 
   return (
     <div className="flex flex-col gap-4 p-4 overflow-auto">
@@ -44,41 +46,51 @@ export function ExtensionSection() {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={installing}
             data-testid="ext-install-input"
           />
           <button
             className="px-4 py-2 text-sm font-semibold rounded-sm text-white disabled:opacity-50"
             style={{ background: "var(--accent)" }}
             onClick={handleInstall}
-            disabled={installing || !inputValue.trim()}
+            disabled={!inputValue.trim()}
             data-testid="ext-install-btn"
           >
-            {installing ? "安装中…" : "安装"}
+            安装
           </button>
         </div>
       </div>
 
       <div style={{ height: "1px", background: "var(--hairline)" }} />
 
-      {/* 错误提示 */}
+      {/* 错误提示（卸载/升级等非安装失败的兜底提示） */}
       {error && (
         <div className="px-3 py-2 rounded-sm text-sm" style={{ background: "var(--danger-soft)", color: "var(--danger)" }}>
           {error}
         </div>
       )}
 
-      {/* 已安装插件列表 */}
+      {/* 插件列表 */}
       <div>
         <span className="text-xs font-bold text-tertiary uppercase tracking-wide">
           已安装插件 · {packages.length}
         </span>
 
-        {packages.length === 0 && (
+        {packages.length === 0 && installEntries.length === 0 && (
           <p className="text-sm text-tertiary py-4">暂无插件，输入上方包名开始安装</p>
         )}
 
         <div className="flex flex-col gap-2 mt-2">
+          {/* 占位卡：安装中 / 安装失败 —— 渲染在最顶部 */}
+          {installEntries.map((entry) => (
+            <ExtensionInstallCard
+              key={`install-${entry.name}`}
+              entry={entry}
+              onRetry={retryInstall}
+              onRemove={removeInstall}
+            />
+          ))}
+
+          {/* 真实已安装卡片 */}
           {packages.map((pkg) => (
             <div
               key={pkg.name}

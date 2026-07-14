@@ -44,12 +44,12 @@ export const AGENT_DEFS: Record<AgentName, AgentDef> = {
 export const ALL_AGENT_NAMES: AgentName[] = ["product", "pm", "dev", "test"];
 
 /** Agent 未显式配置 tools 时的默认工具集。
- *  含 Pi 内置工具、pi-web-access 网络工具、amaster memory 记忆工具，
- *  以及 pi-lens（LSP 诊断插件）注册的代码智能工具。
+ *  含 Pi 内置工具、pi-web-access 网络工具、amaster memory 记忆工具。
  *  注意：createAgentSession 的 tools 参数会被 SDK 当作 allowlist 使用，
- *  customTools（memory_add/replace/remove/read）和扩展注册的工具
- *  （lsp_navigation 等）同样要过这道 allowlist，未列出的工具会被过滤掉，
- *  因此必须在这里显式放行。 */
+ *  customTools（memory_add/replace/remove/read）同样要过这道 allowlist，
+ *  未列出的工具会被过滤掉，因此必须在这里显式放行。
+ *  动态插件注册的工具不再写死在此处，改由 resolveAgentTools 在运行时按
+ *  插件启用态从 EXTENSION_TOOL_MAP 注入。 */
 export const DEFAULT_AGENT_TOOLS = [
   "read",
   "bash",
@@ -67,54 +67,51 @@ export const DEFAULT_AGENT_TOOLS = [
   "memory_remove",
   "memory_read",
   "session_search",
-  // pi-lens（LSP 诊断插件）注册的代码智能工具
-  "lsp_navigation",      // LSP 代码导航：定义/引用/类型/hover 等
-  "lsp_diagnostics",     // LSP 诊断：类型错误/告警（构建/测试前用）
-  "lens_diagnostics",    // lens 综合诊断
-  "ast_grep_search",     // ast-grep 结构化代码搜索
-  "ast_grep_replace",    // ast-grep 结构化代码替换
-  "ast_grep_outline",    // ast-grep 代码大纲
-  "module_report",       // 模块依赖报告
-  "read_symbol",         // 按符号读取代码
-  "read_enclosing",      // 读取符号的封闭作用域
   "ask_user_question",
 ];
 
-/** 已知扩展注册的工具名（扩展未启用时从 agent 工具 allowlist 过滤掉）。
+/** 动态插件注册的工具登记表（运行时按插件启用态注入 agent allowlist）。
  *  键 = 扩展包名，与 settings.json.packages 的 npm:<name>@<version> 中 <name> 一致
  *  （即 ExtensionManager.list() 返回的 PackageInfo.name）。
- *  目前仅 pi-lens；其它动态插件若注册工具，也需在此登记，否则会被 allowlist 过滤。 */
-export const EXTENSION_TOOL_MAP: Record<string, string[]> = {
-  "pi-lens": [
-    "lsp_navigation",
-    "lsp_diagnostics",
-    "lens_diagnostics",
-    "ast_grep_search",
-    "ast_grep_replace",
-    "ast_grep_outline",
-    "module_report",
-    "read_symbol",
-    "read_enclosing",
-  ],
-};
+ *  默认为空：内置工具已在 DEFAULT_AGENT_TOOLS 放行，第三方插件若注册工具，
+ *  安装时在此登记即可被注入到启用它的 agent 的 allowlist。 */
+export const EXTENSION_TOOL_MAP: Record<string, string[]> = {};
 
 /**
- * 按「可选插件启用态」过滤工具 allowlist 的纯函数。
+ * 按「已启用动态插件」向工具 allowlist 注入插件工具的纯函数。
  * - baseTools：agent 配置的 tools 或 DEFAULT_AGENT_TOOLS
  * - enabledExtensionIds：当前启用的插件 id 集合（由 ExtensionManager.list() 提供）
- * - agentName：预留参数，后期按角色（product/pm/test 不需要代码工具）做进一步过滤
+ * - _agentName：预留参数，后期按角色（product/pm/test 不需要代码工具）做进一步过滤
+ * - toolMap：工具登记表，默认用 EXTENSION_TOOL_MAP；测试可注入伪注册表
+ * - harvestedTools：loader.reload() 后从 runtime.tools 枚举出的「动态发现」工具名
+ *   （option B：取代手动维护 EXTENSION_TOOL_MAP 的静态登记）
+ * 行为：保留 base 顺序，依次并入 toolMap（按启用态）与 harvestedTools，重复项去重；不修改入参。
  */
 export function resolveAgentTools(
   baseTools: string[],
   enabledExtensionIds: Set<string>,
   _agentName?: string,
+  toolMap: Record<string, string[]> = EXTENSION_TOOL_MAP,
+  harvestedTools: Iterable<string> = [],
 ): string[] {
-  let tools = baseTools;
-  for (const [extId, extTools] of Object.entries(EXTENSION_TOOL_MAP)) {
-    if (!enabledExtensionIds.has(extId)) {
-      const remove = new Set(extTools);
-      tools = tools.filter((t) => !remove.has(t));
+  const seen = new Set(baseTools);
+  const result = [...baseTools];
+  for (const [extId, extTools] of Object.entries(toolMap)) {
+    if (enabledExtensionIds.has(extId)) {
+      for (const t of extTools) {
+        if (!seen.has(t)) {
+          seen.add(t);
+          result.push(t);
+        }
+      }
     }
   }
-  return tools;
+  // 动态发现：已加载扩展（builtin + 已启用第三方）注册的工具名，并入 allowlist 末尾
+  for (const t of harvestedTools) {
+    if (!seen.has(t)) {
+      seen.add(t);
+      result.push(t);
+    }
+  }
+  return result;
 }
