@@ -20,6 +20,10 @@ import type {
   MemoryListResult, MemoryChangedEvent, InstructionListResult, MemoryConfigEvent,
 } from "./memory";
 import type { AskReply } from "./ask";
+import type {
+  McpListEvent, McpSaveEvent, McpDeleteEvent, McpTestEvent, McpListToolsEvent, McpClearAuthEvent,
+  McpListResult, McpChangedEvent, McpTestResult, McpToolsResult,
+} from "./mcp";
 
 export type AgentName = "product" | "pm" | "dev" | "test";
 export type AgentStateKey = `${string}:${AgentName}`;
@@ -274,6 +278,7 @@ export type WSClientEvent =
   | MemoryListEvent | MemoryUpdateEvent | MemoryArchiveEvent | MemoryRestoreEvent | MemoryPurgeEvent | MemoryAddEvent
   | InstructionListEvent
   | MemoryConfigGetEvent | MemoryConfigSetEvent
+  | McpListEvent | McpSaveEvent | McpDeleteEvent | McpTestEvent | McpListToolsEvent | McpClearAuthEvent
   | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest | FSUploadRequest | FSCopyRequest | FSSearchRequest | FSSearchCancelRequest
   | FSRecordingAppendRequest | FSRecordingFinalizeRequest | FSRecordingDiscardRequest;
 
@@ -369,6 +374,7 @@ export type WSServerEvent =
   | ExtensionListResult | ExtensionChangedEvent | ExtensionErrorEvent
   | ExtensionProgressEvent | ExtensionInstallDoneEvent
   | MemoryListResult | MemoryChangedEvent
+  | McpListResult | McpChangedEvent | McpTestResult | McpToolsResult
   | InstructionListResult | MemoryConfigEvent
   | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSCopyResult | FSSearchResult | FSSearchProgressEvent | FSErrorEvent
   | FSRecordingAppendResult | FSRecordingFinalizeResult | FSRecordingDiscardResult;
