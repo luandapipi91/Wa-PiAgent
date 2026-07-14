@@ -148,6 +148,22 @@ test("save: 改名 server (originalName)", async () => {
   expect(servers[0].name).toBe("new-name");
 });
 
+test("save: 传 originalName 但服务器不存在抛错", async () => {
+  const store = createStore();
+  // originalName 指向不存在的服务器，应抛错
+  await expect(store.save({ name: "test", command: "echo" }, undefined, "nope")).rejects.toThrow();
+});
+
+test("save: 传 originalName 与 config.name 相同应成功", async () => {
+  const store = createStore();
+  await store.save({ name: "same-server", command: "echo", args: ["v1"] });
+  // originalName 与 name 相同，应验证存在后直接覆盖
+  await store.save({ name: "same-server", command: "echo", args: ["v2"] }, undefined, "same-server");
+  const servers = await store.list();
+  expect(servers.length).toBe(1);
+  expect(servers[0].args).toEqual(["v2"]);
+});
+
 // ===== delete =====
 
 test("delete: 删除 server", async () => {

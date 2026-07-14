@@ -31,11 +31,13 @@ export class McpStore {
     const cfg = await this.readConfig(path);
     const { name, ...serverData } = config;
 
-    if (originalName && originalName !== config.name) {
+    if (originalName) {
       if (!cfg.mcpServers[originalName]) {
         throw new Error(`原服务器 ${originalName} 不存在`);
       }
-      delete cfg.mcpServers[originalName];
+      if (originalName !== config.name) {
+        delete cfg.mcpServers[originalName];
+      }
     }
 
     cfg.mcpServers[name] = serverData;
@@ -61,18 +63,22 @@ export class McpStore {
       if (!serverCache || !Array.isArray(serverCache.tools)) {
         return [];
       }
-      return serverCache.tools.map((t: any) => ({
+      return serverCache.tools.map((t: Record<string, unknown>) => ({
         name: t.name ?? "",
         description: t.description,
         parameters: t.inputSchema?.properties
-          ? Object.entries(t.inputSchema.properties).map(([pname, pschema]: [string, any]) => ({
+          ? Object.entries(t.inputSchema.properties).map(([pname, pschema]: [string, Record<string, unknown>]) => ({
               name: pname,
               type: pschema.type ?? "string",
               description: pschema.description as string | undefined,
             }))
           : undefined,
       }));
-    } catch {
+    } catch (e: unknown) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code !== "ENOENT") {
+        console.warn("[mcp-store] 读取 MCP 缓存失败:", err.message ?? err);
+      }
       return [];
     }
   }
