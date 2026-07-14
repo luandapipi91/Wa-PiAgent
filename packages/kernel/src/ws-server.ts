@@ -10,6 +10,7 @@ import type { ProviderStore } from "./provider-store";
 import type { SkillManager } from "./skill-manager";
 import type { ExtensionManager } from "./extension-manager";
 import type { MemoryStore } from "./memory-store";
+import type { McpStore } from "./mcp-store";
 import { testProviderConnection } from "./provider-test";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { readdir, readFile, mkdir, writeFile, copyFile, stat } from "node:fs/promises";
@@ -148,6 +149,7 @@ export interface WSServerOpts {
   skillManager: SkillManager;
   extensionManager: ExtensionManager;
   memoryStore: MemoryStore;
+  mcpStore: McpStore;
   agentManager: AgentManager;
   dataDir?: string;
   port?: number;
@@ -774,6 +776,137 @@ export class WSServer {
           this.opts.agentManager.markAllDirty();
           const config = await this.opts.memoryStore.getConfig();
           this.broadcast({ type: "memory:config", config });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      // ===== MCP 连接器 =====
+      case "mcp:list": {
+        try {
+          const servers = await this.opts.mcpStore.list(event.projectId);
+          reply({ type: "mcp:list", projectId: event.projectId, servers });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "mcp:save": {
+        try {
+          await this.opts.mcpStore.save(event.config, event.projectId, event.originalName);
+          const servers = await this.opts.mcpStore.list(event.projectId);
+          this.broadcast({ type: "mcp:changed", projectId: event.projectId, servers });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "mcp:delete": {
+        try {
+          await this.opts.mcpStore.delete(event.serverName, event.projectId);
+          const servers = await this.opts.mcpStore.list(event.projectId);
+          this.broadcast({ type: "mcp:changed", projectId: event.projectId, servers });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "mcp:test": {
+        try {
+          const cwd = event.projectId
+            ? (await this.opts.projectStore.load()).projects.find(p => p.id === event.projectId)?.cwd
+            : undefined;
+          const { createAgentSession, SessionManager, AuthStorage, ModelRegistry } = await import("@earendil-works/pi-coding-agent");
+          try {
+            const authStorage = AuthStorage.create();
+            const modelRegistry = ModelRegistry.create(authStorage);
+            const { session } = await createAgentSession({
+              cwd,
+              sessionManager: SessionManager.inMemory(),
+              authStorage,
+              modelRegistry,
+            });
+
+            let testResult = { ok: false, error: "" };
+            const timeout = setTimeout(() => {
+              testResult = { ok: false, error: "连接测试超时" };
+              session.dispose();
+            }, 30000);
+
+            await new Promise<void>((resolvePromise) => {
+              session.subscribe((ev: any) => {
+                if (ev.type === "agent_end") {
+                  clearTimeout(timeout);
+                  const lastMsg = ev.messages?.[ev.messages.length - 1];
+                  const hasError = lastMsg?.stopReason === "error" || lastMsg?.errorMessage;
+                  testResult = { ok: !hasError, error: hasError ? (lastMsg?.errorMessage ?? "连接失败") : "" };
+                  session.dispose();
+                  resolvePromise();
+                }
+              });
+              session.prompt(`/mcp reconnect ${event.serverName}`).catch((err: Error) => {
+                clearTimeout(timeout);
+                testResult = { ok: false, error: err.message };
+                try { session.dispose(); } catch {}
+                resolvePromise();
+              });
+            });
+            reply({ type: "mcp:testResult", serverName: event.serverName, success: testResult.ok, error: testResult.error || undefined });
+          } catch (err) {
+            reply({ type: "mcp:testResult", serverName: event.serverName, success: false, error: `Pi 启动失败: ${(err as Error).message}` });
+          }
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "mcp:listTools": {
+        try {
+          const tools = await this.opts.mcpStore.listTools(event.serverName);
+          reply({ type: "mcp:tools", serverName: event.serverName, tools });
+        } catch (err) {
+          reply({ type: "error", message: (err as Error).message });
+        }
+        break;
+      }
+      case "mcp:clearAuth": {
+        try {
+          const cwd = event.projectId
+            ? (await this.opts.projectStore.load()).projects.find(p => p.id === event.projectId)?.cwd
+            : undefined;
+          const { createAgentSession, SessionManager, AuthStorage, ModelRegistry } = await import("@earendil-works/pi-coding-agent");
+          try {
+            const authStorage = AuthStorage.create();
+            const modelRegistry = ModelRegistry.create(authStorage);
+            const { session } = await createAgentSession({
+              cwd,
+              sessionManager: SessionManager.inMemory(),
+              authStorage,
+              modelRegistry,
+            });
+
+            const timeout = setTimeout(() => {
+              session.dispose();
+            }, 60000);
+
+            await new Promise<void>((resolvePromise) => {
+              session.subscribe((ev: any) => {
+                if (ev.type === "agent_end") {
+                  clearTimeout(timeout);
+                  session.dispose();
+                  resolvePromise();
+                }
+              });
+              session.prompt(`/mcp logout ${event.serverName}`).catch(() => {
+                clearTimeout(timeout);
+                try { session.dispose(); } catch {}
+                resolvePromise();
+              });
+            });
+            reply({ type: "mcp:testResult", serverName: event.serverName, success: true });
+          } catch (err) {
+            reply({ type: "error", message: (err as Error).message });
+          }
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
         }

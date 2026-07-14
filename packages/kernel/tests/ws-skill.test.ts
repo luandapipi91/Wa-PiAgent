@@ -38,6 +38,7 @@ async function withSkillServer<T>(
     skillManager: new SkillManager(dataDir),
     extensionManager: new ExtensionManager(dataDir),
     memoryStore: null as any,
+    mcpStore: null as any,
     agentManager: mockAM,
     dataDir,
     port: 0,

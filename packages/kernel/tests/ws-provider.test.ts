@@ -33,6 +33,7 @@ async function withProviderServer<T>(
     skillManager: new SkillManager(tmp("ws-skill-dir")),
     extensionManager: new ExtensionManager(dataDir),
     memoryStore: null as any,
+    mcpStore: null as any,
     dataDir,
     agentManager: makeMockAgentManager(),
     port: 0,

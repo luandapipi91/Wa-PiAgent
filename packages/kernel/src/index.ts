@@ -6,6 +6,7 @@ import { WSServer } from "./ws-server";
 import { SkillManager } from "./skill-manager";
 import { ExtensionManager } from "./extension-manager";
 import { MemoryStore } from "./memory-store";
+import { McpStore } from "./mcp-store";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { extractSdkErrorMessage } from "./sdk-errors";
@@ -37,6 +38,7 @@ export async function startKernel(
   const skillManager = new SkillManager(HIAGENT_DIR);
   const extensionManager = new ExtensionManager(HIAGENT_DIR);
   const memoryStore = new MemoryStore({ hiagentDir: HIAGENT_DIR, projectStore });
+  const mcpStore = new McpStore({ hiagentDir: HIAGENT_DIR, projectStore });
 
   // 启动时把已有 providers 注册成 Pi extension（幂等）
   await ensureProviderExtensionRegistered(providerStore);
@@ -61,6 +63,7 @@ export async function startKernel(
     skillManager,
     extensionManager,
     memoryStore,
+    mcpStore,
     dataDir: HIAGENT_DIR,
     agentManager: null as any,  // 占位，下面赋值
     port: opts?.port ?? WS_PORT,

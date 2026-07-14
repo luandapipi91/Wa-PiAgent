@@ -45,6 +45,7 @@ async function withMemoryServer<T>(
     skillManager: null as any,
     extensionManager: null as any,
     memoryStore,
+    mcpStore: null as any,
     dataDir,
     agentManager: mockAM,
     port: 0,
