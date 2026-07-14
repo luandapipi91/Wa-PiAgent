@@ -91,6 +91,7 @@ async function withExtServer<T>(
     // 注入 mock pkgService，避免真实子进程
     extensionManager: new ExtensionManager(dataDir, opts.pkgService ?? makeMockPkgService()),
     memoryStore: null as any,
+    mcpStore: null as any,
     agentManager: mockAM,
     dataDir,
     port: 0,

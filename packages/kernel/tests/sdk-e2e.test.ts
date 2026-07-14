@@ -77,6 +77,7 @@ afterAll(async () => {
     configStore, projectStore, providerStore, skillManager,
     extensionManager: new ExtensionManager(TEST_DIR),
     memoryStore: null as any,
+    mcpStore: null as any,
     agentManager: null as any, port: 19880,
   });
 

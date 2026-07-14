@@ -69,6 +69,7 @@ async function withServer<T>(
     skillManager,
     extensionManager: new ExtensionManager(dataDir),
     memoryStore: null as any,
+    mcpStore: null as any,
     dataDir,
     agentManager,
     port: 0,  // 随机端口，避免冲突
