@@ -1,0 +1,97 @@
+import type { McpServerConfig, McpServerStatus } from "@hiagent/shared";
+
+interface Props {
+  config: McpServerConfig;
+  status: McpServerStatus;
+  onTest: () => void;
+  onViewTools: () => void;
+  onAuth: () => void;
+  onClearAuth: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+const STATUS_CONFIG: Record<McpServerStatus, { icon: string; label: string; color: string }> = {
+  connected:    { icon: "🟢", label: "已连接", color: "var(--success)" },
+  needs_auth:   { icon: "🟡", label: "OAuth 需授权", color: "var(--warning)" },
+  error:        { icon: "🔴", label: "连接错误", color: "var(--danger)" },
+  disconnected: { icon: "🔴", label: "未连接", color: "var(--text-tertiary)" },
+};
+
+/** 生成服务器配置的描述文本 */
+function configSummary(config: McpServerConfig): string {
+  if (config.command) {
+    const args = config.args?.join(" ") ?? "";
+    return [config.command, args].filter(Boolean).join(" ");
+  }
+  if (config.url) return config.url;
+  return "未配置";
+}
+
+export function McpCard({ config, status, onTest, onViewTools, onAuth, onClearAuth, onEdit, onDelete }: Props) {
+  const st = STATUS_CONFIG[status] ?? STATUS_CONFIG.disconnected;
+
+  return (
+    <div
+      className="mb-2.5 p-3.5"
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--hairline)",
+        borderRadius: 14,
+      }}
+      data-testid={`mcp-card-${config.name}`}
+    >
+      {/* 头部：名称 + 状态 */}
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-[13px] font-semibold text-primary">● {config.name}</span>
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+          style={{ background: st.color + "20", color: st.color }}
+        >{st.icon} {st.label}</span>
+      </div>
+
+      {/* 描述行 */}
+      <p className="text-[11.5px] text-secondary mb-2 opacity-70 truncate">
+        {configSummary(config)}
+      </p>
+
+      {/* 操作按钮 */}
+      <div className="flex gap-1.5 flex-wrap">
+        {status !== "connected" && (
+          <CardBtn onClick={onTest} testId={`mcp-test-${config.name}`} label="连接测试" />
+        )}
+        <CardBtn onClick={onViewTools} testId={`mcp-tools-${config.name}`} label="查看工具" />
+        {status === "needs_auth" ? (
+          <CardBtn onClick={onAuth} testId={`mcp-auth-${config.name}`} label="授权" accent />
+        ) : config.auth ? (
+          <CardBtn onClick={onClearAuth} testId={`mcp-clearauth-${config.name}`} label="清除授权" />
+        ) : null}
+        <CardBtn onClick={onEdit} testId={`mcp-edit-${config.name}`} label="编辑" />
+        <CardBtn onClick={onDelete} testId={`mcp-delete-${config.name}`} label="删除" danger />
+      </div>
+    </div>
+  );
+}
+
+function CardBtn({ onClick, testId, label, accent, danger }: {
+  onClick: () => void;
+  testId: string;
+  label: string;
+  accent?: boolean;
+  danger?: boolean;
+}) {
+  const color = danger ? "var(--danger)" : accent ? "var(--accent)" : "var(--text-secondary)";
+  const borderColor = danger ? "var(--danger)" : accent ? "var(--accent)" : "var(--hairline)";
+  return (
+    <button
+      onClick={onClick}
+      data-testid={testId}
+      className="text-[11px] px-2.5 py-1 rounded-md"
+      style={{
+        color,
+        border: `1px solid ${borderColor}`,
+        background: "transparent",
+      }}
+    >{label}</button>
+  );
+}
