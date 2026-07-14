@@ -63,11 +63,11 @@ export class McpStore {
       if (!serverCache || !Array.isArray(serverCache.tools)) {
         return [];
       }
-      return serverCache.tools.map((t: Record<string, unknown>) => ({
+      return serverCache.tools.map((t: any) => ({
         name: t.name ?? "",
-        description: t.description,
+        description: t.description as string | undefined,
         parameters: t.inputSchema?.properties
-          ? Object.entries(t.inputSchema.properties).map(([pname, pschema]: [string, Record<string, unknown>]) => ({
+          ? Object.entries(t.inputSchema.properties).map(([pname, pschema]: [string, any]) => ({
               name: pname,
               type: pschema.type ?? "string",
               description: pschema.description as string | undefined,
