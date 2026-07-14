@@ -17,6 +17,7 @@ interface ComposerPrefsState {
   setSessionPrefs: (sessionId: string, prefs: Partial<SessionPrefs>) => void;
   setDefaults: (prefs: Partial<{ model: string | null; thinking: ThinkingLevel }>) => void;
   setNewSessionId: (key: string, id: string) => void;
+  clearNewSessionId: (key: string) => void;
 }
 
 export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
@@ -80,6 +81,15 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
     set(s => {
       if (s.newSessionIds[key] === id) return s;
       const next = { ...s.newSessionIds, [key]: id };
+      void setNewSessionIds(next);
+      return { newSessionIds: next };
+    });
+  },
+  clearNewSessionId: (key) => {
+    set(s => {
+      if (!(key in s.newSessionIds)) return s;
+      const next = { ...s.newSessionIds };
+      delete next[key];
       void setNewSessionIds(next);
       return { newSessionIds: next };
     });

@@ -15,6 +15,7 @@ import { useSkillsStore } from "./store/skills";
 import { useExtensionsStore } from "./store/extensions";
 import { useMemoryStore } from "./store/memory";
 import { useToastStore } from "./store/toast";
+import { useComposerPrefsStore } from "./store/composer-prefs";
 import { onMessage, getWs } from "./ws-instance";
 import { ToastContainer } from "./components/ui/Toast";
 import { RecordingCapsule } from "./components/ui/RecordingCapsule";
@@ -39,7 +40,7 @@ export function App() {
       switch (e.type) {
         case "projects:list": ps.setAll(e.projects, e.sessions); break;
         case "project:created": ps.addProject(e.project); break;
-        case "session:created": ps.addSession(e.session); break;
+        case "session:created": ps.addSession(e.session); useComposerPrefsStore.getState().clearNewSessionId(e.session.projectId); break;
         // sdk:event：所有 SDK 流式事件统一走 store.handleSDKEvent 分发
         // （message_start/update/end、agent_start/end 等由 store 管理两态）
         case "sdk:event": useSessionStore.getState().handleSDKEvent(e.sessionId, e); break;
