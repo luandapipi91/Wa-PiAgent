@@ -78,6 +78,10 @@ import { NpmPackageService } from "./npm-package-service";
 
 interface ExtensionSettings {
   npmCommand?: string[];
+  /** HiAgent 自有扩展列表（SDK 不读此字段，避免自动发现） */
+  hiagent_packages?: string[];
+  hiagent_disabledPackages?: string[];
+  /** 旧字段（数据迁移后删除） */
   packages?: string[];
   disabledPackages?: string[];
   [k: string]: unknown;
@@ -102,12 +106,24 @@ export class ExtensionManager {
   // ---- settings.json 读写 ----
 
   private async readSettings(): Promise<ExtensionSettings> {
+    let settings: ExtensionSettings;
     try {
       const raw = await readFile(join(this.dataDir, "settings.json"), "utf8");
-      return JSON.parse(raw);
+      settings = JSON.parse(raw);
     } catch {
-      return {};
+      settings = {};
     }
+    // 数据迁移：旧字段 packages → hiagent_packages（避免被 SDK SettingsManager 自动发现并双重加载）
+    if (!settings.hiagent_packages && Array.isArray(settings.packages)) {
+      settings.hiagent_packages = settings.packages;
+      delete settings.packages;
+      if (Array.isArray(settings.disabledPackages)) {
+        settings.hiagent_disabledPackages = settings.disabledPackages;
+        delete settings.disabledPackages;
+      }
+      await this.writeSettings(settings);
+    }
+    return settings;
   }
 
   private async writeSettings(settings: ExtensionSettings): Promise<void> {
@@ -154,8 +170,8 @@ export class ExtensionManager {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
 
-    const pkgs = settings.packages ?? [];
-    const disabledPkgs = settings.disabledPackages ?? [];
+    const pkgs = settings.hiagent_packages ?? [];
+    const disabledPkgs = settings.hiagent_disabledPackages ?? [];
     const result: PackageInfo[] = [];
 
     const parseEntry = async (p: string, enabled: boolean): Promise<PackageInfo> => {
@@ -214,8 +230,8 @@ export class ExtensionManager {
 
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
-    const pkgs = settings.packages ?? [];
-    const disabledPkgs = settings.disabledPackages ?? [];
+    const pkgs = settings.hiagent_packages ?? [];
+    const disabledPkgs = settings.hiagent_disabledPackages ?? [];
     const existing = this.extractNames(pkgs);
     const disabledNames = this.extractNames(disabledPkgs);
 
@@ -255,7 +271,7 @@ export class ExtensionManager {
     }
 
     const updated = [...pkgs, entry];
-    await this.writeSettings({ ...settings, packages: updated });
+    await this.writeSettings({ ...settings, hiagent_packages: updated });
 
     return {
       name: parsed.name,
@@ -269,8 +285,8 @@ export class ExtensionManager {
   async uninstall(name: string): Promise<void> {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
-    const pkgs = settings.packages ?? [];
-    const disabledPkgs = settings.disabledPackages ?? [];
+    const pkgs = settings.hiagent_packages ?? [];
+    const disabledPkgs = settings.hiagent_disabledPackages ?? [];
     const existingPkgs = this.extractNames(pkgs);
     const existingDisabled = this.extractNames(disabledPkgs);
 
@@ -288,14 +304,14 @@ export class ExtensionManager {
 
     const updatedPkgs = matchedPkgs ? pkgs.filter((p) => p !== matchedPkgs) : pkgs;
     const updatedDisabled = matchedDisabled ? disabledPkgs.filter((p) => p !== matchedDisabled) : disabledPkgs;
-    await this.writeSettings({ ...settings, packages: updatedPkgs, disabledPackages: updatedDisabled });
+    await this.writeSettings({ ...settings, hiagent_packages: updatedPkgs, hiagent_disabledPackages: updatedDisabled });
   }
 
   async upgrade(name: string): Promise<PackageInfo> {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
-    const pkgs = settings.packages ?? [];
-    const disabledPkgs = settings.disabledPackages ?? [];
+    const pkgs = settings.hiagent_packages ?? [];
+    const disabledPkgs = settings.hiagent_disabledPackages ?? [];
     const existing = this.extractNames(pkgs);
     const disabledNames = this.extractNames(disabledPkgs);
 
@@ -318,7 +334,7 @@ export class ExtensionManager {
     const result = await this.pkgService.upgrade(name);
     const entry = `npm:${name}@${result.version}`;
     const updated = pkgs.map((p) => p === matched ? entry : p);
-    await this.writeSettings({ ...settings, packages: updated });
+    await this.writeSettings({ ...settings, hiagent_packages: updated });
 
     return {
       name,
@@ -332,8 +348,8 @@ export class ExtensionManager {
   async enable(name: string): Promise<void> {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
-    const pkgs = settings.packages ?? [];
-    const disabledPkgs = settings.disabledPackages ?? [];
+    const pkgs = settings.hiagent_packages ?? [];
+    const disabledPkgs = settings.hiagent_disabledPackages ?? [];
     const existingPkgs = this.extractNames(pkgs);
     const existingDisabled = this.extractNames(disabledPkgs);
 
@@ -345,7 +361,7 @@ export class ExtensionManager {
       // 从 disabledPackages 移回 packages
       const updatedDisabled = disabledPkgs.filter((p) => p !== matchedDisabled);
       const updatedPkgs = [...pkgs, matchedDisabled];
-      await this.writeSettings({ ...settings, packages: updatedPkgs, disabledPackages: updatedDisabled });
+      await this.writeSettings({ ...settings, hiagent_packages: updatedPkgs, hiagent_disabledPackages: updatedDisabled });
       return;
     }
 
@@ -354,7 +370,7 @@ export class ExtensionManager {
     if (installedVersion) {
       const entry = `npm:${name}@${installedVersion}`;
       const updatedPkgs = [...pkgs, entry];
-      await this.writeSettings({ ...settings, packages: updatedPkgs });
+      await this.writeSettings({ ...settings, hiagent_packages: updatedPkgs });
       return;
     }
     throw new Error(`未找到已安装的包: ${name}，请先安装`);
@@ -363,8 +379,8 @@ export class ExtensionManager {
   async disable(name: string): Promise<void> {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
-    const pkgs = settings.packages ?? [];
-    const disabledPkgs = settings.disabledPackages ?? [];
+    const pkgs = settings.hiagent_packages ?? [];
+    const disabledPkgs = settings.hiagent_disabledPackages ?? [];
     const existingPkgs = this.extractNames(pkgs);
     const existingDisabled = this.extractNames(disabledPkgs);
 
@@ -373,7 +389,7 @@ export class ExtensionManager {
       // 从 packages 移到 disabledPackages
       const updatedPkgs = pkgs.filter((p) => p !== matched);
       const updatedDisabled = [...disabledPkgs, matched];
-      await this.writeSettings({ ...settings, packages: updatedPkgs, disabledPackages: updatedDisabled });
+      await this.writeSettings({ ...settings, hiagent_packages: updatedPkgs, hiagent_disabledPackages: updatedDisabled });
       return;
     }
 

@@ -276,8 +276,8 @@ export class AgentManager {
       getProjectMemoryStore(HIAGENT_DIR, project.cwd),
     );
 
-    // 当前启用的动态扩展：决定哪些第三方 Pi 扩展被加载（additionalExtensionPaths）。
-    // 注意：extension 开关即时生效必须重建 loader（additionalExtensionPaths 构造时固定）。
+    // 当前启用的动态扩展（附加到 additionalExtensionPaths 由 SDK 加载，
+    // 另供 resolveAgentTools toolMap 过滤引用）
     const enabledExtensionIds = await this.getEnabledExtensionIds();
 
     // AgentConfig → SDK ResourceLoader 选项映射

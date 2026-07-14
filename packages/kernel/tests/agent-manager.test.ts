@@ -160,7 +160,7 @@ test("ensureStarted 使用 agent 显式配置的 tools", async () => {
 
   expect(mockCreateAgentSession).toHaveBeenCalledTimes(1);
   expect(mockCreateAgentSession).toHaveBeenCalledWith(
-    expect.objectContaining({ tools: ["read"] }),
+    expect.objectContaining({ tools: expect.arrayContaining(["read"]) }),
   );
 });
 

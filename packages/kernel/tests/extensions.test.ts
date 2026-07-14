@@ -45,21 +45,34 @@ test("buildAdditionalExtensionPaths: 不存在 / 非 Pi 扩展的包被跳过且
   expect(after).toEqual(before);
 });
 
-// ---- 运行时工具名抽取（option B Gap 2）：loader.reload() 后从 runtime.tools(Map)
-// 枚举已加载扩展注册的工具名，喂给 resolveAgentTools 注入 allowlist。
+// ---- 运行时工具名抽取（option B Gap 2）：loader.reload() 后从扩展注册的工具
+// 收集全部工具名，喂给 resolveAgentTools 注入 allowlist。SDK 0.80.6 提供
+// runtime.getAllTools() 聚合接口，也支持遍历各扩展的 tools Map 兜底。
 
-test("extractRuntimeToolNames: 从 loader.getExtensions().runtime.tools(Map) 提取工具名", () => {
+test("extractRuntimeToolNames: 从 runtime.getAllTools() 提取工具名", () => {
   const loader = {
     getExtensions: () => ({
-      runtime: { tools: new Map([["hypa_shell", {}], ["hypa_read", {}]]) },
+      runtime: { getAllTools: () => ["hypa_shell", "hypa_read"] },
     }),
   };
   expect(extractRuntimeToolNames(loader)).toEqual(["hypa_shell", "hypa_read"]);
 });
 
-test("extractRuntimeToolNames: loader 缺失 tools / 结构不符时返回空数组（容错不抛）", () => {
+test("extractRuntimeToolNames: 从各扩展的 tools Map 兜底提取", () => {
+  const loader = {
+    getExtensions: () => ({
+      runtime: {},
+      extensions: [
+        { tools: new Map([["hypa_shell", {}]]) },
+        { tools: new Map([["hypa_read", {}]]) },
+      ],
+    }),
+  };
+  expect(extractRuntimeToolNames(loader)).toEqual(["hypa_shell", "hypa_read"]);
+});
+
+test("extractRuntimeToolNames: loader 缺失 / 结构不符时返回空数组（容错不抛）", () => {
   expect(extractRuntimeToolNames({})).toEqual([]);
   expect(extractRuntimeToolNames({ getExtensions: () => null })).toEqual([]);
   expect(extractRuntimeToolNames({ getExtensions: () => ({ runtime: {} }) })).toEqual([]);
-  expect(extractRuntimeToolNames({ getExtensions: () => ({ runtime: { tools: [] } }) })).toEqual([]);
 });

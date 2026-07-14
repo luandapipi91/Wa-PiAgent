@@ -1,6 +1,6 @@
 // packages/kernel/src/npm-package-service.ts
 import { join } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 export interface NpmPackageServiceOpts {
   /** 包管理器命令，默认 ["bun"]，从 settings.json.npmCommand 读取 */
@@ -15,12 +15,30 @@ export class NpmPackageService {
     opts: NpmPackageServiceOpts = {},
   ) {
     this.npmCommand = opts.npmCommand ?? ["bun"];
+    // 确保 runtimeDir 及其 package.json 始终存在，否则 bun add/remove 的 cwd
+    // 和 package.json 缺失会导致 "No package.json, so nothing to remove"。
+    if (!existsSync(this.runtimeDir)) mkdirSync(this.runtimeDir, { recursive: true });
+    const pkgJson = join(this.runtimeDir, "package.json");
+    if (!existsSync(pkgJson)) {
+      writeFileSync(pkgJson, JSON.stringify({ name: "hiagent-runtime", private: true, type: "module" }, null, 2) + "\n");
+    }
+  }
+
+  /**
+   * 把命令名解析为绝对路径（否则 Bun.spawn 在 PATH 不含该命令的环境会失败）。
+   * bun → process.execPath（始终指向运行内核的那个 bun 二进制，dev/打包后均适用）；
+   * 其他命令 → Bun.which 搜 PATH，搜不到返回原值让 spawn 报清晰错误。
+   */
+  private resolveCommand(cmd: string): string {
+    if (cmd === "bun") return process.execPath;
+    return Bun.which(cmd) ?? cmd;
   }
 
   /** 执行包管理器子进程，返回 exitCode + stderr；onProgress 按行转发 stdout/stderr */
   private async spawn(args: string[], onProgress?: (line: string) => void): Promise<{ exitCode: number; stderr: string }> {
     const [cmd, ...rest] = [...this.npmCommand, ...args];
-    const proc = Bun.spawn([cmd, ...rest], {
+    const resolvedCmd = this.resolveCommand(cmd);
+    const proc = Bun.spawn([resolvedCmd, ...rest], {
       cwd: this.runtimeDir,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -45,8 +63,9 @@ export class NpmPackageService {
     return { version: actualVersion };
   }
 
-  /** 卸载 npm 包 */
+  /** 卸载 npm 包。若包不在 node_modules 中则静默跳过（仅清理 settings.json 条目即可）。 */
   async uninstall(name: string): Promise<void> {
+    if (!existsSync(join(this.runtimeDir, "node_modules", name))) return;
     const { exitCode, stderr } = await this.spawn(["remove", name]);
     if (exitCode !== 0) {
       throw new Error(`卸载失败: ${stderr || `exit code ${exitCode}`}`);
@@ -71,7 +90,8 @@ export class NpmPackageService {
       if (exitCode !== 0) return undefined;
       // 用 npm view 查最新版本（bun pm ls 不提供此信息）
       // 此命令只读，使用 npm 而非 bun 因为 bun 无等效命令
-      const view = Bun.spawn(["npm", "view", name, "version"], {
+      const npmCmd = Bun.which("npm") ?? "npm";
+      const view = Bun.spawn([npmCmd, "view", name, "version"], {
         cwd: this.runtimeDir,
         stdio: ["pipe", "pipe", "pipe"],
       });

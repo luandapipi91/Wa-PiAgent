@@ -4,6 +4,27 @@
 
 ---
 
+## 2026-07-14 — 动态插件工具发现 + SDK 冲突修复 + 包管理器鲁棒性
+
+### 修复
+
+- **动态插件工具自动发现**：修复 `extractRuntimeToolNames` 读取 SDK 结构错误（`runtime.tools` 在 SDK 0.80.6 不存在；每个扩展独立持有 `.tools` Map）。改为遍历 `getExtensions().extensions[].tools` + 兜底 `runtime.getAllTools()`。`resolveAgentTools` 新增第 5 参 `harvestedTools` 将动态发现的工具合并进 allowlist（去重）。解决「装了 pi-hypa 但 agent 看不到 hypa_* 工具」的 Bug。
+  - **影响范围**：shared(constants.ts resolveAgentTools + 测试), kernel(extensions.ts extractRuntimeToolNames + agent-manager.ts harvest 注入)
+- **SDK 自动发现冲突**：SDK 的 `SettingsManager.getPackages()` 读取 `settings.json.packages` 字段并自动将包安装到 `~/.hiagent/npm/` 作为扩展加载，与 HiAgent 通过 `additionalExtensionPaths` 注入产生双重加载 → 工具注册冲突 → 全部被 SDK 拒绝。改为 HiAgent 使用自有字段 `hiagent_packages`（SDK 不读取），扩展仅由 `additionalExtensionPaths` 单一路径加载。
+  - **数据迁移**：ExtensionManager.readSettings() 首次读取时自动将旧 `packages` → `hiagent_packages`、`disabledPackages` → `hiagent_disabledPackages`，迁移后删除旧字段。
+  - **影响范围**：kernel(extension-manager.ts settings 字段 + 迁移), kernel(agent-manager.ts 恢复动态路径注入), kernel/tests(extension-manager.test.ts 全量字段更新), frontend(无需改动——list() 返回格式不变)
+- **包管理器鲁棒性**：`Bun.spawn(["bun", ...])` 在 desktop app 或某些环境下 PATH 不含 bun → `ENOENT`。改为 `process.execPath` 解析（始终指向运行内核的 bun 二进制）。`bun remove` 在 runtime 目录无 `package.json` 时报 "No package.json, so nothing to remove"。构造函数自动创建 `package.json`。`uninstall` 检查包是否在 node_modules，不在则静默跳过（仅清理 settings）。
+  - **影响范围**：kernel(npm-package-service.ts spawn/uninstall/constructor)
+- **Dev 模式运行时包解析**：内核在 dev 模式（`bun run src/index.ts`）跑在 `packages/kernel/src/`，`require.resolve` 从 repo 解析，找不到 `~/.hiagent/runtime/node_modules/` 的动态包。新增 `runtimeRequire = createRequire(HIAGENT_DIR/runtime/package.json)` 作为 dev 模式兜底。
+  - **影响范围**：kernel(extensions.ts readPiExtensionsDeclaration + resolveExtensionEntryFile)
+
+### 设计变更
+
+- **扩展加载改为单轨**：仅经 `additionalExtensionPaths` 注入（builtin 始终加载，动态扩展按 `hiagent_packages` 启用态注入）。SDK 不再从 settings.json 自动发现。
+- **Per-agent 过滤预留**：`resolveAgentTools._agentName` 已预留。`getEnabledExtensionIds()` 当前返回全部启用扩展，后期改为接收 `agentName` 按 `disabledAgents` 过滤即可实现每个 agent 角色独立禁用插件。
+
+---
+
 ## 2026-07-13 — 新增: 动态插件系统
 
 - **新增功能**: 动态插件系统，支持在设置面板中安装/卸载/升级/启用/禁用 npm 插件
