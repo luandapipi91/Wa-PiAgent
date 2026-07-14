@@ -13,9 +13,13 @@ import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { GENERATED_DIR } from "@hiagent/shared";
+import { GENERATED_DIR, HIAGENT_DIR } from "@hiagent/shared";
 
 const require = createRequire(import.meta.url);
+// runtimeRequire：dev 模式下内核源码跑在 packages/kernel/src/，require 从 repo 解析不到
+// 运行时安装的动态包（bun add 在 ~/.hiagent/runtime/node_modules）。用 runtimeRequire 兜底。
+// 生产模式内核 bundle 已在 runtime 目录，两个 require 解析结果一致（都从 runtime 出发）。
+const runtimeRequire = createRequire(join(HIAGENT_DIR, "runtime", "package.json"));
 
 /**
  * 把 Pi 扩展声明项解析为实际入口文件路径。
@@ -36,10 +40,10 @@ function resolveDeclaredEntry(declared: string): string | undefined {
  * 解析 npm Pi 扩展的入口文件路径。
  * 优先级：package.json 的 pi.extensions 声明 → 约定 extensions/index 或 index → 包 main。
  */
-export function resolveExtensionEntryFile(pkgName: string): string {
-  const pkgJsonPath = require.resolve(`${pkgName}/package.json`);
+export function resolveExtensionEntryFile(pkgName: string, req = require): string {
+  const pkgJsonPath = req.resolve(`${pkgName}/package.json`);
   const pkgRoot = dirname(pkgJsonPath);
-  const pkg = require(`${pkgName}/package.json`) as { pi?: { extensions?: string[] } };
+  const pkg = req(`${pkgName}/package.json`) as { pi?: { extensions?: string[] } };
 
   // 1. Pi 扩展标准声明：package.json 的 pi.extensions（可指向文件或目录）
   const piExts = pkg?.pi?.extensions;
@@ -72,15 +76,19 @@ const PKG_EXTENSIONS = [
  * 读取 npm 包 package.json 的 pi.extensions 声明。
  * 用作「该包是否为 Pi 扩展」的判定信号：非 Pi 扩展 / 无声明 / 无法解析时返回 undefined。
  * 动态加载时据此 gate，避免把任意已启用 npm 包的 main 当扩展入口导入（执行其副作用）。
+ *
+ * 先尝试 require（dev 模式下包在 repo node_modules；生产 bundle 已在 runtime），
+ * 解析失败再尝试 runtimeRequire（dev 模式下运行时安装的动态包在 ~/.hiagent/runtime）。
  */
 function readPiExtensionsDeclaration(pkgName: string): string[] | undefined {
-  try {
-    const pkg = require(`${pkgName}/package.json`) as { pi?: { extensions?: string[] } };
+  const parse = (req: NodeRequire) => {
+    const pkg = req(`${pkgName}/package.json`) as { pi?: { extensions?: string[] } };
     const exts = pkg?.pi?.extensions;
     return Array.isArray(exts) && exts.length > 0 ? exts : undefined;
-  } catch {
-    return undefined;
-  }
+  };
+  try { return parse(require); } catch {}
+  try { return parse(runtimeRequire); } catch {}
+  return undefined;
 }
 
 /**
@@ -91,15 +99,22 @@ function readPiExtensionsDeclaration(pkgName: string): string[] | undefined {
  *   仅纳入声明了 pi.extensions 的包（Pi 扩展信号），其余静默跳过。默认空数组（向后兼容）。
  */
 export function buildAdditionalExtensionPaths(dynamicPkgNames: string[] = []): string[] {
-  const paths = PKG_EXTENSIONS.map(resolveExtensionEntryFile);
+  const paths = PKG_EXTENSIONS.map((name) => resolveExtensionEntryFile(name));
   // 动态安装的第三方扩展：把已启用且为 Pi 扩展的包入口并入 loader 路径，
   // 否则 SDK 永远不会加载它们 → 它们的工具/钩子不注册（即动态插件「装了但没生效」的根因）。
   for (const name of dynamicPkgNames) {
     if (!readPiExtensionsDeclaration(name)) continue;  // 非 Pi 扩展，跳过
+    // dev 模式：源码跑在 packages/kernel/src/，require 从 repo 解析不到 runtime 动态包；
+    // 先试 require（builtin / 已装在 repo 的），失败再试 runtimeRequire 兜底。
+    // 生产模式：bundle 已在 runtime 目录，require 与 runtimeRequire 等价，第一个就命中。
     try {
       paths.push(resolveExtensionEntryFile(name));
-    } catch (err) {
-      console.error(`[kernel] 解析动态扩展入口失败 ${name}:`, err);
+    } catch {
+      try {
+        paths.push(resolveExtensionEntryFile(name, runtimeRequire));
+      } catch (err) {
+        console.error(`[kernel] 解析动态扩展入口失败 ${name}:`, err);
+      }
     }
   }
   // provider-extension 由 main()/ws-server 动态生成，首启或测试前可能尚未存在
@@ -109,19 +124,31 @@ export function buildAdditionalExtensionPaths(dynamicPkgNames: string[] = []): s
 }
 
 /**
- * 从 DefaultResourceLoader.getExtensions().runtime.tools 提取已加载扩展注册的工具名。
- * runtime.tools 是 Map<string, RegisteredTool>，键即工具名（扩展经 pi.registerTool({name}) 注册）。
- * loader 为空 / 无 getExtensions / 结构不符时返回空数组（容错，绝不抛错）。
- *
- * 注意：runtime.tools 已只含「实际被 loader 加载」的扩展工具——builtin（pi-intercom/pi-web-access）
- * 加 已启用第三方扩展（由 buildAdditionalExtensionPaths 的 dynamicPkgNames gate）。
- * 因此直接全部并入 allowlist 即可，无需再按 enabledExtensionIds 二次过滤。
+ * 从 DefaultResourceLoader.getExtensions() 提取已加载扩展注册的工具名。
+ * 优先遍历每个扩展的 tools Map（loader.reload() 后即可用）；再尝试 runtime.getAllTools()
+ * 作为补充（需要 agent session 运行时初始化，可能抛错，容错忽略）。
+ * loader 为空 / 结构不符时返回空数组（绝不抛错）。
  */
 export function extractRuntimeToolNames(loader: unknown): string[] {
   try {
-    const tools = (loader as any)?.getExtensions?.()?.runtime?.tools;
-    if (!(tools instanceof Map)) return [];
-    return [...tools.keys()];
+    const extResult = (loader as any)?.getExtensions?.();
+    if (!extResult) return [];
+    const names: string[] = [];
+    // 主路径：遍历每个扩展的 tools Map<string, RegisteredTool>（reload 后直接可用）
+    for (const ext of (extResult.extensions ?? [])) {
+      const tools = ext?.tools;
+      if (tools instanceof Map) names.push(...tools.keys());
+    }
+    // 补充路径：runtime.getAllTools()（需要 agent session 初始化，未初始化时抛错）
+    try {
+      const getAllTools = extResult.runtime?.getAllTools;
+      if (typeof getAllTools === "function") {
+        for (const t of (getAllTools() ?? [])) {
+          if (typeof t === "string" && !names.includes(t)) names.push(t);
+        }
+      }
+    } catch { /* runtime 未初始化，忽略 */ }
+    return names;
   } catch {
     return [];
   }

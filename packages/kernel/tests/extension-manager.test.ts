@@ -101,13 +101,13 @@ test("install 写入 npm:name@version 到 packages", async () => {
   expect(info.version).toBe("9.9.9");
 
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.packages).toContain("npm:test-pkg@9.9.9");
+  expect(settings.hiagent_packages).toContain("npm:test-pkg@9.9.9");
 });
 
 test("install 拒绝重复安装", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: ["npm:test-pkg@1.0.0"],
+    hiagent_packages: ["npm:test-pkg@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
   await expect(mgr.install("test-pkg")).rejects.toThrow("已安装");
@@ -116,27 +116,27 @@ test("install 拒绝重复安装", async () => {
 test("uninstall 从 packages 移除", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: ["npm:test-pkg@1.0.0", "npm:other@2.0.0"],
+    hiagent_packages: ["npm:test-pkg@1.0.0", "npm:other@2.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
   await mgr.uninstall("test-pkg");
 
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.packages).toEqual(["npm:other@2.0.0"]);
-  expect(settings.packages).not.toContain("npm:test-pkg@1.0.0");
+  expect(settings.hiagent_packages).toEqual(["npm:other@2.0.0"]);
+  expect(settings.hiagent_packages).not.toContain("npm:test-pkg@1.0.0");
 });
 
 test("disable 把条目从 packages 移到 disabledPackages（仍可见 enabled:false）", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: ["npm:test-pkg@1.0.0"],
+    hiagent_packages: ["npm:test-pkg@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
   await mgr.disable("test-pkg");
 
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.packages).toEqual([]);
-  expect(settings.disabledPackages).toEqual(["npm:test-pkg@1.0.0"]);
+  expect(settings.hiagent_packages).toEqual([]);
+  expect(settings.hiagent_disabledPackages).toEqual(["npm:test-pkg@1.0.0"]);
 
   // disable 后该包仍出现在 list() 里，enabled:false
   const { packages } = await mgr.list();
@@ -148,21 +148,21 @@ test("disable 把条目从 packages 移到 disabledPackages（仍可见 enabled:
 test("disable 对已禁用包幂等（no-op，不写）", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: [],
-    disabledPackages: ["npm:test-pkg@1.0.0"],
+    hiagent_packages: [],
+    hiagent_disabledPackages: ["npm:test-pkg@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
   await mgr.disable("test-pkg"); // should not throw
 
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.disabledPackages).toEqual(["npm:test-pkg@1.0.0"]);
-  expect(settings.packages).toEqual([]);
+  expect(settings.hiagent_disabledPackages).toEqual(["npm:test-pkg@1.0.0"]);
+  expect(settings.hiagent_packages).toEqual([]);
 });
 
 test("disable 对未安装包抛错", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: [],
+    hiagent_packages: [],
   }), "utf8");
   const mgr = mockManager(dir);
   await expect(mgr.disable("nope")).rejects.toThrow("未安装");
@@ -171,15 +171,15 @@ test("disable 对未安装包抛错", async () => {
 test("enable 把 disabled 包移回 packages（enabled:true）", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: [],
-    disabledPackages: ["npm:test-pkg@1.0.0"],
+    hiagent_packages: [],
+    hiagent_disabledPackages: ["npm:test-pkg@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
   await mgr.enable("test-pkg");
 
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.packages).toContain("npm:test-pkg@1.0.0");
-  expect(settings.disabledPackages).toEqual([]);
+  expect(settings.hiagent_packages).toContain("npm:test-pkg@1.0.0");
+  expect(settings.hiagent_disabledPackages).toEqual([]);
 
   // list 中该包 enabled:true
   const { packages } = await mgr.list();
@@ -191,36 +191,36 @@ test("enable 把 disabled 包移回 packages（enabled:true）", async () => {
 test("enable 对已启用包幂等（no-op）", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: ["npm:test-pkg@1.0.0"],
-    disabledPackages: [],
+    hiagent_packages: ["npm:test-pkg@1.0.0"],
+    hiagent_disabledPackages: [],
   }), "utf8");
   const mgr = mockManager(dir);
   await mgr.enable("test-pkg");
 
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.packages).toEqual(["npm:test-pkg@1.0.0"]);
-  expect(settings.disabledPackages).toEqual([]);
+  expect(settings.hiagent_packages).toEqual(["npm:test-pkg@1.0.0"]);
+  expect(settings.hiagent_disabledPackages).toEqual([]);
 });
 
 test("enable 兜底：从 node_modules 恢复（在两列表皆无时）", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: [],
-    disabledPackages: [],
+    hiagent_packages: [],
+    hiagent_disabledPackages: [],
   }), "utf8");
   const mgr = mockManager(dir);
   // mockPkgService.getInstalledVersion("test-pkg") 返回 "9.9.9"
   await mgr.enable("test-pkg");
 
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.packages).toContain("npm:test-pkg@9.9.9");
+  expect(settings.hiagent_packages).toContain("npm:test-pkg@9.9.9");
 });
 
 test("list 把 disabledPackages 条目标为 enabled:false", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: ["npm:enabled-pkg@1.0.0"],
-    disabledPackages: ["npm:disabled-pkg@2.0.0", "git:github.com/x/y", "/local/path"],
+    hiagent_packages: ["npm:enabled-pkg@1.0.0"],
+    hiagent_disabledPackages: ["npm:disabled-pkg@2.0.0", "git:github.com/x/y", "/local/path"],
   }), "utf8");
   const mgr = mockManager(dir);
   const { packages } = await mgr.list();
@@ -245,22 +245,22 @@ test("list 把 disabledPackages 条目标为 enabled:false", async () => {
 test("uninstall 同时支持 packages 和 disabledPackages", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: ["npm:other@2.0.0"],
-    disabledPackages: ["npm:test-pkg@1.0.0"],
+    hiagent_packages: ["npm:other@2.0.0"],
+    hiagent_disabledPackages: ["npm:test-pkg@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
   await mgr.uninstall("test-pkg");
 
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.disabledPackages).toEqual([]);
-  expect(settings.packages).toEqual(["npm:other@2.0.0"]);
+  expect(settings.hiagent_disabledPackages).toEqual([]);
+  expect(settings.hiagent_packages).toEqual(["npm:other@2.0.0"]);
 });
 
 test("uninstall 对两列表皆无的包抛错", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: [],
-    disabledPackages: [],
+    hiagent_packages: [],
+    hiagent_disabledPackages: [],
   }), "utf8");
   const mgr = mockManager(dir);
   await expect(mgr.uninstall("nope")).rejects.toThrow("未安装");
@@ -269,8 +269,8 @@ test("uninstall 对两列表皆无的包抛错", async () => {
 test("install 命中 disabledPackages 时抛「已禁用，请先启用」", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: [],
-    disabledPackages: ["npm:test-pkg@1.0.0"],
+    hiagent_packages: [],
+    hiagent_disabledPackages: ["npm:test-pkg@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
   await expect(mgr.install("test-pkg")).rejects.toThrow("该插件已禁用，请先启用");
@@ -279,8 +279,8 @@ test("install 命中 disabledPackages 时抛「已禁用，请先启用」", asy
 test("upgrade 对仅在 disabledPackages 的包抛「请先启用后升级」", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: [],
-    disabledPackages: ["npm:test-pkg@1.0.0"],
+    hiagent_packages: [],
+    hiagent_disabledPackages: ["npm:test-pkg@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
   await expect(mgr.upgrade("test-pkg")).rejects.toThrow("该插件已禁用，请先启用后升级");
@@ -291,8 +291,8 @@ test("不可变更新：保留 settings.json 其他字段（含 disabledPackages
     npmCommand: ["bun"],
     disabledSkills: ["x"],
     other: 1,
-    packages: [],
-    disabledPackages: ["npm:legacy@1.0.0"],
+    hiagent_packages: [],
+    hiagent_disabledPackages: ["npm:legacy@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
   await mgr.install("new-pkg");
@@ -300,7 +300,7 @@ test("不可变更新：保留 settings.json 其他字段（含 disabledPackages
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
   expect(settings.disabledSkills).toEqual(["x"]);
   expect(settings.other).toBe(1);
-  expect(settings.disabledPackages).toEqual(["npm:legacy@1.0.0"]);
+  expect(settings.hiagent_disabledPackages).toEqual(["npm:legacy@1.0.0"]);
 });
 
 // ---- SHOULD-FIX 5 新增覆盖：upgrade happy-path / git 生命周期 / scoped+version 解析 ----
@@ -308,7 +308,7 @@ test("不可变更新：保留 settings.json 其他字段（含 disabledPackages
 test("upgrade happy-path：升级 npm 包并更新 settings 条目为新版本", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: ["npm:test-pkg@1.0.0"],
+    hiagent_packages: ["npm:test-pkg@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
   const info = await mgr.upgrade("test-pkg");
@@ -320,14 +320,14 @@ test("upgrade happy-path：升级 npm 包并更新 settings 条目为新版本",
 
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
   // 旧条目被替换为新版本
-  expect(settings.packages).toContain("npm:test-pkg@9.9.9");
-  expect(settings.packages).not.toContain("npm:test-pkg@1.0.0");
+  expect(settings.hiagent_packages).toContain("npm:test-pkg@9.9.9");
+  expect(settings.hiagent_packages).not.toContain("npm:test-pkg@1.0.0");
 });
 
 test("git 来源生命周期：install→disable→enable→uninstall 按 bare name 查找（验证 fix #2）", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     npmCommand: ["bun"],
-    packages: [],
+    hiagent_packages: [],
   }), "utf8");
   const mgr = mockManager(dir);
   const repo = "github.com/user/repo";
@@ -336,25 +336,25 @@ test("git 来源生命周期：install→disable→enable→uninstall 按 bare n
   expect(info.source).toBe("git");
 
   let settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.packages).toEqual([`git:${repo}`]);
+  expect(settings.hiagent_packages).toEqual([`git:${repo}`]);
 
   // disable 按 bare name（repo）查找，证明 extractNames 已正确剥掉 git: 前缀
   await mgr.disable(repo);
   settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.packages).toEqual([]);
-  expect(settings.disabledPackages).toEqual([`git:${repo}`]);
+  expect(settings.hiagent_packages).toEqual([]);
+  expect(settings.hiagent_disabledPackages).toEqual([`git:${repo}`]);
 
   // enable 按 bare name 移回
   await mgr.enable(repo);
   settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.packages).toEqual([`git:${repo}`]);
-  expect(settings.disabledPackages).toEqual([]);
+  expect(settings.hiagent_packages).toEqual([`git:${repo}`]);
+  expect(settings.hiagent_disabledPackages).toEqual([]);
 
   // uninstall 按 bare name 移除
   await mgr.uninstall(repo);
   settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
-  expect(settings.packages).toEqual([]);
-  expect(settings.disabledPackages).toEqual([]);
+  expect(settings.hiagent_packages).toEqual([]);
+  expect(settings.hiagent_disabledPackages).toEqual([]);
 });
 
 test("scoped+version 安装：@scope/pkg@1.0.0 拆分为 name + version（验证 fix #3）", async () => {
@@ -380,7 +380,7 @@ test("scoped+version 安装：@scope/pkg@1.0.0 拆分为 name + version（验证
 
   const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
   // 写入条目为 npm:@scope/pkg@<resolved>
-  expect(settings.packages).toContain("npm:@scope/pkg@1.0.0");
+  expect(settings.hiagent_packages).toContain("npm:@scope/pkg@1.0.0");
 });
 
 test("parseExtensionInput scoped+version：@scope/pkg@1.0.0 正确拆分", () => {
