@@ -55,11 +55,21 @@ export interface McpListEvent      { type: "mcp:list";      projectId?: string; 
 export interface McpSaveEvent      { type: "mcp:save";      projectId?: string; config: McpServerConfig; originalName?: string; }
 export interface McpDeleteEvent    { type: "mcp:delete";    projectId?: string; serverName: string; }
 export interface McpTestEvent      { type: "mcp:test";      projectId?: string; serverName: string; }
-export interface McpListToolsEvent { type: "mcp:listTools"; serverName: string; }
+export interface McpListToolsEvent { type: "mcp:listTools"; projectId?: string; serverName: string; }
 export interface McpClearAuthEvent { type: "mcp:clearAuth"; projectId?: string; serverName: string; }
 
 // 内核 → 前端
 export interface McpListResult   { type: "mcp:list";    projectId?: string; servers: McpServerConfig[]; }
 export interface McpChangedEvent { type: "mcp:changed"; projectId?: string; servers: McpServerConfig[]; }
-export interface McpTestResult   { type: "mcp:testResult"; serverName: string; success: boolean; error?: string; }
+export interface McpTestResult   {
+  type: "mcp:testResult";
+  serverName: string;
+  /** true 仅表示「已连上」；needs_auth 不算 success */
+  success: boolean;
+  /** 运行时状态（前端据此切换卡片徽标 / 授权按钮） */
+  status?: McpServerStatus;
+  /** 连上时的工具数，供卡片展示 */
+  toolCount?: number;
+  error?: string;
+}
 export interface McpToolsResult  { type: "mcp:tools";      serverName: string; tools: McpToolSummary[]; }

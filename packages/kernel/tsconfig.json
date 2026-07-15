@@ -1,5 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "./dist" },
+  "compilerOptions": {
+    "outDir": "./dist",
+    // tsc 仅用于类型检查（构建走 bun build）；开启 allowImportingTsExtensions
+    // 以允许深导入 pi-mcp-adapter 的 TypeScript 源文件（该包只发布 .ts 源码）。
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
   "include": ["src", "tests"]
 }

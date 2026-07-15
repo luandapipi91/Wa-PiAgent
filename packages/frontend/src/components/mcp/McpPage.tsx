@@ -10,7 +10,7 @@ import type { McpServerConfig } from "@hiagent/shared";
 
 export function McpPage() {
   const {
-    servers, serverStatuses, toolsCache, testingServer, errors,
+    servers, serverStatuses, toolCounts, toolsCache, testingServer, errors,
     selectedProjectId, searchQuery, loading,
     load, save, deleteServer, testConnection, listTools, clearAuth,
     setSelectedProjectId, setSearchQuery,
@@ -53,17 +53,13 @@ export function McpPage() {
   };
 
   const handleViewTools = (serverName: string) => {
-    // 先发起 WS 请求取最新工具列表
-    listTools(serverName);
+    // 先发起 WS 请求取最新工具列表（实时连接，不依赖缓存）
+    listTools(serverName, activeProjectId ?? undefined);
     setShowToolsFor(serverName);
   };
 
   const handleClearAuth = (serverName: string) => {
     clearAuth(serverName, activeProjectId ?? undefined);
-    // 重置状态为 disconnected
-    useMcpStore.setState(s => ({
-      serverStatuses: { ...s.serverStatuses, [serverName]: "disconnected" },
-    }));
   };
 
   const handleDelete = (serverName: string) => {
@@ -132,6 +128,7 @@ export function McpPage() {
               key={s.name}
               config={s}
               status={serverStatuses[s.name] ?? "disconnected"}
+              toolCount={toolCounts[s.name]}
               testing={testingServer === s.name}
               error={errors[s.name]}
               onTest={() => handleTest(s.name)}

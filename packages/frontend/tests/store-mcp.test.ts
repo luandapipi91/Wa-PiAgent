@@ -8,6 +8,7 @@ beforeEach(() => {
     searchQuery: "",
     loading: false,
     serverStatuses: {},
+    toolCounts: {},
     toolsCache: {},
     testingServer: null,
     errors: {},
@@ -62,6 +63,29 @@ test("setTestResult 失败更新状态为 error", () => {
     error: "连接失败",
   });
   expect(useMcpStore.getState().serverStatuses["test"]).toBe("error");
+});
+
+test("setTestResult 携带 status 时优先用 status，并记录 toolCount", () => {
+  // needs_auth：success=false 但 status 显式为 needs_auth（不应记为 error）
+  useMcpStore.getState().setTestResult({
+    type: "mcp:testResult",
+    serverName: "oauth-svr",
+    success: false,
+    status: "needs_auth",
+  });
+  expect(useMcpStore.getState().serverStatuses["oauth-svr"]).toBe("needs_auth");
+  expect(useMcpStore.getState().errors["oauth-svr"]).toBeUndefined();
+
+  // connected + toolCount
+  useMcpStore.getState().setTestResult({
+    type: "mcp:testResult",
+    serverName: "ok-svr",
+    success: true,
+    status: "connected",
+    toolCount: 5,
+  });
+  expect(useMcpStore.getState().serverStatuses["ok-svr"]).toBe("connected");
+  expect(useMcpStore.getState().toolCounts["ok-svr"]).toBe(5);
 });
 
 test("setToolsResult 更新 tools cache", () => {

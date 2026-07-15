@@ -3,6 +3,8 @@ import type { McpServerConfig, McpServerStatus } from "@hiagent/shared";
 interface Props {
   config: McpServerConfig;
   status: McpServerStatus;
+  /** 连接测试成功时返回的工具数（展示「已连接 · N 工具」） */
+  toolCount?: number;
   testing?: boolean;
   error?: string;
   onTest: () => void;
@@ -30,10 +32,14 @@ function configSummary(config: McpServerConfig): string {
   return "未配置";
 }
 
-export function McpCard({ config, status, testing, error, onTest, onViewTools, onAuth, onClearAuth, onEdit, onDelete }: Props) {
+export function McpCard({ config, status, toolCount, testing, error, onTest, onViewTools, onAuth, onClearAuth, onEdit, onDelete }: Props) {
   const st = testing
     ? { icon: "⏳", label: "测试中...", color: "var(--accent)" }
     : (STATUS_CONFIG[status] ?? STATUS_CONFIG.disconnected);
+
+  const label = (!testing && status === "connected" && toolCount != null)
+    ? `已连接 · ${toolCount} 工具`
+    : st.label;
 
   return (
     <div
@@ -51,7 +57,7 @@ export function McpCard({ config, status, testing, error, onTest, onViewTools, o
         <span
           className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
           style={{ background: st.color + "20", color: st.color }}
-        >{st.icon} {st.label}</span>
+        >{st.icon} {label}</span>
       </div>
 
       {/* 描述行 */}

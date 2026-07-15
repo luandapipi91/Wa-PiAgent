@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-07-15 — 修复 MCP 连接器「连接测试无反应」
+
+### 修复
+
+- **连接测试/查看工具/清除授权改用直连 MCP SDK**：原实现为每次操作拉起一个临时 Pi agent session 并发 `/mcp reconnect`、`/mcp logout` 斜杠命令，但**扩展命令经 `pi.sendMessage()` 自管理 LLM 交互、`prompt()` 立即 resolve 且不产生任何事件**（已用诊断脚本验证 events=[]、messages=[]）→ 前端永远等不到结果，30s 超时后「无反应」。另：临时 session 里调用 `mcp({connect})` 工具返回 `not_initialized`（adapter 面向交互式会话设计）。改为新增 `mcp-connector.ts`，用 `@modelcontextprotocol/sdk` 的 `Client` + `StdioClientTransport`/`StreamableHTTPClientTransport` 直连，握手后列举工具——与 `pi-mcp-adapter` 内部 `McpServerManager.createConnection` 同一连接逻辑（不深导入其 server-manager，因 adapter 由 SDK 在运行时动态加载、不进 kernel.js bundle，深导入会把 recheck/open 等重依赖拖进内核编译产物）。
+  - **结果类型丰富**：`McpTestResult` 新增 `status?`（connected/needs_auth/error/disconnected）与 `toolCount?`；卡片据 status 切换徽标，connected 时显示「已连接 · N 工具」。needs_auth 与 error 区分显示（OAuth 服务器需授权 ≠ 连接错误）。
+  - **真实验证**：对 `~/.hiagent/mcp.json` 中的 dbx（`npx -y dbx-mcp-server`）实测 `testConnection` ~2s 返回 connected + 9 工具，`listTools` 返回 9 工具详情。
+  - **影响范围**：kernel(mcp-connector.ts 新增 + 6 测试含 stdio 固定件/HTTP 401/清授权；ws-server.ts mcp:test/listTools/clearAuth 重写；mcp-store.ts 新增 getServer、移除读 mcp-cache.json 的 listTools 死代码；tsconfig 开 allowImportingTsExtensions 以深导入 adapter .ts 源码), shared(mcp.ts McpTestResult/McpListToolsEvent), frontend(store/mcp setTestResult 按 status 映射 + toolCounts；McpPage 传 projectId 给 listTools、移除多余乐观更新；McpCard 显示 toolCount)
+- **needs_auth 检测修正**：SDK 仅在挂了 authProvider 时对 401 抛 `UnauthorizedError`；连接器的 HTTP 客户端不挂 OAuth 流，401 实际抛 `StreamableHTTPError(code=401)`。`isNeedsAuth` 同时识别两者。
+- **查看工具不再依赖缓存**：`mcp:listTools` 原读 `mcp-cache.json`（仅 agent 会话实际用过该服务器后才有内容）→ 几乎总为空。改为实时连接列举。
+
+### 设计变更
+
+- **MCP 运行时与连接测试解耦**：配置管理 + 连接测试由 HiAgent 内核负责（直连 SDK），MCP 工具运行时仍由内置插件 pi-mcp-adapter 在 agent 会话内承载。连接测试用同一 SDK 保证测试行为与运行时一致。
+
+---
+
 ## 2026-07-14 — 动态插件工具发现 + SDK 冲突修复 + 包管理器鲁棒性
 
 ### 修复

@@ -10,6 +10,8 @@ interface McpState {
   loading: boolean;
   /** 各服务器运行时状态（客户端内存，不持久化） */
   serverStatuses: Record<string, McpServerStatus>;
+  /** 连接测试成功时的工具数（供卡片展示「已连接 · N 工具」） */
+  toolCounts: Record<string, number>;
   /** 工具列表缓存（按 serverName） */
   toolsCache: Record<string, McpToolSummary[]>;
   /** 正在测试/授权的服务器名（null=无进行中操作） */
@@ -24,7 +26,7 @@ interface McpState {
   save(config: McpServerConfig, projectId?: string, originalName?: string): void;
   deleteServer(serverName: string, projectId?: string): void;
   testConnection(serverName: string, projectId?: string): void;
-  listTools(serverName: string): void;
+  listTools(serverName: string, projectId?: string): void;
   clearAuth(serverName: string, projectId?: string): void;
   setSelectedProjectId(id: string | null): void;
   setSearchQuery(q: string): void;
@@ -36,6 +38,7 @@ export const useMcpStore = create<McpState>((set) => ({
   searchQuery: "",
   loading: false,
   serverStatuses: {},
+  toolCounts: {},
   toolsCache: {},
   testingServer: null,
   errors: {},
@@ -46,16 +49,19 @@ export const useMcpStore = create<McpState>((set) => ({
   },
   setServers: (data) => set({ servers: data.servers, loading: false }),
   setTestResult: (data) =>
-    set((s) => ({
-      testingServer: null,
-      serverStatuses: {
-        ...s.serverStatuses,
-        [data.serverName]: data.success ? "connected" : "error",
-      },
-      errors: data.success
-        ? s.errors
-        : { ...s.errors, [data.serverName]: data.error ?? "连接失败" },
-    })),
+    set((s) => {
+      const status: McpServerStatus = data.status ?? (data.success ? "connected" : "error");
+      return {
+        testingServer: null,
+        serverStatuses: { ...s.serverStatuses, [data.serverName]: status },
+        errors: status === "error"
+          ? { ...s.errors, [data.serverName]: data.error ?? "连接失败" }
+          : s.errors,
+        toolCounts: status === "connected" && data.toolCount != null
+          ? { ...s.toolCounts, [data.serverName]: data.toolCount }
+          : s.toolCounts,
+      };
+    }),
   setToolsResult: (data) =>
     set((s) => ({
       toolsCache: { ...s.toolsCache, [data.serverName]: data.tools },
@@ -72,8 +78,8 @@ export const useMcpStore = create<McpState>((set) => ({
     });
     send({ type: "mcp:test", projectId, serverName });
   },
-  listTools: (serverName) =>
-    send({ type: "mcp:listTools", serverName }),
+  listTools: (serverName, projectId) =>
+    send({ type: "mcp:listTools", projectId, serverName }),
   clearAuth: (serverName, projectId) => {
     set({ testingServer: serverName });
     send({ type: "mcp:clearAuth", projectId, serverName });

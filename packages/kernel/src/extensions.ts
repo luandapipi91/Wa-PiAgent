@@ -70,6 +70,7 @@ export function resolveExtensionEntryFile(pkgName: string, req = require): strin
 const PKG_EXTENSIONS = [
   "pi-intercom",
   "pi-web-access",
+  "pi-mcp-adapter",
 ] as const;
 
 /**
