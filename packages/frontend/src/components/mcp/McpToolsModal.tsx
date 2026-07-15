@@ -5,10 +5,12 @@ import { Modal } from "../ui/Modal";
 interface Props {
   serverName: string;
   tools: McpToolSummary[];
+  /** 工具列表加载中（首次查看、尚未拿到结果时显示 loading 过渡） */
+  loading?: boolean;
   onClose: () => void;
 }
 
-export function McpToolsModal({ serverName, tools, onClose }: Props) {
+export function McpToolsModal({ serverName, tools, loading, onClose }: Props) {
   const [search, setSearch] = useState("");
 
   const filtered = tools.filter(t =>
@@ -32,7 +34,15 @@ export function McpToolsModal({ serverName, tools, onClose }: Props) {
         />
       </div>
       <div className="flex-1 overflow-y-auto p-4" style={{ maxHeight: "50vh" }}>
-        {tools.length === 0 ? (
+        {loading && tools.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-8" data-testid="mcp-tools-loading">
+            <span
+              className="inline-block w-4 h-4 rounded-full animate-spin"
+              style={{ border: "2px solid var(--accent)", borderTopColor: "transparent" }}
+            />
+            <span className="text-tertiary text-[12.5px]">工具加载中...</span>
+          </div>
+        ) : tools.length === 0 ? (
           <div className="text-center py-8 text-tertiary text-[12.5px]">
             暂无可用的工具缓存，请先执行连接测试。
           </div>

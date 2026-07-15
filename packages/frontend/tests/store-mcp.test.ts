@@ -10,6 +10,7 @@ beforeEach(() => {
     serverStatuses: {},
     toolCounts: {},
     toolsCache: {},
+    loadingTools: {},
     testingServers: {},
     autoTestedProject: undefined,
     errors: {},
@@ -96,6 +97,25 @@ test("setToolsResult 更新 tools cache", () => {
     tools: [{ name: "tool_a", description: "A tool" }],
   });
   expect(useMcpStore.getState().toolsCache["test"]).toEqual([
+    { name: "tool_a", description: "A tool" },
+  ]);
+});
+
+test("listTools 标记 loadingTools 为加载中", () => {
+  useMcpStore.getState().listTools("dbx", "p1");
+  expect(useMcpStore.getState().loadingTools["dbx"]).toBe(true);
+});
+
+test("setToolsResult 清除 loadingTools 并缓存工具", () => {
+  useMcpStore.getState().listTools("dbx", "p1");
+  expect(useMcpStore.getState().loadingTools["dbx"]).toBe(true);
+  useMcpStore.getState().setToolsResult({
+    type: "mcp:tools",
+    serverName: "dbx",
+    tools: [{ name: "tool_a", description: "A tool" }],
+  });
+  expect(useMcpStore.getState().loadingTools["dbx"]).toBe(false);
+  expect(useMcpStore.getState().toolsCache["dbx"]).toEqual([
     { name: "tool_a", description: "A tool" },
   ]);
 });

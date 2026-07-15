@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-15 — 查看工具：加载过程加 loading 过渡
+
+### 新增
+
+- **查看工具加载过渡**：点击「查看工具」后弹窗会发起实时 `mcp:listTools` 拉取工具列表（首次查看时缓存为空）。此前首屏会先闪现「暂无可用的工具缓存，请先执行连接测试。」的空态提示，等结果回来才显示工具——误导。现新增 per-server `loadingTools` 标记：`listTools` 置真、`setToolsResult` 置假；弹窗在「加载中且尚无工具」时显示旋转 loading 过渡，结果到达后切换为工具列表。
+  - **影响范围**：frontend(store/mcp.ts loadingTools + listTools/setToolsResult；McpToolsModal loading 过渡；McpPage 透传 loadingTools)。全量 360 pass / 0 fail，typecheck clean。
+
+---
+
 ## 2026-07-15 — 已连接的 MCP 服务器保留「连接测试」按钮（支持重新测试）
 
 ### 变更

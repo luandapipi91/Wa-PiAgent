@@ -14,6 +14,8 @@ interface McpState {
   toolCounts: Record<string, number>;
   /** 工具列表缓存（按 serverName） */
   toolsCache: Record<string, McpToolSummary[]>;
+  /** 正在加载工具列表的服务器集合（查看工具时的 loading 过渡） */
+  loadingTools: Record<string, boolean>;
   /** 正在测试/授权的服务器集合（支持并行测试多个，如切换作用域后的批量自动测试） */
   testingServers: Record<string, boolean>;
   /** 各服务器最近一次错误信息（测试失败时填充） */
@@ -45,6 +47,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   serverStatuses: {},
   toolCounts: {},
   toolsCache: {},
+  loadingTools: {},
   testingServers: {},
   errors: {},
   autoTestedProject: undefined,
@@ -84,6 +87,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   setToolsResult: (data) =>
     set((s) => ({
       toolsCache: { ...s.toolsCache, [data.serverName]: data.tools },
+      loadingTools: { ...s.loadingTools, [data.serverName]: false },
     })),
   save: (config, projectId, originalName) =>
     send({ type: "mcp:save", projectId, config, originalName }),
@@ -109,8 +113,10 @@ export const useMcpStore = create<McpState>((set, get) => ({
       send({ type: "mcp:test", projectId, serverName: srv.name });
     }
   },
-  listTools: (serverName, projectId) =>
-    send({ type: "mcp:listTools", projectId, serverName }),
+  listTools: (serverName, projectId) => {
+    set((s) => ({ loadingTools: { ...s.loadingTools, [serverName]: true } }));
+    send({ type: "mcp:listTools", projectId, serverName });
+  },
   clearAuth: (serverName, projectId) => {
     set((s) => ({ testingServers: { ...s.testingServers, [serverName]: true } }));
     send({ type: "mcp:clearAuth", projectId, serverName });
