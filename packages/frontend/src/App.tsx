@@ -52,10 +52,11 @@ export function App() {
           if (sid) {
             // 构造 SessionMessage（新 append 签名：sessionId + SessionMessage）
             // error 不属于具体 agent，agentName 用任意合法默认；stopReason 标 "error" 供渲染层识别
+            // 文本不加 ⚠️ 前缀：视觉上的错误区分由 MessageList 的 stopReason=error 红色渲染承担
             useSessionStore.getState().append(sid, {
               message: {
                 role: "assistant",
-                content: [{ type: "text", text: `⚠️ ${e.message}` }],
+                content: [{ type: "text", text: e.message }],
                 model: "system",
                 stopReason: "error",
                 timestamp: Date.now(),

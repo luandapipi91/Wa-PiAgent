@@ -65,10 +65,10 @@ export function McpCard({ config, status, toolCount, testing, error, onTest, onV
         {configSummary(config)}
       </p>
 
-      {/* 错误信息 */}
+      {/* 错误信息：danger 样式（红字+红底）已承担错误信号，文本不加 ⚠ 前缀 */}
       {error && !testing && (
         <p className="text-[11px] mb-2 px-2 py-1 rounded" style={{ color: "var(--danger)", background: "var(--danger-soft)" }} data-testid={`mcp-error-${config.name}`}>
-          ⚠ {error}
+          {error}
         </p>
       )}
 
