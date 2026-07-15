@@ -361,3 +361,43 @@ test("搜索内容变更后清空上一次的搜索结果（新查询无匹配�
     expect(screen.getByText("无匹配结果")).toBeTruthy();
   }, { timeout: 3000 });
 });
+
+// ── 搜索态切换“显示隐藏目录”不应抛错 ──
+// 回归：搜索时 displayItems 是搜索树（path 作 id）；切换 showHidden 会重跑浏览
+// mount effect（依赖 [showHidden, defaultPath]），把浏览树定位 id 写入 focusTargetRef，
+// 随后的 focus effect 拿这个浏览 id 去 focusItem——但环境 items 仍是搜索树，
+// 找不到该 id → onFocusItem(undefined) → handleFocusItem 读 item.index 抛错。
+
+test("搜索态下切换“显示隐藏目录”不应抛错，搜索结果仍可见", async () => {
+  const errors: string[] = [];
+  const onError = (e: any) => errors.push(String(e?.error?.message ?? e?.message ?? e));
+  window.addEventListener("error", onError);
+
+  try {
+    render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    }, { timeout: 3000 });
+
+    // 搜索：建立搜索结果树（path-based id 命名空间）
+    fireEvent.change(screen.getByTestId("file-picker-search"), { target: { value: "dem" } });
+    await waitFor(() => {
+      expect(screen.getByTestId("search-duration")).toBeTruthy();
+    }, { timeout: 3000 });
+
+    // 切换显示隐藏目录：浏览 mount effect 重跑并重设浏览树聚焦目标，
+    // 但展示数据源仍是搜索树 → focusItem(浏览 id) 不应抛错
+    const hiddenToggle = document.querySelector('[data-testid="file-picker"] input[type="checkbox"]')!;
+    fireEvent.click(hiddenToggle);
+
+    // 让异步 mount effect 链（walkToTarget → setTreeItems → focus effect）落定
+    await new Promise((r) => setTimeout(r, 300));
+
+    // 未抛出运行时错误，且搜索结果（demo 节点）仍可见
+    expect(errors).toEqual([]);
+    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+  } finally {
+    window.removeEventListener("error", onError);
+  }
+});
