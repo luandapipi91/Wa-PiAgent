@@ -456,23 +456,31 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
   //（如 determineSearchRoots 引用变化 / StrictMode 双执行）重跑时清空已展开记录，
   // 导致用户折叠的节点被下一批增量结果重新展开。
   const lastQueryRef = useRef("");
+  const lastShowHiddenRef = useRef(showHidden);
   useEffect(() => {
     const query = searchQuery.trim();
     if (!query) {
       lastQueryRef.current = "";
+      lastShowHiddenRef.current = showHidden;
       setSearchTreeItems(null);
       setSearchDuration(null);
       setSearchLoading(false);
       return;
     }
 
-    // 仅当 query 文本真正变化时重置自动展开记录（effect 重跑但 query 不变时不重置）
-    if (lastQueryRef.current !== query) {
+    // query 或 showHidden 变化都视为新一轮搜索：重置自动展开记录，使重建时重新
+    // 展开结果目录（切换隐藏开关会触发 mount effect 用浏览 id 覆盖 expandedItems，
+    // 需靠重建把以 path 作 id 的搜索结果目录重新展开）。
+    const queryChanged = lastQueryRef.current !== query;
+    if (queryChanged || lastShowHiddenRef.current !== showHidden) {
       autoExpandedRef.current = new Set();
       lastQueryRef.current = query;
-      // 查询变更：清空上一次的搜索结果，避免新查询无匹配时仍残留旧结果
-      setSearchTreeItems(null);
-      setSearchDuration(null);
+      lastShowHiddenRef.current = showHidden;
+      // 仅查询文本变化才清空旧结果；隐藏开关变化保留旧结果直到新结果到达，避免闪烁
+      if (queryChanged) {
+        setSearchTreeItems(null);
+        setSearchDuration(null);
+      }
     }
     // 搜索开始时一次性确定 roots，过程中不再变化
     const searchRoots = determineSearchRootsRef.current();
@@ -527,7 +535,9 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
       cleanup?.();
       setSearchLoading(false);
     };
-  }, [searchQuery]);
+    // 依赖 searchQuery 与 showHidden：搜索中切换「显示隐藏目录」也要以新的
+    // showHidden 重新触发搜索（showHiddenRef 在流启动时读取，effect 不重跑则用旧值）。
+  }, [searchQuery, showHidden]);
 
   // autoExpand effect 已被 rebuild 内联接管（rebuild 在构建搜索树时同步标记并展开新目录），
   // 此处不再重复处理，避免与 rebuild 的 setState 产生批处理时序竞态。
