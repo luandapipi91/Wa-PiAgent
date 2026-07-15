@@ -18,7 +18,13 @@ function entriesFor(path: string): any[] {
     case "C:\\Users": return [{ name: "test", isDir: true }, { name: "Public", isDir: true }];
     case "C:\\Users\\test": return [{ name: "projects", isDir: true }, { name: "Documents", isDir: true }];
     case "C:\\Users\\test\\projects": return [{ name: "demo", isDir: true }, { name: "other", isDir: true }];
-    case "C:\\Users\\test\\projects\\demo": return [{ name: "src", isDir: true }, { name: "README.md", isDir: false }];
+    case "C:\\Users\\test\\projects\\demo": return [
+      // 刻意文件与文件夹交错、文件在前，用于验证「先文件夹后文件」的显示顺序
+      { name: "z-note.txt", isDir: false },
+      { name: "alpha", isDir: true },
+      { name: "m-doc.md", isDir: false },
+      { name: "bravo", isDir: true },
+    ];
     case "C:\\Users\\Public": return [{ name: "Downloads", isDir: true }, { name: "Music", isDir: true }];
     default: return [];
   }
@@ -259,4 +265,99 @@ test("搜索增量结果到达时，用户已折叠的节点保持折叠", async
   } finally {
     _setFsTransport(transport); // 恢复共享 transport
   }
+});
+
+// ── 显示顺序：先文件夹后文件 ──
+
+test("附件选择器：同一目录下先显示文件夹，后显示文件", async () => {
+  render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
+
+  // demo 被默认展开并懒载入其子项（fixtures 中文件在前、文件夹在后交错）
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*alpha/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  // 取 demo 节点直接子项，按 DOM 渲染顺序收集文本
+  const demoLi = screen.getByText(/📁\s*demo/).closest(".rct-tree-item-li");
+  expect(demoLi).toBeTruthy();
+  const group = demoLi!.querySelector("ul.rct-tree-items-container");
+  expect(group).toBeTruthy();
+  const childTexts = Array.from(group!.children).map((li) => (li.textContent ?? "").trim());
+
+  // 所有文件夹（📁）必须排在第一个文件（📄）之前
+  const firstFileIdx = childTexts.findIndex((t) => t.startsWith("📄"));
+  const folderIdxs = childTexts
+    .map((t, i) => (t.startsWith("📁") ? i : -1))
+    .filter((i) => i >= 0);
+  expect(firstFileIdx).toBeGreaterThan(-1);
+  expect(folderIdxs.length).toBeGreaterThan(0);
+  for (const i of folderIdxs) {
+    expect(i).toBeLessThan(firstFileIdx);
+  }
+});
+
+// ── “搜索范围”提示显示在标题下方 ──
+
+test("搜索范围提示显示在“选择文件或文件夹”标题下方", async () => {
+  render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  const title = screen.getByText(/选择文件或文件夹/);
+  const hint = await screen.findByTestId("search-scope-hint");
+  const searchInput = screen.getByTestId("file-picker-search");
+
+  // 文档顺序：标题 → 搜索范围提示 → 搜索输入框
+  // 即提示位于标题正下方（左侧栏），而非搜索框所在的右侧栏
+  expect(
+    title.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    hint.compareDocumentPosition(searchInput) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
+test("输入搜索内容后“搜索范围”提示仍然显示在标题下方", async () => {
+  render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
+
+  // 初始：提示可见
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+  }, { timeout: 3000 });
+  await screen.findByTestId("search-scope-hint");
+
+  // 输入搜索内容并等待搜索请求发出
+  fireEvent.change(screen.getByTestId("file-picker-search"), { target: { value: "dem" } });
+  await waitFor(() => {
+    expect(sendCalls.some((e: any) => e.type === "fs:search")).toBe(true);
+  }, { timeout: 3000 });
+
+  // 搜索进行中，提示仍应可见（不被 isSearching 隐藏）
+  await waitFor(() => {
+    expect(screen.getByTestId("search-scope-hint")).toBeTruthy();
+  }, { timeout: 3000 });
+});
+
+test("搜索内容变更后清空上一次的搜索结果（新查询无匹配时显示“无匹配结果”）", async () => {
+  render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  // 第一次搜索：有匹配，建立搜索结果树（等待 onDone 落定）
+  fireEvent.change(screen.getByTestId("file-picker-search"), { target: { value: "dem" } });
+  await waitFor(() => {
+    expect(screen.getByTestId("search-duration")).toBeTruthy();
+  }, { timeout: 3000 });
+
+  // 改为无匹配的查询
+  fireEvent.change(screen.getByTestId("file-picker-search"), { target: { value: "zzz" } });
+
+  // 旧结果应被清空：新查询无匹配 → 显示“无匹配结果”，而非残留上一次的结果
+  await waitFor(() => {
+    expect(screen.getByText("无匹配结果")).toBeTruthy();
+  }, { timeout: 3000 });
 });

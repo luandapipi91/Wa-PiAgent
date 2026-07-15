@@ -54,6 +54,17 @@ function join(parent: string, name: string): string {
   return parent + sep + name;
 }
 
+// 目录项排序：文件夹在前、文件在后；同类内按名称升序（大小写不敏感、数字自然序）。
+// 选择器展示顺序以此为准。
+function sortEntries<T extends { name: string; isDir: boolean }>(entries: readonly T[]): T[] {
+  const byName = (a: string, b: string): number =>
+    a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+  return [...entries].sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    return byName(a.name, b.name);
+  });
+}
+
 const LD = "__ld__";
 
 function isPlaceholderId(id: TreeItemIndex): boolean {
@@ -105,7 +116,9 @@ async function walkToTarget(
   }
 
   while (segIdx < allSegments.length) {
-    const entries = (await listDir(currentPath, showHidden)).filter(e => showHidden || !e.name.startsWith("."));
+    const entries = sortEntries(
+      (await listDir(currentPath, showHidden)).filter(e => showHidden || !e.name.startsWith(".")),
+    );
     const childList: TreeItemIndex[] = [];
     const newChildren: Record<string, TreeItem<FsNodeData>> = {};
 
@@ -238,6 +251,21 @@ function buildSearchTree(
     }
   }
 
+  // 搜索结果同样按「先文件夹后文件」排序每个目录的子项
+  const byName = (a: string, b: string): number =>
+    a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+  for (const item of Object.values(items)) {
+    if (item.children && item.children.length > 1) {
+      item.children.sort((aId, bId) => {
+        const a = items[aId]?.data;
+        const b = items[bId]?.data;
+        if (!a || !b) return 0;
+        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+        return byName(a.name, b.name);
+      });
+    }
+  }
+
   return items;
 }
 
@@ -325,7 +353,9 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
     for (const parentId of needLoad) {
       const parent = items[parentId];
       if (!parent) continue;
-      const entries = (await listDir(parent.data.path, showHiddenRef.current)).filter(e => showHiddenRef.current || !e.name.startsWith("."));
+      const entries = sortEntries(
+        (await listDir(parent.data.path, showHiddenRef.current)).filter(e => showHiddenRef.current || !e.name.startsWith(".")),
+      );
       const realChildren: TreeItemIndex[] = [];
       for (const [i, e] of entries.entries()) {
         const childId = `${parentId}_${i}`;
@@ -436,6 +466,9 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
     if (lastQueryRef.current !== query) {
       autoExpandedRef.current = new Set();
       lastQueryRef.current = query;
+      // 查询变更：清空上一次的搜索结果，避免新查询无匹配时仍残留旧结果
+      setSearchTreeItems(null);
+      setSearchDuration(null);
     }
     // 搜索开始时一次性确定 roots，过程中不再变化
     const searchRoots = determineSearchRootsRef.current();
@@ -535,16 +568,23 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
       <style>{TREE_STYLES}</style>
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" data-testid="file-picker">
         <div className="bg-surface w-[680px] max-h-[85vh] rounded-lg flex flex-col border border-hairline shadow-lg" style={{ background: "#FFFFFF" }}>
-          <div className="p-4 border-b border-surface0 flex items-center justify-between gap-3">
-            <div className="text-text font-medium truncate">
-              选择文件或文件夹
-              {selections.length > 0 && (
-                <span className="ml-3 text-xs text-blue font-mono">
-                  已选 {selections.length} 项
+          <div className="p-4 border-b border-surface0 flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-1 min-w-0">
+              <div className="text-text font-medium truncate">
+                选择文件或文件夹
+                {selections.length > 0 && (
+                  <span className="ml-3 text-xs text-blue font-mono">
+                    已选 {selections.length} 项
+                  </span>
+                )}
+              </div>
+              {currentSearchRoot && (
+                <span className="text-[11px] text-tertiary max-w-[340px] truncate" data-testid="search-scope-hint" title={currentSearchRoot}>
+                  搜索范围: {currentSearchRoot}
                 </span>
               )}
             </div>
-            <div className="flex flex-col items-end gap-1">
+            <div className="flex flex-col items-end gap-1 shrink-0">
               <div className="relative flex items-center">
                 <input
                   type="text"
@@ -564,11 +604,6 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
               {isSearching && searchDuration !== null && (
                 <span className="text-[11px] text-tertiary" data-testid="search-duration">
                   搜索耗时 {searchDuration}ms
-                </span>
-              )}
-              {!isSearching && currentSearchRoot && (
-                <span className="text-[11px] text-tertiary max-w-[220px] truncate" data-testid="search-scope-hint" title={currentSearchRoot}>
-                  搜索范围: {currentSearchRoot}
                 </span>
               )}
             </div>
