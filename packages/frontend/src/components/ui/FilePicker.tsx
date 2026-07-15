@@ -329,14 +329,6 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
     })();
   }, [showHidden, defaultPath]);
 
-  // 树渲染提交后滚动并聚焦到定位目录（effects 在 DOM 提交后运行，节点已在视口；仅执行一次）
-  useEffect(() => {
-    const id = focusTargetRef.current;
-    if (!id) return;
-    envRef.current?.focusItem(id, "file-picker");
-    focusTargetRef.current = null;
-  }, [treeItems]);
-
   const handleMissingItems = useCallback(async (missingIds: TreeItemIndex[]) => {
     const needLoad = new Set<TreeItemIndex>();
     for (const mid of missingIds) {
@@ -427,6 +419,18 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
     const result = filterTreeItems(treeItems, searchQuery.trim());
     return { displayItems: result.items, isSearching: true };
   }, [treeItems, searchQuery, searchTreeItems]);
+
+  // 树渲染提交后滚动并聚焦到定位目录（effects 在 DOM 提交后运行，节点已在视口；仅执行一次）
+  useEffect(() => {
+    const id = focusTargetRef.current;
+    if (!id) return;
+    focusTargetRef.current = null;
+    // 环境实际渲染的是 displayItems：搜索态为搜索树/过滤树（id 命名空间与浏览定位
+    // id 不同）。id 不在其中时 focusItem 会让 react-complex-tree 读到 undefined.index
+    // 抛错（Cannot read properties of undefined (reading 'index')），直接跳过。
+    if (!displayItems[id]) return;
+    envRef.current?.focusItem(id, "file-picker");
+  }, [treeItems, displayItems]);
 
   // 确定搜索根：聚焦目录 > 展开链最深目录 > defaultPath > 所有盘符根
   // 用 ref 读取最新值，不作为 effect 依赖，避免搜索 effect 因引用变化重跑
