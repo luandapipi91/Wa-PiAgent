@@ -22,25 +22,50 @@ beforeEach(() => {
   });
 });
 
-test("渲染技能目录折叠态 + 已加载技能标题", () => {
-  render(<SkillSection />);
-  // 用 testid 定位按钮，验证其包含内置目录路径
-  const toggleBtn = screen.getByTestId("skill-dir-toggle");
-  expect(toggleBtn.textContent).toContain("技能目录");
-  expect(toggleBtn.textContent).toContain("/home/.hiagent/skills");
-  expect(screen.getByText("已加载技能")).toBeTruthy();
-});
-
-test("点击技能目录展开显示目录列表", () => {
+test("技能目录默认展开，展开时标题不显示内置目录路径", () => {
   useSkillsStore.setState({
     dirs: ["/home/.hiagent/skills", "/home/.claude/skills"],
     builtinDir: "/home/.hiagent/skills",
     allSkills: [],
   });
   render(<SkillSection />);
-  fireEvent.click(screen.getByTestId("skill-dir-toggle"));
-  expect(screen.getByText("/home/.claude/skills")).toBeTruthy();
+  // 默认展开：目录列表与"添加技能目录"按钮可见
   expect(screen.getByText("+ 添加技能目录")).toBeTruthy();
+  // 展开态下标题不重复显示内置目录路径（路径已在列表中以 [内置] 呈现）
+  const toggleBtn = screen.getByTestId("skill-dir-toggle");
+  expect(toggleBtn.textContent).toContain("技能目录");
+  expect(toggleBtn.textContent).not.toContain("/home/.hiagent/skills");
+});
+
+test("折叠技能目录后，标题才显示内置目录路径", () => {
+  useSkillsStore.setState({
+    dirs: ["/home/.hiagent/skills"],
+    builtinDir: "/home/.hiagent/skills",
+    allSkills: [],
+  });
+  render(<SkillSection />);
+  // 默认展开 → 点击折叠
+  fireEvent.click(screen.getByTestId("skill-dir-toggle"));
+  const toggleBtn = screen.getByTestId("skill-dir-toggle");
+  expect(toggleBtn.textContent).toContain("/home/.hiagent/skills");
+});
+
+test("点击刷新技能按钮重新加载技能目录", () => {
+  const loadMock = mock();
+  useSkillsStore.setState({ load: loadMock, allSkills: [] });
+  render(<SkillSection />);
+  fireEvent.click(screen.getByTestId("skill-refresh-btn"));
+  expect(loadMock).toHaveBeenCalledTimes(1);
+});
+
+test("默认展开显示目录列表", () => {
+  useSkillsStore.setState({
+    dirs: ["/home/.hiagent/skills", "/home/.claude/skills"],
+    builtinDir: "/home/.hiagent/skills",
+    allSkills: [],
+  });
+  render(<SkillSection />);
+  expect(screen.getByText("/home/.claude/skills")).toBeTruthy();
 });
 
 test("内置目录无删除按钮", () => {
@@ -50,7 +75,6 @@ test("内置目录无删除按钮", () => {
     allSkills: [],
   });
   render(<SkillSection />);
-  fireEvent.click(screen.getByTestId("skill-dir-toggle"));
   expect(screen.queryByTestId("skill-dir-remove-/home/.hiagent/skills")).toBeNull();
 });
 
@@ -61,7 +85,6 @@ test("用户目录有删除按钮", () => {
     allSkills: [],
   });
   render(<SkillSection />);
-  fireEvent.click(screen.getByTestId("skill-dir-toggle"));
   expect(screen.getByTestId("skill-dir-remove-/home/.claude/skills")).toBeTruthy();
 });
 
@@ -93,7 +116,6 @@ test("点击添加技能目录弹出 DirTreePicker", () => {
     allSkills: [],
   });
   render(<SkillSection />);
-  fireEvent.click(screen.getByTestId("skill-dir-toggle"));
   fireEvent.click(screen.getByTestId("skill-add-dir-btn"));
   expect(screen.getByTestId("dir-picker")).toBeTruthy();
 });

@@ -3,8 +3,8 @@ import { useSkillsStore } from "../../store/skills";
 import { DirTreePicker } from "../DirTreePicker";
 
 export function SkillSection() {
-  const { allSkills, dirs, disabledSkills, builtinDir, toggleSkill, addDir, removeDir } = useSkillsStore();
-  const [dirExpanded, setDirExpanded] = useState(false);
+  const { allSkills, dirs, disabledSkills, builtinDir, toggleSkill, addDir, removeDir, load } = useSkillsStore();
+  const [dirExpanded, setDirExpanded] = useState(true);
   const [showDirPicker, setShowDirPicker] = useState(false);
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
 
@@ -25,7 +25,8 @@ export function SkillSection() {
           className="flex items-center gap-2 text-sm text-primary text-left"
           data-testid="skill-dir-toggle"
         >
-          <span>技能目录：{builtinDir}</span>
+          {/* 仅折叠态显示内置目录路径；展开态下路径已在列表中以 [内置] 呈现，避免重复 */}
+          <span>技能目录{!dirExpanded ? `：${builtinDir}` : ""}</span>
           <span>{dirExpanded ? "▾" : "▸"}</span>
         </button>
 
@@ -56,7 +57,14 @@ export function SkillSection() {
 
       {/* 已加载技能（下方） */}
       <div className="flex flex-col gap-1">
-        <span className="text-xs font-bold text-tertiary uppercase tracking-wide">已加载技能</span>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-tertiary uppercase tracking-wide">已加载技能</span>
+          <button
+            onClick={() => load()}
+            className="text-xs text-secondary hover:text-primary border border-hairline rounded-sm px-2 py-0.5"
+            data-testid="skill-refresh-btn"
+          >刷新技能</button>
+        </div>
         {allSkills.length === 0 && (
           <span className="text-sm text-tertiary py-2">暂无技能，添加技能目录后自动扫描</span>
         )}
