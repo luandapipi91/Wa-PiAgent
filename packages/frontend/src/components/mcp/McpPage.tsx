@@ -10,7 +10,7 @@ import type { McpServerConfig } from "@hiagent/shared";
 
 export function McpPage() {
   const {
-    servers, serverStatuses, toolCounts, toolsCache, testingServers, errors,
+    servers, serverStatuses, toolCounts, toolsCache, loadingTools, testingServers, errors,
     selectedProjectId, searchQuery, loading,
     load, save, deleteServer, testConnection, listTools, clearAuth,
     setSelectedProjectId, setSearchQuery,
@@ -157,6 +157,7 @@ export function McpPage() {
         <McpToolsModal
           serverName={showToolsFor}
           tools={toolsCache[showToolsFor] ?? []}
+          loading={!!loadingTools[showToolsFor]}
           onClose={() => setShowToolsFor(null)}
         />
       )}
