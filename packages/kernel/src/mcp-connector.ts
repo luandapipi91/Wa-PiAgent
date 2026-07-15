@@ -39,6 +39,12 @@ export async function testConnection(
     });
   } catch (err) {
     if (isNeedsAuth(err)) return { status: "needs_auth" };
+    if (isJsonRpcSchemaError(err)) {
+      return {
+        status: "error",
+        error: "服务器响应不是合法的 JSON-RPC 消息（通常是缺少 Authorization 头、鉴权失败，或该 URL 并非 MCP 端点）",
+      };
+    }
     return { status: "error", error: errorMessage(err) };
   }
 }
@@ -95,7 +101,15 @@ function createTransport(config: McpServerConfig, defaultCwd?: string) {
     });
   }
   if (config.url) {
-    return new StreamableHTTPClientTransport(new URL(config.url));
+    // 必须把 config.headers（如 Authorization）经 requestInit 透传给传输层，
+    // 否则需鉴权的 HTTP MCP 服务器（如 Zhipu open.bigmodel.cn）会返回
+    // {code,msg,success} 错误信封而非 JSON-RPC，触发 SDK 的 schema 校验报错。
+    const headers = resolveHeaders(config.headers);
+    const requestInit = headers ? { headers } : undefined;
+    return new StreamableHTTPClientTransport(
+      new URL(config.url),
+      requestInit ? { requestInit } : undefined,
+    );
   }
   throw new Error(`MCP 服务器 ${config.name} 缺少 command 或 url`);
 }
@@ -146,6 +160,12 @@ function resolveEnv(env?: Record<string, string>): Record<string, string> | unde
   return merged;
 }
 
+/** 透传配置 headers（拷贝以防外部突变）；为空时返回 undefined */
+function resolveHeaders(headers?: Record<string, string>): Record<string, string> | undefined {
+  if (!headers) return undefined;
+  return Object.keys(headers).length > 0 ? { ...headers } : undefined;
+}
+
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message || "连接失败";
   return String(err) || "连接失败";
@@ -156,4 +176,13 @@ function errorMessage(err: unknown): string {
 function isNeedsAuth(err: unknown): boolean {
   if (err instanceof UnauthorizedError) return true;
   return err instanceof StreamableHTTPError && err.code === 401;
+}
+
+/** 服务器返回了非 JSON-RPC 消息（如 Zhipu 的 {code,msg,success} 错误信封），
+ *  SDK 的 JSONRPCMessageSchema.parse 抛 ZodError。识别后给可读提示，避免原始
+ *  Zod 报错 JSON 外泄给用户 */
+function isJsonRpcSchemaError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === "ZodError") return true;
+  return err.message.includes("jsonrpc") && err.message.includes("invalid_union");
 }

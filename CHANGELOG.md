@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-07-15 — 修复 HTTP MCP 服务器连接测试报 Zod invalid_union
+
+### 修复
+
+- **HTTP 服务器未透传 Authorization 头**：`mcp-connector.ts` 的 `createTransport` 对 url 服务器只 `new StreamableHTTPClientTransport(url)`，**丢了 `config.headers`**。需鉴权的 HTTP MCP 服务器（如智谱 open.bigmodel.cn 的 web-reader / web-search-prime / zread）收不到 `Authorization` 头 → 返回其标准错误信封 `{"code":1001,"msg":"Header中未收到Authorization参数","success":false}`（**非 JSON-RPC**）→ SDK 的 `JSONRPCMessageSchema.parse` 抛 Zod `invalid_union` → 用户看到一整段 Zod JSON 报错。排查路径：先实测 dbx（本地数据库型 MCP）全工具调用均输出合法 JSON-RPC，排除 dbx；再枚举所有 MCP 配置（全局 + 各项目 .mcp.json + cursor/claude 导入），定位到 Zhipu HTTP 端点；`curl` 不带 header 命中复现。修复：url 分支经 `requestInit.headers` 透传 `config.headers`（与 pi-mcp-adapter 的 server-manager 一致）。
+  - **影响范围**：kernel(mcp-connector.ts createTransport + resolveHeaders + isJsonRpcSchemaError；tests +2：鉴权门控 HTTP MCP 服务器固定件)
+- **Zod 报错不再外泄**：新增 `isJsonRpcSchemaError` 识别 `JSONRPCMessageSchema` 校验失败（服务器返回非 JSON-RPC 消息），返回可读提示「服务器响应不是合法的 JSON-RPC 消息（通常是缺少 Authorization 头、鉴权失败，或该 URL 并非 MCP 端点）」替代原始 Zod JSON。
+  - **真实验证**：对真实 web-reader Zhipu 端点（带 Bearer 头）testConnection 376ms 返回 connected + 1 工具（webReader）；不带头返回可读错误。
+
+---
+
 ## 2026-07-15 — 修复 MCP 连接器「连接测试无反应」
 
 ### 修复

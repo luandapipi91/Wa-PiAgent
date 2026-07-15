@@ -4,9 +4,12 @@
 // 不 mock 任何 MCP SDK 内部。固定件进程由 testConnection 通过 StdioClientTransport 拉起。
 
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
+import { createServer as createHttpServer, type Server as HttpServer, type IncomingMessage } from "node:http";
 import { testConnection, listTools, clearAuth } from "../src/mcp-connector";
 import { saveAuthEntry, getAuthEntryFilePath } from "pi-mcp-adapter/mcp-auth.ts";
+import { Server as McpLowLevelServer } from "@modelcontextprotocol/sdk/server/index.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerConfig } from "@hiagent/shared";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -31,6 +34,47 @@ beforeAll(async () => {
   unauthorizedUrl = `http://127.0.0.1:${port}/mcp`;
 });
 afterAll(() => new Promise<void>(r => unauthorizedServer.close(() => r())));
+
+/** 读 HTTP 请求体并 JSON.parse */
+async function readBody(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return raw ? JSON.parse(raw) : undefined;
+}
+
+/**
+ * 鉴权门控的 StreamableHTTP MCP 服务器，复刻 Zhipu/open.bigmodel.cn 行为：
+ * 缺 Authorization 头 → 返回 {code,msg,success} 错误信封（非 JSON-RPC，正是
+ * 触发 SDK JSONRPCMessageSchema Zod 报错的来源）；带头则走正常 MCP 握手。
+ */
+function startGatedHttpMcp(): Promise<{ url: string; close: () => Promise<void> }> {
+  const httpServer = createHttpServer(async (req, res) => {
+    if (req.headers.authorization !== "Bearer secret-token") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ code: 1001, msg: "Header中未收到Authorization参数", success: false }));
+      return;
+    }
+    const mcp = new McpLowLevelServer(
+      { name: "gated", version: "1.0.0" },
+      { capabilities: { tools: {} } },
+    );
+    mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: [{ name: "probe", description: "probe tool", inputSchema: { type: "object", properties: {} } }],
+    }));
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await mcp.connect(transport);
+    const body = await readBody(req);
+    await transport.handleRequest(req, res, body);
+    res.on("close", () => { transport.close(); mcp.close().catch(() => {}); });
+  });
+  return new Promise((resolve) => {
+    httpServer.listen(0, "127.0.0.1", () => {
+      const port = (httpServer.address() as { port: number }).port;
+      resolve({ url: `http://127.0.0.1:${port}/mcp`, close: () => new Promise<void>(r => httpServer.close(() => r())) });
+    });
+  });
+}
 
 // ===== Test 1: stdio 服务器连接成功 + 工具数 =====
 test("testConnection: stdio 服务器连上后返回 connected + 工具数", async () => {
@@ -67,6 +111,35 @@ test("testConnection: 无法连接的 URL 返回 error", async () => {
   const outcome = await testConnection({ name: "dead", url: "http://127.0.0.1:1/mcp" });
   expect(outcome.status).toBe("error");
   expect(outcome.error).toBeTruthy();
+});
+
+// ===== Test 6: HTTP 服务器需 Authorization 头 → 必须转发 config.headers =====
+test("testConnection: 需 Authorization 头的 HTTP 服务器转发 config.headers 后连上", async () => {
+  const { url, close } = await startGatedHttpMcp();
+  try {
+    const outcome = await testConnection({
+      name: "zhipu-like",
+      url,
+      headers: { Authorization: "Bearer secret-token" },
+    });
+    expect(outcome.status).toBe("connected");
+    expect(outcome.toolCount).toBe(1);
+  } finally {
+    await close();
+  }
+});
+
+test("testConnection: 需 Authorization 头但未配置 headers 时返回 error（非 Zod 报错外泄）", async () => {
+  const { url, close } = await startGatedHttpMcp();
+  try {
+    const outcome = await testConnection({ name: "zhipu-no-header", url });
+    expect(outcome.status).toBe("error");
+    expect(outcome.error).toBeTruthy();
+    // 错误信息应是可读的，不应是原始 Zod invalid_union JSON
+    expect(outcome.error).not.toContain("invalid_union");
+  } finally {
+    await close();
+  }
 });
 
 // ===== Test 4: clearAuth 删除已存授权 =====
