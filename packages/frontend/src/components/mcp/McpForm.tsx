@@ -17,6 +17,9 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
   const [url, setUrl] = useState(initial?.url ?? "");
   const [lifecycle, setLifecycle] = useState<"lazy" | "eager" | "keep-alive">(initial?.lifecycle ?? "lazy");
   const [timeout, setTimeout_] = useState(initial?.requestTimeoutMs?.toString() ?? "");
+  // HTTP 服务器的 Authorization 头（完整值，如 "Bearer xxx"）。编辑时从 initial.headers 往返，
+  // 避免表单保存覆盖丢失原有鉴权头。保存时若仅填了裸 token 自动补 Bearer 前缀。
+  const [auth, setAuth] = useState(initial?.headers?.Authorization ?? "");
 
   useEffect(() => {
     if (initial) {
@@ -27,6 +30,7 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
       setUrl(initial.url ?? "");
       setLifecycle(initial.lifecycle ?? "lazy");
       setTimeout_(initial.requestTimeoutMs?.toString() ?? "");
+      setAuth(initial.headers?.Authorization ?? "");
     }
   }, [initial]);
 
@@ -42,6 +46,10 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
       if (argsText.trim()) config.args = argsText.trim().split(/\s+/);
     } else {
       config.url = url.trim();
+      // 往返 Authorization 头：填了就写回 headers（裸 token 自动补 Bearer），避免编辑丢鉴权
+      if (auth.trim()) {
+        config.headers = { Authorization: normalizeAuth(auth) };
+      }
     }
     onSave(config, initial?.name !== name.trim() ? initial?.name : undefined);
   };
@@ -112,17 +120,30 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
 
         {/* HTTP 字段 */}
         {transport === "http" && (
-          <div>
-            <label className="text-[11px] font-semibold text-secondary block mb-0.5">URL</label>
-            <input
-              className="w-full text-[12px] px-2.5 py-1.5 rounded-md"
-              style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-              placeholder="http://localhost:3845/mcp"
-              value={url}
-              onChange={e => setUrl(e.target.value)}
-              data-testid="mcp-form-url"
-            />
-          </div>
+          <>
+            <div>
+              <label className="text-[11px] font-semibold text-secondary block mb-0.5">URL</label>
+              <input
+                className="w-full text-[12px] px-2.5 py-1.5 rounded-md"
+                style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
+                placeholder="http://localhost:3845/mcp"
+                value={url}
+                onChange={e => setUrl(e.target.value)}
+                data-testid="mcp-form-url"
+              />
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold text-secondary block mb-0.5">Authorization</label>
+              <input
+                className="w-full text-[12px] px-2.5 py-1.5 rounded-md"
+                style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
+                placeholder="Bearer your-token（仅填 token 会自动补 Bearer）"
+                value={auth}
+                onChange={e => setAuth(e.target.value)}
+                data-testid="mcp-form-auth"
+              />
+            </div>
+          </>
         )}
 
         {/* 生命周期 */}
@@ -172,4 +193,11 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
         </div>
     </div>
   );
+}
+
+/** 规范化 Authorization 头值：含空格（已有 scheme，如 "Bearer xxx"）原样返回；
+ *  仅裸 token 则补 "Bearer " 前缀。 */
+function normalizeAuth(raw: string): string {
+  const v = raw.trim();
+  return v.includes(" ") ? v : `Bearer ${v}`;
 }
