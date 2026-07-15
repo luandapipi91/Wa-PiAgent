@@ -1,5 +1,5 @@
 import { test, expect, beforeEach } from "bun:test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { McpPage } from "../src/components/mcp/McpPage";
 import { useMcpStore } from "../src/store/mcp";
 import { useProjectsStore } from "../src/store/projects";
@@ -63,4 +63,42 @@ test("作用域切换", () => {
   fireEvent.click(screen.getByTestId("mcp-scope-select"));
   expect(screen.getByTestId("mcp-scope-option-global")).toBeTruthy();
   expect(screen.getByTestId("mcp-scope-option-project-p1")).toBeTruthy();
+});
+
+// ===== 编辑/新增表单应以模态弹窗形式打开 =====
+
+test("点击 + 手动添加 在模态弹窗中打开空表单", () => {
+  render(<McpPage />);
+  fireEvent.click(screen.getByTestId("mcp-add-button"));
+  const modal = screen.getByTestId("mcp-form-modal");
+  expect(within(modal).getByTestId("mcp-form")).toBeTruthy();
+  expect((screen.getByTestId("mcp-form-name") as HTMLInputElement).value).toBe("");
+});
+
+test("点击编辑在模态弹窗中打开表单并预填服务器配置", () => {
+  useMcpStore.setState({
+    servers: [{ name: "dbx", command: "dbx-mcp-server", args: ["serve"] }],
+    serverStatuses: { dbx: "connected" },
+  });
+  render(<McpPage />);
+  fireEvent.click(screen.getByTestId("mcp-edit-dbx"));
+  const modal = screen.getByTestId("mcp-form-modal");
+  expect(within(modal).getByTestId("mcp-form")).toBeTruthy();
+  expect((screen.getByTestId("mcp-form-name") as HTMLInputElement).value).toBe("dbx");
+});
+
+test("点击遮罩关闭表单弹窗", () => {
+  render(<McpPage />);
+  fireEvent.click(screen.getByTestId("mcp-add-button"));
+  expect(screen.getByTestId("mcp-form-modal")).toBeTruthy();
+  fireEvent.click(screen.getByTestId("modal-overlay"));
+  expect(screen.queryByTestId("mcp-form")).toBeNull();
+});
+
+test("编辑/新增未打开时页面不渲染表单（不再是内联常驻）", () => {
+  useMcpStore.setState({
+    servers: [{ name: "dbx", command: "dbx-mcp-server" }],
+  });
+  render(<McpPage />);
+  expect(screen.queryByTestId("mcp-form-modal")).toBeNull();
 });

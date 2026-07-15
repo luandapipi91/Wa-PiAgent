@@ -10,7 +10,6 @@ interface Props {
 }
 
 export function McpForm({ initial, onSave, onCancel }: Props) {
-  const isEdit = !!initial;
   const [name, setName] = useState(initial?.name ?? "");
   const [transport, setTransport] = useState<Transport>(initial?.url ? "http" : "stdio");
   const [command, setCommand] = useState(initial?.command ?? "");
@@ -47,29 +46,20 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
     onSave(config, initial?.name !== name.trim() ? initial?.name : undefined);
   };
 
-  const sectionTitle = isEdit ? `编辑 ${initial?.name}` : "新增 MCP 服务器";
-
   return (
-    <div
-      className="mb-3 p-4 rounded-lg"
-      style={{ border: "1px solid var(--accent)", background: "var(--surface)", boxShadow: "0 0 0 3px var(--accent-soft)" }}
-      data-testid="mcp-form"
-    >
-      <div className="text-[13px] font-bold text-primary mb-3">{sectionTitle}</div>
-
-      <div className="flex flex-col gap-2.5">
-        {/* 名称 */}
-        <div>
-          <label className="text-[11px] font-semibold text-secondary block mb-0.5">名称</label>
-          <input
-            className="w-full text-[12px] px-2.5 py-1.5 rounded-md"
-            style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-            placeholder="服务器名称（如 chrome-devtools）"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            data-testid="mcp-form-name"
-          />
-        </div>
+    <div className="flex flex-col gap-2.5" data-testid="mcp-form">
+      {/* 名称 */}
+      <div>
+        <label className="text-[11px] font-semibold text-secondary block mb-0.5">名称</label>
+        <input
+          className="w-full text-[12px] px-2.5 py-1.5 rounded-md"
+          style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
+          placeholder="服务器名称（如 chrome-devtools）"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          data-testid="mcp-form-name"
+        />
+      </div>
 
         {/* 传输类型 */}
         <div className="flex gap-2">
@@ -180,7 +170,6 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
             data-testid="mcp-form-save"
           >保存</button>
         </div>
-      </div>
     </div>
   );
 }

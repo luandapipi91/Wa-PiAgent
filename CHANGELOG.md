@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-07-15 — MCP 连接器：切换项目自动测连接 + 编辑改模态弹窗
+
+### 新增
+
+- **切换项目作用域后自动连接测试**：进入 MCP 页面或在「全局 / 项目」作用域间切换、对应服务器列表加载完成（`mcp:list` 回推 `setServers`）后，**自动对当前作用域的每个服务器逐个发起 `mcp:test`**，卡片即时显示「测试中... → 已连接 · N 工具 / 连接错误 / OAuth 需授权」。无需逐个手动点「连接测试」即可看到全局连通状态。
+  - **去重**：用 `autoTestedProject` 记账「已自动测过的作用域」，同一作用域的后续列表刷新（如保存/删除后的 `mcp:changed`）不重复自动测试；切换走再切回才会重测。
+  - **重构 `testingServer` → `testingServers`**：原 `testingServer: string | null` 单槽位无法表达「同时测多个」，改为 `testingServers: Record<string, boolean>`，支持批量自动测试期间多卡片并行显示「测试中...」。
+  - **影响范围**：frontend(store/mcp.ts setServers 自动测试触发 + testAllServers + testingServers/autoTestedProject；McpPage testingServers 取值)
+- **新增/编辑 MCP 服务器改为模态弹窗**：原表单为页面顶部内联常驻展开块，现改为居中模态弹窗（复用通用 `Modal`，与「查看工具」弹窗一致），支持点击遮罩 / ✕ / ESC 关闭，编辑时预填配置。新增 `McpFormModal` 组件，简化 `McpForm`（去掉重复的内联卡片边框与标题，由弹窗壳提供）。
+  - **影响范围**：frontend(McpFormModal 新增；McpForm 简化；McpPage 表单块替换为弹窗 + formOpen/editingServer 状态)
+
+### 测试
+
+- frontend(store-mcp.test.ts +3：切换作用域自动测试 / 同作用域不重复 / 空列表不触发；旧 testingServer 断言迁移至 testingServers；McpPage.test.tsx +4：新增/编辑在模态弹窗打开、预填、遮罩关闭、未打开不渲染)。全量 354 pass / 0 fail，typecheck clean。
+
+---
+
 ## 2026-07-15 — 修复 HTTP MCP 服务器连接测试报 Zod invalid_union
 
 ### 修复
