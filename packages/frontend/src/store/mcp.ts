@@ -12,6 +12,10 @@ interface McpState {
   serverStatuses: Record<string, McpServerStatus>;
   /** 工具列表缓存（按 serverName） */
   toolsCache: Record<string, McpToolSummary[]>;
+  /** 正在测试/授权的服务器名（null=无进行中操作） */
+  testingServer: string | null;
+  /** 各服务器最近一次错误信息（测试失败时填充） */
+  errors: Record<string, string>;
 
   load(projectId?: string): void;
   setServers(data: McpListResult | McpChangedEvent): void;
@@ -33,6 +37,8 @@ export const useMcpStore = create<McpState>((set) => ({
   loading: false,
   serverStatuses: {},
   toolsCache: {},
+  testingServer: null,
+  errors: {},
 
   load: (projectId) => {
     set((s) => ({ loading: true, selectedProjectId: projectId ?? s.selectedProjectId }));
@@ -41,10 +47,14 @@ export const useMcpStore = create<McpState>((set) => ({
   setServers: (data) => set({ servers: data.servers, loading: false }),
   setTestResult: (data) =>
     set((s) => ({
+      testingServer: null,
       serverStatuses: {
         ...s.serverStatuses,
         [data.serverName]: data.success ? "connected" : "error",
       },
+      errors: data.success
+        ? s.errors
+        : { ...s.errors, [data.serverName]: data.error ?? "连接失败" },
     })),
   setToolsResult: (data) =>
     set((s) => ({
@@ -54,12 +64,20 @@ export const useMcpStore = create<McpState>((set) => ({
     send({ type: "mcp:save", projectId, config, originalName }),
   deleteServer: (serverName, projectId) =>
     send({ type: "mcp:delete", projectId, serverName }),
-  testConnection: (serverName, projectId) =>
-    send({ type: "mcp:test", projectId, serverName }),
+  testConnection: (serverName, projectId) => {
+    set((s) => {
+      const nextErrors = { ...s.errors };
+      delete nextErrors[serverName];
+      return { testingServer: serverName, errors: nextErrors };
+    });
+    send({ type: "mcp:test", projectId, serverName });
+  },
   listTools: (serverName) =>
     send({ type: "mcp:listTools", serverName }),
-  clearAuth: (serverName, projectId) =>
-    send({ type: "mcp:clearAuth", projectId, serverName }),
+  clearAuth: (serverName, projectId) => {
+    set({ testingServer: serverName });
+    send({ type: "mcp:clearAuth", projectId, serverName });
+  },
   setSelectedProjectId: (id) => set({ selectedProjectId: id }),
   setSearchQuery: (q) => set({ searchQuery: q }),
 }));

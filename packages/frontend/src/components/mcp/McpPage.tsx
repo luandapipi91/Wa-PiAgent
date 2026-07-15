@@ -10,7 +10,7 @@ import type { McpServerConfig } from "@hiagent/shared";
 
 export function McpPage() {
   const {
-    servers, serverStatuses, toolsCache,
+    servers, serverStatuses, toolsCache, testingServer, errors,
     selectedProjectId, searchQuery, loading,
     load, save, deleteServer, testConnection, listTools, clearAuth,
     setSelectedProjectId, setSearchQuery,
@@ -132,6 +132,8 @@ export function McpPage() {
               key={s.name}
               config={s}
               status={serverStatuses[s.name] ?? "disconnected"}
+              testing={testingServer === s.name}
+              error={errors[s.name]}
               onTest={() => handleTest(s.name)}
               onViewTools={() => handleViewTools(s.name)}
               onAuth={() => handleTest(s.name)}
