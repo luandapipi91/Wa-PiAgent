@@ -26,6 +26,10 @@ const TREE_STYLES = `
 .rct-tree-item-arrow {
   color: inherit !important;
 }
+/* 让标题按钮撑满行宽，复选框才能推到最右侧 */
+.rct-tree-item-button {
+  flex: 1;
+}
 `;
 
 interface FsNodeData {
@@ -294,6 +298,9 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
   displaySourceRef.current = searchTreeItems ?? treeItems;
   // 用户最近聚焦的目录路径：作为搜索根的最高优先级来源
   const activeDirRef = useRef<string | null>(null);
+  // 搜索词 ref：用于在事件回调中判断是否处于搜索态，避免闭包过期
+  const searchQueryRef = useRef(searchQuery);
+  searchQueryRef.current = searchQuery;
   const expandedItemsRef = useRef(expandedItems);
   expandedItemsRef.current = expandedItems;
   // 记录已自动展开的搜索结果节点：增量更新时只展开新出现的，不重展开用户已折叠的
@@ -388,23 +395,24 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
     setExpandedItems((prev) => prev.filter((id) => id !== item.index));
   }, []);
 
+  // 标题点击仅聚焦/导航，不再自动选中。选中由每行右侧复选框独立控制。
   const handleSelectItems = useCallback((ids: TreeItemIndex[]) => {
     if (ids.length === 0) {
-      setSelectedItems([]);
       setFocusedItem(undefined);
       return;
     }
-    const nextIds = multiSelect ? ids : [ids[ids.length - 1]];
-    setSelectedItems(nextIds);
-    setFocusedItem(nextIds[0]);
-    // 聚焦目录 → 更新活动目录（搜索根的最高优先级来源）
-    const it = displaySourceRef.current[nextIds[0]];
+    setFocusedItem(ids[0]);
+    // 搜索过程中锁定搜索范围：不更新活动目录，避免搜索结果里的目录点击
+    // 意外改写搜索根，导致后续输入跑到错误的子树去搜。
+    if (searchQueryRef.current.trim()) return;
+    const it = displaySourceRef.current[ids[0]];
     if (it?.data?.isDir && it.data.path) activeDirRef.current = it.data.path;
-  }, [multiSelect]);
+  }, []);
 
   const handleFocusItem = useCallback((item: TreeItem<FsNodeData>) => {
     setFocusedItem(item.index);
-    // 聚焦目录 → 更新活动目录
+    // 搜索过程中锁定搜索范围，同上
+    if (searchQueryRef.current.trim()) return;
     if (item.data?.isDir && item.data.path) activeDirRef.current = item.data.path;
   }, []);
 
@@ -642,7 +650,24 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
                 onSelectItems={handleSelectItems}
                 onFocusItem={handleFocusItem}
                 renderItemTitle={({ item }) => (
-                  <span>{item.isFolder ? "📁 " : "📄 "}{item.data?.name}</span>
+                  <span className="flex items-center justify-between w-full gap-3">
+                    <span>{item.isFolder ? "📁 " : "📄 "}{item.data?.name}</span>
+                    <input
+                      type="checkbox"
+                      data-testid="file-picker-checkbox"
+                      className="w-3.5 h-3.5 accent-blue cursor-pointer shrink-0"
+                      checked={selectedItems.includes(item.index)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedItems((prev) =>
+                          prev.includes(item.index)
+                            ? prev.filter((id) => id !== item.index)
+                            : [...prev, item.index],
+                        );
+                      }}
+                      onChange={() => {}}
+                    />
+                  </span>
                 )}
               >
                 <Tree treeId="file-picker" rootItem="root" treeLabel="文件" />
@@ -653,6 +678,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
             <label className="flex items-center gap-2 text-xs text-tertiary cursor-pointer select-none">
               <input
                 type="checkbox"
+                data-testid="show-hidden-toggle"
                 checked={showHidden}
                 onChange={(e) => setShowHidden(e.target.checked)}
                 className="sr-only"

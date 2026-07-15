@@ -62,17 +62,14 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
       ) : (
         <span className="text-[11px] text-tertiary flex-shrink-0">{formatRelativeTime(session.lastActivity)}</span>
       )}
-      {/* 未读新回复：右上角 45° 斜标（标签感）。位置收到行边界内（top 负值上抬避开时间，
-          right:0 不外溢），配合 ProjectList overflow-x-hidden 既不挡时间也不产生横向滚动 */}
+      {/* 未读新回复：右上角小圆点 */}
       {unread && (
         <span
           data-testid={`unread-tag-${session.id}`}
           aria-label="有新回复"
-          className="absolute rotate-45 text-[8.5px] font-extrabold leading-none px-1.5 py-0.5 select-none pointer-events-none"
-          style={{ top: -7, right: 0, background: "var(--accent)", color: "#fff", borderRadius: 7, boxShadow: "0 1px 2px rgba(0,0,0,0.18)" }}
-        >
-          new
-        </span>
+          className="absolute select-none pointer-events-none"
+          style={{ top: 2, right: 2, width: 7, height: 7, borderRadius: "50%", background: "var(--accent)" }}
+        />
       )}
     </button>
   );
