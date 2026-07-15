@@ -3,14 +3,14 @@ import { useMcpStore } from "../../store/mcp";
 import { useProjectsStore } from "../../store/projects";
 import { McpCard } from "./McpCard";
 import { McpEmpty } from "./McpEmpty";
-import { McpForm } from "./McpForm";
+import { McpFormModal } from "./McpFormModal";
 import { McpToolsModal } from "./McpToolsModal";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import type { McpServerConfig } from "@hiagent/shared";
 
 export function McpPage() {
   const {
-    servers, serverStatuses, toolCounts, toolsCache, testingServer, errors,
+    servers, serverStatuses, toolCounts, toolsCache, testingServers, errors,
     selectedProjectId, searchQuery, loading,
     load, save, deleteServer, testConnection, listTools, clearAuth,
     setSelectedProjectId, setSearchQuery,
@@ -19,7 +19,7 @@ export function McpPage() {
   const currentProjectId = useProjectsStore(s => s.currentProjectId);
   const projects = useProjectsStore(s => s.projects);
 
-  const [showForm, setShowForm] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<McpServerConfig | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [showToolsFor, setShowToolsFor] = useState<string | null>(null);
@@ -42,10 +42,22 @@ export function McpPage() {
     !searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const openAddForm = () => {
+    setEditingServer(null);
+    setFormOpen(true);
+  };
+  const openEditForm = (server: McpServerConfig) => {
+    setEditingServer(server);
+    setFormOpen(true);
+  };
+  const closeForm = () => {
+    setFormOpen(false);
+    setEditingServer(null);
+  };
+
   const handleFormSave = (config: McpServerConfig, originalName?: string) => {
     save(config, activeProjectId ?? undefined, originalName);
-    setShowForm(false);
-    setEditingServer(null);
+    closeForm();
   };
 
   const handleTest = (serverName: string) => {
@@ -96,25 +108,14 @@ export function McpPage() {
           data-testid="mcp-search"
         />
 
-        {/* 添加按钮 */}
+        {/* 添加按钮：点击弹出模态表单 */}
         <button
-          onClick={() => { setShowForm(v => !v); setEditingServer(null); }}
+          onClick={openAddForm}
           className="text-[11px] font-semibold px-3 py-1.5 rounded-md text-white shrink-0"
-          style={{ background: showForm ? "var(--text-tertiary)" : "var(--accent)", border: "none" }}
+          style={{ background: "var(--accent)", border: "none" }}
           data-testid="mcp-add-button"
-        >{showForm ? "取消" : "+ 手动添加"}</button>
+        >+ 手动添加</button>
       </div>
-
-      {/* 添加/编辑表单 */}
-      {(showForm || editingServer) && (
-        <div className="px-5 py-3" style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}>
-          <McpForm
-            initial={editingServer ?? undefined}
-            onSave={handleFormSave}
-            onCancel={() => { setShowForm(false); setEditingServer(null); }}
-          />
-        </div>
-      )}
 
       {/* 列表内容 */}
       <div className="flex-1 overflow-y-auto px-5 py-3.5">
@@ -129,18 +130,27 @@ export function McpPage() {
               config={s}
               status={serverStatuses[s.name] ?? "disconnected"}
               toolCount={toolCounts[s.name]}
-              testing={testingServer === s.name}
+              testing={!!testingServers[s.name]}
               error={errors[s.name]}
               onTest={() => handleTest(s.name)}
               onViewTools={() => handleViewTools(s.name)}
               onAuth={() => handleTest(s.name)}
               onClearAuth={() => handleClearAuth(s.name)}
-              onEdit={() => { setEditingServer(s); setShowForm(false); }}
+              onEdit={() => openEditForm(s)}
               onDelete={() => setConfirmDelete(s.name)}
             />
           ))
         )}
       </div>
+
+      {/* 新增/编辑表单 Modal */}
+      {formOpen && (
+        <McpFormModal
+          initial={editingServer ?? undefined}
+          onSave={handleFormSave}
+          onClose={closeForm}
+        />
+      )}
 
       {/* 工具列表 Modal */}
       {showToolsFor && (
