@@ -730,3 +730,8 @@
   - 6.2 / 6.4 / 11.2 Intercom 时间线全屏视图标记为"已不纳入设计"——方案 C 移除 sidebar 底部状态条后该视图失去入口，intercom 信息改由会话 header 徽标 + 内联委派卡片呈现（review 补，纠正首轮"入口待定"误判）
   - 14.3 待确认多项目标记已确认；新增 14.4 React/Vue 技术栈矛盾待确认
 - **影响范围**：仅文档 `docs/superpowers/specs/2026-07-05-hiagent-design.md`（未触碰代码）
+
+## 2026-07-15
+- **类型：修复**
+- **摘要：** 修复 MCP 连接器「连接测试无反应」问题 — 增加 pi-mcp-adapter 安装前置检查、测试中 loading 状态、错误信息回显
+- **影响范围：** packages/kernel/src/ws-server.ts, packages/frontend/src/store/mcp.ts, packages/frontend/src/components/mcp/McpCard.tsx, packages/frontend/src/components/mcp/McpPage.tsx, packages/frontend/tests/store-mcp.test.ts

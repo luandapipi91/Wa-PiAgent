@@ -3,6 +3,8 @@ import type { McpServerConfig, McpServerStatus } from "@hiagent/shared";
 interface Props {
   config: McpServerConfig;
   status: McpServerStatus;
+  testing?: boolean;
+  error?: string;
   onTest: () => void;
   onViewTools: () => void;
   onAuth: () => void;
@@ -28,8 +30,10 @@ function configSummary(config: McpServerConfig): string {
   return "未配置";
 }
 
-export function McpCard({ config, status, onTest, onViewTools, onAuth, onClearAuth, onEdit, onDelete }: Props) {
-  const st = STATUS_CONFIG[status] ?? STATUS_CONFIG.disconnected;
+export function McpCard({ config, status, testing, error, onTest, onViewTools, onAuth, onClearAuth, onEdit, onDelete }: Props) {
+  const st = testing
+    ? { icon: "⏳", label: "测试中...", color: "var(--accent)" }
+    : (STATUS_CONFIG[status] ?? STATUS_CONFIG.disconnected);
 
   return (
     <div
@@ -55,38 +59,52 @@ export function McpCard({ config, status, onTest, onViewTools, onAuth, onClearAu
         {configSummary(config)}
       </p>
 
+      {/* 错误信息 */}
+      {error && !testing && (
+        <p className="text-[11px] mb-2 px-2 py-1 rounded" style={{ color: "var(--danger)", background: "var(--danger-soft)" }} data-testid={`mcp-error-${config.name}`}>
+          ⚠ {error}
+        </p>
+      )}
+
       {/* 操作按钮 */}
       <div className="flex gap-1.5 flex-wrap">
         {status !== "connected" && (
-          <CardBtn onClick={onTest} testId={`mcp-test-${config.name}`} label="连接测试" />
+          <CardBtn
+            onClick={onTest}
+            testId={`mcp-test-${config.name}`}
+            label={testing ? "测试中..." : "连接测试"}
+            disabled={testing}
+          />
         )}
-        <CardBtn onClick={onViewTools} testId={`mcp-tools-${config.name}`} label="查看工具" />
+        <CardBtn onClick={onViewTools} testId={`mcp-tools-${config.name}`} label="查看工具" disabled={testing} />
         {status === "needs_auth" ? (
-          <CardBtn onClick={onAuth} testId={`mcp-auth-${config.name}`} label="授权" accent />
+          <CardBtn onClick={onAuth} testId={`mcp-auth-${config.name}`} label="授权" accent disabled={testing} />
         ) : config.auth ? (
-          <CardBtn onClick={onClearAuth} testId={`mcp-clearauth-${config.name}`} label="清除授权" />
+          <CardBtn onClick={onClearAuth} testId={`mcp-clearauth-${config.name}`} label="清除授权" disabled={testing} />
         ) : null}
-        <CardBtn onClick={onEdit} testId={`mcp-edit-${config.name}`} label="编辑" />
-        <CardBtn onClick={onDelete} testId={`mcp-delete-${config.name}`} label="删除" danger />
+        <CardBtn onClick={onEdit} testId={`mcp-edit-${config.name}`} label="编辑" disabled={testing} />
+        <CardBtn onClick={onDelete} testId={`mcp-delete-${config.name}`} label="删除" danger disabled={testing} />
       </div>
     </div>
   );
 }
 
-function CardBtn({ onClick, testId, label, accent, danger }: {
+function CardBtn({ onClick, testId, label, accent, danger, disabled }: {
   onClick: () => void;
   testId: string;
   label: string;
   accent?: boolean;
   danger?: boolean;
+  disabled?: boolean;
 }) {
   const color = danger ? "var(--danger)" : accent ? "var(--accent)" : "var(--text-secondary)";
   const borderColor = danger ? "var(--danger)" : accent ? "var(--accent)" : "var(--hairline)";
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       data-testid={testId}
-      className="text-[11px] px-2.5 py-1 rounded-md"
+      className="text-[11px] px-2.5 py-1 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
       style={{
         color,
         border: `1px solid ${borderColor}`,

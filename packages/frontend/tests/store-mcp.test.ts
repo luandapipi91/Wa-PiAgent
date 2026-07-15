@@ -9,6 +9,8 @@ beforeEach(() => {
     loading: false,
     serverStatuses: {},
     toolsCache: {},
+    testingServer: null,
+    errors: {},
   });
 });
 
@@ -100,4 +102,41 @@ test("deleteServer 发起 mcp:delete WS 请求且不修改本地 state", () => {
   useMcpStore.getState().deleteServer("to-delete", "p1");
   // deleteServer 只发送 WS 消息，不本地删除 — 由 mcp:changed 回推驱动
   expect(useMcpStore.getState().servers).toHaveLength(1);
+});
+
+test("testConnection 设置 testingServer 并清除旧错误", () => {
+  useMcpStore.setState({ errors: { "dbx": "上次失败" } });
+  useMcpStore.getState().testConnection("dbx");
+  expect(useMcpStore.getState().testingServer).toBe("dbx");
+  expect(useMcpStore.getState().errors["dbx"]).toBeUndefined();
+});
+
+test("setTestResult 成功时清除 testingServer", () => {
+  useMcpStore.getState().testConnection("dbx");
+  expect(useMcpStore.getState().testingServer).toBe("dbx");
+  useMcpStore.getState().setTestResult({
+    type: "mcp:testResult",
+    serverName: "dbx",
+    success: true,
+  });
+  expect(useMcpStore.getState().testingServer).toBeNull();
+  expect(useMcpStore.getState().serverStatuses["dbx"]).toBe("connected");
+});
+
+test("setTestResult 失败时清除 testingServer 并记录错误信息", () => {
+  useMcpStore.getState().testConnection("dbx");
+  useMcpStore.getState().setTestResult({
+    type: "mcp:testResult",
+    serverName: "dbx",
+    success: false,
+    error: "pi-mcp-adapter 未安装",
+  });
+  expect(useMcpStore.getState().testingServer).toBeNull();
+  expect(useMcpStore.getState().serverStatuses["dbx"]).toBe("error");
+  expect(useMcpStore.getState().errors["dbx"]).toBe("pi-mcp-adapter 未安装");
+});
+
+test("clearAuth 设置 testingServer", () => {
+  useMcpStore.getState().clearAuth("dbx", "p1");
+  expect(useMcpStore.getState().testingServer).toBe("dbx");
 });

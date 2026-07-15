@@ -813,6 +813,15 @@ export class WSServer {
       }
       case "mcp:test": {
         try {
+          // 前置检查：pi-mcp-adapter 必须已安装，否则 /mcp 命令不会被识别，
+          // prompt 会被当普通消息发给 LLM，导致 30s 超时且无真实连接。
+          const { packages } = await this.opts.extensionManager.list();
+          const adapterInstalled = packages.some(p => p.name.includes("pi-mcp-adapter") && p.enabled);
+          if (!adapterInstalled) {
+            reply({ type: "mcp:testResult", serverName: event.serverName, success: false, error: "pi-mcp-adapter 未安装，请在「插件」中安装 npm:pi-mcp-adapter 后重试" });
+            break;
+          }
+
           const cwd = event.projectId
             ? (await this.opts.projectStore.load()).projects.find(p => p.id === event.projectId)?.cwd
             : undefined;
@@ -858,7 +867,7 @@ export class WSServer {
             reply({ type: "mcp:testResult", serverName: event.serverName, success: false, error: `Pi 启动失败: ${(err as Error).message}` });
           }
         } catch (err) {
-          reply({ type: "error", message: (err as Error).message });
+          reply({ type: "mcp:testResult", serverName: event.serverName, success: false, error: (err as Error).message });
         }
         break;
       }
@@ -911,7 +920,7 @@ export class WSServer {
             reply({ type: "mcp:testResult", serverName: event.serverName, success: false, error: `Pi 启动失败: ${(err as Error).message}` });
           }
         } catch (err) {
-          reply({ type: "error", message: (err as Error).message });
+          reply({ type: "mcp:testResult", serverName: event.serverName, success: false, error: (err as Error).message });
         }
         break;
       }
