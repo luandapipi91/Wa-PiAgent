@@ -30,7 +30,7 @@ test("disconnected 状态渲染连接测试按钮", () => {
   expect(screen.getByText("连接测试")).toBeTruthy();
 });
 
-test("connected 状态不显示连接测试按钮", () => {
+test("connected 状态仍显示连接测试按钮（可重新测试）", () => {
   render(
     <McpCard
       config={{ name: "test", command: "echo" }}
@@ -38,7 +38,7 @@ test("connected 状态不显示连接测试按钮", () => {
       onTest={mock()} onViewTools={mock()} onAuth={mock()} onClearAuth={mock()} onEdit={mock()} onDelete={mock()}
     />
   );
-  expect(screen.queryByText("连接测试")).toBeNull();
+  expect(screen.getByText("连接测试")).toBeTruthy();
 });
 
 test("needs_auth 状态显示授权按钮", () => {

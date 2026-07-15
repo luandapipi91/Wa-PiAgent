@@ -74,14 +74,12 @@ export function McpCard({ config, status, toolCount, testing, error, onTest, onV
 
       {/* 操作按钮 */}
       <div className="flex gap-1.5 flex-wrap">
-        {status !== "connected" && (
-          <CardBtn
-            onClick={onTest}
-            testId={`mcp-test-${config.name}`}
-            label={testing ? "测试中..." : "连接测试"}
-            disabled={testing}
-          />
-        )}
+        <CardBtn
+          onClick={onTest}
+          testId={`mcp-test-${config.name}`}
+          label={testing ? "测试中..." : "连接测试"}
+          disabled={testing}
+        />
         <CardBtn onClick={onViewTools} testId={`mcp-tools-${config.name}`} label="查看工具" disabled={testing} />
         {status === "needs_auth" ? (
           <CardBtn onClick={onAuth} testId={`mcp-auth-${config.name}`} label="授权" accent disabled={testing} />
