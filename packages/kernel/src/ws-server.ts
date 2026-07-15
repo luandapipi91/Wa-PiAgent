@@ -1,5 +1,5 @@
 import type {
-  WSClientEvent, WSServerEvent, AgentName,
+  WSClientEvent, WSServerEvent, AgentName, McpServerStatus,
 } from "@hiagent/shared";
 import { WS_PORT } from "@hiagent/shared";
 import type { DirEntry } from "@hiagent/shared";
@@ -13,6 +13,7 @@ import type { MemoryStore } from "./memory-store";
 import type { McpStore } from "./mcp-store";
 import { testProviderConnection } from "./provider-test";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
+import { testConnection, listTools, clearAuth } from "./mcp-connector";
 import { readdir, readFile, mkdir, writeFile, copyFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -813,67 +814,27 @@ export class WSServer {
       }
       case "mcp:test": {
         try {
-          // 前置检查：pi-mcp-adapter 必须已安装，否则 /mcp 命令不会被识别，
-          // prompt 会被当普通消息发给 LLM，导致 30s 超时且无真实连接。
-          const { packages } = await this.opts.extensionManager.list();
-          const adapterInstalled = packages.some(p => p.name.includes("pi-mcp-adapter") && p.enabled);
-          if (!adapterInstalled) {
-            reply({ type: "mcp:testResult", serverName: event.serverName, success: false, error: "pi-mcp-adapter 未安装，请在「插件」中安装 npm:pi-mcp-adapter 后重试" });
-            break;
-          }
-
-          const cwd = event.projectId
-            ? (await this.opts.projectStore.load()).projects.find(p => p.id === event.projectId)?.cwd
-            : undefined;
-          const { createAgentSession, SessionManager, AuthStorage, ModelRegistry } = await import("@earendil-works/pi-coding-agent");
-          try {
-            const authStorage = AuthStorage.create();
-            const modelRegistry = ModelRegistry.create(authStorage);
-            const { session } = await createAgentSession({
-              cwd,
-              sessionManager: SessionManager.inMemory(),
-              authStorage,
-              modelRegistry,
-            });
-
-            let testResult = { ok: false, error: "" };
-
-            await new Promise<void>((resolvePromise) => {
-              const timeout = setTimeout(() => {
-                testResult = { ok: false, error: "连接测试超时" };
-                try { session.dispose(); } catch {}
-                resolvePromise();
-              }, 30000);
-
-              session.subscribe((ev: any) => {
-                if (ev.type === "agent_end") {
-                  clearTimeout(timeout);
-                  const lastMsg = ev.messages?.[ev.messages.length - 1];
-                  const hasError = lastMsg?.stopReason === "error" || lastMsg?.errorMessage;
-                  testResult = { ok: !hasError, error: hasError ? (lastMsg?.errorMessage ?? "连接失败") : "" };
-                  session.dispose();
-                  resolvePromise();
-                }
-              });
-              session.prompt(`/mcp reconnect ${event.serverName}`).catch((err: Error) => {
-                clearTimeout(timeout);
-                testResult = { ok: false, error: err.message };
-                try { session.dispose(); } catch {}
-                resolvePromise();
-              });
-            });
-            reply({ type: "mcp:testResult", serverName: event.serverName, success: testResult.ok, error: testResult.error || undefined });
-          } catch (err) {
-            reply({ type: "mcp:testResult", serverName: event.serverName, success: false, error: `Pi 启动失败: ${(err as Error).message}` });
-          }
+          const config = await this.opts.mcpStore.getServer(event.serverName, event.projectId);
+          const cwd = await this.resolveProjectCwd(event.projectId);
+          const outcome = await testConnection(config, cwd);
+          reply({
+            type: "mcp:testResult",
+            serverName: event.serverName,
+            success: outcome.status === "connected",
+            status: outcome.status,
+            toolCount: outcome.toolCount,
+            error: outcome.error,
+          });
         } catch (err) {
-          reply({ type: "mcp:testResult", serverName: event.serverName, success: false, error: (err as Error).message });
+          reply({ type: "mcp:testResult", serverName: event.serverName, success: false, status: "error", error: (err as Error).message });
         }
         break;
       }
       case "mcp:listTools": {
         try {
-          const tools = await this.opts.mcpStore.listTools(event.serverName);
+          const config = await this.opts.mcpStore.getServer(event.serverName, event.projectId);
+          const cwd = await this.resolveProjectCwd(event.projectId);
+          const tools = await listTools(config, cwd);
           reply({ type: "mcp:tools", serverName: event.serverName, tools });
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
@@ -882,48 +843,23 @@ export class WSServer {
       }
       case "mcp:clearAuth": {
         try {
-          const cwd = event.projectId
-            ? (await this.opts.projectStore.load()).projects.find(p => p.id === event.projectId)?.cwd
-            : undefined;
-          const { createAgentSession, SessionManager, AuthStorage, ModelRegistry } = await import("@earendil-works/pi-coding-agent");
-          try {
-            const authStorage = AuthStorage.create();
-            const modelRegistry = ModelRegistry.create(authStorage);
-            const { session } = await createAgentSession({
-              cwd,
-              sessionManager: SessionManager.inMemory(),
-              authStorage,
-              modelRegistry,
-            });
-
-            await new Promise<void>((resolvePromise) => {
-              const timeout = setTimeout(() => {
-                try { session.dispose(); } catch {}
-                resolvePromise();
-              }, 60000);
-
-              session.subscribe((ev: any) => {
-                if (ev.type === "agent_end") {
-                  clearTimeout(timeout);
-                  session.dispose();
-                  resolvePromise();
-                }
-              });
-              session.prompt(`/mcp logout ${event.serverName}`).catch(() => {
-                clearTimeout(timeout);
-                try { session.dispose(); } catch {}
-                resolvePromise();
-              });
-            });
-            reply({ type: "mcp:testResult", serverName: event.serverName, success: true });
-          } catch (err) {
-            reply({ type: "mcp:testResult", serverName: event.serverName, success: false, error: `Pi 启动失败: ${(err as Error).message}` });
-          }
+          await clearAuth(event.serverName);
+          // 清除授权后：OAuth 服务器回到 needs_auth（可重新授权）；其它回到 disconnected
+          const config = await this.opts.mcpStore.getServer(event.serverName, event.projectId).catch(() => null);
+          const status: McpServerStatus = config?.auth === "oauth" ? "needs_auth" : "disconnected";
+          reply({ type: "mcp:testResult", serverName: event.serverName, success: true, status });
         } catch (err) {
-          reply({ type: "mcp:testResult", serverName: event.serverName, success: false, error: (err as Error).message });
+          reply({ type: "mcp:testResult", serverName: event.serverName, success: false, status: "error", error: (err as Error).message });
         }
         break;
       }
     }
+  }
+
+  /** 解析项目工作目录；无 projectId（全局作用域）返回 undefined */
+  private async resolveProjectCwd(projectId?: string): Promise<string | undefined> {
+    if (!projectId) return undefined;
+    const { projects } = await this.opts.projectStore.load();
+    return projects.find(p => p.id === projectId)?.cwd;
   }
 }

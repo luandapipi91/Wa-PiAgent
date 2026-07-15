@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
-import type { McpServerConfig, McpToolSummary } from "@hiagent/shared";
+import type { McpServerConfig } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 
 interface McpConfigFile {
@@ -24,6 +24,16 @@ export class McpStore {
       name,
       ...server,
     }));
+  }
+
+  /** 取单个服务器配置（含 name）；不存在抛错。供连接测试 / 工具列举复用 */
+  async getServer(serverName: string, projectId?: string): Promise<McpServerConfig> {
+    const servers = await this.list(projectId);
+    const server = servers.find(s => s.name === serverName);
+    if (!server) {
+      throw new Error(`MCP 服务器 ${serverName} 不存在`);
+    }
+    return server;
   }
 
   async save(config: McpServerConfig, projectId?: string, originalName?: string): Promise<void> {
@@ -52,35 +62,6 @@ export class McpStore {
     }
     delete cfg.mcpServers[serverName];
     await this.writeConfig(path, cfg);
-  }
-
-  async listTools(serverName: string): Promise<McpToolSummary[]> {
-    const cachePath = join(this.opts.hiagentDir, "mcp-cache.json");
-    try {
-      const raw = await readFile(cachePath, "utf8");
-      const cache = JSON.parse(raw);
-      const serverCache = cache[serverName];
-      if (!serverCache || !Array.isArray(serverCache.tools)) {
-        return [];
-      }
-      return serverCache.tools.map((t: any) => ({
-        name: t.name ?? "",
-        description: t.description as string | undefined,
-        parameters: t.inputSchema?.properties
-          ? Object.entries(t.inputSchema.properties).map(([pname, pschema]: [string, any]) => ({
-              name: pname,
-              type: pschema.type ?? "string",
-              description: pschema.description as string | undefined,
-            }))
-          : undefined,
-      }));
-    } catch (e: unknown) {
-      const err = e as NodeJS.ErrnoException;
-      if (err.code !== "ENOENT") {
-        console.warn("[mcp-store] 读取 MCP 缓存失败:", err.message ?? err);
-      }
-      return [];
-    }
   }
 
   // ===== 内部方法 =====

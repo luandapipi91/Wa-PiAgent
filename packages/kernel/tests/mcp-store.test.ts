@@ -180,28 +180,3 @@ test("delete: 删除不存在的 server 抛错", async () => {
   const store = createStore();
   await expect(store.delete("nope")).rejects.toThrow();
 });
-
-// ===== listTools =====
-
-test("listTools: 缓存存在时返回工具列表", async () => {
-  const cachePath = join(TMP, "mcp-cache.json");
-  await writeFile(cachePath, JSON.stringify({
-    "chrome-devtools": {
-      tools: [
-        { name: "take_screenshot", description: "Take a screenshot", inputSchema: { type: "object", properties: { format: { type: "string", enum: ["png", "jpeg"] } } } },
-      ],
-    },
-  }));
-  const store = createStore();
-  const tools = await store.listTools("chrome-devtools");
-  expect(tools.length).toBe(1);
-  expect(tools[0].name).toBe("take_screenshot");
-  expect(tools[0].description).toBe("Take a screenshot");
-  expect(tools[0].parameters).toBeTruthy();
-});
-
-test("listTools: 缓存不存在返回空数组", async () => {
-  const store = createStore();
-  const tools = await store.listTools("unknown-server");
-  expect(tools).toEqual([]);
-});
