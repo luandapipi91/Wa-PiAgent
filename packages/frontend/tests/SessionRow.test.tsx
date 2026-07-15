@@ -32,17 +32,22 @@ test("点击 onSelect", () => {
   expect(fn).toHaveBeenCalledWith("s1");
 });
 
-// ── 未读 new 角标（后台收到回复完成时显示，45° 斜标）──
+// ── 未读圆点角标（后台收到回复完成时显示，右上角小圆点）──
 
-test("未读会话显示 45° new 角标", () => {
+test("未读会话显示右上角小圆点（无文字）", () => {
   useSessionStore.setState({ unreadBySession: { s1: true } });
   render(<SessionRow session={session} selected={false} onSelect={() => {}} />);
   const tag = screen.getByTestId("unread-tag-s1");
-  expect(tag.textContent).toBe("new");
-  expect(tag.className).toContain("rotate-45"); // 45° 斜着
+  // 小圆点：无文字内容
+  expect(tag.textContent).toBe("");
+  // 应该是圆形的（borderRadius: 50% 或足够大）
+  expect(tag.style.borderRadius).toBe("50%");
+  // 应该很小
+  expect(tag.style.width).toBe("7px");
+  expect(tag.style.height).toBe("7px");
 });
 
-test("已读会话不显示 new 角标", () => {
+test("已读会话不显示圆点角标", () => {
   useSessionStore.setState({ unreadBySession: {} });
   render(<SessionRow session={session} selected={false} onSelect={() => {}} />);
   expect(screen.queryByTestId("unread-tag-s1")).toBeNull();

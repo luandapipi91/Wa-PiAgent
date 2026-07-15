@@ -4,6 +4,7 @@
 import { test, expect, mock, beforeEach, afterEach, afterAll } from "bun:test";
 import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
 import { _setFsTransport, type FsTransport } from "../src/fs-client";
+import type { FilePickerSelection } from "../src/components/ui/FilePicker";
 
 const handlers = new Set<(e: any) => void>();
 const emit = (e: any) => handlers.forEach(h => h(e));
@@ -388,7 +389,7 @@ test("搜索态下切换“显示隐藏目录”不应抛错，搜索结果仍�
 
     // 切换显示隐藏目录：浏览 mount effect 重跑并重设浏览树聚焦目标，
     // 但展示数据源仍是搜索树 → focusItem(浏览 id) 不应抛错
-    const hiddenToggle = document.querySelector('[data-testid="file-picker"] input[type="checkbox"]')!;
+    const hiddenToggle = screen.getByTestId("show-hidden-toggle");
     fireEvent.click(hiddenToggle);
 
     // 让异步 mount effect 链（walkToTarget → setTreeItems → focus effect）落定
@@ -422,7 +423,7 @@ test("搜索过程中切换“显示隐藏目录”会以新的 showHidden 重�
   expect(before).toBeGreaterThan(0);
 
   // 切换显示隐藏目录 → 应重新发起搜索，且 showHidden=true
-  const hiddenToggle = document.querySelector('[data-testid="file-picker"] input[type="checkbox"]')!;
+  const hiddenToggle = screen.getByTestId("show-hidden-toggle");
   fireEvent.click(hiddenToggle);
 
   await waitFor(() => {
@@ -467,7 +468,7 @@ test("搜索过程中切换“显示隐藏目录”后，嵌套搜索结果保�
     const before = sendCalls.filter((e: any) => e.type === "fs:search").length;
 
     // 切换显示隐藏目录 → 重新搜索
-    const hiddenToggle = document.querySelector('[data-testid="file-picker"] input[type="checkbox"]')!;
+    const hiddenToggle = screen.getByTestId("show-hidden-toggle");
     fireEvent.click(hiddenToggle);
 
     // 等重新搜索真正发出（此时 mount effect 的 setExpandedItems 早已执行完毕），
@@ -480,5 +481,175 @@ test("搜索过程中切换“显示隐藏目录”后，嵌套搜索结果保�
     await waitFor(() => expect(screen.getByText(/📄\s*leaf/)).toBeTruthy(), { timeout: 1500 });
   } finally {
     _setFsTransport(transport); // 恢复共享 transport
+  }
+});
+
+// ── 复选框选择：点击标题不选中，点击复选框才选中 ──
+
+test("点击文件/文件夹标题不会自动选中，添加按钮不显示数量", async () => {
+  render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  // 等待 demo 子项懒加载完成
+  await waitFor(() => {
+    expect(screen.getByText(/📄\s*z-note/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  // 点击文件标题文本（非复选框），应只聚焦不选中
+  const fileTitle = screen.getByText(/📄\s*z-note/);
+  fireEvent.click(fileTitle);
+
+  // 添加按钮不应包含选中数量
+  await waitFor(() => {
+    const addBtn = screen.getByTestId("file-picker-ok");
+    expect(addBtn.textContent).toBe("添加 ");
+  });
+
+  // 也没有 "已选 N 项" 提示
+  expect(screen.queryByText(/已选 \d+ 项/)).toBeNull();
+});
+
+test("点击复选框可选中文件，添加按钮显示正确数量", async () => {
+  render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  // 找到所有复选框并点击第一个
+  const checkboxes = screen.getAllByTestId("file-picker-checkbox");
+  expect(checkboxes.length).toBeGreaterThan(0);
+  fireEvent.click(checkboxes[0]);
+
+  // 添加按钮应显示 (1)
+  await waitFor(() => {
+    const addBtn = screen.getByTestId("file-picker-ok");
+    expect(addBtn.textContent).toBe("添加 (1)");
+  });
+
+  // 应有 "已选 1 项" 提示
+  expect(screen.getByText(/已选 1 项/)).toBeTruthy();
+});
+
+test("可多选多个文件/文件夹，添加按钮显示累计数量", async () => {
+  render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  const checkboxes = screen.getAllByTestId("file-picker-checkbox");
+  expect(checkboxes.length).toBeGreaterThan(1);
+
+  // 选中两个
+  fireEvent.click(checkboxes[0]);
+  fireEvent.click(checkboxes[1]);
+
+  await waitFor(() => {
+    const addBtn = screen.getByTestId("file-picker-ok");
+    expect(addBtn.textContent).toBe("添加 (2)");
+  });
+
+  expect(screen.getByText(/已选 2 项/)).toBeTruthy();
+});
+
+test("再次点击已选中的复选框可取消选中", async () => {
+  render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  const checkboxes = screen.getAllByTestId("file-picker-checkbox");
+
+  // 选中第一个
+  fireEvent.click(checkboxes[0]);
+  await waitFor(() => {
+    const addBtn = screen.getByTestId("file-picker-ok");
+    expect(addBtn.textContent).toBe("添加 (1)");
+  });
+
+  // 再次点击取消选中
+  fireEvent.click(checkboxes[0]);
+
+  await waitFor(() => {
+    const addBtn = screen.getByTestId("file-picker-ok");
+    expect(addBtn.textContent).toBe("添加 ");
+  });
+
+  expect(screen.queryByText(/已选 \d+ 项/)).toBeNull();
+});
+
+test("点击添加按钮时 onPick 收到正确选中的文件/文件夹列表", async () => {
+  const picks: FilePickerSelection[][] = [];
+  render(<FilePicker onPick={(s) => { picks.push(s); }} onCancel={() => {}} defaultPath={PROJECT} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  const checkboxes = screen.getAllByTestId("file-picker-checkbox");
+
+  // 选中第一个
+  fireEvent.click(checkboxes[0]);
+
+  await waitFor(() => {
+    const addBtn = screen.getByTestId("file-picker-ok");
+    expect(addBtn.textContent).toContain("(1)");
+  });
+
+  // 点击添加按钮
+  fireEvent.click(screen.getByTestId("file-picker-ok"));
+
+  expect(picks.length).toBe(1);
+  expect(picks[0].length).toBe(1);
+  // 选中的项应包含 path 和 name
+  expect(picks[0][0].path).toBeTruthy();
+  expect(picks[0][0].name).toBeTruthy();
+});
+
+// ── 搜索范围锁定：搜索过程中点击目录不改变搜索根 ──
+
+test("搜索过程中聚焦目录不改变搜索范围，新搜索仍用原根", async () => {
+  render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  // 搜索前先点击 projects 目录 → 设活动目录为 projects
+  fireEvent.click(screen.getByText(/📁\s*projects/));
+
+  // 开始搜索：搜索根应为 projects
+  sendCalls.length = 0;
+  fireEvent.change(screen.getByTestId("file-picker-search"), { target: { value: "dem" } });
+  await waitFor(() => {
+    expect(sendCalls.some((e: any) => e.type === "fs:search")).toBe(true);
+  }, { timeout: 3000 });
+
+  const firstReqs = sendCalls.filter((e: any) => e.type === "fs:search");
+  expect(firstReqs.length).toBeGreaterThan(0);
+  for (const r of firstReqs) {
+    expect(r.root).toBe("C:\\Users\\test\\projects");
+  }
+
+  // 搜索过程中点击 demo 目录（在搜索结果中可见）→ 不应更新搜索根
+  fireEvent.click(screen.getByText(/📁\s*demo/));
+
+  // 改变搜索词以触发新一轮搜索
+  sendCalls.length = 0;
+  fireEvent.change(screen.getByTestId("file-picker-search"), { target: { value: "demo" } });
+  await waitFor(() => {
+    expect(sendCalls.some((e: any) => e.type === "fs:search")).toBe(true);
+  }, { timeout: 3000 });
+
+  // 新一轮搜索的根应仍为 projects（未被 demo 点击覆盖）
+  const secondReqs = sendCalls.filter((e: any) => e.type === "fs:search");
+  expect(secondReqs.length).toBeGreaterThan(0);
+  for (const r of secondReqs) {
+    expect(r.root).toBe("C:\\Users\\test\\projects");
   }
 });
