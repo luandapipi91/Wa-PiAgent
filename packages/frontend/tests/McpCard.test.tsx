@@ -63,6 +63,20 @@ test("有 auth 且非 needs_auth 显示清除授权按钮", () => {
   expect(screen.getByText("清除授权")).toBeTruthy();
 });
 
+test("错误信息渲染不带 ⚠ 前缀（红色 danger 样式已承担错误信号）", () => {
+  render(
+    <McpCard
+      config={{ name: "test", command: "echo" }}
+      status="disconnected"
+      error="MCP error -32000: Connection closed"
+      onTest={mock()} onViewTools={mock()} onAuth={mock()} onClearAuth={mock()} onEdit={mock()} onDelete={mock()}
+    />
+  );
+  const el = screen.getByTestId("mcp-error-test");
+  expect(el.textContent).toBe("MCP error -32000: Connection closed");
+  expect(el.textContent!.startsWith("⚠")).toBe(false);
+});
+
 test("按钮点击触发对应回调", () => {
   const onEdit = mock();
   const onDelete = mock();
