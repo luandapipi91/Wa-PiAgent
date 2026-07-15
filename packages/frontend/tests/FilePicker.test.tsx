@@ -401,3 +401,84 @@ test("搜索态下切换“显示隐藏目录”不应抛错，搜索结果仍�
     window.removeEventListener("error", onError);
   }
 });
+
+// ── 搜索过程中切换“显示隐藏目录”应重新触发搜索 ──
+// 搜索 effect 依赖 [searchQuery]，切换 showHidden 不重跑 → 仍按旧的 showHidden 搜索。
+// 期望：切换后以新的 showHidden 重新发起 fs:search。
+
+test("搜索过程中切换“显示隐藏目录”会以新的 showHidden 重新触发搜索", async () => {
+  render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  // 搜索：发出首轮 fs:search（showHidden=false）
+  fireEvent.change(screen.getByTestId("file-picker-search"), { target: { value: "dem" } });
+  await waitFor(() => {
+    expect(screen.getByTestId("search-duration")).toBeTruthy();
+  }, { timeout: 3000 });
+  const before = sendCalls.filter((e: any) => e.type === "fs:search").length;
+  expect(before).toBeGreaterThan(0);
+
+  // 切换显示隐藏目录 → 应重新发起搜索，且 showHidden=true
+  const hiddenToggle = document.querySelector('[data-testid="file-picker"] input[type="checkbox"]')!;
+  fireEvent.click(hiddenToggle);
+
+  await waitFor(() => {
+    const reqs = sendCalls.filter((e: any) => e.type === "fs:search");
+    expect(reqs.length).toBeGreaterThan(before);
+    expect(reqs[reqs.length - 1].showHidden).toBe(true);
+  }, { timeout: 3000 });
+});
+
+// 嵌套搜索结果（2 层）用于验证：切换隐藏目录重搜时，搜索树的中间目录不应被
+// 浏览 mount effect 的 setExpandedItems 折叠（其结果节点 path 作 id，与浏览 id 不同）。
+test("搜索过程中切换“显示隐藏目录”后，嵌套搜索结果保持展开可见", async () => {
+  const NESTED = `${PROJECT}\\mid\\leaf`;
+  const hSet = new Set<(e: any) => void>();
+  const hEmit = (e: any) => hSet.forEach(h => h(e));
+  const tSend = mock((e: any) => {
+    sendCalls.push(e);
+    switch (e.type) {
+      case "fs:home": hEmit({ type: "fs:home", home: HOME }); break;
+      case "fs:roots": hEmit({ type: "fs:roots", roots: ["C:\\", "D:\\"] }); break;
+      case "fs:listDir": hEmit({ type: "fs:listDir", path: e.path, entries: entriesFor(e.path) }); break;
+      case "fs:search": {
+        const matches = [{ name: "leaf", isDir: false, path: NESTED }];
+        setTimeout(() => {
+          hEmit({ type: "fs:search:progress", requestId: e.requestId, query: e.query, matches });
+          hEmit({ type: "fs:search", requestId: e.requestId, query: e.query, matches, durationMs: 0, truncated: false });
+        }, 10);
+        break;
+      }
+      default: break;
+    }
+  });
+  _setFsTransport({ send: tSend, onMessage: (h: (e: any) => void) => { hSet.add(h); return () => hSet.delete(h); } });
+
+  try {
+    render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
+    await waitFor(() => expect(screen.getByText(/📁\s*demo/)).toBeTruthy(), { timeout: 3000 });
+
+    // 搜索 leaf → 嵌套结果 mid/leaf（中间目录 mid 展开后 leaf 可见）
+    fireEvent.change(screen.getByTestId("file-picker-search"), { target: { value: "leaf" } });
+    await waitFor(() => expect(screen.getByText(/📄\s*leaf/)).toBeTruthy(), { timeout: 3000 });
+    const before = sendCalls.filter((e: any) => e.type === "fs:search").length;
+
+    // 切换显示隐藏目录 → 重新搜索
+    const hiddenToggle = document.querySelector('[data-testid="file-picker"] input[type="checkbox"]')!;
+    fireEvent.click(hiddenToggle);
+
+    // 等重新搜索真正发出（此时 mount effect 的 setExpandedItems 早已执行完毕），
+    // 避免 waitFor 在折叠发生前就因旧结果可见而提前通过
+    await waitFor(() => {
+      expect(sendCalls.filter((e: any) => e.type === "fs:search").length).toBeGreaterThan(before);
+    }, { timeout: 3000 });
+
+    // 重新搜索落定后，中间目录 mid 应保持展开、leaf 仍可见
+    await waitFor(() => expect(screen.getByText(/📄\s*leaf/)).toBeTruthy(), { timeout: 1500 });
+  } finally {
+    _setFsTransport(transport); // 恢复共享 transport
+  }
+});
