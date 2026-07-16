@@ -4,6 +4,7 @@ import type { AgentName, AttachmentDraft, ThinkingLevel } from "@hiagent/shared"
 import { useProjectsStore } from "../store/projects";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { send } from "../ws-instance";
+import { expandTokens } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
 
 const NAMES: AgentName[] = ["product", "pm", "dev", "test"];
@@ -57,12 +58,26 @@ export function NewSessionPane() {
   const handleSend = () => {
     if (!projectId || !text.trim() || !model || sendingRef.current) return;
     sendingRef.current = true;
+    // 展开 chip token 为纯文本引用标记（$[name] -> /skill:name，@[path] -> @path）
+    const expandedText = expandTokens(text);
+    // 乐观 UI：立即创建会话触发导航，消除白屏等待。
+    // 用户消息由 kernel session:echo_user 回传后 App.tsx 调 optimisticSend 秒显示。
+    // kernel _promptLocks 串行锁防并发竞态。
+    useProjectsStore.getState().addSession({
+      id: sessionId,
+      projectId,
+      primaryAgent: agentName,
+      title: expandedText.slice(0, 20),
+      createdAt: Date.now(),
+      lastActivity: Date.now(),
+      piSessionFile: "",
+    });
     send({
       type: "agent:prompt",
       projectId,
       sessionId,
       agentName,
-      text,
+      text: expandedText,
       model,
       thinking,
       attachments: attachments.length > 0 ? attachments : undefined,
