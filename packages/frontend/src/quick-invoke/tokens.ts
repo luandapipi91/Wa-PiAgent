@@ -16,7 +16,7 @@ export type Segment =
 /**
  * 发送时把 chip token 展开为纯文本引用标记。
  * @[packages/App.tsx] -> @packages/App.tsx
- * $[brainstorming] -> /skill:brainstorming
+ * $[brainstorming] -> /skill:brainstorming（后面必须跟空格，SDK 用空格分隔技能名和参数）
  *
  * 技能展开为 /skill:name 格式，由 SDK 的 _expandSkillCommand 识别后
  * 内联展开为 <skill name="..." location="...">完整 SKILL.md 内容</skill> XML 块。
@@ -24,7 +24,7 @@ export type Segment =
 export function expandTokens(text: string): string {
   return text
     .replace(FILE_TOKEN_RE, "@$1")
-    .replace(SKILL_TOKEN_RE, "/skill:$1");
+    .replace(SKILL_TOKEN_RE, "/skill:$1 "); // 末尾空格：SDK _expandSkillCommand 用空格分隔技能名和参数
 }
 
 /** 转义 HTML 特殊字符，防止 XSS */
