@@ -75,6 +75,7 @@ import { existsSync } from "node:fs";
 import type { PackageInfo } from "@hiagent/shared";
 import { HIAGENT_DIR } from "@hiagent/shared";
 import { NpmPackageService } from "./npm-package-service";
+import { hasSkillMd } from "./skill-utils";
 
 interface ExtensionSettings {
   npmCommand?: string[];
@@ -398,5 +399,26 @@ export class ExtensionManager {
 
     // 两者皆无 → 未安装
     throw new Error(`未安装: ${name}`);
+  }
+
+  /**
+   * 获取已启用扩展包中包含技能（SKILL.md）的 skills/ 目录路径列表。
+   * 入口处用 hasSkillMd 做快速过滤，只返回通过检测的路径。
+   * 供 skill-manager.scan() 扫描 + agent-manager additionalSkillPaths 两处消费。
+   */
+  async getEnabledExtensionSkillPaths(): Promise<{ path: string; packageName: string }[]> {
+    const { packages } = await this.list();
+    const enabled = packages.filter(p => p.enabled);
+    const result: { path: string; packageName: string }[] = [];
+    for (const pkg of enabled) {
+      const skillsDir = join(HIAGENT_DIR, "runtime", "node_modules", pkg.name, "skills");
+      try {
+        const { found } = await hasSkillMd(skillsDir);
+        if (found) result.push({ path: skillsDir, packageName: pkg.name });
+      } catch {
+        // 目录不存在或无法访问 -> 跳过
+      }
+    }
+    return result;
   }
 }
