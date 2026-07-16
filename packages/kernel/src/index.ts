@@ -89,6 +89,10 @@ export async function startKernel(
       if (errMsg) {
         broadcast({ type: "error", message: errMsg, agentName, sessionId });
       }
+      // agent 回复完成时更新 lastActivity，让会话列表的时间反映最新活动（而非仅用户发送时间）
+      if ((event as any).type === "message_end") {
+        projectStore.touchSession(sessionId).catch(() => {});
+      }
     },
   });
   // 回填真实 agentManager（绕开 TS 的「构造时已确定」语义；opts 为 private 故用 any 桥接）

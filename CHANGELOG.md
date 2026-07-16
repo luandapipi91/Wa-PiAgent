@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-07-16 — 会话列表时间：agent 回复完成时更新 lastActivity
+
+### 修复
+
+- **会话列表时间显示修复**：之前 `lastActivity` 仅在用户发送消息（`agent:prompt`）时更新，agent 回复完成后不会更新。现在在 `message_end` 事件中也调用 `touchSession` 更新 `lastActivity`，让会话列表右侧时间反映最后一次活动（含 agent 回复）而非仅用户输入时间。
+  - **影响范围**：kernel(`index.ts` — onEvent 回调中新增 message_end 时 touchSession 调用)。
+
+---
+
+## 2026-07-16 — 思考过程合并 + 流式标签 + 工具调用分组折叠
+
+### 变更
+
+- **思考过程合并**：同一 assistant 消息中如有多个连续 thinking block，之前会渲染为多个独立的折叠面板。现改为合并为一个，展开后按换行展示。
+- **流式中思考标签**：流式产生思考时，按钮标签从「💭 思考过程 已完成」改为 spinner +「努力思考中…」（无 💭），完成后恢复「💭 思考过程 已完成」。
+- **工具调用分组折叠**：同一消息中的工具调用不再逐个平铺。现合并为一个「🔧 工具调用记录 (N)」折叠面板（含 ✓成功/✗失败/⏳待执行计数摘要），展开后各工具调用仍可独立再展开查看参数和结果。两层折叠：分组 → 单项详情。
+  - **影响范围**：frontend(`MessageList.tsx` — 新增 ToolCallGroup 组件，ThinkingBlock 新增 isStreaming prop；`MessageList.test.tsx` — 适配两层折叠交互)。34 test pass / 0 fail，typecheck clean。
+
+---
+
 ## 2026-07-15 — 查看工具：加载过程加 loading 过渡
 
 ### 新增
