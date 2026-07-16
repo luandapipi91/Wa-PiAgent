@@ -34,6 +34,8 @@ interface SessionState {
    *  让 UI 在 SDK 回声到达前就显示用户消息与 AI loading。置 optimisticEcho 标记，
    *  供 message_start(user) 回声识别并替换占位（同步 timestamp，避免切回会话重复）。 */
   optimisticSend: (sessionId: string, text: string, agentName: AgentName) => void;
+  /** agent 运行时本地追加排队消息到队列面板，不等 kernel queue_update */
+  appendLocalFollowUp: (sessionId: string, text: string) => void;
   clear: () => void;
   /** 标记会话有未读新回复（后台收到 agent_end 时）。 */
   markUnread: (sessionId: string) => void;
@@ -121,6 +123,14 @@ export const useSessionStore = create<SessionState>((set) => ({
       // 计时从这里开始（用户发送即起算）
       thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: ts },
       optimisticEchoBySession: { ...s.optimisticEchoBySession, [sessionId]: true },
+    };
+  }),
+
+  appendLocalFollowUp: (sessionId, text) => set(s => {
+    const cur = s.queueBySession[sessionId];
+    const followUp = cur ? [...cur.followUp, text] : [text];
+    return {
+      queueBySession: { ...s.queueBySession, [sessionId]: { steering: cur?.steering ?? [], followUp } },
     };
   }),
 

@@ -97,6 +97,8 @@ export class AgentManager {
   private starting = new Map<string, Promise<AgentSession>>();
   // 标记在创建过程中被 dispose 的 sessionId，防止已清理的会话在创建完成后重新泄漏回 Map
   private disposed = new Set<string>();
+  // 标记在 _createSession 期间收到的 abort 请求：session 注册后立即执行
+  private pendingAborts = new Set<string>();
   // deferred reload：技能/扩展配置变更后标脏；会话下次命中缓存时 reload 一次并清脏。
   private dirty = new Set<string>();
   // deferred 重建：skill 配置变更（目录增删 / skill 禁用）后标脏；会话下次命中缓存且 idle 时重建。
@@ -341,18 +343,26 @@ export class AgentManager {
     const { session } = await createFn({
       cwd: project.cwd,
       agentDir: HIAGENT_DIR,
-      // SessionManager.open 打开已有 jsonl 文件（由 ProjectStore.createSession 预生成路径）
       sessionManager: sdk.SessionManager.open(sessionEntity.piSessionFile),
       resourceLoader: loader,
       thinkingLevel: config?.thinking ?? "medium",
       tools,
-      // 记忆工具（host-controlled，绑定项目 store）+ ask_user_question 工具。
-      // 注意：必须合并进同一数组，不能覆盖——memory 工具由 createAgentMemoryTools 构造，
-      // 直接覆盖会破坏现有记忆功能。memory 已落地，按计划 Self-Review「memory 重构落地后追加」。
       customTools: [...memoryCustomTools, makeAskTool(sessionId)],
       authStorage,
       modelRegistry,
     });
+
+    // 提前注册 session 到 map，让 abort / queue 操作在后续 setup（bindExtensions 等）期间即可用。
+    // 后续步骤失败时由 _teardownSession 清理（ensureStarted 的 finally 块 dispose 会触发）。
+    this.sessions.set(sessionId, session);
+    this.sessionCwd.set(sessionId, project.cwd);
+    this.sessionMeta.set(sessionId, { projectId, agentName });
+
+    // _createSession 期间收到的 abort 请求：session 已注册，立即执行
+    if (this.pendingAborts.has(sessionId)) {
+      this.pendingAborts.delete(sessionId);
+      try { await session.abort(); } catch { /* abort 失败不阻塞创建 */ }
+    }
 
     // 重启兜底：对历史里「无 result 的 ask 调用」注入 cancelled，避免 agent 卡死。
     // try/catch 保护：session.agent.state.messages 赋值依赖 SDK 内部结构，
@@ -381,18 +391,18 @@ export class AgentManager {
       this.opts.onEvent(sessionId, projectId, agentName, event);
     });
 
-    // 如果创建过程中被 dispose，则清理刚创建的 session，避免泄漏回 Map
+    // 如果创建过程中被 dispose，清理已提前注册的 session（createFn 之后已入 map）
     if (this.disposed.has(sessionId)) {
       this.disposed.delete(sessionId);
       unsubscribe();
       session.dispose();
+      this.sessions.delete(sessionId);
+      this.sessionCwd.delete(sessionId);
+      this.sessionMeta.delete(sessionId);
       throw new Error(`会话已清理: ${sessionId}`);
     }
 
-    this.sessions.set(sessionId, session);
     this.unsubscribers.set(sessionId, unsubscribe);
-    this.sessionCwd.set(sessionId, project.cwd);
-    this.sessionMeta.set(sessionId, { projectId, agentName });
 
     return session;
   }
@@ -581,28 +591,30 @@ export class AgentManager {
     this.sessions.get(sessionId)?.clearQueue();
   }
 
-  /** 中止当前会话的进行中请求（无 session 时静默忽略，便于幂等清理）。
-   *  先把 followUp 队列取出、abort、idle 后再恢复，避免 abort 后 agent core 自动 drain
-   *  队列继续发送；steering 消息针对当前 run，当前 run 已中止，故不恢复。 */
+  /** 中止当前会话：先清空队列防 SDK auto-drain，再 abort。不恢复队列。 */
   async abort(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
-    if (!session) return;
-
-    askRegistry.cancelAll(sessionId);  // 作废该 session 的 pending ask
-
-    const queued = session.clearQueue();
-    try {
-      await session.abort();
-    } finally {
-      for (const msg of queued.followUp) {
-        session.followUp(msg).catch(() => {});
-      }
+    if (!session) {
+      if (this.starting.has(sessionId)) this.pendingAborts.add(sessionId);
+      return;
     }
+
+    askRegistry.cancelAll(sessionId);
+    // 清空队列防止 abort 后 SDK 自动 drain 剩余消息继续发送
+    const cleared = session.clearQueue();
+    console.log(`[agent-manager] abort session=${sessionId} isStreaming=${session.isStreaming} pendingMessages=${session.pendingMessageCount} clearedSteering=${cleared.steering.length} clearedFollowUp=${cleared.followUp.length}`);
+    await session.abort();
+    console.log(`[agent-manager] abort DONE session=${sessionId} isStreaming=${session.isStreaming} pendingMessages=${session.pendingMessageCount}`);
   }
 
   /** 读取会话历史消息（session 不存在时返回空数组） */
   getMessages(sessionId: string): any[] {
     return this.sessions.get(sessionId)?.messages ?? [];
+  }
+
+  /** 检查 session 是否正在 streaming（供外部判断 abort 时 agent 是否已启动） */
+  isSessionStreaming(sessionId: string): boolean {
+    return this.sessions.get(sessionId)?.isStreaming ?? false;
   }
 
   /** 拆除单个会话的内部资源（unsubscribe + dispose + 清各 Map），不动 disposed 标记。

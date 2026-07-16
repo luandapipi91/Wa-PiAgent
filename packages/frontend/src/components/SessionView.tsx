@@ -17,6 +17,7 @@ export function SessionView({ sessionId }: Props) {
   const getGlobalState = useAgentsStore(s => s.getGlobalState);
   const queue = useSessionStore(s => s.queueBySession[sessionId]);
   const status = useSessionStore(s => s.statusBySession[sessionId] ?? "idle");
+  const historyLoading = useSessionStore(s => s.historyLoadingBySession[sessionId] ?? false);
   const isBlocked = useIsBlocked(sessionId);
 
   // 思考起算时间（按会话独立，切会话不重置/不沿用）。每秒计时交给 <ThinkingTimer> 独立持有，
@@ -45,7 +46,16 @@ export function SessionView({ sessionId }: Props) {
   const followUp = queue?.followUp ?? [];
   const hasQueue = steering.length > 0 || followUp.length > 0;
 
-  const handleStop = () => send({ type: "agent:abort", projectId: session.projectId, sessionId, agentName: session.primaryAgent });
+  const [stopping, setStopping] = useState(false);
+  useEffect(() => {
+    if (!isRunning) setStopping(false);
+  }, [isRunning]);
+
+  const handleStop = () => {
+    console.log(`[SessionView] handleStop sessionId=${sessionId}`);
+    setStopping(true);
+    send({ type: "agent:abort", projectId: session.projectId, sessionId, agentName: session.primaryAgent });
+  };
   const handlePromote = (text: string) => {
     const idx = followUp.indexOf(text);
     const remaining = idx >= 0 ? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)] : [...followUp];
@@ -57,7 +67,15 @@ export function SessionView({ sessionId }: Props) {
     send({ type: "steer:immediate", sessionId, text, remainingTexts: remaining as string[] });
   };
   const handleCancelSteer = () => send({ type: "steer:cancel", sessionId });
-  const handleClearFollowUp = () => send({ type: "steer:clear-queue", sessionId });
+  const handleClearFollowUp = () => {
+    // 立即清除本地队列，不等 kernel 回声
+    useSessionStore.getState().appendLocalFollowUp(sessionId, ""); // hack to set empty? No.
+    // 直接清空 queueBySession
+    useSessionStore.setState(s => ({
+      queueBySession: { ...s.queueBySession, [sessionId]: { steering: s.queueBySession[sessionId]?.steering ?? [], followUp: [] } },
+    }));
+    send({ type: "steer:clear-queue", sessionId });
+  };
 
   return (
     <div className="flex-1 flex flex-col h-full" data-testid="session-view">
@@ -79,18 +97,23 @@ export function SessionView({ sessionId }: Props) {
       {(isRunning || hasQueue) && (
         <div className="px-5 py-2.5 border-b border-hairline bg-surface-elevated" data-testid="queue-panel">
           {/* 状态栏：spinner + 计时 + 停止 + 清空 */}
-          {isRunning && (
+          {(isRunning || followUp.length > 0) && (
             <div className="flex items-center mb-1">
-              <span className="flex items-center gap-2 text-[12.5px] text-secondary flex-1">
-                <span className="inline-block w-3.5 h-3.5 rounded-full" style={{ border: "2px solid var(--accent-soft)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
-                思考中 · <ThinkingTimer thinkingSince={thinkingSince} />s
-              </span>
+              {isRunning && (
+                <span className="flex items-center gap-2 text-[12.5px] text-secondary flex-1">
+                  <span className="inline-block w-3.5 h-3.5 rounded-full" style={{ border: "2px solid var(--accent-soft)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
+                  思考中 · <ThinkingTimer thinkingSince={thinkingSince} />s
+                </span>
+              )}
+              {!isRunning && <span className="flex-1" />}
               <div className="flex items-center gap-2">
-                <button onClick={handleStop} className="px-2.5 py-0.5 rounded-pill text-[11.5px] font-semibold bg-danger-soft text-danger border-0 cursor-pointer" data-testid="btn-stop">
-                  停止
-                </button>
+                {isRunning && (
+                  <button onClick={handleStop} disabled={historyLoading || stopping} className={`px-2.5 py-0.5 rounded-pill text-[11.5px] font-semibold border-0 ${historyLoading || stopping ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-danger-soft text-danger cursor-pointer"}`} data-testid="btn-stop">
+                    {stopping ? "停止中…" : "停止"}
+                  </button>
+                )}
                 {followUp.length > 0 && (
-                  <button onClick={handleClearFollowUp} className="text-[11.5px] px-2 py-0.5 rounded-pill bg-danger-soft text-danger border-0 cursor-pointer" data-testid="btn-clear-queue">
+                  <button onClick={handleClearFollowUp} disabled={historyLoading} className={`text-[11.5px] px-2 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-danger-soft text-danger cursor-pointer"}`} data-testid="btn-clear-queue">
                     清空
                   </button>
                 )}
