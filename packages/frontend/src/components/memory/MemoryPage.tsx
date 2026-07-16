@@ -1,5 +1,5 @@
 // MemoryPage.tsx — 记忆管理页主容器
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useMemoryStore } from "../../store/memory";
 import { useProjectsStore } from "../../store/projects";
 import { MemoryCard } from "./MemoryCard";
@@ -27,8 +27,10 @@ export function MemoryPage() {
 
   // 首次进入记忆页：若 store 里尚未选过项目且当前有打开的项目，初始化为该项目。
   // 关闭重开设置弹窗时 selectedProjectId 已在 store 中保留，不会被覆盖。
+  const initGuard = useRef(false);
   useEffect(() => {
-    if (selectedProjectId === null && currentProjectId) {
+    if (!initGuard.current && selectedProjectId === null && currentProjectId) {
+      initGuard.current = true;
       setSelectedProjectId(currentProjectId);
     }
   }, [selectedProjectId, currentProjectId, setSelectedProjectId]);

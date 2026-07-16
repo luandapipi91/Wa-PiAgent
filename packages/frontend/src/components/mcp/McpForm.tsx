@@ -3,10 +3,27 @@ import type { McpServerConfig } from "@hiagent/shared";
 
 type Transport = "stdio" | "http";
 
+interface EnvPair { key: string; value: string; }
+
 interface Props {
   initial?: McpServerConfig;
   onSave: (config: McpServerConfig, originalName?: string) => void;
   onCancel: () => void;
+}
+
+/** env Record → 可编辑的 key-value 对数组 */
+function envToPairs(env?: Record<string, string>): EnvPair[] {
+  if (!env) return [];
+  return Object.entries(env).map(([key, value]) => ({ key, value }));
+}
+
+/** key-value 对数组 → env Record（跳过空 key） */
+function pairsToEnv(pairs: EnvPair[]): Record<string, string> | undefined {
+  const env: Record<string, string> = {};
+  for (const p of pairs) {
+    if (p.key.trim()) env[p.key.trim()] = p.value;
+  }
+  return Object.keys(env).length > 0 ? env : undefined;
 }
 
 export function McpForm({ initial, onSave, onCancel }: Props) {
@@ -20,6 +37,7 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
   // HTTP 服务器的 Authorization 头（完整值，如 "Bearer xxx"）。编辑时从 initial.headers 往返，
   // 避免表单保存覆盖丢失原有鉴权头。保存时若仅填了裸 token 自动补 Bearer 前缀。
   const [auth, setAuth] = useState(initial?.headers?.Authorization ?? "");
+  const [envPairs, setEnvPairs] = useState<EnvPair[]>(envToPairs(initial?.env));
 
   useEffect(() => {
     if (initial) {
@@ -31,6 +49,7 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
       setLifecycle(initial.lifecycle ?? "lazy");
       setTimeout_(initial.requestTimeoutMs?.toString() ?? "");
       setAuth(initial.headers?.Authorization ?? "");
+      setEnvPairs(envToPairs(initial.env));
     }
   }, [initial]);
 
@@ -44,6 +63,7 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
     if (transport === "stdio") {
       config.command = command.trim();
       if (argsText.trim()) config.args = argsText.trim().split(/\s+/);
+      config.env = pairsToEnv(envPairs);
     } else {
       config.url = url.trim();
       // 往返 Authorization 头：填了就写回 headers（裸 token 自动补 Bearer），避免编辑丢鉴权
@@ -114,6 +134,56 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
                 onChange={e => setArgsText(e.target.value)}
                 data-testid="mcp-form-args"
               />
+            </div>
+
+            {/* 环境变量 */}
+            <div>
+              <label className="text-[11px] font-semibold text-secondary block mb-0.5">环境变量</label>
+              <div className="flex flex-col gap-1">
+                {envPairs.map((pair, i) => (
+                  <div key={i} className="flex gap-1 items-center">
+                    <input
+                      className="text-[12px] px-2 py-1 rounded-md flex-1"
+                      style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
+                      placeholder="KEY"
+                      value={pair.key}
+                      onChange={e => {
+                        const next = [...envPairs];
+                        next[i] = { ...next[i], key: e.target.value };
+                        setEnvPairs(next);
+                      }}
+                      data-testid={`mcp-form-env-key-${i}`}
+                    />
+                    <input
+                      className="text-[12px] px-2 py-1 rounded-md flex-1"
+                      style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
+                      placeholder="VALUE"
+                      value={pair.value}
+                      onChange={e => {
+                        const next = [...envPairs];
+                        next[i] = { ...next[i], value: e.target.value };
+                        setEnvPairs(next);
+                      }}
+                      data-testid={`mcp-form-env-val-${i}`}
+                    />
+                    <button
+                      type="button"
+                      className="text-[11px] px-1.5 py-1 rounded-md flex-shrink-0"
+                      style={{ color: "var(--danger)", border: "1px solid var(--danger)", background: "#fff" }}
+                      onClick={() => setEnvPairs(envPairs.filter((_, j) => j !== i))}
+                      data-testid={`mcp-form-env-remove-${i}`}
+                      title="移除此环境变量"
+                    >×</button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="text-[11px] px-2.5 py-1 rounded-md self-start"
+                  style={{ color: "var(--accent)", border: "1px solid var(--accent)", background: "transparent" }}
+                  onClick={() => setEnvPairs([...envPairs, { key: "", value: "" }])}
+                  data-testid="mcp-form-env-add"
+                >+ 添加环境变量</button>
+              </div>
             </div>
           </>
         )}
