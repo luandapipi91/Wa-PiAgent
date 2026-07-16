@@ -4,6 +4,7 @@ import { send } from "../ws-instance";
 import { useProjectsStore } from "../store/projects";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { useSessionStore } from "../store/session";
+import { expandTokens } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
 
 interface Props {
@@ -32,20 +33,22 @@ export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
 
   const handleSend = () => {
     if (disabled) return;
-    if (!text.trim() || !model || sendingRef.current || !projectId) return;
+    // 展开 chip token 为纯文本引用标记（@[path] -> @path，$[name] -> $name）
+    const expandedText = expandTokens(text);
+    if (!expandedText.trim() || !model || sendingRef.current || !projectId) return;
     sendingRef.current = true;
     // agent 思考中：消息发给 kernel 入队（followUp），前端不乐观显示——
     // 避免用户误以为消息已开始处理；排队状态由 queue_update 事件驱动的排队列表呈现。
     // 空闲时：乐观 UI 立即显示用户消息 + AI loading，不等 SDK 回声（首回合 ensureStarted 慢）。
     if (!isRunning) {
-      useSessionStore.getState().optimisticSend(sessionId, text, agentName);
+      useSessionStore.getState().optimisticSend(sessionId, expandedText, agentName);
     }
     send({
       type: "agent:prompt",
       projectId,
       sessionId,
       agentName,
-      text,
+      text: expandedText,
       model,
       thinking,
       attachments: attachments.length > 0 ? attachments : undefined,

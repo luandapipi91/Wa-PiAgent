@@ -5,6 +5,15 @@ import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useProvidersStore } from "../src/store/providers";
 import { useRecordingStore } from "../src/store/recording";
 import { _setRecordingManager } from "../src/recording/recorder";
+import { useSkillsStore } from "../src/store/skills";
+
+// 把文本写入 contenteditable textbox 并触发 input 事件（替代原 textarea 的 fireEvent.change）
+function typeIntoComposer(value: string) {
+  const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
+  textbox.textContent = value;
+  fireEvent.input(textbox);
+  return textbox;
+}
 
 const handlers = new Set<(e: any) => void>();
 const sendMock = vi.fn();
@@ -76,6 +85,10 @@ describe("NewSessionPane", () => {
       error: undefined,
     });
     _setRecordingManager({ start: async () => {}, pause: () => {}, resume: () => {}, stop: async () => ({ path: "", size: 0, durationMs: 0 }) });
+    useSkillsStore.setState({
+      skills: [], allSkills: [], dirs: [], disabledSkills: [], builtinDir: "", loading: false,
+      load: () => {}, setAll: () => {}, toggleSkill: () => {}, addDir: () => {}, removeDir: () => {},
+    });
     handlers.clear();
     sendMock.mockClear();
   });
@@ -102,14 +115,15 @@ describe("NewSessionPane", () => {
     await waitFor(() => {
       expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
     });
-    const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
-    fireEvent.change(textarea, { target: { value: "你好" } });
-    expect(textarea.value).toBe("你好");
+    const textbox = typeIntoComposer("你好");
+    expect(textbox.textContent).toBe("你好");
     await waitFor(() => {
       expect((screen.getByTestId("composer-send") as HTMLButtonElement).disabled).toBe(false);
     });
     fireEvent.click(screen.getByTestId("composer-send"));
-    expect(textarea.value).toBe("");
+    await waitFor(() => {
+      expect(textbox.textContent).toBe("");
+    });
   });
 
   it("sends first prompt with model and thinking", async () => {
@@ -133,8 +147,7 @@ describe("NewSessionPane", () => {
       expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("anthropic/claude-sonnet");
     });
 
-    const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
-    fireEvent.change(textarea, { target: { value: "hello" } });
+    typeIntoComposer("hello");
     await waitFor(() => {
       expect((screen.getByTestId("composer-send") as HTMLButtonElement).disabled).toBe(false);
     });
@@ -181,8 +194,7 @@ describe("NewSessionPane", () => {
       expect(screen.getByTestId("attachment-list")).toBeTruthy();
     });
 
-    const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
-    fireEvent.change(textarea, { target: { value: "with attachment" } });
+    typeIntoComposer("with attachment");
     await waitFor(() => {
       expect((screen.getByTestId("composer-send") as HTMLButtonElement).disabled).toBe(false);
     });
