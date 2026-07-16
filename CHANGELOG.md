@@ -4,12 +4,59 @@
 
 ---
 
+## 2026-07-16 — Quick Invoke 聊天栏快速调用
+
+### 新增
+- **`@` 文件快速调用** — 在聊天输入框输入 `@` 触发文件选择面板，选中文件以橙色 chip 内联插入消息，发送时展开为 `@相对路径` 纯文本引用标记
+- **`$` 技能快速调用** — 输入 `$` 触发技能选择面板，选中技能以靛蓝 chip 内联插入消息，发送时展开为 `$技能名` 标记
+- **ComposerTextarea 组件** — 从原生 textarea 改为 contenteditable div，支持内联彩色 chip 渲染、半受控光标管理
+- **QuickInvokeMenu 组件** — 统一弹出面板，支持键盘上下导航、Enter 选中、Esc 关闭、鼠标 hover/click
+- **扩展技能发现** — extension-manager 新增 `getEnabledExtensionSkillPaths()`，自动发现已启用扩展包中的 skills/ 目录并纳入扫描
+- **SkillInfo.source 字段** — 技能信息新增来源标记（builtin/user/extension），`$` 面板展示来源标签
+- **skill-utils 共享模块** — 从 skill-manager 提取 `hasSkillMd` / `scanSkillsDir` 供 extension-manager 和 skill-manager 共享
+
+### 重构
+- **skill-manager.scan()** — 接受扩展技能路径参数，支持扫描 builtin + user + extension 三类来源
+- **agent-manager resolveEnabledSkillPaths** — 合并扩展技能路径到 SDK additionalSkillPaths
+- **ws-server** — 4 处 skillManager.scan() 调用统一走 scanSkillsWithExtensions 辅助方法
+
+### 测试
+- 单元测试：tokens 序列化/反序列化、触发检测正则、skill-utils 共享函数
+- 组件测试：ComposerTextarea chip 渲染、QuickInvokeMenu 列表交互、ComposerInput 触发+选中+Esc
+- 集成测试：extension-manager 扩展技能发现、skill-manager 扩展技能扫描
+- E2E：@ 选文件 → chip → 发送；$ 选技能 → chip → 发送；Esc 关闭；Backspace 删 chip
+
+### 影响范围
+- `packages/shared/src/skills.ts` — SkillInfo 类型扩展
+- `packages/kernel/src/skill-utils.ts`（新建）— 共享扫描函数
+- `packages/kernel/src/skill-manager.ts` — scan 扩展技能
+- `packages/kernel/src/extension-manager.ts` — 新增方法
+- `packages/kernel/src/ws-server.ts` — scan 调用集成
+- `packages/kernel/src/agent-manager.ts` — additionalSkillPaths 合并
+- `packages/frontend/src/quick-invoke/`（新建）— tokens + trigger 纯函数
+- `packages/frontend/src/components/ui/ComposerTextarea.tsx`（新建）
+- `packages/frontend/src/components/ui/QuickInvokeMenu.tsx`（新建）
+- `packages/frontend/src/components/ui/ComposerInput.tsx` — 集成改造
+- `packages/frontend/src/components/Composer.tsx` — 发送时展开 token
+
+---
+
 ## 2026-07-16 — 会话列表时间：agent 回复完成时更新 lastActivity
 
 ### 修复
 
 - **会话列表时间显示修复**：之前 `lastActivity` 仅在用户发送消息（`agent:prompt`）时更新，agent 回复完成后不会更新。现在在 `message_end` 事件中也调用 `touchSession` 更新 `lastActivity`，让会话列表右侧时间反映最后一次活动（含 agent 回复）而非仅用户输入时间。
   - **影响范围**：kernel(`index.ts` — onEvent 回调中新增 message_end 时 touchSession 调用)。
+
+---
+
+## 2026-07-16 — 新会话发送后白屏优化 + 竞态修复（终版）
+
+### 修复
+
+- **新会话白屏优化**：从 `NewSessionPane` 发送消息时，kernel `ensureStarted`（SDK 冷启动+技能扫描+扩展绑定）耗时 5-10 秒。现改为前端乐观 UI：`handleSend` 中先 `addSession` 立即创建会话触发导航，随后 `optimisticSend` 立即显示用户消息 + loading 气泡，用户秒看到消息而非白屏。
+- **kernel 端 session 级串行锁**：`ws-server.ts` 新增 `_promptLocks` Map，同一 session 的 `agent:prompt` 串行执行。连续发送时第二条等第一条 `isStreaming` 立起后才执行，`agentManager.prompt()` 检测到忙状态走 `followUp` 排队，不会并发直连 `prompt()` 抛 `"Agent is already processing"`。此锁使 `optimisticSend` 在连续发送场景下也是安全的。
+  - **影响范围**：frontend(`NewSessionPane.tsx` — `addSession` + `optimisticSend`)；kernel(`ws-server.ts` — `_promptLocks` 串行锁)。typecheck clean。
 
 ---
 
