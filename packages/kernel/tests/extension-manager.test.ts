@@ -418,47 +418,53 @@ function createExtSkillPackage(pkgName: string, skillName: string) {
 
 test("getEnabledExtensionSkillPaths 返回含 SKILL.md 的扩展技能路径", async () => {
   const dataDir = tmpDir();
-  const mgr = mockManager(dataDir);
+  try {
+    const mgr = mockManager(dataDir);
 
-  // 先安装一个 npm 包（mock）
-  await mgr.install("my-ext-pkg");
+    // 先安装一个 npm 包（mock）
+    await mgr.install("my-ext-pkg");
 
-  // 创建扩展技能目录结构
-  createExtSkillPackage("my-ext-pkg", "ext-tool");
+    // 创建扩展技能目录结构
+    createExtSkillPackage("my-ext-pkg", "ext-tool");
 
-  const paths = await mgr.getEnabledExtensionSkillPaths();
-  expect(paths).toHaveLength(1);
-  expect(paths[0].packageName).toBe("my-ext-pkg");
-  expect(paths[0].path).toContain("my-ext-pkg/skills");
-
-  rmSync(dataDir, { recursive: true, force: true });
-  rmSync(join(HIAGENT_DIR, "runtime", "node_modules", "my-ext-pkg"), { recursive: true, force: true });
+    const paths = await mgr.getEnabledExtensionSkillPaths();
+    expect(paths).toHaveLength(1);
+    expect(paths[0].packageName).toBe("my-ext-pkg");
+    expect(paths[0].path).toContain("my-ext-pkg/skills");
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+    rmSync(join(HIAGENT_DIR, "runtime", "node_modules", "my-ext-pkg"), { recursive: true, force: true });
+  }
 });
 
 test("getEnabledExtensionSkillPaths 跳过无 skills/ 的扩展", async () => {
   const dataDir = tmpDir();
-  const mgr = mockManager(dataDir);
-  await mgr.install("no-skill-pkg");
+  try {
+    const mgr = mockManager(dataDir);
+    await mgr.install("no-skill-pkg");
 
-  // 不创建 skills/ 目录
-  const paths = await mgr.getEnabledExtensionSkillPaths();
-  expect(paths).toHaveLength(0);
-
-  rmSync(dataDir, { recursive: true, force: true });
-  rmSync(join(HIAGENT_DIR, "runtime", "node_modules", "no-skill-pkg"), { recursive: true, force: true });
+    // 不创建 skills/ 目录
+    const paths = await mgr.getEnabledExtensionSkillPaths();
+    expect(paths).toHaveLength(0);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+    rmSync(join(HIAGENT_DIR, "runtime", "node_modules", "no-skill-pkg"), { recursive: true, force: true });
+  }
 });
 
 test("getEnabledExtensionSkillPaths 不返回已禁用的扩展", async () => {
   const dataDir = tmpDir();
-  const mgr = mockManager(dataDir);
-  await mgr.install("disabled-pkg");
-  await mgr.disable("disabled-pkg");
+  try {
+    const mgr = mockManager(dataDir);
+    await mgr.install("disabled-pkg");
+    await mgr.disable("disabled-pkg");
 
-  createExtSkillPackage("disabled-pkg", "some-skill");
+    createExtSkillPackage("disabled-pkg", "some-skill");
 
-  const paths = await mgr.getEnabledExtensionSkillPaths();
-  expect(paths).toHaveLength(0);
-
-  rmSync(dataDir, { recursive: true, force: true });
-  rmSync(join(HIAGENT_DIR, "runtime", "node_modules", "disabled-pkg"), { recursive: true, force: true });
+    const paths = await mgr.getEnabledExtensionSkillPaths();
+    expect(paths).toHaveLength(0);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+    rmSync(join(HIAGENT_DIR, "runtime", "node_modules", "disabled-pkg"), { recursive: true, force: true });
+  }
 });
