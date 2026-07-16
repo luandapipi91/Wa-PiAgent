@@ -621,3 +621,44 @@ test("点击「复制」将回答文本写入剪贴板并提示成功", async ()
   await waitFor(() => expect(copied).toBe("第一段\n\n第二段"));
   expect(useToastStore.getState().toasts.some(t => t.message === "已复制到剪贴板")).toBe(true);
 });
+
+// === 技能块格式化测试 ===
+
+test("用户消息中的 <skill> XML 块显示为技能名而非完整内容", () => {
+  const skillBlock = `<skill name="speech-recognition" location="/path/SKILL.md">\nReferences are relative to /path.\n\n# 通用语音识别\n一大串技能内容...\n</skill>`;
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: `${skillBlock} 帮我识别录音`, timestamp: 1 } },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const bubble = screen.getByTestId("msg-s1-1").querySelector("p")!;
+  const text = bubble.textContent ?? "";
+  // 应显示技能名
+  expect(text).toContain("⚡ speech-recognition");
+  // 应显示用户附加文本
+  expect(text).toContain("帮我识别录音");
+  // 不应显示技能正文内容
+  expect(text).not.toContain("通用语音识别");
+  expect(text).not.toContain("一大串技能内容");
+});
+
+test("用户消息中的多个 <skill> 块都被格式化", () => {
+  const skill1 = `<skill name="brainstorming" location="/a/SKILL.md">\n内容A\n</skill>`;
+  const skill2 = `<skill name="pdf-tools" location="/b/SKILL.md">\n内容B\n</skill>`;
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: `${skill1} ${skill2} 帮我处理`, timestamp: 1 } },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const text = screen.getByTestId("msg-s1-1").querySelector("p")!.textContent ?? "";
+  expect(text).toContain("brainstorming");
+  expect(text).toContain("pdf-tools");
+  expect(text).not.toContain("内容A");
+  expect(text).not.toContain("内容B");
+});

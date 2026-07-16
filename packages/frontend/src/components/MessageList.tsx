@@ -219,6 +219,18 @@ function stripAttachmentRefs(content: string): string {
 }
 
 /**
+ * 把 SDK 展开后的 <skill name="...">完整内容</skill> XML 块替换为简洁的技能名显示。
+ * SDK 的 _expandSkillCommand 会把 /skill:name 展开为完整 SKILL.md 内容注入消息，
+ * 前端用户气泡只需展示技能名，不展示技能正文。
+ */
+function formatSkillBlocks(content: string): string {
+  return content.replace(
+    /<skill name="([^"]+)"[^>]*>[\s\S]*?<\/skill>/g,
+    (_m, name) => `⚡ ${name}`,
+  );
+}
+
+/**
  * 构造「重新发送」的 agent:prompt 负载。
  * 用当前选择的模型重发；缺会话/模型/文本时返回 null（调用方不发）。
  * 纯函数，便于单测（不触网）。
@@ -290,9 +302,9 @@ function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row
   const isUser = m.role === "user";
 
   if (isUser) {
-    const displayText = stripAttachmentRefs(
+    const displayText = formatSkillBlocks(stripAttachmentRefs(
       typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? "")
-    );
+    ));
     return (
       <div className="flex flex-row-reverse gap-2.5 max-w-[78%] ml-auto" data-testid={`msg-${sessionId}-${m.timestamp}`}>
         <div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-[11.5px] flex-shrink-0 text-secondary">
