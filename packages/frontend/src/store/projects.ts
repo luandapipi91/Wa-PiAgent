@@ -30,7 +30,11 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
   currentSessionId: null,
   dirPickerOpen: false,
   load: () => send({ type: "projects:list" }),
-  setAll: (projects, sessions) => set({ projects, sessions }),
+  setAll: (projects, sessions) => set(s => {
+    // 当前选中的会话若已从列表中删除，则清空 currentSessionId，触发视图切换到新建会话页
+    const stillExists = s.currentSessionId && sessions.some(x => x.id === s.currentSessionId);
+    return { projects, sessions, currentSessionId: stillExists ? s.currentSessionId : null };
+  }),
   createProject: (name, cwd) => send({ type: "project:create", name, cwd }),
   // 新建项目：打开目录树选择器（DirTreePicker），用户点选目录后走 createProjectFromPath
   createProjectFromDir: () => { set({ dirPickerOpen: true }); },

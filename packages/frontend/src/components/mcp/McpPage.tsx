@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useMcpStore } from "../../store/mcp";
 import { useProjectsStore } from "../../store/projects";
 import { McpCard } from "./McpCard";
@@ -16,7 +16,6 @@ export function McpPage() {
     setSelectedProjectId, setSearchQuery,
   } = useMcpStore();
 
-  const currentProjectId = useProjectsStore(s => s.currentProjectId);
   const projects = useProjectsStore(s => s.projects);
 
   const [formOpen, setFormOpen] = useState(false);
@@ -24,20 +23,10 @@ export function McpPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [showToolsFor, setShowToolsFor] = useState<string | null>(null);
 
-  // 首次进入：若 store 未选项目且当前有打开项目，初始化为该项目（仅一次）
-  const activeProjectId = selectedProjectId ?? currentProjectId;
-  const initGuard = useRef(false);
-  useEffect(() => {
-    if (!initGuard.current && selectedProjectId === null && currentProjectId) {
-      initGuard.current = true;
-      setSelectedProjectId(currentProjectId);
-    }
-  }, [selectedProjectId, currentProjectId, setSelectedProjectId]);
-
   // 加载列表
   useEffect(() => {
-    load(activeProjectId ?? undefined);
-  }, [activeProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+    load(selectedProjectId ?? undefined);
+  }, [selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 搜索过滤
   const filtered = servers.filter(s =>
@@ -58,26 +47,26 @@ export function McpPage() {
   };
 
   const handleFormSave = (config: McpServerConfig, originalName?: string) => {
-    save(config, activeProjectId ?? undefined, originalName);
+    save(config, selectedProjectId ?? undefined, originalName);
     closeForm();
   };
 
   const handleTest = (serverName: string) => {
-    testConnection(serverName, activeProjectId ?? undefined);
+    testConnection(serverName, selectedProjectId ?? undefined);
   };
 
   const handleViewTools = (serverName: string) => {
     // 先发起 WS 请求取最新工具列表（实时连接，不依赖缓存）
-    listTools(serverName, activeProjectId ?? undefined);
+    listTools(serverName, selectedProjectId ?? undefined);
     setShowToolsFor(serverName);
   };
 
   const handleClearAuth = (serverName: string) => {
-    clearAuth(serverName, activeProjectId ?? undefined);
+    clearAuth(serverName, selectedProjectId ?? undefined);
   };
 
   const handleDelete = (serverName: string) => {
-    deleteServer(serverName, activeProjectId ?? undefined);
+    deleteServer(serverName, selectedProjectId ?? undefined);
     setConfirmDelete(null);
   };
 
@@ -95,7 +84,7 @@ export function McpPage() {
       <div className="flex items-center gap-2.5 px-5 py-2.5" style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}>
         {/* 作用域下拉 */}
         <ScopeDropdown
-          selectedProjectId={activeProjectId ?? null}
+          selectedProjectId={selectedProjectId}
           projects={projects}
           onSelect={(projectId) => setSelectedProjectId(projectId)}
         />
