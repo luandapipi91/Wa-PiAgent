@@ -7,3 +7,4 @@ export * from "./skills";
 export * from "./extensions";
 export * from "./memory";
 export * from "./mcp";
+export * from "./provider-presets";
