@@ -301,6 +301,12 @@ export interface SessionMessagesEvent {
   sessionId: string;
   messages: SessionMessage[];   // ← 从 ChatMessage[] 改
 }
+export interface SessionEchoUserEvent {
+  type: "session:echo_user";
+  sessionId: string;
+  text: string;
+  agentName: AgentName;
+}
 export interface AgentConfigEvent {
   type: "agent:config";
   agentName: AgentName;
@@ -367,7 +373,7 @@ export interface SDKEventEnvelope {
 export type WSServerEvent =
   | SDKEventEnvelope
   | ProjectsListEvent | ProjectCreatedEvent | SessionCreatedEvent
-  | SessionMessagesEvent
+  | SessionMessagesEvent | SessionEchoUserEvent
   | AgentConfigEvent | ErrorEvent
   | ProviderListResult | ProviderTestResult | ProviderChangedEvent
   | SkillListResult | SkillChangedEvent

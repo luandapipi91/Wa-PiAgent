@@ -37,11 +37,12 @@ export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
     const expandedText = expandTokens(text);
     if (!expandedText.trim() || !model || sendingRef.current || !projectId) return;
     sendingRef.current = true;
-    // agent 思考中：消息发给 kernel 入队（followUp），前端不乐观显示——
-    // 避免用户误以为消息已开始处理；排队状态由 queue_update 事件驱动的排队列表呈现。
-    // 空闲时：乐观 UI 立即显示用户消息 + AI loading，不等 SDK 回声（首回合 ensureStarted 慢）。
+    // 空闲时：乐观 UI 立即显示用户消息 + AI loading，不等 SDK 回声。
+    // 运行中：消息发给 kernel 入队（followUp），立即显示在顶部队列面板。
     if (!isRunning) {
       useSessionStore.getState().optimisticSend(sessionId, expandedText, agentName);
+    } else {
+      useSessionStore.getState().appendLocalFollowUp(sessionId, expandedText);
     }
     send({
       type: "agent:prompt",

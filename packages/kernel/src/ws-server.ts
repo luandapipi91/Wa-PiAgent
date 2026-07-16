@@ -160,12 +160,26 @@ export interface WSServerOpts {
 export class WSServer {
   actualPort = 0;
   private server: any;
-  private clients = new Set<any>();  // 跟踪连接的客户端用于广播
+  private clients = new Set<any>();
+  private _promptLocks = new Map<string, Promise<void>>();
+  private _abortVersions = new Map<string, number>();
+  private _pendingAbortOnStart = new Set<string>(); // abort 时 agent 未启动则标记，agent_start 时执行 // abort 时递增，旧链 handler 版本不匹配则跳过
 
   constructor(private opts: WSServerOpts) {}
 
   // 广播给所有客户端（AgentManager.onEvent 在 index.ts 里直接调此方法）
   broadcast(e: WSServerEvent): void {
+    // abort 时 agent 未启动则标记 pending，agent_start 广播前拦截并执行 abort
+    if (e.type === "sdk:event" && (e.event as any)?.type === "agent_start") {
+      const sid = (e as any).sessionId;
+      if (this._pendingAbortOnStart.has(sid)) {
+        this._pendingAbortOnStart.delete(sid);
+        console.log(`[ws-server] PENDING abort EXEC on agent_start sessionId=${sid}`);
+        this.opts.agentManager.abort(sid).catch(() => {});
+        this._abortVersions.set(sid, (this._abortVersions.get(sid) ?? 0) + 1);
+        return; // 不广播 agent_start，直接 abort
+      }
+    }
     const payload = JSON.stringify(e);
     for (const ws of this.clients) {
       try { ws.send(payload); } catch {}
@@ -300,34 +314,60 @@ export class WSServer {
       }
       case "agent:prompt": {
         // 用前端传的 sessionId 查找已有 session；找不到则用该 id 创建，确保前后端一致
-        const { sessions } = await this.opts.projectStore.load();
-        const existing = sessions.find(s => s.id === event.sessionId);
-        const isNew = !existing;
-        const session = existing ?? await this.opts.projectStore.createSession({
-          projectId: event.projectId, primaryAgent: event.agentName,
-          title: event.text.slice(0, 20),
-          id: event.sessionId,
-        });
-        if (isNew) this.broadcast({ type: "session:created", session });
-        await this.opts.projectStore.touchSession(session.id);
-        // 用户消息不再手动广播——SDK session.prompt() 内部会产生 message_start(user) 事件，
-        // 通过 AgentManager.subscribe → sdk:event 自动透传给前端
-        // 启动/提示失败不抛——转成 error 事件，避免 WS 消息处理崩溃
-        try {
-          await this.opts.agentManager.ensureStarted(event.projectId, event.agentName, session.id);
-          await this.opts.agentManager.prompt(session.id, event.text, {
-            model: event.model,
-            thinking: event.thinking,
-            attachments: event.attachments,
+        // session 级串行锁：防止两个 agent:prompt 在 ensureStarted 后并发调 prompt()
+        // 导致第二个看到 isStreaming 未立而走直连路径抛 "already processing"
+        const prevLock = this._promptLocks.get(event.sessionId) ?? Promise.resolve();
+        const myVersion = this._abortVersions.get(event.sessionId) ?? 0;
+        const currentLock = prevLock.then(async () => {
+          const { sessions } = await this.opts.projectStore.load();
+          const existing = sessions.find(s => s.id === event.sessionId);
+          const isNew = !existing;
+          const session = existing ?? await this.opts.projectStore.createSession({
+            projectId: event.projectId, primaryAgent: event.agentName,
+            title: event.text.slice(0, 20),
+            id: event.sessionId,
           });
-        } catch (err) {
-          this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}`, agentName: event.agentName, sessionId: session.id });
-        }
+          if (isNew) {
+            this.broadcast({ type: "session:created", session });
+            reply({ type: "session:echo_user", sessionId: session.id, text: event.text, agentName: event.agentName });
+          }
+          await this.opts.projectStore.touchSession(session.id);
+          try {
+            await this.opts.agentManager.ensureStarted(event.projectId, event.agentName, session.id);
+            // ensureStarted 可能耗时 5-10s，期间可能收到 abort/clear，再次检查版本
+            const curVersion = this._abortVersions.get(event.sessionId) ?? 0;
+            console.log(`[ws-server] AFTER ensureStarted sessionId=${event.sessionId} myVersion=${myVersion} curVersion=${curVersion} isNew=${isNew}`);
+            if (curVersion !== myVersion) {
+              console.log(`[ws-server] SKIP prompt (aborted during ensureStarted) sessionId=${event.sessionId} v${myVersion}→v${curVersion}`);
+              return;
+            }
+            await this.opts.agentManager.prompt(session.id, event.text, {
+              model: event.model,
+              thinking: event.thinking,
+              attachments: event.attachments,
+            });
+          } catch (err) {
+            this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}`, agentName: event.agentName, sessionId: session.id });
+          }
+        }).finally(() => {
+          if (this._promptLocks.get(event.sessionId) === currentLock) {
+            this._promptLocks.delete(event.sessionId);
+          }
+        });
+        this._promptLocks.set(event.sessionId, currentLock);
+        await currentLock;
         break;
       }
       case "agent:abort": {
-        // 新 API：只按 sessionId 中止（AgentManager 内部 Map<sessionId, AgentSession>）
+        console.log(`[ws-server] agent:abort sessionId=${event.sessionId}`);
+        this._abortVersions.set(event.sessionId, (this._abortVersions.get(event.sessionId) ?? 0) + 1);
+        const wasStreaming = this.opts.agentManager.isSessionStreaming(event.sessionId);
         await this.opts.agentManager.abort(event.sessionId);
+        if (!wasStreaming) {
+          this._pendingAbortOnStart.add(event.sessionId);
+          console.log(`[ws-server] PENDING abort on agent_start sessionId=${event.sessionId}`);
+        }
+        console.log(`[ws-server] agent:abort DONE sessionId=${event.sessionId}`);
         break;
       }
       case "agent:answer": {
@@ -357,10 +397,12 @@ export class WSServer {
         break;
       }
       case "steer:cancel": {
+        this._abortVersions.set(event.sessionId, (this._abortVersions.get(event.sessionId) ?? 0) + 1);
         this.opts.agentManager.clearSteeringQueue(event.sessionId);
         break;
       }
       case "steer:clear-queue": {
+        this._abortVersions.set(event.sessionId, (this._abortVersions.get(event.sessionId) ?? 0) + 1);
         this.opts.agentManager.clearFollowUpQueue(event.sessionId);
         break;
       }
