@@ -100,3 +100,58 @@ test("添加模型后显示 supportsVision 开关并影响保存数据", () => {
   const saved = saveMock.mock.calls[0][0];
   expect(saved.models[0].supportsVision).toBe(true);
 });
+
+test("快捷选择下拉包含自定义与全部预设", () => {
+  render(<ProviderFormModal onClose={() => {}} />);
+  const select = screen.getByTestId("preset-select") as HTMLSelectElement;
+  const options = Array.from(select.options).map(o => o.textContent ?? "");
+  expect(options[0]).toContain("自定义");
+  expect(select.options.length).toBe(1 + 10);
+  expect(options.some(t => t.includes("智谱 GLM（编程计划）"))).toBe(true);
+  expect(options.some(t => t.includes("阿里云百炼编程计划"))).toBe(true);
+});
+
+test("选择 DeepSeek 预设自动填入字段且 apiKey 为空", () => {
+  render(<ProviderFormModal onClose={() => {}} />);
+  fireEvent.change(screen.getByTestId("preset-select"), { target: { value: "deepseek" } });
+  expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("DeepSeek");
+  expect((screen.getByTestId("field-baseUrl") as HTMLInputElement).value).toBe("https://api.deepseek.com");
+  expect((screen.getByLabelText("OpenAI 兼容") as HTMLInputElement).checked).toBe(true);
+  const matches = screen.getAllByText("deepseek-chat");
+  expect(matches.length).toBeGreaterThanOrEqual(1);
+  expect((screen.getByTestId("field-apiKey") as HTMLInputElement).value).toBe("");
+});
+
+test("选择计划预设显示 hint 提示", () => {
+  render(<ProviderFormModal onClose={() => {}} />);
+  fireEvent.change(screen.getByTestId("preset-select"), { target: { value: "glm-coding-plan" } });
+  expect(screen.getByText(/套餐 Key 与标准端点不通用/)).toBeTruthy();
+});
+
+test("编辑模式下显示覆盖提示", () => {
+  render(
+    <ProviderFormModal
+      initial={{
+        id: "p1", name: "Existing", baseUrl: "https://api.existing.com/v1",
+        apiKey: "sk-existing", api: "openai-completions",
+        models: [{ id: "existing-model", contextWindow: 32000, maxTokens: 4096 }],
+      }}
+      onClose={() => {}}
+    />
+  );
+  expect(screen.getByText("选择预设会覆盖当前表单")).toBeTruthy();
+});
+
+test("选择预设后保存的模型含预设真实上下文与输出上限（非默认值）", () => {
+  const saveMock = mock();
+  useProvidersStore.setState({ save: saveMock });
+  render(<ProviderFormModal onClose={() => {}} />);
+  fireEvent.change(screen.getByTestId("preset-select"), { target: { value: "deepseek" } });
+  fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-x" } });
+  fireEvent.click(screen.getByTestId("provider-save-btn"));
+  const saved = saveMock.mock.calls[0][0];
+  expect(saved.models.length).toBe(2);
+  const chat = saved.models.find((m: { id: string }) => m.id === "deepseek-chat");
+  expect(chat.contextWindow).toBe(64000);
+  expect(chat.maxTokens).toBe(8192);
+});
