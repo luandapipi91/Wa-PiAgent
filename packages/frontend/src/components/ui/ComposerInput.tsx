@@ -118,11 +118,10 @@ export function ComposerInput({
   // 面板是否打开：有触发类型且未被 Esc 关闭
   const menuOpen = triggerType !== null && !dismissed;
 
-  // highlightedIndex 重置（触发类型或查询变化时）
+  // highlightedIndex 重置（触发类型或查询变化时；menuItems.length 变化覆盖异步文件结果到达场景）
   useEffect(() => {
     setHighlightedIndex(menuItems.length > 0 ? 0 : -1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [triggerType, trigger?.query]);
+  }, [triggerType, trigger?.query, menuItems.length]);
 
   const isImageName = (name: string) => /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(name);
 
