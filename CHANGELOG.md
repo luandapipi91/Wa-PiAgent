@@ -9,6 +9,7 @@
 ### 新增
 - **Quick Invoke 聊天栏快速调用**：输入 `@` 触发文件选择面板（选中文件以橙色 chip 内联插入，发送时展开为 `@相对路径`）；输入 `$` 触发技能选择面板（靛蓝 chip → `$技能名`）。新增 `ComposerTextarea`（原生 textarea → contenteditable，半受控光标）与 `QuickInvokeMenu` 组件；extension-manager 新增 `getEnabledExtensionSkillPaths()` 自动发现已启用扩展包中的 skills/；`SkillInfo` 加 `source`（builtin/user/extension）字段；提取 `skill-utils` 共享模块供 extension-manager 与 skill-manager 复用，`scan()` 支持 builtin + user + extension 三类来源。
   - 影响：shared(skills.ts)；kernel(skill-utils 新建 + skill-manager/extension-manager/ws-server/agent-manager)；frontend(quick-invoke/ 新建 + ComposerTextarea/QuickInvokeMenu 新建 + ComposerInput/Composer 改造)
+- **模型供应商预设快捷选择**：feat: 模型供应商新增「快捷选择」预设下拉。添加 / 编辑供应商表单顶部内置 10 条主流供应商预设（智谱 GLM 标准 / GLM 编程计划 / DeepSeek / 月之暗面 Kimi / Anthropic Claude / OpenAI GPT / 阿里通义 Qwen / 火山豆包 / OpenRouter / 阿里云百炼编程计划）。选中后自动填入名称、Base URL、协议类型与模型列表（含上下文窗口 / 最大输出 / 是否视觉），apiKey 仍需手动填；所有字段填入后仍可编辑。计划类（独立端点）预设带 🏷 前缀并显示 Key 要求 / 合规提示。
 
 ### 修复
 - **新会话发送后白屏 + 连续发送队列面板即时显示**：kernel 创建 session 后立即经 `reply({ type: "session:echo_user" })` 回传用户消息（不等耗时 5-10s 的 `ensureStarted`），前端 `App.tsx` 收到调 `optimisticSend` 秒显示（`NewSessionPane` 仅 `addSession` 导航，不重复调）。kernel `_promptLocks` session 级串行锁防并发竞态。**连续发送排队**：`Composer` 在 agent 运行中发送时调 `appendLocalFollowUp` 立即追加文本到本地 `queueBySession.followUp`，顶部队列面板秒显排队消息；后续 kernel `queue_update` 回声覆盖为权威列表。影响：frontend(session.ts appendLocalFollowUp + Composer.tsx)。
