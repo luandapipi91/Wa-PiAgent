@@ -224,6 +224,14 @@ export class WSServer {
     await this.opts.agentManager.disposeAll();
   }
 
+  /** 获取扩展技能路径并调用 skillManager.scan，避免每处重复获取 */
+  private async scanSkillsWithExtensions() {
+    const extPaths = this.opts.extensionManager
+      ? await this.opts.extensionManager.getEnabledExtensionSkillPaths()
+      : [];
+    return this.opts.skillManager.scan(extPaths);
+  }
+
   private async handle(event: WSClientEvent, reply: (e: WSServerEvent) => void): Promise<void> {
     switch (event.type) {
       case "projects:list": {
@@ -592,7 +600,7 @@ export class WSServer {
       }
       case "skill:list": {
         try {
-          const result = await this.opts.skillManager.scan();
+          const result = await this.scanSkillsWithExtensions();
           reply({ type: "skill:list", ...result });
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
@@ -603,7 +611,7 @@ export class WSServer {
         await this.opts.skillManager.toggleSkill(event.skillName, event.disabled);
         // reload 所有会话让禁用/启用热生效
         this.opts.agentManager.markSkillsDirty();
-        const result = await this.opts.skillManager.scan();
+        const result = await this.scanSkillsWithExtensions();
         this.broadcast({ type: "skill:changed", ...result });
         break;
       }
@@ -611,7 +619,7 @@ export class WSServer {
         try {
           await this.opts.skillManager.addDir(event.path);
           this.opts.agentManager.markSkillsDirty();
-          const result = await this.opts.skillManager.scan();
+          const result = await this.scanSkillsWithExtensions();
           this.broadcast({ type: "skill:changed", ...result });
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
@@ -622,7 +630,7 @@ export class WSServer {
         try {
           await this.opts.skillManager.removeDir(event.path);
           this.opts.agentManager.markSkillsDirty();
-          const result = await this.opts.skillManager.scan();
+          const result = await this.scanSkillsWithExtensions();
           this.broadcast({ type: "skill:changed", ...result });
         } catch (err) {
           reply({ type: "error", message: (err as Error).message });
