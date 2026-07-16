@@ -5,6 +5,15 @@ import * as ws from "../src/ws-instance";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
+import { useSkillsStore } from "../src/store/skills";
+
+// 把文本写入 contenteditable textbox 并触发 input 事件（替代原 textarea 的 fireEvent.change）
+function typeIntoComposer(value: string) {
+  const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
+  textbox.textContent = value;
+  fireEvent.input(textbox);
+  return textbox;
+}
 
 describe("Composer", () => {
   beforeEach(() => {
@@ -19,6 +28,10 @@ describe("Composer", () => {
       bySession: {},
     });
     useSessionStore.setState({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, optimisticEchoBySession: {} });
+    useSkillsStore.setState({
+      skills: [], allSkills: [], dirs: [], disabledSkills: [], builtinDir: "", loading: false,
+      load: () => {}, setAll: () => {}, toggleSkill: () => {}, addDir: () => {}, removeDir: () => {},
+    });
     vi.spyOn(ws, "send").mockImplementation(() => {});
   });
 
@@ -34,8 +47,7 @@ describe("Composer", () => {
     });
 
     render(<Composer sessionId="s1" agentName="dev" />);
-    const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
-    fireEvent.change(textarea, { target: { value: "hello" } });
+    typeIntoComposer("hello");
     fireEvent.click(screen.getByTestId("composer-send"));
 
     await waitFor(() => {
@@ -59,14 +71,13 @@ describe("Composer", () => {
       },
     });
     render(<Composer sessionId="s1" agentName="dev" />);
-    const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
-    fireEvent.change(textarea, { target: { value: "继续" } });
-    expect(textarea.value).toBe("继续");
+    const textbox = typeIntoComposer("继续");
+    expect(textbox.textContent).toBe("继续");
 
     fireEvent.click(screen.getByTestId("composer-send"));
 
     await waitFor(() => {
-      expect(textarea.value).toBe("");
+      expect(textbox.textContent).toBe("");
       expect(useComposerPrefsStore.getState().bySession["s1"]?.attachments).toEqual([]);
     });
   });
@@ -78,8 +89,7 @@ describe("Composer", () => {
       },
     });
     render(<Composer sessionId="s1" agentName="dev" isRunning />);
-    const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
-    fireEvent.change(textarea, { target: { value: "排队消息" } });
+    typeIntoComposer("排队消息");
 
     fireEvent.click(screen.getByTestId("composer-send"));
 
@@ -101,8 +111,7 @@ describe("Composer", () => {
       bySession: { s1: { model: "gpt-4o", thinking: "disabled", attachments: [] } },
     });
     render(<Composer sessionId="s1" agentName="dev" isRunning />);
-    const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
-    fireEvent.change(textarea, { target: { value: "排队等一下" } });
+    typeIntoComposer("排队等一下");
     fireEvent.click(screen.getByTestId("composer-send"));
 
     const s = useSessionStore.getState();
@@ -119,8 +128,7 @@ describe("Composer", () => {
       bySession: { s1: { model: "gpt-4o", thinking: "disabled", attachments: [] } },
     });
     render(<Composer sessionId="s1" agentName="dev" />);
-    const textarea = screen.getByTestId("composer-input").querySelector("textarea")!;
-    fireEvent.change(textarea, { target: { value: "马上看到我" } });
+    typeIntoComposer("马上看到我");
     fireEvent.click(screen.getByTestId("composer-send"));
 
     const s = useSessionStore.getState();
@@ -138,9 +146,9 @@ describe("Composer", () => {
       bySession: { s1: { model: "gpt-4o", thinking: "disabled", attachments: [] } },
     });
     render(<Composer sessionId="s1" agentName="dev" disabled />);
-    const textarea = screen.getByTestId("composer-input").querySelector("textarea")! as HTMLTextAreaElement;
-    // textarea 处于 disabled，无法通过 fireEvent.change 修改 value（受 disabled attr 控制）
-    expect(textarea.disabled).toBe(true);
+    const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
+    // contenteditable 处于禁用（contentEditable=false → isContentEditable 为 false）
+    expect(textbox.isContentEditable).toBe(false);
     // 发送按钮点击后不应新增任何 agent:prompt（spy 在 describe 内跨 it 累积，故比较点击前后增量）
     const before = (ws.send as any).mock.calls.length;
     fireEvent.click(screen.getByTestId("composer-send"));

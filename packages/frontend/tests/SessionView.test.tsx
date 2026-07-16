@@ -176,9 +176,9 @@ test("有 pending ask 时渲染 AskDock 且 composer 禁用", () => {
   expect(screen.getByTestId("ask-dock-s1")).toBeTruthy();
   // 表单卡片渲染
   expect(screen.getByTestId("ask-card-tc-ask-1")).toBeTruthy();
-  // composer textarea 禁用（ask 阻塞）
-  const textarea = screen.getByTestId("composer-input").querySelector("textarea")! as HTMLTextAreaElement;
-  expect(textarea.disabled).toBe(true);
+  // composer contenteditable 禁用（ask 阻塞）
+  const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]')! as HTMLElement;
+  expect(textbox.isContentEditable).toBe(false);
 });
 
 test("无 pending ask 时不渲染 AskDock", () => {
@@ -191,7 +191,7 @@ test("无 pending ask 时不渲染 AskDock", () => {
   render(<SessionView sessionId="s1" />);
   // dock 不存在
   expect(screen.queryByTestId("ask-dock-s1")).toBeNull();
-  // composer textarea 未禁用
-  const textarea = screen.getByTestId("composer-input").querySelector("textarea")! as HTMLTextAreaElement;
-  expect(textarea.disabled).toBe(false);
+  // composer contenteditable 未禁用
+  const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]')! as HTMLElement;
+  expect(textbox.isContentEditable).toBe(true);
 });

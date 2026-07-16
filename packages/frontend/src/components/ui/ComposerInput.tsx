@@ -1,12 +1,16 @@
-import { useRef, useCallback, useState } from "react";
+import { useRef, useCallback, useState, useEffect, useMemo } from "react";
 import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
-import { uploadFile, copyToUploads } from "../../fs-client";
+import { uploadFile, copyToUploads, searchFilesStream } from "../../fs-client";
 import { useProjectsStore } from "../../store/projects";
+import { useSkillsStore } from "../../store/skills";
 import { ModelSelector } from "./ModelSelector";
 import { ThinkingSelector } from "./ThinkingSelector";
 import { AttachmentChip } from "./AttachmentChip";
 import { FilePicker, type FilePickerSelection } from "./FilePicker";
 import { RecordButton } from "./RecordButton";
+import { ComposerTextarea } from "./ComposerTextarea";
+import { QuickInvokeMenu, type MenuItem } from "./QuickInvokeMenu";
+import { detectTrigger, filterItems, type TriggerResult } from "../../quick-invoke/trigger";
 
 interface Props {
   text: string;
@@ -42,7 +46,6 @@ export function ComposerInput({
   text, setText, model, setModel, thinking, setThinking,
   attachments, setAttachments, projectId, sessionId, onSend, sendDisabled, disabled, placeholder,
 }: Props) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingUploads, setPendingUploads] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -50,6 +53,76 @@ export function ComposerInput({
   const uploading = pendingUploads > 0;
   // 附件选择器默认定位到当前项目目录（cwd），方便就近选取项目内文件
   const projectCwd = useProjectsStore(s => s.projects.find(p => p.id === projectId)?.cwd);
+
+  // === Quick Invoke 状态 ===
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [fileResults, setFileResults] = useState<MenuItem[]>([]);
+  const [dismissed, setDismissed] = useState(false);
+  const cancelSearchRef = useRef<(() => void) | null>(null);
+
+  const allSkills = useSkillsStore(s => s.allSkills);
+
+  // 检测当前 text 的触发状态
+  const trigger: TriggerResult | null = useMemo(() => detectTrigger(text), [text]);
+
+  // 触发类型
+  const triggerType = trigger?.type ?? null;
+
+  // text 变化时重置 dismissed（让面板有机会在新一次触发时再次出现）
+  useEffect(() => { setDismissed(false); }, [text]);
+
+  // 文件搜索：@ 触发且有 projectCwd 时调用 searchFilesStream
+  useEffect(() => {
+    if (triggerType !== "file" || !projectCwd) {
+      setFileResults([]);
+      return;
+    }
+    // 取消上一次搜索
+    cancelSearchRef.current?.();
+    cancelSearchRef.current = null;
+
+    const query = trigger!.query;
+    const cancel = searchFilesStream(
+      query,
+      { roots: [projectCwd], maxResults: 50 },
+      {
+        onProgress: (matches) => {
+          setFileResults(matches.map(m => ({
+            id: m.path,
+            name: m.name,
+            path: m.path.startsWith(projectCwd) ? m.path.slice(projectCwd.length + 1) : m.path,
+          })));
+        },
+        onDone: () => {},
+      },
+    );
+    cancelSearchRef.current = cancel;
+    return () => { cancel(); };
+  }, [triggerType, trigger?.query, projectCwd]);
+
+  // $ 技能列表过滤
+  const skillItems: MenuItem[] = useMemo(() => {
+    if (triggerType !== "skill") return [];
+    const filtered = filterItems(allSkills, trigger!.query);
+    return filtered.map(s => ({
+      id: s.name,
+      name: s.name,
+      description: s.description,
+      source: s.source,
+    }));
+  }, [triggerType, trigger, allSkills]);
+
+  // 当前面板列表项
+  const menuItems = triggerType === "file" ? fileResults : triggerType === "skill" ? skillItems : [];
+
+  // 面板是否打开：有触发类型且未被 Esc 关闭
+  const menuOpen = triggerType !== null && !dismissed;
+
+  // highlightedIndex 重置（触发类型或查询变化时）
+  useEffect(() => {
+    setHighlightedIndex(menuItems.length > 0 ? 0 : -1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [triggerType, trigger?.query]);
 
   const isImageName = (name: string) => /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(name);
 
@@ -75,13 +148,6 @@ export function ComposerInput({
     setPickerOpen(false);
   };
 
-  const autoResize = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 300) + "px";
-  }, []);
-
   const uploadFiles = async (files: FileList | null) => {
     if (!files || files.length === 0 || !projectId) return;
     const list = Array.from(files);
@@ -106,7 +172,7 @@ export function ComposerInput({
     e.target.value = "";
   };
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     const files = e.clipboardData.files;
     if (files.length > 0) {
       e.preventDefault();
@@ -125,6 +191,57 @@ export function ComposerInput({
 
   const canSend = !sendDisabled && !disabled && !!text.trim() && model !== null;
 
+  // 选中项处理：生成 chip token 插入 text，替换末尾的触发符 + 查询文本
+  const handleSelect = useCallback((item: MenuItem) => {
+    const token = triggerType === "file"
+      ? `@[${item.path ?? item.name}]`
+      : `$[${item.name}]`;
+    const triggerSymbol = triggerType === "file" ? "@" : "$";
+    const query = trigger?.query ?? "";
+    // 从 text 末尾去掉触发符 + 查询文本，替换为 chip token + 空格
+    const triggerRe = new RegExp(
+      `${triggerSymbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+    );
+    const newText = triggerRe.test(text)
+      ? text.replace(triggerRe, token + " ")
+      : text + token + " "; // fallback：直接追加
+    setText(newText);
+  }, [triggerType, trigger, text, setText]);
+
+  // 键盘事件处理（面板打开时拦截导航键）
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    // 面板打开时拦截导航键
+    if (menuOpen && menuItems.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setHighlightedIndex(i => (i + 1) % menuItems.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHighlightedIndex(i => (i - 1 + menuItems.length) % menuItems.length);
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        const item = menuItems[highlightedIndex];
+        if (item) handleSelect(item);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        // 关闭面板但保留 @/$ 文本：设 dismissed=true（text 变化时会自动重置）
+        setDismissed(true);
+        return;
+      }
+    }
+    // 正常 Enter 发送
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (canSend) onSend();
+    }
+  }, [menuOpen, menuItems, highlightedIndex, handleSelect, canSend, onSend]);
+
   return (
     <div className="w-full max-w-[860px] mx-auto" data-testid="composer-input">
       <div
@@ -132,23 +249,26 @@ export function ComposerInput({
         onDragOver={e => e.preventDefault()}
         onDrop={handleDrop}
       >
-        <textarea
-          ref={textareaRef}
-          disabled={disabled}
-          value={text}
-          onChange={e => { setText(e.target.value); autoResize(); }}
-          onKeyDown={e => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              if (canSend) onSend();
-            }
-          }}
-          onPaste={handlePaste}
-          placeholder={placeholder}
-          rows={1}
-          className="w-full bg-transparent text-primary outline-none resize-none text-sm p-4 placeholder:text-tertiary"
-          style={{ maxHeight: 300, overflowY: "auto", minHeight: 60 }}
-        />
+        <div className="relative">
+          {menuOpen && (
+            <QuickInvokeMenu
+              type={triggerType!}
+              items={menuItems}
+              highlightedIndex={highlightedIndex}
+              onSelect={handleSelect}
+              onHover={setHighlightedIndex}
+              emptyText={triggerType === "file" ? "无匹配文件" : "无匹配技能"}
+            />
+          )}
+          <ComposerTextarea
+            text={text}
+            onTextChange={setText}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder={placeholder}
+            disabled={disabled}
+          />
+        </div>
         <div className="flex items-center justify-between px-3 py-2 border-t border-hairline">
           <div className="flex items-center gap-3">
             <button
