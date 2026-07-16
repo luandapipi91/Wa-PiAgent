@@ -138,7 +138,7 @@ export function MessageList({ sessionId }: Props) {
           const isMergedStreamingRow = mergeStreamingIntoLast && i === displayRows.length - 1;
           const showResend = !isMergedStreamingRow && i === resendUserIdx;
           return (
-            <MessageRow key={i} row={row} sessionId={sessionId} showResend={showResend} onResend={showResend ? (text: string) => handleResend(text, i) : undefined} />
+            <MessageRow key={i} row={row} sessionId={sessionId} showResend={showResend} onResend={showResend ? (text: string) => handleResend(text, i) : undefined} isStreaming={isMergedStreamingRow} />
           );
         })}
         {streaming && !mergeStreamingIntoLast && (
@@ -270,7 +270,7 @@ function StreamingRow({ streaming, sessionId }: { streaming: SessionMessage; ses
   const hasContent = Array.isArray(m.content) && m.content.some((b: any) =>
     (b.type === "text" && typeof b.text === "string" && b.text.trim().length > 0) ||
     b.type === "thinking" || b.type === "toolCall");
-  if (hasContent) return <MessageRow row={{ main: streaming, toolResults: new Map() }} sessionId={sessionId} />;
+  if (hasContent) return <MessageRow row={{ main: streaming, toolResults: new Map() }} sessionId={sessionId} isStreaming />;
   return (
     <div className="flex gap-2.5" data-testid={`loading-${sessionId}`}>
       <div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-sm flex-shrink-0">🤖</div>
@@ -285,7 +285,7 @@ function StreamingRow({ streaming, sessionId }: { streaming: SessionMessage; ses
   );
 }
 
-function MessageRow({ row, sessionId, showResend, onResend }: { row: RenderedRow; sessionId: string; showResend?: boolean; onResend?: (text: string) => void }) {
+function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row: RenderedRow; sessionId: string; showResend?: boolean; onResend?: (text: string) => void; isStreaming?: boolean }) {
   const m = row.main.message as any;
   const isUser = m.role === "user";
 
@@ -336,21 +336,17 @@ function MessageRow({ row, sessionId, showResend, onResend }: { row: RenderedRow
       <div className="max-w-[78%] min-w-0">
         <div className="text-[11px] text-tertiary mb-0.5 font-semibold">{row.main.agentName ?? "agent"} · {formatTime(m.timestamp)}</div>
 
-        {/* 思考过程 — 折叠面板（上方） */}
+        {/* 思考过程 — 折叠面板（上方）。多个相邻 thinking block 合并为一个 */}
         {thinkingBlocks.length > 0 && (
           <div className="space-y-1 mb-1.5">
-            {thinkingBlocks.map((block: any, i: number) => (
-              <ThinkingBlock key={i} thinking={block.thinking} />
-            ))}
+            <ThinkingBlock thinking={thinkingBlocks.map((b: any) => b.thinking).join("\n")} isStreaming={isStreaming} />
           </div>
         )}
 
-        {/* 工具调用 — 折叠面板（中间） */}
+        {/* 工具调用 — 折叠面板（中间）。多个合并为一个分组，点击展开后各工具可再独立展开 */}
         {toolCallBlocks.length > 0 && (
-          <div className="space-y-1 mb-1.5">
-            {toolCallBlocks.map((block: any, i: number) => (
-              <ToolCallBlock key={i} toolCall={block} result={row.toolResults.get(block.id)} />
-            ))}
+          <div className="mb-1.5">
+            <ToolCallGroup toolCalls={toolCallBlocks} results={row.toolResults} isStreaming={isStreaming} />
           </div>
         )}
 
@@ -374,8 +370,9 @@ function MessageRow({ row, sessionId, showResend, onResend }: { row: RenderedRow
   );
 }
 
-function ThinkingBlock({ thinking }: { thinking: string }) {
+function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreaming?: boolean }) {
   const [open, setOpen] = useState(false);
+  const label = isStreaming ? "努力思考中…" : "💭 思考过程 已完成";
   return (
     <div data-testid="thinking-panel">
       <button
@@ -383,7 +380,10 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
         className="inline-flex items-center gap-1.5 select-none text-[11.5px] text-tertiary px-2 py-0.5 rounded-pill bg-surface-elevated border border-hairline transition-colors hover:text-secondary"
         style={{ cursor: "pointer" }}
       >
-        <span>💭 思考过程 已完成</span>
+        {isStreaming && (
+          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ border: "2px solid var(--accent-soft)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
+        )}
+        <span>{label}</span>
         <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
       </button>
       {open && (
@@ -419,6 +419,49 @@ function CopyButton({ text, testId }: { text: string; testId?: string }) {
         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
       </svg>
     </button>
+  );
+}
+
+/** 工具调用分组：合并所有工具调用为一个折叠面板，展开后再逐项展开单个工具详情 */
+function ToolCallGroup({ toolCalls, results, isStreaming }: { toolCalls: any[]; results: Map<string, ToolResultMessage>; isStreaming?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const total = toolCalls.length;
+  const done = toolCalls.filter((tc: any) => results.has(tc.id)).length;
+  const successCount = toolCalls.filter((tc: any) => { const r = results.get(tc.id); return r && !r.isError; }).length;
+  const failedCount = toolCalls.filter((tc: any) => { const r = results.get(tc.id); return r && r.isError; }).length;
+
+  const parts = [`🔧 工具调用记录 (${total})`];
+  if (done > 0) {
+    const statusParts: string[] = [];
+    if (successCount > 0) statusParts.push(`✓${successCount}`);
+    if (failedCount > 0) statusParts.push(`✗${failedCount}`);
+    if (done < total) statusParts.push(`⏳${total - done}`);
+    parts.push(`· ${statusParts.join(" ")}`);
+  } else if (isStreaming && total > 0) {
+    parts.push("· 执行中…");
+  }
+
+  return (
+    <div data-testid="toolcall-group">
+      <button
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center gap-1.5 select-none text-[11.5px] text-tertiary px-2 py-0.5 rounded-pill bg-surface-elevated border border-hairline transition-colors hover:text-secondary"
+        style={{ cursor: "pointer" }}
+      >
+        {isStreaming && done < total && (
+          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ border: "2px solid var(--accent-soft)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
+        )}
+        <span>{parts.join(" ")}</span>
+        <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="mt-1 pl-3 border-l-2 border-hairline space-y-1">
+          {toolCalls.map((tc: any, i: number) => (
+            <ToolCallBlock key={i} toolCall={tc} result={results.get(tc.id)} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

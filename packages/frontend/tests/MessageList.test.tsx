@@ -57,7 +57,8 @@ test("assistant 消息按 content block 渲染 thinking + text + toolCall", () =
   expect(screen.queryByText("我在想")).toBeNull();
   fireEvent.click(screen.getByText(/思考过程/));
   expect(screen.getByText("我在想")).toBeTruthy();
-  // toolCall 面板存在
+  // toolCall 默认折叠在分组中，展开分组后可见
+  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
   expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
   expect(screen.getByText(/read/)).toBeTruthy();
 });
@@ -78,7 +79,8 @@ test("toolResult 按 toolCallId 关联到前一个 assistant 消息，不单独�
   // toolResult 不单独成行：只有 1 个 MessageRow（msg-s1-1），无 msg-s1-2
   expect(screen.getByTestId("msg-s1-1")).toBeTruthy();
   expect(screen.queryByTestId("msg-s1-2")).toBeNull();
-  // 展开 toolCall 后能看到关联结果
+  // toolCall 默认折叠在分组中，先展开分组，再展开单个 toolCall 查看结果
+  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
   fireEvent.click(screen.getByText(/read/));
   expect(screen.getByText("文件内容")).toBeTruthy();
 });
@@ -93,6 +95,8 @@ test("成功的 toolCall（result 且非 isError）→ ✓ 图标 + 绿色（suc
     },
   });
   render(<MessageList sessionId="s1" />);
+  // 先展开工具调用分组
+  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
   expect(screen.getByText("✓")).toBeTruthy();
   const btn = screen.getByTestId("toolcall-ok1").querySelector("button")!;
   expect(btn.className).toContain("text-success");
@@ -108,6 +112,8 @@ test("失败的 toolCall（result.isError）→ ✗ 图标 + 红色（danger）�
     },
   });
   render(<MessageList sessionId="s1" />);
+  // 先展开工具调用分组
+  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
   expect(screen.getByText("✗")).toBeTruthy();
   const btn = screen.getByTestId("toolcall-e1").querySelector("button")!;
   expect(btn.className).toContain("text-danger");
@@ -125,6 +131,8 @@ test("intercom toolCall 渲染 DelegateCard（委派卡片）", () => {
   });
   render(<MessageList sessionId="s1" />);
   // intercom toolCall 和普通 toolCall 共用 ToolCallBlock，无专门 delegate card
+  // 先展开工具调用分组
+  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
   expect(screen.getByTestId("toolcall-d1")).toBeTruthy();
   expect(screen.getByText(/intercom/)).toBeTruthy();
 });
@@ -138,7 +146,8 @@ test("只有 toolCall 的 assistant 消息不渲染空白文字气泡", () => {
     },
   });
   render(<MessageList sessionId="s1" />);
-  // toolCall 面板存在
+  // 展开工具调用分组后 toolCall 面板可见
+  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
   expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
   // 不应有文字 block 容器
   expect(screen.queryByTestId("text-block")).toBeNull();
@@ -156,6 +165,8 @@ test("空字符串 text block 不渲染空白文字气泡", () => {
     },
   });
   render(<MessageList sessionId="s1" />);
+  // 展开工具调用分组后 toolCall 面板可见
+  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
   expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
   expect(screen.queryByTestId("text-block")).toBeNull();
 });
@@ -528,7 +539,7 @@ test("同 agent 多 block 回合流式中：已提交 thinking 行 + 流式 text
   expect(screen.getAllByText("🤖")).toHaveLength(1);
   // 已提交 thinking（折叠面板按钮）与流式 text 同处一行，均可见
   expect(screen.getByText("正在回答")).toBeTruthy();
-  expect(screen.getByText(/思考过程/)).toBeTruthy();
+  expect(screen.getByTestId("thinking-panel")).toBeTruthy();
 });
 
 // ── 同一回合合并：历史加载/工具调用把一个回合拆成多条 assistant（中间夹 toolResult）──
