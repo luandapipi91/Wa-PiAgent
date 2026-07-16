@@ -230,6 +230,6 @@ test("发送时 chip token 展开为纯文本", () => {
   renderComposer({ text: "$pd", setText });
   fireEvent.click(screen.getByText("pdf"));
   const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
-  // token 格式为 $[pdf]，发送时由 Composer 展开为 $pdf
+  // token 格式为 $[pdf]，发送时由 Composer 展开为 /skill:pdf（SDK _expandSkillCommand 格式）
   expect(lastCall).toContain("$[pdf]");
 });
