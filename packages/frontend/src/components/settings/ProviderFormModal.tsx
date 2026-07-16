@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Modal } from "../ui/Modal";
 import { TagInput } from "../ui/TagInput";
 import { useProvidersStore } from "../../store/providers";
+import { PROVIDER_PRESETS } from "@hiagent/shared";
 import type { ModelProvider, ProviderApi, ProviderModel } from "@hiagent/shared";
 
 interface Props {
@@ -26,6 +27,8 @@ export function ProviderFormModal({ initial, onClose }: Props) {
     Object.fromEntries((initial?.models ?? []).map(m => [m.id, m]))
   );
   const [testStatus, setTestStatus] = useState<{ state: "idle" | "testing" | "ok" | "fail"; error?: string }>({ state: "idle" });
+  const [selectedPresetKey, setSelectedPresetKey] = useState<string>("");
+  const selectedPreset = PROVIDER_PRESETS.find(p => p.key === selectedPresetKey);
 
   // tag 变化 → 同步 modelConfigs（新增的用默认值，删除的移除）
   const handleTagsChange = (tags: string[]) => {
@@ -37,6 +40,20 @@ export function ProviderFormModal({ initial, onClose }: Props) {
       }
       return next;
     });
+  };
+
+  // 选预设 → 填表（不走 handleTagsChange，避免把预设数值套成默认 128000/4096）
+  const applyPreset = (key: string): void => {
+    setSelectedPresetKey(key);
+    if (!key) return; // 选「自定义」不清空
+    const preset = PROVIDER_PRESETS.find(p => p.key === key);
+    if (!preset) return;
+    setName(preset.name);
+    setBaseUrl(preset.baseUrl);
+    setApi(preset.api);
+    setModelIds(preset.models.map(m => m.id));
+    setModelConfigs(Object.fromEntries(preset.models.map(m => [m.id, m])));
+    // apiKey 不动（新增时为空）
   };
 
   const valid = name.trim() && baseUrl.trim() && apiKey.trim() && modelIds.length > 0;
@@ -67,6 +84,28 @@ export function ProviderFormModal({ initial, onClose }: Props) {
         <span className="text-primary font-bold text-sm">{initial ? "编辑供应商" : "添加供应商"}</span>
       </div>
       <div className="p-4 flex flex-col gap-3 overflow-auto" style={{ maxHeight: "70vh" }}>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-secondary">快捷选择</span>
+          <select
+            data-testid="preset-select"
+            value={selectedPresetKey}
+            onChange={e => applyPreset(e.target.value)}
+            className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
+          >
+            <option value="">自定义（手动填写）</option>
+            {PROVIDER_PRESETS.map(p => (
+              <option key={p.key} value={p.key}>
+                {p.plan ? "🏷 " : ""}{p.name}
+              </option>
+            ))}
+          </select>
+          {initial && (
+            <span className="text-xs" style={{ color: "var(--danger)" }}>选择预设会覆盖当前表单</span>
+          )}
+          {selectedPreset?.hint && (
+            <span className="text-xs text-tertiary">{selectedPreset.hint}</span>
+          )}
+        </div>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-secondary">供应商名称</span>
           <input
