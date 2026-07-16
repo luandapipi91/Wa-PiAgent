@@ -8,12 +8,12 @@ test("expandTokens 展开文件 token", () => {
   expect(expandTokens("看这个 @[packages/App.tsx] 文件")).toBe("看这个 @packages/App.tsx 文件");
 });
 
-test("expandTokens 展开技能 token", () => {
-  expect(expandTokens("用 $[brainstorming] 技能")).toBe("用 $brainstorming 技能");
+test("expandTokens 展开技能 token 为 /skill:name（SDK _expandSkillCommand 格式）", () => {
+  expect(expandTokens("用 $[brainstorming] 技能")).toBe("用 /skill:brainstorming 技能");
 });
 
 test("expandTokens 同时展开文件和技能 token", () => {
-  expect(expandTokens("@[a.tsx] 和 $[my-skill]")).toBe("@a.tsx 和 $my-skill");
+  expect(expandTokens("@[a.tsx] 和 $[my-skill]")).toBe("@a.tsx 和 /skill:my-skill");
 });
 
 test("expandTokens 无 token 时原样返回", () => {

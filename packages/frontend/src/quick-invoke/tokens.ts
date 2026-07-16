@@ -1,6 +1,6 @@
 // chip token 序列化/反序列化纯函数
 // token 格式：文件 @[相对路径]，技能 $[技能名]
-// 发送时展开：@[path] -> @path，$[name] -> $name
+// 发送时展开：@[path] -> @path，$[name] -> /skill:name（SDK _expandSkillCommand 识别）
 
 /** 文件 token 正则：匹配 @[非]字 符的路径] */
 export const FILE_TOKEN_RE = /@\[([^\]]+)\]/g;
@@ -16,12 +16,15 @@ export type Segment =
 /**
  * 发送时把 chip token 展开为纯文本引用标记。
  * @[packages/App.tsx] -> @packages/App.tsx
- * $[brainstorming] -> $brainstorming
+ * $[brainstorming] -> /skill:brainstorming
+ *
+ * 技能展开为 /skill:name 格式，由 SDK 的 _expandSkillCommand 识别后
+ * 内联展开为 <skill name="..." location="...">完整 SKILL.md 内容</skill> XML 块。
  */
 export function expandTokens(text: string): string {
   return text
     .replace(FILE_TOKEN_RE, "@$1")
-    .replace(SKILL_TOKEN_RE, "$$$1"); // $$$1 = 字面 $ + 捕获组1
+    .replace(SKILL_TOKEN_RE, "/skill:$1");
 }
 
 /** 转义 HTML 特殊字符，防止 XSS */
