@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useMcpStore } from "../../store/mcp";
 import { useProjectsStore } from "../../store/projects";
 import { McpCard } from "./McpCard";
@@ -24,10 +24,12 @@ export function McpPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [showToolsFor, setShowToolsFor] = useState<string | null>(null);
 
-  // 首次进入：若 store 未选项目且当前有打开项目，初始化为该项目
+  // 首次进入：若 store 未选项目且当前有打开项目，初始化为该项目（仅一次）
   const activeProjectId = selectedProjectId ?? currentProjectId;
+  const initGuard = useRef(false);
   useEffect(() => {
-    if (selectedProjectId === null && currentProjectId) {
+    if (!initGuard.current && selectedProjectId === null && currentProjectId) {
+      initGuard.current = true;
       setSelectedProjectId(currentProjectId);
     }
   }, [selectedProjectId, currentProjectId, setSelectedProjectId]);
