@@ -242,32 +242,30 @@ export function ComposerInput({
   }, [menuOpen, menuItems, highlightedIndex, handleSelect, canSend, onSend]);
 
   return (
-    <div className="w-full max-w-[860px] mx-auto" data-testid="composer-input">
+    <div className="w-full max-w-[860px] mx-auto relative" data-testid="composer-input">
+      {menuOpen && (
+        <QuickInvokeMenu
+          type={triggerType!}
+          items={menuItems}
+          highlightedIndex={highlightedIndex}
+          onSelect={handleSelect}
+          onHover={setHighlightedIndex}
+          emptyText={triggerType === "file" ? "无匹配文件" : "无匹配技能"}
+        />
+      )}
       <div
         className="rounded-2xl bg-surface border border-hairline shadow-md overflow-hidden focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--accent-soft),var(--shadow-md)] transition-all duration-150"
         onDragOver={e => e.preventDefault()}
         onDrop={handleDrop}
       >
-        <div className="relative">
-          {menuOpen && (
-            <QuickInvokeMenu
-              type={triggerType!}
-              items={menuItems}
-              highlightedIndex={highlightedIndex}
-              onSelect={handleSelect}
-              onHover={setHighlightedIndex}
-              emptyText={triggerType === "file" ? "无匹配文件" : "无匹配技能"}
-            />
-          )}
-          <ComposerTextarea
-            text={text}
-            onTextChange={setText}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder={placeholder}
-            disabled={disabled}
-          />
-        </div>
+        <ComposerTextarea
+          text={text}
+          onTextChange={setText}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          placeholder={placeholder}
+          disabled={disabled}
+        />
         <div className="flex items-center justify-between px-3 py-2 border-t border-hairline">
           <div className="flex items-center gap-3">
             <button
