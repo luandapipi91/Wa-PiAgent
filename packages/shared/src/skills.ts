@@ -1,10 +1,21 @@
 // ===== 技能管理类型定义 =====
 
+/** 技能来源类型 */
+export type SkillSourceType = "builtin" | "project" | "user" | "extension";
+
+/** 技能来源信息 */
+export interface SkillSource {
+  type: SkillSourceType;
+  /** 扩展来源时为包名，其余无 */
+  name?: string;
+}
+
 /** 技能信息（从 SKILL.md frontmatter 提取的最小集） */
 export interface SkillInfo {
   name: string;
   description: string;
   path: string;        // skill 目录绝对路径（含 SKILL.md 的目录），用于喂给 SDK additionalSkillPaths
+  source?: SkillSource; // 技能来源（builtin/user/extension），供前端展示来源标签
 }
 
 // ===== WS 协议事件（技能管理）=====
