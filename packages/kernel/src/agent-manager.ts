@@ -257,9 +257,12 @@ export class AgentManager {
       sdk.ModelRegistry.create(authStorage));
 
     // 解析启用 skill 的目录路径，喂给 SDK additionalSkillPaths。
-    // 只含 userSkillDirs 来源的 skill（builtin 由 SDK includeDefaults 自动扫，重复传入会触发碰撞诊断）。
+    // 含 userSkillDirs + 扩展包 skills/ 来源的 skill（builtin 由 SDK includeDefaults 自动扫，重复传入会触发碰撞诊断）。
     // additionalSkillPaths 构造时固定，skill 配置变更后需重建会话才能刷新（见 _reloadIfDirty）。
-    const additionalSkillPaths = await resolveEnabledSkillPaths(this.opts.skillManager);
+    const additionalSkillPaths = await resolveEnabledSkillPaths(
+      this.opts.skillManager,
+      this.opts.extensionManager,
+    );
 
     // host-controlled 记忆：预取全局+项目记忆快照注入系统提示词（systemPromptOverride 是同步的，
     // 必须在构造 loader 前异步算好再闭包捕获）。记忆读取失败不应阻塞会话创建，降级为空快照。
@@ -714,17 +717,32 @@ async function buildMemorySnapshot(hiagentDir: string, projectCwd: string): Prom
 
 /**
  * 解析启用 skill 的目录路径列表，供 SDK additionalSkillPaths 使用。
- * 只含来自 userSkillDirs 的 skill（scan().dirs 中除 builtinDir 外的目录），builtin 留给 SDK 自动扫。
+ * 包含 userSkillDirs 和扩展包 skills/ 目录来源的技能（builtin 由 SDK includeDefaults 自动扫）。
  * skillManager 为空（测试场景）时返回空数组。
  */
 async function resolveEnabledSkillPaths(
   skillManager: SkillManager | undefined,
+  extensionManager?: ExtensionManager,
 ): Promise<string[]> {
   if (!skillManager) return [];
-  const { skills, dirs, builtinDir } = await skillManager.scan();
+
+  // 获取扩展技能路径（可能为空）
+  const extSkillPaths = extensionManager
+    ? await extensionManager.getEnabledExtensionSkillPaths()
+    : [];
+  const extPathStrings = extSkillPaths.map((p) => p.path);
+
+  // scan 时传入扩展技能路径，让扫描结果包含扩展来源技能
+  const { skills, dirs, builtinDir } = await skillManager.scan(extSkillPaths);
   const userDirs = dirs.filter((d) => d !== builtinDir);
+
+  // 收集 userSkillDirs + 扩展来源的技能路径
   return skills
-    .filter((s) => userDirs.some((d) => isUnderPath(s.path, d)))
+    .filter(
+      (s) =>
+        userDirs.some((d) => isUnderPath(s.path, d)) ||
+        extPathStrings.some((d) => isUnderPath(s.path, d)),
+    )
     .map((s) => s.path);
 }
 
