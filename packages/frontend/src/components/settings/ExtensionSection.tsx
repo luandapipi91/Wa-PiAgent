@@ -170,11 +170,11 @@ export function ExtensionSection() {
                 )}
                 <button
                   className="px-2 py-1 text-xs rounded-sm font-medium"
-                  style={{ background: "var(--danger-soft)", color: "var(--danger)", border: "1px solid #fca5a5" }}
+                  style={{ background: "#fff", color: "var(--danger)", border: "1px solid var(--danger)" }}
                   onClick={() => setConfirmUninstall(pkg.name)}
                   data-testid={`ext-uninstall-${pkg.name}`}
                 >
-                  🗑 卸载
+                  卸载
                 </button>
               </div>
             </div>
