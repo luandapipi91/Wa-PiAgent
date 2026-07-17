@@ -45,9 +45,23 @@ export function parseSkillFrontmatter(content: string, dir: string): SkillInfo |
   if (!m) return null;
   const fm = m[1];
   const name = fm.match(/^name:\s*(.+)$/m)?.[1]?.trim();
-  const desc = fm.match(/^description:\s*(.+)$/m)?.[1]?.trim();
+  const descValue = fm.match(/^description:[ \t]*(.*)$/m)?.[1]?.trim();
   if (!name) return null;
-  return { name, description: desc ?? "", path: dir };
+  let description = descValue ?? "";
+  // YAML 块标量（description: | 或 >，可带 +/-）：值为后续缩进行，拼成单行
+  if (description && /^[|>][+-]?$/.test(description)) {
+    const lines = fm.split("\n");
+    const start = lines.findIndex(l => /^description:/.test(l));
+    const collected: string[] = [];
+    for (let i = start + 1; i < lines.length; i++) {
+      const l = lines[i];
+      if (/^\s+\S/.test(l)) collected.push(l.trim());
+      else if (l.trim() === "") { if (collected.length) break; }
+      else break;
+    }
+    description = collected.join(" ").trim();
+  }
+  return { name, description, path: dir };
 }
 
 /**

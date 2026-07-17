@@ -145,7 +145,8 @@ export async function buildSidecar(target: "win" | "linux" | "darwin" | string) 
   // 2. 依赖清单（package.json + bun.lock）：JS 已 bundle 进 kernel.js，但 ast-grep/better-sqlite3/koffi
   //    等原生 addon 无法内联，运行时需要 node_modules。这里【只产出清单 + 锁文件，不打包 node_modules】——
   //    首启动态安装到用户可写目录（runtime-deps.cjs），既避免 .app 只读、又减小安装包体积，
-  //    且首启只装用户本机平台的原生预编译。跑一次 install 仅为产出可复现的 bun.lock（全局缓存热，很快）。
+  //    且首启只装用户本机平台的原生预编译。
+  //    ⚠️ bun install --production 不生成锁文件，必须先用无 --production 跑一次产出 bun.lock。
   await writeFile(join(kernelDir, "package.json"), JSON.stringify({
     name: "hiagent-kernel-sidecar", private: true,
     dependencies: {
@@ -154,7 +155,7 @@ export async function buildSidecar(target: "win" | "linux" | "darwin" | string) 
       typebox: "1.1.38",
     },
   }, null, 2));
-  run("bun", ["install", "--production", "--cwd", kernelDir]); // CI 加 BUN_CONFIG_REGISTRY；产出 bun.lock
+  run("bun", ["install", "--cwd", kernelDir]);                              // 产出 bun.lock（--production 不生成锁文件）
   await rm(join(kernelDir, "node_modules"), { recursive: true, force: true });
   console.log("[sidecar] 已剔除 node_modules（首启用阿里源动态安装；仅随包分发 package.json + bun.lock）");
 

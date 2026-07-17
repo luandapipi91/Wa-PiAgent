@@ -79,6 +79,7 @@ export async function startKernel(
     providerStore,
     skillManager,
     extensionManager,
+    memoryStore,
     onEvent: (sessionId, projectId, agentName, event) => {
       console.log(`[kernel] sdk event: ${(event as any).type}`);
       broadcast({ type: "sdk:event", projectId, sessionId, agentName, event: event as any });

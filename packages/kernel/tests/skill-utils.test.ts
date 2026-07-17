@@ -32,6 +32,21 @@ test("parseSkillFrontmatter 无 frontmatter 返回 null", () => {
   expect(parseSkillFrontmatter("just text", "/x")).toBeNull();
 });
 
+test("parseSkillFrontmatter 解析 YAML 块标量多行 description（| 与 >-）", () => {
+  const pipe = parseSkillFrontmatter(
+    "---\nname: ctx-index\ndescription: |\n  Index a local file or directory into the knowledge base\n  so future search can retrieve focused snippets.\nuser-invocable: true\n---\n# body",
+    "/skills/ctx-index",
+  );
+  expect(pipe?.description).toBe(
+    "Index a local file or directory into the knowledge base so future search can retrieve focused snippets.",
+  );
+  const folded = parseSkillFrontmatter(
+    "---\nname: s2\ndescription: >-\n  第一行\n  第二行\n---\n# body",
+    "/skills/s2",
+  );
+  expect(folded?.description).toBe("第一行 第二行");
+});
+
 test("scanSkillsDir 扫描并标记 source", async () => {
   createSkill(dir, "alpha", "技能 A");
   createSkill(dir, "beta", "技能 B");

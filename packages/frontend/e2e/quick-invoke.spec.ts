@@ -7,7 +7,7 @@ import { join } from "node:path";
 //
 // 覆盖：
 // 1. `@` 触发文件选择面板 → 选中 → chip 内联插入（橙色）→ 发送时展开为 `@相对路径`
-// 2. `$` 触发技能选择面板 → 选中 → chip 内联插入（靛蓝）→ 发送时展开为 `$技能名`
+// 2. `$` 触发技能选择面板 → 选中 → chip 内联插入（靛蓝）→ 发送时展开为 `/skill:技能名`（SDK _expandSkillCommand 识别）
 // 3. Esc 关闭面板但保留触发符文本
 // 4. Backspace 删除整个 chip
 //
@@ -26,15 +26,16 @@ async function wsSend(payload: object, waitForType?: string, timeoutMs = 5000): 
   });
   try {
     if (waitForType) {
-      const result = await new Promise<any>((res, rej) => {
+      const result = new Promise<any>((res, rej) => {
         const timer = setTimeout(() => rej(new Error(`等待 ${waitForType} 超时`)), timeoutMs);
         ws.addEventListener("message", (ev) => {
           const e = JSON.parse(String((ev as MessageEvent).data));
           if (e.type === waitForType) { clearTimeout(timer); res(e); }
         });
       });
+      // 必须先 send 再 await：否则 await 阻塞导致 send 永远执行不到（死锁超时）
       ws.send(JSON.stringify(payload));
-      return result;
+      return await result;
     } else {
       // 无需等待特定响应，给服务端处理时间后关闭
       ws.send(JSON.stringify(payload));
@@ -77,6 +78,9 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
   async function enterSession(page: import("@playwright/test").Page, text: string): Promise<string> {
     await page.goto("/");
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
+    // 必须选中 beforeEach 创建的项目：全局 seed 项目 e2e-proj-1 排在 projects[0]，
+    // 不选的话新会话会挂到 seed 项目下，@ 文件搜索会搜错目录
+    await page.getByTestId("project-select").selectOption(projectId);
     await page.getByTestId("model-selector").selectOption({ label: "E2E/model-a" });
     const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
     await textbox.click();
@@ -175,8 +179,8 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
       // 6. 点击发送
       await page.getByTestId("composer-send").click();
 
-      // 7. 验证发送的消息中 chip 展开为 $e2e-qi-skill
-      await expect(page.getByText("$e2e-qi-skill").first()).toBeVisible({ timeout: 8000 });
+      // 7. 验证发送的消息中 chip 展开为 /skill:e2e-qi-skill（expandTokens 的既定格式）
+      await expect(page.getByText("/skill:e2e-qi-skill").first()).toBeVisible({ timeout: 8000 });
       await expect(page.locator(`text=\\$\\[e2e-qi-skill\\]`)).toHaveCount(0);
     } finally {
       if (existsSync(skillDirRoot)) rmSync(skillDirRoot, { recursive: true, force: true });
@@ -219,6 +223,66 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
       await expect(textbox).toContainText("$brain");
     } finally {
       if (existsSync(skillDirRoot)) rmSync(skillDirRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("菜单加宽 + 键盘上下导航自动滚动到高亮项", async ({ page }) => {
+    // 预置 30 个文件，让列表超出菜单最大高度（320px），产生滚动条
+    mkdirSync(projectCwd, { recursive: true });
+    const filePaths: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      const p = join(projectCwd, `qiscroll-${String(i).padStart(2, "0")}.txt`);
+      writeFileSync(p, `scroll test ${i}`, "utf8");
+      filePaths.push(p);
+    }
+
+    try {
+      await enterSession(page, "滚动测试会话");
+
+      const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+      await textbox.click();
+      await page.keyboard.type(" @qiscroll", { delay: 10 });
+
+      const menu = page.getByTestId("quick-invoke-menu");
+      await expect(menu).toBeVisible({ timeout: 5000 });
+
+      // 菜单宽度已加宽（>= 540px）
+      const box = await menu.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.width).toBeGreaterThanOrEqual(540);
+
+      // 等待全部 30 个结果到达（异步流式搜索，避免高亮被重置干扰）
+      await expect(page.getByTestId("quick-invoke-item-29")).toBeVisible({ timeout: 10000 });
+
+      // 向下移动 20 次：高亮从第 0 项移到第 20 项（远超可视区域）
+      for (let i = 0; i < 20; i++) {
+        await page.keyboard.press("ArrowDown");
+        await page.waitForTimeout(30);
+      }
+
+      // 断言：菜单已滚动，且高亮项完整处于可视区域内
+      const result = await menu.evaluate((el) => {
+        const items = el.querySelectorAll('[data-testid^="quick-invoke-item-"]');
+        let highlighted: HTMLElement | null = null;
+        items.forEach((it) => {
+          if ((it as HTMLElement).className.includes("bg-accent-soft")) highlighted = it as HTMLElement;
+        });
+        if (!highlighted) return { scrollTop: el.scrollTop, visible: false, hasHighlight: false };
+        const r = highlighted.getBoundingClientRect();
+        const m = el.getBoundingClientRect();
+        return {
+          scrollTop: el.scrollTop,
+          visible: r.top >= m.top && r.bottom <= m.bottom,
+          hasHighlight: true,
+        };
+      });
+      expect(result.hasHighlight).toBe(true);
+      expect(result.scrollTop).toBeGreaterThan(0);
+      expect(result.visible).toBe(true);
+    } finally {
+      for (const p of filePaths) {
+        if (existsSync(p)) unlinkSync(p);
+      }
     }
   });
 

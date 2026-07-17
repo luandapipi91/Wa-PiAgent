@@ -10,7 +10,7 @@
 // - createAgentSessionFn 可选参数，缺省时动态 import 真实 SDK（避免类型循环依赖）
 // - _authStorage / _modelRegistry 用 (this as any)._xxx ??= 模式做进程级单例
 
-import type { AgentName, AgentConfig, AttachmentRef, ThinkingLevel } from "@hiagent/shared";
+import type { AgentName, AgentConfig, AttachmentRef, ThinkingLevel, MemoryConfig } from "@hiagent/shared";
 import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, EXTENSION_TOOL_MAP, resolveAgentTools } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
@@ -65,6 +65,9 @@ export interface AgentManagerOpts {
   extensionManager?: ExtensionManager;
   // 测试注入 mock；生产留空 → 走真实 SDK 动态 import
   createAgentSessionFn?: CreateAgentSessionFn;
+  // 记忆配置读取（reviewEnabled 自动学习开关 / memoryPolicyStyle 注入提示开关）。
+  // 可空：测试场景不传视为全开（与历史行为一致）；生产注入 MemoryStore。
+  memoryStore?: { getConfig(): Promise<MemoryConfig> };
 }
 
 /**
@@ -268,18 +271,25 @@ export class AgentManager {
 
     // host-controlled 记忆：预取全局+项目记忆快照注入系统提示词（systemPromptOverride 是同步的，
     // 必须在构造 loader 前异步算好再闭包捕获）。记忆读取失败不应阻塞会话创建，降级为空快照。
-    const memorySnapshot = await buildMemorySnapshot(HIAGENT_DIR, project.cwd).catch(
-      (err) => {
-        console.error(`[kernel] 读取记忆快照失败，跳过注入:`, err);
-        return "";
-      },
-    );
+    // 「注入提示」开关（memoryPolicyStyle=none）关闭时不注入。
+    const memConfig = await this.opts.memoryStore?.getConfig().catch(() => undefined);
+    const memorySnapshot = memConfig?.memoryPolicyStyle === "none"
+      ? ""
+      : await buildMemorySnapshot(HIAGENT_DIR, project.cwd).catch(
+        (err) => {
+          console.error(`[kernel] 读取记忆快照失败，跳过注入:`, err);
+          return "";
+        },
+      );
     // agent 记忆工具按 target 路由：user（用户画像）→ 全局，memory（工作笔记）→ 当前项目。
     // 全局记忆也作为只读快照注入下方系统提示词。
-    const memoryCustomTools = createAgentMemoryTools(
-      getGlobalMemoryStore(HIAGENT_DIR),
-      getProjectMemoryStore(HIAGENT_DIR, project.cwd),
-    );
+    // 「自动学习」开关（reviewEnabled=false）关闭时不注册记忆工具，agent 无法写记忆。
+    const memoryCustomTools = memConfig?.reviewEnabled === false
+      ? []
+      : createAgentMemoryTools(
+        getGlobalMemoryStore(HIAGENT_DIR),
+        getProjectMemoryStore(HIAGENT_DIR, project.cwd),
+      );
 
     // 当前启用的动态扩展（附加到 additionalExtensionPaths 由 SDK 加载，
     // 另供 resolveAgentTools toolMap 过滤引用）

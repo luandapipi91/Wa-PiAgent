@@ -189,6 +189,49 @@ test("ensureStarted 注入 memory customTools（绑定项目 store）", async ()
   );
 });
 
+test("自动学习关闭（reviewEnabled=false）时不注册记忆工具", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+    memoryStore: { getConfig: async () => ({ reviewEnabled: false, memoryPolicyStyle: "full" as const }) },
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const calls = (mockCreateAgentSession as any).mock.calls;
+  const names = calls[calls.length - 1][0].customTools.map((t: any) => t.name);
+  expect(names).not.toContain("memory_add");
+  expect(names).not.toContain("memory_replace");
+  expect(names).not.toContain("memory_remove");
+  expect(names).not.toContain("memory_read");
+});
+
+test("注入提示关闭（memoryPolicyStyle=none）时系统提示词不追加记忆快照", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+    memoryStore: { getConfig: async () => ({ reviewEnabled: true, memoryPolicyStyle: "none" as const }) },
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const calls = (mockCreateAgentSession as any).mock.calls;
+  const loader = calls[calls.length - 1][0].resourceLoader;
+  const prompt = await loader.getSystemPrompt();
+  // 无快照追加：提示词以固定 env 段结尾（有记忆内容时也不能拼接）
+  expect(prompt.trimEnd().endsWith("plain, user-facing language.")).toBe(true);
+});
+
 test("ensureStarted 复用已存在的 session（同 sessionId 不重复创建）", async () => {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
