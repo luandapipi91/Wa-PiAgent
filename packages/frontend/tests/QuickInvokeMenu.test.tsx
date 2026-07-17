@@ -54,3 +54,28 @@ test("空列表显示提示文本", () => {
   render(<QuickInvokeMenu type="file" items={[]} highlightedIndex={-1} onSelect={mock()} onHover={mock()} emptyText="无匹配文件" />);
   expect(screen.getByText("无匹配文件")).toBeDefined();
 });
+
+test("菜单容器宽度加宽（不再是最初的 400px）", () => {
+  render(<QuickInvokeMenu type="file" items={fileItems} highlightedIndex={0} onSelect={mock()} onHover={mock()} />);
+  const menu = screen.getByTestId("quick-invoke-menu");
+  expect(menu.className).not.toContain("w-[400px]");
+  expect(menu.className).toContain("w-[560px]");
+});
+
+test("高亮项变化时自动滚动到可视区域", () => {
+  const scrolledTestIds: (string | null)[] = [];
+  const original = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = mock(function (this: Element) {
+    scrolledTestIds.push(this.getAttribute("data-testid"));
+  });
+  try {
+    const manyItems: MenuItem[] = Array.from({ length: 30 }, (_, i) => ({
+      id: `/src/f${i}.ts`, name: `f${i}.ts`, path: `src/f${i}.ts`,
+    }));
+    render(<QuickInvokeMenu type="file" items={manyItems} highlightedIndex={20} onSelect={mock()} onHover={mock()} />);
+    // 高亮项（第 20 项）应触发 scrollIntoView
+    expect(scrolledTestIds).toContain("quick-invoke-item-20");
+  } finally {
+    Element.prototype.scrollIntoView = original;
+  }
+});
