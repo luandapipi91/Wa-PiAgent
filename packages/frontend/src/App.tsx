@@ -52,6 +52,9 @@ export function App() {
           // 优先用事件携带的 sessionId 精确路由；缺省回落 currentSessionId。
           const sid = e.sessionId ?? useProjectsStore.getState().currentSessionId;
           if (sid) {
+            // agent 启动失败（如 No API key）：agent 从未启动、不会有 agent_end，
+            // 必须手动复位 thinking 状态，否则会话永远卡在「思考中」且停止按钮无效
+            useSessionStore.getState().failTurn(sid);
             // 构造 SessionMessage（新 append 签名：sessionId + SessionMessage）
             // error 不属于具体 agent，agentName 用任意合法默认；stopReason 标 "error" 供渲染层识别
             // 文本不加 ⚠️ 前缀：视觉上的错误区分由 MessageList 的 stopReason=error 红色渲染承担

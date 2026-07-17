@@ -41,6 +41,9 @@ interface SessionState {
   markUnread: (sessionId: string) => void;
   /** 清除会话未读标记（进入/查看该会话时）。 */
   markRead: (sessionId: string) => void;
+  /** 回合启动失败复位：kernel 广播 error（如 No API key）时 agent 从未启动、不会有
+   *  agent_end，需手动把 status 归 idle、清 streaming 占位与思考计时，否则 UI 永远卡 thinking。 */
+  failTurn: (sessionId: string) => void;
   // 新增：处理 sdk:event 信封事件（流式两态管理核心入口）
   handleSDKEvent: (sessionId: string, envelope: SDKEventEnvelope) => void;
 }
@@ -103,6 +106,13 @@ export const useSessionStore = create<SessionState>((set) => ({
     delete next[sessionId];
     return { unreadBySession: next };
   }),
+
+  failTurn: (sessionId) => set(s => ({
+    statusBySession: { ...s.statusBySession, [sessionId]: "idle" },
+    streamingBySession: { ...s.streamingBySession, [sessionId]: null },
+    thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: null },
+    optimisticEchoBySession: { ...s.optimisticEchoBySession, [sessionId]: false },
+  })),
 
   optimisticSend: (sessionId, text, agentName) => set(s => {
     const ts = Date.now();

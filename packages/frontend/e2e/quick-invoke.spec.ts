@@ -188,8 +188,9 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
   });
 
   test("Esc 关闭面板保留触发符文本", async ({ page }) => {
-    // 预置技能（确保 `$` 触发后面板会有内容；detectTrigger 不需要内容即可触发，但
-    // 此用例验证的是「Esc 后面板消失、文本保留」，面板有无项不影响 Esc 行为）
+    // 预置技能。注意：Esc 拦截的前提是 menuItems.length > 0（见 ComposerInput handleKeyDown），
+    // 所以过滤词必须命中真实存在的技能——E2E 隔离环境无内置技能（brainstorming 等不在
+    // 隔离 HIAGENT_DIR 里），只能用这里动态添加的 e2e-esc-skill。
     const skillDirRoot = join(process.env.HOME || "/tmp", `.hiagent-e2e-quick-invoke-esc-${randomUUID().slice(0, 8)}`);
     const skillPkgDir = join(skillDirRoot, "e2e-esc-skill");
     mkdirSync(skillPkgDir, { recursive: true });
@@ -210,8 +211,9 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
       await page.keyboard.type("$", { delay: 5 });
       await expect(page.getByTestId("quick-invoke-menu")).toBeVisible({ timeout: 5000 });
 
-      // 输入部分查询
-      await page.keyboard.type("brain", { delay: 10 });
+      // 输入查询并等待列表真的出现匹配项（保证 Esc 时 menuItems.length > 0）
+      await page.keyboard.type("e2e-esc", { delay: 10 });
+      await expect(page.getByTestId("quick-invoke-menu")).toContainText("e2e-esc-skill", { timeout: 8000 });
 
       // 按 Esc
       await page.keyboard.press("Escape");
@@ -219,8 +221,8 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
       // 面板消失
       await expect(page.getByTestId("quick-invoke-menu")).toHaveCount(0, { timeout: 3000 });
 
-      // 输入框保留 $brain 文本
-      await expect(textbox).toContainText("$brain");
+      // 输入框保留 $e2e-esc 文本
+      await expect(textbox).toContainText("$e2e-esc");
     } finally {
       if (existsSync(skillDirRoot)) rmSync(skillDirRoot, { recursive: true, force: true });
     }
@@ -308,8 +310,20 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
       const chip = page.locator('[data-testid="composer-input"] .chip-file').first();
       await expect(chip).toBeVisible({ timeout: 3000 });
 
-      // 光标已在 chip 之后；按一次 Backspace 删除整个 chip
-      // （chip 为 contenteditable=false 的原子节点，浏览器原生一次 Backspace 删除整个节点）
+      // 把光标显式放到 chip 之后（选中项插入的 token 带尾随空格，
+      // 光标若在空格之后，一次 Backspace 只会删空格而不是 chip），
+      // 再按一次 Backspace：chip 为 contenteditable=false 的原子节点，浏览器原生整体删除
+      await textbox.evaluate((el) => {
+        const chipEl = el.querySelector(".chip-file");
+        if (!chipEl) throw new Error("chip not found");
+        el.focus();
+        const range = document.createRange();
+        range.setStartAfter(chipEl);
+        range.collapse(true);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      });
       await page.keyboard.press("Backspace");
 
       // chip 应消失

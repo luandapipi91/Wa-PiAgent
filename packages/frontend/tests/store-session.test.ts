@@ -325,3 +325,29 @@ test("message_start(user) 无乐观占位 → 照常追加（不误替换历史�
   expect(msgs).toHaveLength(2);  // 追加，不替换
   expect((msgs[1].message as any).content).toBe("新问题");
 });
+
+// ── failTurn：回合启动失败复位（agent 从未启动、不会有 agent_end）──
+
+test("failTurn 复位 optimisticSend 造成的 thinking 卡死：status→idle、清 streaming 占位与计时", () => {
+  useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+  expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+
+  useSessionStore.getState().failTurn("s1");
+  const s = useSessionStore.getState();
+  expect(s.statusBySession["s1"]).toBe("idle");
+  expect(s.streamingBySession["s1"]).toBeNull();
+  expect(s.thinkingSinceBySession["s1"]).toBeNull();
+  expect(s.optimisticEchoBySession["s1"]).toBe(false);
+  // 已定稿消息不受影响（用户消息保留）
+  expect(s.messagesBySession["s1"]).toHaveLength(1);
+});
+
+test("failTurn 只影响目标会话，不串扰其它会话的 thinking 状态", () => {
+  useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+  useSessionStore.getState().optimisticSend("s2", "在吗", "dev");
+
+  useSessionStore.getState().failTurn("s1");
+  const s = useSessionStore.getState();
+  expect(s.statusBySession["s1"]).toBe("idle");
+  expect(s.statusBySession["s2"]).toBe("thinking");
+});

@@ -47,3 +47,23 @@ test("error 事件注入的消息文本不带 ⚠️ 前缀（红色样式由 st
   expect(text).toBe("MCP error -32000: Connection closed");
   expect(text.startsWith("⚠")).toBe(false);
 });
+
+test("error 事件复位 thinking 卡死：agent 启动失败后 status 归 idle、清 streaming 占位", () => {
+  render(<App />);
+  expect(handler).toBeTruthy();
+
+  // 模拟用户刚发完消息：optimisticSend 置 thinking + streaming 占位
+  useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+  expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+
+  // kernel 广播启动失败（如 No API key）
+  handler!({ type: "error", message: "agent 启动失败: No API key for deepseek/deepseek-v4-pro", sessionId: "s1", agentName: "dev" });
+
+  const s = useSessionStore.getState();
+  // 状态必须归 idle，否则 UI 永远显示「思考中」且停止按钮无效（agent 从未启动，不会有 agent_end）
+  expect(s.statusBySession["s1"]).toBe("idle");
+  expect(s.streamingBySession["s1"]).toBeNull();
+  expect(s.thinkingSinceBySession["s1"]).toBeNull();
+  // 错误消息本身照常注入列表
+  expect(s.messagesBySession["s1"]?.some(m => (m.message as any).stopReason === "error")).toBe(true);
+});
