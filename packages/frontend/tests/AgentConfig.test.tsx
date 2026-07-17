@@ -18,7 +18,7 @@ mock.module("../src/ws-instance", () => ({
   onMessage: (cb: any) => { cb({ type: "agent:config", agentName: "dev", config: mockConfig }); return () => {}; },
 }));
 
-beforeEach(() => useAgentsStore.setState({ states: {}, configs: { dev: mockConfig } }));
+beforeEach(() => useAgentsStore.setState({ configs: { dev: mockConfig } }));
 
 test("打开显示 header + tabs", () => {
   render(<AgentConfig agentName="dev" onClose={() => {}} />);

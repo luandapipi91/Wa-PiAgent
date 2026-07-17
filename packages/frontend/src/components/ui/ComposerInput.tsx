@@ -149,7 +149,15 @@ export function ComposerInput({
 
   const uploadFiles = async (files: FileList | null) => {
     if (!files || files.length === 0 || !projectId) return;
+    const MAX_MB = 50;
     const list = Array.from(files);
+    // 前端预检：超大文件直接拒绝，避免读 base64 + WS 发送后再等超时
+    const oversized = list.filter(f => f.size > MAX_MB * 1024 * 1024);
+    if (oversized.length > 0) {
+      const names = oversized.map(f => `"${f.name}" (${(f.size / 1024 / 1024).toFixed(0)}MB)`).join("、");
+      setUploadError(`附件超过 ${MAX_MB}MB 上限: ${names}`);
+      return;
+    }
     setUploadError(null);
     setPendingUploads(n => n + list.length);
     for (const file of list) {

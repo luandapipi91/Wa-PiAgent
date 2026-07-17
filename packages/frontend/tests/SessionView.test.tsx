@@ -3,7 +3,6 @@ import { render, screen, waitFor, act } from "@testing-library/react";
 import type { SessionMessage } from "@hiagent/shared";
 import { SessionView } from "../src/components/SessionView";
 import { useProjectsStore } from "../src/store/projects";
-import { useAgentsStore } from "../src/store/agents";
 import { useSessionStore } from "../src/store/session";
 
 // ws-instance mock：onMessage 暴露触发器，让测试能模拟 kernel 响应。
@@ -23,7 +22,6 @@ beforeEach(() => {
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "" }],
     currentProjectId: "p1", currentSessionId: "s1",
   });
-  useAgentsStore.setState({ states: {}, configs: {} });
   useSessionStore.setState({ messagesBySession: {} });
 });
 
@@ -31,6 +29,35 @@ test("渲染 header 标题 + 项目目录", () => {
   render(<SessionView sessionId="s1" />);
   expect(screen.getByText("测试")).toBeTruthy();
   expect(screen.getByText(/\/work\/p1/)).toBeTruthy();
+});
+
+test("header 状态显示中文「空闲」，不暴露英文枚举", () => {
+  render(<SessionView sessionId="s1" />);
+  expect(screen.getByText(/· 空闲/)).toBeTruthy();
+  expect(screen.queryByText(/· idle/)).toBeNull();
+  // 状态点：idle 成功绿
+  expect((screen.getByTestId("session-status-dot") as HTMLElement).style.background.toLowerCase()).toBe("#34a853");
+});
+
+test("header 状态跟随会话运行态显示「思考中」", () => {
+  useSessionStore.setState({ statusBySession: { s1: "thinking" } });
+  render(<SessionView sessionId="s1" />);
+  expect(screen.getByText(/· 思考中/)).toBeTruthy();
+  expect(screen.queryByText(/· thinking/)).toBeNull();
+  // 状态点：thinking 靛蓝
+  expect((screen.getByTestId("session-status-dot") as HTMLElement).style.background.toLowerCase()).toBe("#5b5bd6");
+});
+
+test("有 pending ask 时 header 状态显示「等待回复」", () => {
+  const askCall = { type: "toolCall", id: "tc-ask-2", name: "ask_user_question", arguments: { questions: [{ question: "Q?", header: "h", options: [{ label: "A", description: "x" }, { label: "B", description: "y" }] }] } };
+  useSessionStore.getState().setMessages("s1", [
+    { agentName: "dev", message: { role: "assistant", content: [askCall], model: "pi-test", stopReason: "tool_use", timestamp: 1 } as any },
+  ]);
+  render(<SessionView sessionId="s1" />);
+  expect(screen.getByText(/· 等待回复/)).toBeTruthy();
+  expect(screen.queryByText(/· blocked/)).toBeNull();
+  // 状态点：blocked 警告橙
+  expect((screen.getByTestId("session-status-dot") as HTMLElement).style.background.toLowerCase()).toBe("#b45309");
 });
 
 test("收到 session:messages 响应后填充历史消息", () => {

@@ -141,6 +141,9 @@ export async function searchFiles(
 }
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB
+// Bun 默认 maxPayloadLength 为 16MB。base64 编码后体积膨胀 ~33%，
+// 50MB 文件编码后 ~67MB，需放宽才能接收（与 MAX_UPLOAD_BYTES 对齐 + 余量）。
+const WS_MAX_PAYLOAD = 80 * 1024 * 1024; // 80MB
 const activeSearches = new Set<string>();
 
 export interface WSServerOpts {
@@ -218,6 +221,7 @@ export class WSServer {
         return new Response("WS only", { status: 426 });
       },
       websocket: {
+        maxPayloadLength: WS_MAX_PAYLOAD,
         open: (ws) => { this.clients.add(ws); },
         message: async (ws, msg) => {
           const text = typeof msg === "string" ? msg : new TextDecoder().decode(msg as unknown as ArrayBuffer);
@@ -225,7 +229,13 @@ export class WSServer {
           try { event = JSON.parse(text); } catch { return; }
           // 多数响应通过 broadcast 推全量；少数（projects:list、agent:config）定向回请求者
           const reply = (e: WSServerEvent) => ws.send(JSON.stringify(e));
-          await this.handle(event, reply);
+          try {
+            await this.handle(event, reply);
+          } catch (err) {
+            // 兜底：业务错误（如项目目录重复）广播 error 事件给前端 toast，
+            // 避免未捕获 rejection 直接崩掉整个 kernel 进程
+            this.broadcast({ type: "error", message: (err as Error).message });
+          }
         },
         close: (ws) => { this.clients.delete(ws); },
       },

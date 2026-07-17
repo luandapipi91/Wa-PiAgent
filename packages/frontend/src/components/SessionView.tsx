@@ -1,20 +1,27 @@
 import { useEffect, useState } from "react";
+import type { AgentStatus } from "@hiagent/shared";
 import { useProjectsStore } from "../store/projects";
-import { useAgentsStore } from "../store/agents";
 import { useSessionStore } from "../store/session";
 import { useIsBlocked } from "../store/ask";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
 import { AskDock } from "./ask/AskDock";
 import { agentEmoji } from "../theme/agents";
+import { STATUS_COLORS } from "../theme/colors";
 import { onMessage, send } from "../ws-instance";
 
 interface Props { sessionId: string; }
 
+// agent 全局状态的中文文案（header 直接展示给用户，不暴露英文枚举值）
+const AGENT_STATE_LABEL: Record<AgentStatus, string> = {
+  idle: "空闲",
+  thinking: "思考中",
+  blocked: "等待回复",
+};
+
 export function SessionView({ sessionId }: Props) {
   const session = useProjectsStore(s => s.sessions.find(x => x.id === sessionId));
   const project = useProjectsStore(s => s.projects.find(p => p.id === session?.projectId));
-  const getGlobalState = useAgentsStore(s => s.getGlobalState);
   const queue = useSessionStore(s => s.queueBySession[sessionId]);
   const status = useSessionStore(s => s.statusBySession[sessionId] ?? "idle");
   const historyLoading = useSessionStore(s => s.historyLoadingBySession[sessionId] ?? false);
@@ -40,8 +47,9 @@ export function SessionView({ sessionId }: Props) {
   }, [sessionId]);
 
   if (!session) return null;
-  const agentState = getGlobalState(session.primaryAgent);
   const isRunning = status === "thinking";
+  // header 状态（圆点颜色与文案共用）：等待回复 blocked > 运行中 thinking > 空闲 idle
+  const headerStatus: AgentStatus = isBlocked ? "blocked" : status;
   const steering = queue?.steering ?? [];
   const followUp = queue?.followUp ?? [];
   const hasQueue = steering.length > 0 || followUp.length > 0;
@@ -87,8 +95,8 @@ export function SessionView({ sessionId }: Props) {
             <span className="text-[14px] font-bold text-primary">{session.title}</span>
           </div>
           <div className="text-[11.5px] text-tertiary mt-px">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-success mr-1 align-middle" />
-            {session.primaryAgent} · {project?.cwd ?? ""} · {isBlocked ? "等待回复" : agentState}
+            <span className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle" style={{ background: STATUS_COLORS[headerStatus] }} data-testid="session-status-dot" />
+            {session.primaryAgent} · {project?.cwd ?? ""} · {AGENT_STATE_LABEL[headerStatus]}
           </div>
         </div>
       </header>

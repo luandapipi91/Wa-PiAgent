@@ -16,7 +16,7 @@ function getWsUrl(): string {
 }
 
 export function getWs(): WebSocket {
-  if (!ws) {
+  if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
     ws = new WebSocket(getWsUrl());
     ws.onmessage = (ev) => {
       try {
