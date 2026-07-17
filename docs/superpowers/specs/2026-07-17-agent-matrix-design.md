@@ -13,7 +13,7 @@
 
 | 决策点 | 结论 |
 |---|---|
-| 触发条件 | @提及 + 关系网自动委派（subagent）+ 关键词；关键词**不自动切换主智能体**，仅显示建议条 |
+| 触发条件 | @提及 + 关系网自动委派（subagent）+ 关键词；关键词语义 = **主智能体自动调起子智能体的判定提示**（随关系网注入提示词），不做建议条、不切换主智能体 |
 | 详情页形态 | 弹窗，**4 个 tab**：基本（身份/模型/提示词/触发条件合并）/ 工具 / 技能 / 关系网（带搜索） |
 | 存量 4 个 agent | 放开为动态实体，`AgentName` 改为 string，可编辑可删除，可新建任意数量 |
 | 名称字段 | 名称即标识，**无简称字段**；保存时直接以名称作为文件名，重名自动加 `-2`/`-3` 后缀 |
@@ -22,7 +22,7 @@
 | 删除智能体 | 会话保留；发送消息时要求重选智能体 |
 | 调起机制 | 引入 `@gotgenes/pi-subagents`，**替换 pi-intercom** 作为内置扩展 |
 | 提及符号 | **@ = 智能体，# = 文件（原 @ 文件能力迁移），$ = 技能（不变）** |
-| 对话中切换 | 会话顶部 pill 下拉切换（**带搜索**），SDK session 换体重建保留历史 |
+| 对话中切换 | 会话顶部 pill 下拉切换（**带搜索**），切换前弹确认框"切换后所有缓存都会失效，是否继续"；确认后 SDK session 换体重建保留历史 |
 | 委托显示 | 复用 DelegateCard 橙色视觉，扩展 执行中/完成/可展开子过程 三态 |
 | 侧边栏样式 | 紧凑行（头像+名称+状态点），>3 个显示「更多智能体 (n)」 |
 | 宫格弹窗 | 3 列卡片：头像+名称+简介+状态点；右上新建；左键建会话、右键编辑/删除 |
@@ -31,7 +31,7 @@
 
 - `types.ts:28`：`AgentName` 从字面量联合改为 `type AgentName = string`。
 - `AgentConfig`（types.ts:40-56）扩展：
-  - 新增 `triggerKeywords: string[]` — 关键词触发（仅建议条，不自动切换）
+  - 新增 `triggerKeywords: string[]` — 触发关键词：其他智能体自动调起本智能体时的判定提示（随关系网段注入提示词，见 2.3）
   - 复用 `partners.askTo: AgentName[]` — 关系网（可调起的智能体），作为 subagent allowlist
   - `thinking` 类型从 `"low"|"medium"|"high"` 改为 `ThinkingLevel`（`"disabled"|"medium"|"high"|"max"`，types.ts:33），修掉现有不一致；存量 md 中的 `low` 值迁移映射为 `medium`
   - 其余字段不变（avatar/avatarColor/description/model/systemPromptMode/systemPromptBody/inheritProjectContext/inheritSkills/tools/skills/mcpServers）
@@ -55,19 +55,18 @@
 - `agent-manager.ts` 删除 intercom 会话名设置与 `bindExtensions` intercom 逻辑（约 L390-397）；subagents 扩展随 loader 内置加载
 
 ### 2.3 关系网注入与校验（自动委派）
-- 构建 SDK session 时（`_createSession`），把 `partners.askTo` 中每个智能体的名称 + description 追加进系统提示词段："你可以通过 subagent 工具调起以下智能体：…"
+- 构建 SDK session 时（`_createSession`），把 `partners.askTo` 中每个智能体的 名称 + description + triggerKeywords 追加进系统提示词段：
+  "你可以通过 subagent 工具调起以下智能体：…；当用户消息涉及某智能体的触发关键词或其简介描述的话题时，优先调起对应智能体。"
 - subagent 工具调用时校验 `subagent_type` 是否在 askTo 内；越权返回错误结果（不中断会话）
 - askTo 为空 = 不可调起任何智能体
+- 关键词的命中判断由 LLM 基于提示词自行完成，kernel 不做关键词匹配逻辑
 
-### 2.4 关键词触发（建议条）
-- `agent:prompt` 处理时若是会话首条消息：遍历所有 agent 的 `triggerKeywords` 做包含匹配（大小写不敏感），命中且 ≠ 当前 primaryAgent → 推送 `agent:suggest { sessionId, suggestedAgent, keyword }`；不做任何自动切换
-
-### 2.5 全局工具/技能清单
+### 2.4 全局工具/技能清单
 - 新增 `agent:tools:list`：聚合 DEFAULT_AGENT_TOOLS + 启用扩展工具（extractRuntimeToolNames）+ MCP 工具，返回 `{ name, source }[]`
 - 技能清单复用现有 `skill:list`
 - 详情弹窗勾选结果写入 `AgentConfig.tools/skills`；`resolveAgentTools` 改为：若 agent.tools 非空则作为 allowlist 过滤全局清单，为空则维持现状（全量默认）
 
-### 2.6 对话中切换智能体
+### 2.5 对话中切换智能体
 - 新事件 `session:set-agent { sessionId, agentName }`：
   1. 运行中则先 abort
   2. 更新 ProjectStore 的 `primaryAgent`
@@ -84,7 +83,6 @@
 | 前→后 | `agent:delete { name }` | → `{ ok: true }`；不存在报错 |
 | 前→后 | `agent:tools:list` | → `tools: { name, source }[]` |
 | 前→后 | `session:set-agent { sessionId, agentName }` | 广播 `session:updated` |
-| 后→前 | `agent:suggest { sessionId, suggestedAgent, keyword }` | 关键词命中建议 |
 | 后→前 | `session:updated { sessionId, primaryAgent }` | 切换/重选广播 |
 | 双向 | `agent:config:get` / `agent:config:save` | 复用现有 |
 
@@ -107,20 +105,19 @@
    - 身份：名称（即标识）/ 简介 / 头像 emoji + 渐变选择
    - 模型：模型（默认跟随全局）/ 思考档位（复用 ThinkingSelector：off/mid/high/max）
    - 提示词：systemPromptMode（追加/替换）+ 正文 + inheritProjectContext/inheritSkills
-   - 触发条件：关键词 chip 编辑（回车添加、✕ 删除）+ 说明文案（关键词→建议条不自动切换；@提及为内置能力）
+   - 触发条件：关键词 chip 编辑（回车添加、✕ 删除）+ 说明文案（关键词用于其他智能体自动调起本智能体的判定提示；@提及为内置能力）
 2. **工具**：从 `agent:tools:list` 勾选（消费 AgentConfig.tools）
 3. **技能**：从 `skill:list` 勾选（消费 AgentConfig.skills）
 4. **关系网**：顶部搜索框（按名称/简介过滤）+ 勾选列表（头像+名称+简介），自身置灰不可选，写 `partners.askTo`
 - 保存走现有 `agent:config:save`
 
-### 4.4 会话视图：切换智能体 + 建议条（SessionView header）
+### 4.4 会话视图：切换智能体（SessionView header）
 - 顶部 pill 显示当前智能体头像+名称，点击展开下拉：**顶部搜索框**（按名称/简介实时过滤）+ 列表（当前项 ✓）
-- 切换：发送 `session:set-agent` → header 即时更新 + 消息列表追加系统分隔行"已切换为 xxx"
-- 关键词建议条：收到 `agent:suggest` 时消息区顶部显示"本话题可能适合智能体 xxx，点击切换"，点击走 `session:set-agent`，可 ✕ 关闭
-- primaryAgent 已删除的会话：顶部 pill 变为警示条"原智能体已删除，点击重选"
+- 切换前弹确认框："切换智能体后所有缓存都会失效，是否继续？"【取消】【继续切换】；确认后发送 `session:set-agent` → header 即时更新 + 消息列表追加系统分隔行"已切换为 xxx"
+- primaryAgent 已删除的会话：顶部 pill 变为警示条"原智能体已删除，点击重选"（重选同样走确认框）
 
 ### 4.5 提及符号重定义（ComposerInput.tsx）
-- **@ = 智能体**：补全列表（头像+名称+简介），输入即过滤；选中生成 `@[名称]` chip（蓝色）。发送时剥离该 token：新会话 → 设定 primaryAgent；已有会话 → 触发 `session:set-agent`；其余文本正常发送。取第一个 @智能体 token 生效
+- **@ = 智能体**：补全列表（头像+名称+简介），输入即过滤；选中生成 `@[名称]` chip（蓝色）。发送时剥离该 token：新会话 → 设定 primaryAgent；已有会话 → 与顶部切换一致先弹缓存失效确认框，确认后触发 `session:set-agent`；其余文本正常发送。取第一个 @智能体 token 生效
 - **# = 文件**：原 `@` 的文件/文件夹搜索迁移到 `#`，token 改为 `#[path]`（绿色 chip）；发送展开为 `#path`
 - **$ = 技能**：保持不变
 - 兼容：存量消息文本中的 `@path` 不再作为 token 解析（仅纯文本），不迁移历史内容
@@ -142,18 +139,18 @@
    - agent-md：新字段序列化/解析、枚举放开后的校验、非法文件名字符拒绝、`thinking: low` → `medium` 归一
    - 最近使用排序纯函数（sessions → top3 agent）
    - subagent allowlist 过滤（askTo 越权）
-   - triggerKeywords 匹配纯函数（大小写、多词、无命中）
+   - 关系网提示词注入内容（名称/简介/triggerKeywords 完整出现在注入段）
    - resolveAgentTools 按 AgentConfig.tools 过滤
    - createAgent 重名加后缀；重命名联动更新会话与 askTo
 2. **组件（Vitest + testing-library）**：
    - AgentListSection：前 3 渲染、>3 显示更多入口、右键菜单两项、左键建会话回调
    - AgentGalleryModal：宫格渲染、左右键行为、新建入口
    - AgentConfig 弹窗：4 tab 渲染、关键词 chip 增删、关系网搜索过滤与自身置灰、保存事件载荷、ThinkingSelector 档位
-   - SessionView header 切换器：搜索过滤、切换调用、删除警示条、建议条
+   - SessionView header 切换器：搜索过滤、缓存失效确认框（取消不切换/确认才发 session:set-agent）、删除警示条
    - ComposerInput：@ 智能体补全与 token 剥离、# 文件搜索、$ 技能回归
    - DelegateCard：执行中/完成/展开三态
 3. **API 集成**：bun 脚本直连 ws 9776 验证 `agent:list/create/delete/config:save/tools:list/session:set-agent` 正常路径 + 错误路径（非法名 create、delete 不存在、set-agent 到不存在的 agent）
-4. **E2E（Playwright）**：新建智能体 → 列表/宫格出现 → 左键建会话发消息 → 编辑关系网与关键词 → 会话中切换智能体（搜索）→ @ 切换 → 删除智能体后会话保留且重选流程可用；finally 清理测试数据与截图
+4. **E2E（Playwright）**：新建智能体 → 列表/宫格出现 → 左键建会话发消息 → 编辑关系网与关键词 → 会话中切换智能体（搜索 + 确认框）→ @ 切换 → 删除智能体后会话保留且重选流程可用；finally 清理测试数据与截图
 
 ## 6. 影响范围（主要文件）
 
