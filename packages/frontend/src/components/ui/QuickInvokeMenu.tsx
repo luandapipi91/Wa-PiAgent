@@ -7,6 +7,7 @@ export interface MenuItem {
   description?: string;
   path?: string;
   source?: SkillSource;
+  isDir?: boolean;
 }
 
 interface Props {
@@ -62,7 +63,7 @@ export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHov
             >
               {type === "file" ? (
                 <>
-                  <span className="w-7 h-7 rounded-md bg-surface-hover flex items-center justify-center text-sm flex-shrink-0">📄</span>
+                  <span className="w-7 h-7 rounded-md bg-surface-hover flex items-center justify-center text-sm flex-shrink-0">{item.isDir ? "📁" : "📄"}</span>
                   <div className="flex flex-col min-w-0">
                     <span className="text-primary truncate">{item.name}</span>
                     {item.path && (

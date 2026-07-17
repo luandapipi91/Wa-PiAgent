@@ -6,6 +6,19 @@
 
 ## 2026-07-17
 
+### 新增
+- **@ 文件选择支持文件夹**：`@` 快速唤起菜单现在同时展示文件和文件夹，并以 📁/📄 图标区分类型。后端 `searchFiles` 本已返回 `isDir` 字段，前端此前未使用该字段统一显示 📄 图标；现已将 `isDir` 传递至 `MenuItem`，由 `QuickInvokeMenu` 按类型切换图标。选中文件夹后生成 `@[文件夹路径]` chip token，与文件行为一致。影响：frontend(`QuickInvokeMenu.tsx` + `ComposerInput.tsx` + tests)。
+
+### 修复
+- **agent 启动失败（如 No API key）后会话永远卡「思考中」且无法停止**：根因是前端 `optimisticSend` 把会话置 thinking 后，kernel `agent:prompt` 失败只广播 `{type:"error"}`，App.tsx 的 error 分支仅追加红色错误消息、从不复位状态；agent 从未启动也就永远不会有 `agent_end`，status 卡 thinking → 停止按钮发 `agent:abort` 对未 streaming 的会话是 no-op，死循环。修复：session store 新增 `failTurn(sessionId)`（status→idle、清 streaming 占位/thinkingSince/optimisticEcho），App.tsx 收到可路由到会话的 error 时先调用再注入错误消息。验证：store 单测 2 例 + App error 事件测试 1 例（23/23 通过）；集成测试（隔离 kernel + WS 客户端发 deepseek/deepseek-v4-pro 无 key 的 prompt，断言广播带 sessionId 的 error）；Playwright 真实浏览器 E2E——修复前复现「思考中」卡死，修复后错误 banner 显示、状态归「空闲」、停止按钮消失。影响：frontend(store/session.ts + App.tsx + tests/store-session.test.ts + tests/App-error-prefix.test.tsx)。
+
+### 修复
+- **打包后发送消息报「agent 启动失败: undefined is not an object (evaluating 'modelRuntime.getModels')」**：根因是 `resolveModel()` 用 `import.meta.resolve` 深层 import SDK 的 `dist/core/model-resolver.js`——bundle 内 SDK 为 0.80.6（工作区 lock），而打包后该 hack 在运行时解析到首启安装的外部 node_modules 版本（`^0.80.0` 实际装了 0.80.10）；0.80.10 已将 `resolveCliModel` 入参从 `modelRegistry` 改为 `modelRuntime`，版本错配导致 `undefined.getModels()`。修复：`resolveModel` 改为从包根动态 import（0.80.6 起包根已导出 `resolveCliModel`），bun build 会将其 bundle 进 kernel.js，与 `ModelRegistry` 同源同版本，彻底消除 bundle 内外 ABI 混用。验证：0.80.10 model-resolver + 旧入参复现原报错；typecheck 通过；agent-manager 43/43、kernel 全量 328 pass（1 fail 为改动前既有 ws-server abort 用例）；bundle 产物确认 model-resolver 已内联、无 `resolverUrl` 运行时文件系统解析。影响：kernel(agent-manager.ts)。
+
+### 修复
+- **Quick Invoke 菜单（@附件 / $技能选择器）过窄 + 键盘导航不自动滚动**：菜单固定 `w-[400px]` 过窄，且键盘上下移动高亮项超出可视区时不跟随滚动。修复：`QuickInvokeMenu` 加宽至 `w-[560px]`（`max-w-[calc(100vw-2rem)]` 防小屏溢出），最大高度 320px，列表项改为圆角卡片 + 图标徽标 + 内边距美化，来源标签改小号胶囊；新增 `highlightedRef` + `useEffect`，高亮变化时 `scrollIntoView({ block: "nearest" })` 自动滚入视野。TDD：2 个组件测试先行（宽度断言 + scrollIntoView 调用），E2E 新增「30 文件列表 ArrowDown×20 高亮项始终在可视区 + 菜单宽度 ≥540px」用例。影响：frontend(QuickInvokeMenu.tsx + tests/QuickInvokeMenu.test.tsx + e2e/quick-invoke.spec.ts)。
+- **quick-invoke E2E 整体不可用（4 个既有缺陷，自 d4f0482 起从未全绿）**：(1) `wsSend` 辅助函数 `await new Promise` 写在 `ws.send` 之前，等待响应型调用死锁必超时（send 永远执行不到）——改为先 send 再 await；(2) `enterSession` 不选项目，新会话默认挂到 seed 项目 e2e-proj-1，@ 文件搜索搜错目录——进入新建页先 `project-select` 选中 beforeEach 创建的项目；(3) `$` 技能断言过期：期望展开为 `$技能名`，但 `expandTokens` 既定行为是 `/skill:技能名`（SDK _expandSkillCommand 识别）——按实现修正断言；(4) Esc 用例过滤词 `brain` 依赖内置技能 brainstorming，E2E 隔离 HIAGENT_DIR 无内置技能导致列表为空、Esc 拦截前提（menuItems>0）不成立——改用动态添加的 e2e-esc-skill 并等列表出现再按 Esc；(5) Backspace 用例光标在尾随空格后，一次 Backspace 只删空格——显式把光标移到 chip 节点正后方再删。修复后 5/5 全绿。影响：frontend(e2e/quick-invoke.spec.ts)。
+
 ### 修复
 - **记忆页「自动学习」「注入提示」开关失效（摆设）**：MemoryPage 两个 toggle 只写 `hermes-memory-config.json`，kernel 注入链路无任何消费点——`buildMemorySnapshot` 与 `createAgentMemoryTools` 均不读配置，关闭后照样注入快照、照样注册记忆工具。修复：`AgentManagerOpts` 新增可选 `memoryStore`（结构化 `getConfig` 依赖，可空=全开兼容测试），`_createSession` 建会话前读配置：`memoryPolicyStyle=none` → 不拼接记忆快照，`reviewEnabled=false` → 不注册 memory_add/replace/remove/read 工具；生产链路 index.ts 注入真实 MemoryStore。TDD：2 个失败测试先行（关自动学习无记忆工具、关注入提示词不追加快照），实现后 43/43 通过。影响：kernel(agent-manager.ts + index.ts + tests/agent-manager.test.ts)。
 
