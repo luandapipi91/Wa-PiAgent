@@ -660,11 +660,14 @@ export class AgentManager {
 }
 
 /**
- * 把 AgentConfig.model 字符串（如 "anthropic/claude-sonnet-4-5"）解析成 SDK Model 对象。
+ * 把模型字符串（如 "anthropic/claude-sonnet-4-5"）解析成 SDK Model 对象。
  *
- * SDK 的 resolveCliModel 没有从包根 export，只能从深层模块动态 import。
- * 这里用 import.meta.resolve 拿到 SDK 根路径，再推导出 model-resolver.js 的绝对路径。
- * 该路径在 SDK 0.80.x 验证有效；如果未来 SDK 改了内部结构，这里会抛 import 错误（fail-fast）。
+ * 必须从包根动态 import：bun build 会把字面量 specifier bundle 进 kernel.js，
+ * 保证 resolveCliModel 与 ModelRegistry 始终来自同一 bundle 内 SDK 版本。
+ * 历史上曾用 import.meta.resolve 深层 import dist/core/model-resolver.js，
+ * 但打包后它解析到首启安装的外部 node_modules 版本，与 bundle 内 SDK 版本错配
+ * （0.80.10 起 resolveCliModel 入参从 modelRegistry 改为 modelRuntime），
+ * 导致 "undefined is not an object (evaluating 'modelRuntime.getModels')"。
  */
 /** 构建 prompt 最终文本。snippet 直接内联；文件/图片统一用项目相对路径 @引用。 */
 interface PromptContent {
@@ -702,17 +705,8 @@ async function resolveModel(
   modelPattern: string,
   modelRegistry: any,
 ): Promise<any | undefined> {
-  // 从 SDK 根入口推导 model-resolver 模块路径。
-  // 必须直接对 import.meta.resolve 返回的 file:// URL 做字符串替换后再 import；
-  // 不能用 new URL(url).pathname —— 在 Windows 上它会把 "file:///H:/..." 转成
-  // "/H:/..."（带前导斜杠），导致 Bun 动态 import 报 "Cannot find module"。
-  // （POSIX 绝对路径本就以 / 开头，所以该写法历史上在 macOS/Linux 上恰好可用。）
-  const rootUrl = import.meta.resolve("@earendil-works/pi-coding-agent");
-  const resolverUrl = rootUrl.replace(
-    "/dist/index.js",
-    "/dist/core/model-resolver.js",
-  );
-  const { resolveCliModel } = await import(resolverUrl);
+  // 包根动态 import（bundle 内模块）；0.80.6 起包根已导出 resolveCliModel
+  const { resolveCliModel } = await import("@earendil-works/pi-coding-agent");
   const result = resolveCliModel({
     cliModel: modelPattern,
     modelRegistry,
