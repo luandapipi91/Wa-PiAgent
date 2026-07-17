@@ -155,6 +155,9 @@ export async function buildSidecar(target: "win" | "linux" | "darwin" | string) 
       "pi-mcp-adapter": "^2.11.0", "@modelcontextprotocol/sdk": "^1.29.0",
       typebox: "1.1.38",
     },
+    overrides: {
+      "@earendil-works/pi-ai": "0.80.10",
+    },
   }, null, 2));
   run("bun", ["install", "--cwd", kernelDir]);                              // 产出 bun.lock（--production 不生成锁文件）
   await rm(join(kernelDir, "node_modules"), { recursive: true, force: true });
