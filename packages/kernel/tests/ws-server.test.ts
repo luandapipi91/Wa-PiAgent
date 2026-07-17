@@ -290,6 +290,25 @@ test("session:delete 调 agentManager.disposeSession(sessionId) 清理 SDK sessi
   });
 });
 
+test("project:create 重复目录返回 error 事件且 kernel 不崩溃", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv) => {
+    send({ type: "project:create", name: "P", cwd: "/p" });
+    const created = await recv() as any;
+    expect(created.type).toBe("project:created");
+    // 同目录重复创建：期望收到 error 事件，而不是把 kernel 进程打崩
+    send({ type: "project:create", name: "P2", cwd: "/p" });
+    const err = await recv() as any;
+    expect(err.type).toBe("error");
+    expect(err.message).toContain("相同目录的项目已存在");
+    // 服务仍存活：后续请求正常响应
+    send({ type: "projects:list" });
+    const list = await recv() as any;
+    expect(list.type).toBe("projects:list");
+    expect(list.projects).toHaveLength(1);
+  });
+});
+
 test("project:open-dir 对不存在的项目不崩溃", async () => {
   const { agentManager } = makeMockAgentManager();
   await withServer(agentManager, async (send, _recv) => {

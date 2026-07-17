@@ -2,11 +2,9 @@ import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Sidebar } from "../src/components/Sidebar";
 import { useProjectsStore } from "../src/store/projects";
-import { useAgentsStore } from "../src/store/agents";
 
 beforeEach(() => {
   useProjectsStore.setState({ projects: [], sessions: [], currentProjectId: null, currentSessionId: null });
-  useAgentsStore.setState({ states: {}, configs: {} });
 });
 
 test("渲染四区容器 + 新建会话按钮", () => {

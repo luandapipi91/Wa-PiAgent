@@ -14,6 +14,6 @@ test("agentGradient 含两色", () => {
 
 test("STATUS_COLORS 三态", () => {
   expect(STATUS_COLORS.thinking).toBe("#5B5BD6");
-  expect(STATUS_COLORS.idle).toBe("#A1A1A6");
+  expect(STATUS_COLORS.idle).toBe("#34A853");
   expect(STATUS_COLORS.blocked).toBe("#B45309");
 });
