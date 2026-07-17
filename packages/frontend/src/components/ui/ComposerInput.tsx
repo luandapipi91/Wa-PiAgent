@@ -91,6 +91,7 @@ export function ComposerInput({
             id: m.path,
             name: m.name,
             path: m.path.startsWith(projectCwd) ? m.path.slice(projectCwd.length + 1) : m.path,
+            isDir: m.isDir,
           })));
         },
         onDone: () => {},

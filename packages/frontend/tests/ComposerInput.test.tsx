@@ -167,6 +167,30 @@ test("输入 @ 触发文件面板", () => {
   expect(searchCall).toBeTruthy();
 });
 
+test("@文件搜索结果中目录项传递 isDir 并显示文件夹图标", async () => {
+  renderComposer({ text: "打开 @src" });
+  // 获取搜索请求的 requestId
+  const searchCall = sendMock.mock.calls.find(([e]) => e.type === "fs:search");
+  expect(searchCall).toBeTruthy();
+  const requestId = searchCall[0].requestId;
+  // 模拟 kernel 返回包含目录的搜索结果
+  await waitFor(() => {
+    handlers.forEach(h => h({
+      type: "fs:search:progress",
+      requestId,
+      query: "src",
+      matches: [
+        { name: "src", isDir: true, path: "/proj/p1/src" },
+        { name: "App.tsx", isDir: false, path: "/proj/p1/src/App.tsx" },
+      ],
+    }));
+  });
+  // 文件夹图标应出现
+  expect(screen.getByText("📁")).toBeDefined();
+  // 文件图标也应出现
+  expect(screen.getByText("📄")).toBeDefined();
+});
+
 test("输入 $ 触发技能面板", () => {
   useSkillsStore.setState({
     allSkills: [

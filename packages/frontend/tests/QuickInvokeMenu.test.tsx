@@ -12,6 +12,11 @@ const fileItems: MenuItem[] = [
   { id: "/src/index.ts", name: "index.ts", path: "src/index.ts" },
 ];
 
+const mixedItems: MenuItem[] = [
+  { id: "/src/App.tsx", name: "App.tsx", path: "src/App.tsx", isDir: false },
+  { id: "/src/components", name: "components", path: "src/components", isDir: true },
+];
+
 const skillItems: MenuItem[] = [
   { id: "brainstorming", name: "brainstorming", description: "头脑风暴", source: { type: "builtin" } },
   { id: "pdf-tools", name: "pdf-tools", description: "PDF 工具", source: { type: "extension", name: "ext-pkg" } },
@@ -60,6 +65,14 @@ test("菜单容器宽度加宽（不再是最初的 400px）", () => {
   const menu = screen.getByTestId("quick-invoke-menu");
   expect(menu.className).not.toContain("w-[400px]");
   expect(menu.className).toContain("w-[560px]");
+});
+
+test("文件夹项显示 📁 图标，文件项显示 📄 图标", () => {
+  render(<QuickInvokeMenu type="file" items={mixedItems} highlightedIndex={0} onSelect={mock()} onHover={mock()} />);
+  // 文件项应显示 📄
+  expect(screen.getByText("📄")).toBeDefined();
+  // 文件夹项应显示 📁
+  expect(screen.getByText("📁")).toBeDefined();
 });
 
 test("高亮项变化时自动滚动到可视区域", () => {
