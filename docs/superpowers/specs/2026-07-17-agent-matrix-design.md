@@ -20,7 +20,7 @@
 | 思考档位 | 复用现有 `ThinkingSelector`：`off / mid / high / max`；`AgentConfig.thinking` 类型对齐为 `ThinkingLevel` |
 | 前 3 排序 | 最近使用（由会话 primaryAgent + updatedAt 推导，无新存储） |
 | 删除智能体 | 会话保留；发送消息时要求重选智能体 |
-| 调起机制 | 引入 `@gotgenes/pi-subagents`，**替换 pi-intercom** 作为内置扩展 |
+| 调起机制 | 引入 `@gotgenes/pi-subagents`，**替换 pi-intercom** 作为内置扩展；宿主 `delegate` customTool 经其 service API 调起，allowlist 强制生效 |
 | 提及符号 | **@ = 智能体，# = 文件（原 @ 文件能力迁移），$ = 技能（不变）** |
 | 对话中切换 | 会话顶部 pill 下拉切换（**带搜索**），切换前弹确认框"切换后所有缓存都会失效，是否继续"；确认后 SDK session 换体重建保留历史 |
 | 委托显示 | 复用 DelegateCard 橙色视觉，扩展 执行中/完成/可展开子过程 三态 |
@@ -55,10 +55,11 @@
 - `agent-manager.ts` 删除 intercom 会话名设置与 `bindExtensions` intercom 逻辑（约 L390-397）；subagents 扩展随 loader 内置加载
 
 ### 2.3 关系网注入与校验（自动委派）
+- **delegate customTool**：kernel 注册宿主控制工具 `delegate`（与 memory 工具同机制，经 `createAgentSession customTools` 注入），参数 `{ agent: string, task: string }`。执行时校验 `agent ∈ partners.askTo`，越权直接返回错误文本（不中断会话）；合法时经 `@gotgenes/pi-subagents` 的 typed service API（`getSubagentsService().spawn(agent, task)`）同步调起并返回结果
+- 扩展自带的 `subagent` 工具**不放入** SDK 工具 allowlist（`resolveAgentTools` 输出中剔除），LLM 只能走 delegate，allowlist 强制生效
 - 构建 SDK session 时（`_createSession`），把 `partners.askTo` 中每个智能体的 名称 + description + triggerKeywords 追加进系统提示词段：
-  "你可以通过 subagent 工具调起以下智能体：…；当用户消息涉及某智能体的触发关键词或其简介描述的话题时，优先调起对应智能体。"
-- subagent 工具调用时校验 `subagent_type` 是否在 askTo 内；越权返回错误结果（不中断会话）
-- askTo 为空 = 不可调起任何智能体
+  "你可以通过 delegate 工具调起以下智能体：…；当用户消息涉及某智能体的触发关键词或其简介描述的话题时，优先调起对应智能体。"
+- askTo 为空 = 不注册 delegate 工具
 - 关键词的命中判断由 LLM 基于提示词自行完成，kernel 不做关键词匹配逻辑
 
 ### 2.4 全局工具/技能清单
@@ -122,12 +123,12 @@
 - **$ = 技能**：保持不变
 - 兼容：存量消息文本中的 `@path` 不再作为 token 解析（仅纯文本），不迁移历史内容
 
-### 4.6 委托调用卡片（重构 DelegateCard.tsx，接入 subagent 工具）
-- 复用现有橙色视觉（`rgba(250,179,135,…)`），数据源从 intercom 参数改为 subagent 工具调用：
+### 4.6 委托调用卡片（重构 DelegateCard.tsx，接入 delegate 工具）
+- 复用现有橙色视觉（`rgba(250,179,135,…)`），数据源从 intercom 参数改为 `delegate` 工具调用（`{ agent, task }`）：
   - **执行中**：↪ 委派给 {头像+名称} + 转圈 + 任务摘要
   - **完成**：结果摘要以绿色左边线展示 + 耗时
-  - **可展开**：展开查看子智能体执行过程（工具调用步骤列表）
-- `MessageList.tsx` 为 subagent 工具调用注册专属渲染（不再走普通 ToolCallBlock）
+  - **可展开**：展开显示子智能体完整回复文本（v1 不含子过程步骤列表——child 会话事件不在父会话消息流中，无数据通道）
+- `MessageList.tsx` 为 delegate 工具调用注册专属渲染（不再走普通 ToolCallBlock）
 - `DelegateReceived.tsx`（intercom 收信卡片）删除
 
 ### 4.7 头像统一

@@ -1,0 +1,72 @@
+<h2>消息流中的「委托调用」卡片</h2>
+<p class="subtitle">复用现有 DelegateCard 的橙色视觉，适配 subagent 工具：显示 委派对象、任务、运行状态（进行中 → 完成）、结果摘要，可展开查看子智能体完整执行过程。</p>
+
+<style>
+.chat{width:520px;background:#12151a;border:1px solid #2a2e36;border-radius:14px;color:#c9d1d9;overflow:hidden;font-size:12px;margin:0 auto}
+.c-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #23272f}
+.c-head .tt{color:#e6e9ee;font-weight:600;font-size:13px}
+.c-head .agent-pill{display:flex;align-items:center;gap:6px;background:#1c2129;border:1px solid #2a2e36;border-radius:14px;padding:4px 10px;color:#a5b0bd}
+.c-body{padding:14px 16px}
+.msg-u{background:#1f2633;border-radius:10px;padding:8px 12px;margin:0 0 12px auto;max-width:80%;color:#dfe4ea;width:fit-content}
+.msg-a{color:#c9d1d9;line-height:1.7;margin-bottom:12px}
+.dlg{background:rgba(250,179,135,.08);border:1px solid rgba(250,179,135,.3);border-radius:10px;padding:10px 12px;margin:8px 0}
+.dlg-head{display:flex;align-items:center;gap:8px;color:#fab387;font-size:12px}
+.dlg-head .st{margin-left:auto;font-size:11px;display:flex;align-items:center;gap:5px}
+.spin{width:10px;height:10px;border:2px solid rgba(250,179,135,.35);border-top-color:#fab387;border-radius:50%;animation:sp 1s linear infinite;display:inline-block}
+@keyframes sp{to{transform:rotate(360deg)}}
+.dlg-task{margin-top:6px;color:#dfe4ea}
+.dlg-result{margin-top:8px;padding-left:10px;border-left:2px solid #a6e3a1}
+.dlg-result .rt{color:#a6e3a1;font-size:11px;margin-bottom:3px}
+.dlg-result .rc{color:#a5b0bd;line-height:1.6}
+.dlg-expand{margin-top:8px;color:#7d8590;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px}
+.dlg-expand:hover{color:#a5b0bd}
+.sub-thread{margin-top:8px;background:rgba(0,0,0,.25);border:1px solid #2a2e36;border-radius:8px;padding:8px 10px;font-size:11px;color:#8b93a3}
+.sub-thread .st-row{display:flex;gap:8px;padding:3px 0}
+.sub-thread .icn{flex:none}
+.cap{text-align:center;color:#8b93a3;font-size:12px;margin-top:12px}
+.mark{outline:2px solid #d29922;outline-offset:2px;border-radius:10px}
+</style>
+
+<div class="chat">
+  <div class="c-head"><div class="tt">多智能体矩阵重写</div><div class="agent-pill">💻 技术实现 ▾</div></div>
+  <div class="c-body">
+    <div class="msg-u">侧边栏改完了，找人 review 一下</div>
+    <div class="msg-a">好的，我先让 代码审查 过一遍这次改动，再汇总问题。</div>
+
+    <div class="dlg mark">
+      <div class="dlg-head">↪ 委派给 <b>🔍 代码审查</b><span class="st"><span class="spin"></span>执行中</span></div>
+      <div class="dlg-task">📋 任务：review AgentListSection 重构的 diff，关注可维护性</div>
+    </div>
+
+    <div class="dlg">
+      <div class="dlg-head">↪ 委派给 <b>🧪 质量验收</b><span class="st" style="color:#a6e3a1">✓ 完成 · 12s</span></div>
+      <div class="dlg-task">📋 任务：核对侧边栏交互是否符合验收标准</div>
+      <div class="dlg-result">
+        <div class="rt">✓ 质量验收 的回复</div>
+        <div class="rc">通过 4/5 项：右键菜单缺少「删除」的二次确认，建议补充……</div>
+      </div>
+      <div class="dlg-expand">▾ 展开子智能体执行过程（3 步工具调用）</div>
+    </div>
+
+    <div class="dlg">
+      <div class="dlg-head">↪ 委派给 <b>📋 需求设计</b><span class="st" style="color:#a6e3a1">✓ 完成 · 8s</span></div>
+      <div class="dlg-task">📋 任务：确认「更多智能体」入口的文案</div>
+      <div class="dlg-result">
+        <div class="rt">✓ 需求设计 的回复</div>
+        <div class="rc">建议用「更多智能体 (n)」，数字随总量变化……</div>
+      </div>
+      <div class="dlg-expand">▴ 收起子智能体执行过程</div>
+      <div class="sub-thread">
+        <div class="st-row"><span class="icn">🔧</span><span>read docs/spec.md</span></div>
+        <div class="st-row"><span class="icn">🔧</span><span>grep "更多智能体"</span></div>
+        <div class="st-row"><span class="icn">💬</span><span>输出建议文案…</span></div>
+      </div>
+    </div>
+
+    <div class="msg-a">两处委派都回来了：审查发现右键删除缺二次确认，我补一下。</div>
+  </div>
+</div>
+
+<p class="cap">黄框：执行中状态；下面两张：完成态（结果摘要 + 可展开子执行过程）</p>
+
+<p class="subtitle" style="margin-top:16px">终端回复：委托卡片的三种状态（执行中/完成/展开）这样可以吗？</p>
