@@ -152,7 +152,7 @@ export async function buildSidecar(target: "win" | "linux" | "darwin" | string) 
     dependencies: {
       "@earendil-works/pi-coding-agent": "^0.80.0", "pi-intercom": "^0.6.0",
       "pi-web-access": "^0.13.0", "@amaster.ai/pi-memory": "^0.1.5",
-      "pi-mcp-adapter": "^2.11.0", "@modelcontextprotocol/sdk": "^1.29.0",
+      "pi-mcp-adapter": "^2.11.0",
       typebox: "1.1.38",
     },
   }, null, 2));
