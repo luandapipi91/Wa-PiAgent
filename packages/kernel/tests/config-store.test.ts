@@ -34,6 +34,7 @@ test("saveAgent 持久化并可读回", async () => {
     description: "d", model: "m", thinking: "high", systemPromptMode: "replace",
     inheritProjectContext: true, inheritSkills: false, tools: ["read"],
     skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] },
+    triggerKeywords: [],
     systemPromptBody: "正文",
   });
   expect(errs).toEqual([]);
