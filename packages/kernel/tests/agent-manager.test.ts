@@ -81,7 +81,7 @@ function newProjectStore() {
   return new ProjectStore(tmpFile);
 }
 
-test("ensureStarted 创建 AgentSession 并设置 intercom 会话名", async () => {
+test("ensureStarted 创建 AgentSession 并订阅事件（不再设置 intercom 会话名）", async () => {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({
@@ -98,7 +98,7 @@ test("ensureStarted 创建 AgentSession 并设置 intercom 会话名", async () 
   const sdkSession = await am.ensureStarted(project.id, "dev", session.id);
 
   expect(sdkSession).toBe(fakeSession as AgentSession);
-  expect(fakeSession.setSessionName).toHaveBeenCalledWith(`${project.id}-dev-${session.id}`);
+  expect(fakeSession.setSessionName).not.toHaveBeenCalled();
   expect(fakeSession.subscribe).toHaveBeenCalledTimes(1);
 });
 
