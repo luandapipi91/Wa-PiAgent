@@ -6,6 +6,9 @@
 
 ## 2026-07-17
 
+### 修复
+- **动态插件升级点击后无反馈（卡一下直接成功）**：升级流程前后端均缺反馈机制——前端 `upgradePackage` 只发消息无 loading 状态，kernel `extension:upgrade` 不传 `onProgress`，升级期间 `applyProgress` 因无对应占位条目而丢弃进度、按钮无任何变化，直到 `extension:changed` 刷新版本号才「突然成功」。修复：(1) 前端 extensions store 新增 `upgrading` 状态，`upgradePackage` 标记升级中、`applyProgress` 更新升级进度、`setAll`(changed)/`setError` 清除标记；(2) `ExtensionSection` 升级中按钮变「⟳ 升级中…」并禁用防重复点击，卡片显示流式进度行；(3) kernel `npm-package-service.upgrade`/`extension-manager.upgrade` 增加 `onProgress` 透传，`ws-server` 升级期间流式推 `extension:progress`、成功后 reply `extension:changed`（与安装链路一致）。TDD 全程红绿：9 个新测试先行（前端 store 4 + 组件 2 + kernel npm-pkg/manager/ws 3），全绿；stash 基线对比确认未引入新 fail（frontend 9/kernel 4 均为既有）。影响：frontend(store/extensions.ts + components/settings/ExtensionSection.tsx + tests)；kernel(npm-package-service.ts + extension-manager.ts + ws-server.ts + tests)。
+
 ### 新增
 - **@ 文件选择支持文件夹**：`@` 快速唤起菜单现在同时展示文件和文件夹，并以 📁/📄 图标区分类型。后端 `searchFiles` 本已返回 `isDir` 字段，前端此前未使用该字段统一显示 📄 图标；现已将 `isDir` 传递至 `MenuItem`，由 `QuickInvokeMenu` 按类型切换图标。选中文件夹后生成 `@[文件夹路径]` chip token，与文件行为一致。影响：frontend(`QuickInvokeMenu.tsx` + `ComposerInput.tsx` + tests)。
 

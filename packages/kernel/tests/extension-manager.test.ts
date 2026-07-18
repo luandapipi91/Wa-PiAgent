@@ -78,7 +78,10 @@ test("parseExtensionInput 解析 CLI 格式", () => {
 const mockPkgService = {
   install: async (name: string, version?: string) => ({ version: "9.9.9" }),
   uninstall: async (_name: string) => {},
-  upgrade: async (name: string) => ({ version: "9.9.9" }),
+  upgrade: async (_name: string, onProgress?: (line: string) => void) => {
+    onProgress?.("mock upgrade progress");
+    return { version: "9.9.9" };
+  },
   getInstalledVersion: (_name: string) => "9.9.9" as string | undefined,
   getLatestVersion: async (_name: string) => "9.9.10" as string | undefined,
   getDescription: (_name: string) => "Mock description" as string | undefined,
@@ -323,6 +326,17 @@ test("upgrade happy-path：升级 npm 包并更新 settings 条目为新版本",
   // 旧条目被替换为新版本
   expect(settings.hiagent_packages).toContain("npm:test-pkg@9.9.9");
   expect(settings.hiagent_packages).not.toContain("npm:test-pkg@1.0.0");
+});
+
+test("upgrade 透传 onProgress 给 pkgService（流式进度回推）", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    hiagent_packages: ["npm:test-pkg@1.0.0"],
+  }), "utf8");
+  const lines: string[] = [];
+  const mgr = mockManager(dir);
+  await mgr.upgrade("test-pkg", (l) => lines.push(l));
+  expect(lines).toEqual(["mock upgrade progress"]);
 });
 
 test("git 来源生命周期：install→disable→enable→uninstall 按 bare name 查找（验证 fix #2）", async () => {

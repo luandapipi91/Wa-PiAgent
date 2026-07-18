@@ -112,3 +112,19 @@ test("NpmPackageService.install 把子进程输出按行流式回推", async () 
     rmSync(realDir, { recursive: true, force: true });
   }
 });
+
+// 升级流式回推：与 install 同样的 spawn 机制，验证 upgrade 也按行回推进度
+test("NpmPackageService.upgrade 把子进程输出按行流式回推", async () => {
+  const realDir = mkdtempSync(join(tmpdir(), "npm-svc-"));
+  try {
+    const script = "console.error('解析依赖'); console.error('升级 demo@2.0.0');";
+    const svc = new NpmPackageService(realDir, { npmCommand: ["bun", "-e", script] });
+    const lines: string[] = [];
+    await expect(
+      svc.upgrade("demo", (l) => lines.push(l)),
+    ).rejects.toThrow();
+    expect(lines).toEqual(["解析依赖", "升级 demo@2.0.0"]);
+  } finally {
+    rmSync(realDir, { recursive: true, force: true });
+  }
+});

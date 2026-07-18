@@ -73,8 +73,8 @@ export class NpmPackageService {
   }
 
   /** 升级 npm 包到最新版 */
-  async upgrade(name: string): Promise<{ version: string }> {
-    const { exitCode, stderr } = await this.spawn(["update", name]);
+  async upgrade(name: string, onProgress?: (line: string) => void): Promise<{ version: string }> {
+    const { exitCode, stderr } = await this.spawn(["update", name], onProgress);
     if (exitCode !== 0) {
       throw new Error(`升级失败: ${stderr || `exit code ${exitCode}`}`);
     }

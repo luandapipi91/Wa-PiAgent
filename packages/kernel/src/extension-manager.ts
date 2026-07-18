@@ -308,7 +308,7 @@ export class ExtensionManager {
     await this.writeSettings({ ...settings, hiagent_packages: updatedPkgs, hiagent_disabledPackages: updatedDisabled });
   }
 
-  async upgrade(name: string): Promise<PackageInfo> {
+  async upgrade(name: string, onProgress?: (line: string) => void): Promise<PackageInfo> {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
     const pkgs = settings.hiagent_packages ?? [];
@@ -332,7 +332,7 @@ export class ExtensionManager {
       throw new Error("本地路径插件不支持升级");
     }
 
-    const result = await this.pkgService.upgrade(name);
+    const result = await this.pkgService.upgrade(name, onProgress);
     const entry = `npm:${name}@${result.version}`;
     const updated = pkgs.map((p) => p === matched ? entry : p);
     await this.writeSettings({ ...settings, hiagent_packages: updated });

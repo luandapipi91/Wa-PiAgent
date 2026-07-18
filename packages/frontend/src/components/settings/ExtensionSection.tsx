@@ -8,6 +8,7 @@ export function ExtensionSection() {
   const {
     packages,
     installs,
+    upgrading,
     error,
     installPackage,
     uninstallPackage,
@@ -121,6 +122,17 @@ export function ExtensionSection() {
                   <p className="text-xs text-secondary mt-1 line-clamp-1">{pkg.description}</p>
                 )}
 
+                {/* 升级中：流式显示包管理器进度行 */}
+                {upgrading[pkg.name] !== undefined && (
+                  <p
+                    className="text-xs mt-1 line-clamp-1 font-mono"
+                    style={{ color: "var(--warning)" }}
+                    data-testid={`ext-upgrade-progress-${pkg.name}`}
+                  >
+                    {upgrading[pkg.name] || "正在升级…"}
+                  </p>
+                )}
+
                 {/* 启用/禁用开关：onClick 绑在 <label> 上，文字点击也能切换 */}
                 <label
                   className="flex items-center gap-2 mt-2 cursor-pointer"
@@ -160,12 +172,13 @@ export function ExtensionSection() {
               <div className="flex gap-1.5 flex-shrink-0">
                 {pkg.enabled && pkg.latestVersion && pkg.source === "npm" && (
                   <button
-                    className="px-2 py-1 text-xs rounded-sm font-medium"
+                    className="px-2 py-1 text-xs rounded-sm font-medium disabled:opacity-60"
                     style={{ background: "var(--warning-soft)", color: "var(--warning)", border: "1px solid #fcd34d" }}
                     onClick={() => upgradePackage(pkg.name)}
+                    disabled={upgrading[pkg.name] !== undefined}
                     data-testid={`ext-upgrade-${pkg.name}`}
                   >
-                    ⬆ 升级
+                    {upgrading[pkg.name] !== undefined ? "⟳ 升级中…" : "⬆ 升级"}
                   </button>
                 )}
                 <button
