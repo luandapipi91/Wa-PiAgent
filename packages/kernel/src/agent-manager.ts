@@ -176,6 +176,29 @@ export class AgentManager {
     return new Set(packages.filter((p) => p.enabled).map((p) => p.name));
   }
 
+  /** 全局工具清单：内置（DEFAULT_AGENT_TOOLS）+ 扩展动态发现，供详情弹窗勾选。
+   *  剔除 subagent（宿主不允许直接暴露，关系网调起走 delegate）。
+   *  扩展发现用一次性轻量 loader（不订阅事件、不建 session），失败时降级为只返回内置。 */
+  async listGlobalTools(): Promise<{ name: string; source: string }[]> {
+    const items = DEFAULT_AGENT_TOOLS
+      .filter((t) => t !== "subagent")
+      .map((name) => ({ name, source: "内置" }));
+    const seen = new Set(items.map((i) => i.name));
+    try {
+      const sdk = await import("@earendil-works/pi-coding-agent");
+      const loader = new sdk.DefaultResourceLoader({
+        cwd: process.cwd(),
+        agentDir: HIAGENT_DIR,
+        additionalExtensionPaths: buildAdditionalExtensionPaths([...(await this.getEnabledExtensionIds())]),
+      });
+      await loader.reload();
+      for (const t of extractRuntimeToolNames(loader)) {
+        if (!seen.has(t) && t !== "subagent") { seen.add(t); items.push({ name: t, source: "扩展" }); }
+      }
+    } catch { /* 发现失败时只返回内置 */ }
+    return items;
+  }
+
   /**
    * 命中缓存时：按 dirty 来源决定 reload 还是重建，返回当前生效的 session。
    * - skillDirty（skill 配置变更）→ 重建：additionalSkillPaths 构造时固定，reload 刷不进，必须重建 loader。

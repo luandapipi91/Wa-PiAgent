@@ -466,6 +466,26 @@ test("agent:create 非法名返回 error", async () => {
   });
 });
 
+// ─── Task 7: agent:tools:list 全局工具清单 ───
+// listGlobalTools 依赖真实 SDK loader 做扩展发现，用真实 AgentManager（configStore 可空）
+test("agent:tools:list 返回内置工具且不含 subagent", async () => {
+  const { AgentManager } = await import("../src/agent-manager");
+  const manager = new AgentManager({
+    projectStore: new ProjectStore(tmp("ws-proj.json")),
+    configStore: null,
+    onEvent: () => {},
+  });
+  await withServer(manager, async (send, recv) => {
+    send({ type: "agent:tools:list" });
+    const res = await recvUntil(recv, e => e.type === "agent:tools:list");
+    const names = res.tools.map((t: any) => t.name);
+    expect(names).toContain("read");
+    expect(names).toContain("delegate");
+    expect(names).not.toContain("subagent");
+    expect(res.tools.find((t: any) => t.name === "read").source).toBe("内置");
+  });
+});
+
 test("agent:config:save 改名联动会话 primaryAgent 与 askTo", async () => {
   const { agentManager } = makeMockAgentManager();
   await withServer(agentManager, async (send, recv, { configStore, projectStore }) => {
