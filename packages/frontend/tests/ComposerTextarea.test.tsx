@@ -11,17 +11,24 @@ test("渲染初始文本", () => {
   expect(screen.getByRole("textbox").textContent).toBe("hello");
 });
 
-test("渲染文件 chip", () => {
-  render(<ComposerTextarea text="看 @[App.tsx]" onTextChange={mock()} onKeyDown={mock()} onPaste={mock()} />);
-  const chip = screen.getByText("@App.tsx");
+test("渲染文件 chip（#[...]，绿色 chip-file）", () => {
+  render(<ComposerTextarea text="看 #[App.tsx]" onTextChange={mock()} onKeyDown={mock()} onPaste={mock()} />);
+  const chip = screen.getByText("#App.tsx");
   expect(chip.className).toContain("chip-file");
-  expect(chip.getAttribute("data-token")).toBe("@[App.tsx]");
+  expect(chip.getAttribute("data-token")).toBe("#[App.tsx]");
 });
 
 test("渲染技能 chip", () => {
   render(<ComposerTextarea text="用 $[brainstorm]" onTextChange={mock()} onKeyDown={mock()} onPaste={mock()} />);
   const chip = screen.getByText("$brainstorm");
   expect(chip.className).toContain("chip-skill");
+});
+
+test("渲染智能体 chip（@[...]，蓝色 chip-agent）", () => {
+  render(<ComposerTextarea text="@[代码审查] 帮我看看" onTextChange={mock()} onKeyDown={mock()} onPaste={mock()} />);
+  const chip = screen.getByText("@代码审查");
+  expect(chip.className).toContain("chip-agent");
+  expect(chip.getAttribute("data-token")).toBe("@[代码审查]");
 });
 
 test("输入时回调 onTextChange", () => {
@@ -45,14 +52,14 @@ test("外部 setText 清空时 DOM 同步更新", async () => {
 });
 
 test("chip 是不可编辑的", () => {
-  render(<ComposerTextarea text="@[file.ts]" onTextChange={mock()} onKeyDown={mock()} onPaste={mock()} />);
-  const chip = screen.getByText("@file.ts");
+  render(<ComposerTextarea text="#[file.ts]" onTextChange={mock()} onKeyDown={mock()} onPaste={mock()} />);
+  const chip = screen.getByText("#file.ts");
   expect(chip.getAttribute("contenteditable")).toBe("false");
 });
 
 test("chip 的 data-token 在 DOM 文本提取时保留", () => {
   const onTextChange = mock();
-  render(<ComposerTextarea text="@[file.ts] end" onTextChange={onTextChange} onKeyDown={mock()} onPaste={mock()} />);
+  render(<ComposerTextarea text="#[file.ts] end" onTextChange={onTextChange} onKeyDown={mock()} onPaste={mock()} />);
   const el = screen.getByRole("textbox") as HTMLElement;
   // 模拟在 chip 后输入
   el.focus();
@@ -60,5 +67,5 @@ test("chip 的 data-token 在 DOM 文本提取时保留", () => {
   el.appendChild(document.createTextNode(" more"));
   fireEvent.input(el);
   // onTextChange 应该收到 token + 新文本
-  expect(onTextChange).toHaveBeenCalledWith("@[file.ts] end more");
+  expect(onTextChange).toHaveBeenCalledWith("#[file.ts] end more");
 });

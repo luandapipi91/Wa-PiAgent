@@ -3,6 +3,7 @@ import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
 import { uploadFile, copyToUploads, searchFilesStream } from "../../fs-client";
 import { useProjectsStore } from "../../store/projects";
 import { useSkillsStore } from "../../store/skills";
+import { useAgentsStore } from "../../store/agents";
 import { ModelSelector } from "./ModelSelector";
 import { ThinkingSelector } from "./ThinkingSelector";
 import { AttachmentChip } from "./AttachmentChip";
@@ -27,6 +28,8 @@ interface Props {
   sendDisabled?: boolean;
   disabled?: boolean;
   placeholder?: string;
+  /** @ 选中智能体时回调（参数为智能体 name） */
+  onAgentMention?: (name: string) => void;
 }
 
 function readFileAsBase64(file: File): Promise<string> {
@@ -45,6 +48,7 @@ function readFileAsBase64(file: File): Promise<string> {
 export function ComposerInput({
   text, setText, model, setModel, thinking, setThinking,
   attachments, setAttachments, projectId, sessionId, onSend, sendDisabled, disabled, placeholder,
+  onAgentMention,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingUploads, setPendingUploads] = useState(0);
@@ -61,6 +65,7 @@ export function ComposerInput({
   const cancelSearchRef = useRef<(() => void) | null>(null);
 
   const allSkills = useSkillsStore(s => s.allSkills);
+  const allAgents = useAgentsStore(s => s.list);
 
   // 检测当前 text 的触发状态
   const trigger: TriggerResult | null = useMemo(() => detectTrigger(text), [text]);
@@ -71,7 +76,7 @@ export function ComposerInput({
   // text 变化时重置 dismissed（让面板有机会在新一次触发时再次出现）
   useEffect(() => { setDismissed(false); }, [text]);
 
-  // 文件搜索：@ 触发且有 projectCwd 时调用 searchFilesStream
+  // 文件搜索：# 触发且有 projectCwd 时调用 searchFilesStream
   useEffect(() => {
     if (triggerType !== "file" || !projectCwd) {
       setFileResults([]);
@@ -101,6 +106,22 @@ export function ComposerInput({
     return () => { cancel(); };
   }, [triggerType, trigger?.query, projectCwd]);
 
+  // @ 智能体列表过滤（按 displayName/description 匹配，token 用 name）
+  const agentItems: MenuItem[] = useMemo(() => {
+    if (triggerType !== "agent") return [];
+    const filtered = filterItems(
+      allAgents.map(a => ({ agent: a, name: a.displayName, description: a.description })),
+      trigger!.query,
+    );
+    return filtered.map(({ agent }) => ({
+      id: agent.name,
+      name: agent.displayName,
+      description: agent.description,
+      avatar: agent.avatar,
+      avatarColor: agent.avatarColor,
+    }));
+  }, [triggerType, trigger, allAgents]);
+
   // $ 技能列表过滤
   const skillItems: MenuItem[] = useMemo(() => {
     if (triggerType !== "skill") return [];
@@ -114,7 +135,7 @@ export function ComposerInput({
   }, [triggerType, trigger, allSkills]);
 
   // 当前面板列表项
-  const menuItems = triggerType === "file" ? fileResults : triggerType === "skill" ? skillItems : [];
+  const menuItems = triggerType === "agent" ? agentItems : triggerType === "file" ? fileResults : triggerType === "skill" ? skillItems : [];
 
   // 面板是否打开：有触发类型且未被 Esc 关闭
   const menuOpen = triggerType !== null && !dismissed;
@@ -201,10 +222,12 @@ export function ComposerInput({
 
   // 选中项处理：生成 chip token 插入 text，替换末尾的触发符 + 查询文本
   const handleSelect = useCallback((item: MenuItem) => {
-    const token = triggerType === "file"
-      ? `@[${item.path ?? item.name}]`
-      : `$[${item.name}]`;
-    const triggerSymbol = triggerType === "file" ? "@" : "$";
+    const token = triggerType === "agent"
+      ? `@[${item.id}]`
+      : triggerType === "file"
+        ? `#[${item.path ?? item.name}]`
+        : `$[${item.name}]`;
+    const triggerSymbol = triggerType === "agent" ? "@" : triggerType === "file" ? "#" : "$";
     const query = trigger?.query ?? "";
     // 从 text 末尾去掉触发符 + 查询文本，替换为 chip token + 空格
     const triggerRe = new RegExp(
@@ -214,7 +237,8 @@ export function ComposerInput({
       ? text.replace(triggerRe, token + " ")
       : text + token + " "; // fallback：直接追加
     setText(newText);
-  }, [triggerType, trigger, text, setText]);
+    if (triggerType === "agent") onAgentMention?.(item.id);
+  }, [triggerType, trigger, text, setText, onAgentMention]);
 
   // 键盘事件处理（面板打开时拦截导航键）
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -259,7 +283,7 @@ export function ComposerInput({
           highlightedIndex={highlightedIndex}
           onSelect={handleSelect}
           onHover={setHighlightedIndex}
-          emptyText={triggerType === "file" ? "无匹配文件" : "无匹配技能"}
+          emptyText={triggerType === "agent" ? "无匹配智能体" : triggerType === "file" ? "无匹配文件" : "无匹配技能"}
         />
       )}
       <div

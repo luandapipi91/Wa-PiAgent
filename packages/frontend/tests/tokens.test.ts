@@ -1,11 +1,11 @@
 import { test, expect } from "bun:test";
 import {
-  FILE_TOKEN_RE, SKILL_TOKEN_RE,
-  expandTokens, textToSegments, segmentsToText, textToHtml, escapeHtml,
+  FILE_TOKEN_RE, SKILL_TOKEN_RE, AGENT_TOKEN_RE,
+  expandTokens, extractAgentToken, textToSegments, segmentsToText, textToHtml, escapeHtml,
 } from "../src/quick-invoke/tokens";
 
-test("expandTokens 展开文件 token", () => {
-  expect(expandTokens("看这个 @[packages/App.tsx] 文件")).toBe("看这个 @packages/App.tsx 文件");
+test("expandTokens 展开文件 token（#[path] -> #path）", () => {
+  expect(expandTokens("看这个 #[packages/App.tsx] 文件")).toBe("看这个 #packages/App.tsx 文件");
 });
 
 test("expandTokens 展开技能 token 为 /skill:name + 空格（SDK _expandSkillCommand 用空格分隔技能名和参数）", () => {
@@ -17,15 +17,37 @@ test("expandTokens 技能后紧跟用户文字时加空格分隔", () => {
 });
 
 test("expandTokens 同时展开文件和技能 token", () => {
-  expect(expandTokens("@[a.tsx] 和 $[my-skill]")).toBe("@a.tsx 和 /skill:my-skill ");
+  expect(expandTokens("#[a.tsx] 和 $[my-skill]")).toBe("#a.tsx 和 /skill:my-skill ");
+});
+
+test("expandTokens 不处理 agent token（由 extractAgentToken 发送前剥离）", () => {
+  expect(expandTokens("@[代码审查] 帮我看看")).toBe("@[代码审查] 帮我看看");
 });
 
 test("expandTokens 无 token 时原样返回", () => {
   expect(expandTokens("普通文本")).toBe("普通文本");
 });
 
-test("textToSegments 拆分文本和 chip", () => {
-  const segs = textToSegments("hello @[file.ts] world");
+test("extractAgentToken 提取第一个 @智能体 token 并剥离", () => {
+  const r = extractAgentToken("@[代码审查] 帮我看看");
+  expect(r.agent).toBe("代码审查");
+  expect(r.rest).toBe("帮我看看");
+});
+
+test("extractAgentToken 无提及返回 null + 原文", () => {
+  const r = extractAgentToken("没有提及");
+  expect(r.agent).toBeNull();
+  expect(r.rest).toBe("没有提及");
+});
+
+test("extractAgentToken 只取第一个 token，其余保留在 rest", () => {
+  const r = extractAgentToken("@[甲] 找 @[乙] 聊聊");
+  expect(r.agent).toBe("甲");
+  expect(r.rest).toBe("找 @[乙] 聊聊");
+});
+
+test("textToSegments 拆分文本和文件 chip（#[]）", () => {
+  const segs = textToSegments("hello #[file.ts] world");
   expect(segs).toEqual([
     { type: "text", value: "hello " },
     { type: "file", value: "file.ts" },
@@ -38,8 +60,16 @@ test("textToSegments 识别技能 chip", () => {
   expect(segs).toEqual([{ type: "skill", value: "my-skill" }]);
 });
 
+test("textToSegments 识别 agent chip（@[]）", () => {
+  const segs = textToSegments("@[代码审查] 帮我看看");
+  expect(segs).toEqual([
+    { type: "agent", value: "代码审查" },
+    { type: "text", value: " 帮我看看" },
+  ]);
+});
+
 test("segmentsToText 与 textToSegments 可逆", () => {
-  const original = "看 @[a.ts] 和 $[skill]";
+  const original = "看 #[a.ts] 和 $[skill] 加 @[pm]";
   const segs = textToSegments(original);
   expect(segmentsToText(segs)).toBe(original);
 });
@@ -49,9 +79,9 @@ test("escapeHtml 转义 HTML 特殊字符", () => {
 });
 
 test("textToHtml 渲染文件 chip 为 span", () => {
-  const html = textToHtml("@[App.tsx]");
-  expect(html).toContain("data-token=\"@[App.tsx]\"");
-  expect(html).toContain("@App.tsx");
+  const html = textToHtml("#[App.tsx]");
+  expect(html).toContain("data-token=\"#[App.tsx]\"");
+  expect(html).toContain("#App.tsx");
   expect(html).toContain("chip-file");
 });
 
@@ -60,6 +90,13 @@ test("textToHtml 渲染技能 chip 为 span", () => {
   expect(html).toContain("data-token=\"$[brainstorm]\"");
   expect(html).toContain("$brainstorm");
   expect(html).toContain("chip-skill");
+});
+
+test("textToHtml 渲染 agent chip 为 span（chip-agent 蓝色）", () => {
+  const html = textToHtml("@[代码审查]");
+  expect(html).toContain("data-token=\"@[代码审查]\"");
+  expect(html).toContain("@代码审查");
+  expect(html).toContain("chip-agent");
 });
 
 test("textToHtml 转义普通文本中的 HTML", () => {
