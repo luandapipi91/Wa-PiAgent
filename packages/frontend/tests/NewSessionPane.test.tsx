@@ -1,11 +1,20 @@
 import { describe, it, expect, vi, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import type { AgentConfig } from "@hiagent/shared";
 import { useProjectsStore } from "../src/store/projects";
+import { useAgentsStore } from "../src/store/agents";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useProvidersStore } from "../src/store/providers";
 import { useRecordingStore } from "../src/store/recording";
 import { _setRecordingManager } from "../src/recording/recorder";
 import { useSkillsStore } from "../src/store/skills";
+
+const agentCfg = (name: string, displayName = name): AgentConfig => ({
+  name, displayName, avatar: "", avatarColor: "", description: "",
+  model: "m", thinking: "medium", systemPromptMode: "replace",
+  inheritProjectContext: true, inheritSkills: true,
+  tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [],
+});
 
 // 把文本写入 contenteditable textbox 并触发 input 事件（替代原 textarea 的 fireEvent.change）
 function typeIntoComposer(value: string) {
@@ -73,6 +82,10 @@ describe("NewSessionPane", () => {
       defaults: { model: null, thinking: "disabled" },
       bySession: {},
       newSessionIds: {},
+    });
+    // 默认喂 4 个内置智能体（模拟 kernel agent:list 已返回），单独测试可覆盖为空
+    useAgentsStore.setState({
+      list: [agentCfg("product", "需求设计"), agentCfg("pm", "项目管理"), agentCfg("dev", "技术实现"), agentCfg("test", "质量验收")],
     });
     useRecordingStore.setState({
       status: "idle",
@@ -290,5 +303,31 @@ describe("NewSessionPane", () => {
     expect(list.textContent).toContain("录音 0:05.webm");
     // 附件必须写入当前可见的新建会话，而不是旧的随机 sessionId
     expect(useComposerPrefsStore.getState().bySession[owningSessionId]?.attachments?.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("agent 下拉来自 agents store，pendingAgent 预选", () => {
+    useAgentsStore.setState({ list: [agentCfg("需求设计"), agentCfg("代码审查")] });
+    render(<NewSessionPane pendingAgent="代码审查" />);
+    const sel = screen.getByTestId("agent-select") as HTMLSelectElement;
+    expect(sel.value).toBe("代码审查");
+    // 下拉选项展示 store 里的 displayName（含 agentDefOf 回退 emoji）
+    expect(screen.getByText(/需求设计/)).toBeTruthy();
+  });
+
+  it("pendingAgent 变化时同步到下拉（已挂载新建页再点智能体）", () => {
+    useAgentsStore.setState({ list: [agentCfg("dev", "技术实现"), agentCfg("代码审查")] });
+    const { rerender } = render(<NewSessionPane />);
+    // 无 pendingAgent 时默认取列表第一项
+    expect((screen.getByTestId("agent-select") as HTMLSelectElement).value).toBe("dev");
+    rerender(<NewSessionPane pendingAgent="代码审查" />);
+    expect((screen.getByTestId("agent-select") as HTMLSelectElement).value).toBe("代码审查");
+  });
+
+  it("agents list 为空时下拉禁用并显示（无智能体）", () => {
+    useAgentsStore.setState({ list: [] });
+    render(<NewSessionPane />);
+    const sel = screen.getByTestId("agent-select") as HTMLSelectElement;
+    expect(sel.disabled).toBe(true);
+    expect(screen.getByText(/无智能体/)).toBeTruthy();
   });
 });
