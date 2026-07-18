@@ -50,13 +50,18 @@ function makeMockAgentManager(messages: AgentMessage[] = []) {
     },
     disposeAll: async () => {},
     markAllDirty: () => {},
+    renameAgentSessions: (_oldName: string, _newName: string) => {},
   } as any;
   return { agentManager, calls };
 }
 
 async function withServer<T>(
   agentManager: any,
-  fn: (send: (e: WSClientEvent) => void, recv: () => Promise<WSServerEvent>) => Promise<T>,
+  fn: (
+    send: (e: WSClientEvent) => void,
+    recv: () => Promise<WSServerEvent>,
+    stores: { configStore: ConfigStore; projectStore: ProjectStore },
+  ) => Promise<T>,
 ): Promise<T> {
   const configStore = new ConfigStore(tmp("ws-cfg"));
   const projectStore = new ProjectStore(tmp("ws-proj.json"));
@@ -85,7 +90,7 @@ async function withServer<T>(
     while (queue.length === 0) await new Promise(r => setTimeout(r, 20));
     return queue.shift()!;
   };
-  try { return await fn(send, recv); }
+  try { return await fn(send, recv, { configStore, projectStore }); }
   finally { ws.close(); await server.stop(); }
 }
 
@@ -423,5 +428,62 @@ test("agent:answer 对未知 toolCallId 幂等（不抛错、不影响）", asyn
   await withServer(agentManager, async (send) => {
     send({ type: "agent:answer", sessionId: "s1", toolCallId: "unknown", reply: { replies: [] } });
     await new Promise(r => setTimeout(r, 50));  // 不崩溃即通过
+  });
+});
+
+// ─── Task 4: agent CRUD + 改名联动 ───
+// create/delete 会顺带广播 agent:list，队列里可能有残留，按条件循环消费
+async function recvUntil(recv: () => Promise<WSServerEvent>, pred: (e: any) => boolean): Promise<any> {
+  for (;;) {
+    const e = await recv() as any;
+    if (pred(e)) return e;
+  }
+}
+
+test("agent:list/create/delete 全流程", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv) => {
+    send({ type: "agent:create", displayName: "测试员甲" });
+    const created = await recvUntil(recv, e => e.type === "agent:created");
+    expect(created.agent.name).toBe("测试员甲");
+    send({ type: "agent:list" });
+    const list = await recvUntil(recv, e => e.type === "agent:list" && e.agents.some((a: any) => a.name === "测试员甲"));
+    expect(list.agents.some((a: any) => a.name === "测试员甲")).toBe(true);
+    send({ type: "agent:delete", name: "测试员甲" });
+    await recvUntil(recv, e => e.type === "agent:deleted");
+    send({ type: "agent:list" });
+    const list2 = await recvUntil(recv, e => e.type === "agent:list");
+    expect(list2.agents.some((a: any) => a.name === "测试员甲")).toBe(false);
+  });
+});
+
+test("agent:create 非法名返回 error", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv) => {
+    send({ type: "agent:create", displayName: "a/b" });
+    const err = await recvUntil(recv, e => e.type === "error");
+    expect(err.message).toContain("非法 name");
+  });
+});
+
+test("agent:config:save 改名联动会话 primaryAgent 与 askTo", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv, { configStore, projectStore }) => {
+    await configStore.createAgent("旧名");
+    await configStore.createAgent("乙");
+    const yi = (await configStore.getAgent("乙"))!;
+    await configStore.saveAgent({ ...yi, partners: { askTo: ["旧名"], askFrom: [] } });
+    const proj = await projectStore.createProject({ name: "p", cwd: "/tmp/x" });
+    const sess = await projectStore.createSession({ projectId: proj.id, primaryAgent: "旧名", title: "t" });
+    const cfg = (await configStore.getAgent("旧名"))!;
+    send({ type: "agent:config:save", agentName: "旧名", config: { ...cfg, name: "新名" } });
+    // 改名分支最后广播 agent:list，收到即说明联动已落盘
+    await recvUntil(recv, e => e.type === "agent:list");
+    const { sessions } = await projectStore.load();
+    expect(sessions.find(s => s.id === sess.id)!.primaryAgent).toBe("新名");
+    expect(await configStore.getAgent("旧名")).toBeNull();
+    expect(await configStore.getAgent("新名")).not.toBeNull();
+    const yi2 = (await configStore.getAgent("乙"))!;
+    expect(yi2.partners.askTo).toEqual(["新名"]);
   });
 });

@@ -162,6 +162,9 @@ export class AgentManager {
     for (const id of this.sessions.keys()) this.skillDirty.add(id);
   }
 
+  /** 重命名联动（Task 8 补全重建逻辑） */
+  renameAgentSessions(_oldName: string, _newName: string): void {}
+
   /**
    * 读取当前启用的可选插件 id 集合，供 resolveAgentTools 过滤工具 allowlist。
    * 无 extensionManager 时返回空集（resolveAgentTools 不过滤任何工具），保持测试兼容。

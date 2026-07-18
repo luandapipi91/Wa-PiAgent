@@ -416,12 +416,58 @@ export class WSServer {
         this.opts.agentManager.clearFollowUpQueue(event.sessionId);
         break;
       }
+      case "agent:list": {
+        reply({ type: "agent:list", agents: await this.opts.configStore.listAgents() });
+        break;
+      }
+      case "agent:create": {
+        try {
+          const agent = await this.opts.configStore.createAgent(event.displayName);
+          reply({ type: "agent:created", agent });
+          this.broadcast({ type: "agent:list", agents: await this.opts.configStore.listAgents() });
+        } catch (err) {
+          reply({ type: "error", message: err instanceof Error ? err.message : String(err) });
+        }
+        break;
+      }
+      case "agent:delete": {
+        try {
+          await this.opts.configStore.deleteAgent(event.name);
+          reply({ type: "agent:deleted", name: event.name });
+          this.broadcast({ type: "agent:list", agents: await this.opts.configStore.listAgents() });
+        } catch (err) {
+          reply({ type: "error", message: err instanceof Error ? err.message : String(err) });
+        }
+        break;
+      }
       case "agent:config:get": {
         const config = await this.opts.configStore.getAgent(event.agentName) ?? makeDefaultAgentConfig(event.agentName);
         reply({ type: "agent:config", agentName: event.agentName, config });  // 定向
         break;
       }
       case "agent:config:save": {
+        // 改名（agentName 为旧名，config.name 为新名）：走 renameAgent 并联动会话与关系网
+        if (event.agentName !== event.config.name) {
+          const errs = await this.opts.configStore.renameAgent(event.agentName, event.config);
+          if (errs.length > 0) { reply({ type: "error", message: errs.join("；") }); break; }
+          // 联动：会话 primaryAgent 批量改
+          const { sessions } = await this.opts.projectStore.load();
+          for (const s of sessions.filter(x => x.primaryAgent === event.agentName)) {
+            await this.opts.projectStore.setSessionAgent(s.id, event.config.name);
+          }
+          // 联动：其他 agent 的 partners.askTo 中旧名替换为新名
+          for (const a of await this.opts.configStore.listAgents()) {
+            if (a.name !== event.config.name && a.partners.askTo.includes(event.agentName)) {
+              a.partners.askTo = a.partners.askTo.map(n => n === event.agentName ? event.config.name : n);
+              await this.opts.configStore.saveAgent(a);
+            }
+          }
+          this.opts.agentManager.renameAgentSessions(event.agentName, event.config.name);
+          const data = await this.opts.projectStore.load();
+          this.broadcast({ type: "projects:list", projects: data.projects, sessions: data.sessions });
+          this.broadcast({ type: "agent:list", agents: await this.opts.configStore.listAgents() });
+          break;
+        }
         const errs = await this.opts.configStore.saveAgent(event.config);
         if (errs.length) reply({ type: "error", message: errs.join("; ") });
         break;
