@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useToastStore } from "../store/toast";
+import { DelegateCard } from "./blocks/DelegateCard";
 
 const EMPTY: SessionMessage[] = [];
 
@@ -479,9 +480,13 @@ function ToolCallGroup({ toolCalls, results, isStreaming }: { toolCalls: any[]; 
       </button>
       {open && (
         <div className="mt-1 pl-3 border-l-2 border-hairline space-y-1">
-          {toolCalls.map((tc: any, i: number) => (
-            <ToolCallBlock key={i} toolCall={tc} result={results.get(tc.id)} />
-          ))}
+          {toolCalls.map((tc: any, i: number) =>
+            tc.name === "delegate" ? (
+              <DelegateCard key={tc.id} toolCall={tc} result={results.get(tc.id)} />
+            ) : (
+              <ToolCallBlock key={i} toolCall={tc} result={results.get(tc.id)} />
+            )
+          )}
         </div>
       )}
     </div>
