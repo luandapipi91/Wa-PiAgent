@@ -24,10 +24,13 @@ function parseYaml(text: string): Record<string, unknown> {
           i++;
         }
         result[key] = partners;
-      } else {
+      } else if (i + 1 < lines.length && lines[i + 1].startsWith("  ")) {
         // 跳过未知嵌套块
         i++;
         while (i < lines.length && lines[i].startsWith("  ")) i++;
+      } else {
+        // 空值标量（如空 description）
+        result[key] = "";
       }
     } else {
       result[key] = parseScalar(val);
