@@ -6,6 +6,7 @@ import { SessionView } from "./components/SessionView";
 import { EmptyState } from "./components/EmptyState";
 import { AgentConfig } from "./components/AgentConfig";
 import { AgentGalleryModal } from "./components/AgentGalleryModal";
+import { AgentMissingModal } from "./components/AgentMissingModal";
 import { DirTreePicker } from "./components/DirTreePicker";
 import { SettingsModal } from "./components/SettingsModal";
 import { useSettingsStore } from "./store/settings";
@@ -34,6 +35,8 @@ export function App() {
   const [galleryOpen, setGalleryOpen] = useState(false);
   // 侧栏/宫格「新建会话」预选的智能体，传给 NewSessionPane
   const [pendingAgent, setPendingAgent] = useState<string | null>(null);
+  // 主智能体已删除的会话 id：kernel 回 agent_missing 时打开重选弹窗
+  const [agentMissingSessionId, setAgentMissingSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     getWs();
@@ -57,6 +60,8 @@ export function App() {
           // kernel/pi 错误：注入出错的会话作为系统错误消息（红色显示）。
           // 优先用事件携带的 sessionId 精确路由；缺省回落 currentSessionId。
           const sid = e.sessionId ?? useProjectsStore.getState().currentSessionId;
+          // 会话主智能体已删除：打开重选弹窗（错误消息照常注入，提示用户重发）
+          if (e.message === "agent_missing" && e.sessionId) setAgentMissingSessionId(e.sessionId);
           if (sid) {
             // agent 启动失败（如 No API key）：agent 从未启动、不会有 agent_end，
             // 必须手动复位 thinking 状态，否则会话永远卡在「思考中」且停止按钮无效
@@ -141,7 +146,7 @@ export function App() {
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {view === "empty" && <EmptyState onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }} />}
-        {view === "new-session" && <NewSessionPane pendingAgent={pendingAgent} />}
+        {view === "new-session" && <NewSessionPane pendingAgent={pendingAgent} onConsumePendingAgent={() => setPendingAgent(null)} />}
         {view === "session" && currentSessionId && <SessionView sessionId={currentSessionId} />}
       </main>
       {galleryOpen && (
@@ -153,6 +158,9 @@ export function App() {
         />
       )}
       {configAgent && <AgentConfig agentName={configAgent} onClose={() => setConfigAgent(null)} />}
+      {agentMissingSessionId && (
+        <AgentMissingModal sessionId={agentMissingSessionId} onClose={() => setAgentMissingSessionId(null)} />
+      )}
       {useProjectsStore(s => s.dirPickerOpen) && (
         <DirTreePicker
           onPick={(cwd) => useProjectsStore.getState().createProjectFromPath(cwd)}
