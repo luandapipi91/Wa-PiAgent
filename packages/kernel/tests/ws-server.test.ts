@@ -580,6 +580,19 @@ test("agent:config:save 改名联动会话 primaryAgent 与 askTo", async () => 
   });
 });
 
+// Task 18：非改名保存也需广播 agent:list，否则其他客户端/列表看不到简介等变更
+test("agent:config:save 非改名路径广播 agent:list", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv, { configStore }) => {
+    await configStore.createAgent("甲");
+    const cfg = (await configStore.getAgent("甲"))!;
+    send({ type: "agent:config:save", agentName: "甲", config: { ...cfg, description: "新简介" } });
+    const list = await recvUntil(recv, e => e.type === "agent:list");
+    const jia = list.agents.find((a: any) => a.name === "甲");
+    expect(jia.description).toBe("新简介");
+  });
+});
+
 // ─── Task 8: session:set-agent 换体 + agent_missing 拦截 ───
 
 test("session:set-agent 更新并广播 session:updated", async () => {

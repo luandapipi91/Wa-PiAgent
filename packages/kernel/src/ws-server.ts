@@ -495,7 +495,8 @@ export class WSServer {
           break;
         }
         const errs = await this.opts.configStore.saveAgent(event.config);
-        if (errs.length) reply({ type: "error", message: errs.join("; ") });
+        if (errs.length) { reply({ type: "error", message: errs.join("; ") }); break; }
+        this.broadcast({ type: "agent:list", agents: await this.opts.configStore.listAgents() });
         break;
       }
       case "fs:home": {
