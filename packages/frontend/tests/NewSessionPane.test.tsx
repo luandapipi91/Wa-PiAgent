@@ -330,4 +330,27 @@ describe("NewSessionPane", () => {
     expect(sel.disabled).toBe(true);
     expect(screen.getByText(/无智能体/)).toBeTruthy();
   });
+
+  it("空智能体列表：无有效选中值且发送被阻止（不回退到死智能体 dev）", async () => {
+    useAgentsStore.setState({ list: [] });
+    await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
+    useProvidersStore.setState({
+      providers: [
+        { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
+      ],
+    });
+    render(<NewSessionPane />);
+    await waitFor(() => {
+      expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
+    });
+    // agentName 应为空，而不是回退到列表里已不存在的 "dev"
+    const sel = screen.getByTestId("agent-select") as HTMLSelectElement;
+    expect(sel.value).toBe("");
+    // 输入文本后发送按钮仍禁用，点击也不会发出 agent:prompt
+    typeIntoComposer("hello");
+    const btn = screen.getByTestId("composer-send") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(sendMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent:prompt" }));
+  });
 });

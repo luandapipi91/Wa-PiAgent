@@ -7,6 +7,7 @@
 ## 2026-07-18
 
 ### 修复
+- **Task 16 评审修复（多智能体矩阵）**：(1) 空智能体列表一致性——NewSessionPane 初始值 `?? "dev"` 改 `?? null`（类型 `AgentName | null`），`handleSend` 前置条件加 agentName 非空、composer `sendDisabled` 联动，不再向死智能体发 prompt 产生 agent_missing 死会话；(2) agent_missing 重选流程——App error 分支检测 `message === "agent_missing"` 且带 sessionId 时打开新组件 AgentMissingModal（testid `agent-missing-modal` / `agent-missing-item-<name>`），列出全部智能体（头像+名称），点击即发 `session:set-agent`（恢复流程不弹缓存确认框），文案提示「请重新选择智能体后重发消息」；(3) pendingAgent 消费后清除——App 传 `onConsumePendingAgent`，NewSessionPane 挂载取用初始值后 effect 回调一次清除，再次进新建页不再预选旧值（已挂载再点智能体的 rerender 锁死用例不受影响）。TDD：3 条新测试先行失败（stash 基线验证 RED），实现后 17/17 通过；全量 520 pass / 9 fail 为既有 store-mcp/skills；tsc EXIT=0。影响：frontend(App.tsx + NewSessionPane.tsx + components/AgentMissingModal.tsx + tests)。
 - **AgentGalleryModal 评审修复（多智能体矩阵 Task 11）**：(1) Props `onCreated` 补乐观打开契约注释（同一 WS 连接 kernel 顺序处理，`agent:create` 写盘先于随后的 `agent:config:get`，消费者可立即打开详情弹窗）；(2) 右键菜单打开时按 ESC 不再连同弹窗一起关闭——菜单 ESC 监听（document 级）加 `stopPropagation()` 阻止冒泡到 Modal 的 window 级监听。TDD：先写「菜单打开时 ESC 只关菜单不关弹窗」失败测试（onClose 被调 1 次），修复后 7/7 通过。影响：frontend(components/AgentGalleryModal.tsx + tests/AgentGalleryModal.test.tsx)。
 
 ### 新增
