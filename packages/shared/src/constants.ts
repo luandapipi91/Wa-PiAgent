@@ -66,6 +66,8 @@ export const DEFAULT_AGENT_TOOLS = [
   "memory_read",
   "session_search",
   "ask_user_question",
+  // delegate：宿主关系网调起工具（customTools 注入）
+  "delegate",
 ];
 
 /** 动态插件注册的工具登记表（运行时按插件启用态注入 agent allowlist）。
@@ -92,6 +94,8 @@ export function resolveAgentTools(
   toolMap: Record<string, string[]> = EXTENSION_TOOL_MAP,
   harvestedTools: Iterable<string> = [],
 ): string[] {
+  // 扩展原生 subagent 工具永不放行：LLM 只能走宿主 delegate 工具（allowlist 强制）
+  const BLOCKED = new Set(["subagent"]);
   const seen = new Set(baseTools);
   const result = [...baseTools];
   for (const [extId, extTools] of Object.entries(toolMap)) {
@@ -111,7 +115,7 @@ export function resolveAgentTools(
       result.push(t);
     }
   }
-  return result;
+  return result.filter(t => !BLOCKED.has(t));
 }
 
 /** 按名取 AgentDef，未知名回退默认（动态智能体没有内置定义） */

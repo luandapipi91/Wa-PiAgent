@@ -3,7 +3,7 @@
 // 设计要点：
 // - 用 Map<sessionId, AgentSession> 管理生命周期（不再用 projectId:agentName:sessionId 三 key）
 // - 通过 createAgentSessionFn 注入 createAgentSession（测试用 mock，生产用真实 SDK）
-// - ensureStarted 里调 session.setSessionName() 设置 pi-intercom 会话名
+// - ensureStarted 里通过 bindExtensions 触发扩展的 session_start 钩子
 // - session.subscribe() 把 SDK 事件转发给上层 onEvent
 //
 // 依赖注入：
@@ -114,7 +114,7 @@ export class AgentManager {
 
   /**
    * 启动或复用一个 AgentSession。
-   * 同 sessionId 命中 Map 缓存则直接返回；否则创建新 session、设置 intercom 会话名、订阅事件。
+   * 同 sessionId 命中 Map 缓存则直接返回；否则创建新 session、绑定扩展、订阅事件。
    * 并发调用时共享同一个创建 Promise，避免重复创建 SDK session 导致 jsonl 文件 EEXIST。
    */
   async ensureStarted(
@@ -389,10 +389,7 @@ export class AgentManager {
       // SDK 内部结构不符时不注入但不崩溃（降级）
     }
 
-    // 设置 pi-intercom 会话名（对齐原 RPC --name 参数，格式：projectId-agentName-sessionId）
-    session.setSessionName(`${projectId}-${agentName}-${sessionId}`);
-
-    // 绑定扩展：触发 session_start，让 pi-intercom / pi-web-access 等扩展加载持久状态。
+    // 绑定扩展：触发 session_start，让 pi-subagents / pi-web-access 等扩展加载持久状态。
     // 记忆不再走扩展（改由 customTools + 提示词快照），但其余扩展仍需 bindExtensions 初始化。
     // 测试用 mock session 可能没有该方法，加存在性保护。
     if (typeof (session as any).bindExtensions === "function") {
