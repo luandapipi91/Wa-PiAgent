@@ -27,6 +27,8 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
   useEffect(() => { if (currentProjectId) setProjectId(currentProjectId); }, [currentProjectId]);
   // pendingAgent 变化时同步（已停在新建页再点侧栏/宫格智能体，组件不会重新挂载）
   useEffect(() => { if (pendingAgent) setAgentName(pendingAgent); }, [pendingAgent]);
+  // 首载 agent:list 回包晚于挂载：list 空转非空且 agentName 仍为 null 时回填（沿用 pendingAgent 优先级）；已选中则不干预
+  useEffect(() => { if (!agentName && agents.length > 0) setAgentName(pendingAgent ?? agents[0]?.name ?? null); }, [agents, agentName, pendingAgent]);
   // 挂载消费一次：初始值取用后通知 App 清除 pendingAgent（空依赖，仅首次挂载）
   useEffect(() => { if (pendingAgent) onConsumePendingAgent?.(); }, []);
   // 新建会话的 sessionId 按当前项目持久化，切换再回来仍能对应同一组 composer 附件/录音

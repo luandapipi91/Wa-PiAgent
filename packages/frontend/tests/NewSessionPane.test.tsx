@@ -331,6 +331,31 @@ describe("NewSessionPane", () => {
     expect(screen.getByText(/无智能体/)).toBeTruthy();
   });
 
+  it("agent:list 空转非空时回填选中项为列表第一项，发送解禁", async () => {
+    // 首次加载 agents store 为空（agent:list 回包未到），以空列表挂载
+    useAgentsStore.setState({ list: [] });
+    await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
+    useProvidersStore.setState({
+      providers: [
+        { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
+      ],
+    });
+    render(<NewSessionPane />);
+    await waitFor(() => {
+      expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
+    });
+    typeIntoComposer("hello");
+    // agentName 为 null，发送禁用（不能断言 select.value：无匹配 option 时 DOM 会回落显示首项，掩盖真实 state）
+    const btn = screen.getByTestId("composer-send") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    // 回包到达后灌入列表，应自动回填第一项为选中智能体，发送解禁
+    act(() => {
+      useAgentsStore.setState({ list: [agentCfg("dev", "技术实现"), agentCfg("test", "质量验收")] });
+    });
+    expect(btn.disabled).toBe(false);
+    expect((screen.getByTestId("agent-select") as HTMLSelectElement).value).toBe("dev");
+  });
+
   it("空智能体列表：无有效选中值且发送被阻止（不回退到死智能体 dev）", async () => {
     useAgentsStore.setState({ list: [] });
     await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
