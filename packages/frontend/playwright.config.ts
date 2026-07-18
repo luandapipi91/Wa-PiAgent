@@ -10,6 +10,11 @@ export const E2E_HIAGENT_DIR = join(
 );
 mkdirSync(E2E_HIAGENT_DIR, { recursive: true });
 
+// E2E kernel WS 端口：本机已跑着真实 kernel（9776）时用 HIAGENT_E2E_WS_PORT 偏移，
+// 避免 globalSetup 误连真实 kernel、测试污染真实数据。默认 9776 与既有行为一致。
+// vite.config.ts 已将 HIAGENT_WS_PORT 注入前端 bundle（WS_PORT）与 /file 代理，全链路同步偏移。
+export const E2E_WS_PORT = Number(process.env.HIAGENT_E2E_WS_PORT) || 9776;
+
 export default defineConfig({
   testDir: "./e2e",
   use: { baseURL: "http://localhost:5180", headless: true },
@@ -20,6 +25,6 @@ export default defineConfig({
     command: "bun run dev",
     url: "http://localhost:5180",
     reuseExistingServer: !process.env.CI,
-    env: { HIAGENT_DIR: E2E_HIAGENT_DIR },
+    env: { HIAGENT_DIR: E2E_HIAGENT_DIR, HIAGENT_WS_PORT: String(E2E_WS_PORT) },
   },
 });

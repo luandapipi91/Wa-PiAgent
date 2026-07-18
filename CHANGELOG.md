@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-19
+
+### 新增
+- **多智能体矩阵关键链路 Playwright E2E（Task 18）**：新增 `e2e/agents.spec.ts`（7 条串行连贯用例）：侧边栏 ≤3 + 更多入口、宫格弹窗/UI 新建/右键编辑、详情弹窗改简介+关键词+关系网+保存、左键预选新建会话并发消息、pill 切换+确认框+「已切换为」分隔行、Composer @/# 补全、右键删除+二次确认+agent_missing 重选恢复。测试数据经 WS/UI 创建、finally 清理；假 provider 场景断言只落在不依赖模型回复的 UI 状态。发现并记录 kernel 缺陷：`agent:config:save` 非改名路径不广播 `agent:list`（改名路径才有），列表不即时刷新，用例改为验证持久化+reload 后更新。影响：frontend(e2e/agents.spec.ts)。
+- **E2E 基建支持 WS 端口偏移**：playwright.config 新增 `E2E_WS_PORT`（env `HIAGENT_E2E_WS_PORT`，默认 9776 零回归），webServer/globalSetup 同步把 `HIAGENT_WS_PORT` 注入 vite bundle 与隔离 kernel。解决本机已跑真实 kernel（9776）时 globalSetup 误连真实 kernel、E2E 污染真实数据的问题。影响：frontend(playwright.config.ts + e2e/global-setup.ts)。
+
+---
+
 ## 2026-07-18
 
 ### 修复
