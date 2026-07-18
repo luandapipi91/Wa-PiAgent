@@ -6,6 +6,7 @@ import type {
   PromptEvent, FSListDirRequest, FSReadFileRequest, FSUploadRequest, FSUploadResult,
 } from "../src/types";
 import type { ProviderModel } from "../src/providers";
+import { agentDefOf } from "../src/constants";
 
 test("AgentName 四值", () => {
   const names: AgentName[] = ["product", "pm", "dev", "test"];
@@ -25,6 +26,7 @@ test("AgentConfig 含 partners", () => {
     systemPromptMode: "replace", inheritProjectContext: true,
     inheritSkills: false, tools: ["read"], skills: [],
     mcpServers: [], partners: { askTo: ["product"], askFrom: ["product"] },
+    triggerKeywords: [],
   };
   expect(c.partners.askTo).toEqual(["product"]);
 });
@@ -108,4 +110,24 @@ describe("ProviderModel supportsVision", () => {
     const m: ProviderModel = { id: "gpt-4o", contextWindow: 128000, maxTokens: 4096, supportsVision: true };
     expect(m.supportsVision).toBe(true);
   });
+});
+
+test("AgentConfig 支持 triggerKeywords 与 ThinkingLevel", () => {
+  const c: import("../src/types").AgentConfig = {
+    name: "代码审查", displayName: "代码审查", avatar: "🔍", avatarColor: "#06b6d4-#3b82f6",
+    description: "评审改动", model: "m", thinking: "max",
+    systemPromptMode: "replace", inheritProjectContext: true, inheritSkills: true,
+    tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] },
+    triggerKeywords: ["review", "评审"],
+  };
+  expect(c.triggerKeywords).toEqual(["review", "评审"]);
+  expect(c.thinking).toBe("max");
+});
+
+test("agentDefOf: 内置名返回定义，未知名回退默认", () => {
+  expect(agentDefOf("dev").emoji).toBe("⚙️");
+  const fb = agentDefOf("不存在的智能体");
+  expect(fb.emoji).toBe("🤖");
+  expect(fb.gradient).toEqual(["#4b5563", "#6b7280"]);
+  expect(fb.label).toBe("不存在的智能体");
 });
