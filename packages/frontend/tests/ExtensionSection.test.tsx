@@ -36,6 +36,7 @@ beforeEach(() => {
       },
     ],
     installs: {},
+    upgrading: {},
     error: null,
   });
 });
@@ -146,4 +147,20 @@ test("占位卡渲染在已安装列表之前（位于顶部）", () => {
   const realCard = screen.getByTestId("ext-card-superpowers-zh");
   // installCard 应在 realCard 之前（realCard 跟在 installCard 后面）
   expect(installCard.compareDocumentPosition(realCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+// ===== 升级反馈（upgrading 状态）=====
+
+test("升级中按钮显示「升级中」且禁用（防止重复点击）", () => {
+  useExtensionsStore.setState({ upgrading: { "superpowers-zh": "下载 superpowers-zh@1.7.0" } });
+  render(<ExtensionSection />);
+  const btn = screen.getByTestId("ext-upgrade-superpowers-zh") as HTMLButtonElement;
+  expect(btn.disabled).toBe(true);
+  expect(btn.textContent).toContain("升级中");
+});
+
+test("升级中卡片显示流式进度消息", () => {
+  useExtensionsStore.setState({ upgrading: { "superpowers-zh": "下载 superpowers-zh@1.7.0" } });
+  render(<ExtensionSection />);
+  expect(screen.getByTestId("ext-upgrade-progress-superpowers-zh").textContent).toContain("下载 superpowers-zh@1.7.0");
 });

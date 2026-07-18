@@ -21,9 +21,13 @@ export interface InstallEntry {
   progress?: string;  // 最新的包管理器日志行
 }
 
+/** 升级中标记：name → 最新进度行（键存在即表示该包升级进行中） */
+export type UpgradingMap = Record<string, string>;
+
 interface ExtensionsState {
   packages: PackageInfo[];
   installs: Record<string, InstallEntry>;
+  upgrading: UpgradingMap;
   error: string | null;
   load: () => void;
   setAll: (data: ExtensionListResult | ExtensionChangedEvent) => void;
@@ -41,12 +45,14 @@ interface ExtensionsState {
 export const useExtensionsStore = create<ExtensionsState>((set) => ({
   packages: [],
   installs: {},
+  upgrading: {},
   error: null,
 
   load: () => send({ type: "extension:list" }),
 
-  // extension:changed / extension:list 回复：更新真实列表，保留占位 installs
-  setAll: (data) => set({ packages: data.packages, error: null }),
+  // extension:changed / extension:list 回复：更新真实列表，保留占位 installs；
+  // changed 由 kernel 在操作（含升级）成功后推送 → 清除 upgrading 标记（升级完成）
+  setAll: (data) => set({ packages: data.packages, upgrading: {}, error: null }),
 
   // extension:error：若对应占位条目存在则标记 failed，否则落到全局 error（卸载/升级失败等）
   setError: (data) =>
@@ -57,12 +63,21 @@ export const useExtensionsStore = create<ExtensionsState>((set) => ({
           installs: { ...s.installs, [data.name]: { ...entry, status: "failed", error: data.error } },
         };
       }
+      // 升级失败：清除 upgrading 标记 + 落全局 error
+      if (s.upgrading[data.name] !== undefined) {
+        const nextUp = { ...s.upgrading };
+        delete nextUp[data.name];
+        return { upgrading: nextUp, error: data.error };
+      }
       return { error: data.error };
     }),
 
-  // extension:progress：更新对应占位条目的最新进度行
+  // extension:progress：升级中更新 upgrading 进度；安装中更新占位条目进度
   applyProgress: (data) =>
     set((s) => {
+      if (s.upgrading[data.name] !== undefined) {
+        return { upgrading: { ...s.upgrading, [data.name]: data.message } };
+      }
       const entry = s.installs[data.name];
       if (!entry) return {};
       return { installs: { ...s.installs, [data.name]: { ...entry, progress: data.message } } };
@@ -91,7 +106,7 @@ export const useExtensionsStore = create<ExtensionsState>((set) => ({
   },
 
   upgradePackage: (name) => {
-    set({ error: null });
+    set((s) => ({ error: null, upgrading: { ...s.upgrading, [name]: "" } }));
     send({ type: "extension:upgrade", name });
   },
 

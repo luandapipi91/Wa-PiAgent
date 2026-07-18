@@ -2,7 +2,7 @@ import { test, expect, beforeEach } from "bun:test";
 import { useExtensionsStore } from "../src/store/extensions";
 
 beforeEach(() => {
-  useExtensionsStore.setState({ packages: [], installs: {}, error: null });
+  useExtensionsStore.setState({ packages: [], installs: {}, upgrading: {}, error: null });
 });
 
 test("installPackage 添加 installing 占位条目", () => {
@@ -90,4 +90,41 @@ test("setAll 更新 packages 但不影响 installs", () => {
   });
   expect(useExtensionsStore.getState().packages).toHaveLength(1);
   expect(useExtensionsStore.getState().installs["foo"]).toBeDefined();
+});
+
+// ===== 升级反馈（upgrading 状态）=====
+
+test("upgradePackage 标记 upgrading 状态（升级中）", () => {
+  useExtensionsStore.getState().upgradePackage("foo");
+  expect(useExtensionsStore.getState().upgrading["foo"]).toBe("");
+});
+
+test("applyProgress 更新 upgrading 条目的进度消息", () => {
+  useExtensionsStore.getState().upgradePackage("foo");
+  useExtensionsStore.getState().applyProgress({
+    type: "extension:progress",
+    name: "foo",
+    message: "下载 foo@2.0.0",
+  });
+  expect(useExtensionsStore.getState().upgrading["foo"]).toBe("下载 foo@2.0.0");
+});
+
+test("setAll（extension:changed）清除 upgrading（升级完成）", () => {
+  useExtensionsStore.setState({ upgrading: { foo: "下载中" } });
+  useExtensionsStore.getState().setAll({
+    type: "extension:changed",
+    packages: [{ name: "foo", source: "npm", enabled: true }],
+  });
+  expect(useExtensionsStore.getState().upgrading["foo"]).toBeUndefined();
+});
+
+test("setError 清除 upgrading 并落到全局 error（升级失败）", () => {
+  useExtensionsStore.setState({ upgrading: { foo: "下载中" } });
+  useExtensionsStore.getState().setError({
+    type: "extension:error",
+    name: "foo",
+    error: "升级失败",
+  });
+  expect(useExtensionsStore.getState().upgrading["foo"]).toBeUndefined();
+  expect(useExtensionsStore.getState().error).toBe("升级失败");
 });

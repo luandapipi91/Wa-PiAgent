@@ -54,7 +54,10 @@ function makeStreamingPkgService(lines: string[], version = "1.0.0") {
       return { version };
     },
     uninstall: async (name: string) => { known.delete(name); },
-    upgrade: async (_name: string) => ({ version }),
+    upgrade: async (_name: string, onProgress?: (line: string) => void) => {
+      for (const line of lines) onProgress?.(line);
+      return { version };
+    },
     getInstalledVersion: (name: string): string | undefined =>
       known.has(name) ? version : undefined,
     getLatestVersion: async (_name: string): Promise<string | undefined> => version,
@@ -233,4 +236,24 @@ test("extension:install 失败 → extension:error（name 为原始输入），�
     expect(errEvt.error).toContain("网络超时");
     expect(events.some((e: any) => e.type === "extension:install:done")).toBe(false);
   }, { pkgService: failing });
+});
+
+test("extension:upgrade 期间流式推送 extension:progress，成功后推送 changed", async () => {
+  const lines = ["正在解析依赖", "升级 stream-pkg@2.0.0"];
+  await withExtServer(async (send, recv) => {
+    // 先安装 stream-pkg（使其已存在，满足升级前置条件）
+    send({ type: "extension:install", name: "stream-pkg" });
+    await recvUntil(recv, (e: any) => e.type === "extension:install:done");
+    // 发起升级
+    send({ type: "extension:upgrade", name: "stream-pkg" });
+    const events = await recvUntil(recv, (e: any) => e.type === "extension:changed");
+
+    const progress = events.filter((e: any) => e.type === "extension:progress");
+    expect(progress.length).toBe(lines.length);
+    expect(progress.map((p: any) => p.message)).toEqual(lines);
+    expect(progress.every((p: any) => p.name === "stream-pkg")).toBe(true);
+
+    // 升级成功后真实列表通过 extension:changed 下发
+    expect(events.some((e: any) => e.type === "extension:changed")).toBe(true);
+  }, { pkgService: makeStreamingPkgService(lines) });
 });

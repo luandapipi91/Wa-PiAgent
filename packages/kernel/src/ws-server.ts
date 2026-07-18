@@ -743,10 +743,14 @@ export class WSServer {
       }
       case "extension:upgrade": {
         try {
-          await this.opts.extensionManager.upgrade(event.name);
+          // 包管理器日志行流式回推给请求者（与 install 一致）
+          const onProgress = (message: string) =>
+            reply({ type: "extension:progress", name: event.name, message });
+          await this.opts.extensionManager.upgrade(event.name, onProgress);
           this.opts.agentManager.markAllDirty();
           const { packages } = await this.opts.extensionManager.list();
           this.broadcast({ type: "extension:changed", packages });
+          reply({ type: "extension:changed", packages });
         } catch (err) {
           reply({ type: "extension:error", name: event.name, error: (err as Error).message });
         }
