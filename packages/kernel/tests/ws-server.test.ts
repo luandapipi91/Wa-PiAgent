@@ -470,6 +470,79 @@ test("agent:create 非法名返回 error", async () => {
   });
 });
 
+// ─── Task 17: 错误路径补齐 ───
+
+test("agent:delete 不存在的智能体返回 error", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv) => {
+    send({ type: "agent:delete", name: "幽灵" });
+    const err = await recvUntil(recv, e => e.type === "error");
+    expect(err.message).toContain("智能体不存在");
+  });
+});
+
+test("agent:create 重名自动加 -2 后缀", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv) => {
+    send({ type: "agent:create", displayName: "甲" });
+    const first = await recvUntil(recv, e => e.type === "agent:created");
+    expect(first.agent.name).toBe("甲");
+    send({ type: "agent:create", displayName: "甲" });
+    const second = await recvUntil(recv, e => e.type === "agent:created" && e.agent.name === "甲-2");
+    expect(second.agent.name).toBe("甲-2");
+  });
+});
+
+// 用真实 AgentManager（空 projectStore）让 switchAgent 走真实「会话不存在」抛错路径
+test("session:set-agent 到不存在的会话返回 error", async () => {
+  const { AgentManager } = await import("../src/agent-manager");
+  const manager = new AgentManager({
+    projectStore: new ProjectStore(tmp("ws-proj.json")),
+    configStore: null,
+    onEvent: () => {},
+  });
+  await withServer(manager, async (send, recv) => {
+    send({ type: "session:set-agent", sessionId: "s-ghost", agentName: "dev" });
+    const err = await recvUntil(recv, e => e.type === "error");
+    expect(err.message).toContain("会话不存在");
+    expect(err.sessionId).toBe("s-ghost");
+  });
+});
+
+// 现状记录：set-agent 到不存在的智能体——configStore.getAgent 返回 null 时不报错，
+// _createSession 走默认提示词/默认工具分支静默成功（agent-manager.ts:298-300 config=null 分支）。
+// 若未来产品决策改为报错，此测试需同步更新。
+test("session:set-agent 到不存在的智能体（现状记录：静默成功用默认配置）", async () => {
+  const { AgentManager } = await import("../src/agent-manager");
+  const projectStore = new ProjectStore(tmp("ws-proj.json"));
+  const configStore = new ConfigStore(tmp("ws-cfg")); // 空 store：getAgent 必返回 null
+  const proj = await projectStore.createProject({ name: "p", cwd: "/tmp" });
+  const sess = await projectStore.createSession({ projectId: proj.id, primaryAgent: "dev", title: "t" });
+  const fakeSession = {
+    messages: [],
+    isStreaming: false,
+    pendingMessageCount: 0,
+    prompt: async () => {},
+    abort: async () => {},
+    dispose: () => {},
+    subscribe: () => () => {},
+  };
+  const manager = new AgentManager({
+    projectStore,
+    configStore,
+    onEvent: () => {},
+    createAgentSessionFn: (async () => ({ session: fakeSession })) as any,
+  });
+  await withServer(manager, async (send, recv) => {
+    send({ type: "session:set-agent", sessionId: sess.id, agentName: "幽灵" });
+    const upd = await recvUntil(recv, e => e.type === "session:updated");
+    expect(upd.sessionId).toBe(sess.id);
+    expect(upd.primaryAgent).toBe("幽灵");
+  });
+  const { sessions } = await projectStore.load();
+  expect(sessions.find(s => s.id === sess.id)!.primaryAgent).toBe("幽灵");
+});
+
 // ─── Task 7: agent:tools:list 全局工具清单 ───
 // listGlobalTools 依赖真实 SDK loader 做扩展发现，用真实 AgentManager（configStore 可空）
 test("agent:tools:list 返回内置工具且不含 subagent", async () => {
