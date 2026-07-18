@@ -1,6 +1,5 @@
 import type { AgentConfig, AgentName, Partners } from "@hiagent/shared";
-
-const VALID_NAMES: AgentName[] = ["product", "pm", "dev", "test"];
+import { agentDefOf } from "@hiagent/shared";
 
 // 轻量 YAML 解析（仅支持 agent.md 用到的子集：标量、列表、嵌套对象）
 // 不引入 gray-mirror 等依赖，保持 kernel 精简
@@ -71,7 +70,7 @@ export function parseAgentMd(md: string): AgentConfig {
     avatarColor: y.avatarColor as string,
     description: y.description as string,
     model: y.model as string,
-    thinking: y.thinking as AgentConfig["thinking"],
+    thinking: (y.thinking === "low" ? "medium" : y.thinking) as AgentConfig["thinking"],
     systemPromptMode: y.systemPromptMode as AgentConfig["systemPromptMode"],
     inheritProjectContext: Boolean(y.inheritProjectContext),
     inheritSkills: Boolean(y.inheritSkills),
@@ -79,6 +78,7 @@ export function parseAgentMd(md: string): AgentConfig {
     skills: Array.isArray(y.skills) ? y.skills as string[] : String(y.skills).split(",").map(s => s.trim()),
     mcpServers: Array.isArray(y.mcpServers) ? y.mcpServers as string[] : [],
     partners,
+    triggerKeywords: Array.isArray(y.triggerKeywords) ? (y.triggerKeywords as string[]) : [],
     systemPromptBody: bodyText.trim() || undefined,
   };
 }
@@ -92,6 +92,7 @@ export function stringifyAgentMd(c: AgentConfig): string {
   fm.push(`description: ${c.description}`);
   fm.push(`model: ${c.model}`);
   fm.push(`thinking: ${c.thinking}`);
+  fm.push(`triggerKeywords: [${c.triggerKeywords.join(", ")}]`);
   fm.push(`systemPromptMode: ${c.systemPromptMode}`);
   fm.push(`inheritProjectContext: ${c.inheritProjectContext}`);
   fm.push(`inheritSkills: ${c.inheritSkills}`);
@@ -106,21 +107,22 @@ export function stringifyAgentMd(c: AgentConfig): string {
   return fm.join("\n");
 }
 
+const ILLEGAL_NAME_CHARS = /[/\\:*?"<>|]/;
+
 export function validateAgentConfig(c: AgentConfig): string[] {
   const errs: string[] = [];
-  if (!VALID_NAMES.includes(c.name)) errs.push(`非法 name: ${c.name}`);
+  if (!c.name || !c.name.trim()) errs.push("name 不能为空");
+  else if (ILLEGAL_NAME_CHARS.test(c.name)) errs.push(`非法 name: ${c.name}（含 / \\ : * ? " < > | 字符）`);
   if (!c.displayName) errs.push("displayName 不能为空");
   if (!c.model) errs.push("model 不能为空");
-  if (!["low", "medium", "high"].includes(c.thinking)) errs.push(`非法 thinking: ${c.thinking}`);
+  if (!["disabled", "medium", "high", "max"].includes(c.thinking)) errs.push(`非法 thinking: ${c.thinking}`);
   if (!["replace", "append"].includes(c.systemPromptMode)) errs.push(`非法 systemPromptMode: ${c.systemPromptMode}`);
   return errs;
 }
 
-import { AGENT_DEFS } from "@hiagent/shared";
-
 /** 当 agent.md 不存在时，生成一份默认 AgentConfig */
-export function makeDefaultAgentConfig(name: AgentName): AgentConfig {
-  const def = AGENT_DEFS[name];
+export function makeDefaultAgentConfig(name: string): AgentConfig {
+  const def = agentDefOf(name);
   return {
     name,
     displayName: def.label,
@@ -136,5 +138,6 @@ export function makeDefaultAgentConfig(name: AgentName): AgentConfig {
     skills: [],
     mcpServers: [],
     partners: { askTo: [], askFrom: [] },
+    triggerKeywords: [],
   };
 }
