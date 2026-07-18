@@ -87,6 +87,14 @@ export class ProjectStore {
     await this.save(data);
   }
 
+  async setSessionAgent(id: string, agentName: AgentName): Promise<void> {
+    const data = await this.load();
+    const s = data.sessions.find(x => x.id === id);
+    if (!s) throw new Error(`会话不存在: ${id}`);
+    s.primaryAgent = agentName;
+    await this.save(data);
+  }
+
   async deleteSession(id: string): Promise<void> {
     const data = await this.load();
     data.sessions = data.sessions.filter(s => s.id !== id);
