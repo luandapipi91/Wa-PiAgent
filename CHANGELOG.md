@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-18
+
+### 新增
+- **agent-md 校验放开 + 新字段序列化（多智能体矩阵 Task 2）**：`validateAgentConfig` 删除 `VALID_NAMES` 枚举校验，改为 name 非空 + 非法文件名字符（`/ \ : * ? " < > |`）拒绝，支持任意中文/自定义智能体名；thinking 合法值更新为 `disabled/medium/high/max`，`parseAgentMd` 把旧值 `low` 归一为 `medium`；`triggerKeywords` 新增序列化/解析（`[a, b]` 列表格式，旧 md 文件缺省 `[]` 兼容）；`makeDefaultAgentConfig(name: string)` 改用 `agentDefOf(name)`，无内置定义时回退名称本身 + 🤖。TDD 红绿：4 个新测试先行失败、实现后 9/9 通过；kernel 全量 332 pass（4 fail 为改动前既有，stash 基线对比确认）。影响：kernel(agent-md.ts + tests/agent-md.test.ts + tests/config-store.test.ts)。
+
+---
+
 ## 2026-07-17
 
 ### 修复
