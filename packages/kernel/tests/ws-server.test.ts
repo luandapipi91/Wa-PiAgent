@@ -501,7 +501,9 @@ test("session:set-agent 到不存在的会话返回 error", async () => {
     configStore: null,
     onEvent: () => {},
   });
-  await withServer(manager, async (send, recv) => {
+  await withServer(manager, async (send, recv, { configStore }) => {
+    // 先建 dev 智能体以通过 set-agent 的存在性校验，才能走到 switchAgent 的「会话不存在」抛错
+    await configStore.createAgent("dev");
     send({ type: "session:set-agent", sessionId: "s-ghost", agentName: "dev" });
     const err = await recvUntil(recv, e => e.type === "error");
     expect(err.message).toContain("会话不存在");
@@ -509,38 +511,31 @@ test("session:set-agent 到不存在的会话返回 error", async () => {
   });
 });
 
-// 现状记录：set-agent 到不存在的智能体——configStore.getAgent 返回 null 时不报错，
-// _createSession 走默认提示词/默认工具分支静默成功（agent-manager.ts:298-300 config=null 分支）。
-// 若未来产品决策改为报错，此测试需同步更新。
-test("session:set-agent 到不存在的智能体（现状记录：静默成功用默认配置）", async () => {
-  const { AgentManager } = await import("../src/agent-manager");
-  const projectStore = new ProjectStore(tmp("ws-proj.json"));
-  const configStore = new ConfigStore(tmp("ws-cfg")); // 空 store：getAgent 必返回 null
-  const proj = await projectStore.createProject({ name: "p", cwd: "/tmp" });
-  const sess = await projectStore.createSession({ projectId: proj.id, primaryAgent: "dev", title: "t" });
-  const fakeSession = {
-    messages: [],
-    isStreaming: false,
-    pendingMessageCount: 0,
-    prompt: async () => {},
-    abort: async () => {},
-    dispose: () => {},
-    subscribe: () => () => {},
-  };
-  const manager = new AgentManager({
-    projectStore,
-    configStore,
-    onEvent: () => {},
-    createAgentSessionFn: (async () => ({ session: fakeSession })) as any,
-  });
-  await withServer(manager, async (send, recv) => {
+// Task 17 评审加固：set-agent 到不存在的智能体与 agent:prompt 的 agent_missing 拦截统一——
+// 返回 error（含「智能体不存在」与 sessionId），不调用 switchAgent、不广播 session:updated，
+// 避免会话进入「已删除智能体」状态（此前 _createSession 静默走默认配置分支，agent-manager.ts:298-300）。
+test("session:set-agent 到不存在的智能体返回 error 且不广播 session:updated", async () => {
+  const { agentManager, calls } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recvRaw, { projectStore }) => {
+    // 包装 recv 记录全部事件，用于断言「未广播 session:updated」
+    const seen: any[] = [];
+    const recv = async () => { const e = await recvRaw(); seen.push(e); return e; };
+    const proj = await projectStore.createProject({ name: "p", cwd: "/tmp" });
+    const sess = await projectStore.createSession({ projectId: proj.id, primaryAgent: "dev", title: "t" });
     send({ type: "session:set-agent", sessionId: sess.id, agentName: "幽灵" });
-    const upd = await recvUntil(recv, e => e.type === "session:updated");
-    expect(upd.sessionId).toBe(sess.id);
-    expect(upd.primaryAgent).toBe("幽灵");
+    // 超时窗口：旧行为下根本不会回 error，race 返回 null 使断言快速失败（避免挂起到测试超时）
+    const err = await Promise.race([
+      recvUntil(recv, e => e.type === "error"),
+      new Promise(r => setTimeout(() => r(null), 300)),
+    ]);
+    expect(err).not.toBeNull();
+    expect(err.message).toContain("智能体不存在");
+    expect(err.sessionId).toBe(sess.id);
+    expect(calls.switchAgent).toHaveLength(0);
+    // 计数方式确认无 session:updated 广播：窗口期内 seen 不得出现该事件
+    await new Promise(r => setTimeout(r, 200));
+    expect(seen.some(e => e.type === "session:updated")).toBe(false);
   });
-  const { sessions } = await projectStore.load();
-  expect(sessions.find(s => s.id === sess.id)!.primaryAgent).toBe("幽灵");
 });
 
 // ─── Task 7: agent:tools:list 全局工具清单 ───

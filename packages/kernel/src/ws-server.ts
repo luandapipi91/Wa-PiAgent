@@ -297,6 +297,12 @@ export class WSServer {
         break;
       }
       case "session:set-agent": {
+        // 与 agent:prompt 的 agent_missing 拦截一致：目标智能体必须存在，
+        // 否则 _createSession 会静默走默认配置，会话进入「已删除智能体」状态
+        if (!(await this.opts.configStore.getAgent(event.agentName))) {
+          reply({ type: "error", message: `智能体不存在: ${event.agentName}`, sessionId: event.sessionId });
+          break;
+        }
         try {
           await this.opts.agentManager.switchAgent(event.sessionId, event.agentName);
           this.broadcast({ type: "session:updated", sessionId: event.sessionId, primaryAgent: event.agentName });
