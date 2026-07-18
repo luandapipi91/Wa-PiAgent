@@ -296,6 +296,17 @@ export class WSServer {
         this.broadcast({ type: "projects:list", projects: data.projects, sessions: data.sessions });
         break;
       }
+      case "session:set-agent": {
+        try {
+          await this.opts.agentManager.switchAgent(event.sessionId, event.agentName);
+          this.broadcast({ type: "session:updated", sessionId: event.sessionId, primaryAgent: event.agentName });
+          const data = await this.opts.projectStore.load();
+          this.broadcast({ type: "projects:list", projects: data.projects, sessions: data.sessions });
+        } catch (err) {
+          reply({ type: "error", message: err instanceof Error ? err.message : String(err), sessionId: event.sessionId });
+        }
+        break;
+      }
       case "session:delete": {
         // 先清理 SDK session（解绑事件订阅 + dispose），再删 ProjectStore 里的会话记录
         await this.opts.agentManager.disposeSession(event.sessionId);
@@ -331,6 +342,11 @@ export class WSServer {
         const currentLock = prevLock.then(async () => {
           const { sessions } = await this.opts.projectStore.load();
           const existing = sessions.find(s => s.id === event.sessionId);
+          // 存量会话的 primaryAgent 配置已删除 → 拦截，不进入 ensureStarted
+          if (existing && !(await this.opts.configStore.getAgent(existing.primaryAgent))) {
+            reply({ type: "error", message: "agent_missing", sessionId: event.sessionId });
+            return;
+          }
           const isNew = !existing;
           const session = existing ?? await this.opts.projectStore.createSession({
             projectId: event.projectId, primaryAgent: event.agentName,
