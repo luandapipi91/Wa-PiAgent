@@ -1065,6 +1065,62 @@ test("ensureStarted 把 ask_user_question 工具作为 customTools 传给 create
   expect(askTool).toBeDefined();
 });
 
+// ─── Task 6: delegate 关系网调起接线测试 ────────────────────────────────────
+// askTo 非空 → customTools 含 delegate 工具且 systemPrompt 末尾含关系网段；
+// askTo 为空 → 不注册 delegate 工具、不注入关系网段。
+test("ensureStarted 在 askTo 非空时注册 delegate 工具并注入关系网提示词段", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const configs: Record<string, any> = {
+    dev: { name: "dev", partners: { askTo: ["代码审查"], askFrom: [] }, triggerKeywords: [] },
+    代码审查: { name: "代码审查", description: "评审改动", partners: { askTo: [], askFrom: ["dev"] }, triggerKeywords: ["review", "评审"] },
+  };
+  const configStore = { getAgent: mock(async (n: string) => configs[n] ?? null) } as any;
+
+  const captured: any[] = [];
+  const createFn = mock(async (opts: any) => {
+    captured.push(opts);
+    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+  const am = new AgentManager({ projectStore, configStore, onEvent: () => {}, createAgentSessionFn: createFn as any });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const names = (captured[0].customTools as any[]).map((t: any) => t.name);
+  expect(names).toContain("delegate");
+
+  const prompt = captured[0].resourceLoader.systemPromptOverride();
+  expect(prompt).toContain("delegate");
+  expect(prompt).toContain("代码审查");
+  expect(prompt).toContain("评审改动");
+  expect(prompt).toContain("review、评审");
+});
+
+test("ensureStarted 在 askTo 为空时不注册 delegate 工具、不注入关系网段", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const configStore = {
+    getAgent: mock(async () => ({ name: "dev", partners: { askTo: [], askFrom: [] }, triggerKeywords: [] })),
+  } as any;
+
+  const captured: any[] = [];
+  const createFn = mock(async (opts: any) => {
+    captured.push(opts);
+    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+  const am = new AgentManager({ projectStore, configStore, onEvent: () => {}, createAgentSessionFn: createFn as any });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const names = (captured[0].customTools as any[]).map((t: any) => t.name);
+  expect(names).not.toContain("delegate");
+
+  const prompt = captured[0].resourceLoader.systemPromptOverride();
+  expect(prompt).not.toContain("delegate 工具");
+});
+
 // ─── Task 4: 中断清理（cancelAll）测试 ───────────────────────────────────────
 // abort / immediate(_jumpQueue interrupt) / disposeSession 都应调
 // askRegistry.cancelAll(sessionId)，把该 session 的 pending ask 以 cancelled 解决。
