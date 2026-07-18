@@ -299,6 +299,17 @@ function StreamingRow({ streaming, sessionId }: { streaming: SessionMessage; ses
 
 function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row: RenderedRow; sessionId: string; showResend?: boolean; onResend?: (text: string) => void; isStreaming?: boolean }) {
   const m = row.main.message as any;
+
+  // custom 消息（如 agent_switch 分隔行）：居中灰字，无头像气泡；无内容则不渲染
+  if (m.type === "custom" || m.type === "custom_message") {
+    if (!m.content) return null;
+    return (
+      <div className="text-center text-[11.5px] text-tertiary" data-testid={`custom-${sessionId}-${m.timestamp}`}>
+        {`—— ${m.content} ——`}
+      </div>
+    );
+  }
+
   const isUser = m.role === "user";
 
   if (isUser) {
