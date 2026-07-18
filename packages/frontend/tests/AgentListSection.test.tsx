@@ -13,12 +13,13 @@ const agent = (name: string): AgentConfig => ({
   tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [],
 });
 
-// 捕获真实 action：部分测试会 override deleteAgent 做 spy，
+// 捕获真实 action：部分测试会 override deleteAgent/createAgent 做 spy，
 // zustand 单例的 override 会跨测试残留，必须每轮恢复（同 ExtensionSection.test.tsx）。
 const realDeleteAgent = useAgentsStore.getState().deleteAgent;
+const realCreateAgent = useAgentsStore.getState().createAgent;
 
 function seed(names: string[]) {
-  useAgentsStore.setState({ list: names.map(agent), deleteAgent: realDeleteAgent });
+  useAgentsStore.setState({ list: names.map(agent), deleteAgent: realDeleteAgent, createAgent: realCreateAgent });
   useProjectsStore.setState({ sessions: [] });
   useSessionStore.setState({ statusBySession: {}, messagesBySession: {} });
 }
@@ -121,5 +122,44 @@ describe("AgentListSection", () => {
     useSessionStore.setState({ statusBySession: { s1: "thinking" }, messagesBySession: { s1: messages } });
     render(<AgentListSection onChatWith={noop} onEdit={noop} onMore={noop} />);
     expect((screen.getByTestId("status-dev") as HTMLElement).style.background.toLowerCase()).toBe("#b45309");
+  });
+
+  test("空态显示新增智能体入口，回车创建", () => {
+    seed([]);
+    const createAgent = mock();
+    useAgentsStore.setState({ createAgent });
+    render(<AgentListSection onChatWith={noop} onEdit={noop} onMore={noop} />);
+    expect(screen.getByTestId("agent-empty-create")).toBeTruthy();
+    expect(screen.queryByTestId("agent-more")).toBeNull();
+    fireEvent.click(screen.getByTestId("agent-empty-create"));
+    const input = screen.getByTestId("agent-empty-input");
+    fireEvent.change(input, { target: { value: "我的助手" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(createAgent).toHaveBeenCalledWith("我的助手");
+    // 提交后收起输入行
+    expect(screen.queryByTestId("agent-empty-input")).toBeNull();
+  });
+
+  test("空态输入 Esc 取消；空白名不提交", () => {
+    seed([]);
+    const createAgent = mock();
+    useAgentsStore.setState({ createAgent });
+    render(<AgentListSection onChatWith={noop} onEdit={noop} onMore={noop} />);
+    fireEvent.click(screen.getByTestId("agent-empty-create"));
+    const input = screen.getByTestId("agent-empty-input");
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByTestId("agent-empty-input")).toBeNull();
+    expect(createAgent).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("agent-empty-create"));
+    const input2 = screen.getByTestId("agent-empty-input");
+    fireEvent.change(input2, { target: { value: "   " } });
+    fireEvent.keyDown(input2, { key: "Enter" });
+    expect(createAgent).not.toHaveBeenCalled();
+  });
+
+  test("非空列表不显示空态入口", () => {
+    seed(["a"]);
+    render(<AgentListSection onChatWith={noop} onEdit={noop} onMore={noop} />);
+    expect(screen.queryByTestId("agent-empty-create")).toBeNull();
   });
 });
