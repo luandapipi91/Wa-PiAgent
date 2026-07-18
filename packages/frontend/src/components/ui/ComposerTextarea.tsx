@@ -50,10 +50,15 @@ function ensureChipStyles() {
       vertical-align: baseline;
       user-select: all;
     }
+    .chip-agent {
+      background-color: #3B82F620;
+      color: #3B82F6;
+      border: 1px solid #3B82F640;
+    }
     .chip-file {
-      background-color: #EB933E20;
-      color: #EB933E;
-      border: 1px solid #EB933E40;
+      background-color: #22C55E20;
+      color: #16A34A;
+      border: 1px solid #22C55E40;
     }
     .chip-skill {
       background-color: #5B5BD620;

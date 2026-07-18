@@ -210,6 +210,44 @@ describe("NewSessionPane", () => {
     });
   });
 
+  it("@提及智能体：以 mention 为 agentName 发送且不弹确认框（新会话无缓存）", async () => {
+    await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
+    useProvidersStore.setState({
+      providers: [
+        { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
+      ],
+    });
+    render(<NewSessionPane />);
+    await waitFor(() => {
+      expect(useComposerPrefsStore.getState().defaults.model).toBe("openai/gpt-4o");
+    });
+    await waitFor(() => {
+      expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
+    });
+
+    typeIntoComposer("@[pm] 帮我看看需求");
+    await waitFor(() => {
+      expect((screen.getByTestId("composer-send") as HTMLButtonElement).disabled).toBe(false);
+    });
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    await waitFor(() => {
+      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+        type: "agent:prompt",
+        projectId: "p1",
+        agentName: "pm",
+        text: "帮我看看需求",
+      }));
+    });
+    // 新建会话 primaryAgent 也应为 mention
+    const session = useProjectsStore.getState().sessions[0];
+    expect(session.primaryAgent).toBe("pm");
+    // 不弹缓存确认框
+    expect(screen.queryByTestId("mention-confirm")).toBeNull();
+    // agent-select 同步为 mention
+    expect((screen.getByTestId("agent-select") as HTMLSelectElement).value).toBe("pm");
+  });
+
   it("新会话开始录音、切换会话再回来后停止，附件仍回到当前新建会话", async () => {
     _setRecordingManager({
       start: async () => {},

@@ -6,7 +6,7 @@ import { join } from "node:path";
 // Task 8: Quick Invoke 聊天栏快速调用 E2E 测试
 //
 // 覆盖：
-// 1. `@` 触发文件选择面板 → 选中 → chip 内联插入（橙色）→ 发送时展开为 `@相对路径`
+// 1. `#` 触发文件选择面板 → 选中 → chip 内联插入（绿色）→ 发送时展开为 `#相对路径`
 // 2. `$` 触发技能选择面板 → 选中 → chip 内联插入（靛蓝）→ 发送时展开为 `/skill:技能名`（SDK _expandSkillCommand 识别）
 // 3. Esc 关闭面板但保留触发符文本
 // 4. Backspace 删除整个 chip
@@ -79,7 +79,7 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
     await page.goto("/");
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
     // 必须选中 beforeEach 创建的项目：全局 seed 项目 e2e-proj-1 排在 projects[0]，
-    // 不选的话新会话会挂到 seed 项目下，@ 文件搜索会搜错目录
+    // 不选的话新会话会挂到 seed 项目下，# 文件搜索会搜错目录
     await page.getByTestId("project-select").selectOption(projectId);
     await page.getByTestId("model-selector").selectOption({ label: "E2E/model-a" });
     const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
@@ -91,7 +91,7 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
     return testid?.replace("session-", "") ?? "";
   }
 
-  test("输入 @ 选文件 → chip 显示 → 发送时展开", async ({ page }) => {
+  test("输入 # 选文件 → chip 显示 → 发送时展开", async ({ page }) => {
     // 在项目 cwd 预置一个可搜索的文件（searchFilesStream 扫描真实文件系统）
     mkdirSync(projectCwd, { recursive: true });
     const targetName = "hello-quick.txt";
@@ -103,10 +103,10 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
 
       const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
 
-      // 1. 输入空格 + @（@ 必须在行首或空格之后才触发）
+      // 1. 输入空格 + #（# 必须在行首或空格之后才触发）
       await textbox.click();
       await page.keyboard.type(" ", { delay: 5 });
-      await page.keyboard.type("@", { delay: 5 });
+      await page.keyboard.type("#", { delay: 5 });
 
       // 2. 等待 Quick Invoke 文件面板出现
       await expect(page.getByTestId("quick-invoke-menu")).toBeVisible({ timeout: 5000 });
@@ -118,7 +118,7 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
       // 4. Enter 选中第一项
       await page.keyboard.press("Enter");
 
-      // 5. 验证 chip 出现在输入框（橙色 chip-file，data-token 含 @[...]）
+      // 5. 验证 chip 出现在输入框（绿色 chip-file，data-token 含 #[...]）
       await expect(page.locator('[data-testid="composer-input"] .chip-file').first()).toBeVisible({ timeout: 3000 });
       await expect(textbox).toContainText(targetName);
 
@@ -131,10 +131,10 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
       // 8. 发送后输入框清空
       await expect(textbox).toBeEmpty({ timeout: 3000 });
 
-      // 9. 验证发送的消息中 chip 展开为 @hello-quick.txt 纯文本（无方括号）
-      await expect(page.getByText(`@${targetName}`).first()).toBeVisible({ timeout: 8000 });
-      // 不应出现原始 token 形式 @[...]
-      await expect(page.locator(`text=@\\[${targetName}\\]`)).toHaveCount(0);
+      // 9. 验证发送的消息中 chip 展开为 #hello-quick.txt 纯文本（无方括号）
+      await expect(page.getByText(`#${targetName}`).first()).toBeVisible({ timeout: 8000 });
+      // 不应出现原始 token 形式 #[...]
+      await expect(page.locator(`text=#\\[${targetName}\\]`)).toHaveCount(0);
     } finally {
       if (existsSync(targetPath)) unlinkSync(targetPath);
     }
@@ -243,7 +243,7 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
 
       const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
       await textbox.click();
-      await page.keyboard.type(" @qiscroll", { delay: 10 });
+      await page.keyboard.type(" #qiscroll", { delay: 10 });
 
       const menu = page.getByTestId("quick-invoke-menu");
       await expect(menu).toBeVisible({ timeout: 5000 });
@@ -300,7 +300,7 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
 
       const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
       await textbox.click();
-      await page.keyboard.type(" @", { delay: 5 });
+      await page.keyboard.type(" #", { delay: 5 });
       await expect(page.getByTestId("quick-invoke-menu")).toBeVisible({ timeout: 5000 });
       await page.keyboard.type("bs-chip", { delay: 10 });
       await expect(page.getByTestId("quick-invoke-menu")).toContainText(targetName, { timeout: 8000 });
