@@ -12,6 +12,12 @@ test("agentGradient 含两色", () => {
   expect(agentGradient("dev")).toContain("#2C2C2E");
 });
 
+test("未知名回退 agentDefOf 默认头像与渐变（动态智能体无内置定义）", () => {
+  expect(agentEmoji("自定义智能体")).toBe("🤖");
+  expect(agentGradient("自定义智能体")).toContain("#4b5563");
+  expect(agentGradient("自定义智能体")).toContain("#6b7280");
+});
+
 test("STATUS_COLORS 三态", () => {
   expect(STATUS_COLORS.thinking).toBe("#5B5BD6");
   expect(STATUS_COLORS.idle).toBe("#34A853");

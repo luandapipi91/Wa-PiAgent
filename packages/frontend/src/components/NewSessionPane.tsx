@@ -1,22 +1,29 @@
 import { useState, useRef, useEffect } from "react";
-import { AGENT_DEFS, randomSessionId } from "@hiagent/shared";
+import { agentDefOf, randomSessionId } from "@hiagent/shared";
 import type { AgentName, AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
 import { useProjectsStore } from "../store/projects";
+import { useAgentsStore } from "../store/agents";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { send } from "../ws-instance";
 import { expandTokens, extractAgentToken } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
 
-const NAMES: AgentName[] = ["product", "pm", "dev", "test"];
+interface Props {
+  /** 侧栏/宫格「新建会话」带过来的预选智能体；为空则取列表第一项 */
+  pendingAgent?: string | null;
+}
 
-export function NewSessionPane() {
+export function NewSessionPane({ pendingAgent = null }: Props) {
   const { projects, currentProjectId } = useProjectsStore();
-  const [agentName, setAgentName] = useState<AgentName>("dev");
+  const agents = useAgentsStore(s => s.list);
+  const [agentName, setAgentName] = useState<AgentName>(pendingAgent ?? agents[0]?.name ?? "dev");
   const [text, setText] = useState("");
   const initialProject = currentProjectId ?? projects[0]?.id ?? null;
   const [projectId, setProjectId] = useState<string | null>(initialProject);
   // currentProjectId 变化时同步（点项目旁 + 号时可能已在新建页，不会重新挂载）
   useEffect(() => { if (currentProjectId) setProjectId(currentProjectId); }, [currentProjectId]);
+  // pendingAgent 变化时同步（已停在新建页再点侧栏/宫格智能体，组件不会重新挂载）
+  useEffect(() => { if (pendingAgent) setAgentName(pendingAgent); }, [pendingAgent]);
   // 新建会话的 sessionId 按当前项目持久化，切换再回来仍能对应同一组 composer 附件/录音
   const newSessionKey = projectId ?? "__global__";
   const newSessionIds = useComposerPrefsStore(s => s.newSessionIds);
@@ -109,10 +116,15 @@ export function NewSessionPane() {
         <select
           value={agentName}
           onChange={e => setAgentName(e.target.value as AgentName)}
+          disabled={agents.length === 0}
           className="bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[12.5px]"
           data-testid="agent-select"
         >
-          {NAMES.map(n => <option key={n} value={n}>{AGENT_DEFS[n].emoji} {AGENT_DEFS[n].label}</option>)}
+          {agents.length === 0 && <option value="">（无智能体）</option>}
+          {agents.map(a => {
+            const def = agentDefOf(a.name);
+            return <option key={a.name} value={a.name}>{def.emoji} {a.displayName || def.label}</option>;
+          })}
         </select>
       </div>
       <ComposerInput

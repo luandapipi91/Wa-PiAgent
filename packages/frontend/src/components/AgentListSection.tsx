@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { agentDefOf, aggregateAgentState } from "@hiagent/shared";
-import type { AgentName, AgentStatus } from "@hiagent/shared";
+import type { AgentStatus } from "@hiagent/shared";
 import { topAgentsByRecency, useAgentsStore } from "../store/agents";
 import { useProjectsStore } from "../store/projects";
 import { useSessionStore } from "../store/session";
@@ -10,17 +10,15 @@ import { STATUS_COLORS } from "../theme/colors";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 
 interface Props {
-  onChatWith?: (name: string) => void;
-  onEdit?: (name: string) => void;
-  onMore?: () => void;
-  /** @deprecated 兼容旧接线（Task 16 改为 onChatWith/onEdit 后移除）：未传 onChatWith 时左键回退 */
-  onSelectAgent?: (name: AgentName) => void;
+  onChatWith: (name: string) => void;
+  onEdit: (name: string) => void;
+  onMore: () => void;
 }
 
 // 右键菜单坐标 + 目标 agent
 interface CtxMenuState { x: number; y: number; name: string; }
 
-export function AgentListSection({ onChatWith, onEdit, onMore, onSelectAgent }: Props) {
+export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
   const agents = useAgentsStore(s => s.list);
   const sessions = useProjectsStore(s => s.sessions);
   const statusBySession = useSessionStore(s => s.statusBySession);
@@ -72,8 +70,7 @@ export function AgentListSection({ onChatWith, onEdit, onMore, onSelectAgent }: 
     );
 
   const handleChat = (name: string) => {
-    if (onChatWith) onChatWith(name);
-    else onSelectAgent?.(name);
+    onChatWith(name);
   };
 
   return (

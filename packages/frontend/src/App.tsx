@@ -5,12 +5,14 @@ import { NewSessionPane } from "./components/NewSessionPane";
 import { SessionView } from "./components/SessionView";
 import { EmptyState } from "./components/EmptyState";
 import { AgentConfig } from "./components/AgentConfig";
+import { AgentGalleryModal } from "./components/AgentGalleryModal";
 import { DirTreePicker } from "./components/DirTreePicker";
 import { SettingsModal } from "./components/SettingsModal";
 import { useSettingsStore } from "./store/settings";
 import { useProvidersStore } from "./store/providers";
 import { useProjectsStore } from "./store/projects";
 import { useSessionStore } from "./store/session";
+import { useAgentsStore } from "./store/agents";
 import { useSkillsStore } from "./store/skills";
 import { useExtensionsStore } from "./store/extensions";
 import { useMcpStore } from "./store/mcp";
@@ -29,6 +31,9 @@ export function App() {
   const currentSessionId = useProjectsStore(s => s.currentSessionId);
   const [view, setView] = useState<View>("empty");
   const [configAgent, setConfigAgent] = useState<AgentName | null>(null);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  // 侧栏/宫格「新建会话」预选的智能体，传给 NewSessionPane
+  const [pendingAgent, setPendingAgent] = useState<string | null>(null);
 
   useEffect(() => {
     getWs();
@@ -36,6 +41,7 @@ export function App() {
     useProvidersStore.getState().load();
     useSkillsStore.getState().load();
     useExtensionsStore.getState().load();
+    useAgentsStore.getState().loadAll();
     const off = onMessage(e => {
       const ps = useProjectsStore.getState();  // 每次事件取最新，避免 stale
       switch (e.type) {
@@ -76,6 +82,8 @@ export function App() {
         }
         case "provider:list": useProvidersStore.getState().setProviders(e.providers); break;
         case "provider:changed": useProvidersStore.getState().setProviders(e.providers); break;
+        // kernel 在 agent:create/delete/config:save 后都会重新 broadcast agent:list，统一在此收口
+        case "agent:list": useAgentsStore.getState().setList(e.agents); break;
         case "skill:list": useSkillsStore.getState().setAll(e); break;
         case "skill:changed": useSkillsStore.getState().setAll(e); break;
         case "extension:list": useExtensionsStore.getState().setAll(e); break;
@@ -115,11 +123,16 @@ export function App() {
     else setView("new-session");
   }, [projects.length, currentSessionId]);
 
+  // 点智能体 → 带着预选切到新建会话视图（与 NewSessionButton 的视图切换一致）
+  const chatWith = (name: string) => { setPendingAgent(name); setView("new-session"); };
+
   return (
     <div className="flex h-screen bg-canvas">
       <Sidebar
         onNewSession={() => setView("new-session")}
-        onSelectAgent={(name) => setConfigAgent(name)}
+        onChatWith={chatWith}
+        onEdit={(name) => setConfigAgent(name)}
+        onMore={() => setGalleryOpen(true)}
         onSelectSession={(id) => { useProjectsStore.getState().selectSession(id); setView("session"); }}
         onNewSessionInProject={(pid) => { useProjectsStore.getState().selectProject(pid); useProjectsStore.getState().setCurrentSessionId(null); setView("new-session"); }}
         onSelectProject={(pid) => { useProjectsStore.getState().selectProject(pid); useProjectsStore.getState().setCurrentSessionId(null); setView("new-session"); }}
@@ -128,9 +141,17 @@ export function App() {
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {view === "empty" && <EmptyState onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }} />}
-        {view === "new-session" && <NewSessionPane />}
+        {view === "new-session" && <NewSessionPane pendingAgent={pendingAgent} />}
         {view === "session" && currentSessionId && <SessionView sessionId={currentSessionId} />}
       </main>
+      {galleryOpen && (
+        <AgentGalleryModal
+          onClose={() => setGalleryOpen(false)}
+          onChatWith={(name) => { setGalleryOpen(false); chatWith(name); }}
+          onEdit={(name) => { setGalleryOpen(false); setConfigAgent(name); }}
+          onCreated={(name) => { setGalleryOpen(false); setConfigAgent(name); }}
+        />
+      )}
       {configAgent && <AgentConfig agentName={configAgent} onClose={() => setConfigAgent(null)} />}
       {useProjectsStore(s => s.dirPickerOpen) && (
         <DirTreePicker
