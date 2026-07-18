@@ -163,8 +163,32 @@ export class AgentManager {
     for (const id of this.sessions.keys()) this.skillDirty.add(id);
   }
 
-  /** 重命名联动（Task 8 补全重建逻辑） */
-  renameAgentSessions(_oldName: string, _newName: string): void {}
+  /** agent 重命名联动：更新活跃会话 meta，标 skillDirty 使下次 ensureStarted 重建 */
+  renameAgentSessions(oldName: string, newName: string): void {
+    for (const [id, meta] of this.sessionMeta) {
+      if (meta.agentName === oldName) {
+        this.sessionMeta.set(id, { ...meta, agentName: newName });
+        this.skillDirty.add(id);
+      }
+    }
+  }
+
+  /** 对话中切换智能体：运行中先 abort，拆除后按同一 sessionId 重建（jsonl 历史保留） */
+  async switchAgent(sessionId: string, agentName: AgentName): Promise<void> {
+    const meta = this.sessionMeta.get(sessionId);
+    const old = this.sessions.get(sessionId);
+    if (old?.isStreaming) {
+      try { await old.abort(); } catch { /* 忽略 */ }
+    }
+    this._teardownSession(sessionId);
+    const projectId = meta?.projectId ?? (await this.opts.projectStore.load()).sessions.find(s => s.id === sessionId)?.projectId;
+    if (!projectId) throw new Error(`会话不存在: ${sessionId}`);
+    await this.opts.projectStore.setSessionAgent(sessionId, agentName);
+    this.sessionMeta.set(sessionId, { projectId, agentName });
+    const promise = this._createSession(projectId, agentName, sessionId);
+    this.starting.set(sessionId, promise);
+    try { await promise; } finally { this.starting.delete(sessionId); }
+  }
 
   /**
    * 读取当前启用的可选插件 id 集合，供 resolveAgentTools 过滤工具 allowlist。

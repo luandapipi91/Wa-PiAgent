@@ -1239,3 +1239,154 @@ test("ensureStarted 把 reconciled 数组赋给 session.agent.state.messages（�
   expect(last.isError).toBe(false);
   expect(last.toolCallId).toBe("tc-dangling");
 });
+
+// ─── Task 8: switchAgent 换体重建 + renameAgentSessions 重命名联动 ──────────
+
+test("switchAgent: 换体重建，sessionId 不变且 config 取新 agent", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const getAgent = mock(async (n: string) => ({ name: n, partners: { askTo: [], askFrom: [] }, triggerKeywords: [] }));
+  const configStore = { getAgent } as any;
+
+  const created: AgentSession[] = [];
+  const createFn = mock(async () => {
+    const s = makeFreshSession();
+    created.push(s);
+    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore, onEvent: () => {},
+    createAgentSessionFn: createFn as any,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+  const before = created.length;
+
+  await am.switchAgent(session.id, "pm");
+
+  // 拆除旧 + 用同一 sessionId 重建（多调一次 createFn）
+  expect(created.length).toBe(before + 1);
+  expect((created[0].dispose as any)).toHaveBeenCalledTimes(1);
+  // config 取新 agent
+  expect(getAgent).toHaveBeenCalledWith("pm");
+  // ProjectStore 已更新
+  const { sessions } = await projectStore.load();
+  expect(sessions.find(s => s.id === session.id)!.primaryAgent).toBe("pm");
+  // 重建后 ensureStarted 命中缓存返回新 session（dispose+create 已完成），不再创建
+  const s = await am.ensureStarted(project.id, "pm", session.id);
+  expect(s).toBeTruthy();
+  expect(s).toBe(created[created.length - 1]);
+  expect(created.length).toBe(before + 1);
+});
+
+test("switchAgent: 运行中先 abort，abort 失败吞掉不阻塞切换", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const created: AgentSession[] = [];
+  const createFn = mock(async () => {
+    const s = makeFreshSession();
+    created.push(s);
+    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: createFn as any,
+  });
+  const first = await am.ensureStarted(project.id, "dev", session.id);
+  (first as any).isStreaming = true;
+  (first.abort as any).mockImplementation(async () => { throw new Error("abort 失败"); });
+
+  await am.switchAgent(session.id, "pm");  // abort 失败不应抛错阻塞
+
+  expect((first.abort as any)).toHaveBeenCalledTimes(1);
+  expect(created).toHaveLength(2);
+  const { sessions } = await projectStore.load();
+  expect(sessions.find(s => s.id === session.id)!.primaryAgent).toBe("pm");
+});
+
+test("switchAgent: 会话未启动（无 meta）时从 projectStore 降级取 projectId 并直接建会话", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const created: AgentSession[] = [];
+  const createFn = mock(async () => {
+    const s = makeFreshSession();
+    created.push(s);
+    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: createFn as any,
+  });
+  // 未 ensureStarted（sessionMeta 为空），直接切换
+  await am.switchAgent(session.id, "pm");
+
+  expect(created).toHaveLength(1);
+  const { sessions } = await projectStore.load();
+  expect(sessions.find(s => s.id === session.id)!.primaryAgent).toBe("pm");
+});
+
+test("switchAgent: 会话不存在时抛错", async () => {
+  const am = new AgentManager({
+    projectStore: newProjectStore(), configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await expect(am.switchAgent("nope", "pm")).rejects.toThrow("会话不存在");
+});
+
+test("renameAgentSessions: sessionMeta 更新，下次 ensureStarted 用新名重建", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "旧名", title: "测试" });
+
+  const created: AgentSession[] = [];
+  const createFn = mock(async () => {
+    const s = makeFreshSession();
+    created.push(s);
+    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: createFn as any,
+  });
+  await am.ensureStarted(project.id, "旧名", session.id);
+  expect(created).toHaveLength(1);
+
+  am.renameAgentSessions("旧名", "新名");
+
+  // meta 已改且标 skillDirty（复用既有重建机制）
+  expect((am as any).sessionMeta.get(session.id).agentName).toBe("新名");
+  expect((am as any).skillDirty.has(session.id)).toBe(true);
+
+  // 下次 ensureStarted 用新名重建
+  const s = await am.ensureStarted(project.id, "新名", session.id);
+  expect(created).toHaveLength(2);
+  expect(s).toBe(created[1]);
+  expect((created[0].dispose as any)).toHaveBeenCalledTimes(1);
+  expect((am as any).sessionMeta.get(session.id).agentName).toBe("新名");
+});
+
+test("renameAgentSessions: 不匹配旧名的活跃会话不受影响", async () => {
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  const am = new AgentManager({
+    projectStore, configStore: null as any, onEvent: () => {},
+    createAgentSessionFn: mockCreateAgentSession,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  am.renameAgentSessions("旧名", "新名");
+
+  expect((am as any).sessionMeta.get(session.id).agentName).toBe("dev");
+  expect((am as any).skillDirty.has(session.id)).toBe(false);
+});
