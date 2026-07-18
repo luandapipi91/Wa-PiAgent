@@ -440,6 +440,10 @@ export class WSServer {
         }
         break;
       }
+      case "agent:tools:list": {
+        reply({ type: "agent:tools:list", tools: await this.opts.agentManager.listGlobalTools() });
+        break;
+      }
       case "agent:config:get": {
         const config = await this.opts.configStore.getAgent(event.agentName) ?? makeDefaultAgentConfig(event.agentName);
         reply({ type: "agent:config", agentName: event.agentName, config });  // 定向
