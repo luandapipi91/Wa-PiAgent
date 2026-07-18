@@ -14,6 +14,8 @@ interface Props {
   onClose: () => void;
   onChatWith: (name: string) => void;
   onEdit: (name: string) => void;
+  /** 新建成功后回调（乐观打开契约）：同一 WS 连接上 kernel 顺序处理消息，
+   *  agent:create 写盘先于随后的 agent:config:get，消费者可立即打开详情弹窗。 */
   onCreated: (name: string) => void;
 }
 
@@ -34,7 +36,9 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
   useEffect(() => {
     if (!ctxMenu) return;
     const close = () => setCtxMenu(null);
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    // stopPropagation：菜单监听在 document、Modal 的 ESC 监听在 window，
+    // 阻止冒泡避免 ESC 同时关掉菜单和弹窗
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
     const id = setTimeout(() => {
       document.addEventListener("click", close);
       document.addEventListener("keydown", onKey);
