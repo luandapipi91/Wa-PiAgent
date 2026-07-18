@@ -27,8 +27,19 @@ export function AgentListSection({ onChatWith, onEdit, onMore, onSelectAgent }: 
   const messagesBySession = useSessionStore(s => s.messagesBySession);
   const [ctxMenu, setCtxMenu] = useState<CtxMenuState | null>(null);
   const [deleteFor, setDeleteFor] = useState<string | null>(null);
+  // 空态内联新建（模式同 AgentGalleryModal 的新建小表单）
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
 
   const top = topAgentsByRecency(agents, sessions, 3);
+
+  const submitCreate = () => {
+    const name = newName.trim();
+    if (!name) return;
+    useAgentsStore.getState().createAgent(name);
+    setCreating(false);
+    setNewName("");
+  };
 
   // 右键菜单关闭（点击任意处 / ESC），模式同 ProjectItem
   useEffect(() => {
@@ -104,6 +115,29 @@ export function AgentListSection({ onChatWith, onEdit, onMore, onSelectAgent }: 
           data-testid="agent-more"
         >⋯ 更多智能体 ({agents.length - 3})</button>
       )}
+      {agents.length === 0 && (creating ? (
+        <div className="px-2 py-1">
+          <input
+            autoFocus
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter") submitCreate();
+              else if (e.key === "Escape") { setCreating(false); setNewName(""); }
+            }}
+            onBlur={() => { setCreating(false); setNewName(""); }}
+            placeholder="智能体名称"
+            className="w-full px-2 py-1.5 rounded-sm border border-hairline bg-surface text-[13px] text-primary outline-none placeholder:text-tertiary"
+            data-testid="agent-empty-input"
+          />
+        </div>
+      ) : (
+        <button
+          onClick={() => setCreating(true)}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-[13px] text-tertiary transition-colors hover:bg-surface-hover hover:text-secondary text-left"
+          data-testid="agent-empty-create"
+        >＋ 新增智能体</button>
+      ))}
 
       {/* agent 右键菜单 */}
       {ctxMenu && createPortal(
