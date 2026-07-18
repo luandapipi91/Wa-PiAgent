@@ -67,6 +67,18 @@ describe("AgentGalleryModal", () => {
     await waitFor(() => expect(screen.queryByTestId("gallery-context-menu")).toBeNull());
   });
 
+  test("菜单打开时按 ESC 只关菜单，不关弹窗", async () => {
+    seed(["a"]);
+    const onClose = mock();
+    renderModal({ onClose });
+    fireEvent.contextMenu(screen.getByTestId("gallery-card-a"));
+    // 等 setTimeout(0) 把 keydown 监听器绑到 document（同上面点空白用例）
+    await new Promise(r => setTimeout(r, 10));
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("gallery-context-menu")).toBeNull());
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   test("菜单「编辑智能体」触发 onEdit", () => {
     seed(["a"]);
     const onEdit = mock();

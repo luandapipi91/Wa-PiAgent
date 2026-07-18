@@ -6,6 +6,9 @@
 
 ## 2026-07-18
 
+### 修复
+- **AgentGalleryModal 评审修复（多智能体矩阵 Task 11）**：(1) Props `onCreated` 补乐观打开契约注释（同一 WS 连接 kernel 顺序处理，`agent:create` 写盘先于随后的 `agent:config:get`，消费者可立即打开详情弹窗）；(2) 右键菜单打开时按 ESC 不再连同弹窗一起关闭——菜单 ESC 监听（document 级）加 `stopPropagation()` 阻止冒泡到 Modal 的 window 级监听。TDD：先写「菜单打开时 ESC 只关菜单不关弹窗」失败测试（onClose 被调 1 次），修复后 7/7 通过。影响：frontend(components/AgentGalleryModal.tsx + tests/AgentGalleryModal.test.tsx)。
+
 ### 新增
 - **agent-md 校验放开 + 新字段序列化（多智能体矩阵 Task 2）**：`validateAgentConfig` 删除 `VALID_NAMES` 枚举校验，改为 name 非空 + 非法文件名字符（`/ \ : * ? " < > |`）拒绝，支持任意中文/自定义智能体名；thinking 合法值更新为 `disabled/medium/high/max`，`parseAgentMd` 把旧值 `low` 归一为 `medium`；`triggerKeywords` 新增序列化/解析（`[a, b]` 列表格式，旧 md 文件缺省 `[]` 兼容）；`makeDefaultAgentConfig(name: string)` 改用 `agentDefOf(name)`，无内置定义时回退名称本身 + 🤖。TDD 红绿：4 个新测试先行失败、实现后 9/9 通过；kernel 全量 332 pass（4 fail 为改动前既有，stash 基线对比确认）。影响：kernel(agent-md.ts + tests/agent-md.test.ts + tests/config-store.test.ts)。
 
