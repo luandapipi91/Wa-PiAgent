@@ -8,10 +8,12 @@ export interface MenuItem {
   path?: string;
   source?: SkillSource;
   isDir?: boolean;
+  avatar?: string;
+  avatarColor?: string;
 }
 
 interface Props {
-  type: "file" | "skill";
+  type: "agent" | "file" | "skill";
   items: MenuItem[];
   highlightedIndex: number;
   onSelect: (item: MenuItem) => void;
@@ -68,6 +70,21 @@ export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHov
                     <span className="text-primary truncate">{item.name}</span>
                     {item.path && (
                       <span className="text-xs text-tertiary truncate">{item.path}</span>
+                    )}
+                  </div>
+                </>
+              ) : type === "agent" ? (
+                <>
+                  <span
+                    className="w-7 h-7 rounded-md flex items-center justify-center text-sm flex-shrink-0"
+                    style={{ background: item.avatarColor?.includes("-")
+                      ? `linear-gradient(135deg, ${item.avatarColor.split("-").map(s => s.trim()).join(", ")})`
+                      : item.avatarColor || undefined }}
+                  >{item.avatar ?? "🤖"}</span>
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span className="text-primary truncate">{item.name}</span>
+                    {item.description && (
+                      <span className="text-xs text-tertiary truncate">{item.description}</span>
                     )}
                   </div>
                 </>

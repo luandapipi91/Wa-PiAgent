@@ -25,7 +25,7 @@ import type {
   McpListResult, McpChangedEvent, McpTestResult, McpToolsResult,
 } from "./mcp";
 
-export type AgentName = "product" | "pm" | "dev" | "test";
+export type AgentName = string;
 export type AgentStateKey = `${string}:${AgentName}`;
 export type AgentStatus = "idle" | "thinking" | "blocked";
 
@@ -43,8 +43,8 @@ export interface AgentConfig {
   avatar: string;
   avatarColor: string;        // "hex-hex" 渐变
   description: string;
-  model: string;
-  thinking: "low" | "medium" | "high";
+  model: string | null;       // null / "" = 跟随全局
+  thinking: ThinkingLevel | null;  // null = 跟随当前会话默认
   systemPromptMode: "replace" | "append";
   inheritProjectContext: boolean;
   inheritSkills: boolean;
@@ -52,6 +52,7 @@ export interface AgentConfig {
   skills: string[];
   mcpServers: string[];
   partners: Partners;
+  triggerKeywords: string[];  // 触发关键词：其他智能体自动调起本智能体时的判定提示
   systemPromptBody?: string;  // frontmatter 后的正文
 }
 
@@ -257,6 +258,11 @@ export interface AgentConfigSaveEvent {
   agentName: AgentName;
   config: AgentConfig;
 }
+export interface AgentListRequest { type: "agent:list"; }
+export interface AgentCreateEvent { type: "agent:create"; displayName: string; }
+export interface AgentDeleteEvent { type: "agent:delete"; name: string; }
+export interface AgentToolsListRequest { type: "agent:tools:list"; }
+export interface SessionSetAgentEvent { type: "session:set-agent"; sessionId: string; agentName: AgentName; }
 export interface ProjectsListRequest { type: "projects:list"; }
 export interface SessionMessagesRequest {
   type: "session:messages";
@@ -270,6 +276,7 @@ export type WSClientEvent =
   | ProjectCreateEvent | ProjectUpdateEvent | ProjectDeleteEvent | ProjectOpenDirEvent
   | SessionRenameEvent | SessionDeleteEvent
   | AgentConfigGetEvent | AgentConfigSaveEvent
+  | AgentListRequest | AgentCreateEvent | AgentDeleteEvent | AgentToolsListRequest | SessionSetAgentEvent
   | ProjectsListRequest | SessionMessagesRequest
   | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
   | SkillListEvent | SkillToggleEvent | SkillDirAddEvent | SkillDirRemoveEvent
@@ -312,6 +319,12 @@ export interface AgentConfigEvent {
   agentName: AgentName;
   config: AgentConfig;
 }
+export interface AgentListResult { type: "agent:list"; agents: AgentConfig[]; }
+export interface AgentCreatedEvent { type: "agent:created"; agent: AgentConfig; }
+export interface AgentDeletedEvent { type: "agent:deleted"; name: string; }
+export interface AgentToolItem { name: string; source: string; }  // source: "内置" | "扩展" | "MCP"
+export interface AgentToolsListResult { type: "agent:tools:list"; tools: AgentToolItem[]; }
+export interface SessionUpdatedEvent { type: "session:updated"; sessionId: string; primaryAgent: AgentName; }
 export interface ErrorEvent {
   type: "error";
   message: string;
@@ -375,6 +388,7 @@ export type WSServerEvent =
   | ProjectsListEvent | ProjectCreatedEvent | SessionCreatedEvent
   | SessionMessagesEvent | SessionEchoUserEvent
   | AgentConfigEvent | ErrorEvent
+  | AgentListResult | AgentCreatedEvent | AgentDeletedEvent | AgentToolsListResult | SessionUpdatedEvent
   | ProviderListResult | ProviderTestResult | ProviderChangedEvent
   | SkillListResult | SkillChangedEvent
   | ExtensionListResult | ExtensionChangedEvent | ExtensionErrorEvent

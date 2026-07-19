@@ -1,4 +1,3 @@
-import type { AgentName } from "@hiagent/shared";
 import type { View } from "../App";
 import { NewSessionButton } from "./NewSessionButton";
 import { AgentListSection } from "./AgentListSection";
@@ -8,7 +7,9 @@ import { useSettingsStore } from "../store/settings";
 
 interface Props {
   onNewSession: () => void;
-  onSelectAgent: (name: AgentName) => void;
+  onChatWith: (name: string) => void;
+  onEdit: (name: string) => void;
+  onMore: () => void;
   onSelectSession: (id: string) => void;
   onNewSessionInProject: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
@@ -28,7 +29,7 @@ export function Sidebar(props: Props) {
         <span className="font-extrabold text-[17px] tracking-tight text-primary">HiAgent</span>
       </div>
       <NewSessionButton onNewSession={props.onNewSession} />
-      <AgentListSection onSelectAgent={props.onSelectAgent} />
+      <AgentListSection onChatWith={props.onChatWith} onEdit={props.onEdit} onMore={props.onMore} />
       <ProjectList
         onSelectSession={props.onSelectSession}
         onNewSessionInProject={props.onNewSessionInProject}

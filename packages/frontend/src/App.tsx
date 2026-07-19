@@ -5,12 +5,15 @@ import { NewSessionPane } from "./components/NewSessionPane";
 import { SessionView } from "./components/SessionView";
 import { EmptyState } from "./components/EmptyState";
 import { AgentConfig } from "./components/AgentConfig";
+import { AgentGalleryModal } from "./components/AgentGalleryModal";
+import { AgentMissingModal } from "./components/AgentMissingModal";
 import { DirTreePicker } from "./components/DirTreePicker";
 import { SettingsModal } from "./components/SettingsModal";
 import { useSettingsStore } from "./store/settings";
 import { useProvidersStore } from "./store/providers";
 import { useProjectsStore } from "./store/projects";
 import { useSessionStore } from "./store/session";
+import { useAgentsStore } from "./store/agents";
 import { useSkillsStore } from "./store/skills";
 import { useExtensionsStore } from "./store/extensions";
 import { useMcpStore } from "./store/mcp";
@@ -29,6 +32,11 @@ export function App() {
   const currentSessionId = useProjectsStore(s => s.currentSessionId);
   const [view, setView] = useState<View>("empty");
   const [configAgent, setConfigAgent] = useState<AgentName | null>(null);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  // 侧栏/宫格「新建会话」预选的智能体，传给 NewSessionPane
+  const [pendingAgent, setPendingAgent] = useState<string | null>(null);
+  // 主智能体已删除的会话 id：kernel 回 agent_missing 时打开重选弹窗
+  const [agentMissingSessionId, setAgentMissingSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     getWs();
@@ -36,6 +44,7 @@ export function App() {
     useProvidersStore.getState().load();
     useSkillsStore.getState().load();
     useExtensionsStore.getState().load();
+    useAgentsStore.getState().loadAll();
     const off = onMessage(e => {
       const ps = useProjectsStore.getState();  // 每次事件取最新，避免 stale
       switch (e.type) {
@@ -51,6 +60,8 @@ export function App() {
           // kernel/pi 错误：注入出错的会话作为系统错误消息（红色显示）。
           // 优先用事件携带的 sessionId 精确路由；缺省回落 currentSessionId。
           const sid = e.sessionId ?? useProjectsStore.getState().currentSessionId;
+          // 会话主智能体已删除：打开重选弹窗（错误消息照常注入，提示用户重发）
+          if (e.message === "agent_missing" && e.sessionId) setAgentMissingSessionId(e.sessionId);
           if (sid) {
             // agent 启动失败（如 No API key）：agent 从未启动、不会有 agent_end，
             // 必须手动复位 thinking 状态，否则会话永远卡在「思考中」且停止按钮无效
@@ -76,6 +87,8 @@ export function App() {
         }
         case "provider:list": useProvidersStore.getState().setProviders(e.providers); break;
         case "provider:changed": useProvidersStore.getState().setProviders(e.providers); break;
+        // kernel 在 agent:create/delete/config:save 后都会重新 broadcast agent:list，统一在此收口
+        case "agent:list": useAgentsStore.getState().setList(e.agents); break;
         case "skill:list": useSkillsStore.getState().setAll(e); break;
         case "skill:changed": useSkillsStore.getState().setAll(e); break;
         case "extension:list": useExtensionsStore.getState().setAll(e); break;
@@ -115,11 +128,16 @@ export function App() {
     else setView("new-session");
   }, [projects.length, currentSessionId]);
 
+  // 点智能体 → 带着预选切到新建会话视图（与 NewSessionButton 的视图切换一致）
+  const chatWith = (name: string) => { setPendingAgent(name); setView("new-session"); };
+
   return (
     <div className="flex h-screen bg-canvas">
       <Sidebar
         onNewSession={() => setView("new-session")}
-        onSelectAgent={(name) => setConfigAgent(name)}
+        onChatWith={chatWith}
+        onEdit={(name) => setConfigAgent(name)}
+        onMore={() => setGalleryOpen(true)}
         onSelectSession={(id) => { useProjectsStore.getState().selectSession(id); setView("session"); }}
         onNewSessionInProject={(pid) => { useProjectsStore.getState().selectProject(pid); useProjectsStore.getState().setCurrentSessionId(null); setView("new-session"); }}
         onSelectProject={(pid) => { useProjectsStore.getState().selectProject(pid); useProjectsStore.getState().setCurrentSessionId(null); setView("new-session"); }}
@@ -128,10 +146,21 @@ export function App() {
       />
       <main className="flex-1 flex flex-col overflow-hidden">
         {view === "empty" && <EmptyState onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }} />}
-        {view === "new-session" && <NewSessionPane />}
+        {view === "new-session" && <NewSessionPane pendingAgent={pendingAgent} onConsumePendingAgent={() => setPendingAgent(null)} />}
         {view === "session" && currentSessionId && <SessionView sessionId={currentSessionId} />}
       </main>
+      {galleryOpen && (
+        <AgentGalleryModal
+          onClose={() => setGalleryOpen(false)}
+          onChatWith={(name) => { setGalleryOpen(false); chatWith(name); }}
+          onEdit={(name) => { setGalleryOpen(false); setConfigAgent(name); }}
+          onCreated={(name) => { setGalleryOpen(false); setConfigAgent(name); }}
+        />
+      )}
       {configAgent && <AgentConfig agentName={configAgent} onClose={() => setConfigAgent(null)} />}
+      {agentMissingSessionId && (
+        <AgentMissingModal sessionId={agentMissingSessionId} onClose={() => setAgentMissingSessionId(null)} />
+      )}
       {useProjectsStore(s => s.dirPickerOpen) && (
         <DirTreePicker
           onPick={(cwd) => useProjectsStore.getState().createProjectFromPath(cwd)}

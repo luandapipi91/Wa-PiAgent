@@ -1,0 +1,53 @@
+import { useAgentsStore } from "../store/agents";
+import { send } from "../ws-instance";
+import { Modal } from "./ui/Modal";
+
+interface Props {
+  sessionId: string;
+  onClose: () => void;
+}
+
+// avatarColor 形如 "#06b6d4-#3b82f6"（渐变）或单色；还原为 CSS background（同 AgentSwitcher）
+function avatarBackground(color?: string): string | undefined {
+  if (!color) return undefined;
+  const [c1, c2] = color.split("-").map(s => s.trim());
+  return c2 ? `linear-gradient(135deg, ${c1}, ${c2})` : c1;
+}
+
+// 会话主智能体已删除（kernel 回 agent_missing）时的重选弹窗：
+// 恢复流程非主动切换——不弹缓存确认框，点击即发送 session:set-agent；失败消息由用户手动重发
+export function AgentMissingModal({ sessionId, onClose }: Props) {
+  const agents = useAgentsStore(s => s.list);
+  const pick = (name: string) => {
+    send({ type: "session:set-agent", sessionId, agentName: name });
+    onClose();
+  };
+  return (
+    <Modal onClose={onClose} width={400} data-testid="agent-missing-modal">
+      <div className="p-4 border-b border-hairline">
+        <div className="text-primary font-bold text-sm">原智能体已删除</div>
+      </div>
+      <div className="px-4 pt-3 text-sm text-secondary leading-relaxed">请重新选择智能体后重发消息</div>
+      <div className="p-2 max-h-[300px] overflow-y-auto">
+        {agents.map(a => (
+          <button
+            type="button"
+            key={a.name}
+            data-testid={`agent-missing-item-${a.name}`}
+            onClick={() => pick(a.name)}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm cursor-pointer text-left border-0 bg-transparent transition-colors text-secondary hover:bg-surface-hover"
+          >
+            <span
+              className="w-[22px] h-[22px] rounded-sm flex items-center justify-center text-[12px] flex-none"
+              style={{ background: avatarBackground(a.avatarColor) }}
+            >{a.avatar}</span>
+            <span className="text-[12px] text-primary">{a.displayName}</span>
+          </button>
+        ))}
+        {agents.length === 0 && (
+          <div className="px-3 py-3.5 text-center text-tertiary text-[12px]">（无智能体）</div>
+        )}
+      </div>
+    </Modal>
+  );
+}

@@ -97,3 +97,10 @@ test("resolveAgentTools: harvested 默认空（向后兼容 4 参调用）", () 
   const result = resolveAgentTools(["read"], new Set(["e"]), undefined, { e: ["demo_tool_a"] });
   expect(result).toEqual(["read", "demo_tool_a"]);
 });
+
+test("resolveAgentTools: 扩展原生 subagent 工具被剔除；delegate 放行", () => {
+  const out = resolveAgentTools(DEFAULT_AGENT_TOOLS, new Set(), "dev", {}, ["subagent", "some_ext_tool"]);
+  expect(out).not.toContain("subagent");
+  expect(out).toContain("delegate");
+  expect(out).toContain("some_ext_tool");
+});

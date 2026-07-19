@@ -23,6 +23,7 @@ function makeMockAgentManager(messages: AgentMessage[] = []) {
     abort: [] as string[],
     disposeSession: [] as string[],
     ensureStarted: [] as Array<{ projectId: string; agentName: string; sessionId: string }>,
+    switchAgent: [] as Array<{ sessionId: string; agentName: string }>,
   };
   const fakeSession = {
     messages,
@@ -50,13 +51,21 @@ function makeMockAgentManager(messages: AgentMessage[] = []) {
     },
     disposeAll: async () => {},
     markAllDirty: () => {},
+    renameAgentSessions: (_oldName: string, _newName: string) => {},
+    switchAgent: async (sessionId: string, agentName: string) => {
+      calls.switchAgent.push({ sessionId, agentName });
+    },
   } as any;
   return { agentManager, calls };
 }
 
 async function withServer<T>(
   agentManager: any,
-  fn: (send: (e: WSClientEvent) => void, recv: () => Promise<WSServerEvent>) => Promise<T>,
+  fn: (
+    send: (e: WSClientEvent) => void,
+    recv: () => Promise<WSServerEvent>,
+    stores: { configStore: ConfigStore; projectStore: ProjectStore },
+  ) => Promise<T>,
 ): Promise<T> {
   const configStore = new ConfigStore(tmp("ws-cfg"));
   const projectStore = new ProjectStore(tmp("ws-proj.json"));
@@ -85,7 +94,7 @@ async function withServer<T>(
     while (queue.length === 0) await new Promise(r => setTimeout(r, 20));
     return queue.shift()!;
   };
-  try { return await fn(send, recv); }
+  try { return await fn(send, recv, { configStore, projectStore }); }
   finally { ws.close(); await server.stop(); }
 }
 
@@ -423,5 +432,201 @@ test("agent:answer 对未知 toolCallId 幂等（不抛错、不影响）", asyn
   await withServer(agentManager, async (send) => {
     send({ type: "agent:answer", sessionId: "s1", toolCallId: "unknown", reply: { replies: [] } });
     await new Promise(r => setTimeout(r, 50));  // 不崩溃即通过
+  });
+});
+
+// ─── Task 4: agent CRUD + 改名联动 ───
+// create/delete 会顺带广播 agent:list，队列里可能有残留，按条件循环消费
+async function recvUntil(recv: () => Promise<WSServerEvent>, pred: (e: any) => boolean): Promise<any> {
+  for (;;) {
+    const e = await recv() as any;
+    if (pred(e)) return e;
+  }
+}
+
+test("agent:list/create/delete 全流程", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv) => {
+    send({ type: "agent:create", displayName: "测试员甲" });
+    const created = await recvUntil(recv, e => e.type === "agent:created");
+    expect(created.agent.name).toBe("测试员甲");
+    send({ type: "agent:list" });
+    const list = await recvUntil(recv, e => e.type === "agent:list" && e.agents.some((a: any) => a.name === "测试员甲"));
+    expect(list.agents.some((a: any) => a.name === "测试员甲")).toBe(true);
+    send({ type: "agent:delete", name: "测试员甲" });
+    await recvUntil(recv, e => e.type === "agent:deleted");
+    send({ type: "agent:list" });
+    const list2 = await recvUntil(recv, e => e.type === "agent:list");
+    expect(list2.agents.some((a: any) => a.name === "测试员甲")).toBe(false);
+  });
+});
+
+test("agent:create 非法名返回 error", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv) => {
+    send({ type: "agent:create", displayName: "a/b" });
+    const err = await recvUntil(recv, e => e.type === "error");
+    expect(err.message).toContain("非法 name");
+  });
+});
+
+// ─── Task 17: 错误路径补齐 ───
+
+test("agent:delete 不存在的智能体返回 error", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv) => {
+    send({ type: "agent:delete", name: "幽灵" });
+    const err = await recvUntil(recv, e => e.type === "error");
+    expect(err.message).toContain("智能体不存在");
+  });
+});
+
+test("agent:create 重名自动加 -2 后缀", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv) => {
+    send({ type: "agent:create", displayName: "甲" });
+    const first = await recvUntil(recv, e => e.type === "agent:created");
+    expect(first.agent.name).toBe("甲");
+    send({ type: "agent:create", displayName: "甲" });
+    const second = await recvUntil(recv, e => e.type === "agent:created" && e.agent.name === "甲-2");
+    expect(second.agent.name).toBe("甲-2");
+  });
+});
+
+// 用真实 AgentManager（空 projectStore）让 switchAgent 走真实「会话不存在」抛错路径
+test("session:set-agent 到不存在的会话返回 error", async () => {
+  const { AgentManager } = await import("../src/agent-manager");
+  const manager = new AgentManager({
+    projectStore: new ProjectStore(tmp("ws-proj.json")),
+    configStore: null,
+    onEvent: () => {},
+  });
+  await withServer(manager, async (send, recv, { configStore }) => {
+    // 先建 dev 智能体以通过 set-agent 的存在性校验，才能走到 switchAgent 的「会话不存在」抛错
+    await configStore.createAgent("dev");
+    send({ type: "session:set-agent", sessionId: "s-ghost", agentName: "dev" });
+    const err = await recvUntil(recv, e => e.type === "error");
+    expect(err.message).toContain("会话不存在");
+    expect(err.sessionId).toBe("s-ghost");
+  });
+});
+
+// Task 17 评审加固：set-agent 到不存在的智能体与 agent:prompt 的 agent_missing 拦截统一——
+// 返回 error（含「智能体不存在」与 sessionId），不调用 switchAgent、不广播 session:updated，
+// 避免会话进入「已删除智能体」状态（此前 _createSession 静默走默认配置分支，agent-manager.ts:298-300）。
+test("session:set-agent 到不存在的智能体返回 error 且不广播 session:updated", async () => {
+  const { agentManager, calls } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recvRaw, { projectStore }) => {
+    // 包装 recv 记录全部事件，用于断言「未广播 session:updated」
+    const seen: any[] = [];
+    const recv = async () => { const e = await recvRaw(); seen.push(e); return e; };
+    const proj = await projectStore.createProject({ name: "p", cwd: "/tmp" });
+    const sess = await projectStore.createSession({ projectId: proj.id, primaryAgent: "dev", title: "t" });
+    send({ type: "session:set-agent", sessionId: sess.id, agentName: "幽灵" });
+    // 超时窗口：旧行为下根本不会回 error，race 返回 null 使断言快速失败（避免挂起到测试超时）
+    const err = await Promise.race([
+      recvUntil(recv, e => e.type === "error"),
+      new Promise(r => setTimeout(() => r(null), 300)),
+    ]);
+    expect(err).not.toBeNull();
+    expect(err.message).toContain("智能体不存在");
+    expect(err.sessionId).toBe(sess.id);
+    expect(calls.switchAgent).toHaveLength(0);
+    // 计数方式确认无 session:updated 广播：窗口期内 seen 不得出现该事件
+    await new Promise(r => setTimeout(r, 200));
+    expect(seen.some(e => e.type === "session:updated")).toBe(false);
+  });
+});
+
+// ─── Task 7: agent:tools:list 全局工具清单 ───
+// listGlobalTools 依赖真实 SDK loader 做扩展发现，用真实 AgentManager（configStore 可空）
+test("agent:tools:list 返回内置工具且不含 subagent", async () => {
+  const { AgentManager } = await import("../src/agent-manager");
+  const manager = new AgentManager({
+    projectStore: new ProjectStore(tmp("ws-proj.json")),
+    configStore: null,
+    onEvent: () => {},
+  });
+  await withServer(manager, async (send, recv) => {
+    send({ type: "agent:tools:list" });
+    const res = await recvUntil(recv, e => e.type === "agent:tools:list");
+    const names = res.tools.map((t: any) => t.name);
+    expect(names).toContain("read");
+    expect(names).toContain("delegate");
+    expect(names).not.toContain("subagent");
+    expect(res.tools.find((t: any) => t.name === "read").source).toBe("内置");
+  });
+});
+
+test("agent:config:save 改名联动会话 primaryAgent 与 askTo", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv, { configStore, projectStore }) => {
+    await configStore.createAgent("旧名");
+    await configStore.createAgent("乙");
+    const yi = (await configStore.getAgent("乙"))!;
+    await configStore.saveAgent({ ...yi, partners: { askTo: ["旧名"], askFrom: [] } });
+    const proj = await projectStore.createProject({ name: "p", cwd: "/tmp/x" });
+    const sess = await projectStore.createSession({ projectId: proj.id, primaryAgent: "旧名", title: "t" });
+    const cfg = (await configStore.getAgent("旧名"))!;
+    send({ type: "agent:config:save", agentName: "旧名", config: { ...cfg, name: "新名" } });
+    // 改名分支最后广播 agent:list，收到即说明联动已落盘
+    await recvUntil(recv, e => e.type === "agent:list");
+    const { sessions } = await projectStore.load();
+    expect(sessions.find(s => s.id === sess.id)!.primaryAgent).toBe("新名");
+    expect(await configStore.getAgent("旧名")).toBeNull();
+    expect(await configStore.getAgent("新名")).not.toBeNull();
+    const yi2 = (await configStore.getAgent("乙"))!;
+    expect(yi2.partners.askTo).toEqual(["新名"]);
+  });
+});
+
+// Task 18：非改名保存也需广播 agent:list，否则其他客户端/列表看不到简介等变更
+test("agent:config:save 非改名路径广播 agent:list", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv, { configStore }) => {
+    await configStore.createAgent("甲");
+    const cfg = (await configStore.getAgent("甲"))!;
+    send({ type: "agent:config:save", agentName: "甲", config: { ...cfg, description: "新简介" } });
+    const list = await recvUntil(recv, e => e.type === "agent:list");
+    const jia = list.agents.find((a: any) => a.name === "甲");
+    expect(jia.description).toBe("新简介");
+  });
+});
+
+// ─── Task 8: session:set-agent 换体 + agent_missing 拦截 ───
+
+test("session:set-agent 更新并广播 session:updated", async () => {
+  const { agentManager, calls } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv, { configStore, projectStore }) => {
+    await configStore.createAgent("甲");
+    const proj = await projectStore.createProject({ name: "p", cwd: "/tmp/x" });
+    const sess = await projectStore.createSession({ projectId: proj.id, primaryAgent: "dev", title: "t" });
+    // mock switchAgent 同时落盘（真实 AgentManager.switchAgent 内部会 setSessionAgent）
+    agentManager.switchAgent = async (sessionId: string, agentName: string) => {
+      calls.switchAgent.push({ sessionId, agentName });
+      await projectStore.setSessionAgent(sessionId, agentName);
+    };
+    send({ type: "session:set-agent", sessionId: sess.id, agentName: "甲" });
+    const upd = await recvUntil(recv, e => e.type === "session:updated");
+    expect(upd.sessionId).toBe(sess.id);
+    expect(upd.primaryAgent).toBe("甲");
+    expect(calls.switchAgent).toEqual([{ sessionId: sess.id, agentName: "甲" }]);
+    const { sessions } = await projectStore.load();
+    expect(sessions.find(s => s.id === sess.id)!.primaryAgent).toBe("甲");
+  });
+});
+
+test("agent:prompt 对 primaryAgent 已删除的会话返回 agent_missing", async () => {
+  const { agentManager, calls } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv, { projectStore }) => {
+    const proj = await projectStore.createProject({ name: "p", cwd: "/tmp/x" });
+    const sess = await projectStore.createSession({ projectId: proj.id, primaryAgent: "不存在的智能体", title: "t" });
+    send({ type: "agent:prompt", projectId: proj.id, sessionId: sess.id, agentName: "不存在的智能体", text: "hi" });
+    const err = await recvUntil(recv, e => e.type === "error");
+    expect(err.message).toBe("agent_missing");
+    expect(err.sessionId).toBe(sess.id);
+    // 拦截后不进入 ensureStarted / prompt
+    expect(calls.ensureStarted).toHaveLength(0);
+    expect(calls.prompt).toHaveLength(0);
   });
 });

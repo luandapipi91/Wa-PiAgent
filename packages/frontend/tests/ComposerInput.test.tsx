@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useProvidersStore } from "../src/store/providers";
 import { useProjectsStore } from "../src/store/projects";
 import { useSkillsStore } from "../src/store/skills";
+import { useAgentsStore } from "../src/store/agents";
 
 const handlers = new Set<(e: any) => void>();
 const sendMock = mock();
@@ -30,6 +31,7 @@ beforeEach(() => {
     skills: [], allSkills: [], dirs: [], disabledSkills: [], builtinDir: "", loading: false,
     load: mock(), setAll: mock(), toggleSkill: mock(), addDir: mock(), removeDir: mock(),
   });
+  useAgentsStore.setState({ list: [], configs: {} });
   handlers.clear();
   sendMock.mockClear();
 });
@@ -153,9 +155,9 @@ test("plain text paste is not intercepted", async () => {
 
 // === Quick Invoke 测试 ===
 
-test("输入 @ 触发文件面板", () => {
+test("输入 # 触发文件面板", () => {
   const setText = mock();
-  renderComposer({ text: "你好 @App", setText });
+  renderComposer({ text: "你好 #App", setText });
   // 面板应该出现（searchFilesStream 是异步的，但面板组件应渲染）
   // 初始状态下 items 可能还没加载，但 menu 容器应存在
   waitFor(() => {
@@ -167,12 +169,12 @@ test("输入 @ 触发文件面板", () => {
   expect(searchCall).toBeTruthy();
 });
 
-test("@文件搜索结果中目录项传递 isDir 并显示文件夹图标", async () => {
-  renderComposer({ text: "打开 @src" });
+test("#文件搜索结果中目录项传递 isDir 并显示文件夹图标", async () => {
+  renderComposer({ text: "打开 #src" });
   // 获取搜索请求的 requestId
   const searchCall = sendMock.mock.calls.find(([e]) => e.type === "fs:search");
   expect(searchCall).toBeTruthy();
-  const requestId = searchCall[0].requestId;
+  const requestId = searchCall![0].requestId;
   // 模拟 kernel 返回包含目录的搜索结果
   await waitFor(() => {
     handlers.forEach(h => h({
@@ -189,6 +191,62 @@ test("@文件搜索结果中目录项传递 isDir 并显示文件夹图标", asy
   expect(screen.getByText("📁")).toBeDefined();
   // 文件图标也应出现
   expect(screen.getByText("📄")).toBeDefined();
+});
+
+test("输入 @ 触发智能体面板（数据来自 useAgentsStore.list，按 displayName/description 过滤）", () => {
+  useAgentsStore.setState({
+    list: [
+      { name: "pm", displayName: "需求设计", description: "梳理需求、输出 PRD" },
+      { name: "test", displayName: "质量验收", description: "测试与验收" },
+    ] as any,
+  });
+  renderComposer({ text: "@需求" });
+  // 命中的智能体显示 displayName
+  expect(screen.getByText("需求设计")).toBeDefined();
+  // 未命中的不显示
+  expect(screen.queryByText("质量验收")).toBeNull();
+});
+
+test("@ 面板空结果显示 无匹配智能体", () => {
+  useAgentsStore.setState({ list: [] });
+  renderComposer({ text: "@xyz" });
+  expect(screen.getByText("无匹配智能体")).toBeDefined();
+});
+
+test("选中智能体后生成 @[name] chip token 并回调 onAgentMention", () => {
+  const setText = mock();
+  const onAgentMention = mock();
+  useAgentsStore.setState({
+    list: [
+      { name: "pm", displayName: "需求设计", description: "梳理需求" },
+    ] as any,
+  });
+  renderComposer({ text: "@需求", setText, onAgentMention });
+  fireEvent.click(screen.getByText("需求设计"));
+  expect(setText).toHaveBeenCalled();
+  const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
+  expect(lastCall).toContain("@[pm]");
+  expect(onAgentMention).toHaveBeenCalledWith("pm");
+});
+
+test("选中文件后生成 #[path] chip token", async () => {
+  const setText = mock();
+  renderComposer({ text: "#hello", setText });
+  const searchCall = sendMock.mock.calls.find(([e]) => e.type === "fs:search");
+  expect(searchCall).toBeTruthy();
+  const requestId = searchCall![0].requestId;
+  await waitFor(() => {
+    handlers.forEach(h => h({
+      type: "fs:search:progress",
+      requestId,
+      query: "hello",
+      matches: [{ name: "hello.txt", isDir: false, path: "/proj/p1/hello.txt" }],
+    }));
+  });
+  fireEvent.click(screen.getByTestId("quick-invoke-item-0"));
+  expect(setText).toHaveBeenCalled();
+  const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
+  expect(lastCall).toContain("#[hello.txt]");
 });
 
 test("输入 $ 触发技能面板", () => {
