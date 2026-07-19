@@ -173,11 +173,12 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     await cfg.getByRole("button", { name: "保存" }).click();
     await expect(cfg).toHaveCount(0);
 
-    // ⚠️ 已知 kernel 缺陷：agent:config:save 非改名路径只写文件、不广播 agent:list
-    // （ws-server.ts 非改名分支，改名路径才有广播），前端 agents 列表不会即时刷新。
-    // 因此先重开详情弹窗验证「保存已持久化到 kernel」（agent:config:get 重取），
-    // 再 reload 让 App loadAll 拉新列表后验证宫格卡片简介更新。
+    // config:save 保存后 kernel 广播 agent:list（含非改名路径），store 实时刷新：
+    // 不 reload，重开宫格直接断言卡片简介已变为新值
     await page.getByTestId("agent-more").click();
+    await expect(page.getByTestId(`gallery-card-${A1}`)).toContainText("E2E 矩阵简介", { timeout: 10_000 });
+
+    // 重开详情弹窗验证保存已持久化到 kernel（agent:config:get 重取文件）
     await page.getByTestId(`gallery-card-${A1}`).click({ button: "right" });
     await page.getByTestId("gallery-ctx-edit").click();
     await expect(page.getByTestId("cfg-name-input")).toHaveValue(A1, { timeout: 10_000 });
@@ -186,12 +187,6 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     await page.getByTestId("tab-partners").click();
     await expect(page.getByTestId("partner-check-dev")).toBeChecked();
     await cfg.getByRole("button", { name: "取消" }).click();
-
-    // reload 后列表刷新：宫格卡片简介更新
-    await page.reload();
-    await expect(page.getByTestId("agent-more")).toBeVisible({ timeout: 10_000 });
-    await page.getByTestId("agent-more").click();
-    await expect(page.getByTestId(`gallery-card-${A1}`)).toContainText("E2E 矩阵简介", { timeout: 10_000 });
   });
 
   test("4 左键智能体 → 新建会话页预选 → 发消息 → pill 为该智能体", async ({ page }) => {
