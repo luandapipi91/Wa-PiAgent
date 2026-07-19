@@ -4,6 +4,7 @@ import type { AgentConfig as AgentConfigType } from "@hiagent/shared";
 import { AgentConfig } from "../src/components/AgentConfig";
 import { useAgentsStore } from "../src/store/agents";
 import { useSkillsStore } from "../src/store/skills";
+import { useProvidersStore } from "../src/store/providers";
 
 const cfg = (name: string, over: Partial<AgentConfigType> = {}): AgentConfigType => ({
   name,
@@ -42,6 +43,7 @@ beforeEach(() => {
   sentEvents.length = 0;
   useAgentsStore.setState({ list: [], configs: {} });
   useSkillsStore.setState({ allSkills: [] });
+  useProvidersStore.setState({ providers: [] });
 });
 
 afterEach(() => cleanup());
@@ -52,6 +54,7 @@ function renderConfig(name = "dev", config = cfg(name), onClose = () => {}) {
 }
 
 const savePayload = () => sentEvents.find(e => e.type === "agent:config:save");
+const lastSaved = () => savePayload()!.config;
 
 describe("AgentConfig 4 tab", () => {
   test("渲染 4 个 tab：基本/工具/技能/关系网，无 capabilities", () => {
@@ -68,10 +71,47 @@ describe("AgentConfig 4 tab", () => {
     expect(screen.getByText("研发")).toBeTruthy();
   });
 
-  test("基本 tab：思考档位复用 ThinkingSelector（off/mid/high/max）", () => {
-    renderConfig();
-    const sel = screen.getByTestId("thinking-selector") as HTMLSelectElement;
+  test("基本 tab：思考档位含'跟随当前'，选 null 保存", () => {
+    renderConfig("dev", cfg("dev", { thinking: "high" }));
+    const sel = screen.getByTestId("cfg-thinking-select") as HTMLSelectElement;
     expect(sel.value).toBe("high");
+    // 含"跟随当前"选项（值为空串）
+    const opts = Array.from(sel.options);
+    const followOpt = opts.find(o => o.value === "");
+    expect(followOpt).toBeTruthy();
+    expect(followOpt!.text).toContain("跟随当前");
+    fireEvent.change(sel, { target: { value: "" } });
+    fireEvent.click(screen.getByText("保存"));
+    expect(lastSaved().thinking).toBeNull();
+  });
+
+  test("基本 tab：模型下拉来自 providers，含'默认（跟随全局）'可选", () => {
+    useProvidersStore.setState({
+      providers: [{
+        id: "p1", name: "E2E", api: "openai", baseUrl: "https://e",
+        apiKey: "k", models: [{ id: "m1", contextWindow: 1, maxTokens: 1 }],
+      } as any],
+    });
+    renderConfig("dev", cfg("dev", { model: null }));
+    const sel = screen.getByTestId("cfg-model-select") as HTMLSelectElement;
+    expect(sel.value).toBe("");
+    // 含"默认（跟随全局）"option，且 enabled
+    const opts = Array.from(sel.options);
+    const defOpt = opts.find(o => o.value === "");
+    expect(defOpt).toBeTruthy();
+    expect(defOpt!.text).toContain("默认");
+    expect(defOpt!.disabled).toBe(false);
+    // 选具体模型保存
+    fireEvent.change(sel, { target: { value: "e2e/m1" } });
+    fireEvent.click(screen.getByText("保存"));
+    expect(lastSaved().model).toContain("m1");
+  });
+
+  test("基本 tab：头像颜色选择器已取消（无 cfg-color-1/2，仅留 emoji 输入）", () => {
+    renderConfig("dev");
+    expect(screen.queryByTestId("cfg-color-1")).toBeNull();
+    expect(screen.queryByTestId("cfg-color-2")).toBeNull();
+    expect(screen.getByTestId("cfg-avatar-input")).toBeTruthy();
   });
 
   test("关键词 chips：回车添加（trim + 去重），✕ 删除", () => {

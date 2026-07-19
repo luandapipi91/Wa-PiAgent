@@ -1,11 +1,11 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AgentConfig, AgentName, AgentToolItem } from "@hiagent/shared";
-import { agentDefOf } from "@hiagent/shared";
+import { agentDefOf, slugifyProviderName } from "@hiagent/shared";
 import { useAgentsStore } from "../store/agents";
 import { useSkillsStore } from "../store/skills";
+import { useProvidersStore } from "../store/providers";
 import { send, onMessage } from "../ws-instance";
 import { Modal } from "./ui/Modal";
-import { ThinkingSelector } from "./ui/ThinkingSelector";
 import { filterItems } from "../quick-invoke/trigger";
 
 interface Props { agentName: AgentName; onClose: () => void; }
@@ -107,15 +107,22 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function BasicTab({ draft, onChange }: TabProps) {
-  const def = agentDefOf(draft.name);
-  const [g1, g2] = draft.avatarColor?.includes("-") ? draft.avatarColor.split("-") : def.gradient;
   const [kw, setKw] = useState("");
 
-  const setColor = (i: 0 | 1, v: string) => {
-    const parts = [g1, g2];
-    parts[i] = v;
-    onChange({ ...draft, avatarColor: `${parts[0]}-${parts[1]}` });
-  };
+  // 模型下拉：扁平化 providers（同 ModelSelector），slug/id 作为 option value
+  const providers = useProvidersStore(s => s.providers);
+  const models = useMemo(() => {
+    const slugs: string[] = [];
+    return providers.flatMap(p => {
+      const slug = slugifyProviderName(p.name, slugs);
+      slugs.push(slug);
+      return p.models.map(m => ({
+        id: m.id,
+        providerName: p.name,
+        providerSlug: slug,
+      }));
+    });
+  }, [providers]);
 
   const addKw = () => {
     const k = kw.trim();
@@ -137,18 +144,29 @@ function BasicTab({ draft, onChange }: TabProps) {
         <input value={draft.avatar} onChange={e => onChange({ ...draft, avatar: e.target.value })}
           className="w-14 px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none text-center"
           data-testid="cfg-avatar-input" />
-        <input type="color" value={g1} onChange={e => setColor(0, e.target.value)}
-          className="w-8 h-8 rounded-sm border border-hairline bg-surface cursor-pointer" title="渐变色 1" data-testid="cfg-color-1" />
-        <input type="color" value={g2} onChange={e => setColor(1, e.target.value)}
-          className="w-8 h-8 rounded-sm border border-hairline bg-surface cursor-pointer" title="渐变色 2" data-testid="cfg-color-2" />
       </Row>
 
       <Sec>模型</Sec>
       <Row label="模型">
-        <input value={draft.model} onChange={e => onChange({ ...draft, model: e.target.value })} className={inp} placeholder="默认（跟随全局）" />
+        <select value={draft.model ?? ""} onChange={e => onChange({ ...draft, model: e.target.value || null })}
+          className={inp} data-testid="cfg-model-select">
+          <option value="">默认（跟随全局）</option>
+          {models.map(m => (
+            <option key={`${m.providerSlug}/${m.id}`} value={`${m.providerSlug}/${m.id}`}>
+              {m.providerName}/{m.id}
+            </option>
+          ))}
+        </select>
       </Row>
       <Row label="思考">
-        <ThinkingSelector value={draft.thinking} onChange={v => onChange({ ...draft, thinking: v })} />
+        <select value={draft.thinking ?? ""} onChange={e => onChange({ ...draft, thinking: (e.target.value || null) as AgentConfig["thinking"] })}
+          className={inp} data-testid="cfg-thinking-select">
+          <option value="">跟随当前</option>
+          <option value="disabled">思考 off</option>
+          <option value="medium">思考 mid</option>
+          <option value="high">思考 high</option>
+          <option value="max">思考 max</option>
+        </select>
       </Row>
 
       <Sec>提示词</Sec>
