@@ -46,6 +46,7 @@ function parseScalar(val: string): unknown {
   if (v === "[]") return [];
   if (v === "true") return true;
   if (v === "false") return false;
+  if (v === "null") return null;
   if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
     return v.slice(1, -1);
   }
@@ -72,8 +73,10 @@ export function parseAgentMd(md: string): AgentConfig {
     avatar: y.avatar as string,
     avatarColor: y.avatarColor as string,
     description: y.description as string,
-    model: y.model as string,
-    thinking: (y.thinking === "low" ? "medium" : y.thinking) as AgentConfig["thinking"],
+    model: (y.model === undefined || y.model === null || y.model === "") ? null : y.model as string,
+    thinking: (y.thinking === undefined || y.thinking === null)
+      ? null
+      : (y.thinking === "low" ? "medium" : y.thinking) as AgentConfig["thinking"],
     systemPromptMode: y.systemPromptMode as AgentConfig["systemPromptMode"],
     inheritProjectContext: Boolean(y.inheritProjectContext),
     inheritSkills: Boolean(y.inheritSkills),
@@ -93,7 +96,7 @@ export function stringifyAgentMd(c: AgentConfig): string {
   fm.push(`avatar: "${c.avatar}"`);
   fm.push(`avatarColor: "${c.avatarColor}"`);
   fm.push(`description: ${c.description}`);
-  fm.push(`model: ${c.model}`);
+  fm.push(`model: ${c.model ?? ""}`);
   fm.push(`thinking: ${c.thinking}`);
   fm.push(`triggerKeywords: [${c.triggerKeywords.join(", ")}]`);
   fm.push(`systemPromptMode: ${c.systemPromptMode}`);
@@ -117,8 +120,7 @@ export function validateAgentConfig(c: AgentConfig): string[] {
   if (!c.name || !c.name.trim()) errs.push("name 不能为空");
   else if (ILLEGAL_NAME_CHARS.test(c.name)) errs.push(`非法 name: ${c.name}（含 / \\ : * ? " < > | 字符）`);
   if (!c.displayName) errs.push("displayName 不能为空");
-  if (!c.model) errs.push("model 不能为空");
-  if (!["disabled", "medium", "high", "max"].includes(c.thinking)) errs.push(`非法 thinking: ${c.thinking}`);
+  if (!["disabled", "medium", "high", "max", null].includes(c.thinking)) errs.push(`非法 thinking: ${c.thinking}`);
   if (!["replace", "append"].includes(c.systemPromptMode)) errs.push(`非法 systemPromptMode: ${c.systemPromptMode}`);
   return errs;
 }

@@ -92,3 +92,21 @@ test("makeDefaultAgentConfig 支持任意名（无内置定义时用名称本身
   expect(c.avatar).toBe("🤖");
   expect(c.triggerKeywords).toEqual([]);
 });
+
+test("thinking: null 序列化/解析往返；model null 往返", () => {
+  const c = { ...base, thinking: null as any, model: null as any };
+  const md = stringifyAgentMd(c);
+  expect(md).toContain("thinking: null");
+  const parsed = parseAgentMd(md);
+  expect(parsed.thinking).toBeNull();
+  expect(parsed.model).toBeNull();
+});
+
+test("validateAgentConfig 允许 thinking: null 与空 model", () => {
+  const c = { ...base, thinking: null, model: null };
+  expect(validateAgentConfig(c)).toEqual([]);
+  // 既有合法值仍通过
+  expect(validateAgentConfig({ ...base, thinking: "high", model: "glm-4.6" })).toEqual([]);
+  // 非法 thinking 仍拒绝
+  expect(validateAgentConfig({ ...base, thinking: "bogus" as any })[0]).toContain("非法 thinking");
+});

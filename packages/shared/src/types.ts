@@ -43,8 +43,8 @@ export interface AgentConfig {
   avatar: string;
   avatarColor: string;        // "hex-hex" 渐变
   description: string;
-  model: string;
-  thinking: ThinkingLevel;
+  model: string | null;       // null / "" = 跟随全局
+  thinking: ThinkingLevel | null;  // null = 跟随当前会话默认
   systemPromptMode: "replace" | "append";
   inheritProjectContext: boolean;
   inheritSkills: boolean;

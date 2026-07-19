@@ -124,6 +124,20 @@ test("AgentConfig 支持 triggerKeywords 与 ThinkingLevel", () => {
   expect(c.thinking).toBe("max");
 });
 
+test("AgentConfig.thinking/model 可为 null（跟随当前/跟随全局）", () => {
+  const c: import("../src/types").AgentConfig = {
+    name: "dev", displayName: "研发", avatar: "⚙️",
+    avatarColor: "#fab387-#f38ba8", description: "",
+    model: null, thinking: null,
+    systemPromptMode: "replace", inheritProjectContext: true,
+    inheritSkills: false, tools: [], skills: [],
+    mcpServers: [], partners: { askTo: [], askFrom: [] },
+    triggerKeywords: [],
+  };
+  expect(c.thinking).toBeNull();
+  expect(c.model).toBeNull();
+});
+
 test("agentDefOf: 内置名返回定义，未知名回退默认", () => {
   expect(agentDefOf("dev").emoji).toBe("⚙️");
   const fb = agentDefOf("不存在的智能体");
