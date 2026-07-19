@@ -7,19 +7,20 @@
 ## 2026-07-19
 
 ### 新增
-- **多智能体矩阵关键链路 Playwright E2E（Task 18）**：新增 `e2e/agents.spec.ts`（7 条串行连贯用例）：侧边栏 ≤3 + 更多入口、宫格弹窗/UI 新建/右键编辑、详情弹窗改简介+关键词+关系网+保存、左键预选新建会话并发消息、pill 切换+确认框+「已切换为」分隔行、Composer @/# 补全、右键删除+二次确认+agent_missing 重选恢复。测试数据经 WS/UI 创建、finally 清理；假 provider 场景断言只落在不依赖模型回复的 UI 状态。发现并记录 kernel 缺陷：`agent:config:save` 非改名路径不广播 `agent:list`（改名路径才有），列表不即时刷新，用例改为验证持久化+reload 后更新。影响：frontend(e2e/agents.spec.ts)。
-- **E2E 基建支持 WS 端口偏移**：playwright.config 新增 `E2E_WS_PORT`（env `HIAGENT_E2E_WS_PORT`，默认 9776 零回归），webServer/globalSetup 同步把 `HIAGENT_WS_PORT` 注入 vite bundle 与隔离 kernel。解决本机已跑真实 kernel（9776）时 globalSetup 误连真实 kernel、E2E 污染真实数据的问题。影响：frontend(playwright.config.ts + e2e/global-setup.ts)。
-
----
-
-## 2026-07-18
+- **多智能体矩阵重写（Task 1-18 汇总）**：
+  - 智能体放开为可增删改查的动态实体：名称即标识，存于 `~/.hiagent/agents/*.md`；空目录自动 seed 4 个默认智能体；侧边栏空态提供内联【新增智能体】入口。
+  - 侧边栏智能体管理区：最近使用前 3 + 右键编辑/删除（二次确认）+【更多智能体】宫格弹窗（支持新建智能体）。
+  - 智能体详情弹窗 4 tab：基本（身份/模型/提示词/触发条件）、工具、技能、关系网（带搜索）。
+  - 对话中切换智能体：顶部 pill 带搜索、缓存失效确认框、「已切换为」分隔行；agent_missing 时弹重选弹窗（AgentMissingModal）恢复。
+  - 提及符号：`@` 智能体 / `#` 文件 / `$` 技能。
+  - 关系网调起：delegate 工具（allowlist 由宿主强制）经 `@gotgenes/pi-subagents` 调起子智能体，消息流内联委托卡片（DelegateCard）展示执行中/完成/失败三态。
+  - 内置扩展 pi-intercom 替换为 `@gotgenes/pi-subagents`。
+  - 配套 Playwright E2E（`e2e/agents.spec.ts` 7 条串行连贯用例覆盖关键链路）与 WS 端口偏移基建（`HIAGENT_E2E_WS_PORT`，默认 9776 零回归，隔离 E2E kernel 防污染真实数据）。
 
 ### 修复
-- **Task 16 评审修复（多智能体矩阵）**：(1) 空智能体列表一致性——NewSessionPane 初始值 `?? "dev"` 改 `?? null`（类型 `AgentName | null`），`handleSend` 前置条件加 agentName 非空、composer `sendDisabled` 联动，不再向死智能体发 prompt 产生 agent_missing 死会话；(2) agent_missing 重选流程——App error 分支检测 `message === "agent_missing"` 且带 sessionId 时打开新组件 AgentMissingModal（testid `agent-missing-modal` / `agent-missing-item-<name>`），列出全部智能体（头像+名称），点击即发 `session:set-agent`（恢复流程不弹缓存确认框），文案提示「请重新选择智能体后重发消息」；(3) pendingAgent 消费后清除——App 传 `onConsumePendingAgent`，NewSessionPane 挂载取用初始值后 effect 回调一次清除，再次进新建页不再预选旧值（已挂载再点智能体的 rerender 锁死用例不受影响）。TDD：3 条新测试先行失败（stash 基线验证 RED），实现后 17/17 通过；全量 520 pass / 9 fail 为既有 store-mcp/skills；tsc EXIT=0。影响：frontend(App.tsx + NewSessionPane.tsx + components/AgentMissingModal.tsx + tests)。
-- **AgentGalleryModal 评审修复（多智能体矩阵 Task 11）**：(1) Props `onCreated` 补乐观打开契约注释（同一 WS 连接 kernel 顺序处理，`agent:create` 写盘先于随后的 `agent:config:get`，消费者可立即打开详情弹窗）；(2) 右键菜单打开时按 ESC 不再连同弹窗一起关闭——菜单 ESC 监听（document 级）加 `stopPropagation()` 阻止冒泡到 Modal 的 window 级监听。TDD：先写「菜单打开时 ESC 只关菜单不关弹窗」失败测试（onClose 被调 1 次），修复后 7/7 通过。影响：frontend(components/AgentGalleryModal.tsx + tests/AgentGalleryModal.test.tsx)。
+- **agent:config:save 非改名路径补 `agent:list` 广播**（原仅改名路径广播，列表不即时刷新）；**session:set-agent 校验智能体存在性**（不存在返回 agent_missing）。
 
-### 新增
-- **agent-md 校验放开 + 新字段序列化（多智能体矩阵 Task 2）**：`validateAgentConfig` 删除 `VALID_NAMES` 枚举校验，改为 name 非空 + 非法文件名字符（`/ \ : * ? " < > |`）拒绝，支持任意中文/自定义智能体名；thinking 合法值更新为 `disabled/medium/high/max`，`parseAgentMd` 把旧值 `low` 归一为 `medium`；`triggerKeywords` 新增序列化/解析（`[a, b]` 列表格式，旧 md 文件缺省 `[]` 兼容）；`makeDefaultAgentConfig(name: string)` 改用 `agentDefOf(name)`，无内置定义时回退名称本身 + 🤖。TDD 红绿：4 个新测试先行失败、实现后 9/9 通过；kernel 全量 332 pass（4 fail 为改动前既有，stash 基线对比确认）。影响：kernel(agent-md.ts + tests/agent-md.test.ts + tests/config-store.test.ts)。
+影响范围：shared（类型/常量）、kernel（agent-md/config-store/ws-server/agent-manager/delegate-tool/extensions）、frontend（侧边栏/宫格/详情弹窗/切换器/Composer/DelegateCard/AgentMissingModal）、desktop、e2e。
 
 ---
 
