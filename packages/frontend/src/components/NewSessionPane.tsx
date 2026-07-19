@@ -1,22 +1,36 @@
 import { useState, useRef, useEffect } from "react";
-import { AGENT_DEFS, randomSessionId } from "@hiagent/shared";
+import { agentDefOf, randomSessionId } from "@hiagent/shared";
 import type { AgentName, AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
 import { useProjectsStore } from "../store/projects";
+import { useAgentsStore } from "../store/agents";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { send } from "../ws-instance";
-import { expandTokens } from "../quick-invoke/tokens";
+import { expandTokens, extractAgentToken } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
 
-const NAMES: AgentName[] = ["product", "pm", "dev", "test"];
+interface Props {
+  /** 侧栏/宫格「新建会话」带过来的预选智能体；为空则取列表第一项 */
+  pendingAgent?: string | null;
+  /** pendingAgent 已被取用为初始值后回调一次（App 侧清除，避免下次进新建页又预选旧值） */
+  onConsumePendingAgent?: () => void;
+}
 
-export function NewSessionPane() {
+export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: Props) {
   const { projects, currentProjectId } = useProjectsStore();
-  const [agentName, setAgentName] = useState<AgentName>("dev");
+  const agents = useAgentsStore(s => s.list);
+  // 空列表且无 pendingAgent 时为 null（不回退到可能已删除的 "dev"），发送前置条件拦截
+  const [agentName, setAgentName] = useState<AgentName | null>(pendingAgent ?? agents[0]?.name ?? null);
   const [text, setText] = useState("");
   const initialProject = currentProjectId ?? projects[0]?.id ?? null;
   const [projectId, setProjectId] = useState<string | null>(initialProject);
   // currentProjectId 变化时同步（点项目旁 + 号时可能已在新建页，不会重新挂载）
   useEffect(() => { if (currentProjectId) setProjectId(currentProjectId); }, [currentProjectId]);
+  // pendingAgent 变化时同步（已停在新建页再点侧栏/宫格智能体，组件不会重新挂载）
+  useEffect(() => { if (pendingAgent) setAgentName(pendingAgent); }, [pendingAgent]);
+  // 首载 agent:list 回包晚于挂载：list 空转非空且 agentName 仍为 null 时回填（沿用 pendingAgent 优先级）；已选中则不干预
+  useEffect(() => { if (!agentName && agents.length > 0) setAgentName(pendingAgent ?? agents[0]?.name ?? null); }, [agents, agentName, pendingAgent]);
+  // 挂载消费一次：初始值取用后通知 App 清除 pendingAgent（空依赖，仅首次挂载）
+  useEffect(() => { if (pendingAgent) onConsumePendingAgent?.(); }, []);
   // 新建会话的 sessionId 按当前项目持久化，切换再回来仍能对应同一组 composer 附件/录音
   const newSessionKey = projectId ?? "__global__";
   const newSessionIds = useComposerPrefsStore(s => s.newSessionIds);
@@ -56,17 +70,21 @@ export function NewSessionPane() {
   }, [defaults.model, defaults.thinking]);
 
   const handleSend = () => {
-    if (!projectId || !text.trim() || !model || sendingRef.current) return;
+    if (!projectId || !text.trim() || !model || !agentName || sendingRef.current) return;
     sendingRef.current = true;
-    // 展开 chip token 为纯文本引用标记（$[name] -> /skill:name，@[path] -> @path）
-    const expandedText = expandTokens(text);
+    // @提及智能体：新会话无缓存可失效，直接以 mention 为主智能体，无需确认框
+    const { agent: mention, rest } = extractAgentToken(text);
+    const targetAgent = (mention as AgentName | null) ?? agentName;
+    if (mention) setAgentName(mention as AgentName);
+    // 展开 chip token 为纯文本引用标记（$[name] -> /skill:name，#[path] -> #path）
+    const expandedText = expandTokens(mention ? rest : text);
     // 乐观 UI：立即创建会话触发导航，消除白屏等待。
     // 用户消息由 kernel session:echo_user 回传后 App.tsx 调 optimisticSend 秒显示。
     // kernel _promptLocks 串行锁防并发竞态。
     useProjectsStore.getState().addSession({
       id: sessionId,
       projectId,
-      primaryAgent: agentName,
+      primaryAgent: targetAgent,
       title: expandedText.slice(0, 20),
       createdAt: Date.now(),
       lastActivity: Date.now(),
@@ -76,7 +94,7 @@ export function NewSessionPane() {
       type: "agent:prompt",
       projectId,
       sessionId,
-      agentName,
+      agentName: targetAgent,
       text: expandedText,
       model,
       thinking,
@@ -103,12 +121,17 @@ export function NewSessionPane() {
           {projects.map(p => <option key={p.id} value={p.id}>📁 {p.name} {p.cwd}</option>)}
         </select>
         <select
-          value={agentName}
+          value={agentName ?? ""}
           onChange={e => setAgentName(e.target.value as AgentName)}
+          disabled={agents.length === 0}
           className="bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[12.5px]"
           data-testid="agent-select"
         >
-          {NAMES.map(n => <option key={n} value={n}>{AGENT_DEFS[n].emoji} {AGENT_DEFS[n].label}</option>)}
+          {agents.length === 0 && <option value="">（无智能体）</option>}
+          {agents.map(a => {
+            const def = agentDefOf(a.name);
+            return <option key={a.name} value={a.name}>{def.emoji} {a.displayName || def.label}</option>;
+          })}
         </select>
       </div>
       <ComposerInput
@@ -123,8 +146,9 @@ export function NewSessionPane() {
         projectId={projectId ?? undefined}
         sessionId={sessionId}
         onSend={handleSend}
-        sendDisabled={!projectId}
+        sendDisabled={!projectId || !agentName}
         placeholder="给研发发消息..."
+        onAgentMention={name => setAgentName(name as AgentName)}
       />
     </div>
   );

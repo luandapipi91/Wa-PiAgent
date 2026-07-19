@@ -6,7 +6,7 @@ import { useIsBlocked } from "../store/ask";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
 import { AskDock } from "./ask/AskDock";
-import { agentEmoji } from "../theme/agents";
+import { AgentSwitcher } from "./AgentSwitcher";
 import { STATUS_COLORS } from "../theme/colors";
 import { onMessage, send } from "../ws-instance";
 
@@ -89,14 +89,14 @@ export function SessionView({ sessionId }: Props) {
     <div className="flex-1 flex flex-col h-full" data-testid="session-view">
       {/* 顶部状态栏 */}
       <header className="flex items-center gap-3 px-5 py-3 border-b border-hairline bg-surface">
-        <span className="text-xl">{agentEmoji(session.primaryAgent)}</span>
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <span className="text-[14px] font-bold text-primary">{session.title}</span>
+            <AgentSwitcher sessionId={sessionId} />
           </div>
           <div className="text-[11.5px] text-tertiary mt-px">
             <span className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle" style={{ background: STATUS_COLORS[headerStatus] }} data-testid="session-status-dot" />
-            {session.primaryAgent} · {project?.cwd ?? ""} · {AGENT_STATE_LABEL[headerStatus]}
+            {project?.cwd ?? ""} · {AGENT_STATE_LABEL[headerStatus]}
           </div>
         </div>
       </header>

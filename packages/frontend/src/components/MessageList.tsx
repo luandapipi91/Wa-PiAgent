@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useToastStore } from "../store/toast";
+import { DelegateCard } from "./blocks/DelegateCard";
 
 const EMPTY: SessionMessage[] = [];
 
@@ -299,6 +300,17 @@ function StreamingRow({ streaming, sessionId }: { streaming: SessionMessage; ses
 
 function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row: RenderedRow; sessionId: string; showResend?: boolean; onResend?: (text: string) => void; isStreaming?: boolean }) {
   const m = row.main.message as any;
+
+  // custom 消息（如 agent_switch 分隔行）：居中灰字，无头像气泡；无内容则不渲染
+  if (m.type === "custom" || m.type === "custom_message") {
+    if (!m.content) return null;
+    return (
+      <div className="text-center text-[11.5px] text-tertiary" data-testid={`custom-${sessionId}-${m.timestamp}`}>
+        {`—— ${m.content} ——`}
+      </div>
+    );
+  }
+
   const isUser = m.role === "user";
 
   if (isUser) {
@@ -330,12 +342,13 @@ function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row
     );
   }
 
-  // 分离 assistant 消息的三种 block 类型（过滤掉空 text block）
+  // 按 content 原始顺序切成渲染段：连续 thinking/text/toolCall 各自合并；
+  // delegate 调用不进工具分组，原位内联渲染 DelegateCard（委派过程直接可见）
   const blocks: any[] = Array.isArray(m.content) ? m.content : [];
-  const thinkingBlocks = blocks.filter((b: any) => b.type === "thinking");
-  const textBlocks = blocks.filter((b: any) => b.type === "text" && b.text?.trim());
-  const toolCallBlocks = blocks.filter((b: any) => b.type === "toolCall");
-  const fullText = textBlocks.map((b: any) => b.text).join("\n\n");
+  const segments = segmentBlocks(blocks);
+  const fullText = segments.flatMap(s => s.kind === "text" ? s.texts : []).join("\n\n");
+  let lastTextSegIdx = -1;
+  segments.forEach((s, i) => { if (s.kind === "text") lastTextSegIdx = i; });
 
   // 错误消息（stopReason === "error"）：红色文字
   const isError = m.stopReason === "error";
@@ -348,38 +361,80 @@ function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row
       <div className="max-w-[78%] min-w-0">
         <div className="text-[11px] text-tertiary mb-0.5 font-semibold">{row.main.agentName ?? "agent"} · {formatTime(m.timestamp)}</div>
 
-        {/* 思考过程 — 折叠面板（上方）。多个相邻 thinking block 合并为一个 */}
-        {thinkingBlocks.length > 0 && (
-          <div className="space-y-1 mb-1.5">
-            <ThinkingBlock thinking={thinkingBlocks.map((b: any) => b.thinking).join("\n")} isStreaming={isStreaming} />
-          </div>
-        )}
-
-        {/* 工具调用 — 折叠面板（中间）。多个合并为一个分组，点击展开后各工具可再独立展开 */}
-        {toolCallBlocks.length > 0 && (
-          <div className="mb-1.5">
-            <ToolCallGroup toolCalls={toolCallBlocks} results={row.toolResults} isStreaming={isStreaming} />
-          </div>
-        )}
-
-        {/* 主回复内容 — 文字 + markdown（最下方） */}
-        {textBlocks.length > 0 && (
-          <div className="flex flex-col gap-1">
-            <div className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`} style={{ lineHeight: 3.1, borderRadius: "4px 14px 14px 14px" }}>
-              {textBlocks.map((block: any, i: number) => (
-                <div key={i} className="prose prose-sm max-w-none" data-testid="text-block">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.text}</ReactMarkdown>
+        {segments.map((seg, si) => {
+          // 思考过程 — 折叠面板。多个相邻 thinking block 合并为一个
+          if (seg.kind === "thinking") {
+            return (
+              <div key={si} className="space-y-1 mb-1.5">
+                <ThinkingBlock thinking={seg.texts.join("\n")} isStreaming={isStreaming} />
+              </div>
+            );
+          }
+          // 工具调用 — 折叠面板。相邻的合并为一个分组，点击展开后各工具可再独立展开
+          if (seg.kind === "toolCalls") {
+            return (
+              <div key={si} className="mb-1.5">
+                <ToolCallGroup toolCalls={seg.calls} results={row.toolResults} isStreaming={isStreaming} />
+              </div>
+            );
+          }
+          // 委派调用 — 内联卡片（不进折叠分组，与普通内容穿插）
+          if (seg.kind === "delegate") {
+            return <DelegateCard key={seg.call.id} toolCall={seg.call} result={row.toolResults.get(seg.call.id)} />;
+          }
+          // 主回复内容 — 文字 + markdown
+          return (
+            <div key={si} className="flex flex-col gap-1">
+              <div className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`} style={{ lineHeight: 3.1, borderRadius: "4px 14px 14px 14px" }}>
+                {seg.texts.map((text, i) => (
+                  <div key={i} className="prose prose-sm max-w-none" data-testid="text-block">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+                  </div>
+                ))}
+              </div>
+              {si === lastTextSegIdx && (
+                <div className="flex justify-end">
+                  <CopyButton text={fullText} testId={`copy-${sessionId}-${m.timestamp}`} />
                 </div>
-              ))}
+              )}
             </div>
-            <div className="flex justify-end">
-              <CopyButton text={fullText} testId={`copy-${sessionId}-${m.timestamp}`} />
-            </div>
-          </div>
-        )}
+          );
+        })}
       </div>
     </div>
   );
+}
+
+type Segment =
+  | { kind: "thinking"; texts: string[] }
+  | { kind: "text"; texts: string[] }
+  | { kind: "toolCalls"; calls: any[] }
+  | { kind: "delegate"; call: any };
+
+/** 把 assistant content 按原始顺序切成渲染段：同类相邻 block 合并；delegate 原位单独成段 */
+function segmentBlocks(blocks: any[]): Segment[] {
+  const segs: Segment[] = [];
+  for (const b of blocks) {
+    if (b.type === "thinking") {
+      const prev = segs[segs.length - 1];
+      if (prev?.kind === "thinking") prev.texts.push(b.thinking);
+      else segs.push({ kind: "thinking", texts: [b.thinking] });
+    } else if (b.type === "text") {
+      if (!b.text?.trim()) continue;
+      const prev = segs[segs.length - 1];
+      if (prev?.kind === "text") prev.texts.push(b.text);
+      else segs.push({ kind: "text", texts: [b.text] });
+    } else if (b.type === "toolCall") {
+      if (b.name === "delegate") {
+        segs.push({ kind: "delegate", call: b });
+      } else {
+        const prev = segs[segs.length - 1];
+        if (prev?.kind === "toolCalls") prev.calls.push(b);
+        else segs.push({ kind: "toolCalls", calls: [b] });
+      }
+    }
+  }
+  return segs;
 }
 
 function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreaming?: boolean }) {

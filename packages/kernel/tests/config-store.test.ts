@@ -34,6 +34,7 @@ test("saveAgent 持久化并可读回", async () => {
     description: "d", model: "m", thinking: "high", systemPromptMode: "replace",
     inheritProjectContext: true, inheritSkills: false, tools: ["read"],
     skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] },
+    triggerKeywords: [],
     systemPromptBody: "正文",
   });
   expect(errs).toEqual([]);
@@ -53,5 +54,55 @@ test("saveAgent 拒绝非法配置不写盘", async () => {
     mcpServers: [], partners: { askTo: [], askFrom: [] },
   } as never);
   expect(errs.length).toBeGreaterThan(0);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("createAgent: 生成默认配置；重名自动加 -2 后缀；非法名抛错", async () => {
+  const dir = tempAgentsDir();
+  const cs = new ConfigStore(dir);
+  const a = await cs.createAgent("代码审查");
+  expect(a.name).toBe("代码审查");
+  expect(a.displayName).toBe("代码审查");
+  const b = await cs.createAgent("代码审查");
+  expect(b.name).toBe("代码审查-2");
+  const c = await cs.createAgent("代码审查");
+  expect(c.name).toBe("代码审查-3");
+  await expect(cs.createAgent("a/b")).rejects.toThrow("非法 name");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("deleteAgent: 删除文件；不存在抛错", async () => {
+  const dir = tempAgentsDir();
+  const cs = new ConfigStore(dir);
+  await cs.createAgent("临时");
+  await cs.deleteAgent("临时");
+  expect(await cs.getAgent("临时")).toBeNull();
+  await expect(cs.deleteAgent("临时")).rejects.toThrow("智能体不存在");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("renameAgent: 删旧写新；新名冲突返回错误", async () => {
+  const dir = tempAgentsDir();
+  const cs = new ConfigStore(dir);
+  await cs.createAgent("旧名");
+  await cs.createAgent("已存在");
+  const old = (await cs.getAgent("旧名"))!;
+  const errs1 = await cs.renameAgent("旧名", { ...old, name: "已存在" });
+  expect(errs1.length).toBeGreaterThan(0);
+  const errs2 = await cs.renameAgent("旧名", { ...old, name: "新名" });
+  expect(errs2).toEqual([]);
+  expect(await cs.getAgent("旧名")).toBeNull();
+  expect((await cs.getAgent("新名"))!.displayName).toBe("旧名");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("seedDefaults: 空目录写入 4 个默认 agent；非空目录不写", async () => {
+  const dir = tempAgentsDir();
+  const cs = new ConfigStore(dir);
+  await cs.seedDefaults();
+  const names = (await cs.listAgents()).map(a => a.name).sort();
+  expect(names).toEqual(["dev", "pm", "product", "test"]);
+  await cs.seedDefaults();  // 幂等
+  expect((await cs.listAgents()).length).toBe(4);
   rmSync(dir, { recursive: true, force: true });
 });

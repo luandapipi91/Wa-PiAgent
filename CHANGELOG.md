@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-07-19
+
+### 新增
+- **多智能体矩阵重写（Task 1-18 汇总）**：
+  - 智能体放开为可增删改查的动态实体：名称即标识，存于 `~/.hiagent/agents/*.md`；空目录自动 seed 4 个默认智能体；侧边栏空态提供内联【新增智能体】入口。
+  - 侧边栏智能体管理区：最近使用前 3 + 右键编辑/删除（二次确认）+【更多智能体】宫格弹窗（支持新建智能体）。
+  - 智能体详情弹窗 4 tab：基本（身份/模型/提示词/触发条件）、工具、技能、关系网（带搜索）。
+  - 对话中切换智能体：顶部 pill 带搜索、缓存失效确认框、「已切换为」分隔行；agent_missing 时弹重选弹窗（AgentMissingModal）恢复。
+  - 提及符号：`@` 智能体 / `#` 文件 / `$` 技能。
+  - 关系网调起：delegate 工具（allowlist 由宿主强制）经 `@gotgenes/pi-subagents` 调起子智能体，消息流内联委托卡片（DelegateCard）展示执行中/完成/失败三态。
+  - 内置扩展 pi-intercom 替换为 `@gotgenes/pi-subagents`。
+  - 配套 Playwright E2E（`e2e/agents.spec.ts` 7 条串行连贯用例覆盖关键链路）与 WS 端口偏移基建（`HIAGENT_E2E_WS_PORT`，默认 9776 零回归，隔离 E2E kernel 防污染真实数据）。
+
+### 修复
+- **agent:config:save 非改名路径补 `agent:list` 广播**（原仅改名路径广播，列表不即时刷新）；**session:set-agent 校验智能体存在性**（不存在返回 agent_missing）。
+
+影响范围：shared（类型/常量）、kernel（agent-md/config-store/ws-server/agent-manager/delegate-tool/extensions）、frontend（侧边栏/宫格/详情弹窗/切换器/Composer/DelegateCard/AgentMissingModal）、desktop、e2e。
+
+---
+
 ## 2026-07-17
 
 ### 修复

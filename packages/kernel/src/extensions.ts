@@ -68,7 +68,7 @@ export function resolveExtensionEntryFile(pkgName: string, req = require): strin
  * 加扩展：在此追加一行 + packages/kernel/package.json 加依赖。
  */
 const PKG_EXTENSIONS = [
-  "pi-intercom",
+  "@gotgenes/pi-subagents",
   "pi-web-access",
   "pi-mcp-adapter",
 ] as const;

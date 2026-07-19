@@ -1,6 +1,6 @@
 // 触发符检测 + 列表过滤纯函数
 
-export type TriggerType = "file" | "skill";
+export type TriggerType = "agent" | "file" | "skill";
 
 export interface TriggerResult {
   type: TriggerType;
@@ -13,23 +13,30 @@ export interface FilterableItem {
 }
 
 /**
- * 检测光标前文本是否包含触发符 @ 或 $。
+ * 检测光标前文本是否包含触发符 @ / # / $。
  * 规则：
- * - @ / $ 必须在行首或空格之后（避免 email@test 误触发）
+ * - @ = 智能体，# = 文件，$ = 技能
+ * - 触发符必须在行首或空格之后（避免 email@test 误触发）
  * - 触发符后的文本作为过滤关键词
- * - 已存在的 chip token（@[...] 或 $[...]）不触发
- * - @ 和 $ 互斥，取最后一个出现的
+ * - 已存在的 chip token（@[...] / #[...] / $[...]）不触发
  */
 export function detectTrigger(text: string): TriggerResult | null {
-  // 先移除已存在的 chip token，避免 token 内的 @ / $ 干扰检测
+  // 先移除已存在的 chip token，避免 token 内的触发符干扰检测
   const cleaned = text
     .replace(/@\[[^\]]+\]/g, " ")
+    .replace(/#\[[^\]]+\]/g, " ")
     .replace(/\$\[[^\]]+\]/g, " ");
 
-  // 检测 @ 文件触发
+  // 检测 @ 智能体触发
   const atMatch = cleaned.match(/(?:^|\s)@([^\s]*)$/);
   if (atMatch) {
-    return { type: "file", query: atMatch[1] };
+    return { type: "agent", query: atMatch[1] };
+  }
+
+  // 检测 # 文件触发
+  const hashMatch = cleaned.match(/(?:^|\s)#([^\s]*)$/);
+  if (hashMatch) {
+    return { type: "file", query: hashMatch[1] };
   }
 
   // 检测 $ 技能触发

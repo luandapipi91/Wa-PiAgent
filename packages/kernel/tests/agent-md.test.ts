@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { parseAgentMd, stringifyAgentMd, validateAgentConfig } from "../src/agent-md";
+import { parseAgentMd, stringifyAgentMd, validateAgentConfig, makeDefaultAgentConfig } from "../src/agent-md";
 import type { AgentConfig } from "@hiagent/shared";
 
 const DEV_MD = `---
@@ -46,7 +46,7 @@ test("stringifyAgentMd 往返一致", () => {
 
 test("validateAgentConfig 拒绝非法 name", () => {
   const bad = parseAgentMd(DEV_MD);
-  (bad as unknown as { name: string }).name = "hacker";
+  (bad as unknown as { name: string }).name = "a/b";
   const errs = validateAgentConfig(bad as AgentConfig);
   expect(errs.length).toBeGreaterThan(0);
 });
@@ -54,4 +54,59 @@ test("validateAgentConfig 拒绝非法 name", () => {
 test("validateAgentConfig 合法配置返回空", () => {
   const c = parseAgentMd(DEV_MD);
   expect(validateAgentConfig(c)).toEqual([]);
+});
+
+const base: AgentConfig = {
+  name: "代码审查", displayName: "代码审查", avatar: "🔍", avatarColor: "#06b6d4-#3b82f6",
+  description: "评审改动", model: "glm-4.6", thinking: "high",
+  systemPromptMode: "replace", inheritProjectContext: true, inheritSkills: true,
+  tools: [], skills: [], mcpServers: [], partners: { askTo: ["dev"], askFrom: [] },
+  triggerKeywords: ["review", "评审"],
+  systemPromptBody: "你是代码审查智能体。",
+};
+
+test("validateAgentConfig: 任意非空合法名通过；非法文件名字符拒绝", () => {
+  expect(validateAgentConfig(base)).toEqual([]);
+  expect(validateAgentConfig({ ...base, name: "" })).toContain("name 不能为空");
+  expect(validateAgentConfig({ ...base, name: "a/b" })[0]).toContain("非法 name");
+  expect(validateAgentConfig({ ...base, name: "a:b" })[0]).toContain("非法 name");
+});
+
+test("triggerKeywords 序列化/解析往返", () => {
+  const md = stringifyAgentMd(base);
+  expect(md).toContain("triggerKeywords: [review, 评审]");
+  const parsed = parseAgentMd(md);
+  expect(parsed.triggerKeywords).toEqual(["review", "评审"]);
+  expect(parsed.partners.askTo).toEqual(["dev"]);
+});
+
+test("thinking: low 读取时归一为 medium", () => {
+  const md = stringifyAgentMd(base).replace("thinking: high", "thinking: low");
+  expect(parseAgentMd(md).thinking).toBe("medium");
+});
+
+test("makeDefaultAgentConfig 支持任意名（无内置定义时用名称本身）", () => {
+  const c = makeDefaultAgentConfig("文档写手");
+  expect(c.name).toBe("文档写手");
+  expect(c.displayName).toBe("文档写手");
+  expect(c.avatar).toBe("🤖");
+  expect(c.triggerKeywords).toEqual([]);
+});
+
+test("thinking: null 序列化/解析往返；model null 往返", () => {
+  const c = { ...base, thinking: null as any, model: null as any };
+  const md = stringifyAgentMd(c);
+  expect(md).toContain("thinking: null");
+  const parsed = parseAgentMd(md);
+  expect(parsed.thinking).toBeNull();
+  expect(parsed.model).toBeNull();
+});
+
+test("validateAgentConfig 允许 thinking: null 与空 model", () => {
+  const c = { ...base, thinking: null, model: null };
+  expect(validateAgentConfig(c)).toEqual([]);
+  // 既有合法值仍通过
+  expect(validateAgentConfig({ ...base, thinking: "high", model: "glm-4.6" })).toEqual([]);
+  // 非法 thinking 仍拒绝
+  expect(validateAgentConfig({ ...base, thinking: "bogus" as any })[0]).toContain("非法 thinking");
 });

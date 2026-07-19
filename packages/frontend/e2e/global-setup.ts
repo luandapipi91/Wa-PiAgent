@@ -2,7 +2,7 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_HIAGENT_DIR } from "../playwright.config";
+import { E2E_HIAGENT_DIR, E2E_WS_PORT } from "../playwright.config";
 
 // 预置 agent.md 测试数据：E2E 用独立 HIAGENT_DIR，里面默认无 agent 配置，
 // 导致 agent:config:get 返回 null、AgentConfig modal 的 PartnersTab 不渲染。
@@ -65,19 +65,19 @@ async function globalSetup() {
   mkdirSync(join(E2E_HIAGENT_DIR, "projects-memory", "e2e-project"), { recursive: true });
   writeFileSync(join(E2E_HIAGENT_DIR, "projects-memory", "e2e-project", "MEMORY.md"), "E2E 项目记忆条目", "utf8");
 
-  // 启动 kernel，注入独立 HIAGENT_DIR（覆盖 ~/.hiagent）
+  // 启动 kernel，注入独立 HIAGENT_DIR（覆盖 ~/.hiagent）与 WS 端口（默认 9776，可偏移避开本机真实 kernel）
   const child = spawn("bun", ["run", "--filter", "@hiagent/kernel", "dev"], {
-    env: { ...process.env, HIAGENT_DIR: E2E_HIAGENT_DIR },
+    env: { ...process.env, HIAGENT_DIR: E2E_HIAGENT_DIR, HIAGENT_WS_PORT: String(E2E_WS_PORT) },
     stdio: ["ignore", "pipe", "pipe"],
     shell: true, // Windows 下 bun 是 npm 装的 .cmd shim，需要 shell 解析，否则 spawn ENOENT
   });
   child.stdout?.on("data", () => {});  // 防 stdout 缓冲写满阻塞
   child.stderr?.on("data", () => {});
 
-  // 等 kernel 起来（轮询 9776 端口）
+  // 等 kernel 起来（轮询 WS 端口）
   const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
-    const ok = await checkPort(9776);
+    const ok = await checkPort(E2E_WS_PORT);
     if (ok) {
       writeFileSync(join(E2E_HIAGENT_DIR, ".kernel-pid"), String(child.pid));
       return;
@@ -85,7 +85,7 @@ async function globalSetup() {
     await new Promise(r => setTimeout(r, 300));
   }
   child.kill();
-  throw new Error("E2E kernel 启动超时（端口 9776 未监听）");
+  throw new Error(`E2E kernel 启动超时（端口 ${E2E_WS_PORT} 未监听）`);
 }
 
 function checkPort(port: number): Promise<boolean> {

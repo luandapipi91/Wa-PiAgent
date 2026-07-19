@@ -1,11 +1,20 @@
 import { describe, it, expect, vi, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import type { AgentConfig } from "@hiagent/shared";
 import { useProjectsStore } from "../src/store/projects";
+import { useAgentsStore } from "../src/store/agents";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useProvidersStore } from "../src/store/providers";
 import { useRecordingStore } from "../src/store/recording";
 import { _setRecordingManager } from "../src/recording/recorder";
 import { useSkillsStore } from "../src/store/skills";
+
+const agentCfg = (name: string, displayName = name): AgentConfig => ({
+  name, displayName, avatar: "", avatarColor: "", description: "",
+  model: "m", thinking: "medium", systemPromptMode: "replace",
+  inheritProjectContext: true, inheritSkills: true,
+  tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [],
+});
 
 // 把文本写入 contenteditable textbox 并触发 input 事件（替代原 textarea 的 fireEvent.change）
 function typeIntoComposer(value: string) {
@@ -73,6 +82,10 @@ describe("NewSessionPane", () => {
       defaults: { model: null, thinking: "disabled" },
       bySession: {},
       newSessionIds: {},
+    });
+    // 默认喂 4 个内置智能体（模拟 kernel agent:list 已返回），单独测试可覆盖为空
+    useAgentsStore.setState({
+      list: [agentCfg("product", "需求设计"), agentCfg("pm", "项目管理"), agentCfg("dev", "技术实现"), agentCfg("test", "质量验收")],
     });
     useRecordingStore.setState({
       status: "idle",
@@ -210,6 +223,44 @@ describe("NewSessionPane", () => {
     });
   });
 
+  it("@提及智能体：以 mention 为 agentName 发送且不弹确认框（新会话无缓存）", async () => {
+    await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
+    useProvidersStore.setState({
+      providers: [
+        { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
+      ],
+    });
+    render(<NewSessionPane />);
+    await waitFor(() => {
+      expect(useComposerPrefsStore.getState().defaults.model).toBe("openai/gpt-4o");
+    });
+    await waitFor(() => {
+      expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
+    });
+
+    typeIntoComposer("@[pm] 帮我看看需求");
+    await waitFor(() => {
+      expect((screen.getByTestId("composer-send") as HTMLButtonElement).disabled).toBe(false);
+    });
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    await waitFor(() => {
+      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+        type: "agent:prompt",
+        projectId: "p1",
+        agentName: "pm",
+        text: "帮我看看需求",
+      }));
+    });
+    // 新建会话 primaryAgent 也应为 mention
+    const session = useProjectsStore.getState().sessions[0];
+    expect(session.primaryAgent).toBe("pm");
+    // 不弹缓存确认框
+    expect(screen.queryByTestId("mention-confirm")).toBeNull();
+    // agent-select 同步为 mention
+    expect((screen.getByTestId("agent-select") as HTMLSelectElement).value).toBe("pm");
+  });
+
   it("新会话开始录音、切换会话再回来后停止，附件仍回到当前新建会话", async () => {
     _setRecordingManager({
       start: async () => {},
@@ -252,5 +303,79 @@ describe("NewSessionPane", () => {
     expect(list.textContent).toContain("录音 0:05.webm");
     // 附件必须写入当前可见的新建会话，而不是旧的随机 sessionId
     expect(useComposerPrefsStore.getState().bySession[owningSessionId]?.attachments?.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("agent 下拉来自 agents store，pendingAgent 预选", () => {
+    useAgentsStore.setState({ list: [agentCfg("需求设计"), agentCfg("代码审查")] });
+    render(<NewSessionPane pendingAgent="代码审查" />);
+    const sel = screen.getByTestId("agent-select") as HTMLSelectElement;
+    expect(sel.value).toBe("代码审查");
+    // 下拉选项展示 store 里的 displayName（含 agentDefOf 回退 emoji）
+    expect(screen.getByText(/需求设计/)).toBeTruthy();
+  });
+
+  it("pendingAgent 变化时同步到下拉（已挂载新建页再点智能体）", () => {
+    useAgentsStore.setState({ list: [agentCfg("dev", "技术实现"), agentCfg("代码审查")] });
+    const { rerender } = render(<NewSessionPane />);
+    // 无 pendingAgent 时默认取列表第一项
+    expect((screen.getByTestId("agent-select") as HTMLSelectElement).value).toBe("dev");
+    rerender(<NewSessionPane pendingAgent="代码审查" />);
+    expect((screen.getByTestId("agent-select") as HTMLSelectElement).value).toBe("代码审查");
+  });
+
+  it("agents list 为空时下拉禁用并显示（无智能体）", () => {
+    useAgentsStore.setState({ list: [] });
+    render(<NewSessionPane />);
+    const sel = screen.getByTestId("agent-select") as HTMLSelectElement;
+    expect(sel.disabled).toBe(true);
+    expect(screen.getByText(/无智能体/)).toBeTruthy();
+  });
+
+  it("agent:list 空转非空时回填选中项为列表第一项，发送解禁", async () => {
+    // 首次加载 agents store 为空（agent:list 回包未到），以空列表挂载
+    useAgentsStore.setState({ list: [] });
+    await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
+    useProvidersStore.setState({
+      providers: [
+        { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
+      ],
+    });
+    render(<NewSessionPane />);
+    await waitFor(() => {
+      expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
+    });
+    typeIntoComposer("hello");
+    // agentName 为 null，发送禁用（不能断言 select.value：无匹配 option 时 DOM 会回落显示首项，掩盖真实 state）
+    const btn = screen.getByTestId("composer-send") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    // 回包到达后灌入列表，应自动回填第一项为选中智能体，发送解禁
+    act(() => {
+      useAgentsStore.setState({ list: [agentCfg("dev", "技术实现"), agentCfg("test", "质量验收")] });
+    });
+    expect(btn.disabled).toBe(false);
+    expect((screen.getByTestId("agent-select") as HTMLSelectElement).value).toBe("dev");
+  });
+
+  it("空智能体列表：无有效选中值且发送被阻止（不回退到死智能体 dev）", async () => {
+    useAgentsStore.setState({ list: [] });
+    await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
+    useProvidersStore.setState({
+      providers: [
+        { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
+      ],
+    });
+    render(<NewSessionPane />);
+    await waitFor(() => {
+      expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
+    });
+    // agentName 应为空，而不是回退到列表里已不存在的 "dev"
+    const sel = screen.getByTestId("agent-select") as HTMLSelectElement;
+    expect(sel.value).toBe("");
+    // 输入文本后发送按钮仍禁用，点击也不会发出 agent:prompt
+    typeIntoComposer("hello");
+    const btn = screen.getByTestId("composer-send") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(sendMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent:prompt" }));
   });
 });

@@ -1209,6 +1209,71 @@ git commit -m "feat(frontend): 侧边栏智能体区重构——最近使用前3
 
 ---
 
+### Task 10b: 侧边栏空态【新增智能体】入口（用户追加需求，2026-07-18）
+
+**背景：** 用户评审交互时提出：没有任何智能体时，会话列表上方的智能体区没有任何创建入口，必须有。
+
+**Files:**
+- Modify: `packages/frontend/src/components/AgentListSection.tsx`
+- Test: `packages/frontend/tests/AgentListSection.test.tsx`
+
+**Interfaces:**
+- Produces: 空态行 `data-testid="agent-empty-create"`（按钮文案 "＋ 新增智能体"）；点击变为内联输入行 `data-testid="agent-empty-input"`（回车提交，Esc 取消）
+- 提交行为：trim 后非空 → `useAgentsStore.getState().createAgent(name)`；kernel 广播 `agent:list` 后新智能体自然出现在列表（已有订阅链路）
+- 仅当 `agents.length === 0` 时显示；非空时不渲染该行（也不显示"更多智能体"入口）
+
+**Step 1: 写失败测试（bun:test）**
+
+```tsx
+test("空态显示新增智能体入口，回车创建", async () => {
+  seed([]);  // 空列表
+  render(<AgentListSection onChatWith={() => {}} onEdit={() => {}} onMore={() => {}} />);
+  expect(screen.getByTestId("agent-empty-create")).toBeTruthy();
+  expect(screen.queryByTestId("agent-more")).toBeNull();
+  fireEvent.click(screen.getByTestId("agent-empty-create"));
+  const input = screen.getByTestId("agent-empty-input");
+  fireEvent.change(input, { target: { value: "我的助手" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  // 断言 store createAgent 被调（mock 模式参照本文件既有 createAgent spy）
+});
+
+test("空态输入 Esc 取消；空白名不提交", () => {
+  seed([]);
+  render(<AgentListSection onChatWith={() => {}} onEdit={() => {}} onMore={() => {}} />);
+  fireEvent.click(screen.getByTestId("agent-empty-create"));
+  const input = screen.getByTestId("agent-empty-input");
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(screen.queryByTestId("agent-empty-input")).toBeNull();
+  fireEvent.click(screen.getByTestId("agent-empty-create"));
+  const input2 = screen.getByTestId("agent-empty-input");
+  fireEvent.change(input2, { target: { value: "   " } });
+  fireEvent.keyDown(input2, { key: "Enter" });
+  // createAgent 未被调用
+});
+
+test("非空列表不显示空态入口", () => {
+  seed(["a"]);
+  render(<AgentListSection onChatWith={() => {}} onEdit={() => {}} onMore={() => {}} />);
+  expect(screen.queryByTestId("agent-empty-create")).toBeNull();
+});
+```
+
+**Step 2: 实现**（AgentListSection.tsx，参照 AgentGalleryModal 新建小表单的模式：useState creating + input 自动 focus）
+
+- 组件内加 `const [creating, setCreating] = useState(false);`
+- `agents.length === 0` 时，agent 行区域替换为：creating ? 内联输入行（autoFocus、回车提交、Esc 取消、失焦取消）: 【＋ 新增智能体】按钮行
+- 提交：`const name = value.trim(); if (!name) return; useAgentsStore.getState().createAgent(name); setCreating(false);`
+- 样式沿用紧凑行风格（hover 底色、text-[13px] text-secondary），与原型紧凑行一致
+
+**Step 3: 全量 `cd packages/frontend && bun test` → commit**
+
+```bash
+git add packages/frontend/src/components/AgentListSection.tsx packages/frontend/tests/AgentListSection.test.tsx
+git commit -m "feat(frontend): 侧边栏智能体区空态新增智能体入口（内联创建）"
+```
+
+---
+
 ### Task 11: AgentGalleryModal（全部智能体宫格弹窗）
 
 **UI 原型：** `docs/superpowers/specs/2026-07-17-agent-matrix-mockups/agent-gallery.html`（3 列卡片宫格：头像+名称+两行简介+状态点；右上【新建智能体】；左键建会话、右键编辑/删除；底部提示条）

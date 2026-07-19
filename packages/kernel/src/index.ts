@@ -43,6 +43,9 @@ export async function startKernel(
   // 启动时把已有 providers 注册成 Pi extension（幂等）
   await ensureProviderExtensionRegistered(providerStore);
 
+  // 目录为空时 seed 4 个内置默认 agent（幂等）
+  await configStore.seedDefaults();
+
   const migrated = await migrateLegacySessions(projectStore);
   if (migrated) console.log("[kernel] 已迁移老数据至默认项目");
 

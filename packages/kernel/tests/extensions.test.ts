@@ -8,11 +8,11 @@ test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension
   const paths = buildAdditionalExtensionPaths();
 
   // npm 包入口必须存在且解析到实际 .ts 文件
-  const intercom = paths.find((p) => p.includes("pi-intercom"));
+  const subagents = paths.find((p) => p.includes("pi-subagents"));
   const webAccess = paths.find((p) => p.includes("pi-web-access"));
-  expect(intercom).toBeTruthy();
+  expect(subagents).toBeTruthy();
   expect(webAccess).toBeTruthy();
-  for (const p of [intercom, webAccess]) {
+  for (const p of [subagents, webAccess]) {
     expect(p!.endsWith(".ts")).toBe(true);
     expect(existsSync(p!)).toBe(true);
   }
@@ -75,4 +75,10 @@ test("extractRuntimeToolNames: loader 缺失 / 结构不符时返回空数组（
   expect(extractRuntimeToolNames({})).toEqual([]);
   expect(extractRuntimeToolNames({ getExtensions: () => null })).toEqual([]);
   expect(extractRuntimeToolNames({ getExtensions: () => ({ runtime: {} }) })).toEqual([]);
+});
+
+test("内置扩展清单：含 pi-subagents，不含 pi-intercom", async () => {
+  const paths = buildAdditionalExtensionPaths([]);
+  expect(paths.some(p => p.includes("pi-subagents"))).toBe(true);
+  expect(paths.some(p => p.includes("pi-intercom"))).toBe(false);
 });

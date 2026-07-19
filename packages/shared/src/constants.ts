@@ -1,5 +1,3 @@
-import type { AgentName } from "./types";
-
 /** 端口解析：合法正整数用之，否则用默认。 */
 export function resolvePort(envVal: string | undefined, def: number): number {
   const n = Number(envVal);
@@ -33,7 +31,7 @@ export interface AgentDef {
   label: string;
 }
 
-export const AGENT_DEFS: Record<AgentName, AgentDef> = {
+export const AGENT_DEFS: Record<string, AgentDef> = {
   product: { emoji: "📋", gradient: ["#5B5BD6", "#8B8BFF"], label: "需求设计" },
   pm:      { emoji: "📅", gradient: ["#B45309", "#D97706"], label: "项目管理" },
   dev:     { emoji: "⚙️", gradient: ["#1D1D1F", "#2C2C2E"], label: "技术实现" },
@@ -41,7 +39,7 @@ export const AGENT_DEFS: Record<AgentName, AgentDef> = {
 };
 
 /** 所有 Agent 名称列表，用于批量操作（如预启动所有 agent 进程） */
-export const ALL_AGENT_NAMES: AgentName[] = ["product", "pm", "dev", "test"];
+export const ALL_AGENT_NAMES: string[] = ["product", "pm", "dev", "test"];
 
 /** Agent 未显式配置 tools 时的默认工具集。
  *  含 Pi 内置工具、pi-web-access 网络工具、amaster memory 记忆工具。
@@ -68,6 +66,8 @@ export const DEFAULT_AGENT_TOOLS = [
   "memory_read",
   "session_search",
   "ask_user_question",
+  // delegate：宿主关系网调起工具（customTools 注入）
+  "delegate",
 ];
 
 /** 动态插件注册的工具登记表（运行时按插件启用态注入 agent allowlist）。
@@ -94,6 +94,8 @@ export function resolveAgentTools(
   toolMap: Record<string, string[]> = EXTENSION_TOOL_MAP,
   harvestedTools: Iterable<string> = [],
 ): string[] {
+  // 扩展原生 subagent 工具永不放行：LLM 只能走宿主 delegate 工具（allowlist 强制）
+  const BLOCKED = new Set(["subagent"]);
   const seen = new Set(baseTools);
   const result = [...baseTools];
   for (const [extId, extTools] of Object.entries(toolMap)) {
@@ -113,5 +115,10 @@ export function resolveAgentTools(
       result.push(t);
     }
   }
-  return result;
+  return result.filter(t => !BLOCKED.has(t));
+}
+
+/** 按名取 AgentDef，未知名回退默认（动态智能体没有内置定义） */
+export function agentDefOf(name: string): AgentDef {
+  return AGENT_DEFS[name] ?? { emoji: "🤖", gradient: ["#4b5563", "#6b7280"], label: name };
 }
