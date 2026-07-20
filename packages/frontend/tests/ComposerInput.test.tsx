@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, mock } from "bun:test";
+import { test, describe, it, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useProvidersStore } from "../src/store/providers";
 import { useProjectsStore } from "../src/store/projects";
@@ -229,15 +229,15 @@ test("#文件搜索结果中目录项传递 isDir 并显示文件夹图标", asy
 test("输入 @ 触发智能体面板（数据来自 useAgentsStore.list，按 displayName/description 过滤）", () => {
   useAgentsStore.setState({
     list: [
-      { name: "pm", displayName: "需求设计", description: "梳理需求、输出 PRD" },
-      { name: "test", displayName: "质量验收", description: "测试与验收" },
+      { displayName: "需求设计", partners: { askTo: ["质量验收"], askFrom: [] }, description: "梳理需求、输出 PRD" },
+      { displayName: "质量验收", partners: { askTo: [], askFrom: [] }, description: "测试与验收" },
     ] as any,
   });
-  renderComposer({ text: "@需求" });
+  renderComposer({ text: "@质量", currentAgentName: "需求设计" });
   // 命中的智能体显示 displayName
-  expect(screen.getByText("需求设计")).toBeDefined();
-  // 未命中的不显示
-  expect(screen.queryByText("质量验收")).toBeNull();
+  expect(screen.getByText("质量验收")).toBeDefined();
+  // 当前主智能体自身被排除
+  expect(screen.queryByText("需求设计")).toBeNull();
 });
 
 test("@ 面板空结果显示 无匹配智能体", () => {
@@ -251,10 +251,11 @@ test("选中智能体后生成 @[name] chip token 并回调 onAgentMention", () 
   const onAgentMention = mock();
   useAgentsStore.setState({
     list: [
+      { displayName: "主控", description: "主控", avatar: "", avatarColor: "", model: "m", thinking: "medium", systemPromptMode: "replace", inheritProjectContext: true, inheritSkills: true, tools: [], skills: [], mcpServers: [], partners: { askTo: ["需求设计"], askFrom: [] }, triggerKeywords: [] },
       { displayName: "需求设计", description: "梳理需求", avatar: "", avatarColor: "", model: "m", thinking: "medium", systemPromptMode: "replace", inheritProjectContext: true, inheritSkills: true, tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [] },
     ] as any,
   });
-  renderComposer({ text: "@需求", setText, onAgentMention });
+  renderComposer({ text: "@需求", setText, onAgentMention, currentAgentName: "主控" });
   fireEvent.click(screen.getByText("需求设计"));
   expect(setText).toHaveBeenCalled();
   const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
@@ -347,4 +348,51 @@ test("发送时 chip token 展开为纯文本", () => {
   const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
   // token 格式为 $[pdf]，发送时由 Composer 展开为 /skill:pdf（SDK _expandSkillCommand 格式）
   expect(lastCall).toContain("$[pdf]");
+});
+
+// === Task 1.3: @ 候选菜单只显示 askTo 名单内 ===
+
+describe("ComposerInput @ 候选菜单过滤", () => {
+  beforeEach(() => {
+    // AgentConfig 无 name 字段，displayName 是唯一标识符
+    useAgentsStore.setState({
+      list: [
+        { displayName: "研发", partners: { askTo: ["代码审查"], askFrom: [] }, description: "写代码", avatar: "💻", avatarColor: "" },
+        { displayName: "代码审查", partners: { askTo: [], askFrom: [] }, description: "评审", avatar: "🔍", avatarColor: "" },
+        { displayName: "项目管理", partners: { askTo: [], askFrom: [] }, description: "拆需求", avatar: "📋", avatarColor: "" },
+      ] as any,
+    });
+    useProvidersStore.setState({ providers: [{ id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] }] });
+    useProjectsStore.setState({ projects: [{ id: "p1", name: "t", cwd: "/tmp", createdAt: 0 }], currentProjectId: "p1" });
+  });
+
+  it("主智能体 askTo=[代码审查] 时，@ 菜单只显示代码审查（排除自己 + 排除不在名单的项目管理）", async () => {
+    render(
+      <ComposerInput
+        text="@" setText={() => {}} model="gpt-4o" setModel={() => {}}
+        thinking="disabled" setThinking={() => {}}
+        attachments={[]} setAttachments={() => {}}
+        projectId="p1" sessionId="s1" onSend={() => {}} currentAgentName="研发"
+      />
+    );
+    await waitFor(() => {
+      expect(screen.getByText("代码审查")).toBeDefined();
+    });
+    expect(screen.queryByText("项目管理")).toBeNull();
+    expect(screen.queryByText("研发")).toBeNull(); // 排除当前主智能体
+  });
+
+  it("主智能体 askTo 为空时，@ 菜单为空", async () => {
+    render(
+      <ComposerInput
+        text="@" setText={() => {}} model="gpt-4o" setModel={() => {}}
+        thinking="disabled" setThinking={() => {}}
+        attachments={[]} setAttachments={() => {}}
+        projectId="p1" sessionId="s1" onSend={() => {}} currentAgentName="代码审查"
+      />
+    );
+    await waitFor(() => {
+      expect(screen.getByText("无匹配智能体")).toBeDefined();
+    });
+  });
 });

@@ -7,6 +7,8 @@
 ## 2026-07-20
 
 ### 新增
+- **前端 @ 候选菜单只显示当前主智能体 partners.askTo 名单内（Task 1.3）**：`ComposerInput` 新增 `currentAgentName?: string` prop，`agentItems` 过滤逻辑从「显示 allAgents」收紧为「只显示 currentAgentName 对应 AgentConfig.partners.askTo 名单内、且排除自身」。`Composer.tsx` 传 `currentAgentName={agentName}`，`NewSessionPane.tsx` 传 `currentAgentName={agentName ?? undefined}`（agentName state 可能为 null）。从源头杜绝 @ 越权（用户无法在菜单里选到主智能体未授权 askTo 的智能体）。TDD：新增 `ComposerInput @ 候选菜单过滤` describe（2 用例：askTo 名单过滤 + askTo 为空），同步适配 2 个既有 ComposerInput 测试为新契约。影响：frontend(src/components/ui/ComposerInput + Composer + NewSessionPane + tests/ComposerInput.test)。
+
 - **HIAGENT_DEFAULT_SYSTEM_PROMPT 加 @[agentName] 委托规则 + 拼装顺序重组（Task 1.2）**：默认系统提示词常量 export 并追加「## 智能体显式委托语法（@[agentName]）」段（硬规则：必须调 delegate、task 按 Context/Request/Output format/Constraints/Pause policy 任务合约范式组织、列表外询问用户、结果重新组织回复）。`systemPromptOverride` 拼装顺序从 `base+env+memory+delegatePrompt` 重组为 `base+delegatePrompt+env+memory`（delegatePrompt 紧跟 base、记忆快照放最后贴近用户消息）。影响：kernel(`agent-manager.ts` 导出常量 + 拼装顺序 + tests 加 2 个新用例 + 1 个既有用例断言收紧为 buildDelegatePrompt 段特有 marker「你可以通过 delegate 工具」)。
 
 ### 重构
