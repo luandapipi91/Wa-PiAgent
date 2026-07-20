@@ -143,8 +143,11 @@ export async function spawnViaSubagentsService(
   task: string,
   opts?: { intervalMs?: number; activeTimeoutMs?: number; hardDeadlineMs?: number },
 ): Promise<DelegateSpawnResult> {
-  const { getSubagentsService } = await import("@gotgenes/pi-subagents");
-  const svc = getSubagentsService();
+  console.log("[delegate] 动态导入 @gotgenes/pi-subagents ...");
+  const mod = await import("@gotgenes/pi-subagents");
+  console.log("[delegate] 导入成功，模块导出:", Object.keys(mod));
+  const svc = mod.getSubagentsService();
+  console.log("[delegate] getSubagentsService() =>", svc ? `Service 已就绪 (${typeof svc.spawn === "function" ? "有 spawn" : "无 spawn"})` : "undefined — 服务未发布");
   if (!svc) return { text: "子智能体服务未就绪", isError: true };
   let id: string;
   try {
