@@ -133,6 +133,17 @@ export async function waitSubagentResult(
   }
 }
 
+/** 最小 ExtensionAPI 桩，用于手动加载扩展入口时防止 default export 抛错 */
+function createExtensionApiStub() {
+  return {
+    registerMessageRenderer: () => {},
+    sendMessage: async () => {},
+    on: () => {},
+    dispose: () => {},
+    get settings() { return { get() { return undefined; }, set() {} }; },
+  };
+}
+
 /**
  * 生产 spawn 闭包：动态 import pi-subagents service（进程内单例，由内置扩展发布）→
  * spawn（无活动会话会 throw，catch 收敛为错误文本）→ waitSubagentResult 轮询。
@@ -143,11 +154,29 @@ export async function spawnViaSubagentsService(
   task: string,
   opts?: { intervalMs?: number; activeTimeoutMs?: number; hardDeadlineMs?: number },
 ): Promise<DelegateSpawnResult> {
-  console.log("[delegate] 动态导入 @gotgenes/pi-subagents ...");
   const mod = await import("@gotgenes/pi-subagents");
-  console.log("[delegate] 导入成功，模块导出:", Object.keys(mod));
-  const svc = mod.getSubagentsService();
-  console.log("[delegate] getSubagentsService() =>", svc ? `Service 已就绪 (${typeof svc.spawn === "function" ? "有 spawn" : "无 spawn"})` : "undefined — 服务未发布");
+  let svc = mod.getSubagentsService();
+  // 兜底：Pi SDK 未加载扩展入口 → 手动导入并调用 default export
+  if (!svc) {
+    console.log("[delegate] getSubagentsService 未就绪，尝试手动加载扩展入口...");
+    try {
+      const modExt = await import("@gotgenes/pi-subagents/src/index.ts");
+      if (typeof modExt.default === "function") {
+        console.log("[delegate] 扩展入口 default export 存在，尝试调用...");
+        try {
+          await modExt.default(createExtensionApiStub());
+          svc = mod.getSubagentsService();
+          console.log("[delegate] 手动加载后 getSubagentsService() =>", svc ? "已就绪" : "仍 undefined");
+        } catch (e) {
+          console.log("[delegate] 扩展入口 default export 抛错:", e);
+        }
+      } else {
+        console.log("[delegate] 扩展入口无 default export, typeof:", typeof modExt.default);
+      }
+    } catch (e) {
+      console.log("[delegate] 手动导入扩展入口失败:", e);
+    }
+  }
   if (!svc) return { text: "子智能体服务未就绪", isError: true };
   let id: string;
   try {
