@@ -451,7 +451,7 @@ export class AgentManager {
 
     // 调 createAgentSession 创建 SDK session
     // 不再使用 agent config 里的默认模型：所有消息必须跟随用户显式选择的模型
-    const { session } = await createFn({
+    const result = await createFn({
       cwd: project.cwd,
       agentDir: HIAGENT_DIR,
       sessionManager: sdk.SessionManager.open(sessionEntity.piSessionFile),
@@ -462,6 +462,14 @@ export class AgentManager {
       authStorage,
       modelRegistry,
     });
+    // Pi SDK 扩展加载错误被 CreateAgentSessionFn 类型裁剪掉了，此处恢复检查
+    const extensionsResult = (result as any).extensionsResult;
+    if (extensionsResult?.errors?.length) {
+      for (const err of extensionsResult.errors) {
+        console.error("[kernel] 扩展加载失败:", err.path, err.error);
+      }
+    }
+    const { session } = result;
 
     // 提前注册 session 到 map，让 abort / queue 操作在后续 setup（bindExtensions 等）期间即可用。
     // 后续步骤失败时由 _teardownSession 清理（ensureStarted 的 finally 块 dispose 会触发）。

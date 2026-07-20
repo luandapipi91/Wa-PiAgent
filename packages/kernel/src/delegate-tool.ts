@@ -166,7 +166,9 @@ export async function spawnViaSubagentsService(
       const pkgRoot = dirname(req.resolve("@gotgenes/pi-subagents/package.json"));
       const indexTs = join(pkgRoot, "src", "index.ts");
       console.log("[delegate] 扩展入口路径:", indexTs);
-      const modExt = await import(indexTs);
+      // 用目标包的 createRequire 加载入口——resolve #src/* 的 imports 别名
+      const pkgReq = createRequire(join(pkgRoot, "package.json"));
+      const modExt = await pkgReq(indexTs);  // require 会使用目标包的 package.json 上下文
       if (typeof modExt.default === "function") {
         console.log("[delegate] 扩展入口 default export 找到，调用中...");
         try {
