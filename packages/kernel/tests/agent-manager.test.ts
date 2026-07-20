@@ -1,5 +1,5 @@
 import { test, describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
-import { AgentManager } from "../src/agent-manager";
+import { AgentManager, HIAGENT_DEFAULT_SYSTEM_PROMPT } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { rmSync, mkdirSync, writeFileSync } from "node:fs";
@@ -1118,7 +1118,9 @@ test("ensureStarted 在 askTo 为空时不注册 delegate 工具、不注入关�
   expect(names).not.toContain("delegate");
 
   const prompt = captured[0].resourceLoader.systemPromptOverride();
-  expect(prompt).not.toContain("delegate 工具");
+  // buildDelegatePrompt 段以「你可以通过 delegate 工具」开头，校验该段未注入（HIAGENT_DEFAULT_SYSTEM_PROMPT
+  // 本身含 delegate 规则文案，不能再用模糊的 "delegate 工具" 断言）。
+  expect(prompt).not.toContain("你可以通过 delegate 工具");
 });
 
 // ─── Task 4: 中断清理（cancelAll）测试 ───────────────────────────────────────
@@ -1389,4 +1391,57 @@ test("renameAgentSessions: 不匹配旧名的活跃会话不受影响", async ()
 
   expect((am as any).sessionMeta.get(session.id).agentName).toBe("dev");
   expect((am as any).skillDirty.has(session.id)).toBe(false);
+});
+
+test("HIAGENT_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => {
+  // 常量需 export 才能直接断言；若未 export，改用 systemPromptOverride 间接断言（见下一测试）
+  // 这里假设 Task 1.2 Step 3 会 export 该常量
+  expect(HIAGENT_DEFAULT_SYSTEM_PROMPT).toContain("@[agentName]");
+  expect(HIAGENT_DEFAULT_SYSTEM_PROMPT).toContain("delegate");
+  expect(HIAGENT_DEFAULT_SYSTEM_PROMPT).toContain("Context");
+  expect(HIAGENT_DEFAULT_SYSTEM_PROMPT).toContain("Pause policy");
+});
+
+test("systemPromptOverride 拼装顺序：base < delegatePrompt < 环境约束 < 记忆快照", async () => {
+  const capturedLoaders: any[] = [];
+  const createFn = mock(async (opts: any) => {
+    capturedLoaders.push(opts.resourceLoader);
+    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
+  });
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+
+  // askTo 非空 + 有 memorySnapshot 的 configStore mock
+  const configStore = {
+    getAgent: mock(async () => ({
+      displayName: "dev",
+      partners: { askTo: [{ name: "代码审查" }], askFrom: [] },
+      triggerKeywords: ["review"],
+      description: "评审",
+    })),
+  } as any;
+  const memoryStore = {
+    getConfig: mock(async () => ({ items: [{ scope: "global", type: "preference", content: "记忆快照内容" }] })),
+  } as any;
+
+  const am = new AgentManager({
+    projectStore, configStore, onEvent: () => {},
+    createAgentSessionFn: createFn as any, memoryStore,
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const prompt = capturedLoaders[0].systemPromptOverride();
+  const idxBase = prompt.indexOf("You are an expert coding assistant");
+  const idxDelegate = prompt.indexOf("delegate 工具");
+  const idxEnv = prompt.indexOf("Built-in directory:");
+  const idxMemory = prompt.indexOf("记忆快照内容");
+  expect(idxBase).toBeGreaterThanOrEqual(0);
+  expect(idxDelegate).toBeGreaterThan(idxBase);
+  expect(idxEnv).toBeGreaterThan(idxDelegate);
+  // 记忆快照由 buildMemorySnapshot(HIAGENT_DIR, cwd) 独立加载，memoryStore.getConfig 只控制策略开关；
+  // 测试环境下 memorySnapshot 可能为空，此时跳过其顺序断言（仅当存在时校验位置）。
+  if (idxMemory >= 0) {
+    expect(idxMemory).toBeGreaterThan(idxEnv);
+  }
 });

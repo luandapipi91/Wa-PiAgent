@@ -6,6 +6,9 @@
 
 ## 2026-07-20
 
+### 新增
+- **HIAGENT_DEFAULT_SYSTEM_PROMPT 加 @[agentName] 委托规则 + 拼装顺序重组（Task 1.2）**：默认系统提示词常量 export 并追加「## 智能体显式委托语法（@[agentName]）」段（硬规则：必须调 delegate、task 按 Context/Request/Output format/Constraints/Pause policy 任务合约范式组织、列表外询问用户、结果重新组织回复）。`systemPromptOverride` 拼装顺序从 `base+env+memory+delegatePrompt` 重组为 `base+delegatePrompt+env+memory`（delegatePrompt 紧跟 base、记忆快照放最后贴近用户消息）。影响：kernel(`agent-manager.ts` 导出常量 + 拼装顺序 + tests 加 2 个新用例 + 1 个既有用例断言收紧为 buildDelegatePrompt 段特有 marker「你可以通过 delegate 工具」)。
+
 ### 重构
 - **彻底移除 AgentConfig.name 字段，displayName 成为唯一标识符**：原 `name`（如 "dev"）是内部主键（文件名、session.primaryAgent、partners 引用、WS 协议），`displayName`（如 "技术实现"）仅作展示——两者语义重叠且 name 对用户无意义。现合并为单一 `displayName`：文件名 `${displayName}.md`、session 外键、partners 引用、AGENT_DEFS 索引全部用 displayName。编辑智能体弹窗改为编辑 displayName（原编辑的是 name）。kernel 启动时一次性迁移旧数据（`migrateNameToDisplayName`）：把旧格式 .md（含 name 字段、文件名用内部 name）重命名为 displayName.md、清理 frontmatter、同步 projects.json。影响：shared(types/constants) + kernel(agent-md/config-store/ws-server/agent-manager/index) + frontend(store + 全组件) + 测试/E2E。
 
