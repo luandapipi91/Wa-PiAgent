@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-07-20
+
+### 重构
+- **彻底移除 AgentConfig.name 字段，displayName 成为唯一标识符**：原 `name`（如 "dev"）是内部主键（文件名、session.primaryAgent、partners 引用、WS 协议），`displayName`（如 "技术实现"）仅作展示——两者语义重叠且 name 对用户无意义。现合并为单一 `displayName`：文件名 `${displayName}.md`、session 外键、partners 引用、AGENT_DEFS 索引全部用 displayName。编辑智能体弹窗改为编辑 displayName（原编辑的是 name）。kernel 启动时一次性迁移旧数据（`migrateNameToDisplayName`）：把旧格式 .md（含 name 字段、文件名用内部 name）重命名为 displayName.md、清理 frontmatter、同步 projects.json。影响：shared(types/constants) + kernel(agent-md/config-store/ws-server/agent-manager/index) + frontend(store + 全组件) + 测试/E2E。
+
+### 设计
+- **@ 智能体语义改造 spec 立项**：把 `@其他智能体` 从「切换当前会话主智能体」改为「软触发主智能体调 delegate 工具委托子智能体」，主智能体不再被永久改写。核心决策：① 规则加到 `HIAGENT_DEFAULT_SYSTEM_PROMPT`；② `@[xxx]` 原样发给主智能体识别（不剥离）；③ @ 候选菜单只显示 `partners.askTo` 名单内；④ 系统提示词拼装顺序重组为 `base(含@[agentName]规则) + delegatePrompt + 环境约束 + 记忆快照`；⑤ task 参数按 Task Contract 范式总结（参考 DeepSeek-Reasonix）。同期纳入 B3 并行委托 fleet + C5 进度租约 + A2 final answer 语义验证三项优化。spec 文档：`docs/superpowers/specs/2026-07-20-at-mention-delegate-design.md`。
+- **pi-dynamic-workflows 评估 + Pi 扩展复用原则确立**：补登记前期调研遗漏（pi-dynamic-workflows 不在 2026-07-08 委托扩展对照表内）。结论：它是「交互类」扩展（slash command + TUI + keyword trigger + `~/.pi/workflows/` 状态），HiAgent UI 不暴露 Pi CLI 交互层，**不可直接用**。与「底层服务类」@gotgenes/pi-subagents 本质不同（后者有 typed service API 可借）。确立复用原则：**HiAgent 只复用工具类/底层服务类 Pi 扩展，不复用交互类**。后期多智能体编排走自研路线（基于 delegate + B3 fleet + partners 关系网，借鉴 pi-dynamic-workflows 的 parallel/pipeline/verify/resume 设计但不依赖）。调研文档：`docs/research/pi-dynamic-workflows-evaluation.md`。
+
+### 变更
+- **新建会话页智能体选择改用带搜索的下拉组件，默认选中最近使用的智能体**：原 NewSessionPane 用原生 `<select>` 选智能体、默认取列表第一项；现改为复用聊天顶部同款 pill + 搜索下拉（抽取共享组件 `AgentDropdown`），并默认选中"名下会话 lastActivity 最大"的智能体（复用 `topAgentsByRecency`，无历史时回退列表第一项）。同时抽取 `AgentMenuItem`，让 `AgentDropdown` 列表项与 `@ 智能体` 弹窗（QuickInvokeMenu agent 分支）共用同一行渲染，视觉完全一致。AgentSwitcher 改为内部复用 `AgentDropdown`（外层包缓存失效确认框），行为不变。TDD：AgentDropdown/AgentMenuItem 各新增组件测试先行（红→绿），NewSessionPane 新增 recency 默认值测试，App/NewSessionPane/ComposerInput 等既有测试同步更新为 pill 按钮 UI 契约（textContent 取代 select.value），E2E 同步改 toContainText。影响：frontend(components/ui/AgentDropdown + AgentMenuItem 新建；AgentSwitcher + NewSessionPane + ui/QuickInvokeMenu 重构；tests/ + e2e/ 同步)。
+
 ## 2026-07-19
 
 ### 新增
@@ -28,6 +40,7 @@
 
 ### 修复
 - **动态插件升级点击后无反馈（卡一下直接成功）**：升级流程前后端均缺反馈机制——前端 `upgradePackage` 只发消息无 loading 状态，kernel `extension:upgrade` 不传 `onProgress`，升级期间 `applyProgress` 因无对应占位条目而丢弃进度、按钮无任何变化，直到 `extension:changed` 刷新版本号才「突然成功」。修复：(1) 前端 extensions store 新增 `upgrading` 状态，`upgradePackage` 标记升级中、`applyProgress` 更新升级进度、`setAll`(changed)/`setError` 清除标记；(2) `ExtensionSection` 升级中按钮变「⟳ 升级中…」并禁用防重复点击，卡片显示流式进度行；(3) kernel `npm-package-service.upgrade`/`extension-manager.upgrade` 增加 `onProgress` 透传，`ws-server` 升级期间流式推 `extension:progress`、成功后 reply `extension:changed`（与安装链路一致）。TDD 全程红绿：9 个新测试先行（前端 store 4 + 组件 2 + kernel npm-pkg/manager/ws 3），全绿；stash 基线对比确认未引入新 fail（frontend 9/kernel 4 均为既有）。影响：frontend(store/extensions.ts + components/settings/ExtensionSection.tsx + tests)；kernel(npm-package-service.ts + extension-manager.ts + ws-server.ts + tests)。
+- **未配置任何模型也能发出消息**：根因是发送闸门的判定依据错误——"当前模型"是 IndexedDB 持久化的快照（`composer-prefs`），provider 被删除后残留的过期 model 字符串仍非 null，而所有闸门只查 `model !== null`：`ComposerInput.canSend`、`Composer.handleSend`、`NewSessionPane.handleSend`、`MessageList` 重发全部放行 → 乐观 UI 上屏、kernel 创建会话后 `resolveModel` 才报错。修复：shared 新增纯函数 `isModelAvailable(model, providers)`（与 ModelSelector/kernel `slugifyProviders` 同一 slug 派生规则，类型谓词收窄 model 为 string），四处闸门统一改为"model 必须真实存在于当前 providers"；重发拦截点放在裁剪消息之前，避免消息被裁却发不出去。TDD：7 个 shared 单测 + 2 个 ComposerInput 组件测试先行（红→绿），新增 Composer/MessageList 回归测试各 1 例；既有夹具中编码旧语义的 bare model 全部补全 slug/id + provider；全量 859 pass（fail 数与基线一致）；Playwright E2E 闭环：残留 model + 空 providers 按钮禁用 → 添加 provider 按钮恢复可用 → 删除 provider 重新禁用。影响：shared(providers.ts)、frontend(ComposerInput.tsx + Composer.tsx + NewSessionPane.tsx + MessageList.tsx + 4 个测试文件)。
 
 ### 新增
 - **@ 文件选择支持文件夹**：`@` 快速唤起菜单现在同时展示文件和文件夹，并以 📁/📄 图标区分类型。后端 `searchFiles` 本已返回 `isDir` 字段，前端此前未使用该字段统一显示 📄 图标；现已将 `isDir` 传递至 `MenuItem`，由 `QuickInvokeMenu` 按类型切换图标。选中文件夹后生成 `@[文件夹路径]` chip token，与文件行为一致。影响：frontend(`QuickInvokeMenu.tsx` + `ComposerInput.tsx` + tests)。
