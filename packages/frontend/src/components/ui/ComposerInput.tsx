@@ -32,6 +32,8 @@ interface Props {
   placeholder?: string;
   /** @ 选中智能体时回调（参数为智能体 name） */
   onAgentMention?: (name: string) => void;
+  /** 当前主智能体 displayName，用于过滤 @ 候选菜单（只显示其 askTo 名单内 + 排除自身） */
+  currentAgentName?: string;
 }
 
 function readFileAsBase64(file: File): Promise<string> {
@@ -50,7 +52,7 @@ function readFileAsBase64(file: File): Promise<string> {
 export function ComposerInput({
   text, setText, model, setModel, thinking, setThinking,
   attachments, setAttachments, projectId, sessionId, onSend, sendDisabled, disabled, placeholder,
-  onAgentMention,
+  onAgentMention, currentAgentName,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingUploads, setPendingUploads] = useState(0);
@@ -108,11 +110,16 @@ export function ComposerInput({
     return () => { cancel(); };
   }, [triggerType, trigger?.query, projectCwd]);
 
-  // @ 智能体列表过滤（按 displayName/description 匹配，token 用 name）
+  // @ 智能体列表过滤：只显示当前主智能体 partners.askTo 名单内 + 排除自身
   const agentItems: MenuItem[] = useMemo(() => {
     if (triggerType !== "agent") return [];
+    const primaryConfig = allAgents.find(a => a.displayName === currentAgentName);
+    const askToSet = new Set(primaryConfig?.partners?.askTo ?? []);
+    const candidates = allAgents.filter(a =>
+      askToSet.has(a.displayName) && a.displayName !== currentAgentName,
+    );
     const filtered = filterItems(
-      allAgents.map(a => ({ agent: a, name: a.displayName, description: a.description })),
+      candidates.map(a => ({ agent: a, name: a.displayName, description: a.description })),
       trigger!.query,
     );
     return filtered.map(({ agent }) => ({
@@ -122,7 +129,7 @@ export function ComposerInput({
       avatar: agent.avatar,
       avatarColor: agent.avatarColor,
     }));
-  }, [triggerType, trigger, allAgents]);
+  }, [triggerType, trigger, allAgents, currentAgentName]);
 
   // $ 技能列表过滤
   const skillItems: MenuItem[] = useMemo(() => {

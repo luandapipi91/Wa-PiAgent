@@ -106,6 +106,7 @@ export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
         sendDisabled={!projectId}
         disabled={disabled}
         placeholder={disabled ? "请先回答上方提问…" : (isRunning ? "输入要加入队列的消息..." : `给${agentName}发消息...`)}
+        currentAgentName={agentName}
       />
       {/* @提及其他智能体的缓存失效确认框（样式同 AgentSwitcher） */}
       {pendingMention && (

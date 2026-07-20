@@ -161,6 +161,7 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
         sendDisabled={!projectId || !agentName}
         placeholder="给研发发消息..."
         onAgentMention={name => setAgentName(name as AgentName)}
+        currentAgentName={agentName ?? undefined}
       />
     </div>
   );
