@@ -103,17 +103,36 @@ test("waitSubagentResult: 轮询直到终态（running running completed）", as
   const seq = [rec("running"), rec("running"), rec("completed", { result: "ok" })];
   let i = 0;
   const svc = { getRecord: () => seq[Math.min(i++, seq.length - 1)], abort: mock(() => true) };
-  const r = await waitSubagentResult(svc, "a1", { intervalMs: 0, timeoutMs: 5000 });
+  const r = await waitSubagentResult(svc, "a1", { intervalMs: 0, hardDeadlineMs: 5000 });
   expect(r).toEqual({ text: "ok", isError: false });
   expect(i).toBe(3);
 });
 
-test("waitSubagentResult: 超时 → 先 abort 再返回超时文本", async () => {
+test("waitSubagentResult: 绝对上限到点 → 先 abort 再返回超时文本", async () => {
   const abort = mock(() => true);
   const svc = { getRecord: () => rec("running"), abort };
-  const r = await waitSubagentResult(svc, "a1", { intervalMs: 0, timeoutMs: 0 });
+  const r = await waitSubagentResult(svc, "a1", { intervalMs: 0, hardDeadlineMs: 0 });
   expect(abort).toHaveBeenCalledWith("a1");
-  expect(r).toEqual({ text: "子智能体执行超时（10 分钟）", isError: true });
+  expect(r.isError).toBe(true);
+  expect(r.text).toContain("执行超时");
+});
+
+test("waitSubagentResult: running 状态动态续期（activeTimeoutMs 内有 running 不超时）", async () => {
+  // 前 3 次 running（每次续期），第 4 次 completed
+  const seq = [rec("running"), rec("running"), rec("running"), rec("completed", { result: "ok" })];
+  let i = 0;
+  const svc = { getRecord: () => seq[Math.min(i++, seq.length - 1)], abort: mock(() => true) };
+  // activeTimeoutMs=10ms（每次 running 续期），hardDeadlineMs=5000ms（绝对上限足够长）
+  const r = await waitSubagentResult(svc, "a1", { intervalMs: 0, activeTimeoutMs: 10, hardDeadlineMs: 5000 });
+  expect(r).toEqual({ text: "ok", isError: false });
+  expect(svc.abort).not.toHaveBeenCalled();
+});
+
+test("waitSubagentResult: 持续 running 超过 hardDeadlineMs → abort", async () => {
+  const svc = { getRecord: () => rec("running"), abort: mock(() => true) };
+  const r = await waitSubagentResult(svc, "a1", { intervalMs: 0, activeTimeoutMs: 10, hardDeadlineMs: 20 });
+  expect(svc.abort).toHaveBeenCalledWith("a1");
+  expect(r.isError).toBe(true);
 });
 
 test("spawnViaSubagentsService: 服务未就绪 → 错误文本，不 throw", async () => {

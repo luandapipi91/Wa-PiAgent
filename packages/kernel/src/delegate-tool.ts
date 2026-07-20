@@ -92,18 +92,22 @@ const ABORTED_STATUSES = new Set(["aborted", "stopped", "steered"]);
  * - completed → result（无输出兜底文本），isError:false
  * - error → error 字段（兜底文本），isError:true
  * - aborted/stopped/steered → 中止文本，isError:true
- * - 超时 → 先 abort(id) 再返回超时文本，isError:true
- * - queued/running/record 缺失 → 继续轮询
+ * - running 且 record 存在 → 动态续期：每次见到 running 重置 activeDeadline
+ * - activeDeadline 超时（无进展）→ 继续轮询（不 abort，子智能体可能还在工作）
+ * - hardDeadline 超时（绝对上限）→ abort(id) 再返回超时文本，isError:true
+ * - queued/record 缺失 → 继续轮询（不续期，因 record 不存在可能尚未启动）
  * 不用事件订阅、不用 waitForAll（它会等所有并发 agent）。
  */
 export async function waitSubagentResult(
   svc: SubagentServiceLike,
   id: string,
-  opts: { intervalMs?: number; timeoutMs?: number } = {},
+  opts: { intervalMs?: number; activeTimeoutMs?: number; hardDeadlineMs?: number } = {},
 ): Promise<DelegateSpawnResult> {
   const intervalMs = opts.intervalMs ?? 500;
-  const timeoutMs = opts.timeoutMs ?? 600_000;
-  const deadline = Date.now() + timeoutMs;
+  const activeTimeoutMs = opts.activeTimeoutMs ?? 60_000;   // 默认 60s 无 running 续期则视为停滞
+  const hardDeadlineMs = opts.hardDeadlineMs ?? 1_800_000;  // 默认绝对上限 30 分钟
+  const hardDeadline = Date.now() + hardDeadlineMs;
+  let activeDeadline = Date.now() + activeTimeoutMs;
   for (;;) {
     const record = svc.getRecord(id);
     if (record) {
@@ -116,10 +120,14 @@ export async function waitSubagentResult(
       if (ABORTED_STATUSES.has(record.status)) {
         return { text: "子智能体被中止", isError: true };
       }
+      // running 且 record 存在 → 续期
+      if (record.status === "running") {
+        activeDeadline = Date.now() + activeTimeoutMs;
+      }
     }
-    if (Date.now() >= deadline) {
+    if (Date.now() >= hardDeadline) {
       svc.abort(id);
-      return { text: "子智能体执行超时（10 分钟）", isError: true };
+      return { text: `子智能体执行超时（绝对上限 ${Math.round(hardDeadlineMs / 60000)} 分钟）`, isError: true };
     }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
@@ -130,7 +138,11 @@ export async function waitSubagentResult(
  * spawn（无活动会话会 throw，catch 收敛为错误文本）→ waitSubagentResult 轮询。
  * 所有失败路径收敛为 { text, isError:true }，绝不 throw 中断会话。
  */
-export async function spawnViaSubagentsService(agent: string, task: string): Promise<DelegateSpawnResult> {
+export async function spawnViaSubagentsService(
+  agent: string,
+  task: string,
+  opts?: { intervalMs?: number; activeTimeoutMs?: number; hardDeadlineMs?: number },
+): Promise<DelegateSpawnResult> {
   const { getSubagentsService } = await import("@gotgenes/pi-subagents");
   const svc = getSubagentsService();
   if (!svc) return { text: "子智能体服务未就绪", isError: true };
@@ -140,7 +152,7 @@ export async function spawnViaSubagentsService(agent: string, task: string): Pro
   } catch (err) {
     return { text: `子智能体调起失败: ${err instanceof Error ? err.message : String(err)}`, isError: true };
   }
-  return waitSubagentResult(svc, id);
+  return waitSubagentResult(svc, id, opts);
 }
 
 const FleetParamsSchema = Type.Object({
