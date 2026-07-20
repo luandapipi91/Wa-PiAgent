@@ -7,7 +7,6 @@ import { useSkillsStore } from "../src/store/skills";
 import { useProvidersStore } from "../src/store/providers";
 
 const cfg = (name: string, over: Partial<AgentConfigType> = {}): AgentConfigType => ({
-  name,
   displayName: name,
   avatar: "🤖",
   avatarColor: "#111111-#222222",
@@ -177,13 +176,44 @@ describe("AgentConfig 4 tab", () => {
     expect(savePayload().config.skills).toEqual(["pdf"]);
   });
 
-  test("改名保存：载荷 config.name 更新，agentName 保持原名", () => {
-    renderConfig("dev", cfg("dev", { displayName: "研发" }));
-    fireEvent.change(screen.getByTestId("cfg-name-input"), { target: { value: "dev2" } });
+  test("改名保存：载荷 config.displayName 更新，agentName 保持原名", () => {
+    renderConfig("技术实现", cfg("技术实现"));
+    fireEvent.change(screen.getByTestId("cfg-name-input"), { target: { value: "新名字" } });
     fireEvent.click(screen.getByText("保存"));
     const payload = savePayload();
-    expect(payload.agentName).toBe("dev");
-    expect(payload.config.name).toBe("dev2");
+    expect(payload.agentName).toBe("技术实现");
+    expect(payload.config.displayName).toBe("新名字");
+  });
+
+  test("重名时显示错误且禁用保存（不发出 agent:config:save）", () => {
+    // store 里已有另一个 "代码审查"
+    useAgentsStore.setState({ list: [cfg("代码审查")] });
+    renderConfig("技术实现", cfg("技术实现"));
+    // 改成已存在的 "代码审查"
+    fireEvent.change(screen.getByTestId("cfg-name-input"), { target: { value: "代码审查" } });
+    // 显示重名错误
+    expect(screen.getByTestId("cfg-name-error").textContent).toContain("已被占用");
+    // 保存按钮禁用
+    const saveBtn = screen.getByTestId("cfg-save");
+    expect((saveBtn as HTMLButtonElement).disabled).toBe(true);
+    // 点击保存也不发出消息
+    fireEvent.click(saveBtn);
+    expect(savePayload()).toBeUndefined();
+  });
+
+  test("改为自身原名不视为重名（可正常保存）", () => {
+    useAgentsStore.setState({ list: [cfg("技术实现")] });
+    renderConfig("技术实现", cfg("技术实现"));
+    // 不改名，直接保存
+    fireEvent.click(screen.getByTestId("cfg-save"));
+    expect(savePayload()).toBeDefined();
+  });
+
+  test("displayName 为空时禁用保存", () => {
+    renderConfig("技术实现", cfg("技术实现"));
+    fireEvent.change(screen.getByTestId("cfg-name-input"), { target: { value: "" } });
+    const saveBtn = screen.getByTestId("cfg-save");
+    expect((saveBtn as HTMLButtonElement).disabled).toBe(true);
   });
 
   test("点保存触发 onClose", () => {

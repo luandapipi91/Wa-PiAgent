@@ -1,6 +1,8 @@
 import type { SessionMessage, ToolResultMessage, ToolCall, PromptEvent, AgentName, ThinkingLevel } from "@hiagent/shared";
+import { isModelAvailable } from "@hiagent/shared";
 import { useSessionStore } from "../store/session";
 import { useProjectsStore } from "../store/projects";
+import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { send } from "../ws-instance";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -41,11 +43,14 @@ export function MessageList({ sessionId }: Props) {
     }
   }
   const handleResend = useCallback((text: string, index: number) => {
+    // 过期模型（provider 已删、prefs 残留）直接放弃重发：不裁剪、不发送，
+    // 否则消息被裁掉后后端才报模型解析失败，用户丢了原消息。
+    const prefs = useComposerPrefsStore.getState().bySession[sessionId];
+    if (!isModelAvailable(prefs?.model, useProvidersStore.getState().providers)) return;
     // 原地重试：先裁掉该用户消息及之后所有行（失败的 assistant/错误），
     // 再乐观重建用户消息 + loading（与首次发送一致，不等 SDK 回声），最后发 prompt。
     // SDK 的 message_start(user) 回声会替换乐观占位（同步 timestamp），避免叠加。
     useSessionStore.getState().truncate(sessionId, index);
-    const prefs = useComposerPrefsStore.getState().bySession[sessionId];
     const payload = buildResendPrompt({
       session, sessionId, text,
       model: prefs?.model,

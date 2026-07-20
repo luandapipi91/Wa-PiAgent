@@ -145,7 +145,7 @@ test("ensureStarted 使用 agent 显式配置的 tools", async () => {
 
   const configStore = {
     getAgent: mock(async () => ({
-      name: "dev",
+      displayName: "dev",
       tools: ["read"],
     })),
   } as any;
@@ -1074,8 +1074,8 @@ test("ensureStarted 在 askTo 非空时注册 delegate 工具并注入关系网�
   const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
 
   const configs: Record<string, any> = {
-    dev: { name: "dev", partners: { askTo: ["代码审查"], askFrom: [] }, triggerKeywords: [] },
-    代码审查: { name: "代码审查", description: "评审改动", partners: { askTo: [], askFrom: ["dev"] }, triggerKeywords: ["review", "评审"] },
+    dev: { displayName: "dev", partners: { askTo: ["代码审查"], askFrom: [] }, triggerKeywords: [] },
+    代码审查: { displayName: "代码审查", description: "评审改动", partners: { askTo: [], askFrom: ["dev"] }, triggerKeywords: ["review", "评审"] },
   };
   const configStore = { getAgent: mock(async (n: string) => configs[n] ?? null) } as any;
 
@@ -1103,7 +1103,7 @@ test("ensureStarted 在 askTo 为空时不注册 delegate 工具、不注入关�
   const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
 
   const configStore = {
-    getAgent: mock(async () => ({ name: "dev", partners: { askTo: [], askFrom: [] }, triggerKeywords: [] })),
+    getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [], askFrom: [] }, triggerKeywords: [] })),
   } as any;
 
   const captured: any[] = [];
@@ -1247,7 +1247,7 @@ test("switchAgent: 换体重建，sessionId 不变且 config 取新 agent", asyn
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
 
-  const getAgent = mock(async (n: string) => ({ name: n, partners: { askTo: [], askFrom: [] }, triggerKeywords: [] }));
+  const getAgent = mock(async (n: string) => ({ displayName: n, partners: { askTo: [], askFrom: [] }, triggerKeywords: [] }));
   const configStore = { getAgent } as any;
 
   const created: AgentSession[] = [];

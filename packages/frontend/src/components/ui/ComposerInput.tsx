@@ -1,7 +1,9 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from "react";
 import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
+import { isModelAvailable } from "@hiagent/shared";
 import { uploadFile, copyToUploads, searchFilesStream } from "../../fs-client";
 import { useProjectsStore } from "../../store/projects";
+import { useProvidersStore } from "../../store/providers";
 import { useSkillsStore } from "../../store/skills";
 import { useAgentsStore } from "../../store/agents";
 import { ModelSelector } from "./ModelSelector";
@@ -114,7 +116,7 @@ export function ComposerInput({
       trigger!.query,
     );
     return filtered.map(({ agent }) => ({
-      id: agent.name,
+      id: agent.displayName,
       name: agent.displayName,
       description: agent.description,
       avatar: agent.avatar,
@@ -218,7 +220,10 @@ export function ComposerInput({
     setAttachments(prev => prev.filter((_, i) => i !== idx));
   };
 
-  const canSend = !sendDisabled && !disabled && !!text.trim() && model !== null;
+  // model 必须真实存在于当前 providers 中：prefs 里可能残留已删除 provider 的过期 model，
+  // 仅判"非 null"会让"未配置模型"状态下消息照样发出（后端才报错）。
+  const providers = useProvidersStore(s => s.providers);
+  const canSend = !sendDisabled && !disabled && !!text.trim() && isModelAvailable(model, providers);
 
   // 选中项处理：生成 chip token 插入 text，替换末尾的触发符 + 查询文本
   const handleSelect = useCallback((item: MenuItem) => {

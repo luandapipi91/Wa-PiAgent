@@ -113,28 +113,28 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
 
       <div className="grid grid-cols-3 gap-3 px-5 py-4">
         {agents.map(agent => {
-          const def = agentDefOf(agent.name);
-          const status = statusOf(agent.name);
+          const def = agentDefOf(agent.displayName);
+          const status = statusOf(agent.displayName);
           // 头像优先 config 的 avatar/avatarColor（"hex-hex" 渐变），缺省回退内置 agentDefOf
           const [c1, c2] = agent.avatarColor?.includes("-") ? agent.avatarColor.split("-") : def.gradient;
           return (
             <div
-              key={agent.name}
-              onClick={() => onChatWith(agent.name)}
-              onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, name: agent.name }); }}
-              className={`relative rounded-md border px-3.5 py-4 cursor-pointer transition-colors hover:border-hairline-strong ${ctxMenu?.name === agent.name ? "border-accent" : "border-hairline"}`}
-              data-testid={`gallery-card-${agent.name}`}
+              key={agent.displayName}
+              onClick={() => onChatWith(agent.displayName)}
+              onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, name: agent.displayName }); }}
+              className={`relative rounded-md border px-3.5 py-4 cursor-pointer transition-colors hover:border-hairline-strong ${ctxMenu?.name === agent.displayName ? "border-accent" : "border-hairline"}`}
+              data-testid={`gallery-card-${agent.displayName}`}
             >
               <span
                 className="absolute top-3 right-3 w-[7px] h-[7px] rounded-full"
                 style={{ background: STATUS_COLORS[status] }}
-                data-testid={`gallery-status-${agent.name}`}
+                data-testid={`gallery-status-${agent.displayName}`}
               />
               <div
                 className="w-10 h-10 rounded-lg flex items-center justify-center text-xl mb-2.5"
                 style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
               >{agent.avatar || def.emoji}</div>
-              <div className="text-[13px] font-semibold text-primary mb-1 truncate">{agent.displayName || def.label}</div>
+              <div className="text-[13px] font-semibold text-primary mb-1 truncate">{agent.displayName}</div>
               <div className="text-[11px] text-tertiary leading-[1.5] line-clamp-2">{agent.description}</div>
             </div>
           );
@@ -176,7 +176,7 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
         <div data-testid="gallery-delete-confirm">
           <ConfirmDialog
             title="删除智能体"
-            message={`确定删除智能体「${agents.find(a => a.name === deleteFor)?.displayName ?? deleteFor}」吗？此操作不可撤销。`}
+            message={`确定删除智能体「${agents.find(a => a.displayName === deleteFor)?.displayName ?? deleteFor}」吗？此操作不可撤销。`}
             confirmText="删除"
             danger
             onConfirm={() => {

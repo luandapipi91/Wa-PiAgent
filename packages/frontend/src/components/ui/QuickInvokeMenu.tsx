@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { SkillSource } from "@hiagent/shared";
+import { AgentMenuItem } from "./AgentMenuItem";
 
 export interface MenuItem {
   id: string;
@@ -34,11 +35,11 @@ function sourceLabel(source?: SkillSource): string | null {
 }
 
 export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHover, emptyText }: Props) {
-  const highlightedRef = useRef<HTMLLIElement>(null);
+  const highlightedElRef = useRef<HTMLElement | null>(null);
 
   // 键盘上下导航时，让高亮项自动滚动到可视区域内
   useEffect(() => {
-    highlightedRef.current?.scrollIntoView?.({ block: "nearest" });
+    highlightedElRef.current?.scrollIntoView?.({ block: "nearest" });
   }, [highlightedIndex]);
 
   return (
@@ -50,12 +51,30 @@ export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHov
         <div className="px-4 py-3 text-sm text-tertiary text-center">
           {emptyText ?? "无匹配结果"}
         </div>
+      ) : type === "agent" ? (
+        // @ 智能体：复用 AgentMenuItem，与 AgentDropdown 视觉完全一致
+        <div className="flex flex-col gap-0.5">
+          {items.map((item, i) => (
+            <AgentMenuItem
+              key={item.id}
+              name={item.name}
+              description={item.description}
+              avatar={item.avatar}
+              avatarColor={item.avatarColor}
+              highlighted={i === highlightedIndex}
+              onClick={() => onSelect(item)}
+              onMouseEnter={() => onHover(i)}
+              innerRef={i === highlightedIndex ? (el) => { highlightedElRef.current = el; } : undefined}
+              testId={`quick-invoke-item-${i}`}
+            />
+          ))}
+        </div>
       ) : (
         <ul className="flex flex-col gap-0.5">
           {items.map((item, i) => (
             <li
               key={item.id}
-              ref={i === highlightedIndex ? highlightedRef : undefined}
+              ref={i === highlightedIndex ? highlightedElRef as any : undefined}
               data-testid={`quick-invoke-item-${i}`}
               className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer text-sm transition-colors ${
                 i === highlightedIndex ? "bg-accent-soft" : "hover:bg-surface-hover"
@@ -70,21 +89,6 @@ export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHov
                     <span className="text-primary truncate">{item.name}</span>
                     {item.path && (
                       <span className="text-xs text-tertiary truncate">{item.path}</span>
-                    )}
-                  </div>
-                </>
-              ) : type === "agent" ? (
-                <>
-                  <span
-                    className="w-7 h-7 rounded-md flex items-center justify-center text-sm flex-shrink-0"
-                    style={{ background: item.avatarColor?.includes("-")
-                      ? `linear-gradient(135deg, ${item.avatarColor.split("-").map(s => s.trim()).join(", ")})`
-                      : item.avatarColor || undefined }}
-                  >{item.avatar ?? "🤖"}</span>
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <span className="text-primary truncate">{item.name}</span>
-                    {item.description && (
-                      <span className="text-xs text-tertiary truncate">{item.description}</span>
                     )}
                   </div>
                 </>
@@ -111,3 +115,4 @@ export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHov
     </div>
   );
 }
+

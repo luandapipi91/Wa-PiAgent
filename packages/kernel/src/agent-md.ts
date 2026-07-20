@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentName, Partners } from "@hiagent/shared";
+import type { AgentConfig, Partners } from "@hiagent/shared";
 import { agentDefOf } from "@hiagent/shared";
 
 // 轻量 YAML 解析（仅支持 agent.md 用到的子集：标量、列表、嵌套对象）
@@ -68,7 +68,6 @@ export function parseAgentMd(md: string): AgentConfig {
   const y = parseYaml(yamlText);
   const partners = (y.partners as Partners) ?? { askTo: [], askFrom: [] };
   return {
-    name: y.name as AgentName,
     displayName: y.displayName as string,
     avatar: y.avatar as string,
     avatarColor: y.avatarColor as string,
@@ -91,7 +90,6 @@ export function parseAgentMd(md: string): AgentConfig {
 
 export function stringifyAgentMd(c: AgentConfig): string {
   const fm: string[] = ["---"];
-  fm.push(`name: ${c.name}`);
   fm.push(`displayName: ${c.displayName}`);
   fm.push(`avatar: "${c.avatar}"`);
   fm.push(`avatarColor: "${c.avatarColor}"`);
@@ -117,20 +115,18 @@ const ILLEGAL_NAME_CHARS = /[/\\:*?"<>|]/;
 
 export function validateAgentConfig(c: AgentConfig): string[] {
   const errs: string[] = [];
-  if (!c.name || !c.name.trim()) errs.push("name 不能为空");
-  else if (ILLEGAL_NAME_CHARS.test(c.name)) errs.push(`非法 name: ${c.name}（含 / \\ : * ? " < > | 字符）`);
-  if (!c.displayName) errs.push("displayName 不能为空");
+  if (!c.displayName || !c.displayName.trim()) errs.push("displayName 不能为空");
+  else if (ILLEGAL_NAME_CHARS.test(c.displayName)) errs.push(`非法 displayName: ${c.displayName}（含 / \\ : * ? " < > | 字符）`);
   if (!["disabled", "medium", "high", "max", null].includes(c.thinking)) errs.push(`非法 thinking: ${c.thinking}`);
   if (!["replace", "append"].includes(c.systemPromptMode)) errs.push(`非法 systemPromptMode: ${c.systemPromptMode}`);
   return errs;
 }
 
 /** 当 agent.md 不存在时，生成一份默认 AgentConfig */
-export function makeDefaultAgentConfig(name: string): AgentConfig {
-  const def = agentDefOf(name);
+export function makeDefaultAgentConfig(displayName: string): AgentConfig {
+  const def = agentDefOf(displayName);
   return {
-    name,
-    displayName: def.label,
+    displayName,
     avatar: def.emoji,
     avatarColor: `${def.gradient[0]}-${def.gradient[1]}`,
     description: "",

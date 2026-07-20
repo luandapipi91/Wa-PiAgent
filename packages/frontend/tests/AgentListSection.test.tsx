@@ -7,7 +7,7 @@ import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
 
 const agent = (name: string): AgentConfig => ({
-  name, displayName: name, avatar: "🤖", avatarColor: "#000-#111", description: "",
+  displayName: name, avatar: "🤖", avatarColor: "#000-#111", description: "",
   model: "m", thinking: "medium", systemPromptMode: "replace",
   inheritProjectContext: true, inheritSkills: true,
   tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [],
@@ -93,11 +93,11 @@ describe("AgentListSection", () => {
 
   test("头像与名称优先取 config 的 avatar/displayName", () => {
     useAgentsStore.setState({
-      list: [{ ...agent("a"), displayName: "需求设计", avatar: "📋" }],
+      list: [{ ...agent("需求设计"), avatar: "📋" }],
       deleteAgent: realDeleteAgent,
     });
     render(<AgentListSection onChatWith={noop} onEdit={noop} onMore={noop} />);
-    const row = screen.getByTestId("agent-a");
+    const row = screen.getByTestId("agent-需求设计");
     expect(row.textContent).toContain("需求设计");
     expect(row.textContent).toContain("📋");
   });

@@ -62,7 +62,7 @@ test("编排画布显示 4 节点", async ({ page }) => {
 // Task 38: Agent 配置 modal 打开 + tab 切换
 test("Agent 配置 modal 打开并切换 tab", async ({ page }) => {
   await enterSession(page, "配置测试会话");
-  await page.getByTestId("agent-dev").click();
+  await page.getByTestId("agent-技术实现").click();
   await expect(page.getByTestId("agent-config")).toBeVisible();
   await page.getByText("系统提示词").click();
   await expect(page.locator("textarea").first()).toBeVisible({ timeout: 5000 });

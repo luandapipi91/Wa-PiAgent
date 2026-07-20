@@ -7,7 +7,7 @@ import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
 
 const agent = (name: string, description = "简介"): AgentConfig => ({
-  name, displayName: name, avatar: "🤖", avatarColor: "#000-#111", description,
+  displayName: name, avatar: "🤖", avatarColor: "#000-#111", description,
   model: "m", thinking: "medium", systemPromptMode: "replace",
   inheritProjectContext: true, inheritSkills: true,
   tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [],

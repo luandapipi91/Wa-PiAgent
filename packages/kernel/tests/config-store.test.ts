@@ -11,18 +11,18 @@ function tempAgentsDir() {
 
 test("listAgents 读全部 .md", async () => {
   const dir = tempAgentsDir();
-  writeFileSync(join(dir, "dev.md"), `---\nname: dev\ndisplayName: 研发\navatar: "⚙️"\navatarColor: "x"\ndescription: d\nmodel: m\nthinking: high\nsystemPromptMode: replace\ninheritProjectContext: true\ninheritSkills: false\ntools: read\nskills: []\nmcpServers: []\npartners:\n  askTo: []\n  askFrom: []\n---\nbody`);
+  writeFileSync(join(dir, "研发.md"), `---\ndisplayName: 研发\navatar: "⚙️"\navatarColor: "x"\ndescription: d\nmodel: m\nthinking: high\nsystemPromptMode: replace\ninheritProjectContext: true\ninheritSkills: false\ntools: read\nskills: []\nmcpServers: []\npartners:\n  askTo: []\n  askFrom: []\n---\nbody`);
   const store = new ConfigStore(dir);
   const agents = await store.listAgents();
   expect(agents).toHaveLength(1);
-  expect(agents[0].name).toBe("dev");
+  expect(agents[0].displayName).toBe("研发");
   rmSync(dir, { recursive: true, force: true });
 });
 
 test("getAgent 返回 null 当不存在", async () => {
   const dir = tempAgentsDir();
   const store = new ConfigStore(dir);
-  expect(await store.getAgent("dev")).toBeNull();
+  expect(await store.getAgent("研发")).toBeNull();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -30,7 +30,7 @@ test("saveAgent 持久化并可读回", async () => {
   const dir = tempAgentsDir();
   const store = new ConfigStore(dir);
   const errs = await store.saveAgent({
-    name: "dev", displayName: "研发", avatar: "⚙️", avatarColor: "a-b",
+    displayName: "研发", avatar: "⚙️", avatarColor: "a-b",
     description: "d", model: "m", thinking: "high", systemPromptMode: "replace",
     inheritProjectContext: true, inheritSkills: false, tools: ["read"],
     skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] },
@@ -38,7 +38,7 @@ test("saveAgent 持久化并可读回", async () => {
     systemPromptBody: "正文",
   });
   expect(errs).toEqual([]);
-  const back = await store.getAgent("dev");
+  const back = await store.getAgent("研发");
   expect(back?.displayName).toBe("研发");
   rmSync(dir, { recursive: true, force: true });
 });
@@ -47,11 +47,11 @@ test("saveAgent 拒绝非法配置不写盘", async () => {
   const dir = tempAgentsDir();
   const store = new ConfigStore(dir);
   const errs = await store.saveAgent({
-    ...(await store.getAgent("dev") || {} as never),
-    name: "hacker", displayName: "", model: "", thinking: "high" as never,
+    displayName: "", model: "", thinking: "high" as never,
     systemPromptMode: "replace", avatar: "", avatarColor: "", description: "",
     inheritProjectContext: true, inheritSkills: false, tools: [], skills: [],
     mcpServers: [], partners: { askTo: [], askFrom: [] },
+    triggerKeywords: [],
   } as never);
   expect(errs.length).toBeGreaterThan(0);
   rmSync(dir, { recursive: true, force: true });
@@ -61,13 +61,12 @@ test("createAgent: 生成默认配置；重名自动加 -2 后缀；非法名抛
   const dir = tempAgentsDir();
   const cs = new ConfigStore(dir);
   const a = await cs.createAgent("代码审查");
-  expect(a.name).toBe("代码审查");
   expect(a.displayName).toBe("代码审查");
   const b = await cs.createAgent("代码审查");
-  expect(b.name).toBe("代码审查-2");
+  expect(b.displayName).toBe("代码审查-2");
   const c = await cs.createAgent("代码审查");
-  expect(c.name).toBe("代码审查-3");
-  await expect(cs.createAgent("a/b")).rejects.toThrow("非法 name");
+  expect(c.displayName).toBe("代码审查-3");
+  await expect(cs.createAgent("a/b")).rejects.toThrow("非法 displayName");
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -87,12 +86,12 @@ test("renameAgent: 删旧写新；新名冲突返回错误", async () => {
   await cs.createAgent("旧名");
   await cs.createAgent("已存在");
   const old = (await cs.getAgent("旧名"))!;
-  const errs1 = await cs.renameAgent("旧名", { ...old, name: "已存在" });
+  const errs1 = await cs.renameAgent("旧名", { ...old, displayName: "已存在" });
   expect(errs1.length).toBeGreaterThan(0);
-  const errs2 = await cs.renameAgent("旧名", { ...old, name: "新名" });
+  const errs2 = await cs.renameAgent("旧名", { ...old, displayName: "新名" });
   expect(errs2).toEqual([]);
   expect(await cs.getAgent("旧名")).toBeNull();
-  expect((await cs.getAgent("新名"))!.displayName).toBe("旧名");
+  expect((await cs.getAgent("新名"))!.displayName).toBe("新名");
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -100,8 +99,8 @@ test("seedDefaults: 空目录写入 4 个默认 agent；非空目录不写", asy
   const dir = tempAgentsDir();
   const cs = new ConfigStore(dir);
   await cs.seedDefaults();
-  const names = (await cs.listAgents()).map(a => a.name).sort();
-  expect(names).toEqual(["dev", "pm", "product", "test"]);
+  const names = (await cs.listAgents()).map(a => a.displayName).sort();
+  expect(names).toEqual(["技术实现", "质量验收", "需求设计", "项目管理"]);
   await cs.seedDefaults();  // 幂等
   expect((await cs.listAgents()).length).toBe(4);
   rmSync(dir, { recursive: true, force: true });

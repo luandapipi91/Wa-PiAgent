@@ -103,7 +103,7 @@ test.describe.serial("多智能体矩阵关键链路", () => {
 
   test("1 侧边栏默认 ≤3 个智能体，第 4 个出现后有「更多智能体」入口", async ({ page }) => {
     // 初始仅 dev（global-setup 预置），无更多入口
-    await expect(page.getByTestId("agent-dev")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("agent-技术实现")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("agent-more")).toHaveCount(0);
 
     // 经 WS 补足到 4 个（UI 新建入口此时不可达，见文件头说明）；广播 agent:list 驱动侧栏刷新
@@ -193,7 +193,7 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     await expect(page.getByTestId(`agent-${A1}`)).toBeVisible({ timeout: 10_000 });
     await page.getByTestId(`agent-${A1}`).click();
     await expect(page.getByTestId("new-session-pane")).toBeVisible();
-    await expect(page.getByTestId("agent-select")).toHaveValue(A1);
+    await expect(page.getByTestId("agent-select")).toContainText(A1);
 
     await page.getByTestId("project-select").selectOption(projectId);
     // 必须先选模型，否则发送前置条件拦截
@@ -248,7 +248,7 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     await expect(menu).toContainText(A3);
     await page.keyboard.press("Enter");
     await expect(page.locator('[data-testid="composer-input"] .chip-agent').first()).toBeVisible({ timeout: 3_000 });
-    await expect(page.getByTestId("agent-select")).toHaveValue(A3);
+    await expect(page.getByTestId("agent-select")).toContainText(A3);
 
     // 清空输入框（contenteditable 半受控：清 DOM + 发 input 事件同步 React state）
     await textbox.evaluate(el => {

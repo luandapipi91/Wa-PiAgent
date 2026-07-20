@@ -38,8 +38,7 @@ export interface Partners {
 }
 
 export interface AgentConfig {
-  name: AgentName;
-  displayName: string;
+  displayName: string;        // 唯一标识符 + 展示名（文件名/会话外键/partners 引用均用此字段）
   avatar: string;
   avatarColor: string;        // "hex-hex" 渐变
   description: string;
