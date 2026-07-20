@@ -7,6 +7,7 @@ import { useProjectsStore } from "../src/store/projects";
 import { useProvidersStore } from "../src/store/providers";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useToastStore } from "../src/store/toast";
+import { registerAgentMeta, ensureChipStyles } from "../src/quick-invoke/tokens";
 
 beforeEach(() => {
   useSessionStore.setState({ messagesBySession: {} });
@@ -690,4 +691,164 @@ test("用户消息中的多个 <skill> 块都被格式化", () => {
   expect(text).toContain("pdf-tools");
   expect(text).not.toContain("内容A");
   expect(text).not.toContain("内容B");
+});
+
+// ── Pi SDK custom 消息渲染（修复委托后刷新出现空气泡 bug）──
+// 真实数据来自 ~/.hiagent/sessions/*.jsonl 经 Pi SDK 加载后的 sdkSession.messages：
+//   {role:"custom", customType:"subagent-notification", content:"<task-notification>...", display:true, ...}
+// 之前的渲染逻辑用 m.type 判断 custom，但 SDK 内存消息字段是 m.role，导致掉到 assistant 分支
+// 渲染出空气泡（content 是字符串、Array.isArray 返回 false → blocks=[]）。
+
+test("Pi SDK custom 消息（role=custom + subagent-notification）→ 不渲染（与 DelegateCard 信息重复）", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        {
+          agentName: "技术实现",
+          message: {
+            role: "custom",
+            customType: "subagent-notification",
+            content: "<task-notification>\n<task-id>78916613</task-id>\n<status>Done</status>\n<summary>子智能体完成</summary>\n</task-notification>",
+            display: true,
+            details: { id: "78916613" },
+            timestamp: 1,
+          } as any,
+        },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  // 不应渲染任何 msg 行（不应出现空气泡）
+  expect(screen.queryAllByText(/技术实现/)).toHaveLength(0);
+  // 不应泄露 task-notification XML 文本
+  expect(screen.queryByText(/task-notification/)).toBeNull();
+  expect(screen.queryByText(/78916613/)).toBeNull();
+});
+
+test("前端构造的 custom 消息（type=custom + agent_switch）→ 仍渲染为居中分隔行（兼容不破坏）", () => {
+  // AgentSwitcher.tsx 用 type:"custom" 构造占位消息，必须保持兼容
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        {
+          agentName: undefined,
+          message: {
+            type: "custom",
+            customType: "agent_switch",
+            content: "已切换为 质量验收",
+            timestamp: 1,
+          } as any,
+        },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.getByTestId("custom-s1-1")).toBeTruthy();
+  expect(screen.getByText(/已切换为 质量验收/)).toBeTruthy();
+});
+
+test("Pi SDK custom 消息 content 是字符串 → 不应掉到 assistant 分支渲染空气泡", () => {
+  // 关键回归防护：content 字符串不应被 Array.isArray 判定为 [] 后渲染空 assistant 行
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        {
+          agentName: "技术实现",
+          message: {
+            role: "custom",
+            customType: "subagent-notification",
+            content: "任何字符串内容都不应渲染成空气泡",
+            display: true,
+            timestamp: 1,
+          } as any,
+        },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  // 不应出现 assistant 风格的气泡（左对齐 🤖 + agent 名 + 空白）
+  expect(screen.queryAllByText(/技术实现/)).toHaveLength(0);
+  // 不应出现 msg testid（assistant 气泡才有）
+  expect(screen.queryByTestId("msg-s1-1")).toBeNull();
+});
+
+// ── 历史用户消息中 @[智能体] 渲染为 chip（与技能 chip 一致的特殊样式）──
+// 现状：用户消息走纯文本 <p>{displayText}</p>，@[项目管理] 显示为字面文本，
+//   不像技能（/skill:xxx 经 SDK 展开成 <skill> XML 后由 formatSkillBlocks 渲染为 ⚡ 名）那样有特殊样式。
+// 期望：把用户消息文本经 textToHtml 处理，@[xxx] 渲染为 .chip-agent span（与 ComposerTextarea 一致）。
+
+test("历史用户消息中 @[智能体名称] 渲染为 chip 样式（非字面文本）", () => {
+  // 注册智能体头像信息（与 MessageList useEffect 中一致）
+  ensureChipStyles();
+  registerAgentMeta("项目管理", { avatar: "📋", avatarColor: "#5B5BD6" });
+
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "@[项目管理] hi", timestamp: 1 } },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+
+  // 应该有 chip-agent 元素
+  const chip = document.querySelector(".chip-agent");
+  expect(chip).toBeTruthy();
+  // chip 显示文本只含名称（不含 @ 触发符）
+  expect(chip?.textContent).toContain("项目管理");
+  expect(chip?.textContent).not.toContain("@项目管理");
+  // chip 应保留 data-token 属性（原始 token）
+  expect(chip?.getAttribute("data-token")).toBe("@[项目管理]");
+  // chip 应包含注册的头像
+  expect(chip?.querySelector(".chip-agent-avatar")?.textContent).toBe("📋");
+});
+
+test("历史用户消息中非 token 文本仍正常显示（chip 与正文共存）", () => {
+  registerAgentMeta("项目管理", { avatar: "📋" });
+
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "@[项目管理] 帮我排期", timestamp: 1 } },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+
+  // chip 部分
+  expect(document.querySelector(".chip-agent")).toBeTruthy();
+  // 正文部分
+  const bubble = screen.getByTestId("msg-s1-1");
+  expect(bubble.textContent).toContain("帮我排期");
+});
+
+// ── 组件挂载时自动注册 agentsStore 中的智能体 meta ──
+// 现状：registerAgentMeta 只能由测试手动调用；生产环境用户消息中的 @[xxx] chip
+//   找不到头像信息，chip 仍然渲染但不带头像（视觉缺失）。
+// 期望：MessageList 挂载时把 useAgentsStore.list 的所有智能体注册到 registerAgentMeta。
+
+test("组件挂载时自动注册 agentsStore 中的智能体 meta（chip 渲染能查到头像）", async () => {
+  // 准备：agentsStore 放入两个智能体配置
+  const { useAgentsStore } = await import("../src/store/agents");
+  useAgentsStore.setState({
+    list: [
+      { name: "项目管理", displayName: "项目管理", avatar: "📋", avatarColor: "#5B5BD6" } as any,
+      { name: "质量验收", displayName: "质量验收", avatar: "🛡️", avatarColor: "#DC2626" } as any,
+    ],
+  });
+
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "@[项目管理] hi", timestamp: 1 } },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+
+  // 组件挂载后 useEffect 应自动注册 → chip 应包含头像 📋（waitFor 等 effect 执行）
+  await waitFor(() => {
+    const avatar = document.querySelector(".chip-agent .chip-agent-avatar");
+    expect(avatar?.textContent).toBe("📋");
+  });
 });

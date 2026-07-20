@@ -14,6 +14,7 @@ import { RecordButton } from "./RecordButton";
 import { ComposerTextarea } from "./ComposerTextarea";
 import { QuickInvokeMenu, type MenuItem } from "./QuickInvokeMenu";
 import { detectTrigger, filterItems, type TriggerResult } from "../../quick-invoke/trigger";
+import { registerAgentMeta } from "../../quick-invoke/tokens";
 
 interface Props {
   text: string;
@@ -247,6 +248,9 @@ export function ComposerInput({
       : triggerType === "file"
         ? `#[${item.path ?? item.name}]`
         : `$[${item.name}]`;
+    if (triggerType === "agent") {
+      registerAgentMeta(item.id, { avatar: item.avatar, avatarColor: item.avatarColor });
+    }
     const triggerSymbol = triggerType === "agent" ? "@" : triggerType === "file" ? "#" : "$";
     const query = trigger?.query ?? "";
     // 从 text 末尾去掉触发符 + 查询文本，替换为 chip token + 空格

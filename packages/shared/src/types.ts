@@ -108,12 +108,16 @@ export interface ToolResultMessage {
   timestamp: number;
 }
 
-// Pi custom 消息（intercom 等扩展注入）
-// ⚠️ 关键：Pi 真实数据里这类消息的区分字段是顶层 type，不是 role
-// （真实样本：{"type":"custom_message",...} / {"type":"custom",...}）
+// Pi custom 消息（intercom / pi-subagents 等扩展注入）
+// ⚠️ 字段来源有两种，渲染层必须同时兼容：
+//   1. Pi SDK 内存消息（来自 sdkSession.messages）：role:"custom"，无顶层 type。
+//      真实样本（pi-subagents 完成通知）：{role:"custom", customType:"subagent-notification", content:"<task-notification>...", display:true, ...}
+//   2. 前端构造的占位消息（如 AgentSwitcher 的 agent_switch 分隔行）：顶层 type:"custom"，无 role。
+//   3. session 文件 JSONL 持久化格式：顶层 type:"custom_message"（SDK 加载时自动转为 role:"custom" 内存消息）。
 export interface CustomMessage {
-  type: "custom_message" | "custom";   // ← Pi 顶层 type，不是 role
-  customType: string;                   // "intercom_message" / "intercom_sent" / ...
+  type?: "custom_message" | "custom";   // 前端构造时用；SDK 内存消息无此字段
+  role?: "custom";                       // SDK 内存消息用；前端构造时无此字段
+  customType: string;                    // "subagent-notification" / "agent_switch" / "intercom_message" / ...
   display?: boolean;
   content?: string;
   details?: unknown;

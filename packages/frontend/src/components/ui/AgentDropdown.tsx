@@ -62,7 +62,7 @@ export function AgentDropdown({
         type="button"
         data-testid={pillTestId}
         onClick={() => { setOpen(o => !o); setQuery(""); }}
-        className={`flex items-center gap-1.5 rounded-pill border px-2.5 py-1 text-[12px] cursor-pointer transition-colors ${
+        className={`min-w-0 flex items-center gap-1.5 rounded-pill border px-2.5 py-1 text-[12px] cursor-pointer transition-colors ${
           showMissing
             ? "bg-warning-soft text-warning border-warning-soft"
             : "bg-surface-elevated text-secondary border-hairline hover:text-primary"
@@ -78,7 +78,7 @@ export function AgentDropdown({
                 ? `linear-gradient(135deg, ${current.avatarColor.split("-").map(s => s.trim()).join(", ")})`
                 : current.avatarColor || undefined }}
             >{current.avatar}</span>
-            <span>{current.displayName}</span>
+            <span className="max-w-[180px] truncate">{current.displayName}</span>
             <span style={{ fontSize: 10 }}>▾</span>
           </>
         ) : (

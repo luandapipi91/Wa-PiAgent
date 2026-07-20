@@ -74,10 +74,20 @@ test("textToHtml 渲染技能 chip 为 span", () => {
   expect(html).toContain("chip-skill");
 });
 
-test("textToHtml 渲染 agent chip 为 span（chip-agent 蓝色）", () => {
+test("textToHtml 渲染 agent chip 为 span（chip-agent 蓝色，含 @ 触发符）", () => {
   const html = textToHtml("@[代码审查]");
   expect(html).toContain("data-token=\"@[代码审查]\"");
   expect(html).toContain("@代码审查");
+  expect(html).toContain("chip-agent");
+});
+
+test("textToHtml 传 { hideTrigger: true } 时 agent chip 不含 @ 前缀（仅展示名，用于历史消息渲染）", () => {
+  const html = textToHtml("@[代码审查]", { hideTrigger: true });
+  // data-token 保留完整 token（重建文本用）
+  expect(html).toContain("data-token=\"@[代码审查]\"");
+  // 显示文本不含 @（与 ComposerTextarea 输入框区分：输入保留 @ 让用户看到触发符，展示去 @ 更干净）
+  expect(html).toContain(">代码审查<");
+  expect(html).not.toContain("@代码审查");
   expect(html).toContain("chip-agent");
 });
 

@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback } from "react";
-import { textToHtml } from "../../quick-invoke/tokens";
+import { textToHtml, ensureChipStyles } from "../../quick-invoke/tokens";
 
 interface Props {
   text: string;
@@ -30,48 +30,6 @@ function extractText(el: HTMLElement): string {
     }
   }
   return result;
-}
-
-// chip 内联样式（避免依赖外部 CSS 文件，确保 chip 颜色一致）
-let chipStyleInjected = false;
-function ensureChipStyles() {
-  if (chipStyleInjected || typeof document === "undefined") return;
-  chipStyleInjected = true;
-  const style = document.createElement("style");
-  style.textContent = `
-    .chip {
-      display: inline-flex;
-      align-items: center;
-      padding: 1px 6px;
-      border-radius: 6px;
-      font-size: 0.85em;
-      font-weight: 500;
-      margin: 0 1px;
-      vertical-align: baseline;
-      user-select: all;
-    }
-    .chip-agent {
-      background-color: #3B82F620;
-      color: #3B82F6;
-      border: 1px solid #3B82F640;
-    }
-    .chip-file {
-      background-color: #22C55E20;
-      color: #16A34A;
-      border: 1px solid #22C55E40;
-    }
-    .chip-skill {
-      background-color: #5B5BD620;
-      color: #5B5BD6;
-      border: 1px solid #5B5BD640;
-    }
-    [contenteditable][data-placeholder]:empty::before {
-      content: attr(data-placeholder);
-      color: var(--text-tertiary, #A1A1A6);
-      pointer-events: none;
-    }
-  `;
-  document.head.appendChild(style);
 }
 
 /**
