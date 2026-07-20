@@ -105,3 +105,52 @@ test("validateAgentConfig 允许 thinking: null 与空 model", () => {
   expect(validateAgentConfig({ ...base, thinking: "high", model: "glm-4.6" })).toEqual([]);
   expect(validateAgentConfig({ ...base, thinking: "bogus" as any })[0]).toContain("非法 thinking");
 });
+
+// ─── tools 序列化/解析 TDD（修复 YAML 非法格式 bug）────────────────────────────
+
+test("stringifyAgentMd 非空 tools 用 YAML flow sequence 格式（不产生前导逗号）", () => {
+  const c = { ...base, tools: ["read", "bash", "edit"] };
+  const md = stringifyAgentMd(c);
+  expect(md).toContain("tools: [read, bash, edit]");
+  expect(md).not.toMatch(/tools: ,/);  // 不应有前导逗号（旧 bug）
+});
+
+test("stringifyAgentMd 空 tools 输出 tools: []", () => {
+  const c = { ...base, tools: [] };
+  const md = stringifyAgentMd(c);
+  expect(md).toContain("tools: []");
+});
+
+test("parseAgentMd: tools: [] 空 YAML flow sequence 解析为 []", () => {
+  const md = stringifyAgentMd({ ...base, tools: [] });
+  const c = parseAgentMd(md);
+  expect(c.tools).toEqual([]);
+});
+
+test("parseAgentMd: tools: [read, bash] 解析为数组", () => {
+  const md = stringifyAgentMd({ ...base, tools: ["read", "bash"] });
+  const c = parseAgentMd(md);
+  expect(c.tools).toEqual(["read", "bash"]);
+});
+
+test("parseAgentMd: tools 为空/null 时返回 []（不产生 ['undefined'] ）", () => {
+  // 模拟 YAML 解析 tools:  为空的情况 —— y.tools = null
+  const rawEmpty = `---
+displayName: 测试
+tools:
+---`;
+  const c = parseAgentMd(rawEmpty);
+  expect(c.tools).toEqual([]);
+});
+
+test("tools 序列化往返：非空数组不丢项", () => {
+  const c = { ...base, tools: ["read", "bash", "edit", "grep", "delegate", "fleet"] };
+  const c2 = parseAgentMd(stringifyAgentMd(c));
+  expect(c2.tools).toEqual(["read", "bash", "edit", "grep", "delegate", "fleet"]);
+});
+
+test("tools 序列化往返：空数组不变成 ['']", () => {
+  const c = { ...base, tools: [] };
+  const c2 = parseAgentMd(stringifyAgentMd(c));
+  expect(c2.tools).toEqual([]);
+});
