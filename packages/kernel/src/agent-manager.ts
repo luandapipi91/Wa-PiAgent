@@ -230,7 +230,14 @@ export class AgentManager {
         agentDir: HIAGENT_DIR,
         additionalExtensionPaths: buildAdditionalExtensionPaths([...(await this.getEnabledExtensionIds())]),
       });
-      await loader.reload();
+    await loader.reload();
+    // 诊断：扩展加载后检查 pi-subagents service 是否就绪
+    {
+      const exts = (loader as any).getExtensions ? (loader as any).getExtensions() : {};
+      const names = Object.keys(exts);
+      const subagentKey = names.find((n: string) => n.includes("pi-subagents"));
+      console.log("[kernel] loader.reload() 完成, 扩展数:", names.length, "含 pi-subagents:", !!subagentKey);
+    }
       for (const t of extractRuntimeToolNames(loader)) {
         if (!seen.has(t) && t !== "subagent") { seen.add(t); items.push({ name: t, source: "扩展" }); }
       }
@@ -389,7 +396,12 @@ export class AgentManager {
       cwd: project.cwd,
       agentDir: HIAGENT_DIR,
       // 扩展改用 additionalExtensionPaths 纯内存注入：builtin + 已启用动态扩展
-      additionalExtensionPaths: buildAdditionalExtensionPaths([...enabledExtensionIds]),
+    additionalExtensionPaths: (() => {
+      const paths = buildAdditionalExtensionPaths([...enabledExtensionIds]);
+      const subagentPath = paths.find((p: string) => p.includes("pi-subagents"));
+      console.log("[kernel] additionalExtensionPaths 含 pi-subagents:", !!subagentPath, subagentPath ? subagentPath : "");
+      return paths;
+    })(),
       additionalSkillPaths,
       // 默认 replace 模式：始终提供 customPrompt，绕过 SDK 默认提示词
       // （"operating inside pi" + "Pi documentation" 段，会把底层暴露给 agent）。
