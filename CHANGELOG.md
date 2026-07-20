@@ -6,6 +6,9 @@
 
 ## 2026-07-20
 
+### 重构
+- **Composer 发送路径不剥离 @[xxx] + 删除切换确认框 + 删除 extractAgentToken（Task 1.4）**：`Composer.tsx` `handleSend` 改为直接 `expandTokens(text)` 原样发送（不再调用 `extractAgentToken` 剥离 `@[xxx]`），由 Task 1.2 加的 `HIAGENT_DEFAULT_SYSTEM_PROMPT` 规则触发主智能体 delegate。同步删除 `pendingMention` state、`handleMentionConfirm` 函数、整段确认框 `<Modal data-testid="mention-confirm">` 及 `Modal` import（Composer 内已无其他消费者）。`tokens.ts` 删除 `extractAgentToken` 函数定义（改造后 Composer 无引用），同步更新 line 4/25 注释为「原样保留给主智能体识别」。TDD：Composer.test.tsx 原「@提及其他智能体」测试断言改为「不弹确认框、不发 set-agent、agent:prompt text 原样保留 @[pm]」；删除「取消确认框」「@提及当前智能体」两个不再适用的测试。tokens.test.ts 删除 3 个 `extractAgentToken` 测试 + 移除 import；line 23 测试描述更新。**已知衔接问题**：`NewSessionPane.tsx:9,96` 仍 import+调用 `extractAgentToken`（Task 1.5 范围），导致 frontend 全量 build/test 出现 `SyntaxError: Export named 'extractAgentToken' not found`——Task 1.5 完成后即恢复 green。影响：frontend(src/components/Composer + src/quick-invoke/tokens + tests/Composer.test + tests/tokens.test)。
+
 ### 新增
 - **前端 @ 候选菜单只显示当前主智能体 partners.askTo 名单内（Task 1.3）**：`ComposerInput` 新增 `currentAgentName?: string` prop，`agentItems` 过滤逻辑从「显示 allAgents」收紧为「只显示 currentAgentName 对应 AgentConfig.partners.askTo 名单内、且排除自身」。`Composer.tsx` 传 `currentAgentName={agentName}`，`NewSessionPane.tsx` 传 `currentAgentName={agentName ?? undefined}`（agentName state 可能为 null）。从源头杜绝 @ 越权（用户无法在菜单里选到主智能体未授权 askTo 的智能体）。TDD：新增 `ComposerInput @ 候选菜单过滤` describe（2 用例：askTo 名单过滤 + askTo 为空），同步适配 2 个既有 ComposerInput 测试为新契约。影响：frontend(src/components/ui/ComposerInput + Composer + NewSessionPane + tests/ComposerInput.test)。
 
