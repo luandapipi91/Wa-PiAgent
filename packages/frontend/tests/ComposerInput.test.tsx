@@ -382,13 +382,27 @@ describe("ComposerInput @ 候选菜单过滤", () => {
     expect(screen.queryByText("研发")).toBeNull(); // 排除当前主智能体
   });
 
-  it("主智能体 askTo 为空时，@ 菜单为空", async () => {
+  it("主智能体 askTo 为空时，@ 菜单显示关系网配置提示", async () => {
     render(
       <ComposerInput
         text="@" setText={() => {}} model="gpt-4o" setModel={() => {}}
         thinking="disabled" setThinking={() => {}}
         attachments={[]} setAttachments={() => {}}
         projectId="p1" sessionId="s1" onSend={() => {}} currentAgentName="代码审查"
+      />
+    );
+    await waitFor(() => {
+      expect(screen.getByText("当前智能体无可调起的子智能体，请在智能体配置中设置关系网")).toBeDefined();
+    });
+  });
+
+  it("主智能体 askTo 不为空但查询不匹配时，仍然显示无匹配智能体", async () => {
+    render(
+      <ComposerInput
+        text="@xyz" setText={() => {}} model="gpt-4o" setModel={() => {}}
+        thinking="disabled" setThinking={() => {}}
+        attachments={[]} setAttachments={() => {}}
+        projectId="p1" sessionId="s1" onSend={() => {}} currentAgentName="研发"
       />
     );
     await waitFor(() => {

@@ -110,6 +110,14 @@ export function ComposerInput({
     return () => { cancel(); };
   }, [triggerType, trigger?.query, projectCwd]);
 
+  // @ 候选菜单无内容的根因：askTo 本身为空 vs 查询无匹配（用于 emptyText 提示文案区分）
+  const agentAskToEmpty = useMemo(() => {
+    if (triggerType !== "agent") return false;
+    const primaryConfig = allAgents.find(a => a.displayName === currentAgentName);
+    if (!primaryConfig) return false; // 当前智能体不在列表中，不算 askTo 为空
+    return primaryConfig.partners.askTo.length === 0;
+  }, [triggerType, allAgents, currentAgentName]);
+
   // @ 智能体列表过滤：只显示当前主智能体 partners.askTo 名单内 + 排除自身
   const agentItems: MenuItem[] = useMemo(() => {
     if (triggerType !== "agent") return [];
@@ -295,7 +303,7 @@ export function ComposerInput({
           highlightedIndex={highlightedIndex}
           onSelect={handleSelect}
           onHover={setHighlightedIndex}
-          emptyText={triggerType === "agent" ? "无匹配智能体" : triggerType === "file" ? "无匹配文件" : "无匹配技能"}
+          emptyText={triggerType === "agent" ? (agentAskToEmpty ? "当前智能体无可调起的子智能体，请在智能体配置中设置关系网" : "无匹配智能体") : triggerType === "file" ? "无匹配文件" : "无匹配技能"}
         />
       )}
       <div
