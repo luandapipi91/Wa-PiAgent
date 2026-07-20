@@ -79,7 +79,11 @@ export function parseAgentMd(md: string): AgentConfig {
     systemPromptMode: y.systemPromptMode as AgentConfig["systemPromptMode"],
     inheritProjectContext: Boolean(y.inheritProjectContext),
     inheritSkills: Boolean(y.inheritSkills),
-    tools: Array.isArray(y.tools) ? y.tools as string[] : String(y.tools).split(",").map(s => s.trim()),
+    tools: (() => {
+      if (Array.isArray(y.tools)) return y.tools as string[];
+      if (y.tools == null || String(y.tools).trim() === "") return [];
+      return String(y.tools).split(",").map(s => s.trim());
+    })(),
     skills: Array.isArray(y.skills) ? y.skills as string[] : String(y.skills).split(",").map(s => s.trim()),
     mcpServers: Array.isArray(y.mcpServers) ? y.mcpServers as string[] : [],
     partners,
@@ -100,7 +104,7 @@ export function stringifyAgentMd(c: AgentConfig): string {
   fm.push(`systemPromptMode: ${c.systemPromptMode}`);
   fm.push(`inheritProjectContext: ${c.inheritProjectContext}`);
   fm.push(`inheritSkills: ${c.inheritSkills}`);
-  fm.push(`tools: ${c.tools.join(", ")}`);
+  fm.push(`tools: [${c.tools.join(", ")}]`);
   fm.push(`skills: ${c.skills.join(", ")}`);
   fm.push(`mcpServers: ${c.mcpServers.length ? `[${c.mcpServers.join(", ")}]` : "[]"}`);
   fm.push("partners:");
