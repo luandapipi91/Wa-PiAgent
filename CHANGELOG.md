@@ -6,6 +6,9 @@
 
 ## 2026-07-20
 
+### 新增
+- **askTo 非空时同时注册 fleet 工具 + buildDelegatePrompt 补充 fleet 使用说明（Task 2.3）**：`agent-manager.ts:27` import 加 `makeFleetTool`；`delegateTools` 数组在 askToConfigs 非空时除 `makeDelegateTool` 外再追加 `makeFleetTool`（同样绑定 askToConfigs + spawnViaSubagentsService）。`delegate-tool.ts:buildDelegatePrompt` 末尾追加一行 fleet 使用说明（参数 tasks、并发上限 6、适用场景、task 仍按任务合约范式）。Phase 2（B3 并行委托）收口。TDD：扩展现有两个测试——`agent-manager.test.ts` 的 askTo 非空用例断言 `names` 同时含 delegate 和 fleet、askTo 为空用例断言两者都不注册；`delegate-tool.test.ts` 的 buildDelegatePrompt 用例追加 `toContain("fleet")` 和 `toContain("并行")` 断言。影响：kernel(src/agent-manager + src/delegate-tool + tests/agent-manager + tests/delegate-tool)。
+
 ### 重构
 - **Composer 发送路径不剥离 @[xxx] + 删除切换确认框 + 删除 extractAgentToken（Task 1.4）**：`Composer.tsx` `handleSend` 改为直接 `expandTokens(text)` 原样发送（不再调用 `extractAgentToken` 剥离 `@[xxx]`），由 Task 1.2 加的 `HIAGENT_DEFAULT_SYSTEM_PROMPT` 规则触发主智能体 delegate。同步删除 `pendingMention` state、`handleMentionConfirm` 函数、整段确认框 `<Modal data-testid="mention-confirm">` 及 `Modal` import（Composer 内已无其他消费者）。`tokens.ts` 删除 `extractAgentToken` 函数定义（改造后 Composer 无引用），同步更新 line 4/25 注释为「原样保留给主智能体识别」。TDD：Composer.test.tsx 原「@提及其他智能体」测试断言改为「不弹确认框、不发 set-agent、agent:prompt text 原样保留 @[pm]」；删除「取消确认框」「@提及当前智能体」两个不再适用的测试。tokens.test.ts 删除 3 个 `extractAgentToken` 测试 + 移除 import；line 23 测试描述更新。**已知衔接问题**：`NewSessionPane.tsx:9,96` 仍 import+调用 `extractAgentToken`（Task 1.5 范围），导致 frontend 全量 build/test 出现 `SyntaxError: Export named 'extractAgentToken' not found`——Task 1.5 完成后即恢复 green。影响：frontend(src/components/Composer + src/quick-invoke/tokens + tests/Composer.test + tests/tokens.test)。
 

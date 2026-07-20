@@ -1068,7 +1068,7 @@ test("ensureStarted 把 ask_user_question 工具作为 customTools 传给 create
 // ─── Task 6: delegate 关系网调起接线测试 ────────────────────────────────────
 // askTo 非空 → customTools 含 delegate 工具且 systemPrompt 末尾含关系网段；
 // askTo 为空 → 不注册 delegate 工具、不注入关系网段。
-test("ensureStarted 在 askTo 非空时注册 delegate 工具并注入关系网提示词段", async () => {
+test("ensureStarted 在 askTo 非空时同时注册 delegate 和 fleet 工具并注入关系网提示词段", async () => {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
@@ -1089,6 +1089,7 @@ test("ensureStarted 在 askTo 非空时注册 delegate 工具并注入关系网�
 
   const names = (captured[0].customTools as any[]).map((t: any) => t.name);
   expect(names).toContain("delegate");
+  expect(names).toContain("fleet");
 
   const prompt = captured[0].resourceLoader.systemPromptOverride();
   expect(prompt).toContain("delegate");
@@ -1116,6 +1117,7 @@ test("ensureStarted 在 askTo 为空时不注册 delegate 工具、不注入关�
 
   const names = (captured[0].customTools as any[]).map((t: any) => t.name);
   expect(names).not.toContain("delegate");
+  expect(names).not.toContain("fleet");
 
   const prompt = captured[0].resourceLoader.systemPromptOverride();
   // buildDelegatePrompt 段以「你可以通过 delegate 工具」开头，校验该段未注入（HIAGENT_DEFAULT_SYSTEM_PROMPT

@@ -55,12 +55,14 @@ test("delegate: 透传 spawn 的失败结果（isError 原样带出）", async (
   expect(res.content[0].text).toBe("子智能体执行失败");
 });
 
-test("buildDelegatePrompt: 含名称/简介/关键词；空 askTo 返回空串", () => {
+test("buildDelegatePrompt: 含名称/简介/关键词/fleet 说明；空 askTo 返回空串", () => {
   const p = buildDelegatePrompt(askTo);
   expect(p).toContain("代码审查");
   expect(p).toContain("评审改动");
   expect(p).toContain("review、评审");
   expect(p).toContain("delegate");
+  expect(p).toContain("fleet");
+  expect(p).toContain("并行");
   expect(buildDelegatePrompt([])).toBe("");
 });
 

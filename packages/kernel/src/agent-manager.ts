@@ -24,7 +24,7 @@ import { relative, isAbsolute } from "node:path";
 import { buildAdditionalExtensionPaths, extractRuntimeToolNames } from "./extensions";
 import { createAgentMemoryTools, getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import { makeAskTool, reconcileDanglingAsks } from "./ask-tool";
-import { makeDelegateTool, buildDelegatePrompt, spawnViaSubagentsService } from "./delegate-tool";
+import { makeDelegateTool, makeFleetTool, buildDelegatePrompt, spawnViaSubagentsService } from "./delegate-tool";
 import { askRegistry } from "./ask-registry";
 import type { SkillManager } from "./skill-manager";
 import type { ExtensionManager } from "./extension-manager";
@@ -369,6 +369,10 @@ export class AgentManager {
     );
     const delegateTools = askToConfigs.length === 0 ? [] : [
       makeDelegateTool({
+        askTo: askToConfigs.map((c) => ({ name: c.displayName, description: c.description })),
+        spawn: spawnViaSubagentsService,
+      }),
+      makeFleetTool({
         askTo: askToConfigs.map((c) => ({ name: c.displayName, description: c.description })),
         spawn: spawnViaSubagentsService,
       }),

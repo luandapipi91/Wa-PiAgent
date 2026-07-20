@@ -74,6 +74,7 @@ export function buildDelegatePrompt(
     "你可以通过 delegate 工具（参数 agent、task）调起以下智能体协作：",
     ...lines,
     "当用户消息涉及某智能体的触发关键词或其简介描述的话题时，优先调起对应智能体；只能调起列表内的智能体。",
+    "当多个独立的子任务可以并行执行时，使用 fleet 工具（参数 tasks: [{agent, task}]）一次性派发，并发上限 6；fleet 适合 codebase-wide audit、多文件并行处理等场景，每个 task 仍按任务合约范式组织。",
   ].join("\n");
 }
 
