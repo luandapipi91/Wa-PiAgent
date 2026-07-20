@@ -235,8 +235,8 @@ describe("NewSessionPane", () => {
       expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
     });
 
-    // dropdown 默认选中的 agent（NewSessionPane 初始化时的 agentName）
-    const defaultAgent = (screen.getByTestId("agent-select") as HTMLElement).textContent;
+    // dropdown 默认选中的 agent：用稳定来源（store list 第一项），不用 textContent（含 avatar/箭头）
+    const defaultAgent = useAgentsStore.getState().list[0].displayName;
 
     typeIntoComposer("@[项目管理] 帮我看看需求");
     fireEvent.click(screen.getByTestId("composer-send"));
@@ -245,15 +245,42 @@ describe("NewSessionPane", () => {
       expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
         type: "agent:prompt",
         projectId: "p1",
-        agentName: expect.any(String),  // 不再是 mention，而是 dropdown 默认 agent
+        agentName: defaultAgent,  // 严格断言：仍是 dropdown 默认 agent，不是 mention
         text: "@[项目管理] 帮我看看需求",  // 原样保留
       }));
     });
-    // primaryAgent 仍是 dropdown 默认 agent（不是 mention）
+    // primaryAgent 仍是 dropdown 默认 agent（严格正向断言）
     const session = useProjectsStore.getState().sessions[0];
-    expect(session.primaryAgent).not.toBe("项目管理");
+    expect(session.primaryAgent).toBe(defaultAgent);
     // 不弹确认框
     expect(screen.queryByTestId("mention-confirm")).toBeNull();
+  });
+
+  it("@ 菜单选中 agent 不切换 dropdown（主智能体不变）", async () => {
+    // 配置 agents：默认选中项 "需求设计" 的 partners.askTo 含 "项目管理"，让 @ 菜单有候选项
+    useAgentsStore.setState({
+      list: [
+        { ...agentCfg("需求设计"), partners: { askTo: ["项目管理"], askFrom: [] } },
+        agentCfg("项目管理"),
+        agentCfg("技术实现"),
+        agentCfg("质量验收"),
+      ],
+    });
+    render(<NewSessionPane />);
+    // 初始 dropdown 默认选中列表第一项（无会话历史）
+    const defaultAgent = useAgentsStore.getState().list[0].displayName;
+    expect(screen.getByTestId("agent-select").textContent).toContain(defaultAgent);
+
+    // 输入 @ 触发 QuickInvokeMenu（filterItems 用 displayName 匹配，"项" 命中 "项目管理"）
+    typeIntoComposer("@项");
+    // 等待 @ 菜单渲染出 "项目管理" 候选项
+    const menuItem = await waitFor(() => screen.getByText("项目管理"));
+    // 点击 @ 菜单项触发 handleSelect → onAgentMention（NewSessionPane 不再传该 prop，dropdown 应不变）
+    fireEvent.click(menuItem);
+
+    // dropdown 仍显示默认 agent，未切换到 @ 的 "项目管理"
+    expect(screen.getByTestId("agent-select").textContent).toContain(defaultAgent);
+    expect(screen.getByTestId("agent-select").textContent).not.toContain("项目管理");
   });
 
   it("新会话开始录音、切换会话再回来后停止，附件仍回到当前新建会话", async () => {
