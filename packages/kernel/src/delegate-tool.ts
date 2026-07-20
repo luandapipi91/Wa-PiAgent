@@ -12,6 +12,9 @@
 //（其所有错误路径均返回普通文本）。
 import { Type } from "typebox";
 
+/** fleet 并发上限（参考 DeepSeek-Reasonix / pi-dynamic-workflows 默认值） */
+export const MAX_SUBAGENT_CONCURRENCY = 6;
+
 export interface DelegateTarget {
   name: string;
   description: string;
@@ -137,4 +140,72 @@ export async function spawnViaSubagentsService(agent: string, task: string): Pro
     return { text: `子智能体调起失败: ${err instanceof Error ? err.message : String(err)}`, isError: true };
   }
   return waitSubagentResult(svc, id);
+}
+
+const FleetParamsSchema = Type.Object({
+  tasks: Type.Array(Type.Object({
+    agent: Type.String({ description: "可调起列表中的智能体名称" }),
+    task: Type.String({ description: "交给该子智能体的任务描述（按任务合约范式组织）" }),
+  })),
+});
+
+/** 简易并发限制器：按 limit 并发执行 thunks，结果按输入顺序返回 */
+async function runWithConcurrency<T>(
+  thunks: Array<() => Promise<T>>,
+  limit: number,
+): Promise<T[]> {
+  const results: T[] = new Array(thunks.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, thunks.length) }, async () => {
+    while (cursor < thunks.length) {
+      const i = cursor++;
+      results[i] = await thunks[i]();
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+/** 构造 fleet 工具：并行派发多个 delegate 任务，按输入顺序聚合结果 */
+export function makeFleetTool(opts: {
+  askTo: DelegateTarget[];
+  spawn: DelegateSpawnFn;
+}) {
+  return {
+    name: "fleet",
+    label: "Fleet",
+    description: "并行调起多个子智能体执行任务并聚合结果。每个 agent 必须取可调起列表中的智能体名称。适用于多个独立子任务可并行的场景。",
+    parameters: FleetParamsSchema,
+    async execute(
+      _toolCallId: string,
+      args: { tasks: Array<{ agent: string; task: string }> },
+    ): Promise<{ content: Array<{ type: "text"; text: string }>; details: undefined; isError: boolean }> {
+      if (args.tasks.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "无任务" }],
+          details: undefined,
+          isError: false,
+        };
+      }
+      const results = await runWithConcurrency(
+        args.tasks.map(t => async () => {
+          if (!opts.askTo.some(x => x.name === t.agent)) {
+            const allow = opts.askTo.map(x => x.name).join("、") || "（空）";
+            return { agent: t.agent, text: `错误：智能体「${t.agent}」不在可调起列表中。可调起：${allow}`, isError: true };
+          }
+          const { text, isError } = await opts.spawn(t.agent, t.task);
+          return { agent: t.agent, text, isError };
+        }),
+        MAX_SUBAGENT_CONCURRENCY,
+      );
+      // 按输入顺序聚合为单段文本
+      const lines = results.map(r => `【${r.agent}】${r.isError ? "（失败）" : ""}\n${r.text}`);
+      const anyError = results.some(r => r.isError);
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n\n") }],
+        details: undefined,
+        isError: anyError,
+      };
+    },
+  };
 }

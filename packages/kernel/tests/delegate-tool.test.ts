@@ -6,6 +6,7 @@
 import { test, expect, mock, afterEach } from "bun:test";
 import {
   makeDelegateTool,
+  makeFleetTool,
   buildDelegatePrompt,
   waitSubagentResult,
   spawnViaSubagentsService,
@@ -138,4 +139,58 @@ test("spawnViaSubagentsService: spawn 成功 → 轮询到终态返回结果", a
   } as any);
   const r = await spawnViaSubagentsService("代码审查", "review diff");
   expect(r).toEqual({ text: "评审通过", isError: false });
+});
+
+test("fleet: 并发执行多个合法任务，结果按输入顺序聚合", async () => {
+  const spawn = mock(async (agent: string, task: string) => ({
+    text: `[${agent}] done: ${task}`, isError: false,
+  }));
+  const tool = makeFleetTool({ askTo, spawn });
+  const res = await tool.execute("tc4", {
+    tasks: [
+      { agent: "代码审查", task: "review a" },
+      { agent: "质量验收", task: "test b" },
+    ],
+  });
+  expect(res.isError).toBe(false);
+  expect(res.content[0].text).toContain("[代码审查] done: review a");
+  expect(res.content[0].text).toContain("[质量验收] done: test b");
+  expect(spawn).toHaveBeenCalledTimes(2);
+});
+
+test("fleet: 单个任务失败不影响其他任务，聚合标记 isError", async () => {
+  const spawn = mock(async (agent: string, task: string) => {
+    if (agent === "代码审查") return { text: "评审通过", isError: false };
+    return { text: "测试失败", isError: true };
+  });
+  const tool = makeFleetTool({ askTo, spawn });
+  const res = await tool.execute("tc5", {
+    tasks: [
+      { agent: "代码审查", task: "review" },
+      { agent: "质量验收", task: "test" },
+    ],
+  });
+  // 部分失败时整体标记 isError=true（提示主智能体关注）
+  expect(res.isError).toBe(true);
+  expect(res.content[0].text).toContain("评审通过");
+  expect(res.content[0].text).toContain("测试失败");
+});
+
+test("fleet: 越权 agent 跳过 spawn，单项返回错误文本", async () => {
+  const spawn = mock(async () => ({ text: "ok", isError: false }));
+  const tool = makeFleetTool({ askTo, spawn });
+  const res = await tool.execute("tc6", {
+    tasks: [{ agent: "陌生人", task: "x" }],
+  });
+  expect(res.isError).toBe(true);
+  expect(res.content[0].text).toContain("不在可调起列表");
+  expect(spawn).not.toHaveBeenCalled();
+});
+
+test("fleet: 空任务数组返回提示文本", async () => {
+  const spawn = mock(async () => ({ text: "ok", isError: false }));
+  const tool = makeFleetTool({ askTo, spawn });
+  const res = await tool.execute("tc7", { tasks: [] });
+  expect(res.isError).toBe(false);
+  expect(res.content[0].text).toContain("无任务");
 });
