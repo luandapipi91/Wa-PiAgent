@@ -11,6 +11,8 @@
 // 错误信息经文本传达给 LLM——与 pi-subagents 原生 subagent 工具先例一致
 //（其所有错误路径均返回普通文本）。
 import { Type } from "typebox";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 
 /** fleet 并发上限（参考 DeepSeek-Reasonix / pi-dynamic-workflows 默认值） */
 export const MAX_SUBAGENT_CONCURRENCY = 6;
@@ -160,9 +162,13 @@ export async function spawnViaSubagentsService(
   if (!svc) {
     console.log("[delegate] getSubagentsService 未就绪，尝试手动加载扩展入口...");
     try {
-      const modExt = await import("@gotgenes/pi-subagents/src/index.ts");
+      const req = createRequire(import.meta.url);
+      const pkgRoot = dirname(req.resolve("@gotgenes/pi-subagents/package.json"));
+      const indexTs = join(pkgRoot, "src", "index.ts");
+      console.log("[delegate] 扩展入口路径:", indexTs);
+      const modExt = await import(indexTs);
       if (typeof modExt.default === "function") {
-        console.log("[delegate] 扩展入口 default export 存在，尝试调用...");
+        console.log("[delegate] 扩展入口 default export 找到，调用中...");
         try {
           await modExt.default(createExtensionApiStub());
           svc = mod.getSubagentsService();
@@ -174,7 +180,7 @@ export async function spawnViaSubagentsService(
         console.log("[delegate] 扩展入口无 default export, typeof:", typeof modExt.default);
       }
     } catch (e) {
-      console.log("[delegate] 手动导入扩展入口失败:", e);
+      console.log("[delegate] 手动加载扩展入口失败:", e);
     }
   }
   if (!svc) return { text: "子智能体服务未就绪", isError: true };
