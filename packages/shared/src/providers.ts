@@ -99,3 +99,20 @@ export function splitModelIds(input: string): string[] {
     .map(s => s.trim())
     .filter(s => s.length > 0);
 }
+
+/**
+ * 校验持久化的模型标识（"slug/id"）是否仍存在于当前 providers 中。
+ * 派生规则与 ModelSelector / kernel slugifyProviders 一致（同一 slugifyProviderName、
+ * 同样的顺序累积去重）。provider 被删除后 prefs 里残留的过期 model 会返回 false，
+ * 发送闸门据此拦截，避免"未配置模型也能发出消息"。
+ * 类型谓词：返回 true 时把 model 收窄为 string，方便调用方直接透传。
+ */
+export function isModelAvailable(model: string | null | undefined, providers: ModelProvider[]): model is string {
+  if (!model) return false;
+  const slugs: string[] = [];
+  return providers.some(p => {
+    const slug = slugifyProviderName(p.name, slugs);
+    slugs.push(slug);
+    return p.models.some(m => `${slug}/${m.id}` === model);
+  });
+}

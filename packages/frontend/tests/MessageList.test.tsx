@@ -4,12 +4,14 @@ import type { SessionMessage } from "@hiagent/shared";
 import { MessageList, buildResendPrompt } from "../src/components/MessageList";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
+import { useProvidersStore } from "../src/store/providers";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useToastStore } from "../src/store/toast";
 
 beforeEach(() => {
   useSessionStore.setState({ messagesBySession: {} });
   useProjectsStore.setState({ sessions: [] });
+  useProvidersStore.setState({ providers: [] });
   useComposerPrefsStore.setState({ bySession: {} });
   useToastStore.setState({ toasts: [] });
 });
@@ -482,7 +484,12 @@ test("点击「重新发送」→ 原地重试：裁掉失败回合（用户消�
     streamingBySession: {},
   });
   useProjectsStore.setState({ sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev" }] as any });
-  useComposerPrefsStore.setState({ bySession: { s1: { model: "deepseek-chat", thinking: "high", attachments: [] } } });
+  useProvidersStore.setState({
+    providers: [
+      { id: "prov-ds", name: "deepseek", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "deepseek-chat", contextWindow: 128000, maxTokens: 4096 }] },
+    ],
+  });
+  useComposerPrefsStore.setState({ bySession: { s1: { model: "deepseek/deepseek-chat", thinking: "high", attachments: [] } } });
   render(<MessageList sessionId="s1" />);
   fireEvent.click(screen.getByTestId("resend-s1-1"));
   const s = useSessionStore.getState();
@@ -490,6 +497,28 @@ test("点击「重新发送」→ 原地重试：裁掉失败回合（用户消�
   expect(s.messagesBySession["s1"]).toHaveLength(1);
   expect((s.messagesBySession["s1"][0].message as any).role).toBe("user");
   expect(s.streamingBySession["s1"]).toBeTruthy();
+});
+
+test("过期 model（provider 已删除）→ 点「重新发送」不裁剪、不重发", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "失败的那条", timestamp: 1 } },
+        { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "⚠️ 模型调用失败" }], model: "system", stopReason: "error", timestamp: 2 } },
+      ],
+    },
+    streamingBySession: {},
+  });
+  useProjectsStore.setState({ sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev" }] as any });
+  // providers 为空，prefs 残留已删除 provider 的 model
+  useProvidersStore.setState({ providers: [] });
+  useComposerPrefsStore.setState({ bySession: { s1: { model: "my-deepseek/deepseek-chat", thinking: "high", attachments: [] } } });
+  render(<MessageList sessionId="s1" />);
+  fireEvent.click(screen.getByTestId("resend-s1-1"));
+  const s = useSessionStore.getState();
+  // 原消息保留（不裁剪）、不产生新的乐观消息和 loading 占位
+  expect(s.messagesBySession["s1"]).toHaveLength(2);
+  expect(s.streamingBySession["s1"]).toBeFalsy();
 });
 
 // ── AI loading 气泡（乐观占位 / 首字到达前）──

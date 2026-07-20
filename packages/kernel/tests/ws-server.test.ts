@@ -449,15 +449,15 @@ test("agent:list/create/delete 全流程", async () => {
   await withServer(agentManager, async (send, recv) => {
     send({ type: "agent:create", displayName: "测试员甲" });
     const created = await recvUntil(recv, e => e.type === "agent:created");
-    expect(created.agent.name).toBe("测试员甲");
+    expect(created.agent.displayName).toBe("测试员甲");
     send({ type: "agent:list" });
-    const list = await recvUntil(recv, e => e.type === "agent:list" && e.agents.some((a: any) => a.name === "测试员甲"));
-    expect(list.agents.some((a: any) => a.name === "测试员甲")).toBe(true);
+    const list = await recvUntil(recv, e => e.type === "agent:list" && e.agents.some((a: any) => a.displayName === "测试员甲"));
+    expect(list.agents.some((a: any) => a.displayName === "测试员甲")).toBe(true);
     send({ type: "agent:delete", name: "测试员甲" });
     await recvUntil(recv, e => e.type === "agent:deleted");
     send({ type: "agent:list" });
     const list2 = await recvUntil(recv, e => e.type === "agent:list");
-    expect(list2.agents.some((a: any) => a.name === "测试员甲")).toBe(false);
+    expect(list2.agents.some((a: any) => a.displayName === "测试员甲")).toBe(false);
   });
 });
 
@@ -466,7 +466,7 @@ test("agent:create 非法名返回 error", async () => {
   await withServer(agentManager, async (send, recv) => {
     send({ type: "agent:create", displayName: "a/b" });
     const err = await recvUntil(recv, e => e.type === "error");
-    expect(err.message).toContain("非法 name");
+    expect(err.message).toContain("非法 displayName");
   });
 });
 
@@ -486,10 +486,10 @@ test("agent:create 重名自动加 -2 后缀", async () => {
   await withServer(agentManager, async (send, recv) => {
     send({ type: "agent:create", displayName: "甲" });
     const first = await recvUntil(recv, e => e.type === "agent:created");
-    expect(first.agent.name).toBe("甲");
+    expect(first.agent.displayName).toBe("甲");
     send({ type: "agent:create", displayName: "甲" });
-    const second = await recvUntil(recv, e => e.type === "agent:created" && e.agent.name === "甲-2");
-    expect(second.agent.name).toBe("甲-2");
+    const second = await recvUntil(recv, e => e.type === "agent:created" && e.agent.displayName === "甲-2");
+    expect(second.agent.displayName).toBe("甲-2");
   });
 });
 
@@ -568,7 +568,7 @@ test("agent:config:save 改名联动会话 primaryAgent 与 askTo", async () => 
     const proj = await projectStore.createProject({ name: "p", cwd: "/tmp/x" });
     const sess = await projectStore.createSession({ projectId: proj.id, primaryAgent: "旧名", title: "t" });
     const cfg = (await configStore.getAgent("旧名"))!;
-    send({ type: "agent:config:save", agentName: "旧名", config: { ...cfg, name: "新名" } });
+    send({ type: "agent:config:save", agentName: "旧名", config: { ...cfg, displayName: "新名" } });
     // 改名分支最后广播 agent:list，收到即说明联动已落盘
     await recvUntil(recv, e => e.type === "agent:list");
     const { sessions } = await projectStore.load();
@@ -588,7 +588,7 @@ test("agent:config:save 非改名路径广播 agent:list", async () => {
     const cfg = (await configStore.getAgent("甲"))!;
     send({ type: "agent:config:save", agentName: "甲", config: { ...cfg, description: "新简介" } });
     const list = await recvUntil(recv, e => e.type === "agent:list");
-    const jia = list.agents.find((a: any) => a.name === "甲");
+    const jia = list.agents.find((a: any) => a.displayName === "甲");
     expect(jia.description).toBe("新简介");
   });
 });

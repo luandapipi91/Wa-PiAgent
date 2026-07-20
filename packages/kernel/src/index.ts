@@ -43,6 +43,17 @@ export async function startKernel(
   // 启动时把已有 providers 注册成 Pi extension（幂等）
   await ensureProviderExtensionRegistered(providerStore);
 
+  // 迁移旧版 agent 数据（含 name 字段、文件名用内部 name）到 displayName 作 id（幂等）
+  const nameMapping = await configStore.migrateNameToDisplayName();
+  if (nameMapping.size > 0) {
+    const { sessions } = await projectStore.load();
+    for (const s of sessions) {
+      const newName = nameMapping.get(s.primaryAgent);
+      if (newName) await projectStore.setSessionAgent(s.id, newName);
+    }
+    console.log(`[kernel] 已迁移 ${nameMapping.size} 个智能体 name → displayName`);
+  }
+
   // 目录为空时 seed 4 个内置默认 agent（幂等）
   await configStore.seedDefaults();
 

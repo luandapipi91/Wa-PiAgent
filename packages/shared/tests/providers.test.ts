@@ -1,5 +1,17 @@
 import { test, expect } from "bun:test";
-import { slugifyProviderName, splitModelIds } from "../src/providers";
+import { isModelAvailable, slugifyProviderName, splitModelIds } from "../src/providers";
+import type { ModelProvider } from "../src/providers";
+
+function makeProvider(name: string, modelIds: string[]): ModelProvider {
+  return {
+    id: name,
+    name,
+    baseUrl: "",
+    apiKey: "",
+    api: "openai-completions",
+    models: modelIds.map(id => ({ id, contextWindow: 128000, maxTokens: 4096 })),
+  };
+}
 
 test("slugifyProviderName 英文 + 空格", () => {
   expect(slugifyProviderName("My DeepSeek", [])).toBe("my-deepseek");
@@ -49,4 +61,48 @@ test("splitModelIds 去空白 trim", () => {
 
 test("splitModelIds 单值", () => {
   expect(splitModelIds("deepseek-chat")).toEqual(["deepseek-chat"]);
+});
+
+// ===== isModelAvailable =====
+
+test("isModelAvailable: model 为空（null/undefined/空串）→ false", () => {
+  const providers = [makeProvider("openai", ["gpt-4o"])];
+  expect(isModelAvailable(null, providers)).toBe(false);
+  expect(isModelAvailable(undefined, providers)).toBe(false);
+  expect(isModelAvailable("", providers)).toBe(false);
+});
+
+test("isModelAvailable: providers 为空 + 残留的过期 model → false（本 bug 核心场景）", () => {
+  expect(isModelAvailable("my-deepseek/deepseek-chat", [])).toBe(false);
+});
+
+test("isModelAvailable: slug/id 存在 → true", () => {
+  const providers = [makeProvider("My DeepSeek", ["deepseek-chat", "deepseek-reasoner"])];
+  expect(isModelAvailable("my-deepseek/deepseek-chat", providers)).toBe(true);
+  expect(isModelAvailable("my-deepseek/deepseek-reasoner", providers)).toBe(true);
+});
+
+test("isModelAvailable: model id 存在但 provider slug 不匹配 → false", () => {
+  const providers = [makeProvider("openai", ["gpt-4o"])];
+  expect(isModelAvailable("anthropic/gpt-4o", providers)).toBe(false);
+});
+
+test("isModelAvailable: provider 在但 model id 已被删掉 → false", () => {
+  const providers = [makeProvider("openai", ["gpt-4o"])];
+  expect(isModelAvailable("openai/gpt-4o-mini", providers)).toBe(false);
+});
+
+test("isModelAvailable: 裸 model id（无 slug 前缀）→ false（交由 ModelSelector 升级后再校验）", () => {
+  const providers = [makeProvider("openai", ["gpt-4o"])];
+  expect(isModelAvailable("gpt-4o", providers)).toBe(false);
+});
+
+test("isModelAvailable: 多 provider 同名冲突时 slug 加后缀，与派生规则一致", () => {
+  const providers = [
+    makeProvider("My DeepSeek", ["a"]),
+    makeProvider("My DeepSeek", ["b"]),
+  ];
+  expect(isModelAvailable("my-deepseek/a", providers)).toBe(true);
+  expect(isModelAvailable("my-deepseek-2/b", providers)).toBe(true);
+  expect(isModelAvailable("my-deepseek/b", providers)).toBe(false);
 });

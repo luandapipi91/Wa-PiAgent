@@ -20,7 +20,7 @@ test("AgentStateKey 模板字符串", () => {
 
 test("AgentConfig 含 partners", () => {
   const c: AgentConfig = {
-    name: "dev", displayName: "研发", avatar: "⚙️",
+    displayName: "研发", avatar: "⚙️",
     avatarColor: "#fab387-#f38ba8", description: "",
     model: "anthropic/claude-sonnet-4", thinking: "high",
     systemPromptMode: "replace", inheritProjectContext: true,
@@ -114,7 +114,7 @@ describe("ProviderModel supportsVision", () => {
 
 test("AgentConfig 支持 triggerKeywords 与 ThinkingLevel", () => {
   const c: import("../src/types").AgentConfig = {
-    name: "代码审查", displayName: "代码审查", avatar: "🔍", avatarColor: "#06b6d4-#3b82f6",
+    displayName: "代码审查", avatar: "🔍", avatarColor: "#06b6d4-#3b82f6",
     description: "评审改动", model: "m", thinking: "max",
     systemPromptMode: "replace", inheritProjectContext: true, inheritSkills: true,
     tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] },
@@ -126,7 +126,7 @@ test("AgentConfig 支持 triggerKeywords 与 ThinkingLevel", () => {
 
 test("AgentConfig.thinking/model 可为 null（跟随当前/跟随全局）", () => {
   const c: import("../src/types").AgentConfig = {
-    name: "dev", displayName: "研发", avatar: "⚙️",
+    displayName: "研发", avatar: "⚙️",
     avatarColor: "#fab387-#f38ba8", description: "",
     model: null, thinking: null,
     systemPromptMode: "replace", inheritProjectContext: true,
@@ -138,10 +138,9 @@ test("AgentConfig.thinking/model 可为 null（跟随当前/跟随全局）", ()
   expect(c.model).toBeNull();
 });
 
-test("agentDefOf: 内置名返回定义，未知名回退默认", () => {
-  expect(agentDefOf("dev").emoji).toBe("⚙️");
+test("agentDefOf: 内置 displayName 返回定义，未知 displayName 回退默认", () => {
+  expect(agentDefOf("技术实现").emoji).toBe("⚙️");
   const fb = agentDefOf("不存在的智能体");
   expect(fb.emoji).toBe("🤖");
   expect(fb.gradient).toEqual(["#4b5563", "#6b7280"]);
-  expect(fb.label).toBe("不存在的智能体");
 });

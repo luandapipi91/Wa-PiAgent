@@ -5,7 +5,7 @@ import type { AgentConfig, SessionEntity } from "@hiagent/shared";
 // 动态 import，静态 import 会让模块提前缓存导致 send mock 失效（同 store-skills.test.ts）。
 
 const agent = (name: string): AgentConfig => ({
-  name, displayName: name, avatar: "🤖", avatarColor: "#000-#111", description: "",
+  displayName: name, avatar: "🤖", avatarColor: "#000-#111", description: "",
   model: "m", thinking: "medium", systemPromptMode: "replace",
   inheritProjectContext: true, inheritSkills: true,
   tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [],
@@ -23,7 +23,7 @@ describe("topAgentsByRecency", () => {
     const agents = [agent("a"), agent("b"), agent("c"), agent("d")];
     const sessions = [sess("b", 100), sess("c", 300), sess("b", 200)];
     const top = topAgentsByRecency(agents, sessions, 3);
-    expect(top.map(a => a.name)).toEqual(["c", "b", "a"]);
+    expect(top.map(a => a.displayName)).toEqual(["c", "b", "a"]);
   });
 
   test("agents 不足 n 时全返回", async () => {
@@ -38,7 +38,7 @@ describe("topAgentsByRecency", () => {
     const agents = [agent("a"), agent("b")];
     const sessions = [sess("a", 50), sess("b", 100), sess("a", 80)];
     const top = topAgentsByRecency(agents, sessions, 2);
-    expect(top.map(x => x.name)).toEqual(["b", "a"]);
+    expect(top.map(x => x.displayName)).toEqual(["b", "a"]);
   });
 
   test("不修改原数组", async () => {
@@ -46,7 +46,7 @@ describe("topAgentsByRecency", () => {
     const { topAgentsByRecency } = await import("../src/store/agents");
     const agents = [agent("b"), agent("a")];
     topAgentsByRecency(agents, [sess("a", 1)], 2);
-    expect(agents.map(x => x.name)).toEqual(["b", "a"]);
+    expect(agents.map(x => x.displayName)).toEqual(["b", "a"]);
   });
 });
 
@@ -81,7 +81,7 @@ describe("useAgentsStore", () => {
     const { useAgentsStore } = await import("../src/store/agents");
     useAgentsStore.setState({ list: [], configs: {} });
     useAgentsStore.getState().setList([agent("a"), agent("b")]);
-    expect(useAgentsStore.getState().list.map(a => a.name)).toEqual(["a", "b"]);
+    expect(useAgentsStore.getState().list.map(a => a.displayName)).toEqual(["a", "b"]);
   });
 
   test("loadConfig 发 agent:config:get（兼容 AgentConfig 弹窗）", async () => {

@@ -19,7 +19,11 @@ mock.module("../src/ws-instance", () => ({
 import { ComposerInput } from "../src/components/ui/ComposerInput";
 
 beforeEach(() => {
-  useProvidersStore.setState({ providers: [] });
+  useProvidersStore.setState({
+    providers: [
+      { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
+    ],
+  });
   useProjectsStore.setState({
     projects: [{ id: "p1", name: "p1", cwd: "/proj/p1", createdAt: 0 }],
     sessions: [],
@@ -41,7 +45,7 @@ function renderComposer(props?: Partial<React.ComponentProps<typeof ComposerInpu
     <ComposerInput
       text="hello"
       setText={mock()}
-      model="gpt-4o"
+      model="openai/gpt-4o"
       setModel={mock()}
       thinking="disabled"
       setThinking={mock()}
@@ -81,6 +85,35 @@ test("disables send and shows placeholder when no model is selected", () => {
   expect(select.value).toBe("");
   expect(screen.getByText("选择模型")).toBeTruthy();
   expect((screen.getByTestId("composer-send") as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("过期 model（provider 已删除，prefs 残留）→ 禁止发送：按钮禁用、点击与回车均不触发 onSend", () => {
+  // providers 为空，但 prefs 里残留着已删除 provider 的 model —— 复现"未配置模型也能发消息"
+  useProvidersStore.setState({ providers: [] });
+  const onSend = mock();
+  renderComposer({ model: "my-deepseek/deepseek-chat", onSend });
+
+  const sendBtn = screen.getByTestId("composer-send") as HTMLButtonElement;
+  expect(sendBtn.disabled).toBe(true);
+  fireEvent.click(sendBtn);
+  expect(onSend).not.toHaveBeenCalled();
+
+  const textbox = screen.getByRole("textbox");
+  fireEvent.keyDown(textbox, { key: "Enter" });
+  expect(onSend).not.toHaveBeenCalled();
+});
+
+test("model 不在当前 providers 中（删了其中一个 provider）→ 禁止发送", () => {
+  useProvidersStore.setState({
+    providers: [
+      { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
+    ],
+  });
+  const onSend = mock();
+  renderComposer({ model: "my-deepseek/deepseek-chat", onSend });
+  expect((screen.getByTestId("composer-send") as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByTestId("composer-send"));
+  expect(onSend).not.toHaveBeenCalled();
 });
 
 test("uploads selected file to project directory and adds attachment chip", async () => {
@@ -218,15 +251,15 @@ test("选中智能体后生成 @[name] chip token 并回调 onAgentMention", () 
   const onAgentMention = mock();
   useAgentsStore.setState({
     list: [
-      { name: "pm", displayName: "需求设计", description: "梳理需求" },
+      { displayName: "需求设计", description: "梳理需求", avatar: "", avatarColor: "", model: "m", thinking: "medium", systemPromptMode: "replace", inheritProjectContext: true, inheritSkills: true, tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [] },
     ] as any,
   });
   renderComposer({ text: "@需求", setText, onAgentMention });
   fireEvent.click(screen.getByText("需求设计"));
   expect(setText).toHaveBeenCalled();
   const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
-  expect(lastCall).toContain("@[pm]");
-  expect(onAgentMention).toHaveBeenCalledWith("pm");
+  expect(lastCall).toContain("@[需求设计]");
+  expect(onAgentMention).toHaveBeenCalledWith("需求设计");
 });
 
 test("选中文件后生成 #[path] chip token", async () => {

@@ -4,6 +4,7 @@ import { Composer } from "../src/components/Composer";
 import * as ws from "../src/ws-instance";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useProjectsStore } from "../src/store/projects";
+import { useProvidersStore } from "../src/store/providers";
 import { useSessionStore } from "../src/store/session";
 import { useSkillsStore } from "../src/store/skills";
 
@@ -23,6 +24,12 @@ describe("Composer", () => {
       currentProjectId: "p1",
       currentSessionId: "s1",
     });
+    useProvidersStore.setState({
+      providers: [
+        { id: "prov-openai", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
+        { id: "prov-anthropic", name: "anthropic", api: "anthropic-messages", baseUrl: "", apiKey: "", models: [{ id: "claude-sonnet", contextWindow: 200000, maxTokens: 8192 }] },
+      ],
+    });
     useComposerPrefsStore.setState({
       defaults: { model: null, thinking: "disabled" },
       bySession: {},
@@ -39,7 +46,7 @@ describe("Composer", () => {
     useComposerPrefsStore.setState({
       bySession: {
         s1: {
-          model: "claude-sonnet",
+          model: "anthropic/claude-sonnet",
           thinking: "high",
           attachments: [{ kind: "snippet", name: "note", content: "context" }],
         },
@@ -57,7 +64,7 @@ describe("Composer", () => {
         sessionId: "s1",
         agentName: "dev",
         text: "hello",
-        model: "claude-sonnet",
+        model: "anthropic/claude-sonnet",
         thinking: "high",
         attachments: [{ kind: "snippet", name: "note", content: "context" }],
       }));
@@ -67,7 +74,7 @@ describe("Composer", () => {
   it("clears text after sending and drops attachments from session prefs", async () => {
     useComposerPrefsStore.setState({
       bySession: {
-        s1: { model: "gpt-4o", thinking: "disabled", attachments: [] },
+        s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] },
       },
     });
     render(<Composer sessionId="s1" agentName="dev" />);
@@ -85,7 +92,7 @@ describe("Composer", () => {
   it("still allows sending while agent is running (followUp queue)", async () => {
     useComposerPrefsStore.setState({
       bySession: {
-        s1: { model: "gpt-4o", thinking: "disabled", attachments: [] },
+        s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] },
       },
     });
     render(<Composer sessionId="s1" agentName="dev" isRunning />);
@@ -100,7 +107,7 @@ describe("Composer", () => {
         sessionId: "s1",
         agentName: "dev",
         text: "排队消息",
-        model: "gpt-4o",
+        model: "openai/gpt-4o",
         thinking: "disabled",
       }));
     });
@@ -108,7 +115,7 @@ describe("Composer", () => {
 
   it("agent 思考中发送消息不乐观显示（入队等待，不立即显示用户消息+AI loading）", () => {
     useComposerPrefsStore.setState({
-      bySession: { s1: { model: "gpt-4o", thinking: "disabled", attachments: [] } },
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
     });
     render(<Composer sessionId="s1" agentName="dev" isRunning />);
     typeIntoComposer("排队等一下");
@@ -125,7 +132,7 @@ describe("Composer", () => {
 
   it("乐观发送：点击发送立即入列用户消息 + 占位 AI loading + status thinking（不等 SDK 回声）", () => {
     useComposerPrefsStore.setState({
-      bySession: { s1: { model: "gpt-4o", thinking: "disabled", attachments: [] } },
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
     });
     render(<Composer sessionId="s1" agentName="dev" />);
     typeIntoComposer("马上看到我");
@@ -143,7 +150,7 @@ describe("Composer", () => {
 
   it("disabled=true 时 textarea 禁用、点发送不触发 agent:prompt", () => {
     useComposerPrefsStore.setState({
-      bySession: { s1: { model: "gpt-4o", thinking: "disabled", attachments: [] } },
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
     });
     render(<Composer sessionId="s1" agentName="dev" disabled />);
     const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
@@ -225,5 +232,25 @@ describe("Composer", () => {
       }));
     });
     expect(screen.queryByTestId("mention-confirm")).toBeNull();
+  });
+
+  it("过期 model（provider 已删除、prefs 残留）→ 不发出 agent:prompt、不乐观上屏", () => {
+    // 复现 bug：prefs 残留的 model 指向已被删除的 provider
+    useProvidersStore.setState({ providers: [] });
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "my-deepseek/deepseek-chat", thinking: "disabled", attachments: [] } },
+    });
+    render(<Composer sessionId="s1" agentName="dev" />);
+    typeIntoComposer("这条消息不应发出");
+    // spy 在 describe 内跨 it 累积，比较点击前后增量
+    const before = (ws.send as any).mock.calls.length;
+    fireEvent.click(screen.getByTestId("composer-send"));
+    const after = (ws.send as any).mock.calls.length;
+
+    // 不发 WS、不做乐观 UI（用户消息不上屏、无 loading 占位）
+    expect(after).toBe(before);
+    const s = useSessionStore.getState();
+    expect(s.messagesBySession["s1"] ?? []).toHaveLength(0);
+    expect(s.streamingBySession["s1"]).toBeFalsy();
   });
 });

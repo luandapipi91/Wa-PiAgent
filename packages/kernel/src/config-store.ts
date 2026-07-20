@@ -1,4 +1,4 @@
-import { readdir, readFile, writeFile, mkdir, unlink } from "node:fs/promises";
+import { readdir, readFile, writeFile, mkdir, unlink, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { PI_AGENTS_DIR, ALL_AGENT_NAMES } from "@hiagent/shared";
 import type { AgentConfig, AgentName } from "@hiagent/shared";
@@ -22,9 +22,9 @@ export class ConfigStore {
     }
   }
 
-  async getAgent(name: AgentName): Promise<AgentConfig | null> {
+  async getAgent(displayName: AgentName): Promise<AgentConfig | null> {
     try {
-      const content = await readFile(join(this.agentsDir, `${name}.md`), "utf8");
+      const content = await readFile(join(this.agentsDir, `${displayName}.md`), "utf8");
       return parseAgentMd(content);
     } catch {
       return null;
@@ -35,13 +35,13 @@ export class ConfigStore {
     const errs = validateAgentConfig(config);
     if (errs.length > 0) return errs;
     await mkdir(this.agentsDir, { recursive: true });
-    await writeFile(join(this.agentsDir, `${config.name}.md`), stringifyAgentMd(config), "utf8");
+    await writeFile(join(this.agentsDir, `${config.displayName}.md`), stringifyAgentMd(config), "utf8");
     return [];
   }
 
-  /** 名称清洗为可用文件名；冲突时追加 -2/-3 后缀 */
+  /** displayName 清洗为可用文件名；冲突时追加 -2/-3 后缀 */
   private async uniqueName(base: string): Promise<string> {
-    const existing = new Set((await this.listAgents()).map(a => a.name));
+    const existing = new Set((await this.listAgents()).map(a => a.displayName));
     if (!existing.has(base)) return base;
     for (let i = 2; ; i++) {
       const candidate = `${base}-${i}`;
@@ -51,26 +51,26 @@ export class ConfigStore {
 
   async createAgent(displayName: string): Promise<AgentConfig> {
     const trimmed = displayName.trim();
-    if (!trimmed || /[/\\:*?"<>|]/.test(trimmed)) throw new Error(`非法 name: ${displayName}`);
-    const name = await this.uniqueName(trimmed);
-    const config = makeDefaultAgentConfig(name);
+    if (!trimmed || /[/\\:*?"<>|]/.test(trimmed)) throw new Error(`非法 displayName: ${displayName}`);
+    const unique = await this.uniqueName(trimmed);
+    const config = makeDefaultAgentConfig(unique);
     await this.saveAgent(config);
     return config;
   }
 
-  async deleteAgent(name: string): Promise<void> {
-    if (!(await this.getAgent(name))) throw new Error(`智能体不存在: ${name}`);
-    await unlink(join(this.agentsDir, `${name}.md`));
+  async deleteAgent(displayName: string): Promise<void> {
+    if (!(await this.getAgent(displayName))) throw new Error(`智能体不存在: ${displayName}`);
+    await unlink(join(this.agentsDir, `${displayName}.md`));
   }
 
   /** 重命名：删旧文件写新文件；返回校验错误（空数组 = 成功） */
-  async renameAgent(oldName: string, config: AgentConfig): Promise<string[]> {
+  async renameAgent(oldDisplayName: string, config: AgentConfig): Promise<string[]> {
     const errs = validateAgentConfig(config);
     if (errs.length > 0) return errs;
-    if (config.name !== oldName && await this.getAgent(config.name)) {
-      return [`名称已被占用: ${config.name}`];
+    if (config.displayName !== oldDisplayName && await this.getAgent(config.displayName)) {
+      return [`名称已被占用: ${config.displayName}`];
     }
-    if (config.name !== oldName) await unlink(join(this.agentsDir, `${oldName}.md`));
+    if (config.displayName !== oldDisplayName) await unlink(join(this.agentsDir, `${oldDisplayName}.md`));
     await this.saveAgent(config);
     return [];
   }
@@ -78,6 +78,53 @@ export class ConfigStore {
   /** 目录为空时 seed 4 个内置默认 agent（幂等） */
   async seedDefaults(): Promise<void> {
     if ((await this.listAgents()).length > 0) return;
-    for (const name of ALL_AGENT_NAMES) await this.saveAgent(makeDefaultAgentConfig(name));
+    for (const displayName of ALL_AGENT_NAMES) await this.saveAgent(makeDefaultAgentConfig(displayName));
+  }
+
+  /**
+   * 一次性迁移：把旧版本（含 name 字段、文件名用内部 name）的 agent 数据迁到 displayName 作 id。
+   * - 旧 .md 文件名 = 内部 name（如 dev），frontmatter 含 name + displayName 两个字段
+   * - 迁移后：文件名 = displayName（如 技术实现），frontmatter 只保留 displayName
+   * - 返回 oldName → displayName 映射，调用方据此时同步 projects.json 的 primaryAgent
+   * 幂等：已是新格式的文件（文件名 = displayName、无 name 字段）不受影响。
+   */
+  async migrateNameToDisplayName(): Promise<Map<string, string>> {
+    const mapping = new Map<string, string>();
+    let files: string[];
+    try { files = await readdir(this.agentsDir); } catch { return mapping; }
+    for (const f of files) {
+      if (!f.endsWith(".md")) continue;
+      const oldPath = join(this.agentsDir, f);
+      let content: string;
+      try { content = await readFile(oldPath, "utf8"); } catch { continue; }
+      // 检测是否为旧格式：frontmatter 含 name 字段
+      const hasNameField = /^---\n[\s\S]*?\nname:\s*.+/m.test(content);
+      const oldStem = f.slice(0, -3); // 去掉 .md
+      if (!hasNameField && oldStem !== "") {
+        // 已是新格式或无法判断；尝试核对文件名是否等于 displayName
+        try {
+          const cfg = parseAgentMd(content);
+          if (cfg.displayName === oldStem) continue; // 文件名已 = displayName，无需迁移
+        } catch { continue; }
+      }
+      // 解析出 displayName，把文件重命名为 displayName.md 并重写（去掉 name 行）
+      try {
+        const cfg = parseAgentMd(content);
+        const newName = cfg.displayName;
+        if (newName && newName !== oldStem) {
+          mapping.set(oldStem, newName);
+        } else if (newName === oldStem) {
+          // 文件名已对，只需确认 frontmatter 无残留 name 字段
+          const cleaned = content.replace(/^name:.*\n/m, "");
+          if (cleaned !== content) await writeFile(oldPath, cleaned, "utf8");
+          continue;
+        }
+        // 重写（stringifyAgentMd 已不含 name 字段）+ 重命名文件
+        const newPath = join(this.agentsDir, `${newName}.md`);
+        await writeFile(newPath, stringifyAgentMd(cfg), "utf8");
+        if (newPath !== oldPath) await unlink(oldPath).catch(() => {});
+      } catch { /* 跳过损坏文件 */ }
+    }
+    return mapping;
   }
 }

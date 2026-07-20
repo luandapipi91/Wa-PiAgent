@@ -28,18 +28,18 @@ export const BUILTIN_SKILLS_DIR = `${HIAGENT_DIR}/skills`;   // 内置技能目�
 export interface AgentDef {
   emoji: string;
   gradient: [string, string];
-  label: string;
 }
 
+// 按 displayName 索引（displayName 既是展示名也是唯一标识符）
 export const AGENT_DEFS: Record<string, AgentDef> = {
-  product: { emoji: "📋", gradient: ["#5B5BD6", "#8B8BFF"], label: "需求设计" },
-  pm:      { emoji: "📅", gradient: ["#B45309", "#D97706"], label: "项目管理" },
-  dev:     { emoji: "⚙️", gradient: ["#1D1D1F", "#2C2C2E"], label: "技术实现" },
-  test:    { emoji: "🧪", gradient: ["#34A853", "#4BA26F"], label: "质量验收" },
+  "需求设计": { emoji: "📋", gradient: ["#5B5BD6", "#8B8BFF"] },
+  "项目管理": { emoji: "📅", gradient: ["#B45309", "#D97706"] },
+  "技术实现": { emoji: "⚙️", gradient: ["#1D1D1F", "#2C2C2E"] },
+  "质量验收": { emoji: "🧪", gradient: ["#34A853", "#4BA26F"] },
 };
 
-/** 所有 Agent 名称列表，用于批量操作（如预启动所有 agent 进程） */
-export const ALL_AGENT_NAMES: string[] = ["product", "pm", "dev", "test"];
+/** 所有内置智能体的 displayName 列表，用于 seedDefaults 批量生成 */
+export const ALL_AGENT_NAMES: string[] = ["需求设计", "项目管理", "技术实现", "质量验收"];
 
 /** Agent 未显式配置 tools 时的默认工具集。
  *  含 Pi 内置工具、pi-web-access 网络工具、amaster memory 记忆工具。
@@ -118,7 +118,7 @@ export function resolveAgentTools(
   return result.filter(t => !BLOCKED.has(t));
 }
 
-/** 按名取 AgentDef，未知名回退默认（动态智能体没有内置定义） */
-export function agentDefOf(name: string): AgentDef {
-  return AGENT_DEFS[name] ?? { emoji: "🤖", gradient: ["#4b5563", "#6b7280"], label: name };
+/** 按 displayName 取 AgentDef（emoji/gradient 视觉样式），未知 displayName 回退默认灰色 🤖 */
+export function agentDefOf(displayName: string): AgentDef {
+  return AGENT_DEFS[displayName] ?? { emoji: "🤖", gradient: ["#4b5563", "#6b7280"] };
 }

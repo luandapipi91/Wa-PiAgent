@@ -5,7 +5,7 @@ import { useSessionStore } from "../src/store/session";
 import type { SessionEntity } from "@hiagent/shared";
 
 const session: SessionEntity = {
-  id: "s1", projectId: "p1", primaryAgent: "dev",
+  id: "s1", projectId: "p1", primaryAgent: "技术实现",
   title: "测试会话", createdAt: 0, lastActivity: Date.now() - 120000, piSessionFile: "",
 };
 

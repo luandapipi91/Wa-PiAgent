@@ -71,9 +71,8 @@ export function AskFormCard({ sessionId, toolCallId, params, agentName }: Props)
     send({ type: "agent:cancel-ask", sessionId, toolCallId });
   };
 
-  const agentLabel = agentName ? AGENT_DEFS[agentName]?.label : undefined;
   const agentEm = agentName ? AGENT_DEFS[agentName]?.emoji : undefined;
-  const title = `${agentEm ?? "📌"} ${agentLabel ?? "agent"} 提问 · 请回复以继续`;
+  const title = `${agentEm ?? "📌"} ${agentName ?? "agent"} 提问 · 请回复以继续`;
 
   return (
     <div className="rounded-lg border border-hairline bg-surface shadow-md" data-testid={`ask-card-${toolCallId}`}>

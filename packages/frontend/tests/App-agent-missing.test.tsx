@@ -20,8 +20,8 @@ mock.module("../src/ws-instance", () => ({
   },
 }));
 
-const agent = (name: string, displayName = name): AgentConfig => ({
-  name, displayName, avatar: "", avatarColor: "", description: "",
+const agent = (displayName: string): AgentConfig => ({
+  displayName, avatar: "", avatarColor: "", description: "",
   model: "m", thinking: "medium", systemPromptMode: "replace",
   inheritProjectContext: true, inheritSkills: true,
   tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [],
@@ -34,7 +34,7 @@ beforeEach(() => {
     projects: [{ id: "p1", name: "P", cwd: "/p", createdAt: 0 }],
     sessions: [], currentProjectId: "p1", currentSessionId: null,
   });
-  useAgentsStore.setState({ list: [agent("dev", "技术实现"), agent("pm", "项目管理")], configs: {} });
+  useAgentsStore.setState({ list: [agent("技术实现"), agent("项目管理")], configs: {} });
   useSessionStore.getState().clear();
 });
 
@@ -49,8 +49,8 @@ test("agent_missing 错误 → 弹出重选弹窗，点击智能体发送 sessio
   await waitFor(() => expect(screen.getByTestId("agent-missing-modal")).toBeTruthy());
   expect(screen.getByText(/请重新选择智能体后重发消息/)).toBeTruthy();
 
-  fireEvent.click(screen.getByTestId("agent-missing-item-pm"));
+  fireEvent.click(screen.getByTestId("agent-missing-item-项目管理"));
   // 恢复流程不弹缓存确认框，直接 set-agent
-  expect(sendMock).toHaveBeenCalledWith({ type: "session:set-agent", sessionId: "s1", agentName: "pm" });
+  expect(sendMock).toHaveBeenCalledWith({ type: "session:set-agent", sessionId: "s1", agentName: "项目管理" });
   await waitFor(() => expect(screen.queryByTestId("agent-missing-modal")).toBeNull());
 });

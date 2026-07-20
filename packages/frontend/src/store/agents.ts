@@ -11,7 +11,7 @@ export function topAgentsByRecency(
     lastOf.set(s.primaryAgent, Math.max(lastOf.get(s.primaryAgent) ?? 0, s.lastActivity));
   }
   return [...agents]
-    .sort((x, y) => (lastOf.get(y.name) ?? -1) - (lastOf.get(x.name) ?? -1) || x.name.localeCompare(y.name))
+    .sort((x, y) => (lastOf.get(y.displayName) ?? -1) - (lastOf.get(x.displayName) ?? -1) || x.displayName.localeCompare(y.displayName))
     .slice(0, n);
 }
 

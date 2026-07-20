@@ -80,27 +80,27 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
         <span className="bg-surface-hover rounded px-1.5 normal-case">{agents.length}</span>
       </div>
       {top.map(agent => {
-        const def = agentDefOf(agent.name);
-        const status = statusOf(agent.name);
+        const def = agentDefOf(agent.displayName);
+        const status = statusOf(agent.displayName);
         // 头像优先 config 的 avatar/avatarColor（"hex-hex" 渐变），缺省回退内置 agentDefOf
         const [c1, c2] = agent.avatarColor?.includes("-") ? agent.avatarColor.split("-") : def.gradient;
         return (
           <button
-            key={agent.name}
-            onClick={() => handleChat(agent.name)}
-            onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, name: agent.name }); }}
+            key={agent.displayName}
+            onClick={() => handleChat(agent.displayName)}
+            onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, name: agent.displayName }); }}
             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm transition-colors hover:bg-surface-hover text-left"
-            data-testid={`agent-${agent.name}`}
+            data-testid={`agent-${agent.displayName}`}
           >
             <span
               className="w-[26px] h-[26px] rounded-md flex items-center justify-center text-sm flex-shrink-0"
               style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
             >{agent.avatar || def.emoji}</span>
-            <span className="text-[13px] text-secondary flex-1 min-w-0 truncate">{agent.displayName || def.label}</span>
+            <span className="text-[13px] text-secondary flex-1 min-w-0 truncate">{agent.displayName}</span>
             <span
               className="w-1.5 h-1.5 rounded-full flex-shrink-0"
               style={{ background: STATUS_COLORS[status] }}
-              data-testid={`status-${agent.name}`}
+              data-testid={`status-${agent.displayName}`}
             />
           </button>
         );
@@ -167,7 +167,7 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
         <div data-testid="agent-delete-confirm">
           <ConfirmDialog
             title="删除智能体"
-            message={`确定删除智能体「${agents.find(a => a.name === deleteFor)?.displayName ?? deleteFor}」吗？此操作不可撤销。`}
+            message={`确定删除智能体「${agents.find(a => a.displayName === deleteFor)?.displayName ?? deleteFor}」吗？此操作不可撤销。`}
             confirmText="删除"
             danger
             onConfirm={() => {

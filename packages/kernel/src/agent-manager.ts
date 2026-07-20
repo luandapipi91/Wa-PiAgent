@@ -350,11 +350,11 @@ export class AgentManager {
       (c): c is NonNullable<typeof c> => c != null,
     );
     const delegatePrompt = buildDelegatePrompt(
-      askToConfigs.map((c) => ({ name: c.name, description: c.description, triggerKeywords: c.triggerKeywords })),
+      askToConfigs.map((c) => ({ name: c.displayName, description: c.description, triggerKeywords: c.triggerKeywords })),
     );
     const delegateTools = askToConfigs.length === 0 ? [] : [
       makeDelegateTool({
-        askTo: askToConfigs.map((c) => ({ name: c.name, description: c.description })),
+        askTo: askToConfigs.map((c) => ({ name: c.displayName, description: c.description })),
         spawn: spawnViaSubagentsService,
       }),
     ];
@@ -397,7 +397,7 @@ export class AgentManager {
               agentsFiles: [
                 ...current.agentsFiles,
                 {
-                  path: `/virtual/${config.name}.md`,
+                  path: `/virtual/${config.displayName}.md`,
                   content: config.systemPromptBody!,
                 },
               ],

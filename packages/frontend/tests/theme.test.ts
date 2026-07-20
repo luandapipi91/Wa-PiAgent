@@ -3,13 +3,13 @@ import { agentEmoji, agentGradient } from "../src/theme/agents";
 import { STATUS_COLORS } from "../src/theme/colors";
 
 test("agentEmoji 4 角色", () => {
-  expect(agentEmoji("product")).toBe("📋");
-  expect(agentEmoji("dev")).toBe("⚙️");
+  expect(agentEmoji("需求设计")).toBe("📋");
+  expect(agentEmoji("技术实现")).toBe("⚙️");
 });
 
 test("agentGradient 含两色", () => {
-  expect(agentGradient("dev")).toContain("#1D1D1F");
-  expect(agentGradient("dev")).toContain("#2C2C2E");
+  expect(agentGradient("技术实现")).toContain("#1D1D1F");
+  expect(agentGradient("技术实现")).toContain("#2C2C2E");
 });
 
 test("未知名回退 agentDefOf 默认头像与渐变（动态智能体无内置定义）", () => {

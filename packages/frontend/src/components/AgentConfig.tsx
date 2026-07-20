@@ -39,11 +39,21 @@ export function AgentConfig({ agentName, onClose }: Props) {
     return off;
   }, [agentName]);
 
+  const allAgents = useAgentsStore(s => s.list);
+
   useEffect(() => { if (config && !draft) setDraft(config); }, [config, draft]);
 
+  // 重名校验：displayName 与其他智能体重复（自身原名除外）；空名也禁保存
+  const trimmedName = draft?.displayName?.trim() ?? "";
+  const nameConflict = trimmedName !== "" && trimmedName !== agentName &&
+    allAgents.some(a => a.displayName === trimmedName);
+  const nameEmpty = trimmedName === "";
+  const canSave = !!draft && !nameEmpty && !nameConflict;
+
   const save = () => {
-    // 名称可能被改：agentName 为旧名，config.name 为新名，kernel 走 rename 联动
-    if (draft) send({ type: "agent:config:save", agentName, config: draft });
+    if (!draft || !canSave) return;
+    // 名称可能被改：agentName 为旧 displayName，draft.displayName 为新值，kernel 走 rename 联动
+    send({ type: "agent:config:save", agentName, config: draft });
     onClose();
   };
 
@@ -59,7 +69,6 @@ export function AgentConfig({ agentName, onClose }: Props) {
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-primary truncate">{draft?.displayName ?? agentName}</div>
-          <div className="text-[11px] text-tertiary">{def.label}</div>
         </div>
       </header>
       <nav className="flex gap-1 px-4 pt-2 border-b border-hairline">
@@ -78,10 +87,15 @@ export function AgentConfig({ agentName, onClose }: Props) {
         {draft && tab === "partners" && <PartnersTab draft={draft} onChange={setDraft} selfName={agentName} />}
       </div>
       <footer className="flex justify-end gap-2 px-5 py-3 border-t border-hairline">
+        {nameConflict && (
+          <span data-testid="cfg-name-error" className="text-[11px] text-danger self-center mr-auto">
+            名称「{trimmedName}」已被占用
+          </span>
+        )}
         <button onClick={onClose}
           className="px-3 py-1.5 rounded-sm text-xs bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary">取消</button>
-        <button onClick={save}
-          className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer"
+        <button onClick={save} disabled={!canSave} data-testid="cfg-save"
+          className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ background: "var(--accent)", color: "#fff" }}>保存</button>
       </footer>
     </Modal>
@@ -135,7 +149,7 @@ function BasicTab({ draft, onChange }: TabProps) {
     <div>
       <Sec>身份</Sec>
       <Row label="名称">
-        <input value={draft.name} onChange={e => onChange({ ...draft, name: e.target.value })} className={inp} data-testid="cfg-name-input" />
+        <input value={draft.displayName} onChange={e => onChange({ ...draft, displayName: e.target.value })} className={inp} data-testid="cfg-name-input" />
       </Row>
       <Row label="简介">
         <input value={draft.description} onChange={e => onChange({ ...draft, description: e.target.value })} className={inp} />
@@ -264,7 +278,7 @@ function SkillsTab({ draft, onChange }: TabProps) {
 function PartnersTab({ draft, onChange, selfName }: TabProps & { selfName: string }) {
   const agents = useAgentsStore(s => s.list);
   const [query, setQuery] = useState("");
-  const filtered = filterItems(agents, query);
+  const filtered = filterItems(agents.map(a => ({ ...a, name: a.displayName })), query);
   const toggle = (n: string) => {
     const cur = draft.partners.askTo;
     const next = cur.includes(n) ? cur.filter(x => x !== n) : [...cur, n];
@@ -277,14 +291,14 @@ function PartnersTab({ draft, onChange, selfName }: TabProps & { selfName: strin
       <div className="flex flex-col">
         {filtered.length === 0 && <p className="text-sm text-tertiary py-1">无匹配智能体</p>}
         {filtered.map(a => {
-          const isSelf = a.name === selfName;
+          const isSelf = a.displayName === selfName;
           return (
-            <label key={a.name} aria-disabled={isSelf || undefined}
+            <label key={a.displayName} aria-disabled={isSelf || undefined}
               className={`flex items-center gap-2 py-1 ${isSelf ? "opacity-50" : "cursor-pointer"}`}>
               <input type="checkbox" disabled={isSelf}
-                checked={isSelf ? false : draft.partners.askTo.includes(a.name)}
-                onChange={() => toggle(a.name)} data-testid={`partner-check-${a.name}`} />
-              <span className="text-sm text-primary">{a.displayName || a.name}</span>
+                checked={isSelf ? false : draft.partners.askTo.includes(a.displayName)}
+                onChange={() => toggle(a.displayName)} data-testid={`partner-check-${a.displayName}`} />
+              <span className="text-sm text-primary">{a.displayName}</span>
               <span className="text-[11px] text-tertiary truncate">{a.description}</span>
               {isSelf && <span className="text-[10px] text-tertiary ml-auto shrink-0">自身</span>}
             </label>

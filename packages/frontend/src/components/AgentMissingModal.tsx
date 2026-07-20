@@ -32,9 +32,9 @@ export function AgentMissingModal({ sessionId, onClose }: Props) {
         {agents.map(a => (
           <button
             type="button"
-            key={a.name}
-            data-testid={`agent-missing-item-${a.name}`}
-            onClick={() => pick(a.name)}
+            key={a.displayName}
+            data-testid={`agent-missing-item-${a.displayName}`}
+            onClick={() => pick(a.displayName)}
             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm cursor-pointer text-left border-0 bg-transparent transition-colors text-secondary hover:bg-surface-hover"
           >
             <span

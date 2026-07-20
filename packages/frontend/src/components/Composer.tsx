@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import type { AgentName, AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
+import { isModelAvailable } from "@hiagent/shared";
 import { send } from "../ws-instance";
 import { useProjectsStore } from "../store/projects";
+import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { useSessionStore } from "../store/session";
 import { expandTokens, extractAgentToken } from "../quick-invoke/tokens";
@@ -33,6 +35,7 @@ export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
   const attachments = prefs?.attachments ?? [];
   // 待确认的 @提及切换：非 null 时显示缓存失效确认框
   const [pendingMention, setPendingMention] = useState<{ mention: AgentName; text: string } | null>(null);
+  const providers = useProvidersStore(s => s.providers);
 
   const doSend = (targetAgent: AgentName, expandedText: string) => {
     sendingRef.current = true;
@@ -64,7 +67,7 @@ export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
     const { agent: mention, rest } = extractAgentToken(text);
     // 展开 chip token 为纯文本引用标记（#[path] -> #path，$[name] -> /skill:name）
     const expandedText = expandTokens(mention ? rest : text);
-    if (!expandedText.trim() || !model || sendingRef.current || !projectId) return;
+    if (!expandedText.trim() || !isModelAvailable(model, providers) || sendingRef.current || !projectId) return;
     // @提及其他智能体：先弹缓存失效确认框
     if (mention && mention !== agentName) {
       setPendingMention({ mention: mention as AgentName, text: expandedText });

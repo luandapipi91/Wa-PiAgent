@@ -9,8 +9,8 @@ import { useRecordingStore } from "../src/store/recording";
 import { _setRecordingManager } from "../src/recording/recorder";
 import { useSkillsStore } from "../src/store/skills";
 
-const agentCfg = (name: string, displayName = name): AgentConfig => ({
-  name, displayName, avatar: "", avatarColor: "", description: "",
+const agentCfg = (displayName: string): AgentConfig => ({
+  displayName, avatar: "", avatarColor: "", description: "",
   model: "m", thinking: "medium", systemPromptMode: "replace",
   inheritProjectContext: true, inheritSkills: true,
   tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [],
@@ -85,7 +85,7 @@ describe("NewSessionPane", () => {
     });
     // 默认喂 4 个内置智能体（模拟 kernel agent:list 已返回），单独测试可覆盖为空
     useAgentsStore.setState({
-      list: [agentCfg("product", "需求设计"), agentCfg("pm", "项目管理"), agentCfg("dev", "技术实现"), agentCfg("test", "质量验收")],
+      list: [agentCfg("需求设计"), agentCfg("项目管理"), agentCfg("技术实现"), agentCfg("质量验收")],
     });
     useRecordingStore.setState({
       status: "idle",
@@ -238,7 +238,7 @@ describe("NewSessionPane", () => {
       expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
     });
 
-    typeIntoComposer("@[pm] 帮我看看需求");
+    typeIntoComposer("@[项目管理] 帮我看看需求");
     await waitFor(() => {
       expect((screen.getByTestId("composer-send") as HTMLButtonElement).disabled).toBe(false);
     });
@@ -248,17 +248,17 @@ describe("NewSessionPane", () => {
       expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
         type: "agent:prompt",
         projectId: "p1",
-        agentName: "pm",
+        agentName: "项目管理",
         text: "帮我看看需求",
       }));
     });
     // 新建会话 primaryAgent 也应为 mention
     const session = useProjectsStore.getState().sessions[0];
-    expect(session.primaryAgent).toBe("pm");
+    expect(session.primaryAgent).toBe("项目管理");
     // 不弹缓存确认框
     expect(screen.queryByTestId("mention-confirm")).toBeNull();
-    // agent-select 同步为 mention
-    expect((screen.getByTestId("agent-select") as HTMLSelectElement).value).toBe("pm");
+    // agent pill 同步显示 mention 的 displayName
+    expect(screen.getByTestId("agent-select").textContent).toContain("项目管理");
   });
 
   it("新会话开始录音、切换会话再回来后停止，附件仍回到当前新建会话", async () => {
@@ -305,29 +305,58 @@ describe("NewSessionPane", () => {
     expect(useComposerPrefsStore.getState().bySession[owningSessionId]?.attachments?.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("默认选中最近使用的智能体（按名下会话 lastActivity 最大），而非列表第一项", () => {
+    // agents 顺序：product / pm / dev / test（beforeEach 已注入）
+    // 历史会话中 dev 最近活跃 → 默认应选 dev，而非列表第一个 product
+    useProjectsStore.setState({
+      projects: [{ id: "p1", name: "项目A", cwd: "/a", createdAt: 0 }],
+      sessions: [
+        { id: "old1", projectId: "p1", primaryAgent: "pm", title: "t", createdAt: 0, lastActivity: 100, piSessionFile: "" },
+        { id: "recent", projectId: "p1", primaryAgent: "dev", title: "t", createdAt: 0, lastActivity: 999, piSessionFile: "" },
+      ],
+      currentProjectId: "p1",
+      currentSessionId: null,
+    });
+    render(<NewSessionPane />);
+    // pill 按钮文本只显示选中智能体：应含 dev 的 "技术实现"，不含列表第一项 "需求设计"
+    const pillText = screen.getByTestId("agent-select").textContent ?? "";
+    expect(pillText).toContain("技术实现");
+    expect(pillText).not.toContain("需求设计");
+  });
+
+  it("无会话历史时默认回退列表第一项", () => {
+    // beforeEach 默认 sessions: []，应回退 agents[0] = product("需求设计")
+    render(<NewSessionPane />);
+    expect(screen.getByTestId("agent-select").textContent).toContain("需求设计");
+  });
+
   it("agent 下拉来自 agents store，pendingAgent 预选", () => {
     useAgentsStore.setState({ list: [agentCfg("需求设计"), agentCfg("代码审查")] });
     render(<NewSessionPane pendingAgent="代码审查" />);
-    const sel = screen.getByTestId("agent-select") as HTMLSelectElement;
-    expect(sel.value).toBe("代码审查");
-    // 下拉选项展示 store 里的 displayName（含 agentDefOf 回退 emoji）
-    expect(screen.getByText(/需求设计/)).toBeTruthy();
+    // pill 显示 pendingAgent 的 displayName
+    expect(screen.getByTestId("agent-select").textContent).toContain("代码审查");
+    // 打开下拉验证列表项来自 store
+    fireEvent.click(screen.getByTestId("agent-select"));
+    expect(screen.getByTestId("agent-item-需求设计")).toBeTruthy();
+    expect(screen.getByTestId("agent-item-代码审查")).toBeTruthy();
   });
 
   it("pendingAgent 变化时同步到下拉（已挂载新建页再点智能体）", () => {
-    useAgentsStore.setState({ list: [agentCfg("dev", "技术实现"), agentCfg("代码审查")] });
+    useAgentsStore.setState({ list: [agentCfg("技术实现"), agentCfg("代码审查")] });
     const { rerender } = render(<NewSessionPane />);
-    // 无 pendingAgent 时默认取列表第一项
-    expect((screen.getByTestId("agent-select") as HTMLSelectElement).value).toBe("dev");
+    // 无 pendingAgent 且无会话历史时默认取列表第一项
+    expect(screen.getByTestId("agent-select").textContent).toContain("技术实现");
     rerender(<NewSessionPane pendingAgent="代码审查" />);
-    expect((screen.getByTestId("agent-select") as HTMLSelectElement).value).toBe("代码审查");
+    expect(screen.getByTestId("agent-select").textContent).toContain("代码审查");
   });
 
-  it("agents list 为空时下拉禁用并显示（无智能体）", () => {
+  it("agents list 为空时 pill 显示占位，展开下拉提示无智能体", () => {
     useAgentsStore.setState({ list: [] });
     render(<NewSessionPane />);
-    const sel = screen.getByTestId("agent-select") as HTMLSelectElement;
-    expect(sel.disabled).toBe(true);
+    // pill 显示占位文本
+    expect(screen.getByTestId("agent-select").textContent).toContain("选择智能体");
+    // 展开下拉提示无智能体
+    fireEvent.click(screen.getByTestId("agent-select"));
     expect(screen.getByText(/无智能体/)).toBeTruthy();
   });
 
@@ -345,15 +374,16 @@ describe("NewSessionPane", () => {
       expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
     });
     typeIntoComposer("hello");
-    // agentName 为 null，发送禁用（不能断言 select.value：无匹配 option 时 DOM 会回落显示首项，掩盖真实 state）
+    // agentName 为 null，发送禁用
     const btn = screen.getByTestId("composer-send") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     // 回包到达后灌入列表，应自动回填第一项为选中智能体，发送解禁
     act(() => {
-      useAgentsStore.setState({ list: [agentCfg("dev", "技术实现"), agentCfg("test", "质量验收")] });
+      useAgentsStore.setState({ list: [agentCfg("技术实现"), agentCfg("质量验收")] });
     });
     expect(btn.disabled).toBe(false);
-    expect((screen.getByTestId("agent-select") as HTMLSelectElement).value).toBe("dev");
+    // pill 显示回填的 dev displayName
+    expect(screen.getByTestId("agent-select").textContent).toContain("技术实现");
   });
 
   it("空智能体列表：无有效选中值且发送被阻止（不回退到死智能体 dev）", async () => {
@@ -368,9 +398,8 @@ describe("NewSessionPane", () => {
     await waitFor(() => {
       expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
     });
-    // agentName 应为空，而不是回退到列表里已不存在的 "dev"
-    const sel = screen.getByTestId("agent-select") as HTMLSelectElement;
-    expect(sel.value).toBe("");
+    // agentName 为 null，pill 显示占位而非某个死智能体
+    expect(screen.getByTestId("agent-select").textContent).toContain("选择智能体");
     // 输入文本后发送按钮仍禁用，点击也不会发出 agent:prompt
     typeIntoComposer("hello");
     const btn = screen.getByTestId("composer-send") as HTMLButtonElement;

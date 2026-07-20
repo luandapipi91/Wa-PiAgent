@@ -1,34 +1,52 @@
 import { useState, useRef, useEffect } from "react";
-import { agentDefOf, randomSessionId } from "@hiagent/shared";
+import { isModelAvailable, randomSessionId } from "@hiagent/shared";
 import type { AgentName, AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
 import { useProjectsStore } from "../store/projects";
-import { useAgentsStore } from "../store/agents";
+import { useAgentsStore, topAgentsByRecency } from "../store/agents";
+import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { send } from "../ws-instance";
 import { expandTokens, extractAgentToken } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
+import { AgentDropdown } from "./ui/AgentDropdown";
 
 interface Props {
-  /** 侧栏/宫格「新建会话」带过来的预选智能体；为空则取列表第一项 */
+  /** 侧栏/宫格「新建会话」带过来的预选智能体；为空则取最近使用的智能体 */
   pendingAgent?: string | null;
   /** pendingAgent 已被取用为初始值后回调一次（App 侧清除，避免下次进新建页又预选旧值） */
   onConsumePendingAgent?: () => void;
 }
 
+/** 计算新建会话的默认智能体：pendingAgent 优先 → 最近使用者 → 列表第一项 */
+function pickDefaultAgent(
+  agents: ReturnType<typeof useAgentsStore.getState>["list"],
+  sessions: ReturnType<typeof useProjectsStore.getState>["sessions"],
+  pendingAgent?: string | null,
+): AgentName | null {
+  if (pendingAgent) return pendingAgent as AgentName;
+  if (sessions.length > 0) {
+    const r = topAgentsByRecency(agents, sessions, 1)[0]?.displayName;
+    if (r) return r;
+  }
+  return agents[0]?.displayName ?? null;
+}
+
 export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: Props) {
-  const { projects, currentProjectId } = useProjectsStore();
+  const { projects, currentProjectId, sessions } = useProjectsStore();
   const agents = useAgentsStore(s => s.list);
-  // 空列表且无 pendingAgent 时为 null（不回退到可能已删除的 "dev"），发送前置条件拦截
-  const [agentName, setAgentName] = useState<AgentName | null>(pendingAgent ?? agents[0]?.name ?? null);
+  // 默认选中最近使用的智能体（pendingAgent 优先）；空列表时为 null（发送前置条件拦截）
+  const [agentName, setAgentName] = useState<AgentName | null>(pickDefaultAgent(agents, sessions, pendingAgent));
   const [text, setText] = useState("");
   const initialProject = currentProjectId ?? projects[0]?.id ?? null;
   const [projectId, setProjectId] = useState<string | null>(initialProject);
   // currentProjectId 变化时同步（点项目旁 + 号时可能已在新建页，不会重新挂载）
   useEffect(() => { if (currentProjectId) setProjectId(currentProjectId); }, [currentProjectId]);
   // pendingAgent 变化时同步（已停在新建页再点侧栏/宫格智能体，组件不会重新挂载）
-  useEffect(() => { if (pendingAgent) setAgentName(pendingAgent); }, [pendingAgent]);
-  // 首载 agent:list 回包晚于挂载：list 空转非空且 agentName 仍为 null 时回填（沿用 pendingAgent 优先级）；已选中则不干预
-  useEffect(() => { if (!agentName && agents.length > 0) setAgentName(pendingAgent ?? agents[0]?.name ?? null); }, [agents, agentName, pendingAgent]);
+  useEffect(() => { if (pendingAgent) setAgentName(pendingAgent as AgentName); }, [pendingAgent]);
+  // 首载 agent:list 回包晚于挂载：list 空转非空且 agentName 仍为 null 时回填（沿用 pendingAgent 优先级 + recency）；已选中则不干预
+  useEffect(() => {
+    if (!agentName && agents.length > 0) setAgentName(pickDefaultAgent(agents, sessions, pendingAgent));
+  }, [agents, agentName, pendingAgent, sessions]);
   // 挂载消费一次：初始值取用后通知 App 清除 pendingAgent（空依赖，仅首次挂载）
   useEffect(() => { if (pendingAgent) onConsumePendingAgent?.(); }, []);
   // 新建会话的 sessionId 按当前项目持久化，切换再回来仍能对应同一组 composer 附件/录音
@@ -57,6 +75,7 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
 
   const [model, setModel] = useState<string | null>(defaults.model);
   const [thinking, setThinking] = useState<ThinkingLevel>(defaults.thinking);
+  const providers = useProvidersStore(s => s.providers);
   const prefs = useComposerPrefsStore(s => s.bySession[sessionId]);
   const attachments = prefs?.attachments ?? [];
   const setAttachments = (next: AttachmentDraft[] | ((prev: AttachmentDraft[]) => AttachmentDraft[])) => {
@@ -70,7 +89,8 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
   }, [defaults.model, defaults.thinking]);
 
   const handleSend = () => {
-    if (!projectId || !text.trim() || !model || !agentName || sendingRef.current) return;
+    // model 必须是当前 providers 中真实存在的模型（prefs 可能残留已删除 provider 的过期 model）
+    if (!projectId || !text.trim() || !isModelAvailable(model, providers) || !agentName || sendingRef.current) return;
     sendingRef.current = true;
     // @提及智能体：新会话无缓存可失效，直接以 mention 为主智能体，无需确认框
     const { agent: mention, rest } = extractAgentToken(text);
@@ -110,7 +130,7 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
     <div className="flex-1 flex flex-col items-center justify-center p-10" data-testid="new-session-pane">
       <h2 className="text-[26px] font-extrabold tracking-tight text-primary mb-2">开始新会话</h2>
       <p className="text-sm text-secondary mb-7">选好项目目录和角色，直接打字发送</p>
-      <div className="w-full max-w-2xl mb-4 flex gap-2">
+      <div className="w-full max-w-2xl mb-4 flex gap-2 items-center">
         <select
           value={projectId ?? ""}
           onChange={e => setProjectId(e.target.value || null)}
@@ -120,19 +140,11 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
           {projects.length === 0 && <option value="">（无项目，请先新建）</option>}
           {projects.map(p => <option key={p.id} value={p.id}>📁 {p.name} {p.cwd}</option>)}
         </select>
-        <select
-          value={agentName ?? ""}
-          onChange={e => setAgentName(e.target.value as AgentName)}
-          disabled={agents.length === 0}
-          className="bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[12.5px]"
-          data-testid="agent-select"
-        >
-          {agents.length === 0 && <option value="">（无智能体）</option>}
-          {agents.map(a => {
-            const def = agentDefOf(a.name);
-            return <option key={a.name} value={a.name}>{def.emoji} {a.displayName || def.label}</option>;
-          })}
-        </select>
+        <AgentDropdown
+          agents={agents}
+          value={agentName}
+          onPick={name => setAgentName(name)}
+        />
       </div>
       <ComposerInput
         text={text}
