@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   FILE_TOKEN_RE, SKILL_TOKEN_RE, AGENT_TOKEN_RE,
-  expandTokens, extractAgentToken, textToSegments, segmentsToText, textToHtml, escapeHtml,
+  expandTokens, textToSegments, segmentsToText, textToHtml, escapeHtml,
 } from "../src/quick-invoke/tokens";
 
 test("expandTokens 展开文件 token（#[path] -> #path）", () => {
@@ -20,30 +20,12 @@ test("expandTokens 同时展开文件和技能 token", () => {
   expect(expandTokens("#[a.tsx] 和 $[my-skill]")).toBe("#a.tsx 和 /skill:my-skill ");
 });
 
-test("expandTokens 不处理 agent token（由 extractAgentToken 发送前剥离）", () => {
+test("expandTokens 不处理 agent token（@[xxx] 原样保留给主智能体识别）", () => {
   expect(expandTokens("@[代码审查] 帮我看看")).toBe("@[代码审查] 帮我看看");
 });
 
 test("expandTokens 无 token 时原样返回", () => {
   expect(expandTokens("普通文本")).toBe("普通文本");
-});
-
-test("extractAgentToken 提取第一个 @智能体 token 并剥离", () => {
-  const r = extractAgentToken("@[代码审查] 帮我看看");
-  expect(r.agent).toBe("代码审查");
-  expect(r.rest).toBe("帮我看看");
-});
-
-test("extractAgentToken 无提及返回 null + 原文", () => {
-  const r = extractAgentToken("没有提及");
-  expect(r.agent).toBeNull();
-  expect(r.rest).toBe("没有提及");
-});
-
-test("extractAgentToken 只取第一个 token，其余保留在 rest", () => {
-  const r = extractAgentToken("@[甲] 找 @[乙] 聊聊");
-  expect(r.agent).toBe("甲");
-  expect(r.rest).toBe("找 @[乙] 聊聊");
 });
 
 test("textToSegments 拆分文本和文件 chip（#[]）", () => {

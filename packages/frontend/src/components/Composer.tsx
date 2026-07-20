@@ -6,9 +6,8 @@ import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { useSessionStore } from "../store/session";
-import { expandTokens, extractAgentToken } from "../quick-invoke/tokens";
+import { expandTokens } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
-import { Modal } from "./ui/Modal";
 
 interface Props {
   sessionId: string;
@@ -33,8 +32,6 @@ export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
   const model = prefs?.model ?? null;
   const thinking = prefs?.thinking ?? "disabled";
   const attachments = prefs?.attachments ?? [];
-  // 待确认的 @提及切换：非 null 时显示缓存失效确认框
-  const [pendingMention, setPendingMention] = useState<{ mention: AgentName; text: string } | null>(null);
   const providers = useProvidersStore(s => s.providers);
 
   const doSend = (targetAgent: AgentName, expandedText: string) => {
@@ -63,26 +60,10 @@ export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
 
   const handleSend = () => {
     if (disabled) return;
-    // 先剥离 @智能体 提及（@[名称] 不参与 expandTokens 展开）
-    const { agent: mention, rest } = extractAgentToken(text);
-    // 展开 chip token 为纯文本引用标记（#[path] -> #path，$[name] -> /skill:name）
-    const expandedText = expandTokens(mention ? rest : text);
+    // @[xxx] 不剥离，原样保留给主智能体识别（由 HIAGENT_DEFAULT_SYSTEM_PROMPT 中的规则触发 delegate）
+    const expandedText = expandTokens(text);
     if (!expandedText.trim() || !isModelAvailable(model, providers) || sendingRef.current || !projectId) return;
-    // @提及其他智能体：先弹缓存失效确认框
-    if (mention && mention !== agentName) {
-      setPendingMention({ mention: mention as AgentName, text: expandedText });
-      return;
-    }
     doSend(agentName, expandedText);
-  };
-
-  const handleMentionConfirm = () => {
-    if (!pendingMention) return;
-    const { mention, text: expandedText } = pendingMention;
-    setPendingMention(null);
-    // 先切换会话主智能体，再用 mention 发送
-    send({ type: "session:set-agent", sessionId, agentName: mention });
-    doSend(mention, expandedText);
   };
 
   return (
@@ -108,28 +89,6 @@ export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
         placeholder={disabled ? "请先回答上方提问…" : (isRunning ? "输入要加入队列的消息..." : `给${agentName}发消息...`)}
         currentAgentName={agentName}
       />
-      {/* @提及其他智能体的缓存失效确认框（样式同 AgentSwitcher） */}
-      {pendingMention && (
-        <Modal onClose={() => setPendingMention(null)} width={400} data-testid="mention-confirm">
-          <div className="p-4 border-b border-hairline">
-            <div className="text-primary font-bold text-sm">切换智能体</div>
-          </div>
-          <div className="p-4 text-sm text-secondary leading-relaxed">切换智能体后所有缓存都会失效，是否继续？</div>
-          <div className="flex justify-end gap-2 p-3 border-t border-hairline">
-            <button
-              onClick={() => setPendingMention(null)}
-              className="px-3 py-1.5 rounded-sm text-sm bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary"
-              data-testid="mention-confirm-cancel"
-            >取消</button>
-            <button
-              onClick={handleMentionConfirm}
-              className="px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer"
-              style={{ background: "var(--brand)", color: "var(--on-brand)" }}
-              data-testid="mention-confirm-ok"
-            >继续切换</button>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }

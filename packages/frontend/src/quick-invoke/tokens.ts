@@ -1,7 +1,7 @@
 // chip token 序列化/反序列化纯函数
 // token 格式：智能体 @[名称]，文件 #[相对路径]，技能 $[技能名]
 // 发送时展开：#[path] -> #path，$[name] -> /skill:name（SDK _expandSkillCommand 识别）
-// @[名称] 不在 expandTokens 处理——由 extractAgentToken 在发送前提取剥离
+// @[名称] 不在 expandTokens 处理——原样保留给主智能体识别（由 systemPrompt 规则触发 delegate）
 
 /** 智能体 token 正则：匹配 @[非]字符的名称] */
 export const AGENT_TOKEN_RE = /@\[([^\]]+)\]/g;
@@ -22,7 +22,7 @@ export type Segment =
  * #[packages/App.tsx] -> #packages/App.tsx
  * $[brainstorming] -> /skill:brainstorming（后面必须跟空格，SDK 用空格分隔技能名和参数）
  *
- * @[名称] 不在此展开——智能体提及由 extractAgentToken 处理（切换会话智能体）。
+ * @[名称] 不在此展开——原样保留给主智能体识别。
  *
  * 技能展开为 /skill:name 格式，由 SDK 的 _expandSkillCommand 识别后
  * 内联展开为 <skill name="..." location="...">完整 SKILL.md 内容</skill> XML 块。
@@ -31,13 +31,6 @@ export function expandTokens(text: string): string {
   return text
     .replace(FILE_TOKEN_RE, "#$1")
     .replace(SKILL_TOKEN_RE, "/skill:$1 "); // 末尾空格：SDK _expandSkillCommand 用空格分隔技能名和参数
-}
-
-/** 提取第一个 @智能体 token 并剥离（发送前调用；其余文本照常） */
-export function extractAgentToken(text: string): { agent: string | null; rest: string } {
-  const m = text.match(/@\[([^\]]+)\]/);
-  if (!m) return { agent: null, rest: text };
-  return { agent: m[1], rest: text.replace(m[0], "").trim() };
 }
 
 /** 转义 HTML 特殊字符，防止 XSS */
