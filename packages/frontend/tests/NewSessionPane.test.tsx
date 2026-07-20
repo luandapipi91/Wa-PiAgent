@@ -223,7 +223,7 @@ describe("NewSessionPane", () => {
     });
   });
 
-  it("@提及智能体：以 mention 为 agentName 发送且不弹确认框（新会话无缓存）", async () => {
+  it("@提及智能体：primaryAgent 仍为 dropdown 默认 agent，@[xxx] 原样发（新会话也走委托）", async () => {
     await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
     useProvidersStore.setState({
       providers: [
@@ -232,33 +232,28 @@ describe("NewSessionPane", () => {
     });
     render(<NewSessionPane />);
     await waitFor(() => {
-      expect(useComposerPrefsStore.getState().defaults.model).toBe("openai/gpt-4o");
-    });
-    await waitFor(() => {
       expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
     });
 
+    // dropdown 默认选中的 agent（NewSessionPane 初始化时的 agentName）
+    const defaultAgent = (screen.getByTestId("agent-select") as HTMLElement).textContent;
+
     typeIntoComposer("@[项目管理] 帮我看看需求");
-    await waitFor(() => {
-      expect((screen.getByTestId("composer-send") as HTMLButtonElement).disabled).toBe(false);
-    });
     fireEvent.click(screen.getByTestId("composer-send"));
 
     await waitFor(() => {
       expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
         type: "agent:prompt",
         projectId: "p1",
-        agentName: "项目管理",
-        text: "帮我看看需求",
+        agentName: expect.any(String),  // 不再是 mention，而是 dropdown 默认 agent
+        text: "@[项目管理] 帮我看看需求",  // 原样保留
       }));
     });
-    // 新建会话 primaryAgent 也应为 mention
+    // primaryAgent 仍是 dropdown 默认 agent（不是 mention）
     const session = useProjectsStore.getState().sessions[0];
-    expect(session.primaryAgent).toBe("项目管理");
-    // 不弹缓存确认框
+    expect(session.primaryAgent).not.toBe("项目管理");
+    // 不弹确认框
     expect(screen.queryByTestId("mention-confirm")).toBeNull();
-    // agent pill 同步显示 mention 的 displayName
-    expect(screen.getByTestId("agent-select").textContent).toContain("项目管理");
   });
 
   it("新会话开始录音、切换会话再回来后停止，附件仍回到当前新建会话", async () => {

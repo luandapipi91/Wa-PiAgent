@@ -6,7 +6,7 @@ import { useAgentsStore, topAgentsByRecency } from "../store/agents";
 import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { send } from "../ws-instance";
-import { expandTokens, extractAgentToken } from "../quick-invoke/tokens";
+import { expandTokens } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
 import { AgentDropdown } from "./ui/AgentDropdown";
 
@@ -92,19 +92,16 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
     // model 必须是当前 providers 中真实存在的模型（prefs 可能残留已删除 provider 的过期 model）
     if (!projectId || !text.trim() || !isModelAvailable(model, providers) || !agentName || sendingRef.current) return;
     sendingRef.current = true;
-    // @提及智能体：新会话无缓存可失效，直接以 mention 为主智能体，无需确认框
-    const { agent: mention, rest } = extractAgentToken(text);
-    const targetAgent = (mention as AgentName | null) ?? agentName;
-    if (mention) setAgentName(mention as AgentName);
-    // 展开 chip token 为纯文本引用标记（$[name] -> /skill:name，#[path] -> #path）
-    const expandedText = expandTokens(mention ? rest : text);
+    // primaryAgent = 顶部 dropdown 选中的 agentName（不变）
+    // @[xxx] 原样发给主智能体，由 systemPrompt 规则触发 delegate
+    const expandedText = expandTokens(text);
     // 乐观 UI：立即创建会话触发导航，消除白屏等待。
     // 用户消息由 kernel session:echo_user 回传后 App.tsx 调 optimisticSend 秒显示。
     // kernel _promptLocks 串行锁防并发竞态。
     useProjectsStore.getState().addSession({
       id: sessionId,
       projectId,
-      primaryAgent: targetAgent,
+      primaryAgent: agentName,
       title: expandedText.slice(0, 20),
       createdAt: Date.now(),
       lastActivity: Date.now(),
@@ -114,7 +111,7 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
       type: "agent:prompt",
       projectId,
       sessionId,
-      agentName: targetAgent,
+      agentName,
       text: expandedText,
       model,
       thinking,
