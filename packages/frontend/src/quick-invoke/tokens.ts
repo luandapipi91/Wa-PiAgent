@@ -33,6 +33,69 @@ export function expandTokens(text: string): string {
     .replace(SKILL_TOKEN_RE, "/skill:$1 "); // 末尾空格：SDK _expandSkillCommand 用空格分隔技能名和参数
 }
 
+// 智能体名称 -> 头像/颜色 全局注册表，供 textToHtml 渲染 chip 时使用
+const agentMetaLookup = new Map<string, { avatar?: string; avatarColor?: string }>();
+
+/** 注册智能体头像信息，供 chip 渲染时查找 */
+export function registerAgentMeta(name: string, meta: { avatar?: string; avatarColor?: string }) {
+  agentMetaLookup.set(name, meta);
+}
+
+// chip 内联样式注入
+let chipStyleInjected = false;
+
+/** 确保 chip 样式已注入到 document.head（多次调用安全，只注入一次） */
+export function ensureChipStyles() {
+  if (chipStyleInjected || typeof document === "undefined") return;
+  chipStyleInjected = true;
+  const style = document.createElement("style");
+  style.textContent = `
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-size: 0.85em;
+      font-weight: 500;
+      margin: 0 1px;
+      vertical-align: baseline;
+      user-select: all;
+    }
+    .chip-agent {
+      background-color: var(--accent-soft, #EEEEFF);
+      color: var(--accent, #5B5BD6);
+      border: 1px solid var(--accent-soft, #EEEEFF);
+    }
+    .chip-agent-avatar {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+    .chip-file {
+      background-color: #22C55E20;
+      color: #16A34A;
+      border: 1px solid #22C55E40;
+    }
+    .chip-skill {
+      background-color: #5B5BD620;
+      color: #5B5BD6;
+      border: 1px solid #5B5BD640;
+    }
+    [contenteditable][data-placeholder]:empty::before {
+      content: attr(data-placeholder);
+      color: var(--text-tertiary, #A1A1A6);
+      pointer-events: none;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 /** 转义 HTML 特殊字符，防止 XSS */
 export function escapeHtml(str: string): string {
   return str
@@ -89,12 +152,34 @@ export function segmentsToText(segs: Segment[]): string {
  * 把纯文本（含 token）转为 HTML 字符串，chip 渲染为不可编辑的 span。
  * chip 内部含 data-token 属性（原始 token）和显示文本（触发符 + 名称）。
  */
-export function textToHtml(text: string): string {
+function avatarStyle(color?: string): string {
+  if (!color) return "";
+  const parts = color.split("-").map(s => s.trim());
+  return parts.length >= 2
+    ? `linear-gradient(135deg, ${parts.join(", ")})`
+    : color;
+}
+
+/**
+ * 把纯文本（含 token）转为 HTML 字符串，chip 渲染为不可编辑的 span。
+ * chip 内部含 data-token 属性（原始 token）和显示文本（触发符 + 名称）。
+ *
+ * opts.hideTrigger=true 时 agent chip 显示文本不含 @ 前缀（仅展示名）。
+ *   用于历史消息渲染（MessageList）：展示场景不需要看到触发符，更干净。
+ *   输入框 ComposerTextarea 默认 false：保留 @ 让用户看到触发符。
+ */
+export function textToHtml(text: string, opts?: { hideTrigger?: boolean }): string {
+  const hideTrigger = opts?.hideTrigger ?? false;
   const segs = textToSegments(text);
   return segs.map(s => {
     if (s.type === "agent") {
       const token = `@[${s.value}]`;
-      return `<span class="chip chip-agent" contenteditable="false" data-token="${escapeHtml(token)}">@${escapeHtml(s.value)}</span>`;
+      const meta = agentMetaLookup.get(s.value);
+      const avatarHtml = meta?.avatar
+        ? `<span class="chip-agent-avatar" style="background:${escapeHtml(avatarStyle(meta.avatarColor))}">${escapeHtml(meta.avatar)}</span>`
+        : "";
+      const trigger = hideTrigger ? "" : "@";
+      return `<span class="chip chip-agent" contenteditable="false" data-token="${escapeHtml(token)}">${avatarHtml}${trigger}${escapeHtml(s.value)}</span>`;
     }
     if (s.type === "file") {
       const token = `#[${s.value}]`;

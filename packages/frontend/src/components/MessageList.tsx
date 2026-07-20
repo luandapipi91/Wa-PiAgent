@@ -9,7 +9,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useToastStore } from "../store/toast";
+import { useAgentsStore } from "../store/agents";
 import { DelegateCard } from "./blocks/DelegateCard";
+import { textToHtml, ensureChipStyles, registerAgentMeta } from "../quick-invoke/tokens";
 
 const EMPTY: SessionMessage[] = [];
 
@@ -29,6 +31,15 @@ export function MessageList({ sessionId }: Props) {
   const historyLoading = useSessionStore(s => s.historyLoadingBySession[sessionId] ?? false);
   const rows = preprocess(messages);
   const session = useProjectsStore(s => s.sessions.find(x => x.id === sessionId));
+  const agents = useAgentsStore(s => s.list);
+
+  // 确保 chip 样式注入（幂等，只在首次注入；document 可能为 undefined 时跳过）
+  ensureChipStyles();
+  // 同步注册所有智能体头像信息供 chip 渲染查找（render 阶段执行，确保 textToHtml 调用时 meta 已就绪）。
+  // registerAgentMeta 是幂等 Map.set，每次 render 重写无副作用。
+  for (const a of agents) {
+    registerAgentMeta(a.displayName, { avatar: a.avatar, avatarColor: a.avatarColor });
+  }
 
   // 历史加载中且尚无消息（且未在流式）：显示居中 loading，避免切换会话时对话区空白
   const showHistoryLoading = historyLoading && messages.length === 0 && !streaming;
@@ -306,8 +317,12 @@ function StreamingRow({ streaming, sessionId }: { streaming: SessionMessage; ses
 function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row: RenderedRow; sessionId: string; showResend?: boolean; onResend?: (text: string) => void; isStreaming?: boolean }) {
   const m = row.main.message as any;
 
-  // custom 消息（如 agent_switch 分隔行）：居中灰字，无头像气泡；无内容则不渲染
-  if (m.type === "custom" || m.type === "custom_message") {
+  // custom 消息（如 agent_switch 分隔行 / pi-subagents 完成通知）：
+  // 兼容两种字段——前端构造用 type:"custom"，Pi SDK 内存消息用 role:"custom"。
+  if (m.type === "custom" || m.type === "custom_message" || m.role === "custom") {
+    // subagent-notification 是 pi-subagents 在子智能体完成后发的提醒通知，
+    // 内容是 task-notification XML，与 delegate toolResult 信息重复（DelegateCard 已展示），过滤。
+    if (m.customType === "subagent-notification") return null;
     if (!m.content) return null;
     return (
       <div className="text-center text-[11.5px] text-tertiary" data-testid={`custom-${sessionId}-${m.timestamp}`}>
@@ -322,6 +337,9 @@ function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row
     const displayText = formatSkillBlocks(stripAttachmentRefs(
       typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? "")
     ));
+    // textToHtml 把 @[agent]/#[file]/$[skill] token 渲染为 chip。
+    // hideTrigger=true：展示场景不显示 @ 触发符（仅显示智能体名 + 头像），与输入框 ComposerTextarea 区分。
+    const displayHtml = textToHtml(displayText, { hideTrigger: true });
     return (
       <div className="flex flex-row-reverse gap-2.5 max-w-[78%] ml-auto" data-testid={`msg-${sessionId}-${m.timestamp}`}>
         <div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-[11.5px] flex-shrink-0 text-secondary">
@@ -330,7 +348,7 @@ function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row
         <div className="flex flex-col items-end">
           <div className="text-[11px] text-tertiary mb-0.5 font-semibold">我 · {formatTime(m.timestamp)}</div>
           <div className="px-3.5 py-2.5 text-[13.5px] bg-surface text-primary border border-hairline" style={{ borderRadius: "14px 4px 14px 14px", lineHeight: 1.55 }}>
-            <p>{displayText}</p>
+            <p dangerouslySetInnerHTML={{ __html: displayHtml }} />
           </div>
           {showResend && (
             <button

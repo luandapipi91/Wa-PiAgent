@@ -6,7 +6,18 @@
 
 ## 2026-07-20
 
+### 修复
+- **历史用户消息中 @[智能体] 渲染为 chip（去 @ 触发符）**：之前 CHANGELOG 声称「MessageList.tsx 用户消息用 textToHtml 渲染 chip（含头像）」实际**未落地**——`MessageList` 用户消息分支只走纯文本 `<p>{displayText}</p>`，`@[项目管理]` 显示为字面字符串。补全：`MessageList` 组件 render 阶段同步调用 `ensureChipStyles()` + 从 `useAgentsStore` 读取并 `registerAgentMeta`（必须在 render 阶段同步注册，确保首次 `textToHtml` 调用时 meta 已就绪）；用户消息用 `textToHtml(text, { hideTrigger: true }) + dangerouslySetInnerHTML` 渲染。新增 `hideTrigger` 选项：展示场景（MessageList）不显示 `@` 触发符（仅显示头像+名称，更干净），输入框场景（ComposerTextarea）保留 `@` 让用户看到触发符——`@` 是输入触发符、不是名称一部分，展示时去掉更符合"像技能一样"（技能 chip 在展示时也不带 `$`）。TDD 红→绿：tokens.test.ts 加 `hideTrigger` 选项测试 + MessageList.test.tsx 加 3 个 chip 渲染测试（含头像/正文共存/自动注册）。影响：frontend(src/quick-invoke/tokens + src/components/MessageList + tests/tokens + tests/MessageList)。
+- **委托智能体执行任务后刷新出现空气泡**：截图现象是委托「质量验收」后刷新页面，主智能体下方出现一条只有时间戳没有正文的空气泡。**根因**：`MessageList.tsx` 用 `m.type === "custom"` 判断 custom 消息，但 Pi SDK 内存消息字段是 `m.role === "custom"`（顶层无 type）。委托完成时 `pi-subagents` 注入的 `subagent-notification` 消息（`role:"custom"` + `content:"<task-notification>..."` 字符串）进不去 custom 分支，掉到 assistant 分支；又因 `Array.isArray(string)` 为 false 使 `blocks=[]`，渲染出空气泡。**误导根源**：`shared/types.ts:113` 旧注释「Pi 真实数据里这类消息的区分字段是顶层 type，不是 role」把 JSONL 持久化格式（`type:"custom_message"`）与 SDK 内存格式（`role:"custom"`）混淆了。**修复（TDD 红→绿）**：先在 `MessageList.test.tsx` 加 3 个失败测试（基于真实 session 文件样本：`role:"custom"` + `customType:"subagent-notification"` + content 字符串），确认失败原因正确；再改 `MessageList.tsx` custom 判断兼容 `m.role === "custom"`，并对 `subagent-notification` 直接 return null（内容与 DelegateCard 信息重复）。同步修正 `shared/types.ts` 注释，说明字段来源三种情况（SDK 内存 / 前端构造 / JSONL 持久化）。**调试教训**：第一轮基于代码推理认定「空 assistant 消息过滤不严」，加了 `hasMeaningfulAssistantContent` 共享函数修复——方向错误，已回退。第二轮加诊断日志拿到真实 ws 流量才定位到 `role:"custom"` 字段错位。影响：frontend(src/components/MessageList + tests/MessageList) + shared(src/types 注释修正)。
+
 ### 新增
+- **消息列表中 @[智能体] chip 渲染 + 按钮选择器自适应 + 输入框 chip 样式优化**：
+  - `tokents.ts` 新增 `registerAgentMeta` 全局注册表 + `ensureChipStyles` 导出，`textToHtml` 渲染时查找智能体头像/颜色信息
+  - `ComposerTextarea.tsx` 从 `tokens.ts` 导入 `ensureChipStyles`，移除本地重复定义；chip 样式使用 CSS 变量替代硬编码、`padding` 从 `1px 6px` 调为 `2px 7px`、新增 `.chip-agent-avatar` 头像样式
+  - `ComposerInput.tsx` `handleSelect` 选中智能体时调用 `registerAgentMeta` 注册头像信息
+  - `AgentDropdown.tsx` 按钮加 `min-w-0` 防止换行，智能体名称加 `max-w-[180px] truncate` 截断
+  - `MessageList.tsx` 用户消息用 `textToHtml` + `dangerouslySetInnerHTML` 渲染 chip（含头像）；助手 markdown 消息新增 `TokenizedMarkdown` 组件按 segment 拆分渲染 chip；加载时注册全部智能体头像信息
+  - 影响：frontend(lib/quick-invoke/tokens + components/ui/{ComposerInput,ComposerTextarea,AgentDropdown} + components/MessageList)
 - **askTo 非空时同时注册 fleet 工具 + buildDelegatePrompt 补充 fleet 使用说明（Task 2.3）**：`agent-manager.ts:27` import 加 `makeFleetTool`；`delegateTools` 数组在 askToConfigs 非空时除 `makeDelegateTool` 外再追加 `makeFleetTool`（同样绑定 askToConfigs + spawnViaSubagentsService）。`delegate-tool.ts:buildDelegatePrompt` 末尾追加一行 fleet 使用说明（参数 tasks、并发上限 6、适用场景、task 仍按任务合约范式）。Phase 2（B3 并行委托）收口。TDD：扩展现有两个测试——`agent-manager.test.ts` 的 askTo 非空用例断言 `names` 同时含 delegate 和 fleet、askTo 为空用例断言两者都不注册；`delegate-tool.test.ts` 的 buildDelegatePrompt 用例追加 `toContain("fleet")` 和 `toContain("并行")` 断言。影响：kernel(src/agent-manager + src/delegate-tool + tests/agent-manager + tests/delegate-tool)。
 
 ### 重构
