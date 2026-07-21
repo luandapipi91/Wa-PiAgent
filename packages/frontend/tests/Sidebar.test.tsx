@@ -1,5 +1,6 @@
 import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
+import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
 import { Sidebar } from "../src/components/Sidebar";
 import { useProjectsStore } from "../src/store/projects";
 
@@ -22,4 +23,34 @@ test("透传 onNewSession", () => {
   render(<Sidebar onNewSession={fn} onChatWith={() => {}} onEdit={() => {}} onMore={() => {}} onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={() => {}} />);
   fireEvent.click(screen.getByTestId("new-session-btn"));
   expect(fn).toHaveBeenCalledTimes(1);
+});
+
+test("默认工作区渲染在独立'默认'区", () => {
+  useProjectsStore.setState({
+    projects: [
+      { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
+      { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+    ],
+    sessions: [], currentProjectId: null, currentSessionId: null,
+  });
+  render(<Sidebar onNewSession={() => {}} onChatWith={() => {}} onEdit={() => {}} onMore={() => {}} onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={() => {}} />);
+  // "默认" 区标题存在
+  expect(screen.getByText("默认")).toBeTruthy();
+  // 默认工作区项目渲染在"默认"区
+  expect(screen.getByText("默认工作区")).toBeTruthy();
+  // "项目" 区也有标题
+  expect(screen.getAllByText(/^项目$/).length).toBeGreaterThanOrEqual(1);
+});
+
+test("默认工作区不出现在项目区（去重）", () => {
+  useProjectsStore.setState({
+    projects: [
+      { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
+      { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+    ],
+    sessions: [], currentProjectId: null, currentSessionId: null,
+  });
+  render(<Sidebar onNewSession={() => {}} onChatWith={() => {}} onEdit={() => {}} onMore={() => {}} onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={() => {}} />);
+  // 只有一处渲染"默认工作区"
+  expect(screen.getAllByText("默认工作区").length).toBe(1);
 });

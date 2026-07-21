@@ -1,4 +1,5 @@
 import { useProjectsStore } from "../store/projects";
+import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
 import type { View } from "../App";
 import { ProjectItem } from "./ProjectItem";
 
@@ -13,10 +14,12 @@ interface Props {
 export function ProjectList(props: Props) {
   const { projects, sessions, currentSessionId, currentProjectId } = useProjectsStore();
   const isNewSessionView = props.currentView === "new-session";
+  // 过滤掉系统项目（默认工作区），它由 Sidebar 的"默认"独立区单独渲染，避免重复
+  const userProjects = projects.filter(p => p.id !== SYSTEM_PROJECT_ID);
   return (
     <div className="flex-1 overflow-y-auto overflow-x-hidden">
       <div className="text-[11px] font-bold text-tertiary px-2 py-1 border-t border-hairline mt-2 uppercase tracking-wide">项目</div>
-      {projects.map(p => (
+      {userProjects.map(p => (
         <ProjectItem
           key={p.id}
           project={p}
