@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentStatus } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID, type AgentStatus } from "@hiagent/shared";
 import { useProjectsStore } from "../store/projects";
 import { useSessionStore } from "../store/session";
 import { useIsBlocked } from "../store/ask";
@@ -96,7 +96,11 @@ export function SessionView({ sessionId }: Props) {
           </div>
           <div className="text-[11.5px] text-tertiary mt-px">
             <span className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle" style={{ background: STATUS_COLORS[headerStatus] }} data-testid="session-status-dot" />
-            {project?.cwd ?? ""} · {AGENT_STATE_LABEL[headerStatus]}
+            {/* 默认工作区会话：不暴露内部工作目录，显示友好文案；普通项目会话仍显示 cwd */}
+            {(session && session.projectId === SYSTEM_PROJECT_ID)
+              ? "默认工作区 · 工作目录"
+              : (project?.cwd ?? "")
+            } · {AGENT_STATE_LABEL[headerStatus]}
           </div>
         </div>
       </header>
