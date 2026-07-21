@@ -10,6 +10,7 @@ import {
   PROMPTS_FILE,
   SUBAGENT_TYPES,
   isSubagentType,
+  normalizeSubagentType,
 } from "../src/constants";
 
 // pi-lens 已彻底移除：这些工具名不应再出现在默认 allowlist 或扩展映射里
@@ -149,9 +150,24 @@ test("SUBAGENT_TYPES 每项有完整的元信息", () => {
 test("isSubagentType 识别内置类型名（大小写敏感）", () => {
   expect(isSubagentType("general-purpose")).toBe(true);
   expect(isSubagentType("Explore")).toBe(true);
+  // 中文 displayName 也识别（用户在输入框打 @[通用子智能体] 时被认作内置类型）
+  expect(isSubagentType("通用子智能体")).toBe(true);
+  expect(isSubagentType("探索子智能体")).toBe(true);
   // 大小写敏感（pi-subagents registry 用大小写敏感查 type）
   expect(isSubagentType("explore")).toBe(false);
   expect(isSubagentType("general_purpose")).toBe(false);
   expect(isSubagentType("代码审查")).toBe(false);
   expect(isSubagentType("")).toBe(false);
+});
+
+test("normalizeSubagentType 把中文别名归一化为英文 name", () => {
+  // 中英文互转
+  expect(normalizeSubagentType("通用子智能体")).toBe("general-purpose");
+  expect(normalizeSubagentType("探索子智能体")).toBe("Explore");
+  // 已是英文 name 原样返回
+  expect(normalizeSubagentType("general-purpose")).toBe("general-purpose");
+  expect(normalizeSubagentType("Explore")).toBe("Explore");
+  // 非内置类型原样透传（普通智能体实名）
+  expect(normalizeSubagentType("代码审查")).toBe("代码审查");
+  expect(normalizeSubagentType("")).toBe("");
 });

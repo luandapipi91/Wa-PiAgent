@@ -44,7 +44,7 @@ export const WORKDIR_TTL_DAYS = 7;
 export interface SubagentTypeDef {
   /** 类型名（传给 svc.spawn 的第一个参数，大小写敏感） */
   name: string;
-  /** 显示名（前端展示） */
+  /** 显示名（前端卡片展示 + @ token 插入 + delegate 接受的别名） */
   displayName: string;
   /** 简介（前端卡片展示） */
   description: string;
@@ -75,9 +75,22 @@ export const SUBAGENT_TYPES: SubagentTypeDef[] = [
   },
 ];
 
-/** 判断 name 是否是内置 subagent 类型名（用于 delegate allowlist 放行 + 前端差异化渲染） */
+/**
+ * 判断 name 是否是内置 subagent 类型名（用于 delegate allowlist 放行 + 前端差异化渲染）。
+ * 同时识别英文 name（"general-purpose"）和中文 displayName（"通用子智能体"），大小写敏感。
+ */
 export function isSubagentType(name: string): boolean {
-  return SUBAGENT_TYPES.some(t => t.name === name);
+  return SUBAGENT_TYPES.some(t => t.name === name || t.displayName === name);
+}
+
+/**
+ * 将内置 subagent 的别名（中文 displayName）归一化为英文 name。
+ * 用于 delegate / fleet 调用 svc.spawn 前把 LLM 传入的中文别名转换为 pi-subagents registry 认的 type 名。
+ * 若 name 不是内置类型别名，原样返回（普通智能体实名透传）。
+ */
+export function normalizeSubagentType(name: string): string {
+  const found = SUBAGENT_TYPES.find(t => t.name === name || t.displayName === name);
+  return found ? found.name : name;
 }
 
 export interface AgentDef {

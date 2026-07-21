@@ -383,7 +383,7 @@ describe("ComposerInput @ 候选菜单过滤", () => {
   });
 
   it("主智能体 askTo 为空时，@ 菜单不再显示空提示（因内置 subagent 类型一定可见）", async () => {
-    // 行为变化：追加内置 subagent 类型后，askTo 空时菜单也有候选（general-purpose/Explore）
+    // 行为变化：追加内置 subagent 类型后，askTo 空时菜单也有候选（通用子智能体/探索子智能体）
     // 所以不再进入 empty 状态，旧版"无可调起"提示不再显示
     render(
       <ComposerInput
@@ -393,8 +393,8 @@ describe("ComposerInput @ 候选菜单过滤", () => {
         projectId="p1" sessionId="s1" onSend={() => {}} currentAgentName="代码审查"
       />
     );
-    // 内置类型一定可见
-    await waitFor(() => expect(screen.getByText("general-purpose")).toBeDefined());
+    // 内置类型一定可见（中文 displayName 显示）
+    await waitFor(() => expect(screen.getByText("通用子智能体")).toBeDefined());
     // 旧版"无可调起"提示不再显示（因为有内置候选）
     expect(screen.queryByText("当前智能体无可调起的子智能体，请在智能体配置中设置关系网")).toBeNull();
   });
@@ -415,7 +415,7 @@ describe("ComposerInput @ 候选菜单过滤", () => {
 
   // ---- 内置 subagent 类型（general-purpose / Explore）候选 ----
 
-  it("@ 菜单追加内置 subagent 类型（general-purpose / Explore），与 askTo 名单一起显示", async () => {
+  it("@ 菜单追加内置 subagent 类型（通用子智能体 / 探索子智能体），与 askTo 名单一起显示", async () => {
     render(
       <ComposerInput
         text="@" setText={() => {}} model="gpt-4o" setModel={() => {}}
@@ -426,9 +426,9 @@ describe("ComposerInput @ 候选菜单过滤", () => {
     );
     // askTo 名单内的实名
     await waitFor(() => expect(screen.getByText("代码审查")).toBeDefined());
-    // 内置 subagent 类型
-    expect(screen.getByText("general-purpose")).toBeTruthy();
-    expect(screen.getByText("Explore")).toBeTruthy();
+    // 内置 subagent 类型（用中文 displayName 显示）
+    expect(screen.getByText("通用子智能体")).toBeTruthy();
+    expect(screen.getByText("探索子智能体")).toBeTruthy();
   });
 
   it("@ 菜单 askTo 为空时仍显示内置 subagent 类型", async () => {
@@ -443,42 +443,43 @@ describe("ComposerInput @ 候选菜单过滤", () => {
       />
     );
     // 内置类型一定可见（无论 askTo 是否空）
-    await waitFor(() => expect(screen.getByText("general-purpose")).toBeDefined());
-    expect(screen.getByText("Explore")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("通用子智能体")).toBeDefined());
+    expect(screen.getByText("探索子智能体")).toBeTruthy();
   });
 
-  it("@ 查询 \"Explore\" 模糊匹配内置类型", async () => {
+  it("@ 查询 \"探索\" 模糊匹配内置类型（按中文 displayName）", async () => {
     render(
       <ComposerInput
-        text="@Exp" setText={() => {}} model="gpt-4o" setModel={() => {}}
+        text="@探索" setText={() => {}} model="gpt-4o" setModel={() => {}}
         thinking="disabled" setThinking={() => {}}
         attachments={[]} setAttachments={() => {}}
         projectId="p1" sessionId="s1" onSend={() => {}} currentAgentName="研发"
       />
     );
-    await waitFor(() => expect(screen.getByText("Explore")).toBeDefined());
-    // general-purpose 不匹配 "Exp"，不应出现
-    expect(screen.queryByText("general-purpose")).toBeNull();
+    await waitFor(() => expect(screen.getByText("探索子智能体")).toBeDefined());
+    // 通用子智能体不匹配 "探索"，不应出现
+    expect(screen.queryByText("通用子智能体")).toBeNull();
     // askTo 名单内的"代码审查"也不匹配
     expect(screen.queryByText("代码审查")).toBeNull();
   });
 
-  it("选中内置 subagent 类型后生成 @[typeName] token", async () => {
+  it("选中内置 subagent 类型后生成 @[中文显示名] token", async () => {
     const setText = mock();
     const onAgentMention = mock();
     render(
       <ComposerInput
-        text="@gene" setText={setText} model="gpt-4o" setModel={() => {}}
+        text="@通用" setText={setText} model="gpt-4o" setModel={() => {}}
         thinking="disabled" setThinking={() => {}}
         attachments={[]} setAttachments={() => {}}
         projectId="p1" sessionId="s1" onSend={() => {}}
         currentAgentName="研发" onAgentMention={onAgentMention}
       />
     );
-    await waitFor(() => expect(screen.getByText("general-purpose")).toBeDefined());
-    fireEvent.click(screen.getByText("general-purpose"));
+    await waitFor(() => expect(screen.getByText("通用子智能体")).toBeDefined());
+    fireEvent.click(screen.getByText("通用子智能体"));
     const lastCall = setText.mock.calls.at(-1)?.[0] as string;
-    expect(lastCall).toContain("@[general-purpose]");
-    expect(onAgentMention).toHaveBeenCalledWith("general-purpose");
+    // token 用中文 displayName，与卡片显示一致
+    expect(lastCall).toContain("@[通用子智能体]");
+    expect(onAgentMention).toHaveBeenCalledWith("通用子智能体");
   });
 });

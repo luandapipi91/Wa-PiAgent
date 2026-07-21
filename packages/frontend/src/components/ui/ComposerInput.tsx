@@ -140,8 +140,10 @@ export function ComposerInput({
       avatarColor: agent.avatarColor,
     }));
     // 内置 subagent 类型：所有主智能体可见，按 query 模糊匹配
+    // 卡片显示与 token 插入都用中文 displayName（与其他智能体实名一致），
+    // delegate 工具内部会归一化为英文 name 传给 svc.spawn
     const filteredBuiltin = filterItems(
-      SUBAGENT_TYPES.map(t => ({ name: t.name, displayName: t.displayName, description: t.description, emoji: t.emoji, gradient: t.gradient })),
+      SUBAGENT_TYPES.map(t => ({ name: t.displayName, description: t.description, emoji: t.emoji, gradient: t.gradient })),
       trigger!.query,
     );
     const builtinItems: MenuItem[] = filteredBuiltin.map(t => ({
