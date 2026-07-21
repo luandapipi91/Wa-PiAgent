@@ -4,17 +4,11 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ProjectStore } from "../src/project-store";
 import { cleanupExpiredWorkdirs } from "../src/workdir-cleaner";
-import {
-  SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD, WORKDIR_TTL_DAYS,
-} from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
 
-// 用临时根目录替代真实 ~/.hiagent/workdir，避免污染开发机
+// 用临时根目录替代真实 ~/.hiagent/workdir，避免污染开发机。
+// cleanupExpiredWorkdirs 接受可选 root 参数（默认 SYSTEM_PROJECT_CWD），测试注入 TMP_ROOT。
 const TMP_ROOT = join(import.meta.dir, ".tmp-workdir-cleaner-" + Math.random().toString(36).slice(2));
-
-// mock SYSTEM_PROJECT_CWD：通过 monkey-patch 让 cleaner 用 TMP_ROOT
-// 注意：cleaner 内部 import 的是常量值，monkey-patch 模块导出不可靠。
-// 改用：cleaner 接受可选 root 参数（默认 SYSTEM_PROJECT_CWD），测试注入 TMP_ROOT。
-// 实施时按此签名实现。
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const EIGHT_DAYS_AGO = new Date(Date.now() - 8 * DAY_MS);
