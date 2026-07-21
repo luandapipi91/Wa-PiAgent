@@ -1,6 +1,6 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, waitFor, act } from "@testing-library/react";
-import type { SessionMessage } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID, type SessionMessage } from "@hiagent/shared";
 import { SessionView } from "../src/components/SessionView";
 import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
@@ -221,4 +221,42 @@ test("无 pending ask 时不渲染 AskDock", () => {
   // composer contenteditable 未禁用
   const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]')! as HTMLElement;
   expect(textbox.isContentEditable).toBe(true);
+});
+
+test("默认工作区会话 header 显示友好文案", () => {
+  // 默认工作区会话：不暴露内部 cwd，显示「默认工作区 · 工作目录」
+  useProjectsStore.setState({
+    projects: [
+      { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
+    ],
+    sessions: [
+      {
+        id: "s1", projectId: SYSTEM_PROJECT_ID, primaryAgent: "dev",
+        title: "设计海报", createdAt: 1721000000000, lastActivity: Date.now(),
+        piSessionFile: "",
+      },
+    ],
+    currentProjectId: SYSTEM_PROJECT_ID, currentSessionId: "s1",
+  });
+  render(<SessionView sessionId="s1" />);
+  // header 显示友好文案，不暴露 /tmp/workdir
+  expect(screen.getByText(/默认工作区/)).toBeTruthy();
+  expect(screen.getByText(/工作目录/)).toBeTruthy();
+  expect(screen.queryByText(/\/tmp\/workdir/)).toBeNull();
+});
+
+test("普通项目会话 header 仍显示 project.cwd（不回归）", () => {
+  // 普通项目会话：header 显示真实 cwd，差异化逻辑不影响老行为
+  useProjectsStore.setState({
+    projects: [{ id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 }],
+    sessions: [{
+      id: "s1", projectId: "p1", primaryAgent: "dev",
+      title: "会话", createdAt: 0, lastActivity: Date.now(),
+      piSessionFile: "",
+    }],
+    currentProjectId: "p1", currentSessionId: "s1",
+  });
+  render(<SessionView sessionId="s1" />);
+  // 与现有「渲染 header 标题 + 项目目录」测试一致，用 regex 匹配 cwd 子串
+  expect(screen.getByText(/\/work\/hiagent/)).toBeTruthy();
 });
