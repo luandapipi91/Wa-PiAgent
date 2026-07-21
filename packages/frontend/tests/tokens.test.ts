@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import {
   FILE_TOKEN_RE, SKILL_TOKEN_RE, AGENT_TOKEN_RE,
   expandTokens, textToSegments, segmentsToText, textToHtml, escapeHtml,
-  registerAgentMeta,
+  registerAgentMeta, clearAgentMeta,
 } from "../src/quick-invoke/tokens";
 
 test("expandTokens 展开文件 token（#[path] -> #path）", () => {
@@ -97,6 +97,8 @@ test("textToHtml agent chip 的 @ 在 avatar 之前（最前面）", () => {
   const nameIdx = html.indexOf("代码审查", avatarIdx);
   expect(emojiIdx).toBeGreaterThan(atIdx);
   expect(nameIdx).toBeGreaterThan(emojiIdx);
+  // 清理全局状态，避免影响其他测试
+  clearAgentMeta();
 });
 
 test("textToHtml 传 { hideTrigger: true } 时 agent chip 不含 @ 前缀（仅展示名，用于历史消息渲染）", () => {

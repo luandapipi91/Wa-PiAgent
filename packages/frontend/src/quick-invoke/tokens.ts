@@ -41,6 +41,11 @@ export function registerAgentMeta(name: string, meta: { avatar?: string; avatarC
   agentMetaLookup.set(name, meta);
 }
 
+/** 清除所有已注册的智能体头像信息（测试用） */
+export function clearAgentMeta() {
+  agentMetaLookup.clear();
+}
+
 // chip 内联样式注入
 let chipStyleInjected = false;
 
