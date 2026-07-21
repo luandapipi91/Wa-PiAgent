@@ -10,6 +10,7 @@ import { McpStore } from "./mcp-store";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { ensureSystemProject } from "./ensure-system-project";
+import { cleanupExpiredWorkdirs } from "./workdir-cleaner";
 import { extractSdkErrorMessage } from "./sdk-errors";
 import { cleanupRecordingTemp } from "./recording-store";
 import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD } from "@hiagent/shared";
@@ -64,6 +65,21 @@ export async function startKernel(
   // 启动时 seed 默认工作区虚拟项目（幂等）+ 确保 workdir 根目录存在
   await ensureSystemProject(projectStore);
   console.log(`[kernel] 默认工作区已就绪: ${SYSTEM_PROJECT_CWD}`);
+
+  // 启动时清理过期 workdir 子目录（默认工作区会话被删后保留 7 天）
+  try {
+    const cleaned = await cleanupExpiredWorkdirs(projectStore);
+    if (cleaned > 0) console.log(`[kernel] 已清理 ${cleaned} 个过期 workdir 子目录`);
+  } catch (e) {
+    console.warn("[kernel] workdir 清理失败:", e);
+  }
+  // 每天定时清理一次
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  setInterval(() => {
+    cleanupExpiredWorkdirs(projectStore).catch(e => {
+      console.warn("[kernel] workdir 定时清理失败:", e);
+    });
+  }, DAY_MS);
 
   // 启动清理：上次崩溃/异常退出遗留的录音临时分片
   try {
