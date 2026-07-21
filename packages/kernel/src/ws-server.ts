@@ -1,7 +1,7 @@
 import type {
   WSClientEvent, WSServerEvent, AgentName, McpServerStatus,
 } from "@hiagent/shared";
-import { WS_PORT } from "@hiagent/shared";
+import { WS_PORT, SYSTEM_PROJECT_ID } from "@hiagent/shared";
 import type { DirEntry } from "@hiagent/shared";
 import type { ConfigStore } from "./config-store";
 import type { ProjectStore } from "./project-store";
@@ -269,12 +269,22 @@ export class WSServer {
         break;
       }
       case "project:update": {
+        // 默认工作区（系统项目）不可改名：拦截在所有校验/落盘之前
+        if (event.projectId === SYSTEM_PROJECT_ID) {
+          this.broadcast({ type: "error", message: "默认工作区不可修改" });
+          break;
+        }
         await this.opts.projectStore.updateProject(event.projectId, { name: event.name, cwd: event.cwd });
         const data = await this.opts.projectStore.load();
         this.broadcast({ type: "projects:list", projects: data.projects, sessions: data.sessions });
         break;
       }
       case "project:delete": {
+        // 默认工作区（系统项目）不可删除：拦截在所有校验/落盘之前
+        if (event.projectId === SYSTEM_PROJECT_ID) {
+          this.broadcast({ type: "error", message: "默认工作区不可删除" });
+          break;
+        }
         await this.opts.projectStore.deleteProject(event.projectId);
         const data = await this.opts.projectStore.load();
         this.broadcast({ type: "projects:list", projects: data.projects, sessions: data.sessions });

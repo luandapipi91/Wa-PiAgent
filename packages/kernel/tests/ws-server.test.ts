@@ -9,6 +9,11 @@ import { SkillManager } from "../src/skill-manager";
 import { ExtensionManager } from "../src/extension-manager";
 import type { AgentMessage, AskParams } from "@hiagent/shared";
 import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
+import {
+  SYSTEM_PROJECT_ID,
+  SYSTEM_PROJECT_NAME,
+  SYSTEM_PROJECT_CWD,
+} from "@hiagent/shared";
 import { askRegistry } from "../src/ask-registry";
 
 beforeEach(() => askRegistry.reset());
@@ -628,5 +633,62 @@ test("agent:prompt 对 primaryAgent 已删除的会话返回 agent_missing", asy
     // 拦截后不进入 ensureStarted / prompt
     expect(calls.ensureStarted).toHaveLength(0);
     expect(calls.prompt).toHaveLength(0);
+  });
+});
+
+// ─── Task 4.1: 默认工作区（系统项目）不可删除/改名 ───
+// project:delete / project:update 收到 projectId === SYSTEM_PROJECT_ID 时
+// 应广播 error，且系统项目仍在、字段未变。
+
+test("project:delete 系统项目被拦截：广播 error 且系统项目仍在", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv, { projectStore }) => {
+    // 预置默认工作区系统项目
+    await projectStore.createSystemProject({
+      id: SYSTEM_PROJECT_ID,
+      name: SYSTEM_PROJECT_NAME,
+      cwd: SYSTEM_PROJECT_CWD,
+    });
+    // 试图删除系统项目
+    send({ type: "project:delete", projectId: SYSTEM_PROJECT_ID });
+    // 拦截应广播 error；用 race 防止 RED 阶段无 error 广播时挂死
+    const err = await Promise.race([
+      recvUntil(recv, e => e.type === "error"),
+      new Promise<any>(r => setTimeout(() => r(null), 500)),
+    ]);
+    expect(err).not.toBeNull();
+    expect(err.message).toContain("不可删除");
+    // 再次拉列表，断言系统项目仍在
+    send({ type: "projects:list" });
+    const list = await recvUntil(recv, e => e.type === "projects:list");
+    expect(list.projects.some((p: any) => p.id === SYSTEM_PROJECT_ID)).toBe(true);
+  });
+});
+
+test("project:update 系统项目被拦截：广播 error 且名字未变", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv, { projectStore }) => {
+    await projectStore.createSystemProject({
+      id: SYSTEM_PROJECT_ID,
+      name: SYSTEM_PROJECT_NAME,
+      cwd: SYSTEM_PROJECT_CWD,
+    });
+    send({
+      type: "project:update",
+      projectId: SYSTEM_PROJECT_ID,
+      name: "试图改名",
+      cwd: SYSTEM_PROJECT_CWD,
+    });
+    const err = await Promise.race([
+      recvUntil(recv, e => e.type === "error"),
+      new Promise<any>(r => setTimeout(() => r(null), 500)),
+    ]);
+    expect(err).not.toBeNull();
+    expect(err.message).toContain("不可修改");
+    // 系统项目仍在且 name 未变
+    const { projects } = await projectStore.load();
+    const sys = projects.find(p => p.id === SYSTEM_PROJECT_ID);
+    expect(sys).toBeDefined();
+    expect(sys!.name).toBe(SYSTEM_PROJECT_NAME);
   });
 });
