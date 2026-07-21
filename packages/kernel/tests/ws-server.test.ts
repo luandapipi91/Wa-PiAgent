@@ -706,36 +706,40 @@ test("project:update 系统项目被拦截：广播 error 且名字未变", asyn
 
 test("agent:prompt 默认工作区新建会话时创建 workdir/<createdAt>/ 子目录", async () => {
   const { agentManager } = makeMockAgentManager();
+  // 声明在 try 外，finally 一定能读到
   let createdSubDir: string | null = null;
-  await withServer(agentManager, async (send, recv, { projectStore }) => {
-    // 预置默认工作区（cwd 用真实 SYSTEM_PROJECT_CWD，与 mkdir 目标一致）
-    await projectStore.createSystemProject({
-      id: SYSTEM_PROJECT_ID,
-      name: SYSTEM_PROJECT_NAME,
-      cwd: SYSTEM_PROJECT_CWD,
+  try {
+    await withServer(agentManager, async (send, recv, { projectStore }) => {
+      // 预置默认工作区（cwd 用真实 SYSTEM_PROJECT_CWD，与 mkdir 目标一致）
+      await projectStore.createSystemProject({
+        id: SYSTEM_PROJECT_ID,
+        name: SYSTEM_PROJECT_NAME,
+        cwd: SYSTEM_PROJECT_CWD,
+      });
+      const newSessionId = "s-sys-" + Math.random().toString(36).slice(2);
+      send({
+        type: "agent:prompt",
+        projectId: SYSTEM_PROJECT_ID,
+        sessionId: newSessionId,
+        agentName: "dev",
+        text: "hello",
+      });
+      // 等 session:created（mkdir 在 broadcast 之前完成，收到事件即可断言目录存在）
+      const ev = await recvUntil(recv, e => e.type === "session:created");
+      expect(ev.session.projectId).toBe(SYSTEM_PROJECT_ID);
+      // session.createdAt 已落盘
+      const { sessions } = await projectStore.load();
+      const created = sessions.find(s => s.id === newSessionId);
+      expect(created).toBeDefined();
+      expect(typeof created!.createdAt).toBe("number");
+      // 子目录已创建（与 session.createdAt 严格一致）
+      createdSubDir = join(SYSTEM_PROJECT_CWD, String(created!.createdAt));
+      expect(existsSync(createdSubDir)).toBe(true);
     });
-    const newSessionId = "s-sys-" + Math.random().toString(36).slice(2);
-    send({
-      type: "agent:prompt",
-      projectId: SYSTEM_PROJECT_ID,
-      sessionId: newSessionId,
-      agentName: "dev",
-      text: "hello",
-    });
-    // 等 session:created（mkdir 在 broadcast 之前完成，收到事件即可断言目录存在）
-    const ev = await recvUntil(recv, e => e.type === "session:created");
-    expect(ev.session.projectId).toBe(SYSTEM_PROJECT_ID);
-    // session.createdAt 已落盘
-    const { sessions } = await projectStore.load();
-    const created = sessions.find(s => s.id === newSessionId);
-    expect(created).toBeDefined();
-    expect(typeof created!.createdAt).toBe("number");
-    // 子目录已创建（与 session.createdAt 严格一致）
-    createdSubDir = join(SYSTEM_PROJECT_CWD, String(created!.createdAt));
-    expect(existsSync(createdSubDir)).toBe(true);
-  });
-  // finally 清理：删掉本次产生的 <ts>/ 子目录，避免污染开发机 ~/.hiagent/workdir
-  if (createdSubDir) rmSync(createdSubDir, { recursive: true, force: true });
+  } finally {
+    // 无论 try 内断言是否失败，都清理本次产生的 <ts>/ 子目录，避免污染开发机 ~/.hiagent/workdir
+    if (createdSubDir) rmSync(createdSubDir, { recursive: true, force: true });
+  }
 });
 
 test("agent:prompt 普通项目新建会话不创建子目录（行为不变）", async () => {
