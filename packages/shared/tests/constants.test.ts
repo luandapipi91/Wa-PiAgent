@@ -7,6 +7,7 @@ import {
   SYSTEM_PROJECT_NAME,
   SYSTEM_PROJECT_CWD,
   WORKDIR_TTL_DAYS,
+  PROMPTS_FILE,
 } from "../src/constants";
 
 // pi-lens 已彻底移除：这些工具名不应再出现在默认 allowlist 或扩展映射里
@@ -117,4 +118,9 @@ test("SYSTEM_PROJECT_* 常量定义", () => {
   expect(SYSTEM_PROJECT_CWD.endsWith("workdir")).toBe(true);
   expect(SYSTEM_PROJECT_CWD.includes("hiagent")).toBe(true);
   expect(WORKDIR_TTL_DAYS).toBe(7);
+});
+
+test("PROMPTS_FILE 指向 ~/.hiagent/prompts.json", () => {
+  expect(PROMPTS_FILE.endsWith("prompts.json")).toBe(true);
+  expect(PROMPTS_FILE.includes("hiagent")).toBe(true);
 });
