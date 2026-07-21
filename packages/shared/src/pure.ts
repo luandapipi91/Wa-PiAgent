@@ -1,5 +1,4 @@
 import type { AgentState, AgentStateKey, AgentName, AgentStatus } from "./types";
-import { join } from "node:path";
 import { SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD } from "./constants";
 
 // 相对时间格式化：刚刚 / 2m / 1h / 昨天 / Nd / M/D
@@ -57,7 +56,7 @@ export function resolveSessionCwd(
   project: { cwd: string },
 ): string {
   if (session.projectId === SYSTEM_PROJECT_ID) {
-    return join(SYSTEM_PROJECT_CWD, String(session.createdAt));
+    return `${SYSTEM_PROJECT_CWD}/${session.createdAt}`;
   }
   return project.cwd;
 }
