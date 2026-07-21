@@ -45,6 +45,27 @@ export class ProjectStore {
     return project;
   }
 
+  /**
+   * 创建固定 id 的系统项目（幂等）。
+   *
+   * 用于默认工作区：固定 id=SYSTEM_PROJECT_ID，绕过 createProject 的 cwd 去重
+   * 和 randomUUID id 生成。同 id 已存在则返回现有记录，不重复插入。
+   */
+  async createSystemProject(input: {
+    id: string; name: string; cwd: string;
+  }): Promise<ProjectEntity> {
+    const data = await this.load();
+    const existing = data.projects.find(p => p.id === input.id);
+    if (existing) return existing;
+    const project: ProjectEntity = {
+      id: input.id, name: input.name, cwd: input.cwd,
+      createdAt: Date.now(),
+    };
+    data.projects.push(project);
+    await this.save(data);
+    return project;
+  }
+
   async updateProject(id: string, patch: Partial<Pick<ProjectEntity, "name" | "cwd">>): Promise<void> {
     const data = await this.load();
     const p = data.projects.find(x => x.id === id);
