@@ -23,6 +23,7 @@ export const PROJECTS_FILE = `${HIAGENT_DIR}/projects.json`;
 export const PI_AGENTS_DIR = `${HIAGENT_DIR}/agents`;   // ← 改：从 ~/.pi/agent/agents 改为 .hiagent/agents
 export const PROVIDERS_FILE = `${HIAGENT_DIR}/providers.json`;
 export const PROMPTS_FILE = `${HIAGENT_DIR}/prompts.json`;   // 系统提示词段落配置（顺序+内容），启动时若无则初始化默认值
+export const SUBAGENT_OVERRIDES_FILE = `${HIAGENT_DIR}/subagent-overrides.json`;   // 内置 subagent 的 model/thinking 覆盖
 export const GENERATED_DIR = `${HIAGENT_DIR}/.generated`;   // 自动生成的 Pi extension 文件目录
 export const BUILTIN_SKILLS_DIR = `${HIAGENT_DIR}/skills`;   // 内置技能目录，kernel 启动时创建，不可删
 
@@ -41,6 +42,7 @@ export const WORKDIR_TTL_DAYS = 7;
 // spawn 走 svc.spawn(type, prompt)：type 由 pi-subagents registry 解析为内置 agent 配置。
 // - general-purpose：继承调用者全部工具（builtinToolNames 未设置）
 // - Explore：read-only 探索（builtinToolNames = ["read","bash","grep","find","ls"]）
+// - Plan：read-only 规划（代码架构师，探索并设计实施方案）
 export interface SubagentTypeDef {
   /** 类型名（传给 svc.spawn 的第一个参数，大小写敏感） */
   name: string;
@@ -71,6 +73,14 @@ export const SUBAGENT_TYPES: SubagentTypeDef[] = [
     description: "只读代码探索，快速搜索和理解代码库结构。",
     emoji: "🔍",
     gradient: ["#0891b2", "#06b6d4"],
+    readOnly: true,
+  },
+  {
+    name: "Plan",
+    displayName: "规划子智能体",
+    description: "只读代码架构师，探索代码库并设计实施方案。",
+    emoji: "📐",
+    gradient: ["#7c3aed", "#a78bfa"],
     readOnly: true,
   },
 ];

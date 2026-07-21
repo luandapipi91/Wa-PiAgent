@@ -8,6 +8,7 @@ import {
   SYSTEM_PROJECT_CWD,
   WORKDIR_TTL_DAYS,
   PROMPTS_FILE,
+  SUBAGENT_OVERRIDES_FILE,
   SUBAGENT_TYPES,
   isSubagentType,
   normalizeSubagentType,
@@ -170,4 +171,31 @@ test("normalizeSubagentType 把中文别名归一化为英文 name", () => {
   // 非内置类型原样透传（普通智能体实名）
   expect(normalizeSubagentType("代码审查")).toBe("代码审查");
   expect(normalizeSubagentType("")).toBe("");
+});
+
+// ---- 内置 subagent 类型：Plan（第 3 个内置类型，只读规划）----
+
+test("SUBAGENT_TYPES 含 Plan（第 3 个内置类型）", () => {
+  const names = SUBAGENT_TYPES.map(t => t.name);
+  expect(names).toContain("Plan");
+  const plan = SUBAGENT_TYPES.find(t => t.name === "Plan");
+  expect(plan).toBeDefined();
+  expect(plan!.displayName).toBe("规划子智能体");
+  expect(plan!.readOnly).toBe(true);
+  expect(plan!.emoji).toBeTruthy();
+  expect(plan!.gradient.length).toBe(2);
+});
+
+test("isSubagentType / normalizeSubagentType 识别 Plan", () => {
+  expect(isSubagentType("Plan")).toBe(true);
+  expect(isSubagentType("规划子智能体")).toBe(true);
+  expect(normalizeSubagentType("规划子智能体")).toBe("Plan");
+  expect(normalizeSubagentType("Plan")).toBe("Plan");
+});
+
+// ---- SUBAGENT_OVERRIDES_FILE：内置 subagent 的 model/thinking 覆盖文件路径 ----
+
+test("SUBAGENT_OVERRIDES_FILE 指向 ~/.hiagent/subagent-overrides.json", () => {
+  expect(SUBAGENT_OVERRIDES_FILE.endsWith("subagent-overrides.json")).toBe(true);
+  expect(SUBAGENT_OVERRIDES_FILE.includes("hiagent")).toBe(true);
 });
