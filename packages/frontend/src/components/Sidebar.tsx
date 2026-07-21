@@ -42,12 +42,10 @@ export function Sidebar(props: Props) {
       <NewSessionButton onNewSession={props.onNewSession} />
       <AgentListSection onChatWith={props.onChatWith} onEdit={props.onEdit} onMore={props.onMore} />
 
-      {/* 默认工作区独立区：仅当存在系统项目时渲染 */}
+      {/* 默认工作区独立区：仅当存在系统项目时渲染。
+          不加小标题、不抢占高度（无 flex-1 / overflow），让该区域按内容自适应。 */}
       {systemProject && (
-        <div className="flex-1 overflow-y-auto overflow-x-hidden">
-          <div className="text-[11px] font-bold text-tertiary px-2 py-1 border-t border-hairline mt-2 uppercase tracking-wide">
-            默认
-          </div>
+        <div className="border-t border-hairline mt-2">
           <ProjectItem
             project={systemProject}
             sessions={sessions}
