@@ -555,6 +555,34 @@ export class WSServer {
         this.broadcast({ type: "agent:list", agents: await this.opts.configStore.listAgents() });
         break;
       }
+      case "subagent:list": {
+        try {
+          const { loadSubagentOverrides } = await import("./subagent-store");
+          const { getSubagentInfo } = await import("./subagent-info");
+          const { SUBAGENT_OVERRIDES_FILE } = await import("@hiagent/shared");
+          const overrides = await loadSubagentOverrides(SUBAGENT_OVERRIDES_FILE);
+          const subagents = await getSubagentInfo(overrides);
+          reply({ type: "subagent:list", subagents });
+        } catch (err) {
+          reply({ type: "error", message: err instanceof Error ? err.message : String(err) });
+        }
+        break;
+      }
+      case "subagent:save-override": {
+        try {
+          const { saveSubagentOverride, loadSubagentOverrides } = await import("./subagent-store");
+          const { getSubagentInfo } = await import("./subagent-info");
+          const { SUBAGENT_OVERRIDES_FILE } = await import("@hiagent/shared");
+          await saveSubagentOverride(SUBAGENT_OVERRIDES_FILE, event.override);
+          const overrides = await loadSubagentOverrides(SUBAGENT_OVERRIDES_FILE);
+          const subagents = await getSubagentInfo(overrides);
+          // 保存后广播更新列表给所有前端
+          reply({ type: "subagent:list", subagents });
+        } catch (err) {
+          reply({ type: "error", message: err instanceof Error ? err.message : String(err) });
+        }
+        break;
+      }
       case "fs:home": {
         reply({ type: "fs:home", home: homedir() });
         break;
