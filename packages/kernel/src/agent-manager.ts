@@ -462,13 +462,7 @@ export class AgentManager {
       authStorage,
       modelRegistry,
     });
-    // Pi SDK 扩展加载错误被 CreateAgentSessionFn 类型裁剪掉了，此处恢复检查
-    const extensionsResult = (result as any).extensionsResult;
-    if (extensionsResult?.errors?.length) {
-      for (const err of extensionsResult.errors) {
-        console.error("[kernel] 扩展加载失败:", err.path, err.error);
-      }
-    }
+
     const { session } = result;
 
     // 提前注册 session 到 map，让 abort / queue 操作在后续 setup（bindExtensions 等）期间即可用。
