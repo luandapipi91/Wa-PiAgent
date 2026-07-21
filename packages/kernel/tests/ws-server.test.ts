@@ -1,5 +1,5 @@
 import { test, expect, beforeEach } from "bun:test";
-import { rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { WSServer } from "../src/ws-server";
 import { ConfigStore } from "../src/config-store";
@@ -690,5 +690,68 @@ test("project:update 系统项目被拦截：广播 error 且名字未变", asyn
     const sys = projects.find(p => p.id === SYSTEM_PROJECT_ID);
     expect(sys).toBeDefined();
     expect(sys!.name).toBe(SYSTEM_PROJECT_NAME);
+  });
+});
+
+// ─── Task 4.2: 默认工作区新建会话创建 workdir/<createdAt>/ 子目录 ───
+// agent:prompt 在 isNew && projectId === SYSTEM_PROJECT_ID 分支：
+//   1. 先 Date.now() 生成 ts
+//   2. createSession({ createdAt: ts }) 让 session.createdAt 严格等于 ts
+//   3. mkdir ${SYSTEM_PROJECT_CWD}/${ts} 子目录（recursive）
+// 这样后续 resolveSessionCwd 从 session.createdAt 推导出的路径能与实际目录对上。
+//
+// 关键：mkdir 用的是 SYSTEM_PROJECT_CWD 常量（~/.hiagent/workdir），不是 project.cwd；
+//       因此即便 store 里把 project.cwd 改成临时目录，mkdir 仍会写到常量路径下。
+//       测试用真实常量路径并在 finally 清理产生的 <ts>/ 子目录，避免污染开发机。
+
+test("agent:prompt 默认工作区新建会话时创建 workdir/<createdAt>/ 子目录", async () => {
+  const { agentManager } = makeMockAgentManager();
+  let createdSubDir: string | null = null;
+  await withServer(agentManager, async (send, recv, { projectStore }) => {
+    // 预置默认工作区（cwd 用真实 SYSTEM_PROJECT_CWD，与 mkdir 目标一致）
+    await projectStore.createSystemProject({
+      id: SYSTEM_PROJECT_ID,
+      name: SYSTEM_PROJECT_NAME,
+      cwd: SYSTEM_PROJECT_CWD,
+    });
+    const newSessionId = "s-sys-" + Math.random().toString(36).slice(2);
+    send({
+      type: "agent:prompt",
+      projectId: SYSTEM_PROJECT_ID,
+      sessionId: newSessionId,
+      agentName: "dev",
+      text: "hello",
+    });
+    // 等 session:created（mkdir 在 broadcast 之前完成，收到事件即可断言目录存在）
+    const ev = await recvUntil(recv, e => e.type === "session:created");
+    expect(ev.session.projectId).toBe(SYSTEM_PROJECT_ID);
+    // session.createdAt 已落盘
+    const { sessions } = await projectStore.load();
+    const created = sessions.find(s => s.id === newSessionId);
+    expect(created).toBeDefined();
+    expect(typeof created!.createdAt).toBe("number");
+    // 子目录已创建（与 session.createdAt 严格一致）
+    createdSubDir = join(SYSTEM_PROJECT_CWD, String(created!.createdAt));
+    expect(existsSync(createdSubDir)).toBe(true);
+  });
+  // finally 清理：删掉本次产生的 <ts>/ 子目录，避免污染开发机 ~/.hiagent/workdir
+  if (createdSubDir) rmSync(createdSubDir, { recursive: true, force: true });
+});
+
+test("agent:prompt 普通项目新建会话不创建子目录（行为不变）", async () => {
+  const { agentManager } = makeMockAgentManager();
+  await withServer(agentManager, async (send, recv, { projectStore }) => {
+    // 普通项目：cwd 指向任意路径
+    const proj = await projectStore.createProject({ name: "p", cwd: "/tmp/normal" });
+    const sid = "s-normal-" + Math.random().toString(36).slice(2);
+    send({ type: "agent:prompt", projectId: proj.id, sessionId: sid, agentName: "dev", text: "hi" });
+    const ev = await recvUntil(recv, e => e.type === "session:created");
+    expect(ev.session.projectId).toBe(proj.id);
+    // 普通项目 session.createdAt 仍存在（来自 Date.now()），但 SYSTEM_PROJECT_CWD 下不应出现以该 ts 命名的目录
+    const { sessions } = await projectStore.load();
+    const created = sessions.find(s => s.id === sid);
+    expect(created).toBeDefined();
+    const leakDir = join(SYSTEM_PROJECT_CWD, String(created!.createdAt));
+    expect(existsSync(leakDir)).toBe(false);
   });
 });
