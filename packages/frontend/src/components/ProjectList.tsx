@@ -14,10 +14,24 @@ interface Props {
 export function ProjectList(props: Props) {
   const { projects, sessions, currentSessionId, currentProjectId } = useProjectsStore();
   const isNewSessionView = props.currentView === "new-session";
-  // 过滤掉系统项目（默认工作区），它由 Sidebar 的"默认"独立区单独渲染，避免重复
+  // 默认工作区（系统项目）渲染在列表最顶部，与普通项目共用同一滚动容器
+  const systemProject = projects.find(p => p.id === SYSTEM_PROJECT_ID);
   const userProjects = projects.filter(p => p.id !== SYSTEM_PROJECT_ID);
   return (
     <div className="flex-1 overflow-y-auto overflow-x-hidden">
+      {/* 默认工作区（无小标题，直接渲染在列表顶部） */}
+      {systemProject && (
+        <ProjectItem
+          project={systemProject}
+          sessions={sessions}
+          currentSessionId={currentSessionId}
+          selected={systemProject.id === currentProjectId}
+          isNewSessionView={isNewSessionView}
+          onSelectSession={props.onSelectSession}
+          onNewSessionInProject={props.onNewSessionInProject}
+          onSelectProject={props.onSelectProject}
+        />
+      )}
       <div className="text-[11px] font-bold text-tertiary px-2 py-1 border-t border-hairline mt-2 uppercase tracking-wide">项目</div>
       {userProjects.map(p => (
         <ProjectItem

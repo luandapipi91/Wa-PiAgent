@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { ProjectList } from "../src/components/ProjectList";
 import { useProjectsStore } from "../src/store/projects";
 import { useProjectUiStore } from "../src/store/project-ui";
+import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
 
 beforeEach(() => {
   useProjectsStore.setState({
@@ -116,4 +117,37 @@ test("在新会话界面且已选中该项目时，点击项目名展开/折叠"
   expect(screen.queryByText("会话1")).toBeNull();
   fireEvent.click(screen.getByText("项目A"));
   expect(screen.getByText("会话1")).toBeTruthy();
+});
+
+test("默认工作区渲染在项目列表顶部（无'默认'小标题）", () => {
+  useProjectsStore.setState({
+    projects: [
+      { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
+      { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+    ],
+    sessions: [], currentProjectId: null, currentSessionId: null,
+  });
+  render(<ProjectList onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={() => {}} />);
+  // 默认工作区项目渲染
+  expect(screen.getByText("默认工作区")).toBeTruthy();
+  // 无"默认"小标题（与"项目"区标题不同）
+  expect(screen.queryByText("默认")).toBeNull();
+});
+
+test("默认工作区在 DOM 顺序上排在'项目'小标题之前 + 与项目同区滚动", () => {
+  useProjectsStore.setState({
+    projects: [
+      { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
+      { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+    ],
+    sessions: [], currentProjectId: null, currentSessionId: null,
+  });
+  const { container } = render(<ProjectList onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={() => {}} />);
+  // 只有一处渲染"默认工作区"（去重）
+  expect(screen.getAllByText("默认工作区").length).toBe(1);
+  // 默认工作区的 testid 在 DOM 中出现在"项目"小标题之前
+  const sysNode = container.querySelector(`[data-testid="project-${SYSTEM_PROJECT_ID}"]`);
+  const headerNode = screen.getByText("项目");
+  expect(sysNode).toBeTruthy();
+  expect(sysNode!.compareDocumentPosition(headerNode!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 });
