@@ -1,9 +1,12 @@
 import type { View } from "../App";
+import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
 import { NewSessionButton } from "./NewSessionButton";
 import { AgentListSection } from "./AgentListSection";
 import { ProjectList } from "./ProjectList";
+import { ProjectItem } from "./ProjectItem";
 import { SettingsButton } from "./SettingsButton";
 import { useSettingsStore } from "../store/settings";
+import { useProjectsStore } from "../store/projects";
 
 interface Props {
   onNewSession: () => void;
@@ -18,6 +21,14 @@ interface Props {
 }
 
 export function Sidebar(props: Props) {
+  // 读取 projects store 的相关字段，用于派生系统项目并传递给 ProjectItem
+  const allProjects = useProjectsStore(s => s.projects);
+  const sessions = useProjectsStore(s => s.sessions);
+  const currentSessionId = useProjectsStore(s => s.currentSessionId);
+  const currentProjectId = useProjectsStore(s => s.currentProjectId);
+  // 默认工作区虚拟项目（系统项目）单独渲染在"默认"独立区
+  const systemProject = allProjects.find(p => p.id === SYSTEM_PROJECT_ID);
+
   return (
     <aside
       className="flex flex-col gap-1.5 p-3.5 overflow-hidden border-r border-hairline"
@@ -30,6 +41,26 @@ export function Sidebar(props: Props) {
       </div>
       <NewSessionButton onNewSession={props.onNewSession} />
       <AgentListSection onChatWith={props.onChatWith} onEdit={props.onEdit} onMore={props.onMore} />
+
+      {/* 默认工作区独立区：仅当存在系统项目时渲染 */}
+      {systemProject && (
+        <div className="flex-1 overflow-y-auto overflow-x-hidden">
+          <div className="text-[11px] font-bold text-tertiary px-2 py-1 border-t border-hairline mt-2 uppercase tracking-wide">
+            默认
+          </div>
+          <ProjectItem
+            project={systemProject}
+            sessions={sessions}
+            currentSessionId={currentSessionId}
+            selected={systemProject.id === currentProjectId}
+            isNewSessionView={props.currentView === "new-session"}
+            onSelectSession={props.onSelectSession}
+            onNewSessionInProject={props.onNewSessionInProject}
+            onSelectProject={props.onSelectProject}
+          />
+        </div>
+      )}
+
       <ProjectList
         onSelectSession={props.onSelectSession}
         onNewSessionInProject={props.onNewSessionInProject}
