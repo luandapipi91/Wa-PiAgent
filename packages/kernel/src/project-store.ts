@@ -83,10 +83,12 @@ export class ProjectStore {
   }
 
   async createSession(input: {
-    projectId: string; primaryAgent: AgentName; title: string; id?: string;
+    projectId: string; primaryAgent: AgentName; title: string;
+    id?: string;
+    createdAt?: number;   // 默认工作区用：让 mkdir 用的 ts 与 session.createdAt 严格一致
   }): Promise<SessionEntity> {
     const data = await this.load();
-    const now = Date.now();
+    const now = input.createdAt ?? Date.now();
     // 先算出 id，再用同一 id 拼 piSessionFile 路径，避免 id 不一致
     const id = input.id ?? randomUUID();
     const session: SessionEntity = {

@@ -126,3 +126,30 @@ test("createSystemProject 不影响 createProject 的 cwd 去重", async () => {
   expect(projects).toHaveLength(2);
   rmSync(f, { force: true });
 });
+
+test("createSession 支持外部传入 createdAt", async () => {
+  const f = tempFile();
+  const store = new ProjectStore(f);
+  const p = await store.createProject({ name: "P", cwd: "/p" });
+  const FIXED = 1721567890123;
+  const s = await store.createSession({
+    projectId: p.id, primaryAgent: "dev", title: "会话",
+    createdAt: FIXED,
+  });
+  expect(s.createdAt).toBe(FIXED);
+  rmSync(f, { force: true });
+});
+
+test("createSession 不传 createdAt 时仍用 Date.now()", async () => {
+  const f = tempFile();
+  const store = new ProjectStore(f);
+  const p = await store.createProject({ name: "P", cwd: "/p" });
+  const before = Date.now();
+  const s = await store.createSession({
+    projectId: p.id, primaryAgent: "dev", title: "会话",
+  });
+  const after = Date.now();
+  expect(s.createdAt).toBeGreaterThanOrEqual(before);
+  expect(s.createdAt).toBeLessThanOrEqual(after);
+  rmSync(f, { force: true });
+});
