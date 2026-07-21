@@ -6,6 +6,9 @@
 
 ## 2026-07-21
 
+### 重构
+- **系统提示词可配置化组装框架**：把原本硬编码在 `HIAGENT_DEFAULT_SYSTEM_PROMPT` 里的提示词拆成 6 个独立段落（base / delegate-syntax / subagent-clarify / delegate-network / env-constraints / memory-snapshot），新增 `packages/kernel/src/system-prompt.ts` 提供 `composePrompt(segments, ctx)` 纯函数 + `PromptSegment` 类型 + 默认段落常量。**配置来源为 `~/.hiagent/prompts.json`**：用户可调整段落顺序、改写段落内容、删除段落（删掉即关闭）；动态段（base / delegate-network / env-constraints / memory-snapshot）的 content 留空时由运行时 context 填充，写了则覆盖代码默认值。kernel 启动时 `ensurePromptsConfig` 幂等初始化默认配置。所有默认段落文案**改为英文**（原中文委托规则、子智能体澄清等）。`agent-manager._createSession` 的 `systemPromptOverride` 闭包改为调 `composePrompt`，行为与原拼装完全等价（base → delegate → env → memory 顺序不变）。新增 19 个单元测试覆盖组装逻辑、文件 I/O、幂等初始化。影响范围：shared/constants.ts（新增 `PROMPTS_FILE`）、kernel/system-prompt.ts（新）、kernel/index.ts（启动集成）、kernel/agent-manager.ts（拆常量 + 替换 systemPromptOverride）、kernel/tests/system-prompt.test.ts（新）、kernel/tests/agent-manager.test.ts（适配新常量）。
+
 ### 新增功能
 - **默认工作区虚拟项目**：会话列表新增常驻的「🏠 默认工作区」虚拟项目（`id="__system__"`，`cwd=~/.hiagent/workdir/`），作为"没有具体工程目录时的默认聊天空间"。该项目不可删除/不可改名，与普通项目操作完全一致（新建会话、选智能体、发送）。默认工作区下的每个会话有独立隔离的 pwd（`~/.hiagent/workdir/<session.createdAt>/`），互不干扰；skill/mcp 继承全局配置（无需独立管理）。删除会话保留 `<createdAt>/` 子目录 7 天后由后台 `workdir-cleaner` 自动清理（三重防护：目录名纯数字 + 不被现存 session 引用 + mtime 超 7 天）。UI 上默认工作区显示为侧栏独立"默认"区，会话右键菜单额外有"打开工作目录"，header 显示友好文案而非内部路径。**完全不动数据模型**（不加任何字段，靠 `project.id === SYSTEM_PROJECT_ID` 识别、靠 `session.createdAt` 推导 cwd）。影响范围：shared/constants.ts、shared/pure.ts、shared/types.ts、kernel/index.ts、kernel/project-store.ts、kernel/ws-server.ts、kernel/agent-manager.ts、kernel/workdir-cleaner.ts（新）、kernel/ensure-system-project.ts（新）、frontend/Sidebar.tsx、frontend/ProjectItem.tsx、frontend/ProjectList.tsx、frontend/NewSessionPane.tsx、frontend/SessionView.tsx、frontend/fs-client.ts、frontend/recording/recorder.ts。
 

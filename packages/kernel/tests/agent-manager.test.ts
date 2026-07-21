@@ -1396,12 +1396,15 @@ test("renameAgentSessions: 不匹配旧名的活跃会话不受影响", async ()
 });
 
 test("HIAGENT_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => {
-  // 常量需 export 才能直接断言；若未 export，改用 systemPromptOverride 间接断言（见下一测试）
-  // 这里假设 Task 1.2 Step 3 会 export 该常量
-  expect(HIAGENT_DEFAULT_SYSTEM_PROMPT).toContain("@[agentName]");
-  expect(HIAGENT_DEFAULT_SYSTEM_PROMPT).toContain("delegate");
-  expect(HIAGENT_DEFAULT_SYSTEM_PROMPT).toContain("Context");
-  expect(HIAGENT_DEFAULT_SYSTEM_PROMPT).toContain("Pause policy");
+  // 重构后：委托规则移到 system-prompt.ts 的 DEFAULT_DELEGATE_SYNTAX_PROMPT，
+  // HIAGENT_DEFAULT_SYSTEM_PROMPT 仅保留 base 段。完整提示词由 composePrompt 组装。
+  // 这里改为断言 base + delegate-syntax 拼接后含原有关键字。
+  const { DEFAULT_DELEGATE_SYNTAX_PROMPT } = require("../src/system-prompt");
+  const fullDefault = `${HIAGENT_DEFAULT_SYSTEM_PROMPT}\n\n${DEFAULT_DELEGATE_SYNTAX_PROMPT}`;
+  expect(fullDefault).toContain("@[agentName]");
+  expect(fullDefault).toContain("delegate");
+  expect(fullDefault).toContain("Context");
+  expect(fullDefault).toContain("Pause policy");
 });
 
 test("systemPromptOverride 拼装顺序：base < delegatePrompt < 环境约束 < 记忆快照", async () => {

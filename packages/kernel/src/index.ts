@@ -11,9 +11,10 @@ import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { ensureSystemProject } from "./ensure-system-project";
 import { cleanupExpiredWorkdirs } from "./workdir-cleaner";
+import { ensurePromptsConfig } from "./system-prompt";
 import { extractSdkErrorMessage } from "./sdk-errors";
 import { cleanupRecordingTemp } from "./recording-store";
-import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD } from "@hiagent/shared";
+import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD, PROMPTS_FILE } from "@hiagent/shared";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { WSServerEvent } from "@hiagent/shared";
@@ -65,6 +66,9 @@ export async function startKernel(
   // 启动时 seed 默认工作区虚拟项目（幂等）+ 确保 workdir 根目录存在
   await ensureSystemProject(projectStore);
   console.log(`[kernel] 默认工作区已就绪: ${SYSTEM_PROJECT_CWD}`);
+
+  // 启动时确保 prompts.json 配置存在（幂等），用户可手动编辑调整段落顺序/内容
+  await ensurePromptsConfig(PROMPTS_FILE);
 
   // 启动时清理过期 workdir 子目录（默认工作区会话被删后保留 7 天）
   try {
