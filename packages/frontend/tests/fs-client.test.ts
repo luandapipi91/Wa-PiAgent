@@ -96,7 +96,7 @@ describe("fs-client uploadFile", () => {
   });
 
   test("rejects on fs:upload timeout", async () => {
-    const promise = uploadFile("p1", "img.png", "base64data", 50);
+    const promise = uploadFile("p1", "img.png", "base64data", undefined, 50);
     await expect(promise).rejects.toThrow("上传超时");
   });
 
@@ -105,5 +105,21 @@ describe("fs-client uploadFile", () => {
     const sent = sendMock.mock.calls[0][0];
     handlers.forEach(h => h({ type: "fs:upload", id: sent.id, path: "", error: "项目不存在" } as any));
     await expect(promise).rejects.toThrow("项目不存在");
+  });
+
+  test("sessionId 透传到 fs:upload 请求（默认工作区会话级 cwd）", async () => {
+    const promise = uploadFile("p1", "img.png", "base64data", "sess-123");
+    const sent = sendMock.mock.calls[0][0];
+    expect(sent.sessionId).toBe("sess-123");
+    handlers.forEach(h => h({ type: "fs:upload", id: sent.id, path: "/p1/.hiagent/uploads/img.png" } as any));
+    await promise;
+  });
+
+  test("不传 sessionId 时 fs:upload 请求的 sessionId 为 undefined（向后兼容）", async () => {
+    const promise = uploadFile("p1", "img.png", "base64data");
+    const sent = sendMock.mock.calls[0][0];
+    expect(sent.sessionId).toBeUndefined();
+    handlers.forEach(h => h({ type: "fs:upload", id: sent.id, path: "/p1/.hiagent/uploads/img.png" } as any));
+    await promise;
   });
 });
