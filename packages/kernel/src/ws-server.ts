@@ -316,10 +316,17 @@ export class WSServer {
       case "project:open-dir": {
         const data = await this.opts.projectStore.load();
         const project = data.projects.find(p => p.id === event.projectId);
-        if (project?.cwd && existsSync(project.cwd)) {
+        if (!project?.cwd) break;
+        // 默认工作区会话级：若有 sessionId 用 resolveSessionCwd 推导子目录
+        let dir = project.cwd;
+        if (event.sessionId) {
+          const session = data.sessions.find(s => s.id === event.sessionId);
+          if (session) dir = resolveSessionCwd(session, project);
+        }
+        if (existsSync(dir)) {
           const openCmd = process.platform === "darwin" ? "open"
             : process.platform === "win32" ? "start" : "xdg-open";
-          spawn(openCmd, [project.cwd], { shell: true, stdio: "ignore" });
+          spawn(openCmd, [dir], { shell: true, stdio: "ignore" });
         }
         break;
       }

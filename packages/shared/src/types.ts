@@ -242,6 +242,7 @@ export interface ProjectDeleteEvent {
 export interface ProjectOpenDirEvent {
   type: "project:open-dir";
   projectId: string;
+  sessionId?: string;   // 默认工作区会话级目录打开
 }
 export interface SessionRenameEvent {
   type: "session:rename";
