@@ -179,7 +179,8 @@ export function textToHtml(text: string, opts?: { hideTrigger?: boolean }): stri
         ? `<span class="chip-agent-avatar" style="background:${escapeHtml(avatarStyle(meta.avatarColor))}">${escapeHtml(meta.avatar)}</span>`
         : "";
       const trigger = hideTrigger ? "" : "@";
-      return `<span class="chip chip-agent" contenteditable="false" data-token="${escapeHtml(token)}">${avatarHtml}${trigger}${escapeHtml(s.value)}</span>`;
+      // @ 在 avatar 之前（最前面），更符合"@某人"的视觉习惯
+      return `<span class="chip chip-agent" contenteditable="false" data-token="${escapeHtml(token)}">${trigger}${avatarHtml}${escapeHtml(s.value)}</span>`;
     }
     if (s.type === "file") {
       const token = `#[${s.value}]`;

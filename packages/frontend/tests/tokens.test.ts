@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import {
   FILE_TOKEN_RE, SKILL_TOKEN_RE, AGENT_TOKEN_RE,
   expandTokens, textToSegments, segmentsToText, textToHtml, escapeHtml,
+  registerAgentMeta,
 } from "../src/quick-invoke/tokens";
 
 test("expandTokens 展开文件 token（#[path] -> #path）", () => {
@@ -79,6 +80,23 @@ test("textToHtml 渲染 agent chip 为 span（chip-agent 蓝色，含 @ 触发�
   expect(html).toContain("data-token=\"@[代码审查]\"");
   expect(html).toContain("@代码审查");
   expect(html).toContain("chip-agent");
+});
+
+test("textToHtml agent chip 的 @ 在 avatar 之前（最前面）", () => {
+  // 用户期望：@某人 → @ 在 icon 之前，不在 icon 和名字之间
+  registerAgentMeta("代码审查", { avatar: "🔍", avatarColor: "#0891b2" });
+  const html = textToHtml("@[代码审查]");
+  // chip-agent 内部结构：@ + avatar span + name
+  // @ 必须出现在 avatar 之前
+  const atIdx = html.indexOf("@");
+  const avatarIdx = html.indexOf("chip-agent-avatar");
+  expect(atIdx).toBeGreaterThanOrEqual(0);
+  expect(avatarIdx).toBeGreaterThan(atIdx);
+  // 头像 emoji 在 @ 之后、name 之前
+  const emojiIdx = html.indexOf("🔍");
+  const nameIdx = html.indexOf("代码审查", avatarIdx);
+  expect(emojiIdx).toBeGreaterThan(atIdx);
+  expect(nameIdx).toBeGreaterThan(emojiIdx);
 });
 
 test("textToHtml 传 { hideTrigger: true } 时 agent chip 不含 @ 前缀（仅展示名，用于历史消息渲染）", () => {
