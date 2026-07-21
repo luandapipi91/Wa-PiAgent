@@ -25,7 +25,7 @@ test("透传 onNewSession", () => {
   expect(fn).toHaveBeenCalledTimes(1);
 });
 
-test("默认工作区渲染在独立'默认'区", () => {
+test("默认工作区渲染在独立区（无小标题）", () => {
   useProjectsStore.setState({
     projects: [
       { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
@@ -34,11 +34,10 @@ test("默认工作区渲染在独立'默认'区", () => {
     sessions: [], currentProjectId: null, currentSessionId: null,
   });
   render(<Sidebar onNewSession={() => {}} onChatWith={() => {}} onEdit={() => {}} onMore={() => {}} onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={() => {}} />);
-  // "默认" 区标题存在
-  expect(screen.getByText("默认")).toBeTruthy();
-  // 默认工作区项目渲染在"默认"区
+  // 默认工作区项目直接渲染（无"默认"小标题）
   expect(screen.getByText("默认工作区")).toBeTruthy();
-  // "项目" 区也有标题
+  expect(screen.queryByText("默认")).toBeNull();
+  // "项目" 区标题仍存在
   expect(screen.getAllByText(/^项目$/).length).toBeGreaterThanOrEqual(1);
 });
 
