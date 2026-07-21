@@ -101,7 +101,10 @@ export const HIAGENT_DEFAULT_SYSTEM_PROMPT =
   "   - Pause policy：除非遇到不可逆操作 / 范围变更 / 需要用户决策，否则一次性完成并回报。\n" +
   "3. 如该 agentName 不在你可调起的列表内，向用户说明并询问下一步。\n" +
   "4. 拿到子智能体返回结果后，基于结果重新组织语言回复用户（可补充上下文、追问、推进下一步），不要原样转发。\n" +
-  "5. 一条消息里出现多个 @[agentName] 时，按出现顺序依次调用，每个 task 都按上述合约范式独立组织。";
+  "5. 一条消息里出现多个 @[agentName] 时，按出现顺序依次调用，每个 task 都按上述合约范式独立组织。\n\n" +
+  "## 关于子智能体工具\n\n" +
+  "本环境用 `delegate` 工具替代 pi-subagents 的原生 `subagent` 工具，二者底层调用同一 pi-subagents service，" +
+  "但 `delegate` 在宿主侧加了关系网授权（仅可调起 partners.askTo 名单内）与并发上限。**不要因为工具列表里没有 `subagent` 就判断\"未安装 pi-subagents\"或提示\"将顺序执行\"——子智能体能力完全可用，通过 `delegate` 调起即可。**";
 
 export class AgentManager {
   // sessionId → AgentSession（核心数据结构，一个 HiAgent 会话对应一个 SDK session）
