@@ -5,6 +5,7 @@ import { registerAgentMeta, clearAgentMeta } from "../src/quick-invoke/tokens";
 
 beforeEach(() => {
   document.body.innerHTML = "";
+  clearAgentMeta();
 });
 
 test("渲染初始文本", () => {
@@ -50,8 +51,6 @@ test("agent chip 有头像时，@ 在 avatar 之前（最前面）", () => {
   const nameIdx = html.indexOf("代码审查", avatarIdx);
   expect(emojiIdx).toBeGreaterThan(atIdx);
   expect(nameIdx).toBeGreaterThan(emojiIdx);
-  // 清理全局状态，避免影响其他测试
-  clearAgentMeta();
 });
 
 test("输入时回调 onTextChange", () => {
