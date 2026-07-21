@@ -1,7 +1,7 @@
 import type {
   WSClientEvent, WSServerEvent, AgentName, McpServerStatus,
 } from "@hiagent/shared";
-import { WS_PORT, SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD } from "@hiagent/shared";
+import { WS_PORT, SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD, resolveSessionCwd } from "@hiagent/shared";
 import type { DirEntry } from "@hiagent/shared";
 import type { ConfigStore } from "./config-store";
 import type { ProjectStore } from "./project-store";
@@ -87,6 +87,29 @@ async function uniquePath(dir: string, name: string): Promise<string> {
     if (!existsSync(next)) return next;
     i++;
   }
+}
+
+/**
+ * 从 fs:upload / fs:copy / fs:recording 等事件解析本次操作的 cwd。
+ *
+ * - 普通项目会话 / 未带 sessionId → 返回 project.cwd（行为不变）
+ * - 默认工作区会话 + sessionId → 用 resolveSessionCwd 推导 ~/.hiagent/workdir/<createdAt>/
+ *
+ * 携带 sessionId 但 session 实体不存在时降级返回 project.cwd（保守地与旧调用方一致）。
+ */
+async function resolveCwdForFsRequest(
+  projectStore: ProjectStore,
+  projectId: string,
+  sessionId?: string,
+): Promise<string> {
+  const { projects, sessions } = await projectStore.load();
+  const project = projects.find(p => p.id === projectId);
+  if (!project) throw new Error(`项目不存在: ${projectId}`);
+  if (!project.cwd) throw new Error(`项目工作目录缺失: ${project.name ?? projectId}`);
+  if (!sessionId) return project.cwd;
+  const session = sessions.find(s => s.id === sessionId);
+  if (!session) return project.cwd;  // session 不存在 → 降级，保持向后兼容
+  return resolveSessionCwd(session, project);
 }
 
 export async function searchFiles(
@@ -580,15 +603,12 @@ export class WSServer {
       }
       case "fs:upload": {
         try {
-          const data = await this.opts.projectStore.load();
-          const project = data.projects.find(p => p.id === event.projectId);
-          if (!project) throw new Error(`项目不存在: ${event.projectId}`);
-          if (!project.cwd) throw new Error(`项目工作目录缺失: ${project.name ?? event.projectId}`);
+          const cwd = await resolveCwdForFsRequest(this.opts.projectStore, event.projectId, event.sessionId);
           const buffer = Buffer.from(event.content, "base64");
           if (buffer.byteLength > MAX_UPLOAD_BYTES) {
             throw new Error(`文件超过 ${MAX_UPLOAD_BYTES / 1024 / 1024}MB 上限`);
           }
-          const uploadDir = join(project.cwd, ".hiagent", "uploads");
+          const uploadDir = join(cwd, ".hiagent", "uploads");
           await mkdir(uploadDir, { recursive: true });
           const filePath = await uniquePath(uploadDir, event.name);
           await writeFile(filePath, buffer);
@@ -600,11 +620,7 @@ export class WSServer {
       }
       case "fs:copy": {
         try {
-          const data = await this.opts.projectStore.load();
-          const project = data.projects.find(p => p.id === event.projectId);
-          if (!project) throw new Error(`项目不存在: ${event.projectId}`);
-          if (!project.cwd) throw new Error(`项目工作目录缺失: ${project.name ?? event.projectId}`);
-
+          const cwd = await resolveCwdForFsRequest(this.opts.projectStore, event.projectId, event.sessionId);
           const sourceStat = await stat(event.source);
           const isDir = sourceStat.isDirectory();
 
@@ -612,7 +628,7 @@ export class WSServer {
             // 文件夹直接返回真实路径，不再创建软链接
             reply({ type: "fs:copy", id: event.id, path: event.source });
           } else {
-            const uploadDir = join(project.cwd, ".hiagent", "uploads");
+            const uploadDir = join(cwd, ".hiagent", "uploads");
             await mkdir(uploadDir, { recursive: true });
             const name = basename(event.source);
             const destPath = await uniquePath(uploadDir, name);
@@ -685,10 +701,8 @@ export class WSServer {
       }
       case "fs:recording:append": {
         try {
-          const data = await this.opts.projectStore.load();
-          const project = data.projects.find(p => p.id === event.projectId);
-          if (!project?.cwd) throw new Error(`项目不存在或无工作目录: ${event.projectId}`);
-          const uploadDir = join(project.cwd, ".hiagent", "uploads");
+          const cwd = await resolveCwdForFsRequest(this.opts.projectStore, event.projectId, event.sessionId);
+          const uploadDir = join(cwd, ".hiagent", "uploads");
           await appendChunk(uploadDir, event.recId, event.chunk);
           reply({ type: "fs:recording:append", id: event.id });
         } catch (e) {
@@ -698,10 +712,8 @@ export class WSServer {
       }
       case "fs:recording:finalize": {
         try {
-          const data = await this.opts.projectStore.load();
-          const project = data.projects.find(p => p.id === event.projectId);
-          if (!project?.cwd) throw new Error(`项目不存在或无工作目录: ${event.projectId}`);
-          const uploadDir = join(project.cwd, ".hiagent", "uploads");
+          const cwd = await resolveCwdForFsRequest(this.opts.projectStore, event.projectId, event.sessionId);
+          const uploadDir = join(cwd, ".hiagent", "uploads");
           const path = await finalizeRecording(uploadDir, event.recId, event.finalName);
           reply({ type: "fs:recording:finalize", id: event.id, path });
         } catch (e) {
@@ -711,10 +723,8 @@ export class WSServer {
       }
       case "fs:recording:discard": {
         try {
-          const data = await this.opts.projectStore.load();
-          const project = data.projects.find(p => p.id === event.projectId);
-          if (!project?.cwd) throw new Error(`项目不存在或无工作目录: ${event.projectId}`);
-          const uploadDir = join(project.cwd, ".hiagent", "uploads");
+          const cwd = await resolveCwdForFsRequest(this.opts.projectStore, event.projectId, event.sessionId);
+          const uploadDir = join(cwd, ".hiagent", "uploads");
           await discardRecording(uploadDir, event.recId);
           reply({ type: "fs:recording:discard", id: event.id });
         } catch (e) {

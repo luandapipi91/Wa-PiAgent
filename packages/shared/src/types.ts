@@ -345,9 +345,9 @@ export interface DirEntry { name: string; isDir: boolean; path?: string; }
 export interface FSListDirResult { type: "fs:listDir"; path: string; entries: DirEntry[]; }
 export interface FSReadFileRequest { type: "fs:readFile"; path: string; }
 export interface FSReadFileResult { type: "fs:readFile"; path: string; content: string; mimeType?: string; error?: string; }
-export interface FSUploadRequest { type: "fs:upload"; id: string; projectId: string; name: string; content: string; }
+export interface FSUploadRequest { type: "fs:upload"; id: string; projectId: string; sessionId?: string; name: string; content: string; }
 export interface FSUploadResult { type: "fs:upload"; id: string; path: string; error?: string; }
-export interface FSCopyRequest { type: "fs:copy"; id: string; projectId: string; source: string; }
+export interface FSCopyRequest { type: "fs:copy"; id: string; projectId: string; sessionId?: string; source: string; }
 export interface FSCopyResult { type: "fs:copy"; id: string; path: string; error?: string; }
 export interface FSSearchRequest { type: "fs:search"; query: string; root?: string; maxResults?: number; showHidden?: boolean; onlyDirs?: boolean; requestId?: string; }
 export interface FSSearchCancelRequest { type: "fs:search:cancel"; requestId: string; }
@@ -356,11 +356,11 @@ export interface FSSearchResult { type: "fs:search"; requestId?: string; query: 
 export interface FSErrorEvent { type: "fs:error"; path: string; reason: string; }
 
 // 录音：边录边落盘协议（与 fs:upload 同通道，id 关联请求-响应）
-export interface FSRecordingAppendRequest { type: "fs:recording:append"; id: string; projectId: string; recId: string; chunk: string; }
+export interface FSRecordingAppendRequest { type: "fs:recording:append"; id: string; projectId: string; sessionId?: string; recId: string; chunk: string; }
 export interface FSRecordingAppendResult { type: "fs:recording:append"; id: string; error?: string; }
-export interface FSRecordingFinalizeRequest { type: "fs:recording:finalize"; id: string; projectId: string; recId: string; finalName: string; }
+export interface FSRecordingFinalizeRequest { type: "fs:recording:finalize"; id: string; projectId: string; sessionId?: string; recId: string; finalName: string; }
 export interface FSRecordingFinalizeResult { type: "fs:recording:finalize"; id: string; path: string; error?: string; }
-export interface FSRecordingDiscardRequest { type: "fs:recording:discard"; id: string; projectId: string; recId: string; }
+export interface FSRecordingDiscardRequest { type: "fs:recording:discard"; id: string; projectId: string; sessionId?: string; recId: string; }
 export interface FSRecordingDiscardResult { type: "fs:recording:discard"; id: string; error?: string; }
 
 // 镜像 SDK AgentSessionEvent 联合类型，作为 WS 透传事件
