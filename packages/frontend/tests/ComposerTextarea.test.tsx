@@ -1,6 +1,7 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ComposerTextarea } from "../src/components/ui/ComposerTextarea";
+import { registerAgentMeta, clearAgentMeta } from "../src/quick-invoke/tokens";
 
 beforeEach(() => {
   document.body.innerHTML = "";
@@ -29,6 +30,28 @@ test("渲染智能体 chip（@[...]，蓝色 chip-agent）", () => {
   const chip = screen.getByText("@代码审查");
   expect(chip.className).toContain("chip-agent");
   expect(chip.getAttribute("data-token")).toBe("@[代码审查]");
+});
+
+test("agent chip 有头像时，@ 在 avatar 之前（最前面）", () => {
+  // 注册智能体头像信息，模拟 ComposerTextarea 中带 avatar 的 chip 渲染
+  registerAgentMeta("代码审查", { avatar: "🔍", avatarColor: "#0891b2" });
+  render(<ComposerTextarea text="@[代码审查]" onTextChange={mock()} onKeyDown={mock()} onPaste={mock()} />);
+  const chip = document.querySelector(".chip-agent");
+  expect(chip).toBeTruthy();
+  // chip 内部结构应为：@ [avatar span] 名称（@ 在最前面）
+  const html = chip!.innerHTML;
+  // @ 符号在 avatar span 之前
+  const atIdx = html.indexOf("@");
+  const avatarIdx = html.indexOf("chip-agent-avatar");
+  expect(atIdx).toBeGreaterThanOrEqual(0);
+  expect(avatarIdx).toBeGreaterThan(atIdx);
+  // 头像 emoji 在 @ 之后、名称之前
+  const emojiIdx = html.indexOf("🔍");
+  const nameIdx = html.indexOf("代码审查", avatarIdx);
+  expect(emojiIdx).toBeGreaterThan(atIdx);
+  expect(nameIdx).toBeGreaterThan(emojiIdx);
+  // 清理全局状态，避免影响其他测试
+  clearAgentMeta();
 });
 
 test("输入时回调 onTextChange", () => {
