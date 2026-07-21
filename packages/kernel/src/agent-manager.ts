@@ -11,7 +11,7 @@
 // - _authStorage / _modelRegistry 用 (this as any)._xxx ??= 模式做进程级单例
 
 import type { AgentName, AgentConfig, AttachmentRef, ThinkingLevel, MemoryConfig } from "@hiagent/shared";
-import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, EXTENSION_TOOL_MAP, resolveAgentTools } from "@hiagent/shared";
+import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, EXTENSION_TOOL_MAP, resolveAgentTools, resolveSessionCwd } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
@@ -316,6 +316,12 @@ export class AgentManager {
       throw new Error(`会话 piSessionFile 缺失: ${sessionId}`);
     }
 
+    // 计算本次会话的 cwd：
+    // - 普通项目会话：直接用 project.cwd（行为不变）
+    // - 默认工作区会话：用 resolveSessionCwd 推导出 ~/.hiagent/workdir/<createdAt>/
+    // 后续所有用到 cwd 的地方（resourceLoader / createFn / sessionCwd / memoryStore）都用这个值。
+    const cwd = resolveSessionCwd(sessionEntity, project);
+
     // 读 agent 配置（系统提示词 / 工具 / 模型 / thinking level）
     const config = this.opts.configStore
       ? await this.opts.configStore.getAgent(agentName)
@@ -348,7 +354,7 @@ export class AgentManager {
     const memConfig = await this.opts.memoryStore?.getConfig().catch(() => undefined);
     const memorySnapshot = memConfig?.memoryPolicyStyle === "none"
       ? ""
-      : await buildMemorySnapshot(HIAGENT_DIR, project.cwd).catch(
+      : await buildMemorySnapshot(HIAGENT_DIR, cwd).catch(
         (err) => {
           console.error(`[kernel] 读取记忆快照失败，跳过注入:`, err);
           return "";
@@ -361,7 +367,7 @@ export class AgentManager {
       ? []
       : createAgentMemoryTools(
         getGlobalMemoryStore(HIAGENT_DIR),
-        getProjectMemoryStore(HIAGENT_DIR, project.cwd),
+        getProjectMemoryStore(HIAGENT_DIR, cwd),
       );
 
     // 关系网调起：askTo 非空才注册 delegate 工具并注入提示词段（闭包捕获）。
@@ -393,7 +399,7 @@ export class AgentManager {
     // - systemPromptMode === "replace"：整体覆盖系统提示词
     // - systemPromptMode === "append"：在默认 agentsFiles 后追加虚拟文件
     const loader = new sdk.DefaultResourceLoader({
-      cwd: project.cwd,
+      cwd,
       agentDir: HIAGENT_DIR,
       // 扩展改用 additionalExtensionPaths 纯内存注入：builtin + 已启用动态扩展
     additionalExtensionPaths: (() => {
@@ -452,7 +458,7 @@ export class AgentManager {
     // 调 createAgentSession 创建 SDK session
     // 不再使用 agent config 里的默认模型：所有消息必须跟随用户显式选择的模型
     const result = await createFn({
-      cwd: project.cwd,
+      cwd,
       agentDir: HIAGENT_DIR,
       sessionManager: sdk.SessionManager.open(sessionEntity.piSessionFile),
       resourceLoader: loader,
@@ -468,7 +474,7 @@ export class AgentManager {
     // 提前注册 session 到 map，让 abort / queue 操作在后续 setup（bindExtensions 等）期间即可用。
     // 后续步骤失败时由 _teardownSession 清理（ensureStarted 的 finally 块 dispose 会触发）。
     this.sessions.set(sessionId, session);
-    this.sessionCwd.set(sessionId, project.cwd);
+    this.sessionCwd.set(sessionId, cwd);
     this.sessionMeta.set(sessionId, { projectId, agentName });
 
     // _createSession 期间收到的 abort 请求：session 已注册，立即执行
