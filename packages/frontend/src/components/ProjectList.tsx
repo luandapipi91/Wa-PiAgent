@@ -32,7 +32,7 @@ export function ProjectList(props: Props) {
           onSelectProject={props.onSelectProject}
         />
       )}
-      <div className="text-[11px] font-bold text-tertiary px-2 py-1 border-t border-hairline mt-2 uppercase tracking-wide">项目</div>
+      <div className="text-[11px] font-bold text-tertiary px-2 py-1 border-t border-dashed border-hairline mt-2 uppercase tracking-wide">项目</div>
       {userProjects.map(p => (
         <ProjectItem
           key={p.id}
