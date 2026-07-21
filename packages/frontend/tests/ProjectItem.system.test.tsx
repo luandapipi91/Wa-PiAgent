@@ -82,6 +82,14 @@ test("系统项目下会话右键菜单有'打开工作目录'项", () => {
   );
   fireEvent.contextMenu(screen.getByText("会话"));
   expect(screen.getByTestId("menu-open-session-dir")).toBeTruthy();
+  // 点击"打开工作目录"应触发 project:open-dir 事件，携带 projectId+sessionId
+  fireEvent.click(screen.getByTestId("menu-open-session-dir"));
+  expect(sendMock).toHaveBeenCalledTimes(1);
+  expect(sendMock).toHaveBeenCalledWith({
+    type: "project:open-dir",
+    projectId: SYSTEM_PROJECT_ID,
+    sessionId: "s1",
+  });
 });
 
 test("普通项目折叠时图标用 📁（行为不变）", () => {
