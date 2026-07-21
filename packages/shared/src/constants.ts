@@ -1,5 +1,3 @@
-import { join } from "node:path";
-
 /** 端口解析：合法正整数用之，否则用默认。 */
 export function resolvePort(envVal: string | undefined, def: number): number {
   const n = Number(envVal);
@@ -33,7 +31,7 @@ export const BUILTIN_SKILLS_DIR = `${HIAGENT_DIR}/skills`;   // 内置技能目�
 // 详见 resolveSessionCwd 纯函数（pure.ts）。
 export const SYSTEM_PROJECT_ID = "__system__";
 export const SYSTEM_PROJECT_NAME = "默认工作区";
-export const SYSTEM_PROJECT_CWD = join(HIAGENT_DIR, "workdir");
+export const SYSTEM_PROJECT_CWD = `${HIAGENT_DIR}/workdir`;
 // 默认工作区会话被删除后，对应的 <createdAt>/ 子目录保留天数；超时后由 workdir-cleaner 清理
 export const WORKDIR_TTL_DAYS = 7;
 
