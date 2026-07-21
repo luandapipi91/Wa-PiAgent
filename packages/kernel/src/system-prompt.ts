@@ -90,14 +90,24 @@ export const DEFAULT_DELEGATE_SYNTAX_PROMPT =
   "5. When multiple @[agentName] appear in one message, invoke them sequentially in order; " +
   "each task must independently follow the contract pattern above.";
 
-/** 默认 subagent-clarify 段（消除"未安装 pi-subagents"误解） */
+/** 默认 subagent-clarify 段（消除"未安装 pi-subagents"误解 + 告知内置类型用法） */
 export const DEFAULT_SUBAGENT_CLARIFY_PROMPT =
   "## About Subagent Tooling\n\n" +
   "This environment replaces pi-subagents' native `subagent` tool with the `delegate` tool. " +
   "Both call the same pi-subagents service under the hood, but `delegate` adds host-side " +
-  "relationship authorization (only agents in partners.askTo can be invoked) and a concurrency cap. " +
+  "relationship authorization (named agents must be in partners.askTo) and a concurrency cap. " +
   "**Do not claim 「pi-subagents is not installed」 or 「will run sequentially」 just because `subagent` " +
-  "is absent from the tool list — sub-agent capability is fully available via `delegate`.**";
+  "is absent from the tool list — sub-agent capability is fully available via `delegate`.**\n\n" +
+  "The `delegate` tool's `agent` parameter accepts two kinds of values:\n" +
+  "1. Named agents from partners.askTo (relationship-network delegation, with task-contract pattern).\n" +
+  "2. Built-in subagent type names — `general-purpose` (inherits caller's full toolset, " +
+  "for complex multi-step tasks) and `Explore` (read-only codebase exploration, " +
+  "for search and code understanding). These are available to every primary agent regardless of askTo. " +
+  "When you need an ad-hoc subagent for a self-contained task (explore code, research a question, " +
+  "review a diff), prefer `Explore` or `general-purpose` over a named agent — " +
+  "they spawn immediately with their own context and return a focused answer.\n" +
+  "The `fleet` tool also accepts these type names in its `tasks[].agent` field, enabling parallel " +
+  "exploration (e.g. dispatching multiple `Explore` subagents to search different keywords).";
 
 /**
  * 默认段落配置（用于 prompts.json 不存在时初始化）。

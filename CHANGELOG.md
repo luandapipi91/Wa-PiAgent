@@ -6,6 +6,9 @@
 
 ## 2026-07-21
 
+### 新增功能
+- **内置 subagent 类型（general-purpose / Explore）全链路支持**：delegate / fleet 工具的 `agent` 参数现在接受 pi-subagents 自带的内置类型名（`general-purpose` 继承调用者工具集；`Explore` read-only 固定工具），不再锁死在 `partners.askTo` 名单内。任何主智能体都可调起，用于一次性匿名任务（探索代码、研究问题、通用多步执行）。前端「更多智能体」弹窗在用户智能体后追加两张内置卡片（带"内置"角标，右键仅"查看"不可删/不可编，点开 AgentConfig 全字段置灰）；`@` 候选菜单追加这两个类型，所有主智能体都能 @ 到。系统提示词 `subagent-clarify` 段更新，明确告知 LLM 可用类型用法与 fleet 并行能力。影响范围：shared/constants.ts（`SUBAGENT_TYPES` / `isSubagentType`）、kernel/delegate-tool.ts（allowlist 放行 + 错误文案含类型提示）、kernel/system-prompt.ts（subagent-clarify 段更新）、frontend/AgentGalleryModal.tsx（内置卡片）、frontend/AgentConfig.tsx（只读模式）、frontend/ui/ComposerInput.tsx（@ 候选追加）。
+
 ### 重构
 - **系统提示词可配置化组装框架**：把原本硬编码在 `HIAGENT_DEFAULT_SYSTEM_PROMPT` 里的提示词拆成 6 个独立段落（base / delegate-syntax / subagent-clarify / delegate-network / env-constraints / memory-snapshot），新增 `packages/kernel/src/system-prompt.ts` 提供 `composePrompt(segments, ctx)` 纯函数 + `PromptSegment` 类型 + 默认段落常量。**配置来源为 `~/.hiagent/prompts.json`**：用户可调整段落顺序、改写段落内容、删除段落（删掉即关闭）；动态段（base / delegate-network / env-constraints / memory-snapshot）的 content 留空时由运行时 context 填充，写了则覆盖代码默认值。kernel 启动时 `ensurePromptsConfig` 幂等初始化默认配置。所有默认段落文案**改为英文**（原中文委托规则、子智能体澄清等）。`agent-manager._createSession` 的 `systemPromptOverride` 闭包改为调 `composePrompt`，行为与原拼装完全等价（base → delegate → env → memory 顺序不变）。新增 19 个单元测试覆盖组装逻辑、文件 I/O、幂等初始化。影响范围：shared/constants.ts（新增 `PROMPTS_FILE`）、kernel/system-prompt.ts（新）、kernel/index.ts（启动集成）、kernel/agent-manager.ts（拆常量 + 替换 systemPromptOverride）、kernel/tests/system-prompt.test.ts（新）、kernel/tests/agent-manager.test.ts（适配新常量）。
 

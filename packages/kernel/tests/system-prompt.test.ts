@@ -117,6 +117,14 @@ test("composePrompt 静态段（delegate-syntax）没写 content → 返回空�
   expect(result).toBe("");
 });
 
+test("DEFAULT_SUBAGENT_CLARIFY_PROMPT 含内置类型说明（general-purpose / Explore / fleet）", () => {
+  // 重构后此段新增"内置类型用法"说明，确保关键信息齐备
+  expect(DEFAULT_SUBAGENT_CLARIFY_PROMPT).toContain("general-purpose");
+  expect(DEFAULT_SUBAGENT_CLARIFY_PROMPT).toContain("Explore");
+  expect(DEFAULT_SUBAGENT_CLARIFY_PROMPT).toContain("fleet");
+  expect(DEFAULT_SUBAGENT_CLARIFY_PROMPT).toContain("read-only");
+});
+
 test("composePrompt 动态段写 content（env-constraints）→ 用户覆盖", () => {
   const customEnv = "Custom env constraints";
   const result = composePrompt(

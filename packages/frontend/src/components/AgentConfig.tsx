@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AgentConfig, AgentName, AgentToolItem } from "@hiagent/shared";
-import { agentDefOf, slugifyProviderName } from "@hiagent/shared";
+import { agentDefOf, slugifyProviderName, isSubagentType, SUBAGENT_TYPES } from "@hiagent/shared";
 import { useAgentsStore } from "../store/agents";
 import { useSkillsStore } from "../store/skills";
 import { useProvidersStore } from "../store/providers";
@@ -29,7 +29,39 @@ export function AgentConfig({ agentName, onClose }: Props) {
   const [tools, setTools] = useState<AgentToolItem[]>([]);
   const config = useAgentsStore(s => s.configs[agentName]);
 
+  // 内置 subagent（general-purpose / Explore）：不在 agents store 里，
+  // 用 SUBAGENT_TYPES 构造只读 draft，所有字段置灰不可编辑。
+  const isBuiltin = isSubagentType(agentName);
+  const builtinDraft: AgentConfig | null = useMemo(() => {
+    const def = SUBAGENT_TYPES.find(t => t.name === agentName);
+    if (!def) return null;
+    return {
+      displayName: def.displayName,
+      avatar: def.emoji,
+      avatarColor: `${def.gradient[0]}-${def.gradient[1]}`,
+      description: def.description,
+      model: null,
+      thinking: null,
+      systemPromptMode: "replace",
+      inheritProjectContext: false,
+      inheritSkills: false,
+      tools: [],
+      skills: [],
+      mcpServers: [],
+      partners: { askTo: [], askFrom: [] },
+      triggerKeywords: [],
+      systemPromptBody: def.readOnly
+        ? "Read-only subagent（由 pi-subagents 内置，工具与提示词均不可修改）"
+        : "General-purpose subagent（由 pi-subagents 内置，继承调用者工具集）",
+    };
+  }, [agentName]);
+
   useEffect(() => {
+    // 内置 subagent 不走 WS 加载，直接用本地构造的 draft
+    if (isBuiltin) {
+      if (builtinDraft) setDraft(builtinDraft);
+      return;
+    }
     useAgentsStore.getState().loadConfig(agentName);
     send({ type: "agent:tools:list" });
     const off = onMessage(e => {
@@ -37,18 +69,19 @@ export function AgentConfig({ agentName, onClose }: Props) {
       if (e.type === "agent:tools:list") setTools(e.tools);
     });
     return off;
-  }, [agentName]);
+  }, [agentName, isBuiltin, builtinDraft]);
 
   const allAgents = useAgentsStore(s => s.list);
 
-  useEffect(() => { if (config && !draft) setDraft(config); }, [config, draft]);
+  useEffect(() => { if (config && !draft && !isBuiltin) setDraft(config); }, [config, draft, isBuiltin]);
 
   // 重名校验：displayName 与其他智能体重复（自身原名除外）；空名也禁保存
   const trimmedName = draft?.displayName?.trim() ?? "";
   const nameConflict = trimmedName !== "" && trimmedName !== agentName &&
     allAgents.some(a => a.displayName === trimmedName);
   const nameEmpty = trimmedName === "";
-  const canSave = !!draft && !nameEmpty && !nameConflict;
+
+  const canSave = !!draft && !nameEmpty && !nameConflict && !isBuiltin;
 
   const save = () => {
     if (!draft || !canSave) return;
@@ -79,24 +112,35 @@ export function AgentConfig({ agentName, onClose }: Props) {
           </button>
         ))}
       </nav>
-      <div className="px-5 py-4 h-[380px] overflow-y-auto" data-testid="config-tab-content">
+      <div
+        className={`px-5 py-4 h-[380px] overflow-y-auto ${isBuiltin ? "opacity-60 [&_input]:pointer-events-none [&_button]:pointer-events-none [&_textarea]:pointer-events-none [&_[role=checkbox]]:pointer-events-none" : ""}`}
+        data-testid="config-tab-content"
+      >
         {!draft && <p className="text-sm text-tertiary">加载中...</p>}
-        {draft && tab === "basic" && <BasicTab draft={draft} onChange={setDraft} />}
-        {draft && tab === "tools" && <ToolsTab draft={draft} onChange={setDraft} tools={tools} />}
-        {draft && tab === "skills" && <SkillsTab draft={draft} onChange={setDraft} />}
-        {draft && tab === "partners" && <PartnersTab draft={draft} onChange={setDraft} selfName={agentName} />}
+        {/* 内置 subagent：所有字段只读，onChange 用 noop 防止编辑 */}
+        {draft && tab === "basic" && <BasicTab draft={draft} onChange={isBuiltin ? () => {} : setDraft} />}
+        {draft && tab === "tools" && <ToolsTab draft={draft} onChange={isBuiltin ? () => {} : setDraft} tools={tools} />}
+        {draft && tab === "skills" && <SkillsTab draft={draft} onChange={isBuiltin ? () => {} : setDraft} />}
+        {draft && tab === "partners" && <PartnersTab draft={draft} onChange={isBuiltin ? () => {} : setDraft} selfName={agentName} />}
       </div>
       <footer className="flex justify-end gap-2 px-5 py-3 border-t border-hairline">
-        {nameConflict && (
+        {isBuiltin && (
+          <span data-testid="cfg-builtin-notice" className="text-[11px] text-tertiary self-center mr-auto">
+            内置 subagent，配置由 pi-subagents 管理，不可编辑
+          </span>
+        )}
+        {!isBuiltin && nameConflict && (
           <span data-testid="cfg-name-error" className="text-[11px] text-danger self-center mr-auto">
             名称「{trimmedName}」已被占用
           </span>
         )}
         <button onClick={onClose}
-          className="px-3 py-1.5 rounded-sm text-xs bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary">取消</button>
-        <button onClick={save} disabled={!canSave} data-testid="cfg-save"
-          className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ background: "var(--accent)", color: "#fff" }}>保存</button>
+          className="px-3 py-1.5 rounded-sm text-xs bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary">关闭</button>
+        {!isBuiltin && (
+          <button onClick={save} disabled={!canSave} data-testid="cfg-save"
+            className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: "var(--accent)", color: "#fff" }}>保存</button>
+        )}
       </footer>
     </Modal>
   );

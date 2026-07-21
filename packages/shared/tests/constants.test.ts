@@ -8,6 +8,8 @@ import {
   SYSTEM_PROJECT_CWD,
   WORKDIR_TTL_DAYS,
   PROMPTS_FILE,
+  SUBAGENT_TYPES,
+  isSubagentType,
 } from "../src/constants";
 
 // pi-lens 已彻底移除：这些工具名不应再出现在默认 allowlist 或扩展映射里
@@ -123,4 +125,33 @@ test("SYSTEM_PROJECT_* 常量定义", () => {
 test("PROMPTS_FILE 指向 ~/.hiagent/prompts.json", () => {
   expect(PROMPTS_FILE.endsWith("prompts.json")).toBe(true);
   expect(PROMPTS_FILE.includes("hiagent")).toBe(true);
+});
+
+// ---- 内置 subagent 类型 ----
+
+test("SUBAGENT_TYPES 含 general-purpose 与 Explore", () => {
+  const names = SUBAGENT_TYPES.map(t => t.name);
+  expect(names).toContain("general-purpose");
+  expect(names).toContain("Explore");
+});
+
+test("SUBAGENT_TYPES 每项有完整的元信息", () => {
+  for (const t of SUBAGENT_TYPES) {
+    expect(t.name.length).toBeGreaterThan(0);
+    expect(t.displayName.length).toBeGreaterThan(0);
+    expect(t.description.length).toBeGreaterThan(0);
+    expect(t.emoji.length).toBeGreaterThan(0);
+    expect(t.gradient.length).toBe(2);
+    expect(typeof t.readOnly).toBe("boolean");
+  }
+});
+
+test("isSubagentType 识别内置类型名（大小写敏感）", () => {
+  expect(isSubagentType("general-purpose")).toBe(true);
+  expect(isSubagentType("Explore")).toBe(true);
+  // 大小写敏感（pi-subagents registry 用大小写敏感查 type）
+  expect(isSubagentType("explore")).toBe(false);
+  expect(isSubagentType("general_purpose")).toBe(false);
+  expect(isSubagentType("代码审查")).toBe(false);
+  expect(isSubagentType("")).toBe(false);
 });

@@ -66,6 +66,78 @@ test("buildDelegatePrompt: 含名称/简介/关键词/fleet 说明；空 askTo �
   expect(buildDelegatePrompt([])).toBe("");
 });
 
+// ---- 内置 subagent 类型名（general-purpose / Explore）allowlist 放行 ----
+
+test("delegate: 内置类型名 general-purpose 放行（绕过 askTo 名单）", async () => {
+  const spawn = mock(async (agent: string, task: string) => ({ text: `${agent}:${task}`, isError: false }));
+  const tool = makeDelegateTool({ askTo, spawn });
+  const res = await tool.execute("tc-gp", { agent: "general-purpose", task: "do something" });
+  expect(res.isError).toBe(false);
+  expect(res.content[0].text).toBe("general-purpose:do something");
+  expect(spawn).toHaveBeenCalledWith("general-purpose", "do something");
+});
+
+test("delegate: 内置类型名 Explore 放行（大小写敏感）", async () => {
+  const spawn = mock(async (agent: string, task: string) => ({ text: `${agent}:${task}`, isError: false }));
+  const tool = makeDelegateTool({ askTo, spawn });
+  const res = await tool.execute("tc-ex", { agent: "Explore", task: "search code" });
+  expect(res.isError).toBe(false);
+  expect(spawn).toHaveBeenCalledWith("Explore", "search code");
+});
+
+test("delegate: 大小写错误（explore 而非 Explore）不放行", async () => {
+  const spawn = mock(async () => ({ text: "ok", isError: false }));
+  const tool = makeDelegateTool({ askTo, spawn });
+  const res = await tool.execute("tc-lower", { agent: "explore", task: "x" });
+  expect(res.isError).toBe(true);
+  expect(res.content[0].text).toContain("不在可调起列表");
+  expect(spawn).not.toHaveBeenCalled();
+});
+
+test("delegate: 错误信息列出可调起名单 + 内置类型", async () => {
+  const spawn = mock(async () => ({ text: "ok", isError: false }));
+  const tool = makeDelegateTool({ askTo, spawn });
+  const res = await tool.execute("tc-err", { agent: "陌生人", task: "x" });
+  expect(res.content[0].text).toContain("代码审查");
+  expect(res.content[0].text).toContain("质量验收");
+  // 内置类型也应在错误信息里提示
+  expect(res.content[0].text).toContain("general-purpose");
+  expect(res.content[0].text).toContain("Explore");
+});
+
+test("fleet: 内置类型名也放行（每个 task 独立校验）", async () => {
+  const spawn = mock(async (agent: string, task: string) => ({ text: `${agent}:${task}`, isError: false }));
+  const tool = makeFleetTool({ askTo, spawn });
+  const res = await tool.execute("tc-fleet", {
+    tasks: [
+      { agent: "Explore", task: "search A" },
+      { agent: "代码审查", task: "review B" },
+      { agent: "general-purpose", task: "general task" },
+    ],
+  });
+  expect(res.isError).toBe(false);
+  expect(res.content[0].text).toContain("Explore:search A");
+  expect(res.content[0].text).toContain("代码审查:review B");
+  expect(res.content[0].text).toContain("general-purpose:general task");
+  expect(spawn).toHaveBeenCalledTimes(3);
+});
+
+test("fleet: 内置类型 + 越权 agent 混合时越权项报错但其它项正常", async () => {
+  const spawn = mock(async (agent: string, task: string) => ({ text: `${agent}:ok`, isError: false }));
+  const tool = makeFleetTool({ askTo, spawn });
+  const res = await tool.execute("tc-fleet-mix", {
+    tasks: [
+      { agent: "Explore", task: "search" },
+      { agent: "陌生人", task: "x" },
+    ],
+  });
+  expect(res.isError).toBe(true);  // 含失败项
+  expect(res.content[0].text).toContain("Explore:ok");
+  expect(res.content[0].text).toContain("陌生人");
+  expect(res.content[0].text).toContain("不在可调起列表");
+  expect(spawn).toHaveBeenCalledTimes(1);  // 只 spawn 了 Explore
+});
+
 test("waitSubagentResult: completed → 取 result，isError=false", async () => {
   const svc = { getRecord: () => rec("completed", { result: "done" }), abort: mock(() => true) };
   const r = await waitSubagentResult(svc, "a1", { intervalMs: 0 });

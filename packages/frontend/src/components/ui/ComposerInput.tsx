@@ -1,6 +1,6 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from "react";
 import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
-import { isModelAvailable } from "@hiagent/shared";
+import { isModelAvailable, SUBAGENT_TYPES } from "@hiagent/shared";
 import { uploadFile, copyToUploads, searchFilesStream } from "../../fs-client";
 import { useProjectsStore } from "../../store/projects";
 import { useProvidersStore } from "../../store/providers";
@@ -120,6 +120,7 @@ export function ComposerInput({
   }, [triggerType, allAgents, currentAgentName]);
 
   // @ 智能体列表过滤：只显示当前主智能体 partners.askTo 名单内 + 排除自身
+  // 另追加内置 subagent 类型（general-purpose / Explore），所有主智能体都可见可 @
   const agentItems: MenuItem[] = useMemo(() => {
     if (triggerType !== "agent") return [];
     const primaryConfig = allAgents.find(a => a.displayName === currentAgentName);
@@ -127,17 +128,30 @@ export function ComposerInput({
     const candidates = allAgents.filter(a =>
       askToSet.has(a.displayName) && a.displayName !== currentAgentName,
     );
-    const filtered = filterItems(
+    const filteredNamed = filterItems(
       candidates.map(a => ({ agent: a, name: a.displayName, description: a.description })),
       trigger!.query,
     );
-    return filtered.map(({ agent }) => ({
+    const namedItems: MenuItem[] = filteredNamed.map(({ agent }) => ({
       id: agent.displayName,
       name: agent.displayName,
       description: agent.description,
       avatar: agent.avatar,
       avatarColor: agent.avatarColor,
     }));
+    // 内置 subagent 类型：所有主智能体可见，按 query 模糊匹配
+    const filteredBuiltin = filterItems(
+      SUBAGENT_TYPES.map(t => ({ name: t.name, displayName: t.displayName, description: t.description, emoji: t.emoji, gradient: t.gradient })),
+      trigger!.query,
+    );
+    const builtinItems: MenuItem[] = filteredBuiltin.map(t => ({
+      id: t.name,
+      name: t.name,
+      description: t.description,
+      avatar: t.emoji,
+      avatarColor: `${t.gradient[0]}-${t.gradient[1]}`,
+    }));
+    return [...namedItems, ...builtinItems];
   }, [triggerType, trigger, allAgents, currentAgentName]);
 
   // $ 技能列表过滤
