@@ -759,3 +759,81 @@ test("agent:prompt 普通项目新建会话不创建子目录（行为不变）"
     expect(existsSync(leakDir)).toBe(false);
   });
 });
+
+// ─── Task 4.3: fs:upload 支持默认工作区 session 级 cwd ───
+// 携带 sessionId 时上传目录推导为 ~/.hiagent/workdir/<createdAt>/.hiagent/uploads/
+// 未携带 sessionId 时降级到 project.cwd/.hiagent/uploads（向后兼容）
+//
+// 注意：cwd 推导走 SYSTEM_PROJECT_CWD 常量（~/.hiagent/workdir），不读 project.cwd。
+// 因此即便 store 里把 project.cwd 改成临时目录，写文件仍会落到常量路径下。
+// 测试用真实常量路径并在 finally 清理产生的 <ts>/ 子目录，避免污染开发机。
+
+test("fs:upload 默认工作区会话携带 sessionId 时写入 workdir/<createdAt>/.hiagent/uploads", async () => {
+  const { agentManager } = makeMockAgentManager();
+  // 声明在 try 外，finally 一定能读到
+  let createdSubDir: string | null = null;
+  try {
+    await withServer(agentManager, async (send, recv, { projectStore }) => {
+      // 预置默认工作区（cwd 用真实 SYSTEM_PROJECT_CWD，与 resolveSessionCwd 推导目标一致）
+      await projectStore.createSystemProject({
+        id: SYSTEM_PROJECT_ID,
+        name: SYSTEM_PROJECT_NAME,
+        cwd: SYSTEM_PROJECT_CWD,
+      });
+      // 预置一个默认工作区会话；createdAt 决定子目录名
+      const createdAt = Date.now();
+      const sessionId = "s-upload-" + Math.random().toString(36).slice(2);
+      await projectStore.createSession({
+        projectId: SYSTEM_PROJECT_ID,
+        primaryAgent: "dev",
+        title: "upload test",
+        id: sessionId,
+        createdAt,
+      });
+      // 发 fs:upload 带 sessionId
+      send({
+        type: "fs:upload",
+        id: "u1",
+        projectId: SYSTEM_PROJECT_ID,
+        sessionId,
+        name: "hello.txt",
+        content: Buffer.from("hi").toString("base64"),
+      });
+      const res = await recvUntil(recv, e => e.type === "fs:upload" && e.id === "u1");
+      // 期望路径落在 workdir/<createdAt>/.hiagent/uploads/ 下
+      const expectedDir = join(SYSTEM_PROJECT_CWD, String(createdAt), ".hiagent", "uploads");
+      expect(res.path).toContain(expectedDir);
+      expect(existsSync(res.path)).toBe(true);
+      // 标记待清理的子目录（整棵 <createdAt>/）
+      createdSubDir = join(SYSTEM_PROJECT_CWD, String(createdAt));
+    });
+  } finally {
+    // 无论 try 内断言是否失败，都清理本次产生的 <ts>/ 子目录，避免污染开发机 ~/.hiagent/workdir
+    if (createdSubDir) rmSync(createdSubDir, { recursive: true, force: true });
+  }
+});
+
+test("fs:upload 未携带 sessionId 时仍写 project.cwd/.hiagent/uploads（向后兼容）", async () => {
+  const { agentManager } = makeMockAgentManager();
+  const projCwd = tmp("ws-upload-legacy");
+  try {
+    await withServer(agentManager, async (send, recv, { projectStore }) => {
+      // 普通项目：cwd 指向临时目录
+      const proj = await projectStore.createProject({ name: "p", cwd: projCwd });
+      // 不携带 sessionId
+      send({
+        type: "fs:upload",
+        id: "u2",
+        projectId: proj.id,
+        name: "legacy.txt",
+        content: Buffer.from("hi").toString("base64"),
+      });
+      const res = await recvUntil(recv, e => e.type === "fs:upload" && e.id === "u2");
+      const expectedDir = join(projCwd, ".hiagent", "uploads");
+      expect(res.path).toContain(expectedDir);
+      expect(existsSync(res.path)).toBe(true);
+    });
+  } finally {
+    rmSync(projCwd, { recursive: true, force: true });
+  }
+});
