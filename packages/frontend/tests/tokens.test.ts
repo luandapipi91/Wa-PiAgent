@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, afterEach } from "bun:test";
 import {
   FILE_TOKEN_RE, SKILL_TOKEN_RE, AGENT_TOKEN_RE,
   expandTokens, textToSegments, segmentsToText, textToHtml, escapeHtml,
@@ -87,8 +87,8 @@ test("textToHtml agent chip 的 @ 在 avatar 之前（最前面）", () => {
   registerAgentMeta("代码审查", { avatar: "🔍", avatarColor: "#0891b2" });
   const html = textToHtml("@[代码审查]");
   // chip-agent 内部结构：@ + avatar span + name
-  // @ 必须出现在 avatar 之前
-  const atIdx = html.indexOf("@");
+  // @ 必须出现在 avatar 之前（用 ">@" 精准定位触发符 @，避免匹配到 data-token 属性中的 @）
+  const atIdx = html.indexOf(">@") + 1; // +1 跳过 > 定位到 @ 本身
   const avatarIdx = html.indexOf("chip-agent-avatar");
   expect(atIdx).toBeGreaterThanOrEqual(0);
   expect(avatarIdx).toBeGreaterThan(atIdx);
@@ -97,9 +97,9 @@ test("textToHtml agent chip 的 @ 在 avatar 之前（最前面）", () => {
   const nameIdx = html.indexOf("代码审查", avatarIdx);
   expect(emojiIdx).toBeGreaterThan(atIdx);
   expect(nameIdx).toBeGreaterThan(emojiIdx);
-  // 清理全局状态，避免影响其他测试
-  clearAgentMeta();
 });
+
+afterEach(clearAgentMeta);
 
 test("textToHtml 传 { hideTrigger: true } 时 agent chip 不含 @ 前缀（仅展示名，用于历史消息渲染）", () => {
   const html = textToHtml("@[代码审查]", { hideTrigger: true });
