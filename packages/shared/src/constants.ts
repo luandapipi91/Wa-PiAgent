@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 /** 端口解析：合法正整数用之，否则用默认。 */
 export function resolvePort(envVal: string | undefined, def: number): number {
   const n = Number(envVal);
@@ -24,8 +26,6 @@ export const PI_AGENTS_DIR = `${HIAGENT_DIR}/agents`;   // ← 改：从 ~/.pi/a
 export const PROVIDERS_FILE = `${HIAGENT_DIR}/providers.json`;
 export const GENERATED_DIR = `${HIAGENT_DIR}/.generated`;   // 自动生成的 Pi extension 文件目录
 export const BUILTIN_SKILLS_DIR = `${HIAGENT_DIR}/skills`;   // 内置技能目录，kernel 启动时创建，不可删
-
-import { join } from "node:path";
 
 // ===== 默认工作区（虚拟系统项目）=====
 // 一个常驻、不可删除/改名的虚拟项目，作为"没有具体工程目录时的默认聊天空间"。
