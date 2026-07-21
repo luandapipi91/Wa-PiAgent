@@ -6,9 +6,14 @@
 
 ## 2026-07-21
 
+### 新增功能
+- **默认工作区虚拟项目**：会话列表新增常驻的「🏠 默认工作区」虚拟项目（`id="__system__"`，`cwd=~/.hiagent/workdir/`），作为"没有具体工程目录时的默认聊天空间"。该项目不可删除/不可改名，与普通项目操作完全一致（新建会话、选智能体、发送）。默认工作区下的每个会话有独立隔离的 pwd（`~/.hiagent/workdir/<session.createdAt>/`），互不干扰；skill/mcp 继承全局配置（无需独立管理）。删除会话保留 `<createdAt>/` 子目录 7 天后由后台 `workdir-cleaner` 自动清理（三重防护：目录名纯数字 + 不被现存 session 引用 + mtime 超 7 天）。UI 上默认工作区显示为侧栏独立"默认"区，会话右键菜单额外有"打开工作目录"，header 显示友好文案而非内部路径。**完全不动数据模型**（不加任何字段，靠 `project.id === SYSTEM_PROJECT_ID` 识别、靠 `session.createdAt` 推导 cwd）。影响范围：shared/constants.ts、shared/pure.ts、shared/types.ts、kernel/index.ts、kernel/project-store.ts、kernel/ws-server.ts、kernel/agent-manager.ts、kernel/workdir-cleaner.ts（新）、kernel/ensure-system-project.ts（新）、frontend/Sidebar.tsx、frontend/ProjectItem.tsx、frontend/ProjectList.tsx、frontend/NewSessionPane.tsx、frontend/SessionView.tsx、frontend/fs-client.ts、frontend/recording/recorder.ts。
+
 ### 设计
 - **知识库检索功能技术方案调研**：完成 HiAgent 基于知识库检索（RAG）的技术方案文档。分析了五种集成架构（MCP 服务器 / 内核内置 customTools / Pi 扩展 / SaaS 向量数据库 / 混合方案），从内核改动量、用户体验、离线可用性、技术自由度、运维复杂度、数据隐私、开发周期 8 个维度进行对比。**推荐混合方案**（MCP 协议 + 可插拔后端）：第一阶段直接复用 HiAgent 现有 MCP 集成对接现成 RAG 服务器（内核零改动）；第二阶段开发官方 `hiagent-kb-mcp`（Bun + LanceDB + OpenAI Embedding + 本地模型降级），提供 kb_search / kb_index / kb_list_sources / kb_remove 四个 MCP 工具。含完整的嵌入模型对比、向量数据库对比、文档处理流程设计和实施路线图。文档：`docs/research/knowledge-base-retrieval-proposal.md`。
 - **Pi 生态知识库插件调研（补充）**：深入调查 Pi 官方扩展市场（pi.dev, 5343 个包），发现 **`pi-knowledge-search`（v1.3.5）已完美覆盖需求**——混合向量+BM25搜索、SQLite FTS5、knowledge_search+kb_read 工具、支持 OpenAI/Ollama/Bedrock 嵌入。另发现 `pi-code-graph`（代码知识图谱 RAG）、`@cad0p/pi-napkin`（知识库集成）、`pi-vault-mind`（LanceDB 向量+FTS）等 6+ 个相关插件。关键发现：HiAgent 已安装的 `@amaster.ai/pi-memory` 底层依赖 `mem0ai`（v3.1.0），支持 20+ 向量数据库但尚未激活。Pi 官方 GitHub Issue #1255 讨论了采纳 OpenClaw Memory/RAG 架构。**推荐方案更新**：从自研 MCP 调整为直接集成 `pi-knowledge-search` 作为 HiAgent 内置 Pi 扩展（1-3天上线），Bun SQLite 不兼容时 MCP 兜底。文档同步更新至 v2。
+- **国内 Embeddings 与本地小模型调研**：补充嵌入模型 5.2 节，分为国内 API（智谱 embedding-3 ¥0.5/百万Token、阿里 Qwen3-Embedding-8B MTEB#1 等）和本地小模型（bge-small-zh-v1.5 仅 90MB、bge-m3 2.2GB 等 11 款）。含硬件适配决策树、Ollama 一条命令部署和多级降级推荐策略。
+- **知识库检索效果研究报告**：编写详细效果研究报告（`docs/research/knowledge-base-retrieval-effect-report.md`，约 1.3 万字），含端到端体验模拟（agent 对话示例）、三种搜索方式能力矩阵、混合搜索量化提升数据（较纯向量召回率 +17.4%、MRR +41.7%）、RRF 融合算法图解、官方性能 benchmark（500文件搜索 ~250ms）、本地/远程模型性能对比、规模扩展预期、四大使用场景效果预测、与 Cursor/Claude Code 对比矩阵、用户体验量化指标和局限分析。
 
 ## 2026-07-20
 
