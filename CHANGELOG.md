@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-07-21
+
+### 设计
+- **知识库检索功能技术方案调研**：完成 HiAgent 基于知识库检索（RAG）的技术方案文档。分析了五种集成架构（MCP 服务器 / 内核内置 customTools / Pi 扩展 / SaaS 向量数据库 / 混合方案），从内核改动量、用户体验、离线可用性、技术自由度、运维复杂度、数据隐私、开发周期 8 个维度进行对比。**推荐混合方案**（MCP 协议 + 可插拔后端）：第一阶段直接复用 HiAgent 现有 MCP 集成对接现成 RAG 服务器（内核零改动）；第二阶段开发官方 `hiagent-kb-mcp`（Bun + LanceDB + OpenAI Embedding + 本地模型降级），提供 kb_search / kb_index / kb_list_sources / kb_remove 四个 MCP 工具。含完整的嵌入模型对比、向量数据库对比、文档处理流程设计和实施路线图。文档：`docs/research/knowledge-base-retrieval-proposal.md`。
+- **Pi 生态知识库插件调研（补充）**：深入调查 Pi 官方扩展市场（pi.dev, 5343 个包），发现 **`pi-knowledge-search`（v1.3.5）已完美覆盖需求**——混合向量+BM25搜索、SQLite FTS5、knowledge_search+kb_read 工具、支持 OpenAI/Ollama/Bedrock 嵌入。另发现 `pi-code-graph`（代码知识图谱 RAG）、`@cad0p/pi-napkin`（知识库集成）、`pi-vault-mind`（LanceDB 向量+FTS）等 6+ 个相关插件。关键发现：HiAgent 已安装的 `@amaster.ai/pi-memory` 底层依赖 `mem0ai`（v3.1.0），支持 20+ 向量数据库但尚未激活。Pi 官方 GitHub Issue #1255 讨论了采纳 OpenClaw Memory/RAG 架构。**推荐方案更新**：从自研 MCP 调整为直接集成 `pi-knowledge-search` 作为 HiAgent 内置 Pi 扩展（1-3天上线），Bun SQLite 不兼容时 MCP 兜底。文档同步更新至 v2。
+
 ## 2026-07-20
 
 ### 修复
