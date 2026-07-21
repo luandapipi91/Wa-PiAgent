@@ -382,7 +382,9 @@ describe("ComposerInput @ 候选菜单过滤", () => {
     expect(screen.queryByText("研发")).toBeNull(); // 排除当前主智能体
   });
 
-  it("主智能体 askTo 为空时，@ 菜单显示关系网配置提示", async () => {
+  it("主智能体 askTo 为空时，@ 菜单不再显示空提示（因内置 subagent 类型一定可见）", async () => {
+    // 行为变化：追加内置 subagent 类型后，askTo 空时菜单也有候选（general-purpose/Explore）
+    // 所以不再进入 empty 状态，旧版"无可调起"提示不再显示
     render(
       <ComposerInput
         text="@" setText={() => {}} model="gpt-4o" setModel={() => {}}
@@ -391,9 +393,10 @@ describe("ComposerInput @ 候选菜单过滤", () => {
         projectId="p1" sessionId="s1" onSend={() => {}} currentAgentName="代码审查"
       />
     );
-    await waitFor(() => {
-      expect(screen.getByText("当前智能体无可调起的子智能体，请在智能体配置中设置关系网")).toBeDefined();
-    });
+    // 内置类型一定可见
+    await waitFor(() => expect(screen.getByText("general-purpose")).toBeDefined());
+    // 旧版"无可调起"提示不再显示（因为有内置候选）
+    expect(screen.queryByText("当前智能体无可调起的子智能体，请在智能体配置中设置关系网")).toBeNull();
   });
 
   it("主智能体 askTo 不为空但查询不匹配时，仍然显示无匹配智能体", async () => {
@@ -408,5 +411,74 @@ describe("ComposerInput @ 候选菜单过滤", () => {
     await waitFor(() => {
       expect(screen.getByText("无匹配智能体")).toBeDefined();
     });
+  });
+
+  // ---- 内置 subagent 类型（general-purpose / Explore）候选 ----
+
+  it("@ 菜单追加内置 subagent 类型（general-purpose / Explore），与 askTo 名单一起显示", async () => {
+    render(
+      <ComposerInput
+        text="@" setText={() => {}} model="gpt-4o" setModel={() => {}}
+        thinking="disabled" setThinking={() => {}}
+        attachments={[]} setAttachments={() => {}}
+        projectId="p1" sessionId="s1" onSend={() => {}} currentAgentName="研发"
+      />
+    );
+    // askTo 名单内的实名
+    await waitFor(() => expect(screen.getByText("代码审查")).toBeDefined());
+    // 内置 subagent 类型
+    expect(screen.getByText("general-purpose")).toBeTruthy();
+    expect(screen.getByText("Explore")).toBeTruthy();
+  });
+
+  it("@ 菜单 askTo 为空时仍显示内置 subagent 类型", async () => {
+    // askTo 空的智能体（代码审查）原本会显示"无可调起"提示，
+    // 现在因为内置类型追加，应同时显示内置类型
+    render(
+      <ComposerInput
+        text="@" setText={() => {}} model="gpt-4o" setModel={() => {}}
+        thinking="disabled" setThinking={() => {}}
+        attachments={[]} setAttachments={() => {}}
+        projectId="p1" sessionId="s1" onSend={() => {}} currentAgentName="代码审查"
+      />
+    );
+    // 内置类型一定可见（无论 askTo 是否空）
+    await waitFor(() => expect(screen.getByText("general-purpose")).toBeDefined());
+    expect(screen.getByText("Explore")).toBeTruthy();
+  });
+
+  it("@ 查询 \"Explore\" 模糊匹配内置类型", async () => {
+    render(
+      <ComposerInput
+        text="@Exp" setText={() => {}} model="gpt-4o" setModel={() => {}}
+        thinking="disabled" setThinking={() => {}}
+        attachments={[]} setAttachments={() => {}}
+        projectId="p1" sessionId="s1" onSend={() => {}} currentAgentName="研发"
+      />
+    );
+    await waitFor(() => expect(screen.getByText("Explore")).toBeDefined());
+    // general-purpose 不匹配 "Exp"，不应出现
+    expect(screen.queryByText("general-purpose")).toBeNull();
+    // askTo 名单内的"代码审查"也不匹配
+    expect(screen.queryByText("代码审查")).toBeNull();
+  });
+
+  it("选中内置 subagent 类型后生成 @[typeName] token", async () => {
+    const setText = mock();
+    const onAgentMention = mock();
+    render(
+      <ComposerInput
+        text="@gene" setText={setText} model="gpt-4o" setModel={() => {}}
+        thinking="disabled" setThinking={() => {}}
+        attachments={[]} setAttachments={() => {}}
+        projectId="p1" sessionId="s1" onSend={() => {}}
+        currentAgentName="研发" onAgentMention={onAgentMention}
+      />
+    );
+    await waitFor(() => expect(screen.getByText("general-purpose")).toBeDefined());
+    fireEvent.click(screen.getByText("general-purpose"));
+    const lastCall = setText.mock.calls.at(-1)?.[0] as string;
+    expect(lastCall).toContain("@[general-purpose]");
+    expect(onAgentMention).toHaveBeenCalledWith("general-purpose");
   });
 });

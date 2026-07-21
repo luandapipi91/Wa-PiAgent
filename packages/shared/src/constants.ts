@@ -36,6 +36,50 @@ export const SYSTEM_PROJECT_CWD = `${HIAGENT_DIR}/workdir`;
 // 默认工作区会话被删除后，对应的 <createdAt>/ 子目录保留天数；超时后由 workdir-cleaner 清理
 export const WORKDIR_TTL_DAYS = 7;
 
+// ===== 内置 subagent 类型（pi-subagents 自带，不可删除/编辑）=====
+// LLM 可在 delegate 工具的 agent 参数中传这些类型名，调起匿名 subagent。
+// spawn 走 svc.spawn(type, prompt)：type 由 pi-subagents registry 解析为内置 agent 配置。
+// - general-purpose：继承调用者全部工具（builtinToolNames 未设置）
+// - Explore：read-only 探索（builtinToolNames = ["read","bash","grep","find","ls"]）
+export interface SubagentTypeDef {
+  /** 类型名（传给 svc.spawn 的第一个参数，大小写敏感） */
+  name: string;
+  /** 显示名（前端展示） */
+  displayName: string;
+  /** 简介（前端卡片展示） */
+  description: string;
+  /** emoji 图标 */
+  emoji: string;
+  /** 头像渐变色 */
+  gradient: [string, string];
+  /** 是否只读（true = 只能探索不能改文件） */
+  readOnly: boolean;
+}
+
+export const SUBAGENT_TYPES: SubagentTypeDef[] = [
+  {
+    name: "general-purpose",
+    displayName: "通用子智能体",
+    description: "继承调用者的全部工具，执行复杂多步任务。",
+    emoji: "🤖",
+    gradient: ["#4b5563", "#6b7280"],
+    readOnly: false,
+  },
+  {
+    name: "Explore",
+    displayName: "探索子智能体",
+    description: "只读代码探索，快速搜索和理解代码库结构。",
+    emoji: "🔍",
+    gradient: ["#0891b2", "#06b6d4"],
+    readOnly: true,
+  },
+];
+
+/** 判断 name 是否是内置 subagent 类型名（用于 delegate allowlist 放行 + 前端差异化渲染） */
+export function isSubagentType(name: string): boolean {
+  return SUBAGENT_TYPES.some(t => t.name === name);
+}
+
 export interface AgentDef {
   emoji: string;
   gradient: [string, string];

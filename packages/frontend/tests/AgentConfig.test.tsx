@@ -223,3 +223,33 @@ describe("AgentConfig 4 tab", () => {
     expect(onClose).toHaveBeenCalled();
   });
 });
+
+describe("AgentConfig 内置 subagent（只读模式）", () => {
+  test("打开 general-purpose 显示内置提示，无保存按钮", () => {
+    render(<AgentConfig agentName="general-purpose" onClose={() => {}} />);
+    expect(screen.getByTestId("cfg-builtin-notice")).toBeTruthy();
+    expect(screen.getByTestId("cfg-builtin-notice").textContent).toContain("内置");
+    // 无保存按钮，只有"关闭"
+    expect(screen.queryByTestId("cfg-save")).toBeNull();
+    expect(screen.getByText("关闭")).toBeTruthy();
+  });
+
+  test("内置 subagent 不发送 agent:config:get（避免 kernel 报错）", () => {
+    render(<AgentConfig agentName="Explore" onClose={() => {}} />);
+    const getConfigCall = sentEvents.find(e => e.type === "agent:config:get");
+    expect(getConfigCall).toBeUndefined();
+  });
+
+  test("内置 subagent 显示中文显示名（来自 SUBAGENT_TYPES）", () => {
+    render(<AgentConfig agentName="general-purpose" onClose={() => {}} />);
+    // header 显示 SUBAGENT_TYPES 里的 displayName（"通用子智能体"）
+    expect(screen.getByTestId("agent-config").textContent).toContain("通用子智能体");
+  });
+
+  test("内置 subagent tab 内容区有置灰样式（opacity-60 + pointer-events-none）", () => {
+    render(<AgentConfig agentName="Explore" onClose={() => {}} />);
+    const content = screen.getByTestId("config-tab-content");
+    expect(content.className).toContain("opacity-60");
+    expect(content.className).toContain("pointer-events-none");
+  });
+});

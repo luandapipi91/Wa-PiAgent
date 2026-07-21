@@ -13,6 +13,7 @@
 import { Type } from "typebox";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { isSubagentType, SUBAGENT_TYPES } from "@hiagent/shared";
 
 /** fleet 并发上限（参考 DeepSeek-Reasonix / pi-dynamic-workflows 默认值） */
 export const MAX_SUBAGENT_CONCURRENCY = 6;
@@ -31,9 +32,25 @@ export interface DelegateSpawnResult {
 export type DelegateSpawnFn = (agent: string, task: string) => Promise<DelegateSpawnResult>;
 
 const DelegateParamsSchema = Type.Object({
-  agent: Type.String({ description: "可调起列表中的智能体名称" }),
+  agent: Type.String({ description: "可调起列表中的智能体名称，或内置 subagent 类型名（general-purpose / Explore）" }),
   task: Type.String({ description: "交给子智能体的任务描述" }),
 });
+
+/**
+ * 判断 agent 名是否允许调起：在 askTo 名单内，或者是内置 subagent 类型名。
+ * 内置类型（general-purpose / Explore）走 pi-subagents registry 自己的配置，
+ * 不在 HiAgent 的 askTo 关系网里——任何主智能体都可调起。
+ */
+function canInvoke(agent: string, askTo: DelegateTarget[]): boolean {
+  return askTo.some(t => t.name === agent) || isSubagentType(agent);
+}
+
+/** 构造"可调起名单"错误文案：实名列表 + 内置类型提示 */
+function buildNotAllowedMessage(agent: string, askTo: DelegateTarget[]): string {
+  const names = askTo.map(t => t.name).join("、") || "（空）";
+  const builtin = SUBAGENT_TYPES.map(t => t.name).join("、");
+  return `错误：智能体「${agent}」不在可调起列表中。可调起：${names}；内置 subagent 类型：${builtin}`;
+}
 
 /** 构造 delegate 工具（闭包绑 askTo + spawn）。每个 session 一份实例，askTo 非空时才注册。 */
 export function makeDelegateTool(opts: {
@@ -43,16 +60,15 @@ export function makeDelegateTool(opts: {
   return {
     name: "delegate",
     label: "Delegate",
-    description: "调起关系网内的子智能体执行任务并返回结果。agent 必须取可调起列表中的智能体名称。",
+    description: "调起子智能体执行任务并返回结果。agent 可以是关系网内的智能体名称，或内置 subagent 类型名（general-purpose / Explore）。",
     parameters: DelegateParamsSchema,
     async execute(
       _toolCallId: string,
       args: { agent: string; task: string },
     ): Promise<{ content: Array<{ type: "text"; text: string }>; details: undefined; isError: boolean }> {
-      if (!opts.askTo.some((t) => t.name === args.agent)) {
-        const allow = opts.askTo.map((t) => t.name).join("、") || "（空）";
+      if (!canInvoke(args.agent, opts.askTo)) {
         return {
-          content: [{ type: "text" as const, text: `错误：智能体「${args.agent}」不在可调起列表中。可调起：${allow}` }],
+          content: [{ type: "text" as const, text: buildNotAllowedMessage(args.agent, opts.askTo) }],
           details: undefined,
           isError: true,
         };
@@ -242,9 +258,8 @@ export function makeFleetTool(opts: {
       }
       const results = await runWithConcurrency(
         args.tasks.map(t => async () => {
-          if (!opts.askTo.some(x => x.name === t.agent)) {
-            const allow = opts.askTo.map(x => x.name).join("、") || "（空）";
-            return { agent: t.agent, text: `错误：智能体「${t.agent}」不在可调起列表中。可调起：${allow}`, isError: true };
+          if (!canInvoke(t.agent, opts.askTo)) {
+            return { agent: t.agent, text: buildNotAllowedMessage(t.agent, opts.askTo), isError: true };
           }
           const { text, isError } = await opts.spawn(t.agent, t.task);
           return { agent: t.agent, text, isError };

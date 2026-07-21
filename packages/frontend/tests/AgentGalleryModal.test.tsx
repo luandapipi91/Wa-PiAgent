@@ -123,4 +123,70 @@ describe("AgentGalleryModal", () => {
     expect((screen.getByTestId("gallery-status-dev") as HTMLElement).style.background.toLowerCase()).toBe("#5b5bd6");
     expect((screen.getByTestId("gallery-status-test") as HTMLElement).style.background.toLowerCase()).toBe("#34a853");
   });
+
+  // ---- 内置 subagent 类型卡片（general-purpose / Explore）----
+
+  test("内置 subagent 卡片渲染在所有智能体之后", () => {
+    seed(["a", "b"]);
+    renderModal();
+    // 内置卡片存在
+    expect(screen.getByTestId("gallery-card-general-purpose")).toBeTruthy();
+    expect(screen.getByTestId("gallery-card-Explore")).toBeTruthy();
+    // DOM 顺序：a, b, general-purpose, Explore
+    const gallery = screen.getByTestId("agent-gallery");
+    const cards = gallery.querySelectorAll("[data-testid^='gallery-card-']");
+    const ids = Array.from(cards).map(c => c.getAttribute("data-testid"));
+    const idxA = ids.indexOf("gallery-card-a");
+    const idxB = ids.indexOf("gallery-card-b");
+    const idxGp = ids.indexOf("gallery-card-general-purpose");
+    const idxEx = ids.indexOf("gallery-card-Explore");
+    expect(idxA).toBeLessThan(idxB);
+    expect(idxB).toBeLessThan(idxGp);
+    expect(idxGp).toBeLessThan(idxEx);
+  });
+
+  test("内置 subagent 卡片显示'内置'角标", () => {
+    seed([]);
+    renderModal();
+    const gpCard = screen.getByTestId("gallery-card-general-purpose");
+    expect(gpCard.textContent).toContain("内置");
+  });
+
+  test("内置 subagent 计数不计入顶部统计（仍显示用户智能体数量）", () => {
+    seed(["a", "b"]);
+    renderModal();
+    // 顶部计数显示用户智能体数量（2 个），不含内置 subagent
+    expect(screen.getByTestId("agent-gallery").textContent).toContain("2 个");
+    expect(screen.getByTestId("agent-gallery").textContent).not.toContain("4 个");
+  });
+
+  test("内置 subagent 右键只显示'查看'菜单，不显示'编辑'/'删除'", async () => {
+    seed(["a"]);
+    renderModal();
+    fireEvent.contextMenu(screen.getByTestId("gallery-card-general-purpose"));
+    // 内置卡片只有"查看"
+    expect(screen.queryByTestId("gallery-ctx-edit")).toBeNull();
+    expect(screen.queryByTestId("gallery-ctx-delete")).toBeNull();
+    expect(screen.getByTestId("gallery-ctx-view")).toBeTruthy();
+    // 关闭菜单
+    await new Promise(r => setTimeout(r, 10));
+    fireEvent.click(window.document);
+  });
+
+  test("内置 subagent 左键触发 onChatWith（与普通卡片一致）", () => {
+    seed(["a"]);
+    const onChatWith = mock();
+    renderModal({ onChatWith });
+    fireEvent.click(screen.getByTestId("gallery-card-Explore"));
+    expect(onChatWith).toHaveBeenCalledWith("Explore");
+  });
+
+  test("内置 subagent 右键点'查看'触发 onEdit（打开只读 AgentConfig）", () => {
+    seed(["a"]);
+    const onEdit = mock();
+    renderModal({ onEdit });
+    fireEvent.contextMenu(screen.getByTestId("gallery-card-general-purpose"));
+    fireEvent.click(screen.getByTestId("gallery-ctx-view"));
+    expect(onEdit).toHaveBeenCalledWith("general-purpose");
+  });
 });
