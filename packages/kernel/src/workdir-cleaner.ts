@@ -15,6 +15,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  *    （被现存会话引用的目录不能删，即便超时）
  * 3. 子目录 mtime 距今超过 WORKDIR_TTL_DAYS 天
  *
+ * 被引用目录路径用 `join(root, String(s.createdAt))` 计算，而不是 resolveSessionCwd：
+ * resolveSessionCwd 内部硬编码 SYSTEM_PROJECT_CWD 常量，与 root 参数（测试可注入）冲突。
+ * cleaner 必须以 root 为基准算路径，保持与 readdir/stat 一致。
+ *
  * @param projectStore 用于查询当前 sessions 表
  * @param root 可选，默认用 SYSTEM_PROJECT_CWD；测试可注入临时目录
  * @returns 实际清理的目录数
@@ -31,6 +35,8 @@ export async function cleanupExpiredWorkdirs(
   }
 
   // 计算"被现存会话引用"的目录路径集合
+  // 用 join(root, String(s.createdAt)) 而非 resolveSessionCwd：root 可被测试注入，
+  // 必须与 readdir/stat 的基准一致；详见上方函数注释
   const { sessions } = await projectStore.load();
   const activeDirs = new Set<string>();
   for (const s of sessions) {
