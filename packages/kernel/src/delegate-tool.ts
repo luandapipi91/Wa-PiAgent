@@ -13,7 +13,9 @@
 import { Type } from "typebox";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { isSubagentType, SUBAGENT_TYPES, normalizeSubagentType } from "@hiagent/shared";
+import { isSubagentType, SUBAGENT_TYPES, normalizeSubagentType, SUBAGENT_OVERRIDES_FILE } from "@hiagent/shared";
+import type { ThinkingLevel } from "@hiagent/shared";
+import { getSubagentOverride } from "./subagent-store";
 
 /** fleet 并发上限（参考 DeepSeek-Reasonix / pi-dynamic-workflows 默认值） */
 export const MAX_SUBAGENT_CONCURRENCY = 6;
@@ -165,15 +167,32 @@ function createExtensionApiStub() {
   };
 }
 
+export interface SpawnOpts {
+  intervalMs?: number;
+  activeTimeoutMs?: number;
+  hardDeadlineMs?: number;
+  /** 测试注入临时 overrides 文件路径；生产路径默认 SUBAGENT_OVERRIDES_FILE */
+  overridesFilePath?: string;
+}
+
+// thinking → pi-subagents thinkingLevel 映射（与 agent-manager prompt 方法一致）：
+// "disabled" → "off"；"max" → "xhigh"；"medium"/"high" 透传
+function mapThinkingToLevel(thinking: ThinkingLevel): string {
+  return thinking === "disabled" ? "off"
+    : thinking === "max" ? "xhigh"
+    : thinking;
+}
+
 /**
  * 生产 spawn 闭包：动态 import pi-subagents service（进程内单例，由内置扩展发布）→
  * spawn（无活动会话会 throw，catch 收敛为错误文本）→ waitSubagentResult 轮询。
  * 所有失败路径收敛为 { text, isError:true }，绝不 throw 中断会话。
+ * 合并 subagent override（model / thinkingLevel）到 svc.spawn options。
  */
 export async function spawnViaSubagentsService(
   agent: string,
   task: string,
-  opts?: { intervalMs?: number; activeTimeoutMs?: number; hardDeadlineMs?: number },
+  opts?: SpawnOpts,
 ): Promise<DelegateSpawnResult> {
   const mod = await import("@gotgenes/pi-subagents");
   let svc = mod.getSubagentsService();
@@ -205,9 +224,22 @@ export async function spawnViaSubagentsService(
     }
   }
   if (!svc) return { text: "子智能体服务未就绪", isError: true };
+
+  // 合并 subagent override（model / thinkingLevel）到 svc.spawn options
+  const normalizedAgent = normalizeSubagentType(agent);  // 中文别名归一化
+  const overridesFile = opts?.overridesFilePath ?? SUBAGENT_OVERRIDES_FILE;
+  const override = await getSubagentOverride(overridesFile, normalizedAgent).catch(() => undefined);
+  const spawnOptions: any = {};
+  if (override?.model) spawnOptions.model = override.model;
+  if (override?.thinking) spawnOptions.thinkingLevel = mapThinkingToLevel(override.thinking);
+
   let id: string;
   try {
-    id = svc.spawn(agent, task);
+    id = svc.spawn(
+      normalizedAgent,
+      task,
+      Object.keys(spawnOptions).length > 0 ? spawnOptions : undefined,
+    );
   } catch (err) {
     return { text: `子智能体调起失败: ${err instanceof Error ? err.message : String(err)}`, isError: true };
   }
