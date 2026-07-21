@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { ProjectStore } from "../src/project-store";
-import { HIAGENT_DIR } from "@hiagent/shared";
+import { HIAGENT_DIR, SYSTEM_PROJECT_ID, SYSTEM_PROJECT_NAME, SYSTEM_PROJECT_CWD } from "@hiagent/shared";
 
 function tempFile() {
   return join(import.meta.dir, ".tmp-projects-" + Math.random().toString(36).slice(2) + ".json");
@@ -79,5 +79,50 @@ test("createProject 相同 cwd 抛错", async () => {
   const store = new ProjectStore(f);
   await store.createProject({ name: "项目A", cwd: "/work/same" });
   expect(store.createProject({ name: "项目B", cwd: "/work/same" })).rejects.toThrow("相同目录的项目已存在");
+  rmSync(f, { force: true });
+});
+
+test("createSystemProject 首次插入固定 id 项目", async () => {
+  const f = tempFile();
+  const store = new ProjectStore(f);
+  const p = await store.createSystemProject({
+    id: SYSTEM_PROJECT_ID,
+    name: SYSTEM_PROJECT_NAME,
+    cwd: SYSTEM_PROJECT_CWD,
+  });
+  expect(p.id).toBe(SYSTEM_PROJECT_ID);
+  expect(p.name).toBe(SYSTEM_PROJECT_NAME);
+  const { projects } = await store.load();
+  expect(projects).toHaveLength(1);
+  expect(projects[0].id).toBe(SYSTEM_PROJECT_ID);
+  rmSync(f, { force: true });
+});
+
+test("createSystemProject 二次调用幂等不重复插入", async () => {
+  const f = tempFile();
+  const store = new ProjectStore(f);
+  await store.createSystemProject({
+    id: SYSTEM_PROJECT_ID, name: SYSTEM_PROJECT_NAME, cwd: SYSTEM_PROJECT_CWD,
+  });
+  const second = await store.createSystemProject({
+    id: SYSTEM_PROJECT_ID, name: SYSTEM_PROJECT_NAME, cwd: SYSTEM_PROJECT_CWD,
+  });
+  expect(second.id).toBe(SYSTEM_PROJECT_ID);
+  const { projects } = await store.load();
+  expect(projects).toHaveLength(1);
+  rmSync(f, { force: true });
+});
+
+test("createSystemProject 不影响 createProject 的 cwd 去重", async () => {
+  const f = tempFile();
+  const store = new ProjectStore(f);
+  await store.createSystemProject({
+    id: SYSTEM_PROJECT_ID, name: SYSTEM_PROJECT_NAME, cwd: SYSTEM_PROJECT_CWD,
+  });
+  // 普通项目仍可正常创建
+  const normal = await store.createProject({ name: "普通项目", cwd: "/work/foo" });
+  expect(normal.id).not.toBe(SYSTEM_PROJECT_ID);
+  const { projects } = await store.load();
+  expect(projects).toHaveLength(2);
   rmSync(f, { force: true });
 });
