@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { existsSync, readdirSync, statSync, utimesSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { E2E_HIAGENT_DIR, E2E_WS_PORT } from "../playwright.config";
 
 // 默认工作区 E2E：验证 UI 渲染 + 项目下拉默认选中 + 项目右键菜单差异
 //
@@ -58,8 +59,9 @@ test.describe.serial("默认工作区", () => {
     await page.waitForTimeout(2000);
 
     // 通过 WS 创建一个默认工作区会话（绕过真实 LLM 调用）
-    const result = await page.evaluate(async () => {
-      const ws = new WebSocket("ws://127.0.0.1:9776");
+    // E2E_WS_PORT 作为 evaluate 参数传入（浏览器上下文访问不到 Node 变量）
+    const result = await page.evaluate(async (wsPort: number) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${wsPort}`);
       await new Promise<void>((res, rej) => {
         ws.addEventListener("open", () => res(), { once: true });
         ws.addEventListener("error", () => rej(new Error("ws connect failed")), { once: true });
@@ -90,7 +92,7 @@ test.describe.serial("默认工作区", () => {
       const r = await done;
       ws.close();
       return r;
-    });
+    }, E2E_WS_PORT);
 
     expect(result.error).toBeUndefined();
     expect(result.session).toBeTruthy();
@@ -98,9 +100,8 @@ test.describe.serial("默认工作区", () => {
     expect(typeof result.session.createdAt).toBe("number");
 
     // 子目录应该在磁盘上存在
-    // 注意：SYSTEM_PROJECT_CWD = ~/.hiagent/workdir（kernel 进程的 HOME）
-    const home = process.env.HOME || process.env.USERPROFILE || "";
-    const subDir = join(home, ".hiagent", "workdir", String(result.session.createdAt));
+    // 注意：E2E kernel 的 HIAGENT_DIR=E2E_HIAGENT_DIR，所以子目录在 E2E_HIAGENT_DIR/workdir/<createdAt>/
+    const subDir = join(E2E_HIAGENT_DIR, "workdir", String(result.session.createdAt));
     expect(existsSync(subDir)).toBe(true);
 
     // 清理：删掉这个测试产生的子目录
@@ -112,7 +113,10 @@ test.describe.serial("默认工作区", () => {
     // 由于 cleanup 任务是 setInterval 每天跑一次，测试用 utimes 改 mtime 后
     // 直接调 page.evaluate 触发一次清理（需要 kernel 暴露 debug endpoint，当前未暴露）
     // 简化：只验证 workdir-cleaner 的逻辑（已被单元测试覆盖），此处跳过真实清理触发
-    test.skip(true, "清理任务真实触发需要 kernel debug endpoint 或重启，由开发者手动验证");
+    // 清理任务真实触发需要 kernel debug endpoint 或重启；单元测试 packages/kernel/tests/workdir-cleaner.test.ts
+    // 已覆盖三重防护逻辑。手动验证：把任一 workdir/<ts>/ 子目录的 mtime 改为 8 天前，
+    // 然后重启 kernel（启动时会跑一次 cleanupExpiredWorkdirs）即可看到该子目录被清理
+    test.skip(true, "清理任务真实触发需要 kernel 重启，由开发者手动验证（见注释）");
   });
 
 });

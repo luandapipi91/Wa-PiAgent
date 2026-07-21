@@ -35,6 +35,7 @@ skill / mcp **完全继承全局配置**：skill 天然全局（无需改动）�
 - `ProjectEntity`（`shared/src/types.ts:58-63`）：**不新增 isSystem 字段**。所有判断走 `project.id === SYSTEM_PROJECT_ID` 常量
 - `skill-manager.ts`：skill 配置文件 `~/.hiagent/settings.json` + 内置目录 `~/.hiagent/skills/`，所有会话共享同一份——天然全局，无需改动
 - `mcp-store.ts`：全局 MCP 配置 `~/.hiagent/mcp.json`，项目级 MCP 配置 `<project.cwd>/.mcp.json`。默认工作区的 `<createdAt>/` 目录下**不创建** `.mcp.json`，SDK 自动只继承全局
+  - **补充说明（project 级）**：系统项目的 `project.cwd = ~/.hiagent/workdir`，因此 `mcp-store` 在 UI 选择"默认工作区"scope 时会写 `~/.hiagent/workdir/.mcp.json`。这是设计内允许的——默认工作区可以有自己的 project 级 MCP（区别于 `~/.hiagent/mcp.json` 全局），与"会话级 `<createdAt>/.mcp.json` 不创建"是两个层面
 - `projects.json` 结构 `{ projects: [], sessions: [] }` 不变
 - WS 协议事件不变：复用 `projects:list` / `session:created` / `agent:prompt` / `session:delete` 等
 
