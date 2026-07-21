@@ -74,7 +74,7 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
   };
 
   return (
-    <div className="mb-2 mt-1">
+    <div className="mb-2 mt-1 border-b border-hairline pb-2">
       <div className="text-[11px] font-bold text-tertiary px-2 pb-1 uppercase tracking-wide flex items-center justify-between">
         智能体
         <span className="bg-surface-hover rounded px-1.5 normal-case">{agents.length}</span>
