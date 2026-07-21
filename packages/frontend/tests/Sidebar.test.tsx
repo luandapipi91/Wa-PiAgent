@@ -1,6 +1,5 @@
 import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
 import { Sidebar } from "../src/components/Sidebar";
 import { useProjectsStore } from "../src/store/projects";
 
@@ -25,31 +24,5 @@ test("透传 onNewSession", () => {
   expect(fn).toHaveBeenCalledTimes(1);
 });
 
-test("默认工作区渲染在独立区（无小标题）", () => {
-  useProjectsStore.setState({
-    projects: [
-      { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
-      { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
-    ],
-    sessions: [], currentProjectId: null, currentSessionId: null,
-  });
-  render(<Sidebar onNewSession={() => {}} onChatWith={() => {}} onEdit={() => {}} onMore={() => {}} onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={() => {}} />);
-  // 默认工作区项目直接渲染（无"默认"小标题）
-  expect(screen.getByText("默认工作区")).toBeTruthy();
-  expect(screen.queryByText("默认")).toBeNull();
-  // "项目" 区标题仍存在
-  expect(screen.getAllByText(/^项目$/).length).toBeGreaterThanOrEqual(1);
-});
-
-test("默认工作区不出现在项目区（去重）", () => {
-  useProjectsStore.setState({
-    projects: [
-      { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
-      { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
-    ],
-    sessions: [], currentProjectId: null, currentSessionId: null,
-  });
-  render(<Sidebar onNewSession={() => {}} onChatWith={() => {}} onEdit={() => {}} onMore={() => {}} onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} onNewProject={() => {}} />);
-  // 只有一处渲染"默认工作区"
-  expect(screen.getAllByText("默认工作区").length).toBe(1);
-});
+// 默认工作区渲染位置 + 去重测试已迁移到 ProjectList.test.tsx
+// （默认工作区现在由 ProjectList 渲染，而非 Sidebar 直接渲染）
