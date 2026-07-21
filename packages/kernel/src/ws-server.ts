@@ -396,9 +396,18 @@ export class WSServer {
           const isNew = !existing;
           // 默认工作区：先生成 ts 作为子目录名 + session.createdAt，确保两者严格一致
           // （后续 resolveSessionCwd 从 session.createdAt 推导 cwd，必须与实际目录名对齐）
+          // 执行顺序：先 mkdir 子目录，成功后再 createSession 写记录——
+          // 避免 mkdir 失败时留下指向不存在目录的孤儿 session 记录
           let createdAt: number | undefined;
           if (isNew && event.projectId === SYSTEM_PROJECT_ID) {
             createdAt = Date.now();
+            try {
+              const sessionDir = join(SYSTEM_PROJECT_CWD, String(createdAt));
+              await mkdir(sessionDir, { recursive: true });
+            } catch (e) {
+              reply({ type: "error", message: `默认工作区会话目录创建失败: ${(e as Error).message}`, sessionId: event.sessionId });
+              return;
+            }
           }
           const session = existing ?? await this.opts.projectStore.createSession({
             projectId: event.projectId, primaryAgent: event.agentName,
@@ -407,17 +416,6 @@ export class WSServer {
             createdAt,
           });
           if (isNew) {
-            // 默认工作区：mkdir workdir/<createdAt>/ 子目录，作为该会话的独立 cwd
-            // 失败时广播 error 并 return，防止后续 ensureStarted 走错目录
-            if (event.projectId === SYSTEM_PROJECT_ID && createdAt !== undefined) {
-              try {
-                const sessionDir = join(SYSTEM_PROJECT_CWD, String(createdAt));
-                await mkdir(sessionDir, { recursive: true });
-              } catch (e) {
-                reply({ type: "error", message: `默认工作区会话目录创建失败: ${(e as Error).message}`, sessionId: session.id });
-                return;
-              }
-            }
             this.broadcast({ type: "session:created", session });
             reply({ type: "session:echo_user", sessionId: session.id, text: event.text, agentName: event.agentName });
           }
