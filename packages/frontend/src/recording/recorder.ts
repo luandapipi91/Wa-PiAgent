@@ -61,6 +61,7 @@ class RecordingManager implements RecordingEngine {
   private tracker = new ElapsedTracker();
   private recId = "";
   private projectId = "";
+  private sessionId = "";
   private onTick: ((ms: number) => void) | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private stopResolve: ((r: RecordingResult) => void) | null = null;
@@ -70,6 +71,7 @@ class RecordingManager implements RecordingEngine {
   async start(args: StartArgs): Promise<void> {
     if (this.recorder) throw new Error("已有录音进行中");
     this.projectId = args.projectId;
+    this.sessionId = args.sessionId;
     this.recId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.onTick = args.onTick;
     this.failed = false;
@@ -88,14 +90,14 @@ class RecordingManager implements RecordingEngine {
 
     recorder.ondataavailable = async (e) => {
       if (!e.data || e.data.size === 0 || this.failed) return;
-      try { await appendRecording(this.projectId, this.recId, await blobToBase64(e.data)); }
+      try { await appendRecording(this.projectId, this.recId, await blobToBase64(e.data), this.sessionId); }
       catch (err) { this.fail(err as Error); }
     };
     recorder.onstop = async () => {
       if (this.failed) { this.stopReject?.(new Error("录音已失败")); this.cleanup(); return; }
       const durationMs = this.tracker.elapsed(Date.now());
       try {
-        const { path } = await finalizeRecording(this.projectId, this.recId, `recording-${this.recId}.webm`);
+        const { path } = await finalizeRecording(this.projectId, this.recId, `recording-${this.recId}.webm`, this.sessionId);
         this.stopResolve?.({ path, size: 0, durationMs });
       } catch (err) { this.stopReject?.(err as Error); }
       finally { this.cleanup(); }
@@ -131,7 +133,7 @@ class RecordingManager implements RecordingEngine {
   private fail(err: Error): void {
     if (this.failed) return;
     this.failed = true;
-    try { void discardRecording(this.projectId, this.recId); } catch {}
+    try { void discardRecording(this.projectId, this.recId, this.sessionId); } catch {}
     this.onTick = null;
     if (this.tickTimer) { clearInterval(this.tickTimer); this.tickTimer = null; }
     // 自洁：失败后立即停 recorder，触发 onstop → cleanup() 释放 tracks，

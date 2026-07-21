@@ -71,7 +71,12 @@ export function readFile(path: string): Promise<{ content: string; mimeType?: st
   });
 }
 
-export function copyToUploads(projectId: string, source: string, timeoutMs = 30000): Promise<{ path: string }> {
+export function copyToUploads(
+  projectId: string,
+  source: string,
+  sessionId?: string,
+  timeoutMs = 30000,
+): Promise<{ path: string }> {
   const id = crypto.randomUUID();
   return new Promise((resolve, reject) => {
     const off = onMessage((e: any) => {
@@ -86,11 +91,18 @@ export function copyToUploads(projectId: string, source: string, timeoutMs = 300
       off();
       reject(new Error("复制到上传目录超时"));
     }, timeoutMs);
-    send({ type: "fs:copy", id, projectId, source });
+    // sessionId 用于后端推导默认工作区会话级 cwd；不传时落到 project.cwd/.hiagent/uploads/
+    send({ type: "fs:copy", id, projectId, source, sessionId });
   });
 }
 
-export function uploadFile(projectId: string, name: string, content: string, timeoutMs = 30000): Promise<{ path: string }> {
+export function uploadFile(
+  projectId: string,
+  name: string,
+  content: string,
+  sessionId?: string,
+  timeoutMs = 30000,
+): Promise<{ path: string }> {
   const id = crypto.randomUUID();
   return new Promise((resolve, reject) => {
     const off = onMessage((e: any) => {
@@ -105,7 +117,8 @@ export function uploadFile(projectId: string, name: string, content: string, tim
       off();
       reject(new Error("上传超时"));
     }, timeoutMs);
-    send({ type: "fs:upload", id, projectId, name, content });
+    // sessionId 用于后端推导默认工作区会话级 cwd；不传时落到 project.cwd/.hiagent/uploads/
+    send({ type: "fs:upload", id, projectId, name, content, sessionId });
   });
 }
 
@@ -184,7 +197,13 @@ export function searchFilesStream(
   };
 }
 
-export function appendRecording(projectId: string, recId: string, chunk: string, timeoutMs = 30000): Promise<void> {
+export function appendRecording(
+  projectId: string,
+  recId: string,
+  chunk: string,
+  sessionId?: string,
+  timeoutMs = 30000,
+): Promise<void> {
   const id = crypto.randomUUID();
   return new Promise((resolve, reject) => {
     const off = onMessage((e: any) => {
@@ -194,11 +213,18 @@ export function appendRecording(projectId: string, recId: string, chunk: string,
       }
     });
     const timer = setTimeout(() => { off(); reject(new Error("录音分片落盘超时")); }, timeoutMs);
-    send({ type: "fs:recording:append", id, projectId, recId, chunk });
+    // sessionId 用于后端推导默认工作区会话级 cwd；不传时落到 project.cwd/.hiagent/uploads/
+    send({ type: "fs:recording:append", id, projectId, recId, chunk, sessionId });
   });
 }
 
-export function finalizeRecording(projectId: string, recId: string, finalName: string, timeoutMs = 30000): Promise<{ path: string }> {
+export function finalizeRecording(
+  projectId: string,
+  recId: string,
+  finalName: string,
+  sessionId?: string,
+  timeoutMs = 30000,
+): Promise<{ path: string }> {
   const id = crypto.randomUUID();
   return new Promise((resolve, reject) => {
     const off = onMessage((e: any) => {
@@ -208,11 +234,17 @@ export function finalizeRecording(projectId: string, recId: string, finalName: s
       }
     });
     const timer = setTimeout(() => { off(); reject(new Error("录音 finalize 超时")); }, timeoutMs);
-    send({ type: "fs:recording:finalize", id, projectId, recId, finalName });
+    // sessionId 用于后端推导默认工作区会话级 cwd；不传时落到 project.cwd/.hiagent/uploads/
+    send({ type: "fs:recording:finalize", id, projectId, recId, finalName, sessionId });
   });
 }
 
-export function discardRecording(projectId: string, recId: string, timeoutMs = 10000): Promise<void> {
+export function discardRecording(
+  projectId: string,
+  recId: string,
+  sessionId?: string,
+  timeoutMs = 10000,
+): Promise<void> {
   const id = crypto.randomUUID();
   return new Promise((resolve, reject) => {
     const off = onMessage((e: any) => {
@@ -222,7 +254,8 @@ export function discardRecording(projectId: string, recId: string, timeoutMs = 1
       }
     });
     const timer = setTimeout(() => { off(); resolve(); }, timeoutMs);  // discard 容错：超时也 resolve
-    send({ type: "fs:recording:discard", id, projectId, recId });
+    // sessionId 用于后端推导默认工作区会话级 cwd；不传时落到 project.cwd/.hiagent/uploads/
+    send({ type: "fs:recording:discard", id, projectId, recId, sessionId });
   });
 }
 

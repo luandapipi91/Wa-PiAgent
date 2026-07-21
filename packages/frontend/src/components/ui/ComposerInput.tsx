@@ -175,7 +175,7 @@ export function ComposerInput({
     setPendingUploads(n => n + selections.length);
     for (const sel of selections) {
       try {
-        const { path } = await copyToUploads(projectId, sel.path);
+        const { path } = await copyToUploads(projectId, sel.path, sessionId);
         const kind = sel.isDir ? "folder" : isImageName(sel.name) ? "image" : "file";
         addAttachment({ kind, name: sel.name, path, size: 0 } as AttachmentDraft);
       } catch (err) {
@@ -203,7 +203,7 @@ export function ComposerInput({
     for (const file of list) {
       try {
         const content = await readFileAsBase64(file);
-        const { path } = await uploadFile(projectId, file.name, content);
+        const { path } = await uploadFile(projectId, file.name, content, sessionId);
         const kind = file.type.startsWith("image/") ? "image" : "file";
         setAttachments(prev => [...prev, { kind, name: file.name, path, size: file.size }]);
       } catch (err) {
