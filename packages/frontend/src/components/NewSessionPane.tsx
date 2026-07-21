@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { isModelAvailable, randomSessionId } from "@hiagent/shared";
+import { isModelAvailable, randomSessionId, SYSTEM_PROJECT_ID } from "@hiagent/shared";
 import type { AgentName, AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
 import { useProjectsStore } from "../store/projects";
 import { useAgentsStore, topAgentsByRecency } from "../store/agents";
@@ -37,7 +37,11 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
   // 默认选中最近使用的智能体（pendingAgent 优先）；空列表时为 null（发送前置条件拦截）
   const [agentName, setAgentName] = useState<AgentName | null>(pickDefaultAgent(agents, sessions, pendingAgent));
   const [text, setText] = useState("");
-  const initialProject = currentProjectId ?? projects[0]?.id ?? null;
+  const initialProject =
+    currentProjectId
+    ?? projects.find(p => p.id === SYSTEM_PROJECT_ID)?.id
+    ?? projects[0]?.id
+    ?? null;
   const [projectId, setProjectId] = useState<string | null>(initialProject);
   // currentProjectId 变化时同步（点项目旁 + 号时可能已在新建页，不会重新挂载）
   useEffect(() => { if (currentProjectId) setProjectId(currentProjectId); }, [currentProjectId]);
@@ -135,7 +139,12 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
           data-testid="project-select"
         >
           {projects.length === 0 && <option value="">（无项目，请先新建）</option>}
-          {projects.map(p => <option key={p.id} value={p.id}>📁 {p.name} {p.cwd}</option>)}
+          {projects.map(p => (
+            <option key={p.id} value={p.id}>
+              {p.id === SYSTEM_PROJECT_ID ? "🏠 " : "📁 "}{p.name}
+              {p.id === SYSTEM_PROJECT_ID ? "" : ` ${p.cwd}`}
+            </option>
+          ))}
         </select>
         <AgentDropdown
           agents={agents}

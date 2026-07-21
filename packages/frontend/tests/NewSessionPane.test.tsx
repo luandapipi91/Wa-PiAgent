@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
 import type { AgentConfig } from "@hiagent/shared";
 import { useProjectsStore } from "../src/store/projects";
 import { useAgentsStore } from "../src/store/agents";
@@ -428,5 +429,46 @@ describe("NewSessionPane", () => {
     expect(btn.disabled).toBe(true);
     fireEvent.click(btn);
     expect(sendMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent:prompt" }));
+  });
+
+  it("项目下拉出现默认工作区选项且不带 cwd", () => {
+    // 覆盖 beforeEach 默认 projects：含一个系统项目 + 一个普通项目
+    useProjectsStore.setState({
+      projects: [
+        { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
+        { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+      ],
+      sessions: [],
+      currentProjectId: null,
+      currentSessionId: null,
+    });
+    render(<NewSessionPane />);
+    const select = screen.getByTestId("project-select") as HTMLSelectElement;
+    // 系统项目 option 文本应含 "🏠 默认工作区"，且不挂 cwd
+    const sysOption = Array.from(select.options).find(o => o.value === SYSTEM_PROJECT_ID);
+    expect(sysOption).toBeDefined();
+    expect(sysOption!.textContent).toContain("默认工作区");
+    expect(sysOption!.textContent).not.toContain("/tmp/workdir");
+    // 普通项目 option 行为不变，仍带 cwd
+    const normalOption = Array.from(select.options).find(o => o.value === "p1");
+    expect(normalOption).toBeDefined();
+    expect(normalOption!.textContent).toContain("/work/hiagent");
+  });
+
+  it("首次进入时默认选中默认工作区", () => {
+    // currentProjectId 为 null 模拟首次进入，应自动选中系统项目
+    // 注意：系统项目放在列表第 2 位，确保选中走 SYSTEM_PROJECT_ID 优先逻辑而非 projects[0]
+    useProjectsStore.setState({
+      projects: [
+        { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+        { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
+      ],
+      sessions: [],
+      currentProjectId: null,
+      currentSessionId: null,
+    });
+    render(<NewSessionPane />);
+    const select = screen.getByTestId("project-select") as HTMLSelectElement;
+    expect(select.value).toBe(SYSTEM_PROJECT_ID);
   });
 });
