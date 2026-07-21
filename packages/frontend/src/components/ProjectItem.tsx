@@ -1,6 +1,6 @@
 import { useState, useEffect, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
-import type { ProjectEntity, SessionEntity } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID, type ProjectEntity, type SessionEntity } from "@hiagent/shared";
 import { SessionRow } from "./SessionRow";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { send } from "../ws-instance";
@@ -33,6 +33,8 @@ export function ProjectItem(props: Props) {
   const [deleteKind, setDeleteKind] = useState<"session" | "project" | null>(null);
 
   const { project, sessions, currentSessionId, selected, isNewSessionView } = props;
+  // 系统项目（默认工作区虚拟项目）：差异化图标/菜单
+  const isSystem = project.id === SYSTEM_PROJECT_ID;
   const mySessions = sessions
     .filter(s => s.projectId === project.id)
     .sort((a, b) => b.lastActivity - a.lastActivity);
@@ -90,6 +92,12 @@ export function ProjectItem(props: Props) {
     send({ type: "project:open-dir", projectId: project.id });
   };
 
+  // 系统项目下的会话专属"打开工作目录"：带 sessionId 让 main 打开会话所在目录
+  const handleOpenSessionDir = (session: SessionEntity) => {
+    setSessionMenu(null);
+    send({ type: "project:open-dir", projectId: project.id, sessionId: session.id });
+  };
+
   const handleDeleteConfirm = () => {
     if (!deleteTarget) return;
     if (deleteKind === "session") {
@@ -113,7 +121,7 @@ export function ProjectItem(props: Props) {
           className="text-tertiary w-5 text-xs flex items-center justify-center"
           data-testid={`project-toggle-${project.id}`}
         >
-          {expanded ? "📂" : "📁"}
+          {expanded ? "📂" : (isSystem ? "🏠" : "📁")}
         </button>
         <button
           onClick={() => {
@@ -164,6 +172,13 @@ export function ProjectItem(props: Props) {
             className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
             data-testid="menu-delete"
           >删除聊天</button>
+          {isSystem && (
+            <button
+              onClick={() => handleOpenSessionDir(sessionMenu.session)}
+              className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
+              data-testid="menu-open-session-dir"
+            >打开工作目录</button>
+          )}
         </div>,
         document.body
       )}
@@ -185,11 +200,13 @@ export function ProjectItem(props: Props) {
             className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
             data-testid="menu-open-dir"
           >查看文件夹</button>
-          <button
-            onClick={handleProjectDeleteClick}
-            className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
-            data-testid="menu-delete-project"
-          >删除项目</button>
+          {!isSystem && (
+            <button
+              onClick={handleProjectDeleteClick}
+              className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
+              data-testid="menu-delete-project"
+            >删除项目</button>
+          )}
         </div>,
         document.body
       )}
