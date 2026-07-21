@@ -121,7 +121,7 @@ export function ProjectItem(props: Props) {
           className="text-tertiary w-5 text-xs flex items-center justify-center"
           data-testid={`project-toggle-${project.id}`}
         >
-          {expanded ? "📂" : (isSystem ? "🏠" : "📁")}
+          {isSystem ? "🏠" : (expanded ? "📂" : "📁")}
         </button>
         <button
           onClick={() => {
