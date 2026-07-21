@@ -13,7 +13,7 @@
 import { Type } from "typebox";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { isSubagentType, SUBAGENT_TYPES } from "@hiagent/shared";
+import { isSubagentType, SUBAGENT_TYPES, normalizeSubagentType } from "@hiagent/shared";
 
 /** fleet 并发上限（参考 DeepSeek-Reasonix / pi-dynamic-workflows 默认值） */
 export const MAX_SUBAGENT_CONCURRENCY = 6;
@@ -73,7 +73,10 @@ export function makeDelegateTool(opts: {
           isError: true,
         };
       }
-      const { text, isError } = await opts.spawn(args.agent, args.task);
+      // 内置 subagent 中文别名（如"通用子智能体"）归一化为英文 name（"general-purpose"），
+      // 让 svc.spawn 传给 pi-subagents registry 时能正确解析
+      const spawnAgent = normalizeSubagentType(args.agent);
+      const { text, isError } = await opts.spawn(spawnAgent, args.task);
       return { content: [{ type: "text" as const, text }], details: undefined, isError };
     },
   };
@@ -261,7 +264,9 @@ export function makeFleetTool(opts: {
           if (!canInvoke(t.agent, opts.askTo)) {
             return { agent: t.agent, text: buildNotAllowedMessage(t.agent, opts.askTo), isError: true };
           }
-          const { text, isError } = await opts.spawn(t.agent, t.task);
+          // 内置 subagent 中文别名归一化（同 delegate 单任务路径）
+          const spawnAgent = normalizeSubagentType(t.agent);
+          const { text, isError } = await opts.spawn(spawnAgent, t.task);
           return { agent: t.agent, text, isError };
         }),
         MAX_SUBAGENT_CONCURRENCY,

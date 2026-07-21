@@ -105,6 +105,24 @@ test("delegate: 错误信息列出可调起名单 + 内置类型", async () => {
   expect(res.content[0].text).toContain("Explore");
 });
 
+test("delegate: 中文别名（通用子智能体）放行并归一化为英文 name 传给 spawn", async () => {
+  const spawn = mock(async (agent: string, task: string) => ({ text: `${agent}:${task}`, isError: false }));
+  const tool = makeDelegateTool({ askTo, spawn });
+  // 用户在输入框打 @[通用子智能体]，LLM 收到后传 delegate(agent="通用子智能体")
+  const res = await tool.execute("tc-cn", { agent: "通用子智能体", task: "做某事" });
+  expect(res.isError).toBe(false);
+  // spawn 收到的应是归一化后的英文 name（pi-subagents registry 认的 type）
+  expect(spawn).toHaveBeenCalledWith("general-purpose", "做某事");
+});
+
+test("delegate: 中文别名（探索子智能体）归一化为 Explore", async () => {
+  const spawn = mock(async (agent: string, task: string) => ({ text: `${agent}:${task}`, isError: false }));
+  const tool = makeDelegateTool({ askTo, spawn });
+  const res = await tool.execute("tc-cn-ex", { agent: "探索子智能体", task: "搜代码" });
+  expect(res.isError).toBe(false);
+  expect(spawn).toHaveBeenCalledWith("Explore", "搜代码");
+});
+
 test("fleet: 内置类型名也放行（每个 task 独立校验）", async () => {
   const spawn = mock(async (agent: string, task: string) => ({ text: `${agent}:${task}`, isError: false }));
   const tool = makeFleetTool({ askTo, spawn });
