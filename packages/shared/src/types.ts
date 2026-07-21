@@ -55,6 +55,26 @@ export interface AgentConfig {
   systemPromptBody?: string;  // frontmatter 后的正文
 }
 
+/** 内置 subagent 的用户级覆盖（model / thinking）。type = 内置 subagent 英文名。 */
+export interface SubagentOverride {
+  type: string;
+  model?: string | null;
+  thinking?: ThinkingLevel | null;
+}
+
+/** 内置 subagent 完整信息（前端 AgentConfig 展示用）。systemPrompt/builtinToolNames 来自 pi-subagents，只读。 */
+export interface SubagentInfo {
+  name: string;
+  displayName: string;
+  description: string;
+  emoji: string;
+  gradient: [string, string];
+  readOnly: boolean;
+  systemPrompt: string;
+  builtinToolNames: string[];
+  override?: SubagentOverride;
+}
+
 export interface ProjectEntity {
   id: string;
   name: string;
@@ -273,6 +293,15 @@ export interface SessionMessagesRequest {
   sessionId: string;
 }
 
+// client → kernel
+/** 请求内置 subagent 列表（含 pi-subagents 真实 systemPrompt/builtinToolNames + 用户 override） */
+export interface SubagentListRequest { type: "subagent:list"; }
+/** 保存内置 subagent 的 model/thinking 覆盖 */
+export interface SubagentSaveOverrideEvent {
+  type: "subagent:save-override";
+  override: SubagentOverride;
+}
+
 export type WSClientEvent =
   | PromptEvent | AbortEvent
   | AskAnswerEvent | AskCancelAskEvent
@@ -291,9 +320,15 @@ export type WSClientEvent =
   | MemoryConfigGetEvent | MemoryConfigSetEvent
   | McpListEvent | McpSaveEvent | McpDeleteEvent | McpTestEvent | McpListToolsEvent | McpClearAuthEvent
   | FSHomeRequest | FSRootsRequest | FSListDirRequest | FSReadFileRequest | FSUploadRequest | FSCopyRequest | FSSearchRequest | FSSearchCancelRequest
-  | FSRecordingAppendRequest | FSRecordingFinalizeRequest | FSRecordingDiscardRequest;
+  | FSRecordingAppendRequest | FSRecordingFinalizeRequest | FSRecordingDiscardRequest
+  | SubagentListRequest | SubagentSaveOverrideEvent;
 
 // kernel → 前端
+/** 内置 subagent 列表结果（前端 AgentConfig 展示 + 收藏用） */
+export interface SubagentListResult {
+  type: "subagent:list";
+  subagents: SubagentInfo[];
+}
 export interface ProjectsListEvent {
   type: "projects:list";
   projects: ProjectEntity[];
@@ -401,6 +436,7 @@ export type WSServerEvent =
   | McpListResult | McpChangedEvent | McpTestResult | McpToolsResult
   | InstructionListResult | MemoryConfigEvent
   | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSCopyResult | FSSearchResult | FSSearchProgressEvent | FSErrorEvent
-  | FSRecordingAppendResult | FSRecordingFinalizeResult | FSRecordingDiscardResult;
+  | FSRecordingAppendResult | FSRecordingFinalizeResult | FSRecordingDiscardResult
+  | SubagentListResult;
 
 export type WSEvent = WSClientEvent | WSServerEvent;
