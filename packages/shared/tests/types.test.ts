@@ -144,3 +144,41 @@ test("agentDefOf: 内置 displayName 返回定义，未知 displayName 回退默
   expect(fb.emoji).toBe("🤖");
   expect(fb.gradient).toEqual(["#4b5563", "#6b7280"]);
 });
+
+// Task 1.2: SubagentOverride / SubagentInfo 类型 + WS 事件
+import type { SubagentOverride, SubagentInfo, WSClientEvent } from "../src/types";
+
+test("SubagentOverride 类型结构", () => {
+  const o: SubagentOverride = { type: "general-purpose", model: "openai/gpt-4o", thinking: "high" };
+  expect(o.type).toBe("general-purpose");
+  // model / thinking 都可空（不覆盖时省略）
+  const o2: SubagentOverride = { type: "Explore" };
+  expect(o2.model).toBeUndefined();
+});
+
+test("SubagentInfo 含只读字段 + 可选 override", () => {
+  const info: SubagentInfo = {
+    name: "Explore",
+    displayName: "探索子智能体",
+    description: "...",
+    emoji: "🔍",
+    gradient: ["#0891b2", "#06b6d4"],
+    readOnly: true,
+    systemPrompt: "# CRITICAL: READ-ONLY",
+    builtinToolNames: ["read", "bash", "grep", "find", "ls"],
+    override: { type: "Explore", model: "openai/gpt-4o" },
+  };
+  expect(info.builtinToolNames).toHaveLength(5);
+});
+
+test("WSClientEvent 含 subagent:list / subagent:save-override", () => {
+  const req: WSClientEvent = { type: "subagent:list" };
+  const save: WSClientEvent = { type: "subagent:save-override", override: { type: "Plan", thinking: "max" } };
+  expect(req.type).toBe("subagent:list");
+  expect(save.type).toBe("subagent:save-override");
+});
+
+test("WSServerEvent 含 subagent:list 结果", () => {
+  const res: import("../src/types").WSServerEvent = { type: "subagent:list", subagents: [] };
+  expect(res.type).toBe("subagent:list");
+});
