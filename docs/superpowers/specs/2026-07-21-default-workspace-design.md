@@ -237,45 +237,160 @@ setInterval(() => {
 
 ### ⑨ 前端改动
 
-#### 9.1 侧栏入口（`packages/frontend/src/components/ProjectItem.tsx`）
+UI 决策汇总：
 
-复用现有 `ProjectList` + `ProjectItem`——系统项目就是普通的 `ProjectEntity`，会出现在 `projects[]` 里。仅需对 `project.id === SYSTEM_PROJECT_ID` 的项目做差异化处理：
+| 决策点 | 选择 |
+|---|---|
+| 侧栏位置 | **独立区**（在智能体区下方、项目区上方，小标题"默认"） |
+| 组件复用 | 复用 `ProjectItem`，对 `id === SYSTEM_PROJECT_ID` 做差异化 |
+| 项目右键菜单 | 仅"查看文件夹"（不显示重命名/删除项目） |
+| 会话右键菜单 | 重命名 + 删除 + **额外加"打开工作目录"** |
+| 项目下拉显示 | `🏠 默认工作区`（不显示 `~/.hiagent/workdir`） |
+| 项目下拉默认选中 | 默认工作区优先选中（任何首次进入新建会话页时） |
+| SessionView header | **友好文案**：`默认工作区 · 工作目录`（不暴露内部路径） |
+| 点击项目名 | 进 NewSessionPane（同普通项目流程） |
 
-- **排序优先**（永远在列表最顶部）：在 `ProjectList.tsx` 的排序逻辑里把系统项目排到第一
-- **🏠 图标**：渲染时用 `🏠 {project.name}`（其余项目用 📁）
-- **右键菜单隐藏"重命名"/"删除"**：仅保留"打开文件夹"
-- **新建会话按钮**：保留（默认工作区下也能新建会话）
+#### 9.1 Sidebar 新增"默认"独立区（`packages/frontend/src/components/Sidebar.tsx`）
 
-#### 9.2 NewSessionPane 项目下拉（`NewSessionPane.tsx:138`）
+在 `AgentListSection` 与 `ProjectList` 之间插入一个独立分区：
+
+```tsx
+<AgentListSection ... />
+{/* 默认工作区独立区 */}
+<div className="flex-1 overflow-y-auto overflow-x-hidden">
+  <div className="text-[11px] font-bold text-tertiary px-2 py-1 border-t border-hairline mt-2 uppercase tracking-wide">
+    默认
+  </div>
+  {systemProject && (
+    <ProjectItem
+      project={systemProject}
+      sessions={sessions}
+      currentSessionId={currentSessionId}
+      selected={systemProject.id === currentProjectId}
+      isNewSessionView={isNewSessionView}
+      onSelectSession={onSelectSession}
+      onNewSessionInProject={onNewSessionInProject}
+      onSelectProject={onSelectProject}
+    />
+  )}
+</div>
+<ProjectList ... />
+```
+
+`systemProject` 从 `useProjectsStore` 派生：`projects.find(p => p.id === SYSTEM_PROJECT_ID)`。
+
+**注意**：`ProjectList` 内部需要过滤掉系统项目（避免重复出现），即 `projects.filter(p => p.id !== SYSTEM_PROJECT_ID)`。
+
+#### 9.2 ProjectItem 差异化渲染（`packages/frontend/src/components/ProjectItem.tsx`）
+
+引入 `SYSTEM_PROJECT_ID` 常量，按 `project.id === SYSTEM_PROJECT_ID` 做差异：
+
+```tsx
+const isSystem = project.id === SYSTEM_PROJECT_ID;
+
+// ① 图标：系统项目折叠时显示 🏠（语义"home/默认"），展开后显示 📂（与普通项目一致）
+{expanded ? "📂" : (isSystem ? "🏠" : "📁")}
+
+// ② 项目名渲染：系统项目不加额外前缀（图标已区分），普通项目保持现状
+{project.name}
+
+// ③ 项目右键菜单（仅"查看文件夹"，系统项目不显示"删除项目"）
+{projectMenu && createPortal(
+  <div ...>
+    <button onClick={handleOpenDir} ...>查看文件夹</button>
+    {!isSystem && (
+      <button onClick={handleProjectDeleteClick} ...>删除项目</button>
+    )}
+  </div>,
+  document.body
+)}
+
+// ④ 会话右键菜单（系统项目多一项"打开工作目录"）
+{sessionMenu && createPortal(
+  <div ...>
+    <button onClick={() => handleRename(sessionMenu.session)} ...>重命名会话</button>
+    <button onClick={() => handleDeleteClick(sessionMenu.session)} ...>删除聊天</button>
+    {isSystem && (
+      <button
+        onClick={() => handleOpenSessionDir(sessionMenu.session)}
+        ...
+      >打开工作目录</button>
+    )}
+  </div>,
+  document.body
+)}
+```
+
+新增 handler `handleOpenSessionDir`：通过 `project:open-dir` 事件，但传 session 级路径。新增 WS 事件或扩展 `project:open-dir` 入参为可选 `sessionId`：
+
+```ts
+// ws-server handler 扩展
+if (e.type === "project:open-dir") {
+  const project = projects.find(p => p.id === e.projectId);
+  let dir = project?.cwd;
+  if (e.sessionId) {
+    const session = sessions.find(s => s.id === e.sessionId);
+    if (session && session.projectId === SYSTEM_PROJECT_ID) {
+      dir = resolveSessionCwd(session, project!);
+    }
+  }
+  if (dir) openDir(dir);
+}
+```
+
+或者更简单：新增一个独立 WS 事件 `session:open-dir`，前端对默认工作区会话用它。**writing-plans 阶段择一**。
+
+#### 9.3 NewSessionPane 项目下拉（`packages/frontend/src/components/NewSessionPane.tsx:138`）
 
 ```tsx
 {projects.map(p => (
   <option key={p.id} value={p.id}>
-    {p.id === SYSTEM_PROJECT_ID ? "🏠" : "📁"} {p.name}{" "}
-    {p.id === SYSTEM_PROJECT_ID ? "" : p.cwd}
+    {p.id === SYSTEM_PROJECT_ID ? "🏠 " : "📁 "}{p.name}
+    {p.id === SYSTEM_PROJECT_ID ? "" : ` ${p.cwd}`}
   </option>
 ))}
 ```
 
-系统项目作为选项出现，但下拉里**不显示它的 cwd**（避免暴露 `~/.hiagent/workdir`）。
+系统项目作为选项出现，**不显示** cwd；普通项目照旧。
 
-#### 9.3 SessionView header 显示（`SessionView.tsx:99`）
+#### 9.4 NewSessionPane 默认选中（`NewSessionPane.tsx:40-41`）
 
 现状：
 
 ```tsx
-{project?.cwd ?? ""}
+const initialProject = currentProjectId ?? projects[0]?.id ?? null;
 ```
 
-改为（同时支持 per-session cwd）：
+改为优先选中系统项目：
 
 ```tsx
-{session && session.projectId === SYSTEM_PROJECT_ID
-  ? `${SYSTEM_PROJECT_CWD}/${session.createdAt}`
-  : project?.cwd ?? ""}
+const initialProject =
+  currentProjectId
+  ?? projects.find(p => p.id === SYSTEM_PROJECT_ID)?.id
+  ?? projects[0]?.id
+  ?? null;
 ```
 
-或者引入共享的 `resolveSessionCwd` 纯函数（`shared/src/pure.ts`），前后端复用。
+任何首次进入新建会话页时（无 `currentProjectId`），都默认选中默认工作区。
+
+#### 9.5 SessionView header 显示（`packages/frontend/src/components/SessionView.tsx:99`）
+
+现状：
+
+```tsx
+{project?.cwd ?? ""} · {AGENT_STATE_LABEL[headerStatus]}
+```
+
+改为按 session 归属差异化：
+
+```tsx
+{(session && session.projectId === SYSTEM_PROJECT_ID)
+  ? "默认工作区 · 工作目录"
+  : (project?.cwd ?? "")
+} · {AGENT_STATE_LABEL[headerStatus]}
+```
+
+默认工作区的会话 header 显示 `默认工作区 · 工作目录`，不暴露 `~/.hiagent/workdir/<createdAt>/` 路径。
 
 ### ⑩ shared/pure.ts 抽取共享函数
 
@@ -330,19 +445,26 @@ agent-manager、ws-server、SessionView、workdir-cleaner 全部引用同一个�
 
 ### 第二层：组件测试（Vitest + Testing Library + happy DOM）
 
-**`packages/frontend/src/components/ProjectItem.test.tsx`**
-- `project.id === SYSTEM_PROJECT_ID` 时右键菜单不显示"重命名"/"删除"，仅显示"打开文件夹"
-- 系统项目渲染 `🏠 默认工作区`（而非 `📁`）
+**`packages/frontend/src/components/Sidebar.test.tsx`**
+- projects 同时含系统项目和普通项目时，系统项目渲染在"默认"独立区，普通项目仍在"项目"区
+- 系统项目不出现在"项目"区（去重）
 
-**`packages/frontend/src/components/ProjectList.test.tsx`**
-- projects 同时包含系统项目和普通项目时，系统项目排在列表最顶部
+**`packages/frontend/src/components/ProjectItem.test.tsx`**
+- `project.id === SYSTEM_PROJECT_ID` 时：
+  - 折叠状态图标为 🏠（普通项目为 📁）
+  - 项目右键菜单仅显示"查看文件夹"，**不显示**"删除项目"
+  - 会话右键菜单显示"重命名会话"+"删除聊天"+**"打开工作目录"**
+- 普通项目时行为不变（项目右键菜单有"查看文件夹"+"删除项目"，会话右键菜单只有重命名+删除）
 
 **`packages/frontend/src/components/NewSessionPane.test.tsx`**
-- 项目下拉里出现 `🏠 默认工作区` 选项，且 option 文本不含 cwd
+- 首次进入（无 currentProjectId）时项目下拉默认选中 `__system__`
+- 项目下拉里出现 `🏠 默认工作区` 选项，option 文本不含 `~/.hiagent/workdir`
+- 普通项目 option 文本仍含 cwd
 - 选择默认工作区后 `handleSend` 能成功（不因缺少普通 projectId 被拦截）
 
 **`packages/frontend/src/components/SessionView.test.tsx`**
-- header 显示 `~/.hiagent/workdir/<createdAt>/`（而非 `project.cwd`）
+- `session.projectId === SYSTEM_PROJECT_ID` 时 header 显示 `默认工作区 · 工作目录`
+- 普通项目会话 header 仍显示 `project.cwd`
 
 ### 第三层：API 集成测试（WS）
 
@@ -354,13 +476,16 @@ agent-manager、ws-server、SessionView、workdir-cleaner 全部引用同一个�
 
 ### 第四层：E2E（Playwright + Chromium）
 
-1. 在侧栏点 `🏠 默认工作区` → 右侧进入新建会话页
+1. 在侧栏"默认"独立区点击 `🏠 默认工作区` → 右侧进入新建会话页，项目下拉默认选中 `🏠 默认工作区`
 2. 在新建会话页选择智能体、输入消息 → 发送 → 进入会话视图
-3. 在会话视图让 agent 调用 `write_to_file` 工具创建一个文件 → 断言磁盘上 `~/.hiagent/workdir/<createdAt>/文件名` 存在
-4. header 显示 `~/.hiagent/workdir/<createdAt>/`
-5. 删除该会话 → 侧栏列表更新；断言 `<createdAt>/` 目录**仍存在**于磁盘
-6. 手动改 `<createdAt>/` 目录的 mtime 为 8 天前，触发 `cleanupExpiredWorkdirs(projectStore)` → 断言目录被删除
-7. 截图清理：测试中产生的截图（如有）全部删除，不保留在项目中
+3. SessionView header 显示 `默认工作区 · 工作目录`
+4. 在会话视图让 agent 调用 `write_to_file` 工具创建一个文件 → 断言磁盘上 `~/.hiagent/workdir/<createdAt>/文件名` 存在
+5. 右键该会话 → 菜单显示"重命名会话"+"删除聊天"+"打开工作目录"（三项都在）
+6. 点"打开工作目录" → 系统文件管理器打开 `~/.hiagent/workdir/<createdAt>/`（macOS 用 Finder，可断言 WS 事件发出）
+7. 右键项目名 → 菜单**仅**显示"查看文件夹"（无"删除项目"）
+8. 删除该会话 → 侧栏列表更新；断言 `<createdAt>/` 目录**仍存在**于磁盘
+9. 手动改 `<createdAt>/` 目录的 mtime 为 8 天前，触发 `cleanupExpiredWorkdirs(projectStore)` → 断言目录被删除
+10. 截图清理：测试中产生的截图（如有）全部删除，不保留在项目中
 
 ## 数据迁移与兼容
 
@@ -379,8 +504,8 @@ agent-manager、ws-server、SessionView、workdir-cleaner 全部引用同一个�
         自动清理；skill/mcp 继承全局配置
 - 影响范围：shared/constants.ts、shared/pure.ts、kernel/index.ts、kernel/project-store.ts、
             kernel/ws-server.ts、kernel/agent-manager.ts、kernel/workdir-cleaner.ts（新）、
-            frontend/ProjectItem.tsx、frontend/ProjectList.tsx、frontend/NewSessionPane.tsx、
-            frontend/SessionView.tsx
+            frontend/Sidebar.tsx、frontend/ProjectItem.tsx、frontend/ProjectList.tsx、
+            frontend/NewSessionPane.tsx、frontend/SessionView.tsx
 ```
 
 ## 实施顺序建议（writing-plans 阶段细化）
@@ -388,10 +513,12 @@ agent-manager、ws-server、SessionView、workdir-cleaner 全部引用同一个�
 1. shared 常量 + `resolveSessionCwd` 纯函数 + 单测
 2. kernel：`createSystemProject` + `ensureSystemProject` seed + 单测
 3. kernel：`agent-manager` pwd 取值切换 + 上传目录辅助函数 + 单测
-4. kernel：`ws-server` 删除/改名保护 + `agent:prompt` 创建 `<createdAt>/` 目录 + 单测
+4. kernel：`ws-server` 删除/改名保护 + `agent:prompt` 创建 `<createdAt>/` 目录 + 会话级"打开工作目录"WS 事件 + 单测
 5. kernel：`workdir-cleaner` + 启动集成 + 单测
-6. 前端：`ProjectItem` 差异化（图标/菜单/排序）+ 组件测试
-7. 前端：`NewSessionPane` 下拉 + `SessionView` header + 组件测试
-8. 第三层：WS 集成测试
-9. 第四层：E2E 测试 + 截图清理
-10. CHANGELOG + 提交
+6. 前端：`ProjectItem` 差异化（图标/项目右键菜单/会话右键菜单/打开工作目录）+ 组件测试
+7. 前端：`Sidebar` 新增"默认"独立区 + `ProjectList` 过滤系统项目 + 组件测试
+8. 前端：`NewSessionPane` 下拉显示 + 默认选中 + 组件测试
+9. 前端：`SessionView` header 友好文案 + 组件测试
+10. 第三层：WS 集成测试
+11. 第四层：E2E 测试 + 截图清理
+12. CHANGELOG + 提交
