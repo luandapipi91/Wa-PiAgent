@@ -9,9 +9,10 @@ import { MemoryStore } from "./memory-store";
 import { McpStore } from "./mcp-store";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
+import { ensureSystemProject } from "./ensure-system-project";
 import { extractSdkErrorMessage } from "./sdk-errors";
 import { cleanupRecordingTemp } from "./recording-store";
-import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR } from "@hiagent/shared";
+import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD } from "@hiagent/shared";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { WSServerEvent } from "@hiagent/shared";
@@ -59,6 +60,10 @@ export async function startKernel(
 
   const migrated = await migrateLegacySessions(projectStore);
   if (migrated) console.log("[kernel] 已迁移老数据至默认项目");
+
+  // 启动时 seed 默认工作区虚拟项目（幂等）+ 确保 workdir 根目录存在
+  await ensureSystemProject(projectStore);
+  console.log(`[kernel] 默认工作区已就绪: ${SYSTEM_PROJECT_CWD}`);
 
   // 启动清理：上次崩溃/异常退出遗留的录音临时分片
   try {
