@@ -25,6 +25,18 @@ export const PROVIDERS_FILE = `${HIAGENT_DIR}/providers.json`;
 export const GENERATED_DIR = `${HIAGENT_DIR}/.generated`;   // 自动生成的 Pi extension 文件目录
 export const BUILTIN_SKILLS_DIR = `${HIAGENT_DIR}/skills`;   // 内置技能目录，kernel 启动时创建，不可删
 
+import { join } from "node:path";
+
+// ===== 默认工作区（虚拟系统项目）=====
+// 一个常驻、不可删除/改名的虚拟项目，作为"没有具体工程目录时的默认聊天空间"。
+// 该项目下的每个会话有独立 cwd（~/.hiagent/workdir/<session.createdAt>/），
+// 详见 resolveSessionCwd 纯函数（pure.ts）。
+export const SYSTEM_PROJECT_ID = "__system__";
+export const SYSTEM_PROJECT_NAME = "默认工作区";
+export const SYSTEM_PROJECT_CWD = join(HIAGENT_DIR, "workdir");
+// 默认工作区会话被删除后，对应的 <createdAt>/ 子目录保留天数；超时后由 workdir-cleaner 清理
+export const WORKDIR_TTL_DAYS = 7;
+
 export interface AgentDef {
   emoji: string;
   gradient: [string, string];

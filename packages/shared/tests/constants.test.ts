@@ -3,6 +3,10 @@ import {
   DEFAULT_AGENT_TOOLS,
   EXTENSION_TOOL_MAP,
   resolveAgentTools,
+  SYSTEM_PROJECT_ID,
+  SYSTEM_PROJECT_NAME,
+  SYSTEM_PROJECT_CWD,
+  WORKDIR_TTL_DAYS,
 } from "../src/constants";
 
 // pi-lens 已彻底移除：这些工具名不应再出现在默认 allowlist 或扩展映射里
@@ -103,4 +107,14 @@ test("resolveAgentTools: 扩展原生 subagent 工具被剔除；delegate 放行
   expect(out).not.toContain("subagent");
   expect(out).toContain("delegate");
   expect(out).toContain("some_ext_tool");
+});
+
+// ---- 默认工作区（虚拟系统项目）常量 ----
+
+test("SYSTEM_PROJECT_* 常量定义", () => {
+  expect(SYSTEM_PROJECT_ID).toBe("__system__");
+  expect(SYSTEM_PROJECT_NAME).toBe("默认工作区");
+  expect(SYSTEM_PROJECT_CWD.endsWith("workdir")).toBe(true);
+  expect(SYSTEM_PROJECT_CWD.includes("hiagent")).toBe(true);
+  expect(WORKDIR_TTL_DAYS).toBe(7);
 });
