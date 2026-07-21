@@ -790,6 +790,8 @@ test("fs:upload 默认工作区会话携带 sessionId 时写入 workdir/<created
         id: sessionId,
         createdAt,
       });
+      // 立即标记待清理的子目录（整棵 <createdAt>/），保证后续断言失败时 finally 仍能清理
+      createdSubDir = join(SYSTEM_PROJECT_CWD, String(createdAt));
       // 发 fs:upload 带 sessionId
       send({
         type: "fs:upload",
@@ -804,8 +806,6 @@ test("fs:upload 默认工作区会话携带 sessionId 时写入 workdir/<created
       const expectedDir = join(SYSTEM_PROJECT_CWD, String(createdAt), ".hiagent", "uploads");
       expect(res.path).toContain(expectedDir);
       expect(existsSync(res.path)).toBe(true);
-      // 标记待清理的子目录（整棵 <createdAt>/）
-      createdSubDir = join(SYSTEM_PROJECT_CWD, String(createdAt));
     });
   } finally {
     // 无论 try 内断言是否失败，都清理本次产生的 <ts>/ 子目录，避免污染开发机 ~/.hiagent/workdir
