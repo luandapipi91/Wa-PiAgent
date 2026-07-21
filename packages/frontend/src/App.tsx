@@ -20,6 +20,7 @@ import { useMcpStore } from "./store/mcp";
 import { useMemoryStore } from "./store/memory";
 import { useToastStore } from "./store/toast";
 import { useComposerPrefsStore } from "./store/composer-prefs";
+import { useSubagentsStore } from "./store/subagents";
 import { onMessage, getWs } from "./ws-instance";
 import { ToastContainer } from "./components/ui/Toast";
 import { RecordingCapsule } from "./components/ui/RecordingCapsule";
@@ -45,6 +46,7 @@ export function App() {
     useSkillsStore.getState().load();
     useExtensionsStore.getState().load();
     useAgentsStore.getState().loadAll();
+    useSubagentsStore.getState().load();
     const off = onMessage(e => {
       const ps = useProjectsStore.getState();  // 每次事件取最新，避免 stale
       switch (e.type) {
