@@ -6,6 +6,9 @@
 
 ## 2026-07-21
 
+### 增强
+- **内置 subagent 三项增强**：① 新增 Plan（第 3 个内置类型，read-only 软件架构师）；② AgentConfig 内置分支改为从 pi-subagents 读取真实 systemPrompt 与 builtinToolNames 展示（替换原占位假文案）；③ 用户可为内置 subagent 设置 model/思考强度，覆盖存于 `~/.hiagent/subagent-overrides.json`，delegate 调起时合并到 `svc.spawn` options。新增 WS 事件 `subagent:list` / `subagent:save-override`，新建 `packages/kernel/src/subagent-store.ts`（override 持久化）+ `packages/kernel/src/subagent-info.ts`（合并 pi-subagents 真实配置）。影响范围：shared/constants.ts（SUBAGENT_TYPES 加 Plan）、shared/types.ts（新类型 + WS 事件）、kernel/subagent-store.ts（新）、kernel/subagent-info.ts（新）、kernel/ws-server.ts、kernel/delegate-tool.ts、kernel/index.ts、frontend/store/subagents.ts（新）、frontend/AgentConfig.tsx、frontend/App.tsx。
+
 ### 新增功能
 - **内置 subagent 类型（general-purpose / Explore）全链路支持**：delegate / fleet 工具的 `agent` 参数现在接受 pi-subagents 自带的内置类型名（`general-purpose` 继承调用者工具集；`Explore` read-only 固定工具），不再锁死在 `partners.askTo` 名单内。任何主智能体都可调起，用于一次性匿名任务（探索代码、研究问题、通用多步执行）。前端「更多智能体」弹窗在用户智能体后追加两张内置卡片（带"内置"角标，右键仅"查看"不可删/不可编，点开 AgentConfig 全字段置灰）；`@` 候选菜单追加这两个类型，所有主智能体都能 @ 到。系统提示词 `subagent-clarify` 段更新，明确告知 LLM 可用类型用法与 fleet 并行能力。影响范围：shared/constants.ts（`SUBAGENT_TYPES` / `isSubagentType`）、kernel/delegate-tool.ts（allowlist 放行 + 错误文案含类型提示）、kernel/system-prompt.ts（subagent-clarify 段更新）、frontend/AgentGalleryModal.tsx（内置卡片）、frontend/AgentConfig.tsx（只读模式）、frontend/ui/ComposerInput.tsx（@ 候选追加）。
 
