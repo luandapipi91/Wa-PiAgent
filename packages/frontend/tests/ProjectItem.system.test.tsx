@@ -23,10 +23,10 @@ afterEach(() => {
   cleanup();
 });
 
-test("系统项目折叠时图标用 🏠", () => {
-  // 显式把系统项目置为折叠状态
+test("系统项目始终显示 🏠（不论展开/折叠）", () => {
+  // 折叠状态
   useProjectUiStore.setState({ collapsedProjectIds: [SYSTEM_PROJECT_ID] });
-  render(
+  const { rerender } = render(
     <ProjectItem
       project={systemProject}
       sessions={[]}
@@ -38,6 +38,23 @@ test("系统项目折叠时图标用 🏠", () => {
     />
   );
   expect(screen.getByTestId(`project-toggle-${SYSTEM_PROJECT_ID}`).textContent).toContain("🏠");
+
+  // 展开状态（清空 collapsedProjectIds）
+  useProjectUiStore.setState({ collapsedProjectIds: [] });
+  rerender(
+    <ProjectItem
+      project={systemProject}
+      sessions={[]}
+      currentSessionId={null}
+      selected={false}
+      onSelectSession={() => {}}
+      onNewSessionInProject={() => {}}
+      onSelectProject={() => {}}
+    />
+  );
+  // 展开后图标仍是 🏠（不能变成 📂，否则失去默认工作区辨识度）
+  expect(screen.getByTestId(`project-toggle-${SYSTEM_PROJECT_ID}`).textContent).toContain("🏠");
+  expect(screen.getByTestId(`project-toggle-${SYSTEM_PROJECT_ID}`).textContent).not.toContain("📂");
 });
 
 test("系统项目右键菜单不显示'删除项目'", () => {
