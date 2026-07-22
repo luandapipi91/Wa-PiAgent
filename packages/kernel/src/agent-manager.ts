@@ -20,11 +20,12 @@ import type {
   AgentSessionEvent,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { relative, isAbsolute } from "node:path";
+import { relative, isAbsolute, join } from "node:path";
 import { buildAdditionalExtensionPaths, extractRuntimeToolNames } from "./extensions";
 import { createAgentMemoryTools, getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import { makeAskTool, reconcileDanglingAsks } from "./ask-tool";
 import { makeDelegateTool, makeFleetTool, buildDelegatePrompt, spawnViaSubagentsService } from "./delegate-tool";
+import { seedBuiltinAgents } from "./builtin-agents";
 import { askRegistry } from "./ask-registry";
 import type { SkillManager } from "./skill-manager";
 import type { ExtensionManager } from "./extension-manager";
@@ -292,6 +293,10 @@ export class AgentManager {
     agentName: AgentName,
     sessionId: string,
   ): Promise<AgentSession> {
+    // 启动时写入内置 subagent 的 .md 定义文件（~/.hiagent/agents/*.md），已存在不覆盖
+    const agentsDir = join(HIAGENT_DIR, "agents");
+    seedBuiltinAgents(agentsDir);
+
     // 从 ProjectStore 拉 project + session 实体（校验存在性 + 拿 cwd / piSessionFile）
     const { projects, sessions } = await this.opts.projectStore.load();
     const project = projects.find((p) => p.id === projectId);
