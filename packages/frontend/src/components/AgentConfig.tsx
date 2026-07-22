@@ -5,7 +5,6 @@ import { useAgentsStore } from "../store/agents";
 import { useSkillsStore } from "../store/skills";
 import { useProvidersStore } from "../store/providers";
 import { useSubagentsStore } from "../store/subagents";
-import { useMcpStore } from "../store/mcp";
 import { send, onMessage } from "../ws-instance";
 import type { SubagentOverride } from "@hiagent/shared";
 import { Modal } from "./ui/Modal";
@@ -13,13 +12,12 @@ import { filterItems } from "../quick-invoke/trigger";
 
 interface Props { agentName: AgentName; onClose: () => void; }
 
-type Tab = "basic" | "tools" | "skills" | "partners" | "mcp";
+type Tab = "basic" | "tools" | "skills" | "partners";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "basic", label: "基本" },
   { key: "tools", label: "工具" },
   { key: "skills", label: "技能" },
-  { key: "mcp", label: "MCP" },
   { key: "partners", label: "关系网" },
 ];
 
@@ -140,7 +138,6 @@ export function AgentConfig({ agentName, onClose }: Props) {
         {draft && tab === "basic" && <BasicTab draft={draft} onChange={handleChange} />}
         {draft && tab === "tools" && <ToolsTab draft={draft} onChange={handleChange} tools={tools} />}
         {draft && tab === "skills" && <SkillsTab draft={draft} onChange={handleChange} />}
-        {draft && tab === "mcp" && <McpTab draft={draft} onChange={handleChange} />}
         {draft && tab === "partners" && <PartnersTab draft={draft} onChange={handleChange} selfName={agentName} />}
       </div>
       <footer className="flex justify-end gap-2 px-5 py-3 border-t border-hairline">
@@ -328,35 +325,6 @@ function SkillsTab({ draft, onChange }: TabProps) {
           <input type="checkbox" checked={checked(s.name)} onChange={() => toggle(s.name)} data-testid={`skill-check-${s.name}`} />
           <span className="text-sm text-primary">{s.name}</span>
           <span className="text-[11px] text-tertiary truncate">{s.description}</span>
-        </label>
-      ))}
-    </div>
-  );
-}
-
-function McpTab({ draft, onChange }: TabProps) {
-  const servers = useMcpStore(s => s.servers);
-  // 首次进入加载 MCP 列表
-  useEffect(() => {
-    if (servers.length === 0) useMcpStore.getState().load();
-  }, []);
-  // 空 mcpServers = 全量（同 tools/skills 的语义）
-  const checked = (name: string) => draft.mcpServers.length === 0 || draft.mcpServers.includes(name);
-  const toggle = (name: string) => {
-    const next = draft.mcpServers.length === 0
-      ? servers.filter(s => s.name !== name).map(s => s.name)
-      : draft.mcpServers.includes(name) ? draft.mcpServers.filter(x => x !== name) : [...draft.mcpServers, name];
-    onChange({ ...draft, mcpServers: next });
-  };
-  if (servers.length === 0) return <p className="text-sm text-tertiary">暂无 MCP 服务器，可在设置中添加</p>;
-  return (
-    <div className="flex flex-col">
-      <p className="text-[11px] text-tertiary mb-2">全部勾选 = 全量默认；取消勾选后按显式列表保存</p>
-      {servers.map(s => (
-        <label key={s.name} className="flex items-center gap-2 py-1 cursor-pointer">
-          <input type="checkbox" checked={checked(s.name)} onChange={() => toggle(s.name)} data-testid={`mcp-check-${s.name}`} />
-          <span className="text-sm text-primary">{s.name}</span>
-          <span className="text-[11px] text-tertiary truncate">{s.command ?? s.url ?? ""}</span>
         </label>
       ))}
     </div>
