@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { ConfigStore } from "../src/config-store";
+import { makeDefaultAgentConfig } from "../src/agent-md";
 
 function tempAgentsDir() {
   const dir = join(import.meta.dir, ".tmp-agents-" + Math.random().toString(36).slice(2));
@@ -103,5 +104,27 @@ test("seedDefaults: 空目录写入 4 个默认 agent；非空目录不写", asy
   expect(names).toEqual(["技术实现", "质量验收", "需求设计", "项目管理"]);
   await cs.seedDefaults();  // 幂等
   expect((await cs.listAgents()).length).toBe(4);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("listAgents 过滤 displayName 为空的条目（如内置 agent 用 name 字段）", async () => {
+  const dir = tempAgentsDir();
+  const store = new ConfigStore(dir);
+  // 写入一个合法 agent + 一个模拟内置 agent（用 name 而非 displayName 的 pi-open-agents 格式）
+  await store.saveAgent(makeDefaultAgentConfig("测试"));
+  writeFileSync(join(dir, "Explore.md"), `---
+name: Explore
+description: 探索
+mode: subagent
+systemPrompt: replace
+thinking: medium
+tools: read, bash
+---
+READ-ONLY explorer body`);
+  const list = await store.listAgents();
+  const names = list.map(a => a.displayName);
+  expect(names).toContain("测试");
+  expect(names).not.toContain(undefined);
+  expect(list.length).toBe(1);  // Explore 被过滤
   rmSync(dir, { recursive: true, force: true });
 });

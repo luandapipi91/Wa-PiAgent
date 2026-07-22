@@ -26,13 +26,18 @@ test("getSubagentInfo 含 SUBAGENT_TYPES 的元信息（displayName/emoji/gradie
   }
 });
 
-test("getSubagentInfo systemPrompt 返回空串（pi-open-agents 的提示词在 .md 文件中）", async () => {
+test("getSubagentInfo systemPrompt 从 BUILTIN_AGENT_CONTENT 读取真实提示词", async () => {
   const infos = await getSubagentInfo([]);
-  // pi-open-agents 切换后，systemPrompt 从 ~/.hiagent/agents/*.md 定义文件读取，此处返回空串
+  // Explore 与 Plan 的 systemPrompt 从 builtin-agents.ts 的 BUILTIN_AGENT_CONTENT 提取
   const explore = infos.find(i => i.name === "Explore");
-  expect(explore!.systemPrompt).toBe("");
+  expect(explore!.systemPrompt.length).toBeGreaterThan(100);
+  expect(explore!.systemPrompt).toContain("READ-ONLY MODE");
   const plan = infos.find(i => i.name === "Plan");
-  expect(plan!.systemPrompt).toBe("");
+  expect(plan!.systemPrompt.length).toBeGreaterThan(100);
+  expect(plan!.systemPrompt).toContain("software architect");
+  // general-purpose 的 systemPrompt 较短
+  const gp = infos.find(i => i.name === "general-purpose");
+  expect(gp!.systemPrompt).toContain("General-purpose agent");
 });
 
 test("getSubagentInfo builtinToolNames 从 SUBAGENT_TYPES readOnly 标志计算", async () => {
