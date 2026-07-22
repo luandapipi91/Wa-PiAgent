@@ -99,6 +99,19 @@ test("textToHtml agent chip 的 @ 在 avatar 之前（最前面）", () => {
   expect(nameIdx).toBeGreaterThan(emojiIdx);
 });
 
+test("textToHtml agent chip：内置 subagent data-token 存英文但显示中文 displayName", () => {
+  // 内置 subagent 的 token 用英文 name（@[Plan]），但 chip 显示中文（规划子智能体）。
+  // registerAgentMeta 传入 displayName 让 textToHtml 用中文渲染。
+  registerAgentMeta("Plan", { avatar: "📐", avatarColor: "#7c3aed", displayName: "规划子智能体" });
+  const html = textToHtml("@[Plan]");
+  // data-token 存英文 token（发后端用）
+  expect(html).toContain("data-token=\"@[Plan]\"");
+  // 显示文本是中文（给用户看）
+  expect(html).toContain("规划子智能体");
+  // 不能出现裸英文 name 作为显示文本（avatar 标签里的除外）
+  expect(html).not.toContain(">Plan<");
+});
+
 afterEach(clearAgentMeta);
 
 test("textToHtml 传 { hideTrigger: true } 时 agent chip 不含 @ 前缀（仅展示名，用于历史消息渲染）", () => {
@@ -114,4 +127,20 @@ test("textToHtml 传 { hideTrigger: true } 时 agent chip 不含 @ 前缀（仅�
 test("textToHtml 转义普通文本中的 HTML", () => {
   const html = textToHtml("<b>bold</b>");
   expect(html).toBe("&lt;b&gt;bold&lt;/b&gt;");
+});
+
+// ===== 换行保留：渲染侧根因复现 =====
+// 用户消息（MessageList isUser 分支）用 textToHtml 渲染。
+// 若 textToHtml 把 \n 丢成空格，多行消息发送后显示成一行。
+// 要求：textToHtml 把普通文本段里的 \n 转为 <br>，
+// 这样不依赖外层 white-space 即可正确显示换行。
+
+test("textToHtml 保留换行：普通文本多行 → \\n 转为 <br>", () => {
+  const html = textToHtml("第一行\n第二行");
+  expect(html).toBe("第一行<br>第二行");
+});
+
+test("textToHtml 保留换行：chip 前后跨行，chip 内部不误转", () => {
+  const html = textToHtml("第一行\n#[App.tsx]\n第二行");
+  expect(html).toBe("第一行<br><span class=\"chip chip-file\" contenteditable=\"false\" data-token=\"#[App.tsx]\">#App.tsx</span><br>第二行");
 });

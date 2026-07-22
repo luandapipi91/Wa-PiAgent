@@ -360,7 +360,9 @@ export class AgentManager {
         getProjectMemoryStore(HIAGENT_DIR, cwd),
       );
 
-    // 关系网调起：askTo 非空才注册 delegate 工具并注入提示词段（闭包捕获）。
+    // 关系网调起：始终注册 delegate/fleet 工具——内置 subagent 类型（general-purpose / Explore / Plan）
+    // 不依赖 askTo，任何主智能体都可调起（见 delegate-tool.ts canInvoke 的 isSubagentType 放行）；
+    // 关系网提示词段则按 askTo 动态注入（askTo 为空时 buildDelegatePrompt 返回空串，被 composePrompt 过滤）。
     // spawn 走 pi-subagents service（进程内单例，由内置扩展发布）。
     // partners 防御性读取：生产 ConfigStore 保证默认 { askTo: [] }，但部分来源的 config 可能缺该字段。
     const askToNames = config?.partners?.askTo ?? [];
@@ -372,15 +374,10 @@ export class AgentManager {
     );
     // 加载系统提示词段落配置（首次加载后缓存；闭包捕获供同步 systemPromptOverride 使用）
     const promptSegments = await this.getPromptSegments();
-    const delegateTools = askToConfigs.length === 0 ? [] : [
-      makeDelegateTool({
-        askTo: askToConfigs.map((c) => ({ name: c.displayName, description: c.description })),
-        spawn: spawnViaSubagentsService,
-      }),
-      makeFleetTool({
-        askTo: askToConfigs.map((c) => ({ name: c.displayName, description: c.description })),
-        spawn: spawnViaSubagentsService,
-      }),
+    const askToTargets = askToConfigs.map((c) => ({ name: c.displayName, description: c.description }));
+    const delegateTools = [
+      makeDelegateTool({ askTo: askToTargets, spawn: spawnViaSubagentsService }),
+      makeFleetTool({ askTo: askToTargets, spawn: spawnViaSubagentsService }),
     ];
 
     // 当前启用的动态扩展（附加到 additionalExtensionPaths 由 SDK 加载，

@@ -34,13 +34,13 @@ export interface DelegateSpawnResult {
 export type DelegateSpawnFn = (agent: string, task: string) => Promise<DelegateSpawnResult>;
 
 const DelegateParamsSchema = Type.Object({
-  agent: Type.String({ description: "可调起列表中的智能体名称，或内置 subagent 类型名（general-purpose / Explore）" }),
+  agent: Type.String({ description: "可调起列表中的智能体名称，或内置 subagent 类型名（general-purpose / Explore / Plan）" }),
   task: Type.String({ description: "交给子智能体的任务描述" }),
 });
 
 /**
  * 判断 agent 名是否允许调起：在 askTo 名单内，或者是内置 subagent 类型名。
- * 内置类型（general-purpose / Explore）走 pi-subagents registry 自己的配置，
+ * 内置类型（general-purpose / Explore / Plan）走 pi-subagents registry 自己的配置，
  * 不在 HiAgent 的 askTo 关系网里——任何主智能体都可调起。
  */
 function canInvoke(agent: string, askTo: DelegateTarget[]): boolean {
@@ -54,7 +54,7 @@ function buildNotAllowedMessage(agent: string, askTo: DelegateTarget[]): string 
   return `错误：智能体「${agent}」不在可调起列表中。可调起：${names}；内置 subagent 类型：${builtin}`;
 }
 
-/** 构造 delegate 工具（闭包绑 askTo + spawn）。每个 session 一份实例，askTo 非空时才注册。 */
+/** 构造 delegate 工具（闭包绑 askTo + spawn）。每个 session 一份实例，始终注册（内置类型不依赖 askTo）。 */
 export function makeDelegateTool(opts: {
   askTo: DelegateTarget[];
   spawn: DelegateSpawnFn;
@@ -62,7 +62,7 @@ export function makeDelegateTool(opts: {
   return {
     name: "delegate",
     label: "Delegate",
-    description: "调起子智能体执行任务并返回结果。agent 可以是关系网内的智能体名称，或内置 subagent 类型名（general-purpose / Explore）。",
+    description: "调起子智能体执行任务并返回结果。agent 可以是关系网内的智能体名称，或内置 subagent 类型名（general-purpose / Explore / Plan）。",
     parameters: DelegateParamsSchema,
     async execute(
       _toolCallId: string,

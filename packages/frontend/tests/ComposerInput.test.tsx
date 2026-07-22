@@ -263,6 +263,26 @@ test("选中智能体后生成 @[name] chip token 并回调 onAgentMention", () 
   expect(onAgentMention).toHaveBeenCalledWith("需求设计");
 });
 
+test("选中内置 subagent 后生成英文 name 的 @[token]（非中文 displayName）", () => {
+  // 核心约束：内置 subagent 的 token 必须用英文 name（@[Plan]），
+  // 与 delegate 工具/提示词里的内置类型名一致，避免 LLM 把中文名误当成命名智能体。
+  // 卡片显示用中文 displayName，但 token data 存英文。
+  const setText = mock();
+  const onAgentMention = mock();
+  useAgentsStore.setState({
+    list: [
+      { displayName: "主控", description: "主控", avatar: "", avatarColor: "", model: "m", thinking: "medium", systemPromptMode: "replace", inheritProjectContext: true, inheritSkills: true, tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [] } as any,
+    ],
+  });
+  renderComposer({ text: "@规划", setText, onAgentMention, currentAgentName: "主控" });
+  fireEvent.click(screen.getByText("规划子智能体"));
+  expect(setText).toHaveBeenCalled();
+  const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
+  expect(lastCall).toContain("@[Plan]");           // 英文 name
+  expect(lastCall).not.toContain("@[规划子智能体]"); // 不能是中文 displayName
+  expect(onAgentMention).toHaveBeenCalledWith("Plan");
+});
+
 test("选中文件后生成 #[path] chip token", async () => {
   const setText = mock();
   renderComposer({ text: "#hello", setText });
@@ -463,7 +483,7 @@ describe("ComposerInput @ 候选菜单过滤", () => {
     expect(screen.queryByText("代码审查")).toBeNull();
   });
 
-  it("选中内置 subagent 类型后生成 @[中文显示名] token", async () => {
+  it("选中内置 subagent 类型后生成 @[英文name] token（中文只做卡片渲染）", async () => {
     const setText = mock();
     const onAgentMention = mock();
     render(
@@ -478,8 +498,9 @@ describe("ComposerInput @ 候选菜单过滤", () => {
     await waitFor(() => expect(screen.getByText("通用子智能体")).toBeDefined());
     fireEvent.click(screen.getByText("通用子智能体"));
     const lastCall = setText.mock.calls.at(-1)?.[0] as string;
-    // token 用中文 displayName，与卡片显示一致
-    expect(lastCall).toContain("@[通用子智能体]");
-    expect(onAgentMention).toHaveBeenCalledWith("通用子智能体");
+    // token 用英文 name（与 delegate 工具/提示词一致），卡片显示才是中文 displayName
+    expect(lastCall).toContain("@[general-purpose]");
+    expect(lastCall).not.toContain("@[通用子智能体]");
+    expect(onAgentMention).toHaveBeenCalledWith("general-purpose");
   });
 });

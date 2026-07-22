@@ -139,16 +139,16 @@ export function ComposerInput({
       avatar: agent.avatar,
       avatarColor: agent.avatarColor,
     }));
-    // 内置 subagent 类型：所有主智能体可见，按 query 模糊匹配
-    // 卡片显示与 token 插入都用中文 displayName（与其他智能体实名一致），
-    // delegate 工具内部会归一化为英文 name 传给 svc.spawn
+    // 内置 subagent 类型：所有主智能体可见，按中文 displayName 模糊匹配
+    // 卡片显示用中文 displayName，但 token 插入用英文 name（@[Plan]）——
+    // 与 delegate 工具/提示词里的内置类型名一致，避免 LLM 把中文名误当成命名智能体
     const filteredBuiltin = filterItems(
-      SUBAGENT_TYPES.map(t => ({ name: t.displayName, description: t.description, emoji: t.emoji, gradient: t.gradient })),
+      SUBAGENT_TYPES.map(t => ({ type: t, name: t.displayName, description: t.description })),
       trigger!.query,
     );
-    const builtinItems: MenuItem[] = filteredBuiltin.map(t => ({
-      id: t.name,
-      name: t.name,
+    const builtinItems: MenuItem[] = filteredBuiltin.map(({ type: t }) => ({
+      id: t.name,            // 英文 name → 决定 token @[Plan]
+      name: t.displayName,   // 中文 → 卡片显示文本
       description: t.description,
       avatar: t.emoji,
       avatarColor: `${t.gradient[0]}-${t.gradient[1]}`,
@@ -265,7 +265,9 @@ export function ComposerInput({
         ? `#[${item.path ?? item.name}]`
         : `$[${item.name}]`;
     if (triggerType === "agent") {
-      registerAgentMeta(item.id, { avatar: item.avatar, avatarColor: item.avatarColor });
+      // item.id 是英文 type name（内置 subagent，如 "Plan"）或 displayName（命名智能体）。
+      // 对内置 subagent，item.name 是中文 displayName，传入让 chip 显示中文名而非英文 token。
+      registerAgentMeta(item.id, { avatar: item.avatar, avatarColor: item.avatarColor, displayName: item.name });
     }
     const triggerSymbol = triggerType === "agent" ? "@" : triggerType === "file" ? "#" : "$";
     const query = trigger?.query ?? "";

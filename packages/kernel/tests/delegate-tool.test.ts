@@ -66,7 +66,7 @@ test("buildDelegatePrompt: 含名称/简介/关键词/fleet 说明；空 askTo �
   expect(buildDelegatePrompt([])).toBe("");
 });
 
-// ---- 内置 subagent 类型名（general-purpose / Explore）allowlist 放行 ----
+// ---- 内置 subagent 类型名（general-purpose / Explore / Plan）allowlist 放行 ----
 
 test("delegate: 内置类型名 general-purpose 放行（绕过 askTo 名单）", async () => {
   const spawn = mock(async (agent: string, task: string) => ({ text: `${agent}:${task}`, isError: false }));
@@ -83,6 +83,22 @@ test("delegate: 内置类型名 Explore 放行（大小写敏感）", async () =
   const res = await tool.execute("tc-ex", { agent: "Explore", task: "search code" });
   expect(res.isError).toBe(false);
   expect(spawn).toHaveBeenCalledWith("Explore", "search code");
+});
+
+test("delegate: 内置类型名 Plan 放行（绕过 askTo 名单）", async () => {
+  const spawn = mock(async (agent: string, task: string) => ({ text: `${agent}:${task}`, isError: false }));
+  const tool = makeDelegateTool({ askTo, spawn });
+  const res = await tool.execute("tc-plan", { agent: "Plan", task: "design plan" });
+  expect(res.isError).toBe(false);
+  expect(spawn).toHaveBeenCalledWith("Plan", "design plan");
+});
+
+test("delegate: makeDelegateTool 描述含全部内置类型名（含 Plan）", () => {
+  const spawn = mock(async () => ({ text: "ok", isError: false }));
+  const tool = makeDelegateTool({ askTo, spawn });
+  expect(tool.description).toContain("general-purpose");
+  expect(tool.description).toContain("Explore");
+  expect(tool.description).toContain("Plan");
 });
 
 test("delegate: 大小写错误（explore 而非 Explore）不放行", async () => {
