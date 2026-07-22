@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "hiagent",
+      "dependencies": {
+        "pi-open-agents": "^0.1.12",
+      },
       "devDependencies": {
         "@happy-dom/global-registrator": "^20.10.6",
         "@hiagent/shared": "workspace:*",
@@ -1678,6 +1681,8 @@
     "pgpass": ["pgpass@1.0.6", "https://registry.npmmirror.com/pgpass/-/pgpass-1.0.6.tgz", {}, "sha512-lqIfH7bdgsxHAY/ZnUOwm+aCFKrsHBDhSFuk9O0B9uCqJAIkrKTo/+LQqLPLUS4e04+jCmQVikxE3QipH5chPw=="],
 
     "pi-mcp-adapter": ["pi-mcp-adapter@2.11.0", "https://registry.npmmirror.com/pi-mcp-adapter/-/pi-mcp-adapter-2.11.0.tgz", { "dependencies": { "@earendil-works/pi-ai": "^0.74.0", "@earendil-works/pi-tui": "^0.74.0", "@modelcontextprotocol/ext-apps": "^1.2.2", "@modelcontextprotocol/sdk": "^1.25.1", "open": "^10.2.0", "recheck": "^4.5.0", "typebox": "^1.1.24", "zod": "^3.25.0 || ^4.0.0" }, "bin": { "pi-mcp-adapter": "cli.js" } }, "sha512-4Y/eLbhbxnRih519dJUxMyQ5QASvPcdWyBlS8+dDXteAzaMuLnd4nMTWgoZw3JRIW+0r93KAQcz1Rbli4xCwEQ=="],
+
+    "pi-open-agents": ["pi-open-agents@0.1.12", "https://registry.npmmirror.com/pi-open-agents/-/pi-open-agents-0.1.12.tgz", { "peerDependencies": { "@earendil-works/pi-ai": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "typebox"] }, "sha512-slzo4ob7ex31OQzzhdt+Lqut4JxbuC+ih0XfXNLVR6NE2L1MAMiA3LlRM+ngx86p6EPYrdM94w3/hnxUnXkHZA=="],
 
     "pi-web-access": ["pi-web-access@0.13.0", "https://registry.npmmirror.com/pi-web-access/-/pi-web-access-0.13.0.tgz", { "dependencies": { "@mozilla/readability": "^0.6.0", "linkedom": "^0.16.0", "p-limit": "^6.1.0", "turndown": "^7.2.0", "unpdf": "^1.6.2" }, "peerDependencies": { "@earendil-works/pi-ai": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" } }, "sha512-ny0bHisMWdobmu1hcMp/jqjaRh6pYrH7dctBK2CVyRF4ia7bP47RnOPYdG1yiks9ohtcanWir5Hl9EFap8h0zQ=="],
 
