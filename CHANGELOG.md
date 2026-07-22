@@ -6,6 +6,9 @@
 
 ## 2026-07-22
 
+### 重构
+- **子智能体执行后端从 @gotgenes/pi-subagents 切换到 pi-open-agents**：获得 per-agent skills/tools 白名单配置能力（config.skills/config.tools 死字段正式生效）+ 子智能体执行过程可见性（onProgress 回调：工具调用/文本输出/用量实时推送）。架构变化：进程内 spawn+轮询 → 子进程 runSubagent+AbortSignal。内置智能体（general-purpose/Explore/Plan）的 systemPrompt 从包内部硬编码迁移为 `~/.hiagent/agents/*.md` 定义文件（用户可覆盖），agent 定义目录统一在 HiAgent 自己的 `~/.hiagent/agents/`。delegate-tool 完全重写（移除 SubagentServiceLike/waitSubagentResult/spawnViaSubagentsService，新增 makeSpawnFn + subagent-runner 适配层 + builtin-agents 种子文件）。移除死字段 inheritSkills。影响范围：kernel/{delegate-tool,subagent-runner(新),builtin-agents(新),subagent-info,agent-manager,extensions}.ts、shared/{types,constants}.ts、frontend/AgentConfig.tsx。
+
 ### 修复（测试基础设施 + 组件 hooks 违规）
 - **测试架构隔离：kernel 不再被强加 happy-dom**：根 `bunfig.toml` 的 `preload=["./tests/setup.ts"]`（全局注册 happy-dom）对纯逻辑的 kernel/desktop/shared 包是多余的——happy-dom 的 fetch 对本地 mock HTTP 服务器做 CORS 校验导致 ECONNREFUSED，且 happy-dom 与 MCP SDK 1.29.0 的 SSE 握手不兼容（即使恢复 fetch/Headers/Response 等全局仍卡死），使 mcp-connector 的 401 needs_auth / headers 转发两个用例必挂。根因修复：删除根 `tests/setup.ts`、根 bunfig 移除 preload（kernel/desktop/shared 纯逻辑无需 DOM），根 package.json 的 test 脚本改为分两阶段跑（先根 CWD 跑非前端测试，再 cd packages/frontend 跑——frontend 有自己的 bunfig preload 提供 happy-dom + CSS mock + fake-indexeddb + WebSocket mock）。影响范围：bunfig.toml、package.json、tests/setup.ts（删除）。
 - **`store-subagents` 测试跨文件 mock 泄漏**：`store-subagents.test.ts` 用 `mock.module("../src/ws-instance")` + 顶层 `emit` 验证"收到 subagent:list 事件填充 store"，但 bun 的 mock.module 在多文件场景下跨文件失效——App.test.tsx 等渲染 App 的测试先加载真实 ws-instance 并缓存，store-subagents 的 emit 打不进 mock 的 handler Set。根因修复：subagents.ts 把 onMessage 的处理逻辑抽成导出的纯函数 `handleSubagentEvent`（生产仍由顶层 onMessage 转调），测试直接调 `handleSubagentEvent` 断言，绕过 mock.module 跨文件陷阱。影响范围：frontend/src/store/subagents.ts、frontend/tests/store-subagents.test.ts。
