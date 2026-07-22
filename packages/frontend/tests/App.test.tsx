@@ -23,7 +23,7 @@ mock.module("../src/ws-instance", () => ({
 const agent = (displayName: string): AgentConfig => ({
   displayName, avatar: "", avatarColor: "", description: "",
   model: "m", thinking: "medium", systemPromptMode: "replace",
- inheritSkills: true,
+
   tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [],
 });
 

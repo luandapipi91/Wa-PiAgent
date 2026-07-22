@@ -78,7 +78,6 @@ export function parseAgentMd(md: string): AgentConfig {
       ? null
       : (y.thinking === "low" ? "medium" : y.thinking) as AgentConfig["thinking"],
     systemPromptMode: y.systemPromptMode as AgentConfig["systemPromptMode"],
-    inheritSkills: Boolean(y.inheritSkills),
     tools: (() => {
       if (Array.isArray(y.tools)) return y.tools as string[];
       if (y.tools == null || String(y.tools).trim() === "") return [];
@@ -102,7 +101,6 @@ export function stringifyAgentMd(c: AgentConfig): string {
   fm.push(`thinking: ${c.thinking}`);
   fm.push(`triggerKeywords: [${c.triggerKeywords.join(", ")}]`);
   fm.push(`systemPromptMode: ${c.systemPromptMode}`);
-  fm.push(`inheritSkills: ${c.inheritSkills}`);
   fm.push(`tools: [${c.tools.join(", ")}]`);
   fm.push(`skills: ${c.skills.join(", ")}`);
   fm.push(`mcpServers: ${c.mcpServers.length ? `[${c.mcpServers.join(", ")}]` : "[]"}`);
@@ -135,7 +133,6 @@ export function makeDefaultAgentConfig(displayName: string): AgentConfig {
     model: "glm-4.6",
     thinking: "medium",
     systemPromptMode: "replace",
-    inheritSkills: true,
     tools: [],
     skills: [],
     mcpServers: [],

@@ -251,8 +251,6 @@ test("选中智能体后生成 @[name] chip token 并回调 onAgentMention", () 
   const onAgentMention = mock();
   useAgentsStore.setState({
     list: [
-      { displayName: "主控", description: "主控", avatar: "", avatarColor: "", model: "m", thinking: "medium", systemPromptMode: "replace", inheritSkills: true, tools: [], skills: [], mcpServers: [], partners: { askTo: ["需求设计"] }, triggerKeywords: [] },
-      { displayName: "需求设计", description: "梳理需求", avatar: "", avatarColor: "", model: "m", thinking: "medium", systemPromptMode: "replace", inheritSkills: true, tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [] },
     ] as any,
   });
   renderComposer({ text: "@需求", setText, onAgentMention, currentAgentName: "主控" });
@@ -271,7 +269,6 @@ test("选中内置 subagent 后生成英文 name 的 @[token]（非中文 displa
   const onAgentMention = mock();
   useAgentsStore.setState({
     list: [
-      { displayName: "主控", description: "主控", avatar: "", avatarColor: "", model: "m", thinking: "medium", systemPromptMode: "replace", inheritSkills: true, tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [] } as any,
     ],
   });
   renderComposer({ text: "@规划", setText, onAgentMention, currentAgentName: "主控" });

@@ -7,7 +7,7 @@ import type { AgentConfig, SessionEntity } from "@hiagent/shared";
 const agent = (name: string): AgentConfig => ({
   displayName: name, avatar: "🤖", avatarColor: "#000-#111", description: "",
   model: "m", thinking: "medium", systemPromptMode: "replace",
- inheritSkills: true,
+
   tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [],
 });
 

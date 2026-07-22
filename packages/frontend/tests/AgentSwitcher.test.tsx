@@ -26,7 +26,7 @@ function cfg(name: string, extra: Record<string, any> = {}) {
     thinking: "disabled",
     systemPromptMode: "replace",
 
-    inheritSkills: true,
+
     tools: [],
     skills: [],
     mcpServers: [],

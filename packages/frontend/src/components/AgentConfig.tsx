@@ -46,8 +46,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
       model: builtinInfo.override?.model ?? null,
       thinking: builtinInfo.override?.thinking ?? null,
       systemPromptMode: "replace",
-      inheritSkills: false,
-      // 工具：内置 subagent 的真实 builtinToolNames（来自 pi-subagents），只读展示
+      // 工具：内置 subagent 的真实 builtinToolNames，只读展示
       tools: builtinInfo.builtinToolNames ?? [],
       skills: [],
       mcpServers: [],
