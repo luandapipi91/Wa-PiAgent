@@ -13,7 +13,13 @@ interface Props {
 /**
  * 从 contenteditable DOM 提取纯文本 token 字符串。
  * chip span 取 data-token 属性，普通文本取 textContent。
+ *
+ * 换行处理：contenteditable 按 Enter，浏览器不会插入 \n 文本节点，
+ * 而是插入 <div>/<p> 块元素（Chrome 默认）或 <br>（Shift+Enter / Firefox）。
+ * 必须把这些块节点转回 \n，否则多行内容发送时换行丢失。
  */
+const BLOCK_TAGS = new Set(["DIV", "P", "BR", "LI", "TR", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6", "PRE"]);
+
 function extractText(el: HTMLElement): string {
   let result = "";
   for (const node of Array.from(el.childNodes)) {
@@ -21,10 +27,21 @@ function extractText(el: HTMLElement): string {
       result += node.textContent ?? "";
     } else if (node.nodeType === Node.ELEMENT_NODE) {
       const elem = node as HTMLElement;
+      const tag = elem.tagName;
       const token = elem.getAttribute("data-token");
       if (token) {
+        // chip 前若是块元素结束（result 以 \n 结尾或为空）无需补换行；
+        // 否则 chip 作为行内元素，原样拼接 token。
         result += token;
+      } else if (tag === "BR") {
+        result += "\n";
       } else {
+        // 块级元素：仅在内容前补一个换行作为行分隔（块与块之间、文本与块之间），
+        // 块后不补 —— 避免发送时末尾多出空行（用户在末尾按回车产生的 <br> 仍会保留为 \n）。
+        const isBlock = BLOCK_TAGS.has(tag);
+        if (isBlock && result.length > 0 && !result.endsWith("\n")) {
+          result += "\n";
+        }
         result += extractText(elem);
       }
     }
