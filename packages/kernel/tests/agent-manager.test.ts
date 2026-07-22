@@ -1074,8 +1074,8 @@ test("ensureStarted 在 askTo 非空时同时注册 delegate 和 fleet 工具并
   const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
 
   const configs: Record<string, any> = {
-    dev: { displayName: "dev", partners: { askTo: ["代码审查"], askFrom: [] }, triggerKeywords: [] },
-    代码审查: { displayName: "代码审查", description: "评审改动", partners: { askTo: [], askFrom: ["dev"] }, triggerKeywords: ["review", "评审"] },
+    dev: { displayName: "dev", partners: { askTo: ["代码审查"] }, triggerKeywords: [] },
+    代码审查: { displayName: "代码审查", description: "评审改动", partners: { askTo: [] }, triggerKeywords: ["review", "评审"] },
   };
   const configStore = { getAgent: mock(async (n: string) => configs[n] ?? null) } as any;
 
@@ -1104,7 +1104,7 @@ test("ensureStarted 在 askTo 为空时仍注册 delegate/fleet 工具（内置�
   const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
 
   const configStore = {
-    getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [], askFrom: [] }, triggerKeywords: [] })),
+    getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [] }, triggerKeywords: [] })),
   } as any;
 
   const captured: any[] = [];
@@ -1251,7 +1251,7 @@ test("switchAgent: 换体重建，sessionId 不变且 config 取新 agent", asyn
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
 
-  const getAgent = mock(async (n: string) => ({ displayName: n, partners: { askTo: [], askFrom: [] }, triggerKeywords: [] }));
+  const getAgent = mock(async (n: string) => ({ displayName: n, partners: { askTo: [] }, triggerKeywords: [] }));
   const configStore = { getAgent } as any;
 
   const created: AgentSession[] = [];
@@ -1421,7 +1421,7 @@ test("systemPromptOverride 拼装顺序：base < delegatePrompt < 环境约束 <
   const configStore = {
     getAgent: mock(async () => ({
       displayName: "dev",
-      partners: { askTo: [{ name: "代码审查" }], askFrom: [] },
+      partners: { askTo: [{ name: "代码审查" }] },
       triggerKeywords: ["review"],
       description: "评审",
     })),

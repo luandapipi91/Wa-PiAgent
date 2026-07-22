@@ -16,11 +16,12 @@ function parseYaml(text: string): Record<string, unknown> {
     if (val === "") {
       // 嵌套块
       if (key === "partners") {
-        const partners: Record<string, string[]> = { askTo: [], askFrom: [] };
+        const partners: Record<string, string[]> = { askTo: [] };
         i++;
         while (i < lines.length && lines[i].startsWith("  ")) {
           const pm = lines[i].match(/^\s+(\w+):\s*(.*)$/);
-          if (pm) partners[pm[1]] = parseList(pm[2]);
+          // 只收集 askTo；旧文件里的 askFrom 行被忽略（字段已移除）
+          if (pm && pm[1] === "askTo") partners[pm[1]] = parseList(pm[2]);
           i++;
         }
         result[key] = partners;
@@ -66,7 +67,7 @@ export function parseAgentMd(md: string): AgentConfig {
   if (!fm) throw new Error("agent.md 缺少 frontmatter");
   const [, yamlText, bodyText] = fm;
   const y = parseYaml(yamlText);
-  const partners = (y.partners as Partners) ?? { askTo: [], askFrom: [] };
+  const partners = (y.partners as Partners) ?? { askTo: [] };
   return {
     displayName: y.displayName as string,
     avatar: y.avatar as string,
@@ -77,7 +78,6 @@ export function parseAgentMd(md: string): AgentConfig {
       ? null
       : (y.thinking === "low" ? "medium" : y.thinking) as AgentConfig["thinking"],
     systemPromptMode: y.systemPromptMode as AgentConfig["systemPromptMode"],
-    inheritProjectContext: Boolean(y.inheritProjectContext),
     inheritSkills: Boolean(y.inheritSkills),
     tools: (() => {
       if (Array.isArray(y.tools)) return y.tools as string[];
@@ -102,14 +102,12 @@ export function stringifyAgentMd(c: AgentConfig): string {
   fm.push(`thinking: ${c.thinking}`);
   fm.push(`triggerKeywords: [${c.triggerKeywords.join(", ")}]`);
   fm.push(`systemPromptMode: ${c.systemPromptMode}`);
-  fm.push(`inheritProjectContext: ${c.inheritProjectContext}`);
   fm.push(`inheritSkills: ${c.inheritSkills}`);
   fm.push(`tools: [${c.tools.join(", ")}]`);
   fm.push(`skills: ${c.skills.join(", ")}`);
   fm.push(`mcpServers: ${c.mcpServers.length ? `[${c.mcpServers.join(", ")}]` : "[]"}`);
   fm.push("partners:");
   fm.push(`  askTo: [${c.partners.askTo.join(", ")}]`);
-  fm.push(`  askFrom: [${c.partners.askFrom.join(", ")}]`);
   fm.push("---");
   if (c.systemPromptBody) fm.push(c.systemPromptBody);
   return fm.join("\n");
@@ -137,12 +135,11 @@ export function makeDefaultAgentConfig(displayName: string): AgentConfig {
     model: "glm-4.6",
     thinking: "medium",
     systemPromptMode: "replace",
-    inheritProjectContext: true,
     inheritSkills: true,
     tools: [],
     skills: [],
     mcpServers: [],
-    partners: { askTo: [], askFrom: [] },
+    partners: { askTo: [] },
     triggerKeywords: [],
   };
 }

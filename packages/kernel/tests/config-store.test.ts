@@ -11,7 +11,7 @@ function tempAgentsDir() {
 
 test("listAgents 读全部 .md", async () => {
   const dir = tempAgentsDir();
-  writeFileSync(join(dir, "研发.md"), `---\ndisplayName: 研发\navatar: "⚙️"\navatarColor: "x"\ndescription: d\nmodel: m\nthinking: high\nsystemPromptMode: replace\ninheritProjectContext: true\ninheritSkills: false\ntools: read\nskills: []\nmcpServers: []\npartners:\n  askTo: []\n  askFrom: []\n---\nbody`);
+  writeFileSync(join(dir, "研发.md"), `---\ndisplayName: 研发\navatar: "⚙️"\navatarColor: "x"\ndescription: d\nmodel: m\nthinking: high\nsystemPromptMode: replace\ninheritSkills: false\ntools: read\nskills: []\nmcpServers: []\npartners:\n  askTo: []\n---\nbody`);
   const store = new ConfigStore(dir);
   const agents = await store.listAgents();
   expect(agents).toHaveLength(1);
@@ -32,8 +32,8 @@ test("saveAgent 持久化并可读回", async () => {
   const errs = await store.saveAgent({
     displayName: "研发", avatar: "⚙️", avatarColor: "a-b",
     description: "d", model: "m", thinking: "high", systemPromptMode: "replace",
-    inheritProjectContext: true, inheritSkills: false, tools: ["read"],
-    skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] },
+ inheritSkills: false, tools: ["read"],
+    skills: [], mcpServers: [], partners: { askTo: [] },
     triggerKeywords: [],
     systemPromptBody: "正文",
   });
@@ -49,8 +49,8 @@ test("saveAgent 拒绝非法配置不写盘", async () => {
   const errs = await store.saveAgent({
     displayName: "", model: "", thinking: "high" as never,
     systemPromptMode: "replace", avatar: "", avatarColor: "", description: "",
-    inheritProjectContext: true, inheritSkills: false, tools: [], skills: [],
-    mcpServers: [], partners: { askTo: [], askFrom: [] },
+ inheritSkills: false, tools: [], skills: [],
+    mcpServers: [], partners: { askTo: [] },
     triggerKeywords: [],
   } as never);
   expect(errs.length).toBeGreaterThan(0);

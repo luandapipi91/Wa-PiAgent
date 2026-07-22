@@ -46,13 +46,12 @@ export function AgentConfig({ agentName, onClose }: Props) {
       model: builtinInfo.override?.model ?? null,
       thinking: builtinInfo.override?.thinking ?? null,
       systemPromptMode: "replace",
-      inheritProjectContext: false,
       inheritSkills: false,
       // 工具：内置 subagent 的真实 builtinToolNames（来自 pi-subagents），只读展示
       tools: builtinInfo.builtinToolNames ?? [],
       skills: [],
       mcpServers: [],
-      partners: { askTo: [], askFrom: [] },
+      partners: { askTo: [] },
       triggerKeywords: [],
       // 真实 systemPrompt（来自 pi-subagents），只读展示
       systemPromptBody: builtinInfo.systemPrompt,
@@ -259,11 +258,6 @@ function BasicTab({ draft, onChange }: TabProps) {
       </Row>
       <textarea value={draft.systemPromptBody ?? ""} onChange={e => onChange({ ...draft, systemPromptBody: e.target.value })}
         className={`${inp} w-full min-h-[84px] resize-y leading-relaxed`} rows={4} />
-      <label className="flex items-center gap-2 mt-2 text-xs text-secondary cursor-pointer">
-        <input type="checkbox" checked={draft.inheritProjectContext}
-          onChange={e => onChange({ ...draft, inheritProjectContext: e.target.checked })} data-testid="cfg-inherit-ctx" />
-        继承项目上下文
-      </label>
 
       <Sec>触发条件</Sec>
       <div className="flex flex-wrap gap-1.5 mb-2">
@@ -280,7 +274,7 @@ function BasicTab({ draft, onChange }: TabProps) {
         onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addKw(); } }}
         placeholder="输入关键词，回车添加" className={`${inp} w-full`} data-testid="kw-input" />
       <div className="mt-2 px-2.5 py-2 rounded-sm text-[11px] leading-relaxed border border-hairline bg-surface-hover text-secondary">
-        关键词用于其他智能体自动调起本智能体的判定提示；@ 提及为内置能力
+        关键词用于其他智能体自动调起本智能体的判定提示
       </div>
     </div>
   );

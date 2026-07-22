@@ -164,14 +164,12 @@ description: POC
 model: deepseek/deepseek-v4-flash
 thinking: off
 systemPromptMode: replace
-inheritProjectContext: false
 inheritSkills: false
 tools: []
 skills: []
 mcpServers: []
 partners:
   askTo: []
-  askFrom: []
 ---
 你是一个测试助手，用一句话回复。`,
     "utf8",

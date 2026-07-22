@@ -10,14 +10,12 @@ description: 后端研发
 model: anthropic/claude-sonnet-4
 thinking: high
 systemPromptMode: replace
-inheritProjectContext: true
 inheritSkills: false
 tools: read, bash, edit
 skills: architecture-review
 mcpServers: []
 partners:
   askTo: [product, test]
-  askFrom: [product, pm, test]
 ---
 你是一名资深后端工程师。`;
 
@@ -57,8 +55,8 @@ test("validateAgentConfig 合法配置返回空", () => {
 const base: AgentConfig = {
   displayName: "代码审查", avatar: "🔍", avatarColor: "#06b6d4-#3b82f6",
   description: "评审改动", model: "glm-4.6", thinking: "high",
-  systemPromptMode: "replace", inheritProjectContext: true, inheritSkills: true,
-  tools: [], skills: [], mcpServers: [], partners: { askTo: ["dev"], askFrom: [] },
+  systemPromptMode: "replace", inheritSkills: true,
+  tools: [], skills: [], mcpServers: [], partners: { askTo: ["dev"] },
   triggerKeywords: ["review", "评审"],
   systemPromptBody: "你是代码审查智能体。",
 };

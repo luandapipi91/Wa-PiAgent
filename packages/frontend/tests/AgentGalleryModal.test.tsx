@@ -9,8 +9,8 @@ import { useSessionStore } from "../src/store/session";
 const agent = (name: string, description = "简介"): AgentConfig => ({
   displayName: name, avatar: "🤖", avatarColor: "#000-#111", description,
   model: "m", thinking: "medium", systemPromptMode: "replace",
-  inheritProjectContext: true, inheritSkills: true,
-  tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [],
+ inheritSkills: true,
+  tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [],
 });
 
 // 捕获真实 action：部分测试 override createAgent/deleteAgent 做 spy，
@@ -173,12 +173,15 @@ describe("AgentGalleryModal", () => {
     fireEvent.click(window.document);
   });
 
-  test("内置 subagent 左键触发 onChatWith（与普通卡片一致）", () => {
+  test("内置 subagent 左键打开只读详情（onEdit），不创建会话（不调 onChatWith）", () => {
     seed(["a"]);
     const onChatWith = mock();
-    renderModal({ onChatWith });
+    const onEdit = mock();
+    renderModal({ onChatWith, onEdit });
     fireEvent.click(screen.getByTestId("gallery-card-Explore"));
-    expect(onChatWith).toHaveBeenCalledWith("Explore");
+    // 左键 = 查看详情（与右键「👁 查看」一致），不作为主智能体开会话
+    expect(onEdit).toHaveBeenCalledWith("Explore");
+    expect(onChatWith).not.toHaveBeenCalled();
   });
 
   test("内置 subagent 右键点'查看'触发 onEdit（打开只读 AgentConfig）", () => {

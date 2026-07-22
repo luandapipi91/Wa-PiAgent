@@ -25,12 +25,12 @@ function cfg(name: string, extra: Record<string, any> = {}) {
     model: "m",
     thinking: "disabled",
     systemPromptMode: "replace",
-    inheritProjectContext: false,
+
     inheritSkills: true,
     tools: [],
     skills: [],
     mcpServers: [],
-    partners: { askTo: [], askFrom: [] },
+    partners: { askTo: [] },
     triggerKeywords: [],
     ...extra,
   } as any;

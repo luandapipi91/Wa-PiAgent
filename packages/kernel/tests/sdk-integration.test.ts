@@ -25,14 +25,12 @@ description: 测试
 model: deepseek/deepseek-v4-flash
 thinking: off
 systemPromptMode: replace
-inheritProjectContext: false
 inheritSkills: false
 tools: []
 skills: []
 mcpServers: []
 partners:
   askTo: []
-  askFrom: []
 ---
 你是一个测试助手，只回复"OK"。`,
     "utf8",

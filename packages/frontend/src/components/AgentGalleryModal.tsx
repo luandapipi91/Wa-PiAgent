@@ -139,11 +139,14 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
             </div>
           );
         })}
-        {/* 内置 subagent 类型卡片：显示在所有用户智能体之后，不可删除/不可编辑 */}
+        {/* 内置 subagent 类型卡片：显示在所有用户智能体之后，不可删除/不可编辑。
+            左键 = 查看详情（onEdit 打开只读 AgentConfig），与右键「👁 查看」一致；
+            内置 subagent 是被 delegate 调起的子智能体，不作为会话主智能体单独对话，
+            故左键不走 onChatWith（原行为会跳到新建页并触发 AgentDropdown 警示态）。 */}
         {SUBAGENT_TYPES.map(t => (
           <div
             key={t.name}
-            onClick={() => onChatWith(t.name)}
+            onClick={() => onEdit(t.name)}
             onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, name: t.name }); }}
             className={`relative rounded-md border px-3.5 py-4 cursor-pointer transition-colors hover:border-hairline-strong ${ctxMenu?.name === t.name ? "border-accent" : "border-hairline"}`}
             data-testid={`gallery-card-${t.name}`}
@@ -164,7 +167,7 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
       </div>
 
       <div className="px-5 py-2.5 text-[11px] text-tertiary border-t border-hairline">
-        左键：新建会话 · 右键：编辑 / 删除 · 右上：新建智能体
+        左键：新建会话（内置仅查看）· 右键：编辑 / 删除 · 右上：新建智能体
       </div>
 
       {/* agent 右键菜单 */}
