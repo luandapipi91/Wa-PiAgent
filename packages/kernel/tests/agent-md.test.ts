@@ -10,7 +10,6 @@ description: 后端研发
 model: anthropic/claude-sonnet-4
 thinking: high
 systemPromptMode: replace
-inheritSkills: false
 tools: read, bash, edit
 skills: architecture-review
 mcpServers: []
@@ -55,7 +54,7 @@ test("validateAgentConfig 合法配置返回空", () => {
 const base: AgentConfig = {
   displayName: "代码审查", avatar: "🔍", avatarColor: "#06b6d4-#3b82f6",
   description: "评审改动", model: "glm-4.6", thinking: "high",
-  systemPromptMode: "replace", inheritSkills: true,
+  systemPromptMode: "replace",
   tools: [], skills: [], mcpServers: [], partners: { askTo: ["dev"] },
   triggerKeywords: ["review", "评审"],
   systemPromptBody: "你是代码审查智能体。",

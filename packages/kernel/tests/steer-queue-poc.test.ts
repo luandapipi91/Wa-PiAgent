@@ -164,7 +164,6 @@ description: POC
 model: deepseek/deepseek-v4-flash
 thinking: off
 systemPromptMode: replace
-inheritSkills: false
 tools: []
 skills: []
 mcpServers: []

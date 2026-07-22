@@ -16,7 +16,7 @@ const cfg = (name: string, over: Partial<AgentConfigType> = {}): AgentConfigType
   thinking: "high",
   systemPromptMode: "replace",
 
-  inheritSkills: true,
+
   tools: [],
   skills: [],
   mcpServers: [],

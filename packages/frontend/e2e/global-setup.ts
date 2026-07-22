@@ -17,7 +17,6 @@ description: 后端研发
 model: anthropic/claude-sonnet-4
 thinking: high
 systemPromptMode: replace
-inheritSkills: false
 tools: read, bash, edit
 skills: architecture-review
 mcpServers: []

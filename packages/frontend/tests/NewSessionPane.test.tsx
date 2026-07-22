@@ -13,7 +13,7 @@ import { useSkillsStore } from "../src/store/skills";
 const agentCfg = (displayName: string): AgentConfig => ({
   displayName, avatar: "", avatarColor: "", description: "",
   model: "m", thinking: "medium", systemPromptMode: "replace",
- inheritSkills: true,
+
   tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [],
 });
 

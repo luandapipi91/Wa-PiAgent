@@ -24,7 +24,7 @@ test("AgentConfig 含 partners", () => {
     avatarColor: "#fab387-#f38ba8", description: "",
     model: "anthropic/claude-sonnet-4", thinking: "high",
     systemPromptMode: "replace",
-    inheritSkills: false, tools: ["read"], skills: [],
+ tools: ["read"], skills: [],
     mcpServers: [], partners: { askTo: ["product"] },
     triggerKeywords: [],
   };
@@ -116,7 +116,7 @@ test("AgentConfig 支持 triggerKeywords 与 ThinkingLevel", () => {
   const c: import("../src/types").AgentConfig = {
     displayName: "代码审查", avatar: "🔍", avatarColor: "#06b6d4-#3b82f6",
     description: "评审改动", model: "m", thinking: "max",
-    systemPromptMode: "replace", inheritSkills: true,
+    systemPromptMode: "replace",
     tools: [], skills: [], mcpServers: [], partners: { askTo: [] },
     triggerKeywords: ["review", "评审"],
   };
@@ -130,7 +130,7 @@ test("AgentConfig.thinking/model 可为 null（跟随当前/跟随全局）", ()
     avatarColor: "#fab387-#f38ba8", description: "",
     model: null, thinking: null,
     systemPromptMode: "replace",
-    inheritSkills: false, tools: [], skills: [],
+ tools: [], skills: [],
     mcpServers: [], partners: { askTo: [] },
     triggerKeywords: [],
   };

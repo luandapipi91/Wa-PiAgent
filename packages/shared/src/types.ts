@@ -44,7 +44,6 @@ export interface AgentConfig {
   model: string | null;       // null / "" = 跟随全局
   thinking: ThinkingLevel | null;  // null = 跟随当前会话默认
   systemPromptMode: "replace" | "append";
-  inheritSkills: boolean;
   tools: string[];
   skills: string[];
   mcpServers: string[];
