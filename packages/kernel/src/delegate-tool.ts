@@ -1,21 +1,19 @@
-// delegate 关系网调起工具 + pi-subagents service 适配。
+// delegate 关系网调起工具 + pi-open-agents runSubagent 适配。
 //
 // LLM 经 delegate(agent, task) 调起 askTo 内的智能体：
 // - allowlist 在宿主侧强制（扩展原生 subagent 工具不进 allowlist，见 constants.resolveAgentTools）。
 // - 越权调起返回错误文本，不触碰 service。
-// - 合法调起经 spawn 闭包执行：pi-subagents 的 svc.spawn 同步返回 agent ID（不是结果），
-//   结果靠 getRecord(id) 轮询到终态后映射（见 waitSubagentResult）。
+// - 合法调起经 spawn 闭包执行：pi-open-agents 的 runSubagent（子进程 async），
+//   由 subagent-runner 适配层封装。
 //
 // 错误语义：execute 返回值带 isError 标记。SDK 层（pi-agent-core）目前不把
 // result.isError 透传到 ToolResultMessage（仅 execute 抛异常才标 isError），
-// 错误信息经文本传达给 LLM——与 pi-subagents 原生 subagent 工具先例一致
+// 错误信息经文本传达给 LLM——与原生 subagent 工具先例一致
 //（其所有错误路径均返回普通文本）。
 import { Type } from "typebox";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import { isSubagentType, SUBAGENT_TYPES, normalizeSubagentType, SUBAGENT_OVERRIDES_FILE } from "@hiagent/shared";
-import type { ThinkingLevel } from "@hiagent/shared";
-import { getSubagentOverride } from "./subagent-store";
+import { isSubagentType, SUBAGENT_TYPES, normalizeSubagentType } from "@hiagent/shared";
+import type { HiAgentSpawnConfig, SubagentProgressEvent } from "./subagent-runner";
+import { runSubagentAgent } from "./subagent-runner";
 
 /** fleet 并发上限（参考 DeepSeek-Reasonix / pi-dynamic-workflows 默认值） */
 export const MAX_SUBAGENT_CONCURRENCY = 6;
@@ -40,7 +38,7 @@ const DelegateParamsSchema = Type.Object({
 
 /**
  * 判断 agent 名是否允许调起：在 askTo 名单内，或者是内置 subagent 类型名。
- * 内置类型（general-purpose / Explore / Plan）走 pi-subagents registry 自己的配置，
+ * 内置类型（general-purpose / Explore / Plan）走 pi-open-agents 的 AgentDefinition，
  * 不在 HiAgent 的 askTo 关系网里——任何主智能体都可调起。
  */
 function canInvoke(agent: string, askTo: DelegateTarget[]): boolean {
@@ -76,7 +74,7 @@ export function makeDelegateTool(opts: {
         };
       }
       // 内置 subagent 中文别名（如"通用子智能体"）归一化为英文 name（"general-purpose"），
-      // 让 svc.spawn 传给 pi-subagents registry 时能正确解析
+      // 让 spawn 闭包传给 subagent-runner 时能正确匹配 AgentDefinition
       const spawnAgent = normalizeSubagentType(args.agent);
       const { text, isError } = await opts.spawn(spawnAgent, args.task);
       return { content: [{ type: "text" as const, text }], details: undefined, isError };
@@ -101,149 +99,29 @@ export function buildDelegatePrompt(
   ].join("\n");
 }
 
-/** pi-subagents SubagentsService 的最小结构子集（轮询 + 中止），便于单测注入 mock */
-export interface SubagentServiceLike {
-  getRecord(id: string): { status: string; result?: string; error?: string } | undefined;
-  abort(id: string): boolean;
-}
-
-// 中止类终态：与用户/系统主动打断区分于 error（执行失败）
-const ABORTED_STATUSES = new Set(["aborted", "stopped", "steered"]);
-
 /**
- * 轮询 svc.getRecord(id) 直到终态并映射为 DelegateSpawnResult。
- * - completed → result（无输出兜底文本），isError:false
- * - error → error 字段（兜底文本），isError:true
- * - aborted/stopped/steered → 中止文本，isError:true
- * - running 且 record 存在 → 动态续期：每次见到 running 重置 activeDeadline
- * - activeDeadline 超时（无进展）→ 继续轮询（不 abort，子智能体可能还在工作）
- * - hardDeadline 超时（绝对上限）→ abort(id) 再返回超时文本，isError:true
- * - queued/record 缺失 → 继续轮询（不续期，因 record 不存在可能尚未启动）
- * 不用事件订阅、不用 waitForAll（它会等所有并发 agent）。
+ * spawn 闭包工厂：绑定 HiAgent config + cwd + 过程回调，
+ * 调用 subagent-runner 的 runSubagentAgent 执行子智能体。
+ *
+ * resolveConfig 由 agent-manager 从 AgentConfig 提取（name/description/systemPrompt/model/thinking/tools/skills）。
+ * onProgress 回调实时转发子智能体执行过程（工具调用/文本输出），用于前端过程展示。
  */
-export async function waitSubagentResult(
-  svc: SubagentServiceLike,
-  id: string,
-  opts: { intervalMs?: number; activeTimeoutMs?: number; hardDeadlineMs?: number } = {},
-): Promise<DelegateSpawnResult> {
-  const intervalMs = opts.intervalMs ?? 500;
-  const activeTimeoutMs = opts.activeTimeoutMs ?? 60_000;   // 默认 60s 无 running 续期则视为停滞
-  const hardDeadlineMs = opts.hardDeadlineMs ?? 1_800_000;  // 默认绝对上限 30 分钟
-  const hardDeadline = Date.now() + hardDeadlineMs;
-  let activeDeadline = Date.now() + activeTimeoutMs;
-  for (;;) {
-    const record = svc.getRecord(id);
-    if (record) {
-      if (record.status === "completed") {
-        return { text: record.result ?? "（子智能体无输出）", isError: false };
-      }
-      if (record.status === "error") {
-        return { text: record.error ?? "子智能体执行失败", isError: true };
-      }
-      if (ABORTED_STATUSES.has(record.status)) {
-        return { text: "子智能体被中止", isError: true };
-      }
-      // running 且 record 存在 → 续期
-      if (record.status === "running") {
-        activeDeadline = Date.now() + activeTimeoutMs;
-      }
+export function makeSpawnFn(opts: {
+  resolveConfig: (agentName: string) => Promise<HiAgentSpawnConfig | null>;
+  cwd: string;
+  signal?: AbortSignal;
+  onProgress?: (event: SubagentProgressEvent) => void;
+}): DelegateSpawnFn {
+  return async (agent: string, task: string) => {
+    const config = await opts.resolveConfig(agent);
+    if (!config) {
+      return { text: `智能体「${agent}」配置未找到`, isError: true };
     }
-    if (Date.now() >= hardDeadline) {
-      svc.abort(id);
-      return { text: `子智能体执行超时（绝对上限 ${Math.round(hardDeadlineMs / 60000)} 分钟）`, isError: true };
-    }
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-}
-
-/** 最小 ExtensionAPI 桩，用于手动加载扩展入口时防止 default export 抛错 */
-function createExtensionApiStub() {
-  return {
-    registerMessageRenderer: () => {},
-    sendMessage: async () => {},
-    on: () => {},
-    dispose: () => {},
-    get settings() { return { get() { return undefined; }, set() {} }; },
+    return runSubagentAgent(config, task, opts.cwd, {
+      signal: opts.signal,
+      onProgress: opts.onProgress,
+    });
   };
-}
-
-export interface SpawnOpts {
-  intervalMs?: number;
-  activeTimeoutMs?: number;
-  hardDeadlineMs?: number;
-  /** 测试注入临时 overrides 文件路径；生产路径默认 SUBAGENT_OVERRIDES_FILE */
-  overridesFilePath?: string;
-}
-
-// thinking → pi-subagents thinkingLevel 映射（与 agent-manager prompt 方法一致）：
-// "disabled" → "off"；"max" → "xhigh"；"medium"/"high" 透传
-function mapThinkingToLevel(thinking: ThinkingLevel): string {
-  return thinking === "disabled" ? "off"
-    : thinking === "max" ? "xhigh"
-    : thinking;
-}
-
-/**
- * 生产 spawn 闭包：动态 import pi-subagents service（进程内单例，由内置扩展发布）→
- * spawn（无活动会话会 throw，catch 收敛为错误文本）→ waitSubagentResult 轮询。
- * 所有失败路径收敛为 { text, isError:true }，绝不 throw 中断会话。
- * 合并 subagent override（model / thinkingLevel）到 svc.spawn options。
- */
-export async function spawnViaSubagentsService(
-  agent: string,
-  task: string,
-  opts?: SpawnOpts,
-): Promise<DelegateSpawnResult> {
-  const mod = await import("@gotgenes/pi-subagents");
-  let svc = mod.getSubagentsService();
-  // 兜底：Pi SDK 未加载扩展入口 → 手动导入并调用 default export
-  if (!svc) {
-    console.log("[delegate] getSubagentsService 未就绪，尝试手动加载扩展入口...");
-    try {
-      const req = createRequire(import.meta.url);
-      const pkgRoot = dirname(req.resolve("@gotgenes/pi-subagents/package.json"));
-      const indexTs = join(pkgRoot, "src", "index.ts");
-      console.log("[delegate] 扩展入口路径:", indexTs);
-      // 用目标包的 createRequire 加载入口——resolve #src/* 的 imports 别名
-      const pkgReq = createRequire(join(pkgRoot, "package.json"));
-      const modExt = await pkgReq(indexTs);  // require 会使用目标包的 package.json 上下文
-      if (typeof modExt.default === "function") {
-        console.log("[delegate] 扩展入口 default export 找到，调用中...");
-        try {
-          await modExt.default(createExtensionApiStub());
-          svc = mod.getSubagentsService();
-          console.log("[delegate] 手动加载后 getSubagentsService() =>", svc ? "已就绪" : "仍 undefined");
-        } catch (e) {
-          console.log("[delegate] 扩展入口 default export 抛错:", e);
-        }
-      } else {
-        console.log("[delegate] 扩展入口无 default export, typeof:", typeof modExt.default);
-      }
-    } catch (e) {
-      console.log("[delegate] 手动加载扩展入口失败:", e);
-    }
-  }
-  if (!svc) return { text: "子智能体服务未就绪", isError: true };
-
-  // 合并 subagent override（model / thinkingLevel）到 svc.spawn options
-  const normalizedAgent = normalizeSubagentType(agent);  // 中文别名归一化
-  const overridesFile = opts?.overridesFilePath ?? SUBAGENT_OVERRIDES_FILE;
-  const override = await getSubagentOverride(overridesFile, normalizedAgent).catch(() => undefined);
-  const spawnOptions: any = {};
-  if (override?.model) spawnOptions.model = override.model;
-  if (override?.thinking) spawnOptions.thinkingLevel = mapThinkingToLevel(override.thinking);
-
-  let id: string;
-  try {
-    id = svc.spawn(
-      normalizedAgent,
-      task,
-      Object.keys(spawnOptions).length > 0 ? spawnOptions : undefined,
-    );
-  } catch (err) {
-    return { text: `子智能体调起失败: ${err instanceof Error ? err.message : String(err)}`, isError: true };
-  }
-  return waitSubagentResult(svc, id, opts);
 }
 
 const FleetParamsSchema = Type.Object({
