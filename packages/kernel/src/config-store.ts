@@ -14,7 +14,10 @@ export class ConfigStore {
       const configs: AgentConfig[] = [];
       for (const f of mds) {
         const content = await readFile(join(this.agentsDir, f), "utf8");
-        try { configs.push(parseAgentMd(content)); } catch { /* 跳过损坏文件 */ }
+        try {
+          const cfg = parseAgentMd(content);
+          if (cfg.displayName) configs.push(cfg);  // 跳过 displayName 为空的条目（如内置 agent .md 用 name 字段）
+        } catch { /* 跳过损坏文件 */ }
       }
       return configs;
     } catch {
