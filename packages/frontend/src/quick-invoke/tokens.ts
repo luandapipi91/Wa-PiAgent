@@ -33,11 +33,13 @@ export function expandTokens(text: string): string {
     .replace(SKILL_TOKEN_RE, "/skill:$1 "); // 末尾空格：SDK _expandSkillCommand 用空格分隔技能名和参数
 }
 
-// 智能体名称 -> 头像/颜色 全局注册表，供 textToHtml 渲染 chip 时使用
-const agentMetaLookup = new Map<string, { avatar?: string; avatarColor?: string }>();
+// 智能体名称 -> 头像/颜色/显示名 全局注册表，供 textToHtml 渲染 chip 时使用。
+// 对内置 subagent：name 是英文 type name（如 "Plan"，用于 token @[Plan]），
+// displayName 是中文（如"规划子智能体"，用于 chip 显示文本）。
+const agentMetaLookup = new Map<string, { avatar?: string; avatarColor?: string; displayName?: string }>();
 
-/** 注册智能体头像信息，供 chip 渲染时查找 */
-export function registerAgentMeta(name: string, meta: { avatar?: string; avatarColor?: string }) {
+/** 注册智能体头像信息，供 chip 渲染时查找。displayName 用于 token 名与显示名不一致的场景（内置 subagent）。 */
+export function registerAgentMeta(name: string, meta: { avatar?: string; avatarColor?: string; displayName?: string }) {
   agentMetaLookup.set(name, meta);
 }
 
@@ -184,8 +186,10 @@ export function textToHtml(text: string, opts?: { hideTrigger?: boolean }): stri
         ? `<span class="chip-agent-avatar" style="background:${escapeHtml(avatarStyle(meta.avatarColor))}">${escapeHtml(meta.avatar)}</span>`
         : "";
       const trigger = hideTrigger ? "" : "@";
+      // 内置 subagent 的 token 用英文 name（与提示词一致），但 chip 显示其中文 displayName（若有注册）
+      const display = meta?.displayName ?? s.value;
       // @ 在 avatar 之前（最前面），更符合"@某人"的视觉习惯
-      return `<span class="chip chip-agent" contenteditable="false" data-token="${escapeHtml(token)}">${trigger}${avatarHtml}${escapeHtml(s.value)}</span>`;
+      return `<span class="chip chip-agent" contenteditable="false" data-token="${escapeHtml(token)}">${trigger}${avatarHtml}${escapeHtml(display)}</span>`;
     }
     if (s.type === "file") {
       const token = `#[${s.value}]`;
@@ -195,6 +199,9 @@ export function textToHtml(text: string, opts?: { hideTrigger?: boolean }): stri
       const token = `$[${s.value}]`;
       return `<span class="chip chip-skill" contenteditable="false" data-token="${escapeHtml(token)}">$${escapeHtml(s.value)}</span>`;
     }
-    return escapeHtml(s.value);
+    // 先 escapeHtml 防注入，再把换行转为 <br>（在转义之后做，
+    // 这样 <br> 的尖括号是我们生成的、不会被二次转义）。
+    // 用户在 contenteditable 里换行产生 \n，渲染为历史消息时必须保留可见换行。
+    return escapeHtml(s.value).replace(/\n/g, "<br>");
   }).join("");
 }

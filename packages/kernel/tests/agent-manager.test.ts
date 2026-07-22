@@ -1067,7 +1067,7 @@ test("ensureStarted 把 ask_user_question 工具作为 customTools 传给 create
 
 // ─── Task 6: delegate 关系网调起接线测试 ────────────────────────────────────
 // askTo 非空 → customTools 含 delegate 工具且 systemPrompt 末尾含关系网段；
-// askTo 为空 → 不注册 delegate 工具、不注入关系网段。
+// askTo 为空 → 仍注册 delegate/fleet（内置类型不依赖 askTo），但不注入关系网提示词段。
 test("ensureStarted 在 askTo 非空时同时注册 delegate 和 fleet 工具并注入关系网提示词段", async () => {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
@@ -1098,7 +1098,7 @@ test("ensureStarted 在 askTo 非空时同时注册 delegate 和 fleet 工具并
   expect(prompt).toContain("review、评审");
 });
 
-test("ensureStarted 在 askTo 为空时不注册 delegate 工具、不注入关系网段", async () => {
+test("ensureStarted 在 askTo 为空时仍注册 delegate/fleet 工具（内置类型不依赖 askTo），但不注入关系网段", async () => {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
@@ -1116,12 +1116,12 @@ test("ensureStarted 在 askTo 为空时不注册 delegate 工具、不注入关�
   await am.ensureStarted(project.id, "dev", session.id);
 
   const names = (captured[0].customTools as any[]).map((t: any) => t.name);
-  expect(names).not.toContain("delegate");
-  expect(names).not.toContain("fleet");
+  // 内置 subagent 类型（general-purpose / Explore / Plan）不依赖 askTo，delegate/fleet 应始终注册
+  expect(names).toContain("delegate");
+  expect(names).toContain("fleet");
 
   const prompt = captured[0].resourceLoader.systemPromptOverride();
-  // buildDelegatePrompt 段以「你可以通过 delegate 工具」开头，校验该段未注入（HIAGENT_DEFAULT_SYSTEM_PROMPT
-  // 本身含 delegate 规则文案，不能再用模糊的 "delegate 工具" 断言）。
+  // buildDelegatePrompt 段以「你可以通过 delegate 工具」开头，校验该段未注入（askTo 为空时返回空串被过滤）。
   expect(prompt).not.toContain("你可以通过 delegate 工具");
 });
 

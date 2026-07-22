@@ -101,10 +101,12 @@ export const DEFAULT_SUBAGENT_CLARIFY_PROMPT =
   "The `delegate` tool's `agent` parameter accepts two kinds of values:\n" +
   "1. Named agents from partners.askTo (relationship-network delegation, with task-contract pattern).\n" +
   "2. Built-in subagent type names — `general-purpose` (inherits caller's full toolset, " +
-  "for complex multi-step tasks) and `Explore` (read-only codebase exploration, " +
-  "for search and code understanding). These are available to every primary agent regardless of askTo. " +
+  "for complex multi-step tasks), `Explore` (read-only codebase exploration, " +
+  "for search and code understanding), and `Plan` (read-only code architect, " +
+  "for exploring the codebase and designing implementation plans). " +
+  "These are available to every primary agent regardless of askTo. " +
   "When you need an ad-hoc subagent for a self-contained task (explore code, research a question, " +
-  "review a diff), prefer `Explore` or `general-purpose` over a named agent — " +
+  "review a diff, design a plan), prefer `Explore`, `Plan`, or `general-purpose` over a named agent — " +
   "they spawn immediately with their own context and return a focused answer.\n" +
   "The `fleet` tool also accepts these type names in its `tasks[].agent` field, enabling parallel " +
   "exploration (e.g. dispatching multiple `Explore` subagents to search different keywords).";
@@ -169,8 +171,13 @@ export function composePrompt(
     .join("\n\n");
 }
 
+/** prompts.json 的 schema 版本。升级静态段文案（delegate-syntax / subagent-clarify）时递增，
+ *  ensurePromptsConfig 据此对已存在文件做迁移——只刷新静态段 content，保留动态段用户自定义。 */
+export const PROMPTS_SCHEMA_VERSION = 2;
+
 /**
- * 加载 prompts.json；不存在或格式错误时返回 null（由调用方决定是否初始化）。
+ * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。
+ * 注意：仅返回 segments 数组，不暴露 schemaVersion（迁移逻辑用 loadPromptsRawVersion）。
  */
 export async function loadPromptSegments(filePath: string): Promise<PromptSegment[] | null> {
   try {
@@ -184,25 +191,53 @@ export async function loadPromptSegments(filePath: string): Promise<PromptSegmen
   }
 }
 
+/** 读取磁盘 prompts.json 的 schemaVersion；文件不存在/格式错误/无版本字段 → 返回 0（视为旧版 v0）。 */
+async function loadPromptsRawVersion(filePath: string): Promise<number> {
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const raw = await readFile(filePath, "utf8");
+    const data = JSON.parse(raw) as { schemaVersion?: unknown };
+    return typeof data.schemaVersion === "number" ? data.schemaVersion : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /**
- * 保存段落配置到 prompts.json。
+ * 保存段落配置到 prompts.json（写入当前 schemaVersion）。
  */
 export async function savePromptSegments(filePath: string, segments: PromptSegment[]): Promise<void> {
   const { writeFile, mkdir } = await import("node:fs/promises");
   const { dirname } = await import("node:path");
   await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, JSON.stringify({ segments }, null, 2), "utf8");
+  await writeFile(filePath, JSON.stringify({ schemaVersion: PROMPTS_SCHEMA_VERSION, segments }, null, 2), "utf8");
 }
 
 /**
- * 启动时确保 prompts.json 存在；不存在则写入默认配置。
- * 幂等：已存在则不动。
+ * 启动时确保 prompts.json 存在且 schemaVersion 匹配。
+ * - 不存在 → 写入 DEFAULT_PROMPT_SEGMENTS（含当前 schemaVersion）
+ * - 已存在且 schemaVersion 匹配 → 幂等不动
+ * - 已存在但 schemaVersion 过旧 → 迁移：只刷新静态段（delegate-syntax / subagent-clarify）
+ *   content 为代码最新值，保留动态段（base / delegate-network / env-constraints / memory-snapshot）
+ *   及用户自定义段的 content 不变，最后写入新 schemaVersion
  */
 export async function ensurePromptsConfig(filePath: string): Promise<void> {
   try {
     const existing = await loadPromptSegments(filePath);
-    if (existing !== null) return;
-    await savePromptSegments(filePath, DEFAULT_PROMPT_SEGMENTS);
+    if (existing === null) {
+      await savePromptSegments(filePath, DEFAULT_PROMPT_SEGMENTS);
+      return;
+    }
+    const version = await loadPromptsRawVersion(filePath);
+    if (version === PROMPTS_SCHEMA_VERSION) return;  // 版本匹配，幂等不动
+    // 版本过旧：迁移静态段，保留动态段 + 用户自定义段
+    const latestById = new Map(DEFAULT_PROMPT_SEGMENTS.map(s => [s.id, s]));
+    const migrated = existing.map(seg =>
+      STATIC_SEGMENT_IDS.has(seg.id) && latestById.has(seg.id)
+        ? { ...seg, content: latestById.get(seg.id)!.content }
+        : seg,
+    );
+    await savePromptSegments(filePath, migrated);
   } catch (e) {
     console.warn("[kernel] ensurePromptsConfig 失败:", e);
   }

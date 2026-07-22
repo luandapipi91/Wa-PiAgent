@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-22
+
+### 修复
+- **聊天输入框多行内容发送后换行丢失**：contenteditable 输入框按 Enter，浏览器插入的是 `<div>`/`<br>` 节点而非 `\n` 文本，`extractText` 未将其转回 `\n`，导致多行被压成一行发送。同时用户消息渲染用 `textToHtml` 未把 `\n` 转 `<br>`，即使文本带 `\n` 也会被 HTML 折叠。两处根因修复：① `ComposerTextarea.extractText` 识别块级元素（div/p/br/li 等），块前补 `\n` 作为行分隔，`<br>` 直接产出 `\n`；② `tokens.textToHtml` 在 `escapeHtml` 后把 text 段的 `\n` 转为 `<br>`。新增 6 个换行保留测试（输入侧 4 + 渲染侧 2）。影响范围：frontend/components/ui/ComposerTextarea.tsx、frontend/quick-invoke/tokens.ts、frontend/tests/{ComposerTextarea,tokens}.test.tsx。
+- **内置 subagent（含 Plan）在无 askTo 关系网时无法调起**：`agent-manager._createSession` 此前仅在 `askToConfigs.length > 0` 时注册 delegate/fleet 工具，导致没有配置关系网的主智能体完全不持有 delegate 工具——LLM 只能用自然语言编"不在可调用的智能体列表中"搪塞用户（该措辞并非 HiAgent 固定文案）。改为**始终注册** delegate/fleet 工具（内置类型 general-purpose / Explore / Plan 不依赖 askTo，符合 `canInvoke` 的 `isSubagentType` 放行设计）；关系网提示词段仍按 askTo 动态注入（空则不出现）。同步补齐 Plan 到 delegate 工具描述与 `subagent-clarify` 提示词常量（此前只提了 general-purpose / Explore）。引入 `prompts.json` 的 `schemaVersion` 迁移机制（v2）：已存在的旧文件启动时自动刷新静态段（delegate-syntax / subagent-clarify）为代码最新值，**保留**动态段（base 等）用户自定义，老用户据此拿到含 Plan 的新提示词。影响范围：kernel/agent-manager.ts、kernel/delegate-tool.ts、kernel/system-prompt.ts（新增 `PROMPTS_SCHEMA_VERSION` + `ensurePromptsConfig` 迁移逻辑）、kernel/tests/{agent-manager,delegate-tool,system-prompt}.test.ts。
+- **@ 内置 subagent 插入中文 token 导致 LLM 识别失败**：前端 `@` 菜单选中内置 subagent 时插入的 token 是中文 displayName（`@[规划子智能体]`），但提示词和 delegate 工具里用的是英文 type name（`Plan`/`Explore`/`general-purpose`）。LLM 无法建立中英名映射，把中文 token 当成命名智能体去查 askTo 名单，查不到就报"不在列表"并"推荐" Plan——导致用户以为工具坏了。根因修复：**token 改用英文 name，中文 displayName 只用于卡片渲染**。`ComposerInput` 的 `@` 候选菜单 `id` 字段改为英文 `t.name`（`name` 仍是中文 displayName 用于显示）；`tokens.registerAgentMeta` 新增 `displayName` 字段，`textToHtml` 渲染 chip 时用 `meta.displayName` 显示中文、`data-token` 仍存英文 token `@[Plan]`。命名智能体不受影响（displayName 即 token）。影响范围：frontend/components/ui/ComposerInput.tsx、frontend/quick-invoke/tokens.ts、frontend/tests/{ComposerInput,tokens}.test.tsx。
+
 ## 2026-07-21
 
 ### 增强
