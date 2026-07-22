@@ -20,8 +20,5 @@
     "pack:mac": "bun run --filter @hiagent/desktop build:mac",
     "pack:all": "bun run pack:win && bun run pack:linux && bun run pack:mac"
   },
-  "workspaces": ["packages/*"],
-  "dependencies": {
-    "pi-open-agents": "^0.1.12"
-  }
+  "workspaces": ["packages/*"]
 }
