@@ -27,9 +27,13 @@ export const useSubagentsStore = create<State>((set, get) => ({
   getByName: (name) => get().subagents.find(s => s.name === name),
 }));
 
-// 全局监听 subagent:list 广播，自动更新 store
-onMessage((e: any) => {
-  if (e.type === "subagent:list") {
-    useSubagentsStore.setState({ subagents: e.subagents });
+// 全局监听 subagent:list 广播，自动更新 store。
+// 处理逻辑抽成导出的 handleSubagentEvent，便于单测直接断言（绕过 ws-instance mock，
+// 避免 bun mock.module 在多文件场景下跨文件失效导致的测试隔离问题）。
+export function handleSubagentEvent(e: unknown): void {
+  if ((e as { type?: string })?.type === "subagent:list") {
+    useSubagentsStore.setState({ subagents: (e as { subagents: SubagentInfo[] }).subagents });
   }
-});
+}
+
+onMessage(handleSubagentEvent);

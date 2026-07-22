@@ -50,6 +50,8 @@ function makeMockAgentManager(messages: AgentMessage[] = []) {
     abort: async (sessionId: string) => {
       calls.abort.push(sessionId);
     },
+    // ws-server 处理 agent:abort 时先查 isSessionStreaming 决定是否挂 pending abort
+    isSessionStreaming: (_sessionId: string) => false,
     getMessages: (sessionId: string) => messages,
     disposeSession: async (sessionId: string) => {
       calls.disposeSession.push(sessionId);
@@ -274,7 +276,11 @@ test("agent:abort 调 agentManager.abort(sessionId)（不传 projectId/agentName
     await new Promise(r => setTimeout(r, 50));
     // 发 abort（WSClientEvent 协议仍要求 projectId/agentName，即使 server 已不再使用）
     send({ type: "agent:abort", projectId, sessionId: "s-abort", agentName: "dev" });
-    await new Promise(r => setTimeout(r, 50));
+    // abort 无回包，server 异步处理；轮询等待 agentManager.abort 被调用，消除固定 50ms 的竞态
+    for (let i = 0; i < 50; i++) {
+      if (calls.abort.includes("s-abort")) break;
+      await new Promise(r => setTimeout(r, 20));
+    }
     expect(calls.abort).toContain("s-abort");
   });
 });
@@ -569,7 +575,7 @@ test("agent:config:save 改名联动会话 primaryAgent 与 askTo", async () => 
     await configStore.createAgent("旧名");
     await configStore.createAgent("乙");
     const yi = (await configStore.getAgent("乙"))!;
-    await configStore.saveAgent({ ...yi, partners: { askTo: ["旧名"], askFrom: [] } });
+    await configStore.saveAgent({ ...yi, partners: { askTo: ["旧名"] } });
     const proj = await projectStore.createProject({ name: "p", cwd: "/tmp/x" });
     const sess = await projectStore.createSession({ projectId: proj.id, primaryAgent: "旧名", title: "t" });
     const cfg = (await configStore.getAgent("旧名"))!;

@@ -1,5 +1,7 @@
 [test]
 coverage = false
-preload = ["./tests/setup.ts"]
+# 不设 preload：kernel/desktop/shared 是纯逻辑测试，不需要 happy-dom DOM 环境。
+# 前端测试有自己的 packages/frontend/bunfig.toml preload（happy-dom + CSS/IDB/WS mock），
+# 由根 package.json 的 test 脚本分两步跑（先非前端，再 cd frontend）触发。
 
 

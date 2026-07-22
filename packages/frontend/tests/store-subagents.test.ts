@@ -8,7 +8,7 @@ mock.module("../src/ws-instance", () => ({
 }));
 
 // 动态 import 确保 mock.module 先生效
-const { useSubagentsStore } = await import("../src/store/subagents");
+const { useSubagentsStore, handleSubagentEvent } = await import("../src/store/subagents");
 
 beforeEach(() => {
   sendMock.mockClear();
@@ -28,7 +28,9 @@ test("收到 subagent:list 事件后填充 subagents", () => {
       gradient: ["#7c3aed", "#a78bfa"] as [string, string], readOnly: true,
       systemPrompt: "long...", builtinToolNames: ["read"] },
   ];
-  emit({ type: "subagent:list", subagents: fakeList });
+  // 直接调 handleSubagentEvent 验证 store 的消息处理逻辑（生产里由 onMessage 转调），
+  // 绕过 mock.module 跨文件失效问题
+  handleSubagentEvent({ type: "subagent:list", subagents: fakeList });
   expect(useSubagentsStore.getState().subagents).toEqual(fakeList);
 });
 

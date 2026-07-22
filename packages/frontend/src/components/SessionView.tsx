@@ -46,18 +46,20 @@ export function SessionView({ sessionId }: Props) {
     return off;
   }, [sessionId]);
 
-  if (!session) return null;
+  // 下面的 hooks 必须在 early return 之前调用，否则 session 在/不在两次渲染
+  // 调用的 hooks 数量不一致，触发 "Rendered fewer hooks than expected"。
   const isRunning = status === "thinking";
+  const [stopping, setStopping] = useState(false);
+  useEffect(() => {
+    if (!isRunning) setStopping(false);
+  }, [isRunning]);
+
+  if (!session) return null;
   // header 状态（圆点颜色与文案共用）：等待回复 blocked > 运行中 thinking > 空闲 idle
   const headerStatus: AgentStatus = isBlocked ? "blocked" : status;
   const steering = queue?.steering ?? [];
   const followUp = queue?.followUp ?? [];
   const hasQueue = steering.length > 0 || followUp.length > 0;
-
-  const [stopping, setStopping] = useState(false);
-  useEffect(() => {
-    if (!isRunning) setStopping(false);
-  }, [isRunning]);
 
   const handleStop = () => {
     console.log(`[SessionView] handleStop sessionId=${sessionId}`);
