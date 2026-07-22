@@ -11,7 +11,7 @@
 // - _authStorage / _modelRegistry 用 (this as any)._xxx ??= 模式做进程级单例
 
 import type { AgentName, AgentConfig, AttachmentRef, ThinkingLevel, MemoryConfig } from "@hiagent/shared";
-import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, EXTENSION_TOOL_MAP, resolveAgentTools, resolveSessionCwd, PROMPTS_FILE } from "@hiagent/shared";
+import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, EXTENSION_TOOL_MAP, resolveAgentTools, resolveSessionCwd, PROMPTS_FILE, SUBAGENT_TYPES, isSubagentType } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
@@ -24,7 +24,8 @@ import { relative, isAbsolute, join } from "node:path";
 import { buildAdditionalExtensionPaths, extractRuntimeToolNames } from "./extensions";
 import { createAgentMemoryTools, getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import { makeAskTool, reconcileDanglingAsks } from "./ask-tool";
-import { makeDelegateTool, makeFleetTool, buildDelegatePrompt, spawnViaSubagentsService } from "./delegate-tool";
+import { makeDelegateTool, makeFleetTool, buildDelegatePrompt, makeSpawnFn } from "./delegate-tool";
+import type { HiAgentSpawnConfig } from "./subagent-runner";
 import { seedBuiltinAgents } from "./builtin-agents";
 import { askRegistry } from "./ask-registry";
 import type { SkillManager } from "./skill-manager";
@@ -380,9 +381,54 @@ export class AgentManager {
     // 加载系统提示词段落配置（首次加载后缓存；闭包捕获供同步 systemPromptOverride 使用）
     const promptSegments = await this.getPromptSegments();
     const askToTargets = askToConfigs.map((c) => ({ name: c.displayName, description: c.description }));
+
+    // resolveSpawnConfig：从 ConfigStore 读 HiAgent 配置（用户在 UI 设置的 model/thinking/tools/skills），
+    // 内置 subagent 类型不在 store 里——从 SUBAGENT_TYPES 常量读元信息 + ~/.hiagent/agents/*.md 读系统提示词。
+    // config.skills / config.tools 白名单在此传入子智能体。
+    const resolveSpawnConfig = async (agentName: string): Promise<HiAgentSpawnConfig | null> => {
+      // 内置 subagent 类型：从 SUBAGENT_TYPES 元信息 + ~/.hiagent/agents/*.md 读定义
+      if (isSubagentType(agentName)) {
+        const builtin = SUBAGENT_TYPES.find(t => t.name === agentName);
+        if (builtin) {
+          // 从 seedBuiltinAgents 写入的 .md 文件读取 systemPrompt（用户可覆盖）
+          const { loadAgents } = await import("pi-open-agents");
+          const { agents } = await loadAgents({ agentDir: HIAGENT_DIR });
+          const agentDef = agents.find(a => a.name === agentName);
+          return {
+            name: builtin.name,
+            description: builtin.description,
+            systemPrompt: agentDef?.prompt ?? "",
+            systemPromptMode: (agentDef?.systemPrompt as any) ?? "replace",
+            model: null,
+            thinking: null,
+            tools: builtin.readOnly ? ["read", "bash", "grep", "find", "ls"] : [],
+            skills: [],
+          };
+        }
+      }
+      // 命名智能体：从 ConfigStore 读配置
+      const cfg = await this.opts.configStore?.getAgent(agentName).catch(() => null);
+      if (!cfg) return null;
+      return {
+        name: cfg.displayName,
+        description: cfg.description,
+        systemPrompt: cfg.systemPromptBody ?? "",
+        systemPromptMode: cfg.systemPromptMode,
+        model: cfg.model,
+        thinking: cfg.thinking,
+        tools: cfg.tools,
+        skills: cfg.skills,
+      };
+    };
+
+    const spawnFn = makeSpawnFn({
+      resolveConfig: resolveSpawnConfig,
+      cwd,
+    });
+
     const delegateTools = [
-      makeDelegateTool({ askTo: askToTargets, spawn: spawnViaSubagentsService }),
-      makeFleetTool({ askTo: askToTargets, spawn: spawnViaSubagentsService }),
+      makeDelegateTool({ askTo: askToTargets, spawn: spawnFn }),
+      makeFleetTool({ askTo: askToTargets, spawn: spawnFn }),
     ];
 
     // 当前启用的动态扩展（附加到 additionalExtensionPaths 由 SDK 加载，
