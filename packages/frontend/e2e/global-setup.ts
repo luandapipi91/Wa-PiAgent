@@ -17,14 +17,12 @@ description: 后端研发
 model: anthropic/claude-sonnet-4
 thinking: high
 systemPromptMode: replace
-inheritProjectContext: true
 inheritSkills: false
 tools: read, bash, edit
 skills: architecture-review
 mcpServers: []
 partners:
   askTo: [product, test]
-  askFrom: [product, pm, test]
 ---
 你是一名资深后端工程师。`;
 

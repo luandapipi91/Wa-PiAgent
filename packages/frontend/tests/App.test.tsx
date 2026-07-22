@@ -23,8 +23,8 @@ mock.module("../src/ws-instance", () => ({
 const agent = (displayName: string): AgentConfig => ({
   displayName, avatar: "", avatarColor: "", description: "",
   model: "m", thinking: "medium", systemPromptMode: "replace",
-  inheritProjectContext: true, inheritSkills: true,
-  tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [],
+ inheritSkills: true,
+  tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [],
 });
 
 const project = { id: "p1", name: "P", cwd: "/p", createdAt: 0 };

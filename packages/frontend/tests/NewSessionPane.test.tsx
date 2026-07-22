@@ -13,8 +13,8 @@ import { useSkillsStore } from "../src/store/skills";
 const agentCfg = (displayName: string): AgentConfig => ({
   displayName, avatar: "", avatarColor: "", description: "",
   model: "m", thinking: "medium", systemPromptMode: "replace",
-  inheritProjectContext: true, inheritSkills: true,
-  tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [],
+ inheritSkills: true,
+  tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [],
 });
 
 // 把文本写入 contenteditable textbox 并触发 input 事件（替代原 textarea 的 fireEvent.change）
@@ -261,7 +261,7 @@ describe("NewSessionPane", () => {
     // 配置 agents：默认选中项 "需求设计" 的 partners.askTo 含 "项目管理"，让 @ 菜单有候选项
     useAgentsStore.setState({
       list: [
-        { ...agentCfg("需求设计"), partners: { askTo: ["项目管理"], askFrom: [] } },
+        { ...agentCfg("需求设计"), partners: { askTo: ["项目管理"] } },
         agentCfg("项目管理"),
         agentCfg("技术实现"),
         agentCfg("质量验收"),

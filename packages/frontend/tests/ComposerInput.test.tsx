@@ -229,8 +229,8 @@ test("#文件搜索结果中目录项传递 isDir 并显示文件夹图标", asy
 test("输入 @ 触发智能体面板（数据来自 useAgentsStore.list，按 displayName/description 过滤）", () => {
   useAgentsStore.setState({
     list: [
-      { displayName: "需求设计", partners: { askTo: ["质量验收"], askFrom: [] }, description: "梳理需求、输出 PRD" },
-      { displayName: "质量验收", partners: { askTo: [], askFrom: [] }, description: "测试与验收" },
+      { displayName: "需求设计", partners: { askTo: ["质量验收"] }, description: "梳理需求、输出 PRD" },
+      { displayName: "质量验收", partners: { askTo: [] }, description: "测试与验收" },
     ] as any,
   });
   renderComposer({ text: "@质量", currentAgentName: "需求设计" });
@@ -251,8 +251,8 @@ test("选中智能体后生成 @[name] chip token 并回调 onAgentMention", () 
   const onAgentMention = mock();
   useAgentsStore.setState({
     list: [
-      { displayName: "主控", description: "主控", avatar: "", avatarColor: "", model: "m", thinking: "medium", systemPromptMode: "replace", inheritProjectContext: true, inheritSkills: true, tools: [], skills: [], mcpServers: [], partners: { askTo: ["需求设计"], askFrom: [] }, triggerKeywords: [] },
-      { displayName: "需求设计", description: "梳理需求", avatar: "", avatarColor: "", model: "m", thinking: "medium", systemPromptMode: "replace", inheritProjectContext: true, inheritSkills: true, tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [] },
+      { displayName: "主控", description: "主控", avatar: "", avatarColor: "", model: "m", thinking: "medium", systemPromptMode: "replace", inheritSkills: true, tools: [], skills: [], mcpServers: [], partners: { askTo: ["需求设计"] }, triggerKeywords: [] },
+      { displayName: "需求设计", description: "梳理需求", avatar: "", avatarColor: "", model: "m", thinking: "medium", systemPromptMode: "replace", inheritSkills: true, tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [] },
     ] as any,
   });
   renderComposer({ text: "@需求", setText, onAgentMention, currentAgentName: "主控" });
@@ -271,7 +271,7 @@ test("选中内置 subagent 后生成英文 name 的 @[token]（非中文 displa
   const onAgentMention = mock();
   useAgentsStore.setState({
     list: [
-      { displayName: "主控", description: "主控", avatar: "", avatarColor: "", model: "m", thinking: "medium", systemPromptMode: "replace", inheritProjectContext: true, inheritSkills: true, tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [] } as any,
+      { displayName: "主控", description: "主控", avatar: "", avatarColor: "", model: "m", thinking: "medium", systemPromptMode: "replace", inheritSkills: true, tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [] } as any,
     ],
   });
   renderComposer({ text: "@规划", setText, onAgentMention, currentAgentName: "主控" });
@@ -377,9 +377,9 @@ describe("ComposerInput @ 候选菜单过滤", () => {
     // AgentConfig 无 name 字段，displayName 是唯一标识符
     useAgentsStore.setState({
       list: [
-        { displayName: "研发", partners: { askTo: ["代码审查"], askFrom: [] }, description: "写代码", avatar: "💻", avatarColor: "" },
-        { displayName: "代码审查", partners: { askTo: [], askFrom: [] }, description: "评审", avatar: "🔍", avatarColor: "" },
-        { displayName: "项目管理", partners: { askTo: [], askFrom: [] }, description: "拆需求", avatar: "📋", avatarColor: "" },
+        { displayName: "研发", partners: { askTo: ["代码审查"] }, description: "写代码", avatar: "💻", avatarColor: "" },
+        { displayName: "代码审查", partners: { askTo: [] }, description: "评审", avatar: "🔍", avatarColor: "" },
+        { displayName: "项目管理", partners: { askTo: [] }, description: "拆需求", avatar: "📋", avatarColor: "" },
       ] as any,
     });
     useProvidersStore.setState({ providers: [{ id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] }] });

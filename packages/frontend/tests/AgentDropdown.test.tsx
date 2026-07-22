@@ -7,8 +7,8 @@ import type { AgentConfig } from "@hiagent/shared";
 const cfg = (name: string): AgentConfig => ({
   displayName: name, avatar: "🤖", avatarColor: "#06b6d4-#3b82f6",
   description: `${name}简介`, model: "m", thinking: "disabled",
-  systemPromptMode: "replace", inheritProjectContext: false, inheritSkills: true,
-  tools: [], skills: [], mcpServers: [], partners: { askTo: [], askFrom: [] }, triggerKeywords: [],
+  systemPromptMode: "replace", inheritSkills: true,
+  tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [],
 });
 
 beforeEach(() => {
