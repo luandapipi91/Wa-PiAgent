@@ -1,24 +1,27 @@
 {
   "name": "hiagent",
-  "private": true,
-  "workspaces": ["packages/*"],
-  "scripts": {
-    "dev": "bun run scripts/dev.ts",
-    "dev:kernel": "bun run --filter @hiagent/kernel dev",
-    "dev:frontend": "bun run --filter @hiagent/frontend dev",
-    "dev:desktop": "bun run --filter @hiagent/desktop dev",
-    "test": "bun test --path-ignore-patterns \"**/e2e/**\"",
-    "typecheck": "bun run --filter '*' --if-present typecheck",
-    "pack:win":   "bun run --filter @hiagent/desktop build:win",
-    "pack:linux": "bun run --filter @hiagent/desktop build:linux",
-    "pack:mac":   "bun run --filter @hiagent/desktop build:mac",
-    "pack:all":   "bun run pack:win && bun run pack:linux && bun run pack:mac"
-  },
   "devDependencies": {
     "@hiagent/shared": "workspace:*",
     "typescript": "^5.6.0",
     "@types/bun": "^1.3.0",
     "happy-dom": "^20.0.0",
     "@happy-dom/global-registrator": "^20.10.6"
+  },
+  "private": true,
+  "scripts": {
+    "dev": "bun run scripts/dev.ts",
+    "dev:kernel": "bun run --filter @hiagent/kernel dev",
+    "dev:frontend": "bun run --filter @hiagent/frontend dev",
+    "dev:desktop": "bun run --filter @hiagent/desktop dev",
+    "test": "bun test --path-ignore-patterns \"packages/frontend/**\" && cd packages/frontend && bun test",
+    "typecheck": "bun run --filter '*' --if-present typecheck",
+    "pack:win": "bun run --filter @hiagent/desktop build:win",
+    "pack:linux": "bun run --filter @hiagent/desktop build:linux",
+    "pack:mac": "bun run --filter @hiagent/desktop build:mac",
+    "pack:all": "bun run pack:win && bun run pack:linux && bun run pack:mac"
+  },
+  "workspaces": ["packages/*"],
+  "dependencies": {
+    "pi-open-agents": "^0.1.12"
   }
 }
