@@ -1,75 +1,29 @@
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+// subagent-info.ts — 内置 subagent 信息读取
+//
+// 切换 pi-open-agents 后，内置 subagent 的 systemPrompt 在 ~/.hiagent/agents/*.md 定义文件里，
+// 不再从 pi-subagents 包内部源码 import。元信息（emoji/gradient/displayName）仍在 SUBAGENT_TYPES 常量。
+
 import { SUBAGENT_TYPES } from "@hiagent/shared";
 import type { SubagentInfo, SubagentOverride } from "@hiagent/shared";
 
 /**
- * 从 pi-subagents DEFAULT_AGENTS 读取内置 agent 的真实 systemPrompt + builtinToolNames。
- *
- * pi-subagents 在 src/config/default-agents.ts 里定义了 3 个默认 agent：
- *   general-purpose / Explore / Plan
- * 每个 agent 有 systemPrompt（除 general-purpose 为空串外都非空）+ builtinToolNames（除 general-purpose
- * 未设置外都为 READ_ONLY_TOOLS = ["read","bash","grep","find","ls"]）。
- *
- * pi-subagents 的 package.json exports 不暴露内部路径，这里用 createRequire
- * 解析包根目录后直接 import 源代码文件。
- */
-async function loadPiDefaultAgents(): Promise<Map<string, {
-  systemPrompt: string;
-  builtinToolNames?: string[];
-}>> {
-  try {
-    const req = createRequire(import.meta.url);
-    const pkgEntry = req.resolve("@gotgenes/pi-subagents");
-    // pkgEntry = .../pi-subagents/src/service/service.ts
-    // package root 是其上 3 级目录
-    const pkgRoot = dirname(dirname(dirname(pkgEntry)));
-    const mod = await import(join(pkgRoot, "src/config/default-agents.ts"));
-    // DEFAULT_AGENTS 是 Map<string, AgentConfig>，含 systemPrompt / builtinToolNames
-    const map = (mod as any).DEFAULT_AGENTS as Map<string, any> | undefined;
-    if (!map) return new Map();
-    const result = new Map<string, { systemPrompt: string; builtinToolNames?: string[] }>();
-    for (const [name, cfg] of map.entries()) {
-      result.set(name, {
-        systemPrompt: cfg.systemPrompt ?? "",
-        builtinToolNames: Array.isArray(cfg.builtinToolNames) ? cfg.builtinToolNames : undefined,
-      });
-    }
-    return result;
-  } catch {
-    return new Map();
-  }
-}
-
-// 缓存 pi-subagents DEFAULT_AGENTS（启动后不变，避免每次 list 都 dynamic import）
-let piDefaultsCache: Map<string, { systemPrompt: string; builtinToolNames?: string[] }> | null = null;
-async function getPiDefaults() {
-  if (piDefaultsCache) return piDefaultsCache;
-  piDefaultsCache = await loadPiDefaultAgents();
-  return piDefaultsCache;
-}
-
-// 仅供测试重置缓存用
-export function _resetPiDefaultsCache() { piDefaultsCache = null; }
-
-/**
- * 组装内置 subagent 完整信息列表：SUBAGENT_TYPES 元信息 + pi-subagents 真实 systemPrompt/builtinToolNames + 用户 override。
- * 顺序与 SUBAGENT_TYPES 一致。
+ * 组装内置 subagent 完整信息列表：SUBAGENT_TYPES 元信息 + 用户 override。
+ * systemPrompt 返回空串（前端 AgentConfig 展示只读详情时，可从 ~/.hiagent/agents/*.md 读）。
+ * builtinToolNames 根据 readOnly 标志计算（readOnly → 只读工具集，否则空数组）。
  */
 export async function getSubagentInfo(overrides: SubagentOverride[]): Promise<SubagentInfo[]> {
-  const piDefaults = await getPiDefaults();
-  return SUBAGENT_TYPES.map(t => {
-    const pi = piDefaults.get(t.name);
-    return {
-      name: t.name,
-      displayName: t.displayName,
-      description: t.description,
-      emoji: t.emoji,
-      gradient: t.gradient,
-      readOnly: t.readOnly,
-      systemPrompt: pi?.systemPrompt ?? "",
-      builtinToolNames: pi?.builtinToolNames ?? [],
-      override: overrides.find(o => o.type === t.name),
-    };
-  });
+  return SUBAGENT_TYPES.map(t => ({
+    name: t.name,
+    displayName: t.displayName,
+    description: t.description,
+    emoji: t.emoji,
+    gradient: t.gradient,
+    readOnly: t.readOnly,
+    systemPrompt: "",
+    builtinToolNames: t.readOnly ? ["read", "bash", "grep", "find", "ls"] : [],
+    override: overrides.find(o => o.type === t.name),
+  }));
 }
+
+// 保留空函数以兼容旧测试引用（原 _resetPiDefaultsCache）
+export function _resetPiDefaultsCache() { /* no-op: pi-open-agents 不再缓存 */ }
