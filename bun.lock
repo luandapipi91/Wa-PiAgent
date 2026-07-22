@@ -4,9 +4,6 @@
   "workspaces": {
     "": {
       "name": "hiagent",
-      "dependencies": {
-        "pi-open-agents": "^0.1.12",
-      },
       "devDependencies": {
         "@happy-dom/global-registrator": "^20.10.6",
         "@hiagent/shared": "workspace:*",
@@ -58,10 +55,10 @@
       "dependencies": {
         "@amaster.ai/pi-memory": "^0.1.5",
         "@earendil-works/pi-coding-agent": "^0.80.0",
-        "@gotgenes/pi-subagents": "^18.0.3",
         "@hiagent/shared": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "pi-mcp-adapter": "^2.11.0",
+        "pi-open-agents": "^0.1.12",
         "pi-web-access": "^0.13.0",
         "typebox": "1.1.38",
       },
@@ -286,8 +283,6 @@
 
     "@google/genai": ["@google/genai@1.52.0", "https://registry.npmmirror.com/@google/genai/-/genai-1.52.0.tgz", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-gwSvbpiN/17O9TbsqSsE/OzZcpv5Fo4RQjdngGgogtuB9RsyJ8ZHhX5KjHj1bp5N9snN2eK8LDGXSaWW2hof8Q=="],
 
-    "@gotgenes/pi-subagents": ["@gotgenes/pi-subagents@18.0.3", "https://registry.npmmirror.com/@gotgenes/pi-subagents/-/pi-subagents-18.0.3.tgz", { "dependencies": { "@sinclair/typebox": "^0.34.49" }, "peerDependencies": { "@earendil-works/pi-ai": ">=0.75.0", "@earendil-works/pi-coding-agent": ">=0.75.0", "@earendil-works/pi-tui": ">=0.75.0" } }, "sha512-J9H814nan6VgGcK5vPjJ95f6xSyD7Kpcp/9Ff/zWJdAw4x2XIHALNvKpotfk1YgEah30qyNBkgcAFsnhItBY0Q=="],
-
     "@happy-dom/global-registrator": ["@happy-dom/global-registrator@20.10.6", "https://registry.npmmirror.com/@happy-dom/global-registrator/-/global-registrator-20.10.6.tgz", { "dependencies": { "@types/node": ">=20.0.0", "happy-dom": "^20.10.6" } }, "sha512-Nu/IjRkkNxmeG2ywWsyJSO4d1BrWTqVzxCPL+gXj0b97klhmjd6wLzt6Bx/laNpkZ3WLW7zNCqmtMIbIlahqug=="],
 
     "@hiagent/desktop": ["@hiagent/desktop@workspace:packages/desktop"],
@@ -480,7 +475,7 @@
 
     "@silvia-odwyer/photon-node": ["@silvia-odwyer/photon-node@0.3.4", "https://registry.npmmirror.com/@silvia-odwyer/photon-node/-/photon-node-0.3.4.tgz", {}, "sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA=="],
 
-    "@sinclair/typebox": ["@sinclair/typebox@0.34.52", "https://registry.npmmirror.com/@sinclair/typebox/-/typebox-0.34.52.tgz", {}, "sha512-XiMQh7qqVlxZzcVD+kkGMNGMzcTrDMLWI7S4x7z1MkCkbDPrekpZXEUK0eZqZFMuHQg2a2DZOcDIh9o5v3Gonw=="],
+    "@sinclair/typebox": ["@sinclair/typebox@0.27.10", "https://registry.npmmirror.com/@sinclair/typebox/-/typebox-0.27.10.tgz", {}, "sha512-MTBk/3jGLNB2tVxv6uLlFh1iu64iYOQ2PbdOSK3NW8JZsmlaOh2q6sdtKowBhfw8QFLmYNzTW4/oK4uATIi6ZA=="],
 
     "@sindresorhus/is": ["@sindresorhus/is@4.6.0", "https://registry.npmmirror.com/@sindresorhus/is/-/is-4.6.0.tgz", {}, "sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw=="],
 
@@ -2161,8 +2156,6 @@
     "@isaacs/cliui/strip-ansi": ["strip-ansi@7.2.0", "https://registry.npmmirror.com/strip-ansi/-/strip-ansi-7.2.0.tgz", { "dependencies": { "ansi-regex": "^6.2.2" } }, "sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w=="],
 
     "@isaacs/cliui/wrap-ansi": ["wrap-ansi@8.1.0", "https://registry.npmmirror.com/wrap-ansi/-/wrap-ansi-8.1.0.tgz", { "dependencies": { "ansi-styles": "^6.1.0", "string-width": "^5.0.1", "strip-ansi": "^7.0.1" } }, "sha512-si7QWI6zUMq56bESFvagtmzMdGOtoxfR+Sez11Mobfc7tm+VkUckk9bW2UeffTGVUbOksxmSw0AA2gs8g71NCQ=="],
-
-    "@jest/schemas/@sinclair/typebox": ["@sinclair/typebox@0.27.10", "https://registry.npmmirror.com/@sinclair/typebox/-/typebox-0.27.10.tgz", {}, "sha512-MTBk/3jGLNB2tVxv6uLlFh1iu64iYOQ2PbdOSK3NW8JZsmlaOh2q6sdtKowBhfw8QFLmYNzTW4/oK4uATIi6ZA=="],
 
     "@malept/flatpak-bundler/fs-extra": ["fs-extra@9.1.0", "https://registry.npmmirror.com/fs-extra/-/fs-extra-9.1.0.tgz", { "dependencies": { "at-least-node": "^1.0.0", "graceful-fs": "^4.2.0", "jsonfile": "^6.0.1", "universalify": "^2.0.0" } }, "sha512-hcg3ZmepS30/7BSFqRvoo3DOMQu7IjqxO5nCDt+zM9XWjb33Wg7ziNT+Qvqbuc3+gWpzO02JubVyk2G4Zvo1OQ=="],
 
