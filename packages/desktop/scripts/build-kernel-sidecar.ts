@@ -150,7 +150,7 @@ export async function buildSidecar(target: "win" | "linux" | "darwin" | string) 
   await writeFile(join(kernelDir, "package.json"), JSON.stringify({
     name: "hiagent-kernel-sidecar", private: true,
     dependencies: {
-      "@earendil-works/pi-coding-agent": "^0.80.0", "@gotgenes/pi-subagents": "^18.0.3",
+      "@earendil-works/pi-coding-agent": "^0.80.0", "pi-open-agents": "^0.1.12",
       "pi-web-access": "^0.13.0", "@amaster.ai/pi-memory": "^0.1.5",
       "pi-mcp-adapter": "^2.11.0", "@modelcontextprotocol/sdk": "^1.29.0",
       typebox: "^1.3.6",
