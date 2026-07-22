@@ -231,7 +231,13 @@ export class AgentManager {
       console.log("[kernel] loader.reload() 完成, 扩展数:", names.length, "含 pi-open-agents:", !!subagentKey);
     }
       for (const t of extractRuntimeToolNames(loader)) {
-        if (!seen.has(t) && t !== "subagent") { seen.add(t); items.push({ name: t, source: "扩展" }); }
+        if (!seen.has(t) && t !== "subagent") {
+          // MCP direct tools（<server>_<tool> 含 _ 前缀）来自内置 pi-mcp-adapter，标为"内置"；
+          // 其他动态发现的工具（如 pi-web-access 的 web_fetch）标为"扩展"
+          const source = t.includes("_") ? "内置" : "扩展";
+          seen.add(t);
+          items.push({ name: t, source });
+        }
       }
     } catch { /* 发现失败时只返回内置 */ }
     return items;
