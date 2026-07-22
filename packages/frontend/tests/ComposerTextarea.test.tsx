@@ -91,3 +91,48 @@ test("chip 的 data-token 在 DOM 文本提取时保留", () => {
   // onTextChange 应该收到 token + 新文本
   expect(onTextChange).toHaveBeenCalledWith("#[file.ts] end more");
 });
+
+// ===== 换行保留：contenteditable 输入侧根因复现 =====
+// 真实浏览器里 contenteditable 按 Enter 不会插入 \n 文本节点，
+// 而是插入 <div>（Chrome 默认）或 <br>（Shift+Enter / 部分 Firefox）。
+// extractText 必须把这些块节点转回 \n，否则多行内容发送时换行丢失。
+
+test("换行保留：Chrome 风格 <div> 块 → 提取出 \\n", () => {
+  const onTextChange = mock();
+  render(<ComposerTextarea text="" onTextChange={onTextChange} onKeyDown={mock()} onPaste={mock()} />);
+  const el = screen.getByRole("textbox") as HTMLElement;
+  // Chrome contenteditable 输入两行的典型 DOM：
+  //   <div>第一行</div><div>第二行</div>
+  el.innerHTML = "<div>第一行</div><div>第二行</div>";
+  fireEvent.input(el);
+  expect(onTextChange).toHaveBeenCalledWith("第一行\n第二行");
+});
+
+test("换行保留：首行文本 + <div>（Chrome 默认样式，首行不包 div）", () => {
+  const onTextChange = mock();
+  render(<ComposerTextarea text="" onTextChange={onTextChange} onKeyDown={mock()} onPaste={mock()} />);
+  const el = screen.getByRole("textbox") as HTMLElement;
+  // Chrome 常见：第一行是裸文本，后续行包在 <div> 里
+  el.innerHTML = "第一行<div>第二行</div>";
+  fireEvent.input(el);
+  expect(onTextChange).toHaveBeenCalledWith("第一行\n第二行");
+});
+
+test("换行保留：<br>（Shift+Enter 或 Firefox）→ 提取出 \\n", () => {
+  const onTextChange = mock();
+  render(<ComposerTextarea text="" onTextChange={onTextChange} onKeyDown={mock()} onPaste={mock()} />);
+  const el = screen.getByRole("textbox") as HTMLElement;
+  el.innerHTML = "第一行<br>第二行";
+  fireEvent.input(el);
+  expect(onTextChange).toHaveBeenCalledWith("第一行\n第二行");
+});
+
+test("换行保留：chip 跨行时 token 与换行共存", () => {
+  const onTextChange = mock();
+  render(<ComposerTextarea text="" onTextChange={onTextChange} onKeyDown={mock()} onPaste={mock()} />);
+  const el = screen.getByRole("textbox") as HTMLElement;
+  // 第一行有文件 chip，第二行是普通文本
+  el.innerHTML = '<span class="chip chip-file" contenteditable="false" data-token="#[App.tsx]">#App.tsx</span><div>第二行</div>';
+  fireEvent.input(el);
+  expect(onTextChange).toHaveBeenCalledWith("#[App.tsx]\n第二行");
+});

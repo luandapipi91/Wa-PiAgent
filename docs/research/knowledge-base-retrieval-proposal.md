@@ -642,6 +642,142 @@ Phase 2 (可选，1-2 周) ─── 增强
 
 ---
 
+## 6b. 特殊场景：Word 文档 + 图片的知识库检索
+
+### 6b.1 问题描述
+
+很多团队有大量 `.docx` 格式的文档（技术规范、设计文档、会议纪要等），里面嵌入了截图、架构图、流程图等图片。`pi-knowledge-search` 原生只支持 `.md` 和 `.txt`。如何处理？
+
+### 6b.2 三步处理方案
+
+```
+Word 文档 (.docx)
+      │
+      ▼
+ Step 1: 文档转换（docx → markdown）
+      │
+      ├── 推荐: mammoth (Node.js 库, npm install mammoth)
+      │         docx → HTML → Markdown, 提取嵌入图片到本地文件
+      │         纯 JS，Bun 兼容 ✓
+      │
+      ├── 备选: pandoc (命令行工具, 需系统安装)
+      │         docx → markdown + 图片提取到 media/ 目录
+      │         功能最强，支持格式最多
+      │
+      └── AI 方案: MarkItDown (Microsoft, Python)
+                 LLM 辅助理解复杂排版，输出结构化 Markdown
+      │
+      ▼
+ Step 2: 图片处理（二选一）
+      │
+      ├── 路径 A: 图片描述替换（轻量，推荐先用）
+      │   用多模态 LLM (GPT-4V/Claude Vision/Qwen-VL) 为每张图生成文字描述
+      │   "![架构图](images/arch.png)" → "[图片描述: 三层微服务架构，包含API网关...]"
+      │   文本描述可被向量化 + 关键词搜索命中
+      │
+      └── 路径 B: 视觉嵌入索引（重，效果最好）
+          用 ColPali/ColQwen2 等视觉语言模型直接对文档页面做嵌入
+          不提取文字，直接理解"页面长什么样"
+          适合图表、手绘图、复杂排版等文字提取困难的场景
+      │
+      ▼
+ Step 3: 索引入库
+      转换后的 .md 文件 + 图片描述文本 → pi-knowledge-search 混合搜索
+```
+
+### 6b.3 路径 A：图片描述替换（实用、落地快）
+
+```bash
+# 1. 用 pandoc 批量转换 Word → Markdown（含图片提取）
+pandoc input.docx -t markdown --extract-media=./images -o output.md
+
+# 输出：
+# output.md       ← Markdown 正文，图片引用为 ![](images/image1.png)
+# images/         ← 提取出的嵌入图片
+```
+
+```typescript
+// 2. Node.js 脚本：用多模态 LLM 为图片生成文字描述
+import mammoth from "mammoth";
+
+// 用 mammoth 转换（纯 JS，Bun 兼容）
+const result = await mammoth.convertToMarkdown({
+  path: "input.docx",
+  convertImage: mammoth.images.imgElement(async (image) => {
+    // 将嵌入图片保存到文件，然后用 VLM 生成描述
+    const buffer = await image.read();
+    const desc = await describeImageWithVLM(buffer); // 调 OpenAI Vision / Qwen-VL
+    return { src: `images/${image.contentType.split("/")[1]}`, alt: desc };
+  }),
+});
+```
+
+**VLM 图片描述成本估算**：
+- GPT-4V: ~$0.01/张（低分辨率）
+- Qwen-VL（阿里，国内可访问）: ~¥0.003/张
+- 本地 LLaVA/Ollama 视觉模型: **免费**
+
+### 6b.4 路径 B：视觉嵌入（前沿方案）
+
+不解析文档文本，直接用视觉语言模型对**渲染后的页面图像**做嵌入：
+
+```
+Word 文档 → 渲染为页面图像 (PNG)
+                │
+                ▼
+         ColPali / ColQwen2 视觉嵌入模型
+         (将页面图像直接编码为向量)
+                │
+                ▼
+         向量数据库 (LanceDB / Qdrant)
+                │
+                ▼
+         用户查询 → 相似页面检索 → 返回原始页面图像 + 文本
+```
+
+**适用场景**：图表密集的文档、扫描件、手写笔记、复杂排版（PPT 导出等）。
+
+**缺点**：ColPali 模型约 1.2GB，需要 GPU 或较强 CPU。不如路径 A 轻量。
+
+### 6b.5 Pi 生态已有方案
+
+惊喜发现：Pi 生态已有 **`pi-docparser`** 扩展（[pi.dev/packages/pi-docparser](https://pi.dev/packages/pi-docparser)），专门提供本地文档理解工具：
+
+```
+pi install npm:pi-docparser
+```
+
+提供的能力（来自 pi.dev 描述）：
+- 解析多种文档格式（PDF、Word、PPT 等）
+- 注册 `parse_document` 工具供 agent 调用
+- 配套 `parse-document` 技能引导 agent 如何用
+
+可以结合使用：`pi-docparser` 负责文档解析 + `pi-knowledge-search` 负责语义检索。
+
+### 6b.6 推荐策略（按优先级）
+
+| 场景 | 推荐方案 | 工作量和效果 |
+|------|---------|------------|
+| **Word 纯文字为主** | mammoth/pandoc 转 md → pi-knowledge-search 直接索引 | 🟢 零开发，直接可用 |
+| **Word 含少量图片** | pandoc 提取图片 + VLM 生成描述文本 → pi-knowledge-search 索引 | 🟡 1-2 天写转换脚本 |
+| **Word 大量图表/截图** | 路径 A（描述替换）先用；如不够再加路径 B（视觉嵌入） | 🟡→🔴 渐进增强 |
+| **PDF/PPT 等更多格式** | 集成 `pi-docparser` 扩展 + pi-knowledge-search | 🟢 Pi 扩展，即装即用 |
+
+### 6b.7 实操建议
+
+```bash
+# 批量转换整个目录的 Word 文档（一行命令）
+for f in *.docx; do
+  pandoc "$f" -t markdown --extract-media="./images/$(basename "$f" .docx)" \
+    -o "./md/$(basename "$f" .docx).md"
+done
+
+# 然后在 pi-knowledge-search 中索引 md/ 目录
+# /knowledge-search-setup → 选 md/ 目录 → 完成
+```
+
+---
+
 ## 7. 风险评估（更新）
 
 | 风险 | 概率 | 影响 | 缓解措施 |
