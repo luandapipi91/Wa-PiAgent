@@ -146,6 +146,8 @@ export const DEFAULT_AGENT_TOOLS = [
   "ask_user_question",
   // delegate：宿主关系网调起工具（customTools 注入）
   "delegate",
+  // mcp：pi-mcp-adapter 内置代理工具（未开启 directTools 的服务器统一入口）
+  "mcp",
 ];
 
 /** 动态插件注册的工具登记表（运行时按插件启用态注入 agent allowlist）。
