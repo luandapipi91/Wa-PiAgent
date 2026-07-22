@@ -221,12 +221,12 @@ export class AgentManager {
         additionalExtensionPaths: buildAdditionalExtensionPaths([...(await this.getEnabledExtensionIds())]),
       });
     await loader.reload();
-    // 诊断：扩展加载后检查 pi-subagents service 是否就绪
+    // 诊断：扩展加载后检查 pi-open-agents service 是否就绪
     {
       const exts = (loader as any).getExtensions ? (loader as any).getExtensions() : {};
       const names = Object.keys(exts);
-      const subagentKey = names.find((n: string) => n.includes("pi-subagents"));
-      console.log("[kernel] loader.reload() 完成, 扩展数:", names.length, "含 pi-subagents:", !!subagentKey);
+      const subagentKey = names.find((n: string) => n.includes("pi-open-agents"));
+      console.log("[kernel] loader.reload() 完成, 扩展数:", names.length, "含 pi-open-agents:", !!subagentKey);
     }
       for (const t of extractRuntimeToolNames(loader)) {
         if (!seen.has(t) && t !== "subagent") { seen.add(t); items.push({ name: t, source: "扩展" }); }
@@ -363,7 +363,7 @@ export class AgentManager {
     // 关系网调起：始终注册 delegate/fleet 工具——内置 subagent 类型（general-purpose / Explore / Plan）
     // 不依赖 askTo，任何主智能体都可调起（见 delegate-tool.ts canInvoke 的 isSubagentType 放行）；
     // 关系网提示词段则按 askTo 动态注入（askTo 为空时 buildDelegatePrompt 返回空串，被 composePrompt 过滤）。
-    // spawn 走 pi-subagents service（进程内单例，由内置扩展发布）。
+    // spawn 走 pi-open-agents runSubagent（子进程 async，由 subagent-runner 适配）。
     // partners 防御性读取：生产 ConfigStore 保证默认 { askTo: [] }，但部分来源的 config 可能缺该字段。
     const askToNames = config?.partners?.askTo ?? [];
     const askToConfigs = (await Promise.all(askToNames.map((n) => this.opts.configStore!.getAgent(n)))).filter(
@@ -393,8 +393,8 @@ export class AgentManager {
       // 扩展改用 additionalExtensionPaths 纯内存注入：builtin + 已启用动态扩展
     additionalExtensionPaths: (() => {
       const paths = buildAdditionalExtensionPaths([...enabledExtensionIds]);
-      const subagentPath = paths.find((p: string) => p.includes("pi-subagents"));
-      console.log("[kernel] additionalExtensionPaths 含 pi-subagents:", !!subagentPath, subagentPath ? subagentPath : "");
+      const subagentPath = paths.find((p: string) => p.includes("pi-open-agents"));
+      console.log("[kernel] additionalExtensionPaths 含 pi-open-agents:", !!subagentPath, subagentPath ? subagentPath : "");
       return paths;
     })(),
       additionalSkillPaths,
@@ -485,7 +485,7 @@ export class AgentManager {
       // SDK 内部结构不符时不注入但不崩溃（降级）
     }
 
-    // 绑定扩展：触发 session_start，让 pi-subagents / pi-web-access 等扩展加载持久状态。
+    // 绑定扩展：触发 session_start，让 pi-open-agents / pi-web-access 等扩展加载持久状态。
     // 记忆不再走扩展（改由 customTools + 提示词快照），但其余扩展仍需 bindExtensions 初始化。
     // 测试用 mock session 可能没有该方法，加存在性保护。
     if (typeof (session as any).bindExtensions === "function") {
