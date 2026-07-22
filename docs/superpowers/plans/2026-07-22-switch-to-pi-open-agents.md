@@ -4,7 +4,7 @@
 
 **Goal:** 将子智能体执行后端从 `@gotgenes/pi-subagents`（进程内 spawn+轮询）切换到 `pi-open-agents`（子进程 runSubagent+onProgress），获得 per-agent skills/tools 配置能力和子智能体执行过程可见性。
 
-**Architecture:** HiAgent kernel 通过 Pi SDK 的 `additionalExtensionPaths` 加载 `pi-open-agents` 扩展；delegate-tool 不再走 `getSubagentsService()` + spawn+轮询，改为直接 import `runSubagent()` 异步执行 + `onProgress` 回调推送过程事件。内置 subagent 类型（general-purpose/Explore/Plan）从代码常量改为 `.pi/agents/*.md` 定义文件。HiAgent 的 `config.skills`/`config.tools` 白名单映射到 agent 定义文件的 frontmatter。
+**Architecture:** HiAgent kernel 通过 Pi SDK 的 `additionalExtensionPaths` 加载 `pi-open-agents` 扩展；delegate-tool 不再走 `getSubagentsService()` + spawn+轮询，改为直接 import `runSubagent()` 异步执行 + `onProgress` 回调推送过程事件。agent 定义文件放在 HiAgent 自己的目录 `~/.hiagent/agents/*.md`（不是 Pi 默认的 `.pi/agents/`），通过 `loadAgents({ agentDir: HIAGENT_DIR })` 发现。HiAgent 的 `config.skills`/`config.tools` 白名单映射到 `AgentDefinition` 的 `skills`/`tools` 字段。
 
 **Tech Stack:** pi-open-agents@0.1.12、@earendil-works/pi-coding-agent（Pi SDK）、Bun + TypeScript、bun:test
 
@@ -15,6 +15,7 @@
 - 代码注释和沟通使用中文
 - 精准修改：只碰必须改的，匹配现有风格
 - 每个任务结束时 commit
+- agent 定义文件目录：`~/.hiagent/agents/*.md`（HiAgent 自己的 `HIAGENT_DIR`，**不是** Pi 默认的 `~/.pi/agent/` 或 `.pi/agents/`）。通过 `loadAgents({ agentDir: HIAGENT_DIR })` 发现
 - pi-open-agents 的 `runSubagent` 通过子进程执行（child_process.spawn），与当前 `@gotgenes` 的进程内模型不同
 - `runSubagent` 签名：`runSubagent(options: RunSubagentOptions): Promise<AgentResult>`，options 含 `agent: AgentDefinition`、`task`、`cwd`、`signal?`、`onProgress?`
 - `AgentProgress` 结构：`{ agent, status: "running"|"done"|"error", output, tools: AgentToolLog[], usage, elapsedMs, model? }`
