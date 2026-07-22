@@ -11,6 +11,7 @@ export function topAgentsByRecency(
     lastOf.set(s.primaryAgent, Math.max(lastOf.get(s.primaryAgent) ?? 0, s.lastActivity));
   }
   return [...agents]
+    .filter(a => a.displayName)  // 防御：过滤 displayName 为空的条目（如内置 agent .md 用 name 字段）
     .sort((x, y) => (lastOf.get(y.displayName) ?? -1) - (lastOf.get(x.displayName) ?? -1) || x.displayName.localeCompare(y.displayName))
     .slice(0, n);
 }
