@@ -26,18 +26,16 @@ test("getSubagentInfo 含 SUBAGENT_TYPES 的元信息（displayName/emoji/gradie
   }
 });
 
-test("getSubagentInfo 从 pi-subagents 读取真实 systemPrompt", async () => {
+test("getSubagentInfo systemPrompt 返回空串（pi-open-agents 的提示词在 .md 文件中）", async () => {
   const infos = await getSubagentInfo([]);
-  // Explore 与 Plan 的 systemPrompt 是 pi-subagents 内置的 read-only 长文案，不是空串
+  // pi-open-agents 切换后，systemPrompt 从 ~/.hiagent/agents/*.md 定义文件读取，此处返回空串
   const explore = infos.find(i => i.name === "Explore");
-  expect(explore!.systemPrompt.length).toBeGreaterThan(100);
-  expect(explore!.systemPrompt).toContain("READ-ONLY");
+  expect(explore!.systemPrompt).toBe("");
   const plan = infos.find(i => i.name === "Plan");
-  expect(plan!.systemPrompt.length).toBeGreaterThan(100);
-  expect(plan!.systemPrompt).toContain("architect");
+  expect(plan!.systemPrompt).toBe("");
 });
 
-test("getSubagentInfo 从 pi-subagents 读取 builtinToolNames", async () => {
+test("getSubagentInfo builtinToolNames 从 SUBAGENT_TYPES readOnly 标志计算", async () => {
   const infos = await getSubagentInfo([]);
   const explore = infos.find(i => i.name === "Explore");
   expect(explore!.builtinToolNames).toEqual(["read", "bash", "grep", "find", "ls"]);
