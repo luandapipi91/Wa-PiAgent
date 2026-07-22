@@ -165,12 +165,44 @@ export const EXTENSION_TOOL_MAP: Record<string, string[]> = {};
  *   （option B：取代手动维护 EXTENSION_TOOL_MAP 的静态登记）
  * 行为：保留 base 顺序，依次并入 toolMap（按启用态）与 harvestedTools，重复项去重；不修改入参。
  */
+/**
+ * 检查工具名 toolName 是否以某个允许的 server 前缀开头。
+ * MCP direct tool 命名格式：`<serverPrefix>_<toolName>`，其中 serverPrefix = serverName.replace(/-/g,"_")。
+ * 普通工具名不含下划线或以其他前缀开头时返回 true（放行）。
+ *
+ * @returns true 表示放行，false 表示被白名单过滤
+ */
+function isMcpToolAllowed(toolName: string, allowedPrefixes: Set<string>): boolean {
+  const idx = toolName.indexOf("_");
+  if (idx < 0) return true; // 不含下划线 = 普通工具，放行
+
+  // 工具名含下划线，可能是 MCP direct tool。逐个尝试白名单前缀
+  for (const prefix of allowedPrefixes) {
+    if (toolName.startsWith(prefix + "_")) return true;
+  }
+  // 如果以任意低概率碰撞的前缀开头（如 "read_xxx" 以 "read" 为前缀），
+  // 而 "read" 恰好也是白名单里的 server 名 → 放行；否则不放行
+  return false;
+}
+
+/**
+ * 合并工具列表：baseTools + 扩展工具 + harvestedTools（可选按 MCP server 白名单过滤）。
+ *
+ * @param baseTools 基础工具列表
+ * @param enabledExtensionIds 已启用的扩展 ID
+ * @param _agentName 预留 agent 名（当前未使用）
+ * @param toolMap 扩展名 → 工具名列表
+ * @param harvestedTools 动态发现的工具名（含 MCP direct tools）
+ * @param opts 可选参数
+ * @param opts.allowedMcpServers MCP server 白名单（空/不传=全部放行）
+ */
 export function resolveAgentTools(
   baseTools: string[],
   enabledExtensionIds: Set<string>,
   _agentName?: string,
   toolMap: Record<string, string[]> = EXTENSION_TOOL_MAP,
   harvestedTools: Iterable<string> = [],
+  opts?: { allowedMcpServers?: string[] },
 ): string[] {
   // 扩展原生 subagent 工具永不放行：LLM 只能走宿主 delegate 工具（allowlist 强制）
   const BLOCKED = new Set(["subagent"]);
@@ -186,12 +218,20 @@ export function resolveAgentTools(
       }
     }
   }
+
+  // MCP server 白名单：非空时只放行白名单内 server 的工具
+  // server 名 → 前缀（- 替换为 _），如 "playwright" → "playwright"，"my-server" → "my_server"
+  const allowedPrefixes = opts?.allowedMcpServers?.length
+    ? new Set(opts.allowedMcpServers.map(s => s.replace(/-/g, "_")))
+    : null;
+
   // 动态发现：已加载扩展（builtin + 已启用第三方）注册的工具名，并入 allowlist 末尾
   for (const t of harvestedTools) {
-    if (!seen.has(t)) {
-      seen.add(t);
-      result.push(t);
-    }
+    if (seen.has(t)) continue;
+    // MCP 白名单过滤
+    if (allowedPrefixes && !isMcpToolAllowed(t, allowedPrefixes)) continue;
+    seen.add(t);
+    result.push(t);
   }
   return result.filter(t => !BLOCKED.has(t));
 }

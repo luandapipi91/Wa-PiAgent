@@ -494,6 +494,7 @@ export class AgentManager {
       agentName,
       EXTENSION_TOOL_MAP,
       harvestedTools,
+      { allowedMcpServers: config?.mcpServers },
     );
 
     // 调 createAgentSession 创建 SDK session
