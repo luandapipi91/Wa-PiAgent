@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Modal } from "../ui/Modal";
 import { TagInput } from "../ui/TagInput";
 import { useProvidersStore } from "../../store/providers";
-import { PROVIDER_PRESETS } from "@hiagent/shared";
-import type { ModelProvider, ProviderApi, ProviderModel } from "@hiagent/shared";
+import { send, onMessage } from "../../ws-instance";
+import type { ModelProvider, ProviderApi, ProviderModel, ModelPreset } from "@hiagent/shared";
 
 interface Props {
   initial?: ModelProvider;   // 编辑时传，新增时不传
@@ -28,7 +29,36 @@ export function ProviderFormModal({ initial, onClose }: Props) {
   );
   const [testStatus, setTestStatus] = useState<{ state: "idle" | "testing" | "ok" | "fail"; error?: string }>({ state: "idle" });
   const [selectedPresetKey, setSelectedPresetKey] = useState<string>("");
-  const selectedPreset = PROVIDER_PRESETS.find(p => p.key === selectedPresetKey);
+  const [presets, setPresets] = useState<ModelPreset[]>([]);
+  const [modelSearch, setModelSearch] = useState("");
+  const selectedPreset = presets.find(p => p.key === selectedPresetKey);
+  const tagContainerRef = useRef<HTMLDivElement>(null);
+  const [dropPos, setDropPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [tagKey, setTagKey] = useState(0);
+
+  // 组件挂载时从 SDK 获取供应商预设列表
+  useEffect(() => {
+    const off = onMessage((e: any) => {
+      if (e.type === "model:presets") {
+        setPresets(e.presets ?? []);
+      }
+    });
+    send({ type: "model:presets" });
+    return off;
+  }, []);
+
+  // 滚动时更新下拉位置
+  useEffect(() => {
+    if (!dropPos) return;
+    const update = () => {
+      if (tagContainerRef.current && modelSearch) {
+        const r = tagContainerRef.current.getBoundingClientRect();
+        setDropPos({ top: r.bottom + 2, left: r.left, width: r.width });
+      }
+    };
+    window.addEventListener("scroll", update, true);
+    return () => window.removeEventListener("scroll", update, true);
+  }, [dropPos, modelSearch]);
 
   // tag 变化 → 同步 modelConfigs（新增的用默认值，删除的移除）
   const handleTagsChange = (tags: string[]) => {
@@ -42,18 +72,38 @@ export function ProviderFormModal({ initial, onClose }: Props) {
     });
   };
 
-  // 选预设 → 填表（不走 handleTagsChange，避免把预设数值套成默认 128000/4096）
+  // 选预设 → 填供应商信息（不自动填模型），模型通过快捷下拉单独添加
   const applyPreset = (key: string): void => {
     setSelectedPresetKey(key);
-    if (!key) return; // 选「自定义」不清空
-    const preset = PROVIDER_PRESETS.find(p => p.key === key);
+    if (!key) { setModelIds([]); setModelConfigs({}); return; }
+    const preset = presets.find(p => p.key === key);
     if (!preset) return;
     setName(preset.name);
     setBaseUrl(preset.baseUrl);
-    setApi(preset.api);
-    setModelIds(preset.models.map(m => m.id));
-    setModelConfigs(Object.fromEntries(preset.models.map(m => [m.id, m])));
+    setApi(preset.api as ProviderApi);
+    // 清空已有模型，模型通过快捷下拉逐个添加
+    setModelIds([]);
+    setModelConfigs({});
+    setModelSearch("");
+    setDropPos(null);
+    setTagKey(k => k + 1);
     // apiKey 不动（新增时为空）
+  };
+
+  // 从选中的供应商快捷添加一个模型（带预设参数）
+  const addModelFromPreset = (modelId: string): void => {
+    if (!modelId || !selectedPreset) return;
+    const m = selectedPreset.models.find(x => x.id === modelId);
+    if (!m) return;
+    if (modelIds.includes(m.id)) return;
+    setModelIds(prev => [...prev, m.id]);
+    setModelConfigs(prev => ({
+      ...prev,
+      [m.id]: { id: m.id, contextWindow: m.contextWindow, maxTokens: m.maxTokens, supportsVision: m.supportsVision },
+    }));
+    setModelSearch("");
+    setDropPos(null);
+    setTagKey(k => k + 1);  // 强制 TagInput 重挂载清空输入
   };
 
   const valid = name.trim() && baseUrl.trim() && apiKey.trim() && modelIds.length > 0;
@@ -93,17 +143,12 @@ export function ProviderFormModal({ initial, onClose }: Props) {
             className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
           >
             <option value="">自定义（手动填写）</option>
-            {PROVIDER_PRESETS.map(p => (
-              <option key={p.key} value={p.key}>
-                {p.plan ? "🏷 " : ""}{p.name}
-              </option>
+            {presets.map(p => (
+              <option key={p.key} value={p.key}>{p.name} ({p.models.length} 个模型)</option>
             ))}
           </select>
           {initial && (
             <span className="text-xs" style={{ color: "var(--danger)" }}>选择预设会覆盖当前表单</span>
-          )}
-          {selectedPreset?.hint && (
-            <span className="text-xs text-tertiary">{selectedPreset.hint}</span>
           )}
         </div>
         <label className="flex flex-col gap-1">
@@ -150,7 +195,20 @@ export function ProviderFormModal({ initial, onClose }: Props) {
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-xs text-secondary">模型 ID（输入 | 添加，× 移除）</span>
-          <TagInput value={modelIds} onChange={handleTagsChange} placeholder="输入模型 ID，回车或 | 添加" />
+          <div ref={tagContainerRef}>
+          <TagInput key={tagKey} value={modelIds} onChange={handleTagsChange}
+            placeholder="输入模型 ID，回车或 | 添加"
+            onInputText={text => {
+              setModelSearch(text);
+              if (text && tagContainerRef.current) {
+                const r = tagContainerRef.current.getBoundingClientRect();
+                setDropPos({ top: r.bottom + 2, left: r.left, width: r.width });
+              } else {
+                setDropPos(null);
+              }
+            }}
+          />
+          </div>
         </div>
         {modelIds.length > 0 && (
           <div className="flex flex-col gap-1">
@@ -216,6 +274,29 @@ export function ProviderFormModal({ initial, onClose }: Props) {
         {testStatus.state === "ok" && <span className="text-xs" style={{ color: "var(--success)" }}>✓ 连接成功</span>}
         {testStatus.state === "fail" && <span className="text-xs" style={{ color: "var(--danger)" }}>✗ 失败：{testStatus.error}</span>}
       </div>
+      {dropPos && selectedPreset && createPortal(
+        (() => {
+          const q = modelSearch.toLowerCase();
+          const available = selectedPreset.models.filter(m =>
+            !modelIds.includes(m.id) && m.id.toLowerCase().includes(q)
+          );
+          if (available.length === 0) return null;
+          return (
+            <div className="fixed max-h-48 overflow-y-auto rounded-sm border border-hairline bg-surface shadow-lg z-50"
+              style={{ top: dropPos.top, left: dropPos.left, width: dropPos.width }}
+              data-testid="model-quick-dropdown">
+              {available.map(m => (
+                <div key={m.id}
+                  data-testid="model-quick-option"
+                  className="px-2 py-1.5 text-sm text-primary hover:bg-surface-hover cursor-pointer border-b border-hairline last:border-b-0"
+                  onMouseDown={e => { e.preventDefault(); addModelFromPreset(m.id); }}
+                >{m.id} <span className="text-tertiary text-xs">({m.contextWindow.toLocaleString()} ctx, {m.maxTokens.toLocaleString()} out{m.supportsVision ? ", 视觉" : ""})</span></div>
+              ))}
+            </div>
+          );
+        })(),
+        document.body
+      )}
       <div className="flex justify-between items-center p-3 border-t border-hairline">
         <button
           onClick={handleTest}
