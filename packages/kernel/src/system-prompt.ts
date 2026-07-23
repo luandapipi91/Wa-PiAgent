@@ -62,18 +62,12 @@ export const HIAGENT_DEFAULT_BASE_PROMPT =
   "You help users by reading files, executing commands, editing code, and writing new files. " +
   "Be concise in your responses. Show file paths clearly when working with files.";
 
-/** 默认 delegate-mechanism 段（委托机制：@ 语法 + fleet 并行） */
+/** 默认 delegate-mechanism 段（委托机制：@ 语法 + roster 说明） */
 export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
   "## Delegation Mechanism\n\n" +
   "Use the `delegate` tool to invoke subagents. The `agent` parameter takes the `<name>` value " +
   "from the Available Subagents list below. The `task` parameter is a task contract you write " +
   "(see pattern below).\n\n" +
-  "### Proactive Delegation\n" +
-  "Check the Available Subagents list before doing a task yourself. Each subagent's `<whenToDelegate>`, " +
-  "`<whenNotTo>`, and `<benefit>` tell you when to delegate vs do it directly. " +
-  "When a task matches a subagent's `<whenToDelegate>`, delegate to it instead of doing it yourself—" +
-  "this keeps noisy tool sequences out of your context and returns a focused answer. " +
-  "When it matches `<whenNotTo>`, do it directly with read/grep/find.\n\n" +
   "### @[agentName] Explicit Delegation\n" +
   "When the user message contains an explicit assignment in the form @[agentName], " +
   "you MUST immediately invoke the delegate tool with that agent:\n" +
@@ -92,12 +86,10 @@ export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
   "do not forward verbatim.\n" +
   "5. When multiple @[agentName] appear in one message, invoke them sequentially in order; " +
   "each task must independently follow the contract pattern.\n\n" +
-  "### Fleet Parallel Delegation\n" +
-  "When multiple independent subtasks can run in parallel, use the fleet tool " +
-  "(parameter tasks: [{agent, task}]) to dispatch them at once, concurrency limit 6. " +
-  "Each `agent` value comes from the Available Subagents list. " +
-  "Suited for multi-keyword/multi-directory parallel exploration, codebase-wide audit, " +
-  "multi-file parallel processing.";
+  "### Reading the Subagent List\n" +
+  "Each entry in the Available Subagents list below carries `<whenToDelegate>`, `<whenNotTo>`, " +
+  "and `<benefit>`. Match these against the task at hand to decide delegate vs do-it-yourself. " +
+  "The detailed delegation rules live in the `delegate` and `fleet` tool descriptions.";
 
 /**
  * 默认段落配置（用于 prompts.json 不存在时初始化）。
@@ -160,7 +152,7 @@ export function composePrompt(
 
 /** prompts.json 的 schema 版本。升级静态段文案（delegate-syntax / subagent-clarify）时递增，
  *  ensurePromptsConfig 据此对已存在文件做迁移——只刷新静态段 content，保留动态段用户自定义。 */
-export const PROMPTS_SCHEMA_VERSION = 5;
+export const PROMPTS_SCHEMA_VERSION = 6;
 
 /**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。

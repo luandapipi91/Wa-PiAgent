@@ -5,10 +5,14 @@ interface TagInputProps {
   value: string[];              // 当前 tags（= 模型 ID 列表）
   onChange: (tags: string[]) => void;
   placeholder?: string;
+  /** 可选下拉内容，渲染在 input 下方 */
+  dropdown?: React.ReactNode;
+  /** input 文本变化回调（用于外部过滤下拉等） */
+  onInputText?: (text: string) => void;
 }
 
 /** 通用 tag 录入：输入 | 添加（分隔即 flush），回车提交，× 移除 */
-export function TagInput({ value, onChange, placeholder }: TagInputProps) {
+export function TagInput({ value, onChange, placeholder, dropdown, onInputText }: TagInputProps) {
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -18,6 +22,7 @@ export function TagInput({ value, onChange, placeholder }: TagInputProps) {
     // 含分隔符才 flush（避免每次输入都解析）
     if (!newText.includes("|")) {
       setText(newText);
+      onInputText?.(newText);
       return;
     }
     // 拆分：最后一个 | 之前的都成 tag，之后的是新的输入框内容
@@ -27,6 +32,7 @@ export function TagInput({ value, onChange, placeholder }: TagInputProps) {
     }
     // splitModelIds 已吃掉所有 | 分隔的部分；残留的纯文本无 |
     setText("");
+    onInputText?.("");
   };
 
   // 回车：提交整个输入框文本为一个 tag
@@ -37,6 +43,7 @@ export function TagInput({ value, onChange, placeholder }: TagInputProps) {
       if (trimmed) {
         onChange([...value, trimmed]);
         setText("");
+        onInputText?.("");
       }
     }
   };
@@ -47,6 +54,7 @@ export function TagInput({ value, onChange, placeholder }: TagInputProps) {
   };
 
   return (
+    <div className="relative">
     <div
       className="flex flex-wrap items-center gap-1.5 px-2 py-1.5 rounded-sm border border-hairline bg-surface"
       data-testid="tag-input"
@@ -77,6 +85,8 @@ export function TagInput({ value, onChange, placeholder }: TagInputProps) {
         className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm text-primary"
         data-testid="tag-input-field"
       />
+    </div>
+    {dropdown}
     </div>
   );
 }

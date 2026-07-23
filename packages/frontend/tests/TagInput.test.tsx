@@ -49,3 +49,9 @@ test("纯空白不生成 tag", () => {
   fireEvent.change(input, { target: { value: "   |" } });
   expect(onChange).not.toHaveBeenCalled();
 });
+
+test("dropdown prop 渲染到 input 下方", () => {
+  render(<TagInput value={[]} onChange={() => {}} dropdown={<span data-testid="my-dropdown">hello</span>} />);
+  expect(screen.getByTestId("my-dropdown")).toBeTruthy();
+  expect(screen.getByText("hello")).toBeTruthy();
+});

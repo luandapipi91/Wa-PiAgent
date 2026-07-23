@@ -68,11 +68,11 @@ test("渲染表单字段", () => {
   expect(screen.getByText(/模型 ID/)).toBeTruthy();
 });
 
-test("快捷选择下拉存在", () => {
+test("快捷选择搜索框存在", () => {
   render(<ProviderFormModal onClose={() => {}} />);
-  const select = screen.getByTestId("preset-select") as HTMLSelectElement;
-  expect(select).toBeTruthy();
-  expect(select.options[0].textContent).toContain("自定义");
+  const input = screen.getByTestId("preset-search") as HTMLInputElement;
+  expect(input).toBeTruthy();
+  expect(input.placeholder).toContain("搜索");
 });
 
 test("必填为空时保存按钮禁用", () => {
@@ -164,44 +164,53 @@ test("添加模型后显示 supportsVision 开关并影响保存数据", () => {
 
 // ===== 新行为测试 =====
 
+// 辅助：等待预设列表加载并选中指定供应商
+async function waitAndSelectPreset(key: string) {
+  // 聚焦搜索框触发下拉
+  fireEvent.focus(screen.getByTestId("preset-search"));
+  await waitFor(() => {
+    expect(screen.getAllByTestId("preset-option").length).toBeGreaterThan(1);
+  });
+  const opt = screen.getAllByTestId("preset-option")
+    .find(o => o.getAttribute("data-key") === key)!;
+  fireEvent.mouseDown(opt);
+}
+
 test("收到 model:presets 后下拉出现预设选项", async () => {
   render(<ProviderFormModal onClose={() => {}} />);
-  // useEffect 会 send model:presets，mock 立即回复 → 下拉出现选项
+  fireEvent.focus(screen.getByTestId("preset-search"));
   await waitFor(() => {
-    const select = screen.getByTestId("preset-select") as HTMLSelectElement;
-    expect(select.options.length).toBeGreaterThan(1);
+    expect(screen.getAllByTestId("preset-option").length).toBeGreaterThan(1);
   });
+});
+
+test("在供应商搜索框输入文字过滤预设", async () => {
+  render(<ProviderFormModal onClose={() => {}} />);
+  fireEvent.focus(screen.getByTestId("preset-search"));
+  await waitFor(() => {
+    expect(screen.getAllByTestId("preset-option").length).toBeGreaterThan(1);
+  });
+  // 输入 "anth" 过滤
+  fireEvent.change(screen.getByTestId("preset-search"), { target: { value: "anth" } });
+  const opts = screen.getAllByTestId("preset-option");
+  expect(opts.length).toBe(1);
+  expect(opts[0].textContent).toContain("Anthropic");
 });
 
 test("选择供应商预设后不自动填入模型，只填 name/baseUrl/api", async () => {
   render(<ProviderFormModal onClose={() => {}} />);
-  await waitFor(() => {
-    const select = screen.getByTestId("preset-select") as HTMLSelectElement;
-    expect(select.options.length).toBeGreaterThan(1);
-  });
-  // 选 DeepSeek
-  fireEvent.change(screen.getByTestId("preset-select"), { target: { value: "deepseek" } });
+  await waitAndSelectPreset("deepseek");
   expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("DeepSeek");
   expect((screen.getByTestId("field-baseUrl") as HTMLInputElement).value).toBeTruthy();
-  // 模型列表应为空
   expect(screen.queryByTestId("model-contextWindow-0")).toBeNull();
 });
 
 test("选择供应商预设后不自动出现下拉，需输入才出现", async () => {
   render(<ProviderFormModal onClose={() => {}} />);
-  await waitFor(() => {
-    const select = screen.getByTestId("preset-select") as HTMLSelectElement;
-    expect(select.options.length).toBeGreaterThan(1);
-  });
-
-  // 初始无下拉
+  await waitAndSelectPreset("deepseek");
+  // 选后无模型下拉
   expect(screen.queryByTestId("model-quick-dropdown")).toBeNull();
-
-  // 选 DeepSeek 后仍然无下拉（未输入）
-  fireEvent.change(screen.getByTestId("preset-select"), { target: { value: "deepseek" } });
-  expect(screen.queryByTestId("model-quick-dropdown")).toBeNull();
-
-  // 输入 "chat" 后出现匹配的模型下拉
+  // 输入 "chat" 后出现
   fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "chat" } });
   const options = screen.getAllByTestId("model-quick-option");
   expect(options.length).toBe(1);
@@ -212,19 +221,10 @@ test("输入匹配模型 ID 出现下拉，选择后带入预设参数", async (
   const saveMock = mock();
   useProvidersStore.setState({ save: saveMock });
   render(<ProviderFormModal onClose={() => {}} />);
-  await waitFor(() => {
-    const select = screen.getByTestId("preset-select") as HTMLSelectElement;
-    expect(select.options.length).toBeGreaterThan(1);
-  });
-
-  fireEvent.change(screen.getByTestId("preset-select"), { target: { value: "deepseek" } });
-  // 输入 "chat" 触发下拉
+  await waitAndSelectPreset("deepseek");
   fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "chat" } });
-
   const chatOption = screen.getAllByTestId("model-quick-option")[0];
   fireEvent.mouseDown(chatOption);
-
-  // 模型添加到列表
   expect(screen.getByTestId("model-contextWindow-0")).toBeTruthy();
   fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-x" } });
   fireEvent.click(screen.getByTestId("provider-save-btn"));
@@ -233,15 +233,26 @@ test("输入匹配模型 ID 出现下拉，选择后带入预设参数", async (
 
 test("输入触发下拉后切换到自定义下拉消失", async () => {
   render(<ProviderFormModal onClose={() => {}} />);
-  await waitFor(() => {
-    const select = screen.getByTestId("preset-select") as HTMLSelectElement;
-    expect(select.options.length).toBeGreaterThan(1);
-  });
-  fireEvent.change(screen.getByTestId("preset-select"), { target: { value: "deepseek" } });
-  // 输入触发下拉
+  await waitAndSelectPreset("deepseek");
   fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "chat" } });
   expect(screen.getByTestId("model-quick-dropdown")).toBeTruthy();
-  // 切回自定义 → 下拉消失
-  fireEvent.change(screen.getByTestId("preset-select"), { target: { value: "" } });
+  // 点击预设搜索框，输入任意文字触发清除已选预设
+  fireEvent.change(screen.getByTestId("preset-search"), { target: { value: "x" } });
+  // 模型下拉消失
   expect(screen.queryByTestId("model-quick-dropdown")).toBeNull();
+});
+
+test("选中供应商后 input 右侧显示 × 可清除选择", async () => {
+  render(<ProviderFormModal onClose={() => {}} />);
+  await waitAndSelectPreset("deepseek");
+  // × 按钮出现
+  const clearBtn = screen.getByTestId("preset-clear");
+  expect(clearBtn).toBeTruthy();
+  // 点击清除
+  fireEvent.click(clearBtn);
+  // 输入框恢复占位文字
+  expect((screen.getByTestId("preset-search") as HTMLInputElement).placeholder).toContain("搜索");
+  // 下拉中的供应商可选（不再高亮选中）
+  fireEvent.focus(screen.getByTestId("preset-search"));
+  await waitFor(() => expect(screen.getAllByTestId("preset-option").length).toBeGreaterThan(1));
 });

@@ -95,9 +95,27 @@ export function buildDelegateRoster(
   return "## Available Subagents\n\nInvoke via the delegate tool:\n<subagents>\n" + blocks.join("\n") + "\n</subagents>";
 }
 
-/** delegate 工具描述：纯功能说明（智能体总览在系统提示词里，工具描述不重复） */
+/** delegate 工具描述：详细功能说明 + 何时委派/何时不委派的通用规则 */
 function delegateDescription(): string {
-  return "调起子智能体执行任务并返回结果。可用智能体及适用场景见系统提示词。";
+  return [
+    "Run a specialized subagent in an isolated context to handle a delegated task, then return its result.",
+    "The subagent runs with its own tools and system prompt; the main agent cannot continue until it returns.",
+    "\n",
+    "Use delegate when delegation fits:",
+    "- The task is exploratory or codebase-wide (search, survey, architecture understanding).",
+    "- The task needs many noisy tool calls (repeated grep/read) that would bloat the main context.",
+    "- The task is self-contained and the subagent's focused output is what you need to proceed.",
+    "- Each subagent's <whenToDelegate> / <whenNotTo> / <benefit> in the Available Subagents list tells you when to pick it.",
+    "\n",
+    "Do NOT use delegate when:",
+    "- The answer is a simple lookup, quick edit, or single-step task you can do directly with read/grep/edit.",
+    "- The task needs frequent user back-and-forth.",
+    "- The task is latency-sensitive and the main agent can do it in one step.",
+    "",
+    "When delegating, write a self-contained task:",
+    "- Include file paths, context, expected output, and whether the subagent may edit files.",
+    "- Do not forward the user's raw text verbatim; synthesize a focused task contract.",
+  ].join("\n");
 }
 
 /** 构造 delegate 工具（闭包绑 askTo + spawn）。每个 session 一份实例，始终注册（内置类型不依赖 askTo）。 */
@@ -187,7 +205,26 @@ export function makeFleetTool(opts: {
   return {
     name: "fleet",
     label: "Fleet",
-    description: "并行调起多个子智能体执行任务并聚合结果。每个 agent 必须取可调起列表中的智能体名称或内置类型名（general-purpose / Explore / Plan）。适用场景：多关键词/多目录并行探索、codebase-wide audit、多文件并行处理、多个独立 bug 同时调查。只要多个子任务相互独立就应尽量并行以最大化性能，而非串行 delegate。",
+    description: [
+      "Run multiple subagents in parallel, each in its own isolated context, and return all results together.",
+      "The call blocks the main agent until every subagent finishes.",
+      "Each task's `agent` must be a name from the Available Subagents list.",
+      "",
+      "Use fleet when multiple independent subtasks can run at once:",
+      "- Multi-keyword or multi-directory parallel exploration.",
+      "- Codebase-wide audit across unrelated modules.",
+      "- Multiple independent bugs or files investigated in parallel.",
+      "",
+      "Do NOT use fleet when:",
+      "- Tasks depend on each other (use sequential delegate calls instead).",
+      "- Tasks touch the same files or shared state (write-heavy parallel work causes conflicts).",
+      "- You only have one task (use delegate, not fleet).",
+      "",
+      "Guidelines:",
+      "- Keep tasks independent and self-contained (paths, context, expected output).",
+      `- Concurrency limit is ${MAX_SUBAGENT_CONCURRENCY}; do not exceed it.`,
+      "- Decide how many subagents to spawn from the task shape; do not wait for the user to specify a count.",
+    ].join("\n"),
     parameters: FleetParamsSchema,
     async execute(
       _toolCallId: string,

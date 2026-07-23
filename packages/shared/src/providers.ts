@@ -56,6 +56,33 @@ export interface ProviderChangedEvent {
   providers: ModelProvider[];
 }
 
+// 前端 → kernel：获取 SDK 内置供应商列表（用于快捷选择下拉）
+export interface ModelPresetsRequest {
+  type: "model:presets";
+}
+
+// 单个供应商预设（聚合自 SDK 内置模型，结构和原 ProviderPreset 对齐）
+export interface ModelPreset {
+  /** 唯一 key = provider slug，如 "deepseek" / "anthropic" / "openai" */
+  key: string;
+  /** 显示名，如 "DeepSeek" / "Anthropic Claude" */
+  name: string;
+  baseUrl: string;
+  api: string;
+  models: Array<{
+    id: string;
+    contextWindow: number;
+    maxTokens: number;
+    supportsVision: boolean;
+  }>;
+}
+
+// kernel → 前端
+export interface ModelPresetsResult {
+  type: "model:presets";
+  presets: ModelPreset[];
+}
+
 // ===== 纯函数 =====
 
 /**

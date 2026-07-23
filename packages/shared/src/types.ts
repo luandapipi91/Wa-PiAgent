@@ -3,6 +3,7 @@
 import type {
   ProviderListEvent, ProviderSaveEvent, ProviderDeleteEvent, ProviderTestEvent,
   ProviderListResult, ProviderTestResult, ProviderChangedEvent,
+  ModelPresetsRequest, ModelPresetsResult,
 } from "./providers";
 import type {
   SkillListEvent, SkillToggleEvent, SkillDirAddEvent, SkillDirRemoveEvent,
@@ -318,6 +319,7 @@ export type WSClientEvent =
   | AgentListRequest | AgentCreateEvent | AgentDeleteEvent | AgentToolsListRequest | SessionSetAgentEvent
   | ProjectsListRequest | SessionMessagesRequest
   | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
+  | ModelPresetsRequest
   | SkillListEvent | SkillToggleEvent | SkillDirAddEvent | SkillDirRemoveEvent
   | ExtensionListEvent | ExtensionToggleEvent
   | ExtensionInstallEvent | ExtensionUninstallEvent | ExtensionUpgradeEvent
@@ -435,6 +437,7 @@ export type WSServerEvent =
   | AgentConfigEvent | ErrorEvent
   | AgentListResult | AgentCreatedEvent | AgentDeletedEvent | AgentToolsListResult | SessionUpdatedEvent
   | ProviderListResult | ProviderTestResult | ProviderChangedEvent
+  | ModelPresetsResult
   | SkillListResult | SkillChangedEvent
   | ExtensionListResult | ExtensionChangedEvent | ExtensionErrorEvent
   | ExtensionProgressEvent | ExtensionInstallDoneEvent
