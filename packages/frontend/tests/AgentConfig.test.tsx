@@ -21,7 +21,6 @@ const cfg = (name: string, over: Partial<AgentConfigType> = {}): AgentConfigType
   skills: [],
   mcpServers: [],
   partners: { askTo: [] },
-  triggerKeywords: [],
   systemPromptBody: "你是工程师",
   ...over,
 });
@@ -115,19 +114,6 @@ describe("AgentConfig 4 tab", () => {
     expect(screen.getByTestId("cfg-avatar-input")).toBeTruthy();
   });
 
-  test("关键词 chips：回车添加（trim + 去重），✕ 删除", () => {
-    renderConfig();
-    const input = screen.getByTestId("kw-input");
-    fireEvent.change(input, { target: { value: " 排期 " } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(screen.getByTestId("kw-chip-排期")).toBeTruthy();
-    // 去重：相同关键词再次回车不新增
-    fireEvent.change(input, { target: { value: "排期" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(screen.getAllByTestId("kw-chip-排期")).toHaveLength(1);
-    fireEvent.click(screen.getByTestId("kw-chip-x-排期"));
-    expect(screen.queryByTestId("kw-chip-排期")).toBeNull();
-  });
 
   test("关系网 tab：搜索过滤 + 自身置灰不可选 + 勾选写入 askTo", () => {
     useAgentsStore.setState({ list: [cfg("dev"), cfg("代码审查"), cfg("质量验收")] });
@@ -226,13 +212,13 @@ describe("AgentConfig 4 tab", () => {
   });
 });
 
-describe("AgentConfig 内置 subagent（只读模式）", () => {
-  test("打开 general-purpose 显示内置提示，无保存按钮", () => {
+describe("AgentConfig 内置 subagent（可保存 model/thinking）", () => {
+  test("打开 general-purpose 显示内置提示和保存按钮", () => {
     render(<AgentConfig agentName="general-purpose" onClose={() => {}} />);
     expect(screen.getByTestId("cfg-builtin-notice")).toBeTruthy();
     expect(screen.getByTestId("cfg-builtin-notice").textContent).toContain("内置");
-    // 无保存按钮，只有"关闭"
-    expect(screen.queryByTestId("cfg-save")).toBeNull();
+    // 有保存按钮
+    expect(screen.getByTestId("cfg-save")).toBeTruthy();
     expect(screen.getByText("关闭")).toBeTruthy();
   });
 
@@ -243,7 +229,6 @@ describe("AgentConfig 内置 subagent（只读模式）", () => {
   });
 
   test("内置 subagent 显示中文显示名（需先设置 store）", () => {
-    // 设置 useSubagentsStore 中的内置 subagent 数据
     useSubagentsStore.setState({
       subagents: [{
         name: "general-purpose", displayName: "通用子智能体", description: "",
@@ -252,11 +237,10 @@ describe("AgentConfig 内置 subagent（只读模式）", () => {
       }],
     });
     render(<AgentConfig agentName="general-purpose" onClose={() => {}} />);
-    // header 显示 useSubagentsStore 里的 displayName（"通用子智能体"）
     expect(screen.getByTestId("agent-config").textContent).toContain("通用子智能体");
   });
 
-  test("内置 subagent tab 内容区有置灰样式（opacity-60 + pointer-events-none）", () => {
+  test("内置 subagent 的非 model/thinking 字段只读（opacity-60 + pointer-events-none）", () => {
     useSubagentsStore.setState({
       subagents: [{
         name: "Explore", displayName: "探索子智能体", description: "",
@@ -266,8 +250,9 @@ describe("AgentConfig 内置 subagent（只读模式）", () => {
     });
     render(<AgentConfig agentName="Explore" onClose={() => {}} />);
     const content = screen.getByTestId("config-tab-content");
-    expect(content.className).toContain("opacity-60");
+    // 只禁用 checkboxes/buttons/textarea，不禁用 select（model/thinking 可编辑）
     expect(content.className).toContain("pointer-events-none");
+    expect(content.className).toContain("[&_textarea]");
   });
 
   test("内置 subagent 显示真实 systemPrompt（来自 useSubagentsStore）", async () => {
@@ -284,7 +269,7 @@ describe("AgentConfig 内置 subagent（只读模式）", () => {
     expect(screen.getByTestId("agent-config").textContent).toContain("CRITICAL: READ-ONLY");
   });
 
-  test("内置 subagent 的 model 改变时调 saveOverride（不走 agent:config:save）", async () => {
+  test("内置 subagent 的 model 改变时不自动保存，点保存按钮才调 saveOverride", async () => {
     const saveOverride = mock();
     useProvidersStore.setState({ providers: [{ id: "p1", name: "openai", api: "openai" as any, baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] }] });
     useSubagentsStore.setState({
@@ -297,8 +282,11 @@ describe("AgentConfig 内置 subagent（只读模式）", () => {
     });
     render(<AgentConfig agentName="Plan" onClose={() => {}} />);
     const modelSelect = screen.getByTestId("cfg-model-select") as HTMLSelectElement;
+    // 修改 model：不应立即调 saveOverride
     fireEvent.change(modelSelect, { target: { value: "openai/gpt-4o" } });
-    // 应调 saveOverride
+    expect(saveOverride).not.toHaveBeenCalled();
+    // 点保存按钮才调 saveOverride
+    fireEvent.click(screen.getByTestId("cfg-save"));
     expect(saveOverride).toHaveBeenCalledWith(expect.objectContaining({
       type: "Plan", model: "openai/gpt-4o",
     }));
@@ -307,7 +295,7 @@ describe("AgentConfig 内置 subagent（只读模式）", () => {
     expect(cfgSaveCall).toBeUndefined();
   });
 
-  test("内置 subagent 的 model 选择控件不置灰（可点）", () => {
+  test("内置 subagent 的 model/thinking 选择控件不置灰（可点）", () => {
     useSubagentsStore.setState({
       subagents: [{
         name: "Plan", displayName: "规划子智能体", description: "",
@@ -317,13 +305,13 @@ describe("AgentConfig 内置 subagent（只读模式）", () => {
     });
     render(<AgentConfig agentName="Plan" onClose={() => {}} />);
     const modelSelect = screen.getByTestId("cfg-model-select");
-    // model select 不应有 pointer-events-none
+    const thinkingSelect = screen.getByTestId("cfg-thinking-select");
     expect(modelSelect.className).not.toContain("pointer-events-none");
-    // 但 footer 提示仍是"内置 subagent"
+    expect(thinkingSelect.className).not.toContain("pointer-events-none");
     expect(screen.getByTestId("cfg-builtin-notice")).toBeTruthy();
   });
 
-  test("内置 subagent 的 thinking 改变时调 saveOverride", async () => {
+  test("内置 subagent 的 thinking 改变时不自动保存", async () => {
     const saveOverride = mock();
     useSubagentsStore.setState({
       subagents: [{
@@ -336,8 +324,26 @@ describe("AgentConfig 内置 subagent（只读模式）", () => {
     render(<AgentConfig agentName="Plan" onClose={() => {}} />);
     const thinkingSelect = screen.getByTestId("cfg-thinking-select") as HTMLSelectElement;
     fireEvent.change(thinkingSelect, { target: { value: "max" } });
+    // 不应自动保存
+    expect(saveOverride).not.toHaveBeenCalled();
+    // 点保存才调
+    fireEvent.click(screen.getByTestId("cfg-save"));
     expect(saveOverride).toHaveBeenCalledWith(expect.objectContaining({
       type: "Plan", thinking: "max",
     }));
+  });
+
+  test("内置 subagent 点保存触发 onClose", () => {
+    useSubagentsStore.setState({
+      subagents: [{
+        name: "Plan", displayName: "规划子智能体", description: "",
+        emoji: "📐", gradient: ["#7c3aed", "#a78bfa"] as [string, string], readOnly: true,
+        systemPrompt: "x", builtinToolNames: [],
+      }],
+    });
+    const onClose = mock();
+    render(<AgentConfig agentName="Plan" onClose={onClose} />);
+    fireEvent.click(screen.getByTestId("cfg-save"));
+    expect(onClose).toHaveBeenCalled();
   });
 });

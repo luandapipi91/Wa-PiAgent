@@ -14,7 +14,7 @@ const agentCfg = (displayName: string): AgentConfig => ({
   displayName, avatar: "", avatarColor: "", description: "",
   model: "m", thinking: "medium", systemPromptMode: "replace",
 
-  tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [],
+  tools: [], skills: [], mcpServers: [], partners: { askTo: [] },
 });
 
 // 把文本写入 contenteditable textbox 并触发 input 事件（替代原 textarea 的 fireEvent.change）

@@ -12,6 +12,7 @@
 //（其所有错误路径均返回普通文本）。
 import { Type } from "typebox";
 import { isSubagentType, SUBAGENT_TYPES, normalizeSubagentType } from "@hiagent/shared";
+import type { DelegationHints } from "@hiagent/shared";
 import type { HiAgentSpawnConfig, SubagentProgressEvent } from "./subagent-runner";
 import { runSubagentAgent } from "./subagent-runner";
 
@@ -21,6 +22,7 @@ export const MAX_SUBAGENT_CONCURRENCY = 6;
 export interface DelegateTarget {
   name: string;
   description: string;
+  delegationHints?: DelegationHints;
 }
 
 /** spawn 闭包返回值：text 给 LLM，isError 标记失败（服务未就绪/调起异常/子智能体失败/超时/中止） */
@@ -52,6 +54,52 @@ function buildNotAllowedMessage(agent: string, askTo: DelegateTarget[]): string 
   return `错误：智能体「${agent}」不在可调起列表中。可调起：${names}；内置 subagent 类型：${builtin}`;
 }
 
+/** 单个智能体在总览中的展示信息（内置与命名统一结构） */
+export interface RosterEntry {
+  name: string;
+  description: string;
+  delegationHints?: DelegationHints;
+}
+
+/**
+ * 拼装可用子智能体总览段（注入系统提示词），XML 结构化标签格式。
+ * 内置类型与命名智能体统一为一个列表，结构一致：名称+简介+hints+定义文件路径。
+ */
+export function buildDelegateRoster(
+  askTo: DelegateTarget[],
+  builtinHints: Record<string, DelegationHints | undefined> = {},
+  agentsDir = "",
+): string {
+  const entries: RosterEntry[] = [];
+  // 内置类型（始终列出）
+  for (const t of SUBAGENT_TYPES) {
+    entries.push({ name: t.name, description: t.description, delegationHints: builtinHints[t.name] });
+  }
+  // 命名智能体
+  for (const t of askTo) {
+    entries.push({ name: t.name, description: t.description, delegationHints: t.delegationHints });
+  }
+  if (entries.length === 0) return "";
+  const blocks = entries.map(e => {
+    const lines = ["<agent>"];
+    lines.push(`  <name>${e.name}</name>`);
+    lines.push(`  <description>${e.description || "（无简介）"}</description>`);
+    if (agentsDir) lines.push(`  <location>${agentsDir}/${e.name}.md</location>`);
+    const h = e.delegationHints;
+    if (h?.whenToDelegate) lines.push(`  <whenToDelegate>${h.whenToDelegate}</whenToDelegate>`);
+    if (h?.whenNotTo) lines.push(`  <whenNotTo>${h.whenNotTo}</whenNotTo>`);
+    if (h?.benefit) lines.push(`  <benefit>${h.benefit}</benefit>`);
+    lines.push("</agent>");
+    return lines.join("\n");
+  });
+  return "## Available Subagents\n\nInvoke via the delegate tool:\n<subagents>\n" + blocks.join("\n") + "\n</subagents>";
+}
+
+/** delegate 工具描述：纯功能说明（智能体总览在系统提示词里，工具描述不重复） */
+function delegateDescription(): string {
+  return "调起子智能体执行任务并返回结果。可用智能体及适用场景见系统提示词。";
+}
+
 /** 构造 delegate 工具（闭包绑 askTo + spawn）。每个 session 一份实例，始终注册（内置类型不依赖 askTo）。 */
 export function makeDelegateTool(opts: {
   askTo: DelegateTarget[];
@@ -60,7 +108,7 @@ export function makeDelegateTool(opts: {
   return {
     name: "delegate",
     label: "Delegate",
-    description: "调起子智能体执行任务并返回结果。agent 可以是关系网内的智能体名称，或内置 subagent 类型名（general-purpose / Explore / Plan）。",
+    description: delegateDescription(),
     parameters: DelegateParamsSchema,
     async execute(
       _toolCallId: string,
@@ -80,23 +128,6 @@ export function makeDelegateTool(opts: {
       return { content: [{ type: "text" as const, text }], details: undefined, isError };
     },
   };
-}
-
-/** 关系网提示词段：列出可调起智能体（名称/简介/触发关键词）。askTo 为空返回空串（不注入）。 */
-export function buildDelegatePrompt(
-  askTo: { name: string; description: string; triggerKeywords: string[] }[],
-): string {
-  if (askTo.length === 0) return "";
-  const lines = askTo.map((t) => {
-    const kw = t.triggerKeywords.length ? `；触发关键词：${t.triggerKeywords.join("、")}` : "";
-    return `- ${t.name}：${t.description || "（无简介）"}${kw}`;
-  });
-  return [
-    "你可以通过 delegate 工具（参数 agent、task）调起以下智能体协作：",
-    ...lines,
-    "当用户消息涉及某智能体的触发关键词或其简介描述的话题时，优先调起对应智能体；只能调起列表内的智能体。",
-    "当多个独立的子任务可以并行执行时，使用 fleet 工具（参数 tasks: [{agent, task}]）一次性派发，并发上限 6；fleet 适合 codebase-wide audit、多文件并行处理等场景，每个 task 仍按任务合约范式组织。",
-  ].join("\n");
 }
 
 /**
@@ -156,7 +187,7 @@ export function makeFleetTool(opts: {
   return {
     name: "fleet",
     label: "Fleet",
-    description: "并行调起多个子智能体执行任务并聚合结果。每个 agent 必须取可调起列表中的智能体名称。适用于多个独立子任务可并行的场景。",
+    description: "并行调起多个子智能体执行任务并聚合结果。每个 agent 必须取可调起列表中的智能体名称或内置类型名（general-purpose / Explore / Plan）。适用场景：多关键词/多目录并行探索、codebase-wide audit、多文件并行处理、多个独立 bug 同时调查。只要多个子任务相互独立就应尽量并行以最大化性能，而非串行 delegate。",
     parameters: FleetParamsSchema,
     async execute(
       _toolCallId: string,

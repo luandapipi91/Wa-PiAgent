@@ -5,7 +5,7 @@
 // 元信息（emoji/gradient/displayName）仍在 SUBAGENT_TYPES 常量。
 
 import { SUBAGENT_TYPES } from "@hiagent/shared";
-import type { SubagentInfo, SubagentOverride } from "@hiagent/shared";
+import type { SubagentInfo, SubagentOverride, DelegationHints } from "@hiagent/shared";
 import { BUILTIN_AGENT_CONTENT } from "./builtin-agents";
 
 /** 从 .md 内容中提取 frontmatter 之后的 body 部分（即 systemPrompt 正文） */
@@ -14,16 +14,47 @@ function extractMdBody(md: string): string {
   return fm ? fm[1].trim() : "";
 }
 
-/** BUILTIN_AGENT_CONTENT 中提取的 systemPrompt 缓存（启动后不变） */
+/**
+ * 从 .md frontmatter 提取 delegationHints（委派引导）。
+ * 内置 .md 用 pi-open-agents frontmatter 格式（无 displayName 等 HiAgent 字段），
+ * 不能直接用 parseAgentMd，故单独正则提取三个字段。
+ */
+function extractDelegationHints(md: string): DelegationHints | undefined {
+  const fm = md.match(/^---\n([\s\S]*?)\n---/);
+  if (!fm) return undefined;
+  const yaml = fm[1];
+  // delegationHints 嵌套块：匹配 "  whenToDelegate: 值" 等缩进行
+  const block = yaml.match(/^delegationHints:\s*\n((?:  \w+:.*\n?)+)/m);
+  if (!block) return undefined;
+  const get = (key: string) => {
+    const m = block[1].match(new RegExp(`^  ${key}:\\s*(.+)$`, "m"));
+    return m?.[1].trim() || undefined;
+  };
+  const whenToDelegate = get("whenToDelegate");
+  const whenNotTo = get("whenNotTo");
+  const benefit = get("benefit");
+  return (whenToDelegate || whenNotTo || benefit) ? { whenToDelegate, whenNotTo, benefit } : undefined;
+}
+
+/** BUILTIN_AGENT_CONTENT 中提取的 systemPrompt / delegationHints 缓存（启动后不变） */
 let _systemPromptCache: Record<string, string> | null = null;
-function getSystemPrompt(name: string): string {
-  if (!_systemPromptCache) {
-    _systemPromptCache = {};
-    for (const [n, content] of Object.entries(BUILTIN_AGENT_CONTENT)) {
-      _systemPromptCache[n] = extractMdBody(content);
-    }
+let _delegationHintsCache: Record<string, DelegationHints | undefined> | null = null;
+function ensureCache() {
+  if (_systemPromptCache && _delegationHintsCache) return;
+  _systemPromptCache = {};
+  _delegationHintsCache = {};
+  for (const [n, content] of Object.entries(BUILTIN_AGENT_CONTENT)) {
+    _systemPromptCache[n] = extractMdBody(content);
+    _delegationHintsCache[n] = extractDelegationHints(content);
   }
-  return _systemPromptCache[name] ?? "";
+}
+function getSystemPrompt(name: string): string {
+  ensureCache();
+  return _systemPromptCache![name] ?? "";
+}
+function getDelegationHints(name: string): DelegationHints | undefined {
+  ensureCache();
+  return _delegationHintsCache![name];
 }
 
 /**
@@ -40,6 +71,7 @@ export async function getSubagentInfo(overrides: SubagentOverride[]): Promise<Su
     readOnly: t.readOnly,
     systemPrompt: getSystemPrompt(t.name),
     builtinToolNames: t.readOnly ? ["read", "bash", "grep", "find", "ls"] : [],
+    delegationHints: getDelegationHints(t.name),
     override: overrides.find(o => o.type === t.name),
   }));
 }

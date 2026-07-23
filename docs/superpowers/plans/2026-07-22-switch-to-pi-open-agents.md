@@ -32,11 +32,12 @@
 | `packages/kernel/src/extensions.ts` | 扩展注册 | 修改：PKG_EXTENSIONS 包名 |
 | `packages/kernel/src/delegate-tool.ts` | delegate/fleet 工具 + spawn 执行 | **完全重写** |
 | `packages/kernel/src/subagent-runner.ts` | runSubagent 适配层 + onProgress 事件转发 | **新建** |
+| `packages/kernel/src/builtin-agents.ts` | 内置 agent .md 内容 + seedBuiltinAgents | **新建** |
 | `packages/kernel/src/subagent-info.ts` | 内置 subagent 信息读取 | 修改：从 .md 文件读 |
 | `packages/kernel/src/agent-manager.ts` | session 创建 + delegate 工具注册 | 修改：spawn 闭包 + 过程事件转发 |
 | `packages/shared/src/constants.ts` | SUBAGENT_TYPES 常量 | 修改：保留元信息（emoji/gradient/displayName），移除对 pi-subagents 内部路径的依赖 |
 | `packages/kernel/tests/delegate-tool.test.ts` | delegate 工具测试 | **完全重写** |
-| `docs/research/pi-open-agents-evaluation.md` | 调研评估文档 | 新建（可选） |
+| `~/.hiagent/agents/*.md`（运行时） | agent 定义文件目录 | 通过 `loadAgents({ agentDir: HIAGENT_DIR })` 发现，**不**用 Pi 的 `.pi/agents/` |
 
 ---
 
@@ -118,23 +119,25 @@ git commit -m "refactor(kernel): 扩展注册从 @gotgenes/pi-subagents 改为 p
 
 ---
 
-### Task 3: 新建 subagent-runner.ts（runSubagent 适配层）
+### Task 3: 新建 subagent-runner.ts（runSubagent 适配层 + agent 发现）
 
 **Files:**
 - Create: `packages/kernel/src/subagent-runner.ts`
 
 **Interfaces:**
-- Consumes: `runSubagent`、`AgentDefinition`、`AgentProgress` from `pi-open-agents`
-- Produces: `runSubagentAgent(agent, task, opts)` 函数，返回 `DelegateSpawnResult`，支持 `onProgress` 过程回调
+- Consumes: `runSubagent`、`AgentDefinition`、`AgentProgress`、`loadAgents` from `pi-open-agents`
+- Produces: `runSubagentAgent(config, task, cwd, opts)` 函数，返回 `DelegateSpawnResult`，支持 `onProgress` 过程回调
 
 这是 delegate-tool 的执行核心。把 pi-open-agents 的 `runSubagent`（子进程 async）封装为 HiAgent 的 `DelegateSpawnFn` 签名，同时把 `onProgress` 事件转发给上层（用于前端过程展示）。
+
+agent 定义文件从 `~/.hiagent/agents/*.md` 发现（通过 `loadAgents({ agentDir: HIAGENT_DIR })`），HiAgent 的 ConfigStore 配置覆盖 .md 定义里的 model/thinking/tools/skills。
 
 - [ ] **Step 1: 写失败测试**
 
 ```typescript
 // packages/kernel/tests/subagent-runner.test.ts
 import { test, expect, mock } from "bun:test";
-import { buildAgentDefinition, type SubagentProgressEvent } from "../src/subagent-runner";
+import { buildAgentDefinition, type SubagentProgressEvent, type HiAgentSpawnConfig } from "../src/subagent-runner";
 
 test("buildAgentDefinition 从 HiAgent config 构造 AgentDefinition", () => {
   const def = buildAgentDefinition({
@@ -166,9 +169,37 @@ test("buildAgentDefinition 内置类型用 SUBAGENT_TYPES 元信息填充缺省�
     tools: [],
     skills: [],
   });
-  // Explore 是只读探索类型，builtinToolNames 应为只读工具集
+  // Explore 是只读探索类型，工具集应为只读
   expect(def.name).toBe("Explore");
   expect(def.tools).toContain("read");
+});
+
+test("buildAgentDefinition config.skills 非空时白名单生效", () => {
+  const def = buildAgentDefinition({
+    name: "dev",
+    description: "",
+    systemPrompt: "",
+    systemPromptMode: "replace",
+    model: null,
+    thinking: null,
+    tools: [],
+    skills: ["pdf", "brainstorming"],
+  });
+  expect(def.skills).toEqual(["pdf", "brainstorming"]);
+});
+
+test("buildAgentDefinition config.skills 为空时不设 skills（继承全部）", () => {
+  const def = buildAgentDefinition({
+    name: "dev",
+    description: "",
+    systemPrompt: "",
+    systemPromptMode: "replace",
+    model: null,
+    thinking: null,
+    tools: [],
+    skills: [],
+  });
+  expect(def.skills).toBeUndefined();
 });
 ```
 
@@ -224,6 +255,10 @@ function mapThinking(thinking: ThinkingLevel | null): string {
 /**
  * 从 HiAgent config 构造 pi-open-agents 的 AgentDefinition。
  * 内置 subagent 类型（general-purpose/Explore/Plan）用 SUBAGENT_TYPES 元信息补全。
+ *
+ * config.skills / config.tools 白名单在此映射到 AgentDefinition：
+ * - 非空数组 = 按白名单限定（skills 支持通配符，由 pi-open-agents resolveSkills 处理）
+ * - 空数组 = undefined（不设字段 = 继承全部，pi-open-agents 默认行为）
  */
 export function buildAgentDefinition(config: HiAgentSpawnConfig): AgentDefinition {
   // 内置类型从 SUBAGENT_TYPES 补全工具/提示词缺省值
@@ -237,10 +272,8 @@ export function buildAgentDefinition(config: HiAgentSpawnConfig): AgentDefinitio
       ? ["read", "bash", "grep", "find", "ls"]
       : undefined; // undefined = 全量工具（AgentDefinition 不设 tools 字段）
 
-  const systemPrompt = config.systemPrompt
-    || builtin?.readOnly
-      ? config.systemPrompt
-      : "";
+  // skills：非空数组 = 白名单限定；空数组 = undefined（继承全部）
+  const skills = config.skills.length > 0 ? config.skills : undefined;
 
   return {
     name: config.name,
@@ -251,9 +284,9 @@ export function buildAgentDefinition(config: HiAgentSpawnConfig): AgentDefinitio
     model: config.model ?? undefined,
     thinking: mapThinking(config.thinking) as any,
     systemPrompt: config.systemPromptMode,
-    prompt: systemPrompt,
+    prompt: config.systemPrompt,
     tools,
-    skills: config.skills.length > 0 ? config.skills : undefined,
+    skills,
     maxDepth: 3,
     filePath: "",
     source: "project" as any,
@@ -469,7 +502,237 @@ git commit -m "refactor(kernel): delegate-tool 移除 spawn+轮询，改用 runS
 
 ---
 
-### Task 5: agent-manager 接入新 spawn 闭包 + config.skills/tools 传递
+### Task 5: 内置智能体迁移为 ~/.hiagent/agents/*.md 定义文件
+
+**Files:**
+- Create: `packages/kernel/src/builtin-agents.ts`（内置 agent .md 内容 + seedDefaults）
+- Modify: `packages/kernel/src/agent-manager.ts`（启动时调 seedBuiltinAgents）
+- Test: `packages/kernel/tests/builtin-agents.test.ts`
+
+**Interfaces:**
+- Consumes: `SUBAGENT_TYPES` from `@hiagent/shared`（emoji/gradient/displayName 元信息）
+- Produces: `seedBuiltinAgents(agentsDir)` 函数，在 `~/.hiagent/agents/` 写入三个 .md 文件；`loadBuiltinAgentDefs()` 返回内置 AgentDefinition（供 resolveSpawnConfig 使用）
+
+切换前内置类型（general-purpose/Explore/Plan）的 systemPrompt 在 `@gotgenes/pi-subagents` 的 `default-agents.ts` 里硬编码。切换后改为 `~/.hiagent/agents/*.md` 定义文件，由 kernel 启动时 seedDefaults 写入（同 `~/.hiagent/agents/<命名智能体>.md` 的 seedDefaults 机制）。.md 文件用户可覆盖。
+
+- [ ] **Step 1: 写失败测试**
+
+```typescript
+// packages/kernel/tests/builtin-agents.test.ts
+import { test, expect } from "bun:test";
+import { readdirSync, readFileSync, rmSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { seedBuiltinAgents, BUILTIN_AGENT_CONTENT } from "../src/builtin-agents";
+
+test("BUILTIN_AGENT_CONTENT 含三个内置类型", () => {
+  expect(BUILTIN_AGENT_CONTENT["general-purpose"]).toBeDefined();
+  expect(BUILTIN_AGENT_CONTENT["Explore"]).toBeDefined();
+  expect(BUILTIN_AGENT_CONTENT["Plan"]).toBeDefined();
+});
+
+test("Explore .md 含只读提示词 + read-only 工具集", () => {
+  const md = BUILTIN_AGENT_CONTENT["Explore"];
+  expect(md).toContain("READ-ONLY MODE");
+  expect(md).toContain("tools: read, bash, grep, find, ls");
+});
+
+test("Plan .md 含架构师提示词 + read-only 工具集", () => {
+  const md = BUILTIN_AGENT_CONTENT["Plan"];
+  expect(md).toContain("software architect");
+  expect(md).toContain("tools: read, bash, grep, find, ls");
+});
+
+test("general-purpose .md 无 tools 白名单（继承全部）", () => {
+  const md = BUILTIN_AGENT_CONTENT["general-purpose"];
+  // general-purpose 不设 tools 字段 = 全量工具
+  expect(md).not.toMatch(/^tools:/m);
+});
+
+test("seedBuiltinAgents 写入三个 .md 文件", () => {
+  const tmpDir = `/tmp/hiagent-test-agents-${Date.now()}`;
+  mkdirSync(tmpDir, { recursive: true });
+  seedBuiltinAgents(tmpDir);
+  const files = readdirSync(tmpDir).filter(f => f.endsWith(".md")).sort();
+  expect(files).toEqual(["Explore.md", "Plan.md", "general-purpose.md"].sort());
+  // 已存在文件不覆盖
+  rmSync(tmpDir, { recursive: true });
+});
+
+test("seedBuiltinAgents 已存在的文件不覆盖", () => {
+  const tmpDir = `/tmp/hiagent-test-agents-keep-${Date.now()}`;
+  mkdirSync(tmpDir, { recursive: true });
+  // 先写一个自定义的 Explore.md
+  const customContent = "---\nname: Explore\ndescription: 我的自定义探索\n---\n自定义提示词";
+  writeFileSync(join(tmpDir, "Explore.md"), customContent);
+  seedBuiltinAgents(tmpDir);
+  const after = readFileSync(join(tmpDir, "Explore.md"), "utf-8");
+  expect(after).toBe(customContent);
+  rmSync(tmpDir, { recursive: true });
+});
+```
+
+- [ ] **Step 2: 运行测试确认失败**
+
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/builtin-agents.test.ts`
+Expected: FAIL — 模块不存在
+
+- [ ] **Step 3: 实现 builtin-agents.ts**
+
+```typescript
+// packages/kernel/src/builtin-agents.ts
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+/**
+ * 内置 subagent 的 agent.md 定义内容（frontmatter + 提示词正文）。
+ *
+ * 提示词从 @gotgenes/pi-subagents 的 default-agents.ts 迁移而来，
+ * 切换到 pi-open-agents 后不再依赖包内部源码，改为本地 .md 文件。
+ * 用户可在 ~/.hiagent/agents/ 覆盖同名文件自定义。
+ */
+export const BUILTIN_AGENT_CONTENT: Record<string, string> = {
+  "general-purpose": `---
+name: general-purpose
+description: 继承调用者的全部工具，执行复杂多步任务。
+mode: subagent
+systemPrompt: append
+thinking: medium
+---
+
+General-purpose agent for complex, multi-step tasks.`,
+
+  "Explore": `---
+name: Explore
+description: 只读代码探索，快速搜索和理解代码库结构。
+mode: subagent
+systemPrompt: replace
+thinking: medium
+tools: read, bash, grep, find, ls
+---
+
+# CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS
+You are a file search specialist. You excel at thoroughly navigating and exploring codebases.
+Your role is EXCLUSIVELY to search and analyze existing code. You do NOT have access to file editing tools.
+
+You are STRICTLY PROHIBITED FROM:
+- Creating new files
+- Modifying existing files
+- Deleting files
+- Moving or copying files
+- Creating temporary files anywhere, including /tmp
+- Using redirect operators (>, >>, |) or heredocs to write to files
+- Running ANY commands that change system state
+
+Use Bash ONLY for read-only operations: ls, git status, git log, git diff, find, cat, head, tail.
+
+# Tool Usage
+- Use the find tool for file pattern matching (NOT the bash find command)
+- Use the grep tool for content search (NOT bash grep/rg command)
+- Use the read tool for reading files (NOT bash cat/head/tail)
+- Use Bash ONLY for read-only operations
+- Make independent tool calls in parallel for efficiency
+- Adapt search approach based on thoroughness level specified
+
+# Output
+- Use absolute file paths in all references
+- Report findings as regular messages
+- Do not use emojis
+- Be thorough and precise`,
+
+  "Plan": `---
+name: Plan
+description: 只读代码架构师，探索代码库并设计实施方案。
+mode: subagent
+systemPrompt: replace
+thinking: medium
+tools: read, bash, grep, find, ls
+---
+
+# CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS
+You are a software architect and planning specialist.
+Your role is EXCLUSIVELY to explore the codebase and design implementation plans.
+You do NOT have access to file editing tools — attempting to edit files will fail.
+
+You are STRICTLY PROHIBITED FROM:
+- Creating new files
+- Modifying existing files
+- Deleting files
+- Moving or copying files
+- Creating temporary files anywhere, including /tmp
+- Using redirect operators (>, >>, |) or heredocs to write to files
+- Running ANY commands that change system state
+
+# Planning Process
+1. Understand requirements
+2. Explore thoroughly (read files, find patterns, understand architecture)
+3. Design solution based on your assigned perspective
+4. Detail the plan with step-by-step implementation strategy
+
+# Requirements
+- Consider trade-offs and architectural decisions
+- Identify dependencies and sequencing
+- Anticipate potential challenges
+- Follow existing patterns where appropriate
+
+# Tool Usage
+- Use the find tool for file pattern matching (NOT the bash find command)
+- Use the grep tool for content search (NOT bash grep/rg command)
+- Use the read tool for reading files (NOT bash cat/head/tail)
+- Use Bash ONLY for read-only operations
+
+# Output Format
+- Use absolute file paths
+- Do not use emojis
+- End your response with:
+
+### Critical Files for Implementation
+List 3-5 files most critical for implementing this plan:
+- /absolute/path/to/file.ts - [Brief reason]`,
+};
+
+/**
+ * 在 agentsDir 写入内置 agent 定义文件（~/.hiagent/agents/*.md）。
+ * 已存在的同名文件不覆盖（用户自定义优先）。
+ */
+export function seedBuiltinAgents(agentsDir: string): void {
+  mkdirSync(agentsDir, { recursive: true });
+  for (const [name, content] of Object.entries(BUILTIN_AGENT_CONTENT)) {
+    const filePath = join(agentsDir, `${name}.md`);
+    if (!existsSync(filePath)) {
+      writeFileSync(filePath, content, "utf-8");
+    }
+  }
+}
+```
+
+- [ ] **Step 4: 运行测试确认通过**
+
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/builtin-agents.test.ts`
+Expected: PASS
+
+- [ ] **Step 5: agent-manager 启动时调 seedBuiltinAgents**
+
+在 `packages/kernel/src/agent-manager.ts` 的 `ensureStarted` 或构造时调用：
+
+```typescript
+import { seedBuiltinAgents } from "./builtin-agents";
+import { join } from "node:path";
+
+// 在 _createSession 或 ensureStarted 的初始化阶段调用：
+const agentsDir = join(HIAGENT_DIR, "agents");
+seedBuiltinAgents(agentsDir);
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add packages/kernel/src/builtin-agents.ts packages/kernel/tests/builtin-agents.test.ts packages/kernel/src/agent-manager.ts
+git commit -m "feat(kernel): 内置智能体迁移为 ~/.hiagent/agents/*.md 定义文件"
+```
+
+---
+
+### Task 6: agent-manager 接入新 spawn 闭包 + config.skills/tools 传递
 
 **Files:**
 - Modify: `packages/kernel/src/agent-manager.ts:368-381`
@@ -495,29 +758,33 @@ const delegateTools = [
 import { makeSpawnFn } from "./delegate-tool";
 import type { HiAgentSpawnConfig } from "./subagent-runner";
 
-// resolveConfig：从 ConfigStore 读 agent 配置，提取 spawn 所需字段
-// config.skills / config.tools 白名单在此传入子智能体（之前从未被消费的死字段，现在生效）
+// resolveConfig：优先从 ConfigStore 读 HiAgent 配置（用户在 UI 设置的 model/thinking/tools/skills），
+// 内置 subagent 类型不在 store 里——从 ~/.hiagent/agents/*.md 定义文件加载 systemPrompt（Task 5 seedBuiltinAgents 写入）。
+// config.skills / config.tools 白名单在此传入子智能体（之前从未被消费的死字段，现在生效）。
 const resolveSpawnConfig = async (agentName: string): Promise<HiAgentSpawnConfig | null> => {
-  const cfg = await this.opts.configStore?.getAgent(agentName).catch(() => null);
-  if (!cfg) {
-    // 内置 subagent 类型不在 store 里，用 SUBAGENT_TYPES 补全
-    if (isSubagentType(agentName)) {
-      const builtin = SUBAGENT_TYPES.find(t => t.name === agentName);
-      if (builtin) {
-        return {
-          name: builtin.name,
-          description: builtin.description,
-          systemPrompt: "",
-          systemPromptMode: "replace",
-          model: null,
-          thinking: null,
-          tools: builtin.readOnly ? ["read", "bash", "grep", "find", "ls"] : [],
-          skills: [],
-        };
-      }
+  // 内置 subagent 类型：从 ~/.hiagent/agents/*.md 读定义（含 systemPrompt）
+  if (isSubagentType(agentName)) {
+    const builtin = SUBAGENT_TYPES.find(t => t.name === agentName);
+    if (builtin) {
+      // 从 seedBuiltinAgents 写入的 .md 文件读取 systemPrompt（用户可覆盖）
+      const { loadAgents } = await import("pi-open-agents");
+      const { agents } = await loadAgents({ agentDir: HIAGENT_DIR });
+      const agentDef = agents.find(a => a.name === agentName);
+      return {
+        name: builtin.name,
+        description: builtin.description,
+        systemPrompt: agentDef?.prompt ?? "",
+        systemPromptMode: (agentDef?.systemPrompt as any) ?? "replace",
+        model: null,
+        thinking: null,
+        tools: builtin.readOnly ? ["read", "bash", "grep", "find", "ls"] : [],
+        skills: [],
+      };
     }
-    return null;
   }
+  // 命名智能体：从 ConfigStore 读配置
+  const cfg = await this.opts.configStore?.getAgent(agentName).catch(() => null);
+  if (!cfg) return null;
   return {
     name: cfg.displayName,
     description: cfg.description,
@@ -525,8 +792,8 @@ const resolveSpawnConfig = async (agentName: string): Promise<HiAgentSpawnConfig
     systemPromptMode: cfg.systemPromptMode,
     model: cfg.model,
     thinking: cfg.thinking,
-    tools: cfg.tools,
-    skills: cfg.skills,  // ← 死字段现在生效
+    tools: cfg.tools,     // ← 白名单生效（空=全量默认）
+    skills: cfg.skills,   // ← 白名单生效（空=继承全部）
   };
 };
 
@@ -559,7 +826,7 @@ git commit -m "feat(kernel): agent-manager 接入 runSubagentAgent，config.skil
 
 ---
 
-### Task 6: 移除 inheritSkills 死字段
+### Task 7: 移除 inheritSkills 死字段
 
 **Files:**
 - Modify: `packages/shared/src/types.ts:47`
@@ -627,7 +894,7 @@ git commit -m "refactor: 移除死字段 inheritSkills"
 
 ---
 
-### Task 7: 更新 subagent-info.ts（从 pi-open-agents 读内置 agent 信息）
+### Task 8: 更新 subagent-info.ts（从 pi-open-agents 读内置 agent 信息）
 
 **Files:**
 - Modify: `packages/kernel/src/subagent-info.ts`
@@ -662,7 +929,7 @@ export async function getSubagentInfo(overrides: SubagentOverride[]): Promise<Su
 }
 ```
 
-注意：SUBAGENT_TYPES 需要确认是否已有 systemPrompt 字段。如果没有，systemPrompt 返回空串（前端 AgentConfig 展示只读详情时，可以后续从 .md 文件读）。
+注意：SUBAGENT_TYPES 需要确认是否已有 systemPrompt 字段。如果没有，systemPrompt 返回空串（前端 AgentConfig 展示只读详情时，可以后续从 `~/.hiagent/agents/*.md` 读）。
 
 - [ ] **Step 2: 运行测试**
 
@@ -678,7 +945,7 @@ git commit -m "refactor(kernel): subagent-info 不再 import pi-subagents 内部
 
 ---
 
-### Task 8: 运行全套测试 + 修复回归
+### Task 9: 运行全套测试 + 修复回归
 
 **Files:**
 - 可能涉及多个测试文件
@@ -716,7 +983,7 @@ git commit -m "test: 修复 pi-open-agents 切换后的测试回归"
 
 ---
 
-### Task 9: 更新 CHANGELOG + 最终验证
+### Task 10: 更新 CHANGELOG + 最终验证
 
 **Files:**
 - Modify: `CHANGELOG.md`
@@ -727,7 +994,7 @@ git commit -m "test: 修复 pi-open-agents 切换后的测试回归"
 
 ```markdown
 ### 重构
-- **子智能体执行后端从 @gotgenes/pi-subagents 切换到 pi-open-agents**：获得 per-agent skills/tools 白名单配置能力（config.skills/config.tools 死字段正式生效）+ 子智能体执行过程可见性（onProgress 回调：工具调用/文本输出/用量实时推送）。架构变化：进程内 spawn+轮询 → 子进程 runSubagent+AbortSignal。delegate-tool 完全重写（移除 SubagentServiceLike/waitSubagentResult/spawnViaSubagentsService，新增 makeSpawnFn + subagent-runner 适配层）。移除死字段 inheritSkills。影响范围：kernel/{delegate-tool,subagent-runner(新),subagent-info,agent-manager,extensions}.ts、shared/{types,constants}.ts、frontend/AgentConfig.tsx。
+- **子智能体执行后端从 @gotgenes/pi-subagents 切换到 pi-open-agents**：获得 per-agent skills/tools 白名单配置能力（config.skills/config.tools 死字段正式生效）+ 子智能体执行过程可见性（onProgress 回调：工具调用/文本输出/用量实时推送）。架构变化：进程内 spawn+轮询 → 子进程 runSubagent+AbortSignal。内置智能体（general-purpose/Explore/Plan）的 systemPrompt 从包内部硬编码迁移为 `~/.hiagent/agents/*.md` 定义文件（用户可覆盖），agent 定义目录统一在 HiAgent 自己的 `~/.hiagent/agents/`。delegate-tool 完全重写（移除 SubagentServiceLike/waitSubagentResult/spawnViaSubagentsService，新增 makeSpawnFn + subagent-runner 适配层 + builtin-agents 种子文件）。移除死字段 inheritSkills。影响范围：kernel/{delegate-tool,subagent-runner(新),builtin-agents(新),subagent-info,agent-manager,extensions}.ts、shared/{types,constants}.ts、frontend/AgentConfig.tsx。
 ```
 
 - [ ] **Step 2: 全量测试最终验证**
@@ -740,4 +1007,335 @@ Expected: 除预先存在的 flaky 测试外全部 PASS
 ```bash
 git add CHANGELOG.md
 git commit -m "docs: CHANGELOG 记录 pi-open-agents 切换"
+```
+
+---
+
+## 第二部分：per-agent MCP 服务器白名单
+
+以下 Task 独立于 pi-open-agents 切换，可在当前 `@gotgenes` 架构上直接实现。
+
+---
+
+### Task 11: resolveAgentTools 增加 MCP server 白名单过滤
+
+**Files:**
+- Modify: `packages/shared/src/constants.ts:168-197`
+- Modify: `packages/kernel/src/agent-manager.ts:437-446`
+- Test: `packages/shared/tests/constants.test.ts`（或 inline test）
+
+**Interfaces:**
+- Consumes: `config.mcpServers: string[]`（agent 配置里的 MCP server 白名单，空=全部放行）
+- Produces: `resolveAgentTools` 新增 `allowedMcpServers?: string[]` 参数；agent-manager 从 config.mcpServers 传入
+
+**MCP 工具命名规则**（pi-mcp-adapter 的 `formatToolName`）：
+- directTools 开启的服务器：工具名 = `<serverPrefix>_<toolName>`，serverPrefix = `serverName.replace(/-/g, "_")`
+- directTools 未开启的服务器：只有统一的 `mcp` proxy 工具（通过 `mcp({ tool, server })` 调用）
+- 前缀模式默认 `"server"`
+
+- [ ] **Step 1: 写失败测试**
+
+```typescript
+// packages/shared/tests/constants.test.ts（追加到现有测试文件）
+import { resolveAgentTools } from "../src/constants";
+
+test("resolveAgentTools: mcpServers 白名单过滤 harvestedTools 中的 MCP 工具", () => {
+  // harvestedTools 含 3 个 MCP direct tool + 1 个普通工具
+  const harvested = [
+    "playwright_browser_navigate",   // server: playwright
+    "playwright_browser_click",      // server: playwright
+    "github_create_issue",           // server: github
+    "read",                          // 普通 builtin 工具
+  ];
+  // 白名单只允许 playwright server
+  const result = resolveAgentTools(
+    [], new Set(), undefined, {}, harvested,
+    { allowedMcpServers: ["playwright"] },
+  );
+  expect(result).toContain("playwright_browser_navigate");
+  expect(result).toContain("playwright_browser_click");
+  expect(result).not.toContain("github_create_issue");
+  // 非 MCP 工具不受影响
+  expect(result).toContain("read");
+});
+
+test("resolveAgentTools: mcpServers 为空/不传 = 全部放行（向后兼容）", () => {
+  const harvested = ["playwright_browser_navigate", "github_create_issue", "read"];
+  const result = resolveAgentTools([], new Set(), undefined, {}, harvested);
+  expect(result).toContain("playwright_browser_navigate");
+  expect(result).toContain("github_create_issue");
+});
+
+test("resolveAgentTools: server 名含连字符时按 _ 前缀匹配", () => {
+  // server "my-server" → 前缀 "my_server"
+  const harvested = ["my_server_tool1", "other_tool2"];
+  const result = resolveAgentTools(
+    [], new Set(), undefined, {}, harvested,
+    { allowedMcpServers: ["my-server"] },
+  );
+  expect(result).toContain("my_server_tool1");
+  expect(result).not.toContain("other_tool2");
+});
+```
+
+- [ ] **Step 2: 运行测试确认失败**
+
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/shared && bun test tests/constants.test.ts -t "mcpServers"`
+Expected: FAIL — `allowedMcpServers` 参数不存在
+
+- [ ] **Step 3: 修改 resolveAgentTools 增加 allowedMcpServers 参数**
+
+```typescript
+// packages/shared/src/constants.ts:168-197
+// 新增第 6 个参数 opts（含 allowedMcpServers）
+
+/**
+ * 判定一个 harvested tool 是否属于某个 MCP server（基于命名前缀规则）。
+ * MCP direct tool 名形如 `<serverPrefix>_<toolName>`，serverPrefix = serverName.replace(/-/g,"_")。
+ * 非 MCP 工具（builtin/扩展）不匹配任何 server 前缀，返回 false。
+ *
+ * 注意：这是一个启发式匹配——serverPrefix 是 server 名的规范化形式，
+ * 可能存在极端命名碰撞（如普通工具恰好叫 `foo_bar` 而恰好有个 server 叫 `foo`）。
+ * 但在实际使用中 MCP 工具名通常足够独特，碰撞概率极低。
+ */
+function getMcpServerOfTool(toolName: string, serverPrefixes: Set<string>): string | null {
+  const idx = toolName.indexOf("_");
+  if (idx < 0) return null;
+  const prefix = toolName.slice(0, idx);
+  return serverPrefixes.has(prefix) ? prefix : null;
+}
+
+export function resolveAgentTools(
+  baseTools: string[],
+  enabledExtensionIds: Set<string>,
+  _agentName?: string,
+  toolMap: Record<string, string[]> = EXTENSION_TOOL_MAP,
+  harvestedTools: Iterable<string> = [],
+  opts?: { allowedMcpServers?: string[] },
+): string[] {
+  const BLOCKED = new Set(["subagent"]);
+  const seen = new Set(baseTools);
+  const result = [...baseTools];
+  for (const [extId, extTools] of Object.entries(toolMap)) {
+    if (enabledExtensionIds.has(extId)) {
+      for (const t of extTools) {
+        if (!seen.has(t)) {
+          seen.add(t);
+          result.push(t);
+        }
+      }
+    }
+  }
+
+  // MCP server 白名单：非空时只放行白名单内 server 的工具
+  // server 名 → 前缀（- 替换为 _），如 "playwright" → "playwright"，"my-server" → "my_server"
+  const allowedPrefixes = opts?.allowedMcpServers?.length
+    ? new Set(opts.allowedMcpServers.map(s => s.replace(/-/g, "_")))
+    : null;
+
+  for (const t of harvestedTools) {
+    if (seen.has(t)) continue;
+    // MCP 白名单过滤：工具属于某 MCP server 前缀时，只放行白名单内的
+    if (allowedPrefixes) {
+      const serverPrefix = getMcpServerOfTool(t, allowedPrefixes);
+      if (serverPrefix === null && t.includes("_")) {
+        // 工具名含下划线但不匹配任何白名单前缀 → 可能是未授权的 MCP 工具，跳过
+        // 注意：普通扩展工具（如 read/bash/grep）不含下划线，不受影响
+        continue;
+      }
+    }
+    seen.add(t);
+    result.push(t);
+  }
+  return result.filter(t => !BLOCKED.has(t));
+}
+```
+
+- [ ] **Step 4: 运行测试确认通过**
+
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/shared && bun test tests/constants.test.ts -t "mcpServers"`
+Expected: PASS
+
+- [ ] **Step 5: agent-manager 传入 config.mcpServers**
+
+```typescript
+// packages/kernel/src/agent-manager.ts:440-446
+const tools = resolveAgentTools(
+  config?.tools?.length ? config.tools : DEFAULT_AGENT_TOOLS,
+  enabledExtensionIds,
+  agentName,
+  EXTENSION_TOOL_MAP,
+  harvestedTools,
+  { allowedMcpServers: config?.mcpServers },  // ← 死字段现在生效
+);
+```
+
+- [ ] **Step 6: 运行 kernel 测试确认无回归**
+
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/kernel && bun test 2>&1 | tail -10`
+Expected: 无新增 FAIL
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add packages/shared/src/constants.ts packages/shared/tests/constants.test.ts packages/kernel/src/agent-manager.ts
+git commit -m "feat(kernel): resolveAgentTools 支持 per-agent MCP server 白名单过滤"
+```
+
+---
+
+### Task 12: AgentConfig 弹窗新增 MCP tab
+
+**Files:**
+- Modify: `packages/frontend/src/components/AgentConfig.tsx`（TABS + Tab 类型 + McpTab 组件）
+- Test: `packages/frontend/tests/AgentConfig.test.tsx`
+
+**Interfaces:**
+- Consumes: `useMcpStore(s => s.servers)` 取 MCP 服务器列表（`McpServerConfig[]`）
+- Consumes: `draft.mcpServers: string[]`（已有字段，之前是死字段）
+- Produces: MCP tab 展示所有已配置 MCP 服务器的 checkbox 列表，勾选态绑定 `draft.mcpServers`
+
+- [ ] **Step 1: 写失败测试**
+
+```typescript
+// packages/frontend/tests/AgentConfig.test.tsx（追加）
+test("MCP tab 展示 MCP 服务器列表并支持勾选", async () => {
+  // 设置 MCP store
+  useMcpStore.setState({
+    servers: [
+      { name: "playwright", command: "npx", args: ["@playwright/mcp"] } as any,
+      { name: "github", url: "https://api.github.com/mcp" } as any,
+    ],
+    loading: false,
+  });
+  const onChange = mock();
+  render(<AgentConfig agentName="dev" onClose={noop} />);
+  // 等 config 加载后切到 MCP tab
+  await waitFor(() => screen.getByTestId("cfg-name-input"));
+  fireEvent.click(screen.getByTestId("tab-mcp"));
+  // 两个服务器都展示
+  expect(screen.getByTestId("mcp-check-playwright")).toBeTruthy();
+  expect(screen.getByTestId("mcp-check-github")).toBeTruthy();
+  // 勾选 playwright
+  fireEvent.click(screen.getByTestId("mcp-check-playwright"));
+  // onChange 被调用，draft.mcpServers 含 playwright
+  const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+  expect(lastCall.mcpServers).toContain("playwright");
+  expect(lastCall.mcpServers).not.toContain("github");
+});
+```
+
+- [ ] **Step 2: 运行测试确认失败**
+
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/frontend && bun test tests/AgentConfig.test.tsx -t "MCP tab"`
+Expected: FAIL — `tab-mcp` 不存在
+
+- [ ] **Step 3: 修改 AgentConfig.tsx 新增 MCP tab**
+
+在 `packages/frontend/src/components/AgentConfig.tsx` 做以下改动：
+
+a) Tab 类型加 `"mcp"`，TABS 加 MCP 项：
+
+```typescript
+// line 15
+type Tab = "basic" | "tools" | "skills" | "partners" | "mcp";
+
+// line 17-22
+const TABS: { key: Tab; label: string }[] = [
+  { key: "basic", label: "基本" },
+  { key: "tools", label: "工具" },
+  { key: "skills", label: "技能" },
+  { key: "mcp", label: "MCP" },
+  { key: "partners", label: "关系网" },
+];
+```
+
+b) 渲染分支加 McpTab（在 line 143 附近）：
+
+```typescript
+{draft && tab === "mcp" && <McpTab draft={draft} onChange={handleChange} />}
+```
+
+c) 新增 McpTab 组件（在文件底部 PartnersTab 之后）：
+
+```typescript
+function McpTab({ draft, onChange }: TabProps) {
+  const servers = useMcpStore(s => s.servers);
+  // 首次进入加载 MCP 列表
+  useEffect(() => {
+    if (servers.length === 0) useMcpStore.getState().load();
+  }, []);
+  // 空 mcpServers = 全量（同 tools/skills 的语义）
+  const checked = (name: string) => draft.mcpServers.length === 0 || draft.mcpServers.includes(name);
+  const toggle = (name: string) => {
+    const next = draft.mcpServers.length === 0
+      ? servers.filter(s => s.name !== name).map(s => s.name)
+      : draft.mcpServers.includes(name) ? draft.mcpServers.filter(x => x !== name) : [...draft.mcpServers, name];
+    onChange({ ...draft, mcpServers: next });
+  };
+  if (servers.length === 0) return <p className="text-sm text-tertiary">暂无 MCP 服务器，可在设置中添加</p>;
+  return (
+    <div className="flex flex-col">
+      <p className="text-[11px] text-tertiary mb-2">全部勾选 = 全量默认；取消勾选后按显式列表保存</p>
+      {servers.map(s => (
+        <label key={s.name} className="flex items-center gap-2 py-1 cursor-pointer">
+          <input type="checkbox" checked={checked(s.name)} onChange={() => toggle(s.name)} data-testid={`mcp-check-${s.name}`} />
+          <span className="text-sm text-primary">{s.name}</span>
+          <span className="text-[11px] text-tertiary truncate">{s.command ?? s.url ?? ""}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+```
+
+d) 顶部加 useMcpStore import：
+
+```typescript
+import { useMcpStore } from "../store/mcp";
+```
+
+- [ ] **Step 4: 运行测试确认通过**
+
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/frontend && bun test tests/AgentConfig.test.tsx`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/frontend/src/components/AgentConfig.tsx packages/frontend/tests/AgentConfig.test.tsx
+git commit -m "feat(frontend): AgentConfig 弹窗新增 MCP 服务器 tab"
+```
+
+---
+
+### Task 13: 内置 draft 补 mcpServers 默认值 + CHANGELOG
+
+**Files:**
+- Modify: `packages/frontend/src/components/AgentConfig.tsx:54`（内置 draft 已有 `mcpServers: []`，确认即可）
+- Modify: `CHANGELOG.md`
+
+- [ ] **Step 1: 确认内置 draft 有 mcpServers 字段**
+
+内置 subagent 的 draft 构造（`AgentConfig.tsx:38-59`）已有 `mcpServers: []`，无需改动。命名智能体的 draft 从 ConfigStore 加载，agent-md.ts 的 `makeDefaultAgentConfig` 也已有 `mcpServers: []`。
+
+- [ ] **Step 2: 更新 CHANGELOG**
+
+在顶部追加：
+
+```markdown
+### 新增
+- **编辑智能体弹窗新增 MCP tab**：每个智能体可配置可用的 MCP 服务器白名单（`config.mcpServers`）。之前 MCP 工具无差别流入所有智能体，现在 `resolveAgentTools` 按 `config.mcpServers` 白名单过滤 harvestedTools 中的 MCP direct tools（基于 server 名前缀匹配规则）。空数组=全量默认（向后兼容），非空=只放行白名单内 server 的工具。影响范围：shared/constants.ts（resolveAgentTools 新增 allowedMcpServers 参数）、kernel/agent-manager.ts（传入 config.mcpServers）、frontend/AgentConfig.tsx（新增 McpTab 组件 + TABS）。
+```
+
+- [ ] **Step 3: 运行全量测试**
+
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent && bun test --path-ignore-patterns "**/e2e/**" 2>&1 | tail -10`
+Expected: 全部 PASS
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add CHANGELOG.md
+git commit -m "docs: CHANGELOG 记录 per-agent MCP 白名单功能"
 ```

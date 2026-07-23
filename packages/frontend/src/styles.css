@@ -107,3 +107,24 @@ body {
 .ext-install-bar {
   animation: ext-install-indeterminate 1.1s ease-in-out infinite;
 }
+
+/* ===== markdown 正文溢出兜底 ===== */
+/* react-markdown 渲染出的标签（p/pre/code/a 等）默认是浏览器裸样式，
+   长代码块和长 URL 会撑破消息气泡宽度。统一强制换行，不横向滚动：
+   - 段落/链接/行内代码：长无空格串任意位置断行
+   - 代码块 pre/code：也强制换行（pre-wrap），不撑破容器
+   注：项目未装 @tailwindcss/typography，prose 类不生效，直接用标签选择器 */
+[data-testid="text-block"] {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+[data-testid="text-block"] pre,
+[data-testid="text-block"] pre code {
+  white-space: pre-wrap;       /* 代码块也换行，不横向滚动 */
+  overflow-wrap: anywhere;
+  word-break: break-all;       /* 代码长串任意位置断行 */
+}
+[data-testid="text-block"] a,
+[data-testid="text-block"] code {
+  overflow-wrap: anywhere;
+}

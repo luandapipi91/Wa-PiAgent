@@ -407,7 +407,7 @@ function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row
           }
           // 主回复内容 — 文字 + markdown
           return (
-            <div key={si} className="flex flex-col gap-1">
+            <div key={si} className="flex flex-col gap-1" data-testid="text-bubble">
               <div className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`} style={{ lineHeight: 3.1, borderRadius: "4px 14px 14px 14px" }}>
                 {seg.texts.map((text, i) => (
                   <div key={i} className="prose prose-sm max-w-none" data-testid="text-block">
@@ -434,29 +434,44 @@ type Segment =
   | { kind: "toolCalls"; calls: any[] }
   | { kind: "delegate"; call: any };
 
-/** 把 assistant content 按原始顺序切成渲染段：同类相邻 block 合并；delegate 原位单独成段 */
+/**
+ * 把 assistant content 切成渲染段。
+ *
+ * 规则：以 delegate toolCall 为切割锚点——每遇到一个 delegate 就结束当前片段，
+ * delegate 自身成独立段（每个委派一个气泡），并在该处切断 text 流；
+ * 其余 thinking/text/普通 toolCall 在每个片段内按 type 聚类合并成一个段
+ * （text 跨普通工具调用合并成一个气泡，恢复 df8e6d6 之前的行为）。
+ *
+ * 例：text₁ → toolCall → text₂ → delegate → text₃ → toolCall → text₄
+ *   → [text:text₁+text₂][toolCalls][delegate][text:text₃+text₄][toolCalls]
+ * （片段内同类合并后按出现顺序排列，同类型在同一片段内只会产出一个段）
+ */
 function segmentBlocks(blocks: any[]): Segment[] {
   const segs: Segment[] = [];
+  // 当前片段内的累积器：同类 block 聚到一起；遇 delegate 则 flush 后插入 delegate 段
+  const flushText = () => { if (buf.text.length) segs.push({ kind: "text", texts: buf.text.splice(0) }); };
+  const flushThinking = () => { if (buf.thinking.length) segs.push({ kind: "thinking", texts: buf.thinking.splice(0) }); };
+  const flushToolCalls = () => { if (buf.toolCalls.length) segs.push({ kind: "toolCalls", calls: buf.toolCalls.splice(0) }); };
+  const flushAll = () => { flushThinking(); flushToolCalls(); flushText(); };
+  const buf = { thinking: [] as string[], text: [] as string[], toolCalls: [] as any[] };
+
   for (const b of blocks) {
     if (b.type === "thinking") {
-      const prev = segs[segs.length - 1];
-      if (prev?.kind === "thinking") prev.texts.push(b.thinking);
-      else segs.push({ kind: "thinking", texts: [b.thinking] });
+      buf.thinking.push(b.thinking);
     } else if (b.type === "text") {
       if (!b.text?.trim()) continue;
-      const prev = segs[segs.length - 1];
-      if (prev?.kind === "text") prev.texts.push(b.text);
-      else segs.push({ kind: "text", texts: [b.text] });
+      buf.text.push(b.text);
     } else if (b.type === "toolCall") {
       if (b.name === "delegate") {
+        // delegate 是切割锚点：先 flush 当前片段，再插入独立的 delegate 段
+        flushAll();
         segs.push({ kind: "delegate", call: b });
       } else {
-        const prev = segs[segs.length - 1];
-        if (prev?.kind === "toolCalls") prev.calls.push(b);
-        else segs.push({ kind: "toolCalls", calls: [b] });
+        buf.toolCalls.push(b);
       }
     }
   }
+  flushAll();
   return segs;
 }
 

@@ -36,6 +36,13 @@ export interface Partners {
   askTo: AgentName[];
 }
 
+/** 委派引导：注入 delegate 工具描述，引导主智能体在合适场景调起本智能体 */
+export interface DelegationHints {
+  whenToDelegate?: string;  // 何时调起本智能体
+  whenNotTo?: string;       // 何时不调起
+  benefit?: string;         // 调起收益
+}
+
 export interface AgentConfig {
   displayName: string;        // 唯一标识符 + 展示名（文件名/会话外键/partners 引用均用此字段）
   avatar: string;
@@ -48,7 +55,7 @@ export interface AgentConfig {
   skills: string[];
   mcpServers: string[];
   partners: Partners;
-  triggerKeywords: string[];  // 触发关键词：其他智能体自动调起本智能体时的判定提示
+  delegationHints?: DelegationHints;  // 委派引导：注入 delegate 工具描述
   systemPromptBody?: string;  // frontmatter 后的正文
 }
 
@@ -69,6 +76,8 @@ export interface SubagentInfo {
   readOnly: boolean;
   systemPrompt: string;
   builtinToolNames: string[];
+  /** 委派引导：从 ~/.hiagent/agents/*.md 的 frontmatter 提取，前端只读展示 */
+  delegationHints?: DelegationHints;
   override?: SubagentOverride;
 }
 

@@ -1074,8 +1074,8 @@ test("ensureStarted 在 askTo 非空时同时注册 delegate 和 fleet 工具并
   const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
 
   const configs: Record<string, any> = {
-    dev: { displayName: "dev", partners: { askTo: ["代码审查"] }, triggerKeywords: [] },
-    代码审查: { displayName: "代码审查", description: "评审改动", partners: { askTo: [] }, triggerKeywords: ["review", "评审"] },
+    dev: { displayName: "dev", partners: { askTo: ["代码审查"] } },
+    代码审查: { displayName: "代码审查", description: "评审改动", partners: { askTo: [] }, delegationHints: { whenToDelegate: "代码变更需要评审时", benefit: "结构化审查反馈" } },
   };
   const configStore = { getAgent: mock(async (n: string) => configs[n] ?? null) } as any;
 
@@ -1092,10 +1092,15 @@ test("ensureStarted 在 askTo 非空时同时注册 delegate 和 fleet 工具并
   expect(names).toContain("fleet");
 
   const prompt = captured[0].resourceLoader.systemPromptOverride();
-  expect(prompt).toContain("delegate");
   expect(prompt).toContain("代码审查");
   expect(prompt).toContain("评审改动");
-  expect(prompt).toContain("review、评审");
+  // 委托引导注入系统提示词的 roster 段（取代已移除的触发关键词和工具描述注入）
+  expect(prompt).toContain("代码变更需要评审时");
+  expect(prompt).toContain("结构化审查反馈");
+
+  // delegate 工具描述为纯功能说明（不含智能体信息，已移到系统提示词）
+  const delegateTool = (captured[0].customTools as any[]).find((t: any) => t.name === "delegate");
+  expect(delegateTool.description).not.toContain("代码审查");
 });
 
 test("ensureStarted 在 askTo 为空时仍注册 delegate/fleet 工具（内置类型不依赖 askTo），但不注入关系网段", async () => {
@@ -1104,7 +1109,7 @@ test("ensureStarted 在 askTo 为空时仍注册 delegate/fleet 工具（内置�
   const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
 
   const configStore = {
-    getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [] }, triggerKeywords: [] })),
+    getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [] } })),
   } as any;
 
   const captured: any[] = [];
@@ -1121,8 +1126,8 @@ test("ensureStarted 在 askTo 为空时仍注册 delegate/fleet 工具（内置�
   expect(names).toContain("fleet");
 
   const prompt = captured[0].resourceLoader.systemPromptOverride();
-  // buildDelegatePrompt 段以「你可以通过 delegate 工具」开头，校验该段未注入（askTo 为空时返回空串被过滤）。
-  expect(prompt).not.toContain("你可以通过 delegate 工具");
+  // askTo 为空时：delegate-roster 段仍注入（含内置类型），但不含命名智能体
+  expect(prompt).toContain("## Available Subagents");
 });
 
 // ─── Task 4: 中断清理（cancelAll）测试 ───────────────────────────────────────
@@ -1251,7 +1256,7 @@ test("switchAgent: 换体重建，sessionId 不变且 config 取新 agent", asyn
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
 
-  const getAgent = mock(async (n: string) => ({ displayName: n, partners: { askTo: [] }, triggerKeywords: [] }));
+  const getAgent = mock(async (n: string) => ({ displayName: n, partners: { askTo: [] } }));
   const configStore = { getAgent } as any;
 
   const created: AgentSession[] = [];
@@ -1396,15 +1401,12 @@ test("renameAgentSessions: 不匹配旧名的活跃会话不受影响", async ()
 });
 
 test("HIAGENT_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => {
-  // 重构后：委托规则移到 system-prompt.ts 的 DEFAULT_DELEGATE_SYNTAX_PROMPT，
-  // HIAGENT_DEFAULT_SYSTEM_PROMPT 仅保留 base 段。完整提示词由 composePrompt 组装。
-  // 这里改为断言 base + delegate-syntax 拼接后含原有关键字。
-  const { DEFAULT_DELEGATE_SYNTAX_PROMPT } = require("../src/system-prompt");
-  const fullDefault = `${HIAGENT_DEFAULT_SYSTEM_PROMPT}\n\n${DEFAULT_DELEGATE_SYNTAX_PROMPT}`;
+  // 委托规则在 delegate-mechanism 段（DEFAULT_DELEGATE_MECHANISM_PROMPT）
+  const { DEFAULT_DELEGATE_MECHANISM_PROMPT } = require("../src/system-prompt");
+  const fullDefault = `${HIAGENT_DEFAULT_SYSTEM_PROMPT}\n\n${DEFAULT_DELEGATE_MECHANISM_PROMPT}`;
   expect(fullDefault).toContain("@[agentName]");
   expect(fullDefault).toContain("delegate");
-  expect(fullDefault).toContain("Context");
-  expect(fullDefault).toContain("Pause policy");
+  expect(fullDefault).toContain("task contract");
 });
 
 test("systemPromptOverride 拼装顺序：base < delegatePrompt < 环境约束 < 记忆快照", async () => {
@@ -1422,7 +1424,6 @@ test("systemPromptOverride 拼装顺序：base < delegatePrompt < 环境约束 <
     getAgent: mock(async () => ({
       displayName: "dev",
       partners: { askTo: [{ name: "代码审查" }] },
-      triggerKeywords: ["review"],
       description: "评审",
     })),
   } as any;
@@ -1438,12 +1439,12 @@ test("systemPromptOverride 拼装顺序：base < delegatePrompt < 环境约束 <
 
   const prompt = capturedLoaders[0].systemPromptOverride();
   const idxBase = prompt.indexOf("You are an expert coding assistant");
-  const idxDelegate = prompt.indexOf("delegate 工具");
+  const idxRoster = prompt.indexOf("## Available Subagents");
   const idxEnv = prompt.indexOf("Built-in directory:");
   const idxMemory = prompt.indexOf("记忆快照内容");
   expect(idxBase).toBeGreaterThanOrEqual(0);
-  expect(idxDelegate).toBeGreaterThan(idxBase);
-  expect(idxEnv).toBeGreaterThan(idxDelegate);
+  expect(idxRoster).toBeGreaterThan(idxBase);
+  expect(idxEnv).toBeGreaterThan(idxRoster);
   // 记忆快照由 buildMemorySnapshot(HIAGENT_DIR, cwd) 独立加载，memoryStore.getConfig 只控制策略开关；
   // 测试环境下 memorySnapshot 可能为空，此时跳过其顺序断言（仅当存在时校验位置）。
   if (idxMemory >= 0) {

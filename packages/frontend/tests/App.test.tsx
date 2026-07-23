@@ -24,7 +24,7 @@ const agent = (displayName: string): AgentConfig => ({
   displayName, avatar: "", avatarColor: "", description: "",
   model: "m", thinking: "medium", systemPromptMode: "replace",
 
-  tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [],
+  tools: [], skills: [], mcpServers: [], partners: { askTo: [] },
 });
 
 const project = { id: "p1", name: "P", cwd: "/p", createdAt: 0 };

@@ -56,7 +56,6 @@ const base: AgentConfig = {
   description: "评审改动", model: "glm-4.6", thinking: "high",
   systemPromptMode: "replace",
   tools: [], skills: [], mcpServers: [], partners: { askTo: ["dev"] },
-  triggerKeywords: ["review", "评审"],
   systemPromptBody: "你是代码审查智能体。",
 };
 
@@ -67,14 +66,43 @@ test("validateAgentConfig: 任意非空合法名通过；非法文件名字符�
   expect(validateAgentConfig({ ...base, displayName: "a:b" })[0]).toContain("非法 displayName");
 });
 
-test("triggerKeywords 序列化/解析往返", () => {
-  const md = stringifyAgentMd(base);
-  expect(md).toContain("triggerKeywords: [review, 评审]");
+test("delegationHints 序列化/解析往返（三字段齐全）", () => {
+  const c: AgentConfig = { ...base, delegationHints: {
+    whenToDelegate: "用户描述新需求时",
+    whenNotTo: "已明确到具体文件",
+    benefit: "省主上下文 token",
+  }};
+  const md = stringifyAgentMd(c);
+  expect(md).toContain("delegationHints:");
+  expect(md).toContain("  whenToDelegate: 用户描述新需求时");
+  expect(md).toContain("  whenNotTo: 已明确到具体文件");
+  expect(md).toContain("  benefit: 省主上下文 token");
   const parsed = parseAgentMd(md);
-  expect(parsed.triggerKeywords).toEqual(["review", "评审"]);
-  expect(parsed.partners.askTo).toEqual(["dev"]);
+  expect(parsed.delegationHints).toEqual({
+    whenToDelegate: "用户描述新需求时",
+    whenNotTo: "已明确到具体文件",
+    benefit: "省主上下文 token",
+  });
 });
 
+test("delegationHints 部分字段（只有 whenToDelegate）往返不丢", () => {
+  const c: AgentConfig = { ...base, delegationHints: { whenToDelegate: "只配一条" } };
+  const md = stringifyAgentMd(c);
+  const parsed = parseAgentMd(md);
+  expect(parsed.delegationHints).toEqual({ whenToDelegate: "只配一条" });
+});
+
+test("delegationHints 未配置时不写入 frontmatter（不污染旧文件）", () => {
+  const md = stringifyAgentMd(base);
+  expect(md).not.toContain("delegationHints");
+  expect(parseAgentMd(md).delegationHints).toBeUndefined();
+});
+
+test("delegationHints 三字段全空时不写入（视为未配置）", () => {
+  const c: AgentConfig = { ...base, delegationHints: { whenToDelegate: "", whenNotTo: "", benefit: "" } };
+  const md = stringifyAgentMd(c);
+  expect(md).not.toContain("delegationHints");
+});
 test("thinking: low 读取时归一为 medium", () => {
   const md = stringifyAgentMd(base).replace("thinking: high", "thinking: low");
   expect(parseAgentMd(md).thinking).toBe("medium");
@@ -84,7 +112,6 @@ test("makeDefaultAgentConfig 支持任意 displayName（无内置定义时用名
   const c = makeDefaultAgentConfig("文档写手");
   expect(c.displayName).toBe("文档写手");
   expect(c.avatar).toBe("🤖");
-  expect(c.triggerKeywords).toEqual([]);
 });
 
 test("thinking: null 序列化/解析往返；model null 往返", () => {

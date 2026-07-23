@@ -22,6 +22,10 @@ description: 继承调用者的全部工具，执行复杂多步任务。
 mode: subagent
 systemPrompt: append
 thinking: medium
+delegationHints:
+  whenToDelegate: 复杂的多步骤任务、需要写操作的自包含任务
+  whenNotTo: 单点查找（已知文件/符号）或简单单行修改——直接用 read/grep/find 更快
+  benefit: 继承调用者全部工具，在隔离上下文里完成多步任务后返回聚焦结果
 ---
 
 General-purpose agent for complex, multi-step tasks.`,
@@ -33,6 +37,10 @@ mode: subagent
 systemPrompt: replace
 thinking: medium
 tools: read, bash, grep, find, ls
+delegationHints:
+  whenToDelegate: 跨多文件探索代码库、开放式研究问题、理解模块实现、代码库结构调查
+  whenNotTo: 已知具体文件路径、特定类/函数定义、2-3 个已知文件内的搜索（needle query）
+  benefit: 把多次 grep/read 的噪声工具序列挡在主上下文预算之外，返回聚焦结论
 ---
 
 # CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS
@@ -71,6 +79,10 @@ mode: subagent
 systemPrompt: replace
 thinking: medium
 tools: read, bash, grep, find, ls
+delegationHints:
+  whenToDelegate: 需要探索代码库并设计实施方案、架构规划
+  whenNotTo: 已有明确实现方案、只需直接编码
+  benefit: 只读架构师视角产出实施方案，不污染主上下文
 ---
 
 # CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS

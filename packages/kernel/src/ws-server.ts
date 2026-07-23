@@ -424,9 +424,7 @@ export class WSServer {
             await this.opts.agentManager.ensureStarted(event.projectId, event.agentName, session.id);
             // ensureStarted 可能耗时 5-10s，期间可能收到 abort/clear，再次检查版本
             const curVersion = this._abortVersions.get(event.sessionId) ?? 0;
-            console.log(`[ws-server] AFTER ensureStarted sessionId=${event.sessionId} myVersion=${myVersion} curVersion=${curVersion} isNew=${isNew}`);
             if (curVersion !== myVersion) {
-              console.log(`[ws-server] SKIP prompt (aborted during ensureStarted) sessionId=${event.sessionId} v${myVersion}→v${curVersion}`);
               return;
             }
             await this.opts.agentManager.prompt(session.id, event.text, {
