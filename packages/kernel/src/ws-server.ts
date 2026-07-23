@@ -1,7 +1,7 @@
 import type {
   WSClientEvent, WSServerEvent, AgentName, McpServerStatus,
 } from "@hiagent/shared";
-import { WS_PORT, SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD, resolveSessionCwd } from "@hiagent/shared";
+import { WS_PORT, SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD, resolveSessionCwd, HIAGENT_DIR } from "@hiagent/shared";
 import type { DirEntry } from "@hiagent/shared";
 import type { ConfigStore } from "./config-store";
 import type { ProjectStore } from "./project-store";
@@ -381,10 +381,13 @@ export class WSServer {
       }
       case "agent:prompt": {
         // 用前端传的 sessionId 查找已有 session；找不到则用该 id 创建，确保前后端一致
-        // session 级串行锁：防止两个 agent:prompt 在 ensureStarted 后并发调 prompt()
-        // 导致第二个看到 isStreaming 未立而走直连路径抛 "already processing"
+        // session 级串行锁：仅覆盖 ensureStarted（建会话/加载扩展等），不覆盖 am.prompt()。
+        // 若把 prompt 也锁在内，空闲时 session.prompt() 会 await 整个 agent turn，导致后续
+        // 排队消息等到 turn 完全结束才执行——此时 isStreaming=false 误走直发而非 followUp
+        // 入队，与 steer:promote 配合导致消息重复发送（session s-e34af47e 日志确证）。
         const prevLock = this._promptLocks.get(event.sessionId) ?? Promise.resolve();
         const myVersion = this._abortVersions.get(event.sessionId) ?? 0;
+        let promptReady = false; // 锁内置位：ensureStarted 成功且版本匹配，允许锁外发 prompt
         const currentLock = prevLock.then(async () => {
           const { sessions } = await this.opts.projectStore.load();
           const existing = sessions.find(s => s.id === event.sessionId);
@@ -427,11 +430,7 @@ export class WSServer {
             if (curVersion !== myVersion) {
               return;
             }
-            await this.opts.agentManager.prompt(session.id, event.text, {
-              model: event.model,
-              thinking: event.thinking,
-              attachments: event.attachments,
-            });
+            promptReady = true;
           } catch (err) {
             this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}`, agentName: event.agentName, sessionId: session.id });
           }
@@ -442,6 +441,19 @@ export class WSServer {
         });
         this._promptLocks.set(event.sessionId, currentLock);
         await currentLock;
+        // prompt 在锁外执行：不阻塞后续消息的 ensureStarted，且能正确读到 isStreaming
+        // 状态（前一条消息的 turn 进行中 → 本条走 followUp 入队而非直发）
+        if (promptReady) {
+          try {
+            await this.opts.agentManager.prompt(event.sessionId, event.text, {
+              model: event.model,
+              thinking: event.thinking,
+              attachments: event.attachments,
+            });
+          } catch (err) {
+            this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}`, agentName: event.agentName, sessionId: event.sessionId });
+          }
+        }
         break;
       }
       case "agent:abort": {
@@ -790,6 +802,28 @@ export class WSServer {
           models: event.models,
         });
         reply({ type: "provider:test", ok: result.ok, error: result.error });
+        break;
+      }
+      case "model:presets": {
+        try {
+          const { AuthStorage, ModelRegistry } = await import("@earendil-works/pi-coding-agent");
+          const authStorage = AuthStorage.create(`${HIAGENT_DIR}/auth.json`);
+          const registry = ModelRegistry.create(authStorage);
+          const all = registry.getAll();
+          const map = new Map<string, any>();
+          for (const m of all as any[]) {
+            const k = m.provider;
+            if (!map.has(k)) map.set(k, { key: k, name: registry.getProviderDisplayName(k) || k, baseUrl: m.baseUrl || "", api: m.api || "openai-completions", models: [] as any[] });
+            const e = map.get(k)!;
+            if (!e.baseUrl && m.baseUrl) e.baseUrl = m.baseUrl;
+            e.models.push({ id: m.id, contextWindow: m.contextWindow, maxTokens: m.maxTokens, supportsVision: (m.input as string[])?.includes("image") ?? false });
+          }
+          const presets = Array.from(map.values()).filter((p: any) => p.models.length > 0).sort((a: any, b: any) => a.key.localeCompare(b.key));
+          reply({ type: "model:presets", presets });
+        } catch (err) {
+          console.error("[ws] model:presets error:", err);
+          reply({ type: "model:presets", presets: [] });
+        }
         break;
       }
       case "skill:list": {
