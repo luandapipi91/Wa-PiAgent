@@ -42,6 +42,8 @@
 
 **关键变化：DelegateCard 从整块橙色卡片改为单行 pill。** 完成后折叠成 `↪ 委派给 {agent} · ✓ 完成`，失败态 `✗ 失败` 用红色 pill（`text-danger` / `bg-danger-soft`）。展开后内容样式沿用现有（橙色左边框 + 任务 + 子 agent 回复）。
 
+**DelegateCard 展开态渲染规则（新增）：** 子智能体回复内容（`result.content` 里的 text）必须用 `ReactMarkdown` 渲染（与主 agent 正文一致，支持代码块、列表、链接等 markdown 格式），而非纯文字 `whitespace-pre-wrap`。这样委托出去的子 agent 返回的 markdown 回复才能正确格式化显示。
+
 **展开态：** pill 带 spinner（流式中）或状态图标（完成后），下方展开内容。pill 文字与现有完全一致，仅默认 `open` 值由"始终 false"改为"派生"。
 
 ## 核心行为规则
@@ -121,6 +123,7 @@ export function useAutoCollapse(opts: {
    - 引入 `useAutoCollapse`
    - 流式中：pill 带 spinner + "执行中"，展开显示任务
    - 完成后：pill 显示 `✓ 完成` / `✗ 失败`，默认折叠；展开显示任务 + 子 agent 完整回复
+   - **子 agent 回复用 `ReactMarkdown`（+ `remark-gfm`）渲染**，而非纯文字——子 agent 返回的 markdown 格式（代码块/列表/链接）需正确显示。渲染容器加 `data-testid="text-block"` 以复用全局溢出兜底样式
    - 删除内部的"展开完整回复"二级折叠（被统一的 pill 折叠替代，避免双层折叠）
 
 ## 边界情况

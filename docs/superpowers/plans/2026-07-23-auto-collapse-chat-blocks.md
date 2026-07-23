@@ -545,6 +545,8 @@ Replace 整个 `packages/frontend/src/components/blocks/DelegateCard.tsx` 内容
 
 ```tsx
 import type { ToolCall, ToolResultMessage } from "@hiagent/shared";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useAutoCollapse } from "./useAutoCollapse";
 
 interface Props {
@@ -583,7 +585,7 @@ export function DelegateCard({ toolCall, result, isStreaming }: Props) {
         <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
       </button>
 
-      {/* 展开态：任务 + 子 agent 回复 */}
+      {/* 展开态：任务 + 子 agent 回复（markdown 渲染） */}
       {open && (
         <div className="mt-1 ml-1 pl-3 space-y-1" style={{ borderLeft: `2px solid ${failed ? "var(--danger)" : "#fab387"}` }}>
           {args.task && (
@@ -592,7 +594,11 @@ export function DelegateCard({ toolCall, result, isStreaming }: Props) {
           {result && full && (
             <div className="text-sm">
               <div className="text-xs" style={{ color: statusColor }}>{failed ? "✗" : "✓"} {args.agent} 的回复</div>
-              <div data-testid={`delegate-full-${toolCall.id}`} className="whitespace-pre-wrap">{full}</div>
+              {/* 子 agent 回复用 ReactMarkdown 渲染（与主 agent 正文一致），
+                  data-testid="text-block" 复用全局溢出兜底样式 */}
+              <div data-testid="text-block" className="prose prose-sm max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{full}</ReactMarkdown>
+              </div>
             </div>
           )}
         </div>
@@ -601,6 +607,8 @@ export function DelegateCard({ toolCall, result, isStreaming }: Props) {
   );
 }
 ```
+
+**注意：** 子 agent 回复内容用 `ReactMarkdown` 渲染而非纯文字。因为子 agent 返回的也是 markdown（代码块、列表、链接等），纯文字会丢失格式。容器用 `data-testid="text-block"` 复用全局溢出兜底 CSS（长 URL/代码块强制换行，见 styles.css）。
 
 - [ ] **Step 5: 运行测试确认通过**
 
