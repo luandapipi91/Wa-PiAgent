@@ -44,7 +44,7 @@ test("slugifyProviders 同名冲突加后缀", () => {
 
 test("generateProviderExtension 包含 registerProvider 调用", () => {
   const providers = [sampleProvider()];
-  const code = generateProviderExtension(providers);
+  const code = generateProviderExtension(providers, new Map());
   expect(code).toContain('pi.registerProvider("my-deepseek"');
   expect(code).toContain('name: "My DeepSeek"');
   expect(code).toContain('baseUrl: "https://api.deepseek.com/v1"');
@@ -52,31 +52,30 @@ test("generateProviderExtension 包含 registerProvider 调用", () => {
   expect(code).toContain('api: "openai-completions"');
 });
 
-test("generateProviderExtension 包含所有模型", () => {
-  const code = generateProviderExtension([sampleProvider()]);
+test("generateProviderExtension 包含所有模型（SDK 查找不到时使用默认参数）", () => {
+  const code = generateProviderExtension([sampleProvider()], new Map());
   expect(code).toContain('id: "deepseek-chat"');
   expect(code).toContain('id: "deepseek-reasoner"');
-  expect(code).toContain("contextWindow: 64000");
-  expect(code).toContain("maxTokens: 4096");
+  // SDK 找不到模型时使用默认值 128000 / 16384
+  expect(code).toContain("contextWindow: 128000");
+  expect(code).toContain("maxTokens: 16384");
 });
 
 test("generateProviderExtension 空列表生成空工厂", () => {
-  const code = generateProviderExtension([]);
+  const code = generateProviderExtension([], new Map());
   // 空列表也要是合法的 extension（含 import + 工厂函数，只是不注册任何 provider）
   expect(code).toContain("export default function");
 });
 
 test("generateProviderExtension anthropic 格式正确映射", () => {
-  const code = generateProviderExtension([sampleProvider({ api: "anthropic-messages" })]);
+  const code = generateProviderExtension([sampleProvider({ api: "anthropic-messages" })], new Map());
   expect(code).toContain('api: "anthropic-messages"');
 });
 
-test("generateProviderExtension 模型默认标记 reasoning: true（对话框思考 off 时才下发 thinking disabled）", () => {
-  const code = generateProviderExtension([sampleProvider()]);
-  // DeepSeek 思考默认 enabled。模型标 reasoning:true 后，Pi 在 thinkingLevel=off
-  // 才会发送 thinking:{type:"disabled"}，对话框的"关闭思考"才真正生效。
-  // 见 https://pi.dev/docs/latest/models Model Configuration / Thinking Level Map。
-  expect(code).toContain("reasoning: true");
+test("generateProviderExtension SDK 查不到模型时 reasoning 默认 false", () => {
+  const code = generateProviderExtension([sampleProvider()], new Map());
+  // SDK 找不到模型时 reasoning 默认 false（由 DEFAULT_SDK_MODEL 决定）
+  expect(code).toContain("reasoning: false");
 });
 
 test("ensureProviderExtensionRegistered 写 extension 文件到 GENERATED_DIR", async () => {

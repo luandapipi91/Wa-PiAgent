@@ -28,10 +28,20 @@ export function ProviderFormModal({ initial, onClose }: Props) {
     Object.fromEntries((initial?.models ?? []).map(m => [m.id, m]))
   );
   const [testStatus, setTestStatus] = useState<{ state: "idle" | "testing" | "ok" | "fail"; error?: string }>({ state: "idle" });
-  const [selectedPresetKey, setSelectedPresetKey] = useState<string>("");
+
+  // 供应商预设（可搜索）
   const [presets, setPresets] = useState<ModelPreset[]>([]);
-  const [modelSearch, setModelSearch] = useState("");
+  const [selectedPresetKey, setSelectedPresetKey] = useState<string>("");
+  const [presetSearch, setPresetSearch] = useState("");
+  const [showPresetDropdown, setShowPresetDropdown] = useState(false);
+  const presetContainerRef = useRef<HTMLDivElement>(null);
+  const filteredPresets = presetSearch
+    ? presets.filter(p => p.name.toLowerCase().includes(presetSearch.toLowerCase()) || p.key.toLowerCase().includes(presetSearch.toLowerCase()))
+    : presets;
   const selectedPreset = presets.find(p => p.key === selectedPresetKey);
+
+  // 模型快捷搜索
+  const [modelSearch, setModelSearch] = useState("");
   const tagContainerRef = useRef<HTMLDivElement>(null);
   const [dropPos, setDropPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const [tagKey, setTagKey] = useState(0);
@@ -75,6 +85,8 @@ export function ProviderFormModal({ initial, onClose }: Props) {
   // 选预设 → 填供应商信息（不自动填模型），模型通过快捷下拉单独添加
   const applyPreset = (key: string): void => {
     setSelectedPresetKey(key);
+    setPresetSearch("");
+    setShowPresetDropdown(false);
     if (!key) { setModelIds([]); setModelConfigs({}); return; }
     const preset = presets.find(p => p.key === key);
     if (!preset) return;
@@ -134,22 +146,43 @@ export function ProviderFormModal({ initial, onClose }: Props) {
         <span className="text-primary font-bold text-sm">{initial ? "编辑供应商" : "添加供应商"}</span>
       </div>
       <div className="p-4 flex flex-col gap-3 overflow-auto" style={{ maxHeight: "70vh" }}>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1" ref={presetContainerRef}>
           <span className="text-xs text-secondary">快捷选择</span>
-          <select
-            data-testid="preset-select"
-            value={selectedPresetKey}
-            onChange={e => applyPreset(e.target.value)}
-            className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
-          >
-            <option value="">自定义（手动填写）</option>
-            {presets.map(p => (
-              <option key={p.key} value={p.key}>{p.name} ({p.models.length} 个模型)</option>
-            ))}
-          </select>
-          {initial && (
-            <span className="text-xs" style={{ color: "var(--danger)" }}>选择预设会覆盖当前表单</span>
-          )}
+          <div className="relative">
+            <div className="relative">
+            <input
+              data-testid="preset-search"
+              type="text"
+              value={selectedPresetKey ? (selectedPreset?.name ?? selectedPresetKey) : presetSearch}
+              placeholder="搜索供应商…"
+              onChange={e => { setPresetSearch(e.target.value); setShowPresetDropdown(true); if (selectedPresetKey) applyPreset(""); }}
+              onFocus={() => setShowPresetDropdown(true)}
+              onBlur={() => setTimeout(() => setShowPresetDropdown(false), 150)}
+              className="px-2 py-1.5 pr-7 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-full"
+            />
+            {selectedPresetKey && (
+              <button
+                data-testid="preset-clear"
+                onClick={() => applyPreset("")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-tertiary hover:text-danger text-sm leading-none px-0.5"
+                tabIndex={-1}
+              >×</button>
+            )}
+            </div>
+            {showPresetDropdown && filteredPresets.length > 0 && (
+              <div className="absolute left-0 right-0 mt-0.5 max-h-48 overflow-y-auto rounded-sm border border-hairline bg-surface shadow-lg z-20"
+                data-testid="preset-dropdown">
+                {filteredPresets.map(p => (
+                  <div key={p.key}
+                    data-testid="preset-option" data-key={p.key}
+                    className={`px-2 py-1.5 text-sm cursor-pointer border-b border-hairline last:border-b-0 hover:bg-surface-hover ${p.key === selectedPresetKey ? "font-bold" : "text-primary"}`}
+                    onMouseDown={e => { e.preventDefault(); applyPreset(p.key); }}
+                  >{p.name} <span className="text-tertiary text-xs">({p.models.length} 个模型)</span></div>
+                ))}
+              </div>
+            )}
+          </div>
+          {initial && <span className="text-xs" style={{ color: "var(--danger)" }}>选择预设会覆盖当前表单</span>}
         </div>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-secondary">供应商名称</span>

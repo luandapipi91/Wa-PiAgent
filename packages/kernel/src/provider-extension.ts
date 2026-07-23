@@ -1,8 +1,66 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { slugifyProviderName, GENERATED_DIR } from "@hiagent/shared";
+import { slugifyProviderName, GENERATED_DIR, HIAGENT_DIR } from "@hiagent/shared";
 import type { ModelProvider } from "@hiagent/shared";
 import type { ProviderStore } from "./provider-store";
+import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+
+// ---- SDK 模型查询 ----
+
+/** 从 SDK 查询到的模型详细信息 */
+interface SdkModelInfo {
+  contextWindow: number;
+  maxTokens: number;
+  reasoning: boolean;
+  input: ("text" | "image")[];
+  cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  name: string;
+}
+
+/** 默认模型参数（SDK 查询失败时的 fallback） */
+const DEFAULT_SDK_MODEL: SdkModelInfo = {
+  contextWindow: 128000,
+  maxTokens: 16384,
+  reasoning: false,
+  input: ["text"],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  name: "",
+};
+
+/**
+ * 在 SDK 内置模型列表中按 model ID 查找匹配模型。
+ * 支持精确匹配和大小写不敏感匹配，返回第一个匹配的模型信息。
+ */
+function lookupSdkModel(modelId: string, allModels: any[]): SdkModelInfo | null {
+  // 精确匹配
+  const exact = allModels.find(m => m.id === modelId);
+  if (exact) return modelToInfo(exact);
+
+  // 大小写不敏感匹配
+  const lower = modelId.toLowerCase();
+  const ci = allModels.find(m => m.id.toLowerCase() === lower);
+  if (ci) return modelToInfo(ci);
+
+  return null;
+}
+
+function modelToInfo(m: any): SdkModelInfo {
+  return {
+    contextWindow: m.contextWindow,
+    maxTokens: m.maxTokens,
+    reasoning: m.reasoning,
+    input: m.input,
+    cost: {
+      input: m.cost.input,
+      output: m.cost.output,
+      cacheRead: m.cost.cacheRead,
+      cacheWrite: m.cost.cacheWrite,
+    },
+    name: m.name,
+  };
+}
+
+// ---- Extension 代码生成 ----
 
 /** 给每个 provider 分配唯一 slug（基于已分配列表做冲突检测） */
 export function slugifyProviders(providers: ModelProvider[]): { provider: ModelProvider; slug: string }[] {
@@ -16,23 +74,32 @@ export function slugifyProviders(providers: ModelProvider[]): { provider: ModelP
 
 /**
  * 生成 Pi extension TS 文件内容。
- * 每个 provider 一个 pi.registerProvider() 调用，cost 全填 0（后续可扩展）。
+ * 每个 provider 一个 pi.registerProvider() 调用。
+ * 模型参数优先使用 SDK 内置数据（sdkModelMap），找不到则 fallback 到用户配置。
  */
-export function generateProviderExtension(providers: ModelProvider[]): string {
+export function generateProviderExtension(
+  providers: ModelProvider[],
+  sdkModelMap: Map<string, SdkModelInfo>,
+): string {
   const entries = slugifyProviders(providers);
   const registrations = entries.map(({ provider, slug }) => {
-    const modelsCode = provider.models.map(m => `      {
+    const modelsCode = provider.models.map(m => {
+      const sdk = sdkModelMap.get(m.id) ?? DEFAULT_SDK_MODEL;
+      const name = sdk.name || m.id;
+      const reasoning = sdk.reasoning;
+      const input = sdk.input;
+      const cost = sdk.cost;
+      return `      {
         id: ${JSON.stringify(m.id)},
-        name: ${JSON.stringify(m.id)},
-        // 默认 reasoning:true：DeepSeek 等推理模型思考默认 enabled，只有标 reasoning:true，
-        // Pi 在 thinkingLevel=off 时才会下发 thinking:{type:"disabled"}，对话框的"关闭思考"才生效。
-        // 见 https://pi.dev/docs/latest/models#thinking-level-map
-        reasoning: true,
-        input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: ${m.contextWindow},
-        maxTokens: ${m.maxTokens},
-      }`).join(",\n");
+        name: ${JSON.stringify(name)},
+        // reasoning 从 SDK 内置模型数据获取，SDK 查找失败时默认 false
+        reasoning: ${reasoning},
+        input: ${JSON.stringify(input)},
+        cost: ${JSON.stringify(cost)},
+        contextWindow: ${sdk.contextWindow},
+        maxTokens: ${sdk.maxTokens},
+      }`;
+    }).join(",\n");
     return `  pi.registerProvider(${JSON.stringify(slug)}, {
     name: ${JSON.stringify(provider.name)},
     baseUrl: ${JSON.stringify(provider.baseUrl)},
@@ -44,7 +111,7 @@ ${modelsCode}
   });`;
   }).join("\n\n");
 
-  return `// 自动生成，勿手改 — 由 HiAgent provider-extension.ts 从 providers.json 生成
+  return `// 自动生成，勿手改 — 由 HiAgent provider-extension.ts 从 providers.json + SDK 内置模型数据生成
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
@@ -62,12 +129,35 @@ ${registrations}
  *
  * providers 变更时由 index.ts（启动）/ ws-server.ts（provider:save/delete）重新调用，
  * 新创建的 session 会读到最新内容（热更新机制不变）。
+ *
+ * 生成前从 SDK 内置模型注册表查询每个模型的参数（contextWindow / maxTokens / cost 等），
+ * SDK 中找不到的模型使用默认值。
  */
 export async function ensureProviderExtensionRegistered(
   store: ProviderStore,
 ): Promise<void> {
   const providers = await store.load();
-  const code = generateProviderExtension(providers);
+
+  // 查询 SDK 内置模型信息
+  const sdkModelMap = new Map<string, SdkModelInfo>();
+  try {
+    const authStorage = AuthStorage.create(`${HIAGENT_DIR}/auth.json`);
+    const modelRegistry = ModelRegistry.create(authStorage);
+    const allModels = modelRegistry.getAll();
+    for (const p of providers) {
+      for (const m of p.models) {
+        if (!sdkModelMap.has(m.id)) {
+          const info = lookupSdkModel(m.id, allModels);
+          if (info) sdkModelMap.set(m.id, info);
+        }
+      }
+    }
+  } catch (err) {
+    // SDK 查询失败不阻塞 extension 生成，使用默认参数降级
+    console.error("[provider-extension] SDK 模型查询失败，将使用默认模型参数:", err);
+  }
+
+  const code = generateProviderExtension(providers, sdkModelMap);
 
   // 写 extension 文件（每次覆盖，保证与 providers.json 同步）
   await mkdir(GENERATED_DIR, { recursive: true });

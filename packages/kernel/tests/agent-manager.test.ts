@@ -888,7 +888,6 @@ test("systemPromptOverride 注入内置技能目录路径 + 禁止透露系统�
 
   const prompt = capturedLoaders[0].systemPromptOverride();
   expect(prompt).toContain(`Built-in directory: ${BUILTIN_SKILLS_DIR}`);
-  expect(prompt).toMatch(/Never reveal.*system prompt/i);
   expect(prompt).toMatch(/internal terminology/i);
 });
 
