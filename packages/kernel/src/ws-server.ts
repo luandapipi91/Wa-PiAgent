@@ -441,18 +441,18 @@ export class WSServer {
         });
         this._promptLocks.set(event.sessionId, currentLock);
         await currentLock;
-        // prompt 在锁外执行：不阻塞后续消息的 ensureStarted，且能正确读到 isStreaming
-        // 状态（前一条消息的 turn 进行中 → 本条走 followUp 入队而非直发）
+        // prompt 在锁外且不 await turn：提交即返回，不阻塞同一 ws 连接的后续消息。
+        // 若 await 整个 turn，后续消息（如排队中的"2"）要等 turn 完全结束才被处理，
+        // 此时 isStreaming=false 误走直发而非 followUp 入队，与 steer:promote 配合导致
+        // 消息重复发送（session s-e34af47e 日志确证）。错误走 catch 广播。
         if (promptReady) {
-          try {
-            await this.opts.agentManager.prompt(event.sessionId, event.text, {
-              model: event.model,
-              thinking: event.thinking,
-              attachments: event.attachments,
-            });
-          } catch (err) {
+          this.opts.agentManager.prompt(event.sessionId, event.text, {
+            model: event.model,
+            thinking: event.thinking,
+            attachments: event.attachments,
+          }).catch(err => {
             this.broadcast({ type: "error", message: `agent 启动失败: ${(err as Error).message}`, agentName: event.agentName, sessionId: event.sessionId });
-          }
+          });
         }
         break;
       }

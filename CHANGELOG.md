@@ -6,6 +6,14 @@
 
 ## 2026-07-23
 
+### 修复
+- **引导消息重复发送（B 被发送两次）**：根因是 `agent:prompt` 的 handle 把 `am.prompt()` 包在 `_promptLocks` 锁内且 await 整个 agent turn。Bun websocket 对同一连接串行处理 message——第二条消息"2"的 handle 要等"1"的 turn 完全结束才执行，此时 `isStreaming=false`，"2"误走直发而非 followUp 入队。用户在前端看到"1还在回复中"时发"2"并点引导，steer:promote 把"2"入 steering，但 kernel 那边"2"是直发的——重复发送。
+  - session `s-e34af47e` 日志确证：`prompt 判断 "2" isStreaming=false pending=0`（应走 followUp 却直发）
+  - 修复：`_promptLocks` 只覆盖 `ensureStarted`（锁的本意——防并发建会话），`am.prompt()` 移到锁外且改为 fire-and-forget（`.catch()` 兜底错误），不再 await 整个 turn。后续消息在 turn 进行中到达时能正确读到 `isStreaming=true` 走 followUp 入队
+  - 影响范围：`packages/kernel/src/ws-server.ts`、`packages/kernel/tests/ws-prompt-lock.test.ts`（新增回归测试）
+
+## 2026-07-23
+
 ### 新增
 - **技能触发符支持 ¥（日元/人民币符号）**：在输入框中按 `¥` 也能像 `$` 一样触发技能选择面板。内部统一表示为 `$[name]` token，chip 显示 `$name`。
   - `trigger.ts`：`detectTrigger` 新增 `¥` 触发检测
