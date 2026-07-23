@@ -25,7 +25,8 @@ export function detectTrigger(text: string): TriggerResult | null {
   const cleaned = text
     .replace(/@\[[^\]]+\]/g, " ")
     .replace(/#\[[^\]]+\]/g, " ")
-    .replace(/\$\[[^\]]+\]/g, " ");
+    .replace(/\$\[[^\]]+\]/g, " ")
+    .replace(/¥\[[^\]]+\]/g, " ");
 
   // 检测 @ 智能体触发
   const atMatch = cleaned.match(/(?:^|\s)@([^\s]*)$/);
@@ -39,8 +40,8 @@ export function detectTrigger(text: string): TriggerResult | null {
     return { type: "file", query: hashMatch[1] };
   }
 
-  // 检测 $ 技能触发
-  const dollarMatch = cleaned.match(/(?:^|\s)\$([^\s]*)$/);
+  // 检测 $ / ¥ 技能触发
+  const dollarMatch = cleaned.match(/(?:^|\s)[$¥]([^\s]*)$/);
   if (dollarMatch) {
     return { type: "skill", query: dollarMatch[1] };
   }

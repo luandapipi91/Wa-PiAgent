@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-07-23
+
+### 新增
+- **技能触发符支持 ¥（日元/人民币符号）**：在输入框中按 `¥` 也能像 `$` 一样触发技能选择面板。内部统一表示为 `$[name]` token，chip 显示 `$name`。
+  - `trigger.ts`：`detectTrigger` 新增 `¥` 触发检测
+  - `tokens.ts`：`SKILL_TOKEN_RE` / `combined` / `textToSegments` / `expandTokens` 均支持 `¥[...]` token
+  - `ComposerInput.tsx`：`handleSelect` 技能选中时自动从文本末尾检测实际触发符号（`$` 或 `¥`）
+  - 单元测试：trigger / tokens 各新增 `¥` 相关测试
+- **`¥` 触发符采用空格或行首匹配，避免人民币金额（如 `¥100`）误触发**
+
 ## 2026-07-22
 
 ### 修复
