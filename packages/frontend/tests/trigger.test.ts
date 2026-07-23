@@ -16,6 +16,11 @@ test("detectTrigger 检测 $ 触发符", () => {
   expect(result).toEqual({ type: "skill", query: "brain" });
 });
 
+test("detectTrigger 检测 ¥ 触发符", () => {
+  const result = detectTrigger("用 ¥brain");
+  expect(result).toEqual({ type: "skill", query: "brain" });
+});
+
 test("detectTrigger 空查询返回空 query", () => {
   expect(detectTrigger("text @")).toEqual({ type: "agent", query: "" });
   expect(detectTrigger("text #")).toEqual({ type: "file", query: "" });
@@ -37,6 +42,8 @@ test("detectTrigger 文本中间的 @ 不触发（前面需空格或行首）", 
 test("detectTrigger chip token 不触发", () => {
   expect(detectTrigger("@[代码审查] 你好")).toBeNull();
   expect(detectTrigger("#[file.ts] 你好")).toBeNull();
+  expect(detectTrigger("$[skill] 你好")).toBeNull();
+  expect(detectTrigger("¥[skill] 你好")).toBeNull();
 });
 
 test("detectTrigger chip token 后新触发符正常触发", () => {

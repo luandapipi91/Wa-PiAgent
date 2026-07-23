@@ -269,7 +269,9 @@ export function ComposerInput({
       // 对内置 subagent，item.name 是中文 displayName，传入让 chip 显示中文名而非英文 token。
       registerAgentMeta(item.id, { avatar: item.avatar, avatarColor: item.avatarColor, displayName: item.name });
     }
-    const triggerSymbol = triggerType === "agent" ? "@" : triggerType === "file" ? "#" : "$";
+    // 技能触发符支持 $ 和 ¥，从文本末尾检测实际使用的符号
+    const triggerSymbol = triggerType === "agent" ? "@" : triggerType === "file" ? "#" :
+      (text.match(/(?:^|\s)([¥$])[^\s]*$/) ?? [])[1] ?? "$";
     const query = trigger?.query ?? "";
     // 从 text 末尾去掉触发符 + 查询文本，替换为 chip token + 空格
     const triggerRe = new RegExp(
