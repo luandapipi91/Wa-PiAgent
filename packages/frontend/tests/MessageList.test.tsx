@@ -743,7 +743,26 @@ test("用户消息中的多个 <skill> 块都被格式化", () => {
   expect(text).not.toContain("内容B");
 });
 
-// ── Pi SDK custom 消息渲染（修复委托后刷新出现空气泡 bug）──
+test("用户消息中 <skill> 块后跟 \\n\\n 再跟文本 → 技能名与文本同一行（不换行）", () => {
+  // 真实数据结构：SDK 把 /skill:xxx 展开成 <skill>...</skill>，用户输入的文本追加在后面，
+  // 中间隔着 \n\n。formatSkillBlocks 把 <skill> 替换为 ⚡ name 后，
+  // 不应在技能名和后续文本间保留空行（\n\n 被 textToHtml 转成 <br><br> 会显示为空行）。
+  const skillBlock = `<skill name="speech-recognition" location="/path/SKILL.md">\n内容\n</skill>`;
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: `${skillBlock}\n\nsss`, timestamp: 1 } },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const bubble = screen.getByTestId("msg-s1-1").querySelector("p")!;
+  const text = bubble.textContent ?? "";
+  expect(text).toContain("⚡ speech-recognition");
+  expect(text).toContain("sss");
+  // 关键：DOM 里不应有 <br>（\n\n 会被 textToHtml 转成 <br><br> 产生空行）
+  expect(bubble.querySelectorAll("br").length).toBe(0);
+});
 // 真实数据来自 ~/.hiagent/sessions/*.jsonl 经 Pi SDK 加载后的 sdkSession.messages：
 //   {role:"custom", customType:"subagent-notification", content:"<task-notification>...", display:true, ...}
 // 之前的渲染逻辑用 m.type 判断 custom，但 SDK 内存消息字段是 m.role，导致掉到 assistant 分支

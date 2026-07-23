@@ -239,11 +239,14 @@ function stripAttachmentRefs(content: string): string {
  * 把 SDK 展开后的 <skill name="...">完整内容</skill> XML 块替换为简洁的技能名显示。
  * SDK 的 _expandSkillCommand 会把 /skill:name 展开为完整 SKILL.md 内容注入消息，
  * 前端用户气泡只需展示技能名，不展示技能正文。
+ *
+ * 替换后会吃掉紧跟其后的换行/空行（SDK 注入的 \n\n 会在 textToHtml 中变成 <br> 产生空行，
+ * 导致技能名和用户实际输入的文本被拆成两行）。只保留一个空格分隔技能名与后续文本。
  */
 function formatSkillBlocks(content: string): string {
   return content.replace(
-    /<skill name="([^"]+)"[^>]*>[\s\S]*?<\/skill>/g,
-    (_m, name) => `⚡ ${name}`,
+    /<skill name="([^"]+)"[^>]*>[\s\S]*?<\/skill>\s*/g,
+    (_m, name) => `⚡ ${name} `,
   );
 }
 
