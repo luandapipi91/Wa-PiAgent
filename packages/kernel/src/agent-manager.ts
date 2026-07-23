@@ -24,7 +24,7 @@ import { relative, isAbsolute, join } from "node:path";
 import { buildAdditionalExtensionPaths, extractRuntimeToolNames } from "./extensions";
 import { createAgentMemoryTools, getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import { makeAskTool, reconcileDanglingAsks } from "./ask-tool";
-import { makeDelegateTool, makeFleetTool, buildDelegatePrompt, makeSpawnFn } from "./delegate-tool";
+import { makeDelegateTool, makeFleetTool, buildDelegateRoster, makeSpawnFn } from "./delegate-tool";
 import type { HiAgentSpawnConfig } from "./subagent-runner";
 import { seedBuiltinAgents } from "./builtin-agents";
 import { askRegistry } from "./ask-registry";
@@ -115,6 +115,9 @@ export class AgentManager {
    */
   private async getPromptSegments(): Promise<PromptSegment[]> {
     if (this.promptSegments !== null) return this.promptSegments;
+    // ensurePromptsConfig 幂等：版本匹配时不动，版本过旧时迁移静态段（生产环境 index.ts 已调，此处兜底测试/直接构造场景）
+    const { ensurePromptsConfig } = await import("./system-prompt");
+    await ensurePromptsConfig(PROMPTS_FILE);
     const loaded = await loadPromptSegments(PROMPTS_FILE);
     this.promptSegments = loaded ?? DEFAULT_PROMPT_SEGMENTS;
     return this.promptSegments;
@@ -368,19 +371,20 @@ export class AgentManager {
 
     // 关系网调起：始终注册 delegate/fleet 工具——内置 subagent 类型（general-purpose / Explore / Plan）
     // 不依赖 askTo，任何主智能体都可调起（见 delegate-tool.ts canInvoke 的 isSubagentType 放行）；
-    // 关系网提示词段则按 askTo 动态注入（askTo 为空时 buildDelegatePrompt 返回空串，被 composePrompt 过滤）。
+    // 智能体总览段由 buildDelegateRoster 动态注入（内置+命名统一列表）。
     // spawn 走 pi-open-agents runSubagent（子进程 async，由 subagent-runner 适配）。
     // partners 防御性读取：生产 ConfigStore 保证默认 { askTo: [] }，但部分来源的 config 可能缺该字段。
     const askToNames = config?.partners?.askTo ?? [];
     const askToConfigs = (await Promise.all(askToNames.map((n) => this.opts.configStore!.getAgent(n)))).filter(
       (c): c is NonNullable<typeof c> => c != null,
     );
-    const delegatePrompt = buildDelegatePrompt(
-      askToConfigs.map((c) => ({ name: c.displayName, description: c.description, triggerKeywords: c.triggerKeywords })),
-    );
     // 加载系统提示词段落配置（首次加载后缓存；闭包捕获供同步 systemPromptOverride 使用）
     const promptSegments = await this.getPromptSegments();
-    const askToTargets = askToConfigs.map((c) => ({ name: c.displayName, description: c.description }));
+    const askToTargets = askToConfigs.map((c) => ({
+      name: c.displayName,
+      description: c.description,
+      delegationHints: c.delegationHints,
+    }));
 
     // resolveSpawnConfig：从 ConfigStore 读 HiAgent 配置（用户在 UI 设置的 model/thinking/tools/skills），
     // 内置 subagent 类型不在 store 里——从 SUBAGENT_TYPES 常量读元信息 + ~/.hiagent/agents/*.md 读系统提示词。
@@ -394,13 +398,17 @@ export class AgentManager {
           const { loadAgents } = await import("pi-open-agents");
           const { agents } = await loadAgents({ agentDir: HIAGENT_DIR });
           const agentDef = agents.find(a => a.name === agentName);
+          // 读取用户保存的 model/thinking 覆盖（~/.hiagent/subagent-overrides.json）
+          const { getSubagentOverride } = await import("./subagent-store");
+          const { SUBAGENT_OVERRIDES_FILE } = await import("@hiagent/shared");
+          const override = await getSubagentOverride(SUBAGENT_OVERRIDES_FILE, agentName);
           return {
             name: builtin.name,
             description: builtin.description,
             systemPrompt: agentDef?.prompt ?? "",
             systemPromptMode: (agentDef?.systemPrompt as any) ?? "replace",
-            model: null,
-            thinking: null,
+            model: override?.model ?? null,
+            thinking: override?.thinking ?? null,
             tools: builtin.readOnly ? ["read", "bash", "grep", "find", "ls"] : [],
             skills: [],
           };
@@ -426,6 +434,16 @@ export class AgentManager {
       cwd,
     });
 
+    // 内置 subagent 的委派引导从 ~/.hiagent/agents/*.md 的 frontmatter 提取（与命名智能体统一来源）
+    const { getSubagentInfo } = await import("./subagent-info");
+    const builtinSubagents = await getSubagentInfo([]);
+    const builtinHints: Record<string, import("@hiagent/shared").DelegationHints | undefined> = {};
+    for (const s of builtinSubagents) {
+      if (s.delegationHints) builtinHints[s.name] = s.delegationHints;
+    }
+    // 可用子智能体总览段：内置 + 命名统一列表（注入系统提示词 delegate-roster 段）
+    const delegateRoster = buildDelegateRoster(askToTargets, builtinHints, join(HIAGENT_DIR, "agents"));
+
     const delegateTools = [
       makeDelegateTool({ askTo: askToTargets, spawn: spawnFn }),
       makeFleetTool({ askTo: askToTargets, spawn: spawnFn }),
@@ -444,8 +462,6 @@ export class AgentManager {
       // 扩展改用 additionalExtensionPaths 纯内存注入：builtin + 已启用动态扩展
     additionalExtensionPaths: (() => {
       const paths = buildAdditionalExtensionPaths([...enabledExtensionIds]);
-      const subagentPath = paths.find((p: string) => p.includes("pi-open-agents"));
-      console.log("[kernel] additionalExtensionPaths 含 pi-open-agents:", !!subagentPath, subagentPath ? subagentPath : "");
       return paths;
     })(),
       additionalSkillPaths,
@@ -463,7 +479,7 @@ export class AgentManager {
             : HIAGENT_DEFAULT_BASE_PROMPT;
         return composePrompt(promptSegments, {
           defaultBasePrompt,
-          delegatePrompt,
+          delegateRoster,
           builtinSkillsDir: BUILTIN_SKILLS_DIR,
           memorySnapshot,
         });

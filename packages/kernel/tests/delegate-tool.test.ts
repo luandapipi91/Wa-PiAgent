@@ -1,20 +1,20 @@
 // delegate 关系网调起工具单测：
-// - makeDelegateTool：allowlist 校验（越权不 spawn）+ spawn 结果透传
-// - buildDelegatePrompt：关系网提示词段纯函数
+// - makeDelegateTool：allowlist 校验（越权不 spawn）+ spawn 结果透传 + 工具描述纯功能
+// - buildDelegateRoster：可用子智能体总览段（内置+命名统一列表）
 // - makeFleetTool：并行派发 + 聚合
 // - makeSpawnFn：spawn 闭包工厂（resolveConfig → runSubagentAgent）
 import { test, expect, mock } from "bun:test";
 import {
   makeDelegateTool,
   makeFleetTool,
-  buildDelegatePrompt,
+  buildDelegateRoster,
   makeSpawnFn,
   MAX_SUBAGENT_CONCURRENCY,
 } from "../src/delegate-tool";
 
 const askTo = [
-  { name: "代码审查", description: "评审改动", triggerKeywords: ["review", "评审"] },
-  { name: "质量验收", description: "测试与验收", triggerKeywords: [] },
+  { name: "代码审查", description: "评审改动" },
+  { name: "质量验收", description: "测试与验收" },
 ];
 
 test("delegate: 越权调起返回错误且不 spawn", async () => {
@@ -44,15 +44,64 @@ test("delegate: 透传 spawn 的失败结果（isError 原样带出）", async (
   expect(res.content[0].text).toBe("子智能体执行失败");
 });
 
-test("buildDelegatePrompt: 含名称/简介/关键词/fleet 说明；空 askTo 返回空串", () => {
-  const p = buildDelegatePrompt(askTo);
-  expect(p).toContain("代码审查");
-  expect(p).toContain("评审改动");
-  expect(p).toContain("review、评审");
-  expect(p).toContain("delegate");
-  expect(p).toContain("fleet");
-  expect(p).toContain("并行");
-  expect(buildDelegatePrompt([])).toBe("");
+test("buildDelegateRoster: XML 结构 + subagents 根标签", () => {
+  const r = buildDelegateRoster([], {}, "/agents");
+  expect(r).toContain("<subagents>");
+  expect(r).toContain("</subagents>");
+  // 每个内置类型是一个 <agent> 块
+  expect(r).toContain("<name>Explore</name>");
+  expect(r).toContain("<name>Plan</name>");
+  expect(r).toContain("<name>general-purpose</name>");
+});
+
+test("buildDelegateRoster: location 字段指向定义文件", () => {
+  const r = buildDelegateRoster([], {}, "/agents");
+  expect(r).toContain("<location>/agents/Explore.md</location>");
+  expect(r).toContain("<location>/agents/general-purpose.md</location>");
+});
+
+test("buildDelegateRoster: 内置类型 hints 用 XML 标签", () => {
+  const r = buildDelegateRoster([], {
+    "Explore": { whenToDelegate: "跨多文件探索", whenNotTo: "needle query", benefit: "省上下文" },
+  }, "/agents");
+  expect(r).toContain("<name>Explore</name>");
+  expect(r).toContain("<whenToDelegate>跨多文件探索</whenToDelegate>");
+  expect(r).toContain("<whenNotTo>needle query</whenNotTo>");
+  expect(r).toContain("<benefit>省上下文</benefit>");
+});
+
+test("buildDelegateRoster: 命名智能体与内置类型统一列表（结构一致）", () => {
+  const r = buildDelegateRoster([
+    { name: "代码审查", description: "评审改动", delegationHints: { whenToDelegate: "代码需评审", benefit: "结构化反馈" } },
+  ], {}, "/agents");
+  // 命名智能体也是 <agent> 块，含 hints + location
+  expect(r).toContain("<name>代码审查</name>");
+  expect(r).toContain("<description>评审改动</description>");
+  expect(r).toContain("<whenToDelegate>代码需评审</whenToDelegate>");
+  expect(r).toContain("<benefit>结构化反馈</benefit>");
+  expect(r).toContain("<location>/agents/代码审查.md</location>");
+  // 内置类型也在（统一列表，不分类）
+  expect(r).toContain("<name>Explore</name>");
+});
+
+test("buildDelegateRoster: 无 hints 的命名智能体只给 name+description+location", () => {
+  const r = buildDelegateRoster([
+    { name: "测试员", description: "写测试", delegationHints: undefined },
+  ], {}, "/agents");
+  expect(r).toContain("<name>测试员</name>");
+  expect(r).toContain("<description>写测试</description>");
+  expect(r).toContain("<location>/agents/测试员.md</location>");
+  // 测试员块不应有 whenToDelegate 标签
+  expect(r).not.toContain("<whenToDelegate>");
+});
+
+test("makeDelegateTool 描述为纯功能说明（不含智能体列表/hints）", () => {
+  const spawn = mock(async () => ({ text: "ok", isError: false }));
+  const tool = makeDelegateTool({ askTo, spawn });
+  // 不含具体智能体信息（已移到系统提示词）
+  expect(tool.description).not.toContain("Explore");
+  expect(tool.description).not.toContain("代码审查");
+  expect(tool.description).not.toContain("何时委派");
 });
 
 // ---- 内置 subagent 类型名（general-purpose / Explore / Plan）allowlist 放行 ----
@@ -80,14 +129,6 @@ test("delegate: 内置类型名 Plan 放行（绕过 askTo 名单）", async () 
   const res = await tool.execute("tc-plan", { agent: "Plan", task: "design plan" });
   expect(res.isError).toBe(false);
   expect(spawn).toHaveBeenCalledWith("Plan", "design plan");
-});
-
-test("delegate: makeDelegateTool 描述含全部内置类型名（含 Plan）", () => {
-  const spawn = mock(async () => ({ text: "ok", isError: false }));
-  const tool = makeDelegateTool({ askTo, spawn });
-  expect(tool.description).toContain("general-purpose");
-  expect(tool.description).toContain("Explore");
-  expect(tool.description).toContain("Plan");
 });
 
 test("delegate: 大小写错误（explore 而非 Explore）不放行", async () => {

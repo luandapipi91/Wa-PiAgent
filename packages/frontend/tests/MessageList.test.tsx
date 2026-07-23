@@ -140,6 +140,56 @@ test("intercom toolCall 渲染 DelegateCard（委派卡片）", () => {
   expect(screen.getByText(/intercom/)).toBeTruthy();
 });
 
+// 回归：被普通 toolCall 隔开的两段 text 应聚合成一个文本气泡（df8e6d6 的 segmentBlocks 曾错误地拆成两个）
+test("text → toolCall → text（无 delegate）→ 只有一个文本气泡", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        assistantMsg(1, [
+          { type: "text", text: "前面这段" },
+          { type: "toolCall", id: "c1", name: "read", arguments: { path: "/a" } },
+          { type: "text", text: "后面这段" },
+        ]),
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  // 两段 text 都应可见
+  expect(screen.getByText("前面这段")).toBeTruthy();
+  expect(screen.getByText("后面这段")).toBeTruthy();
+  // 关键断言：只有一个文本气泡（聚合），而不是被 toolCall 拆成两个
+  expect(screen.getAllByTestId("text-bubble")).toHaveLength(1);
+});
+
+// delegate 是切割锚点：delegate 前后的 text 各自聚合成独立气泡，普通 toolCall 不切割
+test("text → toolCall → text → delegate → text → toolCall → text → delegate → text → 三个文本气泡（普通 toolCall 不切割，delegate 切割）", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        assistantMsg(1, [
+          { type: "text", text: "委派前" },
+          { type: "toolCall", id: "t1", name: "read", arguments: { path: "/x" } },
+          { type: "toolCall", id: "d1", name: "delegate", arguments: { agent: "Explore", task: "搜" } },
+          { type: "text", text: "委派后1" },
+          { type: "toolCall", id: "t2", name: "bash", arguments: { command: "ls" } },
+          { type: "text", text: "委派后2" },
+          { type: "toolCall", id: "d2", name: "delegate", arguments: { agent: "Plan", task: "规划" } },
+          { type: "text", text: "最后" },
+        ]),
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  // 四段 text：委派前(聚合 t1 前的 text) / 委派后1+委派后2(聚合，跨 t2) / 最后
+  // 实际：[text:委派前][toolCalls:t1][delegate:d1][text:委派后1+委派后2][toolCalls:t2][delegate:d2][text:最后]
+  // → 3 个文本气泡（委派前 / 委派后1+2 / 最后）
+  expect(screen.getAllByTestId("text-bubble")).toHaveLength(3);
+  expect(screen.getByText("委派前")).toBeTruthy();
+  expect(screen.getByText("委派后1")).toBeTruthy();
+  expect(screen.getByText("委派后2")).toBeTruthy();
+  expect(screen.getByText("最后")).toBeTruthy();
+});
+
 test("只有 toolCall 的 assistant 消息不渲染空白文字气泡", () => {
   useSessionStore.setState({
     messagesBySession: {

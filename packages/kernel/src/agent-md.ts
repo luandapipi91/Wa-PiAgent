@@ -25,10 +25,25 @@ function parseYaml(text: string): Record<string, unknown> {
           i++;
         }
         result[key] = partners;
+        continue;  // while 退出后 i 已指向下一无缩进行，跳过外层 i++
+      } else if (key === "delegationHints") {
+        // 委派引导嵌套块：收集 whenToDelegate/whenNotTo/benefit 标量字段
+        const hints: Record<string, string> = {};
+        i++;
+        while (i < lines.length && lines[i].startsWith("  ")) {
+          const hm = lines[i].match(/^\s+(\w+):\s*(.*)$/);
+          if (hm && ["whenToDelegate", "whenNotTo", "benefit"].includes(hm[1])) {
+            hints[hm[1]] = String(parseScalar(hm[2]));
+          }
+          i++;
+        }
+        result[key] = hints;
+        continue;  // 同 partners
       } else if (i + 1 < lines.length && lines[i + 1].startsWith("  ")) {
         // 跳过未知嵌套块
         i++;
         while (i < lines.length && lines[i].startsWith("  ")) i++;
+        continue;
       } else {
         // 空值标量（如空 description）
         result[key] = "";
@@ -86,12 +101,20 @@ export function parseAgentMd(md: string): AgentConfig {
     skills: Array.isArray(y.skills) ? y.skills as string[] : String(y.skills).split(",").map(s => s.trim()),
     mcpServers: Array.isArray(y.mcpServers) ? y.mcpServers as string[] : [],
     partners,
-    triggerKeywords: Array.isArray(y.triggerKeywords) ? (y.triggerKeywords as string[]) : [],
+    delegationHints: (() => {
+      const h = y.delegationHints as Record<string, string> | undefined;
+      if (!h) return undefined;
+      // 三字段全空则视为未配置
+      const has = h.whenToDelegate || h.whenNotTo || h.benefit;
+      return has ? { whenToDelegate: h.whenToDelegate, whenNotTo: h.whenNotTo, benefit: h.benefit } : undefined;
+    })(),
     systemPromptBody: bodyText.trim() || undefined,
   };
 }
 
 export function stringifyAgentMd(c: AgentConfig): string {
+  // 防护：displayName 不能为空或 undefined（防止序列化为字符串 "undefined"）
+  if (!c.displayName) throw new Error("displayName 不能为空");
   const fm: string[] = ["---"];
   fm.push(`displayName: ${c.displayName}`);
   fm.push(`avatar: "${c.avatar}"`);
@@ -99,13 +122,20 @@ export function stringifyAgentMd(c: AgentConfig): string {
   fm.push(`description: ${c.description}`);
   fm.push(`model: ${c.model ?? ""}`);
   fm.push(`thinking: ${c.thinking}`);
-  fm.push(`triggerKeywords: [${c.triggerKeywords.join(", ")}]`);
   fm.push(`systemPromptMode: ${c.systemPromptMode}`);
   fm.push(`tools: [${c.tools.join(", ")}]`);
   fm.push(`skills: ${c.skills.join(", ")}`);
   fm.push(`mcpServers: ${c.mcpServers.length ? `[${c.mcpServers.join(", ")}]` : "[]"}`);
   fm.push("partners:");
   fm.push(`  askTo: [${c.partners.askTo.join(", ")}]`);
+  // 委派引导：三字段有任一非空才写出，避免污染所有 agent.md
+  const h = c.delegationHints;
+  if (h && (h.whenToDelegate || h.whenNotTo || h.benefit)) {
+    fm.push("delegationHints:");
+    if (h.whenToDelegate) fm.push(`  whenToDelegate: ${h.whenToDelegate}`);
+    if (h.whenNotTo) fm.push(`  whenNotTo: ${h.whenNotTo}`);
+    if (h.benefit) fm.push(`  benefit: ${h.benefit}`);
+  }
   fm.push("---");
   if (c.systemPromptBody) fm.push(c.systemPromptBody);
   return fm.join("\n");
@@ -130,13 +160,12 @@ export function makeDefaultAgentConfig(displayName: string): AgentConfig {
     avatar: def.emoji,
     avatarColor: `${def.gradient[0]}-${def.gradient[1]}`,
     description: "",
-    model: "glm-4.6",
-    thinking: "medium",
+    model: null,
+    thinking: null,
     systemPromptMode: "replace",
     tools: [],
     skills: [],
     mcpServers: [],
     partners: { askTo: [] },
-    triggerKeywords: [],
   };
 }

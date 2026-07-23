@@ -10,7 +10,7 @@ const agent = (name: string, description = "简介"): AgentConfig => ({
   displayName: name, avatar: "🤖", avatarColor: "#000-#111", description,
   model: "m", thinking: "medium", systemPromptMode: "replace",
 
-  tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [],
+  tools: [], skills: [], mcpServers: [], partners: { askTo: [] },
 });
 
 // 捕获真实 action：部分测试 override createAgent/deleteAgent 做 spy，

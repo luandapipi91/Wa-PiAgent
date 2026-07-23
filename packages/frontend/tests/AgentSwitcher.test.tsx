@@ -31,7 +31,6 @@ function cfg(name: string, extra: Record<string, any> = {}) {
     skills: [],
     mcpServers: [],
     partners: { askTo: [] },
-    triggerKeywords: [],
     ...extra,
   } as any;
 }

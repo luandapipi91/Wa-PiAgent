@@ -35,7 +35,6 @@ test("saveAgent 持久化并可读回", async () => {
     description: "d", model: "m", thinking: "high", systemPromptMode: "replace",
  tools: ["read"],
     skills: [], mcpServers: [], partners: { askTo: [] },
-    triggerKeywords: [],
     systemPromptBody: "正文",
   });
   expect(errs).toEqual([]);
@@ -52,7 +51,6 @@ test("saveAgent 拒绝非法配置不写盘", async () => {
     systemPromptMode: "replace", avatar: "", avatarColor: "", description: "",
  tools: [], skills: [],
     mcpServers: [], partners: { askTo: [] },
-    triggerKeywords: [],
   } as never);
   expect(errs.length).toBeGreaterThan(0);
   rmSync(dir, { recursive: true, force: true });
@@ -126,5 +124,52 @@ READ-ONLY explorer body`);
   expect(names).toContain("测试");
   expect(names).not.toContain(undefined);
   expect(list.length).toBe(1);  // Explore 被过滤
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("migrateNameToDisplayName 跳过无 displayName 的内置 agent（不生成 undefined.md）", async () => {
+  const dir = tempAgentsDir();
+  const store = new ConfigStore(dir);
+  // 模拟内置 subagent（有 name 字段但无 displayName 字段）
+  writeFileSync(join(dir, "Explore.md"), `---
+name: Explore
+description: 只读探索
+mode: subagent
+systemPrompt: replace
+thinking: medium
+tools: read, bash
+---
+READ-ONLY explorer body`);
+  // 同时有一个合法旧格式 agent（有 name + displayName）
+  writeFileSync(join(dir, "old.md"), `---
+name: old
+displayName: 旧智能体
+avatar: "🤖"
+avatarColor: "a-b"
+description: test
+model: m
+thinking: medium
+systemPromptMode: replace
+tools: [read]
+skills: []
+mcpServers: []
+partners:
+  askTo: []
+---
+`);
+
+  const mapping = await store.migrateNameToDisplayName();
+
+  // 内置 agent 被跳过（无 displayName），不产生 undefined.md
+  expect(mapping.size).toBe(1);
+  expect(mapping.get("old")).toBe("旧智能体");
+
+  // undefined.md 不应存在
+  const filesAfter = (await store.listAgents()).map(a => a.displayName);
+  expect(filesAfter).not.toContain("undefined");
+  expect(filesAfter).not.toContain(undefined as any);
+  // 旧格式 agent 被迁移
+  expect(filesAfter).toContain("旧智能体");
+
   rmSync(dir, { recursive: true, force: true });
 });

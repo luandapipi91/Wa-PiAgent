@@ -124,7 +124,6 @@ export async function startKernel(
     extensionManager,
     memoryStore,
     onEvent: (sessionId, projectId, agentName, event) => {
-      console.log(`[kernel] sdk event: ${(event as any).type}`);
       broadcast({ type: "sdk:event", projectId, sessionId, agentName, event: event as any });
       // SDK 运行时错误（不可用模型 / 鉴权失败 / 网络等）不抛异常，而是编码进
       // message_end{stopReason:"error", errorMessage}。ws-server 的 try/catch 抓不到，

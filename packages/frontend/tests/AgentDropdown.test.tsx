@@ -8,7 +8,7 @@ const cfg = (name: string): AgentConfig => ({
   displayName: name, avatar: "🤖", avatarColor: "#06b6d4-#3b82f6",
   description: `${name}简介`, model: "m", thinking: "disabled",
   systemPromptMode: "replace",
-  tools: [], skills: [], mcpServers: [], partners: { askTo: [] }, triggerKeywords: [],
+  tools: [], skills: [], mcpServers: [], partners: { askTo: [] },
 });
 
 beforeEach(() => {

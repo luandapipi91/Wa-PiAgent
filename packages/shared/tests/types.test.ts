@@ -26,7 +26,6 @@ test("AgentConfig 含 partners", () => {
     systemPromptMode: "replace",
  tools: ["read"], skills: [],
     mcpServers: [], partners: { askTo: ["product"] },
-    triggerKeywords: [],
   };
   expect(c.partners.askTo).toEqual(["product"]);
 });
@@ -112,15 +111,13 @@ describe("ProviderModel supportsVision", () => {
   });
 });
 
-test("AgentConfig 支持 triggerKeywords 与 ThinkingLevel", () => {
+test("AgentConfig 支持 ThinkingLevel", () => {
   const c: import("../src/types").AgentConfig = {
     displayName: "代码审查", avatar: "🔍", avatarColor: "#06b6d4-#3b82f6",
     description: "评审改动", model: "m", thinking: "max",
     systemPromptMode: "replace",
     tools: [], skills: [], mcpServers: [], partners: { askTo: [] },
-    triggerKeywords: ["review", "评审"],
   };
-  expect(c.triggerKeywords).toEqual(["review", "评审"]);
   expect(c.thinking).toBe("max");
 });
 
@@ -132,7 +129,6 @@ test("AgentConfig.thinking/model 可为 null（跟随当前/跟随全局）", ()
     systemPromptMode: "replace",
  tools: [], skills: [],
     mcpServers: [], partners: { askTo: [] },
-    triggerKeywords: [],
   };
   expect(c.thinking).toBeNull();
   expect(c.model).toBeNull();

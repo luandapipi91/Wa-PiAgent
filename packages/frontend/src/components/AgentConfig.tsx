@@ -30,6 +30,18 @@ export function AgentConfig({ agentName, onClose }: Props) {
   const [draft, setDraft] = useState<AgentConfig | null>(null);
   const [tools, setTools] = useState<AgentToolItem[]>([]);
   const config = useAgentsStore(s => s.configs[agentName]);
+  // model 有效性校验：磁盘残留的裸 ID（如 glm-4.6）不匹配 select option（slug/id 格式），视为无效
+  const providers = useProvidersStore(s => s.providers);
+  const modelIds = useMemo(() => {
+    const slugs: string[] = [];
+    const ids = new Set<string>();
+    for (const p of providers) {
+      const slug = slugifyProviderName(p.name, slugs);
+      slugs.push(slug);
+      for (const m of p.models) ids.add(`${slug}/${m.id}`);
+    }
+    return ids;
+  }, [providers]);
 
   // 内置 subagent（general-purpose / Explore / Plan）：不在 agents store 里，
   // 用 useSubagentsStore 获取真实 systemPrompt + builtinToolNames（来自 pi-subagents）。
@@ -51,7 +63,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
       skills: [],
       mcpServers: [],
       partners: { askTo: [] },
-      triggerKeywords: [],
+      delegationHints: builtinInfo.delegationHints,
       // 真实 systemPrompt（来自 pi-subagents），只读展示
       systemPromptBody: builtinInfo.systemPrompt,
     };
@@ -82,28 +94,32 @@ export function AgentConfig({ agentName, onClose }: Props) {
     allAgents.some(a => a.displayName === trimmedName);
   const nameEmpty = trimmedName === "";
 
-  const canSave = !!draft && !nameEmpty && !nameConflict && !isBuiltin;
+  const canSave = !!draft && (isBuiltin || (!nameEmpty && !nameConflict));
 
-  // 内置 subagent：model/thinking 变化走 saveOverride（不走 agent:config:save）
   const handleChange = (next: AgentConfig) => {
-    if (isBuiltin) {
-      const override: SubagentOverride = {
-        type: agentName,
-        model: next.model ?? null,
-        thinking: next.thinking ?? null,
-      };
-      useSubagentsStore.getState().saveOverride(override);
-      // 本地 draft 也更新（让 select 立即反映）
-      setDraft(next);
-      return;
-    }
     setDraft(next);
   };
 
   const save = () => {
-    if (!draft || !canSave) return;
+    if (!draft) return;
+    if (isBuiltin) {
+      const validModel = modelIds.size > 0 && draft.model && !modelIds.has(draft.model) ? null : draft.model;
+      const override: SubagentOverride = {
+        type: agentName,
+        model: validModel ?? null,
+        thinking: draft.thinking ?? null,
+      };
+      useSubagentsStore.getState().saveOverride(override);
+      onClose();
+      return;
+    }
+    if (!canSave) return;
+    // model 无效（磁盘残留裸 ID 不匹配 option）时置 null（跟随全局），避免"显示跟随全局但保存旧值"
+    const configToSend = modelIds.size > 0 && draft.model && !modelIds.has(draft.model)
+      ? { ...draft, model: null }
+      : draft;
     // 名称可能被改：agentName 为旧 displayName，draft.displayName 为新值，kernel 走 rename 联动
-    send({ type: "agent:config:save", agentName, config: draft });
+    send({ type: "agent:config:save", agentName, config: configToSend });
     onClose();
   };
 
@@ -153,11 +169,9 @@ export function AgentConfig({ agentName, onClose }: Props) {
         )}
         <button onClick={onClose}
           className="px-3 py-1.5 rounded-sm text-xs bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary">关闭</button>
-        {!isBuiltin && (
-          <button onClick={save} disabled={!canSave} data-testid="cfg-save"
-            className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: "var(--accent)", color: "#fff" }}>保存</button>
-        )}
+        <button onClick={save} disabled={!canSave} data-testid="cfg-save"
+          className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ background: "var(--accent)", color: "#fff" }}>保存</button>
       </footer>
     </Modal>
   );
@@ -182,8 +196,6 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function BasicTab({ draft, onChange }: TabProps) {
-  const [kw, setKw] = useState("");
-
   // 模型下拉：扁平化 providers（同 ModelSelector），slug/id 作为 option value
   const providers = useProvidersStore(s => s.providers);
   const models = useMemo(() => {
@@ -198,13 +210,9 @@ function BasicTab({ draft, onChange }: TabProps) {
       }));
     });
   }, [providers]);
-
-  const addKw = () => {
-    const k = kw.trim();
-    setKw("");
-    if (!k || draft.triggerKeywords.includes(k)) return;
-    onChange({ ...draft, triggerKeywords: [...draft.triggerKeywords, k] });
-  };
+  // model option value 集合：draft.model 若不在其中（如磁盘残留的裸 ID），select 视为未选中（跟随全局）
+  const modelIds = useMemo(() => new Set(models.map(m => `${m.providerSlug}/${m.id}`)), [models]);
+  const effectiveModel = draft.model && modelIds.has(draft.model) ? draft.model : "";
 
   return (
     <div>
@@ -223,7 +231,7 @@ function BasicTab({ draft, onChange }: TabProps) {
 
       <Sec>模型</Sec>
       <Row label="模型">
-        <select value={draft.model ?? ""} onChange={e => onChange({ ...draft, model: e.target.value || null })}
+        <select value={effectiveModel} onChange={e => onChange({ ...draft, model: e.target.value || null })}
           className={inp} data-testid="cfg-model-select">
           <option value="">默认（跟随全局）</option>
           {models.map(m => (
@@ -258,22 +266,33 @@ function BasicTab({ draft, onChange }: TabProps) {
       <textarea value={draft.systemPromptBody ?? ""} onChange={e => onChange({ ...draft, systemPromptBody: e.target.value })}
         className={`${inp} w-full min-h-[84px] resize-y leading-relaxed`} rows={4} />
 
-      <Sec>触发条件</Sec>
-      <div className="flex flex-wrap gap-1.5 mb-2">
-        {draft.triggerKeywords.map(k => (
-          <span key={k} data-testid={`kw-chip-${k}`}
-            className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-surface-hover border border-hairline text-primary">
-            {k}
-            <button onClick={() => onChange({ ...draft, triggerKeywords: draft.triggerKeywords.filter(x => x !== k) })}
-              className="text-tertiary hover:text-primary" data-testid={`kw-chip-x-${k}`}>✕</button>
-          </span>
-        ))}
-      </div>
-      <input value={kw} onChange={e => setKw(e.target.value)}
-        onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addKw(); } }}
-        placeholder="输入关键词，回车添加" className={`${inp} w-full`} data-testid="kw-input" />
+      <Sec>委派引导</Sec>
+      <Row label="何时调起">
+        <textarea
+          value={draft.delegationHints?.whenToDelegate ?? ""}
+          onChange={e => onChange({ ...draft, delegationHints: { ...draft.delegationHints, whenToDelegate: e.target.value } })}
+          className={`${inp} w-full min-h-[56px] resize-y leading-relaxed`} rows={2}
+          placeholder="什么场景下主智能体应调起本智能体，如：用户描述新需求、需要梳理业务流程"
+          data-testid="cfg-hints-when" />
+      </Row>
+      <Row label="何时不调起">
+        <textarea
+          value={draft.delegationHints?.whenNotTo ?? ""}
+          onChange={e => onChange({ ...draft, delegationHints: { ...draft.delegationHints, whenNotTo: e.target.value } })}
+          className={`${inp} w-full min-h-[56px] resize-y leading-relaxed`} rows={2}
+          placeholder="什么场景下不该调起，如：已明确到具体代码文件的修改"
+          data-testid="cfg-hints-not" />
+      </Row>
+      <Row label="调起收益">
+        <textarea
+          value={draft.delegationHints?.benefit ?? ""}
+          onChange={e => onChange({ ...draft, delegationHints: { ...draft.delegationHints, benefit: e.target.value } })}
+          className={`${inp} w-full min-h-[56px] resize-y leading-relaxed`} rows={2}
+          placeholder="调起本智能体的好处，如：把多次 grep 探索的噪声挡在主上下文之外"
+          data-testid="cfg-hints-benefit" />
+      </Row>
       <div className="mt-2 px-2.5 py-2 rounded-sm text-[11px] leading-relaxed border border-hairline bg-surface-hover text-secondary">
-        关键词用于其他智能体自动调起本智能体的判定提示
+        配好后注入 delegate 工具描述，引导主智能体在合适场景调起本智能体
       </div>
     </div>
   );

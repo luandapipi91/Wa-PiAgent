@@ -114,7 +114,9 @@ export class ConfigStore {
       try {
         const cfg = parseAgentMd(content);
         const newName = cfg.displayName;
-        if (newName && newName !== oldStem) {
+        // 防护：displayName 为空（如内置 subagent 只有 name 字段无 displayName），跳过不迁移
+        if (!newName) continue;
+        if (newName !== oldStem) {
           mapping.set(oldStem, newName);
         } else if (newName === oldStem) {
           // 文件名已对，只需确认 frontmatter 无残留 name 字段

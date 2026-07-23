@@ -6,6 +6,30 @@
 
 ## 2026-07-22
 
+### 修复
+- **主智能体不主动调用子智能体（Explore 等）**：根因是提示词引导设计缺陷——base 段"Use the available tools to explore and modify the codebase"抢占探索动作主体，subagent-clarify 段用软"prefer"且大段澄清稀释信号，delegate 工具描述只有纯功能说明缺"何时委派/何时自己做"判据。参考 OpenCode（anthropic.txt 的 CRITICAL 强制指令 + needle query 分界 + few-shot 正例 + 身份/行动分离）和 Reasonix（task.go 的具体化收益"repeated grep 噪声挡在父上下文预算外"）三层已验证机制修复：
+  - `system-prompt.ts`：base 段删除 explore 句（身份/行动分离）；subagent-clarify 段重构为 OpenCode 式强制策略（CRITICAL + needle query + 收益 + 正例）；PROMPTS_SCHEMA_VERSION 2→3 触发磁盘迁移。
+  - `delegate-tool.ts`：新增 `buildDelegateDescription` 动态拼装工具描述（OpenCode task.txt 的 When NOT to use + 收益结构）；fleet 工具描述加并行触发示例。
+  - **委派引导可配置化**：AgentConfig 新增 `delegationHints?: { whenToDelegate?, whenNotTo?, benefit? }` 字段（types.ts），命名智能体也能配置；agent-md.ts 加 YAML 嵌套块解析/序列化（修复 parseYaml 嵌套块后外层 i++ 吞下一字段的潜在 bug）；前端 AgentConfig.tsx BasicTab 加"委派引导"分区（三个 textarea）。
+  - **内置 subagent 委派引导统一走 .md**：delegationHints 写入 builtin-agents.ts 的三个内置 .md frontmatter（与命名智能体同一套机制），不再用代码常量硬编码；subagent-info.ts 加 `extractDelegationHints` 从 frontmatter 提取并透传给 SubagentInfo；前端 builtinDraft 从 builtinInfo.delegationHints 显示；delegate-tool 的 buildDelegateDescription 改为接收 builtinHints 参数（由 agent-manager 从 .md 读取注入），删除重复的 BUILTIN_DELEGATION_HINTS 常量。
+  影响范围：packages/shared/src/{types,constants}.ts、packages/kernel/src/{system-prompt,agent-md,delegate-tool,agent-manager,subagent-info,builtin-agents}.ts、packages/frontend/src/components/AgentConfig.tsx 及对应测试。
+
+## 2026-07-28
+
+### 修复
+- **按 R 重启时前端 Port 5180 冲突（EADDRINUSE）**：根因是 `scripts/dev.ts` 的 `stopProc` 在 POSIX 上只调用 `p.kill('SIGTERM')`，但 spawn 用了 `shell:true`，信号只发给 shell 进程，bun/vite 子进程成为孤儿继续占用端口。修复：POSIX 分支改为递归 shell 函数 `k() { for c in $(pgrep -P $1); do k $c; done; kill -9 $1; }; k PID` 杀整棵进程树，与 Windows `taskkill /T /F` 行为对称。影响范围：scripts/dev.ts。
+
+## 2026-07-22
+
+### 修复
+- **聊天回复"一段一段"——同一 agent 回合的文本被普通工具调用拆成多个气泡**：根因是 commit `df8e6d6`（DelegateCard 内联消息流展示）引入的 `segmentBlocks` 函数把渲染逻辑从「按 type 聚类」改为「按原始顺序切分、只合并相邻同类 block」，导致 `text → toolCall → text` 中的 text 因不相邻而被切成两个文本气泡。修复：重写 `segmentBlocks`，以 delegate toolCall 作为切割锚点（delegate 独立成段并切断 text 流），其余 thinking/text/普通 toolCall 在每个 delegate 片段内按 type 聚类合并（text 跨普通工具调用聚合成一个气泡，恢复 `df8e6d6` 之前的行为）。影响范围：frontend/components/MessageList.tsx、frontend/tests/MessageList.test.tsx。
+
+### 新增
+- **内置智能体设置支持保存 model 和思考强度**：在「更多智能体」弹窗中点击内置 subagent（通用子智能体/探索子智能体/规划子智能体），可设置 model 和思考强度并点击「保存」按钮持久化。保存后 spawn 子智能体时生效（resolveSpawnConfig 读取 subagent-overrides.json 中的覆盖配置）。影响范围：frontend/AgentConfig.tsx、kernel/agent-manager.ts、kernel/tests/agent-manager-subagent-overrides.test.ts、subagent-info.test.ts。
+
+### 修复
+- **「更多智能体」弹窗出现名为 undefined 的智能体，删除后重启又恢复**：根因是 `migrateNameToDisplayName()` 在处理内置 subagent 的 `.md` 文件（含 `name:` 字段但无 `displayName:` 字段，如 general-purpose/Explore/Plan）时，`cfg.displayName` 为 `undefined`（JS 值），落入 `join(agentsDir, "${newName}.md")` → `undefined.md`，且 `stringifyAgentMd` 的模板字面量将 `undefined` 序列化为字符串 `"undefined"` 写入文件。同时原内置文件被 `unlink` 删除。每次重启迁移逻辑重复此过程，导致 `undefined.md` 一直存在。修复：(1) `migrateNameToDisplayName` 增加 `if (!newName) continue` 防护，跳过 displayName 为空的文件；(2) `stringifyAgentMd` 增加 displayName 非空校验（defense in depth）。影响范围：kernel/config-store.ts、kernel/agent-md.ts。
+
 ### 重构
 - **子智能体执行后端从 @gotgenes/pi-subagents 切换到 pi-open-agents**：获得 per-agent skills/tools 白名单配置能力（config.skills/config.tools 死字段正式生效）+ 子智能体执行过程可见性（onProgress 回调：工具调用/文本输出/用量实时推送）。架构变化：进程内 spawn+轮询 → 子进程 runSubagent+AbortSignal。内置智能体（general-purpose/Explore/Plan）的 systemPrompt 从包内部硬编码迁移为 `~/.hiagent/agents/*.md` 定义文件（用户可覆盖），agent 定义目录统一在 HiAgent 自己的 `~/.hiagent/agents/`。delegate-tool 完全重写（移除 SubagentServiceLike/waitSubagentResult/spawnViaSubagentsService，新增 makeSpawnFn + subagent-runner 适配层 + builtin-agents 种子文件）。移除死字段 inheritSkills。影响范围：kernel/{delegate-tool,subagent-runner(新),builtin-agents(新),subagent-info,agent-manager,extensions}.ts、shared/{types,constants}.ts、frontend/AgentConfig.tsx。
 

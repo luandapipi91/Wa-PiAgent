@@ -151,7 +151,7 @@ const isWindows = process.platform === "win32";
  * 终止 spawn 出的子进程及其整棵进程树。
  * spawn 用了 shell:true,直接 kill 只会杀掉外层 cmd.exe/sh,
  * 真正占端口的孙进程(bun.exe/node.exe)会成为孤儿继续监听 → 下次 reload EADDRINUSE。
- * 故 Windows 用 taskkill /T /F 杀整棵树;POSIX 直接发 SIGTERM。
+ * 故 Windows 用 taskkill /T /F 杀整棵树;POSIX 用递归 shell 函数杀整棵树。
  */
 async function stopProc(p: ChildProcess): Promise<void> {
   if (p.pid == null) return;
@@ -159,7 +159,12 @@ async function stopProc(p: ChildProcess): Promise<void> {
     if (isWindows) {
       await runCmd("taskkill", ["/PID", String(p.pid), "/T", "/F"]);
     } else {
-      p.kill("SIGTERM");
+      // POSIX: spawn 用了 shell:true，p.kill('SIGTERM') 只杀 shell，
+      // 其子进程(bun/vite)成为孤儿继续占用端口，导致下次 reload EADDRINUSE。
+      // 用递归函数杀整棵进程树，与 Windows taskkill /T /F 行为对称。
+      await runCmd("/bin/sh", ["-c",
+        `k() { for c in $(pgrep -P $1 2>/dev/null); do k $c; done; kill -9 $1 2>/dev/null; }; k ${p.pid}`,
+      ]);
     }
   } catch {}
 }
