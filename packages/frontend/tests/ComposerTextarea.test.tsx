@@ -20,9 +20,15 @@ test("渲染文件 chip（#[...]，绿色 chip-file）", () => {
   expect(chip.getAttribute("data-token")).toBe("#[App.tsx]");
 });
 
-test("渲染技能 chip", () => {
+test("渲染技能 chip（$）", () => {
   render(<ComposerTextarea text="用 $[brainstorm]" onTextChange={mock()} onKeyDown={mock()} onPaste={mock()} />);
-  const chip = screen.getByText("$brainstorm");
+  const chip = screen.getByText("⚡ brainstorm");
+  expect(chip.className).toContain("chip-skill");
+});
+
+test("渲染技能 chip（¥）", () => {
+  render(<ComposerTextarea text="用 ¥[brainstorm]" onTextChange={mock()} onKeyDown={mock()} onPaste={mock()} />);
+  const chip = screen.getByText("⚡ brainstorm");
   expect(chip.className).toContain("chip-skill");
 });
 
@@ -144,7 +150,7 @@ test("bug 复现：chip 后同行文字被 Chrome 包进 <div> → 不应补换�
   // Chrome contenteditable 行为：chip（inline span）后继续输入文字，
   // 浏览器可能把后续文字包进 <div>。这和"用户按 Enter 换行"产生的 div 无法从结构区分，
   // 但语义上 chip 后紧跟的 div 是"同行延续"而非"新行"——不应补 \n。
-  el.innerHTML = '<span class="chip chip-skill" contenteditable="false" data-token="$[brainstorming]">$brainstorming</span><div>帮我设计这个功能</div>';
+  el.innerHTML = '<span class="chip chip-skill" contenteditable="false" data-token="$[brainstorming]">⚡ brainstorming</span><div>帮我设计这个功能</div>';
   fireEvent.input(el);
   // 期望：chip 和文字在同一行，无 \n
   expect(onTextChange).toHaveBeenCalledWith("$[brainstorming]帮我设计这个功能");

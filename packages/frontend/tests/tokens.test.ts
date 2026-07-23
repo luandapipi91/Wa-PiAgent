@@ -11,6 +11,7 @@ test("expandTokens 展开文件 token（#[path] -> #path）", () => {
 
 test("expandTokens 展开技能 token 为 /skill:name + 空格（SDK _expandSkillCommand 用空格分隔技能名和参数）", () => {
   expect(expandTokens("用 $[brainstorming] 技能")).toBe("用 /skill:brainstorming  技能");
+  expect(expandTokens("用 ¥[brainstorming] 技能")).toBe("用 /skill:brainstorming  技能");
 });
 
 test("expandTokens 技能后紧跟用户文字时加空格分隔", () => {
@@ -39,8 +40,8 @@ test("textToSegments 拆分文本和文件 chip（#[]）", () => {
 });
 
 test("textToSegments 识别技能 chip", () => {
-  const segs = textToSegments("$[my-skill]");
-  expect(segs).toEqual([{ type: "skill", value: "my-skill" }]);
+  expect(textToSegments("$[my-skill]")).toEqual([{ type: "skill", value: "my-skill" }]);
+  expect(textToSegments("¥[my-skill]")).toEqual([{ type: "skill", value: "my-skill" }]);
 });
 
 test("textToSegments 识别 agent chip（@[]）", () => {
@@ -53,8 +54,9 @@ test("textToSegments 识别 agent chip（@[]）", () => {
 
 test("segmentsToText 与 textToSegments 可逆", () => {
   const original = "看 #[a.ts] 和 $[skill] 加 @[pm]";
-  const segs = textToSegments(original);
-  expect(segmentsToText(segs)).toBe(original);
+  expect(segmentsToText(textToSegments(original))).toBe(original);
+  // ¥[skill] 代入内部统一为 $[skill]（segmentsToText 写 $ token）
+  expect(segmentsToText(textToSegments("用 ¥[skill] 技能"))).toBe("用 $[skill] 技能");
 });
 
 test("escapeHtml 转义 HTML 特殊字符", () => {
@@ -69,10 +71,14 @@ test("textToHtml 渲染文件 chip 为 span", () => {
 });
 
 test("textToHtml 渲染技能 chip 为 span", () => {
-  const html = textToHtml("$[brainstorm]");
-  expect(html).toContain("data-token=\"$[brainstorm]\"");
-  expect(html).toContain("$brainstorm");
-  expect(html).toContain("chip-skill");
+  // 技能 chip 渲染用 ⚡ 图标代替触发符（更直观）
+  expect(textToHtml("$[brainstorm]")).toContain("data-token=\"$[brainstorm]\"");
+  expect(textToHtml("$[brainstorm]")).toContain("⚡ brainstorm");
+  expect(textToHtml("$[brainstorm]")).toContain("chip-skill");
+  // ¥ token 渲染时 chip 同样显示 ⚡（内部统一表示）
+  expect(textToHtml("¥[brainstorm]")).toContain("data-token=\"$[brainstorm]\"");
+  expect(textToHtml("¥[brainstorm]")).toContain("⚡ brainstorm");
+  expect(textToHtml("¥[brainstorm]")).toContain("chip-skill");
 });
 
 test("textToHtml 渲染 agent chip 为 span（chip-agent 蓝色，含 @ 触发符）", () => {
