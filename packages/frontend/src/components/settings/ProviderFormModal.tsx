@@ -231,13 +231,17 @@ export function ProviderFormModal({ initial, onClose }: Props) {
           <div ref={tagContainerRef}>
           <TagInput key={tagKey} value={modelIds} onChange={handleTagsChange}
             placeholder="输入模型 ID，回车或 | 添加"
-            onInputText={text => {
-              setModelSearch(text);
-              if (text && tagContainerRef.current) {
+            onFocus={() => {
+              if (selectedPreset && tagContainerRef.current) {
                 const r = tagContainerRef.current.getBoundingClientRect();
                 setDropPos({ top: r.bottom + 2, left: r.left, width: r.width });
-              } else {
-                setDropPos(null);
+              }
+            }}
+            onInputText={text => {
+              setModelSearch(text);
+              if (tagContainerRef.current) {
+                const r = tagContainerRef.current.getBoundingClientRect();
+                setDropPos({ top: r.bottom + 2, left: r.left, width: r.width });
               }
             }}
           />

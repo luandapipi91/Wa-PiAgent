@@ -89,10 +89,12 @@ export function useAutoCollapse(opts: {
   const [userOpen, setUserOpen] = useState(false);
   const expectOpen = !userToggled.current && !!opts.isStreaming && !opts.isDone;
   const open = userToggled.current ? userOpen : expectOpen;
+  // 必须基于当前显示的 open 取反：userOpen 初始为 false，
+  // 若用 setUserOpen(o => !o)，流式展开时第一次点击会把 userOpen 置 true（仍展开），要点两次才折叠
   const toggle = useCallback(() => {
     userToggled.current = true;
-    setUserOpen(o => !o);
-  }, []);
+    setUserOpen(!open);
+  }, [open]);
   return { open, toggle };
 }
 ```
@@ -101,23 +103,26 @@ export function useAutoCollapse(opts: {
 
 全在 `MessageList.tsx`（4 处中 3 处）+ `DelegateCard.tsx`（1 处）：
 
-1. **`ThinkingBlock`** (L478-501)
+1. **`ThinkingBlock`** (L481-504)
    - 删 `const [open, setOpen] = useState(false)`
    - 加 `const { open, toggle } = useAutoCollapse({ isStreaming, isDone: !isStreaming })`
-   - thinking 无独立 result，完成信号 = `!isStreaming`
+   - thinking 无独立 result，完成信号 = `!isStreaming`（即整轮流式期间 thinking 保持展开，整轮结束才折叠——沿用原 spec 表格的判定，若希望"thinking 段结束即折叠"需另加信号）
    - `onClick={() => setOpen(!open)}` → `onClick={toggle}`
 
-2. **`ToolCallGroup`** (L531-571)
+2. **`ToolCallGroup`** (L534-574)
    - `isDone = toolCalls.every(tc => results.has(tc.id))`
    - 用 hook 替换内部 state
    - `onClick` 改 `toggle`
+   - **向子组件 `ToolCallBlock` 透传 `isStreaming`**（当前 L568 未传，否则单个工具块流式中永远不会自动展开）
 
-3. **`ToolCallBlock`** (L573-613)
+3. **`ToolCallBlock`** (L576-616)
+   - Props 增加 `isStreaming?: boolean`
    - `isDone = !!result`
    - 用 hook 替换
    - `onClick` 改 `toggle`
 
 4. **`DelegateCard.tsx`** (L9-45)
+   - Props 增加 `isStreaming?: boolean`；**调用点 MessageList.tsx L409 需传入 `isStreaming`**（否则 `expectOpen` 恒 false，流式中不会自动展开）
    - 从整块橙色卡片改为：折叠时单行 pill（`↪ 委派给 {agent} · 状态 ▸`），展开时现橙色内容区
    - `isDone = !!result`
    - 引入 `useAutoCollapse`
@@ -138,11 +143,12 @@ export function useAutoCollapse(opts: {
 
 遵循 AGENTS.md 四层验收标准。本次是纯前端视图改动，第 3/4 层不涉及新接口/新流程，注明跳过原因。
 
-### 第 1 层 · 单元测试（bun:test）
+### 第 1 层 · 单元测试（Vitest + RTL `renderHook`）
 
-`packages/frontend/src/components/blocks/useAutoCollapse.test.ts`：
+`packages/frontend/tests/useAutoCollapse.test.tsx`（前端测试统一放 `tests/` 目录走 Vitest + happy-dom；React hook 测试需 `@testing-library/react` 的 `renderHook`，`bun:test` 无此环境）：
 - `isStreaming && !isDone` → open=true
 - `isDone` 变 true → open=false（自动折叠）
+- **流式展开中（open=true）toggle 一次即折叠为 false**（回归用例：防止 toggle 误从 userOpen 初始值取反导致要点两次）
 - toggle 一次后 userToggled 生效，此后 isStreaming/isDone 变化不再覆盖
 - userToggled 后 open 跟随用户最后选择
 
@@ -154,10 +160,12 @@ export function useAutoCollapse(opts: {
 - 非流式（历史）块默认折叠（仅 pill 可见，内容不在 DOM）
 - 用户点击展开后，即便 isStreaming 变化也保持用户选择
 
-`packages/frontend/tests/DelegateCard` 相关测试更新：
+`packages/frontend/tests/DelegateCard.test.tsx`（已存在，更新用例）：
 - DelegateCard 折叠态显示单行 pill（`↪ 委派给 …`）
+- 流式中（isStreaming=true 且无 result）默认展开
 - 完成后默认折叠
 - 失败态红色 pill
+- 子 agent 回复经 ReactMarkdown 渲染（如代码块/列表标签出现在 DOM）
 
 ### 第 3/4 层 · 跳过说明
 
@@ -168,8 +176,9 @@ export function useAutoCollapse(opts: {
 | 文件 | 操作 | 说明 |
 |---|---|---|
 | `packages/frontend/src/components/blocks/useAutoCollapse.ts` | 新增 | 共享自动折叠 hook |
-| `packages/frontend/src/components/blocks/useAutoCollapse.test.ts` | 新增 | hook 单测 |
-| `packages/frontend/src/components/MessageList.tsx` | 改 | `ThinkingBlock`/`ToolCallGroup`/`ToolCallBlock` 接入 hook |
-| `packages/frontend/src/components/blocks/DelegateCard.tsx` | 改 | 整块卡片 → pill 折叠 + 接入 hook |
+| `packages/frontend/tests/useAutoCollapse.test.tsx` | 新增 | hook 单测（Vitest + RTL renderHook） |
+| `packages/frontend/src/components/MessageList.tsx` | 改 | `ThinkingBlock`/`ToolCallGroup`/`ToolCallBlock` 接入 hook；`ToolCallBlock`、`DelegateCard` 调用点补传 `isStreaming` |
+| `packages/frontend/src/components/blocks/DelegateCard.tsx` | 改 | 整块卡片 → pill 折叠 + 接入 hook + 子回复 ReactMarkdown 渲染 |
 | `packages/frontend/tests/MessageList.test.tsx` | 改 | 新增自动折叠行为用例 |
+| `packages/frontend/tests/DelegateCard.test.tsx` | 改 | 更新为 pill 折叠态/流式展开/失败态/Markdown 渲染用例 |
 | `CHANGELOG.md` | 改 | 记录本次变更 |

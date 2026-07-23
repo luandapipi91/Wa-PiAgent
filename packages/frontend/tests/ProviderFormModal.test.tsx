@@ -217,6 +217,18 @@ test("选择供应商预设后不自动出现下拉，需输入才出现", async
   expect(options[0].textContent).toContain("deepseek-chat");
 });
 
+test("聚焦模型输入框即使无输入也显示全部可用模型下拉", async () => {
+  render(<ProviderFormModal onClose={() => {}} />);
+  await waitAndSelectPreset("deepseek");
+  // 聚焦输入框（无输入）
+  fireEvent.focus(screen.getByTestId("tag-input-field"));
+  // 下拉显示全部未添加模型
+  await waitFor(() => {
+    const opts = screen.getAllByTestId("model-quick-option");
+    expect(opts.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 test("输入匹配模型 ID 出现下拉，选择后带入预设参数", async () => {
   const saveMock = mock();
   useProvidersStore.setState({ save: saveMock });
