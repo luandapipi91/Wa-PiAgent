@@ -7,8 +7,8 @@
 export const AGENT_TOKEN_RE = /@\[([^\]]+)\]/g;
 /** 文件 token 正则：匹配 #[非]字符的路径] */
 export const FILE_TOKEN_RE = /#\[([^\]]+)\]/g;
-/** 技能 token 正则：匹配 $[非]字符的名称] */
-export const SKILL_TOKEN_RE = /\$\[([^\]]+)\]/g;
+/** 技能 token 正则：匹配 $[名称] 或 ¥[名称] */
+export const SKILL_TOKEN_RE = /[$¥]\[([^\]]+)\]/g;
 
 /** segment 类型 */
 export type Segment =
@@ -121,7 +121,7 @@ export function escapeHtml(str: string): string {
  * 也插入结果数组，破坏 segment 划分。
  */
 export function textToSegments(text: string): Segment[] {
-  const combined = /(@\[[^\]]+\]|#\[[^\]]+\]|\$\[[^\]]+\])/g;
+  const combined = /(@\[[^\]]+\]|#\[[^\]]+\]|[$¥]\[[^\]]+\])/g;
   const parts = text.split(combined).filter(p => p !== "");
   const segs: Segment[] = [];
   for (const part of parts) {
@@ -135,7 +135,7 @@ export function textToSegments(text: string): Segment[] {
       segs.push({ type: "file", value: fileMatch[1] });
       continue;
     }
-    const skillMatch = part.match(/^\$\[([^\]]+)\]$/);
+    const skillMatch = part.match(/^[$¥]\[([^\]]+)\]$/);
     if (skillMatch) {
       segs.push({ type: "skill", value: skillMatch[1] });
       continue;
@@ -197,7 +197,8 @@ export function textToHtml(text: string, opts?: { hideTrigger?: boolean }): stri
     }
     if (s.type === "skill") {
       const token = `$[${s.value}]`;
-      return `<span class="chip chip-skill" contenteditable="false" data-token="${escapeHtml(token)}">$${escapeHtml(s.value)}</span>`;
+      // 用 ⚡ 图标替代触发符 $（输入框和历史回显都显示 ⚡，更直观）
+      return `<span class="chip chip-skill" contenteditable="false" data-token="${escapeHtml(token)}">⚡ ${escapeHtml(s.value)}</span>`;
     }
     // 先 escapeHtml 防注入，再把换行转为 <br>（在转义之后做，
     // 这样 <br> 的尖括号是我们生成的、不会被二次转义）。
