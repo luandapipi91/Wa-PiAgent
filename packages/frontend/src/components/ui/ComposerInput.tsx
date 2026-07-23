@@ -284,6 +284,10 @@ export function ComposerInput({
 
   // 键盘事件处理（面板打开时拦截导航键）
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    // IME 组词中（拼音选词等）的按键一律不拦截、不发送：
+    // 用户按 Enter 是确认候选词，不是发送消息。
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+
     // 面板打开时拦截导航键
     if (menuOpen && menuItems.length > 0) {
       if (e.key === "ArrowDown") {
@@ -296,7 +300,7 @@ export function ComposerInput({
         setHighlightedIndex(i => (i - 1 + menuItems.length) % menuItems.length);
         return;
       }
-      if (e.key === "Enter" && !e.shiftKey) {
+      if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
         e.preventDefault();
         const item = menuItems[highlightedIndex];
         if (item) handleSelect(item);

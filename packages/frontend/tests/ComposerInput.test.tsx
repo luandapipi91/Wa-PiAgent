@@ -336,6 +336,41 @@ test("选中技能后生成 chip token", () => {
   expect(lastCall).not.toMatch(/\$brain$/);
 });
 
+test("面板打开时按 Tab 等同 Enter 选中高亮项", () => {
+  const setText = mock();
+  useSkillsStore.setState({
+    allSkills: [
+      { name: "brainstorming", description: "", path: "/s", source: { type: "builtin" } },
+    ],
+    skills: [], dirs: [], disabledSkills: [], builtinDir: "",
+  });
+  renderComposer({ text: "$brain", setText });
+  const textbox = screen.getByRole("textbox");
+  // Tab 选中高亮的技能项
+  fireEvent.keyDown(textbox, { key: "Tab" });
+  expect(setText).toHaveBeenCalled();
+  const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
+  expect(lastCall).toContain("$[brainstorming]");
+});
+
+test("IME 组词中按 Enter 不发送消息（拼音选词确认）", () => {
+  const onSend = mock();
+  renderComposer({ text: "你好", onSend });
+  const textbox = screen.getByRole("textbox");
+  // isComposing=true 模拟 IME 正在组词
+  fireEvent.keyDown(textbox, { key: "Enter", isComposing: true });
+  expect(onSend).not.toHaveBeenCalled();
+});
+
+test("IME 组词结束后按 Enter 正常发送", () => {
+  const onSend = mock();
+  renderComposer({ text: "你好", onSend });
+  const textbox = screen.getByRole("textbox");
+  // isComposing=false（IME 已确认）正常发送
+  fireEvent.keyDown(textbox, { key: "Enter", isComposing: false });
+  expect(onSend).toHaveBeenCalledTimes(1);
+});
+
 test("Esc 关闭面板保留触发符文本", () => {
   useSkillsStore.setState({
     allSkills: [
