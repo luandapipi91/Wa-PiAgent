@@ -87,7 +87,7 @@ export function ProviderFormModal({ initial, onClose }: Props) {
     setSelectedPresetKey(key);
     setPresetSearch("");
     setShowPresetDropdown(false);
-    if (!key) { setModelIds([]); setModelConfigs({}); return; }
+    if (!key) { setModelIds([]); setModelConfigs({}); setShowPresetDropdown(true); return; }
     const preset = presets.find(p => p.key === key);
     if (!preset) return;
     setName(preset.name);
