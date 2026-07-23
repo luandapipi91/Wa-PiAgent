@@ -127,12 +127,25 @@ test("换行保留：<br>（Shift+Enter 或 Firefox）→ 提取出 \\n", () => 
   expect(onTextChange).toHaveBeenCalledWith("第一行\n第二行");
 });
 
-test("换行保留：chip 跨行时 token 与换行共存", () => {
+test("换行保留：chip 后真正换行（chip + br + div）→ 保留 \\n", () => {
   const onTextChange = mock();
   render(<ComposerTextarea text="" onTextChange={onTextChange} onKeyDown={mock()} onPaste={mock()} />);
   const el = screen.getByRole("textbox") as HTMLElement;
-  // 第一行有文件 chip，第二行是普通文本
-  el.innerHTML = '<span class="chip chip-file" contenteditable="false" data-token="#[App.tsx]">#App.tsx</span><div>第二行</div>';
+  // 用户按 Enter 换行：chip 后有显式 <br>，再接第二行
+  el.innerHTML = '<span class="chip chip-file" contenteditable="false" data-token="#[App.tsx]">#App.tsx</span><br><div>第二行</div>';
   fireEvent.input(el);
   expect(onTextChange).toHaveBeenCalledWith("#[App.tsx]\n第二行");
+});
+
+test("bug 复现：chip 后同行文字被 Chrome 包进 <div> → 不应补换行", () => {
+  const onTextChange = mock();
+  render(<ComposerTextarea text="" onTextChange={onTextChange} onKeyDown={mock()} onPaste={mock()} />);
+  const el = screen.getByRole("textbox") as HTMLElement;
+  // Chrome contenteditable 行为：chip（inline span）后继续输入文字，
+  // 浏览器可能把后续文字包进 <div>。这和"用户按 Enter 换行"产生的 div 无法从结构区分，
+  // 但语义上 chip 后紧跟的 div 是"同行延续"而非"新行"——不应补 \n。
+  el.innerHTML = '<span class="chip chip-skill" contenteditable="false" data-token="$[brainstorming]">$brainstorming</span><div>帮我设计这个功能</div>';
+  fireEvent.input(el);
+  // 期望：chip 和文字在同一行，无 \n
+  expect(onTextChange).toHaveBeenCalledWith("$[brainstorming]帮我设计这个功能");
 });

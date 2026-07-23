@@ -22,7 +22,9 @@ const BLOCK_TAGS = new Set(["DIV", "P", "BR", "LI", "TR", "BLOCKQUOTE", "H1", "H
 
 function extractText(el: HTMLElement): string {
   let result = "";
-  for (const node of Array.from(el.childNodes)) {
+  const childNodes = Array.from(el.childNodes);
+  for (let idx = 0; idx < childNodes.length; idx++) {
+    const node = childNodes[idx];
     if (node.nodeType === Node.TEXT_NODE) {
       result += node.textContent ?? "";
     } else if (node.nodeType === Node.ELEMENT_NODE) {
@@ -40,7 +42,15 @@ function extractText(el: HTMLElement): string {
         // 块后不补 —— 避免发送时末尾多出空行（用户在末尾按回车产生的 <br> 仍会保留为 \n）。
         const isBlock = BLOCK_TAGS.has(tag);
         if (isBlock && result.length > 0 && !result.endsWith("\n")) {
-          result += "\n";
+          // 例外：前一个兄弟节点是 chip（inline 元素，带 data-token）时，
+          // 当前块元素是 Chrome contenteditable 把"chip 后同行文字"包进 <div> 的产物，
+          // 并非用户按 Enter 产生的真正换行 → 不补 \n（否则 chip 和后续文字被拆成两行）。
+          const prev = childNodes[idx - 1];
+          const prevIsChip = prev?.nodeType === Node.ELEMENT_NODE
+            && !!(prev as HTMLElement).getAttribute("data-token");
+          if (!prevIsChip) {
+            result += "\n";
+          }
         }
         result += extractText(elem);
       }
