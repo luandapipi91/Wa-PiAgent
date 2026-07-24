@@ -31,7 +31,7 @@ export function ToolCallCard({ toolCall, result, isStreaming }: { toolCall: Tool
       meta={!result ? <Spinner /> : failed ? "失败" : "完成"}
       open={open}
       onToggle={toggle}
-      muted={!isStreaming}
+      muted={!!result}
       testId={`toolcall-${toolCall.id}`}
     >
       <div className="font-mono whitespace-pre-wrap">{JSON.stringify(toolCall.arguments, null, 2)}</div>
@@ -72,7 +72,7 @@ function ToolGroupCardInner({ toolCalls, results, isStreaming }: { toolCalls: an
       meta={doneCount < total && isStreaming ? (<><Spinner /><span>{status.join(" ")}</span></>) : status.join(" ")}
       open={open}
       onToggle={toggle}
-      muted={!isStreaming}
+      muted={doneCount === total}
       testId="toolcall-group"
     >
       <div className="space-y-1.5">
