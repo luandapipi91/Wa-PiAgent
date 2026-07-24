@@ -23,14 +23,14 @@ function assistantMsg(timestamp: number, content: any[], agentName: SessionMessa
 }
 
 test("完成（非流式）：默认折叠，头部显示「委派给 {agent}」，body 不在 DOM", () => {
-  render(<DelegateCard toolCall={call} result={result} />);
+  render(<DelegateCard sessionId="s1" toolCall={call} result={result} />);
   const header = screen.getByTestId("delegate-t1-header");
   expect(header.textContent).toContain("委派给 代码审查");
   expect(screen.queryByTestId("delegate-t1-body")).toBeNull();
 });
 
 test("流式中（isStreaming + 无 result）：默认展开且 meta 含「执行中」", () => {
-  render(<DelegateCard toolCall={call} isStreaming />);
+  render(<DelegateCard sessionId="s1" toolCall={call} isStreaming />);
   expect(screen.getByTestId("delegate-t1-body")).toBeTruthy();
   const header = screen.getByTestId("delegate-t1-header");
   expect(header.textContent).toContain("执行中");
@@ -39,14 +39,14 @@ test("流式中（isStreaming + 无 result）：默认展开且 meta 含「执�
 });
 
 test("完成后（有 result、非流式）：默认折叠且 data-muted=true", () => {
-  render(<DelegateCard toolCall={call} result={result} />);
+  render(<DelegateCard sessionId="s1" toolCall={call} result={result} />);
   expect(screen.queryByTestId("delegate-t1-body")).toBeNull();
   expect(screen.getByTestId("delegate-t1").getAttribute("data-muted")).toBe("true");
 });
 
 test("失败（result.isError）：meta 含「✗ 失败」，展开后结果文本为 danger 样式", () => {
   const errResult = { ...result, isError: true, content: [{ type: "text" as const, text: "越权：无委派权限" }] };
-  render(<DelegateCard toolCall={call} result={errResult} />);
+  render(<DelegateCard sessionId="s1" toolCall={call} result={errResult} />);
   const header = screen.getByTestId("delegate-t1-header");
   expect(header.textContent).toContain("✗ 失败");
   expect(header.textContent).not.toContain("✓ 完成");
@@ -59,7 +59,7 @@ test("失败（result.isError）：meta 含「✗ 失败」，展开后结果文
 
 test("展开后子回复经 ReactMarkdown 渲染（code / 列表生成对应标签）", () => {
   const mdResult = { ...result, content: [{ type: "text" as const, text: "结论：用 `delegate` 工具\n\n- 问题一\n- 问题二" }] };
-  render(<DelegateCard toolCall={call} result={mdResult} />);
+  render(<DelegateCard sessionId="s1" toolCall={call} result={mdResult} />);
   fireEvent.click(screen.getByTestId("delegate-t1-header"));
   const body = screen.getByTestId("delegate-t1-body");
   expect(body.querySelector("code")?.textContent).toBe("delegate");
