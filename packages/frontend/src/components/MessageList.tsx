@@ -5,12 +5,13 @@ import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { send } from "../ws-instance";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useToastStore } from "../store/toast";
 import { useAgentsStore } from "../store/agents";
 import { DelegateCard } from "./blocks/DelegateCard";
+import { createMarkdownComponents } from "./blocks/markdown-components";
 import { ThinkingCard } from "./blocks/ThinkingCard";
 import { ToolGroupCard } from "./blocks/ToolCallCard";
 import { textToHtml, ensureChipStyles, registerAgentMeta } from "../quick-invoke/tokens";
@@ -321,6 +322,8 @@ function StreamingRow({ streaming, sessionId }: { streaming: SessionMessage; ses
 
 function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row: RenderedRow; sessionId: string; showResend?: boolean; onResend?: (text: string) => void; isStreaming?: boolean }) {
   const m = row.main.message as any;
+  // hook 须在顶层、任何 early return 之前
+  const mdComponents = useMemo(() => createMarkdownComponents(sessionId), [sessionId]);
 
   // custom 消息（如 agent_switch 分隔行 / pi-subagents 完成通知）：
   // 兼容两种字段——前端构造用 type:"custom"，Pi SDK 内存消息用 role:"custom"。
@@ -400,7 +403,7 @@ function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row
           }
           // 委派调用 — 内联卡片（不进工具分组，与普通内容穿插）
           if (seg.kind === "delegate") {
-            return <DelegateCard key={seg.call.id} toolCall={seg.call} result={row.toolResults.get(seg.call.id)} isStreaming={isStreaming} />;
+            return <DelegateCard key={seg.call.id} sessionId={sessionId} toolCall={seg.call} result={row.toolResults.get(seg.call.id)} isStreaming={isStreaming} />;
           }
           // 主回复内容 — 文字 + markdown
           return (
@@ -408,7 +411,7 @@ function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row
               <div className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`} style={{ lineHeight: 3.1, borderRadius: "4px 14px 14px 14px" }}>
                 {seg.texts.map((text, i) => (
                   <div key={i} className="prose prose-sm max-w-none" data-testid="text-block">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{text}</ReactMarkdown>
                   </div>
                 ))}
               </div>
