@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, mock, beforeEach } from "bun:test";
+import { describe, it, expect, vi, mock, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
 import type { AgentConfig } from "@hiagent/shared";
@@ -105,6 +105,12 @@ describe("NewSessionPane", () => {
     });
     handlers.clear();
     sendMock.mockClear();
+  });
+
+  // beforeEach 把 skills store 的 action 整体 stub 成空函数，zustand store 是进程级单例，
+  // 不还原会泄漏给后面跑的测试文件（如 store-skills.test.ts）——恢复初始 state（含原始 action）
+  afterEach(() => {
+    useSkillsStore.setState(useSkillsStore.getInitialState(), true);
   });
 
   it("renders project and agent selects", () => {

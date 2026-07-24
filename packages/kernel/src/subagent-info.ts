@@ -78,3 +78,19 @@ export async function getSubagentInfo(overrides: SubagentOverride[]): Promise<Su
 
 // 保留以兼容旧测试引用（原 _resetPiDefaultsCache），测试中以 mock 覆盖
 export function _resetPiDefaultsCache() { _systemPromptCache = null; }
+
+/**
+ * 读取内置 subagent 的 systemPrompt：优先用户覆盖文件（~/.hiagent/agents/<name>.md，
+ * seedBuiltinAgents 写入后不覆盖用户编辑），文件不存在/为空时回退 BUILTIN_AGENT_CONTENT。
+ * 供 agent-manager 构造子代理 spawn 配置（替代旧 pi-open-agents loadAgents 文件读取）。
+ */
+export async function readBuiltinAgentPrompt(agentsDir: string, name: string): Promise<string> {
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const md = await readFile(join(agentsDir, `${name}.md`), "utf8");
+    const body = extractMdBody(md);
+    if (body) return body;
+  } catch { /* 文件不存在则用内置内容 */ }
+  return getSystemPrompt(name);
+}

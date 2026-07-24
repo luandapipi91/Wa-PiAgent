@@ -1,87 +1,75 @@
 // agent-manager 内置 subagent override 测试：
-// 验证 resolveSpawnConfig 在 spawn 内置 subagent 时读取 subagent-overrides.json 中的 model/thinking
+// 验证 resolveSpawnConfig 在 spawn 内置 subagent 时读取 subagent-overrides.json 中的 model/thinking。
+//
+// RPC 迁移后的触发链路：
+//   getBridgeSession(sessionId).handleTool("delegate", ...)   （bridge 扩展回调入口）
+//   → delegateTool.execute → spawnFn → resolveSpawnConfig（读 override 文件）
+//   → runSubagentAgent(config, task, cwd)                     （此处 mock 捕获 config）
+//
+// mock 策略说明（bun 的 mock.module 进程级全局生效且 mock.restore() 无法撤销）：
+// - subagent-runner：必须 mock（捕获 config 的唯一接缝；不真正 spawn 子进程）。
+//   排序靠后的 subagent-runner.test.ts 用 cache-bust 动态 import（"../src/subagent-runner.ts?real"）
+//   绕过本 mock 拿真实实现，互不干扰。
+// - subagent-store：不 mock（避免污染 subagent-store.test.ts / subagent-info.test.ts），
+//   改为备份 → 写入 → 恢复真实 SUBAGENT_OVERRIDES_FILE。
 import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import { rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
+import { getBridgeSession } from "../src/bridge-registry";
+import { HIAGENT_DIR, SUBAGENT_OVERRIDES_FILE } from "@hiagent/shared";
+import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
-// 捕获 subagent-runner 收到的 config（model/thinking 等）
+// 捕获 subagent-runner 收到的 config（model/thinking 等）；不真正 spawn 子进程
 const capturedConfigs: any[] = [];
 mock.module("../src/subagent-runner", () => ({
   runSubagentAgent: mock(async (config: any, _task: string) => {
     capturedConfigs.push(config);
     return { text: "ok", isError: false };
   }),
-  buildAgentDefinition: (c: any) => c,
 }));
 
-// mock subagent-store：在 resolveSpawnConfig 的 await import("./subagent-store") 中返回指定 override
-mock.module("../src/subagent-store", () => ({
-  loadSubagentOverrides: mock(async () => []),
-  saveSubagentOverride: mock(async () => []),
-  getSubagentOverride: mock(async (_file: string, type: string) => {
-    if (type === "Plan") return { type: "Plan", model: "openai/gpt-4o", thinking: "max" };
-    return undefined;
-  }),
-  ensureSubagentOverrides: mock(async () => {}),
-}));
-
-// mock pi-open-agents 的 loadAgents：避免真实文件读取
-mock.module("pi-open-agents", () => ({
-  loadAgents: mock(async () => ({ agents: [] })),
-  runSubagent: mock(async () => ({ output: "ok", isError: false })),
-}));
-
-const fakeUnsubscribe = mock(() => {});
-const fakeSession: Partial<AgentSession> = {
-  prompt: mock(async () => {}),
-  abort: mock(async () => {}),
-  dispose: mock(() => {}),
-  setSessionName: mock(() => {}),
-  setModel: mock(async () => {}),
-  setThinkingLevel: mock(() => {}),
-  subscribe: mock(() => fakeUnsubscribe),
-  messages: [],
-  model: { id: "test-model" } as any,
-  isStreaming: false,
-  pendingMessageCount: 0,
-  isCompacting: false,
-  clearQueue: mock(() => ({ steering: [], followUp: [] })),
-  followUp: mock(async () => {}),
-  steer: mock(async () => {}),
-  reload: mock(async () => {}),
-  modelRegistry: { getAll: () => [], hasConfiguredAuth: () => true } as any,
-};
-
-const mockCreateAgentSession = mock(async () => ({
-  session: fakeSession as AgentSession,
-  extensionsResult: { extensions: [], errors: [], runtime: {} as any },
-}));
-
-const tmpDir = `/tmp/hiagent-am-subagent-test-${Date.now()}`;
-const HIAGENT_DIR = join(tmpDir, ".hiagent");
+const tmpFiles: string[] = [];
+const managers: AgentManager[] = [];
+// 真实 overrides 文件的备份（null = 原本不存在，测后删除）
+let overridesBackup: string | null = null;
 
 beforeEach(() => {
-  mockCreateAgentSession.mockClear();
   capturedConfigs.length = 0;
-  mkdirSync(tmpDir, { recursive: true });
-  mkdirSync(HIAGENT_DIR, { recursive: true });
+  overridesBackup = existsSync(SUBAGENT_OVERRIDES_FILE)
+    ? readFileSync(SUBAGENT_OVERRIDES_FILE, "utf8")
+    : null;
 });
 
-afterEach(() => {
-  try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+afterEach(async () => {
+  // 恢复真实 overrides 文件
+  try {
+    if (overridesBackup === null) rmSync(SUBAGENT_OVERRIDES_FILE, { force: true });
+    else writeFileSync(SUBAGENT_OVERRIDES_FILE, overridesBackup, "utf8");
+  } catch {}
+  overridesBackup = null;
+  for (const am of managers.splice(0)) await am.disposeAll().catch(() => {});
+  for (const f of tmpFiles.splice(0)) {
+    try { rmSync(f, { force: true }); } catch {}
+  }
 });
 
 function newProjectStore() {
-  const projFile = join(HIAGENT_DIR, "projects.json");
-  writeFileSync(projFile, JSON.stringify({ projects: [], sessions: [] }), "utf8");
-  return new ProjectStore(projFile);
+  const tmpFile = `/tmp/hiagent-am-subagent-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
+  tmpFiles.push(tmpFile);
+  return new ProjectStore(tmpFile);
 }
 
 test("内置 subagent spawn 时读取 subagent-overrides.json 中的 model/thinking", async () => {
+  // 写入真实 override：Plan → openai/gpt-4o + max
+  writeFileSync(
+    SUBAGENT_OVERRIDES_FILE,
+    JSON.stringify({ overrides: [{ type: "Plan", model: "openai/gpt-4o", thinking: "max" }] }),
+    "utf8",
+  );
+
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({
@@ -92,23 +80,23 @@ test("内置 subagent spawn 时读取 subagent-overrides.json 中的 model/think
     getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [] } })),
   } as any;
 
+  const fakes: FakeSessionClient[] = [];
   const am = new AgentManager({
     projectStore, configStore, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
+    createClientFn: fakeClientFactory(fakes),
   });
+  managers.push(am);
   await am.ensureStarted(project.id, "dev", session.id);
 
-  // 从 customTools 中提取 delegate 工具
-  const calls = (mockCreateAgentSession as any).mock.calls;
-  const customTools = calls[calls.length - 1][0].customTools as any[];
-  const delegateTool = customTools.find((t: any) => t.name === "delegate");
-  expect(delegateTool).toBeDefined();
-
-  // 调用 delegate 调起内置 Plan 子智能体
-  const result = await delegateTool.execute("tc-plan", { agent: "Plan", task: "设计个方案" });
+  // 经 bridge 上下文调用 delegate 调起内置 Plan 子智能体
+  const ctx = getBridgeSession(session.id);
+  expect(ctx).toBeDefined();
+  const result = await ctx!.handleTool(
+    "delegate", "tc-plan", { agent: "Plan", task: "设计个方案" }, new AbortController().signal,
+  );
 
   // spawn 不应报错
-  expect(result.isError).toBe(false);
+  expect(result.content[0].text).toBe("ok");
 
   // 验证 capturedConfigs 中包含 override 的 model/thinking
   expect(capturedConfigs.length).toBeGreaterThan(0);
@@ -116,4 +104,7 @@ test("内置 subagent spawn 时读取 subagent-overrides.json 中的 model/think
   expect(planConfig).toBeDefined();
   expect(planConfig.model).toBe("openai/gpt-4o");
   expect(planConfig.thinking).toBe("max");
+
+  // 清理本次会话的系统提示词临时文件
+  try { rmSync(join(HIAGENT_DIR, "tmp", "sysprompts", `${session.id}.md`), { force: true }); } catch {}
 });

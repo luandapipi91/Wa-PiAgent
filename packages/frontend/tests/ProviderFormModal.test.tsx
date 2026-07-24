@@ -55,6 +55,9 @@ beforeEach(() => {
 
 afterEach(() => {
   onMsgCallback = null;
+  // 个别测试把 providers store 的 save action stub 成 mock，zustand store 是进程级单例，
+  // 不还原会泄漏给后面跑的测试文件——恢复初始 state（含原始 action）
+  useProvidersStore.setState(useProvidersStore.getInitialState(), true);
 });
 
 // ---- 基础渲染测试 ----

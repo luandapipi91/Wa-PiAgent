@@ -1,4 +1,4 @@
-import { test, describe, it, expect, beforeEach, mock } from "bun:test";
+import { test, describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useProvidersStore } from "../src/store/providers";
 import { useProjectsStore } from "../src/store/projects";
@@ -38,6 +38,12 @@ beforeEach(() => {
   useAgentsStore.setState({ list: [], configs: {} });
   handlers.clear();
   sendMock.mockClear();
+});
+
+// beforeEach 用 mock 整体替换了 skills store 的 action，zustand store 是进程级单例，
+// 不还原会泄漏给后面跑的测试文件（如 store-skills.test.ts）——恢复初始 state（含原始 action）
+afterEach(() => {
+  useSkillsStore.setState(useSkillsStore.getInitialState(), true);
 });
 
 function renderComposer(props?: Partial<React.ComponentProps<typeof ComposerInput>>) {
@@ -249,8 +255,11 @@ test("@ 面板空结果显示 无匹配智能体", () => {
 test("选中智能体后生成 @[name] chip token 并回调 onAgentMention", () => {
   const setText = mock();
   const onAgentMention = mock();
+  // @ 菜单只显示当前主智能体 askTo 名单内的智能体，需同时喂主控与目标
   useAgentsStore.setState({
     list: [
+      { displayName: "主控", partners: { askTo: ["需求设计"] }, description: "主控" },
+      { displayName: "需求设计", partners: { askTo: [] }, description: "梳理需求" },
     ] as any,
   });
   renderComposer({ text: "@需求", setText, onAgentMention, currentAgentName: "主控" });

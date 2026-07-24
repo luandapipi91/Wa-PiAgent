@@ -1,0 +1,388 @@
+// rpc-client.ts — pi --mode rpc 子进程的 JSONL 客户端
+//
+// 设计要点：
+// - 每个 HiAgent 会话对应一个 pi rpc 子进程（spawn 时经 --session 绑定会话文件）
+// - 命令/响应按 id 关联；type 非 "response"/"extension_ui_request" 的一律视为事件走 onEvent
+// - JSONL 严格按 \n 切分（不用 readline：U+2028/U+2029 在 JSON 字符串内合法，
+//   readline 会错误断行，见 pi RPC 文档的 strict JSONL 说明）
+// - spawn 实现可注入：测试用假进程/假脚本，生产用 node:child_process.spawn
+// - extension_ui_request 子协议：onUiRequest 返回值写成 extension_ui_response；
+//   未提供 handler 时对话类方法自动回 cancelled，避免 pi 侧无限等待
+
+import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
+
+export interface RpcEvent {
+  type: string;
+  [k: string]: any;
+}
+
+export interface RpcUiRequest {
+  type: "extension_ui_request";
+  id: string;
+  method: string;
+  [k: string]: any;
+}
+
+/** extension_ui_response 的业务字段（value / confirmed / cancelled 任选其一） */
+export interface UiResponseFields {
+  value?: unknown;
+  confirmed?: boolean;
+  cancelled?: boolean;
+}
+
+export type SpawnFn = (
+  command: string,
+  args: string[],
+  opts: { cwd: string; env: Record<string, string> },
+) => ChildProcess;
+
+export interface RpcClientOpts {
+  /** pi CLI 入口（dist/cli.js）绝对路径 */
+  cliPath: string;
+  /** 运行 cli.js 的运行时（bun / node 可执行文件路径） */
+  runtime: string;
+  /** 追加在 --mode rpc 之后的启动参数（--session / -e / --skill / --tools 等） */
+  args?: string[];
+  cwd: string;
+  /** 附加环境变量（PI_CODING_AGENT_DIR / bridge 配置等），合并到 process.env 之上 */
+  env?: Record<string, string>;
+  /** RPC 事件回调（message_update / tool_execution_* / agent_* 等） */
+  onEvent: (e: RpcEvent) => void;
+  /** extension_ui_request 处理：返回值写成 extension_ui_response 的业务字段 */
+  onUiRequest?: (req: RpcUiRequest) => Promise<UiResponseFields>;
+  /** 进程退出回调（含 dispose 主动 kill） */
+  onExit?: (code: number | null, signal: string | null) => void;
+  /** 单条命令超时（ms），默认 60_000；超时只 reject 该命令，不杀进程 */
+  commandTimeoutMs?: number;
+  /** 测试注入：替换 node:child_process.spawn */
+  spawnFn?: SpawnFn;
+}
+
+/** 需要回 extension_ui_response 的对话类方法（其余为 fire-and-forget） */
+const UI_DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
+
+export class RpcClient {
+  private proc: ChildProcess | null = null;
+  private seq = 0;
+  private pending = new Map<
+    string,
+    { resolve: (data: any) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }
+  >();
+  private stderrTail: string[] = [];
+  private exited = false;
+
+  constructor(private opts: RpcClientOpts) {}
+
+  /** spawn 子进程并接管 stdio。进程启动失败（如运行时缺失）时 reject。 */
+  async start(): Promise<void> {
+    if (this.proc) throw new Error("RpcClient 已启动");
+    const spawnFn: SpawnFn = this.opts.spawnFn ?? ((cmd, args, o) => nodeSpawn(cmd, args, { ...o, stdio: ["pipe", "pipe", "pipe"] }));
+    const env = { ...process.env, ...this.opts.env } as Record<string, string>;
+    const proc = spawnFn(this.opts.runtime, [this.opts.cliPath, "--mode", "rpc", ...(this.opts.args ?? [])], { cwd: this.opts.cwd, env });
+    this.proc = proc;
+
+    proc.stdout!.setEncoding?.("utf8");
+    this.attachStdout(proc);
+    proc.stderr?.on("data", (chunk: Buffer | string) => {
+      const text = chunk.toString();
+      for (const line of text.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        this.stderrTail.push(line);
+        if (this.stderrTail.length > 50) this.stderrTail.shift();
+      }
+    });
+    proc.on("exit", (code, signal) => {
+      this.exited = true;
+      const err = new Error(
+        `pi rpc 进程已退出 (code=${code}, signal=${signal})${this.formatStderrTail()}`,
+      );
+      for (const [id, p] of this.pending) {
+        clearTimeout(p.timer);
+        p.reject(err);
+        this.pending.delete(id);
+      }
+      this.opts.onExit?.(code, signal);
+    });
+    proc.on("error", () => { /* 由 start 的 race 与 exit 处理 */ });
+
+    // spawn 成功事件先到即就绪；error 先到即失败；500ms 兜底视为存活（某些运行时可能不发 spawn 事件）
+    await Promise.race([
+      once(proc, "spawn").then(() => undefined),
+      once(proc, "error").then(([err]) => {
+        throw err instanceof Error ? err : new Error(String(err));
+      }),
+      new Promise<void>((resolve) => setTimeout(resolve, 500)),
+    ]);
+  }
+
+  /** 进程是否仍存活 */
+  isAlive(): boolean {
+    return !!this.proc && !this.exited && this.proc.exitCode === null;
+  }
+
+  /** 发送任意 RPC 命令，resolve 为 response.data（无 data 时为 undefined）；success:false 时 reject */
+  async command(cmd: Record<string, any>): Promise<any> {
+    const proc = this.proc;
+    if (!proc || !this.isAlive()) {
+      throw new Error(`pi rpc 进程不可用${this.formatStderrTail()}`);
+    }
+    const id = cmd.id ?? `req-${++this.seq}`;
+    const payload = { ...cmd, id };
+    return await new Promise((resolve, reject) => {
+      const timeoutMs = this.opts.commandTimeoutMs ?? 60_000;
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`RPC 命令超时 (${timeoutMs}ms): ${cmd.type}`));
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
+      try {
+        proc.stdin!.write(JSON.stringify(payload) + "\n");
+      } catch (err) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  // ---- 常用命令的便捷封装 ----
+
+  getState(): Promise<any> {
+    return this.command({ type: "get_state" });
+  }
+
+  getMessages(): Promise<any[]> {
+    return this.command({ type: "get_messages" }).then((d) => d?.messages ?? []);
+  }
+
+  /** message 为文本；images 为 ImageContent 数组；streamingBehavior: "steer" | "followUp" */
+  prompt(message: string, opts?: { images?: any[]; streamingBehavior?: "steer" | "followUp" }): Promise<any> {
+    return this.command({
+      type: "prompt",
+      message,
+      ...(opts?.images ? { images: opts.images } : {}),
+      ...(opts?.streamingBehavior ? { streamingBehavior: opts.streamingBehavior } : {}),
+    });
+  }
+
+  steer(message: string): Promise<any> {
+    return this.command({ type: "steer", message });
+  }
+
+  followUp(message: string): Promise<any> {
+    return this.command({ type: "follow_up", message });
+  }
+
+  abort(): Promise<any> {
+    return this.command({ type: "abort" });
+  }
+
+  setModel(provider: string, modelId: string): Promise<any> {
+    return this.command({ type: "set_model", provider, modelId });
+  }
+
+  setThinkingLevel(level: string): Promise<any> {
+    return this.command({ type: "set_thinking_level", level });
+  }
+
+  setSteeringMode(mode: "all" | "one-at-a-time"): Promise<any> {
+    return this.command({ type: "set_steering_mode", mode });
+  }
+
+  setFollowUpMode(mode: "all" | "one-at-a-time"): Promise<any> {
+    return this.command({ type: "set_follow_up_mode", mode });
+  }
+
+  newSession(parentSession?: string): Promise<any> {
+    return this.command({ type: "new_session", ...(parentSession ? { parentSession } : {}) });
+  }
+
+  switchSession(sessionPath: string): Promise<any> {
+    return this.command({ type: "switch_session", sessionPath });
+  }
+
+  compact(customInstructions?: string): Promise<any> {
+    return this.command({ type: "compact", ...(customInstructions ? { customInstructions } : {}) });
+  }
+
+  setAutoCompaction(enabled: boolean): Promise<any> {
+    return this.command({ type: "set_auto_compaction", enabled });
+  }
+
+  setAutoRetry(enabled: boolean): Promise<any> {
+    return this.command({ type: "set_auto_retry", enabled });
+  }
+
+  getSessionStats(): Promise<any> {
+    return this.command({ type: "get_session_stats" });
+  }
+
+  /** 终止子进程。先 SIGTERM，3s 未退出则 SIGKILL。 */
+  async dispose(): Promise<void> {
+    const proc = this.proc;
+    if (!proc || !this.isAlive()) return;
+    const exitPromise = once(proc, "exit").catch(() => undefined);
+    try { proc.kill(); } catch { /* 已退出 */ }
+    const killed = await Promise.race([
+      exitPromise.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 3000)),
+    ]);
+    if (!killed) {
+      try { proc.kill("SIGKILL"); } catch { /* 已退出 */ }
+      await Promise.race([exitPromise, new Promise((r) => setTimeout(r, 1000))]);
+    }
+    this.proc = null;
+  }
+
+  /** 最近 stderr 行（诊断用） */
+  getStderrTail(): string[] {
+    return [...this.stderrTail];
+  }
+
+  private formatStderrTail(): string {
+    const tail = this.stderrTail.slice(-5).join("\n");
+    return tail ? `\nstderr: ${tail}` : "";
+  }
+
+  /** 按 strict JSONL 切分 stdout：只在 \n 处断行，去掉行尾 \r */
+  private attachStdout(proc: ChildProcess): void {
+    const decoder = new StringDecoder("utf8");
+    let buffer = "";
+    const onLine = (line: string) => {
+      if (!line.trim()) return;
+      let msg: any;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        this.stderrTail.push(`[rpc-client] 无法解析的 stdout 行: ${line.slice(0, 200)}`);
+        return;
+      }
+      this.dispatch(msg);
+    };
+    proc.stdout!.on("data", (chunk: Buffer | string) => {
+      buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
+      for (;;) {
+        const idx = buffer.indexOf("\n");
+        if (idx === -1) break;
+        let line = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 1);
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        onLine(line);
+      }
+    });
+    proc.stdout!.on("end", () => {
+      buffer += decoder.end();
+      if (buffer.length > 0) {
+        let line = buffer;
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        onLine(line);
+      }
+    });
+  }
+
+  private dispatch(msg: any): void {
+    if (msg?.type === "response") {
+      const id = msg.id;
+      const p = id != null ? this.pending.get(id) : undefined;
+      if (p) {
+        clearTimeout(p.timer);
+        this.pending.delete(id);
+        if (msg.success) p.resolve(msg.data);
+        else p.reject(new Error(msg.error ?? `RPC 命令失败: ${msg.command}`));
+      }
+      // 无 id 或未知 id 的 response（异常）：忽略
+      return;
+    }
+    if (msg?.type === "extension_ui_request") {
+      void this.handleUiRequest(msg as RpcUiRequest);
+      return;
+    }
+    this.opts.onEvent(msg as RpcEvent);
+  }
+
+  private async handleUiRequest(req: RpcUiRequest): Promise<void> {
+    if (!UI_DIALOG_METHODS.has(req.method)) return; // fire-and-forget：无需响应
+    let fields: UiResponseFields;
+    if (this.opts.onUiRequest) {
+      try {
+        fields = await this.opts.onUiRequest(req);
+      } catch {
+        fields = { cancelled: true };
+      }
+    } else {
+      fields = { cancelled: true };
+    }
+    try {
+      this.proc?.stdin?.write(JSON.stringify({ type: "extension_ui_response", id: req.id, ...fields }) + "\n");
+    } catch { /* 进程已退出 */ }
+  }
+}
+
+// ---- pi CLI 路径与启动参数 ----
+
+/**
+ * 解析 pi CLI 入口（dist/cli.js）绝对路径。
+ * 从 @earendil-works/pi-coding-agent 的 package.json 定位——kernel 只引用其 bin/扩展路径，
+ * 不 import 任何 SDK API（RPC 迁移的依赖约定）。
+ */
+export function resolvePiCliPath(req: NodeRequire = createRequire(import.meta.url)): string {
+  const pkgJsonPath = req.resolve("@earendil-works/pi-coding-agent/package.json");
+  return join(dirname(pkgJsonPath), "dist", "cli.js");
+}
+
+/** 解析运行 pi CLI 的运行时：env 覆盖 > PATH 上的 bun > process.execPath */
+export function resolvePiRuntime(): string {
+  if (process.env.HIAGENT_PI_RUNTIME) return process.env.HIAGENT_PI_RUNTIME;
+  const which = (globalThis as any).Bun?.which;
+  const bunPath = typeof which === "function" ? which("bun") : null;
+  return bunPath ?? process.execPath;
+}
+
+export interface PiLaunchSpec {
+  /** --session <path>：绑定会话文件（缺省则 pi 自建） */
+  sessionFile?: string;
+  /** --no-session：临时会话（子代理等一次性运行） */
+  noSession?: boolean;
+  /** --system-prompt <file>：组合好的系统提示词文件路径（resolvePromptInput 会读文件内容） */
+  systemPromptFile?: string;
+  /** -e <path>：扩展文件，可多个 */
+  extensionPaths?: string[];
+  /** --skill <path>：技能目录/文件，可多个 */
+  skillPaths?: string[];
+  /** --tools a,b,c：工具白名单（空数组 = 不传，pi 默认全量） */
+  tools?: string[];
+  /** --exclude-tools a,b,c：工具黑名单（与白名单可组合） */
+  excludeTools?: string[];
+  /** --thinking <level> */
+  thinking?: string;
+  /** --model <pattern> */
+  model?: string;
+  /** --name <name>：会话显示名 */
+  name?: string;
+  /** --offline：禁用启动网络操作（测试用） */
+  offline?: boolean;
+  /** --no-context-files：不读 AGENTS.md/CLAUDE.md（子代理用） */
+  noContextFiles?: boolean;
+}
+
+/** 把启动规格翻译成 pi CLI 参数数组（--mode rpc 由 RpcClient 自带，不在此处） */
+export function buildPiArgs(spec: PiLaunchSpec): string[] {
+  const args: string[] = [];
+  if (spec.sessionFile) args.push("--session", spec.sessionFile);
+  if (spec.noSession) args.push("--no-session");
+  if (spec.systemPromptFile) args.push("--system-prompt", spec.systemPromptFile);
+  for (const p of spec.extensionPaths ?? []) args.push("-e", p);
+  for (const s of spec.skillPaths ?? []) args.push("--skill", s);
+  if (spec.tools && spec.tools.length > 0) args.push("--tools", spec.tools.join(","));
+  if (spec.excludeTools && spec.excludeTools.length > 0) args.push("--exclude-tools", spec.excludeTools.join(","));
+  if (spec.thinking) args.push("--thinking", spec.thinking);
+  if (spec.model) args.push("--model", spec.model);
+  if (spec.name) args.push("--name", spec.name);
+  if (spec.offline) args.push("--offline");
+  if (spec.noContextFiles) args.push("--no-context-files");
+  return args;
+}

@@ -14,6 +14,7 @@ import type { McpStore } from "./mcp-store";
 import { testProviderConnection } from "./provider-test";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { testConnection, listTools, clearAuth } from "./mcp-connector";
+import { getAllCatalogModels, getProviderDisplayName } from "./pi-catalog";
 import { readdir, readFile, mkdir, writeFile, copyFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -21,6 +22,7 @@ import { spawn } from "node:child_process";
 import { extname, basename, join, resolve, sep } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
+import { handleBridgeRequest } from "./bridge-registry";
 import { appendChunk, finalizeRecording, discardRecording } from "./recording-store";
 
 /** 把 URL 路径解析成 staticDir 下的文件路径；未知/越权路径回退 index.html（SPA）。 */
@@ -218,6 +220,17 @@ export class WSServer {
       fetch: async (req, server) => {
         if (server.upgrade(req)) return;            // WS 握手
         const url = new URL(req.url);
+        // pi 进程内 bridge 扩展的宿主工具回调（RPC 架构下 customTools 的替代）
+        if (url.pathname === "/bridge/tool") {
+          if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+          let body: unknown;
+          try { body = await req.json(); } catch {
+            return Response.json({ error: "invalid_json" }, { status: 400 });
+          }
+          const r = await handleBridgeRequest(body);
+          if (!r.ok) return Response.json({ error: r.error }, { status: r.status });
+          return Response.json(r.result, { status: 200 });
+        }
         if (url.pathname === "/file") {
           const { projects } = await this.opts.projectStore.load();
           const filePath = resolveUploadFile(url, projects);
@@ -806,14 +819,12 @@ export class WSServer {
       }
       case "model:presets": {
         try {
-          const { AuthStorage, ModelRegistry } = await import("@earendil-works/pi-coding-agent");
-          const authStorage = AuthStorage.create(`${HIAGENT_DIR}/auth.json`);
-          const registry = ModelRegistry.create(authStorage);
-          const all = registry.getAll();
+          // pi 内置模型目录（pi-catalog.ts，只读数据，不经 SDK）
+          const all = await getAllCatalogModels();
           const map = new Map<string, any>();
-          for (const m of all as any[]) {
+          for (const m of all) {
             const k = m.provider;
-            if (!map.has(k)) map.set(k, { key: k, name: registry.getProviderDisplayName(k) || k, baseUrl: m.baseUrl || "", api: m.api || "openai-completions", models: [] as any[] });
+            if (!map.has(k)) map.set(k, { key: k, name: (await getProviderDisplayName(k)) || k, baseUrl: m.baseUrl || "", api: m.api || "openai-completions", models: [] as any[] });
             const e = map.get(k)!;
             if (!e.baseUrl && m.baseUrl) e.baseUrl = m.baseUrl;
             e.models.push({ id: m.id, contextWindow: m.contextWindow, maxTokens: m.maxTokens, supportsVision: (m.input as string[])?.includes("image") ?? false });

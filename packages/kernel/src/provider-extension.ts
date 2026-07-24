@@ -1,23 +1,19 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { slugifyProviderName, GENERATED_DIR, HIAGENT_DIR } from "@hiagent/shared";
+import { slugifyProviderName, GENERATED_DIR } from "@hiagent/shared";
 import type { ModelProvider } from "@hiagent/shared";
 import type { ProviderStore } from "./provider-store";
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { getAllCatalogModels, type CatalogModel } from "./pi-catalog";
 
-// ---- SDK 模型查询 ----
+// ---- 内置模型目录查询（pi-ai 数据目录，见 pi-catalog.ts） ----
 
-/** 从 SDK 查询到的模型详细信息 */
-interface SdkModelInfo {
-  contextWindow: number;
-  maxTokens: number;
-  reasoning: boolean;
-  input: ("text" | "image")[];
-  cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
-  name: string;
-}
+/** 从目录查询到的模型详细信息 */
+type SdkModelInfo = Pick<
+  CatalogModel,
+  "contextWindow" | "maxTokens" | "reasoning" | "input" | "cost" | "name"
+>;
 
-/** 默认模型参数（SDK 查询失败时的 fallback） */
+/** 默认模型参数（目录查询失败时的 fallback） */
 const DEFAULT_SDK_MODEL: SdkModelInfo = {
   contextWindow: 128000,
   maxTokens: 16384,
@@ -28,10 +24,10 @@ const DEFAULT_SDK_MODEL: SdkModelInfo = {
 };
 
 /**
- * 在 SDK 内置模型列表中按 model ID 查找匹配模型。
+ * 在内置模型目录中按 model ID 查找匹配模型。
  * 支持精确匹配和大小写不敏感匹配，返回第一个匹配的模型信息。
  */
-function lookupSdkModel(modelId: string, allModels: any[]): SdkModelInfo | null {
+function lookupSdkModel(modelId: string, allModels: CatalogModel[]): SdkModelInfo | null {
   // 精确匹配
   const exact = allModels.find(m => m.id === modelId);
   if (exact) return modelToInfo(exact);
@@ -44,12 +40,12 @@ function lookupSdkModel(modelId: string, allModels: any[]): SdkModelInfo | null 
   return null;
 }
 
-function modelToInfo(m: any): SdkModelInfo {
+function modelToInfo(m: CatalogModel): SdkModelInfo {
   return {
     contextWindow: m.contextWindow,
     maxTokens: m.maxTokens,
     reasoning: m.reasoning,
-    input: m.input,
+    input: m.input as SdkModelInfo["input"],
     cost: {
       input: m.cost.input,
       output: m.cost.output,
@@ -123,27 +119,24 @@ ${registrations}
 /**
  * 生成 provider extension 文件到 GENERATED_DIR/provider-extension.ts。
  *
- * 该文件由 extensions.ts 的 buildAdditionalExtensionPaths() 经
- * DefaultResourceLoader.additionalExtensionPaths 纯内存注入加载，
- * 无需再写入 settings.json.packages（旧机制已废弃，见 extensions.ts）。
+ * 该文件由 pi 进程经 -e 参数加载（RPC 迁移前由 DefaultResourceLoader
+ * additionalExtensionPaths 纯内存注入加载）。
  *
  * providers 变更时由 index.ts（启动）/ ws-server.ts（provider:save/delete）重新调用，
  * 新创建的 session 会读到最新内容（热更新机制不变）。
  *
- * 生成前从 SDK 内置模型注册表查询每个模型的参数（contextWindow / maxTokens / cost 等），
- * SDK 中找不到的模型使用默认值。
+ * 生成前从 pi 内置模型目录（pi-catalog.ts）查询每个模型的参数
+ * （contextWindow / maxTokens / cost 等），目录中找不到的模型使用默认值。
  */
 export async function ensureProviderExtensionRegistered(
   store: ProviderStore,
 ): Promise<void> {
   const providers = await store.load();
 
-  // 查询 SDK 内置模型信息
+  // 查询内置模型目录
   const sdkModelMap = new Map<string, SdkModelInfo>();
   try {
-    const authStorage = AuthStorage.create(`${HIAGENT_DIR}/auth.json`);
-    const modelRegistry = ModelRegistry.create(authStorage);
-    const allModels = modelRegistry.getAll();
+    const allModels = await getAllCatalogModels();
     for (const p of providers) {
       for (const m of p.models) {
         if (!sdkModelMap.has(m.id)) {
@@ -153,8 +146,8 @@ export async function ensureProviderExtensionRegistered(
       }
     }
   } catch (err) {
-    // SDK 查询失败不阻塞 extension 生成，使用默认参数降级
-    console.error("[provider-extension] SDK 模型查询失败，将使用默认模型参数:", err);
+    // 目录查询失败不阻塞 extension 生成，使用默认参数降级
+    console.error("[provider-extension] 内置模型目录查询失败，将使用默认模型参数:", err);
   }
 
   const code = generateProviderExtension(providers, sdkModelMap);

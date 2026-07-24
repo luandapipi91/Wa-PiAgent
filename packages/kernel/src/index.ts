@@ -9,6 +9,7 @@ import { MemoryStore } from "./memory-store";
 import { McpStore } from "./mcp-store";
 import { migrateLegacySessions } from "./migrate";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
+import { ensureBridgeExtension } from "./bridge-extension";
 import { ensureSystemProject } from "./ensure-system-project";
 import { cleanupExpiredWorkdirs } from "./workdir-cleaner";
 import { ensurePromptsConfig } from "./system-prompt";
@@ -23,12 +24,10 @@ import type { WSServerEvent } from "@hiagent/shared";
 export async function startKernel(
   opts?: { staticDir?: string; port?: number }
 ): Promise<{ port: number; stop: () => Promise<void> }> {
-  // 让 Pi SDK 的全局 getAgentDir() 返回 ~/.hiagent，而非默认 ~/.pi/agent。
-  // SDK 大量组件（auth/settings/sessions/bin/intercom/npm/models/prompts/tools/themes
-  // 及 pi-intercom / pi-web-access 等扩展）直接调 config.getAgentDir()，该函数只读
-  // PI_CODING_AGENT_DIR 环境变量、忽略传入的 agentDir 参数；不设则全部 fallback 到 ~/.pi/agent，
-  // 与 hiagent 数据目录割裂（agentDir 参数只对 DefaultResourceLoader/SettingsManager 等少数入口生效）。
-  // 必须在任意 SDK 代码 import/执行前设置。同时顺带解决 pi-web-access 配置透传（见 memory）。
+  // 让 pi 生态（pi-mcp-adapter 的 mcp-auth 等深导入模块）在本进程内解析到
+  // ~/.hiagent 作为 agent 目录；RPC 模式下 pi 子进程的环境变量由
+  // AgentManager 在 spawn 时逐个注入（PI_CODING_AGENT_DIR=HIAGENT_DIR），
+  // 这里保留进程级设置供 kernel 内部的 pi 扩展包代码使用。
   process.env.PI_CODING_AGENT_DIR = HIAGENT_DIR;
 
   // 确保内置技能目录存在
@@ -46,6 +45,9 @@ export async function startKernel(
 
   // 启动时把已有 providers 注册成 Pi extension（幂等）
   await ensureProviderExtensionRegistered(providerStore);
+
+  // 启动时生成 bridge 扩展（幂等）：RPC 模式下 pi 子进程经它注册宿主工具并回调 /bridge/tool
+  await ensureBridgeExtension();
 
   // 迁移旧版 agent 数据（含 name 字段、文件名用内部 name）到 displayName 作 id（幂等）
   const nameMapping = await configStore.migrateNameToDisplayName();
@@ -115,7 +117,7 @@ export async function startKernel(
   broadcast = (e) => server.broadcast(e);
 
   // AgentManager.onEvent 直接广播 sdk:event
-  // SDK AgentSessionEvent 与 shared SDKEvent 结构兼容但 TS 判为不同类型，event 用 any 桥接
+  // pi RPC 事件与 shared SDKEvent 结构兼容但 TS 判为不同类型，event 用 any 桥接
   const agentManager = new AgentManager({
     projectStore,
     configStore,
@@ -123,9 +125,12 @@ export async function startKernel(
     skillManager,
     extensionManager,
     memoryStore,
+    mcpStore,
+    // bridge 回调地址惰性取值：WS 端口在 server.start() 后才确定（AgentManager 构造在前）
+    bridgeBaseUrl: () => `http://127.0.0.1:${server.actualPort}`,
     onEvent: (sessionId, projectId, agentName, event) => {
       broadcast({ type: "sdk:event", projectId, sessionId, agentName, event: event as any });
-      // SDK 运行时错误（不可用模型 / 鉴权失败 / 网络等）不抛异常，而是编码进
+      // pi 运行时错误（不可用模型 / 鉴权失败 / 网络等）不抛异常，而是编码进
       // message_end{stopReason:"error", errorMessage}。ws-server 的 try/catch 抓不到，
       // 前端又不读这些字段 → 静默。这里翻译成 {type:"error"}，复用前端红色 ⚠️ 渲染管线。
       const errMsg = extractSdkErrorMessage(event as any);
@@ -143,6 +148,19 @@ export async function startKernel(
 
   await server.start();
   console.log(`[kernel] WS 监听 ws://127.0.0.1:${server.actualPort}`);
+
+  // 优雅退出：RPC 架构下每个会话是一个 pi 子进程，kernel 退出时必须统一回收，
+  // 避免孤儿进程滞留（SIGINT/SIGTERM 先 disposeAll 再停 server）。
+  // 注意：pi 子进程在 stdin 关闭后也会自行退出（EOF 兜底），这里是主动加速回收。
+  const shutdown = async (signal: string) => {
+    console.log(`[kernel] ${signal} 收到，回收 pi 子进程并停止服务...`);
+    await agentManager.disposeAll().catch(() => {});
+    await server.stop().catch(() => {});
+    process.exit(0);
+  };
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
   return { port: server.actualPort, stop: () => server.stop() };
 }
 

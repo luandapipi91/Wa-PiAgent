@@ -1,238 +1,182 @@
-/**
- * Steer 队列 POC — 验证 SDK 队列 API 可用性
- *
- * 第一部分：mock 验证 API 契约（始终运行）
- * 第二部分：真实 SDK 验证（RUN_SDK_E2E=1 时运行）
- */
-import { test, expect, mock, afterAll } from "bun:test";
+// steer-queue-poc.test.ts — kernel 自管 steer/followUp 队列语义验证
+//
+// 历史：本文件原是 pi SDK 队列 API（session.agent.steer/followUp/clearQueue）的概念验证。
+// RPC 迁移后队列由 kernel 自管（AgentManager 内 steering/followUp 数组 + busy 状态机：
+// agent_start→busy，agent_settled→idle 并 drain 一条 followUp，turn_end 投递一条 steering）。
+// 以下用例用 FakeSessionClient 手动 emit 事件驱动，验证 kernel 队列语义。
+//
+// 已删除的用例（纯验证 SDK 内部行为，与 hiagent 无关）：
+// - POC-1..POC-5：直接 poke fakeAgent 验证 SDK 队列 API 可用性（SDK 已不再是运行时依赖）；
+// - POC-E2E：真实 SDK + API key 的 steer/queue_update 验证（SDK 形态已废弃）。
+import { test, expect, beforeEach, afterEach } from "bun:test";
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
-import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
+import { getBridgeSession } from "../src/bridge-registry";
+import { askRegistry } from "../src/ask-registry";
+import { HIAGENT_DIR } from "@hiagent/shared";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 
-// ============================================================
-// 第一部分：Mock AgentSession — 验证 AgentManager 新增 API 契约
-// ============================================================
-
-let queuedSteerMessages: string[] = [];
-let queuedFollowUpMessages: string[] = [];
-
-function resetQueues() {
-  queuedSteerMessages = [];
-  queuedFollowUpMessages = [];
-}
-
-const fakeAgent: any = {
-  steer: mock((msg: any) => { queuedSteerMessages.push(msg.content || msg); }),
-  followUp: mock((msg: any) => { queuedFollowUpMessages.push(msg.content || msg); }),
-  clearSteeringQueue: mock(() => { queuedSteerMessages = []; }),
-  clearFollowUpQueue: mock(() => { queuedFollowUpMessages = []; }),
-  clearAllQueues: mock(() => { queuedSteerMessages = []; queuedFollowUpMessages = []; }),
-  hasQueuedMessages: mock(() => queuedSteerMessages.length > 0 || queuedFollowUpMessages.length > 0),
-  abort: mock(() => {}),
-  waitForIdle: mock(async () => {}),
-  get steeringMode() { return "one-at-a-time" as const; },
-  get followUpMode() { return "one-at-a-time" as const; },
-  subscribe: mock(() => mock(() => {})),
-  state: { isStreaming: true },
-};
-
-const fakeSession: Partial<AgentSession> = {
-  prompt: mock(async () => {}),
-  abort: mock(async () => fakeAgent.abort()),
-  dispose: mock(() => {}),
-  setSessionName: mock(() => {}),
-  subscribe: mock(() => mock(() => {})),
-  messages: [],
-  agent: fakeAgent as any,
-};
-
-const mockCreateAgentSession = mock(async () => ({
-  session: fakeSession as AgentSession,
-  extensionsResult: { extensions: [], errors: [], runtime: {} as any },
-}));
+const MODEL = "anthropic/test-model";
 
 const tmpFiles: string[] = [];
-function newProjectStore() {
-  const tmpFile = `/tmp/hiagent-poc-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
-  tmpFiles.push(tmpFile);
-  return new ProjectStore(tmpFile);
-}
+const managers: AgentManager[] = [];
 
-afterAll(() => {
-  for (const f of tmpFiles) {
+beforeEach(() => {
+  askRegistry.reset();
+});
+
+afterEach(async () => {
+  for (const am of managers.splice(0)) await am.disposeAll().catch(() => {});
+  for (const f of tmpFiles.splice(0)) {
     try { rmSync(f, { force: true }); } catch {}
   }
 });
 
-// ---------- 测试用例 ----------
+type CapturedEvent = { sessionId: string; e: any };
 
-test("POC-1: AgentManager.steer() → 调用 session.agent.steer()", async () => {
-  resetQueues();
-  const projectStore = newProjectStore();
+async function setup(events?: CapturedEvent[]) {
+  const tmpFile = `/tmp/hiagent-poc-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
+  tmpFiles.push(tmpFile);
+  const projectStore = new ProjectStore(tmpFile);
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const sessionEntity = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+  tmpFiles.push(join(HIAGENT_DIR, "tmp", "sysprompts", `${session.id}.md`));
 
+  const fakes: FakeSessionClient[] = [];
   const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: mock(() => {}),
-    createAgentSessionFn: mockCreateAgentSession,
+    projectStore,
+    configStore: null,
+    onEvent: (sid, _pid, _name, e) => events?.push({ sessionId: sid, e }),
+    createClientFn: fakeClientFactory(fakes),
   });
-  await am.ensureStarted(project.id, "dev", sessionEntity.id);
-
-  // 验证 steer 入队
-  fakeAgent.steer({ role: "user", content: "引导消息1", timestamp: Date.now() });
-  expect(queuedSteerMessages).toHaveLength(1);
-
-  fakeAgent.steer({ role: "user", content: "引导消息2", timestamp: Date.now() });
-  expect(queuedSteerMessages).toHaveLength(2);
-});
-
-test("POC-2: AgentManager.clearSteeringQueue() → 清空 steer 队列", async () => {
-  resetQueues();
-  fakeAgent.steer({ role: "user", content: "引导消息", timestamp: Date.now() });
-  expect(queuedSteerMessages).toHaveLength(1);
-
-  fakeAgent.clearSteeringQueue();
-  expect(queuedSteerMessages).toHaveLength(0);
-});
-
-test("POC-3: AgentManager.immediate() → abort + waitForIdle + prompt", async () => {
-  resetQueues();
-  fakeAgent.steer({ role: "user", content: "不要的消息1", timestamp: Date.now() });
-  fakeAgent.followUp({ role: "user", content: "不要的消息2", timestamp: Date.now() });
-
-  // 立即：abort → 清空队列 → 发送目标消息
-  fakeAgent.abort();
-  await fakeAgent.waitForIdle();
-  fakeAgent.clearAllQueues();
-  expect(queuedSteerMessages).toHaveLength(0);
-  expect(queuedFollowUpMessages).toHaveLength(0);
-
-  await (fakeSession.prompt as any)("立即执行的消息");
-  expect(fakeSession.prompt).toHaveBeenCalledWith("立即执行的消息");
-});
-
-test("POC-4: steer:promote → abort + clearAllQueues + 剩余重入队 + steer", async () => {
-  resetQueues();
-  // 模拟：队列中有 ["A","B","C"]，目标提升 "B" 为 steer
-  fakeAgent.followUp({ role: "user", content: "A", timestamp: Date.now() });
-  fakeAgent.followUp({ role: "user", content: "B", timestamp: Date.now() });
-  fakeAgent.followUp({ role: "user", content: "C", timestamp: Date.now() });
-  expect(queuedFollowUpMessages).toHaveLength(3);
-
-  // 提升 B 为 steer
-  fakeAgent.abort();
-  await fakeAgent.waitForIdle();
-  fakeAgent.clearAllQueues();
-  // 剩余 ["A","C"] 加回 followUp
-  fakeAgent.followUp({ role: "user", content: "A", timestamp: Date.now() });
-  fakeAgent.followUp({ role: "user", content: "C", timestamp: Date.now() });
-  expect(queuedFollowUpMessages).toHaveLength(2);
-
-  // B 作为 steer 发送
-  fakeAgent.steer({ role: "user", content: "B", timestamp: Date.now() });
-  expect(queuedSteerMessages).toHaveLength(1);
-});
-
-test("POC-5: steer:cancel → clearSteeringQueue", async () => {
-  resetQueues();
-  fakeAgent.steer({ role: "user", content: "要取消的引导", timestamp: Date.now() });
-  expect(queuedSteerMessages).toHaveLength(1);
-
-  fakeAgent.clearSteeringQueue();
-  expect(queuedSteerMessages).toHaveLength(0);
-});
-
-// ============================================================
-// 第二部分：真实 SDK 验证（需要 API key）
-// ============================================================
-
-const RUN_E2E = process.env.RUN_SDK_E2E === "1";
-const TEST_DIR = `/tmp/hiagent-steer-poc-${Date.now()}`;
-
-if (RUN_E2E) {
-  mkdirSync(`${TEST_DIR}/sessions`, { recursive: true });
-  mkdirSync(`${TEST_DIR}/agents`, { recursive: true });
-  writeFileSync(
-    `${TEST_DIR}/agents/dev.md`,
-    `---
-name: dev
-displayName: 研发
-avatar: "⚙️"
-avatarColor: "#fab387-#f38ba8"
-description: POC
-model: deepseek/deepseek-v4-flash
-thinking: off
-systemPromptMode: replace
-tools: []
-skills: []
-mcpServers: []
-partners:
-  askTo: []
----
-你是一个测试助手，用一句话回复。`,
-    "utf8",
-  );
-
-  afterAll(() => {
-    try { rmSync(TEST_DIR, { recursive: true }); } catch {}
-  });
+  managers.push(am);
+  await am.ensureStarted(project.id, "dev", session.id);
+  return { project, session, am, fake: fakes[0] };
 }
 
-test.skipIf(!RUN_E2E)("POC-E2E: steer + queue_update 事件触发", async () => {
-  const { createAgentSession, SessionManager, AuthStorage, ModelRegistry } =
-    await import("@earendil-works/pi-coding-agent");
+function lastQueueUpdate(events: CapturedEvent[]) {
+  const qu = [...events].reverse().find((x) => x.e.type === "queue_update");
+  return qu?.e as { steering: string[]; followUp: string[] } | undefined;
+}
 
-  const authStorage = AuthStorage.create();
-  authStorage.setRuntimeApiKey("deepseek", "sk-cfdb4d0613df41fc9d220c0aa4e268a3");
-  const modelRegistry = ModelRegistry.create(authStorage);
+test("busy 时 prompt 入 kernel followUp 队列，queue_update 携带队列内容", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false; // prompt 后不自动 settled → 保持 busy
 
-  const { session } = await createAgentSession({
-    cwd: TEST_DIR,
-    agentDir: TEST_DIR,
-    sessionManager: SessionManager.open(`${TEST_DIR}/sessions/poc-e2e.jsonl`),
-    thinkingLevel: "off",
-    tools: [],
-    authStorage,
-    modelRegistry,
-  });
+  await am.prompt(session.id, "第一条", { model: MODEL });
+  await am.prompt(session.id, "排队消息", { model: MODEL });
 
-  const events: string[] = [];
-  let lastQueueUpdate: any = null;
-  const unsubscribe = session.subscribe((event) => {
-    events.push(event.type);
-    if (event.type === "queue_update") {
-      lastQueueUpdate = event;
-      console.log("[POC] queue_update:", JSON.stringify(event));
-    }
-  });
+  // busy 中不直接发给 client，进 followUp 队列
+  expect(fake.prompted).toEqual(["第一条"]);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["排队消息"] });
+});
 
-  // 发送第一条 prompt
-  const promptPromise = session.prompt("回复：收到");
+test("agent_settled 后 followUp 逐条 drain（一次一条）", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false;
 
-  // 稍等后发送 steer
-  await new Promise(r => setTimeout(r, 500));
-  console.log("[POC] agent hasQueuedMessages:", session.agent.hasQueuedMessages());
-  console.log("[POC] steeringMode:", session.agent.steeringMode);
-  console.log("[POC] followUpMode:", session.agent.followUpMode);
+  await am.prompt(session.id, "第一条", { model: MODEL });
+  await am.prompt(session.id, "F1", { model: MODEL });
+  await am.prompt(session.id, "F2", { model: MODEL });
 
-  // 发送 steer 引导消息
-  await session.prompt("改为回复：已修改", { streamingBehavior: "steer" });
+  // 第一次 settled：只 drain F1，F2 仍排队
+  fake.emit({ type: "agent_settled" });
+  expect(fake.prompted).toEqual(["第一条", "F1"]);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["F2"] });
 
-  // 发送 followUp 排队消息  
-  await session.prompt("再回复：完成", { streamingBehavior: "followUp" });
+  // 第二次 settled：drain F2，队列清空
+  fake.emit({ type: "agent_settled" });
+  expect(fake.prompted).toEqual(["第一条", "F1", "F2"]);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
+});
 
-  await promptPromise;
+test("turn_end 后 steering 投递一条给 client.steer（one-at-a-time）", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false;
 
-  // 打印结果
-  console.log("[POC] 事件序列:", events.join(" → "));
-  console.log("[POC] 是否有 queue_update:", events.includes("queue_update"));
-  console.log("[POC] steer 队列长度:", (session.agent as any).steeringQueue?.hasItems?.());
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
+  am.steerMessage(session.id, "S1");
+  am.steerMessage(session.id, "S2");
+  expect(fake.steered).toEqual([]);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: ["S1", "S2"], followUp: [] });
 
-  unsubscribe();
-  session.dispose();
+  // 每个完成的 turn 只投一条
+  fake.emit({ type: "turn_end" });
+  expect(fake.steered).toEqual(["S1"]);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: ["S2"], followUp: [] });
 
-  // 关键断言
-  expect(events).toContain("agent_start");
-  expect(events).toContain("agent_end");
+  fake.emit({ type: "turn_end" });
+  expect(fake.steered).toEqual(["S1", "S2"]);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
+});
+
+test("steerMessage — idle 时不入队，直接以 prompt 生效", async () => {
+  const { session, am, fake } = await setup();
+
+  am.steerMessage(session.id, "引导一下");
+  await new Promise((r) => setTimeout(r, 0)); // client.prompt 为异步调用
+
+  expect(fake.prompted).toEqual(["引导一下"]);
+});
+
+test("clearAllQueues 后 turn_end / agent_settled 不再投递任何消息", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
+  await am.prompt(session.id, "F1", { model: MODEL });     // followUp
+  am.steerMessage(session.id, "S1");                       // steering
+
+  am.clearAllQueues(session.id);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
+
+  fake.emit({ type: "turn_end" });
+  fake.emit({ type: "agent_settled" });
+  expect(fake.steered).toEqual([]);
+  expect(fake.prompted).toEqual(["进行中"]); // F1 被清空，不再 drain
+});
+
+test("clearSteeringQueue 只清 steering，clearFollowUpQueue 只清 followUp", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL });
+  await am.prompt(session.id, "F1", { model: MODEL });
+  am.steerMessage(session.id, "S1");
+
+  am.clearSteeringQueue(session.id);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["F1"] });
+
+  am.clearFollowUpQueue(session.id);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
+});
+
+test("immediate：abort + 清空队列 + 剩余重入 followUp + 目标消息直发", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL });
+  await am.prompt(session.id, "排队A", { model: MODEL });
+  am.steerMessage(session.id, "引导A");
+
+  await am.immediate(session.id, "立即执行", ["剩余A"]);
+
+  expect(fake.aborts).toBe(1);
+  // 目标消息作为新回合直发；排队A/引导A 被清空
+  expect(fake.prompted).toEqual(["进行中", "立即执行"]);
+  expect(fake.steered).toEqual([]);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["剩余A"] });
+});
+
+test("bridge 上下文在 ensureStarted 后已注册（宿主工具回调入口）", async () => {
+  const { session } = await setup();
+  expect(getBridgeSession(session.id)).toBeDefined();
 });

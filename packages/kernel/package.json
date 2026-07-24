@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@amaster.ai/pi-memory": "^0.1.5",
+    "@earendil-works/pi-ai": "^0.80.6",
     "@earendil-works/pi-coding-agent": "^0.80.0",
     "@hiagent/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",

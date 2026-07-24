@@ -93,16 +93,17 @@ function readPiExtensionsDeclaration(pkgName: string): string[] | undefined {
 }
 
 /**
- * 构造注入 DefaultResourceLoader.additionalExtensionPaths 的全部扩展入口。
- * 含 hiagent 自生成的 provider-extension（运行时从 providers.json 生成到 GENERATED_DIR）。
+ * 构造传给 pi 进程 -e 参数的全部扩展入口。
+ * 含 hiagent 自生成的 provider-extension（providers.json → GENERATED_DIR）
+ * 与 hiagent-bridge（ask/memory/delegate/fleet 宿主工具，见 bridge-extension.ts）。
  *
  * @param dynamicPkgNames 运行时安装并启用的第三方扩展包名（来自 ExtensionManager.list()）。
  *   仅纳入声明了 pi.extensions 的包（Pi 扩展信号），其余静默跳过。默认空数组（向后兼容）。
  */
 export function buildAdditionalExtensionPaths(dynamicPkgNames: string[] = []): string[] {
   const paths = PKG_EXTENSIONS.map((name) => resolveExtensionEntryFile(name));
-  // 动态安装的第三方扩展：把已启用且为 Pi 扩展的包入口并入 loader 路径，
-  // 否则 SDK 永远不会加载它们 → 它们的工具/钩子不注册（即动态插件「装了但没生效」的根因）。
+  // 动态安装的第三方扩展：把已启用且为 Pi 扩展的包入口并入加载路径，
+  // 否则 pi 进程不会加载它们 → 它们的工具/钩子不注册（即动态插件「装了但没生效」的根因）。
   for (const name of dynamicPkgNames) {
     if (!readPiExtensionsDeclaration(name)) continue;  // 非 Pi 扩展，跳过
     // dev 模式：源码跑在 packages/kernel/src/，require 从 repo 解析不到 runtime 动态包；
@@ -118,39 +119,10 @@ export function buildAdditionalExtensionPaths(dynamicPkgNames: string[] = []): s
       }
     }
   }
-  // provider-extension 由 main()/ws-server 动态生成，首启或测试前可能尚未存在
-  const providerExt = join(GENERATED_DIR, "provider-extension.ts");
-  if (existsSync(providerExt)) paths.push(providerExt);
-  return paths;
-}
-
-/**
- * 从 DefaultResourceLoader.getExtensions() 提取已加载扩展注册的工具名。
- * 优先遍历每个扩展的 tools Map（loader.reload() 后即可用）；再尝试 runtime.getAllTools()
- * 作为补充（需要 agent session 运行时初始化，可能抛错，容错忽略）。
- * loader 为空 / 结构不符时返回空数组（绝不抛错）。
- */
-export function extractRuntimeToolNames(loader: unknown): string[] {
-  try {
-    const extResult = (loader as any)?.getExtensions?.();
-    if (!extResult) return [];
-    const names: string[] = [];
-    // 主路径：遍历每个扩展的 tools Map<string, RegisteredTool>（reload 后直接可用）
-    for (const ext of (extResult.extensions ?? [])) {
-      const tools = ext?.tools;
-      if (tools instanceof Map) names.push(...tools.keys());
-    }
-    // 补充路径：runtime.getAllTools()（需要 agent session 初始化，未初始化时抛错）
-    try {
-      const getAllTools = extResult.runtime?.getAllTools;
-      if (typeof getAllTools === "function") {
-        for (const t of (getAllTools() ?? [])) {
-          if (typeof t === "string" && !names.includes(t)) names.push(t);
-        }
-      }
-    } catch { /* runtime 未初始化，忽略 */ }
-    return names;
-  } catch {
-    return [];
+  // provider-extension / hiagent-bridge 由 main()/ws-server 动态生成，首启或测试前可能尚未存在
+  for (const generated of ["provider-extension.ts", "hiagent-bridge.ts"]) {
+    const p = join(GENERATED_DIR, generated);
+    if (existsSync(p)) paths.push(p);
   }
+  return paths;
 }

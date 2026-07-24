@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,8 @@ import { ProjectStore } from "../src/project-store";
 import { ProviderStore } from "../src/provider-store";
 import { SkillManager } from "../src/skill-manager";
 import { ExtensionManager } from "../src/extension-manager";
+import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
+import { HIAGENT_DIR } from "@hiagent/shared";
 import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
 
 function makeTempDir(prefix: string) {
@@ -31,9 +33,9 @@ async function waitFor(condition: () => boolean, timeout = 3000, interval = 50) 
 }
 
 /**
- * 启动一个真实的 WSServer，但注入 mock 的 AgentSession。
+ * 启动一个真实的 WSServer，但注入 FakeSessionClient（假 pi rpc client）。
  * 这样可以在不调用真实 LLM 的情况下，验证 WS 层到 AgentManager.prompt 的完整链路，
- * 包括附件文本的拼装。
+ * 包括附件文本的拼装（fake.prompted 记录最终 prompt 文本）。
  */
 async function withComposerServer<T>(
   fn: (
@@ -49,37 +51,12 @@ async function withComposerServer<T>(
   const skillManager = new SkillManager(baseDir);
   const dataDir = join(baseDir, "data");
 
-  const promptCalls: PromptCall[] = [];
-  const fakeUnsubscribe = mock(() => {});
-  const fakeSession = {
-    prompt: mock(async (text: string, opts?: any) => {
-      promptCalls.push({ text, opts });
-    }),
-    abort: mock(async () => {}),
-    dispose: mock(() => {}),
-    setSessionName: mock(() => {}),
-    setModel: mock(async () => {}),
-    setThinkingLevel: mock(() => {}),
-    subscribe: mock(() => fakeUnsubscribe),
-    messages: [],
-    isStreaming: false,
-    pendingMessageCount: 0,
-    clearQueue: mock(() => ({ steering: [], followUp: [] })),
-    followUp: mock(async () => {}),
-    steer: mock(async () => {}),
-    modelRegistry: {
-      getAll: () => [{ id: "test-model", provider: "test-provider", name: "Test", api: {}, baseUrl: "" }],
-      hasConfiguredAuth: () => true,
-    },
-  } as any;
-
-  const createAgentSessionFn = mock(async () => ({ session: fakeSession }));
-
+  const fakes: FakeSessionClient[] = [];
   const agentManager = new AgentManager({
     projectStore,
-    configStore: null as any,
+    configStore: null,
     onEvent: () => {},
-    createAgentSessionFn: createAgentSessionFn as any,
+    createClientFn: fakeClientFactory(fakes),
   });
 
   const server = new WSServer({
@@ -112,10 +89,17 @@ async function withComposerServer<T>(
   };
 
   try {
-    return await fn(send, recv, () => promptCalls);
+    // fake.prompted 记录 AgentManager.prompt 的最终文本（附件拼装结果）
+    return await fn(send, recv, () => fakes.flatMap((f) => f.prompted.map((text) => ({ text }))));
   } finally {
     ws.close();
     await server.stop();
+    // dispose 假 client + 清理系统提示词临时文件（dispose 的 rm 是 fire-and-forget，这里同步兜底）
+    const sessionIds = [...(((agentManager as any).sessions?.keys?.() ?? []) as Iterable<string>)];
+    await agentManager.disposeAll().catch(() => {});
+    for (const id of sessionIds) {
+      try { rmSync(join(HIAGENT_DIR, "tmp", "sysprompts", `${id}.md`), { force: true }); } catch {}
+    }
     rmSync(baseDir, { recursive: true, force: true });
   }
 }

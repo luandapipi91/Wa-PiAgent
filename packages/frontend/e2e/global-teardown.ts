@@ -20,8 +20,18 @@ async function globalTeardown() {
     }
   } catch {}
 
-  // 清理隔离目录（含 projects.json + sessions + .kernel-pid）
-  rmSync(E2E_HIAGENT_DIR, { recursive: true, force: true });
+  // RPC 架构下 kernel 派生的 pi 子进程在 stdin（管道）断开后自行退出，但有几秒延迟；
+  // 立即 rm 会撞上 EBUSY（Windows 文件锁）。等待并重试，最终清不掉也不致命（目录在 %HOME%）。
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    try {
+      rmSync(E2E_HIAGENT_DIR, { recursive: true, force: true });
+      return;
+    } catch {
+      if (Date.now() > deadline) return;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
 }
 
 export default globalTeardown;

@@ -6,6 +6,44 @@
 
 ## 2026-07-23
 
+### 重构
+- **kernel 测试套件适配 pi RPC 子进程架构**：6 个依赖 SDK `createAgentSessionFn` 的测试文件改用 `createClientFn` + FakeSessionClient/fake-pi fixture 重写；测试文件不再 import `@earendil-works/pi-coding-agent`。
+  - `agent-manager.test.ts`（重写，60 例）：创建/并发/dispose 竞态/pendingAborts、prompt 校验与附件文本、kernel 队列语义（followUp drain / steering 投递 / queue_update）、dirty 标脏重建、switchAgent/rename、listGlobalTools、系统提示词改为读 `tmp/sysprompts/<id>.md` 断言、记忆开关经 bridge ctx 断言、模型解析、进程崩溃重建
+  - `agent-manager-subagent-overrides.test.ts`（重写）：经 `getBridgeSession(sid).handleTool("delegate")` 触发；subagent-store 不再 mock.module（改真实 overrides 文件备份/恢复）——顺带消除既有 mock 全局污染，subagent-store 相关 9 个既有失败转绿；subagent-runner 仍 mock 捕获 config
+  - `subagent-runner.test.ts`（重写）：buildAgentDefinition 用例全删；用 fake-pi 作 cliPath 真实跑通回声流程，新增 argv-dump-pi fixture 断言 config→CLI 参数映射（max→xhigh、disabled→off），进程异常收敛 isError 不 throw；经 cache-bust 动态 import 绕过 overrides 文件的 mock
+  - `steer-queue-poc.test.ts`（重写）：SDK 队列 POC 用例（POC-1..5/POC-E2E）删除，改为验证 kernel 自管队列语义
+  - `composer-attachments.test.ts` / `e2e-integration.test.ts`：fakeClientFactory 适配，走通 WS 全链路
+  - 附带生产修复：`subagent-runner.ts` 的 settled Promise 挂空 catch（进程提前退出且 prompt 先抛错时 settled 无人 await 导致 unhandled rejection）
+  - 既有失败修复：`file-route.test.ts` 2 个 Windows 路径断言改为 `resolve()` 平台无关期望、`extension-manager.test.ts` 1 个路径分隔符断言统一为正斜杠比对
+  - 删除已过时的 `sdk-e2e.test.ts` / `sdk-integration.test.ts`（直测 SDK createAgentSession/intercom 的 env-gated 文件，对应代码路径已随 RPC 迁移移除，由 Playwright E2E 接替真实链路验证）
+  - 影响范围：packages/kernel/tests（上述 6 文件 + fixtures/argv-dump-pi.ts 新增 + file-route/extension-manager 修复 + 2 个过时文件删除）、packages/kernel/src/subagent-runner.ts（1 行防御性修复）
+
+## 2026-07-23
+
+### 重构
+- **kernel 从 pi SDK 内嵌架构迁移到 pi RPC 子进程架构**：kernel 不再 import `@earendil-works/pi-coding-agent` 的 API，改为每个会话 spawn 一个 `pi --mode rpc` 子进程并以 JSONL 协议驱动（pi-coding-agent npm 包保留，仅用其 CLI 与数据目录）。用户可见行为不变。
+  - `rpc-client.ts`（新）：pi rpc 子进程客户端——strict JSONL（仅 \n 断行）、id 关联命令/响应、事件流、extension_ui_request 子协议、stderr 环形缓冲；`resolvePiCliPath/resolvePiRuntime/buildPiArgs`（--session/--system-prompt/-e/--skill/--tools/--exclude-tools）
+  - `agent-manager.ts`（重写）：会话引擎映射到 RPC 命令（set_model/set_thinking_level/prompt/abort）；steer/followUp 队列改为 kernel 自管（RPC 无 clearQueue 等价物），agent_settled drain followUp、turn_end 投递 steering，队列变更合成 queue_update 事件，前端契约不变；标脏重建=进程重启；进程崩溃合成 message_end 错误事件（复用 ⚠️ 管线）
+  - `bridge-extension.ts`+`bridge-registry.ts`+`ask-runner.ts`（新）：宿主工具（ask_user_question/memory_*/delegate/fleet）经生成的 `hiagent-bridge.ts` 扩展注册进 pi 进程，execute 经 HTTP 回调 kernel `POST /bridge/tool`（token 鉴权）；ask 逻辑提取为 runAskTool 共用
+  - 系统提示词：composePrompt 结果写临时文件经 `--system-prompt <file>` 传入（pi 的 resolvePromptInput 支持文件路径，规避命令行长度限制）
+  - 工具放行：默认排除式（不传 --tools，仅 `-xt subagent`）；agent 显式 tools 时 --tools 白名单（config.tools ∪ EXTENSION_TOOL_MAP ∪ MCP direct 工具名）
+  - `pi-catalog.ts`（新）：只读模型目录（动态 import pi-ai 的 providers/all.js，非 SDK API），替代 AuthStorage/ModelRegistry 支撑 model:presets 与 provider-extension 生成；kernel 新增 `@earendil-works/pi-ai` 依赖
+  - `subagent-runner.ts`（重写）：delegate/fleet 的子智能体执行改为 spawn 一次性 `pi --mode rpc --no-session` 子进程，事件流映射进度；不再依赖 pi-open-agents 的 runSubagent API
+  - `mcp-connector.ts`：新增 `resolveMcpDirectToolNames`（命名规则与 pi-mcp-adapter 一致）；MCP 连接/OAuth 路径零改动（@modelcontextprotocol/sdk 与 mcp-auth.ts 均非 pi SDK）
+  - 影响范围：packages/kernel/src（agent-manager/rpc-client/extensions/ask-tool/amaster-memory/mcp-connector/mcp-store/provider-extension/subagent-runner/subagent-info/ws-server/index）、packages/kernel/tests（全面适配 fake-session-client）、packages/desktop/scripts/build-kernel-sidecar.ts（sidecar 依赖加 pi-ai）
+
+## 2026-07-23
+
+### 新增
+- **bridge 扩展层（pi RPC 子进程架构的宿主工具桥）**：RPC 模式下 SDK customTools 不存在，改为 kernel 生成 pi 扩展 `hiagent-bridge.ts`（`GENERATED_DIR` 下），pi 进程加载后注册 7 个宿主工具（ask_user_question / memory_add / memory_replace / memory_remove / memory_read / delegate / fleet）；工具 execute 在 pi 进程内经 HTTP 回调 kernel `POST /bridge/tool`（body 带 token/sessionId/toolCallId/tool/params，普通工具 60s 超时、ask 10 分钟，失败一律转文本结果绝不抛出）。
+  - `bridge-extension.ts`：`ensureBridgeExtension()` 幂等生成扩展文件；工具 name/description/schema 与现有实现逐字一致（agent 可见契约不变）
+  - `bridge-registry.ts`：会话上下文注册表（register/unregister/get）、进程级随机 token（getBridgeToken/verifyBridgeToken）、`handleBridgeRequest` 分发（401 invalid_token / 400 invalid_body / 404 unknown_session）、`makeDefaultBridgeContext`（ask 复用 ask-runner、memory 复用 createAgentMemoryTools、delegate/fleet 返回 not_wired 桩）
+  - `ask-runner.ts`（新）：从 ask-tool.ts 提取的 ask 执行逻辑 `runAskTool`（无 SDK 依赖），makeAskTool 改为调用它，AskToolDetails 移至此处并经 ask-tool.ts 兼容再导出
+  - `ws-server.ts`：新增 `POST /bridge/tool` 路由；`index.ts` startKernel 启动时调用 ensureBridgeExtension（与 ensureProviderExtensionRegistered 并列）
+  - 影响范围：packages/kernel/src/{bridge-extension,bridge-registry,ask-runner,ask-tool,ws-server,index}.ts、packages/kernel/tests/bridge.test.ts（新增，含真实 pi 加载验证与 HTTP 全链路用例）
+
+## 2026-07-23
+
 ### 修复
 - **引导消息重复发送（B 被发送两次）**：根因是 `agent:prompt` 的 handle 把 `am.prompt()` 包在 `_promptLocks` 锁内且 await 整个 agent turn。Bun websocket 对同一连接串行处理 message——第二条消息"2"的 handle 要等"1"的 turn 完全结束才执行，此时 `isStreaming=false`，"2"误走直发而非 followUp 入队。用户在前端看到"1还在回复中"时发"2"并点引导，steer:promote 把"2"入 steering，但 kernel 那边"2"是直发的——重复发送。
   - session `s-e34af47e` 日志确证：`prompt 判断 "2" isStreaming=false pending=0`（应走 followUp 却直发）
