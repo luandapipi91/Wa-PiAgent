@@ -637,6 +637,10 @@ test("搜索过程中聚焦目录不改变搜索范围，新搜索仍用原根",
   }
 
   // 搜索过程中点击 demo 目录（在搜索结果中可见）→ 不应更新搜索根
+  // 先等搜索结果渲染出 demo 目录（fs:search 只代表请求已发出，结果是异步到达的，直接点会偶发找不到）
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+  }, { timeout: 3000 });
   fireEvent.click(screen.getByText(/📁\s*demo/));
 
   // 改变搜索词以触发新一轮搜索

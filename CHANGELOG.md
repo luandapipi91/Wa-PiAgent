@@ -6,6 +6,24 @@
 
 ## 2026-07-23
 
+### 修复
+- **清理 kernel/tests 测试残留临时文件**：删除 ws-cfg* / ws-proj.json* / user-skills* / .non-existent-* / plock-* 等测试产生的临时文件和目录，更新 .gitignore 覆盖规则防止再产生。
+  - 影响范围：packages/kernel/tests/（清理）、.gitignore（新增 .non-existent-* / plock-* / user-skills* 规则）
+
+### 修复
+- **frontend 测试套件 11 个既有失败修复（zustand store 污染 + 误删夹具）**：bun 同进程跑全部测试文件，zustand store 是进程级单例；`McpPage.test.tsx`（stub mcp `load`）、`Composer/ComposerInput/NewSessionPane.test.tsx`（stub skills 全部 action）、`AgentConfig.test.tsx`（stub subagents `saveOverride`）覆盖后从不还原，污染字母序靠后的 store-mcp/store-skills/store-subagents 测试。统一在各文件 afterEach 用 `useXStore.setState(useXStore.getInitialState(), true)` 全量恢复（对齐 store-providers 既有写法）；`ComposerInput.test.tsx`「@[name] chip」用例的智能体夹具在 b6fd8beb 被误删两行，按当前字段形状恢复。另修复 `FilePicker.test.tsx` 搜索范围用例的时序竞态（点击前先等搜索结果渲染）。验收：frontend 623 pass / 0 fail，三遍稳定。
+  - 影响范围：packages/frontend/tests/{McpPage,Composer,ComposerInput,NewSessionPane,AgentConfig,ProviderFormModal,FilePicker}.test.tsx
+
+## 2026-07-23
+
+### 新增
+- **RPC 迁移验收 E2E（rpc-session.spec.ts）**：Playwright 全链路实证——注入 deepseek provider（经 WS provider:save，apiKey 从本机 pi 凭证库运行时读取）→ 浏览器建会话 → 选模型发 prompt → 断言 bash 工具执行卡片可见 + 流式文本含 echo 输出。复用既有 E2E 隔离 harness（独立 HIAGENT_DIR + 端口）。
+  - 附带：`global-teardown.ts` 清理隔离目录改为等待重试（pi 子进程 stdin 断开后退出有几秒延迟，立即 rm 撞 EBUSY）
+  - `kernel/index.ts`：新增 SIGINT/SIGTERM 优雅退出——RPC 架构下每个会话是一个 pi 子进程，kernel 退出时 `disposeAll` 统一回收，避免孤儿进程
+  - 影响范围：packages/frontend/e2e/{rpc-session.spec.ts（新）,global-teardown.ts}、packages/kernel/src/index.ts
+
+## 2026-07-23
+
 ### 重构
 - **kernel 测试套件适配 pi RPC 子进程架构**：6 个依赖 SDK `createAgentSessionFn` 的测试文件改用 `createClientFn` + FakeSessionClient/fake-pi fixture 重写；测试文件不再 import `@earendil-works/pi-coding-agent`。
   - `agent-manager.test.ts`（重写，60 例）：创建/并发/dispose 竞态/pendingAborts、prompt 校验与附件文本、kernel 队列语义（followUp drain / steering 投递 / queue_update）、dirty 标脏重建、switchAgent/rename、listGlobalTools、系统提示词改为读 `tmp/sysprompts/<id>.md` 断言、记忆开关经 bridge ctx 断言、模型解析、进程崩溃重建
