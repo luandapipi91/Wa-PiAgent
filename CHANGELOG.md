@@ -6,6 +6,12 @@
 
 ## 2026-07-24
 
+### 新增
+- **系统设置-技能页面样式优化**：新增技能搜索框，输入即实时过滤（按技能名称、大小写不敏感），无匹配时显示提示；“添加技能目录”和“刷新技能”按钮改为 icon（svg + title/aria-label），与“技能目录”标题同行显示并右对齐，不再独占行。
+  - 影响范围：packages/frontend/src/components/settings/SkillSection.tsx、packages/frontend/tests/SkillSection.test.tsx
+
+## 2026-07-24
+
 ### 修复
 - **工具调用卡弱化时机**：工具调用进行中（无 result）不弱化；一旦拿到 result（无论成功或失败）即弱化。ToolGroupCard 同理：全部调用完成即弱化，不再区分成功/失败。同步更新 MessageList 测试断言。
   - 影响范围：packages/frontend/src/components/blocks/ToolCallCard.tsx、packages/frontend/tests/MessageList.test.tsx
