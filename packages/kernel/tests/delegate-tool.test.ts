@@ -11,6 +11,10 @@ import {
   makeSpawnFn,
   MAX_SUBAGENT_CONCURRENCY,
 } from "../src/delegate-tool";
+import type { SpawnTelemetryInput } from "../src/subagent-telemetry";
+import { join } from "node:path";
+
+const FAKE_PI = join(import.meta.dir, "fixtures", "fake-pi.ts");
 
 const askTo = [
   { name: "代码审查", description: "评审改动" },
@@ -263,7 +267,7 @@ test("makeSpawnFn: resolveConfig 返回 null → 错误文本", async () => {
   expect(result.text).toContain("unknown-agent");
 });
 
-test("makeSpawnFn: resolveConfig 成功透传给 spawn", async () => {
+test("makeSpawnFn: resolveConfig 成功 → 经 fake-pi 确定性跑通并回传结果", async () => {
   const resolveConfig = mock(async () => ({
     name: "test-agent",
     description: "test desc",
@@ -274,15 +278,17 @@ test("makeSpawnFn: resolveConfig 成功透传给 spawn", async () => {
     tools: [],
     skills: [],
   }));
-  // makeSpawnFn 内部调用 runSubagentAgent（子进程 async），在 mock 环境会抛错。
-  // 只测 resolveConfig 被正确调用 + 不会提前返回错误。
-  const spawn = makeSpawnFn({ resolveConfig, cwd: "/tmp" });
-  try {
-    await spawn("test-agent", "task");
-  } catch {
-    // runSubagentAgent 调用 runSubagent 在测试环境不可用，预期抛错
-  }
+  const spawn = makeSpawnFn({
+    resolveConfig,
+    cwd: "/tmp",
+    runnerOpts: { cliPath: FAKE_PI, runtime: process.execPath },
+  });
+  const result = await spawn("test-agent", "task");
   expect(resolveConfig).toHaveBeenCalledWith("test-agent");
+  expect(result.isError).toBe(false);
+  expect(result.text).toContain("回声:task");
+  // fake-pi 支持 get_session_stats → usage 透传
+  expect(result.usage?.tokens.output).toBe(250);
 });
 
 test("makeSpawnFn: onProgress 回调正确绑定", async () => {
@@ -300,17 +306,33 @@ test("makeSpawnFn: onProgress 回调正确绑定", async () => {
     tools: [],
     skills: [],
   }));
-  const spawn = makeSpawnFn({ resolveConfig, cwd: "/tmp", onProgress });
-  try {
-    await spawn("test-agent", "task");
-  } catch {
-    // 预期抛错
-  }
-  // onProgress 至少被注册（runSubagentAgent 内部会传回调）
-  // 由于 runSubagent 不可用，这里只验证 spawn 创建成功不抛错
-  expect(spawn).toBeDefined();
+  const spawn = makeSpawnFn({
+    resolveConfig,
+    cwd: "/tmp",
+    onProgress,
+    runnerOpts: { cliPath: FAKE_PI, runtime: process.execPath },
+  });
+  await spawn("test-agent", "task");
+  // fake-pi 有 text_delta → 至少一个 running 事件，结尾一个 done
+  expect(progressEvents.some((e) => e.status === "running")).toBe(true);
+  expect(progressEvents.at(-1)?.status).toBe("done");
 });
 
 test("MAX_SUBAGENT_CONCURRENCY 为正值", () => {
   expect(MAX_SUBAGENT_CONCURRENCY).toBeGreaterThan(0);
+});
+
+// ---- onSpawnComplete 遥测回调 ----
+
+test("makeSpawnFn: resolveConfig 为 null 时 onSpawnComplete 记录失败派发", async () => {
+  const resolveConfig = mock(async () => null);
+  const onSpawnComplete = mock((_input: SpawnTelemetryInput) => {});
+  const spawn = makeSpawnFn({ resolveConfig, cwd: "/tmp", onSpawnComplete });
+  await spawn("unknown-agent", "任务X");
+  expect(onSpawnComplete).toHaveBeenCalledTimes(1);
+  const input = onSpawnComplete.mock.calls[0]![0]!;
+  expect(input.agent).toBe("unknown-agent");
+  expect(input.task).toBe("任务X");
+  expect(input.isError).toBe(true);
+  expect(input.returnText).toContain("配置未找到");
 });

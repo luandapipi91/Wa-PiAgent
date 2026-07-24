@@ -10,7 +10,8 @@
     "build": "bun build src/index.ts --compile --target bun --outfile dist/hiagent-kernel",
     "build:bundle": "bun build src/index.ts --target bun --outfile dist/kernel.js",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "eval:delegate": "bun run scripts/eval-delegate-trigger.ts"
   },
   "dependencies": {
     "@amaster.ai/pi-memory": "^0.1.5",

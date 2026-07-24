@@ -22,11 +22,12 @@ import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
 import { relative, join } from "node:path";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm, appendFile } from "node:fs/promises";
 import { buildAdditionalExtensionPaths } from "./extensions";
 import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import { reconcileDanglingAsks } from "./ask-tool";
 import { makeDelegateTool, makeFleetTool, buildDelegateRoster, makeSpawnFn } from "./delegate-tool";
+import { SubagentTelemetry } from "./subagent-telemetry";
 import type { HiAgentSpawnConfig } from "./subagent-runner";
 import { seedBuiltinAgents } from "./builtin-agents";
 import { readBuiltinAgentPrompt } from "./subagent-info";
@@ -116,6 +117,8 @@ interface SessionHandle {
   crashed: boolean;
   /** dispose 标记（防止 onExit 误判为崩溃） */
   disposed: boolean;
+  /** 子代理派发遥测收集器（会话销毁时 flush 到 subagent-telemetry.jsonl） */
+  subagentTelemetry: SubagentTelemetry;
 }
 
 export class AgentManager {
@@ -404,9 +407,12 @@ export class AgentManager {
       };
     };
 
+    // 会话级子代理遥测收集器：随 spawnFn 生命周期创建，_teardownSession 时 flush
+    const subagentTelemetry = new SubagentTelemetry();
     const spawnFn = makeSpawnFn({
       resolveConfig: resolveSpawnConfig,
       cwd,
+      onSpawnComplete: (input) => subagentTelemetry.record(input),
     });
 
     // 内置 subagent 的委派引导从 ~/.hiagent/agents/*.md 的 frontmatter 提取（与命名智能体统一来源）
@@ -507,6 +513,7 @@ export class AgentManager {
       promptFile,
       crashed: false,
       disposed: false,
+      subagentTelemetry,
     };
     const client = createClient({
       cliPath: resolvePiCliPath(),
@@ -841,6 +848,25 @@ export class AgentManager {
     return this.sessions.get(sessionId)?.busy ?? false;
   }
 
+  /** 会话销毁时把子代理派发遥测追加到 HIAGENT_DIR/subagent-telemetry.jsonl（fire-and-forget） */
+  private _flushSubagentTelemetry(sessionId: string, handle: SessionHandle): void {
+    const records = handle.subagentTelemetry.records;
+    if (records.length === 0) return;
+    const summary = handle.subagentTelemetry.summary;
+    const lines = [
+      ...records.map((r) => JSON.stringify({ sessionId, ...r })),
+      JSON.stringify({ type: "session_summary", sessionId, ts: new Date().toISOString(), ...summary }),
+    ];
+    console.log(
+      `[telemetry] session ${sessionId.slice(0, 8)}: ${summary.spawnCount} 次派发，` +
+      `成功率 ${(summary.successRate * 100).toFixed(0)}%，` +
+      `估计节省父上下文 ${summary.totalSavingsTokensEst} tokens，` +
+      `压缩率 ${summary.aggregateCompressionRatio.toFixed(2)}`,
+    );
+    void appendFile(join(HIAGENT_DIR, "subagent-telemetry.jsonl"), lines.join("\n") + "\n", "utf8")
+      .catch(() => {});
+  }
+
   /** 拆除单个会话的内部资源（注销 bridge ctx + kill 进程 + 清临时文件与各 Map），不动 disposed 标记 */
   private _teardownSession(sessionId: string): void {
     askRegistry.cancelAll(sessionId);  // 拆除资源时作废 pending ask
@@ -848,6 +874,7 @@ export class AgentManager {
     const handle = this.sessions.get(sessionId);
     if (handle) {
       handle.disposed = true;
+      this._flushSubagentTelemetry(sessionId, handle);
       // dispose 是异步 kill，fire-and-forget（调用方多为同步拆除路径）
       void handle.client.dispose().catch(() => {});
       if (handle.promptFile) {
