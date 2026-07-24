@@ -6,6 +6,14 @@
 
 ## 2026-07-24
 
+### 修复
+- **FilePicker/DirTreePicker 搜索结果中的目录无法展开查看子目录**：`buildSearchTree` 给搜索树目录节点 `children: []`，展开即空白且不触发懒加载。修复：`handleExpandItem` 在搜索态下展开结果目录时 `listDir` 加载真实子目录合并进 `searchTreeItems`（匹配子项在前、其余追加，目录子项可逐级下钻，`loadedDirsRef` 去重，新搜索时重置）。另修复 DirTreePicker 搜索态下 `handleSelectItems` 误读浏览树导致点击搜索结果/下钻目录无法更新选中路径的问题。
+  - 影响范围：packages/frontend/src/components/ui/FilePicker.tsx、packages/frontend/src/components/DirTreePicker.tsx、packages/frontend/tests/FilePicker.test.tsx、packages/frontend/tests/DirTreePicker.test.tsx
+- **DirTreePicker 搜索中切换「显示隐藏目录」不重新触发搜索**：搜索 effect 依赖数组缺少 `showHidden`（`showHidden` 仅经 ref 读取，开关切换不重跑 effect），补齐为 `[searchQuery, showFiles, showHidden]`，与 FilePicker 既有修复（104364e）对齐。
+  - 影响范围：packages/frontend/src/components/DirTreePicker.tsx、packages/frontend/tests/DirTreePicker.test.tsx
+
+## 2026-07-24
+
 ### 新增
 - **系统设置-技能页面样式优化**：新增技能搜索框，输入即实时过滤（按技能名称、大小写不敏感），无匹配时显示提示；“添加技能目录”和“刷新技能”按钮改为 icon（svg + title/aria-label），与“技能目录”标题同行显示并右对齐，不再独占行。
   - 影响范围：packages/frontend/src/components/settings/SkillSection.tsx、packages/frontend/tests/SkillSection.test.tsx

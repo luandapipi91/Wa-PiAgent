@@ -305,6 +305,10 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
   expandedItemsRef.current = expandedItems;
   // 记录已自动展开的搜索结果节点：增量更新时只展开新出现的，不重展开用户已折叠的
   const autoExpandedRef = useRef<Set<TreeItemIndex>>(new Set());
+  // 搜索树 ref + 已加载真实子目录的目录路径记录：供搜索态下展开结果目录时合并懒加载
+  const searchTreeItemsRef = useRef(searchTreeItems);
+  searchTreeItemsRef.current = searchTreeItems;
+  const loadedDirsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     (async () => {
@@ -389,6 +393,36 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
       const kept = prev.filter((id) => !remove.has(id));
       return kept.includes(item.index) ? kept : [...kept, item.index];
     });
+
+    // 搜索态：展开结果目录时加载其真实子目录合并进搜索树（匹配子项在前，其余追加）
+    if (!item.isFolder || !item.data?.path) return;
+    const path = item.data.path;
+    if (!searchTreeItemsRef.current || loadedDirsRef.current.has(path)) return;
+    loadedDirsRef.current.add(path);
+    void (async () => {
+      const entries = (await listDir(path, showHiddenRef.current))
+        .filter(e => showHiddenRef.current || !e.name.startsWith("."));
+      const src = searchTreeItemsRef.current;
+      const parent = src?.[path];
+      if (!src || !parent) return; // 搜索已清空或结果被重建，放弃合并
+      const next = { ...src };
+      const existing = new Set(parent.children ?? []);
+      const merged = [...(parent.children ?? [])];
+      for (const e of entries) {
+        const childId = join(path, e.name);
+        if (!next[childId]) {
+          next[childId] = {
+            index: childId,
+            children: e.isDir ? [] : undefined,
+            isFolder: e.isDir,
+            data: { path: childId, name: e.name, isDir: e.isDir },
+          };
+        }
+        if (!existing.has(childId)) merged.push(childId);
+      }
+      next[path] = { ...parent, children: merged };
+      setSearchTreeItems(next);
+    })();
   }, []);
 
   const handleCollapseItem = useCallback((item: TreeItem<FsNodeData>) => {
@@ -482,6 +516,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
     const queryChanged = lastQueryRef.current !== query;
     if (queryChanged || lastShowHiddenRef.current !== showHidden) {
       autoExpandedRef.current = new Set();
+      loadedDirsRef.current.clear();
       lastQueryRef.current = query;
       lastShowHiddenRef.current = showHidden;
       // 仅查询文本变化才清空旧结果；隐藏开关变化保留旧结果直到新结果到达，避免闪烁
