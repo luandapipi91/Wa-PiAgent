@@ -1,5 +1,5 @@
-import { test, expect, beforeEach, mock } from "bun:test";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { test, expect, beforeEach, mock, afterEach } from "bun:test";
+import { render, screen, waitFor, act, cleanup } from "@testing-library/react";
 import { SYSTEM_PROJECT_ID, type SessionMessage } from "@hiagent/shared";
 import { SessionView } from "../src/components/SessionView";
 import { useProjectsStore } from "../src/store/projects";
@@ -13,6 +13,9 @@ mock.module("../src/ws-instance", () => ({
   send: (e: any) => { sentEvents.push(e); },
   onMessage: (cb: any) => { mockHandlers.list.push(cb); return () => {}; },
 }));
+
+// 渲染后清理 DOM：happy-dom 全局 document 跨测试文件共享，不清理会污染后续文件
+afterEach(() => cleanup());
 
 beforeEach(() => {
   mockHandlers.list = [];

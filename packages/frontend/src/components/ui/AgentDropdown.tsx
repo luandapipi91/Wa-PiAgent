@@ -101,21 +101,23 @@ export function AgentDropdown({
               className="flex-1 bg-transparent border-0 outline-none text-[12px] text-primary"
             />
           </div>
-          {filtered.map(a => (
-            <AgentMenuItem
-              key={a.displayName}
-              name={a.displayName}
-              description={a.description}
-              avatar={a.avatar}
-              avatarColor={a.avatarColor}
-              selected={a.displayName === value}
-              onClick={() => handlePick(a.displayName)}
-              testId={`${itemTestIdPrefix}-item-${a.displayName}`}
-            />
-          ))}
-          {filtered.length === 0 && (
-            <div className="px-3 py-3.5 text-center text-tertiary text-[12px]">无智能体</div>
-          )}
+          <div className="max-h-[280px] overflow-y-auto">
+            {filtered.map(a => (
+              <AgentMenuItem
+                key={a.displayName}
+                name={a.displayName}
+                description={a.description}
+                avatar={a.avatar}
+                avatarColor={a.avatarColor}
+                selected={a.displayName === value}
+                onClick={() => handlePick(a.displayName)}
+                testId={`${itemTestIdPrefix}-item-${a.displayName}`}
+              />
+            ))}
+            {filtered.length === 0 && (
+              <div className="px-3 py-3.5 text-center text-tertiary text-[12px]">无智能体</div>
+            )}
+          </div>
         </div>
       )}
     </div>

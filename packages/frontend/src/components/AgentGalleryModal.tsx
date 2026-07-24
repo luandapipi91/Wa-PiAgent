@@ -111,7 +111,7 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
         )}
       </div>
 
-      <div className="grid grid-cols-3 gap-3 px-5 py-4">
+      <div className="grid grid-cols-3 gap-3 px-5 py-4 max-h-[440px] overflow-y-auto">
         {agents.map(agent => {
           const def = agentDefOf(agent.displayName);
           const status = statusOf(agent.displayName);

@@ -60,7 +60,7 @@ export async function startKernel(
     console.log(`[kernel] 已迁移 ${nameMapping.size} 个智能体 name → displayName`);
   }
 
-  // 目录为空时 seed 4 个内置默认 agent（幂等）
+  // 逐角色检查、缺失才写入的幂等 seed（存量环境自动补齐新角色，不覆盖已有同名文件）
   await configStore.seedDefaults();
 
   const migrated = await migrateLegacySessions(projectStore);

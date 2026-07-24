@@ -1,5 +1,5 @@
-import { test, expect, mock, beforeEach } from "bun:test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { SessionRow } from "../src/components/SessionRow";
 import { useSessionStore } from "../src/store/session";
 import type { SessionEntity } from "@hiagent/shared";
@@ -9,11 +9,15 @@ const session: SessionEntity = {
   title: "测试会话", createdAt: 0, lastActivity: Date.now() - 120000, piSessionFile: "",
 };
 
+// 渲染后清理 DOM：happy-dom 全局 document 跨测试共享，不清理会互相污染
+afterEach(() => cleanup());
+
 beforeEach(() => { useSessionStore.setState({ unreadBySession: {}, statusBySession: {} }); });
 
 test("显示 emoji + 标题 + 相对时间", () => {
   render(<table><tbody><SessionRow session={session} selected={false} onSelect={() => {}} /></tbody></table>);
-  expect(screen.getByText("⚙️")).toBeTruthy();
+  // 旧默认角色（技术实现）已下线，avatar 查不到时回退默认 🤖
+  expect(screen.getByText("🤖")).toBeTruthy();
   expect(screen.getByText("测试会话")).toBeTruthy();
   expect(screen.getByText("2m")).toBeTruthy();
 });

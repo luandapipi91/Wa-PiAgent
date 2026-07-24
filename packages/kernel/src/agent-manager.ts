@@ -457,14 +457,16 @@ export class AgentManager {
     };
 
     // 组合系统提示词并写入临时文件（pi 的 --system-prompt 支持文件路径，规避命令行长度限制）。
-    // 提示词组装的优先级与迁移前一致：
-    //   1. prompts.json 的 base.content（用户全局覆盖）
-    //   2. config.systemPromptMode === "append" + systemPromptBody 时用 systemPromptBody
-    //   3. HIAGENT_DEFAULT_BASE_PROMPT（代码兜底）
-    const defaultBasePrompt =
-      config?.systemPromptMode === "append" && config.systemPromptBody
-        ? config.systemPromptBody!
-        : HIAGENT_DEFAULT_BASE_PROMPT;
+    // 角色提示词（agent.md 正文 systemPromptBody）注入 base 段：
+    //   - systemPromptMode === "replace"（seed 与新建角色的默认）：正文替代默认 base 提示词
+    //   - systemPromptMode === "append"：正文追加在默认 base 提示词之后
+    // 注意：prompts.json 的 base.content（用户全局覆盖）优先级最高——
+    // renderSegment 里 segment.content 非空时直接使用，不看 defaultBasePrompt。
+    const defaultBasePrompt = !config?.systemPromptBody
+      ? HIAGENT_DEFAULT_BASE_PROMPT
+      : config.systemPromptMode === "append"
+        ? `${HIAGENT_DEFAULT_BASE_PROMPT}\n\n${config.systemPromptBody}`
+        : config.systemPromptBody;
     const composedPrompt = composePrompt(promptSegments, {
       defaultBasePrompt,
       delegateRoster,
