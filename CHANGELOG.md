@@ -7,6 +7,20 @@
 ## 2026-07-24
 
 ### 修复
+- **工具调用卡弱化时机**：工具调用进行中（无 result）不弱化；一旦拿到 result（无论成功或失败）即弱化。ToolGroupCard 同理：全部调用完成即弱化，不再区分成功/失败。同步更新 MessageList 测试断言。
+  - 影响范围：packages/frontend/src/components/blocks/ToolCallCard.tsx、packages/frontend/tests/MessageList.test.tsx
+
+## 2026-07-24
+
+### 修复
+- **阻止 HiAgent 加载 Pi SDK 默认 skill 目录 `~/.agents/skills`**：Pi SDK 的 `DefaultResourceLoader` 默认会扫描用户主目录和项目祖先目录的 `.agents/skills`。HiAgent 现启动 pi 子进程时传入 `--no-skills`，并显式把 `~/.hiagent/skills`（内置）+ `userSkillDirs` + 扩展包启用 skill 通过 `--skill` 传入，彻底关闭 Pi 的默认扫描行为。
+  - 影响范围：packages/kernel/src/rpc-client.ts、packages/kernel/src/agent-manager.ts、packages/kernel/tests/rpc-client.test.ts、packages/kernel/tests/agent-manager.test.ts
+
+---
+
+## 2026-07-24
+
+### 修复
 - **聊天界面时间线渲染顺序**：修复 `MessageList.segmentBlocks` 把同一回合内 thinking/text/普通 toolCall 按类型聚合的问题，改为按 SDK 事件到达顺序交错渲染，仅合并连续同类型 block；delegate 仍作为切割锚点保持独立气泡。更新相关组件测试，确保 text→toolCall→text 等序列按时间线保留多个气泡。
   - 影响范围：packages/frontend/src/components/MessageList.tsx、packages/frontend/tests/MessageList.test.tsx
 

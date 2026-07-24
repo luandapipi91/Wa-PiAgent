@@ -88,7 +88,7 @@ test("toolResult 按 toolCallId 关联到前一个 assistant 消息，不单独�
   expect(screen.getByText("文件内容")).toBeTruthy();
 });
 
-test("成功的 toolCall（result 且非 isError）→ ✓ 图标 + 绿色（success）样式", () => {
+test("成功的 toolCall（result 且非 isError）→ ✓ 图标 + 绿色（success）样式 + 弱化", () => {
   useSessionStore.setState({
     messagesBySession: {
       s1: [
@@ -98,16 +98,18 @@ test("成功的 toolCall（result 且非 isError）→ ✓ 图标 + 绿色（suc
     },
   });
   render(<MessageList sessionId="s1" />);
-  // 成功的 toolCall：✓ 图标 + meta「完成」+ success tone（图标方块用 --success 着色）
+  // 成功的 toolCall：✓ 图标 + meta「完成」+ success tone + 弱化
+  const card = screen.getByTestId("toolcall-ok1");
   const header = screen.getByTestId("toolcall-ok1-header");
   expect(header.textContent).toContain("✓");
   expect(header.textContent).toContain("完成");
   expect(header.textContent).not.toContain("✗");
   const iconBox = header.querySelector("span")!;
   expect(iconBox.getAttribute("style")).toContain("var(--success)");
+  expect(card.getAttribute("data-muted")).toBe("true");
 });
 
-test("失败的 toolCall（result.isError）→ ✗ 图标 + 红色（danger）样式", () => {
+test("失败的 toolCall（result.isError）→ ✗ 图标 + 红色（danger）样式 + 弱化", () => {
   useSessionStore.setState({
     messagesBySession: {
       s1: [
@@ -117,12 +119,14 @@ test("失败的 toolCall（result.isError）→ ✗ 图标 + 红色（danger）�
     },
   });
   render(<MessageList sessionId="s1" />);
-  // 失败的 toolCall：✗ 图标 + meta「失败」+ danger tone（图标方块用 --danger 着色）
+  // 失败的 toolCall：✗ 图标 + meta「失败」+ danger tone + 弱化
+  const card = screen.getByTestId("toolcall-e1");
   const header = screen.getByTestId("toolcall-e1-header");
   expect(header.textContent).toContain("✗");
   expect(header.textContent).toContain("失败");
   const iconBox = header.querySelector("span")!;
   expect(iconBox.getAttribute("style")).toContain("var(--danger)");
+  expect(card.getAttribute("data-muted")).toBe("true");
 });
 
 test("intercom toolCall 渲染 DelegateCard（委派卡片）", () => {
