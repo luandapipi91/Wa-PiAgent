@@ -141,8 +141,8 @@ test("intercom toolCall 渲染 DelegateCard（委派卡片）", () => {
   expect(screen.getByTestId("toolcall-d1-header").textContent).toContain("intercom");
 });
 
-// 回归：被普通 toolCall 隔开的两段 text 应聚合成一个文本气泡（df8e6d6 的 segmentBlocks 曾错误地拆成两个）
-test("text → toolCall → text（无 delegate）→ 只有一个文本气泡", () => {
+// 时间线渲染：被普通 toolCall 隔开的两段 text 保持为独立气泡，按出现顺序排列
+test("text → toolCall → text（无 delegate）→ 两个文本气泡按时序排列", () => {
   useSessionStore.setState({
     messagesBySession: {
       s1: [
@@ -158,12 +158,15 @@ test("text → toolCall → text（无 delegate）→ 只有一个文本气泡",
   // 两段 text 都应可见
   expect(screen.getByText("前面这段")).toBeTruthy();
   expect(screen.getByText("后面这段")).toBeTruthy();
-  // 关键断言：只有一个文本气泡（聚合），而不是被 toolCall 拆成两个
-  expect(screen.getAllByTestId("text-bubble")).toHaveLength(1);
+  // 关键断言：按时间线保留两个文本气泡，而不是跨 toolCall 聚合成一个
+  const bubbles = screen.getAllByTestId("text-bubble");
+  expect(bubbles).toHaveLength(2);
+  expect(bubbles[0].textContent).toContain("前面这段");
+  expect(bubbles[1].textContent).toContain("后面这段");
 });
 
-// delegate 是切割锚点：delegate 前后的 text 各自聚合成独立气泡，普通 toolCall 不切割
-test("text → toolCall → text → delegate → text → toolCall → text → delegate → text → 三个文本气泡（普通 toolCall 不切割，delegate 切割）", () => {
+// delegate 仍是切割锚点；普通 toolCall 按时间线切割 text，不再跨 toolCall 聚合
+test("text → toolCall → text → delegate → text → toolCall → text → delegate → text → 按时间线保留四个文本气泡", () => {
   useSessionStore.setState({
     messagesBySession: {
       s1: [
@@ -181,14 +184,15 @@ test("text → toolCall → text → delegate → text → toolCall → text →
     },
   });
   render(<MessageList sessionId="s1" />);
-  // 四段 text：委派前(聚合 t1 前的 text) / 委派后1+委派后2(聚合，跨 t2) / 最后
-  // 实际：[text:委派前][toolCalls:t1][delegate:d1][text:委派后1+委派后2][toolCalls:t2][delegate:d2][text:最后]
-  // → 3 个文本气泡（委派前 / 委派后1+2 / 最后）
-  expect(screen.getAllByTestId("text-bubble")).toHaveLength(3);
-  expect(screen.getByText("委派前")).toBeTruthy();
-  expect(screen.getByText("委派后1")).toBeTruthy();
-  expect(screen.getByText("委派后2")).toBeTruthy();
-  expect(screen.getByText("最后")).toBeTruthy();
+  // 时间线顺序：
+  // [text:委派前][toolCalls:t1][delegate:d1][text:委派后1][toolCalls:t2][text:委派后2][delegate:d2][text:最后]
+  // → 4 个文本气泡，且顺序保持不变
+  const bubbles = screen.getAllByTestId("text-bubble");
+  expect(bubbles).toHaveLength(4);
+  expect(bubbles[0].textContent).toContain("委派前");
+  expect(bubbles[1].textContent).toContain("委派后1");
+  expect(bubbles[2].textContent).toContain("委派后2");
+  expect(bubbles[3].textContent).toContain("最后");
 });
 
 test("只有 toolCall 的 assistant 消息不渲染空白文字气泡", () => {

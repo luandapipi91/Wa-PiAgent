@@ -6,6 +6,12 @@
 
 ## 2026-07-24
 
+### 修复
+- **聊天界面时间线渲染顺序**：修复 `MessageList.segmentBlocks` 把同一回合内 thinking/text/普通 toolCall 按类型聚合的问题，改为按 SDK 事件到达顺序交错渲染，仅合并连续同类型 block；delegate 仍作为切割锚点保持独立气泡。更新相关组件测试，确保 text→toolCall→text 等序列按时间线保留多个气泡。
+  - 影响范围：packages/frontend/src/components/MessageList.tsx、packages/frontend/tests/MessageList.test.tsx
+
+## 2026-07-24
+
 ### 新增
 - **聊天界面 cocode 显示模式对齐（差异文档 §3/§5/§6）**：
   - 过程卡片体系：工具调用/思考/委托统一使用 cocode 式 `ProcessCard` 卡片基座（图标方块 + tone 语义色 + 标题 + 右侧状态/耗时 meta + 折叠 chevron），连续工具调用自动归组为 `ToolGroupCard`；流式中默认展开，单项完成后折叠为紧凑摘要行，整轮结束后统一弱化显示，手动展开/折叠优先于自动逻辑。
