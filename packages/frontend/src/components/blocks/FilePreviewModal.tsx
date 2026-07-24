@@ -3,6 +3,13 @@ import { Modal } from "../ui/Modal";
 import { readFile } from "../../fs-client";
 import { useToastStore } from "../../store/toast";
 
+/** kernel fs:readFile 的 content 为 base64（二进制安全），文本预览需解码为 UTF-8 */
+function decodeBase64(b64: string): string {
+  const bin = atob(b64);
+  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
 /** 文件只读预览：经 kernel fs 读取内容，可复制路径 */
 export function FilePreviewModal({ absPath, onClose }: { absPath: string; onClose: () => void }) {
   const [state, setState] = useState<{ loading: boolean; content?: string; error?: string }>({ loading: true });
@@ -11,7 +18,7 @@ export function FilePreviewModal({ absPath, onClose }: { absPath: string; onClos
   useEffect(() => {
     let alive = true;
     readFile(absPath)
-      .then(r => { if (alive) setState({ loading: false, content: r.content }); })
+      .then(r => { if (alive) setState({ loading: false, content: decodeBase64(r.content) }); })
       .catch(() => { if (alive) setState({ loading: false, error: `无法读取文件：${absPath}` }); });
     return () => { alive = false; };
   }, [absPath]);

@@ -29,7 +29,8 @@ test("渲染胶囊（basename + 行号），点击弹预览并 readFile 解析�
     send: (e: any) => {
       if (e.type === "fs:readFile") {
         requested = e.path;
-        emit({ type: "fs:readFile", path: e.path, content: "file-content-123" });
+        // 对齐真实 kernel 行为：fs:readFile 的 content 为 base64（ws-server.ts）
+        emit({ type: "fs:readFile", path: e.path, content: btoa("file-content-123") });
       }
     },
     onMessage: (h: (e: any) => void) => { handlers.add(h); return () => handlers.delete(h); },

@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-07-24
+
+### 新增
+- **聊天界面 cocode 显示模式对齐（差异文档 §3/§5/§6）**：
+  - 过程卡片体系：工具调用/思考/委托统一使用 cocode 式 `ProcessCard` 卡片基座（图标方块 + tone 语义色 + 标题 + 右侧状态/耗时 meta + 折叠 chevron），连续工具调用自动归组为 `ToolGroupCard`；流式中默认展开，单项完成后折叠为紧凑摘要行，整轮结束后统一弱化显示，手动展开/折叠优先于自动逻辑。
+  - 折叠行为：新增 `useAutoCollapse` hook 管理「流式展开 → 完成折叠 → 回合结束弱化 → 历史默认折叠」状态，支持用户选择记忆。
+  - 代码块：升级为 `CodeBlockCard`，头部条展示语言名与复制按钮，超 20 行可折叠，引入 `prism-react-renderer` 做语法高亮。
+  - 文件路径：正文内联代码中的文件路径渲染为 `FilePill` 胶囊，点击弹出应用内只读预览（复用 `fs-client.readFile`，kernel 零改动），预览内可复制路径。
+  - 测试：`packages/frontend` 新增对应单元/组件测试；新增 Playwright E2E `chat-blocks.spec.ts` 在真实浏览器验证流式展开→结束折叠弱化、代码块卡片与 FilePill 可见。
+  - 影响范围：packages/frontend/src/components/blocks/{ProcessCard,ThinkingCard,ToolCallCard,DelegateCard,CodeBlockCard,FilePill,FilePreviewModal,markdown-components,useAutoCollapse,file-path}.tsx、packages/frontend/src/components/MessageList.tsx、packages/frontend/tests/*、packages/frontend/e2e/chat-blocks.spec.ts（新）、packages/frontend/playwright.local.config.ts（新）、package.json（新增 prism-react-renderer 依赖）
+
+## 2026-07-24
+
+### 新增
+- **CoCode vs HiAgent 聊天界面差异对比文档**：docs/chat-ui-diff-cocode-vs-hiagent.md——按十大区域（布局主题/消息列表/Markdown/Composer/流式/工具调用/会话管理/空态/通知/快捷键）逐项对比 cocode-master/desktop v0.7.0 与 packages/frontend，56 条差异均注明两侧代码位置并分类（样式/交互/一侧缺失），配 7 张真实运行截图（docs/chat-ui-diff-assets/）。CoCode 侧通过 vite + Tauri API 桩 + WebSocket↔stdio 桥接真实后端实现浏览器内运行截图。
+  - 影响范围：docs/chat-ui-diff-cocode-vs-hiagent.md（新）、docs/chat-ui-diff-assets/（新）
+
+---
+
 ## 2026-07-23
 
 ### 修复
