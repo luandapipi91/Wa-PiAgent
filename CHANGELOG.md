@@ -7,6 +7,13 @@
 ## 2026-07-24
 
 ### 修复
+- **主智能体不主动派发子代理（P0）**：commit 1197a80 误删了 delegate-mechanism 提示词里的 Proactive Delegation / Fleet Parallel Delegation 两节，导致主 agent 缺省 DIY。本次按 cocode 验证过的句式恢复并升级：Proactive Delegation 改为"默认派发多步探索"规则（任务形态锚点 + 明确不派的四种情况 + 任务必须自包含），删除与之重复的 Reading the Subagent List 节，恢复 Fleet 节并补反派发边界；delegate 工具描述开头同步加默认派发规则（delegate-tool.ts 与 bridge-extension.ts 逐字同步）。PROMPTS_SCHEMA_VERSION 6→7，老用户 prompts.json 启动时自动迁移生效。
+  - 影响范围：packages/kernel/src/system-prompt.ts、packages/kernel/src/delegate-tool.ts、packages/kernel/src/bridge-extension.ts
+
+
+## 2026-07-24
+
+### 修复
 - **FilePicker/DirTreePicker 搜索结果中的目录无法展开查看子目录**：`buildSearchTree` 给搜索树目录节点 `children: []`，展开即空白且不触发懒加载。修复：`handleExpandItem` 在搜索态下展开结果目录时 `listDir` 加载真实子目录合并进 `searchTreeItems`（匹配子项在前、其余追加，目录子项可逐级下钻，`loadedDirsRef` 去重，新搜索时重置）。另修复 DirTreePicker 搜索态下 `handleSelectItems` 误读浏览树导致点击搜索结果/下钻目录无法更新选中路径的问题。
   - 影响范围：packages/frontend/src/components/ui/FilePicker.tsx、packages/frontend/src/components/DirTreePicker.tsx、packages/frontend/tests/FilePicker.test.tsx、packages/frontend/tests/DirTreePicker.test.tsx
 - **DirTreePicker 搜索中切换「显示隐藏目录」不重新触发搜索**：搜索 effect 依赖数组缺少 `showHidden`（`showHidden` 仅经 ref 读取，开关切换不重跑 effect），补齐为 `[searchQuery, showFiles, showHidden]`，与 FilePicker 既有修复（104364e）对齐。
