@@ -6,19 +6,13 @@
 
 ## 2026-07-24
 
-### 新增
-- **首启默认预置 7 个专家角色**：前端开发者、后端架构师、产品经理、测试结果分析师、数据分析师、代码审查员、UX设计师。description 与 systemPrompt 正文逐字取自 ao.aiolaola.com/experts 原始角色定义（agency-agents 中文版，`/prompts/zh/<category>/<id>.md`，来源 URL 见 default-agent-seeds.ts 注释），delegationHints（whenToDelegate/whenNotTo/benefit）按角色职责补齐，不配置 partners.askTo。`seedDefaults` 由"目录非空整体跳过"改为逐角色检查、缺失才写入的幂等逻辑：存量用户启动时自动补齐新角色，绝不覆盖已存在的同名 .md；新增 `HIAGENT_SKIP_AGENT_SEED=1` 环境开关供 E2E 等最小化环境整体跳过 seed。
-  - 影响范围：packages/shared/src/constants.ts、packages/kernel/src/default-agent-seeds.ts（新增）、packages/kernel/src/config-store.ts、packages/kernel/src/index.ts、packages/kernel/tests/config-store.test.ts、packages/frontend/e2e/global-setup.ts
-
-### 变更
-- **移除原有 4 个默认角色（需求设计/项目管理/技术实现/质量验收）**：从 `AGENT_DEFS` 与 `ALL_AGENT_NAMES` 中删除，首启初始化只 seed 7 个专家角色；存量用户已有的旧角色文件保留不删。
-  - 影响范围：packages/shared/src/constants.ts、packages/kernel/tests/config-store.test.ts、packages/frontend/tests/theme.test.ts
-
 ### 修复
 - **角色提示词（agent.md 正文）未注入系统提示词**：`systemPromptMode: "replace"`（seed 与新建角色的默认模式）时 `systemPromptBody` 被整体丢弃，角色人格完全不生效。修复 base 段装配：replace → 正文替代默认 base 提示词；append → 正文追加在默认 base 提示词之后（prompts.json 的 base.content 用户覆盖仍最优先）。
   - 影响范围：packages/kernel/src/agent-manager.ts、packages/kernel/tests/agent-manager.test.ts
-- **agents.spec.ts E2E 既有断言修复**：与 dev.md fixture（displayName=研发）不符的 testid 断言（gallery-card/partner-check/agent-missing-item/已切换为）；移除已下线"关键词"功能（a003ae7）断言；"取消"按钮改为现有"关闭"；场景 5 会话切换失败根因——项目目录在场景 6 才创建导致 pi 子进程 spawn ENOENT，mkdir 前移至 beforeEach；场景 6 @ 菜单按 a003ae7 后的 askTo 白名单行为重写（先设 A1.askTo=[A3] 再断言），删除已移除的"@ 联动 agent-select"断言。
-  - 影响范围：packages/frontend/e2e/agents.spec.ts
+
+### 变更
+- **移除原有 4 个默认角色（需求设计/项目管理/技术实现/质量验收）**：从 `AGENT_DEFS` 与 `ALL_AGENT_NAMES` 中删除，首启初始化只 seed 7 个专家角色；存量用户已有的旧角色文件保留不删。同步更新 theme 测试断言。
+  - 影响范围：packages/shared/src/constants.ts、packages/kernel/tests/config-store.test.ts、packages/frontend/tests/theme.test.ts
 
 ## 2026-07-24
 
@@ -26,14 +20,11 @@
 - **主智能体不主动派发子代理（P0）**：commit 1197a80 误删了 delegate-mechanism 提示词里的 Proactive Delegation / Fleet Parallel Delegation 两节，导致主 agent 缺省 DIY。本次按 cocode 验证过的句式恢复并升级：Proactive Delegation 改为"默认派发多步探索"规则（任务形态锚点 + 明确不派的四种情况 + 任务必须自包含），删除与之重复的 Reading the Subagent List 节，恢复 Fleet 节并补反派发边界；delegate 工具描述开头同步加默认派发规则（delegate-tool.ts 与 bridge-extension.ts 逐字同步）。PROMPTS_SCHEMA_VERSION 6→7，老用户 prompts.json 启动时自动迁移生效。
   - 影响范围：packages/kernel/src/system-prompt.ts、packages/kernel/src/delegate-tool.ts、packages/kernel/src/bridge-extension.ts
 
-
 ## 2026-07-24
 
 ### 修复
 - **FilePicker/DirTreePicker 搜索结果中的目录无法展开查看子目录**：`buildSearchTree` 给搜索树目录节点 `children: []`，展开即空白且不触发懒加载。修复：`handleExpandItem` 在搜索态下展开结果目录时 `listDir` 加载真实子目录合并进 `searchTreeItems`（匹配子项在前、其余追加，目录子项可逐级下钻，`loadedDirsRef` 去重，新搜索时重置）。另修复 DirTreePicker 搜索态下 `handleSelectItems` 误读浏览树导致点击搜索结果/下钻目录无法更新选中路径的问题。
   - 影响范围：packages/frontend/src/components/ui/FilePicker.tsx、packages/frontend/src/components/DirTreePicker.tsx、packages/frontend/tests/FilePicker.test.tsx、packages/frontend/tests/DirTreePicker.test.tsx
-- **DirTreePicker 搜索中切换「显示隐藏目录」不重新触发搜索**：搜索 effect 依赖数组缺少 `showHidden`（`showHidden` 仅经 ref 读取，开关切换不重跑 effect），补齐为 `[searchQuery, showFiles, showHidden]`，与 FilePicker 既有修复（104364e）对齐。
-  - 影响范围：packages/frontend/src/components/DirTreePicker.tsx、packages/frontend/tests/DirTreePicker.test.tsx
 
 ## 2026-07-24
 
@@ -43,6 +34,17 @@
   - 评测：`packages/kernel/scripts/eval-delegate-trigger.ts`（`bun run eval:delegate`），30 条分类用例（12 explore 应派 / 8 edit 视情况 / 10 simple 不应派），复用生产同款系统提示词组装与工具面，bridge 走脚本内置 stub（delegate/fleet 只记录不真跑，压成本），输出分类触发率（explore 达标线 ≥80%）+ 结果 JSON 落盘。
   - 影响范围：packages/kernel/src/subagent-telemetry.ts（新增）、packages/kernel/src/subagent-runner.ts、packages/kernel/src/delegate-tool.ts、packages/kernel/src/agent-manager.ts、packages/kernel/scripts/eval-delegate-trigger.ts（新增）、packages/kernel/tests/{subagent-telemetry.test.ts（新增）、subagent-runner.test.ts、delegate-tool.test.ts、fixtures/fake-pi.ts}
 
+## 2026-07-24
+
+### 修复
+- **DirTreePicker 搜索中切换「显示隐藏目录」不重新触发搜索**：搜索 effect 依赖数组缺少 `showHidden`（`showHidden` 仅经 ref 读取，开关切换不重跑 effect），补齐为 `[searchQuery, showFiles, showHidden]`，与 FilePicker 既有修复（104364e）对齐。
+  - 影响范围：packages/frontend/src/components/DirTreePicker.tsx、packages/frontend/tests/DirTreePicker.test.tsx
+
+## 2026-07-24
+
+### 新增
+- **首启默认预置 7 个专家角色**：前端开发者、后端架构师、产品经理、测试结果分析师、数据分析师、代码审查员、UX设计师。每个角色的 description 与 systemPrompt 正文逐字取自 ao.aiolaola.com/experts 的原始角色定义（agency-agents 中文版，`/prompts/zh/<category>/<id>.md`，逐角色来源 URL 见 default-agent-seeds.ts 注释），delegationHints（whenToDelegate/whenNotTo/benefit）按角色职责补齐，不配置 partners.askTo。`seedDefaults` 由"目录非空整体跳过"改为逐角色检查、缺失才写入的幂等逻辑：存量用户启动时自动补齐新角色，且绝不覆盖已存在的同名 .md（保护用户已修改的角色）；新增 `HIAGENT_SKIP_AGENT_SEED=1` 环境开关供 E2E 等最小化环境整体跳过 seed。同步修复 agents.spec.ts 中与 dev.md fixture（displayName=研发）不符的既有断言，并移除对已下线"关键词"功能（a003ae7 移除）的断言、"取消"按钮改为现有的"关闭"。
+  - 影响范围：packages/shared/src/constants.ts、packages/kernel/src/default-agent-seeds.ts（新增）、packages/kernel/src/config-store.ts、packages/kernel/src/index.ts（注释）、packages/kernel/tests/config-store.test.ts、packages/frontend/e2e/global-setup.ts、packages/frontend/e2e/agents.spec.ts
 
 ## 2026-07-24
 
