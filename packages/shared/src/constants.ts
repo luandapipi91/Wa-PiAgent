@@ -110,14 +110,19 @@ export interface AgentDef {
 
 // 按 displayName 索引（displayName 既是展示名也是唯一标识符）
 export const AGENT_DEFS: Record<string, AgentDef> = {
-  "需求设计": { emoji: "📋", gradient: ["#5B5BD6", "#8B8BFF"] },
-  "项目管理": { emoji: "📅", gradient: ["#B45309", "#D97706"] },
-  "技术实现": { emoji: "⚙️", gradient: ["#1D1D1F", "#2C2C2E"] },
-  "质量验收": { emoji: "🧪", gradient: ["#34A853", "#4BA26F"] },
+  "前端开发者": { emoji: "🖥️", gradient: ["#0EA5E9", "#38BDF8"] },
+  "后端架构师": { emoji: "🏗️", gradient: ["#6366F1", "#818CF8"] },
+  "产品经理": { emoji: "🧭", gradient: ["#F59E0B", "#FBBF24"] },
+  "测试结果分析师": { emoji: "🔬", gradient: ["#059669", "#10B981"] },
+  "数据分析师": { emoji: "📈", gradient: ["#EC4899", "#F472B6"] },
+  "代码审查员": { emoji: "🧐", gradient: ["#64748B", "#94A3B8"] },
+  "UX设计师": { emoji: "🎨", gradient: ["#F43F5E", "#FB7185"] },
 };
 
 /** 所有内置智能体的 displayName 列表，用于 seedDefaults 批量生成 */
-export const ALL_AGENT_NAMES: string[] = ["需求设计", "项目管理", "技术实现", "质量验收"];
+export const ALL_AGENT_NAMES: string[] = [
+  "前端开发者", "后端架构师", "产品经理", "测试结果分析师", "数据分析师", "代码审查员", "UX设计师",
+];
 
 /** Agent 未显式配置 tools 时的默认工具集。
  *  含 Pi 内置工具、pi-web-access 网络工具、amaster memory 记忆工具。

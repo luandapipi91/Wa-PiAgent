@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, mock, beforeEach, afterEach } from "bun:test";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, cleanup } from "@testing-library/react";
 import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
 import type { AgentConfig } from "@hiagent/shared";
 import { useProjectsStore } from "../src/store/projects";
@@ -67,7 +67,10 @@ import { setDefaults as dbSetDefaults } from "../src/store/composer-db";
 import { NewSessionPane } from "../src/components/NewSessionPane";
 
 describe("NewSessionPane", () => {
-  beforeEach(() => {
+  // 渲染后清理 DOM：happy-dom 全局 document 跨测试文件共享，不清理会污染后续文件
+afterEach(() => cleanup());
+
+beforeEach(() => {
     memoryDefaults = { model: null, thinking: "disabled" };
     for (const k of Object.keys(memorySessions)) delete memorySessions[k];
     memoryRecordingPrefs = {};

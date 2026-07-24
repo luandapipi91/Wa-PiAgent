@@ -2,14 +2,14 @@ import { test, expect } from "bun:test";
 import { agentEmoji, agentGradient } from "../src/theme/agents";
 import { STATUS_COLORS } from "../src/theme/colors";
 
-test("agentEmoji 4 角色", () => {
-  expect(agentEmoji("需求设计")).toBe("📋");
-  expect(agentEmoji("技术实现")).toBe("⚙️");
+test("agentEmoji 内置专家角色", () => {
+  expect(agentEmoji("前端开发者")).toBe("🖥️");
+  expect(agentEmoji("UX设计师")).toBe("🎨");
 });
 
 test("agentGradient 含两色", () => {
-  expect(agentGradient("技术实现")).toContain("#1D1D1F");
-  expect(agentGradient("技术实现")).toContain("#2C2C2E");
+  expect(agentGradient("前端开发者")).toContain("#0EA5E9");
+  expect(agentGradient("前端开发者")).toContain("#38BDF8");
 });
 
 test("未知名回退 agentDefOf 默认头像与渐变（动态智能体无内置定义）", () => {

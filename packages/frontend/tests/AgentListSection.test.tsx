@@ -1,5 +1,5 @@
-import { test, expect, mock, describe, beforeEach } from "bun:test";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { test, expect, mock, describe, beforeEach, afterEach } from "bun:test";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import type { AgentConfig, SessionMessage } from "@hiagent/shared";
 import { AgentListSection } from "../src/components/AgentListSection";
 import { useAgentsStore } from "../src/store/agents";

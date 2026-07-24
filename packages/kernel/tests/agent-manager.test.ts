@@ -790,6 +790,23 @@ test("config systemPromptMode=append 时 systemPromptBody 作为 base 段", asyn
   expect(prompt).toContain("自定义 BODY 提示词");
 });
 
+test("config systemPromptMode=replace 时 systemPromptBody 替代默认 base 提示词", async () => {
+  const configStore = {
+    getAgent: mock(async () => ({
+      displayName: "dev",
+      systemPromptMode: "replace",
+      systemPromptBody: "你是前端开发者角色提示词",
+    })),
+  } as any;
+  const { project, session, am } = await setup({ configStore });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const prompt = readSysprompt(session.id);
+  expect(prompt).toContain("你是前端开发者角色提示词");
+  // replace：默认 base 兜底文案不再出现
+  expect(prompt).not.toContain("You are an expert coding assistant");
+});
+
 test("askTo 非空时 delegate-roster 段含命名智能体与委托引导", async () => {
   const configs: Record<string, any> = {
     dev: { displayName: "dev", partners: { askTo: ["代码审查"] } },
