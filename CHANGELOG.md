@@ -15,6 +15,15 @@
 ## 2026-07-24
 
 ### 新增
+- **子代理派发遥测 + 派发触发率评测脚本（P2）**：
+  - 遥测：runSubagentAgent 在子代理 settled 后经 `get_session_stats` 采集 token 用量（降级为 undefined 不影响主流程）；makeSpawnFn 新增 `onSpawnComplete` 回调（delegate/fleet 共用 spawn 闭包，全覆盖）；会话级 `SubagentTelemetry` 收集器挂在 SessionHandle 上，`_teardownSession` 时把每次派发记录 + 会话汇总（成功率/估计节省 token/压缩率）追加到 `~/.hiagent/subagent-telemetry.jsonl` 并打一行日志。
+  - 评测：`packages/kernel/scripts/eval-delegate-trigger.ts`（`bun run eval:delegate`），30 条分类用例（12 explore 应派 / 8 edit 视情况 / 10 simple 不应派），复用生产同款系统提示词组装与工具面，bridge 走脚本内置 stub（delegate/fleet 只记录不真跑，压成本），输出分类触发率（explore 达标线 ≥80%）+ 结果 JSON 落盘。
+  - 影响范围：packages/kernel/src/subagent-telemetry.ts（新增）、packages/kernel/src/subagent-runner.ts、packages/kernel/src/delegate-tool.ts、packages/kernel/src/agent-manager.ts、packages/kernel/scripts/eval-delegate-trigger.ts（新增）、packages/kernel/tests/{subagent-telemetry.test.ts（新增）、subagent-runner.test.ts、delegate-tool.test.ts、fixtures/fake-pi.ts}
+
+
+## 2026-07-24
+
+### 新增
 - **系统设置-技能页面样式优化**：新增技能搜索框，输入即实时过滤（按技能名称、大小写不敏感），无匹配时显示提示；“添加技能目录”和“刷新技能”按钮改为 icon（svg + title/aria-label），与“技能目录”标题同行显示并右对齐，不再独占行。
   - 影响范围：packages/frontend/src/components/settings/SkillSection.tsx、packages/frontend/tests/SkillSection.test.tsx
 

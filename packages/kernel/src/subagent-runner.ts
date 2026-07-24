@@ -43,10 +43,19 @@ export interface SubagentProgressEvent {
   elapsedMs: number;
 }
 
+/** 子代理会话 token 用量（pi get_session_stats 采集，用于派发遥测） */
+export interface SubagentUsage {
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+  costTotal: number;
+}
+
 /** 执行结果（与 delegate-tool 的 DelegateSpawnResult 对齐） */
 export interface SubagentRunResult {
   text: string;
   isError: boolean;
+  /** 子代理 token 用量；采集失败（如旧版 pi 不支持）时降级为 undefined */
+  usage?: SubagentUsage;
+  elapsedMs: number;
 }
 
 export interface SubagentRunOpts {
@@ -187,7 +196,7 @@ export async function runSubagentAgent(
     }
 
     if (opts?.signal?.aborted) {
-      return { text: "子智能体已被中止", isError: true };
+      return { text: "子智能体已被中止", isError: true, elapsedMs: Date.now() - startedAt };
     }
 
     // 最终文本：优先取最后一条 assistant 文本（比流式累积更完整）
@@ -197,15 +206,37 @@ export async function runSubagentAgent(
       if (typeof last?.text === "string" && last.text.trim()) text = last.text;
     } catch { /* 取不到则用流式累积 */ }
 
+    // 遥测：取子代理会话 token 用量（dispose 前一次性查询；不支持则降级 undefined）
+    let usage: SubagentUsage | undefined;
+    try {
+      const stats = await client.getSessionStats();
+      const t = stats?.tokens;
+      if (t) {
+        usage = {
+          tokens: {
+            input: t.input ?? 0,
+            output: t.output ?? 0,
+            cacheRead: t.cacheRead ?? 0,
+            cacheWrite: t.cacheWrite ?? 0,
+            total: t.total ?? 0,
+          },
+          // pi SessionStats.cost 可能是数值或 { total } 对象，防御性兼容
+          costTotal: typeof stats?.cost === "number" ? stats.cost : (stats?.cost?.total ?? 0),
+        };
+      }
+    } catch { /* 采集失败不影响主流程 */ }
+
+    const elapsedMs = Date.now() - startedAt;
     if (sawError) {
-      return { text: text || "子智能体模型调用失败", isError: true };
+      return { text: text || "子智能体模型调用失败", isError: true, usage, elapsedMs };
     }
     emit("done");
-    return { text: text || "（子智能体无输出）", isError: false };
+    return { text: text || "（子智能体无输出）", isError: false, usage, elapsedMs };
   } catch (err) {
     return {
       text: `子智能体执行失败: ${err instanceof Error ? err.message : String(err)}`,
       isError: true,
+      elapsedMs: Date.now() - startedAt,
     };
   } finally {
     if (client) {
