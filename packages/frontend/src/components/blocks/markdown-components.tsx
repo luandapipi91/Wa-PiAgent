@@ -1,10 +1,11 @@
 import type { Components } from "react-markdown";
 import { CodeBlockCard } from "./CodeBlockCard";
+import { FilePill } from "./FilePill";
+import { parseFilePath } from "./file-path";
 
 /**
  * 生成助手消息的 markdown 组件映射。
- * pre → CodeBlockCard（react-markdown 中代码块结构为 pre > code.language-x）。
- * sessionId 供 Task 5 的 FilePill 解析相对路径用。
+ * pre → CodeBlockCard；形似路径的内联 code → FilePill（块级 code 已被 pre 接管，不会走到这里）。
  */
 export function createMarkdownComponents(sessionId: string): Components {
   return {
@@ -14,6 +15,13 @@ export function createMarkdownComponents(sessionId: string): Components {
       const m = /language-([\w+-]+)/.exec(className);
       const code = String(codeEl?.props?.children ?? "");
       return <CodeBlockCard language={m?.[1] ?? ""} code={code} />;
+    },
+    code: (props: any) => {
+      const text = String(props.children ?? "");
+      if (!props.className && parseFilePath(text)) {
+        return <FilePill rawText={text} sessionId={sessionId} />;
+      }
+      return <code>{props.children}</code>;
     },
   };
 }
