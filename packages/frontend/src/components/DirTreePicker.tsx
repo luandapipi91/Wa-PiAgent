@@ -212,12 +212,16 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
   const [searchLoading, setSearchLoading] = useState(false);
   const treeItemsRef = useRef(treeItems);
   treeItemsRef.current = treeItems;
+  const searchTreeItemsRef = useRef(searchTreeItems);
+  searchTreeItemsRef.current = searchTreeItems;
   const showHiddenRef = useRef(showHidden);
   showHiddenRef.current = showHidden;
   const selectedPathRef = useRef(selectedPath);
   selectedPathRef.current = selectedPath;
   // 记录已自动展开的搜索结果节点：增量更新时只展开新出现的，不重展开用户已折叠的
   const autoExpandedRef = useRef<Set<TreeItemIndex>>(new Set());
+  // 记录搜索态下已加载过真实子目录的目录路径，避免重复展开时重复 listDir
+  const loadedDirsRef = useRef<Set<string>>(new Set());
   const rootsRef = useRef<string[]>([]);
 
   // 加载根节点 + 预加载 home 路径 + 批量展开
@@ -336,10 +340,40 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
     if (changed) setTreeItems(next);
   }, []);
 
-  // onExpandItem / onCollapseItem：仅管理 expandedItems
+  // onExpandItem / onCollapseItem：管理 expandedItems；搜索态下展开结果目录时
+  // 额外加载其真实子目录合并进搜索树（匹配子项保留在前，未匹配的追加在后）
   const handleExpandItem = useCallback((item: TreeItem<FsNodeData>) => {
     setExpandedItems((prev) => (prev.includes(item.index) ? prev : [...prev, item.index]));
-  }, []);
+
+    if (!item.isFolder || !item.data?.path) return;
+    const path = item.data.path;
+    if (!searchTreeItemsRef.current || loadedDirsRef.current.has(path)) return;
+    loadedDirsRef.current.add(path);
+    void (async () => {
+      const entries = (await listDir(path, showHiddenRef.current))
+        .filter(e => (showFiles || e.isDir) && (showHiddenRef.current || !e.name.startsWith(".")));
+      const src = searchTreeItemsRef.current;
+      const parent = src?.[path];
+      if (!src || !parent) return; // 搜索已清空或结果被重建，放弃合并
+      const next = { ...src };
+      const existing = new Set(parent.children ?? []);
+      const merged = [...(parent.children ?? [])];
+      for (const e of entries) {
+        const childId = join(path, e.name);
+        if (!next[childId]) {
+          next[childId] = {
+            index: childId,
+            children: e.isDir ? [] : undefined,
+            isFolder: e.isDir,
+            data: { path: childId, name: e.name, isDir: e.isDir },
+          };
+        }
+        if (!existing.has(childId)) merged.push(childId);
+      }
+      next[path] = { ...parent, children: merged };
+      setSearchTreeItems(next);
+    })();
+  }, [showFiles]);
 
   const handleCollapseItem = useCallback((item: TreeItem<FsNodeData>) => {
     setExpandedItems((prev) => prev.filter((id) => id !== item.index));
@@ -349,13 +383,16 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
     if (ids.length > 0) {
       setSelectedItems(ids);
       setFocusedItem(ids[0]);
-      const item = treeItemsRef.current[ids[0]];
+      // 搜索态下 item id 属于搜索树命名空间（id 即 path），优先从搜索树取，
+      // 否则搜索结果/下钻出的目录点击后无法更新选中路径
+      const src = searchTreeItemsRef.current ?? treeItemsRef.current;
+      const item = src[ids[0]];
       if (item?.data?.path) {
         if (item.data.isDir) {
           setSelectedPath(item.data.path);
         } else {
-          const parentId = findParentId(ids[0], treeItemsRef.current);
-          const parent = parentId ? treeItemsRef.current[parentId] : null;
+          const parentId = findParentId(ids[0], src);
+          const parent = parentId ? src[parentId] : null;
           setSelectedPath(parent?.data?.path ?? item.data.path);
         }
       }
@@ -393,8 +430,9 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
       return;
     }
 
-    // 新搜索：重置自动展开记录，让新结果可被自动展开
+    // 新搜索：重置自动展开记录与已加载目录记录，让新结果可被自动展开/重新加载
     autoExpandedRef.current = new Set();
+    loadedDirsRef.current.clear();
 
     // 搜索范围限定到当前选中文件夹的子树（无选中时退化为所有盘符根）
     const searchRoots = selectedPathRef.current ? [selectedPathRef.current] : rootsRef.current;
@@ -435,7 +473,9 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
       cleanup?.();
       setSearchLoading(false);
     };
-  }, [searchQuery, showFiles]);
+    // 依赖 searchQuery / showFiles / showHidden：搜索中切换「显示隐藏目录」也要以
+    // 新的 showHidden 重新触发搜索（showHiddenRef 在流启动时读取，effect 不重跑则用旧值）。
+  }, [searchQuery, showFiles, showHidden]);
 
   // 搜索结果出现时，把有子节点的节点合并到 expandedItems 中（允许用户后续折叠）。
   // 仅展开「首次出现」的可展开节点：增量更新时已被自动展开过的节点不重展开，
