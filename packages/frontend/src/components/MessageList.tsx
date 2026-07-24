@@ -1,4 +1,4 @@
-import type { SessionMessage, ToolResultMessage, ToolCall, PromptEvent, AgentName, ThinkingLevel } from "@hiagent/shared";
+import type { SessionMessage, ToolResultMessage, PromptEvent, AgentName, ThinkingLevel } from "@hiagent/shared";
 import { isModelAvailable } from "@hiagent/shared";
 import { useSessionStore } from "../store/session";
 import { useProjectsStore } from "../store/projects";
@@ -11,6 +11,8 @@ import remarkGfm from "remark-gfm";
 import { useToastStore } from "../store/toast";
 import { useAgentsStore } from "../store/agents";
 import { DelegateCard } from "./blocks/DelegateCard";
+import { ThinkingCard } from "./blocks/ThinkingCard";
+import { ToolGroupCard } from "./blocks/ToolCallCard";
 import { textToHtml, ensureChipStyles, registerAgentMeta } from "../quick-invoke/tokens";
 
 const EMPTY: SessionMessage[] = [];
@@ -388,25 +390,17 @@ function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row
         <div className="text-[11px] text-tertiary mb-0.5 font-semibold">{row.main.agentName ?? "agent"} · {formatTime(m.timestamp)}</div>
 
         {segments.map((seg, si) => {
-          // 思考过程 — 折叠面板。多个相邻 thinking block 合并为一个
+          // 思考过程 — ProcessCard：流式中展开，结束自动折叠弱化。多个相邻 thinking block 合并为一个
           if (seg.kind === "thinking") {
-            return (
-              <div key={si} className="space-y-1 mb-1.5">
-                <ThinkingBlock thinking={seg.texts.join("\n")} isStreaming={isStreaming} />
-              </div>
-            );
+            return <ThinkingCard key={si} thinking={seg.texts.join("\n")} isStreaming={isStreaming} />;
           }
-          // 工具调用 — 折叠面板。相邻的合并为一个分组，点击展开后各工具可再独立展开
+          // 工具调用 — ProcessCard：>1 个连续调用归成组卡，单工具直接单卡
           if (seg.kind === "toolCalls") {
-            return (
-              <div key={si} className="mb-1.5">
-                <ToolCallGroup toolCalls={seg.calls} results={row.toolResults} isStreaming={isStreaming} />
-              </div>
-            );
+            return <ToolGroupCard key={si} toolCalls={seg.calls} results={row.toolResults} isStreaming={isStreaming} />;
           }
-          // 委派调用 — 内联卡片（不进折叠分组，与普通内容穿插）
+          // 委派调用 — 内联卡片（不进工具分组，与普通内容穿插）
           if (seg.kind === "delegate") {
-            return <DelegateCard key={seg.call.id} toolCall={seg.call} result={row.toolResults.get(seg.call.id)} />;
+            return <DelegateCard key={seg.call.id} toolCall={seg.call} result={row.toolResults.get(seg.call.id)} isStreaming={isStreaming} />;
           }
           // 主回复内容 — 文字 + markdown
           return (
@@ -478,31 +472,6 @@ function segmentBlocks(blocks: any[]): Segment[] {
   return segs;
 }
 
-function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreaming?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const label = isStreaming ? "努力思考中…" : "💭 思考过程 已完成";
-  return (
-    <div data-testid="thinking-panel">
-      <button
-        onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1.5 select-none text-[11.5px] text-tertiary px-2 py-0.5 rounded-pill bg-surface-elevated border border-hairline transition-colors hover:text-secondary"
-        style={{ cursor: "pointer" }}
-      >
-        {isStreaming && (
-          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ border: "2px solid var(--accent-soft)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
-        )}
-        <span>{label}</span>
-        <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
-      </button>
-      {open && (
-        <div className="mt-1 pl-3 border-l-2 border-hairline text-[11.5px] italic text-tertiary">
-          {thinking}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function CopyButton({ text, testId }: { text: string; testId?: string }) {
   const addToast = useToastStore(s => s.add);
   const handleCopy = async () => {
@@ -530,103 +499,3 @@ function CopyButton({ text, testId }: { text: string; testId?: string }) {
   );
 }
 
-/** 工具调用分组：合并所有工具调用为一个折叠面板，展开后再逐项展开单个工具详情 */
-function ToolCallGroup({ toolCalls, results, isStreaming }: { toolCalls: any[]; results: Map<string, ToolResultMessage>; isStreaming?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const total = toolCalls.length;
-  const done = toolCalls.filter((tc: any) => results.has(tc.id)).length;
-  const successCount = toolCalls.filter((tc: any) => { const r = results.get(tc.id); return r && !r.isError; }).length;
-  const failedCount = toolCalls.filter((tc: any) => { const r = results.get(tc.id); return r && r.isError; }).length;
-
-  const parts = [`🔧 工具调用记录 (${total})`];
-  if (done > 0) {
-    const statusParts: string[] = [];
-    if (successCount > 0) statusParts.push(`✓${successCount}`);
-    if (failedCount > 0) statusParts.push(`✗${failedCount}`);
-    if (done < total) statusParts.push(`⏳${total - done}`);
-    parts.push(`· ${statusParts.join(" ")}`);
-  } else if (isStreaming && total > 0) {
-    parts.push("· 执行中…");
-  }
-
-  return (
-    <div data-testid="toolcall-group">
-      <button
-        onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1.5 select-none text-[11.5px] text-tertiary px-2 py-0.5 rounded-pill bg-surface-elevated border border-hairline transition-colors hover:text-secondary"
-        style={{ cursor: "pointer" }}
-      >
-        {isStreaming && done < total && (
-          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ border: "2px solid var(--accent-soft)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
-        )}
-        <span>{parts.join(" ")}</span>
-        <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
-      </button>
-      {open && (
-        <div className="mt-1 pl-3 border-l-2 border-hairline space-y-1">
-          {toolCalls.map((tc: any, i: number) => (
-            <ToolCallBlock key={i} toolCall={tc} result={results.get(tc.id)} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ToolCallBlock({ toolCall, result }: { toolCall: ToolCall; result?: ToolResultMessage }) {
-  const [open, setOpen] = useState(false);
-  // 三态：成功（result 且非 error）→ ✓ 绿；失败（result.isError）→ ✗ 红；未返回 → 🔧 中性
-  const failed = !!result && !!result.isError;
-  const success = !!result && !result.isError;
-  const pillClass = success
-    ? "bg-success-soft text-success border-success-soft"
-    : failed
-      ? "bg-danger-soft text-danger border-danger-soft"
-      : "bg-surface-elevated text-tertiary border-hairline hover:text-secondary";
-  const icon = success ? "✓" : failed ? "✗" : "🔧";
-  const nameClass = success ? "text-success" : failed ? "text-danger" : "text-primary";
-  return (
-    <div data-testid={`toolcall-${toolCall.id}`}>
-      <button
-        onClick={() => setOpen(!open)}
-        className={`inline-flex items-center gap-1 select-none text-[11.5px] font-mono px-2 py-0.5 rounded-pill border transition-colors ${pillClass}`}
-        style={{ cursor: "pointer" }}
-      >
-        <span>{icon}</span>
-        <span className={nameClass}>{toolCall.name === "ask_user_question" ? "问答" : toolCall.name}</span>
-        <span className="text-tertiary">({formatArgs(toolCall.arguments)})</span>
-        <span style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
-      </button>
-      {open && (
-        <div className="mt-1 pl-3 border-l-2 border-hairline text-[11.5px] font-mono">
-          {/* 原始参数内容 */}
-          <div className="text-secondary whitespace-pre-wrap">
-            {JSON.stringify(toolCall.arguments, null, 2)}
-          </div>
-          {/* 执行结果（如有） */}
-          {result && (
-            <div className={`mt-1 pt-1 border-t border-hairline ${success ? "text-success" : "text-danger"}`}>
-              {result.content.map((c: any, i: number) => c.type === "text" && <div key={i}>{c.text}</div>)}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** 格式化工具调用参数 — 截断长值避免撑爆 UI */
-function formatArgs(args: Record<string, any>): string {
-  const keys = Object.keys(args);
-  if (keys.length === 0) return "";
-  const parts = keys.map(k => {
-    const v = args[k];
-    if (typeof v === "string") {
-      return v.length > 60 ? `${k}: "${v.slice(0, 50)}..."` : `${k}: "${v}"`;
-    }
-    // 对象/数组：序列化后截断
-    const s = JSON.stringify(v);
-    return s.length > 80 ? `${k}: ${s.slice(0, 77)}...` : `${k}: ${s}`;
-  });
-  return parts.join(", ");
-}
