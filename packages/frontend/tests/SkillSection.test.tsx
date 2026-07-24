@@ -30,7 +30,8 @@ test("技能目录默认展开，展开时标题不显示内置目录路径", ()
     allSkills: [],
   });
   render(<SkillSection />);
-  expect(screen.getByText("+ 添加技能目录")).toBeTruthy();
+  const addBtn = screen.getByTestId("skill-add-dir-btn");
+  expect(addBtn.getAttribute("aria-label")).toBe("添加技能目录");
   const toggleBtn = screen.getByTestId("skill-dir-toggle");
   expect(toggleBtn.textContent).toContain("技能目录");
   expect(toggleBtn.textContent).not.toContain("/home/.hiagent/skills");
@@ -52,8 +53,71 @@ test("点击刷新技能按钮重新加载技能目录", () => {
   const loadMock = mock();
   useSkillsStore.setState({ load: loadMock, allSkills: [] });
   render(<SkillSection />);
-  fireEvent.click(screen.getByTestId("skill-refresh-btn"));
+  const refreshBtn = screen.getByTestId("skill-refresh-btn");
+  expect(refreshBtn.getAttribute("aria-label")).toBe("刷新技能");
+  fireEvent.click(refreshBtn);
   expect(loadMock).toHaveBeenCalledTimes(1);
+});
+
+test("添加/刷新按钮为 icon 按钮，与技能目录标题同行且右对齐", () => {
+  useSkillsStore.setState({ allSkills: [] });
+  render(<SkillSection />);
+  const toggleBtn = screen.getByTestId("skill-dir-toggle");
+  const addBtn = screen.getByTestId("skill-add-dir-btn");
+  const refreshBtn = screen.getByTestId("skill-refresh-btn");
+  // 按钮不含文字，使用 svg icon
+  expect(addBtn.textContent).toBe("");
+  expect(refreshBtn.textContent).toBe("");
+  expect(addBtn.querySelector("svg")).toBeTruthy();
+  expect(refreshBtn.querySelector("svg")).toBeTruthy();
+  // 与标题同一行容器，且容器为 justify-between（右对齐）
+  const headerRow = toggleBtn.parentElement!;
+  expect(headerRow.className).toContain("justify-between");
+  expect(headerRow.contains(addBtn)).toBe(true);
+  expect(headerRow.contains(refreshBtn)).toBe(true);
+});
+
+// ===== 搜索过滤测试 =====
+
+test("搜索框输入即实时过滤技能（按名称，大小写不敏感）", () => {
+  useSkillsStore.setState({
+    allSkills: [
+      { name: "brave-search", description: "web 搜索", path: "/skills/brave-search" },
+      { name: "pdf-tools", description: "PDF 处理", path: "/skills/pdf-tools" },
+    ],
+  });
+  render(<SkillSection />);
+  const input = screen.getByTestId("skill-search-input");
+  fireEvent.change(input, { target: { value: "BRAVE" } });
+  expect(screen.getByText("brave-search")).toBeTruthy();
+  expect(screen.queryByText("pdf-tools")).toBeNull();
+});
+
+test("清空搜索后恢复完整技能列表", () => {
+  useSkillsStore.setState({
+    allSkills: [
+      { name: "brave-search", description: "web 搜索", path: "/skills/brave-search" },
+      { name: "pdf-tools", description: "PDF 处理", path: "/skills/pdf-tools" },
+    ],
+  });
+  render(<SkillSection />);
+  const input = screen.getByTestId("skill-search-input");
+  fireEvent.change(input, { target: { value: "brave" } });
+  expect(screen.queryByText("pdf-tools")).toBeNull();
+  fireEvent.change(input, { target: { value: "" } });
+  expect(screen.getByText("brave-search")).toBeTruthy();
+  expect(screen.getByText("pdf-tools")).toBeTruthy();
+});
+
+test("搜索无匹配时显示提示", () => {
+  useSkillsStore.setState({
+    allSkills: [
+      { name: "brave-search", description: "web 搜索", path: "/skills/brave-search" },
+    ],
+  });
+  render(<SkillSection />);
+  fireEvent.change(screen.getByTestId("skill-search-input"), { target: { value: "不存在" } });
+  expect(screen.getByText("无匹配的技能")).toBeTruthy();
 });
 
 test("默认展开显示目录列表", () => {
