@@ -21,7 +21,7 @@ import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, EXTENSION_TOOL_MA
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
-import { relative, isAbsolute, join } from "node:path";
+import { relative, join } from "node:path";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { buildAdditionalExtensionPaths } from "./extensions";
 import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
@@ -516,6 +516,7 @@ export class AgentManager {
         systemPromptFile: promptFile,
         extensionPaths: buildAdditionalExtensionPaths([...enabledExtensionIds]),
         skillPaths: additionalSkillPaths,
+        noSkills: true,
         thinking,
         name: `${agentName}-${sessionId.slice(0, 8)}`,
         ...toolArgs,
@@ -952,7 +953,8 @@ async function buildMemorySnapshot(hiagentDir: string, projectCwd: string): Prom
 
 /**
  * 解析启用 skill 的目录路径列表，供 pi --skill 参数使用。
- * 包含 userSkillDirs 和扩展包 skills/ 目录来源的技能（builtin 由 pi 自动扫）。
+ * 包含内置目录、userSkillDirs 和扩展包 skills/ 目录来源的**启用**技能。
+ * Pi SDK 默认扫描已关闭（--no-skills），所以必须显式传入所有要加载的技能路径。
  * skillManager 为空（测试场景）时返回空数组。
  */
 async function resolveEnabledSkillPaths(
@@ -965,24 +967,10 @@ async function resolveEnabledSkillPaths(
   const extSkillPaths = extensionManager
     ? await extensionManager.getEnabledExtensionSkillPaths()
     : [];
-  const extPathStrings = extSkillPaths.map((p) => p.path);
 
-  // scan 时传入扩展技能路径，让扫描结果包含扩展来源技能
-  const { skills, dirs, builtinDir } = await skillManager.scan(extSkillPaths);
-  const userDirs = dirs.filter((d) => d !== builtinDir);
+  // scan 已按 builtin → userDirs → ext 顺序去重并过滤 disabledSkills
+  const { skills } = await skillManager.scan(extSkillPaths);
 
-  // 收集 userSkillDirs + 扩展来源的技能路径
-  return skills
-    .filter(
-      (s) =>
-        userDirs.some((d) => isUnderPath(s.path, d)) ||
-        extPathStrings.some((d) => isUnderPath(s.path, d)),
-    )
-    .map((s) => s.path);
-}
-
-/** 判断 child 是否在 parent 目录下（含相等）。跨平台用 relative 判定，避免盘符/大小写/分隔符差异。 */
-function isUnderPath(child: string, parent: string): boolean {
-  const rel = relative(parent, child);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+  // 把所有启用 skill 的具体目录路径传给 Pi，覆盖 --no-skills 后的空加载
+  return skills.map((s) => s.path);
 }

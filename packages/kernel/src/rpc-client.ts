@@ -351,6 +351,8 @@ export interface PiLaunchSpec {
   systemPromptFile?: string;
   /** -e <path>：扩展文件，可多个 */
   extensionPaths?: string[];
+  /** --no-skills：禁用 Pi SDK 默认扫描 skill 目录（如 ~/.agents/skills），只加载 --skill 显式传入的 skill */
+  noSkills?: boolean;
   /** --skill <path>：技能目录/文件，可多个 */
   skillPaths?: string[];
   /** --tools a,b,c：工具白名单（空数组 = 不传，pi 默认全量） */
@@ -376,6 +378,7 @@ export function buildPiArgs(spec: PiLaunchSpec): string[] {
   if (spec.noSession) args.push("--no-session");
   if (spec.systemPromptFile) args.push("--system-prompt", spec.systemPromptFile);
   for (const p of spec.extensionPaths ?? []) args.push("-e", p);
+  if (spec.noSkills) args.push("--no-skills");
   for (const s of spec.skillPaths ?? []) args.push("--skill", s);
   if (spec.tools && spec.tools.length > 0) args.push("--tools", spec.tools.join(","));
   if (spec.excludeTools && spec.excludeTools.length > 0) args.push("--exclude-tools", spec.excludeTools.join(","));
