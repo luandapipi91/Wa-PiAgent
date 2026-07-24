@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { buildAdditionalExtensionPaths, extractRuntimeToolNames } from "../src/extensions";
+import { buildAdditionalExtensionPaths } from "../src/extensions";
 import { GENERATED_DIR } from "@hiagent/shared";
 
 test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension 按需追加", () => {
@@ -21,10 +21,14 @@ test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension
   // 用存在性等同断言而非创建文件，避免与 provider-extension.test.ts 并发写同一文件产生 flaky。
   const providerExt = join(GENERATED_DIR, "provider-extension.ts");
   expect(paths.includes(providerExt)).toBe(existsSync(providerExt));
+
+  // hiagent-bridge 同样按需追加（RPC 模式宿主工具桥，bridge-extension.ts 生成）
+  const bridgeExt = join(GENERATED_DIR, "hiagent-bridge.ts");
+  expect(paths.includes(bridgeExt)).toBe(existsSync(bridgeExt));
 });
 
 // ---- 动态扩展注入（option B Gap 1）：把运行时安装并启用的第三方 Pi 扩展入口
-// 加入 additionalExtensionPaths，使 SDK loader 真正加载它们（否则它们的工具/钩子不注册）。
+// 加入扩展路径（pi 进程经 -e 加载），否则它们的工具/钩子不注册。
 
 test("buildAdditionalExtensionPaths: 纳入声明 pi.extensions 的动态扩展入口", () => {
   // pi-web-access 声明 pi.extensions:["./index.ts"] 且可从 kernel 上下文解析，
@@ -43,38 +47,6 @@ test("buildAdditionalExtensionPaths: 不存在 / 非 Pi 扩展的包被跳过且
   // 一个肯定不存在于 node_modules 的包名：既非 Pi 扩展也无法解析，必须被静默跳过
   const after = buildAdditionalExtensionPaths(["totally-fake-pkg-xyz-123"]);
   expect(after).toEqual(before);
-});
-
-// ---- 运行时工具名抽取（option B Gap 2）：loader.reload() 后从扩展注册的工具
-// 收集全部工具名，喂给 resolveAgentTools 注入 allowlist。SDK 0.80.6 提供
-// runtime.getAllTools() 聚合接口，也支持遍历各扩展的 tools Map 兜底。
-
-test("extractRuntimeToolNames: 从 runtime.getAllTools() 提取工具名", () => {
-  const loader = {
-    getExtensions: () => ({
-      runtime: { getAllTools: () => ["hypa_shell", "hypa_read"] },
-    }),
-  };
-  expect(extractRuntimeToolNames(loader)).toEqual(["hypa_shell", "hypa_read"]);
-});
-
-test("extractRuntimeToolNames: 从各扩展的 tools Map 兜底提取", () => {
-  const loader = {
-    getExtensions: () => ({
-      runtime: {},
-      extensions: [
-        { tools: new Map([["hypa_shell", {}]]) },
-        { tools: new Map([["hypa_read", {}]]) },
-      ],
-    }),
-  };
-  expect(extractRuntimeToolNames(loader)).toEqual(["hypa_shell", "hypa_read"]);
-});
-
-test("extractRuntimeToolNames: loader 缺失 / 结构不符时返回空数组（容错不抛）", () => {
-  expect(extractRuntimeToolNames({})).toEqual([]);
-  expect(extractRuntimeToolNames({ getExtensions: () => null })).toEqual([]);
-  expect(extractRuntimeToolNames({ getExtensions: () => ({ runtime: {} }) })).toEqual([]);
 });
 
 test("内置扩展清单：含 pi-open-agents，不含 pi-intercom", async () => {

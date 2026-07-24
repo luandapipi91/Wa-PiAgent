@@ -46,7 +46,12 @@ beforeEach(() => {
   useSubagentsStore.setState({ subagents: [] });
 });
 
-afterEach(() => cleanup());
+// 个别测试会把 subagents store 的 saveOverride stub 成 mock，zustand store 是进程级单例，
+// 不还原会泄漏给后面跑的测试文件（如 store-subagents.test.ts）——恢复初始 state（含原始 action）
+afterEach(() => {
+  useSubagentsStore.setState(useSubagentsStore.getInitialState(), true);
+  cleanup();
+});
 
 function renderConfig(name = "dev", config = cfg(name), onClose = () => {}) {
   useAgentsStore.setState({ configs: { [name]: config } });

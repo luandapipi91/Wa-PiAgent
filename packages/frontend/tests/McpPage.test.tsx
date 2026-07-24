@@ -1,4 +1,4 @@
-import { test, expect, beforeEach } from "bun:test";
+import { test, expect, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { McpPage } from "../src/components/mcp/McpPage";
 import { useMcpStore } from "../src/store/mcp";
@@ -21,6 +21,12 @@ beforeEach(() => {
     projects: [{ id: "p1", name: "测试项目", cwd: "/tmp/test", createdAt: 1 }],
     currentProjectId: "p1",
   } as any);
+});
+
+// beforeEach 把 mcp store 的 load action stub 成空函数，zustand store 是进程级单例，
+// 不还原会泄漏给后面跑的测试文件（如 store-mcp.test.ts）——恢复初始 state（含原始 action）
+afterEach(() => {
+  useMcpStore.setState(useMcpStore.getInitialState(), true);
 });
 
 test("渲染标题和工具栏", () => {

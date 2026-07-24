@@ -16,9 +16,18 @@ export type { MemoryTarget } from "@amaster.ai/pi-memory";
 /** 透传 amaster 的 createMemoryTools（绑定 raw store 生成 agent 可用的记忆 tool 集） */
 export { createMemoryTools } from "@amaster.ai/pi-memory";
 import type { MemoryTarget } from "@amaster.ai/pi-memory";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { join } from "node:path";
+
+/** pi ToolDefinition 的最小结构类型（RPC 迁移后不再从 SDK import 类型，按结构对齐即可） */
+export interface ToolDefinition {
+  name: string;
+  label?: string;
+  description: string;
+  parameters: unknown;
+  promptGuidelines?: string[];
+  execute: (toolCallId: string, params: any, signal?: AbortSignal) => Promise<unknown>;
+}
 
 /** 单个作用域（全局或某项目）的记忆读写门面 */
 export interface AmasterStore {

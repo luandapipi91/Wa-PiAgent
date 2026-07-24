@@ -1,276 +1,170 @@
-import { test, describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
+// agent-manager.test.ts — AgentManager（pi RPC 子进程架构）单元测试
+//
+// RPC 迁移后 AgentManager 不再 import @earendil-works/pi-coding-agent 的 SDK API：
+// 每个会话对应一个 `pi --mode rpc` 子进程（RpcClient 驱动），steer/followUp 队列
+// 由 kernel 自管（busy 状态机靠 agent_start/agent_settled/turn_end 事件）。
+// 测试经 createClientFn 注入 FakeSessionClient（tests/fixtures/fake-session-client.ts）：
+// - prompted/steered/models/thinkingLevels/aborts 记录全部调用供断言；
+// - emit(e) 手动注入 pi 事件驱动状态机；autoSettle=false 模拟 agent 运行中（不自动 settled）；
+// - simulateCrash() 模拟进程意外退出。
+// 系统提示词经 --system-prompt <file> 传入 pi：测试同步读
+// HIAGENT_DIR/tmp/sysprompts/<sessionId>.md 断言组合结果（afterEach 统一清理）。
+import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { AgentManager, HIAGENT_DEFAULT_SYSTEM_PROMPT } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
-import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { rmSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { SkillManager } from "../src/skill-manager";
-import { BUILTIN_SKILLS_DIR } from "@hiagent/shared";
-import type { AskParams } from "@hiagent/shared";
+import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
+import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
+import { SkillManager } from "../src/skill-manager";
+import { getGlobalMemoryStore } from "../src/amaster-memory";
+import { HIAGENT_DIR, BUILTIN_SKILLS_DIR } from "@hiagent/shared";
+import type { AskParams, ThinkingLevel } from "@hiagent/shared";
+import type { RpcClient, RpcClientOpts } from "../src/rpc-client";
+import { existsSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
-// mock createAgentSession 返回 fake AgentSession
-// 测试不依赖真实 SDK 的 createAgentSession（避免子进程 / 网络 / 文件系统副作用）
-const fakeUnsubscribe = mock(() => {});
-const fakeModels = [
-  { id: "test-model", provider: "anthropic", name: "Test Model", api: {}, baseUrl: "", reasoning: false },
-  { id: "deepseek-chat", provider: "deepseek", name: "DeepSeek Chat", api: {}, baseUrl: "", reasoning: false },
-  { id: "gpt-4o", provider: "openai", name: "GPT-4o", api: {}, baseUrl: "", reasoning: false },
-];
-const fakeModelRegistry = {
-  getAll: () => fakeModels,
-  hasConfiguredAuth: () => true,
-};
-const fakeSession: Partial<AgentSession> = {
-  prompt: mock(async () => {}),
-  abort: mock(async () => {}),
-  dispose: mock(() => {}),
-  setSessionName: mock(() => {}),
-  setModel: mock(async () => {}),
-  setThinkingLevel: mock(() => {}),
-  subscribe: mock(() => fakeUnsubscribe),
-  messages: [],
-  model: { id: "test-model" } as any,
-  isStreaming: false,
-  pendingMessageCount: 0,
-  isCompacting: false,
-  clearQueue: mock(() => ({ steering: [], followUp: [] })),
-  followUp: mock(async () => {}),
-  steer: mock(async () => {}),
-  reload: mock(async () => {}),
-  modelRegistry: fakeModelRegistry as any,
-};
+const MODEL = "anthropic/test-model";
 
-const mockCreateAgentSession = mock(async () => ({
-  session: fakeSession as AgentSession,
-  extensionsResult: { extensions: [], errors: [], runtime: {} as any },
-}));
+// 测试过程产生的临时文件 / AgentManager / 系统提示词临时文件，afterEach 统一清理
+const tmpPaths: string[] = [];
+const managers: AgentManager[] = [];
+const syspromptSessionIds: string[] = [];
 
-// 每个测试前清理 mock 调用记录，避免相互干扰
 beforeEach(() => {
   askRegistry.reset();
-  mockCreateAgentSession.mockClear();
-  (fakeSession.prompt as any).mockClear();
-  (fakeSession.abort as any).mockClear();
-  (fakeSession.setSessionName as any).mockClear();
-  (fakeSession.setModel as any).mockClear();
-  (fakeSession.setThinkingLevel as any).mockClear();
-  (fakeSession.subscribe as any).mockClear();
-  (fakeSession.dispose as any).mockClear();
-  (fakeSession.clearQueue as any).mockClear();
-  (fakeSession.followUp as any).mockClear();
-  (fakeSession.steer as any).mockClear();
-  (fakeSession as any).isStreaming = false;
-  (fakeSession as any).pendingMessageCount = 0;
-  (fakeSession as any).isCompacting = false;
-  (fakeSession.reload as any).mockClear();
-  fakeUnsubscribe.mockClear();
 });
 
-// 临时文件清理（防止 /tmp 堆积测试残留）
-const tmpFiles: string[] = [];
-afterEach(() => {
-  for (const f of tmpFiles.splice(0)) {
-    try { rmSync(f, { force: true }); } catch {}
+afterEach(async () => {
+  for (const am of managers.splice(0)) await am.disposeAll().catch(() => {});
+  for (const f of tmpPaths.splice(0)) {
+    try { rmSync(f, { force: true, recursive: true }); } catch {}
+  }
+  for (const id of syspromptSessionIds.splice(0)) {
+    try { rmSync(syspromptPath(id), { force: true }); } catch {}
   }
 });
 
 function newProjectStore() {
   const tmpFile = `/tmp/hiagent-am-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
-  tmpFiles.push(tmpFile);
+  tmpPaths.push(tmpFile);
   return new ProjectStore(tmpFile);
 }
 
-test("ensureStarted 创建 AgentSession 并订阅事件（不再设置 intercom 会话名）", async () => {
+/** 组合系统提示词的临时文件路径（pi --system-prompt 的入参） */
+function syspromptPath(sessionId: string) {
+  return join(HIAGENT_DIR, "tmp", "sysprompts", `${sessionId}.md`);
+}
+
+function readSysprompt(sessionId: string): string {
+  return readFileSync(syspromptPath(sessionId), "utf8");
+}
+
+type CapturedEvent = { sessionId: string; projectId: string; agentName: string; e: any };
+
+interface SetupOpts {
+  configStore?: any;
+  memoryStore?: { getConfig(): Promise<any> };
+  skillManager?: SkillManager;
+  events?: CapturedEvent[];
+  /** 覆盖默认 fakeClientFactory（如慢启动 / 启动失败 / 预置消息） */
+  createClientFn?: (opts: RpcClientOpts) => RpcClient;
+  agentName?: string;
+}
+
+/** 造测试项目 + 会话实体 + 注入 fake client 的 AgentManager */
+async function setup(opts: SetupOpts = {}) {
   const projectStore = newProjectStore();
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const agentName = opts.agentName ?? "dev";
   const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
+    projectId: project.id, primaryAgent: agentName, title: "测试",
   });
-
-  const onEvent = mock(() => {});
+  const fakes: FakeSessionClient[] = [];
   const am = new AgentManager({
     projectStore,
-    configStore: null as any,
-    onEvent,
-    createAgentSessionFn: mockCreateAgentSession,
+    configStore: opts.configStore ?? null,
+    onEvent: (sid, pid, name, e) => opts.events?.push({ sessionId: sid, projectId: pid, agentName: name, e }),
+    createClientFn: opts.createClientFn ?? fakeClientFactory(fakes),
+    ...(opts.memoryStore ? { memoryStore: opts.memoryStore } : {}),
+    ...(opts.skillManager ? { skillManager: opts.skillManager } : {}),
   });
-  const sdkSession = await am.ensureStarted(project.id, "dev", session.id);
+  managers.push(am);
+  syspromptSessionIds.push(session.id);
+  return { projectStore, project, session, am, fakes };
+}
 
-  expect(sdkSession).toBe(fakeSession as AgentSession);
-  expect(fakeSession.setSessionName).not.toHaveBeenCalled();
-  expect(fakeSession.subscribe).toHaveBeenCalledTimes(1);
-});
+/** 取参数数组中某 flag 的全部值（如 --skill a --skill b → [a, b]） */
+function argValues(args: string[], flag: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag && i + 1 < args.length) out.push(args[i + 1]);
+  }
+  return out;
+}
 
-test("ensureStarted 无显式 tools 时使用默认工具集（含 grep/find/ls 与网络工具）", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
+function lastQueueUpdate(events: CapturedEvent[]) {
+  const qu = [...events].reverse().find((x) => x.e.type === "queue_update");
+  return qu?.e as { steering: string[]; followUp: string[] } | undefined;
+}
 
-  const am = new AgentManager({
-    projectStore,
-    configStore: null as any,
-    onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+/** 慢启动工厂：start 延迟 ms 毫秒（并发 / dispose 竞态 / pendingAborts 用） */
+function slowFactory(fakes: FakeSessionClient[], ms: number) {
+  return (o: RpcClientOpts) => {
+    const fake = new FakeSessionClient(o);
+    fake.start = async () => { await new Promise((r) => setTimeout(r, ms)); fake.started = true; };
+    fakes.push(fake);
+    return fake as unknown as RpcClient;
+  };
+}
+
+// ─── 创建 / 缓存 / 生命周期 ─────────────────────────────────────────────────
+
+test("ensureStarted 创建 pi rpc client 并传入会话参数（--session / --system-prompt）", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
 
-  expect(mockCreateAgentSession).toHaveBeenCalledTimes(1);
-  expect(mockCreateAgentSession).toHaveBeenCalledWith(
-    expect.objectContaining({
-      tools: expect.arrayContaining([
-        "read",
-        "bash",
-        "edit",
-        "write",
-        "grep",
-        "find",
-        "ls",
-        "web_search",
-        "fetch_content",
-        "get_search_content",
-      ]),
-    }),
-  );
+  expect(fakes).toHaveLength(1);
+  expect(fakes[0].started).toBe(true);
+  const args = fakes[0].opts.args ?? [];
+  expect(argValues(args, "--session")).toEqual([session.piSessionFile]);
+  expect(argValues(args, "--system-prompt")).toEqual([syspromptPath(session.id)]);
+  // bridge 上下文已注册（宿主工具经 hiagent-bridge 扩展回调 kernel）
+  expect(getBridgeSession(session.id)).toBeDefined();
 });
 
-test("ensureStarted 使用 agent 显式配置的 tools", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
+test("ensureStarted 无显式 tools 时不传 --tools、用 --exclude-tools 排除 subagent", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
 
+  const args = fakes[0].opts.args ?? [];
+  expect(args).not.toContain("--tools");
+  const excluded = argValues(args, "--exclude-tools").flatMap((v) => v.split(","));
+  expect(excluded).toContain("subagent");
+});
+
+test("ensureStarted 使用 agent 显式配置的 tools（--tools 白名单）", async () => {
   const configStore = {
-    getAgent: mock(async () => ({
-      displayName: "dev",
-      tools: ["read"],
-    })),
+    getAgent: mock(async () => ({ displayName: "dev", tools: ["read"] })),
   } as any;
-
-  const am = new AgentManager({
-    projectStore,
-    configStore,
-    onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+  const { project, session, am, fakes } = await setup({ configStore });
   await am.ensureStarted(project.id, "dev", session.id);
 
-  expect(mockCreateAgentSession).toHaveBeenCalledTimes(1);
-  expect(mockCreateAgentSession).toHaveBeenCalledWith(
-    expect.objectContaining({ tools: expect.arrayContaining(["read"]) }),
-  );
+  const args = fakes[0].opts.args ?? [];
+  const tools = argValues(args, "--tools").flatMap((v) => v.split(","));
+  expect(tools).toContain("read");
 });
 
-test("ensureStarted 注入 memory customTools（绑定项目 store）", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+test("ensureStarted 复用已存在的会话（同 sessionId 不重复创建 client）", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
   await am.ensureStarted(project.id, "dev", session.id);
 
-  expect(mockCreateAgentSession).toHaveBeenCalledWith(
-    expect.objectContaining({ customTools: expect.any(Array) }),
-  );
-  const calls = (mockCreateAgentSession as any).mock.calls;
-  const customTools = calls[calls.length - 1][0].customTools;
-  expect(customTools.length).toBeGreaterThan(0);
-  const names = customTools.map((t: any) => t.name);
-  expect(names).toEqual(
-    expect.arrayContaining(["memory_add", "memory_replace", "memory_remove", "memory_read"]),
-  );
+  expect(fakes).toHaveLength(1);
 });
 
-test("自动学习关闭（reviewEnabled=false）时不注册记忆工具", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-    memoryStore: { getConfig: async () => ({ reviewEnabled: false, memoryPolicyStyle: "full" as const }) },
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
-
-  const calls = (mockCreateAgentSession as any).mock.calls;
-  const names = calls[calls.length - 1][0].customTools.map((t: any) => t.name);
-  expect(names).not.toContain("memory_add");
-  expect(names).not.toContain("memory_replace");
-  expect(names).not.toContain("memory_remove");
-  expect(names).not.toContain("memory_read");
-});
-
-test("注入提示关闭（memoryPolicyStyle=none）时系统提示词不追加记忆快照", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-    memoryStore: { getConfig: async () => ({ reviewEnabled: true, memoryPolicyStyle: "none" as const }) },
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
-
-  const calls = (mockCreateAgentSession as any).mock.calls;
-  const loader = calls[calls.length - 1][0].resourceLoader;
-  const prompt = await loader.getSystemPrompt();
-  // 无快照追加：提示词以固定 env 段结尾（有记忆内容时也不能拼接）
-  expect(prompt.trimEnd().endsWith("plain, user-facing language.")).toBe(true);
-});
-
-test("ensureStarted 复用已存在的 session（同 sessionId 不重复创建）", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const am = new AgentManager({
-    projectStore,
-    configStore: null as any,
-    onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
-  await am.ensureStarted(project.id, "dev", session.id);
-
-  expect(mockCreateAgentSession).toHaveBeenCalledTimes(1);
-});
-
-test("ensureStarted 并发调用同 sessionId 只创建一次", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  let calls = 0;
-  const slowCreate = mock(async () => {
-    calls++;
-    await new Promise((r) => setTimeout(r, 60));
-    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-
-  const am = new AgentManager({
-    projectStore,
-    configStore: null as any,
-    onEvent: () => {},
-    createAgentSessionFn: slowCreate as any,
-  });
+test("ensureStarted 并发调用同 sessionId 只创建一次（共享创建 Promise）", async () => {
+  const fakes: FakeSessionClient[] = [];
+  const { project, session, am } = await setup({ createClientFn: slowFactory(fakes, 60) });
 
   const [a, b] = await Promise.all([
     am.ensureStarted(project.id, "dev", session.id),
@@ -278,869 +172,704 @@ test("ensureStarted 并发调用同 sessionId 只创建一次", async () => {
   ]);
 
   expect(a).toBe(b);
-  expect(calls).toBe(1);
-  expect(slowCreate).toHaveBeenCalledTimes(1);
+  expect(fakes).toHaveLength(1);
 });
 
 test("ensureStarted 创建失败时清理 starting 锁并允许重试", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
+  // 第一阶段：工厂始终失败，并发调用共享同一个失败 Promise
+  const failFakes: FakeSessionClient[] = [];
   let calls = 0;
-  const failingCreate = mock(async () => {
+  const failingFactory = (o: RpcClientOpts) => {
     calls++;
-    await new Promise((r) => setTimeout(r, 30));
-    throw new Error("创建失败");
-  });
-
-  const am = new AgentManager({
-    projectStore,
-    configStore: null as any,
-    onEvent: () => {},
-    createAgentSessionFn: failingCreate as any,
-  });
+    const fake = new FakeSessionClient(o);
+    fake.start = async () => {
+      await new Promise((r) => setTimeout(r, 30));
+      throw new Error("创建失败");
+    };
+    failFakes.push(fake);
+    return fake as unknown as RpcClient;
+  };
+  const { projectStore, project, session, am } = await setup({ createClientFn: failingFactory });
 
   const results = await Promise.allSettled([
     am.ensureStarted(project.id, "dev", session.id),
     am.ensureStarted(project.id, "dev", session.id),
   ]);
-
   expect(results[0].status).toBe("rejected");
   expect(results[1].status).toBe("rejected");
   expect(calls).toBe(1);
 
-  // 失败后重新创建应能重试，而不是永远阻塞在失败的 Promise 上
-  const recoveryAm = new AgentManager({
+  // 第二阶段：换正常工厂，同 sessionId 能重新创建（不阻塞在失败的 Promise 上）
+  const recoveryFakes: FakeSessionClient[] = [];
+  const recovery = new AgentManager({
     projectStore,
-    configStore: null as any,
+    configStore: null,
     onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
+    createClientFn: fakeClientFactory(recoveryFakes),
   });
-  const sdkSession = await recoveryAm.ensureStarted(project.id, "dev", session.id);
-  expect(sdkSession).toBe(fakeSession as AgentSession);
+  managers.push(recovery);
+  await recovery.ensureStarted(project.id, "dev", session.id);
+  expect(recoveryFakes).toHaveLength(1);
+  expect(recoveryFakes[0].started).toBe(true);
 });
 
 test("ensureStarted 创建过程中被 dispose 时清理资源并拒绝", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  (fakeSession.dispose as any).mockClear();
-  fakeUnsubscribe.mockClear();
-
-  const slowCreate = mock(async () => {
-    await new Promise((r) => setTimeout(r, 60));
-    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-
-  const am = new AgentManager({
-    projectStore,
-    configStore: null as any,
-    onEvent: () => {},
-    createAgentSessionFn: slowCreate as any,
-  });
+  const fakes: FakeSessionClient[] = [];
+  const { project, session, am } = await setup({ createClientFn: slowFactory(fakes, 60) });
 
   const startPromise = am.ensureStarted(project.id, "dev", session.id);
   // 在创建完成前 dispose，模拟 session:delete 与 agent:prompt 并发
   await am.disposeSession(session.id);
 
   await expect(startPromise).rejects.toThrow("会话已清理");
-  expect(fakeUnsubscribe).toHaveBeenCalledTimes(1);
-  expect(fakeSession.dispose).toHaveBeenCalledTimes(1);
+  expect(fakes).toHaveLength(1);
+  expect(fakes[0].alive).toBe(false); // client 已被 dispose
 });
 
-test("prompt — agent 空闲且无排队 → 直接 prompt（不带 streamingBehavior）", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
+test("创建期间收到的 abort 在 client 就绪后立即执行（pendingAborts）", async () => {
+  const { project, session, am, fakes } = await setup();
 
-  (fakeSession as any).isStreaming = false;
-  (fakeSession as any).pendingMessageCount = 0;
+  const startPromise = am.ensureStarted(project.id, "dev", session.id);
+  // _createSession 尚在 projectStore.load 阶段（client 未注册）→ 走 pendingAborts 标记
+  await am.abort(session.id);
+  await startPromise;
 
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
-  await am.prompt(session.id, "你好", { model: "anthropic/test-model" });
-
-  expect(fakeSession.prompt).toHaveBeenCalledWith("你好");
+  expect(fakes).toHaveLength(1);
+  expect(fakes[0].aborts).toBe(1);
 });
 
-test("prompt — agent 运行中 → followUp 排队", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  (fakeSession as any).isStreaming = true;
-  (fakeSession as any).pendingMessageCount = 1;
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+test("disposeSession 清理 client / bridge 上下文 / 系统提示词临时文件 / 脏标记", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
-  await am.prompt(session.id, "排队消息", { model: "anthropic/test-model" });
+  const promptFile = syspromptPath(session.id);
+  expect(existsSync(promptFile)).toBe(true);
 
-  expect(fakeSession.prompt).toHaveBeenCalledWith("排队消息", { streamingBehavior: "followUp" });
+  am.markSkillsDirty();
+  expect((am as any).skillDirty.has(session.id)).toBe(true);
+
+  await am.disposeSession(session.id);
+
+  expect(fakes[0].alive).toBe(false);
+  expect(getBridgeSession(session.id)).toBeUndefined();
+  expect((am as any).sessions.has(session.id)).toBe(false);
+  expect((am as any).skillDirty.has(session.id)).toBe(false);
+  // promptFile 的 rm 是 fire-and-forget，轮询等待落地
+  const deadline = Date.now() + 2000;
+  while (existsSync(promptFile) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  expect(existsSync(promptFile)).toBe(false);
 });
 
-test("prompt — 传入 model 时调用 setModel", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
+// ─── prompt / 模型 / thinking ───────────────────────────────────────────────
 
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+test("prompt — 未选择模型时抛错", async () => {
+  const { project, session, am } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
-  await am.prompt(session.id, "你好", { model: "anthropic/test-model" });
 
-  expect(fakeSession.setModel).toHaveBeenCalledTimes(1);
-  const setModelArg = (fakeSession.setModel as any).mock.calls[0][0];
-  expect(setModelArg.id).toBe("test-model");
-  expect(setModelArg.provider).toBe("anthropic");
+  await expect(am.prompt(session.id, "你好")).rejects.toThrow("未选择模型");
 });
 
-test("prompt — 传入 thinking 时映射为 SDK thinking level", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
+test("prompt — agent 空闲且无排队 → 直接 prompt", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+  await am.prompt(session.id, "你好", { model: MODEL });
 
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+  expect(fakes[0].prompted).toEqual(["你好"]);
+});
+
+test("prompt — 未启动的会话抛错", async () => {
+  const { am } = await setup();
+  await expect(am.prompt("nonexistent", "你好", { model: MODEL })).rejects.toThrow("会话未启动");
+});
+
+test("prompt — 「provider/modelId」按第一个 / 拆分调 setModel", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
 
-  const cases: Array<[import("@hiagent/shared").ThinkingLevel, string]> = [
+  await am.prompt(session.id, "你好", { model: "anthropic/claude-x" });
+  expect(fakes[0].models.at(-1)).toEqual({ provider: "anthropic", modelId: "claude-x" });
+
+  // modelId 允许含 "/"
+  await am.prompt(session.id, "你好", { model: "openai/gpt-4o/2024" });
+  expect(fakes[0].models.at(-1)).toEqual({ provider: "openai", modelId: "gpt-4o/2024" });
+});
+
+test("prompt — 裸 modelId 经 get_available_models 解析 provider", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+  fakes[0].availableModels = [{ id: "deepseek-chat", provider: "deepseek" }];
+
+  await am.prompt(session.id, "你好", { model: "deepseek-chat" });
+  expect(fakes[0].models.at(-1)).toEqual({ provider: "deepseek", modelId: "deepseek-chat" });
+
+  await expect(am.prompt(session.id, "你好", { model: "no-such-model" }))
+    .rejects.toThrow("模型解析失败");
+});
+
+test("prompt — thinking level 映射（disabled→off，max→xhigh，其余透传）", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const cases: Array<[ThinkingLevel, string]> = [
     ["disabled", "off"],
     ["medium", "medium"],
     ["high", "high"],
     ["max", "xhigh"],
   ];
-
   for (const [input, expected] of cases) {
-    (fakeSession.setThinkingLevel as any).mockClear();
-    await am.prompt(session.id, "你好", { model: "anthropic/test-model", thinking: input });
-    expect(fakeSession.setThinkingLevel).toHaveBeenCalledWith(expected);
+    await am.prompt(session.id, "你好", { model: MODEL, thinking: input });
+    expect(fakes[0].thinkingLevels.at(-1)).toBe(expected);
   }
 });
 
-test("abort 只中断当前运行，不管理队列（调用方自行处理队列）", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
+// ─── 附件构建 prompt 文本 ───────────────────────────────────────────────────
 
-  const am = new AgentManager({
-    projectStore,
-    configStore: null as any,
-    onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+test("prompt — 图片附件统一用 @相对路径引用", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
-  await am.abort(session.id);
 
-  // abort 清空队列（防 SDK auto-drain）后 abort，不恢复队列
-  expect(fakeSession.clearQueue).toHaveBeenCalledTimes(1);
-  expect(fakeSession.abort).toHaveBeenCalledTimes(1);
-  expect(fakeSession.followUp).not.toHaveBeenCalled();
-  expect(fakeSession.steer).not.toHaveBeenCalled();
+  const imgPath = `/tmp/hiagent-img-${Date.now()}.png`;
+  tmpPaths.push(imgPath);
+  writeFileSync(imgPath, Buffer.from("fake-image"));
+
+  await am.prompt(session.id, "描述这张图", {
+    model: MODEL,
+    attachments: [{ kind: "image", path: imgPath, name: "示例.png", size: 0 }],
+  });
+
+  expect(fakes[0].prompted).toHaveLength(1);
+  const text = fakes[0].prompted[0];
+  expect(text).toContain("描述这张图");
+  expect(text).toContain("Attachments:");
+  expect(text).toMatch(/@hiagent-img-\d+\.png/);
+});
+
+test("prompt — snippet 附件内容直接内联", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  await am.prompt(session.id, "总结这段代码", {
+    model: MODEL,
+    attachments: [{ kind: "snippet", name: "代码片段", content: "const x = 1;" }],
+  });
+
+  expect(fakes[0].prompted).toHaveLength(1);
+  expect(fakes[0].prompted[0]).toContain("[片段: 代码片段]\nconst x = 1;");
+  expect(fakes[0].prompted[0]).toContain("总结这段代码");
+});
+
+// ─── kernel 队列语义（steer / followUp） ────────────────────────────────────
+
+test("prompt — agent 运行中 → 进 kernel followUp 队列并合成 queue_update", async () => {
+  const events: CapturedEvent[] = [];
+  const { project, session, am, fakes } = await setup({ events });
+  await am.ensureStarted(project.id, "dev", session.id);
+  const fake = fakes[0];
+  fake.autoSettle = false; // prompt 后不自动 settled → 保持 busy
+
+  await am.prompt(session.id, "第一条", { model: MODEL });
+  expect(fake.prompted).toEqual(["第一条"]);
+
+  await am.prompt(session.id, "第二条", { model: MODEL });
+  // busy 中不直接 prompt，进 followUp 队列
+  expect(fake.prompted).toEqual(["第一条"]);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["第二条"] });
+
+  // agent_settled → drain 一条 followUp
+  fake.emit({ type: "agent_settled" });
+  expect(fake.prompted).toEqual(["第一条", "第二条"]);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
 });
 
 test("promoteToSteer 把目标消息从 followUp 移到 steering，不打断当前 agent", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+  const events: CapturedEvent[] = [];
+  const { project, session, am, fakes } = await setup({ events });
   await am.ensureStarted(project.id, "dev", session.id);
+  const fake = fakes[0];
+  fake.autoSettle = false;
 
-  (fakeSession.clearQueue as any).mockReturnValue({
-    steering: ["已有引导"],
-    followUp: ["目标", "剩余A", "剩余B"],
-  });
-
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
   await am.promoteToSteer(session.id, "目标", ["剩余A", "剩余B"]);
 
-  // 引导不应该 abort / prompt，只是把消息移到 steering 队列
-  expect(fakeSession.abort).not.toHaveBeenCalled();
-  expect(fakeSession.prompt).not.toHaveBeenCalled();
-  // 原有 steering 保留，目标追加到 steering
-  expect(fakeSession.steer).toHaveBeenCalledWith("已有引导");
-  expect(fakeSession.steer).toHaveBeenCalledWith("目标");
-  // 剩余消息按前端传入的 remainingTexts 恢复为 followUp
-  expect(fakeSession.followUp).toHaveBeenCalledWith("剩余A");
-  expect(fakeSession.followUp).toHaveBeenCalledWith("剩余B");
+  // 不 abort / 不 prompt，只移动队列
+  expect(fake.aborts).toBe(0);
+  expect(fake.prompted).toEqual(["进行中"]);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: ["目标"], followUp: ["剩余A", "剩余B"] });
+
+  // 当前 turn 结束后 steering 投递一条
+  fake.emit({ type: "turn_end" });
+  expect(fake.steered).toEqual(["目标"]);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["剩余A", "剩余B"] });
 });
 
-test("immediate 先清空队列再 abort，避免 abort 时 agent core 自动 drain 队列消息", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const order: string[] = [];
-  (fakeSession.clearQueue as any).mockImplementation(() => {
-    order.push("clearQueue");
-    return { steering: [], followUp: ["排队A", "排队B"] };
-  });
-  (fakeSession.abort as any).mockImplementation(async () => {
-    order.push("abort");
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+test("promoteToSteer — 空闲时目标消息立即以 prompt 生效", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
+
+  await am.promoteToSteer(session.id, "目标", []);
+  expect(fakes[0].prompted).toEqual(["目标"]);
+});
+
+test("immediate 清空队列 + abort + 剩余重入 followUp + 目标消息直发", async () => {
+  const events: CapturedEvent[] = [];
+  const { project, session, am, fakes } = await setup({ events });
+  await am.ensureStarted(project.id, "dev", session.id);
+  const fake = fakes[0];
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL });
+  await am.prompt(session.id, "排队A", { model: MODEL });
+  await am.prompt(session.id, "排队B", { model: MODEL });
 
   await am.immediate(session.id, "立即执行", ["剩余A", "剩余B"]);
 
-  // 必须先清空队列再 abort，否则 agent core 会在 abort 过程中 drain 队列，
-  // 导致排队消息被自动发送、队列状态乱掉。
-  expect(order).toEqual(["clearQueue", "abort"]);
+  expect(fake.aborts).toBe(1);
+  // 目标消息作为新回合直发（排队A/B 被清空，不会发出）
+  expect(fake.prompted).toEqual(["进行中", "立即执行"]);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["剩余A", "剩余B"] });
 });
 
-test("immediate — abort → clearQueue → 剩余重入 followUp → 目标消息以 steer 模式 prompt", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+test("immediate — abort 后 agent 仍在处理时降级为 steer 插队", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
+  const fake = fakes[0];
+  fake.autoSettle = false;
 
-  await am.immediate(session.id, "立即执行", ["剩余A", "剩余B"]);
+  await am.prompt(session.id, "进行中", { model: MODEL });
+  fake.nextPromptError = new Error("agent already processing");
 
-  expect(fakeSession.abort).toHaveBeenCalledTimes(1);
-  expect(fakeSession.clearQueue).toHaveBeenCalledTimes(1);
-  expect(fakeSession.followUp).toHaveBeenCalledWith("剩余A");
-  expect(fakeSession.followUp).toHaveBeenCalledWith("剩余B");
-  // 目标消息用 steer 模式，避免 abort 后仍 streaming 时报错
-  expect(fakeSession.prompt).toHaveBeenCalledWith("立即执行", { streamingBehavior: "steer" });
+  await am.immediate(session.id, "立即执行", []);
+
+  expect(fake.aborts).toBe(1);
+  expect(fake.steered).toEqual(["立即执行"]);
 });
 
 test("immediate 快速连点会串行执行，不并发调用 prompt", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+  const fake = fakes[0];
 
   const promptCalls: { start: number; end: number }[] = [];
-  (fakeSession.prompt as any).mockImplementation(async () => {
+  fake.prompt = async () => {
     const start = Date.now();
     await new Promise((r) => setTimeout(r, 50));
     promptCalls.push({ start, end: Date.now() });
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
+  };
 
   const p1 = am.immediate(session.id, "第一条", []);
   const p2 = am.immediate(session.id, "第二条", []);
   await Promise.all([p1, p2]);
 
-  expect(fakeSession.prompt).toHaveBeenCalledTimes(2);
-  expect(promptCalls.length).toBe(2);
+  expect(promptCalls).toHaveLength(2);
   // 第二次 prompt 的开始时间应不早于第一次的结束时间（允许 10ms 误差）
   expect(promptCalls[1].start).toBeGreaterThanOrEqual(promptCalls[0].end - 10);
 });
 
-test("clearSteeringQueue — 调用 session.clearQueue()", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+test("clearSteeringQueue / clearFollowUpQueue / clearAllQueues 清空对应队列并发 queue_update", async () => {
+  const events: CapturedEvent[] = [];
+  const { project, session, am, fakes } = await setup({ events });
   await am.ensureStarted(project.id, "dev", session.id);
+  const fake = fakes[0];
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
+  await am.prompt(session.id, "F1", { model: MODEL });     // followUp
+  am.steerMessage(session.id, "S1");                       // steering
+
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: ["S1"], followUp: ["F1"] });
+
   am.clearSteeringQueue(session.id);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["F1"] });
 
-  expect(fakeSession.clearQueue).toHaveBeenCalledTimes(1);
-});
-
-test("clearFollowUpQueue — 调用 session.clearQueue()", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
   am.clearFollowUpQueue(session.id);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
 
-  expect(fakeSession.clearQueue).toHaveBeenCalledTimes(1);
+  // 再塞满后 clearAllQueues 一次清空
+  await am.prompt(session.id, "F2", { model: MODEL });
+  am.steerMessage(session.id, "S2");
+  am.clearAllQueues(session.id);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
 });
 
 test("clearSteeringQueue / clearFollowUpQueue — session 不存在时静默忽略", async () => {
-  const am = new AgentManager({
-    projectStore: newProjectStore(), configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+  const { am } = await setup();
   am.clearSteeringQueue("nonexistent");
   am.clearFollowUpQueue("nonexistent");
+  am.clearAllQueues("nonexistent");
 });
 
-test("disposeSession 清理 session 和 unsubscribe", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const am = new AgentManager({
-    projectStore,
-    configStore: null as any,
-    onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+test("steerMessage — busy 时入 steering 队列，turn_end 后投递给 client", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
-  await am.disposeSession(session.id);
+  const fake = fakes[0];
+  fake.autoSettle = false;
 
-  expect(fakeSession.dispose).toHaveBeenCalledTimes(1);
-  expect(fakeUnsubscribe).toHaveBeenCalledTimes(1);
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
+  am.steerMessage(session.id, "引导一下");
+
+  expect(fake.steered).toEqual([]); // 尚未投递
+  fake.emit({ type: "turn_end" });
+  expect(fake.steered).toEqual(["引导一下"]);
 });
 
-test("onEvent 把 SDK 事件转发给上层并携带 sessionId/projectId/agentName 上下文", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const received: Array<{ sessionId: string; projectId: string; agentName: string }> = [];
-  const am = new AgentManager({
-    projectStore,
-    configStore: null as any,
-    onEvent: (sid, pid, name) => received.push({ sessionId: sid, projectId: pid, agentName: name }),
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+test("steerMessage — idle 时直接 prompt 生效", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
 
-  // 拿到 subscribe 注册的回调，模拟 SDK 派发一个事件
-  const subscribeCall = (fakeSession.subscribe as any).mock.calls[0];
-  const listener: (e: AgentSessionEvent) => void = subscribeCall[0];
-  listener({ type: "turn_start" } as AgentSessionEvent);
+  am.steerMessage(session.id, "引导一下");
+  await new Promise((r) => setTimeout(r, 0)); // client.prompt 为异步调用
+
+  expect(fakes[0].prompted).toEqual(["引导一下"]);
+});
+
+test("abort 清空 kernel 队列并中断当前运行", async () => {
+  const events: CapturedEvent[] = [];
+  const { project, session, am, fakes } = await setup({ events });
+  await am.ensureStarted(project.id, "dev", session.id);
+  const fake = fakes[0];
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL });
+  await am.prompt(session.id, "排队", { model: MODEL });
+  expect(am.isSessionStreaming(session.id)).toBe(true);
+
+  await am.abort(session.id);
+
+  expect(fake.aborts).toBe(1);
+  expect(am.isSessionStreaming(session.id)).toBe(false);
+  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
+});
+
+// ─── 事件转发 ───────────────────────────────────────────────────────────────
+
+test("onEvent 把 pi 事件转发给上层并携带 sessionId/projectId/agentName 上下文", async () => {
+  const received: CapturedEvent[] = [];
+  const { project, session, am, fakes } = await setup({ events: received });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  fakes[0].emit({ type: "turn_start" });
 
   expect(received).toHaveLength(1);
-  expect(received[0]).toEqual({ sessionId: session.id, projectId: project.id, agentName: "dev" });
+  expect(received[0]).toMatchObject({ sessionId: session.id, projectId: project.id, agentName: "dev" });
+  expect(received[0].e).toEqual({ type: "turn_start" });
 });
 
-test("getMessages 在 session 不存在时返回空数组", () => {
-  const projectStore = newProjectStore();
-  const am = new AgentManager({
-    projectStore,
-    configStore: null as any,
-    onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+test("message_end 事件把消息追加进历史快照", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  fakes[0].emit({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "回复" }] } });
+
+  const msgs = am.getMessages(session.id);
+  expect(msgs).toHaveLength(1);
+  expect(msgs[0].role).toBe("assistant");
+});
+
+test("getMessages 在 session 不存在时返回空数组", async () => {
+  const { am } = await setup();
   expect(am.getMessages("不存在的-session")).toEqual([]);
 });
 
-test("prompt — 图片附件统一用 @路径引用", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
+// ─── dirty / skillDirty 标脏重建 ────────────────────────────────────────────
 
-  (fakeSession as any).model = { id: "test-model" };
-
-  const imgPath = `/tmp/hiagent-img-${Date.now()}.png`;
-  tmpFiles.push(imgPath);
-  await import("node:fs/promises").then((fs) => fs.writeFile(imgPath, Buffer.from("fake-image")));
-
-  const am = new AgentManager({
-    projectStore,
-    configStore: null as any,
-    onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
-  await am.prompt(session.id, "描述这张图", {
-    model: "test-model",
-    attachments: [{ kind: "image", path: imgPath, name: "示例.png", size: 0 }],
-  });
-
-  expect(fakeSession.prompt).toHaveBeenCalledTimes(1);
-  const [calledText, calledOpts] = (fakeSession.prompt as any).mock.calls[0];
-  expect(calledText).toContain("描述这张图");
-  expect(calledText).toContain("Attachments:");
-  expect(calledText).toMatch(/@hiagent-img-\d+\.png/);
-  expect(calledOpts).toBeUndefined();
-});
-
-test("markAllDirty 后命中缓存时 deferred reload 一次并清脏", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);   // 首次创建（不在 dirty）
-  (fakeSession.reload as any).mockClear();
-
-  am.markAllDirty();                                        // 标脏
-  await am.ensureStarted(project.id, "dev", session.id);   // 命中缓存 → reload 一次
-
-  expect(fakeSession.reload).toHaveBeenCalledTimes(1);
-
-  // 清脏后再次命中不再 reload
-  await am.ensureStarted(project.id, "dev", session.id);
-  expect(fakeSession.reload).toHaveBeenCalledTimes(1);
-});
-
-test("未标脏的会话命中缓存时不 reload", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
-  (fakeSession.reload as any).mockClear();
-
-  await am.ensureStarted(project.id, "dev", session.id);   // 命中缓存但未标脏
-  expect(fakeSession.reload).not.toHaveBeenCalled();
-});
-
-test("dirty 会话正在 streaming 时跳过 reload 且保留 dirty（idle 后补 reload）", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({
-    projectId: project.id, primaryAgent: "dev", title: "测试",
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
-  (fakeSession.reload as any).mockClear();
-  (fakeSession as any).isStreaming = true;   // 模拟后台 agent 正在流式输出
+test("markAllDirty 后 idle 命中缓存 → 重建（dispose 旧 client + 新建），并清脏", async () => {
+  const { project, session, am, fakes } = await setup();
+  const first = await am.ensureStarted(project.id, "dev", session.id);
+  expect(fakes).toHaveLength(1);
 
   am.markAllDirty();
-  await am.ensureStarted(project.id, "dev", session.id);   // 命中缓存但 streaming → 跳过
-  expect(fakeSession.reload).not.toHaveBeenCalled();
+  const second = await am.ensureStarted(project.id, "dev", session.id);
 
-  // idle 后再次命中 → dirty 仍保留，补一次 reload
-  (fakeSession as any).isStreaming = false;
+  expect(fakes).toHaveLength(2);
+  expect(fakes[0].alive).toBe(false);   // 旧 client 被 dispose
+  expect(second).not.toBe(first);       // 返回新 handle
+
+  // 清脏后再次命中不再重建
   await am.ensureStarted(project.id, "dev", session.id);
-  expect(fakeSession.reload).toHaveBeenCalledTimes(1);
+  expect(fakes).toHaveLength(2);
 });
 
-// 临时 skill 目录（Task 2 测试用）
-function tmpSkillRoot() {
-  const root = `/tmp/hiagent-skill-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  mkdirSync(join(root, "skills"), { recursive: true });  // builtin（空）
-  return root;
-}
-function createSkillAt(dir: string, name: string, desc: string) {
-  mkdirSync(join(dir, name), { recursive: true });
-  writeFileSync(join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: ${desc}\n---\n# ${name}\n`);
-}
-
-test("ensureStarted 把启用 skill 路径作为 additionalSkillPaths 传给 loader", async () => {
-  const skillRoot = tmpSkillRoot();
-  tmpFiles.push(skillRoot);  // 复用现有 afterEach 清理
-  const userDir = join(skillRoot, "user-skills");
-  mkdirSync(userDir, { recursive: true });
-  createSkillAt(userDir, "my-skill", "测试技能");
-  const skillManager = new SkillManager(skillRoot);
-  await skillManager.addDir(userDir);
-
-  const capturedLoaders: any[] = [];
-  const createFn = mock(async (opts: any) => {
-    capturedLoaders.push(opts.resourceLoader);
-    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    skillManager,
-    createAgentSessionFn: createFn as any,
-  });
+test("未标脏的会话命中缓存时不重建", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
-
-  expect(capturedLoaders).toHaveLength(1);
-  const paths = capturedLoaders[0].additionalSkillPaths as string[];
-  expect(paths.some((p) => p === join(userDir, "my-skill"))).toBe(true);
+  await am.ensureStarted(project.id, "dev", session.id);
+  expect(fakes).toHaveLength(1);
 });
 
-test("additionalSkillPaths 不含 builtin 来源的 skill（由 SDK 自动扫，避免碰撞）", async () => {
-  const skillRoot = tmpSkillRoot();
-  tmpFiles.push(skillRoot);
-  createSkillAt(join(skillRoot, "skills"), "builtin-skill", "内置");  // builtin
-  const userDir = join(skillRoot, "user-skills");
-  mkdirSync(userDir, { recursive: true });
-  createSkillAt(userDir, "user-skill", "用户");
-  const skillManager = new SkillManager(skillRoot);
-  await skillManager.addDir(userDir);
-
-  const capturedLoaders: any[] = [];
-  const createFn = mock(async (opts: any) => {
-    capturedLoaders.push(opts.resourceLoader);
-    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    skillManager,
-    createAgentSessionFn: createFn as any,
-  });
+test("markSkillsDirty 后 idle 命中缓存 → 重建（与 markAllDirty 统一为进程重启）", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
 
-  const paths = capturedLoaders[0].additionalSkillPaths as string[];
-  expect(paths.some((p) => p === join(userDir, "user-skill"))).toBe(true);
-  expect(paths.some((p) => p === join(join(skillRoot, "skills"), "builtin-skill"))).toBe(false);
+  am.markSkillsDirty();
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  expect(fakes).toHaveLength(2);
+  expect(fakes[0].alive).toBe(false);
+
+  // 清脏后不再重建
+  await am.ensureStarted(project.id, "dev", session.id);
+  expect(fakes).toHaveLength(2);
 });
 
-test("skillManager 为空时 additionalSkillPaths 为空数组（不破坏现有无 skillManager 场景）", async () => {
-  const capturedLoaders: any[] = [];
-  const createFn = mock(async (opts: any) => {
-    capturedLoaders.push(opts.resourceLoader);
-    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: createFn as any,
-    // 不传 skillManager
-  });
+test("busy 时标脏不重建，保留 dirty 等 idle 后补重建", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
+  const fake = fakes[0];
+  fake.autoSettle = false;
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
 
-  expect(capturedLoaders[0].additionalSkillPaths).toEqual([]);
+  am.markAllDirty();
+  const r = await am.ensureStarted(project.id, "dev", session.id); // busy → 跳过
+  expect(fakes).toHaveLength(1);
+
+  fake.emit({ type: "agent_settled" }); // idle
+  const r2 = await am.ensureStarted(project.id, "dev", session.id); // 补重建
+  expect(fakes).toHaveLength(2);
+  expect(fakes[0].alive).toBe(false);
+  expect(r2).not.toBe(r);
 });
 
-test("systemPromptOverride 注入内置技能目录路径 + 禁止透露系统提示词约束", async () => {
-  const capturedLoaders: any[] = [];
-  const createFn = mock(async (opts: any) => {
-    capturedLoaders.push(opts.resourceLoader);
-    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+// ─── switchAgent / renameAgentSessions ──────────────────────────────────────
 
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: createFn as any,
-  });
+test("switchAgent: 换体重建，sessionId 不变且 config 取新 agent", async () => {
+  const getAgent = mock(async (n: string) => ({ displayName: n, partners: { askTo: [] } }));
+  const configStore = { getAgent } as any;
+  const { projectStore, project, session, am, fakes } = await setup({ configStore });
+
+  await am.ensureStarted(project.id, "dev", session.id);
+  expect(fakes).toHaveLength(1);
+
+  await am.switchAgent(session.id, "pm");
+
+  // 拆除旧 client + 同一 sessionId 重建
+  expect(fakes).toHaveLength(2);
+  expect(fakes[0].alive).toBe(false);
+  expect(getAgent).toHaveBeenCalledWith("pm");
+  // ProjectStore 已更新
+  const { sessions } = await projectStore.load();
+  expect(sessions.find((s) => s.id === session.id)!.primaryAgent).toBe("pm");
+  // 重建后命中缓存返回新 handle，不再创建
+  await am.ensureStarted(project.id, "pm", session.id);
+  expect(fakes).toHaveLength(2);
+});
+
+test("switchAgent: 运行中先 abort，abort 失败吞掉不阻塞切换", async () => {
+  const { projectStore, project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+  const fake = fakes[0];
+  fake.autoSettle = false;
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
+  fake.abort = async () => { throw new Error("abort 失败"); };
+
+  await am.switchAgent(session.id, "pm"); // abort 失败不应抛错阻塞
+
+  expect(fakes).toHaveLength(2);
+  const { sessions } = await projectStore.load();
+  expect(sessions.find((s) => s.id === session.id)!.primaryAgent).toBe("pm");
+});
+
+test("switchAgent: 会话未启动时从 projectStore 降级取 projectId 并直接建会话", async () => {
+  const { projectStore, session, am, fakes } = await setup();
+  // 未 ensureStarted，直接切换
+  await am.switchAgent(session.id, "pm");
+
+  expect(fakes).toHaveLength(1);
+  const { sessions } = await projectStore.load();
+  expect(sessions.find((s) => s.id === session.id)!.primaryAgent).toBe("pm");
+});
+
+test("switchAgent: 会话不存在时抛错", async () => {
+  const { am } = await setup();
+  await expect(am.switchAgent("nope", "pm")).rejects.toThrow("会话不存在");
+});
+
+test("renameAgentSessions: meta 更新 + 标 skillDirty，下次 ensureStarted 用新名重建", async () => {
+  const { project, session, am, fakes } = await setup({ agentName: "旧名" });
+  await am.ensureStarted(project.id, "旧名", session.id);
+  expect(fakes).toHaveLength(1);
+
+  am.renameAgentSessions("旧名", "新名");
+
+  expect((am as any).sessions.get(session.id).meta.agentName).toBe("新名");
+  expect((am as any).skillDirty.has(session.id)).toBe(true);
+
+  await am.ensureStarted(project.id, "新名", session.id);
+  expect(fakes).toHaveLength(2);
+  expect(fakes[0].alive).toBe(false);
+  expect((am as any).sessions.get(session.id).meta.agentName).toBe("新名");
+});
+
+test("renameAgentSessions: 不匹配旧名的活跃会话不受影响", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
 
-  const prompt = capturedLoaders[0].systemPromptOverride();
-  expect(prompt).toContain(`Built-in directory: ${BUILTIN_SKILLS_DIR}`);
+  am.renameAgentSessions("旧名", "新名");
+
+  expect((am as any).sessions.get(session.id).meta.agentName).toBe("dev");
+  expect((am as any).skillDirty.has(session.id)).toBe(false);
+  // 未标脏：命中缓存不重建
+  await am.ensureStarted(project.id, "dev", session.id);
+  expect(fakes).toHaveLength(1);
+});
+
+// ─── listGlobalTools ────────────────────────────────────────────────────────
+
+test("listGlobalTools 返回内置工具集（含 grep/find/ls 与网络工具），不含 subagent", async () => {
+  const { am } = await setup();
+  const tools = await am.listGlobalTools();
+  const names = tools.map((t) => t.name);
+
+  expect(names).toEqual(expect.arrayContaining([
+    "read", "bash", "edit", "write", "grep", "find", "ls",
+    "web_search", "fetch_content", "get_search_content",
+  ]));
+  expect(names).not.toContain("subagent");
+});
+
+// ─── 系统提示词（读 sysprompts/<id>.md 断言组合结果） ───────────────────────
+
+test("系统提示词写入 sysprompts 文件：含 base / delegateRoster / env 约束段", async () => {
+  const { project, session, am } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const prompt = readSysprompt(session.id);
+  expect(prompt).toContain("You are an expert coding assistant"); // base 段默认兜底
+  expect(prompt).toContain("## Available Subagents");             // delegate-roster 段（内置类型始终列出）
+  expect(prompt).toContain(`Built-in directory: ${BUILTIN_SKILLS_DIR}`); // env-constraints 段
   expect(prompt).toMatch(/internal terminology/i);
 });
 
-test("markSkillsDirty 不走 reload 路径（与 markAllDirty 独立）", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+test("系统提示词注入记忆快照（memorySnapshot 段）", async () => {
+  // 先向真实全局记忆写入一条唯一内容，验证快照拼接进提示词，测完清理
+  const unique = `测试记忆-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const globalStore = getGlobalMemoryStore(HIAGENT_DIR);
+  await globalStore.add("memory", unique);
+  try {
+    const { project, session, am } = await setup();
+    await am.ensureStarted(project.id, "dev", session.id);
 
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
-  (fakeSession.reload as any).mockClear();
-
-  am.markSkillsDirty();                                  // 新方法：标脏但不走 reload
-  await am.ensureStarted(project.id, "dev", session.id); // 命中缓存
-
-  // Task 3 阶段 _reloadIfDirty 还未实现重建分支，skillDirty 命中应既不 reload 也不重建
-  expect(fakeSession.reload).not.toHaveBeenCalled();
+    const prompt = readSysprompt(session.id);
+    expect(prompt).toContain(unique);
+  } finally {
+    await globalStore.remove("memory", unique).catch(() => {});
+  }
 });
 
-test("disposeSession 清理 sessionMeta 和 skillDirty", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+test("注入提示关闭（memoryPolicyStyle=none）时系统提示词不追加记忆快照", async () => {
+  const unique = `测试记忆-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const globalStore = getGlobalMemoryStore(HIAGENT_DIR);
+  await globalStore.add("memory", unique);
+  try {
+    const { project, session, am } = await setup({
+      memoryStore: { getConfig: async () => ({ reviewEnabled: true, memoryPolicyStyle: "none" as const }) },
+    });
+    await am.ensureStarted(project.id, "dev", session.id);
 
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
-
-  // 标脏并确认内部 Map 已写入
-  am.markSkillsDirty();
-  expect((am as any).sessionMeta.has(session.id)).toBe(true);
-  expect((am as any).skillDirty.has(session.id)).toBe(true);
-
-  await am.disposeSession(session.id);
-
-  // 清理后内部 Map 不应再包含该 session
-  expect((am as any).sessionMeta.has(session.id)).toBe(false);
-  expect((am as any).skillDirty.has(session.id)).toBe(false);
+    const prompt = readSysprompt(session.id);
+    expect(prompt).not.toContain(unique);
+    // memory-snapshot 段为空被过滤，env-constraints 成为最后一段
+    expect(prompt.trimEnd().endsWith("plain, user-facing language.")).toBe(true);
+  } finally {
+    await globalStore.remove("memory", unique).catch(() => {});
+  }
 });
 
-// 重建测试用的工厂：每次返回独立 mock session（独立 dispose/subscribe）
-function makeFreshSession() {
-  return {
-    ...fakeSession,
-    prompt: mock(async () => {}),
-    abort: mock(async () => {}),
-    dispose: mock(() => {}),
-    setSessionName: mock(() => {}),
-    setModel: mock(async () => {}),
-    setThinkingLevel: mock(() => {}),
-    subscribe: mock(() => mock(() => {})),
-    clearQueue: mock(() => ({ steering: [], followUp: [] })),
-    followUp: mock(async () => {}),
-    steer: mock(async () => {}),
-    reload: mock(async () => {}),
-    messages: [],
-    model: { id: "test-model" } as any,
-    modelRegistry: fakeModelRegistry as any,
-    isStreaming: false,
-    pendingMessageCount: 0,
-    isCompacting: false,
-  } as any as AgentSession;
-}
-
-test("markSkillsDirty + idle → 重建会话（dispose 旧、创建新、返回新 session）", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-
-  const created: AgentSession[] = [];
-  const createFn = mock(async () => {
-    const s = makeFreshSession();
-    created.push(s);
-    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: createFn as any,
-  });
-  const first = await am.ensureStarted(project.id, "dev", session.id);
-  expect(created).toHaveLength(1);
-
-  am.markSkillsDirty();
-  const second = await am.ensureStarted(project.id, "dev", session.id);  // idle → 重建
-
-  expect(created).toHaveLength(2);                       // 重建调了一次 createFn
-  expect(second).toBe(created[1]);                       // 返回新 session
-  expect(second).not.toBe(first);                        // 与旧 session 不同
-  expect((created[0].dispose as any)).toHaveBeenCalledTimes(1);  // 旧 session 被 dispose
-  // 重建后 skillDirty 清除，再次命中不重建
-  await am.ensureStarted(project.id, "dev", session.id);
-  expect(created).toHaveLength(2);
-});
-
-test("markSkillsDirty 后 streaming 时跳过重建，保留 skillDirty（idle 后补重建）", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-
-  const created: AgentSession[] = [];
-  const createFn = mock(async () => {
-    const s = makeFreshSession();
-    created.push(s);
-    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: createFn as any,
-  });
-  const first = await am.ensureStarted(project.id, "dev", session.id);
-  (first as any).isStreaming = true;  // 模拟生成中
-
-  am.markSkillsDirty();
-  const r = await am.ensureStarted(project.id, "dev", session.id);  // streaming → 跳过
-  expect(created).toHaveLength(1);
-  expect(r).toBe(first);  // 返回旧 session，未重建
-
-  (first as any).isStreaming = false;  // idle
-  const r2 = await am.ensureStarted(project.id, "dev", session.id);  // 补重建
-  expect(created).toHaveLength(2);
-  expect(r2).toBe(created[1]);
-});
-
-test("markAllDirty 仍走 reload 路径（不被重建逻辑影响）", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-
-  const created: AgentSession[] = [];
-  const createFn = mock(async () => {
-    const s = makeFreshSession();
-    created.push(s);
-    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: createFn as any,
-  });
-  const first = await am.ensureStarted(project.id, "dev", session.id);
-  (first.reload as any).mockClear();
-
-  am.markAllDirty();
-  const r = await am.ensureStarted(project.id, "dev", session.id);  // dirty → reload
-  expect(first.reload as any).toHaveBeenCalledTimes(1);
-  expect(r).toBe(first);  // reload 不换 session
-  expect(created).toHaveLength(1);  // 未重建
-});
-
-test("ensureStarted 把 ask_user_question 工具作为 customTools 传给 createFn", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-
-  const captured: any[] = [];
-  const createFn = mock(async (opts: any) => {
-    captured.push(opts);
-    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-  const am = new AgentManager({ projectStore, configStore: null as any, onEvent: () => {}, createAgentSessionFn: createFn as any });
+test("config systemPromptMode=append 时 systemPromptBody 作为 base 段", async () => {
+  const configStore = {
+    getAgent: mock(async () => ({
+      displayName: "dev",
+      systemPromptMode: "append",
+      systemPromptBody: "自定义 BODY 提示词",
+    })),
+  } as any;
+  const { project, session, am } = await setup({ configStore });
   await am.ensureStarted(project.id, "dev", session.id);
 
-  expect(captured[0].customTools).toBeDefined();
-  // customTools 现为 [...memoryCustomTools, makeAskTool(sessionId)]——ask 工具在末尾，
-  // 用 find 按 name 查找，避免对 memory 工具数量/顺序的硬编码假设。
-  const askTool = (captured[0].customTools as any[]).find((t: any) => t.name === "ask_user_question");
-  expect(askTool).toBeDefined();
+  const prompt = readSysprompt(session.id);
+  expect(prompt).toContain("自定义 BODY 提示词");
 });
 
-// ─── Task 6: delegate 关系网调起接线测试 ────────────────────────────────────
-// askTo 非空 → customTools 含 delegate 工具且 systemPrompt 末尾含关系网段；
-// askTo 为空 → 仍注册 delegate/fleet（内置类型不依赖 askTo），但不注入关系网提示词段。
-test("ensureStarted 在 askTo 非空时同时注册 delegate 和 fleet 工具并注入关系网提示词段", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-
+test("askTo 非空时 delegate-roster 段含命名智能体与委托引导", async () => {
   const configs: Record<string, any> = {
     dev: { displayName: "dev", partners: { askTo: ["代码审查"] } },
-    代码审查: { displayName: "代码审查", description: "评审改动", partners: { askTo: [] }, delegationHints: { whenToDelegate: "代码变更需要评审时", benefit: "结构化审查反馈" } },
+    代码审查: {
+      displayName: "代码审查", description: "评审改动", partners: { askTo: [] },
+      delegationHints: { whenToDelegate: "代码变更需要评审时", benefit: "结构化审查反馈" },
+    },
   };
   const configStore = { getAgent: mock(async (n: string) => configs[n] ?? null) } as any;
-
-  const captured: any[] = [];
-  const createFn = mock(async (opts: any) => {
-    captured.push(opts);
-    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-  const am = new AgentManager({ projectStore, configStore, onEvent: () => {}, createAgentSessionFn: createFn as any });
+  const { project, session, am } = await setup({ configStore });
   await am.ensureStarted(project.id, "dev", session.id);
 
-  const names = (captured[0].customTools as any[]).map((t: any) => t.name);
-  expect(names).toContain("delegate");
-  expect(names).toContain("fleet");
-
-  const prompt = captured[0].resourceLoader.systemPromptOverride();
+  const prompt = readSysprompt(session.id);
   expect(prompt).toContain("代码审查");
   expect(prompt).toContain("评审改动");
-  // 委托引导注入系统提示词的 roster 段（取代已移除的触发关键词和工具描述注入）
   expect(prompt).toContain("代码变更需要评审时");
   expect(prompt).toContain("结构化审查反馈");
-
-  // delegate 工具描述为纯功能说明（不含智能体信息，已移到系统提示词）
-  const delegateTool = (captured[0].customTools as any[]).find((t: any) => t.name === "delegate");
-  expect(delegateTool.description).not.toContain("代码审查");
 });
 
-test("ensureStarted 在 askTo 为空时仍注册 delegate/fleet 工具（内置类型不依赖 askTo），但不注入关系网段", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-
+test("askTo 为空时 roster 段仍含内置 subagent 类型", async () => {
   const configStore = {
     getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [] } })),
   } as any;
-
-  const captured: any[] = [];
-  const createFn = mock(async (opts: any) => {
-    captured.push(opts);
-    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-  const am = new AgentManager({ projectStore, configStore, onEvent: () => {}, createAgentSessionFn: createFn as any });
+  const { project, session, am } = await setup({ configStore });
   await am.ensureStarted(project.id, "dev", session.id);
 
-  const names = (captured[0].customTools as any[]).map((t: any) => t.name);
-  // 内置 subagent 类型（general-purpose / Explore / Plan）不依赖 askTo，delegate/fleet 应始终注册
-  expect(names).toContain("delegate");
-  expect(names).toContain("fleet");
-
-  const prompt = captured[0].resourceLoader.systemPromptOverride();
-  // askTo 为空时：delegate-roster 段仍注入（含内置类型），但不含命名智能体
+  const prompt = readSysprompt(session.id);
   expect(prompt).toContain("## Available Subagents");
+  expect(prompt).toContain("general-purpose");
 });
 
-// ─── Task 4: 中断清理（cancelAll）测试 ───────────────────────────────────────
-// abort / immediate(_jumpQueue interrupt) / disposeSession 都应调
-// askRegistry.cancelAll(sessionId)，把该 session 的 pending ask 以 cancelled 解决。
+// ─── 宿主工具（bridge ctx） ─────────────────────────────────────────────────
+
+test("bridge ctx 的 delegate 工具：不在可调起列表时返回错误", async () => {
+  const configStore = {
+    getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [] } })),
+  } as any;
+  const { project, session, am } = await setup({ configStore });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const ctx = getBridgeSession(session.id)!;
+  const result = await ctx.handleTool(
+    "delegate", "tc1", { agent: "不存在的智能体", task: "做点什么" }, new AbortController().signal,
+  );
+  expect(result.content[0].text).toContain("不在可调起列表中");
+});
+
+test("自动学习关闭（reviewEnabled=false）时记忆工具返回关闭提示", async () => {
+  const { project, session, am } = await setup({
+    memoryStore: { getConfig: async () => ({ reviewEnabled: false, memoryPolicyStyle: "full" as const }) },
+  });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const ctx = getBridgeSession(session.id)!;
+  const result = await ctx.handleTool(
+    "memory_read", "tc1", { target: "memory", scope: "global" }, new AbortController().signal,
+  );
+  expect(result.content[0].text).toContain("记忆功能已关闭");
+  expect((result.details as any).error).toBe("memory_disabled");
+});
+
+test("默认（不传 memoryStore）记忆工具可用", async () => {
+  const { project, session, am } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const ctx = getBridgeSession(session.id)!;
+  const result = await ctx.handleTool(
+    "memory_read", "tc1", { target: "memory", scope: "global" }, new AbortController().signal,
+  );
+  expect(result.content[0].text).not.toContain("记忆功能已关闭");
+});
+
+// ─── 中断清理（askRegistry.cancelAll）接线 ──────────────────────────────────
+
 const askParams: AskParams = { questions: [
   { question: "Q?", header: "h", options: [{ label: "A", description: "x" }, { label: "B", description: "y" }] },
 ] };
 
 test("abort 取消该 session 的 pending ask（同步 cancelAll）", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-  const am = new AgentManager({ projectStore, configStore: null as any, onEvent: () => {}, createAgentSessionFn: mockCreateAgentSession });
+  const { project, session, am } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
 
   const p = askRegistry.ask(session.id, "tc1", askParams, new AbortController().signal);
@@ -1149,10 +878,7 @@ test("abort 取消该 session 的 pending ask（同步 cancelAll）", async () =
 });
 
 test("immediate(_jumpQueue interrupt) 取消 pending ask", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-  const am = new AgentManager({ projectStore, configStore: null as any, onEvent: () => {}, createAgentSessionFn: mockCreateAgentSession });
+  const { project, session, am } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
 
   const p = askRegistry.ask(session.id, "tc1", askParams, new AbortController().signal);
@@ -1161,10 +887,7 @@ test("immediate(_jumpQueue interrupt) 取消 pending ask", async () => {
 });
 
 test("disposeSession 取消 pending ask", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-  const am = new AgentManager({ projectStore, configStore: null as any, onEvent: () => {}, createAgentSessionFn: mockCreateAgentSession });
+  const { project, session, am } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
 
   const p = askRegistry.ask(session.id, "tc1", askParams, new AbortController().signal);
@@ -1172,232 +895,115 @@ test("disposeSession 取消 pending ask", async () => {
   expect((await p).cancelled).toBe(true);
 });
 
-// ─── Task 8: reconcile 兜底接线测试 ─────────────────────────────────────────
-// 覆盖 _createSession 里的重启兜底分支：当 session.messages 含「无 toolResult 的
-// ask_user_question 调用」时，ensureStarted 应把 reconcileDanglingAsks 返回的
-// reconciled 数组赋给 (session as any).agent.state.messages。
-// 注：reconcileDanglingAsks 的纯函数行为由 ask-tool.test.ts 覆盖，这里只验证「接线赋值生效」。
-test("ensureStarted 把 reconciled 数组赋给 session.agent.state.messages（有 dangling ask 时）", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+// ─── 历史消息 reconcile 兜底 ────────────────────────────────────────────────
 
-  // 构造一条 dangling ask 调用的历史：assistant 消息含 ask_user_question toolCall，无对应 toolResult。
-  const danglingMessages: unknown[] = [
+test("ensureStarted 对 dangling ask 调用注入 cancelled toolResult（重启兜底）", async () => {
+  // 构造一条 dangling ask 调用的历史：assistant 消息含 ask_user_question toolCall，无对应 toolResult
+  const danglingMessages = [
     {
       role: "assistant",
-      content: [
-        {
-          type: "toolCall",
-          id: "tc-dangling",
-          name: "ask_user_question",
-          arguments: askParams,
-        },
-      ],
+      content: [{ type: "toolCall", id: "tc-dangling", name: "ask_user_question", arguments: askParams }],
       model: "test-model",
       stopReason: "tool_use",
       timestamp: 1,
     },
   ];
-
-  // 局部 fake session：messages 含 dangling ask；agent.state.messages 可写，用于断言赋值发生。
-  // 仿照 makeFreshSession 但带 messages + agent.state.messages，不改全局 fakeSession。
-  const localSession = {
-    ...fakeSession,
-    prompt: mock(async () => {}),
-    abort: mock(async () => {}),
-    dispose: mock(() => {}),
-    setSessionName: mock(() => {}),
-    setModel: mock(async () => {}),
-    setThinkingLevel: mock(() => {}),
-    subscribe: mock(() => mock(() => {})),
-    clearQueue: mock(() => ({ steering: [], followUp: [] })),
-    followUp: mock(async () => {}),
-    steer: mock(async () => {}),
-    reload: mock(async () => {}),
-    messages: danglingMessages,
-    model: { id: "test-model" } as any,
-    modelRegistry: fakeModelRegistry as any,
-    isStreaming: false,
-    pendingMessageCount: 0,
-    isCompacting: false,
-    // reconcile 兜底的赋值目标：(session as any).agent.state.messages
-    agent: { state: { messages: danglingMessages } },
-  } as any as AgentSession;
-
-  const createFn = mock(async () => ({
-    session: localSession,
-    extensionsResult: { extensions: [], errors: [], runtime: {} as any },
-  }));
-
-  const am = new AgentManager({
-    projectStore,
-    configStore: null as any,
-    onEvent: () => {},
-    createAgentSessionFn: createFn as any,
-  });
+  const fakes: FakeSessionClient[] = [];
+  const factory = (o: RpcClientOpts) => {
+    const fake = new FakeSessionClient(o);
+    fake.messagesToReturn = danglingMessages;
+    fakes.push(fake);
+    return fake as unknown as RpcClient;
+  };
+  const { project, session, am } = await setup({ createClientFn: factory });
   await am.ensureStarted(project.id, "dev", session.id);
 
-  // 断言：reconcile 注入了一条 cancelled toolResult，
-  // 且该 reconciled 数组被赋给 session.agent.state.messages。
-  const assigned = (localSession as any).agent.state.messages as unknown[];
-  expect(assigned.length).toBe(danglingMessages.length + 1);
-  const last = assigned[assigned.length - 1] as Record<string, unknown>;
+  const msgs = am.getMessages(session.id);
+  expect(msgs.length).toBe(danglingMessages.length + 1);
+  const last = msgs[msgs.length - 1];
   expect(last.role).toBe("toolResult");
   expect(last.isError).toBe(false);
   expect(last.toolCallId).toBe("tc-dangling");
 });
 
-// ─── Task 8: switchAgent 换体重建 + renameAgentSessions 重命名联动 ──────────
+// ─── skill 路径（--skill 参数） ─────────────────────────────────────────────
 
-test("switchAgent: 换体重建，sessionId 不变且 config 取新 agent", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
+function tmpSkillRoot() {
+  const root = `/tmp/hiagent-skill-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  mkdirSync(join(root, "skills"), { recursive: true }); // builtin（空）
+  return root;
+}
+function createSkillAt(dir: string, name: string, desc: string) {
+  mkdirSync(join(dir, name), { recursive: true });
+  writeFileSync(join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: ${desc}\n---\n# ${name}\n`);
+}
 
-  const getAgent = mock(async (n: string) => ({ displayName: n, partners: { askTo: [] } }));
-  const configStore = { getAgent } as any;
+test("ensureStarted 把启用 skill 路径作为 --skill 传给 pi", async () => {
+  const skillRoot = tmpSkillRoot();
+  tmpPaths.push(skillRoot);
+  const userDir = join(skillRoot, "user-skills");
+  mkdirSync(userDir, { recursive: true });
+  createSkillAt(userDir, "my-skill", "测试技能");
+  const skillManager = new SkillManager(skillRoot);
+  await skillManager.addDir(userDir);
 
-  const created: AgentSession[] = [];
-  const createFn = mock(async () => {
-    const s = makeFreshSession();
-    created.push(s);
-    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore, onEvent: () => {},
-    createAgentSessionFn: createFn as any,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
-  const before = created.length;
-
-  await am.switchAgent(session.id, "pm");
-
-  // 拆除旧 + 用同一 sessionId 重建（多调一次 createFn）
-  expect(created.length).toBe(before + 1);
-  expect((created[0].dispose as any)).toHaveBeenCalledTimes(1);
-  // config 取新 agent
-  expect(getAgent).toHaveBeenCalledWith("pm");
-  // ProjectStore 已更新
-  const { sessions } = await projectStore.load();
-  expect(sessions.find(s => s.id === session.id)!.primaryAgent).toBe("pm");
-  // 重建后 ensureStarted 命中缓存返回新 session（dispose+create 已完成），不再创建
-  const s = await am.ensureStarted(project.id, "pm", session.id);
-  expect(s).toBeTruthy();
-  expect(s).toBe(created[created.length - 1]);
-  expect(created.length).toBe(before + 1);
-});
-
-test("switchAgent: 运行中先 abort，abort 失败吞掉不阻塞切换", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-
-  const created: AgentSession[] = [];
-  const createFn = mock(async () => {
-    const s = makeFreshSession();
-    created.push(s);
-    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: createFn as any,
-  });
-  const first = await am.ensureStarted(project.id, "dev", session.id);
-  (first as any).isStreaming = true;
-  (first.abort as any).mockImplementation(async () => { throw new Error("abort 失败"); });
-
-  await am.switchAgent(session.id, "pm");  // abort 失败不应抛错阻塞
-
-  expect((first.abort as any)).toHaveBeenCalledTimes(1);
-  expect(created).toHaveLength(2);
-  const { sessions } = await projectStore.load();
-  expect(sessions.find(s => s.id === session.id)!.primaryAgent).toBe("pm");
-});
-
-test("switchAgent: 会话未启动（无 meta）时从 projectStore 降级取 projectId 并直接建会话", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-
-  const created: AgentSession[] = [];
-  const createFn = mock(async () => {
-    const s = makeFreshSession();
-    created.push(s);
-    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: createFn as any,
-  });
-  // 未 ensureStarted（sessionMeta 为空），直接切换
-  await am.switchAgent(session.id, "pm");
-
-  expect(created).toHaveLength(1);
-  const { sessions } = await projectStore.load();
-  expect(sessions.find(s => s.id === session.id)!.primaryAgent).toBe("pm");
-});
-
-test("switchAgent: 会话不存在时抛错", async () => {
-  const am = new AgentManager({
-    projectStore: newProjectStore(), configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
-  await expect(am.switchAgent("nope", "pm")).rejects.toThrow("会话不存在");
-});
-
-test("renameAgentSessions: sessionMeta 更新，下次 ensureStarted 用新名重建", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "旧名", title: "测试" });
-
-  const created: AgentSession[] = [];
-  const createFn = mock(async () => {
-    const s = makeFreshSession();
-    created.push(s);
-    return { session: s, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: createFn as any,
-  });
-  await am.ensureStarted(project.id, "旧名", session.id);
-  expect(created).toHaveLength(1);
-
-  am.renameAgentSessions("旧名", "新名");
-
-  // meta 已改且标 skillDirty（复用既有重建机制）
-  expect((am as any).sessionMeta.get(session.id).agentName).toBe("新名");
-  expect((am as any).skillDirty.has(session.id)).toBe(true);
-
-  // 下次 ensureStarted 用新名重建
-  const s = await am.ensureStarted(project.id, "新名", session.id);
-  expect(created).toHaveLength(2);
-  expect(s).toBe(created[1]);
-  expect((created[0].dispose as any)).toHaveBeenCalledTimes(1);
-  expect((am as any).sessionMeta.get(session.id).agentName).toBe("新名");
-});
-
-test("renameAgentSessions: 不匹配旧名的活跃会话不受影响", async () => {
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-
-  const am = new AgentManager({
-    projectStore, configStore: null as any, onEvent: () => {},
-    createAgentSessionFn: mockCreateAgentSession,
-  });
+  const { project, session, am, fakes } = await setup({ skillManager });
   await am.ensureStarted(project.id, "dev", session.id);
 
-  am.renameAgentSessions("旧名", "新名");
-
-  expect((am as any).sessionMeta.get(session.id).agentName).toBe("dev");
-  expect((am as any).skillDirty.has(session.id)).toBe(false);
+  const skills = argValues(fakes[0].opts.args ?? [], "--skill");
+  expect(skills).toContain(join(userDir, "my-skill"));
 });
+
+test("--skill 不含 builtin 来源的 skill（由 pi 自动扫，避免碰撞）", async () => {
+  const skillRoot = tmpSkillRoot();
+  tmpPaths.push(skillRoot);
+  createSkillAt(join(skillRoot, "skills"), "builtin-skill", "内置"); // builtin
+  const userDir = join(skillRoot, "user-skills");
+  mkdirSync(userDir, { recursive: true });
+  createSkillAt(userDir, "user-skill", "用户");
+  const skillManager = new SkillManager(skillRoot);
+  await skillManager.addDir(userDir);
+
+  const { project, session, am, fakes } = await setup({ skillManager });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const skills = argValues(fakes[0].opts.args ?? [], "--skill");
+  expect(skills).toContain(join(userDir, "user-skill"));
+  expect(skills).not.toContain(join(join(skillRoot, "skills"), "builtin-skill"));
+});
+
+test("skillManager 为空时不传 --skill（不破坏无 skillManager 场景）", async () => {
+  const { project, session, am, fakes } = await setup(); // 不传 skillManager
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  expect(fakes[0].opts.args ?? []).not.toContain("--skill");
+});
+
+// ─── 进程崩溃 ───────────────────────────────────────────────────────────────
+
+test("进程意外退出 → 合成 message_end 错误事件 + 下次 ensureStarted 重建新 client", async () => {
+  const events: CapturedEvent[] = [];
+  const { project, session, am, fakes } = await setup({ events });
+  await am.ensureStarted(project.id, "dev", session.id);
+  expect(fakes).toHaveLength(1);
+
+  fakes[0].simulateCrash(3);
+
+  // 合成错误事件（前端 ⚠️ 渲染管线）
+  const crashEvent = events.find((x) => x.e.type === "message_end" && x.e.message?.stopReason === "error");
+  expect(crashEvent).toBeDefined();
+  expect(crashEvent!.sessionId).toBe(session.id);
+  expect(crashEvent!.e.message.errorMessage).toContain("agent 进程意外退出");
+  expect(crashEvent!.e.message.errorMessage).toContain("code=3");
+
+  // 崩溃后下次 ensureStarted 拆除重建
+  await am.ensureStarted(project.id, "dev", session.id);
+  expect(fakes).toHaveLength(2);
+  expect(fakes[1]).not.toBe(fakes[0]);
+  expect(fakes[1].started).toBe(true);
+});
+
+// ─── 静态断言 ───────────────────────────────────────────────────────────────
 
 test("HIAGENT_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => {
   // 委托规则在 delegate-mechanism 段（DEFAULT_DELEGATE_MECHANISM_PROMPT）
@@ -1406,47 +1012,4 @@ test("HIAGENT_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => 
   expect(fullDefault).toContain("@[agentName]");
   expect(fullDefault).toContain("delegate");
   expect(fullDefault).toContain("task contract");
-});
-
-test("systemPromptOverride 拼装顺序：base < delegatePrompt < 环境约束 < 记忆快照", async () => {
-  const capturedLoaders: any[] = [];
-  const createFn = mock(async (opts: any) => {
-    capturedLoaders.push(opts.resourceLoader);
-    return { session: fakeSession as AgentSession, extensionsResult: { extensions: [], errors: [], runtime: {} as any } };
-  });
-  const projectStore = newProjectStore();
-  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
-  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-
-  // askTo 非空 + 有 memorySnapshot 的 configStore mock
-  const configStore = {
-    getAgent: mock(async () => ({
-      displayName: "dev",
-      partners: { askTo: [{ name: "代码审查" }] },
-      description: "评审",
-    })),
-  } as any;
-  const memoryStore = {
-    getConfig: mock(async () => ({ items: [{ scope: "global", type: "preference", content: "记忆快照内容" }] })),
-  } as any;
-
-  const am = new AgentManager({
-    projectStore, configStore, onEvent: () => {},
-    createAgentSessionFn: createFn as any, memoryStore,
-  });
-  await am.ensureStarted(project.id, "dev", session.id);
-
-  const prompt = capturedLoaders[0].systemPromptOverride();
-  const idxBase = prompt.indexOf("You are an expert coding assistant");
-  const idxRoster = prompt.indexOf("## Available Subagents");
-  const idxEnv = prompt.indexOf("Built-in directory:");
-  const idxMemory = prompt.indexOf("记忆快照内容");
-  expect(idxBase).toBeGreaterThanOrEqual(0);
-  expect(idxRoster).toBeGreaterThan(idxBase);
-  expect(idxEnv).toBeGreaterThan(idxRoster);
-  // 记忆快照由 buildMemorySnapshot(HIAGENT_DIR, cwd) 独立加载，memoryStore.getConfig 只控制策略开关；
-  // 测试环境下 memorySnapshot 可能为空，此时跳过其顺序断言（仅当存在时校验位置）。
-  if (idxMemory >= 0) {
-    expect(idxMemory).toBeGreaterThan(idxEnv);
-  }
 });

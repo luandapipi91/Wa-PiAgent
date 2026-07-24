@@ -1,12 +1,14 @@
 // ask_user_question 工具定义 + 重启兜底。
 //
 // makeAskTool(sessionId) 闭包注入 hiagent sessionId（execute 签名无 sessionId），
-// 返回 SDK ToolDefinition，交给 createAgentSession({ customTools })。
-// execute：先校验（非法直接返回 details.error，不阻塞），否则 await askRegistry.ask(...)。
-import { defineTool } from "@earendil-works/pi-coding-agent";
+// 返回 pi ToolDefinition 形状的普通对象（defineTool 只是恒等函数，不依赖 SDK import）。
+// 生产路径：schema 由 hiagent-bridge 扩展注册（bridge-extension.ts 复制本文件 schema）；
+// execute 本体在 ask-runner.ts（runAskTool），bridge 与测试共用。
 import { Type } from "typebox";
-import { askRegistry } from "./ask-registry";
-import { validateAskParams, type AskParams, type AskAnswer } from "@hiagent/shared";
+import { runAskTool, type AskToolDetails } from "./ask-runner";
+
+// 兼容旧引用方：AskToolDetails 已移至 ask-runner.ts（与 bridge 共用的无 SDK 实现）
+export type { AskToolDetails } from "./ask-runner";
 
 const AskParamsSchema = Type.Object({
   questions: Type.Array(
@@ -27,15 +29,10 @@ const AskParamsSchema = Type.Object({
   ),
 });
 
-export interface AskToolDetails {
-  answers?: AskAnswer[];
-  cancelled: boolean;
-  error?: string;
-}
-
 /** 构造 ask_user_question 工具（闭包绑 sessionId）。每个 session 一份实例。 */
 export function makeAskTool(sessionId: string) {
-  return defineTool({
+  // defineTool 在 pi 里是恒等函数，直接返回普通对象即可（不 import SDK）
+  return {
     name: "ask_user_question",
     label: "Ask User",
     description:
@@ -46,27 +43,16 @@ export function makeAskTool(sessionId: string) {
       "选项文案简洁，给出取舍说明；不要用于确认显而易见的事。",
     ],
     parameters: AskParamsSchema,
-    async execute(toolCallId, params, signal): Promise<{
+    async execute(toolCallId: string, params: unknown, signal?: AbortSignal): Promise<{
       content: Array<{ type: "text"; text: string }>;
       details: AskToolDetails;
     }> {
-      const error = validateAskParams(params);
-      if (error) {
-        return { content: [{ type: "text", text: `ask 校验失败: ${error}` }], details: { cancelled: false, error } };
-      }
       // signal 在 ToolDefinition.execute 签名里是 AbortSignal | undefined；
-      // askRegistry.ask 需要 AbortSignal，undefined 时用永不 abort 的 controller 兜底。
+      // runAskTool 需要 AbortSignal，undefined 时用永不 abort 的 controller 兜底。
       const safeSignal = signal ?? new AbortController().signal;
-      const outcome = await askRegistry.ask(sessionId, toolCallId, params as AskParams, safeSignal);
-      if (outcome.cancelled) {
-        return { content: [{ type: "text", text: "用户取消了提问" }], details: { cancelled: true } };
-      }
-      const text = (outcome.answers ?? [])
-        .map((a) => `Q: ${a.question}\nA: ${a.kind === "multi" ? (a.selected?.join(", ") ?? "") : (a.answer ?? "")}${a.notes ? ` (备注: ${a.notes})` : ""}`)
-        .join("\n\n");
-      return { content: [{ type: "text", text }], details: { cancelled: false, answers: outcome.answers } };
+      return runAskTool(sessionId, toolCallId, params, safeSignal);
     },
-  });
+  };
 }
 
 /**

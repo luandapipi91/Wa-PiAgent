@@ -36,6 +36,12 @@ export class McpStore {
     return server;
   }
 
+  /** 读全局 mcp.json 的 settings 段（无则 {}）— pi-mcp-adapter 的 directTools / toolPrefix 配置 */
+  async getGlobalSettings(): Promise<Record<string, unknown>> {
+    const cfg = await this.readConfig(join(this.opts.hiagentDir, "mcp.json"));
+    return cfg.settings ?? {};
+  }
+
   async save(config: McpServerConfig, projectId?: string, originalName?: string): Promise<void> {
     const path = await this.resolveConfigPath(projectId);
     const cfg = await this.readConfig(path);

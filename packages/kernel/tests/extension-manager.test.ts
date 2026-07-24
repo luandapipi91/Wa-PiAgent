@@ -444,7 +444,8 @@ test("getEnabledExtensionSkillPaths 返回含 SKILL.md 的扩展技能路径", a
     const paths = await mgr.getEnabledExtensionSkillPaths();
     expect(paths).toHaveLength(1);
     expect(paths[0].packageName).toBe("my-ext-pkg");
-    expect(paths[0].path).toContain("my-ext-pkg/skills");
+    // 跨平台断言：Windows 下 join 产出反斜杠，统一为正斜杠再比对
+    expect(paths[0].path.replace(/\\/g, "/")).toContain("my-ext-pkg/skills");
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
     rmSync(join(HIAGENT_DIR, "runtime", "node_modules", "my-ext-pkg"), { recursive: true, force: true });

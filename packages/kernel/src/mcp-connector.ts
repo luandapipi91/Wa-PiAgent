@@ -178,6 +178,68 @@ function isNeedsAuth(err: unknown): boolean {
   return err instanceof StreamableHTTPError && err.code === 401;
 }
 
+// ===== MCP direct 工具名计算（RPC 迁移后替代 SDK loader 动态发现） =====
+
+/**
+ * direct 工具名命名规则与 pi-mcp-adapter（types.ts formatToolName）保持一致：
+ * `<serverPrefix>_<toolName>`，"-" 统一归一为 "_"；prefix 模式 server/none/short。
+ */
+function serverPrefixOf(serverName: string, mode: "server" | "none" | "short"): string {
+  if (mode === "none") return "";
+  if (mode === "short") {
+    const short = serverName.replace(/-?mcp$/i, "").replace(/-/g, "_");
+    return short || "mcp";
+  }
+  return serverName.replace(/-/g, "_");
+}
+
+function formatDirectToolName(toolName: string, serverName: string, mode: "server" | "none" | "short"): string {
+  const p = serverPrefixOf(serverName, mode);
+  const normalized = toolName.replace(/-/g, "_");
+  return p ? `${p}_${normalized}` : normalized;
+}
+
+/**
+ * 计算启用 directTools 的 MCP 服务器的 direct 工具名清单。
+ * directTools 语义对齐 pi-mcp-adapter：true=全部工具直连，string[]=仅列出的工具，false/缺省=走 mcp 代理工具；
+ * 服务器级配置优先于全局 settings.directTools。
+ * 连接失败/超时的服务器静默跳过（这些工具本来也不可用）。
+ *
+ * 用途：受限 agent 的 --tools 白名单 + listGlobalTools 的动态发现
+ * （SDK 时代由 DefaultResourceLoader 加载 adapter 后枚举，RPC 模式改为 kernel 侧主动计算）。
+ */
+export async function resolveMcpDirectToolNames(
+  servers: McpServerConfig[],
+  settings?: Record<string, unknown>,
+): Promise<string[]> {
+  const modeRaw = settings?.toolPrefix;
+  const mode = (modeRaw === "none" || modeRaw === "short" ? modeRaw : "server") as "server" | "none" | "short";
+  const globalDirect = settings?.directTools as true | string[] | undefined;
+
+  const enabled = servers.filter((s) => {
+    const dt = (s as McpServerConfig & { directTools?: unknown }).directTools;
+    if (dt !== undefined) return !!dt;
+    return !!globalDirect;
+  });
+
+  const names: string[] = [];
+  const results = await Promise.allSettled(
+    enabled.map(async (server) => {
+      const dt =
+        ((server as McpServerConfig & { directTools?: unknown }).directTools as true | string[] | undefined) ??
+        globalDirect;
+      const tools = await listTools(server);
+      return tools
+        .filter((t) => dt === true || !Array.isArray(dt) || dt.includes(t.name))
+        .map((t) => formatDirectToolName(t.name, server.name, mode));
+    }),
+  );
+  for (const r of results) {
+    if (r.status === "fulfilled") names.push(...r.value);
+  }
+  return names;
+}
+
 /** 服务器返回了非 JSON-RPC 消息（如 Zhipu 的 {code,msg,success} 错误信封），
  *  SDK 的 JSONRPCMessageSchema.parse 抛 ZodError。识别后给可读提示，避免原始
  *  Zod 报错 JSON 外泄给用户 */

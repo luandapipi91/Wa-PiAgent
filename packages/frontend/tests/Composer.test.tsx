@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "bun:test";
+import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Composer } from "../src/components/Composer";
 import * as ws from "../src/ws-instance";
@@ -40,6 +40,12 @@ describe("Composer", () => {
       load: () => {}, setAll: () => {}, toggleSkill: () => {}, addDir: () => {}, removeDir: () => {},
     });
     vi.spyOn(ws, "send").mockImplementation(() => {});
+  });
+
+  // beforeEach 把 skills store 的 action 整体 stub 成空函数，zustand store 是进程级单例，
+  // 不还原会泄漏给后面跑的测试文件（如 store-skills.test.ts）——恢复初始 state（含原始 action）
+  afterEach(() => {
+    useSkillsStore.setState(useSkillsStore.getInitialState(), true);
   });
 
   it("sends prompt with model, thinking and attachments", async () => {

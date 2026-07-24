@@ -1,17 +1,26 @@
-// subagent-runner.ts — pi-open-agents runSubagent 适配层
+// subagent-runner.ts — 一次性 pi rpc 子进程执行子智能体
+//
+// RPC 迁移后不再经过 pi-open-agents 的 runSubagent（SDK 形态），
+// 改为 kernel 直接 spawn 一个临时 `pi --mode rpc --no-session` 子进程：
+// 发送任务 → 收集事件流转进度 → agent_settled 后取最终回复 → 销毁进程。
 //
 // 职责：
-// 1. buildAgentDefinition：从 HiAgent AgentConfig 构造 pi-open-agents 的 AgentDefinition
-//    - 内置类型（general-purpose/Explore/Plan）用 SUBAGENT_TYPES 元信息补全缺省值
-//    - config.skills/tools 白名单映射到 AgentDefinition（空=undefined 即继承全部）
-// 2. runSubagentAgent：调用 pi-open-agents runSubagent（子进程 async）
-//    - onProgress 回调实时转发工具调用/文本输出/用量（供前端过程展示）
-//    - 所有失败路径收敛为 { text, isError:true }，绝不 throw
+// 1. 把 HiAgentSpawnConfig 翻译成 pi CLI 参数（--system-prompt/--tools/--skill/--model/--thinking）
+// 2. 事件流映射为 SubagentProgressEvent（工具调用状态 + 累计文本 + 耗时）
+// 3. 所有失败路径收敛为 { text, isError:true }，绝不 throw
 
-import { runSubagent } from "pi-open-agents";
-import type { AgentDefinition, AgentProgress, AgentResult } from "pi-open-agents";
+import { randomUUID } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { ThinkingLevel } from "@hiagent/shared";
-import { SUBAGENT_TYPES, isSubagentType } from "@hiagent/shared";
+import { HIAGENT_DIR } from "@hiagent/shared";
+import {
+  RpcClient,
+  buildPiArgs,
+  resolvePiCliPath,
+  resolvePiRuntime,
+  type RpcEvent,
+} from "./rpc-client";
 
 /** HiAgent 侧的 agent 配置片段（从 AgentConfig 提取） */
 export interface HiAgentSpawnConfig {
@@ -40,98 +49,173 @@ export interface SubagentRunResult {
   isError: boolean;
 }
 
-/** thinking → pi-open-agents thinkingLevel 映射 */
-function mapThinking(thinking: ThinkingLevel | null): string {
-  if (!thinking) return "medium";
+export interface SubagentRunOpts {
+  signal?: AbortSignal;
+  onProgress?: (event: SubagentProgressEvent) => void;
+  /** 已解析为目录路径的技能白名单（空 = 不传 --skill，pi 默认发现） */
+  skillPaths?: string[];
+  /** 随子进程加载的扩展文件（-e），如 pi-web-access / provider-extension；空 = 不传 */
+  extensionPaths?: string[];
+  /** 测试覆盖：pi CLI 入口 / 运行时 */
+  cliPath?: string;
+  runtime?: string;
+}
+
+/** thinking → pi CLI thinking level 映射（disabled→off，max→xhigh，其余透传） */
+function mapThinking(thinking: ThinkingLevel | null): string | undefined {
+  if (!thinking) return undefined;
   return thinking === "disabled" ? "off"
     : thinking === "max" ? "xhigh"
     : thinking;
 }
 
 /**
- * 从 HiAgent config 构造 pi-open-agents 的 AgentDefinition。
- * 内置 subagent 类型（general-purpose/Explore/Plan）用 SUBAGENT_TYPES 元信息补全。
- *
- * config.skills / config.tools 白名单在此映射到 AgentDefinition：
- * - 非空数组 = 按白名单限定（pi-open-agents 支持通配符）
- * - 空数组 = undefined（不设字段 = 继承全部，pi-open-agents 默认行为）
- */
-export function buildAgentDefinition(config: HiAgentSpawnConfig): AgentDefinition {
-  // 内置类型从 SUBAGENT_TYPES 补全工具/提示词缺省值
-  const builtin = isSubagentType(config.name)
-    ? SUBAGENT_TYPES.find(t => t.name === config.name)
-    : undefined;
-
-  const tools = config.tools.length > 0
-    ? config.tools
-    : builtin?.readOnly
-      ? ["read", "bash", "grep", "find", "ls"]
-      : undefined; // undefined = 全量工具（不设 tools 字段）
-
-  // skills：非空数组 = 白名单限定；空数组 = undefined（继承全部）
-  const skills = config.skills.length > 0 ? config.skills : undefined;
-
-  return {
-    name: config.name,
-    description: config.description || builtin?.description || "",
-    mode: "subagent",
-    hidden: false,
-    disable: false,
-    model: config.model ?? undefined,
-    thinking: mapThinking(config.thinking) as AgentDefinition["thinking"],
-    systemPrompt: config.systemPromptMode,
-    prompt: config.systemPrompt,
-    tools,
-    skills,
-    maxDepth: 3,
-    filePath: "",
-    source: "project",
-  } as AgentDefinition;
-}
-
-/**
- * 执行子智能体：调用 pi-open-agents runSubagent（子进程）。
- * onProgress 回调实时转发工具调用/文本输出/用量。
+ * 执行子智能体：spawn 一次性 pi rpc 子进程跑完 task 并取回最终文本。
+ * onProgress 回调实时转发工具调用/文本输出。
  * 所有失败路径收敛为 { text, isError:true }，绝不 throw。
  */
 export async function runSubagentAgent(
   config: HiAgentSpawnConfig,
   task: string,
   cwd: string,
-  opts?: {
-    signal?: AbortSignal;
-    onProgress?: (event: SubagentProgressEvent) => void;
-  },
+  opts?: SubagentRunOpts,
 ): Promise<SubagentRunResult> {
-  const agentDef = buildAgentDefinition(config);
+  const startedAt = Date.now();
+  // 子代理系统提示词临时文件（pi 的 --system-prompt 支持文件路径，规避命令行长度限制）
+  const tmpDir = join(HIAGENT_DIR, "tmp", "subagent-prompts");
+  const promptFile = config.systemPrompt
+    ? join(tmpDir, `${config.name}-${randomUUID()}.md`)
+    : null;
 
+  let client: RpcClient | null = null;
   try {
-    const result: AgentResult = await runSubagent({
-      agent: agentDef,
-      task,
-      cwd,
-      signal: opts?.signal,
-      onProgress: opts?.onProgress
-        ? (progress: AgentProgress) => {
-            opts.onProgress!({
-              agent: progress.agent,
-              status: progress.status,
-              output: progress.output,
-              tools: progress.tools.map(t => ({ id: t.id, name: t.name, status: t.status })),
-              elapsedMs: progress.elapsedMs,
-            });
-          }
-        : undefined,
-    });
+    if (promptFile) {
+      await mkdir(tmpDir, { recursive: true });
+      await writeFile(promptFile, config.systemPrompt, "utf8");
+    }
 
-    return {
-      text: result.output || "（子智能体无输出）",
-      isError: result.isError,
+    // 进度状态累积
+    const tools: Array<{ id: string; name: string; status: string }> = [];
+    let output = "";
+    let sawError = false;
+    const emit = (status: SubagentProgressEvent["status"]) => {
+      opts?.onProgress?.({
+        agent: config.name,
+        status,
+        output,
+        tools: tools.map((t) => ({ ...t })),
+        elapsedMs: Date.now() - startedAt,
+      });
     };
+
+    // agent_settled 时兑现；进程提前退出 / 出错时 reject
+    let settle: () => void;
+    let fail: (err: Error) => void;
+    const settled = new Promise<void>((resolve, reject) => {
+      settle = resolve;
+      fail = reject;
+    });
+    // 进程提前退出时 fail() 会 reject settled，但 prompt 可能先一步抛错使 settled 无人 await
+    // （unhandled rejection）。挂空 catch 兜底；await settled 处仍能拿到原 rejection。
+    settled.catch(() => {});
+
+    const onEvent = (e: RpcEvent) => {
+      switch (e.type) {
+        case "tool_execution_start":
+          tools.push({ id: e.toolCallId, name: e.toolName, status: "running" });
+          emit("running");
+          break;
+        case "tool_execution_end": {
+          const t = tools.find((x) => x.id === e.toolCallId);
+          if (t) t.status = e.isError ? "error" : "done";
+          emit("running");
+          break;
+        }
+        case "message_update": {
+          const delta = e.assistantMessageEvent;
+          if (delta?.type === "text_delta" && typeof delta.delta === "string") {
+            output += delta.delta;
+            emit("running");
+          }
+          break;
+        }
+        case "message_end": {
+          const msg = e.message;
+          if (msg?.role === "assistant" && msg?.stopReason === "error") sawError = true;
+          break;
+        }
+        case "agent_settled":
+          settle();
+          break;
+      }
+    };
+
+    client = new RpcClient({
+      cliPath: opts?.cliPath ?? resolvePiCliPath(),
+      runtime: opts?.runtime ?? resolvePiRuntime(),
+      args: buildPiArgs({
+        noSession: true,
+        systemPromptFile: promptFile ?? undefined,
+        extensionPaths: opts?.extensionPaths,
+        skillPaths: opts?.skillPaths,
+        tools: config.tools.length > 0 ? config.tools : undefined,
+        thinking: mapThinking(config.thinking),
+        model: config.model ?? undefined,
+        name: config.name,
+      }),
+      cwd,
+      env: { PI_CODING_AGENT_DIR: HIAGENT_DIR },
+      onEvent,
+      onExit: (code) => {
+        // agent_settled 前退出视为失败（settled 后 dispose 的正常退出不走这里：
+        // dispose 前先移除监听，见下方 finally）
+        fail(new Error(`子智能体进程提前退出 (code=${code})`));
+      },
+    });
+    await client.start();
+
+    // 中止信号：abort 命令 + 随后进程销毁在 finally 统一处理
+    const onAbort = () => {
+      client?.abort().catch(() => {});
+    };
+    opts?.signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      await client.prompt(task);
+      await settled;
+    } finally {
+      opts?.signal?.removeEventListener("abort", onAbort);
+    }
+
+    if (opts?.signal?.aborted) {
+      return { text: "子智能体已被中止", isError: true };
+    }
+
+    // 最终文本：优先取最后一条 assistant 文本（比流式累积更完整）
+    let text = output;
+    try {
+      const last = await client.command({ type: "get_last_assistant_text" });
+      if (typeof last?.text === "string" && last.text.trim()) text = last.text;
+    } catch { /* 取不到则用流式累积 */ }
+
+    if (sawError) {
+      return { text: text || "子智能体模型调用失败", isError: true };
+    }
+    emit("done");
+    return { text: text || "（子智能体无输出）", isError: false };
   } catch (err) {
     return {
       text: `子智能体执行失败: ${err instanceof Error ? err.message : String(err)}`,
       isError: true,
     };
+  } finally {
+    if (client) {
+      // 防止 dispose 的正常 kill 触发 onExit 的 fail（settled 已兑现则无影响，防御性处理）
+      const c = client;
+      client = null;
+      await c.dispose().catch(() => {});
+    }
+    if (promptFile) {
+      await rm(promptFile, { force: true }).catch(() => {});
+    }
   }
 }
