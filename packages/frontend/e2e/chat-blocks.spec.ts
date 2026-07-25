@@ -141,3 +141,23 @@ test("聊天块渲染：工具卡弱化折叠 + 代码块卡片 + FilePill 预�
   // 数据清理：会话/项目均在 E2E_HIAGENT_DIR 隔离目录内，由 global-teardown 整体清除；
   // 不产生截图（Playwright 失败产物 test-results/ 由任务流程跑完删除）。
 });
+
+// 回归：Prism 的 markdown 语法给表格 token 打 class="token table ..."，与 Tailwind JIT
+// 误生成的 .table{display:table} 工具类相撞，曾导致代码卡片内表格逐格竖排。
+// styles.css 的防护规则须让 token span 保持 inline。确定性断言真实 CSS 级联，不依赖 LLM。
+test("代码卡片内 prism table token 不被 Tailwind .table 工具类竖排", async ({ page }) => {
+  await page.goto("/");
+  const display = await page.evaluate(() => {
+    const card = document.createElement("div");
+    card.setAttribute("data-testid", "code-block-card");
+    const span = document.createElement("span");
+    span.className = "token table table-header-row punctuation";
+    span.textContent = "|";
+    card.appendChild(span);
+    document.body.appendChild(card);
+    const d = getComputedStyle(span).display;
+    card.remove();
+    return d;
+  });
+  expect(display).toBe("inline");
+});

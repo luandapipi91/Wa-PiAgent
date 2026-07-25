@@ -128,3 +128,12 @@ body {
 [data-testid="text-block"] code {
   overflow-wrap: anywhere;
 }
+
+/* ===== Prism token 类名防护 ===== */
+/* Prism 的 markdown 语法会给表格 token 打 class="token table ..."，而 Tailwind JIT
+   会把 tsx 里的原生 <table> 标签误收为候选类，生成 .table{display:table} 工具类。
+   两者相撞导致代码卡片内的表格 token 变成 table 盒、逐格竖排。
+   这里在代码卡片作用域内强制 token span 回到 inline（优先级 (0,2,0) 高于 .table (0,1,0)）。 */
+[data-testid="code-block-card"] .token {
+  display: inline;
+}

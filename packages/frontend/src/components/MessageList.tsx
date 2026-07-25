@@ -408,7 +408,7 @@ function MessageRow({ row, sessionId, showResend, onResend, isStreaming }: { row
           // 主回复内容 — 文字 + markdown
           return (
             <div key={si} className="flex flex-col gap-1" data-testid="text-bubble">
-              <div className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`} style={{ lineHeight: 3.1, borderRadius: "4px 14px 14px 14px" }}>
+              <div className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`} style={{ lineHeight: 1.55, borderRadius: "4px 14px 14px 14px" }}>
                 {seg.texts.map((text, i) => (
                   <div key={i} className="prose prose-sm max-w-none" data-testid="text-block">
                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{text}</ReactMarkdown>
