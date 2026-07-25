@@ -127,7 +127,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
   const [hg1, hg2] = draft?.avatarColor?.includes("-") ? draft.avatarColor.split("-") : def.gradient;
 
   return (
-    <Modal onClose={onClose} width={560} data-testid="agent-config">
+    <Modal onClose={onClose} width="80vw" height="80vh" closeOnOverlayClick={false} data-testid="agent-config">
       <header className="flex items-center gap-3 px-5 py-3.5 border-b border-hairline">
         <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0"
           style={{ background: `linear-gradient(135deg, ${hg1}, ${hg2})` }}>
@@ -146,7 +146,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
         ))}
       </nav>
       <div
-        className={`px-5 py-4 h-[380px] overflow-y-auto ${isBuiltin ? "opacity-60 [&_input[type=checkbox]]:pointer-events-none [&_button]:pointer-events-none [&_textarea]:pointer-events-none" : ""}`}
+        className={`px-5 py-4 flex-1 min-h-0 overflow-y-auto ${isBuiltin ? "opacity-60 [&_input[type=checkbox]]:pointer-events-none [&_button]:pointer-events-none [&_textarea]:pointer-events-none" : ""}`}
         data-testid="config-tab-content"
       >
         {!draft && <p className="text-sm text-tertiary">加载中...</p>}
@@ -264,7 +264,7 @@ function BasicTab({ draft, onChange }: TabProps) {
         </div>
       </Row>
       <textarea value={draft.systemPromptBody ?? ""} onChange={e => onChange({ ...draft, systemPromptBody: e.target.value })}
-        className={`${inp} w-full min-h-[84px] resize-y leading-relaxed`} rows={4} />
+        className={`${inp} w-full min-h-[300px] resize-y leading-relaxed`} rows={4} />
 
       <Sec>委派引导</Sec>
       <Row label="何时调起">
@@ -291,9 +291,7 @@ function BasicTab({ draft, onChange }: TabProps) {
           placeholder="调起本智能体的好处，如：把多次 grep 探索的噪声挡在主上下文之外"
           data-testid="cfg-hints-benefit" />
       </Row>
-      <div className="mt-2 px-2.5 py-2 rounded-sm text-[11px] leading-relaxed border border-hairline bg-surface-hover text-secondary">
-        配好后注入 delegate 工具描述，引导主智能体在合适场景调起本智能体
-      </div>
+
     </div>
   );
 }
