@@ -48,4 +48,22 @@ describe("ModelSelector", () => {
     render(<ModelSelector value={null} onChange={() => {}} />);
     expect(screen.getByText("未配置模型")).toBeTruthy();
   });
+
+  test("heals stale slug/id (provider renamed) to the current slug", () => {
+    const onChange = mock();
+    render(<ModelSelector value="old-slug/m1" onChange={onChange} />);
+    expect(onChange).toHaveBeenCalledWith("test/m1");
+  });
+
+  test("does not heal when the model id exists under multiple providers", () => {
+    useProvidersStore.setState({
+      providers: [
+        { id: "p1", name: "A", baseUrl: "http://x", apiKey: "k", api: "openai-completions", models: [{ id: "m1", contextWindow: 128000, maxTokens: 4096 }] },
+        { id: "p2", name: "B", baseUrl: "http://y", apiKey: "k", api: "openai-completions", models: [{ id: "m1", contextWindow: 128000, maxTokens: 4096 }] },
+      ],
+    });
+    const onChange = mock();
+    render(<ModelSelector value="old-slug/m1" onChange={onChange} />);
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });

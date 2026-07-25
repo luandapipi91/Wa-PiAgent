@@ -24,13 +24,15 @@ export function ModelSelector({ value, onChange, disabled }: Props) {
   }, [providers]);
   const fullValue = value ?? "";
 
-  // 兼容旧数据：如果已保存的是裸 model id（如 "deepseek-v4-pro"），
-  // 而选项值已改成 slug/id 格式，自动补上前缀。
+  // 兼容旧数据：已保存的值匹配不上任何选项时，按 id 部分兜底匹配——
+  // 覆盖裸 model id（"deepseek-v4-pro"）与过期 slug（"deep/deepseek-v4-pro"，provider 改名后残留），
+  // 唯一命中时自动重钉到正确的 slug/id，避免发送闸门被失效 prefs 卡死。
   useEffect(() => {
     if (!fullValue) return;
     const matchesFull = models.some(m => `${m.providerSlug}/${m.id}` === fullValue);
     if (matchesFull) return;
-    const matches = models.filter(m => m.id === fullValue);
+    const idPart = fullValue.slice(fullValue.lastIndexOf("/") + 1);
+    const matches = models.filter(m => m.id === idPart);
     if (matches.length === 1) {
       onChange(`${matches[0].providerSlug}/${matches[0].id}`);
     }
