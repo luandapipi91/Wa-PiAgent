@@ -10,7 +10,7 @@ import { useToastStore } from "../src/store/toast";
 import { registerAgentMeta, ensureChipStyles } from "../src/quick-invoke/tokens";
 
 beforeEach(() => {
-  useSessionStore.setState({ messagesBySession: {} });
+  useSessionStore.setState({ messagesBySession: {}, streamingBySession: {} });
   useProjectsStore.setState({ sessions: [] });
   useProvidersStore.setState({ providers: [] });
   useComposerPrefsStore.setState({ bySession: {} });
@@ -58,12 +58,13 @@ test("assistant 消息按 content block 渲染 thinking + text + toolCall", () =
   expect(screen.getByText("答案")).toBeTruthy();
   // thinking 默认折叠（不可见），点击展开后可见
   expect(screen.queryByText("我在想")).toBeNull();
-  fireEvent.click(screen.getByText(/思考过程/));
+  fireEvent.click(screen.getByTestId("thinking-panel-header"));
   expect(screen.getByText("我在想")).toBeTruthy();
-  // toolCall 默认折叠在分组中，展开分组后可见
-  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
-  expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
-  expect(screen.getByText(/read/)).toBeTruthy();
+  // 单个 toolCall 直接渲染单卡（不成组），默认折叠，点击头部展开后可见详情
+  expect(screen.queryByTestId("toolcall-group")).toBeNull();
+  expect(screen.getByTestId("toolcall-c1-header").textContent).toContain("read");
+  fireEvent.click(screen.getByTestId("toolcall-c1-header"));
+  expect(screen.getByTestId("toolcall-c1-body")).toBeTruthy();
 });
 
 test("toolResult 按 toolCallId 关联到前一个 assistant 消息，不单独成行", () => {
@@ -82,13 +83,12 @@ test("toolResult 按 toolCallId 关联到前一个 assistant 消息，不单独�
   // toolResult 不单独成行：只有 1 个 MessageRow（msg-s1-1），无 msg-s1-2
   expect(screen.getByTestId("msg-s1-1")).toBeTruthy();
   expect(screen.queryByTestId("msg-s1-2")).toBeNull();
-  // toolCall 默认折叠在分组中，先展开分组，再展开单个 toolCall 查看结果
-  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
-  fireEvent.click(screen.getByText(/read/));
+  // toolCall 单卡默认折叠，展开后可见结果
+  fireEvent.click(screen.getByTestId("toolcall-c1-header"));
   expect(screen.getByText("文件内容")).toBeTruthy();
 });
 
-test("成功的 toolCall（result 且非 isError）→ ✓ 图标 + 绿色（success）样式", () => {
+test("成功的 toolCall（result 且非 isError）→ ✓ 图标 + 绿色（success）样式 + 弱化", () => {
   useSessionStore.setState({
     messagesBySession: {
       s1: [
@@ -98,14 +98,18 @@ test("成功的 toolCall（result 且非 isError）→ ✓ 图标 + 绿色（suc
     },
   });
   render(<MessageList sessionId="s1" />);
-  // 先展开工具调用分组
-  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
-  expect(screen.getByText("✓")).toBeTruthy();
-  const btn = screen.getByTestId("toolcall-ok1").querySelector("button")!;
-  expect(btn.className).toContain("text-success");
+  // 成功的 toolCall：✓ 图标 + meta「完成」+ success tone + 弱化
+  const card = screen.getByTestId("toolcall-ok1");
+  const header = screen.getByTestId("toolcall-ok1-header");
+  expect(header.textContent).toContain("✓");
+  expect(header.textContent).toContain("完成");
+  expect(header.textContent).not.toContain("✗");
+  const iconBox = header.querySelector("span")!;
+  expect(iconBox.getAttribute("style")).toContain("var(--success)");
+  expect(card.getAttribute("data-muted")).toBe("true");
 });
 
-test("失败的 toolCall（result.isError）→ ✗ 图标 + 红色（danger）样式", () => {
+test("失败的 toolCall（result.isError）→ ✗ 图标 + 红色（danger）样式 + 弱化", () => {
   useSessionStore.setState({
     messagesBySession: {
       s1: [
@@ -115,11 +119,14 @@ test("失败的 toolCall（result.isError）→ ✗ 图标 + 红色（danger）�
     },
   });
   render(<MessageList sessionId="s1" />);
-  // 先展开工具调用分组
-  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
-  expect(screen.getByText("✗")).toBeTruthy();
-  const btn = screen.getByTestId("toolcall-e1").querySelector("button")!;
-  expect(btn.className).toContain("text-danger");
+  // 失败的 toolCall：✗ 图标 + meta「失败」+ danger tone + 弱化
+  const card = screen.getByTestId("toolcall-e1");
+  const header = screen.getByTestId("toolcall-e1-header");
+  expect(header.textContent).toContain("✗");
+  expect(header.textContent).toContain("失败");
+  const iconBox = header.querySelector("span")!;
+  expect(iconBox.getAttribute("style")).toContain("var(--danger)");
+  expect(card.getAttribute("data-muted")).toBe("true");
 });
 
 test("intercom toolCall 渲染 DelegateCard（委派卡片）", () => {
@@ -133,15 +140,13 @@ test("intercom toolCall 渲染 DelegateCard（委派卡片）", () => {
     },
   });
   render(<MessageList sessionId="s1" />);
-  // intercom toolCall 和普通 toolCall 共用 ToolCallBlock，无专门 delegate card
-  // 先展开工具调用分组
-  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
-  expect(screen.getByTestId("toolcall-d1")).toBeTruthy();
-  expect(screen.getByText(/intercom/)).toBeTruthy();
+  // intercom toolCall 和普通 toolCall 一样渲染 ToolCallCard（非 delegate 名），无专门 delegate card
+  expect(screen.queryByTestId("delegate-d1")).toBeNull();
+  expect(screen.getByTestId("toolcall-d1-header").textContent).toContain("intercom");
 });
 
-// 回归：被普通 toolCall 隔开的两段 text 应聚合成一个文本气泡（df8e6d6 的 segmentBlocks 曾错误地拆成两个）
-test("text → toolCall → text（无 delegate）→ 只有一个文本气泡", () => {
+// 时间线渲染：被普通 toolCall 隔开的两段 text 保持为独立气泡，按出现顺序排列
+test("text → toolCall → text（无 delegate）→ 两个文本气泡按时序排列", () => {
   useSessionStore.setState({
     messagesBySession: {
       s1: [
@@ -157,12 +162,15 @@ test("text → toolCall → text（无 delegate）→ 只有一个文本气泡",
   // 两段 text 都应可见
   expect(screen.getByText("前面这段")).toBeTruthy();
   expect(screen.getByText("后面这段")).toBeTruthy();
-  // 关键断言：只有一个文本气泡（聚合），而不是被 toolCall 拆成两个
-  expect(screen.getAllByTestId("text-bubble")).toHaveLength(1);
+  // 关键断言：按时间线保留两个文本气泡，而不是跨 toolCall 聚合成一个
+  const bubbles = screen.getAllByTestId("text-bubble");
+  expect(bubbles).toHaveLength(2);
+  expect(bubbles[0].textContent).toContain("前面这段");
+  expect(bubbles[1].textContent).toContain("后面这段");
 });
 
-// delegate 是切割锚点：delegate 前后的 text 各自聚合成独立气泡，普通 toolCall 不切割
-test("text → toolCall → text → delegate → text → toolCall → text → delegate → text → 三个文本气泡（普通 toolCall 不切割，delegate 切割）", () => {
+// delegate 仍是切割锚点；普通 toolCall 按时间线切割 text，不再跨 toolCall 聚合
+test("text → toolCall → text → delegate → text → toolCall → text → delegate → text → 按时间线保留四个文本气泡", () => {
   useSessionStore.setState({
     messagesBySession: {
       s1: [
@@ -180,14 +188,15 @@ test("text → toolCall → text → delegate → text → toolCall → text →
     },
   });
   render(<MessageList sessionId="s1" />);
-  // 四段 text：委派前(聚合 t1 前的 text) / 委派后1+委派后2(聚合，跨 t2) / 最后
-  // 实际：[text:委派前][toolCalls:t1][delegate:d1][text:委派后1+委派后2][toolCalls:t2][delegate:d2][text:最后]
-  // → 3 个文本气泡（委派前 / 委派后1+2 / 最后）
-  expect(screen.getAllByTestId("text-bubble")).toHaveLength(3);
-  expect(screen.getByText("委派前")).toBeTruthy();
-  expect(screen.getByText("委派后1")).toBeTruthy();
-  expect(screen.getByText("委派后2")).toBeTruthy();
-  expect(screen.getByText("最后")).toBeTruthy();
+  // 时间线顺序：
+  // [text:委派前][toolCalls:t1][delegate:d1][text:委派后1][toolCalls:t2][text:委派后2][delegate:d2][text:最后]
+  // → 4 个文本气泡，且顺序保持不变
+  const bubbles = screen.getAllByTestId("text-bubble");
+  expect(bubbles).toHaveLength(4);
+  expect(bubbles[0].textContent).toContain("委派前");
+  expect(bubbles[1].textContent).toContain("委派后1");
+  expect(bubbles[2].textContent).toContain("委派后2");
+  expect(bubbles[3].textContent).toContain("最后");
 });
 
 test("只有 toolCall 的 assistant 消息不渲染空白文字气泡", () => {
@@ -199,8 +208,7 @@ test("只有 toolCall 的 assistant 消息不渲染空白文字气泡", () => {
     },
   });
   render(<MessageList sessionId="s1" />);
-  // 展开工具调用分组后 toolCall 面板可见
-  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
+  // toolCall 单卡直接可见（不成组）
   expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
   // 不应有文字 block 容器
   expect(screen.queryByTestId("text-block")).toBeNull();
@@ -218,8 +226,7 @@ test("空字符串 text block 不渲染空白文字气泡", () => {
     },
   });
   render(<MessageList sessionId="s1" />);
-  // 展开工具调用分组后 toolCall 面板可见
-  fireEvent.click(screen.getByTestId("toolcall-group").querySelector("button")!);
+  // toolCall 单卡直接可见（不成组）
   expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
   expect(screen.queryByTestId("text-block")).toBeNull();
 });
@@ -920,4 +927,47 @@ test("组件挂载时自动注册 agentsStore 中的智能体 meta（chip 渲染
     const avatar = document.querySelector(".chip-agent .chip-agent-avatar");
     expect(avatar?.textContent).toBe("📋");
   });
+});
+
+// ── 过程块 ProcessCard 迁移：自动折叠 / 弱化 ──
+
+test("流式中 thinking 块默认展开", () => {
+  useSessionStore.setState({
+    messagesBySession: { s1: [] },
+    streamingBySession: {
+      s1: assistantMsg(10, [{ type: "thinking", thinking: "让我想想" }]),
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.getByTestId("thinking-panel-body").textContent).toContain("让我想想");
+});
+
+test("流式中工具调用块默认展开，完成后（历史）折叠且弱化", () => {
+  const tc = { type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls" } };
+  const tr = { role: "toolResult" as const, toolCallId: "tc1", toolName: "bash", content: [{ type: "text" as const, text: "ok" }], isError: false, timestamp: 11 };
+  // 历史：非流式 → 折叠 + muted
+  useSessionStore.setState({
+    messagesBySession: { s1: [assistantMsg(10, [tc]), { agentName: "product", message: tr }] },
+  });
+  const { unmount } = render(<MessageList sessionId="s1" />);
+  expect(screen.queryByTestId("toolcall-tc1-body")).toBeNull();
+  expect(screen.getByTestId("toolcall-tc1").getAttribute("data-muted")).toBe("true");
+  unmount();
+  // 流式中同一块 → 展开
+  useSessionStore.setState({
+    messagesBySession: { s1: [] },
+    streamingBySession: { s1: assistantMsg(10, [tc]) },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.getByTestId("toolcall-tc1-body")).toBeTruthy();
+});
+
+test("用户点击折叠的卡片后内容展开（尊重手动选择）", () => {
+  useSessionStore.setState({
+    messagesBySession: { s1: [assistantMsg(10, [{ type: "thinking", thinking: "历史思考" }])] },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.queryByTestId("thinking-panel-body")).toBeNull();
+  fireEvent.click(screen.getByTestId("thinking-panel-header"));
+  expect(screen.getByTestId("thinking-panel-body").textContent).toContain("历史思考");
 });

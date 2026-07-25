@@ -21,12 +21,13 @@ import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, EXTENSION_TOOL_MA
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
-import { relative, isAbsolute, join } from "node:path";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { relative, join } from "node:path";
+import { mkdir, writeFile, rm, appendFile } from "node:fs/promises";
 import { buildAdditionalExtensionPaths } from "./extensions";
 import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import { reconcileDanglingAsks } from "./ask-tool";
 import { makeDelegateTool, makeFleetTool, buildDelegateRoster, makeSpawnFn } from "./delegate-tool";
+import { SubagentTelemetry } from "./subagent-telemetry";
 import type { HiAgentSpawnConfig } from "./subagent-runner";
 import { seedBuiltinAgents } from "./builtin-agents";
 import { readBuiltinAgentPrompt } from "./subagent-info";
@@ -116,6 +117,8 @@ interface SessionHandle {
   crashed: boolean;
   /** dispose 标记（防止 onExit 误判为崩溃） */
   disposed: boolean;
+  /** 子代理派发遥测收集器（会话销毁时 flush 到 subagent-telemetry.jsonl） */
+  subagentTelemetry: SubagentTelemetry;
 }
 
 export class AgentManager {
@@ -404,9 +407,12 @@ export class AgentManager {
       };
     };
 
+    // 会话级子代理遥测收集器：随 spawnFn 生命周期创建，_teardownSession 时 flush
+    const subagentTelemetry = new SubagentTelemetry();
     const spawnFn = makeSpawnFn({
       resolveConfig: resolveSpawnConfig,
       cwd,
+      onSpawnComplete: (input) => subagentTelemetry.record(input),
     });
 
     // 内置 subagent 的委派引导从 ~/.hiagent/agents/*.md 的 frontmatter 提取（与命名智能体统一来源）
@@ -451,14 +457,16 @@ export class AgentManager {
     };
 
     // 组合系统提示词并写入临时文件（pi 的 --system-prompt 支持文件路径，规避命令行长度限制）。
-    // 提示词组装的优先级与迁移前一致：
-    //   1. prompts.json 的 base.content（用户全局覆盖）
-    //   2. config.systemPromptMode === "append" + systemPromptBody 时用 systemPromptBody
-    //   3. HIAGENT_DEFAULT_BASE_PROMPT（代码兜底）
-    const defaultBasePrompt =
-      config?.systemPromptMode === "append" && config.systemPromptBody
-        ? config.systemPromptBody!
-        : HIAGENT_DEFAULT_BASE_PROMPT;
+    // 角色提示词（agent.md 正文 systemPromptBody）注入 base 段：
+    //   - systemPromptMode === "replace"（seed 与新建角色的默认）：正文替代默认 base 提示词
+    //   - systemPromptMode === "append"：正文追加在默认 base 提示词之后
+    // 注意：prompts.json 的 base.content（用户全局覆盖）优先级最高——
+    // renderSegment 里 segment.content 非空时直接使用，不看 defaultBasePrompt。
+    const defaultBasePrompt = !config?.systemPromptBody
+      ? HIAGENT_DEFAULT_BASE_PROMPT
+      : config.systemPromptMode === "append"
+        ? `${HIAGENT_DEFAULT_BASE_PROMPT}\n\n${config.systemPromptBody}`
+        : config.systemPromptBody;
     const composedPrompt = composePrompt(promptSegments, {
       defaultBasePrompt,
       delegateRoster,
@@ -507,6 +515,7 @@ export class AgentManager {
       promptFile,
       crashed: false,
       disposed: false,
+      subagentTelemetry,
     };
     const client = createClient({
       cliPath: resolvePiCliPath(),
@@ -516,6 +525,7 @@ export class AgentManager {
         systemPromptFile: promptFile,
         extensionPaths: buildAdditionalExtensionPaths([...enabledExtensionIds]),
         skillPaths: additionalSkillPaths,
+        noSkills: true,
         thinking,
         name: `${agentName}-${sessionId.slice(0, 8)}`,
         ...toolArgs,
@@ -840,6 +850,25 @@ export class AgentManager {
     return this.sessions.get(sessionId)?.busy ?? false;
   }
 
+  /** 会话销毁时把子代理派发遥测追加到 HIAGENT_DIR/subagent-telemetry.jsonl（fire-and-forget） */
+  private _flushSubagentTelemetry(sessionId: string, handle: SessionHandle): void {
+    const records = handle.subagentTelemetry.records;
+    if (records.length === 0) return;
+    const summary = handle.subagentTelemetry.summary;
+    const lines = [
+      ...records.map((r) => JSON.stringify({ sessionId, ...r })),
+      JSON.stringify({ type: "session_summary", sessionId, ts: new Date().toISOString(), ...summary }),
+    ];
+    console.log(
+      `[telemetry] session ${sessionId.slice(0, 8)}: ${summary.spawnCount} 次派发，` +
+      `成功率 ${(summary.successRate * 100).toFixed(0)}%，` +
+      `估计节省父上下文 ${summary.totalSavingsTokensEst} tokens，` +
+      `压缩率 ${summary.aggregateCompressionRatio.toFixed(2)}`,
+    );
+    void appendFile(join(HIAGENT_DIR, "subagent-telemetry.jsonl"), lines.join("\n") + "\n", "utf8")
+      .catch(() => {});
+  }
+
   /** 拆除单个会话的内部资源（注销 bridge ctx + kill 进程 + 清临时文件与各 Map），不动 disposed 标记 */
   private _teardownSession(sessionId: string): void {
     askRegistry.cancelAll(sessionId);  // 拆除资源时作废 pending ask
@@ -847,6 +876,7 @@ export class AgentManager {
     const handle = this.sessions.get(sessionId);
     if (handle) {
       handle.disposed = true;
+      this._flushSubagentTelemetry(sessionId, handle);
       // dispose 是异步 kill，fire-and-forget（调用方多为同步拆除路径）
       void handle.client.dispose().catch(() => {});
       if (handle.promptFile) {
@@ -952,7 +982,8 @@ async function buildMemorySnapshot(hiagentDir: string, projectCwd: string): Prom
 
 /**
  * 解析启用 skill 的目录路径列表，供 pi --skill 参数使用。
- * 包含 userSkillDirs 和扩展包 skills/ 目录来源的技能（builtin 由 pi 自动扫）。
+ * 包含内置目录、userSkillDirs 和扩展包 skills/ 目录来源的**启用**技能。
+ * Pi SDK 默认扫描已关闭（--no-skills），所以必须显式传入所有要加载的技能路径。
  * skillManager 为空（测试场景）时返回空数组。
  */
 async function resolveEnabledSkillPaths(
@@ -965,24 +996,10 @@ async function resolveEnabledSkillPaths(
   const extSkillPaths = extensionManager
     ? await extensionManager.getEnabledExtensionSkillPaths()
     : [];
-  const extPathStrings = extSkillPaths.map((p) => p.path);
 
-  // scan 时传入扩展技能路径，让扫描结果包含扩展来源技能
-  const { skills, dirs, builtinDir } = await skillManager.scan(extSkillPaths);
-  const userDirs = dirs.filter((d) => d !== builtinDir);
+  // scan 已按 builtin → userDirs → ext 顺序去重并过滤 disabledSkills
+  const { skills } = await skillManager.scan(extSkillPaths);
 
-  // 收集 userSkillDirs + 扩展来源的技能路径
-  return skills
-    .filter(
-      (s) =>
-        userDirs.some((d) => isUnderPath(s.path, d)) ||
-        extPathStrings.some((d) => isUnderPath(s.path, d)),
-    )
-    .map((s) => s.path);
-}
-
-/** 判断 child 是否在 parent 目录下（含相等）。跨平台用 relative 判定，避免盘符/大小写/分隔符差异。 */
-function isUnderPath(child: string, parent: string): boolean {
-  const rel = relative(parent, child);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+  // 把所有启用 skill 的具体目录路径传给 Pi，覆盖 --no-skills 后的空加载
+  return skills.map((s) => s.path);
 }

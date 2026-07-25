@@ -158,6 +158,61 @@ test("手风琴：展开兄弟文件夹时，已展开的兄弟被折叠", async
 
 // ── 搜索范围限定到用户选择的文件夹 ──
 
+test("搜索结果中的目录可继续展开，懒加载真实子目录", async () => {
+  // 独立 transport：fs:search 不自动回放，由测试手动 emit 流式进度
+  const hSet = new Set<(e: any) => void>();
+  const hEmit = (e: any) => hSet.forEach(h => h(e));
+  const tSend = mock((e: any) => {
+    sendCalls.push(e);
+    switch (e.type) {
+      case "fs:home": hEmit({ type: "fs:home", home: HOME }); break;
+      case "fs:roots": hEmit({ type: "fs:roots", roots: ["C:\\", "D:\\"] }); break;
+      case "fs:listDir": hEmit({ type: "fs:listDir", path: e.path, entries: entriesFor(e.path) }); break;
+      case "fs:search": break; // 不自动响应，测试手动控制
+      default: break;
+    }
+  });
+  _setFsTransport({ send: tSend, onMessage: (h: (e: any) => void) => { hSet.add(h); return () => hSet.delete(h); } });
+
+  try {
+    render(<FilePicker onPick={() => {}} onCancel={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByText(/📁\s*projects/)).toBeTruthy();
+    }, { timeout: 3000 });
+
+    fireEvent.change(screen.getByTestId("file-picker-search"), { target: { value: "demo" } });
+    let req: any;
+    await waitFor(() => {
+      req = sendCalls.find((e: any) => e.type === "fs:search");
+      expect(req).toBeTruthy();
+    }, { timeout: 3000 });
+
+    // 搜索命中叶子目录 demo（无匹配子项）→ 出现在结果中
+    hEmit({ type: "fs:search:progress", requestId: req.requestId, query: "demo", matches: [{ name: "demo", isDir: true, path: "C:\\Users\\test\\projects\\demo" }] });
+    await waitFor(() => {
+      expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    }, { timeout: 3000 });
+
+    // 展开搜索结果里的 demo → 应懒加载其真实子目录
+    const demoText = screen.getByText(/📁\s*demo/);
+    const arrow = demoText.closest(".rct-tree-item-title-container")?.querySelector(".rct-tree-item-arrow");
+    expect(arrow).toBeTruthy();
+    fireEvent.click(arrow!);
+
+    await waitFor(() => {
+      expect(sendCalls.some((e: any) => e.type === "fs:listDir" && e.path === "C:\\Users\\test\\projects\\demo")).toBe(true);
+    }, { timeout: 3000 });
+    // 真实子项（文件夹 + 文件）都应显示
+    await waitFor(() => {
+      expect(screen.getByText(/📁\s*alpha/)).toBeTruthy();
+      expect(screen.getByText(/📁\s*bravo/)).toBeTruthy();
+      expect(screen.getByText(/📄\s*z-note\.txt/)).toBeTruthy();
+    }, { timeout: 3000 });
+  } finally {
+    _setFsTransport(transport); // 恢复共享 transport
+  }
+});
+
 test("搜索根跟随用户聚焦的目录", async () => {
   render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
 

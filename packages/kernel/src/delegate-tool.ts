@@ -13,8 +13,9 @@
 import { Type } from "typebox";
 import { isSubagentType, SUBAGENT_TYPES, normalizeSubagentType } from "@hiagent/shared";
 import type { DelegationHints } from "@hiagent/shared";
-import type { HiAgentSpawnConfig, SubagentProgressEvent } from "./subagent-runner";
+import type { HiAgentSpawnConfig, SubagentProgressEvent, SubagentUsage } from "./subagent-runner";
 import { runSubagentAgent } from "./subagent-runner";
+import type { SpawnTelemetryInput } from "./subagent-telemetry";
 
 /** fleet 并发上限（参考 DeepSeek-Reasonix / pi-dynamic-workflows 默认值） */
 export const MAX_SUBAGENT_CONCURRENCY = 6;
@@ -29,6 +30,9 @@ export interface DelegateTarget {
 export interface DelegateSpawnResult {
   text: string;
   isError: boolean;
+  /** 子代理 token 用量（pi get_session_stats 采集失败时为 undefined） */
+  usage?: SubagentUsage;
+  elapsedMs?: number;
 }
 
 export type DelegateSpawnFn = (agent: string, task: string) => Promise<DelegateSpawnResult>;
@@ -95,11 +99,14 @@ export function buildDelegateRoster(
   return "## Available Subagents\n\nInvoke via the delegate tool:\n<subagents>\n" + blocks.join("\n") + "\n</subagents>";
 }
 
-/** delegate 工具描述：详细功能说明 + 何时委派/何时不委派的通用规则 */
+/** delegate 工具描述：默认派发规则 + 何时委派/何时不委派（与 bridge-extension.ts 逐字同步） */
 function delegateDescription(): string {
   return [
     "Run a specialized subagent in an isolated context to handle a delegated task, then return its result.",
     "The subagent runs with its own tools and system prompt; the main agent cannot continue until it returns.",
+    "\n",
+    "Default to delegating multi-step exploration (requests needing several reads/searches) to this",
+    "tool—it keeps noisy tool sequences out of your context. Do single lookups and 1-2 file reads yourself.",
     "\n",
     "Use delegate when delegation fits:",
     "- The task is exploratory or codebase-wide (search, survey, architecture understanding).",
@@ -160,16 +167,33 @@ export function makeSpawnFn(opts: {
   cwd: string;
   signal?: AbortSignal;
   onProgress?: (event: SubagentProgressEvent) => void;
+  /** 每次派发（含失败）结束后回调，用于会话级遥测收集（agent-manager 注入） */
+  onSpawnComplete?: (input: SpawnTelemetryInput) => void;
+  /** 测试覆盖：pi CLI 入口 / 运行时（透传给 runSubagentAgent） */
+  runnerOpts?: { cliPath?: string; runtime?: string };
 }): DelegateSpawnFn {
   return async (agent: string, task: string) => {
     const config = await opts.resolveConfig(agent);
     if (!config) {
-      return { text: `智能体「${agent}」配置未找到`, isError: true };
+      const result = { text: `智能体「${agent}」配置未找到`, isError: true };
+      opts.onSpawnComplete?.({ agent, task, isError: true, returnText: result.text });
+      return result;
     }
-    return runSubagentAgent(config, task, opts.cwd, {
+    const result = await runSubagentAgent(config, task, opts.cwd, {
       signal: opts.signal,
       onProgress: opts.onProgress,
+      cliPath: opts.runnerOpts?.cliPath,
+      runtime: opts.runnerOpts?.runtime,
     });
+    opts.onSpawnComplete?.({
+      agent,
+      task,
+      isError: result.isError,
+      returnText: result.text,
+      elapsedMs: result.elapsedMs,
+      childUsage: result.usage,
+    });
+    return result;
   };
 }
 

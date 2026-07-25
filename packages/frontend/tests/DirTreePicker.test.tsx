@@ -425,7 +425,96 @@ test("开启显示隐藏目录后，隐藏目录可被选择", async () => {
   expect(onPick).toHaveBeenCalledWith("C:\\.hidden-root");
 });
 
+test("搜索中切换显示隐藏目录开关会以新的 showHidden 重新触发搜索", async () => {
+  render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
+
+  await waitFor(() => {
+    expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+  }, { timeout: 3000 });
+
+  // 输入搜索词，等待首次搜索发出（showHidden: false）
+  fireEvent.change(screen.getByTestId("dir-search"), { target: { value: "Win" } });
+  await waitFor(() => {
+    expect(sendCalls.some((e: any) => e.type === "fs:search" && e.showHidden === false)).toBe(true);
+  }, { timeout: 3000 });
+
+  // 搜索中切换「显示隐藏目录」开关
+  sendCalls.length = 0;
+  fireEvent.click(screen.getByText("显示隐藏目录"));
+
+  // 应以 showHidden: true 重新触发搜索
+  await waitFor(() => {
+    expect(sendCalls.some((e: any) => e.type === "fs:search" && e.showHidden === true)).toBe(true);
+  }, { timeout: 3000 });
+});
+
 // ── 搜索范围与折叠态保持 ──
+
+test("搜索结果中的目录可继续展开，懒加载真实子目录", async () => {
+  // 独立 transport：fs:search 手动 emit；fs:listDir 额外覆盖搜索匹配目录的子项
+  const hSet = new Set<(e: any) => void>();
+  const hEmit = (e: any) => hSet.forEach(h => h(e));
+  const tSend = mock((e: any) => {
+    sendCalls.push(e);
+    switch (e.type) {
+      case "fs:home": hEmit({ type: "fs:home", home: "C:\\Users\\test" }); break;
+      case "fs:roots": hEmit({ type: "fs:roots", roots: ["C:\\", "D:\\"] }); break;
+      case "fs:listDir": {
+        const entries = e.path === "C:\\Users\\test\\subdir"
+          ? [{ name: "inner", isDir: true }, { name: "note.txt", isDir: false }]
+          : entriesFor(e.path, e.showHidden);
+        hEmit({ type: "fs:listDir", path: e.path, entries });
+        break;
+      }
+      case "fs:search": break; // 不自动响应，测试手动控制
+      default: break;
+    }
+  });
+  _setFsTransport({ send: tSend, onMessage: (h: (e: any) => void) => { hSet.add(h); return () => hSet.delete(h); } });
+
+  try {
+    render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+    }, { timeout: 3000 });
+
+    fireEvent.change(screen.getByTestId("dir-search"), { target: { value: "sub" } });
+    let req: any;
+    await waitFor(() => {
+      req = sendCalls.find((e: any) => e.type === "fs:search");
+      expect(req).toBeTruthy();
+    }, { timeout: 3000 });
+
+    // 搜索命中叶子目录 subdir（无匹配子项）→ 出现在结果中
+    hEmit({ type: "fs:search:progress", requestId: req.requestId, query: "sub", matches: [{ name: "subdir", isDir: true, path: "C:\\Users\\test\\subdir" }] });
+    await waitFor(() => {
+      expect(screen.getByText(/📁\s*subdir/)).toBeTruthy();
+    }, { timeout: 3000 });
+
+    // 展开搜索结果里的 subdir → 应懒加载其真实子目录
+    const subdirText = screen.getByText(/📁\s*subdir/);
+    const arrow = subdirText.closest(".rct-tree-item-title-container")?.querySelector(".rct-tree-item-arrow");
+    expect(arrow).toBeTruthy();
+    fireEvent.click(arrow!);
+
+    await waitFor(() => {
+      expect(sendCalls.some((e: any) => e.type === "fs:listDir" && e.path === "C:\\Users\\test\\subdir")).toBe(true);
+    }, { timeout: 3000 });
+    // 真实子目录 inner 应显示（默认 showFiles=false，文件 note.txt 不显示）
+    await waitFor(() => {
+      expect(screen.getByText(/📁\s*inner/)).toBeTruthy();
+    }, { timeout: 3000 });
+    expect(screen.queryByText(/note\.txt/)).toBeNull();
+
+    // 点击下钻出的 inner 目录 → 选中路径应更新，「选择」返回该目录
+    fireEvent.click(screen.getByText(/📁\s*inner/));
+    await waitFor(() => {
+      expect(document.querySelector(".text-blue.font-mono")?.textContent).toBe("C:\\Users\\test\\subdir\\inner");
+    }, { timeout: 3000 });
+  } finally {
+    _setFsTransport(transport); // 恢复共享 transport
+  }
+});
 
 test("搜索限定到当前选中文件夹的子树，而非所有盘符根", async () => {
   render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);

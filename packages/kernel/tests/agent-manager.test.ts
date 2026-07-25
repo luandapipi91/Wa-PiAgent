@@ -790,6 +790,23 @@ test("config systemPromptMode=append 时 systemPromptBody 作为 base 段", asyn
   expect(prompt).toContain("自定义 BODY 提示词");
 });
 
+test("config systemPromptMode=replace 时 systemPromptBody 替代默认 base 提示词", async () => {
+  const configStore = {
+    getAgent: mock(async () => ({
+      displayName: "dev",
+      systemPromptMode: "replace",
+      systemPromptBody: "你是前端开发者角色提示词",
+    })),
+  } as any;
+  const { project, session, am } = await setup({ configStore });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const prompt = readSysprompt(session.id);
+  expect(prompt).toContain("你是前端开发者角色提示词");
+  // replace：默认 base 兜底文案不再出现
+  expect(prompt).not.toContain("You are an expert coding assistant");
+});
+
 test("askTo 非空时 delegate-roster 段含命名智能体与委托引导", async () => {
   const configs: Record<string, any> = {
     dev: { displayName: "dev", partners: { askTo: ["代码审查"] } },
@@ -954,7 +971,7 @@ test("ensureStarted 把启用 skill 路径作为 --skill 传给 pi", async () =>
   expect(skills).toContain(join(userDir, "my-skill"));
 });
 
-test("--skill 不含 builtin 来源的 skill（由 pi 自动扫，避免碰撞）", async () => {
+test("--skill 包含 builtin 来源的 skill（因为已禁用 Pi 默认扫描，必须由 HiAgent 显式传入）", async () => {
   const skillRoot = tmpSkillRoot();
   tmpPaths.push(skillRoot);
   createSkillAt(join(skillRoot, "skills"), "builtin-skill", "内置"); // builtin
@@ -967,16 +984,20 @@ test("--skill 不含 builtin 来源的 skill（由 pi 自动扫，避免碰撞�
   const { project, session, am, fakes } = await setup({ skillManager });
   await am.ensureStarted(project.id, "dev", session.id);
 
-  const skills = argValues(fakes[0].opts.args ?? [], "--skill");
+  const args = fakes[0].opts.args ?? [];
+  expect(args).toContain("--no-skills");
+  const skills = argValues(args, "--skill");
   expect(skills).toContain(join(userDir, "user-skill"));
-  expect(skills).not.toContain(join(join(skillRoot, "skills"), "builtin-skill"));
+  expect(skills).toContain(join(join(skillRoot, "skills"), "builtin-skill"));
 });
 
-test("skillManager 为空时不传 --skill（不破坏无 skillManager 场景）", async () => {
+test("skillManager 为空时仍传 --no-skills 但不传 --skill", async () => {
   const { project, session, am, fakes } = await setup(); // 不传 skillManager
   await am.ensureStarted(project.id, "dev", session.id);
 
-  expect(fakes[0].opts.args ?? []).not.toContain("--skill");
+  const args = fakes[0].opts.args ?? [];
+  expect(args).toContain("--no-skills");
+  expect(args).not.toContain("--skill");
 });
 
 // ─── 进程崩溃 ───────────────────────────────────────────────────────────────

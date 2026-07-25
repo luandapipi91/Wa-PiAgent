@@ -26,6 +26,18 @@ function handle(cmd: any): void {
         data: { model: null, thinkingLevel: "medium", isStreaming: false, pendingMessageCount: 0 },
       });
       break;
+    case "get_session_stats":
+      emit({
+        id: cmd.id,
+        type: "response",
+        command: "get_session_stats",
+        success: true,
+        data: {
+          tokens: { input: 1000, output: 250, cacheRead: 500, cacheWrite: 0, total: 1750 },
+          cost: { total: 0.0042 },
+        },
+      });
+      break;
     case "prompt":
       emit({ id: cmd.id, type: "response", command: "prompt", success: true });
       emit({ type: "agent_start" });

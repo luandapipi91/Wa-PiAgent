@@ -94,14 +94,83 @@ test("renameAgent: 删旧写新；新名冲突返回错误", async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("seedDefaults: 空目录写入 4 个默认 agent；非空目录不写", async () => {
+test("seedDefaults: 空目录写入全部 7 个内置专家角色", async () => {
   const dir = tempAgentsDir();
   const cs = new ConfigStore(dir);
   await cs.seedDefaults();
   const names = (await cs.listAgents()).map(a => a.displayName).sort();
-  expect(names).toEqual(["技术实现", "质量验收", "需求设计", "项目管理"]);
-  await cs.seedDefaults();  // 幂等
-  expect((await cs.listAgents()).length).toBe(4);
+  expect(names).toEqual([
+    "UX设计师", "产品经理", "前端开发者", "数据分析师", "测试结果分析师",
+    "代码审查员", "后端架构师",
+  ].sort());
+  // 7 个角色有完整种子内容：description 非空、delegationHints 三项齐全、不配置 askTo
+  for (const name of ["前端开发者", "后端架构师", "产品经理", "测试结果分析师", "数据分析师", "代码审查员", "UX设计师"]) {
+    const agent = (await cs.getAgent(name))!;
+    expect(agent.description).toBeTruthy();
+    expect(agent.systemPromptBody).toBeTruthy();
+    expect(agent.delegationHints?.whenToDelegate).toBeTruthy();
+    expect(agent.delegationHints?.whenNotTo).toBeTruthy();
+    expect(agent.delegationHints?.benefit).toBeTruthy();
+    expect(agent.partners.askTo).toEqual([]);
+  }
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("seedDefaults: 重复执行不覆盖用户已修改的同名角色", async () => {
+  const dir = tempAgentsDir();
+  const cs = new ConfigStore(dir);
+  await cs.seedDefaults();
+  // 用户修改了某个角色
+  const modified = (await cs.getAgent("前端开发者"))!;
+  await cs.saveAgent({ ...modified, description: "用户自定义描述" });
+  // 用户删掉了某个角色 → 下次 seed 会补回
+  await cs.deleteAgent("UX设计师");
+  await cs.seedDefaults();
+  expect((await cs.getAgent("前端开发者"))!.description).toBe("用户自定义描述");
+  expect(await cs.getAgent("UX设计师")).not.toBeNull();
+  expect((await cs.listAgents()).length).toBe(7);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("seedDefaults: 存量环境只补缺失角色，不新建已移除的旧角色、不改动已有角色", async () => {
+  const dir = tempAgentsDir();
+  const cs = new ConfigStore(dir);
+  // 模拟存量用户：有旧版角色（已从内建名单移除）+ 自定义角色 + 被改过的内建角色
+  await cs.saveAgent(makeDefaultAgentConfig("技术实现"));
+  await cs.saveAgent(makeDefaultAgentConfig("我的助手"));
+  const customized = makeDefaultAgentConfig("前端开发者");
+  await cs.saveAgent({ ...customized, description: "老用户的自定义实现" });
+
+  await cs.seedDefaults();
+
+  const names = (await cs.listAgents()).map(a => a.displayName);
+  // 7 个内建 + 旧角色 + 自定义角色 = 9；旧 4 角色不会被重新创建（本例中 技术实现 是用户已有的）
+  expect(names).toHaveLength(9);
+  for (const name of ["前端开发者", "后端架构师", "产品经理", "测试结果分析师", "数据分析师", "代码审查员", "UX设计师"]) {
+    expect(names).toContain(name);
+  }
+  for (const removed of ["需求设计", "项目管理", "质量验收"]) {
+    expect(names).not.toContain(removed);
+  }
+  // 已有角色内容未被改动
+  expect((await cs.getAgent("前端开发者"))!.description).toBe("老用户的自定义实现");
+  expect((await cs.getAgent("技术实现"))!.description).toBe("");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("seedDefaults: HIAGENT_SKIP_AGENT_SEED=1 时整体跳过（E2E 最小环境用）", async () => {
+  const dir = tempAgentsDir();
+  const cs = new ConfigStore(dir);
+  process.env.HIAGENT_SKIP_AGENT_SEED = "1";
+  try {
+    await cs.seedDefaults();
+    expect(await cs.listAgents()).toHaveLength(0);
+  } finally {
+    delete process.env.HIAGENT_SKIP_AGENT_SEED;
+  }
+  // 环境变量移除后恢复正常 seed
+  await cs.seedDefaults();
+  expect(await cs.listAgents()).toHaveLength(7);
   rmSync(dir, { recursive: true, force: true });
 });
 
