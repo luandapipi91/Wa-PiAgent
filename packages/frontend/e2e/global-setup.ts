@@ -63,8 +63,10 @@ async function globalSetup() {
   writeFileSync(join(E2E_HIAGENT_DIR, "projects-memory", "e2e-project", "MEMORY.md"), "E2E 项目记忆条目", "utf8");
 
   // 启动 kernel，注入独立 HIAGENT_DIR（覆盖 ~/.hiagent）与 WS 端口（默认 9776，可偏移避开本机真实 kernel）
+  // HIAGENT_SKIP_AGENT_SEED=1：关闭内置角色 seed，保持隔离环境只有预置的 dev.md，
+  // 否则 kernel 启动会补齐 11 个内置角色，打破 agents.spec.ts「初始仅 1 个智能体」的前提
   const child = spawn("bun", ["run", "--filter", "@hiagent/kernel", "dev"], {
-    env: { ...process.env, HIAGENT_DIR: E2E_HIAGENT_DIR, HIAGENT_WS_PORT: String(E2E_WS_PORT) },
+    env: { ...process.env, HIAGENT_DIR: E2E_HIAGENT_DIR, HIAGENT_WS_PORT: String(E2E_WS_PORT), HIAGENT_SKIP_AGENT_SEED: "1" },
     stdio: ["ignore", "pipe", "pipe"],
     shell: true, // Windows 下 bun 是 npm 装的 .cmd shim，需要 shell 解析，否则 spawn ENOENT
   });

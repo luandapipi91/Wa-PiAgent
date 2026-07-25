@@ -39,6 +39,7 @@ export function SkillSection() {
   const [dirExpanded, setDirExpanded] = useState(true);
   const [showDirPicker, setShowDirPicker] = useState(false);
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
 
   const toggleExpand = (name: string) => {
     setExpandedSkills(prev => {
@@ -48,10 +49,16 @@ export function SkillSection() {
     });
   };
 
+  // 搜索过滤：按技能名称匹配（大小写不敏感）
+  const keyword = search.trim().toLowerCase();
+  const filteredSkills = keyword
+    ? allSkills.filter(s => s.name.toLowerCase().includes(keyword))
+    : allSkills;
+
   // 按分组归类技能
   const grouped = new Map<string, SkillInfo[]>();
   for (const g of GROUPS) grouped.set(g.key, []);
-  for (const skill of allSkills) {
+  for (const skill of filteredSkills) {
     const key = getGroupKey(skill.source);
     const bucket = grouped.get(key);
     if (bucket) bucket.push(skill);
@@ -63,16 +70,43 @@ export function SkillSection() {
 
   return (
     <div className="flex flex-col gap-3 p-4 overflow-auto">
-      {/* 技能目录（上方，默认展开） */}
+      {/* 技能目录（上方，默认展开）：标题与操作 icon 同行，icon 右对齐 */}
       <div className="flex flex-col gap-1">
-        <button
-          onClick={() => setDirExpanded(!dirExpanded)}
-          className="flex items-center gap-2 text-sm text-primary text-left"
-          data-testid="skill-dir-toggle"
-        >
-          <span>技能目录{!dirExpanded ? `：${builtinDir}` : ""}</span>
-          <span>{dirExpanded ? "▾" : "▸"}</span>
-        </button>
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => setDirExpanded(!dirExpanded)}
+            className="flex items-center gap-2 text-sm text-primary text-left"
+            data-testid="skill-dir-toggle"
+          >
+            <span>技能目录{!dirExpanded ? `：${builtinDir}` : ""}</span>
+            <span>{dirExpanded ? "▾" : "▸"}</span>
+          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowDirPicker(true)}
+              className="p-1 text-secondary hover:text-primary"
+              title="添加技能目录"
+              aria-label="添加技能目录"
+              data-testid="skill-add-dir-btn"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14" /><path d="M12 5v14" />
+              </svg>
+            </button>
+            <button
+              onClick={() => load()}
+              className="p-1 text-secondary hover:text-primary"
+              title="刷新技能"
+              aria-label="刷新技能"
+              data-testid="skill-refresh-btn"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" />
+                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M8 16H3v5" />
+              </svg>
+            </button>
+          </div>
+        </div>
 
         {dirExpanded && (
           <div className="flex flex-col gap-1 pl-4">
@@ -90,27 +124,26 @@ export function SkillSection() {
                 )}
               </div>
             ))}
-            <button
-              onClick={() => setShowDirPicker(true)}
-              className="self-end px-2 py-1 text-xs text-secondary border border-hairline rounded-sm hover:text-primary mt-1"
-              data-testid="skill-add-dir-btn"
-            >+ 添加技能目录</button>
           </div>
         )}
       </div>
 
-      {/* 刷新按钮 */}
-      <div className="flex items-center justify-end">
-        <button
-          onClick={() => load()}
-          className="text-xs text-secondary hover:text-primary border border-hairline rounded-sm px-2 py-0.5"
-          data-testid="skill-refresh-btn"
-        >刷新技能</button>
-      </div>
+      {/* 搜索框：输入即实时过滤技能 */}
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="搜索技能..."
+        className="px-2 py-1 text-sm text-primary bg-transparent border border-hairline rounded-sm outline-none"
+        data-testid="skill-search-input"
+      />
 
       {/* 技能分组列表 */}
       {allSkills.length === 0 && (
         <span className="text-sm text-tertiary py-2">暂无技能，添加技能目录后自动扫描</span>
+      )}
+      {allSkills.length > 0 && filteredSkills.length === 0 && (
+        <span className="text-sm text-tertiary py-2">无匹配的技能</span>
       )}
 
       {visibleGroups.map(group => {

@@ -1,7 +1,10 @@
-import { test, expect, mock, beforeEach } from "bun:test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { Sidebar } from "../src/components/Sidebar";
 import { useProjectsStore } from "../src/store/projects";
+
+// 渲染后清理 DOM：happy-dom 全局 document 跨测试文件共享，不清理会污染后续文件
+afterEach(() => cleanup());
 
 beforeEach(() => {
   useProjectsStore.setState({ projects: [], sessions: [], currentProjectId: null, currentSessionId: null });

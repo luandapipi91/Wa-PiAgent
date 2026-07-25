@@ -16,8 +16,8 @@ import { E2E_HIAGENT_DIR, E2E_WS_PORT } from "../playwright.config";
 // 7. 删除智能体：右键删除 → 二次确认 → 列表消失；会话保留 → 发消息出 agent_missing 重选弹窗 → 点选恢复
 //
 // 环境说明（与简报的偏差）：
-// - global-setup 在 kernel 启动前预置了 agents/dev.md，kernel seedDefaults 因目录非空被跳过，
-//   隔离环境初始只有 1 个智能体（dev），不会 seed product/pm/dev/test 四个。
+// - global-setup 在 kernel 启动前预置了 agents/dev.md，并以 HIAGENT_SKIP_AGENT_SEED=1 启动 kernel，
+//   隔离环境初始只有 1 个智能体（dev），不会 seed 11 个内置角色。
 // - 因此场景 1 的「第 4 个智能体」经 WS agent:create 补数据（UI 新建入口此时不可达：
 //   侧栏空态新建仅 0 个智能体时出现，宫格入口 agent-more 要 >3 个才显示，存在先有鸡先有蛋问题）；
 //   UI 新建路径在场景 2 经宫格 gallery-create 完整覆盖。
@@ -75,6 +75,9 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     // 共享项目 + 假 provider 只建一次（kernel 侧持久化，后续 test 复用）
     if (!projectId) {
       projectCwd = join(E2E_HIAGENT_DIR, "agents-e2e-proj");
+      // 项目目录必须先存在：pi 子进程以 cwd 启动，目录缺失会 spawn ENOENT，
+      // 表现为会话启动失败、session:set-agent 切换无响应
+      mkdirSync(projectCwd, { recursive: true });
       const created = await wsSend({
         type: "project:create",
         name: `e2e-agents-${randomUUID().slice(0, 8)}`,
@@ -102,8 +105,8 @@ test.describe.serial("多智能体矩阵关键链路", () => {
   });
 
   test("1 侧边栏默认 ≤3 个智能体，第 4 个出现后有「更多智能体」入口", async ({ page }) => {
-    // 初始仅 dev（global-setup 预置），无更多入口
-    await expect(page.getByTestId("agent-技术实现")).toBeVisible({ timeout: 10_000 });
+    // 初始仅 dev（global-setup 预置，displayName=研发），无更多入口
+    await expect(page.getByTestId("agent-研发")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("agent-more")).toHaveCount(0);
 
     // 经 WS 补足到 4 个（UI 新建入口此时不可达，见文件头说明）；广播 agent:list 驱动侧栏刷新
@@ -111,10 +114,10 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     await wsSend({ type: "agent:create", displayName: A2 }, "agent:created");
     await wsSend({ type: "agent:create", displayName: A3 }, "agent:created");
 
-    // 侧栏只展示前 3 个（无会话时按名称序：dev / e2e-a1 / e2e-a2），第 4 个进「更多智能体」
+    // 侧栏只展示前 3 个（无会话时按名称 locale 排序：e2e-a1/a2/a3 在前，中文「研发」排最后进「更多智能体」）
     await expect(page.getByTestId(`agent-${A1}`)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId(`agent-${A2}`)).toBeVisible();
-    await expect(page.getByTestId(`agent-${A3}`)).toHaveCount(0);
+    await expect(page.getByTestId(`agent-${A3}`)).toBeVisible();
     await expect(page.getByTestId("agent-more")).toBeVisible();
     await expect(page.getByTestId("agent-more")).toContainText("(1)");
   });
@@ -123,7 +126,7 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     try {
       await page.getByTestId("agent-more").click();
       await expect(page.getByTestId("agent-gallery")).toBeVisible({ timeout: 10_000 });
-      await expect(page.getByTestId("gallery-card-dev")).toBeVisible();
+      await expect(page.getByTestId("gallery-card-研发")).toBeVisible();
       await expect(page.getByTestId(`gallery-card-${A1}`)).toBeVisible();
 
       // 宫格内 UI 新建：确定后按乐观打开契约直接进入详情弹窗
@@ -132,7 +135,7 @@ test.describe.serial("多智能体矩阵关键链路", () => {
       await page.getByTestId("gallery-create-ok").click();
       await expect(page.getByTestId("agent-config")).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId("cfg-name-input")).toHaveValue(UI_AGENT, { timeout: 10_000 });
-      await page.getByTestId("agent-config").getByRole("button", { name: "取消" }).click();
+      await page.getByTestId("agent-config").getByRole("button", { name: "关闭" }).click();
 
       // 重开宫格：新卡片出现
       await page.getByTestId("agent-more").click();
@@ -143,13 +146,13 @@ test.describe.serial("多智能体矩阵关键链路", () => {
       await page.getByTestId("gallery-ctx-edit").click();
       await expect(page.getByTestId("agent-config")).toBeVisible();
       await expect(page.getByTestId("cfg-name-input")).toHaveValue(A1, { timeout: 10_000 });
-      await page.getByTestId("agent-config").getByRole("button", { name: "取消" }).click();
+      await page.getByTestId("agent-config").getByRole("button", { name: "关闭" }).click();
     } finally {
       await deleteAgentQuiet(UI_AGENT);
     }
   });
 
-  test("3 详情弹窗：改简介 + 关键词 + 关系网 + 保存 → 宫格卡片简介更新", async ({ page }) => {
+  test("3 详情弹窗：改简介 + 关系网 + 保存 → 宫格卡片简介更新", async ({ page }) => {
     const cfg = page.getByTestId("agent-config");
     await page.getByTestId("agent-more").click();
     await page.getByTestId(`gallery-card-${A1}`).click({ button: "right" });
@@ -157,17 +160,14 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     await expect(cfg).toBeVisible();
     await expect(page.getByTestId("cfg-name-input")).toHaveValue(A1, { timeout: 10_000 });
 
-    // 基本：改简介 + 加关键词
+    // 基本：改简介
     await cfg.locator("label", { hasText: "简介" }).locator("input").fill("E2E 矩阵简介");
-    await page.getByTestId("kw-input").fill("矩阵词");
-    await page.getByTestId("kw-input").press("Enter");
-    await expect(page.getByTestId("kw-chip-矩阵词")).toBeVisible();
 
     // 关系网：勾选 dev（自身禁用不可勾）
     await page.getByTestId("tab-partners").click();
     await expect(page.getByTestId("partner-search")).toBeVisible();
-    await page.getByTestId("partner-check-dev").click();
-    await expect(page.getByTestId("partner-check-dev")).toBeChecked();
+    await page.getByTestId("partner-check-研发").click();
+    await expect(page.getByTestId("partner-check-研发")).toBeChecked();
     await expect(page.getByTestId(`partner-check-${A1}`)).toBeDisabled();
 
     await cfg.getByRole("button", { name: "保存" }).click();
@@ -183,10 +183,9 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     await page.getByTestId("gallery-ctx-edit").click();
     await expect(page.getByTestId("cfg-name-input")).toHaveValue(A1, { timeout: 10_000 });
     await expect(cfg.locator("label", { hasText: "简介" }).locator("input")).toHaveValue("E2E 矩阵简介");
-    await expect(page.getByTestId("kw-chip-矩阵词")).toBeVisible();
     await page.getByTestId("tab-partners").click();
-    await expect(page.getByTestId("partner-check-dev")).toBeChecked();
-    await cfg.getByRole("button", { name: "取消" }).click();
+    await expect(page.getByTestId("partner-check-研发")).toBeChecked();
+    await cfg.getByRole("button", { name: "关闭" }).click();
   });
 
   test("4 左键智能体 → 新建会话页预选 → 发消息 → pill 为该智能体", async ({ page }) => {
@@ -234,21 +233,29 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     mkdirSync(projectCwd, { recursive: true });
     writeFileSync(join(projectCwd, "matrix-file.txt"), "agent matrix e2e", "utf8");
 
+    // @ 菜单只列当前主智能体 partners.askTo 名单内的命名智能体（a003ae7 起的行为），
+    // 先把 A1 的 askTo 设为 [A3]，再在新建会话页把主智能体选为 A1
+    const cfgResp = await wsSend({ type: "agent:config:get", agentName: A1 }, "agent:config");
+    await wsSend(
+      { type: "agent:config:save", agentName: A1, config: { ...cfgResp.config, partners: { askTo: [A3] } } },
+      "agent:list",
+    );
+
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 10_000 });
     await page.getByTestId("project-select").selectOption(projectId);
+    await page.getByTestId("agent-select").click();
+    await page.getByTestId(`agent-item-${A1}`).click();
     const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
     const menu = page.getByTestId("quick-invoke-menu");
 
-    // @ 智能体补全：输入触发符出菜单，过滤后 Enter 选中 → chip 插入 + agent-select 联动
+    // @ 智能体补全：输入触发符出菜单（A1 的 askTo 内只有 A3），Enter 选中 → chip 插入
+    // （@[xxx] 以 token 形式保留给主智能体委派，不再联动切换 agent-select）
     await textbox.click();
     await page.keyboard.type("@", { delay: 10 });
     await expect(menu).toBeVisible({ timeout: 5_000 });
-    await expect(menu).toContainText(A1);
-    await page.keyboard.type(A3, { delay: 10 });
     await expect(menu).toContainText(A3);
     await page.keyboard.press("Enter");
     await expect(page.locator('[data-testid="composer-input"] .chip-agent').first()).toBeVisible({ timeout: 3_000 });
-    await expect(page.getByTestId("agent-select")).toContainText(A3);
 
     // 清空输入框（contenteditable 半受控：清 DOM + 发 input 事件同步 React state）
     await textbox.evaluate(el => {
@@ -292,10 +299,10 @@ test.describe.serial("多智能体矩阵关键链路", () => {
       await expect(page.getByTestId("agent-missing-modal")).toBeVisible({ timeout: 10_000 });
 
       // 点选 dev 恢复：弹窗关闭、pill 变为研发（global-setup 预置 dev.md 的 displayName）
-      await page.getByTestId("agent-missing-item-dev").click();
+      await page.getByTestId("agent-missing-item-研发").click();
       await expect(page.getByTestId("agent-missing-modal")).toHaveCount(0);
       await expect(page.getByTestId("agent-switcher")).toContainText("研发", { timeout: 10_000 });
-      await expect(page.getByText("已切换为 dev")).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText("已切换为 研发")).toBeVisible({ timeout: 10_000 });
     } finally {
       // A2 已经 UI 删除；清理 A1 / A3（A3 名下无会话，互不影响）
       await deleteAgentQuiet(A1);

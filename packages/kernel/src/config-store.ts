@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { PI_AGENTS_DIR, ALL_AGENT_NAMES } from "@hiagent/shared";
 import type { AgentConfig, AgentName } from "@hiagent/shared";
 import { parseAgentMd, stringifyAgentMd, validateAgentConfig, makeDefaultAgentConfig } from "./agent-md";
+import { makeSeedAgentConfig } from "./default-agent-seeds";
 
 export class ConfigStore {
   constructor(private agentsDir: string = PI_AGENTS_DIR) {}
@@ -78,10 +79,22 @@ export class ConfigStore {
     return [];
   }
 
-  /** 目录为空时 seed 4 个内置默认 agent（幂等） */
+  /**
+   * 幂等 seed 内置默认 agent：逐角色检查，缺失才写入。
+   * - 全新安装：写入全部内置角色
+   * - 存量环境：只补齐缺失的新角色，绝不覆盖已存在的同名 .md（保护用户已修改的角色，
+   *   包括解析失败的损坏文件——直接探测文件存在性而不是解析结果）
+   * - 环境变量 HIAGENT_SKIP_AGENT_SEED=1 时整体跳过（E2E 等需要最小化预置环境的场景）
+   */
   async seedDefaults(): Promise<void> {
-    if ((await this.listAgents()).length > 0) return;
-    for (const displayName of ALL_AGENT_NAMES) await this.saveAgent(makeDefaultAgentConfig(displayName));
+    if (process.env.HIAGENT_SKIP_AGENT_SEED === "1") return;
+    for (const displayName of ALL_AGENT_NAMES) {
+      try {
+        await readFile(join(this.agentsDir, `${displayName}.md`), "utf8");
+        continue;  // 文件已存在，跳过
+      } catch { /* 文件不存在，写入 seed */ }
+      await this.saveAgent(makeSeedAgentConfig(displayName));
+    }
   }
 
   /**

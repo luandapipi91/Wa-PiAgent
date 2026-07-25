@@ -122,3 +122,29 @@ test("进程异常（cliPath 指向不存在文件）→ isError=true 且不 thr
   expect(result.isError).toBe(true);
   expect(result.text).toContain("子智能体");
 });
+
+test("遥测：fake-pi 支持 get_session_stats 时返回 usage 与 elapsedMs", async () => {
+  const result = await runSubagentAgent(baseConfig(), "统计任务", "/tmp", {
+    cliPath: FAKE_PI,
+    runtime: RUNTIME,
+  });
+
+  expect(result.isError).toBe(false);
+  expect(result.elapsedMs).toBeGreaterThanOrEqual(0);
+  expect(result.usage).toBeDefined();
+  expect(result.usage!.tokens.output).toBe(250);
+  expect(result.usage!.tokens.total).toBe(1750);
+  expect(result.usage!.costTotal).toBeCloseTo(0.0042);
+});
+
+test("遥测降级：pi 不支持 get_session_stats（返回空 data）时 usage 为 undefined 且不报错", async () => {
+  // argv-dump-pi 对未知命令回 success:true data:{} —— tokens 缺失 → usage 降级
+  const result = await runSubagentAgent(baseConfig(), "任务", "/tmp", {
+    cliPath: ARGV_DUMP_PI,
+    runtime: RUNTIME,
+  });
+
+  expect(result.isError).toBe(false);
+  expect(result.usage).toBeUndefined();
+  expect(result.elapsedMs).toBeGreaterThanOrEqual(0);
+});
