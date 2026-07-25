@@ -64,8 +64,8 @@ export async function listTools(
   }
 }
 
-/** 清除授权：删除已存的 OAuth token 文件 + 服务器目录，下次连接重新走授权流程。
- *  复用 adapter 的 removeAuthEntry（仅依赖 node 内建，可随内核 bundle），
+/** 清除授权：删除已存的 OAuth 凭据 + 服务器目录，下次连接重新走授权流程。
+ *  复用 adapter 的 removeAuthEntry（2.13.0 起走 OS 凭据库 @napi-rs/keyring + 清理 legacy 文件），
  *  不走 removeAuth 的完整 OAuth 回调服务清理——连接器无活动会话，无需清理回调态 */
 export async function clearAuth(serverName: string): Promise<void> {
   removeAuthEntry(serverName);

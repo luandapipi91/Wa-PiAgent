@@ -1,0 +1,16 @@
+diff --git a/package.json b/package.json
+index 12afe84d..7f5baa09 100644
+--- a/package.json
++++ b/package.json
+@@ -14,6 +14,11 @@
+       "types": "./types.ts",
+       "import": "./types.ts",
+       "default": "./types.ts"
++    },
++    "./mcp-auth.ts": {
++      "types": "./mcp-auth.ts",
++      "import": "./mcp-auth.ts",
++      "default": "./mcp-auth.ts"
+     }
+   },
+   "license": "MIT",

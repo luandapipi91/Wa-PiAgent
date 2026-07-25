@@ -20,5 +20,8 @@
     "pack:mac": "bun run --filter @hiagent/desktop build:mac",
     "pack:all": "bun run pack:win && bun run pack:linux && bun run pack:mac"
   },
-  "workspaces": ["packages/*"]
+  "workspaces": ["packages/*"],
+  "patchedDependencies": {
+    "pi-mcp-adapter@2.13.0": "patches/pi-mcp-adapter@2.13.0.patch"
+  }
 }
