@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-07-25
+
+### 修复
+- **动态扩展与 agent 目录自动发现双重加载（pi-lens flag 冲突）**：`buildAdditionalExtensionPaths` 解析动态扩展时先试 repo require，当动态包恰好是 repo 传递依赖（pi-lens@3.8.68 经 pi-coding-agent 进入 workspace）时，`-e` 传入 repo 副本路径，而 pi 对 agent 目录（~/.hiagent/runtime）的自动发现又加载 runtime 副本——同一扩展加载两次，CLI flag 重复注册（`--lens-guard` conflicts）导致 pi 进程退出。动态包改为优先 runtimeRequire（其安装位置，与 pi 自动发现同路径可被去重），repo require 作兜底。
+  - 影响范围：packages/kernel/src/extensions.ts
+
+### 修复
+- **pi-mcp-adapter 升级 2.13.0 + bun patch 补 exports**：合并后 lockfile 把 `^2.11.0` 解析到 2.13.0，该版本给 package.json 加了 `exports` 映射（仅暴露 `.` 与 `./types`）且授权存储改走 OS 凭据库（@napi-rs/keyring），导致 kernel 深导入 `pi-mcp-adapter/mcp-auth.ts` 启动报错 `Cannot find module`。最终方案：升级到 2.13.0，用 bun `patchedDependencies` 给包 exports 补 `./mcp-auth.ts`（补丁随仓库提交于 patches/），深导入契约保留；clearAuth 语义随之升级为清 OS 凭据库（与运行时 adapter 一致），测试改用 `PI_MCP_ADAPTER_TEST_AUTH_STORE=memory` 内存凭据存储。
+  - 影响范围：package.json（patchedDependencies）、patches/pi-mcp-adapter@2.13.0.patch、packages/kernel/package.json、packages/desktop/scripts/build-kernel-sidecar.ts、packages/kernel/src/mcp-connector.ts、packages/kernel/tests/mcp-connector.test.ts、bun.lock
+
+### 修复
+- **发送按钮因过期模型 prefs 置灰**：provider 改名后 IndexedDB 里残留的模型标识（如 `deep/deepseek-v4-pro`）与当前 slug（`deepseek`）不匹配，`isModelAvailable` 闸门拦截发送；ModelSelector 的兼容自愈只处理裸 model id，不覆盖 slug 过期场景。自愈逻辑改为按 id 部分兜底匹配（唯一命中才重钉到正确 `slug/id`，多 provider 同 id 时不干预），旧 prefs 自动修复并重新持久化。
+  - 影响范围：packages/frontend/src/components/ui/ModelSelector.tsx、packages/frontend/tests/ModelSelector.test.tsx
+
 ## 2026-07-24
 
 ### 修复

@@ -106,14 +106,16 @@ export function buildAdditionalExtensionPaths(dynamicPkgNames: string[] = []): s
   // 否则 pi 进程不会加载它们 → 它们的工具/钩子不注册（即动态插件「装了但没生效」的根因）。
   for (const name of dynamicPkgNames) {
     if (!readPiExtensionsDeclaration(name)) continue;  // 非 Pi 扩展，跳过
-    // dev 模式：源码跑在 packages/kernel/src/，require 从 repo 解析不到 runtime 动态包；
-    // 先试 require（builtin / 已装在 repo 的），失败再试 runtimeRequire 兜底。
-    // 生产模式：bundle 已在 runtime 目录，require 与 runtimeRequire 等价，第一个就命中。
+    // 动态包优先从 runtime 解析：它们经 bun add 装在 ~/.hiagent/runtime，pi 对 agent 目录
+    // 的自动发现也用同一路径——-e 路径与自动发现路径一致才能被 pi 去重；
+    // 若先走 repo require，动态包恰好又是 repo 的传递依赖（如 pi-lens）时，
+    // -e 传入 repo 副本 + pi 自动加载 runtime 副本 = 同一扩展加载两次（flag 冲突）。
+    // 解析不到再回退 repo require（builtin / 已装在 repo 的包）。
     try {
-      paths.push(resolveExtensionEntryFile(name));
+      paths.push(resolveExtensionEntryFile(name, runtimeRequire));
     } catch {
       try {
-        paths.push(resolveExtensionEntryFile(name, runtimeRequire));
+        paths.push(resolveExtensionEntryFile(name));
       } catch (err) {
         console.error(`[kernel] 解析动态扩展入口失败 ${name}:`, err);
       }
