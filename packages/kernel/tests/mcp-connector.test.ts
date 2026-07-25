@@ -6,14 +6,14 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { createServer as createHttpServer, type Server as HttpServer, type IncomingMessage } from "node:http";
 import { testConnection, listTools, clearAuth } from "../src/mcp-connector";
-import { saveAuthEntry, getAuthEntryFilePath } from "pi-mcp-adapter/mcp-auth.ts";
+import { saveAuthEntry, getAuthEntry } from "pi-mcp-adapter/mcp-auth.ts";
 import { Server as McpLowLevelServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerConfig } from "@hiagent/shared";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { existsSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 
 const FIXTURE = join(import.meta.dir, "fixtures", "echo-mcp-server.ts");
 
@@ -143,17 +143,21 @@ test("testConnection: 需 Authorization 头但未配置 headers 时返回 error�
 });
 
 // ===== Test 4: clearAuth 删除已存授权 =====
-test("clearAuth: 删除已存的 OAuth token 文件", async () => {
+// pi-mcp-adapter 2.13.0 起授权存 OS 凭据库（不再落 plaintext 文件），
+// 测试用 PI_MCP_ADAPTER_TEST_AUTH_STORE=memory 走内存凭据存储，避免触碰真实 Windows 凭据管理器。
+test("clearAuth: 删除已存的 OAuth 授权", async () => {
+  process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE = "memory";
   const oauthDir = join(tmpdir(), `mcp-oauth-test-${Date.now()}`);
   process.env.MCP_OAUTH_DIR = oauthDir;
   try {
-    saveAuthEntry("oauth-srv", { tokens: { access_token: "fake-token" } as never });
-    expect(existsSync(getAuthEntryFilePath("oauth-srv"))).toBe(true);
+    saveAuthEntry("oauth-srv", { tokens: { accessToken: "fake-token" } });
+    expect(getAuthEntry("oauth-srv")?.tokens?.accessToken).toBe("fake-token");
 
     await clearAuth("oauth-srv");
 
-    expect(existsSync(getAuthEntryFilePath("oauth-srv"))).toBe(false);
+    expect(getAuthEntry("oauth-srv")).toBeUndefined();
   } finally {
+    delete process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE;
     delete process.env.MCP_OAUTH_DIR;
     rmSync(oauthDir, { recursive: true, force: true });
   }

@@ -19,7 +19,7 @@
     "@earendil-works/pi-coding-agent": "^0.80.0",
     "@hiagent/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "pi-mcp-adapter": "^2.11.0",
+    "pi-mcp-adapter": "2.13.0",
     "pi-open-agents": "^0.1.12",
     "pi-web-access": "^0.13.0",
     "typebox": "1.1.38"
