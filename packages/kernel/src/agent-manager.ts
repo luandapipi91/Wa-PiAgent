@@ -616,11 +616,11 @@ export class AgentManager {
     }
 
     // pi 的 queue_update.followUp 始终为空（pi 不管排队），
-    // 转发前注入 HiAgent 本地队列状态，避免前端排队列表消失
+    // 转发前用 HiAgent 本地队列状态替换（不拼接！pi steering 和 steerList 是同一份）
     if (event.type === "queue_update") {
       event = {
         ...event,
-        steering: [...handle.steerList, ...((event as any).steering ?? [])],
+        steering: [...handle.steerList],
         followUp: [...handle.followUpList],
       };
     }

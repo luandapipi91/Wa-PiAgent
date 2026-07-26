@@ -66,21 +66,27 @@ export function SessionView({ sessionId }: Props) {
     setStopping(true);
     void api.post(`/api/agents/${encodeURIComponent(session.projectId)}/${encodeURIComponent(sessionId)}/abort`, { agentName: session.primaryAgent });
   };
-  // 乐观更新：立即移动消息位置，后台发 API
+  // 乐观更新：立即移动消息位置（去重防止与 kernel queue_update 叠加），后台发 API
   const handlePromote = (text: string) => {
     const idx = followUp.indexOf(text);
     const remaining = idx >= 0 ? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)] : [...followUp];
-    useSessionStore.setState(s => ({
-      queueBySession: { ...s.queueBySession, [sessionId]: { steering: [...(s.queueBySession[sessionId]?.steering ?? []), text], followUp: remaining } },
-    }));
+    useSessionStore.setState(s => {
+      const cur = s.queueBySession[sessionId]?.steering ?? [];
+      return {
+        queueBySession: { ...s.queueBySession, [sessionId]: { steering: cur.includes(text) ? cur : [...cur, text], followUp: remaining } },
+      };
+    });
     void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer`, { text });
   };
   const handleImmediate = (text: string) => {
     const idx = followUp.indexOf(text);
     const remaining = idx >= 0 ? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)] : [...followUp];
-    useSessionStore.setState(s => ({
-      queueBySession: { ...s.queueBySession, [sessionId]: { steering: [...(s.queueBySession[sessionId]?.steering ?? []), text], followUp: remaining } },
-    }));
+    useSessionStore.setState(s => {
+      const cur = s.queueBySession[sessionId]?.steering ?? [];
+      return {
+        queueBySession: { ...s.queueBySession, [sessionId]: { steering: cur.includes(text) ? cur : [...cur, text], followUp: remaining } },
+      };
+    });
     void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer/immediate`, { text });
   };
   const handleClearFollowUp = () => {
