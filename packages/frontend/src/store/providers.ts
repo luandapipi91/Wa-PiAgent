@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { ModelProvider, ProviderApi, ProviderModel } from "@hiagent/shared";
-import { send, onMessage } from "../ws-instance";
+import { api } from "../api-client";
 
 interface TestInput {
   baseUrl: string;
@@ -22,17 +22,12 @@ interface ProvidersState {
 export const useProvidersStore = create<ProvidersState>((set) => ({
   providers: [],
   loading: false,
-  load: () => send({ type: "provider:list" }),
-  save: (p) => send({ type: "provider:save", provider: p }),
-  remove: (id) => send({ type: "provider:delete", id }),
+  load: () => { api.get("/api/providers").then((data: any) => { if (data) set({ providers: data.providers ?? [], loading: false }); }).catch(() => set({ loading: false })); },
+  save: (p) => { void api.post("/api/providers", { provider: p }); },
+  remove: (id) => { void api.del(`/api/providers/${encodeURIComponent(id)}`); },
   setProviders: (ps) => set({ providers: ps, loading: false }),
-  test: (input) => new Promise((resolve) => {
-    const off = onMessage((e: any) => {
-      if (e.type === "provider:test") {
-        off();
-        resolve({ ok: e.ok, error: e.error });
-      }
-    });
-    send({ type: "provider:test", ...input });
-  }),
+  test: async (input) => {
+    const res = (await api.post("/api/providers/test", input)) as { ok: boolean; error?: string };
+    return { ok: res.ok, error: res.error };
+  },
 }));

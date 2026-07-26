@@ -5,7 +5,7 @@ import { useProjectsStore } from "../store/projects";
 import { useAgentsStore, topAgentsByRecency } from "../store/agents";
 import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
-import { send } from "../ws-instance";
+import { api } from "../api-client";
 import { expandTokens } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
 import { AgentDropdown } from "./ui/AgentDropdown";
@@ -111,10 +111,7 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
       lastActivity: Date.now(),
       piSessionFile: "",
     });
-    send({
-      type: "agent:prompt",
-      projectId,
-      sessionId,
+    void api.post(`/api/agents/${encodeURIComponent(projectId)}/${encodeURIComponent(sessionId)}/prompt`, {
       agentName,
       text: expandedText,
       model,

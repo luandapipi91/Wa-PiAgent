@@ -1,146 +1,83 @@
-// 把 fs 系列 WS 消息封装成 Promise，供 react-complex-tree DataProvider 异步调用。
-import { send as wsSend, onMessage as wsOnMessage } from "./ws-instance";
+// 把 fs 系列 REST 调用封装成 Promise，供 react-complex-tree DataProvider 异步调用。
+import { api } from "./api-client";
 import type { DirEntry } from "@hiagent/shared";
 
 /**
- * 底层 WS 传输抽象。默认走真实 ws-instance；单测可通过 `_setFsTransport` 注入伪传输，
- * 避免 bun `mock.module` 跨文件缓存污染（多个测试文件 mock 同一模块会互相覆盖、
- * 且无法按文件注销，导致依赖真实模块的测试拿到伪造实现）。
+ * 底层传输抽象。默认走真实 api-client；单测可通过 `_setFsTransport` 注入伪传输，
+ * 避免 bun `mock.module` 跨文件缓存污染。
  */
 export interface FsTransport {
-  send: (e: any) => void;
-  onMessage: (h: (e: any) => void) => () => void;
+  get: (path: string) => Promise<unknown>;
+  post: (path: string, body?: unknown) => Promise<unknown>;
+  del: (path: string, body?: unknown) => Promise<unknown>;
 }
 
 const defaultTransport: FsTransport = {
-  // 用包装函数而非直接引用 wsSend/wsOnMessage：前者在调用时读取 live binding，
-  // 使 `vi.spyOn(ws,"send")` / `vi.mock("../src/ws-instance")` 等运行时替换对 fs-client 生效
-  // （直接赋值会在模块加载时固化原始实现，测试 spy 不到）。
-  send: (e) => wsSend(e),
-  onMessage: (h) => wsOnMessage(h),
+  get: (path) => api.get(path),
+  post: (path, body) => api.post(path, body),
+  del: (path, body) => api.del(path, body),
 };
 let transport: FsTransport = defaultTransport;
 
-/** 测试注入传输层；传 null 恢复默认（真实 ws-instance）。 */
+/** 测试注入传输层；传 null 恢复默认（真实 api-client）。 */
 export function _setFsTransport(t: FsTransport | null): void {
   transport = t ?? defaultTransport;
 }
 
-// 通过当前 transport 收发（运行时读取，故 _setFsTransport 即时生效）。
-const send = (e: any): void => transport.send(e);
-const onMessage = (h: (e: any) => void): (() => void) => transport.onMessage(h);
-
-export function getHome(): Promise<string> {
-  return new Promise((resolve) => {
-    const off = onMessage((e) => {
-      if (e.type === "fs:home") { resolve(e.home); off(); }
-    });
-    send({ type: "fs:home" });
-  });
+export async function getHome(): Promise<string> {
+  const res = (await transport.get("/api/fs/home")) as { home: string };
+  return res.home;
 }
 
-export function getRoots(): Promise<string[]> {
-  return new Promise((resolve) => {
-    const off = onMessage((e) => {
-      if (e.type === "fs:roots") { resolve(e.roots); off(); }
-    });
-    send({ type: "fs:roots" });
-  });
+export async function getRoots(): Promise<string[]> {
+  const res = (await transport.get("/api/fs/roots")) as { roots: string[] };
+  return res.roots;
 }
 
-export function listDir(path: string, showHidden?: boolean): Promise<DirEntry[]> {
-  return new Promise((resolve) => {
-    const off = onMessage((e) => {
-      if (e.type === "fs:listDir" && e.path === path) { resolve(e.entries); off(); }
-      else if (e.type === "fs:error" && e.path === path) { resolve([]); off(); }
-    });
-    send({ type: "fs:listDir", path, showHidden });
-  });
+export async function listDir(path: string, showHidden?: boolean): Promise<DirEntry[]> {
+  const res = (await transport.post("/api/fs/list-dir", { path, showHidden })) as { entries?: DirEntry[] };
+  return res.entries ?? [];
 }
 
-export function readFile(path: string): Promise<{ content: string; mimeType?: string }> {
-  return new Promise((resolve, reject) => {
-    const off = onMessage((e: any) => {
-      if (e.type === "fs:readFile" && e.path === path) {
-        off();
-        if (e.error) reject(new Error(e.error));
-        else resolve({ content: e.content, mimeType: e.mimeType });
-      }
-    });
-    send({ type: "fs:readFile", path });
-  });
+export async function readFile(path: string): Promise<{ content: string; mimeType?: string }> {
+  const res = (await transport.post("/api/fs/read-file", { path })) as { content: string; mimeType?: string; reason?: string };
+  if (!res.content) throw new Error(res.reason ?? "读取失败");
+  return { content: res.content, mimeType: res.mimeType };
 }
 
-export function copyToUploads(
+export async function copyToUploads(
   projectId: string,
   source: string,
   sessionId?: string,
-  timeoutMs = 30000,
 ): Promise<{ path: string }> {
-  const id = crypto.randomUUID();
-  return new Promise((resolve, reject) => {
-    const off = onMessage((e: any) => {
-      if (e.type === "fs:copy" && e.id === id) {
-        clearTimeout(timer);
-        off();
-        if (e.error) reject(new Error(e.error));
-        else resolve({ path: e.path });
-      }
-    });
-    const timer = setTimeout(() => {
-      off();
-      reject(new Error("复制到上传目录超时"));
-    }, timeoutMs);
-    // sessionId 用于后端推导默认工作区会话级 cwd；不传时落到 project.cwd/.hiagent/uploads/
-    send({ type: "fs:copy", id, projectId, source, sessionId });
-  });
+  const res = (await transport.post("/api/fs/copy", { projectId, source, sessionId })) as { path: string; error?: string };
+  if (!res.path) throw new Error(res.error ?? "复制失败");
+  return { path: res.path };
 }
 
-export function uploadFile(
+export async function uploadFile(
   projectId: string,
   name: string,
-  content: string,
+  file: Blob,
   sessionId?: string,
-  timeoutMs = 30000,
 ): Promise<{ path: string }> {
-  const id = crypto.randomUUID();
-  return new Promise((resolve, reject) => {
-    const off = onMessage((e: any) => {
-      if (e.type === "fs:upload" && e.id === id) {
-        clearTimeout(timer);
-        off();
-        if (e.error) reject(new Error(e.error));
-        else resolve({ path: e.path });
-      }
-    });
-    const timer = setTimeout(() => {
-      off();
-      reject(new Error("上传超时"));
-    }, timeoutMs);
-    // sessionId 用于后端推导默认工作区会话级 cwd；不传时落到 project.cwd/.hiagent/uploads/
-    send({ type: "fs:upload", id, projectId, name, content, sessionId });
-  });
+  const form = new FormData();
+  form.append("file", new File([file], name));
+  const url = sessionId
+    ? `/api/files/upload?projectId=${encodeURIComponent(projectId)}&sessionId=${encodeURIComponent(sessionId)}`
+    : `/api/files/upload?projectId=${encodeURIComponent(projectId)}`;
+  const res = await fetch(url, { method: "POST", body: form });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? `${res.status}`);
+  return { path: data.path };
 }
 
-export function searchFiles(
+export async function searchFiles(
   query: string,
-  opts: { root?: string; maxResults?: number; showHidden?: boolean; onlyDirs?: boolean; timeoutMs?: number } = {},
+  opts: { root?: string; maxResults?: number; showHidden?: boolean; onlyDirs?: boolean } = {},
 ): Promise<{ query: string; matches: { name: string; isDir: boolean; path: string }[]; durationMs: number; truncated: boolean }> {
-  const id = crypto.randomUUID();
-  return new Promise((resolve, reject) => {
-    const off = onMessage((e: any) => {
-      if (e.type === "fs:search" && e.requestId === id) {
-        clearTimeout(timer);
-        off();
-        resolve(e);
-      }
-    });
-    const timer = setTimeout(() => {
-      off();
-      reject(new Error("搜索超时"));
-    }, opts.timeoutMs ?? 30000);
-    send({ type: "fs:search", query, root: opts.root, maxResults: opts.maxResults, showHidden: opts.showHidden, onlyDirs: opts.onlyDirs, requestId: id });
-  });
+  const res = (await transport.post("/api/fs/search", { query, ...opts })) as any;
+  return res;
 }
 
 export interface SearchMatch { name: string; isDir: boolean; path: string; }
@@ -163,100 +100,73 @@ export function searchFilesStream(
   let anyTruncated = false;
   let cleaned = false;
 
-  const off = onMessage((e: any) => {
+  // SSE 进度监听：通过 events.ts 的 onMessage 注入，但 fs-client 不直接依赖 events
+  // 这里用动态 import 避免循环依赖，单测可 mock
+  let off: (() => void) | null = null;
+  const cleanup = () => {
     if (cleaned) return;
-    if (e.type === "fs:search:progress" && pending.has(e.requestId)) {
-      handlers.onProgress(e.matches);
-    } else if (e.type === "fs:search" && pending.has(e.requestId)) {
-      // 终帧：仅在确有匹配时回调 onProgress。空匹配（kernel 对无结果搜索只发 done）
-      // 不应触发下游 rebuild——否则会建出仅含根目录的空树，被误判为「有结果」而无法显示「无匹配」。
-      if (e.matches?.length) handlers.onProgress(e.matches);
-      pending.delete(e.requestId);
-      totalDuration += e.durationMs;
-      if (e.truncated) anyTruncated = true;
-      if (pending.size === 0) {
-        handlers.onDone({ durationMs: totalDuration, truncated: anyTruncated });
-        off();
-        cleaned = true;
+    cleaned = true;
+    off?.();
+  };
+
+  import("./events").then(({ onMessage }) => {
+    if (cleaned) return;
+    off = onMessage((e: any) => {
+      if (cleaned) return;
+      if (e.type === "fs:search:progress" && pending.has(e.requestId)) {
+        handlers.onProgress(e.matches);
+      } else if (e.type === "fs:search" && pending.has(e.requestId)) {
+        if (e.matches?.length) handlers.onProgress(e.matches);
+        pending.delete(e.requestId);
+        totalDuration += e.durationMs;
+        if (e.truncated) anyTruncated = true;
+        if (pending.size === 0) {
+          handlers.onDone({ durationMs: totalDuration, truncated: anyTruncated });
+          cleanup();
+        }
       }
-    }
+    });
   });
 
   for (const r of requests) {
-    send({ type: "fs:search", query, root: r.root, maxResults: opts.maxResults, showHidden: opts.showHidden, onlyDirs: opts.onlyDirs, requestId: r.requestId });
+    void transport.post("/api/fs/search", { query, root: r.root, maxResults: opts.maxResults, showHidden: opts.showHidden, onlyDirs: opts.onlyDirs, requestId: r.requestId });
   }
 
   return () => {
-    if (!cleaned) {
-      off();
-      cleaned = true;
-    }
+    cleanup();
     for (const r of requests) {
-      send({ type: "fs:search:cancel", requestId: r.requestId });
+      void transport.post("/api/fs/search/cancel", { requestId: r.requestId });
     }
   };
 }
 
-export function appendRecording(
+export async function appendRecording(
   projectId: string,
   recId: string,
   chunk: string,
   sessionId?: string,
-  timeoutMs = 30000,
 ): Promise<void> {
-  const id = crypto.randomUUID();
-  return new Promise((resolve, reject) => {
-    const off = onMessage((e: any) => {
-      if (e.type === "fs:recording:append" && e.id === id) {
-        clearTimeout(timer); off();
-        if (e.error) reject(new Error(e.error)); else resolve();
-      }
-    });
-    const timer = setTimeout(() => { off(); reject(new Error("录音分片落盘超时")); }, timeoutMs);
-    // sessionId 用于后端推导默认工作区会话级 cwd；不传时落到 project.cwd/.hiagent/uploads/
-    send({ type: "fs:recording:append", id, projectId, recId, chunk, sessionId });
-  });
+  const res = (await transport.post("/api/files/recording/append", { projectId, recId, chunk, sessionId })) as { error?: string };
+  if (res.error) throw new Error(res.error);
 }
 
-export function finalizeRecording(
+export async function finalizeRecording(
   projectId: string,
   recId: string,
   finalName: string,
   sessionId?: string,
-  timeoutMs = 30000,
 ): Promise<{ path: string }> {
-  const id = crypto.randomUUID();
-  return new Promise((resolve, reject) => {
-    const off = onMessage((e: any) => {
-      if (e.type === "fs:recording:finalize" && e.id === id) {
-        clearTimeout(timer); off();
-        if (e.error) reject(new Error(e.error)); else resolve({ path: e.path });
-      }
-    });
-    const timer = setTimeout(() => { off(); reject(new Error("录音 finalize 超时")); }, timeoutMs);
-    // sessionId 用于后端推导默认工作区会话级 cwd；不传时落到 project.cwd/.hiagent/uploads/
-    send({ type: "fs:recording:finalize", id, projectId, recId, finalName, sessionId });
-  });
+  const res = (await transport.post("/api/files/recording/finalize", { projectId, recId, finalName, sessionId })) as { path: string; error?: string };
+  if (!res.path) throw new Error(res.error ?? "finalize 失败");
+  return { path: res.path };
 }
 
-export function discardRecording(
+export async function discardRecording(
   projectId: string,
   recId: string,
   sessionId?: string,
-  timeoutMs = 10000,
 ): Promise<void> {
-  const id = crypto.randomUUID();
-  return new Promise((resolve, reject) => {
-    const off = onMessage((e: any) => {
-      if (e.type === "fs:recording:discard" && e.id === id) {
-        clearTimeout(timer); off();
-        if (e.error) reject(new Error(e.error)); else resolve();
-      }
-    });
-    const timer = setTimeout(() => { off(); resolve(); }, timeoutMs);  // discard 容错：超时也 resolve
-    // sessionId 用于后端推导默认工作区会话级 cwd；不传时落到 project.cwd/.hiagent/uploads/
-    send({ type: "fs:recording:discard", id, projectId, recId, sessionId });
-  });
+  await transport.post("/api/files/recording/discard", { projectId, recId, sessionId });
 }
 
 /** 把附件绝对路径转成可被 <audio>/<img> 直接加载的 kernel /file URL。 */

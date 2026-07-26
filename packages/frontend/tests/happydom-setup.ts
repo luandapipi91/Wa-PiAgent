@@ -2,7 +2,6 @@
 // vitest 时代靠 vitest.config.ts 的 environment+setupFiles;迁 bun:test 后改用 preload。
 import { afterEach } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { installWebSocketMock } from "./setup-websocket";
 
 // 组件直接 import 的 .css（如 react-complex-tree/lib/style-modern.css）在 bun:test
 // 下无法处理，统一 mock 成空模块，避免加载即崩。
@@ -14,10 +13,7 @@ Bun.plugin({
   },
 });
 
-// 顺序很关键：必须先 register happy-dom（它会接管 globalThis），
-// 再覆盖 WebSocket——否则 bun 内置 WebSocket 会被 register 重置回来。
 GlobalRegistrator.register();
-installWebSocketMock();
 
 // 为前端测试提供可用的 IndexedDB（happy-dom 未实现）
 // @ts-ignore：fake-indexeddb 的 types 在 exports 解析上有问题，运行时无影响

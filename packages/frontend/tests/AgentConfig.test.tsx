@@ -25,21 +25,39 @@ const cfg = (name: string, over: Partial<AgentConfigType> = {}): AgentConfigType
   ...over,
 });
 
-// ws-instance mock：onMessage 暴露触发器模拟 kernel 回包，send 捕获载荷（同 SessionView.test 模式）
-const mockHandlers = { list: [] as Array<(e: any) => void> };
-const sentEvents: any[] = [];
-mock.module("../src/ws-instance", () => ({
-  send: (e: any) => { sentEvents.push(e); },
-  onMessage: (cb: any) => { mockHandlers.list.push(cb); return () => {}; },
+// REST API 调用记录（替代已删除的 ws-instance send）
+const apiCalls: { method: string; path: string; body?: any }[] = [];
+mock.module("../src/api-client", () => ({
+  api: {
+    get: (path: string) => { apiCalls.push({ method: "get", path }); return Promise.resolve({}); },
+    post: (path: string, body?: any) => { apiCalls.push({ method: "post", path, body }); return Promise.resolve({}); },
+    put: (path: string, body?: any) => { apiCalls.push({ method: "put", path, body }); return Promise.resolve({}); },
+    del: (path: string) => { apiCalls.push({ method: "del", path }); return Promise.resolve({}); },
+  },
+  ApiError: class extends Error { status: number; constructor(m: string, s: number) { super(m); this.status = s; this.name = "ApiError"; } },
 }));
 
-const emitWs = async (e: any) => {
-  await act(async () => { mockHandlers.list.forEach(h => h(e)); });
+// SSE 事件总线 mock：避免真实 EventSource 连接，测试通过 emitEventForTesting 注入事件
+const eventHandlers = new Set<(e: any) => void>();
+let emitEventForTesting: (e: any) => void;
+mock.module("../src/events", () => ({
+  onMessage: (cb: any) => { eventHandlers.add(cb); return () => eventHandlers.delete(cb); },
+  onEventType: () => () => {},
+  connectEvents: () => {},
+  disconnectEvents: () => { eventHandlers.clear(); },
+  onReconnect: () => () => {},
+  emitEventForTesting: (e: any) => { emitEventForTesting(e); },
+}));
+
+emitEventForTesting = (e: any) => { eventHandlers.forEach(h => h(e)); };
+
+const emitEvent = async (e: any) => {
+  await act(async () => { emitEventForTesting(e); });
 };
 
 beforeEach(() => {
-  mockHandlers.list = [];
-  sentEvents.length = 0;
+  apiCalls.length = 0;
+  eventHandlers.clear();
   useAgentsStore.setState({ list: [], configs: {} });
   useSkillsStore.setState({ allSkills: [] });
   useProvidersStore.setState({ providers: [] });
@@ -58,8 +76,9 @@ function renderConfig(name = "dev", config = cfg(name), onClose = () => {}) {
   return render(<AgentConfig agentName={name} onClose={onClose} />);
 }
 
-const savePayload = () => sentEvents.find(e => e.type === "agent:config:save");
-const lastSaved = () => savePayload()!.config;
+const configSaveCall = (agentName: string) =>
+  apiCalls.find(c => c.method === "put" && c.path === `/api/agents/${encodeURIComponent(agentName)}/config`);
+const lastSaved = (agentName: string) => configSaveCall(agentName)!.body;
 
 describe("AgentConfig 4 tab", () => {
   test("渲染 4 个 tab：基本/工具/技能/关系网，无 capabilities", () => {
@@ -87,7 +106,7 @@ describe("AgentConfig 4 tab", () => {
     expect(followOpt!.text).toContain("跟随当前");
     fireEvent.change(sel, { target: { value: "" } });
     fireEvent.click(screen.getByText("保存"));
-    expect(lastSaved().thinking).toBeNull();
+    expect(lastSaved("dev").config.thinking).toBeNull();
   });
 
   test("基本 tab：模型下拉来自 providers，含'默认（跟随全局）'可选", () => {
@@ -109,7 +128,7 @@ describe("AgentConfig 4 tab", () => {
     // 选具体模型保存
     fireEvent.change(sel, { target: { value: "e2e/m1" } });
     fireEvent.click(screen.getByText("保存"));
-    expect(lastSaved().model).toContain("m1");
+    expect(lastSaved("dev").config.model).toContain("m1");
   });
 
   test("基本 tab：头像颜色选择器已取消（无 cfg-color-1/2，仅留 emoji 输入）", () => {
@@ -136,13 +155,13 @@ describe("AgentConfig 4 tab", () => {
     // 勾选写入 partners.askTo 并保存
     fireEvent.click(screen.getByTestId("partner-check-代码审查"));
     fireEvent.click(screen.getByText("保存"));
-    expect(savePayload().config.partners.askTo).toEqual(["代码审查"]);
+    expect(lastSaved("dev").config.partners.askTo).toEqual(["代码审查"]);
   });
 
   test("工具 tab：空数组展示为全勾，取消勾选后保存为非空列表", async () => {
     renderConfig();
     fireEvent.click(screen.getByTestId("tab-tools"));
-    await emitWs({ type: "agent:tools:list", tools: [{ name: "read", source: "内置" }, { name: "bash", source: "内置" }] });
+    await emitEvent({ type: "agent:tools:list", tools: [{ name: "read", source: "内置" }, { name: "bash", source: "内置" }] });
     const readChk = (await screen.findByTestId("tool-check-read")) as HTMLInputElement;
     const bashChk = (await screen.findByTestId("tool-check-bash")) as HTMLInputElement;
     // tools 为空 = 全量默认 → 展示态全部勾选
@@ -150,7 +169,7 @@ describe("AgentConfig 4 tab", () => {
     expect(bashChk.checked).toBe(true);
     fireEvent.click(bashChk);
     fireEvent.click(screen.getByText("保存"));
-    expect(savePayload().config.tools).toEqual(["read"]);
+    expect(lastSaved("dev").config.tools).toEqual(["read"]);
   });
 
   test("技能 tab：勾选写入 skills", () => {
@@ -166,16 +185,16 @@ describe("AgentConfig 4 tab", () => {
     expect(pdfChk.checked).toBe(true);
     fireEvent.click(screen.getByTestId("skill-check-web"));
     fireEvent.click(screen.getByText("保存"));
-    expect(savePayload().config.skills).toEqual(["pdf"]);
+    expect(lastSaved("dev").config.skills).toEqual(["pdf"]);
   });
 
   test("改名保存：载荷 config.displayName 更新，agentName 保持原名", () => {
     renderConfig("技术实现", cfg("技术实现"));
     fireEvent.change(screen.getByTestId("cfg-name-input"), { target: { value: "新名字" } });
     fireEvent.click(screen.getByText("保存"));
-    const payload = savePayload();
-    expect(payload.agentName).toBe("技术实现");
-    expect(payload.config.displayName).toBe("新名字");
+    const call = configSaveCall("技术实现")!;
+    expect(call.path).toBe(`/api/agents/${encodeURIComponent("技术实现")}/config`);
+    expect(call.body.config.displayName).toBe("新名字");
   });
 
   test("重名时显示错误且禁用保存（不发出 agent:config:save）", () => {
@@ -189,9 +208,9 @@ describe("AgentConfig 4 tab", () => {
     // 保存按钮禁用
     const saveBtn = screen.getByTestId("cfg-save");
     expect((saveBtn as HTMLButtonElement).disabled).toBe(true);
-    // 点击保存也不发出消息
+    // 点击保存也不发出请求
     fireEvent.click(saveBtn);
-    expect(savePayload()).toBeUndefined();
+    expect(configSaveCall("技术实现")).toBeUndefined();
   });
 
   test("改为自身原名不视为重名（可正常保存）", () => {
@@ -199,7 +218,7 @@ describe("AgentConfig 4 tab", () => {
     renderConfig("技术实现", cfg("技术实现"));
     // 不改名，直接保存
     fireEvent.click(screen.getByTestId("cfg-save"));
-    expect(savePayload()).toBeDefined();
+    expect(configSaveCall("技术实现")).toBeDefined();
   });
 
   test("displayName 为空时禁用保存", () => {
@@ -229,7 +248,7 @@ describe("AgentConfig 内置 subagent（可保存 model/thinking）", () => {
 
   test("内置 subagent 不发送 agent:config:get（避免 kernel 报错）", () => {
     render(<AgentConfig agentName="Explore" onClose={() => {}} />);
-    const getConfigCall = sentEvents.find(e => e.type === "agent:config:get");
+    const getConfigCall = apiCalls.find(e => e.method === "get" && e.path === `/api/agents/${encodeURIComponent("Explore")}/config`);
     expect(getConfigCall).toBeUndefined();
   });
 
@@ -296,8 +315,7 @@ describe("AgentConfig 内置 subagent（可保存 model/thinking）", () => {
       type: "Plan", model: "openai/gpt-4o",
     }));
     // 不应发送 agent:config:save
-    const cfgSaveCall = sentEvents.find(e => e.type === "agent:config:save");
-    expect(cfgSaveCall).toBeUndefined();
+    expect(apiCalls.some(c => c.method === "put" && c.path.startsWith("/api/agents/"))).toBe(false);
   });
 
   test("内置 subagent 的 model/thinking 选择控件不置灰（可点）", () => {

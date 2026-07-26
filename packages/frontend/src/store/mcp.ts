@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { McpServerConfig, McpServerStatus, McpToolSummary } from "@hiagent/shared";
 import type { McpListResult, McpChangedEvent, McpTestResult, McpToolsResult } from "@hiagent/shared";
-import { send } from "../ws-instance";
+import { api } from "../api-client";
 
 interface McpState {
   servers: McpServerConfig[];
@@ -54,7 +54,8 @@ export const useMcpStore = create<McpState>((set, get) => ({
 
   load: (projectId) => {
     set((s) => ({ loading: true, selectedProjectId: projectId ?? s.selectedProjectId }));
-    send({ type: "mcp:list", projectId });
+    const url = projectId ? `/api/mcp?projectId=${encodeURIComponent(projectId)}` : "/api/mcp";
+    api.get(url).then((data: any) => { if (data) get().setServers(data); }).catch(() => set({ loading: false }));
   },
   setServers: (data) => {
     const s = get();
@@ -90,16 +91,20 @@ export const useMcpStore = create<McpState>((set, get) => ({
       loadingTools: { ...s.loadingTools, [data.serverName]: false },
     })),
   save: (config, projectId, originalName) =>
-    send({ type: "mcp:save", projectId, config, originalName }),
+    void api.post("/api/mcp", { projectId, config, originalName }),
   deleteServer: (serverName, projectId) =>
-    send({ type: "mcp:delete", projectId, serverName }),
+    void api.del(
+      projectId
+        ? `/api/mcp/${encodeURIComponent(serverName)}?projectId=${encodeURIComponent(projectId)}`
+        : `/api/mcp/${encodeURIComponent(serverName)}`
+    ),
   testConnection: (serverName, projectId) => {
     set((s) => {
       const nextErrors = { ...s.errors };
       delete nextErrors[serverName];
       return { testingServers: { ...s.testingServers, [serverName]: true }, errors: nextErrors };
     });
-    send({ type: "mcp:test", projectId, serverName });
+    void api.post("/api/mcp/test", { serverName, projectId });
   },
   testAllServers: (projectId) => {
     const s = get();
@@ -110,16 +115,20 @@ export const useMcpStore = create<McpState>((set, get) => ({
       return { testingServers: nextTesting };
     });
     for (const srv of s.servers) {
-      send({ type: "mcp:test", projectId, serverName: srv.name });
+      void api.post("/api/mcp/test", { serverName: srv.name, projectId });
     }
   },
   listTools: (serverName, projectId) => {
     set((s) => ({ loadingTools: { ...s.loadingTools, [serverName]: true } }));
-    send({ type: "mcp:listTools", projectId, serverName });
+    void api.get(
+      projectId
+        ? `/api/mcp/${encodeURIComponent(serverName)}/tools?projectId=${encodeURIComponent(projectId)}`
+        : `/api/mcp/${encodeURIComponent(serverName)}/tools`
+    );
   },
   clearAuth: (serverName, projectId) => {
     set((s) => ({ testingServers: { ...s.testingServers, [serverName]: true } }));
-    send({ type: "mcp:clearAuth", projectId, serverName });
+    void api.post("/api/mcp/clear-auth", { serverName, projectId });
   },
   setSelectedProjectId: (id) => set({ selectedProjectId: id }),
   setSearchQuery: (q) => set({ searchQuery: q }),

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import type { AgentName, AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
 import { isModelAvailable } from "@hiagent/shared";
-import { send } from "../ws-instance";
+import { api } from "../api-client";
 import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
@@ -43,15 +43,15 @@ export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
     } else {
       useSessionStore.getState().appendLocalFollowUp(sessionId, expandedText);
     }
-    send({
-      type: "agent:prompt",
-      projectId,
-      sessionId,
+    api.post(`/api/agents/${encodeURIComponent(projectId)}/${encodeURIComponent(sessionId)}/prompt`, {
       agentName: targetAgent,
       text: expandedText,
       model: model!,
       thinking,
       attachments: attachments.length > 0 ? attachments : undefined,
+    }).catch(err => {
+      console.error("[composer] 发送失败:", err);
+      useSessionStore.getState().failTurn(sessionId);
     });
     setText("");
     setSessionPrefs(sessionId, { attachments: [] });

@@ -1,25 +1,27 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 
-const handlers = new Set<(e: any) => void>();
-const sendMock = mock();
-mock.module("../src/ws-instance", () => ({
-  send: sendMock,
-  onMessage: (h: (e: any) => void) => { handlers.add(h); return () => handlers.delete(h); },
+const calls: { method: string; path: string; body?: any }[] = [];
+mock.module("../src/api-client", () => ({
+  api: {
+    get: (path: string) => { calls.push({ method: "get", path }); return Promise.resolve({}); },
+    post: () => Promise.resolve({}),
+    put: (path: string, body?: any) => { calls.push({ method: "put", path, body }); return Promise.resolve({}); },
+    del: () => Promise.resolve({}),
+  },
+  ApiError: class extends Error { status: number; constructor(m: string, s: number) { super(m); this.status = s; this.name = "ApiError"; } },
 }));
 
 // 动态 import 确保 mock.module 先生效
 const { useSubagentsStore, handleSubagentEvent } = await import("../src/store/subagents");
 
 beforeEach(() => {
-  sendMock.mockClear();
+  calls.length = 0;
   useSubagentsStore.setState({ subagents: [] });
 });
 
-const emit = (e: any) => handlers.forEach(h => h(e));
-
-test("load 发送 subagent:list 事件", () => {
+test("load 发送 GET /api/subagents", () => {
   useSubagentsStore.getState().load();
-  expect(sendMock).toHaveBeenCalledWith({ type: "subagent:list" });
+  expect(calls).toEqual([{ method: "get", path: "/api/subagents" }]);
 });
 
 test("收到 subagent:list 事件后填充 subagents", () => {
@@ -28,18 +30,14 @@ test("收到 subagent:list 事件后填充 subagents", () => {
       gradient: ["#7c3aed", "#a78bfa"] as [string, string], readOnly: true,
       systemPrompt: "long...", builtinToolNames: ["read"] },
   ];
-  // 直接调 handleSubagentEvent 验证 store 的消息处理逻辑（生产里由 onMessage 转调），
-  // 绕过 mock.module 跨文件失效问题
+  // 直接调 handleSubagentEvent 验证 store 的消息处理逻辑（生产里由 onMessage 转调）
   handleSubagentEvent({ type: "subagent:list", subagents: fakeList });
   expect(useSubagentsStore.getState().subagents).toEqual(fakeList);
 });
 
-test("saveOverride 发送 subagent:save-override 事件", () => {
+test("saveOverride 发送 PUT /api/subagents/override", () => {
   useSubagentsStore.getState().saveOverride({ type: "Plan", model: "glm-4.6" });
-  expect(sendMock).toHaveBeenCalledWith({
-    type: "subagent:save-override",
-    override: { type: "Plan", model: "glm-4.6" },
-  });
+  expect(calls).toEqual([{ method: "put", path: "/api/subagents/override", body: { override: { type: "Plan", model: "glm-4.6" } } }]);
 });
 
 test("getByName 返回单个 subagent info", () => {

@@ -20,82 +20,83 @@ export const BRIDGE_EXTENSION_PATH = join(GENERATED_DIR, "hiagent-bridge.ts");
 
 // 来自 ask-tool.ts makeAskTool
 const ASK_DESCRIPTION =
-  "向用户提出 1-4 个结构化澄清问题（每问 2-4 个选项），代替瞎猜。每个问题可单选或多选；" +
-  "用户可填「其他」自由文本或取消。返回 details.answers（含 kind: option|custom|multi）或 cancelled。";
+	"向用户提出 1-4 个结构化澄清问题（每问 2-4 个选项），代替瞎猜。每个问题可单选或多选；" +
+	"用户可填「其他」自由文本或取消。返回 details.answers（含 kind: option|custom|multi）或 cancelled。";
 const ASK_PROMPT_GUIDELINES = [
-  "当存在会显著改变实现的歧义、且不值得自己合理假设时再用；一次问最少必要的问题；",
-  "选项文案简洁，给出取舍说明；不要用于确认显而易见的事。",
+	"当存在会显著改变实现的歧义、且不值得自己合理假设时再用；一次问最少必要的问题；",
+	"选项文案简洁，给出取舍说明；不要用于确认显而易见的事。",
 ];
 
 // 来自 amaster-memory.ts createAgentMemoryTools
 const MEM_TARGET_DESC =
-  "Which memory file: 'memory' (your notes → MEMORY.md) or 'user' (user profile → USER.md).";
+	"Which memory file: 'memory' (your notes → MEMORY.md) or 'user' (user profile → USER.md).";
 const MEM_SCOPE_DESC =
-  "Where this entry lives: 'global' (cross-project) or 'project' (current project only). " +
-  "Omit for the default — 'global' for the user target, 'project' for the memory target.";
+	"Where this entry lives: 'global' (cross-project) or 'project' (current project only). " +
+	"Omit for the default — 'global' for the user target, 'project' for the memory target.";
 const MEM_ADD_DESC =
-  "Append a new entry to memory. Save durable information that survives across sessions " +
-  "(user preferences, corrections, stable environment facts, conventions). Do NOT save task progress or temporary state. " +
-  "TARGETS: 'user' for who the user is; 'memory' for your own notes. " +
-  "SCOPE: omit for default (user→global, memory→project), or set 'global'/'project' explicitly.";
-const MEM_ADD_SNIPPET = "Append durable facts to MEMORY.md or USER.md (global or project scope).";
+	"Append a new entry to memory. Save durable information that survives across sessions " +
+	"(user preferences, corrections, stable environment facts, conventions). Do NOT save task progress or temporary state. " +
+	"TARGETS: 'user' for who the user is; 'memory' for your own notes. " +
+	"SCOPE: omit for default (user→global, memory→project), or set 'global'/'project' explicitly.";
+const MEM_ADD_SNIPPET =
+	"Append durable facts to MEMORY.md or USER.md (global or project scope).";
 const MEM_REPLACE_DESC =
-  "Replace an existing memory entry. Find it by a short unique substring (oldText), replace with newContent. " +
-  "Use this to update outdated entries instead of remove+add. SCOPE defaults like memory_add.";
+	"Replace an existing memory entry. Find it by a short unique substring (oldText), replace with newContent. " +
+	"Use this to update outdated entries instead of remove+add. SCOPE defaults like memory_add.";
 const MEM_REPLACE_SNIPPET = "Update an existing MEMORY.md or USER.md entry.";
 const MEM_REMOVE_DESC =
-  "Remove a memory entry by a short unique substring (oldText). Use when an entry is wrong or no longer relevant. " +
-  "SCOPE defaults like memory_add.";
+	"Remove a memory entry by a short unique substring (oldText). Use when an entry is wrong or no longer relevant. " +
+	"SCOPE defaults like memory_add.";
 const MEM_REMOVE_SNIPPET = "Delete an entry from MEMORY.md or USER.md.";
 const MEM_READ_DESC =
-  "Return live entries and usage for a memory store. Inspect what's saved before deciding to add/replace/remove. " +
-  "SCOPE defaults like memory_add.";
+	"Return live entries and usage for a memory store. Inspect what's saved before deciding to add/replace/remove. " +
+	"SCOPE defaults like memory_add.";
 const MEM_READ_SNIPPET = "Read the current contents of MEMORY.md or USER.md.";
 
 // 来自 delegate-tool.ts delegateDescription()
 const DELEGATE_DESCRIPTION = [
-  "Run a specialized subagent in an isolated context to handle a delegated task, then return its result.",
-  "The subagent runs with its own tools and system prompt; the main agent cannot continue until it returns.",
-  "\n",
-  "Default to delegating multi-step exploration (requests needing several reads/searches) to this",
-  "tool—it keeps noisy tool sequences out of your context. Do single lookups and 1-2 file reads yourself.",
-  "\n",
-  "Use delegate when delegation fits:",
-  "- The task is exploratory or codebase-wide (search, survey, architecture understanding).",
-  "- The task needs many noisy tool calls (repeated grep/read) that would bloat the main context.",
-  "- The task is self-contained and the subagent's focused output is what you need to proceed.",
-  "- Each subagent's <whenToDelegate> / <whenNotTo> / <benefit> in the Available Subagents list tells you when to pick it.",
-  "\n",
-  "Do NOT use delegate when:",
-  "- The answer is a simple lookup, quick edit, or single-step task you can do directly with read/grep/edit.",
-  "- The task needs frequent user back-and-forth.",
-  "- The task is latency-sensitive and the main agent can do it in one step.",
-  "",
-  "When delegating, write a self-contained task:",
-  "- Include file paths, context, expected output, and whether the subagent may edit files.",
-  "- Do not forward the user's raw text verbatim; synthesize a focused task contract.",
+	"Run a specialized subagent in an isolated context to handle a delegated task, then return its result.",
+	"The subagent runs with its own tools and system prompt; the main agent cannot continue until it returns.",
+	"\n",
+	"Default to delegating multi-step exploration (requests needing several reads/searches) to this",
+	"tool—it keeps noisy tool sequences out of your context. Do single lookups and 1-2 file reads yourself.",
+	"\n",
+	"Use delegate when delegation fits:",
+	"- The task is exploratory or codebase-wide (search, survey, architecture understanding).",
+	"- The task needs many noisy tool calls (repeated grep/read) that would bloat the main context.",
+	"- The task is self-contained and the subagent's focused output is what you need to proceed.",
+	"- Each subagent's <whenToDelegate> / <whenNotTo> / <benefit> in the Available Subagents list tells you when to pick it.",
+	"\n",
+	"Do NOT use delegate when:",
+	"- The answer is a simple lookup, quick edit, or single-step task you can do directly with read/grep/edit.",
+	"- The task needs frequent user back-and-forth.",
+	"- The task is latency-sensitive and the main agent can do it in one step.",
+	"",
+	"When delegating, write a self-contained task:",
+	"- Include file paths, context, expected output, and whether the subagent may edit files.",
+	"- Do not forward the user's raw text verbatim; synthesize a focused task contract.",
 ].join("\n");
 
 // 来自 delegate-tool.ts makeFleetTool（并发上限写死为 6，与 MAX_SUBAGENT_CONCURRENCY 同步）
 const FLEET_DESCRIPTION = [
-  "Run multiple subagents in parallel, each in its own isolated context, and return all results together.",
-  "The call blocks the main agent until every subagent finishes.",
-  "Each task's `agent` must be a name from the Available Subagents list.",
-  "",
-  "Use fleet when multiple independent subtasks can run at once:",
-  "- Multi-keyword or multi-directory parallel exploration.",
-  "- Codebase-wide audit across unrelated modules.",
-  "- Multiple independent bugs or files investigated in parallel.",
-  "",
-  "Do NOT use fleet when:",
-  "- Tasks depend on each other (use sequential delegate calls instead).",
-  "- Tasks touch the same files or shared state (write-heavy parallel work causes conflicts).",
-  "- You only have one task (use delegate, not fleet).",
-  "",
-  "Guidelines:",
-  "- Keep tasks independent and self-contained (paths, context, expected output).",
-  "- Concurrency limit is 6; do not exceed it.",
-  "- Decide how many subagents to spawn from the task shape; do not wait for the user to specify a count.",
+	"Run multiple subagents in parallel, each in its own isolated context, and return all results together.",
+	"The call blocks the main agent until every subagent finishes.",
+	"Each task's `agent` must be a name from the Available Subagents list.",
+	"",
+	"Use fleet when multiple independent subtasks can run at once:",
+	"- Multi-keyword or multi-directory parallel exploration.",
+	"- Codebase-wide audit across unrelated modules.",
+	"- Multiple independent bugs or files investigated in parallel.",
+	"",
+	"Do NOT use fleet when:",
+	"- Tasks depend on each other (use sequential delegate calls instead).",
+	"- Tasks touch the same files or shared state (write-heavy parallel work causes conflicts).",
+	"- You only have one task (use delegate, not fleet).",
+	"",
+	"Guidelines:",
+	"- Keep tasks independent and self-contained (paths, context, expected output).",
+	"- Concurrency limit is 6; do not exceed it.",
+	"- Decide how many subagents to spawn from the task shape; do not wait for the user to specify a count.",
 ].join("\n");
 
 /**
@@ -104,7 +105,7 @@ const FLEET_DESCRIPTION = [
  * （pi 已配别名），但不能 import 任何 kernel 代码——宿主逻辑全部经 /bridge/tool 回调。
  */
 export function generateBridgeExtension(): string {
-  return `// 自动生成，勿手改 — 由 HiAgent bridge-extension.ts 生成（RPC 模式宿主工具桥）
+	return `// 自动生成，勿手改 — 由 HiAgent bridge-extension.ts 生成（RPC 模式宿主工具桥）
 // pi 进程加载本扩展注册宿主工具；execute 经 HTTP 回调 kernel 的 /bridge/tool 端点。
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -137,13 +138,16 @@ async function callBridge(
   toolCallId: string,
   params: unknown,
   signal: AbortSignal | undefined,
-  timeoutMs: number,
+  timeoutMs?: number,
 ): Promise<BridgeToolResult> {
   const missing = missingEnvError();
   if (missing) return failResult(missing, "missing_env");
-  // 工具 signal（用户中断）与超时合并为一个 controller
+  // 工具 signal（用户中断）合并到 controller；timeoutMs 不传则不加超时计时器
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(new Error("bridge 调用超时 (" + timeoutMs + "ms)")), timeoutMs);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (timeoutMs !== undefined && timeoutMs > 0) {
+    timer = setTimeout(() => ctrl.abort(new Error("bridge 调用超时 (" + timeoutMs + "ms)")), timeoutMs);
+  }
   const onToolAbort = () => ctrl.abort((signal && signal.reason) || new Error("aborted"));
   if (signal) {
     if (signal.aborted) onToolAbort();
@@ -169,7 +173,7 @@ async function callBridge(
     const msg = err instanceof Error ? err.message : String(err);
     return failResult("bridge 调用失败: " + msg, msg);
   } finally {
-    clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
     if (signal) signal.removeEventListener("abort", onToolAbort);
   }
 }
@@ -294,7 +298,7 @@ export default function (pi: ExtensionAPI) {
     description: ${JSON.stringify(DELEGATE_DESCRIPTION)},
     parameters: DelegateParamsSchema,
     async execute(toolCallId, params, signal) {
-      return callBridge("delegate", toolCallId, params, signal, DEFAULT_TIMEOUT_MS);
+      return callBridge("delegate", toolCallId, params, signal);
     },
   });
 
@@ -304,7 +308,7 @@ export default function (pi: ExtensionAPI) {
     description: ${JSON.stringify(FLEET_DESCRIPTION)},
     parameters: FleetParamsSchema,
     async execute(toolCallId, params, signal) {
-      return callBridge("fleet", toolCallId, params, signal, DEFAULT_TIMEOUT_MS);
+      return callBridge("fleet", toolCallId, params, signal);
     },
   });
 }
@@ -316,7 +320,7 @@ export default function (pi: ExtensionAPI) {
  * 返回文件路径，供 kernel spawn pi 时经 -e 注入。
  */
 export async function ensureBridgeExtension(): Promise<string> {
-  await mkdir(GENERATED_DIR, { recursive: true });
-  await writeFile(BRIDGE_EXTENSION_PATH, generateBridgeExtension(), "utf8");
-  return BRIDGE_EXTENSION_PATH;
+	await mkdir(GENERATED_DIR, { recursive: true });
+	await writeFile(BRIDGE_EXTENSION_PATH, generateBridgeExtension(), "utf8");
+	return BRIDGE_EXTENSION_PATH;
 }

@@ -37,19 +37,6 @@ interface Props {
   currentAgentName?: string;
 }
 
-function readFileAsBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result);
-      const base64 = result.includes(",") ? result.split(",")[1] : result;
-      resolve(base64);
-    };
-    reader.onerror = () => reject(new Error("读取文件失败"));
-    reader.readAsDataURL(file);
-  });
-}
-
 export function ComposerInput({
   text, setText, model, setModel, thinking, setThinking,
   attachments, setAttachments, projectId, sessionId, onSend, sendDisabled, disabled, placeholder,
@@ -218,8 +205,7 @@ export function ComposerInput({
     setPendingUploads(n => n + list.length);
     for (const file of list) {
       try {
-        const content = await readFileAsBase64(file);
-        const { path } = await uploadFile(projectId, file.name, content, sessionId);
+        const { path } = await uploadFile(projectId, file.name, file, sessionId);
         const kind = file.type.startsWith("image/") ? "image" : "file";
         setAttachments(prev => [...prev, { kind, name: file.name, path, size: file.size }]);
       } catch (err) {

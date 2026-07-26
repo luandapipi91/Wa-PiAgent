@@ -1,7 +1,51 @@
-import { describe, it, expect, vi, mock, beforeEach, afterEach } from "bun:test";
+import "./mock-composer-db";
+import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, waitFor, act, cleanup } from "@testing-library/react";
 import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
 import type { AgentConfig } from "@hiagent/shared";
+import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
+
+const sent: { path: string; body?: any }[] = [];
+const composerDbNewSessionIds: Record<string, string> = {};
+
+mock.module("../src/api-client", () => ({
+  api: {
+    get: () => Promise.resolve({}),
+    post: (path: string, body?: any) => {
+      sent.push({ path, body });
+      return Promise.resolve({});
+    },
+    put: () => Promise.resolve({}),
+    del: () => Promise.resolve({}),
+  },
+  ApiError: class extends Error {
+    status: number;
+    constructor(m: string, s: number) {
+      super(m);
+      this.status = s;
+      this.name = "ApiError";
+    }
+  },
+}));
+
+// mock-composer-db 未持久化 newSessionIds，这里再包一层，让切换新建会话的测试能复用同一 sessionId
+mock.module("../src/store/composer-db", () => ({
+  getDefaults: async () => ({ ...composerDbDefaults }),
+  setDefaults: async () => {},
+  getSessionPrefs: async (sessionId: string) => composerDbSessions[sessionId],
+  setSessionPrefs: async () => {},
+  deleteSessionPrefs: async () => {},
+  getRecordingPrefs: async () => ({}),
+  setRecordingPrefs: async () => {},
+  getNewSessionIds: async () => ({ ...composerDbNewSessionIds }),
+  setNewSessionIds: async (ids: Record<string, string>) => {
+    for (const k of Object.keys(composerDbNewSessionIds)) delete composerDbNewSessionIds[k];
+    Object.assign(composerDbNewSessionIds, ids);
+  },
+}));
+
+import { disconnectEvents } from "../src/events";
+import { NewSessionPane } from "../src/components/NewSessionPane";
 import { useProjectsStore } from "../src/store/projects";
 import { useAgentsStore } from "../src/store/agents";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
@@ -11,13 +55,19 @@ import { _setRecordingManager } from "../src/recording/recorder";
 import { useSkillsStore } from "../src/store/skills";
 
 const agentCfg = (displayName: string): AgentConfig => ({
-  displayName, avatar: "", avatarColor: "", description: "",
-  model: "m", thinking: "medium", systemPromptMode: "replace",
-
-  tools: [], skills: [], mcpServers: [], partners: { askTo: [] },
+  displayName,
+  avatar: "",
+  avatarColor: "",
+  description: "",
+  model: "m",
+  thinking: "medium",
+  systemPromptMode: "replace",
+  tools: [],
+  skills: [],
+  mcpServers: [],
+  partners: { askTo: [] },
 });
 
-// 把文本写入 contenteditable textbox 并触发 input 事件（替代原 textarea 的 fireEvent.change）
 function typeIntoComposer(value: string) {
   const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
   textbox.textContent = value;
@@ -25,56 +75,30 @@ function typeIntoComposer(value: string) {
   return textbox;
 }
 
-const handlers = new Set<(e: any) => void>();
-const sendMock = vi.fn();
+function lastPrompt() {
+  return sent.filter((s) => s.path.includes("/prompt")).at(-1)?.body;
+}
 
-vi.mock("../src/ws-instance", () => ({
-  send: sendMock,
-  onMessage: (h: (e: any) => void) => {
-    handlers.add(h);
-    return () => handlers.delete(h);
-  },
-}));
+const originalFetch = globalThis.fetch;
 
-// 单元测试环境没有可用的 IndexedDB，用内存 mock 替换 composer-db
-let memoryDefaults: { model: string | null; thinking: any } = { model: null, thinking: "disabled" };
-const memorySessions: Record<string, any> = {};
-let memoryRecordingPrefs: { lastSource?: "mic" | "system" } = {};
-let memoryNewSessionIds: Record<string, string> = {};
-mock.module("../src/store/composer-db", () => ({
-  getDefaults: async () => memoryDefaults,
-  setDefaults: async (prefs: any) => {
-    memoryDefaults = { ...prefs };
-  },
-  getSessionPrefs: async (sessionId: string) => memorySessions[sessionId],
-  setSessionPrefs: async (record: any) => {
-    memorySessions[record.sessionId] = { ...record };
-  },
-  deleteSessionPrefs: async (sessionId: string) => {
-    delete memorySessions[sessionId];
-  },
-  getRecordingPrefs: async () => memoryRecordingPrefs,
-  setRecordingPrefs: async (prefs: any) => {
-    memoryRecordingPrefs = { ...prefs };
-  },
-  getNewSessionIds: async () => memoryNewSessionIds,
-  setNewSessionIds: async (ids: Record<string, string>) => {
-    memoryNewSessionIds = { ...ids };
-  },
-}));
-
-import { setDefaults as dbSetDefaults } from "../src/store/composer-db";
-import { NewSessionPane } from "../src/components/NewSessionPane";
+function mockFetch(path: string) {
+  globalThis.fetch = mock(() =>
+    Promise.resolve({ ok: true, json: () => Promise.resolve({ path }) })
+  ) as any;
+}
 
 describe("NewSessionPane", () => {
-  // 渲染后清理 DOM：happy-dom 全局 document 跨测试文件共享，不清理会污染后续文件
-afterEach(() => cleanup());
+  afterEach(() => cleanup());
 
-beforeEach(() => {
-    memoryDefaults = { model: null, thinking: "disabled" };
-    for (const k of Object.keys(memorySessions)) delete memorySessions[k];
-    memoryRecordingPrefs = {};
-    memoryNewSessionIds = {};
+  beforeEach(() => {
+    composerDbDefaults.model = null;
+    composerDbDefaults.thinking = "disabled";
+    for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
+    for (const k of Object.keys(composerDbNewSessionIds)) delete composerDbNewSessionIds[k];
+
+    sent.length = 0;
+    disconnectEvents();
+    mockFetch("/a/.hiagent/uploads/note.txt");
 
     useProjectsStore.setState({
       projects: [{ id: "p1", name: "项目A", cwd: "/a", createdAt: 0 }],
@@ -87,7 +111,6 @@ beforeEach(() => {
       bySession: {},
       newSessionIds: {},
     });
-    // 默认喂 4 个内置智能体（模拟 kernel agent:list 已返回），单独测试可覆盖为空
     useAgentsStore.setState({
       list: [agentCfg("需求设计"), agentCfg("项目管理"), agentCfg("技术实现"), agentCfg("质量验收")],
     });
@@ -101,19 +124,30 @@ beforeEach(() => {
       elapsedMs: 0,
       error: undefined,
     });
-    _setRecordingManager({ start: async () => {}, pause: () => {}, resume: () => {}, stop: async () => ({ path: "", size: 0, durationMs: 0 }) });
-    useSkillsStore.setState({
-      skills: [], allSkills: [], dirs: [], disabledSkills: [], builtinDir: "", loading: false,
-      load: () => {}, setAll: () => {}, toggleSkill: () => {}, addDir: () => {}, removeDir: () => {},
+    _setRecordingManager({
+      start: async () => {},
+      pause: () => {},
+      resume: () => {},
+      stop: async () => ({ path: "", size: 0, durationMs: 0 }),
     });
-    handlers.clear();
-    sendMock.mockClear();
+    useSkillsStore.setState({
+      skills: [],
+      allSkills: [],
+      dirs: [],
+      disabledSkills: [],
+      builtinDir: "",
+      loading: false,
+      load: () => {},
+      setAll: () => {},
+      toggleSkill: () => {},
+      addDir: () => {},
+      removeDir: () => {},
+    });
   });
 
-  // beforeEach 把 skills store 的 action 整体 stub 成空函数，zustand store 是进程级单例，
-  // 不还原会泄漏给后面跑的测试文件（如 store-skills.test.ts）——恢复初始 state（含原始 action）
   afterEach(() => {
     useSkillsStore.setState(useSkillsStore.getInitialState(), true);
+    globalThis.fetch = originalFetch;
   });
 
   it("renders project and agent selects", () => {
@@ -123,18 +157,17 @@ beforeEach(() => {
   });
 
   it("clears text after sending", async () => {
-    await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
+    composerDbDefaults.model = "gpt-4o";
+    composerDbDefaults.thinking = "disabled";
     useProvidersStore.setState({
       providers: [
         { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
       ],
     });
     render(<NewSessionPane />);
-    // 等待 loadDefaults 应用内存默认值，避免发送被 model 空拦截
     await waitFor(() => {
       expect(useComposerPrefsStore.getState().defaults.model).toBe("openai/gpt-4o");
     });
-    // 等待 model 状态同步到 selector（跨测试异步更新可能延迟）
     await waitFor(() => {
       expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
     });
@@ -150,7 +183,8 @@ beforeEach(() => {
   });
 
   it("sends first prompt with model and thinking", async () => {
-    await dbSetDefaults({ model: "claude-sonnet", thinking: "high" });
+    composerDbDefaults.model = "claude-sonnet";
+    composerDbDefaults.thinking = "high";
     useProvidersStore.setState({
       providers: [
         { id: "p1", name: "anthropic", api: "anthropic-messages", baseUrl: "", apiKey: "", models: [{ id: "claude-sonnet", contextWindow: 128000, maxTokens: 4096 }] },
@@ -177,23 +211,25 @@ beforeEach(() => {
     fireEvent.click(screen.getByTestId("composer-send"));
 
     await waitFor(() => {
-      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
-        type: "agent:prompt",
-        projectId: "p1",
+      expect(lastPrompt()).toMatchObject({
+        agentName: useAgentsStore.getState().list[0].displayName,
         text: "hello",
         model: "anthropic/claude-sonnet",
         thinking: "high",
-      }));
+      });
     });
+    const req = sent.find((s) => s.path.includes("/prompt"));
+    expect(req?.path).toMatch(/^\/api\/agents\/p1\/[^/]+\/prompt$/);
   });
 
   it("sends prompt with attachments", async () => {
+    composerDbDefaults.model = "gpt-4o";
+    composerDbDefaults.thinking = "disabled";
     useProvidersStore.setState({
       providers: [
         { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
       ],
     });
-    await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
     render(<NewSessionPane />);
 
     await waitFor(() => {
@@ -207,12 +243,6 @@ beforeEach(() => {
     const file = new File(["content"], "note.txt", { type: "text/plain" });
     fireEvent.change(fileInput, { target: { files: [file] } });
 
-    // 等待自动上传请求发出并模拟 kernel 返回项目目录路径
-    await waitFor(() => expect(sendMock).toHaveBeenCalled());
-    const sent = sendMock.mock.calls.find(([e]) => e.type === "fs:upload")?.[0];
-    expect(sent).toBeTruthy();
-    handlers.forEach(h => h({ type: "fs:upload", id: sent.id, path: "/a/.hiagent/uploads/note.txt" }));
-
     await waitFor(() => {
       expect(screen.getByTestId("attachment-list")).toBeTruthy();
     });
@@ -224,17 +254,17 @@ beforeEach(() => {
     fireEvent.click(screen.getByTestId("composer-send"));
 
     await waitFor(() => {
-      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
-        type: "agent:prompt",
-        projectId: "p1",
+      expect(lastPrompt()).toMatchObject({
+        agentName: useAgentsStore.getState().list[0].displayName,
         text: "with attachment",
         attachments: [expect.objectContaining({ kind: "file", name: "note.txt", path: "/a/.hiagent/uploads/note.txt" })],
-      }));
+      });
     });
   });
 
   it("@提及智能体：primaryAgent 仍为 dropdown 默认 agent，@[xxx] 原样发（新会话也走委托）", async () => {
-    await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
+    composerDbDefaults.model = "gpt-4o";
+    composerDbDefaults.thinking = "disabled";
     useProvidersStore.setState({
       providers: [
         { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
@@ -245,29 +275,23 @@ beforeEach(() => {
       expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
     });
 
-    // dropdown 默认选中的 agent：用稳定来源（store list 第一项），不用 textContent（含 avatar/箭头）
     const defaultAgent = useAgentsStore.getState().list[0].displayName;
 
     typeIntoComposer("@[项目管理] 帮我看看需求");
     fireEvent.click(screen.getByTestId("composer-send"));
 
     await waitFor(() => {
-      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
-        type: "agent:prompt",
-        projectId: "p1",
-        agentName: defaultAgent,  // 严格断言：仍是 dropdown 默认 agent，不是 mention
-        text: "@[项目管理] 帮我看看需求",  // 原样保留
-      }));
+      expect(lastPrompt()).toMatchObject({
+        agentName: defaultAgent,
+        text: "@[项目管理] 帮我看看需求",
+      });
     });
-    // primaryAgent 仍是 dropdown 默认 agent（严格正向断言）
     const session = useProjectsStore.getState().sessions[0];
     expect(session.primaryAgent).toBe(defaultAgent);
-    // 不弹确认框
     expect(screen.queryByTestId("mention-confirm")).toBeNull();
   });
 
   it("@ 菜单选中 agent 不切换 dropdown（主智能体不变）", async () => {
-    // 配置 agents：默认选中项 "需求设计" 的 partners.askTo 含 "项目管理"，让 @ 菜单有候选项
     useAgentsStore.setState({
       list: [
         { ...agentCfg("需求设计"), partners: { askTo: ["项目管理"] } },
@@ -277,18 +301,13 @@ beforeEach(() => {
       ],
     });
     render(<NewSessionPane />);
-    // 初始 dropdown 默认选中列表第一项（无会话历史）
     const defaultAgent = useAgentsStore.getState().list[0].displayName;
     expect(screen.getByTestId("agent-select").textContent).toContain(defaultAgent);
 
-    // 输入 @ 触发 QuickInvokeMenu（filterItems 用 displayName 匹配，"项" 命中 "项目管理"）
     typeIntoComposer("@项");
-    // 等待 @ 菜单渲染出 "项目管理" 候选项
     const menuItem = await waitFor(() => screen.getByText("项目管理"));
-    // 点击 @ 菜单项触发 handleSelect → onAgentMention（NewSessionPane 不再传该 prop，dropdown 应不变）
     fireEvent.click(menuItem);
 
-    // dropdown 仍显示默认 agent，未切换到 @ 的 "项目管理"
     expect(screen.getByTestId("agent-select").textContent).toContain(defaultAgent);
     expect(screen.getByTestId("agent-select").textContent).not.toContain("项目管理");
   });
@@ -305,13 +324,13 @@ beforeEach(() => {
         { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
       ],
     });
-    await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
+    composerDbDefaults.model = "gpt-4o";
+    composerDbDefaults.thinking = "disabled";
 
     const { unmount } = render(<NewSessionPane />);
     await waitFor(() => {
       expect(useComposerPrefsStore.getState().defaults.model).toBe("openai/gpt-4o");
     });
-    // 让 loadDefaults + setNewSessionId 的异步 state 更新在 act 内 flush
     await act(async () => {});
 
     fireEvent.click(screen.getByTestId("record-button"));
@@ -319,7 +338,6 @@ beforeEach(() => {
     const owningSessionId = useRecordingStore.getState().owningSessionId;
     expect(owningSessionId).toBeTruthy();
 
-    // 模拟切到其它会话再返回新建会话（组件重新挂载）
     unmount();
     render(<NewSessionPane />);
     await act(async () => {});
@@ -333,13 +351,10 @@ beforeEach(() => {
     });
     const list = screen.getByTestId("attachment-list");
     expect(list.textContent).toContain("录音 0:05.webm");
-    // 附件必须写入当前可见的新建会话，而不是旧的随机 sessionId
     expect(useComposerPrefsStore.getState().bySession[owningSessionId]?.attachments?.length).toBeGreaterThanOrEqual(1);
   });
 
   it("默认选中最近使用的智能体（按名下会话 lastActivity 最大），而非列表第一项", () => {
-    // agents 顺序：product / pm / dev / test（beforeEach 已注入）
-    // 历史会话中 dev 最近活跃 → 默认应选 dev，而非列表第一个 product
     useProjectsStore.setState({
       projects: [{ id: "p1", name: "项目A", cwd: "/a", createdAt: 0 }],
       sessions: [
@@ -350,14 +365,12 @@ beforeEach(() => {
       currentSessionId: null,
     });
     render(<NewSessionPane />);
-    // pill 按钮文本只显示选中智能体：应含 dev 的 "技术实现"，不含列表第一项 "需求设计"
     const pillText = screen.getByTestId("agent-select").textContent ?? "";
     expect(pillText).toContain("技术实现");
     expect(pillText).not.toContain("需求设计");
   });
 
   it("无会话历史时默认回退列表第一项", () => {
-    // beforeEach 默认 sessions: []，应回退 agents[0] = product("需求设计")
     render(<NewSessionPane />);
     expect(screen.getByTestId("agent-select").textContent).toContain("需求设计");
   });
@@ -365,9 +378,7 @@ beforeEach(() => {
   it("agent 下拉来自 agents store，pendingAgent 预选", () => {
     useAgentsStore.setState({ list: [agentCfg("需求设计"), agentCfg("代码审查")] });
     render(<NewSessionPane pendingAgent="代码审查" />);
-    // pill 显示 pendingAgent 的 displayName
     expect(screen.getByTestId("agent-select").textContent).toContain("代码审查");
-    // 打开下拉验证列表项来自 store
     fireEvent.click(screen.getByTestId("agent-select"));
     expect(screen.getByTestId("agent-item-需求设计")).toBeTruthy();
     expect(screen.getByTestId("agent-item-代码审查")).toBeTruthy();
@@ -376,7 +387,6 @@ beforeEach(() => {
   it("pendingAgent 变化时同步到下拉（已挂载新建页再点智能体）", () => {
     useAgentsStore.setState({ list: [agentCfg("技术实现"), agentCfg("代码审查")] });
     const { rerender } = render(<NewSessionPane />);
-    // 无 pendingAgent 且无会话历史时默认取列表第一项
     expect(screen.getByTestId("agent-select").textContent).toContain("技术实现");
     rerender(<NewSessionPane pendingAgent="代码审查" />);
     expect(screen.getByTestId("agent-select").textContent).toContain("代码审查");
@@ -385,17 +395,15 @@ beforeEach(() => {
   it("agents list 为空时 pill 显示占位，展开下拉提示无智能体", () => {
     useAgentsStore.setState({ list: [] });
     render(<NewSessionPane />);
-    // pill 显示占位文本
     expect(screen.getByTestId("agent-select").textContent).toContain("选择智能体");
-    // 展开下拉提示无智能体
     fireEvent.click(screen.getByTestId("agent-select"));
     expect(screen.getByText(/无智能体/)).toBeTruthy();
   });
 
   it("agent:list 空转非空时回填选中项为列表第一项，发送解禁", async () => {
-    // 首次加载 agents store 为空（agent:list 回包未到），以空列表挂载
     useAgentsStore.setState({ list: [] });
-    await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
+    composerDbDefaults.model = "gpt-4o";
+    composerDbDefaults.thinking = "disabled";
     useProvidersStore.setState({
       providers: [
         { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
@@ -406,21 +414,19 @@ beforeEach(() => {
       expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
     });
     typeIntoComposer("hello");
-    // agentName 为 null，发送禁用
     const btn = screen.getByTestId("composer-send") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
-    // 回包到达后灌入列表，应自动回填第一项为选中智能体，发送解禁
     act(() => {
       useAgentsStore.setState({ list: [agentCfg("技术实现"), agentCfg("质量验收")] });
     });
     expect(btn.disabled).toBe(false);
-    // pill 显示回填的 dev displayName
     expect(screen.getByTestId("agent-select").textContent).toContain("技术实现");
   });
 
   it("空智能体列表：无有效选中值且发送被阻止（不回退到死智能体 dev）", async () => {
     useAgentsStore.setState({ list: [] });
-    await dbSetDefaults({ model: "gpt-4o", thinking: "disabled" });
+    composerDbDefaults.model = "gpt-4o";
+    composerDbDefaults.thinking = "disabled";
     useProvidersStore.setState({
       providers: [
         { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
@@ -430,18 +436,15 @@ beforeEach(() => {
     await waitFor(() => {
       expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
     });
-    // agentName 为 null，pill 显示占位而非某个死智能体
     expect(screen.getByTestId("agent-select").textContent).toContain("选择智能体");
-    // 输入文本后发送按钮仍禁用，点击也不会发出 agent:prompt
     typeIntoComposer("hello");
     const btn = screen.getByTestId("composer-send") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     fireEvent.click(btn);
-    expect(sendMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent:prompt" }));
+    expect(sent.some((s) => s.path.includes("/prompt"))).toBe(false);
   });
 
   it("项目下拉出现默认工作区选项且不带 cwd", () => {
-    // 覆盖 beforeEach 默认 projects：含一个系统项目 + 一个普通项目
     useProjectsStore.setState({
       projects: [
         { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
@@ -453,20 +456,16 @@ beforeEach(() => {
     });
     render(<NewSessionPane />);
     const select = screen.getByTestId("project-select") as HTMLSelectElement;
-    // 系统项目 option 文本应含 "🏠 默认工作区"，且不挂 cwd
-    const sysOption = Array.from(select.options).find(o => o.value === SYSTEM_PROJECT_ID);
+    const sysOption = Array.from(select.options).find((o) => o.value === SYSTEM_PROJECT_ID);
     expect(sysOption).toBeDefined();
     expect(sysOption!.textContent).toContain("默认工作区");
     expect(sysOption!.textContent).not.toContain("/tmp/workdir");
-    // 普通项目 option 行为不变，仍带 cwd
-    const normalOption = Array.from(select.options).find(o => o.value === "p1");
+    const normalOption = Array.from(select.options).find((o) => o.value === "p1");
     expect(normalOption).toBeDefined();
     expect(normalOption!.textContent).toContain("/work/hiagent");
   });
 
   it("首次进入时默认选中默认工作区", () => {
-    // currentProjectId 为 null 模拟首次进入，应自动选中系统项目
-    // 注意：系统项目放在列表第 2 位，确保选中走 SYSTEM_PROJECT_ID 优先逻辑而非 projects[0]
     useProjectsStore.setState({
       projects: [
         { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },

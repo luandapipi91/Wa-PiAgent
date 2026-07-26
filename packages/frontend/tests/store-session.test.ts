@@ -178,7 +178,7 @@ test("agent_end 设置 status=idle", () => {
   expect(useSessionStore.getState().statusBySession["s1"]).toBe("idle");
 });
 
-test("message_update 更新 streamingMessage（用 assistantMessageEvent.partial）", () => {
+test("message_update 更新 streamingMessage（用 assistantMessageEvent.partial，rAF 合帧后生效）", async () => {
   // 先设初始 streaming
   useSessionStore.setState({
     streamingBySession: {
@@ -199,10 +199,55 @@ test("message_update 更新 streamingMessage（用 assistantMessageEvent.partial
     },
   });
   useSessionStore.getState().handleSDKEvent("s1", env);
+  // rAF 合帧：等一帧后 streaming 才反映最新 partial
+  await new Promise((r) => requestAnimationFrame(r));
   const streaming = useSessionStore.getState().streamingBySession["s1"];
   expect(streaming).toBeTruthy();
   // partial 应反映流式增量
   expect((streaming!.message as any).content[0].text).toBe("部分");
+});
+
+test("message_update 一帧内多次到达：合帧后 streaming 取最新 partial", async () => {
+  const mk = (text: string) => envelope({
+    type: "message_update",
+    message: { role: "assistant", content: [{ type: "text", text }], model: "m", stopReason: "stop", timestamp: 2 },
+    assistantMessageEvent: {
+      type: "text_delta",
+      contentIndex: 0,
+      delta: text,
+      partial: { role: "assistant", content: [{ type: "text", text }], model: "m", stopReason: "stop", timestamp: 2 },
+    },
+  });
+  useSessionStore.getState().handleSDKEvent("s1", mk("部"));
+  useSessionStore.getState().handleSDKEvent("s1", mk("部分"));
+  useSessionStore.getState().handleSDKEvent("s1", mk("部分内"));
+  await new Promise((r) => requestAnimationFrame(r));
+  const streaming = useSessionStore.getState().streamingBySession["s1"];
+  expect((streaming!.message as any).content[0].text).toBe("部分内");
+});
+
+test("message_end 丢弃挂起的 streaming 帧：旧 partial 不在定稿后复活", async () => {
+  const updateEnv = envelope({
+    type: "message_update",
+    message: { role: "assistant", content: [{ type: "text", text: "部分" }], model: "m", stopReason: "stop", timestamp: 2 },
+    assistantMessageEvent: {
+      type: "text_delta",
+      contentIndex: 0,
+      delta: "部分",
+      partial: { role: "assistant", content: [{ type: "text", text: "部分" }], model: "m", stopReason: "stop", timestamp: 2 },
+    },
+  });
+  const endEnv = envelope({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "完整回复" }], model: "m", stopReason: "stop", timestamp: 2 },
+  });
+  useSessionStore.getState().handleSDKEvent("s1", updateEnv); // 挂起
+  useSessionStore.getState().handleSDKEvent("s1", endEnv);     // 定稿 + drop 挂起帧
+  await new Promise((r) => requestAnimationFrame(r));
+  // streaming 保持 null（不被旧 partial 复活），定稿消息已落库
+  expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
+  const msgs = useSessionStore.getState().messagesBySession["s1"];
+  expect((msgs[msgs.length - 1].message as any).content[0].text).toBe("完整回复");
 });
 
 test("handleSDKEvent 不影响其他 session 的状态", () => {

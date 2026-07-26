@@ -26,6 +26,10 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       // 开发时 /file 由 kernel 服务，Vite 默认会回退到 index.html，导致 <audio>/<img> 拿不到真实文件
       proxy: {
+        "/api": {
+          target: `http://127.0.0.1:${wsPort}`,
+          changeOrigin: true,
+        },
         "/file": {
           target: `http://127.0.0.1:${wsPort}`,
           changeOrigin: true,

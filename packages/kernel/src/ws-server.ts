@@ -24,6 +24,18 @@ import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
 import { handleBridgeRequest } from "./bridge-registry";
 import { appendChunk, finalizeRecording, discardRecording } from "./recording-store";
+import { SseBus } from "./sse-bus";
+import { HttpRouter } from "./http-router";
+import { registerProjectSessionRoutes } from "./routes/projects-sessions";
+import { registerChatRoutes } from "./routes/chat";
+import { registerFsRoutes } from "./routes/fs";
+import { registerAgentRoutes } from "./routes/agents";
+import { registerProviderRoutes } from "./routes/providers";
+import { registerSkillRoutes } from "./routes/skills";
+import { registerExtensionRoutes } from "./routes/extensions";
+import { registerMemoryRoutes } from "./routes/memory";
+import { registerMcpRoutes } from "./routes/mcp";
+import { registerFileRoutes } from "./routes/files";
 
 /** 把 URL 路径解析成 staticDir 下的文件路径；未知/越权路径回退 index.html（SPA）。 */
 export function resolveStaticPath(urlPath: string, staticDir: string): string {
@@ -76,7 +88,7 @@ export function resolveUploadFile(url: URL, projects: { cwd: string }[]): string
 }
 
 /** 在项目目录下生成不重复的文件路径；仅保留文件名并拒绝 `.` / `..`，防止路径穿越。 */
-async function uniquePath(dir: string, name: string): Promise<string> {
+export async function uniquePath(dir: string, name: string): Promise<string> {
   let safe = basename(name).replace(/[\\/]/g, "_") || "upload";
   if (safe === "." || safe === "..") safe = "upload";
   const candidate = join(dir, safe);
@@ -99,7 +111,7 @@ async function uniquePath(dir: string, name: string): Promise<string> {
  *
  * 携带 sessionId 但 session 实体不存在时降级返回 project.cwd（保守地与旧调用方一致）。
  */
-async function resolveCwdForFsRequest(
+export async function resolveCwdForFsRequest(
   projectStore: ProjectStore,
   projectId: string,
   sessionId?: string,
@@ -166,9 +178,6 @@ export async function searchFiles(
 }
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50MB
-// Bun 默认 maxPayloadLength 为 16MB。base64 编码后体积膨胀 ~33%，
-// 50MB 文件编码后 ~67MB，需放宽才能接收（与 MAX_UPLOAD_BYTES 对齐 + 余量）。
-const WS_MAX_PAYLOAD = 80 * 1024 * 1024; // 80MB
 const activeSearches = new Set<string>();
 
 export interface WSServerOpts {
@@ -188,14 +197,19 @@ export interface WSServerOpts {
 export class WSServer {
   actualPort = 0;
   private server: any;
-  private clients = new Set<any>();
+  private sseBus = new SseBus();
+  private router = new HttpRouter();
+  private sseHeartbeat: ReturnType<typeof setInterval> | null = null;
   private _promptLocks = new Map<string, Promise<void>>();
   private _abortVersions = new Map<string, number>();
   private _pendingAbortOnStart = new Set<string>(); // abort 时 agent 未启动则标记，agent_start 时执行 // abort 时递增，旧链 handler 版本不匹配则跳过
 
-  constructor(private opts: WSServerOpts) {}
+  constructor(private opts: WSServerOpts) {
+    this.registerRoutes();
+  }
 
   // 广播给所有客户端（AgentManager.onEvent 在 index.ts 里直接调此方法）
+  // 去 WS 化后只走 SSE 事件总线。
   broadcast(e: WSServerEvent): void {
     // abort 时 agent 未启动则标记 pending，agent_start 广播前拦截并执行 abort
     if (e.type === "sdk:event" && (e.event as any)?.type === "agent_start") {
@@ -208,18 +222,87 @@ export class WSServer {
         return; // 不广播 agent_start，直接 abort
       }
     }
-    const payload = JSON.stringify(e);
-    for (const ws of this.clients) {
-      try { ws.send(payload); } catch {}
+    this.sseBus.broadcast(e.type, e);
+  }
+
+  /**
+   * REST 适配器：复用 handle() 业务逻辑（不改 case），把 WS 请求/响应语义映射到 HTTP。
+   * - reply 中的 progress 帧 → SSE 总线（带 requestId/id，前端按 id 过滤）
+   * - responseTypes 之外的 reply → SSE 总线（广播语义，如 session:echo_user / extension:changed）
+   * - 其余最后一个 reply → HTTP 响应体；无 reply（fire-and-forget）→ 200 {ok:true}
+   * - {type:"error"} reply → 400 {error, ...原字段}
+   */
+  async callApi(event: WSClientEvent, opts?: { responseTypes?: string[] }): Promise<Response> {
+    const kept: WSServerEvent[] = [];
+    await this.handle(event, (e) => {
+      const t = (e as any).type as string;
+      if (t.includes("progress") || (opts?.responseTypes && !opts.responseTypes.includes(t))) {
+        this.broadcast(e);
+        return;
+      }
+      kept.push(e);
+    });
+    const last = kept[kept.length - 1];
+    if (!last) return Response.json({ ok: true });
+    if (last.type === "error") {
+      const { type: _t, message, ...rest } = last as any;
+      return Response.json({ ...rest, error: message }, { status: 400 });
     }
+    for (const e of kept.slice(0, -1)) this.broadcast(e);
+    return Response.json(last);
+  }
+
+  /** 注册全部 REST 路由（按域分组到 routes/<domain>.ts，与 WSClientEvent 一一对应） */
+  private registerRoutes(): void {
+    const callApi = (e: WSClientEvent, o?: { responseTypes?: string[] }) => this.callApi(e, o);
+    const ctx = { projectStore: this.opts.projectStore };
+    registerProjectSessionRoutes(this.router, callApi, ctx);
+    registerChatRoutes(this.router, callApi, ctx);
+    registerFsRoutes(this.router, callApi, ctx);
+    registerAgentRoutes(this.router, callApi, ctx);
+    registerProviderRoutes(this.router, callApi, ctx);
+    registerSkillRoutes(this.router, callApi, ctx);
+    registerExtensionRoutes(this.router, callApi, ctx);
+    registerMemoryRoutes(this.router, callApi, ctx);
+    registerMcpRoutes(this.router, callApi, ctx);
+    registerFileRoutes(this.router, callApi, ctx);
   }
 
   async start(): Promise<void> {
     this.server = Bun.serve({
       port: this.opts.port ?? WS_PORT,
-      fetch: async (req, server) => {
-        if (server.upgrade(req)) return;            // WS 握手
+      // Bun 默认 10s 空闲断连，SSE 长连接会被杀；放宽到 255s（心跳 30s 保活）
+      idleTimeout: 255,
+      fetch: async (req) => {
         const url = new URL(req.url);
+        // SSE 事件总线：所有 kernel→前端推送经此一条流广播（去 WS 化）
+        if (url.pathname === "/api/events") {
+          const bus = this.sseBus;
+          let write: ((chunk: string) => void) | null = null;
+          const stream = new ReadableStream<Uint8Array>({
+            start: (controller) => {
+              const enc = new TextEncoder();
+              write = (chunk) => controller.enqueue(enc.encode(chunk));
+              // 首帧注释：触发响应头冲刷（Bun 流式响应需首包才开始下发），
+              // EventSource 收到注释帧忽略、但会立即进入 open 状态
+              write(": connected\n\n");
+              bus.add(write);
+            },
+            cancel: () => { if (write) bus.remove(write); },
+          });
+          return new Response(stream, {
+            headers: {
+              "content-type": "text/event-stream",
+              "cache-control": "no-cache",
+              "connection": "keep-alive",
+            },
+          });
+        }
+        // REST API（去 WS 化：复用 handle() 业务逻辑的适配器路由）
+        if (url.pathname.startsWith("/api/")) {
+          const res = await this.router.handle(req);
+          return res ?? Response.json({ error: "not_found" }, { status: 404 });
+        }
         // pi 进程内 bridge 扩展的宿主工具回调（RPC 架构下 customTools 的替代）
         if (url.pathname === "/bridge/tool") {
           if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
@@ -254,32 +337,16 @@ export class WSServer {
             return new Response(indexFile, { headers: { "content-type": "text/html" } });
           }
         }
-        return new Response("WS only", { status: 426 });
-      },
-      websocket: {
-        maxPayloadLength: WS_MAX_PAYLOAD,
-        open: (ws) => { this.clients.add(ws); },
-        message: async (ws, msg) => {
-          const text = typeof msg === "string" ? msg : new TextDecoder().decode(msg as unknown as ArrayBuffer);
-          let event: WSClientEvent;
-          try { event = JSON.parse(text); } catch { return; }
-          // 多数响应通过 broadcast 推全量；少数（projects:list、agent:config）定向回请求者
-          const reply = (e: WSServerEvent) => ws.send(JSON.stringify(e));
-          try {
-            await this.handle(event, reply);
-          } catch (err) {
-            // 兜底：业务错误（如项目目录重复）广播 error 事件给前端 toast，
-            // 避免未捕获 rejection 直接崩掉整个 kernel 进程
-            this.broadcast({ type: "error", message: (err as Error).message });
-          }
-        },
-        close: (ws) => { this.clients.delete(ws); },
+        return new Response("Not Found", { status: 404 });
       },
     });
     this.actualPort = this.server.port;
+    // SSE 心跳：30s 注释帧，防代理/空闲断连
+    this.sseHeartbeat = setInterval(() => this.sseBus.heartbeat(), 30_000);
   }
 
   async stop(): Promise<void> {
+    if (this.sseHeartbeat) { clearInterval(this.sseHeartbeat); this.sseHeartbeat = null; }
     this.server?.stop();
     await this.opts.agentManager.disposeAll();
   }

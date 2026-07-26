@@ -4,7 +4,7 @@ import type {
   MemoryEntry, ArchivedMemory, InstructionFile, MemoryConfig,
   MemoryListResult, MemoryChangedEvent, InstructionListResult, MemoryConfigEvent,
 } from "@hiagent/shared";
-import { send } from "../ws-instance";
+import { api } from "../api-client";
 
 type ActiveTab = "saved" | "archived" | "instructions";
 type CategoryFilter = "all" | "memory" | "user" | "failure";
@@ -67,10 +67,12 @@ export const useMemoryStore = create<MemoryState>((set) => ({
 
   load: (projectId) => {
     set({ loading: true });
-    send({ type: "memory:list", projectId });
-    send({ type: "memory:config:get" });
+    api.get(`/api/memories?projectId=${projectId}`).then((data: any) => { if (data) get().setMemories(data); }).catch(() => set({ loading: false }));
+    api.get("/api/memories/config").then((data: any) => { if (data) get().setConfig(data); }).catch(() => {});
   },
-  loadInstructions: (projectId) => send({ type: "instruction:list", projectId }),
+  loadInstructions: (projectId) => {
+    api.get(`/api/instructions?projectId=${projectId}`).then((data: any) => { if (data) get().setInstructions(data); }).catch(() => {});
+  },
   setMemories: (data) => set({
     memories: data.memories,
     archived: data.archived,
@@ -78,12 +80,24 @@ export const useMemoryStore = create<MemoryState>((set) => ({
   }),
   setInstructions: (data) => set({ instructions: data.instructions }),
   setConfig: (data) => set({ config: data.config }),
-  update: (projectId, entryId, text) => send({ type: "memory:update", projectId, entryId, text }),
-  archive: (projectId, entryId) => send({ type: "memory:archive", projectId, entryId }),
-  restore: (projectId, entryId) => send({ type: "memory:restore", projectId, entryId }),
-  purge: (projectId, entryId) => send({ type: "memory:purge", projectId, entryId }),
-  add: (scope, text, projectId) => send({ type: "memory:add", scope, text, projectId }),
-  setConfigValue: (opts) => send({ type: "memory:config:set", ...opts }),
+  update: (projectId, entryId, text) => {
+    void api.post("/api/memories/update", { projectId, entryId, text });
+  },
+  archive: (projectId, entryId) => {
+    void api.post("/api/memories/archive", { projectId, entryId });
+  },
+  restore: (projectId, entryId) => {
+    void api.post("/api/memories/restore", { projectId, entryId });
+  },
+  purge: (projectId, entryId) => {
+    void api.del(`/api/memories/${entryId}?projectId=${projectId}`);
+  },
+  add: (scope, text, projectId) => {
+    void api.post("/api/memories", { scope, text, projectId });
+  },
+  setConfigValue: (opts) => {
+    void api.put("/api/memories/config", opts);
+  },
   setTab: (tab) => set({ activeTab: tab }),
   setCategoryFilter: (f) => set({ categoryFilter: f }),
   setScopeFilter: (f) => set({ scopeFilter: f }),

@@ -13,6 +13,7 @@ const nodeEnv = typeof process !== "undefined" ? process.env : {};
 const browserEnv = (typeof import.meta !== "undefined" && (import.meta as any).env) ? (import.meta as any).env : {};
 const env = { ...nodeEnv, ...browserEnv };
 const HOME = env.HOME || env.USERPROFILE || ".";
+/** kernel HTTP 端口（原 WS 端口，去 WS 化后仅用于 HTTP + SSE）；可通过 HIAGENT_WS_PORT 覆盖 */
 export const WS_PORT = resolvePort(env.HIAGENT_WS_PORT, 9776);
 export const PREVIEW_PORT = resolvePort(env.HIAGENT_PREVIEW_PORT, 9777);
 /** 前端 dev 端口（Vite）；desktop 不用（走同源 9776）。 */

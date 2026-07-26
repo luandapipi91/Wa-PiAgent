@@ -3,9 +3,21 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { ModelSelector } from "../src/components/ui/ModelSelector";
 import { useProvidersStore } from "../src/store/providers";
 
-mock.module("../src/ws-instance", () => ({
-  send: () => {},
-  onMessage: () => () => {},
+mock.module("../src/api-client", () => ({
+  api: {
+    get: () => Promise.resolve({}),
+    post: () => Promise.resolve({}),
+    put: () => Promise.resolve({}),
+    del: () => Promise.resolve({}),
+  },
+  ApiError: class extends Error {
+    status: number;
+    constructor(m: string, s: number) {
+      super(m);
+      this.status = s;
+      this.name = "ApiError";
+    }
+  },
 }));
 
 describe("ModelSelector", () => {

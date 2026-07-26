@@ -1,46 +1,43 @@
 import { test, expect, mock } from "bun:test";
 
-// 每个测试独立 mock ws-instance，避免状态泄漏
-test("load 发 skill:list", async () => {
-  const sendMock = mock();
-  mock.module("../src/ws-instance", () => ({
-    send: sendMock,
-    onMessage: () => () => {},
+// 每个测试独立 mock api-client，避免真实发起 HTTP 请求
+function mockApi() {
+  const getMock = mock(() => Promise.resolve({}));
+  const postMock = mock(() => Promise.resolve({}));
+  const delMock = mock(() => Promise.resolve({}));
+  mock.module("../src/api-client", () => ({
+    api: { get: getMock, post: postMock, del: delMock },
   }));
+  return { getMock, postMock, delMock };
+}
+
+test("load 请求 /api/skills", async () => {
+  const { getMock } = mockApi();
   const { useSkillsStore } = await import("../src/store/skills");
   useSkillsStore.setState({
     skills: [], allSkills: [], dirs: [], disabledSkills: [],
     builtinDir: "", loading: false,
   });
   useSkillsStore.getState().load();
-  expect(sendMock).toHaveBeenCalledWith({ type: "skill:list" });
+  expect(getMock).toHaveBeenCalledWith("/api/skills");
 });
 
 test("toggleSkill 禁用技能", async () => {
-  const sendMock = mock();
-  mock.module("../src/ws-instance", () => ({
-    send: sendMock,
-    onMessage: () => () => {},
-  }));
+  const { postMock } = mockApi();
   const { useSkillsStore } = await import("../src/store/skills");
   useSkillsStore.setState({
     skills: [], allSkills: [], dirs: [], disabledSkills: [],
     builtinDir: "", loading: false,
   });
   useSkillsStore.getState().toggleSkill("brave-search");
-  expect(sendMock).toHaveBeenCalledWith({
-    type: "skill:toggle",
-    skillName: "brave-search",
-    disabled: true,
+  expect(postMock).toHaveBeenCalledWith("/api/skills/toggle", {
+    name: "brave-search",
+    enabled: true,
   });
 });
 
 test("toggleSkill 启用已禁用的技能", async () => {
-  const sendMock = mock();
-  mock.module("../src/ws-instance", () => ({
-    send: sendMock,
-    onMessage: () => () => {},
-  }));
+  const { postMock } = mockApi();
   const { useSkillsStore } = await import("../src/store/skills");
   useSkillsStore.setState({
     skills: [], allSkills: [], dirs: [],
@@ -48,55 +45,40 @@ test("toggleSkill 启用已禁用的技能", async () => {
     builtinDir: "", loading: false,
   });
   useSkillsStore.getState().toggleSkill("pdf-tools");
-  expect(sendMock).toHaveBeenCalledWith({
-    type: "skill:toggle",
-    skillName: "pdf-tools",
-    disabled: false,
+  expect(postMock).toHaveBeenCalledWith("/api/skills/toggle", {
+    name: "pdf-tools",
+    enabled: false,
   });
 });
 
-test("addDir 发 skillDir:add", async () => {
-  const sendMock = mock();
-  mock.module("../src/ws-instance", () => ({
-    send: sendMock,
-    onMessage: () => () => {},
-  }));
+test("addDir 请求 /api/skills/dirs", async () => {
+  const { postMock } = mockApi();
   const { useSkillsStore } = await import("../src/store/skills");
   useSkillsStore.setState({
     skills: [], allSkills: [], dirs: [], disabledSkills: [],
     builtinDir: "", loading: false,
   });
   useSkillsStore.getState().addDir("/path/to/skills");
-  expect(sendMock).toHaveBeenCalledWith({
-    type: "skillDir:add",
+  expect(postMock).toHaveBeenCalledWith("/api/skills/dirs", {
     path: "/path/to/skills",
   });
 });
 
-test("removeDir 发 skillDir:remove", async () => {
-  const sendMock = mock();
-  mock.module("../src/ws-instance", () => ({
-    send: sendMock,
-    onMessage: () => () => {},
-  }));
+test("removeDir 请求 DELETE /api/skills/dirs", async () => {
+  const { delMock } = mockApi();
   const { useSkillsStore } = await import("../src/store/skills");
   useSkillsStore.setState({
     skills: [], allSkills: [], dirs: [], disabledSkills: [],
     builtinDir: "", loading: false,
   });
   useSkillsStore.getState().removeDir("/path/to/skills");
-  expect(sendMock).toHaveBeenCalledWith({
-    type: "skillDir:remove",
+  expect(delMock).toHaveBeenCalledWith("/api/skills/dirs", {
     path: "/path/to/skills",
   });
 });
 
 test("setAll 更新本地状态", async () => {
-  const sendMock = mock();
-  mock.module("../src/ws-instance", () => ({
-    send: sendMock,
-    onMessage: () => () => {},
-  }));
+  mockApi();
   const { useSkillsStore } = await import("../src/store/skills");
   useSkillsStore.setState({
     skills: [], allSkills: [], dirs: [], disabledSkills: [],

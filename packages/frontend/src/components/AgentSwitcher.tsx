@@ -3,7 +3,8 @@ import type { AgentName } from "@hiagent/shared";
 import { useAgentsStore } from "../store/agents";
 import { useProjectsStore } from "../store/projects";
 import { useSessionStore } from "../store/session";
-import { onMessage, send } from "../ws-instance";
+import { api } from "../api-client";
+import { onMessage } from "../events";
 import { Modal } from "./ui/Modal";
 import { AgentDropdown } from "./ui/AgentDropdown";
 
@@ -38,7 +39,7 @@ export function AgentSwitcher({ sessionId }: Props) {
   // AgentDropdown 选中非当前项后弹出确认框；确认后才发 WS 切换（缓存失效语义）
   const handlePick = (name: AgentName) => setPending(name);
   const handleConfirm = () => {
-    if (pending) send({ type: "session:set-agent", sessionId, agentName: pending });
+    if (pending) void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/set-agent`, { agentName: pending });
     setPending(null);
   };
   const handleCancel = () => setPending(null);

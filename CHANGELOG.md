@@ -4,6 +4,42 @@
 
 ---
 
+## 2026-07-26
+
+### 修复
+
+- **流式输出 fallback**：`handleSDKEvent` 的 `message_update` 分支增加 fallback——当 `assistantMessageEvent.partial` 缺失时，使用 `event.message`（完整当前消息）代替，保证流式输出不会静默中断。
+  - 影响范围：packages/frontend/src/store/session.ts
+
+- **SSE 事件帧修复（解决「发送消息后一直发送中」「会话对话没有流式输出」）**：SSE 帧格式从 `event: <type>\ndata: <JSON>\n\n` 改为 `data: <JSON>\n\n`。EventSource.onmessage 只接收无名事件，原 `event:` 字段导致所有命名事件（sdk:event 等）被浏览器静默丢弃，前端永远收不到任何 streaming 事件、agent_end 等。修复后流式输出恢复正常。
+  - 影响范围：packages/kernel/src/sse-bus.ts, packages/kernel/tests/sse-bus.test.ts, packages/kernel/tests/helpers/http-api-kit.ts, 多个 routes-*.test.ts
+
+- **REST 响应体丢失修复（解决「进入页面项目为空」）**：去 WS 化后 8 个前端 store 的 load() 方法调用了 `api.get()` 但丢弃了 HTTP 响应体（旧 WS 模式下数据通过 WebSocket onmessage 回调到达，REST 模式下数据直接在 HTTP 响应体里）。修复为 `.then(data => set(...))`。
+  - 影响范围：packages/frontend/src/store/projects.ts, providers.ts, extensions.ts, skills.ts, agents.ts, subagents.ts, mcp.ts, memory.ts
+
+- **Composer 错误兜底**：api.post() 发送消息失败时调用 failTurn() 复位 UI，api-client fetch 加 30 秒超时防止请求永久挂起。
+  - 影响范围：packages/frontend/src/components/Composer.tsx, packages/frontend/src/api-client.ts
+
+### 重构
+
+- **阶段一卡顿修复交付**：kernel 端 `SdkEventThrottle` 对同 session 的 `message_update` 事件做 50ms 节流合并（窗口内只发最新帧），解决 pi 每 token delta 全量 partial 的 O(n²) 序列化/传输/渲染膨胀；前端 `StreamingBatcher` 对 streaming 更新做 rAF 合帧（一帧内多次 delta 只提交一次 zustand set）。
+  - 影响范围：packages/kernel/src/event-throttle.ts, packages/frontend/src/store/streaming-batcher.ts, packages/kernel/src/index.ts, packages/frontend/src/store/session.ts
+
+- **去 WS 化阶段二完成：全量迁移到 HTTP REST + SSE**：前端已删除 `ws-instance.ts`，全面使用 `api-client.ts`（fetch 封装）+ `events.ts`（EventSource 单例）；kernel `WSServer.broadcast()` 改为 SSE 总线推送；所有 REST 路由（`/api/*`）经轻量 `HttpRouter` → `callApi()` 适配器复用原 `handle()` 业务逻辑；`/api/events` SSE 端点 + SSE 心跳（30s）替代 WS 广播；文件通道 `/api/files/upload` multipart 上传和 `/api/files/recording/*` 录音分片替代 base64-over-WS；删除 `WS_MAX_PAYLOAD` 配置；`HIAGENT_WS_PORT` 保留为端口配置名（实际已是 HTTP 端口）。
+  - 影响范围：packages/kernel/src/（ws-server.ts, sse-bus.ts, http-router.ts, routes/*）, packages/frontend/src/（events.ts, api-client.ts, App.tsx, store/session.ts）
+
+- **去 WS 化测试迁移**：删除旧 WS 测试文件（ws-server.test.ts, ws-extension.test.ts, ws-memory.test.ts, ws-provider.test.ts, ws-skill.test.ts, ws-prompt-lock.test.ts）；重写 `composer-attachments.test.ts`、`e2e-integration.test.ts`、`session-messages.test.ts` 从 WebSocket 到 HTTP fetch + SSE；HTTP 路由测试（routes-*.test.ts, http-api.test.ts）覆盖所有端点。
+  - 影响范围：packages/kernel/tests/
+
+- **迁移 App 测试去 WS 化**：将 `packages/frontend/tests/App.test.tsx` 从已删除的 `../src/ws-instance` 改为 mock `../src/api-client` + `../src/events` seam；首测验证挂载时请求 `GET /api/agents`，事件派发改用 `emitEventForTesting`，`beforeEach` 中调用 `disconnectEvents()` 清理监听器，并引入 `mock-composer-db` 避免 composer 偏好加载触发真实 IndexedDB/fetch。
+  - 影响范围：packages/frontend/tests/App.test.tsx
+
+- **迁移 render 测试去 WS 化**：将 `packages/frontend/tests/render.test.tsx` 改为 mock `../src/api-client` + `../src/events` seam；`beforeEach` 中调用 `disconnectEvents()` 清理监听器，mock API 返回空对象避免真实 fetch 请求，保留 empty 态冒烟测试意图。
+  - 影响范围：packages/frontend/tests/render.test.tsx
+
+- **迁移 NewSessionPane 测试去 WS 化**：将 `packages/frontend/tests/NewSessionPane.test.tsx` 从已删除的 `../src/ws-instance` 改为 `../src/api-client` + `../src/events` seam；附件上传改用 `globalThis.fetch` mock，composer 偏好使用 `mock-composer-db`，并补全 `newSessionIds` 持久化以兼容切换新建会话的录音测试。
+  - 影响范围：packages/frontend/tests/NewSessionPane.test.tsx
+
 ## 2026-07-25
 
 ### 新增功能

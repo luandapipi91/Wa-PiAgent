@@ -15,6 +15,7 @@ import { cleanupExpiredWorkdirs } from "./workdir-cleaner";
 import { ensurePromptsConfig } from "./system-prompt";
 import { ensureSubagentOverrides } from "./subagent-store";
 import { extractSdkErrorMessage } from "./sdk-errors";
+import { SdkEventThrottle } from "./event-throttle";
 import { cleanupRecordingTemp } from "./recording-store";
 import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD, PROMPTS_FILE, SUBAGENT_OVERRIDES_FILE } from "@hiagent/shared";
 import { mkdir } from "node:fs/promises";
@@ -118,6 +119,9 @@ export async function startKernel(
 
   // AgentManager.onEvent 直接广播 sdk:event
   // pi RPC 事件与 shared SDKEvent 结构兼容但 TS 判为不同类型，event 用 any 桥接
+  // message_update 经 SdkEventThrottle 节流合并（每 token 全量 partial 的 O(n²) 卡顿修复），
+  // 其余事件类型原样透传、顺序不变。
+  const eventThrottle = new SdkEventThrottle((e) => broadcast(e));
   const agentManager = new AgentManager({
     projectStore,
     configStore,
@@ -129,7 +133,7 @@ export async function startKernel(
     // bridge 回调地址惰性取值：WS 端口在 server.start() 后才确定（AgentManager 构造在前）
     bridgeBaseUrl: () => `http://127.0.0.1:${server.actualPort}`,
     onEvent: (sessionId, projectId, agentName, event) => {
-      broadcast({ type: "sdk:event", projectId, sessionId, agentName, event: event as any });
+      eventThrottle.handle({ type: "sdk:event", projectId, sessionId, agentName, event: event as any });
       // pi 运行时错误（不可用模型 / 鉴权失败 / 网络等）不抛异常，而是编码进
       // message_end{stopReason:"error", errorMessage}。ws-server 的 try/catch 抓不到，
       // 前端又不读这些字段 → 静默。这里翻译成 {type:"error"}，复用前端红色 ⚠️ 渲染管线。
@@ -147,13 +151,14 @@ export async function startKernel(
   (server as any).opts.agentManager = agentManager;
 
   await server.start();
-  console.log(`[kernel] WS 监听 ws://127.0.0.1:${server.actualPort}`);
+  console.log(`[kernel] HTTP 监听 http://127.0.0.1:${server.actualPort}`);
 
   // 优雅退出：RPC 架构下每个会话是一个 pi 子进程，kernel 退出时必须统一回收，
   // 避免孤儿进程滞留（SIGINT/SIGTERM 先 disposeAll 再停 server）。
   // 注意：pi 子进程在 stdin 关闭后也会自行退出（EOF 兜底），这里是主动加速回收。
   const shutdown = async (signal: string) => {
     console.log(`[kernel] ${signal} 收到，回收 pi 子进程并停止服务...`);
+    eventThrottle.dispose();
     await agentManager.disposeAll().catch(() => {});
     await server.stop().catch(() => {});
     process.exit(0);

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { SYSTEM_PROJECT_ID, type ProjectEntity, type SessionEntity } from "@hiagent/shared";
 import { SessionRow } from "./SessionRow";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
-import { send } from "../ws-instance";
+import { api } from "../api-client";
 import { useProjectUiStore } from "../store/project-ui";
 
 interface Props {
@@ -71,7 +71,7 @@ export function ProjectItem(props: Props) {
     setSessionMenu(null);
     const title = window.prompt("重命名会话", session.title);
     if (title && title.trim()) {
-      send({ type: "session:rename", sessionId: session.id, title: title.trim() });
+      void api.post(`/api/sessions/${encodeURIComponent(session.id)}/rename`, { title: title.trim() });
     }
   };
 
@@ -89,21 +89,21 @@ export function ProjectItem(props: Props) {
 
   const handleOpenDir = () => {
     setProjectMenu(null);
-    send({ type: "project:open-dir", projectId: project.id });
+    void api.post(`/api/projects/${encodeURIComponent(project.id)}/open-dir`, {});
   };
 
   // 系统项目下的会话专属"打开工作目录"：带 sessionId 让 main 打开会话所在目录
   const handleOpenSessionDir = (session: SessionEntity) => {
     setSessionMenu(null);
-    send({ type: "project:open-dir", projectId: project.id, sessionId: session.id });
+    void api.post(`/api/projects/${encodeURIComponent(project.id)}/open-dir`, { sessionId: session.id });
   };
 
   const handleDeleteConfirm = () => {
     if (!deleteTarget) return;
     if (deleteKind === "session") {
-      send({ type: "session:delete", sessionId: (deleteTarget as SessionEntity).id });
+      void api.del(`/api/sessions/${encodeURIComponent((deleteTarget as SessionEntity).id)}`);
     } else {
-      send({ type: "project:delete", projectId: (deleteTarget as ProjectEntity).id });
+      void api.del(`/api/projects/${encodeURIComponent((deleteTarget as ProjectEntity).id)}`);
     }
     setDeleteTarget(null);
     setDeleteKind(null);

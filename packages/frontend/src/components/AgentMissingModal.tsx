@@ -1,5 +1,5 @@
 import { useAgentsStore } from "../store/agents";
-import { send } from "../ws-instance";
+import { api } from "../api-client";
 import { Modal } from "./ui/Modal";
 
 interface Props {
@@ -19,7 +19,7 @@ function avatarBackground(color?: string): string | undefined {
 export function AgentMissingModal({ sessionId, onClose }: Props) {
   const agents = useAgentsStore(s => s.list);
   const pick = (name: string) => {
-    send({ type: "session:set-agent", sessionId, agentName: name });
+    void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/set-agent`, { agentName: name });
     onClose();
   };
   return (

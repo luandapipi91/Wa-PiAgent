@@ -3,15 +3,37 @@ import { render, screen } from "@testing-library/react";
 import { App } from "../src/App";
 import { useProjectsStore } from "../src/store/projects";
 
-mock.module("../src/ws-instance", () => ({
-  getWs: () => ({ readyState: 1, addEventListener: () => {}, send: () => {} }),
-  send: () => {},
-  onMessage: () => () => {},
+mock.module("../src/api-client", () => ({
+  api: {
+    get: () => Promise.resolve({}),
+    post: () => Promise.resolve({}),
+    put: () => Promise.resolve({}),
+    del: () => Promise.resolve({}),
+  },
+  ApiError: class extends Error {
+    status: number;
+    constructor(m: string, s: number) {
+      super(m);
+      this.status = s;
+      this.name = "ApiError";
+    }
+  },
 }));
 
-beforeEach(() => useProjectsStore.setState({
-  projects: [], sessions: [], currentProjectId: null, currentSessionId: null,
+mock.module("../src/events", () => ({
+  connectEvents: () => {},
+  onMessage: () => () => {},
+  onReconnect: () => () => {},
+  onEventType: () => () => {},
+  disconnectEvents: () => {},
+  emitEventForTesting: () => {},
 }));
+
+beforeEach(() => {
+  useProjectsStore.setState({
+    projects: [], sessions: [], currentProjectId: null, currentSessionId: null,
+  });
+});
 
 test("无项目显示 empty 态", () => {
   render(<App />);

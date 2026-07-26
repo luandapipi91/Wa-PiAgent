@@ -1,19 +1,31 @@
-import { test, expect, beforeEach, mock } from "bun:test";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
+import { emitEventForTesting, disconnectEvents } from "../src/events";
+
+// 捕获 REST API 调用，替代已删除的 ws-instance send。
+const apiCalls: { method: string; path: string; body?: any }[] = [];
+mock.module("../src/api-client", () => ({
+  api: {
+    get: (path: string) => { apiCalls.push({ method: "get", path }); return Promise.resolve({}); },
+    post: (path: string, body?: any) => { apiCalls.push({ method: "post", path, body }); return Promise.resolve({}); },
+    put: (path: string, body?: any) => { apiCalls.push({ method: "put", path, body }); return Promise.resolve({}); },
+    del: (path: string) => { apiCalls.push({ method: "del", path }); return Promise.resolve({}); },
+  },
+  ApiError: class extends Error {
+    status: number;
+    constructor(m: string, s: number) {
+      super(m);
+      this.status = s;
+      this.name = "ApiError";
+    }
+  },
+}));
+
 import { AgentSwitcher } from "../src/components/AgentSwitcher";
 import { MessageList } from "../src/components/MessageList";
 import { useAgentsStore } from "../src/store/agents";
 import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
-
-// ws-instance mock：send 捕获载荷，onMessage 暴露触发器模拟 kernel 广播（同 SessionView.test 模式）。
-// bun mock.module 不 hoist，但 factory 闭包可引用模块作用域变量。
-const mockHandlers = { list: [] as Array<(e: any) => void> };
-const sentEvents: any[] = [];
-mock.module("../src/ws-instance", () => ({
-  send: (e: any) => { sentEvents.push(e); },
-  onMessage: (cb: any) => { mockHandlers.list.push(cb); return () => {}; },
-}));
 
 function cfg(name: string, extra: Record<string, any> = {}) {
   return {
@@ -25,8 +37,6 @@ function cfg(name: string, extra: Record<string, any> = {}) {
     model: "m",
     thinking: "disabled",
     systemPromptMode: "replace",
-
-
     tools: [],
     skills: [],
     mcpServers: [],
@@ -44,10 +54,14 @@ function seed(primaryAgent = "dev") {
 }
 
 beforeEach(() => {
-  mockHandlers.list = [];
-  sentEvents.length = 0;
+  disconnectEvents();
+  apiCalls.length = 0;
   useSessionStore.setState({ messagesBySession: {} });
   seed();
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 test("显示当前智能体，点击展开带搜索的列表并过滤", () => {
@@ -66,18 +80,18 @@ test("选择非当前项先弹缓存失效确认框，取消不发送", () => {
   fireEvent.click(screen.getByTestId("switcher-item-代码审查"));
   expect(screen.getByTestId("switcher-confirm")).toBeTruthy();
   fireEvent.click(screen.getByTestId("switcher-confirm-cancel"));
-  expect(sentEvents.filter(e => e.type === "session:set-agent")).toHaveLength(0);
+  expect(apiCalls.filter(c => c.method === "post" && c.path === "/api/sessions/s1/set-agent")).toHaveLength(0);
   expect(screen.queryByTestId("switcher-confirm")).toBeNull();
 });
 
-test("确认后才发送 session:set-agent", () => {
+test("确认后才发送 set-agent 请求", () => {
   render(<AgentSwitcher sessionId="s1" />);
   fireEvent.click(screen.getByTestId("agent-switcher"));
   fireEvent.click(screen.getByTestId("switcher-item-代码审查"));
   expect(screen.getByTestId("switcher-confirm")).toBeTruthy();
-  expect(sentEvents.filter(e => e.type === "session:set-agent")).toHaveLength(0);
+  expect(apiCalls.filter(c => c.method === "post" && c.path === "/api/sessions/s1/set-agent")).toHaveLength(0);
   fireEvent.click(screen.getByTestId("switcher-confirm-ok"));
-  expect(sentEvents.some(e => e.type === "session:set-agent" && e.sessionId === "s1" && e.agentName === "代码审查")).toBe(true);
+  expect(apiCalls.some(c => c.method === "post" && c.path === "/api/sessions/s1/set-agent" && c.body?.agentName === "代码审查")).toBe(true);
   // 确认后菜单与弹窗都关闭
   expect(screen.queryByTestId("switcher-confirm")).toBeNull();
   expect(screen.queryByTestId("switcher-search")).toBeNull();
@@ -89,7 +103,7 @@ test("选择当前项不弹确认框直接关闭", () => {
   fireEvent.click(screen.getByTestId("switcher-item-dev"));
   expect(screen.queryByTestId("switcher-confirm")).toBeNull();
   expect(screen.queryByTestId("switcher-search")).toBeNull();
-  expect(sentEvents.filter(e => e.type === "session:set-agent")).toHaveLength(0);
+  expect(apiCalls.filter(c => c.method === "post" && c.path === "/api/sessions/s1/set-agent")).toHaveLength(0);
 });
 
 test("primaryAgent 不在列表中（已删除）时显示警示条，点击仍可展开列表", () => {
@@ -106,7 +120,7 @@ test("primaryAgent 不在列表中（已删除）时显示警示条，点击仍�
 test("收到 session:updated 后更新会话主智能体并追加分隔行 custom 消息", async () => {
   render(<AgentSwitcher sessionId="s1" />);
   await act(async () => {
-    mockHandlers.list.forEach(h => h({ type: "session:updated", sessionId: "s1", primaryAgent: "代码审查" }));
+    emitEventForTesting({ type: "session:updated", sessionId: "s1", primaryAgent: "代码审查" } as any);
   });
   const sess = useProjectsStore.getState().sessions.find(x => x.id === "s1")!;
   expect(sess.primaryAgent).toBe("代码审查");

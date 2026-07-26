@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { ProjectEntity, SessionEntity } from "@hiagent/shared";
-import { send } from "../ws-instance";
+import { api } from "../api-client";
 import { basename } from "../pick-directory";
 import { useToastStore } from "./toast";
 
@@ -29,13 +29,13 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
   currentProjectId: null,
   currentSessionId: null,
   dirPickerOpen: false,
-  load: () => send({ type: "projects:list" }),
+  load: () => { api.get("/api/projects").then((data: any) => { if (data) set({ projects: data.projects ?? [], sessions: data.sessions ?? [] }); }).catch(() => {}); },
   setAll: (projects, sessions) => set(s => {
     // 当前选中的会话若已从列表中删除，则清空 currentSessionId，触发视图切换到新建会话页
     const stillExists = s.currentSessionId && sessions.some(x => x.id === s.currentSessionId);
     return { projects, sessions, currentSessionId: stillExists ? s.currentSessionId : null };
   }),
-  createProject: (name, cwd) => send({ type: "project:create", name, cwd }),
+  createProject: (name, cwd) => { void api.post("/api/projects", { name, cwd }); },
   // 新建项目：打开目录树选择器（DirTreePicker），用户点选目录后走 createProjectFromPath
   createProjectFromDir: () => { set({ dirPickerOpen: true }); },
   closeDirPicker: () => set({ dirPickerOpen: false }),
@@ -47,7 +47,7 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
       return;
     }
     const name = basename(cwd);
-    send({ type: "project:create", name, cwd });
+    void api.post("/api/projects", { name, cwd });
   },
   addProject: (p) => set(s => {
     // cwd 去重：同一目录的项目已存在则忽略（kernel 也会拒绝重复创建）

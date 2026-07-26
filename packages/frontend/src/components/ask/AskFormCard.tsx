@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { AgentName, AskParams, AskReply } from "@hiagent/shared";
 import { AGENT_DEFS } from "@hiagent/shared";
-import { send } from "../../ws-instance";
+import { api } from "../../api-client";
 // 项目现有代码（TextBlock.tsx / MessageList.tsx）统一用默认导入；保持一致。
 import ReactMarkdown from "react-markdown";
 
@@ -62,13 +62,13 @@ export function AskFormCard({ sessionId, toolCallId, params, agentName }: Props)
       const useCustom = s.mode === "other";
       return { questionIndex: i, selected: useCustom ? [] : [...s.selected], customText: useCustom ? s.custom.trim() : undefined, notes: s.notes.trim() || undefined };
     }) };
-    send({ type: "agent:answer", sessionId, toolCallId, reply });
+    void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/answer`, { toolCallId, reply });
     // 卡片保持 pending 直到 toolResult 到达使 pendingAsks 移除它（由父层卸载）
   };
 
   const handleCancel = () => {
     if (submitting) return;
-    send({ type: "agent:cancel-ask", sessionId, toolCallId });
+    void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/cancel-ask`, { toolCallId });
   };
 
   const agentEm = agentName ? AGENT_DEFS[agentName]?.emoji : undefined;
