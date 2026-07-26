@@ -19,6 +19,7 @@ function chatStub(overrides: Record<string, any> = {}) {
     isSessionStreaming: () => false,
     steerMessage: async () => {},
     abort: async () => {},
+    clearFollowUpList: () => {},
     ...overrides,
   };
 }
@@ -133,5 +134,16 @@ test("POST steer/immediate：abort 抛错 → HTTP 200，错误帧走 SSE 总线
     expect(frame.data.type).toBe("error");
     expect(frame.data.message).toContain("立即执行失败");
     await reader.cancel();
+  });
+});
+
+test("POST clear-queue → 200 {ok:true}，clearFollowUpList 收到 sessionId", async () => {
+  let cleared = "";
+  const am = chatStub({ clearFollowUpList: (sessionId: string) => { cleared = sessionId; } });
+  await withServer(am, async (base) => {
+    const res = await post(base, "/api/sessions/s1/clear-queue");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(cleared).toBe("s1");
   });
 });
