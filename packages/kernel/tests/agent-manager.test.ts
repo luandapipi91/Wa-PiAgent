@@ -361,25 +361,22 @@ test("prompt — snippet 附件内容直接内联", async () => {
 
 // ─── kernel 队列语义（steer / followUp） ────────────────────────────────────
 
-test("prompt — agent 运行中 → 进 kernel followUp 队列并合成 queue_update", async () => {
-  const events: CapturedEvent[] = [];
-  const { project, session, am, fakes } = await setup({ events });
+test("prompt — agent 运行中 → 进本地 followUpList，agent_settled 后 drain", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
   const fake = fakes[0];
-  fake.autoSettle = false; // prompt 后不自动 settled → 保持 busy
+  fake.autoSettle = false;
 
   await am.prompt(session.id, "第一条", { model: MODEL });
   expect(fake.prompted).toEqual(["第一条"]);
 
   await am.prompt(session.id, "第二条", { model: MODEL });
-  // busy 中不直接 prompt，进 followUp 队列
+  // busy 中不直接 prompt，进本地 followUpList
   expect(fake.prompted).toEqual(["第一条"]);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["第二条"] });
 
-  // agent_settled → drain 一条 followUp
+  // agent_settled → drain 一条
   fake.emit({ type: "agent_settled" });
   expect(fake.prompted).toEqual(["第一条", "第二条"]);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
 });
 
 test("steerMessage — busy 时调 pi steer()，空闲时降级为 prompt()", async () => {
@@ -414,17 +411,16 @@ test("abort 清空排队列表 + 中断当前运行", async () => {
   expect(fake.aborts).toBe(1);
 });
 
-test("steerMessage — busy 时入 steering 队列，turn_end 后投递给 client", async () => {
+test("steerMessage — busy 时立即调 pi steer()", async () => {
   const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
   const fake = fakes[0];
   fake.autoSettle = false;
 
   await am.prompt(session.id, "进行中", { model: MODEL }); // busy
-  am.steerMessage(session.id, "引导一下");
+  await am.steerMessage(session.id, "引导一下");
 
-  expect(fake.steered).toEqual([]); // 尚未投递
-  fake.emit({ type: "turn_end" });
+  // 新版 steerMessage 直接调 client.steer()，不再经过 kernel 队列
   expect(fake.steered).toEqual(["引导一下"]);
 });
 
@@ -438,9 +434,8 @@ test("steerMessage — idle 时直接 prompt 生效", async () => {
   expect(fakes[0].prompted).toEqual(["引导一下"]);
 });
 
-test("abort 清空 kernel 队列并中断当前运行", async () => {
-  const events: CapturedEvent[] = [];
-  const { project, session, am, fakes } = await setup({ events });
+test("abort 清空 followUpList 并中断当前运行", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
   const fake = fakes[0];
   fake.autoSettle = false;
@@ -453,7 +448,9 @@ test("abort 清空 kernel 队列并中断当前运行", async () => {
 
   expect(fake.aborts).toBe(1);
   expect(am.isSessionStreaming(session.id)).toBe(false);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
+  // 新版 abort 清空本地 followUpList
+  const handle = (am as any).sessions.get(session.id);
+  expect(handle.followUpList).toEqual([]);
 });
 
 // ─── 事件转发 ───────────────────────────────────────────────────────────────
@@ -948,4 +945,108 @@ test("HIAGENT_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => 
   expect(fullDefault).toContain("@[agentName]");
   expect(fullDefault).toContain("delegate");
   expect(fullDefault).toContain("task contract");
+});
+
+// ─── 队列：followUpList / steerMessage / abort ────────────────────────────
+
+test("prompt 在 busy 时追加到 followUpList（不直接发送）", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  // 模拟 agent 运行中
+  fakes[0].autoSettle = false;
+  fakes[0].prompted = [];
+
+  await am.prompt(session.id, "测试消息1", { model: MODEL });
+
+  // 第一条消息直接发送（agent 尚未 busy）
+  expect(fakes[0].prompted).toHaveLength(1);
+  expect(fakes[0].prompted[0]).toContain("测试消息1");
+
+  // 模拟 agent 开始运行（busy=true），再发第二条
+  fakes[0].emit({ type: "agent_start" });
+  fakes[0].prompted = [];
+
+  await am.prompt(session.id, "排队消息2", { model: MODEL });
+
+  // busy 状态时追加到本地列表，不调 prompt
+  expect(fakes[0].prompted).toHaveLength(0);
+
+  // 验证 followUpList 内容
+  const handle = (am as any).sessions.get(session.id);
+  expect(handle.followUpList).toEqual(["排队消息2"]);
+});
+
+test("agent_settled 自动 drain followUpList", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  // 手动设置 followUpList 内容
+  const handle = (am as any).sessions.get(session.id);
+  handle.followUpList = ["消息1", "消息2"];
+  handle.busy = true;
+  fakes[0].autoSettle = false;
+
+  // 注入 agent_settled 事件
+  fakes[0].prompted = [];
+  fakes[0].emit({ type: "agent_settled" });
+
+  // 第一条消息已被 drain（_sendPromptNow 重设 busy=true）
+  expect(fakes[0].prompted).toHaveLength(1);
+  expect(fakes[0].prompted[0]).toBe("消息1");
+
+  // 第二条还在列表
+  expect(handle.followUpList).toEqual(["消息2"]);
+});
+
+test("steerMessage 空闲时降级为 prompt", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  // agent 空闲（默认 autoSettle=true 已 settled）
+  fakes[0].steered = [];
+  fakes[0].prompted = [];
+
+  await am.steerMessage(session.id, "引导消息");
+
+  // 空闲时降级为 prompt，不走 steer
+  expect(fakes[0].steered).toHaveLength(0);
+  expect(fakes[0].prompted).toHaveLength(1);
+  expect(fakes[0].prompted[0]).toBe("引导消息");
+});
+
+test("steerMessage 运行中时调用 pi steer", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  // agent 运行中
+  fakes[0].autoSettle = false;
+  fakes[0].emit({ type: "agent_start" });
+  fakes[0].steered = [];
+  fakes[0].prompted = [];
+
+  await am.steerMessage(session.id, "运行中引导");
+
+  // 运行中时走 pi 原生 steer
+  expect(fakes[0].steered).toHaveLength(1);
+  expect(fakes[0].steered[0]).toBe("运行中引导");
+  expect(fakes[0].prompted).toHaveLength(0);
+});
+
+test("abort 清空 followUpList 并调用 client.abort", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const handle = (am as any).sessions.get(session.id);
+  handle.followUpList = ["排队消息"];
+  handle.busy = true;
+
+  await am.abort(session.id);
+
+  // abort 后清空本地列表
+  expect(handle.followUpList).toEqual([]);
+  // busy 归 false
+  expect(handle.busy).toBe(false);
+  // 调用了 client.abort
+  expect(fakes[0].aborts).toBe(1);
 });
