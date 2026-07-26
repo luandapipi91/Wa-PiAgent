@@ -6,6 +6,13 @@
 
 ## 2026-07-26
 
+### 设计
+
+- **排队系统重构设计**：基于 pi RPC 源码验证（v0.82.1），确认 `AgentSession.clearQueue()` 存在但未暴露给 RPC。设计采用 pi 原生 `steer()` 管理引导 + HiAgent 本地列表管理排队的分工方案。删除双队列（steering[] / followUp[]）、`_jumpQueue`、`_lockedQueueOp` 等 ~150 行代码。前端加乐观更新消除按钮卡顿。
+  - 影响范围：packages/kernel/src/agent-manager.ts, ws-server.ts, routes/chat.ts, packages/frontend
+  - 文档：docs/superpowers/specs/2026-07-26-queue-redesign-design.md
+  - 计划：docs/superpowers/plans/2026-07-26-queue-redesign.md
+
 ### 修复
 
 - **流式输出 fallback**：`handleSDKEvent` 的 `message_update` 分支增加 fallback——当 `assistantMessageEvent.partial` 缺失时，使用 `event.message`（完整当前消息）代替，保证流式输出不会静默中断。
