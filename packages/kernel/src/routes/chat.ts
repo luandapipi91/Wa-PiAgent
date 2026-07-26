@@ -38,23 +38,5 @@ export const registerChatRoutes: RouteRegistrar = (r, callApi, ctx: RouteContext
     });
   });
 
-  // steer 队列控制：均为 fire-and-forget；失败由 case 内部 broadcast error
-  r.add("POST", "/api/sessions/:sessionId/steer/promote", async (req, p) => {
-    const b = await readJsonBody(req);
-    return callApi({
-      type: "steer:promote",
-      sessionId: p.sessionId, text: b.text, remainingTexts: b.remainingTexts,
-    });
-  });
-  r.add("POST", "/api/sessions/:sessionId/steer/immediate", async (req, p) => {
-    const b = await readJsonBody(req);
-    return callApi({
-      type: "steer:immediate",
-      sessionId: p.sessionId, text: b.text, remainingTexts: b.remainingTexts,
-    });
-  });
-  r.add("POST", "/api/sessions/:sessionId/steer/cancel", async (_req, p) =>
-    callApi({ type: "steer:cancel", sessionId: p.sessionId }));
-  r.add("POST", "/api/sessions/:sessionId/steer/clear-queue", async (_req, p) =>
-    callApi({ type: "steer:clear-queue", sessionId: p.sessionId }));
+
 };

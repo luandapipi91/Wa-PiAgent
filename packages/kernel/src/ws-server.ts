@@ -558,32 +558,7 @@ export class WSServer {
         askRegistry.cancel(event.sessionId, event.toolCallId);
         break;
       }
-      case "steer:promote": {
-        try {
-          await this.opts.agentManager.promoteToSteer(event.sessionId, event.text, event.remainingTexts);
-        } catch (err) {
-          this.broadcast({ type: "error", message: `引导失败: ${(err as Error).message}` });
-        }
-        break;
-      }
-      case "steer:immediate": {
-        try {
-          await this.opts.agentManager.immediate(event.sessionId, event.text, event.remainingTexts);
-        } catch (err) {
-          this.broadcast({ type: "error", message: `立即执行失败: ${(err as Error).message}` });
-        }
-        break;
-      }
-      case "steer:cancel": {
-        this._abortVersions.set(event.sessionId, (this._abortVersions.get(event.sessionId) ?? 0) + 1);
-        this.opts.agentManager.clearSteeringQueue(event.sessionId);
-        break;
-      }
-      case "steer:clear-queue": {
-        this._abortVersions.set(event.sessionId, (this._abortVersions.get(event.sessionId) ?? 0) + 1);
-        this.opts.agentManager.clearFollowUpQueue(event.sessionId);
-        break;
-      }
+
       case "agent:list": {
         reply({ type: "agent:list", agents: await this.opts.configStore.listAgents() });
         break;

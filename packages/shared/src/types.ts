@@ -231,26 +231,7 @@ export interface AskCancelAskEvent {
   sessionId: string;
   toolCallId: string;
 }
-export interface SteerPromoteEvent {
-  type: "steer:promote";
-  sessionId: string;
-  text: string;
-  remainingTexts: string[];
-}
-export interface SteerImmediateEvent {
-  type: "steer:immediate";
-  sessionId: string;
-  text: string;
-  remainingTexts: string[];
-}
-export interface SteerCancelEvent {
-  type: "steer:cancel";
-  sessionId: string;
-}
-export interface SteerClearQueueEvent {
-  type: "steer:clear-queue";
-  sessionId: string;
-}
+
 export interface ProjectCreateEvent {
   type: "project:create";
   name: string;
@@ -312,7 +293,6 @@ export interface SubagentSaveOverrideEvent {
 export type WSClientEvent =
   | PromptEvent | AbortEvent
   | AskAnswerEvent | AskCancelAskEvent
-  | SteerPromoteEvent | SteerImmediateEvent | SteerCancelEvent | SteerClearQueueEvent
   | ProjectCreateEvent | ProjectUpdateEvent | ProjectDeleteEvent | ProjectOpenDirEvent
   | SessionRenameEvent | SessionDeleteEvent
   | AgentConfigGetEvent | AgentConfigSaveEvent
