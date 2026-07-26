@@ -615,6 +615,16 @@ export class AgentManager {
         break;
     }
 
+    // pi 的 queue_update.followUp 始终为空（pi 不管排队），
+    // 转发前注入 HiAgent 本地队列状态，避免前端排队列表消失
+    if (event.type === "queue_update") {
+      event = {
+        ...event,
+        steering: [...handle.steerList, ...((event as any).steering ?? [])],
+        followUp: [...handle.followUpList],
+      };
+    }
+
     this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, event);
   }
 
@@ -647,6 +657,15 @@ export class AgentManager {
       handle.busy = false;
       throw err;
     }
+  }
+
+  /** 推送本地队列快照给前端（补充 pi queue_update 缺失的 followUpList） */
+  private _emitLocalQueueUpdate(sessionId: string, handle: SessionHandle): void {
+    this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
+      type: "queue_update",
+      steering: [...handle.steerList],
+      followUp: [...handle.followUpList],
+    });
   }
 
   /** 发送用户输入。agent 运行中时进本地排队列表；空闲时直接 prompt。 */
@@ -686,6 +705,7 @@ export class AgentManager {
     if (handle.busy) {
       // agent 运行中 → 追加到本地排队列表
       handle.followUpList.push(finalText);
+      this._emitLocalQueueUpdate(sessionId, handle);
       return;
     }
     await this._sendPromptNow(sessionId, handle, finalText);
@@ -703,6 +723,7 @@ export class AgentManager {
 
     // 双保险：pi steer() 尝试 mid-loop 投递 + 本地 steerList 兜底
     handle.steerList.push(text);
+    this._emitLocalQueueUpdate(sessionId, handle);
     handle.client.steer(text).catch(() => {
       // steer 失败不丢消息——agent_settled 时 steerList 会兜底
     });
@@ -719,6 +740,7 @@ export class AgentManager {
     askRegistry.cancelAll(sessionId);
     handle.steerList = [];
     handle.followUpList = [];
+    this._emitLocalQueueUpdate(sessionId, handle);
     console.log(`[agent-manager] abort session=${sessionId} busy=${handle.busy}`);
     await handle.client.abort().catch((err) => {
       console.error(`[agent-manager] abort 命令失败 session=${sessionId}:`, err);
