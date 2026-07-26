@@ -3,9 +3,9 @@
 // 架构（RPC 迁移后）：
 // - 每个 HiAgent 会话对应一个 `pi --mode rpc` 子进程（rpc-client.ts 驱动），
 //   不再 import @earendil-works/pi-coding-agent 的 SDK API。
-// - steer / followUp 队列由 kernel 自管（RPC 无 clearQueue 等价物）：
-//   followUp 在 agent_settled 时逐条 drain；steering 在 turn_end 时逐条投递；
-//   队列变更合成 queue_update 事件转发给上层，前端契约不变。
+// - 引导消息走 pi 原生 steer()（turn_end 后自动投递）。
+// - 排队消息存 HiAgent 本地 followUpList，agent_settled 时逐条 drain。
+//   pi RPC 的 queue_update 事件直接透传给前端，kernel 不合成。
 // - 宿主工具（ask/memory/delegate/fleet）经 hiagent-bridge 扩展注册到 pi 进程，
 //   工具 execute 回调 kernel /bridge/tool（bridge-registry.ts 注册的 ctx 执行）。
 // - 系统提示词组合（composePrompt）结果写入临时文件，经 --system-prompt <file> 传入。
@@ -108,9 +108,8 @@ interface SessionHandle {
   busy: boolean;
   /** 历史消息快照（创建时经 get_messages 拉取 + message_end 增量追加） */
   messages: any[];
-  /** kernel 自管队列 */
-  steering: string[];
-  followUp: string[];
+  /** 排队消息列表（agent_settled 时逐条 drain） */
+  followUpList: string[];
   /** 系统提示词临时文件（dispose 时清理） */
   promptFile: string | null;
   /** 进程意外退出标记（下次 ensureStarted 重建） */
@@ -124,8 +123,6 @@ interface SessionHandle {
 export class AgentManager {
   // sessionId → SessionHandle（核心数据结构，一个 HiAgent 会话对应一个 pi rpc 子进程）
   private sessions = new Map<string, SessionHandle>();
-  // sessionId → promote/immediate 操作锁，防止快速连点导致并发 race
-  private jumpQueueLocks = new Map<string, Promise<void>>();
   // 并发创建锁：同 sessionId 同时只创建一次，防止快速连发导致重复初始化同一 jsonl
   private starting = new Map<string, Promise<SessionHandle>>();
   // 标记在创建过程中被 dispose 的 sessionId，防止已清理的会话在创建完成后重新泄漏回 Map
@@ -290,7 +287,7 @@ export class AgentManager {
   ): Promise<SessionHandle> {
     const isDirty = this.skillDirty.has(sessionId) || this.dirty.has(sessionId);
     if (!isDirty) return handle;
-    if (handle.busy || handle.followUp.length > 0) return handle;  // 进行中，保留 dirty 等 idle
+    if (handle.busy || handle.followUpList.length > 0) return handle;  // 进行中，保留 dirty 等 idle
 
     this.skillDirty.delete(sessionId);
     this.dirty.delete(sessionId);
@@ -510,8 +507,7 @@ export class AgentManager {
       meta: { projectId, agentName },
       busy: false,
       messages: [],
-      steering: [],
-      followUp: [],
+      followUpList: [],
       promptFile,
       crashed: false,
       disposed: false,
@@ -592,22 +588,11 @@ export class AgentManager {
       case "message_end":
         if (event.message) handle.messages.push(event.message);
         break;
-      case "turn_end":
-        // steering 队列投递：每个完成的 turn 后投一条（one-at-a-time 语义）
-        if (handle.steering.length > 0 && handle.busy) {
-          const text = handle.steering.shift()!;
-          handle.client.steer(text).catch((err) => {
-            console.error(`[kernel] session ${sessionId} steer 投递失败:`, err);
-          });
-          this._emitQueueUpdate(sessionId, handle);
-        }
-        break;
       case "agent_settled":
         handle.busy = false;
-        // followUp 队列 drain：agent 完全空闲后逐条发送
-        if (handle.followUp.length > 0) {
-          const text = handle.followUp.shift()!;
-          this._emitQueueUpdate(sessionId, handle);
+        // followUp 本地列表 drain：agent 空闲后逐条发送
+        if (handle.followUpList.length > 0) {
+          const text = handle.followUpList.shift()!;
           void this._sendPromptNow(sessionId, handle, text).catch((err) => {
             console.error(`[kernel] session ${sessionId} followUp drain 失败:`, err);
           });
@@ -638,15 +623,6 @@ export class AgentManager {
     });
   }
 
-  /** 合成 queue_update 事件（形状与 pi/SDK 原生一致，前端契约不变） */
-  private _emitQueueUpdate(sessionId: string, handle: SessionHandle): void {
-    this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
-      type: "queue_update",
-      steering: [...handle.steering],
-      followUp: [...handle.followUp],
-    });
-  }
-
   /** 立即发送 prompt（busy 置位 + 失败回退） */
   private async _sendPromptNow(sessionId: string, handle: SessionHandle, text: string): Promise<void> {
     handle.busy = true;
@@ -658,7 +634,7 @@ export class AgentManager {
     }
   }
 
-  /** 发送用户输入。agent 运行中或队列非空时进 kernel followUp 队列；空闲时直接 prompt。 */
+  /** 发送用户输入。agent 运行中时进本地排队列表；空闲时直接 prompt。 */
   async prompt(
     sessionId: string,
     text: string,
@@ -692,135 +668,28 @@ export class AgentManager {
       handle.cwd,
     );
 
-    if (handle.busy || handle.followUp.length > 0 || handle.steering.length > 0) {
-      handle.followUp.push(finalText);
-      this._emitQueueUpdate(sessionId, handle);
+    if (handle.busy) {
+      // agent 运行中 → 追加到本地排队列表
+      handle.followUpList.push(finalText);
       return;
     }
     await this._sendPromptNow(sessionId, handle, finalText);
   }
 
-  /**
-   * 清空队列 + abort + 剩余重入队 + 发目标消息。
-   * immediate 专用；promoteToSteer 不打断当前 agent，仅移动队列。
-   * @param interrupt 为 true 时目标消息优先以 steer 方式插队（abort 后 agent 仍在跑时降级）
-   */
-  private async _jumpQueue(sessionId: string, text: string, remainingTexts: string[], interrupt: boolean = false): Promise<void> {
+  /** 发送引导消息（pi 原生 steer，turn_end 后自动投递） */
+  async steerMessage(sessionId: string, text: string): Promise<void> {
     const handle = this.sessions.get(sessionId);
-    if (!handle) throw new Error(`会话未启动: ${sessionId}`);
+    if (!handle) return;
 
-    askRegistry.cancelAll(sessionId);   // 中断类（immediate）作废 pending 提问
-
-    // 1. 清空 kernel 队列（RPC 无 clearQueue 等价物，队列全在 kernel 侧）
-    handle.steering = [];
-    handle.followUp = [];
-
-    // 2. 中断当前运行
-    await handle.client.abort();
-    handle.busy = false;
-
-    // 3. 剩余消息重入 kernel followUp 队列
-    handle.followUp.push(...remainingTexts);
-
-    // 4. 目标消息作为新回合开始
-    if (interrupt) {
-      // abort 后 agent 可能仍在执行 tool calls（事件未落定），直接 prompt 会被拒，
-      // 此时降级为 steer 插队，仍能尽快生效
-      try {
-        await this._sendPromptNow(sessionId, handle, text);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (message.includes("already processing") || message.includes("streaming")) {
-          await handle.client.steer(text);
-          handle.busy = true;
-        } else {
-          throw err;
-        }
-      }
-    } else {
+    if (!handle.busy) {
+      // 空闲时 steer() 会报错，降级为 prompt()
       await this._sendPromptNow(sessionId, handle, text);
+      return;
     }
-    this._emitQueueUpdate(sessionId, handle);
+    await handle.client.steer(text);
   }
 
-  /** 对 per-session 队列操作加串行锁（连续点击"引导"/"立即"时后一次等前一次完成） */
-  private async _lockedQueueOp(sessionId: string, op: () => Promise<void>): Promise<void> {
-    const previous = this.jumpQueueLocks.get(sessionId) ?? Promise.resolve();
-    const next = previous.catch(() => { }).then(op);
-    this.jumpQueueLocks.set(sessionId, next);
-    await next;
-  }
-
-  private async _lockedJumpQueue(sessionId: string, text: string, remainingTexts: string[], interrupt: boolean): Promise<void> {
-    await this._lockedQueueOp(sessionId, () => this._jumpQueue(sessionId, text, remainingTexts, interrupt));
-  }
-
-  /** 提升排队消息为引导（不打断当前 agent，把目标消息从 followUp 移到 steering） */
-  async promoteToSteer(sessionId: string, text: string, remainingTexts: string[]): Promise<void> {
-    await this._lockedQueueOp(sessionId, async () => {
-      const handle = this.sessions.get(sessionId);
-      if (!handle) throw new Error(`会话未启动: ${sessionId}`);
-
-      // 目标消息进 steering（当前 turn 结束后投递），其余按调用方给定顺序回 followUp
-      handle.steering.push(text);
-      handle.followUp = [...remainingTexts];
-
-      // 空闲时 steering 立即以 prompt 生效
-      if (!handle.busy) {
-        const next = handle.steering.shift()!;
-        await this._sendPromptNow(sessionId, handle, next);
-      }
-      this._emitQueueUpdate(sessionId, handle);
-    });
-  }
-
-  /** 立即执行排队消息（abort → 清空 → 剩余重入队 → 目标消息作为新回合） */
-  async immediate(sessionId: string, text: string, remainingTexts: string[]): Promise<void> {
-    await this._lockedJumpQueue(sessionId, text, remainingTexts, true);
-  }
-
-  /** 清空 steer 引导队列（session 不存在时静默忽略） */
-  clearSteeringQueue(sessionId: string): void {
-    const handle = this.sessions.get(sessionId);
-    if (!handle) return;
-    handle.steering = [];
-    this._emitQueueUpdate(sessionId, handle);
-  }
-
-  /** 清空 followUp 排队队列（session 不存在时静默忽略） */
-  clearFollowUpQueue(sessionId: string): void {
-    const handle = this.sessions.get(sessionId);
-    if (!handle) return;
-    handle.followUp = [];
-    this._emitQueueUpdate(sessionId, handle);
-  }
-
-  /** 发送引导消息入队（不打断当前 agent，当前 turn 结束后生效；空闲时立即生效） */
-  steerMessage(sessionId: string, text: string): void {
-    const handle = this.sessions.get(sessionId);
-    if (!handle) return;
-    if (handle.busy) {
-      handle.steering.push(text);
-      this._emitQueueUpdate(sessionId, handle);
-    } else {
-      handle.busy = true;
-      handle.client.prompt(text).catch((err) => {
-        handle.busy = false;
-        console.error(`[kernel] session ${sessionId} steerMessage 发送失败:`, err);
-      });
-    }
-  }
-
-  /** 清空全部队列（steering + followUp） — session 不存在时静默忽略 */
-  clearAllQueues(sessionId: string): void {
-    const handle = this.sessions.get(sessionId);
-    if (!handle) return;
-    handle.steering = [];
-    handle.followUp = [];
-    this._emitQueueUpdate(sessionId, handle);
-  }
-
-  /** 中止当前会话：清空 kernel 队列 + abort。 */
+  /** 中止当前会话：清空本地队列 + abort。 */
   async abort(sessionId: string): Promise<void> {
     const handle = this.sessions.get(sessionId);
     if (!handle) {
@@ -829,9 +698,7 @@ export class AgentManager {
     }
 
     askRegistry.cancelAll(sessionId);
-    handle.steering = [];
-    handle.followUp = [];
-    this._emitQueueUpdate(sessionId, handle);
+    handle.followUpList = [];
     console.log(`[agent-manager] abort session=${sessionId} busy=${handle.busy}`);
     await handle.client.abort().catch((err) => {
       console.error(`[agent-manager] abort 命令失败 session=${sessionId}:`, err);
@@ -884,7 +751,6 @@ export class AgentManager {
       }
     }
     this.sessions.delete(sessionId);
-    this.jumpQueueLocks.delete(sessionId);
     this.dirty.delete(sessionId);
     this.skillDirty.delete(sessionId);
   }
