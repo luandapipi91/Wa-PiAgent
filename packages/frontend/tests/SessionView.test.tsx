@@ -196,20 +196,25 @@ test("空闲时排队消息显示「立即」按钮", async () => {
   expect(screen.getByTestId("btn-promote")).toBeTruthy();
 });
 
-test("点击引导按钮发送 steer:promote 请求", async () => {
+test("点击引导按钮发送 steer 请求 + 乐观更新", async () => {
   useSessionStore.setState({
     statusBySession: { s1: "idle" },
     queueBySession: { s1: { steering: [], followUp: ["消息A", "消息B"] } },
   });
   await renderSessionView("s1");
+
   const btn = screen.getAllByTestId("btn-promote")[0];
   await act(async () => { btn.click(); });
-  const calls = apiCalls.filter(c => c.method === "post" && c.path === "/api/sessions/s1/steer/promote");
+
+  // API 调用：新版仅发 text，不含 remainingTexts
+  const calls = apiCalls.filter(c => c.method === "post" && c.path === "/api/sessions/s1/steer");
   expect(calls).toHaveLength(1);
-  expect(calls[0].body).toEqual({
-    text: "消息A",
-    remainingTexts: ["消息B"],
-  });
+  expect(calls[0].body).toEqual({ text: "消息A" });
+
+  // 乐观更新：消息从排队区移到引导区
+  const state = useSessionStore.getState();
+  expect(state.queueBySession["s1"]!.steering).toContain("消息A");
+  expect(state.queueBySession["s1"]!.followUp).toEqual(["消息B"]);
 });
 
 test("点击立即按钮发送 steer:immediate 请求", async () => {
@@ -222,12 +227,27 @@ test("点击立即按钮发送 steer:immediate 请求", async () => {
   await act(async () => { btn.click(); });
   const calls = apiCalls.filter(c => c.method === "post" && c.path === "/api/sessions/s1/steer/immediate");
   expect(calls).toHaveLength(1);
-  expect(calls[0].body).toEqual({
-    text: "消息A",
-    remainingTexts: ["消息B"],
-  });
+  expect(calls[0].body).toEqual({ text: "消息A" });
 });
 
+test("点击清空排队按钮立即清空 followUp 列表", async () => {
+  useSessionStore.setState({
+    statusBySession: { s1: "idle" },
+    queueBySession: { s1: { steering: ["引导中消息"], followUp: ["排队1", "排队2"] } },
+  });
+  await renderSessionView("s1");
+
+  // 清空前：排队消息可见
+  expect(screen.getByText("排队 2 条")).toBeTruthy();
+
+  const clearBtn = screen.getByTestId("btn-clear-queue");
+  await act(async () => { clearBtn.click(); });
+
+  // 乐观更新：followUp 立即清空，steering 不受影响
+  const state = useSessionStore.getState();
+  expect(state.queueBySession["s1"]!.followUp).toEqual([]);
+  expect(state.queueBySession["s1"]!.steering).toEqual(["引导中消息"]);
+});
 test("切换会话后思考计时显示对应会话的已思考时长（不重置、不沿用旧会话）", async () => {
   const now = Date.now();
   useProjectsStore.setState({
