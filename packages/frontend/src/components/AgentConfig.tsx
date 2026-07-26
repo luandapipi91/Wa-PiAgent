@@ -5,7 +5,8 @@ import { useAgentsStore } from "../store/agents";
 import { useSkillsStore } from "../store/skills";
 import { useProvidersStore } from "../store/providers";
 import { useSubagentsStore } from "../store/subagents";
-import { send, onMessage } from "../ws-instance";
+import { api } from "../api-client";
+import { onMessage } from "../events";
 import type { SubagentOverride } from "@hiagent/shared";
 import { Modal } from "./ui/Modal";
 import { filterItems } from "../quick-invoke/trigger";
@@ -76,7 +77,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
       return;
     }
     useAgentsStore.getState().loadConfig(agentName);
-    send({ type: "agent:tools:list" });
+    void api.get("/api/agents/tools");
     const off = onMessage(e => {
       if (e.type === "agent:config" && e.agentName === agentName) setDraft(e.config);
       if (e.type === "agent:tools:list") setTools(e.tools);
@@ -119,7 +120,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
       ? { ...draft, model: null }
       : draft;
     // 名称可能被改：agentName 为旧 displayName，draft.displayName 为新值，kernel 走 rename 联动
-    send({ type: "agent:config:save", agentName, config: configToSend });
+    void api.put(`/api/agents/${encodeURIComponent(agentName)}/config`, { config: configToSend });
     onClose();
   };
 

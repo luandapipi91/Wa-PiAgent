@@ -1,69 +1,95 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { useProvidersStore } from "../src/store/providers";
 
-// 全局 onMessage 回调收集器 — 由 mock 的 onMessage 写入
-let onMsgCallback: ((e: any) => void) | null = null;
+// API 调用记录（便于断言）
+const apiCalls: { method: string; path: string; body?: any }[] = [];
 
-// Mock ws-instance：onMessage 注册回调，send 收集消息
-mock.module("../src/ws-instance", () => {
-  return {
-    send(e: any) {
-      // model:presets 请求 → 用预设数据回复
-      if (e.type === "model:presets" && onMsgCallback) {
-        onMsgCallback({
-          type: "model:presets",
-          presets: [
-            {
-              key: "deepseek",
-              name: "DeepSeek",
-              baseUrl: "https://api.deepseek.com",
-              api: "openai-completions",
-              models: [
-                { id: "deepseek-chat", contextWindow: 128000, maxTokens: 8192, supportsVision: false },
-                { id: "deepseek-reasoner", contextWindow: 128000, maxTokens: 32768, supportsVision: false },
-              ],
-            },
-            {
-              key: "anthropic",
-              name: "Anthropic",
-              baseUrl: "https://api.anthropic.com",
-              api: "anthropic-messages",
-              models: [
-                { id: "claude-sonnet-5", contextWindow: 1000000, maxTokens: 128000, supportsVision: true },
-                { id: "claude-opus-4-5", contextWindow: 200000, maxTokens: 32000, supportsVision: true },
-              ],
-            },
-          ],
-        });
-      }
-    },
-    onMessage(h: (e: any) => void) {
-      onMsgCallback = h;
-      return () => { onMsgCallback = null; };
-    },
-  };
-});
+// 供应商预设数据
+const PRESETS = [
+  {
+    key: "deepseek",
+    name: "DeepSeek",
+    baseUrl: "https://api.deepseek.com",
+    api: "openai-completions",
+    models: [
+      { id: "deepseek-chat", contextWindow: 128000, maxTokens: 8192, supportsVision: false },
+      { id: "deepseek-reasoner", contextWindow: 128000, maxTokens: 32768, supportsVision: false },
+    ],
+  },
+  {
+    key: "anthropic",
+    name: "Anthropic",
+    baseUrl: "https://api.anthropic.com",
+    api: "anthropic-messages",
+    models: [
+      { id: "claude-sonnet-5", contextWindow: 1000000, maxTokens: 128000, supportsVision: true },
+      { id: "claude-opus-4-5", contextWindow: 200000, maxTokens: 32000, supportsVision: true },
+    ],
+  },
+];
 
 // mock 需要在 import 之前生效，所以把组件 import 放在 mock.module 之后
+mock.module("../src/api-client", () => ({
+  api: {
+    get: (path: string) => {
+      apiCalls.push({ method: "get", path });
+      if (path === "/api/models/presets") {
+        return Promise.resolve({ presets: PRESETS });
+      }
+      return Promise.resolve({});
+    },
+    post: (path: string, body?: any) => {
+      apiCalls.push({ method: "post", path, body });
+      return Promise.resolve({});
+    },
+    put: (path: string, body?: any) => {
+      apiCalls.push({ method: "put", path, body });
+      return Promise.resolve({});
+    },
+    del: (path: string) => {
+      apiCalls.push({ method: "del", path });
+      return Promise.resolve({});
+    },
+  },
+  ApiError: class extends Error {
+    status: number;
+    constructor(m: string, s: number) {
+      super(m);
+      this.status = s;
+      this.name = "ApiError";
+    }
+  },
+}));
+
 import { ProviderFormModal } from "../src/components/settings/ProviderFormModal";
 
 beforeEach(() => {
   useProvidersStore.setState(useProvidersStore.getInitialState(), true);
-  onMsgCallback = null;
+  apiCalls.length = 0;
 });
 
 afterEach(() => {
-  onMsgCallback = null;
   // 个别测试把 providers store 的 save action stub 成 mock，zustand store 是进程级单例，
   // 不还原会泄漏给后面跑的测试文件——恢复初始 state（含原始 action）
   useProvidersStore.setState(useProvidersStore.getInitialState(), true);
 });
 
+// 渲染并刷新异步的 preset 加载，避免 act 警告
+async function renderWithFlush(element: ReactElement) {
+  let result: ReturnType<typeof render>;
+  await act(async () => {
+    result = render(element);
+    await Promise.resolve();
+  });
+  return result!;
+}
+
 // ---- 基础渲染测试 ----
 
-test("渲染表单字段", () => {
-  render(<ProviderFormModal onClose={() => {}} />);
+test("渲染表单字段", async () => {
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   expect(screen.getByText("供应商名称")).toBeTruthy();
   expect(screen.getByText("Base URL")).toBeTruthy();
   expect(screen.getByText("API Key")).toBeTruthy();
@@ -71,21 +97,21 @@ test("渲染表单字段", () => {
   expect(screen.getByText(/模型 ID/)).toBeTruthy();
 });
 
-test("快捷选择搜索框存在", () => {
-  render(<ProviderFormModal onClose={() => {}} />);
+test("快捷选择搜索框存在", async () => {
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   const input = screen.getByTestId("preset-search") as HTMLInputElement;
   expect(input).toBeTruthy();
   expect(input.placeholder).toContain("搜索");
 });
 
-test("必填为空时保存按钮禁用", () => {
-  render(<ProviderFormModal onClose={() => {}} />);
+test("必填为空时保存按钮禁用", async () => {
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   const saveBtn = screen.getByTestId("provider-save-btn") as HTMLButtonElement;
   expect(saveBtn.disabled).toBe(true);
 });
 
-test("填写完整 + 添加模型后保存启用", () => {
-  render(<ProviderFormModal onClose={() => {}} />);
+test("填写完整 + 添加模型后保存启用", async () => {
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Test" } });
   fireEvent.change(screen.getByTestId("field-baseUrl"), { target: { value: "https://api.test.com/v1" } });
   fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-x" } });
@@ -94,8 +120,8 @@ test("填写完整 + 添加模型后保存启用", () => {
   expect(saveBtn.disabled).toBe(false);
 });
 
-test("tag 添加后模型表格出现行", () => {
-  render(<ProviderFormModal onClose={() => {}} />);
+test("tag 添加后模型表格出现行", async () => {
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Test" } });
   fireEvent.change(screen.getByTestId("field-baseUrl"), { target: { value: "https://api.test.com/v1" } });
   fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-x" } });
@@ -105,8 +131,8 @@ test("tag 添加后模型表格出现行", () => {
   expect(screen.getByTestId("model-contextWindow-0")).toBeTruthy();
 });
 
-test("编辑模式预填 initial 值", () => {
-  render(
+test("编辑模式预填 initial 值", async () => {
+  await renderWithFlush(
     <ProviderFormModal
       initial={{
         id: "p1", name: "Existing", baseUrl: "https://api.existing.com/v1",
@@ -120,8 +146,8 @@ test("编辑模式预填 initial 值", () => {
   expect((screen.getByTestId("field-baseUrl") as HTMLInputElement).value).toBe("https://api.existing.com/v1");
 });
 
-test("编辑模式下显示覆盖提示", () => {
-  render(
+test("编辑模式下显示覆盖提示", async () => {
+  await renderWithFlush(
     <ProviderFormModal
       initial={{
         id: "p1", name: "Existing", baseUrl: "https://api.existing.com/v1",
@@ -134,10 +160,10 @@ test("编辑模式下显示覆盖提示", () => {
   expect(screen.getByText("选择预设会覆盖当前表单")).toBeTruthy();
 });
 
-test("保存调用 store.save", () => {
+test("保存调用 store.save", async () => {
   const saveMock = mock();
   useProvidersStore.setState({ save: saveMock });
-  render(<ProviderFormModal onClose={() => {}} />);
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Test" } });
   fireEvent.change(screen.getByTestId("field-baseUrl"), { target: { value: "https://api.test.com/v1" } });
   fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-x" } });
@@ -149,10 +175,10 @@ test("保存调用 store.save", () => {
   expect(saved.models[0].id).toBe("m1");
 });
 
-test("添加模型后显示 supportsVision 开关并影响保存数据", () => {
+test("添加模型后显示 supportsVision 开关并影响保存数据", async () => {
   const saveMock = mock();
   useProvidersStore.setState({ save: saveMock });
-  render(<ProviderFormModal onClose={() => {}} />);
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Test" } });
   fireEvent.change(screen.getByTestId("field-baseUrl"), { target: { value: "https://api.test.com/v1" } });
   fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-x" } });
@@ -179,8 +205,8 @@ async function waitAndSelectPreset(key: string) {
   fireEvent.mouseDown(opt);
 }
 
-test("收到 model:presets 后下拉出现预设选项", async () => {
-  render(<ProviderFormModal onClose={() => {}} />);
+test("收到 presets 后下拉出现预设选项", async () => {
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   fireEvent.focus(screen.getByTestId("preset-search"));
   await waitFor(() => {
     expect(screen.getAllByTestId("preset-option").length).toBeGreaterThan(1);
@@ -188,7 +214,7 @@ test("收到 model:presets 后下拉出现预设选项", async () => {
 });
 
 test("在供应商搜索框输入文字过滤预设", async () => {
-  render(<ProviderFormModal onClose={() => {}} />);
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   fireEvent.focus(screen.getByTestId("preset-search"));
   await waitFor(() => {
     expect(screen.getAllByTestId("preset-option").length).toBeGreaterThan(1);
@@ -201,7 +227,7 @@ test("在供应商搜索框输入文字过滤预设", async () => {
 });
 
 test("选择供应商预设后不自动填入模型，只填 name/baseUrl/api", async () => {
-  render(<ProviderFormModal onClose={() => {}} />);
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   await waitAndSelectPreset("deepseek");
   expect((screen.getByTestId("field-name") as HTMLInputElement).value).toBe("DeepSeek");
   expect((screen.getByTestId("field-baseUrl") as HTMLInputElement).value).toBeTruthy();
@@ -209,7 +235,7 @@ test("选择供应商预设后不自动填入模型，只填 name/baseUrl/api", 
 });
 
 test("选择供应商预设后不自动出现下拉，需输入才出现", async () => {
-  render(<ProviderFormModal onClose={() => {}} />);
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   await waitAndSelectPreset("deepseek");
   // 选后无模型下拉
   expect(screen.queryByTestId("model-quick-dropdown")).toBeNull();
@@ -221,7 +247,7 @@ test("选择供应商预设后不自动出现下拉，需输入才出现", async
 });
 
 test("聚焦模型输入框即使无输入也显示全部可用模型下拉", async () => {
-  render(<ProviderFormModal onClose={() => {}} />);
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   await waitAndSelectPreset("deepseek");
   // 聚焦输入框（无输入）
   fireEvent.focus(screen.getByTestId("tag-input-field"));
@@ -235,7 +261,7 @@ test("聚焦模型输入框即使无输入也显示全部可用模型下拉", as
 test("输入匹配模型 ID 出现下拉，选择后带入预设参数", async () => {
   const saveMock = mock();
   useProvidersStore.setState({ save: saveMock });
-  render(<ProviderFormModal onClose={() => {}} />);
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   await waitAndSelectPreset("deepseek");
   fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "chat" } });
   const chatOption = screen.getAllByTestId("model-quick-option")[0];
@@ -247,7 +273,7 @@ test("输入匹配模型 ID 出现下拉，选择后带入预设参数", async (
 });
 
 test("输入触发下拉后切换到自定义下拉消失", async () => {
-  render(<ProviderFormModal onClose={() => {}} />);
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   await waitAndSelectPreset("deepseek");
   fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "chat" } });
   expect(screen.getByTestId("model-quick-dropdown")).toBeTruthy();
@@ -258,7 +284,7 @@ test("输入触发下拉后切换到自定义下拉消失", async () => {
 });
 
 test("选中供应商后 input 右侧显示 × 可清除选择", async () => {
-  render(<ProviderFormModal onClose={() => {}} />);
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   await waitAndSelectPreset("deepseek");
   // × 按钮出现
   const clearBtn = screen.getByTestId("preset-clear");

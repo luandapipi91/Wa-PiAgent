@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Modal } from "../ui/Modal";
 import { TagInput } from "../ui/TagInput";
 import { useProvidersStore } from "../../store/providers";
-import { send, onMessage } from "../../ws-instance";
+import { api } from "../../api-client";
 import type { ModelProvider, ProviderApi, ProviderModel, ModelPreset } from "@hiagent/shared";
 
 interface Props {
@@ -21,7 +21,7 @@ export function ProviderFormModal({ initial, onClose }: Props) {
   const [name, setName] = useState(initial?.name ?? "");
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
   const [apiKey, setApiKey] = useState(initial?.apiKey ?? "");
-  const [api, setApi] = useState<ProviderApi>(initial?.api ?? "openai-completions");
+  const [providerApi, setProviderApi] = useState<ProviderApi>(initial?.api ?? "openai-completions");
   const [modelIds, setModelIds] = useState<string[]>(initial?.models.map(m => m.id) ?? []);
   // 模型长度配置：key = modelId
   const [modelConfigs, setModelConfigs] = useState<Record<string, ProviderModel>>(
@@ -46,15 +46,12 @@ export function ProviderFormModal({ initial, onClose }: Props) {
   const [dropPos, setDropPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const [tagKey, setTagKey] = useState(0);
 
-  // 组件挂载时从 SDK 获取供应商预设列表
+  // 组件挂载时从 kernel 获取供应商预设列表
   useEffect(() => {
-    const off = onMessage((e: any) => {
-      if (e.type === "model:presets") {
-        setPresets(e.presets ?? []);
-      }
-    });
-    send({ type: "model:presets" });
-    return off;
+    void (async () => {
+      const res = (await api.get("/api/models/presets")) as { presets?: ModelPreset[] };
+      setPresets(res.presets ?? []);
+    })();
   }, []);
 
   // 滚动时更新下拉位置
@@ -92,7 +89,7 @@ export function ProviderFormModal({ initial, onClose }: Props) {
     if (!preset) return;
     setName(preset.name);
     setBaseUrl(preset.baseUrl);
-    setApi(preset.api as ProviderApi);
+    setProviderApi(preset.api as ProviderApi);
     // 清空已有模型，模型通过快捷下拉逐个添加
     setModelIds([]);
     setModelConfigs({});
@@ -127,7 +124,7 @@ export function ProviderFormModal({ initial, onClose }: Props) {
       name: name.trim(),
       baseUrl: baseUrl.trim(),
       apiKey: apiKey.trim(),
-      api,
+      api: providerApi,
       models: modelIds.map(id => modelConfigs[id]),
     };
     save(provider);
@@ -136,7 +133,7 @@ export function ProviderFormModal({ initial, onClose }: Props) {
 
   const handleTest = async () => {
     setTestStatus({ state: "testing" });
-    const result = await test({ baseUrl, apiKey, api, models: modelIds.map(id => modelConfigs[id]) });
+    const result = await test({ baseUrl, apiKey, api: providerApi, models: modelIds.map(id => modelConfigs[id]) });
     setTestStatus(result.ok ? { state: "ok" } : { state: "fail", error: result.error });
   };
 
@@ -217,11 +214,11 @@ export function ProviderFormModal({ initial, onClose }: Props) {
           <span className="text-xs text-secondary">API 格式</span>
           <div className="flex gap-4">
             <label className="flex items-center gap-1.5 text-sm text-primary cursor-pointer">
-              <input type="radio" checked={api === "openai-completions"} onChange={() => setApi("openai-completions")} />
+              <input type="radio" checked={providerApi === "openai-completions"} onChange={() => setProviderApi("openai-completions")} />
               OpenAI 兼容
             </label>
             <label className="flex items-center gap-1.5 text-sm text-primary cursor-pointer">
-              <input type="radio" checked={api === "anthropic-messages"} onChange={() => setApi("anthropic-messages")} />
+              <input type="radio" checked={providerApi === "anthropic-messages"} onChange={() => setProviderApi("anthropic-messages")} />
               Anthropic
             </label>
           </div>

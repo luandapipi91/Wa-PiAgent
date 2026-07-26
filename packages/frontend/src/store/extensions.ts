@@ -8,7 +8,7 @@ import type {
   ExtensionProgressEvent,
   ExtensionInstallDoneEvent,
 } from "@hiagent/shared";
-import { send } from "../ws-instance";
+import { api } from "../api-client";
 
 /** 安装占位卡状态：installing（进行中，显示进度）| failed（失败，提供重试/移除） */
 export type InstallStatus = "installing" | "failed";
@@ -48,7 +48,7 @@ export const useExtensionsStore = create<ExtensionsState>((set) => ({
   upgrading: {},
   error: null,
 
-  load: () => send({ type: "extension:list" }),
+  load: () => { api.get("/api/extensions").then((data: any) => { if (data) set({ packages: data.packages ?? [], error: null }); }).catch(() => {}); },
 
   // extension:changed / extension:list 回复：更新真实列表，保留占位 installs；
   // changed 由 kernel 在操作（含升级）成功后推送 → 清除 upgrading 标记（升级完成）
@@ -97,22 +97,22 @@ export const useExtensionsStore = create<ExtensionsState>((set) => ({
       error: null,
       installs: { ...s.installs, [name]: { name, status: "installing" } },
     }));
-    send({ type: "extension:install", name });
+    void api.post("/api/extensions/install", { name });
   },
 
   uninstallPackage: (name) => {
     set({ error: null });
-    send({ type: "extension:uninstall", name });
+    void api.post("/api/extensions/uninstall", { name });
   },
 
   upgradePackage: (name) => {
     set((s) => ({ error: null, upgrading: { ...s.upgrading, [name]: "" } }));
-    send({ type: "extension:upgrade", name });
+    void api.post("/api/extensions/upgrade", { name });
   },
 
   togglePackage: (name, enabled) => {
     set({ error: null });
-    send({ type: "extension:toggle", name, enabled });
+    void api.post("/api/extensions/toggle", { name, enabled });
   },
 
   // 重试：把 failed 条目重置为 installing 并清错，重新发起安装
@@ -121,7 +121,7 @@ export const useExtensionsStore = create<ExtensionsState>((set) => ({
       if (!s.installs[name]) return {};
       return { installs: { ...s.installs, [name]: { name, status: "installing" } } };
     });
-    send({ type: "extension:install", name });
+    void api.post("/api/extensions/install", { name });
   },
 
   // 移除：从占位列表删除（仅前端态；失败包并未真正写入 settings）

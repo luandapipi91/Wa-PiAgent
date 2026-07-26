@@ -1,24 +1,34 @@
-import { test, expect, mock, beforeEach } from "bun:test";
-import { render } from "@testing-library/react";
+import "./mock-composer-db";
+import { test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { render, act, cleanup } from "@testing-library/react";
 import { App } from "../src/App";
 import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
+import { emitEventForTesting, disconnectEvents } from "../src/events";
+import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
 
-// 捕获 App 注册的 onMessage 处理器，便于直接派发 {type:"error"} 事件
-let handler: ((e: any) => void) | null = null;
-mock.module("../src/ws-instance", () => ({
-  getWs: () => ({ readyState: 1, addEventListener: () => {}, send: () => {} }),
-  send: () => {},
-  onMessage: (h: any) => {
-    handler = h;
-    return () => {
-      handler = null;
-    };
+mock.module("../src/api-client", () => ({
+  api: {
+    get: () => Promise.resolve({}),
+    post: () => Promise.resolve({}),
+    put: () => Promise.resolve({}),
+    del: () => Promise.resolve({}),
+  },
+  ApiError: class extends Error {
+    status: number;
+    constructor(m: string, s: number) {
+      super(m);
+      this.status = s;
+      this.name = "ApiError";
+    }
   },
 }));
 
 beforeEach(() => {
-  handler = null;
+  disconnectEvents();
+  composerDbDefaults.model = null;
+  composerDbDefaults.thinking = "disabled";
+  for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
   useProjectsStore.setState({
     projects: [],
     sessions: [],
@@ -28,13 +38,25 @@ beforeEach(() => {
   useSessionStore.getState().clear();
 });
 
-test("error 事件注入的消息文本不带 ⚠️ 前缀（红色样式由 stopReason=error 承担）", () => {
+afterEach(() => {
+  cleanup();
+});
+
+test("error 事件注入的消息文本不带 ⚠️ 前缀（红色样式由 stopReason=error 承担）", async () => {
   // 空项目态即可：App 的 onMessage 在 mount 时无条件注册，无需渲染 SessionView
   // （避免 SessionView 读 AGENT_DEFS 崩溃）。sessionId 由事件本身携带路由到 s1。
-  render(<App />);
-  expect(handler).toBeTruthy();
+  await act(async () => {
+    render(<App />);
+    await new Promise(r => setTimeout(r, 0));
+  });
 
-  handler!({ type: "error", message: "MCP error -32000: Connection closed", sessionId: "s1" });
+  act(() => {
+    emitEventForTesting({
+      type: "error",
+      message: "MCP error -32000: Connection closed",
+      sessionId: "s1",
+    });
+  });
 
   const msgs = useSessionStore.getState().messagesBySession["s1"];
   expect(msgs?.length).toBe(1);
@@ -48,16 +70,27 @@ test("error 事件注入的消息文本不带 ⚠️ 前缀（红色样式由 st
   expect(text.startsWith("⚠")).toBe(false);
 });
 
-test("error 事件复位 thinking 卡死：agent 启动失败后 status 归 idle、清 streaming 占位", () => {
-  render(<App />);
-  expect(handler).toBeTruthy();
+test("error 事件复位 thinking 卡死：agent 启动失败后 status 归 idle、清 streaming 占位", async () => {
+  await act(async () => {
+    render(<App />);
+    await new Promise(r => setTimeout(r, 0));
+  });
 
   // 模拟用户刚发完消息：optimisticSend 置 thinking + streaming 占位
-  useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+  act(() => {
+    useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+  });
   expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
 
   // kernel 广播启动失败（如 No API key）
-  handler!({ type: "error", message: "agent 启动失败: No API key for deepseek/deepseek-v4-pro", sessionId: "s1", agentName: "dev" });
+  act(() => {
+    emitEventForTesting({
+      type: "error",
+      message: "agent 启动失败: No API key for deepseek/deepseek-v4-pro",
+      sessionId: "s1",
+      agentName: "dev",
+    });
+  });
 
   const s = useSessionStore.getState();
   // 状态必须归 idle，否则 UI 永远显示「思考中」且停止按钮无效（agent 从未启动，不会有 agent_end）

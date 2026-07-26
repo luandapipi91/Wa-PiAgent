@@ -1,16 +1,31 @@
-import { test, expect, beforeEach } from "bun:test";
-import { render, screen } from "@testing-library/react";
+import { test, expect, beforeEach, mock } from "bun:test";
+import { render, screen, act } from "@testing-library/react";
 import { App } from "../src/App";
 import { useProjectsStore } from "../src/store/projects";
+import { disconnectEvents } from "../src/events";
 
-// 不再 mock ws-instance：全局 preload（happydom-setup → MockWebSocket）已让 getWs()/send() 安全 no-op，
-// 避免 mock.module 跨文件缓存污染 fs-client.test.ts（多个文件 mock 同一 ws-instance 会互相覆盖）。
+const calls: { method: string; path: string; body?: any }[] = [];
 
-beforeEach(() => useProjectsStore.setState({
-  projects: [], sessions: [], currentProjectId: null, currentSessionId: null,
+mock.module("../src/api-client", () => ({
+  api: {
+    get: (path: string) => { calls.push({ method: "get", path }); return Promise.resolve({}); },
+    post: (path: string, body?: any) => { calls.push({ method: "post", path, body }); return Promise.resolve({}); },
+    put: (path: string, body?: any) => { calls.push({ method: "put", path, body }); return Promise.resolve({}); },
+    del: (path: string) => { calls.push({ method: "del", path }); return Promise.resolve({}); },
+  },
+  ApiError: class extends Error { status: number; constructor(m: string, s: number) { super(m); this.status = s; this.name = "ApiError"; } },
 }));
 
-test("App 渲染（empty 态冒烟）", () => {
+beforeEach(() => {
+  disconnectEvents();
+  calls.length = 0;
+  useProjectsStore.setState({
+    projects: [], sessions: [], currentProjectId: null, currentSessionId: null,
+  });
+});
+
+test("App 渲染（empty 态冒烟）", async () => {
   render(<App />);
+  await act(async () => {});
   expect(screen.getByTestId("empty-state")).toBeTruthy();
 });

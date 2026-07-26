@@ -1,12 +1,14 @@
 appId: ai.hiagent.desktop
 productName: HiAgent
-artifactName: "HiAgent.${ext}"   # 产物文件名不带版本号：HiAgent.dmg / HiAgent.zip / HiAgent.exe
+artifactName: "HiAgent.${ext}"
+npmRebuild: false
+afterPack: scripts/after-pack.cjs
 directories:
   output: release
 files:
   - src/**
   - package.json
-  - node_modules/**      # electron-builder 自动只打包运行时依赖；electron 本体由它处理
+  - node_modules/**
 extraResources:
   - from: resources/kernel
     to: kernel
@@ -15,20 +17,20 @@ extraResources:
     to: web
     filter: ["**/*"]
 asarUnpack:
-  - resources/**          # sidecar 含原生二进制(hiagent-kernel/ast-grep)，需解包到磁盘才能 spawn
+  - resources/**
 win:
   target: [portable]
   icon: src/assets/icon.ico
+  signAndEditExecutable: false # Windows Defender 锁定 exe 导致 rcedit 竞态失败
 linux:
   target: [AppImage]
   icon: src/assets/icon.png
 mac:
   target:
     - dmg
-    - zip           # zip 便于后续做自动更新/手测；dmg 是给用户安装的主形态
+    - zip
   icon: src/assets/icon-mac.png
   category: public.app-category.productivity
-  hardenedRuntime: true   # 公证前置要求；本地自签/未公证也能跑，但开启更接近正式分发
+  hardenedRuntime: true
   gatekeeperAssess: false
-  # 未配置 APPLE_ID/团队时 electron-builder 会跳过 notarize；目标仅本机可用时无需公证
   notarize: false

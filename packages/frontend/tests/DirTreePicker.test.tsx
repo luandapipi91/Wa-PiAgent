@@ -4,7 +4,9 @@
 // fs-client.test.ts（后者拿到伪造 listDir 而全挂）且无法按文件注销。
 import { test, expect, mock, beforeEach, afterEach, afterAll } from "bun:test";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
-import { _setFsTransport, type FsTransport } from "../src/fs-client";
+import { _setFsTransport } from "../src/fs-client";
+import { adaptLegacyTransport, type LegacyFsTransport } from "./fs-transport-adapter";
+import { emitEventForTesting } from "../src/events";
 
 // 伪 WS 传输：按 fs:* 请求类型回放响应（数据与原 mock 完全一致）。
 const handlers = new Set<(e: any) => void>();
@@ -53,11 +55,11 @@ const sendMock = mock((e: any) => {
     case "fs:roots": emit({ type: "fs:roots", roots: ["C:\\", "D:\\"] }); break;
     case "fs:listDir": emit({ type: "fs:listDir", path: e.path, entries: entriesFor(e.path, e.showHidden) }); break;
     case "fs:search": {
-      // 流式：有匹配先 progress，再 done，模拟 kernel 搜索事件流（real fs-client 聚合后回调）
+      // 流式：有匹配先 progress，再 done，通过真实 SSE 总线事件模拟 kernel 搜索事件流
       const matches = searchMatches(e.root, e.query);
       setTimeout(() => {
-        if (matches.length) emit({ type: "fs:search:progress", requestId: e.requestId, query: e.query, matches });
-        emit({ type: "fs:search", requestId: e.requestId, query: e.query, matches, durationMs: 0, truncated: false });
+        if (matches.length) emitEventForTesting({ type: "fs:search:progress", requestId: e.requestId, query: e.query, matches } as any);
+        emitEventForTesting({ type: "fs:search", requestId: e.requestId, query: e.query, matches, durationMs: 0, truncated: false } as any);
       }, 10);
       break;
     }
@@ -65,12 +67,13 @@ const sendMock = mock((e: any) => {
   }
 });
 
-const transport: FsTransport = {
+const legacyTransport: LegacyFsTransport = {
   send: sendMock,
   onMessage: (h: (e: any) => void) => { handlers.add(h); return () => handlers.delete(h); },
 };
+const fsTransport = adaptLegacyTransport(legacyTransport);
 
-_setFsTransport(transport);
+_setFsTransport(fsTransport);
 const { DirTreePicker } = await import("../src/components/DirTreePicker");
 
 afterAll(() => _setFsTransport(null));
@@ -470,7 +473,7 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
       default: break;
     }
   });
-  _setFsTransport({ send: tSend, onMessage: (h: (e: any) => void) => { hSet.add(h); return () => hSet.delete(h); } });
+  _setFsTransport(adaptLegacyTransport({ send: tSend, onMessage: (h: (e: any) => void) => { hSet.add(h); return () => hSet.delete(h); } }));
 
   try {
     render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
@@ -486,7 +489,7 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
     }, { timeout: 3000 });
 
     // 搜索命中叶子目录 subdir（无匹配子项）→ 出现在结果中
-    hEmit({ type: "fs:search:progress", requestId: req.requestId, query: "sub", matches: [{ name: "subdir", isDir: true, path: "C:\\Users\\test\\subdir" }] });
+    emitEventForTesting({ type: "fs:search:progress", requestId: req.requestId, query: "sub", matches: [{ name: "subdir", isDir: true, path: "C:\\Users\\test\\subdir" }] } as any);
     await waitFor(() => {
       expect(screen.getByText(/📁\s*subdir/)).toBeTruthy();
     }, { timeout: 3000 });
@@ -512,7 +515,7 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
       expect(document.querySelector(".text-blue.font-mono")?.textContent).toBe("C:\\Users\\test\\subdir\\inner");
     }, { timeout: 3000 });
   } finally {
-    _setFsTransport(transport); // 恢复共享 transport
+    _setFsTransport(fsTransport); // 恢复共享 transport
   }
 });
 
@@ -559,7 +562,7 @@ test("搜索增量结果更新时，用户已折叠的节点保持折叠", async
       default: break;
     }
   });
-  _setFsTransport({ send: tSend, onMessage: (h: (e: any) => void) => { hSet.add(h); return () => hSet.delete(h); } });
+  _setFsTransport(adaptLegacyTransport({ send: tSend, onMessage: (h: (e: any) => void) => { hSet.add(h); return () => hSet.delete(h); } }));
 
   try {
     render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
@@ -580,7 +583,7 @@ test("搜索增量结果更新时，用户已折叠的节点保持折叠", async
 
     // 第一批：subdir 匹配 → 搜索树 root→C:\Users\test→subdir，C:\Users\test 自动展开
     const mkMatch = () => ({ name: "subdir", isDir: true, path: "C:\\Users\\test\\subdir" });
-    hEmit({ type: "fs:search:progress", requestId: req.requestId, query: "sub", matches: [mkMatch()] });
+    emitEventForTesting({ type: "fs:search:progress", requestId: req.requestId, query: "sub", matches: [mkMatch()] } as any);
     await waitFor(() => {
       expect(screen.getByText(/📁\s*subdir/)).toBeTruthy();
     }, { timeout: 3000 });
@@ -595,12 +598,12 @@ test("搜索增量结果更新时，用户已折叠的节点保持折叠", async
     }, { timeout: 3000 });
 
     // 第二批增量（内容相同但 searchTreeItems 引用变化）→ 当前 bug 会重展开 C:\Users\test
-    hEmit({ type: "fs:search:progress", requestId: req.requestId, query: "sub", matches: [mkMatch()] });
+    emitEventForTesting({ type: "fs:search:progress", requestId: req.requestId, query: "sub", matches: [mkMatch()] } as any);
     await new Promise((r) => setTimeout(r, 200));
 
     // 折叠应保持：subdir 不应重新出现
     expect(screen.queryByText(/📁\s*subdir/)).toBeNull();
   } finally {
-    _setFsTransport(transport); // 恢复共享 transport
+    _setFsTransport(fsTransport); // 恢复共享 transport
   }
 });

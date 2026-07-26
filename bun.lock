@@ -71,6 +71,7 @@
     },
   },
   "patchedDependencies": {
+    "@earendil-works/pi-coding-agent@0.80.10": "patches/@earendil-works/pi-coding-agent@0.80.10.patch",
     "pi-mcp-adapter@2.13.0": "patches/pi-mcp-adapter@2.13.0.patch",
   },
   "packages": {

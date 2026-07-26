@@ -1,24 +1,56 @@
+import "./mock-composer-db";
 import { test, describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, cleanup } from "@testing-library/react";
+import type { ComponentProps } from "react";
+import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
+import { emitEventForTesting, disconnectEvents } from "../src/events";
 import { useProvidersStore } from "../src/store/providers";
 import { useProjectsStore } from "../src/store/projects";
 import { useSkillsStore } from "../src/store/skills";
 import { useAgentsStore } from "../src/store/agents";
 
-const handlers = new Set<(e: any) => void>();
-const sendMock = mock();
+const apiCalls: { method: string; path: string; body?: any }[] = [];
 
-mock.module("../src/ws-instance", () => ({
-  send: sendMock,
-  onMessage: (h: (e: any) => void) => {
-    handlers.add(h);
-    return () => handlers.delete(h);
+mock.module("../src/api-client", () => ({
+  api: {
+    get: (path: string) => { apiCalls.push({ method: "get", path }); return Promise.resolve({}); },
+    post: (path: string, body?: any) => { apiCalls.push({ method: "post", path, body }); return Promise.resolve({}); },
+    put: (path: string, body?: any) => { apiCalls.push({ method: "put", path, body }); return Promise.resolve({}); },
+    del: (path: string) => { apiCalls.push({ method: "del", path }); return Promise.resolve({}); },
   },
+  ApiError: class extends Error { status: number; constructor(m: string, s: number) { super(m); this.status = s; this.name = "ApiError"; } },
 }));
 
 import { ComposerInput } from "../src/components/ui/ComposerInput";
 
+interface FetchCall {
+  url: string;
+  fileName?: string;
+}
+
+const fetchCalls: FetchCall[] = [];
+const originalFetch = globalThis.fetch;
+const fetchMock = mock((input: RequestInfo | URL, init?: RequestInit) => {
+  const url = typeof input === "string" ? input : (input as any).href ?? String(input);
+  const form = init?.body as FormData | undefined;
+  const file = form && typeof form.get === "function" ? (form.get("file") as File | undefined) : undefined;
+  fetchCalls.push({ url, fileName: file?.name });
+  const projectId = new URL(url, "http://localhost").searchParams.get("projectId") ?? "p1";
+  const path = `/project/${projectId}/.hiagent/uploads/${file?.name ?? "upload"}`;
+  return Promise.resolve({ ok: true, json: () => Promise.resolve({ path }) });
+}) as any;
+
 beforeEach(() => {
+  composerDbDefaults.model = null;
+  composerDbDefaults.thinking = "disabled";
+  for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
+
+  disconnectEvents();
+  apiCalls.length = 0;
+  fetchCalls.length = 0;
+  fetchMock.mock.calls.length = 0;
+  globalThis.fetch = fetchMock;
+
   useProvidersStore.setState({
     providers: [
       { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
@@ -36,17 +68,17 @@ beforeEach(() => {
     load: mock(), setAll: mock(), toggleSkill: mock(), addDir: mock(), removeDir: mock(),
   });
   useAgentsStore.setState({ list: [], configs: {} });
-  handlers.clear();
-  sendMock.mockClear();
 });
 
 // beforeEach 用 mock 整体替换了 skills store 的 action，zustand store 是进程级单例，
 // 不还原会泄漏给后面跑的测试文件（如 store-skills.test.ts）——恢复初始 state（含原始 action）
 afterEach(() => {
+  cleanup();
+  globalThis.fetch = originalFetch;
   useSkillsStore.setState(useSkillsStore.getInitialState(), true);
 });
 
-function renderComposer(props?: Partial<React.ComponentProps<typeof ComposerInput>>) {
+function renderComposer(props?: Partial<ComponentProps<typeof ComposerInput>>) {
   return render(
     <ComposerInput
       text="hello"
@@ -66,11 +98,13 @@ function renderComposer(props?: Partial<React.ComponentProps<typeof ComposerInpu
   );
 }
 
-function completeLatestUpload(path: string) {
-  const sent = sendMock.mock.calls.find(([e]) => e.type === "fs:upload")?.[0];
-  expect(sent).toBeTruthy();
-  handlers.forEach(h => h({ type: "fs:upload", id: sent.id, path }));
-  return sent;
+function completeLatestUpload(_expectedPath: string) {
+  const call = fetchCalls.at(-1);
+  expect(call).toBeTruthy();
+  const url = new URL(call!.url, "http://localhost");
+  const projectId = url.searchParams.get("projectId");
+  const name = call!.fileName!;
+  return { projectId, name };
 }
 
 test("calls onSend with text when clicking send", () => {
@@ -131,7 +165,7 @@ test("uploads selected file to project directory and adds attachment chip", asyn
   const input = screen.getByTestId("composer-input").querySelector('input[type="file"]') as HTMLInputElement;
   fireEvent.change(input, { target: { files: [file] } });
 
-  await waitFor(() => expect(sendMock).toHaveBeenCalled());
+  await waitFor(() => expect(fetchMock).toHaveBeenCalled());
   const sent = completeLatestUpload("/project/p1/.hiagent/uploads/notes.txt");
   expect(sent.projectId).toBe("p1");
   expect(sent.name).toBe("notes.txt");
@@ -156,7 +190,7 @@ test("uploads pasted file from clipboard", async () => {
   const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]')!;
   fireEvent.paste(textbox, { clipboardData: { files: [file] } });
 
-  await waitFor(() => expect(sendMock).toHaveBeenCalled());
+  await waitFor(() => expect(fetchMock).toHaveBeenCalled());
   completeLatestUpload("/project/p1/.hiagent/uploads/pasted.txt");
 
   await waitFor(() => expect(setAttachments).toHaveBeenCalled());
@@ -173,7 +207,7 @@ test("uploads dropped file into composer", async () => {
   const composer = screen.getByTestId("composer-input").firstChild!;
   fireEvent.drop(composer, { dataTransfer: { files: [file] } });
 
-  await waitFor(() => expect(sendMock).toHaveBeenCalled());
+  await waitFor(() => expect(fetchMock).toHaveBeenCalled());
   completeLatestUpload("/project/p1/.hiagent/uploads/dropped.png");
 
   await waitFor(() => expect(setAttachments).toHaveBeenCalled());
@@ -189,43 +223,47 @@ test("plain text paste is not intercepted", async () => {
   fireEvent.paste(textbox, { clipboardData: { files: [] } });
 
   await new Promise(r => setTimeout(r, 50));
-  expect(sendMock).not.toHaveBeenCalled();
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
 // === Quick Invoke 测试 ===
 
-test("输入 # 触发文件面板", () => {
+test("输入 # 触发文件面板", async () => {
   const setText = mock();
   renderComposer({ text: "你好 #App", setText });
-  // 面板应该出现（searchFilesStream 是异步的，但面板组件应渲染）
-  // 初始状态下 items 可能还没加载，但 menu 容器应存在
-  waitFor(() => {
-    const menu = document.querySelector('[data-testid="quick-invoke-menu"]');
-    // 面板可能存在也可能因无数据不渲染——核心是触发检测工作
+
+  await waitFor(() => {
+    expect(apiCalls.some(c => c.path === "/api/fs/search" && c.body?.query === "App")).toBe(true);
   });
-  // 验证触发了 fs:search WS 请求
-  const searchCall = sendMock.mock.calls.find(([e]) => e.type === "fs:search");
-  expect(searchCall).toBeTruthy();
+
+  // 面板容器应渲染（无结果时显示空提示）
+  expect(screen.getByTestId("quick-invoke-menu")).toBeTruthy();
 });
 
 test("#文件搜索结果中目录项传递 isDir 并显示文件夹图标", async () => {
   renderComposer({ text: "打开 #src" });
-  // 获取搜索请求的 requestId
-  const searchCall = sendMock.mock.calls.find(([e]) => e.type === "fs:search");
-  expect(searchCall).toBeTruthy();
-  const requestId = searchCall![0].requestId;
-  // 模拟 kernel 返回包含目录的搜索结果
+
+  let req: any;
   await waitFor(() => {
-    handlers.forEach(h => h({
+    req = apiCalls.find(c => c.path === "/api/fs/search" && c.body?.query === "src");
+    expect(req).toBeTruthy();
+  });
+
+  // 让 searchFilesStream 的动态 import("../src/events") 落定
+  await act(async () => {});
+
+  act(() => {
+    emitEventForTesting({
       type: "fs:search:progress",
-      requestId,
+      requestId: req.body.requestId,
       query: "src",
       matches: [
         { name: "src", isDir: true, path: "/proj/p1/src" },
         { name: "App.tsx", isDir: false, path: "/proj/p1/src/App.tsx" },
       ],
-    }));
+    });
   });
+
   // 文件夹图标应出现
   expect(screen.getByText("📁")).toBeDefined();
   // 文件图标也应出现
@@ -265,7 +303,7 @@ test("选中智能体后生成 @[name] chip token 并回调 onAgentMention", () 
   renderComposer({ text: "@需求", setText, onAgentMention, currentAgentName: "主控" });
   fireEvent.click(screen.getByText("需求设计"));
   expect(setText).toHaveBeenCalled();
-  const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
+  const lastCall = setText.mock.calls.at(-1)?.[0] as string;
   expect(lastCall).toContain("@[需求设计]");
   expect(onAgentMention).toHaveBeenCalledWith("需求设计");
 });
@@ -283,7 +321,7 @@ test("选中内置 subagent 后生成英文 name 的 @[token]（非中文 displa
   renderComposer({ text: "@规划", setText, onAgentMention, currentAgentName: "主控" });
   fireEvent.click(screen.getByText("规划子智能体"));
   expect(setText).toHaveBeenCalled();
-  const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
+  const lastCall = setText.mock.calls.at(-1)?.[0] as string;
   expect(lastCall).toContain("@[Plan]");           // 英文 name
   expect(lastCall).not.toContain("@[规划子智能体]"); // 不能是中文 displayName
   expect(onAgentMention).toHaveBeenCalledWith("Plan");
@@ -292,20 +330,27 @@ test("选中内置 subagent 后生成英文 name 的 @[token]（非中文 displa
 test("选中文件后生成 #[path] chip token", async () => {
   const setText = mock();
   renderComposer({ text: "#hello", setText });
-  const searchCall = sendMock.mock.calls.find(([e]) => e.type === "fs:search");
-  expect(searchCall).toBeTruthy();
-  const requestId = searchCall![0].requestId;
+
+  let req: any;
   await waitFor(() => {
-    handlers.forEach(h => h({
+    req = apiCalls.find(c => c.path === "/api/fs/search" && c.body?.query === "hello");
+    expect(req).toBeTruthy();
+  });
+
+  await act(async () => {});
+
+  act(() => {
+    emitEventForTesting({
       type: "fs:search:progress",
-      requestId,
+      requestId: req.body.requestId,
       query: "hello",
       matches: [{ name: "hello.txt", isDir: false, path: "/proj/p1/hello.txt" }],
-    }));
+    });
   });
+
   fireEvent.click(screen.getByTestId("quick-invoke-item-0"));
   expect(setText).toHaveBeenCalled();
-  const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
+  const lastCall = setText.mock.calls.at(-1)?.[0] as string;
   expect(lastCall).toContain("#[hello.txt]");
 });
 
@@ -339,7 +384,7 @@ test("选中技能后生成 chip token", () => {
   fireEvent.click(screen.getByText("brainstorming"));
   // setText 应被调用，text 中应包含 $[brainstorming]
   expect(setText).toHaveBeenCalled();
-  const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
+  const lastCall = setText.mock.calls.at(-1)?.[0] as string;
   expect(lastCall).toContain("$[brainstorming]");
   // 不应再包含原始的 $brain 文本
   expect(lastCall).not.toMatch(/\$brain$/);
@@ -358,7 +403,7 @@ test("面板打开时按 Tab 等同 Enter 选中高亮项", () => {
   // Tab 选中高亮的技能项
   fireEvent.keyDown(textbox, { key: "Tab" });
   expect(setText).toHaveBeenCalled();
-  const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
+  const lastCall = setText.mock.calls.at(-1)?.[0] as string;
   expect(lastCall).toContain("$[brainstorming]");
 });
 
@@ -406,7 +451,7 @@ test("发送时 chip token 展开为纯文本", () => {
   });
   renderComposer({ text: "$pd", setText });
   fireEvent.click(screen.getByText("pdf"));
-  const lastCall = setText.mock.calls[setText.mock.calls.length - 1][0] as string;
+  const lastCall = setText.mock.calls.at(-1)?.[0] as string;
   // token 格式为 $[pdf]，发送时由 Composer 展开为 /skill:pdf（SDK _expandSkillCommand 格式）
   expect(lastCall).toContain("$[pdf]");
 });

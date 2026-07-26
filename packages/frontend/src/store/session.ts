@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { SessionMessage, AgentStatus, AgentName, SDKEventEnvelope } from "@hiagent/shared";
 import { useProjectsStore } from "./projects";
+import { StreamingBatcher } from "./streaming-batcher";
 
 interface SessionState {
   // 已定稿消息：渲染主列表来源
@@ -54,7 +55,19 @@ function msgKey(m: SessionMessage): string {
   return `${inner.role ?? "custom"}-${inner.timestamp}`;
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
+export const useSessionStore = create<SessionState>((set) => {
+  // streaming 渲染 rAF 合帧（阶段一·卡顿修复项 2）：一帧内多次 message_update
+  // 只提交一次（取最新），避免每 token 一次全量重渲染；终态事件 drop 防旧 partial 复活。
+  const raf: (fn: () => void) => unknown =
+    typeof requestAnimationFrame !== "undefined" ? requestAnimationFrame : (fn) => setTimeout(fn, 16);
+  const caf: (h: unknown) => void =
+    typeof cancelAnimationFrame !== "undefined" ? (h) => cancelAnimationFrame(h as number) : (h) => clearTimeout(h as any);
+  const streamingBatcher = new StreamingBatcher<SessionMessage>(
+    (sessionId, value) => set(s => ({ streamingBySession: { ...s.streamingBySession, [sessionId]: value } })),
+    raf,
+    caf,
+  );
+  return {
   messagesBySession: {},
   streamingBySession: {},
   statusBySession: {},
@@ -107,12 +120,16 @@ export const useSessionStore = create<SessionState>((set) => ({
     return { unreadBySession: next };
   }),
 
-  failTurn: (sessionId) => set(s => ({
+  failTurn: (sessionId) => {
+    // 复位前丢弃挂起的 streaming 帧，防止旧 partial 复活
+    streamingBatcher.drop(sessionId);
+    set(s => ({
     statusBySession: { ...s.statusBySession, [sessionId]: "idle" },
     streamingBySession: { ...s.streamingBySession, [sessionId]: null },
     thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: null },
     optimisticEchoBySession: { ...s.optimisticEchoBySession, [sessionId]: false },
-  })),
+    }));
+  },
 
   optimisticSend: (sessionId, text, agentName) => set(s => {
     const ts = Date.now();
@@ -182,19 +199,23 @@ export const useSessionStore = create<SessionState>((set) => ({
         }
         break;
       }
-      // 流式增量：用 assistantMessageEvent.partial 覆盖 streamingMessage
+      // 流式增量：用 assistantMessageEvent.partial 覆盖 streamingMessage（rAF 合帧提交）
       case "message_update": {
         const partial = (event as any).assistantMessageEvent?.partial;
-        if (partial) {
-          set(s => ({
-            streamingBySession: { ...s.streamingBySession, [sessionId]: { message: partial, agentName } },
-          }));
+        const streamingMsg = partial ?? (event as any).message;
+        if (streamingMsg) {
+          // 直接 set 流式内容，不经过 rAF 合帧。
+          // rAF 在部分浏览器环境下可能延迟过长（尤其是后台标签页），
+          // 导致流式输出感觉"一次全出来"。
+          set(s => ({ streamingBySession: { ...s.streamingBySession, [sessionId]: { message: streamingMsg, agentName } } }));
         }
         break;
       }
       // 流式结束：assistant — 合并到同 turn 的最后一条 assistant 消息
       // toolResult — 单独成消息，渲染层 preprocess 会按 toolCallId 挂到前一个 assistant
       case "message_end": {
+        // 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 在定稿后复活
+        streamingBatcher.drop(sessionId);
         const msg = event.message as any;
         if (msg.role === "toolResult") {
           set(s => {
@@ -259,4 +280,5 @@ export const useSessionStore = create<SessionState>((set) => ({
         break;
     }
   },
-}));
+  };
+});

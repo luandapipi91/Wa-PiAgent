@@ -1,13 +1,9 @@
 import { test, expect, mock, describe } from "bun:test";
 import type { AgentConfig, SessionEntity } from "@hiagent/shared";
 
-// 注意：不要静态 import store/agents——各测试用 mock.module 替换 ws-instance 后
-// 动态 import，静态 import 会让模块提前缓存导致 send mock 失效（同 store-skills.test.ts）。
-
 const agent = (name: string): AgentConfig => ({
   displayName: name, avatar: "🤖", avatarColor: "#000-#111", description: "",
   model: "m", thinking: "medium", systemPromptMode: "replace",
-
   tools: [], skills: [], mcpServers: [], partners: { askTo: [] },
 });
 
@@ -18,7 +14,6 @@ const sess = (agentName: string, lastActivity: number): SessionEntity => ({
 
 describe("topAgentsByRecency", () => {
   test("按最近会话时间倒序取前 n，无会话的排最后（按名称序）", async () => {
-    mock.module("../src/ws-instance", () => ({ send: mock(), onMessage: () => () => {} }));
     const { topAgentsByRecency } = await import("../src/store/agents");
     const agents = [agent("a"), agent("b"), agent("c"), agent("d")];
     const sessions = [sess("b", 100), sess("c", 300), sess("b", 200)];
@@ -27,13 +22,11 @@ describe("topAgentsByRecency", () => {
   });
 
   test("agents 不足 n 时全返回", async () => {
-    mock.module("../src/ws-instance", () => ({ send: mock(), onMessage: () => () => {} }));
     const { topAgentsByRecency } = await import("../src/store/agents");
     expect(topAgentsByRecency([agent("x")], [], 3)).toHaveLength(1);
   });
 
   test("同一 agent 多个会话取最大 lastActivity", async () => {
-    mock.module("../src/ws-instance", () => ({ send: mock(), onMessage: () => () => {} }));
     const { topAgentsByRecency } = await import("../src/store/agents");
     const agents = [agent("a"), agent("b")];
     const sessions = [sess("a", 50), sess("b", 100), sess("a", 80)];
@@ -42,7 +35,6 @@ describe("topAgentsByRecency", () => {
   });
 
   test("不修改原数组", async () => {
-    mock.module("../src/ws-instance", () => ({ send: mock(), onMessage: () => () => {} }));
     const { topAgentsByRecency } = await import("../src/store/agents");
     const agents = [agent("b"), agent("a")];
     topAgentsByRecency(agents, [sess("a", 1)], 2);
@@ -51,49 +43,57 @@ describe("topAgentsByRecency", () => {
 });
 
 describe("useAgentsStore", () => {
-  test("loadAll 发 agent:list", async () => {
-    const sendMock = mock();
-    mock.module("../src/ws-instance", () => ({ send: sendMock, onMessage: () => () => {} }));
+  function mockApi() {
+    const calls: { method: string; path: string; body?: any }[] = [];
+    const apiMock = {
+      get: (path: string) => { calls.push({ method: "get", path }); return Promise.resolve({}); },
+      post: (path: string, body?: any) => { calls.push({ method: "post", path, body }); return Promise.resolve({}); },
+      put: () => Promise.resolve({}),
+      del: (path: string) => { calls.push({ method: "del", path }); return Promise.resolve({}); },
+    };
+    mock.module("../src/api-client", () => ({ api: apiMock, ApiError: class extends Error { status: number; constructor(m: string, s: number) { super(m); this.status = s; this.name = "ApiError"; } } }));
+    return calls;
+  }
+
+  test("loadAll 发 GET /api/agents", async () => {
+    const calls = mockApi();
     const { useAgentsStore } = await import("../src/store/agents");
     useAgentsStore.setState({ list: [], configs: {} });
     useAgentsStore.getState().loadAll();
-    expect(sendMock).toHaveBeenCalledWith({ type: "agent:list" });
+    expect(calls).toEqual([{ method: "get", path: "/api/agents" }]);
   });
 
-  test("createAgent 发 agent:create", async () => {
-    const sendMock = mock();
-    mock.module("../src/ws-instance", () => ({ send: sendMock, onMessage: () => () => {} }));
+  test("createAgent 发 POST /api/agents", async () => {
+    const calls = mockApi();
     const { useAgentsStore } = await import("../src/store/agents");
     useAgentsStore.getState().createAgent("新助手");
-    expect(sendMock).toHaveBeenCalledWith({ type: "agent:create", displayName: "新助手" });
+    expect(calls).toEqual([{ method: "post", path: "/api/agents", body: { displayName: "新助手" } }]);
   });
 
-  test("deleteAgent 发 agent:delete", async () => {
-    const sendMock = mock();
-    mock.module("../src/ws-instance", () => ({ send: sendMock, onMessage: () => () => {} }));
+  test("deleteAgent 发 DELETE /api/agents/:name", async () => {
+    const calls = mockApi();
     const { useAgentsStore } = await import("../src/store/agents");
     useAgentsStore.getState().deleteAgent("foo");
-    expect(sendMock).toHaveBeenCalledWith({ type: "agent:delete", name: "foo" });
+    expect(calls).toEqual([{ method: "del", path: "/api/agents/foo" }]);
   });
 
   test("setList 更新全量列表", async () => {
-    mock.module("../src/ws-instance", () => ({ send: mock(), onMessage: () => () => {} }));
+    mockApi();
     const { useAgentsStore } = await import("../src/store/agents");
     useAgentsStore.setState({ list: [], configs: {} });
     useAgentsStore.getState().setList([agent("a"), agent("b")]);
     expect(useAgentsStore.getState().list.map(a => a.displayName)).toEqual(["a", "b"]);
   });
 
-  test("loadConfig 发 agent:config:get（兼容 AgentConfig 弹窗）", async () => {
-    const sendMock = mock();
-    mock.module("../src/ws-instance", () => ({ send: sendMock, onMessage: () => () => {} }));
+  test("loadConfig 发 GET /api/agents/:name/config", async () => {
+    const calls = mockApi();
     const { useAgentsStore } = await import("../src/store/agents");
     useAgentsStore.getState().loadConfig("foo");
-    expect(sendMock).toHaveBeenCalledWith({ type: "agent:config:get", agentName: "foo" });
+    expect(calls).toEqual([{ method: "get", path: "/api/agents/foo/config" }]);
   });
 
   test("setConfig 写入 configs", async () => {
-    mock.module("../src/ws-instance", () => ({ send: mock(), onMessage: () => () => {} }));
+    mockApi();
     const { useAgentsStore } = await import("../src/store/agents");
     useAgentsStore.setState({ list: [], configs: {} });
     useAgentsStore.getState().setConfig("foo", agent("foo"));

@@ -1,25 +1,79 @@
+import "./mock-composer-db";
 import { test, expect, beforeEach, mock, afterEach } from "bun:test";
 import { render, screen, waitFor, act, cleanup } from "@testing-library/react";
 import { SYSTEM_PROJECT_ID, type SessionMessage } from "@hiagent/shared";
 import { SessionView } from "../src/components/SessionView";
 import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
+import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
+import { disconnectEvents } from "../src/events";
 
-// ws-instance mock：onMessage 暴露触发器，让测试能模拟 kernel 响应。
-// bun mock.module 不 hoist，但 factory 闭包可引用模块作用域的 mockHandlers。
-const mockHandlers = { list: [] as Array<(e: any) => void> };
-const sentEvents: any[] = [];
-mock.module("../src/ws-instance", () => ({
-  send: (e: any) => { sentEvents.push(e); },
-  onMessage: (cb: any) => { mockHandlers.list.push(cb); return () => {}; },
+// 记录所有 REST API 调用，替代原 WebSocket sentEvents。
+const apiCalls: { method: string; path: string; body?: any }[] = [];
+
+// 控制 /messages GET 的异步解析，用于验证加载指示的显隐。
+let messagesDeferred: {
+  promise: Promise<{ messages: SessionMessage[] }>;
+  resolve: (value: { messages: SessionMessage[] }) => void;
+  reject: (reason?: any) => void;
+} | null = null;
+
+function deferMessages() {
+  let resolve!: (value: { messages: SessionMessage[] }) => void;
+  let reject!: (reason?: any) => void;
+  const promise = new Promise<{ messages: SessionMessage[] }>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  messagesDeferred = { promise, resolve, reject };
+  return messagesDeferred;
+}
+
+mock.module("../src/api-client", () => ({
+  api: {
+    get: (path: string) => {
+      apiCalls.push({ method: "get", path });
+      if (path.includes("/messages")) {
+        return messagesDeferred?.promise ?? Promise.resolve({ messages: [] });
+      }
+      return Promise.resolve({});
+    },
+    post: (path: string, body?: any) => {
+      apiCalls.push({ method: "post", path, body });
+      return Promise.resolve({});
+    },
+    put: (path: string, body?: any) => {
+      apiCalls.push({ method: "put", path, body });
+      return Promise.resolve({});
+    },
+    del: (path: string) => {
+      apiCalls.push({ method: "del", path });
+      return Promise.resolve({});
+    },
+  },
+  ApiError: class extends Error {
+    status: number;
+    constructor(m: string, s: number) {
+      super(m);
+      this.status = s;
+      this.name = "ApiError";
+    }
+  },
 }));
 
 // 渲染后清理 DOM：happy-dom 全局 document 跨测试文件共享，不清理会污染后续文件
 afterEach(() => cleanup());
 
 beforeEach(() => {
-  mockHandlers.list = [];
-  sentEvents.length = 0;
+  disconnectEvents();
+  apiCalls.length = 0;
+  messagesDeferred = null;
+
+  // composer-db 默认值重置，避免 Composer 异步加载覆盖测试状态。
+  composerDbDefaults.model = "openai/gpt-4o";
+  composerDbDefaults.thinking = "disabled";
+  for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
+
   useProjectsStore.setState({
     projects: [{ id: "p1", name: "P", cwd: "/work/p1", createdAt: 0 }],
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "" }],
@@ -28,35 +82,43 @@ beforeEach(() => {
   useSessionStore.setState({ messagesBySession: {} });
 });
 
-test("渲染 header 标题 + 项目目录", () => {
-  render(<SessionView sessionId="s1" />);
+// 渲染并等待异步 effect（composer-prefs loadSession、api.get 等）落定，
+// 减少 React act 警告。
+async function renderSessionView(sessionId: string) {
+  const result = render(<SessionView sessionId={sessionId} />);
+  await act(async () => {});
+  return result;
+}
+
+test("渲染 header 标题 + 项目目录", async () => {
+  await renderSessionView("s1");
   expect(screen.getByText("测试")).toBeTruthy();
   expect(screen.getByText(/\/work\/p1/)).toBeTruthy();
 });
 
-test("header 状态显示中文「空闲」，不暴露英文枚举", () => {
-  render(<SessionView sessionId="s1" />);
+test("header 状态显示中文「空闲」，不暴露英文枚举", async () => {
+  await renderSessionView("s1");
   expect(screen.getByText(/· 空闲/)).toBeTruthy();
   expect(screen.queryByText(/· idle/)).toBeNull();
   // 状态点：idle 成功绿
   expect((screen.getByTestId("session-status-dot") as HTMLElement).style.background.toLowerCase()).toBe("#34a853");
 });
 
-test("header 状态跟随会话运行态显示「思考中」", () => {
+test("header 状态跟随会话运行态显示「思考中」", async () => {
   useSessionStore.setState({ statusBySession: { s1: "thinking" } });
-  render(<SessionView sessionId="s1" />);
+  await renderSessionView("s1");
   expect(screen.getByText(/· 思考中/)).toBeTruthy();
   expect(screen.queryByText(/· thinking/)).toBeNull();
   // 状态点：thinking 靛蓝
   expect((screen.getByTestId("session-status-dot") as HTMLElement).style.background.toLowerCase()).toBe("#5b5bd6");
 });
 
-test("有 pending ask 时 header 状态显示「等待回复」", () => {
+test("有 pending ask 时 header 状态显示「等待回复」", async () => {
   const askCall = { type: "toolCall", id: "tc-ask-2", name: "ask_user_question", arguments: { questions: [{ question: "Q?", header: "h", options: [{ label: "A", description: "x" }, { label: "B", description: "y" }] }] } };
   useSessionStore.getState().setMessages("s1", [
     { agentName: "dev", message: { role: "assistant", content: [askCall], model: "pi-test", stopReason: "tool_use", timestamp: 1 } as any },
   ]);
-  render(<SessionView sessionId="s1" />);
+  await renderSessionView("s1");
   expect(screen.getByText(/· 等待回复/)).toBeTruthy();
   expect(screen.queryByText(/· blocked/)).toBeNull();
   // 状态点：blocked 警告橙
@@ -64,7 +126,7 @@ test("有 pending ask 时 header 状态显示「等待回复」", () => {
 });
 
 test("收到 session:messages 响应后填充历史消息", () => {
-  // 直接测 store 的 setMessages（SessionView onMessage 收到响应后调它）
+  // 直接测 store 的 setMessages（SessionView 收到 GET /messages 响应后调它）
   // SessionMessage 形态：message 为 Pi 原生消息（带 role/timestamp），非旧 ChatMessage
   const history: SessionMessage[] = [
     { agentName: undefined, message: { role: "user", content: "历史问题", timestamp: 1 } },
@@ -79,16 +141,17 @@ test("收到 session:messages 响应后填充历史消息", () => {
 });
 
 test("首次进入会话历史未到时显示加载指示，响应到达后消失", async () => {
-  render(<SessionView sessionId="s1" />);
-  // 发出 session:messages 后、历史未到 → 对话区显示 loading
+  const deferred = deferMessages();
+  await renderSessionView("s1");
+  // 发出 GET /messages 后、历史未到 → 对话区显示 loading
   await screen.findByTestId("history-loading-s1");
 
-  // 模拟 kernel 响应：触发已注册的 onMessage 监听
+  // 模拟 REST 响应：解析延迟的 messages promise
   const history: SessionMessage[] = [
     { agentName: undefined, message: { role: "user", content: "历史问题", timestamp: 1 } },
   ];
   await act(async () => {
-    mockHandlers.list.forEach(h => h({ type: "session:messages", sessionId: "s1", messages: history }));
+    deferred.resolve({ messages: history });
   });
 
   // 响应到达 → 加载消失、历史消息出现
@@ -105,7 +168,7 @@ test("会话已有消息时进入不显示历史加载（避免刷新闪烁）",
   useSessionStore.getState().setMessages("s1", [
     { agentName: undefined, message: { role: "user", content: "已存在", timestamp: 1 } },
   ]);
-  render(<SessionView sessionId="s1" />);
+  await renderSessionView("s1");
   // 有消息则即便 loading 标志为 true 也不显示加载指示
   await waitFor(() => {
     expect(screen.queryByTestId("history-loading-s1")).toBeNull();
@@ -113,57 +176,53 @@ test("会话已有消息时进入不显示历史加载（避免刷新闪烁）",
   });
 });
 
-test("运行中时排队消息隐藏「立即」按钮，保留「引导」按钮", () => {
+test("运行中时排队消息隐藏「立即」按钮，保留「引导」按钮", async () => {
   useSessionStore.setState({
     statusBySession: { s1: "thinking" },
     queueBySession: { s1: { steering: [], followUp: ["排队消息"] } },
   });
-  render(<SessionView sessionId="s1" />);
+  await renderSessionView("s1");
   expect(screen.getByTestId("btn-promote")).toBeTruthy();
   expect(screen.queryByTestId("btn-immediate")).toBeNull();
 });
 
-test("空闲时排队消息显示「立即」按钮", () => {
+test("空闲时排队消息显示「立即」按钮", async () => {
   useSessionStore.setState({
     statusBySession: { s1: "idle" },
     queueBySession: { s1: { steering: [], followUp: ["排队消息"] } },
   });
-  render(<SessionView sessionId="s1" />);
+  await renderSessionView("s1");
   expect(screen.getByTestId("btn-immediate")).toBeTruthy();
   expect(screen.getByTestId("btn-promote")).toBeTruthy();
 });
 
-test("点击引导按钮发送 steer:promote 事件", async () => {
+test("点击引导按钮发送 steer:promote 请求", async () => {
   useSessionStore.setState({
     statusBySession: { s1: "idle" },
     queueBySession: { s1: { steering: [], followUp: ["消息A", "消息B"] } },
   });
-  render(<SessionView sessionId="s1" />);
+  await renderSessionView("s1");
   const btn = screen.getAllByTestId("btn-promote")[0];
   await act(async () => { btn.click(); });
-  const steerEvents = sentEvents.filter(e => e.type === "steer:promote");
-  expect(steerEvents).toHaveLength(1);
-  expect(steerEvents[0]).toEqual({
-    type: "steer:promote",
-    sessionId: "s1",
+  const calls = apiCalls.filter(c => c.method === "post" && c.path === "/api/sessions/s1/steer/promote");
+  expect(calls).toHaveLength(1);
+  expect(calls[0].body).toEqual({
     text: "消息A",
     remainingTexts: ["消息B"],
   });
 });
 
-test("点击立即按钮发送 steer:immediate 事件", async () => {
+test("点击立即按钮发送 steer:immediate 请求", async () => {
   useSessionStore.setState({
     statusBySession: { s1: "idle" },
     queueBySession: { s1: { steering: [], followUp: ["消息A", "消息B"] } },
   });
-  render(<SessionView sessionId="s1" />);
+  await renderSessionView("s1");
   const btn = screen.getAllByTestId("btn-immediate")[0];
   await act(async () => { btn.click(); });
-  const steerEvents = sentEvents.filter(e => e.type === "steer:immediate");
-  expect(steerEvents).toHaveLength(1);
-  expect(steerEvents[0]).toEqual({
-    type: "steer:immediate",
-    sessionId: "s1",
+  const calls = apiCalls.filter(c => c.method === "post" && c.path === "/api/sessions/s1/steer/immediate");
+  expect(calls).toHaveLength(1);
+  expect(calls[0].body).toEqual({
     text: "消息A",
     remainingTexts: ["消息B"],
   });
@@ -184,7 +243,7 @@ test("切换会话后思考计时显示对应会话的已思考时长（不重�
     thinkingSinceBySession: { s1: now - 5000, s2: now - 10000 },
   });
 
-  const { rerender } = render(<SessionView sessionId="s1" />);
+  const { rerender } = await renderSessionView("s1");
   // s1 已思考约 5s
   expect(await screen.findByText(/思考中 · (5|6)s/)).toBeTruthy();
 
@@ -193,7 +252,7 @@ test("切换会话后思考计时显示对应会话的已思考时长（不重�
   expect(await screen.findByText(/思考中 · (10|11)s/)).toBeTruthy();
 });
 
-test("有 pending ask 时渲染 AskDock 且 composer 禁用", () => {
+test("有 pending ask 时渲染 AskDock 且 composer 禁用", async () => {
   // 预置一条带 ask_user_question toolCall 的 assistant 消息（无 toolResult）
   const askCall = { type: "toolCall", id: "tc-ask-1", name: "ask_user_question", arguments: { questions: [{ question: "Q?", header: "h", options: [{ label: "A", description: "x" }, { label: "B", description: "y" }] }] } };
   const history: SessionMessage[] = [
@@ -201,7 +260,7 @@ test("有 pending ask 时渲染 AskDock 且 composer 禁用", () => {
   ];
   useSessionStore.getState().setMessages("s1", history);
 
-  render(<SessionView sessionId="s1" />);
+  await renderSessionView("s1");
   // dock 渲染
   expect(screen.getByTestId("ask-dock-s1")).toBeTruthy();
   // 表单卡片渲染
@@ -211,14 +270,14 @@ test("有 pending ask 时渲染 AskDock 且 composer 禁用", () => {
   expect(textbox.isContentEditable).toBe(false);
 });
 
-test("无 pending ask 时不渲染 AskDock", () => {
+test("无 pending ask 时不渲染 AskDock", async () => {
   // 预置普通消息（非 ask toolCall）
   const history: SessionMessage[] = [
     { agentName: undefined, message: { role: "user", content: "普通问题", timestamp: 1 } },
   ];
   useSessionStore.getState().setMessages("s1", history);
 
-  render(<SessionView sessionId="s1" />);
+  await renderSessionView("s1");
   // dock 不存在
   expect(screen.queryByTestId("ask-dock-s1")).toBeNull();
   // composer contenteditable 未禁用
@@ -226,7 +285,7 @@ test("无 pending ask 时不渲染 AskDock", () => {
   expect(textbox.isContentEditable).toBe(true);
 });
 
-test("默认工作区会话 header 显示友好文案", () => {
+test("默认工作区会话 header 显示友好文案", async () => {
   // 默认工作区会话：不暴露内部 cwd，显示「默认工作区 · 工作目录」
   useProjectsStore.setState({
     projects: [
@@ -241,14 +300,14 @@ test("默认工作区会话 header 显示友好文案", () => {
     ],
     currentProjectId: SYSTEM_PROJECT_ID, currentSessionId: "s1",
   });
-  render(<SessionView sessionId="s1" />);
+  await renderSessionView("s1");
   // header 显示友好文案，不暴露 /tmp/workdir
   expect(screen.getByText(/默认工作区/)).toBeTruthy();
   expect(screen.getByText(/工作目录/)).toBeTruthy();
   expect(screen.queryByText(/\/tmp\/workdir/)).toBeNull();
 });
 
-test("普通项目会话 header 仍显示 project.cwd（不回归）", () => {
+test("普通项目会话 header 仍显示 project.cwd（不回归）", async () => {
   // 普通项目会话：header 显示真实 cwd，差异化逻辑不影响老行为
   useProjectsStore.setState({
     projects: [{ id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 }],
@@ -259,7 +318,7 @@ test("普通项目会话 header 仍显示 project.cwd（不回归）", () => {
     }],
     currentProjectId: "p1", currentSessionId: "s1",
   });
-  render(<SessionView sessionId="s1" />);
+  await renderSessionView("s1");
   // 与现有「渲染 header 标题 + 项目目录」测试一致，用 regex 匹配 cwd 子串
   expect(screen.getByText(/\/work\/hiagent/)).toBeTruthy();
 });

@@ -11,7 +11,6 @@ import { SkillManager } from "../src/skill-manager";
 import { ExtensionManager } from "../src/extension-manager";
 import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
 import { HIAGENT_DIR } from "@hiagent/shared";
-import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
 
 function makeTempDir(prefix: string) {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -33,15 +32,47 @@ async function waitFor(condition: () => boolean, timeout = 3000, interval = 50) 
 }
 
 /**
- * 启动一个真实的 WSServer，但注入 FakeSessionClient（假 pi rpc client）。
- * 这样可以在不调用真实 LLM 的情况下，验证 WS 层到 AgentManager.prompt 的完整链路，
- * 包括附件文本的拼装（fake.prompted 记录最终 prompt 文本）。
+ * SSE 帧读取器：从 EventSource 流中按帧消费
+ */
+class SseReader {
+  private reader: ReadableStreamDefaultReader<Uint8Array>;
+  private dec = new TextDecoder();
+  private buf = "";
+  private events: any[] = [];
+
+  constructor(reader: ReadableStreamDefaultReader<Uint8Array>) {
+    this.reader = reader;
+  }
+
+  async next(): Promise<any> {
+    while (this.events.length === 0) {
+      const { done, value } = await this.reader.read();
+      if (done) throw new Error("SSE 流意外结束");
+      this.buf += this.dec.decode(value, { stream: true });
+      for (;;) {
+        const idx = this.buf.indexOf("\n\n");
+        if (idx < 0) break;
+        const frame = this.buf.slice(0, idx);
+        this.buf = this.buf.slice(idx + 2);
+        if (frame.startsWith(":")) continue;
+        const data = JSON.parse(frame.match(/^data: (.*)$/m)?.[1] ?? "null");
+        this.events.push(data);
+      }
+    }
+    return this.events.shift();
+  }
+
+  cancel() { this.reader.cancel().catch(() => {}); }
+}
+
+/**
+ * 启动 WSServer + FakeSessionClient + SSE 流，验证 REST 端点全链路。
  */
 async function withComposerServer<T>(
   fn: (
-    send: (e: WSClientEvent) => void,
-    recv: () => Promise<WSServerEvent>,
+    base: string,
     getPromptCalls: () => PromptCall[],
+    sse: SseReader,
   ) => Promise<T>,
 ): Promise<T> {
   const baseDir = makeTempDir("hiagent-composer-");
@@ -73,28 +104,18 @@ async function withComposerServer<T>(
   });
 
   await server.start();
-  const port = server.actualPort;
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
-  await new Promise<void>((res, rej) => {
-    ws.onopen = () => res();
-    ws.onerror = rej;
-  });
+  const base = `http://127.0.0.1:${server.actualPort}`;
 
-  const queue: WSServerEvent[] = [];
-  ws.onmessage = (ev) => queue.push(JSON.parse(String(ev.data)));
-  const send = (e: WSClientEvent) => ws.send(JSON.stringify(e));
-  const recv = async (): Promise<WSServerEvent> => {
-    while (queue.length === 0) await new Promise((r) => setTimeout(r, 20));
-    return queue.shift()!;
-  };
+  // 建立 SSE 连接
+  const sseRes = await fetch(`${base}/api/events`);
+  if (!sseRes.ok || !sseRes.body) throw new Error("SSE 连接失败");
+  const sse = new SseReader(sseRes.body.getReader());
 
   try {
-    // fake.prompted 记录 AgentManager.prompt 的最终文本（附件拼装结果）
-    return await fn(send, recv, () => fakes.flatMap((f) => f.prompted.map((text) => ({ text }))));
+    return await fn(base, () => fakes.flatMap((f) => f.prompted.map((text) => ({ text }))), sse);
   } finally {
-    ws.close();
+    sse.cancel();
     await server.stop();
-    // dispose 假 client + 清理系统提示词临时文件（dispose 的 rm 是 fire-and-forget，这里同步兜底）
     const sessionIds = [...(((agentManager as any).sessions?.keys?.() ?? []) as Iterable<string>)];
     await agentManager.disposeAll().catch(() => {});
     for (const id of sessionIds) {
@@ -104,6 +125,18 @@ async function withComposerServer<T>(
   }
 }
 
+/** 创建项目并返回 projectId（从 SSE 读取 project:created） */
+async function createProject(base: string, sse: SseReader, cwd: string): Promise<string> {
+  await fetch(`${base}/api/projects`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "P", cwd }),
+  });
+  const ev = await sse.next();
+  if (ev.type !== "project:created") throw new Error(`期望 project:created，收到 ${ev.type}`);
+  return ev.project.id;
+}
+
 describe("composer attachments integration", () => {
   it("fs:readFile 返回真实文件的 base64 内容与 mimeType", async () => {
     const fileDir = makeTempDir("hiagent-read-");
@@ -111,9 +144,13 @@ describe("composer attachments integration", () => {
     writeFileSync(filePath, "hello world");
 
     try {
-      await withComposerServer(async (send, recv) => {
-        send({ type: "fs:readFile", path: filePath });
-        const resp = (await recv()) as any;
+      await withComposerServer(async (base, _getPromptCalls, _sse) => {
+        const res = await fetch(`${base}/api/fs/read-file`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ path: filePath }),
+        });
+        const resp = await res.json();
         expect(resp.type).toBe("fs:readFile");
         expect(resp.path).toBe(filePath);
         expect(resp.mimeType).toBe("text/plain");
@@ -131,15 +168,17 @@ describe("composer attachments integration", () => {
     writeFileSync(join(uploadDir, "notes.txt"), "existing", "utf8");
 
     try {
-      await withComposerServer(async (send, recv) => {
-        send({ type: "project:create", name: "P", cwd: fileDir });
-        const created = (await recv()) as any;
-        const projectId = created.project.id;
+      await withComposerServer(async (base, _getPromptCalls, sse) => {
+        const projectId = await createProject(base, sse, fileDir);
 
-        const content = Buffer.from("new content").toString("base64");
-        send({ type: "fs:upload", id: "u2", projectId, name: "notes.txt", content });
-
-        const resp = (await recv()) as any;
+        const content = Buffer.from("new content");
+        const form = new FormData();
+        form.append("file", new Blob([content]), "notes.txt");
+        const res = await fetch(`${base}/api/files/upload?projectId=${encodeURIComponent(projectId)}`, {
+          method: "POST",
+          body: form,
+        });
+        const resp = await res.json();
         expect(resp.path).toBe(join(uploadDir, "notes (1).txt"));
         expect(readFileSync(resp.path, "utf8")).toBe("new content");
       });
@@ -152,15 +191,16 @@ describe("composer attachments integration", () => {
     const fileDir = makeTempDir("hiagent-upload-traversal-");
 
     try {
-      await withComposerServer(async (send, recv) => {
-        send({ type: "project:create", name: "P", cwd: fileDir });
-        const created = (await recv()) as any;
-        const projectId = created.project.id;
+      await withComposerServer(async (base, _getPromptCalls, sse) => {
+        const projectId = await createProject(base, sse, fileDir);
 
-        const content = Buffer.from("x").toString("base64");
-        send({ type: "fs:upload", id: "u3", projectId, name: "../escape.txt", content });
-
-        const resp = (await recv()) as any;
+        const form = new FormData();
+        form.append("file", new Blob([Buffer.from("x")]), "../escape.txt");
+        const res = await fetch(`${base}/api/files/upload?projectId=${encodeURIComponent(projectId)}`, {
+          method: "POST",
+          body: form,
+        });
+        const resp = await res.json();
         expect(resp.path).toBe(join(fileDir, ".hiagent", "uploads", "escape.txt"));
         expect(existsSync(resp.path)).toBe(true);
       });
@@ -173,15 +213,16 @@ describe("composer attachments integration", () => {
     const fileDir = makeTempDir("hiagent-upload-dot-");
 
     try {
-      await withComposerServer(async (send, recv) => {
-        send({ type: "project:create", name: "P", cwd: fileDir });
-        const created = (await recv()) as any;
-        const projectId = created.project.id;
+      await withComposerServer(async (base, _getPromptCalls, sse) => {
+        const projectId = await createProject(base, sse, fileDir);
 
-        const content = Buffer.from("x").toString("base64");
-        send({ type: "fs:upload", id: "u4", projectId, name: "..", content });
-
-        const resp = (await recv()) as any;
+        const form = new FormData();
+        form.append("file", new Blob([Buffer.from("x")]), "..");
+        const res = await fetch(`${base}/api/files/upload?projectId=${encodeURIComponent(projectId)}`, {
+          method: "POST",
+          body: form,
+        });
+        const resp = await res.json();
         expect(resp.path).toBe(join(fileDir, ".hiagent", "uploads", "upload"));
         expect(existsSync(resp.path)).toBe(true);
       });
@@ -194,17 +235,18 @@ describe("composer attachments integration", () => {
     const fileDir = makeTempDir("hiagent-upload-");
 
     try {
-      await withComposerServer(async (send, recv) => {
-        send({ type: "project:create", name: "P", cwd: fileDir });
-        const created = (await recv()) as any;
-        const projectId = created.project.id;
+      await withComposerServer(async (base, _getPromptCalls, sse) => {
+        const projectId = await createProject(base, sse, fileDir);
 
-        const content = Buffer.from("uploaded content").toString("base64");
-        send({ type: "fs:upload", id: "u1", projectId, name: "notes.txt", content });
-
-        const resp = (await recv()) as any;
+        const content = Buffer.from("uploaded content");
+        const form = new FormData();
+        form.append("file", new Blob([content]), "notes.txt");
+        const res = await fetch(`${base}/api/files/upload?projectId=${encodeURIComponent(projectId)}`, {
+          method: "POST",
+          body: form,
+        });
+        const resp = await res.json();
         expect(resp.type).toBe("fs:upload");
-        expect(resp.id).toBe("u1");
         expect(resp.error).toBeUndefined();
         expect(resp.path).toBe(join(fileDir, ".hiagent", "uploads", "notes.txt"));
         expect(existsSync(resp.path)).toBe(true);
@@ -221,25 +263,24 @@ describe("composer attachments integration", () => {
     writeFileSync(filePath, "这是附件内容");
 
     try {
-      await withComposerServer(async (send, recv, getPromptCalls) => {
-        send({ type: "project:create", name: "P", cwd: fileDir });
-        const created = (await recv()) as any;
-        const projectId = created.project.id;
+      await withComposerServer(async (base, getPromptCalls, sse) => {
+        const projectId = await createProject(base, sse, fileDir);
 
-        send({
-          type: "agent:prompt",
-          projectId,
-          sessionId: "s-file",
-          agentName: "dev",
-          text: "分析这个文件",
-          model: "test-provider/test-model",
-          attachments: [{ kind: "file", name: "notes.txt", path: filePath, size: 0 }],
+        const promptP = fetch(`${base}/api/agents/${encodeURIComponent(projectId)}/s-file/prompt`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            agentName: "dev",
+            text: "分析这个文件",
+            model: "test-provider/test-model",
+            attachments: [{ kind: "file", name: "notes.txt", path: filePath, size: 0 }],
+          }),
         });
+        // session:created 走 SSE 广播，非 HTTP 响应体
+        const sseEv = await sse.next();
+        expect(sseEv.type).toBe("session:created");
+        await promptP;
 
-        const ev = (await recv()) as any;
-        expect(ev.type).toBe("session:created");
-
-        // 等待 AgentManager 异步完成 prompt 调用
         await waitFor(() => getPromptCalls().length > 0);
 
         const calls = getPromptCalls();
@@ -260,23 +301,22 @@ describe("composer attachments integration", () => {
     writeFileSync(imgPath, "\x89PNG\r\n\x1a\n");
 
     try {
-      await withComposerServer(async (send, recv, getPromptCalls) => {
-        send({ type: "project:create", name: "P", cwd: fileDir });
-        const created = (await recv()) as any;
-        const projectId = created.project.id;
+      await withComposerServer(async (base, getPromptCalls, sse) => {
+        const projectId = await createProject(base, sse, fileDir);
 
-        send({
-          type: "agent:prompt",
-          projectId,
-          sessionId: "s-img",
-          agentName: "dev",
-          text: "看这张图",
-          model: "test-provider/test-model",
-          attachments: [{ kind: "image", name: "shot.png", path: imgPath, size: 0 }],
+        const promptP = fetch(`${base}/api/agents/${encodeURIComponent(projectId)}/s-img/prompt`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            agentName: "dev",
+            text: "看这张图",
+            model: "test-provider/test-model",
+            attachments: [{ kind: "image", name: "shot.png", path: imgPath, size: 0 }],
+          }),
         });
-
-        const ev = (await recv()) as any;
-        expect(ev.type).toBe("session:created");
+        const sseEv = await sse.next();
+        expect(sseEv.type).toBe("session:created");
+        await promptP;
 
         await waitFor(() => getPromptCalls().length > 0);
 
@@ -299,14 +339,15 @@ describe("composer attachments integration", () => {
     writeFileSync(join(sourceDir, "data.txt"), "folder content");
 
     try {
-      await withComposerServer(async (send, recv) => {
-        send({ type: "project:create", name: "P", cwd: fileDir });
-        const created = (await recv()) as any;
-        const projectId = created.project.id;
+      await withComposerServer(async (base, _getPromptCalls, sse) => {
+        const projectId = await createProject(base, sse, fileDir);
 
-        send({ type: "fs:copy", id: "c1", projectId, source: sourceDir });
-
-        const resp = (await recv()) as any;
+        const res = await fetch(`${base}/api/fs/copy`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ projectId, source: sourceDir }),
+        });
+        const resp = await res.json();
         expect(resp.type).toBe("fs:copy");
         expect(resp.error).toBeUndefined();
         expect(resp.path).toBe(sourceDir);
@@ -324,27 +365,30 @@ describe("composer attachments integration", () => {
     mkdirSync(sourceDir);
 
     try {
-      await withComposerServer(async (send, recv, getPromptCalls) => {
-        send({ type: "project:create", name: "P", cwd: fileDir });
-        const created = (await recv()) as any;
-        const projectId = created.project.id;
+      await withComposerServer(async (base, getPromptCalls, sse) => {
+        const projectId = await createProject(base, sse, fileDir);
 
-        send({ type: "fs:copy", id: "c2", projectId, source: sourceDir });
-        const copied = (await recv()) as any;
+        const copyRes = await fetch(`${base}/api/fs/copy`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ projectId, source: sourceDir }),
+        });
+        const copied = await copyRes.json();
         const folderPath = copied.path as string;
 
-        send({
-          type: "agent:prompt",
-          projectId,
-          sessionId: "s-folder",
-          agentName: "dev",
-          text: "看这个项目文档",
-          model: "test-provider/test-model",
-          attachments: [{ kind: "folder", name: "docs", path: folderPath }],
+        const promptP = fetch(`${base}/api/agents/${encodeURIComponent(projectId)}/s-folder/prompt`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            agentName: "dev",
+            text: "看这个项目文档",
+            model: "test-provider/test-model",
+            attachments: [{ kind: "folder", name: "docs", path: folderPath }],
+          }),
         });
-
-        const ev = (await recv()) as any;
-        expect(ev.type).toBe("session:created");
+        const sseEv = await sse.next();
+        expect(sseEv.type).toBe("session:created");
+        await promptP;
 
         await waitFor(() => getPromptCalls().length > 0);
 

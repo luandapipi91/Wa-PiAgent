@@ -1,7 +1,21 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import "./mock-composer-db";
+import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
+
+const sent: any[] = [];
+
+mock.module("../src/api-client", () => ({
+  api: {
+    get: () => Promise.resolve({}),
+    post: (_path: string, body?: any) => { sent.push({ path: _path, body }); return Promise.resolve({}); },
+    put: () => Promise.resolve({}),
+    del: () => Promise.resolve({}),
+  },
+  ApiError: class extends Error { status: number; constructor(m: string, s: number) { super(m); this.status = s; this.name = "ApiError"; } },
+}));
+
 import { Composer } from "../src/components/Composer";
-import * as ws from "../src/ws-instance";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useProjectsStore } from "../src/store/projects";
 import { useProvidersStore } from "../src/store/providers";
@@ -18,6 +32,10 @@ function typeIntoComposer(value: string) {
 
 describe("Composer", () => {
   beforeEach(() => {
+    sent.length = 0;
+    composerDbDefaults.model = null;
+    composerDbDefaults.thinking = "disabled";
+    for (const k of Object.keys(composerDbSessions)) delete composerDbSessions[k];
     useProjectsStore.setState({
       projects: [],
       sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "t", createdAt: 0, lastActivity: 0, piSessionFile: "" }],
@@ -39,14 +57,15 @@ describe("Composer", () => {
       skills: [], allSkills: [], dirs: [], disabledSkills: [], builtinDir: "", loading: false,
       load: () => {}, setAll: () => {}, toggleSkill: () => {}, addDir: () => {}, removeDir: () => {},
     });
-    vi.spyOn(ws, "send").mockImplementation(() => {});
   });
 
-  // beforeEach 把 skills store 的 action 整体 stub 成空函数，zustand store 是进程级单例，
-  // 不还原会泄漏给后面跑的测试文件（如 store-skills.test.ts）——恢复初始 state（含原始 action）
   afterEach(() => {
     useSkillsStore.setState(useSkillsStore.getInitialState(), true);
   });
+
+  function lastPrompt() {
+    return sent.filter((s) => s.path && s.path.includes("/prompt")).at(-1)?.body;
+  }
 
   it("sends prompt with model, thinking and attachments", async () => {
     useComposerPrefsStore.setState({
@@ -58,22 +77,25 @@ describe("Composer", () => {
         },
       },
     });
+    composerDbDefaults.model = "anthropic/claude-sonnet";
+    composerDbDefaults.thinking = "high";
+    composerDbSessions.s1 = { model: "anthropic/claude-sonnet", thinking: "high", attachments: [{ kind: "snippet", name: "note", content: "context" }] };
 
     render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
     typeIntoComposer("hello");
     fireEvent.click(screen.getByTestId("composer-send"));
 
     await waitFor(() => {
-      expect(ws.send).toHaveBeenCalledWith(expect.objectContaining({
-        type: "agent:prompt",
-        projectId: "p1",
-        sessionId: "s1",
+      const req = sent.filter((s) => s.path && s.path.includes("/prompt")).at(-1);
+      expect(req?.path).toBe("/api/agents/p1/s1/prompt");
+      expect(req?.body).toMatchObject({
         agentName: "dev",
         text: "hello",
         model: "anthropic/claude-sonnet",
         thinking: "high",
         attachments: [{ kind: "snippet", name: "note", content: "context" }],
-      }));
+      });
     });
   });
 
@@ -83,7 +105,11 @@ describe("Composer", () => {
         s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] },
       },
     });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
     render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
     const textbox = typeIntoComposer("继续");
     expect(textbox.textContent).toBe("继续");
 
@@ -101,21 +127,24 @@ describe("Composer", () => {
         s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] },
       },
     });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
     render(<Composer sessionId="s1" agentName="dev" isRunning />);
+    await act(async () => {});
     typeIntoComposer("排队消息");
 
     fireEvent.click(screen.getByTestId("composer-send"));
 
     await waitFor(() => {
-      expect(ws.send).toHaveBeenCalledWith(expect.objectContaining({
-        type: "agent:prompt",
-        projectId: "p1",
-        sessionId: "s1",
+      const req = sent.filter((s) => s.path && s.path.includes("/prompt")).at(-1);
+      expect(req?.path).toBe("/api/agents/p1/s1/prompt");
+      expect(req?.body).toMatchObject({
         agentName: "dev",
         text: "排队消息",
         model: "openai/gpt-4o",
         thinking: "disabled",
-      }));
+      });
     });
   });
 
@@ -123,14 +152,15 @@ describe("Composer", () => {
     useComposerPrefsStore.setState({
       bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
     });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
     render(<Composer sessionId="s1" agentName="dev" isRunning />);
     typeIntoComposer("排队等一下");
     fireEvent.click(screen.getByTestId("composer-send"));
 
     const s = useSessionStore.getState();
-    // 消息已发给 kernel（由 kernel 入队）
-    expect(ws.send).toHaveBeenCalledWith(expect.objectContaining({ type: "agent:prompt", text: "排队等一下" }));
-    // 但前端不乐观显示：不追加用户消息、不设占位 streaming、不改 status
+    expect(lastPrompt()).toMatchObject({ text: "排队等一下" });
     expect(s.messagesBySession["s1"] ?? []).toHaveLength(0);
     expect(s.streamingBySession["s1"]).toBeFalsy();
     expect(s.optimisticEchoBySession["s1"]).toBeFalsy();
@@ -140,15 +170,16 @@ describe("Composer", () => {
     useComposerPrefsStore.setState({
       bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
     });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
     render(<Composer sessionId="s1" agentName="dev" />);
     typeIntoComposer("马上看到我");
     fireEvent.click(screen.getByTestId("composer-send"));
 
     const s = useSessionStore.getState();
-    // 用户消息立即显示
     expect(s.messagesBySession["s1"]).toHaveLength(1);
     expect((s.messagesBySession["s1"][0].message as any).content).toBe("马上看到我");
-    // 占位流式 assistant（loading 气泡）+ 顶部 spinner 立即可见
     expect(s.streamingBySession["s1"]).toBeTruthy();
     expect(s.statusBySession["s1"]).toBe("thinking");
     expect(s.optimisticEchoBySession["s1"]).toBe(true);
@@ -158,55 +189,58 @@ describe("Composer", () => {
     useComposerPrefsStore.setState({
       bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
     });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
     render(<Composer sessionId="s1" agentName="dev" disabled />);
     const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
-    // contenteditable 处于禁用（contentEditable=false → isContentEditable 为 false）
     expect(textbox.isContentEditable).toBe(false);
-    // 发送按钮点击后不应新增任何 agent:prompt（spy 在 describe 内跨 it 累积，故比较点击前后增量）
-    const before = (ws.send as any).mock.calls.length;
+    const before = sent.length;
     fireEvent.click(screen.getByTestId("composer-send"));
-    const after = (ws.send as any).mock.calls.length;
+    const after = sent.length;
     expect(after).toBe(before);
   });
 
   it("@提及其他智能体：不弹确认框、不发 set-agent，原样发 @[xxx] 给主智能体", async () => {
     useComposerPrefsStore.setState({
-      bySession: { s1: { model: "gpt-4o", thinking: "disabled", attachments: [] } },
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
     });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
     render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
     typeIntoComposer("@[pm] 帮我看看需求");
     fireEvent.click(screen.getByTestId("composer-send"));
 
-    // 不弹确认框
     expect(screen.queryByTestId("mention-confirm")).toBeNull();
 
     await waitFor(() => {
-      // 不发 session:set-agent
-      expect((ws.send as any).mock.calls.some((c: any[]) => c[0]?.type === "session:set-agent")).toBe(false);
-      // 发 agent:prompt，agentName 仍为主智能体 dev，text 原样保留 @[pm]
-      expect(ws.send).toHaveBeenCalledWith(expect.objectContaining({
-        type: "agent:prompt",
-        sessionId: "s1",
+      const setAgent = sent.find((s) => s.path && s.path.includes("/set-agent"));
+      expect(setAgent).toBeUndefined();
+      const req = sent.filter((s) => s.path && s.path.includes("/prompt")).at(-1);
+      expect(req?.path).toBe("/api/agents/p1/s1/prompt");
+      expect(req?.body).toMatchObject({
         agentName: "dev",
         text: "@[pm] 帮我看看需求",
-      }));
+      });
     });
   });
 
   it("过期 model（provider 已删除、prefs 残留）→ 不发出 agent:prompt、不乐观上屏", () => {
-    // 复现 bug：prefs 残留的 model 指向已被删除的 provider
     useProvidersStore.setState({ providers: [] });
     useComposerPrefsStore.setState({
       bySession: { s1: { model: "my-deepseek/deepseek-chat", thinking: "disabled", attachments: [] } },
     });
+    composerDbDefaults.model = "my-deepseek/deepseek-chat";
+    composerDbSessions.s1 = { model: "my-deepseek/deepseek-chat", thinking: "disabled", attachments: [] };
+
     render(<Composer sessionId="s1" agentName="dev" />);
     typeIntoComposer("这条消息不应发出");
-    // spy 在 describe 内跨 it 累积，比较点击前后增量
-    const before = (ws.send as any).mock.calls.length;
+    const before = sent.length;
     fireEvent.click(screen.getByTestId("composer-send"));
-    const after = (ws.send as any).mock.calls.length;
+    const after = sent.length;
 
-    // 不发 WS、不做乐观 UI（用户消息不上屏、无 loading 占位）
     expect(after).toBe(before);
     const s = useSessionStore.getState();
     expect(s.messagesBySession["s1"] ?? []).toHaveLength(0);

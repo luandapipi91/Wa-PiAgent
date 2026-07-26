@@ -21,7 +21,7 @@ import { useMemoryStore } from "./store/memory";
 import { useToastStore } from "./store/toast";
 import { useComposerPrefsStore } from "./store/composer-prefs";
 import { useSubagentsStore } from "./store/subagents";
-import { onMessage, getWs } from "./ws-instance";
+import { onMessage, connectEvents, onReconnect } from "./events";
 import { ToastContainer } from "./components/ui/Toast";
 import { RecordingCapsule } from "./components/ui/RecordingCapsule";
 
@@ -40,13 +40,23 @@ export function App() {
   const [agentMissingSessionId, setAgentMissingSessionId] = useState<string | null>(null);
 
   useEffect(() => {
-    getWs();
+    connectEvents();
     useProjectsStore.getState().load();  // getState() 取最新 action
     useProvidersStore.getState().load();
     useSkillsStore.getState().load();
     useExtensionsStore.getState().load();
     useAgentsStore.getState().loadAll();
     useSubagentsStore.getState().load();
+    const offReconnect = onReconnect(() => {
+      // SSE 断线重连后刷新快照对齐状态
+      useProjectsStore.getState().load();
+      const sid = useProjectsStore.getState().currentSessionId;
+      if (sid) useSessionStore.getState().setHistoryLoading(sid, true);
+      if (sid) void fetch(`/api/sessions/${encodeURIComponent(sid)}/messages`).then(r => r.json()).then((body: any) => {
+        useSessionStore.getState().setMessages(sid, body.messages);
+        useSessionStore.getState().setHistoryLoading(sid, false);
+      });
+    });
     const off = onMessage(e => {
       const ps = useProjectsStore.getState();  // 每次事件取最新，避免 stale
       switch (e.type) {
@@ -120,7 +130,7 @@ export function App() {
           break;
       }
     });
-    return off;
+    return () => { off(); offReconnect(); };
   }, []);  // 空依赖：onMessage 用 getState，不需重订阅
 
   // 派生 view

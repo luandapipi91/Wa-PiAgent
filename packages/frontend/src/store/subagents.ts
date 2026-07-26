@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { SubagentInfo, SubagentOverride } from "@hiagent/shared";
-import { send, onMessage } from "../ws-instance";
+import { api } from "../api-client";
+import { onMessage } from "../events";
 
 interface State {
   subagents: SubagentInfo[];
@@ -11,24 +12,24 @@ interface State {
 
 /**
  * 内置 subagent 信息 store。
- * - load：发送 subagent:list，kernel 回包后填充 subagents
- * - saveOverride：发送 subagent:save-override，kernel 持久化后广播 subagent:list 自动刷新
+ * - load：GET /api/subagents，kernel 回包后填充 subagents
+ * - saveOverride：PUT /api/subagents/override，kernel 持久化后广播 subagent:list 自动刷新
  *
- * App.tsx 启动时调 load；WS 事件已在 store 顶部 onMessage 里自动监听。
+ * App.tsx 启动时调 load；SSE 事件已在 store 顶部 onMessage 里自动监听。
  */
 export const useSubagentsStore = create<State>((set, get) => ({
   subagents: [],
   load: () => {
-    send({ type: "subagent:list" });
+    api.get("/api/subagents").then((data: any) => { if (data) set({ subagents: data.subagents ?? [] }); }).catch(() => {});
   },
   saveOverride: (override) => {
-    send({ type: "subagent:save-override", override });
+    void api.put("/api/subagents/override", { override });
   },
   getByName: (name) => get().subagents.find(s => s.name === name),
 }));
 
 // 全局监听 subagent:list 广播，自动更新 store。
-// 处理逻辑抽成导出的 handleSubagentEvent，便于单测直接断言（绕过 ws-instance mock，
+// 处理逻辑抽成导出的 handleSubagentEvent，便于单测直接断言（绕过 events mock，
 // 避免 bun mock.module 在多文件场景下跨文件失效导致的测试隔离问题）。
 export function handleSubagentEvent(e: unknown): void {
   if ((e as { type?: string })?.type === "subagent:list") {

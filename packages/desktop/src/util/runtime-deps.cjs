@@ -12,44 +12,59 @@ const DEFAULT_REGISTRY = "https://registry.npmmirror.com";
 const FALLBACK_REGISTRY = "https://registry.npmjs.org";
 const SEED_FILES = ["kernel.js", "package.json", "bun.lock"];
 
-async function exists(p) { try { await fsp.access(p); return true; } catch { return false; } }
-
+async function exists(p) {
+	try {
+		await fsp.access(p);
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 // 复制 seed 文件到 runtime 目录（升级时覆盖旧 kernel.js / package.json / bun.lock）
 async function syncSeed(seedDir, runtimeDir, log) {
-  await fsp.mkdir(runtimeDir, { recursive: true });
-  for (const f of SEED_FILES) {
-    const src = path.join(seedDir, f);
-    if (await exists(src)) await fsp.copyFile(src, path.join(runtimeDir, f));
-  }
-  log.info(`[deps] seed → ${runtimeDir}`);
+	await fsp.mkdir(runtimeDir, { recursive: true });
+	for (const f of SEED_FILES) {
+		const src = path.join(seedDir, f);
+		if (await exists(src)) await fsp.copyFile(src, path.join(runtimeDir, f));
+	}
+	log.info(`[deps] seed → ${runtimeDir}`);
 }
 
 // 跑一次 bun install；解析输出里的包计数回传给 UI 进度条
 function runInstall({ kernelExe, runtimeDir, registry, log, onStatus }) {
-  return new Promise((resolve, reject) => {
-    const args = ["install", "--production", "--cwd", runtimeDir];
-    const child = spawn(kernelExe, args, {
-      cwd: runtimeDir,
-      env: { ...process.env, BUN_CONFIG_REGISTRY: registry },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    let errBuf = "";
-    const handle = (b) => {
-      const text = b.toString().trim();
-      if (!text) return;
-      log.info(`[deps] ${text}`);
-      const m = text.match(/downloaded and extracted \[?(\d+)\]?/);
-      if (m && onStatus) onStatus(`正在下载依赖… ${m[1]} 个包`);
-    };
-    child.stdout.on("data", handle);
-    child.stderr.on("data", (b) => { handle(b); errBuf += b.toString(); });
-    child.on("error", (e) => reject(new Error(`spawn 失败: ${e.message}`)));
-    child.on("exit", (code) => code === 0
-      ? resolve()
-      : reject(new Error(`bun install 退出码 ${code}${errBuf ? "\n" + errBuf.slice(-600) : ""}`)));
-  });
+	return new Promise((resolve, reject) => {
+		const args = ["install", "--production", "--cwd", runtimeDir];
+		const child = spawn(kernelExe, args, {
+			cwd: runtimeDir,
+			env: { ...process.env, BUN_CONFIG_REGISTRY: registry },
+			stdio: ["ignore", "pipe", "pipe"],
+			windowsHide: true,
+		});
+		let errBuf = "";
+		const handle = (b) => {
+			const text = b.toString().trim();
+			if (!text) return;
+			log.info(`[deps] ${text}`);
+			const m = text.match(/downloaded and extracted \[?(\d+)\]?/);
+			if (m && onStatus) onStatus(`正在下载依赖… ${m[1]} 个包`);
+		};
+		child.stdout.on("data", handle);
+		child.stderr.on("data", (b) => {
+			handle(b);
+			errBuf += b.toString();
+		});
+		child.on("error", (e) => reject(new Error(`spawn 失败: ${e.message}`)));
+		child.on("exit", (code) =>
+			code === 0
+				? resolve()
+				: reject(
+						new Error(
+							`bun install 退出码 ${code}${errBuf ? "\n" + errBuf.slice(-600) : ""}`,
+						),
+					),
+		);
+	});
 }
 
 /**
@@ -57,32 +72,61 @@ function runInstall({ kernelExe, runtimeDir, registry, log, onStatus }) {
  *   packaged → runtimeDir（已装好 node_modules）
  *   dev      → seedDir（原样，用 repo 的 node_modules）
  */
-async function ensureRuntimeDeps({ isPackaged, seedDir, runtimeDir, kernelExe, version, log, onStatus }) {
-  if (!isPackaged) return seedDir;
+async function ensureRuntimeDeps({
+	isPackaged,
+	seedDir,
+	runtimeDir,
+	kernelExe,
+	version,
+	log,
+	onStatus,
+}) {
+	if (!isPackaged) return seedDir;
 
-  const marker = path.join(runtimeDir, ".installed-version");
-  const nmExists = await exists(path.join(runtimeDir, "node_modules"));
-  const markerVer = nmExists ? (await fsp.readFile(marker, "utf8").catch(() => "")) : "";
-  if (nmExists && markerVer === version) {
-    log.info(`[deps] 已安装 v${version}，跳过`);
-    return runtimeDir;
-  }
+	const marker = path.join(runtimeDir, ".installed-version");
+	const nmExists = await exists(path.join(runtimeDir, "node_modules"));
+	const markerVer = nmExists
+		? await fsp.readFile(marker, "utf8").catch(() => "")
+		: "";
 
-  log.info(`[deps] 需要安装 (version=${version}, installed=${markerVer || "无"})`);
-  await syncSeed(seedDir, runtimeDir, log);
+	// 始终同步 seed 文件（kernel.js 可能同版本号重新构建，内容已变）
+	await syncSeed(seedDir, runtimeDir, log);
 
-  const primary = process.env.HIAGENT_REGISTRY || DEFAULT_REGISTRY;
-  if (onStatus) onStatus(`正在下载依赖…`);
-  try {
-    await runInstall({ kernelExe, runtimeDir, registry: primary, log, onStatus });
-  } catch (e1) {
-    log.error(`[deps] 主源(${primary})失败，回退 ${FALLBACK_REGISTRY}: ${e1.message}`);
-    if (onStatus) onStatus(`主源失败，尝试官方源…`);
-    await runInstall({ kernelExe, runtimeDir, registry: FALLBACK_REGISTRY, log, onStatus });
-  }
-  await fsp.writeFile(marker, version, "utf8").catch(() => {});
-  log.info("[deps] ✅ 安装完成");
-  return runtimeDir;
+	if (nmExists && markerVer === version) {
+		log.info(`[deps] node_modules 已安装 v${version}，跳过 install`);
+		return runtimeDir;
+	}
+
+	log.info(
+		`[deps] 需要安装依赖 (version=${version}, installed=${markerVer || "无"})`,
+	);
+
+	const primary = process.env.HIAGENT_REGISTRY || DEFAULT_REGISTRY;
+	if (onStatus) onStatus(`正在下载依赖…`);
+	try {
+		await runInstall({
+			kernelExe,
+			runtimeDir,
+			registry: primary,
+			log,
+			onStatus,
+		});
+	} catch (e1) {
+		log.error(
+			`[deps] 主源(${primary})失败，回退 ${FALLBACK_REGISTRY}: ${e1.message}`,
+		);
+		if (onStatus) onStatus(`主源失败，尝试官方源…`);
+		await runInstall({
+			kernelExe,
+			runtimeDir,
+			registry: FALLBACK_REGISTRY,
+			log,
+			onStatus,
+		});
+	}
+	await fsp.writeFile(marker, version, "utf8").catch(() => {});
+	log.info("[deps] ✅ 安装完成");
+	return runtimeDir;
 }
 
 module.exports = { ensureRuntimeDeps, DEFAULT_REGISTRY, FALLBACK_REGISTRY };

@@ -1,11 +1,15 @@
 import { test, expect, mock, beforeEach } from "bun:test";
 import type { ModelProvider } from "@hiagent/shared";
 
-// 用一个可替换的 delegate，避免每个测试重新 mock 时 providers store 模块缓存导致 send 没更新
-let sendDelegate = mock((..._args: any[]) => {});
-mock.module("../src/ws-instance", () => ({
-  send: (...args: any[]) => sendDelegate(...args),
-  onMessage: () => () => {},
+const calls: { method: string; path: string; body?: any }[] = [];
+mock.module("../src/api-client", () => ({
+  api: {
+    get: (path: string) => { calls.push({ method: "get", path }); return Promise.resolve({}); },
+    post: (path: string, body?: any) => { calls.push({ method: "post", path, body }); return Promise.resolve({}); },
+    put: () => Promise.resolve({}),
+    del: (path: string) => { calls.push({ method: "del", path }); return Promise.resolve({}); },
+  },
+  ApiError: class extends Error { status: number; constructor(m: string, s: number) { super(m); this.status = s; this.name = "ApiError"; } },
 }));
 
 const { useProvidersStore } = await import("../src/store/providers");
@@ -20,23 +24,23 @@ function sampleProvider(): ModelProvider {
 
 beforeEach(() => {
   useProvidersStore.setState(useProvidersStore.getInitialState(), true);
-  sendDelegate.mockClear();
+  calls.length = 0;
 });
 
-test("load 发 provider:list", () => {
+test("load 发 GET /api/providers", () => {
   useProvidersStore.getState().load();
-  expect(sendDelegate).toHaveBeenCalledWith({ type: "provider:list" });
+  expect(calls).toEqual([{ method: "get", path: "/api/providers" }]);
 });
 
-test("save 发 provider:save", () => {
+test("save 发 POST /api/providers", () => {
   const p = sampleProvider();
   useProvidersStore.getState().save(p);
-  expect(sendDelegate).toHaveBeenCalledWith({ type: "provider:save", provider: p });
+  expect(calls).toEqual([{ method: "post", path: "/api/providers", body: { provider: p } }]);
 });
 
-test("remove 发 provider:delete", () => {
+test("remove 发 DELETE /api/providers/:id", () => {
   useProvidersStore.getState().remove("p1");
-  expect(sendDelegate).toHaveBeenCalledWith({ type: "provider:delete", id: "p1" });
+  expect(calls).toEqual([{ method: "del", path: "/api/providers/p1" }]);
 });
 
 test("setProviders 更新本地列表", () => {

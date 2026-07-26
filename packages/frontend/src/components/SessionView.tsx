@@ -8,7 +8,7 @@ import { Composer } from "./Composer";
 import { AskDock } from "./ask/AskDock";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { STATUS_COLORS } from "../theme/colors";
-import { onMessage, send } from "../ws-instance";
+import { api } from "../api-client";
 
 interface Props { sessionId: string; }
 
@@ -36,14 +36,14 @@ export function SessionView({ sessionId }: Props) {
     useSessionStore.getState().markRead(sessionId);
     // 标记历史加载中：响应到达前置 true，MessageList 在无消息时显示 loading
     useSessionStore.getState().setHistoryLoading(sessionId, true);
-    send({ type: "session:messages", sessionId });
-    const off = onMessage(e => {
-      if (e.type === "session:messages" && e.sessionId === sessionId) {
-        useSessionStore.getState().setMessages(sessionId, e.messages);
+    void (async () => {
+      try {
+        const res = (await api.get(`/api/sessions/${encodeURIComponent(sessionId)}/messages`)) as { messages: any[] };
+        useSessionStore.getState().setMessages(sessionId, res.messages);
+      } finally {
         useSessionStore.getState().setHistoryLoading(sessionId, false);
       }
-    });
-    return off;
+    })();
   }, [sessionId]);
 
   // 下面的 hooks 必须在 early return 之前调用，否则 session 在/不在两次渲染
@@ -64,19 +64,19 @@ export function SessionView({ sessionId }: Props) {
   const handleStop = () => {
     console.log(`[SessionView] handleStop sessionId=${sessionId}`);
     setStopping(true);
-    send({ type: "agent:abort", projectId: session.projectId, sessionId, agentName: session.primaryAgent });
+    void api.post(`/api/agents/${encodeURIComponent(session.projectId)}/${encodeURIComponent(sessionId)}/abort`, { agentName: session.primaryAgent });
   };
   const handlePromote = (text: string) => {
     const idx = followUp.indexOf(text);
     const remaining = idx >= 0 ? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)] : [...followUp];
-    send({ type: "steer:promote", sessionId, text, remainingTexts: remaining as string[] });
+    void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer/promote`, { text, remainingTexts: remaining as string[] });
   };
   const handleImmediate = (text: string) => {
     const idx = followUp.indexOf(text);
     const remaining = idx >= 0 ? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)] : [...followUp];
-    send({ type: "steer:immediate", sessionId, text, remainingTexts: remaining as string[] });
+    void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer/immediate`, { text, remainingTexts: remaining as string[] });
   };
-  const handleCancelSteer = () => send({ type: "steer:cancel", sessionId });
+  const handleCancelSteer = () => { void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer/cancel`, {}); };
   const handleClearFollowUp = () => {
     // 立即清除本地队列，不等 kernel 回声
     useSessionStore.getState().appendLocalFollowUp(sessionId, ""); // hack to set empty? No.
@@ -84,7 +84,7 @@ export function SessionView({ sessionId }: Props) {
     useSessionStore.setState(s => ({
       queueBySession: { ...s.queueBySession, [sessionId]: { steering: s.queueBySession[sessionId]?.steering ?? [], followUp: [] } },
     }));
-    send({ type: "steer:clear-queue", sessionId });
+    void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer/clear-queue`, {});
   };
 
   return (

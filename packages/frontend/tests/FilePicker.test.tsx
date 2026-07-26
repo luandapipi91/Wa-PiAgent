@@ -3,7 +3,9 @@
 // 不 mock.module("../src/fs-client")：跨文件缓存会污染 fs-client.test.ts（见该文件说明）。
 import { test, expect, mock, beforeEach, afterEach, afterAll } from "bun:test";
 import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
-import { _setFsTransport, type FsTransport } from "../src/fs-client";
+import { _setFsTransport } from "../src/fs-client";
+import { emitEventForTesting } from "../src/events";
+import { adaptLegacyTransport, type LegacyFsTransport } from "./fs-transport-adapter";
 import type { FilePickerSelection } from "../src/components/ui/FilePicker";
 
 const handlers = new Set<(e: any) => void>();
@@ -53,11 +55,11 @@ const sendMock = mock((e: any) => {
     case "fs:roots": emit({ type: "fs:roots", roots: ["C:\\", "D:\\"] }); break;
     case "fs:listDir": emit({ type: "fs:listDir", path: e.path, entries: entriesFor(e.path) }); break;
     case "fs:search": {
-      // 流式：先 progress 再 done，模拟 kernel 搜索事件流
+      // 流式：先 progress 再 done，通过真实 SSE 总线事件模拟 kernel 搜索事件流
       const matches = searchMatches(e.root, e.query);
       setTimeout(() => {
-        if (matches.length) emit({ type: "fs:search:progress", requestId: e.requestId, query: e.query, matches });
-        emit({ type: "fs:search", requestId: e.requestId, query: e.query, matches, durationMs: 0, truncated: false });
+        if (matches.length) emitEventForTesting({ type: "fs:search:progress", requestId: e.requestId, query: e.query, matches } as any);
+        emitEventForTesting({ type: "fs:search", requestId: e.requestId, query: e.query, matches, durationMs: 0, truncated: false } as any);
       }, 10);
       break;
     }
@@ -65,12 +67,13 @@ const sendMock = mock((e: any) => {
   }
 });
 
-const transport: FsTransport = {
+const legacyTransport: LegacyFsTransport = {
   send: sendMock,
   onMessage: (h: (e: any) => void) => { handlers.add(h); return () => handlers.delete(h); },
 };
+const fsTransport = adaptLegacyTransport(legacyTransport);
 
-_setFsTransport(transport);
+_setFsTransport(fsTransport);
 const { FilePicker } = await import("../src/components/ui/FilePicker");
 
 afterAll(() => _setFsTransport(null));
@@ -172,7 +175,7 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
       default: break;
     }
   });
-  _setFsTransport({ send: tSend, onMessage: (h: (e: any) => void) => { hSet.add(h); return () => hSet.delete(h); } });
+  _setFsTransport(adaptLegacyTransport({ send: tSend, onMessage: (h: (e: any) => void) => { hSet.add(h); return () => hSet.delete(h); } }));
 
   try {
     render(<FilePicker onPick={() => {}} onCancel={() => {}} />);
@@ -188,7 +191,7 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
     }, { timeout: 3000 });
 
     // 搜索命中叶子目录 demo（无匹配子项）→ 出现在结果中
-    hEmit({ type: "fs:search:progress", requestId: req.requestId, query: "demo", matches: [{ name: "demo", isDir: true, path: "C:\\Users\\test\\projects\\demo" }] });
+    emitEventForTesting({ type: "fs:search:progress", requestId: req.requestId, query: "demo", matches: [{ name: "demo", isDir: true, path: "C:\\Users\\test\\projects\\demo" }] } as any);
     await waitFor(() => {
       expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
     }, { timeout: 3000 });
@@ -209,7 +212,7 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
       expect(screen.getByText(/📄\s*z-note\.txt/)).toBeTruthy();
     }, { timeout: 3000 });
   } finally {
-    _setFsTransport(transport); // 恢复共享 transport
+    _setFsTransport(fsTransport); // 恢复共享 transport
   }
 });
 
@@ -278,7 +281,7 @@ test("搜索增量结果到达时，用户已折叠的节点保持折叠", async
       default: break;
     }
   });
-  _setFsTransport({ send: tSend, onMessage: (h: (e: any) => void) => { hSet.add(h); return () => hSet.delete(h); } });
+  _setFsTransport(adaptLegacyTransport({ send: tSend, onMessage: (h: (e: any) => void) => { hSet.add(h); return () => hSet.delete(h); } }));
 
   try {
     render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
@@ -298,7 +301,7 @@ test("搜索增量结果到达时，用户已折叠的节点保持折叠", async
 
     // 第一批：src 匹配 → 搜索树展开
     const mkMatch = () => ({ name: "src", isDir: true, path: "C:\\Users\\test\\projects\\demo\\src" });
-    hEmit({ type: "fs:search:progress", requestId: req.requestId, query: "src", matches: [mkMatch()] });
+    emitEventForTesting({ type: "fs:search:progress", requestId: req.requestId, query: "src", matches: [mkMatch()] } as any);
     await waitFor(() => {
       expect(screen.getByText(/📁\s*src/)).toBeTruthy();
     }, { timeout: 3000 });
@@ -314,12 +317,12 @@ test("搜索增量结果到达时，用户已折叠的节点保持折叠", async
 
     // 第二批增量（内容相同但 searchTreeItems 引用变化）：
     // autoExpandedRef 已记录搜索根，故增量结果不会重新展开它 → src 保持折叠
-    hEmit({ type: "fs:search:progress", requestId: req.requestId, query: "src", matches: [mkMatch()] });
+    emitEventForTesting({ type: "fs:search:progress", requestId: req.requestId, query: "src", matches: [mkMatch()] } as any);
     await new Promise((r) => setTimeout(r, 300));
 
     expect(screen.queryByText(/📁\s*src/)).toBeNull();
   } finally {
-    _setFsTransport(transport); // 恢复共享 transport
+    _setFsTransport(fsTransport); // 恢复共享 transport
   }
 });
 
@@ -503,15 +506,15 @@ test("搜索过程中切换“显示隐藏目录”后，嵌套搜索结果保�
       case "fs:search": {
         const matches = [{ name: "leaf", isDir: false, path: NESTED }];
         setTimeout(() => {
-          hEmit({ type: "fs:search:progress", requestId: e.requestId, query: e.query, matches });
-          hEmit({ type: "fs:search", requestId: e.requestId, query: e.query, matches, durationMs: 0, truncated: false });
+          emitEventForTesting({ type: "fs:search:progress", requestId: e.requestId, query: e.query, matches } as any);
+          emitEventForTesting({ type: "fs:search", requestId: e.requestId, query: e.query, matches, durationMs: 0, truncated: false } as any);
         }, 10);
         break;
       }
       default: break;
     }
   });
-  _setFsTransport({ send: tSend, onMessage: (h: (e: any) => void) => { hSet.add(h); return () => hSet.delete(h); } });
+  _setFsTransport(adaptLegacyTransport({ send: tSend, onMessage: (h: (e: any) => void) => { hSet.add(h); return () => hSet.delete(h); } }));
 
   try {
     render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
@@ -535,7 +538,7 @@ test("搜索过程中切换“显示隐藏目录”后，嵌套搜索结果保�
     // 重新搜索落定后，中间目录 mid 应保持展开、leaf 仍可见
     await waitFor(() => expect(screen.getByText(/📄\s*leaf/)).toBeTruthy(), { timeout: 1500 });
   } finally {
-    _setFsTransport(transport); // 恢复共享 transport
+    _setFsTransport(fsTransport); // 恢复共享 transport
   }
 });
 

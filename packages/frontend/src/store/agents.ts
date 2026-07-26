@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { AgentConfig, AgentName, SessionEntity } from "@hiagent/shared";
-import { send } from "../ws-instance";
+import { api } from "../api-client";
 
 /** 最近使用排序：各 agent 名下会话最大 lastActivity 倒序；无会话的按名称序排最后 */
 export function topAgentsByRecency(
@@ -30,10 +30,10 @@ interface AgentsState {
 export const useAgentsStore = create<AgentsState>((set) => ({
   list: [],
   configs: {},
-  loadAll: () => send({ type: "agent:list" }),
+  loadAll: () => { api.get("/api/agents").then((data: any) => { if (data) set({ list: data.agents ?? [] }); }).catch(() => {}); },
   setList: (agents) => set({ list: agents }),
-  createAgent: (displayName) => send({ type: "agent:create", displayName }),
-  deleteAgent: (name) => send({ type: "agent:delete", name }),
-  loadConfig: (name) => send({ type: "agent:config:get", agentName: name }),
+  createAgent: (displayName) => void api.post("/api/agents", { displayName }),
+  deleteAgent: (name) => void api.del(`/api/agents/${encodeURIComponent(name)}`),
+  loadConfig: (name) => { api.get(`/api/agents/${encodeURIComponent(name)}/config`).then((data: any) => { if (data) set({ configs: { ...get().configs, [name]: data } }); }).catch(() => {}); },
   setConfig: (name, c) => set(st => ({ configs: { ...st.configs, [name]: c } })),
 }));
