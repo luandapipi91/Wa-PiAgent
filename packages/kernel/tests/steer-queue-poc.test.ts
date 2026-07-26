@@ -216,6 +216,29 @@ test("E3 — followUp drain 中 prompt 失败不阻塞后续 drain", async () =>
   expect(fake.prompted.length).toBeGreaterThanOrEqual(2); // 第一条 + 至少一个 drain
 });
 
+test("BUG: pi queue_update 空 followUp 导致前端排队列表消失", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false;
+
+  // 构造场景：1 在运行，2/3 排队
+  await am.prompt(session.id, "第一条", { model: MODEL });
+  await am.prompt(session.id, "排队2", { model: MODEL });
+  await am.prompt(session.id, "排队3", { model: MODEL });
+
+  // pi 的 queue_update 事件：steering 和 followUp 都是空（pi 不管 followUp）
+  fake.emit({ type: "queue_update", steering: [], followUp: [] });
+
+  // 此时发给前端的 queue_update 应该仍含 HiAgent 本地的排队列表
+  const queueEvents = events.filter(e => e.e.type === "queue_update");
+  const lastQueue = queueEvents[queueEvents.length - 1];
+  if (!lastQueue) throw new Error("未收到 queue_update 事件");
+
+  // 【当前 Bug】：pi 的 queue_update {followUp:[]} 被原样转发，前端看到空列表
+  // 【期望修复】：kernel 注入本地 followUpList → followUp 应该是 ["排队2", "排队3"]
+  expect(lastQueue.e.followUp).toEqual(["排队2", "排队3"]);
+});
+
 test("E4 — pi 崩溃后 followUpList 保留在 HiAgent 侧", async () => {
   const { session, am, fake } = await setup();
 
