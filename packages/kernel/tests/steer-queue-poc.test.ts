@@ -308,3 +308,23 @@ test("BUG: 从排队提升为引导后，排队列表仍保留原消息", async 
   // 不应出现第三个"排队A"
   expect(fake.prompted.filter(t => t === "排队A").length).toBe(1);
 });
+
+test("BUG: 排队消息 drain 后前端队列未更新", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "第一条", { model: MODEL });
+  await am.prompt(session.id, "排队A", { model: MODEL });
+  await am.prompt(session.id, "排队B", { model: MODEL });
+
+  // 第一次 settled：drain 排队A
+  fake.emit({ type: "agent_settled" });
+
+  // 【当前 Bug】：drain 后没发 queue_update，前端仍显示 ["排队A","排队B"]
+  // 【期望】：最后一次 queue_update 的 followUp 应为 ["排队B"]
+  const queueEvents = events.filter(e => e.e.type === "queue_update");
+  const lastQueue = queueEvents[queueEvents.length - 1];
+  if (!lastQueue) throw new Error("未收到 queue_update 事件");
+  expect((lastQueue.e as any).followUp).toEqual(["排队B"]);
+});

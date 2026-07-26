@@ -596,12 +596,14 @@ export class AgentManager {
         // 优先 drain 引导消息（如果 pi 已投递则 queue_update 会清掉 steerList）
         if (handle.steerList.length > 0) {
           const text = handle.steerList.shift()!;
+          this._emitLocalQueueUpdate(sessionId, handle);
           void this._sendPromptNow(sessionId, handle, text).catch((err) => {
             console.error(`[kernel] session ${sessionId} steer drain 失败:`, err);
           });
         } else if (handle.followUpList.length > 0) {
           // 无引导消息时才 drain 排队消息
           const text = handle.followUpList.shift()!;
+          this._emitLocalQueueUpdate(sessionId, handle);
           void this._sendPromptNow(sessionId, handle, text).catch((err) => {
             console.error(`[kernel] session ${sessionId} followUp drain 失败:`, err);
           });
