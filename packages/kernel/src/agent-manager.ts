@@ -723,6 +723,9 @@ export class AgentManager {
 
     // 双保险：pi steer() 尝试 mid-loop 投递 + 本地 steerList 兜底
     handle.steerList.push(text);
+    // 如果该消息来自排队列表，则移除（避免 settled 时重复发送）
+    const fi = handle.followUpList.indexOf(text);
+    if (fi >= 0) handle.followUpList.splice(fi, 1);
     this._emitLocalQueueUpdate(sessionId, handle);
     handle.client.steer(text).catch(() => {
       // steer 失败不丢消息——agent_settled 时 steerList 会兜底
