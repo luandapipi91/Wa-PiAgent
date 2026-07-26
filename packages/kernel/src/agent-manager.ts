@@ -110,6 +110,8 @@ interface SessionHandle {
   messages: any[];
   /** 排队消息列表（agent_settled 时逐条 drain） */
   followUpList: string[];
+  /** 引导消息列表（优先级高于 followUpList，agent_settled 时优先 drain） */
+  steerList: string[];
   /** 系统提示词临时文件（dispose 时清理） */
   promptFile: string | null;
   /** 进程意外退出标记（下次 ensureStarted 重建） */
@@ -508,6 +510,7 @@ export class AgentManager {
       busy: false,
       messages: [],
       followUpList: [],
+      steerList: [],
       promptFile,
       crashed: false,
       disposed: false,
@@ -590,12 +593,24 @@ export class AgentManager {
         break;
       case "agent_settled":
         handle.busy = false;
-        // followUp 本地列表 drain：agent 空闲后逐条发送
-        if (handle.followUpList.length > 0) {
+        // 优先 drain 引导消息（如果 pi 已投递则 queue_update 会清掉 steerList）
+        if (handle.steerList.length > 0) {
+          const text = handle.steerList.shift()!;
+          void this._sendPromptNow(sessionId, handle, text).catch((err) => {
+            console.error(`[kernel] session ${sessionId} steer drain 失败:`, err);
+          });
+        } else if (handle.followUpList.length > 0) {
+          // 无引导消息时才 drain 排队消息
           const text = handle.followUpList.shift()!;
           void this._sendPromptNow(sessionId, handle, text).catch((err) => {
             console.error(`[kernel] session ${sessionId} followUp drain 失败:`, err);
           });
+        }
+        break;
+      // pi 投递引导消息后 queue_update 的 steering 为空 → 同步清 steerList 防重复
+      case "queue_update":
+        if ((event as any).steering && (event as any).steering.length === 0) {
+          handle.steerList = [];
         }
         break;
     }
@@ -676,17 +691,21 @@ export class AgentManager {
     await this._sendPromptNow(sessionId, handle, finalText);
   }
 
-  /** 发送引导消息（pi 原生 steer，turn_end 后自动投递） */
+  /** 发送引导消息。运行中优先调 pi steer()（mid-loop 投递），同时存本地兜底 */
   async steerMessage(sessionId: string, text: string): Promise<void> {
     const handle = this.sessions.get(sessionId);
     if (!handle) return;
 
     if (!handle.busy) {
-      // 空闲时 steer() 会报错，降级为 prompt()
       await this._sendPromptNow(sessionId, handle, text);
       return;
     }
-    await handle.client.steer(text);
+
+    // 双保险：pi steer() 尝试 mid-loop 投递 + 本地 steerList 兜底
+    handle.steerList.push(text);
+    handle.client.steer(text).catch(() => {
+      // steer 失败不丢消息——agent_settled 时 steerList 会兜底
+    });
   }
 
   /** 中止当前会话：清空本地队列 + abort。 */
@@ -698,6 +717,7 @@ export class AgentManager {
     }
 
     askRegistry.cancelAll(sessionId);
+    handle.steerList = [];
     handle.followUpList = [];
     console.log(`[agent-manager] abort session=${sessionId} busy=${handle.busy}`);
     await handle.client.abort().catch((err) => {

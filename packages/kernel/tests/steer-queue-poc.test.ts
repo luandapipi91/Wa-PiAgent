@@ -137,6 +137,28 @@ test("abort + steerMessage 实现立即执行", async () => {
   expect(fake.prompted).toEqual(["进行中", "立即执行"]); // 排队A 被 abort 清空
 });
 
+test("agent_settled 优先 drain steerList（引导优先级高于排队）", async () => {
+  const { session, am, fake } = await setup();
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "第一条", { model: MODEL }); // busy
+  await am.prompt(session.id, "排队A", { model: MODEL });   // → followUpList
+  await am.steerMessage(session.id, "引导B");               // → steerList (优先)
+  await am.steerMessage(session.id, "引导C");               // → steerList
+
+  // 第一次 settled：drain steerList 第一条（引导B）
+  fake.emit({ type: "agent_settled" });
+  expect(fake.prompted).toEqual(["第一条", "引导B"]);
+
+  // 第二次 settled：drain steerList 第二条（引导C）
+  fake.emit({ type: "agent_settled" });
+  expect(fake.prompted).toEqual(["第一条", "引导B", "引导C"]);
+
+  // 第三次 settled：drain followUpList（排队A）
+  fake.emit({ type: "agent_settled" });
+  expect(fake.prompted).toEqual(["第一条", "引导B", "引导C", "排队A"]);
+});
+
 test("bridge 上下文在 ensureStarted 后已注册（宿主工具回调入口）", async () => {
   const { session } = await setup();
   expect(getBridgeSession(session.id)).toBeDefined();
