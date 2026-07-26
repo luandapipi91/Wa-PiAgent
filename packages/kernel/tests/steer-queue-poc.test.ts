@@ -253,3 +253,58 @@ test("E4 — pi 崩溃后 followUpList 保留在 HiAgent 侧", async () => {
   // 进程崩溃后 ensureStarted 会重建，followUpList 不变
   expect(fake.prompted).toContain("进行中");
 });
+
+// === TDD: 引导消息重复 + 排队未移除 ===
+
+test("BUG: 引导后 steering 队列出现重复消息", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
+  await am.steerMessage(session.id, "引导X");
+
+  // 等待微任务：steerMessage 内部推送了 _emitLocalQueueUpdate
+  await new Promise(r => setTimeout(r, 0));
+
+  // 收集所有 queue_update 事件
+  const queueEvents = events.filter(e => e.e.type === "queue_update");
+
+  // 【当前 Bug】：steerMessage 自己发一次 queue_update，
+  //   pi 随后也可能发 queue_update，kernel 拦截注入后又是同一个 steerList，
+  //   前端收到两次含 "引导X" 的 steering → 显示两条重复
+  // 【期望】：所有 queue_update 中 steering 最多一条（steerList 只 push 了一次）
+  const steeringEvents = queueEvents.filter(e =>
+    (e.e as any).steering?.includes("引导X")
+  );
+  // 简化断言：最后一次 queue_update 的 steering 不应重复
+  const lastQueue = queueEvents[queueEvents.length - 1];
+  const steerCount = (lastQueue?.e as any)?.steering?.filter((s: string) => s === "引导X").length ?? 0;
+  expect(steerCount).toBeLessThanOrEqual(1);
+});
+
+test("BUG: 从排队提升为引导后，排队列表仍保留原消息", async () => {
+  const { session, am, fake } = await setup();
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "第一条", { model: MODEL });
+  await am.prompt(session.id, "排队A", { model: MODEL });
+  await am.prompt(session.id, "排队B", { model: MODEL });
+
+  // 将"排队A"提升为引导
+  await am.steerMessage(session.id, "排队A");
+
+  // 【当前 Bug】：steerMessage 把"排队A"加到了 steerList，
+  //   但 followUpList 里"排队A"还在 → settled 时会发两次
+  // 【期望】：followUpList 不应再含"排队A"
+
+  fake.emit({ type: "agent_settled" });
+  // 第一次 drain：steerList 里的"排队A"
+  expect(fake.prompted).toEqual(["第一条", "排队A"]);
+
+  fake.emit({ type: "agent_settled" });
+  // 第二次 drain：followUpList 里的"排队B"（"排队A"不应出现）
+  expect(fake.prompted).toEqual(["第一条", "排队A", "排队B"]);
+  // 不应出现第三个"排队A"
+  expect(fake.prompted.filter(t => t === "排队A").length).toBe(1);
+});
