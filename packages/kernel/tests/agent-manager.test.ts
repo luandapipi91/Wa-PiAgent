@@ -382,121 +382,36 @@ test("prompt — agent 运行中 → 进 kernel followUp 队列并合成 queue_u
   expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
 });
 
-test("promoteToSteer 把目标消息从 followUp 移到 steering，不打断当前 agent", async () => {
-  const events: CapturedEvent[] = [];
-  const { project, session, am, fakes } = await setup({ events });
-  await am.ensureStarted(project.id, "dev", session.id);
-  const fake = fakes[0];
-  fake.autoSettle = false;
-
-  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
-  await am.promoteToSteer(session.id, "目标", ["剩余A", "剩余B"]);
-
-  // 不 abort / 不 prompt，只移动队列
-  expect(fake.aborts).toBe(0);
-  expect(fake.prompted).toEqual(["进行中"]);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: ["目标"], followUp: ["剩余A", "剩余B"] });
-
-  // 当前 turn 结束后 steering 投递一条
-  fake.emit({ type: "turn_end" });
-  expect(fake.steered).toEqual(["目标"]);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["剩余A", "剩余B"] });
-});
-
-test("promoteToSteer — 空闲时目标消息立即以 prompt 生效", async () => {
+test("steerMessage — busy 时调 pi steer()，空闲时降级为 prompt()", async () => {
   const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
+  const fake = fakes[0];
 
-  await am.promoteToSteer(session.id, "目标", []);
-  expect(fakes[0].prompted).toEqual(["目标"]);
+  // 空闲 → prompt()
+  await am.steerMessage(session.id, "空闲引导");
+  expect(fake.prompted).toEqual(["空闲引导"]);
+  expect(fake.steered).toEqual([]);
+
+  // busy → steer()
+  fake.autoSettle = false;
+  await am.prompt(session.id, "进行中", { model: MODEL });
+  await am.steerMessage(session.id, "引导消息");
+  expect(fake.steered).toEqual(["引导消息"]);
 });
 
-test("immediate 清空队列 + abort + 剩余重入 followUp + 目标消息直发", async () => {
-  const events: CapturedEvent[] = [];
-  const { project, session, am, fakes } = await setup({ events });
+test("abort 清空排队列表 + 中断当前运行", async () => {
+  const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
   const fake = fakes[0];
   fake.autoSettle = false;
 
   await am.prompt(session.id, "进行中", { model: MODEL });
+  // 忙时发送排队消息
   await am.prompt(session.id, "排队A", { model: MODEL });
   await am.prompt(session.id, "排队B", { model: MODEL });
 
-  await am.immediate(session.id, "立即执行", ["剩余A", "剩余B"]);
-
+  await am.abort(session.id);
   expect(fake.aborts).toBe(1);
-  // 目标消息作为新回合直发（排队A/B 被清空，不会发出）
-  expect(fake.prompted).toEqual(["进行中", "立即执行"]);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["剩余A", "剩余B"] });
-});
-
-test("immediate — abort 后 agent 仍在处理时降级为 steer 插队", async () => {
-  const { project, session, am, fakes } = await setup();
-  await am.ensureStarted(project.id, "dev", session.id);
-  const fake = fakes[0];
-  fake.autoSettle = false;
-
-  await am.prompt(session.id, "进行中", { model: MODEL });
-  fake.nextPromptError = new Error("agent already processing");
-
-  await am.immediate(session.id, "立即执行", []);
-
-  expect(fake.aborts).toBe(1);
-  expect(fake.steered).toEqual(["立即执行"]);
-});
-
-test("immediate 快速连点会串行执行，不并发调用 prompt", async () => {
-  const { project, session, am, fakes } = await setup();
-  await am.ensureStarted(project.id, "dev", session.id);
-  const fake = fakes[0];
-
-  const promptCalls: { start: number; end: number }[] = [];
-  fake.prompt = async () => {
-    const start = Date.now();
-    await new Promise((r) => setTimeout(r, 50));
-    promptCalls.push({ start, end: Date.now() });
-  };
-
-  const p1 = am.immediate(session.id, "第一条", []);
-  const p2 = am.immediate(session.id, "第二条", []);
-  await Promise.all([p1, p2]);
-
-  expect(promptCalls).toHaveLength(2);
-  // 第二次 prompt 的开始时间应不早于第一次的结束时间（允许 10ms 误差）
-  expect(promptCalls[1].start).toBeGreaterThanOrEqual(promptCalls[0].end - 10);
-});
-
-test("clearSteeringQueue / clearFollowUpQueue / clearAllQueues 清空对应队列并发 queue_update", async () => {
-  const events: CapturedEvent[] = [];
-  const { project, session, am, fakes } = await setup({ events });
-  await am.ensureStarted(project.id, "dev", session.id);
-  const fake = fakes[0];
-  fake.autoSettle = false;
-
-  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
-  await am.prompt(session.id, "F1", { model: MODEL });     // followUp
-  am.steerMessage(session.id, "S1");                       // steering
-
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: ["S1"], followUp: ["F1"] });
-
-  am.clearSteeringQueue(session.id);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["F1"] });
-
-  am.clearFollowUpQueue(session.id);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
-
-  // 再塞满后 clearAllQueues 一次清空
-  await am.prompt(session.id, "F2", { model: MODEL });
-  am.steerMessage(session.id, "S2");
-  am.clearAllQueues(session.id);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
-});
-
-test("clearSteeringQueue / clearFollowUpQueue — session 不存在时静默忽略", async () => {
-  const { am } = await setup();
-  am.clearSteeringQueue("nonexistent");
-  am.clearFollowUpQueue("nonexistent");
-  am.clearAllQueues("nonexistent");
 });
 
 test("steerMessage — busy 时入 steering 队列，turn_end 后投递给 client", async () => {
@@ -894,12 +809,12 @@ test("abort 取消该 session 的 pending ask（同步 cancelAll）", async () =
   expect((await p).cancelled).toBe(true);
 });
 
-test("immediate(_jumpQueue interrupt) 取消 pending ask", async () => {
+test("abort 取消 pending ask", async () => {
   const { project, session, am } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
 
   const p = askRegistry.ask(session.id, "tc1", askParams, new AbortController().signal);
-  await am.immediate(session.id, "立即执行", []);
+  await am.abort(session.id);
   expect((await p).cancelled).toBe(true);
 });
 

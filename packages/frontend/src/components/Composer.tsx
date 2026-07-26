@@ -41,7 +41,13 @@ export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
     if (!isRunning) {
       useSessionStore.getState().optimisticSend(sessionId, expandedText, targetAgent);
     } else {
-      useSessionStore.getState().appendLocalFollowUp(sessionId, expandedText);
+      // 乐观追加到排队列表
+      useSessionStore.setState(s => {
+        const cur = s.queueBySession[sessionId];
+        return {
+          queueBySession: { ...s.queueBySession, [sessionId]: { steering: cur?.steering ?? [], followUp: cur ? [...cur.followUp, expandedText] : [expandedText] } },
+        };
+      });
     }
     api.post(`/api/agents/${encodeURIComponent(projectId)}/${encodeURIComponent(sessionId)}/prompt`, {
       agentName: targetAgent,

@@ -124,56 +124,34 @@ test("steerMessage — idle 时不入队，直接以 prompt 生效", async () =>
   expect(fake.prompted).toEqual(["引导一下"]);
 });
 
-test("clearAllQueues 后 turn_end / agent_settled 不再投递任何消息", async () => {
+test("abort 清空排队列表后 agent_settled 不再 drain", async () => {
   const events: CapturedEvent[] = [];
   const { session, am, fake } = await setup(events);
   fake.autoSettle = false;
 
   await am.prompt(session.id, "进行中", { model: MODEL }); // busy
-  await am.prompt(session.id, "F1", { model: MODEL });     // followUp
-  am.steerMessage(session.id, "S1");                       // steering
+  await am.prompt(session.id, "F1", { model: MODEL });     // 排队
+  am.steerMessage(session.id, "S1");                       // steer（pi 管理）
 
-  am.clearAllQueues(session.id);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
+  await am.abort(session.id);
 
-  fake.emit({ type: "turn_end" });
   fake.emit({ type: "agent_settled" });
-  expect(fake.steered).toEqual([]);
   expect(fake.prompted).toEqual(["进行中"]); // F1 被清空，不再 drain
 });
 
-test("clearSteeringQueue 只清 steering，clearFollowUpQueue 只清 followUp", async () => {
-  const events: CapturedEvent[] = [];
-  const { session, am, fake } = await setup(events);
-  fake.autoSettle = false;
-
-  await am.prompt(session.id, "进行中", { model: MODEL });
-  await am.prompt(session.id, "F1", { model: MODEL });
-  am.steerMessage(session.id, "S1");
-
-  am.clearSteeringQueue(session.id);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["F1"] });
-
-  am.clearFollowUpQueue(session.id);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
-});
-
-test("immediate：abort + 清空队列 + 剩余重入 followUp + 目标消息直发", async () => {
-  const events: CapturedEvent[] = [];
-  const { session, am, fake } = await setup(events);
+test("abort + steerMessage 实现立即执行", async () => {
+  const { session, am, fake } = await setup();
   fake.autoSettle = false;
 
   await am.prompt(session.id, "进行中", { model: MODEL });
   await am.prompt(session.id, "排队A", { model: MODEL });
-  am.steerMessage(session.id, "引导A");
 
-  await am.immediate(session.id, "立即执行", ["剩余A"]);
+  // 立即执行：abort + steer
+  await am.abort(session.id);
+  await am.steerMessage(session.id, "立即执行");
 
   expect(fake.aborts).toBe(1);
-  // 目标消息作为新回合直发；排队A/引导A 被清空
-  expect(fake.prompted).toEqual(["进行中", "立即执行"]);
-  expect(fake.steered).toEqual([]);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["剩余A"] });
+  expect(fake.prompted).toEqual(["进行中", "立即执行"]); // 排队A 被 abort 清空
 });
 
 test("bridge 上下文在 ensureStarted 后已注册（宿主工具回调入口）", async () => {
