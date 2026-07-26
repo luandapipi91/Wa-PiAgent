@@ -89,7 +89,7 @@ export function AskFormCard({ sessionId, toolCallId, params, agentName }: Props)
           return (
             <div key={qi} className="space-y-1.5">
               <div className="text-[12.5px] font-semibold text-primary">Q{params.questions.length > 1 ? qi + 1 : ""} · {q.question}</div>
-              {q.options.map(o => {
+              {q.options?.map(o => {
                 const checked = s.mode === "option" && s.selected.has(o.label);
                 return (
                   <button key={o.label} onClick={() => toggleOption(qi, o.label, multi)}
