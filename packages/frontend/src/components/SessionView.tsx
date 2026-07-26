@@ -93,6 +93,7 @@ export function SessionView({ sessionId }: Props) {
     useSessionStore.setState(s => ({
       queueBySession: { ...s.queueBySession, [sessionId]: { steering: s.queueBySession[sessionId]?.steering ?? [], followUp: [] } },
     }));
+    void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/clear-queue`, {});
   };
 
   return (
@@ -170,11 +171,11 @@ export function SessionView({ sessionId }: Props) {
                   <div key={i} className={`flex items-center justify-between px-2.5 py-1.5 ${i < followUp.length - 1 ? "border-b border-hairline" : ""}`}>
                     <span className="text-secondary truncate flex-1 text-[12.5px]">{msg}</span>
                     <div className="flex ml-2 gap-2">
-                      <button onClick={() => handlePromote(msg)} className="text-[11.5px] px-1.5 py-0.5 rounded-pill bg-accent-soft text-accent border-0 cursor-pointer" data-testid="btn-promote">
+                      <button onClick={() => handlePromote(msg)} disabled={historyLoading} className={`text-[11.5px] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-accent-soft text-accent cursor-pointer"}`} data-testid="btn-promote">
                         引导
                       </button>
                       {!isRunning && (
-                        <button onClick={() => handleImmediate(msg)} className="text-[11.5px] px-1.5 py-0.5 rounded-pill bg-success-soft text-success border-0 cursor-pointer" data-testid="btn-immediate">
+                        <button onClick={() => handleImmediate(msg)} disabled={historyLoading} className={`text-[11.5px] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-success-soft text-success cursor-pointer"}`} data-testid="btn-immediate">
                           立即
                         </button>
                       )}

@@ -754,6 +754,14 @@ export class AgentManager {
     console.log(`[agent-manager] abort DONE session=${sessionId}`);
   }
 
+  /** 清空排队列表（不清 steerList，不 abort，不取消 ask） */
+  clearFollowUpList(sessionId: string): void {
+    const handle = this.sessions.get(sessionId);
+    if (!handle) return;
+    handle.followUpList = [];
+    this._emitLocalQueueUpdate(sessionId, handle);
+  }
+
   /** 读取会话历史消息快照（session 不存在时返回空数组） */
   getMessages(sessionId: string): any[] {
     return this.sessions.get(sessionId)?.messages ?? [];

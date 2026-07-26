@@ -575,6 +575,10 @@ export class WSServer {
         }
         break;
       }
+      case "clear-queue": {
+        this.opts.agentManager.clearFollowUpList(event.sessionId);
+        break;
+      }
 
       case "agent:list": {
         reply({ type: "agent:list", agents: await this.opts.configStore.listAgents() });

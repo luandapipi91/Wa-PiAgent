@@ -328,3 +328,23 @@ test("BUG: 排队消息 drain 后前端队列未更新", async () => {
   if (!lastQueue) throw new Error("未收到 queue_update 事件");
   expect((lastQueue.e as any).followUp).toEqual(["排队B"]);
 });
+
+test("BUG: 清空排队后仍发送排队消息", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "第一条", { model: MODEL });
+  await am.prompt(session.id, "排队A", { model: MODEL });
+  await am.prompt(session.id, "排队B", { model: MODEL });
+
+  // 清空排队（模拟前端调用）
+  am.clearFollowUpList(session.id);
+
+  // agent_settled 后不应再发送排队消息
+  fake.emit({ type: "agent_settled" });
+
+  // 【当前 Bug】：followUpList 未被清空，仍会发送 "排队A"
+  // 【期望】：清空后不再发送，prompted 只有 "第一条"
+  expect(fake.prompted).toEqual(["第一条"]);
+});
