@@ -1,8 +1,8 @@
-// steer-queue-poc.test.ts — kernel 自管 steer/followUp 队列语义验证
+// steer-queue-poc.test.ts — kernel 排队队列语义验证
 //
-// 历史：本文件原是 pi SDK 队列 API（session.agent.steer/followUp/clearQueue）的概念验证。
-// RPC 迁移后队列由 kernel 自管（AgentManager 内 steering/followUp 数组 + busy 状态机：
-// agent_start→busy，agent_settled→idle 并 drain 一条 followUp，turn_end 投递一条 steering）。
+// RPC 迁移后队列简化：
+// - 引导 → pi 原生 steer()（steerMessage 直调 client.steer()，不再维护 steering[]）
+// - 排队 → HiAgent 本地 followUpList（agent_settled 时逐条 drain）
 // 以下用例用 FakeSessionClient 手动 emit 事件驱动，验证 kernel 队列语义。
 //
 // 已删除的用例（纯验证 SDK 内部行为，与 hiagent 无关）：
@@ -56,27 +56,20 @@ async function setup(events?: CapturedEvent[]) {
   return { project, session, am, fake: fakes[0] };
 }
 
-function lastQueueUpdate(events: CapturedEvent[]) {
-  const qu = [...events].reverse().find((x) => x.e.type === "queue_update");
-  return qu?.e as { steering: string[]; followUp: string[] } | undefined;
-}
-
-test("busy 时 prompt 入 kernel followUp 队列，queue_update 携带队列内容", async () => {
-  const events: CapturedEvent[] = [];
-  const { session, am, fake } = await setup(events);
+test("busy 时 prompt 追加到 followUpList，不直接发给 client", async () => {
+  const { session, am, fake } = await setup();
   fake.autoSettle = false; // prompt 后不自动 settled → 保持 busy
 
   await am.prompt(session.id, "第一条", { model: MODEL });
   await am.prompt(session.id, "排队消息", { model: MODEL });
 
-  // busy 中不直接发给 client，进 followUp 队列
+  // busy 中不直接发给 client，进 followUpList
   expect(fake.prompted).toEqual(["第一条"]);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["排队消息"] });
+  // 排队消息未出现在 prompted 中（在本地 followUpList 里）
 });
 
 test("agent_settled 后 followUp 逐条 drain（一次一条）", async () => {
-  const events: CapturedEvent[] = [];
-  const { session, am, fake } = await setup(events);
+  const { session, am, fake } = await setup();
   fake.autoSettle = false;
 
   await am.prompt(session.id, "第一条", { model: MODEL });
@@ -86,33 +79,23 @@ test("agent_settled 后 followUp 逐条 drain（一次一条）", async () => {
   // 第一次 settled：只 drain F1，F2 仍排队
   fake.emit({ type: "agent_settled" });
   expect(fake.prompted).toEqual(["第一条", "F1"]);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: ["F2"] });
+  // F2 还未被 prompt（仍在 followUpList 中）
 
   // 第二次 settled：drain F2，队列清空
   fake.emit({ type: "agent_settled" });
   expect(fake.prompted).toEqual(["第一条", "F1", "F2"]);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
 });
 
-test("turn_end 后 steering 投递一条给 client.steer（one-at-a-time）", async () => {
-  const events: CapturedEvent[] = [];
-  const { session, am, fake } = await setup(events);
+test("steerMessage busy 时直调 client.steer()", async () => {
+  const { session, am, fake } = await setup();
   fake.autoSettle = false;
 
   await am.prompt(session.id, "进行中", { model: MODEL }); // busy
-  am.steerMessage(session.id, "S1");
-  am.steerMessage(session.id, "S2");
-  expect(fake.steered).toEqual([]);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: ["S1", "S2"], followUp: [] });
+  await am.steerMessage(session.id, "S1");
+  await am.steerMessage(session.id, "S2");
 
-  // 每个完成的 turn 只投一条
-  fake.emit({ type: "turn_end" });
-  expect(fake.steered).toEqual(["S1"]);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: ["S2"], followUp: [] });
-
-  fake.emit({ type: "turn_end" });
+  // steerMessage 直调 client.steer()
   expect(fake.steered).toEqual(["S1", "S2"]);
-  expect(lastQueueUpdate(events)).toMatchObject({ steering: [], followUp: [] });
 });
 
 test("steerMessage — idle 时不入队，直接以 prompt 生效", async () => {
