@@ -54,6 +54,9 @@ export const registerChatRoutes: RouteRegistrar = (r, callApi, ctx: RouteContext
       sessionId: p.sessionId, text: b.text,
     });
   });
+  // 清空排队列表
+  r.add("POST", "/api/sessions/:sessionId/clear-queue", async (_req, p) =>
+    callApi({ type: "clear-queue", sessionId: p.sessionId }));
 
 
 };
