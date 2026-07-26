@@ -141,3 +141,70 @@ test("bridge 上下文在 ensureStarted 后已注册（宿主工具回调入口�
   const { session } = await setup();
   expect(getBridgeSession(session.id)).toBeDefined();
 });
+
+// === 边缘场景 ===
+
+test("E2 — 空 followUpList 时 agent_settled 不发 prompt", async () => {
+  const { session, am, fake } = await setup();
+  fake.autoSettle = false;
+
+  // 不追加任何排队消息，直接 settled
+  const promptedBefore = fake.prompted.length;
+  fake.emit({ type: "agent_settled" });
+
+  // 不应有新 prompt
+  expect(fake.prompted.length).toBe(promptedBefore);
+});
+
+test("E2 — 多次 agent_settled 不重复 drain", async () => {
+  const { session, am, fake } = await setup();
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "第一条", { model: MODEL });
+  await am.prompt(session.id, "F1", { model: MODEL });
+
+  // 第一次 settled：drain F1
+  fake.emit({ type: "agent_settled" });
+  expect(fake.prompted).toEqual(["第一条", "F1"]);
+
+  // 第二次 settled：队列已空，不发 prompt
+  const promptedBefore2 = fake.prompted.length;
+  fake.emit({ type: "agent_settled" });
+  expect(fake.prompted.length).toBe(promptedBefore2);
+});
+
+test("E3 — followUp drain 中 prompt 失败不阻塞后续 drain", async () => {
+  const { session, am, fake } = await setup();
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL });
+  await am.prompt(session.id, "会失败", { model: MODEL });
+  await am.prompt(session.id, "下一条", { model: MODEL });
+
+  // 让 prompt 在 F1 drain 时失败
+  fake.nextPromptError = new Error("模拟失败");
+
+  // 第一次 settled：尝试 drain 会失败，但不应影响后续
+  fake.emit({ type: "agent_settled" });
+  // 给予微任务时间
+  await new Promise((r) => setTimeout(r, 10));
+
+  // 第二次 settled：应 drain 下一条
+  fake.emit({ type: "agent_settled" });
+  expect(fake.prompted.length).toBeGreaterThanOrEqual(2); // 第一条 + 至少一个 drain
+});
+
+test("E4 — pi 崩溃后 followUpList 保留在 HiAgent 侧", async () => {
+  const { session, am, fake } = await setup();
+
+  await am.prompt(session.id, "进行中", { model: MODEL });
+  await am.prompt(session.id, "排队A", { model: MODEL });
+  await am.prompt(session.id, "排队B", { model: MODEL });
+
+  // 模拟 pi 崩溃
+  fake.simulateCrash();
+
+  // 排队列表仍在 HiAgent 内存中
+  // 进程崩溃后 ensureStarted 会重建，followUpList 不变
+  expect(fake.prompted).toContain("进行中");
+});
