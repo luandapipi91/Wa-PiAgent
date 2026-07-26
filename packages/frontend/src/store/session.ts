@@ -20,7 +20,7 @@ interface SessionState {
   optimisticEchoBySession: Record<string, boolean>;
   // 历史加载标记：切换会话后已发 session:messages 但未收到响应（首次进入、无消息时用于显示 loading）
   historyLoadingBySession: Record<string, boolean>;
-  // 会话级消息队列：steering 引导队列 + followUp 排队队列
+  // 会话级消息队列：steering 引导队列（来自 pi queue_update）+ followUp 排队队列
   queueBySession: Record<string, { steering: readonly string[]; followUp: readonly string[] }>;
   // 原有方法保留：append 用于 error 兜底、setMessages 用于 session:messages 历史
   append: (sessionId: string, msg: SessionMessage) => void;
@@ -35,8 +35,6 @@ interface SessionState {
    *  让 UI 在 SDK 回声到达前就显示用户消息与 AI loading。置 optimisticEcho 标记，
    *  供 message_start(user) 回声识别并替换占位（同步 timestamp，避免切回会话重复）。 */
   optimisticSend: (sessionId: string, text: string, agentName: AgentName) => void;
-  /** agent 运行时本地追加排队消息到队列面板，不等 kernel queue_update */
-  appendLocalFollowUp: (sessionId: string, text: string) => void;
   clear: () => void;
   /** 标记会话有未读新回复（后台收到 agent_end 时）。 */
   markUnread: (sessionId: string) => void;
@@ -150,14 +148,6 @@ export const useSessionStore = create<SessionState>((set) => {
       // 计时从这里开始（用户发送即起算）
       thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: ts },
       optimisticEchoBySession: { ...s.optimisticEchoBySession, [sessionId]: true },
-    };
-  }),
-
-  appendLocalFollowUp: (sessionId, text) => set(s => {
-    const cur = s.queueBySession[sessionId];
-    const followUp = cur ? [...cur.followUp, text] : [text];
-    return {
-      queueBySession: { ...s.queueBySession, [sessionId]: { steering: cur?.steering ?? [], followUp } },
     };
   }),
 

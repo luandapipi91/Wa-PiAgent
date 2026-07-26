@@ -231,6 +231,18 @@ export interface AskCancelAskEvent {
   sessionId: string;
   toolCallId: string;
 }
+/** 简化版引导：前端乐观更新后直调 pi steer() */
+export interface SteerMessageEvent {
+  type: "steer:message";
+  sessionId: string;
+  text: string;
+}
+/** 简化版立即执行：abort + steer */
+export interface SteerImmediateMessageEvent {
+  type: "steer:immediate-message";
+  sessionId: string;
+  text: string;
+}
 
 export interface ProjectCreateEvent {
   type: "project:create";
@@ -293,6 +305,7 @@ export interface SubagentSaveOverrideEvent {
 export type WSClientEvent =
   | PromptEvent | AbortEvent
   | AskAnswerEvent | AskCancelAskEvent
+  | SteerMessageEvent | SteerImmediateMessageEvent
   | ProjectCreateEvent | ProjectUpdateEvent | ProjectDeleteEvent | ProjectOpenDirEvent
   | SessionRenameEvent | SessionDeleteEvent
   | AgentConfigGetEvent | AgentConfigSaveEvent

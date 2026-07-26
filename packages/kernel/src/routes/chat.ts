@@ -38,5 +38,22 @@ export const registerChatRoutes: RouteRegistrar = (r, callApi, ctx: RouteContext
     });
   });
 
+  // 简化版引导：前端乐观更新后直调 pi steer()
+  r.add("POST", "/api/sessions/:sessionId/steer", async (req, p) => {
+    const b = await readJsonBody(req);
+    return callApi({
+      type: "steer:message",
+      sessionId: p.sessionId, text: b.text,
+    });
+  });
+  // 简化版立即执行：abort + steer
+  r.add("POST", "/api/sessions/:sessionId/steer/immediate", async (req, p) => {
+    const b = await readJsonBody(req);
+    return callApi({
+      type: "steer:immediate-message",
+      sessionId: p.sessionId, text: b.text,
+    });
+  });
+
 
 };

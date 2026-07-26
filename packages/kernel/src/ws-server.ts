@@ -558,6 +558,23 @@ export class WSServer {
         askRegistry.cancel(event.sessionId, event.toolCallId);
         break;
       }
+      case "steer:message": {
+        try {
+          await this.opts.agentManager.steerMessage(event.sessionId, event.text);
+        } catch (err) {
+          this.broadcast({ type: "error", message: `引导失败: ${(err as Error).message}` });
+        }
+        break;
+      }
+      case "steer:immediate-message": {
+        try {
+          await this.opts.agentManager.abort(event.sessionId);
+          await this.opts.agentManager.steerMessage(event.sessionId, event.text);
+        } catch (err) {
+          this.broadcast({ type: "error", message: `立即执行失败: ${(err as Error).message}` });
+        }
+        break;
+      }
 
       case "agent:list": {
         reply({ type: "agent:list", agents: await this.opts.configStore.listAgents() });

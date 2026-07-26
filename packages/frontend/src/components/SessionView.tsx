@@ -66,25 +66,27 @@ export function SessionView({ sessionId }: Props) {
     setStopping(true);
     void api.post(`/api/agents/${encodeURIComponent(session.projectId)}/${encodeURIComponent(sessionId)}/abort`, { agentName: session.primaryAgent });
   };
+  // 乐观更新：立即移动消息位置，后台发 API
   const handlePromote = (text: string) => {
     const idx = followUp.indexOf(text);
     const remaining = idx >= 0 ? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)] : [...followUp];
-    void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer/promote`, { text, remainingTexts: remaining as string[] });
+    useSessionStore.setState(s => ({
+      queueBySession: { ...s.queueBySession, [sessionId]: { steering: [...(s.queueBySession[sessionId]?.steering ?? []), text], followUp: remaining } },
+    }));
+    void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer`, { text });
   };
   const handleImmediate = (text: string) => {
     const idx = followUp.indexOf(text);
     const remaining = idx >= 0 ? [...followUp.slice(0, idx), ...followUp.slice(idx + 1)] : [...followUp];
-    void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer/immediate`, { text, remainingTexts: remaining as string[] });
+    useSessionStore.setState(s => ({
+      queueBySession: { ...s.queueBySession, [sessionId]: { steering: [...(s.queueBySession[sessionId]?.steering ?? []), text], followUp: remaining } },
+    }));
+    void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer/immediate`, { text });
   };
-  const handleCancelSteer = () => { void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer/cancel`, {}); };
   const handleClearFollowUp = () => {
-    // 立即清除本地队列，不等 kernel 回声
-    useSessionStore.getState().appendLocalFollowUp(sessionId, ""); // hack to set empty? No.
-    // 直接清空 queueBySession
     useSessionStore.setState(s => ({
       queueBySession: { ...s.queueBySession, [sessionId]: { steering: s.queueBySession[sessionId]?.steering ?? [], followUp: [] } },
     }));
-    void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/steer/clear-queue`, {});
   };
 
   return (
@@ -140,9 +142,6 @@ export function SessionView({ sessionId }: Props) {
             <div className="mt-2 p-2.5 rounded-sm bg-warning-soft" style={{ borderLeft: "3px solid var(--warning)" }}>
               <div className="flex items-center justify-between">
                 <span className="text-warning text-[11.5px] font-bold">引导中</span>
-                <button onClick={handleCancelSteer} className="text-[11.5px] px-2 py-0.5 rounded-pill bg-danger-soft text-danger border-0 cursor-pointer" data-testid="btn-cancel-steer">
-                  取消
-                </button>
               </div>
               {steering.map((msg, i) => (
                 <div key={i} className="text-[12px] text-secondary mt-1 pl-2">
