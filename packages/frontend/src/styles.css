@@ -137,3 +137,17 @@ body {
 [data-testid="code-block-card"] .token {
   display: inline;
 }
+
+/* Token 胶囊标签（SessionView header 右侧） */
+.token-capsule {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.token-capsule--cache {
+  background: #ecfdf5;
+  color: #059669;
+}
