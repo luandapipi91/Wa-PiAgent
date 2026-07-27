@@ -11,7 +11,7 @@
 // - entry id 编码 "<relPath>:<rawIndex>"，relPath 相对 hiagentDir，rawIndex 为该 store+target
 //   下 entries 的下标；变更时按 id 反查 store 并取 entries[rawIndex] 作为 oldText 调 amaster。
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import type {
@@ -153,30 +153,66 @@ export class MemoryStore {
     await this.saveArchive(archived.filter(a => a.id !== id));
   }
 
-  /** 扫描已加载的指令文件（全局 + 项目），仅 AGENTS.md / CLAUDE.md */
+  /** 扫描已加载的指令文件，对齐 pi 框架 resource-loader.js loadProjectContextFiles 行为：
+   *  - 候选文件名：AGENTS.md, AGENTS.MD, CLAUDE.md, CLAUDE.MD（取第一个命中）
+   *  - 扫描范围：agentDir (hiagentDir) + cwd + 所有祖先目录（向上走到根）
+   *  - 去重：同一文件路径不重复出现 */
   async listInstructions(projectId: string): Promise<InstructionFile[]> {
     const result: InstructionFile[] = [];
-    const candidates = ["AGENTS.md", "CLAUDE.md"];
+    const seen = new Set<string>();
+    // pi 的 candidates 顺序：AGENTS.md > AGENTS.MD > CLAUDE.md > CLAUDE.MD
+    const candidates = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
 
-    // 全局：~/.hiagent/AGENTS.md 或 CLAUDE.md（取第一个命中）
-    for (const name of candidates) {
-      const p = join(this.opts.hiagentDir, name);
-      if (existsSync(p)) {
-        result.push({ path: p, name, scope: "global", content: await readFile(p, "utf8") });
-        break;
+    /** 从指定目录加载第一个命中的指令文件（null = 无命中/已见过）。
+     *  用磁盘上实际文件名（readdir）做路径去重，兼容 macOS 大小写不敏感文件系统。 */
+    const loadFromDir = async (dir: string): Promise<InstructionFile | null> => {
+      try {
+        const dirents = await readdir(dir);
+        for (const candidate of candidates) {
+          // 在目录 entries 中查找匹配（直接按名匹配，兼顾大小写不敏感系统）
+          const match = dirents.find(d => d === candidate);
+          if (match) {
+            const p = join(dir, match);
+            if (seen.has(p)) continue;
+            try {
+              const content = await readFile(p, "utf8");
+              seen.add(p);
+              return { path: p, name: match, scope: "global", content };
+            } catch {
+              // 不可读则跳过
+            }
+          }
+        }
+      } catch {
+        // readdir 失败（如目录不存在/无权限）→ 静默跳过
       }
+      return null;
+    };
+
+    // 1. agentDir（全局，对应 pi 的 resolvedAgentDir）
+    const globalFile = await loadFromDir(this.opts.hiagentDir);
+    if (globalFile) {
+      globalFile.scope = "global";
+      result.push(globalFile);
     }
 
-    // 项目级：cwd 下的 AGENTS.md 或 CLAUDE.md
+    // 2. cwd + 祖先目录遍历（项目级，对齐 pi 从 cwd 向上到根的遍历逻辑）
     const cwd = await this.getProjectCwd(projectId);
     if (cwd) {
-      for (const name of candidates) {
-        const p = join(cwd, name);
-        if (existsSync(p)) {
-          result.push({ path: p, name, scope: "project", content: await readFile(p, "utf8") });
-          break;
+      const ancestors: InstructionFile[] = [];
+      let currentDir = cwd;
+      while (true) {
+        const file = await loadFromDir(currentDir);
+        if (file) {
+          file.scope = "project";
+          // pi 用 unshift 保证祖先顺序（根在前），这里同样前置
+          ancestors.unshift(file);
         }
+        const parentDir = dirname(currentDir);
+        if (parentDir === currentDir) break;
+        currentDir = parentDir;
       }
+      result.push(...ancestors);
     }
 
     return result;

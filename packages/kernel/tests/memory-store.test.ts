@@ -199,11 +199,13 @@ test("listInstructions 扫描全局 + 项目级 AGENTS.md", async () => {
   const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
   const instructions = await store.listInstructions("p1");
 
-  expect(instructions).toHaveLength(2);
-  const globalInst = instructions.find(i => i.scope === "global");
-  const projectInst = instructions.find(i => i.scope === "project");
+  // 只看 tmpDir 范围内的文件（祖先遍历可能发现真实文件系统上游的 AGENTS.md）
+  const ours = instructions.filter(i => i.path.startsWith(tmpDir));
+  const globalInst = ours.find(i => i.scope === "global");
+  const projectInst = ours.find(i => i.scope === "project");
   expect(globalInst).toBeTruthy();
   expect(globalInst!.name).toBe("AGENTS.md");
+  expect(globalInst!.content).toBe("全局指令内容");
   expect(projectInst).toBeTruthy();
   expect(projectInst!.content).toBe("项目指令内容");
 });
@@ -216,8 +218,11 @@ test("listInstructions CLAUDE.md 作为备选指令文件", async () => {
 
   const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
   const instructions = await store.listInstructions("p1");
-  expect(instructions).toHaveLength(2);
-  expect(instructions.every(i => i.name === "CLAUDE.md")).toBe(true);
+  // 全局和项目两个文件都应命中 CLAUDE.md（祖先遍历可能有额外文件）
+  const ours = instructions.filter(i =>
+    i.path.startsWith(tmpDir) && i.name === "CLAUDE.md"
+  );
+  expect(ours.length).toBeGreaterThanOrEqual(2);
 });
 
 test("listInstructions AGENTS.md 优先于 CLAUDE.md", async () => {
@@ -226,9 +231,13 @@ test("listInstructions AGENTS.md 优先于 CLAUDE.md", async () => {
 
   const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const instructions = await store.listInstructions("p1");
-  const globalInst = instructions.find(i => i.scope === "global");
+  // tmpDir 下 AGENTS.md 命中（优先级高），CLAUDE.md 不应出现在结果中
+  const globalInst = instructions.find(i => i.scope === "global" && i.path.startsWith(tmpDir));
   expect(globalInst!.name).toBe("AGENTS.md");
   expect(globalInst!.content).toBe("全局 AGENTS");
+  // CLAUDE.md 不应出现
+  const claudeInTmp = instructions.find(i => i.path.startsWith(tmpDir) && i.name === "CLAUDE.md");
+  expect(claudeInTmp).toBeUndefined();
 });
 
 test("listInstructions 文件不存在时返回空数组", async () => {
@@ -241,8 +250,10 @@ test("listInstructions projectId 不存在时只返回全局", async () => {
   await writeFile(join(tmpDir, "AGENTS.md"), "全局指令", "utf8");
   const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const instructions = await store.listInstructions("nonexistent-id");
-  expect(instructions).toHaveLength(1);
-  expect(instructions[0].scope).toBe("global");
+  // 至少有一个全局指令文件（祖先遍历可能带额外文件）
+  expect(instructions.filter(i => i.scope === "global").length).toBeGreaterThanOrEqual(1);
+  // 不应有项目级文件（因为 projectId 无效）
+  expect(instructions.filter(i => i.scope === "project").length).toBe(0);
 });
 
 // ===== getConfig / setConfig =====
@@ -307,4 +318,81 @@ test("setConfig 保留已有配置项不覆盖", async () => {
   expect(raw.reviewEnabled).toBe(false);
   expect(raw.nudgeInterval).toBe(5);
   expect(raw.autoConsolidate).toBe(true);
+});
+
+// ===== listInstructions 一致性：对齐 pi 框架的 context file 加载行为 =====
+// pi 框架 resource-loader.js loadProjectContextFiles 的规则：
+// 1. 候选文件名：AGENTS.md, AGENTS.MD, CLAUDE.md, CLAUDE.MD（取第一个命中）
+// 2. 扫描范围：agentDir + cwd + 所有祖先目录（向上走到根）
+// 3. 去重：同一文件路径不重复
+
+// —— 不一致1：应支持 AGENTS.MD / CLAUDE.MD 大写变体（macOS 大小写不敏感，首候选 AGENTS.md 始终命中） ——
+test("listInstructions 候选列表包含大写变体（pi 兼容行为）", async () => {
+  await writeFile(join(tmpDir, "AGENTS.MD"), "大写变体内容", "utf8");
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const instructions = await store.listInstructions("p1");
+  expect(instructions).toHaveLength(1);
+  // macOS 大小写不敏感 → existsSync("AGENTS.md") 命中同一文件 → name="AGENTS.md"
+  // Linux 大小写敏感 → existsSync("AGENTS.MD") 命中 → name="AGENTS.MD"
+  // 两者都是正确的，取决于文件系统。验证实际文件名是否为候选列表中的值即可。
+  const validNames = ["AGENTS.md", "AGENTS.MD"];
+  expect(validNames).toContain(instructions[0].name);
+  expect(instructions[0].content).toBe("大写变体内容");
+  expect(instructions[0].scope).toBe("global");
+});
+
+// —— 不一致2：应遍历祖先目录（从 cwd 向上到根） ——
+test("listInstructions 遍历祖先目录发现指令文件", async () => {
+  // 项目 cwd 在深层目录
+  const projectCwd = join(tmpDir, "a", "b", "c");
+  await mkdir(projectCwd, { recursive: true });
+  // 在祖先目录放指令文件
+  await writeFile(join(tmpDir, "a", "AGENTS.md"), "祖先 a 指令", "utf8");
+
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
+  const instructions = await store.listInstructions("p1");
+
+  // 应发现祖先目录的指令文件（scope=project，因为来自 cwd 祖先链）
+  const ancestorInst = instructions.find(i => i.path === join(tmpDir, "a", "AGENTS.md"));
+  expect(ancestorInst).toBeTruthy();
+  expect(ancestorInst!.content).toBe("祖先 a 指令");
+  expect(ancestorInst!.scope).toBe("project");
+});
+
+// —— 不一致3：祖先 + cwd + 全局可同时存在多个文件 ——
+test("listInstructions 全局和祖先目录可同时返回多个指令文件", async () => {
+  await writeFile(join(tmpDir, "AGENTS.md"), "全局指令", "utf8");
+  const projectCwd = join(tmpDir, "proj");
+  await mkdir(projectCwd, { recursive: true });
+  await writeFile(join(tmpDir, "AGENTS.md"), "这也是全局（agentDir == tmpDir）", "utf8");
+  // 上面覆盖了 tmpDir/AGENTS.md，会同时作为全局和祖先被扫描，
+  // 但 seenPaths 去重后只保留一份。所以这里只在 cwd 下放另一个文件。
+  await writeFile(join(projectCwd, "CLAUDE.md"), "项目 CLAUDE", "utf8");
+
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
+  const instructions = await store.listInstructions("p1");
+
+  // 全局文件 + 祖先文件（tmpDir == agentDir == cwd 祖先根，去重只算一次）+ 项目文件
+  // tmpDir/AGENTS.md 被 agentDir 命中（scope=global），cwd/CLAUDE.md 被祖先遍历命中
+  expect(instructions.length).toBeGreaterThanOrEqual(2);
+  const globalInst = instructions.find(i => i.scope === "global");
+  const projectInst = instructions.find(i => i.scope === "project");
+  expect(globalInst).toBeTruthy();
+  expect(projectInst).toBeTruthy();
+});
+
+// —— 去重：agentDir 与 cwd 或祖先目录重叠时，同一路径不重复 ——
+test("listInstructions agentDir 与祖先目录重叠时去重", async () => {
+  // agentDir == cwd (同一个目录) → global 和项目应指向同一文件但去重
+  const projectCwd = tmpDir; // cwd = agentDir
+  await writeFile(join(tmpDir, "AGENTS.md"), "既是全局也是项目 cwd", "utf8");
+
+  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
+  const instructions = await store.listInstructions("p1");
+
+  // 在 tmpDir 范围内的结果：同一文件只出现一次（作为 global，因为 agentDir 优先）
+  const ours = instructions.filter(i => i.path.startsWith(tmpDir));
+  expect(ours).toHaveLength(1);
+  expect(ours[0].scope).toBe("global");
+  expect(ours[0].content).toBe("既是全局也是项目 cwd");
 });

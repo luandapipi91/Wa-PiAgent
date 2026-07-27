@@ -27,13 +27,13 @@ interface AgentsState {
   setConfig: (name: AgentName, c: AgentConfig) => void;
 }
 
-export const useAgentsStore = create<AgentsState>((set) => ({
+export const useAgentsStore = create<AgentsState>((set, get) => ({
   list: [],
   configs: {},
   loadAll: () => { api.get("/api/agents").then((data: any) => { if (data) set({ list: data.agents ?? [] }); }).catch(() => {}); },
   setList: (agents) => set({ list: agents }),
   createAgent: (displayName) => void api.post("/api/agents", { displayName }),
   deleteAgent: (name) => void api.del(`/api/agents/${encodeURIComponent(name)}`),
-  loadConfig: (name) => { api.get(`/api/agents/${encodeURIComponent(name)}/config`).then((data: any) => { if (data) set({ configs: { ...get().configs, [name]: data } }); }).catch(() => {}); },
+  loadConfig: (name) => { api.get(`/api/agents/${encodeURIComponent(name)}/config`).then((data: any) => { if (data?.config) set({ configs: { ...get().configs, [name]: data.config } }); }).catch(() => {}); },
   setConfig: (name, c) => set(st => ({ configs: { ...st.configs, [name]: c } })),
 }));
