@@ -337,6 +337,7 @@ function ToolsTab({ draft, onChange, tools }: TabProps & { tools: AgentToolItem[
 
 function SkillsTab({ draft, onChange }: TabProps) {
   const allSkills = useSkillsStore(s => s.allSkills);
+  const disabledSkills = useSkillsStore(s => s.disabledSkills);
   const all = allSkills.map(s => s.name);
   // 防御：draft.skills 可能因磁盘残留为非数组，统一规范化为 []
   const skills: string[] = Array.isArray(draft.skills) ? draft.skills : [];
@@ -352,15 +353,24 @@ function SkillsTab({ draft, onChange }: TabProps) {
   return (
     <div className="flex flex-col">
       <p className="text-[11px] text-tertiary mb-2">全部勾选 = 全量继承；取消勾选后按显式列表保存</p>
-      {allSkills.map(s => (
-        <label key={s.name} className="flex items-center gap-2 py-1 cursor-pointer justify-between">
+      {allSkills.map(s => {
+        const globallyDisabled = disabledSkills.includes(s.name);
+        return (
+        <label key={s.name} data-testid={`skill-row-${s.name}`}
+          className="flex items-center gap-2 py-1 cursor-pointer justify-between"
+          style={{ opacity: globallyDisabled ? 0.5 : 1 }}>
           <span className="flex items-center gap-2 min-w-0">
             <span className="text-sm text-primary">{s.name}</span>
             <span className="text-[11px] text-tertiary truncate">{s.description}</span>
+            {globallyDisabled && (
+              <span data-testid={`skill-disabled-label-${s.name}`}
+                className="text-[10px] font-semibold" style={{ color: "var(--danger)" }}>全局禁用</span>
+            )}
           </span>
           <SwitchButton on={checked(s.name)} onClick={() => toggle(s.name)} testId={`skill-switch-${s.name}`} />
         </label>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -382,15 +392,16 @@ function PartnersTab({ draft, onChange, selfName }: TabProps & { selfName: strin
         {filtered.length === 0 && <p className="text-sm text-tertiary py-1">无匹配智能体</p>}
         {filtered.map(a => {
           const isSelf = a.displayName === selfName;
+          const checked = !isSelf && draft.partners.askTo.includes(a.displayName);
           return (
             <label key={a.displayName} aria-disabled={isSelf || undefined}
-              className={`flex items-center gap-2 py-1 ${isSelf ? "opacity-50" : "cursor-pointer"}`}>
-              <input type="checkbox" disabled={isSelf}
-                checked={isSelf ? false : draft.partners.askTo.includes(a.displayName)}
-                onChange={() => toggle(a.displayName)} data-testid={`partner-check-${a.displayName}`} />
-              <span className="text-sm text-primary">{a.displayName}</span>
-              <span className="text-[11px] text-tertiary truncate">{a.description}</span>
-              {isSelf && <span className="text-[10px] text-tertiary ml-auto shrink-0">自身</span>}
+              className={`flex items-center gap-2 py-1 ${isSelf ? "opacity-50" : "cursor-pointer"} justify-between`}>
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="text-sm text-primary">{a.displayName}</span>
+                <span className="text-[11px] text-tertiary truncate">{a.description}</span>
+                {isSelf && <span className="text-[10px] text-tertiary shrink-0">自身</span>}
+              </span>
+              <SwitchButton on={checked} onClick={() => { if (!isSelf) toggle(a.displayName); }} testId={`partner-switch-${a.displayName}`} />
             </label>
           );
         })}

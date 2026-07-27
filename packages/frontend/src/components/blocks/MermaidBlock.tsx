@@ -187,6 +187,7 @@ export function MermaidBlock({ code }: Props) {
 
   // 缩放
   const [scale, setScale] = useState(1);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const zoomIn = useCallback(
     () => setScale((s) => Math.min(MAX_SCALE, +(s + SCALE_STEP).toFixed(2))),
     [],
@@ -195,10 +196,18 @@ export function MermaidBlock({ code }: Props) {
     () => setScale((s) => Math.max(MIN_SCALE, +(s - SCALE_STEP).toFixed(2))),
     [],
   );
-  const onWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    if (e.deltaY < 0) setScale((s) => Math.min(MAX_SCALE, +(s + SCALE_STEP).toFixed(2)));
-    else setScale((s) => Math.max(MIN_SCALE, +(s - SCALE_STEP).toFixed(2)));
+
+  // 用原生事件绑定 wheel 事件（passive: false），React 的 onWheel 是 passive 的无法 preventDefault
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      if (e.deltaY < 0) setScale((s) => Math.min(MAX_SCALE, +(s + SCALE_STEP).toFixed(2)));
+      else setScale((s) => Math.max(MIN_SCALE, +(s - SCALE_STEP).toFixed(2)));
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
   }, []);
 
   const openModal = useCallback(() => {
@@ -300,7 +309,7 @@ export function MermaidBlock({ code }: Props) {
           </div>
 
           <div data-testid="mermaid-modal-viewport" className="flex-1 min-h-0 overflow-auto bg-[#f8f8f8]"
-            onWheel={onWheel} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
+            ref={viewportRef} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
             <div data-testid="mermaid-modal-inner" className="inline-block min-w-full min-h-full p-8 select-none"
               style={{ cursor: dragging ? "grabbing" : "grab", transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`, transformOrigin: "0 0" }}
               onMouseDown={onMouseDown} dangerouslySetInnerHTML={{ __html: svg }} />

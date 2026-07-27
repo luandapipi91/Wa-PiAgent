@@ -102,7 +102,7 @@ interface CliOpts {
 }
 
 function parseArgs(argv: string[]): CliOpts {
-  const opts: CliOpts = { limit: CASES.length, sample: 0, model: null, dryRun: false, out: null, timeoutSec: 180 };
+  const opts: CliOpts = { limit: CASES.length, sample: 0, model: null, dryRun: false, out: null, timeoutSec: 240 };
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {
       case "--limit": opts.limit = parseInt(argv[++i]!, 10); break;

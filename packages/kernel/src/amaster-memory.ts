@@ -16,6 +16,20 @@ export type { MemoryTarget } from "@amaster.ai/pi-memory";
 /** 透传 amaster 的 createMemoryTools（绑定 raw store 生成 agent 可用的记忆 tool 集） */
 export { createMemoryTools } from "@amaster.ai/pi-memory";
 import type { MemoryTarget } from "@amaster.ai/pi-memory";
+import {
+  MEM_ADD_DESC,
+  MEM_ADD_SNIPPET,
+  MEM_REPLACE_DESC,
+  MEM_REPLACE_SNIPPET,
+  MEM_REMOVE_DESC,
+  MEM_REMOVE_SNIPPET,
+  MEM_READ_DESC,
+  MEM_READ_SNIPPET,
+  MEM_TARGET_DESC,
+  MEM_SCOPE_DESC,
+  MemoryTargetSchema,
+  MemoryScopeSchema,
+} from "@hiagent/shared";
 import { Type } from "typebox";
 import { join } from "node:path";
 
@@ -78,15 +92,8 @@ export function createAgentMemoryTools(
   globalStore: AmasterStore,
   projectStore: AmasterStore,
 ): ToolDefinition[] {
-  const SCOPE_DESC =
-    "Where this entry lives: 'global' (cross-project) or 'project' (current project only). " +
-    "Omit for the default — 'global' for the user target, 'project' for the memory target.";
-  const targetSchema = Type.Union([Type.Literal("memory"), Type.Literal("user")], {
-    description: "Which memory file: 'memory' (your notes → MEMORY.md) or 'user' (user profile → USER.md).",
-  });
-  const scopeSchema = Type.Union([Type.Literal("global"), Type.Literal("project")], {
-    description: SCOPE_DESC,
-  });
+  const targetSchema = MemoryTargetSchema;
+  const scopeSchema = MemoryScopeSchema;
 
   const resolveScope = (target: MemoryTarget, scope: unknown): "global" | "project" =>
     scope === "global" || scope === "project" ? scope : target === "user" ? "global" : "project";
@@ -102,12 +109,8 @@ export function createAgentMemoryTools(
     {
       name: "memory_add",
       label: "Memory",
-      description:
-        "Append a new entry to memory. Save durable information that survives across sessions " +
-        "(user preferences, corrections, stable environment facts, conventions). Do NOT save task progress or temporary state. " +
-        "TARGETS: 'user' for who the user is; 'memory' for your own notes. " +
-        "SCOPE: omit for default (user→global, memory→project), or set 'global'/'project' explicitly.",
-      promptSnippet: "Append durable facts to MEMORY.md or USER.md (global or project scope).",
+      description: MEM_ADD_DESC,
+      promptSnippet: MEM_ADD_SNIPPET,
       parameters: Type.Object({
         target: targetSchema,
         scope: Type.Optional(scopeSchema),
@@ -121,10 +124,8 @@ export function createAgentMemoryTools(
     {
       name: "memory_replace",
       label: "Memory",
-      description:
-        "Replace an existing memory entry. Find it by a short unique substring (oldText), replace with newContent. " +
-        "Use this to update outdated entries instead of remove+add. SCOPE defaults like memory_add.",
-      promptSnippet: "Update an existing MEMORY.md or USER.md entry.",
+      description: MEM_REPLACE_DESC,
+      promptSnippet: MEM_REPLACE_SNIPPET,
       parameters: Type.Object({
         target: targetSchema,
         scope: Type.Optional(scopeSchema),
@@ -139,10 +140,8 @@ export function createAgentMemoryTools(
     {
       name: "memory_remove",
       label: "Memory",
-      description:
-        "Remove a memory entry by a short unique substring (oldText). Use when an entry is wrong or no longer relevant. " +
-        "SCOPE defaults like memory_add.",
-      promptSnippet: "Delete an entry from MEMORY.md or USER.md.",
+      description: MEM_REMOVE_DESC,
+      promptSnippet: MEM_REMOVE_SNIPPET,
       parameters: Type.Object({
         target: targetSchema,
         scope: Type.Optional(scopeSchema),
@@ -156,10 +155,8 @@ export function createAgentMemoryTools(
     {
       name: "memory_read",
       label: "Memory",
-      description:
-        "Return live entries and usage for a memory store. Inspect what's saved before deciding to add/replace/remove. " +
-        "SCOPE defaults like memory_add.",
-      promptSnippet: "Read the current contents of MEMORY.md or USER.md.",
+      description: MEM_READ_DESC,
+      promptSnippet: MEM_READ_SNIPPET,
       parameters: Type.Object({
         target: targetSchema,
         scope: Type.Optional(scopeSchema),

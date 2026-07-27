@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Modal } from "../ui/Modal";
-import { readFile } from "../../fs-client";
+import { readFile, revealFile } from "../../fs-client";
 import { useToastStore } from "../../store/toast";
 
 /** kernel fs:readFile 的 content 为 base64（二进制安全），文本预览需解码为 UTF-8 */
@@ -42,7 +42,10 @@ export function FilePreviewModal({ absPath, onClose }: { absPath: string; onClos
         {state.content != null && (
           <pre className="text-[12px] font-mono whitespace-pre-wrap max-h-[60vh] overflow-auto m-0">{state.content}</pre>
         )}
-        <div className="flex justify-end mt-2">
+        <div className="flex justify-end mt-2 gap-2">
+          <button type="button" onClick={() => { revealFile(absPath).catch(() => addToast("打开失败", "error")); }} className="text-[12px] text-secondary hover:text-primary border border-hairline rounded-pill px-2 py-0.5" style={{ cursor: "pointer" }}>
+            查看文件
+          </button>
           <button type="button" onClick={copyPath} className="text-[12px] text-secondary hover:text-primary border border-hairline rounded-pill px-2 py-0.5" style={{ cursor: "pointer" }}>
             复制路径
           </button>

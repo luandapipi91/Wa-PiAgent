@@ -24,6 +24,7 @@ import { useSubagentsStore } from "./store/subagents";
 import { onMessage, connectEvents, onReconnect } from "./events";
 import { ToastContainer } from "./components/ui/Toast";
 import { RecordingCapsule } from "./components/ui/RecordingCapsule";
+import { CommandPalette } from "./components/CommandPalette";
 
 export type View = "empty" | "new-session" | "session";
 
@@ -34,6 +35,7 @@ export function App() {
   const [view, setView] = useState<View>("empty");
   const [configAgent, setConfigAgent] = useState<AgentName | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   // 侧栏/宫格「新建会话」预选的智能体，传给 NewSessionPane
   const [pendingAgent, setPendingAgent] = useState<string | null>(null);
   // 主智能体已删除的会话 id：kernel 回 agent_missing 时打开重选弹窗
@@ -144,6 +146,25 @@ export function App() {
   // 点智能体 → 带着预选切到新建会话视图（与 NewSessionButton 的视图切换一致）
   const chatWith = (name: string) => { setPendingAgent(name); setView("new-session"); };
 
+  // ⌘K / Ctrl+K 弹出命令调色板
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setPaletteOpen(v => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // 监听来自 CommandPalette 的自定义事件
+  useEffect(() => {
+    const handler = () => setGalleryOpen(true);
+    window.addEventListener("hiagent:open-gallery", handler);
+    return () => window.removeEventListener("hiagent:open-gallery", handler);
+  }, []);
+
   return (
     <div className="flex h-screen bg-canvas">
       <Sidebar
@@ -181,6 +202,7 @@ export function App() {
         />
       )}
       {useSettingsStore(s => s.showSettings) && <SettingsModal onClose={() => useSettingsStore.getState().close()} />}
+      {paletteOpen && <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />}
       <ToastContainer />
       <RecordingCapsule />
     </div>

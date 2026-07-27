@@ -161,6 +161,31 @@ describe("composer attachments integration", () => {
     }
   });
 
+  it("fs:readFile 正确展开 ~ 为 HOME 目录", async () => {
+    // 在 HOME 下创建临时文件，然后用 ~ 路径读取
+    const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
+    const testFileName = `hiagent-tilde-test-${Math.random().toString(36).slice(2)}.txt`;
+    const filePath = join(homeDir, testFileName);
+    const tildePath = `~/${testFileName}`;
+    writeFileSync(filePath, "tilde expanded");
+
+    try {
+      await withComposerServer(async (base, _getPromptCalls, _sse) => {
+        const res = await fetch(`${base}/api/fs/read-file`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ path: tildePath }),
+        });
+        const resp = await res.json();
+        // ~ 展开后应正确读取文件
+        expect(resp.type).toBe("fs:readFile");
+        expect(resp.content).toBe(Buffer.from("tilde expanded").toString("base64"));
+      });
+    } finally {
+      rmSync(filePath, { force: true });
+    }
+  });
+
   it("fs:upload 对同名文件自动追加序号", async () => {
     const fileDir = makeTempDir("hiagent-upload-dup-");
     const uploadDir = join(fileDir, ".hiagent", "uploads");

@@ -62,48 +62,34 @@ export const HIAGENT_DEFAULT_BASE_PROMPT =
   "You help users by reading files, executing commands, editing code, and writing new files. " +
   "Be concise in your responses. Show file paths clearly when working with files.";
 
-/** 默认 delegate-mechanism 段（委托机制：主动派发 + @ 语法 + fleet 并行） */
+/** 默认 delegate-mechanism 段（委托机制：示例驱动 + 决策树 + @ 语法 + fleet） */
 export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
   "## Delegation Mechanism\n\n" +
-  "Use the `delegate` tool to invoke subagents. The `agent` parameter takes the `<name>` value " +
-  "from the Available Subagents list below. The `task` parameter is a task contract you write " +
-  "(see pattern below).\n\n" +
-  "### Proactive Delegation\n" +
-  "Default to delegating multi-step exploration. When a request needs several reads/searches " +
-  "to answer (\"find all callers of X\", \"how does Y work across the project\", \"audit Z\", " +
-  "\"list every place that...\"), delegate it to a matching subagent instead of chaining " +
-  "read/grep/bash yourself—the subagent explores in its own context and returns only the " +
-  "conclusion, keeping your context clean. Check the Available Subagents list: each entry's " +
-  "`<whenToDelegate>` / `<whenNotTo>` / `<benefit>` tells you which one fits.\n" +
-  "Still do it yourself when: a single lookup, 1-2 known-file reads, a quick one-step edit, " +
-  "anything you must track intermediate results for, or anything needing user interaction.\n" +
-  "Whatever you delegate, the task must be self-contained—the subagent has none of your " +
-  "conversation context.\n\n" +
-  "### @[agentName] Explicit Delegation\n" +
-  "When the user message contains an explicit assignment in the form @[agentName], " +
-  "you MUST immediately invoke the delegate tool with that agent:\n" +
-  "- The `agent` parameter = the agentName appearing in @[...]\n" +
-  "- The `task` parameter = a task contract you synthesize from the user's intent; " +
-  "do not forward the user's raw text verbatim\n\n" +
-  "Rules:\n" +
-  "1. You must invoke delegate; do not skip, do not answer yourself, " +
-  "do not reassign to an agent outside the Available Subagents list.\n" +
-  "2. The `task` parameter must follow the「task contract」pattern: " +
-  "Context (why invoked) / Request (concrete action) / " +
-  "Output format (expected return structure) / Constraints (boundaries) / " +
-  "Pause policy (complete in one pass unless facing an irreversible action).\n" +
-  "3. If the agentName is not in the Available Subagents list, tell the user and ask for the next step.\n" +
-  "4. After receiving the sub-agent's result, reorganize the language to reply to the user; " +
-  "do not forward verbatim.\n" +
-  "5. When multiple @[agentName] appear in one message, invoke them sequentially in order; " +
-  "each task must independently follow the contract pattern.\n\n" +
-  "### Fleet Parallel Delegation\n" +
-  "When multiple independent subtasks can run in parallel, use the fleet tool " +
-  "(parameter tasks: [{agent, task}]) to dispatch them at once, concurrency limit 6. " +
-  "Each `agent` value comes from the Available Subagents list. " +
-  "Suited for multi-keyword/multi-directory parallel exploration, codebase-wide audit, " +
-  "multi-file parallel processing. Do not use fleet when tasks depend on each other " +
-  "or write to the same files.";
+  "Use `delegate(agent, task)` to invoke subagents from the <subagents> list below. " +
+  "Each entry's `<whenToDelegate>` / `<whenNotTo>` / `<benefit>` tells you which agent fits.\n\n" +
+  "### Example\n" +
+  "User: \"find all call sites of sendEmail and check error handling\"\n" +
+  "You: delegate(agent=\"Explore\", task=\"Search the entire project for all call sites of sendEmail. " +
+  "For each site report: file path, line number, calling function, and whether it wraps with try-catch. " +
+  "Only search under src/. Return as a markdown table with columns: File | Line | Caller | HasErrorHandling.\")\n\n" +
+  "### Decision Tree\n" +
+  "Before reaching for read/grep/edit, ask:\n" +
+  "├─ Single file, known path, 1-2 reads/edits? → Do it yourself\n" +
+  "├─ Multi-file exploration, 3+ tool calls expected? → delegate to Explore\n" +
+  "├─ Needs design/architecture planning? → delegate to Plan\n" +
+  "├─ Complex multi-step with writes? → delegate to general-purpose\n" +
+  "└─ Needs user interaction or back-and-forth? → Do NOT delegate\n\n" +
+  "### Task Contract\n" +
+  "Write a self-contained task—the subagent has NO conversation context. Include: " +
+  "search scope (files/dirs), expected output format, constraints. " +
+  "Synthesize from the user's intent; do NOT forward raw text.\n\n" +
+  "### @[agentName] Trigger\n" +
+  "When user writes @agentName (e.g. @后端架构师, @Explore):\n" +
+  "→ Immediately call delegate with that agent. Do NOT answer yourself.\n" +
+  "Agent not in <subagents> list? Tell the user. Multiple @names → invoke sequentially.\n\n" +
+  "### Fleet (Parallel)\n" +
+  "`fleet({tasks: [{agent, task}, ...]})` for independent parallel tasks (limit 6).\n" +
+  "Use when: searching unrelated modules, multi-file audits. Avoid: same-file conflicts.";
 
 /**
  * 默认段落配置（用于 prompts.json 不存在时初始化）。
@@ -166,7 +152,7 @@ export function composePrompt(
 
 /** prompts.json 的 schema 版本。升级静态段文案（delegate-syntax / subagent-clarify）时递增，
  *  ensurePromptsConfig 据此对已存在文件做迁移——只刷新静态段 content，保留动态段用户自定义。 */
-export const PROMPTS_SCHEMA_VERSION = 7;
+export const PROMPTS_SCHEMA_VERSION = 8;
 
 /**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。

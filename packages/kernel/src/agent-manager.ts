@@ -388,12 +388,18 @@ export class AgentManager {
           const { getSubagentOverride } = await import("./subagent-store");
           const { SUBAGENT_OVERRIDES_FILE } = await import("@hiagent/shared");
           const override = await getSubagentOverride(SUBAGENT_OVERRIDES_FILE, agentName);
+          // 校验 model：HiAgent 模型标识固定为 "provider/modelId" 格式；不含 "/" 的视为无效并降级
+          let model = override?.model ?? null;
+          if (model && !model.includes("/")) {
+            console.warn(`[kernel] 子智能体「${agentName}」的 override model "${model}" 格式无效（缺少 /），已降级为跟随主智能体`);
+            model = null;
+          }
           return {
             name: builtin.name,
             description: builtin.description,
             systemPrompt: prompt,
             systemPromptMode: "replace",
-            model: override?.model ?? null,
+            model,
             thinking: override?.thinking ?? null,
             tools: builtin.readOnly ? ["read", "bash", "grep", "find", "ls"] : [],
             skills: [],
@@ -403,12 +409,17 @@ export class AgentManager {
       // 命名智能体：从 ConfigStore 读配置
       const cfg = await this.opts.configStore?.getAgent(agentName).catch(() => null);
       if (!cfg) return null;
+      let cfgModel = cfg.model;
+      if (cfgModel && !cfgModel.includes("/")) {
+        console.warn(`[kernel] 智能体「${agentName}」的 model "${cfgModel}" 格式无效（缺少 /），已降级为跟随主智能体`);
+        cfgModel = null;
+      }
       return {
         name: cfg.displayName,
         description: cfg.description,
         systemPrompt: cfg.systemPromptBody ?? "",
         systemPromptMode: cfg.systemPromptMode,
-        model: cfg.model,
+        model: cfgModel,
         thinking: cfg.thinking,
         tools: cfg.tools,
         skills: cfg.skills,
@@ -819,9 +830,17 @@ export class AgentManager {
     return this.sessions.get(sessionId)?.busy ?? false;
   }
 
-  /** 会话销毁时把子代理派发遥测追加到 HIAGENT_DIR/subagent-telemetry.jsonl（fire-and-forget） */
+  /**
+   * 会话销毁时把子代理派发遥测追加到 HIAGENT_DIR/subagent-telemetry.jsonl（fire-and-forget）。
+   *
+   * 边界情况：
+   * - 无记录时（records.length === 0）直接返回，不落盘也不打印日志，
+   *   避免在 subagent-telemetry.jsonl 中产生空行或仅含 session_summary 的无效条目。
+   * - 落盘失败静默吞错（fire-and-forget），不阻塞会话拆除流程。
+   */
   private _flushSubagentTelemetry(sessionId: string, handle: SessionHandle): void {
     const records = handle.subagentTelemetry.records;
+    // 无记录时不落盘：没有派发过子代理的会话不产生遥测文件写入
     if (records.length === 0) return;
     const summary = handle.subagentTelemetry.summary;
     const lines = [

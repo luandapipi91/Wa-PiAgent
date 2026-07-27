@@ -74,13 +74,20 @@ afterEach(async () => {
 // 生成的扩展文件是 kernel 启动产物（startKernel 会幂等重写），测完删除不污染环境
 afterAll(() => {
   rmSync(BRIDGE_EXTENSION_PATH, { force: true });
+  rmSync(join(BRIDGE_EXTENSION_PATH, "..", "tool-schemas.ts"), { force: true });
 });
 
-/** 把生成的扩展源码写到 tests 内的临时文件并动态 import（仅此处 typebox 才可解析），
+/** 把 bridge 扩展源码 + tool-schemas 依赖写到 tests 内的临时目录并动态 import，
  *  返回捕获到的 7 个 registerTool 定义。 */
 async function loadBridgeTools(env?: Record<string, string>) {
   for (const [k, v] of Object.entries(env ?? {})) process.env[k] = v;
   const file = join(import.meta.dir, `.tmp-bridge-${Math.random().toString(36).slice(2)}.ts`);
+  // 静态 bridge 扩展 import "./tool-schemas.ts"，需把 tool-schemas 复制到同目录
+  const schemasFile = join(import.meta.dir, "tool-schemas.ts");
+  const schemasSrc = join(import.meta.dir, "..", "..", "shared", "src", "tool-schemas.ts");
+  const { copyFileSync } = await import("node:fs");
+  copyFileSync(schemasSrc, schemasFile);
+  tmpFiles.push(schemasFile);
   writeFileSync(file, generateBridgeExtension(), "utf8");
   tmpFiles.push(file);
   const mod = await import(pathToFileURL(file).href);

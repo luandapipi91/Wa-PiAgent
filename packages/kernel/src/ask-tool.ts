@@ -4,30 +4,15 @@
 // 返回 pi ToolDefinition 形状的普通对象（defineTool 只是恒等函数，不依赖 SDK import）。
 // 生产路径：schema 由 hiagent-bridge 扩展注册（bridge-extension.ts 复制本文件 schema）；
 // execute 本体在 ask-runner.ts（runAskTool），bridge 与测试共用。
-import { Type } from "typebox";
+import {
+  ASK_DESCRIPTION,
+  ASK_PROMPT_GUIDELINES,
+  AskParamsSchema,
+} from "@hiagent/shared";
 import { runAskTool, type AskToolDetails } from "./ask-runner";
 
 // 兼容旧引用方：AskToolDetails 已移至 ask-runner.ts（与 bridge 共用的无 SDK 实现）
 export type { AskToolDetails } from "./ask-runner";
-
-const AskParamsSchema = Type.Object({
-  questions: Type.Array(
-    Type.Object({
-      question: Type.String({ description: "完整问题文本，以 ? 结尾" }),
-      header: Type.String({ description: "chip 标签文字，≤16 字符" }),
-      multiSelect: Type.Optional(Type.Boolean({ description: "是否多选，默认 false" })),
-      options: Type.Array(
-        Type.Object({
-          label: Type.String({ description: "1-5 词，≤60 字符" }),
-          description: Type.String({ description: "解释该选项/取舍" }),
-          preview: Type.Optional(Type.String({ description: "可选 markdown，随选项展示" })),
-        }),
-        { minItems: 2, maxItems: 4 },
-      ),
-    }),
-    { minItems: 1, maxItems: 4 },
-  ),
-});
 
 /** 构造 ask_user_question 工具（闭包绑 sessionId）。每个 session 一份实例。 */
 export function makeAskTool(sessionId: string) {
@@ -35,13 +20,8 @@ export function makeAskTool(sessionId: string) {
   return {
     name: "ask_user_question",
     label: "Ask User",
-    description:
-      "向用户提出 1-4 个结构化澄清问题（每问 2-4 个选项），代替瞎猜。每个问题可单选或多选；" +
-      "用户可填「其他」自由文本或取消。返回 details.answers（含 kind: option|custom|multi）或 cancelled。",
-    promptGuidelines: [
-      "当存在会显著改变实现的歧义、且不值得自己合理假设时再用；一次问最少必要的问题；",
-      "选项文案简洁，给出取舍说明；不要用于确认显而易见的事。",
-    ],
+    description: ASK_DESCRIPTION,
+    promptGuidelines: ASK_PROMPT_GUIDELINES,
     parameters: AskParamsSchema,
     async execute(toolCallId: string, params: unknown, signal?: AbortSignal): Promise<{
       content: Array<{ type: "text"; text: string }>;

@@ -45,6 +45,11 @@ export async function readFile(path: string): Promise<{ content: string; mimeTyp
   return { content: res.content, mimeType: res.mimeType };
 }
 
+/** 在系统文件管理器中打开文件所在目录 */
+export async function revealFile(path: string): Promise<void> {
+  await transport.post("/api/fs/reveal-file", { path });
+}
+
 export async function copyToUploads(
   projectId: string,
   source: string,
