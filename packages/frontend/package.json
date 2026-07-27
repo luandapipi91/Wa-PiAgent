@@ -12,6 +12,7 @@
   "dependencies": {
     "@hiagent/shared": "workspace:*",
     "idb": "^8.0.3",
+    "mermaid": "^11.16.0",
     "prism-react-renderer": "^2.4.1",
     "react": "^19.0.0",
     "react-complex-tree": "^2.6.2",
