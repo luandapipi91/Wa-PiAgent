@@ -163,21 +163,15 @@ export function SkillSection() {
               return (
                 <div
                   key={skill.name}
-                  className="flex flex-col py-1.5 cursor-pointer select-none"
+                  className="flex flex-col py-1.5 select-none"
                   style={{ opacity: disabled ? 0.5 : 1 }}
-                  onClick={() => toggleExpand(skill.name)}
                   data-testid={`skill-row-${skill.name}`}
                 >
-                  {/* 行头部：checkbox + 名称 + 标签 + 展开箭头 */}
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={!disabled}
-                      onChange={(e) => { e.stopPropagation(); toggleSkill(skill.name); }}
-                      data-testid={`skill-checkbox-${skill.name}`}
-                      className="cursor-pointer shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    />
+                  {/* 行头部：名称 + 标签 + 展开箭头（左）| switch 开关（右） */}
+                  <div
+                    className="flex items-center gap-2 cursor-pointer"
+                    onClick={() => toggleExpand(skill.name)}
+                  >
                     <span className="text-sm font-semibold text-primary">{skill.name}</span>
                     {tag && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full"
@@ -187,12 +181,35 @@ export function SkillSection() {
                     {disabled && (
                       <span className="text-[10px] font-semibold" style={{ color: "var(--danger)" }}>禁用</span>
                     )}
-                    <span className="text-xs text-tertiary ml-auto">{expanded ? "▾" : "▸"}</span>
+                    <span className="text-xs text-tertiary flex-1">{expanded ? "▾" : "▸"}</span>
+
+                    {/* switch 开关，最右侧 */}
+                    <div
+                      onClick={(e) => { e.stopPropagation(); toggleSkill(skill.name); }}
+                      className="relative shrink-0 cursor-pointer"
+                      style={{
+                        width: 38, height: 22, borderRadius: 9999,
+                        background: disabled ? "#cbd5e1" : "var(--success)",
+                        transition: "background 0.2s",
+                      }}
+                      data-testid={`skill-switch-${skill.name}`}
+                      data-on={disabled ? "false" : "true"}
+                    >
+                      <span
+                        className="absolute top-0.5 rounded-full bg-white transition-all"
+                        style={{
+                          width: 18, height: 18,
+                          left: disabled ? 2 : undefined,
+                          right: disabled ? undefined : 2,
+                          boxShadow: "0 1px 2px rgba(0,0,0,.1)",
+                        }}
+                      />
+                    </div>
                   </div>
 
                   {/* 描述 */}
                   {expanded && skill.description && (
-                    <div className="pl-6 pt-1">
+                    <div className="pl-0 pt-1">
                       <span className="text-[11px] text-tertiary">{skill.description}</span>
                     </div>
                   )}

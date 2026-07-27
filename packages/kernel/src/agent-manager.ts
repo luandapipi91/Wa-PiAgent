@@ -238,11 +238,11 @@ export class AgentManager {
   /**
    * 读取当前启用的可选插件 id 集合，供 -e 扩展路径与工具放行过滤。
    * 无 extensionManager 时返回空集（保持测试兼容）。
+   * 热路径用轻量方法：list() 会对每个启用包跑 bun pm ls + npm view（registry 网络请求）。
    */
   private async getEnabledExtensionIds(): Promise<Set<string>> {
     if (!this.opts.extensionManager) return new Set();
-    const { packages } = await this.opts.extensionManager.list();
-    return new Set(packages.filter((p) => p.enabled).map((p) => p.name));
+    return new Set(await this.opts.extensionManager.listEnabledPackageNames());
   }
 
   /** 计算 MCP direct 工具名（受限 agent 白名单与 listGlobalTools 用）；无 mcpStore 时返回空 */

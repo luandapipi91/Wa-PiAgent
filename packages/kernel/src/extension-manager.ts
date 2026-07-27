@@ -402,19 +402,29 @@ export class ExtensionManager {
   }
 
   /**
+   * 轻量列出启用包名（纯读 settings.json，不查安装版本、不问 npm registry）。
+   * 供会话启动等热路径使用；设置面板才需要带版本/最新版信息的 list()。
+   */
+  async listEnabledPackageNames(): Promise<string[]> {
+    const settings = await this.readSettings();
+    return [...this.extractNames(settings.hiagent_packages ?? []).keys()];
+  }
+
+  /**
    * 获取已启用扩展包中包含技能（SKILL.md）的 skills/ 目录路径列表。
    * 入口处用 hasSkillMd 做快速过滤，只返回通过检测的路径。
    * 供 skill-manager.scan() 扫描 + agent-manager additionalSkillPaths 两处消费。
    */
   async getEnabledExtensionSkillPaths(): Promise<{ path: string; packageName: string }[]> {
-    const { packages } = await this.list();
-    const enabled = packages.filter(p => p.enabled);
+    // 热路径用轻量方法：list() 会对每个启用包跑 bun pm ls + npm view（registry 网络请求），
+    // 而这里只需要启用包名
+    const enabledNames = await this.listEnabledPackageNames();
     const result: { path: string; packageName: string }[] = [];
-    for (const pkg of enabled) {
-      const skillsDir = join(HIAGENT_DIR, "runtime", "node_modules", pkg.name, "skills");
+    for (const name of enabledNames) {
+      const skillsDir = join(HIAGENT_DIR, "runtime", "node_modules", name, "skills");
       try {
         const { found } = await hasSkillMd(skillsDir);
-        if (found) result.push({ path: skillsDir, packageName: pkg.name });
+        if (found) result.push({ path: skillsDir, packageName: name });
       } catch {
         // 目录不存在或无法访问 -> 跳过
       }

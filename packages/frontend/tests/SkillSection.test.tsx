@@ -150,7 +150,7 @@ test("用户目录有删除按钮", () => {
   expect(screen.getByTestId("skill-dir-remove-/home/.claude/skills")).toBeTruthy();
 });
 
-test("技能列表渲染 + checkbox toggle", () => {
+test("技能列表渲染 + switch 开关在右侧", () => {
   const toggleMock = mock();
   useSkillsStore.setState({
     allSkills: [
@@ -163,10 +163,20 @@ test("技能列表渲染 + checkbox toggle", () => {
   render(<SkillSection />);
   expect(screen.getByText("brave-search")).toBeTruthy();
   expect(screen.getByText("pdf-tools")).toBeTruthy();
-  const pdfCheckbox = screen.getByTestId("skill-checkbox-pdf-tools") as HTMLInputElement;
-  expect(pdfCheckbox.checked).toBe(false);
-  fireEvent.click(pdfCheckbox);
+
+  // switch 开关替代了旧的 checkbox，放在每行最右侧
+  const pdfSwitch = screen.getByTestId("skill-switch-pdf-tools");
+  expect(pdfSwitch).toBeTruthy();
+  // pdf-tools 被禁用，toggle 应显示为 off 状态
+  expect(pdfSwitch.getAttribute("data-on")).toBe("false");
+
+  // 点击开关切换
+  fireEvent.click(pdfSwitch);
   expect(toggleMock).toHaveBeenCalledWith("pdf-tools");
+
+  // brave-search 是启用状态
+  const braveSwitch = screen.getByTestId("skill-switch-brave-search");
+  expect(braveSwitch.getAttribute("data-on")).toBe("true");
 });
 
 test("点击添加技能目录弹出 DirTreePicker", () => {
