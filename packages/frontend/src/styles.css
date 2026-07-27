@@ -145,9 +145,7 @@ body {
   border-radius: 10px;
   background: var(--bg-secondary);
   color: var(--text-secondary);
-  display: inline-flex;
-  align-items: center;
-  line-height: 1.4;
+  white-space: nowrap;
 }
 .token-capsule--cache {
   background: var(--success-soft);
