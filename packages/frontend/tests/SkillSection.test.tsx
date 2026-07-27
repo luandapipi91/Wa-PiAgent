@@ -179,6 +179,29 @@ test("技能列表渲染 + switch 开关在右侧", () => {
   expect(braveSwitch.getAttribute("data-on")).toBe("true");
 });
 
+test("开关点击立即乐观更新 UI，不等待服务端响应", () => {
+  // 使用真实的 toggleSkill（会发起 HTTP 但在 happy-dom 中静默失败）
+  useSkillsStore.setState({
+    allSkills: [
+      { name: "skill-a", description: "A", path: "/a" },
+    ],
+    disabledSkills: [],
+    toggleSkill: originalActions.toggleSkill,
+  });
+  render(<SkillSection />);
+
+  const getSwitch = () => screen.getByTestId("skill-switch-skill-a");
+  expect(getSwitch().getAttribute("data-on")).toBe("true");
+
+  // 点击关闭 → 立即变为 OFF（乐观更新，不等 SSE）
+  fireEvent.click(getSwitch());
+  expect(getSwitch().getAttribute("data-on")).toBe("false");
+
+  // 再次点击 → 立即变为 ON
+  fireEvent.click(getSwitch());
+  expect(getSwitch().getAttribute("data-on")).toBe("true");
+});
+
 test("点击添加技能目录弹出 DirTreePicker", () => {
   useSkillsStore.setState({
     dirs: ["/home/.hiagent/skills"],
