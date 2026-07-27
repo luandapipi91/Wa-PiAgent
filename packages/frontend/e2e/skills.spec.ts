@@ -72,11 +72,11 @@ test.describe.serial("技能管理", () => {
     await expect(page.getByText("test-skill")).toBeVisible({ timeout: 5000 });
 
     // 禁用
-    await page.getByTestId("skill-checkbox-test-skill").click();
+    await page.getByTestId("skill-switch-test-skill").click();
     await expect(page.getByText("[禁用]")).toBeVisible({ timeout: 5000 });
 
     // 启用
-    await page.getByTestId("skill-checkbox-test-skill").click();
+    await page.getByTestId("skill-switch-test-skill").click();
     await expect(page.getByText("[禁用]")).toHaveCount(0, { timeout: 5000 });
 
     // 清理：删除测试目录

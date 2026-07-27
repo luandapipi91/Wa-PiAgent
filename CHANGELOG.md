@@ -6,6 +6,11 @@
 
 ## 2026-07-27
 
+### 修复
+
+- **首次打开存量会话慢（5-10s → ~0.3s）**：打开历史会话时 `session:messages` 旧路径要 `ensureStarted` 冷启动整个 pi rpc 进程才能拿历史（~1.5s），且 `_createSession` 链路两次调用 `ExtensionManager.list()`——每次对启用的 npm 扩展跑 `bun pm ls` + `npm view`（registry 网络请求，5s 超时兜底，慢网络下直接 10s+），而调用方只需要启用包名。修复：① `ExtensionManager` 新增 `listEnabledPackageNames()`（纯读 settings.json），`getEnabledExtensionIds` / `getEnabledExtensionSkillPaths` 改用它，版本查询只留给设置面板；② `session:messages` 改为直接解析 piSessionFile（JSONL parentId 链取当前分支，含 dangling-ask 对账），毫秒级返回历史，pi 进程改为后台预热（首条 prompt 免冷启动），文件解析失败回退原进程路径。实测：API 3.4s → 0.05s，浏览器点击到历史渲染 281ms。
+  - 影响范围：packages/kernel/src/extension-manager.ts, packages/kernel/src/agent-manager.ts, packages/kernel/src/session-history.ts（新增）, packages/kernel/src/ws-server.ts, packages/kernel/tests/session-history.test.ts（新增）, packages/kernel/tests/extension-manager.test.ts, packages/kernel/tests/session-messages.test.ts, packages/frontend/e2e/session-history.spec.ts（新增）
+
 ### 新增
 
 - **高级项目经理角色**：把网站规格说明书拆成开发任务的资深PM角色，含完整的规格分析、任务拆解模板、范围控制规则。emoji 📋，橙色系。

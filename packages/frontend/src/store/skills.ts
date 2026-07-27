@@ -39,9 +39,23 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
       loading: false,
     }),
   toggleSkill: (skillName) => {
-    // 当前已禁用 → 启用；当前启用 → 禁用
+    // 乐观更新：立即切换本地 disabledSkills，SSE 事件回来后 setAll 会覆盖矫正
     const isDisabled = get().disabledSkills.includes(skillName);
-    void api.post("/api/skills/toggle", { name: skillName, enabled: !isDisabled });
+    set(s => ({
+      disabledSkills: isDisabled
+        ? s.disabledSkills.filter(n => n !== skillName)
+        : [...s.disabledSkills, skillName],
+    }));
+    api.post("/api/skills/toggle", { name: skillName, enabled: !isDisabled }).catch((err) => {
+      // 请求失败时回退乐观更新
+      console.error("[skills] toggle 请求失败，回退:", err);
+      const curDisabled = get().disabledSkills.includes(skillName);
+      set(s => ({
+        disabledSkills: curDisabled
+          ? s.disabledSkills.filter(n => n !== skillName)
+          : [...s.disabledSkills, skillName],
+      }));
+    });
   },
   addDir: (path) => {
     void api.post("/api/skills/dirs", { path });
