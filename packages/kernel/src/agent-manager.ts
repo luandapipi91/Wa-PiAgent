@@ -470,12 +470,22 @@ export class AgentManager {
       defaultBasePrompt,
       delegateRoster,
       builtinSkillsDir: BUILTIN_SKILLS_DIR,
-      memorySnapshot,
+      // 记忆快照不再注入 composePrompt，改为 --append-system-prompt 挂载到末尾，
+      // 使核心提示词完全静态化，最大化 LLM prompt caching 前缀命中率。
+      memorySnapshot: "",
     });
     const tmpDir = join(HIAGENT_DIR, "tmp", "sysprompts");
     await mkdir(tmpDir, { recursive: true });
     const promptFile = join(tmpDir, `${sessionId}.md`);
     await writeFile(promptFile, composedPrompt, "utf8");
+
+    // 记忆快照：写入独立文件，经 --append-system-prompt 追加到提示词末尾。
+    // pi 在 customPrompt 之后拼接 appendSystemPrompt → 不影响前缀缓存。
+    let memorySnapshotFile: string | undefined;
+    if (memorySnapshot) {
+      memorySnapshotFile = join(tmpDir, `${sessionId}-memory.md`);
+      await writeFile(memorySnapshotFile, memorySnapshot, "utf8");
+    }
 
     // 工具放行策略：
     // - 默认（agent 未显式配置 tools）：排除式——不传 --tools，仅 -xt subagent；
@@ -522,6 +532,7 @@ export class AgentManager {
       args: buildPiArgs({
         sessionFile: sessionEntity.piSessionFile,
         systemPromptFile: promptFile,
+        appendSystemPrompt: memorySnapshotFile,
         extensionPaths: buildAdditionalExtensionPaths([...enabledExtensionIds]),
         skillPaths: additionalSkillPaths,
         noSkills: true,

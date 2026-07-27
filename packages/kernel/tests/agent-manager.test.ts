@@ -652,8 +652,9 @@ test("系统提示词写入 sysprompts 文件：含 base / delegateRoster / env 
   expect(prompt).toMatch(/internal terminology/i);
 });
 
-test("系统提示词注入记忆快照（memorySnapshot 段）", async () => {
-  // 先向真实全局记忆写入一条唯一内容，验证快照拼接进提示词，测完清理
+test("系统提示词注入记忆快照（经 --append-system-prompt 独立文件）", async () => {
+  // 先向真实全局记忆写入一条唯一内容，验证快照写入独立 memory 文件而非 composePrompt。
+  // composePrompt 静态化以最大化 LLM 缓存命中率。
   const unique = `测试记忆-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const globalStore = getGlobalMemoryStore(HIAGENT_DIR);
   await globalStore.add("memory", unique);
@@ -661,8 +662,15 @@ test("系统提示词注入记忆快照（memorySnapshot 段）", async () => {
     const { project, session, am } = await setup();
     await am.ensureStarted(project.id, "dev", session.id);
 
+    // composePrompt（--system-prompt）不应包含记忆快照
     const prompt = readSysprompt(session.id);
-    expect(prompt).toContain(unique);
+    expect(prompt).not.toContain(unique);
+
+    // 记忆快照应在 --append-system-prompt 独立文件中
+    const memoryFile = join(HIAGENT_DIR, "tmp", "sysprompts", `${session.id}-memory.md`);
+    expect(existsSync(memoryFile)).toBe(true);
+    const memoryContent = readFileSync(memoryFile, "utf8");
+    expect(memoryContent).toContain(unique);
   } finally {
     await globalStore.remove("memory", unique).catch(() => {});
   }
