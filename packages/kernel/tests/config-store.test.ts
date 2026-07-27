@@ -94,17 +94,17 @@ test("renameAgent: 删旧写新；新名冲突返回错误", async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("seedDefaults: 空目录写入全部 7 个内置专家角色", async () => {
+test("seedDefaults: 空目录写入全部 9 个内置专家角色", async () => {
   const dir = tempAgentsDir();
   const cs = new ConfigStore(dir);
   await cs.seedDefaults();
   const names = (await cs.listAgents()).map(a => a.displayName).sort();
   expect(names).toEqual([
-    "UX设计师", "产品经理", "前端开发者", "数据分析师", "测试结果分析师",
-    "代码审查员", "后端架构师",
+    "UX设计师", "产品经理", "前端开发者", "会议纪要专家", "数据分析师",
+    "测试结果分析师", "代码审查员", "高级项目经理", "后端架构师",
   ].sort());
-  // 7 个角色有完整种子内容：description 非空、delegationHints 三项齐全、不配置 askTo
-  for (const name of ["前端开发者", "后端架构师", "产品经理", "测试结果分析师", "数据分析师", "代码审查员", "UX设计师"]) {
+  // 9 个角色有完整种子内容：description 非空、delegationHints 三项齐全、不配置 askTo
+  for (const name of ["前端开发者", "后端架构师", "产品经理", "测试结果分析师", "数据分析师", "代码审查员", "UX设计师", "高级项目经理", "会议纪要专家"]) {
     const agent = (await cs.getAgent(name))!;
     expect(agent.description).toBeTruthy();
     expect(agent.systemPromptBody).toBeTruthy();
@@ -128,7 +128,7 @@ test("seedDefaults: 重复执行不覆盖用户已修改的同名角色", async 
   await cs.seedDefaults();
   expect((await cs.getAgent("前端开发者"))!.description).toBe("用户自定义描述");
   expect(await cs.getAgent("UX设计师")).not.toBeNull();
-  expect((await cs.listAgents()).length).toBe(7);
+  expect((await cs.listAgents()).length).toBe(9);
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -144,9 +144,9 @@ test("seedDefaults: 存量环境只补缺失角色，不新建已移除的旧角
   await cs.seedDefaults();
 
   const names = (await cs.listAgents()).map(a => a.displayName);
-  // 7 个内建 + 旧角色 + 自定义角色 = 9；旧 4 角色不会被重新创建（本例中 技术实现 是用户已有的）
-  expect(names).toHaveLength(9);
-  for (const name of ["前端开发者", "后端架构师", "产品经理", "测试结果分析师", "数据分析师", "代码审查员", "UX设计师"]) {
+  // 9 个内建 + 旧角色 + 自定义角色 = 11
+  expect(names).toHaveLength(11);
+  for (const name of ["前端开发者", "后端架构师", "产品经理", "测试结果分析师", "数据分析师", "代码审查员", "UX设计师", "高级项目经理", "会议纪要专家"]) {
     expect(names).toContain(name);
   }
   for (const removed of ["需求设计", "项目管理", "质量验收"]) {
@@ -170,7 +170,7 @@ test("seedDefaults: HIAGENT_SKIP_AGENT_SEED=1 时整体跳过（E2E 最小环境
   }
   // 环境变量移除后恢复正常 seed
   await cs.seedDefaults();
-  expect(await cs.listAgents()).toHaveLength(7);
+  expect(await cs.listAgents()).toHaveLength(9);
   rmSync(dir, { recursive: true, force: true });
 });
 

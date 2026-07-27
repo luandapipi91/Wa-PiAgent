@@ -286,3 +286,21 @@ test("Bug2: selectedProjectId 为 null 时用 currentProjectId 兜底加载指�
   // activeProjectId = selectedProjectId ?? currentProjectId = "p2"
   expect(loadInstructionsMock).toHaveBeenCalledWith("p2");
 });
+
+// —— Bug 2 补充2：无任何项目上下文时，指令文件 Tab 仍触发加载（传空 projectId 走全局扫描） ——
+test("Bug2: currentProjectId 和 selectedProjectId 均为 null 时，指令文件 Tab 仍加载全局指令", () => {
+  const loadInstructionsMock = mock();
+  useProjectsStore.setState({
+    currentProjectId: null,
+    projects: [],
+  });
+  useMemoryStore.setState({
+    selectedProjectId: null,
+    loadInstructions: loadInstructionsMock,
+    activeTab: "saved",
+  });
+  render(<MemoryPage />);
+  fireEvent.click(screen.getByTestId("tab-指令文件"));
+  // 即使 activeProjectId 为 null，也应触发 loadInstructions("") 扫描全局指令文件
+  expect(loadInstructionsMock).toHaveBeenCalledWith("");
+});

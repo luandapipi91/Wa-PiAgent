@@ -77,7 +77,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
       return;
     }
     useAgentsStore.getState().loadConfig(agentName);
-    void api.get("/api/agents/tools");
+    api.get("/api/agents/tools").then((data: any) => { if (data?.tools) setTools(data.tools); });
     const off = onMessage(e => {
       if (e.type === "agent:config" && e.agentName === agentName) setDraft(e.config);
       if (e.type === "agent:tools:list") setTools(e.tools);
@@ -326,12 +326,13 @@ function ToolsTab({ draft, onChange, tools }: TabProps & { tools: AgentToolItem[
 function SkillsTab({ draft, onChange }: TabProps) {
   const allSkills = useSkillsStore(s => s.allSkills);
   const all = allSkills.map(s => s.name);
+  const skills = draft.skills ?? [];
   // 与工具同语义：空数组 = 全量继承，展示态全部勾选
-  const checked = (n: string) => draft.skills.length === 0 || draft.skills.includes(n);
+  const checked = (n: string) => skills.length === 0 || skills.includes(n);
   const toggle = (n: string) => {
-    const next = draft.skills.length === 0
+    const next = skills.length === 0
       ? all.filter(x => x !== n)
-      : draft.skills.includes(n) ? draft.skills.filter(x => x !== n) : [...draft.skills, n];
+      : skills.includes(n) ? skills.filter(x => x !== n) : [...skills, n];
     onChange({ ...draft, skills: next });
   };
   if (allSkills.length === 0) return <p className="text-sm text-tertiary">暂无技能，可在设置中添加技能目录</p>;

@@ -42,10 +42,11 @@ export function MemoryPage() {
   }, [load, activeProjectId]);
 
   // 指令文件 Tab：进入该 Tab 或切换项目/作用域时加载。
-  // 入参用 activeProjectId（含 currentProjectId 兜底），避免 selectedProjectId 为 null 时不加载。
+  // 即使 activeProjectId 为 null（无项目上下文），也调用 loadInstructions，
+  // 后端 listInstructions 不依赖 projectId 扫描全局指令文件。
   useEffect(() => {
-    if (activeTab === "instructions" && activeProjectId) {
-      loadInstructions(activeProjectId);
+    if (activeTab === "instructions") {
+      loadInstructions(activeProjectId ?? "");
     }
   }, [activeProjectId, activeTab, loadInstructions]);
 

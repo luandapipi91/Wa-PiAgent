@@ -51,7 +51,7 @@ interface MemoryState {
   setSearchQuery: (q: string) => void;
 }
 
-export const useMemoryStore = create<MemoryState>((set) => ({
+export const useMemoryStore = create<MemoryState>((set, get) => ({
   memories: [],
   archived: [],
   instructions: [],
@@ -67,11 +67,11 @@ export const useMemoryStore = create<MemoryState>((set) => ({
 
   load: (projectId) => {
     set({ loading: true });
-    api.get(`/api/memories?projectId=${projectId}`).then((data: any) => { if (data) get().setMemories(data); }).catch(() => set({ loading: false }));
-    api.get("/api/memories/config").then((data: any) => { if (data) get().setConfig(data); }).catch(() => {});
+    api.get(`/api/memories?projectId=${projectId}`).then((data: any) => { if (data) get().setMemories(data); }).catch((err) => { console.error("[memory] 加载记忆列表失败:", err); set({ loading: false }); });
+    api.get("/api/memories/config").then((data: any) => { if (data) get().setConfig(data); }).catch((err) => { console.error("[memory] 加载记忆配置失败:", err); });
   },
   loadInstructions: (projectId) => {
-    api.get(`/api/instructions?projectId=${projectId}`).then((data: any) => { if (data) get().setInstructions(data); }).catch(() => {});
+    api.get(`/api/instructions?projectId=${projectId}`).then((data: any) => { if (data) get().setInstructions(data); }).catch((err) => { console.error("[memory] 加载指令文件失败:", err); });
   },
   setMemories: (data) => set({
     memories: data.memories,
@@ -90,7 +90,7 @@ export const useMemoryStore = create<MemoryState>((set) => ({
     void api.post("/api/memories/restore", { projectId, entryId });
   },
   purge: (projectId, entryId) => {
-    void api.del(`/api/memories/${entryId}?projectId=${projectId}`);
+    void api.del(`/api/memories/${encodeURIComponent(entryId)}?projectId=${projectId}`);
   },
   add: (scope, text, projectId) => {
     void api.post("/api/memories", { scope, text, projectId });

@@ -4,6 +4,38 @@
 
 ---
 
+## 2026-07-27
+
+### 新增
+
+- **高级项目经理角色**：把网站规格说明书拆成开发任务的资深PM角色，含完整的规格分析、任务拆解模板、范围控制规则。emoji 📋，橙色系。
+  - 影响范围：packages/shared/src/constants.ts, packages/kernel/src/default-agent-seeds.ts, packages/kernel/tests/config-store.test.ts
+
+- **会议纪要专家角色**：把会议输入（transcript/笔记/语音备忘）转化成四段式结构化纪要的角色，含严格提取规则和输出模板。emoji 📝，蓝紫色系。
+  - 影响范围：packages/shared/src/constants.ts, packages/kernel/src/default-agent-seeds.ts, packages/kernel/tests/config-store.test.ts
+
+### 修复
+
+- **角色设置工具 Tab 一直加载中**：`api.get("/api/agents/tools")` 返回的 HTTP 响应被 `void` 丢弃，而 WS 广播路径因 `callApi` 只返回最后一条 reply 不广播而导致事件从未到达前端。改为 `.then(data => setTools(data.tools))` 直接从 HTTP 响应提取。
+  - 影响范围：packages/frontend/src/components/AgentConfig.tsx
+
+- **编辑角色时 SkillsTab 崩溃（Cannot read properties of undefined reading 'length'）**：`loadConfig` 的 HTTP 响应是 `{ type, agentName, config }` 包装对象，但被直接当作 `AgentConfig` 存入了 store，导致 `draft.skills` 为 `undefined`。改为取 `data.config`，同时给 `SkillsTab` 加 `skills ?? []` 防御。
+  - 影响范围：packages/frontend/src/store/agents.ts, packages/frontend/src/components/AgentConfig.tsx
+
+- **`get is not defined` 导致记忆列表/指令文件/配置加载静默失败**：`memory.ts` 和 `agents.ts` 的 zustand `create` 回调只声明了 `set` 参数，但 `.then()` 回调中使用了 `get()`。`get` 在浏览器全局作用域中不存在，导致 API 响应数据被静默丢弃（被 `.catch(() => {})` 吞掉）。修复为 `create<State>((set, get) => ...)`。
+  - 影响范围：packages/frontend/src/store/memory.ts, packages/frontend/src/store/agents.ts
+
+- **归档记忆删除不掉**：前端 `purge` 方法中 entryId（含 `/` 字符）未做 `encodeURIComponent`，导致 URL 路径段数不匹配路由模式 `DELETE /api/memories/:id`，路由匹配失败返回 404。修复为 `encodeURIComponent(entryId)`。
+  - 影响范围：packages/frontend/src/store/memory.ts
+
+- **指令文件扫描对齐 pi 框架**：`listInstructions` 有三个不一致——候选文件名缺少 `AGENTS.MD`/`CLAUDE.MD`、无祖先目录遍历（pi 从 cwd 向上到根）、全局和 cwd 各自只取第一个文件。修复为完全对齐 pi 的 `resource-loader.js loadProjectContextFiles` 行为：候选列表 4 个变体、遍历 agentDir + cwd + 所有祖先目录、readdir 匹配磁盘实际文件名去重（兼容 macOS 大小写不敏感）。
+  - 影响范围：packages/kernel/src/memory-store.ts, packages/kernel/tests/memory-store.test.ts
+
+- **指令文件 Tab 无项目上下文时加载失败**：`MemoryPage` 中 `loadInstructions` 的 useEffect 条件要求 `activeProjectId` 为真，但应用刚启动时 `currentProjectId` 和 `selectedProjectId` 均为 null，导致指令文件 Tab 完全不触发加载。修复为移除 `activeProjectId` 守卫，传空 projectId 走全局扫描。同时为 `loadInstructions`/`load` 方法添加错误日志。
+  - 影响范围：packages/frontend/src/components/memory/MemoryPage.tsx, packages/frontend/src/store/memory.ts
+
+---
+
 ## 2026-07-26
 
 ### 设计

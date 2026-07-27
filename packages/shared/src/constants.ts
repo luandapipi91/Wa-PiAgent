@@ -118,11 +118,14 @@ export const AGENT_DEFS: Record<string, AgentDef> = {
   "数据分析师": { emoji: "📈", gradient: ["#EC4899", "#F472B6"] },
   "代码审查员": { emoji: "🧐", gradient: ["#64748B", "#94A3B8"] },
   "UX设计师": { emoji: "🎨", gradient: ["#F43F5E", "#FB7185"] },
+  "高级项目经理": { emoji: "📋", gradient: ["#D97706", "#F59E0B"] },
+  "会议纪要专家": { emoji: "📝", gradient: ["#6366F1", "#818CF8"] },
 };
 
 /** 所有内置智能体的 displayName 列表，用于 seedDefaults 批量生成 */
 export const ALL_AGENT_NAMES: string[] = [
   "前端开发者", "后端架构师", "产品经理", "测试结果分析师", "数据分析师", "代码审查员", "UX设计师",
+  "高级项目经理", "会议纪要专家",
 ];
 
 /** Agent 未显式配置 tools 时的默认工具集。
