@@ -417,6 +417,11 @@ export class AgentManager {
     const subagentTelemetry = new SubagentTelemetry();
     const spawnFn = makeSpawnFn({
       resolveConfig: resolveSpawnConfig,
+      resolveSkillPaths: async (skillNames) => {
+        // 从全局启用的技能中按名称解析路径
+        const enabled = await resolveEnabledSkills(this.opts.skillManager, this.opts.extensionManager);
+        return enabled.filter(s => skillNames.includes(s.name)).map(s => s.path);
+      },
       cwd,
       onSpawnComplete: (input) => subagentTelemetry.record(input),
     });

@@ -208,6 +208,8 @@ export function makeDelegateTool(opts: {
  */
 export function makeSpawnFn(opts: {
 	resolveConfig: (agentName: string) => Promise<HiAgentSpawnConfig | null>;
+	/** 将 skills 白名单（name[]）解析为文件路径；未提供则子代理不加载技能 */
+	resolveSkillPaths?: (skillNames: string[]) => Promise<string[]>;
 	cwd: string;
 	signal?: AbortSignal;
 	onProgress?: (event: SubagentProgressEvent) => void;
@@ -232,9 +234,13 @@ export function makeSpawnFn(opts: {
 			});
 			return result;
 		}
+		const skillPaths = opts.resolveSkillPaths && config.skills.length
+			? await opts.resolveSkillPaths(config.skills)
+			: undefined;
 		const result = await runSubagentAgent(config, task, opts.cwd, {
 			signal: opts.signal,
 			onProgress: opts.onProgress,
+			skillPaths,
 			cliPath: opts.runnerOpts?.cliPath,
 			runtime: opts.runnerOpts?.runtime,
 			commandTimeoutMs: opts.runnerOpts?.commandTimeoutMs,
