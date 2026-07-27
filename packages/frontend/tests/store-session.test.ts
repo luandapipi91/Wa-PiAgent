@@ -425,4 +425,17 @@ test("seedTokenTotal 从历史消息计算累计", () => {
 test("seedTokenTotal 无 usage 时不写入", () => {
   useSessionStore.getState().seedTokenTotal("s3", [{ message: { role: "user" } }]);
   expect(useSessionStore.getState().tokenTotals["s3"]).toBeUndefined();
+  expect(useSessionStore.getState().lastUsageBySession["s3"]).toBeUndefined();
+});
+
+test("seedTokenTotal 同时写入 lastUsageBySession", () => {
+  const messages: any[] = [
+    { message: { role: "assistant", usage: { input: 100, output: 50 } } },
+    { message: { role: "assistant", usage: { input: 200, output: 30 } } },
+  ];
+  useSessionStore.getState().seedTokenTotal("s4", messages);
+  const s = useSessionStore.getState();
+  expect(s.tokenTotals["s4"]).toEqual({ input: 300, output: 80 });
+  // lastUsage 应是最后一条带 usage 的消息
+  expect(s.lastUsageBySession["s4"]).toEqual({ input: 200, output: 30 });
 });

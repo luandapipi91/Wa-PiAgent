@@ -27,7 +27,7 @@ function fmtTok(n: number): string {
   }
   if (n >= 1_000) {
     const v = n / 1_000;
-    return v % 1 === 0 ? `${v}K` : `${v.toFixed(1)}k`;
+    return v % 1 === 0 ? `${v}K` : `${v.toFixed(1)}K`;
   }
   return String(n);
 }
@@ -135,7 +135,7 @@ export function SessionView({ sessionId }: Props) {
         {lastUsage && (
           <div className="flex items-center gap-2" data-testid="token-capsules">
             <span className="token-capsule">
-              ↑{fmtTok(lastUsage.output)}/↓{fmtTok(lastUsage.input)}
+              ↑{fmtTok(lastUsage.input)}/↓{fmtTok(lastUsage.output)}
             </span>
             {tokenTotal && (
               <span className="token-capsule">

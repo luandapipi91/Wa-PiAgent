@@ -354,8 +354,8 @@ test("token 胶囊：有 usage 时显示 ↑↓/累计/缓存", () => {
   });
   render(<SessionView sessionId="s1" />);
   expect(screen.getByTestId("token-capsules")).toBeTruthy();
-  expect(screen.getByText(/↑1\.1k\/↓3\.2k/)).toBeTruthy();
-  expect(screen.getByText(/累计 8\.5k/)).toBeTruthy();
+  expect(screen.getByText(/↑3\.2K\/↓1\.1K/)).toBeTruthy();
+  expect(screen.getByText(/累计 8\.5K/)).toBeTruthy();
   // cacheRead/(input+cacheRead+cacheWrite) = 1500/(3200+1500+200) ≈ 30.6% → 31%
   expect(screen.getByText(/缓存 31%/)).toBeTruthy();
 });
