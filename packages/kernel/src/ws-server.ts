@@ -446,21 +446,22 @@ export class WSServer {
         const { sessions } = await this.opts.projectStore.load();
         const session = sessions.find(s => s.id === event.sessionId);
         const isActive = this.opts.agentManager.isSessionBusy(event.sessionId);
+        const thinkingSince = this.opts.agentManager.getThinkingSince(event.sessionId);
         if (!session) {
-          reply({ type: "session:messages", sessionId: event.sessionId, messages: [], isActive });
+          reply({ type: "session:messages", sessionId: event.sessionId, messages: [], isActive, thinkingSince });
           break;
         }
         if (session.piSessionFile) {
           try {
             const history = await readSessionHistory(session.piSessionFile);
             const messages = history.map(m => ({ message: m, agentName: session.primaryAgent }));
-            reply({ type: "session:messages", sessionId: event.sessionId, messages, isActive });
+            reply({ type: "session:messages", sessionId: event.sessionId, messages, isActive, thinkingSince });
             void this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id)
               .catch((err) => console.error(`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`, err));
             break;
           } catch (err) {
             if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
-              reply({ type: "session:messages", sessionId: event.sessionId, messages: [], isActive });
+              reply({ type: "session:messages", sessionId: event.sessionId, messages: [], isActive, thinkingSince });
               void this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id)
                 .catch((e) => console.error(`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`, e));
               break;
@@ -471,9 +472,9 @@ export class WSServer {
         try {
           const sdkSession = await this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id);
           const messages = (sdkSession.messages as any[]).map(m => ({ message: m, agentName: session.primaryAgent }));
-          reply({ type: "session:messages", sessionId: event.sessionId, messages, isActive });
+          reply({ type: "session:messages", sessionId: event.sessionId, messages, isActive, thinkingSince });
         } catch {
-          reply({ type: "session:messages", sessionId: event.sessionId, messages: [], isActive });
+          reply({ type: "session:messages", sessionId: event.sessionId, messages: [], isActive, thinkingSince });
         }
         break;
       }

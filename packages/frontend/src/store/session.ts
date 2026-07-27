@@ -32,7 +32,7 @@ interface SessionState {
   /** 标记某会话历史是否正在加载（SessionView 发请求置 true、收响应置 false）。 */
   setHistoryLoading: (sessionId: string, loading: boolean) => void;
   /** 根据后端 isActive 设置会话 thinking/idle 状态 */
-  setActiveStatus: (sessionId: string, isActive: boolean) => void;
+  setActiveStatus: (sessionId: string, isActive: boolean, thinkingSince?: number | null) => void;
   /** 原地重试用：保留 messages[0, fromIndex)，丢弃 [fromIndex, end)。
    *  重发失败回合前调用——裁掉失败的用户消息及其后所有行，
    *  由随后 SDK 的 message_start(user) 回声重建用户行，避免重发叠加。 */
@@ -154,11 +154,11 @@ export const useSessionStore = create<SessionState>((set) => {
   }),
 
   /** 根据 isActive 设置会话状态（历史加载/重连时调用） */
-  setActiveStatus: (sessionId: string, isActive: boolean) => set(s => {
+  setActiveStatus: (sessionId: string, isActive: boolean, thinkingSince?: number | null) => set(s => {
     if (isActive) {
       return {
         statusBySession: { ...s.statusBySession, [sessionId]: "thinking" as const },
-        thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: Date.now() },
+        thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: thinkingSince ?? Date.now() },
       };
     }
     return {};

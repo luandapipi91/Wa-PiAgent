@@ -356,6 +356,7 @@ export interface SessionMessagesEvent {
   sessionId: string;
   messages: SessionMessage[];
   isActive: boolean;
+  thinkingSince: number | null;
 }
 export interface SessionEchoUserEvent {
   type: "session:echo_user";

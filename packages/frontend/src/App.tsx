@@ -54,7 +54,7 @@ export function App() {
       if (sid) useSessionStore.getState().setHistoryLoading(sid, true);
       if (sid) void fetch(`/api/sessions/${encodeURIComponent(sid)}/messages`).then(r => r.json()).then((body: any) => {
         useSessionStore.getState().setMessages(sid, body.messages);
-        useSessionStore.getState().setActiveStatus(sid, body.isActive);
+        useSessionStore.getState().setActiveStatus(sid, body.isActive, body.thinkingSince);
         useSessionStore.getState().setHistoryLoading(sid, false);
       });
     });

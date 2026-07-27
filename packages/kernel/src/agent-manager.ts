@@ -106,6 +106,8 @@ interface SessionHandle {
   meta: { projectId: string; agentName: AgentName };
   /** agent 是否忙碌（prompt 发送后置 true，agent_settled 置 false） */
   busy: boolean;
+  /** agent_start 的时间戳（ms），用于前端恢复思考计时 */
+  thinkingSince: number | null;
   /** 历史消息快照（创建时经 get_messages 拉取 + message_end 增量追加） */
   messages: any[];
   /** 排队消息列表（agent_settled 时逐条 drain） */
@@ -544,6 +546,7 @@ export class AgentManager {
       cwd,
       meta: { projectId, agentName },
       busy: false,
+      thinkingSince: null,
       messages: [],
       followUpList: [],
       steerList: [],
@@ -625,12 +628,15 @@ export class AgentManager {
     switch (event.type) {
       case "agent_start":
         handle.busy = true;
+        handle.thinkingSince = Date.now();
         break;
       case "message_end":
         if (event.message) handle.messages.push(event.message);
         break;
       case "agent_settled":
         handle.busy = false;
+      handle.thinkingSince = null;
+      handle.thinkingSince = null;
         // 优先 drain 引导消息（如果 pi 已投递则 queue_update 会清掉 steerList）
         if (handle.steerList.length > 0) {
           const text = handle.steerList.shift()!;
@@ -674,6 +680,7 @@ export class AgentManager {
     if (!handle || handle.disposed) return;
     handle.crashed = true;
     handle.busy = false;
+      handle.thinkingSince = null;
     console.error(`[kernel] session ${sessionId} pi 进程意外退出 (code=${code})`);
     // 合成 message_end 错误事件：复用 extractSdkErrorMessage → 前端 ⚠️ 渲染管线
     this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
@@ -695,6 +702,7 @@ export class AgentManager {
       await handle.client.prompt(text);
     } catch (err) {
       handle.busy = false;
+      handle.thinkingSince = null;
       throw err;
     }
   }
@@ -789,6 +797,7 @@ export class AgentManager {
       console.error(`[agent-manager] abort 命令失败 session=${sessionId}:`, err);
     });
     handle.busy = false;
+      handle.thinkingSince = null;
     console.log(`[agent-manager] abort DONE session=${sessionId}`);
   }
 
@@ -854,6 +863,11 @@ export class AgentManager {
   /** 查询会话是否正在处理中（agent_start 后 agent_settled 前） */
   isSessionBusy(sessionId: string): boolean {
     return this.sessions.get(sessionId)?.busy === true;
+  }
+
+  /** 查询会话开始处理的时间戳，用于前端恢复思考计时 */
+  getThinkingSince(sessionId: string): number | null {
+    return this.sessions.get(sessionId)?.thinkingSince ?? null;
   }
 
   /** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */
