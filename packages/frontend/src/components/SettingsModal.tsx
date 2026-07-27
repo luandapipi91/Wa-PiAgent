@@ -15,11 +15,11 @@ export function SettingsModal({ onClose }: Props) {
   const setSection = useSettingsStore(s => s.setSection);
 
   return (
-    <Modal onClose={onClose} width={900} data-testid="settings-modal">
+    <Modal onClose={onClose} width="80vw" height="80vh" data-testid="settings-modal">
       <div className="p-4 border-b border-hairline">
         <span className="text-primary font-bold text-base">系统设置</span>
       </div>
-      <div className="flex" style={{ minHeight: 500, maxHeight: "75vh" }}>
+      <div className="flex flex-1 min-h-0">
         {/* 左侧导航：模型管理 + 技能 */}
         <nav className="w-40 border-r border-hairline p-2 flex flex-col gap-1">
           <button

@@ -5,9 +5,16 @@ import type { RouteRegistrar } from "./types";
 import { readJsonBody } from "./types";
 import { resolveCwdForFsRequest, uniquePath } from "../ws-server";
 import { readdir, readFile, copyFile, stat, mkdir } from "node:fs/promises";
-import { join, basename } from "node:path";
+import { join, basename, dirname } from "node:path";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
+import { spawn } from "node:child_process";
+
+/** 展开路径开头的 ~ 为 HOME 目录 */
+function expandTilde(p: string): string {
+  if (p.startsWith("~")) return p.replace(/^~/, homedir());
+  return p;
+}
 import type { DirEntry } from "@hiagent/shared";
 import { getMimeType } from "../ws-server";
 
@@ -43,7 +50,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
     const { path, showHidden } = b;
     if (typeof path !== "string") return Response.json({ error: "缺少 path" }, { status: 400 });
     try {
-      const dirents = await readdir(path, { withFileTypes: true });
+      const dirents = await readdir(expandTilde(path), { withFileTypes: true });
       const entries: DirEntry[] = (await Promise.all(
         dirents.map(async (d) => {
           let isDir = d.isDirectory();
@@ -70,7 +77,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
     const { path } = b;
     if (typeof path !== "string") return Response.json({ error: "缺少 path" }, { status: 400 });
     try {
-      const buffer = await readFile(path);
+      const buffer = await readFile(expandTilde(path));
       const content = buffer.toString("base64");
       const mimeType = getMimeType(path);
       return Response.json({ type: "fs:readFile", path, content, mimeType });
@@ -101,6 +108,23 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
       return Response.json({ type: "fs:copy", path: destPath });
     } catch (e) {
       return Response.json({ type: "fs:copy", path: "", error: String(e instanceof Error ? e.message : e) });
+    }
+  });
+
+  // POST /api/fs/reveal-file：在系统文件管理器中打开文件所在目录
+  r.add("POST", "/api/fs/reveal-file", async (req) => {
+    const b = await readJsonBody(req);
+    const { path } = b;
+    if (typeof path !== "string") return Response.json({ error: "缺少 path" }, { status: 400 });
+    try {
+      const absPath = expandTilde(path);
+      const dir = existsSync(absPath) ? dirname(absPath) : dirname(path);
+      const openCmd = process.platform === "darwin" ? "open"
+        : process.platform === "win32" ? "start" : "xdg-open";
+      spawn(openCmd, [dir], { shell: true, stdio: "ignore" });
+      return Response.json({ type: "fs:reveal-file", path });
+    } catch (e) {
+      return Response.json({ type: "fs:error", path, reason: String(e instanceof Error ? e.message : e) });
     }
   });
 };

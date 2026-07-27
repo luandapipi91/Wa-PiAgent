@@ -38,6 +38,14 @@ import { registerMcpRoutes } from "./routes/mcp";
 import { registerFileRoutes } from "./routes/files";
 import { readSessionHistory } from "./session-history";
 
+/** 展开路径开头的 ~ 为 HOME 目录（Node.js 不自动展开 shell ~ 约定） */
+function expandTilde(p: string): string {
+  if (p.startsWith("~")) {
+    return p.replace(/^~/, homedir());
+  }
+  return p;
+}
+
 /** 把 URL 路径解析成 staticDir 下的文件路径；未知/越权路径回退 index.html（SPA）。 */
 export function resolveStaticPath(urlPath: string, staticDir: string): string {
   const clean = urlPath.split("?")[0].split("#")[0];
@@ -707,7 +715,8 @@ export class WSServer {
       }
       case "fs:listDir": {
         try {
-          const dirents = await readdir(event.path, { withFileTypes: true });
+          const absPath = expandTilde(event.path);
+          const dirents = await readdir(absPath, { withFileTypes: true });
           const entries: DirEntry[] = (await Promise.all(
             dirents.map(async (d) => {
               let isDir = d.isDirectory();
@@ -730,7 +739,8 @@ export class WSServer {
       }
       case "fs:readFile": {
         try {
-          const buffer = await readFile(event.path);
+          const absPath = expandTilde(event.path);
+          const buffer = await readFile(absPath);
           const content = buffer.toString("base64");
           const mimeType = getMimeType(event.path);
           reply({ type: "fs:readFile", path: event.path, content, mimeType });

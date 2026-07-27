@@ -70,6 +70,9 @@
     "packages/shared": {
       "name": "@hiagent/shared",
       "version": "0.0.0",
+      "dependencies": {
+        "typebox": "1.1.38",
+      },
     },
   },
   "patchedDependencies": {

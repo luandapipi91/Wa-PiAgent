@@ -217,6 +217,28 @@ export class RpcClient {
     return this.command({ type: "set_auto_retry", enabled });
   }
 
+  /**
+   * 获取当前会话的用量统计（token 与成本）。
+   *
+   * 对应 pi RPC 命令 `get_session_stats`。返回值中 `tokens` 和 `cost` 均为可选——
+   * 旧版 pi 可能不返回 token 统计或成本字段，调用方应做好降级处理（如 `?? 0` 兜底）。
+   *
+   * @returns 返回结构：
+   * ```ts
+   * {
+   *   tokens?: {
+   *     input: number;      // 输入 token 数（可能为 null/undefined）
+   *     output: number;     // 输出 token 数（可能为 null/undefined）
+   *     cacheRead: number;  // 缓存读取 token 数（可能为 null/undefined）
+   *     cacheWrite: number; // 缓存写入 token 数（可能为 null/undefined）
+   *     total: number;      // 总 token 数（可能为 null/undefined）
+   *   };
+   *   cost?: number | { total: number };  // 成本：旧版 pi 返回 number，新版返回 { total }
+   * }
+   * ```
+   *
+   * @see {@link ../subagent-runner.ts 中的 SubagentUsage} —— 消费方类型定义
+   */
   getSessionStats(): Promise<any> {
     return this.command({ type: "get_session_stats" });
   }

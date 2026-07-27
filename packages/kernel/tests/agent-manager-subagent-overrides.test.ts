@@ -108,3 +108,49 @@ test("内置 subagent spawn 时读取 subagent-overrides.json 中的 model/think
   // 清理本次会话的系统提示词临时文件
   try { rmSync(join(HIAGENT_DIR, "tmp", "sysprompts", `${session.id}.md`), { force: true }); } catch {}
 });
+
+test("内置 subagent override model 无效时降级为 null（不传 --model）", async () => {
+  // 写入 override：Explore → "test-model"（明显无效的模型，不含 /）
+  writeFileSync(
+    SUBAGENT_OVERRIDES_FILE,
+    JSON.stringify({ overrides: [{ type: "Explore", model: "test-model", thinking: "high" }] }),
+    "utf8",
+  );
+
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const configStore = {
+    getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [] } })),
+  } as any;
+
+  const fakes: FakeSessionClient[] = [];
+  const am = new AgentManager({
+    projectStore, configStore, onEvent: () => {},
+    createClientFn: fakeClientFactory(fakes),
+  });
+  managers.push(am);
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const ctx = getBridgeSession(session.id);
+  expect(ctx).toBeDefined();
+  const result = await ctx!.handleTool(
+    "delegate", "tc-explore", { agent: "Explore", task: "搜索代码" }, new AbortController().signal,
+  );
+
+  // spawn 不应因模型无效而报错
+  expect(result.content[0].text).toBe("ok");
+
+  // 验证 capturedConfigs 中 model 为 null（无效模型被降级）
+  expect(capturedConfigs.length).toBeGreaterThan(0);
+  const exploreConfig = capturedConfigs.find((c: any) => c.name === "Explore");
+  expect(exploreConfig).toBeDefined();
+  expect(exploreConfig.model).toBeNull();  // 无效模型 → null
+  expect(exploreConfig.thinking).toBe("high");  // thinking 照常透传
+
+  // 清理
+  try { rmSync(join(HIAGENT_DIR, "tmp", "sysprompts", `${session.id}.md`), { force: true }); } catch {}
+});

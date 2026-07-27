@@ -4,6 +4,68 @@
 
 ---
 
+## 2026-07-29
+
+### 其他
+
+- **评测脚本冒烟**
+  影响范围：—
+
+---
+
+## 2026-07-28
+
+### 修复
+
+- **委托提示词重写**：`DEFAULT_DELEGATE_MECHANISM_PROMPT` 从 30 行密集英文重构为示例驱动 + 决策树 + 精简规则，解决委托不成功的问题。核心改动：(1) 新增 few-shot 示例展示完整 delegate 调用模式；(2) 前置决策树（单文件自己做 / 多文件探索委托 / 架构规划委托 / 用户交互不委托）；(3) @[agentName] 从 5 条规则精简为 3 句；(4) 删除冗余的中文引号「task contract」描述。PROMPTS_SCHEMA_VERSION 7→8。
+  - 影响范围：packages/kernel/src/system-prompt.ts
+
+- **文件预览窗口新增「查看文件」按钮**：在系统文件管理器中打开文件所在目录。kernel 新增 `POST /api/fs/reveal-file` 端点，前端 `FilePreviewModal` 在「复制路径」旁增加「查看文件」按钮。
+  - 影响范围：packages/kernel/src/routes/fs.ts, packages/frontend/src/fs-client.ts, packages/frontend/src/components/blocks/FilePreviewModal.tsx
+
+- **文件预览 `~` 路径打不开**：Node.js 不自动展开 shell 的 `~` 约定，导致 `fs:readFile` / `fs:listDir` 对 `~/.hiagent/` 等路径报错。在 kernel 的 `ws-server.ts` 和 `routes/fs.ts` 添加 `expandTilde()` 工具函数，路径以 `~` 开头时自动替换为 `os.homedir()`。
+  - 影响范围：packages/kernel/src/ws-server.ts, packages/kernel/src/routes/fs.ts, packages/kernel/tests/composer-attachments.test.ts
+
+- **子代理无效模型导致进程崩溃**：`resolveSpawnConfig` 现在校验 override model 格式（HiAgent 固定为 "provider/modelId"，必须含 "/"），无效模型降级为 null（跟随主智能体）并打印警告，而非传给 Pi 子进程导致 "Model not found" 崩溃。同时覆盖命名智能体路径。
+  - 影响范围：packages/kernel/src/agent-manager.ts, packages/kernel/tests/agent-manager-subagent-overrides.test.ts
+
+- **delegate 工具 agent 参数描述移除硬编码内置类型名**：`DelegateParamsSchema` 中 agent 参数描述从"可调起列表中的智能体名称，或内置 subagent 类型名（general-purpose / Explore / Plan）"改为"可调起列表中的智能体名称"，与 `delegate-roster` 系统提示词段和 `fleet` 工具保持一致。内置类型（general-purpose / Explore / Plan）已经在 `delegate-roster` XML 列表中，无需工具参数描述重复点名。
+  - 影响范围：packages/shared/src/tool-schemas.ts
+
+- **关系网 tab 开关改为 Switch 样式**：`PartnersTab` 中原本使用原生 `<input type="checkbox">`，与工具 tab / 技能 tab 的 `SwitchButton` 风格不一致。改为统一的 `SwitchButton` 组件，自身行置灰且 data-on=false。
+  - 影响范围：packages/frontend/src/components/AgentConfig.tsx, packages/frontend/tests/AgentConfig.test.tsx
+
+### 文档
+
+- **子代理自实现分析报告**：调研为什么系统要重新实现子代理功能而非用 subagent 内置插件。
+  - 影响范围：docs/analysis/why-custom-subagent.md（新增）
+
+### 重构
+
+- **bridge 扩展静态化 + 文案统一来源**：
+  - 创建 `packages/shared/src/tool-schemas.ts`——7 个宿主工具的 description/schema 唯一真源，kernel 侧和 bridge 扩展引用同一份定义，消除 bridge-extension / delegate-tool / ask-tool / amaster-memory 四处文案重复
+  - `packages/kernel/src/hiagent-bridge.extension.ts`（新）——静态 bridge 扩展文件，import `./tool-schemas.ts`（相对路径），不再动态生成 TypeScript 代码
+  - `bridge-extension.ts`——删除 `generateBridgeExtension()` 的字符串拼接（~300 行模板字面量），`ensureBridgeExtension()` 改为复制两个静态文件到 GENERATED_DIR
+  - `delegate-tool.ts` / `ask-tool.ts` / `amaster-memory.ts`——内联 description/schema 改为从 `@hiagent/shared` 导入
+  - 测试：`packages/shared/tests/tool-schemas.test.ts`（新增）验证文案一致性
+  - 影响范围：packages/shared（tool-schemas.ts, package.json, index.ts）, packages/kernel/src（bridge-extension.ts, hiagent-bridge.extension.ts, delegate-tool.ts, ask-tool.ts, amaster-memory.ts）, packages/kernel/tests/bridge.test.ts
+
+## 2026-07-28
+
+### 修复
+
+- **MermaidBlock 滚轮缩放报 passive event 警告**：React 的 `onWheel` 合成事件默认 passive，无法调用 `preventDefault()` 阻止页面滚动。改为通过 `useEffect` + `ref` 绑定原生 wheel 事件（`{ passive: false }`），消除浏览器警告。
+  - 影响范围：packages/frontend/src/components/blocks/MermaidBlock.tsx
+
+- **系统设置面板宽高限定 80%**：设置面板 Modal 宽度从 `width={900}` 改为 `width="80vw"`，新增 `height="80vh"`，内部内容区改为 flex 自适应填充，不再硬编码 minHeight/maxHeight。
+  - 影响范围：packages/frontend/src/components/SettingsModal.tsx
+
+- **智能体设置 SkillsTab 不区分全局禁用技能**：AgentConfig 的技能 tab 使用 `allSkills`（含全局禁用的技能），但未做任何视觉区分。用户若在系统设置全局禁用 `pi-lens`，在智能体设置中仍看到 `pi-lens-ast-grep` 正常显示，误以为两者有关联。修复后全局禁用的技能以半透明 + "全局禁用" 标签显示，便于区分。
+  - 影响范围：packages/frontend/src/components/AgentConfig.tsx, packages/frontend/tests/AgentConfig.test.tsx
+
+- **settings.json 残留 `extensions` 字段导致技能白名单被绕过**：`agent-manager.ts` 的 `restrictedSkills` 逻辑正确地将 skill-providing 扩展从 `-e` 参数中排除，但 Pi SDK 会独立读取 `settings.json` 的 `extensions` 字段自动加载扩展，完全绕过 HiAgent 的白名单过滤。这导致即使智能体只配置了 `skills: [writing-skills]`，`pi-lens` 扩展仍然被加载并注册 `pi-lens-ast-grep` 等技能。修复：手动删除 `settings.json` 中的残留 `extensions` 字段（早期版本遗留，HiAgent 已改用 `hiagent_packages` 管理扩展）。
+  - 影响范围：用户数据 `~/.hiagent/settings.json`（删除 `extensions` 字段）
+
 ## 2026-07-27
 
 ### 新增

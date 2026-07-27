@@ -143,17 +143,17 @@ describe("AgentConfig 4 tab", () => {
     useAgentsStore.setState({ list: [cfg("dev"), cfg("代码审查"), cfg("质量验收")] });
     renderConfig("dev");
     fireEvent.click(screen.getByTestId("tab-partners"));
-    expect(screen.getByTestId("partner-check-代码审查")).toBeTruthy();
-    // 自身行置灰且禁用
-    const self = screen.getByTestId("partner-check-dev") as HTMLInputElement;
-    expect(self.closest(".opacity-50, [aria-disabled='true']")).toBeTruthy();
-    expect(self.disabled).toBe(true);
+    expect(screen.getByTestId("partner-switch-代码审查")).toBeTruthy();
+    // 自身行置灰且禁用（SwitchButton data-on=false 且行 opacity-50）
+    const selfSwitch = screen.getByTestId("partner-switch-dev") as HTMLElement;
+    expect(selfSwitch.closest(".opacity-50, [aria-disabled='true']")).toBeTruthy();
+    expect(selfSwitch.getAttribute("data-on")).toBe("false");
     // 搜索过滤
     fireEvent.change(screen.getByTestId("partner-search"), { target: { value: "审查" } });
-    expect(screen.queryByTestId("partner-check-质量验收")).toBeNull();
-    expect(screen.getByTestId("partner-check-代码审查")).toBeTruthy();
+    expect(screen.queryByTestId("partner-switch-质量验收")).toBeNull();
+    expect(screen.getByTestId("partner-switch-代码审查")).toBeTruthy();
     // 勾选写入 partners.askTo 并保存
-    fireEvent.click(screen.getByTestId("partner-check-代码审查"));
+    fireEvent.click(screen.getByTestId("partner-switch-代码审查"));
     fireEvent.click(screen.getByText("保存"));
     expect(lastSaved("dev").config.partners.askTo).toEqual(["代码审查"]);
   });
@@ -257,6 +257,33 @@ describe("AgentConfig 4 tab", () => {
     renderConfig("dev", cfg("dev"), onClose);
     fireEvent.click(screen.getByText("保存"));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  test("技能 tab：全局禁用的技能显示为灰色并标注「全局禁用」", () => {
+    useSkillsStore.setState({
+      allSkills: [
+        { name: "pi-lens", description: "Lens 主技能", path: "/p/pi-lens" },
+        { name: "pi-lens-ast-grep", description: "AST Grep 子技能", path: "/p/pi-lens-ast-grep" },
+        { name: "web", description: "网页访问", path: "/p/web" },
+      ],
+      disabledSkills: ["pi-lens"],
+    });
+    renderConfig();
+    fireEvent.click(screen.getByTestId("tab-skills"));
+
+    // pi-lens 全局禁用，应显示禁用标签
+    const piLensRow = screen.getByTestId("skill-row-pi-lens");
+    expect(piLensRow.style.opacity).toBe("0.5");
+    expect(screen.getByTestId("skill-disabled-label-pi-lens")).toBeTruthy();
+
+    // pi-lens-ast-grep 未被全局禁用，正常显示
+    const astGrepRow = screen.getByTestId("skill-row-pi-lens-ast-grep");
+    expect(astGrepRow.style.opacity).toBe("1");
+    expect(screen.queryByTestId("skill-disabled-label-pi-lens-ast-grep")).toBeNull();
+
+    // web 未被全局禁用，正常显示
+    const webRow = screen.getByTestId("skill-row-web");
+    expect(webRow.style.opacity).toBe("1");
   });
 });
 

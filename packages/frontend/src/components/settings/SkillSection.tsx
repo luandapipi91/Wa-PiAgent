@@ -133,7 +133,7 @@ export function SkillSection() {
         type="text"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="搜索技能..."
+        placeholder="搜索技能名称..."
         className="px-2 py-1 text-sm text-primary bg-transparent border border-hairline rounded-sm outline-none"
         data-testid="skill-search-input"
       />
