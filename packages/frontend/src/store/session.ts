@@ -142,16 +142,24 @@ export const useSessionStore = create<SessionState>((set) => {
       const m = msg.message as any;
       if (last && last.agentName === msg.agentName && (last.message as any).role === "assistant" && m.role === "assistant") {
         (last.message as any).content = [...(last.message as any).content, ...(m.content ?? [])];
+        // 合并 stopReason：后到 block 的终态覆盖前一个
+        if (m.stopReason) {
+          (last.message as any).stopReason = m.stopReason;
+        }
       } else {
         compacted.push(msg);
       }
     }
     // 检测最后一条消息是否为未完成的 assistant（刷新/重连恢复 thinking 状态）
+    // 只有 stopReason 明确不是 end_turn/error 才判为进行中（如空字符串表示流式中断）
     const lastMsg = compacted.length > 0 ? (compacted[compacted.length - 1].message as any) : null;
     const isIncomplete =
       lastMsg?.role === "assistant" &&
       lastMsg?.stopReason !== "end_turn" &&
-      lastMsg?.stopReason !== "error";
+      lastMsg?.stopReason !== "error" &&
+      typeof lastMsg?.stopReason === "string" &&
+      // 有明确的"非终态"标记（空字符串等），而非缺失字段（旧消息兼容）
+      !lastMsg.stopReason;
     const patch: any = { messagesBySession: { ...s.messagesBySession, [sessionId]: compacted } };
     if (isIncomplete) {
       patch.statusBySession = { ...s.statusBySession, [sessionId]: "thinking" as const };
