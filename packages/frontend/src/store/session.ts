@@ -31,6 +31,8 @@ interface SessionState {
   setMessages: (sessionId: string, messages: SessionMessage[]) => void;
   /** 标记某会话历史是否正在加载（SessionView 发请求置 true、收响应置 false）。 */
   setHistoryLoading: (sessionId: string, loading: boolean) => void;
+  /** 根据后端 isActive 设置会话 thinking/idle 状态 */
+  setActiveStatus: (sessionId: string, isActive: boolean) => void;
   /** 原地重试用：保留 messages[0, fromIndex)，丢弃 [fromIndex, end)。
    *  重发失败回合前调用——裁掉失败的用户消息及其后所有行，
    *  由随后 SDK 的 message_start(user) 回声重建用户行，避免重发叠加。 */
@@ -135,14 +137,12 @@ export const useSessionStore = create<SessionState>((set) => {
     const existingKeys = new Set(existing.map(msgKey));
     const newFromHistory = messages.filter(m => !existingKeys.has(msgKey(m)));
     const all = [...existing, ...newFromHistory].sort((a: any, b: any) => a.message.timestamp - b.message.timestamp);
-    // 合并相邻同 agent 的 assistant 消息（SDK 按 block 拆分发送，渲染时需聚合成一条）
     const compacted: SessionMessage[] = [];
     for (const msg of all) {
       const last = compacted[compacted.length - 1];
       const m = msg.message as any;
       if (last && last.agentName === msg.agentName && (last.message as any).role === "assistant" && m.role === "assistant") {
         (last.message as any).content = [...(last.message as any).content, ...(m.content ?? [])];
-        // 合并 stopReason：后到 block 的终态覆盖前一个
         if (m.stopReason) {
           (last.message as any).stopReason = m.stopReason;
         }
@@ -150,21 +150,17 @@ export const useSessionStore = create<SessionState>((set) => {
         compacted.push(msg);
       }
     }
-    // 检测最后一条消息是否为未完成的 assistant（刷新/重连恢复 thinking 状态）
-    // 只有 stopReason 明确不是 end_turn/error 才判为进行中（如空字符串表示流式中断）
-    const lastMsg = compacted.length > 0 ? (compacted[compacted.length - 1].message as any) : null;
-    const isIncomplete =
-      lastMsg?.role === "assistant" &&
-      lastMsg?.stopReason !== "end_turn" &&
-      lastMsg?.stopReason !== "error" &&
-      typeof lastMsg?.stopReason === "string" &&
-      // 有明确的"非终态"标记（空字符串等），而非缺失字段（旧消息兼容）
-      !lastMsg.stopReason;
-    const patch: any = { messagesBySession: { ...s.messagesBySession, [sessionId]: compacted } };
-    if (isIncomplete) {
-      patch.statusBySession = { ...s.statusBySession, [sessionId]: "thinking" as const };
+    return { messagesBySession: { ...s.messagesBySession, [sessionId]: compacted } };
+  }),
+
+  /** 根据 isActive 设置会话状态（历史加载/重连时调用） */
+  setActiveStatus: (sessionId: string, isActive: boolean) => set(s => {
+    if (isActive) {
+      return {
+        statusBySession: { ...s.statusBySession, [sessionId]: "thinking" as const },
+      };
     }
-    return patch;
+    return {};
   }),
 
   setHistoryLoading: (sessionId, loading) => set(s => {

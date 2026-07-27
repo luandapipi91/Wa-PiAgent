@@ -443,27 +443,24 @@ export class WSServer {
         break;
       }
       case "session:messages": {
-        // 快速路径：直接解析 pi 会话文件返回历史（毫秒级，不启动 pi 进程）；
-        // 进程改为后台预热（用户大概率接着发消息，预热让首条 prompt 免冷启动）。
-        // ENOENT（记录存在但文件未生成：新建会话/从未成功对话）= 历史为空，直接回复 []；
-        // 其他文件异常（损坏/格式变更）回退原进程路径（ensureStarted 后读 AgentSession.messages）。
         const { sessions } = await this.opts.projectStore.load();
         const session = sessions.find(s => s.id === event.sessionId);
+        const isActive = this.opts.agentManager.isSessionBusy(event.sessionId);
         if (!session) {
-          reply({ type: "session:messages", sessionId: event.sessionId, messages: [] });
+          reply({ type: "session:messages", sessionId: event.sessionId, messages: [], isActive });
           break;
         }
         if (session.piSessionFile) {
           try {
             const history = await readSessionHistory(session.piSessionFile);
             const messages = history.map(m => ({ message: m, agentName: session.primaryAgent }));
-            reply({ type: "session:messages", sessionId: event.sessionId, messages });
+            reply({ type: "session:messages", sessionId: event.sessionId, messages, isActive });
             void this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id)
               .catch((err) => console.error(`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`, err));
             break;
           } catch (err) {
             if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
-              reply({ type: "session:messages", sessionId: event.sessionId, messages: [] });
+              reply({ type: "session:messages", sessionId: event.sessionId, messages: [], isActive });
               void this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id)
                 .catch((e) => console.error(`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`, e));
               break;
@@ -473,11 +470,10 @@ export class WSServer {
         }
         try {
           const sdkSession = await this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id);
-          // SDK AgentMessage 与 shared AgentMessage 结构兼容但 TS 判为不同类型，用 any 桥接
           const messages = (sdkSession.messages as any[]).map(m => ({ message: m, agentName: session.primaryAgent }));
-          reply({ type: "session:messages", sessionId: event.sessionId, messages });
+          reply({ type: "session:messages", sessionId: event.sessionId, messages, isActive });
         } catch {
-          reply({ type: "session:messages", sessionId: event.sessionId, messages: [] });
+          reply({ type: "session:messages", sessionId: event.sessionId, messages: [], isActive });
         }
         break;
       }

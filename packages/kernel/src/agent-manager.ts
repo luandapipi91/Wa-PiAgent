@@ -851,6 +851,11 @@ export class AgentManager {
     this.skillDirty.delete(sessionId);
   }
 
+  /** 查询会话是否正在处理中（agent_start 后 agent_settled 前） */
+  isSessionBusy(sessionId: string): boolean {
+    return this.sessions.get(sessionId)?.busy === true;
+  }
+
   /** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */
   async disposeSession(sessionId: string): Promise<void> {
     // 标记已被 dispose：若创建仍在进行中，_createSession 完成时会据此清理并放弃
