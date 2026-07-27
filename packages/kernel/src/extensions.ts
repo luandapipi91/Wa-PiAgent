@@ -71,6 +71,7 @@ const PKG_EXTENSIONS = [
   "pi-open-agents",
   "pi-web-access",
   "pi-mcp-adapter",
+  "pi-cache-optimizer",
 ] as const;
 
 /**

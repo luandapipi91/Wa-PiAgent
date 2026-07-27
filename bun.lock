@@ -59,6 +59,7 @@
         "@earendil-works/pi-coding-agent": "^0.80.0",
         "@hiagent/shared": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.29.0",
+        "pi-cache-optimizer": "^2.6.24",
         "pi-mcp-adapter": "2.13.0",
         "pi-open-agents": "^0.1.12",
         "pi-web-access": "^0.13.0",
@@ -1712,6 +1713,8 @@
     "pg-types": ["pg-types@4.1.0", "https://registry.npmmirror.com/pg-types/-/pg-types-4.1.0.tgz", { "dependencies": { "pg-int8": "1.0.1", "pg-numeric": "1.0.2", "postgres-array": "~3.0.1", "postgres-bytea": "~3.0.0", "postgres-date": "~2.1.0", "postgres-interval": "^3.0.0", "postgres-range": "^1.1.1" } }, "sha512-o2XFanIMy/3+mThw69O8d4n1E5zsLhdO+OPqswezu7Z5ekP4hYDqlDjlmOpYMbzY2Br0ufCwJLdDIXeNVwcWFg=="],
 
     "pgpass": ["pgpass@1.0.6", "https://registry.npmmirror.com/pgpass/-/pgpass-1.0.6.tgz", {}, "sha512-lqIfH7bdgsxHAY/ZnUOwm+aCFKrsHBDhSFuk9O0B9uCqJAIkrKTo/+LQqLPLUS4e04+jCmQVikxE3QipH5chPw=="],
+
+    "pi-cache-optimizer": ["pi-cache-optimizer@2.6.24", "https://registry.npmmirror.com/pi-cache-optimizer/-/pi-cache-optimizer-2.6.24.tgz", { "peerDependencies": { "@earendil-works/pi-coding-agent": "*" } }, "sha512-+zEyqCJ5aFNAJLYKdfMFCyS5TZ+uaMpBbRgWsnQdStmZfm0aG6EHgXz5orH++bck98U4W6SBzjlRZjAU/fwGrQ=="],
 
     "pi-mcp-adapter": ["pi-mcp-adapter@2.13.0", "https://registry.npmmirror.com/pi-mcp-adapter/-/pi-mcp-adapter-2.13.0.tgz", { "dependencies": { "@modelcontextprotocol/client": "2.0.0-beta.5", "@modelcontextprotocol/ext-apps": "^1.2.2", "@modelcontextprotocol/sdk": "^1.29.0", "@napi-rs/keyring": "^1.3.0", "cross-spawn": "^7.0.6", "open": "^10.2.0", "recheck": "^4.5.0", "smol-toml": "^1.6.1", "strip-json-comments": "^5.0.3", "zod": "^3.25.0 || ^4.0.0" }, "peerDependencies": { "@earendil-works/pi-ai": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-ai", "@earendil-works/pi-tui", "typebox"], "bin": { "pi-mcp-adapter": "cli.js" } }, "sha512-tgaYz2G9eSEBe5YiSdvA87yG2h5xJa7htVPkr7IDVaW30F2NFiu6eQ/H2JpNuqAdpms0wFURyd2Y7u+rGH78xA=="],
 
