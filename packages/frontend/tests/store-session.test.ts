@@ -451,6 +451,15 @@ test("setMessages 时最后一条 assistant 消息 stopReason 非 end_turn 非 e
   expect(useSessionStore.getState().statusBySession["s-incomplete"]).toBe("thinking");
 });
 
+test("setMessages 时最后一条 assistant 消息无 stopReason 字段（旧消息兼容）→ 保持 idle", () => {
+  const oldMsg: any[] = [
+    { agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } },
+    { agentName: "dev", message: { role: "assistant", content: [{ type: "text" as const, text: "ok" }], model: "m", timestamp: 2 } },
+  ];
+  useSessionStore.getState().setMessages("s-old", oldMsg);
+  expect(useSessionStore.getState().statusBySession["s-old"]).toBeUndefined();
+});
+
 test("setMessages 时最后一条 assistant 消息 stopReason=end_turn → 保持 idle", () => {
   const complete: any[] = [
     { agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } },
