@@ -162,12 +162,12 @@ describe("AgentConfig 4 tab", () => {
     renderConfig();
     fireEvent.click(screen.getByTestId("tab-tools"));
     await emitEvent({ type: "agent:tools:list", tools: [{ name: "read", source: "内置" }, { name: "bash", source: "内置" }] });
-    const readChk = (await screen.findByTestId("tool-check-read")) as HTMLInputElement;
-    const bashChk = (await screen.findByTestId("tool-check-bash")) as HTMLInputElement;
-    // tools 为空 = 全量默认 → 展示态全部勾选
-    expect(readChk.checked).toBe(true);
-    expect(bashChk.checked).toBe(true);
-    fireEvent.click(bashChk);
+    const readSwitch = await screen.findByTestId("tool-switch-read");
+    const bashSwitch = await screen.findByTestId("tool-switch-bash");
+    // tools 为空 = 全量默认 → 展示态全部启用
+    expect(readSwitch.getAttribute("data-on")).toBe("true");
+    expect(bashSwitch.getAttribute("data-on")).toBe("true");
+    fireEvent.click(bashSwitch);
     fireEvent.click(screen.getByText("保存"));
     expect(lastSaved("dev").config.tools).toEqual(["read"]);
   });
@@ -181,9 +181,9 @@ describe("AgentConfig 4 tab", () => {
     });
     renderConfig();
     fireEvent.click(screen.getByTestId("tab-skills"));
-    const pdfChk = screen.getByTestId("skill-check-pdf") as HTMLInputElement;
-    expect(pdfChk.checked).toBe(true);
-    fireEvent.click(screen.getByTestId("skill-check-web"));
+    const pdfSwitch = screen.getByTestId("skill-switch-pdf");
+    expect(pdfSwitch.getAttribute("data-on")).toBe("true");
+    fireEvent.click(screen.getByTestId("skill-switch-web"));
     fireEvent.click(screen.getByText("保存"));
     expect(lastSaved("dev").config.skills).toEqual(["pdf"]);
   });
