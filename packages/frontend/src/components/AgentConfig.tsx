@@ -76,7 +76,15 @@ export function AgentConfig({ agentName, onClose }: Props) {
       if (builtinDraft) setDraft(builtinDraft);
       return;
     }
+    // 先从 store 缓存设置初始值（如果已有），然后通过 API 拉取最新数据覆盖
     useAgentsStore.getState().loadConfig(agentName);
+    // 强制 API 重新加载，覆盖可能过期的 store 缓存（修复关闭重开后显示旧数据）
+    api.get(`/api/agents/${encodeURIComponent(agentName)}/config`).then((data: any) => {
+      if (data?.config) {
+        useAgentsStore.getState().setConfig(agentName, data.config);
+        setDraft(data.config);
+      }
+    }).catch(() => {});
     api.get("/api/agents/tools").then((data: any) => { if (data?.tools) setTools(data.tools); });
     const off = onMessage(e => {
       if (e.type === "agent:config" && e.agentName === agentName) setDraft(e.config);
