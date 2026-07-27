@@ -439,3 +439,40 @@ test("seedTokenTotal 同时写入 lastUsageBySession", () => {
   // lastUsage 应是最后一条带 usage 的消息
   expect(s.lastUsageBySession["s4"]).toEqual({ input: 200, output: 30 });
 });
+
+// ── 历史恢复：刷新后检测到未完成的 assistant 消息 → 还原 thinking 状态 ──
+
+test("setMessages 时最后一条 assistant 消息 stopReason 非 end_turn 非 error → 置 thinking", () => {
+  const incomplete: any[] = [
+    { agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } },
+    { agentName: "dev", message: { role: "assistant", content: [{ type: "text" as const, text: "正在..." }], model: "m", stopReason: "", timestamp: 2 } },
+  ];
+  useSessionStore.getState().setMessages("s-incomplete", incomplete);
+  expect(useSessionStore.getState().statusBySession["s-incomplete"]).toBe("thinking");
+});
+
+test("setMessages 时最后一条 assistant 消息 stopReason=end_turn → 保持 idle", () => {
+  const complete: any[] = [
+    { agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } },
+    { agentName: "dev", message: { role: "assistant", content: [{ type: "text" as const, text: "done" }], model: "m", stopReason: "end_turn", timestamp: 2 } },
+  ];
+  useSessionStore.getState().setMessages("s-complete", complete);
+  expect(useSessionStore.getState().statusBySession["s-complete"]).toBeUndefined();
+});
+
+test("setMessages 时最后一条 assistant 消息 stopReason=error → 保持 idle", () => {
+  const errorMsg: any[] = [
+    { agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } },
+    { agentName: "dev", message: { role: "assistant", content: [], model: "m", stopReason: "error", timestamp: 2 } },
+  ];
+  useSessionStore.getState().setMessages("s-error", errorMsg);
+  expect(useSessionStore.getState().statusBySession["s-error"]).toBeUndefined();
+});
+
+test("setMessages 时最后一条是 user 消息 → 不影响状态", () => {
+  const onlyUser: any[] = [
+    { agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } },
+  ];
+  useSessionStore.getState().setMessages("s-user", onlyUser);
+  expect(useSessionStore.getState().statusBySession["s-user"]).toBeUndefined();
+});

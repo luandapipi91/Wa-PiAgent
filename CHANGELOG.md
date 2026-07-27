@@ -13,6 +13,9 @@
 
 ### 修复
 
+- **刷新页面后会话未还原进行中状态**：聊天进行中刷新前端，再进入该会话时 `statusBySession` 仍为 idle，导致顶部不显示思考中 spinner、停止按钮不出现。修复：`setMessages` 在写入历史消息后检测最后一条 assistant 是否 `stopReason` 非 `end_turn` 非 `error`，若是则自动置 `statusBySession` 为 thinking。
+  - 影响范围：packages/frontend/src/store/session.ts, packages/frontend/tests/store-session.test.ts
+
 - **工具卡片展开/收起宽度跳变**：assistant 消息列 `max-w-[78%]` 是内容驱动宽度（flex item），卡片展开后的宽内容（JSON/thinking 正文）把整列撑大，展开/收起时整列跳宽。参考 cocode 设计（assistant body 稳定全宽），含过程卡片（thinking/toolCalls/delegate/fleet）的消息列改为固定 `w-[78%]`，纯文本消息保持 `max-w-[78%]` shrink-wrap 不变。浏览器实测：同一工具组卡展开/收起/再收起宽度 1356px 恒定。
   - 影响范围：packages/frontend/src/components/MessageList.tsx, packages/frontend/tests/MessageList.test.tsx
 
