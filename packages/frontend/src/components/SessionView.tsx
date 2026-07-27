@@ -19,6 +19,19 @@ const AGENT_STATE_LABEL: Record<AgentStatus, string> = {
   blocked: "等待回复",
 };
 
+/** token 数字格式化：&lt;1000 原值，≥1000 用 K，≥1M 用 M，无小数省略 */
+function fmtTok(n: number): string {
+  if (n >= 1_000_000) {
+    const v = n / 1_000_000;
+    return v % 1 === 0 ? `${v}M` : `${v.toFixed(1)}M`;
+  }
+  if (n >= 1_000) {
+    const v = n / 1_000;
+    return v % 1 === 0 ? `${v}K` : `${v.toFixed(1)}k`;
+  }
+  return String(n);
+}
+
 export function SessionView({ sessionId }: Props) {
   const session = useProjectsStore(s => s.sessions.find(x => x.id === sessionId));
   const project = useProjectsStore(s => s.projects.find(p => p.id === session?.projectId));
@@ -30,6 +43,9 @@ export function SessionView({ sessionId }: Props) {
   // 思考起算时间（按会话独立，切会话不重置/不沿用）。每秒计时交给 <ThinkingTimer> 独立持有，
   // 避免每秒 setElapsed 重渲染整个 SessionView（含 MessageList 的 markdown）造成计时卡顿。
   const thinkingSince = useSessionStore(s => s.thinkingSinceBySession[sessionId] ?? null);
+  // Token 计数
+  const tokenTotal = useSessionStore(s => s.tokenTotals[sessionId]);
+  const lastUsage = useSessionStore(s => s.lastUsageBySession[sessionId]);
 
   useEffect(() => {
     // 进入该会话即视为「已读」，清掉会话列表的 new 角标
@@ -40,6 +56,7 @@ export function SessionView({ sessionId }: Props) {
       try {
         const res = (await api.get(`/api/sessions/${encodeURIComponent(sessionId)}/messages`)) as { messages: any[] };
         useSessionStore.getState().setMessages(sessionId, res.messages);
+        useSessionStore.getState().seedTokenTotal(sessionId, res.messages);
       } finally {
         useSessionStore.getState().setHistoryLoading(sessionId, false);
       }
@@ -114,6 +131,27 @@ export function SessionView({ sessionId }: Props) {
             } · {AGENT_STATE_LABEL[headerStatus]}
           </div>
         </div>
+        {/* Token 胶囊标签组 */}
+        {lastUsage && (
+          <div className="flex items-center gap-2" data-testid="token-capsules">
+            <span className="token-capsule">
+              ↑{fmtTok(lastUsage.output)}/↓{fmtTok(lastUsage.input)}
+            </span>
+            {tokenTotal && (
+              <span className="token-capsule">
+                累计 {fmtTok(tokenTotal.input + tokenTotal.output)}
+              </span>
+            )}
+            {(lastUsage.cacheRead > 0 || lastUsage.cacheWrite > 0) && (() => {
+              const rate = lastUsage.cacheRead / (lastUsage.input + lastUsage.cacheRead + lastUsage.cacheWrite) * 100;
+              return (
+                <span className="token-capsule token-capsule--cache">
+                  缓存 {Math.round(rate)}%
+                </span>
+              );
+            })()}
+          </div>
+        )}
       </header>
 
       {/* 队列面板：agent 运行中或有队列时显示 */}

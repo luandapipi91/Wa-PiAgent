@@ -24,6 +24,8 @@ interface SessionState {
   queueBySession: Record<string, { steering: readonly string[]; followUp: readonly string[] }>;
   // 会话级 token 累计：按 sessionId 存储 input/output 累计
   tokenTotals: Record<string, { input: number; output: number }>;
+  // 会话级最近一次调用的 usage（供 SessionView 渲染胶囊）
+  lastUsageBySession: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }>;
   // 原有方法保留：append 用于 error 兜底、setMessages 用于 session:messages 历史
   append: (sessionId: string, msg: SessionMessage) => void;
   setMessages: (sessionId: string, messages: SessionMessage[]) => void;
@@ -81,6 +83,7 @@ export const useSessionStore = create<SessionState>((set) => {
   unreadBySession: {},
   queueBySession: {},
   tokenTotals: {},
+  lastUsageBySession: {},
 
   addTokens: (sessionId, input, output) => set(s => {
     const cur = s.tokenTotals[sessionId] ?? { input: 0, output: 0 };
@@ -248,6 +251,12 @@ export const useSessionStore = create<SessionState>((set) => {
           break;
         }
         if (msg.role !== "assistant") break;
+        // 记录最近一次调用的 usage（供 SessionView 渲染胶囊）
+        if (msg.usage) {
+          set(s => ({
+            lastUsageBySession: { ...s.lastUsageBySession, [sessionId]: msg.usage },
+          }));
+        }
         // 累加 token 计数（不论消息是否有实质内容，token 已消耗）
         if (msg.usage) {
           set(s => {

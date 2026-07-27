@@ -342,3 +342,33 @@ test("普通项目会话 header 仍显示 project.cwd（不回归）", async () 
   // 与现有「渲染 header 标题 + 项目目录」测试一致，用 regex 匹配 cwd 子串
   expect(screen.getByText(/\/work\/hiagent/)).toBeTruthy();
 });
+
+test("token 胶囊：有 usage 时显示 ↑↓/累计/缓存", () => {
+  useSessionStore.setState({
+    lastUsageBySession: { s1: { input: 3200, output: 1100, cacheRead: 1500, cacheWrite: 200 } },
+    tokenTotals: { s1: { input: 6400, output: 2100 } },
+  });
+  useProjectsStore.setState({
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/hiagent" }],
+  });
+  render(<SessionView sessionId="s1" />);
+  expect(screen.getByTestId("token-capsules")).toBeTruthy();
+  expect(screen.getByText(/↑1\.1k\/↓3\.2k/)).toBeTruthy();
+  expect(screen.getByText(/累计 8\.5k/)).toBeTruthy();
+  // cacheRead/(input+cacheRead+cacheWrite) = 1500/(3200+1500+200) ≈ 30.6% → 31%
+  expect(screen.getByText(/缓存 31%/)).toBeTruthy();
+});
+
+test("token 胶囊：无 usage 时不显示", () => {
+  useSessionStore.setState({
+    lastUsageBySession: {},
+    tokenTotals: {},
+  });
+  useProjectsStore.setState({
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/hiagent" }],
+  });
+  render(<SessionView sessionId="s1" />);
+  expect(screen.queryByTestId("token-capsules")).toBeNull();
+});
