@@ -22,6 +22,8 @@ interface SessionState {
   historyLoadingBySession: Record<string, boolean>;
   // 会话级消息队列：steering 引导队列（来自 pi queue_update）+ followUp 排队队列
   queueBySession: Record<string, { steering: readonly string[]; followUp: readonly string[] }>;
+  // 会话级 token 累计：按 sessionId 存储 input/output 累计
+  tokenTotals: Record<string, { input: number; output: number }>;
   // 原有方法保留：append 用于 error 兜底、setMessages 用于 session:messages 历史
   append: (sessionId: string, msg: SessionMessage) => void;
   setMessages: (sessionId: string, messages: SessionMessage[]) => void;
@@ -45,6 +47,10 @@ interface SessionState {
   failTurn: (sessionId: string) => void;
   // 新增：处理 sdk:event 信封事件（流式两态管理核心入口）
   handleSDKEvent: (sessionId: string, envelope: SDKEventEnvelope) => void;
+  /** 累加一次 API 调用的 token */
+  addTokens: (sessionId: string, input: number, output: number) => void;
+  /** 从历史消息 seed 累计 token 计数 */
+  seedTokenTotal: (sessionId: string, messages: SessionMessage[]) => void;
 }
 
 // 流式标识：同 agent 同时刻同 role 视为同一条流式增量
@@ -74,6 +80,33 @@ export const useSessionStore = create<SessionState>((set) => {
   historyLoadingBySession: {},
   unreadBySession: {},
   queueBySession: {},
+  tokenTotals: {},
+
+  addTokens: (sessionId, input, output) => set(s => {
+    const cur = s.tokenTotals[sessionId] ?? { input: 0, output: 0 };
+    if (input === 0 && output === 0) return {};
+    return {
+      tokenTotals: {
+        ...s.tokenTotals,
+        [sessionId]: { input: cur.input + input, output: cur.output + output },
+      },
+    };
+  }),
+
+  seedTokenTotal: (sessionId, messages) => {
+    let input = 0;
+    let output = 0;
+    for (const sm of messages) {
+      const m = sm.message as any;
+      if (m.role === "assistant" && m.usage) {
+        input += m.usage.input;
+        output += m.usage.output;
+      }
+    }
+    if (input > 0 || output > 0) {
+      set(s => ({ tokenTotals: { ...s.tokenTotals, [sessionId]: { input, output } } }));
+    }
+  },
 
   append: (sessionId, msg) => set(s => {
     const list = s.messagesBySession[sessionId] ?? [];
@@ -215,6 +248,18 @@ export const useSessionStore = create<SessionState>((set) => {
           break;
         }
         if (msg.role !== "assistant") break;
+        // 累加 token 计数（不论消息是否有实质内容，token 已消耗）
+        if (msg.usage) {
+          set(s => {
+            const cur = s.tokenTotals[sessionId] ?? { input: 0, output: 0 };
+            return {
+              tokenTotals: {
+                ...s.tokenTotals,
+                [sessionId]: { input: cur.input + msg.usage.input, output: cur.output + msg.usage.output },
+              },
+            };
+          });
+        }
         // 失败但无实质内容（空 content / 仅空 text block）：跳过合并，避免渲染「裸头像」行。
         // 该错误的可见表示由 kernel 广播的 {type:"error"} → App.tsx 注入的红色 ⚠️ 横幅承担。
         const hasMeaningfulContent = Array.isArray(msg.content) && msg.content.some((b: any) =>

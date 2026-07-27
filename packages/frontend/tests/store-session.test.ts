@@ -396,3 +396,33 @@ test("failTurn 只影响目标会话，不串扰其它会话的 thinking 状态"
   expect(s.statusBySession["s1"]).toBe("idle");
   expect(s.statusBySession["s2"]).toBe("thinking");
 });
+
+test("addTokens 累加 token 计数", () => {
+  const store = useSessionStore.getState();
+  store.addTokens("s1", 100, 50);
+  store.addTokens("s1", 200, 80);
+  const s = useSessionStore.getState();
+  expect(s.tokenTotals["s1"]).toEqual({ input: 300, output: 130 });
+  // 独立会话互不干扰
+  s.addTokens("s2", 50, 30);
+  const s2 = useSessionStore.getState();
+  expect(s2.tokenTotals["s1"]).toEqual({ input: 300, output: 130 });
+  expect(s2.tokenTotals["s2"]).toEqual({ input: 50, output: 30 });
+});
+
+test("seedTokenTotal 从历史消息计算累计", () => {
+  const messages: any[] = [
+    { message: { role: "user" } },
+    { message: { role: "assistant", usage: { input: 100, output: 50 } } },
+    { message: { role: "assistant", usage: { input: 200, output: 30 } } },
+    { message: { role: "assistant" } }, // 无 usage 的历史消息，跳过
+  ];
+  useSessionStore.getState().seedTokenTotal("s2", messages);
+  const s = useSessionStore.getState();
+  expect(s.tokenTotals["s2"]).toEqual({ input: 300, output: 80 });
+});
+
+test("seedTokenTotal 无 usage 时不写入", () => {
+  useSessionStore.getState().seedTokenTotal("s3", [{ message: { role: "user" } }]);
+  expect(useSessionStore.getState().tokenTotals["s3"]).toBeUndefined();
+});
