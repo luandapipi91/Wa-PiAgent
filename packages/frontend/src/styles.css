@@ -148,6 +148,6 @@ body {
   white-space: nowrap;
 }
 .token-capsule--cache {
-  background: #ecfdf5;
-  color: #059669;
+  background: var(--success-soft);
+  color: var(--success);
 }

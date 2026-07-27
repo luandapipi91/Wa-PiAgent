@@ -99,15 +99,26 @@ export const useSessionStore = create<SessionState>((set) => {
   seedTokenTotal: (sessionId, messages) => {
     let input = 0;
     let output = 0;
+    let lastUsage: any = null;
     for (const sm of messages) {
       const m = sm.message as any;
       if (m.role === "assistant" && m.usage) {
         input += m.usage.input;
         output += m.usage.output;
+        lastUsage = m.usage;
       }
     }
-    if (input > 0 || output > 0) {
-      set(s => ({ tokenTotals: { ...s.tokenTotals, [sessionId]: { input, output } } }));
+    if (input > 0 || output > 0 || lastUsage) {
+      set(s => {
+        const patch: any = {};
+        if (input > 0 || output > 0) {
+          patch.tokenTotals = { ...s.tokenTotals, [sessionId]: { input, output } };
+        }
+        if (lastUsage) {
+          patch.lastUsageBySession = { ...s.lastUsageBySession, [sessionId]: lastUsage };
+        }
+        return patch;
+      });
     }
   },
 
@@ -244,6 +255,19 @@ export const useSessionStore = create<SessionState>((set) => {
         streamingBatcher.drop(sessionId);
         const msg = event.message as any;
         if (msg.role === "toolResult") {
+          // 子 agent usage：delegate 工具返回的 childUsage 累加到会话 token
+          const childUsage = (msg as any).details?.childUsage?.tokens;
+          if (childUsage && (childUsage.input > 0 || childUsage.output > 0)) {
+            set(s => {
+              const cur = s.tokenTotals[sessionId] ?? { input: 0, output: 0 };
+              return {
+                tokenTotals: {
+                  ...s.tokenTotals,
+                  [sessionId]: { input: cur.input + childUsage.input, output: cur.output + childUsage.output },
+                },
+              };
+            });
+          }
           set(s => {
             const list = [...(s.messagesBySession[sessionId] ?? []), { message: msg, agentName }];
             return { messagesBySession: { ...s.messagesBySession, [sessionId]: list } };
@@ -256,18 +280,18 @@ export const useSessionStore = create<SessionState>((set) => {
           set(s => ({
             lastUsageBySession: { ...s.lastUsageBySession, [sessionId]: msg.usage },
           }));
-        }
-        // 累加 token 计数（不论消息是否有实质内容，token 已消耗）
-        if (msg.usage) {
-          set(s => {
-            const cur = s.tokenTotals[sessionId] ?? { input: 0, output: 0 };
-            return {
-              tokenTotals: {
-                ...s.tokenTotals,
-                [sessionId]: { input: cur.input + msg.usage.input, output: cur.output + msg.usage.output },
-              },
-            };
-          });
+          // 累加 token 计数（跳过全 0 usage，如 error 消息）
+          if (msg.usage.input > 0 || msg.usage.output > 0) {
+            set(s => {
+              const cur = s.tokenTotals[sessionId] ?? { input: 0, output: 0 };
+              return {
+                tokenTotals: {
+                  ...s.tokenTotals,
+                  [sessionId]: { input: cur.input + msg.usage.input, output: cur.output + msg.usage.output },
+                },
+              };
+            });
+          }
         }
         // 失败但无实质内容（空 content / 仅空 text block）：跳过合并，避免渲染「裸头像」行。
         // 该错误的可见表示由 kernel 广播的 {type:"error"} → App.tsx 注入的红色 ⚠️ 横幅承担。

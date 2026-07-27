@@ -8,6 +8,14 @@
 
 ### 修复
 
+- **Token 显示 6 项缺陷修复**：存量会话无胶囊（seedTokenTotal 未写 lastUsageBySession）；fmtTok 大小写不一致 → 全大写 K/M；箭头方向反 → ↑输入/↓输出；缓存胶囊硬编码 → 主题变量；子 agent usage 未纳入 → 从 toolResult.details.childUsage 提取；全 0 usage 导致显示「累计 0」→ 加跳过逻辑。
+  - 影响范围：packages/frontend/src/store/session.ts, packages/frontend/src/components/SessionView.tsx, packages/frontend/src/styles.css, packages/frontend/tests/
+
+### 新增
+
+- **内置 pi-cache-optimizer + Token/缓存显示**：PKG_EXTENSIONS 加载扩展；SessionView 头部 ↑/↓/累计/缓存胶囊标签；支持历史会话 seed + 子 agent usage 累加。
+  - 影响范围：packages/kernel/src/extensions.ts, packages/shared/src/types.ts, packages/frontend/src/store/session.ts, packages/frontend/src/components/SessionView.tsx, packages/frontend/src/styles.css
+
 - **新建会话/空会话打开时报 ENOENT 堆栈刷屏**：`session:messages` 文件直读把「记录存在但 pi 文件未生成」（新建会话、从未成功对话的会话）当异常处理，打出完整错误堆栈并走昂贵的进程回退路径。ENOENT 实为「历史为空」的预期状态——改为直接回复空历史并后台预热进程；仅文件损坏等真异常才回退进程路径，且日志改为单行 warn。
   - 影响范围：packages/kernel/src/ws-server.ts, packages/kernel/tests/session-messages.test.ts
 
