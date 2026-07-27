@@ -499,6 +499,15 @@ export class AgentManager {
     //   内置 7 工具 + 扩展工具 + MCP direct 工具全部可用（对齐迁移前 DEFAULT+harvested 的行为）。
     // - 显式配置 tools：白名单——config.tools ∪ EXTENSION_TOOL_MAP ∪ MCP direct 工具名。
     const enabledExtensionIds = await this.getEnabledExtensionIds();
+
+    // 当 agent 配置了 skills 白名单时，不加载 extension（避免 pi 的 -e 机制
+    // 绕过 HiAgent 的白名单过滤，导致 extension skills 全部暴露给 agent）。
+    // extension skills 已通过 --skill 参数按白名单过滤传入。
+    const restrictedSkills = !!(config?.skills?.length);
+    const extensionPaths = restrictedSkills
+      ? []
+      : buildAdditionalExtensionPaths([...enabledExtensionIds]);
+
     const restricted = !!(config?.tools?.length);
     const toolArgs: { tools?: string[]; excludeTools?: string[] } = restricted
       ? {
@@ -541,7 +550,7 @@ export class AgentManager {
         sessionFile: sessionEntity.piSessionFile,
         systemPromptFile: promptFile,
         appendSystemPrompt: memorySnapshotFile,
-        extensionPaths: buildAdditionalExtensionPaths([...enabledExtensionIds]),
+        extensionPaths: extensionPaths,
         skillPaths: additionalSkillPaths,
         noSkills: true,
         thinking,
