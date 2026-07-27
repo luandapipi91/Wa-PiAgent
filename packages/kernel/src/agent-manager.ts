@@ -505,12 +505,17 @@ export class AgentManager {
     // - 显式配置 tools：白名单——config.tools ∪ EXTENSION_TOOL_MAP ∪ MCP direct 工具名。
     const enabledExtensionIds = await this.getEnabledExtensionIds();
 
-    // 当 agent 配置了 skills 白名单时，不加载 extension（避免 pi 的 -e 机制
-    // 绕过 HiAgent 的白名单过滤，导致 extension skills 全部暴露给 agent）。
+    // 当 agent 配置了 skills 白名单时，排除提供技能的 extension（如 superpowers-zh），
+    // 避免 pi 的 -e + resources_discover 机制绕过白名单过滤。
     // extension skills 已通过 --skill 参数按白名单过滤传入。
+    // 保留 hiagent-bridge 等工具类 extension（提供 delegate/fleet/memory 工具）。
     const restrictedSkills = !!(config?.skills?.length);
+    const skillProvidingExtIds = restrictedSkills && this.opts.extensionManager
+      ? new Set((await this.opts.extensionManager.getEnabledExtensionSkillPaths())
+          .map(s => s.packageName))
+      : new Set<string>();
     const extensionPaths = restrictedSkills
-      ? []
+      ? buildAdditionalExtensionPaths([...enabledExtensionIds].filter(id => !skillProvidingExtIds.has(id)))
       : buildAdditionalExtensionPaths([...enabledExtensionIds]);
 
     const restricted = !!(config?.tools?.length);
