@@ -545,13 +545,6 @@ function MessageRow({
 	// 错误消息（stopReason === "error"）：红色文字
 	const isError = m.stopReason === "error";
 
-	// 宽度稳定性：含过程卡片（thinking/toolCalls/delegate/fleet）的消息列固定 78% 宽。
-	// 内容驱动的列（max-w-[78%]）会被卡片展开后的宽内容（JSON/thinking 正文）撑大，
-	// 导致展开/收起卡片时整列跳宽；纯文本消息保持 shrink-wrap 气泡不变。
-	const hasProcessCard = segments.some(
-		(s) => s.kind === "thinking" || s.kind === "toolCalls" || s.kind === "delegate" || s.kind === "fleet",
-	);
-
 	return (
 		<div
 			className="flex gap-2.5"
@@ -560,7 +553,7 @@ function MessageRow({
 			<div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-sm flex-shrink-0">
 				🤖
 			</div>
-			<div className={`${hasProcessCard ? "w-[78%]" : "max-w-[78%]"} min-w-0`}>
+			<div className="max-w-[78%] min-w-0">
 				<div className="text-[11px] text-tertiary mb-0.5 font-semibold">
 					{row.main.agentName ?? "agent"} · {formatTime(m.timestamp)}
 				</div>

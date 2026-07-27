@@ -6,15 +6,7 @@
 
 ## 2026-07-27
 
-### 新增
-
-- **聊天界面支持 Mermaid 图表渲染**：````mermaid```` 代码块渲染为可视化图表。支持 hover 放大按钮 → 85vw×85vh 弹窗预览，弹窗内鼠标拖拽平移、滚轮/按钮缩放（25%~500%）、实时比例显示、复制 Mermaid 源码、复制图表为 PNG 图片，右上角关闭/ESC/点击遮罩关闭。
-  - 影响范围：packages/frontend/src/components/blocks/MermaidBlock.tsx（新增）, packages/frontend/src/components/blocks/markdown-components.tsx, packages/frontend/tests/blocks/MermaidBlock.test.tsx（新增）, packages/frontend/tests/blocks/markdown-mermaid.test.tsx（新增）
-
 ### 修复
-
-- **工具卡片展开/收起宽度跳变**：assistant 消息列 `max-w-[78%]` 是内容驱动宽度（flex item），卡片展开后的宽内容（JSON/thinking 正文）把整列撑大，展开/收起时整列跳宽。参考 cocode 设计（assistant body 稳定全宽），含过程卡片（thinking/toolCalls/delegate/fleet）的消息列改为固定 `w-[78%]`，纯文本消息保持 `max-w-[78%]` shrink-wrap 不变。浏览器实测：同一工具组卡展开/收起/再收起宽度 1356px 恒定。
-  - 影响范围：packages/frontend/src/components/MessageList.tsx, packages/frontend/tests/MessageList.test.tsx
 
 - **Token 显示 6 项缺陷修复**：存量会话无胶囊（seedTokenTotal 未写 lastUsageBySession）；fmtTok 大小写不一致 → 全大写 K/M；箭头方向反 → ↑输入/↓输出；缓存胶囊硬编码 → 主题变量；子 agent usage 未纳入 → 从 toolResult.details.childUsage 提取；全 0 usage 导致显示「累计 0」→ 加跳过逻辑。
   - 影响范围：packages/frontend/src/store/session.ts, packages/frontend/src/components/SessionView.tsx, packages/frontend/src/styles.css, packages/frontend/tests/
