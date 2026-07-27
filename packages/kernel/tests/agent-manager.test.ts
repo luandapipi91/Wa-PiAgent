@@ -774,6 +774,30 @@ test("bridge ctx 的 delegate 工具：不在可调起列表时返回错误", as
   expect(result.content[0].text).toContain("不在可调起列表中");
 });
 
+test("skills 白名单下 delegate 工具仍可用（不因 skill 过滤误关 bridge 扩展）", async () => {
+  // agent 有 skills 白名单 → 只排除技能 extension，bridge 扩展应照常加载
+  const configStore = {
+    getAgent: mock(async () => ({
+      displayName: "pm",
+      skills: ["chinese-code-review"],  // 有白名单
+      partners: { askTo: ["代码审查"] },
+    })),
+  } as any;
+  const { project, session, am } = await setup({ configStore });
+  await am.ensureStarted(project.id, "pm", session.id);
+
+  // bridge session 应存在（bridge 扩展未被排除）
+  const ctx = getBridgeSession(session.id)!;
+  expect(ctx).toBeTruthy();
+
+  // delegate 工具应可用
+  const result = await ctx.handleTool(
+    "delegate", "tc1", { agent: "代码审查", task: "review this" }, new AbortController().signal,
+  );
+  // 即使 spawn 失败（测试环境无真实子进程），也不应报"工具不存在"
+  expect(result.content[0].text).not.toContain("not found");
+});
+
 test("自动学习关闭（reviewEnabled=false）时记忆工具返回关闭提示", async () => {
   const { project, session, am } = await setup({
     memoryStore: { getConfig: async () => ({ reviewEnabled: false, memoryPolicyStyle: "full" as const }) },
