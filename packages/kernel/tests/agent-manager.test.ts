@@ -1112,3 +1112,33 @@ test("agent skills 空数组 = 全量（不传白名单时所有启用技能都�
   expect(skills.some(s => s.includes("skill-a"))).toBe(true);
   expect(skills.some(s => s.includes("skill-b"))).toBe(true);
 });
+
+test("message_end 透传 usage 字段到消息历史", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  // 模拟 Pi 的 message_end 事件，携带 usage
+  const usageData = {
+    input: 3200,
+    output: 1100,
+    cacheRead: 1500,
+    cacheWrite: 200,
+    totalTokens: 4300,
+  };
+  fakes[0].emit({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "hello" }],
+      model: "test-model",
+      stopReason: "stop",
+      timestamp: Date.now(),
+      usage: usageData,
+    },
+  });
+
+  // usage 应被保留在消息历史中
+  const messages = am.getMessages(session.id);
+  expect(messages.length).toBe(1);
+  expect(messages[0].usage).toEqual(usageData);
+});
