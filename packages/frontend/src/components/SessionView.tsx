@@ -133,7 +133,7 @@ export function SessionView({ sessionId }: Props) {
         </div>
         {/* Token 胶囊标签组 */}
         {lastUsage && (
-          <div className="flex items-center gap-2" data-testid="token-capsules">
+          <div className="flex items-center gap-2 flex-wrap" data-testid="token-capsules">
             <span className="token-capsule">
               ↑{fmtTok(lastUsage.input)}/↓{fmtTok(lastUsage.output)}
             </span>
