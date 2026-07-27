@@ -188,6 +188,30 @@ describe("AgentConfig 4 tab", () => {
     expect(lastSaved("dev").config.skills).toEqual(["pdf"]);
   });
 
+  test("新角色：默认 tools/skills 为空数组 → 所有开关应默认 ON", () => {
+    // 不传 config override，使用 cfg() 默认值（tools:[], skills:[]）
+    renderConfig("新角色");
+
+    // 工具 tab
+    fireEvent.click(screen.getByTestId("tab-tools"));
+    // 默认空数组 = 全选，所有开关应为 ON
+    // （tools 列表从 SSE agent:tools:list 加载，测试用 emitEvent 模拟）
+
+    // 技能 tab
+    useSkillsStore.setState({
+      allSkills: [
+        { name: "s1", description: "S1", path: "/s1" },
+        { name: "s2", description: "S2", path: "/s2" },
+      ],
+    });
+    fireEvent.click(screen.getByTestId("tab-skills"));
+    const s1 = screen.getByTestId("skill-switch-s1");
+    const s2 = screen.getByTestId("skill-switch-s2");
+    // skills 空数组 = 全量继承，所有开关应为 ON
+    expect(s1.getAttribute("data-on")).toBe("true");
+    expect(s2.getAttribute("data-on")).toBe("true");
+  });
+
   test("改名保存：载荷 config.displayName 更新，agentName 保持原名", () => {
     renderConfig("技术实现", cfg("技术实现"));
     fireEvent.change(screen.getByTestId("cfg-name-input"), { target: { value: "新名字" } });

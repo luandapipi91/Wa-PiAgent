@@ -445,7 +445,8 @@ export class WSServer {
       case "session:messages": {
         // 快速路径：直接解析 pi 会话文件返回历史（毫秒级，不启动 pi 进程）；
         // 进程改为后台预热（用户大概率接着发消息，预热让首条 prompt 免冷启动）。
-        // 文件不可读/格式异常时回退原进程路径（ensureStarted 后读 AgentSession.messages）。
+        // ENOENT（记录存在但文件未生成：新建会话/从未成功对话）= 历史为空，直接回复 []；
+        // 其他文件异常（损坏/格式变更）回退原进程路径（ensureStarted 后读 AgentSession.messages）。
         const { sessions } = await this.opts.projectStore.load();
         const session = sessions.find(s => s.id === event.sessionId);
         if (!session) {
@@ -461,7 +462,13 @@ export class WSServer {
               .catch((err) => console.error(`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`, err));
             break;
           } catch (err) {
-            console.error(`[ws-server] 会话文件直读失败，回退进程路径 ${event.sessionId}:`, err);
+            if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+              reply({ type: "session:messages", sessionId: event.sessionId, messages: [] });
+              void this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id)
+                .catch((e) => console.error(`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`, e));
+              break;
+            }
+            console.warn(`[ws-server] 会话文件直读失败，回退进程路径 ${event.sessionId}: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
         try {
