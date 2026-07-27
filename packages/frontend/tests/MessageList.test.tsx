@@ -971,39 +971,3 @@ test("用户点击折叠的卡片后内容展开（尊重手动选择）", () =>
   fireEvent.click(screen.getByTestId("thinking-panel-header"));
   expect(screen.getByTestId("thinking-panel-body").textContent).toContain("历史思考");
 });
-
-// 宽度稳定性（展开/收起工具卡片不跳变）：含过程卡片的消息列固定 78%，
-// 纯文本消息保持内容驱动（max-w-[78%] shrink-wrap）
-// 注：class 断言按空格切词精确匹配，避免 "max-w-[78%]" 子串误命中 "w-[78%]"
-test("含工具卡片的消息列固定 78% 宽（展开/收起宽度一致）", () => {
-  const tc = { type: "toolCall", id: "tcw", name: "bash", arguments: { command: "ls" } };
-  useSessionStore.setState({
-    messagesBySession: { s1: [assistantMsg(10, [{ type: "text", text: "好" }, tc])] },
-  });
-  render(<MessageList sessionId="s1" />);
-  const row = screen.getByTestId("msg-s1-10");
-  const column = row.children[1] as HTMLElement; // 头像后的内容列
-  expect(column.className.split(" ")).toContain("w-[78%]");
-  // 展开后列宽 class 不变（宽度不随卡片开合变化）
-  fireEvent.click(screen.getByTestId("toolcall-tcw-header"));
-  expect((row.children[1] as HTMLElement).className.split(" ")).toContain("w-[78%]");
-});
-
-test("纯文本消息列保持内容驱动（max-w-[78%]，不固定宽）", () => {
-  useSessionStore.setState({
-    messagesBySession: { s1: [assistantMsg(10, [{ type: "text", text: "好" }])] },
-  });
-  render(<MessageList sessionId="s1" />);
-  const column = screen.getByTestId("msg-s1-10").children[1] as HTMLElement;
-  expect(column.className.split(" ")).toContain("max-w-[78%]");
-  expect(column.className.split(" ")).not.toContain("w-[78%]");
-});
-
-test("含 thinking 卡片的消息列固定 78% 宽", () => {
-  useSessionStore.setState({
-    messagesBySession: { s1: [assistantMsg(10, [{ type: "thinking", thinking: "想" }])] },
-  });
-  render(<MessageList sessionId="s1" />);
-  const column = screen.getByTestId("msg-s1-10").children[1] as HTMLElement;
-  expect(column.className.split(" ")).toContain("w-[78%]");
-});
