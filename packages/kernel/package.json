@@ -22,6 +22,7 @@
     "pi-mcp-adapter": "2.13.0",
     "pi-open-agents": "^0.1.12",
     "pi-web-access": "^0.13.0",
+    "pi-cache-optimizer": "^2.6.24",
     "typebox": "1.1.38"
   }
 }
