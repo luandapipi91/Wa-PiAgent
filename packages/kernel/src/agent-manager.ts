@@ -16,7 +16,7 @@
 // - createClientFn 可选参数，缺省时用真实 RpcClient（测试注入假 client）
 // - bridgeBaseUrl 惰性取值：kernel 启动时 WS 端口在 AgentManager 构造后才确定
 
-import type { AgentName, AttachmentRef, ThinkingLevel, MemoryConfig } from "@hiagent/shared";
+import type { AgentName, AttachmentRef, ThinkingLevel, MemoryConfig, SkillInfo } from "@hiagent/shared";
 import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, EXTENSION_TOOL_MAP, resolveAgentTools, resolveSessionCwd, PROMPTS_FILE, SUBAGENT_TYPES, isSubagentType } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
@@ -338,11 +338,16 @@ export class AgentManager {
       ? await this.opts.configStore.getAgent(agentName)
       : null;
 
-    // 解析启用 skill 的目录路径，传给 pi 的 --skill 参数
-    const additionalSkillPaths = await resolveEnabledSkillPaths(
+    // 解析启用 skill 的目录路径，传给 pi 的 --skill 参数。
+    // 先按全局启用状态扫描，再按 agent 配置的 skills 白名单过滤（空数组 = 全量）。
+    const enabledSkills = await resolveEnabledSkills(
       this.opts.skillManager,
       this.opts.extensionManager,
     );
+    const additionalSkillPaths = (config?.skills?.length
+      ? enabledSkills.filter(s => config.skills!.includes(s.name))
+      : enabledSkills
+    ).map(s => s.path);
 
     // host-controlled 记忆：预取全局+项目记忆快照注入系统提示词；记忆读取失败降级为空快照。
     // 「注入提示」开关（memoryPolicyStyle=none）关闭时不注入。
@@ -919,15 +924,14 @@ async function buildMemorySnapshot(hiagentDir: string, projectCwd: string): Prom
 }
 
 /**
- * 解析启用 skill 的目录路径列表，供 pi --skill 参数使用。
- * 包含内置目录、userSkillDirs 和扩展包 skills/ 目录来源的**启用**技能。
+ * 解析所有已启用的技能（含内置、userDirs、扩展包）。
  * Pi SDK 默认扫描已关闭（--no-skills），所以必须显式传入所有要加载的技能路径。
  * skillManager 为空（测试场景）时返回空数组。
  */
-async function resolveEnabledSkillPaths(
+async function resolveEnabledSkills(
   skillManager: SkillManager | undefined,
   extensionManager?: ExtensionManager,
-): Promise<string[]> {
+): Promise<SkillInfo[]> {
   if (!skillManager) return [];
 
   // 获取扩展技能路径（可能为空）
@@ -938,6 +942,5 @@ async function resolveEnabledSkillPaths(
   // scan 已按 builtin → userDirs → ext 顺序去重并过滤 disabledSkills
   const { skills } = await skillManager.scan(extSkillPaths);
 
-  // 把所有启用 skill 的具体目录路径传给 Pi，覆盖 --no-skills 后的空加载
-  return skills.map((s) => s.path);
+  return skills;
 }
