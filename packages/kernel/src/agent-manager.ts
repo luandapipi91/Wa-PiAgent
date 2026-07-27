@@ -114,6 +114,8 @@ interface SessionHandle {
   steerList: string[];
   /** 系统提示词临时文件（dispose 时清理） */
   promptFile: string | null;
+  /** 记忆快照临时文件（dispose 时清理） */
+  memorySnapshotFile: string | null;
   /** 进程意外退出标记（下次 ensureStarted 重建） */
   crashed: boolean;
   /** dispose 标记（防止 onExit 误判为崩溃） */
@@ -522,6 +524,7 @@ export class AgentManager {
       followUpList: [],
       steerList: [],
       promptFile,
+      memorySnapshotFile: memorySnapshotFile ?? null,
       crashed: false,
       disposed: false,
       subagentTelemetry,
@@ -814,6 +817,9 @@ export class AgentManager {
       void handle.client.dispose().catch(() => {});
       if (handle.promptFile) {
         void rm(handle.promptFile, { force: true }).catch(() => {});
+      }
+      if (handle.memorySnapshotFile) {
+        void rm(handle.memorySnapshotFile, { force: true }).catch(() => {});
       }
     }
     this.sessions.delete(sessionId);
