@@ -123,7 +123,15 @@ export interface AssistantMessage {
   // 运行时错误文案：SDK 把 provider 失败编码成 stopReason:"error" 的消息时携带。
   // kernel 读取它翻译成 {type:"error"} 广播给前端；前端渲染层不直接消费。
   errorMessage?: string;
-  // 简化：忽略 usage/api/provider/responseModel/responseId（前端用不到）
+  // usage：透传 Pi SDK 的 Usage 对象。message_end 时由 kernel 原样转发到前端。
+  // 旧消息无此字段，前端需兼容 undefined。cost 字段不在前端使用故不定义。
+  usage?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    totalTokens: number;
+  };
 }
 
 export interface ToolResultMessage {
