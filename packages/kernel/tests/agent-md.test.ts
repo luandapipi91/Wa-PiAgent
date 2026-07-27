@@ -178,3 +178,15 @@ test("tools 序列化往返：空数组不变成 ['']", () => {
   const c2 = parseAgentMd(stringifyAgentMd(c));
   expect(c2.tools).toEqual([]);
 });
+
+test("skills 序列化往返：空数组不变成 ['']（Bug: 旧格式 skills: 无括号）", () => {
+  const c = { ...base, skills: [] };
+  const c2 = parseAgentMd(stringifyAgentMd(c));
+  expect(c2.skills).toEqual([]);
+});
+
+test("skills 序列化往返：非空数组不丢项", () => {
+  const c = { ...base, skills: ["pdf", "web"] };
+  const c2 = parseAgentMd(stringifyAgentMd(c));
+  expect(c2.skills).toEqual(["pdf", "web"]);
+});

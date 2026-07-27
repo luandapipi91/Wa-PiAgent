@@ -98,7 +98,11 @@ export function parseAgentMd(md: string): AgentConfig {
       if (y.tools == null || String(y.tools).trim() === "") return [];
       return String(y.tools).split(",").map(s => s.trim());
     })(),
-    skills: Array.isArray(y.skills) ? y.skills as string[] : String(y.skills).split(",").map(s => s.trim()),
+    skills: (() => {
+      const raw = Array.isArray(y.skills) ? y.skills as string[] : String(y.skills ?? "").split(",").map((s: string) => s.trim());
+      // 防御：过滤空字符串（如旧格式 skills: 被解析为 [""] 的残留数据）
+      return raw.filter((s: string) => s !== "");
+    })(),
     mcpServers: Array.isArray(y.mcpServers) ? y.mcpServers as string[] : [],
     partners,
     delegationHints: (() => {
@@ -124,7 +128,7 @@ export function stringifyAgentMd(c: AgentConfig): string {
   fm.push(`thinking: ${c.thinking}`);
   fm.push(`systemPromptMode: ${c.systemPromptMode}`);
   fm.push(`tools: [${c.tools.join(", ")}]`);
-  fm.push(`skills: ${c.skills.join(", ")}`);
+  fm.push(`skills: [${c.skills.join(", ")}]`);
   fm.push(`mcpServers: ${c.mcpServers.length ? `[${c.mcpServers.join(", ")}]` : "[]"}`);
   fm.push("partners:");
   fm.push(`  askTo: [${c.partners.askTo.join(", ")}]`);
