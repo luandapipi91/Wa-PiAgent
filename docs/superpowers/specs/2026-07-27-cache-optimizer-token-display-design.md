@@ -42,7 +42,7 @@ Pi 子进程                     HiAgent Kernel                   Frontend
 │                    │         │                  │         │                  │
 │ message_end ───────┼─usage──▶│ 透传 usage ───────┼─WS─────▶│ SessionView      │
 │  · usage.input     │         │ 到前端消息         │         │  · 胶囊标签组     │
-│  · usage.output    │         │                    │         │  · 本轮/累计 tok  │
+│  · usage.output    │         │                    │         │  · 入/出/累计 tok  │
 │  · usage.cacheRead │         │                    │         │  · 缓存命中率     │
 └──────────────────┘         └──────────────────┘         └──────────────────┘
 ```
@@ -64,87 +64,107 @@ interface Usage {
 
 ### stats 文件存储位置
 
-`pi-cache-optimizer` 尊重 `PI_CODING_AGENT_DIR` 环境变量。HiAgent 启动 Pi 子进程时已设为 `~/.hiagent`（即 `HIAGENT_DIR`），因此 stats 自动写入 `~/.hiagent/pi-cache-optimizer-stats.json`，不需要额外配置。
+> 备注：pi-cache-optimizer 的 stats 文件自动写入 `~/.hiagent/`（Pi 子进程已设 `PI_CODING_AGENT_DIR`），但 UI 不读该文件——token 和缓存数据直接来自 `message_end.usage`。
 
 ---
 
 ## 改动清单
 
-### 1. Kernel · 内置插件 seed
+### 1. Kernel · 内置插件
 
-**文件**：`packages/kernel/src/extension-manager.ts`、`packages/kernel/src/index.ts`
+**文件**：`packages/kernel/src/extensions.ts`、`packages/kernel/package.json`、`packages/desktop/resources/kernel/package.json`
 
-参照 `config-store.seedDefaults()` 幂等模式：
+沿用 `PKG_EXTENSIONS` 机制（`extensions.ts:70`），三处一行改动：
 
-- 新增 `seedBuiltinExtensions()` 函数
-- 读取 `settings.json` 的 `hiagent_packages` 数组
-- 若 `"npm:pi-cache-optimizer"` 不存在 → 追加写入
-- 已存在 → 跳过（不覆盖用户手动安装的版本）
-- 始终启用（不加入 `hiagent_disabledPackages`）
+1. `PKG_EXTENSIONS` 数组追加 `"pi-cache-optimizer"`
+2. `packages/kernel/package.json` 的 `dependencies` 加 `"pi-cache-optimizer": "^2.6.24"`
+3. `packages/desktop/resources/kernel/package.json` 的 `dependencies` 加同上（桌面端 seed）
+
+版本策略：dev 和 desktop seed 统一 `^2.6.24`，与 kernel 对齐。遵循现有 pi-mcp-adapter 等包的模式。
+
+不需要新写 `seedBuiltinExtensions()`。`PKG_EXTENSIONS` 已内置了 `pi-open-agents`、`pi-web-access`、`pi-mcp-adapter`，加第四个遵循同一模式。
+
+**验证**：npm 上 `pi-cache-optimizer@2.6.24` 已声明 `pi.extensions: ["./index.ts"]`，能过 `readPiExtensionsDeclaration` gate。
 
 ### 2. Kernel · usage 透传
 
 **文件**：`packages/shared/src/types.ts`、`packages/kernel/src/agent-manager.ts`
 
 - `AssistantMessage` 新增 `usage` 字段（可选，兼容旧消息）
-- `message_end` 事件处理中透传 Pi 的 `usage` 对象到前端
+- 同步更新 types.ts:126 注释：去掉「忽略 usage」，改为说明 usage 来自 Pi SDK 透传
+- `message_end` 事件处理中透传 Pi 的 `usage` 对象到前端（RpcEvent 的 `[k: string]: any` 已支持，无需改代码）
 - 不做计算，仅透传原始数据
 
 ### 3. Frontend · 头部 UI
 
 **文件**：`packages/frontend/src/components/SessionView.tsx`、`packages/frontend/src/store/session.ts`
 
-- `SessionView` 的 `<header>` 右侧新增胶囊标签组（方案 C 风格）
+- `SessionView` 的 `<header>` 右侧新增三个胶囊标签（↑↓ 箭头风格）
 - session store 维护会话累计 token 计数（`sessionTokens` map）
-- 每个 `message_end` 事件到达时更新：
-  - 本轮 token = `usage.input + usage.output`
-  - 累计 token = 之前累计 + 本轮 token
-  - 缓存命中率 = `usage.cacheRead / (usage.cacheRead + usage.input)` × 100%
+### 「↑/↓」的语义
+
+工具循环中一轮对话可能产生多次 API 调用，每次调用对应一个带 `usage` 的 `message_end`。
+
+- **「↑X/↓Y」**：显示最近一次 `message_end` 的 `usage.output` / `usage.input`
+- **「累计 Z」**：会话累计总 token，每次 `message_end` 到达时累加 `input + output`
+- **「缓存 X%」**：基于最近一次调用的 usage 计算 `cacheRead / (input + cacheRead + cacheWrite)`
+
+不做 agent_start→agent_settled 窗口聚合——避免引入复杂的生命周期管理。
 
 ---
 
 ## UI 设计
 
-采用**方案 C（胶囊标签组）**风格：
+采用**↑↓ 箭头 + K/M 缩写**（单胶囊 + 累计 + 缓存）：
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│ 会话标题                    [本轮 1.2k tok] [累计 8.5k tok] [缓存命中 40%] │
-│ ● /Users/.../HiAgent · 空闲                              │
-└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ 会话标题                        [↑1.1k/↓3.2k] [累计 8.5k] [缓存 40%] │
+│ ● /Users/.../HiAgent · 空闲                                  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-- 三个标签水平排列在 header 右侧
-- 「本轮」「累计」使用灰色胶囊背景
-- 「缓存命中」使用绿色背景（`#ecfdf5` 底 + `#059669` 字）
+- 「↑X/↓Y」：↑ 输出 tokens（completion）/ ↓ 输入 tokens（prompt），灰色胶囊
+- 「累计 Z」：会话累计总 token（含历史 seed），灰色胶囊
+- 「缓存 X%」：缓存命中率，绿色胶囊（`#ecfdf5` 底 + `#059669` 字）
 - 仅当有 usage 数据时显示（初始状态不显示）
 - 每次 `message_end` 事件到达时自动刷新
+- 数字格式化：&lt;1000 显示原始值，≥1000 显示 K（如 1.2k），≥1M 显示 M（如 1.5M）。无小数时省略小数位（55K 而非 55.0K）
 
 ---
 
 ## 注意事项
 
-1. **子 agent 的 token**：子 agent 产生独立的 `message_end` 事件，usage 会自然进入当前会话的累计计数
-2. **缓存命中率公式**：`cacheRead / (cacheRead + input)`。当 `cacheRead` 和 `input` 都为 0 时不显示
-3. **pi-cache-optimizer footer**：在 HiAgent UI 中不可见（不做适配），仅享受其提示词优化
-4. **旧消息兼容**：`usage` 字段设为可选，历史消息（无 usage）不影响渲染
+1. **子 agent 的 token**：子 agent 运行在独立 Pi 进程中（`subagent-runner.ts:141-171`），其 `message_end` 事件不进父会话的 `sdk:event` 广播。**第一版不做子 agent token 统计**——仅统计当前会话直接 API 调用的 usage。后续可补 delegate 结果回填管道。
+2. **Usage 归一化**：Pi SDK 的 `input` 字段**不含缓存 token**（apiNormalizeUsage 已扣除）。因此 prompt 总量 = `input + cacheRead + cacheWrite`。缓存命中率 = `cacheRead / (input + cacheRead + cacheWrite)`，分母全 0 时不显示。
+3. **历史会话的初始累计**：重新打开历史会话时，从会话文件中读取历史消息的 usage，一次性 seed 初始累计计数。避免从 0 开始导致严重低估。
+4. **pi-cache-optimizer footer**：在 HiAgent UI 中不可见（不做适配），仅享受其提示词优化
+5. **旧消息兼容**：`usage` 字段设为可选，历史消息（无 usage）不影响渲染
 
 ---
 
 ## 验收标准
 
 ### 内置插件
-- [ ] kernel 启动后，`~/.hiagent/settings.json` 的 `hiagent_packages` 包含 `"npm:pi-cache-optimizer"`
-- [ ] Pi 子进程启动时加载了 `pi-cache-optimizer` 扩展（日志可验证）
-- [ ] 重复启动不重复写入，用户手动安装的版本不被覆盖
+- [ ] `PKG_EXTENSIONS` 数组包含 `"pi-cache-optimizer"`
+- [ ] `packages/kernel/package.json` 和 desktop seed package.json 含 `pi-cache-optimizer` 依赖
+- [ ] Pi 子进程启动时加载了 `pi-cache-optimizer` 扩展（`-e` 参数包含其入口）
 
 ### Token 显示
-- [ ] 消息返回后，header 右侧出现「本轮」和「累计」胶囊标签
+- [ ] 消息返回后，header 右侧出现「↑X/↓Y」「累计 Z」「缓存 X%」三个胶囊
 - [ ] 多次对话后，累计数字递增
 - [ ] 切换会话后，累计数字切换为该会话的计数
+- [ ] 重新打开历史会话时，累计数字从历史消息 usage seed（不从 0 开始）
 - [ ] 支持缓存命中率的模型显示绿色「缓存命中」标签
-- [ ] 不支持缓存的模型（cacheRead=0）不显示缓存命中率标签
+- [ ] 缓存命中率 = `cacheRead / (input + cacheRead + cacheWrite)`
+- [ ] 不支持缓存的模型（cacheRead=0 且 cacheWrite=0）不显示缓存命中率标签
 
 ### 兼容性
 - [ ] 历史消息（无 usage 字段）不报错
 - [ ] 现有测试全部通过
+
+### 测试分层（四层）
+- [ ] **单元测试**：session store 的 `addTokens`/`seedTokenTotal` 累计逻辑、`fmtTok` 格式化纯函数
+- [ ] **组件测试**：SessionView 的 token 胶囊渲染（有/无 usage、缓存命中率为 0 时不显示）
+- [ ] **API 接口测试**：`message_end` 事件携带 usage 字段经 kernel 透传到前端
+- [ ] **E2E**：完整对话流程后 header 出现 token 胶囊、累计递增、切换会话计数独立
