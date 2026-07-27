@@ -54,10 +54,10 @@ export function SessionView({ sessionId }: Props) {
     useSessionStore.getState().setHistoryLoading(sessionId, true);
     void (async () => {
       try {
-        const res = (await api.get(`/api/sessions/${encodeURIComponent(sessionId)}/messages`)) as { messages: any[]; isActive: boolean };
+        const res = (await api.get(`/api/sessions/${encodeURIComponent(sessionId)}/messages`)) as { messages: any[]; isActive: boolean; thinkingSince: number | null };
         useSessionStore.getState().setMessages(sessionId, res.messages);
         useSessionStore.getState().seedTokenTotal(sessionId, res.messages);
-        useSessionStore.getState().setActiveStatus(sessionId, res.isActive);
+        useSessionStore.getState().setActiveStatus(sessionId, res.isActive, res.thinkingSince);
       } finally {
         useSessionStore.getState().setHistoryLoading(sessionId, false);
       }

@@ -442,12 +442,18 @@ test("seedTokenTotal 同时写入 lastUsageBySession", () => {
 
 // ── isActive 状态同步：后端返回 isActive → 前端 setActiveStatus ──
 
-test("setActiveStatus true → 设置 statusBySession 为 thinking 且记录思考开始时间", () => {
-  const before = Date.now();
-  useSessionStore.getState().setActiveStatus("s1", true);
+test("setActiveStatus true → 设置 statusBySession 为 thinking 且使用传入的 thinkingSince", () => {
+  useSessionStore.getState().setActiveStatus("s1", true, 1720000000000);
   const s = useSessionStore.getState();
   expect(s.statusBySession["s1"]).toBe("thinking");
-  expect(s.thinkingSinceBySession["s1"]).toBeGreaterThanOrEqual(before);
+  expect(s.thinkingSinceBySession["s1"]).toBe(1720000000000);
+});
+
+test("setActiveStatus true 无 thinkingSince → 回退为当前时间", () => {
+  const before = Date.now();
+  useSessionStore.getState().setActiveStatus("s2", true);
+  const s = useSessionStore.getState();
+  expect(s.thinkingSinceBySession["s2"]).toBeGreaterThanOrEqual(before);
 });
 
 test("setActiveStatus false → 不改变 statusBySession", () => {
