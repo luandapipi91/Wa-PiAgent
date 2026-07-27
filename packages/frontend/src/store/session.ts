@@ -146,7 +146,17 @@ export const useSessionStore = create<SessionState>((set) => {
         compacted.push(msg);
       }
     }
-    return { messagesBySession: { ...s.messagesBySession, [sessionId]: compacted } };
+    // 检测最后一条消息是否为未完成的 assistant（刷新/重连恢复 thinking 状态）
+    const lastMsg = compacted.length > 0 ? (compacted[compacted.length - 1].message as any) : null;
+    const isIncomplete =
+      lastMsg?.role === "assistant" &&
+      lastMsg?.stopReason !== "end_turn" &&
+      lastMsg?.stopReason !== "error";
+    const patch: any = { messagesBySession: { ...s.messagesBySession, [sessionId]: compacted } };
+    if (isIncomplete) {
+      patch.statusBySession = { ...s.statusBySession, [sessionId]: "thinking" as const };
+    }
+    return patch;
   }),
 
   setHistoryLoading: (sessionId, loading) => set(s => {
