@@ -440,48 +440,27 @@ test("seedTokenTotal 同时写入 lastUsageBySession", () => {
   expect(s.lastUsageBySession["s4"]).toEqual({ input: 200, output: 30 });
 });
 
-// ── 历史恢复：刷新后检测到未完成的 assistant 消息 → 还原 thinking 状态 ──
+// ── isActive 状态同步：后端返回 isActive → 前端 setActiveStatus ──
 
-test("setMessages 时最后一条 assistant 消息 stopReason 非 end_turn 非 error → 置 thinking", () => {
+test("setActiveStatus true → 设置 statusBySession 为 thinking", () => {
+  useSessionStore.getState().setActiveStatus("s1", true);
+  expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+});
+
+test("setActiveStatus false → 不改变 statusBySession", () => {
+  useSessionStore.getState().setActiveStatus("s2", false);
+  expect(useSessionStore.getState().statusBySession["s2"]).toBeUndefined();
+});
+
+// ── 历史恢复：stopReason 不再影响状态（由 isActive 决定）──
+
+test("setMessages 不再根据 stopReason 自动设置状态", () => {
+  // 空 stopReason → 旧逻辑会置 thinking，新逻辑不干预
   const incomplete: any[] = [
     { agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } },
-    { agentName: "dev", message: { role: "assistant", content: [{ type: "text" as const, text: "正在..." }], model: "m", stopReason: "", timestamp: 2 } },
+    { agentName: "dev", message: { role: "assistant", content: [{ type: "text" as const, text: "..." }], model: "m", stopReason: "", timestamp: 2 } },
   ];
-  useSessionStore.getState().setMessages("s-incomplete", incomplete);
-  expect(useSessionStore.getState().statusBySession["s-incomplete"]).toBe("thinking");
-});
-
-test("setMessages 时最后一条 assistant 消息无 stopReason 字段（旧消息兼容）→ 保持 idle", () => {
-  const oldMsg: any[] = [
-    { agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } },
-    { agentName: "dev", message: { role: "assistant", content: [{ type: "text" as const, text: "ok" }], model: "m", timestamp: 2 } },
-  ];
-  useSessionStore.getState().setMessages("s-old", oldMsg);
-  expect(useSessionStore.getState().statusBySession["s-old"]).toBeUndefined();
-});
-
-test("setMessages 时最后一条 assistant 消息 stopReason=end_turn → 保持 idle", () => {
-  const complete: any[] = [
-    { agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } },
-    { agentName: "dev", message: { role: "assistant", content: [{ type: "text" as const, text: "done" }], model: "m", stopReason: "end_turn", timestamp: 2 } },
-  ];
-  useSessionStore.getState().setMessages("s-complete", complete);
-  expect(useSessionStore.getState().statusBySession["s-complete"]).toBeUndefined();
-});
-
-test("setMessages 时最后一条 assistant 消息 stopReason=error → 保持 idle", () => {
-  const errorMsg: any[] = [
-    { agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } },
-    { agentName: "dev", message: { role: "assistant", content: [], model: "m", stopReason: "error", timestamp: 2 } },
-  ];
-  useSessionStore.getState().setMessages("s-error", errorMsg);
-  expect(useSessionStore.getState().statusBySession["s-error"]).toBeUndefined();
-});
-
-test("setMessages 时最后一条是 user 消息 → 不影响状态", () => {
-  const onlyUser: any[] = [
-    { agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } },
-  ];
-  useSessionStore.getState().setMessages("s-user", onlyUser);
-  expect(useSessionStore.getState().statusBySession["s-user"]).toBeUndefined();
+  useSessionStore.getState().setMessages("s3", incomplete);
+  // 不自动设为 thinking，需由调用方根据 isActive 调用 setActiveStatus
+  expect(useSessionStore.getState().statusBySession["s3"]).toBeUndefined();
 });

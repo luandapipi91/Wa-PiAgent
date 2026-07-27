@@ -354,7 +354,8 @@ export interface SessionCreatedEvent {
 export interface SessionMessagesEvent {
   type: "session:messages";
   sessionId: string;
-  messages: SessionMessage[];   // ← 从 ChatMessage[] 改
+  messages: SessionMessage[];
+  isActive: boolean;
 }
 export interface SessionEchoUserEvent {
   type: "session:echo_user";

@@ -46,6 +46,7 @@ test("[第三层] session:messages 走 AgentSession.messages", async () => {
     abort: async () => {},
     disposeSession: async () => {},
     disposeAll: async () => {},
+    isSessionBusy: (_sid: string) => false,
   } as any;
   const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
   await server.start();
@@ -87,6 +88,7 @@ test("[第三层] session:messages 会话不存在返回空数组", async () => 
     abort: async () => {},
     disposeSession: async () => {},
     disposeAll: async () => {},
+    isSessionBusy: (_sid: string) => false,
   } as any;
   const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
   await server.start();
@@ -145,6 +147,7 @@ test("[第三层] session:messages 文件直读快速路径", async () => {
     abort: async () => {},
     disposeSession: async () => {},
     disposeAll: async () => {},
+    isSessionBusy: (_sid: string) => false,
   } as any;
   const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
   await server.start();
@@ -196,6 +199,7 @@ test("[第三层] session:messages 文件缺失（ENOENT）返回空数组", asy
     abort: async () => {},
     disposeSession: async () => {},
     disposeAll: async () => {},
+    isSessionBusy: (_sid: string) => false,
   } as any;
   const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
   await server.start();
@@ -209,6 +213,49 @@ test("[第三层] session:messages 文件缺失（ENOENT）返回空数组", asy
     expect(msgResp.sessionId).toBe(session.id);
     // ENOENT = 历史为空；若走了进程路径会返回 mock 的 1 条消息
     expect(msgResp.messages).toEqual([]);
+  } finally {
+    await server.stop();
+    rmSync(cfgDir, { recursive: true, force: true });
+    rmSync(projFile, { force: true });
+  }
+});
+
+test("[第三层] session:messages 会话 busy 时返回 isActive:true", async () => {
+  const tmp = (s: string) => join(import.meta.dir, ".tmp-sm5-" + s + Math.random().toString(36).slice(2));
+  const cfgDir = tmp("cfg");
+  const projFile = tmp("proj.json");
+
+  const configStore = new ConfigStore(cfgDir);
+  const projectStore = new ProjectStore(projFile);
+  const providerStore = new ProviderStore(join(projFile, "..", "providers.json"));
+  const skillManager = new SkillManager(join(projFile, "..", "skills"));
+
+  const project = await projectStore.createProject({ name: "P", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "进行中" });
+
+  const fakeSession = {
+    messages: [],
+    prompt: async () => {},
+    abort: async () => {},
+    dispose: () => {},
+  };
+  const agentManager = {
+    ensureStarted: async (_pid: string, _an: string, _sid: string) => fakeSession,
+    isSessionBusy: (_sid: string) => true,
+    prompt: async () => {},
+    abort: async () => {},
+    disposeSession: async () => {},
+    disposeAll: async () => {},
+  } as any;
+  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
+  await server.start();
+  const base = `http://127.0.0.1:${server.actualPort}`;
+
+  try {
+    const res = await fetch(`${base}/api/sessions/${encodeURIComponent(session.id)}/messages`);
+    const msgResp = await res.json();
+    expect(res.status).toBe(200);
+    expect(msgResp.isActive).toBe(true);
   } finally {
     await server.stop();
     rmSync(cfgDir, { recursive: true, force: true });
