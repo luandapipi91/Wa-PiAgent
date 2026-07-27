@@ -483,3 +483,39 @@ test("getEnabledExtensionSkillPaths 不返回已禁用的扩展", async () => {
     rmSync(join(HIAGENT_DIR, "runtime", "node_modules", "disabled-pkg"), { recursive: true, force: true });
   }
 });
+
+// ---- listEnabledPackageNames（热路径轻量方法）----
+
+test("listEnabledPackageNames 返回启用包裸名（npm:/git:/local 条目）", async () => {
+  const mgr = mockManager(dir);
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    hiagent_packages: ["npm:npm-pkg@9.9.9", "git:github.com/u/r", "/opt/local-pkg"],
+  }));
+  const names = await mgr.listEnabledPackageNames();
+  expect(names).toEqual(["npm-pkg", "github.com/u/r", "/opt/local-pkg"]);
+});
+
+test("listEnabledPackageNames 无 settings.json 返回空数组", async () => {
+  const mgr = mockManager(dir);
+  expect(await mgr.listEnabledPackageNames()).toEqual([]);
+});
+
+test("listEnabledPackageNames 不触碰 pkgService（无版本/registry 查询）", async () => {
+  // 根因回归守卫：会话启动链路曾因 list() 内 getLatestVersion → npm view 网络请求卡数秒。
+  // 轻量方法必须纯读 settings.json；注入全部抛错的 pkgService，被调用即测试失败。
+  const throwingService = {
+    install: async () => { throw new Error("不应调用 install"); },
+    uninstall: async () => { throw new Error("不应调用 uninstall"); },
+    upgrade: async () => { throw new Error("不应调用 upgrade"); },
+    getInstalledVersion: () => { throw new Error("不应调用 getInstalledVersion"); },
+    getLatestVersion: async () => { throw new Error("不应调用 getLatestVersion"); },
+    getDescription: () => { throw new Error("不应调用 getDescription"); },
+  } satisfies Omit<NpmPackageService, "runtimeDir" | "spawn">;
+  const mgr = new ExtensionManager(dir, throwingService as unknown as NpmPackageService);
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    hiagent_packages: ["npm:a@1.0.0"],
+    hiagent_disabledPackages: ["npm:b@2.0.0"],
+  }));
+  // 只返回启用列表，不含禁用包
+  expect(await mgr.listEnabledPackageNames()).toEqual(["a"]);
+});

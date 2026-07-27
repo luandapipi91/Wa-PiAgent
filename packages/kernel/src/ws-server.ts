@@ -36,6 +36,7 @@ import { registerExtensionRoutes } from "./routes/extensions";
 import { registerMemoryRoutes } from "./routes/memory";
 import { registerMcpRoutes } from "./routes/mcp";
 import { registerFileRoutes } from "./routes/files";
+import { readSessionHistory } from "./session-history";
 
 /** 把 URL 路径解析成 staticDir 下的文件路径；未知/越权路径回退 index.html（SPA）。 */
 export function resolveStaticPath(urlPath: string, staticDir: string): string {
@@ -442,12 +443,26 @@ export class WSServer {
         break;
       }
       case "session:messages": {
-        // 历史消息从 ensureStarted 返回的 AgentSession.messages 同步读（不再读拍扁文件，也不再 await getMessages）
+        // 快速路径：直接解析 pi 会话文件返回历史（毫秒级，不启动 pi 进程）；
+        // 进程改为后台预热（用户大概率接着发消息，预热让首条 prompt 免冷启动）。
+        // 文件不可读/格式异常时回退原进程路径（ensureStarted 后读 AgentSession.messages）。
         const { sessions } = await this.opts.projectStore.load();
         const session = sessions.find(s => s.id === event.sessionId);
         if (!session) {
           reply({ type: "session:messages", sessionId: event.sessionId, messages: [] });
           break;
+        }
+        if (session.piSessionFile) {
+          try {
+            const history = await readSessionHistory(session.piSessionFile);
+            const messages = history.map(m => ({ message: m, agentName: session.primaryAgent }));
+            reply({ type: "session:messages", sessionId: event.sessionId, messages });
+            void this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id)
+              .catch((err) => console.error(`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`, err));
+            break;
+          } catch (err) {
+            console.error(`[ws-server] 会话文件直读失败，回退进程路径 ${event.sessionId}:`, err);
+          }
         }
         try {
           const sdkSession = await this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id);

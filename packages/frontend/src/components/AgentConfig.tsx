@@ -312,11 +312,13 @@ function ToolsTab({ draft, onChange, tools }: TabProps & { tools: AgentToolItem[
     <div className="flex flex-col">
       <p className="text-[11px] text-tertiary mb-2">全部勾选 = 全量默认；取消勾选后按显式列表保存</p>
       {tools.map(t => (
-        <label key={t.name} className="flex items-center gap-2 py-1 cursor-pointer">
-          <input type="checkbox" checked={checked(t.name)} onChange={() => toggle(t.name)} data-testid={`tool-check-${t.name}`} />
-          <span className="text-sm text-primary">{t.name}</span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full"
-            style={{ background: "var(--hairline)", color: "var(--text-tertiary)" }}>{t.source}</span>
+        <label key={t.name} className="flex items-center gap-2 py-1 cursor-pointer justify-between">
+          <span className="flex items-center gap-2">
+            <span className="text-sm text-primary">{t.name}</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full"
+              style={{ background: "var(--hairline)", color: "var(--text-tertiary)" }}>{t.source}</span>
+          </span>
+          <SwitchButton on={checked(t.name)} onClick={() => toggle(t.name)} testId={`tool-switch-${t.name}`} />
         </label>
       ))}
     </div>
@@ -340,10 +342,12 @@ function SkillsTab({ draft, onChange }: TabProps) {
     <div className="flex flex-col">
       <p className="text-[11px] text-tertiary mb-2">全部勾选 = 全量继承；取消勾选后按显式列表保存</p>
       {allSkills.map(s => (
-        <label key={s.name} className="flex items-center gap-2 py-1 cursor-pointer">
-          <input type="checkbox" checked={checked(s.name)} onChange={() => toggle(s.name)} data-testid={`skill-check-${s.name}`} />
-          <span className="text-sm text-primary">{s.name}</span>
-          <span className="text-[11px] text-tertiary truncate">{s.description}</span>
+        <label key={s.name} className="flex items-center gap-2 py-1 cursor-pointer justify-between">
+          <span className="flex items-center gap-2 min-w-0">
+            <span className="text-sm text-primary">{s.name}</span>
+            <span className="text-[11px] text-tertiary truncate">{s.description}</span>
+          </span>
+          <SwitchButton on={checked(s.name)} onClick={() => toggle(s.name)} testId={`skill-switch-${s.name}`} />
         </label>
       ))}
     </div>
@@ -381,6 +385,33 @@ function PartnersTab({ draft, onChange, selfName }: TabProps & { selfName: strin
         })}
       </div>
       <p className="text-[11px] text-tertiary">勾选本智能体可发起 ask 的对象（askTo）</p>
+    </div>
+  );
+}
+
+/** 内联 Toggle Switch（与插件/技能管理风格一致） */
+function SwitchButton({ on, onClick, testId }: { on: boolean; onClick: () => void; testId: string }) {
+  return (
+    <div
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="relative shrink-0 cursor-pointer"
+      style={{
+        width: 38, height: 22, borderRadius: 9999,
+        background: on ? "var(--success)" : "#cbd5e1",
+        transition: "background 0.2s",
+      }}
+      data-testid={testId}
+      data-on={on ? "true" : "false"}
+    >
+      <span
+        className="absolute top-0.5 rounded-full bg-white transition-all"
+        style={{
+          width: 18, height: 18,
+          left: on ? undefined : 2,
+          right: on ? 2 : undefined,
+          boxShadow: "0 1px 2px rgba(0,0,0,.1)",
+        }}
+      />
     </div>
   );
 }
