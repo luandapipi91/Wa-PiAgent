@@ -178,6 +178,7 @@ export async function runSubagentAgent(
 				systemPromptFile: promptFile ?? undefined,
 				extensionPaths: opts?.extensionPaths,
 				skillPaths: opts?.skillPaths,
+				noSkills: true,  // 子代理不自动发现技能，只加载显式传入的 --skill 路径
 				tools: config.tools.length > 0 ? config.tools : undefined,
 				thinking: mapThinking(config.thinking),
 				model: config.model ?? undefined,
