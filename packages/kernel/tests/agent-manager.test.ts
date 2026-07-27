@@ -1058,3 +1058,57 @@ test("abort 清空 followUpList 并调用 client.abort", async () => {
   // 调用了 client.abort
   expect(fakes[0].aborts).toBe(1);
 });
+
+test("agent skills 白名单：只传 config.skills 指定的技能路径给 pi", async () => {
+  const skillRoot = tmpSkillRoot();
+  tmpPaths.push(skillRoot);
+  createSkillAt(join(skillRoot, "skills"), "skill-a", "A");
+  createSkillAt(join(skillRoot, "skills"), "skill-b", "B");
+  const userDir = join(skillRoot, "user-skills");
+  mkdirSync(userDir, { recursive: true });
+  createSkillAt(userDir, "skill-c", "C");
+  const skillManager = new SkillManager(skillRoot);
+  await skillManager.addDir(userDir);
+
+  // agent 配置只允许 skill-a 和 skill-c
+  const configStore = {
+    getAgent: mock(async () => ({
+      displayName: "pm",
+      skills: ["skill-a", "skill-c"],
+      partners: { askTo: [] },
+    })),
+  } as any;
+
+  const { project, session, am, fakes } = await setup({ skillManager, configStore });
+  await am.ensureStarted(project.id, "pm", session.id);
+
+  const skills = argValues(fakes[0].opts.args ?? [], "--skill");
+  // skill-a 和 skill-c 在列表中，skill-b 不在
+  expect(skills.some(s => s.includes("skill-a"))).toBe(true);
+  expect(skills.some(s => s.includes("skill-c"))).toBe(true);
+  expect(skills.some(s => s.includes("skill-b"))).toBe(false);
+});
+
+test("agent skills 空数组 = 全量（不传白名单时所有启用技能都传给 pi）", async () => {
+  const skillRoot = tmpSkillRoot();
+  tmpPaths.push(skillRoot);
+  createSkillAt(join(skillRoot, "skills"), "skill-a", "A");
+  createSkillAt(join(skillRoot, "skills"), "skill-b", "B");
+  const skillManager = new SkillManager(skillRoot);
+
+  // agent 配置 skills 为空数组 → 全量
+  const configStore = {
+    getAgent: mock(async () => ({
+      displayName: "dev",
+      skills: [],
+      partners: { askTo: [] },
+    })),
+  } as any;
+
+  const { project, session, am, fakes } = await setup({ skillManager, configStore });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  const skills = argValues(fakes[0].opts.args ?? [], "--skill");
+  expect(skills.some(s => s.includes("skill-a"))).toBe(true);
+  expect(skills.some(s => s.includes("skill-b"))).toBe(true);
+});
