@@ -369,6 +369,8 @@ export interface PiLaunchSpec {
   offline?: boolean;
   /** --no-context-files：不读 AGENTS.md/CLAUDE.md（子代理用） */
   noContextFiles?: boolean;
+  /** --append-system-prompt <text|file>：追加到系统提示词末尾 */
+  appendSystemPrompt?: string;
 }
 
 /** 把启动规格翻译成 pi CLI 参数数组（--mode rpc 由 RpcClient 自带，不在此处） */
@@ -387,5 +389,6 @@ export function buildPiArgs(spec: PiLaunchSpec): string[] {
   if (spec.name) args.push("--name", spec.name);
   if (spec.offline) args.push("--offline");
   if (spec.noContextFiles) args.push("--no-context-files");
+  if (spec.appendSystemPrompt) args.push("--append-system-prompt", spec.appendSystemPrompt);
   return args;
 }
