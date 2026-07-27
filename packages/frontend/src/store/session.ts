@@ -158,6 +158,7 @@ export const useSessionStore = create<SessionState>((set) => {
     if (isActive) {
       return {
         statusBySession: { ...s.statusBySession, [sessionId]: "thinking" as const },
+        thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: Date.now() },
       };
     }
     return {};
