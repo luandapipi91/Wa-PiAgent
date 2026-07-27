@@ -12,6 +12,7 @@ import type { AgentMessage } from "@hiagent/shared";
 
 // 测试：点历史会话 → kernel 通过 AgentSession.messages 拉 SDK session 的历史消息
 // REST 版本（替代原 WS 版本）
+// 回退路径：会话文件存在但损坏（无任何有效行）→ 回退进程路径取 AgentSession.messages
 test("[第三层] session:messages 走 AgentSession.messages", async () => {
   const tmp = (s: string) => join(import.meta.dir, ".tmp-sm-" + s + Math.random().toString(36).slice(2));
   const cfgDir = tmp("cfg");
@@ -24,6 +25,10 @@ test("[第三层] session:messages 走 AgentSession.messages", async () => {
 
   const project = await projectStore.createProject({ name: "P", cwd: "/tmp" });
   const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "历史会话" });
+
+  // 写入损坏文件（无有效 JSON 行）触发回退；ENOENT 现在是「历史为空」快速分支，不再回退
+  mkdirSync(dirname(session.piSessionFile), { recursive: true });
+  writeFileSync(session.piSessionFile, "not-json-at-all\n{broken\n");
 
   const piHistory: AgentMessage[] = [
     { role: "user", content: "历史问题", timestamp: 1 } as AgentMessage,
@@ -46,20 +51,23 @@ test("[第三层] session:messages 走 AgentSession.messages", async () => {
   await server.start();
   const base = `http://127.0.0.1:${server.actualPort}`;
 
-  // HTTP GET 拉历史消息
-  const res = await fetch(`${base}/api/sessions/${encodeURIComponent(session.id)}/messages`);
-  const msgResp = await res.json();
+  try {
+    // HTTP GET 拉历史消息
+    const res = await fetch(`${base}/api/sessions/${encodeURIComponent(session.id)}/messages`);
+    const msgResp = await res.json();
 
-  expect(res.status).toBe(200);
-  expect(msgResp.sessionId).toBe(session.id);
-  expect(msgResp.messages).toHaveLength(2);
-  expect((msgResp.messages[0].message as any).content).toBe("历史问题");
-  expect(msgResp.messages[0].agentName).toBe("dev");
-  expect((msgResp.messages[1].message as any).content[0].text).toBe("历史回复");
-
-  await server.stop();
-  rmSync(cfgDir, { recursive: true, force: true });
-  rmSync(projFile, { force: true });
+    expect(res.status).toBe(200);
+    expect(msgResp.sessionId).toBe(session.id);
+    expect(msgResp.messages).toHaveLength(2);
+    expect((msgResp.messages[0].message as any).content).toBe("历史问题");
+    expect(msgResp.messages[0].agentName).toBe("dev");
+    expect((msgResp.messages[1].message as any).content[0].text).toBe("历史回复");
+  } finally {
+    await server.stop();
+    rmSync(cfgDir, { recursive: true, force: true });
+    rmSync(projFile, { force: true });
+    rmSync(session.piSessionFile, { force: true });
+  }
 });
 
 test("[第三层] session:messages 会话不存在返回空数组", async () => {
@@ -157,5 +165,53 @@ test("[第三层] session:messages 文件直读快速路径", async () => {
     rmSync(cfgDir, { recursive: true, force: true });
     rmSync(projFile, { force: true });
     rmSync(session.piSessionFile, { force: true });
+  }
+});
+
+// ENOENT 快速分支：会话记录存在但 pi 文件未生成（新建会话/从未成功对话）
+// → 直接返回空历史，不等进程、不打错误日志；mock 进程返回不同内容，据此区分路径
+test("[第三层] session:messages 文件缺失（ENOENT）返回空数组", async () => {
+  const tmp = (s: string) => join(import.meta.dir, ".tmp-sm4-" + s + Math.random().toString(36).slice(2));
+  const cfgDir = tmp("cfg");
+  const projFile = tmp("proj.json");
+
+  const configStore = new ConfigStore(cfgDir);
+  const projectStore = new ProjectStore(projFile);
+  const providerStore = new ProviderStore(join(projFile, "..", "providers.json"));
+  const skillManager = new SkillManager(join(projFile, "..", "skills"));
+
+  const project = await projectStore.createProject({ name: "P", cwd: "/tmp" });
+  const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "空会话" });
+  // 故意不写 piSessionFile → ENOENT
+
+  const fakeSession = {
+    messages: [{ role: "user", content: "进程里的消息", timestamp: 1 }],
+    prompt: async () => {},
+    abort: async () => {},
+    dispose: () => {},
+  };
+  const agentManager = {
+    ensureStarted: async (_pid: string, _an: string, _sid: string) => fakeSession,
+    prompt: async () => {},
+    abort: async () => {},
+    disposeSession: async () => {},
+    disposeAll: async () => {},
+  } as any;
+  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
+  await server.start();
+  const base = `http://127.0.0.1:${server.actualPort}`;
+
+  try {
+    const res = await fetch(`${base}/api/sessions/${encodeURIComponent(session.id)}/messages`);
+    const msgResp = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(msgResp.sessionId).toBe(session.id);
+    // ENOENT = 历史为空；若走了进程路径会返回 mock 的 1 条消息
+    expect(msgResp.messages).toEqual([]);
+  } finally {
+    await server.stop();
+    rmSync(cfgDir, { recursive: true, force: true });
+    rmSync(projFile, { force: true });
   }
 });

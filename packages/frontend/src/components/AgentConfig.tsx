@@ -299,12 +299,14 @@ function BasicTab({ draft, onChange }: TabProps) {
 
 function ToolsTab({ draft, onChange, tools }: TabProps & { tools: AgentToolItem[] }) {
   const all = tools.map(t => t.name);
+  // 防御：draft.tools 可能因磁盘残留/API 兼容性为非数组，统一规范化为 []
+  const dtools: string[] = Array.isArray(draft.tools) ? draft.tools : [];
   // 空数组 = 全量默认（kernel 语义）：展示态全部勾选，取消勾选即转为显式列表
-  const checked = (n: string) => draft.tools.length === 0 || draft.tools.includes(n);
+  const checked = (n: string) => dtools.length === 0 || dtools.includes(n);
   const toggle = (n: string) => {
-    const next = draft.tools.length === 0
+    const next = dtools.length === 0
       ? all.filter(x => x !== n)
-      : draft.tools.includes(n) ? draft.tools.filter(x => x !== n) : [...draft.tools, n];
+      : dtools.includes(n) ? dtools.filter(x => x !== n) : [...dtools, n];
     onChange({ ...draft, tools: next });
   };
   if (tools.length === 0) return <p className="text-sm text-tertiary">加载中...</p>;
@@ -328,7 +330,8 @@ function ToolsTab({ draft, onChange, tools }: TabProps & { tools: AgentToolItem[
 function SkillsTab({ draft, onChange }: TabProps) {
   const allSkills = useSkillsStore(s => s.allSkills);
   const all = allSkills.map(s => s.name);
-  const skills = draft.skills ?? [];
+  // 防御：draft.skills 可能因磁盘残留为非数组，统一规范化为 []
+  const skills: string[] = Array.isArray(draft.skills) ? draft.skills : [];
   // 与工具同语义：空数组 = 全量继承，展示态全部勾选
   const checked = (n: string) => skills.length === 0 || skills.includes(n);
   const toggle = (n: string) => {
