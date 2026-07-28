@@ -130,6 +130,29 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
+  // 覆盖 /websearch 命令：走 LLM → web_search 工具（tool_call 拦截注入 auto-summary）
+  // pi-web-access 先注册了 websearch 命令（硬编码打开浏览器），这里尝试覆盖它。
+  try {
+    pi.registerCommand("websearch", {
+      description: "Search the web (auto-summary mode, no browser popup)",
+      handler: async (args) => {
+        const query = args.trim();
+        if (query.length === 0) {
+          pi.sendMessage({
+            customType: "web-search",
+            content: [{ type: "text", text: "Usage: /websearch <query>" }],
+            display: true,
+          }, { triggerTurn: false, deliverAs: "followUp" });
+          return;
+        }
+        // 转为 LLM 搜索请求，走 tool_call 拦截（自动注入 numResults=8, workflow=auto-summary）
+        pi.sendUserMessage(`请搜索：${query}`, { deliverAs: "followUp" });
+      },
+    });
+  } catch {
+    // pi-web-access 的命令可能不允许覆盖，静默忽略
+  }
+
   pi.registerTool({
     name: "ask_user_question",
     label: "Ask User",

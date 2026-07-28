@@ -18,7 +18,7 @@ export const WS_PORT = resolvePort(env.HIAGENT_WS_PORT, 9776);
 export const PREVIEW_PORT = resolvePort(env.HIAGENT_PREVIEW_PORT, 9777);
 /** 前端 dev 端口（Vite）；desktop 不用（走同源 9776）。 */
 export const FRONTEND_PORT = resolvePort(env.HIAGENT_WEB_PORT, 5180);
-/** hiagent 数据目录，可用 HIAGENT_DIR 环境变量覆盖。 */
+/** hiagent 数据目录（默认 ~/.hiagent），可用 HIAGENT_DIR 环境变量覆盖。 */
 export const HIAGENT_DIR = env.HIAGENT_DIR || `${HOME}/.hiagent`;
 export const PROJECTS_FILE = `${HIAGENT_DIR}/projects.json`;
 export const PI_AGENTS_DIR = `${HIAGENT_DIR}/agents`;   // ← 改：从 ~/.pi/agent/agents 改为 .hiagent/agents
