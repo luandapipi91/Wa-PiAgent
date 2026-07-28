@@ -218,41 +218,48 @@ export class RpcClient {
   }
 
   /**
-   * 获取当前会话的完整统计信息（消息量、token 用量、成本、上下文水位）。
+   * 获取当前会话的统计信息（消息量、token 用量、成本等）。
    *
-   * 对应 pi SDK `AgentSession.getSessionStats()` 与 RPC 命令 `get_session_stats`。
-   * 所有 `tokens` 内的字段及 `cost` 均为可选——旧版 pi 可能不返回 token 统计或
-   * 成本字段，调用方应做好降级处理（如 `?? 0` 兜底）。
+   * 对应 RPC 命令 `get_session_stats`。仅当前已绑定的会话有效，不可跨会话查询。
+   * 需确保 `isAlive()` 为 true 时调用，否则抛 Error。
+   *
+   * 字段可用性说明：
+   * - `sessionFile`、`sessionId`、`userMessages`、`assistantMessages`、
+   *   `toolCalls`、`toolResults`、`totalMessages` 由所有版本 pi 稳定返回。
+   * - `tokens` 整体可选——旧版 pi 可能不统计 token。其内字段也可能缺省，
+   *   调用方应做降级（如 `?? 0`）。
+   * - `cost` 整体可选；返回时可能为 `number` 或 `{ total: number }`，
+   *   调用方需兼容两种形式（建议 `typeof cost === 'number' ? cost : cost?.total`）。
+   * - `contextUsage` 仅 pi >= 0.80 返回，不含时整体为 `undefined`。
    *
    * @returns 返回结构：
    * ```ts
    * {
-   *   sessionFile?: string;             // 会话文件路径（--no-session 时 undefined）
-   *   sessionId: string;                // 会话唯一标识
-   *   userMessages: number;             // 用户消息数
-   *   assistantMessages: number;        // 助手消息数
-   *   toolCalls: number;                // 工具调用次数
-   *   toolResults: number;              // 工具结果条数
-   *   totalMessages: number;            // 消息总数
+   *   sessionFile?: string;              // 会话文件路径（--no-session 时 undefined）
+   *   sessionId: string;                 // 会话唯一标识
+   *   userMessages: number;              // 用户消息数
+   *   assistantMessages: number;         // 助手消息数
+   *   toolCalls: number;                 // 工具调用次数
+   *   toolResults: number;               // 工具结果条数
+   *   totalMessages: number;             // 消息总数
    *
-   *   tokens?: {                        // token 统计（旧版 pi 可能整体缺失）
-   *     input: number;                  //   输入 token 数
-   *     output: number;                 //   输出 token 数
-   *     cacheRead: number;              //   缓存读取 token 数
-   *     cacheWrite: number;             //   缓存写入 token 数
-   *     total: number;                  //   总 token 数
+   *   tokens?: {                         // token 统计（整体可选）
+   *     input?: number;                  //   输入 token 数
+   *     output?: number;                 //   输出 token 数
+   *     cacheRead?: number;              //   缓存读取 token 数
+   *     cacheWrite?: number;             //   缓存写入 token 数
+   *     total?: number;                  //   总 token 数
    *   };
    *
-   *   cost?: number | { total: number }; // 成本（旧版 pi 可能返回 { total } 对象）
+   *   cost?: number | { total?: number };// 成本（兼容 number / {total} 两种形式）
    *
-   *   contextUsage?: {                  // 上下文使用率（pi >= 0.80）
-   *     used: number;                   //   已用 token
-   *     total: number;                  //   上限 token
-   *     ratio: number;                  //   使用率 0~1
+   *   contextUsage?: {                   // 上下文水位（pi >= 0.80）
+   *     used: number;                    //   已用 token
+   *     total: number;                   //   上限 token
+   *     ratio: number;                   //   使用率 0~1
    *   };
    * }
    * ```
-   *
    */
   getSessionStats(): Promise<any> {
     return this.command({ type: "get_session_stats" });
