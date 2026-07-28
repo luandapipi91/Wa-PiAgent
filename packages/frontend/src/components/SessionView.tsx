@@ -178,8 +178,9 @@ export function SessionView({ sessionId }: Props) {
             )}
             {(lastUsage.cacheRead > 0 || lastUsage.cacheWrite > 0) && (() => {
               const rate = lastUsage.cacheRead / (lastUsage.input + lastUsage.cacheRead + lastUsage.cacheWrite) * 100;
+              const danger = rate < 90;
               return (
-                <span className="token-capsule token-capsule--cache">
+                <span className={`token-capsule token-capsule--cache${danger ? " token-capsule--cache-danger" : ""}`}>
                   缓存 {Math.round(rate * 10) / 10}%
                 </span>
               );

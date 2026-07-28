@@ -151,6 +151,10 @@ body {
   background: var(--success-soft);
   color: var(--success);
 }
+.token-capsule--cache-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
 /* 累计胶囊（含进度条）：纵向排列 */
 .token-capsule--stack {
   display: flex;
