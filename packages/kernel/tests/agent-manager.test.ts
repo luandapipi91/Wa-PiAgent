@@ -688,8 +688,8 @@ test("注入提示关闭（memoryPolicyStyle=none）时系统提示词不追加�
 
     const prompt = readSysprompt(session.id);
     expect(prompt).not.toContain(unique);
-    // memory-snapshot 段为空被过滤，env-constraints 成为最后一段
-    expect(prompt.trimEnd().endsWith("plain, user-facing language.")).toBe(true);
+    // memory-snapshot 段为空被过滤，delegate-mechanism 成为最后一段
+    expect(prompt.trimEnd().endsWith("avoid same-file conflicts.")).toBe(true);
   } finally {
     await globalStore.remove("memory", unique).catch(() => {});
   }

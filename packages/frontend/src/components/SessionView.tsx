@@ -43,6 +43,7 @@ export function SessionView({ sessionId }: Props) {
   const isBlocked = useIsBlocked(sessionId);
   const reloading = useSessionStore(s => s.reloading);
   const messages = useSessionStore(s => s.messagesBySession[sessionId]);
+  const isNewSession = !messages || messages.length === 0;
 
   // 思考起算时间（按会话独立，切会话不重置/不沿用）。每秒计时交给 <ThinkingTimer> 独立持有，
   // 避免每秒 setElapsed 重渲染整个 SessionView（含 MessageList 的 markdown）造成计时卡顿。
