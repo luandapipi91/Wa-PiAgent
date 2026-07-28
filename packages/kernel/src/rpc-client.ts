@@ -63,7 +63,7 @@ export interface RpcClientOpts {
   spawnFn?: SpawnFn;
 }
 
-/** 需要回 extension_ui_response 的对话类方法（其余为 fire-and-forget） */
+/** 需调 onUiRequest 处理的对话类方法；其余方法直接回 cancelled 兜底（不调 onUiRequest） */
 const UI_DIALOG_METHODS = new Set(["select", "confirm", "input", "editor", "custom"]);
 
 export class RpcClient {
@@ -355,16 +355,16 @@ export class RpcClient {
   }
 
   private async handleUiRequest(req: RpcUiRequest): Promise<void> {
-    if (!UI_DIALOG_METHODS.has(req.method)) return; // 非对话方法：fire-and-forget，无需响应
-    let fields: UiResponseFields;
-    if (this.opts.onUiRequest) {
+    // 对所有 extension_ui_request 都回复，防止 pi 永久挂起。
+    // 对话类方法：有 onUiRequest 则交其处理；无 handler 则自动取消（发 cancelled）。
+    // 非对话类方法（notify/setStatus 等）：不调 onUiRequest，但发 cancelled 兜底。
+    let fields: UiResponseFields = { cancelled: true };
+    if (UI_DIALOG_METHODS.has(req.method) && this.opts.onUiRequest) {
       try {
         fields = await this.opts.onUiRequest(req);
       } catch {
         fields = { cancelled: true };
       }
-    } else {
-      fields = { cancelled: true };
     }
     try {
       this.proc?.stdin?.write(JSON.stringify({ type: "extension_ui_response", id: req.id, ...fields }) + "\n");
