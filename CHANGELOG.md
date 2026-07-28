@@ -6,6 +6,19 @@
 
 ## 2026-07-28
 
+### 新增功能
+
+- **内联 / 命令菜单动态注册 pi 的 slash 命令**
+  - 背景：输入框打 `/` 弹出的菜单此前硬编码 4 条命令（settings/agents/skills/reload），无法反映 pi 运行时实际可用的命令（含插件贡献的如 `/goal`）
+  - 实现：新增 `get_commands` 全链路（rpc-client → agent-manager → ws-server → HTTP 路由 → 前端 store → ComposerInput），从 pi 运行时拉取插件/prompt 类命令；pi 内置框架命令（compact/model 等）用前端静态表维护（pi 的 `get_commands` RPC 不返回内置命令）
+  - 选中语义：前端有 handler 的（settings/reload 等）走原 handler；无 handler 的（compact/goal 等）把 `/命令名` 作为普通消息发给 pi 解析执行
+  - 技能类命令（source:"skill"）在 store 层过滤，避免与现有 $ 技能菜单重复
+  - 影响范围：
+    - `packages/shared/src/commands.ts`（新增）、`index.ts`、`types.ts`
+    - `packages/kernel/src/rpc-client.ts`、`agent-manager.ts`、`ws-server.ts`、`routes/projects-sessions.ts`
+    - `packages/frontend/src/store/commands.ts`（新增）、`components/ui/ComposerInput.tsx`、`App.tsx`
+    - 测试：`packages/kernel/tests/agent-manager.test.ts`、`fixtures/fake-session-client.ts`、`packages/frontend/tests/ComposerInput.test.tsx`、`packages/shared/tests/commands.test.ts`（新增）
+
 ### 修复
 
 - **MCP 连接器所有服务永久卡在"测试中" + 工具列表永久"加载中"**

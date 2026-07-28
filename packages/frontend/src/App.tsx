@@ -200,10 +200,36 @@ export function App() {
     for (const [event, handler] of Object.entries(handlers)) {
       window.addEventListener(event, handler);
     }
+    // pi 命令（/compact /goal 等）：把 /命令名 作为普通 prompt 发给当前会话的 pi 进程
+    const onPiCommand = async (e: Event) => {
+      const cmdText = (e as CustomEvent).detail?.text as string | undefined;
+      if (!cmdText) return;
+      const sid = useProjectsStore.getState().currentSessionId;
+      if (!sid) { useToastStore.getState().add("没有打开的会话", "error"); return; }
+      const { sessions, currentProjectId } = useProjectsStore.getState();
+      const session = sessions.find(s => s.id === sid);
+      const pid = session?.projectId ?? currentProjectId ?? "";
+      if (!pid) { useToastStore.getState().add("找不到当前项目", "error"); return; }
+      const prefs = useComposerPrefsStore.getState().bySession[sid] ?? { model: useComposerPrefsStore.getState().defaults.model, thinking: useComposerPrefsStore.getState().defaults.thinking };
+      if (!prefs.model) { useToastStore.getState().add("请先选择模型", "error"); return; }
+      // 乐观显示用户消息（与 Composer.doSend 一致），再发 prompt
+      useSessionStore.getState().optimisticSend(sid, cmdText, session?.primaryAgent ?? "dev");
+      api.post(`/api/agents/${encodeURIComponent(pid)}/${encodeURIComponent(sid)}/prompt`, {
+        agentName: session?.primaryAgent ?? "dev",
+        text: cmdText,
+        model: prefs.model,
+        thinking: prefs.thinking,
+      }).catch(err => {
+        console.error("[pi-command] 发送失败:", err);
+        useSessionStore.getState().failTurn(sid);
+      });
+    };
+    window.addEventListener("hiagent:pi-command", onPiCommand as EventListener);
     return () => {
       for (const [event, handler] of Object.entries(handlers)) {
         window.removeEventListener(event, handler);
       }
+      window.removeEventListener("hiagent:pi-command", onPiCommand as EventListener);
     };
   }, []);
 

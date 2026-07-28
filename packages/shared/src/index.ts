@@ -4,6 +4,7 @@ export * from "./pure";
 export * from "./ask";
 export * from "./providers";
 export * from "./skills";
+export * from "./commands";
 export * from "./extensions";
 export * from "./memory";
 export * from "./mcp";

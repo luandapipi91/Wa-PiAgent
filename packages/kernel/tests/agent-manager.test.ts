@@ -688,8 +688,8 @@ test("注入提示关闭（memoryPolicyStyle=none）时系统提示词不追加�
 
     const prompt = readSysprompt(session.id);
     expect(prompt).not.toContain(unique);
-    // memory-snapshot 段为空被过滤，delegate-mechanism 成为最后一段
-    expect(prompt.trimEnd().endsWith("avoid same-file conflicts.")).toBe(true);
+    // memory-snapshot 段为空被过滤，env-constraints 成为最后一段
+    expect(prompt.trimEnd().endsWith("plain, user-facing language.")).toBe(true);
   } finally {
     await globalStore.remove("memory", unique).catch(() => {});
   }
@@ -1165,4 +1165,38 @@ test("message_end 透传 usage 字段到消息历史", async () => {
   const messages = am.getMessages(session.id);
   expect(messages.length).toBe(1);
   expect(messages[0].usage).toEqual(usageData);
+});
+
+// ─── getCommands：拉取 pi 运行时 slash 命令 ─────────────────────────────────
+
+test("getCommands 转发 pi get_commands 并返回合并的命令清单", async () => {
+  const { am, project, session, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+  // 预置 pi 返回三类命令（模拟插件 / prompt / skill）
+  fakes[0].commandsToReturn = [
+    { name: "goal", description: "设定目标", source: "extension" },
+    { name: "review", description: "代码审查模板", source: "prompt" },
+    { name: "skill:writer", description: "写作技能", source: "skill" },
+  ];
+
+  const commands = await am.getCommands(session.id);
+
+  // 应原样返回 pi 的三类命令（过滤 skill 是前端 store 的职责，kernel 不过滤）
+  expect(commands).toHaveLength(3);
+  expect(commands.map(c => c.name)).toEqual(["goal", "review", "skill:writer"]);
+  expect(commands[0]).toEqual({ name: "goal", description: "设定目标", source: "extension" });
+});
+
+test("getCommands 无活跃进程时触发冷启动守卫", async () => {
+  const { am, session, fakes } = await setup();
+  // 不先 ensureStarted，直接调 getCommands → 应触发冷启动（同 reloadSession 守卫）
+  // 冷启动是异步的，且 getCommands 在 ensureStarted 完成后立即读 commandsToReturn；
+  // 这里只验证冷启动被触发（fake.started=true），命令返回值不依赖时序断言。
+  await am.getCommands(session.id).catch(() => {});  // commandsToReturn 默认空，返回 []
+  expect(fakes[0].started).toBe(true);
+});
+
+test("getCommands 会话不存在时抛错", async () => {
+  const { am } = await setup();
+  await expect(am.getCommands("不存在的session")).rejects.toThrow(/会话不存在/);
 });

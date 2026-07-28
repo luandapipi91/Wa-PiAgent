@@ -22,6 +22,8 @@ export class FakeSessionClient {
   thinkingLevels: string[] = [];
   messagesToReturn: any[] = [];
   availableModels: Array<{ id: string; provider: string }> = [];
+  /** get_commands 返回的命令清单（默认空） */
+  commandsToReturn: Array<{ name: string; description?: string; source: string }> = [];
   /** 下一次 prompt 抛该错误（注入失败路径），用后自动清除 */
   nextPromptError: Error | null = null;
   /** start 时抛该错误（注入启动失败路径） */
@@ -50,6 +52,8 @@ export class FakeSessionClient {
         return { messages: this.messagesToReturn };
       case "get_available_models":
         return { models: this.availableModels };
+      case "get_commands":
+        return { commands: this.commandsToReturn };
       case "get_last_assistant_text":
         return { text: this.messagesToReturn.at(-1)?.content?.[0]?.text ?? null };
       default:
@@ -60,6 +64,10 @@ export class FakeSessionClient {
   async getMessages(): Promise<any[]> {
     if (this.getMessagesError) throw this.getMessagesError;
     return this.messagesToReturn;
+  }
+
+  async getCommands(): Promise<{ commands: any[] }> {
+    return { commands: this.commandsToReturn };
   }
 
   async prompt(text: string): Promise<void> {

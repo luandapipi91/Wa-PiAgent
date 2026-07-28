@@ -5,6 +5,7 @@ import { uploadFile, copyToUploads, searchFilesStream } from "../../fs-client";
 import { useProjectsStore } from "../../store/projects";
 import { useProvidersStore } from "../../store/providers";
 import { useSkillsStore } from "../../store/skills";
+import { useCommandsStore } from "../../store/commands";
 import { useAgentsStore } from "../../store/agents";
 import { ModelSelector } from "./ModelSelector";
 import { ThinkingSelector } from "./ThinkingSelector";
@@ -60,6 +61,13 @@ export function ComposerInput({
 
   const allSkills = useSkillsStore(s => s.allSkills);
   const allAgents = useAgentsStore(s => s.list);
+  // pi 运行时 slash 命令（插件贡献 / prompt 模板；skill 类已在 store 过滤）
+  const piCommands = useCommandsStore(s => s.commands);
+
+  // sessionId 变化时拉取该会话可用的 pi 命令（extensionRunner 是 per-session 的）
+  useEffect(() => {
+    if (sessionId) useCommandsStore.getState().load(sessionId);
+  }, [sessionId]);
 
   // 检测当前 text 的触发状态
   const trigger: TriggerResult | null = useMemo(() => detectTrigger(text), [text]);
@@ -157,17 +165,51 @@ export function ComposerInput({
     }));
   }, [triggerType, trigger, allSkills]);
 
-  // / 命令菜单：内置命令 + 所有技能
+  // / 命令菜单：前端 handler 命令 + pi 框架命令 + pi 动态命令(插件/prompt) + 技能
   const commandItems: MenuItem[] = useMemo(() => {
     if (triggerType !== "command") return [];
     const q = trigger!.query;
-    // 内置命令
+    // 前端有 handler 的命令（选中执行动作，优先级最高）
     const builtinCommands: MenuItem[] = [
       { id: "cmd:settings", name: "系统设置", description: "打开系统设置面板", source: { type: "builtin", name: "命令" } },
       { id: "cmd:agents", name: "智能体管理", description: "管理所有智能体配置", source: { type: "builtin", name: "命令" } },
       { id: "cmd:skills", name: "技能管理", description: "管理全局技能启用/禁用", source: { type: "builtin", name: "命令" } },
       { id: "cmd:reload", name: "重载配置", description: "重建 AI 进程使技能/扩展变更生效", source: { type: "builtin", name: "命令" }, disabled: isRunning || isNewSession },
     ];
+    // pi 框架内置命令（选中后发 /命令名 给 pi 解析执行）。
+    // 来源：pi 的 BUILTIN_SLASH_COMMANDS，去掉已有前端 handler 的(settings/reload)，
+    // 以及在 GUI 下无意义或有破坏性的(quit 会让 pi 进程退出)。
+    // 注：pi 升级新增内置命令时需同步此表（频率极低）。
+    const PI_FRAMEWORK_COMMANDS: { name: string; description: string }[] = [
+      { name: "model", description: "选择模型" },
+      { name: "scoped-models", description: "启用/禁用 Ctrl+P 模型循环" },
+      { name: "export", description: "导出会话（HTML/JSONL）" },
+      { name: "import", description: "从 JSONL 导入并恢复会话" },
+      { name: "share", description: "以 GitHub gist 分享会话" },
+      { name: "copy", description: "复制最近一条 AI 消息到剪贴板" },
+      { name: "name", description: "设置会话显示名" },
+      { name: "session", description: "查看会话信息与统计" },
+      { name: "changelog", description: "查看更新日志" },
+      { name: "hotkeys", description: "查看所有快捷键" },
+      { name: "fork", description: "从历史消息创建分支" },
+      { name: "clone", description: "在当前位置复制会话" },
+      { name: "tree", description: "导航会话树（切换分支）" },
+      { name: "trust", description: "保存项目信任决策" },
+      { name: "login", description: "配置 provider 认证" },
+      { name: "logout", description: "移除 provider 认证" },
+      { name: "new", description: "开始新会话" },
+      { name: "compact", description: "手动压缩会话上下文" },
+      { name: "resume", description: "恢复其他会话" },
+    ];
+    const frameworkItems: MenuItem[] = PI_FRAMEWORK_COMMANDS.map(c => ({
+      id: `pi:${c.name}`, name: c.name, description: c.description,
+      source: { type: "builtin", name: "pi" },
+    }));
+    // pi 动态命令（插件贡献如 /goal、prompt 模板）— 来自 pi 运行时，完全动态
+    const dynamicItems: MenuItem[] = piCommands.map(c => ({
+      id: `pi:${c.name}`, name: c.name, description: c.description,
+      source: { type: "builtin", name: c.source },
+    }));
     // 技能列表（支持 / 触发技能引用）
     const filteredSkills = filterItems(allSkills, q);
     const skillEntries: MenuItem[] = filteredSkills.map(s => ({
@@ -178,8 +220,9 @@ export function ComposerInput({
     }));
     // 根据查询过滤命令
     const filteredCommands = q ? filterItems(builtinCommands, q) : builtinCommands;
-    return [...filteredCommands, ...skillEntries];
-  }, [triggerType, trigger, allSkills, isRunning, isNewSession]);
+    const filteredPi = q ? filterItems([...frameworkItems, ...dynamicItems], q) : [...frameworkItems, ...dynamicItems];
+    return [...filteredCommands, ...filteredPi, ...skillEntries];
+  }, [triggerType, trigger, allSkills, piCommands, isRunning, isNewSession]);
 
   // 当前面板列表项
   const menuItems = triggerType === "agent" ? agentItems : triggerType === "file" ? fileResults : triggerType === "skill" ? skillItems : triggerType === "command" ? commandItems : [];
@@ -291,6 +334,17 @@ export function ComposerInput({
       } else if (cmd === "reload") {
         window.dispatchEvent(new CustomEvent("hiagent:reload-config"));
       }
+      return;
+    }
+    // pi 框架/插件命令（如 /compact /goal）：清除 / 触发文本，把 /命令名 作为普通消息发给 pi
+    if (triggerType === "command" && item.id.startsWith("pi:")) {
+      setDismissed(true);
+      if (trigger) {
+        const triggerRe = new RegExp(`/${trigger.query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+        setText(text.replace(triggerRe, ""));
+      }
+      const cmdName = item.id.slice(3); // 去掉 "pi:" 前缀
+      window.dispatchEvent(new CustomEvent("hiagent:pi-command", { detail: { text: `/${cmdName}` } }));
       return;
     }
     const token = triggerType === "agent"

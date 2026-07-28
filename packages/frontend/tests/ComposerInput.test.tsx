@@ -7,6 +7,7 @@ import { emitEventForTesting, disconnectEvents } from "../src/events";
 import { useProvidersStore } from "../src/store/providers";
 import { useProjectsStore } from "../src/store/projects";
 import { useSkillsStore } from "../src/store/skills";
+import { useCommandsStore } from "../src/store/commands";
 import { useAgentsStore } from "../src/store/agents";
 
 const apiCalls: { method: string; path: string; body?: any }[] = [];
@@ -68,6 +69,7 @@ beforeEach(() => {
     load: mock(), setAll: mock(), toggleSkill: mock(), addDir: mock(), removeDir: mock(),
   });
   useAgentsStore.setState({ list: [], configs: {} });
+  useCommandsStore.setState({ commands: [], loading: false });
 });
 
 // beforeEach 用 mock 整体替换了 skills store 的 action，zustand store 是进程级单例，
@@ -76,6 +78,7 @@ afterEach(() => {
   cleanup();
   globalThis.fetch = originalFetch;
   useSkillsStore.setState(useSkillsStore.getInitialState(), true);
+  useCommandsStore.setState(useCommandsStore.getInitialState(), true);
 });
 
 function renderComposer(props?: Partial<ComponentProps<typeof ComposerInput>>) {
@@ -588,5 +591,84 @@ describe("ComposerInput @ 候选菜单过滤", () => {
     expect(lastCall).toContain("@[general-purpose]");
     expect(lastCall).not.toContain("@[通用子智能体]");
     expect(onAgentMention).toHaveBeenCalledWith("general-purpose");
+  });
+});
+
+// ─── / 命令菜单：pi 框架命令 + 动态插件命令 ──────────────────────────────
+describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
+  it("输入 / 显示前端 handler 命令 + pi 框架命令", () => {
+    renderComposer({ text: "/" });
+    // 前端 handler 命令
+    expect(screen.getByText("系统设置")).toBeDefined();
+    expect(screen.getByText("重载配置")).toBeDefined();
+    // pi 框架命令（静态表）
+    expect(screen.getByText("compact")).toBeDefined();
+    expect(screen.getByText("model")).toBeDefined();
+  });
+
+  it("pi 动态命令（插件贡献）来自 useCommandsStore 并显示在菜单", () => {
+    useCommandsStore.setState({
+      commands: [
+        { name: "goal", description: "设定目标", source: "extension" },
+        { name: "review", description: "代码审查", source: "prompt" },
+      ],
+      loading: false,
+    });
+    renderComposer({ text: "/" });
+    expect(screen.getByText("goal")).toBeDefined();
+    expect(screen.getByText("review")).toBeDefined();
+  });
+
+  it("选中 pi 命令时清除 / 触发文本并 dispatch hiagent:pi-command 事件", () => {
+    const setText = mock();
+    const handler = mock();
+    window.addEventListener("hiagent:pi-command", handler);
+    try {
+      renderComposer({ text: "/comp", setText });
+      // compact 应在菜单中（/comp 匹配）
+      fireEvent.click(screen.getByText("compact"));
+      // setText 被调用，清除了 /comp 触发文本
+      expect(setText).toHaveBeenCalled();
+      const lastCall = setText.mock.calls.at(-1)?.[0] as string;
+      expect(lastCall).not.toMatch(/\/comp$/);
+      // 应 dispatch hiagent:pi-command 事件，detail.text 为 /compact
+      expect(handler).toHaveBeenCalled();
+      const detail = handler.mock.calls.at(-1)?.[0]?.detail;
+      expect(detail?.text).toBe("/compact");
+    } finally {
+      window.removeEventListener("hiagent:pi-command", handler);
+    }
+  });
+
+  it("选中插件命令 /goal 同样走 hiagent:pi-command", () => {
+    useCommandsStore.setState({
+      commands: [{ name: "goal", description: "设定目标", source: "extension" }],
+      loading: false,
+    });
+    const setText = mock();
+    const handler = mock();
+    window.addEventListener("hiagent:pi-command", handler);
+    try {
+      renderComposer({ text: "/goal", setText });
+      fireEvent.click(screen.getByText("goal"));
+      expect(handler).toHaveBeenCalled();
+      expect(handler.mock.calls.at(-1)?.[0]?.detail?.text).toBe("/goal");
+    } finally {
+      window.removeEventListener("hiagent:pi-command", handler);
+    }
+  });
+
+  it("选中前端 handler 命令 reload 仍走原 handler（dispatch reload-config，非 pi-command）", () => {
+    const piHandler = mock();
+    window.addEventListener("hiagent:pi-command", piHandler);
+    try {
+      // 用 / 不带查询，显示完整菜单（reload 中文名按英文 "reload" 查询匹配不上）
+      renderComposer({ text: "/", isRunning: false, isNewSession: false });
+      fireEvent.click(screen.getByText("重载配置"));
+      // pi-command 不应被触发（reload 有自己的前端 handler）
+      expect(piHandler).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("hiagent:pi-command", piHandler);
+    }
   });
 });
