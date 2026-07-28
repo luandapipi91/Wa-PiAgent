@@ -158,11 +158,21 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // 监听来自 CommandPalette 的自定义事件
+  // 监听来自 CommandPalette 和 SlashMenu 的自定义事件
   useEffect(() => {
-    const handler = () => setGalleryOpen(true);
-    window.addEventListener("hiagent:open-gallery", handler);
-    return () => window.removeEventListener("hiagent:open-gallery", handler);
+    const handlers: Record<string, () => void> = {
+      "hiagent:open-gallery": () => setGalleryOpen(true),
+      "hiagent:open-settings": () => useSettingsStore.getState().open(),
+      "hiagent:open-settings-skills": () => { useSettingsStore.getState().open(); useSettingsStore.getState().setSection("skills"); },
+    };
+    for (const [event, handler] of Object.entries(handlers)) {
+      window.addEventListener(event, handler);
+    }
+    return () => {
+      for (const [event, handler] of Object.entries(handlers)) {
+        window.removeEventListener(event, handler);
+      }
+    };
   }, []);
 
   return (

@@ -218,26 +218,41 @@ export class RpcClient {
   }
 
   /**
-   * 获取当前会话的用量统计（token 与成本）。
+   * 获取当前会话的完整统计信息（消息量、token 用量、成本、上下文水位）。
    *
-   * 对应 pi RPC 命令 `get_session_stats`。返回值中 `tokens` 和 `cost` 均为可选——
-   * 旧版 pi 可能不返回 token 统计或成本字段，调用方应做好降级处理（如 `?? 0` 兜底）。
+   * 对应 pi SDK `AgentSession.getSessionStats()` 与 RPC 命令 `get_session_stats`。
+   * 所有 `tokens` 内的字段及 `cost` 均为可选——旧版 pi 可能不返回 token 统计或
+   * 成本字段，调用方应做好降级处理（如 `?? 0` 兜底）。
    *
    * @returns 返回结构：
    * ```ts
    * {
-   *   tokens?: {
-   *     input: number;      // 输入 token 数（可能为 null/undefined）
-   *     output: number;     // 输出 token 数（可能为 null/undefined）
-   *     cacheRead: number;  // 缓存读取 token 数（可能为 null/undefined）
-   *     cacheWrite: number; // 缓存写入 token 数（可能为 null/undefined）
-   *     total: number;      // 总 token 数（可能为 null/undefined）
+   *   sessionFile?: string;             // 会话文件路径（--no-session 时 undefined）
+   *   sessionId: string;                // 会话唯一标识
+   *   userMessages: number;             // 用户消息数
+   *   assistantMessages: number;        // 助手消息数
+   *   toolCalls: number;                // 工具调用次数
+   *   toolResults: number;              // 工具结果条数
+   *   totalMessages: number;            // 消息总数
+   *
+   *   tokens?: {                        // token 统计（旧版 pi 可能整体缺失）
+   *     input: number;                  //   输入 token 数
+   *     output: number;                 //   输出 token 数
+   *     cacheRead: number;              //   缓存读取 token 数
+   *     cacheWrite: number;             //   缓存写入 token 数
+   *     total: number;                  //   总 token 数
    *   };
-   *   cost?: number | { total: number };  // 成本：旧版 pi 返回 number，新版返回 { total }
+   *
+   *   cost?: number | { total: number }; // 成本（旧版 pi 可能返回 { total } 对象）
+   *
+   *   contextUsage?: {                  // 上下文使用率（pi >= 0.80）
+   *     used: number;                   //   已用 token
+   *     total: number;                  //   上限 token
+   *     ratio: number;                  //   使用率 0~1
+   *   };
    * }
    * ```
    *
-   * @see {@link ../subagent-runner.ts 中的 SubagentUsage} —— 消费方类型定义
    */
   getSessionStats(): Promise<any> {
     return this.command({ type: "get_session_stats" });

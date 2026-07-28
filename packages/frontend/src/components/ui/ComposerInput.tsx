@@ -155,8 +155,31 @@ export function ComposerInput({
     }));
   }, [triggerType, trigger, allSkills]);
 
+  // / 命令菜单：内置命令 + 所有技能
+  const commandItems: MenuItem[] = useMemo(() => {
+    if (triggerType !== "command") return [];
+    const q = trigger!.query;
+    // 内置命令
+    const builtinCommands: MenuItem[] = [
+      { id: "cmd:settings", name: "系统设置", description: "打开系统设置面板", source: { type: "builtin", name: "命令" } },
+      { id: "cmd:agents", name: "智能体管理", description: "管理所有智能体配置", source: { type: "builtin", name: "命令" } },
+      { id: "cmd:skills", name: "技能管理", description: "管理全局技能启用/禁用", source: { type: "builtin", name: "命令" } },
+    ];
+    // 技能列表（支持 / 触发技能引用）
+    const filteredSkills = filterItems(allSkills, q);
+    const skillEntries: MenuItem[] = filteredSkills.map(s => ({
+      id: s.name,
+      name: s.name,
+      description: s.description,
+      source: s.source,
+    }));
+    // 根据查询过滤命令
+    const filteredCommands = q ? filterItems(builtinCommands, q) : builtinCommands;
+    return [...filteredCommands, ...skillEntries];
+  }, [triggerType, trigger, allSkills]);
+
   // 当前面板列表项
-  const menuItems = triggerType === "agent" ? agentItems : triggerType === "file" ? fileResults : triggerType === "skill" ? skillItems : [];
+  const menuItems = triggerType === "agent" ? agentItems : triggerType === "file" ? fileResults : triggerType === "skill" ? skillItems : triggerType === "command" ? commandItems : [];
 
   // 面板是否打开：有触发类型且未被 Esc 关闭
   const menuOpen = triggerType !== null && !dismissed;
@@ -245,18 +268,33 @@ export function ComposerInput({
 
   // 选中项处理：生成 chip token 插入 text，替换末尾的触发符 + 查询文本
   const handleSelect = useCallback((item: MenuItem) => {
+    // / 命令触发选中内置命令（如系统设置）时执行动作而非插入 token
+    if (triggerType === "command" && item.id.startsWith("cmd:")) {
+      setDismissed(true);
+      const cmd = item.id.slice(4); // 去掉 "cmd:" 前缀
+      if (cmd === "settings") {
+        window.dispatchEvent(new CustomEvent("hiagent:open-settings"));
+      } else if (cmd === "agents") {
+        window.dispatchEvent(new CustomEvent("hiagent:open-gallery"));
+      } else if (cmd === "skills") {
+        window.dispatchEvent(new CustomEvent("hiagent:open-settings-skills"));
+      }
+      return;
+    }
     const token = triggerType === "agent"
       ? `@[${item.id}]`
       : triggerType === "file"
         ? `#[${item.path ?? item.name}]`
-        : `$[${item.name}]`;
+        : triggerType === "command"
+          ? `$[${item.id}]`  // / 触发选中技能时插入 $[技能名] token
+          : `$[${item.name}]`;
     if (triggerType === "agent") {
       // item.id 是英文 type name（内置 subagent，如 "Plan"）或 displayName（命名智能体）。
       // 对内置 subagent，item.name 是中文 displayName，传入让 chip 显示中文名而非英文 token。
       registerAgentMeta(item.id, { avatar: item.avatar, avatarColor: item.avatarColor, displayName: item.name });
     }
-    // 技能触发符支持 $ 和 ¥，从文本末尾检测实际使用的符号
-    const triggerSymbol = triggerType === "agent" ? "@" : triggerType === "file" ? "#" :
+    // 技能触发符支持 $ 和 ¥，命令触发符为 /，从文本末尾检测实际使用的符号
+    const triggerSymbol = triggerType === "agent" ? "@" : triggerType === "file" ? "#" : triggerType === "command" ? "/" :
       (text.match(/(?:^|\s)([¥$])[^\s]*$/) ?? [])[1] ?? "$";
     const query = trigger?.query ?? "";
     // 从 text 末尾去掉触发符 + 查询文本，替换为 chip token + 空格
@@ -317,7 +355,7 @@ export function ComposerInput({
           highlightedIndex={highlightedIndex}
           onSelect={handleSelect}
           onHover={setHighlightedIndex}
-          emptyText={triggerType === "agent" ? (agentAskToEmpty ? "当前智能体无可调起的子智能体，请在智能体配置中设置关系网" : "无匹配智能体") : triggerType === "file" ? "无匹配文件" : "无匹配技能"}
+          emptyText={triggerType === "agent" ? (agentAskToEmpty ? "当前智能体无可调起的子智能体，请在智能体配置中设置关系网" : "无匹配智能体") : triggerType === "file" ? "无匹配文件" : triggerType === "skill" ? "无匹配技能" : "无匹配命令"}
         />
       )}
       <div

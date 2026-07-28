@@ -30,7 +30,7 @@ import type {
 import { runSubagentAgent } from "./subagent-runner";
 import type { SpawnTelemetryInput } from "./subagent-telemetry";
 
-/** fleet 工具并行执行子智能体任务的最大并发数 */
+/** fleet（并行派发）的最大并发上限，超出部分排队等待 */
 export const MAX_SUBAGENT_CONCURRENCY = 6;
 
 export interface DelegateTarget {

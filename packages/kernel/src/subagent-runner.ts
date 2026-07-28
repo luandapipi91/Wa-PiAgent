@@ -82,8 +82,9 @@ export interface SubagentRunOpts {
  * thinking → pi CLI thinking level 映射。
  * - disabled → off（完全关闭推理）
  * - max → xhigh（最大推理深度）
- * - minimal → minimal（最低推理强度，仅关键决策时启用思考，其余直接输出；
- *   适合简单工具调用等低认知负载场景，平衡速度与质量）
+ * - minimal → minimal
+ *   minimal：最低推理强度，仅关键决策时启用思考，其余直接输出。
+ *   适用于简单工具调用等低认知负载场景，平衡速度与质量。
  * - medium / high → 直接透传
  */
 function mapThinking(thinking: ThinkingLevel | null): string | undefined {
@@ -92,7 +93,7 @@ function mapThinking(thinking: ThinkingLevel | null): string | undefined {
 		? "off"
 		: thinking === "max"
 			? "xhigh"
-			: thinking;
+			: thinking;  // minimal／medium／high 直接透传
 }
 
 /**
