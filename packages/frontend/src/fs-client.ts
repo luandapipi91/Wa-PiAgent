@@ -45,8 +45,9 @@ export async function statFile(path: string): Promise<boolean> {
   return res.exists === true;
 }
 
-export async function readFile(path: string): Promise<{ content: string; mimeType?: string; resolvedPath?: string }> {
-  const res = (await transport.post("/api/fs/read-file", { path })) as { content: string; mimeType?: string; resolvedPath?: string; reason?: string };
+export async function readFile(path: string): Promise<{ content: string; mimeType?: string; resolvedPath?: string; unsupported?: string }> {
+  const res = (await transport.post("/api/fs/read-file", { path })) as { content: string; mimeType?: string; resolvedPath?: string; reason?: string; type?: string };
+  if (res.type === "fs:unsupported") return { content: "", unsupported: res.reason ?? "不支持预览该文件" };
   if (!res.content) throw new Error(res.reason ?? "读取失败");
   return { content: res.content, mimeType: res.mimeType, resolvedPath: res.resolvedPath };
 }
