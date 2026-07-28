@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-07-29
+
+### 配置变更
+
+- **web_search 工具默认参数硬编码**：(1) `index.ts` 启动时写入 `~/.hiagent/web-search.json`，设置 `workflow: "auto-summary"`（pi-web-access 插件读取 PI_CODING_AGENT_DIR=HIAGENT_DIR 下的配置）；(2) `hiagent-bridge.extension.ts` 注册 `tool_call` 事件拦截器，在 `web_search` 工具执行前强制设置 `numResults=8`、`workflow="auto-summary"`（仅当 LLM 未传参时补默认值，不覆盖用户显式指定）。效果：搜索不再弹出 curator 浏览器窗口，默认返回 8 条结果。
+  - 影响范围：`packages/kernel/src/index.ts`、`packages/kernel/src/hiagent-bridge.extension.ts`
+
+---
+
 ## 2026-07-28（晚）
 
 ### 修复
