@@ -13,6 +13,7 @@ function deriveType(method: string, path: string): string {
   if (method === "GET" && path === "/api/fs/home") return "fs:home";
   if (method === "GET" && path === "/api/fs/roots") return "fs:roots";
   if (method === "POST" && path === "/api/fs/list-dir") return "fs:listDir";
+  if (method === "POST" && path === "/api/fs/stat") return "fs:stat";
   if (method === "POST" && path === "/api/fs/read-file") return "fs:readFile";
   if (method === "POST" && path === "/api/fs/copy") return "fs:copy";
   if (method === "POST" && path === "/api/fs/search") return "fs:search";
