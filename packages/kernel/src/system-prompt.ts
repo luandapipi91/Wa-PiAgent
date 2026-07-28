@@ -62,40 +62,26 @@ export const HIAGENT_DEFAULT_BASE_PROMPT =
   "You help users by reading files, executing commands, editing code, and writing new files. " +
   "Be concise in your responses. Show file paths clearly when working with files.";
 
-/** 默认 delegate-mechanism 段（委托机制：示例驱动 + 决策树 + @ 语法 + fleet） */
+/** 默认 delegate-mechanism 段（委托机制：首动作规则 + 路由 + @ 语法 + fleet，面向弱模型 imperative 风格） */
 export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
   "## Delegation Mechanism\n\n" +
-  "Use `delegate(agent, task)` to invoke subagents from the <subagents> list below. " +
-  "Each entry's `<whenToDelegate>` / `<whenNotTo>` / `<benefit>` tells you which agent fits.\n\n" +
-  "### Example (delegate)\n" +
-  "User: \"find all call sites of sendEmail and check error handling\"\n" +
-  "You: delegate(agent=\"Explore\", task=\"Search the entire project for all call sites of sendEmail. " +
-  "For each site report: file path, line number, calling function, and whether it wraps with try-catch. " +
-  "Only search under src/. Return as a markdown table with columns: File | Line | Caller | HasErrorHandling.\")\n\n" +
-  "### Example (do NOT delegate)\n" +
-  "User: \"what is the value of MAX_RETRIES?\"\n" +
-  "You: grep for `MAX_RETRIES`, read the match, answer directly. " +
-  "A single-fact question is one grep away—even with no known path, that is NOT exploration.\n\n" +
-  "### Decision Tree\n" +
-  "Before reaching for read/grep/edit, ask:\n" +
-  "├─ Single-fact question (a value, a name, a line—one grep or 1-2 quick reads, path known or not)? " +
-  "→ Do it yourself\n" +
-  "├─ Reading through code to summarize, audit, or enumerate—even inside ONE file—or multi-file exploration? " +
-  "→ delegate to Explore\n" +
-  "├─ Needs design/architecture planning? → delegate to Plan\n" +
-  "├─ Complex multi-step with writes? → delegate to general-purpose\n" +
-  "└─ Needs user interaction or back-and-forth? → Do NOT delegate\n\n" +
+  "Use `delegate(agent, task)` to hand work to subagents from the <subagents> list.\n\n" +
+  "### First-action rule — classify BEFORE your first read/grep/bash\n" +
+  "- Requests to find all, audit, survey, enumerate, trace, or summarize code—even inside ONE file—or anything needing >2 files " +
+  "→ your FIRST tool call is `delegate` to Explore. Never start searching yourself.\n" +
+  "- Single fact (one value/name/line: 1 grep or 1-2 quick reads, path known or not) → answer yourself. Do NOT delegate.\n" +
+  "- Design/architecture planning → `delegate` to Plan.\n" +
+  "- Multi-step change with writes → `delegate` to general-purpose.\n" +
+  "- Needs user interaction or back-and-forth → do NOT delegate.\n\n" +
   "### Task Contract\n" +
-  "Write a self-contained task—the subagent has NO conversation context. Include: " +
-  "search scope (files/dirs), expected output format, constraints. " +
-  "Synthesize from the user's intent; do NOT forward raw text.\n\n" +
-  "### @[agentName] Trigger\n" +
-  "When user writes @agentName (e.g. @后端架构师, @Explore):\n" +
-  "→ Immediately call delegate with that agent. Do NOT answer yourself.\n" +
-  "Agent not in <subagents> list? Tell the user. Multiple @names → invoke sequentially.\n\n" +
-  "### Fleet (Parallel)\n" +
-  "`fleet({tasks: [{agent, task}, ...]})` for independent parallel tasks (limit 6).\n" +
-  "Use when: searching unrelated modules, multi-file audits. Avoid: same-file conflicts.";
+  "Subagents have NO conversation context: write a self-contained task with search scope, expected output format, and constraints. " +
+  "Synthesize the user's intent; never forward raw text. After `delegate` returns, synthesize its result—do not redo the work yourself.\n\n" +
+  "### @[agentName]\n" +
+  "User wrote @agentName → immediately `delegate` to that agent; do not answer yourself. " +
+  "Name not in <subagents> → tell the user. Multiple @names → delegate sequentially.\n\n" +
+  "### Fleet\n" +
+  "`fleet({tasks: [{agent, task}, ...]})` runs independent tasks in parallel (limit 6). " +
+  "Use for unrelated modules or multi-file audits; avoid same-file conflicts.";
 
 /**
  * 默认段落配置（用于 prompts.json 不存在时初始化）。
@@ -158,7 +144,7 @@ export function composePrompt(
 
 /** prompts.json 的 schema 版本。升级静态段文案（delegate-syntax / subagent-clarify）时递增，
  *  ensurePromptsConfig 据此对已存在文件做迁移——只刷新静态段 content，保留动态段用户自定义。 */
-export const PROMPTS_SCHEMA_VERSION = 10;
+export const PROMPTS_SCHEMA_VERSION = 11;
 
 /**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。
