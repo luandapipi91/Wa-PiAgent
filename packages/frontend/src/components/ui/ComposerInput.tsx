@@ -209,7 +209,11 @@ export function ComposerInput({
     // pi 动态命令（插件贡献如 /goal、prompt 模板）— 来自 pi 运行时，完全动态
     const dynamicItems: MenuItem[] = piCommands.map(c => ({
       id: `pi:${c.name}`, name: c.name, description: c.description,
-      source: { type: "builtin", name: c.source },
+      source: c.source === "extension"
+        ? { type: "extension" as const, name: "插件" }
+        : c.source === "prompt"
+          ? { type: "builtin" as const, name: "prompt" }
+          : { type: "builtin" as const, name: "pi" },
     }));
     // 技能列表（支持 / 触发技能引用）
     const filteredSkills = filterItems(allSkills, q);
@@ -337,14 +341,26 @@ export function ComposerInput({
       }
       return;
     }
-    // pi 框架/插件命令（如 /compact /goal）：清除 / 触发文本，把 /命令名 作为普通消息发给 pi
+    // pi 命令（如 /compact /goal）
     if (triggerType === "command" && item.id.startsWith("pi:")) {
+      const cmdName = item.id.slice(3); // 去掉 "pi:" 前缀
+      // 插件命令：插入 /命令名 到输入框，让用户输入参数后再发送
+      if (item.source?.type === "extension") {
+        setDismissed(true);
+        if (trigger) {
+          const triggerRe = new RegExp(`/${trigger.query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+          setText(text.replace(triggerRe, `/${cmdName} `));
+        } else {
+          setText(`/${cmdName} `);
+        }
+        return;
+      }
+      // 框架命令 / prompt 模板：清除 / 触发文本，发送到后端执行
       setDismissed(true);
       if (trigger) {
         const triggerRe = new RegExp(`/${trigger.query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
         setText(text.replace(triggerRe, ""));
       }
-      const cmdName = item.id.slice(3); // 去掉 "pi:" 前缀
       window.dispatchEvent(new CustomEvent("hiagent:pi-command", { detail: { text: `/${cmdName}` } }));
       return;
     }
