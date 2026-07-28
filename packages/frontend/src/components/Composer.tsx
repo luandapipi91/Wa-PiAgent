@@ -13,10 +13,11 @@ interface Props {
   sessionId: string;
   agentName: AgentName;
   isRunning?: boolean;
+  isNewSession?: boolean;
   disabled?: boolean;
 }
 
-export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
+export function Composer({ sessionId, agentName, isRunning, isNewSession, disabled }: Props) {
   const [text, setText] = useState("");
   const sendingRef = useRef(false);
   const { sessions, currentProjectId } = useProjectsStore();
@@ -94,6 +95,7 @@ export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
         disabled={disabled}
         placeholder={disabled ? "请先回答上方提问…" : (isRunning ? "输入要加入队列的消息..." : `给${agentName}发消息...`)}
         isRunning={isRunning}
+        isNewSession={isNewSession}
         currentAgentName={agentName}
       />
     </div>
