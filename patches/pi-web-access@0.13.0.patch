@@ -1,0 +1,26 @@
+diff --git a/node_modules/pi-web-access/index.ts b/node_modules/pi-web-access/index.ts
+index 0000000..0000000 100644
+--- a/node_modules/pi-web-access/index.ts
++++ b/node_modules/pi-web-access/index.ts
+@@ -2213,6 +2213,23 @@
+ 			const queries = raw.length > 0
+ 				? normalizeQueryList(raw.split(","))
+ 				: [];
++
++			// 读取 workflow 配置，auto-summary/none 时不弹 curator，转发给 LLM
++			const configuredWorkflow = loadConfig().workflow;
++			if (configuredWorkflow === "auto-summary" || configuredWorkflow === "none") {
++				if (raw.length > 0) {
++					pi.sendUserMessage(`请搜索：${raw}`, { deliverAs: "followUp" });
++				} else {
++					pi.sendMessage({
++						customType: "web-search",
++						content: [{ type: "text", text: "Usage: /websearch <query>" }],
++						display: true,
++					}, { triggerTurn: false, deliverAs: "followUp" });
++				}
++				return;
++			}
+ 
+ 			let bootstrap: CuratorBootstrap;
+ 			try {

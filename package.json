@@ -23,6 +23,7 @@
   "workspaces": ["packages/*"],
   "patchedDependencies": {
     "pi-mcp-adapter@2.13.0": "patches/pi-mcp-adapter@2.13.0.patch",
-    "@earendil-works/pi-coding-agent@0.80.10": "patches/@earendil-works/pi-coding-agent@0.80.10.patch"
+    "@earendil-works/pi-coding-agent@0.80.10": "patches/@earendil-works/pi-coding-agent@0.80.10.patch",
+    "pi-web-access@0.13.0": "patches/pi-web-access@0.13.0.patch"
   }
 }
