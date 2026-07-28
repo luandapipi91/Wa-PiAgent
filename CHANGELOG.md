@@ -6,10 +6,23 @@
 
 ## 2026-07-29
 
+### 修复
+
+- **文件预览 ENOENT 时后端自动搜索回退**：`POST /api/fs/read-file` 在文件不存在时，从路径的最近存在祖先目录递归搜索同名文件，命中唯一结果则自动返回。解决 AI 输出不完整相对路径（如 `routes/fs.ts`）时预览失败的问题。REST + WS 双端 `list-dir` symlink 分支和 `copy` 端点补上 `expandTilde` 遗漏。
+  - 影响范围：`packages/kernel/src/routes/fs.ts`、`packages/kernel/src/ws-server.ts`
+
+- **文件预览胶囊仅对可解析路径显示**：`FilePill` 异步校验文件存在性，不存在则回退为纯 `<code>` 文本。路径拼接改用 `normalizeSlashes` 统一正斜杠，消除 Windows 混用分隔符问题。
+  - 影响范围：`packages/frontend/src/components/blocks/FilePill.tsx`、`packages/frontend/src/components/blocks/FilePreviewModal.tsx`
+
+- **切回会话时 ask_user_question 被错误取消**：当 agent 在会话 A 中通过 `ask_user_question` 等待用户回答时，用户切到会话 B 再切回会话 A，`readSessionHistory` 的 `reconcileDanglingAsks` 会把正在 pending 的 ask 误判为「重启后残留」，注入 cancelled toolResult，导致前端显示"用户取消（会话重启）"且聊天卡死。修复：`reconcileDanglingAsks` 新增 `isSessionActive` 参数，当 session 仍在活跃运行时跳过对账；`session:messages` handler 传递 `isActive=true` 时不在文件直读路径执行 dangling ask 对账。
+  - 影响范围：`packages/kernel/src/ask-tool.ts`、`packages/kernel/src/session-history.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/tests/ask-tool.test.ts`
+
 ### 配置变更
 
 - **web_search 工具默认参数硬编码**：(1) `index.ts` 启动时写入 `~/.hiagent/web-search.json`，设置 `workflow: "auto-summary"`（pi-web-access 插件读取 PI_CODING_AGENT_DIR=HIAGENT_DIR 下的配置）；(2) `hiagent-bridge.extension.ts` 注册 `tool_call` 事件拦截器，在 `web_search` 工具执行前强制设置 `numResults=8`、`workflow="auto-summary"`（仅当 LLM 未传参时补默认值，不覆盖用户显式指定）。效果：搜索不再弹出 curator 浏览器窗口，默认返回 8 条结果。
   - 影响范围：`packages/kernel/src/index.ts`、`packages/kernel/src/hiagent-bridge.extension.ts`
+- **web_search provider 修复**：`index.ts` 的 `ensureWebSearchConfig` 原将 `provider` 硬编码为 `"exa"`，导致搜索只能使用 Exa 一个引擎（其他如 OpenAI/Brave/Tavily 即使配置了 API key 也无法使用）。改为 `"auto"`，恢复 pi-web-access 插件的默认自动选择行为。
+  - 影响范围：`packages/kernel/src/index.ts`
 
 ---
 

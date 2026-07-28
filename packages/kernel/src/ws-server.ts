@@ -46,6 +46,18 @@ function expandTilde(p: string): string {
   return p;
 }
 
+/** 在目录下递归搜索指定文件名，返回第一个匹配的绝对路径（深度最浅优先） */
+async function findFileByBasename(root: string, name: string): Promise<string | null> {
+  try {
+    const entries = await readdir(root, { recursive: true });
+    const matches = entries
+      .filter(e => basename(e) === name)
+      .sort((a, b) => a.split(sep).length - b.split(sep).length);
+    if (matches.length === 1) return join(root, matches[0]);
+  } catch { /* 目录不可读则跳过 */ }
+  return null;
+}
+
 /** 把 URL 路径解析成 staticDir 下的文件路径；未知/越权路径回退 index.html（SPA）。 */
 export function resolveStaticPath(urlPath: string, staticDir: string): string {
   const clean = urlPath.split("?")[0].split("#")[0];
@@ -485,7 +497,7 @@ export class WSServer {
         }
         if (session.piSessionFile) {
           try {
-            const history = await readSessionHistory(session.piSessionFile);
+            const history = await readSessionHistory(session.piSessionFile, { isSessionActive: isActive });
             const messages = history.map(m => ({ message: m, agentName: session.primaryAgent }));
             reply({ type: "session:messages", sessionId: event.sessionId, messages, isActive, thinkingSince });
             void this.opts.agentManager.ensureStarted(session.projectId, session.primaryAgent, session.id)
@@ -746,7 +758,7 @@ export class WSServer {
               let isDir = d.isDirectory();
               if (d.isSymbolicLink()) {
                 try {
-                  const s = await stat(join(event.path, d.name));
+                  const s = await stat(join(absPath, d.name));
                   isDir = s.isDirectory();
                 } catch {
                   isDir = false;
@@ -769,7 +781,31 @@ export class WSServer {
           const mimeType = getMimeType(event.path);
           reply({ type: "fs:readFile", path: event.path, content, mimeType });
         } catch (e) {
-          reply({ type: "fs:error", path: event.path, reason: String(e instanceof Error ? e.message : e) });
+          const reason = String(e instanceof Error ? e.message : e);
+          // ENOENT 回退：在最近存在祖先目录下递归搜索同名文件
+          if (reason.includes("ENOENT")) {
+            const resolved = expandTilde(event.path);
+            const name = basename(resolved);
+            let searchRoot = resolve(resolved, "..");
+            while (searchRoot && !existsSync(searchRoot)) {
+              const parent = resolve(searchRoot, "..");
+              if (parent === searchRoot) { searchRoot = ""; break; }
+              searchRoot = parent;
+            }
+            if (searchRoot && name) {
+              try {
+                const found = await findFileByBasename(searchRoot, name);
+                if (found) {
+                  const buffer = await readFile(found);
+                  const content = buffer.toString("base64");
+                  const mimeType = getMimeType(found);
+                  reply({ type: "fs:readFile", path: event.path, content, mimeType, resolvedPath: found });
+                  break;
+                }
+              } catch { /* 搜索失败，回退到原始错误 */ }
+            }
+          }
+          reply({ type: "fs:error", path: event.path, reason });
         }
         break;
       }
@@ -793,7 +829,8 @@ export class WSServer {
       case "fs:copy": {
         try {
           const cwd = await resolveCwdForFsRequest(this.opts.projectStore, event.projectId, event.sessionId);
-          const sourceStat = await stat(event.source);
+          const expandedSource = expandTilde(event.source);
+          const sourceStat = await stat(expandedSource);
           const isDir = sourceStat.isDirectory();
 
           if (isDir) {
@@ -804,7 +841,7 @@ export class WSServer {
             await mkdir(uploadDir, { recursive: true });
             const name = basename(event.source);
             const destPath = await uniquePath(uploadDir, name);
-            await copyFile(event.source, destPath);
+            await copyFile(expandedSource, destPath);
             reply({ type: "fs:copy", id: event.id, path: destPath });
           }
         } catch (e) {
