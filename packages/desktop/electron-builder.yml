@@ -1,6 +1,6 @@
 appId: ai.hiagent.desktop
 productName: HiAgent
-artifactName: "HiAgent.${ext}"
+artifactName: "HiAgent-Setup-${version}.${ext}"
 npmRebuild: false
 afterPack: scripts/after-pack.cjs
 directories:
@@ -19,9 +19,19 @@ extraResources:
 asarUnpack:
   - resources/**
 win:
-  target: [portable]
+  target:
+    - target: nsis
+      arch: [x64]
   icon: src/assets/icon.ico
   signAndEditExecutable: false # Windows Defender 锁定 exe 导致 rcedit 竞态失败
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  installerIcon: src/assets/icon.ico
+  uninstallerIcon: src/assets/icon.ico
 linux:
   target: [AppImage]
   icon: src/assets/icon.png

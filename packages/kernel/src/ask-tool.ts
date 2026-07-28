@@ -40,8 +40,13 @@ export function makeAskTool(sessionId: string) {
  * 注入一条 cancelled toolResult，避免 agent 卡在等结果。返回新数组（不改入参）。
  * 注：内核重启后 registry 内存态丢失，pending 提问无法恢复交互式 UI；此函数让 agent
  * 看到「用户取消」从而能自行重问，保证会话不卡死。
+ *
+ * @param opts.isSessionActive 当 session 仍在活跃运行（agent 正在等待回答）时，
+ *   跳过对账——此时 ask 仍在 askRegistry 中 pending，不应误判为「重启后残留」。
  */
-export function reconcileDanglingAsks(messages: ReadonlyArray<unknown>): unknown[] {
+export function reconcileDanglingAsks(messages: ReadonlyArray<unknown>, opts?: { isSessionActive?: boolean }): unknown[] {
+  // session 仍在活跃运行：ask 在 registry 中等待用户回答，不是「重启后残留」
+  if (opts?.isSessionActive) return [...messages];
   const msgs = messages as Array<Record<string, unknown>>;
   const answered = new Set<string>();
   for (const m of msgs) {

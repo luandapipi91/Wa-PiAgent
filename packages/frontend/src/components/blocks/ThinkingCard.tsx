@@ -15,7 +15,7 @@ export function ThinkingCard({ thinking, isStreaming }: { thinking: string; isSt
       muted={!isStreaming}
       testId="thinking-panel"
     >
-      <div className="italic text-tertiary whitespace-pre-wrap">{thinking}</div>
+      <div className="italic text-tertiary whitespace-pre-wrap break-words">{thinking}</div>
     </ProcessCard>
   );
 }

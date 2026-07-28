@@ -11,7 +11,7 @@
 // @hiagent/shared/tool-schemas.ts，kernel 侧和 bridge 侧引用同一份定义。
 
 import { copyFile, mkdir } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GENERATED_DIR } from "@hiagent/shared";
@@ -24,18 +24,30 @@ export const BRIDGE_EXTENSION_PATH = join(GENERATED_DIR, "hiagent-bridge.ts");
 /** tool-schemas.ts 在 GENERATED_DIR 的路径（bridge 扩展的相对 import 目标） */
 const TOOL_SCHEMAS_TARGET = join(GENERATED_DIR, "tool-schemas.ts");
 
-/** 静态 bridge 扩展源文件（workspace 内） */
-const BRIDGE_EXTENSION_SOURCE = join(__dirname, "hiagent-bridge.extension.ts");
+/**
+ * 静态 bridge 扩展源文件。
+ * - packaged：build-kernel-sidecar 将 hiagent-bridge.extension.ts 复制到 kernel.js 同级 → 优先取。
+ * - dev：回退到 monorepo 源码路径。
+ */
+function resolveBridgeExtensionSource(): string {
+  const flat = join(__dirname, "hiagent-bridge.extension.ts");
+  if (existsSync(flat)) return flat;
+  return join(__dirname, "hiagent-bridge.extension.ts"); // dev: packages/kernel/src/
+}
 
-/** tool-schemas 源文件（@hiagent/shared） */
-const TOOL_SCHEMAS_SOURCE = join(
-  __dirname,
-  "..",
-  "..",
-  "shared",
-  "src",
-  "tool-schemas.ts",
-);
+/**
+ * tool-schemas 源文件。
+ * - packaged：build-kernel-sidecar 将 tool-schemas.ts 复制到 kernel.js 同级 → 优先取。
+ * - dev：回退到 monorepo packages/shared/src/tool-schemas.ts。
+ */
+function resolveToolSchemasSource(): string {
+  const flat = join(__dirname, "tool-schemas.ts");
+  if (existsSync(flat)) return flat;
+  return join(__dirname, "..", "..", "shared", "src", "tool-schemas.ts");
+}
+
+const BRIDGE_EXTENSION_SOURCE = resolveBridgeExtensionSource();
+const TOOL_SCHEMAS_SOURCE = resolveToolSchemasSource();
 
 /**
  * 部署 bridge 扩展到 GENERATED_DIR：复制静态扩展文件 + tool-schemas 依赖。

@@ -59,3 +59,22 @@ test("reconcileDanglingAsks: 已有 toolResult 的 ask 不重复注入", () => {
   ];
   expect(reconcileDanglingAsks(messages)).toHaveLength(2);  // 原样返回
 });
+
+test("reconcileDanglingAsks: session 活跃时不注入 cancelled（agent 仍在等待回答）", () => {
+  // 场景：agent 正在运行且有一个 pending ask，用户切到别的会话再切回来。
+  // 消息中有问无答，但 agent 进程仍在等待——不应误判为「重启后残留」。
+  const messages: any[] = [
+    { role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "ask_user_question", arguments: validParams }], model: "m", stopReason: "tool_use", timestamp: 1 },
+  ];
+  const out = reconcileDanglingAsks(messages, { isSessionActive: true });
+  expect(out).toHaveLength(1);  // 不注入 cancelled toolResult
+});
+
+test("reconcileDanglingAsks: session 不活跃时正常注入 cancelled（重启兜底）", () => {
+  const messages: any[] = [
+    { role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "ask_user_question", arguments: validParams }], model: "m", stopReason: "tool_use", timestamp: 1 },
+  ];
+  const out = reconcileDanglingAsks(messages, { isSessionActive: false });
+  expect(out).toHaveLength(2);  // 注入 cancelled toolResult
+  expect((out[1] as any).role).toBe("toolResult");
+});

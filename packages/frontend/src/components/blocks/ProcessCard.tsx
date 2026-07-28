@@ -61,7 +61,7 @@ export function ProcessCard(props: {
       </button>
       {open && children != null && (
         <div
-          className="px-3 py-2 border-t border-hairline text-[12px] text-secondary"
+          className="px-3 py-2 border-t border-hairline text-[12px] text-secondary min-w-0"
           data-testid={testId ? `${testId}-body` : undefined}
         >
           {children}
