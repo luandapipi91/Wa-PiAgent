@@ -179,7 +179,7 @@ export function ComposerInput({
     // 根据查询过滤命令
     const filteredCommands = q ? filterItems(builtinCommands, q) : builtinCommands;
     return [...filteredCommands, ...skillEntries];
-  }, [triggerType, trigger, allSkills]);
+  }, [triggerType, trigger, allSkills, isRunning, isNewSession]);
 
   // 当前面板列表项
   const menuItems = triggerType === "agent" ? agentItems : triggerType === "file" ? fileResults : triggerType === "skill" ? skillItems : triggerType === "command" ? commandItems : [];
