@@ -1,6 +1,7 @@
 // subagent-telemetry.ts — 子代理派发遥测：量化每次 delegate/fleet 派发省了多少父上下文。
 // 数据落盘 → $HIAGENT_DIR/subagent-telemetry.jsonl（JSONL 格式，每行一条 SpawnTelemetryRecord，末行 type:"summary" 汇总）
 // 注意：该文件仅在服务正常退出时写入，异常退出（如进程崩溃）会导致本次会话数据丢失。
+// 落盘由 agent-manager._teardownSession 触发，每次会话销毁时追加写入同一文件。
 //
 // 仿 cocode src/telemetry/subagent-distillation.ts，适配 HiAgent：
 // - 子代理 token 用量来自 pi rpc 的 get_session_stats（runSubagentAgent 在 dispose 前采集）
