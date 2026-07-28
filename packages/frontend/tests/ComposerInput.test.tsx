@@ -640,19 +640,42 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
     }
   });
 
-  it("选中插件命令 /goal 同样走 hiagent:pi-command", () => {
+  it("选中插件命令（extension）插入 /命令名 到输入框，用户可继续输入参数", () => {
     useCommandsStore.setState({
       commands: [{ name: "goal", description: "设定目标", source: "extension" }],
+      loading: false,
+    });
+    const setText = mock();
+    const piHandler = mock();
+    window.addEventListener("hiagent:pi-command", piHandler);
+    try {
+      renderComposer({ text: "/goal", setText });
+      fireEvent.click(screen.getByText("goal"));
+      // 不应 dispatch hiagent:pi-command（插件命令直接插入输入框）
+      expect(piHandler).not.toHaveBeenCalled();
+      // setText 被调用，输入框内容包含 /goal 
+      expect(setText).toHaveBeenCalled();
+      const lastCall = setText.mock.calls.at(-1)?.[0] as string;
+      expect(lastCall).toContain("/goal");
+      expect(lastCall.endsWith(" ")).toBe(true); // 命令后带空格，方便用户输入参数
+    } finally {
+      window.removeEventListener("hiagent:pi-command", piHandler);
+    }
+  });
+
+  it("选中 prompt 模板命令仍走 hiagent:pi-command", () => {
+    useCommandsStore.setState({
+      commands: [{ name: "review", description: "代码审查", source: "prompt" }],
       loading: false,
     });
     const setText = mock();
     const handler = mock();
     window.addEventListener("hiagent:pi-command", handler);
     try {
-      renderComposer({ text: "/goal", setText });
-      fireEvent.click(screen.getByText("goal"));
+      renderComposer({ text: "/review", setText });
+      fireEvent.click(screen.getByText("review"));
       expect(handler).toHaveBeenCalled();
-      expect(handler.mock.calls.at(-1)?.[0]?.detail?.text).toBe("/goal");
+      expect(handler.mock.calls.at(-1)?.[0]?.detail?.text).toBe("/review");
     } finally {
       window.removeEventListener("hiagent:pi-command", handler);
     }
