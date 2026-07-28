@@ -93,6 +93,7 @@ export function Composer({ sessionId, agentName, isRunning, disabled }: Props) {
         sendDisabled={!projectId}
         disabled={disabled}
         placeholder={disabled ? "请先回答上方提问…" : (isRunning ? "输入要加入队列的消息..." : `给${agentName}发消息...`)}
+        isRunning={isRunning}
         currentAgentName={agentName}
       />
     </div>
