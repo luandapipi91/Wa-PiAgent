@@ -5,6 +5,8 @@ import { SYSTEM_PROJECT_ID, type SessionMessage } from "@hiagent/shared";
 import { SessionView } from "../src/components/SessionView";
 import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
+import { useComposerPrefsStore } from "../src/store/composer-prefs";
+import { useProvidersStore } from "../src/store/providers";
 import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
 import { disconnectEvents } from "../src/events";
 
@@ -80,6 +82,9 @@ beforeEach(() => {
     currentProjectId: "p1", currentSessionId: "s1",
   });
   useSessionStore.setState({ messagesBySession: {} });
+  // 重置 composer-prefs 和 providers，防止测试间状态泄漏
+  useComposerPrefsStore.setState({ bySession: {}, defaults: { model: null, thinking: "disabled" } });
+  useProvidersStore.setState({ providers: [] });
 });
 
 // 渲染并等待异步 effect（composer-prefs loadSession、api.get 等）落定，
@@ -354,10 +359,94 @@ test("token 胶囊：有 usage 时显示 ↑↓/累计/缓存", () => {
   });
   render(<SessionView sessionId="s1" />);
   expect(screen.getByTestId("token-capsules")).toBeTruthy();
-  expect(screen.getByText(/↑3\.2K\/↓1\.1K/)).toBeTruthy();
+  expect(screen.getByText(/本轮: ↑3\.2K\/↓1\.1K/)).toBeTruthy();
   expect(screen.getByText(/累计 8\.5K/)).toBeTruthy();
-  // cacheRead/(input+cacheRead+cacheWrite) = 1500/(3200+1500+200) ≈ 30.6% → 31%
-  expect(screen.getByText(/缓存 31%/)).toBeTruthy();
+  // cacheRead/(input+cacheRead+cacheWrite) = 1500/(3200+1500+200) ≈ 30.61% → 30.6%
+  expect(screen.getByText(/缓存 30\.6%/)).toBeTruthy();
+});
+
+test("token 胶囊：有模型时累计胶囊显示进度条", () => {
+  // 设置 providers（模型含 contextWindow=128000）
+  useProvidersStore.setState({
+    providers: [{
+      id: "p1", name: "OpenAI", baseUrl: "https://api.openai.com/v1", apiKey: "sk-test",
+      api: "openai-completions" as const,
+      models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }],
+    }],
+  });
+  // 设置当前会话的模型选择（与 provider 匹配）
+  useComposerPrefsStore.setState({
+    bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+    defaults: { model: "openai/gpt-4o", thinking: "disabled" },
+  });
+  // token 累计 8500 / 128000 ≈ 6.64% → 进度条宽度 7%
+  useSessionStore.setState({
+    lastUsageBySession: { s1: { input: 3200, output: 1100, cacheRead: 0, cacheWrite: 0 } },
+    tokenTotals: { s1: { input: 6400, output: 2100 } },
+  });
+  useProjectsStore.setState({
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/hiagent" }],
+  });
+
+  render(<SessionView sessionId="s1" />);
+
+  expect(screen.getByTestId("token-capsules")).toBeTruthy();
+  // 进度条存在且宽度为 7%（8500/128000 四舍五入）
+  const progress = screen.getByTestId("token-progress");
+  expect(progress).toBeTruthy();
+  const fill = progress.querySelector(".token-progress-fill") as HTMLElement;
+  expect(fill.style.width).toBe("7%");
+});
+
+test("token 胶囊：无模型时累计胶囊不显示进度条", () => {
+  // 不设置 provider 和 model → contextWindow 不可得 → 不显示进度条
+  useSessionStore.setState({
+    lastUsageBySession: { s1: { input: 3200, output: 1100, cacheRead: 0, cacheWrite: 0 } },
+    tokenTotals: { s1: { input: 6400, output: 2100 } },
+  });
+  useProjectsStore.setState({
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/hiagent" }],
+  });
+
+  render(<SessionView sessionId="s1" />);
+
+  // 胶囊组仍显示（有 lastUsage），进度条不应存在
+  expect(screen.getByTestId("token-capsules")).toBeTruthy();
+  expect(screen.getByText(/本轮: ↑3\.2K\/↓1\.1K/)).toBeTruthy();
+  expect(screen.queryByTestId("token-progress")).toBeNull();
+});
+
+test("token 胶囊：进度条极小占比也有最小可见宽度", () => {
+  useProvidersStore.setState({
+    providers: [{
+      id: "p1", name: "OpenAI", baseUrl: "https://api.openai.com/v1", apiKey: "sk-test",
+      api: "openai-completions" as const,
+      models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }],
+    }],
+  });
+  useComposerPrefsStore.setState({
+    bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+    defaults: { model: "openai/gpt-4o", thinking: "disabled" },
+  });
+  // 累计 100 / 128000 ≈ 0.078%，round 后为 0%
+  useSessionStore.setState({
+    lastUsageBySession: { s1: { input: 100, output: 0, cacheRead: 0, cacheWrite: 0 } },
+    tokenTotals: { s1: { input: 100, output: 0 } },
+  });
+  useProjectsStore.setState({
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/hiagent" }],
+  });
+
+  render(<SessionView sessionId="s1" />);
+
+  expect(screen.getByTestId("token-capsules")).toBeTruthy();
+  // 进度条存在且宽度 > 0（有最小可见宽度兜底）
+  const progress = screen.getByTestId("token-progress");
+  const fill = progress.querySelector(".token-progress-fill") as HTMLElement;
+  expect(parseFloat(fill.style.width)).toBeGreaterThan(0);
 });
 
 test("token 胶囊：无 usage 时不显示", () => {

@@ -31,7 +31,10 @@ export const registerMcpRoutes: RouteRegistrar = (r, callApi, ctx) => {
 
   r.add("POST", "/api/mcp/test", async (req) => {
     const b = await readJsonBody(req);
-    return callApi({ type: "mcp:test", serverName: b.serverName, projectId: b.projectId });
+    return callApi(
+      { type: "mcp:test", serverName: b.serverName, projectId: b.projectId },
+      { responseTypes: ["mcp:testResult"] }
+    );
   });
 
   r.add("GET", "/api/mcp/:serverName/tools", async (req, p) => {
@@ -41,6 +44,9 @@ export const registerMcpRoutes: RouteRegistrar = (r, callApi, ctx) => {
 
   r.add("POST", "/api/mcp/clear-auth", async (req) => {
     const b = await readJsonBody(req);
-    return callApi({ type: "mcp:clearAuth", serverName: b.serverName, projectId: b.projectId });
+    return callApi(
+      { type: "mcp:clearAuth", serverName: b.serverName, projectId: b.projectId },
+      { responseTypes: ["mcp:testResult"] }
+    );
   });
 };

@@ -151,3 +151,28 @@ body {
   background: var(--success-soft);
   color: var(--success);
 }
+/* 累计胶囊（含进度条）：纵向排列 */
+.token-capsule--stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 3px 8px;
+}
+/* 进度条底色 */
+.token-progress {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--hairline);
+  overflow: hidden;
+  min-width: 40px;
+}
+/* 进度条填充 */
+.token-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
