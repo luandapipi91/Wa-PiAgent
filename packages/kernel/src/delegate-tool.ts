@@ -30,7 +30,7 @@ import type {
 import { runSubagentAgent } from "./subagent-runner";
 import type { SpawnTelemetryInput } from "./subagent-telemetry";
 
-/** fleet（并行派发）的最大并发上限，超出部分排队等待。也作为 runWithConcurrency 的默认限流值 */
+/** fleet 工具并行派发子任务的最大并发上限，超出部分排队等待。也作为内部 runWithConcurrency 的默认限流值 */
 export const MAX_SUBAGENT_CONCURRENCY = 6;
 
 export interface DelegateTarget {
