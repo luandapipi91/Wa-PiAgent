@@ -24,9 +24,10 @@ interface SessionLogEntry {
 
 /**
  * 解析 pi 会话文件，返回当前分支的历史消息（含 reconcileDanglingAsks 对账）。
+ * @param opts.isSessionActive 当 session 仍在活跃运行时跳过 dangling ask 对账
  * @throws 文件不可读或没有任何有效 JSON 行（格式变更/损坏）——调用方应回退进程路径。
  */
-export async function readSessionHistory(file: string): Promise<unknown[]> {
+export async function readSessionHistory(file: string, opts?: { isSessionActive?: boolean }): Promise<unknown[]> {
   const raw = await readFile(file, "utf8"); // ENOENT 等直接抛 → 回退
   const entries: SessionLogEntry[] = [];
   for (const line of raw.split("\n")) {
@@ -77,6 +78,6 @@ export async function readSessionHistory(file: string): Promise<unknown[]> {
     messages = collectFrom(leaf);
   }
 
-  // 重启兜底：对「无 result 的 ask 调用」注入 cancelled（与进程路径语义一致）
-  return reconcileDanglingAsks(messages);
+  // 重启兜底：对「无 result 的 ask 调用」注入 cancelled（若 session 活跃则跳过，避免误杀 pending ask）
+  return reconcileDanglingAsks(messages, { isSessionActive: opts?.isSessionActive });
 }

@@ -25,7 +25,7 @@ import type { WSServerEvent } from "@hiagent/shared";
 /** 启动时写入 web-search.json，确保 web_search 工具不弹 curator */
 async function ensureWebSearchConfig(hiagentDir: string): Promise<void> {
   const configPath = join(hiagentDir, "web-search.json");
-  const config = { provider: "exa", workflow: "auto-summary" };
+  const config = { provider: "auto", workflow: "auto-summary" };
   try {
     await mkdir(hiagentDir, { recursive: true });
     await writeFile(configPath, JSON.stringify(config) + "\n", "utf8");

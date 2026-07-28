@@ -163,7 +163,13 @@ export async function buildSidecar(target: "win" | "linux" | "darwin" | string) 
   await rm(join(kernelDir, "node_modules"), { recursive: true, force: true });
   console.log("[sidecar] 已剔除 node_modules（首启用阿里源动态安装；仅随包分发 package.json + bun.lock）");
 
-  // 3. bun 运行时（下载 TARGET 平台 bun；不再无条件复制 host bun，避免 Linux CI 误把 Linux bun 当 bun.exe 发出去）
+  // 4. bridge-extension 依赖文件：复制到 kernel.js 同级，确保打包后 __dirname 可找到
+  const bridgeExtSrc = join(ROOT, "packages", "kernel", "src", "hiagent-bridge.extension.ts");
+  const toolSchemasSrc = join(ROOT, "packages", "shared", "src", "tool-schemas.ts");
+  await cp(bridgeExtSrc, join(kernelDir, "hiagent-bridge.extension.ts"));
+  await cp(toolSchemasSrc, join(kernelDir, "tool-schemas.ts"));
+
+  // 5. bun 运行时（下载 TARGET 平台 bun；不再无条件复制 host bun，避免 Linux CI 误把 Linux bun 当 bun.exe 发出去）
   await fetchTargetBun(target, kernelDir);
   // 重命名 bun → hiagent-kernel（分发进程名不暴露 bun；Bun CLI 不依赖自身文件名）
   const finalBin = target === "win" ? "hiagent-kernel.exe" : "hiagent-kernel";
@@ -171,7 +177,7 @@ export async function buildSidecar(target: "win" | "linux" | "darwin" | string) 
   // POSIX 目标需保证可执行位（下载/解压偶尔丢失）
   if (target !== "win") run("chmod", ["+x", join(kernelDir, finalBin)]);
 
-  // 4. web（前端 dist）
+  // 6. web（前端 dist）
   run("bun", ["run", "--filter", "@hiagent/frontend", "build"]);
   await cp(join(ROOT, "packages", "frontend", "dist"), webDir, { recursive: true });
   console.log("[sidecar] ✅ resources/kernel + resources/web 组装完成");
