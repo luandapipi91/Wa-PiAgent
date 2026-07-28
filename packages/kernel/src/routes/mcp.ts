@@ -31,22 +31,19 @@ export const registerMcpRoutes: RouteRegistrar = (r, callApi, ctx) => {
 
   r.add("POST", "/api/mcp/test", async (req) => {
     const b = await readJsonBody(req);
-    return callApi(
-      { type: "mcp:test", serverName: b.serverName, projectId: b.projectId },
-      { responseTypes: ["mcp:testResult"] }
-    );
+    // mcp:testResult 由 handler 显式 broadcast 到 SSE 总线（见 ws-server.ts），fire-and-forget。
+    return callApi({ type: "mcp:test", serverName: b.serverName, projectId: b.projectId });
   });
 
   r.add("GET", "/api/mcp/:serverName/tools", async (req, p) => {
     const projectId = new URL(req.url).searchParams.get("projectId") ?? undefined;
+    // mcp:tools 由 handler 显式广播到 SSE 总线，fire-and-forget。
     return callApi({ type: "mcp:listTools", serverName: p.serverName, projectId });
   });
 
   r.add("POST", "/api/mcp/clear-auth", async (req) => {
     const b = await readJsonBody(req);
-    return callApi(
-      { type: "mcp:clearAuth", serverName: b.serverName, projectId: b.projectId },
-      { responseTypes: ["mcp:testResult"] }
-    );
+    // 同 mcp:test：mcp:testResult 由 handler 显式广播。
+    return callApi({ type: "mcp:clearAuth", serverName: b.serverName, projectId: b.projectId });
   });
 };
