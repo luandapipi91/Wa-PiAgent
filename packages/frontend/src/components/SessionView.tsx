@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
-import { SYSTEM_PROJECT_ID, type AgentStatus } from "@hiagent/shared";
+import { useEffect, useMemo, useState } from "react";
+import { SYSTEM_PROJECT_ID, slugifyProviderName, type AgentStatus } from "@hiagent/shared";
 import { useProjectsStore } from "../store/projects";
 import { useSessionStore } from "../store/session";
 import { useIsBlocked } from "../store/ask";
+import { useComposerPrefsStore } from "../store/composer-prefs";
+import { useProvidersStore } from "../store/providers";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
 import { AskDock } from "./ask/AskDock";
@@ -46,6 +48,24 @@ export function SessionView({ sessionId }: Props) {
   // Token 计数
   const tokenTotal = useSessionStore(s => s.tokenTotals[sessionId]);
   const lastUsage = useSessionStore(s => s.lastUsageBySession[sessionId]);
+  // 当前会话所选模型的上下文窗口（用于计算 token 占比）
+  const model = useComposerPrefsStore(s => s.bySession[sessionId]?.model ?? null);
+  const providers = useProvidersStore(s => s.providers);
+  const contextWindow = useMemo(() => {
+    if (!model) return null;
+    const [slug, ...rest] = model.split("/");
+    const modelId = rest.join("/");
+    const slugs: string[] = [];
+    for (const p of providers) {
+      const pSlug = slugifyProviderName(p.name, slugs);
+      slugs.push(pSlug);
+      if (pSlug === slug) {
+        const found = p.models.find(m => m.id === modelId);
+        return found?.contextWindow ?? null;
+      }
+    }
+    return null;
+  }, [model, providers]);
 
   useEffect(() => {
     // 进入该会话即视为「已读」，清掉会话列表的 new 角标
@@ -136,18 +156,28 @@ export function SessionView({ sessionId }: Props) {
         {lastUsage && (
           <div className="flex items-center gap-2" data-testid="token-capsules">
             <span className="token-capsule">
-              ↑{fmtTok(lastUsage.input)}/↓{fmtTok(lastUsage.output)}
+              本轮: ↑{fmtTok(lastUsage.input)}/↓{fmtTok(lastUsage.output)}
             </span>
             {tokenTotal && (
-              <span className="token-capsule">
+              <span className="token-capsule token-capsule--stack">
                 累计 {fmtTok(tokenTotal.input + tokenTotal.output)}
+                {contextWindow && contextWindow > 0 && (() => {
+                  const total = tokenTotal.input + tokenTotal.output;
+                  const pct = Math.min(total / contextWindow * 100, 100);
+                  const w = Math.max(Math.round(pct), 2);
+                  return (
+                    <span className="token-progress" data-testid="token-progress">
+                      <span className="token-progress-fill" style={{ width: `${w}%` }} />
+                    </span>
+                  );
+                })()}
               </span>
             )}
             {(lastUsage.cacheRead > 0 || lastUsage.cacheWrite > 0) && (() => {
               const rate = lastUsage.cacheRead / (lastUsage.input + lastUsage.cacheRead + lastUsage.cacheWrite) * 100;
               return (
                 <span className="token-capsule token-capsule--cache">
-                  缓存 {Math.round(rate)}%
+                  缓存 {Math.round(rate * 10) / 10}%
                 </span>
               );
             })()}

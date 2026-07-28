@@ -4,6 +4,16 @@
 
 ---
 
+## 2025-01-22
+
+### 新增功能
+
+- **聊天界面 Token 消耗进度条**
+  - 将独立的 `7%` 百分比胶囊改为进度条，内嵌在「累计 xxx」胶囊下方
+  - 进度条宽度 = 累计 token / 模型 contextWindow，最小 2% 可见宽度
+  - 「↑↓」胶囊文案改为「本轮: ↑↓」
+  - 影响范围：`packages/frontend/src/components/SessionView.tsx`、`packages/frontend/src/styles.css`、`packages/frontend/tests/SessionView.test.tsx`
+
 ## 2026-07-28
 
 ### 其他
