@@ -17,7 +17,7 @@
 // - bridgeBaseUrl 惰性取值：kernel 启动时 WS 端口在 AgentManager 构造后才确定
 
 import type { AgentName, AttachmentRef, ThinkingLevel, MemoryConfig, SkillInfo, CommandInfo } from "@hiagent/shared";
-import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, EXTENSION_TOOL_MAP, resolveAgentTools, resolveSessionCwd, PROMPTS_FILE, SUBAGENT_TYPES, isSubagentType } from "@hiagent/shared";
+import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, EXTENSION_TOOL_MAP, resolveAgentTools, resolveSessionCwd, PROMPTS_FILE, SUBAGENT_TYPES, isSubagentType, SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
@@ -336,6 +336,8 @@ export class AgentManager {
 
     // 计算本次会话的 cwd（普通项目会话用 project.cwd；默认工作区会话用 resolveSessionCwd 推导）
     const cwd = resolveSessionCwd(sessionEntity, project);
+    // 确保 cwd 存在（默认工作区可能尚未创建 workdir；普通项目 cwd 一般已存在）
+    await mkdir(cwd, { recursive: true });
 
     // 读 agent 配置（系统提示词 / 工具 / 模型 / thinking level）
     const config = this.opts.configStore
@@ -985,11 +987,18 @@ export class AgentManager {
 
     // 5. 无进程可借但有 projectId+agentName：创建 session + 启动 pi 进程
     if (projectId && agentName) {
+      // 默认工作区需要先创建 workdir 子目录（与 agent:prompt 行为一致）
+      let createdAt: number | undefined;
+      if (projectId === SYSTEM_PROJECT_ID) {
+        createdAt = Date.now();
+        await mkdir(join(SYSTEM_PROJECT_CWD, String(createdAt)), { recursive: true });
+      }
       await this.opts.projectStore.createSession({
         projectId,
         primaryAgent: agentName as AgentName,
         id: sessionId,
         title: agentName,
+        createdAt,
       });
       await this.ensureStarted(projectId, agentName as AgentName, sessionId);
       const h = this.sessions.get(sessionId);
