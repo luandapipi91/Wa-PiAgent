@@ -11,6 +11,7 @@ export interface MenuItem {
   isDir?: boolean;
   avatar?: string;
   avatarColor?: string;
+  disabled?: boolean;
 }
 
 interface Props {
@@ -62,7 +63,7 @@ export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHov
               avatar={item.avatar}
               avatarColor={item.avatarColor}
               highlighted={i === highlightedIndex}
-              onClick={() => onSelect(item)}
+              onClick={item.disabled ? undefined : () => onSelect(item)}
               onMouseEnter={() => onHover(i)}
               innerRef={i === highlightedIndex ? (el) => { highlightedElRef.current = el; } : undefined}
               testId={`quick-invoke-item-${i}`}
@@ -76,10 +77,12 @@ export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHov
               key={item.id}
               ref={i === highlightedIndex ? highlightedElRef as any : undefined}
               data-testid={`quick-invoke-item-${i}`}
-              className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer text-sm transition-colors ${
-                i === highlightedIndex ? "bg-accent-soft" : "hover:bg-surface-hover"
+              className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                item.disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
+              } ${
+                i === highlightedIndex && !item.disabled ? "bg-accent-soft" : !item.disabled ? "hover:bg-surface-hover" : ""
               }`}
-              onClick={() => onSelect(item)}
+              onClick={item.disabled ? undefined : () => onSelect(item)}
               onMouseEnter={() => onHover(i)}
             >
               {type === "file" ? (

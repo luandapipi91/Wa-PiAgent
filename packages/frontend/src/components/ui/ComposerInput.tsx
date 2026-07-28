@@ -32,6 +32,7 @@ interface Props {
   disabled?: boolean;
   placeholder?: string;
   isRunning?: boolean;
+  isNewSession?: boolean;
   /** @ 选中智能体时回调（参数为智能体 name） */
   onAgentMention?: (name: string) => void;
   /** 当前主智能体 displayName，用于过滤 @ 候选菜单（只显示其 askTo 名单内 + 排除自身） */
@@ -41,7 +42,7 @@ interface Props {
 export function ComposerInput({
   text, setText, model, setModel, thinking, setThinking,
   attachments, setAttachments, projectId, sessionId, onSend, sendDisabled, disabled, placeholder,
-  onAgentMention, currentAgentName, isRunning,
+  onAgentMention, currentAgentName, isRunning, isNewSession,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingUploads, setPendingUploads] = useState(0);
@@ -165,10 +166,8 @@ export function ComposerInput({
       { id: "cmd:settings", name: "系统设置", description: "打开系统设置面板", source: { type: "builtin", name: "命令" } },
       { id: "cmd:agents", name: "智能体管理", description: "管理所有智能体配置", source: { type: "builtin", name: "命令" } },
       { id: "cmd:skills", name: "技能管理", description: "管理全局技能启用/禁用", source: { type: "builtin", name: "命令" } },
-      { id: "cmd:reload", name: "重载配置", description: "重建 AI 进程使技能/扩展变更生效", source: { type: "builtin", name: "命令" } },
+      { id: "cmd:reload", name: "重载配置", description: "重建 AI 进程使技能/扩展变更生效", source: { type: "builtin", name: "命令" }, disabled: isRunning || isNewSession },
     ];
-    // AI 回复中隐藏重载命令
-    const availableCommands = isRunning ? builtinCommands.filter(c => c.id !== "cmd:reload") : builtinCommands;
     // 技能列表（支持 / 触发技能引用）
     const filteredSkills = filterItems(allSkills, q);
     const skillEntries: MenuItem[] = filteredSkills.map(s => ({
@@ -178,7 +177,7 @@ export function ComposerInput({
       source: s.source,
     }));
     // 根据查询过滤命令
-    const filteredCommands = q ? filterItems(availableCommands, q) : availableCommands;
+    const filteredCommands = q ? filterItems(builtinCommands, q) : builtinCommands;
     return [...filteredCommands, ...skillEntries];
   }, [triggerType, trigger, allSkills]);
 
@@ -272,6 +271,8 @@ export function ComposerInput({
 
   // 选中项处理：生成 chip token 插入 text，替换末尾的触发符 + 查询文本
   const handleSelect = useCallback((item: MenuItem) => {
+    // 禁用项不响应
+    if (item.disabled) return;
     // / 命令触发选中内置命令（如系统设置）时执行动作而非插入 token
     if (triggerType === "command" && item.id.startsWith("cmd:")) {
       setDismissed(true);
