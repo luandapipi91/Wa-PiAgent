@@ -11,8 +11,9 @@
  *   - 写了 content：动态段也允许用户覆盖（如 base.content 替代 HIAGENT_DEFAULT_BASE_PROMPT）
  *   - 未写 content：用代码默认值
  *
- * 组装顺序示例（默认 6 段，用户可在 prompts.json 调整）：
- *   base → delegate-syntax → subagent-clarify → delegate-network → env-constraints → memory-snapshot
+ * 组装顺序示例（默认 5 段，用户可在 prompts.json 调整）：
+ *   base → delegate-roster → env-constraints → memory-snapshot → delegate-mechanism
+ *   （delegate-mechanism 固定放最后，紧贴用户消息，提升弱模型遵从率）
  */
 
 /** 单个提示词段落 */
@@ -67,7 +68,7 @@ export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
   "## Delegation Mechanism\n\n" +
   "Use `delegate(agent, task)` to hand work to the <subagents> agents.\n\n" +
   "### First-action rule — classify BEFORE your first read/grep/bash\n" +
-  "- The answer lists, enumerates, traces, audits, or summarizes code, or explains how it works (找出所有/审计/调查/列出/梳理/搜索/枚举/整理/怎么)—even inside ONE file or named dir " +
+  "- The answer is a LIST, table, audit, survey, trace, or summary of code, or explains how it works (找出所有/审计/调查/列出/梳理/搜索/枚举/整理/怎么)—even inside ONE file or named dir " +
   "→ your FIRST tool call is `delegate` to Explore. A named path is NOT a reason to DIY.\n" +
   "- Single fact you can quote in ONE line (a value/name/path—even if unknown) → answer yourself. Do NOT delegate. " +
   "Needing a list or per-item explanation is NEVER single-fact.\n" +
@@ -89,10 +90,11 @@ export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
  */
 export const DEFAULT_PROMPT_SEGMENTS: PromptSegment[] = [
   { id: "base" },                                  // 动态：defaultBasePrompt
-  { id: "delegate-mechanism", content: DEFAULT_DELEGATE_MECHANISM_PROMPT },
   { id: "delegate-roster" },                       // 动态：buildDelegateRoster（内置+命名统一列表）
   { id: "env-constraints" },                       // 动态：builtinSkillsDir + ENV_CONSTRAINTS_SUFFIX
   { id: "memory-snapshot" },                       // 动态：memorySnapshot
+  // delegate-mechanism 放最后：紧贴用户消息，近因效应提升弱模型对派发规则的遵从
+  { id: "delegate-mechanism", content: DEFAULT_DELEGATE_MECHANISM_PROMPT },
 ];
 
 /**
@@ -144,7 +146,7 @@ export function composePrompt(
 
 /** prompts.json 的 schema 版本。升级静态段文案（delegate-syntax / subagent-clarify）时递增，
  *  ensurePromptsConfig 据此对已存在文件做迁移——只刷新静态段 content，保留动态段用户自定义。 */
-export const PROMPTS_SCHEMA_VERSION = 14;
+export const PROMPTS_SCHEMA_VERSION = 15;
 
 /**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。

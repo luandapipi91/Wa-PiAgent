@@ -39,17 +39,18 @@ test("composePrompt 默认段落全部出现", () => {
   expect(result).toContain("## Memory Snapshot");
 });
 
-test("composePrompt 默认段落顺序：base → delegate-mechanism → delegate-roster → env → memory", () => {
+test("composePrompt 默认段落顺序：base → delegate-roster → env → memory → delegate-mechanism", () => {
   const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, defaultCtx);
   const basePos = result.indexOf(HIAGENT_DEFAULT_BASE_PROMPT);
   const mechanismPos = result.indexOf(DEFAULT_DELEGATE_MECHANISM_PROMPT);
   const rosterPos = result.indexOf("## Available Subagents");
   const envPos = result.indexOf("Built-in directory:");
   const memPos = result.indexOf("## Memory Snapshot");
-  expect(basePos).toBeLessThan(mechanismPos);
-  expect(mechanismPos).toBeLessThan(rosterPos);
+  expect(basePos).toBeLessThan(rosterPos);
   expect(rosterPos).toBeLessThan(envPos);
   expect(envPos).toBeLessThan(memPos);
+  // delegate-mechanism 固定最后（近因效应，提升弱模型遵从率）
+  expect(memPos).toBeLessThan(mechanismPos);
 });
 
 test("composePrompt delegateRoster 空串 → delegate-roster 段不出现", () => {
@@ -292,7 +293,8 @@ test("ensurePromptsConfig 迁移后幂等（版本匹配不再重写）", async 
 
   // 手动篡改静态段，验证第二次不再重写
   const tampered = JSON.parse(readFileSync(f, "utf8"));
-  tampered.segments[1].content = "TAMPERED AFTER MIGRATION";
+  const mechIdx = tampered.segments.findIndex((s: PromptSegment) => s.id === "delegate-mechanism");
+  tampered.segments[mechIdx].content = "TAMPERED AFTER MIGRATION";
   writeFileSync(f, JSON.stringify(tampered));
 
   await ensurePromptsConfig(f);
