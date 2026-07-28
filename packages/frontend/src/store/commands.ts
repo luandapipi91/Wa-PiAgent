@@ -7,15 +7,20 @@ import { api } from "../api-client";
 interface CommandsState {
   commands: CommandInfo[];        // 已过滤掉 source==="skill" 的命令
   loading: boolean;
-  load: (sessionId: string) => void;
+  load: (sessionId: string, projectId?: string, agentName?: string) => void;
 }
 
 export const useCommandsStore = create<CommandsState>((set) => ({
   commands: [],
   loading: false,
-  load: (sessionId) => {
+  load: (sessionId, projectId?, agentName?) => {
     set({ loading: true });
-    api.get(`/api/sessions/${encodeURIComponent(sessionId)}/commands`)
+    const params = new URLSearchParams();
+    if (projectId) params.set("projectId", projectId);
+    if (agentName) params.set("agentName", agentName);
+    const qs = params.toString();
+    const url = `/api/sessions/${encodeURIComponent(sessionId)}/commands${qs ? `?${qs}` : ""}`;
+    api.get(url)
       .then((data: any) => {
         const all: CommandInfo[] = data?.commands ?? [];
         // 过滤 skill 类：技能已在 $ 菜单覆盖，/ 菜单不重复展示

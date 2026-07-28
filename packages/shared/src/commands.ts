@@ -22,6 +22,9 @@ export interface CommandInfo {
 export interface SessionCommandsRequest {
   type: "session:commands";
   sessionId: string;
+  /** 新会话页面：session 尚未在后端创建时，传入 projectId + agentName 让后端自动创建 */
+  projectId?: string;
+  agentName?: string;
 }
 
 // kernel → 前端
