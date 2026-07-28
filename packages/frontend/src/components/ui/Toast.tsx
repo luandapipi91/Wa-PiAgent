@@ -12,7 +12,7 @@ export function ToastContainer() {
           key={t.id}
           className="px-4 py-2.5 rounded-md shadow-lg text-sm cursor-pointer select-none"
           style={{
-            background: t.type === "error" ? "var(--danger)" : "var(--brand)",
+            background: t.type === "error" ? "var(--danger)" : t.type === "success" ? "var(--success)" : "var(--brand)",
             color: "#fff",
             animation: "toast-in 0.25s ease-out",
           }}
