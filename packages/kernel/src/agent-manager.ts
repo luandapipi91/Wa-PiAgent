@@ -890,6 +890,19 @@ export class AgentManager {
 		const handle = this.sessions.get(sessionId);
 		if (!handle) throw new Error(`会话未启动: ${sessionId}`);
 
+		// /mcp-auth / /mcp 斜杠命令在内核层拦截：pi-mcp-adapter 的 TUI 面板（custom）
+		// 在 RPC 模式下不支持，其 handler 会挂起。直接发通知给前端，不传给 pi。
+		if (text.trim() === "/mcp-auth" || text.trim() === "/mcp" || text.trim().startsWith("/mcp-auth ") || text.trim().startsWith("/mcp ")) {
+			const cmd = text.trim().split(/\s+/)[0];
+			const lines = ["「" + cmd + "」命令在 HiAgent 中请通过 **设置 → MCP** 页面操作。", "", "OAuth 授权请在 MCP 服务器卡片的「授权」按钮进行。"];
+			const msg = lines.join("\n");
+			const now = Date.now();
+			const message = { role: "assistant", content: [{ type: "text", text: msg }], stopReason: "stop", timestamp: now };
+			this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, { type: "message_start", message });
+			this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, { type: "message_end", message });
+			return;
+		}
+
 		// 所有消息必须跟随用户显式选择的模型，禁止回退到 agent config 或 pi 默认模型
 		if (!opts?.model) {
 			throw new Error("未选择模型，请先在模型选择器中选择一个模型");
