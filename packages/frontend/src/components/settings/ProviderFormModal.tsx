@@ -46,11 +46,17 @@ export function ProviderFormModal({ initial, onClose }: Props) {
   const [dropPos, setDropPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const [tagKey, setTagKey] = useState(0);
 
-  // 组件挂载时从 kernel 获取供应商预设列表
+  // 组件挂载时从 kernel 获取供应商预设列表，编辑时自动匹配预设
   useEffect(() => {
     void (async () => {
       const res = (await api.get("/api/models/presets")) as { presets?: ModelPreset[] };
-      setPresets(res.presets ?? []);
+      const list = res.presets ?? [];
+      setPresets(list);
+      // 编辑模式：用 baseUrl 匹配对应的预设
+      if (initial && initial.baseUrl) {
+        const matched = list.find(p => p.baseUrl === initial.baseUrl);
+        if (matched) setSelectedPresetKey(matched.key);
+      }
     })();
   }, []);
 
