@@ -12,8 +12,7 @@
  *   - 未写 content：用代码默认值
  *
  * 组装顺序示例（默认 5 段，用户可在 prompts.json 调整）：
- *   base → delegate-roster → env-constraints → memory-snapshot → delegate-mechanism
- *   （delegate-mechanism 固定放最后，紧贴用户消息，提升弱模型遵从率）
+ *   base → delegate-mechanism → delegate-roster → env-constraints → memory-snapshot
  */
 
 /** 单个提示词段落 */
@@ -63,26 +62,29 @@ export const HIAGENT_DEFAULT_BASE_PROMPT =
   "You help users by reading files, executing commands, editing code, and writing new files. " +
   "Be concise in your responses. Show file paths clearly when working with files.";
 
-/** 默认 delegate-mechanism 段（委托机制：首动作规则 + 路由 + @ 语法 + fleet，面向弱模型 imperative 风格） */
+/** 默认 delegate-mechanism 段（委托机制：首动作规则 + 路由 + @ 语法 + fleet；正文中文，贴合中文用户请求、字符更省） */
 export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
   "## Delegation Mechanism\n\n" +
-  "Use `delegate(agent, task)` to hand work to the <subagents> agents.\n\n" +
-  "### First-action rule — classify BEFORE your first read/grep/bash\n" +
-  "- The answer is a LIST, table, audit, survey, trace, or summary of code, or explains how it works (找出所有/审计/调查/列出/梳理/搜索/枚举/整理/怎么)—even inside ONE file or named dir " +
-  "→ your FIRST tool call is `delegate` to Explore. A named path is NOT a reason to DIY.\n" +
-  "- Single fact you can quote in ONE line (a value/name/path—even if unknown) → answer yourself. Do NOT delegate. " +
-  "Needing a list or per-item explanation is NEVER single-fact.\n" +
-  "- Planning → `delegate` to Plan; multi-step writes → general-purpose; user interaction → do NOT delegate.\n\n" +
-  "User: 找出所有引用 X 的文件，解释每处用途\n" +
-  "You: delegate(agent=\"Explore\", task=\"搜索全仓库引用 X 的位置，逐处说明用途\") ← 不要自己 grep\n\n" +
+  "用 `delegate(agent, task)` 把工作交给 <subagents> 里的子代理。**默认委托：除单点定义查询外，代码问题一律先派 Explore 再行动。**\n" +
+  "路由：规划设计 → Plan；多步带写 → general-purpose；需要用户交互 → 不派。\n\n" +
+  "用户：找出所有引用 X 的文件，解释每处用途\n" +
+  "你：delegate(agent=\"Explore\", task=\"搜索全仓库引用 X 的位置，逐处说明用途\") ← 不要自己 grep\n" +
+  "用户：X.ts 注册了哪些工具？每个的 schema 和超时分别是多少\n" +
+  "你：delegate(agent=\"Explore\", task=\"读 X.ts，逐条列出注册的工具及其 schema、超时\") ← 单文件多属性枚举也派\n" +
+  "用户：调查 X.ts：Y 是怎么收集的，涉及哪些扩展源？\n" +
+  "你：delegate(agent=\"Explore\", task=\"读 X.ts，梳理 Y 的收集链路与涉及源\") ← 单文件原理梳理也派\n" +
+  "用户：调查 scripts/ 目录每个脚本的用途\n" +
+  "你：delegate(agent=\"Explore\", task=\"调查 scripts/ 目录，逐个脚本说明用途与调用方\")\n" +
+  "用户：HIAGENT_DIR 默认指向哪个目录？\n" +
+  "你：grep 一下直接回答 ← 单点定义，不派\n" +
+  "用户：DEFAULT_AGENT_TOOLS 包含哪几个工具？\n" +
+  "你：grep 到定义直接念出来 ← 单点定义，不派\n\n" +
   "### Task Contract\n" +
-  "Subagents have NO conversation context: write a self-contained task with scope, output format, constraints. " +
-  "Synthesize intent, not raw text. After `delegate` returns, use its result—never redo the work.\n\n" +
+  "子代理没有对话上下文：任务必须自含范围、输出格式、约束；表达意图而非转发原文。delegate 返回后直接采用其结果——不要自己重做。\n\n" +
   "### @[agentName]\n" +
-  "User wrote @agentName → immediately `delegate` to that agent; do not answer yourself. " +
-  "Unknown name → say so. Multiple @names → delegate sequentially.\n\n" +
+  "用户写 @agentName → 立即 `delegate` 给该代理，不要自己回答。名字不存在 → 告知用户。多个 @ → 依次派发。\n\n" +
   "### Fleet\n" +
-  "`fleet({tasks:[{agent,task},...]})`: independent tasks in parallel (limit 6); avoid same-file conflicts.";
+  "`fleet({tasks:[{agent,task},...]})`：独立任务并行（上限 6 个）；避免同文件冲突。";
 
 /**
  * 默认段落配置（用于 prompts.json 不存在时初始化）。
@@ -90,11 +92,10 @@ export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
  */
 export const DEFAULT_PROMPT_SEGMENTS: PromptSegment[] = [
   { id: "base" },                                  // 动态：defaultBasePrompt
+  { id: "delegate-mechanism", content: DEFAULT_DELEGATE_MECHANISM_PROMPT },
   { id: "delegate-roster" },                       // 动态：buildDelegateRoster（内置+命名统一列表）
   { id: "env-constraints" },                       // 动态：builtinSkillsDir + ENV_CONSTRAINTS_SUFFIX
   { id: "memory-snapshot" },                       // 动态：memorySnapshot
-  // delegate-mechanism 放最后：紧贴用户消息，近因效应提升弱模型对派发规则的遵从
-  { id: "delegate-mechanism", content: DEFAULT_DELEGATE_MECHANISM_PROMPT },
 ];
 
 /**
@@ -146,7 +147,7 @@ export function composePrompt(
 
 /** prompts.json 的 schema 版本。升级静态段文案（delegate-syntax / subagent-clarify）时递增，
  *  ensurePromptsConfig 据此对已存在文件做迁移——只刷新静态段 content，保留动态段用户自定义。 */
-export const PROMPTS_SCHEMA_VERSION = 15;
+export const PROMPTS_SCHEMA_VERSION = 21;
 
 /**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。

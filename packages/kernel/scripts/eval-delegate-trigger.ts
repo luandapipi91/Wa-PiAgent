@@ -18,7 +18,9 @@
 //   --category：只跑指定类别（如 --category explore,simple）；--repeat N：整个用例集重复 N 轮，汇总 mean±std
 // 默认模型：providers.json 第一个 provider 的第一个模型。
 // 配置来源：真实 ~/.hiagent（只读 providers/prompts；生成的扩展文件与 app 启动时幂等一致）。
-// 注意：edit 类用例会让 agent 真实改动工作区文件，评测后请 git 检查并还原。
+// 注意：edit 类用例会让 agent 真实改动 cwd 下的文件。务必在隔离 worktree 中运行
+// （git worktree add .worktrees/eval-delegate HEAD && cd 后 bun install），
+// 不要在主工作区直接跑——主工作区可能有用户并行开发的未提交代码。
 
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -94,7 +96,7 @@ const CASES: Array<{ category: Category; prompt: string }> = [
   { category: "edit", prompt: "给 packages/kernel/src/rpc-client.ts 的 getSessionStats 方法补一段 JSDoc 说明返回结构。" },
   { category: "edit", prompt: "CHANGELOG.md 顶部加一条今天的占位条目（类型：其他，内容：评测脚本冒烟）。" },
   { category: "edit", prompt: "packages/kernel/src/subagent-runner.ts 中 mapThinking 函数加一个 'minimal' 级别的注释说明。" },
-  { category: "edit", prompt: "把 packages/kernel/scripts/eval-delegate-trigger.ts 里的每用例默认超时从 180s 改为 240s。" },
+  { category: "edit", prompt: "把 packages/kernel/scripts/eval-delegate-trigger.ts 里的每用例默认超时改为 240s（已在 2025-03 从 180s 更新）。" },
   { category: "edit", prompt: "给 packages/kernel/src/agent-manager.ts 的 _flushSubagentTelemetry 方法补充边界情况注释（无记录时不落盘）。" },
   { category: "edit", prompt: "给 packages/shared/src/constants.ts 的 HIAGENT_DIR 常量注释补充一句「可用 HIAGENT_DIR 环境变量覆盖」。" },
   { category: "edit", prompt: "scripts/port.ts 文件头加一行注释说明这个脚本的用途。" },
@@ -246,6 +248,7 @@ async function runOneCase(
     /** 每用例前重新生成扩展文件（抗外部并发清理 .generated） */
     ensureExtensions: () => Promise<void>;
   },
+  attempt = 0,
 ): Promise<CaseResult> {
   const startedAt = Date.now();
   const result: CaseResult = {
@@ -310,6 +313,11 @@ async function runOneCase(
     try { await client.abort(); } catch { /* 忽略 */ }
   } finally {
     await client.dispose().catch(() => {});
+  }
+
+  // pi 进程启动即退出（多为 .generated 被外部并发清理）→ 重试一次
+  if (result.error?.includes("pi rpc 进程已退出") && attempt < 1) {
+    return runOneCase(index, category, prompt, ctx, attempt + 1);
   }
 
   // 从 stub 增量里提取本用例的 delegate/fleet 调用
