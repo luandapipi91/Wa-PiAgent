@@ -1013,19 +1013,20 @@ export class WSServer {
         break;
       }
       case "extension:install": {
+        // install:done / error / changed 必须显式走 SSE 广播：前端 installPackage 用
+        // fire-and-forget 丢弃 HTTP 响应体，仅靠 SSE 事件翻转 installs 占位状态。
+        // progress 类型含 "progress" 被 callApi 自动广播，reply 即可。
         try {
-          // 包管理器日志行流式回推给请求者（仅请求者持有占位卡片）
           const onProgress = (message: string) =>
             reply({ type: "extension:progress", name: event.name, message });
           await this.opts.extensionManager.install(event.name, onProgress);
           this.opts.agentManager.markAllDirty();
           const { packages } = await this.opts.extensionManager.list();
           this.broadcast({ type: "extension:changed", packages });
-          reply({ type: "extension:changed", packages });
           // 成功终态：前端据此清除占位卡（真实卡片由上面的 changed 提供）
-          reply({ type: "extension:install:done", name: event.name });
+          this.broadcast({ type: "extension:install:done", name: event.name });
         } catch (err) {
-          reply({ type: "extension:error", name: event.name, error: (err as Error).message });
+          this.broadcast({ type: "extension:error", name: event.name, error: (err as Error).message });
         }
         break;
       }
@@ -1036,7 +1037,7 @@ export class WSServer {
           const { packages } = await this.opts.extensionManager.list();
           this.broadcast({ type: "extension:changed", packages });
         } catch (err) {
-          reply({ type: "extension:error", name: event.name, error: (err as Error).message });
+          this.broadcast({ type: "extension:error", name: event.name, error: (err as Error).message });
         }
         break;
       }
@@ -1049,9 +1050,8 @@ export class WSServer {
           this.opts.agentManager.markAllDirty();
           const { packages } = await this.opts.extensionManager.list();
           this.broadcast({ type: "extension:changed", packages });
-          reply({ type: "extension:changed", packages });
         } catch (err) {
-          reply({ type: "extension:error", name: event.name, error: (err as Error).message });
+          this.broadcast({ type: "extension:error", name: event.name, error: (err as Error).message });
         }
         break;
       }
