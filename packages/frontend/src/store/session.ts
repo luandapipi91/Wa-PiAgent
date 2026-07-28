@@ -51,8 +51,9 @@ interface SessionState {
   failTurn: (sessionId: string) => void;
   // 新增：处理 sdk:event 信封事件（流式两态管理核心入口）
   handleSDKEvent: (sessionId: string, envelope: SDKEventEnvelope) => void;
-  /** 累加一次 API 调用的 token */
-  addTokens: (sessionId: string, input: number, output: number) => void;
+  /** 重载中（/reload 命令执行期间禁用发送） */
+  reloading: boolean;
+  setReloading: (v: boolean) => void;
   /** 从历史消息 seed 累计 token 计数 */
   seedTokenTotal: (sessionId: string, messages: SessionMessage[]) => void;
 }
@@ -84,6 +85,7 @@ export const useSessionStore = create<SessionState>((set) => {
   historyLoadingBySession: {},
   unreadBySession: {},
   queueBySession: {},
+  reloading: false,
   tokenTotals: {},
   lastUsageBySession: {},
 
@@ -170,6 +172,7 @@ export const useSessionStore = create<SessionState>((set) => {
     return { historyLoadingBySession: { ...s.historyLoadingBySession, [sessionId]: loading } };
   }),
 
+  setReloading: (v) => set({ reloading: v }),
   clear: () => set({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, thinkingSinceBySession: {}, optimisticEchoBySession: {}, historyLoadingBySession: {}, unreadBySession: {} }),
 
   markUnread: (sessionId) => set(s => ({ unreadBySession: { ...s.unreadBySession, [sessionId]: true } })),
