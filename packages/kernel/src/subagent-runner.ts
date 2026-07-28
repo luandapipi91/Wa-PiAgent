@@ -87,6 +87,7 @@ export interface SubagentRunOpts {
  *   适用于简单工具调用等低认知负载场景，平衡速度与质量。
  *   典型场景：读取已知路径下的配置文件查单个值、执行单条命令、
  *   简单的 grep 查询等确定性任务，不需要模型展开完整推理链。
+ *   效果：token 消耗低、响应快，但面对复杂推理任务可能质量下降。
  * - medium / high → 直接透传
  */
 function mapThinking(thinking: ThinkingLevel | null): string | undefined {

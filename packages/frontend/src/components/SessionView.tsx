@@ -41,6 +41,7 @@ export function SessionView({ sessionId }: Props) {
   const status = useSessionStore(s => s.statusBySession[sessionId] ?? "idle");
   const historyLoading = useSessionStore(s => s.historyLoadingBySession[sessionId] ?? false);
   const isBlocked = useIsBlocked(sessionId);
+  const reloading = useSessionStore(s => s.reloading);
 
   // 思考起算时间（按会话独立，切会话不重置/不沿用）。每秒计时交给 <ThinkingTimer> 独立持有，
   // 避免每秒 setElapsed 重渲染整个 SessionView（含 MessageList 的 markdown）造成计时卡顿。
@@ -268,7 +269,7 @@ export function SessionView({ sessionId }: Props) {
 
       <MessageList sessionId={sessionId} />
       <AskDock sessionId={sessionId} />
-      <Composer sessionId={sessionId} agentName={session.primaryAgent} isRunning={status === "thinking"} disabled={isBlocked} />
+      <Composer sessionId={sessionId} agentName={session.primaryAgent} isRunning={status === "thinking"} disabled={isBlocked || reloading} />
     </div>
   );
 }

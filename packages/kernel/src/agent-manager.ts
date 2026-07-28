@@ -852,7 +852,9 @@ export class AgentManager {
    */
   private _flushSubagentTelemetry(sessionId: string, handle: SessionHandle): void {
     const records = handle.subagentTelemetry.records;
-    // 无记录时不落盘：没有派发过子代理的会话不产生遥测文件写入
+    // ── 边界：无记录时不落盘 ──
+    // 没有派发过子代理的会话销毁时 records 为空。此时直接返回，不写入文件也不打印日志，
+    // 避免在 subagent-telemetry.jsonl 中产生空行或仅含 session_summary 的无效条目。
     if (records.length === 0) return;
     const summary = handle.subagentTelemetry.summary;
     const lines = [

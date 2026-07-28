@@ -169,6 +169,7 @@ export function App() {
         const sid = useProjectsStore.getState().currentSessionId;
         if (!sid) { useToastStore.getState().add("没有打开的会话", "error"); return; }
         const ts = Date.now();
+        useSessionStore.getState().setReloading(true);
         // 先显示过渡消息（用固定 timestamp 确保完成后替换而非追加）
         useSessionStore.getState().append(sid, {
           message: { type: "custom", customType: "reload_config", content: "正在重载配置…", timestamp: ts } as any,
@@ -184,9 +185,11 @@ export function App() {
           useExtensionsStore.getState().load();
           useAgentsStore.getState().loadAll();
           useSubagentsStore.getState().load();
-          useToastStore.getState().add("配置已重载（AI 进程已重建）", "success");
+          useToastStore.getState().add("配置已重载", "success");
         } catch (err: any) {
           useToastStore.getState().add(`重载失败: ${err?.message ?? err}`, "error");
+        } finally {
+          useSessionStore.getState().setReloading(false);
         }
       },
     };

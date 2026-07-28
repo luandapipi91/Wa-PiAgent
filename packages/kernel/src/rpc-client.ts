@@ -232,7 +232,7 @@ export class RpcClient {
    *   调用方需兼容两种形式（建议 `typeof cost === 'number' ? cost : cost?.total`）。
    * - `contextUsage` 仅 pi >= 0.80 返回，不含时整体为 `undefined`。
    *
-   * @returns 返回结构：
+   * @returns 解析后的服务端响应 data，结构如下：
    * ```ts
    * {
    *   sessionFile?: string;              // 会话文件路径（--no-session 时 undefined）
@@ -243,7 +243,7 @@ export class RpcClient {
    *   toolResults: number;               // 工具结果条数
    *   totalMessages: number;             // 消息总数
    *
-   *   tokens?: {                         // token 统计（整体可选）
+   *   tokens?: {                         // token 统计（整体可选，依 pi 版本）
    *     input?: number;                  //   输入 token 数
    *     output?: number;                 //   输出 token 数
    *     cacheRead?: number;              //   缓存读取 token 数
@@ -253,10 +253,10 @@ export class RpcClient {
    *
    *   cost?: number | { total?: number };// 成本（兼容 number / {total} 两种形式）
    *
-   *   contextUsage?: {                   // 上下文水位（pi >= 0.80）
-   *     used: number;                    //   已用 token
-   *     total: number;                   //   上限 token
-   *     ratio: number;                   //   使用率 0~1
+   *   contextUsage?: {                   // 上下文水位（pi >= 0.80，低版本整体 undefined）
+   *     used: number;                    //   已用 token 数
+   *     total: number;                   //   上限 token 数
+   *     ratio: number;                   //   使用率（0 ~ 1）
    *   };
    * }
    * ```
