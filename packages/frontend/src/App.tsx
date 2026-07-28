@@ -170,6 +170,8 @@ export function App() {
         if (!sid) { useToastStore.getState().add("没有打开的会话", "error"); return; }
         const status = useSessionStore.getState().statusBySession[sid];
         if (status === "thinking") { useToastStore.getState().add("请在 AI 回复完成后再重载", "error"); return; }
+        const msgs = useSessionStore.getState().messagesBySession[sid] ?? [];
+        if (msgs.length === 0) { useToastStore.getState().add("请先发送消息启动会话", "error"); return; }
         const ts = Date.now();
         useSessionStore.getState().setReloading(true);
         // 先显示过渡消息（用固定 timestamp 确保完成后替换而非追加）
