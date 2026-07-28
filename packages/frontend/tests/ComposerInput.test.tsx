@@ -640,7 +640,7 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
     }
   });
 
-  it("选中插件命令（extension）插入 /命令名 到输入框，用户可继续输入参数", () => {
+  it("选中插件命令（extension）插入 /[命令名] chip token 到输入框", () => {
     useCommandsStore.setState({
       commands: [{ name: "goal", description: "设定目标", source: "extension" }],
       loading: false,
@@ -651,13 +651,12 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
     try {
       renderComposer({ text: "/goal", setText });
       fireEvent.click(screen.getByText("goal"));
-      // 不应 dispatch hiagent:pi-command（插件命令直接插入输入框）
+      // 不应 dispatch hiagent:pi-command（插件命令直接插入输入框 chip）
       expect(piHandler).not.toHaveBeenCalled();
-      // setText 被调用，输入框内容包含 /goal 
+      // setText 被调用，输入框内容包含 /[goal] chip token
       expect(setText).toHaveBeenCalled();
       const lastCall = setText.mock.calls.at(-1)?.[0] as string;
-      expect(lastCall).toContain("/goal");
-      expect(lastCall.endsWith(" ")).toBe(true); // 命令后带空格，方便用户输入参数
+      expect(lastCall).toContain("/[goal]");
     } finally {
       window.removeEventListener("hiagent:pi-command", piHandler);
     }
