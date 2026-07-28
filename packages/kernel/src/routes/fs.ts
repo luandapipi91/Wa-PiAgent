@@ -15,6 +15,21 @@ function expandTilde(p: string): string {
   if (p.startsWith("~")) return p.replace(/^~/, homedir());
   return p;
 }
+
+/** 在目录下递归搜索指定文件名（限制深度 5 层），返回第一个匹配的绝对路径 */
+async function findFileByBasename(root: string, name: string): Promise<string | null> {
+  try {
+    const entries = await readdir(root, { recursive: true });
+    // readdir recursive 返回相对路径，按深度排序取最浅匹配
+    const matches = entries
+      .filter(e => basename(e) === name)
+      .sort((a, b) => a.split(/[/\\]/).length - b.split(/[/\\]/).length);
+    if (matches.length === 1) return join(root, matches[0]);
+  } catch {
+    // 目录不可读则跳过
+  }
+  return null;
+}
 import type { DirEntry } from "@hiagent/shared";
 import { getMimeType } from "../ws-server";
 
@@ -56,7 +71,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
           let isDir = d.isDirectory();
           if (d.isSymbolicLink()) {
             try {
-              const s = await stat(join(path, d.name));
+              const s = await stat(join(expandTilde(path), d.name));
               isDir = s.isDirectory();
             } catch {
               isDir = false;
@@ -71,18 +86,42 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
     }
   });
 
-  // POST /api/fs/read-file：读取文件为 base64
+  // POST /api/fs/read-file：读取文件为 base64。ENOENT 时按 basename 递归搜索回退。
   r.add("POST", "/api/fs/read-file", async (req) => {
     const b = await readJsonBody(req);
     const { path } = b;
     if (typeof path !== "string") return Response.json({ error: "缺少 path" }, { status: 400 });
     try {
-      const buffer = await readFile(expandTilde(path));
+      const absPath = expandTilde(path);
+      const buffer = await readFile(absPath);
       const content = buffer.toString("base64");
       const mimeType = getMimeType(path);
       return Response.json({ type: "fs:readFile", path, content, mimeType });
     } catch (e) {
-      return Response.json({ type: "fs:error", path, reason: String(e instanceof Error ? e.message : e) });
+      const reason = String(e instanceof Error ? e.message : e);
+      // ENOENT 回退：在路径的最近存在祖先目录下递归搜索同名文件
+      if (reason.includes("ENOENT")) {
+        const resolved = expandTilde(path);
+        const name = basename(resolved);
+        let searchRoot = dirname(resolved);
+        while (searchRoot && !existsSync(searchRoot)) {
+          const parent = dirname(searchRoot);
+          if (parent === searchRoot) { searchRoot = ""; break; }
+          searchRoot = parent;
+        }
+        if (searchRoot && name) {
+          try {
+            const found = await findFileByBasename(searchRoot, name);
+            if (found) {
+              const buffer = await readFile(found);
+              const content = buffer.toString("base64");
+              const mimeType = getMimeType(found);
+              return Response.json({ type: "fs:readFile", path, content, mimeType, resolvedPath: found });
+            }
+          } catch { /* 搜索失败，回退到原始错误 */ }
+        }
+      }
+      return Response.json({ type: "fs:error", path, reason });
     }
   });
 
@@ -95,7 +134,8 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
     }
     try {
       const cwd = await resolveCwdForFsRequest(ctx.projectStore, projectId, sessionId);
-      const sourceStat = await stat(source);
+      const expandedSource = expandTilde(source);
+      const sourceStat = await stat(expandedSource);
       const isDir = sourceStat.isDirectory();
       if (isDir) {
         return Response.json({ type: "fs:copy", path: source });
@@ -104,25 +144,43 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
       await mkdir(uploadDir, { recursive: true });
       const name = basename(source);
       const destPath = await uniquePath(uploadDir, name);
-      await copyFile(source, destPath);
+      await copyFile(expandedSource, destPath);
       return Response.json({ type: "fs:copy", path: destPath });
     } catch (e) {
       return Response.json({ type: "fs:copy", path: "", error: String(e instanceof Error ? e.message : e) });
     }
   });
 
-  // POST /api/fs/reveal-file：在系统文件管理器中打开文件所在目录
+  // POST /api/fs/reveal-file：在系统文件管理器中打开文件所在目录。
+  // 文件不存在时按 basename 递归搜索回退（与 read-file 一致）。
   r.add("POST", "/api/fs/reveal-file", async (req) => {
     const b = await readJsonBody(req);
     const { path } = b;
     if (typeof path !== "string") return Response.json({ error: "缺少 path" }, { status: 400 });
     try {
-      const absPath = expandTilde(path);
-      const dir = existsSync(absPath) ? dirname(absPath) : dirname(path);
+      let absPath = expandTilde(path);
+      if (!existsSync(absPath)) {
+        // ENOENT 回退：在最近存在祖先目录下递归搜索同名文件
+        const name = basename(absPath);
+        let searchRoot = dirname(absPath);
+        while (searchRoot && !existsSync(searchRoot)) {
+          const parent = dirname(searchRoot);
+          if (parent === searchRoot) { searchRoot = ""; break; }
+          searchRoot = parent;
+        }
+        if (searchRoot && name) {
+          const found = await findFileByBasename(searchRoot, name);
+          if (found) absPath = found;
+        }
+      }
+      if (!existsSync(absPath)) {
+        return Response.json({ type: "fs:error", path, reason: `ENOENT: 文件不存在且搜索无结果: ${absPath}` });
+      }
+      const dir = dirname(absPath);
       const openCmd = process.platform === "darwin" ? "open"
         : process.platform === "win32" ? "start" : "xdg-open";
       spawn(openCmd, [dir], { shell: true, stdio: "ignore" });
-      return Response.json({ type: "fs:reveal-file", path });
+      return Response.json({ type: "fs:reveal-file", path, resolvedPath: absPath });
     } catch (e) {
       return Response.json({ type: "fs:error", path, reason: String(e instanceof Error ? e.message : e) });
     }

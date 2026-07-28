@@ -39,10 +39,10 @@ export async function listDir(path: string, showHidden?: boolean): Promise<DirEn
   return res.entries ?? [];
 }
 
-export async function readFile(path: string): Promise<{ content: string; mimeType?: string }> {
-  const res = (await transport.post("/api/fs/read-file", { path })) as { content: string; mimeType?: string; reason?: string };
+export async function readFile(path: string): Promise<{ content: string; mimeType?: string; resolvedPath?: string }> {
+  const res = (await transport.post("/api/fs/read-file", { path })) as { content: string; mimeType?: string; resolvedPath?: string; reason?: string };
   if (!res.content) throw new Error(res.reason ?? "读取失败");
-  return { content: res.content, mimeType: res.mimeType };
+  return { content: res.content, mimeType: res.mimeType, resolvedPath: res.resolvedPath };
 }
 
 /** 在系统文件管理器中打开文件所在目录 */
