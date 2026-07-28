@@ -18,7 +18,7 @@ export function McpToolsModal({ serverName, tools, loading, onClose }: Props) {
   );
 
   return (
-    <Modal onClose={onClose} width={600} data-testid="mcp-tools-modal">
+    <Modal onClose={onClose} width="60vw" height="80vh" data-testid="mcp-tools-modal">
       <div className="p-4 border-b border-hairline flex items-center justify-between">
         <span className="text-primary font-bold text-sm">🔧 {serverName} 工具列表</span>
         <button onClick={onClose} className="text-tertiary text-xs">✕</button>
@@ -33,7 +33,7 @@ export function McpToolsModal({ serverName, tools, loading, onClose }: Props) {
           data-testid="mcp-tools-search"
         />
       </div>
-      <div className="flex-1 overflow-y-auto p-4" style={{ maxHeight: "50vh" }}>
+      <div className="flex-1 overflow-y-auto p-4">
         {loading && tools.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-8" data-testid="mcp-tools-loading">
             <span

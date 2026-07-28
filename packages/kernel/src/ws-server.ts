@@ -1,5 +1,5 @@
 import type {
-  WSClientEvent, WSServerEvent, AgentName, McpServerStatus,
+  WSClientEvent, WSServerEvent, AgentName, McpServerStatus, McpToolSummary,
 } from "@hiagent/shared";
 import { WS_PORT, SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD, resolveSessionCwd, HIAGENT_DIR } from "@hiagent/shared";
 import type { DirEntry } from "@hiagent/shared";
@@ -448,6 +448,15 @@ export class WSServer {
           // 重建后 broadcast 更新列表（重建可能改变 session 的 piSessionFile 等）
           const data = await this.opts.projectStore.load();
           this.broadcast({ type: "projects:list", projects: data.projects, sessions: data.sessions });
+        } catch (err) {
+          reply({ type: "error", message: err instanceof Error ? err.message : String(err), sessionId: event.sessionId });
+        }
+        break;
+      }
+      case "session:commands": {
+        try {
+          const commands = await this.opts.agentManager.getCommands(event.sessionId);
+          reply({ type: "session:commands", sessionId: event.sessionId, commands });
         } catch (err) {
           reply({ type: "error", message: err instanceof Error ? err.message : String(err), sessionId: event.sessionId });
         }
@@ -1167,43 +1176,72 @@ export class WSServer {
         break;
       }
       case "mcp:test": {
+        // mcp:testResult 只走 SSE 广播（不 reply）：前端用 fire-and-forget 丢弃 HTTP 响应体，
+        // 仅靠 SSE 事件翻转 testingServers。reply 会被 callApi 当作 HTTP 响应体返回，前端读不到。
+        const emitTestResult = (payload: { success: boolean; status: McpServerStatus; toolCount?: number; error?: string }) => {
+          this.broadcast({
+            type: "mcp:testResult",
+            serverName: event.serverName,
+            success: payload.success,
+            status: payload.status,
+            toolCount: payload.toolCount,
+            error: payload.error,
+          });
+        };
         try {
           const config = await this.opts.mcpStore.getServer(event.serverName, event.projectId);
           const cwd = await this.resolveProjectCwd(event.projectId);
           const outcome = await testConnection(config, cwd);
-          reply({
-            type: "mcp:testResult",
-            serverName: event.serverName,
+          emitTestResult({
             success: outcome.status === "connected",
             status: outcome.status,
             toolCount: outcome.toolCount,
             error: outcome.error,
           });
         } catch (err) {
-          reply({ type: "mcp:testResult", serverName: event.serverName, success: false, status: "error", error: (err as Error).message });
+          emitTestResult({ success: false, status: "error", error: (err as Error).message });
         }
         break;
       }
       case "mcp:listTools": {
+        // 与 mcp:test 同理：mcp:tools 只走 SSE 广播，不 reply。
+        // 前端 listTools 用 fire-and-forget 丢弃 HTTP 响应体，仅靠 SSE 事件填充 toolsCache。
+        const emitToolsResult = (tools: McpToolSummary[] | { error: string }) => {
+          this.broadcast({
+            type: "mcp:tools",
+            serverName: event.serverName,
+            ...(Array.isArray(tools) ? { tools } : tools),
+          });
+        };
         try {
           const config = await this.opts.mcpStore.getServer(event.serverName, event.projectId);
           const cwd = await this.resolveProjectCwd(event.projectId);
           const tools = await listTools(config, cwd);
-          reply({ type: "mcp:tools", serverName: event.serverName, tools });
+          emitToolsResult(tools);
         } catch (err) {
-          reply({ type: "error", message: (err as Error).message });
+          emitToolsResult({ error: (err as Error).message });
         }
         break;
       }
       case "mcp:clearAuth": {
+        // 与 mcp:test 同理：只走 SSE 广播，不 reply。
+        const emitClearAuthResult = (payload: { success: boolean; status: McpServerStatus; error?: string }) => {
+          this.broadcast({
+            type: "mcp:testResult",
+            serverName: event.serverName,
+            success: payload.success,
+            status: payload.status,
+            error: payload.error,
+          });
+        };
         try {
           await clearAuth(event.serverName);
           // 清除授权后：OAuth 服务器回到 needs_auth（可重新授权）；其它回到 disconnected
           const config = await this.opts.mcpStore.getServer(event.serverName, event.projectId).catch(() => null);
           const status: McpServerStatus = config?.auth === "oauth" ? "needs_auth" : "disconnected";
-          reply({ type: "mcp:testResult", serverName: event.serverName, success: true, status });
+          emitClearAuthResult({ success: true, status });
         } catch (err) {
-          reply({ type: "mcp:testResult", serverName: event.serverName, success: false, status: "error", error: (err as Error).message });
+          emitClearAuthResult({ success: false, status: "error", error: (err as Error).message });
         }
         break;
       }

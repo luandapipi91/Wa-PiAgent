@@ -6,6 +6,19 @@
 
 ## 2026-07-28
 
+### 修复
+
+- **MCP 连接器所有服务永久卡在"测试中" + 工具列表永久"加载中"**
+  - 根因：`mcp:test` / `mcp:clearAuth` / `mcp:listTools` 的结果事件（`mcp:testResult` / `mcp:tools`）被 `callApi` 当作 HTTP 响应体返回（`d78a538` 错误地给前两者加了 `responseTypes`，反而让事件被保留为响应体；`mcp:listTools` 则从未配置）；而前端 `testConnection`/`testAllServers`/`clearAuth`/`listTools` 全用 `void api.post/get` 丢弃 HTTP 响应体，仅靠 SSE 事件翻转状态——两头落空导致 `testingServers`/`loadingTools` 永不清理
+  - 修复：在 `ws-server.ts` 的三个 handler（`mcp:test` / `mcp:listTools` / `mcp:clearAuth`）里显式 `this.broadcast(result)`（不再 `reply`），让结果事件必走 SSE 总线；删除 `routes/mcp.ts` 里冗余且语义错误的 `responseTypes`
+  - 影响范围：`packages/kernel/src/ws-server.ts`、`packages/kernel/src/routes/mcp.ts`
+
+### 优化
+
+- **MCP 工具列表弹窗尺寸改为宽 60% / 高 80% 视口**
+  - 原 `width:600px` + `maxHeight:50vh` 在工具较多时偏小，改为 `60vw` / `80vh` 并让列表 flex 撑满
+  - 影响范围：`packages/frontend/src/components/mcp/McpToolsModal.tsx`
+
 ### 其他
 
 - **评测脚本冒烟**
