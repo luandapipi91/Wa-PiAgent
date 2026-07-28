@@ -1196,7 +1196,56 @@ test("getCommands 无活跃进程时触发冷启动守卫", async () => {
   expect(fakes[0].started).toBe(true);
 });
 
-test("getCommands 会话不存在时抛错", async () => {
+test("getCommands 会话不存在时返回空数组（未提供 projectId/agentName）", async () => {
   const { am } = await setup();
-  await expect(am.getCommands("不存在的session")).rejects.toThrow(/会话不存在/);
+  // 无 projectId/agentName 时无法自动创建 session，返回空数组
+  const commands = await am.getCommands("不存在的session");
+  expect(commands).toEqual([]);
+});
+
+test("getCommands 会话不存在时自动创建 session 并返回命令", async () => {
+  // 自定义工厂：让新创建的 fake client 预设 commandsToReturn
+  const fakes2: FakeSessionClient[] = [];
+  const customFactory = (opts: RpcClientOpts) => {
+    const fake = new FakeSessionClient(opts);
+    fake.commandsToReturn = [
+      { name: "goal", description: "设定目标", source: "extension" },
+    ];
+    fakes2.push(fake);
+    return fake as unknown as RpcClient;
+  };
+
+  const { am, project } = await setup({ createClientFn: customFactory });
+
+  // session 不存在但有 projectId+agentName → 自动创建 + 启动 pi 进程 + 返回命令
+  const commands = await am.getCommands("new-session-id", project.id, "dev");
+
+  expect(commands).toHaveLength(1);
+  expect(commands[0].name).toBe("goal");
+
+  // session 已被创建并存到 ProjectStore
+  const { sessions } = await (am as any).opts.projectStore.load();
+  expect(sessions.find((s: any) => s.id === "new-session-id")).toBeTruthy();
+});
+
+// ─── 扩展命令拦截 prompt 时不卡在 thinking 状态 ─────────────────────────────
+// 当扩展命令（如 /goal）拦截 prompt 时，agent_start 不会触发，
+// _sendPromptNow 的乐观 busy=true 必须能复位，否则前端永远显示"思考中"。
+test("扩展命令拦截 prompt 时不卡在 busy 状态", async () => {
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  // 模拟扩展命令拦截：prompt 返回成功但 agent_start 不触发
+  fakes[0].autoSettle = false;
+
+  await am.prompt(session.id, "/goal", { model: MODEL });
+
+  // prompt 返回后乐观 busy=true，等待 _sendPromptNow 内延迟检查复位
+  await new Promise(r => setTimeout(r, 60));
+
+  // session 不应 busy（扩展命令已处理完毕，agent 未启动）
+  expect(am.isSessionBusy(session.id)).toBe(false);
+
+  // thinkingSince 也应为 null（没有 agent_start）
+  expect(am.getThinkingSince(session.id)).toBeNull();
 });

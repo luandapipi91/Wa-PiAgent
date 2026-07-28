@@ -455,7 +455,11 @@ export class WSServer {
       }
       case "session:commands": {
         try {
-          const commands = await this.opts.agentManager.getCommands(event.sessionId);
+          const commands = await this.opts.agentManager.getCommands(
+            event.sessionId,
+            (event as any).projectId,
+            (event as any).agentName,
+          );
           reply({ type: "session:commands", sessionId: event.sessionId, commands });
         } catch (err) {
           reply({ type: "error", message: err instanceof Error ? err.message : String(err), sessionId: event.sessionId });
@@ -547,8 +551,8 @@ export class WSServer {
           });
           if (isNew) {
             this.broadcast({ type: "session:created", session });
-            reply({ type: "session:echo_user", sessionId: session.id, text: event.text, agentName: event.agentName });
           }
+          reply({ type: "session:echo_user", sessionId: session.id, text: event.text, agentName: event.agentName });
           await this.opts.projectStore.touchSession(session.id);
           try {
             await this.opts.agentManager.ensureStarted(event.projectId, event.agentName, session.id);

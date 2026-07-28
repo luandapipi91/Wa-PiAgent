@@ -201,6 +201,7 @@ export class AgentManager {
    */
   markAllDirty(): void {
     for (const id of this.sessions.keys()) this.dirty.add(id);
+    this._commandsCache = null;
   }
 
   /**
@@ -209,6 +210,7 @@ export class AgentManager {
    */
   markSkillsDirty(): void {
     for (const id of this.sessions.keys()) this.skillDirty.add(id);
+    this._commandsCache = null;
   }
 
   /** agent 重命名联动：更新活跃会话 meta，标 skillDirty 使下次 ensureStarted 重建 */
@@ -715,6 +717,15 @@ export class AgentManager {
       handle.thinkingSince = null;
       throw err;
     }
+    // 扩展命令（如 /goal）拦截 prompt 后 agent_start 不会触发，
+    // 乐观设置的 busy=true 必须复位，否则前端永远显示"思考中"。
+    // 正常 prompt 场景 agent_start 在 ms 级内触发并设置 thinkingSince，
+    // 此处的延迟检查只在 thinkingSince 仍为 null 时复位 busy。
+    setTimeout(() => {
+      if (handle.busy && handle.thinkingSince === null) {
+        handle.busy = false;
+      }
+    }, 50);
   }
 
   /** 推送本地队列快照给前端（补充 pi queue_update 缺失的 followUpList） */
@@ -921,20 +932,80 @@ export class AgentManager {
   /**
    * 拉取当前会话可用的 slash 命令清单（来自 pi 运行时 get_commands）。
    * 冷启动守卫同 reloadSession：无活跃进程时先 ensureStarted。
+   *
+   * 新会话页面场景：session 尚未在后端创建。此时不创建新 session（避免孤儿进程），
+   * 而是借用同 agent 已有活跃 session 的 pi 进程获取命令，结果缓存 5 分钟。
+   * 若同 agent 无任何活跃进程，返回空数组——用户发送第一条消息后 session 被创建，
+   * 下次 / 菜单即会显示插件命令。
    */
-  async getCommands(sessionId: string): Promise<CommandInfo[]> {
-    const handle = this.sessions.get(sessionId);
-    if (!handle) {
-      const { sessions } = await this.opts.projectStore.load();
-      const se = sessions.find(s => s.id === sessionId);
-      if (!se) throw new Error(`会话不存在: ${sessionId}`);
-      await this.ensureStarted(se.projectId, se.primaryAgent, sessionId);
+  async getCommands(
+    sessionId: string,
+    projectId?: string,
+    agentName?: string,
+  ): Promise<CommandInfo[]> {
+    // 1. 查全局缓存（5min TTL，插件命令对所有 agent 一致）
+    const cached = this._commandsCache;
+    if (cached && Date.now() - cached.ts < 5 * 60_000) {
+      return cached.commands;
     }
-    const h = this.sessions.get(sessionId);
-    if (!h) throw new Error(`会话启动失败: ${sessionId}`);
-    const { commands } = await h.client.getCommands();
-    return (commands ?? []) as CommandInfo[];
+
+    // 2. 当前 session 已有活跃进程 → 直接取
+    const handle = this.sessions.get(sessionId);
+    if (handle?.client.isAlive()) {
+      const { commands } = await handle.client.getCommands();
+      const cmds = (commands ?? []) as CommandInfo[];
+      this._commandsCache = { commands: cmds, ts: Date.now() };
+      return cmds;
+    }
+
+    // 3. 当前 session 存在但进程未启动 → ensureStarted 后取
+    const { sessions } = await this.opts.projectStore.load();
+    const se = sessions.find(s => s.id === sessionId);
+    if (se) {
+      await this.ensureStarted(se.projectId, se.primaryAgent, sessionId);
+      const h = this.sessions.get(sessionId);
+      if (h?.client.isAlive()) {
+        const { commands } = await h.client.getCommands();
+        const cmds = (commands ?? []) as CommandInfo[];
+        this._commandsCache = { commands: cmds, ts: Date.now() };
+        return cmds;
+      }
+      return [];
+    }
+
+    // 4. session 不存在（新会话页面）：借用任意活跃进程
+    for (const [_, h] of this.sessions) {
+      if (h.client.isAlive()) {
+        const { commands } = await h.client.getCommands();
+        const cmds = (commands ?? []) as CommandInfo[];
+        this._commandsCache = { commands: cmds, ts: Date.now() };
+        return cmds;
+      }
+    }
+
+    // 5. 无进程可借但有 projectId+agentName：创建 session + 启动 pi 进程
+    if (projectId && agentName) {
+      await this.opts.projectStore.createSession({
+        projectId,
+        primaryAgent: agentName as AgentName,
+        id: sessionId,
+        title: agentName,
+      });
+      await this.ensureStarted(projectId, agentName as AgentName, sessionId);
+      const h = this.sessions.get(sessionId);
+      if (h?.client.isAlive()) {
+        const { commands } = await h.client.getCommands();
+        const cmds = (commands ?? []) as CommandInfo[];
+        this._commandsCache = { commands: cmds, ts: Date.now() };
+        return cmds;
+      }
+    }
+
+    return [];
   }
+
+  /** 命令缓存（全局，插件命令对所有 agent 一致，5min TTL） */
+  private _commandsCache: { commands: CommandInfo[]; ts: number } | null = null;
 
   /** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */
   async disposeSession(sessionId: string): Promise<void> {

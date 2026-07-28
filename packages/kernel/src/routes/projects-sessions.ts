@@ -35,6 +35,13 @@ export const registerProjectSessionRoutes: RouteRegistrar = (r, callApi, ctx) =>
   });
   r.add("POST", "/api/sessions/:sessionId/reload", async (_req, p) =>
     callApi({ type: "session:reload", sessionId: p.sessionId }));
-  r.add("GET", "/api/sessions/:sessionId/commands", async (_req, p) =>
-    callApi({ type: "session:commands", sessionId: p.sessionId }));
+  r.add("GET", "/api/sessions/:sessionId/commands", async (req, p) => {
+    const url = new URL(req.url);
+    return callApi({
+      type: "session:commands",
+      sessionId: p.sessionId,
+      projectId: url.searchParams.get("projectId") || undefined,
+      agentName: url.searchParams.get("agentName") || undefined,
+    });
+  });
 };

@@ -13,6 +13,7 @@ import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 
 export interface RpcEvent {
@@ -387,8 +388,12 @@ export function resolvePiCliPath(req: NodeRequire = createRequire(import.meta.ur
 export function resolvePiRuntime(): string {
   if (process.env.HIAGENT_PI_RUNTIME) return process.env.HIAGENT_PI_RUNTIME;
   const which = (globalThis as any).Bun?.which;
-  const bunPath = typeof which === "function" ? which("bun") : null;
-  return bunPath ?? process.execPath;
+  if (typeof which === "function") {
+    const bunPath = which("bun");
+    // Bun.which 可能返回缓存路径但文件已不存在，加 existsSync 兜底
+    if (bunPath && existsSync(bunPath)) return bunPath;
+  }
+  return process.execPath;
 }
 
 export interface PiLaunchSpec {

@@ -4,9 +4,32 @@
 
 ---
 
+## 2026-07-28（晚）
+
+### 修复
+
+- **委托提示词 v13 定稿（flash + 思考关闭全量评测 60/60 通过）**：针对 deepseek-v4-flash 无思考模式下的派发触发率，用 60 用例（explore 30 / edit 10 / simple 20）实测迭代 8 版：v3 基线 explore 仅 50%，v13 达 explore 30/30、simple 0 误派、0 错误。核心改动：(1) delegate-mechanism 段改中文正文 + 中文 few-shot 示例（1948→813 字符，-58%）；(2) 派发契约下沉到 delegate 工具描述（工具选择点生效），并修正旧描述「1-2 file reads yourself」与「单文件枚举也派」的规则冲突（~1050→341 字符）；(3) 单事实边界改为「单点定义、答案一行能念完」，明确「逐条列出/解释多个条目即使同文件也派」。提示词总量约 -62%。PROMPTS_SCHEMA_VERSION 10→20 推送迁移。方法论参考 DeepSeek-Reasonix（契约写在工具描述里）。
+  - 影响范围：packages/kernel/src/system-prompt.ts, packages/shared/src/tool-schemas.ts, packages/kernel/tests/system-prompt.test.ts, packages/kernel/tests/agent-manager.test.ts
+
+- **派发评测脚本加固 + 隔离**：(1) 每用例前重新生成 .generated 扩展文件（外部 HiAgent 实例会并发清理该目录，曾致用例 pi 启动失败）；(2) pi 进程启动即退出的用例自动重试一次；(3) 评测改在 .worktrees/eval-delegate 隔离 worktree 中运行——edit 用例不再污染主工作区（此前还原评测杂物时误伤过用户并行开发的未提交代码）。
+  - 影响范围：packages/kernel/scripts/eval-delegate-trigger.ts
+
+---
+
 ## 2026-07-28
 
 ### 修复
+
+- **新建会话页面 `/` 菜单不显示动态插件命令（如 `/goal`）**
+  - 根因：新会话页面 `sessionId` 是前端随机生成的 UUID，后端 ProjectStore 中尚无记录；且插件命令来自 pi 进程的扩展注册，必须启动 pi 进程才能获取，但没有 session 就无法启动 pi 进程
+  - 修复：`getCommands` 接受可选 `projectId`/`agentName` 参数，新会话场景下自动创建 session + 启动 pi 进程来获取命令；同时 `agent:prompt` 的 `session:echo_user` 移到 `if (isNew)` 外部确保每次 prompt 都回显用户消息，前端 handler 通过 `optimisticEchoBySession` 标志去重避免已有会话重复
+  - 影响范围：`packages/kernel/src/agent-manager.ts`、`ws-server.ts`、`routes/projects-sessions.ts`、`packages/shared/src/commands.ts`、`packages/frontend/src/store/commands.ts`、`App.tsx`、`components/ui/ComposerInput.tsx`
+
+- **`/goal` 等插件命令执行后界面永久显示"思考中"**
+  - 根因：扩展命令拦截 prompt（如 `/goal`）后 `agent_start` 不触发，但 `_sendPromptNow` 乐观设置 `busy=true` 后永不复位，前端始终显示 thinking 状态
+  - 修复：`_sendPromptNow` 在 `client.prompt()` 返回后启动 50ms 延迟检查——若 `thinkingSince` 仍为 null（`agent_start` 未触发），自动复位 `busy=false`
+  - 正常 prompt 场景 `agent_start` 在 ms 级内触发并设置 `thinkingSince`，50ms 后检查到非 null 不会误复位
+  - 影响范围：`packages/kernel/src/agent-manager.ts`
 
 - **扩展安装/升级/卸载永久卡在"安装中"**
   - 根因：与 MCP 连接器同构 bug——`extension:install` / `extension:upgrade` / `extension:uninstall` 的终态事件（`extension:install:done` / `extension:error`）被 `callApi` 当作 HTTP 响应体返回（`routes/extensions.ts` 错误地配了 `responseTypes`），前端 `installPackage` 等用 `void api.post` 丢弃响应体仅靠 SSE 事件翻转状态，两头落空导致 `installs` 占位卡永不清理

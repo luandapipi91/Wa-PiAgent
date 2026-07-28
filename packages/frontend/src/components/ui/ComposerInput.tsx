@@ -65,9 +65,10 @@ export function ComposerInput({
   const piCommands = useCommandsStore(s => s.commands);
 
   // sessionId 变化时拉取该会话可用的 pi 命令（extensionRunner 是 per-session 的）
+  // 新会话页面传入 projectId/currentAgentName 让后端自动创建 session + 启动 pi 进程
   useEffect(() => {
-    if (sessionId) useCommandsStore.getState().load(sessionId);
-  }, [sessionId]);
+    if (sessionId) useCommandsStore.getState().load(sessionId, projectId || undefined, currentAgentName || undefined);
+  }, [sessionId, projectId, currentAgentName]);
 
   // 检测当前 text 的触发状态
   const trigger: TriggerResult | null = useMemo(() => detectTrigger(text), [text]);
@@ -181,25 +182,25 @@ export function ComposerInput({
     // 以及在 GUI 下无意义或有破坏性的(quit 会让 pi 进程退出)。
     // 注：pi 升级新增内置命令时需同步此表（频率极低）。
     const PI_FRAMEWORK_COMMANDS: { name: string; description: string }[] = [
-      { name: "model", description: "选择模型" },
-      { name: "scoped-models", description: "启用/禁用 Ctrl+P 模型循环" },
-      { name: "export", description: "导出会话（HTML/JSONL）" },
-      { name: "import", description: "从 JSONL 导入并恢复会话" },
-      { name: "share", description: "以 GitHub gist 分享会话" },
-      { name: "copy", description: "复制最近一条 AI 消息到剪贴板" },
-      { name: "name", description: "设置会话显示名" },
-      { name: "session", description: "查看会话信息与统计" },
-      { name: "changelog", description: "查看更新日志" },
-      { name: "hotkeys", description: "查看所有快捷键" },
-      { name: "fork", description: "从历史消息创建分支" },
-      { name: "clone", description: "在当前位置复制会话" },
-      { name: "tree", description: "导航会话树（切换分支）" },
-      { name: "trust", description: "保存项目信任决策" },
-      { name: "login", description: "配置 provider 认证" },
-      { name: "logout", description: "移除 provider 认证" },
-      { name: "new", description: "开始新会话" },
-      { name: "compact", description: "手动压缩会话上下文" },
-      { name: "resume", description: "恢复其他会话" },
+      // { name: "model", description: "选择模型" },
+      // { name: "scoped-models", description: "启用/禁用 Ctrl+P 模型循环" },
+      // { name: "export", description: "导出会话（HTML/JSONL）" },
+      // { name: "import", description: "从 JSONL 导入并恢复会话" },
+      // { name: "share", description: "以 GitHub gist 分享会话" },
+      // { name: "copy", description: "复制最近一条 AI 消息到剪贴板" },
+      // { name: "name", description: "设置会话显示名" },
+      // { name: "session", description: "查看会话信息与统计" },
+      // { name: "changelog", description: "查看更新日志" },
+      // { name: "hotkeys", description: "查看所有快捷键" },
+      // { name: "fork", description: "从历史消息创建分支" },
+      // { name: "clone", description: "在当前位置复制会话" },
+      // { name: "tree", description: "导航会话树（切换分支）" },
+      // { name: "trust", description: "保存项目信任决策" },
+      // { name: "login", description: "配置 provider 认证" },
+      // { name: "logout", description: "移除 provider 认证" },
+      // { name: "new", description: "开始新会话" },
+      // { name: "compact", description: "手动压缩会话上下文" },
+      // { name: "resume", description: "恢复其他会话" },
     ];
     const frameworkItems: MenuItem[] = PI_FRAMEWORK_COMMANDS.map(c => ({
       id: `pi:${c.name}`, name: c.name, description: c.description,

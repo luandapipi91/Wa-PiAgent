@@ -16,6 +16,7 @@ import { useSessionStore } from "./store/session";
 import { useAgentsStore } from "./store/agents";
 import { useSkillsStore } from "./store/skills";
 import { useExtensionsStore } from "./store/extensions";
+import { useCommandsStore } from "./store/commands";
 import { useMcpStore } from "./store/mcp";
 import { useMemoryStore } from "./store/memory";
 import { useToastStore } from "./store/toast";
@@ -66,9 +67,15 @@ export function App() {
       switch (e.type) {
         case "projects:list": ps.setAll(e.projects, e.sessions); break;
         case "project:created": ps.addProject(e.project); break;
-        case "session:created": ps.addSession(e.session); useComposerPrefsStore.getState().clearNewSessionId(e.session.projectId); break;
-        // kernel 在新 session 创建后立即回传用户消息，不等 SDK 回声（ensureStarted 慢）
-        case "session:echo_user": useSessionStore.getState().optimisticSend(e.sessionId, e.text, e.agentName); break;
+        case "session:created": ps.addSession(e.session); useComposerPrefsStore.getState().clearNewSessionId(e.session.projectId); useCommandsStore.getState().load(e.session.id); break;
+        // kernel 每次 prompt 都回传用户消息；前端若已通过 Composer.doSend 乐观置入则跳过
+        case "session:echo_user": {
+          const s = useSessionStore.getState();
+          if (!s.optimisticEchoBySession[e.sessionId]) {
+            s.optimisticSend(e.sessionId, e.text, e.agentName);
+          }
+          break;
+        }
         // sdk:event：所有 SDK 流式事件统一走 store.handleSDKEvent 分发
         // （message_start/update/end、agent_start/end 等由 store 管理两态）
         case "sdk:event": useSessionStore.getState().handleSDKEvent(e.sessionId, e); break;
