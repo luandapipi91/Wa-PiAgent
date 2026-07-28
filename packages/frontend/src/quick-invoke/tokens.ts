@@ -1,7 +1,8 @@
 // chip token 序列化/反序列化纯函数
-// token 格式：智能体 @[名称]，文件 #[相对路径]，技能 $[技能名]
+// token 格式：智能体 @[名称]，文件 #[相对路径]，技能 $[技能名]，命令 /[命令名]
 // 发送时展开：#[path] -> #path，$[name] -> /skill:name（SDK _expandSkillCommand 识别）
 // @[名称] 不在 expandTokens 处理——原样保留给主智能体识别（由 systemPrompt 规则触发 delegate）
+// /[名称] 不在 expandTokens 处理——原样保留为 /名称 发送给 pi 解析执行
 
 /** 智能体 token 正则：匹配 @[非]字符的名称] */
 export const AGENT_TOKEN_RE = /@\[([^\]]+)\]/g;
@@ -9,13 +10,16 @@ export const AGENT_TOKEN_RE = /@\[([^\]]+)\]/g;
 export const FILE_TOKEN_RE = /#\[([^\]]+)\]/g;
 /** 技能 token 正则：匹配 $[名称] 或 ¥[名称] */
 export const SKILL_TOKEN_RE = /[$¥]\[([^\]]+)\]/g;
+/** 命令 token 正则：匹配 /[命令名] */
+export const COMMAND_TOKEN_RE = /\/\[([^\]]+)\]/g;
 
 /** segment 类型 */
 export type Segment =
   | { type: "text"; value: string }
   | { type: "agent"; value: string }
   | { type: "file"; value: string }
-  | { type: "skill"; value: string };
+  | { type: "skill"; value: string }
+  | { type: "command"; value: string };
 
 /**
  * 发送时把 chip token 展开为纯文本引用标记。
@@ -30,7 +34,8 @@ export type Segment =
 export function expandTokens(text: string): string {
   return text
     .replace(FILE_TOKEN_RE, "#$1")
-    .replace(SKILL_TOKEN_RE, "/skill:$1 "); // 末尾空格：SDK _expandSkillCommand 用空格分隔技能名和参数
+    .replace(SKILL_TOKEN_RE, "/skill:$1 ") // 末尾空格：SDK _expandSkillCommand 用空格分隔技能名和参数
+    .replace(COMMAND_TOKEN_RE, "/$1 ");  // 命令 chip 展开为 /命令名 ，pi 识别为斜杠命令
 }
 
 // 智能体名称 -> 头像/颜色/显示名 全局注册表，供 textToHtml 渲染 chip 时使用。
@@ -94,6 +99,11 @@ export function ensureChipStyles() {
       color: #5B5BD6;
       border: 1px solid #5B5BD640;
     }
+    .chip-command {
+      background-color: #F59E0B20;
+      color: #D97706;
+      border: 1px solid #F59E0B40;
+    }
     [contenteditable][data-placeholder]:empty::before {
       content: attr(data-placeholder);
       color: var(--text-tertiary, #A1A1A6);
@@ -121,7 +131,7 @@ export function escapeHtml(str: string): string {
  * 也插入结果数组，破坏 segment 划分。
  */
 export function textToSegments(text: string): Segment[] {
-  const combined = /(@\[[^\]]+\]|#\[[^\]]+\]|[$¥]\[[^\]]+\])/g;
+  const combined = /(@\[[^\]]+\]|#\[[^\]]+\]|[$¥]\[[^\]]+\]|\/\[[^\]]+\])/g;
   const parts = text.split(combined).filter(p => p !== "");
   const segs: Segment[] = [];
   for (const part of parts) {
@@ -140,6 +150,11 @@ export function textToSegments(text: string): Segment[] {
       segs.push({ type: "skill", value: skillMatch[1] });
       continue;
     }
+    const commandMatch = part.match(/^\/\[([^\]]+)\]$/);
+    if (commandMatch) {
+      segs.push({ type: "command", value: commandMatch[1] });
+      continue;
+    }
     segs.push({ type: "text", value: part });
   }
   return segs;
@@ -151,6 +166,7 @@ export function segmentsToText(segs: Segment[]): string {
     if (s.type === "agent") return `@[${s.value}]`;
     if (s.type === "file") return `#[${s.value}]`;
     if (s.type === "skill") return `$[${s.value}]`;
+    if (s.type === "command") return `/[${s.value}]`;
     return s.value;
   }).join("");
 }
@@ -199,6 +215,10 @@ export function textToHtml(text: string, opts?: { hideTrigger?: boolean }): stri
       const token = `$[${s.value}]`;
       // 用 ⚡ 图标替代触发符 $（输入框和历史回显都显示 ⚡，更直观）
       return `<span class="chip chip-skill" contenteditable="false" data-token="${escapeHtml(token)}">⚡ ${escapeHtml(s.value)}</span>`;
+    }
+    if (s.type === "command") {
+      const token = `/[${s.value}]`;
+      return `<span class="chip chip-command" contenteditable="false" data-token="${escapeHtml(token)}">/${escapeHtml(s.value)}</span>`;
     }
     // 先 escapeHtml 防注入，再把换行转为 <br>（在转义之后做，
     // 这样 <br> 的尖括号是我们生成的、不会被二次转义）。

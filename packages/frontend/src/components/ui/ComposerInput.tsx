@@ -344,14 +344,14 @@ export function ComposerInput({
     // pi 命令（如 /compact /goal）
     if (triggerType === "command" && item.id.startsWith("pi:")) {
       const cmdName = item.id.slice(3); // 去掉 "pi:" 前缀
-      // 插件命令：插入 /命令名 到输入框，让用户输入参数后再发送
+      // 插件命令：插入 /[命令名] chip token 到输入框，用户可继续输入参数
       if (item.source?.type === "extension") {
         setDismissed(true);
         if (trigger) {
           const triggerRe = new RegExp(`/${trigger.query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
-          setText(text.replace(triggerRe, `/${cmdName} `));
+          setText(text.replace(triggerRe, `/[${cmdName}] `));
         } else {
-          setText(`/${cmdName} `);
+          setText(`/[${cmdName}] `);
         }
         return;
       }
