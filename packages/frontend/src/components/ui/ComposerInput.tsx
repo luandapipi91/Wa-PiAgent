@@ -272,6 +272,11 @@ export function ComposerInput({
     // / 命令触发选中内置命令（如系统设置）时执行动作而非插入 token
     if (triggerType === "command" && item.id.startsWith("cmd:")) {
       setDismissed(true);
+      // 清除输入框中的 / 命令文本
+      if (trigger) {
+        const triggerRe = new RegExp(`/${trigger.query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+        setText(text.replace(triggerRe, ""));
+      }
       const cmd = item.id.slice(4); // 去掉 "cmd:" 前缀
       if (cmd === "settings") {
         window.dispatchEvent(new CustomEvent("hiagent:open-settings"));
