@@ -901,6 +901,14 @@ export class AgentManager {
     return this.sessions.get(sessionId)?.thinkingSince ?? null;
   }
 
+  /** 重载当前会话配置：杀旧 pi 进程并用同一 agent 重建（技能/扩展变更生效） */
+  async reloadSession(sessionId: string): Promise<void> {
+    const handle = this.sessions.get(sessionId);
+    if (!handle) throw new Error(`会话不存在: ${sessionId}`);
+    const agentName = handle.meta.agentName;
+    await this.switchAgent(sessionId, agentName);
+  }
+
   /** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */
   async disposeSession(sessionId: string): Promise<void> {
     // 标记已被 dispose：若创建仍在进行中，_createSession 完成时会据此清理并放弃
