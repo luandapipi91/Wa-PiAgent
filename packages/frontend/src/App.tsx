@@ -168,7 +168,7 @@ export function App() {
         const sid = useProjectsStore.getState().currentSessionId;
         if (!sid) { useToastStore.getState().add("没有打开的会话", "error"); return; }
         try {
-          await api.post(`/api/sessions/${encodeURIComponent(sid)}/reload`, {});
+          await api.post(`/api/sessions/${encodeURIComponent(sid)}/reload`);
           // 重建后刷新前端数据
           useProvidersStore.getState().load();
           useSkillsStore.getState().load();
