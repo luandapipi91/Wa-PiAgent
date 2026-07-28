@@ -589,7 +589,7 @@ export class AgentManager {
         HIAGENT_SESSION_ID: sessionId,
       },
       onEvent: (e) => this._onSessionEvent(sessionId, e),
-      onExit: (code) => this._onProcessExit(sessionId, code),
+      onExit: (code) => this._onProcessExit(sessionId, code, handle),
     });
     handle.client = client;
 
@@ -686,9 +686,8 @@ export class AgentManager {
   }
 
   /** 进程退出：非主动 dispose 的退出视为崩溃，合成错误事件通知前端，标记待重建 */
-  private _onProcessExit(sessionId: string, code: number | null): void {
-    const handle = this.sessions.get(sessionId);
-    if (!handle || handle.disposed) return;
+  private _onProcessExit(sessionId: string, code: number | null, handle: SessionHandle): void {
+    if (handle.disposed) return;
     handle.crashed = true;
     handle.busy = false;
       handle.thinkingSince = null;
@@ -836,15 +835,20 @@ export class AgentManager {
    * 正常路径：records 有内容 → 序列化每条记录 + session_summary → append 到 jsonl 文件。
    *
    * 边界情况：
-   * - 无记录时不落盘（records.length === 0）：直接返回，不写入文件也不打印日志。
-   *   避免在 subagent-telemetry.jsonl 中产生空行或仅含 session_summary 的无效条目。
-   *   常见场景：从未派发过子代理的会话销毁时。
-   * - records 有值但 summary.spawnCount === 0（异常状态）：仍然落盘，
-   *   保留已收集的记录供调试，不丢失数据。
-   * - 落盘失败静默吞错（fire-and-forget），不阻塞会话拆除流程。
-   * - records 数组被外部修改（极少见并发）：snapshot 时读取的是调用瞬间的快照，
-   *   不持有引用锁——后续修改不影响已序列化的 lines。
-   * - 落盘与 logs 打印解耦：无记录时不打印日志，避免因快速销毁空会话导致日志行泛滥。
+   *
+   * 1.【无记录时不落盘】records.length === 0 → 直接返回，不写入文件也不打印日志。
+   *    避免在 subagent-telemetry.jsonl 中产生空行或仅含 session_summary 的无效条目。
+   *    常见场景：从未派发过子代理的会话销毁时。
+   *
+   * 2.【异常状态仍落盘】records 有值但 summary.spawnCount === 0 时仍然序列化落盘，
+   *    不丢弃已收集的记录，保留调试线索。
+   *
+   * 3.【落盘失败静默吞错】appendFile 的 catch 为空函数，不阻塞会话拆除流程。
+   *
+   * 4.【快照非引用锁定】records 数组取的是调用瞬间的快照（const records），
+   *    不持有与 SubagentTelemetry 内部的引用锁——后续并发修改不影响已序列化的 lines。
+   *
+   * 5.【无记录时不打日志】空会话快速销毁时避免日志行泛滥。
    */
   private _flushSubagentTelemetry(sessionId: string, handle: SessionHandle): void {
     const records = handle.subagentTelemetry.records;

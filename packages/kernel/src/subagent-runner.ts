@@ -85,6 +85,8 @@ export interface SubagentRunOpts {
  * - minimal → minimal
  *   minimal：最低推理强度，仅关键决策时启用思考，其余直接输出。
  *   适用于简单工具调用等低认知负载场景，平衡速度与质量。
+ *   典型场景：读取已知路径下的配置文件查单个值、执行单条命令、
+ *   简单的 grep 查询等确定性任务，不需要模型展开完整推理链。
  * - medium / high → 直接透传
  */
 function mapThinking(thinking: ThinkingLevel | null): string | undefined {
