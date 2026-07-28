@@ -6,6 +6,13 @@
 
 ## 2026-07-28
 
+### 修复
+
+- **扩展安装/升级/卸载永久卡在"安装中"**
+  - 根因：与 MCP 连接器同构 bug——`extension:install` / `extension:upgrade` / `extension:uninstall` 的终态事件（`extension:install:done` / `extension:error`）被 `callApi` 当作 HTTP 响应体返回（`routes/extensions.ts` 错误地配了 `responseTypes`），前端 `installPackage` 等用 `void api.post` 丢弃响应体仅靠 SSE 事件翻转状态，两头落空导致 `installs` 占位卡永不清理
+  - 修复：三个 handler 里 `extension:install:done` / `extension:error` 改为显式 `this.broadcast`（不再 `reply`），删掉 `extension:changed` 冗余的 `reply`（已有 broadcast）；删除 `routes/extensions.ts` 的 `responseTypes` 与 `mapExtError`（前端不读 HTTP 状态码）
+  - 影响范围：`packages/kernel/src/ws-server.ts`、`packages/kernel/src/routes/extensions.ts`
+
 ### 新增功能
 
 - **内联 / 命令菜单动态注册 pi 的 slash 命令**
