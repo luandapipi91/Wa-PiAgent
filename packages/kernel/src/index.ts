@@ -22,26 +22,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { WSServerEvent } from "@hiagent/shared";
 
-/**
- * 启动时确保 web-search.json 配置存在。
- * pi-web-access 插件读取 PI_CODING_AGENT_DIR 下的 web-search.json，
- * HiAgent 设置 PI_CODING_AGENT_DIR=HIAGENT_DIR，所以写 ~/.hiagent/web-search.json。
- * 每次启动强制覆盖，确保默认参数始终生效。
- */
-async function ensureWebSearchConfig(hiagentDir: string): Promise<void> {
-  const configPath = join(hiagentDir, "web-search.json");
-  const config = {
-    provider: "exa",
-    workflow: "auto-summary",
-  };
-  try {
-    await mkdir(hiagentDir, { recursive: true });
-    await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
-    console.log("[kernel] web-search.json 已初始化");
-  } catch (e) {
-    console.warn("[kernel] 写入 web-search.json 失败:", e);
-  }
-}
 
 export async function startKernel(
   opts?: { staticDir?: string; port?: number }
@@ -91,9 +71,6 @@ export async function startKernel(
   // 启动时 seed 默认工作区虚拟项目（幂等）+ 确保 workdir 根目录存在
   await ensureSystemProject(projectStore);
   console.log(`[kernel] 默认工作区已就绪: ${SYSTEM_PROJECT_CWD}`);
-
-  // 启动时确保 web-search.json 配置（pi-web-access 插件配置，HIAGENT_DIR 优先于 ~/.pi）
-  await ensureWebSearchConfig(HIAGENT_DIR);
 
   // 启动时确保 prompts.json 配置存在（幂等），用户可手动编辑调整段落顺序/内容
   await ensurePromptsConfig(PROMPTS_FILE);
