@@ -176,8 +176,8 @@ export function App() {
           useAgentsStore.getState().loadAll();
           useSubagentsStore.getState().load();
           useToastStore.getState().add("配置已重载（AI 进程已重建）", "success");
-        } catch {
-          useToastStore.getState().add("重载失败", "error");
+        } catch (err: any) {
+          useToastStore.getState().add(`重载失败: ${err?.message ?? err}`, "error");
         }
       },
     };

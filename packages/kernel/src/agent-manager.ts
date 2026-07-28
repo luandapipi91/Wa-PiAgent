@@ -904,9 +904,16 @@ export class AgentManager {
   /** 重载当前会话配置：杀旧 pi 进程并用同一 agent 重建（技能/扩展变更生效） */
   async reloadSession(sessionId: string): Promise<void> {
     const handle = this.sessions.get(sessionId);
-    if (!handle) throw new Error(`会话不存在: ${sessionId}`);
-    const agentName = handle.meta.agentName;
-    await this.switchAgent(sessionId, agentName);
+    // 无活跃进程（如只浏览历史未发消息）：先冷启动再重建
+    if (!handle) {
+      const { sessions } = await this.opts.projectStore.load();
+      const se = sessions.find(s => s.id === sessionId);
+      if (!se) throw new Error(`会话不存在: ${sessionId}`);
+      await this.ensureStarted(se.projectId, se.primaryAgent, sessionId);
+    }
+    const h = this.sessions.get(sessionId);
+    if (!h) throw new Error(`会话启动失败: ${sessionId}`);
+    await this.switchAgent(sessionId, h.meta.agentName);
   }
 
   /** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */
