@@ -39,6 +39,12 @@ export async function listDir(path: string, showHidden?: boolean): Promise<DirEn
   return res.entries ?? [];
 }
 
+/** 轻量文件存在性探测（不读内容），供 FilePill 挂载校验 */
+export async function statFile(path: string): Promise<boolean> {
+  const res = (await transport.post("/api/fs/stat", { path })) as { exists?: boolean };
+  return res.exists === true;
+}
+
 export async function readFile(path: string): Promise<{ content: string; mimeType?: string; resolvedPath?: string }> {
   const res = (await transport.post("/api/fs/read-file", { path })) as { content: string; mimeType?: string; resolvedPath?: string; reason?: string };
   if (!res.content) throw new Error(res.reason ?? "读取失败");

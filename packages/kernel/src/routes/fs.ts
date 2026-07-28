@@ -86,6 +86,21 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
     }
   });
 
+  // POST /api/fs/stat：轻量文件存在性探测（不读内容）
+  r.add("POST", "/api/fs/stat", async (req) => {
+    const b = await readJsonBody(req);
+    const { path } = b;
+    if (typeof path !== "string") return Response.json({ error: "缺少 path" }, { status: 400 });
+    try {
+      const absPath = expandTilde(path);
+      const exists = existsSync(absPath);
+      const isFile = exists && (await stat(absPath)).isFile();
+      return Response.json({ type: "fs:stat", path, exists: isFile });
+    } catch (e) {
+      return Response.json({ type: "fs:error", path, reason: String(e instanceof Error ? e.message : e) });
+    }
+  });
+
   // POST /api/fs/read-file：读取文件为 base64。ENOENT 时按 basename 递归搜索回退。
   r.add("POST", "/api/fs/read-file", async (req) => {
     const b = await readJsonBody(req);
