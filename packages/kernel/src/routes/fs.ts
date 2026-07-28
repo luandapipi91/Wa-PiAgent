@@ -30,6 +30,23 @@ async function findFileByBasename(root: string, name: string): Promise<string | 
   }
   return null;
 }
+
+/** 预览上限：512KB，超过则跳过内容读取 */
+const MAX_PREVIEW_BYTES = 512 * 1024;
+
+/** 检查文件是否可预览（文本类型 + 大小不超标） */
+async function checkPreviewable(absPath: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const mime = getMimeType(absPath);
+  const isText = mime.startsWith("text/") || mime === "application/json" || mime === "application/xml" || mime === "image/svg+xml";
+  if (!isText) return { ok: false, reason: `不支持的文件类型: ${mime}` };
+  try {
+    const s = await stat(absPath);
+    if (s.size > MAX_PREVIEW_BYTES) return { ok: false, reason: `文件过大 (${(s.size / 1024).toFixed(0)}KB > ${MAX_PREVIEW_BYTES / 1024}KB)` };
+  } catch {
+    return { ok: false, reason: "无法获取文件信息" };
+  }
+  return { ok: true };
+}
 import type { DirEntry } from "@hiagent/shared";
 import { getMimeType } from "../ws-server";
 
@@ -108,6 +125,8 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
     if (typeof path !== "string") return Response.json({ error: "缺少 path" }, { status: 400 });
     try {
       const absPath = expandTilde(path);
+      const check = await checkPreviewable(absPath);
+      if (!check.ok) return Response.json({ type: "fs:unsupported", path, reason: check.reason });
       const buffer = await readFile(absPath);
       const content = buffer.toString("base64");
       const mimeType = getMimeType(path);
@@ -128,6 +147,8 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
           try {
             const found = await findFileByBasename(searchRoot, name);
             if (found) {
+              const check2 = await checkPreviewable(found);
+              if (!check2.ok) return Response.json({ type: "fs:unsupported", path: found, reason: check2.reason });
               const buffer = await readFile(found);
               const content = buffer.toString("base64");
               const mimeType = getMimeType(found);

@@ -10,15 +10,24 @@ function decodeBase64(b64: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-/** 文件只读预览：经 kernel fs 读取内容，可复制路径。若后端 ENOENT 搜索命中，使用解析后路径。 */
+/** 文件只读预览：经 kernel fs 读取内容，可复制路径。非文本/过大文件显示占位符。 */
 export function FilePreviewModal({ absPath, onClose }: { absPath: string; onClose: () => void }) {
-  const [state, setState] = useState<{ loading: boolean; content?: string; error?: string; resolvedPath?: string }>({ loading: true });
+  const [state, setState] = useState<{
+    loading: boolean; content?: string; error?: string; resolvedPath?: string; unsupported?: string;
+  }>({ loading: true });
   const addToast = useToastStore(s => s.add);
 
   useEffect(() => {
     let alive = true;
     readFile(absPath)
-      .then(r => { if (alive) setState({ loading: false, content: decodeBase64(r.content), resolvedPath: r.resolvedPath }); })
+      .then(r => {
+        if (!alive) return;
+        if (r.unsupported) {
+          setState({ loading: false, unsupported: r.unsupported, resolvedPath: r.resolvedPath });
+        } else {
+          setState({ loading: false, content: decodeBase64(r.content), resolvedPath: r.resolvedPath });
+        }
+      })
       .catch((err: unknown) => { if (alive) setState({ loading: false, error: `无法读取文件：${absPath}（${err instanceof Error ? err.message : '未知错误'}）` }); });
     return () => { alive = false; };
   }, [absPath]);
@@ -36,12 +45,18 @@ export function FilePreviewModal({ absPath, onClose }: { absPath: string; onClos
 
   return (
     <Modal onClose={onClose} width={640}>
-      {/* Modal 无 title prop：路径作为头部渲染在 children 内 */}
       <div data-testid="file-preview-modal" className="p-3">
         <div className="text-[12px] font-mono text-secondary break-all mb-2">{displayPath}</div>
         {state.loading && <div className="text-tertiary text-[12px]">加载中…</div>}
         {state.error && <div className="text-danger text-[12px]">{state.error}</div>}
-        {state.content != null && (
+        {state.unsupported && (
+          <div className="flex flex-col items-center justify-center py-8 gap-3 border border-dashed border-hairline rounded-lg">
+            <span className="text-[32px]">📄</span>
+            <span className="text-[13px] text-secondary">不支持预览该文件</span>
+            <span className="text-[11px] text-tertiary">{state.unsupported}</span>
+          </div>
+        )}
+        {state.content != null && !state.unsupported && (
           <pre className="text-[12px] font-mono whitespace-pre-wrap max-h-[60vh] overflow-auto m-0">{state.content}</pre>
         )}
         <div className="flex justify-end mt-2 gap-2">

@@ -58,6 +58,22 @@ async function findFileByBasename(root: string, name: string): Promise<string | 
   return null;
 }
 
+/** 预览上限：512KB */
+const MAX_PREVIEW_BYTES = 512 * 1024;
+
+async function checkPreviewable(absPath: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const mime = getMimeType(absPath);
+  const isText = mime.startsWith("text/") || mime === "application/json" || mime === "application/xml" || mime === "image/svg+xml";
+  if (!isText) return { ok: false, reason: `不支持的文件类型: ${mime}` };
+  try {
+    const s = await stat(absPath);
+    if (s.size > MAX_PREVIEW_BYTES) return { ok: false, reason: `文件过大 (${(s.size / 1024).toFixed(0)}KB > ${MAX_PREVIEW_BYTES / 1024}KB)` };
+  } catch {
+    return { ok: false, reason: "无法获取文件信息" };
+  }
+  return { ok: true };
+}
+
 /** 把 URL 路径解析成 staticDir 下的文件路径；未知/越权路径回退 index.html（SPA）。 */
 export function resolveStaticPath(urlPath: string, staticDir: string): string {
   const clean = urlPath.split("?")[0].split("#")[0];
@@ -776,6 +792,8 @@ export class WSServer {
       case "fs:readFile": {
         try {
           const absPath = expandTilde(event.path);
+          const check = await checkPreviewable(absPath);
+          if (!check.ok) { reply({ type: "fs:unsupported", path: event.path, reason: check.reason }); break; }
           const buffer = await readFile(absPath);
           const content = buffer.toString("base64");
           const mimeType = getMimeType(event.path);
@@ -796,6 +814,8 @@ export class WSServer {
               try {
                 const found = await findFileByBasename(searchRoot, name);
                 if (found) {
+                  const check2 = await checkPreviewable(found);
+                  if (!check2.ok) { reply({ type: "fs:unsupported", path: found, reason: check2.reason }); break; }
                   const buffer = await readFile(found);
                   const content = buffer.toString("base64");
                   const mimeType = getMimeType(found);
