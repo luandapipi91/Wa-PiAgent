@@ -8,10 +8,19 @@
 
 ### 修复
 
+- **思考过程超长文本不换行**：`ThinkingCard` 和 `ThinkingPanel` 组件中思考文本只有 `whitespace-pre-wrap`，不处理无空白字符的超长字符串（URL/路径/JSON）。加 `break-words`（`overflow-wrap: break-word`）强制断行；`ProcessCard` body 加 `min-w-0` 防御。
+  - 影响范围：`packages/frontend/src/components/blocks/ThinkingCard.tsx`、`ThinkingPanel.tsx`、`ProcessCard.tsx`
+
+- **工具来源标签细化**：`AgentManager.listGlobalTools()` 对非内置工具统一返回 `source: "扩展"`，前端无法区分 MCP 工具和动态插件工具。改为：内置 → `"内置"`（不变），MCP direct → `"MCP"`，动态插件 → 插件包名。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/shared/src/types.ts`（类型注释）
+
+### 修复
+
 - **打包后启动白屏**：`bridge-extension.ts` 中 `TOOL_SCHEMAS_SOURCE` 和 `BRIDGE_EXTENSION_SOURCE` 使用 `__dirname` 相对路径，bun build 打包后 `__dirname` 指向 kernel.js 所在目录（`resources/kernel/` 或 `~/.hiagent/runtime/`），导致 `../../shared/src/tool-schemas.ts` 路径错误（ENOENT）。修复：
   1. `build-kernel-sidecar.ts` 构建时将 `hiagent-bridge.extension.ts` 和 `tool-schemas.ts` 复制到 `kernel.js` 同级目录
   2. `bridge-extension.ts` 优先从 `__dirname` 同级查找，找不到再回退开发模式路径
-- 影响范围：`packages/desktop/scripts/build-kernel-sidecar.ts`、`packages/kernel/src/bridge-extension.ts`、`packages/desktop/electron-builder.yml`（windows target 从 portable 改为 nsis）
+  3. `runtime-deps.cjs` 的 `SEED_FILES` 补上 `tool-schemas.ts` 和 `hiagent-bridge.extension.ts`（此前只同步了 `kernel.js`/`package.json`/`bun.lock`，导致 bridge 依赖文件未从 seed 同步到 runtime 目录，kernel 启动时同级目录查找也失败）
+- 影响范围：`packages/desktop/scripts/build-kernel-sidecar.ts`、`packages/kernel/src/bridge-extension.ts`、`packages/desktop/electron-builder.yml`（windows target 从 portable 改为 nsis）、`packages/desktop/src/util/runtime-deps.cjs`
 
 ## 2026-07-29
 

@@ -32,7 +32,7 @@ const TOOL_SCHEMAS_TARGET = join(GENERATED_DIR, "tool-schemas.ts");
 function resolveBridgeExtensionSource(): string {
   const flat = join(__dirname, "hiagent-bridge.extension.ts");
   if (existsSync(flat)) return flat;
-  return join(__dirname, "hiagent-bridge.extension.ts"); // dev: packages/kernel/src/
+  return join(__dirname, "hiagent-bridge.extension.ts"); // 兜底同路径（bundled kernel 场景）
 }
 
 /**
