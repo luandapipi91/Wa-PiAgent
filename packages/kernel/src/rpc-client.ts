@@ -64,7 +64,7 @@ export interface RpcClientOpts {
 }
 
 /** 需要回 extension_ui_response 的对话类方法（其余为 fire-and-forget） */
-const UI_DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
+const UI_DIALOG_METHODS = new Set(["select", "confirm", "input", "editor", "custom"]);
 
 export class RpcClient {
   private proc: ChildProcess | null = null;
@@ -355,7 +355,7 @@ export class RpcClient {
   }
 
   private async handleUiRequest(req: RpcUiRequest): Promise<void> {
-    if (!UI_DIALOG_METHODS.has(req.method)) return; // fire-and-forget：无需响应
+    if (!UI_DIALOG_METHODS.has(req.method)) return; // 非对话方法：fire-and-forget，无需响应
     let fields: UiResponseFields;
     if (this.opts.onUiRequest) {
       try {
