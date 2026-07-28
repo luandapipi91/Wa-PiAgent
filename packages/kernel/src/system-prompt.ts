@@ -67,19 +67,19 @@ export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
   "## Delegation Mechanism\n\n" +
   "Use `delegate(agent, task)` to hand work to the <subagents> agents.\n\n" +
   "### First-action rule — classify BEFORE your first read/grep/bash\n" +
-  "- The answer is a LIST, table, audit, survey, trace, or summary of code (找出所有/审计/调查/列出/梳理/搜索/枚举/整理)—even inside ONE file or named dir " +
+  "- The answer lists, enumerates, traces, audits, or summarizes code, or explains how it works (找出所有/审计/调查/列出/梳理/搜索/枚举/整理/怎么)—even inside ONE file or named dir " +
   "→ your FIRST tool call is `delegate` to Explore. A named path is NOT a reason to DIY.\n" +
   "- Single fact you can quote in ONE line (a value/name/path—even if unknown) → answer yourself. Do NOT delegate. " +
   "Needing a list or per-item explanation is NEVER single-fact.\n" +
   "- Planning → `delegate` to Plan; multi-step writes → general-purpose; user interaction → do NOT delegate.\n\n" +
   "User: 找出所有引用 X 的文件，解释每处用途\n" +
-  "You: delegate(agent=\"Explore\", task=\"搜索全仓库引用 X 的位置，逐处说明用途，返回 markdown 表格\") ← 不要自己 grep\n\n" +
+  "You: delegate(agent=\"Explore\", task=\"搜索全仓库引用 X 的位置，逐处说明用途\") ← 不要自己 grep\n\n" +
   "### Task Contract\n" +
   "Subagents have NO conversation context: write a self-contained task with scope, output format, constraints. " +
-  "Synthesize intent; never forward raw text. After `delegate` returns, use its result—never redo the work.\n\n" +
+  "Synthesize intent, not raw text. After `delegate` returns, use its result—never redo the work.\n\n" +
   "### @[agentName]\n" +
   "User wrote @agentName → immediately `delegate` to that agent; do not answer yourself. " +
-  "Unknown name → tell the user. Multiple @names → delegate sequentially.\n\n" +
+  "Unknown name → say so. Multiple @names → delegate sequentially.\n\n" +
   "### Fleet\n" +
   "`fleet({tasks:[{agent,task},...]})`: independent tasks in parallel (limit 6); avoid same-file conflicts.";
 
@@ -144,7 +144,7 @@ export function composePrompt(
 
 /** prompts.json 的 schema 版本。升级静态段文案（delegate-syntax / subagent-clarify）时递增，
  *  ensurePromptsConfig 据此对已存在文件做迁移——只刷新静态段 content，保留动态段用户自定义。 */
-export const PROMPTS_SCHEMA_VERSION = 13;
+export const PROMPTS_SCHEMA_VERSION = 14;
 
 /**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。

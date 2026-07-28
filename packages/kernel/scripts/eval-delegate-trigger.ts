@@ -243,6 +243,8 @@ async function runOneCase(
     /** thinking level；null = 不动 pi 默认值 */
     thinking: string | null;
     timeoutSec: number;
+    /** 每用例前重新生成扩展文件（抗外部并发清理 .generated） */
+    ensureExtensions: () => Promise<void>;
   },
 ): Promise<CaseResult> {
   const startedAt = Date.now();
@@ -290,6 +292,9 @@ async function runOneCase(
   });
 
   try {
+    // 每用例前重新确保扩展文件存在：外部进程（如运行中的 HiAgent 实例）
+    // 可能并发清理 .generated，导致 pi 启动时扩展加载失败
+    await ctx.ensureExtensions();
     await client.start();
     await client.setModel(ctx.provider, ctx.modelId);
     if (ctx.thinking) await client.setThinkingLevel(ctx.thinking);
@@ -400,6 +405,10 @@ async function main() {
           modelId,
           timeoutSec: opts.timeoutSec,
           thinking: opts.thinking,
+          ensureExtensions: async () => {
+            await ensureProviderExtensionRegistered(store);
+            await ensureBridgeExtension();
+          },
         });
         results.push(r);
         const tag = r.calledDelegate
