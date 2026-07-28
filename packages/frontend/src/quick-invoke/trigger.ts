@@ -1,6 +1,6 @@
 // 触发符检测 + 列表过滤纯函数
 
-export type TriggerType = "agent" | "file" | "skill";
+export type TriggerType = "agent" | "file" | "skill" | "command";
 
 export interface TriggerResult {
   type: TriggerType;
@@ -44,6 +44,12 @@ export function detectTrigger(text: string): TriggerResult | null {
   const dollarMatch = cleaned.match(/(?:^|\s)[$¥]([^\s]*)$/);
   if (dollarMatch) {
     return { type: "skill", query: dollarMatch[1] };
+  }
+
+  // 检测 / 命令触发（必须在行首或空格之后，排除路径中的 /）
+  const slashMatch = cleaned.match(/(?:^|\s)\/([^\s]*)$/);
+  if (slashMatch) {
+    return { type: "command", query: slashMatch[1] };
   }
 
   return null;

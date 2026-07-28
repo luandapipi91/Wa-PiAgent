@@ -67,15 +67,21 @@ export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
   "## Delegation Mechanism\n\n" +
   "Use `delegate(agent, task)` to invoke subagents from the <subagents> list below. " +
   "Each entry's `<whenToDelegate>` / `<whenNotTo>` / `<benefit>` tells you which agent fits.\n\n" +
-  "### Example\n" +
+  "### Example (delegate)\n" +
   "User: \"find all call sites of sendEmail and check error handling\"\n" +
   "You: delegate(agent=\"Explore\", task=\"Search the entire project for all call sites of sendEmail. " +
   "For each site report: file path, line number, calling function, and whether it wraps with try-catch. " +
   "Only search under src/. Return as a markdown table with columns: File | Line | Caller | HasErrorHandling.\")\n\n" +
+  "### Example (do NOT delegate)\n" +
+  "User: \"what is the value of MAX_RETRIES?\"\n" +
+  "You: grep for `MAX_RETRIES`, read the match, answer directly. " +
+  "A single-fact question is one grep away—even with no known path, that is NOT exploration.\n\n" +
   "### Decision Tree\n" +
   "Before reaching for read/grep/edit, ask:\n" +
-  "├─ Single file, known path, 1-2 reads/edits? → Do it yourself\n" +
-  "├─ Multi-file exploration, 3+ tool calls expected? → delegate to Explore\n" +
+  "├─ Single-fact question (a value, a name, a line—one grep or 1-2 quick reads, path known or not)? " +
+  "→ Do it yourself\n" +
+  "├─ Reading through code to summarize, audit, or enumerate—even inside ONE file—or multi-file exploration? " +
+  "→ delegate to Explore\n" +
   "├─ Needs design/architecture planning? → delegate to Plan\n" +
   "├─ Complex multi-step with writes? → delegate to general-purpose\n" +
   "└─ Needs user interaction or back-and-forth? → Do NOT delegate\n\n" +
@@ -152,7 +158,7 @@ export function composePrompt(
 
 /** prompts.json 的 schema 版本。升级静态段文案（delegate-syntax / subagent-clarify）时递增，
  *  ensurePromptsConfig 据此对已存在文件做迁移——只刷新静态段 content，保留动态段用户自定义。 */
-export const PROMPTS_SCHEMA_VERSION = 8;
+export const PROMPTS_SCHEMA_VERSION = 10;
 
 /**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。

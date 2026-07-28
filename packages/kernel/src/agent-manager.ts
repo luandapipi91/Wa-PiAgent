@@ -833,10 +833,18 @@ export class AgentManager {
   /**
    * 会话销毁时把子代理派发遥测追加到 HIAGENT_DIR/subagent-telemetry.jsonl（fire-and-forget）。
    *
+   * 正常路径：records 有内容 → 序列化每条记录 + session_summary → append 到 jsonl 文件。
+   *
    * 边界情况：
-   * - 无记录时（records.length === 0）直接返回，不落盘也不打印日志，
+   * - 无记录时不落盘（records.length === 0）：直接返回，不写入文件也不打印日志。
    *   避免在 subagent-telemetry.jsonl 中产生空行或仅含 session_summary 的无效条目。
+   *   常见场景：从未派发过子代理的会话销毁时。
+   * - records 有值但 summary.spawnCount === 0（异常状态）：仍然落盘，
+   *   保留已收集的记录供调试，不丢失数据。
    * - 落盘失败静默吞错（fire-and-forget），不阻塞会话拆除流程。
+   * - records 数组被外部修改（极少见并发）：snapshot 时读取的是调用瞬间的快照，
+   *   不持有引用锁——后续修改不影响已序列化的 lines。
+   * - 落盘与 logs 打印解耦：无记录时不打印日志，避免因快速销毁空会话导致日志行泛滥。
    */
   private _flushSubagentTelemetry(sessionId: string, handle: SessionHandle): void {
     const records = handle.subagentTelemetry.records;

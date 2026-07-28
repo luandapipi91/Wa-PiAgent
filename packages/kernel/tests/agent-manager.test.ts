@@ -976,7 +976,7 @@ test("HIAGENT_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => 
   const fullDefault = `${HIAGENT_DEFAULT_SYSTEM_PROMPT}\n\n${DEFAULT_DELEGATE_MECHANISM_PROMPT}`;
   expect(fullDefault).toContain("@[agentName]");
   expect(fullDefault).toContain("delegate");
-  expect(fullDefault).toContain("task contract");
+  expect(fullDefault).toContain("Task Contract");
 });
 
 // ─── 队列：followUpList / steerMessage / abort ────────────────────────────

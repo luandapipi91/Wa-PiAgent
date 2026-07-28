@@ -4,6 +4,33 @@
 
 ---
 
+## 2026-08-07
+
+### 其他
+
+- 评测脚本冒烟
+
+## 2026-07-30
+
+### 其他
+
+- **评测脚本冒烟**
+  - 影响范围：
+
+---
+
+## 2026-07-27
+
+### 修复
+
+- **委托提示词 v3 融合版定稿（A/B 实测驱动）**：针对 simple 误派与 explore 触发率的版本取舍，用 60 用例 × 3 轮采样对三版提示词做 A/B：改前版 explore 85.6%±4.2 / simple 误派 10.0%±0.0；改后版（≤2 调用边界+成本措辞）explore 75.6%±1.6 / simple 1.7%±2.4；v3 融合版（单事实 DIY 边界含路径未知 + 「通读代码总结/审计/枚举——哪怕单文件内——即派 Explore」+ do-NOT-delegate 反例，删除成本规避措辞）**explore 88.9%±6.8 / simple 0.0%±0.0 / edit 3.3%±4.7，帕累托最优定稿**。PROMPTS_SCHEMA_VERSION 8→10 推送迁移；顺带修正 agent-manager.test.ts 中断言旧文案 `task contract` 的遗留失败用例。
+  - 影响范围：packages/kernel/src/system-prompt.ts, packages/kernel/tests/agent-manager.test.ts
+
+- **派发评测脚本扩容 + 多轮采样**：用例集 30→60 条（explore 12→30、edit 8→10、simple 10→20，新增 simple 覆盖「路径未知单事实」这一历史误派形态）；新增 `--repeat N`（多轮采样报 mean±std，对齐 τ-bench 做法，对治单跑噪声）与 `--category` 过滤（支持按类并行跑）。评测方法论调研归档至 docs/research/delegate-eval-methodology.md。
+  - 影响范围：packages/kernel/scripts/eval-delegate-trigger.ts, docs/research/delegate-eval-methodology.md
+
+---
+
 ## 2026-07-29
 
 ### 其他
