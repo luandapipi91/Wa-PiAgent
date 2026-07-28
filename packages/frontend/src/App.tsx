@@ -22,6 +22,7 @@ import { useToastStore } from "./store/toast";
 import { useComposerPrefsStore } from "./store/composer-prefs";
 import { useSubagentsStore } from "./store/subagents";
 import { onMessage, connectEvents, onReconnect } from "./events";
+import { api } from "./api-client";
 import { ToastContainer } from "./components/ui/Toast";
 import { RecordingCapsule } from "./components/ui/RecordingCapsule";
 import { CommandPalette } from "./components/CommandPalette";
