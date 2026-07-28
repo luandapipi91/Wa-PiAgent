@@ -65,23 +65,23 @@ export const HIAGENT_DEFAULT_BASE_PROMPT =
 /** 默认 delegate-mechanism 段（委托机制：首动作规则 + 路由 + @ 语法 + fleet，面向弱模型 imperative 风格） */
 export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
   "## Delegation Mechanism\n\n" +
-  "Use `delegate(agent, task)` to hand work to subagents from the <subagents> list.\n\n" +
+  "Use `delegate(agent, task)` to hand work to the <subagents> agents.\n\n" +
   "### First-action rule — classify BEFORE your first read/grep/bash\n" +
-  "- Requests to find all, audit, survey, enumerate, trace, or summarize code—even inside ONE file—or anything needing >2 files " +
-  "→ your FIRST tool call is `delegate` to Explore. Never start searching yourself.\n" +
-  "- Single fact (one value/name/line: 1 grep or 1-2 quick reads, path known or not) → answer yourself. Do NOT delegate.\n" +
-  "- Design/architecture planning → `delegate` to Plan.\n" +
-  "- Multi-step change with writes → `delegate` to general-purpose.\n" +
-  "- Needs user interaction or back-and-forth → do NOT delegate.\n\n" +
+  "- The answer is a LIST, table, audit, survey, trace, or summary of code (找出所有/审计/调查/列出/梳理/搜索/枚举/整理)—even inside ONE file or named dir " +
+  "→ your FIRST tool call is `delegate` to Explore. A named path is NOT a reason to DIY.\n" +
+  "- Single fact you can quote in ONE line (a value/name/path—even if unknown) → answer yourself. Do NOT delegate. " +
+  "Needing a list or per-item explanation is NEVER single-fact.\n" +
+  "- Planning → `delegate` to Plan; multi-step writes → general-purpose; user interaction → do NOT delegate.\n\n" +
+  "User: 找出所有引用 X 的文件，解释每处用途\n" +
+  "You: delegate(agent=\"Explore\", task=\"搜索全仓库引用 X 的位置，逐处说明用途，返回 markdown 表格\") ← 不要自己 grep\n\n" +
   "### Task Contract\n" +
-  "Subagents have NO conversation context: write a self-contained task with search scope, expected output format, and constraints. " +
-  "Synthesize the user's intent; never forward raw text. After `delegate` returns, synthesize its result—do not redo the work yourself.\n\n" +
+  "Subagents have NO conversation context: write a self-contained task with scope, output format, constraints. " +
+  "Synthesize intent; never forward raw text. After `delegate` returns, use its result—never redo the work.\n\n" +
   "### @[agentName]\n" +
   "User wrote @agentName → immediately `delegate` to that agent; do not answer yourself. " +
-  "Name not in <subagents> → tell the user. Multiple @names → delegate sequentially.\n\n" +
+  "Unknown name → tell the user. Multiple @names → delegate sequentially.\n\n" +
   "### Fleet\n" +
-  "`fleet({tasks: [{agent, task}, ...]})` runs independent tasks in parallel (limit 6). " +
-  "Use for unrelated modules or multi-file audits; avoid same-file conflicts.";
+  "`fleet({tasks:[{agent,task},...]})`: independent tasks in parallel (limit 6); avoid same-file conflicts.";
 
 /**
  * 默认段落配置（用于 prompts.json 不存在时初始化）。
@@ -144,7 +144,7 @@ export function composePrompt(
 
 /** prompts.json 的 schema 版本。升级静态段文案（delegate-syntax / subagent-clarify）时递增，
  *  ensurePromptsConfig 据此对已存在文件做迁移——只刷新静态段 content，保留动态段用户自定义。 */
-export const PROMPTS_SCHEMA_VERSION = 11;
+export const PROMPTS_SCHEMA_VERSION = 13;
 
 /**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。

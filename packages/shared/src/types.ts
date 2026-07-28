@@ -295,6 +295,7 @@ export interface AgentCreateEvent { type: "agent:create"; displayName: string; }
 export interface AgentDeleteEvent { type: "agent:delete"; name: string; }
 export interface AgentToolsListRequest { type: "agent:tools:list"; }
 export interface SessionSetAgentEvent { type: "session:set-agent"; sessionId: string; agentName: AgentName; }
+export interface SessionReloadEvent { type: "session:reload"; sessionId: string; }
 export interface ProjectsListRequest { type: "projects:list"; }
 export interface SessionMessagesRequest {
   type: "session:messages";
@@ -317,7 +318,7 @@ export type WSClientEvent =
   | ProjectCreateEvent | ProjectUpdateEvent | ProjectDeleteEvent | ProjectOpenDirEvent
   | SessionRenameEvent | SessionDeleteEvent
   | AgentConfigGetEvent | AgentConfigSaveEvent
-  | AgentListRequest | AgentCreateEvent | AgentDeleteEvent | AgentToolsListRequest | SessionSetAgentEvent
+  | AgentListRequest | AgentCreateEvent | AgentDeleteEvent | AgentToolsListRequest | SessionSetAgentEvent | SessionReloadEvent
   | ProjectsListRequest | SessionMessagesRequest
   | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
   | ModelPresetsRequest

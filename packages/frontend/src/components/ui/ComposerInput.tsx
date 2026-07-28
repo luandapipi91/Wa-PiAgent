@@ -164,6 +164,7 @@ export function ComposerInput({
       { id: "cmd:settings", name: "系统设置", description: "打开系统设置面板", source: { type: "builtin", name: "命令" } },
       { id: "cmd:agents", name: "智能体管理", description: "管理所有智能体配置", source: { type: "builtin", name: "命令" } },
       { id: "cmd:skills", name: "技能管理", description: "管理全局技能启用/禁用", source: { type: "builtin", name: "命令" } },
+      { id: "cmd:reload", name: "重载配置", description: "重建 AI 进程使技能/扩展变更生效", source: { type: "builtin", name: "命令" } },
     ];
     // 技能列表（支持 / 触发技能引用）
     const filteredSkills = filterItems(allSkills, q);
@@ -278,6 +279,8 @@ export function ComposerInput({
         window.dispatchEvent(new CustomEvent("hiagent:open-gallery"));
       } else if (cmd === "skills") {
         window.dispatchEvent(new CustomEvent("hiagent:open-settings-skills"));
+      } else if (cmd === "reload") {
+        window.dispatchEvent(new CustomEvent("hiagent:reload-config"));
       }
       return;
     }

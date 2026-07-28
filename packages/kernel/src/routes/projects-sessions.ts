@@ -33,4 +33,6 @@ export const registerProjectSessionRoutes: RouteRegistrar = (r, callApi, ctx) =>
     const b = await readJsonBody(req);
     return callApi({ type: "session:set-agent", sessionId: p.sessionId, agentName: b.agentName });
   });
+  r.add("POST", "/api/sessions/:sessionId/reload", async (_req, p) =>
+    callApi({ type: "session:reload", sessionId: p.sessionId }));
 };

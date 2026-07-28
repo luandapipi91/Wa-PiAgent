@@ -164,6 +164,22 @@ export function App() {
       "hiagent:open-gallery": () => setGalleryOpen(true),
       "hiagent:open-settings": () => useSettingsStore.getState().open(),
       "hiagent:open-settings-skills": () => { useSettingsStore.getState().open(); useSettingsStore.getState().setSection("skills"); },
+      "hiagent:reload-config": async () => {
+        const sid = useProjectsStore.getState().currentSessionId;
+        if (!sid) { useToastStore.getState().add("没有打开的会话", "error"); return; }
+        try {
+          await api.post(`/api/sessions/${encodeURIComponent(sid)}/reload`, {});
+          // 重建后刷新前端数据
+          useProvidersStore.getState().load();
+          useSkillsStore.getState().load();
+          useExtensionsStore.getState().load();
+          useAgentsStore.getState().loadAll();
+          useSubagentsStore.getState().load();
+          useToastStore.getState().add("配置已重载（AI 进程已重建）", "success");
+        } catch {
+          useToastStore.getState().add("重载失败", "error");
+        }
+      },
     };
     for (const [event, handler] of Object.entries(handlers)) {
       window.addEventListener(event, handler);

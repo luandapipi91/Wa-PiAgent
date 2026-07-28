@@ -442,6 +442,17 @@ export class WSServer {
         }
         break;
       }
+      case "session:reload": {
+        try {
+          await this.opts.agentManager.reloadSession(event.sessionId);
+          // 重建后 broadcast 更新列表（重建可能改变 session 的 piSessionFile 等）
+          const data = await this.opts.projectStore.load();
+          this.broadcast({ type: "projects:list", projects: data.projects, sessions: data.sessions });
+        } catch (err) {
+          reply({ type: "error", message: err instanceof Error ? err.message : String(err), sessionId: event.sessionId });
+        }
+        break;
+      }
       case "session:delete": {
         // 先清理 SDK session（解绑事件订阅 + dispose），再删 ProjectStore 里的会话记录
         await this.opts.agentManager.disposeSession(event.sessionId);
