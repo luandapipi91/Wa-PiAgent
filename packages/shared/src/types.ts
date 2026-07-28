@@ -25,6 +25,9 @@ import type {
   McpListEvent, McpSaveEvent, McpDeleteEvent, McpTestEvent, McpListToolsEvent, McpClearAuthEvent,
   McpListResult, McpChangedEvent, McpTestResult, McpToolsResult,
 } from "./mcp";
+import type {
+  SessionCommandsRequest, SessionCommandsResult,
+} from "./commands";
 
 export type AgentName = string;
 export type AgentStateKey = `${string}:${AgentName}`;
@@ -318,7 +321,7 @@ export type WSClientEvent =
   | ProjectCreateEvent | ProjectUpdateEvent | ProjectDeleteEvent | ProjectOpenDirEvent
   | SessionRenameEvent | SessionDeleteEvent
   | AgentConfigGetEvent | AgentConfigSaveEvent
-  | AgentListRequest | AgentCreateEvent | AgentDeleteEvent | AgentToolsListRequest | SessionSetAgentEvent | SessionReloadEvent
+  | AgentListRequest | AgentCreateEvent | AgentDeleteEvent | AgentToolsListRequest | SessionSetAgentEvent | SessionReloadEvent | SessionCommandsRequest
   | ProjectsListRequest | SessionMessagesRequest
   | ProviderListEvent | ProviderSaveEvent | ProviderDeleteEvent | ProviderTestEvent
   | ModelPresetsRequest
@@ -450,6 +453,7 @@ export type WSServerEvent =
   | InstructionListResult | MemoryConfigEvent
   | FSHomeResult | FSRootsResult | FSListDirResult | FSReadFileResult | FSUploadResult | FSCopyResult | FSSearchResult | FSSearchProgressEvent | FSErrorEvent
   | FSRecordingAppendResult | FSRecordingFinalizeResult | FSRecordingDiscardResult
-  | SubagentListResult;
+  | SubagentListResult
+  | SessionCommandsResult;
 
 export type WSEvent = WSClientEvent | WSServerEvent;

@@ -16,7 +16,7 @@
 // - createClientFn 可选参数，缺省时用真实 RpcClient（测试注入假 client）
 // - bridgeBaseUrl 惰性取值：kernel 启动时 WS 端口在 AgentManager 构造后才确定
 
-import type { AgentName, AttachmentRef, ThinkingLevel, MemoryConfig, SkillInfo } from "@hiagent/shared";
+import type { AgentName, AttachmentRef, ThinkingLevel, MemoryConfig, SkillInfo, CommandInfo } from "@hiagent/shared";
 import { HIAGENT_DIR, DEFAULT_AGENT_TOOLS, BUILTIN_SKILLS_DIR, EXTENSION_TOOL_MAP, resolveAgentTools, resolveSessionCwd, PROMPTS_FILE, SUBAGENT_TYPES, isSubagentType } from "@hiagent/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
@@ -916,6 +916,24 @@ export class AgentManager {
     const h = this.sessions.get(sessionId);
     if (!h) throw new Error(`会话启动失败: ${sessionId}`);
     await this.switchAgent(sessionId, h.meta.agentName);
+  }
+
+  /**
+   * 拉取当前会话可用的 slash 命令清单（来自 pi 运行时 get_commands）。
+   * 冷启动守卫同 reloadSession：无活跃进程时先 ensureStarted。
+   */
+  async getCommands(sessionId: string): Promise<CommandInfo[]> {
+    const handle = this.sessions.get(sessionId);
+    if (!handle) {
+      const { sessions } = await this.opts.projectStore.load();
+      const se = sessions.find(s => s.id === sessionId);
+      if (!se) throw new Error(`会话不存在: ${sessionId}`);
+      await this.ensureStarted(se.projectId, se.primaryAgent, sessionId);
+    }
+    const h = this.sessions.get(sessionId);
+    if (!h) throw new Error(`会话启动失败: ${sessionId}`);
+    const { commands } = await h.client.getCommands();
+    return (commands ?? []) as CommandInfo[];
   }
 
   /** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */

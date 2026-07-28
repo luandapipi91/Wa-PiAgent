@@ -159,6 +159,11 @@ export class RpcClient {
     return this.command({ type: "get_messages" }).then((d) => d?.messages ?? []);
   }
 
+  /** 拉取当前会话可用的 slash 命令（extension/prompt/skill 三类，由 pi 运行时决定） */
+  getCommands(): Promise<{ commands: any[] }> {
+    return this.command({ type: "get_commands" });
+  }
+
   /** message 为文本；images 为 ImageContent 数组；streamingBehavior: "steer" | "followUp" */
   prompt(message: string, opts?: { images?: any[]; streamingBehavior?: "steer" | "followUp" }): Promise<any> {
     return this.command({
