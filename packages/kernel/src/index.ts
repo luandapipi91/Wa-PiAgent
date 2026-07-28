@@ -18,9 +18,19 @@ import { extractSdkErrorMessage } from "./sdk-errors";
 import { SdkEventThrottle } from "./event-throttle";
 import { cleanupRecordingTemp } from "./recording-store";
 import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD, PROMPTS_FILE, SUBAGENT_OVERRIDES_FILE } from "@hiagent/shared";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { WSServerEvent } from "@hiagent/shared";
+
+/** 启动时写入 web-search.json，确保 web_search 工具不弹 curator */
+async function ensureWebSearchConfig(hiagentDir: string): Promise<void> {
+  const configPath = join(hiagentDir, "web-search.json");
+  const config = { provider: "exa", workflow: "auto-summary" };
+  try {
+    await mkdir(hiagentDir, { recursive: true });
+    await writeFile(configPath, JSON.stringify(config) + "\n", "utf8");
+  } catch { /* 静默忽略 */ }
+}
 
 export async function startKernel(
   opts?: { staticDir?: string; port?: number }
@@ -70,6 +80,8 @@ export async function startKernel(
   // 启动时 seed 默认工作区虚拟项目（幂等）+ 确保 workdir 根目录存在
   await ensureSystemProject(projectStore);
   console.log(`[kernel] 默认工作区已就绪: ${SYSTEM_PROJECT_CWD}`);
+
+  await ensureWebSearchConfig(HIAGENT_DIR);
 
   // 启动时确保 prompts.json 配置存在（幂等），用户可手动编辑调整段落顺序/内容
   await ensurePromptsConfig(PROMPTS_FILE);

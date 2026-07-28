@@ -99,26 +99,18 @@ export const MemoryScopeSchema = Type.Union(
 // =========================================================================
 
 export const DELEGATE_DESCRIPTION = [
-  "Run a specialized subagent in an isolated context to handle a delegated task, then return its result.",
-  "The subagent runs with its own tools and system prompt; the main agent cannot continue until it returns.",
-  "\n",
-  "Default to delegating multi-step exploration (requests needing several reads/searches) to this",
-  "tool—it keeps noisy tool sequences out of your context. Do single lookups and 1-2 file reads yourself.",
-  "\n",
-  "Use delegate when delegation fits:",
-  "- The task is exploratory or codebase-wide (search, survey, architecture understanding).",
-  "- The task needs many noisy tool calls (repeated grep/read) that would bloat the main context.",
-  "- The task is self-contained and the subagent's focused output is what you need to proceed.",
-  "- Each subagent's <whenToDelegate> / <whenNotTo> / <benefit> in the Available Subagents list tells you when to pick it.",
-  "\n",
-  "Do NOT use delegate when:",
-  "- The answer is a simple lookup, quick edit, or single-step task you can do directly with read/grep/edit.",
-  "- The task needs frequent user back-and-forth.",
-  "- The task is latency-sensitive and the main agent can do it in one step.",
+  "在隔离上下文中运行子智能体（subagent）并返回其结果；主代理阻塞等待其完成。",
   "",
-  "When delegating, write a self-contained task:",
-  "- Include file paths, context, expected output, and whether the subagent may edit files.",
-  "- Do not forward the user's raw text verbatim; synthesize a focused task contract.",
+  "默认委托：答案散落在多处、需要搜索/遍历代码才能汇总的问题——列表/枚举/审计/调查/总结/原理/归类——",
+  "哪怕只涉及一个文件或目录，第一个工具调用就应该是 delegate，不要自己先 grep/read。",
+  "已给出路径也不是自己做的理由。",
+  "",
+  "不要使用 delegate：",
+  "- 单点定义查询（常量值、函数签名、配置项），答案一行能念完——哪怕含几个名字——自己做。",
+  "  但要逐条列出/逐条解释多个条目（哪怕条目都在一个文件里）仍然是派发，不是单点查询。",
+  "- 需要与用户来回交互的任务。",
+  "",
+  "任务写法：自含范围、输出格式、约束；表达意图而非转发原文。返回后直接采用其结果，不要自己重做。",
 ].join("\n");
 
 export const DelegateParamsSchema = Type.Object({

@@ -17,7 +17,7 @@
 
 ### 修复
 
-- **委托提示词 v13 定稿（flash + 思考关闭全量评测 60/60 通过）**：针对 deepseek-v4-flash 无思考模式下的派发触发率，用 60 用例（explore 30 / edit 10 / simple 20）实测迭代 8 版：v3 基线 explore 仅 50%，v13 达 explore 30/30、simple 0 误派、0 错误。核心改动：(1) delegate-mechanism 段改中文正文 + 中文 few-shot 示例（1948→813 字符，-58%）；(2) 派发契约下沉到 delegate 工具描述（工具选择点生效），并修正旧描述「1-2 file reads yourself」与「单文件枚举也派」的规则冲突（~1050→341 字符）；(3) 单事实边界改为「单点定义、答案一行能念完」，明确「逐条列出/解释多个条目即使同文件也派」。提示词总量约 -62%。PROMPTS_SCHEMA_VERSION 10→20 推送迁移。方法论参考 DeepSeek-Reasonix（契约写在工具描述里）。
+- **委托提示词 v14 定稿（flash + 思考关闭全量评测两轮 60/60 通过）**：针对 deepseek-v4-flash 无思考模式下的派发触发率，用 60 用例（explore 30 / edit 10 / simple 20）实测迭代 9 版：v3 基线 explore 仅 50%，v13/v14 各跑出 60/60（explore 30/30、simple 0 误派、0 错误）。核心改动：(1) delegate-mechanism 段改中文正文 + 中文 few-shot 示例（1948→912 字符，-53%）；(2) 派发契约下沉到 delegate 工具描述（工具选择点生效），并修正旧描述「1-2 file reads yourself」与「单文件枚举也派」的规则冲突（~1050→334 字符）；(3) 单事实边界改为「单点定义、答案一行能念完」，明确「逐条列出/解释多个条目即使同文件也派」。提示词总量约 -60%。PROMPTS_SCHEMA_VERSION 10→21 推送迁移。方法论参考 DeepSeek-Reasonix（契约写在工具描述里）。
   - 影响范围：packages/kernel/src/system-prompt.ts, packages/shared/src/tool-schemas.ts, packages/kernel/tests/system-prompt.test.ts, packages/kernel/tests/agent-manager.test.ts
 
 - **派发评测脚本加固 + 隔离**：(1) 每用例前重新生成 .generated 扩展文件（外部 HiAgent 实例会并发清理该目录，曾致用例 pi 启动失败）；(2) pi 进程启动即退出的用例自动重试一次；(3) 评测改在 .worktrees/eval-delegate 隔离 worktree 中运行——edit 用例不再污染主工作区（此前还原评测杂物时误伤过用户并行开发的未提交代码）。

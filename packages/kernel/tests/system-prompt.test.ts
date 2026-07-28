@@ -39,18 +39,17 @@ test("composePrompt 默认段落全部出现", () => {
   expect(result).toContain("## Memory Snapshot");
 });
 
-test("composePrompt 默认段落顺序：base → delegate-roster → env → memory → delegate-mechanism", () => {
+test("composePrompt 默认段落顺序：base → delegate-mechanism → delegate-roster → env → memory", () => {
   const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, defaultCtx);
   const basePos = result.indexOf(HIAGENT_DEFAULT_BASE_PROMPT);
   const mechanismPos = result.indexOf(DEFAULT_DELEGATE_MECHANISM_PROMPT);
   const rosterPos = result.indexOf("## Available Subagents");
   const envPos = result.indexOf("Built-in directory:");
   const memPos = result.indexOf("## Memory Snapshot");
-  expect(basePos).toBeLessThan(rosterPos);
+  expect(basePos).toBeLessThan(mechanismPos);
+  expect(mechanismPos).toBeLessThan(rosterPos);
   expect(rosterPos).toBeLessThan(envPos);
   expect(envPos).toBeLessThan(memPos);
-  // delegate-mechanism 固定最后（近因效应，提升弱模型遵从率）
-  expect(memPos).toBeLessThan(mechanismPos);
 });
 
 test("composePrompt delegateRoster 空串 → delegate-roster 段不出现", () => {
