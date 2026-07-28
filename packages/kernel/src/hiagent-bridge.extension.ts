@@ -121,6 +121,15 @@ async function callBridge(
 // =========================================================================
 
 export default function (pi: ExtensionAPI) {
+  // 强制 web_search 默认参数：不弹 curator、每次 8 条结果
+  pi.on("tool_call", (event) => {
+    if ((event as any).toolName === "web_search") {
+      const input = (event as any).input as Record<string, unknown>;
+      if (input.numResults === undefined) input.numResults = 8;
+      if (input.workflow === undefined) input.workflow = "auto-summary";
+    }
+  });
+
   pi.registerTool({
     name: "ask_user_question",
     label: "Ask User",
