@@ -58,8 +58,8 @@ async function findFileByBasename(root: string, name: string): Promise<string | 
   return null;
 }
 
-/** 预览上限：512KB */
-const MAX_PREVIEW_BYTES = 512 * 1024;
+/** 预览上限：3MB */
+const MAX_PREVIEW_BYTES = 3 * 1024 * 1024;
 
 async function checkPreviewable(absPath: string): Promise<{ ok: true } | { ok: false; reason: string }> {
   const mime = getMimeType(absPath);
@@ -67,7 +67,7 @@ async function checkPreviewable(absPath: string): Promise<{ ok: true } | { ok: f
   if (!isText) return { ok: false, reason: `不支持的文件类型: ${mime}` };
   try {
     const s = await stat(absPath);
-    if (s.size > MAX_PREVIEW_BYTES) return { ok: false, reason: `文件过大 (${(s.size / 1024).toFixed(0)}KB > ${MAX_PREVIEW_BYTES / 1024}KB)` };
+    if (s.size > MAX_PREVIEW_BYTES) return { ok: false, reason: `文件过大 (${(s.size / 1024 / 1024).toFixed(1)}MB > ${MAX_PREVIEW_BYTES / 1024 / 1024}MB)` };
   } catch {
     return { ok: false, reason: "无法获取文件信息" };
   }
