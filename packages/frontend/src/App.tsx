@@ -168,13 +168,16 @@ export function App() {
       "hiagent:reload-config": async () => {
         const sid = useProjectsStore.getState().currentSessionId;
         if (!sid) { useToastStore.getState().add("没有打开的会话", "error"); return; }
+        // 先显示过渡消息
+        useSessionStore.getState().append(sid, {
+          message: { type: "custom", customType: "reload_config", content: "正在重载配置…", timestamp: Date.now() } as any,
+        });
         try {
           await api.post(`/api/sessions/${encodeURIComponent(sid)}/reload`);
-          // 聊天界面显示系统分隔消息
+          // 重载完成
           useSessionStore.getState().append(sid, {
             message: { type: "custom", customType: "reload_config", content: "配置已重载", timestamp: Date.now() } as any,
           });
-          // 刷新前端数据
           useProvidersStore.getState().load();
           useSkillsStore.getState().load();
           useExtensionsStore.getState().load();
