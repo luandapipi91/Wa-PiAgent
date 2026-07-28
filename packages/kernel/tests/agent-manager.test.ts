@@ -17,7 +17,7 @@ import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
 import { SkillManager } from "../src/skill-manager";
 import { getGlobalMemoryStore } from "../src/amaster-memory";
-import { HIAGENT_DIR, BUILTIN_SKILLS_DIR } from "@hiagent/shared";
+import { HIAGENT_DIR, BUILTIN_SKILLS_DIR, DEFAULT_AGENT_TOOLS } from "@hiagent/shared";
 import type { AskParams, ThinkingLevel } from "@hiagent/shared";
 import type { RpcClient, RpcClientOpts } from "../src/rpc-client";
 import { existsSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
@@ -637,6 +637,28 @@ test("listGlobalTools 返回内置工具集（含 grep/find/ls 与网络工具�
     "web_search", "fetch_content", "get_search_content",
   ]));
   expect(names).not.toContain("subagent");
+});
+
+test("listGlobalTools 内置工具 source='内置'，非内置工具不应显示泛化'扩展'", async () => {
+  const { am } = await setup();
+  const tools = await am.listGlobalTools();
+
+  // 所有 DEFAULT_AGENT_TOOLS 中的工具 source 应为 "内置"
+  for (const t of tools) {
+    if (DEFAULT_AGENT_TOOLS.includes(t.name as any)) {
+      expect(t.source).toBe("内置");
+    }
+  }
+
+  // web_search 是内置工具，不应显示 "扩展" 或 "插件"
+  const ws = tools.find(t => t.name === "web_search");
+  expect(ws?.source).toBe("内置");
+
+  // 非内置工具（MCP/动态插件）的 source 应为具体名称，不再是泛化 "扩展"
+  const extTools = tools.filter(t => !DEFAULT_AGENT_TOOLS.includes(t.name as any));
+  for (const t of extTools) {
+    expect(t.source).not.toBe("扩展");
+  }
 });
 
 // ─── 系统提示词（读 sysprompts/<id>.md 断言组合结果） ───────────────────────
