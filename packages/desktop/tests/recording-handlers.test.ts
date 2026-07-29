@@ -50,3 +50,17 @@ test("permission handler 仅放行媒体/录音相关权限", () => {
   expect(session._pch(null, "notifications")).toBe(false);
   expect(session._pch(null, "geolocation")).toBe(false);
 });
+
+test("permission handler 放行 clipboard-read / clipboard-write，保证打包后复制功能正常", () => {
+  const { session } = makeFakeSession();
+  setupRecordingHandlers(session as any, { getSources: async () => [] } as any);
+
+  expect(session._pch(null, "clipboard-read")).toBe(true);
+  expect(session._pch(null, "clipboard-write")).toBe(true);
+
+  let cbRead = false, cbWrite = false;
+  session._prh(null, "clipboard-read", (v: boolean) => { cbRead = v; });
+  session._prh(null, "clipboard-write", (v: boolean) => { cbWrite = v; });
+  expect(cbRead).toBe(true);
+  expect(cbWrite).toBe(true);
+});

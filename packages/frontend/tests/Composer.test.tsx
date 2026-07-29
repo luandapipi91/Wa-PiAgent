@@ -148,7 +148,7 @@ describe("Composer", () => {
     });
   });
 
-  it("agent 思考中发送消息不乐观显示（入队等待，不立即显示用户消息+AI loading）", () => {
+  it("agent 思考中发送消息入队但不注入会话列表，标记 optimisticEcho 防止 echo_user 重复", () => {
     useComposerPrefsStore.setState({
       bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
     });
@@ -161,9 +161,11 @@ describe("Composer", () => {
 
     const s = useSessionStore.getState();
     expect(lastPrompt()).toMatchObject({ text: "排队等一下" });
+    // 消息不应出现在会话列表（仅入 followUp 队列）
     expect(s.messagesBySession["s1"] ?? []).toHaveLength(0);
     expect(s.streamingBySession["s1"]).toBeFalsy();
-    expect(s.optimisticEchoBySession["s1"]).toBeFalsy();
+    // 必须标记 optimisticEcho，否则 kernel 的 session:echo_user 会把 followUp 消息重复注入 messagesBySession
+    expect(s.optimisticEchoBySession["s1"]).toBe(true);
   });
 
   it("乐观发送：点击发送立即入列用户消息 + 占位 AI loading + status thinking（不等 SDK 回声）", () => {

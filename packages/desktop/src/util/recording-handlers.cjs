@@ -2,8 +2,8 @@
 // 同时自动放行 media 权限（麦克风免弹窗）。确切回调参数以 spec A POC 为准。
 // session / desktopCapturer 由调用方传入（解耦 Electron，便于单测注入）。
 function setupRecordingHandlers(session, desktopCapturer) {
-  // 最小权限白名单：仅放行录音/录屏所需的 media 相关权限，其他一律拒绝
-  const RECORDING_PERMISSIONS = ["media", "mediaKeySystem", "display-capture"];
+  // 最小权限白名单：放行录音/录屏所需的 media 权限 + 前端复制功能所需的 clipboard 权限
+  const ALLOWED_PERMISSIONS = ["media", "mediaKeySystem", "display-capture", "clipboard-read", "clipboard-write"];
 
   session.setDisplayMediaRequestHandler(async (_req, cb) => {
     // 给系统回环音频；video 提供主屏 source 以满足 getDisplayMedia 协议（前端只取 audio track）
@@ -17,10 +17,10 @@ function setupRecordingHandlers(session, desktopCapturer) {
 
   // 麦克风免弹窗：仅放行白名单内的权限，其他权限请求一律拒绝（最小权限原则）
   session.setPermissionRequestHandler((_wc, permission, cb) => {
-    cb(RECORDING_PERMISSIONS.includes(permission));
+    cb(ALLOWED_PERMISSIONS.includes(permission));
   });
   session.setPermissionCheckHandler((_wc, permission) => {
-    return RECORDING_PERMISSIONS.includes(permission);
+    return ALLOWED_PERMISSIONS.includes(permission);
   });
 }
 

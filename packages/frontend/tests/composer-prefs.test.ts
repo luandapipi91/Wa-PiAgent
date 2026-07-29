@@ -99,6 +99,26 @@ describe("composer-prefs store", () => {
     expect(await getDefaults()).toEqual({ model: "persisted-model", thinking: "high" });
   });
 
+  it("重启往返：setDefaults({thinking}) → 重置内存态 → loadDefaults 应恢复存储的 thinking", async () => {
+    // 模拟用户在新建页设置思考强度
+    useComposerPrefsStore.getState().setDefaults({ thinking: "high" });
+    // 等待 fire-and-forget 的 IndexedDB 写入完成
+    await new Promise((r) => setTimeout(r, 10));
+
+    // 模拟软件重启：zustand 内存态回到初始值（IndexedDB 数据保留）
+    useComposerPrefsStore.setState({
+      defaults: { model: null, thinking: "disabled" },
+      bySession: {},
+      newSessionIds: {},
+    });
+
+    // 重新加载（NewSessionPane 挂载时触发）
+    await useComposerPrefsStore.getState().loadDefaults();
+
+    // 关键断言：思考强度应从 IndexedDB 恢复为 high，而非停留在 disabled
+    expect(useComposerPrefsStore.getState().defaults.thinking).toBe("high");
+  });
+
   it("setNewSessionId persists new session ids to IndexedDB", async () => {
     await dbSetNewSessionIds({ p1: "ns-1" });
 
@@ -120,5 +140,37 @@ describe("composer-prefs store", () => {
     // loadSession 不应覆盖 auto-select 结果
     const state = useComposerPrefsStore.getState();
     expect(state.bySession["new-session"].model).toBe("openai/gpt-4o");
+  });
+
+  it("复现：新会话设 max → 切到老会话(off) → 重启后 defaults 应保持 max", async () => {
+    // 老会话已有 off 偏好
+    await dbSetDefaults({ model: null, thinking: "disabled" });
+    await dbSetSessionPrefs({
+      sessionId: "old-session", model: null, thinking: "disabled",
+      attachments: [], updatedAt: Date.now(),
+    });
+
+    // 1. 用户在新会话设置思考强度 max（NewSessionPane.setDefaults）
+    useComposerPrefsStore.getState().setDefaults({ thinking: "max" });
+    await new Promise((r) => setTimeout(r, 10)); // 等 fire-and-forget 写入完成
+
+    // 2. 切到老会话：Composer 挂载 → loadSession(old-session)
+    await useComposerPrefsStore.getState().loadSession("old-session");
+
+    // 2b. 在老会话里改了 model（Composer.setModel 走 setSessionPrefs）
+    useComposerPrefsStore.getState().setSessionPrefs("old-session", { model: "openai/gpt-4o" });
+    await new Promise((r) => setTimeout(r, 10));
+
+    // 3. 软件重启：内存态重置，IndexedDB 保留
+    useComposerPrefsStore.setState({
+      defaults: { model: null, thinking: "disabled" },
+      bySession: {}, newSessionIds: {},
+    });
+
+    // 4. 重开 → NewSessionPane 挂载 → loadDefaults
+    await useComposerPrefsStore.getState().loadDefaults();
+
+    // 关键断言：用户在新会话设的 max 应被保留，而非被老会话的 off 覆盖
+    expect(useComposerPrefsStore.getState().defaults.thinking).toBe("max");
   });
 });

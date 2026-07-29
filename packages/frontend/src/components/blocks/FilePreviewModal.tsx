@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Modal } from "../ui/Modal";
 import { readFile, revealFile } from "../../fs-client";
 import { useToastStore } from "../../store/toast";
+import { copyToClipboard } from "../../util/clipboard";
 
 /** kernel fs:readFile 的 content 为 base64（二进制安全），文本预览需解码为 UTF-8 */
 function decodeBase64(b64: string): string {
@@ -36,7 +37,7 @@ export function FilePreviewModal({ absPath, onClose }: { absPath: string; onClos
 
   const copyPath = async () => {
     try {
-      await navigator.clipboard.writeText(displayPath);
+      await copyToClipboard(displayPath);
       addToast("已复制路径", "success");
     } catch {
       addToast("复制失败", "error");

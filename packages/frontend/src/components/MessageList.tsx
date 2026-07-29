@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useToastStore } from "../store/toast";
+import { copyToClipboard } from "../util/clipboard";
 import { useAgentsStore } from "../store/agents";
 import { DelegateCard } from "./blocks/DelegateCard";
 import { FleetCard } from "./blocks/FleetCard";
@@ -725,7 +726,7 @@ function CopyButton({ text, testId }: { text: string; testId?: string }) {
 	const addToast = useToastStore((s) => s.add);
 	const handleCopy = async () => {
 		try {
-			await navigator.clipboard.writeText(text);
+			await copyToClipboard(text);
 			addToast("已复制到剪贴板", "success");
 		} catch {
 			addToast("复制失败", "error");

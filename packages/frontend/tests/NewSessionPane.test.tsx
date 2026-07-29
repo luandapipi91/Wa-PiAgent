@@ -479,4 +479,37 @@ describe("NewSessionPane", () => {
     const select = screen.getByTestId("project-select") as HTMLSelectElement;
     expect(select.value).toBe(SYSTEM_PROJECT_ID);
   });
+
+  it("发送后确保导航到新建的会话（不复用已存在的旧会话 id）", async () => {
+    composerDbDefaults.model = "gpt-4o";
+    composerDbDefaults.thinking = "disabled";
+    useProvidersStore.setState({
+      providers: [
+        { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
+      ],
+    });
+
+    // 模拟打包态真实场景：存在一个旧会话，且 newSessionIds 残留了它的 id（session:created 未及时清除 / app 重启后从 IndexedDB 读出）
+    const staleId = "s-old-session";
+    useProjectsStore.setState({
+      sessions: [{ id: staleId, projectId: "p1", primaryAgent: "dev", title: "旧会话", createdAt: 0, lastActivity: 0, piSessionFile: "" }],
+    });
+    composerDbNewSessionIds["p1"] = staleId;
+    useComposerPrefsStore.setState({ newSessionIds: { p1: staleId } });
+
+    render(<NewSessionPane />);
+    await waitFor(() => {
+      expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
+    });
+
+    typeIntoComposer("全新会话");
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    // 关键断言：必须创建一个全新的会话（新 id），而不是复用 staleId 跳到旧会话
+    await waitFor(() => {
+      const state = useProjectsStore.getState();
+      expect(state.currentSessionId).not.toBe(staleId);
+      expect(state.sessions.some((s) => s.id !== staleId && s.title === "全新会话")).toBe(true);
+    });
+  });
 });

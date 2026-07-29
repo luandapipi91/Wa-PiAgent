@@ -43,6 +43,21 @@ test("无效语法显示错误提示", async () => {
   expect(err.textContent).toContain("Mermaid");
 });
 
+test("流式生成中 code 连续变化（中途解析失败）不闪现错误，稳定后渲染成功", async () => {
+  // 模拟流式：先传不完整代码（解析失败），在 debounce 窗口内补全为有效代码
+  const { rerender } = render(<MermaidBlock code="graph TD" />);
+  // 等待一次 render 周期（失败的 render 进入 debounce，尚未 setError）
+  await new Promise((r) => setTimeout(r, 50));
+  // 此时不应显示 error（被 debounce 压住），应为 loading
+  expect(screen.queryByTestId("mermaid-error")).toBeNull();
+  // 流式补全代码
+  rerender(<MermaidBlock code="graph TD\nA-->B" />);
+  const svg = await screen.findByTestId("mermaid-svg", {}, { timeout: 3000 });
+  expect(svg).toBeTruthy();
+  // 全程不应出现错误
+  expect(screen.queryByTestId("mermaid-error")).toBeNull();
+});
+
 test("渲染过程中显示加载状态", () => {
   render(<MermaidBlock code="graph TD\nA-->B" />);
   const loading = screen.getByTestId("mermaid-loading");

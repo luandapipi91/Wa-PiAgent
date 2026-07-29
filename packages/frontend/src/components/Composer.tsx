@@ -42,11 +42,13 @@ export function Composer({ sessionId, agentName, isRunning, isNewSession, disabl
     if (!isRunning) {
       useSessionStore.getState().optimisticSend(sessionId, expandedText, targetAgent);
     } else {
-      // 乐观追加到排队列表
+      // 乐观追加到排队列表，同时标记 optimisticEcho 防止 kernel 的 session:echo_user
+      // 把 followUp 消息重复注入到会话列表（echo_user 会对每条 prompt 回传）
       useSessionStore.setState(s => {
         const cur = s.queueBySession[sessionId];
         return {
           queueBySession: { ...s.queueBySession, [sessionId]: { steering: cur?.steering ?? [], followUp: cur ? [...cur.followUp, expandedText] : [expandedText] } },
+          optimisticEchoBySession: { ...s.optimisticEchoBySession, [sessionId]: true },
         };
       });
     }

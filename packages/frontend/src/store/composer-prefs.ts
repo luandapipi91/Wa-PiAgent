@@ -72,7 +72,12 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
       const current = s.bySession[sessionId] ?? { model: s.defaults.model, thinking: s.defaults.thinking, attachments: [] };
       const next = { ...current, ...prefs };
       void dbSetSessionPrefs({ sessionId, ...next, updatedAt: Date.now() });
-      const newDefaults = { model: next.model, thinking: next.thinking };
+      // 仅把用户本次显式修改的字段（prefs 参数）同步到全局 defaults，
+      // 而非用整个 session prefs 覆盖——否则切到老会话改 model 时，
+      // 会把老会话的 thinking（可能为 disabled）误写进 defaults，污染新会话默认值。
+      const newDefaults = { ...s.defaults };
+      if (prefs.model !== undefined) newDefaults.model = prefs.model;
+      if (prefs.thinking !== undefined) newDefaults.thinking = prefs.thinking;
       void setDefaults(newDefaults);
       return {
         bySession: { ...s.bySession, [sessionId]: next },
