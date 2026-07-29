@@ -178,6 +178,33 @@ test("agent_end 设置 status=idle", () => {
   expect(useSessionStore.getState().statusBySession["s1"]).toBe("idle");
 });
 
+test("agent_end 清掉 optimisticSend 的 pending 占位（扩展命令无 agent turn 场景）", () => {
+  // 模拟发送 /mcp-auth 这类扩展命令：乐观占位后没有任何 agent 事件，
+  // kernel 合成的 agent_end 必须把 thinking + loading 气泡一起复位
+  useSessionStore.getState().optimisticSend("s1", "/mcp-auth", "dev");
+  expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+  expect((useSessionStore.getState().streamingBySession["s1"]?.message as any)?.stopReason).toBe("pending");
+
+  useSessionStore.getState().handleSDKEvent("s1", envelope({ type: "agent_end", messages: [], willRetry: false }));
+
+  const s = useSessionStore.getState();
+  expect(s.statusBySession["s1"]).toBe("idle");
+  expect(s.streamingBySession["s1"]).toBeNull();
+  expect(s.thinkingSinceBySession["s1"]).toBeNull();
+  expect(s.optimisticEchoBySession["s1"]).toBe(false);
+});
+
+test("agent_end 不清除真实 partial（非 pending 的 streaming 保留）", () => {
+  useSessionStore.setState({
+    statusBySession: { s1: "thinking" },
+    streamingBySession: {
+      s1: { message: { role: "assistant", content: [{ type: "text", text: "半截回复" }], timestamp: 1 } as any, agentName: "dev" },
+    },
+  });
+  useSessionStore.getState().handleSDKEvent("s1", envelope({ type: "agent_end", messages: [], willRetry: false }));
+  expect(useSessionStore.getState().streamingBySession["s1"]).not.toBeNull();
+});
+
 test("message_update 更新 streamingMessage（用 assistantMessageEvent.partial，rAF 合帧后生效）", async () => {
   // 先设初始 streaming
   useSessionStore.setState({

@@ -1250,11 +1250,63 @@ test("getCommands 会话不存在时自动创建 session 并返回命令", async
   expect(sessions.find((s: any) => s.id === "new-session-id")).toBeTruthy();
 });
 
+test("getCommands 过滤 TUI-only 扩展的命令（sourceInfo 指向含 ui.custom 的包）", async () => {
+  // 造两个临时扩展包：tui-ext 子文件含 ui.custom( 调用，plain-ext 不含
+  const root = join(HIAGENT_DIR, "tmp", `tui-filter-${Date.now()}`);
+  tmpPaths.push(root);
+  const tuiDir = join(root, "tui-ext");
+  mkdirSync(join(tuiDir, "lib"), { recursive: true });
+  writeFileSync(join(tuiDir, "package.json"), JSON.stringify({ name: "tui-ext" }));
+  writeFileSync(join(tuiDir, "lib", "panel.ts"), `export const open = (ctx: any) => ctx.ui.custom(() => {});\n`);
+  const plainDir = join(root, "plain-ext");
+  mkdirSync(plainDir, { recursive: true });
+  writeFileSync(join(plainDir, "package.json"), JSON.stringify({ name: "plain-ext" }));
+  writeFileSync(join(plainDir, "index.ts"), `export const y = 2;\n`);
+
+  const { am, project, session, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+  fakes[0].commandsToReturn = [
+    { name: "mcp-auth", source: "extension", sourceInfo: { path: join(tuiDir, "index.ts") } },
+    { name: "hello", source: "extension", sourceInfo: { path: join(plainDir, "index.ts") } },
+    { name: "goal", source: "extension" }, // 无 sourceInfo → 保留
+  ];
+
+  const commands = await am.getCommands(session.id);
+  expect(commands.map((c) => c.name)).toEqual(["hello", "goal"]);
+});
+
+test("prompt 时 TUI-only 命令加前导空格降级为普通文本（绕过 pi 命令分发）", async () => {
+  // 造 TUI-only 扩展包并让命令缓存建立（模拟 / 菜单已拉取）
+  const root = join(HIAGENT_DIR, "tmp", `tui-filter-${Date.now()}`);
+  tmpPaths.push(root);
+  const tuiDir = join(root, "tui-ext");
+  mkdirSync(join(tuiDir, "lib"), { recursive: true });
+  writeFileSync(join(tuiDir, "package.json"), JSON.stringify({ name: "tui-ext" }));
+  writeFileSync(join(tuiDir, "lib", "panel.ts"), `export const open = (ctx: any) => ctx.ui.custom(() => {});\n`);
+
+  const { project, session, am, fakes } = await setup();
+  await am.ensureStarted(project.id, "dev", session.id);
+  fakes[0].commandsToReturn = [
+    { name: "mcp-auth", source: "extension", sourceInfo: { path: join(tuiDir, "index.ts") } },
+    { name: "goal", source: "extension" },
+  ];
+  await am.getCommands(session.id); // 建立命令缓存 + TUI 命令集合
+
+  await am.prompt(session.id, "/mcp-auth", { model: MODEL });
+  // pi 收到的是带前导空格的普通文本（按普通 prompt 进大模型，不走命令分发）
+  expect(fakes[0].prompted[0]).toBe(" /mcp-auth");
+
+  // 非 TUI-only 命令原样发送（正常走 pi 命令分发）
+  await am.prompt(session.id, "/goal", { model: MODEL });
+  expect(fakes[0].prompted[1]).toBe("/goal");
+});
+
 // ─── 扩展命令拦截 prompt 时不卡在 thinking 状态 ─────────────────────────────
 // 当扩展命令（如 /goal）拦截 prompt 时，agent_start 不会触发，
 // _sendPromptNow 的乐观 busy=true 必须能复位，否则前端永远显示"思考中"。
 test("扩展命令拦截 prompt 时不卡在 busy 状态", async () => {
-  const { project, session, am, fakes } = await setup();
+  const events: CapturedEvent[] = [];
+  const { project, session, am, fakes } = await setup({ events });
   await am.ensureStarted(project.id, "dev", session.id);
 
   // 模拟扩展命令拦截：prompt 返回成功但 agent_start 不触发
@@ -1270,4 +1322,7 @@ test("扩展命令拦截 prompt 时不卡在 busy 状态", async () => {
 
   // thinkingSince 也应为 null（没有 agent_start）
   expect(am.getThinkingSince(session.id)).toBeNull();
+
+  // 合成 agent_end：让前端退出 thinking / 清掉 loading 占位
+  expect(events.find((x) => x.e.type === "agent_end")).toBeTruthy();
 });

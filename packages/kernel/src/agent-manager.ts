@@ -43,6 +43,7 @@ import type { ProviderStore } from "./provider-store";
 import { relative, join } from "node:path";
 import { mkdir, writeFile, rm, appendFile } from "node:fs/promises";
 import { buildAdditionalExtensionPaths } from "./extensions";
+import { filterTuiCommands, isTuiOnlyCommand, type RawCommandInfo } from "./tui-command-filter";
 import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import { reconcileDanglingAsks } from "./ask-tool";
 import {
@@ -861,6 +862,11 @@ export class AgentManager {
 		setTimeout(() => {
 			if (handle.busy && handle.thinkingSince === null) {
 				handle.busy = false;
+				// 扩展命令不产生任何 agent 事件：前端 optimisticSend 的 thinking/loading
+				// 占位等不到终态事件，会一直转圈。合成 agent_end 让前端退出思考态。
+				this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
+					type: "agent_end",
+				});
 			}
 		}, 50);
 	}
@@ -889,6 +895,19 @@ export class AgentManager {
 	): Promise<void> {
 		const handle = this.sessions.get(sessionId);
 		if (!handle) throw new Error(`会话未启动: ${sessionId}`);
+
+		// TUI-only 命令（/ 菜单已屏蔽的）不交给 pi 命令分发：加前导空格让 pi
+		// 按普通文本发给大模型（pi 只认 / 开头的文本为命令）。否则 handler 要么
+		// 静默成功（前端什么都看不到），要么触发 RPC 不支持的 TUI 面板。
+		// 命令清单未拉取过时先拉一次（结果有 5min 缓存，扫描结果复用）。
+		if (text.startsWith("/")) {
+			if (!this._commandsCache) {
+				await this._fetchAndCacheCommands(handle.client).catch(() => []);
+			}
+			const sp = text.indexOf(" ");
+			const cmdName = sp === -1 ? text.slice(1) : text.slice(1, sp);
+			if (isTuiOnlyCommand(cmdName)) text = ` ${text}`;
+		}
 
 		// 所有消息必须跟随用户显式选择的模型，禁止回退到 agent config 或 pi 默认模型
 		if (!opts?.model) {
@@ -1111,10 +1130,7 @@ export class AgentManager {
 		// 2. 当前 session 已有活跃进程 → 直接取
 		const handle = this.sessions.get(sessionId);
 		if (handle?.client.isAlive()) {
-			const { commands } = await handle.client.getCommands();
-			const cmds = (commands ?? []) as CommandInfo[];
-			this._commandsCache = { commands: cmds, ts: Date.now() };
-			return cmds;
+			return this._fetchAndCacheCommands(handle.client);
 		}
 
 		// 3. 当前 session 存在但进程未启动 → ensureStarted 后取
@@ -1124,10 +1140,7 @@ export class AgentManager {
 			await this.ensureStarted(se.projectId, se.primaryAgent, sessionId);
 			const h = this.sessions.get(sessionId);
 			if (h?.client.isAlive()) {
-				const { commands } = await h.client.getCommands();
-				const cmds = (commands ?? []) as CommandInfo[];
-				this._commandsCache = { commands: cmds, ts: Date.now() };
-				return cmds;
+				return this._fetchAndCacheCommands(h.client);
 			}
 			return [];
 		}
@@ -1135,10 +1148,7 @@ export class AgentManager {
 		// 4. session 不存在（新会话页面）：借用任意活跃进程
 		for (const [_, h] of this.sessions) {
 			if (h.client.isAlive()) {
-				const { commands } = await h.client.getCommands();
-				const cmds = (commands ?? []) as CommandInfo[];
-				this._commandsCache = { commands: cmds, ts: Date.now() };
-				return cmds;
+				return this._fetchAndCacheCommands(h.client);
 			}
 		}
 
@@ -1162,10 +1172,7 @@ export class AgentManager {
 			await this.ensureStarted(projectId, agentName as AgentName, sessionId);
 			const h = this.sessions.get(sessionId);
 			if (h?.client.isAlive()) {
-				const { commands } = await h.client.getCommands();
-				const cmds = (commands ?? []) as CommandInfo[];
-				this._commandsCache = { commands: cmds, ts: Date.now() };
-				return cmds;
+				return this._fetchAndCacheCommands(h.client);
 			}
 		}
 
@@ -1174,6 +1181,14 @@ export class AgentManager {
 
 	/** 命令缓存（全局，插件命令对所有 agent 一致，5min TTL） */
 	private _commandsCache: { commands: CommandInfo[]; ts: number } | null = null;
+
+	/** 从 pi 进程拉取命令清单：过滤 TUI-only 命令（RPC 模式不可用）后写入缓存 */
+	private async _fetchAndCacheCommands(client: RpcClient): Promise<CommandInfo[]> {
+		const { commands } = await client.getCommands();
+		const cmds = filterTuiCommands((commands ?? []) as RawCommandInfo[]);
+		this._commandsCache = { commands: cmds, ts: Date.now() };
+		return cmds;
+	}
 
 	/** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */
 	async disposeSession(sessionId: string): Promise<void> {

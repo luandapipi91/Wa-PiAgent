@@ -1,8 +1,5 @@
-diff --git a/node_modules/pi-mcp-adapter/.bun-tag-61f7bd33cac208df b/.bun-tag-61f7bd33cac208df
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/package.json b/package.json
-index 12afe84d0e6c91f16982601a1d3a3a86405b432b..7f5baa0976418632d479bae3a01b460804aaac4d 100644
+index f4c32a7f9f8372f7bf1e261403c83864ea13e286..19eae91d2ee6dd8729039acf59e1035cbd3e6373 100644
 --- a/package.json
 +++ b/package.json
 @@ -14,6 +14,11 @@
