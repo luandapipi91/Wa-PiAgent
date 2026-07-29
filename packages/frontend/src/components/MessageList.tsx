@@ -39,6 +39,8 @@ interface Props {
 interface RenderedRow {
 	main: SessionMessage;
 	toolResults: Map<string, ToolResultMessage>;
+	/** 合并行中专用的 streaming 起始 index（内容数组中从该 index 开始为新到达的流式块） */
+	streamingStartIdx?: number;
 }
 
 export function MessageList({ sessionId }: Props) {
@@ -202,6 +204,7 @@ export function MessageList({ sessionId }: Props) {
 				},
 			},
 			toolResults: lastRow.toolResults,
+			streamingStartIdx: (lastMain.content ?? []).length,
 		};
 		displayRows = [...rows.slice(0, -1), merged];
 	}
@@ -566,13 +569,16 @@ function MessageRow({
 				</div>
 
 				{segments.map((seg, si) => {
-					// 思考过程 — ProcessCard：流式中展开，结束自动折叠弱化。多个相邻 thinking block 合并为一个
+					// 合并行中：仅 seg.firstBlockIdx >= streamingStartIdx 的段才是真正的流式段
+					const segIsStreaming = isStreaming &&
+						(row.streamingStartIdx == null || seg.firstBlockIdx >= row.streamingStartIdx);
+					// 思考过程 — ProcessCard：每段独立成卡（不合并），区分 finalized vs streaming
 					if (seg.kind === "thinking") {
 						return (
 							<ThinkingCard
 								key={si}
 								thinking={seg.texts.join("\n")}
-								isStreaming={isStreaming}
+								isStreaming={segIsStreaming}
 							/>
 						);
 					}
@@ -583,7 +589,7 @@ function MessageRow({
 								key={si}
 								toolCalls={seg.calls}
 								results={row.toolResults}
-								isStreaming={isStreaming}
+								isStreaming={segIsStreaming}
 							/>
 						);
 					}
@@ -595,7 +601,7 @@ function MessageRow({
 								sessionId={sessionId}
 								toolCall={seg.call}
 								result={row.toolResults.get(seg.call.id)}
-								isStreaming={isStreaming}
+								isStreaming={segIsStreaming}
 							/>
 						);
 					}
@@ -607,7 +613,7 @@ function MessageRow({
 								sessionId={sessionId}
 								toolCall={seg.call}
 								result={row.toolResults.get(seg.call.id)}
-								isStreaming={isStreaming}
+								isStreaming={segIsStreaming}
 							/>
 						);
 					}
@@ -654,11 +660,11 @@ function MessageRow({
 }
 
 type Segment =
-	| { kind: "thinking"; texts: string[] }
-	| { kind: "text"; texts: string[] }
-	| { kind: "toolCalls"; calls: any[] }
-	| { kind: "delegate"; call: any }
-	| { kind: "fleet"; call: any };
+	| { kind: "thinking"; texts: string[]; firstBlockIdx: number }
+	| { kind: "text"; texts: string[]; firstBlockIdx: number }
+	| { kind: "toolCalls"; calls: any[]; firstBlockIdx: number }
+	| { kind: "delegate"; call: any; firstBlockIdx: number }
+	| { kind: "fleet"; call: any; firstBlockIdx: number };
 
 /**
  * 把 assistant content 切成渲染段，保持 SDK 事件到达的时间线顺序。
@@ -682,31 +688,30 @@ function segmentBlocks(blocks: any[]): Segment[] {
 		}
 	};
 
-	for (const b of blocks) {
+	for (let idx = 0; idx < blocks.length; idx++) {
+		const b = blocks[idx];
 		if (b.type === "thinking") {
-			if (!cur || cur.kind !== "thinking") {
-				push();
-				cur = { kind: "thinking", texts: [] };
-			}
-			cur.texts.push(b.thinking);
+			// thinking 不合并：每段独立成卡，区分 finalized/streaming
+			push();
+			segs.push({ kind: "thinking", texts: [b.thinking], firstBlockIdx: idx });
 		} else if (b.type === "text") {
 			if (!b.text?.trim()) continue;
 			if (!cur || cur.kind !== "text") {
 				push();
-				cur = { kind: "text", texts: [] };
+				cur = { kind: "text", texts: [], firstBlockIdx: idx };
 			}
 			cur.texts.push(b.text);
 		} else if (b.type === "toolCall") {
 			if (b.name === "delegate") {
 				push();
-				segs.push({ kind: "delegate", call: b });
+				segs.push({ kind: "delegate", call: b, firstBlockIdx: idx });
 			} else if (b.name === "fleet") {
 				push();
-				segs.push({ kind: "fleet", call: b });
+				segs.push({ kind: "fleet", call: b, firstBlockIdx: idx });
 			} else {
 				if (!cur || cur.kind !== "toolCalls") {
 					push();
-					cur = { kind: "toolCalls", calls: [] };
+					cur = { kind: "toolCalls", calls: [], firstBlockIdx: idx };
 				}
 				cur.calls.push(b);
 			}
