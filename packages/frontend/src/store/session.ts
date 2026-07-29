@@ -348,11 +348,23 @@ export const useSessionStore = create<SessionState>((set) => {
       // agent 结束：回 idle，清起算时间；若该会话非当前会话（用户在别处），标记未读新回复
       case "agent_end": {
         const away = sessionId !== useProjectsStore.getState().currentSessionId;
-        set(s => ({
-          statusBySession: { ...s.statusBySession, [sessionId]: "idle" },
-          thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: null },
-          unreadBySession: away ? { ...s.unreadBySession, [sessionId]: true } : s.unreadBySession,
-        }));
+        // 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 复活
+        streamingBatcher.drop(sessionId);
+        set(s => {
+          // 扩展命令（如 /mcp-auth）无 agent turn：optimisticSend 的 loading 占位
+          // （stopReason==="pending"）需要在此清掉，否则气泡一直转圈。
+          // 正常流程 streaming 已被 message_end 定稿清空，此处为 no-op；
+          // 只清 pending 占位，绝不动真实 partial。
+          const streaming = s.streamingBySession[sessionId];
+          const isPlaceholder = (streaming?.message as any)?.stopReason === "pending";
+          return {
+            statusBySession: { ...s.statusBySession, [sessionId]: "idle" },
+            thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: null },
+            unreadBySession: away ? { ...s.unreadBySession, [sessionId]: true } : s.unreadBySession,
+            streamingBySession: isPlaceholder ? { ...s.streamingBySession, [sessionId]: null } : s.streamingBySession,
+            optimisticEchoBySession: { ...s.optimisticEchoBySession, [sessionId]: false },
+          };
+        });
         break;
       }
       // 队列更新：steering / followUp 消息列表

@@ -14,15 +14,15 @@
     "eval:delegate": "bun run scripts/eval-delegate-trigger.ts"
   },
   "dependencies": {
-    "@amaster.ai/pi-memory": "^0.1.5",
-    "@earendil-works/pi-ai": "^0.80.6",
-    "@earendil-works/pi-coding-agent": "^0.80.0",
+    "@amaster.ai/pi-memory": "^0.1.6",
+    "@earendil-works/pi-ai": "^0.82.1",
+    "@earendil-works/pi-coding-agent": "^0.82.1",
     "@hiagent/shared": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "pi-mcp-adapter": "2.13.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "pi-mcp-adapter": "2.15.0",
     "pi-open-agents": "^0.1.12",
-    "pi-web-access": "^0.13.0",
-    "pi-cache-optimizer": "^2.6.24",
+    "pi-web-access": "^0.15.0",
+    "pi-cache-optimizer": "^2.6.25",
     "typebox": "1.1.38"
   }
 }

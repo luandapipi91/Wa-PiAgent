@@ -40,10 +40,12 @@ const BRIDGE_SESSION_ID = process.env.HIAGENT_SESSION_ID;
 
 const DEFAULT_TIMEOUT_MS = 60_000; // 普通工具 60s
 const ASK_TIMEOUT_MS = 600_000; // ask 等用户回答，放宽到 10 分钟
+const DELEGATE_TIMEOUT_MS = 1_800_000; // delegate/fleet 子智能体执行，与 subagent-runner 对齐 30 分钟
 
 type BridgeToolResult = {
   content: Array<{ type: "text"; text: string }>;
-  details?: unknown;
+  // pi 0.82 起 AgentToolResult.details 为必填（类型层面对齐；运行期 undefined 行为不变）
+  details: unknown;
 };
 
 function missingEnvError(): string | null {
@@ -210,7 +212,7 @@ export default function (pi: ExtensionAPI) {
     description: DELEGATE_DESCRIPTION,
     parameters: DelegateParamsSchema,
     async execute(toolCallId, params, signal) {
-      return callBridge("delegate", toolCallId, params, signal);
+      return callBridge("delegate", toolCallId, params, signal, DELEGATE_TIMEOUT_MS);
     },
   });
 
@@ -220,7 +222,7 @@ export default function (pi: ExtensionAPI) {
     description: FLEET_DESCRIPTION,
     parameters: FleetParamsSchema,
     async execute(toolCallId, params, signal) {
-      return callBridge("fleet", toolCallId, params, signal);
+      return callBridge("fleet", toolCallId, params, signal, DELEGATE_TIMEOUT_MS);
     },
   });
 }

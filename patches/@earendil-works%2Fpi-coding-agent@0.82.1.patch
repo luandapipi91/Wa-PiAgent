@@ -1,14 +1,8 @@
-diff --git a/node_modules/@earendil-works/pi-coding-agent/.bun-tag-315f30759f3634ea b/.bun-tag-315f30759f3634ea
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/node_modules/@earendil-works/pi-coding-agent/.bun-tag-3a6d12378095e532 b/.bun-tag-3a6d12378095e532
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/dist/core/agent-session.js b/dist/core/agent-session.js
-index 7cdf28aa34c8a8f948d1cc586eae774a93489fe4..d1573edd3fb89c7445b5c549c5eb22779e0c819b 100644
+index c99a78f31ce2d58973ab1809bd72deb8a1f4135b..6487c9133026c62b4352139e8b648ee97ebc49a5 100644
 --- a/dist/core/agent-session.js
 +++ b/dist/core/agent-session.js
-@@ -939,6 +939,11 @@ export class AgentSession {
+@@ -933,6 +933,11 @@ export class AgentSession {
              return true;
          }
          catch (err) {
@@ -21,7 +15,7 @@ index 7cdf28aa34c8a8f948d1cc586eae774a93489fe4..d1573edd3fb89c7445b5c549c5eb2277
              this._extensionRunner.emitError({
                  extensionPath: `command:${commandName}`,
 diff --git a/dist/modes/rpc/rpc-mode.js b/dist/modes/rpc/rpc-mode.js
-index f86bf8cd820bd8eb774720026c2e5fa982ca7873..718b4a973411d7ac9f8969966ac0e36b8ba737fa 100644
+index f5070072477ebb0288622be341291e89d4b08dc8..2d11b303b4345195f2908f295d5efe2df2630a7c 100644
 --- a/dist/modes/rpc/rpc-mode.js
 +++ b/dist/modes/rpc/rpc-mode.js
 @@ -148,9 +148,19 @@ export async function runRpcMode(runtimeHost) {

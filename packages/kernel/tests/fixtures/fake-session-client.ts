@@ -23,7 +23,7 @@ export class FakeSessionClient {
   messagesToReturn: any[] = [];
   availableModels: Array<{ id: string; provider: string }> = [];
   /** get_commands 返回的命令清单（默认空） */
-  commandsToReturn: Array<{ name: string; description?: string; source: string }> = [];
+  commandsToReturn: Array<{ name: string; description?: string; source: string; sourceInfo?: { path: string } }> = [];
   /** 下一次 prompt 抛该错误（注入失败路径），用后自动清除 */
   nextPromptError: Error | null = null;
   /** start 时抛该错误（注入启动失败路径） */
