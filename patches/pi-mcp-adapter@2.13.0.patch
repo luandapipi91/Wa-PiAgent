@@ -1,5 +1,8 @@
+diff --git a/node_modules/pi-mcp-adapter/.bun-tag-61f7bd33cac208df b/.bun-tag-61f7bd33cac208df
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/package.json b/package.json
-index 12afe84d..7f5baa09 100644
+index 12afe84d0e6c91f16982601a1d3a3a86405b432b..7f5baa0976418632d479bae3a01b460804aaac4d 100644
 --- a/package.json
 +++ b/package.json
 @@ -14,6 +14,11 @@
@@ -14,38 +17,3 @@ index 12afe84d..7f5baa09 100644
      }
    },
    "license": "MIT",
---- a/commands.ts
-+++ b/commands.ts
-@@ -475,6 +475,12 @@
-     return openMcpSetup(state, pi, ctx, configOverridePath, "empty");
-   }
- 
-+  // RPC mode: custom() is not supported, skip interactive panel
-+  if (ctx.mode !== "tui") {
-+    ctx.ui.notify("MCP panel is not available in RPC mode. Use Settings > MCP in the web UI.", "info");
-+    return { configChanged: false };
-+  }
-+
-   const config = state.config;
-   const cache = loadMetadataCache();
-   const configPath = pi.getFlag("mcp-config") as string | undefined ?? configOverridePath;
-@@ -539,6 +545,19 @@
-     return { configChanged: false };
-   }
- 
-+  // RPC mode: custom() is not supported (returns undefined, renderFn never called).
-+  // Skip the interactive panel and list servers with /mcp-auth <name> hint instead.
-+  if (ctx.mode !== "tui") {
-+    const names = oauthServers.map(([name]) => name).join(", ");
-+    ctx.ui.notify(
-+      `OAuth MCP servers: ${names}
-+
-+Run /mcp-auth <server-name> to authenticate.`,
-+      "info"
-+    );
-+    return { configChanged: false };
-+  }
-+
-   const cache = loadMetadataCache();
-   const configPath = pi.getFlag("mcp-config") as string | undefined ?? configOverridePath;
-   const provenanceMap = getServerProvenance(configPath, ctx.cwd);

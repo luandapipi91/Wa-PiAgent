@@ -29,12 +29,12 @@ test("完成（非流式）：默认折叠，头部显示「委派给 {agent}」
   expect(screen.queryByTestId("delegate-t1-body")).toBeNull();
 });
 
-test("流式中（isStreaming + 无 result）：默认展开且 meta 含「执行中」", () => {
+test("流式中（isStreaming + 无 result）：默认展开、不透明、meta 含「执行中」", () => {
   render(<DelegateCard sessionId="s1" toolCall={call} isStreaming />);
   expect(screen.getByTestId("delegate-t1-body")).toBeTruthy();
+  expect(screen.getByTestId("delegate-t1").getAttribute("data-muted")).toBeNull();
   const header = screen.getByTestId("delegate-t1-header");
   expect(header.textContent).toContain("执行中");
-  // 展开后任务可见
   expect(screen.getByTestId("delegate-t1-body").textContent).toContain("review diff");
 });
 
@@ -42,6 +42,13 @@ test("完成后（有 result、非流式）：默认折叠且 data-muted=true", 
   render(<DelegateCard sessionId="s1" toolCall={call} result={result} />);
   expect(screen.queryByTestId("delegate-t1-body")).toBeNull();
   expect(screen.getByTestId("delegate-t1").getAttribute("data-muted")).toBe("true");
+});
+
+test("执行中（无 result、非流式，如 block 已定稿但工具未返回）：默认展开且不透明", () => {
+  render(<DelegateCard sessionId="s1" toolCall={call} />);
+  // 委托还在执行中，卡片应展开（body 可见）且不弱化
+  expect(screen.getByTestId("delegate-t1-body")).toBeTruthy();
+  expect(screen.getByTestId("delegate-t1").getAttribute("data-muted")).toBeNull();
 });
 
 test("失败（result.isError）：meta 含「✗ 失败」，展开后结果文本为 danger 样式", () => {

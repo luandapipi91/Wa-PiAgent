@@ -60,10 +60,10 @@ test("assistant 消息按 content block 渲染 thinking + text + toolCall", () =
   expect(screen.queryByText("我在想")).toBeNull();
   fireEvent.click(screen.getByTestId("thinking-panel-header"));
   expect(screen.getByText("我在想")).toBeTruthy();
-  // 单个 toolCall 直接渲染单卡（不成组），默认折叠，点击头部展开后可见详情
+  // 单个 toolCall 直接渲染单卡（不成组），未完成时默认展开
   expect(screen.queryByTestId("toolcall-group")).toBeNull();
   expect(screen.getByTestId("toolcall-c1-header").textContent).toContain("read");
-  fireEvent.click(screen.getByTestId("toolcall-c1-header"));
+  // executingMode 下无 result 默认展开
   expect(screen.getByTestId("toolcall-c1-body")).toBeTruthy();
 });
 

@@ -33,3 +33,18 @@ test("用户 toggle 后，自动逻辑不再覆盖", () => {
   rerender({ isStreaming: false, isDone: true });
   expect(result.current.open).toBe(true);
 });
+
+test("executingMode + 未完成（即使非流式）→ 默认展开", () => {
+  const { result } = renderHook((p) => useAutoCollapse(p), { initialProps: { isStreaming: false, isDone: false, executingMode: true } });
+  expect(result.current.open).toBe(true);
+});
+
+test("executingMode + 完成 → 自动折叠", () => {
+  const { result } = renderHook((p) => useAutoCollapse(p), { initialProps: { isStreaming: false, isDone: true, executingMode: true } });
+  expect(result.current.open).toBe(false);
+});
+
+test("executingMode=false（默认）：非流式未完成 → 折叠", () => {
+  const { result } = renderHook((p) => useAutoCollapse(p), { initialProps: { isStreaming: false, isDone: false } });
+  expect(result.current.open).toBe(false);
+});

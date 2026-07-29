@@ -22,10 +22,9 @@ test("ToolCallPanel 显示工具名和参数", () => {
   expect(screen.getByText(/read/)).toBeTruthy();
 });
 
-test("DelegateCard 渲染委派卡片（ProcessCard）：头部含委派对象，展开后任务可见", () => {
+test("DelegateCard 渲染委派卡片（ProcessCard）：头部含委派对象，执行中默认展开，任务直接可见", () => {
   render(<DelegateCard sessionId="s1" toolCall={{ type: "toolCall", id: "c1", name: "delegate", arguments: { agent: "pm", task: "需求?" } }} />);
   expect(screen.getByTestId("delegate-c1-header").textContent).toContain("委派给 pm");
-  // 默认折叠，点击头部展开后任务可见
-  fireEvent.click(screen.getByTestId("delegate-c1-header"));
+  // executingMode 下未完成（无 result）默认展开，任务直接可见无需点击
   expect(screen.getByText(/需求\?/)).toBeTruthy();
 });
