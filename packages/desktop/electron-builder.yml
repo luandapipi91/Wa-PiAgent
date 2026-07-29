@@ -39,7 +39,7 @@ mac:
   target:
     - dmg
     - zip
-  icon: src/assets/icon-mac.png
+  icon: src/assets/icon-mac.icns
   category: public.app-category.productivity
   hardenedRuntime: true
   gatekeeperAssess: false
