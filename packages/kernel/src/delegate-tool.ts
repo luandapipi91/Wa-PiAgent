@@ -192,6 +192,9 @@ export function makeSpawnFn(opts: {
 		runtime?: string;
 		commandTimeoutMs?: number;
 	};
+	/** 随子进程加载的扩展文件（-e）：provider-extension 必须传入，
+	 *  否则子进程的 pi 不认识主会话的自定义 provider，--model 会因 No API key 失败 */
+	extensionPaths?: string[];
 }): DelegateSpawnFn {
 	return async (agent: string, task: string) => {
 		const config = await opts.resolveConfig(agent);
@@ -212,6 +215,7 @@ export function makeSpawnFn(opts: {
 			signal: opts.signal,
 			onProgress: opts.onProgress,
 			skillPaths,
+			extensionPaths: opts.extensionPaths,
 			cliPath: opts.runnerOpts?.cliPath,
 			runtime: opts.runnerOpts?.runtime,
 			commandTimeoutMs: opts.runnerOpts?.commandTimeoutMs,

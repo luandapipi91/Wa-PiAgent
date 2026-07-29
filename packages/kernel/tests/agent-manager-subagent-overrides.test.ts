@@ -154,3 +154,42 @@ test("内置 subagent override model 无效时降级为 null（不传 --model）
   // 清理
   try { rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`), { force: true }); } catch {}
 });
+
+test("子智能体跟随主模型：无 override 时用主会话 currentModel", async () => {
+  // 不写 override 文件（备份在 afterEach 恢复；确保为空状态）
+  try { rmSync(SUBAGENT_OVERRIDES_FILE, { force: true }); } catch {}
+
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+
+  const configStore = {
+    getAgent: mock(async () => ({ displayName: "dev", partners: { askTo: [] } })),
+  } as any;
+
+  const fakes: FakeSessionClient[] = [];
+  const am = new AgentManager({
+    projectStore, configStore, onEvent: () => {},
+    createClientFn: fakeClientFactory(fakes),
+  });
+  managers.push(am);
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  // 模拟主会话已用模型发过消息（prompt 时记录到 handle.currentModel）
+  (am as any).sessions.get(session.id).currentModel = "opencode-zen-go/deepseek-v4-flash";
+
+  const ctx = getBridgeSession(session.id);
+  const result = await ctx!.handleTool(
+    "delegate", "tc-plan2", { agent: "Plan", task: "设计个方案" }, new AbortController().signal,
+  );
+  expect(result.content[0].text).toBe("ok");
+
+  const planConfig = capturedConfigs.find((c: any) => c.name === "Plan");
+  expect(planConfig).toBeDefined();
+  // 无 override → 跟随主会话当前模型
+  expect(planConfig.model).toBe("opencode-zen-go/deepseek-v4-flash");
+
+  try { rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`), { force: true }); } catch {}
+});
