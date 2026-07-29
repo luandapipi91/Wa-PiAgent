@@ -36,6 +36,8 @@ describe("composer-prefs store", () => {
     // 先触发 idb 的数据库初始化，避免后续直接操作 indexedDB 时创建空版本
     await getDefaults();
     await clearStores();
+    // defaults/recording/newSessionIds 现走 localStorage，需一并清理
+    localStorage.clear();
     useComposerPrefsStore.setState({
       defaults: { model: null, thinking: "disabled" },
       bySession: {},

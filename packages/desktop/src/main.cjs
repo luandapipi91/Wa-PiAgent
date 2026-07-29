@@ -228,6 +228,13 @@ function createWindow() {
 	mainWindow.on("closed", () => {
 		mainWindow = null;
 	});
+	// 调试：F12 / Cmd+Alt+I 打开 DevTools（打包态排查持久化等问题）
+	mainWindow.webContents.on("before-input-event", (_event, input) => {
+		if (input.type !== "keyDown") return;
+		if (input.key === "F12" || ((input.control || input.meta) && input.alt && input.key.toLowerCase() === "i")) {
+			mainWindow.webContents.toggleDevTools();
+		}
+	});
 }
 
 // 启动页 → 主窗口切换：关启动页、显示主窗口

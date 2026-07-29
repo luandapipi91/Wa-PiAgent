@@ -58,56 +58,53 @@ export async function deleteSessionPrefs(sessionId: string): Promise<void> {
   } catch {}
 }
 
-const DEFAULTS_KEY = "composer-defaults";
-type DefaultsPrefs = { model: string | null; thinking: ThinkingLevel };
-
-export async function getDefaults(): Promise<DefaultsPrefs> {
+// defaults / recording / newSessionIds 改用 localStorage 持久化：
+// 这类小数据不依赖 IndexedDB 的异步初始化，在 Electron 打包态下更可靠
+// （IndexedDB 在某些打包环境下 openDB 可能失败，导致 getDefaults 永远返回兜底默认值）。
+// session 级 prefs（含 attachments 大数据）仍走 IndexedDB。
+function lsGet<T>(key: string): T | undefined {
   try {
-    const stored = await (await getDb()).get("defaults", DEFAULTS_KEY);
-    return (stored as DefaultsPrefs | undefined) ?? { model: null, thinking: "disabled" };
-  } catch {
-    return { model: null, thinking: "disabled" };
-  }
-}
-
-export async function setDefaults(prefs: DefaultsPrefs): Promise<void> {
-  try {
-    await (await getDb()).put("defaults", prefs, DEFAULTS_KEY);
-  } catch {}
-}
-
-const RECORDING_KEY = "recording-prefs";
-
-export interface RecordingPrefs { lastSource: "mic" | "system"; }
-
-export async function getRecordingPrefs(): Promise<RecordingPrefs | undefined> {
-  try {
-    const stored = await (await getDb()).get("defaults", RECORDING_KEY);
-    return stored as RecordingPrefs | undefined;
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : undefined;
   } catch {
     return undefined;
   }
 }
-
-export async function setRecordingPrefs(prefs: RecordingPrefs): Promise<void> {
+function lsSet(key: string, value: unknown): void {
   try {
-    await (await getDb()).put("defaults", prefs, RECORDING_KEY);
+    localStorage.setItem(key, JSON.stringify(value));
   } catch {}
 }
 
-const NEW_SESSION_IDS_KEY = "new-session-ids";
+const DEFAULTS_KEY = "wa-pi:composer-defaults";
+type DefaultsPrefs = { model: string | null; thinking: ThinkingLevel };
+
+export async function getDefaults(): Promise<DefaultsPrefs> {
+  return lsGet<DefaultsPrefs>(DEFAULTS_KEY) ?? { model: null, thinking: "disabled" };
+}
+
+export async function setDefaults(prefs: DefaultsPrefs): Promise<void> {
+  lsSet(DEFAULTS_KEY, prefs);
+}
+
+const RECORDING_KEY = "wa-pi:recording-prefs";
+
+export interface RecordingPrefs { lastSource: "mic" | "system"; }
+
+export async function getRecordingPrefs(): Promise<RecordingPrefs | undefined> {
+  return lsGet<RecordingPrefs>(RECORDING_KEY);
+}
+
+export async function setRecordingPrefs(prefs: RecordingPrefs): Promise<void> {
+  lsSet(RECORDING_KEY, prefs);
+}
+
+const NEW_SESSION_IDS_KEY = "wa-pi:new-session-ids";
 
 export async function getNewSessionIds(): Promise<Record<string, string>> {
-  try {
-    const stored = await (await getDb()).get("defaults", NEW_SESSION_IDS_KEY);
-    return (stored as Record<string, string> | undefined) ?? {};
-  } catch {
-    return {};
-  }
+  return lsGet<Record<string, string>>(NEW_SESSION_IDS_KEY) ?? {};
 }
 
 export async function setNewSessionIds(ids: Record<string, string>): Promise<void> {
-  try {
-    await (await getDb()).put("defaults", ids, NEW_SESSION_IDS_KEY);
-  } catch {}
+  lsSet(NEW_SESSION_IDS_KEY, ids);
 }
