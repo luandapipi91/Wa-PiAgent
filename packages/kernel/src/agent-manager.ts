@@ -26,6 +26,7 @@ import type {
 } from "@wa-pi/shared";
 import {
 	WA_PI_DIR,
+	GENERATED_DIR,
 	DEFAULT_AGENT_TOOLS,
 	BUILTIN_SKILLS_DIR,
 	EXTENSION_TOOL_MAP,
@@ -42,6 +43,7 @@ import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
 import { relative, join } from "node:path";
 import { mkdir, writeFile, rm, appendFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { buildAdditionalExtensionPaths } from "./extensions";
 import { filterTuiCommands, isTuiOnlyCommand, type RawCommandInfo } from "./tui-command-filter";
 import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
@@ -152,6 +154,10 @@ interface SessionHandle {
 	disposed: boolean;
 	/** 子代理派发遥测收集器（会话销毁时 flush 到 subagent-telemetry.jsonl） */
 	subagentTelemetry: SubagentTelemetry;
+	/** 主会话当前模型（"provider/modelId"）：子智能体「跟随主模型」时透传给 spawn --model */
+	currentModel: string | null;
+	/** 主会话当前 thinking level（prompt 时记录），子智能体「跟随主配置」时透传 */
+	currentThinking: string | null;
 }
 
 export class AgentManager {
@@ -468,8 +474,9 @@ export class AgentManager {
 						description: builtin.description,
 						systemPrompt: prompt,
 						systemPromptMode: "replace",
-						model,
-						thinking: override?.thinking ?? null,
+						// 跟随主模型：无 override 时用主会话当前模型（prompt 时记录到 handle.currentModel）
+						model: model ?? this.sessions.get(sessionId)?.currentModel ?? null,
+						thinking: override?.thinking ?? this.sessions.get(sessionId)?.currentThinking ?? null,
 						tools: builtin.readOnly
 							? ["read", "bash", "grep", "find", "ls"]
 							: [],
@@ -494,7 +501,8 @@ export class AgentManager {
 				description: cfg.description,
 				systemPrompt: cfg.systemPromptBody ?? "",
 				systemPromptMode: cfg.systemPromptMode,
-				model: cfgModel,
+				// 跟随主模型：agent 未单独配置时用主会话当前模型
+				model: cfgModel ?? this.sessions.get(sessionId)?.currentModel ?? null,
 				thinking: cfg.thinking,
 				tools: cfg.tools,
 				skills: cfg.skills,
@@ -503,8 +511,12 @@ export class AgentManager {
 
 		// 会话级子代理遥测收集器：随 spawnFn 生命周期创建，_teardownSession 时 flush
 		const subagentTelemetry = new SubagentTelemetry();
+		// 子进程必须加载 provider-extension（providers.json → 自定义 provider + apiKey），
+		// 否则「跟随主模型」传入的 --model 在子进程里查无此 provider，报 No API key
+		const providerExtPath = join(GENERATED_DIR, "provider-extension.ts");
 		const spawnFn = makeSpawnFn({
 			resolveConfig: resolveSpawnConfig,
+			extensionPaths: existsSync(providerExtPath) ? [providerExtPath] : [],
 			resolveSkillPaths: async (skillNames) => {
 				// 从全局启用的技能中按名称解析路径
 				const enabled = await resolveEnabledSkills(
@@ -681,6 +693,8 @@ export class AgentManager {
 			crashed: false,
 			disposed: false,
 			subagentTelemetry,
+			currentModel: null,
+		currentThinking: null,
 		};
 		const client = createClient({
 			cliPath: resolvePiCliPath(),
@@ -920,10 +934,13 @@ export class AgentManager {
 			opts.model,
 		);
 		await handle.client.setModel(provider, modelId);
+		// 记录主会话当前模型：子智能体「跟随主模型」（override/config model 为空）时透传
+		handle.currentModel = `${provider}/${modelId}`;
 
 		// 按请求切换 thinking level（disabled→off，max→xhigh，pi 侧不支持时自动降级）
 		if (opts?.thinking) {
 			await handle.client.setThinkingLevel(mapThinkingLevel(opts.thinking));
+			handle.currentThinking = opts.thinking;
 		}
 
 		// 构建最终 prompt 文本：snippet 直接内联，文件/图片统一用 @相对路径 引用
