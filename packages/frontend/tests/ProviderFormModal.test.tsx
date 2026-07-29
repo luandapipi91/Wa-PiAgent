@@ -297,3 +297,32 @@ test("选中供应商后 input 右侧显示 × 可清除选择", async () => {
   fireEvent.focus(screen.getByTestId("preset-search"));
   await waitFor(() => expect(screen.getAllByTestId("preset-option").length).toBeGreaterThan(1));
 });
+
+// ===== 回归：手动输入自定义模型 id 后快捷下拉应消失 =====
+
+test("选中预设后手动输入自定义模型id（回车添加），快捷下拉应消失", async () => {
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
+  await waitAndSelectPreset("deepseek");
+  // 聚焦模型输入框 → 出现全部预设模型下拉
+  fireEvent.focus(screen.getByTestId("tag-input-field"));
+  await waitFor(() => {
+    expect(screen.getAllByTestId("model-quick-option").length).toBeGreaterThanOrEqual(1);
+  });
+  // 手动输入一个不在预设里的自定义模型 id，回车添加
+  fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "my-custom-model" } });
+  fireEvent.keyDown(screen.getByTestId("tag-input-field"), { key: "Enter" });
+  // 回车提交后下拉关闭（不再因 modelSearch 清空而卡在"显示全部预设"）
+  expect(screen.queryByTestId("model-quick-dropdown")).toBeNull();
+});
+
+test("选中预设后用 | 分隔提交自定义模型id，快捷下拉也应消失", async () => {
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
+  await waitAndSelectPreset("deepseek");
+  fireEvent.focus(screen.getByTestId("tag-input-field"));
+  await waitFor(() => {
+    expect(screen.getAllByTestId("model-quick-option").length).toBeGreaterThanOrEqual(1);
+  });
+  // 用分隔符提交自定义模型 id
+  fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "my-custom|" } });
+  expect(screen.queryByTestId("model-quick-dropdown")).toBeNull();
+});

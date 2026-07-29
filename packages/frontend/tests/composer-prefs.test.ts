@@ -1,7 +1,7 @@
 // @ts-ignore：fake-indexeddb 的 types 在 exports 解析上有问题，运行时无影响
 import "fake-indexeddb/auto";
 import { describe, it, expect, beforeEach } from "bun:test";
-import { useComposerPrefsStore } from "../src/store/composer-prefs";
+import { useComposerPrefsStore, _resetDefaultsHydration } from "../src/store/composer-prefs";
 import {
   getDefaults,
   getNewSessionIds,
@@ -38,6 +38,8 @@ describe("composer-prefs store", () => {
     await clearStores();
     // defaults/recording/newSessionIds 现走 localStorage，需一并清理
     localStorage.clear();
+    // 重置 hydration 标志：模拟软件重启后尚未 loadDefaults 的初始状态
+    _resetDefaultsHydration();
     useComposerPrefsStore.setState({
       defaults: { model: null, thinking: "disabled" },
       bySession: {},
@@ -92,7 +94,10 @@ describe("composer-prefs store", () => {
   });
 
   it("setDefaults updates state and persists to IndexedDB", async () => {
+    // 应用启动：先 hydrate（真实场景用户设置时应用早已加载完成，未 hydrate 时持久化被守卫跳过）
+    await useComposerPrefsStore.getState().loadDefaults();
     useComposerPrefsStore.getState().setDefaults({ model: "persisted-model", thinking: "high" });
+    await new Promise((r) => setTimeout(r, 10)); // 等 fire-and-forget 写入完成
 
     expect(useComposerPrefsStore.getState().defaults).toEqual({
       model: "persisted-model",
@@ -102,12 +107,15 @@ describe("composer-prefs store", () => {
   });
 
   it("重启往返：setDefaults({thinking}) → 重置内存态 → loadDefaults 应恢复存储的 thinking", async () => {
+    // 应用启动：先 hydrate（真实场景用户设置时应用早已加载完成）
+    await useComposerPrefsStore.getState().loadDefaults();
     // 模拟用户在新建页设置思考强度
     useComposerPrefsStore.getState().setDefaults({ thinking: "high" });
-    // 等待 fire-and-forget 的 IndexedDB 写入完成
+    // 等待 fire-and-forget 的写入完成
     await new Promise((r) => setTimeout(r, 10));
 
-    // 模拟软件重启：zustand 内存态回到初始值（IndexedDB 数据保留）
+    // 模拟软件重启：内存态回到初始值，hydration 标志也重置（持久化数据保留）
+    _resetDefaultsHydration();
     useComposerPrefsStore.setState({
       defaults: { model: null, thinking: "disabled" },
       bySession: {},
@@ -117,7 +125,7 @@ describe("composer-prefs store", () => {
     // 重新加载（NewSessionPane 挂载时触发）
     await useComposerPrefsStore.getState().loadDefaults();
 
-    // 关键断言：思考强度应从 IndexedDB 恢复为 high，而非停留在 disabled
+    // 关键断言：思考强度应从持久层恢复为 high，而非停留在 disabled
     expect(useComposerPrefsStore.getState().defaults.thinking).toBe("high");
   });
 
@@ -144,6 +152,29 @@ describe("composer-prefs store", () => {
     expect(state.bySession["new-session"].model).toBe("openai/gpt-4o");
   });
 
+  it("复现 hydration 竞态：localStorage 已存 high，loadDefaults 完成前改 model，不应把初始 disabled 写回覆盖 high", async () => {
+    // 真实场景：上次会话已把 thinking=high 持久化（beforeEach 已 _resetDefaultsHydration）
+    await dbSetDefaults({ model: null, thinking: "high" });
+    // 内存态此时是初始 disabled（beforeEach 设置），hydration=false（尚未 loadDefaults）
+
+    // 竞态点：loadDefaults 尚未触发/完成（异步 gap），用户在新建页改了 model。
+    // 修复前：setDefaults 内部 {...s.defaults(thinking=disabled), ...{model}} 把 disabled 写回，覆盖 high。
+    // 修复后：hydration guard 阻止未 hydrate 的写入，localStorage 的 thinking 保持 high。
+    useComposerPrefsStore.getState().setDefaults({ model: "openai/gpt-4o" });
+    await new Promise((r) => setTimeout(r, 10)); // 等 fire-and-forget 写入完成
+
+    // 关键断言1：localStorage 的 thinking 必须是 high，不能被初始 disabled 覆盖
+    expect((await getDefaults()).thinking).toBe("high");
+
+    // loadDefaults 姗姗来迟完成：内存态合并——保留竞态期间用户选的 model，恢复存储的 thinking
+    await useComposerPrefsStore.getState().loadDefaults();
+
+    // 关键断言2：内存态 thinking 恢复为 high（而非停留在初始 disabled）
+    expect(useComposerPrefsStore.getState().defaults.thinking).toBe("high");
+    // 竞态期间用户改的 model 仍在内存中（未被 loadDefaults 覆盖为 null）
+    expect(useComposerPrefsStore.getState().defaults.model).toBe("openai/gpt-4o");
+  });
+
   it("复现：新会话设 max → 切到老会话(off) → 重启后 defaults 应保持 max", async () => {
     // 老会话已有 off 偏好
     await dbSetDefaults({ model: null, thinking: "disabled" });
@@ -152,6 +183,8 @@ describe("composer-prefs store", () => {
       attachments: [], updatedAt: Date.now(),
     });
 
+    // 应用启动：先 hydrate（真实场景用户设置时应用早已加载完成）
+    await useComposerPrefsStore.getState().loadDefaults();
     // 1. 用户在新会话设置思考强度 max（NewSessionPane.setDefaults）
     useComposerPrefsStore.getState().setDefaults({ thinking: "max" });
     await new Promise((r) => setTimeout(r, 10)); // 等 fire-and-forget 写入完成
@@ -163,7 +196,8 @@ describe("composer-prefs store", () => {
     useComposerPrefsStore.getState().setSessionPrefs("old-session", { model: "openai/gpt-4o" });
     await new Promise((r) => setTimeout(r, 10));
 
-    // 3. 软件重启：内存态重置，IndexedDB 保留
+    // 3. 软件重启：内存态重置，hydration 标志也重置，持久化数据保留
+    _resetDefaultsHydration();
     useComposerPrefsStore.setState({
       defaults: { model: null, thinking: "disabled" },
       bySession: {}, newSessionIds: {},

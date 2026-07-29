@@ -55,3 +55,28 @@ test("dropdown prop 渲染到 input 下方", () => {
   expect(screen.getByTestId("my-dropdown")).toBeTruthy();
   expect(screen.getByText("hello")).toBeTruthy();
 });
+
+test("回车提交后触发 onSubmit", () => {
+  const onSubmit = mock();
+  render(<TagInput value={[]} onChange={() => {}} onSubmit={onSubmit} />);
+  const input = screen.getByTestId("tag-input-field");
+  fireEvent.change(input, { target: { value: "x" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+});
+
+test("分隔符提交后触发 onSubmit", () => {
+  const onSubmit = mock();
+  render(<TagInput value={[]} onChange={() => {}} onSubmit={onSubmit} />);
+  const input = screen.getByTestId("tag-input-field");
+  fireEvent.change(input, { target: { value: "x|" } });
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+});
+
+test("纯空白提交不触发 onSubmit", () => {
+  const onSubmit = mock();
+  render(<TagInput value={[]} onChange={() => {}} onSubmit={onSubmit} />);
+  const input = screen.getByTestId("tag-input-field");
+  fireEvent.change(input, { target: { value: "   |" } });
+  expect(onSubmit).not.toHaveBeenCalled();
+});

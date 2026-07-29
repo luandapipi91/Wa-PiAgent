@@ -2,6 +2,16 @@ import { create } from "zustand";
 import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
 import { getDefaults, getNewSessionIds, getSessionPrefs, setDefaults, setNewSessionIds, setSessionPrefs as dbSetSessionPrefs } from "./composer-db";
 
+// Hydration guard：标记 defaults 是否已从持久层加载。
+// store 初始内存态 thinking="disabled"，而 loadDefaults 是异步的——若在其完成前
+// 触发 setDefaults/setSessionPrefs（如用户改 model、附件 auto-select），会拿初始 disabled
+// 当"当前 defaults"写回 localStorage，覆盖用户上次存的 high/max。这是"重启后思考强度变 disabled"的根因。
+// 守卫：未 hydrate 前持久化函数只更新内存、不写回；hydrate 后恢复正常持久化。
+let defaultsHydrated = false;
+
+/** 测试专用：重置 hydration 标志（模拟软件重启后尚未 loadDefaults 的状态） */
+export function _resetDefaultsHydration(): void { defaultsHydrated = false; }
+
 export interface SessionPrefs {
   model: string | null;
   thinking: ThinkingLevel;
@@ -40,6 +50,7 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
       if (changed) next.newSessionIds = ids;
       return next as ComposerPrefsState;
     });
+    defaultsHydrated = true; // 已从持久层恢复 defaults，后续写入可安全持久化
   },
 
   loadSession: async (sessionId) => {
@@ -65,6 +76,7 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
         },
       };
     });
+    defaultsHydrated = true; // loadSession 内部也读了 defaults，同样标记 hydrate 完成
   },
 
   setSessionPrefs: (sessionId, prefs) => {
@@ -78,7 +90,9 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
       const newDefaults = { ...s.defaults };
       if (prefs.model !== undefined) newDefaults.model = prefs.model;
       if (prefs.thinking !== undefined) newDefaults.thinking = prefs.thinking;
-      void setDefaults(newDefaults);
+      // hydration guard：未从持久层加载 defaults 前，s.defaults.thinking 还是初始 disabled，
+      // 此时写回会用 disabled 覆盖用户上次存的高强度档位（重启后思考强度被重置的根因）
+      if (defaultsHydrated) void setDefaults(newDefaults);
       return {
         bySession: { ...s.bySession, [sessionId]: next },
         defaults: newDefaults,
@@ -89,7 +103,7 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
   setDefaults: (prefs) => {
     set(s => {
       const next = { ...s.defaults, ...prefs };
-      void setDefaults(next);
+      if (defaultsHydrated) void setDefaults(next);
       return { defaults: next };
     });
   },

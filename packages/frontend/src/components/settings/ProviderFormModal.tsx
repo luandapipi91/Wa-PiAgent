@@ -247,6 +247,8 @@ export function ProviderFormModal({ initial, onClose }: Props) {
                 setDropPos({ top: r.bottom + 2, left: r.left, width: r.width });
               }
             }}
+            onSubmit={() => setDropPos(null)}
+            onBlur={() => setTimeout(() => setDropPos(null), 150)}
           />
           </div>
         </div>
