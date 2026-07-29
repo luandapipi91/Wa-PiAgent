@@ -1,10 +1,10 @@
 // spawn 解释运行的 kernel sidecar：dev 下 bun run <repo>/packages/kernel/src/desktop-server.ts；
-// packaged 下 <kernelDir>/wa-pi-kernel(.exe) run <kernelDir>/kernel.js。等 9776 ready；退出时 kill 子进程树。
+// packaged 下 <kernelDir>/wa-pi-kernel(.exe) run <kernelDir>/kernel.js。等 9778 ready；退出时 kill 子进程树。
 const { spawn, spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { waitForPort } = require("./util/port.cjs");
 
-const WS_PORT = Number(process.env.WA_PI_WS_PORT) > 0 ? Number(process.env.WA_PI_WS_PORT) : 9776;
+const WS_PORT = Number(process.env.WA_PI_WS_PORT) > 0 ? Number(process.env.WA_PI_WS_PORT) : 9778;
 
 function killTree(pid) {
   try {

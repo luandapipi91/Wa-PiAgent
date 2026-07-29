@@ -5,14 +5,13 @@ const {
 	Menu,
 	session,
 	desktopCapturer,
-	ipcMain,
 } = require("electron");
 const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const { createLogger } = require("./util/log.cjs");
-const { isPortInUse, killPortOccupants } = require("./util/port.cjs");
+const { findAvailablePort } = require("./util/port.cjs");
 
 const WA_PI_DIR =
 	process.env.WA_PI_DIR || path.join(os.homedir(), ".wa-pi");
@@ -26,9 +25,6 @@ let splashWindow = null;
 let mainWindow = null;
 let sidecar = null;
 let isQuitting = false;
-// kernel 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
-// 因此固定端口，被占用时由启动页「重启应用」一键清理
-const FIXED_PORT = Number(process.env.WA_PI_WS_PORT) > 0 ? Number(process.env.WA_PI_WS_PORT) : 9778;
 // 内核是否就绪（mainWindow 是否已加载真实页面）。未就绪时点托盘/Dock 应聚焦启动页，而非弹出空白主窗口。
 let kernelReady = false;
 
@@ -47,20 +43,15 @@ body{background:${CANVAS_BG};display:flex;flex-direction:column;align-items:cent
 .name{font-size:20px;font-weight:600;letter-spacing:.5px;margin-bottom:34px}
 .bar{width:200px;height:4px;border-radius:99px;background:#e5e5ea;overflow:hidden}
 .fill{height:100%;width:8%;border-radius:99px;background:${BRAND_GREEN};transition:width .45s cubic-bezier(.4,0,.2,1)}
-.status{margin-top:16px;font-size:12px;color:#86868b;min-height:16px;text-align:center;padding:0 24px}
+.status{margin-top:16px;font-size:12px;color:#86868b;min-height:16px;text-align:center}
 .err{color:#d9404d}
-#restart-btn{display:none;margin-top:20px;padding:8px 20px;border:0;border-radius:8px;background:${BRAND_GREEN};color:#fff;font-size:13px;font-weight:600;cursor:pointer;-webkit-app-region:no-drag}
-#restart-btn:active{opacity:.85}
 </style></head><body>
 ${logoSrc ? `<img class="logo" src="${logoSrc}" alt="WA PI Agent"/>` : `<div class="logo" style="background:${BRAND_GREEN}"></div>`}
 <div class="name">WA PI Agent</div>
 <div class="bar"><div class="fill" id="fill"></div></div>
 <div class="status" id="status">正在启动…</div>
-<button id="restart-btn" type="button">重启应用</button>
 <script>
 window.__setProgress=function(p,t){var f=document.getElementById('fill');if(f)f.style.width=Math.max(5,Math.min(100,p))+'%';var s=document.getElementById('status');if(s){if(t){s.textContent=t;s.className='status';}if(p<0){s.className='status err';}}};
-window.__showRestart=function(){var b=document.getElementById('restart-btn');if(b)b.style.display='block';};
-document.getElementById('restart-btn').addEventListener('click',function(){this.disabled=true;this.textContent='正在重启…';if(window.waPiApp)window.waPiApp.restartAfterPortKill();});
 </script>
 </body></html>`;
 	return "data:text/html;charset=utf-8," + encodeURIComponent(html);
@@ -274,16 +265,6 @@ app.whenReady().then(async () => {
 	setProgress(10, "正在初始化…");
 	createWindow();
 
-	// 端口被占用时启动页「重启应用」按钮的处理：杀掉占用 9778 的进程后重启本应用
-	ipcMain.handle("app:restart-after-port-kill", async () => {
-		const pids = killPortOccupants(FIXED_PORT);
-		log.info(`[port-kill] 端口 ${FIXED_PORT} 占用进程已清理: ${pids.join(", ") || "(无)"}`);
-		// 短暂等待端口真正释放
-		await new Promise((r) => setTimeout(r, 500));
-		app.relaunch();
-		app.exit(0);
-	});
-
 	// 托盘 + 菜单
 	const { startTray } = require("./tray.cjs");
 	const trayIconName =
@@ -330,16 +311,22 @@ app.whenReady().then(async () => {
 		process.platform === "win32" ? "wa-pi-kernel.exe" : "wa-pi-kernel",
 	);
 
-	// 2a) 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
-	// 因此固定 FIXED_PORT，不再自动后移。被占用时在启动页提示并提供「重启应用」一键杀占用+重启。
-	const actualPort = FIXED_PORT;
-	if (await isPortInUse(FIXED_PORT)) {
-		log.error(`端口 ${FIXED_PORT} 被占用，等待用户在启动页点击重启`);
-		setProgress(-1, `端口 ${FIXED_PORT} 被占用，可能是上次未正常退出。点击下方按钮自动清理并重启。`);
-		splashWindow?.webContents?.executeJavaScript("window.__showRestart&&window.__showRestart()").catch(() => {});
+	// 2a) 探测可用端口：默认/配置端口被占用时自动后移
+	const desiredPort =
+		Number(process.env.WA_PI_WS_PORT) > 0
+			? Number(process.env.WA_PI_WS_PORT)
+			: 9776;
+	let actualPort;
+	try {
+		actualPort = await findAvailablePort(desiredPort);
+		log.info(
+			`选中 kernel 端口 ${actualPort}${actualPort === desiredPort ? "" : `（原 ${desiredPort} 被占用）`}`,
+		);
+	} catch (e) {
+		log.error("未找到可用端口", e);
+		setProgress(-1, "未找到可用端口，请关闭占用 9776 附近端口的程序后重试");
 		return;
 	}
-	log.info(`kernel 端口固定为 ${actualPort}`);
 
 	// 2a) 首启依赖检测/动态安装（packaged：~/.wa-pi/runtime 下用阿里源装原生 addon 等）
 	let runDir = seedDir;

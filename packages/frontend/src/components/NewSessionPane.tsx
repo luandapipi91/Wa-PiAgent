@@ -96,6 +96,12 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
     // model 必须是当前 providers 中真实存在的模型（prefs 可能残留已删除 provider 的过期 model）
     if (!projectId || !text.trim() || !isModelAvailable(model, providers) || !agentName || sendingRef.current) return;
     sendingRef.current = true;
+    // newSessionIds 可能残留一个已发送过的会话 id（session:created 未及时清除 / app 重启后从 IndexedDB 读出），
+    // 复用会导致 addSession 去重 no-op、selectSession 跳回那个旧会话（「跳到上一个会话」bug）。
+    // 这里检测到 sessionId 已被占用时，生成全新 id 并回填 newSessionIds，确保每次发送都是新会话。
+    const existed = useProjectsStore.getState().sessions.some(s => s.id === sessionId);
+    const finalId = existed ? randomSessionId() : sessionId;
+    if (existed && projectId) setNewSessionId(projectId, finalId);
     // primaryAgent = 顶部 dropdown 选中的 agentName（不变）
     // @[xxx] 原样发给主智能体，由 systemPrompt 规则触发 delegate
     const expandedText = expandTokens(text);
@@ -103,7 +109,7 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
     // 用户消息由 kernel session:echo_user 回传后 App.tsx 调 optimisticSend 秒显示。
     // kernel _promptLocks 串行锁防并发竞态。
     useProjectsStore.getState().addSession({
-      id: sessionId,
+      id: finalId,
       projectId,
       primaryAgent: agentName,
       title: expandedText.slice(0, 20),
@@ -111,7 +117,9 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
       lastActivity: Date.now(),
       piSessionFile: "",
     });
-    void api.post(`/api/agents/${encodeURIComponent(projectId)}/${encodeURIComponent(sessionId)}/prompt`, {
+    // 确保导航到目标会话（addSession 遇去重时会 no-op，currentSessionId 需显式设置）
+    useProjectsStore.getState().selectSession(finalId);
+    void api.post(`/api/agents/${encodeURIComponent(projectId)}/${encodeURIComponent(finalId)}/prompt`, {
       agentName,
       text: expandedText,
       model,

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Highlight, themes } from "prism-react-renderer";
 import { useToastStore } from "../../store/toast";
+import { copyToClipboard } from "../../util/clipboard";
 
 const COLLAPSE_LINES = 20;
 
@@ -15,7 +16,7 @@ export function CodeBlockCard({ language, code }: { language: string; code: stri
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(code);
+      await copyToClipboard(code);
       addToast("已复制到剪贴板", "success");
     } catch {
       addToast("复制失败", "error");

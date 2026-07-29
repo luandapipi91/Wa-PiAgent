@@ -2,10 +2,14 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import mermaid from "mermaid";
 import { Modal } from "../ui/Modal";
 import { useToastStore } from "../../store/toast";
+import { copyToClipboard, copyImageToClipboard } from "../../util/clipboard";
 
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 5;
 const SCALE_STEP = 0.25;
+// 错误显示 debounce：流式过程中 code 频繁变化且不完整，解析必然失败；
+// 仅当 code 稳定该时长后仍失败才显示错误，避免流式过程闪现"渲染失败"
+const ERROR_DEBOUNCE_MS = 400;
 
 let initialized = false;
 function ensureInit() {
@@ -145,18 +149,31 @@ export function MermaidBlock({ code }: Props) {
     document.body.appendChild(container);
     containerRef.current = container;
 
+    // 流式生成过程中 code 会频繁变化且中途不完整，mermaid 必然解析失败。
+    // 错误做 debounce：code 变化时先回 loading 态，仅当 code 稳定 ERROR_DEBOUNCE_MS
+    // 后仍渲染失败，才把错误显示出来，避免流式过程闪现"渲染失败"。
+    let cancelled = false;
+    let errorTimer: ReturnType<typeof setTimeout> | null = null;
+
     mermaid
       .render(id, code)
       .then((r) => {
+        if (cancelled) return;
         setSvg(r.svg);
         setError(null);
       })
       .catch((err: any) => {
-        setError(err?.message ?? String(err));
+        if (cancelled) return;
+        const msg = err?.message ?? String(err);
         setSvg(null);
+        errorTimer = setTimeout(() => {
+          if (!cancelled) setError(msg);
+        }, ERROR_DEBOUNCE_MS);
       });
 
     return () => {
+      cancelled = true;
+      if (errorTimer) clearTimeout(errorTimer);
       if (containerRef.current) {
         containerRef.current.remove();
         containerRef.current = null;
@@ -219,7 +236,7 @@ export function MermaidBlock({ code }: Props) {
   // 复制
   const copyCode = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(code);
+      await copyToClipboard(code);
       addToast("Mermaid 代码已复制", "success");
     } catch {
       addToast("复制失败", "error");
@@ -230,7 +247,7 @@ export function MermaidBlock({ code }: Props) {
     if (!svg) return;
     try {
       const png = await svgToPngBlob(svg);
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+      await copyImageToClipboard(png);
       addToast("图表已复制（PNG）", "success");
     } catch {
       addToast("复制失败", "error");
