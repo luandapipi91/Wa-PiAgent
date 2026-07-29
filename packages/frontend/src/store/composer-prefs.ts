@@ -29,8 +29,11 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
     const [defs, ids] = await Promise.all([getDefaults(), getNewSessionIds()]);
     set(s => {
       const next: Partial<ComposerPrefsState> = {};
-      // 避免异步加载的默认值把用户已经选好的模型覆盖回 null（测试/跨文件竞速场景）
-      next.defaults = defs.model != null ? defs : s.defaults;
+      // 始终使用存储的 thinking；model 仅在用户已选中时保留内存值（防止异步竞速覆盖为 null）
+      next.defaults = {
+        model: s.defaults.model != null ? s.defaults.model : defs.model,
+        thinking: defs.thinking,
+      };
       const changed =
         Object.keys(ids).length !== Object.keys(s.newSessionIds).length ||
         Object.entries(ids).some(([k, v]) => s.newSessionIds[k] !== v);
