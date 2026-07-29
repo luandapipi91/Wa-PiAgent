@@ -138,7 +138,7 @@ async function ensureRuntimeBinLinks({ runtimeDir, waPiDir, log }) {
 	if (process.platform === "win32") {
 		// Windows 下符号链接需要权限/开发模式，改用 .cmd 包装脚本
 		const t = target;
-		await fsp.writeFile(path.join(binDir, "npx.cmd"), `@echo off\r\nsetlocal enabledelayedexpansion\r\nset ARGS=\r\n:loop\r\nif "%~1"=="" goto run\r\nif "%~1"=="-y" goto next\r\nif "%~1"=="--yes" goto next\r\nset "ARGS=!ARGS! %~1"\r\n:next\r\nshift\r\ngoto loop\r\n:run\r\n"${t}" x !ARGS!\r\n`);
+		await fsp.writeFile(path.join(binDir, "npx.cmd"), `@echo off\r\n"${t}" x %*\r\n`);
 		await fsp.writeFile(path.join(binDir, "bun.cmd"), `@echo off\r\n"${t}" %*\r\n`);
 		const sysNode = findSystemNode();
 		if (sysNode) {
@@ -148,7 +148,7 @@ async function ensureRuntimeBinLinks({ runtimeDir, waPiDir, log }) {
 			await fsp.writeFile(path.join(binDir, "node.cmd"), `@echo off\r\n"${t}" %*\r\n`);
 			log.info(`[runtime-bin] Windows node.cmd -> ${t} (bun fallback)`);
 		}
-		await fsp.writeFile(path.join(binDir, "npm.cmd"), `@echo off\r\nsetlocal enabledelayedexpansion\r\nif /i "%~1"=="exec" (set ARGS=%*&set ARGS=!ARGS:*exec =!&"${t}" x !ARGS!) else "${t}" %*\r\n`);
+		await fsp.writeFile(path.join(binDir, "npm.cmd"), `@echo off\r\nif /i "%~1"=="exec" (shift & "${t}" x %*) else "${t}" %*\r\n`);
 		log.info(`[runtime-bin] Windows: npx/bun/node/npm.cmd -> ${t}`);
 		return binDir;
 	}
@@ -170,19 +170,15 @@ async function ensureRuntimeBinLinks({ runtimeDir, waPiDir, log }) {
 		await fsp.symlink(target, nodeLink);
 		log.info(`[runtime-bin] node -> ${target} (bun fallback)`);
 	}
-	// npx 包装脚本：过滤 -y/--yes（bun x 无需确认），其余透传
+	// npx 包装脚本：直接透传到 bun x（bun x 自动确认安装，忽略 -y/--yes）
 	const npxScript = `#!/bin/sh
-# npx -> bun x wrapper: strip -y/--yes (bun x auto-confirms)
-set --
-for arg do case "\$arg" in -y|--yes) ;; *) set -- "\$@" "\$arg" ;; esac; done
 exec "${target}" x "\$@"
 `;
 	await fsp.writeFile(npxPath, npxScript);
 	await fsp.chmod(npxPath, 0o755);
-	// npm exec -> bun x wrapper（仅 exec 子命令需要，其余 npm 命令极少在 packaged 下调用）
+	// npm exec -> bun x wrapper
 	const npmScript = `#!/bin/sh
-# npm -> bun wrapper: translate 'npm exec' to 'bun x'
-if [ "\$1" = "exec" ]; then shift; set -- "\$@"; exec "${target}" x "\$@"; fi
+if [ "\$1" = "exec" ]; then shift; exec "${target}" x "\$@"; fi
 exec "${target}" "\$@"
 `;
 	await fsp.writeFile(npmPath, npmScript);
