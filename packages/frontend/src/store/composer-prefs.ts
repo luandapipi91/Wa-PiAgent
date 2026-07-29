@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
+import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
 import { getDefaults, getNewSessionIds, getSessionPrefs, setDefaults, setNewSessionIds, setSessionPrefs as dbSetSessionPrefs } from "./composer-db";
 
 export interface SessionPrefs {

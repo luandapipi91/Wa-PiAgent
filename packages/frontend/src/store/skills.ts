@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SkillInfo, SkillListResult, SkillChangedEvent } from "@hiagent/shared";
+import type { SkillInfo, SkillListResult, SkillChangedEvent } from "@wa-pi/shared";
 import { api } from "../api-client";
 
 // 技能管理 store — 通过 REST 与 kernel 通信

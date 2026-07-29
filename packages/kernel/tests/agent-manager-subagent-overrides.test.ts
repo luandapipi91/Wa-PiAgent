@@ -17,7 +17,7 @@ import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
 import { getBridgeSession } from "../src/bridge-registry";
-import { HIAGENT_DIR, SUBAGENT_OVERRIDES_FILE } from "@hiagent/shared";
+import { WA_PI_DIR, SUBAGENT_OVERRIDES_FILE } from "@wa-pi/shared";
 import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -57,7 +57,7 @@ afterEach(async () => {
 });
 
 function newProjectStore() {
-  const tmpFile = `/tmp/hiagent-am-subagent-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
+  const tmpFile = `/tmp/wa-pi-am-subagent-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
   tmpFiles.push(tmpFile);
   return new ProjectStore(tmpFile);
 }
@@ -106,7 +106,7 @@ test("内置 subagent spawn 时读取 subagent-overrides.json 中的 model/think
   expect(planConfig.thinking).toBe("max");
 
   // 清理本次会话的系统提示词临时文件
-  try { rmSync(join(HIAGENT_DIR, "tmp", "sysprompts", `${session.id}.md`), { force: true }); } catch {}
+  try { rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`), { force: true }); } catch {}
 });
 
 test("内置 subagent override model 无效时降级为 null（不传 --model）", async () => {
@@ -152,5 +152,5 @@ test("内置 subagent override model 无效时降级为 null（不传 --model）
   expect(exploreConfig.thinking).toBe("high");  // thinking 照常透传
 
   // 清理
-  try { rmSync(join(HIAGENT_DIR, "tmp", "sysprompts", `${session.id}.md`), { force: true }); } catch {}
+  try { rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`), { force: true }); } catch {}
 });

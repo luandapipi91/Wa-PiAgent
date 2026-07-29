@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { SubagentOverride } from "@hiagent/shared";
-import { SUBAGENT_OVERRIDES_FILE } from "@hiagent/shared";
+import type { SubagentOverride } from "@wa-pi/shared";
+import { SUBAGENT_OVERRIDES_FILE } from "@wa-pi/shared";
 
 interface OverrideFile {
   overrides: SubagentOverride[];

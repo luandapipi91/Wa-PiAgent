@@ -7,7 +7,7 @@ import type {
   ExtensionErrorEvent,
   ExtensionProgressEvent,
   ExtensionInstallDoneEvent,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 import { api } from "../api-client";
 
 /** 安装占位卡状态：installing（进行中，显示进度）| failed（失败，提供重试/移除） */

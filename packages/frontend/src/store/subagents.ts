@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SubagentInfo, SubagentOverride } from "@hiagent/shared";
+import type { SubagentInfo, SubagentOverride } from "@wa-pi/shared";
 import { api } from "../api-client";
 import { onMessage } from "../events";
 

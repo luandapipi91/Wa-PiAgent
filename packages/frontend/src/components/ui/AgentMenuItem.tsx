@@ -1,4 +1,4 @@
-import type { AgentName } from "@hiagent/shared";
+import type { AgentName } from "@wa-pi/shared";
 
 interface Props {
   name: string;

@@ -19,7 +19,7 @@ async function resolveUploadDir(
   sessionId?: string,
 ): Promise<string> {
   const cwd = await resolveCwdForFsRequest(projectStore, projectId, sessionId);
-  const uploadDir = join(cwd, ".hiagent", "uploads");
+  const uploadDir = join(cwd, ".wa-pi", "uploads");
   await mkdir(uploadDir, { recursive: true });
   return uploadDir;
 }

@@ -1,4 +1,4 @@
-import type { McpServerConfig, McpServerStatus } from "@hiagent/shared";
+import type { McpServerConfig, McpServerStatus } from "@wa-pi/shared";
 
 interface Props {
   config: McpServerConfig;

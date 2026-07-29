@@ -3,7 +3,7 @@
 import { test, expect, beforeEach } from "bun:test";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
-import type { SDKEventEnvelope } from "@hiagent/shared";
+import type { SDKEventEnvelope } from "@wa-pi/shared";
 
 beforeEach(() => {
   // 每个 case 前重置状态，避免相互污染

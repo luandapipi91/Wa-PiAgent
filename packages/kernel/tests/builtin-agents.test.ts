@@ -29,7 +29,7 @@ test("general-purpose .md 无 tools 白名单（继承全部）", () => {
 });
 
 test("seedBuiltinAgents 写入三个 .md 文件", () => {
-  const tmpDir = `/tmp/hiagent-test-agents-${Date.now()}`;
+  const tmpDir = `/tmp/wa-pi-test-agents-${Date.now()}`;
   mkdirSync(tmpDir, { recursive: true });
   seedBuiltinAgents(tmpDir);
   const files = readdirSync(tmpDir).filter(f => f.endsWith(".md")).sort();
@@ -41,7 +41,7 @@ test("seedBuiltinAgents 写入三个 .md 文件", () => {
 });
 
 test("seedBuiltinAgents 已存在的文件不覆盖", () => {
-  const tmpDir = `/tmp/hiagent-test-agents-keep-${Date.now()}`;
+  const tmpDir = `/tmp/wa-pi-test-agents-keep-${Date.now()}`;
   mkdirSync(tmpDir, { recursive: true });
   const customContent = "---\nname: Explore\ndescription: 我的自定义探索\n---\n自定义提示词";
   writeFileSync(join(tmpDir, "Explore.md"), customContent);

@@ -1,6 +1,6 @@
 import { readFile, opendir } from "node:fs/promises";
 import { join } from "node:path";
-import type { SkillInfo, SkillSource } from "@hiagent/shared";
+import type { SkillInfo, SkillSource } from "@wa-pi/shared";
 
 /** 递归扫描最大深度（skill-dir / skill-name / SKILL.md = 3 层） */
 export const MAX_DEPTH = 3;

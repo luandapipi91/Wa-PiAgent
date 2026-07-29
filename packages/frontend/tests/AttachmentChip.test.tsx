@@ -1,7 +1,7 @@
 import { test, expect, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AttachmentChip } from "../src/components/ui/AttachmentChip";
-import type { AttachmentDraft } from "@hiagent/shared";
+import type { AttachmentDraft } from "@wa-pi/shared";
 
 test("renders file name and calls onRemove", () => {
   const onRemove = mock();
@@ -51,7 +51,7 @@ test("remove button has accessible label and type button", () => {
 });
 
 test("audio chip 渲染文件名 + 麦克风图标 + 移除按钮，不渲染 <audio>", () => {
-  const a: AttachmentDraft = { kind: "audio", name: "录音 0:02.webm", path: "/p/.hiagent/uploads/rec.webm", size: 10, durationMs: 2000 };
+  const a: AttachmentDraft = { kind: "audio", name: "录音 0:02.webm", path: "/p/.wa-pi/uploads/rec.webm", size: 10, durationMs: 2000 };
   const onRemove = () => {};
   render(<AttachmentChip attachment={a} onRemove={onRemove} />);
   expect(screen.getByText("录音 0:02.webm")).toBeTruthy();

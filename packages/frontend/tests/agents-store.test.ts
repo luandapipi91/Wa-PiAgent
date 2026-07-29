@@ -1,5 +1,5 @@
 import { test, expect, mock, describe } from "bun:test";
-import type { AgentConfig, SessionEntity } from "@hiagent/shared";
+import type { AgentConfig, SessionEntity } from "@wa-pi/shared";
 
 const agent = (name: string): AgentConfig => ({
   displayName: name, avatar: "🤖", avatarColor: "#000-#111", description: "",

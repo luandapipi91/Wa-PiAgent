@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { CommandInfo } from "@hiagent/shared";
+import type { CommandInfo } from "@wa-pi/shared";
 import { api } from "../api-client";
 
 // slash 命令 store — 从 pi 运行时拉取当前会话可用的命令（插件贡献 / prompt 模板）

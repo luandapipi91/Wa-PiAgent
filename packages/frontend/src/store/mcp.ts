@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { McpServerConfig, McpServerStatus, McpToolSummary } from "@hiagent/shared";
-import type { McpListResult, McpChangedEvent, McpTestResult, McpToolsResult } from "@hiagent/shared";
+import type { McpServerConfig, McpServerStatus, McpToolSummary } from "@wa-pi/shared";
+import type { McpListResult, McpChangedEvent, McpTestResult, McpToolsResult } from "@wa-pi/shared";
 import { api } from "../api-client";
 
 interface McpState {

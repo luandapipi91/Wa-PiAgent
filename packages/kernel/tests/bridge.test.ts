@@ -35,7 +35,7 @@ import { ProviderStore } from "../src/provider-store";
 import { SkillManager } from "../src/skill-manager";
 import { ExtensionManager } from "../src/extension-manager";
 import { RpcClient, buildPiArgs, resolvePiCliPath } from "../src/rpc-client";
-import type { AskParams } from "@hiagent/shared";
+import type { AskParams } from "@wa-pi/shared";
 
 const SEVEN_TOOLS = [
   "ask_user_question",
@@ -66,9 +66,9 @@ afterEach(async () => {
   rmSync(tmpDir, { recursive: true, force: true });
   for (const f of tmpFiles.splice(0)) rmSync(f, { force: true });
   for (const c of clients.splice(0)) await c.dispose().catch(() => {});
-  delete process.env.HIAGENT_BRIDGE_URL;
-  delete process.env.HIAGENT_BRIDGE_TOKEN;
-  delete process.env.HIAGENT_SESSION_ID;
+  delete process.env.WA_PI_BRIDGE_URL;
+  delete process.env.WA_PI_BRIDGE_TOKEN;
+  delete process.env.WA_PI_SESSION_ID;
 });
 
 // 生成的扩展文件是 kernel 启动产物（startKernel 会幂等重写），测完删除不污染环境
@@ -343,7 +343,7 @@ test("扩展 execute：缺 env 报 missing_env；配好 env 后经 ws-server 全
   const noEnvTools = await loadBridgeTools();
   const miss = await noEnvTools.find((t: any) => t.name === "delegate").execute("tc1", { agent: "a", task: "b" }, undefined);
   expect(miss.details.error).toBe("missing_env");
-  expect(miss.content[0].text).toContain("只在 hiagent 宿主下可用");
+  expect(miss.content[0].text).toContain("只在 wa-pi 宿主下可用");
 
   // 配好 env：ask 走完整 HTTP 链路（扩展 → ws-server → registry → askRegistry）
   const { server, port } = await startTestServer();
@@ -351,9 +351,9 @@ test("扩展 execute：缺 env 报 missing_env；配好 env 后经 ws-server 全
     const ctx = makeDefaultBridgeContext({ sessionId: "s-bridge", cwd: tmpDir, memoryStores: makeMemoryStores() });
     registerBridgeSession("s-bridge", ctx);
     const tools = await loadBridgeTools({
-      HIAGENT_BRIDGE_URL: `http://127.0.0.1:${port}`,
-      HIAGENT_BRIDGE_TOKEN: getBridgeToken(),
-      HIAGENT_SESSION_ID: "s-bridge",
+      WA_PI_BRIDGE_URL: `http://127.0.0.1:${port}`,
+      WA_PI_BRIDGE_TOKEN: getBridgeToken(),
+      WA_PI_SESSION_ID: "s-bridge",
     });
 
     // ask：阻塞等回答，resolve 后文本经 HTTP 回传到 pi 侧

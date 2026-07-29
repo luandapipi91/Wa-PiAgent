@@ -1,4 +1,4 @@
-import type { AgentConfig } from "@hiagent/shared";
+import type { AgentConfig } from "@wa-pi/shared";
 import { makeDefaultAgentConfig } from "./agent-md";
 
 /**

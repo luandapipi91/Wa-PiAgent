@@ -14,7 +14,7 @@
 
 import { readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { dirname, extname, join } from "node:path";
-import type { CommandInfo } from "@hiagent/shared";
+import type { CommandInfo } from "@wa-pi/shared";
 
 /** pi get_commands 返回的原始命令条目（比前端 CommandInfo 多 sourceInfo） */
 export interface RawCommandInfo extends CommandInfo {

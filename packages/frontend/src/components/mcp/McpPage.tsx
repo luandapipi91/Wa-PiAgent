@@ -6,7 +6,7 @@ import { McpEmpty } from "./McpEmpty";
 import { McpFormModal } from "./McpFormModal";
 import { McpToolsModal } from "./McpToolsModal";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
-import type { McpServerConfig } from "@hiagent/shared";
+import type { McpServerConfig } from "@wa-pi/shared";
 
 export function McpPage() {
   const {

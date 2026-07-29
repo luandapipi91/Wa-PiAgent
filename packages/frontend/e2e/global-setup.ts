@@ -2,9 +2,9 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_HIAGENT_DIR, E2E_WS_PORT } from "../playwright.config";
+import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
 
-// 预置 agent.md 测试数据：E2E 用独立 HIAGENT_DIR，里面默认无 agent 配置，
+// 预置 agent.md 测试数据：E2E 用独立 WA_PI_DIR，里面默认无 agent 配置，
 // 导致 agent:config:get 返回 null、AgentConfig modal 的 PartnersTab 不渲染。
 // 这里写入 dev.md（含 partners 配置），让 configStore.getAgent("dev") 返回真实数据。
 // 格式与 packages/kernel/tests/agent-md.test.ts 的 DEV_MD 一致（parseAgentMd 已验证）。
@@ -33,7 +33,7 @@ const SEED_USER_MD = "E2E 用户偏好记忆";
 
 // 预置一个测试项目（含项目级 AGENTS.md 指令文件 + 项目记忆），供记忆页作用域切换 E2E 使用。
 // 必须在 kernel 启动前写入 projects.json，保证 projects:list 首次返回就有数据。
-const SEED_PROJECT_CWD = join(E2E_HIAGENT_DIR, "e2e-project");
+const SEED_PROJECT_CWD = join(E2E_WA_PI_DIR, "e2e-project");
 const SEED_PROJECTS_JSON = JSON.stringify({
   projects: [{
     id: "e2e-proj-1", name: "E2E项目", cwd: SEED_PROJECT_CWD, createdAt: 0,
@@ -43,30 +43,30 @@ const SEED_PROJECTS_JSON = JSON.stringify({
 
 async function globalSetup() {
   // 预置 agent 配置（在 kernel 启动前写入，确保 configStore 首次读取就有数据）
-  mkdirSync(join(E2E_HIAGENT_DIR, "agents"), { recursive: true });
-  writeFileSync(join(E2E_HIAGENT_DIR, "agents", "dev.md"), DEV_AGENT_MD, "utf8");
+  mkdirSync(join(E2E_WA_PI_DIR, "agents"), { recursive: true });
+  writeFileSync(join(E2E_WA_PI_DIR, "agents", "dev.md"), DEV_AGENT_MD, "utf8");
 
   // 预置记忆测试数据（memory.spec.ts 依赖）
-  mkdirSync(join(E2E_HIAGENT_DIR, "memories", "global"), { recursive: true });
-  writeFileSync(join(E2E_HIAGENT_DIR, "memories", "global", "MEMORY.md"), SEED_MEMORY_MD, "utf8");
-  writeFileSync(join(E2E_HIAGENT_DIR, "memories", "global", "USER.md"), SEED_USER_MD, "utf8");
+  mkdirSync(join(E2E_WA_PI_DIR, "memories", "global"), { recursive: true });
+  writeFileSync(join(E2E_WA_PI_DIR, "memories", "global", "MEMORY.md"), SEED_MEMORY_MD, "utf8");
+  writeFileSync(join(E2E_WA_PI_DIR, "memories", "global", "USER.md"), SEED_USER_MD, "utf8");
   // 预置全局指令文件（指令文件 Tab 测试依赖）
-  writeFileSync(join(E2E_HIAGENT_DIR, "AGENTS.md"), "# 全局指令\n这是 E2E 测试的全局指令文件", "utf8");
+  writeFileSync(join(E2E_WA_PI_DIR, "AGENTS.md"), "# 全局指令\n这是 E2E 测试的全局指令文件", "utf8");
 
   // 预置测试项目：projects.json + 项目 cwd 下的 AGENTS.md（项目级指令文件）
   // + 项目记忆文件（让记忆页「项目」作用域有数据可查）。
   // 项目记忆目录由 projectNameFromCwd(cwd) 决定（basename），即 projects-memory/<basename>/MEMORY.md
   mkdirSync(SEED_PROJECT_CWD, { recursive: true });
   writeFileSync(join(SEED_PROJECT_CWD, "AGENTS.md"), "# E2E 项目指令\n这是项目级指令文件", "utf8");
-  writeFileSync(join(E2E_HIAGENT_DIR, "projects.json"), SEED_PROJECTS_JSON, "utf8");
-  mkdirSync(join(E2E_HIAGENT_DIR, "projects-memory", "e2e-project"), { recursive: true });
-  writeFileSync(join(E2E_HIAGENT_DIR, "projects-memory", "e2e-project", "MEMORY.md"), "E2E 项目记忆条目", "utf8");
+  writeFileSync(join(E2E_WA_PI_DIR, "projects.json"), SEED_PROJECTS_JSON, "utf8");
+  mkdirSync(join(E2E_WA_PI_DIR, "projects-memory", "e2e-project"), { recursive: true });
+  writeFileSync(join(E2E_WA_PI_DIR, "projects-memory", "e2e-project", "MEMORY.md"), "E2E 项目记忆条目", "utf8");
 
-  // 启动 kernel，注入独立 HIAGENT_DIR（覆盖 ~/.hiagent）与 WS 端口（默认 9776，可偏移避开本机真实 kernel）
-  // HIAGENT_SKIP_AGENT_SEED=1：关闭内置角色 seed，保持隔离环境只有预置的 dev.md，
+  // 启动 kernel，注入独立 WA_PI_DIR（覆盖 ~/.wa-pi）与 WS 端口（默认 9776，可偏移避开本机真实 kernel）
+  // WA_PI_SKIP_AGENT_SEED=1：关闭内置角色 seed，保持隔离环境只有预置的 dev.md，
   // 否则 kernel 启动会补齐 11 个内置角色，打破 agents.spec.ts「初始仅 1 个智能体」的前提
-  const child = spawn("bun", ["run", "--filter", "@hiagent/kernel", "dev"], {
-    env: { ...process.env, HIAGENT_DIR: E2E_HIAGENT_DIR, HIAGENT_WS_PORT: String(E2E_WS_PORT), HIAGENT_SKIP_AGENT_SEED: "1" },
+  const child = spawn("bun", ["run", "--filter", "@wa-pi/kernel", "dev"], {
+    env: { ...process.env, WA_PI_DIR: E2E_WA_PI_DIR, WA_PI_WS_PORT: String(E2E_WS_PORT), WA_PI_SKIP_AGENT_SEED: "1" },
     stdio: ["ignore", "pipe", "pipe"],
     shell: true, // Windows 下 bun 是 npm 装的 .cmd shim，需要 shell 解析，否则 spawn ENOENT
   });
@@ -78,7 +78,7 @@ async function globalSetup() {
   while (Date.now() < deadline) {
     const ok = await checkPort(E2E_WS_PORT);
     if (ok) {
-      writeFileSync(join(E2E_HIAGENT_DIR, ".kernel-pid"), String(child.pid));
+      writeFileSync(join(E2E_WA_PI_DIR, ".kernel-pid"), String(child.pid));
       return;
     }
     await new Promise(r => setTimeout(r, 300));

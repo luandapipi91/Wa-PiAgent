@@ -2,10 +2,10 @@
 //
 // RPC 迁移后队列简化：
 // - 引导 → pi 原生 steer()（steerMessage 直调 client.steer()，不再维护 steering[]）
-// - 排队 → HiAgent 本地 followUpList（agent_settled 时逐条 drain）
+// - 排队 → WaPi 本地 followUpList（agent_settled 时逐条 drain）
 // 以下用例用 FakeSessionClient 手动 emit 事件驱动，验证 kernel 队列语义。
 //
-// 已删除的用例（纯验证 SDK 内部行为，与 hiagent 无关）：
+// 已删除的用例（纯验证 SDK 内部行为，与 wa-pi 无关）：
 // - POC-1..POC-5：直接 poke fakeAgent 验证 SDK 队列 API 可用性（SDK 已不再是运行时依赖）；
 // - POC-E2E：真实 SDK + API key 的 steer/queue_update 验证（SDK 形态已废弃）。
 import { test, expect, beforeEach, afterEach } from "bun:test";
@@ -14,7 +14,7 @@ import { ProjectStore } from "../src/project-store";
 import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
 import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
-import { HIAGENT_DIR } from "@hiagent/shared";
+import { WA_PI_DIR } from "@wa-pi/shared";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -37,12 +37,12 @@ afterEach(async () => {
 type CapturedEvent = { sessionId: string; e: any };
 
 async function setup(events?: CapturedEvent[]) {
-  const tmpFile = `/tmp/hiagent-poc-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
+  const tmpFile = `/tmp/wa-pi-poc-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
   tmpFiles.push(tmpFile);
   const projectStore = new ProjectStore(tmpFile);
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({ projectId: project.id, primaryAgent: "dev", title: "测试" });
-  tmpFiles.push(join(HIAGENT_DIR, "tmp", "sysprompts", `${session.id}.md`));
+  tmpFiles.push(join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`));
 
   const fakes: FakeSessionClient[] = [];
   const am = new AgentManager({
@@ -229,7 +229,7 @@ test("BUG: pi queue_update 空 followUp 导致前端排队列表消失", async (
   // pi 的 queue_update 事件：steering 和 followUp 都是空（pi 不管 followUp）
   fake.emit({ type: "queue_update", steering: [], followUp: [] });
 
-  // 此时发给前端的 queue_update 应该仍含 HiAgent 本地的排队列表
+  // 此时发给前端的 queue_update 应该仍含 WaPi 本地的排队列表
   const queueEvents = events.filter(e => e.e.type === "queue_update");
   const lastQueue = queueEvents[queueEvents.length - 1];
   if (!lastQueue) throw new Error("未收到 queue_update 事件");
@@ -239,7 +239,7 @@ test("BUG: pi queue_update 空 followUp 导致前端排队列表消失", async (
   expect(lastQueue.e.followUp).toEqual(["排队2", "排队3"]);
 });
 
-test("E4 — pi 崩溃后 followUpList 保留在 HiAgent 侧", async () => {
+test("E4 — pi 崩溃后 followUpList 保留在 WaPi 侧", async () => {
   const { session, am, fake } = await setup();
 
   await am.prompt(session.id, "进行中", { model: MODEL });
@@ -249,7 +249,7 @@ test("E4 — pi 崩溃后 followUpList 保留在 HiAgent 侧", async () => {
   // 模拟 pi 崩溃
   fake.simulateCrash();
 
-  // 排队列表仍在 HiAgent 内存中
+  // 排队列表仍在 WaPi 内存中
   // 进程崩溃后 ensureStarted 会重建，followUpList 不变
   expect(fake.prompted).toContain("进行中");
 });

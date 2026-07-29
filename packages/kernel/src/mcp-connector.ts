@@ -16,7 +16,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { removeAuthEntry } from "pi-mcp-adapter/mcp-auth.ts";
-import type { McpServerConfig, McpServerStatus, McpToolParam, McpToolSummary } from "@hiagent/shared";
+import type { McpServerConfig, McpServerStatus, McpToolParam, McpToolSummary } from "@wa-pi/shared";
 
 /** 连接超时：MCP 握手 + 工具发现通常 < 5s，20s 兜底慢启动 / npx 拉包 */
 const CONNECT_TIMEOUT_MS = 20_000;
@@ -79,7 +79,7 @@ async function withConnection<T>(
   defaultCwd: string | undefined,
   fn: (client: Client, signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  const client = new Client({ name: `hiagent-mcp-${config.name}`, version: "1.0.0" });
+  const client = new Client({ name: `wa-pi-mcp-${config.name}`, version: "1.0.0" });
   const transport = createTransport(config, defaultCwd);
   const signal = AbortSignal.timeout(CONNECT_TIMEOUT_MS);
   try {

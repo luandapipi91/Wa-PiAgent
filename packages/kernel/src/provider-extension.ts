@@ -1,7 +1,7 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { slugifyProviderName, GENERATED_DIR } from "@hiagent/shared";
-import type { ModelProvider } from "@hiagent/shared";
+import { slugifyProviderName, GENERATED_DIR } from "@wa-pi/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 import type { ProviderStore } from "./provider-store";
 import { getAllCatalogModels, type CatalogModel } from "./pi-catalog";
 
@@ -107,7 +107,7 @@ ${modelsCode}
   });`;
   }).join("\n\n");
 
-  return `// 自动生成，勿手改 — 由 HiAgent provider-extension.ts 从 providers.json + SDK 内置模型数据生成
+  return `// 自动生成，勿手改 — 由 WaPi provider-extension.ts 从 providers.json + SDK 内置模型数据生成
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {

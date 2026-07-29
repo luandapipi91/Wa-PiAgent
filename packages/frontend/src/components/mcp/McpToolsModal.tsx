@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { McpToolSummary } from "@hiagent/shared";
+import type { McpToolSummary } from "@wa-pi/shared";
 import { Modal } from "../ui/Modal";
 
 interface Props {

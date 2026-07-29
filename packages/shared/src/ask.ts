@@ -1,4 +1,4 @@
-// HiAgent 结构化问答：类型 + 纯校验/翻译。
+// WaPi 结构化问答：类型 + 纯校验/翻译。
 // schema/返回对齐 @juicesharp/rpiv-ask-user-question，但仅作协议参考，不安装其 TUI。
 
 /** 单个选项。label 为回传标识；description 给用户看；preview 为可选 markdown。 */

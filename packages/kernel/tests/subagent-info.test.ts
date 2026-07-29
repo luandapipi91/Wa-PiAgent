@@ -1,7 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { getSubagentInfo, _resetPiDefaultsCache } from "../src/subagent-info";
 import { saveSubagentOverride, loadSubagentOverrides } from "../src/subagent-store";
-import { SUBAGENT_TYPES } from "@hiagent/shared";
+import { SUBAGENT_TYPES } from "@wa-pi/shared";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 // 每次测试前重置缓存，确保测试隔离

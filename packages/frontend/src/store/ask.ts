@@ -1,7 +1,7 @@
 // ask_user_question 前端派生状态：从 messagesBySession 派生 pending 提问 + 有效的会话状态。
 import { useMemo } from "react";
 import { useSessionStore } from "./session";
-import type { AgentName, AskParams, SessionMessage } from "@hiagent/shared";
+import type { AgentName, AskParams, SessionMessage } from "@wa-pi/shared";
 
 export interface PendingAsk {
   toolCallId: string;

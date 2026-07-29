@@ -120,13 +120,13 @@ test("SYSTEM_PROJECT_* 常量定义", () => {
   expect(SYSTEM_PROJECT_ID).toBe("__system__");
   expect(SYSTEM_PROJECT_NAME).toBe("默认工作区");
   expect(SYSTEM_PROJECT_CWD.endsWith("workdir")).toBe(true);
-  expect(SYSTEM_PROJECT_CWD.includes("hiagent")).toBe(true);
+  expect(SYSTEM_PROJECT_CWD.includes("wa-pi")).toBe(true);
   expect(WORKDIR_TTL_DAYS).toBe(7);
 });
 
-test("PROMPTS_FILE 指向 ~/.hiagent/prompts.json", () => {
+test("PROMPTS_FILE 指向 ~/.wa-pi/prompts.json", () => {
   expect(PROMPTS_FILE.endsWith("prompts.json")).toBe(true);
-  expect(PROMPTS_FILE.includes("hiagent")).toBe(true);
+  expect(PROMPTS_FILE.includes("wa-pi")).toBe(true);
 });
 
 // ---- 内置 subagent 类型 ----
@@ -195,8 +195,8 @@ test("isSubagentType / normalizeSubagentType 识别 Plan", () => {
 
 // ---- SUBAGENT_OVERRIDES_FILE：内置 subagent 的 model/thinking 覆盖文件路径 ----
 
-test("SUBAGENT_OVERRIDES_FILE 指向 ~/.hiagent/subagent-overrides.json", () => {
+test("SUBAGENT_OVERRIDES_FILE 指向 ~/.wa-pi/subagent-overrides.json", () => {
   expect(SUBAGENT_OVERRIDES_FILE.endsWith("subagent-overrides.json")).toBe(true);
-  expect(SUBAGENT_OVERRIDES_FILE.includes("hiagent")).toBe(true);
+  expect(SUBAGENT_OVERRIDES_FILE.includes("wa-pi")).toBe(true);
 });
 

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import type { AgentName, AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
-import { isModelAvailable } from "@hiagent/shared";
+import type { AgentName, AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
+import { isModelAvailable } from "@wa-pi/shared";
 import { api } from "../api-client";
 import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";
@@ -67,7 +67,7 @@ export function Composer({ sessionId, agentName, isRunning, isNewSession, disabl
 
   const handleSend = () => {
     if (disabled) return;
-    // @[xxx] 不剥离，原样保留给主智能体识别（由 HIAGENT_DEFAULT_SYSTEM_PROMPT 中的规则触发 delegate）
+    // @[xxx] 不剥离，原样保留给主智能体识别（由 WA_PI_DEFAULT_SYSTEM_PROMPT 中的规则触发 delegate）
     const expandedText = expandTokens(text);
     if (!expandedText.trim() || !isModelAvailable(model, providers) || sendingRef.current || !projectId) return;
     doSend(agentName, expandedText);

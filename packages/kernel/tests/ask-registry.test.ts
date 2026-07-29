@@ -1,6 +1,6 @@
 import { test, expect, beforeEach } from "bun:test";
 import { askRegistry } from "../src/ask-registry";
-import type { AskParams } from "@hiagent/shared";
+import type { AskParams } from "@wa-pi/shared";
 
 const params: AskParams = { questions: [
   { question: "Q?", header: "h", options: [{ label: "A", description: "x" }, { label: "B", description: "y" }] },

@@ -6,35 +6,35 @@ export function resolvePort(envVal: string | undefined, def: number): number {
 
 // 兼容浏览器（vite import.meta.env / 无 process 全局）与 Node/Bun（process.env）
 // 浏览器 bundle 里 process 是 undefined；vite 通过 vite.config.ts 的 define 把
-// process.env.HIAGENT_DIR 等静态替换为构建时值（E2E 隔离目录用）。
+// process.env.WA_PI_DIR 等静态替换为构建时值（E2E 隔离目录用）。
 // 但 typeof process 判断在替换前已求值为 "undefined"，所以这里双源读取兜底。
 const nodeEnv = typeof process !== "undefined" ? process.env : {};
 // import.meta.env 浏览器（vite）才有；Node/Bun 下 import.meta.env 为 undefined，由 && 兜底
 const browserEnv = (typeof import.meta !== "undefined" && (import.meta as any).env) ? (import.meta as any).env : {};
 const env = { ...nodeEnv, ...browserEnv };
 const HOME = env.HOME || env.USERPROFILE || ".";
-/** kernel HTTP 端口（原 WS 端口，去 WS 化后仅用于 HTTP + SSE）；可通过 HIAGENT_WS_PORT 覆盖 */
-export const WS_PORT = resolvePort(env.HIAGENT_WS_PORT, 9776);
-export const PREVIEW_PORT = resolvePort(env.HIAGENT_PREVIEW_PORT, 9777);
+/** kernel HTTP 端口（原 WS 端口，去 WS 化后仅用于 HTTP + SSE）；可通过 WA_PI_WS_PORT 覆盖 */
+export const WS_PORT = resolvePort(env.WA_PI_WS_PORT, 9776);
+export const PREVIEW_PORT = resolvePort(env.WA_PI_PREVIEW_PORT, 9777);
 /** 前端 dev 端口（Vite）；desktop 不用（走同源 9776）。 */
-export const FRONTEND_PORT = resolvePort(env.HIAGENT_WEB_PORT, 5180);
-/** hiagent 数据目录（默认 ~/.hiagent），可用 HIAGENT_DIR 环境变量覆盖。 */
-export const HIAGENT_DIR = env.HIAGENT_DIR || `${HOME}/.hiagent`;
-export const PROJECTS_FILE = `${HIAGENT_DIR}/projects.json`;
-export const PI_AGENTS_DIR = `${HIAGENT_DIR}/agents`;   // ← 改：从 ~/.pi/agent/agents 改为 .hiagent/agents
-export const PROVIDERS_FILE = `${HIAGENT_DIR}/providers.json`;
-export const PROMPTS_FILE = `${HIAGENT_DIR}/prompts.json`;   // 系统提示词段落配置（顺序+内容），启动时若无则初始化默认值
-export const SUBAGENT_OVERRIDES_FILE = `${HIAGENT_DIR}/subagent-overrides.json`;   // 内置 subagent 的 model/thinking 覆盖
-export const GENERATED_DIR = `${HIAGENT_DIR}/.generated`;   // 自动生成的 Pi extension 文件目录
-export const BUILTIN_SKILLS_DIR = `${HIAGENT_DIR}/skills`;   // 内置技能目录，kernel 启动时创建，不可删
+export const FRONTEND_PORT = resolvePort(env.WA_PI_WEB_PORT, 5180);
+/** wa-pi 数据目录（默认 ~/.wa-pi），可用 WA_PI_DIR 环境变量覆盖。 */
+export const WA_PI_DIR = env.WA_PI_DIR || `${HOME}/.wa-pi`;
+export const PROJECTS_FILE = `${WA_PI_DIR}/projects.json`;
+export const PI_AGENTS_DIR = `${WA_PI_DIR}/agents`;   // ← 改：从 ~/.pi/agent/agents 改为 .wa-pi/agents
+export const PROVIDERS_FILE = `${WA_PI_DIR}/providers.json`;
+export const PROMPTS_FILE = `${WA_PI_DIR}/prompts.json`;   // 系统提示词段落配置（顺序+内容），启动时若无则初始化默认值
+export const SUBAGENT_OVERRIDES_FILE = `${WA_PI_DIR}/subagent-overrides.json`;   // 内置 subagent 的 model/thinking 覆盖
+export const GENERATED_DIR = `${WA_PI_DIR}/.generated`;   // 自动生成的 Pi extension 文件目录
+export const BUILTIN_SKILLS_DIR = `${WA_PI_DIR}/skills`;   // 内置技能目录，kernel 启动时创建，不可删
 
 // ===== 默认工作区（虚拟系统项目）=====
 // 一个常驻、不可删除/改名的虚拟项目，作为"没有具体工程目录时的默认聊天空间"。
-// 该项目下的每个会话有独立 cwd（~/.hiagent/workdir/<session.createdAt>/），
+// 该项目下的每个会话有独立 cwd（~/.wa-pi/workdir/<session.createdAt>/），
 // 详见 resolveSessionCwd 纯函数（pure.ts）。
 export const SYSTEM_PROJECT_ID = "__system__";
 export const SYSTEM_PROJECT_NAME = "默认工作区";
-export const SYSTEM_PROJECT_CWD = `${HIAGENT_DIR}/workdir`;
+export const SYSTEM_PROJECT_CWD = `${WA_PI_DIR}/workdir`;
 // 默认工作区会话被删除后，对应的 <createdAt>/ 子目录保留天数；超时后由 workdir-cleaner 清理
 export const WORKDIR_TTL_DAYS = 7;
 

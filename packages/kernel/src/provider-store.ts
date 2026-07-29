@@ -1,14 +1,14 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { PROVIDERS_FILE } from "@hiagent/shared";
-import type { ModelProvider } from "@hiagent/shared";
+import { PROVIDERS_FILE } from "@wa-pi/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 
 interface ProvidersFile {
   providers: ModelProvider[];
 }
 
 /**
- * 供应商持久化：读写 ~/.hiagent/providers.json（结构 { providers: [...] }）。
+ * 供应商持久化：读写 ~/.wa-pi/providers.json（结构 { providers: [...] }）。
  * 沿用 ConfigStore 的 JSON 文件读写模式：文件不存在视为空。
  */
 export class ProviderStore {

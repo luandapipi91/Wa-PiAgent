@@ -1,6 +1,6 @@
 import { test, expect, mock, afterEach } from "bun:test";
 import { testProviderConnection } from "../src/provider-test";
-import type { ProviderModel } from "@hiagent/shared";
+import type { ProviderModel } from "@wa-pi/shared";
 
 // mock 全局 fetch
 const originalFetch = globalThis.fetch;

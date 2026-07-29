@@ -1,6 +1,6 @@
 // 通用文件/文件夹多选组件
 // 基于 kernel fs:listDir 浏览文件系统，支持同时选择多个文件和文件夹。
-// 文件会被复制到项目 .hiagent/uploads 下；文件夹直接返回其真实路径，不再创建软链接。
+// 文件会被复制到项目 .wa-pi/uploads 下；文件夹直接返回其真实路径，不再创建软链接。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {

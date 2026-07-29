@@ -1,8 +1,8 @@
 import "./mock-composer-db";
 import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, waitFor, act, cleanup } from "@testing-library/react";
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
-import type { AgentConfig } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
+import type { AgentConfig } from "@wa-pi/shared";
 import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
 
 const sent: { path: string; body?: any }[] = [];
@@ -98,7 +98,7 @@ describe("NewSessionPane", () => {
 
     sent.length = 0;
     disconnectEvents();
-    mockFetch("/a/.hiagent/uploads/note.txt");
+    mockFetch("/a/.wa-pi/uploads/note.txt");
 
     useProjectsStore.setState({
       projects: [{ id: "p1", name: "项目A", cwd: "/a", createdAt: 0 }],
@@ -257,7 +257,7 @@ describe("NewSessionPane", () => {
       expect(lastPrompt()).toMatchObject({
         agentName: useAgentsStore.getState().list[0].displayName,
         text: "with attachment",
-        attachments: [expect.objectContaining({ kind: "file", name: "note.txt", path: "/a/.hiagent/uploads/note.txt" })],
+        attachments: [expect.objectContaining({ kind: "file", name: "note.txt", path: "/a/.wa-pi/uploads/note.txt" })],
       });
     });
   });
@@ -317,7 +317,7 @@ describe("NewSessionPane", () => {
       start: async () => {},
       pause: () => {},
       resume: () => {},
-      stop: async () => ({ path: "/a/.hiagent/uploads/recording.webm", size: 100, durationMs: 5000 }),
+      stop: async () => ({ path: "/a/.wa-pi/uploads/recording.webm", size: 100, durationMs: 5000 }),
     });
     useProvidersStore.setState({
       providers: [
@@ -448,7 +448,7 @@ describe("NewSessionPane", () => {
     useProjectsStore.setState({
       projects: [
         { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
-        { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+        { id: "p1", name: "WaPi", cwd: "/work/wa-pi", createdAt: 0 },
       ],
       sessions: [],
       currentProjectId: null,
@@ -462,13 +462,13 @@ describe("NewSessionPane", () => {
     expect(sysOption!.textContent).not.toContain("/tmp/workdir");
     const normalOption = Array.from(select.options).find((o) => o.value === "p1");
     expect(normalOption).toBeDefined();
-    expect(normalOption!.textContent).toContain("/work/hiagent");
+    expect(normalOption!.textContent).toContain("/work/wa-pi");
   });
 
   it("首次进入时默认选中默认工作区", () => {
     useProjectsStore.setState({
       projects: [
-        { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+        { id: "p1", name: "WaPi", cwd: "/work/wa-pi", createdAt: 0 },
         { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
       ],
       sessions: [],

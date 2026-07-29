@@ -4,17 +4,17 @@
 // 现为文件直读快速路径（毫秒级）+ 后台预热进程。本 spec 验证真实浏览器中
 // 打开存量会话的完整链路可用，并记录从点击到历史可见的耗时。
 //
-// 数据准备：直接向 E2E 隔离 HIAGENT_DIR 写 projects.json 会话记录 + pi 会话文件
+// 数据准备：直接向 E2E 隔离 WA_PI_DIR 写 projects.json 会话记录 + pi 会话文件
 // （kernel 的 projectStore 每次请求重新 load，文件改动即生效）。
 import { test, expect } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_HIAGENT_DIR } from "../playwright.config";
+import { E2E_WA_PI_DIR } from "../playwright.config";
 
 const SESSION_ID = "s-e2e-history-001";
 
 function seedExistingSession() {
-  const projPath = join(E2E_HIAGENT_DIR, "projects.json");
+  const projPath = join(E2E_WA_PI_DIR, "projects.json");
   const data = JSON.parse(readFileSync(projPath, "utf8"));
   if (!data.sessions.some((s: any) => s.id === SESSION_ID)) {
     data.sessions.push({
@@ -24,14 +24,14 @@ function seedExistingSession() {
       title: "E2E存量会话",
       createdAt: 1,
       lastActivity: 1,
-      piSessionFile: join(E2E_HIAGENT_DIR, "sessions", `${SESSION_ID}.jsonl`),
+      piSessionFile: join(E2E_WA_PI_DIR, "sessions", `${SESSION_ID}.jsonl`),
     });
     writeFileSync(projPath, JSON.stringify(data, null, 2), "utf8");
   }
-  mkdirSync(join(E2E_HIAGENT_DIR, "sessions"), { recursive: true });
+  mkdirSync(join(E2E_WA_PI_DIR, "sessions"), { recursive: true });
   const line = (id: string, parentId: string | null, role: string, text: string, ts: number) =>
     JSON.stringify({ type: "message", id, parentId, message: { role, content: [{ type: "text", text }], timestamp: ts } });
-  writeFileSync(join(E2E_HIAGENT_DIR, "sessions", `${SESSION_ID}.jsonl`), [
+  writeFileSync(join(E2E_WA_PI_DIR, "sessions", `${SESSION_ID}.jsonl`), [
     JSON.stringify({ type: "session", version: 3, id: "e2e-history-uuid" }),
     line("m1", null, "user", "E2E历史问题", 1),
     line("m2", "m1", "assistant", "E2E历史回答", 2),

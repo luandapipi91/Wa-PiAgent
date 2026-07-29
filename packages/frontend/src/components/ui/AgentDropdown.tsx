@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentConfig, AgentName } from "@hiagent/shared";
+import type { AgentConfig, AgentName } from "@wa-pi/shared";
 import { filterItems } from "../../quick-invoke/trigger";
 import { AgentMenuItem } from "./AgentMenuItem";
 

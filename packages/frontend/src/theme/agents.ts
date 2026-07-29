@@ -1,5 +1,5 @@
-import { agentDefOf } from "@hiagent/shared";
-import type { AgentName } from "@hiagent/shared";
+import { agentDefOf } from "@wa-pi/shared";
+import type { AgentName } from "@wa-pi/shared";
 
 export function agentEmoji(name: AgentName): string {
   return agentDefOf(name).emoji;

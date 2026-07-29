@@ -4,7 +4,7 @@ import { Modal } from "../ui/Modal";
 import { TagInput } from "../ui/TagInput";
 import { useProvidersStore } from "../../store/providers";
 import { api } from "../../api-client";
-import type { ModelProvider, ProviderApi, ProviderModel, ModelPreset } from "@hiagent/shared";
+import type { ModelProvider, ProviderApi, ProviderModel, ModelPreset } from "@wa-pi/shared";
 
 interface Props {
   initial?: ModelProvider;   // 编辑时传，新增时不传

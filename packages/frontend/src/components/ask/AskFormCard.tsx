@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { AgentName, AskParams, AskReply } from "@hiagent/shared";
-import { AGENT_DEFS } from "@hiagent/shared";
+import type { AgentName, AskParams, AskReply } from "@wa-pi/shared";
+import { AGENT_DEFS } from "@wa-pi/shared";
 import { api } from "../../api-client";
 // 项目现有代码（TextBlock.tsx / MessageList.tsx）统一用默认导入；保持一致。
 import ReactMarkdown from "react-markdown";

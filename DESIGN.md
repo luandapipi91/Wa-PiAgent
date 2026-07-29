@@ -1,7 +1,7 @@
 ---
 version: alpha
-name: HiAgent Light
-description: 一个干净、柔和、有层次感的浅色界面—— HiAgent 的视觉语言。
+name: WaPi Light
+description: 一个干净、柔和、有层次感的浅色界面—— WaPi 的视觉语言。
   暖灰渐变背景（非纯白）承载近黑品牌字与柔和靛蓝强调色；卡片靠细边框和微阴影分层，
   大圆角贯穿全局；输入框是整页最精致的胶囊卡片，聚焦时靛蓝光晕呼吸。
 colors:
@@ -244,7 +244,7 @@ components:
 
 ## Overview
 
-HiAgent Light 是一套参考腾讯 Marvis 马维斯官网视觉语言的浅色设计系统。马维斯的设计
+WaPi Light 是一套参考腾讯 Marvis 马维斯官网视觉语言的浅色设计系统。马维斯的设计
 精髓在于"克制中的精致"——大面积暖灰留白、近黑的品牌字、极少的色彩干扰，靠层次和圆角
 而非阴影堆砌来区分界面元素。
 

@@ -1,6 +1,6 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from "react";
-import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
-import { isModelAvailable, SUBAGENT_TYPES } from "@hiagent/shared";
+import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
+import { isModelAvailable, SUBAGENT_TYPES } from "@wa-pi/shared";
 import { uploadFile, copyToUploads, searchFilesStream } from "../../fs-client";
 import { useProjectsStore } from "../../store/projects";
 import { useProvidersStore } from "../../store/providers";
@@ -331,13 +331,13 @@ export function ComposerInput({
       }
       const cmd = item.id.slice(4); // 去掉 "cmd:" 前缀
       if (cmd === "settings") {
-        window.dispatchEvent(new CustomEvent("hiagent:open-settings"));
+        window.dispatchEvent(new CustomEvent("wa-pi:open-settings"));
       } else if (cmd === "agents") {
-        window.dispatchEvent(new CustomEvent("hiagent:open-gallery"));
+        window.dispatchEvent(new CustomEvent("wa-pi:open-gallery"));
       } else if (cmd === "skills") {
-        window.dispatchEvent(new CustomEvent("hiagent:open-settings-skills"));
+        window.dispatchEvent(new CustomEvent("wa-pi:open-settings-skills"));
       } else if (cmd === "reload") {
-        window.dispatchEvent(new CustomEvent("hiagent:reload-config"));
+        window.dispatchEvent(new CustomEvent("wa-pi:reload-config"));
       }
       return;
     }
@@ -361,7 +361,7 @@ export function ComposerInput({
         const triggerRe = new RegExp(`/${trigger.query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
         setText(text.replace(triggerRe, ""));
       }
-      window.dispatchEvent(new CustomEvent("hiagent:pi-command", { detail: { text: `/${cmdName}` } }));
+      window.dispatchEvent(new CustomEvent("wa-pi:pi-command", { detail: { text: `/${cmdName}` } }));
       return;
     }
     const token = triggerType === "agent"

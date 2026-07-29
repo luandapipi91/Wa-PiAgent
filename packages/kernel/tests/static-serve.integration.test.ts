@@ -1,22 +1,22 @@
-// 必须在任何 kernel/shared 代码 import 之前设置 HIAGENT_DIR：
-// packages/shared/src/constants.ts 在模块加载时从 env 读取 HIAGENT_DIR，
+// 必须在任何 kernel/shared 代码 import 之前设置 WA_PI_DIR：
+// packages/shared/src/constants.ts 在模块加载时从 env 读取 WA_PI_DIR，
 // 一旦确定便不可改。ESM 静态 import 会被提升，所以这里用动态 import()
 // 把 env 设置放在第一个 kernel 模块加载之前，确保 startKernel 写入的是测试临时目录
-// 而非真实 ~/.hiagent。
+// 而非真实 ~/.wa-pi。
 import { test, expect, afterAll } from "bun:test";
 import { rm, mkdir, writeFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 
-const TMP_ROOT = await mkdtemp(join(tmpdir(), "hiagent-static-"));
-process.env.HIAGENT_DIR = TMP_ROOT;
+const TMP_ROOT = await mkdtemp(join(tmpdir(), "wa-pi-static-"));
+process.env.WA_PI_DIR = TMP_ROOT;
 
 const { startKernel } = await import("../src/index");
 
 const TMP_STATIC = `${import.meta.dir}/.tmp-static`;
 
-// 获取一个临时空闲端口供 startKernel 使用，避免与正在运行的 hiagent（9776）冲突。
+// 获取一个临时空闲端口供 startKernel 使用，避免与正在运行的 wa-pi（9776）冲突。
 // 接受 listen(0) → close → 复用端口之间的微小竞争窗口（测试可接受）。
 function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {

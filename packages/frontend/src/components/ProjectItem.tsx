@@ -1,6 +1,6 @@
 import { useState, useEffect, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
-import { SYSTEM_PROJECT_ID, type ProjectEntity, type SessionEntity } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID, type ProjectEntity, type SessionEntity } from "@wa-pi/shared";
 import { SessionRow } from "./SessionRow";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { api } from "../api-client";

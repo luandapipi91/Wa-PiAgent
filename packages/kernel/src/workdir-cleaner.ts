@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { ProjectStore } from "./project-store";
 import {
   SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD, WORKDIR_TTL_DAYS,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

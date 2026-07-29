@@ -1,7 +1,7 @@
 import "./mock-composer-db";
 import { test, expect, beforeEach, mock, afterEach } from "bun:test";
 import { render, screen, waitFor, act, cleanup } from "@testing-library/react";
-import { SYSTEM_PROJECT_ID, type SessionMessage } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID, type SessionMessage } from "@wa-pi/shared";
 import { SessionView } from "../src/components/SessionView";
 import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
@@ -335,7 +335,7 @@ test("默认工作区会话 header 显示友好文案", async () => {
 test("普通项目会话 header 仍显示 project.cwd（不回归）", async () => {
   // 普通项目会话：header 显示真实 cwd，差异化逻辑不影响老行为
   useProjectsStore.setState({
-    projects: [{ id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 }],
+    projects: [{ id: "p1", name: "WaPi", cwd: "/work/wa-pi", createdAt: 0 }],
     sessions: [{
       id: "s1", projectId: "p1", primaryAgent: "dev",
       title: "会话", createdAt: 0, lastActivity: Date.now(),
@@ -345,7 +345,7 @@ test("普通项目会话 header 仍显示 project.cwd（不回归）", async () 
   });
   await renderSessionView("s1");
   // 与现有「渲染 header 标题 + 项目目录」测试一致，用 regex 匹配 cwd 子串
-  expect(screen.getByText(/\/work\/hiagent/)).toBeTruthy();
+  expect(screen.getByText(/\/work\/wa-pi/)).toBeTruthy();
 });
 
 test("token 胶囊：有 usage 时显示 ↑↓/累计/缓存", () => {
@@ -355,7 +355,7 @@ test("token 胶囊：有 usage 时显示 ↑↓/累计/缓存", () => {
   });
   useProjectsStore.setState({
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
-    projects: [{ id: "p1", name: "test", cwd: "/work/hiagent" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi" }],
   });
   render(<SessionView sessionId="s1" />);
   expect(screen.getByTestId("token-capsules")).toBeTruthy();
@@ -386,7 +386,7 @@ test("token 胶囊：有模型时累计胶囊显示进度条", () => {
   });
   useProjectsStore.setState({
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
-    projects: [{ id: "p1", name: "test", cwd: "/work/hiagent" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi" }],
   });
 
   render(<SessionView sessionId="s1" />);
@@ -407,7 +407,7 @@ test("token 胶囊：无模型时累计胶囊不显示进度条", () => {
   });
   useProjectsStore.setState({
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
-    projects: [{ id: "p1", name: "test", cwd: "/work/hiagent" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi" }],
   });
 
   render(<SessionView sessionId="s1" />);
@@ -437,7 +437,7 @@ test("token 胶囊：进度条极小占比也有最小可见宽度", () => {
   });
   useProjectsStore.setState({
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
-    projects: [{ id: "p1", name: "test", cwd: "/work/hiagent" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi" }],
   });
 
   render(<SessionView sessionId="s1" />);
@@ -456,7 +456,7 @@ test("token 胶囊：无 usage 时不显示", () => {
   });
   useProjectsStore.setState({
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
-    projects: [{ id: "p1", name: "test", cwd: "/work/hiagent" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi" }],
   });
   render(<SessionView sessionId="s1" />);
   expect(screen.queryByTestId("token-capsules")).toBeNull();

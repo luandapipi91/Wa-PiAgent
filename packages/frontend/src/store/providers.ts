@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ModelProvider, ProviderApi, ProviderModel } from "@hiagent/shared";
+import type { ModelProvider, ProviderApi, ProviderModel } from "@wa-pi/shared";
 import { api } from "../api-client";
 
 interface TestInput {

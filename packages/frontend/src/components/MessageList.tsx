@@ -4,8 +4,8 @@ import type {
 	PromptEvent,
 	AgentName,
 	ThinkingLevel,
-} from "@hiagent/shared";
-import { isModelAvailable } from "@hiagent/shared";
+} from "@wa-pi/shared";
+import { isModelAvailable } from "@wa-pi/shared";
 import { useSessionStore } from "../store/session";
 import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";

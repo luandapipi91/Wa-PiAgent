@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { McpStore } from "../src/mcp-store";
-import type { ProjectEntity } from "@hiagent/shared";
+import type { ProjectEntity } from "@wa-pi/shared";
 
 const TMP = join(import.meta.dir, "mcp-test-" + Date.now());
 const PROJECT_CWD = join(TMP, "my-project");
@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 
 function createStore() {
-  return new McpStore({ hiagentDir: TMP, projectStore: mockProjectStore });
+  return new McpStore({ waPiDir: TMP, projectStore: mockProjectStore });
 }
 
 // ===== resolveConfigPath =====

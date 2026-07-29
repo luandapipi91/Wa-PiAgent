@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ProjectEntity, SessionEntity } from "@hiagent/shared";
+import type { ProjectEntity, SessionEntity } from "@wa-pi/shared";
 import { api } from "../api-client";
 import { basename } from "../pick-directory";
 import { useToastStore } from "./toast";

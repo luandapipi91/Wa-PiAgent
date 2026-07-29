@@ -2,13 +2,13 @@
 //
 // 设计要点：
 // - 记忆读写全部委托 amaster-memory（@amaster.ai/pi-memory host-controlled 包装层）：
-//   全局 <hiagentDir>/memories/global，项目 <hiagentDir>/projects-memory/<basename>。
+//   全局 <waPiDir>/memories/global，项目 <waPiDir>/projects-memory/<basename>。
 //   § 分隔格式由 amaster 单一维护，避免外部裸写触发 drift 检测。
-// - 归档使用 sidecar JSON（~/.hiagent/memory-archive.json），hiagent 自管，不进 amaster 文件。
+// - 归档使用 sidecar JSON（~/.wa-pi/memory-archive.json），wa-pi 自管，不进 amaster 文件。
 // - 记忆配置开关读写 hermes-memory-config.json。
 // - 指令文件仅扫描 AGENTS.md / CLAUDE.md（全局 + 项目 cwd）；记忆内容已由 memory tab
 //   展示、并由 AgentManager 注入系统提示词快照，不再作为指令文件重复注入。
-// - entry id 编码 "<relPath>:<rawIndex>"，relPath 相对 hiagentDir，rawIndex 为该 store+target
+// - entry id 编码 "<relPath>:<rawIndex>"，relPath 相对 waPiDir，rawIndex 为该 store+target
 //   下 entries 的下标；变更时按 id 反查 store 并取 entries[rawIndex] 作为 oldText 调 amaster。
 
 import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
@@ -17,7 +17,7 @@ import { join, dirname } from "node:path";
 import type {
   MemoryEntry, ArchivedMemory, InstructionFile, MemoryConfig,
   MemoryArchiveFile, MemoryCategory, MemoryScope,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 import type { ProjectStore } from "./project-store";
 import {
   getGlobalMemoryStore,
@@ -33,7 +33,7 @@ const HERMES_CONFIG_FILE = "hermes-memory-config.json";
 const PROJECTS_MEMORY_DIR = "projects-memory";
 const GLOBAL_REL_PREFIX = "memories/global";
 
-/** amaster target → hiagent category */
+/** amaster target → wa-pi category */
 function categoryForTarget(target: MemoryTarget): MemoryCategory {
   return target === "user" ? "user" : "memory";
 }
@@ -44,7 +44,7 @@ function targetFromRelPath(relPath: string): MemoryTarget {
 }
 
 export interface MemoryStoreOpts {
-  hiagentDir: string;
+  waPiDir: string;
   projectStore: ProjectStore;
 }
 
@@ -58,7 +58,7 @@ export class MemoryStore {
   async list(projectId?: string): Promise<{ memories: MemoryEntry[]; archived: ArchivedMemory[] }> {
     const memories: MemoryEntry[] = [];
 
-    const globalStore = getGlobalMemoryStore(this.opts.hiagentDir);
+    const globalStore = getGlobalMemoryStore(this.opts.waPiDir);
     memories.push(...await this.toEntries(globalStore, "memory", "global", `${GLOBAL_REL_PREFIX}/MEMORY.md`));
     memories.push(...await this.toEntries(globalStore, "user", "global", `${GLOBAL_REL_PREFIX}/USER.md`));
 
@@ -68,7 +68,7 @@ export class MemoryStore {
       // 仅返回全局记忆，避免整个列表抛错。
       try {
         const name = projectNameFromCwd(cwd);
-        const projectStore = getProjectMemoryStore(this.opts.hiagentDir, cwd);
+        const projectStore = getProjectMemoryStore(this.opts.waPiDir, cwd);
         const relBase = `${PROJECTS_MEMORY_DIR}/${name}`;
         memories.push(...await this.toEntries(projectStore, "memory", "project", `${relBase}/MEMORY.md`));
         memories.push(...await this.toEntries(projectStore, "user", "project", `${relBase}/USER.md`));
@@ -89,7 +89,7 @@ export class MemoryStore {
     relPath: string,
   ): Promise<MemoryEntry[]> {
     const texts = await store.entries(target);
-    const sourceFile = join(this.opts.hiagentDir, relPath);
+    const sourceFile = join(this.opts.waPiDir, relPath);
     return texts.map((text, rawIndex) => ({
       id: `${relPath}:${rawIndex}`,
       text,
@@ -155,7 +155,7 @@ export class MemoryStore {
 
   /** 扫描已加载的指令文件，对齐 pi 框架 resource-loader.js loadProjectContextFiles 行为：
    *  - 候选文件名：AGENTS.md, AGENTS.MD, CLAUDE.md, CLAUDE.MD（取第一个命中）
-   *  - 扫描范围：agentDir (hiagentDir) + cwd + 所有祖先目录（向上走到根）
+   *  - 扫描范围：agentDir (waPiDir) + cwd + 所有祖先目录（向上走到根）
    *  - 去重：同一文件路径不重复出现 */
   async listInstructions(projectId: string): Promise<InstructionFile[]> {
     const result: InstructionFile[] = [];
@@ -190,7 +190,7 @@ export class MemoryStore {
     };
 
     // 1. agentDir（全局，对应 pi 的 resolvedAgentDir）
-    const globalFile = await loadFromDir(this.opts.hiagentDir);
+    const globalFile = await loadFromDir(this.opts.waPiDir);
     if (globalFile) {
       globalFile.scope = "global";
       result.push(globalFile);
@@ -221,7 +221,7 @@ export class MemoryStore {
   /** 读记忆配置开关 */
   async getConfig(): Promise<MemoryConfig> {
     try {
-      const raw = await readFile(join(this.opts.hiagentDir, HERMES_CONFIG_FILE), "utf8");
+      const raw = await readFile(join(this.opts.waPiDir, HERMES_CONFIG_FILE), "utf8");
       const data = JSON.parse(raw);
       return {
         reviewEnabled: data.reviewEnabled ?? true,
@@ -237,7 +237,7 @@ export class MemoryStore {
     reviewEnabled?: boolean;
     memoryPolicyStyle?: "full" | "compact" | "none";
   }): Promise<void> {
-    const configPath = join(this.opts.hiagentDir, HERMES_CONFIG_FILE);
+    const configPath = join(this.opts.waPiDir, HERMES_CONFIG_FILE);
     let existing: Record<string, unknown> = {};
     try {
       existing = JSON.parse(await readFile(configPath, "utf8"));
@@ -246,7 +246,7 @@ export class MemoryStore {
     }
     if (opts.reviewEnabled !== undefined) existing.reviewEnabled = opts.reviewEnabled;
     if (opts.memoryPolicyStyle !== undefined) existing.memoryPolicyStyle = opts.memoryPolicyStyle;
-    await mkdir(this.opts.hiagentDir, { recursive: true });
+    await mkdir(this.opts.waPiDir, { recursive: true });
     await writeFile(configPath, JSON.stringify(existing, null, 2), "utf8");
   }
 
@@ -254,11 +254,11 @@ export class MemoryStore {
 
   /** 按 scope 取 store；project scope 必须能解析出 cwd，否则抛错 */
   private async getStoreForScope(scope: MemoryScope, projectId?: string): Promise<AmasterStore> {
-    if (scope === "global") return getGlobalMemoryStore(this.opts.hiagentDir);
+    if (scope === "global") return getGlobalMemoryStore(this.opts.waPiDir);
     if (!projectId) throw new Error("项目记忆需要 projectId");
     const cwd = await this.getProjectCwd(projectId);
     if (!cwd) throw new Error(`项目不存在: ${projectId}`);
-    return getProjectMemoryStore(this.opts.hiagentDir, cwd);
+    return getProjectMemoryStore(this.opts.waPiDir, cwd);
   }
 
   /** 从 id 反查 store + target + 当前 oldText（变更前调用，保证命中最新文本） */
@@ -275,7 +275,7 @@ export class MemoryStore {
 
     const target = targetFromRelPath(relPath);
     const scope: MemoryScope = relPath.startsWith(GLOBAL_REL_PREFIX) ? "global" : "project";
-    const sourceFile = join(this.opts.hiagentDir, relPath);
+    const sourceFile = join(this.opts.waPiDir, relPath);
     const store = createAmasterStore(dirname(sourceFile));
 
     const entries = await store.entries(target);
@@ -300,7 +300,7 @@ export class MemoryStore {
   /** 加载归档 sidecar */
   private async loadArchive(): Promise<ArchivedMemory[]> {
     try {
-      const raw = await readFile(join(this.opts.hiagentDir, ARCHIVE_FILE), "utf8");
+      const raw = await readFile(join(this.opts.waPiDir, ARCHIVE_FILE), "utf8");
       const data = JSON.parse(raw) as MemoryArchiveFile;
       return data.entries ?? [];
     } catch {
@@ -310,9 +310,9 @@ export class MemoryStore {
 
   /** 保存归档 sidecar */
   private async saveArchive(entries: ArchivedMemory[]): Promise<void> {
-    await mkdir(this.opts.hiagentDir, { recursive: true });
+    await mkdir(this.opts.waPiDir, { recursive: true });
     await writeFile(
-      join(this.opts.hiagentDir, ARCHIVE_FILE),
+      join(this.opts.waPiDir, ARCHIVE_FILE),
       JSON.stringify({ entries } satisfies MemoryArchiveFile, null, 2),
       "utf8",
     );

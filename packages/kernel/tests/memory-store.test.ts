@@ -30,7 +30,7 @@ afterEach(async () => {
 // ===== list：作用域与分类 =====
 
 test("list 解析全局 memory 条目，category=memory scope=global", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   await store.add("global", "项目用 pnpm");
   await store.add("global", "CI 需要 frozen-lockfile");
 
@@ -44,12 +44,12 @@ test("list 解析全局 memory 条目，category=memory scope=global", async () 
 });
 
 test("list 解析 USER.md category=user", async () => {
-  // USER target 需经 amaster store 直接写入（hiagent.add 只写 memory target）
+  // USER target 需经 amaster store 直接写入（wa-pi.add 只写 memory target）
   const amasterGlobal = getGlobalMemoryStore(tmpDir);
   await amasterGlobal.add("user", "偏好简洁回答");
   await amasterGlobal.add("user", "用中文");
 
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const { memories } = await store.list();
 
   const userEntries = memories.filter(m => m.category === "user");
@@ -59,7 +59,7 @@ test("list 解析 USER.md category=user", async () => {
 });
 
 test("list 包含项目级记忆，scope=project", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/my-project") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/my-project") });
   await store.add("global", "全局记忆");
   await store.add("project", "项目记忆", "p1");
   await store.add("project", "CI 用 pnpm", "p1");
@@ -72,7 +72,7 @@ test("list 包含项目级记忆，scope=project", async () => {
 });
 
 test("list 不传 projectId 时只返回全局记忆", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/my-project") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/my-project") });
   await store.add("global", "全局A");
   await store.add("project", "项目A", "p1");
 
@@ -82,7 +82,7 @@ test("list 不传 projectId 时只返回全局记忆", async () => {
 });
 
 test("list 文件不存在时返回空数组不报错", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const { memories, archived } = await store.list();
   expect(memories).toEqual([]);
   expect(archived).toEqual([]);
@@ -91,14 +91,14 @@ test("list 文件不存在时返回空数组不报错", async () => {
 // ===== add =====
 
 test("add 全局记忆后 list 能读到", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   await store.add("global", "新全局记忆");
   const { memories } = await store.list();
   expect(memories.find(m => m.text === "新全局记忆" && m.scope === "global")).toBeTruthy();
 });
 
 test("add 项目记忆需要 projectId 并落到项目目录", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/my-project") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/my-project") });
   await store.add("project", "新项目记忆", "p1");
   const { memories } = await store.list("p1");
   const found = memories.find(m => m.text === "新项目记忆" && m.scope === "project");
@@ -110,12 +110,12 @@ test("add 项目记忆需要 projectId 并落到项目目录", async () => {
 });
 
 test("add 项目记忆缺少 projectId 抛错", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/my-project") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/my-project") });
   await expect(store.add("project", "无项目")).rejects.toThrow();
 });
 
 test("list 项目 cwd 为盘根等非法 basename 时不抛错，正常返回全局记忆", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("H:") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("H:") });
   await store.add("global", "全局A");
   // 盘根 cwd 经净化为合法目录名 H，不应抛 ENOENT
   const { memories } = await store.list("p1");
@@ -125,7 +125,7 @@ test("list 项目 cwd 为盘根等非法 basename 时不抛错，正常返回全
 // ===== update / archive / restore / purge =====
 
 test("update 按 id 定位条目并替换文本", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   await store.add("global", "旧内容1");
   await store.add("global", "旧内容2");
   const { memories } = await store.list();
@@ -140,12 +140,12 @@ test("update 按 id 定位条目并替换文本", async () => {
 });
 
 test("update 不存在的 id 抛错", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   await expect(store.update("memories/global/MEMORY.md:99", "x")).rejects.toThrow();
 });
 
 test("archive 从 store 移除条目并写入 sidecar", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   await store.add("global", "条目A");
   await store.add("global", "条目B");
   const { memories } = await store.list();
@@ -162,7 +162,7 @@ test("archive 从 store 移除条目并写入 sidecar", async () => {
 });
 
 test("restore 从 sidecar 移除并追加回 store", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   await store.add("global", "条目A");
   const { memories } = await store.list();
   const target = memories[0];
@@ -176,7 +176,7 @@ test("restore 从 sidecar 移除并追加回 store", async () => {
 });
 
 test("purge 从 sidecar 彻底删除，不写回 store", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   await store.add("global", "条目A");
   const { memories } = await store.list();
   const target = memories[0];
@@ -196,7 +196,7 @@ test("listInstructions 扫描全局 + 项目级 AGENTS.md", async () => {
   await mkdir(projectCwd, { recursive: true });
   await writeFile(join(projectCwd, "AGENTS.md"), "项目指令内容", "utf8");
 
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
   const instructions = await store.listInstructions("p1");
 
   // 只看 tmpDir 范围内的文件（祖先遍历可能发现真实文件系统上游的 AGENTS.md）
@@ -216,7 +216,7 @@ test("listInstructions CLAUDE.md 作为备选指令文件", async () => {
   await mkdir(projectCwd, { recursive: true });
   await writeFile(join(projectCwd, "CLAUDE.md"), "项目 CLAUDE", "utf8");
 
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
   const instructions = await store.listInstructions("p1");
   // 全局和项目两个文件都应命中 CLAUDE.md（祖先遍历可能有额外文件）
   const ours = instructions.filter(i =>
@@ -229,7 +229,7 @@ test("listInstructions AGENTS.md 优先于 CLAUDE.md", async () => {
   await writeFile(join(tmpDir, "AGENTS.md"), "全局 AGENTS", "utf8");
   await writeFile(join(tmpDir, "CLAUDE.md"), "全局 CLAUDE", "utf8");
 
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const instructions = await store.listInstructions("p1");
   // tmpDir 下 AGENTS.md 命中（优先级高），CLAUDE.md 不应出现在结果中
   const globalInst = instructions.find(i => i.scope === "global" && i.path.startsWith(tmpDir));
@@ -241,14 +241,14 @@ test("listInstructions AGENTS.md 优先于 CLAUDE.md", async () => {
 });
 
 test("listInstructions 文件不存在时返回空数组", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const instructions = await store.listInstructions("p1");
   expect(instructions).toEqual([]);
 });
 
 test("listInstructions projectId 不存在时只返回全局", async () => {
   await writeFile(join(tmpDir, "AGENTS.md"), "全局指令", "utf8");
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const instructions = await store.listInstructions("nonexistent-id");
   // 至少有一个全局指令文件（祖先遍历可能带额外文件）
   expect(instructions.filter(i => i.scope === "global").length).toBeGreaterThanOrEqual(1);
@@ -261,7 +261,7 @@ test("listInstructions projectId 不存在时只返回全局", async () => {
 const HERMES_CONFIG_FILE = "hermes-memory-config.json";
 
 test("getConfig 文件不存在时返回默认值", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const config = await store.getConfig();
   expect(config.reviewEnabled).toBe(true);
   expect(config.memoryPolicyStyle).toBe("full");
@@ -273,7 +273,7 @@ test("getConfig 读取已有配置文件", async () => {
     JSON.stringify({ reviewEnabled: false, memoryPolicyStyle: "compact" }),
     "utf8",
   );
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const config = await store.getConfig();
   expect(config.reviewEnabled).toBe(false);
   expect(config.memoryPolicyStyle).toBe("compact");
@@ -285,14 +285,14 @@ test("getConfig 配置文件缺失字段时用默认值补齐", async () => {
     JSON.stringify({ reviewEnabled: false }),
     "utf8",
   );
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const config = await store.getConfig();
   expect(config.reviewEnabled).toBe(false);
   expect(config.memoryPolicyStyle).toBe("full");
 });
 
 test("setConfig 写入后 getConfig 读回新值", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   await store.setConfig({ reviewEnabled: false, memoryPolicyStyle: "none" });
   const config = await store.getConfig();
   expect(config.reviewEnabled).toBe(false);
@@ -311,7 +311,7 @@ test("setConfig 保留已有配置项不覆盖", async () => {
     "utf8",
   );
 
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   await store.setConfig({ reviewEnabled: false });
 
   const raw = JSON.parse(await readFile(join(tmpDir, HERMES_CONFIG_FILE), "utf8"));
@@ -329,7 +329,7 @@ test("setConfig 保留已有配置项不覆盖", async () => {
 // —— 不一致1：应支持 AGENTS.MD / CLAUDE.MD 大写变体（macOS 大小写不敏感，首候选 AGENTS.md 始终命中） ——
 test("listInstructions 候选列表包含大写变体（pi 兼容行为）", async () => {
   await writeFile(join(tmpDir, "AGENTS.MD"), "大写变体内容", "utf8");
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const instructions = await store.listInstructions("p1");
   expect(instructions).toHaveLength(1);
   // macOS 大小写不敏感 → existsSync("AGENTS.md") 命中同一文件 → name="AGENTS.md"
@@ -349,7 +349,7 @@ test("listInstructions 遍历祖先目录发现指令文件", async () => {
   // 在祖先目录放指令文件
   await writeFile(join(tmpDir, "a", "AGENTS.md"), "祖先 a 指令", "utf8");
 
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
   const instructions = await store.listInstructions("p1");
 
   // 应发现祖先目录的指令文件（scope=project，因为来自 cwd 祖先链）
@@ -369,7 +369,7 @@ test("listInstructions 全局和祖先目录可同时返回多个指令文件", 
   // 但 seenPaths 去重后只保留一份。所以这里只在 cwd 下放另一个文件。
   await writeFile(join(projectCwd, "CLAUDE.md"), "项目 CLAUDE", "utf8");
 
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
   const instructions = await store.listInstructions("p1");
 
   // 全局文件 + 祖先文件（tmpDir == agentDir == cwd 祖先根，去重只算一次）+ 项目文件
@@ -387,7 +387,7 @@ test("listInstructions agentDir 与祖先目录重叠时去重", async () => {
   const projectCwd = tmpDir; // cwd = agentDir
   await writeFile(join(tmpDir, "AGENTS.md"), "既是全局也是项目 cwd", "utf8");
 
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
   const instructions = await store.listInstructions("p1");
 
   // 在 tmpDir 范围内的结果：同一文件只出现一次（作为 global，因为 agentDir 优先）

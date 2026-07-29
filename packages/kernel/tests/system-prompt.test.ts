@@ -8,7 +8,7 @@ import {
   ensurePromptsConfig,
   DEFAULT_PROMPT_SEGMENTS,
   DEFAULT_DELEGATE_MECHANISM_PROMPT,
-  HIAGENT_DEFAULT_BASE_PROMPT,
+  WA_PI_DEFAULT_BASE_PROMPT,
   ENV_CONSTRAINTS_SUFFIX,
   PROMPTS_SCHEMA_VERSION,
   STATIC_SEGMENT_IDS,
@@ -17,7 +17,7 @@ import {
 import { buildDelegateRoster } from "../src/delegate-tool";
 
 const defaultCtx = {
-  defaultBasePrompt: HIAGENT_DEFAULT_BASE_PROMPT,
+  defaultBasePrompt: WA_PI_DEFAULT_BASE_PROMPT,
   delegateRoster: "## Available Subagents\n\nInvoke via the delegate tool:\n- Explore: explore",
   builtinSkillsDir: "/tmp/skills",
   memorySnapshot: "## Memory Snapshot\n\nuser prefers typescript",
@@ -32,7 +32,7 @@ function tempFile() {
 test("composePrompt 默认段落全部出现", () => {
   const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, defaultCtx);
   // 5 段都应出现（base / delegate-mechanism / delegate-roster / env-constraints / memory-snapshot）
-  expect(result).toContain(HIAGENT_DEFAULT_BASE_PROMPT);
+  expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
   expect(result).toContain(DEFAULT_DELEGATE_MECHANISM_PROMPT);
   expect(result).toContain("## Available Subagents");
   expect(result).toContain("Built-in directory: /tmp/skills");
@@ -41,7 +41,7 @@ test("composePrompt 默认段落全部出现", () => {
 
 test("composePrompt 默认段落顺序：base → delegate-mechanism → delegate-roster → env → memory", () => {
   const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, defaultCtx);
-  const basePos = result.indexOf(HIAGENT_DEFAULT_BASE_PROMPT);
+  const basePos = result.indexOf(WA_PI_DEFAULT_BASE_PROMPT);
   const mechanismPos = result.indexOf(DEFAULT_DELEGATE_MECHANISM_PROMPT);
   const rosterPos = result.indexOf("## Available Subagents");
   const envPos = result.indexOf("Built-in directory:");
@@ -59,7 +59,7 @@ test("composePrompt delegateRoster 空串 → delegate-roster 段不出现", () 
   });
   expect(result).not.toContain("## Available Subagents");
   // 其它段仍在
-  expect(result).toContain(HIAGENT_DEFAULT_BASE_PROMPT);
+  expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
   expect(result).toContain("Built-in directory:");
 });
 
@@ -69,7 +69,7 @@ test("composePrompt memorySnapshot 空 → memory-snapshot 段不出现", () => 
     memorySnapshot: "",
   });
   expect(result).not.toContain("## Memory Snapshot");
-  expect(result).toContain(HIAGENT_DEFAULT_BASE_PROMPT);
+  expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
 });
 
 test("composePrompt env-constraints 始终拼接 builtinSkillsDir + 固定后缀", () => {
@@ -88,12 +88,12 @@ test("composePrompt base 段写了 content → 覆盖 defaultBasePrompt", () => 
     defaultCtx,
   );
   expect(result).toBe(customBase);
-  expect(result).not.toContain(HIAGENT_DEFAULT_BASE_PROMPT);
+  expect(result).not.toContain(WA_PI_DEFAULT_BASE_PROMPT);
 });
 
 test("composePrompt base 段没写 content → 用 defaultBasePrompt", () => {
   const result = composePrompt([{ id: "base" }], defaultCtx);
-  expect(result).toBe(HIAGENT_DEFAULT_BASE_PROMPT);
+  expect(result).toBe(WA_PI_DEFAULT_BASE_PROMPT);
 });
 
 test("composePrompt 静态段（delegate-mechanism）写了 content → 用用户内容", () => {
@@ -130,13 +130,13 @@ test("composePrompt 数组顺序 = 输出顺序（可任意调整）", () => {
   ];
   const result = composePrompt(reordered, defaultCtx);
   const memPos = result.indexOf("## Memory Snapshot");
-  const basePos = result.indexOf(HIAGENT_DEFAULT_BASE_PROMPT);
+  const basePos = result.indexOf(WA_PI_DEFAULT_BASE_PROMPT);
   expect(memPos).toBeLessThan(basePos);
 });
 
 test("composePrompt 段不在数组里 = 不启用", () => {
   const result = composePrompt([{ id: "base" }], defaultCtx);
-  expect(result).toBe(HIAGENT_DEFAULT_BASE_PROMPT);
+  expect(result).toBe(WA_PI_DEFAULT_BASE_PROMPT);
 });
 
 test("composePrompt 未知 id 且无 content → 被过滤", () => {
@@ -148,7 +148,7 @@ test("composePrompt 未知 id 且无 content → 被过滤", () => {
     ],
     defaultCtx,
   );
-  expect(result).toContain(HIAGENT_DEFAULT_BASE_PROMPT);
+  expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
   expect(result).toContain("Has content");
 });
 

@@ -1,8 +1,8 @@
 import type {
   WSClientEvent, WSServerEvent, AgentName, McpServerStatus, McpToolSummary,
-} from "@hiagent/shared";
-import { WS_PORT, SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD, resolveSessionCwd, HIAGENT_DIR } from "@hiagent/shared";
-import type { DirEntry } from "@hiagent/shared";
+} from "@wa-pi/shared";
+import { WS_PORT, SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD, resolveSessionCwd, WA_PI_DIR } from "@wa-pi/shared";
+import type { DirEntry } from "@wa-pi/shared";
 import type { ConfigStore } from "./config-store";
 import type { ProjectStore } from "./project-store";
 import type { AgentManager } from "./agent-manager";
@@ -108,7 +108,7 @@ export function getMimeType(filePath: string): string {
 }
 
 /**
- * 解析 /file?path=<abs>：仅当 path 解析后落在某项目 .hiagent/uploads 下才放行。
+ * 解析 /file?path=<abs>：仅当 path 解析后落在某项目 .wa-pi/uploads 下才放行。
  * 防 .. 穿越与非 uploads 路径。返回安全绝对路径，否则 null。
  */
 export function resolveUploadFile(url: URL, projects: { cwd: string }[]): string | null {
@@ -117,7 +117,7 @@ export function resolveUploadFile(url: URL, projects: { cwd: string }[]): string
   const resolved = resolve(raw);              // 解析 .. 与相对段
   for (const p of projects) {
     if (!p.cwd) continue;
-    const uploadsRoot = resolve(join(p.cwd, ".hiagent", "uploads"));
+    const uploadsRoot = resolve(join(p.cwd, ".wa-pi", "uploads"));
     // 确保是 uploadsRoot 的子路径（含 .. 的合法文件名也放行，只要最终落在 uploads 下）
     if (resolved === uploadsRoot || resolved.startsWith(uploadsRoot + sep)) return resolved;
   }
@@ -144,7 +144,7 @@ export async function uniquePath(dir: string, name: string): Promise<string> {
  * 从 fs:upload / fs:copy / fs:recording 等事件解析本次操作的 cwd。
  *
  * - 普通项目会话 / 未带 sessionId → 返回 project.cwd（行为不变）
- * - 默认工作区会话 + sessionId → 用 resolveSessionCwd 推导 ~/.hiagent/workdir/<createdAt>/
+ * - 默认工作区会话 + sessionId → 用 resolveSessionCwd 推导 ~/.wa-pi/workdir/<createdAt>/
  *
  * 携带 sessionId 但 session 实体不存在时降级返回 project.cwd（保守地与旧调用方一致）。
  */
@@ -724,7 +724,7 @@ export class WSServer {
         try {
           const { loadSubagentOverrides } = await import("./subagent-store");
           const { getSubagentInfo } = await import("./subagent-info");
-          const { SUBAGENT_OVERRIDES_FILE } = await import("@hiagent/shared");
+          const { SUBAGENT_OVERRIDES_FILE } = await import("@wa-pi/shared");
           const overrides = await loadSubagentOverrides(SUBAGENT_OVERRIDES_FILE);
           const subagents = await getSubagentInfo(overrides);
           reply({ type: "subagent:list", subagents });
@@ -737,7 +737,7 @@ export class WSServer {
         try {
           const { saveSubagentOverride, loadSubagentOverrides } = await import("./subagent-store");
           const { getSubagentInfo } = await import("./subagent-info");
-          const { SUBAGENT_OVERRIDES_FILE } = await import("@hiagent/shared");
+          const { SUBAGENT_OVERRIDES_FILE } = await import("@wa-pi/shared");
           await saveSubagentOverride(SUBAGENT_OVERRIDES_FILE, event.override);
           const overrides = await loadSubagentOverrides(SUBAGENT_OVERRIDES_FILE);
           const subagents = await getSubagentInfo(overrides);
@@ -836,7 +836,7 @@ export class WSServer {
           if (buffer.byteLength > MAX_UPLOAD_BYTES) {
             throw new Error(`文件超过 ${MAX_UPLOAD_BYTES / 1024 / 1024}MB 上限`);
           }
-          const uploadDir = join(cwd, ".hiagent", "uploads");
+          const uploadDir = join(cwd, ".wa-pi", "uploads");
           await mkdir(uploadDir, { recursive: true });
           const filePath = await uniquePath(uploadDir, event.name);
           await writeFile(filePath, buffer);
@@ -857,7 +857,7 @@ export class WSServer {
             // 文件夹直接返回真实路径，不再创建软链接
             reply({ type: "fs:copy", id: event.id, path: event.source });
           } else {
-            const uploadDir = join(cwd, ".hiagent", "uploads");
+            const uploadDir = join(cwd, ".wa-pi", "uploads");
             await mkdir(uploadDir, { recursive: true });
             const name = basename(event.source);
             const destPath = await uniquePath(uploadDir, name);
@@ -931,7 +931,7 @@ export class WSServer {
       case "fs:recording:append": {
         try {
           const cwd = await resolveCwdForFsRequest(this.opts.projectStore, event.projectId, event.sessionId);
-          const uploadDir = join(cwd, ".hiagent", "uploads");
+          const uploadDir = join(cwd, ".wa-pi", "uploads");
           await appendChunk(uploadDir, event.recId, event.chunk);
           reply({ type: "fs:recording:append", id: event.id });
         } catch (e) {
@@ -942,7 +942,7 @@ export class WSServer {
       case "fs:recording:finalize": {
         try {
           const cwd = await resolveCwdForFsRequest(this.opts.projectStore, event.projectId, event.sessionId);
-          const uploadDir = join(cwd, ".hiagent", "uploads");
+          const uploadDir = join(cwd, ".wa-pi", "uploads");
           const path = await finalizeRecording(uploadDir, event.recId, event.finalName);
           reply({ type: "fs:recording:finalize", id: event.id, path });
         } catch (e) {
@@ -953,7 +953,7 @@ export class WSServer {
       case "fs:recording:discard": {
         try {
           const cwd = await resolveCwdForFsRequest(this.opts.projectStore, event.projectId, event.sessionId);
-          const uploadDir = join(cwd, ".hiagent", "uploads");
+          const uploadDir = join(cwd, ".wa-pi", "uploads");
           await discardRecording(uploadDir, event.recId);
           reply({ type: "fs:recording:discard", id: event.id });
         } catch (e) {

@@ -1,4 +1,4 @@
-import type { ThinkingLevel } from "@hiagent/shared";
+import type { ThinkingLevel } from "@wa-pi/shared";
 
 const LABELS: Record<ThinkingLevel, string> = {
   disabled: "思考 off",

@@ -1,5 +1,5 @@
 import { useProjectsStore } from "../store/projects";
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 import type { View } from "../App";
 import { ProjectItem } from "./ProjectItem";
 

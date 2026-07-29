@@ -2,33 +2,33 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { killPort, findAvailablePort } from "./port";
 import { openBrowser } from "./open-browser";
-// @hiagent/shared 改为动态 import:静态 import 在 node_modules 缺失时会直接崩,
+// @wa-pi/shared 改为动态 import:静态 import 在 node_modules 缺失时会直接崩,
 // 无法进入自修复流程。改为运行时检测 + 自动 bun install(见 ensureDeps)。
 
 /**
- * 自修复:检测 @hiagent/shared 是否可解析,缺失则自动 bun install 后重启自身进程。
+ * 自修复:检测 @wa-pi/shared 是否可解析,缺失则自动 bun install 后重启自身进程。
  * 必须重启 —— bun 在进程启动时缓存 node_modules 解析结果,同进程内即使 install
- * 重建了 workspace symlink,import 仍命中"找不到"缓存。HIAGENT_DEPS_REPAIRED 防死循环。
+ * 重建了 workspace symlink,import 仍命中"找不到"缓存。WA_PI_DEPS_REPAIRED 防死循环。
  */
 async function ensureDeps(): Promise<void> {
   try {
-    await import("@hiagent/shared");
+    await import("@wa-pi/shared");
     return; // 已就绪
   } catch {
     // 缺失,走修复
   }
-  if (process.env.HIAGENT_DEPS_REPAIRED === "1") {
-    console.error("[dev] 上次 bun install 后 @hiagent/shared 仍无法解析,请手动运行 `bun install` 排查");
+  if (process.env.WA_PI_DEPS_REPAIRED === "1") {
+    console.error("[dev] 上次 bun install 后 @wa-pi/shared 仍无法解析,请手动运行 `bun install` 排查");
     process.exit(1);
   }
-  console.log("[dev] 依赖缺失(@hiagent/shared 无法解析),自动执行 bun install 修复...");
+  console.log("[dev] 依赖缺失(@wa-pi/shared 无法解析),自动执行 bun install 修复...");
   const code = await runCmdInherit("bun", ["install"]);
   if (code !== 0) {
     console.error("[dev] bun install 失败(退出码 %d),请手动运行排查", code);
     process.exit(1);
   }
   console.log("[dev] 依赖已修复,重启启动脚本以加载新依赖...");
-  process.env.HIAGENT_DEPS_REPAIRED = "1";
+  process.env.WA_PI_DEPS_REPAIRED = "1";
   await relaunchSelf();
 }
 
@@ -53,7 +53,7 @@ function runCmdInherit(bin: string, args: string[]): Promise<number> {
 
 async function main() {
   await ensureDeps();
-  const { WS_PORT, FRONTEND_PORT } = await import("@hiagent/shared");
+  const { WS_PORT, FRONTEND_PORT } = await import("@wa-pi/shared");
   await runDev(WS_PORT, FRONTEND_PORT);
 }
 
@@ -62,7 +62,7 @@ async function runDev(WS_PORT: number, FRONTEND_PORT: number) {
   console.log("[dev] 清理端口 %d / %d ...", WS_PORT, FRONTEND_PORT);
   await Promise.all([killPort(WS_PORT), killPort(FRONTEND_PORT)]);
   const actualWsPort = await findAvailablePort(WS_PORT);
-  process.env.HIAGENT_WS_PORT = String(actualWsPort);
+  process.env.WA_PI_WS_PORT = String(actualWsPort);
   console.log("[dev] kernel 实际端口 %d", actualWsPort);
 
   // 2. 并行 spawn 两个子进程
@@ -119,7 +119,7 @@ async function runDev(WS_PORT: number, FRONTEND_PORT: number) {
     await Promise.all([stopProc(kernel), stopProc(frontend)]);
     await killPort(WS_PORT);
     const actualWsPort = await findAvailablePort(WS_PORT);
-    process.env.HIAGENT_WS_PORT = String(actualWsPort);
+    process.env.WA_PI_WS_PORT = String(actualWsPort);
     console.log("[dev] kernel 实际端口 %d", actualWsPort);
     await killPort(FRONTEND_PORT);
 
@@ -188,14 +188,14 @@ function spawnProcs(spec: ProcSpec) {
 function spawnKernel() {
   return spawnProcs({
     label: "kernel",
-    cmd: ["bun", ["run", "--filter", "@hiagent/kernel", "dev"]],
+    cmd: ["bun", ["run", "--filter", "@wa-pi/kernel", "dev"]],
   });
 }
 
 function spawnFrontend() {
   return spawnProcs({
     label: "web",
-    cmd: ["bun", ["run", "--filter", "@hiagent/frontend", "dev"]],
+    cmd: ["bun", ["run", "--filter", "@wa-pi/frontend", "dev"]],
   });
 }
 

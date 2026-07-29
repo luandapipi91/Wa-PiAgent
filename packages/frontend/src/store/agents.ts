@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AgentConfig, AgentName, SessionEntity } from "@hiagent/shared";
+import type { AgentConfig, AgentName, SessionEntity } from "@wa-pi/shared";
 import { api } from "../api-client";
 
 /** 最近使用排序：各 agent 名下会话最大 lastActivity 倒序；无会话的按名称序排最后 */

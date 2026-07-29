@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
-import type { AskParams } from "@hiagent/shared";
+import type { AskParams } from "@wa-pi/shared";
 
 const sent: any[] = [];
 

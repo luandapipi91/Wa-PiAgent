@@ -1,4 +1,4 @@
-# Pi Packages 安装机制与 HiAgent 的 Agent 级分配模型
+# Pi Packages 安装机制与 WaPi 的 Agent 级分配模型
 
 > 日期：2026-07-05
 > 来源：https://pi.dev/docs/latest/packages + 设计推导
@@ -104,7 +104,7 @@ pi install -l npm:foo       # 项目：.pi/settings.json（可共享给团队）
 
 ---
 
-## 二、HiAgent 的 Agent 级分配模型（关键差异）
+## 二、WaPi 的 Agent 级分配模型（关键差异）
 
 ### 2.1 问题：Pi 原生过滤是"包级"的
 
@@ -112,9 +112,9 @@ Pi 的过滤语法只控制**某个包的哪些资源被加载**，但加载后�
 
 > "装了 pi-web-access，但只让产品和研发能用 web_search，PM 和测试不能用"
 
-### 2.2 HiAgent 的方案：Agent 级分配
+### 2.2 WaPi 的方案：Agent 级分配
 
-HiAgent 把分配粒度从"包"下沉到"agent"。每个 agent 独立配置自己的：
+WaPi 把分配粒度从"包"下沉到"agent"。每个 agent 独立配置自己的：
 
 - **工具**（tools 字段）—— 来自内置 / 插件 / MCP 三类来源
 - **技能**（skills 字段）—— 显式分配列表
@@ -135,7 +135,7 @@ HiAgent 把分配粒度从"包"下沉到"agent"。每个 agent 独立配置自�
 └─────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────┐
-│ HiAgent（agent 级分配）                              │
+│ WaPi（agent 级分配）                              │
 │                                                     │
 │  插件市场（资源池）                                   │
 │    ├── 装/卸包（调 pi install/remove）               │
@@ -172,14 +172,14 @@ tools: read, bash, edit, write, grep, find, ls, web_search, fetch_content
 inheritSkills: false
 skills: architecture-review, debug-methodically, write-tests-first
 
-# MCP server 分配（HiAgent 扩展字段）
+# MCP server 分配（WaPi 扩展字段）
 mcpServers: []   # 研发不启用 MCP；测试 agent 可能 mcpServers: [chrome-devtools]
 ---
 ```
 
 ### 2.5 spawn 时的资源解析
 
-HiAgent 编排内核在 spawn 每个 Pi 进程时，按 agent 配置合成启动参数：
+WaPi 编排内核在 spawn 每个 Pi 进程时，按 agent 配置合成启动参数：
 
 ```
 pi --mode rpc \
@@ -201,13 +201,13 @@ Pi 的 `--tools` flag 本来就是 allowlist 语义：
 - `--tools` 进一步过滤成"agent 实际能调用的"
 - 没列在 `--tools` 里的工具，LLM 看不到也调不了
 
-所以 HiAgent 不需要改 Pi 的加载逻辑，只需要：
+所以 WaPi 不需要改 Pi 的加载逻辑，只需要：
 1. 在 GUI 层管理每个 agent 的 tools/skills/mcpServers 配置
 2. spawn 时把这些配置翻译成 `--tools` / `--skill` 参数
 
 ### 2.7 双向追溯
 
-HiAgent 维护两套索引，支持双向查询：
+WaPi 维护两套索引，支持双向查询：
 
 ```
 按 agent 查 → "研发用了哪些资源？"
@@ -222,9 +222,9 @@ HiAgent 维护两套索引，支持双向查询：
 
 ---
 
-## 三、HiAgent PackageManager 组件的职责
+## 三、WaPi PackageManager 组件的职责
 
-基于上述模型，HiAgent 的 PackageManager 组件做这些事：
+基于上述模型，WaPi 的 PackageManager 组件做这些事：
 
 | 操作 | 实现 | 对应 Pi 命令 |
 |------|------|-------------|
@@ -232,17 +232,17 @@ HiAgent 维护两套索引，支持双向查询：
 | 卸载包 | 调 `pi remove npm:xxx` | `pi remove` |
 | 列出已装 | 读 `~/.pi/agent/settings.json` 的 packages | `pi list` |
 | 更新包 | 调 `pi update npm:xxx` | `pi update` |
-| 分配资源给 agent | 改 agent.md 的 tools/skills 字段 | 无（HiAgent 扩展） |
-| 查询资源被谁用 | 扫描所有 agent.md，反向索引 | 无（HiAgent 扩展） |
+| 分配资源给 agent | 改 agent.md 的 tools/skills 字段 | 无（WaPi 扩展） |
+| 查询资源被谁用 | 扫描所有 agent.md，反向索引 | 无（WaPi 扩展） |
 | 配置 MCP server | 读写 `.mcp.json` | 无（pi-mcp-adapter 读取） |
 
-**关键**：HiAgent **不重造包管理器**。装/卸/更新全部调 Pi 的 CLI，HiAgent 只在上一层做"分配给哪个 agent"的管理 + GUI。
+**关键**：WaPi **不重造包管理器**。装/卸/更新全部调 Pi 的 CLI，WaPi 只在上一层做"分配给哪个 agent"的管理 + GUI。
 
 ---
 
 ## 四、内置核心（不可删除）
 
-以下三个包是 HiAgent 的核心基础设施，预装且锁定：
+以下三个包是 WaPi 的核心基础设施，预装且锁定：
 
 | 包 | 作用 | 能力 tab 中显示 | 不可删的原因 |
 |----|------|----------------|-------------|
@@ -254,7 +254,7 @@ pi-intercom 和 pi-mcp-adapter 提供的能力（`intercom` / `contact_superviso
 
 pi-agent-browser-native 不同：显示在"能力" tab 的"🤖 浏览器自动化"分组，agent 级启用/禁用（研发/测试启用，产品/PM 可关闭）。但包本身不可删。
 
-**依赖自动安装**：pi-agent-browser-native 依赖上游 [agent-browser](https://github.com/vercel-labs/agent-browser) CLI（vercel-labs 项目，独立于 Pi 生态）。HiAgent **首次启动时自动安装**这个依赖（检测 PATH → 没有则自动安装 → 失败降级为"未就绪，点此重试"）。理由：内置核心能力的依赖理应由 HiAgent 负责就绪，不转嫁给用户。
+**依赖自动安装**：pi-agent-browser-native 依赖上游 [agent-browser](https://github.com/vercel-labs/agent-browser) CLI（vercel-labs 项目，独立于 Pi 生态）。WaPi **首次启动时自动安装**这个依赖（检测 PATH → 没有则自动安装 → 失败降级为"未就绪，点此重试"）。理由：内置核心能力的依赖理应由 WaPi 负责就绪，不转嫁给用户。
 
 在插件市场 UI 里，三者标记为 🔒 内置核心，不显示删除按钮。
 
@@ -262,7 +262,7 @@ pi-agent-browser-native 不同：显示在"能力" tab 的"🤖 浏览器自动�
 
 ## 五、与设计文档的对应关系
 
-本文档细化了设计文档（`2026-07-05-hiagent-design.md`）的：
+本文档细化了设计文档（`2026-07-05-wa-pi-design.md`）的：
 - **5.2 资源三层模型** —— 补充了"为什么 agent 级分配可行"的技术依据
 - **7.1 PackageManager 组件** —— 补充了具体操作与 Pi CLI 的映射
 - **8.3 装包到分配** 数据流 —— 补充了 spawn 参数合成的细节

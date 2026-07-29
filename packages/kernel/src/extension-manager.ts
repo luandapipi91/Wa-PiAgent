@@ -72,25 +72,25 @@ export function parseExtensionInput(raw: string): ParsedInput | null {
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, resolve, isAbsolute } from "node:path";
 import { existsSync } from "node:fs";
-import type { PackageInfo } from "@hiagent/shared";
-import { HIAGENT_DIR } from "@hiagent/shared";
+import type { PackageInfo } from "@wa-pi/shared";
+import { WA_PI_DIR } from "@wa-pi/shared";
 import { NpmPackageService } from "./npm-package-service";
 import { hasSkillMd } from "./skill-utils";
 
 interface ExtensionSettings {
   npmCommand?: string[];
-  /** HiAgent 自有扩展列表（SDK 不读此字段，避免自动发现） */
-  hiagent_packages?: string[];
-  hiagent_disabledPackages?: string[];
+  /** WaPi 自有扩展列表（SDK 不读此字段，避免自动发现） */
+  waPiPackages?: string[];
+  waPiDisabledPackages?: string[];
   /** 旧字段（数据迁移后删除） */
   packages?: string[];
   disabledPackages?: string[];
   [k: string]: unknown;
 }
 
-// 复用 @hiagent/shared 的 HIAGENT_DIR（已跨平台解析 HOME/USERPROFILE/HIAGENT_DIR），
-// 避免 Windows + Electron 下 HOME 未定义导致 cwd 变成 "undefined/.hiagent/runtime"。
-const RUNTIME_DIR = join(HIAGENT_DIR, "runtime");
+// 复用 @wa-pi/shared 的 WA_PI_DIR（已跨平台解析 HOME/USERPROFILE/WA_PI_DIR），
+// 避免 Windows + Electron 下 HOME 未定义导致 cwd 变成 "undefined/.wa-pi/runtime"。
+const RUNTIME_DIR = join(WA_PI_DIR, "runtime");
 
 export class ExtensionManager {
   private pkgService: NpmPackageService;
@@ -114,12 +114,12 @@ export class ExtensionManager {
     } catch {
       settings = {};
     }
-    // 数据迁移：旧字段 packages → hiagent_packages（避免被 SDK SettingsManager 自动发现并双重加载）
-    if (!settings.hiagent_packages && Array.isArray(settings.packages)) {
-      settings.hiagent_packages = settings.packages;
+    // 数据迁移：旧字段 packages → waPiPackages（避免被 SDK SettingsManager 自动发现并双重加载）
+    if (!settings.waPiPackages && Array.isArray(settings.packages)) {
+      settings.waPiPackages = settings.packages;
       delete settings.packages;
       if (Array.isArray(settings.disabledPackages)) {
-        settings.hiagent_disabledPackages = settings.disabledPackages;
+        settings.waPiDisabledPackages = settings.disabledPackages;
         delete settings.disabledPackages;
       }
       await this.writeSettings(settings);
@@ -171,8 +171,8 @@ export class ExtensionManager {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
 
-    const pkgs = settings.hiagent_packages ?? [];
-    const disabledPkgs = settings.hiagent_disabledPackages ?? [];
+    const pkgs = settings.waPiPackages ?? [];
+    const disabledPkgs = settings.waPiDisabledPackages ?? [];
     const result: PackageInfo[] = [];
 
     const parseEntry = async (p: string, enabled: boolean): Promise<PackageInfo> => {
@@ -231,8 +231,8 @@ export class ExtensionManager {
 
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
-    const pkgs = settings.hiagent_packages ?? [];
-    const disabledPkgs = settings.hiagent_disabledPackages ?? [];
+    const pkgs = settings.waPiPackages ?? [];
+    const disabledPkgs = settings.waPiDisabledPackages ?? [];
     const existing = this.extractNames(pkgs);
     const disabledNames = this.extractNames(disabledPkgs);
 
@@ -272,7 +272,7 @@ export class ExtensionManager {
     }
 
     const updated = [...pkgs, entry];
-    await this.writeSettings({ ...settings, hiagent_packages: updated });
+    await this.writeSettings({ ...settings, waPiPackages: updated });
 
     return {
       name: parsed.name,
@@ -286,8 +286,8 @@ export class ExtensionManager {
   async uninstall(name: string): Promise<void> {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
-    const pkgs = settings.hiagent_packages ?? [];
-    const disabledPkgs = settings.hiagent_disabledPackages ?? [];
+    const pkgs = settings.waPiPackages ?? [];
+    const disabledPkgs = settings.waPiDisabledPackages ?? [];
     const existingPkgs = this.extractNames(pkgs);
     const existingDisabled = this.extractNames(disabledPkgs);
 
@@ -305,14 +305,14 @@ export class ExtensionManager {
 
     const updatedPkgs = matchedPkgs ? pkgs.filter((p) => p !== matchedPkgs) : pkgs;
     const updatedDisabled = matchedDisabled ? disabledPkgs.filter((p) => p !== matchedDisabled) : disabledPkgs;
-    await this.writeSettings({ ...settings, hiagent_packages: updatedPkgs, hiagent_disabledPackages: updatedDisabled });
+    await this.writeSettings({ ...settings, waPiPackages: updatedPkgs, waPiDisabledPackages: updatedDisabled });
   }
 
   async upgrade(name: string, onProgress?: (line: string) => void): Promise<PackageInfo> {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
-    const pkgs = settings.hiagent_packages ?? [];
-    const disabledPkgs = settings.hiagent_disabledPackages ?? [];
+    const pkgs = settings.waPiPackages ?? [];
+    const disabledPkgs = settings.waPiDisabledPackages ?? [];
     const existing = this.extractNames(pkgs);
     const disabledNames = this.extractNames(disabledPkgs);
 
@@ -335,7 +335,7 @@ export class ExtensionManager {
     const result = await this.pkgService.upgrade(name, onProgress);
     const entry = `npm:${name}@${result.version}`;
     const updated = pkgs.map((p) => p === matched ? entry : p);
-    await this.writeSettings({ ...settings, hiagent_packages: updated });
+    await this.writeSettings({ ...settings, waPiPackages: updated });
 
     return {
       name,
@@ -349,8 +349,8 @@ export class ExtensionManager {
   async enable(name: string): Promise<void> {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
-    const pkgs = settings.hiagent_packages ?? [];
-    const disabledPkgs = settings.hiagent_disabledPackages ?? [];
+    const pkgs = settings.waPiPackages ?? [];
+    const disabledPkgs = settings.waPiDisabledPackages ?? [];
     const existingPkgs = this.extractNames(pkgs);
     const existingDisabled = this.extractNames(disabledPkgs);
 
@@ -362,7 +362,7 @@ export class ExtensionManager {
       // 从 disabledPackages 移回 packages
       const updatedDisabled = disabledPkgs.filter((p) => p !== matchedDisabled);
       const updatedPkgs = [...pkgs, matchedDisabled];
-      await this.writeSettings({ ...settings, hiagent_packages: updatedPkgs, hiagent_disabledPackages: updatedDisabled });
+      await this.writeSettings({ ...settings, waPiPackages: updatedPkgs, waPiDisabledPackages: updatedDisabled });
       return;
     }
 
@@ -371,7 +371,7 @@ export class ExtensionManager {
     if (installedVersion) {
       const entry = `npm:${name}@${installedVersion}`;
       const updatedPkgs = [...pkgs, entry];
-      await this.writeSettings({ ...settings, hiagent_packages: updatedPkgs });
+      await this.writeSettings({ ...settings, waPiPackages: updatedPkgs });
       return;
     }
     throw new Error(`未找到已安装的包: ${name}，请先安装`);
@@ -380,8 +380,8 @@ export class ExtensionManager {
   async disable(name: string): Promise<void> {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);
-    const pkgs = settings.hiagent_packages ?? [];
-    const disabledPkgs = settings.hiagent_disabledPackages ?? [];
+    const pkgs = settings.waPiPackages ?? [];
+    const disabledPkgs = settings.waPiDisabledPackages ?? [];
     const existingPkgs = this.extractNames(pkgs);
     const existingDisabled = this.extractNames(disabledPkgs);
 
@@ -390,7 +390,7 @@ export class ExtensionManager {
       // 从 packages 移到 disabledPackages
       const updatedPkgs = pkgs.filter((p) => p !== matched);
       const updatedDisabled = [...disabledPkgs, matched];
-      await this.writeSettings({ ...settings, hiagent_packages: updatedPkgs, hiagent_disabledPackages: updatedDisabled });
+      await this.writeSettings({ ...settings, waPiPackages: updatedPkgs, waPiDisabledPackages: updatedDisabled });
       return;
     }
 
@@ -407,7 +407,7 @@ export class ExtensionManager {
    */
   async listEnabledPackageNames(): Promise<string[]> {
     const settings = await this.readSettings();
-    return [...this.extractNames(settings.hiagent_packages ?? []).keys()];
+    return [...this.extractNames(settings.waPiPackages ?? []).keys()];
   }
 
   /**
@@ -421,7 +421,7 @@ export class ExtensionManager {
     const enabledNames = await this.listEnabledPackageNames();
     const result: { path: string; packageName: string }[] = [];
     for (const name of enabledNames) {
-      const skillsDir = join(HIAGENT_DIR, "runtime", "node_modules", name, "skills");
+      const skillsDir = join(WA_PI_DIR, "runtime", "node_modules", name, "skills");
       try {
         const { found } = await hasSkillMd(skillsDir);
         if (found) result.push({ path: skillsDir, packageName: name });

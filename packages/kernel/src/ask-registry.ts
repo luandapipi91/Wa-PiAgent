@@ -3,7 +3,7 @@
 // 工具 execute 在此 await ask()，agent 回合阻塞；前端 agent:answer 经 ws-server
 // 调 resolve()，agent:cancel-ask / abort / immediate / dispose 调 cancel()/cancelAll()。
 // 不设硬超时——等用户回答或中断。所有 resolve/cancel 对未知/已解决 id 幂等。
-import { replyToAnswers, type AskParams, AskReply, AskAnswer } from "@hiagent/shared";
+import { replyToAnswers, type AskParams, AskReply, AskAnswer } from "@wa-pi/shared";
 
 export interface AskOutcome {
   cancelled: boolean;

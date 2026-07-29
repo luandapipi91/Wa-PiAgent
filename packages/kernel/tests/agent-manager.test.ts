@@ -8,17 +8,17 @@
 // - emit(e) 手动注入 pi 事件驱动状态机；autoSettle=false 模拟 agent 运行中（不自动 settled）；
 // - simulateCrash() 模拟进程意外退出。
 // 系统提示词经 --system-prompt <file> 传入 pi：测试同步读
-// HIAGENT_DIR/tmp/sysprompts/<sessionId>.md 断言组合结果（afterEach 统一清理）。
+// WA_PI_DIR/tmp/sysprompts/<sessionId>.md 断言组合结果（afterEach 统一清理）。
 import { test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { AgentManager, HIAGENT_DEFAULT_SYSTEM_PROMPT } from "../src/agent-manager";
+import { AgentManager, WA_PI_DEFAULT_SYSTEM_PROMPT } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
 import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
 import { SkillManager } from "../src/skill-manager";
 import { getGlobalMemoryStore } from "../src/amaster-memory";
-import { HIAGENT_DIR, BUILTIN_SKILLS_DIR, DEFAULT_AGENT_TOOLS } from "@hiagent/shared";
-import type { AskParams, ThinkingLevel } from "@hiagent/shared";
+import { WA_PI_DIR, BUILTIN_SKILLS_DIR, DEFAULT_AGENT_TOOLS } from "@wa-pi/shared";
+import type { AskParams, ThinkingLevel } from "@wa-pi/shared";
 import type { RpcClient, RpcClientOpts } from "../src/rpc-client";
 import { existsSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -45,14 +45,14 @@ afterEach(async () => {
 });
 
 function newProjectStore() {
-  const tmpFile = `/tmp/hiagent-am-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
+  const tmpFile = `/tmp/wa-pi-am-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
   tmpPaths.push(tmpFile);
   return new ProjectStore(tmpFile);
 }
 
 /** 组合系统提示词的临时文件路径（pi --system-prompt 的入参） */
 function syspromptPath(sessionId: string) {
-  return join(HIAGENT_DIR, "tmp", "sysprompts", `${sessionId}.md`);
+  return join(WA_PI_DIR, "tmp", "sysprompts", `${sessionId}.md`);
 }
 
 function readSysprompt(sessionId: string): string {
@@ -128,7 +128,7 @@ test("ensureStarted 创建 pi rpc client 并传入会话参数（--session / --s
   const args = fakes[0].opts.args ?? [];
   expect(argValues(args, "--session")).toEqual([session.piSessionFile]);
   expect(argValues(args, "--system-prompt")).toEqual([syspromptPath(session.id)]);
-  // bridge 上下文已注册（宿主工具经 hiagent-bridge 扩展回调 kernel）
+  // bridge 上下文已注册（宿主工具经 wa-pi-bridge 扩展回调 kernel）
   expect(getBridgeSession(session.id)).toBeDefined();
 });
 
@@ -329,7 +329,7 @@ test("prompt — 图片附件统一用 @相对路径引用", async () => {
   const { project, session, am, fakes } = await setup();
   await am.ensureStarted(project.id, "dev", session.id);
 
-  const imgPath = `/tmp/hiagent-img-${Date.now()}.png`;
+  const imgPath = `/tmp/wa-pi-img-${Date.now()}.png`;
   tmpPaths.push(imgPath);
   writeFileSync(imgPath, Buffer.from("fake-image"));
 
@@ -342,7 +342,7 @@ test("prompt — 图片附件统一用 @相对路径引用", async () => {
   const text = fakes[0].prompted[0];
   expect(text).toContain("描述这张图");
   expect(text).toContain("Attachments:");
-  expect(text).toMatch(/@hiagent-img-\d+\.png/);
+  expect(text).toMatch(/@wa-pi-img-\d+\.png/);
 });
 
 test("prompt — snippet 附件内容直接内联", async () => {
@@ -678,7 +678,7 @@ test("系统提示词注入记忆快照（经 --append-system-prompt 独立文�
   // 先向真实全局记忆写入一条唯一内容，验证快照写入独立 memory 文件而非 composePrompt。
   // composePrompt 静态化以最大化 LLM 缓存命中率。
   const unique = `测试记忆-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const globalStore = getGlobalMemoryStore(HIAGENT_DIR);
+  const globalStore = getGlobalMemoryStore(WA_PI_DIR);
   await globalStore.add("memory", unique);
   try {
     const { project, session, am } = await setup();
@@ -689,7 +689,7 @@ test("系统提示词注入记忆快照（经 --append-system-prompt 独立文�
     expect(prompt).not.toContain(unique);
 
     // 记忆快照应在 --append-system-prompt 独立文件中
-    const memoryFile = join(HIAGENT_DIR, "tmp", "sysprompts", `${session.id}-memory.md`);
+    const memoryFile = join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}-memory.md`);
     expect(existsSync(memoryFile)).toBe(true);
     const memoryContent = readFileSync(memoryFile, "utf8");
     expect(memoryContent).toContain(unique);
@@ -700,7 +700,7 @@ test("系统提示词注入记忆快照（经 --append-system-prompt 独立文�
 
 test("注入提示关闭（memoryPolicyStyle=none）时系统提示词不追加记忆快照", async () => {
   const unique = `测试记忆-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const globalStore = getGlobalMemoryStore(HIAGENT_DIR);
+  const globalStore = getGlobalMemoryStore(WA_PI_DIR);
   await globalStore.add("memory", unique);
   try {
     const { project, session, am } = await setup({
@@ -912,7 +912,7 @@ test("ensureStarted 对 dangling ask 调用注入 cancelled toolResult（重启�
 // ─── skill 路径（--skill 参数） ─────────────────────────────────────────────
 
 function tmpSkillRoot() {
-  const root = `/tmp/hiagent-skill-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const root = `/tmp/wa-pi-skill-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   mkdirSync(join(root, "skills"), { recursive: true }); // builtin（空）
   return root;
 }
@@ -937,7 +937,7 @@ test("ensureStarted 把启用 skill 路径作为 --skill 传给 pi", async () =>
   expect(skills).toContain(join(userDir, "my-skill"));
 });
 
-test("--skill 包含 builtin 来源的 skill（因为已禁用 Pi 默认扫描，必须由 HiAgent 显式传入）", async () => {
+test("--skill 包含 builtin 来源的 skill（因为已禁用 Pi 默认扫描，必须由 WaPi 显式传入）", async () => {
   const skillRoot = tmpSkillRoot();
   tmpPaths.push(skillRoot);
   createSkillAt(join(skillRoot, "skills"), "builtin-skill", "内置"); // builtin
@@ -992,10 +992,10 @@ test("进程意外退出 → 合成 message_end 错误事件 + 下次 ensureStar
 
 // ─── 静态断言 ───────────────────────────────────────────────────────────────
 
-test("HIAGENT_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => {
+test("WA_PI_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => {
   // 委托规则在 delegate-mechanism 段（DEFAULT_DELEGATE_MECHANISM_PROMPT）
   const { DEFAULT_DELEGATE_MECHANISM_PROMPT } = require("../src/system-prompt");
-  const fullDefault = `${HIAGENT_DEFAULT_SYSTEM_PROMPT}\n\n${DEFAULT_DELEGATE_MECHANISM_PROMPT}`;
+  const fullDefault = `${WA_PI_DEFAULT_SYSTEM_PROMPT}\n\n${DEFAULT_DELEGATE_MECHANISM_PROMPT}`;
   expect(fullDefault).toContain("@[agentName]");
   expect(fullDefault).toContain("delegate");
   expect(fullDefault).toContain("Task Contract");
@@ -1252,7 +1252,7 @@ test("getCommands 会话不存在时自动创建 session 并返回命令", async
 
 test("getCommands 过滤 TUI-only 扩展的命令（sourceInfo 指向含 ui.custom 的包）", async () => {
   // 造两个临时扩展包：tui-ext 子文件含 ui.custom( 调用，plain-ext 不含
-  const root = join(HIAGENT_DIR, "tmp", `tui-filter-${Date.now()}`);
+  const root = join(WA_PI_DIR, "tmp", `tui-filter-${Date.now()}`);
   tmpPaths.push(root);
   const tuiDir = join(root, "tui-ext");
   mkdirSync(join(tuiDir, "lib"), { recursive: true });
@@ -1277,7 +1277,7 @@ test("getCommands 过滤 TUI-only 扩展的命令（sourceInfo 指向含 ui.cust
 
 test("prompt 时 TUI-only 命令加前导空格降级为普通文本（绕过 pi 命令分发）", async () => {
   // 造 TUI-only 扩展包并让命令缓存建立（模拟 / 菜单已拉取）
-  const root = join(HIAGENT_DIR, "tmp", `tui-filter-${Date.now()}`);
+  const root = join(WA_PI_DIR, "tmp", `tui-filter-${Date.now()}`);
   tmpPaths.push(root);
   const tuiDir = join(root, "tui-ext");
   mkdirSync(join(tuiDir, "lib"), { recursive: true });

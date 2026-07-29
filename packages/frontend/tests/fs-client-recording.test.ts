@@ -39,8 +39,8 @@ test("discardRecording 正常 resolve", async () => {
 
 test("pathToUploadUrl 对绝对路径做 encode", () => {
   _setFsTransport(null);
-  const u = pathToUploadUrl("/home/me/p/.hiagent/uploads/r.webm");
-  expect(u).toBe("/file?path=" + encodeURIComponent("/home/me/p/.hiagent/uploads/r.webm"));
+  const u = pathToUploadUrl("/home/me/p/.wa-pi/uploads/r.webm");
+  expect(u).toBe("/file?path=" + encodeURIComponent("/home/me/p/.wa-pi/uploads/r.webm"));
 });
 
 test("appendRecording/finalizeRecording/discardRecording 透传 sessionId", async () => {

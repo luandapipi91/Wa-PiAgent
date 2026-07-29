@@ -3,7 +3,7 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { ProjectList } from "../src/components/ProjectList";
 import { useProjectsStore } from "../src/store/projects";
 import { useProjectUiStore } from "../src/store/project-ui";
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 
 // 渲染后清理 DOM：happy-dom 全局 document 跨测试文件共享，不清理会污染后续文件
 afterEach(() => cleanup());
@@ -126,7 +126,7 @@ test("默认工作区渲染在项目列表顶部（无'默认'小标题）", () 
   useProjectsStore.setState({
     projects: [
       { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
-      { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+      { id: "p1", name: "WaPi", cwd: "/work/wa-pi", createdAt: 0 },
     ],
     sessions: [], currentProjectId: null, currentSessionId: null,
   });
@@ -141,7 +141,7 @@ test("默认工作区在 DOM 顺序上排在'项目'小标题之前 + 与项目�
   useProjectsStore.setState({
     projects: [
       { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
-      { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+      { id: "p1", name: "WaPi", cwd: "/work/wa-pi", createdAt: 0 },
     ],
     sessions: [], currentProjectId: null, currentSessionId: null,
   });

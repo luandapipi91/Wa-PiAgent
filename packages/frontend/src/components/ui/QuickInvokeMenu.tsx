@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { SkillSource } from "@hiagent/shared";
+import type { SkillSource } from "@wa-pi/shared";
 import { AgentMenuItem } from "./AgentMenuItem";
 
 export interface MenuItem {

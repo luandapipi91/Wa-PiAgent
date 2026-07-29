@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { agentDefOf, aggregateAgentState } from "@hiagent/shared";
-import type { AgentStatus } from "@hiagent/shared";
+import { agentDefOf, aggregateAgentState } from "@wa-pi/shared";
+import type { AgentStatus } from "@wa-pi/shared";
 import { topAgentsByRecency, useAgentsStore } from "../store/agents";
 import { useProjectsStore } from "../store/projects";
 import { useSessionStore } from "../store/session";

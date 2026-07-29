@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { SYSTEM_PROJECT_ID, slugifyProviderName, type AgentStatus } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID, slugifyProviderName, type AgentStatus } from "@wa-pi/shared";
 import { useProjectsStore } from "../store/projects";
 import { useSessionStore } from "../store/session";
 import { useIsBlocked } from "../store/ask";

@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ===== HiAgent Light Design Tokens ===== */
+/* ===== WaPi Light Design Tokens ===== */
 /* 单一真相源：DESIGN.md 所有 token 在此定义。
    tailwind.config.js 引用这些变量；组件用 Tailwind 类或 var(--xxx)。 */
 :root {

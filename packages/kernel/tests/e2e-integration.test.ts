@@ -9,7 +9,7 @@ import { ExtensionManager } from "../src/extension-manager";
 import { AgentManager } from "../src/agent-manager";
 import { WSServer } from "../src/ws-server";
 import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
-import { HIAGENT_DIR } from "@hiagent/shared";
+import { WA_PI_DIR } from "@wa-pi/shared";
 
 // 第三层集成测试：HTTP REST + SSE（替代原 WS）+ FakeSessionClient（假 pi rpc client）
 // 覆盖「建项目 → 发首条消息 → kernel 自动建会话 → SSE 广播 session:created → prompt 到达 client」全链路
@@ -110,7 +110,7 @@ test("[第三层] 建项目→发消息→自动建会话", async () => {
     reader.cancel().catch(() => {});
     await server.stop();
     await agentManager.disposeAll().catch(() => {});
-    try { rmSync(join(HIAGENT_DIR, "tmp", "sysprompts", "req-nonexistent.md"), { force: true }); } catch {}
+    try { rmSync(join(WA_PI_DIR, "tmp", "sysprompts", "req-nonexistent.md"), { force: true }); } catch {}
     rmSync(cfgDir, { recursive: true, force: true });
     rmSync(projFile, { force: true });
   }

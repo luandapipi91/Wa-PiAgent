@@ -1,4 +1,4 @@
-import type { AttachmentDraft } from "@hiagent/shared";
+import type { AttachmentDraft } from "@wa-pi/shared";
 
 interface Props {
   attachment: AttachmentDraft;

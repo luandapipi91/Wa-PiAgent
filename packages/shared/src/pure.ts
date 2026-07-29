@@ -45,7 +45,7 @@ export function randomSessionId(): string {
  *
  * - 普通项目会话：返回 project.cwd（行为不变）
  * - 默认工作区会话（projectId === SYSTEM_PROJECT_ID）：返回
- *   ${SYSTEM_PROJECT_CWD}/${session.createdAt}，即 ~/.hiagent/workdir/<时间戳>
+ *   ${SYSTEM_PROJECT_CWD}/${session.createdAt}，即 ~/.wa-pi/workdir/<时间戳>
  *
  * 这是**纯函数**，从 session.createdAt 推导，不依赖任何持久化的 cwd 字段。
  * 因此 kernel 启动时 mkdir 用的 ts 必须与 createSession 写入的 createdAt 严格一致

@@ -1,8 +1,8 @@
 // 首启动态安装 kernel 运行时依赖。
 // 背景：kernel.js 已 bundle 所有 JS，但 ast-grep / better-sqlite3 / koffi 等原生 addon 无法内联，
 // 运行时需要 node_modules。.app 内 Resources/kernel 只读，不能就地 install，故：
-//   seed  （.app 只读）：kernel.js + package.json + bun.lock + hiagent-kernel
-//   runtime（~/.hiagent/runtime 可写）：复制 seed → bun install 产出 node_modules → 跑 kernel.js
+//   seed  （.app 只读）：kernel.js + package.json + bun.lock + wa-pi-kernel
+//   runtime（~/.wa-pi/runtime 可写）：复制 seed → bun install 产出 node_modules → 跑 kernel.js
 // 用 .installed-version 标记触发升级重装；默认阿里源(npmmirror)，失败回退官方源。
 const { spawn } = require("node:child_process");
 const fsp = require("node:fs/promises");
@@ -10,7 +10,7 @@ const path = require("node:path");
 
 const DEFAULT_REGISTRY = "https://registry.npmmirror.com";
 const FALLBACK_REGISTRY = "https://registry.npmjs.org";
-const SEED_FILES = ["kernel.js", "package.json", "bun.lock", "tool-schemas.ts", "hiagent-bridge.extension.ts"];
+const SEED_FILES = ["kernel.js", "package.json", "bun.lock", "tool-schemas.ts", "wa-pi-bridge.extension.ts"];
 
 async function exists(p) {
 	try {
@@ -101,7 +101,7 @@ async function ensureRuntimeDeps({
 		`[deps] 需要安装依赖 (version=${version}, installed=${markerVer || "无"})`,
 	);
 
-	const primary = process.env.HIAGENT_REGISTRY || DEFAULT_REGISTRY;
+	const primary = process.env.WA_PI_REGISTRY || DEFAULT_REGISTRY;
 	if (onStatus) onStatus(`正在下载依赖…`);
 	try {
 		await runInstall({

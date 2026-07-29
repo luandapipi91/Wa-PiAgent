@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SessionMessage, AgentStatus, AgentName, SDKEventEnvelope } from "@hiagent/shared";
+import type { SessionMessage, AgentStatus, AgentName, SDKEventEnvelope } from "@wa-pi/shared";
 import { useProjectsStore } from "./projects";
 import { StreamingBatcher } from "./streaming-batcher";
 

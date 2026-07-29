@@ -7,7 +7,7 @@ import {
 	act,
 	waitFor,
 } from "@testing-library/react";
-import type { AgentConfig as AgentConfigType } from "@hiagent/shared";
+import type { AgentConfig as AgentConfigType } from "@wa-pi/shared";
 import { AgentConfig } from "../src/components/AgentConfig";
 import { useAgentsStore } from "../src/store/agents";
 import { useSkillsStore } from "../src/store/skills";

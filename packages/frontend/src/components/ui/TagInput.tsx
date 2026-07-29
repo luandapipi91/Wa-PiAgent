@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type ChangeEvent } from "react";
-import { splitModelIds } from "@hiagent/shared";
+import { splitModelIds } from "@wa-pi/shared";
 
 interface TagInputProps {
   value: string[];

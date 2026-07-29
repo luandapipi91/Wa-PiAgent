@@ -38,8 +38,8 @@ test("randomSessionId 以 s- 前缀", () => {
 
 test("resolveSessionCwd 普通项目返回 project.cwd", () => {
   const session = { projectId: "p-abc", createdAt: 1721567890123 };
-  const project = { cwd: "/work/hiagent" };
-  expect(resolveSessionCwd(session, project)).toBe("/work/hiagent");
+  const project = { cwd: "/work/wa-pi" };
+  expect(resolveSessionCwd(session, project)).toBe("/work/wa-pi");
 });
 
 test("resolveSessionCwd 系统项目返回 workdir/<createdAt>", () => {

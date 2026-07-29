@@ -4,7 +4,7 @@
  * 每个域一个文件（routes/<domain>.ts），导出 register 函数把该域的
  * REST 端点映射到原 WSClientEvent，经 callApi 适配器复用 handle() 业务逻辑。
  */
-import type { WSClientEvent } from "@hiagent/shared";
+import type { WSClientEvent } from "@wa-pi/shared";
 import type { HttpRouter } from "../http-router";
 import type { ProjectStore } from "../project-store";
 

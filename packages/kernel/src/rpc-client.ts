@@ -1,7 +1,7 @@
 // rpc-client.ts — pi --mode rpc 子进程的 JSONL 客户端
 //
 // 设计要点：
-// - 每个 HiAgent 会话对应一个 pi rpc 子进程（spawn 时经 --session 绑定会话文件）
+// - 每个 WaPi 会话对应一个 pi rpc 子进程（spawn 时经 --session 绑定会话文件）
 // - 命令/响应按 id 关联；type 非 "response"/"extension_ui_request" 的一律视为事件走 onEvent
 // - JSONL 严格按 \n 切分（不用 readline：U+2028/U+2029 在 JSON 字符串内合法，
 //   readline 会错误断行，见 pi RPC 文档的 strict JSONL 说明）
@@ -386,7 +386,7 @@ export function resolvePiCliPath(req: NodeRequire = createRequire(import.meta.ur
 
 /** 解析运行 pi CLI 的运行时：env 覆盖 > PATH 上的 bun > process.execPath */
 export function resolvePiRuntime(): string {
-  if (process.env.HIAGENT_PI_RUNTIME) return process.env.HIAGENT_PI_RUNTIME;
+  if (process.env.WA_PI_PI_RUNTIME) return process.env.WA_PI_PI_RUNTIME;
   const which = (globalThis as any).Bun?.which;
   if (typeof which === "function") {
     const bunPath = which("bun");

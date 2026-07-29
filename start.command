@@ -18,7 +18,7 @@ if ! command -v bun &>/dev/null; then
   exit 1
 fi
 
-echo "[start] bun 就绪,启动 hiagent..."
+echo "[start] bun 就绪,启动 wa-pi..."
 echo "[start] 浏览器会自动打开 http://localhost:5180"
 echo "[start] 按 R 重新加载前后端代码,按 Ctrl+C 停止"
 echo ""

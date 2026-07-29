@@ -107,7 +107,7 @@ test.describe.serial("Composer 重构", () => {
 
   test("文件附件发送流程", async ({ page }) => {
     const sessionId = await enterSession(page, "文件附件测试");
-    const tmpDir = join(process.env.HOME || "/tmp", ".hiagent-e2e-composer");
+    const tmpDir = join(process.env.HOME || "/tmp", ".wa-pi-e2e-composer");
     if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
     const tmpPath = join(tmpDir, "e2e-attachment.txt");
     writeFileSync(tmpPath, "这是 E2E 文件附件内容", "utf8");
@@ -128,7 +128,7 @@ test.describe.serial("Composer 重构", () => {
       await expect(textarea).toHaveValue("");
       // 消息列表中只显示用户原文，不出现 @路径引用或 [附件: ...]
       await expect(page.getByText("查看文件附件").first()).toBeVisible({ timeout: 8000 });
-      await expect(page.locator("text=@.hiagent/uploads")).not.toBeVisible();
+      await expect(page.locator("text=@.wa-pi/uploads")).not.toBeVisible();
     } finally {
       // 清理临时附件文件
       if (existsSync(tmpPath)) unlinkSync(tmpPath);
@@ -141,7 +141,7 @@ test.describe.serial("Composer 重构", () => {
     // 当前 Composer UI 没有提供添加 snippet 的入口，通过 IndexedDB 直接写入附件草稿模拟已添加
     await page.evaluate((sid) => {
       return new Promise<void>((resolve, reject) => {
-        const req = indexedDB.open("hiagent-composer", 1);
+        const req = indexedDB.open("wa-pi-composer", 1);
         req.onerror = () => reject(req.error ?? new Error("indexedDB open failed"));
         req.onupgradeneeded = () => {
           const db = req.result;

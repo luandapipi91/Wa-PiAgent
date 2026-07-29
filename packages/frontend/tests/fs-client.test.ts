@@ -73,9 +73,9 @@ describe("fs-client uploadFile", () => {
   }
 
   test("resolves with path on multipart upload result", async () => {
-    mockFetch({ ok: true, data: { path: "/project/p1/.hiagent/uploads/img.png" } });
+    mockFetch({ ok: true, data: { path: "/project/p1/.wa-pi/uploads/img.png" } });
     const result = await uploadFile("p1", "img.png", new Blob(["base64data"]));
-    expect(result.path).toBe("/project/p1/.hiagent/uploads/img.png");
+    expect(result.path).toBe("/project/p1/.wa-pi/uploads/img.png");
     const [url, init] = (globalThis.fetch as any).mock.calls[0];
     expect(url).toContain("/api/files/upload?projectId=p1");
     expect(init.method).toBe("POST");
@@ -88,7 +88,7 @@ describe("fs-client uploadFile", () => {
   });
 
   test("sessionId 透传到 query", async () => {
-    mockFetch({ ok: true, data: { path: "/p1/.hiagent/uploads/img.png" } });
+    mockFetch({ ok: true, data: { path: "/p1/.wa-pi/uploads/img.png" } });
     await uploadFile("p1", "img.png", new Blob(["base64data"]), "sess-123");
     const [url] = (globalThis.fetch as any).mock.calls[0];
     expect(url).toContain("projectId=p1");
@@ -96,7 +96,7 @@ describe("fs-client uploadFile", () => {
   });
 
   test("不传 sessionId 时 query 不含 sessionId", async () => {
-    mockFetch({ ok: true, data: { path: "/p1/.hiagent/uploads/img.png" } });
+    mockFetch({ ok: true, data: { path: "/p1/.wa-pi/uploads/img.png" } });
     await uploadFile("p1", "img.png", new Blob(["base64data"]));
     const [url] = (globalThis.fetch as any).mock.calls[0];
     expect(url).toContain("projectId=p1");

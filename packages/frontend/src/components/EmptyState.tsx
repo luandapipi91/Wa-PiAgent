@@ -11,7 +11,7 @@ export function EmptyState({ onNewProject }: Props) {
       </div>
       <div className="text-[22px] font-extrabold tracking-tight text-primary mb-2">开始你的第一个项目</div>
       <div className="text-sm text-secondary max-w-[360px] leading-relaxed mb-6">
-        选择一个代码目录，HiAgent 会自动分析项目结构并为你分配智能体团队。
+        选择一个代码目录，WA PI Agent 会自动分析项目结构并为你分配智能体团队。
       </div>
       <button
         onClick={onNewProject}

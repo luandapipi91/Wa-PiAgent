@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useSkillsStore } from "../../store/skills";
 import { DirTreePicker } from "../DirTreePicker";
-import type { SkillInfo, SkillSourceType } from "@hiagent/shared";
+import type { SkillInfo, SkillSourceType } from "@wa-pi/shared";
 
 /** 分组定义：label + source 类型过滤 */
 interface SkillGroup {

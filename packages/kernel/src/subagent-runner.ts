@@ -5,15 +5,15 @@
 // 发送任务 → 收集事件流转进度 → agent_settled 后取最终回复 → 销毁进程。
 //
 // 职责：
-// 1. 把 HiAgentSpawnConfig 翻译成 pi CLI 参数（--system-prompt/--tools/--skill/--model/--thinking）
+// 1. 把 WaPiSpawnConfig 翻译成 pi CLI 参数（--system-prompt/--tools/--skill/--model/--thinking）
 // 2. 事件流映射为 SubagentProgressEvent（工具调用状态 + 累计文本 + 耗时）
 // 3. 所有失败路径收敛为 { text, isError:true }，绝不 throw
 
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ThinkingLevel } from "@hiagent/shared";
-import { HIAGENT_DIR } from "@hiagent/shared";
+import type { ThinkingLevel } from "@wa-pi/shared";
+import { WA_PI_DIR } from "@wa-pi/shared";
 import {
 	RpcClient,
 	buildPiArgs,
@@ -22,8 +22,8 @@ import {
 	type RpcEvent,
 } from "./rpc-client";
 
-/** HiAgent 侧的 agent 配置片段（从 AgentConfig 提取） */
-export interface HiAgentSpawnConfig {
+/** WaPi 侧的 agent 配置片段（从 AgentConfig 提取） */
+export interface WaPiSpawnConfig {
 	name: string;
 	description: string;
 	systemPrompt: string;
@@ -105,14 +105,14 @@ function mapThinking(thinking: ThinkingLevel | null): string | undefined {
  * 所有失败路径收敛为 { text, isError:true }，绝不 throw。
  */
 export async function runSubagentAgent(
-	config: HiAgentSpawnConfig,
+	config: WaPiSpawnConfig,
 	task: string,
 	cwd: string,
 	opts?: SubagentRunOpts,
 ): Promise<SubagentRunResult> {
 	const startedAt = Date.now();
 	// 子代理系统提示词临时文件（pi 的 --system-prompt 支持文件路径，规避命令行长度限制）
-	const tmpDir = join(HIAGENT_DIR, "tmp", "subagent-prompts");
+	const tmpDir = join(WA_PI_DIR, "tmp", "subagent-prompts");
 	const promptFile = config.systemPrompt
 		? join(tmpDir, `${config.name}-${randomUUID()}.md`)
 		: null;
@@ -196,7 +196,7 @@ export async function runSubagentAgent(
 				name: config.name,
 			}),
 			cwd,
-			env: { PI_CODING_AGENT_DIR: HIAGENT_DIR },
+			env: { PI_CODING_AGENT_DIR: WA_PI_DIR },
 			commandTimeoutMs: opts?.commandTimeoutMs ?? 1_800_000,
 			onEvent,
 			onExit: (code) => {
