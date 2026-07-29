@@ -4,7 +4,7 @@
 // RPC bridge 路径（bridge-registry 的 makeDefaultBridgeContext）共用同一份实现，
 // 避免两份逻辑漂移。本文件不依赖 pi SDK，可在 RPC 架构下直接引用。
 import { askRegistry } from "./ask-registry";
-import { validateAskParams, type AskParams, type AskAnswer } from "@hiagent/shared";
+import { validateAskParams, type AskParams, type AskAnswer } from "@wa-pi/shared";
 
 export interface AskToolDetails {
   answers?: AskAnswer[];

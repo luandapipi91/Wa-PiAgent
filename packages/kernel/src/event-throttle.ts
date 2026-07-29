@@ -6,7 +6,7 @@
  * 做节流合并：窗口内最多发一帧（首帧立即发，后续合并为窗口末的最新帧），中间帧丢弃。
  * 协议不变、前端无感；非 update 事件到达前先冲刷 pending 帧以保证事件顺序。
  */
-import type { SDKEventEnvelope } from "@hiagent/shared";
+import type { SDKEventEnvelope } from "@wa-pi/shared";
 
 export interface SdkEventThrottleOptions {
   /** 节流窗口（毫秒），默认 50 */

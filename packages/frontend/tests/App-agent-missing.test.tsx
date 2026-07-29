@@ -1,7 +1,7 @@
 import "./mock-composer-db";
 import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
-import type { AgentConfig } from "@hiagent/shared";
+import type { AgentConfig } from "@wa-pi/shared";
 import { App } from "../src/App";
 import { useProjectsStore } from "../src/store/projects";
 import { useAgentsStore } from "../src/store/agents";

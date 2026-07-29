@@ -1,4 +1,4 @@
-import type { ProviderApi, ProviderModel } from "@hiagent/shared";
+import type { ProviderApi, ProviderModel } from "@wa-pi/shared";
 
 interface TestInput {
   baseUrl: string;

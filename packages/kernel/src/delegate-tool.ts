@@ -15,15 +15,15 @@ import {
 	FLEET_DESCRIPTION,
 	DelegateParamsSchema,
 	FleetParamsSchema,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 import {
 	isSubagentType,
 	SUBAGENT_TYPES,
 	normalizeSubagentType,
-} from "@hiagent/shared";
-import type { DelegationHints } from "@hiagent/shared";
+} from "@wa-pi/shared";
+import type { DelegationHints } from "@wa-pi/shared";
 import type {
-	HiAgentSpawnConfig,
+	WaPiSpawnConfig,
 	SubagentProgressEvent,
 	SubagentUsage,
 } from "./subagent-runner";
@@ -56,7 +56,7 @@ export type DelegateSpawnFn = (
 /**
  * 判断 agent 名是否允许调起：在 askTo 名单内，或者是内置 subagent 类型名。
  * 内置类型（general-purpose / Explore / Plan）走 pi-open-agents 的 AgentDefinition，
- * 不在 HiAgent 的 askTo 关系网里——任何主智能体都可调起。
+ * 不在 WaPi 的 askTo 关系网里——任何主智能体都可调起。
  */
 function canInvoke(agent: string, askTo: DelegateTarget[]): boolean {
 	return askTo.some((t) => t.name === agent) || isSubagentType(agent);
@@ -171,14 +171,14 @@ export function makeDelegateTool(opts: {
 }
 
 /**
- * spawn 闭包工厂：绑定 HiAgent config + cwd + 过程回调，
+ * spawn 闭包工厂：绑定 WaPi config + cwd + 过程回调，
  * 调用 subagent-runner 的 runSubagentAgent 执行子智能体。
  *
  * resolveConfig 由 agent-manager 从 AgentConfig 提取（name/description/systemPrompt/model/thinking/tools/skills）。
  * onProgress 回调实时转发子智能体执行过程（工具调用/文本输出），用于前端过程展示。
  */
 export function makeSpawnFn(opts: {
-	resolveConfig: (agentName: string) => Promise<HiAgentSpawnConfig | null>;
+	resolveConfig: (agentName: string) => Promise<WaPiSpawnConfig | null>;
 	/** 将 skills 白名单（name[]）解析为文件路径；未提供则子代理不加载技能 */
 	resolveSkillPaths?: (skillNames: string[]) => Promise<string[]>;
 	cwd: string;

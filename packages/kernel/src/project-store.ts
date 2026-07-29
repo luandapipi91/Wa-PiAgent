@@ -1,8 +1,8 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-import { PROJECTS_FILE, HIAGENT_DIR } from "@hiagent/shared";
-import type { ProjectEntity, SessionEntity, AgentName } from "@hiagent/shared";
+import { PROJECTS_FILE, WA_PI_DIR } from "@wa-pi/shared";
+import type { ProjectEntity, SessionEntity, AgentName } from "@wa-pi/shared";
 
 interface ProjectsFile {
   projects: ProjectEntity[];
@@ -95,7 +95,7 @@ export class ProjectStore {
       id, projectId: input.projectId,
       primaryAgent: input.primaryAgent, title: input.title,
       createdAt: now, lastActivity: now,
-      piSessionFile: `${HIAGENT_DIR}/sessions/${id}.jsonl`,
+      piSessionFile: `${WA_PI_DIR}/sessions/${id}.jsonl`,
     };
     data.sessions.push(session);
     await this.save(data);

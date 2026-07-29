@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 废弃 HiAgent 自建的拍扁消息系统与 broker-proxy 旁路，改用 Pi 原生富消息模型与原生 intercom；数据目录迁移到 `.hiagent`；聊天 UI 改为微信式左右分栏。
+**Goal:** 废弃 WaPi 自建的拍扁消息系统与 broker-proxy 旁路，改用 Pi 原生富消息模型与原生 intercom；数据目录迁移到 `.wa-pi`；聊天 UI 改为微信式左右分栏。
 
 **Architecture:** kernel 透传 Pi 的完整 `AgentMessage`（含 thinking/text/toolCall content blocks），历史消息通过新增的 `getMessages()` RPC 从 Pi session 拉取；前端按 content block 类型分别渲染（思考折叠 / 正文 markdown / 工具调用 / 委派卡片）；删除 `broker-proxy.ts`、`intercom-monitor.ts` 及前端 intercom store/AskCard，intercom 委派完全由 Pi 原生 pi-intercom 扩展处理。
 
@@ -15,7 +15,7 @@
 - **精准修改**：不顺便优化无关代码；删除文件前确认无其它引用（AGENTS.md 第 4 条）
 - **变更日志**：每个任务完成时更新 `CHANGELOG.md`（AGENTS.md 第 7 条）
 - **类型来源**：Pi 消息类型手写在 `packages/shared/src/types.ts`，不引入 `@mariozechner/pi-ai` 运行时依赖
-- **Pi 数据目录**：`PI_CODING_AGENT_DIR=~/.hiagent/pi-agent`，agent 配置目录 `~/.hiagent/agents`（已确认隔离）
+- **Pi 数据目录**：`PI_CODING_AGENT_DIR=~/.wa-pi/pi-agent`，agent 配置目录 `~/.wa-pi/agents`（已确认隔离）
 - **pi 会话名**：去 `-real` 后缀，保 `${projectId}-${agentName}` 作为 Pi 原生 intercom 会话名（已确认）
 - **broker socket**：保持共享 `~/.pi/agent/intercom/broker.sock`
 - **旧数据不迁移**：拍扁的 session-store JSON 直接失效，不写迁移脚本（已确认）
@@ -93,7 +93,7 @@ export interface CustomMessage {
 export type RoleMessage = UserMessage | AssistantMessage | ToolResultMessage;
 export type AgentMessage = RoleMessage | CustomMessage;
 
-// HiAgent 投影：一条 Pi 消息 + HiAgent 元信息
+// WaPi 投影：一条 Pi 消息 + WaPi 元信息
 export interface SessionMessage {
   message: AgentMessage;     // Pi 原生消息，原样透传
   agentName?: AgentName;     // 哪个 agent 发的（assistant/toolResult 才有意义）
@@ -155,7 +155,7 @@ git commit -m "feat(shared): 新增 Pi 原生消息类型（AgentMessage/Session
 - Modify: `packages/shared/src/constants.ts`
 
 **Interfaces:**
-- Produces: `HIAGENT_PI_AGENT_DIR`（Task 3 agent-manager 使用）
+- Produces: `WA_PI_PI_AGENT_DIR`（Task 3 agent-manager 使用）
 
 - [ ] **Step 1: 修改 constants.ts**
 
@@ -171,11 +171,11 @@ export const PREVIEW_PORT = 9777;
 const env = typeof process !== "undefined" ? process.env : {};
 const HOME = env.HOME || env.USERPROFILE || ".";
 // 支持 env 覆盖（E2E 测试用独立目录隔离，生产部署也可自定义数据目录）
-export const HIAGENT_DIR = env.HIAGENT_DIR || `${HOME}/.hiagent`;
-export const HIAGENT_PI_AGENT_DIR = `${HIAGENT_DIR}/pi-agent`;  // ← 新增：Pi 数据目录（sessions/agents/auth/intercom）
-export const PROJECTS_FILE = `${HIAGENT_DIR}/projects.json`;
-export const SESSIONS_DIR = `${HIAGENT_DIR}/sessions`;  // HiAgent 自管元数据（不含 messages）
-export const PI_AGENTS_DIR = `${HIAGENT_DIR}/agents`;   // ← 改：从 ~/.pi/agent/agents 改为 .hiagent/agents
+export const WA_PI_DIR = env.WA_PI_DIR || `${HOME}/.wa-pi`;
+export const WA_PI_PI_AGENT_DIR = `${WA_PI_DIR}/pi-agent`;  // ← 新增：Pi 数据目录（sessions/agents/auth/intercom）
+export const PROJECTS_FILE = `${WA_PI_DIR}/projects.json`;
+export const SESSIONS_DIR = `${WA_PI_DIR}/sessions`;  // WaPi 自管元数据（不含 messages）
+export const PI_AGENTS_DIR = `${WA_PI_DIR}/agents`;   // ← 改：从 ~/.pi/agent/agents 改为 .wa-pi/agents
 ```
 
 （后续 AGENT_DEFS / ALL_AGENT_NAMES 不动）
@@ -184,7 +184,7 @@ export const PI_AGENTS_DIR = `${HIAGENT_DIR}/agents`;   // ← 改：从 ~/.pi/a
 
 ```bash
 git add packages/shared/src/constants.ts
-git commit -m "feat(shared): HIAGENT_PI_AGENT_DIR 新增、PI_AGENTS_DIR 迁至 .hiagent/agents"
+git commit -m "feat(shared): WA_PI_PI_AGENT_DIR 新增、PI_AGENTS_DIR 迁至 .wa-pi/agents"
 ```
 
 ---
@@ -197,7 +197,7 @@ git commit -m "feat(shared): HIAGENT_PI_AGENT_DIR 新增、PI_AGENTS_DIR 迁至 
 - Test: `packages/kernel/tests/pi-rpc-client.test.ts`
 
 **Interfaces:**
-- Consumes: `AgentMessage`、`SessionMessage` from Task 1，`HIAGENT_PI_AGENT_DIR` from Task 2
+- Consumes: `AgentMessage`、`SessionMessage` from Task 1，`WA_PI_PI_AGENT_DIR` from Task 2
 - Produces: `PiRpcClient.getMessages(): Promise<AgentMessage[]>`、PiEvent.message 改为 SessionMessage、spawn 带 env
 
 - [ ] **Step 1: 先改测试（TDD）——pi-rpc-client.test.ts**
@@ -302,10 +302,10 @@ Expected: FAIL（getMessages 不存在、env 参数未传、message 还是拍扁
 
 **(a) import 换型**（L1）：
 ```ts
-import type { AgentName, AgentMessage, AgentState, AgentConfig } from "@hiagent/shared";
-import type { SessionMessage } from "@hiagent/shared";
+import type { AgentName, AgentMessage, AgentState, AgentConfig } from "@wa-pi/shared";
+import type { SessionMessage } from "@wa-pi/shared";
 import { randomUUID } from "node:crypto";
-import { HIAGENT_PI_AGENT_DIR } from "@hiagent/shared";
+import { WA_PI_PI_AGENT_DIR } from "@wa-pi/shared";
 ```
 
 **(b) PiEvent 类型**（L4-9）改：
@@ -473,7 +473,7 @@ function defaultSpawn(cmd: string, args: string[], opts: SpawnOptions["opts"]): 
 
 打开 `packages/kernel/src/agent-manager.ts`，顶部 import：
 ```ts
-import { HIAGENT_PI_AGENT_DIR } from "@hiagent/shared";
+import { WA_PI_PI_AGENT_DIR } from "@wa-pi/shared";
 ```
 
 `new PiRpcClient({...})`（L36-46）加 env：
@@ -484,7 +484,7 @@ const client = new PiRpcClient({
   sessionId: `${projectId}-${agentName}`,
   config: config ?? undefined,
   spawnFn: this.opts.spawnFn,
-  env: { PI_CODING_AGENT_DIR: HIAGENT_PI_AGENT_DIR },
+  env: { PI_CODING_AGENT_DIR: WA_PI_PI_AGENT_DIR },
   onEvent: (e) => { /* 不变 */ },
 });
 ```
@@ -646,7 +646,7 @@ import { AgentManager } from "./agent-manager";
 import { StateAggregator } from "./state-aggregator";
 import { WSServer } from "./ws-server";
 import { migrateLegacySessions } from "./migrate";
-import { WS_PORT } from "@hiagent/shared";
+import { WS_PORT } from "@wa-pi/shared";
 
 async function main() {
   const configStore = new ConfigStore();
@@ -656,7 +656,7 @@ async function main() {
   const migrated = await migrateLegacySessions(projectStore);
   if (migrated) console.log("[kernel] 已迁移老数据至默认项目");
 
-  let broadcast: (e: import("@hiagent/shared").WSServerEvent) => void = () => {};
+  let broadcast: (e: import("@wa-pi/shared").WSServerEvent) => void = () => {};
 
   const agentManager = new AgentManager({
     projectStore,
@@ -676,7 +676,7 @@ async function main() {
     port: WS_PORT,
   });
   await server.start();
-  broadcast = (e) => (server as unknown as { broadcast: (e2: import("@hiagent/shared").WSServerEvent) => void }).broadcast(e);
+  broadcast = (e) => (server as unknown as { broadcast: (e2: import("@wa-pi/shared").WSServerEvent) => void }).broadcast(e);
   server.bindAggregatorBroadcast();
 
   console.log(`[kernel] WS 监听 ws://127.0.0.1:${server.actualPort}`);
@@ -737,7 +737,7 @@ cd packages/frontend && bun add react-markdown remark-gfm
 
 ```ts
 import { create } from "zustand";
-import type { SessionMessage } from "@hiagent/shared";
+import type { SessionMessage } from "@wa-pi/shared";
 
 interface SessionState {
   messagesBySession: Record<string, SessionMessage[]>;
@@ -867,7 +867,7 @@ export function TextBlock({ text }: Props) {
 `ToolCallPanel.tsx`：
 ```tsx
 import { useState } from "react";
-import type { ToolCall, ToolResultMessage } from "@hiagent/shared";
+import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 
 interface Props {
   toolCall: ToolCall;
@@ -893,7 +893,7 @@ export function ToolCallPanel({ toolCall, result }: Props) {
 
 `DelegateCard.tsx`：
 ```tsx
-import type { ToolCall, ToolResultMessage } from "@hiagent/shared";
+import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 
 interface Props {
   toolCall: ToolCall;
@@ -943,7 +943,7 @@ Expected: PASS
 - [ ] **Step 5: 重写 MessageList.tsx**
 
 ```tsx
-import type { SessionMessage, ToolResultMessage } from "@hiagent/shared";
+import type { SessionMessage, ToolResultMessage } from "@wa-pi/shared";
 import { useSessionStore } from "../store/session";
 import { ThinkingPanel } from "./blocks/ThinkingPanel";
 import { TextBlock } from "./blocks/TextBlock";
@@ -1142,7 +1142,7 @@ git commit -m "test: 四层测试收尾 + CHANGELOG（Pi 原生消息模型重�
 - ✅ kernel 废弃 broker-proxy、intercom-monitor → Task 5
 - ✅ frontend MessageRow/ContentBlock/DelegateCard → Task 7
 - ✅ frontend 废弃 useIntercomStore/AskCard → Task 8
-- ✅ constants HIAGENT_PI_AGENT_DIR、PI_AGENTS_DIR → Task 2
+- ✅ constants WA_PI_PI_AGENT_DIR、PI_AGENTS_DIR → Task 2
 - ✅ 四层测试 → Task 9 + 各任务内单测
 - ✅ Canvas 引用清理（设计文档遗漏）→ Task 8
 

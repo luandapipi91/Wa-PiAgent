@@ -1,12 +1,12 @@
 // AgentManager：管 pi rpc 子进程会话
 //
 // 架构（RPC 迁移后）：
-// - 每个 HiAgent 会话对应一个 `pi --mode rpc` 子进程（rpc-client.ts 驱动），
+// - 每个 WaPi 会话对应一个 `pi --mode rpc` 子进程（rpc-client.ts 驱动），
 //   不再 import @earendil-works/pi-coding-agent 的 SDK API。
 // - 引导消息走 pi 原生 steer()（turn_end 后自动投递）。
-// - 排队消息存 HiAgent 本地 followUpList，agent_settled 时逐条 drain。
+// - 排队消息存 WaPi 本地 followUpList，agent_settled 时逐条 drain。
 //   pi RPC 的 queue_update 事件直接透传给前端，kernel 不合成。
-// - 宿主工具（ask/memory/delegate/fleet）经 hiagent-bridge 扩展注册到 pi 进程，
+// - 宿主工具（ask/memory/delegate/fleet）经 wa-pi-bridge 扩展注册到 pi 进程，
 //   工具 execute 回调 kernel /bridge/tool（bridge-registry.ts 注册的 ctx 执行）。
 // - 系统提示词组合（composePrompt）结果写入临时文件，经 --system-prompt <file> 传入。
 // - 工具放行：默认排除式（-xt subagent）；agent 配置显式 tools 时用 --tools 白名单
@@ -23,9 +23,9 @@ import type {
 	MemoryConfig,
 	SkillInfo,
 	CommandInfo,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 import {
-	HIAGENT_DIR,
+	WA_PI_DIR,
 	DEFAULT_AGENT_TOOLS,
 	BUILTIN_SKILLS_DIR,
 	EXTENSION_TOOL_MAP,
@@ -36,7 +36,7 @@ import {
 	isSubagentType,
 	SYSTEM_PROJECT_ID,
 	SYSTEM_PROJECT_CWD,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
@@ -53,7 +53,7 @@ import {
 	makeSpawnFn,
 } from "./delegate-tool";
 import { SubagentTelemetry } from "./subagent-telemetry";
-import type { HiAgentSpawnConfig } from "./subagent-runner";
+import type { WaPiSpawnConfig } from "./subagent-runner";
 import { seedBuiltinAgents } from "./builtin-agents";
 import { readBuiltinAgentPrompt } from "./subagent-info";
 import { askRegistry } from "./ask-registry";
@@ -81,7 +81,7 @@ import {
 	composePrompt,
 	loadPromptSegments,
 	DEFAULT_PROMPT_SEGMENTS,
-	HIAGENT_DEFAULT_BASE_PROMPT,
+	WA_PI_DEFAULT_BASE_PROMPT,
 	type PromptSegment,
 } from "./system-prompt";
 
@@ -122,7 +122,7 @@ export interface AgentManagerOpts {
 // 系统提示词的默认兜底基础段（被 prompts.json 的 base.content 覆盖；
 // 若 base.content 也未写、且 config.systemPromptBody 未指定，最终使用此值）。
 // 完整提示词段落组装见 system-prompt.ts。
-export const HIAGENT_DEFAULT_SYSTEM_PROMPT = HIAGENT_DEFAULT_BASE_PROMPT;
+export const WA_PI_DEFAULT_SYSTEM_PROMPT = WA_PI_DEFAULT_BASE_PROMPT;
 
 /** 永不放行给 LLM 直接调用的工具（subagent 必须走宿主 delegate 工具） */
 const ALWAYS_EXCLUDED_TOOLS = ["subagent"];
@@ -155,7 +155,7 @@ interface SessionHandle {
 }
 
 export class AgentManager {
-	// sessionId → SessionHandle（核心数据结构，一个 HiAgent 会话对应一个 pi rpc 子进程）
+	// sessionId → SessionHandle（核心数据结构，一个 WaPi 会话对应一个 pi rpc 子进程）
 	private sessions = new Map<string, SessionHandle>();
 	// 并发创建锁：同 sessionId 同时只创建一次，防止快速连发导致重复初始化同一 jsonl
 	private starting = new Map<string, Promise<SessionHandle>>();
@@ -370,8 +370,8 @@ export class AgentManager {
 		agentName: AgentName,
 		sessionId: string,
 	): Promise<SessionHandle> {
-		// 启动时写入内置 subagent 的 .md 定义文件（~/.hiagent/agents/*.md），已存在不覆盖
-		const agentsDir = join(HIAGENT_DIR, "agents");
+		// 启动时写入内置 subagent 的 .md 定义文件（~/.wa-pi/agents/*.md），已存在不覆盖
+		const agentsDir = join(WA_PI_DIR, "agents");
 		seedBuiltinAgents(agentsDir);
 
 		// 从 ProjectStore 拉 project + session 实体（校验存在性 + 拿 cwd / piSessionFile）
@@ -418,7 +418,7 @@ export class AgentManager {
 		const memorySnapshot =
 			memConfig?.memoryPolicyStyle === "none"
 				? ""
-				: await buildMemorySnapshot(HIAGENT_DIR, cwd).catch((err) => {
+				: await buildMemorySnapshot(WA_PI_DIR, cwd).catch((err) => {
 						console.error(`[kernel] 读取记忆快照失败，跳过注入:`, err);
 						return "";
 					});
@@ -438,24 +438,24 @@ export class AgentManager {
 			delegationHints: c.delegationHints,
 		}));
 
-		// resolveSpawnConfig：从 ConfigStore 读 HiAgent 配置（用户在 UI 设置的 model/thinking/tools/skills），
-		// 内置 subagent 类型不在 store 里——从 SUBAGENT_TYPES 常量读元信息 + ~/.hiagent/agents/*.md 读系统提示词。
+		// resolveSpawnConfig：从 ConfigStore 读 WaPi 配置（用户在 UI 设置的 model/thinking/tools/skills），
+		// 内置 subagent 类型不在 store 里——从 SUBAGENT_TYPES 常量读元信息 + ~/.wa-pi/agents/*.md 读系统提示词。
 		const resolveSpawnConfig = async (
 			agentName: string,
-		): Promise<HiAgentSpawnConfig | null> => {
+		): Promise<WaPiSpawnConfig | null> => {
 			// 内置 subagent 类型：从 SUBAGENT_TYPES 元信息 + agents/*.md 读定义（用户可覆盖）
 			if (isSubagentType(agentName)) {
 				const builtin = SUBAGENT_TYPES.find((t) => t.name === agentName);
 				if (builtin) {
 					const prompt = await readBuiltinAgentPrompt(agentsDir, agentName);
-					// 读取用户保存的 model/thinking 覆盖（~/.hiagent/subagent-overrides.json）
+					// 读取用户保存的 model/thinking 覆盖（~/.wa-pi/subagent-overrides.json）
 					const { getSubagentOverride } = await import("./subagent-store");
-					const { SUBAGENT_OVERRIDES_FILE } = await import("@hiagent/shared");
+					const { SUBAGENT_OVERRIDES_FILE } = await import("@wa-pi/shared");
 					const override = await getSubagentOverride(
 						SUBAGENT_OVERRIDES_FILE,
 						agentName,
 					);
-					// 校验 model：HiAgent 模型标识固定为 "provider/modelId" 格式；不含 "/" 的视为无效并降级
+					// 校验 model：WaPi 模型标识固定为 "provider/modelId" 格式；不含 "/" 的视为无效并降级
 					let model = override?.model ?? null;
 					if (model && !model.includes("/")) {
 						console.warn(
@@ -519,12 +519,12 @@ export class AgentManager {
 			onSpawnComplete: (input) => subagentTelemetry.record(input),
 		});
 
-		// 内置 subagent 的委派引导从 ~/.hiagent/agents/*.md 的 frontmatter 提取（与命名智能体统一来源）
+		// 内置 subagent 的委派引导从 ~/.wa-pi/agents/*.md 的 frontmatter 提取（与命名智能体统一来源）
 		const { getSubagentInfo } = await import("./subagent-info");
 		const builtinSubagents = await getSubagentInfo([]);
 		const builtinHints: Record<
 			string,
-			import("@hiagent/shared").DelegationHints | undefined
+			import("@wa-pi/shared").DelegationHints | undefined
 		> = {};
 		for (const s of builtinSubagents) {
 			if (s.delegationHints) builtinHints[s.name] = s.delegationHints;
@@ -536,7 +536,7 @@ export class AgentManager {
 			agentsDir,
 		);
 
-		// delegate/fleet 工具实例（execute 由 bridge ctx 调用；schema 在 hiagent-bridge 扩展里）
+		// delegate/fleet 工具实例（execute 由 bridge ctx 调用；schema 在 wa-pi-bridge 扩展里）
 		const delegateTool = makeDelegateTool({
 			askTo: askToTargets,
 			spawn: spawnFn,
@@ -550,8 +550,8 @@ export class AgentManager {
 			sessionId,
 			cwd,
 			memoryStores: {
-				global: getGlobalMemoryStore(HIAGENT_DIR),
-				project: getProjectMemoryStore(HIAGENT_DIR, cwd),
+				global: getGlobalMemoryStore(WA_PI_DIR),
+				project: getProjectMemoryStore(WA_PI_DIR, cwd),
 			},
 		});
 		const bridgeCtx: BridgeSessionContext = {
@@ -593,9 +593,9 @@ export class AgentManager {
 		// 注意：prompts.json 的 base.content（用户全局覆盖）优先级最高——
 		// renderSegment 里 segment.content 非空时直接使用，不看 defaultBasePrompt。
 		const defaultBasePrompt = !config?.systemPromptBody
-			? HIAGENT_DEFAULT_BASE_PROMPT
+			? WA_PI_DEFAULT_BASE_PROMPT
 			: config.systemPromptMode === "append"
-				? `${HIAGENT_DEFAULT_BASE_PROMPT}\n\n${config.systemPromptBody}`
+				? `${WA_PI_DEFAULT_BASE_PROMPT}\n\n${config.systemPromptBody}`
 				: config.systemPromptBody;
 		const composedPrompt = composePrompt(promptSegments, {
 			defaultBasePrompt,
@@ -605,7 +605,7 @@ export class AgentManager {
 			// 使核心提示词完全静态化，最大化 LLM prompt caching 前缀命中率。
 			memorySnapshot: "",
 		});
-		const tmpDir = join(HIAGENT_DIR, "tmp", "sysprompts");
+		const tmpDir = join(WA_PI_DIR, "tmp", "sysprompts");
 		await mkdir(tmpDir, { recursive: true });
 		const promptFile = join(tmpDir, `${sessionId}.md`);
 		await writeFile(promptFile, composedPrompt, "utf8");
@@ -627,7 +627,7 @@ export class AgentManager {
 		// 当 agent 配置了 skills 白名单时，排除提供技能的 extension（如 superpowers-zh），
 		// 避免 pi 的 -e + resources_discover 机制绕过白名单过滤。
 		// extension skills 已通过 --skill 参数按白名单过滤传入。
-		// 保留 hiagent-bridge 等工具类 extension（提供 delegate/fleet/memory 工具）。
+		// 保留 wa-pi-bridge 等工具类 extension（提供 delegate/fleet/memory 工具）。
 		const restrictedSkills = !!config?.skills?.length;
 		const skillProvidingExtIds =
 			restrictedSkills && this.opts.extensionManager
@@ -658,7 +658,7 @@ export class AgentManager {
 				}
 			: { excludeTools: [...ALWAYS_EXCLUDED_TOOLS] };
 
-		// 注册 bridge 上下文（pi 进程内 hiagent-bridge 扩展回调用）
+		// 注册 bridge 上下文（pi 进程内 wa-pi-bridge 扩展回调用）
 		registerBridgeSession(sessionId, bridgeCtx);
 
 		// thinking level 映射（disabled→off，max→xhigh，其余透传）
@@ -698,10 +698,10 @@ export class AgentManager {
 			}),
 			cwd,
 			env: {
-				PI_CODING_AGENT_DIR: HIAGENT_DIR,
-				HIAGENT_BRIDGE_URL: this.opts.bridgeBaseUrl?.() ?? "",
-				HIAGENT_BRIDGE_TOKEN: getBridgeToken(),
-				HIAGENT_SESSION_ID: sessionId,
+				PI_CODING_AGENT_DIR: WA_PI_DIR,
+				WA_PI_BRIDGE_URL: this.opts.bridgeBaseUrl?.() ?? "",
+				WA_PI_BRIDGE_TOKEN: getBridgeToken(),
+				WA_PI_SESSION_ID: sessionId,
 			},
 			onEvent: (e) => this._onSessionEvent(sessionId, e),
 			onExit: (code) => this._onProcessExit(sessionId, code, handle),
@@ -798,7 +798,7 @@ export class AgentManager {
 		}
 
 		// pi 的 queue_update.followUp 始终为空（pi 不管排队），
-		// 转发前用 HiAgent 本地队列状态替换（不拼接！pi steering 和 steerList 是同一份）
+		// 转发前用 WaPi 本地队列状态替换（不拼接！pi steering 和 steerList 是同一份）
 		if (event.type === "queue_update") {
 			event = {
 				...event,
@@ -1008,7 +1008,7 @@ export class AgentManager {
 	}
 
 	/**
-	 * 会话销毁时把子代理派发遥测追加到 HIAGENT_DIR/subagent-telemetry.jsonl（fire-and-forget）。
+	 * 会话销毁时把子代理派发遥测追加到 WA_PI_DIR/subagent-telemetry.jsonl（fire-and-forget）。
 	 *
 	 * 正常路径：records 有内容 → 序列化每条记录 + session_summary → append 到 jsonl 文件。
 	 *
@@ -1054,7 +1054,7 @@ export class AgentManager {
 				`压缩率 ${summary.aggregateCompressionRatio.toFixed(2)}`,
 		);
 		void appendFile(
-			join(HIAGENT_DIR, "subagent-telemetry.jsonl"),
+			join(WA_PI_DIR, "subagent-telemetry.jsonl"),
 			lines.join("\n") + "\n",
 			"utf8",
 		).catch(() => {});
@@ -1287,14 +1287,14 @@ function buildPromptContent(
  * 只读——agent 写记忆走 bridge 回调的记忆工具，全局记忆由用户经 UI 维护。
  */
 async function buildMemorySnapshot(
-	hiagentDir: string,
+	waPiDir: string,
 	projectCwd: string,
 ): Promise<string> {
 	const parts: string[] = [];
-	const globalSnap = await getGlobalMemoryStore(hiagentDir).snapshotAll();
+	const globalSnap = await getGlobalMemoryStore(waPiDir).snapshotAll();
 	if (globalSnap) parts.push(globalSnap);
 	const projectSnap = await getProjectMemoryStore(
-		hiagentDir,
+		waPiDir,
 		projectCwd,
 	).snapshotAll();
 	if (projectSnap) parts.push(projectSnap);

@@ -10,7 +10,7 @@ import { ProviderStore } from "../src/provider-store";
 import { SkillManager } from "../src/skill-manager";
 import { ExtensionManager } from "../src/extension-manager";
 import { FakeSessionClient, fakeClientFactory } from "./fixtures/fake-session-client";
-import { HIAGENT_DIR } from "@hiagent/shared";
+import { WA_PI_DIR } from "@wa-pi/shared";
 
 function makeTempDir(prefix: string) {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -75,7 +75,7 @@ async function withComposerServer<T>(
     sse: SseReader,
   ) => Promise<T>,
 ): Promise<T> {
-  const baseDir = makeTempDir("hiagent-composer-");
+  const baseDir = makeTempDir("wa-pi-composer-");
   const configStore = new ConfigStore(join(baseDir, "agents"));
   const projectStore = new ProjectStore(join(baseDir, "projects.json"));
   const providerStore = new ProviderStore(join(baseDir, "providers.json"));
@@ -119,7 +119,7 @@ async function withComposerServer<T>(
     const sessionIds = [...(((agentManager as any).sessions?.keys?.() ?? []) as Iterable<string>)];
     await agentManager.disposeAll().catch(() => {});
     for (const id of sessionIds) {
-      try { rmSync(join(HIAGENT_DIR, "tmp", "sysprompts", `${id}.md`), { force: true }); } catch {}
+      try { rmSync(join(WA_PI_DIR, "tmp", "sysprompts", `${id}.md`), { force: true }); } catch {}
     }
     rmSync(baseDir, { recursive: true, force: true });
   }
@@ -139,7 +139,7 @@ async function createProject(base: string, sse: SseReader, cwd: string): Promise
 
 describe("composer attachments integration", () => {
   it("fs:readFile 返回真实文件的 base64 内容与 mimeType", async () => {
-    const fileDir = makeTempDir("hiagent-read-");
+    const fileDir = makeTempDir("wa-pi-read-");
     const filePath = join(fileDir, "hello.txt");
     writeFileSync(filePath, "hello world");
 
@@ -164,7 +164,7 @@ describe("composer attachments integration", () => {
   it("fs:readFile 正确展开 ~ 为 HOME 目录", async () => {
     // 在 HOME 下创建临时文件，然后用 ~ 路径读取
     const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
-    const testFileName = `hiagent-tilde-test-${Math.random().toString(36).slice(2)}.txt`;
+    const testFileName = `wa-pi-tilde-test-${Math.random().toString(36).slice(2)}.txt`;
     const filePath = join(homeDir, testFileName);
     const tildePath = `~/${testFileName}`;
     writeFileSync(filePath, "tilde expanded");
@@ -187,8 +187,8 @@ describe("composer attachments integration", () => {
   });
 
   it("fs:upload 对同名文件自动追加序号", async () => {
-    const fileDir = makeTempDir("hiagent-upload-dup-");
-    const uploadDir = join(fileDir, ".hiagent", "uploads");
+    const fileDir = makeTempDir("wa-pi-upload-dup-");
+    const uploadDir = join(fileDir, ".wa-pi", "uploads");
     mkdirSync(uploadDir, { recursive: true });
     writeFileSync(join(uploadDir, "notes.txt"), "existing", "utf8");
 
@@ -213,7 +213,7 @@ describe("composer attachments integration", () => {
   });
 
   it("fs:upload 拒绝路径穿越文件名", async () => {
-    const fileDir = makeTempDir("hiagent-upload-traversal-");
+    const fileDir = makeTempDir("wa-pi-upload-traversal-");
 
     try {
       await withComposerServer(async (base, _getPromptCalls, sse) => {
@@ -226,7 +226,7 @@ describe("composer attachments integration", () => {
           body: form,
         });
         const resp = await res.json();
-        expect(resp.path).toBe(join(fileDir, ".hiagent", "uploads", "escape.txt"));
+        expect(resp.path).toBe(join(fileDir, ".wa-pi", "uploads", "escape.txt"));
         expect(existsSync(resp.path)).toBe(true);
       });
     } finally {
@@ -235,7 +235,7 @@ describe("composer attachments integration", () => {
   });
 
   it("fs:upload 将 .. / . 文件名替换为安全名称", async () => {
-    const fileDir = makeTempDir("hiagent-upload-dot-");
+    const fileDir = makeTempDir("wa-pi-upload-dot-");
 
     try {
       await withComposerServer(async (base, _getPromptCalls, sse) => {
@@ -248,7 +248,7 @@ describe("composer attachments integration", () => {
           body: form,
         });
         const resp = await res.json();
-        expect(resp.path).toBe(join(fileDir, ".hiagent", "uploads", "upload"));
+        expect(resp.path).toBe(join(fileDir, ".wa-pi", "uploads", "upload"));
         expect(existsSync(resp.path)).toBe(true);
       });
     } finally {
@@ -256,8 +256,8 @@ describe("composer attachments integration", () => {
     }
   });
 
-  it("fs:upload 将文件写入项目目录 .hiagent/uploads 并返回绝对路径", async () => {
-    const fileDir = makeTempDir("hiagent-upload-");
+  it("fs:upload 将文件写入项目目录 .wa-pi/uploads 并返回绝对路径", async () => {
+    const fileDir = makeTempDir("wa-pi-upload-");
 
     try {
       await withComposerServer(async (base, _getPromptCalls, sse) => {
@@ -273,7 +273,7 @@ describe("composer attachments integration", () => {
         const resp = await res.json();
         expect(resp.type).toBe("fs:upload");
         expect(resp.error).toBeUndefined();
-        expect(resp.path).toBe(join(fileDir, ".hiagent", "uploads", "notes.txt"));
+        expect(resp.path).toBe(join(fileDir, ".wa-pi", "uploads", "notes.txt"));
         expect(existsSync(resp.path)).toBe(true);
         expect(readFileSync(resp.path, "utf8")).toBe("uploaded content");
       });
@@ -283,7 +283,7 @@ describe("composer attachments integration", () => {
   });
 
   it("agent:prompt 携带 file 附件时，最终 prompt 文本包含 @路径引用块", async () => {
-    const fileDir = makeTempDir("hiagent-attach-");
+    const fileDir = makeTempDir("wa-pi-attach-");
     const filePath = join(fileDir, "notes.txt");
     writeFileSync(filePath, "这是附件内容");
 
@@ -321,7 +321,7 @@ describe("composer attachments integration", () => {
   });
 
   it("agent:prompt 携带 image 附件时，最终 prompt 文本用 @路径引用而不是 base64", async () => {
-    const fileDir = makeTempDir("hiagent-img-");
+    const fileDir = makeTempDir("wa-pi-img-");
     const imgPath = join(fileDir, "shot.png");
     writeFileSync(imgPath, "\x89PNG\r\n\x1a\n");
 
@@ -358,7 +358,7 @@ describe("composer attachments integration", () => {
   });
 
   it("fs:copy 对文件夹直接返回原始真实路径，不再创建软链接", async () => {
-    const fileDir = makeTempDir("hiagent-copy-folder-");
+    const fileDir = makeTempDir("wa-pi-copy-folder-");
     const sourceDir = join(fileDir, "big-data");
     mkdirSync(sourceDir);
     writeFileSync(join(sourceDir, "data.txt"), "folder content");
@@ -385,7 +385,7 @@ describe("composer attachments integration", () => {
   });
 
   it("agent:prompt 携带 folder 附件时，最终 prompt 文本包含 @相对路径引用", async () => {
-    const fileDir = makeTempDir("hiagent-folder-attach-");
+    const fileDir = makeTempDir("wa-pi-folder-attach-");
     const sourceDir = join(fileDir, "docs");
     mkdirSync(sourceDir);
 

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在 HiAgent 设置 → 插件面板支持动态安装、启用/禁用、升级、卸载第三方插件（npm/git/本地路径），通过 `settings.json.packages` 与 Pi SDK 原生机制对齐。
+**Goal:** 在 WaPi 设置 → 插件面板支持动态安装、启用/禁用、升级、卸载第三方插件（npm/git/本地路径），通过 `settings.json.packages` 与 Pi SDK 原生机制对齐。
 
 **Architecture:** 两轨加载（核心扩展走 `additionalExtensionPaths`，动态插件走 `packages` 字段），`ExtensionManager`（状态编排）+ `NpmPackageService`（包管理器调用）分层，WS 协议驱动前后端通信，`npmCommand` 配置化包管理器。
 
@@ -85,7 +85,7 @@ export interface ExtensionErrorEvent { type: "extension:error"; name: string; er
 - [ ] **Step 2: 验证类型编译**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/shared typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/shared typecheck
 ```
 
 - [ ] **Step 3: Commit**
@@ -266,7 +266,7 @@ test("构造函数接受自定义 npmCommand", () => {
 - [ ] **Step 3: 运行测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/npm-package-service.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/npm-package-service.test.ts
 ```
 
 Expected: 4 tests PASS
@@ -314,7 +314,7 @@ git commit -m "feat(kernel): 新增 NpmPackageService — Bun.spawn 封装包管
 - [ ] **Step 3: 运行测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/extensions.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/extensions.test.ts
 ```
 
 Expected: 1 test PASS (`buildAdditionalExtensionPaths`)
@@ -417,7 +417,7 @@ export function parseExtensionInput(raw: string): ParsedInput | null {
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, resolve, isAbsolute } from "node:path";
 import { existsSync } from "node:fs";
-import type { PackageInfo } from "@hiagent/shared";
+import type { PackageInfo } from "@wa-pi/shared";
 import { NpmPackageService } from "./npm-package-service";
 import { parseExtensionInput } from "./extension-manager"; // 同上文件
 
@@ -427,7 +427,7 @@ interface ExtensionSettings {
   [k: string]: unknown;
 }
 
-const RUNTIME_DIR = `${process.env.HOME}/.hiagent/runtime`;
+const RUNTIME_DIR = `${process.env.HOME}/.wa-pi/runtime`;
 
 export class ExtensionManager {
   private pkgService: NpmPackageService;
@@ -865,7 +865,7 @@ test("不可变更新：保留 settings.json 其他字段", async () => {
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/extension-manager.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/extension-manager.test.ts
 ```
 
 Expected: 14 tests PASS
@@ -901,7 +901,7 @@ git commit -m "feat(kernel): 重写 ExtensionManager — packages 驱动 + 输�
 // 删除: await migrateSettingsPackages();
 
 // 第 43 行：ExtensionManager 构造保持不变
-// const extensionManager = new ExtensionManager(HIAGENT_DIR);
+// const extensionManager = new ExtensionManager(WA_PI_DIR);
 
 // 第 100 行：移除旧的首启播种
 // 删除: await extensionManager.list();
@@ -985,7 +985,7 @@ case "extension:toggle": {
 - [ ] **Step 3: 验证编译**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/kernel typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 - [ ] **Step 4: Commit**
@@ -1016,7 +1016,7 @@ import type {
   ExtensionListResult,
   ExtensionChangedEvent,
   ExtensionErrorEvent,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 import { send } from "../ws-instance";
 
 interface ExtensionsState {
@@ -1083,7 +1083,7 @@ if (msg.type === "extension:error") {
 - [ ] **Step 3: 验证编译**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/frontend typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend typecheck
 ```
 
 - [ ] **Step 4: Commit**
@@ -1303,7 +1303,7 @@ export function ExtensionSection() {
 - [ ] **Step 2: 验证编译**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/frontend typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend typecheck
 ```
 
 - [ ] **Step 3: Commit**
@@ -1399,7 +1399,7 @@ test("安装按钮在输入为空时禁用", () => {
 - [ ] **Step 2: 运行测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/frontend test -- ExtensionSection
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend test -- ExtensionSection
 ```
 
 Expected: 7 tests PASS

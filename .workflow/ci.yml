@@ -1,9 +1,9 @@
-# hiagent CI 门禁流水线 (Gitee Go)
+# wa-pi CI 门禁流水线 (Gitee Go)
 #
 # Schema 参考: https://help.gitee.com/gitee-go/
 # 字段名(triggers / stages / steps / GITEE_ENV_PATH) 以 Gitee Go 平台实际接受为准；
 # 推送到 Gitee 后在流水线编辑器里确认一次。
-name: hiagent-ci
+name: wa-pi-ci
 displayName: CI 门禁
 triggers:
   push:

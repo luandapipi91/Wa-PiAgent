@@ -1,4 +1,4 @@
-# 子代理派发问题研究报告：HiAgent 为什么不派发，cocode / Reasonix 怎么做，怎么优化
+# 子代理派发问题研究报告：WaPi 为什么不派发，cocode / Reasonix 怎么做，怎么优化
 
 日期：2026-07-24
 范围：只读分析。对标对象：`cocode-master/`（本地源码）、[esengine/DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix)（GitHub）。
@@ -7,7 +7,7 @@
 
 ## 一、结论摘要
 
-**HiAgent 的子代理派发机制本身是完好的（84 个历史会话中 delegate 调用 38 次，成功率 100%），用得少是"引导缺失"问题，不是功能问题。**
+**WaPi 的子代理派发机制本身是完好的（84 个历史会话中 delegate 调用 38 次，成功率 100%），用得少是"引导缺失"问题，不是功能问题。**
 
 最直接的原因：commit `1197a80`（2026-07-23，提交信息与改动无关）**误删了系统提示词里的「Proactive Delegation」整节**——而这段正是前一天 commit `a003ae7` 专门为解决"不派发子代理"问题加上的。同时 `PROMPTS_SCHEMA_VERSION` 5→6 的自动迁移把老用户磁盘的 `prompts.json` 也同步成了没有这段引导的版本。
 
@@ -15,11 +15,11 @@ cocode 和 Reasonix 解决同一问题的思路高度一致，可归纳为三条
 
 ---
 
-## 二、HiAgent 现状与根因（附代码位置）
+## 二、WaPi 现状与根因（附代码位置）
 
 ### 2.1 现有派发链路（功能完好）
 
-- 宿主工具 `delegate` / `fleet`：kernel 生成 pi 扩展 `hiagent-bridge.ts`（`packages/kernel/src/bridge-extension.ts:288-306`），pi 子进程经 `-e` 加载注册；execute 经 HTTP 回调 kernel `POST /bridge/tool`，由 `packages/kernel/src/agent-manager.ts:437-451` 分发到 `delegate-tool.ts` 的 `makeDelegateTool`/`makeFleetTool`。
+- 宿主工具 `delegate` / `fleet`：kernel 生成 pi 扩展 `wa-pi-bridge.ts`（`packages/kernel/src/bridge-extension.ts:288-306`），pi 子进程经 `-e` 加载注册；execute 经 HTTP 回调 kernel `POST /bridge/tool`，由 `packages/kernel/src/agent-manager.ts:437-451` 分发到 `delegate-tool.ts` 的 `makeDelegateTool`/`makeFleetTool`。
 - 执行路径：`delegate(agent, task)` → `makeSpawnFn`（`delegate-tool.ts:158-174`）→ `subagent-runner.ts:77` 的 `runSubagentAgent`，spawn 一次性 `pi --mode rpc --no-session` 子进程跑完取回文本。fleet 并行上限 6（`delegate-tool.ts:20`）。
 - 可派发对象：内置 3 类型（`general-purpose`/`Explore`/`Plan`，`packages/shared/src/constants.ts:61-86`）+ 当前 agent `partners.askTo` 名单内的命名智能体（`agent-manager.ts:355-359`）。
 - pi 原生 `subagent` 工具被刻意禁用（`ALWAYS_EXCLUDED_TOOLS = ["subagent"]`，`agent-manager.ts:99`），统一走宿主 delegate——设计合理，不是根因。
@@ -30,7 +30,7 @@ cocode 和 Reasonix 解决同一问题的思路高度一致，可归纳为三条
 |---|------|------|------|
 | 1 | **Proactive Delegation 提示词被误删（主因，回归）** | commit `1197a80` 删除 `DEFAULT_DELEGATE_MECHANISM_PROMPT` 的「### Proactive Delegation」和「### Fleet Parallel Delegation」两节（`git show 1197a80 -- packages/kernel/src/system-prompt.ts`）；前一天 `a003ae7` 刚为治同一问题加上（CHANGELOG.md:129）。`PROMPTS_SCHEMA_VERSION` 5→6 使 `ensurePromptsConfig`（`system-prompt.ts:203-222`）自动迁移，老用户磁盘 prompts.json 同步丢失引导 | 主 agent 没有任何"先查可用子代理再自己动手"的指令，默认 DIY |
 | 2 | delegate 工具描述偏保守 | `bridge-extension.ts:66-69`："Do NOT use delegate when: ... simple lookup ... latency-sensitive..."，只有禁用面，没有强制的主动派发面 | 模型默认倾向自己做 |
-| 3 | pi 生态的委派引导被一并禁用 | pi-open-agents 只在原生 `subagent` 工具可用时注入 "## Subagent Delegation" 引导（`node_modules/.bun/pi-open-agents@0.1.12/src/index.ts:170-185`），而该工具被 HiAgent 禁用 | 少了一层兜底引导（设计使然，但加剧 #1） |
+| 3 | pi 生态的委派引导被一并禁用 | pi-open-agents 只在原生 `subagent` 工具可用时注入 "## Subagent Delegation" 引导（`node_modules/.bun/pi-open-agents@0.1.12/src/index.ts:170-185`），而该工具被 WaPi 禁用 | 少了一层兜底引导（设计使然，但加剧 #1） |
 | 4 | fleet 对白名单用户不可用 | `DEFAULT_AGENT_TOOLS`（`constants.ts:129-151`）含 `delegate` 不含 `fleet`；`listGlobalTools`（`agent-manager.ts:261-279`）也不提供 fleet 勾选 | 显式配过 tools 的 agent 失去并行派发能力 |
 | 5 | （潜在隐患）delegate/fleet 的 bridge 超时只有 60s | `bridge-extension.ts:114` `DEFAULT_TIMEOUT_MS`，294/304 行用于 delegate/fleet（只有 ask 放宽到 600s）；超时后 LLM 收到"bridge 调用超时"，但 kernel 侧子代理仍在跑（`bridge-registry.ts:81` 独立 AbortController 不随 HTTP 断开取消） | 子代理任务普遍 >60s，一旦触发会让模型"学到" delegate 不可靠。本机会话尚未出现（0 次），属风险而非现根因 |
 
@@ -95,7 +95,7 @@ Reasonix 是 DeepSeek 原生的终端编码 agent（1.0 用 Go 重写，默认�
 
 ---
 
-## 五、HiAgent 优化点清单
+## 五、WaPi 优化点清单
 
 按"投入产出比"排序。每条含：改哪里、怎么改、预期效果、成本/风险。
 
@@ -104,7 +104,7 @@ Reasonix 是 DeepSeek 原生的终端编码 agent（1.0 用 Go 重写，默认�
 **1. 恢复并升级 Proactive Delegation 提示词**
 - 改哪里：`packages/kernel/src/system-prompt.ts` 的 `DEFAULT_DELEGATE_MECHANISM_PROMPT`；同时递增 `PROMPTS_SCHEMA_VERSION`（6→7）让 `ensurePromptsConfig` 推送给老用户。
 - 怎么改：恢复 `a003ae7` 的 Proactive Delegation 节，并按 cocode `prompt.ts:51` 的句式升级为带正反边界的默认规则："需要多次读取/搜索的探索（找所有调用 X、Y 在全项目如何工作、审计 Z）默认 delegate，不要自己连续 read/grep；单次查找、1-2 个文件读取、需要跟踪中间结果、需要用户交互的任务直接做；prompt 必须自包含，子代理没有你的对话上下文。"同时恢复 Fleet Parallel Delegation 节。
-- 预期效果：直接消除当前主因。cocode 用同类句式 + 评测实测达到 Explore 类 ≥80% 触发率；HiAgent 修复后预计委派率显著回升（具体幅度需实测，模型 DIY 倾向无法完全消除）。
+- 预期效果：直接消除当前主因。cocode 用同类句式 + 评测实测达到 Explore 类 ≥80% 触发率；WaPi 修复后预计委派率显著回升（具体幅度需实测，模型 DIY 倾向无法完全消除）。
 - 成本/风险：改动 ~30 行提示词 + 版本号，半小时。风险极低；注意 prompts.json 迁移逻辑需覆盖 v6→v7。
 
 **2. delegate 工具描述加主动派发面**
@@ -144,7 +144,7 @@ Reasonix 是 DeepSeek 原生的终端编码 agent（1.0 用 Go 重写，默认�
 **7. fleet 加入默认可用工具与全局工具列表**
 - 改哪里：`packages/shared/src/constants.ts:129-151`（`DEFAULT_AGENT_TOOLS`）+ `agent-manager.ts:261-279`（`listGlobalTools`）。
 - 怎么改：默认工具集加 `fleet`，全局工具列表提供勾选。
-- 预期效果：显式配过 tools 的 agent 也能并行派发；HiAgent 的子进程架构天然支持真并行，这是 cocode（串行）没有的优势。
+- 预期效果：显式配过 tools 的 agent 也能并行派发；WaPi 的子进程架构天然支持真并行，这是 cocode（串行）没有的优势。
 - 成本/风险：改动小；需确认前端工具勾选 UI 同步。
 
 **8. 派发行为评测脚本（可回归指标）**
@@ -183,6 +183,6 @@ Reasonix 是 DeepSeek 原生的终端编码 agent（1.0 用 Go 重写，默认�
 
 ## 附：信息来源
 
-- HiAgent 源码：`packages/kernel/src/{system-prompt,agent-manager,delegate-tool,bridge-extension,subagent-runner,bridge-registry}.ts`、`packages/shared/src/constants.ts`；git 历史 `a003ae7`、`1197a80`；本机 84 个会话的 delegate 调用统计（38 次调用，0 失败）。
+- WaPi 源码：`packages/kernel/src/{system-prompt,agent-manager,delegate-tool,bridge-extension,subagent-runner,bridge-registry}.ts`、`packages/shared/src/constants.ts`；git 历史 `a003ae7`、`1197a80`；本机 84 个会话的 delegate 调用统计（38 次调用，0 失败）。
 - cocode-master：`docs/ARCHITECTURE.md`、`src/code/prompt.ts`、`src/tools/subagent.ts`、`src/tools/skills.ts`、`src/tools/subagent-types.ts`、`src/telemetry/subagent-distillation.ts`、`scripts/eval-task-trigger.mts`。
 - DeepSeek-Reasonix：[README](https://github.com/esengine/DeepSeek-Reasonix)、[docs/SPEC.md](https://github.com/esengine/DeepSeek-Reasonix/blob/main-v2/docs/SPEC.md)、[GOAL_ENFORCEMENT.zh-CN.md](https://raw.githubusercontent.com/esengine/DeepSeek-Reasonix/main-v2/docs/GOAL_ENFORCEMENT.zh-CN.md)、[internal/agent/task.go](https://github.com/esengine/DeepSeek-Reasonix/blob/main-v2/internal/agent/task.go)、[internal/agent/parallel_tasks.go](https://github.com/esengine/DeepSeek-Reasonix/blob/main-v2/internal/agent/parallel_tasks.go)；本地 `.reasonix/autoresearch/20260722-073412-*/` 运行产物。

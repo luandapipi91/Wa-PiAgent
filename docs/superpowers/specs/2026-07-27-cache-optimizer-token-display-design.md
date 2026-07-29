@@ -31,14 +31,14 @@
 ## 数据流
 
 ```
-Pi 子进程                     HiAgent Kernel                   Frontend
+Pi 子进程                     WaPi Kernel                   Frontend
 ┌──────────────────┐         ┌──────────────────┐         ┌──────────────────┐
 │ pi-cache-optimizer│         │                  │         │                  │
 │  · 提示词重排      │         │                  │         │                  │
 │  · cache key 补全  │         │                  │         │                  │
 │  · stats 写入      │         │                  │         │                  │
 │    (自动用         │         │                  │         │                  │
-│     HIAGENT_DIR)   │         │                  │         │                  │
+│     WA_PI_DIR)   │         │                  │         │                  │
 │                    │         │                  │         │                  │
 │ message_end ───────┼─usage──▶│ 透传 usage ───────┼─WS─────▶│ SessionView      │
 │  · usage.input     │         │ 到前端消息         │         │  · 胶囊标签组     │
@@ -64,7 +64,7 @@ interface Usage {
 
 ### stats 文件存储位置
 
-> 备注：pi-cache-optimizer 的 stats 文件自动写入 `~/.hiagent/`（Pi 子进程已设 `PI_CODING_AGENT_DIR`），但 UI 不读该文件——token 和缓存数据直接来自 `message_end.usage`。
+> 备注：pi-cache-optimizer 的 stats 文件自动写入 `~/.wa-pi/`（Pi 子进程已设 `PI_CODING_AGENT_DIR`），但 UI 不读该文件——token 和缓存数据直接来自 `message_end.usage`。
 
 ---
 
@@ -120,7 +120,7 @@ interface Usage {
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ 会话标题                        [↑1.1k/↓3.2k] [累计 8.5k] [缓存 40%] │
-│ ● /Users/.../HiAgent · 空闲                                  │
+│ ● /Users/.../WaPi · 空闲                                  │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -138,7 +138,7 @@ interface Usage {
 1. **子 agent 的 token**：子 agent 运行在独立 Pi 进程中（`subagent-runner.ts:141-171`），其 `message_end` 事件不进父会话的 `sdk:event` 广播。**第一版不做子 agent token 统计**——仅统计当前会话直接 API 调用的 usage。后续可补 delegate 结果回填管道。
 2. **Usage 归一化**：Pi SDK 的 `input` 字段**不含缓存 token**（apiNormalizeUsage 已扣除）。因此 prompt 总量 = `input + cacheRead + cacheWrite`。缓存命中率 = `cacheRead / (input + cacheRead + cacheWrite)`，分母全 0 时不显示。
 3. **历史会话的初始累计**：重新打开历史会话时，从会话文件中读取历史消息的 usage，一次性 seed 初始累计计数。避免从 0 开始导致严重低估。
-4. **pi-cache-optimizer footer**：在 HiAgent UI 中不可见（不做适配），仅享受其提示词优化
+4. **pi-cache-optimizer footer**：在 WaPi UI 中不可见（不做适配），仅享受其提示词优化
 5. **旧消息兼容**：`usage` 字段设为可选，历史消息（无 usage）不影响渲染
 
 ---

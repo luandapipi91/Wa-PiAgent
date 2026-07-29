@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useProvidersStore } from "../../store/providers";
-import { slugifyProviderName } from "@hiagent/shared";
+import { slugifyProviderName } from "@wa-pi/shared";
 
 interface Props {
   value: string | null;

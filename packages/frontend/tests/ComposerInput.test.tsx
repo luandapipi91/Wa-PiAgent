@@ -37,7 +37,7 @@ const fetchMock = mock((input: RequestInfo | URL, init?: RequestInit) => {
   const file = form && typeof form.get === "function" ? (form.get("file") as File | undefined) : undefined;
   fetchCalls.push({ url, fileName: file?.name });
   const projectId = new URL(url, "http://localhost").searchParams.get("projectId") ?? "p1";
-  const path = `/project/${projectId}/.hiagent/uploads/${file?.name ?? "upload"}`;
+  const path = `/project/${projectId}/.wa-pi/uploads/${file?.name ?? "upload"}`;
   return Promise.resolve({ ok: true, json: () => Promise.resolve({ path }) });
 }) as any;
 
@@ -169,7 +169,7 @@ test("uploads selected file to project directory and adds attachment chip", asyn
   fireEvent.change(input, { target: { files: [file] } });
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-  const sent = completeLatestUpload("/project/p1/.hiagent/uploads/notes.txt");
+  const sent = completeLatestUpload("/project/p1/.wa-pi/uploads/notes.txt");
   expect(sent.projectId).toBe("p1");
   expect(sent.name).toBe("notes.txt");
 
@@ -180,7 +180,7 @@ test("uploads selected file to project directory and adds attachment chip", asyn
   expect(attachments[0]).toMatchObject({
     kind: "file",
     name: "notes.txt",
-    path: "/project/p1/.hiagent/uploads/notes.txt",
+    path: "/project/p1/.wa-pi/uploads/notes.txt",
   });
 });
 
@@ -194,7 +194,7 @@ test("uploads pasted file from clipboard", async () => {
   fireEvent.paste(textbox, { clipboardData: { files: [file] } });
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-  completeLatestUpload("/project/p1/.hiagent/uploads/pasted.txt");
+  completeLatestUpload("/project/p1/.wa-pi/uploads/pasted.txt");
 
   await waitFor(() => expect(setAttachments).toHaveBeenCalled());
   const attachments = setAttachments.mock.calls[0][0]([]);
@@ -211,7 +211,7 @@ test("uploads dropped file into composer", async () => {
   fireEvent.drop(composer, { dataTransfer: { files: [file] } });
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-  completeLatestUpload("/project/p1/.hiagent/uploads/dropped.png");
+  completeLatestUpload("/project/p1/.wa-pi/uploads/dropped.png");
 
   await waitFor(() => expect(setAttachments).toHaveBeenCalled());
   const attachments = setAttachments.mock.calls[0][0]([]);
@@ -619,10 +619,10 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
     expect(screen.getByText("review")).toBeDefined();
   });
 
-  it("选中 pi 命令时清除 / 触发文本并 dispatch hiagent:pi-command 事件", () => {
+  it("选中 pi 命令时清除 / 触发文本并 dispatch wa-pi:pi-command 事件", () => {
     const setText = mock();
     const handler = mock();
-    window.addEventListener("hiagent:pi-command", handler);
+    window.addEventListener("wa-pi:pi-command", handler);
     try {
       renderComposer({ text: "/comp", setText });
       // compact 应在菜单中（/comp 匹配）
@@ -631,12 +631,12 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
       expect(setText).toHaveBeenCalled();
       const lastCall = setText.mock.calls.at(-1)?.[0] as string;
       expect(lastCall).not.toMatch(/\/comp$/);
-      // 应 dispatch hiagent:pi-command 事件，detail.text 为 /compact
+      // 应 dispatch wa-pi:pi-command 事件，detail.text 为 /compact
       expect(handler).toHaveBeenCalled();
       const detail = handler.mock.calls.at(-1)?.[0]?.detail;
       expect(detail?.text).toBe("/compact");
     } finally {
-      window.removeEventListener("hiagent:pi-command", handler);
+      window.removeEventListener("wa-pi:pi-command", handler);
     }
   });
 
@@ -647,42 +647,42 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
     });
     const setText = mock();
     const piHandler = mock();
-    window.addEventListener("hiagent:pi-command", piHandler);
+    window.addEventListener("wa-pi:pi-command", piHandler);
     try {
       renderComposer({ text: "/goal", setText });
       fireEvent.click(screen.getByText("goal"));
-      // 不应 dispatch hiagent:pi-command（插件命令直接插入输入框 chip）
+      // 不应 dispatch wa-pi:pi-command（插件命令直接插入输入框 chip）
       expect(piHandler).not.toHaveBeenCalled();
       // setText 被调用，输入框内容包含 /[goal] chip token
       expect(setText).toHaveBeenCalled();
       const lastCall = setText.mock.calls.at(-1)?.[0] as string;
       expect(lastCall).toContain("/[goal]");
     } finally {
-      window.removeEventListener("hiagent:pi-command", piHandler);
+      window.removeEventListener("wa-pi:pi-command", piHandler);
     }
   });
 
-  it("选中 prompt 模板命令仍走 hiagent:pi-command", () => {
+  it("选中 prompt 模板命令仍走 wa-pi:pi-command", () => {
     useCommandsStore.setState({
       commands: [{ name: "review", description: "代码审查", source: "prompt" }],
       loading: false,
     });
     const setText = mock();
     const handler = mock();
-    window.addEventListener("hiagent:pi-command", handler);
+    window.addEventListener("wa-pi:pi-command", handler);
     try {
       renderComposer({ text: "/review", setText });
       fireEvent.click(screen.getByText("review"));
       expect(handler).toHaveBeenCalled();
       expect(handler.mock.calls.at(-1)?.[0]?.detail?.text).toBe("/review");
     } finally {
-      window.removeEventListener("hiagent:pi-command", handler);
+      window.removeEventListener("wa-pi:pi-command", handler);
     }
   });
 
   it("选中前端 handler 命令 reload 仍走原 handler（dispatch reload-config，非 pi-command）", () => {
     const piHandler = mock();
-    window.addEventListener("hiagent:pi-command", piHandler);
+    window.addEventListener("wa-pi:pi-command", piHandler);
     try {
       // 用 / 不带查询，显示完整菜单（reload 中文名按英文 "reload" 查询匹配不上）
       renderComposer({ text: "/", isRunning: false, isNewSession: false });
@@ -690,7 +690,7 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
       // pi-command 不应被触发（reload 有自己的前端 handler）
       expect(piHandler).not.toHaveBeenCalled();
     } finally {
-      window.removeEventListener("hiagent:pi-command", piHandler);
+      window.removeEventListener("wa-pi:pi-command", piHandler);
     }
   });
 });

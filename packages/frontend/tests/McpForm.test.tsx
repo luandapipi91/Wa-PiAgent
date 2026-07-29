@@ -1,7 +1,7 @@
 import { test, expect, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { McpForm } from "../src/components/mcp/McpForm";
-import type { McpServerConfig } from "@hiagent/shared";
+import type { McpServerConfig } from "@wa-pi/shared";
 
 test("编辑 HTTP 服务器时 Authorization 预填已有 headers（不丢失）", () => {
   render(

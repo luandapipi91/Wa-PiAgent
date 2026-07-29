@@ -46,7 +46,7 @@ const PKG_EXTENSIONS = [
 - [ ] **步骤 4：bun install 安装依赖**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun install
+cd /Users/pipi/work/WaPi && bun install
 ```
 
 - [ ] **步骤 5：验证扩展入口可解析**
@@ -55,7 +55,7 @@ cd /Users/pipi/work/HiAgent && bun install
 > 版本策略：dev 和 desktop seed 统一 `^2.6.24`，与 kernel 对齐。
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun -e "
+cd /Users/pipi/work/WaPi && bun -e "
 const { resolveExtensionEntryFile } = require('./packages/kernel/src/extensions.ts');
 console.log(resolveExtensionEntryFile('pi-cache-optimizer'));
 "
@@ -104,7 +104,7 @@ export interface AssistantMessage {
 - [ ] **步骤 2：运行 typecheck 确认**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/shared typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/shared typecheck
 ```
 预期：exit code 0
 
@@ -180,7 +180,7 @@ test("message_end 透传 usage 字段", () => {
 - [ ] **步骤 4：运行测试确认**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/agent-manager.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/agent-manager.test.ts
 ```
 预期：PASS（含新增测试）
 
@@ -280,7 +280,7 @@ test("seedTokenTotal 从历史消息计算累计", () => {
 - [ ] **步骤 4：运行测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent/packages/frontend && bun test tests/store/session.test.ts
+cd /Users/pipi/work/WaPi/packages/frontend && bun test tests/store/session.test.ts
 ```
 预期：PASS
 
@@ -415,7 +415,7 @@ test("缓存命中率格式化正确", () => {
 - [ ] **步骤 8：运行测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent/packages/frontend && bun test tests/SessionView.test.tsx
+cd /Users/pipi/work/WaPi/packages/frontend && bun test tests/SessionView.test.tsx
 ```
 预期：PASS
 
@@ -433,14 +433,14 @@ git commit -m "feat(frontend): 聊天头部新增 ↑↓ token 和缓存命中�
 - [ ] **步骤 1：运行全部测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run test
+cd /Users/pipi/work/WaPi && bun run test
 ```
 预期：全部 PASS
 
 - [ ] **步骤 2：启动 kernel + frontend 手动验证**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run dev
+cd /Users/pipi/work/WaPi && bun run dev
 ```
 1. 检查 kernel 日志确认 pi-cache-optimizer 已加载
 2. 发送一条消息，观察 header 出现 token 胶囊

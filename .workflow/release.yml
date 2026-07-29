@@ -1,5 +1,5 @@
 # 参考 Gitee Go 文档校准字段名/触发器/镜像名；推送后在流水线编辑器核对一次。
-name: hiagent-release
+name: wa-pi-release
 displayName: 发版打包(Electron)
 triggers:
   push:

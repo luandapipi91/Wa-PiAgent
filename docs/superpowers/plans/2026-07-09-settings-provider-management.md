@@ -4,7 +4,7 @@
 
 **Goal:** 在会话列表下方新增「⚙ 系统设置」入口，打开全屏设置页，提供自定义 LLM 供应商的增删改查 + 连通测试，并通过 Pi extension 注册让会话可用。
 
-**Architecture:** 前端 Zustand store + 全屏 Modal（复用 `components/ui/Modal`）→ WS 事件 → kernel `ProviderStore`（读写 `~/.hiagent/providers.json`）+ 生成 Pi extension 文件注册到 `settings.json.packages`。连通测试由 kernel 直接 `fetch` 探测，不走 Pi。
+**Architecture:** 前端 Zustand store + 全屏 Modal（复用 `components/ui/Modal`）→ WS 事件 → kernel `ProviderStore`（读写 `~/.wa-pi/providers.json`）+ 生成 Pi extension 文件注册到 `settings.json.packages`。连通测试由 kernel 直接 `fetch` 探测，不走 Pi。
 
 **Tech Stack:** React 19 + Zustand 5 + Tailwind 3 + CSS 变量（浅色主题）；kernel Bun + `node:fs/promises` JSON 持久化；测试统一 `bun:test`（前端组件测试经 `bunfig.toml` preload happy-dom）；E2E Playwright。
 
@@ -13,9 +13,9 @@
 - **语言**：所有回复/注释/沟通用中文；代码标识符保持语义清晰（AGENTS.md §1）
 - **测试统一用 `bun:test`**：前端组件测试不是 vitest，靠 `packages/frontend/bunfig.toml` 的 `preload = ["./tests/happydom-setup.ts"]` 提供 happy-dom + WebSocket mock。组件测试 import `{ test, expect, mock } from "bun:test"`
 - **精准修改**：只碰必须改的；匹配现有风格（AGENTS.md §4）。复用现有 `ui/Modal`、`ui/ConfirmDialog`，不自建遮罩
-- **数据目录**：`HIAGENT_DIR`（`packages/shared/src/constants.ts`，env 可覆盖，E2E 隔离用）
+- **数据目录**：`WA_PI_DIR`（`packages/shared/src/constants.ts`，env 可覆盖，E2E 隔离用）
 - **WS 单例**：前端经 `ws-instance.ts` 的 `send()` / `onMessage()` 收发；store 不直接落盘
-- **Pi extension 加载机制**：kernel 写 `~/.hiagent/settings.json` 的 `packages` 字段（本地路径数组），Pi SDK 启动时加载。参照 `intercom-setup.ts` 模式
+- **Pi extension 加载机制**：kernel 写 `~/.wa-pi/settings.json` 的 `packages` 字段（本地路径数组），Pi SDK 启动时加载。参照 `intercom-setup.ts` 模式
 - **设计文档**：`docs/superpowers/specs/2026-07-09-settings-provider-management-design.md`
 
 ---
@@ -253,8 +253,8 @@ export function splitModelIds(input: string): string[] {
 Modify `packages/shared/src/constants.ts`，在 `PI_AGENTS_DIR` 那行后面加：
 
 ```ts
-export const PROVIDERS_FILE = `${HIAGENT_DIR}/providers.json`;
-export const GENERATED_DIR = `${HIAGENT_DIR}/.generated`;   // 自动生成的 Pi extension 文件目录
+export const PROVIDERS_FILE = `${WA_PI_DIR}/providers.json`;
+export const GENERATED_DIR = `${WA_PI_DIR}/.generated`;   // 自动生成的 Pi extension 文件目录
 ```
 
 - [ ] **Step 5: 把 provider 事件加入 WS 联合类型**
@@ -309,7 +309,7 @@ export * from "./providers";
 Run: `bun test packages/shared/tests/providers.test.ts`
 Expected: 11/11 PASS
 
-同时 typecheck：`bun run --filter @hiagent/shared typecheck`（如有该脚本，否则 `cd packages/shared && bunx tsc --noEmit`）
+同时 typecheck：`bun run --filter @wa-pi/shared typecheck`（如有该脚本，否则 `cd packages/shared && bunx tsc --noEmit`）
 Expected: 无错误
 
 - [ ] **Step 8: 提交**
@@ -328,7 +328,7 @@ git commit -m "feat(shared): 模型供应商类型 + WS 事件 + slugify/splitMo
 - Create: `packages/kernel/tests/provider-store.test.ts`
 
 **Interfaces:**
-- Consumes: `ModelProvider`（from `@hiagent/shared`）、`PROVIDERS_FILE`（from `@hiagent/shared`）
+- Consumes: `ModelProvider`（from `@wa-pi/shared`）、`PROVIDERS_FILE`（from `@wa-pi/shared`）
 - Produces: `ProviderStore` 类，构造参数 `file: string = PROVIDERS_FILE`，方法：
   - `load(): Promise<ModelProvider[]>` — 读文件，不存在返回 `[]`
   - `save(provider: ModelProvider): Promise<void>` — upsert（按 id 匹配，有则替换，无则追加）
@@ -343,7 +343,7 @@ import { test, expect } from "bun:test";
 import { rmSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ProviderStore } from "../src/provider-store";
-import type { ModelProvider } from "@hiagent/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 
 function tmpFile() {
   return join(import.meta.dir, ".tmp-providers-" + Math.random().toString(36).slice(2) + ".json");
@@ -433,15 +433,15 @@ Create `packages/kernel/src/provider-store.ts`:
 ```ts
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { PROVIDERS_FILE } from "@hiagent/shared";
-import type { ModelProvider } from "@hiagent/shared";
+import { PROVIDERS_FILE } from "@wa-pi/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 
 interface ProvidersFile {
   providers: ModelProvider[];
 }
 
 /**
- * 供应商持久化：读写 ~/.hiagent/providers.json（结构 { providers: [...] }）。
+ * 供应商持久化：读写 ~/.wa-pi/providers.json（结构 { providers: [...] }）。
  * 沿用 ConfigStore 的 JSON 文件读写模式：文件不存在视为空。
  */
 export class ProviderStore {
@@ -522,7 +522,7 @@ import {
   generateProviderExtension,
   ensureProviderExtensionRegistered,
 } from "../src/provider-extension";
-import type { ModelProvider } from "@hiagent/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 
 function sampleProvider(overrides: Partial<ModelProvider> = {}): ModelProvider {
   return {
@@ -639,8 +639,8 @@ Create `packages/kernel/src/provider-extension.ts`:
 ```ts
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { slugifyProviderName, GENERATED_DIR } from "@hiagent/shared";
-import type { ModelProvider } from "@hiagent/shared";
+import { slugifyProviderName, GENERATED_DIR } from "@wa-pi/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 import type { ProviderStore } from "./provider-store";
 
 /** 给每个 provider 分配唯一 slug（基于已分配列表做冲突检测） */
@@ -680,7 +680,7 @@ ${modelsCode}
   });`;
   }).join("\n\n");
 
-  return `// 自动生成，勿手改 — 由 HiAgent provider-extension.ts 从 providers.json 生成
+  return `// 自动生成，勿手改 — 由 WaPi provider-extension.ts 从 providers.json 生成
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
@@ -724,7 +724,7 @@ export async function ensureProviderExtensionRegistered(
 }
 ```
 
-> **注意**：这里需要用 `HIAGENT_DIR` 作为 dir 默认值。由于 `ensureProviderExtensionRegistered` 在 index.ts 调用时会传 `HIAGENT_DIR`，且 extension 文件和 settings.json 都在该目录下，所以 dir 参数贯穿一致。`GENERATED_DIR` 常量已定义但这里用 join(dir, ".generated") 保证测试能注入临时 dir。
+> **注意**：这里需要用 `WA_PI_DIR` 作为 dir 默认值。由于 `ensureProviderExtensionRegistered` 在 index.ts 调用时会传 `WA_PI_DIR`，且 extension 文件和 settings.json 都在该目录下，所以 dir 参数贯穿一致。`GENERATED_DIR` 常量已定义但这里用 join(dir, ".generated") 保证测试能注入临时 dir。
 
 - [ ] **Step 4: 运行确认通过**
 
@@ -757,7 +757,7 @@ Create `packages/kernel/tests/provider-test.test.ts`:
 ```ts
 import { test, expect, mock, afterEach } from "bun:test";
 import { testProviderConnection } from "../src/provider-test";
-import type { ProviderModel } from "@hiagent/shared";
+import type { ProviderModel } from "@wa-pi/shared";
 
 // mock 全局 fetch
 const originalFetch = globalThis.fetch;
@@ -879,7 +879,7 @@ Expected: FAIL — 模块不存在
 Create `packages/kernel/src/provider-test.ts`:
 
 ```ts
-import type { ProviderApi, ProviderModel } from "@hiagent/shared";
+import type { ProviderApi, ProviderModel } from "@wa-pi/shared";
 
 interface TestInput {
   baseUrl: string;
@@ -987,7 +987,7 @@ export interface WSServerOpts {
   projectStore: ProjectStore;
   providerStore: ProviderStore;      // ← 新增
   agentManager: AgentManager;
-  dataDir?: string;                  // ← 新增，HIAGENT_DIR，用于 ensureProviderExtensionRegistered
+  dataDir?: string;                  // ← 新增，WA_PI_DIR，用于 ensureProviderExtensionRegistered
   port?: number;
 }
 ```
@@ -1040,14 +1040,14 @@ Modify `packages/kernel/src/index.ts`：
 ```ts
 import { ProviderStore } from "./provider-store";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
-import { HIAGENT_DIR } from "@hiagent/shared";
+import { WA_PI_DIR } from "@wa-pi/shared";
 ```
 
 在 `const configStore = new ConfigStore();` 之后加：
 ```ts
   const providerStore = new ProviderStore();
   // 启动时把已有 providers 注册成 Pi extension（幂等）
-  await ensureProviderExtensionRegistered(HIAGENT_DIR, providerStore);
+  await ensureProviderExtensionRegistered(WA_PI_DIR, providerStore);
 ```
 
 修改 `new WSServer({...})` 加入 providerStore + dataDir：
@@ -1055,7 +1055,7 @@ import { HIAGENT_DIR } from "@hiagent/shared";
   const server = new WSServer({
     configStore, projectStore,
     providerStore,          // ← 新增
-    dataDir: HIAGENT_DIR,   // ← 新增
+    dataDir: WA_PI_DIR,   // ← 新增
     agentManager: null as any,
     port: WS_PORT,
   });
@@ -1105,7 +1105,7 @@ import { WSServer } from "../src/ws-server";
 import { ProviderStore } from "../src/provider-store";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
-import type { WSClientEvent, WSServerEvent, ModelProvider } from "@hiagent/shared";
+import type { WSClientEvent, WSServerEvent, ModelProvider } from "@wa-pi/shared";
 
 function tmp(p: string) { return join(import.meta.dir, p + Math.random().toString(36).slice(2)); }
 
@@ -1270,7 +1270,7 @@ Create `packages/frontend/tests/store-providers.test.ts`:
 import { test, expect, beforeEach, mock } from "bun:test";
 import { useProvidersStore } from "../src/store/providers";
 import * as wsInstance from "../src/ws-instance";
-import type { ModelProvider } from "@hiagent/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 
 // mock send，避免真连 WS
 const sendMock = mock();
@@ -1317,7 +1317,7 @@ Create `packages/frontend/src/store/providers.ts`:
 
 ```ts
 import { create } from "zustand";
-import type { ModelProvider, ProviderApi, ProviderModel } from "@hiagent/shared";
+import type { ModelProvider, ProviderApi, ProviderModel } from "@wa-pi/shared";
 import { send, onMessage } from "../ws-instance";
 
 interface TestInput {
@@ -1377,7 +1377,7 @@ git commit -m "feat(frontend): settings + providers Zustand store"
 - Create: `packages/frontend/tests/TagInput.test.tsx`
 
 **Interfaces:**
-- Consumes: `splitModelIds`（from `@hiagent/shared`）
+- Consumes: `splitModelIds`（from `@wa-pi/shared`）
 - Produces: `<TagInput value={string[]} onChange={(tags)=>{}} placeholder?={string} />`
 
 - [ ] **Step 1: 写失败测试**
@@ -1449,7 +1449,7 @@ Create `packages/frontend/src/components/ui/TagInput.tsx`:
 
 ```tsx
 import { useState, type KeyboardEvent, type ChangeEvent } from "react";
-import { splitModelIds } from "@hiagent/shared";
+import { splitModelIds } from "@wa-pi/shared";
 
 interface TagInputProps {
   value: string[];              // 当前 tags（= 模型 ID 列表）
@@ -1655,7 +1655,7 @@ import { useState } from "react";
 import { Modal } from "../ui/Modal";
 import { TagInput } from "../ui/TagInput";
 import { useProvidersStore } from "../../store/providers";
-import type { ModelProvider, ProviderApi, ProviderModel } from "@hiagent/shared";
+import type { ModelProvider, ProviderApi, ProviderModel } from "@wa-pi/shared";
 
 interface Props {
   initial?: ModelProvider;   // 编辑时传，新增时不传
@@ -1948,7 +1948,7 @@ test("确认删除调用 store.remove", () => {
 Create `packages/frontend/src/components/settings/ProviderCard.tsx`:
 
 ```tsx
-import type { ModelProvider } from "@hiagent/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 
 interface Props {
   provider: ModelProvider;
@@ -2006,7 +2006,7 @@ import { useProvidersStore } from "../../store/providers";
 import { ProviderCard } from "./ProviderCard";
 import { ProviderFormModal } from "./ProviderFormModal";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
-import type { ModelProvider } from "@hiagent/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 
 export function ProviderSection() {
   const { providers, remove, test } = useProvidersStore();

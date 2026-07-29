@@ -1,10 +1,10 @@
-# HiAgent 桌面托盘单二进制 实现计划
+# WaPi 桌面托盘单二进制 实现计划
 
 > ⚠️ **实施结论（2026-07-12）**：本计划基于"单 exe 全嵌入"，真机验证后发现不可行（pi SDK jiti 解析扩展撞 `bun --compile` 虚拟 FS）。最终方案改为**文件夹模型**（launcher exe + `bun.exe` + `kernel.js` 解释运行 + `node_modules` + `web/`），即计划中的 Task 13/14 经多次 pivot 后落地为 P2 文件夹组装。本计划保留为原始任务记录；**最终形态见根 `CHANGELOG.md`**。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: 用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现。步骤用 `- [ ]` 复选框跟踪。
 
-**Goal:** 把 hiagent 打包成单个可执行二进制，双击启动后右下角出托盘（青蛙 logo），菜单「打开 HiAgent / 退出」，点打开用系统浏览器开 `http://127.0.0.1:9776`。
+**Goal:** 把 wa-pi 打包成单个可执行二进制，双击启动后右下角出托盘（青蛙 logo），菜单「打开 WaPi / 退出」，点打开用系统浏览器开 `http://127.0.0.1:9776`。
 
 **Architecture:** 新增 `packages/desktop` 包，启动时**单进程**内调 kernel 的 `startKernel()`（WS+静态前端同 9776）+ 用 `systray2` 跑托盘；`bun build --compile` 把前端 dist、systray2 helper、图标全嵌入单 exe，Windows 额外做 PE 子系统 patch 去掉控制台。
 
@@ -15,7 +15,7 @@
 - 沟通用中文；代码注释尽量中文（AGENTS.md §1）。
 - 新增/修改的 service 方法和核心纯函数必须有 bun:test 单元测试（AGENTS.md §6）。
 - 禁止生产代码留 `console.log`，用 logger（AGENTS.md / coding-style）。
-- 不可变更新优先；不在 `.hiagent` 外写数据。
+- 不可变更新优先；不在 `.wa-pi` 外写数据。
 - 每个有意义的变更完成后更新根 `CHANGELOG.md`（AGENTS.md §7）。
 - 四层验收：单元 + 组件 + 集成 + 真机手动；测试截图测后删除（AGENTS.md §6）。
 - v1 三平台：Windows / macOS / Linux；分发 = 方案 A（单 exe，双击即用）。
@@ -34,12 +34,12 @@
 **新建（`packages/desktop/`）：**
 - `package.json`、`tsconfig.json`
 - `src/main.ts` — 入口：清端口 → 起 kernel → 跑托盘 → 开浏览器 → 生命周期。
-- `src/log.ts` — 文件日志（`~/.hiagent/logs/desktop.log`）。
+- `src/log.ts` — 文件日志（`~/.wa-pi/logs/desktop.log`）。
 - `src/util/port.ts` — 端口占用检测/清理（搬自 `scripts/port.ts`，desktop 副本）。
 - `src/util/open-browser.ts` — 跨平台开浏览器（搬自 `scripts/open-browser.ts`）。
 - `src/util/interop.ts` — systray2 CJS default 防御解包。
 - `src/util/pe-subsystem.ts` — Windows PE 子系统 patch（3→2）。
-- `src/embed.ts` — 运行时把嵌入的 helper/dist/图标解压到 `~/.hiagent/.cache/`。
+- `src/embed.ts` — 运行时把嵌入的 helper/dist/图标解压到 `~/.wa-pi/.cache/`。
 - `src/kernel-boot.ts` — 调 `startKernel({ staticDir })` 的封装。
 - `src/systray-setup.ts` — 托盘/菜单/点击封装。
 - `src/embedded-assets.ts` — **build 时生成**，import 所有嵌入文件 + 导出清单。
@@ -181,17 +181,17 @@ Expected: PASS。
 把现有 `async function main() { ... }` 改名为并导出 `startKernel`，接 `opts`，末尾返回端口，并保留 `import.meta.main` 自动调用：
 ```ts
 export async function startKernel(opts?: { staticDir?: string }): Promise<{ port: number }> {
-  process.env.PI_CODING_AGENT_DIR = HIAGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = WA_PI_DIR;
   await migrateSettingsPackages();
   await mkdir(BUILTIN_SKILLS_DIR, { recursive: true });
-  await mkdir(`${HIAGENT_DIR}/sessions`, { recursive: true });
+  await mkdir(`${WA_PI_DIR}/sessions`, { recursive: true });
 
   const configStore = new ConfigStore();
   const projectStore = new ProjectStore();
   const providerStore = new ProviderStore();
-  const skillManager = new SkillManager(HIAGENT_DIR);
-  const extensionManager = new ExtensionManager(HIAGENT_DIR);
-  const memoryStore = new MemoryStore({ hiagentDir: HIAGENT_DIR, projectStore });
+  const skillManager = new SkillManager(WA_PI_DIR);
+  const extensionManager = new ExtensionManager(WA_PI_DIR);
+  const memoryStore = new MemoryStore({ waPiDir: WA_PI_DIR, projectStore });
 
   await ensureProviderExtensionRegistered(providerStore);
   const migrated = await migrateLegacySessions(projectStore);
@@ -200,7 +200,7 @@ export async function startKernel(opts?: { staticDir?: string }): Promise<{ port
   let broadcast: (e: WSServerEvent) => void = () => {};
   const server = new WSServer({
     configStore, projectStore, providerStore, skillManager, extensionManager,
-    memoryStore, dataDir: HIAGENT_DIR, agentManager: null as any, port: WS_PORT,
+    memoryStore, dataDir: WA_PI_DIR, agentManager: null as any, port: WS_PORT,
     ...(opts?.staticDir ? { staticDir: opts.staticDir } : {}),
   });
   broadcast = (e) => server.broadcast(e);
@@ -228,7 +228,7 @@ if (import.meta.main) {
 
 - [ ] **Step 6: 验证 dev 路径未坏**
 
-Run: `cd /h/workspace/hiagent && bun run --filter @hiagent/kernel typecheck`
+Run: `cd /h/workspace/wa-pi && bun run --filter @wa-pi/kernel typecheck`
 Expected: typecheck 通过。
 
 - [ ] **Step 7: 集成测试（起 server + curl 静态资产）**
@@ -273,7 +273,7 @@ git commit -m "feat(kernel): 抽出 startKernel + 可选静态前端伺服(SPA f
 
 **Files:**
 - Modify: `packages/shared/src/constants.ts` — 新增 `resolvePort()` 纯函数；`WS_PORT`/`FRONTEND_PORT` 从 env 读（默认 9776/5180，行为不变）。
-- Modify: `packages/frontend/vite.config.ts` — `loadEnv` 读 `.env`；`server.port` 用 `HIAGENT_WEB_PORT`；`define` 注入 `HIAGENT_WS_PORT` 给浏览器 bundle。
+- Modify: `packages/frontend/vite.config.ts` — `loadEnv` 读 `.env`；`server.port` 用 `WA_PI_WEB_PORT`；`define` 注入 `WA_PI_WS_PORT` 给浏览器 bundle。
 - Modify: `scripts/dev.ts` — 用 shared 的 `WS_PORT`/`FRONTEND_PORT` 替硬编码 9776/5180。
 - Create: `.env.example`（入库；`.env` 已被 .gitignore 第 22 行忽略）。
 - Test: `packages/shared/tests/ports.test.ts`
@@ -315,15 +315,15 @@ export function resolvePort(envVal: string | undefined, def: number): number {
   const n = Number(envVal);
   return Number.isFinite(n) && n > 0 ? n : def;
 }
-export const WS_PORT = resolvePort(env.HIAGENT_WS_PORT, 9776);
-export const PREVIEW_PORT = resolvePort(env.HIAGENT_PREVIEW_PORT, 9777);
+export const WS_PORT = resolvePort(env.WA_PI_WS_PORT, 9776);
+export const PREVIEW_PORT = resolvePort(env.WA_PI_PREVIEW_PORT, 9777);
 /** 前端 dev 端口（Vite）；desktop 不用（走同源 9776）。 */
-export const FRONTEND_PORT = resolvePort(env.HIAGENT_WEB_PORT, 5180);
+export const FRONTEND_PORT = resolvePort(env.WA_PI_WEB_PORT, 5180);
 ```
 
 - [ ] **Step 4: 跑测试确认通过** → Run: `cd packages/shared && bun test tests/ports.test.ts` → PASS。
 
-- [ ] **Step 5: 改 `packages/frontend/vite.config.ts`** — `loadEnv` + `server.port` + `define` 注入 `HIAGENT_WS_PORT`
+- [ ] **Step 5: 改 `packages/frontend/vite.config.ts`** — `loadEnv` + `server.port` + `define` 注入 `WA_PI_WS_PORT`
 
 ```ts
 import { defineConfig, loadEnv } from "vite";
@@ -332,11 +332,11 @@ import { fileURLToPath, URL } from "node:url";
 
 export default defineConfig(({ mode }) => {
   const envVars = loadEnv(mode, process.cwd(), "");          // 读 .env（含非 VITE_ 前缀）
-  const webPort = Number(envVars.HIAGENT_WEB_PORT) || 5180;
+  const webPort = Number(envVars.WA_PI_WEB_PORT) || 5180;
   const defineEntries: Record<string, string> = {
-    "import.meta.env.HIAGENT_WS_PORT": JSON.stringify(envVars.HIAGENT_WS_PORT || "9776"),
+    "import.meta.env.WA_PI_WS_PORT": JSON.stringify(envVars.WA_PI_WS_PORT || "9776"),
   };
-  for (const key of ["HIAGENT_DIR", "HOME", "USERPROFILE"]) {
+  for (const key of ["WA_PI_DIR", "HOME", "USERPROFILE"]) {
     const val = process.env[key] ?? envVars[key];
     if (val !== undefined) defineEntries[`import.meta.env.${key}`] = JSON.stringify(val);
   }
@@ -344,35 +344,35 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: { port: webPort, strictPort: true },
     define: defineEntries,
-    resolve: { alias: { "@hiagent/shared": fileURLToPath(new URL("../shared/src/index.ts", import.meta.url)) } },
+    resolve: { alias: { "@wa-pi/shared": fileURLToPath(new URL("../shared/src/index.ts", import.meta.url)) } },
   };
 });
 ```
 
 - [ ] **Step 6: 改 `scripts/dev.ts`** — 用 shared 常量替硬编码
 
-把 `import { WS_PORT, FRONTEND_PORT } from "@hiagent/shared";` 加到顶部；删除 `const KERNEL_WS_PORT = 9776;` 和 `const FRONTEND_PORT = 5180;` 两行；文件内 `KERNEL_WS_PORT` 全部替换为 `WS_PORT`。（`FRONTEND_PORT` 现在从 shared 导入，语义不变。）
+把 `import { WS_PORT, FRONTEND_PORT } from "@wa-pi/shared";` 加到顶部；删除 `const KERNEL_WS_PORT = 9776;` 和 `const FRONTEND_PORT = 5180;` 两行；文件内 `KERNEL_WS_PORT` 全部替换为 `WS_PORT`。（`FRONTEND_PORT` 现在从 shared 导入，语义不变。）
 
 - [ ] **Step 7: 建 `.env.example`**（入库）
 
 ```
-# HiAgent 端口（可选，留空/删除用默认值）
-HIAGENT_WS_PORT=9776
-HIAGENT_WEB_PORT=5180
+# WaPi 端口（可选，留空/删除用默认值）
+WA_PI_WS_PORT=9776
+WA_PI_WEB_PORT=5180
 ```
 确认 `git check-ignore .env` 返回 `.env`（已被忽略），`.env.example` 不被忽略。
 
 - [ ] **Step 8: 验证**
 
-Run: `cd /h/workspace/hiagent && bun run typecheck`
+Run: `cd /h/workspace/wa-pi && bun run typecheck`
 Expected: 全 workspace typecheck 通过。
-（可选真机：`cp .env.example .env`，改 `HIAGENT_WEB_PORT=5200`，`bun run dev`，确认 Vite 在 5200、kernel 在 `HIAGENT_WS_PORT`。）
+（可选真机：`cp .env.example .env`，改 `WA_PI_WEB_PORT=5200`，`bun run dev`，确认 Vite 在 5200、kernel 在 `WA_PI_WS_PORT`。）
 
 - [ ] **Step 9: 提交**
 
 ```bash
 git add packages/shared/src/constants.ts packages/shared/tests/ports.test.ts packages/frontend/vite.config.ts scripts/dev.ts .env.example CHANGELOG.md
-git commit -m "feat: 前后端端口支持 .env 动态配置(HIAGENT_WS_PORT/HIAGENT_WEB_PORT)"
+git commit -m "feat: 前后端端口支持 .env 动态配置(WA_PI_WS_PORT/WA_PI_WEB_PORT)"
 ```
 
 ---
@@ -383,13 +383,13 @@ git commit -m "feat: 前后端端口支持 .env 动态配置(HIAGENT_WS_PORT/HIA
 - Create: `packages/desktop/package.json`、`packages/desktop/tsconfig.json`
 
 **Interfaces:**
-- Produces: workspace 包 `@hiagent/desktop`
+- Produces: workspace 包 `@wa-pi/desktop`
 
 - [ ] **Step 1: 建 `packages/desktop/package.json`**
 
 ```json
 {
-  "name": "@hiagent/desktop",
+  "name": "@wa-pi/desktop",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -402,8 +402,8 @@ git commit -m "feat: 前后端端口支持 .env 动态配置(HIAGENT_WS_PORT/HIA
     "build:all": "bun run build:win && bun run build:mac && bun run build:linux"
   },
   "dependencies": {
-    "@hiagent/kernel": "workspace:*",
-    "@hiagent/shared": "workspace:*",
+    "@wa-pi/kernel": "workspace:*",
+    "@wa-pi/shared": "workspace:*",
     "systray2": "2.1.4"
   },
   "devDependencies": {
@@ -445,7 +445,7 @@ Expected: `node_modules/systray2/traybin/tray_windows_release.exe` 存在。
 
 ```bash
 git add packages/desktop/package.json packages/desktop/tsconfig.json bun.lock
-git commit -m "chore(desktop): 脚手架 @hiagent/desktop 包 + systray2 依赖"
+git commit -m "chore(desktop): 脚手架 @wa-pi/desktop 包 + systray2 依赖"
 ```
 
 ---
@@ -879,7 +879,7 @@ git commit -m "feat(desktop): 嵌入资源运行时解压工具 + 测试"
 
 **Files:**
 - Create: `packages/desktop/src/systray-setup.ts`
-- Consumes: `unwrapSysTray`（Task 6）；运行时 helper 已由 embed.ts 解压到 `~/.hiagent/.cache/traybin/`
+- Consumes: `unwrapSysTray`（Task 6）；运行时 helper 已由 embed.ts 解压到 `~/.wa-pi/.cache/traybin/`
 
 **Interfaces:**
 - Produces: `startTray(opts: { iconPath: string; onOpen: () => void; onQuit: () => void }): Promise<{ kill(): Promise<void> }>`
@@ -887,7 +887,7 @@ git commit -m "feat(desktop): 嵌入资源运行时解压工具 + 测试"
 - [ ] **Step 1: 实现 `src/systray-setup.ts`**（GUI 对象难单测，依赖 spike 已验证；以集成 + 真机为准）
 
 ```ts
-// 托盘：菜单「打开 HiAgent / 退出」。systray2 helper 需在 ./traybin/（相对 CWD）可解析，
+// 托盘：菜单「打开 WaPi / 退出」。systray2 helper 需在 ./traybin/（相对 CWD）可解析，
 // 调用方需先把 helper 解压到 cacheDir/traybin/ 并 process.chdir(cacheDir)。
 import * as ns from "systray2";
 import { unwrapSysTray } from "./util/interop";
@@ -902,11 +902,11 @@ export function startTray(opts: { iconPath: string; onOpen: () => void; onQuit: 
     const tray = new SysTray({
       menu: {
         icon: opts.iconPath,
-        title: "HiAgent",
-        tooltip: "HiAgent",
+        title: "WaPi",
+        tooltip: "WaPi",
         isTemplateIcon: process.platform === "darwin",
         items: [
-          { title: "打开 HiAgent", tooltip: "打开", checked: false, enabled: true },
+          { title: "打开 WaPi", tooltip: "打开", checked: false, enabled: true },
           SEPARATOR,
           { title: "退出", tooltip: "退出", checked: false, enabled: true },
         ],
@@ -917,7 +917,7 @@ export function startTray(opts: { iconPath: string; onOpen: () => void; onQuit: 
     tray.ready().then(() => {
       tray.onClick((action: any) => {
         const title = action?.item?.title;
-        if (title === "打开 HiAgent") opts.onOpen();
+        if (title === "打开 WaPi") opts.onOpen();
         else if (title === "退出") opts.onQuit();
       });
       resolve({ kill: () => tray.kill(false) });
@@ -952,8 +952,8 @@ git commit -m "feat(desktop): 托盘菜单(打开/退出)封装"
 
 ```ts
 // 在本进程起 kernel（WS + 静态前端，同 9776）。
-import { startKernel } from "@hiagent/kernel";
-import { WS_PORT } from "@hiagent/shared";
+import { startKernel } from "@wa-pi/kernel";
+import { WS_PORT } from "@wa-pi/shared";
 
 export async function bootKernel(staticDir: string): Promise<{ port: number }> {
   const { port } = await startKernel({ staticDir });
@@ -968,7 +968,7 @@ export async function bootKernel(staticDir: string): Promise<{ port: number }> {
 // 单进程编排：清端口 → 解压嵌入资源 → 起 kernel → 跑托盘 → 开浏览器 → 生命周期清理。
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { WS_PORT } from "@hiagent/shared";
+import { WS_PORT } from "@wa-pi/shared";
 import { createLogger } from "./log";
 import { killPort } from "./util/port";
 import { openBrowser } from "./util/open-browser";
@@ -977,9 +977,9 @@ import { bootKernel } from "./kernel-boot";
 import { startTray } from "./systray-setup";
 import { EMBEDDED_ASSETS } from "./embedded-assets";   // build 时生成
 
-const HIAGENT_DIR = process.env.HIAGENT_DIR || join(homedir(), ".hiagent");
-const CACHE_DIR = join(HIAGENT_DIR, ".cache");
-const log = createLogger(join(HIAGENT_DIR, "logs", "desktop.log"));
+const WA_PI_DIR = process.env.WA_PI_DIR || join(homedir(), ".wa-pi");
+const CACHE_DIR = join(WA_PI_DIR, ".cache");
+const log = createLogger(join(WA_PI_DIR, "logs", "desktop.log"));
 
 function iconPath(): string {
   const f = process.platform === "win32" ? "tray_windows.ico"
@@ -1108,7 +1108,7 @@ git commit -m "feat(desktop): logo.svg 图标生成脚本(ico/png)"
 - Consumes: `patchPeSubsystemToGui`（Task 7）、根 `bun run test`/`typecheck`
 
 **Interfaces:**
-- Produces: `<repo-根>/dist/desktop/<win-x64|mac-arm64|mac-x64|linux-x64>/HiAgent[.exe]`
+- Produces: `<repo-根>/dist/desktop/<win-x64|mac-arm64|mac-x64|linux-x64>/WaPi[.exe]`
 
 - [ ] **Step 1: 实现 `scripts/build.ts`**
 
@@ -1139,7 +1139,7 @@ async function step0TestGate() {
 
 async function step1Materialize() {
   console.log("[build] 步骤1: vite build + 物化 dist/helper 到 src/embedded");
-  run("bun", ["run", "--filter", "@hiagent/frontend", "build"]);
+  run("bun", ["run", "--filter", "@wa-pi/frontend", "build"]);
   await rm(join(EMBED, "web"), { recursive: true, force: true });
   await rm(join(EMBED, "traybin"), { recursive: true, force: true });
   await cp(join(ROOT, "packages", "frontend", "dist"), join(EMBED, "web"), { recursive: true });
@@ -1184,7 +1184,7 @@ const TARGET_DIR: Record<string, string> = {
 };
 function targetInfo(t: string): { outDir: string; outfile: string; isWin: boolean } {
   const outDir = join(ROOT, "dist", "desktop", TARGET_DIR[t] ?? t);
-  return { outDir, outfile: join(outDir, t.includes("windows") ? "HiAgent.exe" : "HiAgent"), isWin: t.includes("windows") };
+  return { outDir, outfile: join(outDir, t.includes("windows") ? "WaPi.exe" : "WaPi"), isWin: t.includes("windows") };
 }
 
 async function step4Compile() {
@@ -1216,7 +1216,7 @@ async function step4Compile() {
 - [ ] **Step 2: 端到端构建 Windows（本机）**
 
 Run: `cd packages/desktop && bun run build:win`
-Expected: 产出 `<repo-根>/dist/desktop/win-x64/HiAgent.exe`，且 `[build] subsystem 3 -> 2`。
+Expected: 产出 `<repo-根>/dist/desktop/win-x64/WaPi.exe`，且 `[build] subsystem 3 -> 2`。
 
 - [ ] **Step 3: 给 git 排除（产物 + 构建中间产物）**
 
@@ -1226,11 +1226,11 @@ Expected: 产出 `<repo-根>/dist/desktop/win-x64/HiAgent.exe`，且 `[build] su
 packages/desktop/src/embedded/
 packages/desktop/src/embedded-assets.ts
 ```
-验证：`cd /h/workspace/hiagent && git status` 不应出现 `dist/` 或 `packages/desktop/src/embedded/` 任何文件。
+验证：`cd /h/workspace/wa-pi && git status` 不应出现 `dist/` 或 `packages/desktop/src/embedded/` 任何文件。
 
 - [ ] **Step 4: 真机烟测**（详见 Task 16 完整验收；这里只确认双击不崩、有托盘）
 
-双击 `<repo-根>/dist/desktop/win-x64/HiAgent.exe` → 无黑窗、右下角出现青蛙托盘 → 右键菜单两项 → 点「打开」浏览器开 `http://127.0.0.1:9776` 能访问、WS 连上 → 点「退出」干净消失。
+双击 `<repo-根>/dist/desktop/win-x64/WaPi.exe` → 无黑窗、右下角出现青蛙托盘 → 右键菜单两项 → 点「打开」浏览器开 `http://127.0.0.1:9776` 能访问、WS 连上 → 点「退出」干净消失。
 
 - [ ] **Step 5: 提交**
 
@@ -1249,16 +1249,16 @@ git commit -m "feat(desktop): 构建编排(测试钩子+vite+嵌入清单+genico
 - [ ] **Step 1: 根 `package.json` 的 scripts 加四行**
 
 ```json
-    "pack:win":   "bun run --filter @hiagent/desktop build:win",
-    "pack:mac":   "bun run --filter @hiagent/desktop build:mac",
-    "pack:linux": "bun run --filter @hiagent/desktop build:linux",
-    "pack:all":   "bun run --filter @hiagent/desktop build:all",
+    "pack:win":   "bun run --filter @wa-pi/desktop build:win",
+    "pack:mac":   "bun run --filter @wa-pi/desktop build:mac",
+    "pack:linux": "bun run --filter @wa-pi/desktop build:linux",
+    "pack:all":   "bun run --filter @wa-pi/desktop build:all",
 ```
 
 - [ ] **Step 2: 验证**
 
-Run: `cd /h/workspace/hiagent && bun run pack:win`
-Expected: 与 Task 13 等价，产出 `<repo-根>/dist/desktop/win-x64/HiAgent.exe`。
+Run: `cd /h/workspace/wa-pi && bun run pack:win`
+Expected: 与 Task 13 等价，产出 `<repo-根>/dist/desktop/win-x64/WaPi.exe`。
 
 - [ ] **Step 3: 提交**
 
@@ -1287,7 +1287,7 @@ git commit -m "feat: 根 pack:win/mac/linux/all 打包脚本"
 草稿 YAML（核对后落盘）：
 ```yaml
 # 参考 Gitee Go 文档校准字段名/触发器/镜像
-name: hiagent-ci
+name: wa-pi-ci
 displayName: CI 门禁
 triggers:
   push:
@@ -1320,11 +1320,11 @@ stages:
 2. `bun install --frozen-lockfile`。
 3. `bun run pack:all`（内含测试钩子）。
 4. `sha256sum` 生成 checksums。
-5. 调 Gitee Release API（curl + `${GITEE_TOKEN}` 私人令牌）上传 `dist/desktop/**/HiAgent[.exe]` + checksums。
+5. 调 Gitee Release API（curl + `${GITEE_TOKEN}` 私人令牌）上传 `dist/desktop/**/WaPi[.exe]` + checksums。
 
 草稿 YAML：
 ```yaml
-name: hiagent-release
+name: wa-pi-release
 displayName: 发版打包
 triggers:
   push:
@@ -1348,7 +1348,7 @@ stages:
         name: checksums
         run: |
           cd dist/desktop
-          sha256sum */HiAgent */HiAgent.exe > checksums.txt || true
+          sha256sum */WaPi */WaPi.exe > checksums.txt || true
       - step: script
         name: upload-release
         run: |
@@ -1366,7 +1366,7 @@ registry = "https://registry.npmjs.org/"
 
 - [ ] **Step 4: 在 Gitee 仓库开启 Gitee Go、推送、确认 ci 流水线在 PR 上触发并绿**
 
-人工验证：提一个测试 PR，看 `hiagent-ci` 是否触发、是否通过 typecheck+test。
+人工验证：提一个测试 PR，看 `wa-pi-ci` 是否触发、是否通过 typecheck+test。
 
 - [ ] **Step 5: 提交**
 
@@ -1384,16 +1384,16 @@ git commit -m "ci: Gitee Go 流水线(ci 门禁 + release 打包/发版)"
 
 - [ ] **Step 1: 构建 Windows 产物**
 
-Run: `cd /h/workspace/hiagent && bun run pack:win`
+Run: `cd /h/workspace/wa-pi && bun run pack:win`
 
-- [ ] **Step 2: 双击 `<repo-根>/dist/desktop/win-x64/HiAgent.exe`，逐项验证并截图**
+- [ ] **Step 2: 双击 `<repo-根>/dist/desktop/win-x64/WaPi.exe`，逐项验证并截图**
 
 - [ ] **验收清单（全绿才算过）：**
 - [ ] 无控制台黑窗弹出。
 - [ ] 右下角出现**青蛙**托盘图标。
-- [ ] 右键托盘 → 菜单含「打开 HiAgent」「退出」两项。
-- [ ] 点「打开 HiAgent」→ 系统浏览器开 `http://127.0.0.1:9776` → 页面正常加载、kernel WS 连上、能正常用。
-- [ ] 点「退出」→ 托盘消失、进程退出干净（任务管理器无 HiAgent 残留）。
+- [ ] 右键托盘 → 菜单含「打开 WaPi」「退出」两项。
+- [ ] 点「打开 WaPi」→ 系统浏览器开 `http://127.0.0.1:9776` → 页面正常加载、kernel WS 连上、能正常用。
+- [ ] 点「退出」→ 托盘消失、进程退出干净（任务管理器无 WaPi 残留）。
 - [ ] 再次双击 → 单实例：若上一次还在，直接开浏览器（或干净重启）。
 
 - [ ] **Step 3: 截图清理**

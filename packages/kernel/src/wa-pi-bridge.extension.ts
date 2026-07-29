@@ -1,9 +1,9 @@
-// hiagent-bridge.extension.ts —— HiAgent RPC 模式宿主工具桥（静态扩展文件）
+// wa-pi-bridge.extension.ts —— WaPi RPC 模式宿主工具桥（静态扩展文件）
 //
-// 本文件由 ensureBridgeExtension() 复制到 GENERATED_DIR/hiagent-bridge.ts，
+// 本文件由 ensureBridgeExtension() 复制到 GENERATED_DIR/wa-pi-bridge.ts，
 // Pi 进程经 -e 加载。所有工具的 execute 经 HTTP 回调 kernel 的 /bridge/tool 端点。
 //
-// 工具文案与 Schema 来源于 @hiagent/shared/tool-schemas.ts（复制到同目录下）。
+// 工具文案与 Schema 来源于 @wa-pi/shared/tool-schemas.ts（复制到同目录下）。
 // 不再动态生成——文案统一来源，kernel 侧与 bridge 侧引用同一份定义。
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -34,9 +34,9 @@ import {
 // kernel spawn pi 时注入的三个环境变量
 // =========================================================================
 
-const BRIDGE_URL = process.env.HIAGENT_BRIDGE_URL;
-const BRIDGE_TOKEN = process.env.HIAGENT_BRIDGE_TOKEN;
-const BRIDGE_SESSION_ID = process.env.HIAGENT_SESSION_ID;
+const BRIDGE_URL = process.env.WA_PI_BRIDGE_URL;
+const BRIDGE_TOKEN = process.env.WA_PI_BRIDGE_TOKEN;
+const BRIDGE_SESSION_ID = process.env.WA_PI_SESSION_ID;
 
 const DEFAULT_TIMEOUT_MS = 60_000; // 普通工具 60s
 const ASK_TIMEOUT_MS = 600_000; // ask 等用户回答，放宽到 10 分钟
@@ -50,7 +50,7 @@ type BridgeToolResult = {
 
 function missingEnvError(): string | null {
   if (!BRIDGE_URL || !BRIDGE_TOKEN || !BRIDGE_SESSION_ID) {
-    return "bridge 环境变量缺失（HIAGENT_BRIDGE_URL / HIAGENT_BRIDGE_TOKEN / HIAGENT_SESSION_ID）：该工具只在 hiagent 宿主下可用";
+    return "bridge 环境变量缺失（WA_PI_BRIDGE_URL / WA_PI_BRIDGE_TOKEN / WA_PI_SESSION_ID）：该工具只在 wa-pi 宿主下可用";
   }
   return null;
 }

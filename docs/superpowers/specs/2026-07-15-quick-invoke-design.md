@@ -196,8 +196,8 @@ Agent（kernel 层）看到这些标记后自行处理文件读取和技能加�
 ### 背景
 
 - Pi SDK 的 `DefaultResourceLoader` 已通过 `additionalSkillPaths` 支持额外技能目录
-- HiAgent 自实现的 `skill-manager.ts` 有保护性检测（深度/条目/超时限制），但 `hasSkillMd()` 和 `scanSkillsDir()` 是模块级私有函数，需先 export
-- 扩展包安装位置：`~/.hiagent/runtime/node_modules/<package-name>/`（`RUNTIME_DIR` 常量在 `extension-manager.ts:92`）
+- WaPi 自实现的 `skill-manager.ts` 有保护性检测（深度/条目/超时限制），但 `hasSkillMd()` 和 `scanSkillsDir()` 是模块级私有函数，需先 export
+- 扩展包安装位置：`~/.wa-pi/runtime/node_modules/<package-name>/`（`RUNTIME_DIR` 常量在 `extension-manager.ts:92`）
 
 ### 步骤 1：提取私有函数
 
@@ -209,18 +209,18 @@ Agent（kernel 层）看到这些标记后自行处理文件读取和技能加�
 
 | 方案 | 描述 | 评估 |
 |------|------|------|
-| **A. 重拼路径（选用）** | `join(HIAGENT_DIR, "runtime", "node_modules", pkgName, "skills")`，HIAGENT_DIR 已从 `@hiagent/shared` 导出 | 最简单，和 `RUNTIME_DIR` 常量语义一致；扩展包安装位置约定明确 |
+| **A. 重拼路径（选用）** | `join(WA_PI_DIR, "runtime", "node_modules", pkgName, "skills")`，WA_PI_DIR 已从 `@wa-pi/shared` 导出 | 最简单，和 `RUNTIME_DIR` 常量语义一致；扩展包安装位置约定明确 |
 | B. NpmPackageService 暴露方法 | 新增 `getRuntimeDir()` / `getSkillPath(pkgName)` | 封装好但 NpmPackageService 职责不在此，引入不必要的耦合 |
 | C. ExtensionManager 持有 runtimeDir | 构造函数参数，绕过 NpmPackageService | 多一处独立路径拼装点，增加不一致风险 |
 
-选用方案 A：直接用 `HIAGENT_DIR` + 固定路径段拼接，不引入新依赖。
+选用方案 A：直接用 `WA_PI_DIR` + 固定路径段拼接，不引入新依赖。
 
 ### 步骤 3：extension-manager 新增方法
 
 ```ts
 // extension-manager.ts 新增
 import { join } from "node:path";
-import { HIAGENT_DIR } from "@hiagent/shared";
+import { WA_PI_DIR } from "@wa-pi/shared";
 import { hasSkillMd } from "./skill-utils";  // 从 skill-manager.ts 提取出的共享函数
 
 async getEnabledExtensionSkillPaths(): Promise<string[]> {
@@ -228,7 +228,7 @@ async getEnabledExtensionSkillPaths(): Promise<string[]> {
   const enabled = packages.filter(p => p.enabled);
   const result: string[] = [];
   for (const pkg of enabled) {
-    const skillsDir = join(HIAGENT_DIR, "runtime", "node_modules", pkg.name, "skills");
+    const skillsDir = join(WA_PI_DIR, "runtime", "node_modules", pkg.name, "skills");
     try {
       const { found } = await hasSkillMd(skillsDir);
       if (found) result.push(skillsDir);

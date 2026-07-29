@@ -1,7 +1,7 @@
 import { test, expect, beforeEach } from "bun:test";
 import { useProjectUiStore } from "../src/store/project-ui";
 
-const STORAGE_KEY = "hiagent-project-ui";
+const STORAGE_KEY = "wa-pi-project-ui";
 
 async function resetStore(): Promise<void> {
   localStorage.removeItem(STORAGE_KEY);

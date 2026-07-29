@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import type { SDKEvent } from "@hiagent/shared";
+import type { SDKEvent } from "@wa-pi/shared";
 import { extractSdkErrorMessage } from "../src/sdk-errors";
 
 // 根因回归：SDK 把 provider 运行时错误（不可用模型 / 鉴权失败 / 网络）

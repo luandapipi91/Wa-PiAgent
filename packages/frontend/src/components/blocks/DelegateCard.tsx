@@ -1,4 +1,4 @@
-import type { ToolCall, ToolResultMessage } from "@hiagent/shared";
+import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ProcessCard, Spinner } from "./ProcessCard";

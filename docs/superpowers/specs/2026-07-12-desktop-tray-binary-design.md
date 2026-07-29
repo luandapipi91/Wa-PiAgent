@@ -1,4 +1,4 @@
-# HiAgent 桌面托盘应用设计（单二进制 · 三平台 · 纯 Bun）
+# WaPi 桌面托盘应用设计（单二进制 · 三平台 · 纯 Bun）
 
 > ⚠️ **实施结论（2026-07-12）**：本文档原设计的"单 exe 全嵌入（方案 A）"经真机验证**不可行**——pi SDK 的扩展加载器 jiti 在 `bun --compile` 编译二进制里把 `require("pi-intercom/package.json")` 解析到虚拟 FS（`B:\~BUN\root`）而非磁盘，agent 创建失败。最终改用**文件夹模型**：launcher exe（托盘+spawn）+ `bun.exe` + `kernel.js`（解释运行）+ `node_modules` + `web/`。本文档保留为原始设计记录；**最终决策与验证见根 `CHANGELOG.md`**。
 
@@ -8,15 +8,15 @@
 
 ## 1. 背景与目标
 
-现状：hiagent 是 Bun monorepo（`packages/{kernel,frontend,shared}`）。kernel 用 `Bun.serve` 起 WS（9776）；前端 Vite（dev 5180）。`scripts/dev.ts` 并行起两个进程并开浏览器。已有 `bun build --compile` 编译 kernel 二进制的脚本。
+现状：wa-pi 是 Bun monorepo（`packages/{kernel,frontend,shared}`）。kernel 用 `Bun.serve` 起 WS（9776）；前端 Vite（dev 5180）。`scripts/dev.ts` 并行起两个进程并开浏览器。已有 `bun build --compile` 编译 kernel 二进制的脚本。
 
 目标：把项目打包成**一个可执行二进制**，双击启动后：
 - 右下角（Windows/Linux）/菜单栏（macOS）出现**托盘图标（青蛙 logo）**；
-- 托盘菜单两项：**「打开 HiAgent」**、**「退出」**；
-- 点「打开 HiAgent」→ 用**系统默认浏览器**打开 `http://127.0.0.1:9776`；
+- 托盘菜单两项：**「打开 WaPi」**、**「退出」**；
+- 点「打开 WaPi」→ 用**系统默认浏览器**打开 `http://127.0.0.1:9776`；
 - 点「退出」→ 干净退出，托盘消失。
 
-非目标（YAGNI）：桌面窗口/webview（HiAgent 走系统浏览器）、自动更新、代码签名、安装包（v1 直接发单 exe）、托盘通知/子菜单/多语言。
+非目标（YAGNI）：桌面窗口/webview（WaPi 走系统浏览器）、自动更新、代码签名、安装包（v1 直接发单 exe）、托盘通知/子菜单/多语言。
 
 ## 2. Spike 验证结论（2026-07-12 已真机验证）
 
@@ -65,7 +65,7 @@
 - `src/main.ts`：启动编排（清端口 → `startKernel` → 托盘 → 开浏览器 → 生命周期/信号清理）。
 - `src/util/open-browser.ts`、`src/util/port.ts`：跨平台开浏览器 + 端口清理（搬自 `scripts/`，desktop 专用副本，不跨包引用 scripts）。
 - `src/systray-setup.ts`：封装 systray2 创建/菜单/点击（**含 interop 防御解包**，见 §2 坑 1）。
-- `src/embed.ts`：运行时把嵌入的 helper + 图标解压到 `~/.hiagent/.cache/traybin/`，并设置 CWD 使 systray2 的 `./traybin/<bin>` 路径解析命中。
+- `src/embed.ts`：运行时把嵌入的 helper + 图标解压到 `~/.wa-pi/.cache/traybin/`，并设置 CWD 使 systray2 的 `./traybin/<bin>` 路径解析命中。
 - `scripts/genicon.py`（或 .ts）：由 `logo.svg` 生成 `tray_windows.ico` / `tray_darwin.png`(Template@2x) / `tray_linux.png`（spike 已用 PIL 手绘还原，可沿用）。
 - `scripts/build.ts`：构建编排（见 §5）。
 
@@ -73,7 +73,7 @@
 
 `bun build --compile` 把一切打进一个 exe：
 - **前端 dist**：`vite build` → build 时生成清单 `embedded-web.ts`（对每个 dist 文件 `import f from './web/<file>' with { type: "file" }`，导出 `URL → path` 映射）→ 编译期嵌入 → 运行时 `Bun.file(path)` 伺服。`{type:"file"}` 同时支持文本与二进制资产。
-- **systray2 helper**：按目标平台选 `tray_<platform>_release[.exe]`，`import` 为 asset 嵌入 → 运行时解压到 `~/.hiagent/.cache/traybin/`。
+- **systray2 helper**：按目标平台选 `tray_<platform>_release[.exe]`，`import` 为 asset 嵌入 → 运行时解压到 `~/.wa-pi/.cache/traybin/`。
 - **图标**：同样嵌入 → 解压到 cache，传文件路径给 systray2 `menu.icon`（systray2 `resolveIcon` 自动读文件→base64）。
 - **交叉编译**：`--target=bun-windows-x64 | bun-darwin-arm64 | bun-darwin-x64 | bun-linux-x64`，每目标配对该平台的 helper + 图标。
 
@@ -84,10 +84,10 @@
 
 ### 4.5 生命周期 / 日志
 
-- 无控制台 → 日志写 `~/.hiagent/logs/desktop.log`。
-- 「打开 HiAgent」→ `openBrowser("http://127.0.0.1:9776")`。
+- 无控制台 → 日志写 `~/.wa-pi/logs/desktop.log`。
+- 「打开 WaPi」→ `openBrowser("http://127.0.0.1:9776")`。
 - 「退出」→ `server.stop()` + `systray.kill(false)` + `process.exit(0)`；同时捕获 SIGINT/SIGTERM 做同样清理。
-- 廉价单实例：启动时若 9776 已被一个 hiagent 占着，直接开浏览器后退出（不重复起 server）。
+- 廉价单实例：启动时若 9776 已被一个 wa-pi 占着，直接开浏览器后退出（不重复起 server）。
 
 ## 5. 构建编排（`packages/desktop/scripts/build.ts`）
 
@@ -98,19 +98,19 @@
 3. genicon：logo.svg → tray_windows.ico / tray_darwin.png / tray_linux.png
 4. 对每个目标平台：
    a. 选该平台 systray2 helper + 图标，准备 import 资产
-   b. bun build src/main.ts --compile --target=<target> --outfile dist/desktop/<target>/HiAgent[.exe]
+   b. bun build src/main.ts --compile --target=<target> --outfile dist/desktop/<target>/WaPi[.exe]
    c. Windows：PE 子系统 patch 3→2
-5. 产物：dist/desktop/{win,mac,linux}/HiAgent[.exe]（各 ~100–130 MB）
+5. 产物：dist/desktop/{win,mac,linux}/WaPi[.exe]（各 ~100–130 MB）
 ```
 
 ### 5.1 打包命令
 
 根 `package.json` 增加便捷入口（转发到 desktop 包）：
 ```json
-"pack:win":   "bun run --filter @hiagent/desktop build:win",
-"pack:mac":   "bun run --filter @hiagent/desktop build:mac",
-"pack:linux": "bun run --filter @hiagent/desktop build:linux",
-"pack:all":   "bun run --filter @hiagent/desktop build:all",
+"pack:win":   "bun run --filter @wa-pi/desktop build:win",
+"pack:mac":   "bun run --filter @wa-pi/desktop build:mac",
+"pack:linux": "bun run --filter @wa-pi/desktop build:linux",
+"pack:all":   "bun run --filter @wa-pi/desktop build:all",
 ```
 
 `packages/desktop/package.json`：
@@ -124,7 +124,7 @@
 ```
 
 用法（在 repo 根）：
-- `bun run pack:win` → 产出 `dist/desktop/win/HiAgent.exe`（自动先过测试钩子，不过不打包）。
+- `bun run pack:win` → 产出 `dist/desktop/win/WaPi.exe`（自动先过测试钩子，不过不打包）。
 - `bun run pack:all` → 三平台全出。
 
 ### 5.2 打包前测试钩子
@@ -136,8 +136,8 @@
 
 ## 6. v1 平台范围
 
-- **Windows**：`HiAgent.exe`，双击即用（spike 已验证可达）。
-- **Linux**：`HiAgent`（AppImage/.deb 后续；需目标机有 `libayatana-appindicator3-1` 等托盘依赖，真机验证）。
+- **Windows**：`WaPi.exe`，双击即用（spike 已验证可达）。
+- **Linux**：`WaPi`（AppImage/.deb 后续；需目标机有 `libayatana-appindicator3-1` 等托盘依赖，真机验证）。
 - **macOS**：v1 先裸二进制；`.app`（`LSUIElement=true`，无 Dock 图标、纯菜单栏）后续。
 
 ## 7. 验收（AGENTS.md 四层 + 托盘特殊性）
@@ -155,7 +155,7 @@
 
 ## 9. 不做的事（YAGNI）
 
-- 桌面窗口 / webview（HiAgent 走系统浏览器）。
+- 桌面窗口 / webview（WaPi 走系统浏览器）。
 - 自动更新、代码签名、安装包（v1 = 方案 A 直接发单 exe）。
 - 托盘通知、子菜单、多语言、托盘图标动态切换。
 
@@ -165,7 +165,7 @@
 
 ### 10.1 两条流水线的步骤序列（跨 CI 通用）
 - **CI 门禁**（PR + push 到 `master`，失败阻断合并）：装 bun → `bun install --frozen-lockfile` → `bun run typecheck` → `bun run test`。
-- **发版**（push tag `v*`）：装 bun → setup-python + `pip install pillow`（genicon 用 PIL）→ `bun install --frozen-lockfile` → `bun run pack:all`（内部 `build.ts` 步骤 0 测试钩子先跑，不过即失败）→ `sha256sum` 生成校验 → 调 **Gitee Release API** 上传 `dist/desktop/{win,mac,linux}/HiAgent[.exe]` + checksums。
+- **发版**（push tag `v*`）：装 bun → setup-python + `pip install pillow`（genicon 用 PIL）→ `bun install --frozen-lockfile` → `bun run pack:all`（内部 `build.ts` 步骤 0 测试钩子先跑，不过即失败）→ `sha256sum` 生成校验 → 调 **Gitee Release API** 上传 `dist/desktop/{win,mac,linux}/WaPi[.exe]` + checksums。
 
 ### 10.2 Gitee Go 关键点
 - **单台 Linux runner 出三平台**：Bun `--compile --target` 交叉编译。Windows Defender/EPERM 在 Linux 不存在；PE 子系统 patch 是字节级、Linux 上照做；macOS v1 是裸二进制（无 `.app`/签名）。**不需要** macOS/Windows 原生 runner（Gitee Go 免费版以 Linux/Ubuntu 为主，macOS 环境基本没有）。

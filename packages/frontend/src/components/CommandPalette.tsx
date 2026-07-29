@@ -56,7 +56,7 @@ export function CommandPalette({ open, onClose }: Props) {
       title: "智能体管理",
       hint: "管理所有智能体配置",
       keywords: ["agent", "智能体", "agents"],
-      run: () => { onClose(); window.dispatchEvent(new CustomEvent("hiagent:open-gallery")); },
+      run: () => { onClose(); window.dispatchEvent(new CustomEvent("wa-pi:open-gallery")); },
     },
   ], [onClose]);
 

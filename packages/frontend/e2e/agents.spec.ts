@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_HIAGENT_DIR, E2E_WS_PORT } from "../playwright.config";
+import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
 
 // Task 18: 多智能体矩阵关键链路 E2E
 //
@@ -16,7 +16,7 @@ import { E2E_HIAGENT_DIR, E2E_WS_PORT } from "../playwright.config";
 // 7. 删除智能体：右键删除 → 二次确认 → 列表消失；会话保留 → 发消息出 agent_missing 重选弹窗 → 点选恢复
 //
 // 环境说明（与简报的偏差）：
-// - global-setup 在 kernel 启动前预置了 agents/dev.md，并以 HIAGENT_SKIP_AGENT_SEED=1 启动 kernel，
+// - global-setup 在 kernel 启动前预置了 agents/dev.md，并以 WA_PI_SKIP_AGENT_SEED=1 启动 kernel，
 //   隔离环境初始只有 1 个智能体（dev），不会 seed 11 个内置角色。
 // - 因此场景 1 的「第 4 个智能体」经 WS agent:create 补数据（UI 新建入口此时不可达：
 //   侧栏空态新建仅 0 个智能体时出现，宫格入口 agent-more 要 >3 个才显示，存在先有鸡先有蛋问题）；
@@ -25,7 +25,7 @@ import { E2E_HIAGENT_DIR, E2E_WS_PORT } from "../playwright.config";
 //   （pill / 分隔行 / 弹窗），发送失败产生的错误消息不影响断言。
 //
 // 清理：每个 test 创建的智能体在 finally 中经 WS agent:delete 删除（幂等，忽略报错）；
-// 测试文件写在隔离 HIAGENT_DIR 内，global-teardown 统一删除。
+// 测试文件写在隔离 WA_PI_DIR 内，global-teardown 统一删除。
 
 /** 通过 WS 发送消息并等待 settle（可选等待特定响应类型），模式同 quick-invoke.spec.ts */
 async function wsSend(payload: object, waitForType?: string, timeoutMs = 5000): Promise<any> {
@@ -74,7 +74,7 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     test.setTimeout(120_000);
     // 共享项目 + 假 provider 只建一次（kernel 侧持久化，后续 test 复用）
     if (!projectId) {
-      projectCwd = join(E2E_HIAGENT_DIR, "agents-e2e-proj");
+      projectCwd = join(E2E_WA_PI_DIR, "agents-e2e-proj");
       // 项目目录必须先存在：pi 子进程以 cwd 启动，目录缺失会 spawn ENOENT，
       // 表现为会话启动失败、session:set-agent 切换无响应
       mkdirSync(projectCwd, { recursive: true });

@@ -1,4 +1,4 @@
-import type { ModelProvider } from "@hiagent/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 
 interface Props {
   provider: ModelProvider;

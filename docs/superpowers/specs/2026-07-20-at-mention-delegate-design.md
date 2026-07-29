@@ -38,12 +38,12 @@ base + 环境约束 + 记忆快照（可选） + delegatePrompt（仅 askTo 非�
 base + delegatePrompt（仅 askTo 非空时） + 环境约束 + 记忆快照（可选）
 ```
 
-- `base`（`HIAGENT_DEFAULT_SYSTEM_PROMPT` 或 `config.systemPromptBody`）放最前：身份与通用规则
+- `base`（`WA_PI_DEFAULT_SYSTEM_PROMPT` 或 `config.systemPromptBody`）放最前：身份与通用规则
 - `delegatePrompt` 紧随其后：可调起名单 + 关键词触发 + `@[agentName]` 硬规则（@ 规则物理上写在 base 末尾，逻辑上与 delegatePrompt 同属「能力描述」档）
 - `环境约束`（Built-in 目录 + 禁止透露 + 禁止内部术语）居中：行为约束
 - `记忆快照`放最后：最贴近用户消息，LLM 最易关注
 
-`HIAGENT_DEFAULT_SYSTEM_PROMPT`（agent-manager.ts:85-89）是所有 replace 模式智能体的兜底基础提示词，**无条件注入**。
+`WA_PI_DEFAULT_SYSTEM_PROMPT`（agent-manager.ts:85-89）是所有 replace 模式智能体的兜底基础提示词，**无条件注入**。
 
 `buildDelegatePrompt`（delegate-tool.ts:62-75）仅在 `askTo` 非空时被调用，输出：
 - 可调起子智能体名单（名称 / 简介 / 触发关键词）
@@ -69,7 +69,7 @@ base + delegatePrompt（仅 askTo 非空时） + 环境约束 + 记忆快照（�
 
 ### ① 系统提示词改造（核心）
 
-**位置**：`packages/kernel/src/agent-manager.ts:85-89` `HIAGENT_DEFAULT_SYSTEM_PROMPT` 常量
+**位置**：`packages/kernel/src/agent-manager.ts:85-89` `WA_PI_DEFAULT_SYSTEM_PROMPT` 常量
 
 **改动**：在常量末尾追加一段 `@[agentName]` 语法硬规则。
 
@@ -120,7 +120,7 @@ base(含 @[agentName] 规则) + delegatePrompt + 环境约束 + 记忆快照
 systemPromptOverride: () => {
   const base = (config?.systemPromptMode === "append" && config.systemPromptBody)
     ? config.systemPromptBody!
-    : HIAGENT_DEFAULT_SYSTEM_PROMPT;  // 已含 @[agentName] 规则段
+    : WA_PI_DEFAULT_SYSTEM_PROMPT;  // 已含 @[agentName] 规则段
   // delegatePrompt 紧跟 base（askTo 非空时）
   const withDelegate = delegatePrompt ? `${base}\n\n${delegatePrompt}` : base;
   // 环境约束居中
@@ -133,7 +133,7 @@ systemPromptOverride: () => {
 },
 ```
 
-**append 模式智能体（systemPromptMode === "append"）**：base 用 `config.systemPromptBody`，绕过 `HIAGENT_DEFAULT_SYSTEM_PROMPT`，故不会自动拿到 @ 规则。这是已知限制：append 模式智能体的 @ 行为依赖用户自己在 body 里写明规则，spec 标注但不强制处理。
+**append 模式智能体（systemPromptMode === "append"）**：base 用 `config.systemPromptBody`，绕过 `WA_PI_DEFAULT_SYSTEM_PROMPT`，故不会自动拿到 @ 规则。这是已知限制：append 模式智能体的 @ 行为依赖用户自己在 body 里写明规则，spec 标注但不强制处理。
 
 ### ② 前端 @ 候选菜单只显示 askTo 名单内
 
@@ -193,7 +193,7 @@ const agentItems: MenuItem[] = useMemo(() => {
 ```ts
 const handleSend = () => {
   if (disabled) return;
-  // @[xxx] 不剥离，原样保留给主智能体识别（由 HIAGENT_DEFAULT_SYSTEM_PROMPT 中的规则触发 delegate）
+  // @[xxx] 不剥离，原样保留给主智能体识别（由 WA_PI_DEFAULT_SYSTEM_PROMPT 中的规则触发 delegate）
   const expandedText = expandTokens(text);
   if (!expandedText.trim() || !isModelAvailable(model, providers) || sendingRef.current || !projectId) return;
   doSend(agentName, expandedText);
@@ -232,7 +232,7 @@ const handleSend = () => {
 | `packages/frontend/tests/Composer.test.tsx` 新增 | — | askTo 为空的主 agent，@ 候选菜单为空 |
 | `packages/frontend/tests/tokens.test.ts` | `extractAgentToken` 3 个用例 | 删除这 3 个用例（函数已删） |
 | `packages/kernel/tests/agent-manager.test.ts:873` | 现有：注入内置目录 + 禁透露约束（用 toContain，不检顺序） | 维持现有断言（不受顺序重组影响），额外新增用例见下 |
-| `packages/kernel/tests/agent-manager.test.ts` 新增 | — | `HIAGENT_DEFAULT_SYSTEM_PROMPT` 包含 `@[agentName]` 规则文案 |
+| `packages/kernel/tests/agent-manager.test.ts` 新增 | — | `WA_PI_DEFAULT_SYSTEM_PROMPT` 包含 `@[agentName]` 规则文案 |
 | `packages/kernel/tests/agent-manager.test.ts` 新增 | — | 拼装顺序断言：在 askTo 非空 + 有记忆快照的场景下，验证 `base 位置 < delegatePrompt 位置 < 环境约束位置 < 记忆快照位置`（用 `indexOf` 比较） |
 
 现有 `agent-manager.test.ts:1093-1097` 与 `1100-1122` 的测试用 `toContain` 检查关键词、不检查顺序，拼装重组不会破坏它们。
@@ -283,7 +283,7 @@ flowchart TD
 | @ 当前主智能体自身 | 候选菜单已过滤；若用户绕过菜单手打 `@[主agent]`，主 agent 按规则调 delegate，因自身不在 askTo 被拒，LLM 按规则第 3 条向用户说明 |
 | @ 不存在的智能体 | 原样发；主 agent 调 delegate 被拒（delegate-tool.ts:47 allowlist 校验），LLM 按规则第 3 条向用户说明 |
 | @ 后无任务内容（只发 `@[pm]`） | 原样发；主 agent 按规则第 2 条的合约范式自行总结（若上下文不足以构造 task，主 agent 应主动向用户追问而非盲调）——LLM 自然语言理解范畴，不特殊处理 |
-| 主 agent append 模式 | 不自动拿到 @ 规则（绕过 HIAGENT_DEFAULT_SYSTEM_PROMPT），用户需自己在 systemPromptBody 写规则——已知限制 |
+| 主 agent append 模式 | 不自动拿到 @ 规则（绕过 WA_PI_DEFAULT_SYSTEM_PROMPT），用户需自己在 systemPromptBody 写规则——已知限制 |
 | 软触发失败（LLM 就是不调 delegate） | 不做硬兜底。spec 标注「主智能体建议用 instruction-following 较强的模型」；后续如可靠性不足，再加「在消息尾追加显式系统指令」增强项 |
 | 新会话首条消息带 @ | primaryAgent = 顶部 dropdown 选中的 agent；@[xxx] 原样发，主 agent 调 delegate。与已有会话行为一致 |
 
@@ -306,7 +306,7 @@ flowchart TD
 ### task 总结质量（LLM 行为不可单测）
 
 规则要求主智能体把用户消息总结成「任务合约」再传给 delegate 的 task 参数。这是 LLM 行为，单测/组件测无法验证语义质量：
-- **能验证**：规则文案确实出现在 `HIAGENT_DEFAULT_SYSTEM_PROMPT` 里（字符串断言）
+- **能验证**：规则文案确实出现在 `WA_PI_DEFAULT_SYSTEM_PROMPT` 里（字符串断言）
 - **不能验证**：主智能体实际调用时 task 参数是否真按合约范式组织、是否包含 5 要素、是否避免了原样转发
 - **缓解**：规则文案用明确的 5 要素清单（Context / Request / Output format / Constraints / Pause policy）+ 措辞用「必须」「不要原样转发」；实际质量靠手动验收 + 真实模型回归观察
 
@@ -322,7 +322,7 @@ flowchart TD
 1. **单元测试**：
    - `Composer.test.tsx` / `NewSessionPane.test.tsx` 中所有原「切换」断言改为「委托」断言并通过
    - 新增「askTo 为空时 @ 候选菜单为空」用例通过
-   - `HIAGENT_DEFAULT_SYSTEM_PROMPT` 含 `@[agentName]` 规则文案的断言通过
+   - `WA_PI_DEFAULT_SYSTEM_PROMPT` 含 `@[agentName]` 规则文案的断言通过
 
 2. **组件测试**：
    - 已有会话 @ 其他 agent：无 Modal 弹出、无 `session:set-agent` 发送、`agent:prompt` 的 text 含 `@[xxx]`
@@ -345,13 +345,13 @@ flowchart TD
 
 本 spec 不集成 `@quintinshaw/pi-dynamic-workflows`。理由：
 
-1. **它是交互类扩展**：能力全在 `/workflows` slash command + TUI 进度面板 + keyword trigger + `~/.pi/workflows/` 状态目录——这些入口在 HiAgent UI 里**一个都不工作**（HiAgent 不暴露 Pi CLI 交互层）。
-2. **与 @gotgenes/pi-subagents 本质不同**：pi-subagents 提供 typed service API（`getSubagentsService().spawn()`），HiAgent 自包 delegate 工具 + DelegateCard UI 绕过它的交互层；但 pi-dynamic-workflows **没有底层 service API 可借**，无法「只用底层、自包 UI」。
-3. **委托模型不同**：HiAgent 是「LLM 直接调 `delegate(agent, task)` 工具」；pi-dynamic-workflows 是「LLM 先生成 JS 编排脚本再在 vm 沙箱执行」——两套范式不能简单叠加。
+1. **它是交互类扩展**：能力全在 `/workflows` slash command + TUI 进度面板 + keyword trigger + `~/.pi/workflows/` 状态目录——这些入口在 WaPi UI 里**一个都不工作**（WaPi 不暴露 Pi CLI 交互层）。
+2. **与 @gotgenes/pi-subagents 本质不同**：pi-subagents 提供 typed service API（`getSubagentsService().spawn()`），WaPi 自包 delegate 工具 + DelegateCard UI 绕过它的交互层；但 pi-dynamic-workflows **没有底层 service API 可借**，无法「只用底层、自包 UI」。
+3. **委托模型不同**：WaPi 是「LLM 直接调 `delegate(agent, task)` 工具」；pi-dynamic-workflows 是「LLM 先生成 JS 编排脚本再在 vm 沙箱执行」——两套范式不能简单叠加。
 
 **后期多智能体编排走自研路线**：基于本 spec 的 B3 fleet 工具 + partners 关系网，借鉴 pi-dynamic-workflows 的 `parallel`/`pipeline`/`verify`/`resume` 设计但不依赖它。完整评估与 Pi 扩展复用原则见 `docs/research/pi-dynamic-workflows-evaluation.md`。
 
-本次确立的复用原则：**HiAgent 只复用「工具类 / 底层服务类」Pi 扩展，不复用「交互类」Pi 扩展**。
+本次确立的复用原则：**WaPi 只复用「工具类 / 底层服务类」Pi 扩展，不复用「交互类」Pi 扩展**。
 
 ## CHANGELOG
 
@@ -364,6 +364,6 @@ flowchart TD
 
 - **@智能体语义修正**：聊天栏 @其他智能体 从「切换当前会话主智能体」改为「软触发主智能体调 delegate 工具委托子智能体」，主智能体不再被永久改写。主智能体基于用户意图总结成「任务合约」（Context / Request / Output format / Constraints / Pause policy）传给子智能体，收到结果后总结回复用户。参考 DeepSeek-Reasonix Task Contract 范式。
 - **系统提示词拼装顺序重组**：从 `base + 环境约束 + 记忆快照 + delegatePrompt` 改为 `base(含 @[agentName] 规则) + delegatePrompt + 环境约束 + 记忆快照`，记忆快照移到最后（最贴近用户消息）。
-- 影响范围：前端 Composer / NewSessionPane / ComposerInput；后端 HIAGENT_DEFAULT_SYSTEM_PROMPT 默认提示词、agent-manager.ts systemPromptOverride 拼装逻辑。
+- 影响范围：前端 Composer / NewSessionPane / ComposerInput；后端 WA_PI_DEFAULT_SYSTEM_PROMPT 默认提示词、agent-manager.ts systemPromptOverride 拼装逻辑。
 - 兼容：顶部 AgentSwitcher pill 仍是真正切换主智能体的入口，session:set-agent 事件保留。
 ```

@@ -34,7 +34,7 @@ test("SessionEntity 含 piSessionFile 字段", () => {
   const s: SessionEntity = {
     id: "s1", projectId: "p1", primaryAgent: "dev",
     title: "t", createdAt: 0, lastActivity: 0,
-    piSessionFile: "~/.hiagent/sessions/s1.jsonl",
+    piSessionFile: "~/.wa-pi/sessions/s1.jsonl",
   };
   expect(s.piSessionFile).toContain("s1.jsonl");
 });

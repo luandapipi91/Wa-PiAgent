@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 给 HiAgent 的内置 subagent 体系做三项增强：① 新增 Plan（第 3 个内置类型）；② AgentConfig 展示 pi-subagents 真实的 systemPrompt + builtinToolNames（替换当前的占位假文案）；③ 让用户能给内置 subagent 设置 model/thinking，存在 `~/.hiagent/subagent-overrides.json`，delegate 调起时合并到 svc.spawn。
+**Goal:** 给 WaPi 的内置 subagent 体系做三项增强：① 新增 Plan（第 3 个内置类型）；② AgentConfig 展示 pi-subagents 真实的 systemPrompt + builtinToolNames（替换当前的占位假文案）；③ 让用户能给内置 subagent 设置 model/thinking，存在 `~/.wa-pi/subagent-overrides.json`，delegate 调起时合并到 svc.spawn。
 
 **Architecture:** 不引入新依赖。pi-subagents 的 default-agents.ts 已经定义了 general-purpose / Explore / Plan 三者的 systemPrompt 和 builtinToolNames——kernel 用一个 WS 事件 `subagent:list` 把这些只读信息暴露给前端。新增 `subagent-overrides.json`（用户级，启动时幂等初始化）保存 model/thinking 覆盖；`spawnViaSubagentsService` 调 `svc.spawn` 前合并覆盖到 `SpawnOptions`。`SUBAGENT_TYPES` 加 Plan；`AgentConfig` 内置分支 model/thinking 控件改为可编辑（其它字段仍只读），保存走新 WS 事件 `subagent:save-override`。
 
@@ -21,8 +21,8 @@
 - **不改 SessionEntity / ProjectEntity 类型**
 
 **关键路径常量速查**：
-- `HIAGENT_DIR` = `~/.hiagent`
-- `SUBAGENT_TYPES_FILE` = `~/.hiagent/subagent-overrides.json`（新增）
+- `WA_PI_DIR` = `~/.wa-pi`
+- `SUBAGENT_TYPES_FILE` = `~/.wa-pi/subagent-overrides.json`（新增）
 - pi-subagents 默认 3 个 agent：`general-purpose` / `Explore` / `Plan`（kernel 直接 import `DEFAULT_AGENTS`）
 
 ---
@@ -84,9 +84,9 @@ test("isSubagentType / normalizeSubagentType 识别 Plan", () => {
   expect(normalizeSubagentType("Plan")).toBe("Plan");
 });
 
-test("SUBAGENT_OVERRIDES_FILE 指向 ~/.hiagent/subagent-overrides.json", () => {
+test("SUBAGENT_OVERRIDES_FILE 指向 ~/.wa-pi/subagent-overrides.json", () => {
   expect(SUBAGENT_OVERRIDES_FILE.endsWith("subagent-overrides.json")).toBe(true);
-  expect(SUBAGENT_OVERRIDES_FILE.includes("hiagent")).toBe(true);
+  expect(SUBAGENT_OVERRIDES_FILE.includes("wa-pi")).toBe(true);
 });
 ```
 
@@ -100,8 +100,8 @@ Expected: FAIL，报 `Plan` 不在 SUBAGENT_TYPES 或 `SUBAGENT_OVERRIDES_FILE` 
 修改 `packages/shared/src/constants.ts`，在 `PROMPTS_FILE` 行附近加：
 
 ```ts
-export const PROMPTS_FILE = `${HIAGENT_DIR}/prompts.json`;
-export const SUBAGENT_OVERRIDES_FILE = `${HIAGENT_DIR}/subagent-overrides.json`;   // 内置 subagent 的 model/thinking 覆盖
+export const PROMPTS_FILE = `${WA_PI_DIR}/prompts.json`;
+export const SUBAGENT_OVERRIDES_FILE = `${WA_PI_DIR}/subagent-overrides.json`;   // 内置 subagent 的 model/thinking 覆盖
 ```
 
 在 `SUBAGENT_TYPES` 数组末尾追加第 3 项：
@@ -124,7 +124,7 @@ Expected: PASS
 
 - [ ] **Step 5: typecheck**
 
-Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @hiagent/shared typecheck`
+Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @wa-pi/shared typecheck`
 Expected: exit 0
 
 - [ ] **Step 6: commit**
@@ -252,7 +252,7 @@ Expected: PASS
 
 - [ ] **Step 5: typecheck**
 
-Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @hiagent/shared typecheck`
+Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @wa-pi/shared typecheck`
 Expected: exit 0
 
 - [ ] **Step 6: commit**
@@ -368,7 +368,7 @@ Expected: FAIL，报 `Cannot find module '../src/subagent-store'`
 ```ts
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { SubagentOverride } from "@hiagent/shared";
+import type { SubagentOverride } from "@wa-pi/shared";
 
 /**
  * 加载 subagent-overrides.json。文件不存在或格式错误降级为空数组，绝不抛错。
@@ -445,7 +445,7 @@ Expected: PASS（7 个全过）
 
 - [ ] **Step 5: typecheck**
 
-Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @hiagent/kernel typecheck`
+Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @wa-pi/kernel typecheck`
 Expected: exit 0
 
 - [ ] **Step 6: commit**
@@ -474,7 +474,7 @@ git commit -m "feat(kernel): 新建 subagent-store（加载/保存/初始化 mod
 ```ts
 import { test, expect } from "bun:test";
 import { getSubagentInfo } from "../src/subagent-info";
-import { SUBAGENT_TYPES } from "@hiagent/shared";
+import { SUBAGENT_TYPES } from "@wa-pi/shared";
 
 test("getSubagentInfo 返回 3 个内置 subagent", () => {
   const infos = getSubagentInfo([]);
@@ -544,8 +544,8 @@ Expected: FAIL，报 `Cannot find module '../src/subagent-info'`
 新建 `packages/kernel/src/subagent-info.ts`：
 
 ```ts
-import { SUBAGENT_TYPES } from "@hiagent/shared";
-import type { SubagentInfo, SubagentOverride } from "@hiagent/shared";
+import { SUBAGENT_TYPES } from "@wa-pi/shared";
+import type { SubagentInfo, SubagentOverride } from "@wa-pi/shared";
 
 /**
  * 从 pi-subagents DEFAULT_AGENTS 读取内置 agent 的真实 systemPrompt + builtinToolNames。
@@ -632,7 +632,7 @@ Expected: PASS（5 个全过）
 
 - [ ] **Step 5: typecheck**
 
-Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @hiagent/kernel typecheck`
+Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @wa-pi/kernel typecheck`
 Expected: exit 0
 
 - [ ] **Step 6: commit**
@@ -651,7 +651,7 @@ git commit -m "feat(kernel): 新建 subagent-info（合并 SUBAGENT_TYPES + pi-s
 
 **Interfaces:**
 - Consumes: `ensureSubagentOverrides` from subagent-store；`SUBAGENT_OVERRIDES_FILE` from shared
-- Produces: 启动时 `~/.hiagent/subagent-overrides.json` 存在
+- Produces: 启动时 `~/.wa-pi/subagent-overrides.json` 存在
 
 - [ ] **Step 1: 修改 index.ts**
 
@@ -671,20 +671,20 @@ import { ensureSubagentOverrides } from "./subagent-store";
 shared import 行（已有 `PROMPTS_FILE`）补 `SUBAGENT_OVERRIDES_FILE`：
 
 ```ts
-import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD, PROMPTS_FILE, SUBAGENT_OVERRIDES_FILE } from "@hiagent/shared";
+import { WS_PORT, WA_PI_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD, PROMPTS_FILE, SUBAGENT_OVERRIDES_FILE } from "@wa-pi/shared";
 ```
 
 - [ ] **Step 2: typecheck**
 
-Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @hiagent/kernel typecheck`
+Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @wa-pi/kernel typecheck`
 Expected: exit 0
 
 - [ ] **Step 3: 手动验证 seed（可选，跑不动就跳过）**
 
 ```bash
-PATH="$HOME/.bun/bin:$PATH" bun run --filter @hiagent/kernel dev &
+PATH="$HOME/.bun/bin:$PATH" bun run --filter @wa-pi/kernel dev &
 sleep 3
-ls -la ~/.hiagent/subagent-overrides.json
+ls -la ~/.wa-pi/subagent-overrides.json
 kill %1 2>/dev/null
 ```
 Expected: 文件存在，内容 `{"overrides":[]}`。**若 kernel 启动需要 SDK 而跑不起来，跳过此步**。
@@ -782,7 +782,7 @@ test("subagent:save-override 持久化并广播 subagent:list", async () => {
 
 需要顶部 import：
 ```ts
-import { SYSTEM_PROJECT_ID, SUBAGENT_OVERRIDES_FILE } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID, SUBAGENT_OVERRIDES_FILE } from "@wa-pi/shared";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 ```
 
@@ -815,7 +815,7 @@ case "subagent:save-override": {
 ```ts
 import { loadSubagentOverrides, saveSubagentOverride } from "./subagent-store";
 import { getSubagentInfo } from "./subagent-info";
-import { ..., SUBAGENT_OVERRIDES_FILE } from "@hiagent/shared";
+import { ..., SUBAGENT_OVERRIDES_FILE } from "@wa-pi/shared";
 ```
 
 - [ ] **Step 4: 跑测试验证通过**
@@ -825,7 +825,7 @@ Expected: PASS
 
 - [ ] **Step 5: typecheck**
 
-Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @hiagent/kernel typecheck`
+Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @wa-pi/kernel typecheck`
 Expected: exit 0
 
 - [ ] **Step 6: commit**
@@ -847,7 +847,7 @@ git commit -m "feat(kernel): ws-server 加 subagent:list / subagent:save-overrid
 - Consumes: `getSubagentOverride` from subagent-store；`SUBAGENT_OVERRIDES_FILE`
 - Produces: `spawnViaSubagentsService` 调 `svc.spawn` 时把用户设的 model/thinking 透传到 `options`
 
-**背景**：pi-subagents 的 `SpawnOptions`（service.ts:55-63）支持 `model?: string` 和 `thinkingLevel?: string`。HiAgent 当前 spawn 时没传，全用默认。本 Task 让用户配置的 override 生效。
+**背景**：pi-subagents 的 `SpawnOptions`（service.ts:55-63）支持 `model?: string` 和 `thinkingLevel?: string`。WaPi 当前 spawn 时没传，全用默认。本 Task 让用户配置的 override 生效。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -856,7 +856,7 @@ git commit -m "feat(kernel): ws-server 加 subagent:list / subagent:save-overrid
 ```ts
 test("spawnViaSubagentsService 合并 override model/thinkingLevel 到 svc.spawn options", async () => {
   // 用临时 overrides 文件，避免污染开发机
-  const tmpFile = `/tmp/hiagent-test-overrides-${Date.now()}.json`;
+  const tmpFile = `/tmp/wa-pi-test-overrides-${Date.now()}.json`;
   // 备份原模块路径常量：spawnViaSubagentsService 内部用 SUBAGENT_OVERRIDES_FILE，无法注入
   // 改方案：测试直接调 spawnViaSubagentsService 并传可选 overridesFilePath 参数
   // （实现要把 SUBAGENT_OVERRIDES_FILE 从硬编码改为函数参数，默认 SUBAGENT_OVERRIDES_FILE）
@@ -911,8 +911,8 @@ export async function spawnViaSubagentsService(
 改后：
 ```ts
 import { getSubagentOverride } from "./subagent-store";
-import { SUBAGENT_OVERRIDES_FILE } from "@hiagent/shared";
-import type { ThinkingLevel } from "@hiagent/shared";
+import { SUBAGENT_OVERRIDES_FILE } from "@wa-pi/shared";
+import type { ThinkingLevel } from "@wa-pi/shared";
 
 export interface SpawnOpts {
   intervalMs?: number;
@@ -1001,7 +1001,7 @@ Expected: PASS（除 baseline 预存的 testConnection / agent:abort，本文件
 
 - [ ] **Step 6: typecheck**
 
-Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @hiagent/kernel typecheck`
+Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @wa-pi/kernel typecheck`
 Expected: exit 0
 
 - [ ] **Step 7: commit**
@@ -1098,7 +1098,7 @@ Expected: FAIL，报 `Cannot find module '../src/store/subagents'`
 
 ```ts
 import { create } from "zustand";
-import type { SubagentInfo, SubagentOverride } from "@hiagent/shared";
+import type { SubagentInfo, SubagentOverride } from "@wa-pi/shared";
 import { send, onMessage } from "../ws-instance";
 
 interface State {
@@ -1157,7 +1157,7 @@ import { useSubagentsStore } from "./store/subagents";
 
 - [ ] **Step 6: typecheck**
 
-Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @hiagent/frontend typecheck`
+Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @wa-pi/frontend typecheck`
 Expected: exit 0
 
 - [ ] **Step 7: commit**
@@ -1272,7 +1272,7 @@ Expected: FAIL（旧实现 model select 不可点 / systemPromptBody 是占位�
 
 ```ts
 import { useSubagentsStore } from "../store/subagents";
-import type { SubagentInfo, SubagentOverride, ThinkingLevel } from "@hiagent/shared";
+import type { SubagentInfo, SubagentOverride, ThinkingLevel } from "@wa-pi/shared";
 ```
 
 替换 `builtinDraft` 构造（35-57 行）：
@@ -1378,7 +1378,7 @@ Expected: PASS（旧测试 + 新测试全过）
 
 - [ ] **Step 6: typecheck + vite build**
 
-Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @hiagent/frontend typecheck && cd packages/frontend && bun run build`
+Run: `PATH="$HOME/.bun/bin:$PATH" bun run --filter @wa-pi/frontend typecheck && cd packages/frontend && bun run build`
 Expected: typecheck exit 0；build 成功
 
 - [ ] **Step 7: commit**
@@ -1420,7 +1420,7 @@ Expected: build 成功
 
 ```markdown
 ### 增强
-- **内置 subagent 三项增强**：① 新增 Plan（第 3 个内置类型，read-only 软件架构师）；② AgentConfig 内置分支改为从 pi-subagents 读取真实 systemPrompt 与 builtinToolNames 展示（替换原占位假文案）；③ 用户可为内置 subagent 设置 model/思考强度，覆盖存于 `~/.hiagent/subagent-overrides.json`，delegate 调起时合并到 `svc.spawn` options。新增 WS 事件 `subagent:list` / `subagent:save-override`，新建 `packages/kernel/src/subagent-store.ts`（override 持久化）+ `packages/kernel/src/subagent-info.ts`（合并 pi-subagents 真实配置）。影响范围：shared/constants.ts（SUBAGENT_TYPES 加 Plan）、shared/types.ts（新类型 + WS 事件）、kernel/subagent-store.ts（新）、kernel/subagent-info.ts（新）、kernel/ws-server.ts、kernel/delegate-tool.ts、kernel/index.ts、frontend/store/subagents.ts（新）、frontend/AgentConfig.tsx、frontend/App.tsx。
+- **内置 subagent 三项增强**：① 新增 Plan（第 3 个内置类型，read-only 软件架构师）；② AgentConfig 内置分支改为从 pi-subagents 读取真实 systemPrompt 与 builtinToolNames 展示（替换原占位假文案）；③ 用户可为内置 subagent 设置 model/思考强度，覆盖存于 `~/.wa-pi/subagent-overrides.json`，delegate 调起时合并到 `svc.spawn` options。新增 WS 事件 `subagent:list` / `subagent:save-override`，新建 `packages/kernel/src/subagent-store.ts`（override 持久化）+ `packages/kernel/src/subagent-info.ts`（合并 pi-subagents 真实配置）。影响范围：shared/constants.ts（SUBAGENT_TYPES 加 Plan）、shared/types.ts（新类型 + WS 事件）、kernel/subagent-store.ts（新）、kernel/subagent-info.ts（新）、kernel/ws-server.ts、kernel/delegate-tool.ts、kernel/index.ts、frontend/store/subagents.ts（新）、frontend/AgentConfig.tsx、frontend/App.tsx。
 ```
 
 - [ ] **Step 5: commit**

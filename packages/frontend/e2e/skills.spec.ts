@@ -45,7 +45,7 @@ test.describe.serial("技能管理", () => {
 
   test("禁用技能 + 启用技能", async ({ page }) => {
     // 先通过 WS 添加一个带技能的目录，让技能列表有内容
-    const e2eSkillDir = join(process.env.HOME || "~", ".hiagent-e2e-skills-test");
+    const e2eSkillDir = join(process.env.HOME || "~", ".wa-pi-e2e-skills-test");
     if (!existsSync(e2eSkillDir)) {
       const skillDir = join(e2eSkillDir, "test-skill");
       mkdirSync(skillDir, { recursive: true });

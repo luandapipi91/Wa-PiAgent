@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { parseAgentMd, stringifyAgentMd, validateAgentConfig, makeDefaultAgentConfig } from "../src/agent-md";
-import type { AgentConfig } from "@hiagent/shared";
+import type { AgentConfig } from "@wa-pi/shared";
 
 const DEV_MD = `---
 displayName: 研发

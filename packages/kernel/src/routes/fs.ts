@@ -47,7 +47,7 @@ async function checkPreviewable(absPath: string): Promise<{ ok: true } | { ok: f
   }
   return { ok: true };
 }
-import type { DirEntry } from "@hiagent/shared";
+import type { DirEntry } from "@wa-pi/shared";
 import { getMimeType } from "../ws-server";
 
 export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
@@ -176,7 +176,7 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
       if (isDir) {
         return Response.json({ type: "fs:copy", path: source });
       }
-      const uploadDir = join(cwd, ".hiagent", "uploads");
+      const uploadDir = join(cwd, ".wa-pi", "uploads");
       await mkdir(uploadDir, { recursive: true });
       const name = basename(source);
       const destPath = await uniquePath(uploadDir, name);

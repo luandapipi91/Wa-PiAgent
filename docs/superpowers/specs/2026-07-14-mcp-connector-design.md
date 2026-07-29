@@ -5,7 +5,7 @@
 
 ## 1. 概述
 
-在 HiAgent 设置页中新增「MCP 连接器」模块，提供可视化的 MCP (Model Context Protocol) 服务器配置管理。底层运行时委托给 pi-mcp-adapter，HiAgent 只做配置文件的读写管理 + 通过临时 Pi session 调用 adapter 命令执行连接测试和授权操作。
+在 WaPi 设置页中新增「MCP 连接器」模块，提供可视化的 MCP (Model Context Protocol) 服务器配置管理。底层运行时委托给 pi-mcp-adapter，WaPi 只做配置文件的读写管理 + 通过临时 Pi session 调用 adapter 命令执行连接测试和授权操作。
 
 ### 1.1 目标
 
@@ -27,7 +27,7 @@
 
 | 作用域 | 文件路径 |
 |--------|----------|
-| 全局 | `~/.hiagent/mcp.json` |
+| 全局 | `~/.wa-pi/mcp.json` |
 | 项目 | `<项目cwd>/.mcp.json` |
 
 ### 2.2 文件格式
@@ -125,7 +125,7 @@ interface McpToolsResult     { type: "mcp:tools";      serverName: string; tools
 | `mcp:save` | 写入/更新 `mcpServers[name]`，写回 JSON 文件，广播 `mcp:changed`。若 `originalName` 存在且与新 name 不同，先删除旧 key 再写入新 key（改名） |
 | `mcp:delete` | 删除 `mcpServers[name]` key，写回 JSON 文件，广播 `mcp:changed` |
 | `mcp:test` | 启动临时 Pi session（cwd=项目目录），执行 `/mcp reconnect <name>`，等待 agent_end 后返回成功/失败 |
-| `mcp:listTools` | 读取 `~/.hiagent/mcp-cache.json`（pi-mcp-adapter 自动维护），返回该服务器的工具列表 |
+| `mcp:listTools` | 读取 `~/.wa-pi/mcp-cache.json`（pi-mcp-adapter 自动维护），返回该服务器的工具列表 |
 | `mcp:clearAuth` | 启动临时 Pi session，执行 `/mcp logout <name>`，清除 OAuth token 并断开连接 |
 
 ## 5. 内核设计
@@ -136,7 +136,7 @@ interface McpToolsResult     { type: "mcp:tools";      serverName: string; tools
 
 ```
 class McpStore {
-  constructor(opts: { hiagentDir: string; projectStore: ProjectStore })
+  constructor(opts: { waPiDir: string; projectStore: ProjectStore })
 
   // 配置 CRUD
   async list(projectId?: string): Promise<McpServerConfig[]>
@@ -162,7 +162,7 @@ class McpStore {
 **配置读写**：
 
 - 参考 `memory-store.ts` 的文件操作模式
-- 全局路径：`join(HIAGENT_DIR, "mcp.json")`
+- 全局路径：`join(WA_PI_DIR, "mcp.json")`
 - 项目路径：`join(projectCwd, ".mcp.json")`
 - 文件不存在时返回空配置，不报错
 - 保存时如文件所在目录不存在则自动创建
@@ -185,7 +185,7 @@ class McpStore {
 
 **工具列表读取**：
 
-1. 读取 `~/.hiagent/mcp-cache.json`
+1. 读取 `~/.wa-pi/mcp-cache.json`
 2. 解析 `cache[serverName]` 下的工具定义
 3. 提取 name + description + parameters
 4. 缓存不存在 → 返回空数组（UI 提示"暂无可用的工具缓存，请先执行连接测试"）
@@ -358,7 +358,7 @@ interface McpState {
 跟 MemoryPage 的 `MemoryScopeDropdown` 完全相同的模式：
 
 - 下拉菜单展示「🌐 全局」+ 所有项目列表（来自 `projectsStore`）
-- 选择全局 → projectId=null → 读写 `~/.hiagent/mcp.json`
+- 选择全局 → projectId=null → 读写 `~/.wa-pi/mcp.json`
 - 选择项目A → projectId=项目A.id → 读写 `<项目A cwd>/.mcp.json`
 - 切换时自动重新加载对应配置文件的内容
 
@@ -368,7 +368,7 @@ interface McpState {
 用户点击「授权」按钮
   │
   ▼
-HiAgent 内核启动临时 Pi session (cwd=项目目录)
+WaPi 内核启动临时 Pi session (cwd=项目目录)
 执行 /mcp reconnect <name>
   │
   ▼
@@ -381,15 +381,15 @@ pi-mcp-adapter 检测该服务器需要 OAuth
   → 浏览器重定向到 http://localhost:<port>/callback?code=...
   → pi-mcp-adapter 在 localhost 端口捕获回调
   → 用 code 换取 access token
-  → token 存储到 ~/.hiagent/auth.json
+  → token 存储到 ~/.wa-pi/auth.json
   │
   ▼
 Pi session 返回连接成功
-  → HiAgent 收到测试结果
+  → WaPi 收到测试结果
   → UI 更新状态为 🟢 connected
 ```
 
-注意：HiAgent 不参与中间的浏览器跳转，只负责发起和等待结果。超时 60s。
+注意：WaPi 不参与中间的浏览器跳转，只负责发起和等待结果。超时 60s。
 
 ## 7. 测试设计
 
@@ -442,7 +442,7 @@ Pi session 返回连接成功
 
 ### 7.3 集成测试（curl + 运行中服务）
 
-需要启动 HiAgent 服务后执行：
+需要启动 WaPi 服务后执行：
 
 - `mcp:list`（全局）— 返回全局 mcp.json 中的服务器列表
 - `mcp:list`（项目）— 返回项目 .mcp.json 中的服务器列表

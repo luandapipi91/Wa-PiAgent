@@ -6,7 +6,7 @@
 
 ## 1. 概述
 
-为 hiagent 添加「项目记忆功能」和「指令文件展示」两个能力：
+为 wa-pi 添加「项目记忆功能」和「指令文件展示」两个能力：
 
 - **记忆管理**：通过集成 pi-hermes-memory 插件，让智能体记住用户过往的聊天记忆。用户可在管理页查看、编辑、删除、归档已保存的记忆。
 - **指令文件展示**：展示当前已加载的指令文件（AGENTS.md / CLAUDE.md），只读，支持按全局/项目筛选。
@@ -15,12 +15,12 @@
 
 | # | 决策 | 选择 |
 |---|------|------|
-| 1 | 职责边界 | pi-hermes-memory 自治运行（自动学习/保存），hiagent 做管理 UI + 结构化展示（搜索/筛选/分类） |
-| 2 | 注入对齐 | 注入完全交给插件，hiagent 只 CRUD 记忆文件，不碰注入逻辑 |
+| 1 | 职责边界 | pi-hermes-memory 自治运行（自动学习/保存），wa-pi 做管理 UI + 结构化展示（搜索/筛选/分类） |
+| 2 | 注入对齐 | 注入完全交给插件，wa-pi 只 CRUD 记忆文件，不碰注入逻辑 |
 | 3 | 指令文件 | 只读展示已加载的，不增删改，不接管读取 |
-| 4 | 归档语义 | 软删除——hiagent 维护 sidecar JSON（`~/.hiagent/memory-archive.json`），不修改插件的文件结构 |
+| 4 | 归档语义 | 软删除——wa-pi 维护 sidecar JSON（`~/.wa-pi/memory-archive.json`），不修改插件的文件结构 |
 | 5 | 记忆分类 | 只用文件来源 3 分类：记忆（MEMORY.md）/ 用户（USER.md）/ 失败（failures.md） |
-| 6 | 记忆作用域 | 全局（`~/.hiagent/pi-hermes-memory/`）+ 项目（`~/.hiagent/projects-memory/<project>/`）都展示，徽章区分 |
+| 6 | 记忆作用域 | 全局（`~/.wa-pi/pi-hermes-memory/`）+ 项目（`~/.wa-pi/projects-memory/<project>/`）都展示，徽章区分 |
 | 7 | 文件竞争 | 不处理，接受概率风险（后台审查 10 轮一次 vs 用户手动编辑低频，碰撞概率极低） |
 | 8 | 记忆控制 | 双开关细粒度：自动学习（reviewEnabled）+ 注入提示（memoryPolicyStyle） |
 
@@ -68,7 +68,7 @@
 
 ### 3.4 指令文件 Tab
 
-- 数据源：hiagent 自己扫描全局（`~/.hiagent/`）+ 项目（当前 cwd）下的 `AGENTS.md` / `CLAUDE.md`（按优先级取第一个命中的）
+- 数据源：wa-pi 自己扫描全局（`~/.wa-pi/`）+ 项目（当前 cwd）下的 `AGENTS.md` / `CLAUDE.md`（按优先级取第一个命中的）
 - 筛选：全部 / 项目 / 全局，**默认「全部」**
 - 每条展示：文件名 + 作用域徽章（全局=靛蓝，项目=绿）+ 路径 + 内容摘要
 - 内容摘要：只展示前 ~100 字，末尾省略号截断
@@ -88,7 +88,7 @@
 
 ### 3.7 视觉规范
 
-遵循 HiAgent Light 设计系统（DESIGN.md）：
+遵循 WaPi Light 设计系统（DESIGN.md）：
 - 画布：`canvas` #F5F5F7 渐变
 - 卡片：`surface` #FFFFFF + `hairline` 边框 + `rounded.lg` 16px
 - 分类标签：药丸形（`rounded.pill`），语义色配浅底
@@ -142,25 +142,25 @@
                            │ 文件系统（唯一通信层）
                            ▼
 ┌─ pi-hermes-memory（插件自治）─────────────────────────────────┐
-│  ~/.hiagent/pi-hermes-memory/                                 │
-│    ├─ MEMORY.md    ← hiagent CRUD + 插件后台审查写入          │
-│    ├─ USER.md      ← hiagent CRUD                             │
-│    ├─ failures.md  ← hiagent CRUD + 插件后台审查写入          │
-│    └─ sessions.db  ← 插件自己管（hiagent 不碰）               │
+│  ~/.wa-pi/pi-hermes-memory/                                 │
+│    ├─ MEMORY.md    ← wa-pi CRUD + 插件后台审查写入          │
+│    ├─ USER.md      ← wa-pi CRUD                             │
+│    ├─ failures.md  ← wa-pi CRUD + 插件后台审查写入          │
+│    └─ sessions.db  ← 插件自己管（wa-pi 不碰）               │
 │                                                               │
-│  ~/.hiagent/projects-memory/<project>/                        │
+│  ~/.wa-pi/projects-memory/<project>/                        │
 │    ├─ MEMORY.md    ← 同上                                     │
 │    └─ failures.md  ← 同上                                     │
 │                                                               │
-│  ~/.hiagent/hermes-memory-config.json                         │
-│    └─ reviewEnabled / memoryPolicyStyle ← hiagent 读写        │
+│  ~/.wa-pi/hermes-memory-config.json                         │
+│    └─ reviewEnabled / memoryPolicyStyle ← wa-pi 读写        │
 │                                                               │
 │  注入 hook（policy-only）→ agent system prompt                │
 │  memory_search 工具 → 实时读文件                              │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-**核心原则**：hiagent 和 pi-hermes-memory 之间没有 API 调用，只有文件系统。hiagent 写文件 = 修改记忆，插件读文件 = 记忆生效。文件系统是唯一通信层。
+**核心原则**：wa-pi 和 pi-hermes-memory 之间没有 API 调用，只有文件系统。wa-pi 写文件 = 修改记忆，插件读文件 = 记忆生效。文件系统是唯一通信层。
 
 ## 5. 数据模型
 
@@ -211,7 +211,7 @@ interface MemoryConfig {
 示例：
 - `pi-hermes-memory/MEMORY.md:0` — 全局 MEMORY.md 的第 1 条
 - `pi-hermes-memory/USER.md:1` — 全局 USER.md 的第 2 条
-- `projects-memory/hiagent/failures.md:2` — hiagent 项目的第 3 条失败
+- `projects-memory/wa-pi/failures.md:2` — wa-pi 项目的第 3 条失败
 
 理由：用内容 hash 在编辑后会变，无法定位"改的是哪一条"。文件路径+序号在编辑时稳定不变。
 
@@ -225,7 +225,7 @@ MEMORY.md / USER.md / failures.md 内部用 `§` 符号分隔条目。解析算�
 
 ### 5.4 归档 sidecar 结构
 
-文件：`~/.hiagent/memory-archive.json`
+文件：`~/.wa-pi/memory-archive.json`
 
 ```json
 {
@@ -235,7 +235,7 @@ MEMORY.md / USER.md / failures.md 内部用 `§` 符号分隔条目。解析算�
       "text": "旧的测试框架用 Jest，现已迁移到 bun:test",
       "category": "memory",
       "scope": "global",
-      "sourceFile": "C:\\Users\\co\\.hiagent\\pi-hermes-memory\\MEMORY.md",
+      "sourceFile": "C:\\Users\\co\\.wa-pi\\pi-hermes-memory\\MEMORY.md",
       "rawIndex": 1,
       "archivedAt": "2026-07-01T10:30:00Z"
     }
@@ -304,7 +304,7 @@ MEMORY.md / USER.md / failures.md 内部用 `§` 符号分隔条目。解析算�
 ```ts
 class MemoryStore {
   constructor(private opts: {
-    hiagentDir: string;          // ~/.hiagent
+    waPiDir: string;          // ~/.wa-pi
     projectStore: ProjectStore;  // 拿当前项目 cwd
   }) {}
 
@@ -342,14 +342,14 @@ class MemoryStore {
 
 | 作用域 | 记忆文件目录 | 对应分类 |
 |--------|------------|---------|
-| 全局 | `~/.hiagent/pi-hermes-memory/MEMORY.md` | memory |
-| 全局 | `~/.hiagent/pi-hermes-memory/USER.md` | user |
-| 全局 | `~/.hiagent/pi-hermes-memory/failures.md` | failure |
-| 项目 | `~/.hiagent/projects-memory/<project>/MEMORY.md` | memory |
-| 项目 | `~/.hiagent/projects-memory/<project>/failures.md` | failure |
+| 全局 | `~/.wa-pi/pi-hermes-memory/MEMORY.md` | memory |
+| 全局 | `~/.wa-pi/pi-hermes-memory/USER.md` | user |
+| 全局 | `~/.wa-pi/pi-hermes-memory/failures.md` | failure |
+| 项目 | `~/.wa-pi/projects-memory/<project>/MEMORY.md` | memory |
+| 项目 | `~/.wa-pi/projects-memory/<project>/failures.md` | failure |
 
 指令文件扫描：
-- 全局：`~/.hiagent/AGENTS.md` 或 `CLAUDE.md`（取第一个命中）
+- 全局：`~/.wa-pi/AGENTS.md` 或 `CLAUDE.md`（取第一个命中）
 - 项目：`<cwd>/AGENTS.md` 或 `CLAUDE.md`（取第一个命中）
 
 ### 7.3 CRUD 文件操作细节
@@ -491,7 +491,7 @@ const filteredInstructions = instructions
 
 ### 9.2 配置文件读写
 
-pi-hermes-memory 的配置文件：`~/.hiagent/hermes-memory-config.json`
+pi-hermes-memory 的配置文件：`~/.wa-pi/hermes-memory-config.json`
 
 `getConfig()` 读取并提取 `reviewEnabled`（默认 true）和 `memoryPolicyStyle`（默认 "full"）。
 
@@ -500,15 +500,15 @@ pi-hermes-memory 的配置文件：`~/.hiagent/hermes-memory-config.json`
 ### 9.3 注入链路（不修改）
 
 ```
-hiagent AgentManager._createSession
-  → DefaultResourceLoader（systemPromptOverride 提供 hiagent 默认提示词）
+wa-pi AgentManager._createSession
+  → DefaultResourceLoader（systemPromptOverride 提供 wa-pi 默认提示词）
     → AGENTS.md/CLAUDE.md 从 cwd 自动扫描（SDK 负责）
   → pi-hermes-memory extension hook
     → 注入 <memory-policy> 策略文本（policy-only 模式）
     → agent 调 memory_search 时实时读文件
 ```
 
-hiagent 不碰这条链路。记忆开关通过写配置文件控制插件行为，而非在 hiagent 层拦截。
+wa-pi 不碰这条链路。记忆开关通过写配置文件控制插件行为，而非在 wa-pi 层拦截。
 
 ## 10. 错误处理
 

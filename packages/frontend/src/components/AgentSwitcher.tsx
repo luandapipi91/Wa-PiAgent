@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentName } from "@hiagent/shared";
+import type { AgentName } from "@wa-pi/shared";
 import { useAgentsStore } from "../store/agents";
 import { useProjectsStore } from "../store/projects";
 import { useSessionStore } from "../store/session";

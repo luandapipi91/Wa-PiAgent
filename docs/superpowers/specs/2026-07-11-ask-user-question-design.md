@@ -9,11 +9,11 @@
 
 ## 1. 背景与目标
 
-让 hiagent 的 agent（product / pm / dev / test）能在任务中途向用户提出**结构化澄清问题**（单选/多选 + 选项说明 + 预览 + 备注 + 「其他」自由输入），而不是盲目猜测。前端在 **composer 上方**停靠一张完整表单完成人机交互；agent 在用户回答前阻塞当前回合。
+让 wa-pi 的 agent（product / pm / dev / test）能在任务中途向用户提出**结构化澄清问题**（单选/多选 + 选项说明 + 预览 + 备注 + 「其他」自由输入），而不是盲目猜测。前端在 **composer 上方**停靠一张完整表单完成人机交互；agent 在用户回答前阻塞当前回合。
 
 ### 为什么不直接安装 `@juicesharp/rpiv-ask-user-question`
 
-该包是**终端（TUI）扩展**，在 hiagent 的**无头内核 + Web 前端**中无法渲染（其返回结构本身就带 `details.error: "no_ui"` 这条「无 UI」错误路径）。直接挂载只会在 agent 调用时产生 `no_ui` 错误。
+该包是**终端（TUI）扩展**，在 wa-pi 的**无头内核 + Web 前端**中无法渲染（其返回结构本身就带 `details.error: "no_ui"` 这条「无 UI」错误路径）。直接挂载只会在 agent 调用时产生 `no_ui` 错误。
 
 ### 决策
 
@@ -58,7 +58,7 @@ defineTool({
 ```
 
 - **校验**（镜像原包 `details.error` 码）：`no_questions | empty_options | too_many_questions | duplicate_question | duplicate_option_label | reserved_label`（保留标签拒绝 `"Other"` 及运行时 sentinels）。
-- **sessionId 注入**：`execute` 签名无 sessionId，由 `makeAskTool(sessionId)` 在 `_createSession` 内**闭包**焊入（每个 session 一份工具实例）。registry key 用前端 WS 同一个 hiagent sessionId。
+- **sessionId 注入**：`execute` 签名无 sessionId，由 `makeAskTool(sessionId)` 在 `_createSession` 内**闭包**焊入（每个 session 一份工具实例）。registry key 用前端 WS 同一个 wa-pi sessionId。
 - **返回结构**：合法回答 → `{ content:[{type:"text",text:摘要}], details:{ answers: AskAnswer[], cancelled:false } }`；取消/中断 → `{ details:{ cancelled:true } }`。
 
 ### 3.2 AskRegistry —— `packages/kernel/src/ask-registry.ts`（新，进程级单例）

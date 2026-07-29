@@ -5,8 +5,8 @@
 // 避免外部裸写文件触发 amaster 的 drift 检测。
 //
 // 作用域目录约定：
-// - 全局：<hiagentDir>/memories/global/{MEMORY.md,USER.md}
-// - 项目：<hiagentDir>/projects-memory/<cwd-basename>/{MEMORY.md,USER.md}
+// - 全局：<waPiDir>/memories/global/{MEMORY.md,USER.md}
+// - 项目：<waPiDir>/projects-memory/<cwd-basename>/{MEMORY.md,USER.md}
 //
 // amaster 的 MemoryStore 仅区分 memory(MEMORY.md) 与 user(USER.md) 两个 target；
 // failure 等其它分类不在此层管理。
@@ -29,7 +29,7 @@ import {
   MEM_SCOPE_DESC,
   MemoryTargetSchema,
   MemoryScopeSchema,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 import { Type } from "typebox";
 import { join } from "node:path";
 
@@ -63,14 +63,14 @@ export interface AmasterStore {
   snapshotAll(): Promise<string>;
 }
 
-/** 全局记忆 store：<hiagentDir>/memories/global */
-export function getGlobalMemoryStore(hiagentDir: string): AmasterStore {
-  return createAmasterStore(join(hiagentDir, "memories", "global"));
+/** 全局记忆 store：<waPiDir>/memories/global */
+export function getGlobalMemoryStore(waPiDir: string): AmasterStore {
+  return createAmasterStore(join(waPiDir, "memories", "global"));
 }
 
-/** 项目记忆 store：<hiagentDir>/projects-memory/<cwd basename> */
-export function getProjectMemoryStore(hiagentDir: string, cwd: string): AmasterStore {
-  return createAmasterStore(join(hiagentDir, "projects-memory", projectNameFromCwd(cwd)));
+/** 项目记忆 store：<waPiDir>/projects-memory/<cwd basename> */
+export function getProjectMemoryStore(waPiDir: string, cwd: string): AmasterStore {
+  return createAmasterStore(join(waPiDir, "projects-memory", projectNameFromCwd(cwd)));
 }
 
 /** 按任意目录构造 store：用于从 entry id / 归档 sourceFile 反推 store（见 memory-store.ts） */

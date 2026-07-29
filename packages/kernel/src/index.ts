@@ -17,17 +17,17 @@ import { ensureSubagentOverrides } from "./subagent-store";
 import { extractSdkErrorMessage } from "./sdk-errors";
 import { SdkEventThrottle } from "./event-throttle";
 import { cleanupRecordingTemp } from "./recording-store";
-import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD, PROMPTS_FILE, SUBAGENT_OVERRIDES_FILE } from "@hiagent/shared";
+import { WS_PORT, WA_PI_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD, PROMPTS_FILE, SUBAGENT_OVERRIDES_FILE } from "@wa-pi/shared";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { WSServerEvent } from "@hiagent/shared";
+import type { WSServerEvent } from "@wa-pi/shared";
 
 /** 启动时写入 web-search.json，确保 web_search 工具不弹 curator */
-async function ensureWebSearchConfig(hiagentDir: string): Promise<void> {
-  const configPath = join(hiagentDir, "web-search.json");
+async function ensureWebSearchConfig(waPiDir: string): Promise<void> {
+  const configPath = join(waPiDir, "web-search.json");
   const config = { provider: "auto", workflow: "auto-summary" };
   try {
-    await mkdir(hiagentDir, { recursive: true });
+    await mkdir(waPiDir, { recursive: true });
     await writeFile(configPath, JSON.stringify(config) + "\n", "utf8");
   } catch { /* 静默忽略 */ }
 }
@@ -36,23 +36,23 @@ export async function startKernel(
   opts?: { staticDir?: string; port?: number }
 ): Promise<{ port: number; stop: () => Promise<void> }> {
   // 让 pi 生态（pi-mcp-adapter 的 mcp-auth 等深导入模块）在本进程内解析到
-  // ~/.hiagent 作为 agent 目录；RPC 模式下 pi 子进程的环境变量由
-  // AgentManager 在 spawn 时逐个注入（PI_CODING_AGENT_DIR=HIAGENT_DIR），
+  // ~/.wa-pi 作为 agent 目录；RPC 模式下 pi 子进程的环境变量由
+  // AgentManager 在 spawn 时逐个注入（PI_CODING_AGENT_DIR=WA_PI_DIR），
   // 这里保留进程级设置供 kernel 内部的 pi 扩展包代码使用。
-  process.env.PI_CODING_AGENT_DIR = HIAGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = WA_PI_DIR;
 
   // 确保内置技能目录存在
   await mkdir(BUILTIN_SKILLS_DIR, { recursive: true });
   // 确保 sessions 目录存在（Pi SDK SessionManager.open 需要）
-  await mkdir(`${HIAGENT_DIR}/sessions`, { recursive: true });
+  await mkdir(`${WA_PI_DIR}/sessions`, { recursive: true });
 
   const configStore = new ConfigStore();
   const projectStore = new ProjectStore();
   const providerStore = new ProviderStore();
-  const skillManager = new SkillManager(HIAGENT_DIR);
-  const extensionManager = new ExtensionManager(HIAGENT_DIR);
-  const memoryStore = new MemoryStore({ hiagentDir: HIAGENT_DIR, projectStore });
-  const mcpStore = new McpStore({ hiagentDir: HIAGENT_DIR, projectStore });
+  const skillManager = new SkillManager(WA_PI_DIR);
+  const extensionManager = new ExtensionManager(WA_PI_DIR);
+  const memoryStore = new MemoryStore({ waPiDir: WA_PI_DIR, projectStore });
+  const mcpStore = new McpStore({ waPiDir: WA_PI_DIR, projectStore });
 
   // 启动时把已有 providers 注册成 Pi extension（幂等）
   await ensureProviderExtensionRegistered(providerStore);
@@ -81,7 +81,7 @@ export async function startKernel(
   await ensureSystemProject(projectStore);
   console.log(`[kernel] 默认工作区已就绪: ${SYSTEM_PROJECT_CWD}`);
 
-  await ensureWebSearchConfig(HIAGENT_DIR);
+  await ensureWebSearchConfig(WA_PI_DIR);
 
   // 启动时确保 prompts.json 配置存在（幂等），用户可手动编辑调整段落顺序/内容
   await ensurePromptsConfig(PROMPTS_FILE);
@@ -107,7 +107,7 @@ export async function startKernel(
   // 启动清理：上次崩溃/异常退出遗留的录音临时分片
   try {
     const { projects } = await projectStore.load();
-    await Promise.allSettled(projects.map(p => p.cwd ? cleanupRecordingTemp(join(p.cwd, ".hiagent", "uploads")) : Promise.resolve()));
+    await Promise.allSettled(projects.map(p => p.cwd ? cleanupRecordingTemp(join(p.cwd, ".wa-pi", "uploads")) : Promise.resolve()));
   } catch (e) {
     console.warn("[kernel] 清理录音临时文件失败:", e);
   }
@@ -122,7 +122,7 @@ export async function startKernel(
     extensionManager,
     memoryStore,
     mcpStore,
-    dataDir: HIAGENT_DIR,
+    dataDir: WA_PI_DIR,
     agentManager: null as any,  // 占位，下面赋值
     port: opts?.port ?? WS_PORT,
     ...(opts?.staticDir ? { staticDir: opts.staticDir } : {}),

@@ -39,12 +39,12 @@ test("渲染胶囊（basename + 行号），点击弹预览并 readFile 解析�
 
 test("resolveAbsolutePath Windows cwd 拼接相对路径时统一为正斜杠", () => {
   useProjectsStore.setState({
-    projects: [{ id: "p2", name: "winproj", cwd: "H:\\workspace\\hiagent" } as any],
+    projects: [{ id: "p2", name: "winproj", cwd: "H:\\workspace\\wa-pi" } as any],
     sessions: [{ id: "s2", projectId: "p2" } as any],
   });
   const result = resolveAbsolutePath("routes/fs.ts", "s2");
   expect(result).not.toMatch(/\\[^\\]+\//);
-  expect(result).toBe("H:/workspace/hiagent/routes/fs.ts");
+  expect(result).toBe("H:/workspace/wa-pi/routes/fs.ts");
 });
 
 test("statFile 返回不存在时回退为纯文本 code", async () => {

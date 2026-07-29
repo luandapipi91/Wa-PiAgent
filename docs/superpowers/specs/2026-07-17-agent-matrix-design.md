@@ -5,7 +5,7 @@
 
 ## 背景
 
-现状：agent 是 4 值硬编码枚举（product/pm/dev/test），定义在 `shared/src/types.ts:28`，配置以 Markdown+frontmatter 存于 `~/.hiagent/agents/<name>.md`。侧边栏 `AgentListSection.tsx` 固定展示 4 个 agent，点击是打开配置弹窗而非建会话。`AgentConfig` 的 tools/skills/avatar/partners 字段已定义但前端/运行时未消费。会话与 agent 1:1 绑定（`SessionEntity.primaryAgent`），无 subagent 调起机制；pi-intercom 已内置但只能向已运行会话发消息。
+现状：agent 是 4 值硬编码枚举（product/pm/dev/test），定义在 `shared/src/types.ts:28`，配置以 Markdown+frontmatter 存于 `~/.wa-pi/agents/<name>.md`。侧边栏 `AgentListSection.tsx` 固定展示 4 个 agent，点击是打开配置弹窗而非建会话。`AgentConfig` 的 tools/skills/avatar/partners 字段已定义但前端/运行时未消费。会话与 agent 1:1 绑定（`SessionEntity.primaryAgent`），无 subagent 调起机制；pi-intercom 已内置但只能向已运行会话发消息。
 
 目标：重写为"多智能体矩阵"——智能体成为可增删改查的动态实体，侧边栏新增智能体管理区，支持详情配置（提示词/触发条件/工具/技能/关系网）、对话中切换智能体、智能体间通过 subagent 调起协作并在消息流中显示委托卡片。
 

@@ -8,10 +8,10 @@
 // 4. 正文 text-block 可见（视觉重心是正文）。
 //
 // harness 完全复用 rpc-session.spec.ts 范式：
-// - 隔离环境由 global-setup/teardown 提供（独立 HIAGENT_DIR + E2E_WS_PORT，目录整体清除即数据清理）
+// - 隔离环境由 global-setup/teardown 提供（独立 WA_PI_DIR + E2E_WS_PORT，目录整体清除即数据清理）
 // - deepseek provider 经 WS provider:save 注入，apiKey 从本机 pi 凭证库运行时读取（不落盘）
 // - WS 端口取 playwright.config 的 E2E_WS_PORT（本机 9776 被真实 kernel 占用时可用
-//   HIAGENT_E2E_WS_PORT 偏移，不能硬编码 9776）
+//   WA_PI_E2E_WS_PORT 偏移，不能硬编码 9776）
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -21,7 +21,7 @@ import { E2E_WS_PORT } from "../playwright.config";
 /**
  * 运行时读 deepseek apiKey（仅测试运行期内存使用，不落盘）。
  * 首选 ~/.pi/agent/auth.json 的 deepseek.key（rpc-session 既有约定）；
- * 本机 pi 凭证库为空时回退到 ~/.hiagent/providers.json 中 deepseek provider 的 apiKey。
+ * 本机 pi 凭证库为空时回退到 ~/.wa-pi/providers.json 中 deepseek provider 的 apiKey。
  */
 function readDeepseekKey(): string {
   const home = process.env.HOME || process.env.USERPROFILE || ".";
@@ -31,12 +31,12 @@ function readDeepseekKey(): string {
     if (key) return key;
   } catch {}
   try {
-    const store = JSON.parse(readFileSync(join(home, ".hiagent", "providers.json"), "utf8"));
+    const store = JSON.parse(readFileSync(join(home, ".wa-pi", "providers.json"), "utf8"));
     const list = Array.isArray(store) ? store : (store.providers ?? []);
     const ds = list.find((p: any) => String(p.baseUrl ?? "").includes("deepseek"));
     if (ds?.apiKey) return ds.apiKey;
   } catch {}
-  throw new Error("未找到 deepseek apiKey（~/.pi/agent/auth.json 与 ~/.hiagent/providers.json 均无），无法执行 LLM E2E");
+  throw new Error("未找到 deepseek apiKey（~/.pi/agent/auth.json 与 ~/.wa-pi/providers.json 均无），无法执行 LLM E2E");
 }
 
 /** 在浏览器内经 WS 发一条命令并等指定类型的响应 */
@@ -71,7 +71,7 @@ test("聊天块渲染：工具卡弱化折叠 + 代码块卡片 + FilePill 预�
 
   // FilePill 目标文件：packages/frontend/package.json 的绝对路径（真实存在）。
   // 绝对路径不经会话 cwd 解析（FilePill.resolveAbsolutePath 原样返回），
-  // 且 playwright worker 进程的 E2E_HIAGENT_DIR 与 global-setup 不一致，不能用隔离目录拼路径。
+  // 且 playwright worker 进程的 E2E_WA_PI_DIR 与 global-setup 不一致，不能用隔离目录拼路径。
   // playwright 从 packages/frontend 运行，cwd 即包目录。
   const pkgAbsPath = join(process.cwd(), "package.json");
 
@@ -138,7 +138,7 @@ test("聊天块渲染：工具卡弱化折叠 + 代码块卡片 + FilePill 预�
   // 8. 断言四：正文 text-block 可见（视觉重心是正文）
   await expect(page.getByTestId("text-block").last()).toBeVisible();
 
-  // 数据清理：会话/项目均在 E2E_HIAGENT_DIR 隔离目录内，由 global-teardown 整体清除；
+  // 数据清理：会话/项目均在 E2E_WA_PI_DIR 隔离目录内，由 global-teardown 整体清除；
   // 不产生截图（Playwright 失败产物 test-results/ 由任务流程跑完删除）。
 });
 

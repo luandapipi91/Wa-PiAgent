@@ -2,12 +2,12 @@
 import { spawn } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_HIAGENT_DIR } from "../playwright.config";
+import { E2E_WA_PI_DIR } from "../playwright.config";
 
 async function globalTeardown() {
   // 读 globalSetup 写的 pid 杀 kernel
   try {
-    const pid = parseInt(readFileSync(join(E2E_HIAGENT_DIR, ".kernel-pid"), "utf8"), 10);
+    const pid = parseInt(readFileSync(join(E2E_WA_PI_DIR, ".kernel-pid"), "utf8"), 10);
     if (pid) {
       // globalSetup 用 shell:true 启动，Windows 下 child.pid 是 cmd.exe 的 pid，
       // 需要用 taskkill /T 杀整个进程树（含 bun 子进程），否则 SIGTERM 只杀 cmd.exe，
@@ -25,7 +25,7 @@ async function globalTeardown() {
   const deadline = Date.now() + 15_000;
   for (;;) {
     try {
-      rmSync(E2E_HIAGENT_DIR, { recursive: true, force: true });
+      rmSync(E2E_WA_PI_DIR, { recursive: true, force: true });
       return;
     } catch {
       if (Date.now() > deadline) return;

@@ -1,4 +1,4 @@
-# HiAgent 桌面 Electron Shell 实现计划
+# WaPi 桌面 Electron Shell 实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: 用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现。步骤用 `- [ ]` 复选框跟踪。
 
@@ -33,7 +33,7 @@
 - `src/util/port.cjs` —— `waitForPort(port, timeoutMs)`（轮询 `isPortInUse`）。
 - `src/util/paths.cjs` —— `resolveKernelDir()` / `resolveWebDir()`（dev vs packaged：`app.isPackaged` + `process.resourcesPath`）。
 - `src/util/menu.cjs` —— `buildTrayMenu(onOpen, onQuit)` → Electron `Menu` 模板（纯数据，可测）。
-- `src/util/log.cjs` —— 文件日志（搬自现 `log.ts`，改 CJS；写 `~/.hiagent/logs/desktop.log`）。
+- `src/util/log.cjs` —— 文件日志（搬自现 `log.ts`，改 CJS；写 `~/.wa-pi/logs/desktop.log`）。
 - `electron-builder.yml` —— 打包配置（Win portable + Linux AppImage；`extraResources: kernel/ + web/`）。
 - `scripts/build-kernel-sidecar.ts` —— 组装 `resources/kernel/`（bun.exe + kernel.js + node_modules）+ `resources/web/`（前端 dist）。
 - `scripts/build.ts` —— 构建编排（测试钩子 → vite build → build-kernel-sidecar → electron-builder）。
@@ -60,7 +60,7 @@
 
 ```json
 {
-  "name": "@hiagent/desktop",
+  "name": "@wa-pi/desktop",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -104,8 +104,8 @@
 - [ ] **Step 3: `electron-builder.yml` 骨架（Task 6 补全 target/extraResources）**
 
 ```yaml
-appId: ai.hiagent.desktop
-productName: HiAgent
+appId: ai.wa-pi.desktop
+productName: WaPi
 directories:
   output: release
   buildResources: build-assets
@@ -218,7 +218,7 @@ test("packaged: 用 resourcesPath/kernel", () => {
 });
 
 test("dev: env 覆盖优先，否则回退 dev 默认", () => {
-  expect(resolveKernelDir(false, "R:/resources", { HIAGENT_KERNEL_DIR: "/dev/kernel" })).toBe("/dev/kernel");
+  expect(resolveKernelDir(false, "R:/resources", { WA_PI_KERNEL_DIR: "/dev/kernel" })).toBe("/dev/kernel");
   expect(resolveKernelDir(false, "R:/resources", {})).toMatch(/packages[\\/]kernel$/);
 });
 ```
@@ -246,13 +246,13 @@ function devRepoRoot() {
 }
 
 function resolveKernelDir(isPackaged, resourcesPath, env) {
-  if (!isPackaged && env.HIAGENT_KERNEL_DIR) return env.HIAGENT_KERNEL_DIR;
+  if (!isPackaged && env.WA_PI_KERNEL_DIR) return env.WA_PI_KERNEL_DIR;
   if (isPackaged) return path.join(resourcesPath, "kernel");
   return path.join(devRepoRoot(), "packages", "kernel"); // dev: 解释跑 kernel 源码
 }
 
 function resolveWebDir(isPackaged, resourcesPath, env) {
-  if (!isPackaged && env.HIAGENT_WEB_DIR) return env.HIAGENT_WEB_DIR;
+  if (!isPackaged && env.WA_PI_WEB_DIR) return env.WA_PI_WEB_DIR;
   if (isPackaged) return path.join(resourcesPath, "web");
   return path.join(devRepoRoot(), "packages", "frontend", "dist");
 }
@@ -271,7 +271,7 @@ import { buildTrayMenu } from "../src/util/menu.cjs";
 test("buildTrayMenu: 两项 + 分隔（label 顺序）", () => {
   const m = buildTrayMenu(() => {}, () => {});
   const labels = m.filter((x: any) => x.type !== "separator").map((x: any) => x.label);
-  expect(labels).toEqual(["打开 HiAgent", "退出"]);
+  expect(labels).toEqual(["打开 WaPi", "退出"]);
 });
 
 test("buildTrayMenu: 点退出触发 onQuit", () => {
@@ -291,7 +291,7 @@ test("buildTrayMenu: 点退出触发 onQuit", () => {
 // 托盘菜单模板（纯数据 + click 回调），可单测。
 function buildTrayMenu(onOpen, onQuit) {
   return [
-    { label: "打开 HiAgent", click: onOpen },
+    { label: "打开 WaPi", click: onOpen },
     { type: "separator" },
     { label: "退出", click: onQuit },
   ];
@@ -359,8 +359,8 @@ const path = require("node:path");
 const os = require("node:os");
 const { createLogger } = require("./util/log.cjs");
 
-const HIAGENT_DIR = process.env.HIAGENT_DIR || path.join(os.homedir(), ".hiagent");
-const log = createLogger(path.join(HIAGENT_DIR, "logs", "desktop.log"));
+const WA_PI_DIR = process.env.WA_PI_DIR || path.join(os.homedir(), ".wa-pi");
+const log = createLogger(path.join(WA_PI_DIR, "logs", "desktop.log"));
 
 let mainWindow = null;
 
@@ -435,7 +435,7 @@ function startTray({ iconPath, onOpen, onQuit }) {
   try { image = nativeImage.createFromPath(iconPath); } catch { image = nativeImage.createEmpty(); }
   if (image.isEmpty()) image = nativeImage.createEmpty();
   tray = new Tray(image);
-  tray.setToolTip("HiAgent");
+  tray.setToolTip("WaPi");
   tray.setContextMenu(Menu.buildFromTemplate(buildTrayMenu(onOpen, onQuit)));
   // 左键单击 = 打开
   tray.on("click", onOpen);
@@ -462,7 +462,7 @@ module.exports = { startTray };
 ```bash
 cd packages/desktop && env -u ELECTRON_RUN_AS_NODE ./node_modules/electron/dist/electron.exe .
 ```
-Expected: 右下角出托盘图标（暂为空/默认，Task 6 换青蛙）；右键菜单「打开 HiAgent / 退出」；点「打开」focus 窗口；点「退出」干净退出。关窗验证。
+Expected: 右下角出托盘图标（暂为空/默认，Task 6 换青蛙）；右键菜单「打开 WaPi / 退出」；点「打开」focus 窗口；点「退出」干净退出。关窗验证。
 
 - [ ] **Step 4: 提交**
 
@@ -480,7 +480,7 @@ git commit -m "feat(desktop): Electron 托盘(打开/退出)"
 - Modify: `packages/desktop/src/main.cjs`（接 sidecar + load 9776 + cleanup kill）
 
 **Interfaces:**
-- Consumes: `resolveKernelDir/WebDir`（Task 2）、`waitForPort`（Task 2）、`WS_PORT`（9776，`@hiagent/shared`；CJS 里直接写常量 9776 避免引入 TS 包）。
+- Consumes: `resolveKernelDir/WebDir`（Task 2）、`waitForPort`（Task 2）、`WS_PORT`（9776，`@wa-pi/shared`；CJS 里直接写常量 9776 避免引入 TS 包）。
 
 - [ ] **Step 1: 实现 `src/kernel-sidecar.cjs`**
 
@@ -508,7 +508,7 @@ async function startSidecar({ isPackaged, kernelDir, webDir, bunExe, log }) {
     : ["run", path.join(kernelDir, "src", "desktop-server.ts")];
   const child = spawn(cmd, arg, {
     cwd: kernelDir,
-    env: { ...process.env, HIAGENT_WEB_DIR: webDir },
+    env: { ...process.env, WA_PI_WEB_DIR: webDir },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -569,10 +569,10 @@ app.on("before-quit", () => { cleanup(); });
 - [ ] **Step 3: 真机烟测（dev：解释跑 repo kernel）**
 
 ```bash
-cd /h/workspace/hiagent && bun run --filter @hiagent/frontend build   # 先出前端 dist（dev webDir 用）
+cd /h/workspace/wa-pi && bun run --filter @wa-pi/frontend build   # 先出前端 dist（dev webDir 用）
 cd packages/desktop && env -u ELECTRON_RUN_AS_NODE ./node_modules/electron/dist/electron.exe .
 ```
-Expected: 托盘出 + 窗口加载 `http://127.0.0.1:9776`（hiagent 页面）+ 能正常用（kernel sidecar 解释跑，agent 创建过了扩展加载，需选模型才能 prompt——同 tray-binary 那次）。关窗 → kernel sidecar 也退出（任务管理器无残留 bun）。验证日志 `~/.hiagent/logs/desktop.log` 有 `kernel 就绪`。
+Expected: 托盘出 + 窗口加载 `http://127.0.0.1:9776`（wa-pi 页面）+ 能正常用（kernel sidecar 解释跑，agent 创建过了扩展加载，需选模型才能 prompt——同 tray-binary 那次）。关窗 → kernel sidecar 也退出（任务管理器无残留 bun）。验证日志 `~/.wa-pi/logs/desktop.log` 有 `kernel 就绪`。
 
 - [ ] **Step 4: 提交**
 
@@ -590,12 +590,12 @@ git commit -m "feat(desktop): kernel sidecar(spawn 解释运行)+等9776+窗口l
 - Modify: `packages/desktop/electron-builder.yml`、根 `package.json`（pack:* 改）、`.gitignore`
 
 **Interfaces:**
-- Produces: `packages/desktop/release/HiAgent <ver>.exe`（Win portable）/ `HiAgent-<ver>.AppImage`（Linux）。
+- Produces: `packages/desktop/release/WaPi <ver>.exe`（Win portable）/ `WaPi-<ver>.AppImage`（Linux）。
 
 - [ ] **Step 1: 生成青蛙 `src/assets/icon.ico`**（复用 P2 的 PIL genicon，输出到 `src/assets/`）
 
 ```bash
-cd /h/workspace/hiagent && python packages/desktop/scripts/genicon.py logo.svg packages/desktop/src/assets 2>/dev/null || \
+cd /h/workspace/wa-pi && python packages/desktop/scripts/genicon.py logo.svg packages/desktop/src/assets 2>/dev/null || \
   python -c "from PIL import Image; Image.new('RGBA',(48,48),(75,162,111,255)).save('packages/desktop/src/assets/icon.ico')" 
 # 注：genicon.py 在 Task 1 被删了？若已删，用内联 PIL 画青蛙(同 tray-binary 的 genicon 逻辑)或先 git show 恢复
 ```
@@ -631,7 +631,7 @@ export async function buildSidecar(target: string) {
 
   // 2. node_modules（kernel 生产依赖；排除 workspace，已内联进 kernel.js）
   await writeFile(join(kernelDir, "package.json"), JSON.stringify({
-    name: "hiagent-kernel-sidecar", private: true,
+    name: "wa-pi-kernel-sidecar", private: true,
     dependencies: {
       "@earendil-works/pi-coding-agent": "^0.80.0", "pi-intercom": "^0.6.0",
       "pi-web-access": "^0.13.0", "pi-lens": "^3.8.0", "@amaster.ai/pi-memory": "^0.1.5",
@@ -644,7 +644,7 @@ export async function buildSidecar(target: string) {
   await cp(process.execPath, join(kernelDir, process.platform === "win32" ? "bun.exe" : "bun"));
 
   // 4. web（前端 dist）
-  run("bun", ["run", "--filter", "@hiagent/frontend", "build"]);
+  run("bun", ["run", "--filter", "@wa-pi/frontend", "build"]);
   await cp(join(ROOT, "packages", "frontend", "dist"), webDir, { recursive: true });
   console.log("[sidecar] ✅ resources/kernel + resources/web 组装完成");
 }
@@ -688,8 +688,8 @@ async function step0TestGate(noTest: boolean) {
 - [ ] **Step 4: 补全 `electron-builder.yml`**
 
 ```yaml
-appId: ai.hiagent.desktop
-productName: HiAgent
+appId: ai.wa-pi.desktop
+productName: WaPi
 directories:
   output: release
 files:
@@ -717,8 +717,8 @@ linux:
 
 根 `package.json` scripts：
 ```json
-    "pack:win":   "bun run --filter @hiagent/desktop build:win",
-    "pack:linux": "bun run --filter @hiagent/desktop build:linux",
+    "pack:win":   "bun run --filter @wa-pi/desktop build:win",
+    "pack:linux": "bun run --filter @wa-pi/desktop build:linux",
     "pack:all":   "bun run pack:win && bun run pack:linux",
 ```
 （删 `pack:mac`——macOS phase 2。）
@@ -727,9 +727,9 @@ linux:
 - [ ] **Step 6: 端到端构建（Win portable）**
 
 ```bash
-cd /h/workspace/hiagent && BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ bun run pack:win
+cd /h/workspace/wa-pi && BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ bun run pack:win
 ```
-Expected: `packages/desktop/release/HiAgent <ver>.exe`（Win portable）产出。验证：双击它 → 解压启动 → 托盘 + 窗口（hiagent 页面）+ agent（解释 sidecar，选模型可 prompt）。
+Expected: `packages/desktop/release/WaPi <ver>.exe`（Win portable）产出。验证：双击它 → 解压启动 → 托盘 + 窗口（wa-pi 页面）+ agent（解释 sidecar，选模型可 prompt）。
 
 - [ ] **Step 7: 提交**
 
@@ -751,7 +751,7 @@ git commit -m "feat(desktop): electron-builder 打包(Win portable+Linux AppImag
 
 ```yaml
 # 参考 Gitee Go 文档校准字段名/触发器/镜像名；推送后在流水线编辑器核对一次。
-name: hiagent-release
+name: wa-pi-release
 displayName: 发版打包(Electron)
 triggers:
   push:
@@ -788,7 +788,7 @@ stages:
         run: |
           # Gitee Release API（owner/repo/release-id 首次运行核对，见注释）
           TAG="${GITEE_REF##*/}"
-          OWNER="hiagent"; REPO="hiagent"
+          OWNER="wa-pi"; REPO="wa-pi"
           for f in packages/desktop/release/*.exe packages/desktop/release/*.AppImage packages/desktop/release/checksums.txt; do
             [ -f "$f" ] || continue
             RELEASE_ID=$(curl -fsSL -H "Authorization: token $GITEE_TOKEN" \
@@ -802,7 +802,7 @@ stages:
 - [ ] **Step 2: YAML 语法校验**
 
 ```bash
-cd /h/workspace/hiagent && python -c "import yaml; [yaml.safe_load(open(f)) for f in ['.workflow/ci.yml','.workflow/release.yml']]; print('YAML OK')"
+cd /h/workspace/wa-pi && python -c "import yaml; [yaml.safe_load(open(f)) for f in ['.workflow/ci.yml','.workflow/release.yml']]; print('YAML OK')"
 ```
 
 - [ ] **Step 3: 提交**
@@ -823,14 +823,14 @@ git commit -m "ci: Gitee Go 发版改 electron-builder(+wine 出 Win)"
 - [ ] **Step 1: 构建 Win portable**
 
 ```bash
-cd /h/workspace/hiagent && BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ bun run pack:win
+cd /h/workspace/wa-pi && BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ bun run pack:win
 ```
 
-- [ ] **验收清单（双击 `packages/desktop/release/HiAgent <ver>.exe`）**：
+- [ ] **验收清单（双击 `packages/desktop/release/WaPi <ver>.exe`）**：
 - [ ] 无控制台黑窗；弹出 Electron 窗口
 - [ ] 右下角**青蛙**托盘
-- [ ] 右键托盘 → 「打开 HiAgent」「退出」
-- [ ] 窗口加载 `http://127.0.0.1:9776` → hiagent 页面正常
+- [ ] 右键托盘 → 「打开 WaPi」「退出」
+- [ ] 窗口加载 `http://127.0.0.1:9776` → wa-pi 页面正常
 - [ ] **选模型 + 发消息给 agent → 收到回复**（kernel 解释 sidecar，pi-intercom 从磁盘解析）
 - [ ] 点「退出」→ 托盘消失 + Electron + kernel sidecar（bun）都干净退出（任务管理器无残留）
 - [ ] 再次双击 → 单实例：focus 既有（或干净重启）

@@ -28,7 +28,7 @@ test("scan 含扩展技能时，扩展来源技能出现在 allSkills 中", asyn
   // 模拟扩展技能目录
   const extDir = join(dataDir, "fake-ext", "skills");
   createSkill(extDir, "ext-skill", "扩展技能");
-  // 注意：实际扩展技能在 ~/.hiagent/runtime/node_modules/<pkg>/skills，
+  // 注意：实际扩展技能在 ~/.wa-pi/runtime/node_modules/<pkg>/skills，
   // 这里用任意路径模拟
 
   const mgr = new SkillManager(dataDir);

@@ -1,6 +1,6 @@
 // MemoryCard.tsx — 记忆卡片（含行内编辑态）
 import { useState } from "react";
-import type { MemoryEntry, ArchivedMemory } from "@hiagent/shared";
+import type { MemoryEntry, ArchivedMemory } from "@wa-pi/shared";
 
 interface Props {
   entry: MemoryEntry;

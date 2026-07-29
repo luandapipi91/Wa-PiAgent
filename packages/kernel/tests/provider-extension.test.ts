@@ -6,8 +6,8 @@ import {
   generateProviderExtension,
   ensureProviderExtensionRegistered,
 } from "../src/provider-extension";
-import { GENERATED_DIR } from "@hiagent/shared";
-import type { ModelProvider } from "@hiagent/shared";
+import { GENERATED_DIR } from "@wa-pi/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 
 function sampleProvider(overrides: Partial<ModelProvider> = {}): ModelProvider {
   return {

@@ -1,6 +1,6 @@
 // InstructionItem.tsx — 指令文件条目（只读）
 import { useState } from "react";
-import type { InstructionFile } from "@hiagent/shared";
+import type { InstructionFile } from "@wa-pi/shared";
 import { Modal } from "../ui/Modal";
 
 interface Props {

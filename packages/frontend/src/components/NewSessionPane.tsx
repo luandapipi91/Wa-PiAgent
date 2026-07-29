@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { isModelAvailable, randomSessionId, SYSTEM_PROJECT_ID } from "@hiagent/shared";
-import type { AgentName, AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
+import { isModelAvailable, randomSessionId, SYSTEM_PROJECT_ID } from "@wa-pi/shared";
+import type { AgentName, AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
 import { useProjectsStore } from "../store/projects";
 import { useAgentsStore, topAgentsByRecency } from "../store/agents";
 import { useProvidersStore } from "../store/providers";

@@ -11,7 +11,7 @@
 import { test, expect, afterEach } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { HiAgentSpawnConfig, SubagentProgressEvent } from "../src/subagent-runner";
+import type { WaPiSpawnConfig, SubagentProgressEvent } from "../src/subagent-runner";
 
 // cache-bust：绕过 overrides 测试的 mock.module，加载真实 subagent-runner
 const REAL_RUNNER_SPEC = "../src/subagent-runner.ts?real=1";
@@ -30,7 +30,7 @@ afterEach(() => {
   }
 });
 
-function baseConfig(patch: Partial<HiAgentSpawnConfig> = {}): HiAgentSpawnConfig {
+function baseConfig(patch: Partial<WaPiSpawnConfig> = {}): WaPiSpawnConfig {
   return {
     name: "research",
     description: "调研",
@@ -62,7 +62,7 @@ test("正常流程：回声文本 + isError=false + onProgress 收到 running/do
 
 test("config 映射为 CLI 参数：--model/--thinking(max→xhigh)/--tools/--no-session/--name", async () => {
   const dumpFile = join(
-    "/tmp", `hiagent-argv-dump-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`,
+    "/tmp", `wa-pi-argv-dump-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`,
   );
   tmpPaths.push(dumpFile);
   process.env.ARGV_DUMP_FILE = dumpFile;
@@ -95,7 +95,7 @@ test("config 映射为 CLI 参数：--model/--thinking(max→xhigh)/--tools/--no
 });
 
 test("thinking 映射：disabled → off；null → 不传 --thinking", async () => {
-  const dumpFile = join("/tmp", `hiagent-argv-dump-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+  const dumpFile = join("/tmp", `wa-pi-argv-dump-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
   tmpPaths.push(dumpFile);
   process.env.ARGV_DUMP_FILE = dumpFile;
 

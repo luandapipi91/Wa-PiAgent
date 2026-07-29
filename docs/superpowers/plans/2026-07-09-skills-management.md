@@ -15,10 +15,10 @@
 - **语言**：所有回复/注释/沟通用中文；代码标识符保持语义清晰（AGENTS.md §1）
 - **测试统一用 `bun:test`**：前端组件测试不是 vitest，靠 `packages/frontend/bunfig.toml` 的 `preload = ["./tests/happydom-setup.ts"]` 提供 happy-dom + WebSocket mock。组件测试 import `{ test, expect, mock } from "bun:test"`
 - **精准修改**：只碰必须改的；匹配现有风格（AGENTS.md §4）。复用现有 `ui/Modal`、`ui/ConfirmDialog`、`DirTreePicker`
-- **数据目录**：`HIAGENT_DIR`（`packages/shared/src/constants.ts`，env 可覆盖）
+- **数据目录**：`WA_PI_DIR`（`packages/shared/src/constants.ts`，env 可覆盖）
 - **WS 单例**：前端经 `ws-instance.ts` 的 `send()` / `onMessage()` 收发；store 不直接落盘
-- **settings.json 结构**：`{ packages?: string[], skills?: string[], disabledSkills?: string[], [k: string]: unknown }`。`skills` 是 Pi 直接读的字段；`disabledSkills` 是 HiAgent 自定义字段
-- **内置目录**：`${HIAGENT_DIR}/skills/`，kernel 启动时 `mkdir -p`。不写入 `skills` 数组（Pi 自动扫描 `agentDir/skills/`）。UI 始终展示、无删除按钮
+- **settings.json 结构**：`{ packages?: string[], skills?: string[], disabledSkills?: string[], [k: string]: unknown }`。`skills` 是 Pi 直接读的字段；`disabledSkills` 是 WaPi 自定义字段
+- **内置目录**：`${WA_PI_DIR}/skills/`，kernel 启动时 `mkdir -p`。不写入 `skills` 数组（Pi 自动扫描 `agentDir/skills/`）。UI 始终展示、无删除按钮
 - **设计文档**：`docs/superpowers/specs/2026-07-09-skills-management-design.md`
 
 ---
@@ -47,7 +47,7 @@
 | `packages/shared/src/constants.ts` | 加 `BUILTIN_SKILLS_DIR` 常量 |
 | `packages/kernel/src/agent-manager.ts` | 加 `reloadAllSessions()` 方法（遍历 sessions 调 session.reload()） |
 | `packages/kernel/src/ws-server.ts` | `WSServerOpts` 加 `skillManager` + `agentManager`（已有）；handle 加 4 个 skill case |
-| `packages/kernel/src/index.ts` | 启动时 `mkdir -p ~/.hiagent/skills/` + new SkillManager + 注入 ws-server |
+| `packages/kernel/src/index.ts` | 启动时 `mkdir -p ~/.wa-pi/skills/` + new SkillManager + 注入 ws-server |
 | `packages/frontend/src/store/settings.ts` | `activeSection` 联合类型加 `"skills"` |
 | `packages/frontend/src/components/SettingsModal.tsx` | 左侧导航加「技能」项；右侧条件渲染 `<SkillSection />` |
 | `packages/frontend/src/App.tsx` | onMessage 路由 `skill:list` / `skill:changed` 到 skills store |
@@ -122,7 +122,7 @@ export interface SkillChangedEvent {
 Modify `packages/shared/src/constants.ts`，在 `GENERATED_DIR` 之后加：
 
 ```ts
-export const BUILTIN_SKILLS_DIR = `${HIAGENT_DIR}/skills`;   // 内置技能目录，kernel 启动时创建，不可删
+export const BUILTIN_SKILLS_DIR = `${WA_PI_DIR}/skills`;   // 内置技能目录，kernel 启动时创建，不可删
 ```
 
 - [ ] **Step 3: index.ts re-export**
@@ -176,7 +176,7 @@ git commit -m "feat(shared): 技能管理类型 + WS 事件 + BUILTIN_SKILLS_DIR
 - Create: `packages/kernel/tests/skill-manager.test.ts`
 
 **Interfaces:**
-- Consumes: `HIAGENT_DIR`、`BUILTIN_SKILLS_DIR`（from shared）；Pi SDK `loadSkills`
+- Consumes: `WA_PI_DIR`、`BUILTIN_SKILLS_DIR`（from shared）；Pi SDK `loadSkills`
 - Produces: `SkillManager` 类：
   - `scan(): Promise<{ skills: SkillInfo[]; allSkills: SkillInfo[]; dirs: string[]; disabledSkills: string[]; builtinDir: string }>`
   - `addDir(path: string): Promise<void>` — 校验存在 + 写 settings.json
@@ -192,7 +192,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { rmSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { SkillManager } from "../src/skill-manager";
-import { BUILTIN_SKILLS_DIR } from "@hiagent/shared";
+import { BUILTIN_SKILLS_DIR } from "@wa-pi/shared";
 
 function tmpDir() {
   const dir = join(import.meta.dir, ".tmp-skills-" + Math.random().toString(36).slice(2));
@@ -323,8 +323,8 @@ Create `packages/kernel/src/skill-manager.ts`:
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { HIAGENT_DIR, BUILTIN_SKILLS_DIR } from "@hiagent/shared";
-import type { SkillInfo } from "@hiagent/shared";
+import { WA_PI_DIR, BUILTIN_SKILLS_DIR } from "@wa-pi/shared";
+import type { SkillInfo } from "@wa-pi/shared";
 
 interface SkillSettings {
   packages?: string[];
@@ -348,7 +348,7 @@ interface ScanResult {
 export class SkillManager {
   private builtinDir: string;
 
-  constructor(private dataDir: string = HIAGENT_DIR) {
+  constructor(private dataDir: string = WA_PI_DIR) {
     // 内置目录 = dataDir/skills/（测试注入 dataDir 时随之变化）
     this.builtinDir = join(dataDir, "skills");
   }
@@ -560,7 +560,7 @@ Modify `packages/kernel/src/index.ts`：
 顶部 import 加：
 ```ts
 import { SkillManager } from "./skill-manager";
-import { BUILTIN_SKILLS_DIR } from "@hiagent/shared";
+import { BUILTIN_SKILLS_DIR } from "@wa-pi/shared";
 import { mkdir } from "node:fs/promises";
 ```
 
@@ -582,7 +582,7 @@ import { mkdir } from "node:fs/promises";
     providerStore,
     skillManager,          // ← 新增
     agentManager: null as any,
-    dataDir: HIAGENT_DIR,
+    dataDir: WA_PI_DIR,
     port: WS_PORT,
   });
 ```
@@ -621,7 +621,7 @@ import { SkillManager } from "../src/skill-manager";
 import { ProviderStore } from "../src/provider-store";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
-import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
+import type { WSClientEvent, WSServerEvent } from "@wa-pi/shared";
 
 function tmp(p: string) { return join(import.meta.dir, p + Math.random().toString(36).slice(2)); }
 
@@ -821,7 +821,7 @@ Create `packages/frontend/src/store/skills.ts`:
 
 ```ts
 import { create } from "zustand";
-import type { SkillInfo, SkillListResult, SkillChangedEvent } from "@hiagent/shared";
+import type { SkillInfo, SkillListResult, SkillChangedEvent } from "@wa-pi/shared";
 import { send } from "../ws-instance";
 
 interface SkillsState {
@@ -928,21 +928,21 @@ import { useSkillsStore } from "../src/store/skills";
 beforeEach(() => {
   useSkillsStore.setState({
     skills: [], allSkills: [], dirs: [], disabledSkills: [],
-    builtinDir: "/home/.hiagent/skills", loading: false,
+    builtinDir: "/home/.wa-pi/skills", loading: false,
   });
 });
 
 test("渲染技能目录折叠态 + 已加载技能标题", () => {
   render(<SkillSection />);
   expect(screen.getByText(/技能目录/)).toBeTruthy();
-  expect(screen.getByText("/home/.hiagent/skills")).toBeTruthy();  // 折叠态显示内置目录
+  expect(screen.getByText("/home/.wa-pi/skills")).toBeTruthy();  // 折叠态显示内置目录
   expect(screen.getByText("已加载技能")).toBeTruthy();
 });
 
 test("点击技能目录展开显示目录列表", () => {
   useSkillsStore.setState({
-    dirs: ["/home/.hiagent/skills", "/home/.claude/skills"],
-    builtinDir: "/home/.hiagent/skills",
+    dirs: ["/home/.wa-pi/skills", "/home/.claude/skills"],
+    builtinDir: "/home/.wa-pi/skills",
     allSkills: [],
   });
   render(<SkillSection />);
@@ -953,19 +953,19 @@ test("点击技能目录展开显示目录列表", () => {
 
 test("内置目录无删除按钮", () => {
   useSkillsStore.setState({
-    dirs: ["/home/.hiagent/skills"],
-    builtinDir: "/home/.hiagent/skills",
+    dirs: ["/home/.wa-pi/skills"],
+    builtinDir: "/home/.wa-pi/skills",
     allSkills: [],
   });
   render(<SkillSection />);
   fireEvent.click(screen.getByTestId("skill-dir-toggle"));
-  expect(screen.queryByTestId("skill-dir-remove-/home/.hiagent/skills")).toBeNull();
+  expect(screen.queryByTestId("skill-dir-remove-/home/.wa-pi/skills")).toBeNull();
 });
 
 test("用户目录有删除按钮", () => {
   useSkillsStore.setState({
-    dirs: ["/home/.hiagent/skills", "/home/.claude/skills"],
-    builtinDir: "/home/.hiagent/skills",
+    dirs: ["/home/.wa-pi/skills", "/home/.claude/skills"],
+    builtinDir: "/home/.wa-pi/skills",
     allSkills: [],
   });
   render(<SkillSection />);
@@ -996,8 +996,8 @@ test("技能列表渲染 + checkbox toggle", () => {
 
 test("点击添加技能目录弹出 DirTreePicker", () => {
   useSkillsStore.setState({
-    dirs: ["/home/.hiagent/skills"],
-    builtinDir: "/home/.hiagent/skills",
+    dirs: ["/home/.wa-pi/skills"],
+    builtinDir: "/home/.wa-pi/skills",
     allSkills: [],
   });
   render(<SkillSection />);
@@ -1248,7 +1248,7 @@ test.describe.serial("技能管理", () => {
 
   test("禁用技能 + 启用技能", async ({ page }) => {
     // 先通过 WS 添加一个带技能的目录，让技能列表有内容
-    const e2eSkillDir = join(process.env.HOME || "~", ".hiagent-e2e-skills-test");
+    const e2eSkillDir = join(process.env.HOME || "~", ".wa-pi-e2e-skills-test");
     if (!existsSync(e2eSkillDir)) {
       const skillDir = join(e2eSkillDir, "test-skill");
       mkdirSync(skillDir, { recursive: true });
@@ -1311,7 +1311,7 @@ Modify `CHANGELOG.md`，在顶部加：
 ## 2026-07-09 — 技能管理
 
 - **类型**：新增功能
-- **摘要**：系统设置页新增「技能」菜单。支持管理技能加载目录（内置 `~/.hiagent/skills/` 不可删 + 用户自定义目录增删）、查看已加载技能列表、单独启用/禁用技能。同名技能去重（内置优先）。配置变更后自动 reload 所有活跃会话热生效。
+- **摘要**：系统设置页新增「技能」菜单。支持管理技能加载目录（内置 `~/.wa-pi/skills/` 不可删 + 用户自定义目录增删）、查看已加载技能列表、单独启用/禁用技能。同名技能去重（内置优先）。配置变更后自动 reload 所有活跃会话热生效。
 - **影响范围**：`shared/src/skills.ts`（新增类型+WS事件）、`shared/src/constants.ts`（BUILTIN_SKILLS_DIR）、`shared/src/types.ts`（WS联合扩展）、`kernel/src/skill-manager.ts`（扫描/去重/目录管理/toggle）、`kernel/src/agent-manager.ts`（reloadAllSessions）、`kernel/src/ws-server.ts`+`index.ts`（WS接入+启动注册）、`frontend/src/store/skills.ts`、`frontend/src/components/settings/SkillSection.tsx`、`frontend/src/store/settings.ts`（activeSection扩展）、`frontend/src/components/SettingsModal.tsx`、`frontend/src/App.tsx`
 ```
 

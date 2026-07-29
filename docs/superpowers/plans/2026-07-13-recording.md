@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **音源**：仅 `mic` 与 `system` 两种，免权限；技术栈锁定 WebRTC + Electron，不引入原生插件。
-- **上传目录**：项目附件统一写到 `<project.cwd>/.hiagent/uploads/`（与现有 `fs:upload` 一致，不得改）。
+- **上传目录**：项目附件统一写到 `<project.cwd>/.wa-pi/uploads/`（与现有 `fs:upload` 一致，不得改）。
 - **单例**：整个应用同时只允许一次录音；冲突时提示「项目 XX - 会话 XX 正在录音，需要等到上一个录音结束才能开始新的录音」。
 - **录音格式**：`audio/webm`（MediaRecorder 默认 opus）；不做格式转换、不做 STT。
 - **附件 kind**：新增 `audio`，结构与 `file` 一致外加可选 `durationMs`。
@@ -166,7 +166,7 @@ git commit -m "feat(shared): 录音附件 audio kind + fs:recording:* WS 协议�
 
 **Interfaces:**
 - Consumes: Task 1 的 `FSRecording*Request/Result` 类型；现有 `projectStore.load()`（取 `project.cwd`）。
-- Produces: `recording-store.ts` 导出 `appendChunk(uploadDir, recId, base64Chunk)`、`finalizeRecording(uploadDir, recId, finalName): Promise<string>`（返回最终 path）、`discardRecording(uploadDir, recId)`、`cleanupRecordingTemp(uploadDir)`、`recordingTempPath(uploadDir, recId)`。ws-server handler 以 `uploadDir = join(project.cwd, ".hiagent", "uploads")` 调用它们。
+- Produces: `recording-store.ts` 导出 `appendChunk(uploadDir, recId, base64Chunk)`、`finalizeRecording(uploadDir, recId, finalName): Promise<string>`（返回最终 path）、`discardRecording(uploadDir, recId)`、`cleanupRecordingTemp(uploadDir)`、`recordingTempPath(uploadDir, recId)`。ws-server handler 以 `uploadDir = join(project.cwd, ".wa-pi", "uploads")` 调用它们。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -322,7 +322,7 @@ import { appendChunk, finalizeRecording, discardRecording } from "./recording-st
           const data = await this.opts.projectStore.load();
           const project = data.projects.find(p => p.id === event.projectId);
           if (!project?.cwd) throw new Error(`项目不存在或无工作目录: ${event.projectId}`);
-          const uploadDir = join(project.cwd, ".hiagent", "uploads");
+          const uploadDir = join(project.cwd, ".wa-pi", "uploads");
           await appendChunk(uploadDir, event.recId, event.chunk);
           reply({ type: "fs:recording:append", id: event.id });
         } catch (e) {
@@ -335,7 +335,7 @@ import { appendChunk, finalizeRecording, discardRecording } from "./recording-st
           const data = await this.opts.projectStore.load();
           const project = data.projects.find(p => p.id === event.projectId);
           if (!project?.cwd) throw new Error(`项目不存在或无工作目录: ${event.projectId}`);
-          const uploadDir = join(project.cwd, ".hiagent", "uploads");
+          const uploadDir = join(project.cwd, ".wa-pi", "uploads");
           const path = await finalizeRecording(uploadDir, event.recId, event.finalName);
           reply({ type: "fs:recording:finalize", id: event.id, path });
         } catch (e) {
@@ -348,7 +348,7 @@ import { appendChunk, finalizeRecording, discardRecording } from "./recording-st
           const data = await this.opts.projectStore.load();
           const project = data.projects.find(p => p.id === event.projectId);
           if (!project?.cwd) throw new Error(`项目不存在或无工作目录: ${event.projectId}`);
-          const uploadDir = join(project.cwd, ".hiagent", "uploads");
+          const uploadDir = join(project.cwd, ".wa-pi", "uploads");
           await discardRecording(uploadDir, event.recId);
           reply({ type: "fs:recording:discard", id: event.id });
         } catch (e) {
@@ -371,7 +371,7 @@ import { join } from "node:path";
   // 启动清理：上次崩溃/异常退出遗留的录音临时分片
   try {
     const { projects } = await projectStore.load();
-    await Promise.all(projects.map(p => p.cwd ? cleanupRecordingTemp(join(p.cwd, ".hiagent", "uploads")) : Promise.resolve()));
+    await Promise.all(projects.map(p => p.cwd ? cleanupRecordingTemp(join(p.cwd, ".wa-pi", "uploads")) : Promise.resolve()));
   } catch (e) {
     console.warn("[kernel] 清理录音临时文件失败:", e);
   }
@@ -408,12 +408,12 @@ import { resolveUploadFile } from "../src/ws-server";
 const projects = [{ cwd: "/home/me/proj" }];
 
 test("uploads 下的文件返回绝对路径", () => {
-  const u = new URL("http://x/file?path=" + encodeURIComponent("/home/me/proj/.hiagent/uploads/a.webm"));
-  expect(resolveUploadFile(u, projects)).toBe("/home/me/proj/.hiagent/uploads/a.webm");
+  const u = new URL("http://x/file?path=" + encodeURIComponent("/home/me/proj/.wa-pi/uploads/a.webm"));
+  expect(resolveUploadFile(u, projects)).toBe("/home/me/proj/.wa-pi/uploads/a.webm");
 });
 
 test("路径穿越（..）到 uploads 外被拒", () => {
-  const malicious = "/home/me/proj/.hiagent/uploads/../../etc/passwd";
+  const malicious = "/home/me/proj/.wa-pi/uploads/../../etc/passwd";
   const u = new URL("http://x/file?path=" + encodeURIComponent(malicious));
   expect(resolveUploadFile(u, projects)).toBeNull();
 });
@@ -430,8 +430,8 @@ test("缺少 path 参数返回 null", () => {
 
 test("多个项目：命中其中任一 uploads 即放行", () => {
   const multi = [{ cwd: "/a" }, { cwd: "/b" }];
-  const u = new URL("http://x/file?path=" + encodeURIComponent("/b/.hiagent/uploads/x.webm"));
-  expect(resolveUploadFile(u, multi)).toBe("/b/.hiagent/uploads/x.webm");
+  const u = new URL("http://x/file?path=" + encodeURIComponent("/b/.wa-pi/uploads/x.webm"));
+  expect(resolveUploadFile(u, multi)).toBe("/b/.wa-pi/uploads/x.webm");
 });
 ```
 
@@ -450,7 +450,7 @@ import { resolve, normalize } from "node:path";
 在 `getMimeType` 函数之后加：
 ```ts
 /**
- * 解析 /file?path=<abs>：仅当 path 解析后落在某项目 .hiagent/uploads 下才放行。
+ * 解析 /file?path=<abs>：仅当 path 解析后落在某项目 .wa-pi/uploads 下才放行。
  * 防 .. 穿越与非 uploads 路径。返回安全绝对路径，否则 null。
  */
 export function resolveUploadFile(url: URL, projects: { cwd: string }[]): string | null {
@@ -460,7 +460,7 @@ export function resolveUploadFile(url: URL, projects: { cwd: string }[]): string
   if (resolved.includes("..")) return null;   // resolve 后仍含 .. → 拒
   for (const p of projects) {
     if (!p.cwd) continue;
-    const uploadsRoot = resolve(join(p.cwd, ".hiagent", "uploads"));
+    const uploadsRoot = resolve(join(p.cwd, ".wa-pi", "uploads"));
     // 确保是 uploadsRoot 的子路径（带尾部分隔符防前缀同名）
     const rel = resolved.startsWith(uploadsRoot + "/") || resolved === uploadsRoot
       ? resolved.slice(uploadsRoot.length) : null;
@@ -587,8 +587,8 @@ test("discardRecording 正常 resolve", async () => {
 
 test("pathToUploadUrl 对绝对路径做 encode", () => {
   _setFsTransport(null);  // 不依赖 transport
-  const u = pathToUploadUrl("/home/me/p/.hiagent/uploads/r.webm");
-  expect(u).toBe("/file?path=" + encodeURIComponent("/home/me/p/.hiagent/uploads/r.webm"));
+  const u = pathToUploadUrl("/home/me/p/.wa-pi/uploads/r.webm");
+  expect(u).toBe("/file?path=" + encodeURIComponent("/home/me/p/.wa-pi/uploads/r.webm"));
 });
 ```
 
@@ -1000,7 +1000,7 @@ Expected: FAIL（store 不存在）
 `packages/frontend/src/store/recording.ts`:
 ```ts
 import { create } from "zustand";
-import type { AttachmentDraft } from "@hiagent/shared";
+import type { AttachmentDraft } from "@wa-pi/shared";
 import { getRecordingManager, type StartArgs, type RecordingResult } from "../recording/recorder";
 import { useComposerPrefsStore } from "./composer-prefs";
 
@@ -1218,16 +1218,16 @@ git commit -m "refactor(frontend): 移除废弃的编排画布（按钮/View/组
 import { test, expect } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import { AttachmentChip } from "../src/components/ui/AttachmentChip";
-import type { AttachmentDraft } from "@hiagent/shared";
+import type { AttachmentDraft } from "@wa-pi/shared";
 
 test("audio chip 渲染文件名 + <audio> 试听 + 移除按钮", () => {
-  const a: AttachmentDraft = { kind: "audio", name: "rec.webm", path: "/p/.hiagent/uploads/rec.webm", size: 10, durationMs: 2000 };
+  const a: AttachmentDraft = { kind: "audio", name: "rec.webm", path: "/p/.wa-pi/uploads/rec.webm", size: 10, durationMs: 2000 };
   const onRemove = () => {};
   render(<AttachmentChip attachment={a} onRemove={onRemove} />);
   expect(screen.getByText("rec.webm")).toBeTruthy();
   const audio = document.querySelector("audio") as HTMLAudioElement;
   expect(audio).toBeTruthy();
-  expect(audio?.getAttribute("src")).toBe("/file?path=" + encodeURIComponent("/p/.hiagent/uploads/rec.webm"));
+  expect(audio?.getAttribute("src")).toBe("/file?path=" + encodeURIComponent("/p/.wa-pi/uploads/rec.webm"));
   expect(screen.getByLabelText("移除附件")).toBeTruthy();
 });
 
@@ -1247,7 +1247,7 @@ Expected: FAIL（audio 时不渲染 `<audio>`）
 
 整体替换为：
 ```tsx
-import type { AttachmentDraft } from "@hiagent/shared";
+import type { AttachmentDraft } from "@wa-pi/shared";
 import { pathToUploadUrl } from "../../fs-client";
 
 interface Props {
@@ -1781,7 +1781,7 @@ Expected: 全绿（含新增 8 个测试文件）
 - [ ] ⏸ 暂停：计时停、状态点变黄；▶ 继续：恢复
 - [ ] 切到会话 B：胶囊仍在 B header 显示，带「项目A · 会话A」label，能从 B 暂停/停止 A 的录音
 - [ ] A 录音中，在 B 点 🎙：弹出 toast「项目A · 会话A 正在录音…」，B 不开始新录音
-- [ ] 停止后：归属会话 A 的 composer 自动出现 audio chip（B 没有），输入消息发送给 agent，附件路径正确（agent 收到 `.hiagent/uploads/recording-*.webm`）
+- [ ] 停止后：归属会话 A 的 composer 自动出现 audio chip（B 没有），输入消息发送给 agent，附件路径正确（agent 收到 `.wa-pi/uploads/recording-*.webm`）
 - [ ] 编排画布按钮与界面已彻底消失
 - [ ] 长录音（>10 分钟）期间任务管理器观察 renderer 内存稳定（不随时间增长 → 验证边录边落盘）
 

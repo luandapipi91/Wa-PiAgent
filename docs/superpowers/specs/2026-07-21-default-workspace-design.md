@@ -5,18 +5,18 @@
 
 ## 概述
 
-在会话列表顶部新增一个常驻的 **🏠 默认工作区** 虚拟项目（本质是一个 `ProjectEntity`，`id = "__system__"`，`cwd = ~/.hiagent/workdir/`）。该项目不可删除、不可改名，作为"没有具体工程目录时的默认聊天空间"。
+在会话列表顶部新增一个常驻的 **🏠 默认工作区** 虚拟项目（本质是一个 `ProjectEntity`，`id = "__system__"`，`cwd = ~/.wa-pi/workdir/`）。该项目不可删除、不可改名，作为"没有具体工程目录时的默认聊天空间"。
 
-默认工作区下的每个会话有独立的 cwd：**`~/.hiagent/workdir/<session.createdAt>/`**，新建会话时 `mkdir -p`，确保 agent 的文件操作都被隔离在自己会话的子目录里。
+默认工作区下的每个会话有独立的 cwd：**`~/.wa-pi/workdir/<session.createdAt>/`**，新建会话时 `mkdir -p`，确保 agent 的文件操作都被隔离在自己会话的子目录里。
 
 默认工作区的会话**可以删除**（流程同普通项目会话），但删除后**保留** `<createdAt>/` 子目录，由后台清理任务 **7 天后** 自动清理（带"被现存 session 引用则不删"的保护）。
 
-skill / mcp **完全继承全局配置**：skill 天然全局（无需改动）；mcp 通过"不在 `<createdAt>/` 下创建 `.mcp.json`"，让 SDK 自动只发现 `~/.hiagent/mcp.json` 全局配置（无需新增逻辑）。
+skill / mcp **完全继承全局配置**：skill 天然全局（无需改动）；mcp 通过"不在 `<createdAt>/` 下创建 `.mcp.json`"，让 SDK 自动只发现 `~/.wa-pi/mcp.json` 全局配置（无需新增逻辑）。
 
 ## 设计目标
 
 1. 会话列表有一个常驻的"默认工作区"入口，新建会话流程与普通项目**完全一致**
-2. 默认工作区的每个会话有**独立隔离的 pwd**（`~/.hiagent/workdir/<createdAt>/`），互不干扰
+2. 默认工作区的每个会话有**独立隔离的 pwd**（`~/.wa-pi/workdir/<createdAt>/`），互不干扰
 3. **完全不动数据模型**（`SessionEntity` / `ProjectEntity` 不加任何字段），向后兼容老数据
 4. 删会话时 `<createdAt>/` 目录保留 7 天后再清理，用户有后悔期
 5. skill / mcp 继承全局，无需新增独立管理
@@ -24,7 +24,7 @@ skill / mcp **完全继承全局配置**：skill 天然全局（无需改动）�
 
 ## 非目标
 
-- 不支持用户自定义 `workdir` 根目录位置（固定 `~/.hiagent/workdir/`）
+- 不支持用户自定义 `workdir` 根目录位置（固定 `~/.wa-pi/workdir/`）
 - 不支持普通项目会话的 per-session pwd（仅默认工作区享有隔离）
 - 不支持用户手动配置 `<createdAt>/` 子目录的命名格式（固定时间戳）
 - 不实现 `inheritSkills` / `inheritProjectContext` 字段（死字段，后端无消费，保持现状）
@@ -33,9 +33,9 @@ skill / mcp **完全继承全局配置**：skill 天然全局（无需改动）�
 
 - `SessionEntity`（`shared/src/types.ts:65-73`）：**不新增 cwd 字段**。所有 cwd 判断运行时从 `session.createdAt` 推导
 - `ProjectEntity`（`shared/src/types.ts:58-63`）：**不新增 isSystem 字段**。所有判断走 `project.id === SYSTEM_PROJECT_ID` 常量
-- `skill-manager.ts`：skill 配置文件 `~/.hiagent/settings.json` + 内置目录 `~/.hiagent/skills/`，所有会话共享同一份——天然全局，无需改动
-- `mcp-store.ts`：全局 MCP 配置 `~/.hiagent/mcp.json`，项目级 MCP 配置 `<project.cwd>/.mcp.json`。默认工作区的 `<createdAt>/` 目录下**不创建** `.mcp.json`，SDK 自动只继承全局
-  - **补充说明（project 级）**：系统项目的 `project.cwd = ~/.hiagent/workdir`，因此 `mcp-store` 在 UI 选择"默认工作区"scope 时会写 `~/.hiagent/workdir/.mcp.json`。这是设计内允许的——默认工作区可以有自己的 project 级 MCP（区别于 `~/.hiagent/mcp.json` 全局），与"会话级 `<createdAt>/.mcp.json` 不创建"是两个层面
+- `skill-manager.ts`：skill 配置文件 `~/.wa-pi/settings.json` + 内置目录 `~/.wa-pi/skills/`，所有会话共享同一份——天然全局，无需改动
+- `mcp-store.ts`：全局 MCP 配置 `~/.wa-pi/mcp.json`，项目级 MCP 配置 `<project.cwd>/.mcp.json`。默认工作区的 `<createdAt>/` 目录下**不创建** `.mcp.json`，SDK 自动只继承全局
+  - **补充说明（project 级）**：系统项目的 `project.cwd = ~/.wa-pi/workdir`，因此 `mcp-store` 在 UI 选择"默认工作区"scope 时会写 `~/.wa-pi/workdir/.mcp.json`。这是设计内允许的——默认工作区可以有自己的 project 级 MCP（区别于 `~/.wa-pi/mcp.json` 全局），与"会话级 `<createdAt>/.mcp.json` 不创建"是两个层面
 - `projects.json` 结构 `{ projects: [], sessions: [] }` 不变
 - WS 协议事件不变：复用 `projects:list` / `session:created` / `agent:prompt` / `session:delete` 等
 
@@ -48,7 +48,7 @@ skill / mcp **完全继承全局配置**：skill 天然全局（无需改动）�
 ```ts
 export const SYSTEM_PROJECT_ID = "__system__";
 export const SYSTEM_PROJECT_NAME = "默认工作区";
-export const SYSTEM_PROJECT_CWD = join(HIAGENT_DIR, "workdir");    // ~/.hiagent/workdir
+export const SYSTEM_PROJECT_CWD = join(WA_PI_DIR, "workdir");    // ~/.wa-pi/workdir
 export const WORKDIR_TTL_DAYS = 7;
 ```
 
@@ -149,14 +149,14 @@ if (projectId === SYSTEM_PROJECT_ID) {
 
 ### ⑥ 上传目录（`packages/kernel/src/ws-server.ts`）
 
-现状：`ws-server.ts:563/587/663/676/689` 全部写死 `join(project.cwd, ".hiagent", "uploads")`。
+现状：`ws-server.ts:563/587/663/676/689` 全部写死 `join(project.cwd, ".wa-pi", "uploads")`。
 
 改动：新增辅助函数，按 session 推导：
 
 ```ts
 function resolveUploadDir(project: ProjectEntity, session: SessionEntity): string {
   const base = resolveSessionCwd(session, project);
-  return join(base, ".hiagent", "uploads");
+  return join(base, ".wa-pi", "uploads");
 }
 ```
 
@@ -171,7 +171,7 @@ function resolveUploadDir(project: ProjectEntity, session: SessionEntity): strin
 ```ts
 import { rm, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { SYSTEM_PROJECT_CWD, WORKDIR_TTL_DAYS } from "@hiagent/shared";
+import { SYSTEM_PROJECT_CWD, WORKDIR_TTL_DAYS } from "@wa-pi/shared";
 import type { ProjectStore } from "./project-store";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -246,7 +246,7 @@ UI 决策汇总：
 | 组件复用 | 复用 `ProjectItem`，对 `id === SYSTEM_PROJECT_ID` 做差异化 |
 | 项目右键菜单 | 仅"查看文件夹"（不显示重命名/删除项目） |
 | 会话右键菜单 | 重命名 + 删除 + **额外加"打开工作目录"** |
-| 项目下拉显示 | `🏠 默认工作区`（不显示 `~/.hiagent/workdir`） |
+| 项目下拉显示 | `🏠 默认工作区`（不显示 `~/.wa-pi/workdir`） |
 | 项目下拉默认选中 | 默认工作区优先选中（任何首次进入新建会话页时） |
 | SessionView header | **友好文案**：`默认工作区 · 工作目录`（不暴露内部路径） |
 | 点击项目名 | 进 NewSessionPane（同普通项目流程） |
@@ -391,7 +391,7 @@ const initialProject =
 } · {AGENT_STATE_LABEL[headerStatus]}
 ```
 
-默认工作区的会话 header 显示 `默认工作区 · 工作目录`，不暴露 `~/.hiagent/workdir/<createdAt>/` 路径。
+默认工作区的会话 header 显示 `默认工作区 · 工作目录`，不暴露 `~/.wa-pi/workdir/<createdAt>/` 路径。
 
 ### ⑩ shared/pure.ts 抽取共享函数
 
@@ -419,7 +419,7 @@ agent-manager、ws-server、SessionView、workdir-cleaner 全部引用同一个�
 | `workdir/<ts>/` mkdir 失败（磁盘满等） | createSession 抛错，`agent:prompt` handler catch 后返回 error 广播，前端提示"会话目录创建失败" |
 | workdir cleaner 误删 | 三重防护：目录名纯数字 + 不在 session 表里 + mtime 超 7 天 |
 | workdir cleaner 抛错 | 单次清理失败不影响主流程，console.warn 后继续 |
-| agent 在默认工作区会话内写文件 | 走 `<createdAt>/.hiagent/uploads/` 之外的常规写文件工具，SDK 自动按 cwd 隔离到 `<createdAt>/` 下 |
+| agent 在默认工作区会话内写文件 | 走 `<createdAt>/.wa-pi/uploads/` 之外的常规写文件工具，SDK 自动按 cwd 隔离到 `<createdAt>/` 下 |
 
 ## 测试计划（4 层厕所原则）
 
@@ -459,7 +459,7 @@ agent-manager、ws-server、SessionView、workdir-cleaner 全部引用同一个�
 
 **`packages/frontend/src/components/NewSessionPane.test.tsx`**
 - 首次进入（无 currentProjectId）时项目下拉默认选中 `__system__`
-- 项目下拉里出现 `🏠 默认工作区` 选项，option 文本不含 `~/.hiagent/workdir`
+- 项目下拉里出现 `🏠 默认工作区` 选项，option 文本不含 `~/.wa-pi/workdir`
 - 普通项目 option 文本仍含 cwd
 - 选择默认工作区后 `handleSend` 能成功（不因缺少普通 projectId 被拦截）
 
@@ -469,20 +469,20 @@ agent-manager、ws-server、SessionView、workdir-cleaner 全部引用同一个�
 
 ### 第三层：API 集成测试（WS）
 
-- 发 `agent:prompt` 带 `projectId = "__system__"` → 收到的 `session:created` 事件里 session 正常；磁盘上 `~/.hiagent/workdir/<createdAt>/` 目录被创建
+- 发 `agent:prompt` 带 `projectId = "__system__"` → 收到的 `session:created` 事件里 session 正常；磁盘上 `~/.wa-pi/workdir/<createdAt>/` 目录被创建
 - 发 `project:delete` 带 `projectId = "__system__"` → 收到 `error` 广播，且 `projects:list` 里系统项目仍存在
 - 发 `project:update` 带 `projectId = "__system__"` → 收到 `error` 广播，name 不变
-- 发 `session:delete` 删除默认工作区下的会话 → session 从 `projects:list` 消失，但 `~/.hiagent/workdir/<createdAt>/` 目录**仍在磁盘**
-- 启动 kernel 后扫描 `~/.hiagent/workdir/` 下 8 天前的孤立目录 → 被清理；被现存 session 引用的目录保留
+- 发 `session:delete` 删除默认工作区下的会话 → session 从 `projects:list` 消失，但 `~/.wa-pi/workdir/<createdAt>/` 目录**仍在磁盘**
+- 启动 kernel 后扫描 `~/.wa-pi/workdir/` 下 8 天前的孤立目录 → 被清理；被现存 session 引用的目录保留
 
 ### 第四层：E2E（Playwright + Chromium）
 
 1. 在侧栏"默认"独立区点击 `🏠 默认工作区` → 右侧进入新建会话页，项目下拉默认选中 `🏠 默认工作区`
 2. 在新建会话页选择智能体、输入消息 → 发送 → 进入会话视图
 3. SessionView header 显示 `默认工作区 · 工作目录`
-4. 在会话视图让 agent 调用 `write_to_file` 工具创建一个文件 → 断言磁盘上 `~/.hiagent/workdir/<createdAt>/文件名` 存在
+4. 在会话视图让 agent 调用 `write_to_file` 工具创建一个文件 → 断言磁盘上 `~/.wa-pi/workdir/<createdAt>/文件名` 存在
 5. 右键该会话 → 菜单显示"重命名会话"+"删除聊天"+"打开工作目录"（三项都在）
-6. 点"打开工作目录" → 系统文件管理器打开 `~/.hiagent/workdir/<createdAt>/`（macOS 用 Finder，可断言 WS 事件发出）
+6. 点"打开工作目录" → 系统文件管理器打开 `~/.wa-pi/workdir/<createdAt>/`（macOS 用 Finder，可断言 WS 事件发出）
 7. 右键项目名 → 菜单**仅**显示"查看文件夹"（无"删除项目"）
 8. 删除该会话 → 侧栏列表更新；断言 `<createdAt>/` 目录**仍存在**于磁盘
 9. 手动改 `<createdAt>/` 目录的 mtime 为 8 天前，触发 `cleanupExpiredWorkdirs(projectStore)` → 断言目录被删除
@@ -501,7 +501,7 @@ agent-manager、ws-server、SessionView、workdir-cleaner 全部引用同一个�
 ```
 - 2026-07-21 / 新增功能
 - 摘要：会话列表新增"🏠 默认工作区"常驻虚拟项目；默认工作区下的每个会话在
-        ~/.hiagent/workdir/<createdAt>/ 下隔离 pwd，互不干扰；删除会话保留目录 7 天后
+        ~/.wa-pi/workdir/<createdAt>/ 下隔离 pwd，互不干扰；删除会话保留目录 7 天后
         自动清理；skill/mcp 继承全局配置
 - 影响范围：shared/constants.ts、shared/pure.ts、kernel/index.ts、kernel/project-store.ts、
             kernel/ws-server.ts、kernel/agent-manager.ts、kernel/workdir-cleaner.ts（新）、

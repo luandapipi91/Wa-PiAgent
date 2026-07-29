@@ -1,9 +1,9 @@
 // memory.spec.ts — 记忆管理 E2E 测试（Task 12）
 //
 // 覆盖 spec 场景：进入记忆页 → 查看列表 → 编辑 → 归档 → 指令文件 Tab → 双开关。
-// 测试数据由 global-setup.ts 在 kernel 启动前预置到隔离 HIAGENT_DIR：
+// 测试数据由 global-setup.ts 在 kernel 启动前预置到隔离 WA_PI_DIR：
 //   memories/global/MEMORY.md（两条 § 分隔记忆）+ USER.md + 全局 AGENTS.md。
-// 注意：不能在测试里直接写 E2E_HIAGENT_DIR —— Playwright worker 进程会重新
+// 注意：不能在测试里直接写 E2E_WA_PI_DIR —— Playwright worker 进程会重新
 // 求值 playwright.config.ts 的 randomUUID()，拿到与 globalSetup 不同的目录。
 import { test, expect } from "@playwright/test";
 

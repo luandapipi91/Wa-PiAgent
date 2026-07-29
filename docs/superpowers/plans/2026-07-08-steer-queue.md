@@ -83,7 +83,7 @@ export interface SteerClearQueueEvent {
 - [ ] **Step 4: 验证类型编译**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/kernel typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 预期: exit code 0
 
@@ -183,7 +183,7 @@ git commit -m "feat(types): 新增 steer 队列 WS 协议事件 + queue_update S
 - [ ] **Step 4: 验证类型编译**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/kernel typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 预期: exit code 0
 
@@ -379,7 +379,7 @@ test("clearSteeringQueue / clearFollowUpQueue — session 不存在时静默忽�
 - [ ] **Step 7: 运行测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/agent-manager.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/agent-manager.test.ts
 ```
 预期: 全部 PASS
 
@@ -441,7 +441,7 @@ git commit -m "test(agent-manager): 更新 mock + 新增队列方法测试"
 - [ ] **Step 3: 验证类型编译**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/kernel typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 预期: exit code 0
 
@@ -462,14 +462,14 @@ git commit -m "feat(ws-server): 新增 steer:promote/immediate/cancel/clear-queu
 - [ ] **Step 1: 运行所有 kernel 测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/
 ```
 预期: 全部 PASS，无 FAIL
 
 - [ ] **Step 2: typecheck 全局**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run typecheck
+cd /Users/pipi/work/WaPi && bun run typecheck
 ```
 预期: exit code 0
 

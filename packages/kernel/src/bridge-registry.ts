@@ -1,6 +1,6 @@
 // bridge-registry.ts — /bridge/tool 端点的分发核心：会话上下文注册表 + 进程级 token。
 //
-// pi 进程内的 hiagent-bridge 扩展把工具调用 POST 到 kernel /bridge/tool，
+// pi 进程内的 wa-pi-bridge 扩展把工具调用 POST 到 kernel /bridge/tool，
 // 本模块按 sessionId 找到 AgentManager（或测试）注册的 BridgeSessionContext 并分发执行。
 // token 用于防本机其他进程伪造调用（bridge 端点只认 kernel spawn pi 时注入的 token）。
 import { randomUUID } from "node:crypto";
@@ -40,7 +40,7 @@ export function getBridgeSession(sessionId: string): BridgeSessionContext | unde
 
 let bridgeToken: string | null = null;
 
-/** 进程级随机 token（惰性生成一次）：kernel spawn pi 时经 HIAGENT_BRIDGE_TOKEN 注入 */
+/** 进程级随机 token（惰性生成一次）：kernel spawn pi 时经 WA_PI_BRIDGE_TOKEN 注入 */
 export function getBridgeToken(): string {
   if (!bridgeToken) bridgeToken = randomUUID();
   return bridgeToken;

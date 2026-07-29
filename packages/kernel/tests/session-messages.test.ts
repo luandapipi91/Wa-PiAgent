@@ -8,7 +8,7 @@ import { ProviderStore } from "../src/provider-store";
 import { SkillManager } from "../src/skill-manager";
 import { ExtensionManager } from "../src/extension-manager";
 import { WSServer } from "../src/ws-server";
-import type { AgentMessage } from "@hiagent/shared";
+import type { AgentMessage } from "@wa-pi/shared";
 
 // 测试：点历史会话 → kernel 通过 AgentSession.messages 拉 SDK session 的历史消息
 // REST 版本（替代原 WS 版本）

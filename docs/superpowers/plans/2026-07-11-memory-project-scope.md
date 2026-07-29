@@ -54,7 +54,7 @@
 {
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.80.0",
-    "@hiagent/shared": "workspace:*",
+    "@wa-pi/shared": "workspace:*",
     "@amaster.ai/pi-memory": "^0.1.5",
     "pi-intercom": "^0.6.0",
     "pi-web-access": "^0.13.0",
@@ -93,13 +93,13 @@
 ```ts
 const loader = new sdk.DefaultResourceLoader({
   cwd: project.cwd,
-  agentDir: HIAGENT_DIR,
+  agentDir: WA_PI_DIR,
   additionalExtensionPaths: buildAdditionalExtensionPaths(),
   additionalSkillPaths,
   systemPromptOverride: () =>
     config?.systemPromptMode === "append" && config.systemPromptBody
       ? config.systemPromptBody!
-      : HIAGENT_DEFAULT_SYSTEM_PROMPT,
+      : WA_PI_DEFAULT_SYSTEM_PROMPT,
   agentsFilesOverride:
     config?.systemPromptMode === "append" && config.systemPromptBody
       ? (current: { agentsFiles: Array<{ path: string; content: string }> }) => ({
@@ -114,7 +114,7 @@ await loader.reload();
 
 ({ session } = await createFn({
   cwd: project.cwd,
-  agentDir: HIAGENT_DIR,
+  agentDir: WA_PI_DIR,
   sessionManager: sdk.SessionManager.open(sessionEntity.piSessionFile),
   resourceLoader: loader,
   thinkingLevel: config?.thinking ?? "medium",
@@ -183,8 +183,8 @@ git commit -m "chore(kernel): 移除 pi-hermes-memory chdir POC，准备替换 a
 **Interfaces:**
 - Consumes: `@amaster.ai/pi-memory` 的 `MemoryStore` 与 `createMemoryTools`。
 - Produces:
-  - `getGlobalMemoryStore(hiagentDir): AmasterStore`
-  - `getProjectMemoryStore(hiagentDir, cwd): AmasterStore`
+  - `getGlobalMemoryStore(waPiDir): AmasterStore`
+  - `getProjectMemoryStore(waPiDir, cwd): AmasterStore`
   - `AmasterStore.add(text: string): Promise<void>`
   - `AmasterStore.update(oldText: string, newText: string): Promise<boolean>`
   - `AmasterStore.remove(oldText: string): Promise<boolean>`
@@ -262,15 +262,15 @@ export interface AmasterStore {
   formatForPrompt(limit?: number): Promise<string>;
 }
 
-/** 从 hiagentDir 生成全局记忆目录 */
-export function getGlobalMemoryStore(hiagentDir: string): AmasterStore {
-  return createStore(join(hiagentDir, "memories", "global"));
+/** 从 waPiDir 生成全局记忆目录 */
+export function getGlobalMemoryStore(waPiDir: string): AmasterStore {
+  return createStore(join(waPiDir, "memories", "global"));
 }
 
 /** 按 project.cwd 生成项目记忆目录（取 cwd basename） */
-export function getProjectMemoryStore(hiagentDir: string, cwd: string): AmasterStore {
+export function getProjectMemoryStore(waPiDir: string, cwd: string): AmasterStore {
   const projectName = cwd.replace(/\\/g, "/").replace(/\/$/, "").split("/").pop() || "default";
-  return createStore(join(hiagentDir, "projects-memory", projectName));
+  return createStore(join(waPiDir, "projects-memory", projectName));
 }
 
 function createStore(dir: string): AmasterStore {
@@ -358,7 +358,7 @@ git commit -m "feat(kernel): 添加 @amaster.ai/pi-memory 包装层"
 
 ```ts
 test("add 全局记忆后 list 能读到", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   await store.add("global", "新全局记忆");
   const { memories } = await store.list();
   const found = memories.find(m => m.text === "新全局记忆" && m.scope === "global");
@@ -366,7 +366,7 @@ test("add 全局记忆后 list 能读到", async () => {
 });
 
 test("add 项目记忆后 list 能读到", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/my-project") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/my-project") });
   await store.add("project", "新项目记忆", "p1");
   const { memories } = await store.list("p1");
   const found = memories.find(m => m.text === "新项目记忆" && m.scope === "project");
@@ -395,11 +395,11 @@ Expected: 新增两个测试 FAIL（`store.add` 不存在）。
 2. 在 `MemoryStore` 类内新增辅助方法：
    ```ts
    private async getAmasterStores(projectId?: string): Promise<{ global: AmasterStore; project?: AmasterStore }> {
-     const global = getGlobalMemoryStore(this.opts.hiagentDir);
+     const global = getGlobalMemoryStore(this.opts.waPiDir);
      let project: AmasterStore | undefined;
      if (projectId) {
        const cwd = await this.getProjectCwd(projectId);
-       if (cwd) project = getProjectMemoryStore(this.opts.hiagentDir, cwd);
+       if (cwd) project = getProjectMemoryStore(this.opts.waPiDir, cwd);
      }
      return { global, project };
    }
@@ -428,7 +428,7 @@ Expected: 新增两个测试 FAIL（`store.add` 不存在）。
 
      const globalEntries = await global.list();
      globalEntries.forEach((text, rawIndex) => {
-       memories.push(this.makeEntry(text, "global", rawIndex, join(this.opts.hiagentDir, "memories", "global", "MEMORY.md")));
+       memories.push(this.makeEntry(text, "global", rawIndex, join(this.opts.waPiDir, "memories", "global", "MEMORY.md")));
      });
 
      if (project) {
@@ -436,7 +436,7 @@ Expected: 新增两个测试 FAIL（`store.add` 不存在）。
        const cwd = await this.getProjectCwd(projectId!);
        const projectName = this.projectNameFromCwd(cwd!);
        projectEntries.forEach((text, rawIndex) => {
-         memories.push(this.makeEntry(text, "project", rawIndex, join(this.opts.hiagentDir, "projects-memory", projectName, "MEMORY.md")));
+         memories.push(this.makeEntry(text, "project", rawIndex, join(this.opts.waPiDir, "projects-memory", projectName, "MEMORY.md")));
        });
      }
 
@@ -446,7 +446,7 @@ Expected: 新增两个测试 FAIL（`store.add` 不存在）。
 
    private makeEntry(text: string, scope: MemoryScope, rawIndex: number, sourceFile: string): MemoryEntry {
      return {
-       id: `${relative(this.opts.hiagentDir, sourceFile).replace(/\\/g, "/")}:${rawIndex}`,
+       id: `${relative(this.opts.waPiDir, sourceFile).replace(/\\/g, "/")}:${rawIndex}`,
        text: text.trim(),
        category: "memory",
        scope,
@@ -610,7 +610,7 @@ git commit -m "feat(kernel,shared): 添加 memory:add WebSocket 协议"
 - Consumes: `getGlobalMemoryStore`, `getProjectMemoryStore`, `createMemoryTools`。
 - Produces:
   - `_createSession` 创建 `customTools` 并传给 `createFn`。
-  - `HIAGENT_DEFAULT_SYSTEM_PROMPT` 追加当前项目 + 全局记忆 snapshot。
+  - `WA_PI_DEFAULT_SYSTEM_PROMPT` 追加当前项目 + 全局记忆 snapshot。
 
 - [ ] **Step 1: 在 amaster-memory.ts 导出 createMemoryToolsForProject**
 
@@ -629,11 +629,11 @@ export function createMemoryToolsForStores(globalStore: AmasterStore, projectSto
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 export function createMemoryToolsForStores(
-  hiagentDir: string,
+  waPiDir: string,
   projectCwd?: string,
 ): ToolDefinition[] {
-  const global = getGlobalMemoryStore(hiagentDir);
-  const project = projectCwd ? getProjectMemoryStore(hiagentDir, projectCwd) : undefined;
+  const global = getGlobalMemoryStore(waPiDir);
+  const project = projectCwd ? getProjectMemoryStore(waPiDir, projectCwd) : undefined;
 
   return [
     {
@@ -666,14 +666,14 @@ export function createMemoryToolsForStores(
 
 2. 在 `_createSession` 中：
    ```ts
-   const memoryCustomTools = createMemoryToolsForStores(HIAGENT_DIR, project.cwd);
+   const memoryCustomTools = createMemoryToolsForStores(WA_PI_DIR, project.cwd);
    ```
 
 3. 修改 `createFn` 调用，加入 `customTools`：
    ```ts
    ({ session } = await createFn({
      cwd: project.cwd,
-     agentDir: HIAGENT_DIR,
+     agentDir: WA_PI_DIR,
      sessionManager: sdk.SessionManager.open(sessionEntity.piSessionFile),
      resourceLoader: loader,
      thinkingLevel: config?.thinking ?? "medium",
@@ -684,13 +684,13 @@ export function createMemoryToolsForStores(
    }));
    ```
 
-4. 修改 `HIAGENT_DEFAULT_SYSTEM_PROMPT` 或在 `systemPromptOverride` 中动态注入记忆 snapshot：
+4. 修改 `WA_PI_DEFAULT_SYSTEM_PROMPT` 或在 `systemPromptOverride` 中动态注入记忆 snapshot：
    ```ts
    import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 
-   async function buildMemoryContext(hiagentDir: string, projectCwd?: string): Promise<string> {
-     const global = getGlobalMemoryStore(hiagentDir);
-     const project = projectCwd ? getProjectMemoryStore(hiagentDir, projectCwd) : undefined;
+   async function buildMemoryContext(waPiDir: string, projectCwd?: string): Promise<string> {
+     const global = getGlobalMemoryStore(waPiDir);
+     const project = projectCwd ? getProjectMemoryStore(waPiDir, projectCwd) : undefined;
      const [globalBlock, projectBlock] = await Promise.all([
        global.formatForPrompt(1500),
        project?.formatForPrompt(1500) ?? Promise.resolve(""),
@@ -705,13 +705,13 @@ export function createMemoryToolsForStores(
      const base =
        config?.systemPromptMode === "append" && config.systemPromptBody
          ? config.systemPromptBody!
-         : HIAGENT_DEFAULT_SYSTEM_PROMPT;
-     const memoryBlock = await buildMemoryContext(HIAGENT_DIR, project.cwd);
+         : WA_PI_DEFAULT_SYSTEM_PROMPT;
+     const memoryBlock = await buildMemoryContext(WA_PI_DIR, project.cwd);
      return memoryBlock ? `${base}\n\n${memoryBlock}` : base;
    },
    ```
 
-   > 注意：`systemPromptOverride` 当前是同步函数，需要确认 `DefaultResourceLoader` 是否支持 async。如不支持，改为在 `HIAGENT_DEFAULT_SYSTEM_PROMPT` 中预留占位符，或同步读取文件。
+   > 注意：`systemPromptOverride` 当前是同步函数，需要确认 `DefaultResourceLoader` 是否支持 async。如不支持，改为在 `WA_PI_DEFAULT_SYSTEM_PROMPT` 中预留占位符，或同步读取文件。
 
 - [ ] **Step 3: 更新 agent-manager.test.ts 验证 customTools 传入**
 

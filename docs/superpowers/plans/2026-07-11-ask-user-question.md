@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 让 hiagent 的 agent 能在任务中调用 `ask_user_question` 工具向用户提出结构化澄清问题，前端在 composer 上方停靠表单完成人机交互。
+**Goal:** 让 wa-pi 的 agent 能在任务中调用 `ask_user_question` 工具向用户提出结构化澄清问题，前端在 composer 上方停靠表单完成人机交互。
 
 **Architecture:** 用 Pi SDK 的 `defineTool()` + `createAgentSession({ customTools })` 原生定义工具（schema/返回与 `@juicesharp/rpiv-ask-user-question` 对齐，不安装该 TUI 包）。问答复用现有 tool-call/tool-result 事件管道：工具 `execute` 在内核 `AskRegistry` 上 `await` 阻塞；前端从 `messagesBySession` 派生 pending 提问渲染表单，提交经新 `agent:answer` WS 事件直达 registry resolve。
 
@@ -146,7 +146,7 @@ Expected: FAIL — `Cannot find module "../src/ask"`。
 - [ ] **Step 3: 实现 `packages/shared/src/ask.ts`**
 
 ```ts
-// HiAgent 结构化问答：类型 + 纯校验/翻译。
+// WaPi 结构化问答：类型 + 纯校验/翻译。
 // schema/返回对齐 @juicesharp/rpiv-ask-user-question，但仅作协议参考，不安装其 TUI。
 
 /** 单个选项。label 为回传标识；description 给用户看；preview 为可选 markdown。 */
@@ -298,7 +298,7 @@ git commit -m "feat(shared): ask_user_question 类型 + 校验 + WS 协议接线
 - Test: `packages/kernel/tests/ask-registry.test.ts`
 
 **Interfaces:**
-- Consumes: `AskParams`、`AskReply`、`AskAnswer`、`replyToAnswers` from `@hiagent/shared`（Task 1）。
+- Consumes: `AskParams`、`AskReply`、`AskAnswer`、`replyToAnswers` from `@wa-pi/shared`（Task 1）。
 - Produces: `class AskRegistry`、`export const askRegistry`（单例）。方法：`ask(sessionId, toolCallId, params, signal): Promise<{ cancelled: boolean; answers?: AskAnswer[] }>`、`resolve(sessionId, toolCallId, reply)`、`cancel(sessionId, toolCallId)`、`cancelAll(sessionId)`、`reset()`。Task 3/4 依赖这些签名。
 
 - [ ] **Step 1: 写失败测试 `packages/kernel/tests/ask-registry.test.ts`**
@@ -306,7 +306,7 @@ git commit -m "feat(shared): ask_user_question 类型 + 校验 + WS 协议接线
 ```ts
 import { test, expect, beforeEach } from "bun:test";
 import { askRegistry } from "../src/ask-registry";
-import type { AskParams } from "@hiagent/shared";
+import type { AskParams } from "@wa-pi/shared";
 
 const params: AskParams = { questions: [
   { question: "Q?", header: "h", options: [{ label: "A", description: "x" }, { label: "B", description: "y" }] },
@@ -388,7 +388,7 @@ Expected: FAIL — `Cannot find module "../src/ask-registry"`。
 // 工具 execute 在此 await ask()，agent 回合阻塞；前端 agent:answer 经 ws-server
 // 调 resolve()，agent:cancel-ask / abort / immediate / dispose 调 cancel()/cancelAll()。
 // 不设硬超时——等用户回答或中断。所有 resolve/cancel 对未知/已解决 id 幂等。
-import { replyToAnswers, type AskParams, AskReply, AskAnswer } from "@hiagent/shared";
+import { replyToAnswers, type AskParams, AskReply, AskAnswer } from "@wa-pi/shared";
 
 export interface AskOutcome {
   cancelled: boolean;
@@ -498,7 +498,7 @@ Expected: `typebox ok true`。若输出 `NEED INSTALL`：`cd packages/kernel && 
 import { test, expect, beforeEach } from "bun:test";
 import { makeAskTool, reconcileDanglingAsks } from "../src/ask-tool";
 import { askRegistry } from "../src/ask-registry";
-import type { AskParams } from "@hiagent/shared";
+import type { AskParams } from "@wa-pi/shared";
 
 const validParams: AskParams = { questions: [
   { question: "Q?", header: "h", options: [{ label: "A", description: "x" }, { label: "B", description: "y" }] },
@@ -568,13 +568,13 @@ Expected: FAIL — `Cannot find module "../src/ask-tool"`。
 ```ts
 // ask_user_question 工具定义 + 重启兜底。
 //
-// makeAskTool(sessionId) 闭包注入 hiagent sessionId（execute 签名无 sessionId），
+// makeAskTool(sessionId) 闭包注入 wa-pi sessionId（execute 签名无 sessionId），
 // 返回 SDK ToolDefinition，交给 createAgentSession({ customTools })。
 // execute：先校验（非法直接返回 details.error，不阻塞），否则 await askRegistry.ask(...)。
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { askRegistry } from "./ask-registry";
-import { validateAskParams, type AskParams, type AskAnswer } from "@hiagent/shared";
+import { validateAskParams, type AskParams, type AskAnswer } from "@wa-pi/shared";
 
 const AskParamsSchema = Type.Object({
   questions: Type.Array(
@@ -694,7 +694,7 @@ import { makeAskTool, reconcileDanglingAsks } from "./ask-tool";
 ```ts
       ({ session } = await createFn({
         cwd: project.cwd,
-        agentDir: HIAGENT_DIR,
+        agentDir: WA_PI_DIR,
         sessionManager: sdk.SessionManager.open(sessionEntity.piSessionFile),
         resourceLoader: loader,
         thinkingLevel: config?.thinking ?? "medium",
@@ -767,7 +767,7 @@ git commit -m "feat(kernel): ask_user_question 工具(defineTool)+customTools �
 
 - [ ] **Step 1: 写失败测试 — 中断清理（追加到 `packages/kernel/tests/agent-manager.test.ts`）**
 
-文件顶部 import 区加 `import { askRegistry } from "../src/ask-registry";` 与 `import type { AskParams } from "@hiagent/shared";`。`beforeEach` 里加 `askRegistry.reset();`。末尾追加：
+文件顶部 import 区加 `import { askRegistry } from "../src/ask-registry";` 与 `import type { AskParams } from "@wa-pi/shared";`。`beforeEach` 里加 `askRegistry.reset();`。末尾追加：
 
 ```ts
 const askParams: AskParams = { questions: [
@@ -813,7 +813,7 @@ test("disposeSession 取消 pending ask", async () => {
 
 - [ ] **Step 2: 写失败测试 — WS 应答（追加到 `packages/kernel/tests/ws-server.test.ts`）**
 
-顶部 import 加 `import { askRegistry } from "../src/ask-registry";` 与 `import type { AskParams } from "@hiagent/shared";`。`withServer` 之前加 `beforeEach(() => askRegistry.reset());`。末尾追加：
+顶部 import 加 `import { askRegistry } from "../src/ask-registry";` 与 `import type { AskParams } from "@wa-pi/shared";`。`withServer` 之前加 `beforeEach(() => askRegistry.reset());`。末尾追加：
 
 ```ts
 const askParams: AskParams = { questions: [
@@ -916,7 +916,7 @@ git commit -m "feat(kernel): ask 中断清理(cancelAll)+ws-server agent:answer/
 - Test: `packages/frontend/tests/store-ask.test.ts`
 
 **Interfaces:**
-- Consumes: `SessionMessage`、`AgentStatus`、`AgentName`、`AskParams` from `@hiagent/shared`；`useSessionStore`。
+- Consumes: `SessionMessage`、`AgentStatus`、`AgentName`、`AskParams` from `@wa-pi/shared`；`useSessionStore`。
 - Produces: 纯函数 `selectPendingAsks(messages)`、`selectEffectiveStatus(raw, hasPending)`，hook `usePendingAsks(sessionId)`、`useIsBlocked(sessionId)`。Task 6/7 依赖。
 
 - [ ] **Step 1: 写失败测试 `packages/frontend/tests/store-ask.test.ts`**
@@ -924,7 +924,7 @@ git commit -m "feat(kernel): ask 中断清理(cancelAll)+ws-server agent:answer/
 ```ts
 import { test, expect } from "bun:test";
 import { selectPendingAsks, selectEffectiveStatus } from "../src/store/ask";
-import type { SessionMessage } from "@hiagent/shared";
+import type { SessionMessage } from "@wa-pi/shared";
 
 function assistantMsg(toolCalls: any[], timestamp = 1): SessionMessage {
   return { message: { role: "assistant", content: toolCalls, model: "m", stopReason: "tool_use", timestamp } as any, agentName: "dev" };
@@ -977,7 +977,7 @@ Expected: FAIL — `Cannot find module "../src/store/ask"`。
 // ask_user_question 前端派生状态：从 messagesBySession 派生 pending 提问 + 有效的会话状态。
 import { useMemo } from "react";
 import { useSessionStore } from "./session";
-import type { AgentStatus, AgentName, AskParams, SessionMessage } from "@hiagent/shared";
+import type { AgentStatus, AgentName, AskParams, SessionMessage } from "@wa-pi/shared";
 
 export interface PendingAsk {
   toolCallId: string;
@@ -1045,7 +1045,7 @@ git commit -m "feat(frontend): pendingAsks/effectiveStatus 派生选择器"
 - Test: `packages/frontend/tests/AskFormCard.test.tsx`
 
 **Interfaces:**
-- Consumes: `AskParams`/`AskReply` from `@hiagent/shared`；`send` from `ws-instance`。
+- Consumes: `AskParams`/`AskReply` from `@wa-pi/shared`；`send` from `ws-instance`。
 - Produces: `AskFormCard({ sessionId, toolCallId, params })`。挂载即 pending；提交发 `agent:answer`；取消发 `agent:cancel-ask`。Task 7 用它。
 
 - [ ] **Step 1: 写失败测试 `packages/frontend/tests/AskFormCard.test.tsx`**
@@ -1054,7 +1054,7 @@ git commit -m "feat(frontend): pendingAsks/effectiveStatus 派生选择器"
 import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AskFormCard } from "../src/components/ask/AskFormCard";
-import type { AskParams } from "@hiagent/shared";
+import type { AskParams } from "@wa-pi/shared";
 
 const params: AskParams = { questions: [
   { question: "数据存储方案?", header: "存储", options: [
@@ -1122,7 +1122,7 @@ Expected: FAIL — `Cannot find module "../src/components/ask/AskFormCard"`。
 
 ```tsx
 import { useState } from "react";
-import type { AskParams, AskReply } from "@hiagent/shared";
+import type { AskParams, AskReply } from "@wa-pi/shared";
 import { send } from "../../ws-instance";
 import { ReactMarkdown } from "react-markdown";
 

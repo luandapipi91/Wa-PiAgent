@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把 pi-lens 接入 hiagent，在「系统设置」新增「插件」菜单显示并可启用/禁用 pi-lens；切换走 deferred reload（会话下次使用时生效），并把技能 toggle 的 reload 时机统一为同一套 deferred 机制。
+**Goal:** 把 pi-lens 接入 wa-pi，在「系统设置」新增「插件」菜单显示并可启用/禁用 pi-lens；切换走 deferred reload（会话下次使用时生效），并把技能 toggle 的 reload 时机统一为同一套 deferred 机制。
 
 **Architecture:** pi-lens 由 SDK 原生 `settings.json.extensions` 字段驱动（`loader.reload()` 会重读它），核心扩展仍走 `additionalExtensionPaths`。新增 `ExtensionManager`（镜像 `SkillManager`）读写 `settings.extensions`；`AgentManager` 新增 dirty 集合 + `markAllDirty()`，在 `ensureStarted` 命中缓存时按需 `session.reload()`。WS 协议与前端 store/section 全部镜像技能子系统。
 
@@ -292,7 +292,7 @@ Expected: FAIL — `Cannot find module '../src/extension-manager'`。
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createRequire } from "node:module";
-import type { ExtensionPluginInfo } from "@hiagent/shared";
+import type { ExtensionPluginInfo } from "@wa-pi/shared";
 import { OPTIONAL_EXTENSIONS, resolveExtensionEntryFile } from "./extensions";
 
 const require = createRequire(import.meta.url);
@@ -675,10 +675,10 @@ Expected: 无命中。
 import { ExtensionManager } from "./extension-manager";
 ```
 
-6b. 在 `const skillManager = new SkillManager(HIAGENT_DIR);` 之后加：
+6b. 在 `const skillManager = new SkillManager(WA_PI_DIR);` 之后加：
 
 ```ts
-  const extensionManager = new ExtensionManager(HIAGENT_DIR);
+  const extensionManager = new ExtensionManager(WA_PI_DIR);
 ```
 
 6c. 在 `new WSServer({ ... })` 的 opts 里（`skillManager,` 之后）加：
@@ -781,7 +781,7 @@ import { SkillManager } from "../src/skill-manager";
 import { ProviderStore } from "../src/provider-store";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
-import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
+import type { WSClientEvent, WSServerEvent } from "@wa-pi/shared";
 
 function tmp(p: string) { return join(import.meta.dir, p + Math.random().toString(36).slice(2)); }
 
@@ -950,7 +950,7 @@ git commit -m "test(kernel): 断言 pi-lens 不在 additionalExtensionPaths"
 
 ```ts
 import { create } from "zustand";
-import type { ExtensionPluginInfo } from "@hiagent/shared";
+import type { ExtensionPluginInfo } from "@wa-pi/shared";
 import { send } from "../ws-instance";
 
 // 插件管理 store — 通过 WS 事件与 kernel 通信
@@ -1233,7 +1233,7 @@ Run: `cd packages/kernel && bun run dev`（另起终端 `cd packages/frontend &&
 2. 左侧 nav 出现「插件」，点击 → 右侧显示 Pi Lens（v{版本}，勾选=启用）。
 3. 取消勾选 → 关闭设置 → 在某会话发一条消息（触发 ensureStarted）→ pi-lens 不再加载（该会话 deferred reload 已生效）。
 4. 重新勾选 → 下次使用会话时 pi-lens 恢复。
-5. 检查 `~/.hiagent/settings.json` 的 `extensions` 字段随 toggle 增删 pi-lens 入口路径。
+5. 检查 `~/.wa-pi/settings.json` 的 `extensions` 字段随 toggle 增删 pi-lens 入口路径。
 6. 「技能」面板的启用/禁用仍正常（deferred reload 统一生效）。
 
 - [ ] **Step 4:（可选）提交收尾**

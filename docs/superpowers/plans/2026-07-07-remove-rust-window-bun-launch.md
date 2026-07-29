@@ -15,7 +15,7 @@
 - **不碰** `packages/kernel/src/*`(含 broker/intercom)——属于另一个计划。
 - **不碰** `packages/frontend/src/*`(业务组件代码)——`pick-directory.ts` 的 `isTauri()` 守卫保留。
 - **不删** 前端 Tauri 依赖包(`@tauri-apps/plugin-dialog`)——留桌面壳口子。
-- **不改** 历史文档(`2026-07-06-hiagent-mvp.md`、CHANGELOG 旧条目)里的 5173/tauri 描述。
+- **不改** 历史文档(`2026-07-06-wa-pi-mvp.md`、CHANGELOG 旧条目)里的 5173/tauri 描述。
 - 端口:**frontend 5180**(新)、kernel 9776(不变)、preview 9777(不变)。
 - 测试 runner 全仓库统一为 `bun:test`(kernel/shared 已是,frontend 本次迁)。
 - 平台:必须 Windows(Git Bash)和 POSIX 都能跑。
@@ -251,11 +251,11 @@ async function main() {
   // 2. 并行 spawn 两个子进程
   const kernel = spawnProcs({
     label: "kernel",
-    cmd: ["bun", ["run", "--filter", "@hiagent/kernel", "dev"]],
+    cmd: ["bun", ["run", "--filter", "@wa-pi/kernel", "dev"]],
   });
   const frontend = spawnProcs({
     label: "web",
-    cmd: ["bun", ["run", "--filter", "@hiagent/frontend", "dev"]],
+    cmd: ["bun", ["run", "--filter", "@wa-pi/frontend", "dev"]],
   });
 
   let browserOpened = false;
@@ -324,8 +324,8 @@ git commit -m "feat(scripts): 一键启动器 dev.ts —— 并行 kernel+fronte
 将:
 ```jsonc
 "scripts": {
-  "dev:kernel": "bun run --filter @hiagent/kernel dev",
-  "dev:frontend": "bun run --filter @hiagent/frontend dev",
+  "dev:kernel": "bun run --filter @wa-pi/kernel dev",
+  "dev:frontend": "bun run --filter @wa-pi/frontend dev",
   "test": "bun test",
   "typecheck": "bun run --filter '*' typecheck"
 }
@@ -334,8 +334,8 @@ git commit -m "feat(scripts): 一键启动器 dev.ts —— 并行 kernel+fronte
 ```jsonc
 "scripts": {
   "dev": "bun run scripts/dev.ts",
-  "dev:kernel": "bun run --filter @hiagent/kernel dev",
-  "dev:frontend": "bun run --filter @hiagent/frontend dev",
+  "dev:kernel": "bun run --filter @wa-pi/kernel dev",
+  "dev:frontend": "bun run --filter @wa-pi/frontend dev",
   "test": "bun test",
   "typecheck": "bun run --filter '*' typecheck"
 }
@@ -392,10 +392,10 @@ git rm start.sh start.command
 
 - [ ] **Step 2: 验证 frontend/kernel 仍能独立跑**
 
-Run: `bun run --filter @hiagent/frontend dev`
+Run: `bun run --filter @wa-pi/frontend dev`
 Expected: Vite 起在 5180(独立能跑,不依赖 src-tauri)
 
-Run: `bun run --filter @hiagent/kernel dev`
+Run: `bun run --filter @wa-pi/kernel dev`
 Expected: kernel WS server 起在 9776(独立能跑)
 
 - [ ] **Step 3: 验证类型检查不坏**
@@ -421,8 +421,8 @@ git commit -m "chore: 删除 src-tauri/、start.sh、start.command —— 移除
 
 `packages/kernel/package.json:8`:
 
-将 `  "build": "bun build src/index.ts --compile --target bun --outfile dist/hiagent-kernel && bun run scripts/copy-sidecar.mjs",`
-改为 `  "build": "bun build src/index.ts --compile --target bun --outfile dist/hiagent-kernel",`
+将 `  "build": "bun build src/index.ts --compile --target bun --outfile dist/wa-pi-kernel && bun run scripts/copy-sidecar.mjs",`
+改为 `  "build": "bun build src/index.ts --compile --target bun --outfile dist/wa-pi-kernel",`
 
 注意:**不动** `build:bundle`(`:9`,它不走 copy-sidecar)。
 
@@ -436,15 +436,15 @@ git rm packages/kernel/scripts/copy-sidecar.mjs
 
 - [ ] **Step 3: 验证 kernel build 产物**
 
-Run: `bun run --filter @hiagent/kernel build`
-Expected: 产出 `packages/kernel/dist/hiagent-kernel` 可执行文件,**不再**有 `hiagent-kernel-x86_64-...` 的 triple 命名副本。
+Run: `bun run --filter @wa-pi/kernel build`
+Expected: 产出 `packages/kernel/dist/wa-pi-kernel` 可执行文件,**不再**有 `wa-pi-kernel-x86_64-...` 的 triple 命名副本。
 
-Run(验证可执行): `./packages/kernel/dist/hiagent-kernel`(POSIX)或对应 Windows 二进制
+Run(验证可执行): `./packages/kernel/dist/wa-pi-kernel`(POSIX)或对应 Windows 二进制
 Expected: kernel WS server 起在 9776(Ctrl+C 退出)
 
 - [ ] **Step 4: 验证现有 kernel 单测仍绿**
 
-Run: `bun run --filter @hiagent/kernel test`
+Run: `bun run --filter @wa-pi/kernel test`
 Expected: 全绿(确认删 copy-sidecar 不破坏测试)
 
 - [ ] **Step 5: commit**
@@ -539,7 +539,7 @@ Create `packages/frontend/bunfig.toml`:
 preload = ["./tests/happydom-setup.ts"]
 ```
 
-**关于 `@hiagent/shared` alias(spec §7 风险⑤):** vitest.config.ts 原有 `resolve.alias` 把 `@hiagent/shared` 指向 `../shared/src/index.ts`。bun:test 不读 vitest.config.ts,但 bun workspace 已把 `@hiagent/shared` 注册为 workspace 包(根 `package.json` 的 `workspaces: ["packages/*"]`),bun 能直接解析包名。**若 Task 9 跑测试时出现 `Cannot find module '@hiagent/shared'`,在 `tsconfig.json` 的 `paths` 加 `{"@hiagent/shared": ["../shared/src"]}` 兜底。** 先不加,遇到再加(YAGNI)。
+**关于 `@wa-pi/shared` alias(spec §7 风险⑤):** vitest.config.ts 原有 `resolve.alias` 把 `@wa-pi/shared` 指向 `../shared/src/index.ts`。bun:test 不读 vitest.config.ts,但 bun workspace 已把 `@wa-pi/shared` 注册为 workspace 包(根 `package.json` 的 `workspaces: ["packages/*"]`),bun 能直接解析包名。**若 Task 9 跑测试时出现 `Cannot find module '@wa-pi/shared'`,在 `tsconfig.json` 的 `paths` 加 `{"@wa-pi/shared": ["../shared/src"]}` 兜底。** 先不加,遇到再加(YAGNI)。
 
 - [ ] **Step 3: 添加依赖**
 
@@ -783,7 +783,7 @@ Expected: kernel + shared + frontend + scripts 所有测试全绿。
 - [ ] **Step 4: 验证 frontend 仍能构建**
 
 ```bash
-bun run --filter @hiagent/frontend build
+bun run --filter @wa-pi/frontend build
 ```
 Expected: vite build 成功(确认删 vitest 不影响构建)。
 
@@ -882,7 +882,7 @@ git commit -m "docs(changelog): 记录移除 Rust 窗口层 + bun 启动 + vites
 - [x] `start.command`(macOS)+ `start.bat`(Windows)双击入口,bun 检查
 - [x] `src-tauri/`、`start.sh`、`copy-sidecar.mjs`、`vitest.config.ts`、`vitest` 依赖全部删除
 - [x] `bun test`(根目录单命令)全绿(scripts 5 + frontend 65 + kernel/shared 44)
-- [x] `bun run --filter @hiagent/kernel build` 产出 `dist/hiagent-kernel`(无 triple 后缀)
+- [x] `bun run --filter @wa-pi/kernel build` 产出 `dist/wa-pi-kernel`(无 triple 后缀)
 - [x] **新建项目走目录树选择器**(浏览器点选目录 → 项目创建成功,跨盘符可选)
 - [x] CHANGELOG 已记录
 - [ ] CHANGELOG 已记录

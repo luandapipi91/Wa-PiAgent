@@ -10,7 +10,7 @@ import {
   setSessionPrefs as dbSetSessionPrefs,
 } from "../src/store/composer-db";
 
-const DB_NAME = "hiagent-composer";
+const DB_NAME = "wa-pi-composer";
 
 /** 清空 IndexedDB 中的 sessions 与 defaults store，避免测试间污染 */
 async function clearStores(): Promise<void> {

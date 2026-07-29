@@ -11,7 +11,7 @@ import {
   deleteSessionPrefs,
 } from "../src/store/composer-db";
 
-const DB_NAME = "hiagent-composer";
+const DB_NAME = "wa-pi-composer";
 
 /** 清空 defaults store，用于测试 getDefaults 的兜底路径 */
 async function clearDefaultsStore(): Promise<void> {

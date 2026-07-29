@@ -4,9 +4,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ProjectStore } from "../src/project-store";
 import { cleanupExpiredWorkdirs } from "../src/workdir-cleaner";
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 
-// 用临时根目录替代真实 ~/.hiagent/workdir，避免污染开发机。
+// 用临时根目录替代真实 ~/.wa-pi/workdir，避免污染开发机。
 // cleanupExpiredWorkdirs 接受可选 root 参数（默认 SYSTEM_PROJECT_CWD），测试注入 TMP_ROOT。
 const TMP_ROOT = join(import.meta.dir, ".tmp-workdir-cleaner-" + Math.random().toString(36).slice(2));
 

@@ -4,7 +4,7 @@
 
 **Goal:** 将子智能体执行后端从 `@gotgenes/pi-subagents`（进程内 spawn+轮询）切换到 `pi-open-agents`（子进程 runSubagent+onProgress），获得 per-agent skills/tools 配置能力和子智能体执行过程可见性。
 
-**Architecture:** HiAgent kernel 通过 Pi SDK 的 `additionalExtensionPaths` 加载 `pi-open-agents` 扩展；delegate-tool 不再走 `getSubagentsService()` + spawn+轮询，改为直接 import `runSubagent()` 异步执行 + `onProgress` 回调推送过程事件。agent 定义文件放在 HiAgent 自己的目录 `~/.hiagent/agents/*.md`（不是 Pi 默认的 `.pi/agents/`），通过 `loadAgents({ agentDir: HIAGENT_DIR })` 发现。HiAgent 的 `config.skills`/`config.tools` 白名单映射到 `AgentDefinition` 的 `skills`/`tools` 字段。
+**Architecture:** WaPi kernel 通过 Pi SDK 的 `additionalExtensionPaths` 加载 `pi-open-agents` 扩展；delegate-tool 不再走 `getSubagentsService()` + spawn+轮询，改为直接 import `runSubagent()` 异步执行 + `onProgress` 回调推送过程事件。agent 定义文件放在 WaPi 自己的目录 `~/.wa-pi/agents/*.md`（不是 Pi 默认的 `.pi/agents/`），通过 `loadAgents({ agentDir: WA_PI_DIR })` 发现。WaPi 的 `config.skills`/`config.tools` 白名单映射到 `AgentDefinition` 的 `skills`/`tools` 字段。
 
 **Tech Stack:** pi-open-agents@0.1.12、@earendil-works/pi-coding-agent（Pi SDK）、Bun + TypeScript、bun:test
 
@@ -15,7 +15,7 @@
 - 代码注释和沟通使用中文
 - 精准修改：只碰必须改的，匹配现有风格
 - 每个任务结束时 commit
-- agent 定义文件目录：`~/.hiagent/agents/*.md`（HiAgent 自己的 `HIAGENT_DIR`，**不是** Pi 默认的 `~/.pi/agent/` 或 `.pi/agents/`）。通过 `loadAgents({ agentDir: HIAGENT_DIR })` 发现
+- agent 定义文件目录：`~/.wa-pi/agents/*.md`（WaPi 自己的 `WA_PI_DIR`，**不是** Pi 默认的 `~/.pi/agent/` 或 `.pi/agents/`）。通过 `loadAgents({ agentDir: WA_PI_DIR })` 发现
 - pi-open-agents 的 `runSubagent` 通过子进程执行（child_process.spawn），与当前 `@gotgenes` 的进程内模型不同
 - `runSubagent` 签名：`runSubagent(options: RunSubagentOptions): Promise<AgentResult>`，options 含 `agent: AgentDefinition`、`task`、`cwd`、`signal?`、`onProgress?`
 - `AgentProgress` 结构：`{ agent, status: "running"|"done"|"error", output, tools: AgentToolLog[], usage, elapsedMs, model? }`
@@ -37,7 +37,7 @@
 | `packages/kernel/src/agent-manager.ts` | session 创建 + delegate 工具注册 | 修改：spawn 闭包 + 过程事件转发 |
 | `packages/shared/src/constants.ts` | SUBAGENT_TYPES 常量 | 修改：保留元信息（emoji/gradient/displayName），移除对 pi-subagents 内部路径的依赖 |
 | `packages/kernel/tests/delegate-tool.test.ts` | delegate 工具测试 | **完全重写** |
-| `~/.hiagent/agents/*.md`（运行时） | agent 定义文件目录 | 通过 `loadAgents({ agentDir: HIAGENT_DIR })` 发现，**不**用 Pi 的 `.pi/agents/` |
+| `~/.wa-pi/agents/*.md`（运行时） | agent 定义文件目录 | 通过 `loadAgents({ agentDir: WA_PI_DIR })` 发现，**不**用 Pi 的 `.pi/agents/` |
 
 ---
 
@@ -53,14 +53,14 @@
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
-cd /Users/pipi/work/HiAgent
-bun add pi-open-agents --filter @hiagent/kernel
+cd /Users/pipi/work/WaPi
+bun add pi-open-agents --filter @wa-pi/kernel
 ```
 
 - [ ] **Step 2: 移除 @gotgenes/pi-subagents**
 
 ```bash
-bun remove @gotgenes/pi-subagents --filter @hiagent/kernel
+bun remove @gotgenes/pi-subagents --filter @wa-pi/kernel
 ```
 
 - [ ] **Step 3: 验证 package.json**
@@ -107,7 +107,7 @@ console.log("[kernel] additionalExtensionPaths 含 pi-open-agents:", !!subagentP
 
 - [ ] **Step 3: 验证编译**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/kernel && bun build src/index.ts --no-bundle 2>&1 | head -5`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun build src/index.ts --no-bundle 2>&1 | head -5`
 Expected: 无报错（runtime 错误后续 Task 修复）
 
 - [ ] **Step 4: Commit**
@@ -128,18 +128,18 @@ git commit -m "refactor(kernel): 扩展注册从 @gotgenes/pi-subagents 改为 p
 - Consumes: `runSubagent`、`AgentDefinition`、`AgentProgress`、`loadAgents` from `pi-open-agents`
 - Produces: `runSubagentAgent(config, task, cwd, opts)` 函数，返回 `DelegateSpawnResult`，支持 `onProgress` 过程回调
 
-这是 delegate-tool 的执行核心。把 pi-open-agents 的 `runSubagent`（子进程 async）封装为 HiAgent 的 `DelegateSpawnFn` 签名，同时把 `onProgress` 事件转发给上层（用于前端过程展示）。
+这是 delegate-tool 的执行核心。把 pi-open-agents 的 `runSubagent`（子进程 async）封装为 WaPi 的 `DelegateSpawnFn` 签名，同时把 `onProgress` 事件转发给上层（用于前端过程展示）。
 
-agent 定义文件从 `~/.hiagent/agents/*.md` 发现（通过 `loadAgents({ agentDir: HIAGENT_DIR })`），HiAgent 的 ConfigStore 配置覆盖 .md 定义里的 model/thinking/tools/skills。
+agent 定义文件从 `~/.wa-pi/agents/*.md` 发现（通过 `loadAgents({ agentDir: WA_PI_DIR })`），WaPi 的 ConfigStore 配置覆盖 .md 定义里的 model/thinking/tools/skills。
 
 - [ ] **Step 1: 写失败测试**
 
 ```typescript
 // packages/kernel/tests/subagent-runner.test.ts
 import { test, expect, mock } from "bun:test";
-import { buildAgentDefinition, type SubagentProgressEvent, type HiAgentSpawnConfig } from "../src/subagent-runner";
+import { buildAgentDefinition, type SubagentProgressEvent, type WaPiSpawnConfig } from "../src/subagent-runner";
 
-test("buildAgentDefinition 从 HiAgent config 构造 AgentDefinition", () => {
+test("buildAgentDefinition 从 WaPi config 构造 AgentDefinition", () => {
   const def = buildAgentDefinition({
     name: "research",
     description: "调研",
@@ -205,7 +205,7 @@ test("buildAgentDefinition config.skills 为空时不设 skills（继承全部�
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/subagent-runner.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/subagent-runner.test.ts`
 Expected: FAIL — 模块不存在
 
 - [ ] **Step 3: 实现 subagent-runner.ts**
@@ -214,11 +214,11 @@ Expected: FAIL — 模块不存在
 // packages/kernel/src/subagent-runner.ts
 import { runSubagent } from "pi-open-agents";
 import type { AgentDefinition, AgentProgress, AgentResult } from "pi-open-agents";
-import type { ThinkingLevel } from "@hiagent/shared";
-import { SUBAGENT_TYPES, isSubagentType } from "@hiagent/shared";
+import type { ThinkingLevel } from "@wa-pi/shared";
+import { SUBAGENT_TYPES, isSubagentType } from "@wa-pi/shared";
 
-/** HiAgent 侧的 agent 配置片段（从 AgentConfig 提取） */
-export interface HiAgentSpawnConfig {
+/** WaPi 侧的 agent 配置片段（从 AgentConfig 提取） */
+export interface WaPiSpawnConfig {
   name: string;
   description: string;
   systemPrompt: string;
@@ -253,14 +253,14 @@ function mapThinking(thinking: ThinkingLevel | null): string {
 }
 
 /**
- * 从 HiAgent config 构造 pi-open-agents 的 AgentDefinition。
+ * 从 WaPi config 构造 pi-open-agents 的 AgentDefinition。
  * 内置 subagent 类型（general-purpose/Explore/Plan）用 SUBAGENT_TYPES 元信息补全。
  *
  * config.skills / config.tools 白名单在此映射到 AgentDefinition：
  * - 非空数组 = 按白名单限定（skills 支持通配符，由 pi-open-agents resolveSkills 处理）
  * - 空数组 = undefined（不设字段 = 继承全部，pi-open-agents 默认行为）
  */
-export function buildAgentDefinition(config: HiAgentSpawnConfig): AgentDefinition {
+export function buildAgentDefinition(config: WaPiSpawnConfig): AgentDefinition {
   // 内置类型从 SUBAGENT_TYPES 补全工具/提示词缺省值
   const builtin = isSubagentType(config.name)
     ? SUBAGENT_TYPES.find(t => t.name === config.name)
@@ -299,7 +299,7 @@ export function buildAgentDefinition(config: HiAgentSpawnConfig): AgentDefinitio
  * 所有失败路径收敛为 { text, isError:true }，绝不 throw。
  */
 export async function runSubagentAgent(
-  config: HiAgentSpawnConfig,
+  config: WaPiSpawnConfig,
   task: string,
   cwd: string,
   opts?: {
@@ -343,7 +343,7 @@ export async function runSubagentAgent(
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/subagent-runner.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/subagent-runner.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -362,7 +362,7 @@ git commit -m "feat(kernel): 新建 subagent-runner——pi-open-agents runSubag
 - Test: `packages/kernel/tests/delegate-tool.test.ts`
 
 **Interfaces:**
-- Consumes: `runSubagentAgent`、`HiAgentSpawnConfig`、`SubagentProgressEvent` from `./subagent-runner`
+- Consumes: `runSubagentAgent`、`WaPiSpawnConfig`、`SubagentProgressEvent` from `./subagent-runner`
 - Produces: `spawnViaRunner(config, task, cwd, opts)` 替代 `spawnViaSubagentsService`
 
 delegate/fleet 工具的外壳（canInvoke / makeDelegateTool / makeFleetTool / buildDelegatePrompt）**保持不变**，只重写 spawn 执行闭包。
@@ -432,7 +432,7 @@ test("makeFleetTool 并行调起多个子智能体，按输入顺序聚合", asy
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/delegate-tool.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/delegate-tool.test.ts`
 Expected: 部分 FAIL（旧测试因 spawnViaSubagentsService 移除断言变化）
 
 - [ ] **Step 3: 重写 delegate-tool.ts**
@@ -453,8 +453,8 @@ Expected: 部分 FAIL（旧测试因 spawnViaSubagentsService 移除断言变化
 // 这些不再需要（runSubagent 不走 service 单例）
 
 import { Type } from "typebox";
-import { isSubagentType, SUBAGENT_TYPES, normalizeSubagentType } from "@hiagent/shared";
-import type { HiAgentSpawnConfig, SubagentProgressEvent } from "./subagent-runner";
+import { isSubagentType, SUBAGENT_TYPES, normalizeSubagentType } from "@wa-pi/shared";
+import type { WaPiSpawnConfig, SubagentProgressEvent } from "./subagent-runner";
 import { runSubagentAgent } from "./subagent-runner";
 
 // ... DelegateTarget / DelegateSpawnResult / DelegateSpawnFn / canInvoke /
@@ -463,14 +463,14 @@ import { runSubagentAgent } from "./subagent-runner";
 //     保持不变（这些不依赖 spawn 实现方式）...
 
 /**
- * spawn 闭包工厂：绑定 HiAgent config + cwd + 过程回调，
+ * spawn 闭包工厂：绑定 WaPi config + cwd + 过程回调，
  * 调用 subagent-runner 的 runSubagentAgent 执行子智能体。
  *
  * config 由 agent-manager 从 AgentConfig 提取（name/description/systemPrompt/model/thinking/tools/skills）。
  * onProgress 回调实时转发子智能体执行过程（工具调用/文本输出），用于前端过程展示。
  */
 export function makeSpawnFn(opts: {
-  resolveConfig: (agentName: string) => Promise<HiAgentSpawnConfig | null>;
+  resolveConfig: (agentName: string) => Promise<WaPiSpawnConfig | null>;
   cwd: string;
   signal?: AbortSignal;
   onProgress?: (event: SubagentProgressEvent) => void;
@@ -490,7 +490,7 @@ export function makeSpawnFn(opts: {
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/delegate-tool.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/delegate-tool.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -502,7 +502,7 @@ git commit -m "refactor(kernel): delegate-tool 移除 spawn+轮询，改用 runS
 
 ---
 
-### Task 5: 内置智能体迁移为 ~/.hiagent/agents/*.md 定义文件
+### Task 5: 内置智能体迁移为 ~/.wa-pi/agents/*.md 定义文件
 
 **Files:**
 - Create: `packages/kernel/src/builtin-agents.ts`（内置 agent .md 内容 + seedDefaults）
@@ -510,10 +510,10 @@ git commit -m "refactor(kernel): delegate-tool 移除 spawn+轮询，改用 runS
 - Test: `packages/kernel/tests/builtin-agents.test.ts`
 
 **Interfaces:**
-- Consumes: `SUBAGENT_TYPES` from `@hiagent/shared`（emoji/gradient/displayName 元信息）
-- Produces: `seedBuiltinAgents(agentsDir)` 函数，在 `~/.hiagent/agents/` 写入三个 .md 文件；`loadBuiltinAgentDefs()` 返回内置 AgentDefinition（供 resolveSpawnConfig 使用）
+- Consumes: `SUBAGENT_TYPES` from `@wa-pi/shared`（emoji/gradient/displayName 元信息）
+- Produces: `seedBuiltinAgents(agentsDir)` 函数，在 `~/.wa-pi/agents/` 写入三个 .md 文件；`loadBuiltinAgentDefs()` 返回内置 AgentDefinition（供 resolveSpawnConfig 使用）
 
-切换前内置类型（general-purpose/Explore/Plan）的 systemPrompt 在 `@gotgenes/pi-subagents` 的 `default-agents.ts` 里硬编码。切换后改为 `~/.hiagent/agents/*.md` 定义文件，由 kernel 启动时 seedDefaults 写入（同 `~/.hiagent/agents/<命名智能体>.md` 的 seedDefaults 机制）。.md 文件用户可覆盖。
+切换前内置类型（general-purpose/Explore/Plan）的 systemPrompt 在 `@gotgenes/pi-subagents` 的 `default-agents.ts` 里硬编码。切换后改为 `~/.wa-pi/agents/*.md` 定义文件，由 kernel 启动时 seedDefaults 写入（同 `~/.wa-pi/agents/<命名智能体>.md` 的 seedDefaults 机制）。.md 文件用户可覆盖。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -549,7 +549,7 @@ test("general-purpose .md 无 tools 白名单（继承全部）", () => {
 });
 
 test("seedBuiltinAgents 写入三个 .md 文件", () => {
-  const tmpDir = `/tmp/hiagent-test-agents-${Date.now()}`;
+  const tmpDir = `/tmp/wa-pi-test-agents-${Date.now()}`;
   mkdirSync(tmpDir, { recursive: true });
   seedBuiltinAgents(tmpDir);
   const files = readdirSync(tmpDir).filter(f => f.endsWith(".md")).sort();
@@ -559,7 +559,7 @@ test("seedBuiltinAgents 写入三个 .md 文件", () => {
 });
 
 test("seedBuiltinAgents 已存在的文件不覆盖", () => {
-  const tmpDir = `/tmp/hiagent-test-agents-keep-${Date.now()}`;
+  const tmpDir = `/tmp/wa-pi-test-agents-keep-${Date.now()}`;
   mkdirSync(tmpDir, { recursive: true });
   // 先写一个自定义的 Explore.md
   const customContent = "---\nname: Explore\ndescription: 我的自定义探索\n---\n自定义提示词";
@@ -573,7 +573,7 @@ test("seedBuiltinAgents 已存在的文件不覆盖", () => {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/builtin-agents.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/builtin-agents.test.ts`
 Expected: FAIL — 模块不存在
 
 - [ ] **Step 3: 实现 builtin-agents.ts**
@@ -588,7 +588,7 @@ import { join } from "node:path";
  *
  * 提示词从 @gotgenes/pi-subagents 的 default-agents.ts 迁移而来，
  * 切换到 pi-open-agents 后不再依赖包内部源码，改为本地 .md 文件。
- * 用户可在 ~/.hiagent/agents/ 覆盖同名文件自定义。
+ * 用户可在 ~/.wa-pi/agents/ 覆盖同名文件自定义。
  */
 export const BUILTIN_AGENT_CONTENT: Record<string, string> = {
   "general-purpose": `---
@@ -691,7 +691,7 @@ List 3-5 files most critical for implementing this plan:
 };
 
 /**
- * 在 agentsDir 写入内置 agent 定义文件（~/.hiagent/agents/*.md）。
+ * 在 agentsDir 写入内置 agent 定义文件（~/.wa-pi/agents/*.md）。
  * 已存在的同名文件不覆盖（用户自定义优先）。
  */
 export function seedBuiltinAgents(agentsDir: string): void {
@@ -707,7 +707,7 @@ export function seedBuiltinAgents(agentsDir: string): void {
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/builtin-agents.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/builtin-agents.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: agent-manager 启动时调 seedBuiltinAgents**
@@ -719,7 +719,7 @@ import { seedBuiltinAgents } from "./builtin-agents";
 import { join } from "node:path";
 
 // 在 _createSession 或 ensureStarted 的初始化阶段调用：
-const agentsDir = join(HIAGENT_DIR, "agents");
+const agentsDir = join(WA_PI_DIR, "agents");
 seedBuiltinAgents(agentsDir);
 ```
 
@@ -727,7 +727,7 @@ seedBuiltinAgents(agentsDir);
 
 ```bash
 git add packages/kernel/src/builtin-agents.ts packages/kernel/tests/builtin-agents.test.ts packages/kernel/src/agent-manager.ts
-git commit -m "feat(kernel): 内置智能体迁移为 ~/.hiagent/agents/*.md 定义文件"
+git commit -m "feat(kernel): 内置智能体迁移为 ~/.wa-pi/agents/*.md 定义文件"
 ```
 
 ---
@@ -738,7 +738,7 @@ git commit -m "feat(kernel): 内置智能体迁移为 ~/.hiagent/agents/*.md 定
 - Modify: `packages/kernel/src/agent-manager.ts:368-381`
 
 **Interfaces:**
-- Consumes: `makeSpawnFn` from `./delegate-tool`、`HiAgentSpawnConfig` from `./subagent-runner`
+- Consumes: `makeSpawnFn` from `./delegate-tool`、`WaPiSpawnConfig` from `./subagent-runner`
 - Produces: delegate/fleet 工具绑定新 spawn 闭包，config.skills/tools 白名单传入子智能体
 
 这是让 `config.skills` 和 `config.tools` 真正生效的关键接入点。
@@ -756,19 +756,19 @@ const delegateTools = [
 替换为：
 ```typescript
 import { makeSpawnFn } from "./delegate-tool";
-import type { HiAgentSpawnConfig } from "./subagent-runner";
+import type { WaPiSpawnConfig } from "./subagent-runner";
 
-// resolveConfig：优先从 ConfigStore 读 HiAgent 配置（用户在 UI 设置的 model/thinking/tools/skills），
-// 内置 subagent 类型不在 store 里——从 ~/.hiagent/agents/*.md 定义文件加载 systemPrompt（Task 5 seedBuiltinAgents 写入）。
+// resolveConfig：优先从 ConfigStore 读 WaPi 配置（用户在 UI 设置的 model/thinking/tools/skills），
+// 内置 subagent 类型不在 store 里——从 ~/.wa-pi/agents/*.md 定义文件加载 systemPrompt（Task 5 seedBuiltinAgents 写入）。
 // config.skills / config.tools 白名单在此传入子智能体（之前从未被消费的死字段，现在生效）。
-const resolveSpawnConfig = async (agentName: string): Promise<HiAgentSpawnConfig | null> => {
-  // 内置 subagent 类型：从 ~/.hiagent/agents/*.md 读定义（含 systemPrompt）
+const resolveSpawnConfig = async (agentName: string): Promise<WaPiSpawnConfig | null> => {
+  // 内置 subagent 类型：从 ~/.wa-pi/agents/*.md 读定义（含 systemPrompt）
   if (isSubagentType(agentName)) {
     const builtin = SUBAGENT_TYPES.find(t => t.name === agentName);
     if (builtin) {
       // 从 seedBuiltinAgents 写入的 .md 文件读取 systemPrompt（用户可覆盖）
       const { loadAgents } = await import("pi-open-agents");
-      const { agents } = await loadAgents({ agentDir: HIAGENT_DIR });
+      const { agents } = await loadAgents({ agentDir: WA_PI_DIR });
       const agentDef = agents.find(a => a.name === agentName);
       return {
         name: builtin.name,
@@ -814,7 +814,7 @@ const delegateTools = [
 
 - [ ] **Step 3: 验证编译**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/kernel && bun build src/index.ts --no-bundle 2>&1 | head -10`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun build src/index.ts --no-bundle 2>&1 | head -10`
 Expected: 无 "Cannot find module" 或类型错误
 
 - [ ] **Step 4: Commit**
@@ -882,7 +882,7 @@ Expected: 无输出
 
 - [ ] **Step 6: 运行测试**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent && bun test packages/shared/tests/types.test.ts packages/kernel/tests/agent-md.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi && bun test packages/shared/tests/types.test.ts packages/kernel/tests/agent-md.test.ts`
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -900,7 +900,7 @@ git commit -m "refactor: 移除死字段 inheritSkills"
 - Modify: `packages/kernel/src/subagent-info.ts`
 
 **Interfaces:**
-- Consumes: `SUBAGENT_TYPES` from `@hiagent/shared`（元信息仍在）
+- Consumes: `SUBAGENT_TYPES` from `@wa-pi/shared`（元信息仍在）
 - Produces: `getSubagentInfo` 返回内置 subagent 的 systemPrompt/builtinToolNames（从 SUBAGENT_TYPES 常量读，不再从 pi-subagents 内部源码 import）
 
 - [ ] **Step 1: 重写 loadPiDefaultAgents**
@@ -910,8 +910,8 @@ git commit -m "refactor: 移除死字段 inheritSkills"
 // 移除 createRequire / dirname / join import 和 loadPiDefaultAgents 的 dynamic import 逻辑
 // 内置 subagent 的 systemPrompt/builtinToolNames 现在从 SUBAGENT_TYPES 常量直接读
 
-import { SUBAGENT_TYPES } from "@hiagent/shared";
-import type { SubagentInfo, SubagentOverride } from "@hiagent/shared";
+import { SUBAGENT_TYPES } from "@wa-pi/shared";
+import type { SubagentInfo, SubagentOverride } from "@wa-pi/shared";
 
 /** 内置 subagent 元信息（systemPrompt/builtinToolNames 写在 SUBAGENT_TYPES 常量里） */
 export async function getSubagentInfo(overrides: SubagentOverride[]): Promise<SubagentInfo[]> {
@@ -929,11 +929,11 @@ export async function getSubagentInfo(overrides: SubagentOverride[]): Promise<Su
 }
 ```
 
-注意：SUBAGENT_TYPES 需要确认是否已有 systemPrompt 字段。如果没有，systemPrompt 返回空串（前端 AgentConfig 展示只读详情时，可以后续从 `~/.hiagent/agents/*.md` 读）。
+注意：SUBAGENT_TYPES 需要确认是否已有 systemPrompt 字段。如果没有，systemPrompt 返回空串（前端 AgentConfig 展示只读详情时，可以后续从 `~/.wa-pi/agents/*.md` 读）。
 
 - [ ] **Step 2: 运行测试**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ --grep "subagent" 2>&1 | tail -10`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ --grep "subagent" 2>&1 | tail -10`
 Expected: PASS（或因 mock 变化需更新测试）
 
 - [ ] **Step 3: Commit**
@@ -952,17 +952,17 @@ git commit -m "refactor(kernel): subagent-info 不再 import pi-subagents 内部
 
 - [ ] **Step 1: 运行 kernel 全套测试**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/kernel && bun test 2>&1 | tail -20`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test 2>&1 | tail -20`
 Expected: 记录所有 FAIL
 
 - [ ] **Step 2: 运行 shared 全套测试**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/shared && bun test 2>&1 | tail -10`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/shared && bun test 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 3: 运行 frontend 全套测试**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/frontend && bun test 2>&1 | tail -15`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/frontend && bun test 2>&1 | tail -15`
 Expected: 记录所有 FAIL
 
 - [ ] **Step 4: 逐个修复 FAIL 测试**
@@ -994,12 +994,12 @@ git commit -m "test: 修复 pi-open-agents 切换后的测试回归"
 
 ```markdown
 ### 重构
-- **子智能体执行后端从 @gotgenes/pi-subagents 切换到 pi-open-agents**：获得 per-agent skills/tools 白名单配置能力（config.skills/config.tools 死字段正式生效）+ 子智能体执行过程可见性（onProgress 回调：工具调用/文本输出/用量实时推送）。架构变化：进程内 spawn+轮询 → 子进程 runSubagent+AbortSignal。内置智能体（general-purpose/Explore/Plan）的 systemPrompt 从包内部硬编码迁移为 `~/.hiagent/agents/*.md` 定义文件（用户可覆盖），agent 定义目录统一在 HiAgent 自己的 `~/.hiagent/agents/`。delegate-tool 完全重写（移除 SubagentServiceLike/waitSubagentResult/spawnViaSubagentsService，新增 makeSpawnFn + subagent-runner 适配层 + builtin-agents 种子文件）。移除死字段 inheritSkills。影响范围：kernel/{delegate-tool,subagent-runner(新),builtin-agents(新),subagent-info,agent-manager,extensions}.ts、shared/{types,constants}.ts、frontend/AgentConfig.tsx。
+- **子智能体执行后端从 @gotgenes/pi-subagents 切换到 pi-open-agents**：获得 per-agent skills/tools 白名单配置能力（config.skills/config.tools 死字段正式生效）+ 子智能体执行过程可见性（onProgress 回调：工具调用/文本输出/用量实时推送）。架构变化：进程内 spawn+轮询 → 子进程 runSubagent+AbortSignal。内置智能体（general-purpose/Explore/Plan）的 systemPrompt 从包内部硬编码迁移为 `~/.wa-pi/agents/*.md` 定义文件（用户可覆盖），agent 定义目录统一在 WaPi 自己的 `~/.wa-pi/agents/`。delegate-tool 完全重写（移除 SubagentServiceLike/waitSubagentResult/spawnViaSubagentsService，新增 makeSpawnFn + subagent-runner 适配层 + builtin-agents 种子文件）。移除死字段 inheritSkills。影响范围：kernel/{delegate-tool,subagent-runner(新),builtin-agents(新),subagent-info,agent-manager,extensions}.ts、shared/{types,constants}.ts、frontend/AgentConfig.tsx。
 ```
 
 - [ ] **Step 2: 全量测试最终验证**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent && bun test --path-ignore-patterns "**/e2e/**" 2>&1 | tail -10`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi && bun test --path-ignore-patterns "**/e2e/**" 2>&1 | tail -10`
 Expected: 除预先存在的 flaky 测试外全部 PASS
 
 - [ ] **Step 3: Commit**
@@ -1080,7 +1080,7 @@ test("resolveAgentTools: server 名含连字符时按 _ 前缀匹配", () => {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/shared && bun test tests/constants.test.ts -t "mcpServers"`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/shared && bun test tests/constants.test.ts -t "mcpServers"`
 Expected: FAIL — `allowedMcpServers` 参数不存在
 
 - [ ] **Step 3: 修改 resolveAgentTools 增加 allowedMcpServers 参数**
@@ -1153,7 +1153,7 @@ export function resolveAgentTools(
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/shared && bun test tests/constants.test.ts -t "mcpServers"`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/shared && bun test tests/constants.test.ts -t "mcpServers"`
 Expected: PASS
 
 - [ ] **Step 5: agent-manager 传入 config.mcpServers**
@@ -1172,7 +1172,7 @@ const tools = resolveAgentTools(
 
 - [ ] **Step 6: 运行 kernel 测试确认无回归**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/kernel && bun test 2>&1 | tail -10`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test 2>&1 | tail -10`
 Expected: 无新增 FAIL
 
 - [ ] **Step 7: Commit**
@@ -1227,7 +1227,7 @@ test("MCP tab 展示 MCP 服务器列表并支持勾选", async () => {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/frontend && bun test tests/AgentConfig.test.tsx -t "MCP tab"`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/frontend && bun test tests/AgentConfig.test.tsx -t "MCP tab"`
 Expected: FAIL — `tab-mcp` 不存在
 
 - [ ] **Step 3: 修改 AgentConfig.tsx 新增 MCP tab**
@@ -1297,7 +1297,7 @@ import { useMcpStore } from "../store/mcp";
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent/packages/frontend && bun test tests/AgentConfig.test.tsx`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/frontend && bun test tests/AgentConfig.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1330,7 +1330,7 @@ git commit -m "feat(frontend): AgentConfig 弹窗新增 MCP 服务器 tab"
 
 - [ ] **Step 3: 运行全量测试**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/HiAgent && bun test --path-ignore-patterns "**/e2e/**" 2>&1 | tail -10`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi && bun test --path-ignore-patterns "**/e2e/**" 2>&1 | tail -10`
 Expected: 全部 PASS
 
 - [ ] **Step 4: Commit**

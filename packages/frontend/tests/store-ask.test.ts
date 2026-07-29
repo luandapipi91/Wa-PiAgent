@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { selectPendingAsks } from "../src/store/ask";
-import type { SessionMessage } from "@hiagent/shared";
+import type { SessionMessage } from "@wa-pi/shared";
 
 function assistantMsg(toolCalls: any[], timestamp = 1): SessionMessage {
   return { message: { role: "assistant", content: toolCalls, model: "m", stopReason: "tool_use", timestamp } as any, agentName: "dev" };

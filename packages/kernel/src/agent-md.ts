@@ -1,5 +1,5 @@
-import type { AgentConfig, Partners } from "@hiagent/shared";
-import { agentDefOf } from "@hiagent/shared";
+import type { AgentConfig, Partners } from "@wa-pi/shared";
+import { agentDefOf } from "@wa-pi/shared";
 
 // 轻量 YAML 解析（仅支持 agent.md 用到的子集：标量、列表、嵌套对象）
 // 不引入 gray-mirror 等依赖，保持 kernel 精简

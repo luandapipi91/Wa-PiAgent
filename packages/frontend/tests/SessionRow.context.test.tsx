@@ -1,7 +1,7 @@
 import { test, expect, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { SessionRow } from "../src/components/SessionRow";
-import type { SessionEntity } from "@hiagent/shared";
+import type { SessionEntity } from "@wa-pi/shared";
 
 const session: SessionEntity = {
   id: "s1", projectId: "p1", primaryAgent: "dev",

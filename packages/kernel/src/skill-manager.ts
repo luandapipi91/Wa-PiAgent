@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import type { SkillInfo, SkillSource } from "@hiagent/shared";
+import type { SkillInfo, SkillSource } from "@wa-pi/shared";
 import {
   withTimeout, hasSkillMd, scanSkillsDir,
   SKILL_SCAN_TIMEOUT_MS, ADD_DIR_TIMEOUT_MS, ADD_DIR_NON_SKILL_THRESHOLD,
@@ -9,7 +9,7 @@ import {
 
 /** settings.json 中与技能相关的字段 */
 interface SkillSettings {
-  /** 用户技能目录（HiAgent 内部字段，Pi SDK 不读此字段，避免触发 SDK 递归扫描） */
+  /** 用户技能目录（WaPi 内部字段，Pi SDK 不读此字段，避免触发 SDK 递归扫描） */
   userSkillDirs?: string[];
   disabledSkills?: string[];
   [k: string]: unknown;
@@ -34,7 +34,7 @@ export class SkillManager {
   private builtinDir: string;
 
   /**
-   * @param dataDir HiAgent 数据目录，内置技能目录 = dataDir/skills
+   * @param dataDir WaPi 数据目录，内置技能目录 = dataDir/skills
    */
   constructor(private dataDir: string) {
     this.builtinDir = join(dataDir, "skills");

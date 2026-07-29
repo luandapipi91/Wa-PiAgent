@@ -3,7 +3,7 @@ import { create } from "zustand";
 import type {
   MemoryEntry, ArchivedMemory, InstructionFile, MemoryConfig,
   MemoryListResult, MemoryChangedEvent, InstructionListResult, MemoryConfigEvent,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 import { api } from "../api-client";
 
 type ActiveTab = "saved" | "archived" | "instructions";

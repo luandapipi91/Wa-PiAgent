@@ -3,7 +3,7 @@ import { useProvidersStore } from "../../store/providers";
 import { ProviderCard } from "./ProviderCard";
 import { ProviderFormModal } from "./ProviderFormModal";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
-import type { ModelProvider } from "@hiagent/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 
 export function ProviderSection() {
   const { providers, remove, test } = useProvidersStore();

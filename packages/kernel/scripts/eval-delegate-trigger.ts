@@ -6,7 +6,7 @@
 //
 // 与生产一致的部分（保证测的就是线上行为）：
 // - 系统提示词：composePrompt(prompts.json segments, { defaultBasePrompt, delegateRoster, builtinSkillsDir })
-// - 工具面：默认排除式（不传 --tools，仅 -xt subagent）+ 全套扩展（pi-open-agents/web-access/mcp-adapter + provider-extension + hiagent-bridge）
+// - 工具面：默认排除式（不传 --tools，仅 -xt subagent）+ 全套扩展（pi-open-agents/web-access/mcp-adapter + provider-extension + wa-pi-bridge）
 //
 // 与生产不同的部分（压成本）：
 // - bridge 的 /bridge/tool 由本脚本内置 stub server 应答：delegate/fleet 只记录调用并立即
@@ -17,7 +17,7 @@
 //   --limit N：取前 N 条；--sample N：每类各取前 N 条（冒烟推荐 --sample 1）
 //   --category：只跑指定类别（如 --category explore,simple）；--repeat N：整个用例集重复 N 轮，汇总 mean±std
 // 默认模型：providers.json 第一个 provider 的第一个模型。
-// 配置来源：真实 ~/.hiagent（只读 providers/prompts；生成的扩展文件与 app 启动时幂等一致）。
+// 配置来源：真实 ~/.wa-pi（只读 providers/prompts；生成的扩展文件与 app 启动时幂等一致）。
 // 注意：edit 类用例会让 agent 真实改动 cwd 下的文件。务必在隔离 worktree 中运行
 // （git worktree add .worktrees/eval-delegate HEAD && cd 后 bun install），
 // 不要在主工作区直接跑——主工作区可能有用户并行开发的未提交代码。
@@ -27,11 +27,11 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  HIAGENT_DIR,
+  WA_PI_DIR,
   BUILTIN_SKILLS_DIR,
   PROMPTS_FILE,
   slugifyProviderName,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 import {
   RpcClient,
   buildPiArgs,
@@ -44,7 +44,7 @@ import {
   ensurePromptsConfig,
   loadPromptSegments,
   DEFAULT_PROMPT_SEGMENTS,
-  HIAGENT_DEFAULT_BASE_PROMPT,
+  WA_PI_DEFAULT_BASE_PROMPT,
 } from "../src/system-prompt";
 import { buildDelegateRoster } from "../src/delegate-tool";
 import { ensureBridgeExtension } from "../src/bridge-extension";
@@ -52,7 +52,7 @@ import { ensureProviderExtensionRegistered } from "../src/provider-extension";
 import { ProviderStore } from "../src/provider-store";
 import { buildAdditionalExtensionPaths } from "../src/extensions";
 
-// ---- 用例集（60 条，针对 HiAgent 自身代码库）----
+// ---- 用例集（60 条，针对 WaPi 自身代码库）----
 // explore (30)：多步搜索/审计，应触发 delegate/fleet
 // edit (10)：小改动，视情况（可能需要先探索）
 // simple (20)：单次查找/问答，不应触发
@@ -62,7 +62,7 @@ const CASES: Array<{ category: Category; prompt: string }> = [
   { category: "explore", prompt: "找出 packages/kernel/src 里所有调用 RpcClient.command 的地方，总结它们分别做什么。" },
   { category: "explore", prompt: "审计整个 packages/frontend/src 下 data-testid 的使用，按组件归类列出。" },
   { category: "explore", prompt: "agent-manager.ts 的会话生命周期是怎样的？从创建到销毁经过哪些方法，把调用链整理出来。" },
-  { category: "explore", prompt: "搜索全仓库，列出所有读取或写入 ~/.hiagent 下文件的代码位置。" },
+  { category: "explore", prompt: "搜索全仓库，列出所有读取或写入 ~/.wa-pi 下文件的代码位置。" },
   { category: "explore", prompt: "packages/kernel 里有哪些地方处理了 pi 子进程异常退出？把每条路径的文件和处理方式找出来。" },
   { category: "explore", prompt: "调查 packages/frontend 的 store 目录：每个 store 的职责是什么，它们之间有没有交叉引用？" },
   { category: "explore", prompt: "找出所有引用 SUBAGENT_TYPES 常量的文件，解释每处用它来做什么。" },
@@ -98,7 +98,7 @@ const CASES: Array<{ category: Category; prompt: string }> = [
   { category: "edit", prompt: "packages/kernel/src/subagent-runner.ts 中 mapThinking 函数加一个 'minimal' 级别的注释说明。" },
   { category: "edit", prompt: "把 packages/kernel/scripts/eval-delegate-trigger.ts 里的每用例默认超时改为 240s（已在 2025-03 从 180s 更新）。" },
   { category: "edit", prompt: "给 packages/kernel/src/agent-manager.ts 的 _flushSubagentTelemetry 方法补充边界情况注释（无记录时不落盘）。" },
-  { category: "edit", prompt: "给 packages/shared/src/constants.ts 的 HIAGENT_DIR 常量注释补充一句「可用 HIAGENT_DIR 环境变量覆盖」。" },
+  { category: "edit", prompt: "给 packages/shared/src/constants.ts 的 WA_PI_DIR 常量注释补充一句「可用 WA_PI_DIR 环境变量覆盖」。" },
   { category: "edit", prompt: "scripts/port.ts 文件头加一行注释说明这个脚本的用途。" },
   // --- simple (20) ---
   { category: "simple", prompt: "packages/kernel/src/rpc-client.ts 的 buildPiArgs 函数支持哪些参数？念一下。" },
@@ -106,7 +106,7 @@ const CASES: Array<{ category: Category; prompt: string }> = [
   { category: "simple", prompt: "读 packages/kernel/package.json，告诉我 test 脚本是什么。" },
   { category: "simple", prompt: "PROMPTS_SCHEMA_VERSION 当前是几？" },
   { category: "simple", prompt: "delegate 工具的参数有哪两个？" },
-  { category: "simple", prompt: "HIAGENT_DIR 默认指向哪个目录？" },
+  { category: "simple", prompt: "WA_PI_DIR 默认指向哪个目录？" },
   { category: "simple", prompt: "subagent-telemetry.ts 里 estimateTokens 的估算比例是多少？" },
   { category: "simple", prompt: "packages/shared/src/constants.ts 里 SUBAGENT_TYPES 有哪几个内置类型？" },
   { category: "simple", prompt: "fleet 工具的并发上限是多少？" },
@@ -285,17 +285,17 @@ async function runOneCase(
     }),
     cwd: join(import.meta.dir, "../../.."), // 仓库根：explore 用例的探索对象
     env: {
-      PI_CODING_AGENT_DIR: HIAGENT_DIR,
-      HIAGENT_BRIDGE_URL: ctx.bridgeUrl,
-      HIAGENT_BRIDGE_TOKEN: ctx.bridgeToken,
-      HIAGENT_SESSION_ID: sessionId,
+      PI_CODING_AGENT_DIR: WA_PI_DIR,
+      WA_PI_BRIDGE_URL: ctx.bridgeUrl,
+      WA_PI_BRIDGE_TOKEN: ctx.bridgeToken,
+      WA_PI_SESSION_ID: sessionId,
     },
     onEvent,
     onExit: () => {},
   });
 
   try {
-    // 每用例前重新确保扩展文件存在：外部进程（如运行中的 HiAgent 实例）
+    // 每用例前重新确保扩展文件存在：外部进程（如运行中的 WaPi 实例）
     // 可能并发清理 .generated，导致 pi 启动时扩展加载失败
     await ctx.ensureExtensions();
     await client.start();
@@ -377,14 +377,14 @@ async function main() {
   // 准备：prompts / 系统提示词 / 扩展 / stub bridge
   await ensurePromptsConfig(PROMPTS_FILE);
   const segments = (await loadPromptSegments(PROMPTS_FILE)) ?? DEFAULT_PROMPT_SEGMENTS;
-  const agentsDir = join(HIAGENT_DIR, "agents");
+  const agentsDir = join(WA_PI_DIR, "agents");
   const delegateRoster = buildDelegateRoster([], {}, agentsDir);
   const composed = composePrompt(segments, {
-    defaultBasePrompt: HIAGENT_DEFAULT_BASE_PROMPT,
+    defaultBasePrompt: WA_PI_DEFAULT_BASE_PROMPT,
     delegateRoster,
     builtinSkillsDir: BUILTIN_SKILLS_DIR,
   });
-  const tmpDir = join(HIAGENT_DIR, "tmp", "eval-delegate-trigger");
+  const tmpDir = join(WA_PI_DIR, "tmp", "eval-delegate-trigger");
   await mkdir(tmpDir, { recursive: true });
   const promptFile = join(tmpDir, `sysprompt-${randomUUID()}.md`);
   await writeFile(promptFile, composed, "utf8");
@@ -474,7 +474,7 @@ async function main() {
   console.log(`错误用例: ${allResults.filter((r) => r.error).length}`);
   console.log(`总耗时: ${(allResults.reduce((s, r) => s + r.elapsedMs, 0) / 1000).toFixed(1)}s`);
 
-  const outPath = opts.out ?? join(HIAGENT_DIR, `eval-delegate-trigger-${Date.now()}.json`);
+  const outPath = opts.out ?? join(WA_PI_DIR, `eval-delegate-trigger-${Date.now()}.json`);
   await writeFile(
     outPath,
     JSON.stringify({ model: `${providerSlug}/${modelId}`, thinking: opts.thinking, at: new Date().toISOString(), repeat: opts.repeat, runs }, null, 2),

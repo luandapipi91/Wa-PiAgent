@@ -1,6 +1,6 @@
 import { useRef, useEffect, type MouseEvent } from "react";
-import type { SessionEntity } from "@hiagent/shared";
-import { formatRelativeTime } from "@hiagent/shared";
+import type { SessionEntity } from "@wa-pi/shared";
+import { formatRelativeTime } from "@wa-pi/shared";
 import { agentEmoji } from "../theme/agents";
 import { useSessionStore } from "../store/session";
 

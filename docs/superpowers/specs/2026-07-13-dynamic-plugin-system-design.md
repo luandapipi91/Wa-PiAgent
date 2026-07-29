@@ -8,7 +8,7 @@
 
 ## 1. 目标
 
-在 HiAgent 设置 → 插件面板中，支持用户动态安装、启用/禁用、升级、卸载第三方 npm 插件（Pi packages），无需修改代码或重新构建。
+在 WaPi 设置 → 插件面板中，支持用户动态安装、启用/禁用、升级、卸载第三方 npm 插件（Pi packages），无需修改代码或重新构建。
 
 参考：
 - Pi SDK 原生 Extensions 机制：`settings.json.packages` + `DefaultResourceLoader`
@@ -31,7 +31,7 @@
 }
 ```
 
-`npmCommand` 告诉 Pi SDK 和 HiAgent 使用哪个包管理器（bun），而非硬编码。
+`npmCommand` 告诉 Pi SDK 和 WaPi 使用哪个包管理器（bun），而非硬编码。
 
 | 轨道 | 加载方式 | 内容 | 管理方 |
 |------|---------|------|--------|
@@ -134,7 +134,7 @@ function validatePackageName(raw: string): string | null {
 使用数组参数调用 `bun add`，避免 shell 注入：
 
 ```typescript
-// runtimeDir = ~/.hiagent/runtime
+// runtimeDir = ~/.wa-pi/runtime
 const args = version ? ["add", `${name}@${version}`] : ["add", name];
 const proc = Bun.spawn(["bun", ...args], { cwd: runtimeDir, stdio: ["pipe", "pipe", "pipe"] });
 const exitCode = await proc.exited;
@@ -235,10 +235,10 @@ class ExtensionManager {
 
 现有打包流程无需改动：
 
-- 运行时依赖在 `~/.hiagent/runtime/` 通过 `bun install --production` 安装
-- `settings.json` 位于 `~/.hiagent/`（即 HIAGENT_DIR）
-- Pi SDK 的 `agentDir` 指向 `~/.hiagent/`，`DefaultResourceLoader` 自动发现 packages
-- 动态安装的插件在 `~/.hiagent/runtime/node_modules/`，打包产物不包含
+- 运行时依赖在 `~/.wa-pi/runtime/` 通过 `bun install --production` 安装
+- `settings.json` 位于 `~/.wa-pi/`（即 WA_PI_DIR）
+- Pi SDK 的 `agentDir` 指向 `~/.wa-pi/`，`DefaultResourceLoader` 自动发现 packages
+- 动态安装的插件在 `~/.wa-pi/runtime/node_modules/`，打包产物不包含
 
 
 
@@ -272,7 +272,7 @@ class ExtensionManager {
 
 ### 8.2 设计 Token
 
-沿用现有 HiAgent Light 设计系统：
+沿用现有 WaPi Light 设计系统：
 
 - 品牌色 `--accent`: #5B5BD6（安装按钮、输入框聚焦）
 - 成功色 `--success`: #34A853（启用开关、状态文字）
@@ -298,7 +298,7 @@ class ExtensionManager {
 |------|------|
 | `extensions.ts` | 移除 `OPTIONAL_EXTENSIONS` 和 `migrateSettingsPackages()`；`buildAdditionalExtensionPaths()` 不变 |
 | `extension-manager.ts` | 重写：新增 `install()` / `uninstall()` / `upgrade()` / `toggle()` / `list()`，基于 `settings.json.packages` |
-| `agent-manager.ts` | 确认 `DefaultResourceLoader` 正常读取 `packages` 字段（agentDir 指向 HIAGENT_DIR） |
+| `agent-manager.ts` | 确认 `DefaultResourceLoader` 正常读取 `packages` 字段（agentDir 指向 WA_PI_DIR） |
 | `ws-server.ts` | 注册 `extension:install` / `extension:uninstall` / `extension:upgrade` / `extension:toggle` 事件处理 |
 | `index.ts` | 移除 `migrateSettingsPackages()` 调用 |
 

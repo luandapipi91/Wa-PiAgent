@@ -1,4 +1,4 @@
-// HiAgent 共享类型定义
+// WaPi 共享类型定义
 
 import type {
 	ProviderListEvent,
@@ -112,7 +112,7 @@ export interface SubagentInfo {
 	readOnly: boolean;
 	systemPrompt: string;
 	builtinToolNames: string[];
-	/** 委派引导：从 ~/.hiagent/agents/*.md 的 frontmatter 提取，前端只读展示 */
+	/** 委派引导：从 ~/.wa-pi/agents/*.md 的 frontmatter 提取，前端只读展示 */
 	delegationHints?: DelegationHints;
 	override?: SubagentOverride;
 }
@@ -131,7 +131,7 @@ export interface SessionEntity {
 	title: string;
 	createdAt: number;
 	lastActivity: number;
-	piSessionFile: string; // SDK jsonl 文件路径 ~/.hiagent/sessions/<id>.jsonl
+	piSessionFile: string; // SDK jsonl 文件路径 ~/.wa-pi/sessions/<id>.jsonl
 }
 
 // ===== Pi 原生消息类型（镜像 @mariozechner/pi-ai，避免运行时依赖）=====
@@ -263,7 +263,7 @@ export type AssistantMessageEvent =
 	  }
 	| { type: "error"; reason: "aborted" | "error"; error: AssistantMessage };
 
-// HiAgent 投影：一条 Pi 消息 + HiAgent 元信息
+// WaPi 投影：一条 Pi 消息 + WaPi 元信息
 export interface SessionMessage {
 	message: AgentMessage; // Pi 原生消息，原样透传
 	agentName?: AgentName; // 哪个 agent 发的（assistant/toolResult 才有意义）

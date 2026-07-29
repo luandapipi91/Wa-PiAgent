@@ -6,7 +6,7 @@
 
 ## 1. 问题
 
-hiagent 的 skill 管理存在断点：**前端能看到技能，agent 看不到**。
+wa-pi 的 skill 管理存在断点：**前端能看到技能，agent 看不到**。
 
 - `skill-manager.ts` 扫描 `settings.json` 的 `userSkillDirs`（如 `C:\Users\co\.reasonix\skills`），仅供前端 UI 列表 / 开关使用。
 - `agent-manager.ts` 创建 SDK `DefaultResourceLoader` 时未传入任何 skill 路径。
@@ -20,9 +20,9 @@ hiagent 的 skill 管理存在断点：**前端能看到技能，agent 看不到
 
 1. `resolvedPaths.skills` —— SDK 原生 settings 解析（`packageManager.resolve()`）。
 2. `cliExtensionPaths.skills` —— `additionalExtensionPaths` 中携带的 skill。
-3. `additionalSkillPaths` —— loader 构造选项，**hiagent 目前未传**。
+3. `additionalSkillPaths` —— loader 构造选项，**wa-pi 目前未传**。
 
-SDK `includeDefaults` 还会自动扫描两个固定目录：`<agentDir>/skills`（= `~/.hiagent/skills`，当前为空）和 `<cwd>/.hiagent/skills`。
+SDK `includeDefaults` 还会自动扫描两个固定目录：`<agentDir>/skills`（= `~/.wa-pi/skills`，当前为空）和 `<cwd>/.wa-pi/skills`。
 
 ### 2.2 `settings.skills` 字段无效
 
@@ -55,7 +55,7 @@ SDK 的 `settings.skills`（`globalSettings.skills`）**不是扫描目录列表
    - `_createSession` 创建 loader 前，调 `this.opts.skillManager?.scan()` 取启用 skill 的 `path` 列表作为 `additionalSkillPaths`。
 4. **`packages/kernel/src/index.ts`**：`new AgentManager({ ..., skillManager })` 注入。
 
-**范围过滤**：`additionalSkillPaths` 只含来自 `userSkillDirs` 的 skill 路径，**不含 `builtinDir`（`~/.hiagent/skills`）来源的**——builtin 由 SDK `includeDefaults` 自动扫描，重复传入会触发 name collision 诊断（虽被去重，但产生噪音）。
+**范围过滤**：`additionalSkillPaths` 只含来自 `userSkillDirs` 的 skill 路径，**不含 `builtinDir`（`~/.wa-pi/skills`）来源的**——builtin 由 SDK `includeDefaults` 自动扫描，重复传入会触发 name collision 诊断（虽被去重，但产生噪音）。
 
 实现方式：按路径前缀过滤——`additionalSkillPaths = skills.filter(s => userDirs.some(d => isUnder(s.path, d))).map(s => s.path)`，其中 `userDirs` 来自 `scan()` 返回的 `dirs`（已去 builtin）。`scan()` 内部按 `[builtinDir, ...userDirs]` 顺序去重（builtin 优先），故与 builtin 同名的 user skill 会被 builtin 占位、其 path 不在结果中 → 自动排除，行为与 SDK 自动扫描一致。
 
@@ -113,7 +113,7 @@ SDK 的 `settings.skills`（`globalSettings.skills`）**不是扫描目录列表
 
 - **不用 `settings.skills`**：已验证无效（模式过滤器，非扫描目录列表）。
 - **不用 C2（改 private 字段 + reload）**：`additionalSkillPaths` 是 SDK private 字段，`as any` 改它跨版本易碎，不值得为省重建开销冒升级风险。
-- **不用 D（junction 进 `~/.hiagent/skills`）**：`~/.hiagent/skills` 是 skill-manager 的 `builtinDir`，junction 会被前端当 builtin 扫到，scope 标签错乱；且要管 junction 生命周期。
+- **不用 D（junction 进 `~/.wa-pi/skills`）**：`~/.wa-pi/skills` 是 skill-manager 的 `builtinDir`，junction 会被前端当 builtin 扫到，scope 标签错乱；且要管 junction 生命周期。
 - **不做后台主动重建**：惰性 `ensureStarted` 已覆盖所有「正在用」的会话；未被用的会话 stale 无害。
 - **不做 scan 结果缓存**：`scan()` 已有单目录 8s 超时保护，典型 skill 目录扫描很快，先不引入缓存复杂度。
 
@@ -137,7 +137,7 @@ SDK 的 `settings.skills`（`globalSettings.skills`）**不是扫描目录列表
    - mock `createAgentSessionFn`：skill 变更 → `markSkillsDirty` → idle 后 `ensureStarted` 触发重建（断言旧 session 被 dispose、新 session 创建、`additionalSkillPaths` 更新）。
    - 进行中会话（`isStreaming` true）不重建，保留 `skillDirty`。
 3. **验证（手动）**
-   - 复用已加的临时 `[hiagent][debug] system prompt` log，确认打印的提示词含 skills 段。
+   - 复用已加的临时 `[wa-pi][debug] system prompt` log，确认打印的提示词含 skills 段。
    - 设置里增删 skill 目录后，刷新 / 切换会话，确认提示词 skills 段随之变化。
 4. **回归**
    - extension toggle 仍走 `markAllDirty` + reload，不被重建逻辑影响。

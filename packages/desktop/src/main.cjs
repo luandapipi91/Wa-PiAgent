@@ -13,9 +13,9 @@ const fsp = require("node:fs/promises");
 const { createLogger } = require("./util/log.cjs");
 const { findAvailablePort } = require("./util/port.cjs");
 
-const HIAGENT_DIR =
-	process.env.HIAGENT_DIR || path.join(os.homedir(), ".hiagent");
-const log = createLogger(path.join(HIAGENT_DIR, "logs", "desktop.log"));
+const WA_PI_DIR =
+	process.env.WA_PI_DIR || path.join(os.homedir(), ".wa-pi");
+const log = createLogger(path.join(WA_PI_DIR, "logs", "desktop.log"));
 
 // 与前端 --canvas 对齐：主窗口/启动页用同色底，消除首帧白屏闪烁
 const CANVAS_BG = "#F5F5F7";
@@ -46,8 +46,8 @@ body{background:${CANVAS_BG};display:flex;flex-direction:column;align-items:cent
 .status{margin-top:16px;font-size:12px;color:#86868b;min-height:16px;text-align:center}
 .err{color:#d9404d}
 </style></head><body>
-${logoSrc ? `<img class="logo" src="${logoSrc}" alt="HiAgent"/>` : `<div class="logo" style="background:${BRAND_GREEN}"></div>`}
-<div class="name">HiAgent</div>
+${logoSrc ? `<img class="logo" src="${logoSrc}" alt="WA PI Agent"/>` : `<div class="logo" style="background:${BRAND_GREEN}"></div>`}
+<div class="name">WA PI Agent</div>
 <div class="bar"><div class="fill" id="fill"></div></div>
 <div class="status" id="status">正在启动…</div>
 <script>
@@ -77,15 +77,15 @@ function createSplash() {
 	});
 }
 
-// packaged 下运行时只有 hiagent-kernel(=bun)，PATH 上缺少 node/npm/bun。
+// packaged 下运行时只有 wa-pi-kernel(=bun)，PATH 上缺少 node/npm/bun。
 // 动态插件可能需要 bun 来装 npm 包，装好的 bin 脚本 shebang 又需要 node。
-// 因此在 ~/.hiagent/bin 下创建 bun / node 符号链接指向 hiagent-kernel，
+// 因此在 ~/.wa-pi/bin 下创建 bun / node 符号链接指向 wa-pi-kernel，
 // 并把该目录追加到 sidecar 的 PATH。
-async function ensureRuntimeBinLinks({ runtimeDir, hiagentDir, log }) {
+async function ensureRuntimeBinLinks({ runtimeDir, waPiDir, log }) {
 	if (!app.isPackaged) return null;
-	const binDir = path.join(hiagentDir, "bin");
+	const binDir = path.join(waPiDir, "bin");
 	const kernelName =
-		process.platform === "win32" ? "hiagent-kernel.exe" : "hiagent-kernel";
+		process.platform === "win32" ? "wa-pi-kernel.exe" : "wa-pi-kernel";
 	const target = path.join(runtimeDir, kernelName);
 	await fsp.mkdir(binDir, { recursive: true });
 	if (process.platform === "win32") {
@@ -219,17 +219,17 @@ app.whenReady().then(async () => {
 		process.resourcesPath,
 		process.env,
 	);
-	const runtimeDir = resolveRuntimeDir(HIAGENT_DIR); // ~/.hiagent/runtime 可写
-	// packaged 下 sidecar 二进制已重命名为 hiagent-kernel（分发进程名不暴露 bun）；dev 仍用 host bun。
+	const runtimeDir = resolveRuntimeDir(WA_PI_DIR); // ~/.wa-pi/runtime 可写
+	// packaged 下 sidecar 二进制已重命名为 wa-pi-kernel（分发进程名不暴露 bun）；dev 仍用 host bun。
 	const kernelExe = path.join(
 		seedDir,
-		process.platform === "win32" ? "hiagent-kernel.exe" : "hiagent-kernel",
+		process.platform === "win32" ? "wa-pi-kernel.exe" : "wa-pi-kernel",
 	);
 
 	// 2a) 探测可用端口：默认/配置端口被占用时自动后移
 	const desiredPort =
-		Number(process.env.HIAGENT_WS_PORT) > 0
-			? Number(process.env.HIAGENT_WS_PORT)
+		Number(process.env.WA_PI_WS_PORT) > 0
+			? Number(process.env.WA_PI_WS_PORT)
 			: 9776;
 	let actualPort;
 	try {
@@ -243,7 +243,7 @@ app.whenReady().then(async () => {
 		return;
 	}
 
-	// 2a) 首启依赖检测/动态安装（packaged：~/.hiagent/runtime 下用阿里源装原生 addon 等）
+	// 2a) 首启依赖检测/动态安装（packaged：~/.wa-pi/runtime 下用阿里源装原生 addon 等）
 	let runDir = seedDir;
 	if (app.isPackaged) {
 		const { ensureRuntimeDeps } = require("./util/runtime-deps.cjs");
@@ -269,7 +269,7 @@ app.whenReady().then(async () => {
 			setProgress(-1, "依赖安装失败，请检查网络后重启");
 			mainWindow.webContents.once("did-finish-load", revealMainWindow);
 			mainWindow.loadURL(
-				"data:text/html;charset=utf-8,<body style='font-family:system-ui;padding:48px;color:#a00'>内核依赖安装失败，请检查网络连接后重启 HiAgent。<br/><br/>详情：" +
+				"data:text/html;charset=utf-8,<body style='font-family:system-ui;padding:48px;color:#a00'>内核依赖安装失败，请检查网络连接后重启 WA PI Agent。<br/><br/>详情：" +
 					String(e.message || e).replace(/</g, "&lt;") +
 					"</body>",
 			);
@@ -279,12 +279,12 @@ app.whenReady().then(async () => {
 	}
 
 	// 2a+) 为 packaged 运行环境补充 bun/node 命令，供动态插件安装/运行 npm 包工具。
-	// 打包版只有 hiagent-kernel(=bun)，部分 npm 包脚本的 shebang 需要 node。
+	// 打包版只有 wa-pi-kernel(=bun)，部分 npm 包脚本的 shebang 需要 node。
 	if (app.isPackaged) {
 		try {
 			const binDir = await ensureRuntimeBinLinks({
 				runtimeDir,
-				hiagentDir: HIAGENT_DIR,
+				waPiDir: WA_PI_DIR,
 				log,
 			});
 			if (binDir) {

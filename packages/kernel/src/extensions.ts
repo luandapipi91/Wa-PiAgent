@@ -13,13 +13,13 @@ import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { GENERATED_DIR, HIAGENT_DIR } from "@hiagent/shared";
+import { GENERATED_DIR, WA_PI_DIR } from "@wa-pi/shared";
 
 const require = createRequire(import.meta.url);
 // runtimeRequire：dev 模式下内核源码跑在 packages/kernel/src/，require 从 repo 解析不到
-// 运行时安装的动态包（bun add 在 ~/.hiagent/runtime/node_modules）。用 runtimeRequire 兜底。
+// 运行时安装的动态包（bun add 在 ~/.wa-pi/runtime/node_modules）。用 runtimeRequire 兜底。
 // 生产模式内核 bundle 已在 runtime 目录，两个 require 解析结果一致（都从 runtime 出发）。
-const runtimeRequire = createRequire(join(HIAGENT_DIR, "runtime", "package.json"));
+const runtimeRequire = createRequire(join(WA_PI_DIR, "runtime", "package.json"));
 
 /**
  * 把 Pi 扩展声明项解析为实际入口文件路径。
@@ -80,7 +80,7 @@ const PKG_EXTENSIONS = [
  * 动态加载时据此 gate，避免把任意已启用 npm 包的 main 当扩展入口导入（执行其副作用）。
  *
  * 先尝试 require（dev 模式下包在 repo node_modules；生产 bundle 已在 runtime），
- * 解析失败再尝试 runtimeRequire（dev 模式下运行时安装的动态包在 ~/.hiagent/runtime）。
+ * 解析失败再尝试 runtimeRequire（dev 模式下运行时安装的动态包在 ~/.wa-pi/runtime）。
  */
 function readPiExtensionsDeclaration(pkgName: string): string[] | undefined {
   const parse = (req: NodeRequire) => {
@@ -95,8 +95,8 @@ function readPiExtensionsDeclaration(pkgName: string): string[] | undefined {
 
 /**
  * 构造传给 pi 进程 -e 参数的全部扩展入口。
- * 含 hiagent 自生成的 provider-extension（providers.json → GENERATED_DIR）
- * 与 hiagent-bridge（ask/memory/delegate/fleet 宿主工具，见 bridge-extension.ts）。
+ * 含 wa-pi 自生成的 provider-extension（providers.json → GENERATED_DIR）
+ * 与 wa-pi-bridge（ask/memory/delegate/fleet 宿主工具，见 bridge-extension.ts）。
  *
  * @param dynamicPkgNames 运行时安装并启用的第三方扩展包名（来自 ExtensionManager.list()）。
  *   仅纳入声明了 pi.extensions 的包（Pi 扩展信号），其余静默跳过。默认空数组（向后兼容）。
@@ -107,7 +107,7 @@ export function buildAdditionalExtensionPaths(dynamicPkgNames: string[] = []): s
   // 否则 pi 进程不会加载它们 → 它们的工具/钩子不注册（即动态插件「装了但没生效」的根因）。
   for (const name of dynamicPkgNames) {
     if (!readPiExtensionsDeclaration(name)) continue;  // 非 Pi 扩展，跳过
-    // 动态包优先从 runtime 解析：它们经 bun add 装在 ~/.hiagent/runtime，pi 对 agent 目录
+    // 动态包优先从 runtime 解析：它们经 bun add 装在 ~/.wa-pi/runtime，pi 对 agent 目录
     // 的自动发现也用同一路径——-e 路径与自动发现路径一致才能被 pi 去重；
     // 若先走 repo require，动态包恰好又是 repo 的传递依赖（如 pi-lens）时，
     // -e 传入 repo 副本 + pi 自动加载 runtime 副本 = 同一扩展加载两次（flag 冲突）。
@@ -122,8 +122,8 @@ export function buildAdditionalExtensionPaths(dynamicPkgNames: string[] = []): s
       }
     }
   }
-  // provider-extension / hiagent-bridge 由 main()/ws-server 动态生成，首启或测试前可能尚未存在
-  for (const generated of ["provider-extension.ts", "hiagent-bridge.ts"]) {
+  // provider-extension / wa-pi-bridge 由 main()/ws-server 动态生成，首启或测试前可能尚未存在
+  for (const generated of ["provider-extension.ts", "wa-pi-bridge.ts"]) {
     const p = join(GENERATED_DIR, generated);
     if (existsSync(p)) paths.push(p);
   }

@@ -1,14 +1,14 @@
 // ask_user_question 工具定义 + 重启兜底。
 //
-// makeAskTool(sessionId) 闭包注入 hiagent sessionId（execute 签名无 sessionId），
+// makeAskTool(sessionId) 闭包注入 wa-pi sessionId（execute 签名无 sessionId），
 // 返回 pi ToolDefinition 形状的普通对象（defineTool 只是恒等函数，不依赖 SDK import）。
-// 生产路径：schema 由 hiagent-bridge 扩展注册（bridge-extension.ts 复制本文件 schema）；
+// 生产路径：schema 由 wa-pi-bridge 扩展注册（bridge-extension.ts 复制本文件 schema）；
 // execute 本体在 ask-runner.ts（runAskTool），bridge 与测试共用。
 import {
   ASK_DESCRIPTION,
   ASK_PROMPT_GUIDELINES,
   AskParamsSchema,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 import { runAskTool, type AskToolDetails } from "./ask-runner";
 
 // 兼容旧引用方：AskToolDetails 已移至 ask-runner.ts（与 bridge 共用的无 SDK 实现）

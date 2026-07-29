@@ -142,7 +142,7 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
 
   test("输入 $ 选技能 → chip 显示 → 发送时展开", async ({ page }) => {
     // 预置一个技能目录 + 测试技能（skillDir:add 触发 kernel 重扫，skill:changed 回推）
-    const skillDirRoot = join(process.env.HOME || "/tmp", `.hiagent-e2e-quick-invoke-skills-${randomUUID().slice(0, 8)}`);
+    const skillDirRoot = join(process.env.HOME || "/tmp", `.wa-pi-e2e-quick-invoke-skills-${randomUUID().slice(0, 8)}`);
     const skillPkgDir = join(skillDirRoot, "e2e-qi-skill");
     mkdirSync(skillPkgDir, { recursive: true });
     writeFileSync(
@@ -190,8 +190,8 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
   test("Esc 关闭面板保留触发符文本", async ({ page }) => {
     // 预置技能。注意：Esc 拦截的前提是 menuItems.length > 0（见 ComposerInput handleKeyDown），
     // 所以过滤词必须命中真实存在的技能——E2E 隔离环境无内置技能（brainstorming 等不在
-    // 隔离 HIAGENT_DIR 里），只能用这里动态添加的 e2e-esc-skill。
-    const skillDirRoot = join(process.env.HOME || "/tmp", `.hiagent-e2e-quick-invoke-esc-${randomUUID().slice(0, 8)}`);
+    // 隔离 WA_PI_DIR 里），只能用这里动态添加的 e2e-esc-skill。
+    const skillDirRoot = join(process.env.HOME || "/tmp", `.wa-pi-e2e-quick-invoke-esc-${randomUUID().slice(0, 8)}`);
     const skillPkgDir = join(skillDirRoot, "e2e-esc-skill");
     mkdirSync(skillPkgDir, { recursive: true });
     writeFileSync(

@@ -1,6 +1,6 @@
 // 把 fs 系列 REST 调用封装成 Promise，供 react-complex-tree DataProvider 异步调用。
 import { api } from "./api-client";
-import type { DirEntry } from "@hiagent/shared";
+import type { DirEntry } from "@wa-pi/shared";
 
 /**
  * 底层传输抽象。默认走真实 api-client；单测可通过 `_setFsTransport` 注入伪传输，

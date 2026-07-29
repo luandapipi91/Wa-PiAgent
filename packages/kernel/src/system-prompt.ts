@@ -8,7 +8,7 @@
  * - 静态段（delegate-syntax / subagent-clarify）：content 用户可改
  * - 动态段（base / delegate-network / env-constraints / memory-snapshot）：
  *   content 可写可不写，运行时由 SystemPromptContext 决定最终文本
- *   - 写了 content：动态段也允许用户覆盖（如 base.content 替代 HIAGENT_DEFAULT_BASE_PROMPT）
+ *   - 写了 content：动态段也允许用户覆盖（如 base.content 替代 WA_PI_DEFAULT_BASE_PROMPT）
  *   - 未写 content：用代码默认值
  *
  * 组装顺序示例（默认 5 段，用户可在 prompts.json 调整）：
@@ -25,7 +25,7 @@ export interface PromptSegment {
 
 /** 动态段渲染所需的运行时上下文 */
 export interface SystemPromptContext {
-  /** base 段的兜底默认值（通常是 HIAGENT_DEFAULT_BASE_PROMPT） */
+  /** base 段的兜底默认值（通常是 WA_PI_DEFAULT_BASE_PROMPT） */
   defaultBasePrompt: string;
   /** delegate-roster 段的内容（可用子智能体总览，由 buildDelegateRoster 产出；空串则整段不出现） */
   delegateRoster?: string;
@@ -57,8 +57,8 @@ export const STATIC_SEGMENT_IDS = new Set([
  * 默认 base 段提示词（被 prompts.json 的 base.content 覆盖；
  * 若无覆盖、且 config.systemPromptBody 未指定，最终使用此值）。
  */
-export const HIAGENT_DEFAULT_BASE_PROMPT =
-  "You are an expert coding assistant operating inside hiagent. " +
+export const WA_PI_DEFAULT_BASE_PROMPT =
+  "You are an expert coding assistant operating inside wa-pi. " +
   "You help users by reading files, executing commands, editing code, and writing new files. " +
   "Be concise in your responses. Show file paths clearly when working with files.";
 
@@ -75,7 +75,7 @@ export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
   "你：delegate(agent=\"Explore\", task=\"读 X.ts，梳理 Y 的收集链路与涉及源\") ← 单文件原理梳理也派\n" +
   "用户：调查 scripts/ 目录每个脚本的用途\n" +
   "你：delegate(agent=\"Explore\", task=\"调查 scripts/ 目录，逐个脚本说明用途与调用方\")\n" +
-  "用户：HIAGENT_DIR 默认指向哪个目录？\n" +
+  "用户：WA_PI_DIR 默认指向哪个目录？\n" +
   "你：grep 一下直接回答 ← 单点定义，不派\n" +
   "用户：DEFAULT_AGENT_TOOLS 包含哪几个工具？\n" +
   "你：grep 到定义直接念出来 ← 单点定义，不派\n\n" +

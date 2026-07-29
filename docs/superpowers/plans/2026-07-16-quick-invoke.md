@@ -13,7 +13,7 @@
 - **语言**：所有代码注释使用中文；向用户解释时使用中文
 - **测试框架**：前端用 `bun:test` + `@testing-library/react` + happy-dom（**不是 vitest**）；后端用 `bun:test` + 真实文件系统临时目录
 - **测试配置**：前端 `bunfig.toml` 预加载 `./tests/happydom-setup.ts`，`pathIgnorePatterns = ["**/e2e/**"]`
-- **CSS 设计语言**：遵循 DESIGN.md（HiAgent Light 浅色主题），chip 颜色：`@文件` 橙色 `#EB933E`，`$技能` 靛蓝 `#5B5BD6`
+- **CSS 设计语言**：遵循 DESIGN.md（WaPi Light 浅色主题），chip 颜色：`@文件` 橙色 `#EB933E`，`$技能` 靛蓝 `#5B5BD6`
 - **模块 mock**：前端测试用 `mock.module("../src/ws-instance", ...)` 而非 `vi.mock`，mock 必须在组件 import 之前
 - **store 重置**：前端测试 `beforeEach` 中用 `useXxxStore.setState({...})` 重置 zustand 状态
 - **WS 事件类型**：所有新增事件类型需加入 `packages/shared/src/types.ts` 的 `WSClientEvent` / `WSServerEvent` 联合类型
@@ -130,7 +130,7 @@ export interface SkillInfo {
 ```ts
 import { readFile, opendir } from "node:fs/promises";
 import { join } from "node:path";
-import type { SkillInfo, SkillSource } from "@hiagent/shared";
+import type { SkillInfo, SkillSource } from "@wa-pi/shared";
 
 /** 递归扫描最大深度（skill-dir / skill-name / SKILL.md = 3 层） */
 export const MAX_DEPTH = 3;
@@ -302,7 +302,7 @@ export async function hasSkillMd(dir: string): Promise<{ found: boolean; inspect
 ```ts
 import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import type { SkillInfo, SkillSource } from "@hiagent/shared";
+import type { SkillInfo, SkillSource } from "@wa-pi/shared";
 import {
   withTimeout, hasSkillMd, scanSkillsDir,
   SKILL_SCAN_TIMEOUT_MS, ADD_DIR_TIMEOUT_MS, ADD_DIR_NON_SKILL_THRESHOLD,
@@ -496,11 +496,11 @@ git commit -m "refactor: 提取 skill-utils 共享模块 + SkillInfo 增加 sour
 ```ts
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { HIAGENT_DIR } from "@hiagent/shared";
+import { WA_PI_DIR } from "@wa-pi/shared";
 
 // 辅助：在扩展 runtime 目录下创建带 skills/ 的包结构
 function createExtSkillPackage(pkgName: string, skillName: string) {
-  const pkgDir = join(HIAGENT_DIR, "runtime", "node_modules", pkgName);
+  const pkgDir = join(WA_PI_DIR, "runtime", "node_modules", pkgName);
   const skillsDir = join(pkgDir, "skills");
   mkdirSync(join(skillsDir, skillName), { recursive: true });
   writeFileSync(join(skillsDir, skillName, "SKILL.md"),
@@ -523,7 +523,7 @@ test("getEnabledExtensionSkillPaths 返回含 SKILL.md 的扩展技能路径", a
   expect(paths[0].path).toContain("my-ext-pkg/skills");
 
   rmSync(dataDir, { recursive: true, force: true });
-  rmSync(join(HIAGENT_DIR, "runtime", "node_modules", "my-ext-pkg"), { recursive: true, force: true });
+  rmSync(join(WA_PI_DIR, "runtime", "node_modules", "my-ext-pkg"), { recursive: true, force: true });
 });
 
 test("getEnabledExtensionSkillPaths 跳过无 skills/ 的扩展", async () => {
@@ -536,7 +536,7 @@ test("getEnabledExtensionSkillPaths 跳过无 skills/ 的扩展", async () => {
   expect(paths).toHaveLength(0);
 
   rmSync(dataDir, { recursive: true, force: true });
-  rmSync(join(HIAGENT_DIR, "runtime", "node_modules", "no-skill-pkg"), { recursive: true, force: true });
+  rmSync(join(WA_PI_DIR, "runtime", "node_modules", "no-skill-pkg"), { recursive: true, force: true });
 });
 
 test("getEnabledExtensionSkillPaths 不返回已禁用的扩展", async () => {
@@ -551,11 +551,11 @@ test("getEnabledExtensionSkillPaths 不返回已禁用的扩展", async () => {
   expect(paths).toHaveLength(0);
 
   rmSync(dataDir, { recursive: true, force: true });
-  rmSync(join(HIAGENT_DIR, "runtime", "node_modules", "disabled-pkg"), { recursive: true, force: true });
+  rmSync(join(WA_PI_DIR, "runtime", "node_modules", "disabled-pkg"), { recursive: true, force: true });
 });
 ```
 
-注意：测试中 `tmpDir()` 和 `mockManager()` 是该文件已有的辅助函数，直接复用。`HIAGENT_DIR` 导入需加到文件顶部。
+注意：测试中 `tmpDir()` 和 `mockManager()` 是该文件已有的辅助函数，直接复用。`WA_PI_DIR` 导入需加到文件顶部。
 
 - [ ] **Step 2: 运行测试验证失败**
 
@@ -585,7 +585,7 @@ import { hasSkillMd } from "./skill-utils";
     const enabled = packages.filter(p => p.enabled);
     const result: { path: string; packageName: string }[] = [];
     for (const pkg of enabled) {
-      const skillsDir = join(HIAGENT_DIR, "runtime", "node_modules", pkg.name, "skills");
+      const skillsDir = join(WA_PI_DIR, "runtime", "node_modules", pkg.name, "skills");
       try {
         const { found } = await hasSkillMd(skillsDir);
         if (found) result.push({ path: skillsDir, packageName: pkg.name });
@@ -693,7 +693,7 @@ test("scan 含扩展技能时，扩展来源技能出现在 allSkills 中", asyn
   // 模拟扩展技能目录
   const extDir = join(dataDir, "fake-ext", "skills");
   createSkill(extDir, "ext-skill", "扩展技能");
-  // 注意：实际扩展技能在 ~/.hiagent/runtime/node_modules/<pkg>/skills，
+  // 注意：实际扩展技能在 ~/.wa-pi/runtime/node_modules/<pkg>/skills，
   // 这里用任意路径模拟
 
   const mgr = new SkillManager(dataDir);
@@ -1469,7 +1469,7 @@ Expected: FAIL（组件不存在）
 创建 `packages/frontend/src/components/ui/QuickInvokeMenu.tsx`：
 
 ```tsx
-import type { SkillSource } from "@hiagent/shared";
+import type { SkillSource } from "@wa-pi/shared";
 
 export interface MenuItem {
   id: string;
@@ -1710,7 +1710,7 @@ Expected: 新测试 FAIL（@/$ 触发尚未实现）
 
 ```tsx
 import { useRef, useCallback, useState, useEffect, useMemo } from "react";
-import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
+import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
 import { uploadFile, copyToUploads, searchFilesStream } from "../../fs-client";
 import { useProjectsStore } from "../../store/projects";
 import { useSkillsStore } from "../../store/skills";

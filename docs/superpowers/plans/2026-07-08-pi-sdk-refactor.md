@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将 HiAgent kernel 从 spawn `pi --mode rpc` 子进程 + JSON-RPC 协议改为同进程 `createAgentSession` SDK 直连，前端 WS 事件全量对齐 SDK 原生事件。
+**Goal:** 将 WaPi kernel 从 spawn `pi --mode rpc` 子进程 + JSON-RPC 协议改为同进程 `createAgentSession` SDK 直连，前端 WS 事件全量对齐 SDK 原生事件。
 
 **Architecture:** AgentManager 用 `Map<sessionId, AgentSession>` 管理多会话，每会话 `createAgentSession` + `subscribe` 直连 SDK，事件用 `sdk:event` 信封全量透传前端。删除 pi-rpc-client.ts 和 state-aggregator.ts。
 
@@ -12,8 +12,8 @@
 
 - 所有回复和注释使用中文
 - `@earendil-works/pi-coding-agent` 版本 `^0.80.0`（当前 0.80.3 已是最高）
-- SDK 的 `agentDir` 统一用 `~/.hiagent/`（即 `HIAGENT_DIR`），不再有 `pi-agent` 子目录
-- 会话 jsonl 路径：`~/.hiagent/sessions/<sessionId>.jsonl`
+- SDK 的 `agentDir` 统一用 `~/.wa-pi/`（即 `WA_PI_DIR`），不再有 `pi-agent` 子目录
+- 会话 jsonl 路径：`~/.wa-pi/sessions/<sessionId>.jsonl`
 - pi-intercom 会话名格式：`${projectId}-${agentName}-${sessionId}`
 - 旧消息历史不兼容，干净切换（projects.json 元数据保留）
 - 四层测试全部通过才算完成
@@ -112,13 +112,13 @@ export interface SessionEntity {
   title: string;
   createdAt: number;
   lastActivity: number;
-  piSessionFile: string;  // 新增：SDK jsonl 文件路径 ~/.hiagent/sessions/<id>.jsonl
+  piSessionFile: string;  // 新增：SDK jsonl 文件路径 ~/.wa-pi/sessions/<id>.jsonl
 }
 ```
 
 - [ ] **Step 6: 运行 typecheck 验证**
 
-Run: `cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/shared typecheck 2>&1 | head -20`
+Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/shared typecheck 2>&1 | head -20`
 Expected: 可能因为 kernel/frontend 还引用了已删除的类型而报错，记录错误供后续任务修复
 
 - [ ] **Step 7: Commit**
@@ -130,31 +130,31 @@ git commit -m "refactor(types): 删除废弃类型，新增 SDKEvent/AssistantMe
 
 ---
 
-## Task 2: constants.ts — 删除 HIAGENT_PI_AGENT_DIR，调整路径常量
+## Task 2: constants.ts — 删除 WA_PI_PI_AGENT_DIR，调整路径常量
 
 **Files:**
 - Modify: `packages/shared/src/constants.ts`
 
 **Interfaces:**
-- Removes: `HIAGENT_PI_AGENT_DIR`、`SESSIONS_DIR`（不再需要）
-- Produces: `HIAGENT_DIR` 作为 SDK agentDir 的唯一来源
+- Removes: `WA_PI_PI_AGENT_DIR`、`SESSIONS_DIR`（不再需要）
+- Produces: `WA_PI_DIR` 作为 SDK agentDir 的唯一来源
 
 - [ ] **Step 1: 删除废弃常量**
 
 在 `packages/shared/src/constants.ts` 中删除：
-- `HIAGENT_PI_AGENT_DIR` 常量定义（约第 17 行）
+- `WA_PI_PI_AGENT_DIR` 常量定义（约第 17 行）
 - `SESSIONS_DIR` 常量定义（约第 19 行）
 
 - [ ] **Step 2: 运行 typecheck 验证**
 
-Run: `cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/shared typecheck 2>&1 | head -20`
-Expected: 可能因为 kernel 还引用 HIAGENT_PI_AGENT_DIR 而报错，记录错误供后续任务修复
+Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/shared typecheck 2>&1 | head -20`
+Expected: 可能因为 kernel 还引用 WA_PI_PI_AGENT_DIR 而报错，记录错误供后续任务修复
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add packages/shared/src/constants.ts
-git commit -m "refactor(constants): 删除 HIAGENT_PI_AGENT_DIR 和 SESSIONS_DIR，统一用 HIAGENT_DIR"
+git commit -m "refactor(constants): 删除 WA_PI_PI_AGENT_DIR 和 SESSIONS_DIR，统一用 WA_PI_DIR"
 ```
 
 ---
@@ -173,10 +173,10 @@ git commit -m "refactor(constants): 删除 HIAGENT_PI_AGENT_DIR 和 SESSIONS_DIR
 在 `packages/kernel/tests/project-store.test.ts` 中新增测试：
 
 ```typescript
-import { HIAGENT_DIR } from "@hiagent/shared";
+import { WA_PI_DIR } from "@wa-pi/shared";
 
 test("createSession 生成 piSessionFile 路径", async () => {
-  const tmpFile = `/tmp/hiagent-test-${Date.now()}.json`;
+  const tmpFile = `/tmp/wa-pi-test-${Date.now()}.json`;
   const store = new ProjectStore(tmpFile);
   const project = await store.createProject({ name: "测试项目", cwd: "/tmp" });
   const session = await store.createSession({
@@ -184,22 +184,22 @@ test("createSession 生成 piSessionFile 路径", async () => {
     primaryAgent: "dev",
     title: "测试会话",
   });
-  expect(session.piSessionFile).toBe(`${HIAGENT_DIR}/sessions/${session.id}.jsonl`);
+  expect(session.piSessionFile).toBe(`${WA_PI_DIR}/sessions/${session.id}.jsonl`);
 });
 ```
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/project-store.test.ts --filter "piSessionFile" 2>&1 | tail -5`
+Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/project-store.test.ts --filter "piSessionFile" 2>&1 | tail -5`
 Expected: FAIL（piSessionFile 为 undefined）
 
 - [ ] **Step 3: 修改 createSession 生成 piSessionFile**
 
 在 `packages/kernel/src/project-store.ts` 中：
 
-1. import 加上 `HIAGENT_DIR`：
+1. import 加上 `WA_PI_DIR`：
 ```typescript
-import { PROJECTS_FILE, HIAGENT_DIR } from "@hiagent/shared";
+import { PROJECTS_FILE, WA_PI_DIR } from "@wa-pi/shared";
 ```
 
 2. `createSession` 方法改为先算出 id 再拼路径：
@@ -215,7 +215,7 @@ async createSession(input: {
     id, projectId: input.projectId,
     primaryAgent: input.primaryAgent, title: input.title,
     createdAt: now, lastActivity: now,
-    piSessionFile: `${HIAGENT_DIR}/sessions/${id}.jsonl`,
+    piSessionFile: `${WA_PI_DIR}/sessions/${id}.jsonl`,
   };
   data.sessions.push(session);
   await this.save(data);
@@ -225,7 +225,7 @@ async createSession(input: {
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/project-store.test.ts 2>&1 | tail -10`
+Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/project-store.test.ts 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -244,7 +244,7 @@ git commit -m "feat(project-store): createSession 生成 piSessionFile 路径"
 - Test: `packages/kernel/tests/agent-manager.test.ts`（整体重写）
 
 **Interfaces:**
-- Consumes: `HIAGENT_DIR` from constants, `AgentConfig` from types, `ProjectStore`, `ConfigStore`
+- Consumes: `WA_PI_DIR` from constants, `AgentConfig` from types, `ProjectStore`, `ConfigStore`
 - Produces: `AgentManager` 类，方法 `ensureStarted(projectId, agentName, sessionId) → AgentSession`、`prompt(sessionId, text)`、`abort(sessionId)`、`getMessages(sessionId)`、`disposeSession(sessionId)`、`disposeAll()`
 
 - [ ] **Step 1: 重写 agent-manager.test.ts**
@@ -254,7 +254,7 @@ import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
 import { ConfigStore } from "../src/config-store";
-import { HIAGENT_DIR } from "@hiagent/shared";
+import { WA_PI_DIR } from "@wa-pi/shared";
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
 // mock createAgentSession 返回 fake AgentSession
@@ -283,7 +283,7 @@ beforeEach(() => {
 });
 
 test("ensureStarted 创建 AgentSession 并设置 intercom 会话名", async () => {
-  const tmpFile = `/tmp/hiagent-am-test-${Date.now()}.json`;
+  const tmpFile = `/tmp/wa-pi-am-test-${Date.now()}.json`;
   const projectStore = new ProjectStore(tmpFile);
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({
@@ -300,7 +300,7 @@ test("ensureStarted 创建 AgentSession 并设置 intercom 会话名", async () 
 });
 
 test("ensureStarted 复用已存在的 session", async () => {
-  const tmpFile = `/tmp/hiagent-am-test-${Date.now()}.json`;
+  const tmpFile = `/tmp/wa-pi-am-test-${Date.now()}.json`;
   const projectStore = new ProjectStore(tmpFile);
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({
@@ -315,7 +315,7 @@ test("ensureStarted 复用已存在的 session", async () => {
 });
 
 test("prompt 调用 session.prompt", async () => {
-  const tmpFile = `/tmp/hiagent-am-test-${Date.now()}.json`;
+  const tmpFile = `/tmp/wa-pi-am-test-${Date.now()}.json`;
   const projectStore = new ProjectStore(tmpFile);
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({
@@ -330,7 +330,7 @@ test("prompt 调用 session.prompt", async () => {
 });
 
 test("abort 调用 session.abort", async () => {
-  const tmpFile = `/tmp/hiagent-am-test-${Date.now()}.json`;
+  const tmpFile = `/tmp/wa-pi-am-test-${Date.now()}.json`;
   const projectStore = new ProjectStore(tmpFile);
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({
@@ -345,7 +345,7 @@ test("abort 调用 session.abort", async () => {
 });
 
 test("disposeSession 清理 session 和 unsubscribe", async () => {
-  const tmpFile = `/tmp/hiagent-am-test-${Date.now()}.json`;
+  const tmpFile = `/tmp/wa-pi-am-test-${Date.now()}.json`;
   const projectStore = new ProjectStore(tmpFile);
   const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
   const session = await projectStore.createSession({
@@ -363,18 +363,18 @@ test("disposeSession 清理 session 和 unsubscribe", async () => {
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/agent-manager.test.ts 2>&1 | tail -10`
+Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/agent-manager.test.ts 2>&1 | tail -10`
 Expected: FAIL（AgentManager 构造签名不匹配）
 
 - [ ] **Step 3: 重写 agent-manager.ts**
 
 ```typescript
-import type { AgentName } from "@hiagent/shared";
-import { HIAGENT_DIR } from "@hiagent/shared";
+import type { AgentName } from "@wa-pi/shared";
+import { WA_PI_DIR } from "@wa-pi/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { AgentConfig } from "@hiagent/shared";
+import type { AgentConfig } from "@wa-pi/shared";
 
 // 可注入的 createAgentSession（测试用 mock，生产用真实 SDK）
 type CreateAgentSessionFn = (opts: {
@@ -429,7 +429,7 @@ export class AgentManager {
     // AgentConfig → SDK options 映射
     const loader = new DefaultResourceLoader({
       cwd: project.cwd,
-      agentDir: HIAGENT_DIR,
+      agentDir: WA_PI_DIR,
       systemPromptOverride: config?.systemPromptMode === "replace" && config.systemPromptBody
         ? () => config.systemPromptBody!
         : undefined,
@@ -448,7 +448,7 @@ export class AgentManager {
 
     const { session } = await createFn({
       cwd: project.cwd,
-      agentDir: HIAGENT_DIR,
+      agentDir: WA_PI_DIR,
       sessionManager: SessionManager.open(sessionEntity.piSessionFile),
       resourceLoader: loader,
       model,
@@ -499,7 +499,7 @@ export class AgentManager {
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/agent-manager.test.ts 2>&1 | tail -10`
+Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/agent-manager.test.ts 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -533,7 +533,7 @@ git commit -m "refactor(agent-manager): 重写为 SDK 直连 — Map<sessionId, 
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ws-server.test.ts 2>&1 | tail -10`
+Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts 2>&1 | tail -10`
 Expected: FAIL
 
 - [ ] **Step 3: 修改 ws-server.ts 的 handle 方法**
@@ -619,7 +619,7 @@ case "session:delete": {
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ws-server.test.ts 2>&1 | tail -10`
+Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -648,8 +648,8 @@ import { ProjectStore } from "./project-store";
 import { AgentManager } from "./agent-manager";
 import { WSServer } from "./ws-server";
 import { migrateLegacySessions } from "./migrate";
-import { WS_PORT } from "@hiagent/shared";
-import type { WSServerEvent } from "@hiagent/shared";
+import { WS_PORT } from "@wa-pi/shared";
+import type { WSServerEvent } from "@wa-pi/shared";
 
 async function main() {
   const configStore = new ConfigStore();
@@ -683,7 +683,7 @@ main().catch(e => { console.error(e); process.exit(1); });
 
 - [ ] **Step 2: 运行 kernel 启动验证**
 
-Run: `cd /Users/pipi/work/HiAgent && timeout 5 bun run --filter @hiagent/kernel dev 2>&1 | head -10`
+Run: `cd /Users/pipi/work/WaPi && timeout 5 bun run --filter @wa-pi/kernel dev 2>&1 | head -10`
 Expected: 看到 `[kernel] WS 监听 ws://127.0.0.1:9776`（不崩溃）
 
 - [ ] **Step 3: Commit**
@@ -717,20 +717,20 @@ rm packages/kernel/tests/state-aggregator.test.ts
 搜索并清理代码中对已删除文件的引用：
 
 ```bash
-cd /Users/pipi/work/HiAgent && grep -rn "pi-rpc-client\|state-aggregator\|PiRpcClient\|StateAggregator\|PiEvent" packages/ --include="*.ts" --include="*.tsx" | grep -v node_modules | grep -v ".test."
+cd /Users/pipi/work/WaPi && grep -rn "pi-rpc-client\|state-aggregator\|PiRpcClient\|StateAggregator\|PiEvent" packages/ --include="*.ts" --include="*.tsx" | grep -v node_modules | grep -v ".test."
 ```
 
 修复所有引用点（主要是 `agent-manager.ts` 的 import、`ws-server.ts` 的 import）。
 
 - [ ] **Step 3: 运行 typecheck 验证**
 
-Run: `cd /Users/pipi/work/HiAgent && bun run typecheck 2>&1 | head -20`
+Run: `cd /Users/pipi/work/WaPi && bun run typecheck 2>&1 | head -20`
 Expected: 无 pi-rpc-client / state-aggregator 相关错误
 
 - [ ] **Step 4: 清理测试垃圾文件**
 
 ```bash
-cd /Users/pipi/work/HiAgent && rm -f packages/kernel/tests/ws-proj.json* packages/kernel/tests/ws-sess*
+cd /Users/pipi/work/WaPi && rm -f packages/kernel/tests/ws-proj.json* packages/kernel/tests/ws-sess*
 ```
 
 - [ ] **Step 5: Commit**
@@ -759,7 +759,7 @@ git commit -m "refactor(kernel): 删除 pi-rpc-client.ts 和 state-aggregator.ts
 ```typescript
 import { describe, it, expect, beforeEach } from "vitest";
 import { useSessionStore } from "../src/store/session";
-import type { SDKEventEnvelope } from "@hiagent/shared";
+import type { SDKEventEnvelope } from "@wa-pi/shared";
 
 describe("store/session sdk:event 处理", () => {
   beforeEach(() => {
@@ -822,7 +822,7 @@ describe("store/session sdk:event 处理", () => {
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/frontend test -- --run store-session 2>&1 | tail -10`
+Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend test -- --run store-session 2>&1 | tail -10`
 Expected: FAIL（handleSDKEvent 方法不存在）
 
 - [ ] **Step 3: 修改 store/session.ts**
@@ -901,7 +901,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/frontend test -- --run store-session 2>&1 | tail -10`
+Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend test -- --run store-session 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -937,7 +937,7 @@ case "sdk:event": {
 
 - [ ] **Step 2: 运行前端测试验证不报错**
 
-Run: `cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/frontend test -- --run 2>&1 | tail -10`
+Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend test -- --run 2>&1 | tail -10`
 Expected: 现有测试 PASS（store-projects、DirTreePicker、ProjectItem 不受影响）
 
 - [ ] **Step 3: Commit**
@@ -977,7 +977,7 @@ export function MessageList({ sessionId }: Props) {
 
 - [ ] **Step 2: 运行前端测试验证**
 
-Run: `cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/frontend test -- --run 2>&1 | tail -10`
+Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend test -- --run 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 3: Commit**
@@ -996,20 +996,20 @@ git commit -m "refactor(frontend/MessageList): 渲染 streamingMessage 流式消
 - Create: `packages/kernel/src/intercom-setup.ts`（intercom 安装逻辑）
 
 **Interfaces:**
-- Produces: `ensureIntercomInstalled()` 函数，检查 `~/.hiagent/settings.json` 并安装 pi-intercom
+- Produces: `ensureIntercomInstalled()` 函数，检查 `~/.wa-pi/settings.json` 并安装 pi-intercom
 
 - [ ] **Step 1: 创建 intercom-setup.ts**
 
 ```typescript
 import { readFile, writeFile, mkdir, existsSync } from "node:fs/promises";
 import { join } from "node:path";
-import { HIAGENT_DIR } from "@hiagent/shared";
+import { WA_PI_DIR } from "@wa-pi/shared";
 
 const INTERCOM_PACKAGE = "npm:pi-intercom";
 
-/** 确保 pi-intercom 扩展已安装到 ~/.hiagent/ */
+/** 确保 pi-intercom 扩展已安装到 ~/.wa-pi/ */
 export async function ensureIntercomInstalled(): Promise<void> {
-  const settingsPath = join(HIAGENT_DIR, "settings.json");
+  const settingsPath = join(WA_PI_DIR, "settings.json");
   let settings: { packages?: string[] } = {};
 
   // 读取现有 settings.json
@@ -1027,12 +1027,12 @@ export async function ensureIntercomInstalled(): Promise<void> {
 
   // 写入 packages 配置
   settings.packages = [...(settings.packages ?? []), INTERCOM_PACKAGE];
-  await mkdir(HIAGENT_DIR, { recursive: true });
+  await mkdir(WA_PI_DIR, { recursive: true });
   await writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
   console.log(`[kernel] 已写入 settings.json packages: [${INTERCOM_PACKAGE}]`);
 
   // 注意：实际的扩展安装（pi install）由 Pi SDK 的 DefaultResourceLoader 在首次加载时自动处理
-  // settings.json 的 packages 字段会触发 SDK 从 npm 拉取并安装到 ~/.hiagent/npm/
+  // settings.json 的 packages 字段会触发 SDK 从 npm 拉取并安装到 ~/.wa-pi/npm/
 }
 ```
 
@@ -1060,9 +1060,9 @@ import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 test("ensureIntercomInstalled 写入 packages 配置", async () => {
-  const tmpDir = `/tmp/hiagent-intercom-test-${Date.now()}`;
-  process.env.HIAGENT_DIR = tmpDir;
-  // 重新导入以获取新 HIAGENT_DIR
+  const tmpDir = `/tmp/wa-pi-intercom-test-${Date.now()}`;
+  process.env.WA_PI_DIR = tmpDir;
+  // 重新导入以获取新 WA_PI_DIR
   delete require.cache[require.resolve("../src/intercom-setup")];
 
   await ensureIntercomInstalled();
@@ -1070,12 +1070,12 @@ test("ensureIntercomInstalled 写入 packages 配置", async () => {
   expect(settings.packages).toContain("npm:pi-intercom");
 
   await rm(tmpDir, { recursive: true });
-  delete process.env.HIAGENT_DIR;
+  delete process.env.WA_PI_DIR;
 });
 
 test("ensureIntercomInstalled 幂等（已存在不重复写入）", async () => {
-  const tmpDir = `/tmp/hiagent-intercom-test-${Date.now()}`;
-  process.env.HIAGENT_DIR = tmpDir;
+  const tmpDir = `/tmp/wa-pi-intercom-test-${Date.now()}`;
+  process.env.WA_PI_DIR = tmpDir;
   await mkdir(tmpDir, { recursive: true });
   await writeFile(join(tmpDir, "settings.json"), JSON.stringify({ packages: ["npm:pi-intercom"] }));
   delete require.cache[require.resolve("../src/intercom-setup")];
@@ -1085,20 +1085,20 @@ test("ensureIntercomInstalled 幂等（已存在不重复写入）", async () =>
   expect(settings.packages).toHaveLength(1);
 
   await rm(tmpDir, { recursive: true });
-  delete process.env.HIAGENT_DIR;
+  delete process.env.WA_PI_DIR;
 });
 ```
 
 - [ ] **Step 4: 运行测试**
 
-Run: `cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/intercom-setup.test.ts 2>&1 | tail -10`
+Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/intercom-setup.test.ts 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add packages/kernel/src/intercom-setup.ts packages/kernel/tests/intercom-setup.test.ts packages/kernel/src/index.ts
-git commit -m "feat(intercom): 首次启动自动配置 pi-intercom 扩展到 ~/.hiagent/settings.json"
+git commit -m "feat(intercom): 首次启动自动配置 pi-intercom 扩展到 ~/.wa-pi/settings.json"
 ```
 
 ---
@@ -1117,7 +1117,7 @@ git commit -m "feat(intercom): 首次启动自动配置 pi-intercom 扩展到 ~/
 
 - [ ] **Step 2: 运行测试**
 
-Run: `cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/session-messages.test.ts 2>&1 | tail -10`
+Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/session-messages.test.ts 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 3: Commit**
@@ -1136,17 +1136,17 @@ git commit -m "test(session-messages): 适配 SDK — 从 session.messages 读�
 
 - [ ] **Step 1: 全量 typecheck**
 
-Run: `cd /Users/pipi/work/HiAgent && bun run typecheck 2>&1`
+Run: `cd /Users/pipi/work/WaPi && bun run typecheck 2>&1`
 Expected: 无错误
 
 - [ ] **Step 2: kernel 全量测试**
 
-Run: `cd /Users/pipi/work/HiAgent && bun test packages/kernel/ 2>&1 | tail -20`
+Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/ 2>&1 | tail -20`
 Expected: 全部 PASS
 
 - [ ] **Step 3: 前端全量测试**
 
-Run: `cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/frontend test -- --run 2>&1 | tail -20`
+Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend test -- --run 2>&1 | tail -20`
 Expected: 全部 PASS
 
 - [ ] **Step 4: 更新 CHANGELOG.md**
@@ -1181,13 +1181,13 @@ git commit -m "docs(changelog): 记录 Pi SDK 模式重构"
 
 - [ ] **Step 2: 运行 E2E（如有 Pi 环境）**
 
-Run: `cd /Users/pipi/work/HiAgent && PI_E2E=1 bun run --filter @hiagent/frontend e2e 2>&1 | tail -20`
+Run: `cd /Users/pipi/work/WaPi && PI_E2E=1 bun run --filter @wa-pi/frontend e2e 2>&1 | tail -20`
 Expected: intercom 委派流程通过
 
 - [ ] **Step 3: 清理截图**
 
 ```bash
-cd /Users/pipi/work/HiAgent && find . -name "*.png" -path "*/e2e/*" -delete 2>/dev/null; find . -name "*.png" -path "*/test-results/*" -delete 2>/dev/null
+cd /Users/pipi/work/WaPi && find . -name "*.png" -path "*/e2e/*" -delete 2>/dev/null; find . -name "*.png" -path "*/test-results/*" -delete 2>/dev/null
 ```
 
 - [ ] **Step 4: Commit**

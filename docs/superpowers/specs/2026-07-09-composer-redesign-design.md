@@ -163,7 +163,7 @@ type AttachmentDraft =
 统一处理步骤：
 
 1. 前端读取文件内容为 base64，通过 `fs:upload` 发送到 kernel。
-2. kernel 将文件写入项目工作目录下的 `.hiagent/uploads/`，按文件名自动去重（同名追加序号）。
+2. kernel 将文件写入项目工作目录下的 `.wa-pi/uploads/`，按文件名自动去重（同名追加序号）。
 3. kernel 返回写入后的绝对路径，前端生成 `AttachmentDraft` 存入 IndexedDB。
 
 > 注：早期方案要求用户手动补填绝对路径；现改为自动上传到项目目录，避免浏览器无法获取本地路径的问题，并保证附件与项目上下文共存。
@@ -181,8 +181,8 @@ type AttachmentDraft =
 用户输入的文本
 
 Attachments:
-[@.hiagent/uploads/notes.txt,
-@.hiagent/uploads/diagram.png]
+[@.wa-pi/uploads/notes.txt,
+@.wa-pi/uploads/diagram.png]
 ```
 
 前端 `MessageList` 渲染用户消息时，会剥掉末尾的 `Attachments:\n[...]` 块，因此用户气泡里只显示原文，但模型能收到路径引用并自行用 `read_file` 等工具读取。
@@ -263,7 +263,7 @@ export interface ProviderModel {
 ## 8. 后端改动
 
 1. **新增 `fs:readFile` handler**：读取指定路径，返回 base64 内容与 mimeType；失败返回 `error`。
-2. **新增 `fs:upload` handler**：将前端上传的文件写入项目目录 `.hiagent/uploads/`，返回绝对路径；对文件名做防路径穿越处理，同名文件自动追加序号。
+2. **新增 `fs:upload` handler**：将前端上传的文件写入项目目录 `.wa-pi/uploads/`，返回绝对路径；对文件名做防路径穿越处理，同名文件自动追加序号。
 3. **`agent:prompt` handler 扩展**：
    - 使用 `model` 覆盖默认模型（优先级：PromptEvent.model > 当前 session 默认 > agent config.model）。
    - 使用 `thinking` 覆盖 reasoning effort：`disabled` 映射为 SDK 的 `"off"`；`medium` / `high` 透传；`max` 映射为 `"xhigh"`（DeepSeek 的 `thinkingLevelMap` 会把 `xhigh` 映射为 API 的 `"max"`，SDK 内部 `clampThinkingLevel` 会在模型不支持 `xhigh` 时自动降级到 `high`）。

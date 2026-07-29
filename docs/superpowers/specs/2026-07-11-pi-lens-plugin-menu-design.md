@@ -6,7 +6,7 @@
 
 ## 1. 目标
 
-1. 把第三方 Pi 扩展 **pi-lens**（实时代码反馈：LSP / lint / 类型检查 / 结构分析）纳入 hiagent。
+1. 把第三方 Pi 扩展 **pi-lens**（实时代码反馈：LSP / lint / 类型检查 / 结构分析）纳入 wa-pi。
 2. 在「系统设置」里新增 **「插件」菜单**，列出可选插件，当前仅有 pi-lens。
 3. 用户可在面板上 **启用 / 禁用 pi-lens**，切换可热生效（不打断正在运行的回合）。
 4. 顺带把现有 **技能** 的 reload 时机统一成同一套 deferred 机制（与插件一致）。
@@ -18,7 +18,7 @@
 - `DefaultResourceLoader.reload()` 内会先 `settingsManager.reload()`（重读 `settings.json`），随后 `packageManager.resolve()` 重新解析 `globalSettings.extensions`（package-manager.js:1864）与 `globalSettings.packages`。**即「settings.json 驱动的扩展源」每次 reload 都会被重新求值。**
 - `SettingsManager` 暴露 `getExtensions()` / `setExtensions(paths)`，对应 `settings.json` 的 **`extensions`** 字段（已解析入口文件路径数组，**无需 `pi install`**）。
 - `reload()` 读取的 `this.additionalExtensionPaths` 是构造期固定字段（resource-loader.js:233），**reload 不会重新评估 additionalExtensionPaths 列表本身**。所以通过 `additionalExtensionPaths` 注入的扩展无法靠 reload 增删；而通过 `settings.extensions` 注入的扩展可以。
-- hiagent 历史：旧版本曾把扩展本地路径写进 `settings.json.packages`，后改为 `additionalExtensionPaths` 纯内存注入，并以 `migrateSettingsPackages()` 清空 `packages` 以避免双重加载（见 `extensions.ts`）。**双重加载只会发生在「同一扩展同时出现在 packages/extensions 与 additionalExtensionPaths」时。** 本设计让 pi-lens 仅由 `settings.extensions` 加载、绝不进 `additionalExtensionPaths`，故无双重加载风险。`migrateSettingsPackages` 只清 `packages`、不动 `extensions`，无冲突。
+- wa-pi 历史：旧版本曾把扩展本地路径写进 `settings.json.packages`，后改为 `additionalExtensionPaths` 纯内存注入，并以 `migrateSettingsPackages()` 清空 `packages` 以避免双重加载（见 `extensions.ts`）。**双重加载只会发生在「同一扩展同时出现在 packages/extensions 与 additionalExtensionPaths」时。** 本设计让 pi-lens 仅由 `settings.extensions` 加载、绝不进 `additionalExtensionPaths`，故无双重加载风险。`migrateSettingsPackages` 只清 `packages`、不动 `extensions`，无冲突。
 
 ## 3. 机制总览
 
@@ -67,7 +67,7 @@ export const OPTIONAL_EXTENSIONS: readonly OptionalExtensionDef[] = [
 
 ### 4.2 新增 `extension-manager.ts`（镜像 `skill-manager.ts`）
 
-职责：读写 `HIAGENT_DIR/settings.json` 的 `extensions` 字段；解析可选插件入口路径；提供 list / toggle。
+职责：读写 `WA_PI_DIR/settings.json` 的 `extensions` 字段；解析可选插件入口路径；提供 list / toggle。
 
 ```ts
 export class ExtensionManager {

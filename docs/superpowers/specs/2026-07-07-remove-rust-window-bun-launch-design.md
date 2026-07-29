@@ -6,7 +6,7 @@
 
 ## 背景与动机
 
-当前 hiagent 是 **Tauri 2 原生壳(Rust)+ Bun sidecar 内核 + React 前端** 的三层架构。探索发现 Rust 与 JS/Bun 之间的耦合面极小:
+当前 wa-pi 是 **Tauri 2 原生壳(Rust)+ Bun sidecar 内核 + React 前端** 的三层架构。探索发现 Rust 与 JS/Bun 之间的耦合面极小:
 
 - Rust 侧无任何 `#[tauri::command]`,前端无 `invoke()` 调用——零 IPC。
 - 前后端只走 **WebSocket(`ws://127.0.0.1:9776`)**,与 Tauri 完全无关。
@@ -49,8 +49,8 @@ Tauri 窗口层在当前阶段带来的价值低于其维护成本(编译慢、�
 // package.json (根)
 "scripts": {
   "dev": "bun run scripts/dev.ts",
-  "dev:kernel": "bun run --filter @hiagent/kernel dev",
-  "dev:frontend": "bun run --filter @hiagent/frontend dev",
+  "dev:kernel": "bun run --filter @wa-pi/kernel dev",
+  "dev:frontend": "bun run --filter @wa-pi/frontend dev",
   "test": "bun test",
   "typecheck": "bun run --filter '*' typecheck"
 }
@@ -60,8 +60,8 @@ Tauri 窗口层在当前阶段带来的价值低于其维护成本(编译慢、�
 
 1. **端口清理** —— kill 占用 9776(kernel WS)、5180(frontend Vite)的进程。跨平台:Windows 用 `taskkill`,POSIX 用 `kill`。
 2. **并行 spawn 两个子进程:**
-   - kernel:`bun run --filter @hiagent/kernel dev`(即 `bun run src/index.ts`,bun 内置文件监听热重载)
-   - frontend:`bun run --filter @hiagent/frontend dev`(Vite HMR)
+   - kernel:`bun run --filter @wa-pi/kernel dev`(即 `bun run src/index.ts`,bun 内置文件监听热重载)
+   - frontend:`bun run --filter @wa-pi/frontend dev`(Vite HMR)
 3. **日志前缀** —— kernel 行加 `[kernel]`、frontend 行加 `[web]`,混合输出易区分。
 4. **统一 Ctrl+C 清理** —— 监听 SIGINT,kill 两个子进程后退出(不留孤儿进程占端口)。
 5. **自动打开浏览器** —— frontend Vite 就绪后(检测到 stdout 出现 `Local: http://localhost:5180`),自动用系统默认浏览器打开 `http://localhost:5180`。跨平台:Windows `cmd /c start`、macOS `open`、Linux `xdg-open`。
@@ -94,11 +94,11 @@ Tauri 窗口层在当前阶段带来的价值低于其维护成本(编译慢、�
 
 ```jsonc
 // packages/kernel/package.json
-"build": "bun build src/index.ts --compile --target bun --outfile dist/hiagent-kernel"
+"build": "bun build src/index.ts --compile --target bun --outfile dist/wa-pi-kernel"
 ```
 
 - **保留** `bun build --compile --target bun` —— 产出独立 bun 二进制(自带 runtime,不依赖目标机器装 bun),为未来桌面壳分发留口子。
-- **删除** `&& bun run scripts/copy-sidecar.mjs` —— triple 命名(`hiagent-kernel-x86_64-pc-windows-msvc`)是 Tauri externalBin 解析约定,移除后无用。
+- **删除** `&& bun run scripts/copy-sidecar.mjs` —— triple 命名(`wa-pi-kernel-x86_64-pc-windows-msvc`)是 Tauri externalBin 解析约定,移除后无用。
 - **删除** `packages/kernel/scripts/copy-sidecar.mjs` 文件。
 
 ## §5 Vitest → bun:test 迁移
@@ -163,7 +163,7 @@ Tauri 窗口层在当前阶段带来的价值低于其维护成本(编译慢、�
 
 **额外强约束(本次特有):**
 - `bun run dev` 必须在 Windows(Git Bash)和 POSIX 都能起(跨平台验证)。
-- `bun run --filter @hiagent/kernel build` 产出 `dist/hiagent-kernel` 可执行,且运行后能起 WS server。
+- `bun run --filter @wa-pi/kernel build` 产出 `dist/wa-pi-kernel` 可执行,且运行后能起 WS server。
 - `bun test` 单命令跑全仓库测试(kernel + shared + frontend)。
 - 现有 kernel/shared 单测全绿——确认删 `copy-sidecar.mjs`、改 build 脚本不破坏。
 
@@ -173,7 +173,7 @@ Tauri 窗口层在当前阶段带来的价值低于其维护成本(编译慢、�
 - **风险② Windows 下 bun 子进程 spawn 的行为差异(信号传递、stdio)。** 缓解:`scripts/dev.ts` 用 `Bun.spawn` + `windowsHide:false`;Windows 验证必跑。
 - **风险③ `mock.module` 与 `vi.mock` 行为不完全对等(hoisting 时机不同)。** 缓解:逐个迁移时关注 mock 是否生效,9 个 vi.mock 文件重点验证;必要时调整 factory 写法。
 - **风险④ happy-dom global-registrator 与现有 `setup-websocket.ts` polyfill 的注册顺序。** 缓解:preload 里先 `GlobalRegistrator.register()` 再注入 WebSocket;验证组件测试不白屏。
-- **风险⑤ 删 `vitest.config.ts` 的 `resolve.alias`(`@hiagent/shared`)丢失。** 缓解:bun:test 解析 workspace 包路径的方式与 vitest 不同,迁移时确认 frontend 测试能正确 import `@hiagent/shared`(必要时在 bunfig.toml 或 tsconfig paths 补齐)。
+- **风险⑤ 删 `vitest.config.ts` 的 `resolve.alias`(`@wa-pi/shared`)丢失。** 缓解:bun:test 解析 workspace 包路径的方式与 vitest 不同,迁移时确认 frontend 测试能正确 import `@wa-pi/shared`(必要时在 bunfig.toml 或 tsconfig paths 补齐)。
 
 ## 不做什么(YAGNI)
 
@@ -181,7 +181,7 @@ Tauri 窗口层在当前阶段带来的价值低于其维护成本(编译慢、�
 - **不清理 kernel 的 broker/intercom 代码。** 那是另一个计划的职责。
 - **不写 Windows 专用 `.bat`/`.ps1` 启动脚本。** `scripts/dev.ts` 通过 bun 子进程 API 实现跨平台,不需要平台专用脚本。
 - **不引入 concurrently 等并行工具。** `scripts/dev.ts` 自己 spawn,零新依赖。
-- **不改历史文档。** MVP plan(`2026-07-06-hiagent-mvp.md`)里"Tauri 窗口"描述是历史记录,违反精准修改原则不改。
+- **不改历史文档。** MVP plan(`2026-07-06-wa-pi-mvp.md`)里"Tauri 窗口"描述是历史记录,违反精准修改原则不改。
 
 ## §8 阶段三:本地目录树服务(替代 Tauri 原生目录选择器)
 

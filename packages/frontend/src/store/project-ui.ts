@@ -8,7 +8,7 @@ interface ProjectUiState {
   setExpanded: (projectId: string, expanded: boolean) => void;
 }
 
-const STORAGE_KEY = "hiagent-project-ui";
+const STORAGE_KEY = "wa-pi-project-ui";
 
 export const useProjectUiStore = create<ProjectUiState>()(
   persist(

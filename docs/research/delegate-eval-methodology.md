@@ -1,4 +1,4 @@
-# 派发触发率评测方法论：业界标准与 HiAgent 落地
+# 派发触发率评测方法论：业界标准与 WaPi 落地
 
 日期：2026-07-27
 范围：`packages/kernel/scripts/eval-delegate-trigger.ts` 的评测设计依据。
@@ -25,7 +25,7 @@
 - Pass Rate（有限步数内选出正确工具并生成正确参数的比例）
 - 教训：评测集要分「应调 / 可调可不调 / 不应调」三档，避免只测单向
 
-## 二、HiAgent 落地（eval-delegate-trigger.ts 当前设计）
+## 二、WaPi 落地（eval-delegate-trigger.ts 当前设计）
 
 | 业界做法 | 我们的对应 |
 |---|---|

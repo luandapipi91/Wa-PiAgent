@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ToolCall, ToolResultMessage } from "@hiagent/shared";
+import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 
 interface Props {
   toolCall: ToolCall;

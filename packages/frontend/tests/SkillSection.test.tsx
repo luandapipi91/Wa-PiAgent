@@ -2,7 +2,7 @@ import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { SkillSection } from "../src/components/settings/SkillSection";
 import { useSkillsStore } from "../src/store/skills";
-import type { SkillInfo } from "@hiagent/shared";
+import type { SkillInfo } from "@wa-pi/shared";
 
 // 捕获 store 原始 action 方法，避免测试间 mock 泄漏
 const originalActions = {
@@ -15,7 +15,7 @@ const originalActions = {
 beforeEach(() => {
   useSkillsStore.setState({
     skills: [], allSkills: [], dirs: [], disabledSkills: [],
-    builtinDir: "/home/.hiagent/skills", loading: false,
+    builtinDir: "/home/.wa-pi/skills", loading: false,
     toggleSkill: originalActions.toggleSkill,
     addDir: originalActions.addDir,
     removeDir: originalActions.removeDir,
@@ -25,8 +25,8 @@ beforeEach(() => {
 
 test("技能目录默认展开，展开时标题不显示内置目录路径", () => {
   useSkillsStore.setState({
-    dirs: ["/home/.hiagent/skills", "/home/.claude/skills"],
-    builtinDir: "/home/.hiagent/skills",
+    dirs: ["/home/.wa-pi/skills", "/home/.claude/skills"],
+    builtinDir: "/home/.wa-pi/skills",
     allSkills: [],
   });
   render(<SkillSection />);
@@ -34,19 +34,19 @@ test("技能目录默认展开，展开时标题不显示内置目录路径", ()
   expect(addBtn.getAttribute("aria-label")).toBe("添加技能目录");
   const toggleBtn = screen.getByTestId("skill-dir-toggle");
   expect(toggleBtn.textContent).toContain("技能目录");
-  expect(toggleBtn.textContent).not.toContain("/home/.hiagent/skills");
+  expect(toggleBtn.textContent).not.toContain("/home/.wa-pi/skills");
 });
 
 test("折叠技能目录后，标题才显示内置目录路径", () => {
   useSkillsStore.setState({
-    dirs: ["/home/.hiagent/skills"],
-    builtinDir: "/home/.hiagent/skills",
+    dirs: ["/home/.wa-pi/skills"],
+    builtinDir: "/home/.wa-pi/skills",
     allSkills: [],
   });
   render(<SkillSection />);
   fireEvent.click(screen.getByTestId("skill-dir-toggle"));
   const toggleBtn = screen.getByTestId("skill-dir-toggle");
-  expect(toggleBtn.textContent).toContain("/home/.hiagent/skills");
+  expect(toggleBtn.textContent).toContain("/home/.wa-pi/skills");
 });
 
 test("点击刷新技能按钮重新加载技能目录", () => {
@@ -122,8 +122,8 @@ test("搜索无匹配时显示提示", () => {
 
 test("默认展开显示目录列表", () => {
   useSkillsStore.setState({
-    dirs: ["/home/.hiagent/skills", "/home/.claude/skills"],
-    builtinDir: "/home/.hiagent/skills",
+    dirs: ["/home/.wa-pi/skills", "/home/.claude/skills"],
+    builtinDir: "/home/.wa-pi/skills",
     allSkills: [],
   });
   render(<SkillSection />);
@@ -132,18 +132,18 @@ test("默认展开显示目录列表", () => {
 
 test("内置目录无删除按钮", () => {
   useSkillsStore.setState({
-    dirs: ["/home/.hiagent/skills"],
-    builtinDir: "/home/.hiagent/skills",
+    dirs: ["/home/.wa-pi/skills"],
+    builtinDir: "/home/.wa-pi/skills",
     allSkills: [],
   });
   render(<SkillSection />);
-  expect(screen.queryByTestId("skill-dir-remove-/home/.hiagent/skills")).toBeNull();
+  expect(screen.queryByTestId("skill-dir-remove-/home/.wa-pi/skills")).toBeNull();
 });
 
 test("用户目录有删除按钮", () => {
   useSkillsStore.setState({
-    dirs: ["/home/.hiagent/skills", "/home/.claude/skills"],
-    builtinDir: "/home/.hiagent/skills",
+    dirs: ["/home/.wa-pi/skills", "/home/.claude/skills"],
+    builtinDir: "/home/.wa-pi/skills",
     allSkills: [],
   });
   render(<SkillSection />);
@@ -204,8 +204,8 @@ test("开关点击立即乐观更新 UI，不等待服务端响应", () => {
 
 test("点击添加技能目录弹出 DirTreePicker", () => {
   useSkillsStore.setState({
-    dirs: ["/home/.hiagent/skills"],
-    builtinDir: "/home/.hiagent/skills",
+    dirs: ["/home/.wa-pi/skills"],
+    builtinDir: "/home/.wa-pi/skills",
     allSkills: [],
   });
   render(<SkillSection />);

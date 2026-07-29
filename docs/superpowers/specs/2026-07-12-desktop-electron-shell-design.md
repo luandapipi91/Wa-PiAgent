@@ -1,4 +1,4 @@
-# HiAgent 桌面 Shell 迁移至 Electron（设计稿 A）
+# WaPi 桌面 Shell 迁移至 Electron（设计稿 A）
 
 > 日期：2026-07-12
 > 状态：**POC 通过（spec B 前提已验证）**，待 planning
@@ -13,7 +13,7 @@ brainstorm 阶段调研结论（关键事实，已和用户确认）：
 
 1. **系统声音 loopback 在"用户系统浏览器"里只能走 `getDisplayMedia`**，而浏览器安全规范**强制每次弹共享框、不让网站永久持有屏幕捕获权** → 每次录音都要用户手动选"整个屏幕 + 勾选共享系统音频"。这是 UX 硬伤。
 2. **macOS 的 Chrome `getDisplayMedia` 录不到系统声音**（只能录标签页声音）。
-3. **跨平台免原生组件的唯一办法是控制 Chromium**（[electron-audio-loopback](https://github.com/alectrocute/electron-audio-loopback) 即 patch Electron 自带 Chromium 实现）。hiagent 现在跑在用户系统浏览器里、不控制 Chromium，故每平台原生组件不可避免 —— 除非换成 Electron。
+3. **跨平台免原生组件的唯一办法是控制 Chromium**（[electron-audio-loopback](https://github.com/alectrocute/electron-audio-loopback) 即 patch Electron 自带 Chromium 实现）。wa-pi 现在跑在用户系统浏览器里、不控制 Chromium，故每平台原生组件不可避免 —— 除非换成 Electron。
 4. 用户核心价值：**一套代码跑所有、不东拼西凑、宁愿重构也不愿拼凑**；且要去掉共享框。综合下来，唯一同时满足的路 = **Electron + WebRTC**。
 
 **因此先迁 shell 到 Electron（本 spec = A），录音功能（spec B）叠在其上。** spec A 不含录音 UI，只交付可用的 Electron shell。
@@ -27,7 +27,7 @@ brainstorm 阶段调研结论（关键事实，已和用户确认）：
 ## 3. 目标架构（Electron）
 
 ```
-双击 HiAgent.exe  (electron-builder 产物: Electron 启动器 + Chromium + Node + app.asar + 内嵌 kernel sidecar 二进制)
+双击 WaPi.exe  (electron-builder 产物: Electron 启动器 + Chromium + Node + app.asar + 内嵌 kernel sidecar 二进制)
    │
    ▼ Electron main (Node)
    ① app.requestSingleInstanceLock()           // 单实例
@@ -35,7 +35,7 @@ brainstorm 阶段调研结论（关键事实，已和用户确认）：
    ③ 等 9776 ready                              // 端口轮询 / kernel 主动信号
    ④ BrowserWindow → load http://127.0.0.1:9776 // React 前端原样
    ⑤ Tray(打开 / 退出)                          // 替 systray2
-   ⑥ 日志 → ~/.hiagent/logs/desktop.log         // 无控制台, parity
+   ⑥ 日志 → ~/.wa-pi/logs/desktop.log         // 无控制台, parity
    │
    ▼ 退出: window-all-closed / tray 退出 → stop kernel sidecar → app.quit()
 ```
@@ -43,7 +43,7 @@ brainstorm 阶段调研结论（关键事实，已和用户确认）：
 - **Electron main（Node）**：生命周期、托盘、窗口、spawn kernel sidecar。**不**起 kernel 业务逻辑。
 - **kernel sidecar（Bun 二进制）**：现有 kernel 代码不变，`bun build --compile` 成独立 exe，被 main spawn。前端 `ws-instance.ts` 硬编码 9776 → 不变。
 - **BrowserWindow**：`loadURL('http://127.0.0.1:9776')`，前端原样跑。
-- **Tray**：菜单"打开 HiAgent / 退出"，parity（点"打开"focus 既有 BrowserWindow；不再开系统浏览器）。
+- **Tray**：菜单"打开 WaPi / 退出"，parity（点"打开"focus 既有 BrowserWindow；不再开系统浏览器）。
 
 ## 4. 改动点
 
@@ -53,7 +53,7 @@ brainstorm 阶段调研结论（关键事实，已和用户确认）：
 - `src/tray.ts`：Electron `Tray` + `Menu`（替 `systray-setup.ts` 的 systray2）。
 - `src/kernel-sidecar.ts`：spawn Bun kernel 二进制（解析 `process.resourcesPath` 定位 sidecar）、等端口 ready、退出时 kill。
 - `src/util/single-instance.ts`：`app.requestSingleInstanceLock()`（替原"9776 被占即退出"的廉价单实例）。
-- `src/log.ts`：日志写 `~/.hiagent/logs/desktop.log`（parity；无控制台）。
+- `src/log.ts`：日志写 `~/.wa-pi/logs/desktop.log`（parity；无控制台）。
 - **删除**：`systray-setup.ts`、`embed.ts`/`embedded-assets.ts`（前端不再嵌入进 Bun 二进制，由 Electron 伺服/打包）、`util/pe-subsystem.ts`（Electron 自带无控制台窗口，无需 PE patch）、`util/interop.ts`（systray2 CJS 互通专用）。
 
 ### 4.2 kernel：**解释运行**的 sidecar（不能用编译 exe）
@@ -90,7 +90,7 @@ React 前端原样跑在 BrowserWindow 里，连 kernel WS（9776）。`getDispl
 - **启动**：main → `requestSingleInstanceLock()` → spawn kernel sidecar → 轮询 9776 ready（复用 `scripts/` 端口等待逻辑）→ `BrowserWindow` load → Tray。
 - **第二实例**：`second-instance` 事件 → focus 既有窗口，不重复起 kernel。
 - **退出**：`window-all-closed`（Win/Linux）或托盘"退出" → stop kernel sidecar（SIGTERM → 超时强杀）→ `app.quit()`。捕获 SIGINT/SIGTERM 同样清理。
-- **日志**：main 与 kernel sidecar 各自写 `~/.hiagent/logs/desktop.log` + `kernel.log`。
+- **日志**：main 与 kernel sidecar 各自写 `~/.wa-pi/logs/desktop.log` + `kernel.log`。
 
 ## 6. 与 spec B（录音）的接口
 
@@ -108,7 +108,7 @@ React 前端原样跑在 BrowserWindow 里，连 kernel WS（9776）。`getDispl
 
 - **单元（`bun:test`）**：kernel sidecar spawn/ready 等待逻辑、tray 菜单构建、单实例锁行为、`resourcesPath` 解析。
 - **集成**：起 main → kernel sidecar ready → `BrowserWindow` load 9776 得 index.html → WS 可连 → 能正常用。
-- **真机手动（Win，截图为证）**：双击 → 无控制台 → 托盘（青蛙）+ 窗口 → hiagent 页面能访问、WS 连、正常用 → 托盘"退出" → kernel sidecar 也干净退出（任务管理器无残留）。
+- **真机手动（Win，截图为证）**：双击 → 无控制台 → 托盘（青蛙）+ 窗口 → wa-pi 页面能访问、WS 连、正常用 → 托盘"退出" → kernel sidecar 也干净退出（任务管理器无残留）。
 - **真机手动（Linux）**：AppImage 跑通 + 托盘（需 `libayatuna-appindicator3` 等，同原设计）。
 - **macOS**：phase 2，v1 不验。
 

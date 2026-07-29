@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { existsSync, readdirSync, statSync, utimesSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_HIAGENT_DIR, E2E_WS_PORT } from "../playwright.config";
+import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
 
 // 默认工作区 E2E：验证 UI 渲染 + 项目下拉默认选中 + 项目右键菜单差异
 //
@@ -100,8 +100,8 @@ test.describe.serial("默认工作区", () => {
     expect(typeof result.session.createdAt).toBe("number");
 
     // 子目录应该在磁盘上存在
-    // 注意：E2E kernel 的 HIAGENT_DIR=E2E_HIAGENT_DIR，所以子目录在 E2E_HIAGENT_DIR/workdir/<createdAt>/
-    const subDir = join(E2E_HIAGENT_DIR, "workdir", String(result.session.createdAt));
+    // 注意：E2E kernel 的 WA_PI_DIR=E2E_WA_PI_DIR，所以子目录在 E2E_WA_PI_DIR/workdir/<createdAt>/
+    const subDir = join(E2E_WA_PI_DIR, "workdir", String(result.session.createdAt));
     expect(existsSync(subDir)).toBe(true);
 
     // 清理：删掉这个测试产生的子目录

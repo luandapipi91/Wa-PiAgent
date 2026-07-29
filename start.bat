@@ -14,7 +14,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [start] bun ready, starting hiagent...
+echo [start] bun ready, starting wa-pi...
 echo [start] browser will open http://localhost:5180
 echo [start] press R to reload frontend and backend code, press Ctrl+C to stop
 echo.

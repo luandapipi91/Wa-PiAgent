@@ -1,7 +1,7 @@
 # pi-intercom + `pi --mode rpc` 无头模式兼容性验证
 
 > 日期：2026-07-06
-> 目的：验证 HiAgent 设计文档（`2026-07-05-hiagent-design.md`）第十三节"待确认问题 1"——pi-intercom 在 `pi --mode rpc` 无头模式下能否正常工作。这是 MVP 可行性的最高优先级前置条件。
+> 目的：验证 WaPi 设计文档（`2026-07-05-wa-pi-design.md`）第十三节"待确认问题 1"——pi-intercom 在 `pi --mode rpc` 无头模式下能否正常工作。这是 MVP 可行性的最高优先级前置条件。
 > 结论：**兼容，可用。无需回退到 SDK 内嵌。**
 
 ## 一、验证方法
@@ -106,7 +106,7 @@ bob(pi 进程) 在 broker 可见: ✓
 两个无头 pi 进程 intercom 通道就绪: ✓ 可互相 ask
 ```
 
-**这是最贴近 HiAgent 真实场景的测试**：编排内核 spawn 多个 pi 进程后，它们的 intercom 通道自动就绪。
+**这是最贴近 WaPi 真实场景的测试**：编排内核 spawn 多个 pi 进程后，它们的 intercom 通道自动就绪。
 
 ## 五、对设计文档假设的修正
 
@@ -114,14 +114,14 @@ bob(pi 进程) 在 broker 可见: ✓
 
 | 设计文档假设 | 实际（v0.6.0） |
 |---|---|
-| "pi-intercom 默认 10 分钟超时，HiAgent 包装 ask 把超时设为 Infinity" | **v0.6.0 的 broker 没有 ask 超时 GC 机制**（无 askEdges/pruneAskEdges）。ask 阻塞完全在客户端（发送方等 message 事件），broker 不参与超时 |
+| "pi-intercom 默认 10 分钟超时，WaPi 包装 ask 把超时设为 Infinity" | **v0.6.0 的 broker 没有 ask 超时 GC 机制**（无 askEdges/pruneAskEdges）。ask 阻塞完全在客户端（发送方等 message 事件），broker 不参与超时 |
 
-**对 HiAgent 的影响（更好的消息）**：
+**对 WaPi 的影响（更好的消息）**：
 - ask **天然可以无限等待**，无需"包装设为 Infinity"
 - 客户端 send 的 10 秒超时（`client.ts:162`）是**连接建立超时**（broker 握手），不是 ask 等回复超时，不影响 ask 阻塞
-- HiAgent 编排内核实现"ask 不设超时"只需：发送方注册 message 事件监听器等 reply，不主动设超时即可
+- WaPi 编排内核实现"ask 不设超时"只需：发送方注册 message 事件监听器等 reply，不主动设超时即可
 
-⚠️ 注意：main 分支源码有 ask 超时 GC（`getAskTimeoutMs` 默认 10 分钟），未来 pi-intercom 升级到该版本后，HiAgent 需通过 config 覆盖超时。当前 v0.6.0 无此问题。
+⚠️ 注意：main 分支源码有 ask 超时 GC（`getAskTimeoutMs` 默认 10 分钟），未来 pi-intercom 升级到该版本后，WaPi 需通过 config 覆盖超时。当前 v0.6.0 无此问题。
 
 ### 5.2 其他假设确认
 
@@ -164,11 +164,11 @@ pi + DeepSeek（`deepseek/deepseek-v4-flash`）+ pi-intercom，LLM 明确列出�
 
 ### 6.3 关键时序发现
 
-broker daemon 在 30 秒空闲后会自动退出。后续无 pi 进程时 socket 消失。测试时 observer（第三方 client）要在 broker socket 出现后（~4s）再连接。这给 HiAgent 编排内核的实现提示：**不要假设 broker 永久存在**，spawn pi 进程时 pi-intercom 会 auto-spawn broker，但独立的 IntercomMonitor 连接要等 socket ready。
+broker daemon 在 30 秒空闲后会自动退出。后续无 pi 进程时 socket 消失。测试时 observer（第三方 client）要在 broker socket 出现后（~4s）再连接。这给 WaPi 编排内核的实现提示：**不要假设 broker 永久存在**，spawn pi 进程时 pi-intercom 会 auto-spawn broker，但独立的 IntercomMonitor 连接要等 socket ready。
 
 ## 七、结论
 
-**pi-intercom + `pi --mode rpc` 无头模式完全兼容，HiAgent MVP 可行，无需回退到 SDK 内嵌。**
+**pi-intercom + `pi --mode rpc` 无头模式完全兼容，WaPi MVP 可行，无需回退到 SDK 内嵌。**
 
 验证强度（5 个测试，全部通过）：
 - 静态分析：源码级证据，所有 UI 调用点都有 hasUI/mode 守卫
@@ -179,7 +179,7 @@ broker daemon 在 30 秒空闲后会自动退出。后续无 pi 进程时 socket
 
 ## 八、测试脚本
 
-测试脚本存于 `/tmp/hiagent-verify/`（一次性 POC，未入库）：
+测试脚本存于 `/tmp/wa-pi-verify/`（一次性 POC，未入库）：
 - `rpc-handshake.mjs` — rpc 握手
 - `intercom-load.mjs` — 扩展加载 + broker spawn
 - `ask-reply-e2e.ts` — ask/reply 端到端（bun 跑）

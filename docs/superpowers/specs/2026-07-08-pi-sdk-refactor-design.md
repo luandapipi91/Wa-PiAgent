@@ -2,7 +2,7 @@
 
 - **日期**：2026-07-08
 - **类型**：重构
-- **摘要**：将 HiAgent kernel 从 "spawn `pi --mode rpc` 子进程 + 手写 JSON-RPC 协议" 改为 "同进程 `createAgentSession` SDK 直连"，前端 WS 事件全量对齐 SDK 原生事件。
+- **摘要**：将 WaPi kernel 从 "spawn `pi --mode rpc` 子进程 + 手写 JSON-RPC 协议" 改为 "同进程 `createAgentSession` SDK 直连"，前端 WS 事件全量对齐 SDK 原生事件。
 
 ---
 
@@ -15,8 +15,8 @@
 - 手动维护 `pendingId` / `pendingRpcResolvers` / `streamingContent` 等协议状态
 - 手动把 Bun Web Streams 适配成 Node EventEmitter 风格（`toNodeStream`）
 - 手动解析 `message_start` / `message_update` / `message_end` 等流式事件
-- 因 Pi RPC 不支持单进程多会话，`AgentManager` 被迫按 `(projectId, agentName, sessionId)` 三 key 管理，**每个 HiAgent 会话独立一个 Pi 子进程**
-- `StateAggregator` 归并 Pi 事件成 HiAgent 语义事件，多一层映射
+- 因 Pi RPC 不支持单进程多会话，`AgentManager` 被迫按 `(projectId, agentName, sessionId)` 三 key 管理，**每个 WaPi 会话独立一个 Pi 子进程**
+- `StateAggregator` 归并 Pi 事件成 WaPi 语义事件，多一层映射
 
 CHANGELOG 记录的一长串竞态修复（消息丢失、顺序颠倒、重复 session、首条消息用户/agent 颠倒）都源于子进程 + RPC 时序复杂度。
 
@@ -34,7 +34,7 @@ CHANGELOG 记录的一长串竞态修复（消息丢失、顺序颠倒、重复 
 | 决策项 | 选择 |
 |---|---|
 | 重构范围 | 全栈重构（kernel + 前端协议精简） |
-| 会话持久化 | SDK 持久化到 `~/.hiagent/`（不再有 `pi-agent` 子目录） |
+| 会话持久化 | SDK 持久化到 `~/.wa-pi/`（不再有 `pi-agent` 子目录） |
 | 多会话管理 | `createAgentSession` + `Map<sessionId, AgentSession>`（并行多会话，不用 `AgentSessionRuntime`） |
 | 前端 WS 事件 | 全量透传 SDK 原生事件（后端不归并） |
 | Agent 配置过渡 | 保留 `agent.md`，`DefaultResourceLoader` + override 钩子注入 |
@@ -59,20 +59,20 @@ CHANGELOG 记录的一长串竞态修复（消息丢失、顺序颠倒、重复 
 
 ### 2.2 数据目录布局
 
-`~/.hiagent/` 统一作为 SDK 的 `agentDir`，不再有 `pi-agent` 子目录：
+`~/.wa-pi/` 统一作为 SDK 的 `agentDir`，不再有 `pi-agent` 子目录：
 
 | 路径 | 用途 | 管理方 |
 |---|---|---|
-| `~/.hiagent/projects.json` | 项目/会话元数据 | HiAgent |
-| `~/.hiagent/agents/*.md` | agent 配置（含 partners 等 HiAgent 特有字段） | HiAgent |
-| `~/.hiagent/sessions/<sessionId>.jsonl` | SDK 持久化消息历史 | SDK |
-| `~/.hiagent/auth.json` | SDK 凭证 | SDK |
-| `~/.hiagent/models.json` | SDK 自定义模型 | SDK |
-| `~/.hiagent/settings.json` | SDK 设置 | SDK |
-| `~/.hiagent/skills/` | SDK 技能目录 | SDK |
-| `~/.hiagent/extensions/` | SDK 扩展目录 | SDK |
+| `~/.wa-pi/projects.json` | 项目/会话元数据 | WaPi |
+| `~/.wa-pi/agents/*.md` | agent 配置（含 partners 等 WaPi 特有字段） | WaPi |
+| `~/.wa-pi/sessions/<sessionId>.jsonl` | SDK 持久化消息历史 | SDK |
+| `~/.wa-pi/auth.json` | SDK 凭证 | SDK |
+| `~/.wa-pi/models.json` | SDK 自定义模型 | SDK |
+| `~/.wa-pi/settings.json` | SDK 设置 | SDK |
+| `~/.wa-pi/skills/` | SDK 技能目录 | SDK |
+| `~/.wa-pi/extensions/` | SDK 扩展目录 | SDK |
 
-SDK 的 `DefaultResourceLoader` 会在 `agentDir` 下找 `AGENTS.md` 作为全局 context file。`~/.hiagent/AGENTS.md` 若存在会被加载——有利于后期"全局指令"功能，不冲突。
+SDK 的 `DefaultResourceLoader` 会在 `agentDir` 下找 `AGENTS.md` 作为全局 context file。`~/.wa-pi/AGENTS.md` 若存在会被加载——有利于后期"全局指令"功能，不冲突。
 
 ### 2.3 关键简化
 
@@ -93,7 +93,7 @@ SDK 的 `DefaultResourceLoader` 会在 `agentDir` 下找 `AGENTS.md` 作为全�
 
 ### 3.2 新增类型（`shared/types.ts`）
 
-镜像 SDK 的 `AgentSessionEvent` 联合类型。HiAgent 不重新定义事件结构，声明等价类型：
+镜像 SDK 的 `AgentSessionEvent` 联合类型。WaPi 不重新定义事件结构，声明等价类型：
 
 ```typescript
 // 镜像 SDK AgentEvent + agent_end 扩展，作为 WS 透传事件
@@ -144,7 +144,7 @@ export interface SDKEventEnvelope {
 }
 ```
 
-保留不变的 WS 事件：`projects:list`、`project:created`、`session:created`、`session:messages`、`agent:config`、`error`、`fs:*`。这些是 HiAgent 自有业务事件，与 SDK 无关。
+保留不变的 WS 事件：`projects:list`、`project:created`、`session:created`、`session:messages`、`agent:config`、`error`、`fs:*`。这些是 WaPi 自有业务事件，与 SDK 无关。
 
 `session:messages` 事件 payload 不变（`SessionMessage[]`），只是 kernel 获取方式从异步 RPC 改为同步 `session.messages` 属性访问。
 
@@ -158,11 +158,11 @@ export interface SessionEntity {
   title: string;
   createdAt: number;
   lastActivity: number;
-  piSessionFile: string;  // 新增：SDK jsonl 文件路径 ~/.hiagent/sessions/<id>.jsonl
+  piSessionFile: string;  // 新增：SDK jsonl 文件路径 ~/.wa-pi/sessions/<id>.jsonl
 }
 ```
 
-`ProjectStore.createSession()` 创建会话时生成 `piSessionFile = ${HIAGENT_DIR}/sessions/${id}.jsonl` 并写入。`AgentManager.ensureStarted` 从 `SessionEntity.piSessionFile` 读取路径，传给 `SessionManager.open()`。
+`ProjectStore.createSession()` 创建会话时生成 `piSessionFile = ${WA_PI_DIR}/sessions/${id}.jsonl` 并写入。`AgentManager.ensureStarted` 从 `SessionEntity.piSessionFile` 读取路径，传给 `SessionManager.open()`。
 
 ### 3.5 WSClientEvent（前端 → kernel）
 
@@ -186,7 +186,7 @@ export type WSServerEvent =
 
 ### 3.7 伙伴委托工具（替代 pi-intercom）
 
-HiAgent 原依赖 pi-intercom 扩展（独立 broker daemon + Unix socket）实现 agent 间委托。经调研 pi.dev/packages 上的 subagent 类扩展（@gotgenes/pi-subagents 等），均不适配 HiAgent 场景——核心硬伤是它们**硬禁止链式委托**（`applyRecursionGuard` 删除子 agent 的委托工具），而 HiAgent 要求 A→B→C 链式 + 深度限制。
+WaPi 原依赖 pi-intercom 扩展（独立 broker daemon + Unix socket）实现 agent 间委托。经调研 pi.dev/packages 上的 subagent 类扩展（@gotgenes/pi-subagents 等），均不适配 WaPi 场景——核心硬伤是它们**硬禁止链式委托**（`applyRecursionGuard` 删除子 agent 的委托工具），而 WaPi 要求 A→B→C 链式 + 深度限制。
 
 **改为自研 `delegate` 工具**：用 SDK `defineTool` 注册自定义工具，agent 调用时创建**临时子 session**（inMemory，不落盘，跑完即弃），`prompt` 后取回复返回，`dispose`。天然支持链式（await 嵌套），深度限制防环。
 
@@ -255,7 +255,7 @@ defineTool({
 |---|---|
 | `intercom-setup.ts` | 不再需要 pi-intercom 扩展 |
 | `packages/kernel/package.json` 的 `pi-intercom` 依赖 | 不再需要 |
-| `~/.hiagent/settings.json` 的 packages 配置 | 不再需要 |
+| `~/.wa-pi/settings.json` 的 packages 配置 | 不再需要 |
 | `session.setSessionName()` 调用 | 不再需要 intercom 会话名 |
 | 前端 `DelegateReceived` 组件 | 进程内委托不产生 `custom_message`，只有 `tool_execution_*` |
 | 前端 `MessageList.tsx` 的 `block.name === "intercom"` | 改为 `block.name === "delegate"` |
@@ -317,7 +317,7 @@ async ensureStarted(projectId: string, agentName: AgentName, sessionId: string):
 
   const { session } = await createAgentSession({
     cwd: project.cwd,
-    agentDir: HIAGENT_DIR,
+    agentDir: WA_PI_DIR,
     sessionManager: SessionManager.open(sessionFile),
     resourceLoader: loader,
     model,
@@ -338,7 +338,7 @@ async ensureStarted(projectId: string, agentName: AgentName, sessionId: string):
 
   const { session } = await createFn({
     cwd: project.cwd,
-    agentDir: HIAGENT_DIR,
+    agentDir: WA_PI_DIR,
     sessionManager: SessionManager.open(sessionEntity.piSessionFile),
     resourceLoader: loader,
     model,
@@ -364,7 +364,7 @@ async ensureStarted(projectId: string, agentName: AgentName, sessionId: string):
 private async buildResourceLoader(config: AgentConfig | null, cwd: string): Promise<DefaultResourceLoader> {
   const loader = new DefaultResourceLoader({
     cwd,
-    agentDir: HIAGENT_DIR,
+    agentDir: WA_PI_DIR,
     systemPromptOverride: config?.systemPromptMode === "replace" && config.systemPromptBody
       ? () => config.systemPromptBody!
       : undefined,
@@ -575,7 +575,7 @@ interface SessionState {
 | 前端 `MessageList.tsx` 的 `block.name === "intercom"` 改为 `"delegate"` | 工具名变更 |
 | `migrate.ts` 保留但简化 | 旧会话元数据保留，`piSessionFile` 字段对旧数据为 undefined（旧消息历史丢失，干净切换） |
 | `shared/types.ts` 删除 `ChatMessage`、`PiEvent`、归并事件类型 | 废弃代码清理 |
-| `constants.ts` 删除 `HIAGENT_PI_AGENT_DIR`、`SESSIONS_DIR` | 改用 `HIAGENT_DIR`，sessions 路径由 AgentManager 拼 |
+| `constants.ts` 删除 `WA_PI_PI_AGENT_DIR`、`SESSIONS_DIR` | 改用 `WA_PI_DIR`，sessions 路径由 AgentManager 拼 |
 | `ws-server.ts` 删除 RPC 调用、`sessionId` 参数传递 | 简化 |
 | `index.ts` 删除 `StateAggregator` 初始化 + `bindAggregatorBroadcast` | 归并层删除 |
 | 清理 `kernel/tests/` 下的 `ws-proj.json*` / `ws-sess*` 残留文件 | 测试垃圾文件 |
@@ -601,7 +601,7 @@ customExtensions?: string[]; // → additionalExtensionPaths
 1. `pi-rpc-client.ts` 和 `state-aggregator.ts` 及其测试文件删除
 2. `AgentManager` 用 `Map<sessionId, AgentSession>` 管理，`createAgentSession` + `subscribe` 直连 SDK
 3. 前端 `sdk:event` 信封类型透传 SDK 原生事件，`store/session.ts` 消费原生事件
-4. `~/.hiagent/` 作为 SDK `agentDir`，会话 jsonl 存 `~/.hiagent/sessions/<id>.jsonl`
+4. `~/.wa-pi/` 作为 SDK `agentDir`，会话 jsonl 存 `~/.wa-pi/sessions/<id>.jsonl`
 5. 伙伴委托：`delegate` 工具创建临时子 session（inMemory），链式 A→B→C 正常，深度限制 5 层防环，前端 `DelegateCard` 渲染 `delegate` 工具调用
 6. 四层测试全部通过：kernel 单元测试、前端组件测试、API 集成测试、E2E
 7. `CHANGELOG.md` 记录本次重构

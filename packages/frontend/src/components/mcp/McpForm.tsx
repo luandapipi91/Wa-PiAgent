@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import type { McpServerConfig } from "@hiagent/shared";
+import type { McpServerConfig } from "@wa-pi/shared";
 
 type Transport = "stdio" | "http";
 

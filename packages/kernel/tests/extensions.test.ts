@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { buildAdditionalExtensionPaths } from "../src/extensions";
-import { GENERATED_DIR } from "@hiagent/shared";
+import { GENERATED_DIR } from "@wa-pi/shared";
 
 test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension 按需追加", () => {
   const paths = buildAdditionalExtensionPaths();
@@ -22,8 +22,8 @@ test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension
   const providerExt = join(GENERATED_DIR, "provider-extension.ts");
   expect(paths.includes(providerExt)).toBe(existsSync(providerExt));
 
-  // hiagent-bridge 同样按需追加（RPC 模式宿主工具桥，bridge-extension.ts 生成）
-  const bridgeExt = join(GENERATED_DIR, "hiagent-bridge.ts");
+  // wa-pi-bridge 同样按需追加（RPC 模式宿主工具桥，bridge-extension.ts 生成）
+  const bridgeExt = join(GENERATED_DIR, "wa-pi-bridge.ts");
   expect(paths.includes(bridgeExt)).toBe(existsSync(bridgeExt));
 });
 

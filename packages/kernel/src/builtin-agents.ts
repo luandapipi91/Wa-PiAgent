@@ -2,8 +2,8 @@
 //
 // 切换前：内置类型（general-purpose/Explore/Plan）的 systemPrompt
 // 在 @gotgenes/pi-subagents 的 default-agents.ts 里硬编码。
-// 切换后：改为 ~/.hiagent/agents/*.md 定义文件，由 kernel 启动时 seedBuiltinAgents 写入。
-// 用户可在 ~/.hiagent/agents/ 覆盖同名文件自定义。
+// 切换后：改为 ~/.wa-pi/agents/*.md 定义文件，由 kernel 启动时 seedBuiltinAgents 写入。
+// 用户可在 ~/.wa-pi/agents/ 覆盖同名文件自定义。
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,7 +13,7 @@ import { join } from "node:path";
  *
  * 提示词从 @gotgenes/pi-subagents 的 default-agents.ts 迁移而来，
  * 切换到 pi-open-agents 后不再依赖包内部源码，改为本地 .md 文件。
- * 用户可在 ~/.hiagent/agents/ 覆盖同名文件自定义。
+ * 用户可在 ~/.wa-pi/agents/ 覆盖同名文件自定义。
  */
 export const BUILTIN_AGENT_CONTENT: Record<string, string> = {
   "general-purpose": `---
@@ -128,7 +128,7 @@ List 3-5 files most critical for implementing this plan:
 };
 
 /**
- * 在 agentsDir 写入内置 agent 定义文件（~/.hiagent/agents/*.md）。
+ * 在 agentsDir 写入内置 agent 定义文件（~/.wa-pi/agents/*.md）。
  * 已存在的同名文件不覆盖（用户自定义优先）。
  */
 export function seedBuiltinAgents(agentsDir: string): void {

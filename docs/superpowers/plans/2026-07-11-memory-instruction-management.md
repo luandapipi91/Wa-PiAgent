@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 hiagent 添加记忆管理页（集成 pi-hermes-memory）和指令文件只读展示，用户可查看/编辑/归档记忆，查看已加载的指令文件。
+**Goal:** 为 wa-pi 添加记忆管理页（集成 pi-hermes-memory）和指令文件只读展示，用户可查看/编辑/归档记忆，查看已加载的指令文件。
 
 **Architecture:** kernel 新增 `MemoryStore` 服务读写 pi-hermes-memory 的 Markdown 文件（§ 分隔）+ sidecar 归档 JSON + 配置开关 JSON。前端新增 `memory` view + Zustand store + 组件树。前后端通过 8 个新 WS 事件通信。注入完全交给插件。
 
@@ -11,11 +11,11 @@
 ## Global Constraints
 
 - 所有代码注释和沟通用中文
-- 遵循 HiAgent Light 设计系统（DESIGN.md）
+- 遵循 WaPi Light 设计系统（DESIGN.md）
 - kernel 测试用 `bun:test`，临时目录隔离（`import.meta.dir + ".tmp-" + Math.random()`）
 - 前端测试用 `bun:test` + `@testing-library/react`，store mock 用 `useXxxStore.setState({...})`
 - WS 事件遵循现有信封模式：list 用 `reply` 定向返回，变更用 `broadcast` 推全量
-- 数据根目录 `~/.hiagent`（常量 `HIAGENT_DIR`），通过 `PI_CODING_AGENT_DIR` 环境变量重定向
+- 数据根目录 `~/.wa-pi`（常量 `WA_PI_DIR`），通过 `PI_CODING_AGENT_DIR` 环境变量重定向
 - 文件路径常量定义在 `packages/shared/src/constants.ts`
 
 ---
@@ -223,7 +223,7 @@ git commit -m "feat(shared): 记忆与指令文件管理的类型定义和 WS �
 - Test: `packages/kernel/tests/memory-store.test.ts`
 
 **Interfaces:**
-- Consumes: `HIAGENT_DIR` from `@hiagent/shared`，`ProjectStore`（拿 cwd）
+- Consumes: `WA_PI_DIR` from `@wa-pi/shared`，`ProjectStore`（拿 cwd）
 - Produces: `MemoryStore` 类，方法：`list()`, `update()`, `archive()`, `restore()`, `purge()`, `listInstructions()`, `getConfig()`, `setConfig()`
 
 - [ ] **Step 1: 写 `list()` 的失败测试 — § 解析 + 多文件来源**
@@ -262,7 +262,7 @@ afterEach(async () => {
 
 test("list 解析全局 MEMORY.md 的 § 分隔条目，category=memory scope=global", async () => {
   await writeFile(join(hermesDir, "MEMORY.md"), "项目用 pnpm\n§\nCI 需要 frozen-lockfile", "utf8");
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const { memories } = await store.list();
 
   expect(memories).toHaveLength(2);
@@ -287,9 +287,9 @@ Expected: FAIL — `Cannot find module '../src/memory-store'`
 //
 // 设计要点：
 // - 读写 pi-hermes-memory 的 Markdown 文件（MEMORY.md/USER.md/failures.md），按 § 分隔条目
-// - 归档使用 sidecar JSON（~/.hiagent/memory-archive.json），不修改插件的文件结构
+// - 归档使用 sidecar JSON（~/.wa-pi/memory-archive.json），不修改插件的文件结构
 // - 记忆配置开关读写 hermes-memory-config.json
-// - 指令文件扫描全局（~/.hiagent）+ 项目 cwd 下的 AGENTS.md/CLAUDE.md
+// - 指令文件扫描全局（~/.wa-pi）+ 项目 cwd 下的 AGENTS.md/CLAUDE.md
 // - 与 pi-hermes-memory 之间无 API 调用，只通过文件系统通信
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -298,12 +298,12 @@ import { join, relative } from "node:path";
 import type {
   MemoryEntry, ArchivedMemory, InstructionFile, MemoryConfig,
   MemoryArchiveFile, MemoryCategory, MemoryScope,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 import type { ProjectStore } from "./project-store";
 
 /** 记忆文件来源定义 */
 interface MemorySourceDef {
-  relativePath: string;   // 相对于 hiagentDir 或 projectsMemoryDir 的路径
+  relativePath: string;   // 相对于 waPiDir 或 projectsMemoryDir 的路径
   category: MemoryCategory;
 }
 
@@ -325,7 +325,7 @@ const HERMES_CONFIG_FILE = "hermes-memory-config.json";
 const PROJECTS_MEMORY_DIR = "projects-memory";
 
 export interface MemoryStoreOpts {
-  hiagentDir: string;
+  waPiDir: string;
   projectStore: ProjectStore;
 }
 
@@ -339,14 +339,14 @@ export class MemoryStore {
 
     // 全局来源
     for (const src of GLOBAL_SOURCES) {
-      const absPath = join(this.opts.hiagentDir, src.relativePath);
+      const absPath = join(this.opts.waPiDir, src.relativePath);
       const entries = await this.parseMemoryFile(absPath, src.category, "global");
       memories.push(...entries);
     }
 
     // 项目来源
     if (cwd) {
-      const projectDir = join(this.opts.hiagentDir, PROJECTS_MEMORY_DIR, this.projectNameFromCwd(cwd));
+      const projectDir = join(this.opts.waPiDir, PROJECTS_MEMORY_DIR, this.projectNameFromCwd(cwd));
       for (const src of PROJECT_SOURCES) {
         const absPath = join(projectDir, src.relativePath);
         const entries = await this.parseMemoryFile(absPath, src.category, "project");
@@ -374,7 +374,7 @@ export class MemoryStore {
     }
 
     const parts = content.split("§").map(s => s.trim()).filter(s => s.length > 0);
-    const relPath = relative(this.opts.hiagentDir, absPath).replace(/\\/g, "/");
+    const relPath = relative(this.opts.waPiDir, absPath).replace(/\\/g, "/");
 
     return parts.map((text, rawIndex) => ({
       id: `${relPath}:${rawIndex}`,
@@ -400,7 +400,7 @@ export class MemoryStore {
   /** 从 ProjectStore 拿当前项目 cwd */
   private async getCurrentCwd(): Promise<string | null> {
     const { projects } = await this.opts.projectStore.load();
-    // 取第一个项目作为当前项目（简化：hiagent 单项目场景为主）
+    // 取第一个项目作为当前项目（简化：wa-pi 单项目场景为主）
     // 实际使用时由 ws-server 传入 projectId 指定
     return projects[0]?.cwd ?? null;
   }
@@ -415,7 +415,7 @@ export class MemoryStore {
   /** 加载归档 sidecar */
   private async loadArchive(): Promise<ArchivedMemory[]> {
     try {
-      const raw = await readFile(join(this.opts.hiagentDir, ARCHIVE_FILE), "utf8");
+      const raw = await readFile(join(this.opts.waPiDir, ARCHIVE_FILE), "utf8");
       const data = JSON.parse(raw) as MemoryArchiveFile;
       return data.entries ?? [];
     } catch {
@@ -425,9 +425,9 @@ export class MemoryStore {
 
   /** 保存归档 sidecar */
   private async saveArchive(entries: ArchivedMemory[]): Promise<void> {
-    await mkdir(this.opts.hiagentDir, { recursive: true });
+    await mkdir(this.opts.waPiDir, { recursive: true });
     await writeFile(
-      join(this.opts.hiagentDir, ARCHIVE_FILE),
+      join(this.opts.waPiDir, ARCHIVE_FILE),
       JSON.stringify({ entries } satisfies MemoryArchiveFile, null, 2),
       "utf8",
     );
@@ -446,7 +446,7 @@ Expected: PASS
 test("list 解析 USER.md category=user, failures.md category=failure", async () => {
   await writeFile(join(hermesDir, "USER.md"), "偏好简洁回答\n§\n用中文", "utf8");
   await writeFile(join(hermesDir, "failures.md"), "localStorage 存 token 有 XSS 风险", "utf8");
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const { memories } = await store.list();
 
   const userEntries = memories.filter(m => m.category === "user");
@@ -463,7 +463,7 @@ test("list 包含项目级记忆，scope=project", async () => {
   const projectDir = join(projectsMemoryDir, "my-project");
   await mkdir(projectDir, { recursive: true });
   await writeFile(join(projectDir, "MEMORY.md"), "项目记忆\n§\nCI 用 pnpm", "utf8");
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/my-project") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/my-project") });
   const { memories } = await store.list();
 
   const projectEntries = memories.filter(m => m.scope === "project");
@@ -473,7 +473,7 @@ test("list 包含项目级记忆，scope=project", async () => {
 });
 
 test("list 文件不存在时返回空数组不报错", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const { memories, archived } = await store.list();
   expect(memories).toEqual([]);
   expect(archived).toEqual([]);
@@ -509,7 +509,7 @@ git commit -m "feat(kernel): MemoryStore list() — § 解析记忆文件"
 ```ts
 test("update 按定位 § 段落替换文本", async () => {
   await writeFile(join(hermesDir, "MEMORY.md"), "旧内容1\n§\n旧内容2", "utf8");
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const { memories } = await store.list();
   const targetId = memories[1].id; // "pi-hermes-memory/MEMORY.md:1"
 
@@ -573,8 +573,8 @@ Expected: FAIL — 抛出 "未实现"
   private async resolveSourceFile(id: string): Promise<string> {
     const colonIdx = id.lastIndexOf(":");
     const relPath = id.slice(0, colonIdx).replace(/\//g, "/");
-    // 尝试拼接 hiagentDir（全局或 projects-memory 下的路径都相对于 hiagentDir）
-    return join(this.opts.hiagentDir, relPath);
+    // 尝试拼接 waPiDir（全局或 projects-memory 下的路径都相对于 waPiDir）
+    return join(this.opts.waPiDir, relPath);
   }
 ```
 
@@ -588,7 +588,7 @@ Expected: PASS
 ```ts
 test("archive 从文件移除条目并写入 sidecar", async () => {
   await writeFile(join(hermesDir, "MEMORY.md"), "条目A\n§\n条目B", "utf8");
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const { memories } = await store.list();
   const targetId = memories[0].id;
 
@@ -675,7 +675,7 @@ Expected: PASS
 ```ts
 test("restore 从 sidecar 移除并追加回源文件", async () => {
   await writeFile(join(hermesDir, "MEMORY.md"), "条目A", "utf8");
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const { memories } = await store.list();
   const targetId = memories[0].id;
   await store.archive(targetId); // 先归档
@@ -728,7 +728,7 @@ Expected: PASS
 ```ts
 test("purge 从 sidecar 彻底删除，不写回文件", async () => {
   await writeFile(join(hermesDir, "MEMORY.md"), "条目A", "utf8");
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const { memories } = await store.list();
   const targetId = memories[0].id;
   await store.archive(targetId);
@@ -782,7 +782,7 @@ test("listInstructions 扫描全局 + 项目级 AGENTS.md", async () => {
   await mkdir(projectCwd, { recursive: true });
   await writeFile(join(projectCwd, "AGENTS.md"), "项目指令内容", "utf8");
 
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore(projectCwd) });
   const instructions = await store.listInstructions("p1");
 
   expect(instructions).toHaveLength(2);
@@ -810,9 +810,9 @@ Expected: FAIL — 返回空数组
     const result: InstructionFile[] = [];
     const candidates = ["AGENTS.md", "CLAUDE.md"];
 
-    // 全局：~/.hiagent/AGENTS.md 或 CLAUDE.md（取第一个命中）
+    // 全局：~/.wa-pi/AGENTS.md 或 CLAUDE.md（取第一个命中）
     for (const name of candidates) {
-      const p = join(this.opts.hiagentDir, name);
+      const p = join(this.opts.waPiDir, name);
       if (existsSync(p)) {
         result.push({
           path: p, name, scope: "global",
@@ -856,14 +856,14 @@ Expected: PASS
 
 ```ts
 test("getConfig 文件不存在时返回默认值", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   const config = await store.getConfig();
   expect(config.reviewEnabled).toBe(true);
   expect(config.memoryPolicyStyle).toBe("full");
 });
 
 test("setConfig 写入后 getConfig 读回新值", async () => {
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   await store.setConfig({ reviewEnabled: false, memoryPolicyStyle: "none" });
   const config = await store.getConfig();
   expect(config.reviewEnabled).toBe(false);
@@ -879,7 +879,7 @@ test("setConfig 保留已有配置项不覆盖", async () => {
     autoConsolidate: true,
   }), "utf8");
 
-  const store = new MemoryStore({ hiagentDir: tmpDir, projectStore: mockProjectStore("/fake") });
+  const store = new MemoryStore({ waPiDir: tmpDir, projectStore: mockProjectStore("/fake") });
   await store.setConfig({ reviewEnabled: false });
 
   const raw = JSON.parse(await readFile(join(tmpDir, HERMES_CONFIG_FILE), "utf8"));
@@ -899,7 +899,7 @@ test("setConfig 保留已有配置项不覆盖", async () => {
   /** 读记忆配置开关 */
   async getConfig(): Promise<MemoryConfig> {
     try {
-      const raw = await readFile(join(this.opts.hiagentDir, HERMES_CONFIG_FILE), "utf8");
+      const raw = await readFile(join(this.opts.waPiDir, HERMES_CONFIG_FILE), "utf8");
       const data = JSON.parse(raw);
       return {
         reviewEnabled: data.reviewEnabled ?? true,
@@ -915,7 +915,7 @@ test("setConfig 保留已有配置项不覆盖", async () => {
     reviewEnabled?: boolean;
     memoryPolicyStyle?: "full" | "compact" | "none";
   }): Promise<void> {
-    const configPath = join(this.opts.hiagentDir, HERMES_CONFIG_FILE);
+    const configPath = join(this.opts.waPiDir, HERMES_CONFIG_FILE);
     let existing: Record<string, unknown> = {};
     try {
       existing = JSON.parse(await readFile(configPath, "utf8"));
@@ -924,7 +924,7 @@ test("setConfig 保留已有配置项不覆盖", async () => {
     }
     if (opts.reviewEnabled !== undefined) existing.reviewEnabled = opts.reviewEnabled;
     if (opts.memoryPolicyStyle !== undefined) existing.memoryPolicyStyle = opts.memoryPolicyStyle;
-    await mkdir(this.opts.hiagentDir, { recursive: true });
+    await mkdir(this.opts.waPiDir, { recursive: true });
     await writeFile(configPath, JSON.stringify(existing, null, 2), "utf8");
   }
 ```
@@ -1064,7 +1064,7 @@ import { MemoryStore } from "./memory-store";
 ```
 
 ```ts
-  const memoryStore = new MemoryStore({ hiagentDir: HIAGENT_DIR, projectStore });
+  const memoryStore = new MemoryStore({ waPiDir: WA_PI_DIR, projectStore });
 ```
 
 在 `new WSServer({ ... })` 里（行 49-57）加 `memoryStore`：
@@ -1076,7 +1076,7 @@ import { MemoryStore } from "./memory-store";
     skillManager,
     extensionManager,
     memoryStore,
-    dataDir: HIAGENT_DIR,
+    dataDir: WA_PI_DIR,
     agentManager: null as any,
     port: WS_PORT,
   });
@@ -1093,7 +1093,7 @@ import { mkdir, writeFile, rm } from "node:fs/promises";
 import { WSServer } from "../src/ws-server";
 import { MemoryStore } from "../src/memory-store";
 import { ProjectStore } from "../src/project-store";
-import type { WSClientEvent, WSServerEvent } from "@hiagent/shared";
+import type { WSClientEvent, WSServerEvent } from "@wa-pi/shared";
 
 const tmpDir = import.meta.dir + ".tmp-ws-memory-" + Math.random().toString(36).slice(2);
 
@@ -1103,7 +1103,7 @@ function makeMockAgentManager() {
 
 async function withMemoryServer(fn: (send: (e: WSClientEvent) => void, recv: () => Promise<WSServerEvent>) => void) {
   const projectStore = new ProjectStore(join(tmpDir, "projects.json"));
-  const memoryStore = new MemoryStore({ hiagentDir: tmpDir, projectStore });
+  const memoryStore = new MemoryStore({ waPiDir: tmpDir, projectStore });
   const server = new WSServer({
     configStore: null as any, projectStore,
     providerStore: null as any,
@@ -1262,7 +1262,7 @@ import { create } from "zustand";
 import type {
   MemoryEntry, ArchivedMemory, InstructionFile, MemoryConfig,
   MemoryListResult, MemoryChangedEvent, InstructionListResult, MemoryConfigEvent,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 import { send } from "../ws-instance";
 
 type ActiveTab = "saved" | "archived" | "instructions";
@@ -1405,7 +1405,7 @@ export function MemoryEmpty({ type }: Props) {
 
 ```tsx
 // InstructionItem.tsx — 指令文件条目（只读）
-import type { InstructionFile } from "@hiagent/shared";
+import type { InstructionFile } from "@wa-pi/shared";
 
 interface Props {
   instruction: InstructionFile;
@@ -1688,7 +1688,7 @@ git commit -m "feat(frontend): MemoryPage + MemoryEmpty + InstructionItem 组件
 ```tsx
 // MemoryCard.tsx — 记忆卡片（含行内编辑态）
 import { useState } from "react";
-import type { MemoryEntry } from "@hiagent/shared";
+import type { MemoryEntry } from "@wa-pi/shared";
 
 interface Props {
   entry: MemoryEntry;

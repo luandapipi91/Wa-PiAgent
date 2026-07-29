@@ -1,7 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import type { AttachmentDraft, ThinkingLevel } from "@hiagent/shared";
+import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
 
-const DB_NAME = "hiagent-composer";
+const DB_NAME = "wa-pi-composer";
 const DB_VERSION = 1;
 
 interface ComposerSessionRecord {

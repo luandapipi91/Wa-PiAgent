@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在会话列表新增常驻的「🏠 默认工作区」虚拟项目，让每个会话在 `~/.hiagent/workdir/<session.createdAt>/` 下隔离 pwd；删除会话保留目录 7 天后自动清理；skill/mcp 继承全局配置。
+**Goal:** 在会话列表新增常驻的「🏠 默认工作区」虚拟项目，让每个会话在 `~/.wa-pi/workdir/<session.createdAt>/` 下隔离 pwd；删除会话保留目录 7 天后自动清理；skill/mcp 继承全局配置。
 
 **Architecture:** 复用现有 `ProjectEntity` / `SessionEntity`（**不加任何字段**）。新增 4 个 shared 常量（`SYSTEM_PROJECT_ID` / `SYSTEM_PROJECT_NAME` / `SYSTEM_PROJECT_CWD` / `WORKDIR_TTL_DAYS`）和 1 个纯函数 `resolveSessionCwd`（前后端共享）。kernel 在启动时 seed 一个固定 id=`"__system__"` 的项目；`agent-manager._createSession` 把 cwd 从 `project.cwd` 改为 `resolveSessionCwd(session, project)`；新增 `workdir-cleaner.ts` 做定时清理；`ws-server` 拦截对系统项目的 delete/update、在创建全局会话时 mkdir 子目录、为上传/打开目录 handler 加 session 级路径支持。前端在 Sidebar 加独立区、ProjectItem 差异化渲染、NewSessionPane 默认选中、SessionView header 友好文案。
 
@@ -25,10 +25,10 @@
 - 不使用自问自答句式（AGENTS.md 第 8 条）
 
 **关键路径常量速查**（实施时所有路径都从这里读）：
-- `HIAGENT_DIR` = `~/.hiagent`（`shared/src/constants.ts:21`）
+- `WA_PI_DIR` = `~/.wa-pi`（`shared/src/constants.ts:21`）
 - `SYSTEM_PROJECT_ID` = `"__system__"`（本计划新增）
 - `SYSTEM_PROJECT_NAME` = `"默认工作区"`（本计划新增）
-- `SYSTEM_PROJECT_CWD` = `~/.hiagent/workdir`（本计划新增）
+- `SYSTEM_PROJECT_CWD` = `~/.wa-pi/workdir`（本计划新增）
 - `WORKDIR_TTL_DAYS` = `7`（本计划新增）
 
 ---
@@ -44,7 +44,7 @@
 - Modify: `packages/shared/tests/constants.test.ts`
 
 **Interfaces:**
-- Consumes: `HIAGENT_DIR`（`shared/src/constants.ts:21`）、`join` from `node:path`
+- Consumes: `WA_PI_DIR`（`shared/src/constants.ts:21`）、`join` from `node:path`
 - Produces: 4 个新常量 `SYSTEM_PROJECT_ID` / `SYSTEM_PROJECT_NAME` / `SYSTEM_PROJECT_CWD` / `WORKDIR_TTL_DAYS`
 
 - [ ] **Step 1: 写失败测试**
@@ -60,7 +60,7 @@ test("SYSTEM_PROJECT_* 常量定义", () => {
   expect(SYSTEM_PROJECT_ID).toBe("__system__");
   expect(SYSTEM_PROJECT_NAME).toBe("默认工作区");
   expect(SYSTEM_PROJECT_CWD.endsWith("workdir")).toBe(true);
-  expect(SYSTEM_PROJECT_CWD.includes("hiagent")).toBe(true);
+  expect(SYSTEM_PROJECT_CWD.includes("wa-pi")).toBe(true);
   expect(WORKDIR_TTL_DAYS).toBe(7);
 });
 ```
@@ -68,7 +68,7 @@ test("SYSTEM_PROJECT_* 常量定义", () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/shared/tests/constants.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/shared/tests/constants.test.ts
 ```
 
 Expected: FAIL，报错 "SYSTEM_PROJECT_ID is not exported" 或类似
@@ -82,21 +82,21 @@ import { join } from "node:path";
 
 // ===== 默认工作区（虚拟系统项目）=====
 // 一个常驻、不可删除/改名的虚拟项目，作为"没有具体工程目录时的默认聊天空间"。
-// 该项目下的每个会话有独立 cwd（~/.hiagent/workdir/<session.createdAt>/），
+// 该项目下的每个会话有独立 cwd（~/.wa-pi/workdir/<session.createdAt>/），
 // 详见 resolveSessionCwd 纯函数（pure.ts）。
 export const SYSTEM_PROJECT_ID = "__system__";
 export const SYSTEM_PROJECT_NAME = "默认工作区";
-export const SYSTEM_PROJECT_CWD = join(HIAGENT_DIR, "workdir");
+export const SYSTEM_PROJECT_CWD = join(WA_PI_DIR, "workdir");
 // 默认工作区会话被删除后，对应的 <createdAt>/ 子目录保留天数；超时后由 workdir-cleaner 清理
 export const WORKDIR_TTL_DAYS = 7;
 ```
 
-**注意**：`join` 已在文件顶部 import 过吗？检查现有 import，如果没有，加 `import { join } from "node:path";`。从 `constants.ts:4`（`PROJECTS_FILE = ${HIAGENT_DIR}/projects.json`）可见目前用的是模板字符串而非 `join`，但新常量为了清晰用 `join`。需要补 import。
+**注意**：`join` 已在文件顶部 import 过吗？检查现有 import，如果没有，加 `import { join } from "node:path";`。从 `constants.ts:4`（`PROJECTS_FILE = ${WA_PI_DIR}/projects.json`）可见目前用的是模板字符串而非 `join`，但新常量为了清晰用 `join`。需要补 import。
 
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/shared/tests/constants.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/shared/tests/constants.test.ts
 ```
 
 Expected: PASS
@@ -104,7 +104,7 @@ Expected: PASS
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/shared typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/shared typecheck
 ```
 
 Expected: 无错误
@@ -112,7 +112,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/shared/src/constants.ts packages/shared/tests/constants.test.ts && git commit -m "feat(shared): 新增 SYSTEM_PROJECT_* 常量与 WORKDIR_TTL_DAYS"
+cd /Users/pipi/work/WaPi && git add packages/shared/src/constants.ts packages/shared/tests/constants.test.ts && git commit -m "feat(shared): 新增 SYSTEM_PROJECT_* 常量与 WORKDIR_TTL_DAYS"
 ```
 
 ---
@@ -149,8 +149,8 @@ import { SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD } from "../src/constants";
 
 test("resolveSessionCwd 普通项目返回 project.cwd", () => {
   const session = { projectId: "p-abc", createdAt: 1721567890123 };
-  const project = { cwd: "/work/hiagent" };
-  expect(resolveSessionCwd(session, project)).toBe("/work/hiagent");
+  const project = { cwd: "/work/wa-pi" };
+  expect(resolveSessionCwd(session, project)).toBe("/work/wa-pi");
 });
 
 test("resolveSessionCwd 系统项目返回 workdir/<createdAt>", () => {
@@ -165,7 +165,7 @@ test("resolveSessionCwd 系统项目返回 workdir/<createdAt>", () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/shared/tests/pure.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/shared/tests/pure.test.ts
 ```
 
 Expected: FAIL，报错 "resolveSessionCwd is not exported"
@@ -183,7 +183,7 @@ import { SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD } from "./constants";
  *
  * - 普通项目会话：返回 project.cwd（行为不变）
  * - 默认工作区会话（projectId === SYSTEM_PROJECT_ID）：返回
- *   ${SYSTEM_PROJECT_CWD}/${session.createdAt}/，即 ~/.hiagent/workdir/<时间戳>/
+ *   ${SYSTEM_PROJECT_CWD}/${session.createdAt}/，即 ~/.wa-pi/workdir/<时间戳>/
  *
  * 这是**纯函数**，从 session.createdAt 推导，不依赖任何持久化的 cwd 字段。
  * 因此 kernel 启动时 mkdir 用的 ts 必须与 createSession 写入的 createdAt 严格一致
@@ -205,7 +205,7 @@ export function resolveSessionCwd(
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/shared/tests/pure.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/shared/tests/pure.test.ts
 ```
 
 Expected: PASS（所有原有测试 + 2 个新测试全过）
@@ -213,7 +213,7 @@ Expected: PASS（所有原有测试 + 2 个新测试全过）
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/shared typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/shared typecheck
 ```
 
 Expected: 无错误
@@ -221,7 +221,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/shared/src/pure.ts packages/shared/tests/pure.test.ts && git commit -m "feat(shared): 新增 resolveSessionCwd 纯函数（前后端共享）"
+cd /Users/pipi/work/WaPi && git add packages/shared/src/pure.ts packages/shared/tests/pure.test.ts && git commit -m "feat(shared): 新增 resolveSessionCwd 纯函数（前后端共享）"
 ```
 
 ---
@@ -249,7 +249,7 @@ cd /Users/pipi/work/HiAgent && git add packages/shared/src/pure.ts packages/shar
 在 `packages/kernel/tests/project-store.test.ts` 末尾追加（参考现有测试风格，见 `project-store.test.ts:11-18`）：
 
 ```ts
-import { SYSTEM_PROJECT_ID, SYSTEM_PROJECT_NAME, SYSTEM_PROJECT_CWD } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID, SYSTEM_PROJECT_NAME, SYSTEM_PROJECT_CWD } from "@wa-pi/shared";
 
 test("createSystemProject 首次插入固定 id 项目", async () => {
   const f = tempFile();
@@ -300,7 +300,7 @@ test("createSystemProject 不影响 createProject 的 cwd 去重", async () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/project-store.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/project-store.test.ts
 ```
 
 Expected: FAIL，报错 "store.createSystemProject is not a function"
@@ -335,7 +335,7 @@ Expected: FAIL，报错 "store.createSystemProject is not a function"
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/project-store.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/project-store.test.ts
 ```
 
 Expected: PASS（所有原有测试 + 3 个新测试全过）
@@ -343,7 +343,7 @@ Expected: PASS（所有原有测试 + 3 个新测试全过）
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/kernel typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 Expected: 无错误
@@ -351,7 +351,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/kernel/src/project-store.ts packages/kernel/tests/project-store.test.ts && git commit -m "feat(kernel): ProjectStore 新增 createSystemProject 幂等方法"
+cd /Users/pipi/work/WaPi && git add packages/kernel/src/project-store.ts packages/kernel/tests/project-store.test.ts && git commit -m "feat(kernel): ProjectStore 新增 createSystemProject 幂等方法"
 ```
 
 ---
@@ -365,7 +365,7 @@ cd /Users/pipi/work/HiAgent && git add packages/kernel/src/project-store.ts pack
 
 **Interfaces:**
 - Consumes: `ProjectStore.createSystemProject`（Task 2.1）、`SYSTEM_PROJECT_*` 常量
-- Produces: `ensureSystemProject(projectStore): Promise<void>`，副作用是 projects.json 含一条 `__system__` 记录 + `~/.hiagent/workdir/` 目录存在
+- Produces: `ensureSystemProject(projectStore): Promise<void>`，副作用是 projects.json 含一条 `__system__` 记录 + `~/.wa-pi/workdir/` 目录存在
 
 - [ ] **Step 1: 写失败测试**
 
@@ -379,7 +379,7 @@ import { ProjectStore } from "../src/project-store";
 import { ensureSystemProject } from "../src/ensure-system-project";
 import {
   SYSTEM_PROJECT_ID, SYSTEM_PROJECT_NAME, SYSTEM_PROJECT_CWD,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 
 function tempFile() {
   return join(import.meta.dir, ".tmp-ensure-" + Math.random().toString(36).slice(2) + ".json");
@@ -411,7 +411,7 @@ test("ensureSystemProject 创建 workdir 根目录", async () => {
   const f = tempFile();
   const store = new ProjectStore(f);
   await ensureSystemProject(store);
-  // SYSTEM_PROJECT_CWD 目录必须存在（实际 ~/.hiagent/workdir）
+  // SYSTEM_PROJECT_CWD 目录必须存在（实际 ~/.wa-pi/workdir）
   expect(existsSync(SYSTEM_PROJECT_CWD)).toBe(true);
   expect(statSync(SYSTEM_PROJECT_CWD).isDirectory()).toBe(true);
   rmSync(f, { force: true });
@@ -421,7 +421,7 @@ test("ensureSystemProject 创建 workdir 根目录", async () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ensure-system-project.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ensure-system-project.test.ts
 ```
 
 Expected: FAIL，报错 "Cannot find module '../src/ensure-system-project'"
@@ -435,13 +435,13 @@ import { mkdir } from "node:fs/promises";
 import type { ProjectStore } from "./project-store";
 import {
   SYSTEM_PROJECT_ID, SYSTEM_PROJECT_NAME, SYSTEM_PROJECT_CWD,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 
 /**
  * 启动时确保默认工作区虚拟项目存在（幂等）。
  *
  * - 若 projects.json 中无 SYSTEM_PROJECT_ID 记录 → 写入一条
- * - 始终确保 SYSTEM_PROJECT_CWD 根目录存在（~/.hiagent/workdir）
+ * - 始终确保 SYSTEM_PROJECT_CWD 根目录存在（~/.wa-pi/workdir）
  *
  * 不抛错：失败仅 console.warn，不阻塞 kernel 启动。
  */
@@ -462,7 +462,7 @@ export async function ensureSystemProject(projectStore: ProjectStore): Promise<v
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ensure-system-project.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ensure-system-project.test.ts
 ```
 
 Expected: PASS
@@ -479,27 +479,27 @@ await ensureSystemProject(projectStore);
 console.log(`[kernel] 默认工作区已就绪: ${SYSTEM_PROJECT_CWD}`);
 ```
 
-需要同时把 `SYSTEM_PROJECT_CWD` 加入从 `@hiagent/shared` 的 import（第 14 行）：
+需要同时把 `SYSTEM_PROJECT_CWD` 加入从 `@wa-pi/shared` 的 import（第 14 行）：
 
 ```ts
-import { WS_PORT, HIAGENT_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD } from "@hiagent/shared";
+import { WS_PORT, WA_PI_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD } from "@wa-pi/shared";
 ```
 
 - [ ] **Step 6: 手动启动 kernel 验证 seed 生效**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/kernel dev &
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel dev &
 sleep 3
-cat ~/.hiagent/projects.json | grep __system__
+cat ~/.wa-pi/projects.json | grep __system__
 kill %1 2>/dev/null
 ```
 
-Expected: 输出含 `"id": "__system__"` 的一条记录；`~/.hiagent/workdir` 目录存在
+Expected: 输出含 `"id": "__system__"` 的一条记录；`~/.wa-pi/workdir` 目录存在
 
 - [ ] **Step 7: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/kernel/src/ensure-system-project.ts packages/kernel/tests/ensure-system-project.test.ts packages/kernel/src/index.ts && git commit -m "feat(kernel): 启动时 seed 默认工作区虚拟项目"
+cd /Users/pipi/work/WaPi && git add packages/kernel/src/ensure-system-project.ts packages/kernel/tests/ensure-system-project.test.ts packages/kernel/src/index.ts && git commit -m "feat(kernel): 启动时 seed 默认工作区虚拟项目"
 ```
 
 ---
@@ -556,7 +556,7 @@ test("createSession 不传 createdAt 时仍用 Date.now()", async () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/project-store.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/project-store.test.ts
 ```
 
 Expected: FAIL，报错 "createdAt does not exist in type ..." 或 ts 类型错误
@@ -598,7 +598,7 @@ async createSession(input: {
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/project-store.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/project-store.test.ts
 ```
 
 Expected: PASS
@@ -606,7 +606,7 @@ Expected: PASS
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/kernel typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 Expected: 无错误
@@ -614,7 +614,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/kernel/src/project-store.ts packages/kernel/tests/project-store.test.ts && git commit -m "feat(kernel): createSession 支持外部传入 createdAt（默认工作区用）"
+cd /Users/pipi/work/WaPi && git add packages/kernel/src/project-store.ts packages/kernel/tests/project-store.test.ts && git commit -m "feat(kernel): createSession 支持外部传入 createdAt（默认工作区用）"
 ```
 
 ---
@@ -633,8 +633,8 @@ cd /Users/pipi/work/HiAgent && git add packages/kernel/src/project-store.ts pack
 | 行号 | 改前 | 改后 |
 |---|---|---|
 | 309-311 | 校验 `project.cwd` 非空 | 增加：若为系统项目，校验 `resolveSessionCwd` 路径可推导 |
-| 351 | `buildMemorySnapshot(HIAGENT_DIR, project.cwd)` | `buildMemorySnapshot(HIAGENT_DIR, cwd)` |
-| 364 | `getProjectMemoryStore(HIAGENT_DIR, project.cwd)` | `getProjectMemoryStore(HIAGENT_DIR, cwd)` |
+| 351 | `buildMemorySnapshot(WA_PI_DIR, project.cwd)` | `buildMemorySnapshot(WA_PI_DIR, cwd)` |
+| 364 | `getProjectMemoryStore(WA_PI_DIR, project.cwd)` | `getProjectMemoryStore(WA_PI_DIR, cwd)` |
 | 396 | `cwd: project.cwd` | `cwd` |
 | 455 | `cwd: project.cwd` | `cwd` |
 | 471 | `this.sessionCwd.set(sessionId, project.cwd)` | `this.sessionCwd.set(sessionId, cwd)` |
@@ -648,39 +648,39 @@ cd /Users/pipi/work/HiAgent && git add packages/kernel/src/project-store.ts pack
 ```ts
 // 计算本次会话的 cwd：
 // - 普通项目会话：直接用 project.cwd（行为不变）
-// - 默认工作区会话：用 resolveSessionCwd 推导出 ~/.hiagent/workdir/<createdAt>/
+// - 默认工作区会话：用 resolveSessionCwd 推导出 ~/.wa-pi/workdir/<createdAt>/
 // 后续所有用到 cwd 的地方（resourceLoader / createFn / sessionCwd / memoryStore）都用这个值。
 const cwd = resolveSessionCwd(sessionEntity, project);
 ```
 
-需要把 `resolveSessionCwd` 加到文件顶部的 import（找现有的 `@hiagent/shared` import 行追加）：
+需要把 `resolveSessionCwd` 加到文件顶部的 import（找现有的 `@wa-pi/shared` import 行追加）：
 
 ```ts
-import { ..., resolveSessionCwd } from "@hiagent/shared";
+import { ..., resolveSessionCwd } from "@wa-pi/shared";
 ```
 
 然后把第 351 行：
 
 ```ts
-: await buildMemorySnapshot(HIAGENT_DIR, project.cwd).catch(
+: await buildMemorySnapshot(WA_PI_DIR, project.cwd).catch(
 ```
 
 改为：
 
 ```ts
-: await buildMemorySnapshot(HIAGENT_DIR, cwd).catch(
+: await buildMemorySnapshot(WA_PI_DIR, cwd).catch(
 ```
 
 第 364 行：
 
 ```ts
-getProjectMemoryStore(HIAGENT_DIR, project.cwd),
+getProjectMemoryStore(WA_PI_DIR, project.cwd),
 ```
 
 改为：
 
 ```ts
-getProjectMemoryStore(HIAGENT_DIR, cwd),
+getProjectMemoryStore(WA_PI_DIR, cwd),
 ```
 
 第 395-396 行 `DefaultResourceLoader` 入参：
@@ -723,12 +723,12 @@ this.sessionCwd.set(sessionId, project.cwd);
 this.sessionCwd.set(sessionId, cwd);
 ```
 
-**注意**：第 309-311 行的 `if (!project.cwd)` 校验保留——普通项目会话仍需要 project.cwd 非空。默认工作区的 project.cwd 是 `~/.hiagent/workdir/`（非空字符串），所以校验也通过。
+**注意**：第 309-311 行的 `if (!project.cwd)` 校验保留——普通项目会话仍需要 project.cwd 非空。默认工作区的 project.cwd 是 `~/.wa-pi/workdir/`（非空字符串），所以校验也通过。
 
 - [ ] **Step 2: 跑现有 kernel 测试验证不回归**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/
 ```
 
 Expected: 所有现有测试 PASS（agent-manager 改动是行为兼容的，普通项目走 `resolveSessionCwd` 的 fallback 分支返回 `project.cwd`）
@@ -736,7 +736,7 @@ Expected: 所有现有测试 PASS（agent-manager 改动是行为兼容的，普
 - [ ] **Step 3: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/kernel typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 Expected: 无错误
@@ -744,7 +744,7 @@ Expected: 无错误
 - [ ] **Step 4: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/kernel/src/agent-manager.ts && git commit -m "feat(kernel): _createSession 用 resolveSessionCwd 替换 project.cwd（支持默认工作区）"
+cd /Users/pipi/work/WaPi && git add packages/kernel/src/agent-manager.ts && git commit -m "feat(kernel): _createSession 用 resolveSessionCwd 替换 project.cwd（支持默认工作区）"
 ```
 
 ---
@@ -778,9 +778,9 @@ import { ProjectStore } from "../src/project-store";
 import { cleanupExpiredWorkdirs } from "../src/workdir-cleaner";
 import {
   SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD, WORKDIR_TTL_DAYS,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 
-// 用临时根目录替代真实 ~/.hiagent/workdir，避免污染开发机
+// 用临时根目录替代真实 ~/.wa-pi/workdir，避免污染开发机
 const TMP_ROOT = join(import.meta.dir, ".tmp-workdir-cleaner-" + Math.random().toString(36).slice(2));
 
 // mock SYSTEM_PROJECT_CWD：通过 monkey-patch 让 cleaner 用 TMP_ROOT
@@ -868,7 +868,7 @@ test("根目录不存在 → 返回 0 不抛错", async () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/workdir-cleaner.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/workdir-cleaner.test.ts
 ```
 
 Expected: FAIL，报错 "Cannot find module '../src/workdir-cleaner'"
@@ -883,7 +883,7 @@ import { join } from "node:path";
 import type { ProjectStore } from "./project-store";
 import {
   SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD, WORKDIR_TTL_DAYS,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -948,7 +948,7 @@ export async function cleanupExpiredWorkdirs(
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/workdir-cleaner.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/workdir-cleaner.test.ts
 ```
 
 Expected: PASS（5 个测试全过）
@@ -980,7 +980,7 @@ setInterval(() => {
 - [ ] **Step 6: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/kernel typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 Expected: 无错误
@@ -988,7 +988,7 @@ Expected: 无错误
 - [ ] **Step 7: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/kernel/src/workdir-cleaner.ts packages/kernel/tests/workdir-cleaner.test.ts packages/kernel/src/index.ts && git commit -m "feat(kernel): 新增 workdir 7 天清理任务 + 启动集成"
+cd /Users/pipi/work/WaPi && git add packages/kernel/src/workdir-cleaner.ts packages/kernel/tests/workdir-cleaner.test.ts packages/kernel/src/index.ts && git commit -m "feat(kernel): 新增 workdir 7 天清理任务 + 启动集成"
 ```
 
 ---
@@ -1012,7 +1012,7 @@ cd /Users/pipi/work/HiAgent && git add packages/kernel/src/workdir-cleaner.ts pa
 在 `packages/kernel/tests/ws-server.test.ts` 末尾追加（先看现有测试如何构造 WSServer + reply mock，参考现有用例）：
 
 ```ts
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 
 test("project:delete 系统项目被拦截", async () => {
   // 构造 store 预置系统项目
@@ -1053,7 +1053,7 @@ test("project:update 系统项目被拦截", async () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ws-server.test.ts -t "系统项目"
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts -t "系统项目"
 ```
 
 Expected: FAIL
@@ -1091,13 +1091,13 @@ case "project:delete": {
 需要在 ws-server.ts 顶部 import 补 `SYSTEM_PROJECT_ID`：
 
 ```ts
-import { ..., SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { ..., SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 ```
 
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ws-server.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts
 ```
 
 Expected: PASS（所有原有 + 2 个新测试）
@@ -1105,7 +1105,7 @@ Expected: PASS（所有原有 + 2 个新测试）
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/kernel typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 Expected: 无错误
@@ -1113,7 +1113,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/kernel/src/ws-server.ts packages/kernel/tests/ws-server.test.ts && git commit -m "feat(kernel): ws-server 拦截对默认工作区的删除/改名请求"
+cd /Users/pipi/work/WaPi && git add packages/kernel/src/ws-server.ts packages/kernel/tests/ws-server.test.ts && git commit -m "feat(kernel): ws-server 拦截对默认工作区的删除/改名请求"
 ```
 
 ---
@@ -1180,7 +1180,7 @@ test("agent:prompt 默认工作区新建会话时创建 workdir 子目录", asyn
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ws-server.test.ts -t "默认工作区新建会话"
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts -t "默认工作区新建会话"
 ```
 
 Expected: FAIL，子目录不存在
@@ -1240,7 +1240,7 @@ if (isNew) {
 ```ts
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { ..., SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD } from "@hiagent/shared";
+import { ..., SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD } from "@wa-pi/shared";
 ```
 
 （`mkdir` / `join` 现有 ws-server 已 import，看一眼是否已存在再决定加不加）
@@ -1248,7 +1248,7 @@ import { ..., SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD } from "@hiagent/shared";
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ws-server.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts
 ```
 
 Expected: PASS
@@ -1256,7 +1256,7 @@ Expected: PASS
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/kernel typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 Expected: 无错误
@@ -1264,7 +1264,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/kernel/src/ws-server.ts packages/kernel/tests/ws-server.test.ts && git commit -m "feat(kernel): agent:prompt 默认工作区新建会话时创建 workdir/<createdAt>/ 子目录"
+cd /Users/pipi/work/WaPi && git add packages/kernel/src/ws-server.ts packages/kernel/tests/ws-server.test.ts && git commit -m "feat(kernel): agent:prompt 默认工作区新建会话时创建 workdir/<createdAt>/ 子目录"
 ```
 
 ---
@@ -1282,7 +1282,7 @@ cd /Users/pipi/work/HiAgent && git add packages/kernel/src/ws-server.ts packages
 
 | 行号 | handler | 改前 | 改后 |
 |---|---|---|---|
-| 563 | fs:upload | `join(project.cwd, ".hiagent", "uploads")` | `join(resolveSessionCwdForRequest(...), ".hiagent", "uploads")` |
+| 563 | fs:upload | `join(project.cwd, ".wa-pi", "uploads")` | `join(resolveSessionCwdForRequest(...), ".wa-pi", "uploads")` |
 | 587 | fs:copy | 同上 | 同上 |
 | 663 | fs:recording:append | 同上 | 同上 |
 | 676 | fs:recording:finalize | 同上 | 同上 |
@@ -1321,13 +1321,13 @@ export interface FSCopyRequest {
 在 `ws-server.ts` 顶部加辅助：
 
 ```ts
-import { resolveSessionCwd } from "@hiagent/shared";
+import { resolveSessionCwd } from "@wa-pi/shared";
 
 /**
  * 从 fs:upload / fs:copy / fs:recording 等事件解析本次操作的 cwd。
  *
  * - 普通项目会话 / 未带 sessionId → 返回 project.cwd（行为不变）
- * - 默认工作区会话 + sessionId → 用 resolveSessionCwd 推导 ~/.hiagent/workdir/<createdAt>/
+ * - 默认工作区会话 + sessionId → 用 resolveSessionCwd 推导 ~/.wa-pi/workdir/<createdAt>/
  */
 async function resolveCwdForFsRequest(
   projectStore: ProjectStore,
@@ -1350,14 +1350,14 @@ async function resolveCwdForFsRequest(
 改前：
 
 ```ts
-const uploadDir = join(project.cwd, ".hiagent", "uploads");
+const uploadDir = join(project.cwd, ".wa-pi", "uploads");
 ```
 
 改后：
 
 ```ts
 const cwd = await resolveCwdForFsRequest(this.opts.projectStore, event.projectId, event.sessionId);
-const uploadDir = join(cwd, ".hiagent", "uploads");
+const uploadDir = join(cwd, ".wa-pi", "uploads");
 ```
 
 （去掉原来对 `project.cwd` 的重复校验，辅助函数已包含）
@@ -1371,12 +1371,12 @@ const uploadDir = join(cwd, ".hiagent", "uploads");
 在 `ws-server.test.ts` 末尾加：
 
 ```ts
-test("fs:upload 默认工作区会话携带 sessionId 时写入 workdir/<createdAt>/.hiagent/uploads", async () => {
-  // 构造默认工作区项目 + 一个 session，发 fs:upload 带 sessionId，断言文件落在 workdir/<createdAt>/.hiagent/uploads/
+test("fs:upload 默认工作区会话携带 sessionId 时写入 workdir/<createdAt>/.wa-pi/uploads", async () => {
+  // 构造默认工作区项目 + 一个 session，发 fs:upload 带 sessionId，断言文件落在 workdir/<createdAt>/.wa-pi/uploads/
   // ...
 });
 
-test("fs:upload 未携带 sessionId 时仍写 project.cwd/.hiagent/uploads（向后兼容）", async () => {
+test("fs:upload 未携带 sessionId 时仍写 project.cwd/.wa-pi/uploads（向后兼容）", async () => {
   // 普通项目 + 无 sessionId，断言行为不变
   // ...
 });
@@ -1385,7 +1385,7 @@ test("fs:upload 未携带 sessionId 时仍写 project.cwd/.hiagent/uploads（向
 - [ ] **Step 6: 跑测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ws-server.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts
 ```
 
 Expected: PASS
@@ -1393,7 +1393,7 @@ Expected: PASS
 - [ ] **Step 7: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/kernel typecheck && bun run --filter @hiagent/shared typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck && bun run --filter @wa-pi/shared typecheck
 ```
 
 Expected: 无错误
@@ -1401,7 +1401,7 @@ Expected: 无错误
 - [ ] **Step 8: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/shared/src/types.ts packages/kernel/src/ws-server.ts packages/kernel/tests/ws-server.test.ts && git commit -m "feat(kernel): fs:upload/copy/recording 支持默认工作区 session 级 cwd"
+cd /Users/pipi/work/WaPi && git add packages/shared/src/types.ts packages/kernel/src/ws-server.ts packages/kernel/tests/ws-server.test.ts && git commit -m "feat(kernel): fs:upload/copy/recording 支持默认工作区 session 级 cwd"
 ```
 
 ---
@@ -1412,7 +1412,7 @@ cd /Users/pipi/work/HiAgent && git add packages/shared/src/types.ts packages/ker
 - Modify: `packages/shared/src/types.ts`
 - Modify: `packages/kernel/src/ws-server.ts`
 
-**背景**：默认工作区会话的"打开工作目录"菜单项要打开 `~/.hiagent/workdir/<createdAt>/`（会话级），而非 `~/.hiagent/workdir/`（项目级）。
+**背景**：默认工作区会话的"打开工作目录"菜单项要打开 `~/.wa-pi/workdir/<createdAt>/`（会话级），而非 `~/.wa-pi/workdir/`（项目级）。
 
 - [ ] **Step 1: 扩展 ProjectOpenDirEvent**
 
@@ -1468,7 +1468,7 @@ case "project:open-dir": {
 - [ ] **Step 3: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/kernel typecheck && bun run --filter @hiagent/shared typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck && bun run --filter @wa-pi/shared typecheck
 ```
 
 Expected: 无错误
@@ -1476,7 +1476,7 @@ Expected: 无错误
 - [ ] **Step 4: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/shared/src/types.ts packages/kernel/src/ws-server.ts && git commit -m "feat(kernel): project:open-dir 支持 sessionId 打开默认工作区会话级目录"
+cd /Users/pipi/work/WaPi && git add packages/shared/src/types.ts packages/kernel/src/ws-server.ts && git commit -m "feat(kernel): project:open-dir 支持 sessionId 打开默认工作区会话级目录"
 ```
 
 ---
@@ -1498,13 +1498,13 @@ cd /Users/pipi/work/HiAgent && git add packages/shared/src/types.ts packages/ker
 在 `packages/frontend/tests/Sidebar.test.tsx` 末尾追加：
 
 ```ts
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 
 test("默认工作区渲染在独立'默认'区", () => {
   useProjectsStore.setState({
     projects: [
       { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
-      { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+      { id: "p1", name: "WaPi", cwd: "/work/wa-pi", createdAt: 0 },
     ],
     sessions: [], currentProjectId: null, currentSessionId: null,
   });
@@ -1521,7 +1521,7 @@ test("默认工作区不出现在项目区（去重）", () => {
   useProjectsStore.setState({
     projects: [
       { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
-      { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+      { id: "p1", name: "WaPi", cwd: "/work/wa-pi", createdAt: 0 },
     ],
     sessions: [], currentProjectId: null, currentSessionId: null,
   });
@@ -1534,7 +1534,7 @@ test("默认工作区不出现在项目区（去重）", () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/frontend/tests/Sidebar.test.tsx
+cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/Sidebar.test.tsx
 ```
 
 Expected: FAIL（找不到"默认"区标题）
@@ -1544,7 +1544,7 @@ Expected: FAIL（找不到"默认"区标题）
 修改 `packages/frontend/src/components/Sidebar.tsx`，在 `AgentListSection` 与 `ProjectList` 之间插入独立区：
 
 ```tsx
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 import { useProjectsStore } from "../store/projects";
 import { ProjectItem } from "./ProjectItem";
 
@@ -1591,7 +1591,7 @@ const systemProject = allProjects.find(p => p.id === SYSTEM_PROJECT_ID);
 修改 `packages/frontend/src/components/ProjectList.tsx` 第 19-31 行：
 
 ```tsx
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 
 // 在 map 之前过滤：
 const userProjects = projects.filter(p => p.id !== SYSTEM_PROJECT_ID);
@@ -1604,7 +1604,7 @@ const userProjects = projects.filter(p => p.id !== SYSTEM_PROJECT_ID);
 - [ ] **Step 5: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/frontend/tests/Sidebar.test.tsx packages/frontend/tests/ProjectList.test.tsx
+cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/Sidebar.test.tsx packages/frontend/tests/ProjectList.test.tsx
 ```
 
 Expected: PASS
@@ -1612,7 +1612,7 @@ Expected: PASS
 - [ ] **Step 6: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/frontend typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend typecheck
 ```
 
 Expected: 无错误
@@ -1620,7 +1620,7 @@ Expected: 无错误
 - [ ] **Step 7: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/frontend/src/components/Sidebar.tsx packages/frontend/src/components/ProjectList.tsx packages/frontend/tests/Sidebar.test.tsx packages/frontend/tests/ProjectList.test.tsx && git commit -m "feat(frontend): Sidebar 新增'默认'独立区 + ProjectList 过滤系统项目"
+cd /Users/pipi/work/WaPi && git add packages/frontend/src/components/Sidebar.tsx packages/frontend/src/components/ProjectList.tsx packages/frontend/tests/Sidebar.test.tsx packages/frontend/tests/ProjectList.test.tsx && git commit -m "feat(frontend): Sidebar 新增'默认'独立区 + ProjectList 过滤系统项目"
 ```
 
 ---
@@ -1645,7 +1645,7 @@ import { test, expect, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ProjectItem } from "../src/components/ProjectItem";
 import { useProjectUiStore } from "../src/store/project-ui";
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 
 beforeEach(() => {
   useProjectUiStore.setState({ collapsedProjectIds: [] });
@@ -1698,7 +1698,7 @@ test("系统项目下会话右键菜单有'打开工作目录'项", () => {
 });
 
 test("普通项目折叠时图标用 📁（行为不变）", () => {
-  const project = { id: "p1", name: "HiAgent", cwd: "/work", createdAt: 0 };
+  const project = { id: "p1", name: "WaPi", cwd: "/work", createdAt: 0 };
   render(
     <ProjectItem project={project} sessions={[]} currentSessionId={null} selected={false}
       onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} />
@@ -1707,7 +1707,7 @@ test("普通项目折叠时图标用 📁（行为不变）", () => {
 });
 
 test("普通项目右键菜单有'删除项目'（行为不变）", () => {
-  const project = { id: "p1", name: "HiAgent", cwd: "/work", createdAt: 0 };
+  const project = { id: "p1", name: "WaPi", cwd: "/work", createdAt: 0 };
   render(
     <ProjectItem project={project} sessions={[]} currentSessionId={null} selected={false}
       onSelectSession={() => {}} onNewSessionInProject={() => {}} onSelectProject={() => {}} />
@@ -1717,7 +1717,7 @@ test("普通项目右键菜单有'删除项目'（行为不变）", () => {
 });
 
 test("普通项目下会话右键菜单无'打开工作目录'（行为不变）", () => {
-  const project = { id: "p1", name: "HiAgent", cwd: "/work", createdAt: 0 };
+  const project = { id: "p1", name: "WaPi", cwd: "/work", createdAt: 0 };
   const session = {
     id: "s1", projectId: "p1", primaryAgent: "dev",
     title: "会话", createdAt: 0, lastActivity: Date.now(),
@@ -1735,7 +1735,7 @@ test("普通项目下会话右键菜单无'打开工作目录'（行为不变）
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/frontend/tests/ProjectItem.system.test.tsx
+cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/ProjectItem.system.test.tsx
 ```
 
 Expected: FAIL
@@ -1747,7 +1747,7 @@ Expected: FAIL
 1. 顶部加 import：
 
 ```ts
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 ```
 
 2. 在组件内（约第 35 行 `const { project, sessions, ... } = props;` 之后）加：
@@ -1798,7 +1798,7 @@ const handleOpenSessionDir = (session: SessionEntity) => {
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/frontend/tests/ProjectItem.system.test.tsx
+cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/ProjectItem.system.test.tsx
 ```
 
 Expected: PASS
@@ -1806,7 +1806,7 @@ Expected: PASS
 - [ ] **Step 5: 跑现有 ProjectItem 测试确保不回归**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/frontend/tests/ProjectItem.sort-menu.test.tsx
+cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/ProjectItem.sort-menu.test.tsx
 ```
 
 Expected: PASS
@@ -1814,7 +1814,7 @@ Expected: PASS
 - [ ] **Step 6: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/frontend typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend typecheck
 ```
 
 Expected: 无错误
@@ -1822,7 +1822,7 @@ Expected: 无错误
 - [ ] **Step 7: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/frontend/src/components/ProjectItem.tsx packages/frontend/tests/ProjectItem.system.test.tsx && git commit -m "feat(frontend): ProjectItem 默认工作区差异化（图标/菜单/打开工作目录）"
+cd /Users/pipi/work/WaPi && git add packages/frontend/src/components/ProjectItem.tsx packages/frontend/tests/ProjectItem.system.test.tsx && git commit -m "feat(frontend): ProjectItem 默认工作区差异化（图标/菜单/打开工作目录）"
 ```
 
 ---
@@ -1842,13 +1842,13 @@ cd /Users/pipi/work/HiAgent && git add packages/frontend/src/components/ProjectI
 在 `packages/frontend/tests/NewSessionPane.test.tsx` 末尾追加（参考现有 NewSessionPane 测试的 mock 方式）：
 
 ```ts
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 
 test("项目下拉出现默认工作区选项且不带 cwd", () => {
   useProjectsStore.setState({
     projects: [
       { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
-      { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+      { id: "p1", name: "WaPi", cwd: "/work/wa-pi", createdAt: 0 },
     ],
     sessions: [], currentProjectId: null, currentSessionId: null,
   });
@@ -1862,14 +1862,14 @@ test("项目下拉出现默认工作区选项且不带 cwd", () => {
   expect(sysOption!.textContent).not.toContain("/tmp/workdir");
   // 普通项目 option 仍带 cwd
   const normalOption = Array.from(select.options).find(o => o.value === "p1");
-  expect(normalOption!.textContent).toContain("/work/hiagent");
+  expect(normalOption!.textContent).toContain("/work/wa-pi");
 });
 
 test("首次进入时默认选中默认工作区", () => {
   useProjectsStore.setState({
     projects: [
       { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 },
-      { id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 },
+      { id: "p1", name: "WaPi", cwd: "/work/wa-pi", createdAt: 0 },
     ],
     sessions: [], currentProjectId: null, currentSessionId: null,
   });
@@ -1884,7 +1884,7 @@ test("首次进入时默认选中默认工作区", () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/frontend/tests/NewSessionPane.test.tsx
+cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/NewSessionPane.test.tsx
 ```
 
 Expected: FAIL
@@ -1896,7 +1896,7 @@ Expected: FAIL
 1. 顶部加 import：
 
 ```ts
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 ```
 
 2. 第 40-41 行 `initialProject` 默认值：
@@ -1923,7 +1923,7 @@ const initialProject =
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/frontend/tests/NewSessionPane.test.tsx
+cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/NewSessionPane.test.tsx
 ```
 
 Expected: PASS
@@ -1931,7 +1931,7 @@ Expected: PASS
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/frontend typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend typecheck
 ```
 
 Expected: 无错误
@@ -1939,7 +1939,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/frontend/src/components/NewSessionPane.tsx packages/frontend/tests/NewSessionPane.test.tsx && git commit -m "feat(frontend): NewSessionPane 项目下拉加入默认工作区 + 默认选中"
+cd /Users/pipi/work/WaPi && git add packages/frontend/src/components/NewSessionPane.tsx packages/frontend/tests/NewSessionPane.test.tsx && git commit -m "feat(frontend): NewSessionPane 项目下拉加入默认工作区 + 默认选中"
 ```
 
 ---
@@ -1955,7 +1955,7 @@ cd /Users/pipi/work/HiAgent && git add packages/frontend/src/components/NewSessi
 在 `packages/frontend/tests/SessionView.test.tsx` 末尾追加：
 
 ```ts
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 
 test("默认工作区会话 header 显示友好文案", () => {
   useProjectsStore.setState({
@@ -1980,7 +1980,7 @@ test("默认工作区会话 header 显示友好文案", () => {
 
 test("普通项目会话 header 仍显示 project.cwd（不回归）", () => {
   useProjectsStore.setState({
-    projects: [{ id: "p1", name: "HiAgent", cwd: "/work/hiagent", createdAt: 0 }],
+    projects: [{ id: "p1", name: "WaPi", cwd: "/work/wa-pi", createdAt: 0 }],
     sessions: [{
       id: "s1", projectId: "p1", primaryAgent: "dev",
       title: "会话", createdAt: 0, lastActivity: Date.now(),
@@ -1989,14 +1989,14 @@ test("普通项目会话 header 仍显示 project.cwd（不回归）", () => {
     currentProjectId: "p1", currentSessionId: "s1",
   });
   render(<SessionView sessionId="s1" />);
-  expect(screen.getByText("/work/hiagent")).toBeTruthy();
+  expect(screen.getByText("/work/wa-pi")).toBeTruthy();
 });
 ```
 
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/frontend/tests/SessionView.test.tsx
+cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/SessionView.test.tsx
 ```
 
 Expected: FAIL
@@ -2029,13 +2029,13 @@ Expected: FAIL
 顶部加 import：
 
 ```ts
-import { SYSTEM_PROJECT_ID } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 ```
 
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/frontend/tests/SessionView.test.tsx
+cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/SessionView.test.tsx
 ```
 
 Expected: PASS
@@ -2043,7 +2043,7 @@ Expected: PASS
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run --filter @hiagent/frontend typecheck
+cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend typecheck
 ```
 
 Expected: 无错误
@@ -2051,7 +2051,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/frontend/src/components/SessionView.tsx packages/frontend/tests/SessionView.test.tsx && git commit -m "feat(frontend): SessionView 默认工作区会话 header 显示友好文案"
+cd /Users/pipi/work/WaPi && git add packages/frontend/src/components/SessionView.tsx packages/frontend/tests/SessionView.test.tsx && git commit -m "feat(frontend): SessionView 默认工作区会话 header 显示友好文案"
 ```
 
 ---
@@ -2080,10 +2080,10 @@ import { ensureSystemProject } from "../src/ensure-system-project";
 import { cleanupExpiredWorkdirs } from "../src/workdir-cleaner";
 import {
   SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD, SYSTEM_PROJECT_NAME,
-} from "@hiagent/shared";
+} from "@wa-pi/shared";
 
 // 用临时 workdir 根（避免污染开发机）：通过环境变量覆盖 SYSTEM_PROJECT_CWD
-// 注意：SYSTEM_PROJECT_CWD 在模块加载时已固化为 ~/.hiagent/workdir，无法运行时改。
+// 注意：SYSTEM_PROJECT_CWD 在模块加载时已固化为 ~/.wa-pi/workdir，无法运行时改。
 // 改用：测试直接在真实 SYSTEM_PROJECT_CWD 下做隔离的子目录测试，测后清理。
 
 const TEST_SUBDIR_PREFIX = "test-integration-";
@@ -2144,7 +2144,7 @@ test("集成：project:update 拦截系统项目", async () => {
 - [ ] **Step 2: 跑集成测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/default-workspace.integration.test.ts
+cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/default-workspace.integration.test.ts
 ```
 
 Expected: PASS
@@ -2152,7 +2152,7 @@ Expected: PASS
 - [ ] **Step 3: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/kernel/tests/default-workspace.integration.test.ts && git commit -m "test(kernel): 默认工作区第三层集成测试"
+cd /Users/pipi/work/WaPi && git add packages/kernel/tests/default-workspace.integration.test.ts && git commit -m "test(kernel): 默认工作区第三层集成测试"
 ```
 
 ---
@@ -2176,7 +2176,7 @@ cd /Users/pipi/work/HiAgent && git add packages/kernel/tests/default-workspace.i
 import { test, expect } from "@playwright/test";
 import { existsSync, rmSync, utimesSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { SYSTEM_PROJECT_CWD } from "@hiagent/shared";
+import { SYSTEM_PROJECT_CWD } from "@wa-pi/shared";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -2252,7 +2252,7 @@ test.afterAll(() => {
 - [ ] **Step 2: 跑 E2E**
 
 ```bash
-cd /Users/pipi/work/HiAgent/packages/frontend && bun run e2e -- e2e/default-workspace.spec.ts
+cd /Users/pipi/work/WaPi/packages/frontend && bun run e2e -- e2e/default-workspace.spec.ts
 ```
 
 Expected: PASS
@@ -2260,14 +2260,14 @@ Expected: PASS
 - [ ] **Step 3: 清理截图**
 
 ```bash
-find /Users/pipi/work/HiAgent -name "*.png" -path "*/e2e/*" -newer /tmp/marker -delete 2>/dev/null
+find /Users/pipi/work/WaPi -name "*.png" -path "*/e2e/*" -newer /tmp/marker -delete 2>/dev/null
 # 或手动检查 e2e 目录
 ```
 
 - [ ] **Step 4: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add packages/frontend/e2e/default-workspace.spec.ts && git commit -m "test(e2e): 默认工作区完整流程 E2E 测试"
+cd /Users/pipi/work/WaPi && git add packages/frontend/e2e/default-workspace.spec.ts && git commit -m "test(e2e): 默认工作区完整流程 E2E 测试"
 ```
 
 ---
@@ -2279,7 +2279,7 @@ cd /Users/pipi/work/HiAgent && git add packages/frontend/e2e/default-workspace.s
 - [ ] **Step 1: 跑全量测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test
+cd /Users/pipi/work/WaPi && bun test
 ```
 
 Expected: 所有测试 PASS
@@ -2287,7 +2287,7 @@ Expected: 所有测试 PASS
 - [ ] **Step 2: typecheck 全量**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run typecheck
+cd /Users/pipi/work/WaPi && bun run typecheck
 ```
 
 Expected: 无错误
@@ -2299,7 +2299,7 @@ Expected: 无错误
 ```markdown
 - 2026-07-21 / 新增功能
 - 摘要：会话列表新增"🏠 默认工作区"常驻虚拟项目；默认工作区下的每个会话在
-        ~/.hiagent/workdir/<createdAt>/ 下隔离 pwd，互不干扰；删除会话保留目录 7 天后
+        ~/.wa-pi/workdir/<createdAt>/ 下隔离 pwd，互不干扰；删除会话保留目录 7 天后
         自动清理；skill/mcp 继承全局配置
 - 影响范围：shared/constants.ts、shared/pure.ts、shared/types.ts、kernel/index.ts、
             kernel/project-store.ts、kernel/ws-server.ts、kernel/agent-manager.ts、
@@ -2311,19 +2311,19 @@ Expected: 无错误
 - [ ] **Step 4: commit**
 
 ```bash
-cd /Users/pipi/work/HiAgent && git add CHANGELOG.md && git commit -m "docs: 更新 CHANGELOG（默认工作区功能）"
+cd /Users/pipi/work/WaPi && git add CHANGELOG.md && git commit -m "docs: 更新 CHANGELOG（默认工作区功能）"
 ```
 
 - [ ] **Step 5: 最终验证**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun run dev &
+cd /Users/pipi/work/WaPi && bun run dev &
 sleep 5
 # 打开 desktop，手动验证：
 # 1. 侧栏有"默认"独立区 + 🏠 默认工作区
 # 2. 点默认工作区进新建会话页，下拉默认选中
 # 3. 发送消息后会话视图 header 显示"默认工作区 · 工作目录"
-# 4. 让 agent 写文件，确认文件落在 ~/.hiagent/workdir/<ts>/
+# 4. 让 agent 写文件，确认文件落在 ~/.wa-pi/workdir/<ts>/
 # 5. 右键会话有"打开工作目录"
 # 6. 右键项目无"删除项目"
 kill %1

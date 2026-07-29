@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在 HiAgent 设置页新增「MCP 连接器」模块，支持全局/项目作用域管理 MCP 服务器配置，手动添加/编辑/删除，连接测试，查看工具列表，清除授权。
+**Goal:** 在 WaPi 设置页新增「MCP 连接器」模块，支持全局/项目作用域管理 MCP 服务器配置，手动添加/编辑/删除，连接测试，查看工具列表，清除授权。
 
 **Architecture:** 遵循 memory 现有模式 — shared 层定义类型+WS协议，kernel 层新增 McpStore 负责 `.mcp.json` 读写+临时 Pi session 操作，frontend 层新增 Zustand store + MCP 页面组件 + SettingsModal 集成。
 
@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 全局配置文件：`~/.hiagent/mcp.json`，项目配置文件：`<cwd>/.mcp.json`
+- 全局配置文件：`~/.wa-pi/mcp.json`，项目配置文件：`<cwd>/.mcp.json`
 - 配置格式兼容 pi-mcp-adapter 的 `.mcp.json` 规范
 - 不实现 MCP 客户端运行时（由 pi-mcp-adapter 负责）
 - 每层测试覆盖率 ≥ 80%，kernel/mcp-store.ts ≥ 90%
@@ -157,9 +157,9 @@ git commit -m "feat: MCP shared 类型定义 + WS 协议事件"
 - Create: `packages/kernel/tests/mcp-store.test.ts`
 
 **Interfaces:**
-- Consumes: `McpServerConfig`, `McpOAuthConfig`, `McpToolSummary` from `@hiagent/shared`
+- Consumes: `McpServerConfig`, `McpOAuthConfig`, `McpToolSummary` from `@wa-pi/shared`
 - Consumes: `ProjectStore` from `./project-store`
-- Produces: `McpStore` class — `constructor(opts: { hiagentDir: string; projectStore: ProjectStore })`, `list(projectId?: string): Promise<McpServerConfig[]>`, `save(config: McpServerConfig, projectId?: string): Promise<void>`, `delete(serverName: string, projectId?: string): Promise<void>`, `listTools(serverName: string): Promise<McpToolSummary[]>`
+- Produces: `McpStore` class — `constructor(opts: { waPiDir: string; projectStore: ProjectStore })`, `list(projectId?: string): Promise<McpServerConfig[]>`, `save(config: McpServerConfig, projectId?: string): Promise<void>`, `delete(serverName: string, projectId?: string): Promise<void>`, `listTools(serverName: string): Promise<McpToolSummary[]>`
 
 - [ ] **Step 1: 编写 mcp-store 单元测试**
 
@@ -170,7 +170,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { McpStore } from "../src/mcp-store";
-import type { ProjectEntity } from "@hiagent/shared";
+import type { ProjectEntity } from "@wa-pi/shared";
 
 const TMP = join(import.meta.dir, "mcp-test-" + Date.now());
 const PROJECT_CWD = join(TMP, "my-project");
@@ -190,7 +190,7 @@ afterEach(async () => {
 });
 
 function createStore() {
-  return new McpStore({ hiagentDir: TMP, projectStore: mockProjectStore });
+  return new McpStore({ waPiDir: TMP, projectStore: mockProjectStore });
 }
 
 // ===== resolveConfigPath =====
@@ -364,7 +364,7 @@ Create `packages/kernel/src/mcp-store.ts`:
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { McpServerConfig, McpToolSummary, McpToolParam } from "@hiagent/shared";
+import type { McpServerConfig, McpToolSummary, McpToolParam } from "@wa-pi/shared";
 import type { ProjectStore } from "./project-store";
 
 /** .mcp.json 文件顶级结构 */
@@ -376,7 +376,7 @@ interface McpConfigFile {
 const CACHE_FILE = "mcp-cache.json";
 
 export interface McpStoreOpts {
-  hiagentDir: string;
+  waPiDir: string;
   projectStore: ProjectStore;
 }
 
@@ -424,7 +424,7 @@ export class McpStore {
 
   /** 从 mcp-cache.json 读取工具列表 */
   async listTools(serverName: string): Promise<McpToolSummary[]> {
-    const cachePath = join(this.opts.hiagentDir, CACHE_FILE);
+    const cachePath = join(this.opts.waPiDir, CACHE_FILE);
     try {
       const raw = await readFile(cachePath, "utf8");
       const cache = JSON.parse(raw);
@@ -459,7 +459,7 @@ export class McpStore {
   /** 根据 projectId 解析配置文件路径 */
   private resolveConfigPath(projectId?: string): string {
     if (!projectId) {
-      return join(this.opts.hiagentDir, "mcp.json");
+      return join(this.opts.waPiDir, "mcp.json");
     }
     // 从 ProjectStore 同步查 cwd（load 缓存，不重新读文件）
     // 注意：需要从 projectStore 获取 cwd，使用同步方式
@@ -504,7 +504,7 @@ Create `packages/kernel/src/mcp-store.ts`:
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { McpServerConfig, McpToolSummary } from "@hiagent/shared";
+import type { McpServerConfig, McpToolSummary } from "@wa-pi/shared";
 import type { ProjectStore } from "./project-store";
 
 interface McpConfigFile {
@@ -513,7 +513,7 @@ interface McpConfigFile {
 }
 
 export interface McpStoreOpts {
-  hiagentDir: string;
+  waPiDir: string;
   projectStore: ProjectStore;
 }
 
@@ -556,7 +556,7 @@ export class McpStore {
   }
 
   async listTools(serverName: string): Promise<McpToolSummary[]> {
-    const cachePath = join(this.opts.hiagentDir, "mcp-cache.json");
+    const cachePath = join(this.opts.waPiDir, "mcp-cache.json");
     try {
       const raw = await readFile(cachePath, "utf8");
       const cache = JSON.parse(raw);
@@ -584,7 +584,7 @@ export class McpStore {
 
   private async resolveConfigPath(projectId?: string): Promise<string> {
     if (!projectId) {
-      return join(this.opts.hiagentDir, "mcp.json");
+      return join(this.opts.waPiDir, "mcp.json");
     }
     const { projects } = await this.opts.projectStore.load();
     const project = projects.find(p => p.id === projectId);
@@ -694,7 +694,7 @@ git commit -m "feat: McpStore — MCP 配置 CRUD + 工具缓存读取"
 
 **Interfaces:**
 - Consumes: `McpStore` from `./mcp-store`
-- Consumes: `McpListEvent`, `McpSaveEvent`, `McpDeleteEvent`, `McpTestEvent`, `McpListToolsEvent`, `McpClearAuthEvent`, `McpListResult`, `McpChangedEvent`, `McpTestResult`, `McpToolsResult` from `@hiagent/shared`
+- Consumes: `McpListEvent`, `McpSaveEvent`, `McpDeleteEvent`, `McpTestEvent`, `McpListToolsEvent`, `McpClearAuthEvent`, `McpListResult`, `McpChangedEvent`, `McpTestResult`, `McpToolsResult` from `@wa-pi/shared`
 
 - [ ] **Step 1: ws-server.ts — 添加 McpStore 到 WSServerOpts**
 
@@ -865,7 +865,7 @@ import type { McpStore } from "./mcp-store";
 在 `startKernel()` 中，`const memoryStore = new MemoryStore(...)` 之后添加：
 
 ```typescript
-  const mcpStore = new McpStore({ hiagentDir: HIAGENT_DIR, projectStore });
+  const mcpStore = new McpStore({ waPiDir: WA_PI_DIR, projectStore });
 ```
 
 在 `new WSServer({` 参数中添加：
@@ -902,7 +902,7 @@ git commit -m "feat: kernel — MCP WS 路由 + McpStore 初始化"
 
 **Interfaces:**
 - Produces: `useMcpStore` zustand store — `load(projectId?)`, `setServers(data)`, `save(config, projectId?)`, `delete(serverName, projectId?)`, `testConnection(serverName, projectId?)`, `listTools(serverName)`, `clearAuth(serverName, projectId?)`, `setSelectedProjectId(id)`, `setSearchQuery(q)`
-- Consumes: `send` from `../ws-instance`, `McpServerConfig`, `McpServerStatus`, `McpToolSummary` from `@hiagent/shared`
+- Consumes: `send` from `../ws-instance`, `McpServerConfig`, `McpServerStatus`, `McpToolSummary` from `@wa-pi/shared`
 
 - [ ] **Step 1: 编写 store 测试**
 
@@ -1005,8 +1005,8 @@ Create `packages/frontend/src/store/mcp.ts`:
 
 ```typescript
 import { create } from "zustand";
-import type { McpServerConfig, McpServerStatus, McpToolSummary } from "@hiagent/shared";
-import type { McpListResult, McpChangedEvent, McpTestResult, McpToolsResult } from "@hiagent/shared";
+import type { McpServerConfig, McpServerStatus, McpToolSummary } from "@wa-pi/shared";
+import type { McpListResult, McpChangedEvent, McpTestResult, McpToolsResult } from "@wa-pi/shared";
 import { send } from "../ws-instance";
 
 interface McpState {
@@ -1105,8 +1105,8 @@ Create `packages/frontend/src/store/mcp.ts`:
 
 ```typescript
 import { create } from "zustand";
-import type { McpServerConfig, McpServerStatus, McpToolSummary } from "@hiagent/shared";
-import type { McpListResult, McpChangedEvent, McpTestResult, McpToolsResult } from "@hiagent/shared";
+import type { McpServerConfig, McpServerStatus, McpToolSummary } from "@wa-pi/shared";
+import type { McpListResult, McpChangedEvent, McpTestResult, McpToolsResult } from "@wa-pi/shared";
 import { send } from "../ws-instance";
 
 interface McpState {
@@ -1265,7 +1265,7 @@ git commit -m "feat: frontend — MCP Section + SettingsModal 集成"
 - [ ] **Step 1: 创建 McpCard.tsx**
 
 ```typescript
-import type { McpServerConfig, McpServerStatus } from "@hiagent/shared";
+import type { McpServerConfig, McpServerStatus } from "@wa-pi/shared";
 
 interface Props {
   config: McpServerConfig;
@@ -1412,7 +1412,7 @@ git commit -m "feat: frontend — McpCard + McpEmpty 组件"
 
 ```typescript
 import { useState } from "react";
-import type { McpToolSummary } from "@hiagent/shared";
+import type { McpToolSummary } from "@wa-pi/shared";
 import { Modal } from "../ui/Modal";
 
 interface Props {
@@ -1496,7 +1496,7 @@ export function McpToolsModal({ serverName, tools, onClose }: Props) {
 
 ```typescript
 import { useState, useEffect } from "react";
-import type { McpServerConfig } from "@hiagent/shared";
+import type { McpServerConfig } from "@wa-pi/shared";
 
 type Transport = "stdio" | "http";
 
@@ -1713,7 +1713,7 @@ import { McpEmpty } from "./McpEmpty";
 import { McpForm } from "./McpForm";
 import { McpToolsModal } from "./McpToolsModal";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
-import type { McpServerConfig } from "@hiagent/shared";
+import type { McpServerConfig } from "@wa-pi/shared";
 
 export function McpPage() {
   const {

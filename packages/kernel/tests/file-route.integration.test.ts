@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 
-const TMP_ROOT = await mkdtemp(join(tmpdir(), "hiagent-file-route-"));
-process.env.HIAGENT_DIR = TMP_ROOT;
+const TMP_ROOT = await mkdtemp(join(tmpdir(), "wa-pi-file-route-"));
+process.env.WA_PI_DIR = TMP_ROOT;
 
 const { startKernel } = await import("../src/index");
 const { ProjectStore } = await import("../src/project-store");
@@ -42,7 +42,7 @@ const maybeTest: typeof test = HAPPY_DOM_ACTIVE ? (test.skip as typeof test) : t
 
 maybeTest("/file 对 .webm 返回 audio/webm 类型", async () => {
   const projectCwd = join(TMP_ROOT, "proj");
-  const uploadsDir = join(projectCwd, ".hiagent", "uploads");
+  const uploadsDir = join(projectCwd, ".wa-pi", "uploads");
   await mkdir(uploadsDir, { recursive: true });
 
   const projectStore = new ProjectStore();

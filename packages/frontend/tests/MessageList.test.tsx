@@ -1,6 +1,6 @@
 import { test, expect, beforeEach } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import type { SessionMessage } from "@hiagent/shared";
+import type { SessionMessage } from "@wa-pi/shared";
 import { MessageList, buildResendPrompt } from "../src/components/MessageList";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
@@ -770,7 +770,7 @@ test("用户消息中 <skill> 块后跟 \\n\\n 再跟文本 → 技能名与文�
   // 关键：DOM 里不应有 <br>（\n\n 会被 textToHtml 转成 <br><br> 产生空行）
   expect(bubble.querySelectorAll("br").length).toBe(0);
 });
-// 真实数据来自 ~/.hiagent/sessions/*.jsonl 经 Pi SDK 加载后的 sdkSession.messages：
+// 真实数据来自 ~/.wa-pi/sessions/*.jsonl 经 Pi SDK 加载后的 sdkSession.messages：
 //   {role:"custom", customType:"subagent-notification", content:"<task-notification>...", display:true, ...}
 // 之前的渲染逻辑用 m.type 判断 custom，但 SDK 内存消息字段是 m.role，导致掉到 assistant 分支
 // 渲染出空气泡（content 是字符串、Array.isArray 返回 false → blocks=[]）。

@@ -1,4 +1,4 @@
-# HiAgent 设计文档
+# WaPi 设计文档
 
 > 基于 Pi Coding Agent 的本地多 agent 编排管理系统
 >
@@ -29,7 +29,7 @@ Pi 生态已有成熟编排后端（pi-subagents / pi-dynamic-workflows / pi-tas
 2. 可视化的协作关系与实时状态
 3. 细粒度的资源（工具/技能）分配 —— Pi 的 `pi` 字段是全有或全无
 
-HiAgent 填补这个空白：**做一个编排管理层 + GUI，复用已存在的编排后端，不重造引擎**。
+WaPi 填补这个空白：**做一个编排管理层 + GUI，复用已存在的编排后端，不重造引擎**。
 
 ### 1.4 非目标
 
@@ -211,7 +211,7 @@ inheritProjectContext: true
 inheritSkills: false
 tools: read, bash, edit, write, grep, find, ls, web_search, fetch_content
 skills: architecture-review, debug-methodically, write-tests-first
-# HiAgent 扩展字段
+# WaPi 扩展字段
 mcpServers: []                      # 启用的 MCP server 名单
 partners:                           # 委派关系（= 画布连线）
   askTo: [product, test]
@@ -222,11 +222,11 @@ partners:                           # 委派关系（= 画布连线）
 
 **字段说明**：
 - 标准 Pi 字段（name/description/model/thinking/tools/skills 等）由 Pi 原生处理
-- HiAgent 扩展字段（displayName/avatar/mcpServers/partners）由编排内核解析
+- WaPi 扩展字段（displayName/avatar/mcpServers/partners）由编排内核解析
 
 ### 5.2 资源三层模型（agent 级分配）
 
-**关键差异**：Pi 原生的资源过滤是"包级"的（settings.json 里控制某包加载哪些资源，加载后对所有 agent 共享）。HiAgent 把分配粒度下沉到"agent 级" —— 每个 agent 独立配置自己的工具/技能/MCP。技术细节见 `docs/research/pi-packages-install-and-agent-allocation.md`。
+**关键差异**：Pi 原生的资源过滤是"包级"的（settings.json 里控制某包加载哪些资源，加载后对所有 agent 共享）。WaPi 把分配粒度下沉到"agent 级" —— 每个 agent 独立配置自己的工具/技能/MCP。技术细节见 `docs/research/pi-packages-install-and-agent-allocation.md`。
 
 ```
 插件市场（资源池）
@@ -249,7 +249,7 @@ Agent 配置（分配入口）— 每个 agent 独立
     └── 🤖 浏览器自动化   (agent_browser)         ← 可勾选（研发✓ 测试✓ 产品✗ PM✗）
 ```
 
-**为什么可行**：Pi 的 `--tools` flag 是 allowlist 语义。包加载的资源进入"进程可见集"，`--tools` 进一步过滤成"agent 实际能调用的"。HiAgent 不改 Pi 加载逻辑，只在 spawn 时按 agent 配置合成 `--tools` / `--skill` 参数。
+**为什么可行**：Pi 的 `--tools` flag 是 allowlist 语义。包加载的资源进入"进程可见集"，`--tools` 进一步过滤成"agent 实际能调用的"。WaPi 不改 Pi 加载逻辑，只在 spawn 时按 agent 配置合成 `--tools` / `--skill` 参数。
 
 ### 5.3 核心基础设施（不可删除）
 
@@ -265,14 +265,14 @@ pi-intercom 和 pi-mcp-adapter 是后台桥接器，提供的能力始终启用�
 
 pi-agent-browser-native 不同：它**显示在"能力" tab 里，agent 级启用/禁用**（研发/测试启用，产品/PM 可关闭）。理由：不是所有 agent 都需要操控浏览器，但包本身不可删（保证需要时立即可用）。
 
-**⚠️ 依赖说明**：pi-agent-browser-native 依赖上游 [agent-browser](https://github.com/vercel-labs/agent-browser) CLI（vercel-labs 项目，独立于 Pi 生态）。HiAgent **在首次启动时自动安装**这个依赖：
+**⚠️ 依赖说明**：pi-agent-browser-native 依赖上游 [agent-browser](https://github.com/vercel-labs/agent-browser) CLI（vercel-labs 项目，独立于 Pi 生态）。WaPi **在首次启动时自动安装**这个依赖：
 
 - 检测 `agent-browser` 是否在 PATH
 - 没有则自动安装（按上游官方推荐方式：`npm install -g agent-browser` 或对应平台的安装脚本）
 - 安装过程在启动页显示进度（与 Bun sidecar 启动并行，不阻塞 UI）
 - 安装失败时降级：agent_browser 工具显示为"未就绪，点此重试"，但不影响其他能力，应用可正常使用
 
-自动安装的理由：pi-agent-browser-native 是内置核心能力，其依赖理应由 HiAgent 负责就绪，不应把安装负担转嫁给用户。
+自动安装的理由：pi-agent-browser-native 是内置核心能力，其依赖理应由 WaPi 负责就绪，不应把安装负担转嫁给用户。
 
 **与产物预览（8.4）的区别**：
 - pi-agent-browser-native = **agent → 浏览器**（agent 自己访问页面，输出截图/快照给 LLM 看）
@@ -292,10 +292,10 @@ Agent（全局，存 ~/.pi/agent/agents/*.md，配置全局共享不按项目隔
   ├─ PM 📅
   └─ 测试 🧪
 
-Project（用户级，存 ~/.hiagent/projects.json）
+Project（用户级，存 ~/.wa-pi/projects.json）
   ├─ id, name, cwd, createdAt
 
-Session（项目内，元数据在 projects.json，内容在 ~/.hiagent/sessions/<id>.json）
+Session（项目内，元数据在 projects.json，内容在 ~/.wa-pi/sessions/<id>.json）
   ├─ id, projectId, primaryAgent, title, createdAt, lastActivity
   ├─ messages: ChatMessage[]         ← 主线消息流
   └─ intercomEvents: AskItem[]       ← 主理 agent 发起或被 ask 时的委派事件
@@ -340,7 +340,7 @@ interface AskItem {
 #### 持久化布局
 
 ```
-~/.hiagent/
+~/.wa-pi/
   ├─ projects.json              ← 项目元数据列表（含每个项目的 sessions 元数据）
   └─ sessions/
       ├─ <sessionId>.json       ← 单个会话的 messages + intercomEvents
@@ -697,9 +697,9 @@ agent 用 write 工具生成 login.html
 ### 9.1 启动到对话
 
 ```
-用户双击 HiAgent
+用户双击 WaPi
   → Tauri 启动 → spawn Bun sidecar（端口 9776）
-  → Bun 读 ~/.pi/agent/agents/*.md + ~/.hiagent/projects.json → 返回角色列表 + 项目/会话元数据
+  → Bun 读 ~/.pi/agent/agents/*.md + ~/.wa-pi/projects.json → 返回角色列表 + 项目/会话元数据
   → 前端按主区三态渲染：有项目显示会话视图/新建会话面板，无项目引导建项目
   → 用户在新建会话面板选"项目 A"+ 选"产品"+ 输入"设计实时通知功能" + 发送
   → 前端 WS 发 {type:"agent:prompt", projectId:"p1", sessionId:"<新生成>", agentName:"product", text:"..."}
@@ -740,7 +740,7 @@ agent 用 write 工具生成 login.html
 ④ 结果：研发能调 web_search，PM 调不了（即使包已全局加载）
 ```
 
-**双向追溯**：HiAgent 维护资源→agent 的反向索引，支持"web_search 被谁用了？产品✓ 研发✓ PM✗ 测试✗"这类查询。
+**双向追溯**：WaPi 维护资源→agent 的反向索引，支持"web_search 被谁用了？产品✓ 研发✓ PM✗ 测试✗"这类查询。
 
 ## 十、技术栈
 
@@ -755,7 +755,7 @@ agent 用 write 工具生成 login.html
 | 编辑器 | Monaco Editor（系统提示词编辑） |
 | 样式 | Tailwind CSS |
 | 通信 | WebSocket（前端↔Bun） + stdio JSONL（Bun↔Pi） |
-| 持久化 | 文件系统（~/.pi/ + hiagent-config.json） |
+| 持久化 | 文件系统（~/.pi/ + wa-pi-config.json） |
 
 ## 十一、MVP 范围
 

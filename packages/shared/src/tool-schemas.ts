@@ -1,10 +1,10 @@
 // tool-schemas.ts —— 宿主工具的共享文案与 TypeBox Schema
 //
-// 本文件是 HiAgent 7 个宿主工具描述和参数 schema 的唯一真源。
+// 本文件是 WaPi 7 个宿主工具描述和参数 schema 的唯一真源。
 // Kernel 侧（delegate-tool / ask-tool / amaster-memory）和
-// Pi bridge 扩展（hiagent-bridge.ts）均从此处引用，消除文案重复。
+// Pi bridge 扩展（wa-pi-bridge.ts）均从此处引用，消除文案重复。
 //
-// 依赖：仅 typebox（Pi 进程和 HiAgent kernel 均可用）。
+// 依赖：仅 typebox（Pi 进程和 WaPi kernel 均可用）。
 
 import { Type } from "typebox";
 

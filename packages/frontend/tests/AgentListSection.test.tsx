@@ -1,6 +1,6 @@
 import { test, expect, mock, describe, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
-import type { AgentConfig, SessionMessage } from "@hiagent/shared";
+import type { AgentConfig, SessionMessage } from "@wa-pi/shared";
 import { AgentListSection } from "../src/components/AgentListSection";
 import { useAgentsStore } from "../src/store/agents";
 import { useProjectsStore } from "../src/store/projects";

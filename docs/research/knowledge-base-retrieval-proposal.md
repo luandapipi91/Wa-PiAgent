@@ -1,8 +1,8 @@
-# HiAgent 知识库检索功能 — 技术方案
+# WaPi 知识库检索功能 — 技术方案
 
 > **状态：** 技术调研与方案对比  
 > **日期：** 2026-07-21  
-> **作者：** HiAgent 技术团队  
+> **作者：** WaPi 技术团队  
 
 ---
 
@@ -10,7 +10,7 @@
 
 ### 1.1 需求场景
 
-HiAgent 作为 AI 编码助手，当前可通过以下方式获取外部信息：
+WaPi 作为 AI 编码助手，当前可通过以下方式获取外部信息：
 
 - **Web 搜索**：`web_search` / `fetch_content` / `get_search_content`（`pi-web-access` 扩展）
 - **项目文件读写**：`read` / `grep` / `find` / `ls` / `edit` / `write`
@@ -23,22 +23,22 @@ HiAgent 作为 AI 编码助手，当前可通过以下方式获取外部信息�
 
 ### 1.2 目标
 
-为 HiAgent 增加**知识库检索（RAG）**能力，使 agent 能够：
+为 WaPi 增加**知识库检索（RAG）**能力，使 agent 能够：
 1. **索引知识源**：导入本地文件、目录、或远程文档作为知识库
 2. **语义检索**：按自然语言查询匹配最相关的知识片段
 3. **上下文注入**：将检索结果作为 agent 系统提示词或工具调用结果，辅助 agent 决策
 
 ---
 
-## 2. HiAgent 现有架构分析
+## 2. WaPi 现有架构分析
 
 ### 2.1 工具注入的三条路径
 
-HiAgent 为 agent 注入工具（tools）有以下三种方式，知识库检索可选任一或组合：
+WaPi 为 agent 注入工具（tools）有以下三种方式，知识库检索可选任一或组合：
 
 | 路径 | 实现方式 | 示例 | 适合场景 |
 |------|---------|------|---------|
-| **A. customTools** | `agent-manager.ts` 中 `createAgentSession({ customTools })` 注入，TypeBox schema + execute 函数 | `memory_*`、`delegate`、`fleet`、`ask_user_question` | 内核自维护、强类型、与 HiAgent 深度耦合的工具 |
+| **A. customTools** | `agent-manager.ts` 中 `createAgentSession({ customTools })` 注入，TypeBox schema + execute 函数 | `memory_*`、`delegate`、`fleet`、`ask_user_question` | 内核自维护、强类型、与 WaPi 深度耦合的工具 |
 | **B. MCP 服务器** | `mcp-connector.ts` 连接外部 stdio/HTTP MCP 服务器，工具名经 `resolveAgentTools` 注入 allowlist | 任意 MCP 兼容服务器（如文件系统、数据库 MCP） | 外部/第三方工具、跨项目复用、独立进程管理 |
 | **C. Pi 扩展** | `extensions.ts` 中 `additionalExtensionPaths` 注入，扩展包通过 `pi.extensions` 声明注册工具 | `pi-web-access`（网络搜索）、`pi-mcp-adapter`（MCP 桥接） | 可发布/复用的 NPM 包，独立生命周期 |
 
@@ -47,7 +47,7 @@ HiAgent 为 agent 注入工具（tools）有以下三种方式，知识库检索
 | 组件 | 文件 | 作用 | 知识库检索的复用点 |
 |------|------|------|-------------------|
 | **MCP 连接器** | `kernel/src/mcp-connector.ts` | 连接测试、工具列举、OAuth 授权清理 | 可直接连接现成的 RAG MCP 服务器 |
-| **MCP 存储** | `kernel/src/mcp-store.ts` | MCP 服务器配置持久化（`~/.hiagent/mcp-servers.json`） | 复用配置界面和存储逻辑 |
+| **MCP 存储** | `kernel/src/mcp-store.ts` | MCP 服务器配置持久化（`~/.wa-pi/mcp-servers.json`） | 复用配置界面和存储逻辑 |
 | **MCP 前端** | `frontend/.../McpPage.tsx`, `McpForm.tsx`, `McpCard.tsx` | MCP 服务器管理 UI（添加/测试/删除/列举工具） | 前端管理界面可直接复用 |
 | **记忆系统** | `kernel/src/amaster-memory.ts` | 文件型记忆存储（MEMORY.md/USER.md） | customTools 注入模式参考 |
 | **工具解析** | `shared/src/constants.ts:resolveAgentTools` | 按启用扩展动态合并 allowlist + 去重 | 新增工具自动加入 allowlist |
@@ -59,7 +59,7 @@ HiAgent 为 agent 注入工具（tools）有以下三种方式，知识库检索
 
 #### 2.3.1 最匹配的插件
 
-| 插件 | 版本 | 作者 | 下载量 | 核心能力 | 与 HiAgent 兼容性 |
+| 插件 | 版本 | 作者 | 下载量 | 核心能力 | 与 WaPi 兼容性 |
 |------|------|------|--------|---------|-------------------|
 | **`pi-knowledge-search`** ⭐ | 1.3.5 | samfp | 296/月 | 混合向量+BM25搜索，SQLite FTS5，`knowledge_search`+`kb_read` 工具，支持 OpenAI/Ollama/Bedrock 嵌入 | ✅ Pi 扩展，可走 extensions.ts 直接集成 |
 | **`pi-code-graph`** | 0.16.0 | picassio | 378/月 | 代码知识图谱+语义搜索，9语言 tree-sitter+Memgraph+zvec HNSW，6个工具 | ⚠️ 需 Docker（Memgraph），较重 |
@@ -74,7 +74,7 @@ HiAgent 为 agent 注入工具（tools）有以下三种方式，知识库检索
 pi install npm:pi-knowledge-search
 ```
 
-这是与 HiAgent 知识库检索需求**最匹配**的 Pi 扩展：
+这是与 WaPi 知识库检索需求**最匹配**的 Pi 扩展：
 
 - **搜索架构**：混合向量相似度（cosine）+ BM25 全文（SQLite FTS5），Reciprocal Rank Fusion (k=60) 融合
 - **嵌入模型**：OpenAI `text-embedding-3-small`、AWS Bedrock Titan、Ollama 本地模型、OpenAI 兼容 API
@@ -98,9 +98,9 @@ pi install npm:pi-code-graph
 - **安全**：默认只读，索引需显式启用；Cypher 查询验证（禁止危险操作）
 - **限制**：需 Docker 运行 Memgraph，较重；但功能非常强大
 
-#### 2.3.4 HiAgent 已安装依赖中的隐藏 RAG 能力
+#### 2.3.4 WaPi 已安装依赖中的隐藏 RAG 能力
 
-HiAgent 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.ai/pi-memory-mem0`，后者又依赖 **[mem0ai](https://github.com/mem0ai/mem0)**（v3.1.0）——这是一个知名的开源记忆/RAG 库：
+WaPi 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.ai/pi-memory-mem0`，后者又依赖 **[mem0ai](https://github.com/mem0ai/mem0)**（v3.1.0）——这是一个知名的开源记忆/RAG 库：
 
 ```
 @amaster.ai/pi-memory
@@ -111,16 +111,16 @@ HiAgent 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.a
             └── 支持 LLM: OpenAI, Anthropic, Groq, Ollama...
 ```
 
-**当前状态**：HiAgent 仅使用了 `pi-memory` 的**文件型记忆功能**（MEMORY.md / USER.md），未启用 `mem0ai` 的向量记忆能力。这意味着 HiAgent 底层**已有向量 RAG 的"基因"**，只是尚未激活！
+**当前状态**：WaPi 仅使用了 `pi-memory` 的**文件型记忆功能**（MEMORY.md / USER.md），未启用 `mem0ai` 的向量记忆能力。这意味着 WaPi 底层**已有向量 RAG 的"基因"**，只是尚未激活！
 
 #### 2.3.5 Pi 社区的 RAG 方向
 
-- **GitHub Issue #1255**（[earendil-works/pi#1255](https://github.com/earendil-works/pi/issues/1255)）：提案采纳 OpenClaw 的 Memory/RAG 架构（已被关闭但方向明确）：SQLite-vec 向量搜索 + BM25 混合搜索 + 嵌入 Provider 抽象 + 会话索引。提案中描述的技术架构与 HiAgent 的需求高度一致。
+- **GitHub Issue #1255**（[earendil-works/pi#1255](https://github.com/earendil-works/pi/issues/1255)）：提案采纳 OpenClaw 的 Memory/RAG 架构（已被关闭但方向明确）：SQLite-vec 向量搜索 + BM25 混合搜索 + 嵌入 Provider 抽象 + 会话索引。提案中描述的技术架构与 WaPi 的需求高度一致。
 - **`pi-total-recall`** 元包：同时安装 `pi-knowledge-search` + 其他记忆工具的一站式方案
 
 #### 2.3.6 结论：可直接复用，无需从零开发
 
-基于以上调研，**HiAgent 知识库检索功能的最佳路径已从"自研"转变为"集成 Pi 生态现有插件"**：
+基于以上调研，**WaPi 知识库检索功能的最佳路径已从"自研"转变为"集成 Pi 生态现有插件"**：
 
 - **首选**：直接集成 `pi-knowledge-search`（最轻量、最匹配）
 - **增强**：可选集成 `pi-code-graph`（代码级 RAG，需 Docker）
@@ -128,7 +128,7 @@ HiAgent 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.a
 
 ### 2.4 架构决策关键约束
 
-1. **HiAgent 是零外部依赖的桌面应用**：应避免强制用户安装 Docker、Python 环境或外部服务
+1. **WaPi 是零外部依赖的桌面应用**：应避免强制用户安装 Docker、Python 环境或外部服务
 2. **Bun 运行时**：内核运行在 Bun 上，所有依赖必须是 Node.js/Bun 兼容的纯 JS/TS 或带 native binding（但需考虑跨平台构建）
 3. **Pi SDK 工具签名**：自定义工具必须符合 `ToolDefinition` 接口（TypeBox schema + `execute(toolCallId, params, signal)` → `{ content, details }`）
 
@@ -189,7 +189,7 @@ HiAgent 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.a
 ```
 
 **优势：**
-- ✅ **零内核改动**：HiAgent 已有完整的 MCP 集成（连接、测试、配置管理、前端 UI）
+- ✅ **零内核改动**：WaPi 已有完整的 MCP 集成（连接、测试、配置管理、前端 UI）
 - ✅ **技术栈自由**：MCP 服务器可用 Python（更丰富的 RAG 生态如 LangChain/LlamaIndex）、Node.js 或 Go
 - ✅ **独立演进**：KB 功能可独立迭代，不影响内核稳定性
 - ✅ **可插拔**：用户可选择不同的 KB 后端（本地 ChromaDB、远端 Pinecone 等），只需切换 MCP 服务器
@@ -197,7 +197,7 @@ HiAgent 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.a
 
 **劣势：**
 - ❌ 需要用户额外安装/运行 MCP 服务器进程
-- ❌ stdio 模式需管理子进程生命周期（HiAgent 已有此能力）
+- ❌ stdio 模式需管理子进程生命周期（WaPi 已有此能力）
 - ❌ 跨进程通信有序列化开销（但向量检索的文本量不大，影响可忽略）
 
 **技术选型（MCP 服务器侧）：**
@@ -205,7 +205,7 @@ HiAgent 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.a
 - 嵌入模型：OpenAI `text-embedding-3-small`（高质量）、本地 BGE-M3 / GTE（离线）、Jina AI（免费额度）
 - RAG 框架：LangChain / LlamaIndex（Python）、LangChain.js（Node.js）
 
-**HiAgent 内核改动：**
+**WaPi 内核改动：**
 - **无**。只需在 MCP 设置中添加服务器配置（command + args 或 url）。
 
 ---
@@ -252,7 +252,7 @@ HiAgent 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.a
 
 #### 方案 3：Pi 扩展（extension） — ⚡ 已有现成实现！
 
-**思路**：将知识库检索打包为 NPM Pi 扩展，通过 HiAgent 扩展系统安装。**关键发现：此方案已有社区成熟实现，无需从零开发！**
+**思路**：将知识库检索打包为 NPM Pi 扩展，通过 WaPi 扩展系统安装。**关键发现：此方案已有社区成熟实现，无需从零开发！**
 
 ```
 ┌──────────┐  WebSocket  ┌──────────┐  additionalExtensionPaths  ┌───────────────────┐
@@ -267,10 +267,10 @@ HiAgent 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.a
 - ✅ **已有成熟实现**：`pi-knowledge-search`（v1.3.5）直接可用，无需开发
 - ✅ 可发布到 NPM，社区可贡献
 - ✅ 独立版本管理，不污染内核
-- ✅ HiAgent 已有完整的扩展安装/启用/升级流程
+- ✅ WaPi 已有完整的扩展安装/启用/升级流程
 
 **劣势（已大幅减弱）：**
-- ⚠️ 需要通过 HiAgent 的 NPM 扩展机制加载（extensions.ts 的 `buildAdditionalExtensionPaths` 已支持动态包）
+- ⚠️ 需要通过 WaPi 的 NPM 扩展机制加载（extensions.ts 的 `buildAdditionalExtensionPaths` 已支持动态包）
 - ⚠️ `pi-knowledge-search` 依赖的 `node:sqlite` FTS5 需要 Node 24+，Bun 内置 SQLite 需要验证 FTS5 支持
 - ⚠️ 远端嵌入 API（OpenAI）需要网络和 API Key
 
@@ -318,7 +318,7 @@ HiAgent 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.a
 **优势：**
 - ✅ 兼具方案 1 的架构清晰和方案 2 的零外部依赖
 - ✅ 内核改动几乎为零
-- ✅ MCP 服务器可用 Bun 编写（与 HiAgent 同技术栈）
+- ✅ MCP 服务器可用 Bun 编写（与 WaPi 同技术栈）
 - ✅ 可渐进式增强（先 OpenAI 嵌入，后加本地模型）
 
 **劣势：**
@@ -339,7 +339,7 @@ HiAgent 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.a
 | **数据隐私** | 🟢 本地 | 🟢 本地 | 🟢 本地 | 🔴 上传云端 | 🟢 本地 |
 | **社区生态** | 🟢 可用现有MCP | 🔴 需自研 | 🟡 需开发 | 🟢 成熟SaaS | 🟢 自研灵活 |
 | **开发周期** | 🟢 1-2周 | 🔴 4-6周 | 🟡 3-4周 | 🟢 1-2周 | 🟢 2-3周 |
-| **可移植性** | 🟢 MCP标准 | 🟡 HiAgent专用 | 🟡 Pi生态 | 🟢 标准API | 🟢 MCP标准 |
+| **可移植性** | 🟢 MCP标准 | 🟡 WaPi专用 | 🟡 Pi生态 | 🟢 标准API | 🟢 MCP标准 |
 
 ---
 
@@ -347,17 +347,17 @@ HiAgent 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.a
 
 ### 4.1 推荐：方案 3+1 组合（直接集成 `pi-knowledge-search` 作为 Pi 扩展 + MCP 作为补充）⭐
 
-**🍺 调研最大发现：Pi 生态已有成熟的 `pi-knowledge-search` 扩展，HiAgent 可直接集成，无需从零开发！**
+**🍺 调研最大发现：Pi 生态已有成熟的 `pi-knowledge-search` 扩展，WaPi 可直接集成，无需从零开发！**
 
 #### 第一阶段（立即可用，1-3 天）
-**直接集成 `pi-knowledge-search` 作为 HiAgent 的内置 Pi 扩展：**
+**直接集成 `pi-knowledge-search` 作为 WaPi 的内置 Pi 扩展：**
 
 1. 在 `kernel/package.json` 添加依赖：`"pi-knowledge-search": "^1.3.5"`
 2. 在 `extensions.ts` 的 `PKG_EXTENSIONS` 中追加 `"pi-knowledge-search"`
 3. 在 `DEFAULT_AGENT_TOOLS` 中添加 `"knowledge_search"` 和 `"kb_read"`
 4. 编写使用文档
 
-这样 HiAgent agent 立即获得：
+这样 WaPi agent 立即获得：
 - `knowledge_search(query, topK)` — 混合向量+BM25 语义搜索
 - `kb_read(reference)` — 按 wikilink/路径读取全文
 - 会话启动自动注入知识库概览
@@ -365,7 +365,7 @@ HiAgent 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.a
 
 #### 第二阶段（可选增强，1-2 周）
 根据用户反馈选择性增强：
-- 编写 HiAgent 前端知识库配置 UI（复用 MCP 配置界面模式）
+- 编写 WaPi 前端知识库配置 UI（复用 MCP 配置界面模式）
 - 验证 Bun 内置 SQLite FTS5 兼容性（`pi-knowledge-search` 要求 Node 24+ 的 `node:sqlite`）
 - 如 Bun SQLite 不兼容则走 MCP 封装路径（将 `pi-knowledge-search` 包装为 MCP 服务器）
 - 可选：集成 `pi-code-graph` 提供代码级 RAG（需 Docker）
@@ -379,24 +379,24 @@ HiAgent 当前使用的 `@amaster.ai/pi-memory`（v0.1.5）依赖了 `@amaster.a
    - 增量索引
    - 工具注册
    
-   HiAgent 只需**添加一行依赖 + 一行扩展注册 + 两行工具放行**。
+   WaPi 只需**添加一行依赖 + 一行扩展注册 + 两行工具放行**。
 
-2. **架构天然兼容**：`pi-knowledge-search` 是 Pi 扩展，HiAgent 已有完整的 Pi 扩展加载机制（`extensions.ts`、`resolveAgentTools`、`buildAdditionalExtensionPaths`），无缝接入。
+2. **架构天然兼容**：`pi-knowledge-search` 是 Pi 扩展，WaPi 已有完整的 Pi 扩展加载机制（`extensions.ts`、`resolveAgentTools`、`buildAdditionalExtensionPaths`），无缝接入。
 
 3. **社区验证**：该插件已有用户基础和 GitHub 仓库（MIT 许可证），非实验性项目。
 
 4. **兜底方案**：如果 Bun SQLite FTS5 不兼容，可将 `pi-knowledge-search` 包装为 stdio MCP 服务器（同样零内核改动），退回到原方案 1 的路径。
 
-5. **HiAgent 已有隐藏能力**：`@amaster.ai/pi-memory` 底层依赖的 `mem0ai`（v3.1.0）本身支持 Pinecone/Qdrant/ChromaDB 等 20+ 向量数据库，未来可激活作为增强路径。
+5. **WaPi 已有隐藏能力**：`@amaster.ai/pi-memory` 底层依赖的 `mem0ai`（v3.1.0）本身支持 Pinecone/Qdrant/ChromaDB 等 20+ 向量数据库，未来可激活作为增强路径。
 
 ---
 
-## 5. 第二阶段详细设计（hiagent-kb-mcp）
+## 5. 第二阶段详细设计（wa-pi-kb-mcp）
 
 ### 5.1 工具定义
 
 ```typescript
-// MCP 工具注册（hiagent-kb-mcp 内部）
+// MCP 工具注册（wa-pi-kb-mcp 内部）
 const tools = [
   {
     name: "kb_search",
@@ -535,7 +535,7 @@ curl http://localhost:11434/api/embed -d '{
 - **AWS Bedrock**：Titan Embedding
 - **OpenAI 兼容**：任意兼容 `/v1/embeddings` 端点的服务（智谱、阿里百炼、火山方舟等国内厂商均兼容）
 
-这意味着用户可以根据自己的隐私需求和硬件条件，自由选择嵌入方案，HiAgent 只需做好配置引导即可。
+这意味着用户可以根据自己的隐私需求和硬件条件，自由选择嵌入方案，WaPi 只需做好配置引导即可。
 
 **推荐默认**（按优先级降级）：
 1. 检测到网络 → OpenAI `text-embedding-3-small`（$0.02/百万 Token ≈ 几乎免费）
@@ -553,7 +553,7 @@ curl http://localhost:11434/api/embed -d '{
 | Qdrant | 独立进程/云 | ✅ HTTP API | 亿级 | 企业级 |
 | FAISS | 嵌入式 | ❌ Python only | 亿级 | 不适合 |
 
-**推荐**：LanceDB——嵌入式、零运维、Bun 兼容、性能优秀。与 HiAgent "零外部依赖" 的设计哲学一致。
+**推荐**：LanceDB——嵌入式、零运维、Bun 兼容、性能优秀。与 WaPi "零外部依赖" 的设计哲学一致。
 
 ### 5.4 文档处理流程
 
@@ -590,18 +590,18 @@ curl http://localhost:11434/api/embed -d '{
 └──────────────┘
 ```
 
-### 5.5 与 HiAgent 的集成接口
+### 5.5 与 WaPi 的集成接口
 
-MCP 服务器通过 stdio 与 HiAgent 通信，配置示例：
+MCP 服务器通过 stdio 与 WaPi 通信，配置示例：
 
 ```json
 {
-  "name": "hiagent-kb",
+  "name": "wa-pi-kb",
   "command": "bun",
-  "args": ["x", "hiagent-kb-mcp"],
+  "args": ["x", "wa-pi-kb-mcp"],
   "env": {
     "OPENAI_API_KEY": "${OPENAI_API_KEY}",
-    "KB_DATA_DIR": "~/.hiagent/knowledge-base"
+    "KB_DATA_DIR": "~/.wa-pi/knowledge-base"
   }
 }
 ```
@@ -623,11 +623,11 @@ Phase 0 (1-3 天) ─── 直接集成 pi-knowledge-search ⚡ 最快路径
 
 Phase 0B (备选，1-2 天) ─── Bun SQLite 不兼容时的 MCP 兜底
   ├── 将 pi-knowledge-search 包装为 stdio MCP 服务器
-  ├── 通过 HiAgent MCP 界面配置
+  ├── 通过 WaPi MCP 界面配置
   └── 内核零改动，但走 MCP 通道
 
 Phase 1 (1-2 周) ─── 集成验证与优化
-  ├── 编写 HiAgent 知识库配置文档（~/.hiagent/knowledge-search.json）
+  ├── 编写 WaPi 知识库配置文档（~/.wa-pi/knowledge-search.json）
   ├── 验证 OpenAI / Ollama / 本地嵌入等各 provider
   ├── 前端：可选增加知识库管理面板（复用 McpPage 模式）
   ├── 集成测试 + E2E 测试
@@ -783,7 +783,7 @@ done
 | 风险 | 概率 | 影响 | 缓解措施 |
 |------|------|------|---------|
 | **Bun 内置 SQLite 不支持 FTS5** | 中 | 中 | `pi-knowledge-search` 要求 Node 24+ 的 `node:sqlite`；Bun 内置 `bun:sqlite` 的 FTS5 支持需验证。若不兼容，走 MCP 兜底方案（Phase 0B），将 pi-knowledge-search 包装为独立 Node 进程的 MCP 服务器 |
-| pi-knowledge-search 与 Pi SDK 版本不兼容 | 低 | 中 | HiAgent 使用 `@earendil-works/pi-coding-agent@^0.80.0`，pi-knowledge-search v1.3.5 peerDependencies 需确认；通常 Pi 扩展向后兼容 |
+| pi-knowledge-search 与 Pi SDK 版本不兼容 | 低 | 中 | WaPi 使用 `@earendil-works/pi-coding-agent@^0.80.0`，pi-knowledge-search v1.3.5 peerDependencies 需确认；通常 Pi 扩展向后兼容 |
 | 嵌入 API 费用 | 中 | 低 | 默认用 OpenAI text-embedding-3-small（$0.02/1M tokens ≈ 几乎免费），支持本地 Ollama 降级 |
 | pi-knowledge-search 停止维护 | 低 | 高 | MIT 许可证，可 fork 维护；或退回 MCP 自研路径 |
 
@@ -795,7 +795,7 @@ done
 
 > 调研前以为需要从零开发一套 RAG 系统（方案 1-5），调研后发现 Pi 生态的 `pi-knowledge-search` 已经完美覆盖需求。
 
-- **最佳路径**：直接集成 `pi-knowledge-search` 作为 HiAgent 内置 Pi 扩展 —— 添加 1 个依赖 + 2 行代码 + 2 个工具名，**1-3 天即可上线**。
-- **兜底路径**：如果 Bun SQLite FTS5 不兼容，将该扩展包装为 MCP 服务器，走 HiAgent 已有 MCP 通道，同样内核零改动。
+- **最佳路径**：直接集成 `pi-knowledge-search` 作为 WaPi 内置 Pi 扩展 —— 添加 1 个依赖 + 2 行代码 + 2 个工具名，**1-3 天即可上线**。
+- **兜底路径**：如果 Bun SQLite FTS5 不兼容，将该扩展包装为 MCP 服务器，走 WaPi 已有 MCP 通道，同样内核零改动。
 - **生态佐证**：Pi 官方市场有 5343 个包，其中 6+ 个直接命中 RAG/知识库检索需求，社区活跃度高。GitHub Issue #1255 表明官方也在关注 RAG 架构。
-- **隐藏资产**：HiAgent 已安装的 `@amaster.ai/pi-memory` 底层依赖 mem0ai（支持 20+ 向量数据库），未来可激活为更强大的记忆方案。
+- **隐藏资产**：WaPi 已安装的 `@amaster.ai/pi-memory` 底层依赖 mem0ai（支持 20+ 向量数据库），未来可激活为更强大的记忆方案。

@@ -6,7 +6,7 @@
 
 ## 背景
 
-HiAgent 当前在 kernel 层维护了 `steering[]` 和 `followUp[]` 两套队列，与 pi RPC 子进程的内部队列并行存在。两套队列不同步产生三个已确认 Bug：
+WaPi 当前在 kernel 层维护了 `steering[]` 和 `followUp[]` 两套队列，与 pi RPC 子进程的内部队列并行存在。两套队列不同步产生三个已确认 Bug：
 
 1. **消息重复发送**（ws-server.ts:466）— `isStreaming=false` 时误走直发而非 followUp 入队，与 steer:promote 配合导致重复
 2. **_jumpQueue 竞态**（agent-manager.ts:706）— `abort()` 后置 `busy=false`，但 pi 的 `agent_start` 可能在之后到达重设 `busy=true`，导致 `_sendPromptNow` 被拒绝
@@ -14,7 +14,7 @@ HiAgent 当前在 kernel 层维护了 `steering[]` 和 `followUp[]` 两套队列
 
 ## 根因
 
-HiAgent 最初基于 pi **SDK** 构建（SDK 有 `clearQueue()` API），迁移到 pi **RPC** 后手动模拟了队列管理。但 pi RPC 本身有完整的 `steer` / `follow_up` / `prompt({streamingBehavior})` 三套队列机制。HiAgent 的自管队列与 pi 内部队列不同步。
+WaPi 最初基于 pi **SDK** 构建（SDK 有 `clearQueue()` API），迁移到 pi **RPC** 后手动模拟了队列管理。但 pi RPC 本身有完整的 `steer` / `follow_up` / `prompt({streamingBehavior})` 三套队列机制。WaPi 的自管队列与 pi 内部队列不同步。
 
 源码验证（pi v0.82.1）：
 - `AgentSession.clearQueue()` 存在于 SDK 层，但**未暴露给 RPC 协议**
@@ -33,7 +33,7 @@ HiAgent 最初基于 pi **SDK** 构建（SDK 有 `clearQueue()` API），迁移�
 ### 当前（两套队列，不同步）
 
 ```
-HiAgent Kernel                      pi RPC 进程
+WaPi Kernel                      pi RPC 进程
 steering: ["优化代码"]   ← 手动同步 →  内部 steer 队列
 followUp: ["写测试","文档"] ← 手动同步 → 内部 followUp 队列
 
@@ -43,7 +43,7 @@ Bug: 两套队列不同步 → 需要 abort + drain 强行对齐
 ### 目标（pi RPC 原生 + 轻量本地补充）
 
 ```
-HiAgent Kernel              pi RPC
+WaPi Kernel              pi RPC
 ──────┬─────────            ──────
       │                     steer() → pi 管理引导队列
 本地列表(排队用)              followUp() → (不使用，排队自己管)
@@ -53,7 +53,7 @@ agent_settled → prompt()
 
 分工：
 - 引导 → pi 原生 steer()，turn_end 自动投递
-- 排队 → HiAgent 本地列表，agent_settled 逐条 prompt()
+- 排队 → WaPi 本地列表，agent_settled 逐条 prompt()
 - 不重叠，不同步，无冲突
 ```
 

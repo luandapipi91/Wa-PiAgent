@@ -20,7 +20,7 @@ export class NpmPackageService {
     if (!existsSync(this.runtimeDir)) mkdirSync(this.runtimeDir, { recursive: true });
     const pkgJson = join(this.runtimeDir, "package.json");
     if (!existsSync(pkgJson)) {
-      writeFileSync(pkgJson, JSON.stringify({ name: "hiagent-runtime", private: true, type: "module" }, null, 2) + "\n");
+      writeFileSync(pkgJson, JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module" }, null, 2) + "\n");
     }
   }
 

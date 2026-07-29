@@ -2,7 +2,7 @@ import { test, expect, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AgentDropdown } from "../src/components/ui/AgentDropdown";
 import { useAgentsStore } from "../src/store/agents";
-import type { AgentConfig } from "@hiagent/shared";
+import type { AgentConfig } from "@wa-pi/shared";
 
 const cfg = (name: string): AgentConfig => ({
   displayName: name, avatar: "🤖", avatarColor: "#06b6d4-#3b82f6",

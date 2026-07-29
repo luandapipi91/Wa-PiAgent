@@ -4,7 +4,7 @@
 
 **Goal:** 把聊天栏 `@其他智能体` 从「切换当前会话主智能体」改为「软触发主智能体调 delegate 工具委托子智能体」，并补齐并行委托（fleet）与超时动态续期两项增强。
 
-**Architecture:** 复用现有 `@gotgenes/pi-subagents` service API + HiAgent 自研 `delegate` customTool。主智能体收到含 `@[agentName]` 的消息后，按 `HIAGENT_DEFAULT_SYSTEM_PROMPT` 中的硬规则调用 `delegate(agent, task)` 工具；子智能体结果作为工具返回值交主智能体总结回复。前端不再剥离 `@[xxx]`、不再切换会话主智能体；候选菜单只显示 `partners.askTo` 名单内。新增 `fleet` 工具支持并行多任务委托。超时改可配 + 动态续期。
+**Architecture:** 复用现有 `@gotgenes/pi-subagents` service API + WaPi 自研 `delegate` customTool。主智能体收到含 `@[agentName]` 的消息后，按 `WA_PI_DEFAULT_SYSTEM_PROMPT` 中的硬规则调用 `delegate(agent, task)` 工具；子智能体结果作为工具返回值交主智能体总结回复。前端不再剥离 `@[xxx]`、不再切换会话主智能体；候选菜单只显示 `partners.askTo` 名单内。新增 `fleet` 工具支持并行多任务委托。超时改可配 + 动态续期。
 
 **Tech Stack:** Bun + bun:test（kernel/shared）、React + Vitest + @testing-library/react（frontend）、`@gotgenes/pi-subagents`、zustand、typebox、`@earendil-works/pi-coding-agent` SDK
 
@@ -39,7 +39,7 @@
 
 - [ ] **Step 1: 跑一次真实 delegate 调用**
 
-启动 HiAgent desktop（或 sidecar），在某个 askTo 非空的主智能体会话里让 LLM 调一次 delegate（例如让 pm agent delegate 给 代码审查 agent），在 `delegate-tool.ts:waitSubagentResult` 的 completed 分支临时加一行 `console.log("[record.result]", JSON.stringify(record.result));`，观察实际输出。
+启动 WaPi desktop（或 sidecar），在某个 askTo 非空的主智能体会话里让 LLM 调一次 delegate（例如让 pm agent delegate 给 代码审查 agent），在 `delegate-tool.ts:waitSubagentResult` 的 completed 分支临时加一行 `console.log("[record.result]", JSON.stringify(record.result));`，观察实际输出。
 
 ```ts
 // delegate-tool.ts:106-108 临时插入日志
@@ -83,29 +83,29 @@ git commit -m "fix(kernel): waitSubagentResult 提取 final answer（若 record.
 
 ---
 
-### Task 1.2: HIAGENT_DEFAULT_SYSTEM_PROMPT 加 @[agentName] 规则 + 拼装顺序重组
+### Task 1.2: WA_PI_DEFAULT_SYSTEM_PROMPT 加 @[agentName] 规则 + 拼装顺序重组
 
 **Files:**
-- Modify: `packages/kernel/src/agent-manager.ts:85-89`（`HIAGENT_DEFAULT_SYSTEM_PROMPT` 常量）
+- Modify: `packages/kernel/src/agent-manager.ts:85-89`（`WA_PI_DEFAULT_SYSTEM_PROMPT` 常量）
 - Modify: `packages/kernel/src/agent-manager.ts:378-391`（`systemPromptOverride` 拼装顺序）
 - Test: `packages/kernel/tests/agent-manager.test.ts:873-893`（既有测试 + 新增用例）
 
 **Interfaces:**
 - Consumes: `buildDelegatePrompt`（delegate-tool.ts，不改）
-- Produces: `HIAGENT_DEFAULT_SYSTEM_PROMPT` 含 `@[agentName]` 规则文案；`systemPromptOverride` 返回值顺序为 `base + delegatePrompt + 环境约束 + 记忆快照`
+- Produces: `WA_PI_DEFAULT_SYSTEM_PROMPT` 含 `@[agentName]` 规则文案；`systemPromptOverride` 返回值顺序为 `base + delegatePrompt + 环境约束 + 记忆快照`
 
 - [ ] **Step 1: 写失败测试 — 常量含规则文案 + 拼装顺序**
 
 在 `packages/kernel/tests/agent-manager.test.ts` 文件末尾追加（参考既有 line 873 风格）：
 
 ```ts
-test("HIAGENT_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => {
+test("WA_PI_DEFAULT_SYSTEM_PROMPT 含 @[agentName] 委托规则文案", () => {
   // 常量需 export 才能直接断言；若未 export，改用 systemPromptOverride 间接断言（见下一测试）
   // 这里假设 Task 1.2 Step 3 会 export 该常量
-  expect(HIAGENT_DEFAULT_SYSTEM_PROMPT).toContain("@[agentName]");
-  expect(HIAGENT_DEFAULT_SYSTEM_PROMPT).toContain("delegate");
-  expect(HIAGENT_DEFAULT_SYSTEM_PROMPT).toContain("Context");
-  expect(HIAGENT_DEFAULT_SYSTEM_PROMPT).toContain("Pause policy");
+  expect(WA_PI_DEFAULT_SYSTEM_PROMPT).toContain("@[agentName]");
+  expect(WA_PI_DEFAULT_SYSTEM_PROMPT).toContain("delegate");
+  expect(WA_PI_DEFAULT_SYSTEM_PROMPT).toContain("Context");
+  expect(WA_PI_DEFAULT_SYSTEM_PROMPT).toContain("Pause policy");
 });
 
 test("systemPromptOverride 拼装顺序：base < delegatePrompt < 环境约束 < 记忆快照", async () => {
@@ -149,24 +149,24 @@ test("systemPromptOverride 拼装顺序：base < delegatePrompt < 环境约束 <
 });
 ```
 
-在 `agent-manager.test.ts` 顶部 import 区加 `HIAGENT_DEFAULT_SYSTEM_PROMPT`：
+在 `agent-manager.test.ts` 顶部 import 区加 `WA_PI_DEFAULT_SYSTEM_PROMPT`：
 
 ```ts
-import { AgentManager, BUILTIN_SKILLS_DIR, HIAGENT_DEFAULT_SYSTEM_PROMPT } from "../src/agent-manager";
+import { AgentManager, BUILTIN_SKILLS_DIR, WA_PI_DEFAULT_SYSTEM_PROMPT } from "../src/agent-manager";
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cd packages/kernel && bun test agent-manager.test.ts -t "HIAGENT_DEFAULT_SYSTEM_PROMPT"`
-Expected: FAIL（`HIAGENT_DEFAULT_SYSTEM_PROMPT is not exported`）
+Run: `cd packages/kernel && bun test agent-manager.test.ts -t "WA_PI_DEFAULT_SYSTEM_PROMPT"`
+Expected: FAIL（`WA_PI_DEFAULT_SYSTEM_PROMPT is not exported`）
 
-- [ ] **Step 3: 改 HIAGENT_DEFAULT_SYSTEM_PROMPT 常量**
+- [ ] **Step 3: 改 WA_PI_DEFAULT_SYSTEM_PROMPT 常量**
 
 修改 `packages/kernel/src/agent-manager.ts:85-89`：
 
 ```ts
-export const HIAGENT_DEFAULT_SYSTEM_PROMPT =
-  "You are an expert coding assistant operating inside hiagent. " +
+export const WA_PI_DEFAULT_SYSTEM_PROMPT =
+  "You are an expert coding assistant operating inside wa-pi. " +
   "You help users by reading files, executing commands, editing code, and writing new files.\n\n" +
   "Use the available tools to explore and modify the codebase. " +
   "Be concise in your responses. Show file paths clearly when working with files.\n\n" +
@@ -196,7 +196,7 @@ systemPromptOverride: () => {
   const base =
     config?.systemPromptMode === "append" && config.systemPromptBody
       ? config.systemPromptBody!
-      : HIAGENT_DEFAULT_SYSTEM_PROMPT;
+      : WA_PI_DEFAULT_SYSTEM_PROMPT;
   // delegatePrompt 紧跟 base（askTo 非空时）
   const withDelegate = delegatePrompt ? `${base}\n\n${delegatePrompt}` : base;
   // 环境约束居中
@@ -211,7 +211,7 @@ systemPromptOverride: () => {
 
 - [ ] **Step 5: 跑测试确认通过**
 
-Run: `cd packages/kernel && bun test agent-manager.test.ts -t "HIAGENT_DEFAULT_SYSTEM_PROMPT|systemPromptOverride 拼装顺序"`
+Run: `cd packages/kernel && bun test agent-manager.test.ts -t "WA_PI_DEFAULT_SYSTEM_PROMPT|systemPromptOverride 拼装顺序"`
 Expected: PASS
 
 同时跑既有 systemPromptOverride 测试确认无回归：
@@ -222,7 +222,7 @@ Expected: PASS（既有用例用 toContain，不检顺序）
 
 ```bash
 git add packages/kernel/src/agent-manager.ts packages/kernel/tests/agent-manager.test.ts
-git commit -m "feat(kernel): HIAGENT_DEFAULT_SYSTEM_PROMPT 加 @[agentName] 委托规则 + 拼装顺序重组为 base+delegatePrompt+env+memory"
+git commit -m "feat(kernel): WA_PI_DEFAULT_SYSTEM_PROMPT 加 @[agentName] 委托规则 + 拼装顺序重组为 base+delegatePrompt+env+memory"
 ```
 
 ---
@@ -476,7 +476,7 @@ import { expandTokens } from "../quick-invoke/tokens";
 ```ts
   const handleSend = () => {
     if (disabled) return;
-    // @[xxx] 不剥离，原样保留给主智能体识别（由 HIAGENT_DEFAULT_SYSTEM_PROMPT 中的规则触发 delegate）
+    // @[xxx] 不剥离，原样保留给主智能体识别（由 WA_PI_DEFAULT_SYSTEM_PROMPT 中的规则触发 delegate）
     const expandedText = expandTokens(text);
     if (!expandedText.trim() || !isModelAvailable(model, providers) || sendingRef.current || !projectId) return;
     doSend(agentName, expandedText);
@@ -1149,7 +1149,7 @@ cd packages/shared && bun test
 
 ```
 ### 实施
-- **@ 委托语义改造落地**：Composer/NewSessionPane 不剥离 @[xxx] 原样发给主智能体；HIAGENT_DEFAULT_SYSTEM_PROMPT 加 @[agentName] 委托规则 + 拼装顺序重组；@ 候选菜单只显示 askTo 名单内；删除 extractAgentToken。新增 fleet 工具并行委托（默认并发 6）+ waitSubagentResult 动态续期 + 绝对上限可配（默认 30 分钟）。
+- **@ 委托语义改造落地**：Composer/NewSessionPane 不剥离 @[xxx] 原样发给主智能体；WA_PI_DEFAULT_SYSTEM_PROMPT 加 @[agentName] 委托规则 + 拼装顺序重组；@ 候选菜单只显示 askTo 名单内；删除 extractAgentToken。新增 fleet 工具并行委托（默认并发 6）+ waitSubagentResult 动态续期 + 绝对上限可配（默认 30 分钟）。
 - 影响范围：kernel（agent-manager/delegate-tool）、frontend（Composer/NewSessionPane/ComposerInput/tokens）、shared 类型不变。
 ```
 
@@ -1166,7 +1166,7 @@ cd packages/shared && bun test
 ## Self-Review
 
 **Spec 覆盖检查：**
-- ① HIAGENT_DEFAULT_SYSTEM_PROMPT 加规则 + 拼装顺序重组 → Task 1.2 ✓
+- ① WA_PI_DEFAULT_SYSTEM_PROMPT 加规则 + 拼装顺序重组 → Task 1.2 ✓
 - ② @ 候选菜单只显示 askTo → Task 1.3 ✓
 - ③ Composer/NewSessionPane 不剥离 @[xxx] → Task 1.4 + 1.5 ✓
 - ④ 测试更新 → 各 Task 内 TDD 步骤 ✓

@@ -1,6 +1,6 @@
 import { test, expect, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
-import type { SessionMessage } from "@hiagent/shared";
+import type { SessionMessage } from "@wa-pi/shared";
 import { FleetCard } from "../src/components/blocks/FleetCard";
 import { MessageList } from "../src/components/MessageList";
 import { useSessionStore } from "../src/store/session";

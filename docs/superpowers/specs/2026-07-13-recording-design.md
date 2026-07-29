@@ -1,4 +1,4 @@
-# HiAgent 聊天录音功能设计稿（spec B）
+# WaPi 聊天录音功能设计稿（spec B）
 
 > 日期：2026-07-13
 > 状态：设计已确认，待实现
@@ -46,7 +46,7 @@ packages/kernel/src/ws-server.ts          → 新增三个 fs:recording:* handle
 packages/shared/src/types.ts              → AttachmentDraft/Ref kind 增加 'audio'
 ```
 
-**单例由模块级单例保证**：HiAgent 当前是单 BrowserWindow 单 SPA，因此一个 `RecordingManager` 实例 + 一个 Zustand store 即天然实现「全局唯一录音」。不需要跨进程协调。
+**单例由模块级单例保证**：WaPi 当前是单 BrowserWindow 单 SPA，因此一个 `RecordingManager` 实例 + 一个 Zustand store 即天然实现「全局唯一录音」。不需要跨进程协调。
 
 ## 4. Electron main 改动
 

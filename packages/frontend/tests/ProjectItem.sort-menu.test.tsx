@@ -2,7 +2,7 @@ import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import { ProjectItem } from "../src/components/ProjectItem";
 import { useProjectUiStore } from "../src/store/project-ui";
-import type { SessionEntity } from "@hiagent/shared";
+import type { SessionEntity } from "@wa-pi/shared";
 
 // 捕获 REST API 调用，替代已删除的 ws-instance send mock
 const apiCalls: { method: string; path: string; body?: any }[] = [];

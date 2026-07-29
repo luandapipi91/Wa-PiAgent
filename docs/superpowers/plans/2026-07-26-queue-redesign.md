@@ -2,11 +2,11 @@
 
 > **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
 
-**目标：** 删除 HiAgent 自管的双队列（steering[] / followUp[]），引导走 pi RPC 原生 steer()，排队走轻量本地列表，消除消息重复/竞态/卡顿。
+**目标：** 删除 WaPi 自管的双队列（steering[] / followUp[]），引导走 pi RPC 原生 steer()，排队走轻量本地列表，消除消息重复/竞态/卡顿。
 
 **架构：**
 - "引导" → pi RPC `steer()`，turn_end 自动投递
-- "排队" → HiAgent 本地 `followUpList: string[]`，agent_settled 逐条 `prompt()`
+- "排队" → WaPi 本地 `followUpList: string[]`，agent_settled 逐条 `prompt()`
 - 前端乐观更新：点击按钮即时移动 UI，后台发 API
 
 **技术栈：** TypeScript, Bun, React/Zustand, pi RPC (JSONL)

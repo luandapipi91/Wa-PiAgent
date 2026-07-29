@@ -20,7 +20,7 @@ function startTray({ iconPath, onOpen, onQuit }) {
     image = composite;
   }
   tray = new Tray(image);
-  tray.setToolTip("HiAgent");
+  tray.setToolTip("WA PI Agent");
   tray.setContextMenu(Menu.buildFromTemplate(buildTrayMenu(onOpen, onQuit)));
   // 左键单击 = 打开
   tray.on("click", onOpen);

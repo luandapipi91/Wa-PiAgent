@@ -10,7 +10,7 @@ import { saveAuthEntry, getAuthEntry } from "pi-mcp-adapter/mcp-auth.ts";
 import { Server as McpLowLevelServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { McpServerConfig } from "@hiagent/shared";
+import type { McpServerConfig } from "@wa-pi/shared";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { rmSync } from "node:fs";

@@ -85,8 +85,8 @@ async function findBunBinary(extractedRoot: string, binName: string): Promise<st
 async function fetchTargetBun(target: "win" | "linux" | "darwin", kernelDir: string): Promise<void> {
   const spec = BUN_TARGET[target];
   const outBin = join(kernelDir, spec.bin);
-  const tmpZip = join(tmpdir(), `hiagent-${spec.archive}`);
-  const tmpExtract = join(tmpdir(), `hiagent-bun-extract-${process.pid}`);
+  const tmpZip = join(tmpdir(), `wa-pi-${spec.archive}`);
+  const tmpExtract = join(tmpdir(), `wa-pi-bun-extract-${process.pid}`);
   await rm(tmpExtract, { recursive: true, force: true });
 
   // 1) 尝试下载（多镜像）
@@ -148,7 +148,7 @@ export async function buildSidecar(target: "win" | "linux" | "darwin" | string) 
   //    且首启只装用户本机平台的原生预编译。
   //    ⚠️ bun install --production 不生成锁文件，必须先用无 --production 跑一次产出 bun.lock。
   await writeFile(join(kernelDir, "package.json"), JSON.stringify({
-    name: "hiagent-kernel-sidecar", private: true,
+    name: "wa-pi-kernel-sidecar", private: true,
     dependencies: {
       "@earendil-works/pi-coding-agent": "^0.80.0", "@earendil-works/pi-ai": "^0.80.6", "pi-open-agents": "^0.1.12",
       "pi-web-access": "^0.13.0", "@amaster.ai/pi-memory": "^0.1.5",
@@ -164,21 +164,21 @@ export async function buildSidecar(target: "win" | "linux" | "darwin" | string) 
   console.log("[sidecar] 已剔除 node_modules（首启用阿里源动态安装；仅随包分发 package.json + bun.lock）");
 
   // 4. bridge-extension 依赖文件：复制到 kernel.js 同级，确保打包后 __dirname 可找到
-  const bridgeExtSrc = join(ROOT, "packages", "kernel", "src", "hiagent-bridge.extension.ts");
+  const bridgeExtSrc = join(ROOT, "packages", "kernel", "src", "wa-pi-bridge.extension.ts");
   const toolSchemasSrc = join(ROOT, "packages", "shared", "src", "tool-schemas.ts");
-  await cp(bridgeExtSrc, join(kernelDir, "hiagent-bridge.extension.ts"));
+  await cp(bridgeExtSrc, join(kernelDir, "wa-pi-bridge.extension.ts"));
   await cp(toolSchemasSrc, join(kernelDir, "tool-schemas.ts"));
 
   // 5. bun 运行时（下载 TARGET 平台 bun；不再无条件复制 host bun，避免 Linux CI 误把 Linux bun 当 bun.exe 发出去）
   await fetchTargetBun(target, kernelDir);
-  // 重命名 bun → hiagent-kernel（分发进程名不暴露 bun；Bun CLI 不依赖自身文件名）
-  const finalBin = target === "win" ? "hiagent-kernel.exe" : "hiagent-kernel";
+  // 重命名 bun → wa-pi-kernel（分发进程名不暴露 bun；Bun CLI 不依赖自身文件名）
+  const finalBin = target === "win" ? "wa-pi-kernel.exe" : "wa-pi-kernel";
   await rename(join(kernelDir, BUN_TARGET[target].bin), join(kernelDir, finalBin));
   // POSIX 目标需保证可执行位（下载/解压偶尔丢失）
   if (target !== "win") run("chmod", ["+x", join(kernelDir, finalBin)]);
 
   // 6. web（前端 dist）
-  run("bun", ["run", "--filter", "@hiagent/frontend", "build"]);
+  run("bun", ["run", "--filter", "@wa-pi/frontend", "build"]);
   await cp(join(ROOT, "packages", "frontend", "dist"), webDir, { recursive: true });
   console.log("[sidecar] ✅ resources/kernel + resources/web 组装完成");
 }

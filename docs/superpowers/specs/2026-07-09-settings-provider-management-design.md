@@ -196,7 +196,7 @@ export interface ModelProvider {
 
 ### 5.1 持久化（JSON）
 
-kernel 读写 `~/.hiagent/providers.json`，结构：
+kernel 读写 `~/.wa-pi/providers.json`，结构：
 
 ```json
 {
@@ -219,12 +219,12 @@ kernel 读写 `~/.hiagent/providers.json`，结构：
 
 新增常量 `PROVIDERS_FILE` 到 `packages/shared/src/constants.ts`：
 ```ts
-export const PROVIDERS_FILE = `${HIAGENT_DIR}/providers.json`;
+export const PROVIDERS_FILE = `${WA_PI_DIR}/providers.json`;
 ```
 
 ### 5.2 Pi extension 注册
 
-kernel 启动时（`index.ts`）读取 `providers.json`，**生成一个 Pi extension 文件**到 `~/.hiagent/.generated/provider-extension.ts`，内容遍历 providers 调用 `pi.registerProvider()`：
+kernel 启动时（`index.ts`）读取 `providers.json`，**生成一个 Pi extension 文件**到 `~/.wa-pi/.generated/provider-extension.ts`，内容遍历 providers 调用 `pi.registerProvider()`：
 
 ```ts
 // 自动生成，勿手改
@@ -436,7 +436,7 @@ kernel WS 事件：
 4. 保存 → 断言卡片出现在列表
 5. 编辑该供应商 → 修改 → 保存 → 断言卡片更新
 6. 删除 → ConfirmDialog → 确认 → 断言卡片消失
-7. finally 清理：删除测试产生的 providers.json + extension 文件（用独立 HIAGENT_DIR 隔离）
+7. finally 清理：删除测试产生的 providers.json + extension 文件（用独立 WA_PI_DIR 隔离）
 
 **截图清理**：E2E 产生的截图在所有测试完成后全部删除。
 

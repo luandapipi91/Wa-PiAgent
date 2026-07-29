@@ -121,7 +121,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
 **10. 阿里云百炼编程计划** `plan:true` ⚠️（OpenAI 兼容端点确切路径待核对）
 - `qwen3-coder-plus` — 262144 / 65536 / false
 - `qwen3-max` — 131072 / 16384 / false
-- `hint`: 「阿里云百炼编程计划专属端点，需 sk-sp- 开头专属 Key；官方限制仅限交互式编程工具使用，禁止用于自动化脚本 / 自定义应用后端 —— HiAgent 作为应用后端调用存在合规风险，使用前请确认。OpenAI 兼容端点确切路径公开资料有限，需核对。」
+- `hint`: 「阿里云百炼编程计划专属端点，需 sk-sp- 开头专属 Key；官方限制仅限交互式编程工具使用，禁止用于自动化脚本 / 自定义应用后端 —— WaPi 作为应用后端调用存在合规风险，使用前请确认。OpenAI 兼容端点确切路径公开资料有限，需核对。」
 
 > 数据来源：[智谱 OpenAI 兼容](https://docs.bigmodel.cn/cn/guide/platform/model-migration) · [智谱 Coding Plan FAQ](https://docs.bigmodel.cn/cn/coding-plan/faq) · [DeepSeek 文档](https://api-docs.deepseek.com/) · [Kimi 文档](https://platform.kimi.com/docs/api/chat) · [DashScope OpenAI 兼容](https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope) · [火山方舟 OpenAI 兼容](https://www.volcengine.com/docs/82379/1330626) · [OpenRouter 文档](https://openrouter.ai/docs/quickstart) · [百炼 Coding Plan](https://help.aliyun.com/zh/model-studio/coding-plan)
 
@@ -210,7 +210,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
 ### 第四层：E2E（Playwright）
 - 新增流程：打开设置 → 添加供应商 → 下拉选「DeepSeek」→ 填 apiKey → 保存 → 断言卡片出现且模型 tag 为 deepseek-chat / deepseek-reasoner。
 - 计划预设流程：选「智谱 GLM（编程计划）」→ 断言 hint 文案出现 → 取消（不实际连真实 API）。
-- finally 清理：测试产生的 `providers.json` + extension 用独立 `HIAGENT_DIR` 隔离；**截图在测试完成后全部删除**。
+- finally 清理：测试产生的 `providers.json` + extension 用独立 `WA_PI_DIR` 隔离；**截图在测试完成后全部删除**。
 
 ---
 

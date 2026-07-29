@@ -1,14 +1,14 @@
 # 基于 Pi 原生消息模型的架构重构
 
 - **日期**: 2026-07-07
-- **主题**: 废弃 HiAgent 自建的消息系统（拍扁纯文本 + broker-proxy 旁路），改用 Pi 原生富消息模型与原生 intercom；同步迁移数据目录到 `.hiagent`；聊天 UI 改为微信式左右分栏
+- **主题**: 废弃 WaPi 自建的消息系统（拍扁纯文本 + broker-proxy 旁路），改用 Pi 原生富消息模型与原生 intercom；同步迁移数据目录到 `.wa-pi`；聊天 UI 改为微信式左右分栏
 - **状态**: 已二次核查修订（修正 9 处事实/类型/行号错误；撤回"broker-proxy 靠文本解析"误判，改用"职责重叠"论据）
 
 ## 1. 背景与问题
 
 ### 1.1 当前架构的根本缺陷
 
-HiAgent 在消息处理上有三个互相加剧的设计错误：
+WaPi 在消息处理上有三个互相加剧的设计错误：
 
 **错误一：把 Pi 的富消息拍扁成纯文本**
 
@@ -22,26 +22,26 @@ const text = content.filter(c => c.type === "text").map(c => c.text).join("");
 
 **错误二：重复持久化**
 
-Pi 已经自动把完整 session 存到 `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`（含 user/assistant/toolResult/custom_message 全部消息）。HiAgent 又自建 `session-store.ts`，把拍扁的纯文本再存一份到 `~/.hiagent/sessions/*.json`。两套数据源，信息丢失的那套反而成了 UI 的数据来源。
+Pi 已经自动把完整 session 存到 `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`（含 user/assistant/toolResult/custom_message 全部消息）。WaPi 又自建 `session-store.ts`，把拍扁的纯文本再存一份到 `~/.wa-pi/sessions/*.json`。两套数据源，信息丢失的那套反而成了 UI 的数据来源。
 
 **错误三：intercom 委派用了与 Pi 原生重叠的旁路系统**
 
 Pi 的 `pi-intercom` 扩展（npm 独立包 `pi-intercom`）已经完整处理了消息路由、turn 触发、session 注册、历史存储。委派关系在 Pi session 数据里完全结构化存在（发送方的 `toolCall(intercom)` + 接收方的 `custom_message(intercom_message)`，见 3.3 节样本）。
 
-HiAgent 自建了 `BrokerProxyManager`（`broker-proxy.ts`，237 行）和 `IntercomMonitor` 两个类做旁路。核查 `broker-proxy.ts` 源码后确认：它**不是靠文本解析**（用的是 `pi-intercom/broker/client` 的结构化 API `IntercomClient`，字段为 `message.content.text` / `replyTo` / `expectsReply`），而是 kernel 作为"中间人代理"——用公开名 `{projectId}-{agentName}` 占据 broker，真实 pi 进程用 `-real` 内部名，代理拦截消息后用 relay client 转发。
+WaPi 自建了 `BrokerProxyManager`（`broker-proxy.ts`，237 行）和 `IntercomMonitor` 两个类做旁路。核查 `broker-proxy.ts` 源码后确认：它**不是靠文本解析**（用的是 `pi-intercom/broker/client` 的结构化 API `IntercomClient`，字段为 `message.content.text` / `replyTo` / `expectsReply`），而是 kernel 作为"中间人代理"——用公开名 `{projectId}-{agentName}` 占据 broker，真实 pi 进程用 `-real` 内部名，代理拦截消息后用 relay client 转发。
 
 **重叠点**（废弃的真实论据）：
 1. **路由重复**：broker-proxy.ts:178-207 的 `flushPending` 用 relay client 把消息转发给 `-real` 进程；但 Pi 原生 intercom 本身就具备机器内消息路由能力（broker 自动路由到目标 session 名）。kernel 这层 relay 是在 Pi 已有的路由之上再套一层。
 2. **会话名占位重复**：pi-rpc-client.ts:50-52 让真实进程用 `-real` 内部名、kernel 占公开名，是为了让代理能拦截。但 Pi 原生 intercom 的 session 注册机制（`session_joined`/`session_left`）已能让消息直接送达目标 agent。
 3. **状态影子重复**：broker-proxy 维护 `pending: Map<key, PendingMessage[]>` 缓存（broker-proxy.ts:31, 140-152）和前端 `AskItem` 影子状态；而 Pi session 文件里 `custom_message(intercom_message)` 已是结构化持久记录。
 
-结论：**broker-proxy 是结构化的、可工作的**，但它做的事 Pi 原生 intercom 已全部覆盖。保留它意味着维护两层等价逻辑，且 `-real` 内部名机制会让 Pi 原生的 `custom_message` 流无法被 HiAgent 直接消费（消息被代理吃掉重发）。因此废弃 broker-proxy、改用 Pi 原生 intercom，让消息直接走 Pi session 的结构化通道。
+结论：**broker-proxy 是结构化的、可工作的**，但它做的事 Pi 原生 intercom 已全部覆盖。保留它意味着维护两层等价逻辑，且 `-real` 内部名机制会让 Pi 原生的 `custom_message` 流无法被 WaPi 直接消费（消息被代理吃掉重发）。因此废弃 broker-proxy、改用 Pi 原生 intercom，让消息直接走 Pi session 的结构化通道。
 
 ### 1.2 已验证的 Pi 原生能力
 
 通过阅读 pi-coding-agent / pi-ai / pi-intercom 源码 + 分析真实 session jsonl 文件，确认 Pi 原生提供：
 
-| 能力 | 证据 | HiAgent 是否在用 |
+| 能力 | 证据 | WaPi 是否在用 |
 |---|---|---|
 | 富消息模型（thinking/text/toolCall content blocks） | pi-ai types.d.ts:75-107, 144-156 | ❌ filter 掉 |
 | toolResult 独立消息 + toolCallId 关联 | pi-ai types.d.ts:158-166; 真实 session 样本 | ❌ filter 掉 |
@@ -54,8 +54,8 @@ HiAgent 自建了 `BrokerProxyManager`（`broker-proxy.ts`，237 行）和 `Inte
 
 - kernel 透传 Pi 的完整消息，不再拍扁
 - 前端按 Pi 的 content block 类型分别渲染（思考折叠 / 正文 markdown / 工具调用折叠+关联结果 / 委派卡片）
-- 废弃 HiAgent 自建的 session-store messages 持久化和 intercom 旁路系统
-- 数据目录迁移到 `~/.hiagent`，与用户原生 pi 完全隔离
+- 废弃 WaPi 自建的 session-store messages 持久化和 intercom 旁路系统
+- 数据目录迁移到 `~/.wa-pi`，与用户原生 pi 完全隔离
 - 聊天布局改为微信式左右分栏，agent 显示角色头像和名字
 
 ## 2. 设计决策
@@ -63,10 +63,10 @@ HiAgent 自建了 `BrokerProxyManager`（`broker-proxy.ts`，237 行）和 `Inte
 | 维度 | 决策 | 理由 |
 |---|---|---|
 | 消息持久化 | 完全用 Pi session 文件，废弃 session-store 的 messages | Pi 是 source of truth，不重复 |
-| ChatMessage 类型 | 复用 Pi 的 Message 联合类型（user/assistant/toolResult）+ HiAgent 加 agentName 元信息 | 忠于 Pi 模型，前端按类型渲染 |
+| ChatMessage 类型 | 复用 Pi 的 Message 联合类型（user/assistant/toolResult）+ WaPi 加 agentName 元信息 | 忠于 Pi 模型，前端按类型渲染 |
 | 历史加载 | 用 `get_messages` RPC 从 Pi session 拉取 | 已验证返回完整 AgentMessage[] |
 | intercom 委派 | 完全用 Pi 原生 intercom，废弃 BrokerProxyManager/IntercomMonitor/AskItem | 委派数据已在 session.messages 里结构化 |
-| 数据目录 | `PI_CODING_AGENT_DIR=~/.hiagent/pi-agent`，完全隔离 | 用户确认：HiAgent 是独立产品 |
+| 数据目录 | `PI_CODING_AGENT_DIR=~/.wa-pi/pi-agent`，完全隔离 | 用户确认：WaPi 是独立产品 |
 | broker socket | 保持共享 `~/.pi/agent/intercom/broker.sock` | intercom 本就是机器内协作，共享是功能不是 bug |
 | 布局 | 微信式左右分栏，头像贴边 | 用户在原型对比中选定 |
 | 思考/工具折叠 | 默认折叠，可点击展开 | 不干扰正文阅读 |
@@ -151,7 +151,7 @@ case "get_messages": { return success(id, "get_messages", { messages: session.me
 
 `session.messages` 类型是 `AgentMessage[]`（pi-agent-core agent-session.d.ts:284），含上述全部消息类型。
 
-**注意**：这是 Pi 原生支持的能力，但 HiAgent **当前尚未接入**——`pi-rpc-client.ts` 的 `handleLine`（106-223 行）没有 `get_messages` 分支，`send()` 也无等待 response 的机制。本次重构需新增该能力（实现见 4.3.1）。引用的行号来自外部 pi 源码，不在本仓库内，以 pi 当时版本为准。
+**注意**：这是 Pi 原生支持的能力，但 WaPi **当前尚未接入**——`pi-rpc-client.ts` 的 `handleLine`（106-223 行）没有 `get_messages` 分支，`send()` 也无等待 response 的机制。本次重构需新增该能力（实现见 4.3.1）。引用的行号来自外部 pi 源码，不在本仓库内，以 pi 当时版本为准。
 
 ### 3.5 数据目录重定向（config.js:359-365）
 
@@ -163,7 +163,7 @@ export function getAgentDir() {
 }
 ```
 
-设 `PI_CODING_AGENT_DIR=~/.hiagent/pi-agent` 后，Pi 会把 sessions/agents/auth/intercom 全部存到 `.hiagent` 下。`getSessionsDir()` 跟随 agentDir，无需单独配置。
+设 `PI_CODING_AGENT_DIR=~/.wa-pi/pi-agent` 后，Pi 会把 sessions/agents/auth/intercom 全部存到 `.wa-pi` 下。`getSessionsDir()` 跟随 agentDir，无需单独配置。
 
 ### 3.6 broker socket（paths.ts:11-20）
 
@@ -174,7 +174,7 @@ export function getBrokerSocketPath(platform, homeDir) {
 }
 ```
 
-broker socket 不跟随 agentDir，固定在 `~/.pi/agent/intercom/broker.sock`。**这是符合预期的**：intercom 是机器内协作机制，所有 pi 进程（HiAgent 的 + 用户原生 pi 的）共享同一个 broker 网络是功能而非缺陷。
+broker socket 不跟随 agentDir，固定在 `~/.pi/agent/intercom/broker.sock`。**这是符合预期的**：intercom 是机器内协作机制，所有 pi 进程（WaPi 的 + 用户原生 pi 的）共享同一个 broker 网络是功能而非缺陷。
 
 ## 4. 架构设计
 
@@ -183,9 +183,9 @@ broker socket 不跟随 agentDir，固定在 `~/.pi/agent/intercom/broker.sock`�
 ```
 用户在 Composer 输入 → WS agent:prompt
   → kernel AgentManager.ensureStarted(projectId, agentName)
-      env: { PI_CODING_AGENT_DIR: "~/.hiagent/pi-agent", ...process.env }
+      env: { PI_CODING_AGENT_DIR: "~/.wa-pi/pi-agent", ...process.env }
   → PiRpcClient.prompt()
-  → pi 进程流式输出（事件 + 持久化到 .hiagent/pi-agent/sessions/）：
+  → pi 进程流式输出（事件 + 持久化到 .wa-pi/pi-agent/sessions/）：
       message_start → 创建流式消息占位
       message_update(thinking_delta) → 累积 thinking content block
       message_update(text_delta)     → 累积 text content block
@@ -206,7 +206,7 @@ broker socket 不跟随 agentDir，固定在 `~/.pi/agent/intercom/broker.sock`�
 
 ### 4.2 数据类型设计（`packages/shared/src/types.ts`）
 
-不再自建 `ChatMessage`，复用 Pi 的 `AgentMessage` 联合类型。由于 Pi 的类型来自 `@mariozechner/pi-ai` 和 `@mariozechner/pi-agent-core`，HiAgent 需要声明这些类型（不引入运行时依赖，只用类型）：
+不再自建 `ChatMessage`，复用 Pi 的 `AgentMessage` 联合类型。由于 Pi 的类型来自 `@mariozechner/pi-ai` 和 `@mariozechner/pi-agent-core`，WaPi 需要声明这些类型（不引入运行时依赖，只用类型）：
 
 ```ts
 // 从 pi-ai 镜像的最小类型集（避免运行时依赖 pi-ai）
@@ -259,10 +259,10 @@ export type RoleMessage = UserMessage | AssistantMessage | ToolResultMessage;
 export type AgentMessage = RoleMessage | CustomMessage;
 ```
 
-HiAgent 在 `AgentMessage` 上加一层投影，绑定 HiAgent 自己的元信息（哪个 agent 发的）：
+WaPi 在 `AgentMessage` 上加一层投影，绑定 WaPi 自己的元信息（哪个 agent 发的）：
 
 ```ts
-// HiAgent 投影：一条 Pi 消息 + HiAgent 元信息
+// WaPi 投影：一条 Pi 消息 + WaPi 元信息
 export interface SessionMessage {
   message: AgentMessage;     // Pi 原生消息，原样透传
   agentName?: AgentName;     // 哪个 agent 发的（assistant/toolResult 才有）
@@ -375,7 +375,7 @@ const client = new PiRpcClient({
   spawnFn: this.opts.spawnFn,
   onEvent: ...,
   env: {  // ← 新增
-    PI_CODING_AGENT_DIR: HIAGENT_PI_AGENT_DIR,  // ~/.hiagent/pi-agent
+    PI_CODING_AGENT_DIR: WA_PI_PI_AGENT_DIR,  // ~/.wa-pi/pi-agent
   },
 });
 ```
@@ -385,28 +385,28 @@ const client = new PiRpcClient({
 `shared/constants.ts` 同步：
 
 ```ts
-export const HIAGENT_DIR = env.HIAGENT_DIR || `${HOME}/.hiagent`;
-export const HIAGENT_PI_AGENT_DIR = `${HIAGENT_DIR}/pi-agent`;  // ← 新增：Pi 数据目录（sessions/agents/auth/intercom）
-export const PROJECTS_FILE = `${HIAGENT_DIR}/projects.json`;
-export const SESSIONS_DIR = `${HIAGENT_DIR}/sessions`;  // ← 保留（HiAgent 自管元数据，不含 messages）
-export const PI_AGENTS_DIR = `${HIAGENT_DIR}/agents`;  // ← 改：从 ~/.pi/agent/agents 改为 .hiagent/agents（HiAgent 自管的 agent 配置）
+export const WA_PI_DIR = env.WA_PI_DIR || `${HOME}/.wa-pi`;
+export const WA_PI_PI_AGENT_DIR = `${WA_PI_DIR}/pi-agent`;  // ← 新增：Pi 数据目录（sessions/agents/auth/intercom）
+export const PROJECTS_FILE = `${WA_PI_DIR}/projects.json`;
+export const SESSIONS_DIR = `${WA_PI_DIR}/sessions`;  // ← 保留（WaPi 自管元数据，不含 messages）
+export const PI_AGENTS_DIR = `${WA_PI_DIR}/agents`;  // ← 改：从 ~/.pi/agent/agents 改为 .wa-pi/agents（WaPi 自管的 agent 配置）
 ```
 
 **配置与数据的分层**（回应"socket 共享但配置隔离"的口径一致性问题）：
-- **隔离**：HiAgent 的 agent 配置（`.hiagent/agents/*.md`）、Pi 运行数据（`.hiagent/pi-agent/sessions|auth`）——这些是 HiAgent 这个**独立产品**的私有产物，不污染用户原生 pi。
-- **共享**：broker socket（`~/.pi/agent/intercom/broker.sock`）——intercom 是**机器内协作机制**，HiAgent 的 agent 与用户原生 pi 的 agent 共处同一个 broker 网络是功能需求（否则两者无法互相委派）。
-- **迁移**：首次启动检测 `~/.pi/agent/agents/*.md` 存在时，提示用户是否复制到 `.hiagent/agents`（可选增强，见风险表）。`ConfigStore`（config-store.ts:8）默认构造改注入 `PI_AGENTS_DIR` 常量。
+- **隔离**：WaPi 的 agent 配置（`.wa-pi/agents/*.md`）、Pi 运行数据（`.wa-pi/pi-agent/sessions|auth`）——这些是 WaPi 这个**独立产品**的私有产物，不污染用户原生 pi。
+- **共享**：broker socket（`~/.pi/agent/intercom/broker.sock`）——intercom 是**机器内协作机制**，WaPi 的 agent 与用户原生 pi 的 agent 共处同一个 broker 网络是功能需求（否则两者无法互相委派）。
+- **迁移**：首次启动检测 `~/.pi/agent/agents/*.md` 存在时，提示用户是否复制到 `.wa-pi/agents`（可选增强，见风险表）。`ConfigStore`（config-store.ts:8）默认构造改注入 `PI_AGENTS_DIR` 常量。
 
 **首次启动迁移**（kernel 启动时检测）：
 
 ```ts
-// 若 .hiagent/pi-agent 不存在 且 ~/.pi/agent 存在，提示前端引导用户
+// 若 .wa-pi/pi-agent 不存在 且 ~/.pi/agent 存在，提示前端引导用户
 // 可选：自动复制 auth.json（不复制 sessions/agents，避免污染）
 ```
 
 #### 4.3.3 废弃 session-store 的 messages 持久化
 
-`session-store.ts` 的 `messages` 字段废弃。`SessionFile` 只保留 HiAgent 自己的元数据（如果有，如自定义会话标题）。历史消息一律走 `get_messages` RPC。
+`session-store.ts` 的 `messages` 字段废弃。`SessionFile` 只保留 WaPi 自己的元数据（如果有，如自定义会话标题）。历史消息一律走 `get_messages` RPC。
 
 涉及改动：
 - `session-store.ts`：`loadMessages`/`appendMessage` 删除或改为 no-op
@@ -539,7 +539,7 @@ function DelegateCard({ toolCall, result }) {
             <div style={{color:"#a6e3a1"}}>✓ {targetName} 的回复</div>
             <ExtractReplyText content={result.content} />
             {/* 说明：这里解析 "Reply from X:\n..." 是 Pi 原生 intercom 在 toolResult.content
-                里固化写入的文本约定（见 3.3 节样本），不是 HiAgent 自创的脆弱文本协议。
+                里固化写入的文本约定（见 3.3 节样本），不是 WaPi 自创的脆弱文本协议。
                 与 1.1 节"错误三"批判的"旁路系统文本解析"不同维度：那是解析用户对话正文，
                 这是解析 Pi 自己产出的结构化约定文本。 */}
           </div>
@@ -570,7 +570,7 @@ function DelegateCard({ toolCall, result }) {
 - [ ] `pi-rpc-client` message_end 透传完整 AssistantMessage（含 content blocks，不再 filter）
 - [ ] `pi-rpc-client` getMessages() 返回 AgentMessage[]
 - [ ] spawn pi 时 env 含 `PI_CODING_AGENT_DIR`
-- [ ] `HIAGENT_PI_AGENT_DIR` 常量正确指向 `~/.hiagent/pi-agent`
+- [ ] `WA_PI_PI_AGENT_DIR` 常量正确指向 `~/.wa-pi/pi-agent`
 - [ ] SessionMessage 类型序列化/反序列化
 
 ### 5.2 组件测试（前端, Vitest + testing-library）
@@ -587,7 +587,7 @@ function DelegateCard({ toolCall, result }) {
 
 - [ ] WS agent:message 事件携带完整 AgentMessage（content blocks 数组）
 - [ ] WS session:messages 返回 get_messages 结果（AgentMessage[]）
-- [ ] pi 进程的 session 文件落在 `~/.hiagent/pi-agent/sessions/` 而非 `~/.pi/`
+- [ ] pi 进程的 session 文件落在 `~/.wa-pi/pi-agent/sessions/` 而非 `~/.pi/`
 
 ### 5.4 E2E（Playwright）
 
@@ -604,8 +604,8 @@ function DelegateCard({ toolCall, result }) {
 | `evt.partial.content` 流式可靠性 | 流式期间 UI 闪烁 | message_end 以最终消息为准；流式期间显示 partial |
 | pi-intercom 不在 PATH | broker 起不来，intercom 失效 | 已有降级逻辑（intercom-monitor connectReal 失败时降级），保留降级思路 |
 | 删除 broker-proxy/intercom-monitor 影响面 | 索引文件、ws-server 依赖 | 精确删除 + 类型检查保证不漏 |
-| `~/.hiagent/pi-agent/auth.json` 首次不存在 | pi 启动失败（无 API key） | 首次启动检测 + 前端引导用户配置 |
-| PI_AGENTS_DIR 改路径（`~/.pi/agent/agents` → `~/.hiagent/agents`） | 用户在原生 pi 里已配的 agent.md 不会自动出现在 HiAgent | 首次启动检测 `~/.pi/agent/agents/*.md` 存在时提示复制（可选）；`ConfigStore` 改注入 `PI_AGENTS_DIR` 常量 |
+| `~/.wa-pi/pi-agent/auth.json` 首次不存在 | pi 启动失败（无 API key） | 首次启动检测 + 前端引导用户配置 |
+| PI_AGENTS_DIR 改路径（`~/.pi/agent/agents` → `~/.wa-pi/agents`） | 用户在原生 pi 里已配的 agent.md 不会自动出现在 WaPi | 首次启动检测 `~/.pi/agent/agents/*.md` 存在时提示复制（可选）；`ConfigStore` 改注入 `PI_AGENTS_DIR` 常量 |
 | broker socket 共享 vs 配置隔离口径 | 看似逻辑矛盾 | 实为分层：数据/配置是"独立产品私有"，broker 是"机器内协作共享"，两者维度不同（见 4.3.2 分层说明） |
 
 ## 7. 范围边界
@@ -616,7 +616,7 @@ function DelegateCard({ toolCall, result }) {
 - kernel：废弃 session-store messages、broker-proxy、intercom-monitor
 - frontend：MessageRow/ContentBlockRenderer/DelegateCard 等新组件
 - frontend：废弃 useIntercomStore/AskCard
-- constants：HIAGENT_PI_AGENT_DIR、PI_AGENTS_DIR 改路径
+- constants：WA_PI_PI_AGENT_DIR、PI_AGENTS_DIR 改路径
 - 四层测试
 
 **本次不包含：**

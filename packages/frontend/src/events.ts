@@ -4,7 +4,7 @@
  * 替代 WebSocket：一条 EventSource 长连接接收所有 kernel→前端推送，
  * 按 event 类型分发给注册监听器。断线自动重连，重连成功后触发快照刷新。
  */
-import type { WSServerEvent } from "@hiagent/shared";
+import type { WSServerEvent } from "@wa-pi/shared";
 
 export type ServerEventHandler = (event: WSServerEvent) => void;
 

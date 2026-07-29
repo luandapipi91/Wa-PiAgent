@@ -1,6 +1,6 @@
-appId: ai.hiagent.desktop
-productName: HiAgent
-artifactName: "HiAgent-Setup-${version}.${ext}"
+appId: ai.wa-pi.desktop
+productName: WA PI Agent
+artifactName: "WaPi-Setup-${version}.${ext}"
 npmRebuild: false
 afterPack: scripts/after-pack.cjs
 directories:

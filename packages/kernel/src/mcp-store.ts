@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
-import type { McpServerConfig } from "@hiagent/shared";
+import type { McpServerConfig } from "@wa-pi/shared";
 import type { ProjectStore } from "./project-store";
 
 interface McpConfigFile {
@@ -10,7 +10,7 @@ interface McpConfigFile {
 }
 
 export interface McpStoreOpts {
-  hiagentDir: string;
+  waPiDir: string;
   projectStore: ProjectStore;
 }
 
@@ -38,7 +38,7 @@ export class McpStore {
 
   /** 读全局 mcp.json 的 settings 段（无则 {}）— pi-mcp-adapter 的 directTools / toolPrefix 配置 */
   async getGlobalSettings(): Promise<Record<string, unknown>> {
-    const cfg = await this.readConfig(join(this.opts.hiagentDir, "mcp.json"));
+    const cfg = await this.readConfig(join(this.opts.waPiDir, "mcp.json"));
     return cfg.settings ?? {};
   }
 
@@ -74,7 +74,7 @@ export class McpStore {
 
   private async resolveConfigPath(projectId?: string): Promise<string> {
     if (!projectId) {
-      return join(this.opts.hiagentDir, "mcp.json");
+      return join(this.opts.waPiDir, "mcp.json");
     }
     const { projects } = await this.opts.projectStore.load();
     const project = projects.find(p => p.id === projectId);

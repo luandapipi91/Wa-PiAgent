@@ -12,7 +12,7 @@ describe("searchFiles", () => {
   let root: string;
 
   beforeEach(() => {
-    root = makeTempDir("hiagent-search-");
+    root = makeTempDir("wa-pi-search-");
     // 构建一个较深的目录结构，其中包含名为 skills 的文件夹
     mkdirSync(join(root, "src", "components", "skills"), { recursive: true });
     mkdirSync(join(root, "packages", "kernel", "skills"), { recursive: true });

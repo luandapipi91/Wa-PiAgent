@@ -1,7 +1,7 @@
 import { test, expect, beforeEach } from "bun:test";
 import { makeAskTool, reconcileDanglingAsks } from "../src/ask-tool";
 import { askRegistry } from "../src/ask-registry";
-import type { AskParams } from "@hiagent/shared";
+import type { AskParams } from "@wa-pi/shared";
 
 const validParams: AskParams = { questions: [
   { question: "Q?", header: "h", options: [{ label: "A", description: "x" }, { label: "B", description: "y" }] },

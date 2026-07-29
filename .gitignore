@@ -25,9 +25,9 @@ Thumbs.db
 # Logs
 *.log
 
-# Vite / HiAgent local state
+# Vite / WaPi local state
 .vite/
-.hiagent/
+.wa-pi/
 
 # Pi local state (uncomment if you want to ignore project-local pi state)
 # .pi/

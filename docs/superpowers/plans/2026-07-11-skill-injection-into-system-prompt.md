@@ -149,7 +149,7 @@ import { SkillManager } from "../src/skill-manager";
 ```typescript
 // 临时 skill 目录（Task 2 测试用）
 function tmpSkillRoot() {
-  const root = `/tmp/hiagent-skill-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const root = `/tmp/wa-pi-skill-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   mkdirSync(join(root, "skills"), { recursive: true });  // builtin（空）
   return root;
 }
@@ -279,16 +279,16 @@ import type { SkillManager } from "./skill-manager";
 
     const loader = new sdk.DefaultResourceLoader({
       cwd: project.cwd,
-      agentDir: HIAGENT_DIR,
+      agentDir: WA_PI_DIR,
       additionalExtensionPaths: buildAdditionalExtensionPaths(),
       additionalSkillPaths,
       // 默认 replace 模式：始终提供 customPrompt，绕过 SDK 默认提示词
       // （"operating inside pi" + "Pi documentation" 段，会把底层暴露给 agent）。
-      // 显式 replace 配置优先用用户 body；其余（含无配置）一律用 hiagent 默认提示词。
+      // 显式 replace 配置优先用用户 body；其余（含无配置）一律用 wa-pi 默认提示词。
       systemPromptOverride: () =>
         config?.systemPromptMode === "append" && config.systemPromptBody
           ? config.systemPromptBody!
-          : HIAGENT_DEFAULT_SYSTEM_PROMPT,
+          : WA_PI_DEFAULT_SYSTEM_PROMPT,
       agentsFilesOverride:
         config?.systemPromptMode === "append" && config.systemPromptBody
           ? (current: {
@@ -906,7 +906,7 @@ git commit -m "refactor(kernel): skill 配置变更改调 markSkillsDirty（走�
 
 Run: `cd packages/kernel && bun run dev`
 操作：前端打开「系统设置 → 技能」，确认已配置的 skill 目录（如 `C:\Users\co\.reasonix\skills`）；新建一个会话发条消息。
-Expected: kernel 控制台输出 `[hiagent][debug] system prompt for ...:` 后接的提示词中包含 skills 段（如 `## Skills` 或 skill 名称列表）。
+Expected: kernel 控制台输出 `[wa-pi][debug] system prompt for ...:` 后接的提示词中包含 skills 段（如 `## Skills` 或 skill 名称列表）。
 
 - [ ] **Step 2: 验证 skill 变更后惰性重建生效**
 
@@ -924,7 +924,7 @@ Expected: skills 段包含新目录的 skill（重建后 loader 读到新 additi
 
     // [debug] 临时：打印 agent 最终看到的 system prompt（调试完移除）   ← 删除这整块
     console.log(
-      `[hiagent][debug] system prompt for ${projectId}/${agentName}/${sessionId}:\n${session.systemPrompt}`,
+      `[wa-pi][debug] system prompt for ${projectId}/${agentName}/${sessionId}:\n${session.systemPrompt}`,
     );
 
     return session;

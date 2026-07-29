@@ -9,7 +9,7 @@ function getProxyTarget(cfg: UserConfig): string | undefined {
 
 test("dev server 默认把 /file 代理到 kernel 9776 端口", async () => {
   // 避免测试环境变量覆盖默认值，确保断言的是默认端口
-  delete process.env.HIAGENT_WS_PORT;
+  delete process.env.WA_PI_WS_PORT;
   const cfg = (await (configFactory as (env: ConfigEnv) => UserConfig | Promise<UserConfig>)({
     mode: "development",
     command: "serve",
@@ -20,12 +20,12 @@ test("dev server 默认把 /file 代理到 kernel 9776 端口", async () => {
   expect(getProxyTarget(cfg)).toBe("http://127.0.0.1:9776");
 });
 
-test("dev server 可按 HIAGENT_WS_PORT 覆盖 /file 代理端口", async () => {
-  process.env.HIAGENT_WS_PORT = "12345";
+test("dev server 可按 WA_PI_WS_PORT 覆盖 /file 代理端口", async () => {
+  process.env.WA_PI_WS_PORT = "12345";
   const cfg = (await (configFactory as (env: ConfigEnv) => UserConfig | Promise<UserConfig>)({
     mode: "development",
     command: "serve",
   })) as UserConfig;
   expect(getProxyTarget(cfg)).toBe("http://127.0.0.1:12345");
-  delete process.env.HIAGENT_WS_PORT;
+  delete process.env.WA_PI_WS_PORT;
 });

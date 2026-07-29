@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把 HiAgent 聊天消息流的过程块（思考/工具调用/委托）换成 cocode 式 Card 基座 + 流式展开/完成折叠/回合结束弱化的行为，并给代码块加卡片体系（头部条+复制+高亮+折叠）、文件路径加 FilePill 胶囊与只读预览。
+**Goal:** 把 WaPi 聊天消息流的过程块（思考/工具调用/委托）换成 cocode 式 Card 基座 + 流式展开/完成折叠/回合结束弱化的行为，并给代码块加卡片体系（头部条+复制+高亮+折叠）、文件路径加 FilePill 胶囊与只读预览。
 
 **Architecture:** 行为层复用 2026-07-23 spec 的 `useAutoCollapse` hook（派生默认值 + 用户优先）；视觉层新增 `ProcessCard` 基座（图标方块 + tone 语义色 + 标题 + 右侧 meta + chevron），`ThinkingCard`/`ToolCallCard`/`ToolGroupCard`/`DelegateCard` 全部落在其上；Markdown 层通过 ReactMarkdown `components` 映射把 `pre` 换成 `CodeBlockCard`（prism-react-renderer 高亮）、把形似路径的内联 code 换成 `FilePill`（点击弹只读预览，复用 `fs-client.readFile`）。`segmentBlocks` 分段管线不动。
 
@@ -371,7 +371,7 @@ export function ThinkingCard({ thinking, isStreaming }: { thinking: string; isSt
 `packages/frontend/src/components/blocks/ToolCallCard.tsx`：
 
 ```tsx
-import type { ToolCall, ToolResultMessage } from "@hiagent/shared";
+import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
 
@@ -463,7 +463,7 @@ function ToolGroupCardInner({ toolCalls, results, isStreaming }: { toolCalls: an
 `packages/frontend/src/components/blocks/DelegateCard.tsx` 全文替换：
 
 ```tsx
-import type { ToolCall, ToolResultMessage } from "@hiagent/shared";
+import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ProcessCard, Spinner } from "./ProcessCard";
@@ -1026,7 +1026,7 @@ git commit -m "feat(frontend): FilePill 文件路径胶囊——点击只读预�
 
 - [ ] **Step 1: 读既有 harness**
 
-读 `packages/frontend/e2e/rpc-session.spec.ts`、`e2e/global-setup.ts`、`e2e/global-teardown.ts`，复用其隔离环境（独立 `HIAGENT_DIR` + 端口、deepseek provider 注入、apiKey 从本机 pi 凭证库运行时读取）与会话创建辅助。
+读 `packages/frontend/e2e/rpc-session.spec.ts`、`e2e/global-setup.ts`、`e2e/global-teardown.ts`，复用其隔离环境（独立 `WA_PI_DIR` + 端口、deepseek provider 注入、apiKey 从本机 pi 凭证库运行时读取）与会话创建辅助。
 
 - [ ] **Step 2: 写 E2E 用例**
 
@@ -1062,8 +1062,8 @@ git commit -m "test(frontend): 聊天过程卡片/代码块/FilePill E2E"
 
 ```bash
 cd packages/frontend && bun test
-bun run --filter @hiagent/frontend typecheck
-cd /Users/pipi/work/HiAgent && bun test --path-ignore-patterns "packages/frontend/**"
+bun run --filter @wa-pi/frontend typecheck
+cd /Users/pipi/work/WaPi && bun test --path-ignore-patterns "packages/frontend/**"
 ```
 Expected: 全绿；typecheck 无错（kernel/shared 未改，root 测试应无变化）
 

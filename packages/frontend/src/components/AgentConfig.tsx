@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { AgentConfig, AgentName, AgentToolItem } from "@hiagent/shared";
-import { agentDefOf, slugifyProviderName, isSubagentType } from "@hiagent/shared";
+import type { AgentConfig, AgentName, AgentToolItem } from "@wa-pi/shared";
+import { agentDefOf, slugifyProviderName, isSubagentType } from "@wa-pi/shared";
 import { useAgentsStore } from "../store/agents";
 import { useSkillsStore } from "../store/skills";
 import { useProvidersStore } from "../store/providers";
 import { useSubagentsStore } from "../store/subagents";
 import { api } from "../api-client";
 import { onMessage } from "../events";
-import type { SubagentOverride } from "@hiagent/shared";
+import type { SubagentOverride } from "@wa-pi/shared";
 import { Modal } from "./ui/Modal";
 import { filterItems } from "../quick-invoke/trigger";
 

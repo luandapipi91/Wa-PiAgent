@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentName } from "@hiagent/shared";
+import type { AgentName } from "@wa-pi/shared";
 import { Sidebar } from "./components/Sidebar";
 import { NewSessionPane } from "./components/NewSessionPane";
 import { SessionView } from "./components/SessionView";
@@ -169,10 +169,10 @@ export function App() {
   // 监听来自 CommandPalette 和 SlashMenu 的自定义事件
   useEffect(() => {
     const handlers: Record<string, () => void> = {
-      "hiagent:open-gallery": () => setGalleryOpen(true),
-      "hiagent:open-settings": () => useSettingsStore.getState().open(),
-      "hiagent:open-settings-skills": () => { useSettingsStore.getState().open(); useSettingsStore.getState().setSection("skills"); },
-      "hiagent:reload-config": async () => {
+      "wa-pi:open-gallery": () => setGalleryOpen(true),
+      "wa-pi:open-settings": () => useSettingsStore.getState().open(),
+      "wa-pi:open-settings-skills": () => { useSettingsStore.getState().open(); useSettingsStore.getState().setSection("skills"); },
+      "wa-pi:reload-config": async () => {
         const sid = useProjectsStore.getState().currentSessionId;
         if (!sid) { useToastStore.getState().add("没有打开的会话", "error"); return; }
         const status = useSessionStore.getState().statusBySession[sid];
@@ -231,12 +231,12 @@ export function App() {
         useSessionStore.getState().failTurn(sid);
       });
     };
-    window.addEventListener("hiagent:pi-command", onPiCommand as EventListener);
+    window.addEventListener("wa-pi:pi-command", onPiCommand as EventListener);
     return () => {
       for (const [event, handler] of Object.entries(handlers)) {
         window.removeEventListener(event, handler);
       }
-      window.removeEventListener("hiagent:pi-command", onPiCommand as EventListener);
+      window.removeEventListener("wa-pi:pi-command", onPiCommand as EventListener);
     };
   }, []);
 

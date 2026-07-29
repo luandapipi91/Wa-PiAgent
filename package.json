@@ -1,7 +1,7 @@
 {
-  "name": "hiagent",
+  "name": "wa-pi",
   "devDependencies": {
-    "@hiagent/shared": "workspace:*",
+    "@wa-pi/shared": "workspace:*",
     "typescript": "^5.9.3",
     "@types/bun": "^1.3.0",
     "happy-dom": "^20.11.1",
@@ -10,14 +10,14 @@
   "private": true,
   "scripts": {
     "dev": "bun run scripts/dev.ts",
-    "dev:kernel": "bun run --filter @hiagent/kernel dev",
-    "dev:frontend": "bun run --filter @hiagent/frontend dev",
-    "dev:desktop": "bun run --filter @hiagent/desktop dev",
+    "dev:kernel": "bun run --filter @wa-pi/kernel dev",
+    "dev:frontend": "bun run --filter @wa-pi/frontend dev",
+    "dev:desktop": "bun run --filter @wa-pi/desktop dev",
     "test": "bun test --path-ignore-patterns \"packages/frontend/**\" && cd packages/frontend && bun test",
     "typecheck": "bun run --filter '*' --if-present typecheck",
-    "pack:win": "bun run --filter @hiagent/desktop build:win",
-    "pack:linux": "bun run --filter @hiagent/desktop build:linux",
-    "pack:mac": "bun run --filter @hiagent/desktop build:mac",
+    "pack:win": "bun run --filter @wa-pi/desktop build:win",
+    "pack:linux": "bun run --filter @wa-pi/desktop build:linux",
+    "pack:mac": "bun run --filter @wa-pi/desktop build:mac",
     "pack:all": "bun run pack:win && bun run pack:linux && bun run pack:mac"
   },
   "workspaces": [

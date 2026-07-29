@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AttachmentDraft } from "@hiagent/shared";
+import type { AttachmentDraft } from "@wa-pi/shared";
 import { getRecordingManager, formatDuration, type StartArgs, type RecordingResult } from "../recording/recorder";
 import { useComposerPrefsStore } from "./composer-prefs";
 

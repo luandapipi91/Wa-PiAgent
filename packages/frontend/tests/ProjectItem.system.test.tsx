@@ -2,7 +2,7 @@ import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { ProjectItem } from "../src/components/ProjectItem";
 import { useProjectUiStore } from "../src/store/project-ui";
-import { SYSTEM_PROJECT_ID, type SessionEntity } from "@hiagent/shared";
+import { SYSTEM_PROJECT_ID, type SessionEntity } from "@wa-pi/shared";
 
 // mock api-client：捕获 REST 调用，必要时断言请求被正确发出。
 // bun 的 mock.module 在 import 解析时注册 mock，factory 闭包可引用本模块作用域的 calls。
@@ -19,7 +19,7 @@ mock.module("../src/api-client", () => ({
 }));
 
 const systemProject = { id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp/workdir", createdAt: 0 };
-const normalProject = { id: "p1", name: "HiAgent", cwd: "/work", createdAt: 0 };
+const normalProject = { id: "p1", name: "WaPi", cwd: "/work", createdAt: 0 };
 
 beforeEach(() => {
   calls.length = 0;

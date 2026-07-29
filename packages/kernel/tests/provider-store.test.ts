@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ProviderStore } from "../src/provider-store";
-import type { ModelProvider } from "@hiagent/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 
 function tmpFile() {
   return join(import.meta.dir, ".tmp-providers-" + Math.random().toString(36).slice(2) + ".json");

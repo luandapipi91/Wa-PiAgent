@@ -16,21 +16,21 @@ function devRepoRoot() {
 }
 
 function resolveKernelDir(isPackaged, resourcesPath, env) {
-  if (!isPackaged && env.HIAGENT_KERNEL_DIR) return env.HIAGENT_KERNEL_DIR;
+  if (!isPackaged && env.WA_PI_KERNEL_DIR) return env.WA_PI_KERNEL_DIR;
   if (isPackaged) return path.join(resourcesPath, "kernel");
   return path.join(devRepoRoot(), "packages", "kernel"); // dev: 解释跑 kernel 源码
 }
 
 function resolveWebDir(isPackaged, resourcesPath, env) {
-  if (!isPackaged && env.HIAGENT_WEB_DIR) return env.HIAGENT_WEB_DIR;
+  if (!isPackaged && env.WA_PI_WEB_DIR) return env.WA_PI_WEB_DIR;
   if (isPackaged) return path.join(resourcesPath, "web");
   return path.join(devRepoRoot(), "packages", "frontend", "dist");
 }
 
-// runtime 目录：用户可写（~/.hiagent/runtime）。packaged 下首启在此动态安装 node_modules（原生 addon）并跑 kernel.js。
+// runtime 目录：用户可写（~/.wa-pi/runtime）。packaged 下首启在此动态安装 node_modules（原生 addon）并跑 kernel.js。
 // .app 内 Resources/kernel 是只读 seed，无法就地 install，故复制 seed 到 runtime 再装。
-function resolveRuntimeDir(hiagentDir) {
-  return path.join(hiagentDir, "runtime");
+function resolveRuntimeDir(waPiDir) {
+  return path.join(waPiDir, "runtime");
 }
 
 module.exports = { resolveKernelDir, resolveWebDir, resolveRuntimeDir };

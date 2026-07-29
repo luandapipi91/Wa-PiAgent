@@ -1,5 +1,5 @@
 import { test, expect, mock, beforeEach } from "bun:test";
-import type { ModelProvider } from "@hiagent/shared";
+import type { ModelProvider } from "@wa-pi/shared";
 
 const calls: { method: string; path: string; body?: any }[] = [];
 mock.module("../src/api-client", () => ({

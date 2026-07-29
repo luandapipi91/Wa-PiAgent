@@ -544,7 +544,7 @@ if (seg.kind === "delegate") {
 Replace 整个 `packages/frontend/src/components/blocks/DelegateCard.tsx` 内容为：
 
 ```tsx
-import type { ToolCall, ToolResultMessage } from "@hiagent/shared";
+import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useAutoCollapse } from "./useAutoCollapse";

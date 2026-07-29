@@ -4,7 +4,7 @@
 
 **Goal:** 把 4 个硬编码 agent 重写为可增删改查的多智能体矩阵：侧边栏智能体管理区、宫格弹窗、4-tab 详情弹窗、对话中切换智能体、@/#/$ 提及符号、delegate 委托调起与委托卡片。
 
-**Architecture:** spec 见 `docs/superpowers/specs/2026-07-17-agent-matrix-design.md`。agent 配置为 Markdown+frontmatter（`~/.hiagent/agents/<名称>.md`），名称即标识；kernel 经 WS 提供 CRUD；调起走宿主 `delegate` customTool（allowlist 强制）→ `@gotgenes/pi-subagents` service API。
+**Architecture:** spec 见 `docs/superpowers/specs/2026-07-17-agent-matrix-design.md`。agent 配置为 Markdown+frontmatter（`~/.wa-pi/agents/<名称>.md`），名称即标识；kernel 经 WS 提供 CRUD；调起走宿主 `delegate` customTool（allowlist 强制）→ `@gotgenes/pi-subagents` service API。
 
 **UI 原型（必须对照实现，布局/配色/文案不允许大偏差）：**
 | 界面 | 原型文件（用浏览器打开对照） |
@@ -149,7 +149,7 @@ git commit -m "feat(shared): AgentName 放开为 string，AgentConfig 增加 tri
 ```ts
 import { test, expect } from "bun:test";
 import { parseAgentMd, stringifyAgentMd, validateAgentConfig, makeDefaultAgentConfig } from "../src/agent-md";
-import type { AgentConfig } from "@hiagent/shared";
+import type { AgentConfig } from "@wa-pi/shared";
 
 const base: AgentConfig = {
   name: "代码审查", displayName: "代码审查", avatar: "🔍", avatarColor: "#06b6d4-#3b82f6",
@@ -196,7 +196,7 @@ Expected: FAIL（非法 name / triggerKeywords undefined 等）
 
 - [ ] **Step 3: 实现**（`packages/kernel/src/agent-md.ts`）
 
-- 删除 L3 `VALID_NAMES` 与 import 中的 `AGENT_DEFS`（L119），改为 `import { agentDefOf } from "@hiagent/shared";`
+- 删除 L3 `VALID_NAMES` 与 import 中的 `AGENT_DEFS`（L119），改为 `import { agentDefOf } from "@wa-pi/shared";`
 - `parseAgentMd`：返回对象中 `thinking:` 行改为归一逻辑，并新增 `triggerKeywords`：
 
 ```ts
@@ -818,7 +818,7 @@ Expected: FAIL（未知事件类型无响应 → 超时）
       const sdk = await import("@earendil-works/pi-coding-agent");
       const loader = new sdk.DefaultResourceLoader({
         cwd: process.cwd(),
-        agentDir: HIAGENT_DIR,
+        agentDir: WA_PI_DIR,
         additionalExtensionPaths: buildAdditionalExtensionPaths([...(await this.getEnabledExtensionIds())]),
       });
       await loader.reload();
@@ -830,7 +830,7 @@ Expected: FAIL（未知事件类型无响应 → 超时）
   }
 ```
 
-（MCP 工具经 pi-mcp-adapter 扩展注册，已包含在 harvest 里，source 统一标 "扩展"；import 补充 `DEFAULT_AGENT_TOOLS`、`buildAdditionalExtensionPaths`、`extractRuntimeToolNames`、`HIAGENT_DIR`，这些在文件里大多已有。）
+（MCP 工具经 pi-mcp-adapter 扩展注册，已包含在 harvest 里，source 统一标 "扩展"；import 补充 `DEFAULT_AGENT_TOOLS`、`buildAdditionalExtensionPaths`、`extractRuntimeToolNames`、`WA_PI_DIR`，这些在文件里大多已有。）
 
 `ws-server.ts` 增加 case：
 
@@ -1021,7 +1021,7 @@ git commit -m "feat(kernel): session:set-agent 换体重建保留历史，agent 
 ```ts
 import { describe, it, expect, beforeEach } from "vitest";
 import { topAgentsByRecency, useAgentsStore } from "../src/store/agents";
-import type { AgentConfig, SessionEntity } from "@hiagent/shared";
+import type { AgentConfig, SessionEntity } from "@wa-pi/shared";
 
 const agent = (name: string): AgentConfig => ({
   name, displayName: name, avatar: "🤖", avatarColor: "#000-#111", description: "",
@@ -1054,7 +1054,7 @@ Expected: FAIL（`topAgentsByRecency is not exported`）
 
 ```ts
 import { create } from "zustand";
-import type { AgentConfig, AgentName, SessionEntity } from "@hiagent/shared";
+import type { AgentConfig, AgentName, SessionEntity } from "@wa-pi/shared";
 import { send } from "../ws-instance";
 
 /** 最近使用排序：各 agent 名下会话最大 lastActivity 倒序；无会话的按名称排最后 */
@@ -1129,7 +1129,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { AgentListSection } from "../src/components/AgentListSection";
 import { useAgentsStore } from "../src/store/agents";
 import { useProjectsStore } from "../src/store/projects";
-import type { AgentConfig } from "@hiagent/shared";
+import type { AgentConfig } from "@wa-pi/shared";
 
 const agent = (name: string): AgentConfig => ({
   name, displayName: name, avatar: "🤖", avatarColor: "#000-#111", description: "",
@@ -1294,7 +1294,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AgentGalleryModal } from "../src/components/AgentGalleryModal";
 import { useAgentsStore } from "../src/store/agents";
 import { useProjectsStore } from "../src/store/projects";
-import type { AgentConfig } from "@hiagent/shared";
+import type { AgentConfig } from "@wa-pi/shared";
 
 const agent = (name: string, description = "简介"): AgentConfig => ({
   name, displayName: name, avatar: "🤖", avatarColor: "#000-#111", description,
@@ -1703,7 +1703,7 @@ Expected: FAIL
 
 ```tsx
 import { useState } from "react";
-import type { ToolCall, ToolResultMessage } from "@hiagent/shared";
+import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 
 interface Props { toolCall: ToolCall; result?: ToolResultMessage; }
 
@@ -1897,7 +1897,7 @@ git commit -m "test(e2e): 多智能体矩阵关键链路 Playwright 覆盖"
 ## 2026-07-18
 
 ### 新增功能
-- 多智能体矩阵重写：智能体放开为可增删改查的动态实体（名称即标识，`~/.hiagent/agents/*.md`）
+- 多智能体矩阵重写：智能体放开为可增删改查的动态实体（名称即标识，`~/.wa-pi/agents/*.md`）
 - 侧边栏智能体管理区（最近使用前 3 + 右键编辑/删除 + 更多智能体宫格弹窗）
 - 智能体详情弹窗 4 tab（基本/工具/技能/关系网），支持触发关键词与头像渐变配置
 - 对话中切换智能体（顶部 pill 带搜索，缓存失效确认框）；@ 智能体 / # 文件 / $ 技能 提及符号

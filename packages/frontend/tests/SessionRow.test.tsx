@@ -2,7 +2,7 @@ import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { SessionRow } from "../src/components/SessionRow";
 import { useSessionStore } from "../src/store/session";
-import type { SessionEntity } from "@hiagent/shared";
+import type { SessionEntity } from "@wa-pi/shared";
 
 const session: SessionEntity = {
   id: "s1", projectId: "p1", primaryAgent: "技术实现",

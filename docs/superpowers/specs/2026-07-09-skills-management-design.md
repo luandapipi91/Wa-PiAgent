@@ -12,7 +12,7 @@
 ### 目标
 在系统设置页左侧导航新增「技能」菜单（与「模型管理」并列），提供：
 
-1. **技能目录管理**：查看当前加载的技能目录，支持添加/删除外置技能目录。`~/.hiagent/skills/` 为内置目录，自动创建、不可删除
+1. **技能目录管理**：查看当前加载的技能目录，支持添加/删除外置技能目录。`~/.wa-pi/skills/` 为内置目录，自动创建、不可删除
 2. **技能列表查看**：展示从所有目录扫描出的技能（名称 + 描述）
 3. **技能启用/禁用**：每个技能可单独禁用，禁用后即使加载了也不生效
 4. **实时生效**：配置变更后自动 reload 所有活跃会话
@@ -36,7 +36,7 @@
 ```
 折叠状态（默认）：
 ┌─ 右侧内容区 ────────────────────────┐
-│  技能目录：~/.hiagent/skills/  ▸      │  ← 上方，折叠态只显示内置目录
+│  技能目录：~/.wa-pi/skills/  ▸      │  ← 上方，折叠态只显示内置目录
 │                                       │
 │  ┌─ 已加载技能 ──────────────────┐   │
 │  │ ☑ brave-search    web 搜索     │   │  ← 下方
@@ -47,9 +47,9 @@
 
 展开后：
 ┌─ 右侧内容区 ────────────────────────┐
-│  技能目录：~/.hiagent/skills/  ▾      │
+│  技能目录：~/.wa-pi/skills/  ▾      │
 │    ┌──────────────────────────────┐   │
-│    │ ~/.hiagent/skills/ [内置]      │   │  ← 内置：无删除按钮
+│    │ ~/.wa-pi/skills/ [内置]      │   │  ← 内置：无删除按钮
 │    │ ~/.claude/skills/        [删除] │   │  ← 用户目录：有删除按钮
 │    │ /Users/xxx/my-skills    [删除]  │   │
 │    │ [+ 添加技能目录]               │   │
@@ -91,12 +91,12 @@
 }
 ```
 
-- **`skills`**：Pi SDK 直接读取的字段——用户添加的技能目录路径数组。**内置目录 `~/.hiagent/skills/` 不写入此数组**（Pi 默认从 `agentDir/skills/` 即 `~/.hiagent/skills/` 自动扫描，HiAgent 的 `agentDir = HIAGENT_DIR` 已覆盖）
-- **`disabledSkills`**：HiAgent 自定义字段——被禁用的技能名列表。Pi 不认此字段，由 kernel 扫描后过滤
+- **`skills`**：Pi SDK 直接读取的字段——用户添加的技能目录路径数组。**内置目录 `~/.wa-pi/skills/` 不写入此数组**（Pi 默认从 `agentDir/skills/` 即 `~/.wa-pi/skills/` 自动扫描，WaPi 的 `agentDir = WA_PI_DIR` 已覆盖）
+- **`disabledSkills`**：WaPi 自定义字段——被禁用的技能名列表。Pi 不认此字段，由 kernel 扫描后过滤
 
 ### 内置目录
 
-- 路径：`~/.hiagent/skills/`（即 `${HIAGENT_DIR}/skills/`）
+- 路径：`~/.wa-pi/skills/`（即 `${WA_PI_DIR}/skills/`）
 - kernel 启动时 `mkdir -p` 确保存在
 - 不写入 `skills` 数组（Pi 已自动扫描 `agentDir/skills/`）
 - UI 层始终在目录列表第一行展示，标 `[内置]`，不渲染删除按钮
@@ -107,7 +107,7 @@ kernel 使用 Pi SDK 导出的 `loadSkills()` 扫描技能。扫描顺序保证*
 
 ```
 扫描顺序：
-1. ~/.hiagent/skills/        ← 内置，永远第一（Pi 默认扫描 agentDir/skills）
+1. ~/.wa-pi/skills/        ← 内置，永远第一（Pi 默认扫描 agentDir/skills）
 2. skills 数组[0]            ← 用户添加的，按数组顺序
 3. skills 数组[1]
 ...
@@ -180,12 +180,12 @@ async function scanSkills(): Promise<{ skills, allSkills }> {
   // 1. 读 settings.json 的 skills 数组（用户添加的目录）
   const skillPaths = settings.skills ?? [];
   // 2. 用 Pi SDK loadSkills 扫描
-  //    - agentDir = HIAGENT_DIR → Pi 自动扫 ~/.hiagent/skills/（内置，第一个扫）
+  //    - agentDir = WA_PI_DIR → Pi 自动扫 ~/.wa-pi/skills/（内置，第一个扫）
   //    - skillPaths = 用户目录数组 → 按数组顺序扫
-  //    - includeDefaults = false → 不扫 Pi 默认的 ~/.pi/agent/skills/ 等（只用 HiAgent 自己的）
+  //    - includeDefaults = false → 不扫 Pi 默认的 ~/.pi/agent/skills/ 等（只用 WaPi 自己的）
   const result = loadSkills({
-    cwd: HIAGENT_DIR,
-    agentDir: HIAGENT_DIR,
+    cwd: WA_PI_DIR,
+    agentDir: WA_PI_DIR,
     skillPaths,
     includeDefaults: false,
   });

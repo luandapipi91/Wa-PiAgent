@@ -4,7 +4,7 @@
 
 **Goal:** 在现有「添加 / 编辑供应商」表单顶部新增「快捷选择」下拉，内置 10 条主流供应商预设；选中后自动填入名称 / Base URL / 协议 / 模型列表（apiKey 仍需手填），所有字段填入后仍可编辑。
 
-**Architecture:** 新增纯常量模块 `packages/shared/src/provider-presets.ts`（`PROVIDER_PRESETS` 数组 + `ProviderPreset` 类型），从 `@hiagent/shared` 导出。仅修改前端 `ProviderFormModal.tsx`：顶部加原生 `<select>`，`onChange` 把预设字段映射进既有表单 state（**不走** `handleTagsChange`，以免把预设真实数值套成默认 128000/4096）。后端、类型、WS 协议、持久化格式零改动 —— 预设选中后保存出的对象与手填供应商完全同构。
+**Architecture:** 新增纯常量模块 `packages/shared/src/provider-presets.ts`（`PROVIDER_PRESETS` 数组 + `ProviderPreset` 类型），从 `@wa-pi/shared` 导出。仅修改前端 `ProviderFormModal.tsx`：顶部加原生 `<select>`，`onChange` 把预设字段映射进既有表单 state（**不走** `handleTagsChange`，以免把预设真实数值套成默认 128000/4096）。后端、类型、WS 协议、持久化格式零改动 —— 预设选中后保存出的对象与手填供应商完全同构。
 
 **Tech Stack:** TypeScript、React 19、原生 `<select>`、bun:test（单元 + 组件）、@testing-library/react + happy-dom（组件）、Playwright（E2E）、Zustand（store）。
 
@@ -238,7 +238,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     baseUrl: "https://coding.dashscope.aliyuncs.com/compatible-mode/v1",
     api: "openai-completions",
     plan: true,
-    hint: "阿里云百炼编程计划专属端点，需 sk-sp- 开头专属 Key；官方限制仅限交互式编程工具使用，禁止用于自动化脚本 / 自定义应用后端 —— HiAgent 作为应用后端调用存在合规风险，使用前请确认。OpenAI 兼容端点确切路径公开资料有限，需核对。",
+    hint: "阿里云百炼编程计划专属端点，需 sk-sp- 开头专属 Key；官方限制仅限交互式编程工具使用，禁止用于自动化脚本 / 自定义应用后端 —— WaPi 作为应用后端调用存在合规风险，使用前请确认。OpenAI 兼容端点确切路径公开资料有限，需核对。",
     models: [
       { id: "qwen3-coder-plus", contextWindow: 262144, maxTokens: 65536 },
       { id: "qwen3-max", contextWindow: 131072, maxTokens: 16384 },
@@ -273,7 +273,7 @@ Expected: PASS（4 个用例全绿）
 
 - [ ] **Step 6: shared 类型检查**
 
-Run: `bun run --filter @hiagent/shared typecheck`
+Run: `bun run --filter @wa-pi/shared typecheck`
 Expected: 无错误。
 
 - [ ] **Step 7: 提交**
@@ -364,14 +364,14 @@ Modify `packages/frontend/src/components/settings/ProviderFormModal.tsx`，共 4
 **(a) 导入预设常量** — 替换第 5 行：
 
 ```ts
-import type { ModelProvider, ProviderApi, ProviderModel } from "@hiagent/shared";
+import type { ModelProvider, ProviderApi, ProviderModel } from "@wa-pi/shared";
 ```
 
 为：
 
 ```ts
-import { PROVIDER_PRESETS } from "@hiagent/shared";
-import type { ModelProvider, ProviderApi, ProviderModel } from "@hiagent/shared";
+import { PROVIDER_PRESETS } from "@wa-pi/shared";
+import type { ModelProvider, ProviderApi, ProviderModel } from "@wa-pi/shared";
 ```
 
 **(b) 新增 state + 派生选中预设** — 在 `const [testStatus, setTestStatus] = ...`（约第 28 行）之后插入：
@@ -433,7 +433,7 @@ Expected: PASS（原有 7 个 + 新增 5 个，共 12 个用例全绿）
 
 - [ ] **Step 5: frontend 类型检查**
 
-Run: `bun run --filter @hiagent/frontend typecheck`
+Run: `bun run --filter @wa-pi/frontend typecheck`
 Expected: 无错误。
 
 - [ ] **Step 6: 提交**
@@ -497,12 +497,12 @@ git commit -m "feat(frontend): 供应商表单新增快捷选择预设下拉"
 需先起 dev 环境（kernel + frontend dev server）。Run（在 repo 根，用 --grep 限定）：
 
 ```bash
-bun run --filter @hiagent/frontend e2e -- --grep "快捷选择预设填充表单并保存"
+bun run --filter @wa-pi/frontend e2e -- --grep "快捷选择预设填充表单并保存"
 ```
 
 Expected: PASS（1 passed）。若 dev 环境未起，参考 `scripts/dev.ts` 启动 kernel(9776) + frontend，再跑。
 
-> 提示：完整 E2E 套件（含「打开设置页 / 添加 / 删除 / 快捷选择」4 个用例）回归可跑 `bun run --filter @hiagent/frontend e2e`，应 4 passed。
+> 提示：完整 E2E 套件（含「打开设置页 / 添加 / 删除 / 快捷选择」4 个用例）回归可跑 `bun run --filter @wa-pi/frontend e2e`，应 4 passed。
 
 - [ ] **Step 3: 提交**
 

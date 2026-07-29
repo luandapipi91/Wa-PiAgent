@@ -7,7 +7,7 @@
 // - 测试数据经 API 创建：provider 经 WS provider:save 注入（apiKey 从本机
 //   ~/.pi/agent/auth.json 的 deepseek 凭证读取，不落盘、不入库到 E2E 隔离目录以外）
 // - 用户流程在浏览器执行：选模型 → 发消息 → 断言 DOM（流式文本 + 工具卡片）
-// - 数据清理：E2E_HIAGENT_DIR 为每次运行的独立临时目录，由 global-teardown 整体清除
+// - 数据清理：E2E_WA_PI_DIR 为每次运行的独立临时目录，由 global-teardown 整体清除
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

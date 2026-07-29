@@ -158,15 +158,15 @@ test("seedDefaults: 存量环境只补缺失角色，不新建已移除的旧角
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("seedDefaults: HIAGENT_SKIP_AGENT_SEED=1 时整体跳过（E2E 最小环境用）", async () => {
+test("seedDefaults: WA_PI_SKIP_AGENT_SEED=1 时整体跳过（E2E 最小环境用）", async () => {
   const dir = tempAgentsDir();
   const cs = new ConfigStore(dir);
-  process.env.HIAGENT_SKIP_AGENT_SEED = "1";
+  process.env.WA_PI_SKIP_AGENT_SEED = "1";
   try {
     await cs.seedDefaults();
     expect(await cs.listAgents()).toHaveLength(0);
   } finally {
-    delete process.env.HIAGENT_SKIP_AGENT_SEED;
+    delete process.env.WA_PI_SKIP_AGENT_SEED;
   }
   // 环境变量移除后恢复正常 seed
   await cs.seedDefaults();

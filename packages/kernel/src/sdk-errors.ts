@@ -13,7 +13,7 @@
 // 在此兜口可保证「每条失败消息恰好报一次错」，不会因 SDK 的 message_update
 // error 变体或内部重试而重复告警。
 
-import type { SDKEvent } from "@hiagent/shared";
+import type { SDKEvent } from "@wa-pi/shared";
 
 /** errorMessage 缺失时的兜底文案（例如某些 provider 不回具体错误信息） */
 const FALLBACK_MESSAGE = "模型调用失败，请检查模型与 Provider 配置（模型不可用或鉴权失败）";

@@ -1,10 +1,10 @@
 // spawn 解释运行的 kernel sidecar：dev 下 bun run <repo>/packages/kernel/src/desktop-server.ts；
-// packaged 下 <kernelDir>/hiagent-kernel(.exe) run <kernelDir>/kernel.js。等 9776 ready；退出时 kill 子进程树。
+// packaged 下 <kernelDir>/wa-pi-kernel(.exe) run <kernelDir>/kernel.js。等 9776 ready；退出时 kill 子进程树。
 const { spawn, spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { waitForPort } = require("./util/port.cjs");
 
-const WS_PORT = Number(process.env.HIAGENT_WS_PORT) > 0 ? Number(process.env.HIAGENT_WS_PORT) : 9776;
+const WS_PORT = Number(process.env.WA_PI_WS_PORT) > 0 ? Number(process.env.WA_PI_WS_PORT) : 9776;
 
 function killTree(pid) {
   try {
@@ -14,7 +14,7 @@ function killTree(pid) {
 }
 
 async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, port }) {
-  // dev: repo 下用 bun 跑 kernel 源码入口；packaged: kernelDir 里 hiagent-kernel(.exe) run kernel.js
+  // dev: repo 下用 bun 跑 kernel 源码入口；packaged: kernelDir 里 wa-pi-kernel(.exe) run kernel.js
   // Windows dev 路径上 "bun" 是 .cmd shim——Node 20+ 出于 CVE-2024-27980 默认拒绝 spawn
   // .cmd/.bat（spawn EINVAL），必须 shell:true 让 cmd.exe 解析 PATHEXT。
   const wsPort = port ?? WS_PORT;
@@ -27,7 +27,7 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
   const finalArg = (!isPackaged && isWin) ? arg.map((a) => /\s/.test(a) ? `"${a}"` : a) : arg;
   const child = spawn(cmd, finalArg, {
     cwd: kernelDir,
-    env: { ...process.env, HIAGENT_WEB_DIR: webDir, HIAGENT_WS_PORT: String(wsPort) },
+    env: { ...process.env, WA_PI_WEB_DIR: webDir, WA_PI_WS_PORT: String(wsPort) },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
     shell: !isPackaged && isWin,

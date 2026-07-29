@@ -1,4 +1,4 @@
-import type { McpServerConfig } from "@hiagent/shared";
+import type { McpServerConfig } from "@wa-pi/shared";
 import { Modal } from "../ui/Modal";
 import { McpForm } from "./McpForm";
 
