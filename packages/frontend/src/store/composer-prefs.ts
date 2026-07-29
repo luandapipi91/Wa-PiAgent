@@ -42,17 +42,26 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
   loadSession: async (sessionId) => {
     const defaults = await getDefaults();
     const stored = await getSessionPrefs(sessionId);
-    set(s => ({
-      defaults,
-      bySession: {
-        ...s.bySession,
-        [sessionId]: {
-          model: stored?.model ?? defaults.model,
-          thinking: stored?.thinking ?? defaults.thinking,
-          attachments: stored?.attachments ?? [],
+    set(s => {
+      // 异步 gap 期间 setSessionPrefs 可能已设置值（如 auto-select），不要覆盖
+      const existing = s.bySession[sessionId];
+      if (existing) {
+        // 保留已有 prefs，仅更新 defaults（若 defaults 加载延迟）
+        if (s.defaults.model == null && defaults.model != null) return { defaults };
+        return {};
+      }
+      return {
+        defaults,
+        bySession: {
+          ...s.bySession,
+          [sessionId]: {
+            model: stored?.model ?? defaults.model,
+            thinking: stored?.thinking ?? defaults.thinking,
+            attachments: stored?.attachments ?? [],
+          },
         },
-      },
-    }));
+      };
+    });
   },
 
   setSessionPrefs: (sessionId, prefs) => {
