@@ -128,12 +128,11 @@ function findSystemNode() {
 	return null;
 }
 
-async function ensureRuntimeBinLinks({ runtimeDir, waPiDir, log }) {
+async function ensureRuntimeBinLinks({ runtimeDir, seedDir, kernelExe, waPiDir, log }) {
 	if (!app.isPackaged) return null;
 	const binDir = path.join(waPiDir, "bin");
-	const kernelName =
-		process.platform === "win32" ? "wa-pi-kernel.exe" : "wa-pi-kernel";
-	const target = path.join(runtimeDir, kernelName);
+	// 使用 seedDir 中的真实内核二进制路径（wa-pi-kernel 不会被复制到 runtimeDir）
+	const target = kernelExe;
 	await fsp.mkdir(binDir, { recursive: true });
 	if (process.platform === "win32") {
 		// Windows 下符号链接需要权限/开发模式，改用 .cmd 包装脚本
@@ -368,6 +367,8 @@ app.whenReady().then(async () => {
 		try {
 			const binDir = await ensureRuntimeBinLinks({
 				runtimeDir,
+				seedDir,
+				kernelExe,
 				waPiDir: WA_PI_DIR,
 				log,
 			});
