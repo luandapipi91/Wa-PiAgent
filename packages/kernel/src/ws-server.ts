@@ -969,6 +969,10 @@ export class WSServer {
       case "provider:save": {
         await this.opts.providerStore.save(event.provider);
         await ensureProviderExtensionRegistered(this.opts.providerStore);
+        // provider-extension.ts 已重写，但运行中的 pi session 进程仍加载旧版本，
+        // 新增/删除的模型在旧 session 里会 "Model not found"。标脏让激活会话下次
+        // 使用时重建进程、重新加载最新 extension（与 extension:toggle 等变更一致）。
+        this.opts.agentManager.markAllDirty();
         const providers = await this.opts.providerStore.load();
         this.broadcast({ type: "provider:changed", providers });
         break;
@@ -976,6 +980,7 @@ export class WSServer {
       case "provider:delete": {
         await this.opts.providerStore.delete(event.id);
         await ensureProviderExtensionRegistered(this.opts.providerStore);
+        this.opts.agentManager.markAllDirty();
         const providers = await this.opts.providerStore.load();
         this.broadcast({ type: "provider:changed", providers });
         break;

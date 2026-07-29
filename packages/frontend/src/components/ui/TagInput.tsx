@@ -8,10 +8,13 @@ interface TagInputProps {
   dropdown?: React.ReactNode;
   onInputText?: (text: string) => void;
   onFocus?: () => void;
+  onBlur?: () => void;
+  /** 提交（回车 / 分隔符 flush）一个或多个 tag 后触发，供父组件收起联动下拉等 */
+  onSubmit?: () => void;
 }
 
 /** 通用 tag 录入：输入 | 添加（分隔即 flush），回车提交，× 移除 */
-export function TagInput({ value, onChange, placeholder, dropdown, onInputText, onFocus }: TagInputProps) {
+export function TagInput({ value, onChange, placeholder, dropdown, onInputText, onFocus, onBlur, onSubmit }: TagInputProps) {
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -32,6 +35,8 @@ export function TagInput({ value, onChange, placeholder, dropdown, onInputText, 
     // splitModelIds 已吃掉所有 | 分隔的部分；残留的纯文本无 |
     setText("");
     onInputText?.("");
+    // 提交收起联动下拉：放在 onInputText 之后，避免空串回调又把下拉重新打开
+    if (ids.length > 0) onSubmit?.();
   };
 
   // 回车：提交整个输入框文本为一个 tag
@@ -43,6 +48,7 @@ export function TagInput({ value, onChange, placeholder, dropdown, onInputText, 
         onChange([...value, trimmed]);
         setText("");
         onInputText?.("");
+        onSubmit?.();
       }
     }
   };
@@ -81,6 +87,7 @@ export function TagInput({ value, onChange, placeholder, dropdown, onInputText, 
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         onFocus={onFocus}
+        onBlur={onBlur}
         placeholder={value.length === 0 ? placeholder : ""}
         className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm text-primary"
         data-testid="tag-input-field"
