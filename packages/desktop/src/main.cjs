@@ -77,10 +77,11 @@ function createSplash() {
 	});
 }
 
-// packaged 下运行时只有 wa-pi-kernel(=bun)，PATH 上缺少 node/npm/bun。
+// packaged 下运行时只有 wa-pi-kernel(=bun)，PATH 上缺少 node/npm/bun/npx。
 // 动态插件可能需要 bun 来装 npm 包，装好的 bin 脚本 shebang 又需要 node。
 // 因此在 ~/.wa-pi/bin 下创建 bun / node 符号链接指向 wa-pi-kernel，
 // 并把该目录追加到 sidecar 的 PATH。
+// npx 需要特殊处理：bun x 等价于 npx，创建包装脚本去除 -y/--yes（bun x 自动确认）。
 async function ensureRuntimeBinLinks({ runtimeDir, waPiDir, log }) {
 	if (!app.isPackaged) return null;
 	const binDir = path.join(waPiDir, "bin");
@@ -95,11 +96,32 @@ async function ensureRuntimeBinLinks({ runtimeDir, waPiDir, log }) {
 	}
 	const bunLink = path.join(binDir, "bun");
 	const nodeLink = path.join(binDir, "node");
+	const npxPath = path.join(binDir, "npx");
+	const npmPath = path.join(binDir, "npm");
 	await fsp.rm(bunLink, { force: true });
 	await fsp.rm(nodeLink, { force: true });
+	await fsp.rm(npxPath, { force: true });
+	await fsp.rm(npmPath, { force: true });
 	await fsp.symlink(target, bunLink);
 	await fsp.symlink(target, nodeLink);
-	log.info(`[runtime-bin] bun/node -> ${target}`);
+	// npx 包装脚本：过滤 -y/--yes（bun x 无需确认），其余透传
+	const npxScript = `#!/bin/sh
+# npx -> bun x wrapper: strip -y/--yes (bun x auto-confirms)
+set --
+for arg do case "\$arg" in -y|--yes) ;; *) set -- "\$@" "\$arg" ;; esac; done
+exec "${target}" x "\$@"
+`;
+	await fsp.writeFile(npxPath, npxScript);
+	await fsp.chmod(npxPath, 0o755);
+	// npm exec -> bun x wrapper（仅 exec 子命令需要，其余 npm 命令极少在 packaged 下调用）
+	const npmScript = `#!/bin/sh
+# npm -> bun wrapper: translate 'npm exec' to 'bun x'
+if [ "\$1" = "exec" ]; then shift; set -- "\$@"; exec "${target}" x "\$@"; fi
+exec "${target}" "\$@"
+`;
+	await fsp.writeFile(npmPath, npmScript);
+	await fsp.chmod(npmPath, 0o755);
+	log.info(`[runtime-bin] bun/node/npx/npm -> ${target}`);
 	return binDir;
 }
 
