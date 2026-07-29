@@ -78,4 +78,19 @@ describe("ModelSelector", () => {
     render(<ModelSelector value="old-slug/m1" onChange={onChange} />);
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  test("auto-select 触发后 value 被清空仍能再次触发", async () => {
+    const onChange = mock();
+    const { rerender } = render(<ModelSelector value={null} onChange={onChange} />);
+    // 初始 auto-select
+    expect(onChange).toHaveBeenCalledWith("test/m1");
+    
+    // onChange 更新了父组件状态，value 变为 auto-selected 值
+    rerender(<ModelSelector value="test/m1" onChange={onChange} />);
+    
+    // 切换会话：value 变回 null
+    rerender(<ModelSelector value={null} onChange={onChange} />);
+    // 应再次触发 auto-select（但当前 autoSelectedRef 已是 true，会失败）
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
 });
