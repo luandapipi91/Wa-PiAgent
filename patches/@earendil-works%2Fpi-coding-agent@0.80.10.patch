@@ -1,0 +1,49 @@
+diff --git a/node_modules/@earendil-works/pi-coding-agent/.bun-tag-315f30759f3634ea b/.bun-tag-315f30759f3634ea
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/@earendil-works/pi-coding-agent/.bun-tag-3a6d12378095e532 b/.bun-tag-3a6d12378095e532
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/dist/core/agent-session.js b/dist/core/agent-session.js
+index 7cdf28aa34c8a8f948d1cc586eae774a93489fe4..d1573edd3fb89c7445b5c549c5eb22779e0c819b 100644
+--- a/dist/core/agent-session.js
++++ b/dist/core/agent-session.js
+@@ -939,6 +939,11 @@ export class AgentSession {
+             return true;
+         }
+         catch (err) {
++            // TUI-only command attempted in RPC mode (ctx.ui.custom unavailable):
++            // degrade gracefully — treat the original text as a normal prompt so it
++            // flows to the LLM like any unknown slash command, instead of erroring.
++            if (err && err.code === "PI_TUI_ONLY")
++                return false;
+             // Emit error via extension runner
+             this._extensionRunner.emitError({
+                 extensionPath: `command:${commandName}`,
+diff --git a/dist/modes/rpc/rpc-mode.js b/dist/modes/rpc/rpc-mode.js
+index f86bf8cd820bd8eb774720026c2e5fa982ca7873..718b4a973411d7ac9f8969966ac0e36b8ba737fa 100644
+--- a/dist/modes/rpc/rpc-mode.js
++++ b/dist/modes/rpc/rpc-mode.js
+@@ -148,9 +148,19 @@ export async function runRpcMode(runtimeHost) {
+                 title,
+             });
+         },
+-        async custom() {
+-            // Custom UI not supported in RPC mode
+-            return undefined;
++        custom() {
++            // Custom UI not supported in RPC mode.
++            // Throw synchronously (not a rejected promise): extensions commonly wrap
++            // custom() in `new Promise((resolve) => { ctx.ui.custom((...) => { ... resolve(); }) })`.
++            // A silent no-op hangs them forever (renderFn is never invoked); a rejected
++            // promise would be unhandled since the return value is ignored. A sync throw
++            // inside the Promise executor rejects that wrapper promise, so the command
++            // handler fails fast with a clear error instead of deadlocking the session.
++            // The PI_TUI_ONLY code lets the command dispatcher recognize this case and
++            // degrade the slash command to a plain LLM prompt instead of an error.
++            const err = new Error("ctx.ui.custom() is not supported in RPC mode (interactive TUI panels are unavailable)");
++            err.code = "PI_TUI_ONLY";
++            throw err;
+         },
+         pasteToEditor(text) {
+             // Paste handling not supported in RPC mode - falls back to setEditorText

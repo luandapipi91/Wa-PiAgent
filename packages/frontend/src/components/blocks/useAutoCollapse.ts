@@ -12,9 +12,13 @@ import { useCallback, useState } from "react";
 export function useAutoCollapse(opts: {
   isStreaming?: boolean;
   isDone: boolean;
+  /** 为 true 时自动展开时机从「流式中」改为「执行中（未完成即展开）」 */
+  executingMode?: boolean;
 }): { open: boolean; toggle: () => void } {
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
-  const autoOpen = !!opts.isStreaming && !opts.isDone;
+  const autoOpen = opts.executingMode
+    ? !opts.isDone
+    : (!!opts.isStreaming && !opts.isDone);
   const open = userOpen ?? autoOpen;
   const toggle = useCallback(() => {
     setUserOpen(!open);

@@ -18,7 +18,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 		tasks?: Array<{ agent: string; task: string }>;
 	};
 	const tasks = args.tasks ?? [];
-	const { open, toggle } = useAutoCollapse({ isStreaming, isDone: !!result });
+	const { open, toggle } = useAutoCollapse({ isStreaming, isDone: !!result, executingMode: true });
 	const failed = !!result?.isError;
 	const full =
 		result?.content
@@ -46,7 +46,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 			}
 			open={open}
 			onToggle={toggle}
-			muted={!isStreaming}
+			muted={!!result}
 			testId={`fleet-${toolCall.id}`}
 		>
 			<div className="mb-1 space-y-1">

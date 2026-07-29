@@ -19,7 +19,7 @@ export function formatArgs(args: Record<string, any>): string {
 
 /** 单个工具调用卡片：完成即折叠；成功绿 / 失败红 / 执行中 accent */
 export function ToolCallCard({ toolCall, result, isStreaming }: { toolCall: ToolCall; result?: ToolResultMessage; isStreaming?: boolean }) {
-  const { open, toggle } = useAutoCollapse({ isStreaming, isDone: !!result });
+  const { open, toggle } = useAutoCollapse({ isStreaming, isDone: !!result, executingMode: true });
   const failed = !!result?.isError;
   const tone = !result ? "accent" : failed ? "danger" : "success";
   const name = toolCall.name === "ask_user_question" ? "问答" : toolCall.name;
@@ -57,7 +57,7 @@ function ToolGroupCardInner({ toolCalls, results, isStreaming }: { toolCalls: an
   const doneCount = toolCalls.filter((tc: any) => results.has(tc.id)).length;
   const successCount = toolCalls.filter((tc: any) => { const r = results.get(tc.id); return r && !r.isError; }).length;
   const failedCount = toolCalls.filter((tc: any) => { const r = results.get(tc.id); return r && r.isError; }).length;
-  const { open, toggle } = useAutoCollapse({ isStreaming, isDone: doneCount === total });
+  const { open, toggle } = useAutoCollapse({ isStreaming, isDone: doneCount === total, executingMode: true });
 
   const status: string[] = [];
   if (successCount > 0) status.push(`✓${successCount}`);

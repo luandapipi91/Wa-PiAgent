@@ -55,21 +55,29 @@ function assistantMsg(
 	};
 }
 
-test("FleetCard 完成（非流式）：默认折叠，头部显示「并行派发 N 个任务」", () => {
+test("FleetCard 完成（非流式）：默认折叠，头部显示「并行派发 N 个任务」，且 data-muted=true", () => {
 	render(
 		<FleetCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />,
 	);
 	const header = screen.getByTestId("fleet-f1-header");
 	expect(header.textContent).toContain("并行派发 2 个任务");
 	expect(screen.queryByTestId("fleet-f1-body")).toBeNull();
+	expect(screen.getByTestId("fleet-f1").getAttribute("data-muted")).toBe("true");
 });
 
-test("FleetCard 流式中（isStreaming + 无 result）：默认展开且 meta 含「执行中」", () => {
+test("FleetCard 执行中（无 result、非流式，如 block 已定稿但工具未返回）：默认展开且不透明", () => {
+	render(<FleetCard sessionId="s1" toolCall={fleetCall} />);
+	// 并行派发还在执行中，卡片应展开（body 可见）且不弱化
+	expect(screen.getByTestId("fleet-f1-body")).toBeTruthy();
+	expect(screen.getByTestId("fleet-f1").getAttribute("data-muted")).toBeNull();
+});
+
+test("FleetCard 流式中（isStreaming + 无 result）：默认展开、不透明、meta 含「执行中」", () => {
 	render(<FleetCard sessionId="s1" toolCall={fleetCall} isStreaming />);
 	expect(screen.getByTestId("fleet-f1-body")).toBeTruthy();
+	expect(screen.getByTestId("fleet-f1").getAttribute("data-muted")).toBeNull();
 	const header = screen.getByTestId("fleet-f1-header");
 	expect(header.textContent).toContain("执行中");
-	// 展开后各子任务可见
 	const body = screen.getByTestId("fleet-f1-body");
 	expect(body.textContent).toContain("代码审查");
 	expect(body.textContent).toContain("review diff");
