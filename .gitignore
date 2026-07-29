@@ -60,3 +60,4 @@ packages/desktop/src/embedded/
 cocode-master/
 packages/kernel/tests/
 nul
+bun.lock

@@ -942,6 +942,28 @@ test("流式中 thinking 块默认展开", () => {
   expect(screen.getByTestId("thinking-panel-body").textContent).toContain("让我想想");
 });
 
+test("已完成的 thinking 块不会因新 thinking 流式到达而重新展开", () => {
+  // 模拟：第一段 thinking 已完成在消息历史中，第二段 thinking 正在流式
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [assistantMsg(1, [{ type: "thinking", thinking: "第一段思考" }])],
+    },
+    streamingBySession: {
+      s1: assistantMsg(2, [{ type: "thinking", thinking: "第二段思考中" }]),
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  // 两个 thinking 段各自独立成卡
+  const cards = screen.getAllByTestId("thinking-panel");
+  expect(cards).toHaveLength(2);
+  // 第一段（已完成）：折叠 + 半透明
+  expect(cards[0].getAttribute("data-muted")).toBe("true");
+  expect(cards[0].querySelector("[data-testid=thinking-panel-body]")).toBeNull();
+  // 第二段（流式中）：展开 + 不透明
+  expect(cards[1].getAttribute("data-muted")).toBeNull();
+  expect(cards[1].querySelector("[data-testid=thinking-panel-body]")).toBeTruthy();
+});
+
 test("流式中工具调用块默认展开，完成后（历史）折叠且弱化", () => {
   const tc = { type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls" } };
   const tr = { role: "toolResult" as const, toolCallId: "tc1", toolName: "bash", content: [{ type: "text" as const, text: "ok" }], isError: false, timestamp: 11 };
