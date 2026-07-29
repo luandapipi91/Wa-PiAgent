@@ -98,7 +98,7 @@ export function generateProviderExtension(
     }).join(",\n");
     return `  pi.registerProvider(${JSON.stringify(slug)}, {
     name: ${JSON.stringify(provider.name)},
-    baseUrl: ${JSON.stringify(provider.baseUrl)},
+    baseUrl: ${JSON.stringify(provider.baseUrl.replace(/\/+$/, ""))},
     apiKey: ${JSON.stringify(provider.apiKey)},
     api: ${JSON.stringify(provider.api)},
     models: [

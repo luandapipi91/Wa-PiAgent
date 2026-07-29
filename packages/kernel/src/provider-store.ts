@@ -25,12 +25,14 @@ export class ProviderStore {
     }
   }
 
-  /** 新增或更新（按 provider.id upsert） */
+  /** 新增或更新（按 provider.id upsert，自动规范化 baseUrl 尾部斜杠） */
   async save(provider: ModelProvider): Promise<void> {
+    // 规范化 baseUrl：去掉尾部斜杠，避免双斜杠导致请求失败
+    const normalized = { ...provider, baseUrl: provider.baseUrl.replace(/\/+$/, "") };
     const list = await this.load();
-    const idx = list.findIndex(p => p.id === provider.id);
-    if (idx >= 0) list[idx] = provider;
-    else list.push(provider);
+    const idx = list.findIndex(p => p.id === normalized.id);
+    if (idx >= 0) list[idx] = normalized;
+    else list.push(normalized);
     await this.persist(list);
   }
 
