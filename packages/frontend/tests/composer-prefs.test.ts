@@ -107,4 +107,18 @@ describe("composer-prefs store", () => {
     expect(useComposerPrefsStore.getState().newSessionIds).toEqual({ p1: "ns-1" });
     expect(await getNewSessionIds()).toEqual({ p1: "ns-1" });
   });
+
+  it("loadSession 不应覆盖已由 setSessionPrefs 设置的 prefs（竞态：auto-select 先于 loadSession 完成）", async () => {
+    await dbSetDefaults({ model: null, thinking: "disabled" });
+
+    // 模拟：auto-select 先触发 setSessionPrefs
+    useComposerPrefsStore.getState().setSessionPrefs("new-session", { model: "openai/gpt-4o" });
+
+    // 模拟：loadSession 在 setSessionPrefs 之后才完成（此时 DB 中仍无记录）
+    await useComposerPrefsStore.getState().loadSession("new-session");
+
+    // loadSession 不应覆盖 auto-select 结果
+    const state = useComposerPrefsStore.getState();
+    expect(state.bySession["new-session"].model).toBe("openai/gpt-4o");
+  });
 });

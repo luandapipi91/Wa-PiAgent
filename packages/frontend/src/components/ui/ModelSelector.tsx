@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useProvidersStore } from "../../store/providers";
 import { slugifyProviderName } from "@wa-pi/shared";
 
@@ -23,6 +23,19 @@ export function ModelSelector({ value, onChange, disabled }: Props) {
     });
   }, [providers]);
   const fullValue = value ?? "";
+
+  // 未选模型时自动选择第一个可用模型，避免发送按钮被 disabled placeholder 卡死。
+  // 用 ref 确保每个 ModelSelector 实例仅触发一次（新会话、新建模型等场景）。
+  // value 清空（切到无 pref 的会话）时重置 ref，允许再次 auto-select。
+  const autoSelectedRef = useRef(false);
+  useEffect(() => {
+    if (!fullValue) autoSelectedRef.current = false;
+  }, [fullValue]);
+  useEffect(() => {
+    if (fullValue || models.length === 0 || autoSelectedRef.current) return;
+    autoSelectedRef.current = true;
+    onChange(`${models[0].providerSlug}/${models[0].id}`);
+  }, [fullValue, models, onChange]);
 
   // 兼容旧数据：已保存的值匹配不上任何选项时，按 id 部分兜底匹配——
   // 覆盖裸 model id（"deepseek-v4-pro"）与过期 slug（"deep/deepseek-v4-pro"，provider 改名后残留），
