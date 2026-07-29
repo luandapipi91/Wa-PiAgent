@@ -64,6 +64,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 					data-testid="text-block"
 					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
 				>
+					<div className="text-[11px] text-tertiary mb-1">📤 回复：</div>
 					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
 						{full}
 					</ReactMarkdown>

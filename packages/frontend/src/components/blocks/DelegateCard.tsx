@@ -32,7 +32,8 @@ export function DelegateCard({ sessionId, toolCall, result, isStreaming }: Props
     >
       <div className="mb-1">📋 任务：{args.task}</div>
       {result && (
-        <div data-testid="text-block" className={failed ? "text-danger" : ""}>
+        <div data-testid="text-block" className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}>
+          <div className="text-[11px] text-tertiary mb-1">📤 回复：</div>
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{full}</ReactMarkdown>
         </div>
       )}
