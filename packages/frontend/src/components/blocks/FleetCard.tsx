@@ -26,6 +26,8 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 				c.type === "text" ? c.text : "",
 			)
 			.join("\n") ?? "";
+	// 将【Agent名】转为 markdown 粗体标题 + 分隔，让各 agent 回复视觉独立
+	const formattedFull = full.replace(/【(.+?)】/g, "\n---\n**$1**  \n");
 	const mdComponents = createMarkdownComponents(sessionId);
 	return (
 		<ProcessCard
@@ -66,7 +68,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 				>
 					<div className="text-[11px] text-tertiary mb-1">📤 回复：</div>
 					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-						{full}
+						{formattedFull}
 					</ReactMarkdown>
 				</div>
 			)}
