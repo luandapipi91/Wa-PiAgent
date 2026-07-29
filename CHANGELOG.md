@@ -6,6 +6,13 @@
 
 ## 2026-07-30
 
+### 新增功能
+
+- **新增 README.md**：面向第三方的项目介绍——产品定位、核心特性（多智能体/会话/MCP/模型/技能/插件/记忆/双端）、快速开始、mermaid 架构图、项目结构、开发指南、路线图；配图 3 张真实界面截图（`docs/assets/readme/`：会话界面、MCP 连接器、模型管理）。
+- 影响范围：`README.md`（新增）、`docs/assets/readme/`（新增 3 张截图）
+
+## 2026-07-30
+
 ### 修复
 
 - **打包后 MCP 连接报 "Executable not found: npx" 和 "-32000 Connection closed"**：
