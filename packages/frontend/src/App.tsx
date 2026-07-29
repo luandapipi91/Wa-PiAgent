@@ -22,7 +22,7 @@ import { useMemoryStore } from "./store/memory";
 import { useToastStore } from "./store/toast";
 import { useComposerPrefsStore } from "./store/composer-prefs";
 import { useSubagentsStore } from "./store/subagents";
-import { onMessage, connectEvents, onReconnect } from "./events";
+import { onMessage, connectEvents, onReconnect, onConnectionChange, getConnectionState, type ConnectionState } from "./events";
 import { api } from "./api-client";
 import { ToastContainer } from "./components/ui/Toast";
 import { RecordingCapsule } from "./components/ui/RecordingCapsule";
@@ -42,6 +42,9 @@ export function App() {
   const [pendingAgent, setPendingAgent] = useState<string | null>(null);
   // 主智能体已删除的会话 id：kernel 回 agent_missing 时打开重选弹窗
   const [agentMissingSessionId, setAgentMissingSessionId] = useState<string | null>(null);
+  const [connState, setConnState] = useState<ConnectionState>(() => getConnectionState());
+
+  useEffect(() => onConnectionChange(setConnState), []);
 
   useEffect(() => {
     connectEvents();
@@ -254,6 +257,12 @@ export function App() {
         currentView={view}
       />
       <main className="flex-1 flex flex-col overflow-hidden">
+        {connState === "reconnecting" && (
+          <div className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs bg-warning-soft text-warning border-b border-warning/20">
+            <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ border: "2px solid var(--warning)", borderTopColor: "transparent", animation: "spin 0.8s linear infinite" }} />
+            连接已断开，正在重连…
+          </div>
+        )}
         {view === "empty" && <EmptyState onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }} />}
         {view === "new-session" && <NewSessionPane pendingAgent={pendingAgent} onConsumePendingAgent={() => setPendingAgent(null)} />}
         {view === "session" && currentSessionId && <SessionView sessionId={currentSessionId} />}

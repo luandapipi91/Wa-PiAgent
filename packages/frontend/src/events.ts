@@ -18,6 +18,16 @@ let source: EventSource | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = 1_000;
 let onReconnectCallback: (() => void) | null = null;
+/** 连接状态：connected | reconnecting | disconnected */
+export type ConnectionState = "connected" | "reconnecting";
+let connectionListeners: Array<(s: ConnectionState) => void> = [];
+let currentState: ConnectionState = "connected";
+
+function setConnectionState(s: ConnectionState): void {
+  if (currentState === s) return;
+  currentState = s;
+  for (const l of connectionListeners) l(s);
+}
 
 const globalHandlers: GlobalHandlers = new Set();
 const typedHandlers: TypedHandlers = new Map();
@@ -42,6 +52,7 @@ function connect(): void {
 
   source.onopen = () => {
     reconnectDelay = 1_000;
+    setConnectionState("connected");
   };
 
   source.onmessage = (ev) => {
@@ -56,6 +67,7 @@ function connect(): void {
   source.onerror = () => {
     source?.close();
     source = null;
+    setConnectionState("reconnecting");
     scheduleReconnect();
   };
 }
@@ -112,9 +124,22 @@ export function disconnectEvents(): void {
   typedHandlers.clear();
   onReconnectCallback = null;
   reconnectDelay = 1_000;
+  connectionListeners = [];
+  currentState = "connected";
 }
 
 /** 测试用：手动注入一条服务端事件，触发所有已注册监听器。 */
 export function emitEventForTesting(event: WSServerEvent): void {
   dispatch(event);
+}
+
+/** 订阅连接状态变化；返回取消订阅函数。 */
+export function onConnectionChange(listener: (s: ConnectionState) => void): () => void {
+  connectionListeners.push(listener);
+  return () => { connectionListeners = connectionListeners.filter(l => l !== listener); };
+}
+
+/** 获取当前连接状态。 */
+export function getConnectionState(): ConnectionState {
+  return currentState;
 }
