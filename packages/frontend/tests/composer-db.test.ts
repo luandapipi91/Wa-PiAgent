@@ -38,6 +38,8 @@ describe("composer-db", () => {
     await getDefaults();
     await deleteSessionPrefs("test-session");
     await clearDefaultsStore();
+    // defaults/recording/newSessionIds 现走 localStorage，需一并清理
+    localStorage.clear();
   });
 
   it("stores and retrieves session prefs", async () => {
