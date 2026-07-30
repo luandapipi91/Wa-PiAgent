@@ -7,6 +7,10 @@ declare global {
       writeText: (text: string) => void;
       writeImage: (base64Png: string) => void;
     };
+    // 桌面 preload 注入：大文件附件降级为路径引用时取 File 真实路径
+    waPiApp?: {
+      getPathForFile?: (file: File) => string;
+    };
   }
 }
 

@@ -703,3 +703,77 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
     }
   });
 });
+
+// ── 超大附件降级为路径引用（Electron）/ 提示超限（浏览器）──
+//
+// 50MB 以上文件：Electron 下经 waPiApp.getPathForFile 取真实路径，降级为 @路径 引用
+// （不上传内容）；浏览器无此 API 则提示超限。
+
+// 构造指定大小的 File 对象（size 直接指定，不占实际内存——覆盖 File 的 size 属性）
+function bigFile(name: string, mb: number, type = "application/octet-stream"): File {
+  const file = new File(["x"], name, { type });
+  const size = mb * 1024 * 1024;
+  Object.defineProperty(file, "size", { value: size, configurable: true });
+  return file;
+}
+
+describe("超大附件降级处理", () => {
+  afterEach(() => {
+    // 清理 window.waPiApp（避免泄漏到其他测试）
+    (window as any).waPiApp = undefined;
+  });
+
+  it("Electron 环境：>50MB 文件降级为路径引用（不报错、不上传）", async () => {
+    (window as any).waPiApp = { getPathForFile: (f: File) => `/home/user/${f.name}` };
+    const setAttachments = mock() as any;
+    const { container } = renderComposer({ setAttachments });
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [bigFile("big.zip", 80)] } });
+    });
+
+    // 降级为路径引用：setAttachments 被调用，附件 path 为真实路径
+    await waitFor(() => expect(setAttachments).toHaveBeenCalled());
+    const attachments = setAttachments.mock.calls[0][0]([]);
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].path).toBe("/home/user/big.zip");
+    expect(attachments[0].kind).toBe("file");
+    // 未发起上传（无 fetch）
+    expect(fetchCalls.length).toBe(0);
+    // 无超限错误
+    expect(screen.queryByText(/超过.*上限/)).toBeNull();
+  });
+
+  it("浏览器环境：>50MB 文件提示超限（无 waPiApp）", async () => {
+    (window as any).waPiApp = undefined;
+    const setAttachments = mock() as any;
+    const { container } = renderComposer({ setAttachments });
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [bigFile("big.zip", 80)] } });
+    });
+
+    // 显示超限提示，不添加附件
+    await waitFor(() => expect(screen.getByText(/超过.*50MB.*上限/)).toBeTruthy());
+    expect(setAttachments).not.toHaveBeenCalled();
+  });
+
+  it("Electron 环境：≤50MB 文件仍正常上传（不降级）", async () => {
+    (window as any).waPiApp = { getPathForFile: (f: File) => `/home/user/${f.name}` };
+    const setAttachments = mock() as any;
+    const { container } = renderComposer({ setAttachments });
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [bigFile("small.txt", 10)] } });
+    });
+
+    // 正常上传：走 fetch，路径为 uploads 目录
+    await waitFor(() => expect(fetchCalls.length).toBe(1));
+    await waitFor(() => expect(setAttachments).toHaveBeenCalled());
+    const attachments = setAttachments.mock.calls[0][0]([]);
+    expect(attachments[0].path).toContain("uploads");
+  });
+});

@@ -290,17 +290,39 @@ export function ComposerInput({
   const uploadFiles = async (files: FileList | null) => {
     if (!files || files.length === 0 || !projectId) return;
     const MAX_MB = 50;
+    const MAX_BYTES = MAX_MB * 1024 * 1024;
     const list = Array.from(files);
-    // 前端预检：超大文件直接拒绝，避免读 base64 + WS 发送后再等超时
-    const oversized = list.filter(f => f.size > MAX_MB * 1024 * 1024);
+    // 前端预检：超大文件分流——Electron 下能拿到真实路径则降级为路径引用（不上传内容），
+    // 非 Electron（浏览器）无法获取路径则提示超限。
+    const oversized = list.filter(f => f.size > MAX_BYTES);
+    const normal = list.filter(f => f.size <= MAX_BYTES);
     if (oversized.length > 0) {
-      const names = oversized.map(f => `"${f.name}" (${(f.size / 1024 / 1024).toFixed(0)}MB)`).join("、");
-      setUploadError(`附件超过 ${MAX_MB}MB 上限: ${names}`);
-      return;
+      const getPathForFile = window.waPiApp?.getPathForFile;
+      if (getPathForFile) {
+        // Electron：超大文件降级为路径引用（与本地文件选择器 handlePick 一致，走 @路径 引用）
+        setPendingUploads(n => n + oversized.length);
+        for (const file of oversized) {
+          try {
+            const path = getPathForFile(file);
+            const kind = file.type.startsWith("image/") ? "image" : "file";
+            setAttachments(prev => [...prev, { kind, name: file.name, path, size: file.size }]);
+          } catch {
+            setUploadError(`无法获取文件路径: ${file.name}`);
+          } finally {
+            setPendingUploads(n => n - 1);
+          }
+        }
+      } else {
+        // 浏览器：无法获取真实路径，维持超限提示
+        const names = oversized.map(f => `"${f.name}" (${(f.size / 1024 / 1024).toFixed(0)}MB)`).join("、");
+        setUploadError(`附件超过 ${MAX_MB}MB 上限: ${names}`);
+      }
+    } else {
+      setUploadError(null);
     }
-    setUploadError(null);
-    setPendingUploads(n => n + list.length);
-    for (const file of list) {
+    if (normal.length === 0) return;
+    setPendingUploads(n => n + normal.length);
+    for (const file of normal) {
       try {
         const { path } = await uploadFile(projectId, file.name, file, sessionId);
         const kind = file.type.startsWith("image/") ? "image" : "file";

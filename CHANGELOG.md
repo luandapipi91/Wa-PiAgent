@@ -6,6 +6,32 @@
 
 ## 2026-07-30
 
+### 新增
+
+- **种子角色默认全量互联**：`makeSeedAgentConfig` 现在为每个内置专家角色自动填充 `partners.askTo`（除自身外的全部 8 个合作伙伴），首次启动即可使用完整的关系网和 delegate/fleet 委托，无需手动配置。手动新建角色的 `partners.askTo` 仍默认为空，保持灵活性。
+  - 影响范围：`packages/kernel/src/default-agent-seeds.ts`（核心逻辑）、`packages/kernel/tests/config-store.test.ts`（更新断言）
+
+- **超大附件降级为路径引用**：Electron 环境下上传超过 50MB 的附件不再报错，改为通过 `webUtils.getPathForFile` 取 File 真实路径，以 `@路径` 引用方式加入附件（与本地文件选择器一致，不上传内容）。非 Electron 环境（浏览器）无此 API，维持原有的超限提示。≤50MB 文件仍正常上传。
+  - 影响范围：`packages/desktop/src/preload.cjs`（暴露 getPathForFile）、`packages/frontend/src/components/ui/ComposerInput.tsx`（超大文件降级分流）、`packages/frontend/src/util/clipboard.ts`（waPiApp 类型声明）
+
+### 修复
+
+- **修复"发消息后回复部分内容即断开连接"**（TDD 推进 + 崩溃日志跟踪）。根因经运行日志（`退出 code=null`）+ 代码链路确认，分两层修复：
+  - **崩溃根因**：`sse-bus.ts` 的 `broadcast` 里 `JSON.stringify(data)` 在 try/catch **之外**。流式输出中某帧 payload 含 BigInt（部分 provider 的 token usage）或循环引用（工具调用结果）时，JSON.stringify 同步抛 TypeError，沿 `rpc-client` stdout 回调 → `onEvent` → `eventThrottle` → `broadcast` 一路无兜底冒泡，被 Bun 视为未捕获异常杀死 kernel 进程（日志仅 `code=null` 无堆栈），SSE 长连接物理断开，前端显示"连接已断开"。完美吻合"回复部分内容后才断"。修复：JSON.stringify 移进 try/catch，失败用 BigInt-safe replacer（`(_,v) => typeof v==="bigint" ? v.toString() : v`）重试，仍失败记 warn 丢帧——绝不让单个坏帧杀进程。
+  - **无法自愈**：kernel 崩溃后 `kernel-sidecar.cjs` 只 log 不重启，前端无限重连死端口。
+  - 影响范围：`packages/kernel/src/sse-bus.ts`
+- **新增 kernel 全局异常兜底 + 崩溃日志**（跟踪用）。新建 `packages/kernel/src/crash-logger.ts`：`createCrashLogger` 把未捕获异常/unhandledRejection 的堆栈追加写入 `~/.wa-pi/logs/kernel-crash.log`（带时间戳，参考 desktop log.cjs 模式）；`installCrashHandlers` 注册 `uncaughtException`/`unhandledRejection` 处理器（写日志 + 广播 error 给前端 + **绝不退出进程**）。`index.ts` 启动时尽早注册（broadcast 在 server 就绪后赋值）。bun 默认对未捕获 rejection 终止进程，这是历史 kernel 被 `code=null` 杀死无堆栈的根治防御。后续任何残留崩溃都会在 `kernel-crash.log` 留痕。
+  - 影响范围：`packages/kernel/src/crash-logger.ts`、`packages/kernel/src/index.ts`
+- **desktop kernel 崩溃自动重启**。新建 `packages/desktop/src/util/auto-respawn.cjs`（纯决策函数 `shouldRespawn(code, state)`：仅 `code===null`（被信号杀）且未主动 stop() 且未达上限时重启；`MAX_RESPAWN=3`、`RESPAWN_DELAY_MS=2000`）。`kernel-sidecar.cjs` 的 `child.on("exit")` 接入：崩溃时延迟后重新 spawn + waitForPort，重启成功清零计数；用户 `stop()` 置 `stopped` 标志禁止误重启。kernel 重启后前端 SSE 自动重连（events.ts 已有无限退避重试）。
+  - 影响范围：`packages/desktop/src/util/auto-respawn.cjs`、`packages/desktop/src/kernel-sidecar.cjs`
+- **前端重连后全状态自愈**。`App.tsx` 的 `onReconnect` 回调原仅恢复 projects+messages，补上 mount 时加载的 providers/skills/extensions/agents/subagents，确保 kernel 重启 + SSE 重连后前端全状态对齐，无需手动刷新。
+  - 影响范围：`packages/frontend/src/App.tsx`
+- **验证**（TDD，每步红→绿）：新增测试 `sse-bus.test.ts`(4)、`crash-logger.test.ts`(4)、`crash-handlers.test.ts`(3)、`auto-respawn.test.ts`(6) 共 17 个；`bun run typecheck` 四包过；`bun run test` 1473 pass / 0 fail（kernel 563 + shared 87 + desktop 26 + frontend 797）；`pack:mac` 出新 dmg。后续若仍复现断开，查 `~/.wa-pi/logs/kernel-crash.log` 的堆栈继续定位。
+
+---
+
+## 2026-07-30
+
 ### 修复
 
 - **网络错误后排队与重发按钮**：承接上次「transient 错误改状态条」改动，补齐两个体验缺口。① pi 内部重试期间（busy=true）新消息本就会自动进 followUp 队列（现有机制，无需改）；② pi 重试耗尽后 agent_settled 会自动 drain 队列——但此时网络仍不可用，排队消息会再失败。修复：kernel SessionHandle 新增 `netDegraded` 标记，transient 错误时置 true，agent_settled 跳过 drain（队列保留等用户重发），用户重发（prompt 走 _sendPromptNow）时自动清除标记恢复正常。③ transient 不进对话流导致原「重新发送」按钮（依赖 stopReason:error）永不命中——MessageList 新增 degraded 触发条件：netDegraded 且末条是 user 消息时显示重发按钮，重发同一条不叠加并清除 degraded。④ App.tsx net:status 移除 failTurn，让 pi 的 agent_end 自然复位 thinking（依赖 pi finally 必发 agent_settled，已由源码确认）。

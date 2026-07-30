@@ -348,6 +348,9 @@ export class WSServer {
             return Response.json({ error: "invalid_json" }, { status: 400 });
           }
           const r = await handleBridgeRequest(body);
+          // 诊断：记录每次宿主工具调用（崩溃定位——看最后调的工具）
+          const toolName = (body as any)?.tool;
+          if (toolName) console.log(`[kernel] bridge tool: ${toolName}`);
           if (!r.ok) return Response.json({ error: r.error }, { status: r.status });
           return Response.json(r.result, { status: 200 });
         }

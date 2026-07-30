@@ -103,7 +103,7 @@ test("seedDefaults: 空目录写入全部 9 个内置专家角色", async () => 
     "UX设计师", "产品经理", "前端开发者", "会议纪要专家", "数据分析师",
     "测试结果分析师", "代码审查员", "高级项目经理", "后端架构师",
   ].sort());
-  // 9 个角色有完整种子内容：description 非空、delegationHints 三项齐全、不配置 askTo
+  // 9 个角色有完整种子内容：description 非空、delegationHints 三项齐全、默认全量互联
   for (const name of ["前端开发者", "后端架构师", "产品经理", "测试结果分析师", "数据分析师", "代码审查员", "UX设计师", "高级项目经理", "会议纪要专家"]) {
     const agent = (await cs.getAgent(name))!;
     expect(agent.description).toBeTruthy();
@@ -111,7 +111,9 @@ test("seedDefaults: 空目录写入全部 9 个内置专家角色", async () => 
     expect(agent.delegationHints?.whenToDelegate).toBeTruthy();
     expect(agent.delegationHints?.whenNotTo).toBeTruthy();
     expect(agent.delegationHints?.benefit).toBeTruthy();
-    expect(agent.partners.askTo).toEqual([]);
+    // 种子角色默认全量互联，每个角色应包含除自身外的全部 8 个合作伙伴
+    expect(agent.partners.askTo.length).toBe(8);
+    expect(agent.partners.askTo).not.toContain(name);
   }
   rmSync(dir, { recursive: true, force: true });
 });
