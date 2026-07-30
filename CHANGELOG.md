@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-30
+
+### 修复
+
+- **流式输出时 Mermaid 图不再反复闪烁重画**：根因是 `MermaidBlock` 的 `useEffect([code])` 对成功渲染路径零节流——流式中 mermaid 源码每个 token 都增长，每次都能解析成功就立刻用新 SVG 替换 DOM 重画整张图（仅错误显示有 400ms debounce，成功路径无）。修复：code 变化后延迟 1000ms 才执行 `mermaid.render()`（流式中 token 间隔远小于 1s，timer 不断重置 → render 不触发 → 图稳定）；即便到期渲染，也用 ref 缓存上次成功 SVG，仅在内容真正变化时才替换 DOM。仅改 `MermaidBlock.tsx`，不动流式数据链路。
+  - 影响范围：`packages/frontend/src/components/blocks/MermaidBlock.tsx`、`packages/frontend/tests/blocks/MermaidBlock.test.tsx`
+
 ## 2026-07-29
 
 ### 修复
