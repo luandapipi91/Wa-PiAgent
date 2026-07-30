@@ -1,6 +1,6 @@
 import "./mock-composer-db";
 import { test, expect, beforeEach, mock, afterEach } from "bun:test";
-import { render, screen, waitFor, act, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, act, fireEvent, cleanup } from "@testing-library/react";
 import { SYSTEM_PROJECT_ID, type SessionMessage } from "@wa-pi/shared";
 import { SessionView } from "../src/components/SessionView";
 import { useProjectsStore } from "../src/store/projects";
@@ -330,6 +330,27 @@ test("默认工作区会话 header 显示友好文案", async () => {
   expect(screen.getByText(/默认工作区/)).toBeTruthy();
   expect(screen.getByText(/工作目录/)).toBeTruthy();
   expect(screen.queryByText(/\/tmp\/workdir/)).toBeNull();
+});
+
+// === 文件树面板（ExplorerPanel）===
+// explorer store 状态在测试间共享，需手动重置
+const { useExplorerStore } = await import("../src/store/explorer");
+
+test("header 含文件树按钮，点击后展开右侧面板", async () => {
+  useExplorerStore.getState().setOpen(false);
+  await renderSessionView("s1");
+  expect(screen.getByTestId("btn-explorer")).toBeTruthy();
+
+  // 初始面板收起
+  expect(screen.queryByTestId("explorer-aside")).toBeNull();
+
+  // 点击展开
+  await act(async () => { fireEvent.click(screen.getByTestId("btn-explorer")); });
+  expect(screen.getByTestId("explorer-aside")).toBeTruthy();
+
+  // 再次点击收起
+  await act(async () => { fireEvent.click(screen.getByTestId("btn-explorer")); });
+  expect(screen.queryByTestId("explorer-aside")).toBeNull();
 });
 
 test("普通项目会话 header 仍显示 project.cwd（不回归）", async () => {

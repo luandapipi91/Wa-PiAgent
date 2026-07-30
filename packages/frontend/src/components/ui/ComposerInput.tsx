@@ -240,6 +240,29 @@ export function ComposerInput({
     setHighlightedIndex(menuItems.length > 0 ? 0 : -1);
   }, [triggerType, trigger?.query, menuItems.length]);
 
+  // 监听文件树拖拽释放的 @提及事件：在编辑器光标处插入，失败则追加到末尾
+  useEffect(() => {
+    const onInsert = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { text: string; editor?: HTMLElement } | undefined;
+      if (!detail?.text) return;
+      const editor = detail.editor;
+      let inserted = false;
+      if (editor) {
+        editor.focus();
+        // contentEditable：用 execCommand 在当前光标处插入文本（仍广泛支持，最可靠）
+        try {
+          inserted = document.execCommand("insertText", false, detail.text);
+        } catch { /* 降级到末尾追加 */ }
+      }
+      if (!inserted) {
+        // 回退：追加到受控 text 末尾
+        setText(text + detail.text);
+      }
+    };
+    window.addEventListener("wa-pi:insert-mention", onInsert as EventListener);
+    return () => window.removeEventListener("wa-pi:insert-mention", onInsert as EventListener);
+  }, [text, setText]);
+
   const isImageName = (name: string) => /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(name);
 
   const addAttachment = (draft: AttachmentDraft) => {

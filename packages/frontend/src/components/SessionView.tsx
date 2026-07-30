@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { SYSTEM_PROJECT_ID, slugifyProviderName, type AgentStatus } from "@wa-pi/shared";
+import { SYSTEM_PROJECT_ID, resolveSessionCwd, slugifyProviderName, type AgentStatus } from "@wa-pi/shared";
 import { useProjectsStore } from "../store/projects";
 import { useSessionStore } from "../store/session";
 import { useIsBlocked } from "../store/ask";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { useProvidersStore } from "../store/providers";
+import { useExplorerStore } from "../store/explorer";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
 import { AskDock } from "./ask/AskDock";
 import { AgentSwitcher } from "./AgentSwitcher";
+import { ExplorerPanel } from "./ExplorerPanel";
+import { FileViewer } from "./blocks/FileViewer";
+import { Modal } from "./ui/Modal";
 import { STATUS_COLORS } from "../theme/colors";
 import { api } from "../api-client";
 
@@ -137,8 +141,16 @@ export function SessionView({ sessionId }: Props) {
     void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/clear-queue`, {});
   };
 
+  // 右侧文件树面板：开关状态来自 explorer store；双击文件后记录预览路径
+  const explorerOpen = useExplorerStore(s => s.open);
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
+  // 文件树根目录：普通项目用 project.cwd，默认工作区会话用其专属临时目录 workdir/<createdAt>/
+  const workspaceDir = resolveSessionCwd(session, { cwd: project?.cwd ?? "" });
+
   return (
-    <div className="flex-1 flex flex-col h-full" data-testid="session-view">
+    <div className="flex-1 flex h-full" data-testid="session-view">
+    {/* 左侧主区：对话内容 */}
+    <div className="flex-1 flex flex-col overflow-hidden min-w-0">
       {/* 顶部状态栏 */}
       <header className="flex items-center gap-3 px-5 py-3 border-b border-hairline bg-surface">
         <div className="flex-1">
@@ -187,6 +199,18 @@ export function SessionView({ sessionId }: Props) {
             })()}
           </div>
         )}
+        {/* 文件树面板开关按钮 */}
+        <button
+          type="button"
+          className="fv-btn"
+          data-testid="btn-explorer"
+          data-active={explorerOpen ? "true" : "false"}
+          onClick={() => useExplorerStore.getState().toggle()}
+          title="项目文件"
+          style={explorerOpen ? { borderColor: "var(--accent)", color: "var(--accent)" } : undefined}
+        >
+          📁
+        </button>
       </header>
 
       {/* 队列面板：agent 运行中或有队列时显示 */}
@@ -273,6 +297,26 @@ export function SessionView({ sessionId }: Props) {
       <MessageList sessionId={sessionId} />
       <AskDock sessionId={sessionId} />
       <Composer sessionId={sessionId} agentName={session.primaryAgent} isRunning={status === "thinking"} isNewSession={!messages || messages.length === 0} disabled={isBlocked || reloading} />
+    </div>
+    {/* 右侧文件树面板：开关由 explorer store 控制；双击文件弹窗预览 */}
+    {explorerOpen && (
+      <aside className="flex flex-col border-l border-hairline bg-surface" style={{ width: 320 }} data-testid="explorer-aside">
+        <div className="flex items-center gap-1 px-3 py-2 border-b border-hairline">
+          <span className="text-[12px] font-semibold text-primary flex-1">项目文件</span>
+          <button className="fv-btn" onClick={() => useExplorerStore.getState().toggle()} title="收起面板">›</button>
+        </div>
+        {/* 文件树占满面板，双击文件触发弹窗预览 */}
+        <div className="flex-1 overflow-auto">
+          <ExplorerPanel workspaceDir={workspaceDir} onOpenFile={setPreviewPath} />
+        </div>
+      </aside>
+    )}
+    {/* 文件预览弹窗：双击文件后以 80% 宽高弹出 */}
+    {previewPath && (
+      <Modal onClose={() => setPreviewPath(null)} width="80vw" height="80vh" data-testid="file-preview-modal">
+        <FileViewer path={previewPath} onClose={() => setPreviewPath(null)} />
+      </Modal>
+    )}
     </div>
   );
 }
