@@ -354,8 +354,8 @@ test("token 胶囊：有 usage 时显示 ↑↓/累计/缓存", () => {
     tokenTotals: { s1: { input: 6400, output: 2100 } },
   });
   useProjectsStore.setState({
-    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
-    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi" }],
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "/tmp/s1.jsonl" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi", createdAt: 0 }],
   });
   render(<SessionView sessionId="s1" />);
   expect(screen.getByTestId("token-capsules")).toBeTruthy();
@@ -385,8 +385,8 @@ test("token 胶囊：有模型时累计胶囊显示进度条", () => {
     tokenTotals: { s1: { input: 6400, output: 2100 } },
   });
   useProjectsStore.setState({
-    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
-    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi" }],
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "/tmp/s1.jsonl" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi", createdAt: 0 }],
   });
 
   render(<SessionView sessionId="s1" />);
@@ -406,8 +406,8 @@ test("token 胶囊：无模型时累计胶囊不显示进度条", () => {
     tokenTotals: { s1: { input: 6400, output: 2100 } },
   });
   useProjectsStore.setState({
-    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
-    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi" }],
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "/tmp/s1.jsonl" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi", createdAt: 0 }],
   });
 
   render(<SessionView sessionId="s1" />);
@@ -436,8 +436,8 @@ test("token 胶囊：进度条极小占比也有最小可见宽度", () => {
     tokenTotals: { s1: { input: 100, output: 0 } },
   });
   useProjectsStore.setState({
-    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
-    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi" }],
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "/tmp/s1.jsonl" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi", createdAt: 0 }],
   });
 
   render(<SessionView sessionId="s1" />);
@@ -455,8 +455,8 @@ test("token 胶囊：无 usage 时不显示", () => {
     tokenTotals: {},
   });
   useProjectsStore.setState({
-    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", piSessionFile: "/tmp/s1.jsonl" }],
-    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi" }],
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "/tmp/s1.jsonl" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi", createdAt: 0 }],
   });
   render(<SessionView sessionId="s1" />);
   expect(screen.queryByTestId("token-capsules")).toBeNull();

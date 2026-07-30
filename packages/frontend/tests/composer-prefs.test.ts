@@ -12,16 +12,19 @@ import {
 
 const DB_NAME = "wa-pi-composer";
 
-/** 清空 IndexedDB 中的 sessions 与 defaults store，避免测试间污染 */
+/** 清空 IndexedDB 中的 sessions store（defaults 已改用 localStorage，由 localStorage.clear() 清理） */
 async function clearStores(): Promise<void> {
   const request = indexedDB.open(DB_NAME);
   await new Promise<void>((resolve, reject) => {
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;
-      const tx = db.transaction(["sessions", "defaults"], "readwrite");
-      tx.objectStore("sessions").clear();
-      tx.objectStore("defaults").clear();
+      const storeNames = Array.from(db.objectStoreNames);
+      // 仅清理存在的 store（defaults 已迁 localStorage，可能不在 idb 里）
+      const targets = ["sessions"].filter(n => storeNames.includes(n));
+      if (targets.length === 0) { db.close(); resolve(); return; }
+      const tx = db.transaction(targets, "readwrite");
+      for (const n of targets) tx.objectStore(n).clear();
       tx.oncomplete = () => {
         db.close();
         resolve();
@@ -35,8 +38,9 @@ describe("composer-prefs store", () => {
   beforeEach(async () => {
     // 先触发 idb 的数据库初始化，避免后续直接操作 indexedDB 时创建空版本
     await getDefaults();
-    await clearStores();
-    // defaults/recording/newSessionIds 现走 localStorage，需一并清理
+    // 注意：不调 clearStores（它用独立 connection open 同名 db 会破坏 getDb 的 dbPromise 缓存，
+    // 导致后续 setSessionPrefs 写入丢失）。测试间隔离靠唯一 sessionId + 重置 store 内存态。
+    // defaults/recording/newSessionIds 走 localStorage，需清理
     localStorage.clear();
     // 重置 hydration 标志：模拟软件重启后尚未 loadDefaults 的初始状态
     _resetDefaultsHydration();
@@ -86,9 +90,10 @@ describe("composer-prefs store", () => {
 
     const state = useComposerPrefsStore.getState();
     expect(state.defaults).toEqual({ model: "fallback-model", thinking: "high" });
+    // 无 session 记录时：model 回退 defaults，thinking 保持 undefined（未显式设置）
+    // 组件读取 thinking 时回退到 defaults.thinking
     expect(state.bySession["missing-session"]).toEqual({
       model: "fallback-model",
-      thinking: "high",
       attachments: [],
     });
   });
@@ -208,5 +213,38 @@ describe("composer-prefs store", () => {
 
     // 关键断言：用户在新会话设的 max 应被保留，而非被老会话的 off 覆盖
     expect(useComposerPrefsStore.getState().defaults.thinking).toBe("max");
+  });
+
+  it("会话未显式设置 thinking 时，回退到 defaults.thinking 而非硬编码 disabled", async () => {
+    // defaults 设为 max
+    await dbSetDefaults({ model: null, thinking: "max" });
+    // 不写入任何 session prefs（模拟全新会话，用户从没设过思考强度）
+
+    await useComposerPrefsStore.getState().loadDefaults();
+    await useComposerPrefsStore.getState().loadSession("s-no-thinking");
+
+    // bySession 里 thinking 应为 undefined（未显式设置），读取时由组件回退到 defaults
+    const sess = useComposerPrefsStore.getState().bySession["s-no-thinking"];
+    expect(sess.thinking).toBeUndefined();
+    // defaults 仍是 max
+    expect(useComposerPrefsStore.getState().defaults.thinking).toBe("max");
+  });
+
+  it("会话显式设置过 thinking 后，切换 defaults 不影响该会话", async () => {
+    await dbSetDefaults({ model: null, thinking: "disabled" });
+    await dbSetSessionPrefs({
+      sessionId: "s-fixed", model: null, thinking: "high",
+      attachments: [], updatedAt: Date.now(),
+    });
+
+    await useComposerPrefsStore.getState().loadDefaults();
+    await useComposerPrefsStore.getState().loadSession("s-fixed");
+    // 会话固定 high
+    expect(useComposerPrefsStore.getState().bySession["s-fixed"].thinking).toBe("high");
+
+    // 用户改了全局默认为 max
+    useComposerPrefsStore.getState().setDefaults({ thinking: "max" });
+    // 已设过 high 的会话不受影响
+    expect(useComposerPrefsStore.getState().bySession["s-fixed"].thinking).toBe("high");
   });
 });

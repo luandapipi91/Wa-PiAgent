@@ -13,6 +13,8 @@
 
 import { readFile } from "node:fs/promises";
 import { reconcileDanglingAsks } from "./ask-tool";
+import { isTransientErrorMessage } from "./sdk-errors";
+import type { AgentMessage } from "@wa-pi/shared";
 
 interface SessionLogEntry {
   type?: string;
@@ -23,11 +25,21 @@ interface SessionLogEntry {
 }
 
 /**
+ * 判断一条历史消息是否为「应过滤的 transient 错误消息」。
+ * 仅匹配 assistant 角色 + stopReason:error + 网络类 errorMessage 的条目。
+ */
+function isTransientAssistantError(message: any): boolean {
+  if (!message || typeof message !== "object") return false;
+  if (message.role !== "assistant" || message.stopReason !== "error") return false;
+  return isTransientErrorMessage(message.errorMessage ?? "");
+}
+
+/**
  * 解析 pi 会话文件，返回当前分支的历史消息（含 reconcileDanglingAsks 对账）。
  * @param opts.isSessionActive 当 session 仍在活跃运行时跳过 dangling ask 对账
  * @throws 文件不可读或没有任何有效 JSON 行（格式变更/损坏）——调用方应回退进程路径。
  */
-export async function readSessionHistory(file: string, opts?: { isSessionActive?: boolean }): Promise<unknown[]> {
+export async function readSessionHistory(file: string, opts?: { isSessionActive?: boolean }): Promise<AgentMessage[]> {
   const raw = await readFile(file, "utf8"); // ENOENT 等直接抛 → 回退
   const entries: SessionLogEntry[] = [];
   for (const line of raw.split("\n")) {
@@ -57,7 +69,14 @@ export async function readSessionHistory(file: string, opts?: { isSessionActive?
       cur = typeof cur.parentId === "string" ? byId.get(cur.parentId) : undefined;
     }
     chain.reverse();
-    return chain.filter(e => e.type === "message" && e.message != null).map(e => e.message);
+    return chain
+      .filter(e => e.type === "message" && e.message != null)
+      .map(e => e.message)
+      // 过滤 transient error（网络/超时类临时错误）：这类错误是临时性的，
+      // 不应作为历史消息残留进对话流（刷新后会重新出现并堆积）。
+      // pi 已将其落盘，这里在读出时剔除——仅前端展示层过滤，JSONL 原文不动。
+      // fatal error（鉴权/配额）保留，需提示用户改配置。
+      .filter((m: any) => !isTransientAssistantError(m));
   };
 
   // 叶子候选 1：文件末尾向前找第一个事件树节点
@@ -79,5 +98,6 @@ export async function readSessionHistory(file: string, opts?: { isSessionActive?
   }
 
   // 重启兜底：对「无 result 的 ask 调用」注入 cancelled（若 session 活跃则跳过，避免误杀 pending ask）
-  return reconcileDanglingAsks(messages, { isSessionActive: opts?.isSessionActive });
+  // 解析器仅产出有效 message 条目（见上方 filter），这里收窄为 AgentMessage[]。
+  return reconcileDanglingAsks(messages, { isSessionActive: opts?.isSessionActive }) as AgentMessage[];
 }

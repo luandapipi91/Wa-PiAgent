@@ -466,6 +466,35 @@ test("切换会话 → 自动滚到最新回复", async () => {
   }, { timeout: 1000 });
 });
 
+test("切换到历史长会话 → 异步内容撑高后 rAF 校正重新贴底", async () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+        assistantMsg(2, [{ type: "text", text: "s1 reply" }]),
+      ],
+      s2: [
+        { agentName: undefined, message: { role: "user", content: "yo", timestamp: 1 } },
+        assistantMsg(2, [{ type: "text", text: "s2 长回复" }]),
+      ],
+    },
+  });
+  const { rerender } = render(<MessageList sessionId="s1" />);
+
+  // 切到 s2：首帧 scrollHeight 偏小（模拟 markdown/代码块异步布局未完成）
+  rerender(<MessageList sessionId="s2" />);
+  const list = screen.getByTestId("message-list");
+  setScrollMetrics(list, { scrollHeight: 800, clientHeight: 300, scrollTop: 0 });
+  // 立即把内容「撑高」到真实高度（在 rAF 校正回调执行前）
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 0 });
+
+  // rAF 校正应把 scrollTop 贴到真实底部 1000
+  await waitFor(() => {
+    expect(list.scrollTop).toBe(1000);
+  }, { timeout: 1000 });
+});
+
+
 // ── 重新发送按钮 ──
 
 test("buildResendPrompt: 有会话+模型+文本 → 返回 agent:prompt 负载", () => {

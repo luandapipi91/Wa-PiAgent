@@ -226,7 +226,9 @@ export function MermaidBlock({ code }: Props) {
     [],
   );
 
-  // 用原生事件绑定 wheel 事件（passive: false），React 的 onWheel 是 passive 的无法 preventDefault
+  // 用原生事件绑定 wheel 事件（passive: false），React 的 onWheel 是 passive 的无法 preventDefault。
+  // viewport 元素是条件渲染（modalOpen 后才挂载），依赖 [modalOpen] 确保元素可用后再绑定，
+  // 关闭时 cleanup 移除监听。
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
@@ -237,7 +239,7 @@ export function MermaidBlock({ code }: Props) {
     };
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
-  }, []);
+  }, [modalOpen]);
 
   const openModal = useCallback(() => {
     setOffset({ x: 0, y: 0 });

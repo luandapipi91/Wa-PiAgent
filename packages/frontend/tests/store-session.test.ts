@@ -450,7 +450,7 @@ test("seedTokenTotal 从历史消息计算累计", () => {
 });
 
 test("seedTokenTotal 无 usage 时不写入", () => {
-  useSessionStore.getState().seedTokenTotal("s3", [{ message: { role: "user" } }]);
+  useSessionStore.getState().seedTokenTotal("s3", [{ message: { role: "user" } }] as any[]);
   expect(useSessionStore.getState().tokenTotals["s3"]).toBeUndefined();
   expect(useSessionStore.getState().lastUsageBySession["s3"]).toBeUndefined();
 });
@@ -464,7 +464,7 @@ test("seedTokenTotal 同时写入 lastUsageBySession", () => {
   const s = useSessionStore.getState();
   expect(s.tokenTotals["s4"]).toEqual({ input: 300, output: 80 });
   // lastUsage 应是最后一条带 usage 的消息
-  expect(s.lastUsageBySession["s4"]).toEqual({ input: 200, output: 30 });
+  expect(s.lastUsageBySession["s4"]).toEqual({ input: 200, output: 30 } as any);
 });
 
 // ── isActive 状态同步：后端返回 isActive → 前端 setActiveStatus ──
@@ -499,4 +499,59 @@ test("setMessages 不再根据 stopReason 自动设置状态", () => {
   useSessionStore.getState().setMessages("s3", incomplete);
   // 不自动设为 thinking，需由调用方根据 isActive 调用 setActiveStatus
   expect(useSessionStore.getState().statusBySession["s3"]).toBeUndefined();
+});
+
+// ── Provider 连接状态（net:status）──
+// transient 网络错误（Connection error/timeout）不进对话流，改设 degraded 驱动状态条。
+// 正常回复（message_end stopReason:stop）到达时清除 degraded。
+
+test("setNetStatus / clearNetStatus：按会话隔离地设置 degraded 标记", () => {
+  useSessionStore.getState().setNetStatus("s1", "degraded");
+  useSessionStore.getState().setNetStatus("s2", "degraded");
+  expect(useSessionStore.getState().netStatusBySession["s1"]).toBe("degraded");
+  expect(useSessionStore.getState().netStatusBySession["s2"]).toBe("degraded");
+  // 仅清 s1
+  useSessionStore.getState().clearNetStatus("s1");
+  expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
+  expect(useSessionStore.getState().netStatusBySession["s2"]).toBe("degraded");
+});
+
+test("setNetStatus(null) 等价于 clearNetStatus", () => {
+  useSessionStore.getState().setNetStatus("s1", "degraded");
+  useSessionStore.getState().setNetStatus("s1", null);
+  expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
+});
+
+test("正常 message_end(stop) 清除该会话的 degraded 标记（网络已恢复）", () => {
+  // 先设置 degraded + streaming 占位
+  useSessionStore.setState({
+    netStatusBySession: { s1: "degraded" },
+    streamingBySession: {
+      s1: { message: { role: "assistant", content: [], model: "m", stopReason: "stop", timestamp: 2 }, agentName: "dev" },
+    },
+  });
+  const env = envelope({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "回复" }], model: "m", stopReason: "stop", timestamp: 2 },
+  });
+  useSessionStore.getState().handleSDKEvent("s1", env);
+  // 正常回复 → degraded 已清除
+  expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
+});
+
+test("error message_end 不清除 degraded（fatal 错误仍属异常态）", () => {
+  useSessionStore.setState({
+    netStatusBySession: { s1: "degraded" },
+    streamingBySession: {
+      s1: { message: { role: "assistant", content: [], model: "m", stopReason: "error", timestamp: 2 }, agentName: "dev" },
+    },
+  });
+  // 带 text 内容的 error message_end（fatal，如鉴权失败）会进 messages
+  const env = envelope({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: "401 Unauthorized" }], model: "m", stopReason: "error", timestamp: 2 },
+  });
+  useSessionStore.getState().handleSDKEvent("s1", env);
+  // error → degraded 保留（仍处异常态，需用户处理）
+  expect(useSessionStore.getState().netStatusBySession["s1"]).toBe("degraded");
 });

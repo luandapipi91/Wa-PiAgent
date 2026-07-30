@@ -43,6 +43,11 @@ export function App() {
   // 主智能体已删除的会话 id：kernel 回 agent_missing 时打开重选弹窗
   const [agentMissingSessionId, setAgentMissingSessionId] = useState<string | null>(null);
   const [connState, setConnState] = useState<ConnectionState>(() => getConnectionState());
+  // Provider 连接状态：transient 网络错误（Connection error/timeout）时为 degraded，
+  // 驱动「模型连接异常」状态条；与 SSE 通道的 connState 区分。
+  const netDegraded = useSessionStore(s =>
+    currentSessionId ? !!s.netStatusBySession[currentSessionId] : false,
+  );
 
   useEffect(() => onConnectionChange(setConnState), []);
 
@@ -106,6 +111,19 @@ export function App() {
               agentName: e.agentName ?? "dev",
               sessionId: sid,
             });
+          } else {
+            useToastStore.getState().add(e.message);
+          }
+          break;
+        }
+        case "net:status": {
+          // transient 网络错误（Connection error / timeout 等）：不进对话流，
+          // 改设 degraded 状态驱动顶部状态条提示「模型连接异常」。
+          // 复位 thinking（transient 错误后 agent turn 已结束，但不会有 agent_end 兜底）。
+          const sid = e.sessionId ?? useProjectsStore.getState().currentSessionId;
+          if (sid) {
+            useSessionStore.getState().failTurn(sid);
+            useSessionStore.getState().setNetStatus(sid, "degraded");
           } else {
             useToastStore.getState().add(e.message);
           }
@@ -261,6 +279,15 @@ export function App() {
           <div className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs bg-warning-soft text-warning border-b border-warning/20">
             <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ border: "2px solid var(--warning)", borderTopColor: "transparent", animation: "spin 0.8s linear infinite" }} />
             连接已断开，正在重连…
+          </div>
+        )}
+        {netDegraded && (
+          <div
+            className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs bg-danger-soft text-danger border-b border-danger/20"
+            data-testid="net-status-bar"
+          >
+            <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ border: "2px solid var(--danger)", borderTopColor: "transparent", animation: "spin 0.8s linear infinite" }} />
+            模型连接异常，请检查网络或 Provider 配置后重试
           </div>
         )}
         {view === "empty" && <EmptyState onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }} />}

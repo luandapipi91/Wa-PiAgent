@@ -348,6 +348,11 @@ export interface SteerImmediateMessageEvent {
 	sessionId: string;
 	text: string;
 }
+/** 清空会话 followUp 排队列表（fire-and-forget） */
+export interface ClearQueueEvent {
+	type: "clear-queue";
+	sessionId: string;
+}
 
 export interface ProjectCreateEvent {
 	type: "project:create";
@@ -436,6 +441,7 @@ export type WSClientEvent =
 	| AskCancelAskEvent
 	| SteerMessageEvent
 	| SteerImmediateMessageEvent
+	| ClearQueueEvent
 	| ProjectCreateEvent
 	| ProjectUpdateEvent
 	| ProjectDeleteEvent
@@ -564,6 +570,16 @@ export interface ErrorEvent {
 	agentName?: AgentName;
 	sessionId?: string; // 真正出错的会话；前端据此精确路由，缺省回落 currentSessionId
 }
+// 模型 Provider 连接状态：网络类临时错误（Connection error / timeout 等）。
+// 与 SSE 推送通道的 ConnectionState 区分——后者是 kernel→前端通道，这是 kernel→provider。
+// 前端据此显示状态条而非红色会话消息。
+export interface NetStatusEvent {
+	type: "net:status";
+	status: "degraded"; // 预留将来加 "recovered"
+	message: string;
+	agentName?: AgentName;
+	sessionId?: string;
+}
 
 // fs 相关（kernel 读本地目录，供前端目录树选择器）
 export interface FSHomeRequest {
@@ -605,6 +621,8 @@ export interface FSReadFileResult {
 	content: string;
 	mimeType?: string;
 	error?: string;
+	/** ENOENT 回退搜索命中时的真实路径（前端展示「已定位到 ...」） */
+	resolvedPath?: string;
 }
 export interface FSUploadRequest {
 	type: "fs:upload";
@@ -664,6 +682,12 @@ export interface FSSearchResult {
 }
 export interface FSErrorEvent {
 	type: "fs:error";
+	path: string;
+	reason: string;
+}
+/** 文件不支持预览（非文本/超限等）：前端据此降级为下载/提示 */
+export interface FSUnsupportedEvent {
+	type: "fs:unsupported";
 	path: string;
 	reason: string;
 }
@@ -770,6 +794,7 @@ export type WSServerEvent =
 	| SessionEchoUserEvent
 	| AgentConfigEvent
 	| ErrorEvent
+	| NetStatusEvent
 	| AgentListResult
 	| AgentCreatedEvent
 	| AgentDeletedEvent
@@ -803,6 +828,7 @@ export type WSServerEvent =
 	| FSSearchResult
 	| FSSearchProgressEvent
 	| FSErrorEvent
+	| FSUnsupportedEvent
 	| FSRecordingAppendResult
 	| FSRecordingFinalizeResult
 	| FSRecordingDiscardResult

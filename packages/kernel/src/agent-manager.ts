@@ -157,7 +157,7 @@ interface SessionHandle {
 	/** 主会话当前模型（"provider/modelId"）：子智能体「跟随主模型」时透传给 spawn --model */
 	currentModel: string | null;
 	/** 主会话当前 thinking level（prompt 时记录），子智能体「跟随主配置」时透传 */
-	currentThinking: string | null;
+	currentThinking: ThinkingLevel | null;
 }
 
 export class AgentManager {

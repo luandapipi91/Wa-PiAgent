@@ -153,3 +153,23 @@ test("createSession 不传 createdAt 时仍用 Date.now()", async () => {
   expect(s.createdAt).toBeLessThanOrEqual(after);
   rmSync(f, { force: true });
 });
+
+test("createSession 同 id 重复调用幂等：不新增重复记录、不覆盖已有 title", async () => {
+  const f = tempFile();
+  const store = new ProjectStore(f);
+  const p = await store.createProject({ name: "P", cwd: "/p" });
+  // 首次创建，title 来自用户首条消息
+  const s1 = await store.createSession({
+    projectId: p.id, primaryAgent: "dev", title: "帮我写个功能", id: "s-dup",
+  });
+  // 模拟 getCommands 兜底分支：用 agentName 作 title 再次 createSession 同 id
+  const s2 = await store.createSession({
+    projectId: p.id, primaryAgent: "dev", title: "dev", id: "s-dup",
+  });
+  // 应返回已有 session（幂等），不新建重复记录
+  const { sessions } = await store.load();
+  expect(sessions.filter(x => x.id === "s-dup")).toHaveLength(1);
+  // title 不应被覆盖成 agentName
+  expect(s2.title).toBe("帮我写个功能");
+  rmSync(f, { force: true });
+});

@@ -14,7 +14,7 @@ import { ensureSystemProject } from "./ensure-system-project";
 import { cleanupExpiredWorkdirs } from "./workdir-cleaner";
 import { ensurePromptsConfig } from "./system-prompt";
 import { ensureSubagentOverrides } from "./subagent-store";
-import { extractSdkErrorMessage } from "./sdk-errors";
+import { classifySdkError } from "./sdk-errors";
 import { SdkEventThrottle } from "./event-throttle";
 import { cleanupRecordingTemp } from "./recording-store";
 import { WS_PORT, WA_PI_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD, PROMPTS_FILE, SUBAGENT_OVERRIDES_FILE } from "@wa-pi/shared";
@@ -148,10 +148,16 @@ export async function startKernel(
       eventThrottle.handle({ type: "sdk:event", projectId, sessionId, agentName, event: event as any });
       // pi 运行时错误（不可用模型 / 鉴权失败 / 网络等）不抛异常，而是编码进
       // message_end{stopReason:"error", errorMessage}。ws-server 的 try/catch 抓不到，
-      // 前端又不读这些字段 → 静默。这里翻译成 {type:"error"}，复用前端红色 ⚠️ 渲染管线。
-      const errMsg = extractSdkErrorMessage(event as any);
-      if (errMsg) {
-        broadcast({ type: "error", message: errMsg, agentName, sessionId });
+      // 前端又不读这些字段 → 静默。这里按错误分类翻译广播：
+      //   - transient（网络/超时/限流）→ {type:"net:status"} 状态条提示，不进对话流
+      //   - fatal（鉴权/配额/模型不可用）→ {type:"error"} 红色会话消息
+      const classified = classifySdkError(event as any);
+      if (classified) {
+        if (classified.category === "transient") {
+          broadcast({ type: "net:status", status: "degraded", message: classified.message, agentName, sessionId });
+        } else {
+          broadcast({ type: "error", message: classified.message, agentName, sessionId });
+        }
       }
       // agent 回复完成时更新 lastActivity，让会话列表的时间反映最新活动（而非仅用户发送时间）
       if ((event as any).type === "message_end") {

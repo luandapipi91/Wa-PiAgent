@@ -26,6 +26,10 @@ interface SessionState {
   tokenTotals: Record<string, { input: number; output: number }>;
   // 会话级最近一次调用的 usage（供 SessionView 渲染胶囊）
   lastUsageBySession: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }>;
+  // 会话级 Provider 连接状态：transient 网络错误（Connection error/timeout）时置 "degraded"，
+  // 顶部状态条提示「模型连接异常」；下次成功回复（message_end 正常）或重连后清除。
+  // 与 events.ts 的 ConnectionState（SSE 推送通道）区分——那是 kernel→前端通道。
+  netStatusBySession: Record<string, "degraded" | null>;
   // 原有方法保留：append 用于 error 兜底、setMessages 用于 session:messages 历史
   append: (sessionId: string, msg: SessionMessage) => void;
   setMessages: (sessionId: string, messages: SessionMessage[]) => void;
@@ -49,11 +53,17 @@ interface SessionState {
   /** 回合启动失败复位：kernel 广播 error（如 No API key）时 agent 从未启动、不会有
    *  agent_end，需手动把 status 归 idle、清 streaming 占位与思考计时，否则 UI 永远卡 thinking。 */
   failTurn: (sessionId: string) => void;
+  /** 设置会话的 Provider 连接状态（transient 网络错误 → degraded，驱动状态条）。 */
+  setNetStatus: (sessionId: string, status: "degraded" | null) => void;
+  /** 清除会话的 Provider 连接异常标记（重连成功 / 正常回复后）。 */
+  clearNetStatus: (sessionId: string) => void;
   // 新增：处理 sdk:event 信封事件（流式两态管理核心入口）
   handleSDKEvent: (sessionId: string, envelope: SDKEventEnvelope) => void;
   /** 重载中（/reload 命令执行期间禁用发送） */
   reloading: boolean;
   setReloading: (v: boolean) => void;
+  /** 累加会话 token 计数（input/output 增量） */
+  addTokens: (sessionId: string, input: number, output: number) => void;
   /** 从历史消息 seed 累计 token 计数 */
   seedTokenTotal: (sessionId: string, messages: SessionMessage[]) => void;
 }
@@ -88,6 +98,7 @@ export const useSessionStore = create<SessionState>((set) => {
   reloading: false,
   tokenTotals: {},
   lastUsageBySession: {},
+  netStatusBySession: {},
 
   addTokens: (sessionId, input, output) => set(s => {
     const cur = s.tokenTotals[sessionId] ?? { input: 0, output: 0 };
@@ -173,7 +184,7 @@ export const useSessionStore = create<SessionState>((set) => {
   }),
 
   setReloading: (v) => set({ reloading: v }),
-  clear: () => set({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, thinkingSinceBySession: {}, optimisticEchoBySession: {}, historyLoadingBySession: {}, unreadBySession: {} }),
+  clear: () => set({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, thinkingSinceBySession: {}, optimisticEchoBySession: {}, historyLoadingBySession: {}, unreadBySession: {}, netStatusBySession: {} }),
 
   markUnread: (sessionId) => set(s => ({ unreadBySession: { ...s.unreadBySession, [sessionId]: true } })),
   markRead: (sessionId) => set(s => {
@@ -193,6 +204,21 @@ export const useSessionStore = create<SessionState>((set) => {
     optimisticEchoBySession: { ...s.optimisticEchoBySession, [sessionId]: false },
     }));
   },
+
+  setNetStatus: (sessionId, status) => set(s => {
+    // 状态相同不触发重渲染
+    if (s.netStatusBySession[sessionId] === status) return {};
+    const next = { ...s.netStatusBySession };
+    if (status === null) delete next[sessionId]; else next[sessionId] = status;
+    return { netStatusBySession: next };
+  }),
+
+  clearNetStatus: (sessionId) => set(s => {
+    if (!s.netStatusBySession[sessionId]) return {};
+    const next = { ...s.netStatusBySession };
+    delete next[sessionId];
+    return { netStatusBySession: next };
+  }),
 
   optimisticSend: (sessionId, text, agentName) => set(s => {
     const ts = Date.now();
@@ -331,9 +357,16 @@ export const useSessionStore = create<SessionState>((set) => {
           } else {
             list.push({ message: msg, agentName });
           }
+          // 正常回复到达 → 网络已恢复，清除 transient 错误的 degraded 标记
+          let netStatusBySession = s.netStatusBySession;
+          if (msg.stopReason !== "error" && s.netStatusBySession[sessionId]) {
+            netStatusBySession = { ...s.netStatusBySession };
+            delete netStatusBySession[sessionId];
+          }
           return {
             streamingBySession: { ...s.streamingBySession, [sessionId]: null },
             messagesBySession: { ...s.messagesBySession, [sessionId]: list },
+            netStatusBySession,
           };
         });
         break;

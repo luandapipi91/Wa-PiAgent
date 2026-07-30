@@ -109,7 +109,7 @@ export function MessageList({ sessionId }: Props) {
 				sessionId,
 				text,
 				model: prefs?.model,
-				thinking: prefs?.thinking ?? "disabled",
+				thinking: prefs?.thinking ?? useComposerPrefsStore.getState().defaults.thinking,
 			});
 			if (payload && session) {
 				useSessionStore
@@ -162,6 +162,8 @@ export function MessageList({ sessionId }: Props) {
 
 	// 进入会话（含切换）：消息加载后一次性滚到底显示最新回复；同会话后续消息变化不再自动滚。
 	// 这不属于「平时抢滚动」——仅在每个会话首次进入时触发一次。
+	// 历史长会话含 ReactMarkdown/代码块/图片等异步布局内容，首帧 scrollHeight 往往偏小，
+	// 故滚动后再用 rAF 校正一次（等下一帧布局撑开后重新贴底）。
 	useEffect(() => {
 		if (
 			sessionId &&
@@ -170,6 +172,10 @@ export function MessageList({ sessionId }: Props) {
 		) {
 			didInitScrollRef.current = sessionId;
 			scrollToBottom();
+			const raf = requestAnimationFrame(() => {
+				scrollToBottom();
+			});
+			return () => cancelAnimationFrame(raf);
 		}
 	}, [sessionId, messages, scrollToBottom]);
 
@@ -266,7 +272,7 @@ export function MessageList({ sessionId }: Props) {
 					data-testid={`scroll-bottom-${sessionId}`}
 					aria-label="滚动到底部"
 					title="滚动到底部"
-					className="absolute bottom-3 right-4 z-10 w-9 h-9 rounded-full bg-surface border border-hairline shadow-md flex items-center justify-center text-secondary hover:text-primary transition-colors"
+					className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-9 h-9 rounded-full bg-surface border border-hairline shadow-md flex items-center justify-center text-secondary hover:text-primary transition-colors"
 				>
 					↓
 				</button>

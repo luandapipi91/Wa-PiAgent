@@ -6,14 +6,45 @@
 
 ## 2026-07-30
 
+### 构建 / 类型修复
+
+- **修复 master 分支长期遗留的 typecheck 全部失败（20+ 处），打通 macOS 生产安装包打包**。此前 `bun run typecheck` 在 shared/kernel/frontend 三个包全部报错（干净 HEAD 即如此，非本次改动引入），导致 `pack:mac` 卡在步骤0 测试钩子无法出包。逐包修复如下（仅改类型层面，不动业务逻辑）：
+  - **shared**：`tsconfig.json` 设 `rootDir: "./src"` 并将 `include` 收敛为 `["src"]`，解决 `exports` map + bundler resolution 下的 TS2209「project root ambiguous」。
+  - **shared 协议类型补齐**：`types.ts` 新增 `ClearQueueEvent`（client→kernel）、`FSUnsupportedEvent`（kernel→前端），`FSReadFileResult` 增加可选 `resolvedPath`；`mcp.ts` 的 `McpToolsResult` 把 `tools` 改可选并新增 `error?`，覆盖 listTools 失败分支。均接入对应联合类型（`WSClientEvent`/`WSServerEvent`）。
+  - **kernel 源码**：`agent-manager.ts` `currentThinking` 类型由 `string | null` 收窄为 `ThinkingLevel | null`；`session-history.ts` `readSessionHistory` 返回类型由 `unknown[]` 改为 `AgentMessage[]`（解析器本就只产有效 message）；`wa-pi-bridge.extension.ts` 作为静态扩展模板从 kernel typecheck 排除（其 `./tool-schemas.ts` 仅运行时复制后存在）。
+  - **kernel 第三方 patch**：扩展 `patches/pi-mcp-adapter@2.15.0.patch`，将 `resolveCommandSecretsRecord` 返回类型放宽为 `Record<string, string | undefined> | undefined`（该库发 `.ts` 源码，`skipLibCheck` 不覆盖）。
+  - **kernel 测试**：新建 `tests/helpers/http-api-kit.ts`（封装 `withServer/openSse/readSseFrame/stubAgentManager`，`routes-chat.test.ts` 引用但此前缺失）；`routes-mcp.test.ts` 删多余 `type` 字段、补齐 `WSServerOpts` 必填空桩、改用公开 `server.stop()`。
+  - **frontend 源码**：`store/session.ts` `SessionState` 接口补 `addTokens` 声明（实现已存在）；`QuickInvokeMenu` `Props.type` 补 `"command"`（对齐 `TriggerType`）；`store/mcp.ts` `setToolsResult` 对失败分支 `data.tools ?? []` 兜底。
+  - **frontend 测试**：`store-session.test.ts`、`SessionView.test.tsx`、`ComposerInput.test.tsx` 补齐 mock 必填字段（`createdAt`/`lastActivity`/`durationMs`/`truncated` 等）。
+  - 影响范围：`packages/shared/{tsconfig.json,src/types.ts,src/mcp.ts}`、`patches/pi-mcp-adapter@2.15.0.patch`、`packages/kernel/{tsconfig.json,src/agent-manager.ts,src/session-history.ts}`、`packages/kernel/tests/{helpers/http-api-kit.ts,routes-mcp.test.ts}`、`packages/frontend/src/{store/session.ts,store/mcp.ts,components/ui/QuickInvokeMenu.tsx}`、`packages/frontend/tests/{store-session.test.ts,SessionView.test.tsx,ComposerInput.test.tsx}`
+  - 验证：`bun run typecheck` 四包全过；`pack:mac` 出包 `WaPi-Setup-0.1.0.dmg`（143M）。改动的相关测试（routes-chat/routes-mcp/store-session addTokens 等）全过；既有失败数与 HEAD 一致，未引入回归。
+
+## 2026-07-30
+
 ### 修复
 
 - **流式输出时 Mermaid 图不再反复闪烁重画**：根因是 `MermaidBlock` 的 `useEffect([code])` 对成功渲染路径零节流——流式中 mermaid 源码每个 token 都增长，每次都能解析成功就立刻用新 SVG 替换 DOM 重画整张图（仅错误显示有 400ms debounce，成功路径无）。修复：code 变化后延迟 1000ms 才执行 `mermaid.render()`（流式中 token 间隔远小于 1s，timer 不断重置 → render 不触发 → 图稳定）；即便到期渲染，也用 ref 缓存上次成功 SVG，仅在内容真正变化时才替换 DOM。仅改 `MermaidBlock.tsx`，不动流式数据链路。
   - 影响范围：`packages/frontend/src/components/blocks/MermaidBlock.tsx`、`packages/frontend/tests/blocks/MermaidBlock.test.tsx`
 
-## 2026-07-29
+- **放大弹窗内滚轮缩放失效**：`MermaidBlock` 的 wheel 监听 `useEffect` 依赖为 `[]`，在组件挂载时（modal 未打开、viewport 元素不存在）执行一次，`viewportRef.current` 为 null 直接 return，监听器从未绑定——导致放大弹窗打开后滚轮缩放不工作（真实浏览器同样失效，非仅测试问题）。修复：依赖改为 `[modalOpen]`，viewport 元素挂载后才绑定 wheel 监听，关闭时 cleanup 移除。
+  - 影响范围：`packages/frontend/src/components/blocks/MermaidBlock.tsx`
 
-### 修复
+- **切换到历史长会话有时不自动滚到底部**：进入会话的一次性滚动 effect 在 messages 进入 store 那一帧执行 `scrollToBottom`，但历史长会话含 ReactMarkdown/代码块/图片等异步布局内容，首帧 `scrollHeight` 偏小，滚动位置停在偏上处，内容撑高后无兜底再滚。修复：滚动后用 `requestAnimationFrame` 校正一次，等下一帧布局撑开后重新贴底。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/tests/MessageList.test.tsx`
+
+- **「滚动到底部」浮动按钮改为水平居中**：原定位在消息区右下角（`right-4`），改为水平居中（`left-1/2 -translate-x-1/2`），垂直仍贴底部。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`
+
+- **网络错误不再灌入对话流，改用状态条提示**：根因是底层 SDK（`@anthropic-ai/sdk` / `openai`）的 `APIConnectionError`（默认文案 "Connection error."）经 pi-ai 不变形塞进 `message_end{stopReason:"error", errorMessage}`，被 kernel 翻译成 `{type:"error"}` 后前端 append 成红色会话消息，且 pi 落盘到 JSONL 导致重连/重试 N 次堆积 N 条。修复：kernel 侧按错误文案分类——transient（网络/超时/限流/5xx）改广播 `{type:"net:status"}` 驱动顶部「模型连接异常」状态条，不进对话流；fatal（鉴权失败/配额耗尽/模型不可用）保留红色会话消息。同时历史回读过滤掉 transient error，避免刷新后残留。分类正则复用 pi-ai `utils/retry.js` 语义。
+  - 影响范围：`packages/kernel/src/sdk-errors.ts`、`packages/kernel/src/index.ts`、`packages/kernel/src/session-history.ts`、`packages/shared/src/types.ts`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/App.tsx`
+
+- **每个会话固定自己的思考强度，未设置时回退全局默认**：根因是 `loadSession` 把 defaults.thinking 填进了每个会话的 bySession.thinking，导致无法区分"用户显式设的"和"defaults 填充的"；一旦 defaults 变化，所有未显式设置的会话 thinking 跟着变。修复：`SessionPrefs.thinking` 改为可选，`loadSession` 仅在用户显式设置过时才填 thinking（否则保持 undefined）；Composer/MessageList 读取时回退到 `defaults.thinking` 而非硬编码 "disabled"。
+  - 影响范围：`packages/frontend/src/store/composer-prefs.ts`、`packages/frontend/src/components/Composer.tsx`、`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/tests/composer-prefs.test.ts`
+
+- **重启后会话标题丢失（变成角色名）**：根因是 `projectStore.createSession` 无去重，直接 `sessions.push`；`getCommands` 兜底分支用 `title: agentName` 创建已存在的 session 时，push 了重复记录覆盖了正常标题。修复：`createSession` 对同 id 幂等——已存在则返回已有记录，不新增不覆盖。
+  - 影响范围：`packages/kernel/src/project-store.ts`、`packages/kernel/tests/project-store.test.ts`
+
+## 2026-07-29
 
 - **重启后思考强度被重置为 disabled（hydration 竞态根因，第三次修复）**：前两次修复（`setSessionPrefs` 增量同步、defaults 改用 localStorage）都没解决，因为真正根因是 **stale state 持久化竞态**——`useComposerPrefsStore` 初始内存态 `thinking: "disabled"`，而 `loadDefaults` 是异步的；若在其完成前触发 `setDefaults`/`setSessionPrefs`（用户改 model、附件 auto-select 等），两者内部 `{...s.defaults, ...prefs}` 会拿初始 `disabled` 当"当前 defaults"**无条件写回 localStorage**，覆盖用户上次存的 high/max。`loadDefaults` 姗姗来迟时读到的已是 `disabled`。用户用 F12 实测确认 localStorage 键存在、值确为 disabled，排除了"存不进去"和"读错"。修复：加 hydration guard——`loadDefaults`/`loadSession` 完成后才标记 `defaultsHydrated=true`，此前持久化函数只更新内存、不写回；hydrate 后恢复正常持久化。
   - 影响范围：`packages/frontend/src/store/composer-prefs.ts`、`packages/frontend/tests/composer-prefs.test.ts`（新增 hydration 竞态回归测试，并修正既有"重启往返"测试补上 hydrate 时序）
