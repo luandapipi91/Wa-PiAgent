@@ -13,24 +13,9 @@ import {
 
 const DB_NAME = "wa-pi-composer";
 
-/** 清空 defaults store，用于测试 getDefaults 的兜底路径 */
-async function clearDefaultsStore(): Promise<void> {
-  const request = indexedDB.open(DB_NAME);
-  await new Promise<void>((resolve, reject) => {
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => {
-      const db = request.result;
-      const tx = db.transaction("defaults", "readwrite");
-      const store = tx.objectStore("defaults");
-      store.clear();
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => reject(tx.error);
-    };
-  });
-}
+/** defaults 已改用 localStorage 持久化，清理由 beforeEach 的 localStorage.clear() 负责。
+ * 此函数保留为 no-op，避免操作已不存在的 IndexedDB defaults store 报错。 */
+async function clearDefaultsStore(): Promise<void> {}
 
 describe("composer-db", () => {
   beforeEach(async () => {

@@ -72,4 +72,11 @@ export interface McpTestResult   {
   toolCount?: number;
   error?: string;
 }
-export interface McpToolsResult  { type: "mcp:tools";      serverName: string; tools: McpToolSummary[]; }
+export interface McpToolsResult  {
+  type: "mcp:tools";
+  serverName: string;
+  /** 成功时的工具列表（与 error 互斥） */
+  tools?: McpToolSummary[];
+  /** listTools 失败时填充（与 tools 互斥） */
+  error?: string;
+}

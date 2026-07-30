@@ -88,9 +88,12 @@ export class ProjectStore {
     createdAt?: number;   // 默认工作区用：让 mkdir 用的 ts 与 session.createdAt 严格一致
   }): Promise<SessionEntity> {
     const data = await this.load();
-    const now = input.createdAt ?? Date.now();
-    // 先算出 id，再用同一 id 拼 piSessionFile 路径，避免 id 不一致
     const id = input.id ?? randomUUID();
+    // 去重：同 id session 已存在则返回已有记录（幂等），避免 getCommands 兜底分支
+    // 用 agentName 作 title 重复创建，覆盖正常会话标题
+    const existing = data.sessions.find(s => s.id === id);
+    if (existing) return existing;
+    const now = input.createdAt ?? Date.now();
     const session: SessionEntity = {
       id, projectId: input.projectId,
       primaryAgent: input.primaryAgent, title: input.title,

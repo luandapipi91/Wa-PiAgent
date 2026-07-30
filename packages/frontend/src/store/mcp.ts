@@ -87,7 +87,8 @@ export const useMcpStore = create<McpState>((set, get) => ({
     }),
   setToolsResult: (data) =>
     set((s) => ({
-      toolsCache: { ...s.toolsCache, [data.serverName]: data.tools },
+      // listTools 失败分支（error）无 tools 字段，记为空数组
+      toolsCache: { ...s.toolsCache, [data.serverName]: data.tools ?? [] },
       loadingTools: { ...s.loadingTools, [data.serverName]: false },
     })),
   save: (config, projectId, originalName) =>

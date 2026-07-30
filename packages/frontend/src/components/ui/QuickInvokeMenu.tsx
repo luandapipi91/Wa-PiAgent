@@ -15,7 +15,7 @@ export interface MenuItem {
 }
 
 interface Props {
-  type: "agent" | "file" | "skill";
+  type: "agent" | "file" | "skill" | "command";
   items: MenuItem[];
   highlightedIndex: number;
   onSelect: (item: MenuItem) => void;

@@ -31,7 +31,9 @@ export function Composer({ sessionId, agentName, isRunning, isNewSession, disabl
   useEffect(() => { void loadSession(sessionId); }, [sessionId, loadSession]);
 
   const model = prefs?.model ?? null;
-  const thinking = prefs?.thinking ?? "disabled";
+  // thinking 未显式设置时回退到全局 defaults（而非硬编码 disabled）
+  const defaults = useComposerPrefsStore(s => s.defaults);
+  const thinking = prefs?.thinking ?? defaults.thinking;
   const attachments = prefs?.attachments ?? [];
   const providers = useProvidersStore(s => s.providers);
 

@@ -14,7 +14,8 @@ export function _resetDefaultsHydration(): void { defaultsHydrated = false; }
 
 export interface SessionPrefs {
   model: string | null;
-  thinking: ThinkingLevel;
+  // thinking 可选：undefined 表示用户未在此会话显式设置过，组件读取时回退到 defaults.thinking
+  thinking?: ThinkingLevel;
   attachments: AttachmentDraft[];
 }
 
@@ -70,7 +71,9 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
           ...s.bySession,
           [sessionId]: {
             model: stored?.model ?? defaults.model,
-            thinking: stored?.thinking ?? defaults.thinking,
+            // thinking 仅在用户显式设置过时才有值，否则保持 undefined
+            // 组件读取时回退到 defaults.thinking（而非硬编码 disabled）
+            ...(stored?.thinking !== undefined ? { thinking: stored.thinking } : {}),
             attachments: stored?.attachments ?? [],
           },
         },
@@ -83,7 +86,7 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
     set(s => {
       const current = s.bySession[sessionId] ?? { model: s.defaults.model, thinking: s.defaults.thinking, attachments: [] };
       const next = { ...current, ...prefs };
-      void dbSetSessionPrefs({ sessionId, ...next, updatedAt: Date.now() });
+      void dbSetSessionPrefs({ sessionId, ...next, thinking: next.thinking ?? s.defaults.thinking, updatedAt: Date.now() });
       // 仅把用户本次显式修改的字段（prefs 参数）同步到全局 defaults，
       // 而非用整个 session prefs 覆盖——否则切到老会话改 model 时，
       // 会把老会话的 thinking（可能为 disabled）误写进 defaults，污染新会话默认值。

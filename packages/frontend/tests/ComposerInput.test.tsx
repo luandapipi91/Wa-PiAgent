@@ -260,6 +260,8 @@ test("#文件搜索结果中目录项传递 isDir 并显示文件夹图标", asy
       type: "fs:search:progress",
       requestId: req.body.requestId,
       query: "src",
+      durationMs: 10,
+      truncated: false,
       matches: [
         { name: "src", isDir: true, path: "/proj/p1/src" },
         { name: "App.tsx", isDir: false, path: "/proj/p1/src/App.tsx" },
@@ -347,6 +349,8 @@ test("选中文件后生成 #[path] chip token", async () => {
       type: "fs:search:progress",
       requestId: req.body.requestId,
       query: "hello",
+      durationMs: 10,
+      truncated: false,
       matches: [{ name: "hello.txt", isDir: false, path: "/proj/p1/hello.txt" }],
     });
   });
