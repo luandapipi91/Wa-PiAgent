@@ -10,6 +10,10 @@ const SCALE_STEP = 0.25;
 // 错误显示 debounce：流式过程中 code 频繁变化且不完整，解析必然失败；
 // 仅当 code 稳定该时长后仍失败才显示错误，避免流式过程闪现"渲染失败"
 const ERROR_DEBOUNCE_MS = 400;
+// 成功渲染节流：流式中 code 每个 token 都变，但稳定的图不应重画。
+// code 连续该时长不再变化后才执行 mermaid.render，token 间隔通常远小于此值，
+// 故 timer 不断重置、render 不触发，图保持稳定；停顿/回合结束后才渲染最新版本。
+const RENDER_DEBOUNCE_MS = 1000;
 
 let initialized = false;
 function ensureInit() {
@@ -137,6 +141,8 @@ export function MermaidBlock({ code }: Props) {
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // 缓存上次成功渲染的 SVG 字符串，用于 diff：内容相同则不替换 DOM
+  const lastSvgRef = useRef<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const addToast = useToastStore((s) => s.add);
 
