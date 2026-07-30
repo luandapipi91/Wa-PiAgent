@@ -348,3 +348,81 @@ test("BUG: 清空排队后仍发送排队消息", async () => {
   // 【期望】：清空后不再发送，prompted 只有 "第一条"
   expect(fake.prompted).toEqual(["第一条"]);
 });
+
+// === TDD: transient 网络错误后暂停 drain，等用户重发 ===
+//
+// 背景：pi 对网络错误有内部重试，重试期间 busy=true 自动排队新消息。
+// 重试耗尽后发最终 message_end{error} + agent_settled，此时 busy 复位会自动
+// drain followUp 队列——但网络仍不可用，排队消息也会失败。
+// 期望：transient 错误后标记 netDegraded，agent_settled 跳过 drain；
+// 用户重发（prompt 走 _sendPromptNow）时清除标记，恢复正常。
+
+test("netDegraded=true 时 agent_settled 跳过 followUp drain（不自动发送排队消息）", async () => {
+  const { session, am, fake } = await setup();
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
+  await am.prompt(session.id, "排队A", { model: MODEL });  // → followUpList
+
+  // 模拟 transient 网络错误：标记 degraded
+  am.markNetDegraded(session.id, true);
+
+  // pi 重试耗尽 → agent_settled
+  fake.emit({ type: "agent_settled" });
+
+  // 【期望】：degraded 时跳过 drain，排队A 不被自动发送
+  expect(fake.prompted).toEqual(["进行中"]);
+});
+
+test("netDegraded=true 时 agent_settled 跳过 steerList drain", async () => {
+  const { session, am, fake } = await setup();
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL }); // busy
+  await am.steerMessage(session.id, "引导X");               // → steerList
+
+  am.markNetDegraded(session.id, true);
+  fake.emit({ type: "agent_settled" });
+
+  // degraded 时引导也不自动 drain
+  expect(fake.prompted).toEqual(["进行中"]);
+});
+
+test("netDegraded=true 时队列保留（不丢失排队消息）", async () => {
+  const events: CapturedEvent[] = [];
+  const { session, am, fake } = await setup(events);
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL });
+  await am.prompt(session.id, "排队A", { model: MODEL });
+
+  am.markNetDegraded(session.id, true);
+  fake.emit({ type: "agent_settled" });
+
+  // 队列消息仍在，供用户网络恢复后手动处理
+  const queueEvents = events.filter(e => e.e.type === "queue_update");
+  const lastQueue = queueEvents[queueEvents.length - 1];
+  if (!lastQueue) throw new Error("未收到 queue_update 事件");
+  expect((lastQueue.e as any).followUp).toEqual(["排队A"]);
+});
+
+test("用户重发（prompt 直接发送）后清除 netDegraded，恢复正常 drain", async () => {
+  const { session, am, fake } = await setup();
+  fake.autoSettle = false;
+
+  await am.prompt(session.id, "进行中", { model: MODEL });
+  await am.prompt(session.id, "排队A", { model: MODEL });
+
+  am.markNetDegraded(session.id, true);
+  // degraded 时 settled 跳过 drain
+  fake.emit({ type: "agent_settled" });
+  expect(fake.prompted).toEqual(["进行中"]);
+
+  // 用户点重发 → prompt 直接发送（此时 busy=false，走 _sendPromptNow）
+  await am.prompt(session.id, "进行中", { model: MODEL });
+  expect(fake.prompted).toEqual(["进行中", "进行中"]);
+
+  // 重发后 degraded 已清除，后续 settled 恢复正常 drain
+  fake.emit({ type: "agent_settled" });
+  expect(fake.prompted).toEqual(["进行中", "进行中", "排队A"]);
+});

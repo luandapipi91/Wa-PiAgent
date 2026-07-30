@@ -1,5 +1,16 @@
-import { test, expect, beforeEach } from "bun:test";
+import { test, expect, beforeEach, mock } from "bun:test";
 import { useExtensionsStore } from "../src/store/extensions";
+
+// store 的 installPackage/upgradePackage 等会触发 api.post（真实 fetch），
+// happy-dom 在 about:blank 下对相对 URL 抛 NotSupportedError。mock 掉 api-client。
+mock.module("../src/api-client", () => ({
+  api: {
+    get: () => Promise.resolve(null),
+    post: () => Promise.resolve({}),
+    put: () => Promise.resolve({}),
+    del: () => Promise.resolve({}),
+  },
+}));
 
 beforeEach(() => {
   useExtensionsStore.setState({ packages: [], installs: {}, upgrading: {}, error: null });

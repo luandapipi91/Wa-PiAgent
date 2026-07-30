@@ -1,9 +1,20 @@
-import { test, expect, beforeEach } from "bun:test";
+import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { SessionMessage } from "@wa-pi/shared";
 import { MessageList, buildResendPrompt } from "../src/components/MessageList";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
+
+// 重新发送等交互会触发 api.post（真实 fetch），happy-dom 在 about:blank 下对相对 URL
+// 抛 NotSupportedError。mock 掉 api-client，返回空数据。
+mock.module("../src/api-client", () => ({
+  api: {
+    get: () => Promise.resolve(null),
+    post: () => Promise.resolve({}),
+    put: () => Promise.resolve({}),
+    del: () => Promise.resolve({}),
+  },
+}));
 import { useProvidersStore } from "../src/store/providers";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useToastStore } from "../src/store/toast";
@@ -606,6 +617,82 @@ test("过期 model（provider 已删除）→ 点「重新发送」不裁剪、�
   // 原消息保留（不裁剪）、不产生新的乐观消息和 loading 占位
   expect(s.messagesBySession["s1"]).toHaveLength(2);
   expect(s.streamingBySession["s1"]).toBeFalsy();
+});
+
+// ── 重新发送按钮：transient 网络错误（degraded）触发场景 ──
+//
+// transient 错误（Connection error/timeout）不进对话流，末条仍是 user 消息。
+// 原有 stopReason:error 条件永不命中，需 netDegraded 触发。
+
+test("netDegraded + 末条是 user 消息 → 显示「重新发送」按钮（transient 错误场景）", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "网络断了的那条", timestamp: 1 } },
+      ],
+    },
+    streamingBySession: {},  // transient 错误后 streaming 占位已被清掉
+    netStatusBySession: { s1: "degraded" },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.getByTestId("resend-s1-1")).toBeTruthy();
+});
+
+test("netDegraded 但 streaming 仍在（pi 重试中）→ 不显示「重新发送」（重试期间应排队而非重发）", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+      ],
+    },
+    streamingBySession: { s1: { message: { role: "assistant", content: [], model: "m", stopReason: "pending", timestamp: 2 }, agentName: "dev" } },
+    netStatusBySession: { s1: "degraded" },
+  });
+  render(<MessageList sessionId="s1" />);
+  // 重试期间（streaming 存在）不显示重发按钮
+  expect(screen.queryByTestId("resend-s1-1")).toBeNull();
+});
+
+test("无 degraded 且末条是 user（正常对话）→ 不显示「重新发送」", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "正常发送", timestamp: 1 } },
+      ],
+    },
+    streamingBySession: { s1: { message: { role: "assistant", content: [], model: "m", stopReason: "pending", timestamp: 2 }, agentName: "dev" } },
+    netStatusBySession: {},
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.queryByTestId("resend-s1-1")).toBeNull();
+});
+
+test("点击「重新发送」（transient 场景）→ 重发同一条 + 清除 degraded", () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "网络断了的那条", timestamp: 1 } },
+      ],
+    },
+    streamingBySession: {},
+    netStatusBySession: { s1: "degraded" },
+  });
+  useProjectsStore.setState({ sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev" }] as any });
+  useProvidersStore.setState({
+    providers: [
+      { id: "prov-ds", name: "deepseek", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "deepseek-chat", contextWindow: 128000, maxTokens: 4096 }] },
+    ],
+  });
+  useComposerPrefsStore.setState({ bySession: { s1: { model: "deepseek/deepseek-chat", thinking: "high", attachments: [] } } });
+  render(<MessageList sessionId="s1" />);
+  fireEvent.click(screen.getByTestId("resend-s1-1"));
+  const s = useSessionStore.getState();
+  // 乐观重建用户消息（重发同一条，不叠加）+ loading 占位
+  expect(s.messagesBySession["s1"]).toHaveLength(1);
+  expect((s.messagesBySession["s1"][0].message as any).role).toBe("user");
+  expect(s.streamingBySession["s1"]).toBeTruthy();
+  // degraded 已清除（重发后网络待恢复，状态条消失）
+  expect(s.netStatusBySession["s1"]).toBeUndefined();
 });
 
 // ── AI loading 气泡（乐观占位 / 首字到达前）──

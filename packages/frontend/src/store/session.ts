@@ -373,10 +373,20 @@ export const useSessionStore = create<SessionState>((set) => {
       }
       // agent 开始处理：标记 thinking；记录起算时间（若 optimisticSend 已记则保留，避免覆盖更早的发送时刻）
       case "agent_start":
-        set(s => ({
-          statusBySession: { ...s.statusBySession, [sessionId]: "thinking" },
-          thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: s.thinkingSinceBySession[sessionId] ?? Date.now() },
-        }));
+        set(s => {
+          // agent turn 开始 = 请求已成功送达 provider = 网络已恢复，
+          // 立即清除 transient degraded 标记（不等 message_end，避免整轮回复期间状态条残留）。
+          let netStatusBySession = s.netStatusBySession;
+          if (s.netStatusBySession[sessionId]) {
+            netStatusBySession = { ...s.netStatusBySession };
+            delete netStatusBySession[sessionId];
+          }
+          return {
+            statusBySession: { ...s.statusBySession, [sessionId]: "thinking" },
+            thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: s.thinkingSinceBySession[sessionId] ?? Date.now() },
+            netStatusBySession,
+          };
+        });
         break;
       // agent 结束：回 idle，清起算时间；若该会话非当前会话（用户在别处），标记未读新回复
       case "agent_end": {

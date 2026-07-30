@@ -539,6 +539,24 @@ test("正常 message_end(stop) 清除该会话的 degraded 标记（网络已恢
   expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
 });
 
+test("agent_start 立即清除 degraded 标记（流式开始即证明网络已恢复，不等 message_end）", () => {
+  useSessionStore.setState({
+    netStatusBySession: { s1: "degraded" },
+  });
+  useSessionStore.getState().handleSDKEvent("s1", envelope({ type: "agent_start" }));
+  // agent turn 开始 → 网络已通 → degraded 立即清除
+  expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
+});
+
+test("agent_start 只清除该会话 degraded，不影响其他会话", () => {
+  useSessionStore.setState({
+    netStatusBySession: { s1: "degraded", s2: "degraded" },
+  });
+  useSessionStore.getState().handleSDKEvent("s1", envelope({ type: "agent_start" }));
+  expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
+  expect(useSessionStore.getState().netStatusBySession["s2"]).toBe("degraded");
+});
+
 test("error message_end 不清除 degraded（fatal 错误仍属异常态）", () => {
   useSessionStore.setState({
     netStatusBySession: { s1: "degraded" },

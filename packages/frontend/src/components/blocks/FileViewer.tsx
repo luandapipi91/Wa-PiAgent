@@ -1,4 +1,4 @@
-// 文件预览器：移植自 cocode 的 file-viewer，适配 HiAgent 的 fs-client（HTTP REST + base64）。
+// 文件预览器：移植自 cocode 的 file-viewer，适配 WaPi 的 fs-client（HTTP REST + base64）。
 // 支持：代码语法高亮(行号)、图片缩放/平移、大文件截断提示、选中复制为 @path:行号 引用。
 import { Highlight, themes } from "prism-react-renderer";
 import { useCallback, useEffect, useRef, useState } from "react";

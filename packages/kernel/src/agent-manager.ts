@@ -106,6 +106,9 @@ export interface AgentManagerOpts {
 		agentName: AgentName,
 		e: AgentManagerEvent,
 	) => void;
+	// 孤儿会话回滚：进程退出时若该会话从未写过消息文件（piSessionFile 不存在），
+	// 删除记录后通知上层广播 projects:list 刷新前端列表
+	onSessionRollback?: (sessionId: string) => void;
 	// skillManager 可空：生产注入真实 SkillManager，解析启用 skill 目录传给 --skill
 	skillManager?: SkillManager;
 	// extensionManager 可空：用于按已启用动态插件决定 -e 扩展路径与工具放行
@@ -148,6 +151,8 @@ interface SessionHandle {
 	promptFile: string | null;
 	/** 记忆快照临时文件（dispose 时清理） */
 	memorySnapshotFile: string | null;
+	/** pi 会话文件路径：进程退出时据其是否存在判断是否孤儿（从未 prompt） */
+	piSessionFile: string | null;
 	/** 进程意外退出标记（下次 ensureStarted 重建） */
 	crashed: boolean;
 	/** dispose 标记（防止 onExit 误判为崩溃） */
@@ -158,6 +163,9 @@ interface SessionHandle {
 	currentModel: string | null;
 	/** 主会话当前 thinking level（prompt 时记录），子智能体「跟随主配置」时透传 */
 	currentThinking: ThinkingLevel | null;
+	/** transient 网络错误标记：true 时 agent_settled 跳过 followUp/steer drain，
+	 *  避免网络不可用时自动发送排队消息（会再失败）。用户重发后清除。 */
+	netDegraded: boolean;
 }
 
 export class AgentManager {
@@ -688,13 +696,15 @@ export class AgentManager {
 			messages: [],
 			followUpList: [],
 			steerList: [],
-			promptFile,
-			memorySnapshotFile: memorySnapshotFile ?? null,
+	promptFile,
+	memorySnapshotFile: memorySnapshotFile ?? null,
+	piSessionFile: sessionEntity.piSessionFile,
 			crashed: false,
 			disposed: false,
 			subagentTelemetry,
 			currentModel: null,
 		currentThinking: null,
+		netDegraded: false,
 		};
 		const client = createClient({
 			cliPath: resolvePiCliPath(),
@@ -781,6 +791,11 @@ export class AgentManager {
 				handle.busy = false;
 				handle.thinkingSince = null;
 				handle.thinkingSince = null;
+				// transient 网络错误期间跳过 drain：此时网络仍不可用，
+				// 自动发送排队/引导消息会再失败。队列保留，等用户重发恢复。
+				if (handle.netDegraded) {
+					break;
+				}
 				// 优先 drain 引导消息（如果 pi 已投递则 queue_update 会清掉 steerList）
 				if (handle.steerList.length > 0) {
 					const text = handle.steerList.shift()!;
@@ -836,6 +851,16 @@ export class AgentManager {
 		handle: SessionHandle,
 	): void {
 		if (handle.disposed) return;
+		// 孤儿会话回滚：piSessionFile 不存在说明从未 prompt（如 getCommands 兜底创建后
+		// 用户离开）。删除记录避免「列表出现、点进去空白」；正常会话崩溃不删（有消息文件）。
+		if (handle.piSessionFile && !existsSync(handle.piSessionFile)) {
+			console.warn(`[kernel] 孤儿会话回滚：${sessionId} 从未写入消息文件，删除记录`);
+			void this.opts.projectStore.deleteSession(sessionId).catch((e) =>
+				console.error(`[kernel] 孤儿回滚删除失败 ${sessionId}:`, e),
+			);
+			this.opts.onSessionRollback?.(sessionId);
+			return;
+		}
 		handle.crashed = true;
 		handle.busy = false;
 		handle.thinkingSince = null;
@@ -862,6 +887,8 @@ export class AgentManager {
 		text: string,
 	): Promise<void> {
 		handle.busy = true;
+		// 用户重发触发直接 prompt：网络已恢复，清除 transient degraded 标记，恢复 drain。
+		if (handle.netDegraded) handle.netDegraded = false;
 		try {
 			await handle.client.prompt(text);
 		} catch (err) {
@@ -1012,6 +1039,18 @@ export class AgentManager {
 		if (!handle) return;
 		handle.followUpList = [];
 		this._emitLocalQueueUpdate(sessionId, handle);
+	}
+
+	/**
+	 * 标记/清除会话的 transient 网络错误态。
+	 * degraded=true 时，agent_settled 会跳过 followUp/steer drain（避免网络不可用时
+	 * 自动发送排队消息再次失败），队列保留等用户重发恢复。
+	 * degraded=false 在用户重发（_sendPromptNow）成功后自动清除，也可手动调用。
+	 */
+	markNetDegraded(sessionId: string, degraded: boolean): void {
+		const handle = this.sessions.get(sessionId);
+		if (!handle) return;
+		handle.netDegraded = degraded;
 	}
 
 	/** 读取会话历史消息快照（session 不存在时返回空数组） */

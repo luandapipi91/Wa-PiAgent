@@ -155,6 +155,9 @@ export async function startKernel(
       if (classified) {
         if (classified.category === "transient") {
           broadcast({ type: "net:status", status: "degraded", message: classified.message, agentName, sessionId });
+          // 标记 transient：agent_settled 时跳过 followUp/steer drain，
+          // 避免网络不可用时自动发送排队消息再次失败；队列保留等用户重发。
+          agentManager.markNetDegraded(sessionId, true);
         } else {
           broadcast({ type: "error", message: classified.message, agentName, sessionId });
         }
@@ -163,6 +166,12 @@ export async function startKernel(
       if ((event as any).type === "message_end") {
         projectStore.touchSession(sessionId).catch(() => {});
       }
+    },
+    // 孤儿会话回滚：删除记录后刷新前端会话列表（projects:list）
+    onSessionRollback: () => {
+      projectStore.load().then((data) =>
+        broadcast({ type: "projects:list", projects: data.projects, sessions: data.sessions }),
+      ).catch(() => {});
     },
   });
   // 回填真实 agentManager（绕开 TS 的「构造时已确定」语义；opts 为 private 故用 any 桥接）

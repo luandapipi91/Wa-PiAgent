@@ -6,6 +6,7 @@ import { useIsBlocked } from "../store/ask";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { useProvidersStore } from "../store/providers";
 import { useExplorerStore } from "../store/explorer";
+import { SidebarResizer } from "./SidebarResizer";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
 import { AskDock } from "./ask/AskDock";
@@ -141,8 +142,9 @@ export function SessionView({ sessionId }: Props) {
     void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/clear-queue`, {});
   };
 
-  // 右侧文件树面板：开关状态来自 explorer store；双击文件后记录预览路径
+  // 右侧文件树面板：开关状态 + 宽度来自 explorer store；双击文件后记录预览路径
   const explorerOpen = useExplorerStore(s => s.open);
+  const explorerWidth = useExplorerStore(s => s.width);
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   // 文件树根目录：普通项目用 project.cwd，默认工作区会话用其专属临时目录 workdir/<createdAt>/
   const workspaceDir = resolveSessionCwd(session, { cwd: project?.cwd ?? "" });
@@ -207,9 +209,11 @@ export function SessionView({ sessionId }: Props) {
           data-active={explorerOpen ? "true" : "false"}
           onClick={() => useExplorerStore.getState().toggle()}
           title="项目文件"
-          style={explorerOpen ? { borderColor: "var(--accent)", color: "var(--accent)" } : undefined}
+          style={explorerOpen ? { borderColor: "var(--accent)", color: "var(--accent)" } : { color: "var(--text-tertiary)" }}
         >
-          📁
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+          </svg>
         </button>
       </header>
 
@@ -300,7 +304,9 @@ export function SessionView({ sessionId }: Props) {
     </div>
     {/* 右侧文件树面板：开关由 explorer store 控制；双击文件弹窗预览 */}
     {explorerOpen && (
-      <aside className="flex flex-col border-l border-hairline bg-surface" style={{ width: 320 }} data-testid="explorer-aside">
+      <>
+        <SidebarResizer side="right" onResize={(w) => useExplorerStore.getState().setWidth(w)} testId="explorer-resizer" />
+        <aside className="flex flex-col border-l border-hairline bg-surface" style={{ width: explorerWidth, flexShrink: 0 }} data-testid="explorer-aside">
         <div className="flex items-center gap-1 px-3 py-2 border-b border-hairline">
           <span className="text-[12px] font-semibold text-primary flex-1">项目文件</span>
           <button className="fv-btn" onClick={() => useExplorerStore.getState().toggle()} title="收起面板">›</button>
@@ -310,6 +316,7 @@ export function SessionView({ sessionId }: Props) {
           <ExplorerPanel workspaceDir={workspaceDir} onOpenFile={setPreviewPath} />
         </div>
       </aside>
+      </>
     )}
     {/* 文件预览弹窗：双击文件后以 80% 宽高弹出 */}
     {previewPath && (

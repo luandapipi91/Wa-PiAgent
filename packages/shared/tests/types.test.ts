@@ -135,7 +135,7 @@ test("AgentConfig.thinking/model 可为 null（跟随当前/跟随全局）", ()
 });
 
 test("agentDefOf: 内置 displayName 返回定义，未知 displayName 回退默认", () => {
-  expect(agentDefOf("技术实现").emoji).toBe("⚙️");
+  expect(agentDefOf("前端开发者").emoji).toBe("🖥️");
   const fb = agentDefOf("不存在的智能体");
   expect(fb.emoji).toBe("🤖");
   expect(fb.gradient).toEqual(["#4b5563", "#6b7280"]);

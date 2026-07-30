@@ -4,6 +4,21 @@ import { SettingsModal } from "../src/components/SettingsModal";
 import { useSettingsStore } from "../src/store/settings";
 import { useProvidersStore } from "../src/store/providers";
 
+// 点击添加供应商等交互会触发 api（如 /api/models/presets，真实 fetch），happy-dom 在
+// about:blank 下对相对 URL 抛 NotSupportedError。mock 掉 api-client。presets 路径需
+// 返回结构化对象（ProviderFormModal 取 res.presets），其他返回 null 避免覆盖 store。
+mock.module("../src/api-client", () => ({
+  api: {
+    get: (path: string) => {
+      if (path.includes("/presets")) return Promise.resolve({ presets: [] });
+      return Promise.resolve(null);
+    },
+    post: () => Promise.resolve({}),
+    put: () => Promise.resolve({}),
+    del: () => Promise.resolve({}),
+  },
+}));
+
 beforeEach(() => {
   useSettingsStore.setState(useSettingsStore.getInitialState(), true);
   useProvidersStore.setState(useProvidersStore.getInitialState(), true);

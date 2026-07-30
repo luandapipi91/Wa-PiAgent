@@ -54,6 +54,11 @@ export function MessageList({ sessionId }: Props) {
 	const historyLoading = useSessionStore(
 		(s) => s.historyLoadingBySession[sessionId] ?? false,
 	);
+	// transient 网络错误（Connection error/timeout）时为 "degraded"：
+	// 驱动「重新发送」按钮（transient 不进对话流，原 stopReason:error 条件永不命中）。
+	const netDegraded = useSessionStore(
+		(s) => s.netStatusBySession[sessionId] === "degraded",
+	);
 	const rows = preprocess(messages);
 	const session = useProjectsStore((s) =>
 		s.sessions.find((x) => x.id === sessionId),
@@ -75,15 +80,18 @@ export function MessageList({ sessionId }: Props) {
 	const showHistoryLoading =
 		historyLoading && messages.length === 0 && !streaming;
 
-	// 「重新发送」：仅当最后一条是失败的 assistant 回合（且当前无新回合在流式）时，
-	// 在它前一条用户消息下方显示按钮；重发或发新消息后按钮自动消失。
+	// 「重新发送」：两种触发场景（当前无新回合在流式）：
+	//  1. 末条是失败的 assistant 回合（stopReason:error，如鉴权/配额 fatal 错误）
+	//  2. transient 网络错误（netDegraded）——此类错误不进对话流，末条仍是 user 消息
+	// 两种都定位到最后一条 user 消息，在其下方显示按钮；重发或发新消息后按钮自动消失。
 	let resendUserIdx = -1;
 	const lastMsg = rows[rows.length - 1]?.main.message as any;
-	if (
-		!streaming &&
-		lastMsg?.role === "assistant" &&
-		lastMsg?.stopReason === "error"
-	) {
+	const isFatalErrorTurn = !streaming &&
+		lastMsg?.role === "assistant" && lastMsg?.stopReason === "error";
+	// transient 错误后 streaming 占位已被清掉，末条是 user 消息
+	const isTransientErrorTurn = !streaming && netDegraded &&
+		lastMsg?.role === "user";
+	if (isFatalErrorTurn || isTransientErrorTurn) {
 		for (let i = rows.length - 1; i >= 0; i--) {
 			if ((rows[i].main.message as any).role === "user") {
 				resendUserIdx = i;
@@ -115,6 +123,8 @@ export function MessageList({ sessionId }: Props) {
 				useSessionStore
 					.getState()
 					.optimisticSend(sessionId, text, session.primaryAgent);
+				// 重发清除 transient degraded 标记（kernel 侧 prompt 也会清除 netDegraded）
+				useSessionStore.getState().clearNetStatus(sessionId);
 				void api.post(`/api/agents/${encodeURIComponent(payload.projectId)}/${encodeURIComponent(payload.sessionId)}/prompt`, {
 					agentName: payload.agentName,
 					text: payload.text,

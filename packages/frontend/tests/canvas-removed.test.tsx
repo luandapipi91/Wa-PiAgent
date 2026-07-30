@@ -8,12 +8,14 @@ import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { App, type View } from "../src/App";
 import { disconnectEvents } from "../src/events";
 
-// mock REST 客户端，避免 App useEffect 里的数据加载触发真实 HTTP 请求
+// mock REST 客户端，避免 App useEffect 里的数据加载触发真实 HTTP 请求。
+// 注意：get 对非 /messages 路径返回 null（falsy），避免 App mount 时各 store.loadAll
+// 的 if(data) 分支异步覆盖测试预设的 store 状态（agents/projects 等），导致渲染路径异常。
 mock.module("../src/api-client", () => ({
   api: {
     get: (path: string) => {
       if (path.includes("/messages")) return Promise.resolve({ messages: [] });
-      return Promise.resolve({});
+      return Promise.resolve(null);
     },
     post: () => Promise.resolve({}),
     put: () => Promise.resolve({}),

@@ -13,9 +13,10 @@ const calls: { method: string; path: string; body?: any }[] = [];
 
 mock.module("../src/api-client", () => ({
   api: {
+    // get 返回 null（falsy）：避免 App mount 时 loadAll 异步覆盖测试预设的 agents store。
     get: (path: string) => {
       calls.push({ method: "get", path });
-      return Promise.resolve({});
+      return Promise.resolve(null);
     },
     post: (path: string, body?: any) => {
       calls.push({ method: "post", path, body });

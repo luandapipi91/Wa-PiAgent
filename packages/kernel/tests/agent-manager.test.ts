@@ -971,6 +971,8 @@ test("skillManager 为空时仍传 --no-skills 但不传 --skill", async () => {
 test("进程意外退出 → 合成 message_end 错误事件 + 下次 ensureStarted 重建新 client", async () => {
   const events: CapturedEvent[] = [];
   const { project, session, am, fakes } = await setup({ events });
+  // 该会话已发过消息（piSessionFile 存在），是正常会话崩溃而非孤儿——不会被回滚删除
+  writeFileSync(session.piSessionFile, '{"role":"user","content":"hi"}\n');
   await am.ensureStarted(project.id, "dev", session.id);
   expect(fakes).toHaveLength(1);
 
@@ -988,6 +990,71 @@ test("进程意外退出 → 合成 message_end 错误事件 + 下次 ensureStar
   expect(fakes).toHaveLength(2);
   expect(fakes[1]).not.toBe(fakes[0]);
   expect(fakes[1].started).toBe(true);
+});
+
+// ─── 孤儿会话回滚（getCommands 兜底创建的 session 无消息文件，进程退出时删除记录）──
+
+test("孤儿会话（piSessionFile 不存在）进程退出 → 删除 session 记录 + 触发回滚回调", async () => {
+  const rollbacks: string[] = [];
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "dev",
+  });
+  // 故意不创建 piSessionFile 文件（模拟孤儿：getCommands 创建了记录但从未 prompt）
+  expect(existsSync(session.piSessionFile)).toBe(false);
+
+  const fakes: FakeSessionClient[] = [];
+  const am = new AgentManager({
+    projectStore,
+    configStore: null,
+    onEvent: () => {},
+    createClientFn: fakeClientFactory(fakes),
+    onSessionRollback: (sid) => rollbacks.push(sid),
+  });
+  managers.push(am);
+  syspromptSessionIds.push(session.id);
+
+  await am.ensureStarted(project.id, "dev", session.id);
+  // 模拟进程崩溃退出（非主动 dispose）
+  fakes[0].simulateCrash(1);
+
+  // 回滚：session 记录应被删除
+  await new Promise((r) => setTimeout(r, 50)); // 等 fire-and-forget deleteSession 落盘
+  const { sessions } = await projectStore.load();
+  expect(sessions.find((s) => s.id === session.id)).toBeUndefined();
+  expect(rollbacks).toEqual([session.id]);
+});
+
+test("正常会话（piSessionFile 存在）进程崩溃退出 → 不删除 session 记录", async () => {
+  const rollbacks: string[] = [];
+  const projectStore = newProjectStore();
+  const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "测试",
+  });
+  // 创建 piSessionFile 文件（模拟正常会话：已发过消息，pi 落盘了 jsonl）
+  writeFileSync(session.piSessionFile, '{"role":"user","content":"hi"}\n');
+
+  const fakes: FakeSessionClient[] = [];
+  const am = new AgentManager({
+    projectStore,
+    configStore: null,
+    onEvent: () => {},
+    createClientFn: fakeClientFactory(fakes),
+    onSessionRollback: (sid) => rollbacks.push(sid),
+  });
+  managers.push(am);
+  syspromptSessionIds.push(session.id);
+
+  await am.ensureStarted(project.id, "dev", session.id);
+  fakes[0].simulateCrash(1);
+
+  await new Promise((r) => setTimeout(r, 50));
+  const { sessions } = await projectStore.load();
+  // 正常会话崩溃不删除（只标记 crashed 待重建）
+  expect(sessions.find((s) => s.id === session.id)).toBeDefined();
+  expect(rollbacks).toEqual([]);
 });
 
 // ─── 静态断言 ───────────────────────────────────────────────────────────────

@@ -29,10 +29,29 @@ export class SseBus {
    * 而前端只用 onmessage（仅接收无名事件）。事件类型已内嵌在 JSON 的 type 字段中，
    * 前端 dispatch() 根据 data.type 分发。
    *
-   * 写失败的客户端移除（连接已死）。
+   * 序列化与写失败的客户端移除（连接已死 / 帧无法序列化）。
+   *
+   * 安全保证：data 含 BigInt（部分 provider token usage）或循环引用（工具结果）时
+   * JSON.stringify 会同步抛 TypeError。本方法绝不向上抛——否则异常会沿 pi stdout
+   * data 回调 → onEvent → broadcast 一路无兜底冒泡，被 Bun 视为未捕获异常杀死
+   * kernel 进程（历史 bug：发消息回复部分内容后 SSE 断开，日志 退出 code=null）。
    */
   broadcast(_type: string, data: unknown): void {
-    const frame = `data: ${JSON.stringify(data)}\n\n`;
+    // 先尝试直接序列化；失败再用 BigInt-safe replacer 重试；仍失败则丢弃该帧。
+    // 用 try 包裹整个序列化，确保任何序列化异常都不冒泡。
+    let frame: string;
+    try {
+      frame = `data: ${JSON.stringify(data)}\n\n`;
+    } catch {
+      try {
+        // BigInt → 字符串（token usage 数值精度对前端展示无影响）
+        frame = `data: ${JSON.stringify(data, (_, v) => (typeof v === "bigint" ? v.toString() : v))}\n\n`;
+      } catch {
+        // 循环引用等彻底无法序列化的 payload：记 warn 丢帧，绝不杀进程
+        console.warn(`[sse-bus] 丢弃无法序列化的 ${_type} 帧`);
+        return;
+      }
+    }
     for (const write of [...this.clients]) {
       try {
         write(frame);

@@ -27,3 +27,23 @@ test("setOpen 直接设置并持久化", () => {
   expect(useExplorerStore.getState().open).toBe(true);
   expect(localStorage.getItem("wa-pi:explorer-open")).toBe("1");
 });
+
+// ── 宽度（可拖拽调整，持久化）──
+
+test("默认宽度 320", () => {
+  expect(useExplorerStore.getState().width).toBe(320);
+});
+
+test("setWidth 更新宽度并持久化", () => {
+  useExplorerStore.getState().setWidth(400);
+  expect(useExplorerStore.getState().width).toBe(400);
+  expect(localStorage.getItem("wa-pi:explorer-width")).toBe("400");
+});
+
+test("从 localStorage 恢复宽度", () => {
+  localStorage.setItem("wa-pi:explorer-width", "360");
+  // 重新读取（模拟刷新后初始化）
+  useExplorerStore.setState({ width: Number(localStorage.getItem("wa-pi:explorer-width")) });
+  expect(useExplorerStore.getState().width).toBe(360);
+});
+

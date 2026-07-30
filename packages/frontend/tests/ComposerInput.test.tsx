@@ -605,9 +605,8 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
     // 前端 handler 命令
     expect(screen.getByText("系统设置")).toBeDefined();
     expect(screen.getByText("重载配置")).toBeDefined();
-    // pi 框架命令（静态表）
-    expect(screen.getByText("compact")).toBeDefined();
-    expect(screen.getByText("model")).toBeDefined();
+    // 注：pi 框架内置命令（model/compact/...）已在 ComposerInput 的 PI_FRAMEWORK_COMMANDS
+    // 中全部注释移除（产品决策不再暴露），故不再断言。动态插件命令见下个 case。
   });
 
   it("pi 动态命令（插件贡献）来自 useCommandsStore 并显示在菜单", () => {
@@ -624,21 +623,27 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
   });
 
   it("选中 pi 命令时清除 / 触发文本并 dispatch wa-pi:pi-command 事件", () => {
+    // pi 框架内置命令（model/compact/...）已全部注释移除，改用 prompt 模板命令
+    // 验证同一 dispatch 路径（wa-pi:pi-command）。
+    useCommandsStore.setState({
+      commands: [{ name: "myreview", description: "我的审查", source: "prompt" }],
+      loading: false,
+    });
     const setText = mock();
     const handler = mock();
     window.addEventListener("wa-pi:pi-command", handler);
     try {
-      renderComposer({ text: "/comp", setText });
-      // compact 应在菜单中（/comp 匹配）
-      fireEvent.click(screen.getByText("compact"));
-      // setText 被调用，清除了 /comp 触发文本
+      renderComposer({ text: "/myr", setText });
+      // 同步断言（与上方「pi 动态命令」case 一致）：load() 异步尚未清空 commands
+      fireEvent.click(screen.getByText("myreview"));
+      // setText 被调用，清除了 /myr 触发文本
       expect(setText).toHaveBeenCalled();
       const lastCall = setText.mock.calls.at(-1)?.[0] as string;
-      expect(lastCall).not.toMatch(/\/comp$/);
-      // 应 dispatch wa-pi:pi-command 事件，detail.text 为 /compact
+      expect(lastCall).not.toMatch(/\/myr$/);
+      // 应 dispatch wa-pi:pi-command 事件，detail.text 为 /myreview
       expect(handler).toHaveBeenCalled();
       const detail = handler.mock.calls.at(-1)?.[0]?.detail;
-      expect(detail?.text).toBe("/compact");
+      expect(detail?.text).toBe("/myreview");
     } finally {
       window.removeEventListener("wa-pi:pi-command", handler);
     }
