@@ -180,3 +180,110 @@ body {
   background: var(--accent);
   transition: width 0.3s ease;
 }
+
+/* ── FileViewer / ExplorerPanel 公共按钮 ── */
+.fv-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border-hairline, var(--border));
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.fv-btn:hover {
+  background: var(--bg-tertiary, var(--accent-soft));
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+/* ── ExplorerPanel 文件树 ── */
+.ep-tree {
+  font-size: 12.5px;
+}
+.ep-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding-right: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  user-select: none;
+}
+.ep-node:hover {
+  background: var(--bg-secondary);
+}
+.ep-node[data-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+.ep-arrow {
+  width: 10px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 9px;
+}
+.ep-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+.ep-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ep-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+/* 右键菜单 */
+.ep-ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 140px;
+  padding: 4px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+.ep-ctx-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 12px;
+  text-align: left;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.ep-ctx-item:hover {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+/* 拖拽幽灵 */
+.ep-drag-ghost {
+  position: fixed;
+  z-index: 99999;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+

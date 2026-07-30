@@ -34,11 +34,13 @@ async function findFileByBasename(root: string, name: string): Promise<string | 
 /** 预览上限：3MB，超过则跳过内容读取 */
 const MAX_PREVIEW_BYTES = 3 * 1024 * 1024;
 
-/** 检查文件是否可预览（文本类型 + 大小不超标） */
-async function checkPreviewable(absPath: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+/** 检查文件是否可预览（文本类型 + 图片 + 大小不超标） */
+export async function checkPreviewable(absPath: string): Promise<{ ok: true } | { ok: false; reason: string }> {
   const mime = getMimeType(absPath);
   const isText = mime.startsWith("text/") || mime === "application/json" || mime === "application/xml" || mime === "image/svg+xml";
-  if (!isText) return { ok: false, reason: `不支持的文件类型: ${mime}` };
+  // 放行图片预览：前端 FileViewer 拿到 base64 拼 data URI 展示，支持缩放
+  const isImage = mime.startsWith("image/");
+  if (!isText && !isImage) return { ok: false, reason: `不支持的文件类型: ${mime}` };
   try {
     const s = await stat(absPath);
     if (s.size > MAX_PREVIEW_BYTES) return { ok: false, reason: `文件过大 (${(s.size / 1024 / 1024).toFixed(1)}MB > ${MAX_PREVIEW_BYTES / 1024 / 1024}MB)` };

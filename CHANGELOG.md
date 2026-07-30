@@ -6,6 +6,29 @@
 
 ## 2026-07-30
 
+### 修复
+
+- **会话列表不再出现「点进去空白」的孤儿会话**：根因是 `getCommands`（拉取斜杠命令菜单）的兜底分支违背自身 docstring——在无活跃进程可借时调用 `createSession` 写入记录（`title: agentName`）并启动 pi 进程，但全程不发 prompt，pi 不创建 `.jsonl` 消息文件；用户离开后进程退出，记录永久残留，出现在列表点击却读不到消息→空白。修复（TDD）：在 `_onProcessExit`（进程退出钩子）加孤儿回滚——`piSessionFile` 文件不存在（从未 prompt）时删除该 session 记录并经 `onSessionRollback` 回调广播 `projects:list` 刷新前端；正常会话（有消息文件）崩溃不删除。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`（`SessionHandle` 加 `piSessionFile`、`_onProcessExit` 加回滚、`AgentManagerOpts` 加 `onSessionRollback`）、`packages/kernel/src/index.ts`（接线广播）、`packages/kernel/tests/agent-manager.test.ts`（2 新测试：孤儿删除/正常不误删；现有崩溃测试补消息文件适配）
+
+### 新增功能
+
+- **移植 cocode 的会话文件树 + 文件预览功能**：会话栏顶部右侧新增「📁」按钮，点击切换右侧文件树面板；双击文件在面板内预览（代码语法高亮+行号 / 图片缩放平移）；文件可拖拽到输入框生成 `@filepath ` 提及。功能对齐 cocode desktop 的 explorer + file-viewer。
+  - **kernel**：`routes/fs.ts` 的 `checkPreviewable` 放行 `image/*`，read-file 现对 png/jpg/gif/svg 等图片返回 base64（仍受 3MB 上限）。导出 `checkPreviewable` 供单测。
+  - **前端组件**：新增 `FileViewer`（代码高亮 + 图片缩放/平移 + 选中复制为 `@path:行号` 引用）、`ExplorerPanel`（扁平数组懒加载 + 5s 轮询 + 展开状态 ref 保持 + 右键菜单 + 拖拽 ghost）；`FilePill` 点击预览由旧 `FilePreviewModal`（纯 `<pre>`）升级为 `FileViewer`；删除已废弃的 `FilePreviewModal`。
+  - **前端 store**：新增 `store/explorer.ts`（面板开关，持久化 localStorage）。
+  - **接入**：`SessionView` header 加按钮 + 右侧面板挂载；`ComposerInput` 监听 `wa-pi:insert-mention` 事件实现拖拽 @提及插入。
+  - 适配差异：cocode 用 Tauri `invoke()` + 自研图标/i18n，HiAgent 复用 `fs-client`（HTTP REST）+ base64 解码 + emoji 图标 + 中文硬编码。
+  - 影响范围：`packages/kernel/src/routes/fs.ts`、`packages/frontend/src/components/{SessionView,ExplorerPanel}.tsx`、`packages/frontend/src/components/blocks/{FileViewer,FilePill}.tsx`、`packages/frontend/src/store/explorer.ts`、`packages/frontend/src/components/ui/ComposerInput.tsx`、`packages/frontend/src/styles.css`，及对应测试。
+  - 验证：L1 单元（fs-routes 5 项、explorer-store 3 项）+ L2 组件（FileViewer 5、ExplorerPanel 4、FilePill 4、SessionView 23）+ L3 API（curl read-file png/txt 返回 base64）+ L4 E2E（agent-browser 真实浏览器：header 按钮→面板展开→文件树渲染→目录展开→双击文件 FileViewer 预览）。注：Playwright global-setup 存在既有 kernel 启动超时（与本改动无关，既有 spec 同样失败），L4 改用 agent-browser 手动起服务验证。
+
+## 2026-07-30
+
+### 修复
+
+- **会话列表不再出现「点进去空白」的孤儿会话**：根因是 `getCommands`（拉取斜杠命令菜单）的兜底分支违背自身 docstring——在无活跃进程可借时调用 `createSession` 写入 session 记录（`title: agentName`）并启动 pi 进程，但全程不发 prompt，pi 不创建 `.jsonl` 消息文件。用户离开后进程退出，记录永久残留，出现在列表里点击却读不到消息→空白。修复：在 `_onProcessExit`（进程退出钩子）加孤儿回滚——piSessionFile 文件不存在（从未 prompt）时删除该 session 记录并广播 `projects:list` 刷新前端列表；正常会话（有消息文件）崩溃不删除。新增 `AgentManagerOpts.onSessionRollback` 回调，`index.ts` 接线广播。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`（`SessionHandle` 加 `piSessionFile` 字段、`_onProcessExit` 加回滚、`AgentManagerOpts` 加 `onSessionRollback`）、`packages/kernel/src/index.ts`（接线广播）、`packages/kernel/tests/agent-manager.test.ts`（2 个新测试 + 1 个现有崩溃测试补消息文件）
+
 ### 构建 / 类型修复
 
 - **修复 master 分支长期遗留的 typecheck 全部失败（20+ 处），打通 macOS 生产安装包打包**。此前 `bun run typecheck` 在 shared/kernel/frontend 三个包全部报错（干净 HEAD 即如此，非本次改动引入），导致 `pack:mac` 卡在步骤0 测试钩子无法出包。逐包修复如下（仅改类型层面，不动业务逻辑）：
