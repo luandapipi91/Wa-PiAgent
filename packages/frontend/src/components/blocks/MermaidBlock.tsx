@@ -140,50 +140,56 @@ interface Props {
 export function MermaidBlock({ code }: Props) {
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
   // 缓存上次成功渲染的 SVG 字符串，用于 diff：内容相同则不替换 DOM
   const lastSvgRef = useRef<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const addToast = useToastStore((s) => s.add);
 
   useEffect(() => {
-    ensureInit();
-    const id = `mermaid-${Math.random().toString(36).slice(2, 9)}`;
-    const container = document.createElement("div");
-    container.id = id;
-    container.style.display = "none";
-    document.body.appendChild(container);
-    containerRef.current = container;
-
-    // 流式生成过程中 code 会频繁变化且中途不完整，mermaid 必然解析失败。
-    // 错误做 debounce：code 变化时先回 loading 态，仅当 code 稳定 ERROR_DEBOUNCE_MS
-    // 后仍渲染失败，才把错误显示出来，避免流式过程闪现"渲染失败"。
     let cancelled = false;
+    let renderTimer: ReturnType<typeof setTimeout> | null = null;
     let errorTimer: ReturnType<typeof setTimeout> | null = null;
+    let container: HTMLDivElement | null = null;
 
-    mermaid
-      .render(id, code)
-      .then((r) => {
-        if (cancelled) return;
-        setSvg(r.svg);
-        setError(null);
-      })
-      .catch((err: any) => {
-        if (cancelled) return;
-        const msg = err?.message ?? String(err);
-        setSvg(null);
-        errorTimer = setTimeout(() => {
-          if (!cancelled) setError(msg);
-        }, ERROR_DEBOUNCE_MS);
-      });
+    // code 稳定 RENDER_DEBOUNCE_MS 后才 render：流式中 code 每个 token 都变，
+    // timer 不断重置 → render 不触发 → 已渲染的图保持稳定不闪。
+    renderTimer = setTimeout(() => {
+      if (cancelled) return;
+      ensureInit();
+      const id = `mermaid-${Math.random().toString(36).slice(2, 9)}`;
+      container = document.createElement("div");
+      container.id = id;
+      container.style.display = "none";
+      document.body.appendChild(container);
+
+      mermaid
+        .render(id, code)
+        .then((r) => {
+          if (cancelled) return;
+          // SVG diff：内容相同则不替换 DOM，避免无谓重画
+          if (r.svg !== lastSvgRef.current) {
+            lastSvgRef.current = r.svg;
+            setSvg(r.svg);
+          }
+          setError(null);
+        })
+        .catch((err: any) => {
+          if (cancelled) return;
+          const msg = err?.message ?? String(err);
+          setSvg(null);
+          lastSvgRef.current = null;
+          // 错误显示 debounce：render 失败后再等 ERROR_DEBOUNCE_MS 才显示
+          errorTimer = setTimeout(() => {
+            if (!cancelled) setError(msg);
+          }, ERROR_DEBOUNCE_MS);
+        });
+    }, RENDER_DEBOUNCE_MS);
 
     return () => {
       cancelled = true;
+      if (renderTimer) clearTimeout(renderTimer);
       if (errorTimer) clearTimeout(errorTimer);
-      if (containerRef.current) {
-        containerRef.current.remove();
-        containerRef.current = null;
-      }
+      if (container) container.remove();
     };
   }, [code]);
 
