@@ -1,4 +1,5 @@
 import type { AgentConfig } from "@wa-pi/shared";
+import { ALL_AGENT_NAMES } from "@wa-pi/shared";
 import { makeDefaultAgentConfig } from "./agent-md";
 
 /**
@@ -2413,15 +2414,17 @@ Open Questions
   },
 };
 
-/** 生成 seed 用的 AgentConfig：骨架 + （如有）种子内容覆盖 */
+/** 生成 seed 用的 AgentConfig：骨架 + 全量互联 partners +（如有）种子内容覆盖 */
 export function makeSeedAgentConfig(displayName: string): AgentConfig {
   const base = makeDefaultAgentConfig(displayName);
   const seed = DEFAULT_AGENT_SEEDS[displayName];
-  if (!seed) return base;
+  const allPartners = ALL_AGENT_NAMES.filter(n => n !== displayName);
+  if (!seed) return { ...base, partners: { askTo: allPartners } };
   return {
     ...base,
     description: seed.description,
     systemPromptBody: seed.systemPromptBody,
     delegationHints: { ...seed.delegationHints },
+    partners: { askTo: allPartners },
   };
 }

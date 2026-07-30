@@ -728,7 +728,7 @@ export class AgentManager {
 				WA_PI_SESSION_ID: sessionId,
 			},
 			onEvent: (e) => this._onSessionEvent(sessionId, e),
-			onExit: (code) => this._onProcessExit(sessionId, code, handle),
+			onExit: (code, signal) => this._onProcessExit(sessionId, code, signal, handle),
 		});
 		handle.client = client;
 
@@ -848,6 +848,7 @@ export class AgentManager {
 	private _onProcessExit(
 		sessionId: string,
 		code: number | null,
+		signal: string | null,
 		handle: SessionHandle,
 	): void {
 		if (handle.disposed) return;
@@ -865,7 +866,7 @@ export class AgentManager {
 		handle.busy = false;
 		handle.thinkingSince = null;
 		console.error(
-			`[kernel] session ${sessionId} pi 进程意外退出 (code=${code})`,
+			`[kernel] session ${sessionId} pi 进程意外退出 (code=${code} signal=${signal ?? "none"})`,
 		);
 		// 合成 message_end 错误事件：复用 extractSdkErrorMessage → 前端 ⚠️ 渲染管线
 		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {

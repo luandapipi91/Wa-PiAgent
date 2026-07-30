@@ -17,6 +17,7 @@ import { ensureSubagentOverrides } from "./subagent-store";
 import { classifySdkError } from "./sdk-errors";
 import { SdkEventThrottle } from "./event-throttle";
 import { cleanupRecordingTemp } from "./recording-store";
+import { createCrashLogger, installCrashHandlers } from "./crash-logger";
 import { WS_PORT, WA_PI_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD, PROMPTS_FILE, SUBAGENT_OVERRIDES_FILE } from "@wa-pi/shared";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -40,6 +41,14 @@ export async function startKernel(
   // AgentManager 在 spawn 时逐个注入（PI_CODING_AGENT_DIR=WA_PI_DIR），
   // 这里保留进程级设置供 kernel 内部的 pi 扩展包代码使用。
   process.env.PI_CODING_AGENT_DIR = WA_PI_DIR;
+
+  // 全局异常兜底（尽早注册）：任何未捕获异常/unhandledRejection 写入崩溃日志 +
+  // 广播 error 给前端，绝不退出进程。bun 默认对未捕获 rejection 终止进程，
+  // 历史中曾因此杀死 kernel（发消息回复部分内容后 SSE 断开，日志仅 code=null 无堆栈）。
+  // broadcast 在下方 server 就绪后赋值（此前为 null，仅写日志）。
+  let crashBroadcast: ((e: { type: "error"; message: string }) => void) | null = null;
+  const crashLogger = createCrashLogger(join(WA_PI_DIR, "logs", "kernel-crash.log"));
+  installCrashHandlers(process, crashLogger, (e) => crashBroadcast?.(e));
 
   // 确保内置技能目录存在
   await mkdir(BUILTIN_SKILLS_DIR, { recursive: true });
@@ -128,6 +137,8 @@ export async function startKernel(
     ...(opts?.staticDir ? { staticDir: opts.staticDir } : {}),
   });
   broadcast = (e) => server.broadcast(e);
+  // server 就绪：让全局 crash handler 也能广播 error 给前端
+  crashBroadcast = broadcast;
 
   // AgentManager.onEvent 直接广播 sdk:event
   // pi RPC 事件与 shared SDKEvent 结构兼容但 TS 判为不同类型，event 用 any 桥接
@@ -145,6 +156,11 @@ export async function startKernel(
     // bridge 回调地址惰性取值：WS 端口在 server.start() 后才确定（AgentManager 构造在前）
     bridgeBaseUrl: () => `http://127.0.0.1:${server.actualPort}`,
     onEvent: (sessionId, projectId, agentName, event) => {
+      // 诊断：记录工具执行事件（崩溃定位——看崩溃前最后执行的工具/事件）
+      const et = (event as any)?.type;
+      if (et === "tool_execution_start" || et === "tool_execution_end") {
+        console.log(`[kernel] sdk ${et}: ${(event as any)?.toolName} sid=${sessionId}`);
+      }
       eventThrottle.handle({ type: "sdk:event", projectId, sessionId, agentName, event: event as any });
       // pi 运行时错误（不可用模型 / 鉴权失败 / 网络等）不抛异常，而是编码进
       // message_end{stopReason:"error", errorMessage}。ws-server 的 try/catch 抓不到，
@@ -180,14 +196,23 @@ export async function startKernel(
   await server.start();
   console.log(`[kernel] HTTP 监听 http://127.0.0.1:${server.actualPort}`);
 
+  // 诊断心跳：每 15s 记录进程内存 + 存活。崩溃（code=null）时日志会停在最后心跳，
+  // 可判断是瞬间死还是卡死，以及是否 OOM（RSS 持续增长后断）。
+  const heartbeat = setInterval(() => {
+    const mem = process.memoryUsage();
+    console.log(`[kernel] 心跳 rss=${Math.round(mem.rss / 1024 / 1024)}MB heap=${Math.round(mem.heapUsed / 1024 / 1024)}MB`);
+  }, 15000);
+
   // 优雅退出：RPC 架构下每个会话是一个 pi 子进程，kernel 退出时必须统一回收，
   // 避免孤儿进程滞留（SIGINT/SIGTERM 先 disposeAll 再停 server）。
   // 注意：pi 子进程在 stdin 关闭后也会自行退出（EOF 兜底），这里是主动加速回收。
   const shutdown = async (signal: string) => {
     console.log(`[kernel] ${signal} 收到，回收 pi 子进程并停止服务...`);
+    clearInterval(heartbeat);
     eventThrottle.dispose();
     await agentManager.disposeAll().catch(() => {});
     await server.stop().catch(() => {});
+    await crashLogger.flush().catch(() => {}); // 确保崩溃日志落盘
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));

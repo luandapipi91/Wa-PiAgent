@@ -62,8 +62,16 @@ export function App() {
     useAgentsStore.getState().loadAll();
     useSubagentsStore.getState().load();
     const offReconnect = onReconnect(() => {
-      // SSE 断线重连后刷新快照对齐状态
+      // SSE 断线重连后刷新快照对齐状态。
+      // kernel 可能经历崩溃重启（见 kernel-sidecar auto-respawn），重连后需把
+      // mount 时加载的全部 store 重新拉一遍，确保 agents/providers/skills 等与
+      // 重启后的 kernel 状态一致，避免前端显示陈旧数据。
       useProjectsStore.getState().load();
+      useProvidersStore.getState().load();
+      useSkillsStore.getState().load();
+      useExtensionsStore.getState().load();
+      useAgentsStore.getState().loadAll();
+      useSubagentsStore.getState().load();
       const sid = useProjectsStore.getState().currentSessionId;
       if (sid) useSessionStore.getState().setHistoryLoading(sid, true);
       if (sid) void fetch(`/api/sessions/${encodeURIComponent(sid)}/messages`).then(r => r.json()).then((body: any) => {
