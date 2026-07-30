@@ -16,6 +16,15 @@ import { join } from "node:path";
 
 const FAKE_PI = join(import.meta.dir, "fixtures", "fake-pi.ts");
 
+// cache-bust：agent-manager-subagent-overrides.test.ts 用 mock.module 全局 mock 了
+// "../src/subagent-runner"（bun 的 mock.module 进程级生效且无法撤销）。
+// makeSpawnFn 内部 import 的 runSubagentAgent 会命中该 mock，导致真实跑通用例失效。
+// 这里用查询串动态 import 拿真实实现，经 makeSpawnFn 的注入项传入以绕过污染。
+const REAL_RUNNER_SPEC = "../src/subagent-runner.ts?real=1";
+type RunnerModule = typeof import("../src/subagent-runner");
+const { runSubagentAgent: realRunSubagentAgent } =
+  (await import(REAL_RUNNER_SPEC)) as RunnerModule;
+
 const askTo = [
   { name: "代码审查", description: "评审改动" },
   { name: "质量验收", description: "测试与验收" },
@@ -282,6 +291,7 @@ test("makeSpawnFn: resolveConfig 成功 → 经 fake-pi 确定性跑通并回传
     resolveConfig,
     cwd: "/tmp",
     runnerOpts: { cliPath: FAKE_PI, runtime: process.execPath },
+    runSubagentAgent: realRunSubagentAgent,
   });
   const result = await spawn("test-agent", "task");
   expect(resolveConfig).toHaveBeenCalledWith("test-agent");
@@ -311,6 +321,7 @@ test("makeSpawnFn: onProgress 回调正确绑定", async () => {
     cwd: "/tmp",
     onProgress,
     runnerOpts: { cliPath: FAKE_PI, runtime: process.execPath },
+    runSubagentAgent: realRunSubagentAgent,
   });
   await spawn("test-agent", "task");
   // fake-pi 有 text_delta → 至少一个 running 事件，结尾一个 done
@@ -335,4 +346,79 @@ test("makeSpawnFn: resolveConfig 为 null 时 onSpawnComplete 记录失败派发
   expect(input.task).toBe("任务X");
   expect(input.isError).toBe(true);
   expect(input.returnText).toContain("配置未找到");
+});
+
+// ---- provider-extension 自愈：派发前确保子智能体所需的 provider slug 已被 extension 覆盖 ----
+
+test("makeSpawnFn: model 含 provider slug 时派发前调用 ensureExtension(slug) 自愈", async () => {
+  const resolveConfig = mock(async () => ({
+    name: "test-agent",
+    description: "test desc",
+    systemPrompt: "you are a test agent",
+    systemPromptMode: "replace" as const,
+    // 形如 provider/model，/ 前为子智能体所需 provider slug
+    model: "deepseek/deepseek-v4-pro",
+    thinking: null,
+    tools: [],
+    skills: [],
+  }));
+  const ensureExtension = mock(async (_slug?: string) => {});
+  const spawn = makeSpawnFn({
+    resolveConfig,
+    cwd: "/tmp",
+    ensureExtension,
+    runnerOpts: { cliPath: FAKE_PI, runtime: process.execPath },
+    runSubagentAgent: realRunSubagentAgent,
+  });
+  await spawn("test-agent", "task");
+  expect(ensureExtension).toHaveBeenCalledTimes(1);
+  // 传入的 slug 应从 model 解析出 deepseek
+  expect(ensureExtension).toHaveBeenCalledWith("deepseek");
+});
+
+test("makeSpawnFn: model 为 null（跟随主模型）时 ensureExtension 以 undefined 调用", async () => {
+  const resolveConfig = mock(async () => ({
+    name: "test-agent",
+    description: "test desc",
+    systemPrompt: "you are a test agent",
+    systemPromptMode: "replace" as const,
+    model: null,
+    thinking: null,
+    tools: [],
+    skills: [],
+  }));
+  const ensureExtension = mock(async (_slug?: string) => {});
+  const spawn = makeSpawnFn({
+    resolveConfig,
+    cwd: "/tmp",
+    ensureExtension,
+    runnerOpts: { cliPath: FAKE_PI, runtime: process.execPath },
+    runSubagentAgent: realRunSubagentAgent,
+  });
+  await spawn("test-agent", "task");
+  expect(ensureExtension).toHaveBeenCalledTimes(1);
+  // 无具体 slug 时仍调用（让 agent-manager 决定是否重生），但参数为 undefined
+  expect(ensureExtension).toHaveBeenCalledWith(undefined);
+});
+
+test("makeSpawnFn: 未注入 ensureExtension 时不报错（向后兼容）", async () => {
+  const resolveConfig = mock(async () => ({
+    name: "test-agent",
+    description: "test desc",
+    systemPrompt: "you are a test agent",
+    systemPromptMode: "replace" as const,
+    model: "deepseek/deepseek-v4-pro",
+    thinking: null,
+    tools: [],
+    skills: [],
+  }));
+  // 不传 ensureExtension：不应抛错，应正常派发
+  const spawn = makeSpawnFn({
+    resolveConfig,
+    cwd: "/tmp",
+    runnerOpts: { cliPath: FAKE_PI, runtime: process.execPath },
+    runSubagentAgent: realRunSubagentAgent,
+  });
+  const result = await spawn("test-agent", "task");
+  expect(result.isError).toBe(false);
 });

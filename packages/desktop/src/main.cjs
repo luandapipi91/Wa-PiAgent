@@ -261,7 +261,22 @@ function activateApp() {
 	}
 }
 
+// GPU 硬件加速开关：必须在 app.whenReady 之前 appendSwitch 才生效。
+// 实测（ProcessExplorer / 任务管理器）：本机 WA PI Agent 全部进程 GPU 占用为 0，
+// 即 Electron 内置 Chromium 未启用 GPU 合成、完全走 CPU 软件渲染，导致滚动/交互相对于
+// 独立 Chrome 浏览器明显掉帧。本机为 NVIDIA dGPU + Intel iGPU 双显卡笔记本，Electron 43
+// 默认未正确激活硬件加速。以下 switches 强制启用 GPU 光栅化并指定 ANGLE(D3D11) 后端
+// （Win 上最稳定），并对齐浏览器的合成路径。
+app.commandLine.appendSwitch("enable-gpu-rasterization");
+app.commandLine.appendSwitch("enable-zero-copy");
+app.commandLine.appendSwitch("use-angle", "d3d11");
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+
 app.whenReady().then(async () => {
+	// GPU 信息取证：记录实际 GPU 后端，便于确认合成是否走了硬件加速（vs 软件渲染）。
+	app.getGPUInfo("complete")
+		.then((info) => log.info("GPU 信息:", JSON.stringify(info?.gpuDevice ?? info?.auxAttributes ?? {}, null, 0)))
+		.catch(() => {});
 	// 单实例：第二实例 → 激活既有窗口
 	const gotLock = app.requestSingleInstanceLock();
 	if (!gotLock) {

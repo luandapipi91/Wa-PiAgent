@@ -4,6 +4,13 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { buildSidecar } from "./build-kernel-sidecar";
 
+// 固化国内镜像：electron-builder 默认从 GitHub 下载 Electron 二进制 / winCodeSign / nsis，
+// 国内直连 20.205.243.166(GitHub) 经常 ETIMEDOUT，导致打包 hang 住数分钟。
+// 用 npmmirror 镜像避免联网超时；这些 env 必须在 spawn electron-builder 之前设置，
+// run() 调用 spawnSync 时会继承当前 process.env。
+process.env.ELECTRON_MIRROR ??= "https://npmmirror.com/mirrors/electron/";
+process.env.ELECTRON_BUILDER_BINARIES_MIRROR ??= "https://npmmirror.com/mirrors/electron-builder-binaries/";
+
 const PKG = join(import.meta.dir, "..");
 const ROOT = join(PKG, "..", "..");
 function run(bin: string, args: string[], cwd = PKG) {

@@ -6,6 +6,32 @@
 
 ## 2026-07-30
 
+### 修复
+
+- **安装版（Electron）交互/滚动掉帧**：根因是 Electron 内置 Chromium 未启用 GPU 硬件加速——实测本机 WA PI Agent 全部进程 GPU 占用为 0（完全 CPU 软件渲染），而独立 Chrome 浏览器走 GPU 合成故流畅。本机为 NVIDIA dGPU + Intel iGPU 双显卡笔记本，Electron 43 默认未正确激活硬件加速。修复：在 `app.whenReady` 前追加 GPU 合成 switches（`enable-gpu-rasterization` / `enable-zero-copy` / `use-angle=d3d11` / `ignore-gpu-blocklist`），并对齐浏览器的合成路径。同时加 GPU 信息诊断日志（`getGPUInfo`）便于后续确认。
+  - 影响范围：`packages/desktop/src/main.cjs`（app ready 前 appendSwitch + ready 后 GPU 日志）
+
+### 配置变更
+
+- **打包脚本固化国内镜像**：electron-builder 默认从 GitHub（`20.205.243.166`）下载 Electron 二进制 / winCodeSign / nsis 等，国内直连经常 `ETIMEDOUT`，导致打包 hang 住数分钟甚至失败。在 `build.ts` 启动阶段用 `process.env[...] ??=` 固化 `ELECTRON_MIRROR` 与 `ELECTRON_BUILDER_BINARIES_MIRROR` 指向 npmmirror，避免联网超时。用 `??=` 尊重已设环境变量（CI 等场景可覆盖）。
+  - 影响范围：`packages/desktop/scripts/build.ts`（启动时固化镜像 env）
+
+
+
+### 修复
+
+- **历史消息中 `/skill:技能名` 纯文本未渲染为技能样式**：根因是技能在输入框里是 `$[name]` chip，发送时 `expandTokens` 展开为 `/skill:name ` 纯文本（供 SDK 识别）；当 SDK 未把它再展开成 `<skill>` XML 时，消息以纯文本命令形式存储。而 `formatSkillBlocks` 只认 `<skill>` XML 块、`textToSegments` 只认 `$[name]` chip 格式，`/skill:xxx` 落在两者盲区，原样显示为纯文本。修复：`formatSkillBlocks` 新增第二条替换规则识别 `/skill:name` 纯文本，且**只有该技能名在已启用技能列表（`skills`）中真实存在时才渲染为 ⚡ 技能名**，避免任意 `/skill:xxx` 文本被误判；尾部多余空格压缩为单个。普通 `/命令`（非 `skill:` 前缀）保持原样。`MessageRow` 通过 `useSkillsStore` 取 `skills` 构造技能名集合传入 `formatSkillBlocks`（用 `useMemo` 缓存 Set 避免每次渲染新建触发无限循环）。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`（`formatSkillBlocks` 加纯文本分支 + 技能列表过滤；`MessageRow` 接入 `useSkillsStore`）、`packages/frontend/tests/MessageList.test.tsx`（TDD 失败测试先于实现）
+
+
+
+### 修复
+
+- **子智能体派发报 "No API key found for deepseek"**：根因是子智能体派发链路盲目信任磁盘上的 `provider-extension.ts`，当该文件与 `providers.json` 不同步（空壳/过时/手动改坏）时，子进程加载空壳导致自定义 provider 未注册，`--model` 查无此 provider 而报错。修复：在 `makeSpawnFn` 派发前加自愈逻辑——从 `config.model`（形如 `provider/model`）解析出所需 provider slug，校验 extension 文件是否覆盖该 slug，未覆盖则调用 `ensureProviderExtensionRegistered` 重新生成。新增纯函数 `extensionCoversProvider` 用于廉价校验。这正是用户"按理说最少跟随主智能体"的直觉所在：主智能体能拿到 provider 配置，子智能体现在也能可靠拿到。
+  - 影响范围：`packages/kernel/src/provider-extension.ts`（新增 `extensionCoversProvider`）、`packages/kernel/src/delegate-tool.ts`（`makeSpawnFn` 加 `ensureExtension` 注入点 + 派发前调用）、`packages/kernel/src/agent-manager.ts`（构造 spawnFn 时注入实际自愈实现）、`packages/kernel/tests/provider-extension.test.ts`、`packages/kernel/tests/delegate-tool.test.ts`（TDD 失败测试先于实现）
+
+
+
 ### 新增
 
 - **种子角色默认全量互联**：`makeSeedAgentConfig` 现在为每个内置专家角色自动填充 `partners.askTo`（除自身外的全部 8 个合作伙伴），首次启动即可使用完整的关系网和 delegate/fleet 委托，无需手动配置。手动新建角色的 `partners.askTo` 仍默认为空，保持灵活性。
@@ -15,6 +41,9 @@
   - 影响范围：`packages/desktop/src/preload.cjs`（暴露 getPathForFile）、`packages/frontend/src/components/ui/ComposerInput.tsx`（超大文件降级分流）、`packages/frontend/src/util/clipboard.ts`（waPiApp 类型声明）
 
 ### 修复
+
+- **安装/卸载/升级/启停动态插件后自动刷新技能列表**：`ws-server.ts` 中 `extension:install`、`extension:uninstall`、`extension:upgrade`、`extension:toggle` 四个操作成功后，现在会额外调用 `scanSkillsWithExtensions()` 并广播 `skill:changed` SSE 事件。此前仅调了 `markAllDirty()`（保证下一个 pi 子进程重建时加载新技能），但前端技能面板不实时刷新——用户必须手动点刷新或重开设置面板才能看到插件提供的技能。TDD 推进：先写 5 个红灯测试（验证 skill:changed 广播 + scan 调用），绿灯补齐 4 处各 2 行后全绿。
+  - 影响范围：`packages/kernel/src/ws-server.ts`（4 处各补 2 行）、`packages/kernel/tests/ws-extension-skill-refresh.test.ts`（新增 5 个测试）
 
 - **修复"发消息后回复部分内容即断开连接"**（TDD 推进 + 崩溃日志跟踪）。根因经运行日志（`退出 code=null`）+ 代码链路确认，分两层修复：
   - **崩溃根因**：`sse-bus.ts` 的 `broadcast` 里 `JSON.stringify(data)` 在 try/catch **之外**。流式输出中某帧 payload 含 BigInt（部分 provider 的 token usage）或循环引用（工具调用结果）时，JSON.stringify 同步抛 TypeError，沿 `rpc-client` stdout 回调 → `onEvent` → `eventThrottle` → `broadcast` 一路无兜底冒泡，被 Bun 视为未捕获异常杀死 kernel 进程（日志仅 `code=null` 无堆栈），SSE 长连接物理断开，前端显示"连接已断开"。完美吻合"回复部分内容后才断"。修复：JSON.stringify 移进 try/catch，失败用 BigInt-safe replacer（`(_,v) => typeof v==="bigint" ? v.toString() : v`）重试，仍失败记 warn 丢帧——绝不让单个坏帧杀进程。
@@ -68,7 +97,7 @@
 
 ### 新增功能
 
-- **移植 cocode 的会话文件树 + 文件预览功能**：会话栏顶部右侧新增「📁」按钮，点击切换右侧文件树面板；双击文件在面板内预览（代码语法高亮+行号 / 图片缩放平移）；文件可拖拽到输入框生成 `@filepath ` 提及。功能对齐 cocode desktop 的 explorer + file-viewer。
+- **移植 cocode 的会话文件树 + 文件预览功能**：会话栏顶部右侧新增「📁」按钮，点击切换右侧文件树面板；双击文件在面板内预览（代码语法高亮+行号 / 图片缩放平移）；文件可拖拽到输入框生成 `@filepath` 提及。功能对齐 cocode desktop 的 explorer + file-viewer。
   - **kernel**：`routes/fs.ts` 的 `checkPreviewable` 放行 `image/*`，read-file 现对 png/jpg/gif/svg 等图片返回 base64（仍受 3MB 上限）。导出 `checkPreviewable` 供单测。
   - **前端组件**：新增 `FileViewer`（代码高亮 + 图片缩放/平移 + 选中复制为 `@path:行号` 引用）、`ExplorerPanel`（扁平数组懒加载 + 5s 轮询 + 展开状态 ref 保持 + 右键菜单 + 拖拽 ghost）；`FilePill` 点击预览由旧 `FilePreviewModal`（纯 `<pre>`）升级为 `FileViewer`；删除已废弃的 `FilePreviewModal`。
   - **前端 store**：新增 `store/explorer.ts`（面板开关，持久化 localStorage）。
@@ -179,7 +208,7 @@
 - **过程卡片展开/弱化逻辑统一**：`useAutoCollapse` 新增 `executingMode` 参数——该模式下 `autoOpen = !isDone`。所有工具/委托卡片统一规则：未完成→展开不透明；已完成→折叠半透明
   - 影响范围：`useAutoCollapse.ts`、`DelegateCard.tsx`、`FleetCard.tsx`、`ToolCallCard.tsx`
 
-- **全项目重命名 HiAgent → WA PI Agent / wa-pi**：产品展示名改为「WA PI Agent」（窗口标题、侧边栏、托盘、productName）；标识符统一 `wa-pi`（npm 包名 `@hiagent/*` → `@wa-pi/*`、数据目录 `~/.hiagent` → `~/.wa-pi`、项目级 `.hiagent/` → `.wa-pi/`、环境变量 `HIAGENT_*` → `WA_PI_*`、二进制 `hiagent-kernel` → `wa-pi-kernel`、`hiagent-bridge.extension.ts` → `wa-pi-bridge.extension.ts`、代码标识符 HiAgent* → WaPi*、settings 字段 hiagent_packages → waPiPackages 等）。约 290 个文件。不迁移旧数据：`~/.hiagent` 保留但不再读取，WA PI Agent 从全新数据目录启动。
+- **全项目重命名 HiAgent → WA PI Agent / wa-pi**：产品展示名改为「WA PI Agent」（窗口标题、侧边栏、托盘、productName）；标识符统一 `wa-pi`（npm 包名 `@hiagent/*` → `@wa-pi/*`、数据目录 `~/.hiagent` → `~/.wa-pi`、项目级 `.hiagent/` → `.wa-pi/`、环境变量 `HIAGENT_*` → `WA_PI_*`、二进制 `hiagent-kernel` → `wa-pi-kernel`、`hiagent-bridge.extension.ts` → `wa-pi-bridge.extension.ts`、代码标识符 HiAgent*→ WaPi*、settings 字段 hiagent_packages → waPiPackages 等）。约 290 个文件。不迁移旧数据：`~/.hiagent` 保留但不再读取，WA PI Agent 从全新数据目录启动。
 - 未改：cocode-master（内嵌第三方仓库）、CHANGELOG 历史条目、gitee 远端仓库名（需平台侧另行改名）、`.workflow/release.yml` 的 OWNER/REPO（指向 gitee 仓库，待仓库改名后同步）。
 - 影响范围：全仓库（详见 git diff）
 
@@ -227,6 +256,7 @@
 - **`/mcp-auth` 卡住**：`RpcClient.handleUiRequest` 中 `UI_DIALOG_METHODS` 缺少 `custom` 方法，导致 pi-mcp-adapter 的 `ctx.ui.custom()` 面板请求无回复，pi 进程永久挂起。将 `custom` 加入对话方法集合，无 handler 时自动回 `cancelled`。
 - **数据清理**：`~/.hiagent/subagent-overrides.json` 中测试遗留的 `"test-model"` 无效模型已清除；引用不存在工作目录的过期会话文件 `s-518cb4ab-...jsonl` 已删除。
 - 影响范围：`packages/kernel/src/rpc-client.ts`
+
 ## 2025-07-28
 
 ### 修复

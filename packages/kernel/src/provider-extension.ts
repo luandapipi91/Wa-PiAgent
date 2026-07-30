@@ -1,4 +1,5 @@
 import { writeFile, mkdir } from "node:fs/promises";
+import { existsSync as nodeExistsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { slugifyProviderName, GENERATED_DIR } from "@wa-pi/shared";
 import type { ModelProvider } from "@wa-pi/shared";
@@ -22,6 +23,27 @@ const DEFAULT_SDK_MODEL: SdkModelInfo = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   name: "",
 };
+
+/**
+ * 校验 extension 文件是否注册了指定的 provider slug。
+ * 用于子智能体派发前自愈：若 extension 文件缺失/空壳/不含所需 provider，
+ * 调用方应触发 ensureProviderExtensionRegistered 重新生成，避免子进程报
+ * "No API key found"（provider-extension 与 providers.json 不同步所致）。
+ *
+ * 通过扫描 `pi.registerProvider("<slug>"` 子串判定，无需解析 TS。
+ * existsSync 用同步版（派发是热路径，校验必须廉价）。
+ */
+export function extensionCoversProvider(extFilePath: string, slug: string): boolean {
+	if (!nodeExistsSync(extFilePath)) return false;
+	let code: string;
+	try {
+		code = readFileSync(extFilePath, "utf8");
+	} catch {
+		return false;
+	}
+	// 生成的 extension 用 registerProvider("<slug>", 调用注册，slug 经 JSON.stringify 含引号
+	return code.includes(`registerProvider(${JSON.stringify(slug)}`);
+}
 
 /**
  * 在内置模型目录中按 model ID 查找匹配模型。

@@ -40,9 +40,13 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
     const [defs, ids] = await Promise.all([getDefaults(), getNewSessionIds()]);
     set(s => {
       const next: Partial<ComposerPrefsState> = {};
-      // 始终使用存储的 thinking；model 仅在用户已选中时保留内存值（防止异步竞速覆盖为 null）
+      // localStorage 是 model 的权威来源（用户上次显式选择并持久化）；
+      // 仅当持久层无值（用户从未选过）时，才用内存值兜底——
+      // 这通常发生在 NewSessionPane 挂载早期、ModelSelector 因 value=null 触发 auto-select
+      // 把内存 model 设成"第一个模型"时：此时若 localStorage 有真实值必须优先恢复，
+      // 否则会被 auto-select 抢先污染（重启后模型被重置为第一个的根因）。
       next.defaults = {
-        model: s.defaults.model != null ? s.defaults.model : defs.model,
+        model: defs.model ?? s.defaults.model,
         thinking: defs.thinking,
       };
       const changed =

@@ -54,6 +54,10 @@ import {
 	buildDelegateRoster,
 	makeSpawnFn,
 } from "./delegate-tool";
+import {
+	ensureProviderExtensionRegistered,
+	extensionCoversProvider,
+} from "./provider-extension";
 import { SubagentTelemetry } from "./subagent-telemetry";
 import type { WaPiSpawnConfig } from "./subagent-runner";
 import { seedBuiltinAgents } from "./builtin-agents";
@@ -525,6 +529,16 @@ export class AgentManager {
 		const spawnFn = makeSpawnFn({
 			resolveConfig: resolveSpawnConfig,
 			extensionPaths: existsSync(providerExtPath) ? [providerExtPath] : [],
+			// 派发前自愈：extension 文件可能与 providers.json 不同步（空壳/过时/手动改坏），
+			// 导致子进程报 "No API key found"。按需重生，保证子进程加载到含所需 provider 的 extension。
+			ensureExtension: this.opts.providerStore
+				? async (requiredSlug?: string) => {
+						// 无具体 slug（跟随主模型）或 extension 不含该 slug 时，重新生成
+						if (!requiredSlug || !extensionCoversProvider(providerExtPath, requiredSlug)) {
+							await ensureProviderExtensionRegistered(this.opts.providerStore!);
+						}
+					}
+				: undefined,
 			resolveSkillPaths: async (skillNames) => {
 				// 从全局启用的技能中按名称解析路径
 				const enabled = await resolveEnabledSkills(

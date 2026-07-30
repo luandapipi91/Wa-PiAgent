@@ -4,6 +4,7 @@ import type { SessionMessage } from "@wa-pi/shared";
 import { MessageList, buildResendPrompt } from "../src/components/MessageList";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
+import { useSkillsStore } from "../src/store/skills";
 
 // 重新发送等交互会触发 api.post（真实 fetch），happy-dom 在 about:blank 下对相对 URL
 // 抛 NotSupportedError。mock 掉 api-client，返回空数据。
@@ -886,6 +887,79 @@ test("用户消息中 <skill> 块后跟 \\n\\n 再跟文本 → 技能名与文�
   // 关键：DOM 里不应有 <br>（\n\n 会被 textToHtml 转成 <br><br> 产生空行）
   expect(bubble.querySelectorAll("br").length).toBe(0);
 });
+
+// === /skill:xxx 纯文本（输入框 chip 经 expandTokens 展开后存入消息，SDK 未再展开成 <skill> XML）回显为技能 chip ===
+// 约束：只有已启用技能列表（skills）里真实存在的技能名才渲染为 chip，避免任意 /skill:xxx 文本被误判。
+
+test("用户消息中 /skill:xxx 纯文本显示为 ⚡ 技能名（技能在 skills 中）", () => {
+  // 真实数据：输入框里技能是 $[test-driven-development] chip，发送时 expandTokens 展开为
+  // /skill:test-driven-development （纯文本，给 SDK 识别）。SDK 未展开成 <skill> XML，
+  // 消息以纯文本命令形式存储。该技能在 skills 中 → formatSkillBlocks 渲染为 ⚡ 技能名。
+  useSkillsStore.setState({ skills: [{ name: "test-driven-development", path: "/x", source: "pkg", enabled: true } as any] });
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "按照 /skill:test-driven-development   来推进，请回退", timestamp: 1 } },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const bubble = screen.getByTestId("msg-s1-1").querySelector("p")!;
+  const text = bubble.textContent ?? "";
+  // 应显示技能名（与 <skill> XML 块渲染一致的 ⚡ 前缀）
+  expect(text).toContain("⚡ test-driven-development");
+  // 应显示用户附加文本
+  expect(text).toContain("来推进，请回退");
+  // 不应残留原始 /skill: 命令前缀
+  expect(text).not.toContain("/skill:test-driven-development");
+});
+
+test("用户消息中 /skill:xxx（技能不在 skills 中）保持纯文本不渲染 chip", () => {
+  // 技能名不在技能列表里 → 不应渲染为 ⚡，保持原样纯文本
+  useSkillsStore.setState({ skills: [{ name: "其他技能", path: "/y", source: "pkg", enabled: true } as any] });
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "按照 /skill:不存在的技能 来推进", timestamp: 1 } },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const text = screen.getByTestId("msg-s1-1").querySelector("p")!.textContent ?? "";
+  expect(text).not.toContain("⚡");
+  expect(text).toContain("/skill:不存在的技能");
+});
+
+test("用户消息中 /skill:xxx 命令后多余空格被压缩为单个（技能在 skills 中）", () => {
+  useSkillsStore.setState({ skills: [{ name: "brainstorming", path: "/z", source: "pkg", enabled: true } as any] });
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "/skill:brainstorming     开始吧", timestamp: 1 } },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const text = screen.getByTestId("msg-s1-1").querySelector("p")!.textContent ?? "";
+  expect(text).toContain("⚡ brainstorming");
+  expect(text).toContain("开始吧");
+});
+
+test("用户消息中普通 /命令（非 skill）不被误渲染为技能 chip", () => {
+  useSkillsStore.setState({ skills: [] });
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "运行 /model 切换模型", timestamp: 1 } },
+      ],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const text = screen.getByTestId("msg-s1-1").querySelector("p")!.textContent ?? "";
+  expect(text).not.toContain("⚡");
+  expect(text).toContain("/model");
+});
+
 // 真实数据来自 ~/.wa-pi/sessions/*.jsonl 经 Pi SDK 加载后的 sdkSession.messages：
 //   {role:"custom", customType:"subagent-notification", content:"<task-notification>...", display:true, ...}
 // 之前的渲染逻辑用 m.type 判断 custom，但 SDK 内存消息字段是 m.role，导致掉到 assistant 分支
