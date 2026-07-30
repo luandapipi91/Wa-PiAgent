@@ -8,6 +8,35 @@
 
 ### 修复
 
+- **网络错误后排队与重发按钮**：承接上次「transient 错误改状态条」改动，补齐两个体验缺口。① pi 内部重试期间（busy=true）新消息本就会自动进 followUp 队列（现有机制，无需改）；② pi 重试耗尽后 agent_settled 会自动 drain 队列——但此时网络仍不可用，排队消息会再失败。修复：kernel SessionHandle 新增 `netDegraded` 标记，transient 错误时置 true，agent_settled 跳过 drain（队列保留等用户重发），用户重发（prompt 走 _sendPromptNow）时自动清除标记恢复正常。③ transient 不进对话流导致原「重新发送」按钮（依赖 stopReason:error）永不命中——MessageList 新增 degraded 触发条件：netDegraded 且末条是 user 消息时显示重发按钮，重发同一条不叠加并清除 degraded。④ App.tsx net:status 移除 failTurn，让 pi 的 agent_end 自然复位 thinking（依赖 pi finally 必发 agent_settled，已由源码确认）。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/index.ts`、`packages/frontend/src/App.tsx`、`packages/frontend/src/components/MessageList.tsx`
+
+### 测试 / 修复
+
+- **修复全量测试套件（kernel/shared/desktop/frontend 四包全部 0 fail）**。此前 `bun run test` 存在两大结构性问题导致大面积失败（单包单独跑通过，全量跑 220+ fail），逐一定位根因后修复。每个失败都判定为以下三类之一：
+  1. **测试 case 未跟上代码改动**（产品改名/移除功能后断言过期）：
+     - `shared`：`agentDefOf` 测试用已移除的内置 agent「技术实现」，改用现存的「前端开发者」。
+     - `desktop`：`buildTrayMenu` 测试期望旧名「打开 WaPi」，产品已改名「打开 WA PI Agent」。
+     - `ComposerInput`：`/ 命令菜单`测试断言「compact」「model」，但 `PI_FRAMEWORK_COMMANDS` 已全部注释移除（产品决策不再暴露）；改用 prompt 模板命令验证同一 dispatch 路径。
+     - `Sidebar`：「项目」区头改为 `userProjects.length > 0` 条件渲染，空项目测试改为断言区头不出现。
+  2. **happy-dom 环境限制**（about:blank 下相对 URL fetch 抛 NotSupportedError）：
+     - `store-mcp`/`extensions-store`/`MessageList`/`SkillSection`/`ExtensionSection`/`SettingsModal` 等测试触发真实 `api.get/post`，happy-dom 不支持。给各文件 `mock.module("../src/api-client")`，`SkillSection` 另 mock `fs-client`（DirTreePicker 的 getRoots/listDir）。
+     - `App`/`App-agent-missing`/`canvas-removed`：mock 的 `api.get` 返回 `{}`（truthy）触发 `loadAll` 的 `if(data)` 分支异步覆盖测试预设的 store，导致渲染空壳/hooks 错误；改为返回 `null`（falsy，不触发覆盖），`/presets` 等需结构化数据的路径单独返回 `{presets:[]}`。
+  3. **bun:test mock.module 跨文件泄漏**（[oven-sh/bun#31316](https://github.com/oven-sh/bun/issues/31316)，进程级注册表不在文件间重置）：frontend 的 test 脚本加 `--isolate`（每文件独立 global object），隔离 mock 副作用。
+  - **根 test 脚本重构**：原 `bun test --path-ignore-patternes ...` 的 flag 拼写错误（少个 s，被当 filter 从未生效），且从仓库根递归扫到 `cocode-master/`（vendored 外部项目，502 个无关测试）。改为在各 package 目录分别 `bun run test`，彻底隔离且只跑 wa-pi 自身测试。
+  - 影响范围：`packages/shared/tests/types.test.ts`、`packages/desktop/tests/menu.test.ts`、`packages/frontend/{package.json, bunfig.toml, tests/happydom-setup.ts, tests/*.test.tsx}`、根 `package.json`
+  - 验证：`bun run test` exit 0（kernel 552 + shared 87 + desktop 20 + frontend 791 = 1450 pass / 0 fail）；`bun run typecheck` 四包全过，无回归。
+  - 注：`cocode-master/` 是仓库内独立参考项目，其测试失败与 wa-pi 无关，已从根测试脚本排除。
+
+## 2026-07-30
+
+### 新增功能
+
+- **左右两侧面板支持拖动调整宽度**：左侧会话列表 + 右侧文件预览面板均支持拖拽分隔条调整宽度，范围 200px ~ 视口宽度的 40%，宽度持久化到 localStorage（刷新/重启保持）。分隔条视觉改细（2px，含更宽透明热区便于抓取），拖拽中禁用文本选中。`SidebarResizer` 参数化为通用组件（`side: "left"|"right"` 决定方向，`minWidth`/`maxRatio` 可配）。
+  - 影响范围：新增 `packages/frontend/src/store/sidebar.ts`（左侧宽度）、`packages/frontend/src/components/SidebarResizer.tsx`（参数化通用分隔条）；改 `Sidebar.tsx`/`App.tsx`（左侧接入）、`store/explorer.ts`（加 width 字段）、`SessionView.tsx`（右侧面板读 store width + 插入分隔条）
+
+### 修复
+
 - **会话列表不再出现「点进去空白」的孤儿会话**：根因是 `getCommands`（拉取斜杠命令菜单）的兜底分支违背自身 docstring——在无活跃进程可借时调用 `createSession` 写入记录（`title: agentName`）并启动 pi 进程，但全程不发 prompt，pi 不创建 `.jsonl` 消息文件；用户离开后进程退出，记录永久残留，出现在列表点击却读不到消息→空白。修复（TDD）：在 `_onProcessExit`（进程退出钩子）加孤儿回滚——`piSessionFile` 文件不存在（从未 prompt）时删除该 session 记录并经 `onSessionRollback` 回调广播 `projects:list` 刷新前端；正常会话（有消息文件）崩溃不删除。
   - 影响范围：`packages/kernel/src/agent-manager.ts`（`SessionHandle` 加 `piSessionFile`、`_onProcessExit` 加回滚、`AgentManagerOpts` 加 `onSessionRollback`）、`packages/kernel/src/index.ts`（接线广播）、`packages/kernel/tests/agent-manager.test.ts`（2 新测试：孤儿删除/正常不误删；现有崩溃测试补消息文件适配）
 

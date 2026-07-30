@@ -16,8 +16,9 @@ test("渲染四区容器 + 新建会话按钮", () => {
   expect(screen.getByText(/新建会话/)).toBeTruthy();
   // 分组标题改为大写"智能体"
   expect(screen.getByText("智能体")).toBeTruthy();
-  // "项目"既出现在 ProjectList 区头，也是 pm 智能体 label（AGENT_DEFS.pm.label="项目管理"包含"项目"）
-  expect(screen.getAllByText(/^项目$/).length).toBeGreaterThanOrEqual(1);
+  // "项目"区头现在仅在存在用户项目时渲染（ProjectList 的 userProjects.length>0 条件）；
+  // 此处 projects 为空，故不断言该区头。改成有项目时再验证区头出现：
+  expect(screen.queryByText(/^项目$/)).toBeNull();
 });
 
 test("透传 onNewSession", () => {

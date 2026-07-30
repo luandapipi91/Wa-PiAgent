@@ -1,8 +1,19 @@
 // packages/frontend/tests/ExtensionSection.test.tsx
-import { test, expect, beforeEach } from "bun:test";
+import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ExtensionSection } from "../src/components/settings/ExtensionSection";
 import { useExtensionsStore } from "../src/store/extensions";
+
+// 安装/卸载等交互会触发 api.post（真实 fetch），happy-dom 在 about:blank 下对相对 URL
+// 抛 NotSupportedError。mock 掉 api-client。
+mock.module("../src/api-client", () => ({
+  api: {
+    get: () => Promise.resolve(null),
+    post: () => Promise.resolve({}),
+    put: () => Promise.resolve({}),
+    del: () => Promise.resolve({}),
+  },
+}));
 
 // 捕获 store 的真实 actions，用于 beforeEach 重置：部分测试会 override 单个 action 做 spy，
 // 而 zustand 单例的 override 会跨测试残留，必须每轮恢复，否则污染后续测试。

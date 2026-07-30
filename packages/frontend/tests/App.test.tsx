@@ -7,7 +7,9 @@ const calls: { method: string; path: string; body?: any }[] = [];
 
 mock.module("../src/api-client", () => ({
   api: {
-    get: (path: string) => { calls.push({ method: "get", path }); return Promise.resolve({}); },
+    // get 返回 null（falsy）：App mount 时各 store.loadAll/load 的 if(data) 分支不触发，
+    // 避免异步覆盖测试在 beforeEach 预设的 store 状态（agents/projects 等）。
+    get: (path: string) => { calls.push({ method: "get", path }); return Promise.resolve(null); },
     post: (path: string, body?: any) => { calls.push({ method: "post", path, body }); return Promise.resolve({}); },
     put: (path: string, body?: any) => { calls.push({ method: "put", path, body }); return Promise.resolve({}); },
     del: (path: string, body?: any) => { calls.push({ method: "del", path, body }); return Promise.resolve({}); },

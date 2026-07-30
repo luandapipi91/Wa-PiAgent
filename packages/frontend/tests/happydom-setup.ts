@@ -23,7 +23,7 @@ await import("fake-indexeddb/auto");
 // 仅对「触发首次加载的那个文件」生效。bun 多文件共享同一 happy-dom document →
 // 跨文件 body 残留，getByTestId 会命中上个文件遗留的元素。这里在每个文件 preload
 // 里显式注册 afterEach 清空 body 兜底（不直接 import @testing-library/react，避免
-// 抢在 happy-dom 注册前缓存 document 引用）。
+// 抢在 happy-dom 注册前缓存 document 引用）。需要 cleanup() 的测试文件自行注册。
 afterEach(() => {
   document.body.innerHTML = "";
 });

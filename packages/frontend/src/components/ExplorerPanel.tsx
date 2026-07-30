@@ -1,6 +1,6 @@
-// 文件树面板：移植自 cocode 的 explorer.tsx，适配 HiAgent 的 fs-client（HTTP REST）。
+// 文件树面板：移植自 cocode 的 explorer.tsx，适配 WaPi 的 fs-client（HTTP REST）。
 // 特性：扁平数组懒加载、5s 轮询、展开状态 ref 保持、右键复制路径/在访达显示、双击文件预览。
-// HiAgent 的 listDir 返回 DirEntry{name,isDir}（无 path），前端按父目录拼接绝对路径。
+// WaPi 的 listDir 返回 DirEntry{name,isDir}（无 path），前端按父目录拼接绝对路径。
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listDir, revealFile } from "../fs-client";
 import { copyToClipboard } from "../util/clipboard";
@@ -66,7 +66,7 @@ export function ExplorerPanel({
   const togglingRef = useRef(false);
   const addToast = useToastStore(s => s.add);
 
-  // 加载单层目录：HiAgent 的 listDir 返回 DirEntry{name,isDir}，前端补 path
+  // 加载单层目录：WaPi 的 listDir 返回 DirEntry{name,isDir}，前端补 path
   const loadDir = useCallback(async (dir: string): Promise<Entry[]> => {
     try {
       const entries = await listDir(dir);

@@ -4,6 +4,7 @@ import { AgentListSection } from "./AgentListSection";
 import { ProjectList } from "./ProjectList";
 import { SettingsButton } from "./SettingsButton";
 import { useSettingsStore } from "../store/settings";
+import { useSidebarStore } from "../store/sidebar";
 
 interface Props {
   onNewSession: () => void;
@@ -18,10 +19,11 @@ interface Props {
 }
 
 export function Sidebar(props: Props) {
+  const width = useSidebarStore((s) => s.width);
   return (
     <aside
       className="flex flex-col gap-1.5 p-3.5 overflow-hidden border-r border-hairline"
-      style={{ width: 264, background: "var(--surface-elevated)" }}
+      style={{ width, background: "var(--surface-elevated)" }}
       data-testid="sidebar"
     >
       <div className="flex items-center gap-2 px-2 pb-2.5">

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { AgentName } from "@wa-pi/shared";
 import { Sidebar } from "./components/Sidebar";
+import { SidebarResizer } from "./components/SidebarResizer";
+import { useSidebarStore } from "./store/sidebar";
 import { NewSessionPane } from "./components/NewSessionPane";
 import { SessionView } from "./components/SessionView";
 import { EmptyState } from "./components/EmptyState";
@@ -119,10 +121,10 @@ export function App() {
         case "net:status": {
           // transient 网络错误（Connection error / timeout 等）：不进对话流，
           // 改设 degraded 状态驱动顶部状态条提示「模型连接异常」。
-          // 复位 thinking（transient 错误后 agent turn 已结束，但不会有 agent_end 兜底）。
+          // 不调用 failTurn：transient 后 pi 会发 agent_end 自然复位 thinking，
+          // 让 pi 内部重试期间（busy=true）新消息继续排队（现有机制）。
           const sid = e.sessionId ?? useProjectsStore.getState().currentSessionId;
           if (sid) {
-            useSessionStore.getState().failTurn(sid);
             useSessionStore.getState().setNetStatus(sid, "degraded");
           } else {
             useToastStore.getState().add(e.message);
@@ -274,6 +276,7 @@ export function App() {
         onNewProject={() => { void useProjectsStore.getState().createProjectFromDir(); }}
         currentView={view}
       />
+      <SidebarResizer side="left" onResize={(w) => useSidebarStore.getState().setWidth(w)} testId="sidebar-resizer" />
       <main className="flex-1 flex flex-col overflow-hidden">
         {connState === "reconnecting" && (
           <div className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs bg-warning-soft text-warning border-b border-warning/20">

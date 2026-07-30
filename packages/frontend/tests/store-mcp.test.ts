@@ -1,5 +1,17 @@
-import { test, expect, beforeEach } from "bun:test";
+import { test, expect, beforeEach, mock } from "bun:test";
 import { useMcpStore } from "../src/store/mcp";
+
+// store 的 load/testConnection 等会触发 api.get/post（真实 fetch），
+// happy-dom 在 about:blank 下对相对 URL 抛 NotSupportedError。mock 掉 api-client，
+// 返回空数据，让 store 的 .then/.catch 正常走，断言聚焦于 state 变更。
+mock.module("../src/api-client", () => ({
+  api: {
+    get: () => Promise.resolve(null),
+    post: () => Promise.resolve({}),
+    put: () => Promise.resolve({}),
+    del: () => Promise.resolve({}),
+  },
+}));
 
 beforeEach(() => {
   useMcpStore.setState({

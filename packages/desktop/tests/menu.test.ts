@@ -4,7 +4,7 @@ import { buildTrayMenu, buildAppMenuTemplate } from "../src/util/menu.cjs";
 test("buildTrayMenu: 两项 + 分隔（label 顺序）", () => {
   const m = buildTrayMenu(() => {}, () => {});
   const labels = m.filter((x: any) => x.type !== "separator").map((x: any) => x.label);
-  expect(labels).toEqual(["打开 WaPi", "退出"]);
+  expect(labels).toEqual(["打开 WA PI Agent", "退出"]);
 });
 
 test("buildTrayMenu: 点退出触发 onQuit", () => {

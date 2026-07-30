@@ -4,6 +4,30 @@ import { SkillSection } from "../src/components/settings/SkillSection";
 import { useSkillsStore } from "../src/store/skills";
 import type { SkillInfo } from "@wa-pi/shared";
 
+// 添加技能目录等交互会触发 api（真实 fetch），happy-dom 在 about:blank 下对相对 URL
+// 抛 NotSupportedError。mock 掉 api-client；DirTreePicker 的 getRoots/listDir 走 fs-client，
+// 一并 mock 成空数据（否则 getRoots() 的 null.roots 抛错）。
+mock.module("../src/api-client", () => ({
+  api: {
+    get: () => Promise.resolve(null),
+    post: () => Promise.resolve({}),
+    put: () => Promise.resolve({}),
+    del: () => Promise.resolve({}),
+  },
+}));
+mock.module("../src/fs-client", () => ({
+  getHome: async () => "/home",
+  getRoots: async () => [],
+  listDir: async () => [],
+  statFile: async () => false,
+  readFile: async () => ({ content: "" }),
+  revealFile: async () => {},
+  copyToUploads: async () => "",
+  uploadFile: async () => "",
+  searchFilesStream: async () => {},
+  _setFsTransport: () => {},
+}));
+
 // 捕获 store 原始 action 方法，避免测试间 mock 泄漏
 const originalActions = {
   toggleSkill: useSkillsStore.getState().toggleSkill,
