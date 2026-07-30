@@ -180,6 +180,28 @@ describe("composer-prefs store", () => {
     expect(useComposerPrefsStore.getState().defaults.model).toBe("openai/gpt-4o");
   });
 
+  it("复现：重启后 ModelSelector 自动选中第一个模型，不应覆盖 localStorage 中用户上次选的 model", async () => {
+    // 真实场景：用户上次在新建页选了 openai/gpt-4o，已持久化到 localStorage
+    await dbSetDefaults({ model: "openai/gpt-4o", thinking: "high" });
+    // 内存态是初始值（beforeEach 已重置），hydration=false
+
+    // 竞态点：NewSessionPane 挂载，loadDefaults() 异步未完成；
+    // 但 ModelSelector 因 value=null 已同步触发 auto-select → setDefaults({ 第一个模型 })。
+    // 这里用 "anthropic/claude-sonnet" 模拟 providers 列表里的第一个模型。
+    useComposerPrefsStore.getState().setDefaults({ model: "anthropic/claude-sonnet" });
+
+    // loadDefaults 姗姗来迟完成
+    await useComposerPrefsStore.getState().loadDefaults();
+
+    // 关键断言：重启后应恢复用户上次持久化的 openai/gpt-4o，
+    // 而非被 ModelSelector 自动选中的第一个模型（anthropic/claude-sonnet）覆盖。
+    // 修复前：loadDefaults 里 `s.defaults.model != null ? s.defaults.model : defs.model`
+    // 因 auto-select 已把 s.defaults.model 设成非 null，会丢弃 defs.model（openai/gpt-4o）。
+    expect(useComposerPrefsStore.getState().defaults.model).toBe("openai/gpt-4o");
+    // thinking 仍正确恢复
+    expect(useComposerPrefsStore.getState().defaults.thinking).toBe("high");
+  });
+
   it("复现：新会话设 max → 切到老会话(off) → 重启后 defaults 应保持 max", async () => {
     // 老会话已有 off 偏好
     await dbSetDefaults({ model: null, thinking: "disabled" });

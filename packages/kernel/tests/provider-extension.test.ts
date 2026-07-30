@@ -1,10 +1,12 @@
 import { test, expect, afterAll } from "bun:test";
 import { rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   slugifyProviders,
   generateProviderExtension,
   ensureProviderExtensionRegistered,
+  extensionCoversProvider,
 } from "../src/provider-extension";
 import { GENERATED_DIR } from "@wa-pi/shared";
 import type { ModelProvider } from "@wa-pi/shared";
@@ -97,6 +99,33 @@ test("ensureProviderExtensionRegistered 写 extension 文件到 GENERATED_DIR", 
 
   rmSync(dir, { recursive: true, force: true });
   rmSync(extFile, { force: true });
+});
+
+// ---- extensionCoversProvider：校验 extension 文件是否覆盖了子智能体所需的 provider slug ----
+
+test("extensionCoversProvider: 文件不存在返回 false", () => {
+  expect(extensionCoversProvider(join(GENERATED_DIR, "nonexistent-" + Math.random().toString(36).slice(2) + ".ts"), "deepseek")).toBe(false);
+});
+
+test("extensionCoversProvider: 空壳 extension（无 registerProvider）对任意 slug 返回 false", async () => {
+  const dir = join(import.meta.dir, ".tmp-cover-" + Math.random().toString(36).slice(2));
+  const emptyExt = join(dir, "empty.ts");
+  await mkdir(dir, { recursive: true });
+  await writeFile(emptyExt, "export default function(pi){}\n", "utf8");
+  expect(extensionCoversProvider(emptyExt, "deepseek")).toBe(false);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("extensionCoversProvider: 含目标 slug 的 registerProvider 返回 true", async () => {
+  const code = generateProviderExtension([sampleProvider()], new Map());  // slug = my-deepseek
+  const dir = join(import.meta.dir, ".tmp-cover2-" + Math.random().toString(36).slice(2));
+  const extFile = join(dir, "ext.ts");
+  await mkdir(dir, { recursive: true });
+  await writeFile(extFile, code, "utf8");
+  expect(extensionCoversProvider(extFile, "my-deepseek")).toBe(true);
+  // 其它 slug 仍返回 false
+  expect(extensionCoversProvider(extFile, "openai")).toBe(false);
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test("ensureProviderExtensionRegistered 多次调用覆盖式重写并反映最新 providers", async () => {

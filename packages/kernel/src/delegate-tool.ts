@@ -27,7 +27,7 @@ import type {
 	SubagentProgressEvent,
 	SubagentUsage,
 } from "./subagent-runner";
-import { runSubagentAgent } from "./subagent-runner";
+import { runSubagentAgent as defaultRunSubagentAgent } from "./subagent-runner";
 import type { SpawnTelemetryInput } from "./subagent-telemetry";
 
 /** fleet 工具并行派发子任务的最大并发上限，超出部分排队等待。也作为内部 runWithConcurrency 的默认限流值 */
@@ -195,7 +195,22 @@ export function makeSpawnFn(opts: {
 	/** 随子进程加载的扩展文件（-e）：provider-extension 必须传入，
 	 *  否则子进程的 pi 不认识主会话的自定义 provider，--model 会因 No API key 失败 */
 	extensionPaths?: string[];
+	/**
+	 * 派发前确保 provider-extension 覆盖子智能体所需的 provider slug。
+	 * 传入从 config.model 解析出的 provider slug（形如 "deepseek"）；
+	 * model 为 null（跟随主模型）时传 undefined，由实现决定是否无条件重生。
+	 * 实现负责按需调用 ensureProviderExtensionRegistered 重新生成 extension 文件，
+	 * 防止 extension 与 providers.json 不同步导致子进程报 "No API key found"。
+	 */
+	ensureExtension?: (requiredSlug?: string) => Promise<void>;
+	/**
+	 * 测试覆盖：注入 runSubagentAgent 实现。
+	 * 仅用于绕过测试进程内 mock.module 对 "./subagent-runner" 的进程级污染
+	 * （见 agent-manager-subagent-overrides.test.ts）；生产调用不传，默认用顶部 import 的实现。
+	 */
+	runSubagentAgent?: typeof defaultRunSubagentAgent;
 }): DelegateSpawnFn {
+	const runSubagent = opts.runSubagentAgent ?? defaultRunSubagentAgent;
 	return async (agent: string, task: string) => {
 		const config = await opts.resolveConfig(agent);
 		if (!config) {
@@ -211,7 +226,15 @@ export function makeSpawnFn(opts: {
 		const skillPaths = opts.resolveSkillPaths && config.skills.length
 			? await opts.resolveSkillPaths(config.skills)
 			: undefined;
-		const result = await runSubagentAgent(config, task, opts.cwd, {
+		// 派发前自愈 provider-extension：从 config.model（形如 "provider/model"）解析出所需 provider slug，
+		// 交由 ensureExtension 校验/重生 extension 文件，避免子进程加载过时空壳报 "No API key found"。
+		if (opts.ensureExtension) {
+			const modelSlug = config.model && config.model.includes("/")
+				? config.model.slice(0, config.model.indexOf("/"))
+				: undefined;
+			await opts.ensureExtension(modelSlug);
+		}
+		const result = await runSubagent(config, task, opts.cwd, {
 			signal: opts.signal,
 			onProgress: opts.onProgress,
 			skillPaths,

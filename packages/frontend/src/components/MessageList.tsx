@@ -9,6 +9,7 @@ import { isModelAvailable } from "@wa-pi/shared";
 import { useSessionStore } from "../store/session";
 import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";
+import { useSkillsStore } from "../store/skills";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { api } from "../api-client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -348,18 +349,32 @@ function stripAttachmentRefs(content: string): string {
 }
 
 /**
- * 把 SDK 展开后的 <skill name="...">完整内容</skill> XML 块替换为简洁的技能名显示。
- * SDK 的 _expandSkillCommand 会把 /skill:name 展开为完整 SKILL.md 内容注入消息，
- * 前端用户气泡只需展示技能名，不展示技能正文。
+ * 把技能引用替换为简洁的技能名显示，统一渲染为 ⚡ 技能名。两种输入形态：
  *
- * 替换后会吃掉紧跟其后的换行/空行（SDK 注入的 \n\n 会在 textToHtml 中变成 <br> 产生空行，
- * 导致技能名和用户实际输入的文本被拆成两行）。只保留一个空格分隔技能名与后续文本。
+ * 1. <skill name="...">完整内容</skill> XML 块：SDK 的 _expandSkillCommand 把
+ *    /skill:name 展开成完整 SKILL.md 内容注入消息，前端只展示技能名。
+ * 2. /skill:name 纯文本：输入框里技能是 $[name] chip，发送时 expandTokens 展开为
+ *    /skill:name （给 SDK 识别）。当 SDK 未把它再展开成 <skill> XML 时，消息以
+ *    纯文本命令形式存储——这条分支兜底把它也渲染为 ⚡ 技能名，与输入框 chip 视觉一致。
+ *    约束：只有 knownSkills（已启用技能列表里真实存在的技能名）才渲染，避免任意 /skill:xxx
+ *    文本被误判为技能。
+ *
+ * 两种分支都会吃掉紧跟其后的换行/空格（SDK 注入的 \n\n 或 expandTokens 追加的空格
+ * 在 textToHtml 中会变成 <br>/多空格，把技能名和后续文本拆开）。只保留一个空格分隔。
+ *
+ * @param knownSkills 已知技能名集合（来自 useSkillsStore.skills，即已启用技能）。仅用于过滤
+ *   /skill:xxx 纯文本分支；<skill> XML 块分支不做过滤（SDK 已展开即视为有效）。
  */
-function formatSkillBlocks(content: string): string {
-	return content.replace(
-		/<skill name="([^"]+)"[^>]*>[\s\S]*?<\/skill>\s*/g,
-		(_m, name) => `⚡ ${name} `,
-	);
+function formatSkillBlocks(content: string, knownSkills?: ReadonlySet<string>): string {
+	return content
+		.replace(
+			/<skill name="([^"]+)"[^>]*>[\s\S]*?<\/skill>\s*/g,
+			(_m, name) => `⚡ ${name} `,
+		)
+		.replace(
+			/\/skill:([^\s/]+)\s*/g,
+			(_m, name) => (knownSkills?.has(name) ? `⚡ ${name} ` : _m),
+		);
 }
 
 /**
@@ -482,6 +497,11 @@ function MessageRow({
 		() => createMarkdownComponents(sessionId),
 		[sessionId],
 	);
+	// 技能名集合：用于过滤 /skill:xxx 纯文本渲染——只有已启用技能列表里真实存在的技能名
+	// 才渲染为 chip，避免任意 /skill:xxx 文本被误判。selector 返回稳定数组引用，再 useMemo 成 Set，
+	// 避免 selector 每次返回新 Set 触发无限重渲染。
+	const enabledSkills = useSkillsStore((s) => s.skills);
+	const knownSkills = useMemo(() => new Set(enabledSkills.map((k) => k.name)), [enabledSkills]);
 
 	// custom 消息（如 agent_switch 分隔行 / pi-subagents 完成通知）：
 	// 兼容两种字段——前端构造用 type:"custom"，Pi SDK 内存消息用 role:"custom"。
@@ -513,6 +533,7 @@ function MessageRow({
 					? m.content
 					: (m.content?.[0]?.text ?? ""),
 			),
+			knownSkills,
 		);
 		// textToHtml 把 @[agent]/#[file]/$[skill] token 渲染为 chip。
 		// hideTrigger=true：展示场景不显示 @ 触发符（仅显示智能体名 + 头像），与输入框 ComposerTextarea 区分。
