@@ -2,25 +2,26 @@ import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MermaidBlock } from "../../src/components/blocks/MermaidBlock";
 
-// mock mermaid：happy-dom 无法完成 SVG 布局，mock 后测试组件状态逻辑
-mock.module("mermaid", () => {
-  return {
-    default: {
-      initialize: () => {},
-      render: (_id: string, code: string) => {
-        if (!code || code.includes("invalid")) {
-          return Promise.reject(new Error("Parse error: invalid mermaid syntax"));
-        }
-        return Promise.resolve({
-          svg: `<svg width="100" height="100"><text>${code}</text></svg>`,
-        });
-      },
+// 共享 spy：记录 render 调用次数，fixedSvg 可覆盖返回值（供 SVG diff 测试）
+let renderCalls = 0;
+let fixedSvg: string | null = null;
+mock.module("mermaid", () => ({
+  default: {
+    initialize: () => {},
+    render: (_id: string, code: string) => {
+      renderCalls++;
+      if (!code || code.includes("invalid")) {
+        return Promise.reject(new Error("Parse error: invalid mermaid syntax"));
+      }
+      return Promise.resolve({ svg: fixedSvg ?? `<svg width="100" height="100"><text>${code}</text></svg>` });
     },
-  };
-});
+  },
+}));
 
 beforeEach(() => {
   document.body.innerHTML = "";
+  renderCalls = 0;
+  fixedSvg = null;
 });
 
 test("渲染简单流程图并生成 SVG", async () => {
@@ -44,14 +45,13 @@ test("无效语法显示错误提示", async () => {
 });
 
 test("流式生成中 code 连续变化（中途解析失败）不闪现错误，稳定后渲染成功", async () => {
-  // 模拟流式：先传不完整代码（解析失败），在 debounce 窗口内补全为有效代码
+  // 模拟流式：先传不完整代码，在节流窗口内补全为有效代码
   const { rerender } = render(<MermaidBlock code="graph TD" />);
-  // 等待一次 render 周期（失败的 render 进入 debounce，尚未 setError）
-  await new Promise((r) => setTimeout(r, 50));
-  // 此时不应显示 error（被 debounce 压住），应为 loading
+  // 此时不应显示 error（render 被 1000ms 节流挡住，根本没执行），应为 loading
   expect(screen.queryByTestId("mermaid-error")).toBeNull();
-  // 流式补全代码
+  // 流式补全代码（重置节流 timer）
   rerender(<MermaidBlock code="graph TD\nA-->B" />);
+  // 等节流到期后渲染
   const svg = await screen.findByTestId("mermaid-svg", {}, { timeout: 3000 });
   expect(svg).toBeTruthy();
   // 全程不应出现错误
@@ -218,4 +218,53 @@ test("弹窗头部显示复制图片按钮", async () => {
 
   const btn = screen.getByTestId("mermaid-copy-image");
   expect(btn).toBeTruthy();
+});
+
+test("code 连续变化（间隔 <1000ms）时 mermaid.render 不被调用", async () => {
+  const { rerender } = render(<MermaidBlock code="graph TD\nA" />);
+  // 连续变化，每次间隔远小于 1000ms，不断重置节流 timer
+  for (let i = 0; i < 5; i++) {
+    rerender(<MermaidBlock code={`graph TD\n${"A".repeat(i + 1)}-->B`} />);
+    await new Promise((r) => setTimeout(r, 50)); // 50ms 间隔
+  }
+  // 此时 timer 仍在 pending，render 从未执行
+  expect(renderCalls).toBe(0);
+  expect(screen.getByTestId("mermaid-loading")).toBeTruthy();
+});
+
+test("code 变化后停止变化满 1000ms 才执行 render 并显示 SVG", async () => {
+  render(<MermaidBlock code="graph TD\nA-->B" />);
+  // 节流期内 render 未执行
+  await new Promise((r) => setTimeout(r, 800));
+  expect(renderCalls).toBe(0);
+  // 等到节流到期（800 + 余量 > 1000）
+  await screen.findByTestId("mermaid-svg", {}, { timeout: 2000 });
+  expect(renderCalls).toBe(1);
+});
+
+test("两次 code 生成相同 SVG 时，第二次不替换 DOM", async () => {
+  fixedSvg = "<svg width='50'><text>same</text></svg>";
+
+  const { rerender } = render(<MermaidBlock code="graph TD\nA" />);
+  await screen.findByTestId("mermaid-svg", {}, { timeout: 3000 });
+  const firstHtml = screen.getByTestId("mermaid-svg").innerHTML;
+  // 首次 render 调用了 1 次
+  expect(renderCalls).toBe(1);
+
+  // 换 code（fixedSvg 仍返回相同 svg），等节流到期
+  rerender(<MermaidBlock code="graph TD\nB" />);
+  await new Promise((r) => setTimeout(r, 1200));
+
+  // 第二次 render 被调用了，但 SVG diff 命中 → DOM 内容不变
+  expect(renderCalls).toBe(2);
+  expect(screen.getByTestId("mermaid-svg").innerHTML).toBe(firstHtml);
+});
+
+test("组件卸载后推进节流 timer 不报错（cleanup 清理 renderTimer）", async () => {
+  const { unmount } = render(<MermaidBlock code="graph TD\nA-->B" />);
+  // 节流期内卸载
+  unmount();
+  // 推进到节流到期，cleanup 应已 cancelled=true，不执行 render、不 setState
+  await new Promise((r) => setTimeout(r, 1200));
+  expect(renderCalls).toBe(0);
 });
