@@ -45,9 +45,12 @@ export interface DelegateSpawnResult {
 	elapsedMs?: number;
 }
 
+// 第三个参数 toolCallId 用于把子代理执行进度帧关联到前端对应的 DelegateCard
+// （前端按 toolCallId 定位卡片）。fleet 下所有子任务共享同一个 fleet 工具调用的 toolCallId。
 export type DelegateSpawnFn = (
 	agent: string,
 	task: string,
+	toolCallId: string,
 ) => Promise<DelegateSpawnResult>;
 
 /**
@@ -135,7 +138,7 @@ export function makeDelegateTool(opts: {
 		description: DELEGATE_DESCRIPTION,
 		parameters: DelegateParamsSchema,
 		async execute(
-			_toolCallId: string,
+			toolCallId: string,
 			args: { agent: string; task: string },
 		): Promise<{
 			content: Array<{ type: "text"; text: string }>;
@@ -157,7 +160,12 @@ export function makeDelegateTool(opts: {
 			// 内置 subagent 中文别名（如"通用子智能体"）归一化为英文 name（"general-purpose"），
 			// 让 spawn 闭包传给 subagent-runner 时能正确匹配 AgentDefinition
 			const spawnAgent = normalizeSubagentType(args.agent);
-			const { text, isError } = await opts.spawn(spawnAgent, args.task);
+			// 透传 toolCallId：前端 DelegateCard 靠它定位卡片，进度帧需关联到正确卡片
+			const { text, isError } = await opts.spawn(
+				spawnAgent,
+				args.task,
+				toolCallId,
+			);
 			return {
 				content: [{ type: "text" as const, text }],
 				details: undefined,
@@ -180,7 +188,9 @@ export function makeSpawnFn(opts: {
 	resolveSkillPaths?: (skillNames: string[]) => Promise<string[]>;
 	cwd: string;
 	signal?: AbortSignal;
-	onProgress?: (event: SubagentProgressEvent) => void;
+	// onProgress 改为 (toolCallId, event)：spawn 闭包拿到 toolCallId 后注入到回调，
+	// 让前端能按 toolCallId 把进度帧路由到对应卡片
+	onProgress?: (toolCallId: string, event: SubagentProgressEvent) => void;
 	/** 每次派发（含失败）结束后回调，用于会话级遥测收集（agent-manager 注入） */
 	onSpawnComplete?: (input: SpawnTelemetryInput) => void;
 	/** 测试覆盖：pi CLI 入口 / 运行时 / 超时（透传给 runSubagentAgent） */
@@ -208,7 +218,8 @@ export function makeSpawnFn(opts: {
 	runSubagentAgent?: typeof defaultRunSubagentAgent;
 }): DelegateSpawnFn {
 	const runSubagent = opts.runSubagentAgent ?? defaultRunSubagentAgent;
-	return async (agent: string, task: string) => {
+	// 闭包接受 toolCallId（来自 delegate/fleet execute 透传），用于把 onProgress 关联到正确卡片
+	return async (agent: string, task: string, toolCallId: string) => {
 		const config = await opts.resolveConfig(agent);
 		if (!config) {
 			const result = { text: `智能体「${agent}」配置未找到`, isError: true };
@@ -233,7 +244,11 @@ export function makeSpawnFn(opts: {
 		}
 		const result = await runSubagent(config, task, opts.cwd, {
 			signal: opts.signal,
-			onProgress: opts.onProgress,
+			// 把外层 onProgress(toolCallId, event) 包一层：runSubagentAgent 内部仍以
+			// (event) => void 调用，这里注入闭包捕获的 toolCallId，实现进度帧关联卡片
+			onProgress: opts.onProgress
+				? (event) => opts.onProgress!(toolCallId, event)
+				: undefined,
 			skillPaths,
 			extensionPaths: opts.extensionPaths,
 			cliPath: opts.runnerOpts?.cliPath,
@@ -287,7 +302,7 @@ export function makeFleetTool(opts: {
 		description: fleetDesc,
 		parameters: FleetParamsSchema,
 		async execute(
-			_toolCallId: string,
+			toolCallId: string,
 			args: { tasks: Array<{ agent: string; task: string }> },
 		): Promise<{
 			content: Array<{ type: "text"; text: string }>;
@@ -312,7 +327,13 @@ export function makeFleetTool(opts: {
 					}
 					// 内置 subagent 中文别名归一化（同 delegate 单任务路径）
 					const spawnAgent = normalizeSubagentType(t.agent);
-					const { text, isError } = await opts.spawn(spawnAgent, t.task);
+					// fleet 所有子任务共享同一个 fleet 工具调用的 toolCallId：
+					// 前端 FleetCard 靠它定位卡片，内部按 progress.agent 区分各子任务
+					const { text, isError } = await opts.spawn(
+						spawnAgent,
+						t.task,
+						toolCallId,
+					);
 					return { agent: t.agent, text, isError };
 				}),
 				MAX_SUBAGENT_CONCURRENCY,
