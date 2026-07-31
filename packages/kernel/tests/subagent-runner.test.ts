@@ -20,6 +20,7 @@ const { runSubagentAgent } = (await import(REAL_RUNNER_SPEC)) as RunnerModule;
 
 const FAKE_PI = join(import.meta.dir, "fixtures", "fake-pi.ts");
 const ARGV_DUMP_PI = join(import.meta.dir, "fixtures", "argv-dump-pi.ts");
+const HANG_PI = join(import.meta.dir, "fixtures", "hang-pi.ts");
 const RUNTIME = process.execPath;
 
 const tmpPaths: string[] = [];
@@ -35,6 +36,7 @@ function baseConfig(patch: Partial<WaPiSpawnConfig> = {}): WaPiSpawnConfig {
     name: "research",
     description: "调研",
     systemPrompt: "你是一个调研员",
+    systemPromptMode: "replace",
     model: null,
     thinking: null,
     tools: [],
@@ -147,3 +149,16 @@ test("遥测降级：pi 不支持 get_session_stats（返回空 data）时 usage
   expect(result.usage).toBeUndefined();
   expect(result.elapsedMs).toBeGreaterThanOrEqual(0);
 });
+
+// 回归：子代理 pi 进程卡死（永不发 agent_settled）时，runSubagentAgent 必须在
+// commandTimeoutMs 后超时返回 isError，并 dispose 子进程（防泄漏 + 防 macOS SIGKILL）。
+// 历史 bug：await settled 无超时 → 卡死时进程永不回收 → 累积超内存被 SIGKILL。
+test("卡死超时：pi 永不 settle 时按 commandTimeoutMs 超时返回 isError 且不永久阻塞", async () => {
+  const result = await runSubagentAgent(baseConfig(), "任务", "/tmp", {
+    cliPath: HANG_PI,
+    runtime: RUNTIME,
+    commandTimeoutMs: 1500, // 1.5s 超时（hang-pi 永不 settle）
+  });
+  expect(result.isError).toBe(true);
+  expect(result.text).toContain("超时");
+}, 10000); // 测试自身 10s 兜底（验证不永久阻塞）

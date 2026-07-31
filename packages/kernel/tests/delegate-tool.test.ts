@@ -281,6 +281,7 @@ test("makeSpawnFn: resolveConfig 成功 → 经 fake-pi 确定性跑通并回传
     name: "test-agent",
     description: "test desc",
     systemPrompt: "you are a test agent",
+    systemPromptMode: "replace" as const,
     model: null,
     thinking: null,
     tools: [],
@@ -309,6 +310,7 @@ test("makeSpawnFn: onProgress 回调正确绑定", async () => {
     name: "test-agent",
     description: "test desc",
     systemPrompt: "you are a test agent",
+    systemPromptMode: "replace" as const,
     model: null,
     thinking: null,
     tools: [],
@@ -327,8 +329,8 @@ test("makeSpawnFn: onProgress 回调正确绑定", async () => {
   expect(progressEvents.at(-1)?.status).toBe("done");
 });
 
-test("MAX_SUBAGENT_CONCURRENCY 为正值", () => {
-  expect(MAX_SUBAGENT_CONCURRENCY).toBeGreaterThan(0);
+test("MAX_SUBAGENT_CONCURRENCY 为 5（控制内存：5 子代理 × ~300MB 不超 macOS 限制）", () => {
+  expect(MAX_SUBAGENT_CONCURRENCY).toBe(5);
 });
 
 // ---- onSpawnComplete 遥测回调 ----
@@ -353,6 +355,7 @@ test("makeSpawnFn: model 含 provider slug 时派发前调用 ensureExtension(sl
     name: "test-agent",
     description: "test desc",
     systemPrompt: "you are a test agent",
+    systemPromptMode: "replace" as const,
     // 形如 provider/model，/ 前为子智能体所需 provider slug
     model: "deepseek/deepseek-v4-pro",
     thinking: null,
@@ -378,6 +381,7 @@ test("makeSpawnFn: model 为 null（跟随主模型）时 ensureExtension 以 un
     name: "test-agent",
     description: "test desc",
     systemPrompt: "you are a test agent",
+    systemPromptMode: "replace" as const,
     model: null,
     thinking: null,
     tools: [],
@@ -402,6 +406,7 @@ test("makeSpawnFn: 未注入 ensureExtension 时不报错（向后兼容）", as
     name: "test-agent",
     description: "test desc",
     systemPrompt: "you are a test agent",
+    systemPromptMode: "replace" as const,
     model: "deepseek/deepseek-v4-pro",
     thinking: null,
     tools: [],

@@ -27,6 +27,7 @@ export interface WaPiSpawnConfig {
 	name: string;
 	description: string;
 	systemPrompt: string;
+	systemPromptMode: "replace" | "append";
 	model: string | null;
 	thinking: ThinkingLevel | null;
 	tools: string[];
@@ -213,7 +214,19 @@ export async function runSubagentAgent(
 		opts?.signal?.addEventListener("abort", onAbort, { once: true });
 		try {
 			await client.prompt(task);
-			await settled;
+			// settled 超时兜底：子代理 pi 若卡死（永不发 agent_settled 也不退出），
+			// 超时后 fail → 走 finally dispose 回收进程。否则 await settled 永久阻塞，
+			// 进程泄漏累积 → macOS SIGKILL（历史 bug）。
+			const settleTimeoutMs = opts?.commandTimeoutMs ?? 1_800_000;
+			await Promise.race([
+				settled,
+				new Promise<never>((_, reject) =>
+					setTimeout(
+						() => reject(new Error(`子智能体 settle 超时 (${settleTimeoutMs}ms)`)),
+						settleTimeoutMs,
+					),
+				),
+			]);
 		} finally {
 			opts?.signal?.removeEventListener("abort", onAbort);
 		}

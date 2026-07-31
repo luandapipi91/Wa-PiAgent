@@ -142,7 +142,7 @@ export const FLEET_DESCRIPTION = [
   "",
   "Guidelines:",
   "- Keep tasks independent and self-contained (paths, context, expected output).",
-  "- Concurrency limit is 6; do not exceed it.",
+  "- Concurrency limit is 5; do not exceed it.",
   "- Decide how many subagents to spawn from the task shape; do not wait for the user to specify a count.",
 ].join("\n");
 
