@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useProvidersStore } from "../../store/providers";
-import { slugifyProviderName } from "@wa-pi/shared";
+import { resolveProviderSlug } from "@wa-pi/shared";
 
 interface Props {
   value: string | null;
@@ -13,7 +13,7 @@ export function ModelSelector({ value, onChange, disabled }: Props) {
   const models = useMemo(() => {
     const slugs: string[] = [];
     return providers.flatMap(p => {
-      const slug = slugifyProviderName(p.name, slugs);
+      const slug = resolveProviderSlug(p, slugs);
       slugs.push(slug);
       return p.models.map(m => ({
         ...m,

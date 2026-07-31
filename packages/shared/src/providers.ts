@@ -19,6 +19,13 @@ export interface ModelProvider {
   apiKey: string;          // 明文存储（本地单用户应用）
   api: ProviderApi;        // "openai-completions" | "anthropic-messages"
   models: ProviderModel[]; // 模型列表
+  /**
+   * Provider slug（对齐 pi 内置 provider id）。
+   * 预设来源时存 preset.key（如 "opencode-go"），extension 注册用此 slug
+   * 会增强内置 provider（补 apiKey），模型从内置目录出，必定可用。
+   * 为空/undefined（自定义 provider 或旧数据）时 fallback 到 slugifyProviderName(name)。
+   */
+  slug?: string;
 }
 
 // ===== WS 协议事件（provider 管理）=====
@@ -116,6 +123,31 @@ export function slugifyProviderName(name: string, existingSlugs: string[]): stri
 }
 
 /**
+ * 统一的 provider slug 解析：优先用 provider.slug（对齐内置 provider id），
+ * 为空时 fallback 到 slugifyProviderName(name)。
+ *
+ * 所有依赖 slug 的地方（extension 注册、发送闸门、前端下拉、contextWindow 反查、
+ * AgentConfig 校验）都应调用此函数，而不是直接调 slugifyProviderName(p.name, ...)，
+ * 保证"预设 provider 走内置 id、自定义 provider 走 name 派生"的全链路一致。
+ *
+ * 冲突检测规则与 slugifyProviderName 相同：slug 已在 existingSlugs 中则加 -2/-3 后缀。
+ */
+export function resolveProviderSlug(provider: ModelProvider, existingSlugs: string[]): string {
+  // slug 为空串也视为未设置，fallback 到 name 派生（兼容脏数据）
+  const explicit = provider.slug?.trim();
+  if (explicit) {
+    // 显式 slug 仍需冲突检测：两个预设指向同一内置 provider 时加后缀区分
+    if (existingSlugs.includes(explicit)) {
+      let i = 2;
+      while (existingSlugs.includes(`${explicit}-${i}`)) i++;
+      return `${explicit}-${i}`;
+    }
+    return explicit;
+  }
+  return slugifyProviderName(provider.name, existingSlugs);
+}
+
+/**
  * 把含 | 的输入拆成模型 id 列表（trim + 过滤空串）。
  * "a|b|c" → ["a","b","c"]；"a|" → ["a"]；"  " → []。
  * 用于 TagInput 的分隔逻辑和粘贴批量解析。
@@ -129,16 +161,16 @@ export function splitModelIds(input: string): string[] {
 
 /**
  * 校验持久化的模型标识（"slug/id"）是否仍存在于当前 providers 中。
- * 派生规则与 ModelSelector / kernel slugifyProviders 一致（同一 slugifyProviderName、
- * 同样的顺序累积去重）。provider 被删除后 prefs 里残留的过期 model 会返回 false，
- * 发送闸门据此拦截，避免"未配置模型也能发出消息"。
+ * 派生规则统一走 resolveProviderSlug（优先 provider.slug，否则 name 派生），
+ * 与 ModelSelector / kernel slugifyProviders 保持一致。provider 被删除后 prefs 里
+ * 残留的过期 model 会返回 false，发送闸门据此拦截，避免"未配置模型也能发出消息"。
  * 类型谓词：返回 true 时把 model 收窄为 string，方便调用方直接透传。
  */
 export function isModelAvailable(model: string | null | undefined, providers: ModelProvider[]): model is string {
   if (!model) return false;
   const slugs: string[] = [];
   return providers.some(p => {
-    const slug = slugifyProviderName(p.name, slugs);
+    const slug = resolveProviderSlug(p, slugs);
     slugs.push(slug);
     return p.models.some(m => `${slug}/${m.id}` === model);
   });

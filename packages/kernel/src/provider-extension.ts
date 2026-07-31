@@ -1,7 +1,7 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { existsSync as nodeExistsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { slugifyProviderName, GENERATED_DIR } from "@wa-pi/shared";
+import { resolveProviderSlug, GENERATED_DIR } from "@wa-pi/shared";
 import type { ModelProvider } from "@wa-pi/shared";
 import type { ProviderStore } from "./provider-store";
 import { getAllCatalogModels, type CatalogModel } from "./pi-catalog";
@@ -80,11 +80,16 @@ function modelToInfo(m: CatalogModel): SdkModelInfo {
 
 // ---- Extension 代码生成 ----
 
-/** 给每个 provider 分配唯一 slug（基于已分配列表做冲突检测） */
+/**
+ * 给每个 provider 分配唯一 slug（基于已分配列表做冲突检测）。
+ * 优先用 provider.slug（对齐内置 provider id，预设场景），否则 fallback 到 name 派生。
+ * slug 决定 extension 里 pi.registerProvider 的第一参数（providerId），
+ * 必须与前端 ModelSelector / 发送闸门 isModelAvailable 的派生规则保持一致。
+ */
 export function slugifyProviders(providers: ModelProvider[]): { provider: ModelProvider; slug: string }[] {
   const usedSlugs: string[] = [];
   return providers.map(p => {
-    const slug = slugifyProviderName(p.name, usedSlugs);
+    const slug = resolveProviderSlug(p, usedSlugs);
     usedSlugs.push(slug);
     return { provider: p, slug };
   });
