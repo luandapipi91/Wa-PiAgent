@@ -58,7 +58,6 @@ export function AgentConfig({ agentName, onClose }: Props) {
       // model/thinking 来自用户 override（无 override 时 null = 跟随主智能体）
       model: builtinInfo.override?.model ?? null,
       thinking: builtinInfo.override?.thinking ?? null,
-      systemPromptMode: "replace",
       // 工具：内置 subagent 的真实 builtinToolNames，只读展示
       tools: builtinInfo.builtinToolNames ?? [],
       skills: [],
@@ -262,16 +261,6 @@ function BasicTab({ draft, onChange }: TabProps) {
       </Row>
 
       <Sec>提示词</Sec>
-      <Row label="模式">
-        <div className="flex rounded-sm overflow-hidden border border-hairline">
-          {(["append", "replace"] as const).map(m => (
-            <button key={m} onClick={() => onChange({ ...draft, systemPromptMode: m })} data-testid={`prompt-mode-${m}`}
-              className={`px-3 py-1 text-xs transition-colors ${draft.systemPromptMode === m ? "bg-surface-hover text-primary" : "text-tertiary hover:text-secondary"}`}>
-              {m === "append" ? "追加" : "替换"}
-            </button>
-          ))}
-        </div>
-      </Row>
       <textarea value={draft.systemPromptBody ?? ""} onChange={e => onChange({ ...draft, systemPromptBody: e.target.value })}
         className={`${inp} w-full min-h-[300px] resize-y leading-relaxed`} rows={4} />
 

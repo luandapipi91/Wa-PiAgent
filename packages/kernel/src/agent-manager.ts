@@ -498,7 +498,6 @@ export class AgentManager {
 						name: builtin.name,
 						description: builtin.description,
 						systemPrompt: prompt,
-						systemPromptMode: "replace",
 						// 跟随主模型：无 override 时用主会话当前模型（prompt 时记录到 handle.currentModel）
 						model: model ?? this.sessions.get(sessionId)?.currentModel ?? null,
 						thinking: override?.thinking ?? this.sessions.get(sessionId)?.currentThinking ?? null,
@@ -525,7 +524,6 @@ export class AgentManager {
 				name: cfg.displayName,
 				description: cfg.description,
 				systemPrompt: cfg.systemPromptBody ?? "",
-				systemPromptMode: cfg.systemPromptMode,
 				// 跟随主模型：agent 未单独配置时用主会话当前模型
 				model: cfgModel ?? this.sessions.get(sessionId)?.currentModel ?? null,
 				thinking: cfg.thinking,
@@ -666,16 +664,12 @@ export class AgentManager {
 		};
 
 		// 组合系统提示词并写入临时文件（pi 的 --system-prompt 支持文件路径，规避命令行长度限制）。
-		// 角色提示词（agent.md 正文 systemPromptBody）注入 base 段：
-		//   - systemPromptMode === "replace"（seed 与新建角色的默认）：正文替代默认 base 提示词
-		//   - systemPromptMode === "append"：正文追加在默认 base 提示词之后
+		// 角色提示词（agent.md 正文 systemPromptBody）非空时替代默认 base 提示词。
 		// 注意：prompts.json 的 base.content（用户全局覆盖）优先级最高——
 		// renderSegment 里 segment.content 非空时直接使用，不看 defaultBasePrompt。
 		const defaultBasePrompt = !config?.systemPromptBody
 			? WA_PI_DEFAULT_BASE_PROMPT
-			: config.systemPromptMode === "append"
-				? `${WA_PI_DEFAULT_BASE_PROMPT}\n\n${config.systemPromptBody}`
-				: config.systemPromptBody;
+			: config.systemPromptBody;
 		const composedPrompt = composePrompt(promptSegments, {
 			defaultBasePrompt,
 			delegateRoster,

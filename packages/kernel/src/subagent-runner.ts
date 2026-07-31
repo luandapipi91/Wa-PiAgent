@@ -27,7 +27,6 @@ export interface WaPiSpawnConfig {
 	name: string;
 	description: string;
 	systemPrompt: string;
-	systemPromptMode: "replace" | "append";
 	model: string | null;
 	thinking: ThinkingLevel | null;
 	tools: string[];

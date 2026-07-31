@@ -6,6 +6,17 @@
 
 ## 2026-07-31
 
+### 重构
+
+- **移除 agent 的 `systemPromptMode`（append/replace）配置**：角色提示词正文（systemPromptBody）非空时统一替换默认 base 提示词，不再支持"追加"模式，简化配置心智。前端 AgentConfig 的"模式"切换按钮同步删除。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/subagent-runner.ts`（`WaPiSpawnConfig` 去掉 systemPromptMode 字段）、`packages/frontend/src/components/AgentConfig.tsx`、kernel 相关测试（agent-md/config-store/delegate-tool/subagent-runner）。
+  - 验证：kernel 全量 611 pass / 0 fail；前端 825 pass / 0 fail；`typecheck` 通过。
+
+### 修复
+
+- **E2E 测试稳定性改造（kernel 去 WS 化适配）**：①E2E 隔离目录从 `randomUUID()` 改为固定 `~/.wa-pi-e2e`（可用 `WA_PI_E2E_DIR` 覆盖）——原方案下 globalSetup 与各 worker 进程各自加载 config 拿到不同目录，曾导致 session-history ENOENT projects.json；②globalSetup 开头清空重建隔离目录，探活从 WebSocket 改为 HTTP `GET /api/projects`；③新增 `e2e/helpers.ts` REST 辅助层替代旧 spec 的 WS 命令/广播应答模式（写操作走 REST，结果对象用 pollUntil 轮询 GET 端点）；④`workers: 1` 串行执行——所有 spec 共享同一隔离 kernel，SSE 广播会让并行 worker 页面互相干扰。
+  - 影响范围：`packages/frontend/playwright.config.ts`、`packages/frontend/e2e/global-setup.ts`、`packages/frontend/e2e/helpers.ts`（新增）及全部 e2e spec。
+
 ### 新增功能
 
 - **流式 bridge + 子代理进度直推前端**：根治子代理委托执行超 5 分钟被 undici idle timeout 砍断的问题（现象：`bridge 调用失败: The operation timed out.`）。根因是 `pi` rpc 进程启动时把全局 undici `headersTimeout`/`bodyTimeout` 设为 5 分钟（`http-dispatcher.js` 的 `DEFAULT_HTTP_IDLE_TIMEOUT_MS=300_000`），而 delegate/fleet 的 bridge 是一次性阻塞 fetch，子代理执行期间无字节流动即被判死。

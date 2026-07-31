@@ -12,7 +12,7 @@ function tempAgentsDir() {
 
 test("listAgents 读全部 .md", async () => {
   const dir = tempAgentsDir();
-  writeFileSync(join(dir, "研发.md"), `---\ndisplayName: 研发\navatar: "⚙️"\navatarColor: "x"\ndescription: d\nmodel: m\nthinking: high\nsystemPromptMode: replace\ntools: read\nskills: []\nmcpServers: []\npartners:\n  askTo: []\n---\nbody`);
+  writeFileSync(join(dir, "研发.md"), `---\ndisplayName: 研发\navatar: "⚙️"\navatarColor: "x"\ndescription: d\nmodel: m\nthinking: high\ntools: read\nskills: []\nmcpServers: []\npartners:\n  askTo: []\n---\nbody`);
   const store = new ConfigStore(dir);
   const agents = await store.listAgents();
   expect(agents).toHaveLength(1);
@@ -220,7 +220,6 @@ avatarColor: "a-b"
 description: test
 model: m
 thinking: medium
-systemPromptMode: replace
 tools: [read]
 skills: []
 mcpServers: []

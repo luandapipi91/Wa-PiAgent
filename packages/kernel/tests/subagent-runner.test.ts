@@ -37,7 +37,6 @@ function baseConfig(patch: Partial<WaPiSpawnConfig> = {}): WaPiSpawnConfig {
     name: "research",
     description: "调研",
     systemPrompt: "你是一个调研员",
-    systemPromptMode: "replace",
     model: null,
     thinking: null,
     tools: [],
