@@ -65,13 +65,21 @@ function stubExtensionManager(packages: PackageInfo[] = []) {
 	};
 }
 
-/** 连接 WSServer 的 SSE 端点，返回可逐帧消费的 reader */
+/** 连接 WSServer 的 SSE 端点，返回可逐帧消费的 reader。
+ *  关键：必须消费掉首帧（": connected" 注释）后才能返回。
+ *  ReadableStream 的 start 回调（把 write 注册到 SseBus）是惰性触发的——
+ *  只有消费者开始读取时才会执行。若不在发请求前触发首读，
+ *  后续 broadcast skill:changed 时 bus.clients 仍为空，事件被永久丢弃
+ *  （SSE 无缓冲、无重放），导致测试随机超时失败。 */
 async function connectSse(
 	base: string,
 ): Promise<ReadableStreamDefaultReader<Uint8Array>> {
 	const res = await fetch(`${base}/api/events`);
 	if (!res.ok || !res.body) throw new Error(`SSE 连接失败: ${res.status}`);
-	return res.body.getReader();
+	const reader = res.body.getReader();
+	// 首读触发 stream.start → bus.add(write)，确保后续广播能送达本连接
+	await reader.read();
+	return reader;
 }
 
 /** 从 SSE reader 读取一帧 JSON data */
