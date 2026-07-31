@@ -170,6 +170,9 @@ interface SessionHandle {
 	/** transient 网络错误标记：true 时 agent_settled 跳过 followUp/steer drain，
 	 *  避免网络不可用时自动发送排队消息（会再失败）。用户重发后清除。 */
 	netDegraded: boolean;
+	/** 最近一次活跃时间戳（ms）：prompt / message_end / steer / 打开会话时刷新。
+	 *  供 reapIdleSessions 判断是否回收该会话子进程，避免每轮读盘。 */
+	lastActiveAt: number;
 }
 
 export class AgentManager {
@@ -221,6 +224,8 @@ export class AgentManager {
 			if (existing.crashed || !existing.client.isAlive()) {
 				this._teardownSession(sessionId);
 			} else {
+				// 复用缓存即视为"会话被访问"（如打开会话查看消息），刷新活跃时间避免被空闲回收
+				existing.lastActiveAt = Date.now();
 				return await this._reloadIfDirty(sessionId, existing);
 			}
 		}
@@ -485,6 +490,7 @@ export class AgentManager {
 						name: builtin.name,
 						description: builtin.description,
 						systemPrompt: prompt,
+						systemPromptMode: "replace",
 						// 跟随主模型：无 override 时用主会话当前模型（prompt 时记录到 handle.currentModel）
 						model: model ?? this.sessions.get(sessionId)?.currentModel ?? null,
 						thinking: override?.thinking ?? this.sessions.get(sessionId)?.currentThinking ?? null,
@@ -511,6 +517,7 @@ export class AgentManager {
 				name: cfg.displayName,
 				description: cfg.description,
 				systemPrompt: cfg.systemPromptBody ?? "",
+				systemPromptMode: cfg.systemPromptMode,
 				// 跟随主模型：agent 未单独配置时用主会话当前模型
 				model: cfgModel ?? this.sessions.get(sessionId)?.currentModel ?? null,
 				thinking: cfg.thinking,
@@ -619,10 +626,16 @@ export class AgentManager {
 		};
 
 		// 组合系统提示词并写入临时文件（pi 的 --system-prompt 支持文件路径，规避命令行长度限制）。
-		// 角色提示词（agent.md 正文 systemPromptBody）替代默认 base 提示词；未配置正文时回落默认。
+		// 角色提示词（agent.md 正文 systemPromptBody）注入 base 段：
+		//   - systemPromptMode === "replace"（seed 与新建角色的默认）：正文替代默认 base 提示词
+		//   - systemPromptMode === "append"：正文追加在默认 base 提示词之后
 		// 注意：prompts.json 的 base.content（用户全局覆盖）优先级最高——
 		// renderSegment 里 segment.content 非空时直接使用，不看 defaultBasePrompt。
-		const defaultBasePrompt = config?.systemPromptBody ?? WA_PI_DEFAULT_BASE_PROMPT;
+		const defaultBasePrompt = !config?.systemPromptBody
+			? WA_PI_DEFAULT_BASE_PROMPT
+			: config.systemPromptMode === "append"
+				? `${WA_PI_DEFAULT_BASE_PROMPT}\n\n${config.systemPromptBody}`
+				: config.systemPromptBody;
 		const composedPrompt = composePrompt(promptSegments, {
 			defaultBasePrompt,
 			delegateRoster,
@@ -708,10 +721,11 @@ export class AgentManager {
 			crashed: false,
 			disposed: false,
 			subagentTelemetry,
-			currentModel: null,
-		currentThinking: null,
-		netDegraded: false,
-		};
+		currentModel: null,
+	currentThinking: null,
+	netDegraded: false,
+	lastActiveAt: Date.now(),
+	};
 		const client = createClient({
 			cliPath: resolvePiCliPath(),
 			runtime: resolvePiRuntime(),
@@ -792,6 +806,8 @@ export class AgentManager {
 				break;
 			case "message_end":
 				if (event.message) handle.messages.push(event.message);
+				// agent 回复完成视为活跃（与磁盘 touchSession 同步），刷新空闲回收计时
+				handle.lastActiveAt = Date.now();
 				break;
 			case "agent_settled":
 				handle.busy = false;
@@ -903,6 +919,8 @@ export class AgentManager {
 			handle.thinkingSince = null;
 			throw err;
 		}
+		// 用户发送消息（含排队 drain / steer 空闲直发）视为活跃，刷新空闲回收计时
+		handle.lastActiveAt = Date.now();
 		// 扩展命令（如 /goal）拦截 prompt 后 agent_start 不会触发，
 		// 乐观设置的 busy=true 必须复位，否则前端永远显示"思考中"。
 		// 正常 prompt 场景 agent_start 在 ms 级内触发并设置 thinkingSince，
@@ -1009,6 +1027,8 @@ export class AgentManager {
 		const fi = handle.followUpList.indexOf(text);
 		if (fi >= 0) handle.followUpList.splice(fi, 1);
 		this._emitLocalQueueUpdate(sessionId, handle);
+		// 用户发送引导消息视为活跃，刷新空闲回收计时
+		handle.lastActiveAt = Date.now();
 		handle.client.steer(text).catch(() => {
 			// steer 失败不丢消息——agent_settled 时 steerList 会兜底
 		});
@@ -1229,7 +1249,9 @@ export class AgentManager {
 				projectId,
 				primaryAgent: agentName as AgentName,
 				id: sessionId,
-				title: agentName,
+				// 兜底创建时还没有用户消息文本，留空占位；
+				// 后续 agent:prompt 首次发送时会用消息内容填充标题
+				title: "",
 				createdAt,
 			});
 			await this.ensureStarted(projectId, agentName as AgentName, sessionId);
@@ -1266,6 +1288,30 @@ export class AgentManager {
 		for (const id of [...this.sessions.keys()]) {
 			await this.disposeSession(id);
 		}
+	}
+
+	/**
+	 * 回收空闲会话的子进程：lastActiveAt 超过阈值且非 busy 的会话调 disposeSession。
+	 * busy 会话跳过（_teardownSession 不检查 busy、不先 abort，强杀会丢失正在跑的工具/
+	 * 排队消息），留待 agent_settled 后下一轮回收。dispose 只杀进程、保留会话记录与 jsonl
+	 * 历史，用户再点开时 ensureStarted 从 jsonl 冷启动恢复。
+	 * 返回被回收的 sessionId 列表，供调用方记日志。
+	 */
+	async reapIdleSessions(thresholdMs: number = 60 * 1000): Promise<string[]> {
+		const now = Date.now();
+		const reaped: string[] = [];
+		// 复制 keys：disposeSession 会改 sessions Map，避免迭代异常
+		for (const id of [...this.sessions.keys()]) {
+			const handle = this.sessions.get(id);
+			if (!handle) continue;
+			// 正在思考/跑工具的会话绝不回收，留到下一轮
+			if (handle.busy) continue;
+			if (now - handle.lastActiveAt > thresholdMs) {
+				await this.disposeSession(id);
+				reaped.push(id);
+			}
+		}
+		return reaped;
 	}
 
 	/**

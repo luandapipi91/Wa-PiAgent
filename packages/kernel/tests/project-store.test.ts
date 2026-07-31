@@ -173,3 +173,43 @@ test("createSession 同 id 重复调用幂等：不新增重复记录、不覆�
   expect(s2.title).toBe("帮我写个功能");
   rmSync(f, { force: true });
 });
+
+// fillSessionTitleIfEmpty：兜底创建的空标题会话，首次发送时填充标题
+test("fillSessionTitleIfEmpty: 空标题时填充，返回 true", async () => {
+  const f = tempFile();
+  const store = new ProjectStore(f);
+  const p = await store.createProject({ name: "P", cwd: "/p" });
+  // 模拟 getCommands 兜底创建：标题留空
+  const s = await store.createSession({
+    projectId: p.id, primaryAgent: "dev", title: "", id: "s-empty",
+  });
+  expect(s.title).toBe("");
+  // 首次发送消息时填充
+  const filled = await store.fillSessionTitleIfEmpty("s-empty", "帮我写个功能");
+  expect(filled).toBe(true);
+  const { sessions } = await store.load();
+  expect(sessions.find(x => x.id === "s-empty")?.title).toBe("帮我写个功能");
+  rmSync(f, { force: true });
+});
+
+test("fillSessionTitleIfEmpty: 已有标题不覆盖，返回 false", async () => {
+  const f = tempFile();
+  const store = new ProjectStore(f);
+  const p = await store.createProject({ name: "P", cwd: "/p" });
+  await store.createSession({
+    projectId: p.id, primaryAgent: "dev", title: "已有标题", id: "s-has",
+  });
+  const filled = await store.fillSessionTitleIfEmpty("s-has", "新消息内容");
+  expect(filled).toBe(false);
+  const { sessions } = await store.load();
+  expect(sessions.find(x => x.id === "s-has")?.title).toBe("已有标题");
+  rmSync(f, { force: true });
+});
+
+test("fillSessionTitleIfEmpty: 会话不存在返回 false", async () => {
+  const f = tempFile();
+  const store = new ProjectStore(f);
+  const filled = await store.fillSessionTitleIfEmpty("不存在", "标题");
+  expect(filled).toBe(false);
+  rmSync(f, { force: true });
+});

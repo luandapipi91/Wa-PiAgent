@@ -203,12 +203,27 @@ export async function startKernel(
     console.log(`[kernel] 心跳 rss=${Math.round(mem.rss / 1024 / 1024)}MB heap=${Math.round(mem.heapUsed / 1024 / 1024)}MB`);
   }, 15000);
 
+  // 空闲会话子进程回收：每 30s 扫描，回收 lastActivity 超过 1 分钟且非 busy 的会话进程。
+  // dispose 只杀进程、保留会话记录与 jsonl 历史，用户再点开时冷启动恢复。
+  const IDLE_REAP_INTERVAL_MS = 30 * 1000;
+  const IDLE_REAP_THRESHOLD_MS = 60 * 1000;
+  const reapTimer = setInterval(() => {
+    agentManager.reapIdleSessions(IDLE_REAP_THRESHOLD_MS).then((reaped) => {
+      if (reaped.length > 0) {
+        console.log(`[kernel] 回收 ${reaped.length} 个空闲会话进程: ${reaped.join(", ")}`);
+      }
+    }).catch((e) => {
+      console.warn("[kernel] 空闲会话回收失败:", e);
+    });
+  }, IDLE_REAP_INTERVAL_MS);
+
   // 优雅退出：RPC 架构下每个会话是一个 pi 子进程，kernel 退出时必须统一回收，
   // 避免孤儿进程滞留（SIGINT/SIGTERM 先 disposeAll 再停 server）。
   // 注意：pi 子进程在 stdin 关闭后也会自行退出（EOF 兜底），这里是主动加速回收。
   const shutdown = async (signal: string) => {
     console.log(`[kernel] ${signal} 收到，回收 pi 子进程并停止服务...`);
     clearInterval(heartbeat);
+    clearInterval(reapTimer);
     eventThrottle.dispose();
     await agentManager.disposeAll().catch(() => {});
     await server.stop().catch(() => {});
