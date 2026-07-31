@@ -97,6 +97,9 @@ export function App() {
         // sdk:event：所有 SDK 流式事件统一走 store.handleSDKEvent 分发
         // （message_start/update/end、agent_start/end 等由 store 管理两态）
         case "sdk:event": useSessionStore.getState().handleSDKEvent(e.sessionId, e); break;
+        // subagent:progress：子代理（delegate/fleet）执行进度，按 toolCallId→agent 写入 store，
+        // 供 DelegateCard/FleetCard 实时渲染。结构与 bridge 流式帧对齐。
+        case "subagent:progress": useSessionStore.getState().handleSubagentProgress(e.sessionId, e.toolCallId, e.progress); break;
         case "error": {
           // kernel/pi 错误：注入出错的会话作为系统错误消息（红色显示）。
           // 优先用事件携带的 sessionId 精确路由；缺省回落 currentSessionId。
