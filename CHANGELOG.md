@@ -191,6 +191,12 @@
 - **「滚动到底部」浮动按钮改为水平居中**：原定位在消息区右下角（`right-4`），改为水平居中（`left-1/2 -translate-x-1/2`），垂直仍贴底部。
   - 影响范围：`packages/frontend/src/components/MessageList.tsx`
 
+---
+
+## 2026-07-30
+
+### 修复
+
 - **网络错误不再灌入对话流，改用状态条提示**：根因是底层 SDK（`@anthropic-ai/sdk` / `openai`）的 `APIConnectionError`（默认文案 "Connection error."）经 pi-ai 不变形塞进 `message_end{stopReason:"error", errorMessage}`，被 kernel 翻译成 `{type:"error"}` 后前端 append 成红色会话消息，且 pi 落盘到 JSONL 导致重连/重试 N 次堆积 N 条。修复：kernel 侧按错误文案分类——transient（网络/超时/限流/5xx）改广播 `{type:"net:status"}` 驱动顶部「模型连接异常」状态条，不进对话流；fatal（鉴权失败/配额耗尽/模型不可用）保留红色会话消息。同时历史回读过滤掉 transient error，避免刷新后残留。分类正则复用 pi-ai `utils/retry.js` 语义。
   - 影响范围：`packages/kernel/src/sdk-errors.ts`、`packages/kernel/src/index.ts`、`packages/kernel/src/session-history.ts`、`packages/shared/src/types.ts`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/App.tsx`
 

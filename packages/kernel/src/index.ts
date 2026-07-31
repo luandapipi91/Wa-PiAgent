@@ -189,6 +189,10 @@ export async function startKernel(
         broadcast({ type: "projects:list", projects: data.projects, sessions: data.sessions }),
       ).catch(() => {});
     },
+    // 子代理进度广播出口：spawn 闭包 onProgress → onSubagentProgress → SSE subagent:progress → 前端卡片
+    onSubagentProgress: (sessionId, toolCallId, event) => {
+      broadcast({ type: "subagent:progress", sessionId, toolCallId, progress: event });
+    },
   });
   // 回填真实 agentManager（绕开 TS 的「构造时已确定」语义；opts 为 private 故用 any 桥接）
   (server as any).opts.agentManager = agentManager;
