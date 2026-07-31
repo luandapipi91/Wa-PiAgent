@@ -9,7 +9,7 @@ interface Props { sessionId: string; projectId?: string; }
 export function RecordButton({ sessionId, projectId }: Props) {
   const status = useRecordingStore(s => s.status);
   const start = useRecordingStore(s => s.start);
-  const [lastSource, setLastSource] = useState<"mic" | "system">("mic");
+  const [lastSource, setLastSource] = useState<"mic" | "system">("system");
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);

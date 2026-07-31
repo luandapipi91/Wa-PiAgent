@@ -25,7 +25,7 @@ interface RecordingState {
 
 export const useRecordingStore = create<RecordingState>((set, get) => ({
   status: "idle",
-  source: "mic",
+  source: "system",
   owningProjectId: "",
   owningSessionId: "",
   ownerLabel: "",
