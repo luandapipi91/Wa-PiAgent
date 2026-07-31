@@ -21,6 +21,51 @@
 
 import type { SDKEvent } from "@wa-pi/shared";
 
+/**
+ * HTTP 状态码 → 通用提示文案枚举。
+ * provider 返回整页 HTML 时只取状态码，映射成用户可读的通用提示，
+ * 不贴网站页面的 title/HTML（不可读且无信息量）。
+ */
+const HTTP_STATUS_HINTS: Record<string, string> = {
+  "400": "请求格式错误（400），请检查 Provider 配置",
+  "401": "鉴权失败（401），请检查 API Key",
+  "403": "访问被拒绝（403），请检查 API Key 或权限",
+  "404": "接口不存在（404），请检查 Provider 的 baseUrl 或模型 ID",
+  "408": "请求超时（408），请稍后重试",
+  "429": "请求过于频繁（429），请稍后重试",
+  "500": "服务端错误（500），请稍后重试",
+  "502": "网关错误（502），请稍后重试",
+  "503": "服务不可用（503），请稍后重试",
+  "504": "网关超时（504），请稍后重试",
+  "524": "网关超时（524），请稍后重试",
+};
+
+/**
+ * 清洗 errorMessage：provider 返回的错误页（整页 HTML）不可读，
+ * 提取 HTTP 状态码映射到预设的通用提示文案。
+ *
+ * 例："404 <!DOCTYPE html>..." → "接口不存在（404），请检查 Provider 的 baseUrl 或模型 ID"
+ *
+ * 已知状态码用 HTTP_STATUS_HINTS 精确映射；未枚举的状态码按段位给通用提示
+ * （4xx 客户端错误 / 5xx 服务端错误），仍带上具体状态码供排查。
+ * 非 HTML（正常错误文案如 "Connection error."）原样返回。
+ */
+function sanitizeErrorMessage(raw: string): string {
+  // 含 <!DOCTYPE 或 <html 才视为 HTML 错误页，避免误伤含尖括号的正常文案
+  if (!/<(?:!DOCTYPE\s+html|html[\s>])/i.test(raw)) return raw;
+  // 提取 HTTP 状态码（provider 常把状态码拼在 HTML 前，如 "404 <!DOCTYPE"）
+  const statusMatch = raw.match(/\b(\d{3})\b/);
+  if (statusMatch) {
+    const code = statusMatch[1];
+    if (HTTP_STATUS_HINTS[code]) return HTTP_STATUS_HINTS[code];
+    const n = parseInt(code, 10);
+    if (n >= 400 && n < 500) return `请求错误（${code}），请检查请求参数或 Provider 配置`;
+    if (n >= 500 && n < 600) return `服务端错误（${code}），请稍后重试`;
+  }
+  // HTML 但无法识别状态码：降级到兜底，不贴整页
+  return FALLBACK_MESSAGE;
+}
+
 /** errorMessage 缺失时的兜底文案（例如某些 provider 不回具体错误信息） */
 const FALLBACK_MESSAGE = "模型调用失败，请检查模型与 Provider 配置（模型不可用或鉴权失败）";
 
@@ -36,7 +81,13 @@ const TRANSIENT_ERROR_PATTERN = new RegExp([
   "rate.?limit",
   "too many requests",
   "429",
-  "5\\d\\d", // 覆盖 500/502/503/504/524
+  // 精确匹配 5xx 状态码：不能用 5\d\d（会误匹配错误页 HTML 里的任意三位数，
+  // 如 404 网页里的 "563" 像素宽度）。对齐 pi-ai 0.83.0 retry.js。
+  "500",
+  "502",
+  "503",
+  "504",
+  "524",
   "service.?unavailable",
   "server.?error",
   "internal.?error",
@@ -81,7 +132,9 @@ const FATAL_ERROR_PATTERN = new RegExp([
   "FreeUsageLimitError",
   "Monthly usage limit reached",
   "available balance",
-  "40[13]", // 401 Unauthorized / 403 Forbidden
+  "401", // Unauthorized
+  "403", // Forbidden
+  "404", // Not Found —— 模型/接口路径不存在（provider baseUrl 错误或模型 ID 无效）
   "unauthorized",
   "forbidden",
   "invalid[_ ]?api[_ ]?key",
@@ -113,7 +166,7 @@ export function extractSdkErrorMessage(event: SDKEvent): string | null {
     typeof msg.errorMessage === "string" && msg.errorMessage.trim().length > 0
       ? msg.errorMessage.trim()
       : null;
-  return detail ?? FALLBACK_MESSAGE;
+  return detail ? sanitizeErrorMessage(detail) : FALLBACK_MESSAGE;
 }
 
 /**
@@ -135,7 +188,8 @@ export function classifySdkError(event: SDKEvent): ClassifiedError | null {
     typeof msg.errorMessage === "string" && msg.errorMessage.trim().length > 0
       ? msg.errorMessage.trim()
       : null;
-  const message = detail ?? FALLBACK_MESSAGE;
+  // 展示文案需清洗（HTML 错误页不可读）；分类正则仍用原始 detail（保留完整信息供匹配）
+  const message = detail ? sanitizeErrorMessage(detail) : FALLBACK_MESSAGE;
 
   // 无具体文案时无法判别，保守归 fatal
   const category: ErrorCategory = !detail
