@@ -39,7 +39,7 @@ import { spawn } from "node:child_process";
 import { extname, basename, join, resolve, sep } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
-import { handleBridgeRequest } from "./bridge-registry";
+import { handleBridgeRequest, handleBridgeStream } from "./bridge-registry";
 import {
 	appendChunk,
 	finalizeRecording,
@@ -403,10 +403,59 @@ export class WSServer {
 					} catch {
 						return Response.json({ error: "invalid_json" }, { status: 400 });
 					}
-					const r = await handleBridgeRequest(body);
 					// 诊断：记录每次宿主工具调用（崩溃定位——看最后调的工具）
 					const toolName = (body as any)?.tool;
 					if (toolName) console.log(`[kernel] bridge tool: ${toolName}`);
+
+					// 流式分支：delegate/fleet 返回 NDJSON 流（边执行边 enqueue，立即返回 Response）；
+					// 其余工具走旧同步 JSON。
+					if (toolName === "delegate" || toolName === "fleet") {
+						const enc = new TextEncoder();
+						let controllerRef: ReadableStreamDefaultController<Uint8Array> | null =
+							null;
+						const stream = new ReadableStream<Uint8Array>({
+							start(controller) {
+								controllerRef = controller;
+							},
+						});
+						// 关键时序：不 await，后台执行。立即 return Response 让消费方拿到响应头
+						// （满足 headersTimeout），handleBridgeStream 边跑边 enqueue 进度帧
+						// （消费方边读边收到，重置 bodyTimeout，避免 undici idle 空闲断连）。
+						void handleBridgeStream(body, (line) => {
+							controllerRef?.enqueue(enc.encode(line));
+						})
+							.then((r) => {
+								if (r) {
+									// 流式工具返回了非 null：说明 handleBridgeStream 在写帧前
+									// 因 token / body / session 校验失败而提前 return（返回 BridgeResponse）。
+									// HTTP 已恒为 200，把错误合成成 final 帧 enqueue，保持 NDJSON
+									// 协议一致（消费方读 final 帧 ok=false 即知出错）。
+									const frame = {
+										type: "final" as const,
+										tool: toolName,
+										toolCallId: (body as any)?.toolCallId,
+										ok: false,
+										error: r.ok ? undefined : r.error,
+									};
+									controllerRef?.enqueue(
+										enc.encode(JSON.stringify(frame) + "\n"),
+									);
+								}
+								controllerRef?.close();
+							})
+							.catch(() => {
+								controllerRef?.close();
+							});
+						return new Response(stream, {
+							headers: {
+								"content-type": "application/x-ndjson",
+								"cache-control": "no-cache",
+							},
+						});
+					}
+
+					// 非流式工具（ask/memory）：旧同步 JSON 路径
+					const r = await handleBridgeRequest(body);
 					if (!r.ok)
 						return Response.json({ error: r.error }, { status: r.status });
 					return Response.json(r.result, { status: 200 });
