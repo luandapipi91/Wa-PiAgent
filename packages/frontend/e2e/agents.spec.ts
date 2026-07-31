@@ -2,7 +2,15 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
+import { E2E_WA_PI_DIR } from "../playwright.config";
+import {
+  createAgent,
+  createProject,
+  deleteAgentQuiet,
+  getAgentConfig,
+  saveAgentConfig,
+  saveProvider,
+} from "./helpers";
 
 // Task 18: 多智能体矩阵关键链路 E2E
 //
@@ -18,47 +26,14 @@ import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
 // 环境说明（与简报的偏差）：
 // - global-setup 在 kernel 启动前预置了 agents/dev.md，并以 WA_PI_SKIP_AGENT_SEED=1 启动 kernel，
 //   隔离环境初始只有 1 个智能体（dev），不会 seed 11 个内置角色。
-// - 因此场景 1 的「第 4 个智能体」经 WS agent:create 补数据（UI 新建入口此时不可达：
+// - 因此场景 1 的「第 4 个智能体」经 REST POST /api/agents 补数据（UI 新建入口此时不可达：
 //   侧栏空态新建仅 0 个智能体时出现，宫格入口 agent-more 要 >3 个才显示，存在先有鸡先有蛋问题）；
 //   UI 新建路径在场景 2 经宫格 gallery-create 完整覆盖。
 // - 假 provider（localhost:9999）无法产出 assistant 回复：相关断言只落在不依赖模型回复的 UI 状态
 //   （pill / 分隔行 / 弹窗），发送失败产生的错误消息不影响断言。
 //
-// 清理：每个 test 创建的智能体在 finally 中经 WS agent:delete 删除（幂等，忽略报错）；
+// 清理：每个 test 创建的智能体在 finally 中经 REST DELETE /api/agents/:name 删除（幂等，忽略报错）；
 // 测试文件写在隔离 WA_PI_DIR 内，global-teardown 统一删除。
-
-/** 通过 WS 发送消息并等待 settle（可选等待特定响应类型），模式同 quick-invoke.spec.ts */
-async function wsSend(payload: object, waitForType?: string, timeoutMs = 5000): Promise<any> {
-  const ws = new WebSocket(`ws://127.0.0.1:${E2E_WS_PORT}`);
-  await new Promise<void>((res, rej) => {
-    ws.addEventListener("open", () => res(), { once: true });
-    ws.addEventListener("error", () => rej(new Error("ws connect failed")), { once: true });
-  });
-  try {
-    if (waitForType) {
-      const result = new Promise<any>((res, rej) => {
-        const timer = setTimeout(() => rej(new Error(`等待 ${waitForType} 超时`)), timeoutMs);
-        ws.addEventListener("message", (ev) => {
-          const e = JSON.parse(String((ev as MessageEvent).data));
-          if (e.type === waitForType) { clearTimeout(timer); res(e); }
-        });
-      });
-      // 必须先 send 再 await：否则 await 阻塞导致 send 永远执行不到（死锁超时）
-      ws.send(JSON.stringify(payload));
-      return await result;
-    }
-    ws.send(JSON.stringify(payload));
-    await new Promise(r => setTimeout(r, 300));
-    return undefined;
-  } finally {
-    ws.close();
-  }
-}
-
-/** 清理用删除：忽略智能体不存在的报错，永不抛出 */
-async function deleteAgentQuiet(name: string): Promise<void> {
-  try { await wsSend({ type: "agent:delete", name }); } catch { /* 忽略 */ }
-}
 
 const A1 = "e2e-a1";
 const A2 = "e2e-a2";
@@ -78,22 +53,18 @@ test.describe.serial("多智能体矩阵关键链路", () => {
       // 项目目录必须先存在：pi 子进程以 cwd 启动，目录缺失会 spawn ENOENT，
       // 表现为会话启动失败、session:set-agent 切换无响应
       mkdirSync(projectCwd, { recursive: true });
-      const created = await wsSend({
-        type: "project:create",
-        name: `e2e-agents-${randomUUID().slice(0, 8)}`,
-        cwd: projectCwd,
-      }, "project:created");
-      projectId = created.project.id;
-      await wsSend({
-        type: "provider:save",
-        provider: {
-          id: "e2e-agents-provider",
-          name: "E2E",
-          baseUrl: "http://localhost:9999/v1",
-          apiKey: "sk-e2e",
-          api: "openai-completions",
-          models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
-        },
+      const project = await createProject(
+        `e2e-agents-${randomUUID().slice(0, 8)}`,
+        projectCwd,
+      );
+      projectId = project.id;
+      await saveProvider({
+        id: "e2e-agents-provider",
+        name: "E2E",
+        baseUrl: "http://localhost:9999/v1",
+        apiKey: "sk-e2e",
+        api: "openai-completions",
+        models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
       });
     }
     await page.goto("/", { timeout: 60_000 });
@@ -109,10 +80,10 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     await expect(page.getByTestId("agent-研发")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("agent-more")).toHaveCount(0);
 
-    // 经 WS 补足到 4 个（UI 新建入口此时不可达，见文件头说明）；广播 agent:list 驱动侧栏刷新
-    await wsSend({ type: "agent:create", displayName: A1 }, "agent:created");
-    await wsSend({ type: "agent:create", displayName: A2 }, "agent:created");
-    await wsSend({ type: "agent:create", displayName: A3 }, "agent:created");
+    // 经 REST 补足到 4 个（UI 新建入口此时不可达，见文件头说明）；广播 agent:list 驱动侧栏刷新
+    await createAgent(A1);
+    await createAgent(A2);
+    await createAgent(A3);
 
     // 侧栏只展示前 3 个（无会话时按名称 locale 排序：e2e-a1/a2/a3 在前，中文「研发」排最后进「更多智能体」）
     await expect(page.getByTestId(`agent-${A1}`)).toBeVisible({ timeout: 10_000 });
@@ -163,12 +134,15 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     // 基本：改简介
     await cfg.locator("label", { hasText: "简介" }).locator("input").fill("E2E 矩阵简介");
 
-    // 关系网：勾选 dev（自身禁用不可勾）
+    // 关系网：勾选 dev（自身不可勾：SwitchButton 对 self 点击 no-op）
+    // （UI 已从 checkbox partner-check-* 改为开关 partner-switch-*，用 data-on 断言开关态）
     await page.getByTestId("tab-partners").click();
     await expect(page.getByTestId("partner-search")).toBeVisible();
-    await page.getByTestId("partner-check-研发").click();
-    await expect(page.getByTestId("partner-check-研发")).toBeChecked();
-    await expect(page.getByTestId(`partner-check-${A1}`)).toBeDisabled();
+    await page.getByTestId("partner-switch-研发").click();
+    await expect(page.getByTestId("partner-switch-研发")).toHaveAttribute("data-on", "true");
+    // 自身开关点击无效，保持关
+    await page.getByTestId(`partner-switch-${A1}`).click();
+    await expect(page.getByTestId(`partner-switch-${A1}`)).toHaveAttribute("data-on", "false");
 
     await cfg.getByRole("button", { name: "保存" }).click();
     await expect(cfg).toHaveCount(0);
@@ -184,7 +158,7 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     await expect(page.getByTestId("cfg-name-input")).toHaveValue(A1, { timeout: 10_000 });
     await expect(cfg.locator("label", { hasText: "简介" }).locator("input")).toHaveValue("E2E 矩阵简介");
     await page.getByTestId("tab-partners").click();
-    await expect(page.getByTestId("partner-check-研发")).toBeChecked();
+    await expect(page.getByTestId("partner-switch-研发")).toHaveAttribute("data-on", "true");
     await cfg.getByRole("button", { name: "关闭" }).click();
   });
 
@@ -203,8 +177,9 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     await page.getByTestId("composer-send").click();
 
     await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 10_000 });
-    // 从侧栏会话行解析 sessionId（aside 内排除 session-view 等 testid 前缀干扰）
-    const testid = await page.locator('aside [data-testid^="session-"]').first().getAttribute("data-testid");
+    // 从侧栏会话行解析 sessionId：必须按标题定位——kernel 的 getCommands 兜底会为
+    // NewSessionPane 的随机 sessionId 预建空标题会话（agent=默认研发），aside 首行不一定是本会话
+    const testid = await page.locator('aside [data-testid^="session-"]:has-text("矩阵链路消息")').first().getAttribute("data-testid");
     sessionId = testid?.replace("session-", "") ?? "";
     expect(sessionId).not.toBe("");
     // 顶部 pill 为所选智能体（displayName = name）
@@ -235,11 +210,8 @@ test.describe.serial("多智能体矩阵关键链路", () => {
 
     // @ 菜单只列当前主智能体 partners.askTo 名单内的命名智能体（a003ae7 起的行为），
     // 先把 A1 的 askTo 设为 [A3]，再在新建会话页把主智能体选为 A1
-    const cfgResp = await wsSend({ type: "agent:config:get", agentName: A1 }, "agent:config");
-    await wsSend(
-      { type: "agent:config:save", agentName: A1, config: { ...cfgResp.config, partners: { askTo: [A3] } } },
-      "agent:list",
-    );
+    const cfg = await getAgentConfig(A1);
+    await saveAgentConfig(A1, { ...cfg, partners: { askTo: [A3] } });
 
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 10_000 });
     await page.getByTestId("project-select").selectOption(projectId);

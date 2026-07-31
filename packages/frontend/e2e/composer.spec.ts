@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { createProject, saveProvider } from "./helpers";
 
 // Task 18: Composer 重构 E2E 测试
 // 覆盖模型切换、思考开关持久化、文件/片段附件发送与消息列表展示。
@@ -12,57 +13,34 @@ test.describe.serial("Composer 重构", () => {
     // 1. 创建隔离测试项目
     const projectName = `e2e-composer-${randomUUID().slice(0, 8)}`;
     await page.goto("/");
-    projectId = await page.evaluate(async (name) => {
-      const ws = new WebSocket("ws://127.0.0.1:9776");
-      await new Promise<void>((res, rej) => {
-        ws.addEventListener("open", () => res(), { once: true });
-        ws.addEventListener("error", () => rej(new Error("ws connect failed")), { once: true });
-      });
-      const done = new Promise<string>((res) => {
-        ws.addEventListener("message", (ev) => {
-          const e = JSON.parse(String((ev as MessageEvent).data));
-          if (e.type === "project:created") res(e.project.id);
-        });
-      });
-      ws.send(JSON.stringify({ type: "project:create", name, cwd: `/tmp/${name}` }));
-      const id = await done;
-      ws.close();
-      return id;
-    }, projectName);
+    const project = await createProject(projectName, `/tmp/${projectName}`);
+    projectId = project.id;
 
     // 2. 预置模型供应商，让 ModelSelector 有可选项
-    await page.evaluate(async () => {
-      const ws = new WebSocket("ws://127.0.0.1:9776");
-      await new Promise<void>((res) => { ws.addEventListener("open", () => res(), { once: true }); });
-      ws.send(JSON.stringify({
-        type: "provider:save",
-        provider: {
-          id: "e2e-composer-provider",
-          name: "E2E",
-          baseUrl: "http://localhost:9999/v1",
-          apiKey: "sk-e2e",
-          api: "openai-completions",
-          models: [
-            { id: "model-a", contextWindow: 128000, maxTokens: 4096 },
-            { id: "model-b", contextWindow: 128000, maxTokens: 4096 },
-          ],
-        },
-      }));
-      await new Promise(r => setTimeout(r, 300));
-      ws.close();
+    await saveProvider({
+      id: "e2e-composer-provider",
+      name: "E2E",
+      baseUrl: "http://localhost:9999/v1",
+      apiKey: "sk-e2e",
+      api: "openai-completions",
+      models: [
+        { id: "model-a", contextWindow: 128000, maxTokens: 4096 },
+        { id: "model-b", contextWindow: 128000, maxTokens: 4096 },
+      ],
     });
   });
 
-  // 进入 session 视图并返回 sessionId（从 sidebar 的 session row data-testid 解析）
+  // 进入 session 视图并返回 sessionId（按标题定位 sidebar 会话行：kernel 的 getCommands 兜底
+  // 会为新建页的随机 sessionId 预建空标题会话，首行/无前缀匹配可能误抓）
   async function enterSession(page: import("@playwright/test").Page, text: string): Promise<string> {
     await page.goto("/");
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
     // 必须先选择模型，否则发送按钮被禁用
     await page.getByTestId("model-selector").selectOption({ label: "E2E/model-a" });
-    await page.locator('[data-testid="composer-input"] textarea').fill(text);
+    await page.locator('[data-testid="composer-input"] [role="textbox"]').fill(text);
     await page.getByTestId("composer-send").click();
     await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
-    const testid = await page.locator('[data-testid^="session-"]').first().getAttribute("data-testid");
+    const testid = await page.locator(`aside [data-testid^="session-"]:has-text("${text}")`).first().getAttribute("data-testid");
     return testid?.replace("session-", "") ?? "";
   }
 
@@ -76,12 +54,12 @@ test.describe.serial("Composer 重构", () => {
     await selector.selectOption({ label: "E2E/model-b" });
     await expect(selector).toHaveValue("e2e/model-b");
 
-    const textarea = page.locator('[data-testid="composer-input"] textarea');
-    await textarea.fill("使用 model-b 发送");
+    const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+    await textbox.fill("使用 model-b 发送");
     await page.getByTestId("composer-send").click();
 
     // 发送后输入框清空
-    await expect(textarea).toHaveValue("");
+    await expect(textbox).toBeEmpty(); // contenteditable 无 value，断言文本为空
     // 用户消息出现在消息列表
     await expect(page.getByText("使用 model-b 发送").first()).toBeVisible({ timeout: 8000 });
   });
@@ -119,13 +97,13 @@ test.describe.serial("Composer 重构", () => {
       // 等待上传完成、附件 chip 出现在列表
       await expect(page.getByTestId("attachment-list")).toContainText("e2e-attachment.txt");
 
-      const textarea = page.locator('[data-testid="composer-input"] textarea');
-      await textarea.fill("查看文件附件");
+      const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+      await textbox.fill("查看文件附件");
       await page.getByTestId("composer-send").click();
 
       // 发送后附件列表清空
       await expect(page.getByTestId("attachment-list")).not.toBeVisible();
-      await expect(textarea).toHaveValue("");
+      await expect(textbox).toBeEmpty(); // contenteditable 无 value，断言文本为空
       // 消息列表中只显示用户原文，不出现 @路径引用或 [附件: ...]
       await expect(page.getByText("查看文件附件").first()).toBeVisible({ timeout: 8000 });
       await expect(page.locator("text=@.wa-pi/uploads")).not.toBeVisible();
@@ -172,13 +150,13 @@ test.describe.serial("Composer 重构", () => {
     await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("attachment-list")).toContainText("console.log('e2e');");
 
-    const textarea = page.locator('[data-testid="composer-input"] textarea');
-    await textarea.fill("请查看片段");
+    const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+    await textbox.fill("请查看片段");
     await page.getByTestId("composer-send").click();
 
     // 发送后附件列表清空
     await expect(page.getByTestId("attachment-list")).not.toBeVisible();
-    await expect(textarea).toHaveValue("");
+    await expect(textbox).toBeEmpty(); // contenteditable 无 value，断言文本为空
     // 消息列表中出现片段引用
     await expect(page.getByText("[片段: test-snippet]").first()).toBeVisible({ timeout: 8000 });
   });

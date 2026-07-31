@@ -1,17 +1,12 @@
 import { test, expect } from "@playwright/test";
+import { createProject } from "./helpers";
 
 test.describe.serial("设置页供应商管理", () => {
 
   test("打开设置页", async ({ page }) => {
     await page.goto("/");
     // 先建项目让 sidebar 显示（复用 app-flow 的模式）
-    await page.evaluate(async () => {
-      const ws = new WebSocket("ws://127.0.0.1:9776");
-      await new Promise<void>((res) => { ws.addEventListener("open", () => res(), { once: true }); });
-      ws.send(JSON.stringify({ type: "project:create", name: "e2e-settings", cwd: "/tmp/e2e-settings" }));
-      await new Promise(r => setTimeout(r, 300));
-      ws.close();
-    });
+    await createProject("e2e-settings", "/tmp/e2e-settings");
 
     await page.goto("/");
     await expect(page.getByTestId("settings-btn")).toBeVisible({ timeout: 5000 });
@@ -23,13 +18,7 @@ test.describe.serial("设置页供应商管理", () => {
   test("添加供应商完整流程", async ({ page }) => {
     await page.goto("/");
     // 确保有项目（serial 共享 kernel，可能上一步已建）
-    await page.evaluate(async () => {
-      const ws = new WebSocket("ws://127.0.0.1:9776");
-      await new Promise<void>((res) => { ws.addEventListener("open", () => res(), { once: true }); });
-      ws.send(JSON.stringify({ type: "project:create", name: "e2e-settings", cwd: "/tmp/e2e-settings" }));
-      await new Promise(r => setTimeout(r, 200));
-      ws.close();
-    });
+    await createProject("e2e-settings", "/tmp/e2e-settings");
 
     await page.goto("/");
     await page.getByTestId("settings-btn").click();
@@ -47,46 +36,35 @@ test.describe.serial("设置页供应商管理", () => {
     await page.getByTestId("provider-save-btn").click();
     // 等待 form modal 关闭
     await expect(page.getByTestId("provider-form-modal")).not.toBeVisible({ timeout: 3000 });
-    // 卡片出现
-    await expect(page.locator('[data-testid^="provider-card-"]')).toHaveCount(1, { timeout: 5000 });
-    await expect(page.getByText("E2E Test Provider")).toBeVisible();
+    // 卡片出现（不断言总数：全套 spec 共享 kernel，其他 spec 预置的 provider 卡片同在列表）
+    const card = page.locator('[data-testid^="provider-card-"]', { hasText: "E2E Test Provider" });
+    await expect(card).toBeVisible({ timeout: 5000 });
+    await expect(card.getByText("e2e-model-1")).toBeVisible();
   });
 
   test("删除供应商流程", async ({ page }) => {
     await page.goto("/");
-    await page.evaluate(async () => {
-      const ws = new WebSocket("ws://127.0.0.1:9776");
-      await new Promise<void>((res) => { ws.addEventListener("open", () => res(), { once: true }); });
-      ws.send(JSON.stringify({ type: "project:create", name: "e2e-settings", cwd: "/tmp/e2e-settings" }));
-      await new Promise(r => setTimeout(r, 200));
-      ws.close();
-    });
+    await createProject("e2e-settings", "/tmp/e2e-settings");
 
     await page.goto("/");
     await page.getByTestId("settings-btn").click();
 
-    // 等待供应商卡片出现（上一步添加的）
-    const deleteBtn = page.locator('[data-testid^="provider-delete-"]').first();
-    await expect(deleteBtn).toBeVisible({ timeout: 5000 });
-    await deleteBtn.click();
+    // 删除上一步添加的那张卡片（按名称作用域，避免误删其他 spec 预置的 provider）
+    const card = page.locator('[data-testid^="provider-card-"]', { hasText: "E2E Test Provider" });
+    await expect(card).toBeVisible({ timeout: 5000 });
+    await card.locator('[data-testid^="provider-delete-"]').click();
 
     // ConfirmDialog
     await expect(page.getByTestId("confirm-dialog")).toBeVisible();
     await page.getByTestId("confirm-ok").click();
 
-    // 卡片消失
-    await expect(page.locator('[data-testid^="provider-card-"]')).toHaveCount(0, { timeout: 5000 });
+    // 该卡片消失
+    await expect(card).toHaveCount(0, { timeout: 5000 });
   });
 
   test("快捷选择预设填充表单并保存", async ({ page }) => {
     await page.goto("/");
-    await page.evaluate(async () => {
-      const ws = new WebSocket("ws://127.0.0.1:9776");
-      await new Promise<void>((res) => { ws.addEventListener("open", () => res(), { once: true }); });
-      ws.send(JSON.stringify({ type: "project:create", name: "e2e-settings", cwd: "/tmp/e2e-settings" }));
-      await new Promise(r => setTimeout(r, 200));
-      ws.close();
-    });
+    await createProject("e2e-settings", "/tmp/e2e-settings");
 
     await page.goto("/");
     await page.getByTestId("settings-btn").click();
@@ -104,15 +82,14 @@ test.describe.serial("设置页供应商管理", () => {
     await page.getByTestId("field-apiKey").fill("sk-e2e-preset");
     await page.getByTestId("provider-save-btn").click();
     await expect(page.getByTestId("provider-form-modal")).not.toBeVisible({ timeout: 3000 });
-    await expect(page.locator('[data-testid^="provider-card-"]')).toHaveCount(1, { timeout: 5000 });
-    await expect(page.locator('[data-testid^="provider-card-"]').getByText("deepseek-chat")).toBeVisible();
+    // 本次新增的卡片出现（按内容作用域，不断言总数：全套 spec 共享 kernel 的 provider 列表）
+    const card = page.locator('[data-testid^="provider-card-"]', { hasText: "deepseek-chat" });
+    await expect(card).toBeVisible({ timeout: 5000 });
 
-    // 自我清理：删除本次新增的供应商，避免污染 serial 计数
-    const deleteBtn = page.locator('[data-testid^="provider-delete-"]').first();
-    await expect(deleteBtn).toBeVisible({ timeout: 5000 });
-    await deleteBtn.click();
+    // 自我清理：删除本次新增的供应商，避免污染后续用例
+    await card.locator('[data-testid^="provider-delete-"]').click();
     await expect(page.getByTestId("confirm-dialog")).toBeVisible();
     await page.getByTestId("confirm-ok").click();
-    await expect(page.locator('[data-testid^="provider-card-"]')).toHaveCount(0, { timeout: 5000 });
+    await expect(card).toHaveCount(0, { timeout: 5000 });
   });
 });

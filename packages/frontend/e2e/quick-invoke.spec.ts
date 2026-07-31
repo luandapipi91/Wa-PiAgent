@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, mkdirSync, existsSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { addSkillDir, createProject, saveProvider } from "./helpers";
 
 // Task 8: Quick Invoke 聊天栏快速调用 E2E 测试
 //
@@ -12,40 +13,11 @@ import { join } from "node:path";
 // 4. Backspace 删除整个 chip
 //
 // 约定：
-// - 复用 composer.spec.ts 的 beforeEach 隔离项目模式（WS project:create + provider:save）
-// - 技能通过 globalSetup 注入的内置技能或 skillDir:add 动态添加的测试技能驱动
+// - 复用 composer.spec.ts 的 beforeEach 隔离项目模式（REST 建项目 + 预置 provider）
+// - 技能通过 globalSetup 注入的内置技能或 addSkillDir 动态添加的测试技能驱动
 // - 输入框为 contenteditable div，selector 使用 [role="textbox']
 // - 文件搜索依赖 projectCwd 下的真实文件 —— 测试在项目 cwd 下预置文件
 // - 截图清理：所有测试产生的临时文件 / 目录在 finally / afterAll 中删除
-/** 通过 WS 发送消息并等待 settle（可选等待特定响应类型） */
-async function wsSend(payload: object, waitForType?: string, timeoutMs = 5000): Promise<any> {
-  const ws = new WebSocket("ws://127.0.0.1:9776");
-  await new Promise<void>((res, rej) => {
-    ws.addEventListener("open", () => res(), { once: true });
-    ws.addEventListener("error", () => rej(new Error("ws connect failed")), { once: true });
-  });
-  try {
-    if (waitForType) {
-      const result = new Promise<any>((res, rej) => {
-        const timer = setTimeout(() => rej(new Error(`等待 ${waitForType} 超时`)), timeoutMs);
-        ws.addEventListener("message", (ev) => {
-          const e = JSON.parse(String((ev as MessageEvent).data));
-          if (e.type === waitForType) { clearTimeout(timer); res(e); }
-        });
-      });
-      // 必须先 send 再 await：否则 await 阻塞导致 send 永远执行不到（死锁超时）
-      ws.send(JSON.stringify(payload));
-      return await result;
-    } else {
-      // 无需等待特定响应，给服务端处理时间后关闭
-      ws.send(JSON.stringify(payload));
-      await new Promise(r => setTimeout(r, 300));
-      return undefined;
-    }
-  } finally {
-    ws.close();
-  }
-}
 
 test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
   let projectId = "";
@@ -55,22 +27,19 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
     // 1. 创建隔离测试项目（带真实 cwd，便于 @ 文件搜索）
     const projectName = `e2e-quick-invoke-${randomUUID().slice(0, 8)}`;
     projectCwd = `/tmp/${projectName}`;
-    const created = await wsSend({ type: "project:create", name: projectName, cwd: projectCwd }, "project:created");
-    projectId = created.project.id;
+    const project = await createProject(projectName, projectCwd);
+    projectId = project.id;
 
     // 2. 预置模型供应商，让 ModelSelector 有可选项
-    await wsSend({
-      type: "provider:save",
-      provider: {
-        id: "e2e-quick-invoke-provider",
-        name: "E2E",
-        baseUrl: "http://localhost:9999/v1",
-        apiKey: "sk-e2e",
-        api: "openai-completions",
-        models: [
-          { id: "model-a", contextWindow: 128000, maxTokens: 4096 },
-        ],
-      },
+    await saveProvider({
+      id: "e2e-quick-invoke-provider",
+      name: "E2E",
+      baseUrl: "http://localhost:9999/v1",
+      apiKey: "sk-e2e",
+      api: "openai-completions",
+      models: [
+        { id: "model-a", contextWindow: 128000, maxTokens: 4096 },
+      ],
     });
   });
 
@@ -152,8 +121,8 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
     );
 
     try {
-      // 通过 WS 把技能目录加到 kernel（等待 skill:changed 回推，避免 setTimeout 竞态）
-      await wsSend({ type: "skillDir:add", path: skillDirRoot }, "skill:changed");
+      // 通过 REST 把技能目录加到 kernel（POST 返回时重扫已完成，skill:changed 经 SSE 回推前端）
+      await addSkillDir(skillDirRoot);
 
       await enterSession(page, "发起技能会话");
 
@@ -201,8 +170,8 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
     );
 
     try {
-      // 等待 skill:changed 回推，避免 setTimeout 竞态
-      await wsSend({ type: "skillDir:add", path: skillDirRoot }, "skill:changed");
+      // POST 返回时重扫已完成，skill:changed 经 SSE 回推前端，无 setTimeout 竞态
+      await addSkillDir(skillDirRoot);
 
       await enterSession(page, "Esc 测试会话");
 

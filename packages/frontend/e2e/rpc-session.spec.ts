@@ -4,14 +4,15 @@
 // 创建会话 → 发送 prompt → 收到流式响应 → 至少一次工具执行（bash）在前端可见。
 //
 // 流程对齐项目 E2E 约定（AGENTS.md）：
-// - 测试数据经 API 创建：provider 经 WS provider:save 注入（apiKey 从本机
+// - 测试数据经 API 创建：provider 经 REST POST /api/providers 注入（apiKey 从本机
 //   ~/.pi/agent/auth.json 的 deepseek 凭证读取，不落盘、不入库到 E2E 隔离目录以外）
 // - 用户流程在浏览器执行：选模型 → 发消息 → 断言 DOM（流式文本 + 工具卡片）
-// - 数据清理：E2E_WA_PI_DIR 为每次运行的独立临时目录，由 global-teardown 整体清除
+// - 数据清理：E2E_WA_PI_DIR 为固定隔离目录，由 global-teardown 整体清除
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { saveProvider } from "./helpers";
 
 /** 从本机 pi 凭证库读 deepseek apiKey（仅测试运行期内存使用） */
 function readDeepseekKey(): string {
@@ -22,47 +23,20 @@ function readDeepseekKey(): string {
   return key;
 }
 
-/** 在浏览器内经 WS 发一条命令并等指定类型的响应 */
-async function wsCommand(page: import("@playwright/test").Page, cmd: unknown, replyType: string) {
-  return await page.evaluate(
-    async ([cmdObj, want]) => {
-      const ws = new WebSocket("ws://127.0.0.1:9776");
-      await new Promise<void>((res, rej) => {
-        ws.addEventListener("open", () => res(), { once: true });
-        ws.addEventListener("error", () => rej(new Error("ws connect failed")), { once: true });
-      });
-      const done = new Promise<unknown>((res) => {
-        ws.addEventListener("message", (ev) => {
-          const e = JSON.parse(String((ev as MessageEvent).data));
-          if (e.type === want) res(e);
-        });
-      });
-      ws.send(JSON.stringify(cmdObj));
-      const reply = await done;
-      ws.close();
-      return reply;
-    },
-    [cmd, replyType] as const,
-  );
-}
-
 test("RPC 全链路：建会话 → 发 prompt → 流式响应 + bash 工具执行可见", async ({ page }) => {
   test.setTimeout(180_000);
 
   // 1. 测试数据：注入 deepseek provider（slug 派生为 deepseek）
   const apiKey = readDeepseekKey();
   await page.goto("/");
-  await wsCommand(page, {
-    type: "provider:save",
-    provider: {
-      id: randomUUID(),
-      name: "DeepSeek",
-      baseUrl: "https://api.deepseek.com",
-      apiKey,
-      api: "openai-completions",
-      models: [{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 }],
-    },
-  }, "provider:changed");
+  await saveProvider({
+    id: randomUUID(),
+    name: "DeepSeek",
+    baseUrl: "https://api.deepseek.com",
+    apiKey,
+    api: "openai-completions",
+    models: [{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 }],
+  });
 
   // 2. global-setup 已预置项目 e2e-proj-1 → 首页应出现 new-session 面板
   await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 10_000 });

@@ -9,14 +9,14 @@
 //
 // harness 完全复用 rpc-session.spec.ts 范式：
 // - 隔离环境由 global-setup/teardown 提供（独立 WA_PI_DIR + E2E_WS_PORT，目录整体清除即数据清理）
-// - deepseek provider 经 WS provider:save 注入，apiKey 从本机 pi 凭证库运行时读取（不落盘）
-// - WS 端口取 playwright.config 的 E2E_WS_PORT（本机 9776 被真实 kernel 占用时可用
+// - deepseek provider 经 REST POST /api/providers 注入，apiKey 从本机 pi 凭证库运行时读取（不落盘）
+// - kernel 端口取 playwright.config 的 E2E_WS_PORT（本机 9776 被真实 kernel 占用时可用
 //   WA_PI_E2E_WS_PORT 偏移，不能硬编码 9776）
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { E2E_WS_PORT } from "../playwright.config";
+import { saveProvider } from "./helpers";
 
 /**
  * 运行时读 deepseek apiKey（仅测试运行期内存使用，不落盘）。
@@ -39,30 +39,6 @@ function readDeepseekKey(): string {
   throw new Error("未找到 deepseek apiKey（~/.pi/agent/auth.json 与 ~/.wa-pi/providers.json 均无），无法执行 LLM E2E");
 }
 
-/** 在浏览器内经 WS 发一条命令并等指定类型的响应 */
-async function wsCommand(page: import("@playwright/test").Page, cmd: unknown, replyType: string) {
-  return await page.evaluate(
-    async ([cmdObj, want, port]) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}`);
-      await new Promise<void>((res, rej) => {
-        ws.addEventListener("open", () => res(), { once: true });
-        ws.addEventListener("error", () => rej(new Error("ws connect failed")), { once: true });
-      });
-      const done = new Promise<unknown>((res) => {
-        ws.addEventListener("message", (ev) => {
-          const e = JSON.parse(String((ev as MessageEvent).data));
-          if (e.type === want) res(e);
-        });
-      });
-      ws.send(JSON.stringify(cmdObj));
-      const reply = await done;
-      ws.close();
-      return reply;
-    },
-    [cmd, replyType, E2E_WS_PORT] as const,
-  );
-}
-
 // 真实模型偶发不按指令输出 → 允许一次重试（断言不放宽）
 test.describe.configure({ retries: 1 });
 
@@ -70,25 +46,21 @@ test("聊天块渲染：工具卡弱化折叠 + 代码块卡片 + FilePill 预�
   test.setTimeout(300_000);
 
   // FilePill 目标文件：packages/frontend/package.json 的绝对路径（真实存在）。
-  // 绝对路径不经会话 cwd 解析（FilePill.resolveAbsolutePath 原样返回），
-  // 且 playwright worker 进程的 E2E_WA_PI_DIR 与 global-setup 不一致，不能用隔离目录拼路径。
+  // 绝对路径不经会话 cwd 解析（FilePill.resolveAbsolutePath 原样返回）。
   // playwright 从 packages/frontend 运行，cwd 即包目录。
   const pkgAbsPath = join(process.cwd(), "package.json");
 
   // 1. 测试数据：注入 deepseek provider（slug 派生为 deepseek）
   const apiKey = readDeepseekKey();
   await page.goto("/");
-  await wsCommand(page, {
-    type: "provider:save",
-    provider: {
-      id: randomUUID(),
-      name: "DeepSeek",
-      baseUrl: "https://api.deepseek.com",
-      apiKey,
-      api: "openai-completions",
-      models: [{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 }],
-    },
-  }, "provider:changed");
+  await saveProvider({
+    id: randomUUID(),
+    name: "DeepSeek",
+    baseUrl: "https://api.deepseek.com",
+    apiKey,
+    api: "openai-completions",
+    models: [{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 }],
+  });
 
   // 2. global-setup 已预置项目 e2e-proj-1 → 首页应出现 new-session 面板
   await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 10_000 });
