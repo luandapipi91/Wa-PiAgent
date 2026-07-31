@@ -27,7 +27,7 @@ beforeEach(() => {
   _setRecordingManager({ start: async () => {}, pause: () => {}, resume: () => {}, stop: async () => ({ path: "", size: 0, durationMs: 0 }) });
 });
 
-test("idle 点击 → 用 lastSource 启动（默认 mic）", async () => {
+test("idle 点击 → 用 localStorage 的 lastSource 启动", async () => {
   await setRecordingPrefs({ lastSource: "system" });  // 设上次为 system
   render(<RecordButton sessionId="s1" projectId="p1" />);
   await act(async () => { await new Promise(r => setTimeout(r, 0)); });
@@ -36,6 +36,17 @@ test("idle 点击 → 用 lastSource 启动（默认 mic）", async () => {
     expect(useRecordingStore.getState().status).toBe("recording");
     expect(useRecordingStore.getState().source).toBe("system");
     expect(useRecordingStore.getState().ownerLabel).toBe("项目A · 会话A");
+  });
+});
+
+test("首次录音（localStorage 无偏好）→ 默认用 system 系统音频", async () => {
+  // 不设 setRecordingPrefs，模拟首次用户（recordingPrefs 为 {}）
+  render(<RecordButton sessionId="s1" projectId="p1" />);
+  await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+  fireEvent.click(screen.getByLabelText("录音"));
+  await waitFor(() => {
+    expect(useRecordingStore.getState().status).toBe("recording");
+    expect(useRecordingStore.getState().source).toBe("system");
   });
 });
 
