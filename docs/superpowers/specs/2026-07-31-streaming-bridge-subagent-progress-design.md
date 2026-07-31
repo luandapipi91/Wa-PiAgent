@@ -80,6 +80,19 @@ export type BridgeStreamFrame =
     };
 ```
 
+**SSE 事件类型（新增，供前端消费）**：
+
+```ts
+// 仿照 SDKEventEnvelope（types.ts:779-785）的 envelope 模式
+export interface SubagentProgressServerEvent {
+  type: "subagent:progress";
+  sessionId: string;       // 主会话 id（前端按此路由）
+  toolCallId: string;      // 关联 delegate/fleet 的 toolCallId（DelegateCard 靠它定位）
+  progress: SubagentProgressEvent;  // 复用提升到 shared 的定义
+}
+```
+加入 `WSServerEvent` 联合（`types.ts:834` 之后追加）。注意前端 EventSource 只用 `onmessage`（`events.ts:58`），靠 `data.type` 字符串分发，不能用 `event:` 字段。
+
 ### 4.3 kernel 侧写入规则（`/bridge/tool` 端点，仅 delegate/fleet 走流式）
 
 1. 校验 token 后，**不等** `handleTool` 完成，立即 flush `started` 帧 + 响应头。
@@ -143,26 +156,37 @@ fleet 并行跑多个子代理（`runWithConcurrency`，上限 5），进度事�
 - 新增 `handleBridgeStream(body, write)`：对 delegate/fleet 走流式分支——先 flush `started`，再 `handleTool(..., onProgress)`，`onProgress` 内 flush `progress`，resolve/reject 后 flush `final`。
 - 其余工具保持原 `handleBridgeRequest` 同步返回路径。
 
-### 5.3 `packages/kernel/src/agent-manager.ts:534`（断点修复核心）
+### 5.3 `packages/kernel/src/agent-manager.ts:534`（断点修复核心）+ toolCallId 透传
 
-`makeSpawnFn`（`delegate-tool.ts`）本就接受 `onProgress`（`:187`）并透传给 `runSubagentAgent`（`:240`），但这里构造 `spawnFn` 时**没传**——进度管道在此断开。
+核实发现两个叠加问题，必须一起解决：
 
-```ts
-const spawnFn = makeSpawnFn({
-  resolveConfig: resolveSpawnConfig,
-  // ... 其他不变
-  onProgress: (event) => {
-    // ① 作为 bridge 流式的 progress 帧（由 handleTool 的 onProgress 参数透传）
-    // ② 转发到 SSE 总线给前端
-    this.opts.sseBus.broadcast("subagent:progress", { sessionId, ...event });
-  },
-  onSpawnComplete: (input) => subagentTelemetry.record(input),
-});
-```
+**(a) 进度管道断点**：`makeSpawnFn`（`delegate-tool.ts:187`）接受 `onProgress` 并透传给 `runSubagentAgent`（`:240`），但 `agent-manager.ts:534-559` 构造 `spawnFn` 时没传——管道在此断开。
 
-一条 `onProgress` 同时供给：bridge 流式帧（给主代理）+ SSE 广播（给前端）。
+**(b) AgentManager 无 SSE 出口**：`AgentManagerOpts`（`agent-manager.ts:100-129`）既无 `sseBus` 也无 `broadcast`，只有 `onEvent`（签名是 `AgentManagerEvent`=RpcEvent，塞不进 `SubagentProgressEvent`）。**不能**复用 `sdk:event` 信封。
 
-> 注意：`onProgress` 闭包需能拿到当前 `sessionId`；`makeSpawnFn` → `runSubagentAgent` 的透传链路已就绪，仅此处未接线。
+**(c) toolCallId 透传链断裂**（核实新发现）：前端 DelegateCard 靠 `toolCallId` 定位卡片（`DelegateCard.tsx:31`），但当前 `delegate-tool.ts:141` 的 `execute(_toolCallId, ...)` 把 toolCallId 忽略了。要把进度帧挂到正确卡片，必须把 toolCallId 从 execute → spawn → runSubagentAgent → onProgress 一路透传。
+
+**改造**：
+
+1. **`AgentManagerOpts` 新增 `onSubagentProgress` 回调**：
+   ```ts
+   onSubagentProgress?: (sessionId: string, toolCallId: string, event: SubagentProgressEvent) => void;
+   ```
+   `index.ts` 构造 AgentManager 时把它接到 `broadcast`：
+   ```ts
+   onSubagentProgress: (sessionId, toolCallId, event) =>
+     server.broadcast({ type: "subagent:progress", sessionId, toolCallId, progress: event }),
+   ```
+
+2. **`DelegateSpawnFn`（`delegate-tool.ts:52-55`）签名加 toolCallId**，`execute`（`:141`）不再忽略 `_toolCallId`，透传给 spawn。
+
+3. **`makeSpawnFn` 的 `onProgress` 回调签名加 toolCallId**，在闭包内同时：
+   - 调 `opts.onSubagentProgress(sessionId, toolCallId, event)` → SSE 广播给前端；
+   - 调 bridge 流式的 onProgress（由 `handleTool` 透传，给主代理保活）。
+
+4. `agent-manager.ts:534` 的 `makeSpawnFn({...})` 传入接好的 `onProgress`。
+
+一条 `onProgress` 同时供给：bridge 流式帧（给主代理保活）+ SSE 广播（给前端展示）。
 
 ### 5.4 `packages/kernel/src/ws-server.ts`（`/bridge/tool` 端点）
 
@@ -234,7 +258,9 @@ const spawnFn = makeSpawnFn({
 - `wa-pi-bridge.extension.ts`（callBridge 流式读取）：mock 一个返回 NDJSON 流的 fetch，验证 started/progress/final 帧正确解析为 `BridgeToolResult`；流中断时退化为错误结果。
 - `agent-manager.ts`：`spawnFn` 的 `onProgress` 被调用时，SSE 广播 `subagent:progress` 事件被触发。
 
-### 第二层：组件测试（Vitest + RTL）
+### 第二层：组件测试（bun:test + @testing-library/react + happy-dom）
+
+> 注：项目前端测试实际用 `bun:test`（`frontend/package.json` 的 `"test": "bun test --isolate"`），非 Vitest。DOM 环境由 `frontend/bunfig.toml` 的 `preload = ["./tests/happydom-setup.ts"]` 注入。
 
 - `DelegateCard`：收到 `subagent:progress` 事件后，默认折叠态显示摘要（工具数/耗时）；点击展开后显示 output 和工具时间线。
 - `FleetCard`：多 agent 进度按 `progress.agent` 分组渲染；折叠/展开行为正确。
