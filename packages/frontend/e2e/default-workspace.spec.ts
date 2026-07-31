@@ -1,7 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { existsSync, readdirSync, statSync, utimesSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
+import { E2E_WA_PI_DIR } from "../playwright.config";
+import { createSessionViaPrompt } from "./helpers";
 
 // 默认工作区 E2E：验证 UI 渲染 + 项目下拉默认选中 + 项目右键菜单差异
 //
@@ -19,10 +20,10 @@ test.describe.serial("默认工作区", () => {
     await page.goto("/");
     // 等项目列表加载
     await page.waitForTimeout(2000);
-    // "默认" 区标题存在（说明系统项目已 seed）
-    await expect(page.getByText("默认", { exact: true }).first()).toBeVisible({ timeout: 5000 });
-    // 默认工作区项目渲染
+    // 默认工作区渲染在项目列表顶部（UI 已改为无「默认」小标题，见 ProjectList.tsx 注释）
     await expect(page.getByText("默认工作区").first()).toBeVisible({ timeout: 5000 });
+    // 普通项目分区有「项目」小标题，默认工作区独立于其外
+    await expect(page.getByText("项目", { exact: true }).first()).toBeVisible({ timeout: 5000 });
   });
 
   test("点击默认工作区进新建会话页 + 下拉默认选中", async ({ page }) => {
@@ -58,50 +59,20 @@ test.describe.serial("默认工作区", () => {
     await page.goto("/");
     await page.waitForTimeout(2000);
 
-    // 通过 WS 创建一个默认工作区会话（绕过真实 LLM 调用）
-    // E2E_WS_PORT 作为 evaluate 参数传入（浏览器上下文访问不到 Node 变量）
-    const result = await page.evaluate(async (wsPort: number) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${wsPort}`);
-      await new Promise<void>((res, rej) => {
-        ws.addEventListener("open", () => res(), { once: true });
-        ws.addEventListener("error", () => rej(new Error("ws connect failed")), { once: true });
-      });
-      const sessionId = "s-e2e-" + Math.random().toString(36).slice(2);
-      const done = new Promise<{ session?: any; error?: string }>((res) => {
-        const timeout = setTimeout(() => res({ error: "timeout" }), 5000);
-        ws.addEventListener("message", (ev) => {
-          const e = JSON.parse(String((ev as MessageEvent).data));
-          if (e.type === "session:created" && e.session.id === sessionId) {
-            clearTimeout(timeout);
-            res({ session: e.session });
-          }
-          if (e.type === "error" && e.sessionId === sessionId) {
-            clearTimeout(timeout);
-            res({ error: e.message });
-          }
-        });
-      });
-      ws.send(JSON.stringify({
-        type: "agent:prompt",
-        projectId: "__system__",
-        sessionId,
-        agentName: "dev",
-        text: "e2e 测试",
-        model: "test-model",  // 会失败但不影响 session 创建
-      }));
-      const r = await done;
-      ws.close();
-      return r;
-    }, E2E_WS_PORT);
+    // 通过 REST 创建一个默认工作区会话（绕过真实 LLM 调用）
+    const session = await createSessionViaPrompt("__system__", {
+      agentName: "dev",
+      text: "e2e 测试",
+      model: "test-model",  // 会失败但不影响 session 创建
+    });
 
-    expect(result.error).toBeUndefined();
-    expect(result.session).toBeTruthy();
-    expect(result.session.projectId).toBe("__system__");
-    expect(typeof result.session.createdAt).toBe("number");
+    expect(session).toBeTruthy();
+    expect(session.projectId).toBe("__system__");
+    expect(typeof session.createdAt).toBe("number");
 
     // 子目录应该在磁盘上存在
     // 注意：E2E kernel 的 WA_PI_DIR=E2E_WA_PI_DIR，所以子目录在 E2E_WA_PI_DIR/workdir/<createdAt>/
-    const subDir = join(E2E_WA_PI_DIR, "workdir", String(result.session.createdAt));
+    const subDir = join(E2E_WA_PI_DIR, "workdir", String(session.createdAt));
     expect(existsSync(subDir)).toBe(true);
 
     // 清理：删掉这个测试产生的子目录

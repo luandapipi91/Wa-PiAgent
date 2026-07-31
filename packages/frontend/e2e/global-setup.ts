@@ -1,6 +1,6 @@
 // E2E globalSetup：启动隔离 kernel（端口 9776），把进程 pid 存到全局供 teardown 清理
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
 
@@ -16,7 +16,6 @@ avatarColor: "#fab387-#f38ba8"
 description: 后端研发
 model: anthropic/claude-sonnet-4
 thinking: high
-systemPromptMode: replace
 tools: read, bash, edit
 skills: architecture-review
 mcpServers: []
@@ -42,6 +41,11 @@ const SEED_PROJECTS_JSON = JSON.stringify({
 }, null, 2);
 
 async function globalSetup() {
+  // E2E_WA_PI_DIR 现为固定目录（见 playwright.config.ts 注释）：开头清空重建，
+  // 清掉上一轮可能残留的 kernel 数据（崩溃时 teardown 未跑完），保证预置数据干净
+  rmSync(E2E_WA_PI_DIR, { recursive: true, force: true });
+  mkdirSync(E2E_WA_PI_DIR, { recursive: true });
+
   // 预置 agent 配置（在 kernel 启动前写入，确保 configStore 首次读取就有数据）
   mkdirSync(join(E2E_WA_PI_DIR, "agents"), { recursive: true });
   writeFileSync(join(E2E_WA_PI_DIR, "agents", "dev.md"), DEV_AGENT_MD, "utf8");
@@ -87,13 +91,16 @@ async function globalSetup() {
   throw new Error(`E2E kernel 启动超时（端口 ${E2E_WS_PORT} 未监听）`);
 }
 
-function checkPort(port: number): Promise<boolean> {
-  return new Promise(resolve => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
-    ws.onopen = () => { ws.close(); resolve(true); };
-    ws.onerror = () => resolve(false);
-    setTimeout(() => { ws.close(); resolve(false); }, 200);
-  });
+// kernel 已去 WS 化（SSE /api/events + REST /api/*），用 HTTP 探活代替 WebSocket
+async function checkPort(port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+      signal: AbortSignal.timeout(500),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 export default globalSetup;

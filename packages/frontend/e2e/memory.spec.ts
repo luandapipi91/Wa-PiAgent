@@ -3,8 +3,8 @@
 // 覆盖 spec 场景：进入记忆页 → 查看列表 → 编辑 → 归档 → 指令文件 Tab → 双开关。
 // 测试数据由 global-setup.ts 在 kernel 启动前预置到隔离 WA_PI_DIR：
 //   memories/global/MEMORY.md（两条 § 分隔记忆）+ USER.md + 全局 AGENTS.md。
-// 注意：不能在测试里直接写 E2E_WA_PI_DIR —— Playwright worker 进程会重新
-// 求值 playwright.config.ts 的 randomUUID()，拿到与 globalSetup 不同的目录。
+// 注：E2E_WA_PI_DIR 已改为固定目录（playwright.config.ts），worker 与 globalSetup 进程
+// 拿到一致路径；本 spec 只读 UI，不直接写隔离目录。
 import { test, expect } from "@playwright/test";
 
 // 记忆管理现作为「系统设置」面板的一个分区。
@@ -119,8 +119,13 @@ test.describe.serial("记忆管理", () => {
     // 项目选择器始终可见（不受 scopeFilter 影响）
     await expect(page.getByTestId("instruction-project-select")).toBeVisible();
 
-    // 切到「项目」作用域：应立即显示项目级指令文件，无需二次切换项目
-    await page.getByText("项目", { exact: true }).click();
+    // 选中预置项目加载其指令文件（默认选中依赖 currentProjectId——本用例无打开的项目，
+    // 下拉虽显示首项但 store 为 null，需显式选中触发加载）
+    await page.getByTestId("instruction-project-select").selectOption({ label: "E2E项目" });
+
+    // 切到「项目」作用域：应显示项目级指令文件
+    // （按钮限定在 memory-page 内：侧栏也有「项目」分区标题，全局 getByText 会歧义）
+    await page.getByTestId("memory-page").getByRole("button", { name: "项目", exact: true }).click();
     await expect(page.getByTestId("instruction-item-project")).toBeVisible({ timeout: 5000 });
   });
 });
