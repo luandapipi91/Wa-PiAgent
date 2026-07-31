@@ -384,14 +384,13 @@ test("扩展 execute：缺 env 报 missing_env；配好 env 后经 ws-server 全
     expect(askOut.details.cancelled).toBe(false);
     expect(askOut.content[0].text).toBe("Q: Q?\nA: B");
 
-    // delegate 桩：经 HTTP 链路返回。Task 6 起 /bridge/tool 对 delegate 返回 NDJSON 流，
-    // 扩展 callBridge 仍用 res.json()（扩展侧 NDJSON 解析在后续任务完成），
-    // 故 res.json() 把首行 {type:"started",...} 当整体解析，拿不到顶层 content → invalid_response。
-    // 这不是 delegate 桩逻辑回归（桩仍返回 not_wired，可在 handleBridgeStream 单测里验证），
-    // 而是扩展端尚未消费 NDJSON 的预期中间态。
+    // delegate 桩：Task 6 起 /bridge/tool 对 delegate 返回 NDJSON 流，
+    // Task 7 起扩展 callBridge 逐帧解析 NDJSON，final 帧组装结果。
+    // s-bridge 下 delegate 桩返回 not_wired，经 NDJSON final 帧（ok=true）透传回扩展。
     const delegateTool = tools.find((t: any) => t.name === "delegate");
     const stub = await delegateTool.execute("tc2", { agent: "a", task: "b" }, undefined);
-    expect(stub.details.error).toBe("invalid_response");
+    expect(stub.details.error).toBe("not_wired");
+    expect(stub.content[0].text).toContain("尚未接入 bridge");
   } finally {
     await server.stop();
   }

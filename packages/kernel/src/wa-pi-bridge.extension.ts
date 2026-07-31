@@ -40,7 +40,7 @@ const BRIDGE_SESSION_ID = process.env.WA_PI_SESSION_ID;
 
 const DEFAULT_TIMEOUT_MS = 60_000; // 普通工具 60s
 const ASK_TIMEOUT_MS = 600_000; // ask 等用户回答，放宽到 10 分钟
-const DELEGATE_TIMEOUT_MS = 1_800_000; // delegate/fleet 子智能体执行，与 subagent-runner 对齐 30 分钟
+const DELEGATE_TIMEOUT_MS = 600_000; // delegate/fleet：10 分钟无任何帧才判死（流式后"无帧"才是真卡死）
 
 type BridgeToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -97,6 +97,56 @@ async function callBridge(
       }),
       signal: ctrl.signal,
     });
+    // 流式协议：delegate/fleet 返回 NDJSON，逐帧解析 started/progress/final。
+    // started/progress 帧仅证明存活（刷新超时），进度已由 kernel SSE 直推前端，
+    // 这里只关心 final 帧来组装结果。
+    const isStream = (res.headers.get("content-type") ?? "").includes("x-ndjson");
+    if (isStream && res.body) {
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let finalFrame: any = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        // 按行切分：最后一行可能不完整（无尾随 \n），留到下一轮拼接
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let frame: any;
+          try {
+            frame = JSON.parse(line);
+          } catch {
+            // 单行解析失败：跳过坏帧，不打断流
+            continue;
+          }
+          if (frame.type === "final") {
+            finalFrame = frame;
+            break;
+          }
+          // started/progress 帧仅证明存活，不消费
+        }
+        if (finalFrame) break;
+      }
+      if (finalFrame) {
+        if (finalFrame.ok) {
+          return {
+            content: finalFrame.result.content,
+            details: finalFrame.result.details,
+          };
+        }
+        const err = finalFrame.error ?? "unknown";
+        return failResult("bridge 调用失败: " + err, err);
+      }
+      // 流结束但无 final 帧：连接中断
+      return failResult(
+        "bridge 调用失败: 连接中断（未收到 final 帧）",
+        "stream_interrupted",
+      );
+    }
+    // 降级：非流式响应（老 kernel 或 ask/memory），走旧 JSON 解析
     const data = (await res.json().catch(() => null)) as any;
     if (!res.ok) {
       const errMsg =
