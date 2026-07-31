@@ -4,6 +4,53 @@
 
 ---
 
+## 2026-07-31
+
+### 修复
+
+- **会话标题误用角色名，且兜底创建的会话标题不被更新**：根因有两处。①`agent-manager.ts` 的 `getCommands` 兜底分支创建会话时用 `title: agentName`（角色名）做标题——此时还没有用户消息，但角色名会固化成标题不再更新；②`ws-server.ts` 的 `agent:prompt` 只在新建会话时设标题（`event.text.slice(0,20)`），已有会话（含兜底创建的空/角色名标题）发首条消息时不更新。修复：①兜底创建改用空标题占位（不再用 agentName）；②新增 `fillSessionTitleIfEmpty` 方法，每次发送消息时检查标题，为空则用消息内容前 20 字符填充并广播 `projects:list` 刷新侧栏；已有标题（用户手动命名或已填充）不覆盖。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`（兜底 createSession title: agentName → ""）、`packages/kernel/src/project-store.ts`（新增 fillSessionTitleIfEmpty）、`packages/kernel/src/ws-server.ts`（agent:prompt 非 isNew 分支调用 fillSessionTitleIfEmpty）、`packages/kernel/tests/project-store.test.ts`（新增 3 个用例：空标题填充 / 已有标题不覆盖 / 会话不存在）
+  - 验证：`bun test` project-store 16 pass；kernel 全量 602 pass；`typecheck` 通过。
+
+- **重发失败消息后刷新页面出现多条重复发送记录**：根因是 pi 把每次 prompt（无论成败）都 append 进 jsonl，重发失败消息时前端只裁了内存（truncate）但 jsonl 原文不动，刷新后从 jsonl 加载就出现多条相同的 user 发送记录。修复：在 `readSessionHistory` 读出历史时新增 `dedupeConsecutiveFailedTurns` 失败回合去重——连续的「user + error assistant」失败对，若下一对是相同文本的重发，则折叠前面那组。既消除重发堆积，又保留：①最后一组失败回合（fatal error 需提示用户改配置）；②连续失败后成功的场景（前面失败组折叠，只剩成功回合）；③非连续不同问题的失败（各自保留）。JSONL 原文不动，仅展示层去重。
+  - 影响范围：`packages/kernel/src/session-history.ts`（新增 dedupeConsecutiveFailedTurns + userText + isFailedTurnStart/isFailedAssistant）、`packages/kernel/tests/session-history.test.ts`（新增 4 个去重用例：连续失败去重 / 失败后成功 / 非连续保留 / 单次保留）
+  - 验证：用真实会话 jsonl（3 组失败回合）端到端验证去重；kernel 全量 `bun test` 596 pass；`typecheck` 通过。
+
+- **404 确定性错误被误分类为 transient，导致误导性"模型连接异常"状态条 + 卡 loading**：根因是 `sdk-errors.ts` 的 transient 正则用了宽泛的 `5\d\d` 匹配 5xx 状态码，而 404 错误页 HTML（provider 返回的网站页面）里含任意三位数（如像素宽度 "563"）会被误命中；同时 FATAL 正则只覆盖 401/403，漏了 404。结果确定性失败（404 模型/路径不存在）被当成网络重试，既显示误导文案（检查网络）又不结束当前轮次（loading 不消失）。修复：①transient 的 `5\d\d` 收紧为精确 `500|502|503|504|524`，对齐 pi-ai 0.83.0 retry.js 的做法；②FATAL 增加 `404`；③新增 `sanitizeErrorMessage` 清洗 HTML 错误页——provider baseUrl 错误时返回整页 HTML，原样贴到会话流不可读，现提取 HTTP 状态码映射到预设通用提示枚举（如 404 → "接口不存在（404），请检查 Provider 的 baseUrl 或模型 ID"），未枚举的状态码按段位给通用提示（4xx → "请求错误（NNN），请检查请求参数或 Provider 配置"；5xx → "服务端错误（NNN），请稍后重试"），非 HTML 文案原样保留。现在 404 走 fatal 分支 → 清晰的红色错误消息 + 正常结束 loading。
+  - 影响范围：`packages/kernel/src/sdk-errors.ts`（TRANSIENT_ERROR_PATTERN 收紧、FATAL_ERROR_PATTERN 加 404、新增 HTTP_STATUS_HINTS 枚举 + sanitizeErrorMessage 含段位兜底）、`packages/kernel/tests/sdk-errors.test.ts`（新增 404 HTML 回归用例 + 明文 500 仍 transient 用例 + HTML 映射枚举用例 + 未枚举 4xx/5xx 段位兜底用例）
+  - 验证：用真实 opencode-go provider 404 响应端到端验证分类为 fatal + message 映射到通用提示；`bun test` sdk-errors 33 pass；kernel `typecheck` 通过。
+
+### 变更
+
+- **升级 `@earendil-works/pi-coding-agent` / `pi-ai` 0.82.1 → 0.83.0**：同步上游 0.83.0 发布（TypeBox 1.3.7、OAuth 提前刷新、流式 stop reason 透传等）。核查后确认：①TypeBox 移除的 `Type.Base`/`Type.Promise` 等废弃 API 本项目扩展代码（`wa-pi-bridge.extension.ts`、`amaster-memory.ts`、`tool-schemas.ts`）均未使用，无影响；②0.83.0 的 `pending` stop reason 不进入 `message_end` 事件，项目 `stopReason === "error"` 错误兜底管线（`sdk-errors.ts`/`session-history.ts`）判定逻辑与上游一致，不受影响；③0.83.0 **未修复** RPC 模式 `ctx.ui.custom()` 静默 no-op 导致会话挂起的问题（`custom()` 仍是 `return undefined`），原 patch 逻辑仍需保留，已用 `bun patch` 针对 0.83.0 dist 重新生成 patch（行号/hash 变更，逻辑不变：同步抛 `PI_TUI_ONLY` + agent-session catch 识别降级为普通 prompt）。
+  - 影响范围：`packages/kernel/package.json`（`^0.82.1` → `^0.83.0`）、`package.json`（`patchedDependencies` key 版本号同步 0.82.1→0.83.0）、`patches/@earendil-works%2Fpi-coding-agent@0.83.0.patch`（新增，替换旧 0.82.1 patch）
+  - 验证：四包 `typecheck` 全绿；`bun test` kernel 584 pass / shared 92 pass / frontend 单文件跑全绿（全量并发 flaky 与升级无关，属历史遗留 happy-dom 并发竞争）。
+
+- **移除角色「提示词模式」（systemPromptMode）字段**：角色设置里的提示词模式原本有「替换/追加」两个选项，现在彻底移除该字段，全系统恒为「替换」语义——有 `systemPromptBody`（agent.md 正文）时替代默认 base 提示词，无则用默认。字段从 `AgentConfig` 类型、agent.md 解析/序列化、校验、UI、subagent 运行时全部删除。旧 agent.md 文件里残留的 `systemPromptMode:` 行在解析时被静默忽略（不报错），向后兼容。
+  - 影响范围：`packages/shared/src/types.ts`（删 `AgentConfig.systemPromptMode`）、`packages/kernel/src/agent-md.ts`（删读取/写出/校验/默认）、`packages/kernel/src/agent-manager.ts`（删内置与命名 subagent 构造里的赋值 + 简化 prompt 组合逻辑）、`packages/kernel/src/subagent-runner.ts`（删 `WaPiSpawnConfig.systemPromptMode`）、`packages/frontend/src/components/AgentConfig.tsx`（删内置 draft 赋值 + 删「模式」UI 行）、相关测试 fixture 与用例同步清理
+  - 验证：三包 `typecheck` 通过；`bun test` shared 87 pass / kernel 580 pass / frontend 806 pass，全绿。
+
+- **首次录音默认音源改为系统音频**：原默认为麦克风（mic）。将首次录音（localStorage 无 `wa-pi:recording-prefs` 偏好记录时）的回落默认值从 `mic` 改为 `system`（系统音频）。已录过音的老用户不受影响（localStorage 有上次音源记录，优先用该值）。改动两处硬编码初始值：`RecordButton` 组件本地 state 初始值（挂载后仍会被 localStorage 真实偏好覆盖）、`useRecordingStore` 初始 `source`。系统音频的 Electron loopback 能力早已就绪，无需新增 desktop 代码。
+  - 影响范围：`packages/frontend/src/components/ui/RecordButton.tsx`（`useState` 初始值 mic→system）、`packages/frontend/src/store/recording.ts`（store 初始 `source` mic→system）、`packages/frontend/tests/RecordButton.test.tsx`（更新过时标题 + 新增首次默认 system 用例）
+
+### 修复
+
+- **预设 provider 保存后报 `Model not found`**：根因是 slug 派生不一致——pi 内置 provider id 是 `opencode-go`，但前端"快捷选择"只把预设的显示名（`OpenCode Zen Go`）填入表单，丢弃了 key（`opencode-go`）。保存后 `slugifyProviderName("OpenCode Zen Go")` → slug `opencode-zen-go`，extension 注册了一个与内置**不同名**的 provider，发消息时 `setModel("opencode-zen-go", ...)` 在 pi 的 `getAvailable()` 里找不到（内置那个叫 `opencode-go` 且无 apiKey），报 `Model not found`。修复：`ModelProvider` 加可选 `slug` 字段；选预设时存 `preset.key`（对齐内置 provider id），extension 注册会**增强**内置 provider（补 apiKey）而非另起一个；非预设/旧数据 slug 为空，fallback 到现有 name 派生（完全向后兼容）。新增 `resolveProviderSlug(provider, usedSlugs)` 统一替换全链路 6 处 slug 派生点。
+  - 影响范围：`packages/shared/src/providers.ts`（加 `ModelProvider.slug?` 字段 + `resolveProviderSlug` 纯函数 + `isModelAvailable` 内部改用它）、`packages/kernel/src/provider-extension.ts`（`slugifyProviders` 改用 `resolveProviderSlug`）、`packages/frontend/src/components/settings/ProviderFormModal.tsx`（选预设时 `setSlug(preset.key)` + 保存写入 slug + 编辑模式预填）、`packages/frontend/src/components/ui/ModelSelector.tsx`、`SessionView.tsx`、`AgentConfig.tsx`（3 处 slug 派生改用 `resolveProviderSlug`）
+  - 验证：TDD 推进，shared 23 pass / kernel provider-extension 16 pass / frontend ProviderFormModal 23 pass + ModelSelector 9 pass，全绿；旧数据无 slug 字段走 fallback，行为不变。
+
+- **`ws-extension-skill-refresh` SSE 测试随机超时失败**：根因是测试竞态，非 flaky。`ReadableStream.start`（把 write 函数注册到 `SseBus`）是惰性触发的——只有消费者开始 `read()` 时才执行。测试 `connectSse` 拿到 reader 后立即发 HTTP 请求触发 `broadcast skill:changed`，此时 `start` 可能尚未执行、`bus.clients` 仍为空，事件被永久丢弃（SSE 无缓冲、无重放），导致 `waitForSseEvent` 3 秒超时。失败用例每次不同（install/uninstall/upgrade/toggle 随机中招）正是此机制。修复：`connectSse` 返回前先 `await reader.read()` 消费首帧（`: connected` 注释），强制触发 `start → bus.add(write)`，确保后续广播能送达。连跑 8 次全绿。
+  - 影响范围：`packages/kernel/tests/ws-extension-skill-refresh.test.ts`（`connectSse` 加首读预热）
+
+### 新增
+
+- **空闲会话子进程定时回收（1 分钟阈值）**：用户切走/闲置的会话背后常驻一个 `pi --mode rpc` 子进程（每个聊天窗口一个），长期不回收会累积内存。新增后端定时器：每 30s 扫描活跃会话，对 `lastActivity` 超过 **1 分钟** 且**非 busy**（未在思考/跑工具）的会话调用 `disposeSession` 回收子进程。回收只杀进程、**保留会话记录与 jsonl 历史**，用户再点开时 `ensureStarted` 从 jsonl 冷启动恢复，不丢消息。busy 会话（正在思考）绝不回收，留待 `agent_settled` 后下一轮处理。
+  - **续命点**（重置 1 分钟倒计时）：用户发消息（prompt）、agent 回复完成（message_end）、用户发引导消息（steer）、用户打开会话查看消息（session:messages）。打开会话续命避免"正看着的会话被回收"。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`（SessionHandle 新增 `lastActiveAt` 内存字段 + 4 处更新点 + 新增 `reapIdleSessions` 方法）、`packages/kernel/src/ws-server.ts`（`session:messages` 补 `touchSession` 同步磁盘时间）、`packages/kernel/src/index.ts`（注册 30s 定时器 + shutdown 清理）、`packages/kernel/tests/idle-reap.test.ts`（3 个 case：idle 回收 / busy 跳过 / 阈值内跳过）
+  - 验证：`bun run typecheck`（kernel）通过；`bun test`（kernel）581 pass / 0 fail（含修复 `ws-extension-skill-refresh` SSE 竞态测试）。
+
+---
+
 ## 2026-07-30
 
 ### 修复
@@ -16,21 +63,23 @@
 - **打包脚本固化国内镜像**：electron-builder 默认从 GitHub（`20.205.243.166`）下载 Electron 二进制 / winCodeSign / nsis 等，国内直连经常 `ETIMEDOUT`，导致打包 hang 住数分钟甚至失败。在 `build.ts` 启动阶段用 `process.env[...] ??=` 固化 `ELECTRON_MIRROR` 与 `ELECTRON_BUILDER_BINARIES_MIRROR` 指向 npmmirror，避免联网超时。用 `??=` 尊重已设环境变量（CI 等场景可覆盖）。
   - 影响范围：`packages/desktop/scripts/build.ts`（启动时固化镜像 env）
 
-
-
 ### 修复
 
 - **历史消息中 `/skill:技能名` 纯文本未渲染为技能样式**：根因是技能在输入框里是 `$[name]` chip，发送时 `expandTokens` 展开为 `/skill:name ` 纯文本（供 SDK 识别）；当 SDK 未把它再展开成 `<skill>` XML 时，消息以纯文本命令形式存储。而 `formatSkillBlocks` 只认 `<skill>` XML 块、`textToSegments` 只认 `$[name]` chip 格式，`/skill:xxx` 落在两者盲区，原样显示为纯文本。修复：`formatSkillBlocks` 新增第二条替换规则识别 `/skill:name` 纯文本，且**只有该技能名在已启用技能列表（`skills`）中真实存在时才渲染为 ⚡ 技能名**，避免任意 `/skill:xxx` 文本被误判；尾部多余空格压缩为单个。普通 `/命令`（非 `skill:` 前缀）保持原样。`MessageRow` 通过 `useSkillsStore` 取 `skills` 构造技能名集合传入 `formatSkillBlocks`（用 `useMemo` 缓存 Set 避免每次渲染新建触发无限循环）。
   - 影响范围：`packages/frontend/src/components/MessageList.tsx`（`formatSkillBlocks` 加纯文本分支 + 技能列表过滤；`MessageRow` 接入 `useSkillsStore`）、`packages/frontend/tests/MessageList.test.tsx`（TDD 失败测试先于实现）
-
-
 
 ### 修复
 
 - **子智能体派发报 "No API key found for deepseek"**：根因是子智能体派发链路盲目信任磁盘上的 `provider-extension.ts`，当该文件与 `providers.json` 不同步（空壳/过时/手动改坏）时，子进程加载空壳导致自定义 provider 未注册，`--model` 查无此 provider 而报错。修复：在 `makeSpawnFn` 派发前加自愈逻辑——从 `config.model`（形如 `provider/model`）解析出所需 provider slug，校验 extension 文件是否覆盖该 slug，未覆盖则调用 `ensureProviderExtensionRegistered` 重新生成。新增纯函数 `extensionCoversProvider` 用于廉价校验。这正是用户"按理说最少跟随主智能体"的直觉所在：主智能体能拿到 provider 配置，子智能体现在也能可靠拿到。
   - 影响范围：`packages/kernel/src/provider-extension.ts`（新增 `extensionCoversProvider`）、`packages/kernel/src/delegate-tool.ts`（`makeSpawnFn` 加 `ensureExtension` 注入点 + 派发前调用）、`packages/kernel/src/agent-manager.ts`（构造 spawnFn 时注入实际自愈实现）、`packages/kernel/tests/provider-extension.test.ts`、`packages/kernel/tests/delegate-tool.test.ts`（TDD 失败测试先于实现）
 
+### 修复
 
+- **修复"delegate/fleet 子代理委托卡死 + 进程泄漏 + 被 macOS SIGKILL"**（TDD 推进）。根因经运行诊断日志精确锁定（`signal=SIGKILL` + 崩溃前必有 `fleet`/`delegate` + 多个 pi 子进程各 ~300MB 累积超内存）。分两点修复：
+  - **settled 超时根治泄漏与卡死**：`subagent-runner.ts` 的 `await settled`（等待子代理 pi 发 `agent_settled`）**原本无超时**。子代理 pi 若卡死（不发 settle 也不退出），这里永久阻塞 → finally 不执行 → 子进程不回收 → 累积 → macOS jetsam 发 SIGKILL 杀进程（不可捕获，crash-logger 无效）。修复：`Promise.race([settled, 超时])`，超时值复用 `commandTimeoutMs`（默认 30 分钟，超时后 fail → 走 finally dispose 回收进程）。新增 `tests/fixtures/hang-pi.ts`（永不 settle 的 fake pi）+ 失败测试验证。
+  - **fleet 并发上限 6→5**：`delegate-tool.ts` `MAX_SUBAGENT_CONCURRENCY` 由 6 降为 5。每个子代理 pi 进程约占 300MB，6 个 ≈ 1.8GB 必然超 macOS 内存限制被 SIGKILL，5 个 ≈ 1.5GB 留出余量。同步更新 `shared/tool-schemas.ts` 的 FLEET_DESCRIPTION 静态文案（"Concurrency limit is 6"→"5"），保持与运行时 schema 一致（bridge 契约测试）。
+  - 影响范围：`packages/kernel/src/subagent-runner.ts`、`packages/kernel/src/delegate-tool.ts`、`packages/shared/src/tool-schemas.ts`、`packages/kernel/tests/{subagent-runner.test.ts,delegate-tool.test.ts,fixtures/hang-pi.ts}`、`packages/kernel/tsconfig.json`（fixtures 排除出 typecheck）
+  - 验证（TDD）：卡死超时测试 RED（10s 超时阻塞）→ GREEN（1.5s 超时返回 + 进程回收，无 dangling）；并发上限测试 RED（期望 5 实得 6）→ GREEN。`bun run typecheck` 四包过；`bun run test` 1477 pass / 0 fail（kernel 564 + shared 87 + desktop 26 + frontend 800）；`pack:mac` 出新 dmg。
 
 ### 新增
 

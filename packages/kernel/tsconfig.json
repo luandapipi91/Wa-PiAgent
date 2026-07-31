@@ -11,5 +11,5 @@
   // wa-pi-bridge.extension.ts 是「静态扩展模板」：运行时由 ensureBridgeExtension()
   // 连同 tool-schemas.ts 一起复制到 GENERATED_DIR 供 pi 进程加载，不属于 kernel
   // 自身类型图（其 ./tool-schemas.ts 在 kernel/src 下不存在），故排除出类型检查。
-  "exclude": ["src/wa-pi-bridge.extension.ts"]
+  "exclude": ["src/wa-pi-bridge.extension.ts", "tests/fixtures"]
 }
