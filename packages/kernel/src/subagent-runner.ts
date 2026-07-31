@@ -12,7 +12,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ThinkingLevel } from "@wa-pi/shared";
+import type { SubagentProgressEvent, ThinkingLevel } from "@wa-pi/shared";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import {
 	RpcClient,
@@ -32,15 +32,6 @@ export interface WaPiSpawnConfig {
 	thinking: ThinkingLevel | null;
 	tools: string[];
 	skills: string[];
-}
-
-/** 过程事件：转发给 agent-manager → WS → 前端 */
-export interface SubagentProgressEvent {
-	agent: string;
-	status: "running" | "done" | "error";
-	output: string;
-	tools: Array<{ id: string; name: string; status: string }>;
-	elapsedMs: number;
 }
 
 /** 子代理会话 token 用量（pi get_session_stats 采集，用于派发遥测） */
