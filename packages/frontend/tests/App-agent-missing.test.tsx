@@ -48,7 +48,6 @@ const agent = (displayName: string): AgentConfig => ({
   description: "",
   model: "m",
   thinking: "medium",
-  systemPromptMode: "replace",
   tools: [],
   skills: [],
   mcpServers: [],

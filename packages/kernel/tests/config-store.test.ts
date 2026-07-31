@@ -32,7 +32,7 @@ test("saveAgent 持久化并可读回", async () => {
   const store = new ConfigStore(dir);
   const errs = await store.saveAgent({
     displayName: "研发", avatar: "⚙️", avatarColor: "a-b",
-    description: "d", model: "m", thinking: "high", systemPromptMode: "replace",
+    description: "d", model: "m", thinking: "high",
  tools: ["read"],
     skills: [], mcpServers: [], partners: { askTo: [] },
     systemPromptBody: "正文",
@@ -48,7 +48,7 @@ test("saveAgent 拒绝非法配置不写盘", async () => {
   const store = new ConfigStore(dir);
   const errs = await store.saveAgent({
     displayName: "", model: "", thinking: "high" as never,
-    systemPromptMode: "replace", avatar: "", avatarColor: "", description: "",
+    avatar: "", avatarColor: "", description: "",
  tools: [], skills: [],
     mcpServers: [], partners: { askTo: [] },
   } as never);

@@ -8,7 +8,7 @@ import { useSessionStore } from "../src/store/session";
 
 const agent = (name: string): AgentConfig => ({
   displayName: name, avatar: "🤖", avatarColor: "#000-#111", description: "",
-  model: "m", thinking: "medium", systemPromptMode: "replace",
+  model: "m", thinking: "medium",
 
   tools: [], skills: [], mcpServers: [], partners: { askTo: [] },
 });

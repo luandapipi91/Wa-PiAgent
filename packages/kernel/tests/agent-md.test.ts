@@ -54,7 +54,6 @@ test("validateAgentConfig 合法配置返回空", () => {
 const base: AgentConfig = {
   displayName: "代码审查", avatar: "🔍", avatarColor: "#06b6d4-#3b82f6",
   description: "评审改动", model: "glm-4.6", thinking: "high",
-  systemPromptMode: "replace",
   tools: [], skills: [], mcpServers: [], partners: { askTo: ["dev"] },
   systemPromptBody: "你是代码审查智能体。",
 };

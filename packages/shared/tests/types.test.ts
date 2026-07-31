@@ -23,7 +23,6 @@ test("AgentConfig 含 partners", () => {
     displayName: "研发", avatar: "⚙️",
     avatarColor: "#fab387-#f38ba8", description: "",
     model: "anthropic/claude-sonnet-4", thinking: "high",
-    systemPromptMode: "replace",
  tools: ["read"], skills: [],
     mcpServers: [], partners: { askTo: ["product"] },
   };
@@ -115,7 +114,6 @@ test("AgentConfig 支持 ThinkingLevel", () => {
   const c: import("../src/types").AgentConfig = {
     displayName: "代码审查", avatar: "🔍", avatarColor: "#06b6d4-#3b82f6",
     description: "评审改动", model: "m", thinking: "max",
-    systemPromptMode: "replace",
     tools: [], skills: [], mcpServers: [], partners: { askTo: [] },
   };
   expect(c.thinking).toBe("max");
@@ -126,7 +124,6 @@ test("AgentConfig.thinking/model 可为 null（跟随当前/跟随全局）", ()
     displayName: "研发", avatar: "⚙️",
     avatarColor: "#fab387-#f38ba8", description: "",
     model: null, thinking: null,
-    systemPromptMode: "replace",
  tools: [], skills: [],
     mcpServers: [], partners: { askTo: [] },
   };

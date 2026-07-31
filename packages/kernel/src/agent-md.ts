@@ -92,7 +92,6 @@ export function parseAgentMd(md: string): AgentConfig {
     thinking: (y.thinking === undefined || y.thinking === null)
       ? null
       : (y.thinking === "low" ? "medium" : y.thinking) as AgentConfig["thinking"],
-    systemPromptMode: y.systemPromptMode as AgentConfig["systemPromptMode"],
     tools: (() => {
       if (Array.isArray(y.tools)) return y.tools as string[];
       if (y.tools == null || String(y.tools).trim() === "") return [];
@@ -126,7 +125,6 @@ export function stringifyAgentMd(c: AgentConfig): string {
   fm.push(`description: ${c.description}`);
   fm.push(`model: ${c.model ?? ""}`);
   fm.push(`thinking: ${c.thinking}`);
-  fm.push(`systemPromptMode: ${c.systemPromptMode}`);
   fm.push(`tools: [${c.tools.join(", ")}]`);
   fm.push(`skills: [${c.skills.join(", ")}]`);
   fm.push(`mcpServers: ${c.mcpServers.length ? `[${c.mcpServers.join(", ")}]` : "[]"}`);
@@ -152,7 +150,6 @@ export function validateAgentConfig(c: AgentConfig): string[] {
   if (!c.displayName || !c.displayName.trim()) errs.push("displayName 不能为空");
   else if (ILLEGAL_NAME_CHARS.test(c.displayName)) errs.push(`非法 displayName: ${c.displayName}（含 / \\ : * ? " < > | 字符）`);
   if (!["disabled", "medium", "high", "max", null].includes(c.thinking)) errs.push(`非法 thinking: ${c.thinking}`);
-  if (!["replace", "append"].includes(c.systemPromptMode)) errs.push(`非法 systemPromptMode: ${c.systemPromptMode}`);
   return errs;
 }
 
@@ -166,7 +163,6 @@ export function makeDefaultAgentConfig(displayName: string): AgentConfig {
     description: "",
     model: null,
     thinking: null,
-    systemPromptMode: "replace",
     tools: [],
     skills: [],
     mcpServers: [],

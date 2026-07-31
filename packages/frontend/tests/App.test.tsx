@@ -34,7 +34,7 @@ import { useAgentsStore } from "../src/store/agents";
 
 const agent = (displayName: string): AgentConfig => ({
   displayName, avatar: "", avatarColor: "", description: "",
-  model: "m", thinking: "medium", systemPromptMode: "replace",
+  model: "m", thinking: "medium",
   tools: [], skills: [], mcpServers: [], partners: { askTo: [] },
 });
 

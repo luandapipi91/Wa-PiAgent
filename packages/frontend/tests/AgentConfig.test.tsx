@@ -24,7 +24,6 @@ const cfg = (
 	description: `${name} 简介`,
 	model: "glm-4.6",
 	thinking: "high",
-	systemPromptMode: "replace",
 
 	tools: [],
 	skills: [],

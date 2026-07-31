@@ -717,26 +717,10 @@ test("注入提示关闭（memoryPolicyStyle=none）时系统提示词不追加�
   }
 });
 
-test("config systemPromptMode=append 时 systemPromptBody 作为 base 段", async () => {
+test("config 有 systemPromptBody 时替代默认 base 提示词", async () => {
   const configStore = {
     getAgent: mock(async () => ({
       displayName: "dev",
-      systemPromptMode: "append",
-      systemPromptBody: "自定义 BODY 提示词",
-    })),
-  } as any;
-  const { project, session, am } = await setup({ configStore });
-  await am.ensureStarted(project.id, "dev", session.id);
-
-  const prompt = readSysprompt(session.id);
-  expect(prompt).toContain("自定义 BODY 提示词");
-});
-
-test("config systemPromptMode=replace 时 systemPromptBody 替代默认 base 提示词", async () => {
-  const configStore = {
-    getAgent: mock(async () => ({
-      displayName: "dev",
-      systemPromptMode: "replace",
       systemPromptBody: "你是前端开发者角色提示词",
     })),
   } as any;

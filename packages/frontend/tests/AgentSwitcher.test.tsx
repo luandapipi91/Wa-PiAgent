@@ -36,7 +36,6 @@ function cfg(name: string, extra: Record<string, any> = {}) {
     description: `${name}简介`,
     model: "m",
     thinking: "disabled",
-    systemPromptMode: "replace",
     tools: [],
     skills: [],
     mcpServers: [],
