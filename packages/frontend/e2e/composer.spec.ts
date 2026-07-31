@@ -16,10 +16,13 @@ test.describe.serial("Composer 重构", () => {
     const project = await createProject(projectName, `/tmp/${projectName}`);
     projectId = project.id;
 
-    // 2. 预置模型供应商，让 ModelSelector 有可选项
+    // 2. 预置模型供应商，让 ModelSelector 有可选项。
+    // 显式 slug + 唯一名称：全套 spec 共享 kernel，多个 spec 都建过名为 "E2E" 的 provider，
+    // name 派生 slug 会撞车加后缀（e2e-2/e2e-3…），导致 selectOption 按 label 选中别家的 option
     await saveProvider({
       id: "e2e-composer-provider",
-      name: "E2E",
+      name: "E2E Composer",
+      slug: "e2e-composer",
       baseUrl: "http://localhost:9999/v1",
       apiKey: "sk-e2e",
       api: "openai-completions",
@@ -36,7 +39,7 @@ test.describe.serial("Composer 重构", () => {
     await page.goto("/");
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
     // 必须先选择模型，否则发送按钮被禁用
-    await page.getByTestId("model-selector").selectOption({ label: "E2E/model-a" });
+    await page.getByTestId("model-selector").selectOption({ label: "E2E Composer/model-a" });
     await page.locator('[data-testid="composer-input"] [role="textbox"]').fill(text);
     await page.getByTestId("composer-send").click();
     await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
@@ -50,9 +53,9 @@ test.describe.serial("Composer 重构", () => {
     const selector = page.getByTestId("model-selector");
     await expect(selector).toBeVisible();
 
-    // 初始为空（未选择），切换到 model-b（option label 为 E2E/model-b，value 为 e2e/model-b）
-    await selector.selectOption({ label: "E2E/model-b" });
-    await expect(selector).toHaveValue("e2e/model-b");
+    // 初始为空（未选择），切换到 model-b（option label 为 E2E Composer/model-b，value 为 e2e-composer/model-b）
+    await selector.selectOption({ label: "E2E Composer/model-b" });
+    await expect(selector).toHaveValue("e2e-composer/model-b");
 
     const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
     await textbox.fill("使用 model-b 发送");

@@ -6,6 +6,11 @@
 
 ## 2026-07-31
 
+### 修复
+
+- **E2E 稳定性修复（共享 kernel 下各 spec 互相干扰）**：①composer.spec 预置 provider 显式指定唯一 slug/name（`e2e-composer` / "E2E Composer"）——此前多 spec 都建名为 "E2E" 的 provider，name 派生 slug 撞车加后缀（e2e-2/e2e-3…），导致 selectOption 按 label 选中别家 option；②settings-provider.spec 适配预设选择 UI 改版（preset-select 下拉 → preset-search 搜索 + preset-option 列表），模型添加快捷搜索 `deepseek-v4-flash`（pi-ai 0.83 目录已无旧 deepseek-chat），供应商名改唯一避免与其他 spec 的 DeepSeek 卡片 strict 冲突；③quick-invoke.spec 流式搜索 30 结果超时 10s → 20s（全量跑时遗留假 provider 会话拖慢 kernel 文件搜索）；④skills.spec 适配技能目录默认展开（去掉 toggle 点击）；⑤chat-blocks.spec 移除已下线的「复制路径」按钮断言。
+  - 影响范围：`packages/frontend/e2e/`（chat-blocks / composer / quick-invoke / settings-provider / skills 共 5 个 spec）。
+
 ### 重构
 
 - **移除 agent 的 `systemPromptMode`（append/replace）配置**：角色提示词正文（systemPromptBody）非空时统一替换默认 base 提示词，不再支持"追加"模式，简化配置心智。前端 AgentConfig 的"模式"切换按钮同步删除。

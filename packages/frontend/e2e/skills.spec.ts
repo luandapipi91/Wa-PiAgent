@@ -27,9 +27,9 @@ test.describe.serial("技能管理", () => {
     await page.goto("/");
     await page.getByTestId("settings-btn").click();
     await page.getByText("技能", { exact: true }).click(); // exact：避免命中侧栏会话标题（如「发起技能会话」）
-    await page.getByTestId("skill-dir-toggle").click();
 
-    // 内置目录行存在且有 [内置] 标签
+    // 技能目录现默认展开（点 toggle 反而会折叠），直接断言：
+    // 内置目录行存在且有 [内置] 标签（无删除按钮）
     await expect(page.getByText("[内置]")).toBeVisible({ timeout: 5000 });
   });
 
