@@ -11,7 +11,8 @@
 import { test, expect, afterEach } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { WaPiSpawnConfig, SubagentProgressEvent } from "../src/subagent-runner";
+import type { WaPiSpawnConfig } from "../src/subagent-runner";
+import type { SubagentProgressEvent } from "@wa-pi/shared";
 
 // cache-bust：绕过 overrides 测试的 mock.module，加载真实 subagent-runner
 const REAL_RUNNER_SPEC = "../src/subagent-runner.ts?real=1";

@@ -21,6 +21,7 @@ import {
   unregisterBridgeSession,
   getBridgeToken,
   handleBridgeRequest,
+  handleBridgeStream,
   makeDefaultBridgeContext,
   type BridgeSessionContext,
 } from "../src/bridge-registry";
@@ -310,16 +311,31 @@ test("/bridge/tool 路由：401 / 404 / 200", async () => {
         body: JSON.stringify(body),
       });
 
-    // token 错误 → 401
+    // 读取 NDJSON 响应体并返回解析后的帧数组（delegate/fleet 现在走流式 NDJSON）
+    const readNdjson = async (res: Response) => {
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("application/x-ndjson");
+      const text = await res.text();
+      return text
+        .split("\n")
+        .filter((l) => l.trim().length > 0)
+        .map((l) => JSON.parse(l));
+    };
+
+    // token 错误 → HTTP 200 + NDJSON 单帧 final ok=false error=invalid_token
+    // （流式分支把校验错误合成成 final 帧，HTTP 恒 200，不再走旧 401 JSON）
     const r401 = await post({ token: "wrong", sessionId: "s1", toolCallId: "tc1", tool: "delegate", params: {} });
-    expect(r401.status).toBe(401);
-    expect((await r401.json()).error).toBe("invalid_token");
+    const frames401 = await readNdjson(r401);
+    expect(frames401).toHaveLength(1);
+    expect(frames401[0]).toMatchObject({ type: "final", tool: "delegate", ok: false, error: "invalid_token" });
 
-    // session 未注册 → 404
+    // session 未注册 → HTTP 200 + NDJSON final ok=false error=unknown_session
     const r404 = await post({ token: getBridgeToken(), sessionId: "s1", toolCallId: "tc1", tool: "delegate", params: {} });
-    expect(r404.status).toBe(404);
+    const frames404 = await readNdjson(r404);
+    expect(frames404).toHaveLength(1);
+    expect(frames404[0]).toMatchObject({ type: "final", tool: "delegate", ok: false, error: "unknown_session" });
 
-    // 注册后 → 200 透传 { content, details }
+    // 注册后 → 200 + NDJSON started→final，final.result 透传 { content, details }
     registerBridgeSession("s1", {
       cwd: "/tmp",
       async handleTool() {
@@ -327,10 +343,12 @@ test("/bridge/tool 路由：401 / 404 / 200", async () => {
       },
     });
     const r200 = await post({ token: getBridgeToken(), sessionId: "s1", toolCallId: "tc1", tool: "delegate", params: {} });
-    expect(r200.status).toBe(200);
-    const data = await r200.json();
-    expect(data.content[0].text).toBe("路由结果");
-    expect(data.details.via).toBe("http");
+    const frames200 = await readNdjson(r200);
+    expect(frames200.map((f) => f.type)).toEqual(["started", "final"]);
+    expect(frames200[0]).toMatchObject({ type: "started", protocol: 1, tool: "delegate", toolCallId: "tc1" });
+    expect(frames200[1]).toMatchObject({ type: "final", tool: "delegate", toolCallId: "tc1", ok: true });
+    expect(frames200[1].result.content[0].text).toBe("路由结果");
+    expect(frames200[1].result.details.via).toBe("http");
   } finally {
     await server.stop();
   }
@@ -366,11 +384,73 @@ test("扩展 execute：缺 env 报 missing_env；配好 env 后经 ws-server 全
     expect(askOut.details.cancelled).toBe(false);
     expect(askOut.content[0].text).toBe("Q: Q?\nA: B");
 
-    // delegate 桩：经 HTTP 链路返回 not_wired
+    // delegate 桩：Task 6 起 /bridge/tool 对 delegate 返回 NDJSON 流，
+    // Task 7 起扩展 callBridge 逐帧解析 NDJSON，final 帧组装结果。
+    // s-bridge 下 delegate 桩返回 not_wired，经 NDJSON final 帧（ok=true）透传回扩展。
     const delegateTool = tools.find((t: any) => t.name === "delegate");
     const stub = await delegateTool.execute("tc2", { agent: "a", task: "b" }, undefined);
     expect(stub.details.error).toBe("not_wired");
+    expect(stub.content[0].text).toContain("尚未接入 bridge");
   } finally {
     await server.stop();
+  }
+});
+
+// ---- handleBridgeStream：流式分支 ----
+
+test("handleBridgeStream 对 delegate 输出 started→progress→final NDJSON 序列", async () => {
+  const token = getBridgeToken();
+  const sessionId = "stream-test-sid";
+  const toolCallId = "tc-stream-001";
+  const frames: string[] = [];
+  registerBridgeSession(sessionId, {
+    cwd: "/tmp",
+    async handleTool(tool, tcId, _params, _signal, onProgress) {
+      // 模拟子代理产生一次进度后完成
+      onProgress?.({
+        agent: "general-purpose",
+        status: "running",
+        output: "working",
+        tools: [],
+        elapsedMs: 10,
+      });
+      return { content: [{ type: "text", text: "子代理完成" }] };
+    },
+  });
+  try {
+    await handleBridgeStream(
+      { token, sessionId, toolCallId, tool: "delegate", params: { agent: "general-purpose", task: "hi" } },
+      (frame) => frames.push(frame),
+    );
+  } finally {
+    unregisterBridgeSession(sessionId);
+  }
+  // 解析帧
+  const parsed = frames.map((f) => JSON.parse(f));
+  expect(parsed.map((f) => f.type)).toEqual(["started", "progress", "final"]);
+  expect(parsed[0]).toMatchObject({ type: "started", protocol: 1, tool: "delegate", toolCallId });
+  expect(parsed[1]).toMatchObject({ type: "progress", tool: "delegate", toolCallId });
+  expect(parsed[1].progress).toMatchObject({ agent: "general-purpose", output: "working" });
+  expect(parsed[2]).toMatchObject({ type: "final", tool: "delegate", toolCallId, ok: true });
+  expect(parsed[2].result.content[0].text).toBe("子代理完成");
+});
+
+test("handleBridgeStream 对 memory_add 返回 null（非流式工具走旧路径）", async () => {
+  const token = getBridgeToken();
+  const sessionId = "stream-test-sid2";
+  registerBridgeSession(sessionId, {
+    cwd: "/tmp",
+    async handleTool() { return { content: [{ type: "text", text: "ok" }] }; },
+  });
+  try {
+    const ret = await handleBridgeStream(
+      { token, sessionId, toolCallId: "tc", tool: "memory_add", params: {} },
+      () => {},
+    );
+    // 非流式工具返回结构化结果（不走帧），由调用方走旧 JSON 路径
+    expect(ret).not.toBeNull();
+    expect((ret as any).ok).toBe(true);
+  } finally {
+    unregisterBridgeSession(sessionId);
   }
 });

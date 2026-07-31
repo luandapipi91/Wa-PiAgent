@@ -6,6 +6,14 @@
 
 ## 2026-07-31
 
+### 新增功能
+
+- **流式 bridge + 子代理进度直推前端**：根治子代理委托执行超 5 分钟被 undici idle timeout 砍断的问题（现象：`bridge 调用失败: The operation timed out.`）。根因是 `pi` rpc 进程启动时把全局 undici `headersTimeout`/`bodyTimeout` 设为 5 分钟（`http-dispatcher.js` 的 `DEFAULT_HTTP_IDLE_TIMEOUT_MS=300_000`），而 delegate/fleet 的 bridge 是一次性阻塞 fetch，子代理执行期间无字节流动即被判死。
+  - 方案：把 delegate/fleet 的 bridge 改成 NDJSON 流式协议（started→progress→final 三帧），kernel 端点先 return 流式 Response、后台边跑子代理边 flush 进度帧，持续重置 idle timeout；同时接通 `agent-manager.ts` 断点闲置的 `SubagentProgressEvent` 管道，进度经新增的 `onSubagentProgress` 回调 + SSE `subagent:progress` 事件直推前端。
+  - 前端体验：DelegateCard/FleetCard 全生命周期默认折叠，只露摘要（状态/耗时/工具数），展开看实时 output 和工具时间线；FleetCard 按 agent 分组。
+  - 影响范围：`packages/shared/src/types.ts`（新增 `SubagentProgressEvent`/`BridgeStreamFrame`/`SubagentProgressServerEvent`）、`packages/kernel`（`bridge-registry`/`agent-manager`/`ws-server`/`delegate-tool`/`subagent-runner`/`index`/`wa-pi-bridge.extension`）、`packages/frontend`（`store/session`、`App`、`DelegateCard`、`FleetCard`）。
+  - 验证：kernel 全量 611 pass / 0 fail；前端本特性相关 DelegateCard+FleetCard+session-progress 共 24 pass / 0 fail（前端全量里的 mermaid/filepicker 等失败为历史既存 happy-dom 并发 flaky，与本特性无关）。
+
 ### 修复
 
 - **会话标题误用角色名，且兜底创建的会话标题不被更新**：根因有两处。①`agent-manager.ts` 的 `getCommands` 兜底分支创建会话时用 `title: agentName`（角色名）做标题——此时还没有用户消息，但角色名会固化成标题不再更新；②`ws-server.ts` 的 `agent:prompt` 只在新建会话时设标题（`event.text.slice(0,20)`），已有会话（含兜底创建的空/角色名标题）发首条消息时不更新。修复：①兜底创建改用空标题占位（不再用 agentName）；②新增 `fillSessionTitleIfEmpty` 方法，每次发送消息时检查标题，为空则用消息内容前 20 字符填充并广播 `projects:list` 刷新侧栏；已有标题（用户手动命名或已填充）不覆盖。

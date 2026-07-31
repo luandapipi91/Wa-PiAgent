@@ -4,6 +4,7 @@
 // 本模块按 sessionId 找到 AgentManager（或测试）注册的 BridgeSessionContext 并分发执行。
 // token 用于防本机其他进程伪造调用（bridge 端点只认 kernel spawn pi 时注入的 token）。
 import { randomUUID } from "node:crypto";
+import type { BridgeStreamFrame, SubagentProgressEvent } from "@wa-pi/shared";
 import { runAskTool } from "./ask-runner";
 import { createAgentMemoryTools, type AmasterStore } from "./amaster-memory";
 
@@ -16,7 +17,14 @@ export interface BridgeToolResult {
 /** 单个会话的宿主工具执行上下文（由 AgentManager 在会话启动时注册） */
 export interface BridgeSessionContext {
   cwd: string;
-  handleTool(tool: string, toolCallId: string, params: unknown, signal: AbortSignal): Promise<BridgeToolResult>;
+  handleTool(
+    tool: string,
+    toolCallId: string,
+    params: unknown,
+    signal: AbortSignal,
+    /** 子代理进度回调（流式 bridge 用于向 NDJSON 流写 progress 帧） */
+    onProgress?: (event: SubagentProgressEvent) => void,
+  ): Promise<BridgeToolResult>;
 }
 
 const sessions = new Map<string, BridgeSessionContext>();
@@ -83,6 +91,57 @@ export async function handleBridgeRequest(body: unknown): Promise<BridgeResponse
   } catch (err) {
     return { ok: false, status: 500, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+// ---- 流式分支 ----
+
+/** 流式工具集合（仅这些走 NDJSON 流式，其余走旧同步路径） */
+const STREAM_TOOLS = new Set(["delegate", "fleet"]);
+
+/**
+ * 处理 POST /bridge/tool 的流式分支：
+ * - delegate/fleet：经 write 回调输出 started→progress*→final NDJSON 帧，返回 null
+ * - 其他工具：走旧同步路径（复用 handleBridgeRequest），返回 BridgeResponse（由调用方 Response.json）
+ *
+ * write 签名：(ndjsonLine: string) => void，每帧是 JSON.stringify 后的字符串 + "\n"。
+ * 返回 null 表示流式工具已自行 write，调用方不应再 Response.json；
+ * 校验失败（token/body/session）仍返回 BridgeResponse，由调用方按状态码回 HTTP 错误。
+ */
+export async function handleBridgeStream(
+  body: unknown,
+  write: (ndjsonLine: string) => void,
+): Promise<BridgeResponse | null> {
+  if (!body || typeof body !== "object") return { ok: false, status: 400, error: "invalid_body" };
+  const { token, sessionId, toolCallId, tool, params } = body as Record<string, unknown>;
+  if (typeof token !== "string" || !verifyBridgeToken(token)) {
+    return { ok: false, status: 401, error: "invalid_token" };
+  }
+  if (typeof sessionId !== "string" || typeof toolCallId !== "string" || typeof tool !== "string") {
+    return { ok: false, status: 400, error: "invalid_body" };
+  }
+
+  // 非流式工具：复用旧同步路径，返回结构化结果交回调用方走 JSON
+  if (!STREAM_TOOLS.has(tool)) {
+    return handleBridgeRequest(body);
+  }
+
+  const ctx = sessions.get(sessionId);
+  if (!ctx) return { ok: false, status: 404, error: "unknown_session" };
+
+  // 流式出口：把 BridgeStreamFrame 序列化成 NDJSON 一行写回调用方
+  const emit = (frame: BridgeStreamFrame) => write(JSON.stringify(frame) + "\n");
+  emit({ type: "started", protocol: 1, tool, toolCallId });
+
+  try {
+    const result = await ctx.handleTool(tool, toolCallId, params, new AbortController().signal, (e: SubagentProgressEvent) => {
+      emit({ type: "progress", tool, toolCallId, progress: e });
+    });
+    emit({ type: "final", tool, toolCallId, ok: true, result });
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    emit({ type: "final", tool, toolCallId, ok: false, error });
+  }
+  return null; // 流式工具已自行 write，调用方不应再 Response.json
 }
 
 // ---- 默认宿主上下文工厂 ----

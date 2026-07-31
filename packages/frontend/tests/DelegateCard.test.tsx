@@ -9,7 +9,7 @@ import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useToastStore } from "../src/store/toast";
 
 beforeEach(() => {
-  useSessionStore.setState({ messagesBySession: {} });
+  useSessionStore.setState({ messagesBySession: {}, progressByToolCall: {} });
   useProjectsStore.setState({ sessions: [] });
   useComposerPrefsStore.setState({ bySession: {} });
   useToastStore.setState({ toasts: [] });
@@ -113,6 +113,105 @@ test("delegate 与普通 toolCall 混合：delegate 内联独立成卡，普通�
   // delegate 不嵌在工具卡内，且全文档唯一（不重复显示）
   expect(screen.getByTestId("toolcall-c1").querySelector("[data-testid='delegate-d1']")).toBeNull();
   expect(screen.getAllByTestId("delegate-d1")).toHaveLength(1);
+});
+
+// ── Task 9：子代理进度展示（默认折叠摘要 + 展开看 output/工具时间线）──
+// 进度按二级 map 存储：progressByToolCall[toolCallId][agent] = SubagentProgressEvent。
+// DelegateCard 是单 agent 卡片，取 Object.values(agentMap)[0]。
+function setProgress(toolCallId: string, agent: string, p: Partial<{ status: string; output: string; tools: any[]; elapsedMs: number }> = {}) {
+  useSessionStore.setState({
+    progressByToolCall: {
+      [toolCallId]: {
+        [agent]: {
+          agent,
+          status: p.status ?? "running",
+          output: p.output ?? "",
+          tools: p.tools ?? [],
+          elapsedMs: p.elapsedMs ?? 0,
+        },
+      },
+    },
+  });
+}
+
+test("有进度且未完成时：默认折叠显示摘要（状态/耗时/工具数），output 不可见；展开后可见 output 与工具时间线", () => {
+  setProgress("tc-prog", "general-purpose", {
+    status: "running",
+    output: "正在分析代码",
+    tools: [
+      { id: "t1", name: "Bash", status: "done" },
+      { id: "t2", name: "Read", status: "running" },
+    ],
+    elapsedMs: 12000,
+  });
+  render(
+    <DelegateCard
+      sessionId="s1"
+      toolCall={{ type: "toolCall", id: "tc-prog", name: "delegate", arguments: { agent: "general-purpose", task: "hi" } }}
+    />,
+  );
+  // 摘要可见：状态「运行中」、耗时 12s、工具数 2
+  expect(screen.getByText(/运行中/)).toBeTruthy();
+  expect(screen.getByText(/12\s*s/)).toBeTruthy();
+  expect(screen.getByText(/2\s*个工具/)).toBeTruthy();
+  // 折叠态：实时 output 默认不可见
+  expect(screen.queryByText("正在分析代码")).toBeNull();
+  // 展开（点击摘要行开关）
+  fireEvent.click(screen.getByRole("button", { name: /展开|▶/ }));
+  expect(screen.getByText("正在分析代码")).toBeTruthy();
+  // 工具时间线：两条工具，含名称与状态
+  expect(screen.getByText(/Bash/)).toBeTruthy();
+  expect(screen.getByText(/Read/)).toBeTruthy();
+});
+
+test("进度态不同 status 映射：done→完成、error→出错", () => {
+  setProgress("tc-done", "a", { status: "done", output: "ok", tools: [], elapsedMs: 5000 });
+  const { unmount } = render(
+    <DelegateCard sessionId="s1" toolCall={{ type: "toolCall", id: "tc-done", name: "delegate", arguments: { agent: "a", task: "x" } }} />,
+  );
+  expect(screen.getByText(/完成/)).toBeTruthy();
+  unmount();
+
+  setProgress("tc-err", "a", { status: "error", output: "boom", tools: [], elapsedMs: 0 });
+  render(
+    <DelegateCard sessionId="s1" toolCall={{ type: "toolCall", id: "tc-err", name: "delegate", arguments: { agent: "a", task: "x" } }} />,
+  );
+  expect(screen.getByText(/出错/)).toBeTruthy();
+});
+
+test("无进度时不渲染摘要行（保持原有行为）", () => {
+  useSessionStore.setState({ progressByToolCall: {} });
+  render(
+    <DelegateCard sessionId="s1" toolCall={{ type: "toolCall", id: "tc-none", name: "delegate", arguments: { agent: "a", task: "x" } }} />,
+  );
+  // 无摘要开关与「个工具」字样
+  expect(screen.queryByRole("button", { name: /展开|▶/ })).toBeNull();
+  expect(screen.queryByText(/个工具/)).toBeNull();
+});
+
+test("完成态（result 存在）也有进度摘要开关，可展开看结果详情", () => {
+  setProgress("tc-fin", "general-purpose", {
+    status: "done",
+    output: "已完成分析",
+    tools: [{ id: "t1", name: "Bash", status: "done" }],
+    elapsedMs: 3000,
+  });
+  const doneResult = { ...result, toolCallId: "tc-fin" };
+  render(
+    <DelegateCard
+      sessionId="s1"
+      toolCall={{ type: "toolCall", id: "tc-fin", name: "delegate", arguments: { agent: "general-purpose", task: "hi" } }}
+      result={doneResult}
+    />,
+  );
+  // 完成态默认折叠，但有摘要开关可展开
+  expect(screen.getByRole("button", { name: /展开|▶/ })).toBeTruthy();
+  expect(screen.getByText(/1\s*个工具/)).toBeTruthy();
+  // 折叠时结果详情不可见
+  expect(screen.queryByText("发现 2 个问题…")).toBeNull();
+  // 展开后可见
+  fireEvent.click(screen.getByRole("button", { name: /展开|▶/ }));
+  expect(screen.getByText("发现 2 个问题…")).toBeTruthy();
 });
 
 test("MessageList 对非 delegate 调用仍渲染 ToolCallCard", () => {

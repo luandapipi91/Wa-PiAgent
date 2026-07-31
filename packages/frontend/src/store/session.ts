@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SessionMessage, AgentStatus, AgentName, SDKEventEnvelope } from "@wa-pi/shared";
+import type { SessionMessage, AgentStatus, AgentName, SDKEventEnvelope, SubagentProgressEvent } from "@wa-pi/shared";
 import { useProjectsStore } from "./projects";
 import { StreamingBatcher } from "./streaming-batcher";
 
@@ -30,6 +30,11 @@ interface SessionState {
   // 顶部状态条提示「模型连接异常」；下次成功回复（message_end 正常）或重连后清除。
   // 与 events.ts 的 ConnectionState（SSE 推送通道）区分——那是 kernel→前端通道。
   netStatusBySession: Record<string, "degraded" | null>;
+  // 子代理进度：按 toolCallId 再按 agent 分组的 map。
+  // 结构：progressByToolCall[toolCallId][agent] = SubagentProgressEvent。
+  // 这样 delegate（单 agent）与 fleet（多 agent 共享同一 toolCallId）都能用同一结构：
+  //   delegate 取 Object.values(progressByToolCall[tcId])[0]；fleet 取整个内层 map。
+  progressByToolCall: Record<string, Record<string, SubagentProgressEvent>>;
   // 原有方法保留：append 用于 error 兜底、setMessages 用于 session:messages 历史
   append: (sessionId: string, msg: SessionMessage) => void;
   setMessages: (sessionId: string, messages: SessionMessage[]) => void;
@@ -59,6 +64,10 @@ interface SessionState {
   clearNetStatus: (sessionId: string) => void;
   // 新增：处理 sdk:event 信封事件（流式两态管理核心入口）
   handleSDKEvent: (sessionId: string, envelope: SDKEventEnvelope) => void;
+  /** 存储子代理进度事件：按 toolCallId → agent 二级索引写入（支持 fleet 多 agent 共享同一 toolCallId）。 */
+  handleSubagentProgress: (sessionId: string, toolCallId: string, progress: SubagentProgressEvent) => void;
+  /** 清除某 toolCallId 下全部子代理进度（工具调用结束后释放）。 */
+  clearSubagentProgress: (toolCallId: string) => void;
   /** 重载中（/reload 命令执行期间禁用发送） */
   reloading: boolean;
   setReloading: (v: boolean) => void;
@@ -99,6 +108,7 @@ export const useSessionStore = create<SessionState>((set) => {
   tokenTotals: {},
   lastUsageBySession: {},
   netStatusBySession: {},
+  progressByToolCall: {},
 
   addTokens: (sessionId, input, output) => set(s => {
     const cur = s.tokenTotals[sessionId] ?? { input: 0, output: 0 };
@@ -247,6 +257,26 @@ export const useSessionStore = create<SessionState>((set) => {
     if (fromIndex >= list.length) return {};
     return { messagesBySession: { ...s.messagesBySession, [sessionId]: list.slice(0, fromIndex) } };
   }),
+
+  // 存储子代理进度：按 toolCallId → agent 二级 map 写入。
+  // fleet 场景同一 toolCallId 下多个 agent 共存，故合并既有内层 map 而非覆盖。
+  handleSubagentProgress: (sessionId, toolCallId, progress) => {
+    set((s) => {
+      const prev = s.progressByToolCall[toolCallId] ?? {};
+      return {
+        progressByToolCall: { ...s.progressByToolCall, [toolCallId]: { ...prev, [progress.agent]: progress } },
+      };
+    });
+  },
+
+  // 清除某 toolCallId 下全部进度（工具调用结束、卡片卸载时释放）
+  clearSubagentProgress: (toolCallId) => {
+    set((s) => {
+      const next = { ...s.progressByToolCall };
+      delete next[toolCallId];
+      return { progressByToolCall: next };
+    });
+  },
 
   // 处理 sdk:event 信封事件：按 SDKEvent.type 分发到对应状态
   handleSDKEvent: (sessionId, envelope) => {

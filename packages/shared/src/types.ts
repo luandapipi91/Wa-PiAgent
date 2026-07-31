@@ -507,6 +507,41 @@ export interface SubagentListResult {
 	type: "subagent:list";
 	subagents: SubagentInfo[];
 }
+
+// =========================================================================
+// 子代理进度（流式 bridge + 前端实时展示共用）
+// =========================================================================
+
+/** 子代理执行过程事件（由 subagent-runner 采集，经 onProgress 透传） */
+export interface SubagentProgressEvent {
+	agent: string;
+	status: "running" | "done" | "error";
+	output: string;
+	tools: Array<{ id: string; name: string; status: string }>;
+	elapsedMs: number;
+}
+
+/** bridge 流式协议帧（NDJSON，每帧一行） */
+export type BridgeStreamFrame =
+	| { type: "started"; protocol: 1; tool: string; toolCallId: string }
+	| { type: "progress"; tool: string; toolCallId: string; progress: SubagentProgressEvent }
+	| {
+			type: "final";
+			tool: string;
+			toolCallId: string;
+			ok: boolean;
+			result?: { content: Array<{ type: "text"; text: string }>; details?: unknown };
+			error?: string;
+	  };
+
+/** SSE 事件：子代理进度（前端按 sessionId + toolCallId 路由到 DelegateCard/FleetCard） */
+export interface SubagentProgressServerEvent {
+	type: "subagent:progress";
+	sessionId: string;
+	toolCallId: string;
+	progress: SubagentProgressEvent;
+}
+
 export interface ProjectsListEvent {
 	type: "projects:list";
 	projects: ProjectEntity[];
@@ -832,6 +867,7 @@ export type WSServerEvent =
 	| FSRecordingFinalizeResult
 	| FSRecordingDiscardResult
 	| SubagentListResult
-	| SessionCommandsResult;
+	| SessionCommandsResult
+	| SubagentProgressServerEvent;
 
 export type WSEvent = WSClientEvent | WSServerEvent;

@@ -46,7 +46,8 @@ test("delegate: 合法调起透传结果", async () => {
   const res = await tool.execute("tc2", { agent: "代码审查", task: "review diff" });
   expect(res.isError).toBe(false);
   expect(res.content[0].text).toBe("代码审查完成:review diff");
-  expect(spawn).toHaveBeenCalledWith("代码审查", "review diff");
+  // toolCallId 透传给 spawn（第三个参数）
+  expect(spawn).toHaveBeenCalledWith("代码审查", "review diff", "tc2");
 });
 
 test("delegate: 透传 spawn 的失败结果（isError 原样带出）", async () => {
@@ -125,7 +126,7 @@ test("delegate: 内置类型名 general-purpose 放行（绕过 askTo 名单）"
   const res = await tool.execute("tc-gp", { agent: "general-purpose", task: "do something" });
   expect(res.isError).toBe(false);
   expect(res.content[0].text).toBe("general-purpose:do something");
-  expect(spawn).toHaveBeenCalledWith("general-purpose", "do something");
+  expect(spawn).toHaveBeenCalledWith("general-purpose", "do something", "tc-gp");
 });
 
 test("delegate: 内置类型名 Explore 放行（大小写敏感）", async () => {
@@ -133,7 +134,7 @@ test("delegate: 内置类型名 Explore 放行（大小写敏感）", async () =
   const tool = makeDelegateTool({ askTo, spawn });
   const res = await tool.execute("tc-ex", { agent: "Explore", task: "search code" });
   expect(res.isError).toBe(false);
-  expect(spawn).toHaveBeenCalledWith("Explore", "search code");
+  expect(spawn).toHaveBeenCalledWith("Explore", "search code", "tc-ex");
 });
 
 test("delegate: 内置类型名 Plan 放行（绕过 askTo 名单）", async () => {
@@ -141,7 +142,7 @@ test("delegate: 内置类型名 Plan 放行（绕过 askTo 名单）", async () 
   const tool = makeDelegateTool({ askTo, spawn });
   const res = await tool.execute("tc-plan", { agent: "Plan", task: "design plan" });
   expect(res.isError).toBe(false);
-  expect(spawn).toHaveBeenCalledWith("Plan", "design plan");
+  expect(spawn).toHaveBeenCalledWith("Plan", "design plan", "tc-plan");
 });
 
 test("delegate: 大小写错误（explore 而非 Explore）不放行", async () => {
@@ -168,7 +169,7 @@ test("delegate: 中文别名（通用子智能体）放行并归一化为英文 
   const tool = makeDelegateTool({ askTo, spawn });
   const res = await tool.execute("tc-cn", { agent: "通用子智能体", task: "做某事" });
   expect(res.isError).toBe(false);
-  expect(spawn).toHaveBeenCalledWith("general-purpose", "做某事");
+  expect(spawn).toHaveBeenCalledWith("general-purpose", "做某事", "tc-cn");
 });
 
 test("delegate: 中文别名（探索子智能体）归一化为 Explore", async () => {
@@ -176,7 +177,7 @@ test("delegate: 中文别名（探索子智能体）归一化为 Explore", async
   const tool = makeDelegateTool({ askTo, spawn });
   const res = await tool.execute("tc-cn-ex", { agent: "探索子智能体", task: "搜代码" });
   expect(res.isError).toBe(false);
-  expect(spawn).toHaveBeenCalledWith("Explore", "搜代码");
+  expect(spawn).toHaveBeenCalledWith("Explore", "搜代码", "tc-cn-ex");
 });
 
 test("fleet: 内置类型名也放行（每个 task 独立校验）", async () => {
@@ -270,7 +271,7 @@ test("fleet: 空任务数组返回提示文本", async () => {
 test("makeSpawnFn: resolveConfig 返回 null → 错误文本", async () => {
   const resolveConfig = mock(async () => null);
   const spawn = makeSpawnFn({ resolveConfig, cwd: "/tmp" });
-  const result = await spawn("unknown-agent", "task");
+  const result = await spawn("unknown-agent", "task", "tc-null");
   expect(result.isError).toBe(true);
   expect(result.text).toContain("配置未找到");
   expect(result.text).toContain("unknown-agent");
@@ -293,7 +294,7 @@ test("makeSpawnFn: resolveConfig 成功 → 经 fake-pi 确定性跑通并回传
     runnerOpts: { cliPath: FAKE_PI, runtime: process.execPath },
     runSubagentAgent: realRunSubagentAgent,
   });
-  const result = await spawn("test-agent", "task");
+  const result = await spawn("test-agent", "task", "tc-ok");
   expect(resolveConfig).toHaveBeenCalledWith("test-agent");
   expect(result.isError).toBe(false);
   expect(result.text).toContain("回声:task");
@@ -303,7 +304,10 @@ test("makeSpawnFn: resolveConfig 成功 → 经 fake-pi 确定性跑通并回传
 
 test("makeSpawnFn: onProgress 回调正确绑定", async () => {
   const progressEvents: any[] = [];
-  const onProgress = mock((event: any) => {
+  const receivedToolCallIds: string[] = [];
+  // onProgress 新签名：(toolCallId, event)
+  const onProgress = mock((tcId: string, event: any) => {
+    receivedToolCallIds.push(tcId);
     progressEvents.push(event);
   });
   const resolveConfig = mock(async () => ({
@@ -323,10 +327,13 @@ test("makeSpawnFn: onProgress 回调正确绑定", async () => {
     runnerOpts: { cliPath: FAKE_PI, runtime: process.execPath },
     runSubagentAgent: realRunSubagentAgent,
   });
-  await spawn("test-agent", "task");
+  await spawn("test-agent", "task", "tc-prog");
   // fake-pi 有 text_delta → 至少一个 running 事件，结尾一个 done
   expect(progressEvents.some((e) => e.status === "running")).toBe(true);
   expect(progressEvents.at(-1)?.status).toBe("done");
+  // 所有进度帧都带上同一个 toolCallId
+  expect(receivedToolCallIds.every((id) => id === "tc-prog")).toBe(true);
+  expect(receivedToolCallIds.length).toBeGreaterThan(0);
 });
 
 test("MAX_SUBAGENT_CONCURRENCY 为 5（控制内存：5 子代理 × ~300MB 不超 macOS 限制）", () => {
@@ -339,7 +346,7 @@ test("makeSpawnFn: resolveConfig 为 null 时 onSpawnComplete 记录失败派发
   const resolveConfig = mock(async () => null);
   const onSpawnComplete = mock((_input: SpawnTelemetryInput) => {});
   const spawn = makeSpawnFn({ resolveConfig, cwd: "/tmp", onSpawnComplete });
-  await spawn("unknown-agent", "任务X");
+  await spawn("unknown-agent", "任务X", "tc-telemetry");
   expect(onSpawnComplete).toHaveBeenCalledTimes(1);
   const input = onSpawnComplete.mock.calls[0]![0]!;
   expect(input.agent).toBe("unknown-agent");
@@ -370,7 +377,7 @@ test("makeSpawnFn: model 含 provider slug 时派发前调用 ensureExtension(sl
     runnerOpts: { cliPath: FAKE_PI, runtime: process.execPath },
     runSubagentAgent: realRunSubagentAgent,
   });
-  await spawn("test-agent", "task");
+  await spawn("test-agent", "task", "tc-slug");
   expect(ensureExtension).toHaveBeenCalledTimes(1);
   // 传入的 slug 应从 model 解析出 deepseek
   expect(ensureExtension).toHaveBeenCalledWith("deepseek");
@@ -395,7 +402,7 @@ test("makeSpawnFn: model 为 null（跟随主模型）时 ensureExtension 以 un
     runnerOpts: { cliPath: FAKE_PI, runtime: process.execPath },
     runSubagentAgent: realRunSubagentAgent,
   });
-  await spawn("test-agent", "task");
+  await spawn("test-agent", "task", "tc-null-model");
   expect(ensureExtension).toHaveBeenCalledTimes(1);
   // 无具体 slug 时仍调用（让 agent-manager 决定是否重生），但参数为 undefined
   expect(ensureExtension).toHaveBeenCalledWith(undefined);
@@ -419,6 +426,59 @@ test("makeSpawnFn: 未注入 ensureExtension 时不报错（向后兼容）", as
     runnerOpts: { cliPath: FAKE_PI, runtime: process.execPath },
     runSubagentAgent: realRunSubagentAgent,
   });
-  const result = await spawn("test-agent", "task");
+  const result = await spawn("test-agent", "task", "tc-noext");
   expect(result.isError).toBe(false);
+});
+
+// ---- Task 3: toolCallId 透传到 spawn 与 onProgress（前端 DelegateCard 靠它定位卡片）----
+
+test("makeSpawnFn 的 onProgress 回调能收到 toolCallId", async () => {
+  const toolCallId = "tc-test-001";
+  const received: Array<{ tcId: string; agent: string }> = [];
+  const spawnFn = makeSpawnFn({
+    resolveConfig: async () => ({
+      name: "test-agent",
+      description: "",
+      systemPrompt: "",
+      systemPromptMode: "replace",
+      model: null,
+      thinking: null,
+      tools: [],
+      skills: [],
+    }),
+    cwd: "/tmp",
+    // 注入假的 runSubagentAgent：立即触发一次 onProgress 再返回
+    runSubagentAgent: (async (
+      _config: any,
+      _task: string,
+      _cwd: string,
+      opts: any,
+    ) => {
+      opts?.onProgress?.({
+        agent: "test-agent",
+        status: "running",
+        output: "hi",
+        tools: [],
+        elapsedMs: 1,
+      });
+      return { text: "done", isError: false, elapsedMs: 1 };
+    }) as any,
+    onProgress: (tcId, event) => received.push({ tcId, agent: event.agent }),
+  });
+  // spawnFn 现在接受第三个参数 toolCallId
+  await spawnFn("test-agent", "do something", toolCallId);
+  expect(received).toEqual([{ tcId: toolCallId, agent: "test-agent" }]);
+});
+
+test("makeDelegateTool execute 把 toolCallId 透传给 spawn", async () => {
+  let spawnCalledWith: string | undefined;
+  const tool = makeDelegateTool({
+    askTo: [],
+    spawn: async (_agent, _task, toolCallId) => {
+      spawnCalledWith = toolCallId;
+      return { text: "ok", isError: false };
+    },
+  });
+  await tool.execute("tc-xyz", { agent: "general-purpose", task: "hi" });
+  expect(spawnCalledWith).toBe("tc-xyz");
 });
