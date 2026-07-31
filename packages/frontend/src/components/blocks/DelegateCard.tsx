@@ -36,6 +36,9 @@ export function DelegateCard({ sessionId, toolCall, result, isStreaming }: Props
   const [progressExpanded, setProgressExpanded] = useState(false);
   const hasProgress = !!progress;
   const open = hasProgress || autoOpen;
+  // 有进度时 open 被 hasProgress 钉死为 true，外层 toggle 的效果被吞掉（点头部无反馈）。
+  // 改为让头部点击联动 progressExpanded，与摘要行开关一致——用户点头部即切换进度详情。
+  const handleToggle = hasProgress ? () => setProgressExpanded((v) => !v) : toggle;
 
   const failed = !!result?.isError;
   const full = result?.content.map((c: ToolResultMessage["content"][number]) => (c.type === "text" ? c.text : "")).join("\n") ?? "";
@@ -47,7 +50,7 @@ export function DelegateCard({ sessionId, toolCall, result, isStreaming }: Props
       title={`委派给 ${args.agent ?? "子智能体"}`}
       meta={!result ? (<><Spinner /><span>执行中</span></>) : failed ? "✗ 失败" : "✓ 完成"}
       open={open}
-      onToggle={toggle}
+      onToggle={handleToggle}
       muted={!!result}
       testId={`delegate-${toolCall.id}`}
     >
@@ -69,7 +72,7 @@ export function DelegateCard({ sessionId, toolCall, result, isStreaming }: Props
             <div className="mt-1 min-w-0">
               {/* 实时 output：可滚动 pre，避免长文本撑爆卡片 */}
               {progress!.output && (
-                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-bg px-2 py-1 text-[11px] text-secondary mb-1">{progress!.output}</pre>
+                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-surface px-2 py-1 text-[11px] text-secondary mb-1">{progress!.output}</pre>
               )}
               {/* 工具时间线：名称 + 状态 */}
               {progress!.tools.length > 0 && (
