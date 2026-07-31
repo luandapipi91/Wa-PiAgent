@@ -29,6 +29,10 @@ export function ProviderFormModal({ initial, onClose }: Props) {
   );
   const [testStatus, setTestStatus] = useState<{ state: "idle" | "testing" | "ok" | "fail"; error?: string }>({ state: "idle" });
 
+  // provider slug：对齐内置 provider id（如 opencode-go）。
+  // 选预设时 = preset.key；自定义/清除预设时为空，由 kernel fallback 到 name 派生。
+  const [slug, setSlug] = useState<string | undefined>(initial?.slug);
+
   // 供应商预设（可搜索）
   const [presets, setPresets] = useState<ModelPreset[]>([]);
   const [selectedPresetKey, setSelectedPresetKey] = useState<string>("");
@@ -90,12 +94,20 @@ export function ProviderFormModal({ initial, onClose }: Props) {
     setSelectedPresetKey(key);
     setPresetSearch("");
     setShowPresetDropdown(false);
-    if (!key) { setModelIds([]); setModelConfigs({}); setShowPresetDropdown(true); return; }
+    if (!key) {
+      setModelIds([]); setModelConfigs({}); setShowPresetDropdown(true);
+      // 清除预设 → slug 归空，后续由 kernel fallback 到 name 派生
+      setSlug(undefined);
+      return;
+    }
     const preset = presets.find(p => p.key === key);
     if (!preset) return;
     setName(preset.name);
     setBaseUrl(preset.baseUrl);
     setProviderApi(preset.api as ProviderApi);
+    // preset.key 是内置 provider id（如 opencode-go），保存时写入 slug，
+    // 让 extension 用此 slug 注册以增强内置 provider，避免 Model not found。
+    setSlug(preset.key);
     // 清空已有模型，模型通过快捷下拉逐个添加
     setModelIds([]);
     setModelConfigs({});
@@ -132,6 +144,8 @@ export function ProviderFormModal({ initial, onClose }: Props) {
       apiKey: apiKey.trim(),
       api: providerApi,
       models: modelIds.map(id => modelConfigs[id]),
+      // slug：预设来源 = 内置 provider id（对齐 extension 注册）；自定义时 undefined
+      ...(slug ? { slug } : {}),
     };
     save(provider);
     onClose();

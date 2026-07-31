@@ -150,3 +150,49 @@ test("ensureProviderExtensionRegistered 多次调用覆盖式重写并反映最�
   rmSync(dir, { recursive: true, force: true });
   rmSync(extFile, { force: true });
 });
+
+// ---- 预设 provider：slug 字段对齐内置 provider id（修复 Model not found 根因）----
+
+test("slugifyProviders: provider 带 slug 字段时用 slug 而非 name 派生", () => {
+  // 预设场景：name="OpenCode Zen Go"（显示名），slug="opencode-go"（内置 provider id）
+  const result = slugifyProviders([
+    sampleProvider({ id: "p1", name: "OpenCode Zen Go", slug: "opencode-go" }),
+  ]);
+  expect(result[0].slug).toBe("opencode-go");
+  // 不应是从 name 派生的错误 slug
+  expect(result[0].slug).not.toBe("opencode-zen-go");
+});
+
+test("generateProviderExtension: 带 slug 的 provider 生成的 extension 用 slug 注册（修复 Model not found）", () => {
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      name: "OpenCode Zen Go",
+      slug: "opencode-go",
+      baseUrl: "https://opencode.ai/zen/go/v1",
+      models: [{ id: "deepseek-v4-pro", contextWindow: 1000000, maxTokens: 384000 }],
+    }),
+  ];
+  const code = generateProviderExtension(providers, new Map());
+  // 关键：用内置 provider id 注册，而非从 name 派生的 opencode-zen-go
+  expect(code).toContain('pi.registerProvider("opencode-go"');
+  expect(code).not.toContain('pi.registerProvider("opencode-zen-go"');
+  // 显示名仍写入 name 字段（供 pi UI 展示）
+  expect(code).toContain('name: "OpenCode Zen Go"');
+});
+
+test("slugifyProviders: 两个预设指向同一内置 slug 时第二个加后缀", () => {
+  const result = slugifyProviders([
+    sampleProvider({ id: "p1", name: "DeepSeek A", slug: "deepseek" }),
+    sampleProvider({ id: "p2", name: "DeepSeek B", slug: "deepseek" }),
+  ]);
+  expect(result[0].slug).toBe("deepseek");
+  expect(result[1].slug).toBe("deepseek-2");
+});
+
+test("slugifyProviders: slug 为 undefined 时 fallback 到 name 派生（向后兼容）", () => {
+  const result = slugifyProviders([
+    sampleProvider({ id: "p1", name: "My Custom Provider" }),  // 无 slug 字段
+  ]);
+  expect(result[0].slug).toBe("my-custom-provider");
+});

@@ -28,6 +28,15 @@ const PRESETS = [
       { id: "claude-opus-4-5", contextWindow: 200000, maxTokens: 32000, supportsVision: true },
     ],
   },
+  {
+    key: "opencode-go",
+    name: "OpenCode Zen Go",
+    baseUrl: "https://opencode.ai/zen/go/v1",
+    api: "openai-completions",
+    models: [
+      { id: "deepseek-v4-pro", contextWindow: 1000000, maxTokens: 384000, supportsVision: false },
+    ],
+  },
 ];
 
 // mock 需要在 import 之前生效，所以把组件 import 放在 mock.module 之后
@@ -325,4 +334,69 @@ test("选中预设后用 | 分隔提交自定义模型id，快捷下拉也应消
   // 用分隔符提交自定义模型 id
   fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "my-custom|" } });
   expect(screen.queryByTestId("model-quick-dropdown")).toBeNull();
+});
+
+// ===== 预设 slug 落库：修复 Model not found 根因 =====
+
+test("选预设后保存：provider.slug === preset.key（对齐内置 provider id）", async () => {
+  const saveMock = mock();
+  useProvidersStore.setState({ save: saveMock });
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
+  await waitAndSelectPreset("opencode-go");
+  // 选预设只填 name/baseUrl/api，需手动补 apiKey + 模型
+  fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-xxx" } });
+  fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "deepseek-v4-pro" } });
+  const chatOption = screen.getAllByTestId("model-quick-option")[0];
+  fireEvent.mouseDown(chatOption);
+  fireEvent.click(screen.getByTestId("provider-save-btn"));
+  const saved = saveMock.mock.calls[0][0];
+  expect(saved.slug).toBe("opencode-go");
+});
+
+test("不选预设手动填表保存：provider.slug 为 undefined（自定义 provider）", async () => {
+  const saveMock = mock();
+  useProvidersStore.setState({ save: saveMock });
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
+  fireEvent.change(screen.getByTestId("field-name"), { target: { value: "My Custom" } });
+  fireEvent.change(screen.getByTestId("field-baseUrl"), { target: { value: "https://api.test.com/v1" } });
+  fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-x" } });
+  fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "m1|" } });
+  fireEvent.click(screen.getByTestId("provider-save-btn"));
+  const saved = saveMock.mock.calls[0][0];
+  expect(saved.slug).toBeUndefined();
+});
+
+test("清除预设后保存：slug 应回到 undefined（避免残留旧 slug）", async () => {
+  const saveMock = mock();
+  useProvidersStore.setState({ save: saveMock });
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
+  await waitAndSelectPreset("deepseek");
+  // 清除预设
+  fireEvent.click(screen.getByTestId("preset-clear"));
+  // 手动填自定义内容后保存
+  fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-x" } });
+  fireEvent.change(screen.getByTestId("tag-input-field"), { target: { value: "m1|" } });
+  fireEvent.click(screen.getByTestId("provider-save-btn"));
+  const saved = saveMock.mock.calls[0][0];
+  expect(saved.slug).toBeUndefined();
+});
+
+test("编辑已有 provider（带 slug）时保留原 slug", async () => {
+  const saveMock = mock();
+  useProvidersStore.setState({ save: saveMock });
+  await renderWithFlush(
+    <ProviderFormModal
+      initial={{
+        id: "p1", name: "OpenCode Zen Go", slug: "opencode-go",
+        baseUrl: "https://opencode.ai/zen/go/v1",
+        apiKey: "sk-existing", api: "openai-completions",
+        models: [{ id: "deepseek-v4-pro", contextWindow: 1000000, maxTokens: 384000 }],
+      }}
+      onClose={() => {}}
+    />
+  );
+  // 不改预设，直接保存（模型已存在，表单可保存）
+  fireEvent.click(screen.getByTestId("provider-save-btn"));
+  const saved = saveMock.mock.calls[0][0];
+  expect(saved.slug).toBe("opencode-go");
 });

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { isModelAvailable, slugifyProviderName, splitModelIds } from "../src/providers";
+import { isModelAvailable, resolveProviderSlug, slugifyProviderName, splitModelIds } from "../src/providers";
 import type { ModelProvider } from "../src/providers";
 
 function makeProvider(name: string, modelIds: string[]): ModelProvider {
@@ -105,4 +105,40 @@ test("isModelAvailable: 多 provider 同名冲突时 slug 加后缀，与派生�
   expect(isModelAvailable("my-deepseek/a", providers)).toBe(true);
   expect(isModelAvailable("my-deepseek-2/b", providers)).toBe(true);
   expect(isModelAvailable("my-deepseek/b", providers)).toBe(false);
+});
+
+// ===== resolveProviderSlug =====
+
+function makeProviderWithSlug(name: string, slug: string | undefined, modelIds: string[]): ModelProvider {
+  return {
+    ...makeProvider(name, modelIds),
+    ...(slug !== undefined ? { slug } : {}),
+  };
+}
+
+test("resolveProviderSlug: slug 字段存在时直接返回该 slug（对齐内置 provider id）", () => {
+  // 预设场景：name 是显示名，slug 是内置 provider key（如 opencode-go）
+  const p = makeProviderWithSlug("OpenCode Zen Go", "opencode-go", ["deepseek-v4-pro"]);
+  expect(resolveProviderSlug(p, [])).toBe("opencode-go");
+});
+
+test("resolveProviderSlug: slug 为 undefined 时 fallback 到 slugifyProviderName(name)", () => {
+  const p = makeProviderWithSlug("My DeepSeek", undefined, ["chat"]);
+  expect(resolveProviderSlug(p, [])).toBe("my-deepseek");
+});
+
+test("resolveProviderSlug: slug 为空串时也 fallback 到 name 派生", () => {
+  const p = makeProviderWithSlug("OpenAI", "", ["gpt-4o"]);
+  expect(resolveProviderSlug(p, [])).toBe("openai");
+});
+
+test("resolveProviderSlug: slug 与已用 slug 冲突时加后缀（与 slugifyProviderName 一致）", () => {
+  const p = makeProviderWithSlug("Another", "deepseek", ["x"]);
+  // 已有 provider 占了 deepseek，当前 slug 冲突 → deepseek-2
+  expect(resolveProviderSlug(p, ["deepseek"])).toBe("deepseek-2");
+});
+
+test("resolveProviderSlug: slug 无冲突时不加后缀", () => {
+  const p = makeProviderWithSlug("Another", "anthropic", ["claude"]);
+  expect(resolveProviderSlug(p, ["deepseek"])).toBe("anthropic");
 });

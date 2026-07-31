@@ -84,13 +84,40 @@ describe("ModelSelector", () => {
     const { rerender } = render(<ModelSelector value={null} onChange={onChange} />);
     // 初始 auto-select
     expect(onChange).toHaveBeenCalledWith("test/m1");
-    
+
     // onChange 更新了父组件状态，value 变为 auto-selected 值
     rerender(<ModelSelector value="test/m1" onChange={onChange} />);
-    
+
     // 切换会话：value 变回 null
     rerender(<ModelSelector value={null} onChange={onChange} />);
     // 应再次触发 auto-select（但当前 autoSelectedRef 已是 true，会失败）
     expect(onChange).toHaveBeenCalledTimes(2);
+  });
+
+  // ===== 预设 provider：带 slug 字段时用 slug 而非 name 派生（修复 Model not found）=====
+
+  test("provider 带 slug 字段时选项 value 用 slug 而非 name 派生", () => {
+    useProvidersStore.setState({
+      providers: [{
+        id: "p1", name: "OpenCode Zen Go", slug: "opencode-go",
+        baseUrl: "https://opencode.ai/zen/go/v1", apiKey: "k", api: "openai-completions",
+        models: [{ id: "deepseek-v4-pro", contextWindow: 1000000, maxTokens: 384000 }],
+      }],
+    });
+    render(<ModelSelector value="opencode-go/deepseek-v4-pro" onChange={() => {}} />);
+    const select = screen.getByTestId("model-selector") as HTMLSelectElement;
+    // 选项 value 应是 slug/id（opencode-go），而不是从 name 派生的 opencode-zen-go
+    const opt = select.querySelector('option[value="opencode-go/deepseek-v4-pro"]') as HTMLOptionElement;
+    expect(opt).toBeTruthy();
+    // 不应出现从 name 派生的错误 slug
+    const wrongOpt = select.querySelector('option[value="opencode-zen-go/deepseek-v4-pro"]');
+    expect(wrongOpt).toBeNull();
+  });
+
+  test("provider 无 slug 时仍用 name 派生（向后兼容）", () => {
+    render(<ModelSelector value="test/m1" onChange={() => {}} />);
+    const select = screen.getByTestId("model-selector") as HTMLSelectElement;
+    const opt = select.querySelector('option[value="test/m1"]') as HTMLOptionElement;
+    expect(opt).toBeTruthy();
   });
 });

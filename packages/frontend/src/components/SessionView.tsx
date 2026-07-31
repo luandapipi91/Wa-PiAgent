@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { SYSTEM_PROJECT_ID, resolveSessionCwd, slugifyProviderName, type AgentStatus } from "@wa-pi/shared";
+import { SYSTEM_PROJECT_ID, resolveSessionCwd, resolveProviderSlug, type AgentStatus } from "@wa-pi/shared";
 import { useProjectsStore } from "../store/projects";
 import { useSessionStore } from "../store/session";
 import { useIsBlocked } from "../store/ask";
@@ -65,7 +65,7 @@ export function SessionView({ sessionId }: Props) {
     const modelId = rest.join("/");
     const slugs: string[] = [];
     for (const p of providers) {
-      const pSlug = slugifyProviderName(p.name, slugs);
+      const pSlug = resolveProviderSlug(p, slugs);
       slugs.push(pSlug);
       if (pSlug === slug) {
         const found = p.models.find(m => m.id === modelId);

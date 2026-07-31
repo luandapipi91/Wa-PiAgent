@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AgentConfig, AgentName, AgentToolItem } from "@wa-pi/shared";
-import { agentDefOf, slugifyProviderName, isSubagentType } from "@wa-pi/shared";
+import { agentDefOf, resolveProviderSlug, isSubagentType } from "@wa-pi/shared";
 import { useAgentsStore } from "../store/agents";
 import { useSkillsStore } from "../store/skills";
 import { useProvidersStore } from "../store/providers";
@@ -37,7 +37,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
     const slugs: string[] = [];
     const ids = new Set<string>();
     for (const p of providers) {
-      const slug = slugifyProviderName(p.name, slugs);
+      const slug = resolveProviderSlug(p, slugs);
       slugs.push(slug);
       for (const m of p.models) ids.add(`${slug}/${m.id}`);
     }
@@ -58,6 +58,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
       // model/thinking 来自用户 override（无 override 时 null = 跟随主智能体）
       model: builtinInfo.override?.model ?? null,
       thinking: builtinInfo.override?.thinking ?? null,
+      systemPromptMode: "replace",
       // 工具：内置 subagent 的真实 builtinToolNames，只读展示
       tools: builtinInfo.builtinToolNames ?? [],
       skills: [],
@@ -209,7 +210,7 @@ function BasicTab({ draft, onChange }: TabProps) {
   const models = useMemo(() => {
     const slugs: string[] = [];
     return providers.flatMap(p => {
-      const slug = slugifyProviderName(p.name, slugs);
+      const slug = resolveProviderSlug(p, slugs);
       slugs.push(slug);
       return p.models.map(m => ({
         id: m.id,
@@ -261,6 +262,16 @@ function BasicTab({ draft, onChange }: TabProps) {
       </Row>
 
       <Sec>提示词</Sec>
+      <Row label="模式">
+        <div className="flex rounded-sm overflow-hidden border border-hairline">
+          {(["append", "replace"] as const).map(m => (
+            <button key={m} onClick={() => onChange({ ...draft, systemPromptMode: m })} data-testid={`prompt-mode-${m}`}
+              className={`px-3 py-1 text-xs transition-colors ${draft.systemPromptMode === m ? "bg-surface-hover text-primary" : "text-tertiary hover:text-secondary"}`}>
+              {m === "append" ? "追加" : "替换"}
+            </button>
+          ))}
+        </div>
+      </Row>
       <textarea value={draft.systemPromptBody ?? ""} onChange={e => onChange({ ...draft, systemPromptBody: e.target.value })}
         className={`${inp} w-full min-h-[300px] resize-y leading-relaxed`} rows={4} />
 
