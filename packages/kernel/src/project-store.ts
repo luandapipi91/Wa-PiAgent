@@ -113,6 +113,22 @@ export class ProjectStore {
     await this.save(data);
   }
 
+  /**
+   * 仅当会话标题为空时填充——用于兜底创建（标题留空）的会话，
+   * 在用户首次发送消息时用消息内容自动命名。已有标题（用户手动命名或已填充）不动。
+   * @returns true 表示标题被填充（调用方可据此广播 projects:list 刷新侧栏）
+   */
+  async fillSessionTitleIfEmpty(id: string, title: string): Promise<boolean> {
+    if (!title || !title.trim()) return false;
+    const data = await this.load();
+    const s = data.sessions.find(x => x.id === id);
+    if (!s) return false;
+    if (s.title && s.title.trim()) return false; // 已有标题，不覆盖
+    s.title = title.trim();
+    await this.save(data);
+    return true;
+  }
+
   async setSessionAgent(id: string, agentName: AgentName): Promise<void> {
     const data = await this.load();
     const s = data.sessions.find(x => x.id === id);

@@ -648,6 +648,11 @@ export class WSServer {
 				const thinkingSince = this.opts.agentManager.getThinkingSince(
 					event.sessionId,
 				);
+				// 打开会话查看消息视为活跃：同步刷新磁盘 lastActivity（保持会话列表排序反映最近查看，
+				// 并与 AgentManager 内存 lastActiveAt 一致）。fire-and-forget，不阻塞历史读取。
+				if (session) {
+					void this.opts.projectStore.touchSession(event.sessionId).catch(() => {});
+				}
 				if (!session) {
 					reply({
 						type: "session:messages",
@@ -800,6 +805,21 @@ export class WSServer {
 							}));
 						if (isNew) {
 							this.broadcast({ type: "session:created", session });
+						} else {
+							// 已有会话但标题为空（如 getCommands 兜底创建的会话）：
+							// 首次发送消息时用消息内容自动命名，刷新侧栏标题
+							const filled = await this.opts.projectStore.fillSessionTitleIfEmpty(
+								session.id,
+								event.text.slice(0, 20),
+							);
+							if (filled) {
+								const data = await this.opts.projectStore.load();
+								this.broadcast({
+									type: "projects:list",
+									projects: data.projects,
+									sessions: data.sessions,
+								});
+							}
 						}
 						reply({
 							type: "session:echo_user",

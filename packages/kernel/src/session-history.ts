@@ -35,6 +35,65 @@ function isTransientAssistantError(message: any): boolean {
 }
 
 /**
+ * 判断一条历史消息是否为「失败的 assistant 回复」（任意 error，含 transient + fatal）。
+ */
+function isFailedAssistant(message: any): boolean {
+  return !!message && typeof message === "object"
+    && message.role === "assistant"
+    && message.stopReason === "error";
+}
+
+/**
+ * 判断位置 i 处是否为一个「失败回合」的起点（user 消息，且下一条是 error assistant）。
+ */
+function isFailedTurnStart(msgs: any[], i: number): boolean {
+  return msgs[i]?.role === "user"
+    && i + 1 < msgs.length
+    && isFailedAssistant(msgs[i + 1]);
+}
+
+/** 提取 user 消息的文本内容，用于判断是否为重发（相同文本）。 */
+function userText(m: any): string {
+  if (!m || m.role !== "user") return "";
+  const content = m.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((c: any) => c?.type === "text")
+      .map((c: any) => c.text ?? "")
+      .join("");
+  }
+  return "";
+}
+
+/**
+ * 失败回合去重：重发导致的连续「user + error assistant」失败对折叠到只剩最后一组。
+ *
+ * 重发失败消息时 pi 每次都 append 进 jsonl，刷新后出现多条相同的 user 发送记录。
+ * 折叠规则：一对失败回合，若下一对也是失败回合且 user 文本相同（重发），则折叠当前这组。
+ * 这样既消除重发堆积，又保留：
+ *   - 最后一组失败回合（fatal error 需提示用户改配置）
+ *   - 连续失败后成功的场景（前面失败组被折叠，只剩成功回合）
+ *   - 非连续的不同问题失败（各自保留）
+ */
+function dedupeConsecutiveFailedTurns(msgs: any[]): any[] {
+  const result: any[] = [];
+  for (let i = 0; i < msgs.length; i++) {
+    // 当前是失败回合起点，且下一对也是失败回合且是相同文本的重发 → 折叠当前组
+    // 或下一对是同文本 user 后跟成功（重发后成功）→ 也折叠当前失败组
+    if (isFailedTurnStart(msgs, i)) {
+      const nextUser = msgs[i + 2];
+      if (nextUser?.role === "user" && userText(nextUser) === userText(msgs[i])) {
+        i++; // 跳过 user + error assistant 两条
+        continue;
+      }
+    }
+    result.push(msgs[i]);
+  }
+  return result;
+}
+
+/**
  * 解析 pi 会话文件，返回当前分支的历史消息（含 reconcileDanglingAsks 对账）。
  * @param opts.isSessionActive 当 session 仍在活跃运行时跳过 dangling ask 对账
  * @throws 文件不可读或没有任何有效 JSON 行（格式变更/损坏）——调用方应回退进程路径。
@@ -69,14 +128,20 @@ export async function readSessionHistory(file: string, opts?: { isSessionActive?
       cur = typeof cur.parentId === "string" ? byId.get(cur.parentId) : undefined;
     }
     chain.reverse();
-    return chain
+    const msgs = chain
       .filter(e => e.type === "message" && e.message != null)
-      .map(e => e.message)
-      // 过滤 transient error（网络/超时类临时错误）：这类错误是临时性的，
-      // 不应作为历史消息残留进对话流（刷新后会重新出现并堆积）。
-      // pi 已将其落盘，这里在读出时剔除——仅前端展示层过滤，JSONL 原文不动。
-      // fatal error（鉴权/配额）保留，需提示用户改配置。
-      .filter((m: any) => !isTransientAssistantError(m));
+      .map(e => e.message);
+    // 过滤 transient error（网络/超时类临时错误）：这类错误是临时性的，
+    // 不应作为历史消息残留进对话流（刷新后会重新出现并堆积）。
+    // pi 已将其落盘，这里在读出时剔除——仅前端展示层过滤，JSONL 原文不动。
+    // fatal error（鉴权/配额）保留，需提示用户改配置。
+    let filtered = msgs.filter((m: any) => !isTransientAssistantError(m));
+    // 失败回合去重：连续的「user + error assistant」失败对，只保留最后一组。
+    // 根因：重发失败消息时 pi 每次都 append 进 jsonl，刷新后出现多条相同 user
+    // 发送记录。去重规则——若一对失败回合（user + 紧跟的 error assistant）后面
+    // 紧接着又是失败回合，则前一对折叠掉。fatal error 仍保留（最后一组）。
+    filtered = dedupeConsecutiveFailedTurns(filtered);
+    return filtered;
   };
 
   // 叶子候选 1：文件末尾向前找第一个事件树节点
