@@ -23,6 +23,7 @@ import type {
 	MemoryConfig,
 	SkillInfo,
 	CommandInfo,
+	SubagentProgressEvent,
 } from "@wa-pi/shared";
 import {
 	WA_PI_DIR,
@@ -109,6 +110,13 @@ export interface AgentManagerOpts {
 		projectId: string,
 		agentName: AgentName,
 		e: AgentManagerEvent,
+	) => void;
+	/** 子代理进度广播出口（index.ts 接到 server.broadcast → SSE → 前端 DelegateCard/FleetCard）。
+	 *  由流式 bridge 的 onProgress 帧触发，携带 sessionId 与本次工具调用的 toolCallId。 */
+	onSubagentProgress?: (
+		sessionId: string,
+		toolCallId: string,
+		event: SubagentProgressEvent,
 	) => void;
 	// 孤儿会话回滚：进程退出时若该会话从未写过消息文件（piSessionFile 不存在），
 	// 删除记录后通知上层广播 projects:list 刷新前端列表
@@ -531,6 +539,19 @@ export class AgentManager {
 		// 子进程必须加载 provider-extension（providers.json → 自定义 provider + apiKey），
 		// 否则「跟随主模型」传入的 --model 在子进程里查无此 provider，报 No API key
 		const providerExtPath = join(GENERATED_DIR, "provider-extension.ts");
+
+		// 子代理进度透传槽位：spawn 闭包在 _createSession 里构造一次（此时绑定 onProgress 闭包），
+		// 但 bridgeCtx.handleTool 是每次工具调用时才执行。handleTool 接到的 onProgress 是「本次调用」的，
+		// 无法直接传给已绑定的 spawn 闭包。解法：handleTool 调用前把 onProgress 写入本槽位，
+		// spawn 闭包的 onProgress 从槽位取最新值；finally 清空避免泄漏到下次调用。
+		// fleet 在同一 handleTool await 内并发多个子代理，它们共享同一 onProgress（fleet 调用的 toolCallId），
+		// 槽位在整个 handleTool 调用期间稳定，天然不串。
+		// 注意：槽位签名是 (event) => void（对齐 bridge-registry 的 onProgress），
+		// emit 闭包自身已绑定 toolCallId（handleBridgeStream 里捕获），无需再传。
+		let currentSubagentOnProgress:
+			| ((event: SubagentProgressEvent) => void)
+			| undefined;
+
 		const spawnFn = makeSpawnFn({
 			resolveConfig: resolveSpawnConfig,
 			extensionPaths: existsSync(providerExtPath) ? [providerExtPath] : [],
@@ -556,6 +577,14 @@ export class AgentManager {
 			},
 			cwd,
 			onSpawnComplete: (input) => subagentTelemetry.record(input),
+			// spawn 闭包的 onProgress：从槽位取本次 handleTool 调用注入的 onProgress，
+			// 再叠加会话级 onSubagentProgress（注入 sessionId 后广播到 SSE）。
+			// 槽位为空时（非 bridge 流式调用路径，如直接调 spawnFn 的测试）仅走 onSubagentProgress。
+			// 槽位签名是 (event)，toolCallId 由 handleBridgeStream 的 emit 闭包自带。
+			onProgress: (toolCallId, event) => {
+				currentSubagentOnProgress?.(event);
+				this.opts.onSubagentProgress?.(sessionId, toolCallId, event);
+			},
 		});
 
 		// 内置 subagent 的委派引导从 ~/.wa-pi/agents/*.md 的 frontmatter 提取（与命名智能体统一来源）
@@ -600,18 +629,29 @@ export class AgentManager {
 				toolCallId,
 				params,
 				signal,
+				// 子代理进度回调（流式 bridge 经 handleBridgeStream 注入）：
+				// delegate/fleet 执行期间由 spawn 闭包的 onProgress 触发，回写 NDJSON progress 帧。
+				onProgress,
 			): Promise<BridgeToolResult> {
-				if (tool === "delegate") {
-					return delegateTool.execute(
-						toolCallId,
-						params as { agent: string; task: string },
-					);
-				}
-				if (tool === "fleet") {
-					return fleetTool.execute(
-						toolCallId,
-						params as { tasks: Array<{ agent: string; task: string }> },
-					);
+				// delegate/fleet：把本次调用的 onProgress 写入会话级槽位，spawn 闭包从槽位取最新值；
+				// finally 清空避免泄漏到下次工具调用（如 ask/memory 不需要进度）。
+				// fleet 在此 await 内并发多个子代理，共享同一 onProgress + toolCallId，槽位稳定不串。
+				if (tool === "delegate" || tool === "fleet") {
+					currentSubagentOnProgress = onProgress;
+					try {
+						if (tool === "delegate") {
+							return await delegateTool.execute(
+								toolCallId,
+								params as { agent: string; task: string },
+							);
+						}
+						return await fleetTool.execute(
+							toolCallId,
+							params as { tasks: Array<{ agent: string; task: string }> },
+						);
+					} finally {
+						currentSubagentOnProgress = undefined;
+					}
 				}
 				if (!memoryEnabled && tool.startsWith("memory_")) {
 					return {
