@@ -1,6 +1,6 @@
 import { test, expect, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
-import type { SessionMessage } from "@wa-pi/shared";
+import type { SessionMessage, SubagentProgressEvent } from "@wa-pi/shared";
 import { DelegateCard } from "../src/components/blocks/DelegateCard";
 import { MessageList } from "../src/components/MessageList";
 import { useSessionStore } from "../src/store/session";
@@ -118,7 +118,7 @@ test("delegate 与普通 toolCall 混合：delegate 内联独立成卡，普通�
 // ── Task 9：子代理进度展示（默认折叠摘要 + 展开看 output/工具时间线）──
 // 进度按二级 map 存储：progressByToolCall[toolCallId][agent] = SubagentProgressEvent。
 // DelegateCard 是单 agent 卡片，取 Object.values(agentMap)[0]。
-function setProgress(toolCallId: string, agent: string, p: Partial<{ status: string; output: string; tools: any[]; elapsedMs: number }> = {}) {
+function setProgress(toolCallId: string, agent: string, p: Partial<{ status: SubagentProgressEvent["status"]; output: string; tools: any[]; elapsedMs: number }> = {}) {
   useSessionStore.setState({
     progressByToolCall: {
       [toolCallId]: {
