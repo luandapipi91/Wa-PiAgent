@@ -21,12 +21,8 @@ import {
 	SUBAGENT_TYPES,
 	normalizeSubagentType,
 } from "@wa-pi/shared";
-import type { DelegationHints } from "@wa-pi/shared";
-import type {
-	WaPiSpawnConfig,
-	SubagentProgressEvent,
-	SubagentUsage,
-} from "./subagent-runner";
+import type { DelegationHints, SubagentProgressEvent } from "@wa-pi/shared";
+import type { WaPiSpawnConfig, SubagentUsage } from "./subagent-runner";
 import { runSubagentAgent as defaultRunSubagentAgent } from "./subagent-runner";
 import type { SpawnTelemetryInput } from "./subagent-telemetry";
 
