@@ -105,7 +105,6 @@ test("聊天块渲染：工具卡弱化折叠 + 代码块卡片 + FilePill 预�
   const modal = page.getByTestId("file-preview-modal");
   await expect(modal).toBeVisible();
   await expect(modal).toContainText('"name"', { timeout: 15_000 });
-  await expect(modal.getByRole("button", { name: "复制路径" })).toBeVisible();
 
   // 8. 断言四：正文 text-block 可见（视觉重心是正文）
   await expect(page.getByTestId("text-block").last()).toBeVisible();

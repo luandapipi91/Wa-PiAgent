@@ -70,20 +70,31 @@ test.describe.serial("设置页供应商管理", () => {
     await page.getByTestId("settings-btn").click();
     await page.getByTestId("add-provider-btn").click();
 
-    // 等待 SDK 预设列表加载完成（下拉中至少出现一个预设选项）
-    await expect(page.locator('[data-testid="preset-select"] option:not([value=""])').first()).toBeVisible({ timeout: 10000 });
+    // 等待预设列表加载（聚焦搜索框出下拉，至少一个预设项）
+    await page.getByTestId("preset-search").focus();
+    await expect(page.getByTestId("preset-option").first()).toBeVisible({ timeout: 10000 });
 
-    // 选 DeepSeek 预设 → 字段被自动填入
-    await page.getByTestId("preset-select").selectOption("deepseek");
+    // 搜索并选 DeepSeek 预设 → 名称/Base URL 自动填入
+    await page.getByTestId("preset-search").fill("deepseek");
+    await page.locator('[data-testid="preset-option"][data-key="deepseek"]').click();
     await expect(page.getByTestId("field-name")).toHaveValue(/\S+/);  // 名称从 SDK 获取，不为空即可
-    await expect(page.locator('[data-testid="tag-input"]').getByText("deepseek-chat")).toBeVisible();
+    // 改成唯一名：共享 kernel 里其他 spec（chat-blocks）也注入过 deepseek-v4-flash 模型的
+    // DeepSeek 卡片，按模型名定位会 strict 冲突
+    await page.getByTestId("field-name").fill("E2E Preset Provider");
+
+    // 选预设后模型列表清空，需经「模型快捷搜索」下拉逐个添加
+    // （pi-ai 0.83 目录里 deepseek 只有 v4 系列，旧的 deepseek-chat 已不存在）
+    await page.getByTestId("tag-input-field").focus();
+    await page.getByTestId("tag-input-field").fill("deepseek-v4-flash");
+    await page.locator('[data-testid="model-quick-option"]', { hasText: "deepseek-v4-flash" }).first().click();
+    await expect(page.locator('[data-testid="tag-input"]').getByText("deepseek-v4-flash")).toBeVisible();
 
     // 补 apiKey 后保存
     await page.getByTestId("field-apiKey").fill("sk-e2e-preset");
     await page.getByTestId("provider-save-btn").click();
     await expect(page.getByTestId("provider-form-modal")).not.toBeVisible({ timeout: 3000 });
     // 本次新增的卡片出现（按内容作用域，不断言总数：全套 spec 共享 kernel 的 provider 列表）
-    const card = page.locator('[data-testid^="provider-card-"]', { hasText: "deepseek-chat" });
+    const card = page.locator('[data-testid^="provider-card-"]', { hasText: "deepseek-v4-flash" });
     await expect(card).toBeVisible({ timeout: 5000 });
 
     // 自我清理：删除本次新增的供应商，避免污染后续用例

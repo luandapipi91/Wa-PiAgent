@@ -222,8 +222,10 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
       expect(box).not.toBeNull();
       expect(box!.width).toBeGreaterThanOrEqual(540);
 
-      // 等待全部 30 个结果到达（异步流式搜索，避免高亮被重置干扰）
-      await expect(page.getByTestId("quick-invoke-item-29")).toBeVisible({ timeout: 10000 });
+      // 等待全部 30 个结果到达（异步流式搜索，避免高亮被重置干扰）。
+      // 全量跑时前面用例遗留的假 provider 会话（卡「运行中」）会拖慢 kernel 文件搜索，
+      // 超时给足余量（单跑 ~3s 即可）
+      await expect(page.getByTestId("quick-invoke-item-29")).toBeVisible({ timeout: 20000 });
 
       // 向下移动 20 次：高亮从第 0 项移到第 20 项（远超可视区域）
       for (let i = 0; i < 20; i++) {
