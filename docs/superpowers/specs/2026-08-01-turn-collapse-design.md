@@ -34,10 +34,10 @@
 
 | 场景 | 摘要行内容 |
 | --- | --- |
-| 有时长（实时轮完成 / 历史轮经推算） | `—— 本轮时长 2 分 15 秒 · 3 个步骤 ——` |
-| 无时长（旧 jsonl 缺字段 / 该轮无 user / 合成 agent_end） | `—— 本轮过程 · 3 个步骤 ——` |
+| 有时长（成功完成的轮，实时/历史一致） | `—— 本轮时长 2 分 15 秒 · 3 个步骤 ——` |
+| 无时长（失败回合 / 旧 jsonl 缺字段 / 该轮无 user / 合成 agent_end） | `—— 本轮过程 · 3 个步骤 ——` |
 
-> 注：历史轮经纯读推算后通常**有**时长（jsonl 里本就含消息时间戳）；仅当该轮找不到 user 边界或字段缺失时才退化为「本轮过程」。时长判定只看消息 `turnElapsedMs` 是否存在，与实时/历史来源无关。
+> 注：**时长只对成功完成的轮显示**（该轮最后一条 assistant `stopReason !== "error"`）。失败回合（agent 以 error 结束）、无 user 边界的轮、旧 jsonl 缺字段的轮一律无时长，退化为「本轮过程」。折叠行为不受影响——失败回合若有过程段仍折叠，只是不带时长。
 
 - 时长格式化：`< 60s` → `"45 秒"`；`>= 60s` → `"2 分 15 秒"`（秒/分钟自动切换）
 - 步骤数 = 过程段数量（thinking 段 + toolCalls 组 + delegate 段 + fleet 段；text 段不计）
@@ -49,6 +49,8 @@
 
 **语义：** 「用户发送 → 回复完成」总时长 = 该轮最后一条 assistant 消息 `timestamp` − 该轮 user 消息 `timestamp`（含排队/启动，更贴近用户感知；历史与实时一致）。
 
+**只对成功完成的轮计算**：该轮最后一条 assistant `stopReason === "error"`（失败回合）不计算时长——失败轮仍折叠过程但摘要行不带时长。
+
 **零写入：** jsonl 是 pi 子进程 append-only 写入，kernel 不写任何文件；消息 `timestamp` 本就随消息存在，历史数据天然可还原（旧会话刷新后也能显示时长）。
 
 ### 历史渠道（kernel 注入）
@@ -58,13 +60,14 @@
 - 复用现有 parentId 树回溯得到的消息序列（`AgentMessage[]`）
 - 按 `role === "user"` 切轮边界；对每轮：`turnElapsedMs = 最后一条 assistant.timestamp − 该轮 user.timestamp`
 - 注入到该轮**最后一条 assistant 消息**的 `turnElapsedMs` 字段（`AssistantMessage` 新增可选字段）
-- 边界：无 user / 非 assistant 结尾的轮 → 不注入；旧 jsonl 无字段 → 前端自动降级为无时长
+- **仅注入成功完成的轮**：该轮最后一条 assistant `stopReason !== "error"`；失败回合（error 结尾）不注入
+- 边界：无 user / 非 assistant 结尾 / 失败回合 → 不注入；旧 jsonl 无字段 → 前端自动降级为无时长
 
 ### 实时渠道（agent_end 事件）
 
 `packages/kernel/src/agent-manager.ts` `_onSessionEvent()` 新增 `case "agent_end"`：
 
-- 从事件自带 `event.messages`（该轮完整消息列表）计算同样语义的 `elapsedMs`（最后 assistant.timestamp − user.timestamp；找不到 user 则不附加）
+- 从事件自带 `event.messages`（该轮完整消息列表）计算同样语义的 `elapsedMs`（最后 assistant.timestamp − user.timestamp；**仅当该轮最后 assistant 非 error**；找不到 user 则不附加）
 - 附加到透传事件 `SDKEvent.agent_end.elapsedMs?`（可选字段，向后兼容；合成 agent_end 如进程崩溃/命令拦截路径不附加）
 - 事件仍走现有 `onEvent` → SSE 广播链路
 
@@ -134,7 +137,7 @@ interface TurnSummaryProps {
 1. **合成 agent_end（进程崩溃/命令拦截）：** 无 user 消息可算 → 不附加 elapsedMs → 前端按历史轮处理（无时长，折叠照常）
 2. **该轮只有 assistant 无 user（罕见）：** 不附加/不注入
 3. **旧 jsonl / 无字段：** 无时长，折叠行为不变（显示「本轮过程 · N 个步骤」）
-4. **失败回合（error assistant）：** 也按轮计算（若 user 存在），时长正常显示；transient 错误过滤/失败去重逻辑不变，只对最终序列切轮
+4. **失败回合（error assistant 结尾）：** **不注入时长**——摘要行显示「本轮过程 · N 个步骤」，折叠行为照常；transient 错误过滤/失败去重逻辑不变，只对最终序列切轮
 5. **连续多轮：** 每轮独立切分，各自摘要行；步骤数各自计算
 6. **会话切换/刷新：** 历史加载消息自带 turnElapsedMs → 时长还原；折叠状态重置为折叠
 7. **展开态下过程卡片：** 已定稿，`isStreaming=false`，按完成态渲染（成功绿/失败红、各自折叠），可再逐个展开
@@ -145,8 +148,8 @@ interface TurnSummaryProps {
 
 ### 第 1 层 · 单元测试（kernel，bun:test）
 
-- `session-history` 推算：正常轮 / 无 user / 连续多轮 / 旧 jsonl 无字段 / 失败回合轮
-- `agent-manager` agent_end 附加 elapsedMs（含找不到 user 不附加、合成路径不附加）
+- `session-history` 推算：正常轮（注入）/ 失败回合轮（不注入）/ 无 user / 连续多轮 / 旧 jsonl 无字段
+- `agent-manager` agent_end 附加 elapsedMs（成功轮附加、失败回合/找不到 user/合成路径不附加）
 
 ### 第 2 层 · 组件测试（Vitest + RTL）
 
