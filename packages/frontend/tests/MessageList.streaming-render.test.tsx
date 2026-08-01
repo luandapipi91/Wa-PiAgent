@@ -69,19 +69,22 @@ test("流式更新时历史消息行不重渲染（Markdown 不重解析）", ()
 	expect(initial).toBe(2);
 
 	// 流式帧 1：同 agent 的 assistant 增量并入最后一条已完稿 assistant 行（合并行）。
-	// 合并行 content = 回答二 + 流式文本 → 2 个 text block → 2 次 md 渲染；历史行 0 次。
+	// 合并行 content = 回答二 + 流式文本 → 2 个 text block；历史行 0 次。
+	// 分片 memo：已定稿 block「回答二」被复用（text 引用不变，跨帧跳过），
+	// 只有流式中的新 block「流式中」首次渲染 → +1（若整段重解析会 +2）。
 	act(() => {
 		useSessionStore.setState({
 			streamingBySession: { s1: streamingMsg("流式中") },
 		});
 	});
-	expect(mdRenderCount - initial).toBe(2);
+	expect(mdRenderCount - initial).toBe(1);
 
-	// 流式帧 2：内容增长，仍然只有合并行重渲染（历史行 memo 命中）。
+	// 流式帧 2：内容增长，仍只有流式中的末 block 重渲染（text 引用变化）→ +1，
+	// 已定稿 block 继续跳过。累计 +2。
 	act(() => {
 		useSessionStore.setState({
 			streamingBySession: { s1: streamingMsg("流式中……更长了") },
 		});
 	});
-	expect(mdRenderCount - initial).toBe(4);
+	expect(mdRenderCount - initial).toBe(2);
 });
