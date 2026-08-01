@@ -167,6 +167,13 @@ export function MessageList({ sessionId }: Props) {
 	// 记录已为其执行过「进入即滚到底」的会话，避免同会话内重复滚动。
 	const didInitScrollRef = useRef<string | null>(null);
 
+	// 记录上一次滚动位置：用于在 handleScroll 中区分「用户向上滚动」与「程序化贴底」。
+	// 程序化贴底（rAF 循环 scrollToBottom）会异步触发原生 scroll 事件，若一律按
+	// isNearBottom 更新 stickBottom，会在内容增长竞态下误判——贴底 scrollTop 是上一帧值、
+	// scrollHeight 已随新 token 增长，单帧增长 ≥ BOTTOM_THRESHOLD 时 isNearBottom 返回
+	// false，stickBottom 被置 false 而杀死自动滚动循环（长文本流式输出中途停止滚动）。
+	const lastScrollTopRef = useRef(Infinity);
+
 	const isNearBottom = useCallback(() => {
 		const el = containerRef.current;
 		if (!el) return true;
@@ -179,7 +186,27 @@ export function MessageList({ sessionId }: Props) {
 	}, []);
 
 	const handleScroll = useCallback(() => {
-		setStickBottom(isNearBottom());
+		const el = containerRef.current;
+		if (!el) return;
+		const st = el.scrollTop;
+		// 识别「用户向上滚动」（scrollTop 减小）与「程序化贴底」（rAF 循环设置
+		// scrollTop=scrollHeight，scrollTop 增大/不变）。
+		// 初始 Infinity：首次 scroll 事件无法用方向判断时，退化为按 isNearBottom 判定
+		// （容器初始在顶部且内容超高 → 视为用户不在底部）。
+		if (st < lastScrollTopRef.current) {
+			// 用户向上滚动（滚轮上滚 / PageUp / 拖拽上移）：明显离开底部才停用自动滚动；
+			// 轻微上翻（仍在 BOTTOM_THRESHOLD 内）保持贴底。
+			if (!isNearBottom()) setStickBottom(false);
+		} else if (isNearBottom()) {
+			// 向下滚动 / 程序化贴底且确实在底部 → 确认贴底。
+			setStickBottom(true);
+		}
+		// 向下滚动但不在底部：可能是程序化贴底竞态——rAF 循环设置 scrollTop=scrollHeight
+		// 会异步触发原生 scroll 事件，派发时 scrollTop 是上一帧贴底位置、scrollHeight 已随
+		// 新内容增长（单帧增长 ≥ BOTTOM_THRESHOLD 时 isNearBottom 误判 false）。此时保持
+		// stickBottom 现状（不置 false），避免误杀自动滚动循环；也可能是用户下拖到中间，
+		// 保持现状同样正确（不抢滚动）。
+		lastScrollTopRef.current = st;
 	}, [isNearBottom]);
 
 	// 自动跟随滚动：AI 回复（主流 streaming）、子代理运行（delegate/fleet 流式内容增长）
