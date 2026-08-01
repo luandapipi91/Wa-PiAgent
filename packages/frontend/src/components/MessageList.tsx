@@ -52,6 +52,21 @@ export function MessageList({ sessionId }: Props) {
 	const streaming = useSessionStore(
 		(s) => s.streamingBySession[sessionId] ?? null,
 	);
+	// 本会话是否有正在运行的子代理（delegate/fleet）。返回布尔：running 期间稳定 true，
+	// 不随 progress 内容更新（output/tools 每帧变）重渲染，只有开始/结束转换才触发重渲染。
+	// 用于驱动「子代理回复期间自动滚动」——子代理流式内容走 progressByToolCall，不走
+	// streamingBySession，主流 streaming effect 覆盖不到。
+	const hasRunningSubagent = useSessionStore((s) => {
+		const psc = s.progressSessionByToolCall;
+		for (const tcId of Object.keys(s.progressByToolCall)) {
+			if (psc[tcId] !== sessionId) continue;
+			const byAgent = s.progressByToolCall[tcId];
+			for (const p of Object.values(byAgent)) {
+				if (p.status === "running") return true;
+			}
+		}
+		return false;
+	});
 	const historyLoading = useSessionStore(
 		(s) => s.historyLoadingBySession[sessionId] ?? false,
 	);
@@ -162,14 +177,33 @@ export function MessageList({ sessionId }: Props) {
 		setStickBottom(isNearBottom());
 	}, [isNearBottom]);
 
-	// 仅在 AI 回复（streaming）且用户停在底部时跟随滚动到底部。
-	// 平时（非回复）不自动滚动——避免抢走用户正在阅读历史时的位置。
+	// 自动跟随滚动：AI 回复（主流 streaming）或子代理运行（delegate/fleet 流式内容增长）
+	// 且用户停在底部时，rAF 循环每帧贴底一次（合帧——同帧多次内容变化只滚一次，避免
+	// 同帧读写 scrollHeight/scrollTop 造成 forced reflow）。循环不依赖内容更新信号：
+	// streaming 引用每帧变或子代理 output 增长都无需重启 effect，自然覆盖两种情况。
+	// 结束后（active 由真变假）messages/卡片内容已定稿，兜底再滚一次，避免最后一段
+	// 内容停在视口下方（尾部裁切）；平时（非回复）不自动滚动，不抢用户阅读位置。
+	const scrollActiveRef = useRef(false);
 	useEffect(() => {
-		if (!streaming || !stickBottom) return;
-		// rAF 合帧：流式期间每帧最多滚动一次，避免同帧读写 scrollHeight/scrollTop 造成 forced reflow
-		const raf = requestAnimationFrame(scrollToBottom);
-		return () => cancelAnimationFrame(raf);
-	}, [streaming, stickBottom, scrollToBottom]);
+		const active = !!(streaming || hasRunningSubagent);
+		if (active && stickBottom) {
+			scrollActiveRef.current = true;
+			let rafId = 0;
+			const loop = () => {
+				scrollToBottom();
+				rafId = requestAnimationFrame(loop);
+			};
+			rafId = requestAnimationFrame(loop);
+			return () => cancelAnimationFrame(rafId);
+		}
+		const wasActive = scrollActiveRef.current;
+		scrollActiveRef.current = false;
+		if (wasActive && stickBottom) {
+			// 刚结束：内容已定稿，下一帧布局稳定后贴底一次
+			const raf = requestAnimationFrame(scrollToBottom);
+			return () => cancelAnimationFrame(raf);
+		}
+	}, [streaming, hasRunningSubagent, stickBottom, scrollToBottom]);
 
 	// 切换会话：重置停留状态为新会话「在底部」。
 	useEffect(() => {
@@ -245,9 +279,14 @@ export function MessageList({ sessionId }: Props) {
 					const isMergedStreamingRow =
 						mergeStreamingIntoLast && i === displayRows.length - 1;
 					const showResend = !isMergedStreamingRow && i === resendUserIdx;
+					// 稳定 key：agentName + timestamp，而非数组 index。同 turn 合并（流式结束、
+					// collapseSameTurnAssistants）会让行数变化、后续行 index 位移；用 index 会让
+					// 合并后 key 复用的行保留/丢失展开态（如 CodeBlockCard）。timestamp 是消息
+					// 创建时刻（毫秒），合并行沿用首条 timestamp，key 保持稳定。
+					const rowKey = `${row.main.agentName ?? ""}:${(row.main.message as any).timestamp}`;
 					return (
 						<MessageRow
-							key={i}
+							key={rowKey}
 							row={row}
 							sessionId={sessionId}
 							showResend={showResend}
