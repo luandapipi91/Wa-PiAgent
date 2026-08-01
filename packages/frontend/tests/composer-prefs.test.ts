@@ -47,6 +47,7 @@ describe("composer-prefs store", () => {
     useComposerPrefsStore.setState({
       defaults: { model: null, thinking: "disabled" },
       bySession: {},
+      loadedBySession: {},
       newSessionIds: {},
     });
   });
@@ -98,6 +99,16 @@ describe("composer-prefs store", () => {
     });
   });
 
+  it("loadSession 完成后标记 loadedBySession（Composer 据此门控 auto-select）", async () => {
+    await dbSetDefaults({ model: null, thinking: "disabled" });
+    // 加载前未标记
+    expect(useComposerPrefsStore.getState().loadedBySession["s-load"]).toBeFalsy();
+
+    await useComposerPrefsStore.getState().loadSession("s-load");
+
+    expect(useComposerPrefsStore.getState().loadedBySession["s-load"]).toBe(true);
+  });
+
   it("setDefaults updates state and persists to IndexedDB", async () => {
     // 应用启动：先 hydrate（真实场景用户设置时应用早已加载完成，未 hydrate 时持久化被守卫跳过）
     await useComposerPrefsStore.getState().loadDefaults();
@@ -124,6 +135,7 @@ describe("composer-prefs store", () => {
     useComposerPrefsStore.setState({
       defaults: { model: null, thinking: "disabled" },
       bySession: {},
+      loadedBySession: {},
       newSessionIds: {},
     });
 

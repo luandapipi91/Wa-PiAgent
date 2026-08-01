@@ -38,12 +38,14 @@ interface Props {
   onAgentMention?: (name: string) => void;
   /** 当前主智能体 displayName，用于过滤 @ 候选菜单（只显示其 askTo 名单内 + 排除自身） */
   currentAgentName?: string;
+  /** 会话 prefs 是否已加载完（未加载完时禁止 ModelSelector auto-select，防覆盖存储值） */
+  modelAutoSelectEnabled?: boolean;
 }
 
 export function ComposerInput({
   text, setText, model, setModel, thinking, setThinking,
   attachments, setAttachments, projectId, sessionId, onSend, sendDisabled, disabled, placeholder,
-  onAgentMention, currentAgentName, isRunning, isNewSession,
+  onAgentMention, currentAgentName, isRunning, isNewSession, modelAutoSelectEnabled,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingUploads, setPendingUploads] = useState(0);
@@ -517,7 +519,7 @@ export function ComposerInput({
                 defaultPath={projectCwd}
               />
             )}
-            <ModelSelector value={model} onChange={setModel} />
+            <ModelSelector value={model} onChange={setModel} autoSelectEnabled={modelAutoSelectEnabled} />
             <ThinkingSelector value={thinking} onChange={setThinking} />
             {uploading && <span className="text-xs text-tertiary" data-testid="upload-spinner">上传中...</span>}
           </div>

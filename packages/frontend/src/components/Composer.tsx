@@ -27,6 +27,9 @@ export function Composer({ sessionId, agentName, isRunning, isNewSession, disabl
   const prefs = useComposerPrefsStore(s => s.bySession[sessionId]);
   const setSessionPrefs = useComposerPrefsStore(s => s.setSessionPrefs);
   const loadSession = useComposerPrefsStore(s => s.loadSession);
+  // 会话 prefs 冷加载完成前禁止 auto-select：间隙内 model=null 会触发 ModelSelector
+  // 自动选第一个模型并写进 prefs/defaults（"切几个会话后模型被重置为第一个"的根因）
+  const prefsLoaded = useComposerPrefsStore(s => !!s.loadedBySession[sessionId]);
 
   useEffect(() => { void loadSession(sessionId); }, [sessionId, loadSession]);
 
@@ -101,6 +104,7 @@ export function Composer({ sessionId, agentName, isRunning, isNewSession, disabl
         isRunning={isRunning}
         isNewSession={isNewSession}
         currentAgentName={agentName}
+        modelAutoSelectEnabled={prefsLoaded}
       />
     </div>
   );
