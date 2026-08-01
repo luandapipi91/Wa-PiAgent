@@ -204,7 +204,7 @@ test("默认工作区在 DOM 顺序上排在'项目'小标题之前 + 与项目�
   expect(sysNode!.compareDocumentPosition(headerNode!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 });
 
-test("点击会话激活后 lastActivity 刷新，列表按最新时间重排", () => {
+test("点击会话激活：时间显示刷新为“刚刚”，但列表保持原位不立即重排", () => {
   const now = Date.now();
   useProjectsStore.setState({
     projects: [{ id: "p1", name: "项目A", cwd: "/a", createdAt: 0 }],
@@ -214,7 +214,7 @@ test("点击会话激活后 lastActivity 刷新，列表按最新时间重排", 
     ],
     currentProjectId: "p1", currentSessionId: null,
   });
-  // 用真实 store action 走完整链路：点击 → selectSession → lastActivity 更新 → 重排
+  // 用真实 store action 走完整链路：点击 → selectSession → lastActivity 更新 → 渲染
   render(<ProjectList
     onSelectSession={useProjectsStore.getState().selectSession}
     onNewSessionInProject={() => {}}
@@ -226,7 +226,45 @@ test("点击会话激活后 lastActivity 刷新，列表按最新时间重排", 
   // 初始：会话2（较新）在会话1（较旧）之上
   expect(titles()[0]).toContain("会话2");
 
-  // 点击较旧会话 → 激活 → lastActivity 刷新 → 应排到顶部
+  // 点击较旧会话 → 激活：时间显示更新为“刚刚”，但列表保持原位不立即重排（避免点错感）
   fireEvent.click(screen.getByText("会话1"));
-  expect(titles()[0]).toContain("会话1");
+  expect(titles()[0]).toContain("会话2");
+  expect(titles()[1]).toContain("会话1");
+  expect(screen.getByTestId("session-s1").textContent).toContain("刚刚");
+  // 数据层 lastActivity 已更新（离开该会话后重排依据就绪）
+  const s1 = useProjectsStore.getState().sessions.find(x => x.id === "s1")!;
+  expect(s1.lastActivity).toBeGreaterThan(now - 1000);
+});
+
+test("离开当前项目（激活其他项目会话）后，原项目按新 lastActivity 重排", () => {
+  const now = Date.now();
+  useProjectsStore.setState({
+    projects: [
+      { id: "p1", name: "项目A", cwd: "/a", createdAt: 0 },
+      { id: "p2", name: "项目B", cwd: "/b", createdAt: 0 },
+    ],
+    sessions: [
+      { id: "s1", projectId: "p1", primaryAgent: "dev", title: "会话1", createdAt: 0, lastActivity: now - 10_000, piSessionFile: "" },
+      { id: "s2", projectId: "p1", primaryAgent: "pm", title: "会话2", createdAt: 0, lastActivity: now - 5_000, piSessionFile: "" },
+      { id: "s3", projectId: "p2", primaryAgent: "test", title: "会话3", createdAt: 0, lastActivity: now - 20_000, piSessionFile: "" },
+    ],
+    currentProjectId: "p1", currentSessionId: null,
+  });
+  render(<ProjectList
+    onSelectSession={useProjectsStore.getState().selectSession}
+    onNewSessionInProject={() => {}}
+    onSelectProject={() => {}}
+    onNewProject={() => {}}
+  />);
+
+  // 点击 p1 的旧会话 s1 → 保持原位（不立即重排）
+  fireEvent.click(screen.getByText("会话1"));
+  let titles = screen.getAllByTestId(/^session-/).map(el => el.textContent ?? "");
+  expect(titles[0]).toContain("会话2");
+  expect(titles[1]).toContain("会话1");
+
+  // 离开 p1：点击 p2 的会话 s3 → p1 无激活会话，s1 按新 lastActivity 排顶
+  fireEvent.click(screen.getByText("会话3"));
+  titles = screen.getAllByTestId(/^session-/).map(el => el.textContent ?? "");
+  expect(titles[0]).toContain("会话1");
 });

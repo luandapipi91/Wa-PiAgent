@@ -1,4 +1,4 @@
-import { useState, useEffect, type MouseEvent } from "react";
+import { useState, useEffect, useRef, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { SYSTEM_PROJECT_ID, type ProjectEntity, type SessionEntity } from "@wa-pi/shared";
 import { SessionRow } from "./SessionRow";
@@ -36,9 +36,24 @@ export function ProjectItem(props: Props) {
   const { project, sessions, currentSessionId, selected, isNewSessionView } = props;
   // 系统项目（默认工作区虚拟项目）：差异化图标/菜单
   const isSystem = project.id === SYSTEM_PROJECT_ID;
-  const mySessions = sessions
-    .filter(s => s.projectId === project.id)
-    .sort((a, b) => b.lastActivity - a.lastActivity);
+  // 上次渲染的会话顺序：点击激活时锚定当前会话在原位置，避免点击瞬间列表跳动产生"点错"感；
+  // 离开该会话（激活其他会话/刷新）后按新 lastActivity 自然重排。
+  const lastOrderRef = useRef<string[] | null>(null);
+  const mySessions = (() => {
+    const list = sessions.filter(s => s.projectId === project.id);
+    const sorted = [...list].sort((a, b) => b.lastActivity - a.lastActivity);
+    if (currentSessionId && lastOrderRef.current) {
+      const idx = lastOrderRef.current.indexOf(currentSessionId);
+      if (idx >= 0) {
+        const rest = sorted.filter(s => s.id !== currentSessionId);
+        rest.splice(Math.min(idx, rest.length), 0, ...list.filter(s => s.id === currentSessionId));
+        lastOrderRef.current = rest.map(s => s.id);
+        return rest;
+      }
+    }
+    lastOrderRef.current = sorted.map(s => s.id);
+    return sorted;
+  })();
 
   // ---- 会话右键 ----
   const handleSessionContextMenu = (e: MouseEvent, session: SessionEntity) => {
