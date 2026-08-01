@@ -8,6 +8,15 @@
 
 ### 修复
 
+- **流式输出期间界面卡顿**：`streamingBySession` 每个流式帧（kernel 50ms 节流）都触发 `MessageList` 全量重渲染——所有历史消息的 `ReactMarkdown` 重新解析、`CodeBlockCard` 的 Prism 高亮重跑，且 `preprocess` 每次重建全部行对象，叠加自动滚动同帧读写 `scrollHeight/scrollTop` 造成 forced reflow。修复：①`preprocess(messages)` 加 `useMemo`（按 messages 引用缓存），历史行引用在流式期间稳定；②`MessageRow` 包 `React.memo`，历史行整行跳过重渲染，只有合并的流式末行/StreamingRow 每帧更新；③`CodeBlockCard` 包 `React.memo`（props 为字符串，流式行内已定稿代码块不再重复高亮）；④流式跟随滚动改 `requestAnimationFrame` 合帧，每帧最多一次 `scrollTop`。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/src/components/blocks/CodeBlockCard.tsx`；测试 `packages/frontend/tests/MessageList.streaming-render.test.tsx`（新增：流式更新时历史行 Markdown 不重解析的渲染计数回归用例）。
+
+- **点击会话激活后列表保持原位不立即重排（避免点错感）**：上一版修复让 `selectSession` 乐观更新 `lastActivity`，列表在点击瞬间立即重排，用户视觉上像点错了会话。修复：`ProjectItem` 排序时锚定当前激活会话于上次渲染位置——点击时时间显示刷新为“刚刚”、列表不跳动；离开该会话（激活其他项目会话/刷新页面）后按新 `lastActivity` 自然重排。
+  - 影响范围：`packages/frontend/src/components/ProjectItem.tsx`；测试 `tests/ProjectList.test.tsx`（点击保持原位 + 离开后重排两个用例，TDD 红→绿）。
+
+- **并行委托卡片（FleetCard）同步流式回复与工具计数**：与 DelegateCard 对齐——①执行中（无 result）时各 agent 的 `progress.output` 直接在回复区用 ReactMarkdown 流式渲染（按 agent 分组、无需展开进度详情），不再藏在 `<pre>` 里等结束一次性给回；完成态仍展开才显示聚合 result。②`AgentProgressItem` 工具展示从逐条名称+状态列表改为计数「共 N 个工具 · 成功 X · 失败 Y · 执行中 Z」。
+  - 影响范围：`packages/frontend/src/components/blocks/FleetCard.tsx`；测试 `packages/frontend/tests/FleetCard.test.tsx`（更新 1 个用例，TDD 红→绿）。
+
 - **点击会话激活后列表最后时间不更新、排序不变**：`selectSession` 只设 `currentSessionId`，前端 `sessions` 数组里该会话的 `lastActivity` 保持旧值，`SessionRow` 的相对时间、`ProjectItem` 的倒序排列（以及 `topAgentsByRecency` 智能体最近使用排序）都基于过期数据。后端 ws-server 在 `session:messages` 时虽已 `touchSession` 更新磁盘，但无回传通道，运行中的 UI 永远看不到变化（刷新后才正确）。修复：`selectSession` 激活时乐观更新该会话 `lastActivity = Date.now()`，列表立即重排重渲染；后端 touchSession 继续保证磁盘一致。
   - 影响范围：`packages/frontend/src/store/projects.ts`；测试 `tests/store-projects.test.ts`（新增 selectSession 更新 lastActivity 用例）、`tests/ProjectList.test.tsx`（新增点击激活后列表重排用例，TDD 红→绿）。
 
