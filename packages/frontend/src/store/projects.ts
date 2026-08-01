@@ -64,6 +64,16 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
     };
   }),
   selectProject: (id) => set({ currentProjectId: id }),
-  selectSession: (id) => set({ currentSessionId: id }),
+  selectSession: (id) => set(s => {
+    // 激活会话视为活跃：乐观更新该会话 lastActivity，驱动会话列表时间显示与排序
+    // （ProjectItem 按 lastActivity 倒序、SessionRow 显示相对时间、topAgentsByRecency）。
+    // 后端 ws-server 在 session:messages 时已 touchSession 同步磁盘，此处保证前端立即一致。
+    const target = s.sessions.find(x => x.id === id);
+    if (!target) return { currentSessionId: id };
+    return {
+      currentSessionId: id,
+      sessions: s.sessions.map(x => x.id === id ? { ...x, lastActivity: Date.now() } : x),
+    };
+  }),
   setCurrentSessionId: (id) => set({ currentSessionId: id }),
 }));

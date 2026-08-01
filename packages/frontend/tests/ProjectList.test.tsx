@@ -203,3 +203,30 @@ test("默认工作区在 DOM 顺序上排在'项目'小标题之前 + 与项目�
   expect(sysNode).toBeTruthy();
   expect(sysNode!.compareDocumentPosition(headerNode!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 });
+
+test("点击会话激活后 lastActivity 刷新，列表按最新时间重排", () => {
+  const now = Date.now();
+  useProjectsStore.setState({
+    projects: [{ id: "p1", name: "项目A", cwd: "/a", createdAt: 0 }],
+    sessions: [
+      { id: "s1", projectId: "p1", primaryAgent: "dev", title: "会话1", createdAt: 0, lastActivity: now - 10_000, piSessionFile: "" },
+      { id: "s2", projectId: "p1", primaryAgent: "pm", title: "会话2", createdAt: 0, lastActivity: now - 5_000, piSessionFile: "" },
+    ],
+    currentProjectId: "p1", currentSessionId: null,
+  });
+  // 用真实 store action 走完整链路：点击 → selectSession → lastActivity 更新 → 重排
+  render(<ProjectList
+    onSelectSession={useProjectsStore.getState().selectSession}
+    onNewSessionInProject={() => {}}
+    onSelectProject={() => {}}
+    onNewProject={() => {}}
+  />);
+
+  const titles = () => screen.getAllByTestId(/^session-/).map(el => el.textContent ?? "");
+  // 初始：会话2（较新）在会话1（较旧）之上
+  expect(titles()[0]).toContain("会话2");
+
+  // 点击较旧会话 → 激活 → lastActivity 刷新 → 应排到顶部
+  fireEvent.click(screen.getByText("会话1"));
+  expect(titles()[0]).toContain("会话1");
+});
