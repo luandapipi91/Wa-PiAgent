@@ -94,6 +94,39 @@ function dedupeConsecutiveFailedTurns(msgs: any[]): any[] {
 }
 
 /**
+ * 轮级耗时注入（纯读推算，零写入）：按 user 消息切轮，对"成功完成"的轮
+ * （该轮最后一条 assistant 的 stopReason !== "error"）计算
+ * turnElapsedMs = 最后 assistant.timestamp − user.timestamp，注入到该轮最后一条
+ * assistant 消息。失败回合（error 结尾）/无 user/无 assistant 结束的轮不注入。
+ * 旧 jsonl 无字段时前端自然降级为无时长。
+ */
+function injectTurnElapsedMs(msgs: AgentMessage[]): AgentMessage[] {
+  let turnUserTs: number | undefined;
+  let lastAsstIdx = -1;
+  let lastAsstError = false;
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i] as any;
+    if (m?.role === "user") {
+      if (turnUserTs !== undefined && lastAsstIdx >= 0 && !lastAsstError) {
+        (msgs[lastAsstIdx] as any).turnElapsedMs =
+          (msgs[lastAsstIdx] as any).timestamp - turnUserTs;
+      }
+      turnUserTs = m.timestamp;
+      lastAsstIdx = -1;
+      lastAsstError = false;
+    } else if (m?.role === "assistant") {
+      lastAsstIdx = i;
+      lastAsstError = m.stopReason === "error";
+    }
+  }
+  if (turnUserTs !== undefined && lastAsstIdx >= 0 && !lastAsstError) {
+    (msgs[lastAsstIdx] as any).turnElapsedMs =
+      (msgs[lastAsstIdx] as any).timestamp - turnUserTs;
+  }
+  return msgs;
+}
+
+/**
  * 解析 pi 会话文件，返回当前分支的历史消息（含 reconcileDanglingAsks 对账）。
  * @param opts.isSessionActive 当 session 仍在活跃运行时跳过 dangling ask 对账
  * @throws 文件不可读或没有任何有效 JSON 行（格式变更/损坏）——调用方应回退进程路径。
@@ -164,5 +197,9 @@ export async function readSessionHistory(file: string, opts?: { isSessionActive?
 
   // 重启兜底：对「无 result 的 ask 调用」注入 cancelled（若 session 活跃则跳过，避免误杀 pending ask）
   // 解析器仅产出有效 message 条目（见上方 filter），这里收窄为 AgentMessage[]。
-  return reconcileDanglingAsks(messages, { isSessionActive: opts?.isSessionActive }) as AgentMessage[];
+  return injectTurnElapsedMs(
+    reconcileDanglingAsks(messages, {
+      isSessionActive: opts?.isSessionActive,
+    }) as AgentMessage[],
+  );
 }
