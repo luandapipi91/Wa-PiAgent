@@ -321,7 +321,7 @@ export function SessionView({ sessionId }: Props) {
     {/* 文件预览弹窗：双击文件后以 80% 宽高弹出 */}
     {previewPath && (
       <Modal onClose={() => setPreviewPath(null)} width="80vw" height="80vh" data-testid="file-preview-modal">
-        <FileViewer path={previewPath} onClose={() => setPreviewPath(null)} />
+        <FileViewer path={previewPath} sessionId={sessionId} onClose={() => setPreviewPath(null)} />
       </Modal>
     )}
     </div>
