@@ -24,6 +24,7 @@ interface ProjectMenuState { x: number; y: number; }
 export function ProjectItem(props: Props) {
   const expanded = useProjectUiStore(s => s.isExpanded(props.project.id));
   const toggleProject = useProjectUiStore(s => s.toggleProject);
+  const setExpanded = useProjectUiStore(s => s.setExpanded);
   // 会话右键菜单
   const [sessionMenu, setSessionMenu] = useState<SessionMenuState | null>(null);
   // 项目右键菜单
@@ -125,9 +126,12 @@ export function ProjectItem(props: Props) {
         </button>
         <button
           onClick={() => {
-            // 不在新会话界面时，点击项目名先进入该项目的新会话；
-            // 已经在新会话界面且当前项目已被选中时，点击项目名才展开/折叠。
-            if (isNewSessionView && selected) {
+            // 项目处于折叠状态时，点击一次同时进入新建会话并展开列表；
+            // 已展开时，在新会话界面且当前项目已被选中才展开/折叠，否则进入新建会话。
+            if (!expanded) {
+              setExpanded(project.id, true);
+              props.onSelectProject(project.id);
+            } else if (isNewSessionView && selected) {
               toggleProject(project.id);
             } else {
               props.onSelectProject(project.id);
