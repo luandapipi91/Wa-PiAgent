@@ -46,7 +46,11 @@ import { relative, join } from "node:path";
 import { mkdir, writeFile, rm, appendFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { buildAdditionalExtensionPaths } from "./extensions";
-import { filterTuiCommands, isTuiOnlyCommand, type RawCommandInfo } from "./tui-command-filter";
+import {
+	filterTuiCommands,
+	isTuiOnlyCommand,
+	type RawCommandInfo,
+} from "./tui-command-filter";
 import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import { reconcileDanglingAsks } from "./ask-tool";
 import {
@@ -88,6 +92,8 @@ import {
 	composePrompt,
 	loadPromptSegments,
 	DEFAULT_PROMPT_SEGMENTS,
+	DEFAULT_MEMORY_POLICY_PROMPT,
+	COMPACT_MEMORY_POLICY_PROMPT,
 	WA_PI_DEFAULT_BASE_PROMPT,
 	type PromptSegment,
 } from "./system-prompt";
@@ -291,8 +297,8 @@ export class AgentManager {
 		if (old?.busy) {
 			try {
 				await old.client.abort();
-			} catch {
-				/* 忽略 */
+			} catch (e) {
+				void e; /* 忽略 */
 			}
 		}
 		const meta = old?.meta;
@@ -500,7 +506,10 @@ export class AgentManager {
 						systemPrompt: prompt,
 						// 跟随主模型：无 override 时用主会话当前模型（prompt 时记录到 handle.currentModel）
 						model: model ?? this.sessions.get(sessionId)?.currentModel ?? null,
-						thinking: override?.thinking ?? this.sessions.get(sessionId)?.currentThinking ?? null,
+						thinking:
+							override?.thinking ??
+							this.sessions.get(sessionId)?.currentThinking ??
+							null,
 						tools: builtin.readOnly
 							? ["read", "bash", "grep", "find", "ls"]
 							: [],
@@ -558,7 +567,10 @@ export class AgentManager {
 			ensureExtension: this.opts.providerStore
 				? async (requiredSlug?: string) => {
 						// 无具体 slug（跟随主模型）或 extension 不含该 slug 时，重新生成
-						if (!requiredSlug || !extensionCoversProvider(providerExtPath, requiredSlug)) {
+						if (
+							!requiredSlug ||
+							!extensionCoversProvider(providerExtPath, requiredSlug)
+						) {
 							await ensureProviderExtensionRegistered(this.opts.providerStore!);
 						}
 					}
@@ -674,6 +686,14 @@ export class AgentManager {
 			defaultBasePrompt,
 			delegateRoster,
 			builtinSkillsDir: BUILTIN_SKILLS_DIR,
+			// 记忆写入策略引导：按 memoryPolicyStyle 注入（full 完整版 / compact 精简版 / none 不注入）。
+			// 这是 agent「主动写记忆」的核心引导——缺失时 agent 只回复文本、从不调用 memory_add。
+			memoryPolicy:
+				memConfig?.memoryPolicyStyle === "compact"
+					? COMPACT_MEMORY_POLICY_PROMPT
+					: memConfig?.memoryPolicyStyle === "none"
+						? ""
+						: DEFAULT_MEMORY_POLICY_PROMPT,
 			// 记忆快照不再注入 composePrompt，改为 --append-system-prompt 挂载到末尾，
 			// 使核心提示词完全静态化，最大化 LLM prompt caching 前缀命中率。
 			memorySnapshot: "",
@@ -749,17 +769,17 @@ export class AgentManager {
 			messages: [],
 			followUpList: [],
 			steerList: [],
-	promptFile,
-	memorySnapshotFile: memorySnapshotFile ?? null,
-	piSessionFile: sessionEntity.piSessionFile,
+			promptFile,
+			memorySnapshotFile: memorySnapshotFile ?? null,
+			piSessionFile: sessionEntity.piSessionFile,
 			crashed: false,
 			disposed: false,
 			subagentTelemetry,
-		currentModel: null,
-	currentThinking: null,
-	netDegraded: false,
-	lastActiveAt: Date.now(),
-	};
+			currentModel: null,
+			currentThinking: null,
+			netDegraded: false,
+			lastActiveAt: Date.now(),
+		};
 		const client = createClient({
 			cliPath: resolvePiCliPath(),
 			runtime: resolvePiRuntime(),
@@ -782,7 +802,8 @@ export class AgentManager {
 				WA_PI_SESSION_ID: sessionId,
 			},
 			onEvent: (e) => this._onSessionEvent(sessionId, e),
-			onExit: (code, signal) => this._onProcessExit(sessionId, code, signal, handle),
+			onExit: (code, signal) =>
+				this._onProcessExit(sessionId, code, signal, handle),
 		});
 		handle.client = client;
 
@@ -848,7 +869,9 @@ export class AgentManager {
 				// 与 session-history 注入一致）。仅成功轮附加；失败回合/找不到 user 不附加。
 				const msgs = (event as any).messages as any[] | undefined;
 				if (Array.isArray(msgs)) {
-					const lastAssistant = [...msgs].reverse().find((m: any) => m?.role === "assistant");
+					const lastAssistant = [...msgs]
+						.reverse()
+						.find((m: any) => m?.role === "assistant");
 					const user = [...msgs].reverse().find((m: any) => m?.role === "user");
 					if (lastAssistant && user && lastAssistant.stopReason !== "error") {
 						(event as any).elapsedMs = lastAssistant.timestamp - user.timestamp;
@@ -924,10 +947,14 @@ export class AgentManager {
 		// 孤儿会话回滚：piSessionFile 不存在说明从未 prompt（如 getCommands 兜底创建后
 		// 用户离开）。删除记录避免「列表出现、点进去空白」；正常会话崩溃不删（有消息文件）。
 		if (handle.piSessionFile && !existsSync(handle.piSessionFile)) {
-			console.warn(`[kernel] 孤儿会话回滚：${sessionId} 从未写入消息文件，删除记录`);
-			void this.opts.projectStore.deleteSession(sessionId).catch((e) =>
-				console.error(`[kernel] 孤儿回滚删除失败 ${sessionId}:`, e),
+			console.warn(
+				`[kernel] 孤儿会话回滚：${sessionId} 从未写入消息文件，删除记录`,
 			);
+			void this.opts.projectStore
+				.deleteSession(sessionId)
+				.catch((e) =>
+					console.error(`[kernel] 孤儿回滚删除失败 ${sessionId}:`, e),
+				);
 			this.opts.onSessionRollback?.(sessionId);
 			return;
 		}
@@ -977,9 +1004,14 @@ export class AgentManager {
 				handle.busy = false;
 				// 扩展命令不产生任何 agent 事件：前端 optimisticSend 的 thinking/loading
 				// 占位等不到终态事件，会一直转圈。合成 agent_end 让前端退出思考态。
-				this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
-					type: "agent_end",
-				});
+				this.opts.onEvent(
+					sessionId,
+					handle.meta.projectId,
+					handle.meta.agentName,
+					{
+						type: "agent_end",
+					},
+				);
 			}
 		}, 50);
 	}
@@ -1315,7 +1347,9 @@ export class AgentManager {
 	private _commandsCache: { commands: CommandInfo[]; ts: number } | null = null;
 
 	/** 从 pi 进程拉取命令清单：过滤 TUI-only 命令（RPC 模式不可用）后写入缓存 */
-	private async _fetchAndCacheCommands(client: RpcClient): Promise<CommandInfo[]> {
+	private async _fetchAndCacheCommands(
+		client: RpcClient,
+	): Promise<CommandInfo[]> {
 		const { commands } = await client.getCommands();
 		const cmds = filterTuiCommands((commands ?? []) as RawCommandInfo[]);
 		this._commandsCache = { commands: cmds, ts: Date.now() };

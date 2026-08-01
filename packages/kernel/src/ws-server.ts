@@ -721,6 +721,16 @@ export class WSServer {
 				});
 				break;
 			}
+			case "session:asks": {
+				// ask_user_question double check：返回该 session 当前真实 pending 的
+				// toolCallId 列表。前端用它核对本地消息派生的 ask 卡片是否仍有效。
+				reply({
+					type: "session:asks",
+					sessionId: event.sessionId,
+					pending: askRegistry.pendingToolCallIds(event.sessionId),
+				});
+				break;
+			}
 			case "session:messages": {
 				const { sessions } = await this.opts.projectStore.load();
 				const session = sessions.find((s) => s.id === event.sessionId);
@@ -731,7 +741,9 @@ export class WSServer {
 				// 打开会话查看消息视为活跃：同步刷新磁盘 lastActivity（保持会话列表排序反映最近查看，
 				// 并与 AgentManager 内存 lastActiveAt 一致）。fire-and-forget，不阻塞历史读取。
 				if (session) {
-					void this.opts.projectStore.touchSession(event.sessionId).catch(() => {});
+					void this.opts.projectStore
+						.touchSession(event.sessionId)
+						.catch(() => {});
 				}
 				if (!session) {
 					reply({
@@ -888,10 +900,11 @@ export class WSServer {
 						} else {
 							// 已有会话但标题为空（如 getCommands 兜底创建的会话）：
 							// 首次发送消息时用消息内容自动命名，刷新侧栏标题
-							const filled = await this.opts.projectStore.fillSessionTitleIfEmpty(
-								session.id,
-								event.text.slice(0, 20),
-							);
+							const filled =
+								await this.opts.projectStore.fillSessionTitleIfEmpty(
+									session.id,
+									event.text.slice(0, 20),
+								);
 							if (filled) {
 								const data = await this.opts.projectStore.load();
 								this.broadcast({
@@ -980,8 +993,20 @@ export class WSServer {
 				break;
 			}
 			case "agent:answer": {
-				// ask_user_question 应答：直达 AskRegistry.resolve（幂等，未知 toolCallId no-op）
-				askRegistry.resolve(event.sessionId, event.toolCallId, event.reply);
+				// ask_user_question 应答：直达 AskRegistry.resolve（幂等）。
+				// 未命中（stale ask：已取消/会话切换/重启残留）时 reply 错误，
+				// 前端收到 400 才能恢复“提交中”状态并提示用户，否则永久卡住。
+				const ok = askRegistry.resolve(
+					event.sessionId,
+					event.toolCallId,
+					event.reply,
+				);
+				if (!ok) {
+					reply({
+						type: "error",
+						message: "该提问已失效（可能已取消或会话已切换），请重新发起",
+					});
+				}
 				break;
 			}
 			case "agent:cancel-ask": {
@@ -1492,7 +1517,10 @@ export class WSServer {
 			}
 			case "provider:save": {
 				await this.opts.providerStore.save(event.provider);
-				await ensureProviderExtensionRegistered(this.opts.providerStore, this.opts.generatedDir);
+				await ensureProviderExtensionRegistered(
+					this.opts.providerStore,
+					this.opts.generatedDir,
+				);
 				// provider-extension.ts 已重写，但运行中的 pi session 进程仍加载旧版本，
 				// 新增/删除的模型在旧 session 里会 "Model not found"。标脏让激活会话下次
 				// 使用时重建进程、重新加载最新 extension（与 extension:toggle 等变更一致）。
@@ -1503,7 +1531,10 @@ export class WSServer {
 			}
 			case "provider:delete": {
 				await this.opts.providerStore.delete(event.id);
-				await ensureProviderExtensionRegistered(this.opts.providerStore, this.opts.generatedDir);
+				await ensureProviderExtensionRegistered(
+					this.opts.providerStore,
+					this.opts.generatedDir,
+				);
 				this.opts.agentManager.markAllDirty();
 				const providers = await this.opts.providerStore.load();
 				this.broadcast({ type: "provider:changed", providers });

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useEffect, useRef } from "react";
 import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
@@ -18,15 +19,70 @@ export function formatArgs(args: Record<string, any>): string {
 	return parts.join(", ");
 }
 
-/** 多行/长字符串代码块样式：真实换行缩进展示，限高防撑爆 UI */
+/** 多行/长字符串代码块样式：真实换行缩进展示、带行号，不设高度限制（完整可读） */
 const CODE_BLOCK_CLS =
-	"max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-surface px-2 py-1 text-[11px] text-secondary my-1 font-mono";
+	"whitespace-pre-wrap break-words rounded bg-surface px-2 py-1 text-[11px] text-secondary my-1 font-mono";
+
+/** 按行拆分渲染带行号的代码块（行号右对齐固定列宽，内容保留缩进/折行） */
+function LineNumberedLines({ text }: { text: string }) {
+	const lines = text.split("\n");
+	return (
+		<>
+			{lines.map((line, i) => (
+				<div key={i} className="flex min-w-0">
+					<span
+						data-testid="code-line-num"
+						className="inline-block w-8 text-right mr-3 text-tertiary select-none flex-shrink-0"
+					>
+						{i + 1}
+					</span>
+					<span className="whitespace-pre-wrap break-words min-w-0">
+						{line || "\u00A0"}
+					</span>
+				</div>
+			))}
+		</>
+	);
+}
+
+/** 内容流式增长时自动滚动到底部的 pre（工具参数长文本预览）。
+ * 语义与主消息列表一致：用户停在底部时内容增长自动跟随；用户上翻则不抢；
+ * 回到底部恢复跟随。首次挂载不自动滚动（用户从头看完整内容）。 */
+function AutoScrollPre({ text }: { text: string }) {
+	const ref = useRef<HTMLPreElement>(null);
+	const stickRef = useRef(true);
+	const prevTextRef = useRef<string | null>(null);
+	useEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		if (prevTextRef.current === null) {
+			prevTextRef.current = text; // 首次挂载：停在顶部，不抢滚动
+			return;
+		}
+		prevTextRef.current = text;
+		if (stickRef.current) el.scrollTop = el.scrollHeight;
+	}, [text]);
+	return (
+		<pre
+			ref={ref}
+			onScroll={() => {
+				const el = ref.current;
+				if (el)
+					stickRef.current =
+						el.scrollHeight - el.scrollTop - el.clientHeight < 20;
+			}}
+			className={CODE_BLOCK_CLS}
+		>
+			<LineNumberedLines text={text} />
+		</pre>
+	);
+}
 
 /** 递归渲染参数值：多行/长字符串以真实文本代码块展示，其余保持 JSON 风格 */
 function ArgValue({ v }: { v: any }): ReactNode {
 	if (typeof v === "string") {
 		if (v.includes("\n") || v.length > 60) {
-			return <pre className={CODE_BLOCK_CLS}>{v}</pre>;
+			return <AutoScrollPre text={v} />;
 		}
 		return <span className="text-secondary">"{v}"</span>;
 	}
@@ -88,13 +144,13 @@ function EditArgsView({ args }: { args: Record<string, any> }) {
 					{e.oldText !== undefined && (
 						<>
 							<div className="text-[11px] text-tertiary">旧</div>
-							<pre className={CODE_BLOCK_CLS}>{e.oldText}</pre>
+							<AutoScrollPre text={e.oldText} />
 						</>
 					)}
 					{e.newText !== undefined && (
 						<>
 							<div className="text-[11px] text-tertiary">新</div>
-							<pre className={CODE_BLOCK_CLS}>{e.newText}</pre>
+							<AutoScrollPre text={e.newText} />
 						</>
 					)}
 				</div>

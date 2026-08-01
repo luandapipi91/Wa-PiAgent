@@ -1,9 +1,109 @@
 import { test, expect, describe } from "bun:test";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ToolCallCard } from "../src/components/blocks/ToolCallCard";
 
-// 复现：edit 工具携带大段代码参数（oldText/newText 含真实换行/制表符），
-// 旧实现用 JSON.stringify 渲染时会把真实换行转义成字面 "\n"/"\t"，一坨不可读。
+// ── 卡片内部长文本预览区自动滚动（write 工具 content 流式增长跟随到底部）──
+
+function setScrollMetrics(
+	el: HTMLElement,
+	{
+		scrollHeight,
+		clientHeight,
+		scrollTop,
+	}: { scrollHeight: number; clientHeight: number; scrollTop: number },
+) {
+	Object.defineProperty(el, "scrollHeight", {
+		value: scrollHeight,
+		configurable: true,
+	});
+	Object.defineProperty(el, "clientHeight", {
+		value: clientHeight,
+		configurable: true,
+	});
+	el.scrollTop = scrollTop;
+}
+
+const writeCall = (content: string) => ({
+	type: "toolCall" as const,
+	id: "w1",
+	name: "write",
+	arguments: { path: "docs/a.md", content },
+});
+
+describe("ToolCallCard 参数预览区自动滚动", () => {
+	test("write content 流式增长且用户停在底部 → 预览区自动滚动到底部", async () => {
+		const { rerender } = render(
+			<ToolCallCard toolCall={writeCall("line1\nline2")} isStreaming />,
+		);
+		const pre = screen.getByTestId("toolcall-w1-body").querySelector("pre")!;
+		// 初始：内容高度 400（底部位置 100）
+		setScrollMetrics(pre, {
+			scrollHeight: 400,
+			clientHeight: 300,
+			scrollTop: 100,
+		});
+		fireEvent.scroll(pre); // 停在底部
+
+		// 流式增长：内容更长 → scrollHeight 增长到 1000
+		setScrollMetrics(pre, {
+			scrollHeight: 1000,
+			clientHeight: 300,
+			scrollTop: 100,
+		});
+		rerender(
+			<ToolCallCard
+				toolCall={writeCall("line1\nline2\nline3\n...（流式写入的长文本）")}
+				isStreaming
+			/>,
+		);
+		await waitFor(() => expect(pre.scrollTop).toBe(1000), { timeout: 1000 });
+	});
+
+	test("write content 流式增长时用户上翻 → 预览区不抢滚动", async () => {
+		const { rerender } = render(
+			<ToolCallCard toolCall={writeCall("line1\nline2")} isStreaming />,
+		);
+		const pre = screen.getByTestId("toolcall-w1-body").querySelector("pre")!;
+		setScrollMetrics(pre, {
+			scrollHeight: 1000,
+			clientHeight: 300,
+			scrollTop: 700,
+		});
+		fireEvent.scroll(pre); // 停在底部
+
+		// 用户上翻到 300（离开底部）
+		pre.scrollTop = 300;
+		fireEvent.scroll(pre);
+
+		// 内容继续增长
+		setScrollMetrics(pre, {
+			scrollHeight: 1500,
+			clientHeight: 300,
+			scrollTop: 300,
+		});
+		rerender(
+			<ToolCallCard
+				toolCall={writeCall("line1\nline2\n...更长内容")}
+				isStreaming
+			/>,
+		);
+		await new Promise((r) => setTimeout(r, 50));
+		expect(pre.scrollTop).toBe(300); // 未被拉回底部
+	});
+
+	test("定稿卡片展开（首次挂载）不自动滚到底 → 从顶部开始看", () => {
+		render(<ToolCallCard toolCall={writeCall("line1\nline2\nline3")} />);
+		const pre = screen.getByTestId("toolcall-w1-body").querySelector("pre")!;
+		setScrollMetrics(pre, {
+			scrollHeight: 1000,
+			clientHeight: 300,
+			scrollTop: 0,
+		});
+		// 无内容增长：scrollTop 保持 0（顶部）
+		expect(pre.scrollTop).toBe(0);
+	});
+});
+
 const editCall = {
 	type: "toolCall" as const,
 	id: "t1",
@@ -84,5 +184,24 @@ describe("ToolCallCard 工具参数渲染", () => {
 		expect(text).toContain("const a = 2;");
 		expect(text).toContain("const a = 1;");
 		expect(text).not.toContain("\\n");
+	});
+
+	test("edit：代码块带行号，行号从 1 递增", () => {
+		render(<ToolCallCard toolCall={editCall} />);
+		const body = screen.getByTestId("toolcall-t1-body");
+		const lineNums = body.querySelectorAll('[data-testid="code-line-num"]');
+		// oldText 3 行 + newText 3 行 = 6 个行号
+		expect(lineNums.length).toBe(6);
+		expect(lineNums[0]!.textContent).toBe("1");
+		expect(lineNums[1]!.textContent).toBe("2");
+		// newText 第一行也从 1 开始
+		expect(lineNums[3]!.textContent).toBe("1");
+	});
+
+	test("edit：代码块不设限高滚动，完整展示", () => {
+		render(<ToolCallCard toolCall={editCall} />);
+		const body = screen.getByTestId("toolcall-t1-body");
+		expect(body.querySelector(".max-h-60")).toBeNull();
+		expect(body.querySelector(".overflow-auto")).toBeNull();
 	});
 });
