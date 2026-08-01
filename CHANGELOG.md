@@ -13,6 +13,9 @@
 
 ### 修复
 
+- **主 agent 调用普通工具（bash/read/edit 等）期间/工具输出到达时，页面不自动滚动到底部**：滚动 effect 的活跃信号只认 `streaming`（主流流式占位）与 `hasRunningSubagent`（子代理运行）。主 agent 调用普通工具时：toolCall block 的 `message_end` 已清空 `streaming`，工具执行期间 `tool_execution_*` 事件 store 不消费（`session.ts` default 分支），toolResult 定稿只追加 `messagesBySession`（滚动 effect 依赖不含 messages）——三个阶段都没有信号，工具输出（可能很长）到达时页面停在原位。修复：滚动 effect 的 `active` 合并 `statusBySession === "thinking"`（`agent_start`→`agent_end` 期间主 turn 进行中恒为 thinking），工具执行中 / toolResult 到达时 rAF 循环持续贴底；`agent_end` 回 idle 时走既有兜底再滚一次。该信号天然保留「非回复不抢滚动」「上翻阅读不抢」语义（非回复时 status 为 idle）。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`；测试 `tests/MessageList.test.tsx`（新增 2 个用例：thinking 中工具输出到达自动跟随滚动、thinking 中用户上翻不抢；TDD 红→绿）。
+
 - **子代理回复过程中不自动滚动、流式结束尾部可能被裁掉**：子代理（delegate/fleet）的流式内容走 `progressByToolCall` 推送到卡片内部，不走主消息流的 `streamingBySession`，主流滚动 effect 覆盖不到——子代理回复时即使停在底部也不跟随；主流 `message_end` 时 `streaming` 清空、最后一段内容定稿进 messages，但滚动 effect 已停止，尾部可能停在视口下方。修复：①`MessageList` 增加按会话过滤的 `hasRunningSubagent` 选择器（返回布尔，running 期间不随内容更新重渲染），滚动 effect 合并主流 streaming 与子代理运行，rAF 循环每帧贴底一次（合帧）；②由运行态转为结束态时兜底再滚一次，避免尾部裁切；③session store 新增 `progressSessionByToolCall`（toolCallId → sessionId），多会话并存时子代理滚动不串扰。
   - 影响范围：`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/src/store/session.ts`；测试 `tests/MessageList.test.tsx`（新增子代理运行跟随/上翻不抢/流式结束兜底 3 个用例）。
 
