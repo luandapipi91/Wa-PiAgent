@@ -122,6 +122,55 @@ test("在新会话界面且已选中该项目时，点击项目名展开/折叠"
   expect(screen.getByText("会话1")).toBeTruthy();
 });
 
+test("项目处于折叠状态时，点击项目名同时跳转新建会话并展开列表", () => {
+  useProjectsStore.setState({
+    projects: [{ id: "p1", name: "项目A", cwd: "/a", createdAt: 0 }],
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "会话1", createdAt: 0, lastActivity: Date.now(), piSessionFile: "" }],
+    currentProjectId: null,
+    currentSessionId: null,
+  });
+  useProjectUiStore.setState({ collapsedProjectIds: ["p1"] });
+  const onSelectProject = mock();
+  render(
+    <ProjectList
+      onSelectSession={() => {}}
+      onNewSessionInProject={() => {}}
+      onSelectProject={onSelectProject}
+      onNewProject={() => {}}
+      currentView="session"
+    />
+  );
+  // 折叠状态看不到会话
+  expect(screen.queryByText("会话1")).toBeNull();
+  fireEvent.click(screen.getByText("项目A"));
+  // 一次点击同时：跳转新建会话 + 展开列表
+  expect(onSelectProject).toHaveBeenCalledWith("p1");
+  expect(screen.getByText("会话1")).toBeTruthy();
+});
+
+test("项目折叠且已选中、处于新会话界面时，点击项目名仍同时跳转新建会话并展开（折叠优先于 toggle）", () => {
+  useProjectsStore.setState({
+    projects: [{ id: "p1", name: "项目A", cwd: "/a", createdAt: 0 }],
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "会话1", createdAt: 0, lastActivity: Date.now(), piSessionFile: "" }],
+    currentProjectId: "p1",
+    currentSessionId: null,
+  });
+  useProjectUiStore.setState({ collapsedProjectIds: ["p1"] });
+  const onSelectProject = mock();
+  render(
+    <ProjectList
+      onSelectSession={() => {}}
+      onNewSessionInProject={() => {}}
+      onSelectProject={onSelectProject}
+      onNewProject={() => {}}
+      currentView="new-session"
+    />
+  );
+  fireEvent.click(screen.getByText("项目A"));
+  expect(onSelectProject).toHaveBeenCalledWith("p1");
+  expect(screen.getByText("会话1")).toBeTruthy();
+});
+
 test("默认工作区渲染在项目列表顶部（无'默认'小标题）", () => {
   useProjectsStore.setState({
     projects: [
