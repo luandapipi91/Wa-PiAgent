@@ -9,7 +9,7 @@
 ### 新增功能
 
 - **FileViewer 打开 .md 文件渲染为 markdown 预览**：此前所有文本文件统一走 Prism 高亮，markdown 源文本按代码显示。本变更让 .md 文件改用 ReactMarkdown（remark-gfm）渲染，复用聊天区的 `createMarkdownComponents`——表格/标题等 GFM 语法、代码块（CodeBlockCard/MermaidBlock）、内联路径（FilePill）、外链新标签页打开全部生效；md 分支不注册 `@path:行号` copy 拦截。接受计划内风险：`FileViewer → markdown-components → FilePill → FileViewer` 循环依赖（ESM 函数声明提升 + 组件引用渲染期才访问，typecheck + 组件测试通过证明可用）。
-  - 影响范围：`packages/frontend/src/components/blocks/FileViewer.tsx`（新增 `sessionId` prop）；测试 `packages/frontend/tests/FileViewer.test.tsx`（新增 2 个用例：md 渲染 h1/table/pre 且无 Prism 行号、内联路径渲染 FilePill，TDD 红→绿）。
+  - 影响范围：`packages/frontend/src/components/blocks/FileViewer.tsx`（新增 `sessionId` prop）；`packages/frontend/src/components/blocks/FilePill.tsx`、`packages/frontend/src/components/SessionView.tsx`（透传 `sessionId`）；测试 `packages/frontend/tests/FileViewer.test.tsx`（新增 2 个用例：md 渲染 h1/table/pre 且无 Prism 行号、内联路径渲染 FilePill，TDD 红→绿）。
 
 ### 修复
 
