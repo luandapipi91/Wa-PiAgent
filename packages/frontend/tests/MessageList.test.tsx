@@ -336,6 +336,45 @@ test("AI 回复（streaming）中且停在底部 → 自动跟随滚动到底部
   }, { timeout: 1000 });
 });
 
+test("流式期间程序化贴底触发的 scroll 事件（内容增长 ≥ 阈值）不误判用户离开底部 → 自动滚动不中断", async () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [{ agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } }],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const list = screen.getByTestId("message-list");
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 700 }); // 停在底部
+  fireEvent.scroll(list);
+
+  // AI 回复中：rAF 循环每帧贴底（scrollTop 1000 = scrollHeight）
+  useSessionStore.setState({
+    streamingBySession: {
+      s1: { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "回复" }], model: "m", stopReason: "stop", timestamp: 2 } },
+    },
+  });
+  await waitFor(() => expect(list.scrollTop).toBe(1000), { timeout: 1000 });
+
+  // 程序化贴底会触发浏览器原生 scroll 事件（异步派发）：此刻 scrollTop 仍是上一帧贴底
+  // 位置、scrollHeight 已随新内容增长到 1200（单帧增长 200px ≥ BOTTOM_THRESHOLD=20）→
+  // 旧实现（scroll 事件一律按 isNearBottom 更新 stickBottom）会误判"用户离开底部"并
+  // 杀死自动滚动循环——长文本流式输出中途停止滚动的回归根因。
+  setScrollMetrics(list, { scrollHeight: 1200, clientHeight: 300, scrollTop: 700 });
+  fireEvent.scroll(list);
+
+  // 不应误判：stickBottom 保持 true → 循环继续 → 贴到新底部 1200
+  await waitFor(() => expect(list.scrollTop).toBe(1200), { timeout: 1000 });
+
+  // 内容继续增长 → 仍持续自动滚动到底
+  useSessionStore.setState({
+    streamingBySession: {
+      s1: { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "回复（更长的流式内容）" }], model: "m", stopReason: "stop", timestamp: 2 } },
+    },
+  });
+  setScrollMetrics(list, { scrollHeight: 1500, clientHeight: 300, scrollTop: 1200 });
+  await waitFor(() => expect(list.scrollTop).toBe(1500), { timeout: 1000 });
+});
+
 test("AI 回复中用户向上翻阅 → 不自动跟随（不阻碍用户阅读）", async () => {
   useSessionStore.setState({
     messagesBySession: {
