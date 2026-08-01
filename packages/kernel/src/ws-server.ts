@@ -269,6 +269,10 @@ export interface WSServerOpts {
 	mcpStore: McpStore;
 	agentManager: AgentManager;
 	dataDir?: string;
+	/** provider-extension.ts 输出目录（测试注入临时目录，避免覆盖真实 GENERATED_DIR） */
+	generatedDir?: string;
+	/** 测试钩子：bridge 流式响应被消费方取消（断连）时回调，生产环境不传 */
+	onBridgeStreamCancel?: () => void;
 	port?: number;
 	staticDir?: string;
 }
@@ -413,17 +417,46 @@ export class WSServer {
 						const enc = new TextEncoder();
 						let controllerRef: ReadableStreamDefaultController<Uint8Array> | null =
 							null;
+						// 消费方中断（如「停止消息」导致 pi 侧 abort fetch）后 Bun 会 cancel 本流，
+						// 此后 enqueue/close 都会抛 "Controller is already closed"。子代理可能仍在
+						// 跑并继续产出 progress，必须用 closed 标记 + try 防护切断后续写入，
+						// 否则同步 throw 沿子代理 stdout 回调链冒泡成 unhandledRejection 内核异常。
+						let closed = false;
+						const onStreamCancel = this.opts.onBridgeStreamCancel;
 						const stream = new ReadableStream<Uint8Array>({
 							start(controller) {
 								controllerRef = controller;
 							},
+							cancel() {
+								closed = true;
+								controllerRef = null;
+								// 测试钩子：通知调用方服务端已感知断连（确定性等待用）
+								onStreamCancel?.();
+							},
 						});
+						const writeLine = (line: string) => {
+							if (closed || !controllerRef) return;
+							try {
+								controllerRef.enqueue(enc.encode(line));
+							} catch {
+								closed = true;
+								controllerRef = null;
+							}
+						};
+						const closeStream = () => {
+							if (closed) return;
+							closed = true;
+							try {
+								controllerRef?.close();
+							} catch {
+								/* 已关闭 */
+							}
+							controllerRef = null;
+						};
 						// 关键时序：不 await，后台执行。立即 return Response 让消费方拿到响应头
 						// （满足 headersTimeout），handleBridgeStream 边跑边 enqueue 进度帧
 						// （消费方边读边收到，重置 bodyTimeout，避免 undici idle 空闲断连）。
-						void handleBridgeStream(body, (line) => {
-							controllerRef?.enqueue(enc.encode(line));
-						})
+						void handleBridgeStream(body, writeLine)
 							.then((r) => {
 								if (r) {
 									// 流式工具返回了非 null：说明 handleBridgeStream 在写帧前
@@ -437,14 +470,12 @@ export class WSServer {
 										ok: false,
 										error: r.ok ? undefined : r.error,
 									};
-									controllerRef?.enqueue(
-										enc.encode(JSON.stringify(frame) + "\n"),
-									);
+									writeLine(JSON.stringify(frame) + "\n");
 								}
-								controllerRef?.close();
+								closeStream();
 							})
 							.catch(() => {
-								controllerRef?.close();
+								closeStream();
 							});
 						return new Response(stream, {
 							headers: {
@@ -1461,7 +1492,7 @@ export class WSServer {
 			}
 			case "provider:save": {
 				await this.opts.providerStore.save(event.provider);
-				await ensureProviderExtensionRegistered(this.opts.providerStore);
+				await ensureProviderExtensionRegistered(this.opts.providerStore, this.opts.generatedDir);
 				// provider-extension.ts 已重写，但运行中的 pi session 进程仍加载旧版本，
 				// 新增/删除的模型在旧 session 里会 "Model not found"。标脏让激活会话下次
 				// 使用时重建进程、重新加载最新 extension（与 extension:toggle 等变更一致）。
@@ -1472,7 +1503,7 @@ export class WSServer {
 			}
 			case "provider:delete": {
 				await this.opts.providerStore.delete(event.id);
-				await ensureProviderExtensionRegistered(this.opts.providerStore);
+				await ensureProviderExtensionRegistered(this.opts.providerStore, this.opts.generatedDir);
 				this.opts.agentManager.markAllDirty();
 				const providers = await this.opts.providerStore.load();
 				this.broadcast({ type: "provider:changed", providers });
