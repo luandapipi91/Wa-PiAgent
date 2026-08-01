@@ -22,6 +22,7 @@ import { DelegateCard } from "./blocks/DelegateCard";
 import { FleetCard } from "./blocks/FleetCard";
 import { createMarkdownComponents } from "./blocks/markdown-components";
 import { ThinkingCard } from "./blocks/ThinkingCard";
+import { TurnSummary } from "./blocks/TurnSummary";
 import { ToolGroupCard } from "./blocks/ToolCallCard";
 import {
 	textToHtml,
@@ -673,6 +674,96 @@ const MessageRow = memo(function MessageRow({
 		(s) => s.kind === "thinking" || s.kind === "toolCalls" || s.kind === "delegate" || s.kind === "fleet",
 	);
 
+	// 轮级折叠：已定稿（非流式）+ 含过程段 → 过程段折叠为摘要行，text 段保留在外
+	const canCollapse = hasProcessCard && !isStreaming;
+	const processSegs = segments.filter((s) => s.kind !== "text");
+	const textSegs = segments.filter((s) => s.kind === "text");
+
+	// 单段渲染分发：thinking/toolCalls/delegate/fleet 为过程卡，text 为主回复气泡。
+	// 折叠分支与非折叠分支共用，保证两种模式渲染完全一致；key 由调用方传入
+	//（折叠分支过程段从 0 起、text 段接续；非折叠分支用原 segments index，delegate/fleet
+	// 仍以 seg.call.id 为 key）。CopyButton 归属用引用比较 seg === segments[lastTextSegIdx]
+	//（原 index 判断在折叠分支 textSegs 的 key 重排后不再等价）。
+	const renderSeg = (seg: Segment, key: number, segIsStreaming: boolean) => {
+		// 思考过程 — ProcessCard：每段独立成卡（不合并），区分 finalized vs streaming
+		if (seg.kind === "thinking") {
+			return (
+				<ThinkingCard
+					key={key}
+					thinking={seg.texts.join("\n")}
+					isStreaming={segIsStreaming}
+				/>
+			);
+		}
+		// 工具调用 — ProcessCard：>1 个连续调用归成组卡，单工具直接单卡
+		if (seg.kind === "toolCalls") {
+			return (
+				<ToolGroupCard
+					key={key}
+					toolCalls={seg.calls}
+					results={row.toolResults}
+					isStreaming={segIsStreaming}
+				/>
+			);
+		}
+		// 委派调用 — 内联卡片（不进工具分组，与普通内容穿插）
+		if (seg.kind === "delegate") {
+			return (
+				<DelegateCard
+					key={seg.call.id}
+					sessionId={sessionId}
+					toolCall={seg.call}
+					result={row.toolResults.get(seg.call.id)}
+					isStreaming={segIsStreaming}
+				/>
+			);
+		}
+		// 并行派发 — 内联卡片（FleetCard 展示多个子任务）
+		if (seg.kind === "fleet") {
+			return (
+				<FleetCard
+					key={seg.call.id}
+					sessionId={sessionId}
+					toolCall={seg.call}
+					result={row.toolResults.get(seg.call.id)}
+					isStreaming={segIsStreaming}
+				/>
+			);
+		}
+		// 主回复内容 — 文字 + markdown
+		return (
+			<div
+				key={key}
+				className="flex flex-col gap-1"
+				data-testid="text-bubble"
+			>
+				<div
+					className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`}
+					style={{ lineHeight: 1.55, borderRadius: "4px 14px 14px 14px" }}
+				>
+					{seg.texts.map((text, i) => (
+						// 分片 memo：流式期间已定稿 block（text 引用不变）跳过重渲染，
+						// 只有流式中的 block 每帧重跑 Markdown——避免合并行里定稿段落
+						// 随每帧重建全量重解析。key 用 block 原始 idx（稳定），不用数组 index。
+						<MarkdownBlock
+							key={seg.blockIdxs[i]}
+							text={text}
+							sessionId={sessionId}
+						/>
+					))}
+				</div>
+				{seg === segments[lastTextSegIdx] && (
+					<div className="flex justify-end">
+						<CopyButton
+							text={fullText}
+							testId={`copy-${sessionId}-${m.timestamp}`}
+						/>
+					</div>
+				)}
+			</div>
+		);
+	};
+
 	return (
 		<div
 			className="flex gap-2.5"
@@ -686,88 +777,29 @@ const MessageRow = memo(function MessageRow({
 					{row.main.agentName ?? "agent"} · {formatTime(m.timestamp)}
 				</div>
 
-				{segments.map((seg, si) => {
-					// 合并行中：仅 seg.firstBlockIdx >= streamingStartIdx 的段才是真正的流式段
-					const segIsStreaming = isStreaming &&
-						(row.streamingStartIdx == null || seg.firstBlockIdx >= row.streamingStartIdx);
-					// 思考过程 — ProcessCard：每段独立成卡（不合并），区分 finalized vs streaming
-					if (seg.kind === "thinking") {
-						return (
-							<ThinkingCard
-								key={si}
-								thinking={seg.texts.join("\n")}
-								isStreaming={segIsStreaming}
-							/>
-						);
-					}
-					// 工具调用 — ProcessCard：>1 个连续调用归成组卡，单工具直接单卡
-					if (seg.kind === "toolCalls") {
-						return (
-							<ToolGroupCard
-								key={si}
-								toolCalls={seg.calls}
-								results={row.toolResults}
-								isStreaming={segIsStreaming}
-							/>
-						);
-					}
-					// 委派调用 — 内联卡片（不进工具分组，与普通内容穿插）
-					if (seg.kind === "delegate") {
-						return (
-							<DelegateCard
-								key={seg.call.id}
-								sessionId={sessionId}
-								toolCall={seg.call}
-								result={row.toolResults.get(seg.call.id)}
-								isStreaming={segIsStreaming}
-							/>
-						);
-					}
-					// 并行派发 — 内联卡片（FleetCard 展示多个子任务）
-					if (seg.kind === "fleet") {
-						return (
-							<FleetCard
-								key={seg.call.id}
-								sessionId={sessionId}
-								toolCall={seg.call}
-								result={row.toolResults.get(seg.call.id)}
-								isStreaming={segIsStreaming}
-							/>
-						);
-					}
-					// 主回复内容 — 文字 + markdown
-					return (
-						<div
-							key={si}
-							className="flex flex-col gap-1"
-							data-testid="text-bubble"
+				{canCollapse ? (
+					<>
+						<TurnSummary
+							steps={processSegs.length}
+							elapsedMs={m.turnElapsedMs}
 						>
-							<div
-								className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`}
-								style={{ lineHeight: 1.55, borderRadius: "4px 14px 14px 14px" }}
-							>
-								{seg.texts.map((text, i) => (
-									// 分片 memo：流式期间已定稿 block（text 引用不变）跳过重渲染，
-									// 只有流式中的 block 每帧重跑 Markdown——避免合并行里定稿段落
-									// 随每帧重建全量重解析。key 用 block 原始 idx（稳定），不用数组 index。
-									<MarkdownBlock
-										key={seg.blockIdxs[i]}
-										text={text}
-										sessionId={sessionId}
-									/>
-								))}
-							</div>
-							{si === lastTextSegIdx && (
-								<div className="flex justify-end">
-									<CopyButton
-										text={fullText}
-										testId={`copy-${sessionId}-${m.timestamp}`}
-									/>
-								</div>
-							)}
-						</div>
-					);
-				})}
+							{processSegs.map((seg, si) => renderSeg(seg, si, false))}
+						</TurnSummary>
+						{textSegs.map((seg, si) =>
+							renderSeg(seg, si + processSegs.length, false),
+						)}
+					</>
+				) : (
+					segments.map((seg, si) =>
+						renderSeg(
+							seg,
+							si,
+							isStreaming &&
+								(row.streamingStartIdx == null ||
+									seg.firstBlockIdx >= row.streamingStartIdx),
+						),
+					)
+				)}
 			</div>
 		</div>
 	);

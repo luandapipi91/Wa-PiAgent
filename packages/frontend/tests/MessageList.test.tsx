@@ -66,10 +66,12 @@ test("assistant 消息按 content block 渲染 thinking + text + toolCall", () =
     },
   });
   render(<MessageList sessionId="s1" />);
-  // text block 立即可见
+  // text block 立即可见（text 段保留在轮级摘要行外）
   expect(screen.getByText("答案")).toBeTruthy();
-  // thinking 默认折叠（不可见），点击展开后可见
+  // 已定稿含过程段的行：过程段折叠到轮级摘要行，thinking 内容不可见
   expect(screen.queryByText("我在想")).toBeNull();
+  // 先展开轮级摘要行，再展开 thinking 卡，可见思考内容
+  fireEvent.click(screen.getByTestId("turn-summary"));
   fireEvent.click(screen.getByTestId("thinking-panel-header"));
   expect(screen.getByText("我在想")).toBeTruthy();
   // 单个 toolCall 直接渲染单卡（不成组），未完成时默认展开
@@ -95,7 +97,8 @@ test("toolResult 按 toolCallId 关联到前一个 assistant 消息，不单独�
   // toolResult 不单独成行：只有 1 个 MessageRow（msg-s1-1），无 msg-s1-2
   expect(screen.getByTestId("msg-s1-1")).toBeTruthy();
   expect(screen.queryByTestId("msg-s1-2")).toBeNull();
-  // toolCall 单卡默认折叠，展开后可见结果
+  // 过程段折叠在轮级摘要行内：先展开摘要行，再展开 toolCall 卡可见结果
+  fireEvent.click(screen.getByTestId("turn-summary"));
   fireEvent.click(screen.getByTestId("toolcall-c1-header"));
   expect(screen.getByText("文件内容")).toBeTruthy();
 });
@@ -110,6 +113,8 @@ test("成功的 toolCall（result 且非 isError）→ ✓ 图标 + 绿色（suc
     },
   });
   render(<MessageList sessionId="s1" />);
+  // 过程段折叠在轮级摘要行内：先展开再断言工具卡样式
+  fireEvent.click(screen.getByTestId("turn-summary"));
   // 成功的 toolCall：✓ 图标 + meta「完成」+ success tone + 弱化
   const card = screen.getByTestId("toolcall-ok1");
   const header = screen.getByTestId("toolcall-ok1-header");
@@ -131,6 +136,8 @@ test("失败的 toolCall（result.isError）→ ✗ 图标 + 红色（danger）�
     },
   });
   render(<MessageList sessionId="s1" />);
+  // 过程段折叠在轮级摘要行内：先展开再断言工具卡样式
+  fireEvent.click(screen.getByTestId("turn-summary"));
   // 失败的 toolCall：✗ 图标 + meta「失败」+ danger tone + 弱化
   const card = screen.getByTestId("toolcall-e1");
   const header = screen.getByTestId("toolcall-e1-header");
@@ -154,6 +161,8 @@ test("intercom toolCall 渲染 DelegateCard（委派卡片）", () => {
   render(<MessageList sessionId="s1" />);
   // intercom toolCall 和普通 toolCall 一样渲染 ToolCallCard（非 delegate 名），无专门 delegate card
   expect(screen.queryByTestId("delegate-d1")).toBeNull();
+  // 过程段折叠在轮级摘要行内：先展开再断言 header
+  fireEvent.click(screen.getByTestId("turn-summary"));
   expect(screen.getByTestId("toolcall-d1-header").textContent).toContain("intercom");
 });
 
@@ -220,7 +229,8 @@ test("只有 toolCall 的 assistant 消息不渲染空白文字气泡", () => {
     },
   });
   render(<MessageList sessionId="s1" />);
-  // toolCall 单卡直接可见（不成组）
+  // toolCall 折叠在轮级摘要行内：先展开摘要行，单卡直接可见（不成组）
+  fireEvent.click(screen.getByTestId("turn-summary"));
   expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
   // 不应有文字 block 容器
   expect(screen.queryByTestId("text-block")).toBeNull();
@@ -238,7 +248,8 @@ test("空字符串 text block 不渲染空白文字气泡", () => {
     },
   });
   render(<MessageList sessionId="s1" />);
-  // toolCall 单卡直接可见（不成组）
+  // toolCall 折叠在轮级摘要行内：先展开摘要行，单卡直接可见（不成组）
+  fireEvent.click(screen.getByTestId("turn-summary"));
   expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
   expect(screen.queryByTestId("text-block")).toBeNull();
 });
@@ -1371,16 +1382,20 @@ test("已完成的 thinking 块不会因新 thinking 流式到达而重新展开
   expect(cards[1].querySelector("[data-testid=thinking-panel-body]")).toBeTruthy();
 });
 
-test("流式中工具调用块默认展开，完成后（历史）折叠且弱化", () => {
+test("流式中工具调用块默认展开，完成后（历史）折叠到轮级摘要行且弱化", () => {
   const tc = { type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls" } };
   const tr = { role: "toolResult" as const, toolCallId: "tc1", toolName: "bash", content: [{ type: "text" as const, text: "ok" }], isError: false, timestamp: 11 };
-  // 历史：非流式 → 折叠 + muted
+  // 历史：非流式 → 过程段折叠到轮级摘要行（turn-summary），工具卡 body 不可见
   useSessionStore.setState({
     messagesBySession: { s1: [assistantMsg(10, [tc]), { agentName: "product", message: tr }] },
   });
   const { unmount } = render(<MessageList sessionId="s1" />);
+  expect(screen.getByTestId("turn-summary")).toBeTruthy();
   expect(screen.queryByTestId("toolcall-tc1-body")).toBeNull();
+  // 展开轮级摘要行后：工具卡折叠（body 仍不可见）+ muted（历史已完成）
+  fireEvent.click(screen.getByTestId("turn-summary"));
   expect(screen.getByTestId("toolcall-tc1").getAttribute("data-muted")).toBe("true");
+  expect(screen.queryByTestId("toolcall-tc1-body")).toBeNull();
   unmount();
   // 流式中同一块 → 展开
   useSessionStore.setState({
@@ -1397,6 +1412,8 @@ test("用户点击折叠的卡片后内容展开（尊重手动选择）", () =>
   });
   render(<MessageList sessionId="s1" />);
   expect(screen.queryByTestId("thinking-panel-body")).toBeNull();
+  // 已定稿含过程段：先展开轮级摘要行，再点 thinking 卡 header 展开内容
+  fireEvent.click(screen.getByTestId("turn-summary"));
   fireEvent.click(screen.getByTestId("thinking-panel-header"));
   expect(screen.getByTestId("thinking-panel-body").textContent).toContain("历史思考");
 });
@@ -1413,7 +1430,8 @@ test("含工具卡片的消息列固定 78% 宽（展开/收起宽度一致）",
   const row = screen.getByTestId("msg-s1-10");
   const column = row.children[1] as HTMLElement; // 头像后的内容列
   expect(column.className.split(" ")).toContain("w-[78%]");
-  // 展开后列宽 class 不变（宽度不随卡片开合变化）
+  // 展开轮级摘要行 + 工具卡后列宽 class 不变（宽度不随卡片开合变化）
+  fireEvent.click(screen.getByTestId("turn-summary"));
   fireEvent.click(screen.getByTestId("toolcall-tcw-header"));
   expect((row.children[1] as HTMLElement).className.split(" ")).toContain("w-[78%]");
 });
@@ -1435,4 +1453,68 @@ test("含 thinking 卡片的消息列固定 78% 宽", () => {
   render(<MessageList sessionId="s1" />);
   const column = screen.getByTestId("msg-s1-10").children[1] as HTMLElement;
   expect(column.className.split(" ")).toContain("w-[78%]");
+});
+
+// ── 轮级折叠摘要行：已定稿含过程段的行折叠为摘要行，text 保留在外 ──
+// 与既有 assistantMsg(timestamp, content, agentName) 区分：新用例需要消息级扩展字段
+// （如 turnElapsedMs），参数顺序为 content → ts → extra（语义、返回结构与简报一致）
+function assistantMsgWithExtras(content: any[], ts: number, extra: any = {}) {
+  return { message: { role: "assistant", content, timestamp: ts, stopReason: "end_turn", ...extra }, agentName: "dev" };
+}
+
+test("已定稿含过程段的行：折叠为摘要行，text 保留，点击展开可见过程段", async () => {
+  useSessionStore.setState({
+    messagesBySession: { s1: [
+      { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+      assistantMsgWithExtras([
+        { type: "thinking", thinking: "思考中" },
+        { type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
+        { type: "text", text: "最终回复" },
+      ], 2),
+    ] },
+    streamingBySession: { s1: null },
+  });
+  render(<MessageList sessionId="s1" />);
+
+  // 折叠态：摘要行出现、text 保留、过程段不直接可见
+  expect(screen.getByTestId("turn-summary")).toBeTruthy();
+  expect(screen.getByText("最终回复")).toBeTruthy();
+  expect(screen.queryByText("思考中")).toBeNull();
+  expect(screen.queryByText("read")).toBeNull();
+
+  // 点击展开：过程段卡片可见
+  fireEvent.click(screen.getByTestId("turn-summary"));
+  expect(screen.getByTestId("thinking-panel")).toBeTruthy();
+  expect(screen.getByTestId("toolcall-t1-header").textContent).toContain("read");
+  // thinking 卡本身默认折叠（历史已完成），再点击展开可见思考内容
+  fireEvent.click(screen.getByTestId("thinking-panel-header"));
+  expect(screen.getByText("思考中")).toBeTruthy();
+});
+
+test("有时长的轮：摘要行显示本轮时长 + 步骤数", () => {
+  useSessionStore.setState({
+    messagesBySession: { s1: [
+      { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+      assistantMsgWithExtras([
+        { type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
+        { type: "text", text: "最终回复" },
+      ], 5000, { turnElapsedMs: 4000 }),
+    ] },
+    streamingBySession: { s1: null },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.getByText("本轮时长 4 秒 · 1 个步骤")).toBeTruthy();
+});
+
+test("纯文本行：无摘要行", () => {
+  useSessionStore.setState({
+    messagesBySession: { s1: [
+      { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+      assistantMsgWithExtras([{ type: "text", text: "纯文本回复" }], 2),
+    ] },
+    streamingBySession: { s1: null },
+  });
+  render(<MessageList sessionId="s1" />);
+  expect(screen.queryByTestId("turn-summary")).toBeNull();
+  expect(screen.getByText("纯文本回复")).toBeTruthy();
 });
