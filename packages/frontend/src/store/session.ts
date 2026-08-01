@@ -35,6 +35,9 @@ interface SessionState {
   // 这样 delegate（单 agent）与 fleet（多 agent 共享同一 toolCallId）都能用同一结构：
   //   delegate 取 Object.values(progressByToolCall[tcId])[0]；fleet 取整个内层 map。
   progressByToolCall: Record<string, Record<string, SubagentProgressEvent>>;
+  // toolCallId → 所属 sessionId：供 MessageList 按会话过滤「本会话是否有 running 子代理」
+  // （progressByToolCall 本身不区分 session，多会话并存时避免串扰滚动/状态）。
+  progressSessionByToolCall: Record<string, string>;
   // 原有方法保留：append 用于 error 兜底、setMessages 用于 session:messages 历史
   append: (sessionId: string, msg: SessionMessage) => void;
   setMessages: (sessionId: string, messages: SessionMessage[]) => void;
@@ -109,6 +112,7 @@ export const useSessionStore = create<SessionState>((set) => {
   lastUsageBySession: {},
   netStatusBySession: {},
   progressByToolCall: {},
+  progressSessionByToolCall: {},
 
   addTokens: (sessionId, input, output) => set(s => {
     const cur = s.tokenTotals[sessionId] ?? { input: 0, output: 0 };
@@ -260,11 +264,13 @@ export const useSessionStore = create<SessionState>((set) => {
 
   // 存储子代理进度：按 toolCallId → agent 二级 map 写入。
   // fleet 场景同一 toolCallId 下多个 agent 共存，故合并既有内层 map 而非覆盖。
+  // 同时记录 toolCallId 所属 session，供 MessageList 按会话过滤 running 子代理。
   handleSubagentProgress: (sessionId, toolCallId, progress) => {
     set((s) => {
       const prev = s.progressByToolCall[toolCallId] ?? {};
       return {
         progressByToolCall: { ...s.progressByToolCall, [toolCallId]: { ...prev, [progress.agent]: progress } },
+        progressSessionByToolCall: { ...s.progressSessionByToolCall, [toolCallId]: sessionId },
       };
     });
   },
@@ -274,7 +280,9 @@ export const useSessionStore = create<SessionState>((set) => {
     set((s) => {
       const next = { ...s.progressByToolCall };
       delete next[toolCallId];
-      return { progressByToolCall: next };
+      const sessions = { ...s.progressSessionByToolCall };
+      delete sessions[toolCallId];
+      return { progressByToolCall: next, progressSessionByToolCall: sessions };
     });
   },
 

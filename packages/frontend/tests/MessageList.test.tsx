@@ -22,7 +22,7 @@ import { useToastStore } from "../src/store/toast";
 import { registerAgentMeta, ensureChipStyles } from "../src/quick-invoke/tokens";
 
 beforeEach(() => {
-  useSessionStore.setState({ messagesBySession: {}, streamingBySession: {} });
+  useSessionStore.setState({ messagesBySession: {}, streamingBySession: {}, progressByToolCall: {}, progressSessionByToolCall: {} });
   useProjectsStore.setState({ sessions: [] });
   useProvidersStore.setState({ providers: [] });
   useComposerPrefsStore.setState({ bySession: {} });
@@ -394,6 +394,108 @@ test("非回复时（停在底部）新增消息 → 不自动滚动", async () 
 
   await new Promise(r => setTimeout(r, 50));
   expect(list.scrollTop).toBe(700); // 未被拉到底（1000）
+});
+
+// ── 子代理运行期间自动跟随滚动（delegate/fleet 流式内容走 progressByToolCall，不走 streaming）──
+
+test("子代理运行中（delegate/fleet）且停在底部 → 自动跟随滚动", async () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [{ agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } }],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const list = screen.getByTestId("message-list");
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 700 }); // 停在底部
+  fireEvent.scroll(list);
+
+  // 子代理开始运行：progress 推送到 progressByToolCall（主 streaming 为空——主 agent 在等待）
+  const running = { agent: "general-purpose", status: "running" as const, output: "正在分析", tools: [], elapsedMs: 500 };
+  useSessionStore.setState({
+    progressByToolCall: { tc1: { "general-purpose": running } },
+    progressSessionByToolCall: { tc1: "s1" },
+  });
+
+  await waitFor(() => expect(list.scrollTop).toBe(1000), { timeout: 1000 });
+
+  // 内容继续增长（output 更新）——仍保持跟随到底
+  useSessionStore.setState({
+    progressByToolCall: {
+      tc1: { "general-purpose": { ...running, output: "正在分析……更长了", elapsedMs: 800 } },
+    },
+  });
+  await waitFor(() => expect(list.scrollTop).toBe(1000), { timeout: 1000 });
+});
+
+test("子代理运行中用户向上翻阅 → 不自动跟随（不阻碍阅读）", async () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [{ agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } }],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const list = screen.getByTestId("message-list");
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 700 });
+  fireEvent.scroll(list);
+
+  // 子代理运行并跟随到底
+  useSessionStore.setState({
+    progressByToolCall: {
+      tc1: { "general-purpose": { agent: "general-purpose", status: "running" as const, output: "x", tools: [], elapsedMs: 500 } },
+    },
+    progressSessionByToolCall: { tc1: "s1" },
+  });
+  await waitFor(() => expect(list.scrollTop).toBe(1000), { timeout: 1000 });
+
+  // 用户上翻离开底部
+  list.scrollTop = 300;
+  fireEvent.scroll(list);
+
+  // 子代理内容继续增长——不应被抢回底部
+  useSessionStore.setState({
+    progressByToolCall: {
+      tc1: { "general-purpose": { agent: "general-purpose", status: "running" as const, output: "更长的输出内容", tools: [], elapsedMs: 900 } },
+    },
+  });
+  await new Promise(r => setTimeout(r, 50));
+  expect(list.scrollTop).toBe(300);
+});
+
+// ── 流式/子代理结束：内容定稿后兜底滚一次，避免尾部裁切 ──
+
+test("流式结束（message_end）内容定稿 → 兜底滚到底（尾部不裁切）", async () => {
+  useSessionStore.setState({
+    messagesBySession: {
+      s1: [{ agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } }],
+    },
+  });
+  render(<MessageList sessionId="s1" />);
+  const list = screen.getByTestId("message-list");
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 700 });
+  fireEvent.scroll(list);
+
+  // AI 回复中：跟随滚动到底
+  useSessionStore.setState({
+    streamingBySession: {
+      s1: { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "回复" }], model: "m", stopReason: "stop", timestamp: 2 } },
+    },
+  });
+  await waitFor(() => expect(list.scrollTop).toBe(1000), { timeout: 1000 });
+
+  // message_end：streaming 清空、最后一段内容定稿进 messages（scrollHeight 增长到 1200）
+  setScrollMetrics(list, { scrollHeight: 1200, clientHeight: 300, scrollTop: 1000 });
+  useSessionStore.setState({
+    streamingBySession: { s1: null },
+    messagesBySession: {
+      s1: [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+        assistantMsg(2, [{ type: "text", text: "完整回复内容（最后一段）" }]),
+      ],
+    },
+  });
+
+  // 兜底滚动：贴到新底部 1200（不被裁掉尾部）
+  await waitFor(() => expect(list.scrollTop).toBe(1200), { timeout: 1000 });
 });
 
 // ── 滚动到底部浮动按钮 ──
