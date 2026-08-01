@@ -74,8 +74,12 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
   const defaults = useComposerPrefsStore(s => s.defaults);
   const setDefaults = useComposerPrefsStore(s => s.setDefaults);
   const loadDefaults = useComposerPrefsStore(s => s.loadDefaults);
+  const loadSession = useComposerPrefsStore(s => s.loadSession);
 
   useEffect(() => { void loadDefaults(); }, [loadDefaults]);
+  // 草稿会话也走 loadSession：①setSessionPrefs 的会话级 hydration 守卫要求先 load 才直写 IDB；
+  // ②顺带让 IDB 里持久化的草稿附件在 reload 后恢复（此前写入后无人读取，reload 即丢）
+  useEffect(() => { void loadSession(sessionId); }, [sessionId, loadSession]);
 
   const [model, setModel] = useState<string | null>(defaults.model);
   const [thinking, setThinking] = useState<ThinkingLevel>(defaults.thinking);
