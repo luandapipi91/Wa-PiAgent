@@ -498,6 +498,82 @@ test("流式结束（message_end）内容定稿 → 兜底滚到底（尾部不�
   await waitFor(() => expect(list.scrollTop).toBe(1200), { timeout: 1000 });
 });
 
+// ── 主 agent 调用普通工具（agent turn 中、streaming 已清空）自动跟随滚动 ──
+// 场景：agent_start 已到（status=thinking）、toolCall block 已定稿（streaming=null），
+// 工具执行中 / toolResult 到达——主 turn 未结束（agent_end 未到）。此前滚动 effect
+// 只认 streaming/子代理，工具阶段两者皆空 → 工具输出（可能很长）到达时不跟随滚动。
+
+test("主 agent 调用工具（thinking，streaming 已清空）且停在底部 → 工具输出到达自动跟随滚动", async () => {
+  useSessionStore.setState({
+    statusBySession: { "s-tool": "thinking" }, // agent_start 已到，主 turn 进行中
+    messagesBySession: {
+      "s-tool": [
+        { agentName: undefined, message: { role: "user", content: "帮我跑个脚本", timestamp: 1 } },
+        assistantMsg(2, [
+          { type: "text", text: "好的，我来调用 bash" },
+          { type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls -la" } },
+        ]),
+      ],
+    },
+  });
+  render(<MessageList sessionId="s-tool" />);
+  const list = screen.getByTestId("message-list");
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 700 }); // 停在底部
+  fireEvent.scroll(list);
+
+  // toolResult 到达：ToolCallCard 展示长输出 → 内容变长（scrollHeight 1500）
+  setScrollMetrics(list, { scrollHeight: 1500, clientHeight: 300, scrollTop: 700 });
+  useSessionStore.setState({
+    messagesBySession: {
+      "s-tool": [
+        { agentName: undefined, message: { role: "user", content: "帮我跑个脚本", timestamp: 1 } },
+        assistantMsg(2, [
+          { type: "text", text: "好的，我来调用 bash" },
+          { type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls -la" } },
+        ]),
+        { agentName: "product", message: { role: "toolResult", toolCallId: "tc1", toolName: "bash", isError: false, content: [{ type: "text", text: "file1\nfile2\n...（长输出）" }], timestamp: 3 } },
+      ],
+    },
+  });
+
+  await waitFor(() => expect(list.scrollTop).toBe(1500), { timeout: 1000 });
+});
+
+test("主 agent 调用工具（thinking）时用户向上翻阅 → 不自动跟随（不阻碍阅读）", async () => {
+  useSessionStore.setState({
+    statusBySession: { "s-tool2": "thinking" },
+    messagesBySession: {
+      "s-tool2": [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+        assistantMsg(2, [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls" } }]),
+      ],
+    },
+  });
+  render(<MessageList sessionId="s-tool2" />);
+  const list = screen.getByTestId("message-list");
+  setScrollMetrics(list, { scrollHeight: 1000, clientHeight: 300, scrollTop: 700 });
+  fireEvent.scroll(list); // stickBottom=true
+
+  // 用户向上翻阅离开底部
+  list.scrollTop = 300;
+  fireEvent.scroll(list); // stickBottom=false
+
+  // 工具输出到达：内容变长
+  setScrollMetrics(list, { scrollHeight: 1500, clientHeight: 300, scrollTop: 300 });
+  useSessionStore.setState({
+    messagesBySession: {
+      "s-tool2": [
+        { agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+        assistantMsg(2, [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls" } }]),
+        { agentName: "product", message: { role: "toolResult", toolCallId: "tc1", toolName: "bash", isError: false, content: [{ type: "text", text: "长输出" }], timestamp: 3 } },
+      ],
+    },
+  });
+
+  await new Promise(r => setTimeout(r, 50));
+  expect(list.scrollTop).toBe(300); // 未被拉回底部（1500）
+});
+
 // ── 滚动到底部浮动按钮 ──
 
 test("不在底部时显示「滚动到底部」浮动按钮", () => {
