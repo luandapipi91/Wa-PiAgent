@@ -80,25 +80,27 @@ test("generateProviderExtension SDK 查不到模型时 reasoning 默认 false", 
   expect(code).toContain("reasoning: false");
 });
 
-test("ensureProviderExtensionRegistered 写 extension 文件到 GENERATED_DIR", async () => {
+test("ensureProviderExtensionRegistered 写 extension 文件到指定目录", async () => {
   const dir = join(import.meta.dir, ".tmp-ext-" + Math.random().toString(36).slice(2));
-  const { ProviderStore } = await import("../src/provider-store");
-  const store = new ProviderStore(join(dir, "providers.json"));
-  await store.save(sampleProvider());
+  const generatedDir = join(dir, "generated");
+  try {
+    const { ProviderStore } = await import("../src/provider-store");
+    const store = new ProviderStore(join(dir, "providers.json"));
+    await store.save(sampleProvider());
 
-  await ensureProviderExtensionRegistered(store);
+    await ensureProviderExtensionRegistered(store, generatedDir);
 
-  // extension 文件生成到 GENERATED_DIR
-  const extFile = join(GENERATED_DIR, "provider-extension.ts");
-  expect(existsSync(extFile)).toBe(true);
-  const code = readFileSync(extFile, "utf8");
-  expect(code).toContain('registerProvider("my-deepseek"');
+    // extension 文件生成到注入的输出目录（不触碰真实 GENERATED_DIR）
+    const extFile = join(generatedDir, "provider-extension.ts");
+    expect(existsSync(extFile)).toBe(true);
+    const code = readFileSync(extFile, "utf8");
+    expect(code).toContain('registerProvider("my-deepseek"');
 
-  // 不再写 settings.json.packages（迁移后改由 additionalExtensionPaths 注入）
-  expect(existsSync(join(dir, "settings.json"))).toBe(false);
-
-  rmSync(dir, { recursive: true, force: true });
-  rmSync(extFile, { force: true });
+    // 不再写 settings.json.packages（迁移后改由 additionalExtensionPaths 注入）
+    expect(existsSync(join(dir, "settings.json"))).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ---- extensionCoversProvider：校验 extension 文件是否覆盖了子智能体所需的 provider slug ----
@@ -109,46 +111,54 @@ test("extensionCoversProvider: 文件不存在返回 false", () => {
 
 test("extensionCoversProvider: 空壳 extension（无 registerProvider）对任意 slug 返回 false", async () => {
   const dir = join(import.meta.dir, ".tmp-cover-" + Math.random().toString(36).slice(2));
-  const emptyExt = join(dir, "empty.ts");
-  await mkdir(dir, { recursive: true });
-  await writeFile(emptyExt, "export default function(pi){}\n", "utf8");
-  expect(extensionCoversProvider(emptyExt, "deepseek")).toBe(false);
-  rmSync(dir, { recursive: true, force: true });
+  try {
+    const emptyExt = join(dir, "empty.ts");
+    await mkdir(dir, { recursive: true });
+    await writeFile(emptyExt, "export default function(pi){}\n", "utf8");
+    expect(extensionCoversProvider(emptyExt, "deepseek")).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("extensionCoversProvider: 含目标 slug 的 registerProvider 返回 true", async () => {
   const code = generateProviderExtension([sampleProvider()], new Map());  // slug = my-deepseek
   const dir = join(import.meta.dir, ".tmp-cover2-" + Math.random().toString(36).slice(2));
-  const extFile = join(dir, "ext.ts");
-  await mkdir(dir, { recursive: true });
-  await writeFile(extFile, code, "utf8");
-  expect(extensionCoversProvider(extFile, "my-deepseek")).toBe(true);
-  // 其它 slug 仍返回 false
-  expect(extensionCoversProvider(extFile, "openai")).toBe(false);
-  rmSync(dir, { recursive: true, force: true });
+  try {
+    const extFile = join(dir, "ext.ts");
+    await mkdir(dir, { recursive: true });
+    await writeFile(extFile, code, "utf8");
+    expect(extensionCoversProvider(extFile, "my-deepseek")).toBe(true);
+    // 其它 slug 仍返回 false
+    expect(extensionCoversProvider(extFile, "openai")).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("ensureProviderExtensionRegistered 多次调用覆盖式重写并反映最新 providers", async () => {
   const dir = join(import.meta.dir, ".tmp-ext2-" + Math.random().toString(36).slice(2));
-  const { ProviderStore } = await import("../src/provider-store");
-  const store = new ProviderStore(join(dir, "providers.json"));
-  await store.save(sampleProvider({ name: "First Provider" }));
+  const generatedDir = join(dir, "generated");
+  try {
+    const { ProviderStore } = await import("../src/provider-store");
+    const store = new ProviderStore(join(dir, "providers.json"));
+    await store.save(sampleProvider({ name: "First Provider" }));
 
-  await ensureProviderExtensionRegistered(store);
-  await ensureProviderExtensionRegistered(store);  // 二次调用（覆盖，不报错）
+    await ensureProviderExtensionRegistered(store, generatedDir);
+    await ensureProviderExtensionRegistered(store, generatedDir);  // 二次调用（覆盖，不报错）
 
-  // 更新 provider 后再调用，文件内容应反映最新 providers
-  await store.delete("p1");
-  await store.save(sampleProvider({ id: "p2", name: "Second Provider" }));
-  await ensureProviderExtensionRegistered(store);
+    // 更新 provider 后再调用，文件内容应反映最新 providers
+    await store.delete("p1");
+    await store.save(sampleProvider({ id: "p2", name: "Second Provider" }));
+    await ensureProviderExtensionRegistered(store, generatedDir);
 
-  const extFile = join(GENERATED_DIR, "provider-extension.ts");
-  const code = readFileSync(extFile, "utf8");
-  expect(code).toContain('registerProvider("second-provider"');
-  expect(code).not.toContain('registerProvider("first-provider"');
-
-  rmSync(dir, { recursive: true, force: true });
-  rmSync(extFile, { force: true });
+    const extFile = join(generatedDir, "provider-extension.ts");
+    const code = readFileSync(extFile, "utf8");
+    expect(code).toContain('registerProvider("second-provider"');
+    expect(code).not.toContain('registerProvider("first-provider"');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ---- 预设 provider：slug 字段对齐内置 provider id（修复 Model not found 根因）----

@@ -154,9 +154,13 @@ ${registrations}
  *
  * 生成前从 pi 内置模型目录（pi-catalog.ts）查询每个模型的参数
  * （contextWindow / maxTokens / cost 等），目录中找不到的模型使用默认值。
+ *
+ * generatedDir 可注入输出目录（默认 GENERATED_DIR）：测试必须传临时目录，
+ * 否则会覆盖真实 ~/.wa-pi/.generated/provider-extension.ts。
  */
 export async function ensureProviderExtensionRegistered(
   store: ProviderStore,
+  generatedDir: string = GENERATED_DIR,
 ): Promise<void> {
   const providers = await store.load();
 
@@ -180,6 +184,6 @@ export async function ensureProviderExtensionRegistered(
   const code = generateProviderExtension(providers, sdkModelMap);
 
   // 写 extension 文件（每次覆盖，保证与 providers.json 同步）
-  await mkdir(GENERATED_DIR, { recursive: true });
-  await writeFile(join(GENERATED_DIR, "provider-extension.ts"), code, "utf8");
+  await mkdir(generatedDir, { recursive: true });
+  await writeFile(join(generatedDir, "provider-extension.ts"), code, "utf8");
 }
