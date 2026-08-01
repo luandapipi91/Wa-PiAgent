@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Highlight, themes } from "prism-react-renderer";
 import { useToastStore } from "../../store/toast";
 import { copyToClipboard } from "../../util/clipboard";
@@ -6,7 +6,8 @@ import { copyToClipboard } from "../../util/clipboard";
 const COLLAPSE_LINES = 20;
 
 /** cocode 式代码块卡片：头部条（语言名 + 复制），Prism 高亮 + 行号，超 20 行可折叠 */
-export function CodeBlockCard({ language, code }: { language: string; code: string }) {
+// memo：props 为字符串，流式期间已定稿的代码块跳过重渲染（Prism 高亮是流式卡顿热点之一）
+export const CodeBlockCard = memo(function CodeBlockCard({ language, code }: { language: string; code: string }) {
   const [expanded, setExpanded] = useState(false);
   const addToast = useToastStore(s => s.add);
   const lines = code.replace(/\n$/, "").split("\n");
@@ -64,4 +65,4 @@ export function CodeBlockCard({ language, code }: { language: string; code: stri
       )}
     </div>
   );
-}
+});

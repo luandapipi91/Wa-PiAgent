@@ -12,7 +12,7 @@ import { useProvidersStore } from "../store/providers";
 import { useSkillsStore } from "../store/skills";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { api } from "../api-client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useToastStore } from "../store/toast";
@@ -60,7 +60,9 @@ export function MessageList({ sessionId }: Props) {
 	const netDegraded = useSessionStore(
 		(s) => s.netStatusBySession[sessionId] === "degraded",
 	);
-	const rows = preprocess(messages);
+	// useMemo 保持历史行引用稳定：流式期间 streaming 每帧变化触发重渲染时，
+	// 配合 MessageRow 的 React.memo，历史行整体跳过重渲染（含 Markdown 重解析）。
+	const rows = useMemo(() => preprocess(messages), [messages]);
 	const session = useProjectsStore((s) =>
 		s.sessions.find((x) => x.id === sessionId),
 	);
@@ -163,7 +165,10 @@ export function MessageList({ sessionId }: Props) {
 	// 仅在 AI 回复（streaming）且用户停在底部时跟随滚动到底部。
 	// 平时（非回复）不自动滚动——避免抢走用户正在阅读历史时的位置。
 	useEffect(() => {
-		if (streaming && stickBottom) scrollToBottom();
+		if (!streaming || !stickBottom) return;
+		// rAF 合帧：流式期间每帧最多滚动一次，避免同帧读写 scrollHeight/scrollTop 造成 forced reflow
+		const raf = requestAnimationFrame(scrollToBottom);
+		return () => cancelAnimationFrame(raf);
 	}, [streaming, stickBottom, scrollToBottom]);
 
 	// 切换会话：重置停留状态为新会话「在底部」。
@@ -478,7 +483,9 @@ function StreamingRow({
 	);
 }
 
-function MessageRow({
+// React.memo：流式期间只有 props 变化的行（合并的末行 / StreamingRow）重渲染，
+// 历史行引用稳定（preprocess 已 useMemo），整行跳过——避免每帧全量重解析 Markdown/Prism。
+const MessageRow = memo(function MessageRow({
 	row,
 	sessionId,
 	showResend,
@@ -695,7 +702,7 @@ function MessageRow({
 			</div>
 		</div>
 	);
-}
+});
 
 type Segment =
 	| { kind: "thinking"; texts: string[]; firstBlockIdx: number }
