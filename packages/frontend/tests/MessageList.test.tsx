@@ -22,7 +22,7 @@ import { useToastStore } from "../src/store/toast";
 import { registerAgentMeta, ensureChipStyles } from "../src/quick-invoke/tokens";
 
 beforeEach(() => {
-  useSessionStore.setState({ messagesBySession: {}, streamingBySession: {}, progressByToolCall: {}, progressSessionByToolCall: {} });
+  useSessionStore.setState({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, progressByToolCall: {}, progressSessionByToolCall: {} });
   useProjectsStore.setState({ sessions: [] });
   useProvidersStore.setState({ providers: [] });
   useComposerPrefsStore.setState({ bySession: {} });
@@ -180,6 +180,8 @@ test("text → toolCall → text（无 delegate）→ 两个文本气泡按时�
     },
   });
   render(<MessageList sessionId="s1" />);
+  // 历史轮折叠：中间 text 段也折叠进摘要行，先展开摘要行再断言两个气泡的时序
+  fireEvent.click(screen.getByTestId("turn-summary"));
   // 两段 text 都应可见
   expect(screen.getByText("前面这段")).toBeTruthy();
   expect(screen.getByText("后面这段")).toBeTruthy();
@@ -209,6 +211,8 @@ test("text → toolCall → text → delegate → text → toolCall → text →
     },
   });
   render(<MessageList sessionId="s1" />);
+  // 历史轮折叠：中间 text 段也折叠进摘要行，先展开摘要行再断言四个气泡的时序
+  fireEvent.click(screen.getByTestId("turn-summary"));
   // 时间线顺序：
   // [text:委派前][toolCalls:t1][delegate:d1][text:委派后1][toolCalls:t2][text:委派后2][delegate:d2][text:最后]
   // → 4 个文本气泡，且顺序保持不变
@@ -994,7 +998,8 @@ test("同一 agent 回合被 toolResult 拆成两条 assistant（中间无用户
   render(<MessageList sessionId="s1" />);
   // 同一回合只渲染一个机器人头像（不应被 toolResult 隔断成两行）
   expect(screen.getAllByText("🤖")).toHaveLength(1);
-  // 两段 assistant 文本都在同一行可见
+  // 历史轮折叠：中间 text 段（好的）折叠进摘要行，先展开再断言两段文本同处一行可见
+  fireEvent.click(screen.getByTestId("turn-summary"));
   expect(screen.getByText("好的")).toBeTruthy();
   expect(screen.getByText("答案是")).toBeTruthy();
 });
@@ -1517,4 +1522,92 @@ test("纯文本行：无摘要行", () => {
   render(<MessageList sessionId="s1" />);
   expect(screen.queryByTestId("turn-summary")).toBeNull();
   expect(screen.getByText("纯文本回复")).toBeTruthy();
+});
+
+// 多段 text 的轮：中间 text 段（穿插在工具调用间）也折叠进摘要行，只保留最后一段回复在外。
+// 注：两段 text 之间用 toolCall 隔开（连续 text block 会被 segmentBlocks 合并成一段，
+// 无法体现「中间 text 折叠、只留最后一段在外」的语义）。
+test("多段 text 的轮：折叠态只显示最后一段回复，中间 text 与思考折叠进摘要行；展开后可见", () => {
+  useSessionStore.setState({
+    messagesBySession: { s1: [
+      { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+      assistantMsgWithExtras([
+        { type: "thinking", thinking: "思考中" },
+        { type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
+        { type: "text", text: "中间过渡" },
+        { type: "toolCall", id: "t2", name: "bash", arguments: { command: "ls" } },
+        { type: "text", text: "最终回复" },
+      ], 2),
+    ] },
+    streamingBySession: { s1: null },
+  });
+  render(<MessageList sessionId="s1" />);
+
+  // 折叠态：只显示最后一段 text 回复，中间 text 与思考不可见
+  expect(screen.getByTestId("turn-summary")).toBeTruthy();
+  expect(screen.getByText("最终回复")).toBeTruthy();
+  expect(screen.queryByText("中间过渡")).toBeNull();
+  expect(screen.queryByText("思考中")).toBeNull();
+
+  // 点击展开摘要行：中间 text 与思考可见
+  fireEvent.click(screen.getByTestId("turn-summary"));
+  expect(screen.getByText("中间过渡")).toBeTruthy();
+  fireEvent.click(screen.getByTestId("thinking-panel-header"));
+  expect(screen.getByText("思考中")).toBeTruthy();
+});
+
+// 进行中的轮（status==="thinking"）：末行已定稿含过程段也不折叠——长工具执行/后续 text
+// 流式仍在跑，折叠会藏住实时过程；必须等 agent_end（整轮结束，status 回 idle）才折叠。
+test("进行中的轮（thinking）：末行已定稿含过程段 → 不折叠，过程段直接可见", () => {
+  useSessionStore.setState({
+    statusBySession: { s1: "thinking" },
+    messagesBySession: { s1: [
+      { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+      assistantMsgWithExtras([
+        { type: "thinking", thinking: "思考中" },
+        { type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
+        { type: "text", text: "阶段性回复" },
+      ], 2),
+    ] },
+    streamingBySession: { s1: null },
+  });
+  render(<MessageList sessionId="s1" />);
+
+  // 无摘要行；过程段直接可见（thinking 卡存在、toolCall 卡 header 可见、text 可见）
+  expect(screen.queryByTestId("turn-summary")).toBeNull();
+  expect(screen.getByTestId("thinking-panel")).toBeTruthy();
+  expect(screen.getByTestId("toolcall-t1-header").textContent).toContain("read");
+  expect(screen.getByText("阶段性回复")).toBeTruthy();
+});
+
+// 进行中的轮 + 更早的已完成轮：isActiveTurnRow 只标记末行——第一轮（已完成、有整轮耗时）
+// 照常折叠出摘要行，第二轮（进行中末行）不折叠、过程段直接可见。
+test("进行中的轮 + 更早的已完成轮：只有一个 turn-summary（第一轮），第二轮过程段直接可见", () => {
+  useSessionStore.setState({
+    statusBySession: { s1: "thinking" },
+    messagesBySession: { s1: [
+      { message: { role: "user", content: [{ type: "text", text: "问题1" }], timestamp: 1 }, agentName: "dev" },
+      assistantMsgWithExtras([
+        { type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
+        { type: "text", text: "第一轮回复" },
+      ], 2, { turnElapsedMs: 4000 }),
+      { message: { role: "user", content: [{ type: "text", text: "问题2" }], timestamp: 3 }, agentName: "dev" },
+      assistantMsgWithExtras([
+        { type: "thinking", thinking: "第二轮思考" },
+        { type: "toolCall", id: "t2", name: "bash", arguments: { command: "ls" } },
+        { type: "text", text: "第二轮回复" },
+      ], 4),
+    ] },
+    streamingBySession: { s1: null },
+  });
+  render(<MessageList sessionId="s1" />);
+
+  // 只有一个 turn-summary（第一轮完成 → 折叠；第二轮进行中 → 不折叠）
+  const summaries = screen.getAllByTestId("turn-summary");
+  expect(summaries).toHaveLength(1);
+  // 第一轮摘要带整轮耗时（turnElapsedMs）
+  expect(summaries[0].textContent).toContain("本轮时长 4 秒");
+  // 第二轮过程段直接可见（无摘要行包裹）
+  expect(screen.getByTestId("toolcall-t2-header").textContent).toContain("bash");
+  expect(screen.getByText("第二轮回复")).toBeTruthy();
 });
