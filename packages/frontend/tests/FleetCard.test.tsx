@@ -1,5 +1,5 @@
-import { test, expect, beforeEach } from "bun:test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { test, expect, beforeEach, vi } from "bun:test";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import type { SessionMessage } from "@wa-pi/shared";
 import { FleetCard } from "../src/components/blocks/FleetCard";
 import { MessageList } from "../src/components/MessageList";
@@ -62,7 +62,9 @@ test("FleetCard 完成（非流式）：默认折叠，头部显示「并行派�
 	const header = screen.getByTestId("fleet-f1-header");
 	expect(header.textContent).toContain("并行派发 2 个任务");
 	expect(screen.queryByTestId("fleet-f1-body")).toBeNull();
-	expect(screen.getByTestId("fleet-f1").getAttribute("data-muted")).toBe("true");
+	expect(screen.getByTestId("fleet-f1").getAttribute("data-muted")).toBe(
+		"true",
+	);
 });
 
 test("FleetCard 执行中（无 result、非流式，如 block 已定稿但工具未返回）：默认展开且不透明", () => {
@@ -237,7 +239,13 @@ test("fleet 与 delegate 混合：各自独立成卡，互不干扰", () => {
 // FleetCard 直接消费整个 map（不取 [0]），按 agent 分组展示。
 
 /** 设置某 toolCallId 下的多个子代理进度（fleet 多 agent 场景） */
-function setFleetProgress(toolCallId: string, agents: Record<string, { status?: string; output?: string; tools?: any[]; elapsedMs?: number }>) {
+function setFleetProgress(
+	toolCallId: string,
+	agents: Record<
+		string,
+		{ status?: string; output?: string; tools?: any[]; elapsedMs?: number }
+	>,
+) {
 	const map: Record<string, any> = {};
 	for (const [agent, p] of Object.entries(agents)) {
 		map[agent] = {
@@ -260,7 +268,14 @@ test("FleetCard 按 agent 分组展示进度摘要：N 个子智能体：X 运�
 	render(
 		<FleetCard
 			sessionId="s1"
-			toolCall={{ type: "toolCall", id: "tc-fleet", name: "fleet", arguments: { tasks: [] } } as any}
+			toolCall={
+				{
+					type: "toolCall",
+					id: "tc-fleet",
+					name: "fleet",
+					arguments: { tasks: [] },
+				} as any
+			}
 		/>,
 	);
 	// 摘要：3 个子智能体：1 运行中 / 1 完成 / 1 出错
@@ -272,13 +287,13 @@ test("FleetCard 按 agent 分组展示进度摘要：N 个子智能体：X 运�
 
 test("FleetCard 有进度时默认折叠摘要开关可见，output 不可见；展开后见各 agent 分组详情", () => {
 	setFleetProgress("tc-exp", {
-		"代码审查": {
+		代码审查: {
 			status: "running",
 			output: "审查中",
 			tools: [{ id: "t1", name: "Bash", status: "done" }],
 			elapsedMs: 5000,
 		},
-		"前端开发": {
+		前端开发: {
 			status: "done",
 			output: "样式完成",
 			tools: [{ id: "t2", name: "Edit", status: "done" }],
@@ -288,7 +303,14 @@ test("FleetCard 有进度时默认折叠摘要开关可见，output 不可见；
 	render(
 		<FleetCard
 			sessionId="s1"
-			toolCall={{ type: "toolCall", id: "tc-exp", name: "fleet", arguments: { tasks: [] } } as any}
+			toolCall={
+				{
+					type: "toolCall",
+					id: "tc-exp",
+					name: "fleet",
+					arguments: { tasks: [] },
+				} as any
+			}
 		/>,
 	);
 	// 摘要开关存在且为折叠态（▶）
@@ -314,9 +336,57 @@ test("FleetCard 无进度时不渲染子智能体摘要（保持原有行为）"
 	render(
 		<FleetCard
 			sessionId="s1"
-			toolCall={{ type: "toolCall", id: "tc-none", name: "fleet", arguments: { tasks: [] } } as any}
+			toolCall={
+				{
+					type: "toolCall",
+					id: "tc-none",
+					name: "fleet",
+					arguments: { tasks: [] },
+				} as any
+			}
 		/>,
 	);
 	expect(screen.queryByText(/个子智能体/)).toBeNull();
 	expect(screen.queryByRole("button", { name: /展开|▶/ })).toBeNull();
+});
+
+test("FleetCard 运行中子代理在无事件推送期间：本地推算计时持续递增（静默期不冻结）", () => {
+	vi.useFakeTimers();
+	const nowSpy = vi.spyOn(Date, "now").mockReturnValue(0);
+	try {
+		setFleetProgress("tc-timer", {
+			"agent-a": {
+				status: "running",
+				output: "思考中",
+				tools: [],
+				elapsedMs: 1000,
+			},
+		});
+		render(
+			<FleetCard
+				sessionId="s1"
+				toolCall={
+					{
+						type: "toolCall",
+						id: "tc-timer",
+						name: "fleet",
+						arguments: { tasks: [] },
+					} as any
+				}
+			/>,
+		);
+		// 展开进度详情（耗时在 agent 分组内）
+		fireEvent.click(screen.getByRole("button", { name: /展开|▶/ }));
+		expect(screen.getByText(/1\s*s/)).toBeTruthy();
+		// 3 秒静默（思考中，无新进度事件）：时间前进，计时应本地推算到 4s
+		act(() => {
+			nowSpy.mockReturnValue(3000);
+			vi.advanceTimersByTime(3000);
+		});
+		expect(screen.getByText(/4\s*s/)).toBeTruthy();
+		expect(screen.queryByText(/1\s*s/)).toBeNull();
+	} finally {
+		nowSpy.mockRestore();
+		vi.useRealTimers();
+	}
 });

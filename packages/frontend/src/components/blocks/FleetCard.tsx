@@ -1,11 +1,16 @@
 import { useState } from "react";
-import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
+import type {
+	ToolCall,
+	ToolResultMessage,
+	SubagentProgressEvent,
+} from "@wa-pi/shared";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
 import { createMarkdownComponents } from "./markdown-components";
 import { useSessionStore } from "../../store/session";
+import { useLiveElapsed } from "./useLiveElapsed";
 
 interface Props {
 	sessionId: string;
@@ -21,6 +26,37 @@ function statusLabel(status: string): string {
 	return "出错";
 }
 
+// 单个 agent 的进度分组行：本地计时（思考/长工具静默期不冻结）+ output + 工具时间线。
+// 抽成独立组件以承载 useLiveElapsed（Hooks 不能在循环里调用）。
+function AgentProgressItem({ p }: { p: SubagentProgressEvent }) {
+	const seconds = useLiveElapsed(p.elapsedMs, p.status === "running");
+	return (
+		<div className="min-w-0">
+			{/* 分组标题：agent 名 + 状态 + 耗时 + 工具数 */}
+			<div className="text-[11px] text-secondary">
+				<span className="font-semibold">{p.agent}</span> ·{" "}
+				{statusLabel(p.status)} · {seconds}s · {p.tools.length} 个工具
+			</div>
+			{/* 实时 output */}
+			{p.output && (
+				<pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-surface px-2 py-1 text-[11px] text-secondary mb-1">
+					{p.output}
+				</pre>
+			)}
+			{/* 工具时间线 */}
+			{p.tools.length > 0 && (
+				<ul className="text-[11px] text-tertiary space-y-0.5 mb-1">
+					{p.tools.map((t) => (
+						<li key={t.id}>
+							{t.name} · {t.status}
+						</li>
+					))}
+				</ul>
+			)}
+		</div>
+	);
+}
+
 /** 并行派发卡片：展示 fleet（多智能体并行）的委派信息，子任务列表 + 聚合结果。
  *  有实时进度时：默认折叠，摘要行「N 个子智能体：X 运行中 / Y 完成 / Z 出错」+ ▶/▼，
  *  展开后按 agent 分组（每组同 DelegateCard 展开态：agent 名 + 状态 + output + 工具时间线）。
@@ -30,7 +66,11 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 		tasks?: Array<{ agent: string; task: string }>;
 	};
 	const tasks = args.tasks ?? [];
-	const { open: autoOpen, toggle } = useAutoCollapse({ isStreaming, isDone: !!result, executingMode: true });
+	const { open: autoOpen, toggle } = useAutoCollapse({
+		isStreaming,
+		isDone: !!result,
+		executingMode: true,
+	});
 
 	// 子代理进度：fleet 直接消费整个内层 map（多个 agent 共享同一 toolCallId）
 	const agentMap = useSessionStore((s) => s.progressByToolCall[toolCall.id]);
@@ -41,12 +81,16 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 	const [progressExpanded, setProgressExpanded] = useState(false);
 	const open = hasProgress || autoOpen;
 	// 有进度时头部点击联动 progressExpanded，与摘要行开关一致
-	const handleToggle = hasProgress ? () => setProgressExpanded((v) => !v) : toggle;
+	const handleToggle = hasProgress
+		? () => setProgressExpanded((v) => !v)
+		: toggle;
 
 	const failed = !!result?.isError;
 	const full =
 		result?.content
-			.map((c: ToolResultMessage["content"][number]) => (c.type === "text" ? c.text : ""))
+			.map((c: ToolResultMessage["content"][number]) =>
+				c.type === "text" ? c.text : "",
+			)
 			.join("\n") ?? "";
 	// 将【Agent名】转为 markdown 粗体标题 + 分隔，让各 agent 回复视觉独立
 	const formattedFull = full.replace(/【(.+?)】/g, "\n---\n**$1**  \n");
@@ -54,7 +98,9 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 
 	// 进度摘要计数：按 status 分桶
 	const counts = { running: 0, done: 0, error: 0 };
-	for (const a of agents) counts[a.status as keyof typeof counts] = (counts[a.status as keyof typeof counts] ?? 0) + 1;
+	for (const a of agents)
+		counts[a.status as keyof typeof counts] =
+			(counts[a.status as keyof typeof counts] ?? 0) + 1;
 
 	return (
 		<ProcessCard
@@ -89,7 +135,10 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 				))}
 			</div>
 			{hasProgress && (
-				<div className="mt-2 pt-2 border-t border-hairline" data-testid={`fleet-progress-${toolCall.id}`}>
+				<div
+					className="mt-2 pt-2 border-t border-hairline"
+					data-testid={`fleet-progress-${toolCall.id}`}
+				>
 					{/* 摘要行：始终可见，点击切换各 agent 进度详情 */}
 					<button
 						type="button"
@@ -99,36 +148,15 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 						style={{ cursor: "pointer" }}
 					>
 						<span>
-							{agents.length} 个子智能体：{counts.running} 运行中 / {counts.done} 完成 / {counts.error} 出错
+							{agents.length} 个子智能体：{counts.running} 运行中 /{" "}
+							{counts.done} 完成 / {counts.error} 出错
 						</span>
 						<span className="ml-auto">{progressExpanded ? "▼" : "▶"}</span>
 					</button>
 					{progressExpanded && (
 						<div className="mt-1 min-w-0 space-y-2">
 							{agents.map((p) => (
-								<div key={p.agent} className="min-w-0">
-									{/* 分组标题：agent 名 + 状态 + 耗时 + 工具数 */}
-									<div className="text-[11px] text-secondary">
-										<span className="font-semibold">{p.agent}</span> · {statusLabel(p.status)} ·{" "}
-										{Math.round(p.elapsedMs / 1000)}s · {p.tools.length} 个工具
-									</div>
-									{/* 实时 output */}
-									{p.output && (
-										<pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-surface px-2 py-1 text-[11px] text-secondary mb-1">
-											{p.output}
-										</pre>
-									)}
-									{/* 工具时间线 */}
-									{p.tools.length > 0 && (
-										<ul className="text-[11px] text-tertiary space-y-0.5 mb-1">
-											{p.tools.map((t) => (
-												<li key={t.id}>
-													{t.name} · {t.status}
-												</li>
-											))}
-										</ul>
-									)}
-								</div>
+								<AgentProgressItem key={p.agent} p={p} />
 							))}
 						</div>
 					)}
