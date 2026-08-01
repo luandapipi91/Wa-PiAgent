@@ -4,6 +4,7 @@ import { AGENT_DEFS } from "@wa-pi/shared";
 import { api } from "../../api-client";
 // 项目现有代码（TextBlock.tsx / MessageList.tsx）统一用默认导入；保持一致。
 import ReactMarkdown from "react-markdown";
+import { MarkdownLink } from "../blocks/markdown-components";
 
 interface Props {
   sessionId: string;
@@ -101,7 +102,7 @@ export function AskFormCard({ sessionId, toolCallId, params, agentName }: Props)
               })}
               {selPreview && (
                 <div className="ml-6 bg-[#0d1117] text-[#c9d1d9] rounded-sm px-2.5 py-1.5 text-[11px] font-mono overflow-auto" data-testid={`ask-preview-${toolCallId}-${qi}`}>
-                  <ReactMarkdown>{selPreview}</ReactMarkdown>
+                  <ReactMarkdown components={{ a: MarkdownLink }}>{selPreview}</ReactMarkdown>
                 </div>
               )}
               {/* 「其他」也是一种选项，与普通选项互斥；选中后必须输入文字 */}
