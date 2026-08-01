@@ -412,3 +412,53 @@ test("运行中且无新进度事件推送时：本地推算计时持续递增�
 		vi.useRealTimers();
 	}
 });
+
+test("进度事件高频到达时计时不回跳（本地推算不被滞后的后端值覆盖）", () => {
+	// 复现"计时一卡一卡"：本地 interval 已按前端时钟推算到 2s，
+	// 此时到达一个 elapsedMs=1900 的滞后事件（后端发出值经 SSE 传输已偏旧），
+	// 若直接 setDisplay(elapsedMs) 会把显示拉回 1s。期望：秒数单调不回退。
+	vi.useFakeTimers();
+	const nowSpy = vi.spyOn(Date, "now").mockReturnValue(0);
+	try {
+		setProgress("tc-smooth", "general-purpose", {
+			status: "running",
+			output: "x",
+			tools: [],
+			elapsedMs: 1000,
+		});
+		render(
+			<DelegateCard
+				sessionId="s1"
+				toolCall={{
+					type: "toolCall",
+					id: "tc-smooth",
+					name: "delegate",
+					arguments: { agent: "general-purpose", task: "hi" },
+				}}
+			/>,
+		);
+		// 收到推送：显示 1s
+		expect(screen.getByText(/· 1s ·/)).toBeTruthy();
+		// 本地推算 1 秒：显示 2s
+		act(() => {
+			nowSpy.mockReturnValue(1000);
+			vi.advanceTimersByTime(1000);
+		});
+		expect(screen.getByText(/· 2s ·/)).toBeTruthy();
+		// 滞后事件到达（elapsedMs=1900 < 前端此刻 2000）：不应回跳到 1s
+		act(() => {
+			nowSpy.mockReturnValue(1900);
+			setProgress("tc-smooth", "general-purpose", {
+				status: "running",
+				output: "x",
+				tools: [],
+				elapsedMs: 1900,
+			});
+		});
+		expect(screen.queryByText(/· 1s ·/)).toBeNull();
+		expect(screen.getByText(/· 2s ·/)).toBeTruthy();
+	} finally {
+		nowSpy.mockRestore();
+		vi.useRealTimers();
+	}
+});

@@ -8,6 +8,13 @@ import { useEffect, useRef, useState } from "react";
  * 推送值，计时会冻结在最后一次推送。本 hook 在 running 期间以最近一次推送的
  * elapsedMs 为基准、本地每秒推算流逝时间，保证计时连续递增；非 running（done/error）
  * 时冻结为后端终值。
+ *
+ * 平滑性约束（避免"一卡一卡"）：
+ * 1. 推送的 elapsedMs 是后端发出时刻的值，经 SSE 到达前端已滞后（网络/传输延迟）。
+ *    因此不直接用推送值覆盖显示（会把本地已推算的秒数拉回、回跳）；
+ *    只把它更新为"基准"，显示始终由本地推算驱动。
+ * 2. interval 只依赖 running（以及 elapsedMs 从无到有），不依赖 elapsedMs 数值——
+ *    高频进度推送不会反复重建定时器，本地推算保持稳定。
  */
 export function useLiveElapsed(
 	elapsedMs: number | undefined,
@@ -16,14 +23,15 @@ export function useLiveElapsed(
 	const [display, setDisplay] = useState(() => elapsedMs ?? 0);
 	const baseRef = useRef({ elapsed: elapsedMs ?? 0, at: Date.now() });
 
-	// 后端推送新值时重置基准，并立即同步显示
+	// 后端推送新值时只更新基准（不 setDisplay），避免滞后的推送值让秒数回跳
 	useEffect(() => {
 		if (elapsedMs == null) return;
 		baseRef.current = { elapsed: elapsedMs, at: Date.now() };
-		setDisplay(elapsedMs);
 	}, [elapsedMs]);
 
-	// running 期间每秒用基准推算一次；tick 读 ref 避免闭包捕获过期值
+	// running 期间每秒用基准推算一次；tick 读 ref 避免闭包捕获过期值。
+	// 依赖用 elapsedMs == null 的布尔值：只有"从无到有/从有到无"才重建定时器，
+	// 数值频繁变化不重建 → 高频事件下本地推算仍稳定每秒 tick。
 	useEffect(() => {
 		if (!running || elapsedMs == null) return;
 		const tick = () => {
@@ -33,7 +41,7 @@ export function useLiveElapsed(
 		tick();
 		const timer = setInterval(tick, 1000);
 		return () => clearInterval(timer);
-	}, [running, elapsedMs]);
+	}, [running, elapsedMs == null]);
 
 	return Math.floor(display / 1000);
 }
