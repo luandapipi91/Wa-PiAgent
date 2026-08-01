@@ -59,3 +59,17 @@ test("非路径文本回退为普通 code", () => {
   render(<FilePill rawText="hello" sessionId="s1" />);
   expect(screen.queryByTestId("file-pill")).toBeNull();
 });
+
+test("预览 Modal 通过 portal 渲染到 document.body（脱离父容器 opacity 上下文）", async () => {
+  fake.setResponse("fs:stat", { exists: true });
+  fake.setResponse("fs:readFile", { content: btoa("file-content-123"), mimeType: "text/plain" });
+  render(<FilePill rawText="src/index.ts:12" sessionId="s1" />);
+
+  await waitFor(() => expect(screen.getByTestId("file-pill").textContent).toContain("index.ts"));
+  fireEvent.click(screen.getByTestId("file-pill"));
+  await waitFor(() => expect(screen.getByTestId("file-preview-modal")).toBeTruthy());
+
+  // Modal 必须渲染在 body 直接子节点，而不是嵌在 FilePill 所在的 opacity 容器内
+  const overlay = screen.getByTestId("modal-overlay");
+  expect(overlay.parentElement).toBe(document.body);
+});

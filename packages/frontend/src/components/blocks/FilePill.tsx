@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useProjectsStore } from "../../store/projects";
 import { parseFilePath } from "./file-path";
 import { statFile } from "../../fs-client";
@@ -59,11 +60,13 @@ export function FilePill({ rawText, sessionId }: { rawText: string; sessionId: s
       >
         📄 {base}{parsed.line != null ? `:${parsed.line}` : ""}
       </button>
-      {preview && (
-        <Modal onClose={() => setPreview(false)} width="80vw" height="80vh" data-testid="file-preview-modal">
-          <FileViewer path={abs} onClose={() => setPreview(false)} />
-        </Modal>
-      )}
+      {preview &&
+        createPortal(
+          <Modal onClose={() => setPreview(false)} width="80vw" height="80vh" data-testid="file-preview-modal">
+            <FileViewer path={abs} onClose={() => setPreview(false)} />
+          </Modal>,
+          document.body,
+        )}
     </>
   );
 }
