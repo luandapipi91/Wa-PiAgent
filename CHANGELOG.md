@@ -4,33 +4,86 @@
 
 ---
 
+## 2026-08-01
+
+### 修复
+
+- **切换几个会话后模型自动被重置为列表第一个**：根因是冷加载竞态——本次启动首次切到某个会话时，`loadSession`（IndexedDB 异步读）完成前 `bySession` 无缓存 → Composer 传入 `model=null` → `ModelSelector` 的 auto-select 立即把**列表第一个模型**经 `setSessionPrefs` 写入该会话 prefs（覆盖 DB 存储值）并同步污染全局 `defaults.model`；`loadSession` 完成时因有"不覆盖已有 prefs"守卫反而保住了污染值。每首次访问一个会话就被污染一次，切几个后全部坍缩成第一个模型。修复：store 新增 `loadedBySession` 跟踪，`Composer` 在会话 prefs 加载完成前经 `ComposerInput` → `ModelSelector` 新增 `autoSelectEnabled={false}` 门控禁止 auto-select；加载完成后恢复（全新会话无 model 时 auto-select 职责不变）。已做 TDD 红线验证：门控关闭时新回归用例稳定复现污染，开启后通过。
+  - 影响范围：`packages/frontend/src/store/composer-prefs.ts`、`packages/frontend/src/components/Composer.tsx`、`packages/frontend/src/components/ui/ComposerInput.tsx`、`packages/frontend/src/components/ui/ModelSelector.tsx`；测试 `tests/composer-prefs.test.ts`（loaded 标记）、`tests/ModelSelector.test.tsx`（门控用例）、`tests/Composer.test.tsx`（冷加载切换回归）。
+
+---
+
+## 2026-08-01
+
+### 修复
+
+- **打包脚本镜像环境变量不生效，electron-builder 回退 GitHub 下载 ETIMEDOUT**：`build.ts` 顶部用 `process.env.ELECTRON_MIRROR ??= …` 设置 npmmirror 镜像，但 Bun(Windows) 的 `spawnSync` 不继承进程启动后新设置的 env（实测子进程 `cmd /c echo %VAR%` 打印字面量），electron-builder 收不到镜像变量仍直连 GitHub（20.205.243.166）下载 Electron 二进制超时。修复：`run()` 的 `spawnSync` 显式传 `env: { ...process.env }`。
+  - 影响范围：`packages/desktop/scripts/build.ts`。
+  - 验证：修复前 `bun run pack:win` 在步骤 2 ETIMEDOUT；修复后同命令全流程出包成功。
+
+- **Review 修复：幽灵扫描数据目录正则缺结尾边界，同前缀兄弟目录进程会被误杀**：`dirToRegExp` 生成的正则在最后一个路径段后无边界约束，数据目录为 `C:\wa-pi-ghost` 时，`C:\wa-pi-ghost2` / `.wa-pi-backup` 等同前缀兄弟目录的进程会被误判为 seed 并连同子孙链 `taskkill /T /F` 杀掉。修复：正则末尾加边界断言 `(?=$|[\\/])`（下一段必须是路径分隔符或结尾）。
+  - 影响范围：`packages/desktop/src/util/port.cjs`、`packages/desktop/tests/port.cjs.test.ts`（新增同前缀兄弟目录不误杀用例，desktop 32 测试全绿）。
+
+- **Review 修复：edit 卡片遇畸形/流式截断参数渲染崩溃**：`EditArgsView` 假设 `edits` 元素必为 `{oldText?, newText?}` 字符串形状，而工具参数来自 LLM 输出，流式中可能是截断/部分解析的 JSON（如 `edits: [null]`、`oldText` 为对象），访问 `e.oldText` 直接 TypeError、非字符串值触发 React "Objects are not valid as a React child"——单张卡片问题升级为整个消息列表渲染崩溃。修复：渲染前校验 edits 形状，不符时降级到对任意输入安全的通用参数视图。
+  - 影响范围：`packages/frontend/src/components/blocks/ToolCallCard.tsx`、`packages/frontend/tests/ToolCallCard.test.tsx`（新增畸形参数降级用例）。
+
+---
+
+## 2026-08-01
+
+### 修复
+
+- **子代理运行卡片计时静态不更新**：DelegateCard/FleetCard 纯订阅渲染后端推送的 `elapsedMs`，而 `subagent-runner` 只在工具开始/结束和 text_delta 时发 progress（thinking delta 不计），子代理进入思考阶段或长工具静默执行期时无事件 → 计时冻结在最后一次推送值。修复：新增 `useLiveElapsed` hook——running 期间以最近一次推送的 `elapsedMs` 为基准、本地每秒推算流逝时间，计时连续递增；done/error 后冻结为后端终值。FleetCard 抽 `AgentProgressItem` 子组件承载 hook（多 agent 各自独立计时）。与既有 `ThinkingTimer`/录音计时模式一致，不改后端推送频率。
+  - 影响范围：`packages/frontend/src/components/blocks/useLiveElapsed.ts`（新增）、`DelegateCard.tsx`、`FleetCard.tsx`、`tests/DelegateCard.test.tsx`、`tests/FleetCard.test.tsx`（各新增静默期计时递增用例）。
+  - 验证：DelegateCard + FleetCard 26 测试全绿、frontend `typecheck` 通过。
+
+---
+
+## 2026-08-01
+
+### 修复
+
+- **工具调用卡片参数渲染：edit 大段代码不再以 JSON 转义糊成一坨**：`ToolCallCard` 展开区此前用 `JSON.stringify(toolCall.arguments, null, 2)` 直接渲染，edit 等携带大段代码参数的工具（oldText/newText 含真实换行/制表符）会被重新转义成 `\n`/`\t` 字面字符，一长串不可读。修复：①edit 工具走专用参数视图——标题显示文件路径 `path`，展开区以代码块（真实换行缩进、限高滚动）展示新旧内容，兼容 `edits` 数组与平铺两种参数结构；②其他工具走美化后的 JSON 视图——递归渲染参数，多行/长字符串（>60 字符）以真实文本代码块展示，其余保持 JSON 风格；标题截断逻辑（formatArgs）不变。
+  - 影响范围：`packages/frontend/src/components/blocks/ToolCallCard.tsx`、`packages/frontend/tests/ToolCallCard.test.tsx`（新增 3 个组件测试：edit 真实代码展示 / 通用长字符串美化 / edit 平铺结构兼容）。
+  - 验证：frontend 相关 95 测试全绿（含 MessageList/ProcessCard/DelegateCard/FleetCard 无回归）、`typecheck` 通过、E2E 冒烟（prism 用例）通过。
+
+- **delegate 报「bridge 空闲超时 (600000ms 无任何帧)」误杀正常工作的子代理**：昨日空闲超时修复暴露了一个真实静默场景——子代理（deepseek-v4-flash 推理模型，跟随主模型）在长推理阶段只产出 thinking、或慢首 token、或单个长工具调用时，`runSubagentAgent` 只在 tool_execution_start/end 和 text_delta 时发 progress（thinking delta 不计），kernel 侧长时间零帧写出，pi 侧 bridge 空闲超时（600s 无帧）于是误杀。实测案例：代码审查 delegate 00:13:23 发起，600s 零帧后被判死，而子代理可能仍在正常工作。修复：`handleBridgeStream` 在流式执行期间每 15s 写一个 `ping` 心跳帧（无业务含义，消费方忽略但会刷新空闲超时），协议类型 `BridgeStreamFrame` 增加 `ping` 变体。修复后空闲超时只在 kernel 真正卡死（连心跳都写不出）时才触发。
+  - 影响范围：`packages/kernel/src/bridge-registry.ts`（心跳定时器 + `heartbeatMs` 测试注入）、`packages/shared/src/types.ts`（`ping` 帧类型）、`packages/kernel/src/wa-pi-bridge.extension.ts`（注释同步，解析逻辑本就跳过非 final 帧无需改动）、`packages/kernel/tests/bridge.test.ts`（新增心跳用例，kernel 616 测试全绿）。
+
+---
+
+## 2026-08-01
+
+### 修复
+
+- **端口 9778 幽灵占用致「重启应用」死循环**：根因是 Bun 的监听 socket 句柄在 Windows 上可继承——kernel/pi 被杀后，存活的子孙进程（pi 子代理、agent 起的后台进程）仍持有继承的 socket，netstat 显示 LISTENING 归属一个已死的 PID（实测 PID 30000 不存在但端口仍被占）。`killPortOccupants` 只会 taskkill netstat 给的（死）PID，杀完端口未释放 → relaunch 回来还是占用 → 无限循环。修复：①taskkill 加 `/T` 连带进程树（子进程持继承句柄时只杀父进程端口不释放），并校验退出码——权限不足/死 PID 不再静默视为成功，失败 PID 与最终端口占用结果一并输出日志；②taskkill 后短轮询（3×200ms，新导出 `waitPortReleased`）确认端口仍占用，才回退 PowerShell 幽灵扫描——按「数据目录特征种子 + 进程树子孙链」圈定我方残留进程：种子要求命令行含本机 wa-pi 数据目录路径（`WA_PI_DIR` 或 `~/.wa-pi`），再沿进程树 BFS 纳入无特征后代（cmd/bun shim、子代理起的后台命令——幽灵 socket 句柄常捏在这类进程手里），显式排除自身进程，被杀 PID 连同命令行摘要经注入的 logFn 落 `logs/desktop.log`；③清理后仍占用（无我方特征的第三方进程持有）时诚实提示「自动清理失败，请手动结束 bun/wa-pi 进程或重启电脑」，不再盲目 relaunch。端口固定不可后移（前端 IndexedDB origin 绑定端口），故不做动态端口兜底。
+  - 影响范围：`packages/desktop/src/util/port.cjs`（killPortOccupants 改 async + 幽灵回退扫描 + waitPortReleased）、`packages/desktop/src/main.cjs`（重启前验证端口释放、传入 logFn）、`packages/desktop/tests/port.cjs.test.ts`（新增幽灵回退/误杀防护/子孙链/taskkill 失败/waitPortReleased 用例）。已经真机端到端验证：构造幽灵占用（父死子存）→ 真实 `killPortOccupants` 清理 → 端口释放。
+  - 注：句柄可继承本身是 Bun 上游行为，本修复为防御/清理层；若 Bun 后续版本修正（socket 默认不可继承），本逻辑自动退化为空操作。
+
+---
+
 ## 2026-07-31
 
 ### 修复
 
+- **bridge `timeout:false` 后省略 timeoutMs 将永久挂起**：`callBridge` 的 `timeoutMs` 此前可选且省略时不挂任何计时器——Bun 300s 原生硬超时被 `timeout:false` 关掉后，未来新增工具忘传 timeoutMs 会在 kernel 无响应时永久挂起。改为默认 `DEFAULT_TIMEOUT_MS`（60s 空闲兜底），`<= 0` 保留为显式关闭的逃生门。新增用例：源码变换模拟忘传场景，断言按默认值判死报「空闲超时」。
+  - 影响范围：`packages/kernel/src/wa-pi-bridge.extension.ts`、`packages/kernel/tests/bridge-extension.test.ts`。
+  - 验证：kernel 全量 617 pass / 0 fail；`typecheck` 通过。**需重启 kernel 生效**（bridge 扩展在 kernel 启动时复制到 `~/.wa-pi/.generated/`）。
+
+- **delegate/fleet 超 5 分钟必报「bridge 调用失败: The operation timed out.」**：根因不在下午的流式改造——pi 进程运行在 Bun 上，Bun 原生 `fetch` 有 300s 硬超时（`TimeoutError` code 23，与 signal 无关、无法被 AbortSignal 或数值 timeout 延长；Bun 1.3.14 实证 300.6s 触发，会话日志实测 delegate 298s 阵亡）。下午加的 600s 自定义计时器根本轮不到生效。修复：①bridge fetch 加 Bun 专属 `timeout: false` 关闭原生超时（Node/undici 忽略该选项）；②自定义超时改为真·空闲语义——原实现是一次性绝对计时（注释声称"无帧才判死"但代码不刷新），现每收到一个数据块即重置，持续有进度帧的长跑子代理不再被掐断。
+  - 影响范围：`packages/kernel/src/wa-pi-bridge.extension.ts`、`packages/kernel/tests/bridge-extension.test.ts`（新增 timeout:false 断言 + 空闲刷新/空闲判死两个语义用例，kernel 615 测试全绿）。**需重启 kernel 生效**（bridge 扩展在 kernel 启动时复制到 `~/.wa-pi/.generated/`）。
+
+- **停止消息触发内核异常（unhandledRejection：Controller is already closed）**：`/bridge/tool` 流式分支（delegate/fleet NDJSON 流）在消费方中断后未防护——用户停止消息时 pi 侧 abort fetch，Bun cancel 服务端 ReadableStream，但子代理仍在跑并继续产出 progress，`controllerRef.enqueue()` 对已关闭 controller 同步抛 `Invalid state: Controller is already closed`，沿子代理 stdout 回调链冒泡成 unhandledRejection 广播「内核异常」。修复：流增加 `cancel()` 回调与 `closed` 标记，`enqueue`/`close` 收敛为带防护的 `writeLine`/`closeStream`（closed 后跳过 + try 兜底）。
+  - 影响范围：`packages/kernel/src/ws-server.ts`、`packages/kernel/tests/bridge.test.ts`（新增「消费方中断后继续 progress/final 不抛 unhandledRejection」回归用例）。
+
+- **kernel 测试污染真实数据目录致线上 Model not found**：`ensureProviderExtensionRegistered` 此前只能写编译期常量 `GENERATED_DIR`（`~/.wa-pi/.generated`），`ws-provider-dirty.test.ts` 的 provider:delete 用例经真实 WSServer 处理器把空壳 extension 写进真实目录，`provider-extension.test.ts` 两个用例也会写/删真实文件——本地跑测试即清空线上 provider 注册，发消息报 `Model not found: <slug>/<model>`。修复：函数新增可选 `generatedDir` 参数（默认 `GENERATED_DIR`），`WSServerOpts` 新增同名透传，相关测试全部改用临时目录。
+  - 影响范围：`packages/kernel/src/provider-extension.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/tests/provider-extension.test.ts`、`packages/kernel/tests/ws-provider-dirty.test.ts`。
+
 - **E2E 稳定性修复（共享 kernel 下各 spec 互相干扰）**：①composer.spec 预置 provider 显式指定唯一 slug/name（`e2e-composer` / "E2E Composer"）——此前多 spec 都建名为 "E2E" 的 provider，name 派生 slug 撞车加后缀（e2e-2/e2e-3…），导致 selectOption 按 label 选中别家 option；②settings-provider.spec 适配预设选择 UI 改版（preset-select 下拉 → preset-search 搜索 + preset-option 列表），模型添加快捷搜索 `deepseek-v4-flash`（pi-ai 0.83 目录已无旧 deepseek-chat），供应商名改唯一避免与其他 spec 的 DeepSeek 卡片 strict 冲突；③quick-invoke.spec 流式搜索 30 结果超时 10s → 20s（全量跑时遗留假 provider 会话拖慢 kernel 文件搜索）；④skills.spec 适配技能目录默认展开（去掉 toggle 点击）；⑤chat-blocks.spec 移除已下线的「复制路径」按钮断言。
   - 影响范围：`packages/frontend/e2e/`（chat-blocks / composer / quick-invoke / settings-provider / skills 共 5 个 spec）。
 
-### 重构
-
-- **移除 agent 的 `systemPromptMode`（append/replace）配置**：角色提示词正文（systemPromptBody）非空时统一替换默认 base 提示词，不再支持"追加"模式，简化配置心智。前端 AgentConfig 的"模式"切换按钮同步删除。
-  - 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/subagent-runner.ts`（`WaPiSpawnConfig` 去掉 systemPromptMode 字段）、`packages/frontend/src/components/AgentConfig.tsx`、kernel 相关测试（agent-md/config-store/delegate-tool/subagent-runner）。
-  - 验证：kernel 全量 611 pass / 0 fail；前端 825 pass / 0 fail；`typecheck` 通过。
-
-### 修复
-
 - **E2E 测试稳定性改造（kernel 去 WS 化适配）**：①E2E 隔离目录从 `randomUUID()` 改为固定 `~/.wa-pi-e2e`（可用 `WA_PI_E2E_DIR` 覆盖）——原方案下 globalSetup 与各 worker 进程各自加载 config 拿到不同目录，曾导致 session-history ENOENT projects.json；②globalSetup 开头清空重建隔离目录，探活从 WebSocket 改为 HTTP `GET /api/projects`；③新增 `e2e/helpers.ts` REST 辅助层替代旧 spec 的 WS 命令/广播应答模式（写操作走 REST，结果对象用 pollUntil 轮询 GET 端点）；④`workers: 1` 串行执行——所有 spec 共享同一隔离 kernel，SSE 广播会让并行 worker 页面互相干扰。
   - 影响范围：`packages/frontend/playwright.config.ts`、`packages/frontend/e2e/global-setup.ts`、`packages/frontend/e2e/helpers.ts`（新增）及全部 e2e spec。
-
-### 新增功能
-
-- **流式 bridge + 子代理进度直推前端**：根治子代理委托执行超 5 分钟被 undici idle timeout 砍断的问题（现象：`bridge 调用失败: The operation timed out.`）。根因是 `pi` rpc 进程启动时把全局 undici `headersTimeout`/`bodyTimeout` 设为 5 分钟（`http-dispatcher.js` 的 `DEFAULT_HTTP_IDLE_TIMEOUT_MS=300_000`），而 delegate/fleet 的 bridge 是一次性阻塞 fetch，子代理执行期间无字节流动即被判死。
-  - 方案：把 delegate/fleet 的 bridge 改成 NDJSON 流式协议（started→progress→final 三帧），kernel 端点先 return 流式 Response、后台边跑子代理边 flush 进度帧，持续重置 idle timeout；同时接通 `agent-manager.ts` 断点闲置的 `SubagentProgressEvent` 管道，进度经新增的 `onSubagentProgress` 回调 + SSE `subagent:progress` 事件直推前端。
-  - 前端体验：DelegateCard/FleetCard 全生命周期默认折叠，只露摘要（状态/耗时/工具数），展开看实时 output 和工具时间线；FleetCard 按 agent 分组。
-  - 影响范围：`packages/shared/src/types.ts`（新增 `SubagentProgressEvent`/`BridgeStreamFrame`/`SubagentProgressServerEvent`）、`packages/kernel`（`bridge-registry`/`agent-manager`/`ws-server`/`delegate-tool`/`subagent-runner`/`index`/`wa-pi-bridge.extension`）、`packages/frontend`（`store/session`、`App`、`DelegateCard`、`FleetCard`）。
-  - 验证：kernel 全量 611 pass / 0 fail；前端本特性相关 DelegateCard+FleetCard+session-progress 共 24 pass / 0 fail（前端全量里的 mermaid/filepicker 等失败为历史既存 happy-dom 并发 flaky，与本特性无关）。
-
-### 修复
 
 - **会话标题误用角色名，且兜底创建的会话标题不被更新**：根因有两处。①`agent-manager.ts` 的 `getCommands` 兜底分支创建会话时用 `title: agentName`（角色名）做标题——此时还没有用户消息，但角色名会固化成标题不再更新；②`ws-server.ts` 的 `agent:prompt` 只在新建会话时设标题（`event.text.slice(0,20)`），已有会话（含兜底创建的空/角色名标题）发首条消息时不更新。修复：①兜底创建改用空标题占位（不再用 agentName）；②新增 `fillSessionTitleIfEmpty` 方法，每次发送消息时检查标题，为空则用消息内容前 20 字符填充并广播 `projects:list` 刷新侧栏；已有标题（用户手动命名或已填充）不覆盖。
   - 影响范围：`packages/kernel/src/agent-manager.ts`（兜底 createSession title: agentName → ""）、`packages/kernel/src/project-store.ts`（新增 fillSessionTitleIfEmpty）、`packages/kernel/src/ws-server.ts`（agent:prompt 非 isNew 分支调用 fillSessionTitleIfEmpty）、`packages/kernel/tests/project-store.test.ts`（新增 3 个用例：空标题填充 / 已有标题不覆盖 / 会话不存在）
@@ -43,6 +96,19 @@
 - **404 确定性错误被误分类为 transient，导致误导性"模型连接异常"状态条 + 卡 loading**：根因是 `sdk-errors.ts` 的 transient 正则用了宽泛的 `5\d\d` 匹配 5xx 状态码，而 404 错误页 HTML（provider 返回的网站页面）里含任意三位数（如像素宽度 "563"）会被误命中；同时 FATAL 正则只覆盖 401/403，漏了 404。结果确定性失败（404 模型/路径不存在）被当成网络重试，既显示误导文案（检查网络）又不结束当前轮次（loading 不消失）。修复：①transient 的 `5\d\d` 收紧为精确 `500|502|503|504|524`，对齐 pi-ai 0.83.0 retry.js 的做法；②FATAL 增加 `404`；③新增 `sanitizeErrorMessage` 清洗 HTML 错误页——provider baseUrl 错误时返回整页 HTML，原样贴到会话流不可读，现提取 HTTP 状态码映射到预设通用提示枚举（如 404 → "接口不存在（404），请检查 Provider 的 baseUrl 或模型 ID"），未枚举的状态码按段位给通用提示（4xx → "请求错误（NNN），请检查请求参数或 Provider 配置"；5xx → "服务端错误（NNN），请稍后重试"），非 HTML 文案原样保留。现在 404 走 fatal 分支 → 清晰的红色错误消息 + 正常结束 loading。
   - 影响范围：`packages/kernel/src/sdk-errors.ts`（TRANSIENT_ERROR_PATTERN 收紧、FATAL_ERROR_PATTERN 加 404、新增 HTTP_STATUS_HINTS 枚举 + sanitizeErrorMessage 含段位兜底）、`packages/kernel/tests/sdk-errors.test.ts`（新增 404 HTML 回归用例 + 明文 500 仍 transient 用例 + HTML 映射枚举用例 + 未枚举 4xx/5xx 段位兜底用例）
   - 验证：用真实 opencode-go provider 404 响应端到端验证分类为 fatal + message 映射到通用提示；`bun test` sdk-errors 33 pass；kernel `typecheck` 通过。
+
+- **预设 provider 保存后报 `Model not found`**：根因是 slug 派生不一致——pi 内置 provider id 是 `opencode-go`，但前端"快捷选择"只把预设的显示名（`OpenCode Zen Go`）填入表单，丢弃了 key（`opencode-go`）。保存后 `slugifyProviderName("OpenCode Zen Go")` → slug `opencode-zen-go`，extension 注册了一个与内置**不同名**的 provider，发消息时 `setModel("opencode-zen-go", ...)` 在 pi 的 `getAvailable()` 里找不到（内置那个叫 `opencode-go` 且无 apiKey），报 `Model not found`。修复：`ModelProvider` 加可选 `slug` 字段；选预设时存 `preset.key`（对齐内置 provider id），extension 注册会**增强**内置 provider（补 apiKey）而非另起一个；非预设/旧数据 slug 为空，fallback 到现有 name 派生（完全向后兼容）。新增 `resolveProviderSlug(provider, usedSlugs)` 统一替换全链路 6 处 slug 派生点。
+  - 影响范围：`packages/shared/src/providers.ts`（加 `ModelProvider.slug?` 字段 + `resolveProviderSlug` 纯函数 + `isModelAvailable` 内部改用它）、`packages/kernel/src/provider-extension.ts`（`slugifyProviders` 改用 `resolveProviderSlug`）、`packages/frontend/src/components/settings/ProviderFormModal.tsx`（选预设时 `setSlug(preset.key)` + 保存写入 slug + 编辑模式预填）、`packages/frontend/src/components/ui/ModelSelector.tsx`、`SessionView.tsx`、`AgentConfig.tsx`（3 处 slug 派生改用 `resolveProviderSlug`）
+  - 验证：TDD 推进，shared 23 pass / kernel provider-extension 16 pass / frontend ProviderFormModal 23 pass + ModelSelector 9 pass，全绿；旧数据无 slug 字段走 fallback，行为不变。
+
+- **`ws-extension-skill-refresh` SSE 测试随机超时失败**：根因是测试竞态，非 flaky。`ReadableStream.start`（把 write 函数注册到 `SseBus`）是惰性触发的——只有消费者开始 `read()` 时才执行。测试 `connectSse` 拿到 reader 后立即发 HTTP 请求触发 `broadcast skill:changed`，此时 `start` 可能尚未执行、`bus.clients` 仍为空，事件被永久丢弃（SSE 无缓冲、无重放），导致 `waitForSseEvent` 3 秒超时。失败用例每次不同（install/uninstall/upgrade/toggle 随机中招）正是此机制。修复：`connectSse` 返回前先 `await reader.read()` 消费首帧（`: connected` 注释），强制触发 `start → bus.add(write)`，确保后续广播能送达。连跑 8 次全绿。
+  - 影响范围：`packages/kernel/tests/ws-extension-skill-refresh.test.ts`（`connectSse` 加首读预热）
+
+### 重构
+
+- **移除 agent 的 `systemPromptMode`（append/replace）配置**：角色提示词正文（systemPromptBody）非空时统一替换默认 base 提示词，不再支持"追加"模式，简化配置心智。前端 AgentConfig 的"模式"切换按钮同步删除。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/subagent-runner.ts`（`WaPiSpawnConfig` 去掉 systemPromptMode 字段）、`packages/frontend/src/components/AgentConfig.tsx`、kernel 相关测试（agent-md/config-store/delegate-tool/subagent-runner）。
+  - 验证：kernel 全量 611 pass / 0 fail；前端 825 pass / 0 fail；`typecheck` 通过。
 
 ### 变更
 
@@ -57,16 +123,13 @@
 - **首次录音默认音源改为系统音频**：原默认为麦克风（mic）。将首次录音（localStorage 无 `wa-pi:recording-prefs` 偏好记录时）的回落默认值从 `mic` 改为 `system`（系统音频）。已录过音的老用户不受影响（localStorage 有上次音源记录，优先用该值）。改动两处硬编码初始值：`RecordButton` 组件本地 state 初始值（挂载后仍会被 localStorage 真实偏好覆盖）、`useRecordingStore` 初始 `source`。系统音频的 Electron loopback 能力早已就绪，无需新增 desktop 代码。
   - 影响范围：`packages/frontend/src/components/ui/RecordButton.tsx`（`useState` 初始值 mic→system）、`packages/frontend/src/store/recording.ts`（store 初始 `source` mic→system）、`packages/frontend/tests/RecordButton.test.tsx`（更新过时标题 + 新增首次默认 system 用例）
 
-### 修复
+### 新增功能
 
-- **预设 provider 保存后报 `Model not found`**：根因是 slug 派生不一致——pi 内置 provider id 是 `opencode-go`，但前端"快捷选择"只把预设的显示名（`OpenCode Zen Go`）填入表单，丢弃了 key（`opencode-go`）。保存后 `slugifyProviderName("OpenCode Zen Go")` → slug `opencode-zen-go`，extension 注册了一个与内置**不同名**的 provider，发消息时 `setModel("opencode-zen-go", ...)` 在 pi 的 `getAvailable()` 里找不到（内置那个叫 `opencode-go` 且无 apiKey），报 `Model not found`。修复：`ModelProvider` 加可选 `slug` 字段；选预设时存 `preset.key`（对齐内置 provider id），extension 注册会**增强**内置 provider（补 apiKey）而非另起一个；非预设/旧数据 slug 为空，fallback 到现有 name 派生（完全向后兼容）。新增 `resolveProviderSlug(provider, usedSlugs)` 统一替换全链路 6 处 slug 派生点。
-  - 影响范围：`packages/shared/src/providers.ts`（加 `ModelProvider.slug?` 字段 + `resolveProviderSlug` 纯函数 + `isModelAvailable` 内部改用它）、`packages/kernel/src/provider-extension.ts`（`slugifyProviders` 改用 `resolveProviderSlug`）、`packages/frontend/src/components/settings/ProviderFormModal.tsx`（选预设时 `setSlug(preset.key)` + 保存写入 slug + 编辑模式预填）、`packages/frontend/src/components/ui/ModelSelector.tsx`、`SessionView.tsx`、`AgentConfig.tsx`（3 处 slug 派生改用 `resolveProviderSlug`）
-  - 验证：TDD 推进，shared 23 pass / kernel provider-extension 16 pass / frontend ProviderFormModal 23 pass + ModelSelector 9 pass，全绿；旧数据无 slug 字段走 fallback，行为不变。
-
-- **`ws-extension-skill-refresh` SSE 测试随机超时失败**：根因是测试竞态，非 flaky。`ReadableStream.start`（把 write 函数注册到 `SseBus`）是惰性触发的——只有消费者开始 `read()` 时才执行。测试 `connectSse` 拿到 reader 后立即发 HTTP 请求触发 `broadcast skill:changed`，此时 `start` 可能尚未执行、`bus.clients` 仍为空，事件被永久丢弃（SSE 无缓冲、无重放），导致 `waitForSseEvent` 3 秒超时。失败用例每次不同（install/uninstall/upgrade/toggle 随机中招）正是此机制。修复：`connectSse` 返回前先 `await reader.read()` 消费首帧（`: connected` 注释），强制触发 `start → bus.add(write)`，确保后续广播能送达。连跑 8 次全绿。
-  - 影响范围：`packages/kernel/tests/ws-extension-skill-refresh.test.ts`（`connectSse` 加首读预热）
-
-### 新增
+- **流式 bridge + 子代理进度直推前端**：根治子代理委托执行超 5 分钟被 undici idle timeout 砍断的问题（现象：`bridge 调用失败: The operation timed out.`）。根因是 `pi` rpc 进程启动时把全局 undici `headersTimeout`/`bodyTimeout` 设为 5 分钟（`http-dispatcher.js` 的 `DEFAULT_HTTP_IDLE_TIMEOUT_MS=300_000`），而 delegate/fleet 的 bridge 是一次性阻塞 fetch，子代理执行期间无字节流动即被判死。
+  - 方案：把 delegate/fleet 的 bridge 改成 NDJSON 流式协议（started→progress→final 三帧），kernel 端点先 return 流式 Response、后台边跑子代理边 flush 进度帧，持续重置 idle timeout；同时接通 `agent-manager.ts` 断点闲置的 `SubagentProgressEvent` 管道，进度经新增的 `onSubagentProgress` 回调 + SSE `subagent:progress` 事件直推前端。
+  - 前端体验：DelegateCard/FleetCard 全生命周期默认折叠，只露摘要（状态/耗时/工具数），展开看实时 output 和工具时间线；FleetCard 按 agent 分组。
+  - 影响范围：`packages/shared/src/types.ts`（新增 `SubagentProgressEvent`/`BridgeStreamFrame`/`SubagentProgressServerEvent`）、`packages/kernel`（`bridge-registry`/`agent-manager`/`ws-server`/`delegate-tool`/`subagent-runner`/`index`/`wa-pi-bridge.extension`）、`packages/frontend`（`store/session`、`App`、`DelegateCard`、`FleetCard`）。
+  - 验证：kernel 全量 611 pass / 0 fail；前端本特性相关 DelegateCard+FleetCard+session-progress 共 24 pass / 0 fail（前端全量里的 mermaid/filepicker 等失败为历史既存 happy-dom 并发 flaky，与本特性无关）。
 
 - **空闲会话子进程定时回收（1 分钟阈值）**：用户切走/闲置的会话背后常驻一个 `pi --mode rpc` 子进程（每个聊天窗口一个），长期不回收会累积内存。新增后端定时器：每 30s 扫描活跃会话，对 `lastActivity` 超过 **1 分钟** 且**非 busy**（未在思考/跑工具）的会话调用 `disposeSession` 回收子进程。回收只杀进程、**保留会话记录与 jsonl 历史**，用户再点开时 `ensureStarted` 从 jsonl 冷启动恢复，不丢消息。busy 会话（正在思考）绝不回收，留待 `agent_settled` 后下一轮处理。
   - **续命点**（重置 1 分钟倒计时）：用户发消息（prompt）、agent 回复完成（message_end）、用户发引导消息（steer）、用户打开会话查看消息（session:messages）。打开会话续命避免"正看着的会话被回收"。
@@ -89,7 +152,7 @@
 
 ### 修复
 
-- **历史消息中 `/skill:技能名` 纯文本未渲染为技能样式**：根因是技能在输入框里是 `$[name]` chip，发送时 `expandTokens` 展开为 `/skill:name ` 纯文本（供 SDK 识别）；当 SDK 未把它再展开成 `<skill>` XML 时，消息以纯文本命令形式存储。而 `formatSkillBlocks` 只认 `<skill>` XML 块、`textToSegments` 只认 `$[name]` chip 格式，`/skill:xxx` 落在两者盲区，原样显示为纯文本。修复：`formatSkillBlocks` 新增第二条替换规则识别 `/skill:name` 纯文本，且**只有该技能名在已启用技能列表（`skills`）中真实存在时才渲染为 ⚡ 技能名**，避免任意 `/skill:xxx` 文本被误判；尾部多余空格压缩为单个。普通 `/命令`（非 `skill:` 前缀）保持原样。`MessageRow` 通过 `useSkillsStore` 取 `skills` 构造技能名集合传入 `formatSkillBlocks`（用 `useMemo` 缓存 Set 避免每次渲染新建触发无限循环）。
+- **历史消息中 `/skill:技能名` 纯文本未渲染为技能样式**：根因是技能在输入框里是 `$[name]` chip，发送时 `expandTokens` 展开为 `/skill:name` 纯文本（供 SDK 识别）；当 SDK 未把它再展开成 `<skill>` XML 时，消息以纯文本命令形式存储。而 `formatSkillBlocks` 只认 `<skill>` XML 块、`textToSegments` 只认 `$[name]` chip 格式，`/skill:xxx` 落在两者盲区，原样显示为纯文本。修复：`formatSkillBlocks` 新增第二条替换规则识别 `/skill:name` 纯文本，且**只有该技能名在已启用技能列表（`skills`）中真实存在时才渲染为 ⚡ 技能名**，避免任意 `/skill:xxx` 文本被误判；尾部多余空格压缩为单个。普通 `/命令`（非 `skill:` 前缀）保持原样。`MessageRow` 通过 `useSkillsStore` 取 `skills` 构造技能名集合传入 `formatSkillBlocks`（用 `useMemo` 缓存 Set 避免每次渲染新建触发无限循环）。
   - 影响范围：`packages/frontend/src/components/MessageList.tsx`（`formatSkillBlocks` 加纯文本分支 + 技能列表过滤；`MessageRow` 接入 `useSkillsStore`）、`packages/frontend/tests/MessageList.test.tsx`（TDD 失败测试先于实现）
 
 ### 修复
