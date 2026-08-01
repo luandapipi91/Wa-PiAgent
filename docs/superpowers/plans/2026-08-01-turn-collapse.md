@@ -526,7 +526,7 @@ git commit -m "feat(frontend): 新增轮级折叠摘要行 TurnSummary + formatE
 ```tsx
 // ── 轮级折叠摘要行 ────────────────────────────────────────────────────────
 
-function assistantMsg(content: any[], ts: number, extra: any = {}) {
+function assistantMsgWithExtras(content: any[], ts: number, extra: any = {}) {
   return { message: { role: "assistant", content, timestamp: ts, stopReason: "end_turn", ...extra }, agentName: "dev" };
 }
 
@@ -534,7 +534,7 @@ test("已定稿含过程段的行：折叠为摘要行，text 保留，点击展
   useSessionStore.setState({
     messagesBySession: { s1: [
       { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
-      assistantMsg([
+      assistantMsgWithExtras([
         { type: "thinking", thinking: "思考中" },
         { type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
         { type: "text", text: "最终回复" },
@@ -560,7 +560,7 @@ test("有时长的轮：摘要行显示本轮时长 + 步骤数", () => {
   useSessionStore.setState({
     messagesBySession: { s1: [
       { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
-      assistantMsg([
+      assistantMsgWithExtras([
         { type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
         { type: "text", text: "最终回复" },
       ], 5000, { turnElapsedMs: 4000 }),
@@ -575,13 +575,83 @@ test("纯文本行：无摘要行", () => {
   useSessionStore.setState({
     messagesBySession: { s1: [
       { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
-      assistantMsg([{ type: "text", text: "纯文本回复" }], 2),
+      assistantMsgWithExtras([{ type: "text", text: "纯文本回复" }], 2),
     ] },
     streamingBySession: { s1: null },
   });
   render(<MessageList sessionId="s1" />);
   expect(screen.queryByTestId("turn-summary")).toBeNull();
   expect(screen.getByText("纯文本回复")).toBeTruthy();
+});
+
+test("多段 text 的轮：只保留最后一段 text 在外，中间 text 折叠进摘要行", () => {
+  useSessionStore.setState({
+    messagesBySession: { s1: [
+      { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+      assistantMsgWithExtras([
+        { type: "thinking", thinking: "思考中" },
+        { type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
+        { type: "text", text: "中间的过渡文字" },
+        { type: "text", text: "最终回复" },
+      ], 2),
+    ] },
+    streamingBySession: { s1: null },
+  });
+  render(<MessageList sessionId="s1" />);
+  // 折叠态：摘要行出现、只有最后一段 text 可见、中间 text 与过程段不可见
+  expect(screen.getByTestId("turn-summary")).toBeTruthy();
+  expect(screen.getByText("最终回复")).toBeTruthy();
+  expect(screen.queryByText("中间的过渡文字")).toBeNull();
+  expect(screen.queryByText("思考中")).toBeNull();
+  // 展开后：中间 text 与过程段可见
+  fireEvent.click(screen.getByTestId("turn-summary"));
+  expect(screen.getByText("中间的过渡文字")).toBeTruthy();
+  expect(screen.getByText("思考中")).toBeTruthy();
+});
+
+test("进行中的轮（status=thinking）最后一行不折叠，即使已定稿", () => {
+  useSessionStore.setState({
+    statusBySession: { s1: "thinking" },
+    messagesBySession: { s1: [
+      { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+      assistantMsgWithExtras([
+        { type: "thinking", thinking: "思考中" },
+        { type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
+        { type: "text", text: "部分回复" },
+      ], 2),
+    ] },
+    streamingBySession: { s1: null },
+  });
+  render(<MessageList sessionId="s1" />);
+  // 轮未结束：不折叠，过程段直接可见（保持逐卡流式渲染），无摘要行
+  expect(screen.queryByTestId("turn-summary")).toBeNull();
+  expect(screen.getByText("思考中")).toBeTruthy();
+  expect(screen.getByText("部分回复")).toBeTruthy();
+});
+
+test("进行中的轮：更早的已完成轮仍折叠", () => {
+  useSessionStore.setState({
+    statusBySession: { s1: "thinking" },
+    messagesBySession: { s1: [
+      { message: { role: "user", content: [{ type: "text", text: "问题一" }], timestamp: 1 }, agentName: "dev" },
+      assistantMsgWithExtras([
+        { type: "toolCall", id: "t1", name: "read", arguments: { path: "/tmp/a" } },
+        { type: "text", text: "第一轮回复" },
+      ], 2, { turnElapsedMs: 1000 }),
+      { message: { role: "user", content: [{ type: "text", text: "问题二" }], timestamp: 3 }, agentName: "dev" },
+      assistantMsgWithExtras([
+        { type: "thinking", thinking: "第二轮思考中" },
+        { type: "text", text: "第二轮部分回复" },
+      ], 4),
+    ] },
+    streamingBySession: { s1: null },
+  });
+  render(<MessageList sessionId="s1" />);
+  // 第一轮（已完成，非最后一行）：折叠，显示摘要行；第二轮（进行中末行）：不折叠
+  expect(screen.getAllByTestId("turn-summary")).toHaveLength(1);
+  expect(screen.getByText("第二轮思考中")).toBeTruthy();
+  // 第一轮过程段不可见（折叠中）
+  expect(screen.queryByText("read")).toBeNull();
 });
 ```
 
@@ -600,14 +670,50 @@ a) 顶部 import 加：
 import { TurnSummary } from "./blocks/TurnSummary";
 ```
 
-b) `hasProcessCard` 计算之后、`return (` 之前，加分组与折叠判定：
+b) `hasProcessCard` 计算之后、`return (` 之前，加折叠判定与分组（**含整轮完成时机 + 只留最后一段 text 两个修正**）：
 
 ```tsx
- // 轮级折叠：已定稿（非流式）+ 含过程段 → 过程段折叠为摘要行，text 段保留在外
- const canCollapse = hasProcessCard && !isStreaming;
- const processSegs = segments.filter((s) => s.kind !== "text");
- const textSegs = segments.filter((s) => s.kind === "text");
+ // 轮级折叠：整轮已完成（非流式 + 非「进行中轮的末行」）+ 含过程段 →
+ // 过程段与中间 text 段折叠为摘要行，只保留最后一段 text 回复在外。
+ // 进行中轮（status==="thinking"）的最后一条已定稿 assistant 行即使已定稿
+ // （长工具执行间隙 streaming 为空）也不折叠——必须等 agent_end 整轮结束。
+ const isActiveTurnRow =
+  status === "thinking" &&
+  /* 该行是当前渲染列表的最后一条已定稿 assistant 行（非 streaming） */
+  isLastFinalizedAssistantRow;
+ const canCollapse = hasProcessCard && !isStreaming && !isActiveTurnRow;
+ // 折叠内容：除最后一段 text 外的所有段（过程段 + 中间 text）
+ const processSegs = segments.filter((s, i) => i !== lastTextSegIdx);
+ // 保留在外：最后一段 text（最终回复）；纯过程轮无 text 则全折叠
+ const finalTextSeg = lastTextSegIdx >= 0 ? segments[lastTextSegIdx] : undefined;
 ```
+
+**isLastFinalizedAssistantRow 的判定（在 MessageList 主组件层实现）：** 渲染 rows 时，对每条 assistant 行判断其是否为「当前渲染列表的最后一条已定稿 assistant 行」——即：`session status === "thinking"` 时，消息列表最后一条已定稿 assistant（不含 streaming 占位）所在的行。由 MessageList 主组件计算并作为 prop 传入 MessageRow（如 `isActiveTurnRow`），MessageRow 内不再自行推导。历史加载（status 非 thinking）时恒为 false（全部可折叠）。
+
+渲染部分（替换原 map）——折叠分支：`processSegs` 包进 TurnSummary（steps=processSegs 中非 text 段数量，即过程段数；中间 text 不计步骤），`finalTextSeg` 保留在外：
+
+```tsx
+    {canCollapse ? (
+     <>
+      <TurnSummary steps={processSteps} elapsedMs={m.turnElapsedMs}>
+       {processSegs.map((seg, si) => renderSeg(seg, si, false))}
+      </TurnSummary>
+      {finalTextSeg && renderSeg(finalTextSeg, processSegs.length, false)}
+     </>
+    ) : (
+     segments.map((seg, si) =>
+      renderSeg(
+       seg,
+       si,
+       isStreaming &&
+        (row.streamingStartIdx == null ||
+         seg.firstBlockIdx >= row.streamingStartIdx),
+      ),
+     )
+    )}
+```
+
+其中 `processSteps = segments.filter((s) => s.kind !== "text").length`（过程段数量，text 不计——中间 text 折叠进摘要但不算步骤）。
 
 c) 在 MessageRow 内（`fullText`/`lastTextSegIdx`/`isError` 计算之后、`return (` 之前）新增组件内函数 `renderSeg`——把原 map 内的分发逻辑整体搬移（thinking/toolCalls/delegate/fleet/text 各分支原样保留，仅把 key 改为参数、CopyButton 的 `si === lastTextSegIdx` 判断改为引用比较）：
 
