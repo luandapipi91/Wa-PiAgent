@@ -173,6 +173,10 @@ export interface AssistantMessage {
 	// 运行时错误文案：SDK 把 provider 失败编码成 stopReason:"error" 的消息时携带。
 	// kernel 读取它翻译成 {type:"error"} 广播给前端；前端渲染层不直接消费。
 	errorMessage?: string;
+	// 整轮耗时（ms）：本轮最后一条 assistant.timestamp − user.timestamp。
+	// 仅成功完成的轮注入（失败回合/旧数据无此字段）。历史加载由 kernel 注入，
+	// 实时轮由前端在 agent_end 时写回。渲染层据此显示「本轮时长」。
+	turnElapsedMs?: number;
 	// usage：透传 Pi SDK 的 Usage 对象。message_end 时由 kernel 原样转发到前端。
 	// 旧消息无此字段，前端需兼容 undefined。cost 字段不在前端使用故不定义。
 	usage?: {
@@ -773,7 +777,7 @@ export interface FSRecordingDiscardResult {
 // 镜像 SDK AgentSessionEvent 联合类型，作为 WS 透传事件
 export type SDKEvent =
 	| { type: "agent_start" }
-	| { type: "agent_end"; messages: AgentMessage[]; willRetry: boolean }
+	| { type: "agent_end"; messages: AgentMessage[]; willRetry: boolean; elapsedMs?: number }
 	| { type: "turn_start" }
 	| {
 			type: "turn_end";
