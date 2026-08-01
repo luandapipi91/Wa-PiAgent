@@ -15,7 +15,10 @@ const PKG = join(import.meta.dir, "..");
 const ROOT = join(PKG, "..", "..");
 function run(bin: string, args: string[], cwd = PKG) {
   console.log(`[build] $ ${bin} ${args.join(" ")}`);
-  const r = spawnSync(bin, args, { cwd, stdio: "inherit", shell: true });
+  // 必须显式传 env：Bun(Windows) 的 spawnSync 不继承进程启动后新设置的 process.env
+  // （实测 cmd /c echo %VAR% 打印字面量），上面 ??= 设置的镜像变量会到不了 electron-builder，
+  // 导致其回退 GitHub 下载 Electron 二进制并 ETIMEDOUT。
+  const r = spawnSync(bin, args, { cwd, stdio: "inherit", shell: true, env: { ...process.env } });
   if (r.status !== 0) { console.error(`[build] 失败: ${bin}`); process.exit(1); }
 }
 
