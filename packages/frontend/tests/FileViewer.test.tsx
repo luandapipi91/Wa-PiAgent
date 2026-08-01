@@ -22,6 +22,8 @@ test("文本文件：加载后渲染 base64 解码内容 + 文件名", async () 
 
   await waitFor(() => expect(screen.getByTestId("file-viewer").textContent).toContain("hello world"));
   expect(screen.getByTestId("file-viewer").textContent).toContain("index.ts");
+  // 非 md 路径必须走 Prism 行号分支：行号容器存在（防止未来误把非 md 也切到 md 分支）
+  expect(screen.getByTestId("file-viewer").querySelector("[data-line]")).not.toBeNull();
 });
 
 test("图片文件：拼成 data URI 渲染到 <img>", async () => {
@@ -71,6 +73,11 @@ const MD_SAMPLE = `# Preview Title
 \`\`\`ts
 const x = 1;
 \`\`\`
+
+\`\`\`mermaid
+graph TD
+  A[Start] --> B[End]
+\`\`\`
 `;
 
 test("md 文件：渲染为 markdown（h1/table/pre），不出现 Prism 行号容器", async () => {
@@ -84,6 +91,17 @@ test("md 文件：渲染为 markdown（h1/table/pre），不出现 Prism 行号�
   expect(textBlock.querySelector("pre")).toBeTruthy();
   // md 渲染不走 FileViewer 的 Prism 分支：不出现行号容器
   expect(screen.getByTestId("file-viewer").querySelector("[data-line]")).toBeNull();
+  // mermaid 代码块走 MermaidBlock 渲染（异步 debounce → mermaid.render）
+  // 实测 happy-dom 下 mermaid.render 的 promise 既不 resolve 也不 reject，组件停留在
+  // mermaid-loading 态（渲染链路本身正常，是测试环境限制）。故断言任一 mermaid 容器
+  // （loading/svg/error）出现，证明该代码块走了 MermaidBlock 分支即可。
+  await waitFor(() => {
+    const fv = screen.getByTestId("file-viewer");
+    const mermaidEl = fv.querySelector(
+      "[data-testid='mermaid-loading'], [data-testid='mermaid-svg'], [data-testid='mermaid-error']",
+    );
+    expect(mermaidEl).not.toBeNull();
+  }, { timeout: 5000 });
 });
 
 test("md 文件：内联路径复用聊天区渲染为文件胶囊", async () => {
