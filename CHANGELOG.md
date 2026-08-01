@@ -8,6 +8,18 @@
 
 ### 修复
 
+- **子代理回复过程中不自动滚动、流式结束尾部可能被裁掉**：子代理（delegate/fleet）的流式内容走 `progressByToolCall` 推送到卡片内部，不走主消息流的 `streamingBySession`，主流滚动 effect 覆盖不到——子代理回复时即使停在底部也不跟随；主流 `message_end` 时 `streaming` 清空、最后一段内容定稿进 messages，但滚动 effect 已停止，尾部可能停在视口下方。修复：①`MessageList` 增加按会话过滤的 `hasRunningSubagent` 选择器（返回布尔，running 期间不随内容更新重渲染），滚动 effect 合并主流 streaming 与子代理运行，rAF 循环每帧贴底一次（合帧）；②由运行态转为结束态时兜底再滚一次，避免尾部裁切；③session store 新增 `progressSessionByToolCall`（toolCallId → sessionId），多会话并存时子代理滚动不串扰。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/src/store/session.ts`；测试 `tests/MessageList.test.tsx`（新增子代理运行跟随/上翻不抢/流式结束兜底 3 个用例）。
+
+- **子代理计时改为本地推算（当前时间 − 开始时间），完成态冻结为后端终值**：旧 `useLiveElapsed` 以最近一次推送的 `elapsedMs` 为基准、本地每秒推算，但基准更新仍依赖推送节奏。新实现：首次收到有效 `elapsedMs` 时反推子代理在本机时钟上的开始时刻 `startAt`（之后锁死），running 期间只用 `Date.now() - startAt` 推算——与 SSE 推送完全解耦，秒数天然连续、不回跳、静默期不冻结；完成（done/error）时冻结为后端终值，与后端记录一致。
+  - 影响范围：`packages/frontend/src/components/blocks/useLiveElapsed.ts`（DelegateCard/FleetCard 共用）；测试 `packages/frontend/tests/DelegateCard.test.tsx`（新增“完成态冻结终值”用例，原静默期推算/不回跳用例保持通过）。
+
+- **流式期间合并行内已定稿 text 段落每帧全量重解析 Markdown**：`CodeBlockCard` memo 已挡住代码块，但合并行里已定稿的普通 text 段每帧整段重跑 `ReactMarkdown/remarkGfm`，超长回复仍是卡顿热点。修复：text 段拆分到 block 级，新增 `MarkdownBlock`（`React.memo`），流式期间只有内容变化的流式末 block 重渲染，已定稿 block（text 引用不变）整块跳过。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`；测试 `tests/MessageList.streaming-render.test.tsx`（渲染计数断言更新：帧 1 只渲染流式新 block、帧 2 累计 +2）。
+
+- **MessageRow 用数组 index 作 key（同 turn 合并时行数位移，展开态可能残留/丢失）**：流式结束合并、`collapseSameTurnAssistants` 会让行数变化、后续行 index 全部位移，key 复用的行可能保留/丢失展开态（如 CodeBlockCard）。修复：改用稳定 key（agentName + message timestamp），合并行沿用首条 timestamp。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`。
+
 - **流式输出期间界面卡顿**：`streamingBySession` 每个流式帧（kernel 50ms 节流）都触发 `MessageList` 全量重渲染——所有历史消息的 `ReactMarkdown` 重新解析、`CodeBlockCard` 的 Prism 高亮重跑，且 `preprocess` 每次重建全部行对象，叠加自动滚动同帧读写 `scrollHeight/scrollTop` 造成 forced reflow。修复：①`preprocess(messages)` 加 `useMemo`（按 messages 引用缓存），历史行引用在流式期间稳定；②`MessageRow` 包 `React.memo`，历史行整行跳过重渲染，只有合并的流式末行/StreamingRow 每帧更新；③`CodeBlockCard` 包 `React.memo`（props 为字符串，流式行内已定稿代码块不再重复高亮）；④流式跟随滚动改 `requestAnimationFrame` 合帧，每帧最多一次 `scrollTop`。
   - 影响范围：`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/src/components/blocks/CodeBlockCard.tsx`；测试 `packages/frontend/tests/MessageList.streaming-render.test.tsx`（新增：流式更新时历史行 Markdown 不重解析的渲染计数回归用例）。
 
