@@ -247,3 +247,50 @@ test("单次失败回合不去重：保留 fatal error 提示用户", async () =
   expect(history).toHaveLength(2);
   expect(history[1].stopReason).toBe("error");
 });
+
+test("轮级耗时：成功轮注入 turnElapsedMs（最后 assistant − user）", async () => {
+  const file = join(dir, "s.jsonl");
+  writeFileSync(file, [
+    JSON.stringify({ type: "session", version: 3, id: "uuid-1" }),
+    msg("m1", null, "user", "问题", 1000),
+    msg("m2", "m1", "assistant", "回答", 5000),
+  ].join("\n"));
+  const history = (await readSessionHistory(file)) as any[];
+  expect(history[1].turnElapsedMs).toBe(4000);
+});
+
+test("轮级耗时：失败回合（error 结尾）不注入", async () => {
+  const file = join(dir, "s.jsonl");
+  writeFileSync(file, [
+    JSON.stringify({ type: "session", version: 3, id: "uuid-1" }),
+    msg("m1", null, "user", "问题", 1000),
+    JSON.stringify({ type: "message", id: "m2", parentId: "m1", timestamp: new Date(2000).toISOString(),
+      message: { role: "assistant", content: [{ type: "text", text: "报错" }], timestamp: 2000, stopReason: "error" } }),
+  ].join("\n"));
+  const history = (await readSessionHistory(file)) as any[];
+  expect(history[1].turnElapsedMs).toBeUndefined();
+});
+
+test("轮级耗时：连续多轮各自注入", async () => {
+  const file = join(dir, "s.jsonl");
+  writeFileSync(file, [
+    JSON.stringify({ type: "session", version: 3, id: "uuid-1" }),
+    msg("m1", null, "user", "问题一", 1000),
+    msg("m2", "m1", "assistant", "回答一", 3000),
+    msg("m3", "m2", "user", "问题二", 4000),
+    msg("m4", "m3", "assistant", "回答二", 8000),
+  ].join("\n"));
+  const history = (await readSessionHistory(file)) as any[];
+  expect(history[1].turnElapsedMs).toBe(2000);
+  expect(history[3].turnElapsedMs).toBe(4000);
+});
+
+test("轮级耗时：无 user 起点（只有 assistant）不注入", async () => {
+  const file = join(dir, "s.jsonl");
+  writeFileSync(file, [
+    JSON.stringify({ type: "session", version: 3, id: "uuid-1" }),
+    msg("m1", null, "assistant", "回答", 2000),
+  ].join("\n"));
+  const history = (await readSessionHistory(file)) as any[];
+  expect(history[0].turnElapsedMs).toBeUndefined();
+});
