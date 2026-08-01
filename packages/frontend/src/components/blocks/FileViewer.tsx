@@ -2,7 +2,10 @@
 // 支持：代码语法高亮(行号)、图片缩放/平移、大文件截断提示、选中复制为 @path:行号 引用。
 import { Highlight, themes } from "prism-react-renderer";
 import { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { readFile } from "../../fs-client";
+import { createMarkdownComponents } from "./markdown-components";
 
 // 图片扩展名集合（与 kernel checkPreviewable 放行的 image/* 对齐）
 const IMAGE_EXTS = new Set([
@@ -38,6 +41,7 @@ function decodeBase64(b64: string): string {
 type FileViewerProps = {
   path: string;
   onClose: () => void;
+  sessionId?: string;
 };
 
 /** 图片预览：滚轮缩放 + 拖拽平移 + 双击重置 */
@@ -116,7 +120,7 @@ function ImageViewer({ src, alt, onClose }: { src: string; alt: string; onClose:
 }
 
 /** 文件预览器：文本/代码用 Prism 高亮，图片用 ImageViewer */
-export function FileViewer({ path, onClose }: FileViewerProps) {
+export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
   const [content, setContent] = useState<string | null>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -127,6 +131,7 @@ export function FileViewer({ path, onClose }: FileViewerProps) {
   const fileName = path.replace(/\\/g, "/").split("/").pop() ?? path;
   const language = guessLanguage(path);
   const image = isImagePath(path);
+  const isMarkdown = extOf(path) === "md";
 
   useEffect(() => {
     let alive = true;
@@ -162,7 +167,7 @@ export function FileViewer({ path, onClose }: FileViewerProps) {
 
   // 选中代码复制为 @path:行号引用（拦截 copy 事件）
   useEffect(() => {
-    if (content === null) return;
+    if (content === null || isMarkdown) return;
     const el = bodyRef.current;
     if (!el) return;
     const displayPath = resolvedPath ?? path;
@@ -186,7 +191,7 @@ export function FileViewer({ path, onClose }: FileViewerProps) {
     };
     document.addEventListener("copy", onCopy);
     return () => document.removeEventListener("copy", onCopy);
-  }, [path, content, resolvedPath]);
+  }, [path, content, resolvedPath, isMarkdown]);
 
   const displayPath = resolvedPath ?? path;
 
@@ -217,6 +222,25 @@ export function FileViewer({ path, onClose }: FileViewerProps) {
 
   if (image && imageSrc) {
     return <ImageViewer src={imageSrc} alt={fileName} onClose={onClose} />;
+  }
+
+  if (isMarkdown && content !== null) {
+    return (
+      <div className="flex flex-col h-full" data-testid="file-viewer">
+        <div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface">
+          <span className="text-[12px] text-secondary flex-1 truncate font-mono">📄 {fileName}</span>
+          <button className="fv-btn" onClick={onClose} title="关闭">✕</button>
+        </div>
+        <div ref={bodyRef} className="flex-1 overflow-auto bg-canvas">
+          <div className="prose prose-sm max-w-none" data-testid="text-block">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={createMarkdownComponents(sessionId ?? "")}>
+              {content}
+            </ReactMarkdown>
+          </div>
+        </div>
+        <div className="px-3 py-1 text-[10.5px] text-tertiary border-t border-hairline bg-surface truncate" title={displayPath}>{displayPath}</div>
+      </div>
+    );
   }
 
   return (
