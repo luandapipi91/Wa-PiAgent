@@ -1,10 +1,11 @@
 // @ts-ignore：fake-indexeddb 的 types 在 exports 解析上有问题，运行时无影响
 import "fake-indexeddb/auto";
 import { describe, it, expect, beforeEach } from "bun:test";
-import { useComposerPrefsStore, _resetDefaultsHydration } from "../src/store/composer-prefs";
+import { useComposerPrefsStore, _resetDefaultsHydration, _resetSessionHydration } from "../src/store/composer-prefs";
 import {
   getDefaults,
   getNewSessionIds,
+  getSessionPrefs,
   setDefaults as dbSetDefaults,
   setNewSessionIds as dbSetNewSessionIds,
   setSessionPrefs as dbSetSessionPrefs,
@@ -44,6 +45,7 @@ describe("composer-prefs store", () => {
     localStorage.clear();
     // 重置 hydration 标志：模拟软件重启后尚未 loadDefaults 的初始状态
     _resetDefaultsHydration();
+    _resetSessionHydration();
     useComposerPrefsStore.setState({
       defaults: { model: null, thinking: "disabled" },
       bySession: {},
@@ -280,5 +282,55 @@ describe("composer-prefs store", () => {
     useComposerPrefsStore.getState().setDefaults({ thinking: "max" });
     // 已设过 high 的会话不受影响
     expect(useComposerPrefsStore.getState().bySession["s-fixed"].thinking).toBe("high");
+  });
+
+  it("复现 hydration 竞态：loadSession 完成前 auto-select 写 model，不应丢失 IDB 里的附件和 thinking", async () => {
+    await dbSetDefaults({ model: null, thinking: "disabled" });
+    // 上次会话已在 IDB 持久化了片段附件和显式 thinking
+    await dbSetSessionPrefs({
+      sessionId: "s-gap-att", model: "old/model", thinking: "high",
+      attachments: [{ kind: "snippet", name: "note", content: "hi" }],
+      updatedAt: Date.now(),
+    });
+
+    // 竞态：reload 后 Composer 挂载，loadSession 已发起但未完成（异步 gap）；
+    // ModelSelector 因 value=null 抢先 auto-select → setSessionPrefs({ model })
+    const loadPromise = useComposerPrefsStore.getState().loadSession("s-gap-att");
+    useComposerPrefsStore.getState().setSessionPrefs("s-gap-att", { model: "auto/first-model" });
+    await loadPromise;
+    await new Promise((r) => setTimeout(r, 10)); // 等 fire-and-forget 写入完成
+
+    const sess = useComposerPrefsStore.getState().bySession["s-gap-att"];
+    // gap 期间显式设置的 model 保留（既有行为：auto-select 结果不被 loadSession 覆盖）
+    expect(sess.model).toBe("auto/first-model");
+    // 未触碰的字段以持久层为准恢复（修复前：existing 守卫整体跳过，attachments 永远是 []）
+    expect(sess.attachments).toEqual([{ kind: "snippet", name: "note", content: "hi" }]);
+    expect(sess.thinking).toBe("high");
+    // IDB 记录也不能被 gap 写入覆写丢附件
+    const stored = await getSessionPrefs("s-gap-att");
+    expect(stored?.attachments).toEqual([{ kind: "snippet", name: "note", content: "hi" }]);
+    expect(stored?.model).toBe("auto/first-model");
+  });
+
+  it("复现：auto-select 先于 loadSession 发起（React 子 effect 先执行的真实时序），附件也不应丢失", async () => {
+    await dbSetDefaults({ model: null, thinking: "disabled" });
+    await dbSetSessionPrefs({
+      sessionId: "s-gap-early", model: "old/model", thinking: "high",
+      attachments: [{ kind: "snippet", name: "note", content: "hi" }],
+      updatedAt: Date.now(),
+    });
+
+    // 真实浏览器时序：ModelSelector 是 Composer 的子组件，React 子 effect 先执行——
+    // auto-select 的 setSessionPrefs 甚至早于 loadSession 被调用
+    useComposerPrefsStore.getState().setSessionPrefs("s-gap-early", { model: "auto/first-model" });
+    await useComposerPrefsStore.getState().loadSession("s-gap-early");
+    await new Promise((r) => setTimeout(r, 10));
+
+    const sess = useComposerPrefsStore.getState().bySession["s-gap-early"];
+    expect(sess.model).toBe("auto/first-model");
+    expect(sess.attachments).toEqual([{ kind: "snippet", name: "note", content: "hi" }]);
+    expect(sess.thinking).toBe("high");
+    const stored = await getSessionPrefs("s-gap-early");
+    expect(stored?.attachments).toEqual([{ kind: "snippet", name: "note", content: "hi" }]);
   });
 });

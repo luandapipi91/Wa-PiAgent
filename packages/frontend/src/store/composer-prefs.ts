@@ -12,6 +12,20 @@ let defaultsHydrated = false;
 /** 测试专用：重置 hydration 标志（模拟软件重启后尚未 loadDefaults 的状态） */
 export function _resetDefaultsHydration(): void { defaultsHydrated = false; }
 
+// 每个 session 的 loadSession 完成状态跟踪（hydration guard 的会话级版本）：
+// loadSession 是异步的，且 React 子组件 effect 先于父组件执行——ModelSelector 的
+// auto-select 甚至早于 loadSession 被调用。此时 setSessionPrefs 若直写 IDB，会用
+// attachments:[] 等初始值覆写已存记录；随后 loadSession 的 existing 守卫整体跳过恢复
+// → 附件/thinking 永久丢失（reload 后片段附件消失的根因）。
+// 守卫：会话完成首次 loadSession 前，写入只更新内存并记录显式字段，不写 IDB；
+// loadSession 完成时按字段合并（显式字段胜出、其余以持久层为准）后统一持久化。
+// 前提是每个会话路径都先走 loadSession——Composer 与 NewSessionPane 挂载时均会调用。
+const loadedSessions = new Set<string>();
+const gapWrites = new Map<string, Partial<SessionPrefs>>();
+
+/** 测试专用：重置会话级 hydration 状态 */
+export function _resetSessionHydration(): void { loadedSessions.clear(); gapWrites.clear(); }
+
 export interface SessionPrefs {
   model: string | null;
   // thinking 可选：undefined 表示用户未在此会话显式设置过，组件读取时回退到 defaults.thinking
@@ -67,12 +81,24 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
     set(s => {
       // 加载完成标记：无论走哪个分支都要置位（Composer 门控 auto-select 的依据）
       const loaded = { loadedBySession: { ...s.loadedBySession, [sessionId]: true } };
-      // 异步 gap 期间 setSessionPrefs 可能已设置值（如 auto-select），不要覆盖
+      const gap = gapWrites.get(sessionId);
+      gapWrites.delete(sessionId);
+      loadedSessions.add(sessionId);
+      // 异步 gap 期间 setSessionPrefs 可能已设置值（如 auto-select），不要整体覆盖；
+      // 改为按字段合并：gap 内显式修改的字段胜出，未触碰的字段以持久层为准恢复
       const existing = s.bySession[sessionId];
       if (existing) {
-        // 保留已有 prefs，仅更新 defaults（若 defaults 加载延迟）
-        if (s.defaults.model == null && defaults.model != null) return { ...loaded, defaults };
-        return loaded;
+        const merged: SessionPrefs = {
+          model: gap?.model !== undefined ? gap.model : (stored?.model ?? existing.model),
+          thinking: gap?.thinking ?? stored?.thinking ?? existing.thinking,
+          attachments: gap?.attachments ?? stored?.attachments ?? existing.attachments,
+        };
+        // gap 写入被守卫拦下未落盘，这里把合并结果统一持久化
+        void dbSetSessionPrefs({ sessionId, model: merged.model, thinking: merged.thinking ?? defaults.thinking, attachments: merged.attachments, updatedAt: Date.now() });
+        // 保留已有 prefs 的同时，若 defaults 加载延迟则一并更新
+        const next: Partial<ComposerPrefsState> = { ...loaded, bySession: { ...s.bySession, [sessionId]: merged } };
+        if (s.defaults.model == null && defaults.model != null) next.defaults = defaults;
+        return next as ComposerPrefsState;
       }
       return {
         ...loaded,
@@ -96,7 +122,13 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
     set(s => {
       const current = s.bySession[sessionId] ?? { model: s.defaults.model, thinking: s.defaults.thinking, attachments: [] };
       const next = { ...current, ...prefs };
-      void dbSetSessionPrefs({ sessionId, ...next, thinking: next.thinking ?? s.defaults.thinking, updatedAt: Date.now() });
+      if (!loadedSessions.has(sessionId)) {
+        // 会话尚未完成首次 loadSession：只更新内存并记录显式修改的字段，不写 IDB——
+        // 防止用初始值（attachments:[] 等）覆写已存记录，由 loadSession 合并后统一持久化
+        gapWrites.set(sessionId, { ...gapWrites.get(sessionId), ...prefs });
+      } else {
+        void dbSetSessionPrefs({ sessionId, ...next, thinking: next.thinking ?? s.defaults.thinking, updatedAt: Date.now() });
+      }
       // 仅把用户本次显式修改的字段（prefs 参数）同步到全局 defaults，
       // 而非用整个 session prefs 覆盖——否则切到老会话改 model 时，
       // 会把老会话的 thinking（可能为 disabled）误写进 defaults，污染新会话默认值。
