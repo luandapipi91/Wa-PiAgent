@@ -65,6 +65,20 @@ export function DelegateCard({
 			)
 			.join("\n") ?? "";
 	const mdComponents = createMarkdownComponents(sessionId);
+
+	// 工具计数：按 status 分桶（总数/成功/失败/执行中），取代逐条工具列表
+	const tools = progress?.tools ?? [];
+	const toolCounts = {
+		total: tools.length,
+		done: tools.filter((t) => t.status === "done").length,
+		error: tools.filter((t) => t.status === "error").length,
+		running: tools.filter((t) => t.status === "running").length,
+	};
+	// 执行中：直接流式渲染 progress.output；完成态：渲染最终 result
+	const replyText = !result && progress?.output ? progress.output : full;
+	const showReply = result
+		? !hasProgress || progressExpanded
+		: !!progress?.output;
 	return (
 		<ProcessCard
 			tone="warning"
@@ -93,51 +107,40 @@ export function DelegateCard({
 					className="mt-2 pt-2 border-t border-hairline"
 					data-testid={`delegate-progress-${toolCall.id}`}
 				>
-					{/* 摘要行：始终可见，点击切换进度详情（独立于卡片整体展开） */}
-					<button
-						type="button"
-						aria-label={progressExpanded ? "折叠" : "展开"}
-						onClick={() => setProgressExpanded((v) => !v)}
-						className="w-full flex items-center gap-1.5 text-[11px] text-tertiary py-1"
-						style={{ cursor: "pointer" }}
-					>
-						<span>
+					{/* 摘要行：始终可见。执行中为纯文本；完成态为开关（展开看最终回复） */}
+					{result ? (
+						<button
+							type="button"
+							aria-label={progressExpanded ? "折叠" : "展开"}
+							onClick={() => setProgressExpanded((v) => !v)}
+							className="w-full flex items-center gap-1.5 text-[11px] text-tertiary py-1"
+							style={{ cursor: "pointer" }}
+						>
+							<span>
+								子智能体 · {statusLabel(progress!.status)} · {seconds}s ·{" "}
+								共 {toolCounts.total} 个工具 · 成功 {toolCounts.done} · 失败{" "}
+								{toolCounts.error} · 执行中 {toolCounts.running}
+							</span>
+							<span className="ml-auto">{progressExpanded ? "▼" : "▶"}</span>
+						</button>
+					) : (
+						<div className="text-[11px] text-tertiary py-1">
 							子智能体 · {statusLabel(progress!.status)} · {seconds}s ·{" "}
-							{progress!.tools.length} 个工具
-						</span>
-						<span className="ml-auto">{progressExpanded ? "▼" : "▶"}</span>
-					</button>
-					{progressExpanded && (
-						<div className="mt-1 min-w-0">
-							{/* 实时 output：可滚动 pre，避免长文本撑爆卡片 */}
-							{progress!.output && (
-								<pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-surface px-2 py-1 text-[11px] text-secondary mb-1">
-									{progress!.output}
-								</pre>
-							)}
-							{/* 工具时间线：名称 + 状态 */}
-							{progress!.tools.length > 0 && (
-								<ul className="text-[11px] text-tertiary space-y-0.5 mb-1">
-									{progress!.tools.map((t) => (
-										<li key={t.id}>
-											{t.name} · {t.status}
-										</li>
-									))}
-								</ul>
-							)}
+							共 {toolCounts.total} 个工具 · 成功 {toolCounts.done} · 失败{" "}
+							{toolCounts.error} · 执行中 {toolCounts.running}
 						</div>
 					)}
 				</div>
 			)}
-			{/* 结果详情：仅进度详情展开时显示（与折叠一致的全生命周期约束） */}
-			{result && (!hasProgress || progressExpanded) && (
+			{/* 回复：执行中流式显示 progress.output；完成态仅展开时显示最终 result */}
+			{showReply && (
 				<div
 					data-testid="text-block"
 					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
 				>
 					<div className="text-[11px] text-tertiary mb-1">📤 回复：</div>
 					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-						{full}
+						{replyText}
 					</ReactMarkdown>
 				</div>
 			)}

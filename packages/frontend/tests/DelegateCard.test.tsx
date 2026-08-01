@@ -227,13 +227,14 @@ function setProgress(
 	});
 }
 
-test("有进度且未完成时：默认折叠显示摘要（状态/耗时/工具数），output 不可见；展开后可见 output 与工具时间线", () => {
+test("有进度且未完成时：摘要显示状态/耗时/工具计数，回复流式显示 output（无需展开）", () => {
 	setProgress("tc-prog", "general-purpose", {
 		status: "running",
 		output: "正在分析代码",
 		tools: [
 			{ id: "t1", name: "Bash", status: "done" },
 			{ id: "t2", name: "Read", status: "running" },
+			{ id: "t3", name: "Grep", status: "error" },
 		],
 		elapsedMs: 12000,
 	});
@@ -248,18 +249,18 @@ test("有进度且未完成时：默认折叠显示摘要（状态/耗时/工具
 			}}
 		/>,
 	);
-	// 摘要可见：状态「运行中」、耗时 12s、工具数 2
+	// 摘要可见：状态「运行中」、耗时 12s、工具计数（总数/成功/失败/执行中）
 	expect(screen.getByText(/运行中/)).toBeTruthy();
 	expect(screen.getByText(/12\s*s/)).toBeTruthy();
-	expect(screen.getByText(/2\s*个工具/)).toBeTruthy();
-	// 折叠态：实时 output 默认不可见
-	expect(screen.queryByText("正在分析代码")).toBeNull();
-	// 展开（点击摘要行开关）
-	fireEvent.click(screen.getByRole("button", { name: /展开|▶/ }));
-	expect(screen.getByText("正在分析代码")).toBeTruthy();
-	// 工具时间线：两条工具，含名称与状态
-	expect(screen.getByText(/Bash/)).toBeTruthy();
-	expect(screen.getByText(/Read/)).toBeTruthy();
+	expect(screen.getByText(/共 3 个工具/)).toBeTruthy();
+	expect(screen.getByText(/成功 1/)).toBeTruthy();
+	expect(screen.getByText(/失败 1/)).toBeTruthy();
+	expect(screen.getByText(/执行中 1/)).toBeTruthy();
+	// 回复区直接显示流式 output（无需展开进度详情）
+	expect(screen.getByTestId("text-block").textContent).toContain("正在分析代码");
+	// 不再逐条列出工具（无 Bash/Read 名称）
+	expect(screen.queryByText(/Bash/)).toBeNull();
+	expect(screen.queryByText(/Read/)).toBeNull();
 });
 
 test("进度态不同 status 映射：done→完成、error→出错", () => {
@@ -343,7 +344,8 @@ test("完成态（result 存在）也有进度摘要开关，可展开看结果�
 	);
 	// 完成态默认折叠，但有摘要开关可展开
 	expect(screen.getByRole("button", { name: /展开|▶/ })).toBeTruthy();
-	expect(screen.getByText(/1\s*个工具/)).toBeTruthy();
+	expect(screen.getByText(/共 1 个工具/)).toBeTruthy();
+	expect(screen.getByText(/成功 1/)).toBeTruthy();
 	// 折叠时结果详情不可见
 	expect(screen.queryByText("发现 2 个问题…")).toBeNull();
 	// 展开后可见
