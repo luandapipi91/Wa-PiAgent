@@ -97,6 +97,26 @@ describe("AskFormCard", () => {
     expect(sent[0].body.reply.replies[0].selected.sort()).toEqual(["A", "C"]);
   });
 
+  it("选项 preview 中的链接在新标签页打开", () => {
+    const p: AskParams = {
+      questions: [
+        {
+          question: "选一个?",
+          header: "h",
+          options: [
+            { label: "A", description: "x", preview: "详见 [文档](https://example.com)" },
+          ],
+        },
+      ],
+    };
+    render(<AskFormCard sessionId="s1" toolCallId="tc1" params={p} />);
+    fireEvent.click(screen.getByText("A"));
+    const link = screen.getByRole("link", { name: "文档" }) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("https://example.com");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
   it("选「其他」取消普通选项选择；未输入文字时提交禁用；输入后可提交", () => {
     render(<AskFormCard sessionId="s1" toolCallId="tc1" params={params} />);
     fireEvent.click(screen.getByText("PostgreSQL"));
