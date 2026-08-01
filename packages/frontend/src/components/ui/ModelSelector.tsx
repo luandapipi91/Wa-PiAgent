@@ -6,9 +6,15 @@ interface Props {
   value: string | null;
   onChange: (modelId: string) => void;
   disabled?: boolean;
+  /**
+   * 是否允许 auto-select（默认 true）。
+   * 会话 prefs 冷加载间隙（value 暂时为 null 但 DB 里可能有值）必须传 false，
+   * 否则 auto-select 会抢在 loadSession 完成前把第一个模型写进会话 prefs 与 defaults。
+   */
+  autoSelectEnabled?: boolean;
 }
 
-export function ModelSelector({ value, onChange, disabled }: Props) {
+export function ModelSelector({ value, onChange, disabled, autoSelectEnabled = true }: Props) {
   const providers = useProvidersStore(s => s.providers);
   const models = useMemo(() => {
     const slugs: string[] = [];
@@ -32,10 +38,10 @@ export function ModelSelector({ value, onChange, disabled }: Props) {
     if (!fullValue) autoSelectedRef.current = false;
   }, [fullValue]);
   useEffect(() => {
-    if (fullValue || models.length === 0 || autoSelectedRef.current) return;
+    if (!autoSelectEnabled || fullValue || models.length === 0 || autoSelectedRef.current) return;
     autoSelectedRef.current = true;
     onChange(`${models[0].providerSlug}/${models[0].id}`);
-  }, [fullValue, models, onChange]);
+  }, [autoSelectEnabled, fullValue, models, onChange]);
 
   // 兼容旧数据：已保存的值匹配不上任何选项时，按 id 部分兜底匹配——
   // 覆盖裸 model id（"deepseek-v4-pro"）与过期 slug（"deep/deepseek-v4-pro"，provider 改名后残留），

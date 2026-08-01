@@ -22,6 +22,8 @@ export interface SessionPrefs {
 interface ComposerPrefsState {
   defaults: { model: string | null; thinking: ThinkingLevel };
   bySession: Record<string, SessionPrefs>;
+  /** 会话 prefs 是否已从持久层加载完（Composer 据此门控 ModelSelector auto-select） */
+  loadedBySession: Record<string, boolean>;
   newSessionIds: Record<string, string>;
   loadDefaults: () => Promise<void>;
   loadSession: (sessionId: string) => Promise<void>;
@@ -34,6 +36,7 @@ interface ComposerPrefsState {
 export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
   defaults: { model: null, thinking: "disabled" },
   bySession: {},
+  loadedBySession: {},
   newSessionIds: {},
 
   loadDefaults: async () => {
@@ -62,14 +65,17 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
     const defaults = await getDefaults();
     const stored = await getSessionPrefs(sessionId);
     set(s => {
+      // 加载完成标记：无论走哪个分支都要置位（Composer 门控 auto-select 的依据）
+      const loaded = { loadedBySession: { ...s.loadedBySession, [sessionId]: true } };
       // 异步 gap 期间 setSessionPrefs 可能已设置值（如 auto-select），不要覆盖
       const existing = s.bySession[sessionId];
       if (existing) {
         // 保留已有 prefs，仅更新 defaults（若 defaults 加载延迟）
-        if (s.defaults.model == null && defaults.model != null) return { defaults };
-        return {};
+        if (s.defaults.model == null && defaults.model != null) return { ...loaded, defaults };
+        return loaded;
       }
       return {
+        ...loaded,
         defaults,
         bySession: {
           ...s.bySession,

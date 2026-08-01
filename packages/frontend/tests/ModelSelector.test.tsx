@@ -94,6 +94,19 @@ describe("ModelSelector", () => {
     expect(onChange).toHaveBeenCalledTimes(2);
   });
 
+  test("autoSelectEnabled=false（会话 prefs 未加载完）时禁止 auto-select，启用后补触发", () => {
+    const onChange = mock();
+    const { rerender } = render(
+      <ModelSelector value={null} onChange={onChange} autoSelectEnabled={false} />,
+    );
+    // prefs 冷加载间隙：不得 auto-select（否则会覆盖会话存储的 model）
+    expect(onChange).not.toHaveBeenCalled();
+
+    // prefs 加载完成且确无 model（全新会话）：恢复 auto-select 职责
+    rerender(<ModelSelector value={null} onChange={onChange} autoSelectEnabled={true} />);
+    expect(onChange).toHaveBeenCalledWith("test/m1");
+  });
+
   // ===== 预设 provider：带 slug 字段时用 slug 而非 name 派生（修复 Model not found）=====
 
   test("provider 带 slug 字段时选项 value 用 slug 而非 name 派生", () => {

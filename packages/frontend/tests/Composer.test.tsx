@@ -51,6 +51,7 @@ describe("Composer", () => {
     useComposerPrefsStore.setState({
       defaults: { model: null, thinking: "disabled" },
       bySession: {},
+      loadedBySession: {},
     });
     useSessionStore.setState({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, optimisticEchoBySession: {} });
     useSkillsStore.setState({
@@ -247,5 +248,30 @@ describe("Composer", () => {
     const s = useSessionStore.getState();
     expect(s.messagesBySession["s1"] ?? []).toHaveLength(0);
     expect(s.streamingBySession["s1"]).toBeFalsy();
+  });
+
+  it("冷加载切到已有会话：loadSession 异步间隙不得触发 auto-select 覆盖存储的 model", async () => {
+    // 场景复现：本次启动首次切到 s2（bySession 缓存为空），s2 在 DB 里存了 claude-sonnet；
+    // providers 已加载（auto-select 条件齐全）。修复前：loadSession 异步间隙 model=null
+    // → ModelSelector auto-select 第一个模型（openai/gpt-4o）→ 覆盖 s2 的 prefs 与 defaults。
+    composerDbSessions.s2 = { model: "anthropic/claude-sonnet", thinking: "disabled", attachments: [] };
+    useProjectsStore.setState({
+      projects: [],
+      sessions: [
+        { id: "s1", projectId: "p1", primaryAgent: "dev", title: "t", createdAt: 0, lastActivity: 0, piSessionFile: "" },
+        { id: "s2", projectId: "p1", primaryAgent: "dev", title: "t2", createdAt: 0, lastActivity: 0, piSessionFile: "" },
+      ],
+      currentProjectId: "p1",
+      currentSessionId: "s2",
+    });
+
+    render(<Composer sessionId="s2" agentName="dev" />);
+
+    // loadSession 完成后：s2 的 model 必须还是 DB 里存储的值
+    await waitFor(() => {
+      expect(useComposerPrefsStore.getState().bySession["s2"]?.model).toBe("anthropic/claude-sonnet");
+    });
+    // defaults 也不得被 auto-select 污染成第一个模型
+    expect(useComposerPrefsStore.getState().defaults.model).not.toBe("openai/gpt-4o");
   });
 });
