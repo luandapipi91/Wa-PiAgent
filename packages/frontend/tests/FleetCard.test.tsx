@@ -135,6 +135,8 @@ test("MessageList 中 fleet 工具调用渲染为 FleetCard（非 ToolCallCard�
 		},
 	});
 	render(<MessageList sessionId="s1" />);
+	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
+	fireEvent.click(screen.getByTestId("turn-summary"));
 	// fleet 卡片直接可见（内联在消息流中）
 	expect(screen.getByTestId("fleet-f1")).toBeTruthy();
 	// 不应出现普通工具调用卡片
@@ -174,6 +176,8 @@ test("fleet 与普通 toolCall 混合：fleet 独立成卡，普通调用为独�
 		},
 	});
 	render(<MessageList sessionId="s1" />);
+	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
+	fireEvent.click(screen.getByTestId("turn-summary"));
 	// fleet 卡片直接可见
 	expect(screen.getByTestId("fleet-f1")).toBeTruthy();
 	// 单个普通调用 → 独立单卡
@@ -229,6 +233,8 @@ test("fleet 与 delegate 混合：各自独立成卡，互不干扰", () => {
 		},
 	});
 	render(<MessageList sessionId="s1" />);
+	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
+	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.getByTestId("fleet-f1")).toBeTruthy();
 	expect(screen.getByTestId("delegate-d1")).toBeTruthy();
 });
