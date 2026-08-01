@@ -93,8 +93,9 @@ test.describe.serial("设置页供应商管理", () => {
     await page.getByTestId("field-apiKey").fill("sk-e2e-preset");
     await page.getByTestId("provider-save-btn").click();
     await expect(page.getByTestId("provider-form-modal")).not.toBeVisible({ timeout: 3000 });
-    // 本次新增的卡片出现（按内容作用域，不断言总数：全套 spec 共享 kernel 的 provider 列表）
-    const card = page.locator('[data-testid^="provider-card-"]', { hasText: "deepseek-v4-flash" });
+    // 本次新增的卡片出现（按唯一 provider 名作用域，不断言总数：全套 spec 共享 kernel 的
+    // provider 列表，chat-blocks 也注入过含 deepseek-v4-flash 模型的卡片，按模型名定位会 strict 冲突）
+    const card = page.locator('[data-testid^="provider-card-"]', { hasText: "E2E Preset Provider" });
     await expect(card).toBeVisible({ timeout: 5000 });
 
     // 自我清理：删除本次新增的供应商，避免污染后续用例

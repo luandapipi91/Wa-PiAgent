@@ -24,10 +24,12 @@ async function api<T = any>(method: string, path: string, body?: unknown): Promi
   return data as T;
 }
 
-/** 轮询直到 fn 返回真值（替代旧 WS 等广播应答），超时抛错 */
+/** 轮询直到 fn 返回真值（替代旧 WS 等广播应答），超时抛错。
+ *  默认 10s：全量跑时前面用例遗留的假 provider 会话会拖慢 kernel 事件循环，
+ *  5s 偶发不够（composer 文件附件用例的 createProject 曾因此超时） */
 async function pollUntil<T>(
   fn: () => Promise<T | undefined | null | false>,
-  timeoutMs = 5000,
+  timeoutMs = 10_000,
   intervalMs = 200,
 ): Promise<T> {
   const deadline = Date.now() + timeoutMs;
