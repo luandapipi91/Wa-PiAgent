@@ -63,7 +63,7 @@ export function FilePill({ rawText, sessionId }: { rawText: string; sessionId: s
       {preview &&
         createPortal(
           <Modal onClose={() => setPreview(false)} width="80vw" height="80vh" data-testid="file-preview-modal">
-            <FileViewer path={abs} onClose={() => setPreview(false)} />
+            <FileViewer path={abs} sessionId={sessionId} onClose={() => setPreview(false)} />
           </Modal>,
           document.body,
         )}
