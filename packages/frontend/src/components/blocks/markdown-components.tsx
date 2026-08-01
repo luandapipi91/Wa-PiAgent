@@ -4,6 +4,11 @@ import { MermaidBlock } from "./MermaidBlock";
 import { FilePill } from "./FilePill";
 import { parseFilePath } from "./file-path";
 
+// ⚠️ 循环依赖：FileViewer → markdown-components → FilePill → FileViewer。
+// 约束：本模块顶层不得引用 FileViewer/FilePill 的模块级值（如初始化、常量推导）；
+// 组件引用只在渲染期访问（JSX 内），函数声明提升 + 渲染期才求值保证安全。
+// 新增代码时保持同样约束：不要在任何顶层作用域调用 FileViewer/FilePill。
+
 /**
  * markdown 链接渲染：新标签页打开，避免 SPA 页面被外部链接替换；
  * 蓝色 + 下划线样式，让用户一眼看出可点击。
