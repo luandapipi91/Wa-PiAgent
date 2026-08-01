@@ -8,6 +8,24 @@
 
 ### 修复
 
+- **委托卡片：子代理回复改为流式输出，工具调用只显示计数**：此前 DelegateCard 的执行中 output 只在展开进度详情时以 `<pre>` 展示，最终回复要等子代理 `agent_settled` 后随 toolResult 一次性到达。修复：执行中（无 result）时把 `progress.output`（kernel 每次 text_delta 推送的累积文本）直接在回复区用 ReactMarkdown 流式渲染，与主代理回复体验一致；完成态仍展开才显示最终 result。工具展示从逐条名称+状态列表改为摘要计数「共 N 个工具 · 成功 X · 失败 Y · 执行中 Z」。
+  - 影响范围：`packages/frontend/src/components/blocks/DelegateCard.tsx`；测试 `packages/frontend/tests/DelegateCard.test.tsx`（更新 2 个用例，TDD 红→绿）。
+
+- **子代理回复中预览窗口透明（muted 卡 opacity 泄漏）**：`ProcessCard` muted 时对整个子树 `opacity-55`，而 `Modal` 未走 portal、DOM 嵌套在卡片内，导致从委托/并行卡内点开的文件预览窗口（遮罩+内容）整体以 55% 不透明度渲染；主代理气泡无 opacity 故不受影响。修复：`FilePill` 的预览 `Modal` 改用 `createPortal` 渲染到 `document.body`，脱离父容器 opacity stacking context，任何容器内弹出的预览窗口均保持不透明。
+  - 影响范围：`packages/frontend/src/components/blocks/FilePill.tsx`；测试 `packages/frontend/tests/FilePill.test.tsx`（新增 portal 到 body 用例）。
+
+- **预览区（markdown 渲染）里的链接点击后当前页面跳转，改为新标签页打开 + 蓝色下划线样式**：所有 `ReactMarkdown` 渲染点都未自定义 `a` 标签，`react-markdown` 默认渲染 `<a href>` 不带 `target`，点击外部链接时浏览器在当前标签页导航，SPA 页面被替换；且链接无视觉样式，看不出可点击。修复：`createMarkdownComponents` 新增 `a` 映射并导出 `MarkdownLink`（`target="_blank" rel="noopener noreferrer"` + `text-accent underline` 蓝色下划线样式）复用，主聊天区 / fleet / delegate 卡片随组件映射一并修复；ask 选项 preview 区域的 `<ReactMarkdown>` 显式传入 `components={{ a: MarkdownLink }}`。
+  - 影响范围：`packages/frontend/src/components/blocks/markdown-components.tsx`、`packages/frontend/src/components/ask/AskFormCard.tsx`；测试 `tests/blocks/markdown-links.test.tsx`（新增新标签页 + 样式用例）、`tests/AskFormCard.test.tsx`（新增 preview 链接用例，TDD 红灯→绿灯）。
+
+---
+
+## 2026-08-01
+
+### 修复
+
+- **点击折叠状态的项目不再需要两次：一次点击同时跳转新建会话并展开会话列表**：此前点击项目名时，折叠的项目第一次点击只跳转新建会话、列表仍收着，需再点一次（此时已进入新会话界面且项目选中）才展开。修复：`ProjectItem` 点击逻辑改为折叠优先——项目处于折叠状态时，一次点击同时 `setExpanded(true)` 展开列表并 `onSelectProject` 跳转新建会话；已展开时保持原行为（新会话界面且选中才展开/折叠，否则跳转新建会话）。
+  - 影响范围：`packages/frontend/src/components/ProjectItem.tsx`；测试 `packages/frontend/tests/ProjectList.test.tsx`（新增 2 个折叠优先用例，TDD 红灯→绿灯）。
+
 - **切换几个会话后模型自动被重置为列表第一个**：根因是冷加载竞态——本次启动首次切到某个会话时，`loadSession`（IndexedDB 异步读）完成前 `bySession` 无缓存 → Composer 传入 `model=null` → `ModelSelector` 的 auto-select 立即把**列表第一个模型**经 `setSessionPrefs` 写入该会话 prefs（覆盖 DB 存储值）并同步污染全局 `defaults.model`；`loadSession` 完成时因有"不覆盖已有 prefs"守卫反而保住了污染值。每首次访问一个会话就被污染一次，切几个后全部坍缩成第一个模型。修复：store 新增 `loadedBySession` 跟踪，`Composer` 在会话 prefs 加载完成前经 `ComposerInput` → `ModelSelector` 新增 `autoSelectEnabled={false}` 门控禁止 auto-select；加载完成后恢复（全新会话无 model 时 auto-select 职责不变）。已做 TDD 红线验证：门控关闭时新回归用例稳定复现污染，开启后通过。
   - 影响范围：`packages/frontend/src/store/composer-prefs.ts`、`packages/frontend/src/components/Composer.tsx`、`packages/frontend/src/components/ui/ComposerInput.tsx`、`packages/frontend/src/components/ui/ModelSelector.tsx`；测试 `tests/composer-prefs.test.ts`（loaded 标记）、`tests/ModelSelector.test.tsx`（门控用例）、`tests/Composer.test.tsx`（冷加载切换回归）。
 
@@ -78,6 +96,17 @@
 
 - **kernel 测试污染真实数据目录致线上 Model not found**：`ensureProviderExtensionRegistered` 此前只能写编译期常量 `GENERATED_DIR`（`~/.wa-pi/.generated`），`ws-provider-dirty.test.ts` 的 provider:delete 用例经真实 WSServer 处理器把空壳 extension 写进真实目录，`provider-extension.test.ts` 两个用例也会写/删真实文件——本地跑测试即清空线上 provider 注册，发消息报 `Model not found: <slug>/<model>`。修复：函数新增可选 `generatedDir` 参数（默认 `GENERATED_DIR`），`WSServerOpts` 新增同名透传，相关测试全部改用临时目录。
   - 影响范围：`packages/kernel/src/provider-extension.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/tests/provider-extension.test.ts`、`packages/kernel/tests/ws-provider-dirty.test.ts`。
+
+- **composer 片段附件 reload 后丢失（hydration 竞态）**：根因是 `loadSession` 为异步且 React 子组件 effect 先于父组件执行——Composer 挂载时 ModelSelector 的 auto-select 甚至早于 `loadSession` 发起即触发 `setSessionPrefs({model})`，用 `attachments: []` 初始值覆写 IDB 已存记录；随后 `loadSession` 的 existing 守卫整体跳过恢复，附件/thinking 永久丢失。修复：composer-prefs 增加会话级 hydration 守卫（`loadedSessions` + `gapWrites`）——会话完成首次 `loadSession` 前写入只更新内存并记录显式字段、不写 IDB；`loadSession` 完成时按字段合并（gap 显式字段胜出、未触碰字段以持久层为准）后统一持久化。NewSessionPane 草稿会话同步补上 `loadSession` 调用（守卫前提 + 顺带修复草稿附件 reload 后无人读取的问题）。与 `loadedBySession` 门控（autoSelectEnabled）互补：UI 层禁止加载完成前 auto-select，store 层兜住一切过早写入。
+  - 影响范围：`packages/frontend/src/store/composer-prefs.ts`（守卫 + 合并逻辑）、`packages/frontend/src/components/NewSessionPane.tsx`（草稿会话 loadSession）、`packages/frontend/tests/composer-prefs.test.ts`（新增 2 个竞态复现用例：loadSession 进行中 / auto-select 先于 loadSession 发起）
+  - 验证：TDD（两用例先按预期失败再转绿）；composer-prefs 14 pass；前端全量 826 pass / 0 fail；typecheck 通过；E2E composer.spec 4/4 通过（含原失败的「片段附件发送流程」）
+
+### 修复
+
+- **E2E settings-provider 卡片定位 strict 冲突修复**：「快捷选择预设填充表单并保存」用例保存后按模型名 `deepseek-v4-flash` 定位新增卡片，与 chat-blocks.spec 注入的 DeepSeek 卡片撞出 2 个元素（strict mode violation）；改为按唯一 provider 名 "E2E Preset Provider" 定位。同时把 e2e/helpers.ts 的 pollUntil 默认超时 5s → 10s（全量跑时遗留假 provider 会话拖慢 kernel，createProject 轮询 5s 偶发不够）。另对全量 E2E 失败做了根因排查：rpc-session 为隔离环境缺 deepseek 凭证（不硬修），agents#7（agent_missing 弹窗不弹出）与 composer 片段附件（reload 后附件丢失）定位为 kernel/frontend 业务层真 bug，仅报告未改 src。
+  - 影响范围：`packages/frontend/e2e/settings-provider.spec.ts`、`packages/frontend/e2e/helpers.ts`。
+
+### 修复
 
 - **E2E 稳定性修复（共享 kernel 下各 spec 互相干扰）**：①composer.spec 预置 provider 显式指定唯一 slug/name（`e2e-composer` / "E2E Composer"）——此前多 spec 都建名为 "E2E" 的 provider，name 派生 slug 撞车加后缀（e2e-2/e2e-3…），导致 selectOption 按 label 选中别家 option；②settings-provider.spec 适配预设选择 UI 改版（preset-select 下拉 → preset-search 搜索 + preset-option 列表），模型添加快捷搜索 `deepseek-v4-flash`（pi-ai 0.83 目录已无旧 deepseek-chat），供应商名改唯一避免与其他 spec 的 DeepSeek 卡片 strict 冲突；③quick-invoke.spec 流式搜索 30 结果超时 10s → 20s（全量跑时遗留假 provider 会话拖慢 kernel 文件搜索）；④skills.spec 适配技能目录默认展开（去掉 toggle 点击）；⑤chat-blocks.spec 移除已下线的「复制路径」按钮断言。
   - 影响范围：`packages/frontend/e2e/`（chat-blocks / composer / quick-invoke / settings-provider / skills 共 5 个 spec）。
