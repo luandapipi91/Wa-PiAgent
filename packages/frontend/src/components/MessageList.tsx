@@ -301,6 +301,19 @@ export function MessageList({ sessionId }: Props) {
 		displayRows = [...rows.slice(0, -1), merged];
 	}
 
+	// 进行中的轮判定：status==="thinking"（agent_start 已到、agent_end 未到）且无独立 streaming
+	// 占位时，渲染列表最后一行是已定稿 assistant 行 → 它属于进行中的轮。即使已定稿也不折叠——
+	// 一轮 agent 调用中第一个块（thinking+工具）定稿后整轮还在跑（长工具执行/后续 text 流式），
+	// 折叠会藏住实时过程；必须等 agent_end（status 回 idle）整轮结束才折叠。
+	// 独立 streaming 占位存在时（StreamingRow），进行中内容在占位行里，最后一行是上一个已完成轮，
+	// 不标记（历史轮全部可折叠）；合并进末行的流式块由 isStreaming=true 自身阻断折叠。
+	const lastDisplayRow = displayRows[displayRows.length - 1];
+	const isActiveTurnRow =
+		status === "thinking" &&
+		!streaming &&
+		!!lastDisplayRow &&
+		(lastDisplayRow.main.message as any).role === "assistant";
+
 	return (
 		<div className="relative flex-1 min-h-0 overflow-hidden">
 			<div
@@ -329,6 +342,7 @@ export function MessageList({ sessionId }: Props) {
 								showResend ? (text: string) => handleResend(text, i) : undefined
 							}
 							isStreaming={isMergedStreamingRow}
+							isActiveTurnRow={isActiveTurnRow && i === displayRows.length - 1}
 						/>
 					);
 				})}
@@ -565,12 +579,14 @@ const MessageRow = memo(function MessageRow({
 	showResend,
 	onResend,
 	isStreaming,
+	isActiveTurnRow,
 }: {
 	row: RenderedRow;
 	sessionId: string;
 	showResend?: boolean;
 	onResend?: (text: string) => void;
 	isStreaming?: boolean;
+	isActiveTurnRow?: boolean;
 }) {
 	const m = row.main.message as any;
 	// hook 须在顶层、任何 early return 之前
@@ -674,16 +690,22 @@ const MessageRow = memo(function MessageRow({
 		(s) => s.kind === "thinking" || s.kind === "toolCalls" || s.kind === "delegate" || s.kind === "fleet",
 	);
 
-	// 轮级折叠：已定稿（非流式）+ 含过程段 → 过程段折叠为摘要行，text 段保留在外
-	const canCollapse = hasProcessCard && !isStreaming;
-	const processSegs = segments.filter((s) => s.kind !== "text");
-	const textSegs = segments.filter((s) => s.kind === "text");
+	// 轮级折叠：整轮已结束（非流式 + 非进行中轮）+ 含过程段 → 过程段折叠为摘要行，
+	// 只保留最后一段 text 回复在外（中间 text 段也折叠进摘要行）。
+	// 进行中的轮（status==="thinking" 的末行）即使已定稿也不折叠——长工具执行/后续
+	// text 流式仍在跑，折叠会藏住实时过程；必须等 agent_end（整轮结束）才折叠。
+	const canCollapse = hasProcessCard && !isStreaming && !isActiveTurnRow;
+	// 过程段 + 中间 text 段（除最后一段 text 外全部折叠进摘要行）；最后一段 text 是最终回复，保留在外
+	const processSegs = segments.filter((s, i) => i !== lastTextSegIdx);
+	const finalTextSeg = lastTextSegIdx >= 0 ? segments[lastTextSegIdx] : undefined;
+	// 步骤数只计过程段（thinking/toolCalls/delegate/fleet），中间 text 段不计
+	const processSteps = segments.filter((s) => s.kind !== "text").length;
 
 	// 单段渲染分发：thinking/toolCalls/delegate/fleet 为过程卡，text 为主回复气泡。
 	// 折叠分支与非折叠分支共用，保证两种模式渲染完全一致；key 由调用方传入
-	//（折叠分支过程段从 0 起、text 段接续；非折叠分支用原 segments index，delegate/fleet
+	//（折叠分支过程段从 0 起、最终回复 text 段接续；非折叠分支用原 segments index，delegate/fleet
 	// 仍以 seg.call.id 为 key）。CopyButton 归属用引用比较 seg === segments[lastTextSegIdx]
-	//（原 index 判断在折叠分支 textSegs 的 key 重排后不再等价）。
+	//（即 finalTextSeg——折叠分支最终回复段 key 重排后 index 判断不再等价）。
 	const renderSeg = (seg: Segment, key: number, segIsStreaming: boolean) => {
 		// 思考过程 — ProcessCard：每段独立成卡（不合并），区分 finalized vs streaming
 		if (seg.kind === "thinking") {
@@ -780,21 +802,19 @@ const MessageRow = memo(function MessageRow({
 				{canCollapse ? (
 					<>
 						<TurnSummary
-							steps={processSegs.length}
+							steps={processSteps}
 							elapsedMs={m.turnElapsedMs}
 						>
 							{processSegs.map((seg, si) => renderSeg(seg, si, false))}
 						</TurnSummary>
-						{textSegs.map((seg, si) =>
-							renderSeg(seg, si + processSegs.length, false),
-						)}
+						{finalTextSeg && renderSeg(finalTextSeg, processSegs.length, false)}
 					</>
 				) : (
 					segments.map((seg, si) =>
 						renderSeg(
 							seg,
 							si,
-							isStreaming &&
+							!!isStreaming &&
 								(row.streamingStartIdx == null ||
 									seg.firstBlockIdx >= row.streamingStartIdx),
 						),
