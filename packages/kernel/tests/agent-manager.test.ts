@@ -478,6 +478,47 @@ test("message_end 事件把消息追加进历史快照", async () => {
   expect(msgs[0].role).toBe("assistant");
 });
 
+test("agent_end 附加整轮耗时（成功轮：最后 assistant − user）", async () => {
+  const received: CapturedEvent[] = [];
+  const { project, session, am, fakes } = await setup({ events: received });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  fakes[0].emit({ type: "agent_end", willRetry: false, messages: [
+    { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1000 },
+    { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 5000, stopReason: "end_turn" },
+  ] });
+
+  const ae = received.find((x) => x.e.type === "agent_end");
+  expect(ae?.e.elapsedMs).toBe(4000);
+});
+
+test("agent_end 失败回合不附加 elapsedMs", async () => {
+  const received: CapturedEvent[] = [];
+  const { project, session, am, fakes } = await setup({ events: received });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  fakes[0].emit({ type: "agent_end", willRetry: false, messages: [
+    { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1000 },
+    { role: "assistant", content: [{ type: "text", text: "报错" }], timestamp: 2000, stopReason: "error" },
+  ] });
+
+  const ae = received.find((x) => x.e.type === "agent_end");
+  expect(ae?.e.elapsedMs).toBeUndefined();
+});
+
+test("agent_end messages 无 user 时不附加 elapsedMs", async () => {
+  const received: CapturedEvent[] = [];
+  const { project, session, am, fakes } = await setup({ events: received });
+  await am.ensureStarted(project.id, "dev", session.id);
+
+  fakes[0].emit({ type: "agent_end", willRetry: false, messages: [
+    { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 2000, stopReason: "end_turn" },
+  ] });
+
+  const ae = received.find((x) => x.e.type === "agent_end");
+  expect(ae?.e.elapsedMs).toBeUndefined();
+});
+
 test("getMessages 在 session 不存在时返回空数组", async () => {
   const { am } = await setup();
   expect(am.getMessages("不存在的-session")).toEqual([]);

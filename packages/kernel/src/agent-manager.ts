@@ -843,6 +843,19 @@ export class AgentManager {
 				// agent 回复完成视为活跃（与磁盘 touchSession 同步），刷新空闲回收计时
 				handle.lastActiveAt = Date.now();
 				break;
+			case "agent_end": {
+				// 整轮耗时：该轮最后 assistant.timestamp − user.timestamp（纯读推算语义，
+				// 与 session-history 注入一致）。仅成功轮附加；失败回合/找不到 user 不附加。
+				const msgs = (event as any).messages as any[] | undefined;
+				if (Array.isArray(msgs)) {
+					const lastAssistant = [...msgs].reverse().find((m: any) => m?.role === "assistant");
+					const user = [...msgs].reverse().find((m: any) => m?.role === "user");
+					if (lastAssistant && user && lastAssistant.stopReason !== "error") {
+						(event as any).elapsedMs = lastAssistant.timestamp - user.timestamp;
+					}
+				}
+				break;
+			}
 			case "agent_settled":
 				handle.busy = false;
 				handle.thinkingSince = null;
