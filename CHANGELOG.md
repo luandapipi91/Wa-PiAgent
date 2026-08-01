@@ -6,6 +6,54 @@
 
 ## 2026-08-01
 
+### 新增
+
+- **记忆写入冒烟评测脚本 `packages/kernel/scripts/eval-memory-write.ts`**（参考 `eval-delegate-trigger.ts` 子模型冒烟模式）：启动真实 pi 进程 + 真实系统提示词 + wa-pi-bridge 扩展（memory 工具注册），用 stub bridge 复用真实 amaster store 写入**隔离目录**（不污染真实记忆），验证「用户记忆（全局 USER.md）」与「项目记忆（项目 MEMORY.md）」在 10 条用例（user 4 / project 4 / mixed 2）下均能正确写入。判定标准：调用了 memory_add + target 路由正确 + 落盘文件存在非空。用法：`bun run scripts/eval-memory-write.ts [--sample N] [--category user,project,mixed] [--policy full|compact|none] [--model slug/id] [--mem-root path]`；默认模型优先读 `settings.json` 的 `defaultProvider/defaultModel`（对齐用户日常使用），fallback providers[0]。
+  - 影响范围：`packages/kernel/scripts/eval-memory-write.ts`（新增）。
+  - 验证：默认模型（deepseek）下全量 10/10 通过；kernel typecheck 通过。
+
+### 修复
+
+- **日常使用不写记忆（用户记忆/项目记忆均空白）**：根因是系统提示词缺少「记忆写入策略」引导段——agent 有 `memory_add` 工具但不知道何时该主动写入，用户说「记住 X」也只回复文本、从不调用工具（实测 3/3 用例均未调用 memory_add）。修复：系统提示词新增动态段 `memory-policy`（位于 env-constraints 与 memory-snapshot 之间），按 `memoryPolicyStyle` 注入——`full` 注入完整版 `DEFAULT_MEMORY_POLICY_PROMPT`（必须写入时机 + target/scope 路由规则 + 维护方式），`compact` 注入精简版 `COMPACT_MEMORY_POLICY_PROMPT`，`none` 不注入。`prompts.json` schemaVersion 21→22，`ensurePromptsConfig` 迁移逻辑改进：已存在段保留用户自定义 content、仅追加缺失段（如 memory-policy），废弃 id 丢弃；`agent-manager.ts` 的 composePrompt 注入 memoryPolicy。
+  - 影响范围：`packages/kernel/src/system-prompt.ts`、`packages/kernel/src/agent-manager.ts`；测试 `tests/system-prompt.test.ts`（新增 memory-policy 渲染/顺序/空策略用例 + 迁移行为更新）。
+  - 验证：修复后评测脚本默认模型下 10/10 通过（user→USER.md、project→MEMORY.md、mixed→双写均落盘）；kernel 630 测试全绿；typecheck 通过。
+
+---
+
+## 2026-08-01
+
+### 修复
+
+- **ask_user_question 提交后偶发卡死（回答点提交后 UI 永久“提交中…”）**：根因两条独立缺陷——① 后端 `AskRegistry.resolve()` 对未知 `toolCallId` 静默失败（`if (!entry) return`），前端提交到达后端但无任何反馈，永远等不到 toolResult；② 前端 `handleSubmit` 用 `void api.post(...)` 无 catch，请求失败（网络/30s 超时）后 `submitting` 永久为 true。修复：`resolve()/cancel()` 返回 boolean；ws-server `agent:answer` 未命中时 reply 400 错误（前端收到即提示“提问已失效”）；`handleSubmit` 改 async + try/catch，失败恢复按钮并显示错误提示。另加 **double check 机制**：新增 `GET /api/sessions/:sessionId/asks`（返回该 session 真实 pending 的 ask toolCallId 列表，源于 `AskRegistry.pendingToolCallIds`），前端 `AskDock` 渲染时向后端核对，本地消息派生但后端已无的 ask 标 stale（显示“该提问已失效”、禁用提交），从源头避免对失效 ask 提交后卡住。
+  - 影响范围：`packages/kernel/src/ask-registry.ts`、`ws-server.ts`、`routes/projects-sessions.ts`、`packages/shared/src/types.ts`（新增 SessionAsksRequest/Event）；`packages/frontend/src/components/ask/AskDock.tsx`、`AskFormCard.tsx`；测试 `tests/ask-registry.test.ts`、`tests/ws-server-ask.test.ts`（新增）、`tests/AskFormCard.test.tsx`、`tests/AskDock.test.tsx`（新增）（TDD 红→绿）。
+  - 验证：kernel ask 相关 40 pass / 0 fail；frontend ask 相关 18 pass / 0 fail；shared/kernel typecheck 通过。
+
+---
+
+## 2026-08-01
+
+### 修复
+
+- **长文本流式输出过程中自动滚动中途停止（主消息列表）**：rAF 贴底循环每帧程序化设置 `el.scrollTop = el.scrollHeight`，会异步触发原生 scroll 事件（浏览器在下一帧 scroll steps 派发，早于 rAF 回调）。派发时 scrollTop 仍是上一帧贴底位置、scrollHeight 已随新 token 增长——单帧增长 ≥ `BOTTOM_THRESHOLD`(20px) 时 `isNearBottom()` 误判 false，`handleScroll` 把 `stickBottom` 置 false，effect 重跑取消 rAF 循环，自动滚动永久停止（长文本/代码块/SSE 大块到达时极易触发）。修复：`handleScroll` 不再对所有 scroll 事件一律按 `isNearBottom` 更新 `stickBottom`，改用滚动方向区分——scrollTop 减小（用户上翻，滚轮/键盘/拖拽）且明显离开底部才置 false；程序化贴底（scrollTop 增大/不变）在底部则确认 true；向下但不在底部时保持现状（不置 false），消除竞态误杀。语义不变：用户上翻不抢、回到底部恢复。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`；测试 `tests/MessageList.test.tsx`（新增 1 个回归用例：程序化贴底 scroll 事件 + 内容增长 ≥ 阈值不误判、自动滚动不中断；TDD 红→绿）。
+  - 验证：真实浏览器（Chromium）独立页面复现竞态（误判一次后 scrollTop 永久停留在旧位置，内容增长到 11008px 不再跟随）→ 修复后不再出现；MessageList 相关测试 69 pass / 0 fail，typecheck 通过。
+
+- **write 等工具卡片内部长文本预览区不自动滚动到底部**：工具参数中的长文本（write 的 `content`、edit 的 `oldText`/`newText`）以限高代码块（`max-h-60 overflow-auto`）展示，是独立于主消息列表的滚动容器，但没有任何自动滚动逻辑——流式中参数逐段增长时 pre 停在原处，看不到最新写入内容。修复：新增 `AutoScrollPre` 组件（语义与主消息列表一致：停在底部时内容增长自动跟随、上翻不抢、回到底部恢复；首次挂载停在顶部不抢），替换工具卡片所有长文本参数 `<pre>`。
+  - 影响范围：`packages/frontend/src/components/blocks/ToolCallCard.tsx`；测试 `tests/ToolCallCard.test.tsx`（新增 3 个用例：流式增长跟随底部、上翻不抢、定稿首次挂载不滚；TDD 红→绿）。
+  - 验证：真实浏览器验证跟随/不抢/恢复三态；ToolCallCard 7 pass / 0 fail，typecheck 通过。
+
+---
+
+## 2026-08-01
+
+### 新增功能
+
+- **轮级折叠摘要行 + 整轮耗时**：一轮 agent 调用完成后，中间过程（思考/工具调用/delegate/fleet）二次折叠为一行摘要「本轮时长 X · N 个步骤」（无时长显示「本轮过程 · N 个步骤」），点击展开可见各步骤并可再逐个展开；最终文本回复始终保留在外。时长从消息时间戳纯读推算（最后 assistant.timestamp − user.timestamp），零写入、刷新后历史轮也能还原；仅成功完成的轮显示时长（失败回合/无 user/旧数据缺字段不显示）。流式中不折叠，保持逐卡流式渲染。
+  - 影响范围：`packages/shared/src/types.ts`（`AssistantMessage.turnElapsedMs?`、`SDKEvent.agent_end.elapsedMs?`）、`packages/kernel`（`session-history.ts` 按轮切分注入、`agent-manager.ts` agent_end 附加 elapsedMs）、`packages/frontend`（store agent_end 写回、`MessageList` 行级折叠、新增 `blocks/TurnSummary.tsx`）。
+  - 验证：kernel session-history/agent-manager 新增用例全绿；前端 TurnSummary/MessageList/store-session 新增用例全绿；`typecheck` 通过。
+
+## 2026-08-01
+
 ### 新增功能
 
 - **FileViewer 打开 .md 文件渲染为 markdown 预览**：此前所有文本文件统一走 Prism 高亮，markdown 源文本按代码显示。本变更让 .md 文件改用 ReactMarkdown（remark-gfm）渲染，复用聊天区的 `createMarkdownComponents`——表格/标题等 GFM 语法、代码块（CodeBlockCard/MermaidBlock）、内联路径（FilePill）、外链新标签页打开全部生效；md 分支不注册 `@path:行号` copy 拦截。接受计划内风险：`FileViewer → markdown-components → FilePill → FileViewer` 循环依赖（ESM 函数声明提升 + 组件引用渲染期才访问，typecheck + 组件测试通过证明可用）。
@@ -96,9 +144,9 @@
 
 ### 修复
 
-- **工具调用卡片参数渲染：edit 大段代码不再以 JSON 转义糊成一坨**：`ToolCallCard` 展开区此前用 `JSON.stringify(toolCall.arguments, null, 2)` 直接渲染，edit 等携带大段代码参数的工具（oldText/newText 含真实换行/制表符）会被重新转义成 `\n`/`\t` 字面字符，一长串不可读。修复：①edit 工具走专用参数视图——标题显示文件路径 `path`，展开区以代码块（真实换行缩进、限高滚动）展示新旧内容，兼容 `edits` 数组与平铺两种参数结构；②其他工具走美化后的 JSON 视图——递归渲染参数，多行/长字符串（>60 字符）以真实文本代码块展示，其余保持 JSON 风格；标题截断逻辑（formatArgs）不变。
-  - 影响范围：`packages/frontend/src/components/blocks/ToolCallCard.tsx`、`packages/frontend/tests/ToolCallCard.test.tsx`（新增 3 个组件测试：edit 真实代码展示 / 通用长字符串美化 / edit 平铺结构兼容）。
-  - 验证：frontend 相关 95 测试全绿（含 MessageList/ProcessCard/DelegateCard/FleetCard 无回归）、`typecheck` 通过、E2E 冒烟（prism 用例）通过。
+- **工具调用卡片参数渲染：edit 大段代码不再以 JSON 转义糊成一坨，代码块带行号且完整展示**：`ToolCallCard` 展开区此前用 `JSON.stringify(toolCall.arguments, null, 2)` 直接渲染，edit 等携带大段代码参数的工具（oldText/newText 含真实换行/制表符）会被重新转义成 `\n`/`\t` 字面字符，一长串不可读。修复：①edit 工具走专用参数视图——标题显示文件路径 `path`，展开区以带行号的代码块（真实换行缩进、不设高度限制完整展示）呈现新旧内容，兼容 `edits` 数组与平铺两种参数结构；②其他工具走美化后的 JSON 视图——递归渲染参数，多行/长字符串（>60 字符）以带行号的真实文本代码块展示，其余保持 JSON 风格；标题截断逻辑（formatArgs）不变。行号右对齐固定列宽、可选中禁用；去掉原限高 240px 滚动（完整可读）；write 等工具流式长文本仍保留 AutoScrollPre 自动滚动语义。
+  - 影响范围：`packages/frontend/src/components/blocks/ToolCallCard.tsx`（新增 `LineNumberedLines` 行号渲染）、`packages/frontend/tests/ToolCallCard.test.tsx`（组件测试：edit 真实代码展示 / 通用长字符串美化 / edit 平铺结构兼容 / 畸形 edits 降级 / 行号递增 / 无限高 / write 自动滚动 3 例）。
+  - 验证：ToolCallCard 9 测试全绿，ToolCallCard+MessageList 组合 80 测试全绿，改动文件 `typecheck` 通过；DelegateCard/FleetCard 既有 3 个失败与 MessageList.tsx typecheck 错误为工作区其他进行中改动引入的预先存在问题，与本次改动无关（stash 验证）。
 
 - **delegate 报「bridge 空闲超时 (600000ms 无任何帧)」误杀正常工作的子代理**：昨日空闲超时修复暴露了一个真实静默场景——子代理（deepseek-v4-flash 推理模型，跟随主模型）在长推理阶段只产出 thinking、或慢首 token、或单个长工具调用时，`runSubagentAgent` 只在 tool_execution_start/end 和 text_delta 时发 progress（thinking delta 不计），kernel 侧长时间零帧写出，pi 侧 bridge 空闲超时（600s 无帧）于是误杀。实测案例：代码审查 delegate 00:13:23 发起，600s 零帧后被判死，而子代理可能仍在正常工作。修复：`handleBridgeStream` 在流式执行期间每 15s 写一个 `ping` 心跳帧（无业务含义，消费方忽略但会刷新空闲超时），协议类型 `BridgeStreamFrame` 增加 `ping` 变体。修复后空闲超时只在 kernel 真正卡死（连心跳都写不出）时才触发。
   - 影响范围：`packages/kernel/src/bridge-registry.ts`（心跳定时器 + `heartbeatMs` 测试注入）、`packages/shared/src/types.ts`（`ping` 帧类型）、`packages/kernel/src/wa-pi-bridge.extension.ts`（注释同步，解析逻辑本就跳过非 final 帧无需改动）、`packages/kernel/tests/bridge.test.ts`（新增心跳用例，kernel 616 测试全绿）。

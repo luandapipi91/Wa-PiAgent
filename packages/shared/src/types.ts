@@ -425,6 +425,11 @@ export interface SessionMessagesRequest {
 	type: "session:messages";
 	sessionId: string;
 }
+/** ask double check：查询该 session 当前真实 pending 的 ask toolCallId 列表 */
+export interface SessionAsksRequest {
+	type: "session:asks";
+	sessionId: string;
+}
 
 // client → kernel
 /** 请求内置 subagent 列表（含 pi-subagents 真实 systemPrompt/builtinToolNames + 用户 override） */
@@ -462,6 +467,7 @@ export type WSClientEvent =
 	| SessionCommandsRequest
 	| ProjectsListRequest
 	| SessionMessagesRequest
+	| SessionAsksRequest
 	| ProviderListEvent
 	| ProviderSaveEvent
 	| ProviderDeleteEvent
@@ -528,7 +534,12 @@ export interface SubagentProgressEvent {
 /** bridge 流式协议帧（NDJSON，每帧一行） */
 export type BridgeStreamFrame =
 	| { type: "started"; protocol: 1; tool: string; toolCallId: string }
-	| { type: "progress"; tool: string; toolCallId: string; progress: SubagentProgressEvent }
+	| {
+			type: "progress";
+			tool: string;
+			toolCallId: string;
+			progress: SubagentProgressEvent;
+	  }
 	// 心跳帧：子代理长时间静默（长推理/慢首 token/单个长工具调用）时保活，
 	// 消费方收到任意帧即刷新空闲超时；ping 不携带业务数据，消费方忽略即可
 	| { type: "ping"; tool: string; toolCallId: string }
@@ -537,7 +548,10 @@ export type BridgeStreamFrame =
 			tool: string;
 			toolCallId: string;
 			ok: boolean;
-			result?: { content: Array<{ type: "text"; text: string }>; details?: unknown };
+			result?: {
+				content: Array<{ type: "text"; text: string }>;
+				details?: unknown;
+			};
 			error?: string;
 	  };
 
@@ -568,6 +582,11 @@ export interface SessionMessagesEvent {
 	messages: SessionMessage[];
 	isActive: boolean;
 	thinkingSince: number | null;
+}
+export interface SessionAsksEvent {
+	type: "session:asks";
+	sessionId: string;
+	pending: string[];
 }
 export interface SessionEchoUserEvent {
 	type: "session:echo_user";
@@ -777,7 +796,12 @@ export interface FSRecordingDiscardResult {
 // 镜像 SDK AgentSessionEvent 联合类型，作为 WS 透传事件
 export type SDKEvent =
 	| { type: "agent_start" }
-	| { type: "agent_end"; messages: AgentMessage[]; willRetry: boolean; elapsedMs?: number }
+	| {
+			type: "agent_end";
+			messages: AgentMessage[];
+			willRetry: boolean;
+			elapsedMs?: number;
+	  }
 	| { type: "turn_start" }
 	| {
 			type: "turn_end";
@@ -832,6 +856,7 @@ export type WSServerEvent =
 	| ProjectCreatedEvent
 	| SessionCreatedEvent
 	| SessionMessagesEvent
+	| SessionAsksEvent
 	| SessionEchoUserEvent
 	| AgentConfigEvent
 	| ErrorEvent

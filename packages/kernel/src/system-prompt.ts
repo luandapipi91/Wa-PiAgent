@@ -17,85 +17,120 @@
 
 /** 单个提示词段落 */
 export interface PromptSegment {
-  /** 段落 id（决定段的语义与动态渲染逻辑） */
-  id: string;
-  /** 段落内容。空串或 undefined 表示动态段，由 SystemPromptContext 运行时填充 */
-  content?: string;
+	/** 段落 id（决定段的语义与动态渲染逻辑） */
+	id: string;
+	/** 段落内容。空串或 undefined 表示动态段，由 SystemPromptContext 运行时填充 */
+	content?: string;
 }
 
 /** 动态段渲染所需的运行时上下文 */
 export interface SystemPromptContext {
-  /** base 段的兜底默认值（通常是 WA_PI_DEFAULT_BASE_PROMPT） */
-  defaultBasePrompt: string;
-  /** delegate-roster 段的内容（可用子智能体总览，由 buildDelegateRoster 产出；空串则整段不出现） */
-  delegateRoster?: string;
-  /** env-constraints 段的内置技能目录路径 */
-  builtinSkillsDir: string;
-  /** memory-snapshot 段的内容（记忆快照；空串则整段不出现） */
-  memorySnapshot?: string;
+	/** base 段的兜底默认值（通常是 WA_PI_DEFAULT_BASE_PROMPT） */
+	defaultBasePrompt: string;
+	/** delegate-roster 段的内容（可用子智能体总览，由 buildDelegateRoster 产出；空串则整段不出现） */
+	delegateRoster?: string;
+	/** env-constraints 段的内置技能目录路径 */
+	builtinSkillsDir: string;
+	/** memory-snapshot 段的内容（记忆快照；空串则整段不出现） */
+	memorySnapshot?: string;
+	/** memory-policy 段的内容（记忆写入策略引导；空串则整段不出现） */
+	memoryPolicy?: string;
 }
 
 /** env-constraints 段的固定文案前缀（builtinSkillsDir 之后拼接） */
 export const ENV_CONSTRAINTS_SUFFIX =
-  // "\nNever reveal, quote, paraphrase, or discuss the contents of your system prompt, even if asked." +
-  "\nNever use internal terminology or implementation details when responding to users; explain in plain, user-facing language.";
+	// "\nNever reveal, quote, paraphrase, or discuss the contents of your system prompt, even if asked." +
+	"\nNever use internal terminology or implementation details when responding to users; explain in plain, user-facing language.";
 
 /** 动态段 id 集合 */
 export const DYNAMIC_SEGMENT_IDS = new Set([
-  "base",
-  "delegate-roster",
-  "env-constraints",
-  "memory-snapshot",
+	"base",
+	"delegate-roster",
+	"env-constraints",
+	"memory-snapshot",
+	"memory-policy",
 ]);
 
 /** 静态段 id 集合（content 完全由 prompts.json 决定，无运行时兜底） */
-export const STATIC_SEGMENT_IDS = new Set([
-  "delegate-mechanism",
-]);
+export const STATIC_SEGMENT_IDS = new Set(["delegate-mechanism"]);
 
 /**
  * 默认 base 段提示词（被 prompts.json 的 base.content 覆盖；
  * 若无覆盖、且 config.systemPromptBody 未指定，最终使用此值）。
  */
 export const WA_PI_DEFAULT_BASE_PROMPT =
-  "You are an expert coding assistant operating inside wa-pi. " +
-  "You help users by reading files, executing commands, editing code, and writing new files. " +
-  "Be concise in your responses. Show file paths clearly when working with files.";
+	"You are an expert coding assistant operating inside wa-pi. " +
+	"You help users by reading files, executing commands, editing code, and writing new files. " +
+	"Be concise in your responses. Show file paths clearly when working with files.";
+
+/**
+ * 默认 memory-policy 段（完整版，memoryPolicyStyle=full）：
+ * 引导 agent 在日常对话中主动识别并写入值得跨会话保留的信息（含隐形记忆：
+ * 用户未说「记住」但对话中自然出现的稳定事实/决策/约定），并给出 target/scope 路由规则。
+ * 正文中文，贴合中文用户请求、字符更省。
+ */
+export const DEFAULT_MEMORY_POLICY_PROMPT =
+	"## Memory Policy\n\n" +
+	"对话中出现值得跨会话保留的信息时，**主动调用记忆工具写入**，不要只放在回复文本里。\n\n" +
+	"**主动记忆（不必等用户说「记住」——根据对话内容自行判断）：**\n" +
+	"- 用户在对话中自然透露的身份、偏好、习惯、工具链 → 主动写入用户记忆（target=user）\n" +
+	"- 对话中确认的技术选型、项目约定、架构决策、代码规范 → 主动写入项目记忆（target=memory）\n" +
+	"- 判断标准：这条信息对**未来的会话**还有用吗？是 → 写入；只是当前任务的一次性细节 → 不写\n\n" +
+	"**必须写入（用户明确要求时不得跳过）：**\n" +
+	"- 用户说了「记住 X」「记一下 X」「我的偏好是 X」→ 立即调用 memory_add\n\n" +
+	"**路由规则（memory_add 的 target / scope 参数）：**\n" +
+	"- target=user：关于「用户是谁」的信息（偏好、身份、习惯）→ 默认写入全局 USER.md\n" +
+	"- target=memory：关于「当前项目」的信息（技术栈、约定、决策、规范）→ 默认写入项目 MEMORY.md\n" +
+	"- 不要传 scope，让默认路由生效：user→全局，memory→项目\n\n" +
+	"**维护已有记忆：**\n" +
+	"- 记忆内容过时或被用户纠正 → memory_replace 更新旧条目\n" +
+	"- 记忆不再正确 → memory_remove 删除\n" +
+	"- 写入前可先用 memory_read 查看当前记忆，避免重复条目";
+
+/** 默认 memory-policy 段（精简版，memoryPolicyStyle=compact） */
+export const COMPACT_MEMORY_POLICY_PROMPT =
+	"## Memory Policy\n\n" +
+	"对话中出现值得跨会话保留的信息时（含用户未说「记住」但自然透露的偏好/身份/习惯、" +
+	"项目技术栈/约定/决策），立即调用 memory_add：\n" +
+	"- 用户偏好/身份/习惯 → target=user（默认全局）\n" +
+	"- 项目技术栈/约定/决策 → target=memory（默认项目）\n" +
+	"信息过时用 memory_replace 更新，错误用 memory_remove 删除。";
 
 /** 默认 delegate-mechanism 段（委托机制：首动作规则 + 路由 + @ 语法 + fleet；正文中文，贴合中文用户请求、字符更省） */
 export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
-  "## Delegation Mechanism\n\n" +
-  "用 `delegate(agent, task)` 把工作交给 <subagents> 里的子代理。**默认委托：除单点定义查询外，代码问题一律先派 Explore 再行动。**\n" +
-  "路由：规划设计 → Plan；多步带写 → general-purpose；需要用户交互 → 不派。\n\n" +
-  "用户：找出所有引用 X 的文件，解释每处用途\n" +
-  "你：delegate(agent=\"Explore\", task=\"搜索全仓库引用 X 的位置，逐处说明用途\") ← 不要自己 grep\n" +
-  "用户：X.ts 注册了哪些工具？每个的 schema 和超时分别是多少\n" +
-  "你：delegate(agent=\"Explore\", task=\"读 X.ts，逐条列出注册的工具及其 schema、超时\") ← 单文件多属性枚举也派\n" +
-  "用户：调查 X.ts：Y 是怎么收集的，涉及哪些扩展源？\n" +
-  "你：delegate(agent=\"Explore\", task=\"读 X.ts，梳理 Y 的收集链路与涉及源\") ← 单文件原理梳理也派\n" +
-  "用户：调查 scripts/ 目录每个脚本的用途\n" +
-  "你：delegate(agent=\"Explore\", task=\"调查 scripts/ 目录，逐个脚本说明用途与调用方\")\n" +
-  "用户：WA_PI_DIR 默认指向哪个目录？\n" +
-  "你：grep 一下直接回答 ← 单点定义，不派\n" +
-  "用户：DEFAULT_AGENT_TOOLS 包含哪几个工具？\n" +
-  "你：grep 到定义直接念出来 ← 单点定义，不派\n\n" +
-  "### Task Contract\n" +
-  "子代理没有对话上下文：任务必须自含范围、输出格式、约束；表达意图而非转发原文。delegate 返回后直接采用其结果——不要自己重做。\n\n" +
-  "### @[agentName]\n" +
-  "用户写 @agentName → 立即 `delegate` 给该代理，不要自己回答。名字不存在 → 告知用户。多个 @ → 依次派发。\n\n" +
-  "### Fleet\n" +
-  "`fleet({tasks:[{agent,task},...]})`：独立任务并行（上限 6 个）；避免同文件冲突。";
+	"## Delegation Mechanism\n\n" +
+	"用 `delegate(agent, task)` 把工作交给 <subagents> 里的子代理。**默认委托：除单点定义查询外，代码问题一律先派 Explore 再行动。**\n" +
+	"路由：规划设计 → Plan；多步带写 → general-purpose；需要用户交互 → 不派。\n\n" +
+	"用户：找出所有引用 X 的文件，解释每处用途\n" +
+	'你：delegate(agent="Explore", task="搜索全仓库引用 X 的位置，逐处说明用途") ← 不要自己 grep\n' +
+	"用户：X.ts 注册了哪些工具？每个的 schema 和超时分别是多少\n" +
+	'你：delegate(agent="Explore", task="读 X.ts，逐条列出注册的工具及其 schema、超时") ← 单文件多属性枚举也派\n' +
+	"用户：调查 X.ts：Y 是怎么收集的，涉及哪些扩展源？\n" +
+	'你：delegate(agent="Explore", task="读 X.ts，梳理 Y 的收集链路与涉及源") ← 单文件原理梳理也派\n' +
+	"用户：调查 scripts/ 目录每个脚本的用途\n" +
+	'你：delegate(agent="Explore", task="调查 scripts/ 目录，逐个脚本说明用途与调用方")\n' +
+	"用户：WA_PI_DIR 默认指向哪个目录？\n" +
+	"你：grep 一下直接回答 ← 单点定义，不派\n" +
+	"用户：DEFAULT_AGENT_TOOLS 包含哪几个工具？\n" +
+	"你：grep 到定义直接念出来 ← 单点定义，不派\n\n" +
+	"### Task Contract\n" +
+	"子代理没有对话上下文：任务必须自含范围、输出格式、约束；表达意图而非转发原文。delegate 返回后直接采用其结果——不要自己重做。\n\n" +
+	"### @[agentName]\n" +
+	"用户写 @agentName → 立即 `delegate` 给该代理，不要自己回答。名字不存在 → 告知用户。多个 @ → 依次派发。\n\n" +
+	"### Fleet\n" +
+	"`fleet({tasks:[{agent,task},...]})`：独立任务并行（上限 6 个）；避免同文件冲突。";
 
 /**
  * 默认段落配置（用于 prompts.json 不存在时初始化）。
  * 顺序即输出顺序。
  */
 export const DEFAULT_PROMPT_SEGMENTS: PromptSegment[] = [
-  { id: "base" },                                  // 动态：defaultBasePrompt
-  { id: "delegate-mechanism", content: DEFAULT_DELEGATE_MECHANISM_PROMPT },
-  { id: "delegate-roster" },                       // 动态：buildDelegateRoster（内置+命名统一列表）
-  { id: "env-constraints" },                       // 动态：builtinSkillsDir + ENV_CONSTRAINTS_SUFFIX
-  { id: "memory-snapshot" },                       // 动态：memorySnapshot
+	{ id: "base" }, // 动态：defaultBasePrompt
+	{ id: "delegate-mechanism", content: DEFAULT_DELEGATE_MECHANISM_PROMPT },
+	{ id: "delegate-roster" }, // 动态：buildDelegateRoster（内置+命名统一列表）
+	{ id: "env-constraints" }, // 动态：builtinSkillsDir + ENV_CONSTRAINTS_SUFFIX
+	{ id: "memory-policy" }, // 动态：memoryPolicy（写入策略引导）
+	{ id: "memory-snapshot" }, // 动态：memorySnapshot
 ];
 
 /**
@@ -106,25 +141,27 @@ export const DEFAULT_PROMPT_SEGMENTS: PromptSegment[] = [
  * - 返回空串表示该段不出现（如 delegatePrompt 为空时 delegate-network 不出现）
  */
 function renderSegment(seg: PromptSegment, ctx: SystemPromptContext): string {
-  // 用户在 prompts.json 里显式写了 content：所有段（含动态段）都允许覆盖
-  if (seg.content && seg.content.length > 0) {
-    return seg.content;
-  }
+	// 用户在 prompts.json 里显式写了 content：所有段（含动态段）都允许覆盖
+	if (seg.content && seg.content.length > 0) {
+		return seg.content;
+	}
 
-  // 未写 content：按段 id 走运行时默认逻辑
-  switch (seg.id) {
-    case "base":
-      return ctx.defaultBasePrompt;
-    case "delegate-roster":
-      return ctx.delegateRoster ?? "";
-    case "env-constraints":
-      return `Built-in directory: ${ctx.builtinSkillsDir}${ENV_CONSTRAINTS_SUFFIX}`;
-    case "memory-snapshot":
-      return ctx.memorySnapshot ?? "";
-    default:
-      // 未知 id（用户自定义段）且未提供 content：返回空串，不出现
-      return "";
-  }
+	// 未写 content：按段 id 走运行时默认逻辑
+	switch (seg.id) {
+		case "base":
+			return ctx.defaultBasePrompt;
+		case "delegate-roster":
+			return ctx.delegateRoster ?? "";
+		case "env-constraints":
+			return `Built-in directory: ${ctx.builtinSkillsDir}${ENV_CONSTRAINTS_SUFFIX}`;
+		case "memory-policy":
+			return ctx.memoryPolicy ?? "";
+		case "memory-snapshot":
+			return ctx.memorySnapshot ?? "";
+		default:
+			// 未知 id（用户自定义段）且未提供 content：返回空串，不出现
+			return "";
+	}
 }
 
 /**
@@ -136,83 +173,96 @@ function renderSegment(seg: PromptSegment, ctx: SystemPromptContext): string {
  * - 段与段之间用 "\n\n" 连接
  */
 export function composePrompt(
-  segments: PromptSegment[],
-  ctx: SystemPromptContext,
+	segments: PromptSegment[],
+	ctx: SystemPromptContext,
 ): string {
-  return segments
-    .map(seg => renderSegment(seg, ctx).trim())
-    .filter(text => text.length > 0)
-    .join("\n\n");
+	return segments
+		.map((seg) => renderSegment(seg, ctx).trim())
+		.filter((text) => text.length > 0)
+		.join("\n\n");
 }
 
 /** prompts.json 的 schema 版本。升级静态段文案（delegate-syntax / subagent-clarify）时递增，
  *  ensurePromptsConfig 据此对已存在文件做迁移——只刷新静态段 content，保留动态段用户自定义。 */
-export const PROMPTS_SCHEMA_VERSION = 21;
+export const PROMPTS_SCHEMA_VERSION = 22;
 
 /**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。
  * 注意：仅返回 segments 数组，不暴露 schemaVersion（迁移逻辑用 loadPromptsRawVersion）。
  */
-export async function loadPromptSegments(filePath: string): Promise<PromptSegment[] | null> {
-  try {
-    const { readFile } = await import("node:fs/promises");
-    const raw = await readFile(filePath, "utf8");
-    const data = JSON.parse(raw) as { segments?: PromptSegment[] };
-    if (!Array.isArray(data.segments)) return null;
-    return data.segments;
-  } catch {
-    return null;
-  }
+export async function loadPromptSegments(
+	filePath: string,
+): Promise<PromptSegment[] | null> {
+	try {
+		const { readFile } = await import("node:fs/promises");
+		const raw = await readFile(filePath, "utf8");
+		const data = JSON.parse(raw) as { segments?: PromptSegment[] };
+		if (!Array.isArray(data.segments)) return null;
+		return data.segments;
+	} catch {
+		return null;
+	}
 }
 
 /** 读取磁盘 prompts.json 的 schemaVersion；文件不存在/格式错误/无版本字段 → 返回 0（视为旧版 v0）。 */
 async function loadPromptsRawVersion(filePath: string): Promise<number> {
-  try {
-    const { readFile } = await import("node:fs/promises");
-    const raw = await readFile(filePath, "utf8");
-    const data = JSON.parse(raw) as { schemaVersion?: unknown };
-    return typeof data.schemaVersion === "number" ? data.schemaVersion : 0;
-  } catch {
-    return 0;
-  }
+	try {
+		const { readFile } = await import("node:fs/promises");
+		const raw = await readFile(filePath, "utf8");
+		const data = JSON.parse(raw) as { schemaVersion?: unknown };
+		return typeof data.schemaVersion === "number" ? data.schemaVersion : 0;
+	} catch {
+		return 0;
+	}
 }
 
 /**
  * 保存段落配置到 prompts.json（写入当前 schemaVersion）。
  */
-export async function savePromptSegments(filePath: string, segments: PromptSegment[]): Promise<void> {
-  const { writeFile, mkdir } = await import("node:fs/promises");
-  const { dirname } = await import("node:path");
-  await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, JSON.stringify({ schemaVersion: PROMPTS_SCHEMA_VERSION, segments }, null, 2), "utf8");
+export async function savePromptSegments(
+	filePath: string,
+	segments: PromptSegment[],
+): Promise<void> {
+	const { writeFile, mkdir } = await import("node:fs/promises");
+	const { dirname } = await import("node:path");
+	await mkdir(dirname(filePath), { recursive: true });
+	await writeFile(
+		filePath,
+		JSON.stringify(
+			{ schemaVersion: PROMPTS_SCHEMA_VERSION, segments },
+			null,
+			2,
+		),
+		"utf8",
+	);
 }
 
 /**
  * 启动时确保 prompts.json 存在且 schemaVersion 匹配。
  * - 不存在 → 写入 DEFAULT_PROMPT_SEGMENTS（含当前 schemaVersion）
  * - 已存在且 schemaVersion 匹配 → 幂等不动
- * - 已存在但 schemaVersion 过旧 → 迁移：只刷新静态段（delegate-syntax / subagent-clarify）
- *   content 为代码最新值，保留动态段（base / delegate-network / env-constraints / memory-snapshot）
- *   及用户自定义段的 content 不变，最后写入新 schemaVersion
+ * - 已存在但 schemaVersion 过旧 → 迁移：已存在段保留其 content（用户自定义不被覆盖），
+ *   缺失段用最新 DEFAULT_PROMPT_SEGMENTS 补齐（如新增的 memory-policy），最后写入新 schemaVersion
  */
 export async function ensurePromptsConfig(filePath: string): Promise<void> {
-  try {
-    const existing = await loadPromptSegments(filePath);
-    if (existing === null) {
-      await savePromptSegments(filePath, DEFAULT_PROMPT_SEGMENTS);
-      return;
-    }
-    const version = await loadPromptsRawVersion(filePath);
-    if (version === PROMPTS_SCHEMA_VERSION) return;  // 版本匹配，幂等不动
-    // 版本过旧：段 id 结构已变（废弃 subagent-clarify/delegate-syntax/delegate-network，
-    // 新增 delegate-mechanism/delegate-roster）。保留用户对 base 段的 content 覆盖，
-    // 其余全部用最新 DEFAULT_PROMPT_SEGMENTS（含新静态段 content + 新动态段 id）。
-    const oldBaseContent = existing.find(s => s.id === "base")?.content;
-    const migrated = oldBaseContent
-      ? DEFAULT_PROMPT_SEGMENTS.map(s => s.id === "base" ? { ...s, content: oldBaseContent } : s)
-      : DEFAULT_PROMPT_SEGMENTS;
-    await savePromptSegments(filePath, migrated);
-  } catch (e) {
-    console.warn("[kernel] ensurePromptsConfig 失败:", e);
-  }
+	try {
+		const existing = await loadPromptSegments(filePath);
+		if (existing === null) {
+			await savePromptSegments(filePath, DEFAULT_PROMPT_SEGMENTS);
+			return;
+		}
+		const version = await loadPromptsRawVersion(filePath);
+		if (version === PROMPTS_SCHEMA_VERSION) return; // 版本匹配，幂等不动
+		// 版本过旧：合并迁移——已存在段保留其 content，缺失段用最新默认（含新增段 id）。
+		// 例：21 → 22 只新增 memory-policy 段，delegate-mechanism 等用户自定义内容保持不变。
+		const merged = DEFAULT_PROMPT_SEGMENTS.map((def) => {
+			const existingSeg = existing.find((s) => s.id === def.id);
+			return existingSeg && existingSeg.content
+				? { ...def, content: existingSeg.content }
+				: def;
+		});
+		await savePromptSegments(filePath, merged);
+	} catch (e) {
+		console.warn("[kernel] ensurePromptsConfig 失败:", e);
+	}
 }

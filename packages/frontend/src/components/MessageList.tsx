@@ -110,11 +110,13 @@ export function MessageList({ sessionId }: Props) {
 	// 两种都定位到最后一条 user 消息，在其下方显示按钮；重发或发新消息后按钮自动消失。
 	let resendUserIdx = -1;
 	const lastMsg = rows[rows.length - 1]?.main.message as any;
-	const isFatalErrorTurn = !streaming &&
-		lastMsg?.role === "assistant" && lastMsg?.stopReason === "error";
+	const isFatalErrorTurn =
+		!streaming &&
+		lastMsg?.role === "assistant" &&
+		lastMsg?.stopReason === "error";
 	// transient 错误后 streaming 占位已被清掉，末条是 user 消息
-	const isTransientErrorTurn = !streaming && netDegraded &&
-		lastMsg?.role === "user";
+	const isTransientErrorTurn =
+		!streaming && netDegraded && lastMsg?.role === "user";
 	if (isFatalErrorTurn || isTransientErrorTurn) {
 		for (let i = rows.length - 1; i >= 0; i--) {
 			if ((rows[i].main.message as any).role === "user") {
@@ -141,7 +143,8 @@ export function MessageList({ sessionId }: Props) {
 				sessionId,
 				text,
 				model: prefs?.model,
-				thinking: prefs?.thinking ?? useComposerPrefsStore.getState().defaults.thinking,
+				thinking:
+					prefs?.thinking ?? useComposerPrefsStore.getState().defaults.thinking,
 			});
 			if (payload && session) {
 				useSessionStore
@@ -149,13 +152,16 @@ export function MessageList({ sessionId }: Props) {
 					.optimisticSend(sessionId, text, session.primaryAgent);
 				// 重发清除 transient degraded 标记（kernel 侧 prompt 也会清除 netDegraded）
 				useSessionStore.getState().clearNetStatus(sessionId);
-				void api.post(`/api/agents/${encodeURIComponent(payload.projectId)}/${encodeURIComponent(payload.sessionId)}/prompt`, {
-					agentName: payload.agentName,
-					text: payload.text,
-					model: payload.model,
-					thinking: payload.thinking,
-					attachments: payload.attachments,
-				});
+				void api.post(
+					`/api/agents/${encodeURIComponent(payload.projectId)}/${encodeURIComponent(payload.sessionId)}/prompt`,
+					{
+						agentName: payload.agentName,
+						text: payload.text,
+						model: payload.model,
+						thinking: payload.thinking,
+						attachments: payload.attachments,
+					},
+				);
 			}
 		},
 		[session, sessionId],
@@ -458,15 +464,17 @@ function stripAttachmentRefs(content: string): string {
  * @param knownSkills 已知技能名集合（来自 useSkillsStore.skills，即已启用技能）。仅用于过滤
  *   /skill:xxx 纯文本分支；<skill> XML 块分支不做过滤（SDK 已展开即视为有效）。
  */
-function formatSkillBlocks(content: string, knownSkills?: ReadonlySet<string>): string {
+function formatSkillBlocks(
+	content: string,
+	knownSkills?: ReadonlySet<string>,
+): string {
 	return content
 		.replace(
 			/<skill name="([^"]+)"[^>]*>[\s\S]*?<\/skill>\s*/g,
 			(_m, name) => `⚡ ${name} `,
 		)
-		.replace(
-			/\/skill:([^\s/]+)\s*/g,
-			(_m, name) => (knownSkills?.has(name) ? `⚡ ${name} ` : _m),
+		.replace(/\/skill:([^\s/]+)\s*/g, (_m, name) =>
+			knownSkills?.has(name) ? `⚡ ${name} ` : _m,
 		);
 }
 
@@ -598,7 +606,10 @@ const MessageRow = memo(function MessageRow({
 	// 才渲染为 chip，避免任意 /skill:xxx 文本被误判。selector 返回稳定数组引用，再 useMemo 成 Set，
 	// 避免 selector 每次返回新 Set 触发无限重渲染。
 	const enabledSkills = useSkillsStore((s) => s.skills);
-	const knownSkills = useMemo(() => new Set(enabledSkills.map((k) => k.name)), [enabledSkills]);
+	const knownSkills = useMemo(
+		() => new Set(enabledSkills.map((k) => k.name)),
+		[enabledSkills],
+	);
 
 	// custom 消息（如 agent_switch 分隔行 / pi-subagents 完成通知）：
 	// 兼容两种字段——前端构造用 type:"custom"，Pi SDK 内存消息用 role:"custom"。
@@ -687,7 +698,11 @@ const MessageRow = memo(function MessageRow({
 	// 内容驱动的列（max-w-[78%]）会被卡片展开后的宽内容（JSON/thinking 正文）撑大，
 	// 导致展开/收起卡片时整列跳宽；纯文本消息保持 shrink-wrap 气泡不变。
 	const hasProcessCard = segments.some(
-		(s) => s.kind === "thinking" || s.kind === "toolCalls" || s.kind === "delegate" || s.kind === "fleet",
+		(s) =>
+			s.kind === "thinking" ||
+			s.kind === "toolCalls" ||
+			s.kind === "delegate" ||
+			s.kind === "fleet",
 	);
 
 	// 轮级折叠：整轮已结束（非流式 + 非进行中轮）+ 含过程段 → 过程段折叠为摘要行，
@@ -754,11 +769,7 @@ const MessageRow = memo(function MessageRow({
 		}
 		// 主回复内容 — 文字 + markdown
 		return (
-			<div
-				key={key}
-				className="flex flex-col gap-1"
-				data-testid="text-bubble"
-			>
+			<div key={key} className="flex flex-col gap-1" data-testid="text-bubble">
 				<div
 					className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`}
 					style={{ lineHeight: 1.55, borderRadius: "4px 14px 14px 14px" }}
@@ -850,7 +861,12 @@ const MarkdownBlock = memo(function MarkdownBlock({
 
 type Segment =
 	| { kind: "thinking"; texts: string[]; firstBlockIdx: number }
-	| { kind: "text"; texts: string[]; firstBlockIdx: number; blockIdxs: number[] }
+	| {
+			kind: "text";
+			texts: string[];
+			firstBlockIdx: number;
+			blockIdxs: number[];
+	  }
 	| { kind: "toolCalls"; calls: any[]; firstBlockIdx: number }
 	| { kind: "delegate"; call: any; firstBlockIdx: number }
 	| { kind: "fleet"; call: any; firstBlockIdx: number };
