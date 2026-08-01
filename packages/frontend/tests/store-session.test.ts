@@ -573,3 +573,40 @@ test("error message_end 不清除 degraded（fatal 错误仍属异常态）", ()
   // error → degraded 保留（仍处异常态，需用户处理）
   expect(useSessionStore.getState().netStatusBySession["s1"]).toBe("degraded");
 });
+
+test("agent_end 携带 elapsedMs 时写回最后一条 assistant 消息 turnElapsedMs", () => {
+  useSessionStore.getState().setMessages("s1", [
+    { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+    { message: { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 2, stopReason: "end_turn", model: "m" }, agentName: "dev" },
+  ]);
+  useSessionStore.getState().handleSDKEvent("s1", envelope({
+    type: "agent_end", messages: [], willRetry: false, elapsedMs: 4000,
+  }));
+  const msgs = useSessionStore.getState().messagesBySession["s1"];
+  const lastAsst = [...msgs].reverse().find((m) => (m.message as any).role === "assistant");
+  expect((lastAsst?.message as any).turnElapsedMs).toBe(4000);
+});
+
+test("agent_end 无 elapsedMs 时不写回", () => {
+  useSessionStore.getState().setMessages("s1", [
+    { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+    { message: { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 2, stopReason: "end_turn", model: "m" }, agentName: "dev" },
+  ]);
+  useSessionStore.getState().handleSDKEvent("s1", envelope({
+    type: "agent_end", messages: [], willRetry: false,
+  }));
+  const msgs = useSessionStore.getState().messagesBySession["s1"];
+  const lastAsst = [...msgs].reverse().find((m) => (m.message as any).role === "assistant");
+  expect((lastAsst?.message as any).turnElapsedMs).toBeUndefined();
+});
+
+test("setMessages 合并连续 assistant 时保留 turnElapsedMs", () => {
+  useSessionStore.getState().setMessages("s1", [
+    { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+    { message: { role: "assistant", content: [{ type: "text", text: "思考" }], timestamp: 2, stopReason: "end_turn", model: "m" }, agentName: "dev" },
+    { message: { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 3, stopReason: "end_turn", turnElapsedMs: 4000, model: "m" }, agentName: "dev" },
+  ]);
+  const asst = useSessionStore.getState().messagesBySession["s1"].filter((m) => (m.message as any).role === "assistant");
+  expect(asst).toHaveLength(1);
+  expect((asst[0].message as any).turnElapsedMs).toBe(4000);
+});

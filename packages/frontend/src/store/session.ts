@@ -173,6 +173,9 @@ export const useSessionStore = create<SessionState>((set) => {
         if (m.stopReason) {
           (last.message as any).stopReason = m.stopReason;
         }
+        if (m.turnElapsedMs != null) {
+          (last.message as any).turnElapsedMs = m.turnElapsedMs;
+        }
       } else {
         compacted.push(msg);
       }
@@ -431,6 +434,7 @@ export const useSessionStore = create<SessionState>((set) => {
         const away = sessionId !== useProjectsStore.getState().currentSessionId;
         // 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 复活
         streamingBatcher.drop(sessionId);
+        const elapsedMs = (envelope.event as any).elapsedMs as number | undefined;
         set(s => {
           // 扩展命令（如 /mcp-auth）无 agent turn：optimisticSend 的 loading 占位
           // （stopReason==="pending"）需要在此清掉，否则气泡一直转圈。
@@ -438,13 +442,28 @@ export const useSessionStore = create<SessionState>((set) => {
           // 只清 pending 占位，绝不动真实 partial。
           const streaming = s.streamingBySession[sessionId];
           const isPlaceholder = (streaming?.message as any)?.stopReason === "pending";
-          return {
+          const result: any = {
             statusBySession: { ...s.statusBySession, [sessionId]: "idle" },
             thinkingSinceBySession: { ...s.thinkingSinceBySession, [sessionId]: null },
             unreadBySession: away ? { ...s.unreadBySession, [sessionId]: true } : s.unreadBySession,
             streamingBySession: isPlaceholder ? { ...s.streamingBySession, [sessionId]: null } : s.streamingBySession,
             optimisticEchoBySession: { ...s.optimisticEchoBySession, [sessionId]: false },
           };
+          // 整轮耗时写回该轮最后一条 assistant 消息（渲染层唯一数据源：消息.turnElapsedMs）
+          if (elapsedMs != null) {
+            const list = s.messagesBySession[sessionId] ?? [];
+            const fromEnd = [...list].reverse().findIndex((m) => (m.message as any).role === "assistant");
+            if (fromEnd >= 0) {
+              const i = list.length - 1 - fromEnd;
+              const msg = list[i];
+              const updated = { ...msg, message: { ...(msg.message as any), turnElapsedMs: elapsedMs } };
+              result.messagesBySession = {
+                ...s.messagesBySession,
+                [sessionId]: [...list.slice(0, i), updated, ...list.slice(i + 1)],
+              };
+            }
+          }
+          return result;
         });
         break;
       }
