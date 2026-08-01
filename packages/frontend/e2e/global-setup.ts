@@ -62,6 +62,10 @@ async function globalSetup() {
   // 项目记忆目录由 projectNameFromCwd(cwd) 决定（basename），即 projects-memory/<basename>/MEMORY.md
   mkdirSync(SEED_PROJECT_CWD, { recursive: true });
   writeFileSync(join(SEED_PROJECT_CWD, "AGENTS.md"), "# E2E 项目指令\n这是项目级指令文件", "utf8");
+  // 预置 md 预览渲染测试文件（含标题/表格/代码块/mermaid）：explorer.spec.ts 双击断言 markdown 渲染
+  writeFileSync(join(SEED_PROJECT_CWD, "PREVIEW.md"),
+    ["# E2E 预览测试", "", "| 列A | 列B |", "|-----|-----|", "| 1   | 2   |", "", "```ts", "const y = 2;", "```", "", "```mermaid", "graph TD", "  A --> B", "```", ""].join("\n"),
+    "utf8");
   writeFileSync(join(E2E_WA_PI_DIR, "projects.json"), SEED_PROJECTS_JSON, "utf8");
   mkdirSync(join(E2E_WA_PI_DIR, "projects-memory", "e2e-project"), { recursive: true });
   writeFileSync(join(E2E_WA_PI_DIR, "projects-memory", "e2e-project", "MEMORY.md"), "E2E 项目记忆条目", "utf8");

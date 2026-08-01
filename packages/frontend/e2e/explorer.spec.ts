@@ -47,4 +47,33 @@ test.describe.serial("文件树 + 文件预览", () => {
     await expect(page.getByTestId("file-viewer")).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId("file-viewer")).toContainText("AGENTS.md");
   });
+
+  test("双击 md 文件渲染为 markdown（标题/表格），不显示原始源码", async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.goto("/");
+    await page.waitForTimeout(2000);
+
+    const sessionId = await createSession();
+    await page.getByText("E2E项目").first().click();
+    await page.getByTestId(`session-${sessionId}`).click();
+    await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 8000 });
+
+    await page.getByTestId("btn-explorer").click();
+    await expect(page.getByTestId("explorer-aside")).toBeVisible({ timeout: 5000 });
+
+    const fileNode = page.locator('[data-testid="explorer-panel"]').getByText("PREVIEW.md");
+    await expect(fileNode).toBeVisible({ timeout: 5000 });
+    await fileNode.dblclick();
+
+    await expect(page.getByTestId("file-viewer")).toBeVisible({ timeout: 5000 });
+    // 限定 file-viewer 作用域：消息气泡（text-bubble）里也有同款 text-block testid，避免 strict mode 二义性
+    const textBlock = page.getByTestId("file-viewer").getByTestId("text-block");
+    await expect(textBlock).toBeVisible({ timeout: 5000 });
+    await expect(textBlock.locator("h1")).toContainText("E2E 预览测试");
+    await expect(textBlock.locator("table")).toBeVisible();
+    // mermaid 代码块经 createMarkdownComponents 渲染为图表（异步渲染，超时放宽）
+    await expect(textBlock.locator('[data-testid="mermaid-svg"]')).toBeVisible({ timeout: 15000 });
+    // md 渲染不走 FileViewer 的 Prism 分支：无行号容器
+    await expect(page.getByTestId("file-viewer").locator("[data-line]")).toHaveCount(0);
+  });
 });
