@@ -67,6 +67,11 @@ export function MessageList({ sessionId }: Props) {
 		}
 		return false;
 	});
+	// 本会话 agent 状态：agent_start → "thinking"，agent_end → "idle"。
+	// 主 agent 调用普通工具（bash/read/edit 等非 delegate/fleet）时 streaming 已被
+	// toolCall 的 message_end 清空，但主 turn 未结束（agent_end 未到）——工具执行中 /
+	// toolResult 到达都发生在 thinking 期间。用它覆盖「工具调用阶段自动滚动」。
+	const status = useSessionStore((s) => s.statusBySession[sessionId]);
 	const historyLoading = useSessionStore(
 		(s) => s.historyLoadingBySession[sessionId] ?? false,
 	);
@@ -177,15 +182,17 @@ export function MessageList({ sessionId }: Props) {
 		setStickBottom(isNearBottom());
 	}, [isNearBottom]);
 
-	// 自动跟随滚动：AI 回复（主流 streaming）或子代理运行（delegate/fleet 流式内容增长）
-	// 且用户停在底部时，rAF 循环每帧贴底一次（合帧——同帧多次内容变化只滚一次，避免
-	// 同帧读写 scrollHeight/scrollTop 造成 forced reflow）。循环不依赖内容更新信号：
-	// streaming 引用每帧变或子代理 output 增长都无需重启 effect，自然覆盖两种情况。
+	// 自动跟随滚动：AI 回复（主流 streaming）、子代理运行（delegate/fleet 流式内容增长）
+	// 或主 agent turn 进行中（status==="thinking"——覆盖调用普通工具期间：toolCall 定稿后
+	// streaming 已清空、工具执行中 / toolResult 到达时内容仍会增长）且用户停在底部时，
+	// rAF 循环每帧贴底一次（合帧——同帧多次内容变化只滚一次，避免同帧读写
+	// scrollHeight/scrollTop 造成 forced reflow）。循环不依赖内容更新信号：streaming 引用
+	// 每帧变、子代理 output 增长或 toolResult 定稿都无需重启 effect，自然覆盖两种情况。
 	// 结束后（active 由真变假）messages/卡片内容已定稿，兜底再滚一次，避免最后一段
 	// 内容停在视口下方（尾部裁切）；平时（非回复）不自动滚动，不抢用户阅读位置。
 	const scrollActiveRef = useRef(false);
 	useEffect(() => {
-		const active = !!(streaming || hasRunningSubagent);
+		const active = !!(streaming || hasRunningSubagent || status === "thinking");
 		if (active && stickBottom) {
 			scrollActiveRef.current = true;
 			let rafId = 0;
@@ -203,7 +210,7 @@ export function MessageList({ sessionId }: Props) {
 			const raf = requestAnimationFrame(scrollToBottom);
 			return () => cancelAnimationFrame(raf);
 		}
-	}, [streaming, hasRunningSubagent, stickBottom, scrollToBottom]);
+	}, [streaming, hasRunningSubagent, status, stickBottom, scrollToBottom]);
 
 	// 切换会话：重置停留状态为新会话「在底部」。
 	useEffect(() => {
