@@ -145,7 +145,9 @@ test("MessageList 内联渲染 DelegateCard：无普通 toolCall 时不出现分
 		},
 	});
 	render(<MessageList sessionId="s1" />);
-	// 内联在消息流中：无需展开任何分组即可见
+	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
+	fireEvent.click(screen.getByTestId("turn-summary"));
+	// delegate 内联在消息流中，无需任何工具调用分组即可见
 	expect(screen.getByTestId("delegate-d1")).toBeTruthy();
 	expect(screen.queryByTestId("toolcall-d1")).toBeNull();
 	// 无普通 toolCall → 不出现工具调用分组
@@ -185,6 +187,8 @@ test("delegate 与普通 toolCall 混合：delegate 内联独立成卡，普通�
 		},
 	});
 	render(<MessageList sessionId="s1" />);
+	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
+	fireEvent.click(screen.getByTestId("turn-summary"));
 	// delegate 卡片直接可见（内联在消息流中）
 	expect(screen.getByTestId("delegate-d1")).toBeTruthy();
 	// 单个普通调用 → 独立单卡（不成组）
@@ -369,6 +373,8 @@ test("MessageList 对非 delegate 调用仍渲染 ToolCallCard", () => {
 		},
 	});
 	render(<MessageList sessionId="s1" />);
+	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
+	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
 	expect(screen.queryByTestId("delegate-c1")).toBeNull();
 });
