@@ -478,13 +478,16 @@ test("message_end 事件把消息追加进历史快照", async () => {
   expect(msgs[0].role).toBe("assistant");
 });
 
-test("agent_end 附加整轮耗时（成功轮：最后 assistant − user）", async () => {
+test("agent_end 附加整轮耗时（成功轮：从 handle.messages 取 user 起点）", async () => {
   const received: CapturedEvent[] = [];
   const { project, session, am, fakes } = await setup({ events: received });
   await am.ensureStarted(project.id, "dev", session.id);
 
+  // 真实场景：user/assistant 先经 message_end 落进 handle.messages；
+  // agent_end 事件的 messages（Pi newMessages）只含本轮产生的 assistant，不含 user。
+  fakes[0].emit({ type: "message_end", message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1000 } });
+  fakes[0].emit({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 5000, stopReason: "end_turn" } });
   fakes[0].emit({ type: "agent_end", willRetry: false, messages: [
-    { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1000 },
     { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 5000, stopReason: "end_turn" },
   ] });
 
@@ -497,8 +500,9 @@ test("agent_end 失败回合不附加 elapsedMs", async () => {
   const { project, session, am, fakes } = await setup({ events: received });
   await am.ensureStarted(project.id, "dev", session.id);
 
+  fakes[0].emit({ type: "message_end", message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1000 } });
+  fakes[0].emit({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "报错" }], timestamp: 2000, stopReason: "error" } });
   fakes[0].emit({ type: "agent_end", willRetry: false, messages: [
-    { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1000 },
     { role: "assistant", content: [{ type: "text", text: "报错" }], timestamp: 2000, stopReason: "error" },
   ] });
 
@@ -506,11 +510,13 @@ test("agent_end 失败回合不附加 elapsedMs", async () => {
   expect(ae?.e.elapsedMs).toBeUndefined();
 });
 
-test("agent_end messages 无 user 时不附加 elapsedMs", async () => {
+test("handle.messages 无 user 时不附加 elapsedMs", async () => {
   const received: CapturedEvent[] = [];
   const { project, session, am, fakes } = await setup({ events: received });
   await am.ensureStarted(project.id, "dev", session.id);
 
+  // 只有 assistant（无 user 消息进入 handle.messages）：找不到起点，不附加
+  fakes[0].emit({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 2000, stopReason: "end_turn" } });
   fakes[0].emit({ type: "agent_end", willRetry: false, messages: [
     { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 2000, stopReason: "end_turn" },
   ] });

@@ -865,17 +865,18 @@ export class AgentManager {
 				handle.lastActiveAt = Date.now();
 				break;
 			case "agent_end": {
-				// 整轮耗时：该轮最后 assistant.timestamp − user.timestamp（纯读推算语义，
-				// 与 session-history 注入一致）。仅成功轮附加；失败回合/找不到 user 不附加。
-				const msgs = (event as any).messages as any[] | undefined;
-				if (Array.isArray(msgs)) {
-					const lastAssistant = [...msgs]
-						.reverse()
-						.find((m: any) => m?.role === "assistant");
-					const user = [...msgs].reverse().find((m: any) => m?.role === "user");
-					if (lastAssistant && user && lastAssistant.stopReason !== "error") {
-						(event as any).elapsedMs = lastAssistant.timestamp - user.timestamp;
-					}
+				// 整轮耗时：最后 assistant.timestamp − 最后 user.timestamp（与 session-history
+				// 注入同语义）。注意：agent_end 事件的 messages（Pi newMessages）只含本轮
+				// 产生的 assistant/toolResult/steering，**不含本轮最初的 user 提问**——必须从
+				// handle.messages（message_end 时已 push 全部消息）取起点，否则常规轮
+				// 找不到 user、所有实时轮都无耗时。仅成功轮附加；失败回合/无 user 不附加。
+				const msgs = handle.messages;
+				const lastAssistant = [...msgs]
+					.reverse()
+					.find((m: any) => m?.role === "assistant");
+				const user = [...msgs].reverse().find((m: any) => m?.role === "user");
+				if (lastAssistant && user && lastAssistant.stopReason !== "error") {
+					(event as any).elapsedMs = lastAssistant.timestamp - user.timestamp;
 				}
 				break;
 			}

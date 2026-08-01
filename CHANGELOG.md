@@ -6,17 +6,24 @@
 
 ## 2026-08-01
 
+### 修复
+
+- **实时轮没有本轮时长（很多成功会话缺失）**：根因是 `agent_end` 事件的 `messages`（Pi `newMessages`）只含本轮产生的 assistant/toolResult/steering 消息，**不含本轮最初的 user 提问**——kernel 从 `event.messages` 找 user 作起点计算耗时，无 steering 的常规轮找不到 user → 不附加 elapsedMs → 所有实时轮无时长（仅历史刷新后才有）。修复：`agent_end` 改从 `handle.messages`（message_end 时已 push 全部消息的快照）取最后 user / 最后 assistant 计算，与 `session-history` 历史注入同语义（最后 assistant.timestamp − 最后 user.timestamp）；失败回合/无 user 仍不附加。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`、`tests/agent-manager.test.ts`（用例改为真实场景：user 经 message_end 入 handle.messages，agent_end.messages 不含 user）。
+  - 验证：agent-manager+session-history 97 pass；kernel 全量 632 pass / 0 fail；前端相关 149 pass；`typecheck` 通过。
+
 ### 新增
 
-- **记忆写入冒烟评测脚本 `packages/kernel/scripts/eval-memory-write.ts`**（参考 `eval-delegate-trigger.ts` 子模型冒烟模式）：启动真实 pi 进程 + 真实系统提示词 + wa-pi-bridge 扩展（memory 工具注册），用 stub bridge 复用真实 amaster store 写入**隔离目录**（不污染真实记忆），验证「用户记忆（全局 USER.md）」与「项目记忆（项目 MEMORY.md）」在 10 条用例（user 4 / project 4 / mixed 2）下均能正确写入。判定标准：调用了 memory_add + target 路由正确 + 落盘文件存在非空。用法：`bun run scripts/eval-memory-write.ts [--sample N] [--category user,project,mixed] [--policy full|compact|none] [--model slug/id] [--mem-root path]`；默认模型优先读 `settings.json` 的 `defaultProvider/defaultModel`（对齐用户日常使用），fallback providers[0]。
+- **记忆写入冒烟评测脚本 `packages/kernel/scripts/eval-memory-write.ts`**（参考 `eval-delegate-trigger.ts` 子模型冒烟模式）：启动真实 pi 进程 + 真实系统提示词 + wa-pi-bridge 扩展（memory 工具注册），用 stub bridge 复用真实 amaster store 写入**隔离目录**（不污染真实记忆），验证「用户记忆（全局 USER.md）」与「项目记忆（项目 MEMORY.md）」能正确写入。用例 16 条：user 4 / project 4 / mixed 2（显式指令）+ **implicit 6（隐形记忆：用户未说「记住」但对话中自然透露偏好/身份/运行环境/项目选型/约定，agent 应自动判断并主动写入）**。判定标准：调用了 memory_add + target 路由正确 + 落盘文件存在非空。用法：`bun run scripts/eval-memory-write.ts [--sample N] [--category user,project,mixed,implicit] [--policy full|compact|none] [--model slug/id] [--mem-root path]`；默认模型优先读 `settings.json` 的 `defaultProvider/defaultModel`（对齐用户日常使用），fallback providers[0]。
   - 影响范围：`packages/kernel/scripts/eval-memory-write.ts`（新增）。
-  - 验证：默认模型（deepseek）下全量 10/10 通过；kernel typecheck 通过。
+  - 验证：默认模型（deepseek）下全量 16/16 通过（含隐形记忆 6/6）；kernel typecheck 通过。
 
 ### 修复
 
-- **日常使用不写记忆（用户记忆/项目记忆均空白）**：根因是系统提示词缺少「记忆写入策略」引导段——agent 有 `memory_add` 工具但不知道何时该主动写入，用户说「记住 X」也只回复文本、从不调用工具（实测 3/3 用例均未调用 memory_add）。修复：系统提示词新增动态段 `memory-policy`（位于 env-constraints 与 memory-snapshot 之间），按 `memoryPolicyStyle` 注入——`full` 注入完整版 `DEFAULT_MEMORY_POLICY_PROMPT`（必须写入时机 + target/scope 路由规则 + 维护方式），`compact` 注入精简版 `COMPACT_MEMORY_POLICY_PROMPT`，`none` 不注入。`prompts.json` schemaVersion 21→22，`ensurePromptsConfig` 迁移逻辑改进：已存在段保留用户自定义 content、仅追加缺失段（如 memory-policy），废弃 id 丢弃；`agent-manager.ts` 的 composePrompt 注入 memoryPolicy。
+- **日常使用不写记忆（用户记忆/项目记忆均空白）**：根因是系统提示词缺少「记忆写入策略」引导段——agent 有 `memory_add` 工具但不知道何时该主动写入，用户说「记住 X」也只回复文本、从不调用工具（实测 3/3 用例均未调用 memory_add）。修复：系统提示词新增动态段 `memory-policy`（位于 env-constraints 与 memory-snapshot 之间），按 `memoryPolicyStyle` 注入——`full` 注入完整版 `DEFAULT_MEMORY_POLICY_PROMPT`，`compact` 注入精简版 `COMPACT_MEMORY_POLICY_PROMPT`，`none` 不注入。`prompts.json` schemaVersion 21→22，`ensurePromptsConfig` 迁移逻辑改进：已存在段保留用户自定义 content、仅追加缺失段（如 memory-policy），废弃 id 丢弃；`agent-manager.ts` 的 composePrompt 注入 memoryPolicy。
+  - **隐形记忆增强**：策略段明确「主动记忆」规则——不必等用户说「记住」，对话中自然透露的稳定信息应自动写入（用户偏好/身份/习惯/运行环境 → target=user；技术选型/项目约定/架构决策 → target=memory），并给出「值得记 vs 不值得记」判断标准（对未来会话仍成立的稳定事实 vs 当前任务一次性细节），减少漏写与过度写入。
   - 影响范围：`packages/kernel/src/system-prompt.ts`、`packages/kernel/src/agent-manager.ts`；测试 `tests/system-prompt.test.ts`（新增 memory-policy 渲染/顺序/空策略用例 + 迁移行为更新）。
-  - 验证：修复后评测脚本默认模型下 10/10 通过（user→USER.md、project→MEMORY.md、mixed→双写均落盘）；kernel 630 测试全绿；typecheck 通过。
+  - 验证：修复后评测脚本默认模型下全量 16/16 通过（显式 user→USER.md、project→MEMORY.md、mixed→双写；隐形记忆 implicit 6/6 自动判断主动写入）；kernel 123 相关测试全绿；全仓 typecheck 通过。
 
 ---
 
