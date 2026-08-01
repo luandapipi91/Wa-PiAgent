@@ -285,18 +285,21 @@ test("FleetCard 按 agent 分组展示进度摘要：N 个子智能体：X 运�
 	expect(screen.getByText(/3\s*个子智能体/)).toBeTruthy();
 });
 
-test("FleetCard 有进度时默认折叠摘要开关可见，output 不可见；展开后见各 agent 分组详情", () => {
+test("FleetCard 有进度时：回复区流式显示各 agent output（无需展开），展开后状态行含工具计数", () => {
 	setFleetProgress("tc-exp", {
 		代码审查: {
 			status: "running",
 			output: "审查中",
-			tools: [{ id: "t1", name: "Bash", status: "done" }],
+			tools: [
+				{ id: "t1", name: "Bash", status: "done" },
+				{ id: "t2", name: "Read", status: "running" },
+			],
 			elapsedMs: 5000,
 		},
 		前端开发: {
 			status: "done",
 			output: "样式完成",
-			tools: [{ id: "t2", name: "Edit", status: "done" }],
+			tools: [{ id: "t3", name: "Edit", status: "done" }],
 			elapsedMs: 8000,
 		},
 	});
@@ -316,19 +319,19 @@ test("FleetCard 有进度时默认折叠摘要开关可见，output 不可见；
 	// 摘要开关存在且为折叠态（▶）
 	const toggle = screen.getByRole("button", { name: /展开|▶/ });
 	expect(toggle).toBeTruthy();
-	// 折叠态：各 agent 的 output 默认不可见
-	expect(screen.queryByText("审查中")).toBeNull();
-	expect(screen.queryByText("样式完成")).toBeNull();
-	// 展开进度详情
+	// 回复区直接流式显示各 agent output（无需展开进度详情）
+	expect(screen.getByTestId("text-block").textContent).toContain("审查中");
+	expect(screen.getByTestId("text-block").textContent).toContain("样式完成");
+	// 展开进度详情：各 agent 状态行可见（含工具计数）
 	fireEvent.click(toggle);
-	expect(screen.getByText("审查中")).toBeTruthy();
-	expect(screen.getByText("样式完成")).toBeTruthy();
-	// 各 agent 名称可见（分组标题）
-	expect(screen.getByText(/代码审查/)).toBeTruthy();
-	expect(screen.getByText(/前端开发/)).toBeTruthy();
-	// 工具时间线可见
-	expect(screen.getByText(/Bash/)).toBeTruthy();
-	expect(screen.getByText(/Edit/)).toBeTruthy();
+	expect(screen.getAllByText(/代码审查/).length).toBeGreaterThan(0);
+	expect(screen.getAllByText(/前端开发/).length).toBeGreaterThan(0);
+	// 工具只显示计数，不再逐条列出名称（两个 agent 分组各自计数）
+	expect(screen.getAllByText(/共 2 个工具/).length).toBeGreaterThan(0);
+	expect(screen.getAllByText(/成功 1/).length).toBeGreaterThan(0);
+	expect(screen.getAllByText(/执行中 1/).length).toBeGreaterThan(0);
+	expect(screen.queryByText(/Bash/)).toBeNull();
+	expect(screen.queryByText(/Edit/)).toBeNull();
 });
 
 test("FleetCard 无进度时不渲染子智能体摘要（保持原有行为）", () => {
