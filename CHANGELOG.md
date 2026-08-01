@@ -48,9 +48,9 @@
 
 ### 新增功能
 
-- **轮级折叠摘要行 + 整轮耗时**：一轮 agent 调用完成后，中间过程（思考/工具调用/delegate/fleet）二次折叠为一行摘要「本轮时长 X · N 个步骤」（无时长显示「本轮过程 · N 个步骤」），点击展开可见各步骤并可再逐个展开；最终文本回复始终保留在外。时长从消息时间戳纯读推算（最后 assistant.timestamp − user.timestamp），零写入、刷新后历史轮也能还原；仅成功完成的轮显示时长（失败回合/无 user/旧数据缺字段不显示）。流式中不折叠，保持逐卡流式渲染。
+- **轮级折叠摘要行 + 整轮耗时**：一轮 agent 调用完成后，中间过程（思考/工具调用/delegate/fleet）二次折叠为一行摘要「本轮时长 X · N 个步骤」（无时长显示「本轮过程 · N 个步骤」），点击展开可见各步骤并可再逐个展开；**只保留最后一段文本回复在外（最终回复），中间过程文字一并折叠进摘要行**。时长从消息时间戳纯读推算（最后 assistant.timestamp − user.timestamp），零写入、刷新后历史轮也能还原；仅成功完成的轮显示时长（失败回合/无 user/旧数据缺字段不显示）。**整轮结束（agent_end）才折叠——进行中的轮即使首个块已定稿也不折叠**，保持逐卡流式渲染。
   - 影响范围：`packages/shared/src/types.ts`（`AssistantMessage.turnElapsedMs?`、`SDKEvent.agent_end.elapsedMs?`）、`packages/kernel`（`session-history.ts` 按轮切分注入、`agent-manager.ts` agent_end 附加 elapsedMs）、`packages/frontend`（store agent_end 写回、`MessageList` 行级折叠、新增 `blocks/TurnSummary.tsx`）。
-  - 验证：kernel session-history/agent-manager 新增用例全绿；前端 TurnSummary/MessageList/store-session 新增用例全绿；`typecheck` 通过。
+  - 验证：kernel session-history/agent-manager 新增用例全绿（kernel 621/621）；前端 TurnSummary/MessageList/store-session 新增用例全绿（MessageList 74/0、store-session 42/0、TurnSummary 5/0）；`typecheck` 通过。
 
 ## 2026-08-01
 
