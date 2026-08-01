@@ -29,6 +29,9 @@ async function setup() {
   const cfgDir = tmp("cfg");
   const projFile = tmp("proj.json");
   const providersFile = join(projFile, "..", "providers.json");
+  // provider:save/delete 会重生 provider-extension.ts，必须注入临时输出目录，
+  // 否则覆盖真实 ~/.wa-pi/.generated/provider-extension.ts（曾致线上 Model not found）
+  const generatedDir = tmp("generated");
 
   const configStore = new ConfigStore(cfgDir);
   const projectStore = new ProjectStore(projFile);
@@ -53,7 +56,7 @@ async function setup() {
     configStore, projectStore, providerStore, skillManager,
     extensionManager: new ExtensionManager(join(projFile, "..")),
     memoryStore: null as any, mcpStore: null as any,
-    agentManager, port: 0,
+    agentManager, port: 0, generatedDir,
   });
   await server.start();
   const base = `http://127.0.0.1:${server.actualPort}`;
@@ -65,6 +68,7 @@ async function setup() {
       rmSync(cfgDir, { recursive: true, force: true });
       rmSync(projFile, { force: true });
       rmSync(providersFile, { force: true });
+      rmSync(generatedDir, { recursive: true, force: true });
     },
   };
 }
