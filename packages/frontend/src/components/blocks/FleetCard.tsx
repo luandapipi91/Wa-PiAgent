@@ -26,33 +26,27 @@ function statusLabel(status: string): string {
 	return "出错";
 }
 
-// 单个 agent 的进度分组行：本地计时（思考/长工具静默期不冻结）+ output + 工具时间线。
+// 单个 agent 的进度分组行：本地计时（思考/长工具静默期不冻结）+ 工具计数。
 // 抽成独立组件以承载 useLiveElapsed（Hooks 不能在循环里调用）。
 function AgentProgressItem({ p }: { p: SubagentProgressEvent }) {
 	const seconds = useLiveElapsed(p.elapsedMs, p.status === "running");
+	// 工具计数：按 status 分桶（总数/成功/失败/执行中），取代逐条工具列表
+	const tools = p.tools ?? [];
+	const toolCounts = {
+		total: tools.length,
+		done: tools.filter((t) => t.status === "done").length,
+		error: tools.filter((t) => t.status === "error").length,
+		running: tools.filter((t) => t.status === "running").length,
+	};
 	return (
 		<div className="min-w-0">
-			{/* 分组标题：agent 名 + 状态 + 耗时 + 工具数 */}
+			{/* 分组标题：agent 名 + 状态 + 耗时 + 工具计数 */}
 			<div className="text-[11px] text-secondary">
 				<span className="font-semibold">{p.agent}</span> ·{" "}
-				{statusLabel(p.status)} · {seconds}s · {p.tools.length} 个工具
+				{statusLabel(p.status)} · {seconds}s · 共 {toolCounts.total}{" "}
+				个工具 · 成功 {toolCounts.done} · 失败 {toolCounts.error} · 执行中{" "}
+				{toolCounts.running}
 			</div>
-			{/* 实时 output */}
-			{p.output && (
-				<pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-surface px-2 py-1 text-[11px] text-secondary mb-1">
-					{p.output}
-				</pre>
-			)}
-			{/* 工具时间线 */}
-			{p.tools.length > 0 && (
-				<ul className="text-[11px] text-tertiary space-y-0.5 mb-1">
-					{p.tools.map((t) => (
-						<li key={t.id}>
-							{t.name} · {t.status}
-						</li>
-					))}
-				</ul>
-			)}
 		</div>
 	);
 }
@@ -102,6 +96,12 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 		counts[a.status as keyof typeof counts] =
 			(counts[a.status as keyof typeof counts] ?? 0) + 1;
 
+	// 执行中（无 result）：把各 agent 的 progress.output 流式渲染为回复区（同 DelegateCard），
+	// 让子代理回复过程可见而非结束后一次性给回；完成态显示聚合 result。
+	const streamingAgents = !result ? agents.filter((a) => a.output) : [];
+	const showReply = result
+		? !hasProgress || progressExpanded
+		: streamingAgents.length > 0;
 	return (
 		<ProcessCard
 			tone="warning"
@@ -162,15 +162,33 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 					)}
 				</div>
 			)}
-			{result && (!hasProgress || progressExpanded) && (
+			{showReply && (
 				<div
 					data-testid="text-block"
 					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
 				>
 					<div className="text-[11px] text-tertiary mb-1">📤 回复：</div>
-					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-						{formattedFull}
-					</ReactMarkdown>
+					{result ? (
+						<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+							{formattedFull}
+						</ReactMarkdown>
+					) : (
+						<div className="space-y-2">
+							{streamingAgents.map((a) => (
+								<div key={a.agent}>
+									<div className="text-[11px] text-tertiary mb-0.5">
+										<span className="font-semibold">{a.agent}</span>：
+									</div>
+									<ReactMarkdown
+										remarkPlugins={[remarkGfm]}
+										components={mdComponents}
+									>
+										{a.output}
+									</ReactMarkdown>
+								</div>
+							))}
+						</div>
+					)}
 				</div>
 			)}
 		</ProcessCard>
