@@ -525,6 +525,9 @@ export interface SubagentProgressEvent {
 export type BridgeStreamFrame =
 	| { type: "started"; protocol: 1; tool: string; toolCallId: string }
 	| { type: "progress"; tool: string; toolCallId: string; progress: SubagentProgressEvent }
+	// 心跳帧：子代理长时间静默（长推理/慢首 token/单个长工具调用）时保活，
+	// 消费方收到任意帧即刷新空闲超时；ping 不携带业务数据，消费方忽略即可
+	| { type: "ping"; tool: string; toolCallId: string }
 	| {
 			type: "final";
 			tool: string;

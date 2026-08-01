@@ -22,13 +22,15 @@ afterAll(() => {
 });
 
 /** 加载扩展（复制 schema + 源码到临时文件，再动态 import），返回注册的工具数组。 */
-async function loadTools(): Promise<any[]> {
+async function loadTools(transform?: (src: string) => string): Promise<any[]> {
   const file = join(import.meta.dir, `.tmp-bridge-ext-${Math.random().toString(36).slice(2)}.ts`);
   const schemasFile = join(import.meta.dir, "tool-schemas.ts");
   const schemasSrc = join(import.meta.dir, "..", "..", "shared", "src", "tool-schemas.ts");
   copyFileSync(schemasSrc, schemasFile);
   tmpFiles.push(schemasFile);
-  writeFileSync(file, generateBridgeExtension(), "utf8");
+  let src = generateBridgeExtension();
+  if (transform) src = transform(src);
+  writeFileSync(file, src, "utf8");
   tmpFiles.push(file);
   const mod = await import(pathToFileURL(file).href);
   const tools: any[] = [];
@@ -122,5 +124,171 @@ test("流中断（无 final）退化为错误结果", async () => {
     expect(res.content[0].text).toContain("连接中断");
   } finally {
     restore();
+  }
+});
+
+test("fetch init 携带 timeout:false（禁用 Bun 原生 300s 硬超时）", async () => {
+  let capturedInit: any = null;
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async (_url: any, init: any) => {
+    capturedInit = init;
+    return {
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/x-ndjson" }),
+      body: ndjsonStream([
+        JSON.stringify({
+          type: "final",
+          tool: "delegate",
+          toolCallId: "tc3",
+          ok: true,
+          result: { content: [{ type: "text", text: "ok" }] },
+        }),
+      ]),
+      json: async () => ({}),
+    };
+  }) as any;
+  injectBridgeEnv();
+
+  try {
+    const tools = await loadTools();
+    const delegateTool = tools.find((t) => t.name === "delegate");
+    await delegateTool.execute(
+      "tc3",
+      { agent: "general-purpose", task: "hi" },
+      new AbortController().signal,
+    );
+    // Bun 专属选项：false = 关闭原生 300s 硬超时（否则 delegate 超 5 分钟必死）
+    expect(capturedInit?.timeout).toBe(false);
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+// 空闲超时语义验证：把 DELEGATE_TIMEOUT_MS 缩到 300ms 再测，避免真实等待 10 分钟
+const shrinkTimeout = (src: string) =>
+  src.replace(
+    "const DELEGATE_TIMEOUT_MS = 600_000;",
+    "const DELEGATE_TIMEOUT_MS = 300;",
+  );
+
+test("持续有帧超过空闲阈值仍成功（收到帧即刷新空闲超时）", async () => {
+  // 每 100ms 推一帧，500ms 后才给 final：总时长 > 300ms 阈值，但从不空闲超阈值
+  const enc = new TextEncoder();
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    status: 200,
+    headers: new Headers({ "content-type": "application/x-ndjson" }),
+    body: new ReadableStream<Uint8Array>({
+      start(c) {
+        const started = JSON.stringify({ type: "started", protocol: 1, tool: "delegate", toolCallId: "tc4" });
+        const progress = JSON.stringify({
+          type: "progress", tool: "delegate", toolCallId: "tc4",
+          progress: { agent: "a", status: "running", output: "x", tools: [], elapsedMs: 1 },
+        });
+        const final = JSON.stringify({
+          type: "final", tool: "delegate", toolCallId: "tc4",
+          ok: true, result: { content: [{ type: "text", text: "长跑完成" }] },
+        });
+        c.enqueue(enc.encode(started + "\n"));
+        let n = 0;
+        const iv = setInterval(() => {
+          n++;
+          if (n < 5) c.enqueue(enc.encode(progress + "\n"));
+          else {
+            clearInterval(iv);
+            c.enqueue(enc.encode(final + "\n"));
+            c.close();
+          }
+        }, 100);
+      },
+    }),
+    json: async () => ({}),
+  })) as any;
+  injectBridgeEnv();
+
+  try {
+    const tools = await loadTools(shrinkTimeout);
+    const delegateTool = tools.find((t) => t.name === "delegate");
+    const res = await delegateTool.execute(
+      "tc4",
+      { agent: "general-purpose", task: "hi" },
+      new AbortController().signal,
+    );
+    expect(res.content[0].text).toBe("长跑完成");
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+test("无任何帧超过空闲阈值 → 报空闲超时", async () => {
+  // started 帧之后永久停滞；abort 时让挂起的 read() 以 abort reason 拒绝（模拟真实 fetch）
+  const enc = new TextEncoder();
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async (_url: any, init: any) => ({
+    ok: true,
+    status: 200,
+    headers: new Headers({ "content-type": "application/x-ndjson" }),
+    body: new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(
+          enc.encode(JSON.stringify({ type: "started", protocol: 1, tool: "delegate", toolCallId: "tc5" }) + "\n"),
+        );
+      },
+      pull() {
+        return new Promise((_resolve, reject) => {
+          init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+        });
+      },
+    }),
+    json: async () => ({}),
+  })) as any;
+  injectBridgeEnv();
+
+  try {
+    const tools = await loadTools(shrinkTimeout);
+    const delegateTool = tools.find((t) => t.name === "delegate");
+    const res = await delegateTool.execute(
+      "tc5",
+      { agent: "general-purpose", task: "hi" },
+      new AbortController().signal,
+    );
+    expect(res.content[0].text).toContain("空闲超时");
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+test("工具忘传 timeoutMs 时默认 60s 空闲兜底（timeout:false 后不再永久挂起）", async () => {
+  // 模拟未来新增工具忘传第 5 实参：变换源码去掉 memory_add 的显式 timeoutMs，
+  // 并把 DEFAULT_TIMEOUT_MS 缩到 300ms 避免真实等待 60s
+  const dropExplicitTimeout = (src: string) =>
+    src
+      .replace("const DEFAULT_TIMEOUT_MS = 60_000;", "const DEFAULT_TIMEOUT_MS = 300;")
+      .replace(
+        'callBridge("memory_add", toolCallId, params, signal, DEFAULT_TIMEOUT_MS)',
+        'callBridge("memory_add", toolCallId, params, signal)',
+      );
+  // fetch 永久挂起，仅响应 abort（模拟 kernel 无响应）
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async (_url: any, init: any) =>
+    new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+    })) as any;
+  injectBridgeEnv();
+
+  try {
+    const tools = await loadTools(dropExplicitTimeout);
+    const memAdd = tools.find((t) => t.name === "memory_add");
+    const res = await memAdd.execute(
+      "tc6",
+      { target: "memory", content: "x" },
+      new AbortController().signal,
+    );
+    // 默认兜底生效：无响应时按 DEFAULT_TIMEOUT_MS 判死，而非永久挂起
+    expect(res.content[0].text).toContain("空闲超时");
+  } finally {
+    globalThis.fetch = orig;
   }
 });

@@ -66,18 +66,25 @@ async function callBridge(
   toolCallId: string,
   params: unknown,
   signal: AbortSignal | undefined,
-  timeoutMs?: number,
+  // 默认 60s 空闲兜底：下面 timeout:false 已关掉 Bun 300s 原生硬超时，
+  // 若允许省略，未来新增工具忘传时将无任何兜底、永久挂起。传 0 可显式关闭。
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<BridgeToolResult> {
   const missing = missingEnvError();
   if (missing) return failResult(missing, "missing_env");
   const ctrl = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  if (timeoutMs !== undefined && timeoutMs > 0) {
+  // 空闲超时：每收到一个数据块就重置。只有"长时间无任何帧"才判死——
+  // 子代理跑得久但持续有进度帧时不应被掐断。timeoutMs <= 0 为显式关闭。
+  const armIdleTimer = () => {
+    if (timeoutMs <= 0) return;
+    if (timer !== undefined) clearTimeout(timer);
     timer = setTimeout(
-      () => ctrl.abort(new Error("bridge 调用超时 (" + timeoutMs + "ms)")),
+      () => ctrl.abort(new Error("bridge 空闲超时 (" + timeoutMs + "ms 无任何帧)")),
       timeoutMs,
     );
-  }
+  };
+  armIdleTimer();
   const onToolAbort = () =>
     ctrl.abort((signal && signal.reason) || new Error("aborted"));
   if (signal) {
@@ -85,7 +92,10 @@ async function callBridge(
     else signal.addEventListener("abort", onToolAbort, { once: true });
   }
   try {
-    const res = await fetch(BRIDGE_URL + "/bridge/tool", {
+    // timeout:false —— Bun 原生 fetch 有 300s 硬超时（TimeoutError "The operation timed out."，
+    // code 23），与 signal 无关、无法被 AbortSignal 延长（Bun 1.3.14 实证 ~300,003ms 触发）。
+    // 必须关掉它，否则下面 600s 的空闲超时永远轮不到生效。Bun 专属选项，Node/undici 会忽略。
+    const init: RequestInit & { timeout?: boolean } = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -96,9 +106,11 @@ async function callBridge(
         params,
       }),
       signal: ctrl.signal,
-    });
-    // 流式协议：delegate/fleet 返回 NDJSON，逐帧解析 started/progress/final。
-    // started/progress 帧仅证明存活（刷新超时），进度已由 kernel SSE 直推前端，
+      timeout: false,
+    };
+    const res = await fetch(BRIDGE_URL + "/bridge/tool", init);
+    // 流式协议：delegate/fleet 返回 NDJSON，逐帧解析 started/progress/ping/final。
+    // started/progress/ping 帧仅证明存活（刷新空闲超时），进度已由 kernel SSE 直推前端，
     // 这里只关心 final 帧来组装结果。
     const isStream = (res.headers.get("content-type") ?? "").includes("x-ndjson");
     if (isStream && res.body) {
@@ -109,6 +121,7 @@ async function callBridge(
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        armIdleTimer(); // 收到数据块 → 刷新空闲超时（有帧即存活）
         buf += dec.decode(value, { stream: true });
         // 按行切分：最后一行可能不完整（无尾随 \n），留到下一轮拼接
         const lines = buf.split("\n");
@@ -126,7 +139,7 @@ async function callBridge(
             finalFrame = frame;
             break;
           }
-          // started/progress 帧仅证明存活，不消费
+          // started/progress/ping 帧仅证明存活，不消费
         }
         if (finalFrame) break;
       }

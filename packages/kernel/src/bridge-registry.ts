@@ -100,7 +100,7 @@ const STREAM_TOOLS = new Set(["delegate", "fleet"]);
 
 /**
  * 处理 POST /bridge/tool 的流式分支：
- * - delegate/fleet：经 write 回调输出 started→progress*→final NDJSON 帧，返回 null
+ * - delegate/fleet：经 write 回调输出 started→progress/ping(多帧)→final NDJSON 帧，返回 null
  * - 其他工具：走旧同步路径（复用 handleBridgeRequest），返回 BridgeResponse（由调用方 Response.json）
  *
  * write 签名：(ndjsonLine: string) => void，每帧是 JSON.stringify 后的字符串 + "\n"。
@@ -110,6 +110,7 @@ const STREAM_TOOLS = new Set(["delegate", "fleet"]);
 export async function handleBridgeStream(
   body: unknown,
   write: (ndjsonLine: string) => void,
+  opts?: { heartbeatMs?: number },
 ): Promise<BridgeResponse | null> {
   if (!body || typeof body !== "object") return { ok: false, status: 400, error: "invalid_body" };
   const { token, sessionId, toolCallId, tool, params } = body as Record<string, unknown>;
@@ -132,6 +133,14 @@ export async function handleBridgeStream(
   const emit = (frame: BridgeStreamFrame) => write(JSON.stringify(frame) + "\n");
   emit({ type: "started", protocol: 1, tool, toolCallId });
 
+  // 心跳：子代理长时间静默（长推理只产出 thinking、慢首 token、单个长工具调用）
+  // 期间没有任何 progress 帧，若无心跳，pi 侧 bridge 的空闲超时（600s 无帧）会误杀
+  // 仍在正常工作的子代理。周期写 ping 帧保活；ping 无业务含义，消费方忽略即可。
+  const heartbeat = setInterval(
+    () => emit({ type: "ping", tool, toolCallId }),
+    opts?.heartbeatMs ?? 15_000,
+  );
+
   try {
     const result = await ctx.handleTool(tool, toolCallId, params, new AbortController().signal, (e: SubagentProgressEvent) => {
       emit({ type: "progress", tool, toolCallId, progress: e });
@@ -140,6 +149,8 @@ export async function handleBridgeStream(
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     emit({ type: "final", tool, toolCallId, ok: false, error });
+  } finally {
+    clearInterval(heartbeat);
   }
   return null; // 流式工具已自行 write，调用方不应再 Response.json
 }

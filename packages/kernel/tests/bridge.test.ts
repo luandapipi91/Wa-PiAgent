@@ -29,14 +29,14 @@ import { askRegistry } from "../src/ask-registry";
 import { makeAskTool } from "../src/ask-tool";
 import { createAgentMemoryTools, getGlobalMemoryStore, getProjectMemoryStore } from "../src/amaster-memory";
 import { makeDelegateTool, makeFleetTool } from "../src/delegate-tool";
-import { WSServer } from "../src/ws-server";
+import { WSServer, type WSServerOpts } from "../src/ws-server";
 import { ConfigStore } from "../src/config-store";
 import { ProjectStore } from "../src/project-store";
 import { ProviderStore } from "../src/provider-store";
 import { SkillManager } from "../src/skill-manager";
 import { ExtensionManager } from "../src/extension-manager";
 import { RpcClient, buildPiArgs, resolvePiCliPath } from "../src/rpc-client";
-import type { AskParams } from "@wa-pi/shared";
+import type { AskParams, SubagentProgressEvent } from "@wa-pi/shared";
 
 const SEVEN_TOOLS = [
   "ask_user_question",
@@ -281,8 +281,9 @@ test("default ctx：delegate/fleet 返回 not_wired 桩", async () => {
 // ---- ws-server /bridge/tool 路由 ----
 
 /** 起最小 WSServer（mock agentManager），返回端口与停止函数。
- *  所有 store 路径落在 tmpDir 内，afterEach 统一清理，不在 tests/ 下留残留。 */
-async function startTestServer() {
+ *  所有 store 路径落在 tmpDir 内，afterEach 统一清理，不在 tests/ 下留残留。
+ *  extraOpts 用于注入测试钩子（如 onBridgeStreamCancel）。 */
+async function startTestServer(extraOpts: Partial<WSServerOpts> = {}) {
   const rand = () => join(tmpDir, "ws-bridge-" + Math.random().toString(36).slice(2));
   const dataDir = rand();
   const server = new WSServer({
@@ -296,6 +297,7 @@ async function startTestServer() {
     dataDir,
     agentManager: { disposeAll: async () => {} } as any,
     port: 0,
+    ...extraOpts,
   });
   await server.start();
   return { server, port: server.actualPort };
@@ -350,6 +352,59 @@ test("/bridge/tool 路由：401 / 404 / 200", async () => {
     expect(frames200[1].result.content[0].text).toBe("路由结果");
     expect(frames200[1].result.details.via).toBe("http");
   } finally {
+    await server.stop();
+  }
+});
+
+test("/bridge/tool 流式分支：消费方中断（停止消息）后继续 progress/final 不抛 unhandledRejection", async () => {
+  // 复现线上崩溃：用户停止消息 → pi 侧 abort fetch → Bun cancel 服务端 ReadableStream
+  // → 子代理仍产出 progress → enqueue 已关闭的 controller → "Controller is already closed"
+  let fireStreamCancel!: () => void;
+  const streamCancelled = new Promise<void>((r) => (fireStreamCancel = r));
+  const { server, port } = await startTestServer({ onBridgeStreamCancel: fireStreamCancel });
+  const rejections: unknown[] = [];
+  const onRej = (r: unknown) => rejections.push(r);
+  process.on("unhandledRejection", onRej);
+  try {
+    let progressFn: ((e: SubagentProgressEvent) => void) | undefined;
+    let finish!: (r: unknown) => void;
+    const finished = new Promise((res) => (finish = res));
+    registerBridgeSession("s-abort", {
+      cwd: "/tmp",
+      handleTool(_tool, _tcId, _params, _signal, onProgress) {
+        progressFn = onProgress;
+        return finished as Promise<never>;
+      },
+    });
+    const ac = new AbortController();
+    const res = await fetch(`http://127.0.0.1:${port}/bridge/tool`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: ac.signal,
+      body: JSON.stringify({
+        token: getBridgeToken(), sessionId: "s-abort", toolCallId: "tc-abort", tool: "delegate", params: {},
+      }),
+    });
+    expect(res.status).toBe(200);
+    // 模拟「停止消息」：abort fetch 销毁 socket（与 pi 侧 abort 行为一致）
+    ac.abort();
+    // 确定性等待服务端感知断连（ReadableStream cancel 钩子），替代固定 sleep 猜测。
+    // 若 Bun 未触发 cancel 会在测试超时上显性失败，而非静默跳过真正的断连后路径。
+    await streamCancelled;
+    // 断连后子代理仍在跑：继续产出进度帧（真实 SubagentProgressEvent 载荷）、最终完成。
+    // 在异步上下文里触发，模拟真实场景（子代理 stdout 回调链），同步 throw 会变成 rejection。
+    for (let i = 0; i < 5; i++) {
+      void Promise.resolve().then(() =>
+        progressFn?.({ agent: "a", status: "running", output: `p${i}`, tools: [], elapsedMs: i * 100 }),
+      );
+    }
+    finish({ content: [{ type: "text", text: "done" }] });
+    // 负断言需要一个安静窗口让潜在 rejection 冒泡（微任务 + 一轮定时器足够）
+    await new Promise((r) => setTimeout(r, 100));
+    expect(rejections).toEqual([]);
+  } finally {
+    process.off("unhandledRejection", onRej);
+    unregisterBridgeSession("s-abort");
     await server.stop();
   }
 });
@@ -453,4 +508,36 @@ test("handleBridgeStream 对 memory_add 返回 null（非流式工具走旧路�
   } finally {
     unregisterBridgeSession(sessionId);
   }
+});
+
+test("handleBridgeStream 静默期间周期性输出 ping 心跳帧（子代理长时间无 progress 时保活）", async () => {
+  const token = getBridgeToken();
+  const sessionId = "stream-test-heartbeat";
+  const toolCallId = "tc-heartbeat";
+  const frames: string[] = [];
+  registerBridgeSession(sessionId, {
+    cwd: "/tmp",
+    async handleTool() {
+      // 模拟子代理长时间静默（长推理/慢首 token/单个长工具调用）：250ms 无任何 progress
+      await new Promise((r) => setTimeout(r, 250));
+      return { content: [{ type: "text", text: "done" }] };
+    },
+  });
+  try {
+    await handleBridgeStream(
+      { token, sessionId, toolCallId, tool: "delegate", params: { agent: "a", task: "b" } },
+      (frame) => frames.push(frame),
+      { heartbeatMs: 50 },
+    );
+  } finally {
+    unregisterBridgeSession(sessionId);
+  }
+  const types = frames.map((f) => JSON.parse(f).type);
+  // started 之后、final 之前应有多个 ping；结束后不再追加（定时器已清）
+  expect(types[0]).toBe("started");
+  expect(types[types.length - 1]).toBe("final");
+  const pings = types.filter((t) => t === "ping").length;
+  expect(pings).toBeGreaterThanOrEqual(3);
+  await new Promise((r) => setTimeout(r, 150));
+  expect(frames.map((f) => JSON.parse(f).type).filter((t) => t === "ping").length).toBe(pings);
 });
