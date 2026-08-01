@@ -8,6 +8,12 @@
 
 ### 修复
 
+- **点击会话激活后列表最后时间不更新、排序不变**：`selectSession` 只设 `currentSessionId`，前端 `sessions` 数组里该会话的 `lastActivity` 保持旧值，`SessionRow` 的相对时间、`ProjectItem` 的倒序排列（以及 `topAgentsByRecency` 智能体最近使用排序）都基于过期数据。后端 ws-server 在 `session:messages` 时虽已 `touchSession` 更新磁盘，但无回传通道，运行中的 UI 永远看不到变化（刷新后才正确）。修复：`selectSession` 激活时乐观更新该会话 `lastActivity = Date.now()`，列表立即重排重渲染；后端 touchSession 继续保证磁盘一致。
+  - 影响范围：`packages/frontend/src/store/projects.ts`；测试 `tests/store-projects.test.ts`（新增 selectSession 更新 lastActivity 用例）、`tests/ProjectList.test.tsx`（新增点击激活后列表重排用例，TDD 红→绿）。
+
+- **子代理卡片计时一卡一卡（秒数回跳）**：`subagent:progress` 每次 text_delta/工具事件都推送 `elapsedMs`，它是后端发出时刻的真实流逝值，经 SSE 到前端已滞后（传输延迟）。旧 `useLiveElapsed` 在事件到达时直接 `setDisplay(elapsedMs)`，而本地 interval 已按前端时钟推算（系统性超前），滞后推送值会把已显示的秒数拉回（如 2s → 1s）；同时 interval 依赖 `elapsedMs` 数值，高频事件反复重建定时器，本地推算不稳。修复：推送值只更新基准 ref、不直接覆盖显示，显示始终由本地推算驱动（单调不回退）；interval 只依赖 `running`（及 elapsedMs 从无到有），高频事件不重建定时器。
+  - 影响范围：`packages/frontend/src/components/blocks/useLiveElapsed.ts`（DelegateCard/FleetCard 共用）；测试 `packages/frontend/tests/DelegateCard.test.tsx`（新增“滞后推送不回跳”用例，TDD 红灯→绿灯；原“静默期不冻结”用例保持通过）。
+
 - **委托卡片：子代理回复改为流式输出，工具调用只显示计数**：此前 DelegateCard 的执行中 output 只在展开进度详情时以 `<pre>` 展示，最终回复要等子代理 `agent_settled` 后随 toolResult 一次性到达。修复：执行中（无 result）时把 `progress.output`（kernel 每次 text_delta 推送的累积文本）直接在回复区用 ReactMarkdown 流式渲染，与主代理回复体验一致；完成态仍展开才显示最终 result。工具展示从逐条名称+状态列表改为摘要计数「共 N 个工具 · 成功 X · 失败 Y · 执行中 Z」。
   - 影响范围：`packages/frontend/src/components/blocks/DelegateCard.tsx`；测试 `packages/frontend/tests/DelegateCard.test.tsx`（更新 2 个用例，TDD 红→绿）。
 
