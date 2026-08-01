@@ -713,18 +713,14 @@ const MessageRow = memo(function MessageRow({
 								style={{ lineHeight: 1.55, borderRadius: "4px 14px 14px 14px" }}
 							>
 								{seg.texts.map((text, i) => (
-									<div
-										key={i}
-										className="prose prose-sm max-w-none"
-										data-testid="text-block"
-									>
-										<ReactMarkdown
-											remarkPlugins={[remarkGfm]}
-											components={mdComponents}
-										>
-											{text}
-										</ReactMarkdown>
-									</div>
+									// 分片 memo：流式期间已定稿 block（text 引用不变）跳过重渲染，
+									// 只有流式中的 block 每帧重跑 Markdown——避免合并行里定稿段落
+									// 随每帧重建全量重解析。key 用 block 原始 idx（稳定），不用数组 index。
+									<MarkdownBlock
+										key={seg.blockIdxs[i]}
+										text={text}
+										sessionId={sessionId}
+									/>
 								))}
 							</div>
 							{si === lastTextSegIdx && (
@@ -743,9 +739,32 @@ const MessageRow = memo(function MessageRow({
 	);
 });
 
+// 单 text block 的 Markdown 渲染。memo：流式合并行中只有内容变化的 block（流式中的
+// 末块）重渲染，已定稿 block（text 字符串引用不变）整块跳过——避免合并行里定稿段落
+// 每帧全量重跑 ReactMarkdown/remarkGfm（超长回复的卡顿热点）。
+const MarkdownBlock = memo(function MarkdownBlock({
+	text,
+	sessionId,
+}: {
+	text: string;
+	sessionId: string;
+}) {
+	const mdComponents = useMemo(
+		() => createMarkdownComponents(sessionId),
+		[sessionId],
+	);
+	return (
+		<div className="prose prose-sm max-w-none" data-testid="text-block">
+			<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+				{text}
+			</ReactMarkdown>
+		</div>
+	);
+});
+
 type Segment =
 	| { kind: "thinking"; texts: string[]; firstBlockIdx: number }
-	| { kind: "text"; texts: string[]; firstBlockIdx: number }
+	| { kind: "text"; texts: string[]; firstBlockIdx: number; blockIdxs: number[] }
 	| { kind: "toolCalls"; calls: any[]; firstBlockIdx: number }
 	| { kind: "delegate"; call: any; firstBlockIdx: number }
 	| { kind: "fleet"; call: any; firstBlockIdx: number };
@@ -782,9 +801,10 @@ function segmentBlocks(blocks: any[]): Segment[] {
 			if (!b.text?.trim()) continue;
 			if (!cur || cur.kind !== "text") {
 				push();
-				cur = { kind: "text", texts: [], firstBlockIdx: idx };
+				cur = { kind: "text", texts: [], firstBlockIdx: idx, blockIdxs: [] };
 			}
 			cur.texts.push(b.text);
+			cur.blockIdxs.push(idx);
 		} else if (b.type === "toolCall") {
 			if (b.name === "delegate") {
 				push();
