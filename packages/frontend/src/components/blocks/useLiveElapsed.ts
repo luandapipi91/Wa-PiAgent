@@ -1,47 +1,50 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * 实时展示子代理运行耗时（秒）。
  *
- * 后端 subagent-runner 只在事件到达时推送 elapsedMs（工具开始/结束、text_delta），
- * 子代理 LLM 思考阶段（thinking_delta）或长工具静默执行期间没有事件，若直接渲染
- * 推送值，计时会冻结在最后一次推送。本 hook 在 running 期间以最近一次推送的
- * elapsedMs 为基准、本地每秒推算流逝时间，保证计时连续递增；非 running（done/error）
- * 时冻结为后端终值。
+ * 计时来源：首次收到有效 elapsedMs 时，按「elapsedMs 是后端发出时刻已耗时长」反推
+ * 出子代理在本机时钟上的开始时刻 startAt；此后 running 期间只用 Date.now() - startAt
+ * 本地推算——与 SSE 推送节奏完全解耦，秒数天然连续、不回跳、静默期不冻结。
+ * 完成（done/error）时冻结为后端终值 elapsedMs，与后端记录一致。
  *
- * 平滑性约束（避免"一卡一卡"）：
- * 1. 推送的 elapsedMs 是后端发出时刻的值，经 SSE 到达前端已滞后（网络/传输延迟）。
- *    因此不直接用推送值覆盖显示（会把本地已推算的秒数拉回、回跳）；
- *    只把它更新为"基准"，显示始终由本地推算驱动。
- * 2. interval 只依赖 running（以及 elapsedMs 从无到有），不依赖 elapsedMs 数值——
- *    高频进度推送不会反复重建定时器，本地推算保持稳定。
+ * 为什么不用推送值直接驱动显示：
+ * 1. 后端只在事件到达时推送 elapsedMs（工具开始/结束、text_delta），子代理 LLM 思考
+ *    阶段或长工具静默执行期间没有事件，直接渲染推送值会冻结。
+ * 2. 推送值是后端发出时刻的耗时，经 SSE 到达前端已滞后；若用它覆盖显示会把本地已
+ *    推算的秒数拉回、回跳。startAt 只推导一次后锁死，后续任何推送（哪怕滞后/回跳）
+ *    都不再影响显示。
  */
 export function useLiveElapsed(
 	elapsedMs: number | undefined,
 	running: boolean,
 ): number {
 	const [display, setDisplay] = useState(() => elapsedMs ?? 0);
-	const baseRef = useRef({ elapsed: elapsedMs ?? 0, at: Date.now() });
+	const [startAt, setStartAt] = useState<number | null>(null);
 
-	// 后端推送新值时只更新基准（不 setDisplay），避免滞后的推送值让秒数回跳
+	// 首次收到有效 elapsedMs 时推导本地开始时刻（只推一次，之后锁死；
+	// 后续推送值不再更新 startAt，保证秒数单调递增、不回跳）。
 	useEffect(() => {
-		if (elapsedMs == null) return;
-		baseRef.current = { elapsed: elapsedMs, at: Date.now() };
-	}, [elapsedMs]);
+		if (elapsedMs == null || startAt != null) return;
+		setStartAt(Date.now() - elapsedMs);
+	}, [elapsedMs, startAt]);
 
-	// running 期间每秒用基准推算一次；tick 读 ref 避免闭包捕获过期值。
-	// 依赖用 elapsedMs == null 的布尔值：只有"从无到有/从有到无"才重建定时器，
-	// 数值频繁变化不重建 → 高频事件下本地推算仍稳定每秒 tick。
+	// running 期间每秒用 Date.now() - startAt 推算；startAt 锁死后定时器不随推送重建，
+	// 高频进度推送下本地推算仍稳定每秒 tick。
 	useEffect(() => {
-		if (!running || elapsedMs == null) return;
-		const tick = () => {
-			const { elapsed, at } = baseRef.current;
-			setDisplay(elapsed + (Date.now() - at));
-		};
+		if (!running || startAt == null) return;
+		const tick = () => setDisplay(Date.now() - startAt);
 		tick();
 		const timer = setInterval(tick, 1000);
 		return () => clearInterval(timer);
-	}, [running, elapsedMs == null]);
+	}, [running, startAt]);
+
+	// 完成态：冻结为后端终值（与后端记录一致，避免停在最后一次本地推算的秒数）。
+	// setDisplay 幂等：终值不变时 set 相同值，React 跳过重渲染。
+	useEffect(() => {
+		if (running || elapsedMs == null) return;
+		setDisplay(elapsedMs);
+	}, [running, elapsedMs]);
 
 	return Math.floor(display / 1000);
 }

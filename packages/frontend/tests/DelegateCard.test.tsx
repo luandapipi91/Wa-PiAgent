@@ -462,3 +462,54 @@ test("进度事件高频到达时计时不回跳（本地推算不被滞后的�
 		vi.useRealTimers();
 	}
 });
+
+test("完成态（done）冻结为后端终值，不被本地推算覆盖", () => {
+	// startAt 推导：首次推送 elapsedMs=1000 at now=0 → startAt=-1000；本地推算 now=3000
+	// → 3000-(-1000)=4000 → 4s。后端 done 事件终值 2500ms → 完成态应显示 2s（与后端记录一致），
+	// 而不是继续停留在本地推算的 4s。
+	vi.useFakeTimers();
+	const nowSpy = vi.spyOn(Date, "now").mockReturnValue(0);
+	try {
+		setProgress("tc-freeze", "general-purpose", {
+			status: "running",
+			output: "x",
+			tools: [],
+			elapsedMs: 1000,
+		});
+		render(
+			<DelegateCard
+				sessionId="s1"
+				toolCall={{
+					type: "toolCall",
+					id: "tc-freeze",
+					name: "delegate",
+					arguments: { agent: "general-purpose", task: "hi" },
+				}}
+			/>,
+		);
+		// 收到推送：显示 1s
+		expect(screen.getByText(/· 1s ·/)).toBeTruthy();
+		// 本地推算到 4s
+		act(() => {
+			nowSpy.mockReturnValue(3000);
+			vi.advanceTimersByTime(3000);
+		});
+		expect(screen.getByText(/· 4s ·/)).toBeTruthy();
+		// done 事件：终值 2500ms
+		act(() => {
+			nowSpy.mockReturnValue(2500);
+			setProgress("tc-freeze", "general-purpose", {
+				status: "done",
+				output: "完成",
+				tools: [],
+				elapsedMs: 2500,
+			});
+		});
+		// 冻结为后端终值 2s（floor 2500/1000）
+		expect(screen.getByText(/· 2s ·/)).toBeTruthy();
+		expect(screen.queryByText(/· 4s ·/)).toBeNull();
+	} finally {
+		nowSpy.mockRestore();
+		vi.useRealTimers();
+	}
+});
