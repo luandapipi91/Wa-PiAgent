@@ -59,3 +59,37 @@ test("点击关闭按钮触发 onClose", async () => {
   fireEvent.click(screen.getByTitle("关闭"));
   expect(closed).toBe(true);
 });
+
+// ===== md 预览渲染 =====
+
+const MD_SAMPLE = `# Preview Title
+
+| ColA | ColB |
+|------|------|
+| 1    | 2    |
+
+\`\`\`ts
+const x = 1;
+\`\`\`
+`;
+
+test("md 文件：渲染为 markdown（h1/table/pre），不出现 Prism 行号容器", async () => {
+  fake.setResponse("fs:readFile", { content: btoa(MD_SAMPLE), mimeType: "text/markdown" });
+  render(<FileViewer path="/work/demo/README.md" onClose={() => {}} />);
+
+  await waitFor(() => expect(screen.getByTestId("text-block")).toBeTruthy());
+  const textBlock = screen.getByTestId("text-block");
+  expect(textBlock.querySelector("h1")?.textContent).toBe("Preview Title");
+  expect(textBlock.querySelector("table")).toBeTruthy();
+  expect(textBlock.querySelector("pre")).toBeTruthy();
+  // md 渲染不走 FileViewer 的 Prism 分支：不出现行号容器
+  expect(screen.getByTestId("file-viewer").querySelector("[data-line]")).toBeNull();
+});
+
+test("md 文件：内联路径复用聊天区渲染为文件胶囊", async () => {
+  fake.setResponse("fs:readFile", { content: btoa("# T\n\n`docs/a.md`\n"), mimeType: "text/markdown" });
+  fake.setResponse("fs:stat", { exists: true });
+  render(<FileViewer path="/work/demo/README.md" onClose={() => {}} sessionId="s1" />);
+
+  await waitFor(() => expect(screen.getByTestId("file-pill")).toBeTruthy());
+});
