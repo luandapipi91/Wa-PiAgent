@@ -298,10 +298,17 @@ app.whenReady().then(async () => {
 
 	// 端口被占用时启动页「重启应用」按钮的处理：杀掉占用 9778 的进程后重启本应用
 	ipcMain.handle("app:restart-after-port-kill", async () => {
-		const pids = killPortOccupants(FIXED_PORT);
+		const pids = await killPortOccupants(FIXED_PORT, undefined, (m) => log.info(m));
 		log.info(`[port-kill] 端口 ${FIXED_PORT} 占用进程已清理: ${pids.join(", ") || "(无)"}`);
 		// 短暂等待端口真正释放
 		await new Promise((r) => setTimeout(r, 500));
+		// 清理后仍占用：幽灵句柄由无我方特征的进程持有（如 agent 帮用户起的 dev server），
+		// 自动清理无能为力——诚实提示，不再 relaunch 进同一个死循环
+		if (await isPortInUse(FIXED_PORT)) {
+			log.error(`[port-kill] 端口 ${FIXED_PORT} 清理后仍被占用，放弃重启`);
+			setProgress(-1, `端口 ${FIXED_PORT} 仍被占用，自动清理失败。请在任务管理器中结束残留的 bun / wa-pi 进程，或重启电脑后再试。`);
+			return;
+		}
 		app.relaunch();
 		app.exit(0);
 	});
