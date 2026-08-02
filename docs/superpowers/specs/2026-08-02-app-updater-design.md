@@ -133,26 +133,39 @@ class GiteeProvider extends Provider {
 
 `SettingsSection` 增加 `"about"`；`SettingsModal` 左侧导航底部加「关于」按钮。
 
-### AboutSection 组件
+### AboutSection 组件（居中卡片式，已确认）
+
+布局：logo（96px 圆角方块，深色底）→ 应用名（18px 加粗）→ 版本号（13px 次要色）→ hairline 分隔线 → 操作/状态区，全部居中。
 
 ```
 ┌─────────────────────────────────────┐
-│  WA PI Agent        [logo 96px]     │
-│  版本 0.1.0                          │
+│          [logo 96px]                │
+│          WA PI Agent                │
+│          版本 0.1.0                  │
 │  ───────────────────────────────    │
 │  [检查更新]                          │   ← idle / up-to-date / error 时可用
 │                                     │
 │  状态区（按状态切换）：                │
 │  · checking   → 转圈 "正在检查更新…"  │
 │  · available  → "发现新版本 v0.2.0"   │
-│                 [立即更新]           │
-│  · downloading→ 进度条 45%  (已下载/总量) │
-│  · downloaded → "更新已就绪"          │
-│                 [立即重启安装]        │
-│  · up-to-date → "已是最新版本"        │
-│  · error      → 错误文案 + 重试       │
+│                 [绿色「最新」徽标]     │
+│                 当前/新版本+大小      │
+│                 release notes       │
+│                 [立即更新]（紫色）    │
+│  · downloading→ 进度条 45%          │
+│                 (已下载/总量)        │
+│                 [取消]              │
+│  · downloaded → 绿色"更新已就绪"     │
+│                 [立即重启安装]（绿）  │
+│                 [稍后再说]          │
+│  · up-to-date → 绿色"已是最新版本 ✓" │
+│  · error      → 红色错误文案 + [重试] │
 └─────────────────────────────────────┘
 ```
+
+**release notes**：available 状态展示发行版说明，从 Gitee Release 的 `body` 字段读取（经 `update-available` 事件携带给前端）。
+
+交互原型：`.spike/updater-ui-proto.html`（gitignore，不入库），样式复用 `styles.css` 主题变量。
 
 ### updater store（Zustand）
 
@@ -188,10 +201,10 @@ preload 暴露 `waPiUpdater`：
 | 前端→主 | `updater:check` | 触发检查，结果经事件回传 |
 | 前端→主 | `updater:download` | 开始下载 |
 | 前端→主 | `updater:quit-and-install` | 退出并安装 |
-| 主→前端 | `updater:event` | `{ phase, version?, progress?, transferred?, total?, message? }` |
+| 主→前端 | `updater:event` | `{ phase, version?, releaseNotes?, progress?, transferred?, total?, message? }` |
 
 主进程 `updater.cjs` 将 autoUpdater 事件统一翻译为 `updater:event` 推给前端：
-`checking-for-update` → `checking`；`update-available` → `available`；`update-not-available` → `up-to-date`；`download-progress` → `downloading`；`update-downloaded` → `downloaded`；`error` → `error`。
+`checking-for-update` → `checking`；`update-available` → `available`（携带 version + releaseNotes，releaseNotes 取自 Gitee Release body）；`update-not-available` → `up-to-date`；`download-progress` → `downloading`；`update-downloaded` → `downloaded`；`error` → `error`。
 
 **约束**：`app.isPackaged === false`（dev）时 `updater:check` 返回 `{ isDesktop: false }`，前端禁用按钮并提示「仅安装版支持」；不触发真实更新流程。
 
