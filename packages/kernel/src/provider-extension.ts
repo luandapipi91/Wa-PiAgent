@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import { writeFile, mkdir } from "node:fs/promises";
 import { existsSync as nodeExistsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
