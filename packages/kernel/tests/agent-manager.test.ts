@@ -478,21 +478,24 @@ test("message_end 事件把消息追加进历史快照", async () => {
   expect(msgs[0].role).toBe("assistant");
 });
 
-test("agent_end 附加整轮耗时（成功轮：从 handle.messages 取 user 起点）", async () => {
+test("agent_end 附加整轮耗时（成功轮：user 落盘 → agent_end 真实时间）", async () => {
   const received: CapturedEvent[] = [];
   const { project, session, am, fakes } = await setup({ events: received });
   await am.ensureStarted(project.id, "dev", session.id);
 
-  // 真实场景：user/assistant 先经 message_end 落进 handle.messages；
-  // agent_end 事件的 messages（Pi newMessages）只含本轮产生的 assistant，不含 user。
+  // user 经 message_end 落进 handle.messages 时记录 turnUserAt（kernel 侧 Date.now()）；
+  // agent_end 时 elapsedMs = Date.now() − turnUserAt。真实流逝约 50ms。
   fakes[0].emit({ type: "message_end", message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1000 } });
+  await new Promise((r) => setTimeout(r, 50));
   fakes[0].emit({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 5000, stopReason: "end_turn" } });
   fakes[0].emit({ type: "agent_end", willRetry: false, messages: [
     { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 5000, stopReason: "end_turn" },
   ] });
 
   const ae = received.find((x) => x.e.type === "agent_end");
-  expect(ae?.e.elapsedMs).toBe(4000);
+  expect(typeof ae?.e.elapsedMs).toBe("number");
+  expect(ae!.e.elapsedMs).toBeGreaterThanOrEqual(40); // ≥ 实际流逝的 50ms（宽松下限）
+  expect(ae!.e.elapsedMs).toBeLessThan(5000);
 });
 
 test("agent_end 失败回合不附加 elapsedMs", async () => {
