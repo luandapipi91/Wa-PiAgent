@@ -71,31 +71,38 @@ test("非路径文本回退为普通 code", () => {
   expect(screen.queryByTestId("file-pill")).toBeNull();
 });
 
-test("预览 Modal 由 App 根常驻的 FilePreviewModal 渲染（脱离 FilePill 所在 opacity 容器）", async () => {
+test("预览 Modal 由常驻 FilePreviewModal 渲染（宿主 FilePill 卸载后仍保持打开）", async () => {
   fake.setResponse("fs:stat", { exists: true });
   fake.setResponse("fs:readFile", { content: btoa("file-content-123"), mimeType: "text/plain" });
-  const { container } = render(
+  const { unmount } = render(
     <>
-      <div style={{ opacity: 0.5 }}>
-        <FilePill rawText="src/index.ts:12" sessionId="s1" />
-      </div>
+      <FilePill rawText="src/index.ts:12" sessionId="s1" />
       <FilePreviewModal />
-    </>
+    </>,
   );
-
   await waitFor(() => expect(screen.getByTestId("file-pill").textContent).toContain("index.ts"));
-  // 未触发前：FilePreviewModal 无状态不渲染弹窗
-  expect(screen.queryByTestId("file-preview-modal")).toBeNull();
+  fireEvent.click(screen.getByTestId("file-pill"));
+  await waitFor(() => expect(screen.getByTestId("file-preview-modal").textContent).toContain("file-content-123"));
+  // 模拟宿主（FilePill 所在消息行/委派卡）随流式结束/折叠卸载
+  unmount();
+  // 预览窗由常驻 FilePreviewModal 渲染，重新挂载后应仍在（store 状态未丢失）
+  render(<FilePreviewModal />);
+  await waitFor(() => expect(screen.getByTestId("file-preview-modal").textContent).toContain("file-content-123"));
+});
 
+test("用户手动关闭（✕）后预览消失且 store 清空", async () => {
+  fake.setResponse("fs:stat", { exists: true });
+  fake.setResponse("fs:readFile", { content: btoa("file-content-123"), mimeType: "text/plain" });
+  render(
+    <>
+      <FilePill rawText="src/index.ts:12" sessionId="s1" />
+      <FilePreviewModal />
+    </>,
+  );
+  await waitFor(() => expect(screen.getByTestId("file-pill").textContent).toContain("index.ts"));
   fireEvent.click(screen.getByTestId("file-pill"));
   await waitFor(() => expect(screen.getByTestId("file-preview-modal")).toBeTruthy());
-
-  // 弹窗挂载在渲染根（脱离 FilePill 所在的 opacity 容器），不是嵌在胶囊内部
-  const overlay = screen.getByTestId("modal-overlay");
-  expect(overlay.parentElement).toBe(container);
-
-  // 点击遮罩关闭：store 清空 → FilePreviewModal 卸载
-  fireEvent.click(overlay);
+  fireEvent.keyDown(window, { key: "Escape" });
   await waitFor(() => expect(screen.queryByTestId("file-preview-modal")).toBeNull());
   expect(useSessionStore.getState().filePreview).toBeNull();
 });
