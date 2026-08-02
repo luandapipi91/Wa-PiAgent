@@ -8,6 +8,17 @@
 
 ### 变更
 
+- **内置插件与运行时依赖升级**：
+  - `pi-web-access`：打包态 `^0.13.0` → `^0.17.1`（dev `^0.15.0` → `^0.17.1`），网络工具族（web_search / fetch_content / source_check）追赶 2 个 minor。
+  - `@earendil-works/pi-coding-agent` / `pi-ai`：打包态 sidecar `^0.80.x` → `^0.83.0`，移除 `overrides` 对 pi-ai 0.80.10 的钉死——dev/打包态版本对齐，消除运行时版本分裂。
+  - `pi-mcp-adapter`：dev `2.15.0` → `2.17.0`，patch 同步升级为 `pi-mcp-adapter@2.17.0.patch`（内容实质相同：补 `./mcp-auth.ts` exports 子路径 + `resolveCommandSecretsRecord` 返回类型放宽）；2.17.0 仍未内置该 exports，dev 直接跑 TS 源码依赖 patch（打包态 kernel.js 经 bun build 内联不受影响）。
+  - `typebox`：dev `1.1.38` → `^1.3.6`（实际解析 1.3.10，与 sidecar 对齐）。
+  - `pi-open-agents` → `0.1.14`、`@amaster.ai/pi-memory` → `0.1.7`（约束范围内升级到最新）。
+  - 影响范围：`packages/kernel/package.json`、`packages/shared/package.json`、根 `package.json`（patchedDependencies）、`packages/desktop/scripts/build-kernel-sidecar.ts`（sidecar 依赖清单）、`patches/`（mcp-adapter patch 升级）。
+  - 验证：typecheck 全绿；kernel 642 / shared 93 / desktop 40 / frontend 893 全量 pass；重新打包成功；模拟 runtime 首启安装（330 包）版本核对通过（pi-ai/pi-coding-agent 0.83.0、pi-web-access 0.17.1、pi-open-agents 0.1.14、pi-memory 0.1.7、typebox 1.3.10、pi-mcp-adapter 2.17.0）。
+
+### 变更
+
 - **web-search 默认 provider 改为 anysearch（合并覆盖，不再整文件覆盖）**：kernel 启动 `ensureWebSearchConfig` 改为「读现有 web-search.json → 只合并覆盖 `provider`/`workflow` 两个键 → 写回」，保留用户手动配置的其他字段（如各 provider 的 API key）；默认 provider 从 `auto` 改为 `anysearch`（匿名可用、无需 key，开箱即用，避免 auto 无 key 抛 No search provider available）。
   - 影响范围：`packages/kernel/src/index.ts`（ensureWebSearchConfig）。
   - 验证：typecheck 全绿；kernel 全量 642 pass / 0 fail。

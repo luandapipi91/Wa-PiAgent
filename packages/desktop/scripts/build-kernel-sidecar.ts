@@ -150,13 +150,10 @@ export async function buildSidecar(target: "win" | "linux" | "darwin" | string) 
   await writeFile(join(kernelDir, "package.json"), JSON.stringify({
     name: "wa-pi-kernel-sidecar", private: true,
     dependencies: {
-      "@earendil-works/pi-coding-agent": "^0.80.0", "@earendil-works/pi-ai": "^0.80.6", "pi-open-agents": "^0.1.12",
-      "pi-web-access": "^0.13.0", "@amaster.ai/pi-memory": "^0.1.5",
+      "@earendil-works/pi-coding-agent": "^0.83.0", "@earendil-works/pi-ai": "^0.83.0", "pi-open-agents": "^0.1.12",
+      "pi-web-access": "^0.17.1", "@amaster.ai/pi-memory": "^0.1.5",
       "pi-mcp-adapter": "^2.13.0", "pi-cache-optimizer": "^2.6.24", "@modelcontextprotocol/sdk": "^1.29.0",
       typebox: "^1.3.6",
-    },
-    overrides: {
-      "@earendil-works/pi-ai": "0.80.10",
     },
   }, null, 2));
   run("bun", ["install", "--cwd", kernelDir]);                              // 产出 bun.lock（--production 不生成锁文件）
