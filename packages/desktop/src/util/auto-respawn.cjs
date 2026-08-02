@@ -3,10 +3,9 @@
 // 背景：kernel 是 desktop spawn 的子进程。历史 bug 中 kernel 被 Bun 因未捕获异常
 // 杀死（exit code=null），但 kernel-sidecar.cjs 的 child.on("exit") 只 log 不重启，
 // 前端永远卡在"连接已断开，正在重连"。本模块封装"是否该重启"的决策，供 sidecar 组装。
+// 策略：无限重启 + 固定间隔（attempts 仅用于日志计数，不再拦截）。
 
-/** 最大重启次数（防止无限崩溃循环） */
-const MAX_RESPAWN = 3;
-/** 重启退避延迟（毫秒） */
+/** 重启延迟（毫秒）——固定间隔，无限重启 */
 const RESPAWN_DELAY_MS = 2000;
 
 /** 重启状态：sidecar 持有，随生命周期更新 */
@@ -14,11 +13,11 @@ const RESPAWN_DELAY_MS = 2000;
 /**
  * @typedef {Object} RespawnState
  * @property {boolean} stopped - 用户主动 stop() 后置 true，禁止重启
- * @property {number} attempts - 已重启次数
+ * @property {number} attempts - 已重启次数（仅用于日志）
  */
 
 /**
- * 判断 kernel 子进程退出后是否应自动重启。
+ * 判断 kernel 子进程退出后是否应自动重启（无限重启策略）。
  *
  * @param {number|null} code - 子进程 exit code（null = 被信号杀/崩溃）
  * @param {RespawnState} state - 重启状态
@@ -29,9 +28,8 @@ function shouldRespawn(code, state) {
   if (state.stopped) return false;
   // 仅崩溃（被信号杀）才重启；正常退出（code=0）或显式错误退出（code>0）不重启
   if (code !== null) return false;
-  // 超过最大重启次数 → 放弃，避免崩溃循环
-  if (state.attempts >= MAX_RESPAWN) return false;
+  // 无限重启：只要未主动停止，崩溃就拉起（attempts 仅用于日志计数）
   return true;
 }
 
-module.exports = { shouldRespawn, MAX_RESPAWN, RESPAWN_DELAY_MS };
+module.exports = { shouldRespawn, RESPAWN_DELAY_MS };
