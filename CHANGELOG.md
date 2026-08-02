@@ -6,6 +6,10 @@
 
 ## 2026-08-02
 
+### 新增
+
+- **feat(frontend): UI 字体接入 MiSans（4 字重）+ 代码字体 JetBrains Mono（中文回退 MiSans）**——告别 Windows 微软雅黑，跨平台统一视觉
+
 ### 修复
 
 - **fix(frontend): 技能/命令/智能体/文件触发符支持全角符号（￥＄＠＃／ 归一化）**——Windows 中文输入法全角模式输入 ￥ 不再失效。触发符归一化逻辑收敛到 `normalizeTriggerChars`（仅归一化 5 个全角符号，不含全角字母数字/标点），`detectTrigger` / `expandTokens` 入口统一调用；`textToSegments` / `textToHtml` / `segmentsToText` 显示路径不归一化。
