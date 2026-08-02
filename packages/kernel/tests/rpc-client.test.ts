@@ -85,14 +85,19 @@ test("extension_ui_request：无 handler 时自动回 cancelled", async () => {
   expect(data.echo.cancelled).toBe(true);
 });
 
-test("fire-and-forget UI 请求（notify）不阻塞、不要求响应", async () => {
-  const { client } = makeClient({
+test("fire-and-forget UI 请求（notify）不阻塞、不要求响应，且转发为 extension_notify 事件", async () => {
+  const { client, events } = makeClient({
     onUiRequest: async () => {
       throw new Error("不应被调用");
     },
   });
   await client.start();
   await client.command({ type: "ui_notify" });
+  // notify is fire-and-forget: not handled by onUiRequest, but forwarded as event for host toast
+  const notify = events.find((e) => e.type === "extension_notify");
+  expect(notify).toBeTruthy();
+  expect((notify as any).message).toBe("你好");
+  expect((notify as any).notifyType).toBeUndefined();
 });
 
 test("stdout 行内 U+2028/U+2029 不造成错误断行", async () => {

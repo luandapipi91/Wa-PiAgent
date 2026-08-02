@@ -494,6 +494,44 @@ export const useSessionStore = create<SessionState>((set) => {
           queueBySession: { ...s.queueBySession, [sessionId]: { steering: event.steering, followUp: event.followUp } },
         }));
         break;
+      // pi extension ctx.ui.notify feedback (e.g. /lens-toggle result): kernel wraps in sdk:event,
+      // insert as centered system message in chat, otherwise command succeeds but user sees nothing.
+      case "extension_notify": {
+        const msg = (event as any).message;
+        if (typeof msg === "string") {
+          set((s) => {
+            const list = s.messagesBySession[sessionId] ?? [];
+            // dedupe: skip if last message is same extension_notify content (pi may burst same notify)
+            const last = list[list.length - 1]?.message as any;
+            if (
+              last?.type === "custom" &&
+              last?.customType === "extension_notify" &&
+              last?.content === msg
+            ) {
+              return s;
+            }
+            return {
+              messagesBySession: {
+                ...s.messagesBySession,
+                [sessionId]: [
+                  ...list,
+                  {
+                    message: {
+                      type: "custom",
+                      customType: "extension_notify",
+                      content: msg,
+                      timestamp: Date.now(),
+                    },
+                    agentName,
+                    sessionId,
+                  } as any,
+                ],
+              },
+            };
+          });
+        }
+        break;
+      }
       // turn_start/turn_end/tool_execution_* 暂不在 store 处理：渲染层不消费
       default:
         break;

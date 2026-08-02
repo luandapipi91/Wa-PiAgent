@@ -30,6 +30,7 @@ import type {
 	ExtensionErrorEvent,
 	ExtensionProgressEvent,
 	ExtensionInstallDoneEvent,
+	ExtensionNotifyEvent,
 } from "./extensions";
 import type {
 	MemoryListEvent,
@@ -839,6 +840,11 @@ export type SDKEvent =
 			type: "queue_update";
 			steering: readonly string[];
 			followUp: readonly string[];
+	  }
+	| {
+			type: "extension_notify";
+			message: string;
+			notifyType?: string;
 	  };
 
 // WS 事件信封：包裹 sessionId 上下文，原始 SDK 事件原样透传
@@ -877,6 +883,7 @@ export type WSServerEvent =
 	| ExtensionErrorEvent
 	| ExtensionProgressEvent
 	| ExtensionInstallDoneEvent
+	| ExtensionNotifyEvent
 	| MemoryListResult
 	| MemoryChangedEvent
 	| McpListResult

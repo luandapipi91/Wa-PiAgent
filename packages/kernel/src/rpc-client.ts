@@ -366,6 +366,15 @@ export class RpcClient {
         fields = { cancelled: true };
       }
     }
+    // notify is a fire-and-forget feedback of extension commands (e.g. /lens-toggle reports
+    // result via ctx.ui.notify). Forward it as extension_notify event so host shows a toast.
+    if (req.method === "notify" && typeof req.message === "string") {
+      this.opts.onEvent({
+        type: "extension_notify",
+        message: req.message,
+        notifyType: req.notifyType,
+      } as RpcEvent);
+    }
     try {
       this.proc?.stdin?.write(JSON.stringify({ type: "extension_ui_response", id: req.id, ...fields }) + "\n");
     } catch { /* 进程已退出 */ }
