@@ -159,6 +159,8 @@ interface SessionHandle {
 	busy: boolean;
 	/** agent_start 的时间戳（ms），用于前端恢复思考计时 */
 	thinkingSince: number | null;
+	/** 本轮 user 消息落盘时刻（kernel 收到 user message_end 的 Date.now()，≈ jsonl 行级落盘） */
+	turnUserAt: number | null;
 	/** 历史消息快照（创建时经 get_messages 拉取 + message_end 增量追加） */
 	messages: any[];
 	/** 排队消息列表（agent_settled 时逐条 drain） */
@@ -766,6 +768,7 @@ export class AgentManager {
 			meta: { projectId, agentName },
 			busy: false,
 			thinkingSince: null,
+			turnUserAt: null,
 			messages: [],
 			followUpList: [],
 			steerList: [],
@@ -861,22 +864,23 @@ export class AgentManager {
 				break;
 			case "message_end":
 				if (event.message) handle.messages.push(event.message);
+				// 本轮 user 落盘时刻（≈ jsonl 行级落盘）：整轮耗时的起点。
+				// 不能用 message.timestamp——Pi 单块轮 assistant 消息对象在 prompt 时预创建，
+				// message.timestamp ≈ user 时刻，算出的时长≈0；真实耗时看落盘时刻。
+				if ((event.message as any)?.role === "user") handle.turnUserAt = Date.now();
 				// agent 回复完成视为活跃（与磁盘 touchSession 同步），刷新空闲回收计时
 				handle.lastActiveAt = Date.now();
 				break;
 			case "agent_end": {
-				// 整轮耗时：最后 assistant.timestamp − 最后 user.timestamp（与 session-history
-				// 注入同语义）。注意：agent_end 事件的 messages（Pi newMessages）只含本轮
-				// 产生的 assistant/toolResult/steering，**不含本轮最初的 user 提问**——必须从
-				// handle.messages（message_end 时已 push 全部消息）取起点，否则常规轮
-				// 找不到 user、所有实时轮都无耗时。仅成功轮附加；失败回合/无 user 不附加。
+				// 整轮耗时：user 落盘（kernel 收到 user message_end）→ agent_end 到达
+				// （≈ 最后 assistant 落盘后）。与 session-history 历史注入（行级落盘时刻）同语义。
+				// 仅成功轮附加；失败回合/无 user 不附加。
 				const msgs = handle.messages;
 				const lastAssistant = [...msgs]
 					.reverse()
 					.find((m: any) => m?.role === "assistant");
-				const user = [...msgs].reverse().find((m: any) => m?.role === "user");
-				if (lastAssistant && user && lastAssistant.stopReason !== "error") {
-					(event as any).elapsedMs = lastAssistant.timestamp - user.timestamp;
+				if (handle.turnUserAt != null && lastAssistant && lastAssistant.stopReason !== "error") {
+					(event as any).elapsedMs = Date.now() - handle.turnUserAt;
 				}
 				break;
 			}

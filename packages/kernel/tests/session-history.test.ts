@@ -11,9 +11,9 @@ beforeEach(() => {
 });
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
-function msg(id: string, parentId: string | null, role: string, text: string, ts: number): string {
+function msg(id: string, parentId: string | null, role: string, text: string, ts: number, lineTs: number = ts): string {
   return JSON.stringify({
-    type: "message", id, parentId, timestamp: new Date(ts).toISOString(),
+    type: "message", id, parentId, timestamp: new Date(lineTs).toISOString(),
     message: { role, content: [{ type: "text", text }], timestamp: ts },
   });
 }
@@ -283,6 +283,20 @@ test("轮级耗时：连续多轮各自注入", async () => {
   const history = (await readSessionHistory(file)) as any[];
   expect(history[1].turnElapsedMs).toBe(2000);
   expect(history[3].turnElapsedMs).toBe(4000);
+});
+
+test("轮级耗时：用行级落盘时刻计算（单块轮 message.timestamp 不可靠场景）", async () => {
+  // 真实场景：单块轮（无工具调用直接回复）的 assistant 消息对象在 prompt 时预创建，
+  // message.timestamp ≈ user（差 38ms），真实耗时在行级落盘时刻（差 6000ms）。
+  // 注入必须用行级 timestamp，否则时长算成 0 秒。
+  const file = join(dir, "s.jsonl");
+  writeFileSync(file, [
+    JSON.stringify({ type: "session", version: 3, id: "uuid-1" }),
+    msg("m1", null, "user", "问题", 1000, 1000),
+    msg("m2", "m1", "assistant", "回答", 1038, 7000),
+  ].join("\n"));
+  const history = (await readSessionHistory(file)) as any[];
+  expect(history[1].turnElapsedMs).toBe(6000);
 });
 
 test("轮级耗时：无 user 起点（只有 assistant）不注入", async () => {

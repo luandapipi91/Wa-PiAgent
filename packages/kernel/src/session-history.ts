@@ -96,34 +96,38 @@ function dedupeConsecutiveFailedTurns(msgs: any[]): any[] {
 /**
  * 轮级耗时注入（纯读推算，零写入）：按 user 消息切轮，对"成功完成"的轮
  * （该轮最后一条 assistant 的 stopReason !== "error"）计算
- * turnElapsedMs = 最后 assistant.timestamp − user.timestamp，注入到该轮最后一条
+ * turnElapsedMs = 最后 assistant 行落盘时刻 − user 行落盘时刻，注入到该轮最后一条
  * assistant 消息。失败回合（error 结尾）/无 user/无 assistant 结束的轮不注入。
- * 旧 jsonl 无字段时前端自然降级为无时长。
+ * 用行级 _lineTs（jsonl 每行落盘 timestamp）而非 message.timestamp——
+ * Pi 单块轮 assistant 消息对象在 prompt 时预创建，message.timestamp ≈ user 时刻
+ * （差 <1s），真实耗时只有落盘时刻可靠。旧 jsonl 无字段时前端自然降级为无时长。
  */
 function injectTurnElapsedMs(msgs: AgentMessage[]): AgentMessage[] {
-  let turnUserTs: number | undefined;
-  let lastAsstIdx = -1;
-  let lastAsstError = false;
-  for (let i = 0; i < msgs.length; i++) {
-    const m = msgs[i] as any;
-    if (m?.role === "user") {
-      if (turnUserTs !== undefined && lastAsstIdx >= 0 && !lastAsstError) {
-        (msgs[lastAsstIdx] as any).turnElapsedMs =
-          (msgs[lastAsstIdx] as any).timestamp - turnUserTs;
-      }
-      turnUserTs = m.timestamp;
-      lastAsstIdx = -1;
-      lastAsstError = false;
-    } else if (m?.role === "assistant") {
-      lastAsstIdx = i;
-      lastAsstError = m.stopReason === "error";
-    }
-  }
-  if (turnUserTs !== undefined && lastAsstIdx >= 0 && !lastAsstError) {
-    (msgs[lastAsstIdx] as any).turnElapsedMs =
-      (msgs[lastAsstIdx] as any).timestamp - turnUserTs;
-  }
-  return msgs;
+	let turnUserTs: number | undefined;
+	let lastAsstIdx = -1;
+	let lastAsstError = false;
+	const settleTurn = () => {
+		if (turnUserTs !== undefined && lastAsstIdx >= 0 && !lastAsstError) {
+			const a = msgs[lastAsstIdx] as any;
+			a.turnElapsedMs = a._lineTs - turnUserTs;
+		}
+	};
+	for (let i = 0; i < msgs.length; i++) {
+		const m = msgs[i] as any;
+		if (m?.role === "user") {
+			settleTurn();
+			turnUserTs = m._lineTs;
+			lastAsstIdx = -1;
+			lastAsstError = false;
+		} else if (m?.role === "assistant") {
+			lastAsstIdx = i;
+			lastAsstError = m.stopReason === "error";
+		}
+	}
+	settleTurn();
+	// 清理注入用的临时字段，避免泄漏到前端
+	for (const m of msgs) delete (m as any)._lineTs;
+	return msgs;
 }
 
 /**
@@ -163,7 +167,9 @@ export async function readSessionHistory(file: string, opts?: { isSessionActive?
     chain.reverse();
     const msgs = chain
       .filter(e => e.type === "message" && e.message != null)
-      .map(e => e.message);
+      // 浅拷贝 + 附加行级落盘时刻（Pi 单块轮 assistant 消息在 prompt 时预创建，
+      // message.timestamp 不可靠 ≈ user 时刻；真实耗时在 jsonl 每行的落盘 timestamp）
+      .map(e => ({ ...(e.message as any), _lineTs: e.timestamp ? Date.parse(e.timestamp) : undefined }));
     // 过滤 transient error（网络/超时类临时错误）：这类错误是临时性的，
     // 不应作为历史消息残留进对话流（刷新后会重新出现并堆积）。
     // pi 已将其落盘，这里在读出时剔除——仅前端展示层过滤，JSONL 原文不动。

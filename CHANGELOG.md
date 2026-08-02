@@ -8,6 +8,10 @@
 
 ### 修复
 
+- **部分轮显示「本轮时长 0 秒」**：根因是 Pi SDK 的**单块轮**（无工具调用直接回复）assistant 消息对象在 prompt 发送时**预创建**，`message.timestamp` ≈ user 时刻（实测差 38ms），真实耗时（6.3s）在 jsonl **行级落盘时刻**。此前注入用 `message.timestamp` → 单块轮时长算成 0 秒（多块轮末块恰好创建在完成前，碰巧近似正确）。修复：历史渠道 `session-history` 改用 jsonl 每行行级落盘 timestamp 计算轮耗时；实时渠道 `agent-manager` 改用 kernel 收到 user message_end 的时刻（`turnUserAt`）→ agent_end 到达时刻，与历史同语义（user 落盘 → 回复完成）。
+  - 影响范围：`packages/kernel/src/session-history.ts`、`packages/kernel/src/agent-manager.ts`；测试 `session-history`（新增单块轮行级时刻回归用例）/`agent-manager`（真实时间断言）更新。
+  - 验证：真实数据 71 条注入全部 >1s（0 秒消失）；用户报告的「123」会话 6325ms（修复前 38ms→0 秒）；kernel 全量 633 pass / 0 fail；typecheck 全绿。
+
 - **历史/实时会话大量无本轮时长（渲染层合并丢字段）**：上一修复（agent_end 从 handle.messages 取起点）后后端注入/写回已正确——每轮末 assistant 带 turnElapsedMs（真实数据验证 26 个标准会话中 22 个有注入），但前端大部分轮仍显示「本轮过程」。根因：渲染层 `collapseSameTurnAssistants` 合并连续 assistant 行（一轮多条 assistant 中间隔 toolResult 时 store 不合并、由渲染层合并）**只拼接 content、不拷贝 turnElapsedMs**——合并后主消息取第一条 assistant（无该字段），轮末的时长在合并时丢失。修复：合并时补拷 turnElapsedMs（与 setMessages 合并一致）。
   - 影响范围：`packages/frontend/src/components/MessageList.tsx`（collapseSameTurnAssistants）；测试 `tests/MessageList.test.tsx`（新增「中间隔 toolResult 的多条 assistant 合并行保留时长」回归用例）。
   - 验证：浏览器实测历史会话两轮均正确显示——「本轮时长 4 分 34 秒 · 35 个步骤」「本轮时长 5 分 48 秒 · 53 个步骤」，与后端注入毫秒数（274933/348066）完全吻合；frontend 相关 150 pass / 0 fail（MessageList 75 含新用例）；typecheck 全绿。
