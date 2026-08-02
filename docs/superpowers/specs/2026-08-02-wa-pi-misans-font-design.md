@@ -1,7 +1,7 @@
 # wa-pi 接入 MiSans 字体设计
 
 **日期：** 2026-08-02
-**状态：** 已批准（用户选择：MiSans 主字体 + MiSans Mono 代码字体 + 4 字重）
+**状态：** 已批准（MiSans 主字体 4 字重 + JetBrains Mono 代码字体，中文回退 MiSans）
 
 ## 1. 背景与目标
 
