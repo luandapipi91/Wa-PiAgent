@@ -154,7 +154,7 @@ const CASES: MemoryCase[] = [
 	// implicit-user：对话中自然透露用户偏好/身份/工具链
 	{
 		category: "implicit",
-		prompt: "我平时都用 pnpm 装依赖，npm 用得少。帮我看看这个项目的依赖管理配置。",
+		prompt: "我平时都用 pnpm 装依赖，npm 用得少。",
 		expectUser: true,
 		expectProject: false,
 	},
@@ -168,13 +168,14 @@ const CASES: MemoryCase[] = [
 	{
 		category: "implicit",
 		prompt:
-			"我们决定用 Vitest 替代 Jest 跑组件测试，统一走 @testing-library/react。把项目里相关配置更新一下。",
+			"我们决定用 Vitest 替代 Jest 跑组件测试，统一走 @testing-library/react。",
 		expectUser: false,
 		expectProject: true,
 	},
 	{
 		category: "implicit",
-		prompt: "CI 用的是 GitHub Actions，打包走 Electron Builder，发布到 GitHub Releases。",
+		prompt:
+			"CI 用的是 GitHub Actions，打包走 Electron Builder，发布到 GitHub Releases。",
 		expectUser: false,
 		expectProject: true,
 	},
@@ -392,31 +393,27 @@ function startStubBridge(cwd: string): Promise<StubBridge> {
 					: { ok: true, text: "（评测桩：ok）" },
 			)
 				.then(({ ok, text }) => {
-					res
-						.writeHead(200, { "content-type": "application/json" })
-						.end(
-							JSON.stringify({
-								content: [{ type: "text", text }],
-								details: ok ? undefined : { error: "memory_op_failed" },
-							}),
-						);
+					res.writeHead(200, { "content-type": "application/json" }).end(
+						JSON.stringify({
+							content: [{ type: "text", text }],
+							details: ok ? undefined : { error: "memory_op_failed" },
+						}),
+					);
 				})
 				.catch((err) => {
-					res
-						.writeHead(200, { "content-type": "application/json" })
-						.end(
-							JSON.stringify({
-								content: [
-									{
-										type: "text",
-										text:
-											"记忆操作失败: " +
-											(err instanceof Error ? err.message : String(err)),
-									},
-								],
-								details: { error: "memory_op_failed" },
-							}),
-						);
+					res.writeHead(200, { "content-type": "application/json" }).end(
+						JSON.stringify({
+							content: [
+								{
+									type: "text",
+									text:
+										"记忆操作失败: " +
+										(err instanceof Error ? err.message : String(err)),
+								},
+							],
+							details: { error: "memory_op_failed" },
+						}),
+					);
 				});
 		});
 	});
