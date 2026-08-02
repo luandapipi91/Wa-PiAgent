@@ -2,6 +2,50 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===== 自定义字体（MiSans 主字体 + JetBrains Mono 代码字体，免费商用） ===== */
+@font-face {
+	font-family: "MiSans";
+	src: url("/fonts/MiSans-Regular.woff2") format("woff2");
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: "MiSans";
+	src: url("/fonts/MiSans-Medium.woff2") format("woff2");
+	font-weight: 500;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: "MiSans";
+	src: url("/fonts/MiSans-Bold.woff2") format("woff2");
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: "MiSans";
+	src: url("/fonts/MiSans-Heavy.woff2") format("woff2");
+	font-weight: 900;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: "JetBrains Mono";
+	src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: "JetBrains Mono";
+	src: url("/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
 /* ===== WaPi Light Design Tokens ===== */
 /* 单一真相源：DESIGN.md 所有 token 在此定义。
    tailwind.config.js 引用这些变量；组件用 Tailwind 类或 var(--xxx)。 */
@@ -54,9 +98,7 @@
 
 body {
 	margin: 0;
-	font-family:
-		-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-		"PingFang SC", "Plus Jakarta Sans", sans-serif;
+	font-family: "MiSans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Plus Jakarta Sans", sans-serif;
 	background: linear-gradient(
 		160deg,
 		var(--canvas) 0%,
