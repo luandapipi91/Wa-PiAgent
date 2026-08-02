@@ -8,9 +8,27 @@
 
 ### 新增
 
+- **chore(license): 项目开源许可声明落地**——根与 4 个子包 package.json 补齐 `license: MIT`；新增根 LICENSE（MIT）；新增 THIRD_PARTY_NOTICES.md 归档运行时第三方插件许可（9 个直接依赖全部 MIT/Apache-2.0，零 copyleft）；内置扩展源码（wa-pi-bridge.extension.ts、provider-extension.ts）加 SPDX 头注释
+
 - **feat(frontend): UI 字体接入 MiSans（4 字重）+ 代码字体 JetBrains Mono（中文回退 MiSans）**——告别 Windows 微软雅黑，跨平台统一视觉
 
 ### 修复
+
+- **fix(kernel): agent.md 序列化不再写 `thinking: null`，消除 pi 启动的 Agent parse warning**——`makeDefaultAgentConfig` 默认 `thinking: null`，`stringifyAgentMd` 无条件写 `thinking: ${c.thinking}` → 文件出现 `thinking: null`，pi 解析 frontmatter 时把 `"null"` 当字符串（非 off/minimal/low/medium/high/xhigh）→ 启动时连发 9 条 `Agent parse warning`。修复：null thinking 不写该行（wa-pi 读取 undefined → null 语义不变；pi 侧用默认值）；并清理已生成的 9 个 agent 文件中的 `thinking: null` 行。
+  - 影响范围：`packages/kernel/src/agent-md.ts`、`packages/kernel/tests/agent-md.test.ts`、`~/.wa-pi/agents/*.md`（9 个内置 subagent 配置）。
+  - 验证：agent-md 23 pass；**真实测试**（dev kernel :9776 + 新 pi 进程）发送 `/lens-toggle` 后 `Agent parse warning` 从 9 条 → 0 条，只剩 `pi-lens disabled...` 一条正常 notify。
+
+- **fix(kernel/frontend): pi 扩展 `ctx.ui.notify` 反馈显示在聊天窗口中间，动作型命令不再“无响应”**——`/lens-toggle` 等扩展命令 handler 只用 `ctx.ui.notify` 反馈执行结果（不产生 LLM 回复），在 GUI 下 notify 被 kernel 丢弃 → 用户看不到任何反馈（表现为“发送无响应”）。修复链路：① kernel `handleUiRequest` 对 notify 转发为 `extension_notify` 事件；② 事件经 `AgentManager.onEvent` 包装为 `sdk:event`（event 字段承载原始事件）→ SSE 推送；③ 前端 `session-store.handleSDKEvent` 增加 `extension_notify` case → 插入聊天窗口中间的 custom 系统提示（复用 `customType` 居中渲染：`—— content ——`，与 agent_switch/reload_config 同款；连续同内容去重，防 pi 启动时连发刷屏）。
+  - 影响范围：`packages/kernel/src/rpc-client.ts`、`packages/shared/src/extensions.ts`（ExtensionNotifyEvent）、`packages/shared/src/types.ts`（SDKEvent 联合 + WSServerEvent 联合）、`packages/frontend/src/store/session.ts`、`packages/kernel/tests/rpc-client.test.ts`、`packages/frontend/tests/session-extension-notify.test.ts`。
+  - 验证：typecheck 全绿（shared/kernel/frontend）；kernel notify 转发测试 + 前端 4 个 store 测试（插入/去重/不同内容/非 notify 不触发）；**完整链路真实测试**（dev kernel :9776 + 真实 pi 0.83.0 + 真实 pi-lens 扩展）：发送 `/lens-toggle` → prompt 200 → SSE 收到 10 次 `extension_notify`（9 parse warning + 1 lens-toggle）→ 前端 store 全部插入聊天窗口中间 custom 消息，lens-toggle 内容为“pi-lens disabled for this session. Run /lens-toggle again to resume.”。
+
+- **fix(kernel): TUI-only 命令改为 kernel 发送端拦截，删除 pi 侧补丁**——`/agent-search` 等 TUI-only 命令在 GUI 发送后无响应的根治：
+  - ① 过滤正则支持泛型 + 全部 TUI API：`\bui\.(?:custom|input|select|confirm|editor)(?:\s*<[^>]*>)?\s*\(`，修复 `ui.custom<string | null>(` 泛型漏判；pi-open-agents 的 `/agent-search`、`/agent`、`/agents` 从 `/` 菜单隐藏。
+  - ② 删除 `patches/@earendil-works%2Fpi-coding-agent@0.83.0.patch`（PI_TUI_ONLY 补丁），不再依赖 pi 侧 custom() 抛错降级；TUI-only 命令的拦截全部收敛到 kernel `prompt()` 发送端（`isTuiOnlyCommand` → 加前导空格降级为普通文本），不依赖 pi 版本行为与补丁传导。
+  - ③ `build-kernel-sidecar.ts` 的 runtime patchedDependencies 只保留 pi-mcp-adapter（exports/类型补丁），移除 pi-coding-agent 条目；顺带修复构建脚本 `shell: true` 命令注入面（bun 命令改走 `process.execPath`）。
+  - 影响范围：`packages/kernel/src/tui-command-filter.ts`、`packages/kernel/tests/tui-command-filter.test.ts`、根 `package.json`（patchedDependencies）、`packages/desktop/scripts/build-kernel-sidecar.ts`、`patches/`。
+  - 验证：新增失败测试（泛型形式 + 带空格泛型 + ui.input/select/confirm/editor）先红后绿；kernel 84 pass / 0 fail；真实 pi-open-agents 路径过滤生效（`agent-search`/`agent`/`agents` 被过滤，`isTuiOnlyCommand` 返回 true）；bun install 后 pi 0.83.0 恢复原版（PI_TUI_ONLY 0 处）。
+  - 注：用户本机 `~/.wa-pi/runtime/node_modules` 需重装（删除 node_modules + `.installed-version` 后重启应用）使 kernel.js（新正则）与依赖同步。
 
 - **fix(frontend): 技能/命令/智能体/文件触发符支持全角符号（￥＄＠＃／ 归一化）**——Windows 中文输入法全角模式输入 ￥ 不再失效。触发符归一化逻辑收敛到 `normalizeTriggerChars`（仅归一化 5 个全角符号，不含全角字母数字/标点），`detectTrigger` / `expandTokens` 入口统一调用；`textToSegments` / `textToHtml` / `segmentsToText` 显示路径不归一化。
   - 影响范围：`packages/frontend/src/quick-invoke/tokens.ts`、`packages/frontend/src/quick-invoke/trigger.ts`；`tests/tokens.test.ts`、`tests/trigger.test.ts`、`tests/ComposerInput.test.tsx`、`e2e/quick-invoke.spec.ts`。
