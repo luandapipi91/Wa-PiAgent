@@ -12,8 +12,6 @@ import { Composer } from "./Composer";
 import { AskDock } from "./ask/AskDock";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { ExplorerPanel } from "./ExplorerPanel";
-import { FileViewer } from "./blocks/FileViewer";
-import { Modal } from "./ui/Modal";
 import { STATUS_COLORS } from "../theme/colors";
 import { api } from "../api-client";
 
@@ -142,10 +140,9 @@ export function SessionView({ sessionId }: Props) {
     void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/clear-queue`, {});
   };
 
-  // 右侧文件树面板：开关状态 + 宽度来自 explorer store；双击文件后记录预览路径
+  // 右侧文件树面板：开关状态 + 宽度来自 explorer store
   const explorerOpen = useExplorerStore(s => s.open);
   const explorerWidth = useExplorerStore(s => s.width);
-  const [previewPath, setPreviewPath] = useState<string | null>(null);
   // 文件树根目录：普通项目用 project.cwd，默认工作区会话用其专属临时目录 workdir/<createdAt>/
   const workspaceDir = resolveSessionCwd(session, { cwd: project?.cwd ?? "" });
 
@@ -313,16 +310,10 @@ export function SessionView({ sessionId }: Props) {
         </div>
         {/* 文件树占满面板，双击文件触发弹窗预览 */}
         <div className="flex-1 overflow-auto">
-          <ExplorerPanel workspaceDir={workspaceDir} onOpenFile={setPreviewPath} />
+          <ExplorerPanel workspaceDir={workspaceDir} onOpenFile={(path) => useSessionStore.getState().openFilePreview(path, sessionId)} />
         </div>
       </aside>
       </>
-    )}
-    {/* 文件预览弹窗：双击文件后以 80% 宽高弹出 */}
-    {previewPath && (
-      <Modal onClose={() => setPreviewPath(null)} width="80vw" height="80vh" data-testid="file-preview-modal">
-        <FileViewer path={previewPath} sessionId={sessionId} onClose={() => setPreviewPath(null)} />
-      </Modal>
     )}
     </div>
   );

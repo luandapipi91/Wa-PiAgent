@@ -71,6 +71,13 @@ interface SessionState {
   handleSubagentProgress: (sessionId: string, toolCallId: string, progress: SubagentProgressEvent) => void;
   /** 清除某 toolCallId 下全部子代理进度（工具调用结束后释放）。 */
   clearSubagentProgress: (toolCallId: string) => void;
+  // 全局文件预览窗（单例）：由 FilePill 胶囊 / Explorer 双击文件触发，渲染在 App 根的
+  // FilePreviewModal（常驻挂载点）。状态放 store 而非组件本地——宿主组件（消息行/
+  // 委派卡/轮级折叠段）随流式结束、折叠、卸载而销毁时，预览窗不会被连带关闭；
+  // 只有用户手动关闭（✕ / ESC / 遮罩点击）才消失。
+  filePreview: { path: string; sessionId: string } | null;
+  openFilePreview: (path: string, sessionId: string) => void;
+  closeFilePreview: () => void;
   /** 重载中（/reload 命令执行期间禁用发送） */
   reloading: boolean;
   setReloading: (v: boolean) => void;
@@ -113,6 +120,7 @@ export const useSessionStore = create<SessionState>((set) => {
   netStatusBySession: {},
   progressByToolCall: {},
   progressSessionByToolCall: {},
+  filePreview: null,
 
   addTokens: (sessionId, input, output) => set(s => {
     const cur = s.tokenTotals[sessionId] ?? { input: 0, output: 0 };
@@ -201,7 +209,7 @@ export const useSessionStore = create<SessionState>((set) => {
   }),
 
   setReloading: (v) => set({ reloading: v }),
-  clear: () => set({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, thinkingSinceBySession: {}, optimisticEchoBySession: {}, historyLoadingBySession: {}, unreadBySession: {}, netStatusBySession: {} }),
+  clear: () => set({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, thinkingSinceBySession: {}, optimisticEchoBySession: {}, historyLoadingBySession: {}, unreadBySession: {}, netStatusBySession: {}, filePreview: null }),
 
   markUnread: (sessionId) => set(s => ({ unreadBySession: { ...s.unreadBySession, [sessionId]: true } })),
   markRead: (sessionId) => set(s => {
@@ -287,6 +295,19 @@ export const useSessionStore = create<SessionState>((set) => {
       delete sessions[toolCallId];
       return { progressByToolCall: next, progressSessionByToolCall: sessions };
     });
+  },
+
+  // 打开文件预览：path 为绝对路径（FilePill 传 resolveAbsolutePath 结果）或相对项目
+  // cwd 的路径（Explorer 双击传 node.entry.path）；sessionId 供 FileViewer 内 readFile
+  // 解析 cwd。幂等：同一文件重复打开不产生状态变更。
+  openFilePreview: (path, sessionId) => {
+    set((s) => {
+      if (s.filePreview?.path === path && s.filePreview.sessionId === sessionId) return {};
+      return { filePreview: { path, sessionId } };
+    });
+  },
+  closeFilePreview: () => {
+    set((s) => (s.filePreview ? { filePreview: null } : {}));
   },
 
   // 处理 sdk:event 信封事件：按 SDKEvent.type 分发到对应状态

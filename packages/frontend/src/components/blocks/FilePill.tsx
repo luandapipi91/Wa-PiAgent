@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { useProjectsStore } from "../../store/projects";
+import { useSessionStore } from "../../store/session";
 import { parseFilePath } from "./file-path";
 import { statFile } from "../../fs-client";
-import { Modal } from "../ui/Modal";
-import { FileViewer } from "./FileViewer";
 
 /** 从会话找到项目 cwd（相对路径据此拼绝对路径）。ProjectEntity 的路径字段为 cwd */
 export function resolveSessionCwd(sessionId: string): string | null {
@@ -26,9 +24,8 @@ export function resolveAbsolutePath(path: string, sessionId: string): string {
   return normalizeSlashes(cwd.replace(/\/+$/, "") + "/" + path);
 }
 
-/** 文件路径胶囊：stat 探测文件存在性，不存在则回退纯文本。点击弹只读预览。 */
+/** 文件路径胶囊：stat 探测文件存在性，不存在则回退纯文本。点击触发全局文件预览（FilePreviewModal）。 */
 export function FilePill({ rawText, sessionId }: { rawText: string; sessionId: string }) {
-  const [preview, setPreview] = useState(false);
   const [fileExists, setFileExists] = useState<boolean | null>(null);
 
   const parsed = parseFilePath(rawText);
@@ -49,24 +46,15 @@ export function FilePill({ rawText, sessionId }: { rawText: string; sessionId: s
   const abs = resolveAbsolutePath(parsed.path, sessionId);
   const base = parsed.path.split("/").pop();
   return (
-    <>
-      <button
-        type="button"
-        data-testid="file-pill"
-        title={abs}
-        onClick={() => setPreview(true)}
-        className="inline-flex items-center gap-1 px-1.5 py-0 rounded-md border border-hairline bg-surface-elevated text-[12px] font-mono text-accent hover:border-accent transition-colors align-baseline"
-        style={{ cursor: "pointer" }}
-      >
-        📄 {base}{parsed.line != null ? `:${parsed.line}` : ""}
-      </button>
-      {preview &&
-        createPortal(
-          <Modal onClose={() => setPreview(false)} width="80vw" height="80vh" data-testid="file-preview-modal">
-            <FileViewer path={abs} sessionId={sessionId} onClose={() => setPreview(false)} />
-          </Modal>,
-          document.body,
-        )}
-    </>
+    <button
+      type="button"
+      data-testid="file-pill"
+      title={abs}
+      onClick={() => useSessionStore.getState().openFilePreview(abs, sessionId)}
+      className="inline-flex items-center gap-1 px-1.5 py-0 rounded-md border border-hairline bg-surface-elevated text-[12px] font-mono text-accent hover:border-accent transition-colors align-baseline"
+      style={{ cursor: "pointer" }}
+    >
+      📄 {base}{parsed.line != null ? `:${parsed.line}` : ""}
+    </button>
   );
 }
