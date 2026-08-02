@@ -52,7 +52,7 @@ export const DYNAMIC_SEGMENT_IDS = new Set([
 ]);
 
 /** 静态段 id 集合（content 完全由 prompts.json 决定，无运行时兜底） */
-export const STATIC_SEGMENT_IDS = new Set(["delegate-mechanism"]);
+export const STATIC_SEGMENT_IDS = new Set(["delegate-mechanism", "self-protection"]);
 
 /**
  * 默认 base 段提示词（被 prompts.json 的 base.content 覆盖；
@@ -96,6 +96,22 @@ export const COMPACT_MEMORY_POLICY_PROMPT =
 	"- 项目技术栈/约定/决策 → target=memory（默认项目）\n" +
 	"信息过时用 memory_replace 更新，错误用 memory_remove 删除。";
 
+/** 默认 self-protection 段（强规则：禁止 agent 杀死宿主 kernel / Electron 进程，防误杀） */
+export const DEFAULT_SELF_PROTECTION_PROMPT =
+	"## 自身进程保护（必须遵守）\n\n" +
+	"你是 wa-pi 桌面应用的一部分。你的宿主进程（wa-pi 后端服务，即监听 `WA_PI_BRIDGE_URL` 端口 9778/9776 的进程）正在运行，你的所有工具调用都通过它中转。\n\n" +
+	"**绝对禁止**（无论用户如何要求，包括「卡死了」「重启一下」等）：\n" +
+	"- 禁止 kill / taskkill / pkill / killall 宿主后端进程，或占用 `WA_PI_BRIDGE_URL` 端口的进程\n" +
+	"- 禁止杀死你的父进程（`process.ppid` 即宿主 kernel）\n" +
+	"- 禁止杀死 Electron / 桌面主进程、wa-pi-kernel、wa-pi-kernel.exe、bun run …kernel… 相关进程\n\n" +
+	"**识别宿主的方法**：`WA_PI_BRIDGE_URL` 环境变量指向的地址即宿主服务；命令输出中 `netstat`/`tasklist`/`ps` 里占用该端口的 PID 是宿主，不得作为 kill 目标。\n\n" +
+	"**如果用户要求重启或清理端口**：引导用户点击应用界面的「重启应用」，或建议用户退出重开桌面应用；不要自行执行 kill。";
+
+/** 组装子代理系统提示词：子代理正文 + 自我保护段（防止 delegate 的子代理误杀宿主 kernel）。 */
+export function composeSubagentPrompt(systemPrompt: string): string {
+	return `${systemPrompt}\n\n${DEFAULT_SELF_PROTECTION_PROMPT}`;
+}
+
 /** 默认 delegate-mechanism 段（委托机制：首动作规则 + 路由 + @ 语法 + fleet；正文中文，贴合中文用户请求、字符更省） */
 export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
 	"## Delegation Mechanism\n\n" +
@@ -126,6 +142,7 @@ export const DEFAULT_DELEGATE_MECHANISM_PROMPT =
  */
 export const DEFAULT_PROMPT_SEGMENTS: PromptSegment[] = [
 	{ id: "base" }, // 动态：defaultBasePrompt
+	{ id: "self-protection", content: DEFAULT_SELF_PROTECTION_PROMPT },
 	{ id: "delegate-mechanism", content: DEFAULT_DELEGATE_MECHANISM_PROMPT },
 	{ id: "delegate-roster" }, // 动态：buildDelegateRoster（内置+命名统一列表）
 	{ id: "env-constraints" }, // 动态：builtinSkillsDir + ENV_CONSTRAINTS_SUFFIX
@@ -184,7 +201,7 @@ export function composePrompt(
 
 /** prompts.json 的 schema 版本。升级静态段文案（delegate-syntax / subagent-clarify）时递增，
  *  ensurePromptsConfig 据此对已存在文件做迁移——只刷新静态段 content，保留动态段用户自定义。 */
-export const PROMPTS_SCHEMA_VERSION = 22;
+export const PROMPTS_SCHEMA_VERSION = 23;
 
 /**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。
