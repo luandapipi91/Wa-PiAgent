@@ -27,3 +27,8 @@ export interface ExtensionErrorEvent { type: "extension:error"; name: string; er
 export interface ExtensionProgressEvent { type: "extension:progress"; name: string; message: string; }
 /** 安装成功终态信号；前端据此清除占位卡（真实卡片由 extension:changed 提供）；name 为用户原始输入 */
 export interface ExtensionInstallDoneEvent { type: "extension:install:done"; name: string; }
+/** pi extension ctx.ui.notify feedback (e.g. /lens-toggle result): kernel forwards as event, frontend shows toast */
+export interface ExtensionNotifyEvent {
+	type: "extension_notify";
+	message: string;
+	notifyType?: string;
