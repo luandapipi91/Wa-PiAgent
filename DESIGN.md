@@ -35,61 +35,61 @@ colors:
   on-danger: "#FFFFFF"
 typography:
   display-lg:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
+    fontFamily: "MiSans, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
     fontSize: 26px
     fontWeight: 800
     lineHeight: 1.15
     letterSpacing: "-0.6px"
   display-md:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
+    fontFamily: "MiSans, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
     fontSize: 22px
     fontWeight: 800
     lineHeight: 1.2
     letterSpacing: "-0.5px"
   title:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
+    fontFamily: "MiSans, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
     fontSize: 14px
     fontWeight: 700
     lineHeight: 1.3
     letterSpacing: 0
   body-md:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
+    fontFamily: "MiSans, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
     fontSize: 14px
     fontWeight: 400
     lineHeight: 1.55
     letterSpacing: 0
   body-sm:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
+    fontFamily: "MiSans, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
     fontSize: 13.5px
     fontWeight: 400
     lineHeight: 1.55
     letterSpacing: 0
   caption:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
+    fontFamily: "MiSans, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
     fontSize: 11.5px
     fontWeight: 400
     lineHeight: 1.4
     letterSpacing: 0
   label-caps:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
+    fontFamily: "MiSans, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
     fontSize: 11px
     fontWeight: 700
     lineHeight: 1.4
     letterSpacing: "0.6px"
   button:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
+    fontFamily: "MiSans, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
     fontSize: 14px
     fontWeight: 600
     lineHeight: 1
     letterSpacing: 0
   button-sm:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
+    fontFamily: "MiSans, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Plus Jakarta Sans', sans-serif"
     fontSize: 12px
     fontWeight: 600
     lineHeight: 1
     letterSpacing: 0
   mono:
-    fontFamily: "'SF Mono', 'JetBrains Mono', 'IBM Plex Mono', monospace"
+    fontFamily: "'JetBrains Mono', MiSans, 'SF Mono', 'IBM Plex Mono', monospace"
     fontSize: 12px
     fontWeight: 400
     lineHeight: 1.5

@@ -12,7 +12,7 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Er
       return (
         <div style={{
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          height: "100vh", fontFamily: 'system-ui, "PingFang SC", sans-serif',
+          height: "100vh", fontFamily: 'MiSans, system-ui, "PingFang SC", sans-serif',
           color: "#1d1d1f", background: "#F5F5F7", padding: 48, textAlign: "center",
         }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
