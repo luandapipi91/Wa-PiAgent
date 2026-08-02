@@ -17,11 +17,11 @@ import { isTransientErrorMessage } from "./sdk-errors";
 import type { AgentMessage } from "@wa-pi/shared";
 
 interface SessionLogEntry {
-  type?: string;
-  id?: string;
-  parentId?: string | null;
-  timestamp?: string;
-  message?: unknown;
+	type?: string;
+	id?: string;
+	parentId?: string | null;
+	timestamp?: string;
+	message?: unknown;
 }
 
 /**
@@ -29,41 +29,47 @@ interface SessionLogEntry {
  * 仅匹配 assistant 角色 + stopReason:error + 网络类 errorMessage 的条目。
  */
 function isTransientAssistantError(message: any): boolean {
-  if (!message || typeof message !== "object") return false;
-  if (message.role !== "assistant" || message.stopReason !== "error") return false;
-  return isTransientErrorMessage(message.errorMessage ?? "");
+	if (!message || typeof message !== "object") return false;
+	if (message.role !== "assistant" || message.stopReason !== "error")
+		return false;
+	return isTransientErrorMessage(message.errorMessage ?? "");
 }
 
 /**
  * 判断一条历史消息是否为「失败的 assistant 回复」（任意 error，含 transient + fatal）。
  */
 function isFailedAssistant(message: any): boolean {
-  return !!message && typeof message === "object"
-    && message.role === "assistant"
-    && message.stopReason === "error";
+	return (
+		!!message &&
+		typeof message === "object" &&
+		message.role === "assistant" &&
+		message.stopReason === "error"
+	);
 }
 
 /**
  * 判断位置 i 处是否为一个「失败回合」的起点（user 消息，且下一条是 error assistant）。
  */
 function isFailedTurnStart(msgs: any[], i: number): boolean {
-  return msgs[i]?.role === "user"
-    && i + 1 < msgs.length
-    && isFailedAssistant(msgs[i + 1]);
+	return (
+		msgs[i]?.role === "user" &&
+		i + 1 < msgs.length &&
+		isFailedAssistant(msgs[i + 1])
+	);
 }
 
 /** 提取 user 消息的文本内容，用于判断是否为重发（相同文本）。 */
 function userText(m: any): string {
-  if (!m || m.role !== "user") return "";
-  const content = m.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((c: any) => c?.type === "text")
-      .map((c: any) => c.text ?? "")
-      .join("");
-  }
-  return "";
+	if (!m || m.role !== "user") return "";
+	const content = m.content;
+	if (typeof content === "string") return content;
+	if (Array.isArray(content)) {
+		return content
+			.filter((c: any) => c?.type === "text")
+			.map((c: any) => c.text ?? "")
+			.join("");
+	}
+	return "";
 }
 
 /**
@@ -77,20 +83,23 @@ function userText(m: any): string {
  *   - 非连续的不同问题失败（各自保留）
  */
 function dedupeConsecutiveFailedTurns(msgs: any[]): any[] {
-  const result: any[] = [];
-  for (let i = 0; i < msgs.length; i++) {
-    // 当前是失败回合起点，且下一对也是失败回合且是相同文本的重发 → 折叠当前组
-    // 或下一对是同文本 user 后跟成功（重发后成功）→ 也折叠当前失败组
-    if (isFailedTurnStart(msgs, i)) {
-      const nextUser = msgs[i + 2];
-      if (nextUser?.role === "user" && userText(nextUser) === userText(msgs[i])) {
-        i++; // 跳过 user + error assistant 两条
-        continue;
-      }
-    }
-    result.push(msgs[i]);
-  }
-  return result;
+	const result: any[] = [];
+	for (let i = 0; i < msgs.length; i++) {
+		// 当前是失败回合起点，且下一对也是失败回合且是相同文本的重发 → 折叠当前组
+		// 或下一对是同文本 user 后跟成功（重发后成功）→ 也折叠当前失败组
+		if (isFailedTurnStart(msgs, i)) {
+			const nextUser = msgs[i + 2];
+			if (
+				nextUser?.role === "user" &&
+				userText(nextUser) === userText(msgs[i])
+			) {
+				i++; // 跳过 user + error assistant 两条
+				continue;
+			}
+		}
+		result.push(msgs[i]);
+	}
+	return result;
 }
 
 /**
@@ -109,7 +118,11 @@ function injectTurnElapsedMs(msgs: AgentMessage[]): AgentMessage[] {
 	const settleTurn = () => {
 		if (turnUserTs !== undefined && lastAsstIdx >= 0 && !lastAsstError) {
 			const a = msgs[lastAsstIdx] as any;
-			a.turnElapsedMs = a._lineTs - turnUserTs;
+			// 行级 timestamp 缺失/无法解析时 _lineTs 为 undefined/NaN——直接相减会注入 NaN
+			// （前端显示 NaN 分 NaN 秒），此时不注入，前端自然降级为无时长。
+			if (Number.isFinite(a._lineTs) && Number.isFinite(turnUserTs)) {
+				a.turnElapsedMs = a._lineTs - turnUserTs;
+			}
 		}
 	};
 	for (let i = 0; i < msgs.length; i++) {
@@ -135,77 +148,93 @@ function injectTurnElapsedMs(msgs: AgentMessage[]): AgentMessage[] {
  * @param opts.isSessionActive 当 session 仍在活跃运行时跳过 dangling ask 对账
  * @throws 文件不可读或没有任何有效 JSON 行（格式变更/损坏）——调用方应回退进程路径。
  */
-export async function readSessionHistory(file: string, opts?: { isSessionActive?: boolean }): Promise<AgentMessage[]> {
-  const raw = await readFile(file, "utf8"); // ENOENT 等直接抛 → 回退
-  const entries: SessionLogEntry[] = [];
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const e = JSON.parse(line);
-      if (e && typeof e === "object") entries.push(e as SessionLogEntry);
-    } catch {
-      // 坏行跳过（写入中途截断等）
-    }
-  }
-  if (entries.length === 0) throw new Error(`会话文件无有效行: ${file}`);
+export async function readSessionHistory(
+	file: string,
+	opts?: { isSessionActive?: boolean },
+): Promise<AgentMessage[]> {
+	const raw = await readFile(file, "utf8"); // ENOENT 等直接抛 → 回退
+	const entries: SessionLogEntry[] = [];
+	for (const line of raw.split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			const e = JSON.parse(line);
+			if (e && typeof e === "object") entries.push(e as SessionLogEntry);
+		} catch {
+			// 坏行跳过（写入中途截断等）
+		}
+	}
+	if (entries.length === 0) throw new Error(`会话文件无有效行: ${file}`);
 
-  const byId = new Map<string, SessionLogEntry>();
-  for (const e of entries) {
-    if (typeof e.id === "string" && e.type !== "session") byId.set(e.id, e);
-  }
+	const byId = new Map<string, SessionLogEntry>();
+	for (const e of entries) {
+		if (typeof e.id === "string" && e.type !== "session") byId.set(e.id, e);
+	}
 
-  // 从叶子沿 parentId 回溯，收集当前分支的 message 条目（根→叶顺序）
-  const collectFrom = (leaf: SessionLogEntry | undefined): unknown[] => {
-    const chain: SessionLogEntry[] = [];
-    const visited = new Set<string>();
-    let cur = leaf;
-    while (cur && typeof cur.id === "string" && !visited.has(cur.id)) {
-      visited.add(cur.id);
-      chain.push(cur);
-      cur = typeof cur.parentId === "string" ? byId.get(cur.parentId) : undefined;
-    }
-    chain.reverse();
-    const msgs = chain
-      .filter(e => e.type === "message" && e.message != null)
-      // 浅拷贝 + 附加行级落盘时刻（Pi 单块轮 assistant 消息在 prompt 时预创建，
-      // message.timestamp 不可靠 ≈ user 时刻；真实耗时在 jsonl 每行的落盘 timestamp）
-      .map(e => ({ ...(e.message as any), _lineTs: e.timestamp ? Date.parse(e.timestamp) : undefined }));
-    // 过滤 transient error（网络/超时类临时错误）：这类错误是临时性的，
-    // 不应作为历史消息残留进对话流（刷新后会重新出现并堆积）。
-    // pi 已将其落盘，这里在读出时剔除——仅前端展示层过滤，JSONL 原文不动。
-    // fatal error（鉴权/配额）保留，需提示用户改配置。
-    let filtered = msgs.filter((m: any) => !isTransientAssistantError(m));
-    // 失败回合去重：连续的「user + error assistant」失败对，只保留最后一组。
-    // 根因：重发失败消息时 pi 每次都 append 进 jsonl，刷新后出现多条相同 user
-    // 发送记录。去重规则——若一对失败回合（user + 紧跟的 error assistant）后面
-    // 紧接着又是失败回合，则前一对折叠掉。fatal error 仍保留（最后一组）。
-    filtered = dedupeConsecutiveFailedTurns(filtered);
-    return filtered;
-  };
+	// 从叶子沿 parentId 回溯，收集当前分支的 message 条目（根→叶顺序）
+	const collectFrom = (leaf: SessionLogEntry | undefined): unknown[] => {
+		const chain: SessionLogEntry[] = [];
+		const visited = new Set<string>();
+		let cur = leaf;
+		while (cur && typeof cur.id === "string" && !visited.has(cur.id)) {
+			visited.add(cur.id);
+			chain.push(cur);
+			cur =
+				typeof cur.parentId === "string" ? byId.get(cur.parentId) : undefined;
+		}
+		chain.reverse();
+		const msgs = chain
+			.filter((e) => e.type === "message" && e.message != null)
+			// 浅拷贝 + 附加行级落盘时刻（Pi 单块轮 assistant 消息在 prompt 时预创建，
+			// message.timestamp 不可靠 ≈ user 时刻；真实耗时在 jsonl 每行的落盘 timestamp）
+			.map((e) => ({
+				...(e.message as any),
+				_lineTs: e.timestamp ? Date.parse(e.timestamp) : undefined,
+			}));
+		// 过滤 transient error（网络/超时类临时错误）：这类错误是临时性的，
+		// 不应作为历史消息残留进对话流（刷新后会重新出现并堆积）。
+		// pi 已将其落盘，这里在读出时剔除——仅前端展示层过滤，JSONL 原文不动。
+		// fatal error（鉴权/配额）保留，需提示用户改配置。
+		let filtered = msgs.filter((m: any) => !isTransientAssistantError(m));
+		// 失败回合去重：连续的「user + error assistant」失败对，只保留最后一组。
+		// 根因：重发失败消息时 pi 每次都 append 进 jsonl，刷新后出现多条相同 user
+		// 发送记录。去重规则——若一对失败回合（user + 紧跟的 error assistant）后面
+		// 紧接着又是失败回合，则前一对折叠掉。fatal error 仍保留（最后一组）。
+		filtered = dedupeConsecutiveFailedTurns(filtered);
+		return filtered;
+	};
 
-  // 叶子候选 1：文件末尾向前找第一个事件树节点
-  let leaf: SessionLogEntry | undefined;
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const e = entries[i];
-    if (typeof e.id === "string" && e.type !== "session") { leaf = e; break; }
-  }
-  let messages = collectFrom(leaf);
+	// 叶子候选 1：文件末尾向前找第一个事件树节点
+	let leaf: SessionLogEntry | undefined;
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const e = entries[i];
+		if (typeof e.id === "string" && e.type !== "session") {
+			leaf = e;
+			break;
+		}
+	}
+	let messages = collectFrom(leaf);
 
-  // 极端情况：叶子链上没有 message（如末尾是非消息事件且链断裂），
-  // 但文件里确实有 message → 以最后一条 message 为叶子重来
-  if (messages.length === 0 && entries.some(e => e.type === "message" && e.message != null)) {
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const e = entries[i];
-      if (e.type === "message" && e.message != null) { leaf = e; break; }
-    }
-    messages = collectFrom(leaf);
-  }
+	// 极端情况：叶子链上没有 message（如末尾是非消息事件且链断裂），
+	// 但文件里确实有 message → 以最后一条 message 为叶子重来
+	if (
+		messages.length === 0 &&
+		entries.some((e) => e.type === "message" && e.message != null)
+	) {
+		for (let i = entries.length - 1; i >= 0; i--) {
+			const e = entries[i];
+			if (e.type === "message" && e.message != null) {
+				leaf = e;
+				break;
+			}
+		}
+		messages = collectFrom(leaf);
+	}
 
-  // 重启兜底：对「无 result 的 ask 调用」注入 cancelled（若 session 活跃则跳过，避免误杀 pending ask）
-  // 解析器仅产出有效 message 条目（见上方 filter），这里收窄为 AgentMessage[]。
-  return injectTurnElapsedMs(
-    reconcileDanglingAsks(messages, {
-      isSessionActive: opts?.isSessionActive,
-    }) as AgentMessage[],
-  );
+	// 重启兜底：对「无 result 的 ask 调用」注入 cancelled（若 session 活跃则跳过，避免误杀 pending ask）
+	// 解析器仅产出有效 message 条目（见上方 filter），这里收窄为 AgentMessage[]。
+	return injectTurnElapsedMs(
+		reconcileDanglingAsks(messages, {
+			isSessionActive: opts?.isSessionActive,
+		}) as AgentMessage[],
+	);
 }

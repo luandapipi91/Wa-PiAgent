@@ -867,7 +867,8 @@ export class AgentManager {
 				// 本轮 user 落盘时刻（≈ jsonl 行级落盘）：整轮耗时的起点。
 				// 不能用 message.timestamp——Pi 单块轮 assistant 消息对象在 prompt 时预创建，
 				// message.timestamp ≈ user 时刻，算出的时长≈0；真实耗时看落盘时刻。
-				if ((event.message as any)?.role === "user") handle.turnUserAt = Date.now();
+				if ((event.message as any)?.role === "user")
+					handle.turnUserAt = Date.now();
 				// agent 回复完成视为活跃（与磁盘 touchSession 同步），刷新空闲回收计时
 				handle.lastActiveAt = Date.now();
 				break;
@@ -879,14 +880,19 @@ export class AgentManager {
 				const lastAssistant = [...msgs]
 					.reverse()
 					.find((m: any) => m?.role === "assistant");
-				if (handle.turnUserAt != null && lastAssistant && lastAssistant.stopReason !== "error") {
+				if (
+					handle.turnUserAt != null &&
+					lastAssistant &&
+					lastAssistant.stopReason !== "error"
+				) {
 					(event as any).elapsedMs = Date.now() - handle.turnUserAt;
 				}
+				// 结算后重置起点，避免下一无 user 轮（如 steer 触发）误用上一轮旧值算跨轮时长
+				handle.turnUserAt = null;
 				break;
 			}
 			case "agent_settled":
 				handle.busy = false;
-				handle.thinkingSince = null;
 				handle.thinkingSince = null;
 				// transient 网络错误期间跳过 drain：此时网络仍不可用，
 				// 自动发送排队/引导消息会再失败。队列保留，等用户重发恢复。
