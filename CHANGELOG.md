@@ -4,6 +4,28 @@
 
 ---
 
+## 2026-08-02
+
+### 修复
+
+- **markdown 预览左右内间距调到 20px**：按用户要求，markdown 预览内容区左右内间距 20px（`px-5`）、上下保持 10px（`py-2.5`）；代码/图片预览维持 10px（`p-2.5`）不变。
+  - 影响范围：`packages/frontend/src/components/blocks/FileViewer.tsx`（markdown 分支）。
+  - 验证：浏览器实测计算样式 左/右 20px、上/下 10px；FileViewer 组件测试 7 pass / 0 fail。
+
+- **文件预览内容贴边，无内边距**：FileViewer 内容区（代码/ Markdown / 图片）原为 0 间距直接贴住弹窗边缘，视觉拥挤。修复：内容容器统一加 `p-2.5`（上下左右 10px）内间距；代码预览原有的 `p-2` 移除，避免与容器 padding 叠加成 18px。
+  - 影响范围：`packages/frontend/src/components/blocks/FileViewer.tsx`。
+  - 验证：FileViewer 组件测试 7 pass / 0 fail；typecheck 全绿；浏览器实测 `.p-2.5` 四边计算样式均为 10px。
+
+- **文件预览内 markdown 行高太桥**：FileViewer 的 markdown 分支未设 line-height（聊天正文气泡有内联 `lineHeight:1.55`，预览弹窗没有），且项目未装 `@tailwindcss/typography`、`prose` 类不生效 → 段落行高退回浏览器默认值，段落间无间距。修复：`styles.css` 的 `[data-testid="text-block"]` 统一补 `line-height: 1.6` 与 `p + p { margin-top: 0.5em }`（全局生效，聊天正文 / 文件预览 / 卡片 markdown 排版一致）。
+  - 影响范围：`packages/frontend/src/styles.css`。
+  - 验证：浏览器实测 text-block 行高 25.6px（1.6 × 16px）、段落间距 8px；FileViewer + MessageList 组件测试 82 pass / 0 fail。
+
+- **轮级耗时注入两处边界防御**（审查后 TDD 修复）：
+  1. 历史渠道 `session-history`：assistant 行缺行级 timestamp（旧 jsonl）时 `_lineTs` 为 undefined，直接相减会注入 `NaN`（前端显示「NaN 分 NaN 秒」）——`settleTurn` 增加 `Number.isFinite` 守卫，无法可靠计算时不注入，前端自然降级为无时长。
+  2. 实时渠道 `agent-manager`：`agent_end` 结算后未重置 `turnUserAt`，下一无 user 轮（如 steer 触发）会误用上一轮旧值算出跨轮时长——结算后重置为 null，无 user 轮不再附加。
+  - 影响范围：`packages/kernel/src/session-history.ts`、`packages/kernel/src/agent-manager.ts`；新增回归用例（缺行级 timestamp 不注入 NaN / 结算后无 user 轮不附加跨轮时长），顺手清理 agent_settled 分支重复的 `thinkingSince = null`。
+  - 验证：kernel 全量 635 pass / 0 fail（含 2 个新用例）；typecheck 全绿。
+
 ## 2026-08-01
 
 ### 修复
