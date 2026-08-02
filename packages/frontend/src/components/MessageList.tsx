@@ -434,7 +434,8 @@ function collapseSameTurnAssistants(rows: RenderedRow[]): RenderedRow[] {
 			};
 			// 整轮耗时挂在轮末 assistant 上（后端注入/agent_end 写回），
 			// 合并行主消息取第一条 assistant，必须补拷，否则时长丢失（显示「本轮过程」）。
-			if (curMsg.turnElapsedMs != null) mergedMsg.turnElapsedMs = curMsg.turnElapsedMs;
+			if (curMsg.turnElapsedMs != null)
+				mergedMsg.turnElapsedMs = curMsg.turnElapsedMs;
 			prev.main = {
 				agentName: prev.main.agentName,
 				message: mergedMsg,
@@ -716,7 +717,8 @@ const MessageRow = memo(function MessageRow({
 	const canCollapse = hasProcessCard && !isStreaming && !isActiveTurnRow;
 	// 过程段 + 中间 text 段（除最后一段 text 外全部折叠进摘要行）；最后一段 text 是最终回复，保留在外
 	const processSegs = segments.filter((s, i) => i !== lastTextSegIdx);
-	const finalTextSeg = lastTextSegIdx >= 0 ? segments[lastTextSegIdx] : undefined;
+	const finalTextSeg =
+		lastTextSegIdx >= 0 ? segments[lastTextSegIdx] : undefined;
 	// 步骤数只计过程段（thinking/toolCalls/delegate/fleet），中间 text 段不计
 	const processSteps = segments.filter((s) => s.kind !== "text").length;
 
@@ -816,10 +818,7 @@ const MessageRow = memo(function MessageRow({
 
 				{canCollapse ? (
 					<>
-						<TurnSummary
-							steps={processSteps}
-							elapsedMs={m.turnElapsedMs}
-						>
+						<TurnSummary steps={processSteps} elapsedMs={m.turnElapsedMs}>
 							{processSegs.map((seg, si) => renderSeg(seg, si, false))}
 						</TurnSummary>
 						{finalTextSeg && renderSeg(finalTextSeg, processSegs.length, false)}

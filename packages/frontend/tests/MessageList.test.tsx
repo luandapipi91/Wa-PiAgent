@@ -2434,13 +2434,37 @@ test("轮末 assistant 带 turnElapsedMs（中间隔 toolResult 的多条 assist
 	useSessionStore.setState({
 		messagesBySession: {
 			s1: [
-				{ message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+				{
+					message: {
+						role: "user",
+						content: [{ type: "text", text: "问题" }],
+						timestamp: 1,
+					},
+					agentName: "dev",
+				},
 				assistantMsgWithExtras(
-					[{ type: "toolCall", id: "t1", name: "read", arguments: { path: "/a" } }],
+					[
+						{
+							type: "toolCall",
+							id: "t1",
+							name: "read",
+							arguments: { path: "/a" },
+						},
+					],
 					2,
 					{ stopReason: "toolUse" },
 				),
-				{ agentName: "dev", message: { role: "toolResult", toolCallId: "t1", toolName: "read", content: [{ type: "text", text: "结果" }], isError: false, timestamp: 3 } },
+				{
+					agentName: "dev",
+					message: {
+						role: "toolResult",
+						toolCallId: "t1",
+						toolName: "read",
+						content: [{ type: "text", text: "结果" }],
+						isError: false,
+						timestamp: 3,
+					},
+				},
 				assistantMsgWithExtras([{ type: "text", text: "最终回复" }], 4, {
 					stopReason: "end_turn",
 					turnElapsedMs: 4000,
