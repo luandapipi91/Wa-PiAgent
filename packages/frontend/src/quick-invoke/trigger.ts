@@ -1,5 +1,7 @@
 // 触发符检测 + 列表过滤纯函数
 
+import { normalizeTriggerChars } from "./tokens";
+
 export type TriggerType = "agent" | "file" | "skill" | "command";
 
 export interface TriggerResult {
@@ -16,13 +18,18 @@ export interface FilterableItem {
  * 检测光标前文本是否包含触发符 @ / # / $。
  * 规则：
  * - @ = 智能体，# = 文件，$ = 技能
+ * - 另有 / = 命令触发符；全角触发符（￥＄＠＃／ 等）先归一化为半角再检测（Windows 输入法全角模式兼容）
  * - 触发符必须在行首或空格之后（避免 email@test 误触发）
  * - 触发符后的文本作为过滤关键词
  * - 已存在的 chip token（@[...] / #[...] / $[...]）不触发
  */
 export function detectTrigger(text: string): TriggerResult | null {
+  // 全角触发符（￥＄＠＃／）先归一化为半角，再走既有检测逻辑
+  // （Windows 输入法全角模式插入 U+FFE5，而代码匹配 U+00A5）
+  const normalized = normalizeTriggerChars(text);
+
   // 先移除已存在的 chip token，避免 token 内的触发符干扰检测
-  const cleaned = text
+  const cleaned = normalized
     .replace(/@\[[^\]]+\]/g, " ")
     .replace(/#\[[^\]]+\]/g, " ")
     .replace(/\$\[[^\]]+\]/g, " ")
