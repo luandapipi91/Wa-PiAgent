@@ -53,7 +53,7 @@ export default {
       },
       fontFamily: {
         sans: ["MiSans", "-apple-system", "BlinkMacSystemFont", "SF Pro Display", "PingFang SC", "Plus Jakarta Sans", "sans-serif"],
-        mono: ["JetBrains Mono", "MiSans", "SF Mono", "JetBrains Mono", "IBM Plex Mono", "monospace"],
+        mono: ["JetBrains Mono", "MiSans", "SF Mono", "IBM Plex Mono", "monospace"],
       },
       transitionTimingFunction: {
         soft: "cubic-bezier(0.4, 0, 0.2, 1)",
