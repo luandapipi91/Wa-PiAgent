@@ -19,6 +19,10 @@
 
 ### 修复
 
+- **文件预览窗随流式结束/折叠/组件卸载被自动关闭**：预览开关状态原来在组件本地（FilePill 的 useState + SessionView 的 previewPath），宿主组件（消息行/委派卡/轮级折叠段）随流式结束、折叠、卸载而销毁时预览窗被连带关闭。修复：预览状态提升到全局 session store（`filePreview` + `openFilePreview`/`closeFilePreview`），由 App 根常驻渲染 `FilePreviewModal`，只有用户手动关闭（✕ / ESC / 遮罩点击）才消失；FilePill 点击与 Explorer 双击统一走 `openFilePreview`。
+  - 影响范围：`packages/frontend/src/store/session.ts`、新建 `packages/frontend/src/components/blocks/FilePreviewModal.tsx`、`packages/frontend/src/components/blocks/FilePill.tsx`、`packages/frontend/src/App.tsx`、`packages/frontend/src/components/SessionView.tsx`；`tests/FilePill.test.tsx` 两用例适配新架构。
+  - 验证：frontend typecheck 全绿；全量 883 pass / 0 fail。
+
 - kernel 被误杀或被安全软件终止后不再因 3 次上限而永久停摆，窗口存活期间持续自动重启
 - Windows 下强杀 kernel（taskkill /F 实测 exit code=1 而非 null）也能触发自动重启：崩溃判定由「code=null」放宽为「code=0 才不重启」
 - spawn 失败（bun 缺失/ENOENT）不再静默停摆：exit 与 spawn error 统一走 scheduleRespawn 重启入口
