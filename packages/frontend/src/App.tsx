@@ -29,6 +29,7 @@ import { api } from "./api-client";
 import { ToastContainer } from "./components/ui/Toast";
 import { RecordingCapsule } from "./components/ui/RecordingCapsule";
 import { CommandPalette } from "./components/CommandPalette";
+import { FilePreviewModal } from "./components/blocks/FilePreviewModal";
 
 export type View = "empty" | "new-session" | "session";
 
@@ -328,6 +329,7 @@ export function App() {
       )}
       {useSettingsStore(s => s.showSettings) && <SettingsModal onClose={() => useSettingsStore.getState().close()} />}
       {paletteOpen && <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />}
+      <FilePreviewModal />
       <ToastContainer />
       <RecordingCapsule />
     </div>
