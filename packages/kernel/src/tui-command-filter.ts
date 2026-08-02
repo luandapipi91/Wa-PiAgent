@@ -27,8 +27,13 @@ export interface RawCommandInfo extends CommandInfo {
 	};
 }
 
-/** TUI-only API 调用特征：ctx.ui.custom( / ui.custom( */
-const TUI_ONLY_PATTERN = /\bui\.custom\s*\(/;
+/**
+ * TUI-only API 调用特征：ctx.ui.custom( / ui.input( / ui.select( / ui.confirm( / ui.editor(（含泛型形式）。
+ * 这些都是对话类 TUI API——在 RPC 模式（wa-pi GUI）下宿主不实现交互面板，扩展 handler 调它们
+ * 只会被静默取消（cancelled）→ 命令被消费但无产出，前端表现为“发送后无响应”。
+ * 识别并屏蔽这类扩展，同时把命令名记录进 tuiOnlyCommandNames，kernel 发送时降级为普通文本。
+ */
+const TUI_ONLY_PATTERN = /\bui\.(?:custom|input|select|confirm|editor)(?:\s*<[^>]*>)?\s*\(/;
 
 /** 扫描上限：防止异常巨大的包拖慢菜单加载 */
 const MAX_FILES = 300;

@@ -47,6 +47,54 @@ test("isTuiOnlyExtension: 命中子文件里的 ui.custom( 调用", () => {
 	expect(isTuiOnlyExtension(plainEntry)).toBe(false);
 });
 
+test("isTuiOnlyExtension: 命中带泛型参数的 ui.custom<T>( 调用（pi-open-agents 形式）", () => {
+	// pi-open-agents 的 selector.ts 使用 ctx.ui.custom<string | null>(...)，
+	// 正则必须允许 custom 与左括号之间存在泛型参数，否则过滤漏判。
+	const genDir = join(root, "generic-ext");
+	mkdirSync(genDir, { recursive: true });
+	writeFileSync(
+		join(genDir, "package.json"),
+		JSON.stringify({ name: "generic-ext" }),
+	);
+	writeFileSync(
+		join(genDir, "panel.ts"),
+		`export function openPanel(ctx: any) {\n  return ctx.ui.custom<string | null>((tui) => {\n    tui.render();\n  });\n}\n`,
+	);
+	expect(isTuiOnlyExtension(join(genDir, "panel.ts"))).toBe(true);
+});
+
+test("isTuiOnlyExtension: 命中 ui.custom 带空格再泛型的调用", () => {
+	const genDir = join(root, "generic-spaced-ext");
+	mkdirSync(genDir, { recursive: true });
+	writeFileSync(
+		join(genDir, "package.json"),
+		JSON.stringify({ name: "generic-spaced-ext" }),
+	);
+	writeFileSync(
+		join(genDir, "panel.ts"),
+		`export function openPanel(ctx: any) {\n  return ctx.ui.custom < string > ((tui) => {\n    tui.render();\n  });\n}\n`,
+	);
+	expect(isTuiOnlyExtension(join(genDir, "panel.ts"))).toBe(true);
+});
+
+test("isTuiOnlyExtension: 命中其他 TUI 对话 API（ui.input / ui.select / ui.confirm / ui.editor）", () => {
+	// 不只用 ui.custom 的扩展会被漏判（如 handler 直接 ctx.ui.input(...) 无参数交互），
+	// 这些 API 在 RPC 模式下同样不可用，必须一并识别。
+	const cases = [
+		["input", `return ctx.ui.input("Search:");`],
+		["select", `return ctx.ui.select("Pick:", []);`],
+		["confirm", `return ctx.ui.confirm("Sure?");`],
+		["editor", `return ctx.ui.editor("Edit:", "");`],
+	];
+	for (const [name, body] of cases) {
+		const dir = join(root, `tui-api-${name}`);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "package.json"), JSON.stringify({ name: `tui-api-${name}` }));
+		writeFileSync(join(dir, "panel.ts"), `export const open = (ctx: any) => ${body}\n`);
+		expect(isTuiOnlyExtension(join(dir, "panel.ts"))).toBe(true);
+	}
+});
+
 test("filterTuiCommands: 过滤 TUI-only 扩展的命令，保留其余", () => {
 	const commands: RawCommandInfo[] = [
 		cmd("mcp-auth", "extension", tuiEntry),
