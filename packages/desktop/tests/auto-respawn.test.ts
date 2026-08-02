@@ -31,6 +31,14 @@ test("shouldRespawn: 无限重启——attempts 任意大仍重启", () => {
   expect(shouldRespawn(null, s)).toBe(true);
 });
 
+test("shouldRespawn: code=1（Windows 强杀实测）→ 应重启", () => {
+  expect(shouldRespawn(1, freshState())).toBe(true);
+});
+
+test("shouldRespawn: code>0（异常退出）→ 应重启", () => {
+  expect(shouldRespawn(5, freshState())).toBe(true);
+});
+
 test("常量: RESPAWN_DELAY_MS 为正数（固定间隔）", () => {
   expect(RESPAWN_DELAY_MS).toBeGreaterThan(0);
 });
