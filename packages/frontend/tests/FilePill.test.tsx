@@ -90,7 +90,7 @@ test("预览 Modal 由常驻 FilePreviewModal 渲染（宿主 FilePill 卸载后
   await waitFor(() => expect(screen.getByTestId("file-preview-modal").textContent).toContain("file-content-123"));
 });
 
-test("用户手动关闭（✕）后预览消失且 store 清空", async () => {
+test("用户手动关闭（ESC）后预览消失且 store 清空", async () => {
   fake.setResponse("fs:stat", { exists: true });
   fake.setResponse("fs:readFile", { content: btoa("file-content-123"), mimeType: "text/plain" });
   render(
