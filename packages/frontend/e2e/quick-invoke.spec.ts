@@ -156,6 +156,38 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
     }
   });
 
+  test("输入全角 ￥（U+FFE5）触发技能面板", async ({ page }) => {
+    // 预置技能（与 $ 用例相同的 setup：REST addSkillDir + SSE 回推）
+    const skillDirRoot = join(process.env.HOME || "/tmp", `.wa-pi-e2e-quick-invoke-skills-${randomUUID().slice(0, 8)}`);
+    const skillPkgDir = join(skillDirRoot, "e2e-qi-skill");
+    mkdirSync(skillPkgDir, { recursive: true });
+    writeFileSync(
+      join(skillPkgDir, "SKILL.md"),
+      "---\nname: e2e-qi-skill\ndescription: E2E Quick Invoke 测试技能\n---\n# e2e-qi-skill\n测试用",
+      "utf8",
+    );
+
+    try {
+      await addSkillDir(skillDirRoot);
+      await enterSession(page, "发起技能会话");
+
+      const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+
+      // 1. 输入全角 ￥（Playwright 对 Unicode 字符走 insertText，模拟输入法插入 U+FFE5）
+      await textbox.click();
+      await page.keyboard.type("\uFFE5", { delay: 5 });
+
+      // 2. 等待技能面板出现
+      await expect(page.getByTestId("quick-invoke-menu")).toBeVisible({ timeout: 5000 });
+
+      // 3. 输入技能名过滤并断言技能项出现
+      await page.keyboard.type("e2e-qi", { delay: 10 });
+      await expect(page.getByTestId("quick-invoke-menu")).toContainText("e2e-qi-skill", { timeout: 8000 });
+    } finally {
+      if (existsSync(skillDirRoot)) rmSync(skillDirRoot, { recursive: true, force: true });
+    }
+  });
+
   test("Esc 关闭面板保留触发符文本", async ({ page }) => {
     // 预置技能。注意：Esc 拦截的前提是 menuItems.length > 0（见 ComposerInput handleKeyDown），
     // 所以过滤词必须命中真实存在的技能——E2E 隔离环境无内置技能（brainstorming 等不在

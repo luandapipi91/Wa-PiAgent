@@ -375,6 +375,20 @@ test("输入 $ 触发技能面板", () => {
   expect(screen.getByText("brainstorming")).toBeDefined();
 });
 
+test("输入全角 ￥（U+FFE5）触发技能面板（Windows 中文输入法场景）", () => {
+  useSkillsStore.setState({
+    allSkills: [
+      { name: "brainstorming", description: "头脑风暴", path: "/skills/brain", source: { type: "builtin" } },
+    ],
+    skills: [],
+    dirs: [],
+    disabledSkills: [],
+    builtinDir: "",
+  });
+  renderComposer({ text: "用 \uFFE5brain" });
+  expect(screen.getByText("brainstorming")).toBeDefined();
+});
+
 test("选中技能后生成 chip token", () => {
   const setText = mock();
   useSkillsStore.setState({
