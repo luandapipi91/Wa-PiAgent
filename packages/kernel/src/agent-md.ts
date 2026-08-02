@@ -124,7 +124,10 @@ export function stringifyAgentMd(c: AgentConfig): string {
   fm.push(`avatarColor: "${c.avatarColor}"`);
   fm.push(`description: ${c.description}`);
   fm.push(`model: ${c.model ?? ""}`);
-  fm.push(`thinking: ${c.thinking}`);
+  // thinking 为 null 时不写该行：wa-pi 读取时 undefined → null（语义不变：跟随主会话）；
+  // 若写成 `thinking: null`，pi 的 frontmatter 解析会把 "null" 当字符串 → parse warning
+  // （invalid value "null": must be one of off, minimal, low, medium, high, xhigh）。
+  if (c.thinking !== null) fm.push(`thinking: ${c.thinking}`);
   fm.push(`tools: [${c.tools.join(", ")}]`);
   fm.push(`skills: [${c.skills.join(", ")}]`);
   fm.push(`mcpServers: ${c.mcpServers.length ? `[${c.mcpServers.join(", ")}]` : "[]"}`);
