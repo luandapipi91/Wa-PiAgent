@@ -309,21 +309,22 @@ WaPi Light 是一套参考腾讯 Marvis 马维斯官网视觉语言的浅色设�
 
 ## Typography
 
-字体系统基于苹果系统字体栈，优先 SF Pro Display / SF Pro Text，中文回退 PingFang SC。
+主字体为 MiSans（UI 正文/标题，免费商用），代码/等宽字体为 JetBrains Mono
+（拉丁等宽，中文回退 MiSans）。原系统字体栈仅作为回退保留。
 不使用 Inter、Roboto 等泛用字体——它们太常见，缺乏辨识度。
 
 | Token | Family | Size | Weight | Line Height | Letter Spacing | 用途 |
 |---|---|---|---|---|---|---|
-| `{typography.display-lg}` | SF Pro / PingFang | 26px | 800 | 1.15 | -0.6px | 新建会话页主标题 |
-| `{typography.display-md}` | SF Pro / PingFang | 22px | 800 | 1.2 | -0.5px | 空状态标题 |
-| `{typography.title}` | SF Pro / PingFang | 14px | 700 | 1.3 | 0 | 顶部栏会话标题 |
-| `{typography.body-md}` | SF Pro / PingFang | 14px | 400 | 1.55 | 0 | 输入框文字、正文 |
-| `{typography.body-sm}` | SF Pro / PingFang | 13.5px | 400 | 1.55 | 0 | 消息气泡文字 |
-| `{typography.caption}` | SF Pro / PingFang | 11.5px | 400 | 1.4 | 0 | 元信息、折叠块标签 |
-| `{typography.label-caps}` | SF Pro / PingFang | 11px | 700 | 1.4 | 0.6px | 侧边栏分组标题（大写） |
-| `{typography.button}` | SF Pro / PingFang | 14px | 600 | 1 | 0 | 主按钮文字 |
-| `{typography.button-sm}` | SF Pro / PingFang | 12px | 600 | 1 | 0 | 次级按钮、标签按钮 |
-| `{typography.mono}` | SF Mono / JetBrains Mono | 12px | 400 | 1.5 | 0 | 代码、工具调用参数 |
+| `{typography.display-lg}` | MiSans / SF Pro Display / PingFang SC | 26px | 800 | 1.15 | -0.6px | 新建会话页主标题 |
+| `{typography.display-md}` | MiSans / SF Pro Display / PingFang SC | 22px | 800 | 1.2 | -0.5px | 空状态标题 |
+| `{typography.title}` | MiSans / SF Pro Display / PingFang SC | 14px | 700 | 1.3 | 0 | 顶部栏会话标题 |
+| `{typography.body-md}` | MiSans / SF Pro Display / PingFang SC | 14px | 400 | 1.55 | 0 | 输入框文字、正文 |
+| `{typography.body-sm}` | MiSans / SF Pro Display / PingFang SC | 13.5px | 400 | 1.55 | 0 | 消息气泡文字 |
+| `{typography.caption}` | MiSans / SF Pro Display / PingFang SC | 11.5px | 400 | 1.4 | 0 | 元信息、折叠块标签 |
+| `{typography.label-caps}` | MiSans / SF Pro Display / PingFang SC | 11px | 700 | 1.4 | 0.6px | 侧边栏分组标题（大写） |
+| `{typography.button}` | MiSans / SF Pro Display / PingFang SC | 14px | 600 | 1 | 0 | 主按钮文字 |
+| `{typography.button-sm}` | MiSans / SF Pro Display / PingFang SC | 12px | 600 | 1 | 0 | 次级按钮、标签按钮 |
+| `{typography.mono}` | JetBrains Mono / MiSans / SF Mono | 12px | 400 | 1.5 | 0 | 代码、工具调用参数 |
 
 ### Principles
 字重对比（800 vs 400）是建立层级的主要手段，而非字号跳跃。标题靠粗字重 + 负字距
@@ -331,9 +332,9 @@ WaPi Light 是一套参考腾讯 Marvis 马维斯官网视觉语言的浅色设�
 大写 + 0.6px 正字距，与正文形成节奏区分。
 
 ### Note on Font Substitutes
-SF Pro 和 PingFang SC 是 Apple 平台原生字体，在非 Apple 环境下回退到
-'Plus Jakarta Sans' → 系统 sans-serif。代码字体回退到 'JetBrains Mono' → 'IBM Plex Mono'
-→ 系统 monospace。不引入网络字体加载，保证首屏速度。
+MiSans 与 JetBrains Mono 以本地文件方式随应用打包（`/fonts/*.woff2`，@font-face +
+font-display: swap），非网络加载。代码字体 JetBrains Mono 提供拉丁等宽字形，中文回退
+MiSans；其余场景 MiSans 为首，原系统栈（SF Pro / PingFang SC）保留为回退。
 
 ## Layout
 
