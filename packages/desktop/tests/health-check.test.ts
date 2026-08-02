@@ -5,6 +5,7 @@ import {
   checkPort,
   HEALTH_FAIL_THRESHOLD,
   HEALTH_CHECK_INTERVAL_MS,
+  HEALTH_CHECK_TIMEOUT_MS,
 } from "../src/util/health-check.cjs";
 import { findAvailablePort } from "../src/util/port.cjs";
 
@@ -38,11 +39,13 @@ test("updateHealthState: 连续失败达到阈值 → 触发重启并重置计�
   expect(r.failures).toBe(0);
 });
 
-test("updateHealthState: 已停止 → 永不触发重启", () => {
+test("updateHealthState: 已停止 → 永不触发重启（失败计数保留）", () => {
   const s = freshState();
   s.stopped = true;
   s.failures = HEALTH_FAIL_THRESHOLD;
-  expect(updateHealthState(s, false).shouldRestart).toBe(false);
+  const r = updateHealthState(s, false);
+  expect(r.shouldRestart).toBe(false);
+  expect(r.failures).toBe(HEALTH_FAIL_THRESHOLD);
 });
 
 test("checkPort: 端口被监听（健康）→ true", async () => {
@@ -63,7 +66,8 @@ test("checkPort: 端口未监听（挂了）→ false", async () => {
   expect(await checkPort(freePort)).toBe(false);
 });
 
-test("常量: 探活间隔与失败阈值均为正数", () => {
-  expect(HEALTH_CHECK_INTERVAL_MS).toBeGreaterThan(0);
-  expect(HEALTH_FAIL_THRESHOLD).toBeGreaterThan(0);
+test("常量: 探活间隔/失败阈值/单次探测超时锁定精确值", () => {
+  expect(HEALTH_CHECK_INTERVAL_MS).toBe(5000);
+  expect(HEALTH_FAIL_THRESHOLD).toBe(3);
+  expect(HEALTH_CHECK_TIMEOUT_MS).toBe(2000);
 });

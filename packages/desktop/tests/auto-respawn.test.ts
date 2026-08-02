@@ -39,6 +39,6 @@ test("shouldRespawn: code>0（异常退出）→ 应重启", () => {
   expect(shouldRespawn(5, freshState())).toBe(true);
 });
 
-test("常量: RESPAWN_DELAY_MS 为正数（固定间隔）", () => {
-  expect(RESPAWN_DELAY_MS).toBeGreaterThan(0);
+test("常量: RESPAWN_DELAY_MS 锁定精确值（固定间隔 2s）", () => {
+  expect(RESPAWN_DELAY_MS).toBe(2000);
 });

@@ -325,6 +325,36 @@ test("ensurePromptsConfig 迁移旧格式文件（无 schemaVersion）→ 保留
 	rmSync(f, { force: true });
 });
 
+test("ensurePromptsConfig 迁移 22→23：补 self-protection 段且保留 base/delegate-mechanism 用户 content", async () => {
+	const f = tempFile();
+	// 模拟 v22 磁盘文件：已有 base（用户自定义）+ delegate-mechanism（旧内容），无 self-protection 段
+	const v22Segments: PromptSegment[] = [
+		{ id: "base", content: "MY CUSTOM BASE" },
+		{ id: "delegate-mechanism", content: "OLD MECHANISM TEXT" },
+		{ id: "delegate-roster" },
+		{ id: "env-constraints" },
+	];
+	writeFileSync(
+		f,
+		JSON.stringify({ schemaVersion: 22, segments: v22Segments }, null, 2),
+	);
+
+	await ensurePromptsConfig(f);
+
+	const loaded = await loadPromptSegments(f);
+	expect(loaded).not.toBeNull();
+	const byId = new Map((loaded as PromptSegment[]).map((s) => [s.id, s]));
+	// 缺失的 self-protection 段以默认 content 补齐
+	expect(byId.get("self-protection")!.content).toBe(DEFAULT_SELF_PROTECTION_PROMPT);
+	// 已存在段用户 content 保留（不被默认覆盖）
+	expect(byId.get("base")!.content).toBe("MY CUSTOM BASE");
+	expect(byId.get("delegate-mechanism")!.content).toBe("OLD MECHANISM TEXT");
+	// 磁盘已升级到 23
+	const raw = JSON.parse(readFileSync(f, "utf8"));
+	expect(raw.schemaVersion).toBe(PROMPTS_SCHEMA_VERSION);
+	rmSync(f, { force: true });
+});
+
 test("ensurePromptsConfig 迁移后幂等（版本匹配不再重写）", async () => {
 	const f = tempFile();
 	const legacy: PromptSegment[] = [

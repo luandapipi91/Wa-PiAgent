@@ -72,7 +72,7 @@
 
 - 移除 `MAX_RESPAWN` 上限 → **无限重启**
 - 保留 `RESPAWN_DELAY_MS = 2000`（固定间隔，用户已确认）
-- `shouldRespawn(code, state)` 语义：`stopped` → false；`code !== null`（正常/显式退出）→ false；否则 true（无限）
+- `shouldRespawn(code, state)` 语义：`stopped` → false；`code === 0`（优雅退出）→ false；否则 true（无限，含 code=null 信号杀与 code>0 Windows 强杀——taskkill /F 实测 code=1，已获用户批准）
 - `attempts` 保留，仅用于日志（"第 N 次重启"），不再拦截
 
 #### health-check.cjs（新增，纯逻辑便于测试）
