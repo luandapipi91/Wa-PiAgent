@@ -114,7 +114,7 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
   current = spawnOnce();
   log.info(`kernel sidecar pid=${current.pid} cmd=${cmd} ${arg.join(" ")} port=${wsPort}`);
   const ready = await waitForPort(wsPort, 30000);
-  if (!ready) { log.error("kernel sidecar 30s 未就绪"); killTree(current.pid); throw new Error("kernel not ready"); }
+  if (!ready) { respawnState.stopped = true; log.error("kernel sidecar 30s 未就绪"); killTree(current.pid); throw new Error("kernel not ready"); }
   log.info(`kernel 就绪 @${wsPort}`);
   startHealthCheck();
   return {
