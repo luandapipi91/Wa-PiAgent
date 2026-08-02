@@ -20,8 +20,8 @@ export const COMMAND_TOKEN_RE = /\/\[([^\]]+)\]/g;
  * 而代码里匹配的是半角 U+00A5。该映射把输入法可能产生的全角触发符
  * 统一归一化为代码认识的半角等价物，使 $/¥/￥、@/＠、#/＃、//／ 都能触发对应面板。
  *
- * 注意：只映射「触发符相关符号」，绝不动全角字母数字（ＡＢＣ０１２３）和
- * 中文标点（（）、「」、［］等）——那些在中文文本里是正常内容，归一化会造成回归。
+ * 刻意只映射这 5 个「触发符符号」：全角字母数字（ＡＢＣ０１２３）和中文标点
+ * （（）、「」、［］等）在中文文本里是正常内容，不在此转换，避免改变用户语义。
  */
 const FULLWIDTH_TRIGGER_MAP: Record<string, string> = {
   "\uFFE5": "\u00A5", // ￥ (FULLWIDTH YEN SIGN) → ¥ (YEN SIGN)
@@ -31,7 +31,12 @@ const FULLWIDTH_TRIGGER_MAP: Record<string, string> = {
   "\uFF0F": "/",       // ／ (FULLWIDTH SOLIDUS) → /
 };
 
-/** 把全角触发符符号归一化为半角（检测/发送路径入口调用；显示路径不调用）。 */
+/**
+ * 把全角触发符符号归一化为半角。
+ *
+ * 只在「检测/发送路径」入口调用，显示路径（textToSegments/textToHtml）不调用：
+ * 输入框所见即所得（用户原文在发送前不被改写），发送时才做归一化/展开变换。
+ */
 export function normalizeTriggerChars(text: string): string {
   return text.replace(/[\uFFE5\uFF04\uFF20\uFF03\uFF0F]/g, ch => FULLWIDTH_TRIGGER_MAP[ch]);
 }
