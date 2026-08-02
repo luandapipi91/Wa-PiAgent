@@ -1,7 +1,7 @@
 /** 端口解析：合法正整数用之，否则用默认。 */
 export function resolvePort(envVal: string | undefined, def: number): number {
-  const n = Number(envVal);
-  return Number.isFinite(n) && n > 0 ? n : def;
+	const n = Number(envVal);
+	return Number.isFinite(n) && n > 0 ? n : def;
 }
 
 // 兼容浏览器（vite import.meta.env / 无 process 全局）与 Node/Bun（process.env）
@@ -10,7 +10,10 @@ export function resolvePort(envVal: string | undefined, def: number): number {
 // 但 typeof process 判断在替换前已求值为 "undefined"，所以这里双源读取兜底。
 const nodeEnv = typeof process !== "undefined" ? process.env : {};
 // import.meta.env 浏览器（vite）才有；Node/Bun 下 import.meta.env 为 undefined，由 && 兜底
-const browserEnv = (typeof import.meta !== "undefined" && (import.meta as any).env) ? (import.meta as any).env : {};
+const browserEnv =
+	typeof import.meta !== "undefined" && (import.meta as any).env
+		? (import.meta as any).env
+		: {};
 const env = { ...nodeEnv, ...browserEnv };
 const HOME = env.HOME || env.USERPROFILE || ".";
 /** kernel HTTP 端口（原 WS 端口，去 WS 化后仅用于 HTTP + SSE）；可通过 WA_PI_WS_PORT 覆盖 */
@@ -21,12 +24,12 @@ export const FRONTEND_PORT = resolvePort(env.WA_PI_WEB_PORT, 5180);
 /** wa-pi 数据目录（默认 ~/.wa-pi），可用 WA_PI_DIR 环境变量覆盖。 */
 export const WA_PI_DIR = env.WA_PI_DIR || `${HOME}/.wa-pi`;
 export const PROJECTS_FILE = `${WA_PI_DIR}/projects.json`;
-export const PI_AGENTS_DIR = `${WA_PI_DIR}/agents`;   // ← 改：从 ~/.pi/agent/agents 改为 .wa-pi/agents
+export const PI_AGENTS_DIR = `${WA_PI_DIR}/agents`; // ← 改：从 ~/.pi/agent/agents 改为 .wa-pi/agents
 export const PROVIDERS_FILE = `${WA_PI_DIR}/providers.json`;
-export const PROMPTS_FILE = `${WA_PI_DIR}/prompts.json`;   // 系统提示词段落配置（顺序+内容），启动时若无则初始化默认值
-export const SUBAGENT_OVERRIDES_FILE = `${WA_PI_DIR}/subagent-overrides.json`;   // 内置 subagent 的 model/thinking 覆盖
-export const GENERATED_DIR = `${WA_PI_DIR}/.generated`;   // 自动生成的 Pi extension 文件目录
-export const BUILTIN_SKILLS_DIR = `${WA_PI_DIR}/skills`;   // 内置技能目录，kernel 启动时创建，不可删
+export const PROMPTS_FILE = `${WA_PI_DIR}/prompts.json`; // 系统提示词段落配置（顺序+内容），启动时若无则初始化默认值
+export const SUBAGENT_OVERRIDES_FILE = `${WA_PI_DIR}/subagent-overrides.json`; // 内置 subagent 的 model/thinking 覆盖
+export const GENERATED_DIR = `${WA_PI_DIR}/.generated`; // 自动生成的 Pi extension 文件目录
+export const BUILTIN_SKILLS_DIR = `${WA_PI_DIR}/skills`; // 内置技能目录，kernel 启动时创建，不可删
 
 // ===== 默认工作区（虚拟系统项目）=====
 // 一个常驻、不可删除/改名的虚拟项目，作为"没有具体工程目录时的默认聊天空间"。
@@ -45,45 +48,45 @@ export const WORKDIR_TTL_DAYS = 7;
 // - Explore：read-only 探索（builtinToolNames = ["read","bash","grep","find","ls"]）
 // - Plan：read-only 规划（代码架构师，探索并设计实施方案）
 export interface SubagentTypeDef {
-  /** 类型名（传给 svc.spawn 的第一个参数，大小写敏感） */
-  name: string;
-  /** 显示名（前端卡片展示 + @ token 插入 + delegate 接受的别名） */
-  displayName: string;
-  /** 简介（前端卡片展示） */
-  description: string;
-  /** emoji 图标 */
-  emoji: string;
-  /** 头像渐变色 */
-  gradient: [string, string];
-  /** 是否只读（true = 只能探索不能改文件） */
-  readOnly: boolean;
+	/** 类型名（传给 svc.spawn 的第一个参数，大小写敏感） */
+	name: string;
+	/** 显示名（前端卡片展示 + @ token 插入 + delegate 接受的别名） */
+	displayName: string;
+	/** 简介（前端卡片展示） */
+	description: string;
+	/** emoji 图标 */
+	emoji: string;
+	/** 头像渐变色 */
+	gradient: [string, string];
+	/** 是否只读（true = 只能探索不能改文件） */
+	readOnly: boolean;
 }
 
 export const SUBAGENT_TYPES: SubagentTypeDef[] = [
-  {
-    name: "general-purpose",
-    displayName: "通用子智能体",
-    description: "继承调用者的全部工具，执行复杂多步任务。",
-    emoji: "🤖",
-    gradient: ["#4b5563", "#6b7280"],
-    readOnly: false,
-  },
-  {
-    name: "Explore",
-    displayName: "探索子智能体",
-    description: "只读代码探索，快速搜索和理解代码库结构。",
-    emoji: "🔍",
-    gradient: ["#0891b2", "#06b6d4"],
-    readOnly: true,
-  },
-  {
-    name: "Plan",
-    displayName: "规划子智能体",
-    description: "只读代码架构师，探索代码库并设计实施方案。",
-    emoji: "📐",
-    gradient: ["#7c3aed", "#a78bfa"],
-    readOnly: true,
-  },
+	{
+		name: "general-purpose",
+		displayName: "通用子智能体",
+		description: "继承调用者的全部工具，执行复杂多步任务。",
+		emoji: "🤖",
+		gradient: ["#4b5563", "#6b7280"],
+		readOnly: false,
+	},
+	{
+		name: "Explore",
+		displayName: "探索子智能体",
+		description: "只读代码探索，快速搜索和理解代码库结构。",
+		emoji: "🔍",
+		gradient: ["#0891b2", "#06b6d4"],
+		readOnly: true,
+	},
+	{
+		name: "Plan",
+		displayName: "规划子智能体",
+		description: "只读代码架构师，探索代码库并设计实施方案。",
+		emoji: "📐",
+		gradient: ["#7c3aed", "#a78bfa"],
+		readOnly: true,
+	},
 ];
 
 /**
@@ -91,7 +94,7 @@ export const SUBAGENT_TYPES: SubagentTypeDef[] = [
  * 同时识别英文 name（"general-purpose"）和中文 displayName（"通用子智能体"），大小写敏感。
  */
 export function isSubagentType(name: string): boolean {
-  return SUBAGENT_TYPES.some(t => t.name === name || t.displayName === name);
+	return SUBAGENT_TYPES.some((t) => t.name === name || t.displayName === name);
 }
 
 /**
@@ -100,32 +103,41 @@ export function isSubagentType(name: string): boolean {
  * 若 name 不是内置类型别名，原样返回（普通智能体实名透传）。
  */
 export function normalizeSubagentType(name: string): string {
-  const found = SUBAGENT_TYPES.find(t => t.name === name || t.displayName === name);
-  return found ? found.name : name;
+	const found = SUBAGENT_TYPES.find(
+		(t) => t.name === name || t.displayName === name,
+	);
+	return found ? found.name : name;
 }
 
 export interface AgentDef {
-  emoji: string;
-  gradient: [string, string];
+	emoji: string;
+	gradient: [string, string];
 }
 
 // 按 displayName 索引（displayName 既是展示名也是唯一标识符）
 export const AGENT_DEFS: Record<string, AgentDef> = {
-  "前端开发者": { emoji: "🖥️", gradient: ["#0EA5E9", "#38BDF8"] },
-  "后端架构师": { emoji: "🏗️", gradient: ["#6366F1", "#818CF8"] },
-  "产品经理": { emoji: "🧭", gradient: ["#F59E0B", "#FBBF24"] },
-  "测试结果分析师": { emoji: "🔬", gradient: ["#059669", "#10B981"] },
-  "数据分析师": { emoji: "📈", gradient: ["#EC4899", "#F472B6"] },
-  "代码审查员": { emoji: "🧐", gradient: ["#64748B", "#94A3B8"] },
-  "UX设计师": { emoji: "🎨", gradient: ["#F43F5E", "#FB7185"] },
-  "高级项目经理": { emoji: "📋", gradient: ["#D97706", "#F59E0B"] },
-  "会议纪要专家": { emoji: "📝", gradient: ["#6366F1", "#818CF8"] },
+	前端开发者: { emoji: "🖥️", gradient: ["#0EA5E9", "#38BDF8"] },
+	后端架构师: { emoji: "🏗️", gradient: ["#6366F1", "#818CF8"] },
+	产品经理: { emoji: "🧭", gradient: ["#F59E0B", "#FBBF24"] },
+	测试结果分析师: { emoji: "🔬", gradient: ["#059669", "#10B981"] },
+	数据分析师: { emoji: "📈", gradient: ["#EC4899", "#F472B6"] },
+	代码审查员: { emoji: "🧐", gradient: ["#64748B", "#94A3B8"] },
+	UX设计师: { emoji: "🎨", gradient: ["#F43F5E", "#FB7185"] },
+	高级项目经理: { emoji: "📋", gradient: ["#D97706", "#F59E0B"] },
+	会议纪要专家: { emoji: "📝", gradient: ["#6366F1", "#818CF8"] },
 };
 
 /** 所有内置智能体的 displayName 列表，用于 seedDefaults 批量生成 */
 export const ALL_AGENT_NAMES: string[] = [
-  "前端开发者", "后端架构师", "产品经理", "测试结果分析师", "数据分析师", "代码审查员", "UX设计师",
-  "高级项目经理", "会议纪要专家",
+	"前端开发者",
+	"后端架构师",
+	"产品经理",
+	"测试结果分析师",
+	"数据分析师",
+	"代码审查员",
+	"UX设计师",
+	"高级项目经理",
+	"会议纪要专家",
 ];
 
 /** Agent 未显式配置 tools 时的默认工具集。
@@ -136,27 +148,28 @@ export const ALL_AGENT_NAMES: string[] = [
  *  动态插件注册的工具不再写死在此处，改由 resolveAgentTools 在运行时按
  *  插件启用态从 EXTENSION_TOOL_MAP 注入。 */
 export const DEFAULT_AGENT_TOOLS = [
-  "read",
-  "bash",
-  "edit",
-  "write",
-  "grep",
-  "find",
-  "ls",
-  "web_search",
-  "fetch_content",
-  "get_search_content",
-  // amaster memory 记忆工具（host-controlled，经 customTools 注入，须显式放行）
-  "memory_add",
-  "memory_replace",
-  "memory_remove",
-  "memory_read",
-  "session_search",
-  "ask_user_question",
-  // delegate：宿主关系网调起工具（customTools 注入）
-  "delegate",
-  // mcp：pi-mcp-adapter 内置代理工具（未开启 directTools 的服务器统一入口）
-  "mcp",
+	"read",
+	"bash",
+	"edit",
+	"write",
+	"grep",
+	"find",
+	"ls",
+	"web_search",
+	"fetch_content",
+	"get_search_content",
+	// pi-web-access 网络工具族：来源核查（多引擎检索 + passage 级引用评估）
+	"source_check",
+	// amaster memory 记忆工具（host-controlled，经 customTools 注入，须显式放行）
+	"memory_add",
+	"memory_replace",
+	"memory_remove",
+	"memory_read",
+	"ask_user_question",
+	// delegate：宿主关系网调起工具（customTools 注入）
+	"delegate",
+	// mcp：pi-mcp-adapter 内置代理工具（未开启 directTools 的服务器统一入口）
+	"mcp",
 ];
 
 /** 动态插件注册的工具登记表（运行时按插件启用态注入 agent allowlist）。
@@ -188,37 +201,39 @@ export const EXTENSION_TOOL_MAP: Record<string, string[]> = {};
  * @param opts.allowedMcpServers MCP server 白名单（空/不传=全部放行）
  */
 export function resolveAgentTools(
-  baseTools: string[],
-  enabledExtensionIds: Set<string>,
-  _agentName?: string,
-  toolMap: Record<string, string[]> = EXTENSION_TOOL_MAP,
-  harvestedTools: Iterable<string> = [],
+	baseTools: string[],
+	enabledExtensionIds: Set<string>,
+	_agentName?: string,
+	toolMap: Record<string, string[]> = EXTENSION_TOOL_MAP,
+	harvestedTools: Iterable<string> = [],
 ): string[] {
-  // 扩展原生 subagent 工具永不放行：LLM 只能走宿主 delegate 工具（allowlist 强制）
-  const BLOCKED = new Set(["subagent"]);
-  const seen = new Set(baseTools);
-  const result = [...baseTools];
-  for (const [extId, extTools] of Object.entries(toolMap)) {
-    if (enabledExtensionIds.has(extId)) {
-      for (const t of extTools) {
-        if (!seen.has(t)) {
-          seen.add(t);
-          result.push(t);
-        }
-      }
-    }
-  }
-  // 动态发现：已加载扩展（builtin + 已启用第三方）注册的工具名，并入 allowlist 末尾
-  for (const t of harvestedTools) {
-    if (!seen.has(t)) {
-      seen.add(t);
-      result.push(t);
-    }
-  }
-  return result.filter(t => !BLOCKED.has(t));
+	// 扩展原生 subagent 工具永不放行：LLM 只能走宿主 delegate 工具（allowlist 强制）
+	const BLOCKED = new Set(["subagent"]);
+	const seen = new Set(baseTools);
+	const result = [...baseTools];
+	for (const [extId, extTools] of Object.entries(toolMap)) {
+		if (enabledExtensionIds.has(extId)) {
+			for (const t of extTools) {
+				if (!seen.has(t)) {
+					seen.add(t);
+					result.push(t);
+				}
+			}
+		}
+	}
+	// 动态发现：已加载扩展（builtin + 已启用第三方）注册的工具名，并入 allowlist 末尾
+	for (const t of harvestedTools) {
+		if (!seen.has(t)) {
+			seen.add(t);
+			result.push(t);
+		}
+	}
+	return result.filter((t) => !BLOCKED.has(t));
 }
 
 /** 按 displayName 取 AgentDef（emoji/gradient 视觉样式），未知 displayName 回退默认灰色 🤖 */
 export function agentDefOf(displayName: string): AgentDef {
-  return AGENT_DEFS[displayName] ?? { emoji: "🤖", gradient: ["#4b5563", "#6b7280"] };
+	return (
+		AGENT_DEFS[displayName] ?? { emoji: "🤖", gradient: ["#4b5563", "#6b7280"] }
+	);
 }

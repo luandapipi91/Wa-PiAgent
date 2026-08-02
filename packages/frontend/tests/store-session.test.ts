@@ -6,499 +6,718 @@ import { useProjectsStore } from "../src/store/projects";
 import type { SDKEventEnvelope } from "@wa-pi/shared";
 
 beforeEach(() => {
-  // 每个 case 前重置状态，避免相互污染
-  useSessionStore.setState({
-    messagesBySession: {},
-    streamingBySession: {},
-    statusBySession: {},
-    optimisticEchoBySession: {},
-    historyLoadingBySession: {},
-  });
+	// 每个 case 前重置状态，避免相互污染
+	useSessionStore.setState({
+		messagesBySession: {},
+		streamingBySession: {},
+		statusBySession: {},
+		optimisticEchoBySession: {},
+		historyLoadingBySession: {},
+	});
 });
 
 // 构造 sdk:event 信封的便捷工厂
-function envelope(event: SDKEventEnvelope["event"], sessionId = "s1"): SDKEventEnvelope {
-  return {
-    type: "sdk:event",
-    projectId: "p1",
-    sessionId,
-    agentName: "dev",
-    event,
-  };
+function envelope(
+	event: SDKEventEnvelope["event"],
+	sessionId = "s1",
+): SDKEventEnvelope {
+	return {
+		type: "sdk:event",
+		projectId: "p1",
+		sessionId,
+		agentName: "dev",
+		event,
+	};
 }
 
 // ── 历史加载标记：SessionView 发请求置 true、收响应置 false ──
 
 test("setHistoryLoading：按会话隔离地切换加载标志", () => {
-  useSessionStore.getState().setHistoryLoading("s1", true);
-  useSessionStore.getState().setHistoryLoading("s2", true);
-  expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(true);
-  expect(useSessionStore.getState().historyLoadingBySession["s2"]).toBe(true);
-  // 仅清 s1，不影响 s2
-  useSessionStore.getState().setHistoryLoading("s1", false);
-  expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(false);
-  expect(useSessionStore.getState().historyLoadingBySession["s2"]).toBe(true);
+	useSessionStore.getState().setHistoryLoading("s1", true);
+	useSessionStore.getState().setHistoryLoading("s2", true);
+	expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(true);
+	expect(useSessionStore.getState().historyLoadingBySession["s2"]).toBe(true);
+	// 仅清 s1，不影响 s2
+	useSessionStore.getState().setHistoryLoading("s1", false);
+	expect(useSessionStore.getState().historyLoadingBySession["s1"]).toBe(false);
+	expect(useSessionStore.getState().historyLoadingBySession["s2"]).toBe(true);
 });
 
 // ── 未读标记：非当前会话收到回复完成（agent_end）标记 new，进入会话清掉 ──
 
 test("agent_end：非当前会话标记未读；当前会话不标记", () => {
-  useProjectsStore.setState({ currentSessionId: "s-cur" });
-  // 非当前会话 s1 完成 → 未读
-  useSessionStore.getState().handleSDKEvent("s1", envelope({ type: "agent_end", messages: [], willRetry: false }));
-  expect(useSessionStore.getState().unreadBySession["s1"]).toBe(true);
-  // 当前会话 s-cur 完成 → 不标记
-  useSessionStore.getState().handleSDKEvent("s-cur", envelope({ type: "agent_end", messages: [], willRetry: false }));
-  expect(useSessionStore.getState().unreadBySession["s-cur"]).toBeFalsy();
+	useProjectsStore.setState({ currentSessionId: "s-cur" });
+	// 非当前会话 s1 完成 → 未读
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
+	expect(useSessionStore.getState().unreadBySession["s1"]).toBe(true);
+	// 当前会话 s-cur 完成 → 不标记
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s-cur",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
+	expect(useSessionStore.getState().unreadBySession["s-cur"]).toBeFalsy();
 });
 
 test("markUnread / markRead 维护 unreadBySession", () => {
-  useSessionStore.getState().markUnread("s1");
-  expect(useSessionStore.getState().unreadBySession["s1"]).toBe(true);
-  useSessionStore.getState().markRead("s1");
-  expect(useSessionStore.getState().unreadBySession["s1"]).toBeFalsy();
+	useSessionStore.getState().markUnread("s1");
+	expect(useSessionStore.getState().unreadBySession["s1"]).toBe(true);
+	useSessionStore.getState().markRead("s1");
+	expect(useSessionStore.getState().unreadBySession["s1"]).toBeFalsy();
 });
 
 test("message_start(user) 添加用户消息到 messages", () => {
-  const env = envelope({
-    type: "message_start",
-    message: { role: "user", content: "你好", timestamp: 1 },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
-  expect(useSessionStore.getState().messagesBySession["s1"][0].message).toEqual({
-    role: "user",
-    content: "你好",
-    timestamp: 1,
-  });
+	const env = envelope({
+		type: "message_start",
+		message: { role: "user", content: "你好", timestamp: 1 },
+	});
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
+	expect(useSessionStore.getState().messagesBySession["s1"][0].message).toEqual(
+		{
+			role: "user",
+			content: "你好",
+			timestamp: 1,
+		},
+	);
 });
 
 test("message_start(assistant) 设置 streamingMessage", () => {
-  const env = envelope({
-    type: "message_start",
-    message: {
-      role: "assistant",
-      content: [],
-      model: "m",
-      stopReason: "stop",
-      timestamp: 2,
-    },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  expect(useSessionStore.getState().streamingBySession["s1"]).toBeTruthy();
+	const env = envelope({
+		type: "message_start",
+		message: {
+			role: "assistant",
+			content: [],
+			model: "m",
+			stopReason: "stop",
+			timestamp: 2,
+		},
+	});
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	expect(useSessionStore.getState().streamingBySession["s1"]).toBeTruthy();
 });
 
 test("message_end 把 streamingMessage 移到 messages 并清空 streaming", () => {
-  // 先模拟 message_start(assistant) 设好 streaming
-  useSessionStore.setState({
-    streamingBySession: {
-      s1: {
-        message: { role: "assistant", content: [], model: "m", stopReason: "stop", timestamp: 2 },
-        agentName: "dev",
-      },
-    },
-  });
-  const env = envelope({
-    type: "message_end",
-    message: {
-      role: "assistant",
-      content: [{ type: "text", text: "回复" }],
-      model: "m",
-      stopReason: "stop",
-      timestamp: 2,
-    },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
-  expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
+	// 先模拟 message_start(assistant) 设好 streaming
+	useSessionStore.setState({
+		streamingBySession: {
+			s1: {
+				message: {
+					role: "assistant",
+					content: [],
+					model: "m",
+					stopReason: "stop",
+					timestamp: 2,
+				},
+				agentName: "dev",
+			},
+		},
+	});
+	const env = envelope({
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "回复" }],
+			model: "m",
+			stopReason: "stop",
+			timestamp: 2,
+		},
+	});
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
+	expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
 });
 
 test("message_end(user) 不重复添加——user 消息在 message_start 时已加入", () => {
-  // 先模拟 message_start(user) 已加入 messages
-  useSessionStore.setState({
-    messagesBySession: {
-      s1: [{ message: { role: "user", content: "你好", timestamp: 1 }, agentName: "dev" }],
-    },
-  });
-  // message_end(user) 不应再添加
-  const env = envelope({
-    type: "message_end",
-    message: { role: "user", content: "你好", timestamp: 1 },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
+	// 先模拟 message_start(user) 已加入 messages
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					message: { role: "user", content: "你好", timestamp: 1 },
+					agentName: "dev",
+				},
+			],
+		},
+	});
+	// message_end(user) 不应再添加
+	const env = envelope({
+		type: "message_end",
+		message: { role: "user", content: "你好", timestamp: 1 },
+	});
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
 });
 
 test("message_end(toolResult) 追加工具结果消息到 messages，供渲染层关联 toolCall", () => {
-  useSessionStore.setState({
-    messagesBySession: {
-      s1: [
-        {
-          agentName: "dev",
-          message: {
-            role: "assistant",
-            content: [{ type: "toolCall", id: "tc1", name: "session_search", arguments: { query: "auth" } }],
-            model: "m",
-            stopReason: "tool_use",
-            timestamp: 1,
-          },
-        },
-      ],
-    },
-  });
-  const env = envelope({
-    type: "message_end",
-    message: {
-      role: "toolResult",
-      toolCallId: "tc1",
-      toolName: "session_search",
-      content: [{ type: "text", text: "找到 3 条结果" }],
-      isError: false,
-      timestamp: 2,
-    },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  const msgs = useSessionStore.getState().messagesBySession["s1"];
-  expect(msgs).toHaveLength(2);
-  expect((msgs[1].message as any).role).toBe("toolResult");
-  expect((msgs[1].message as any).toolCallId).toBe("tc1");
-  expect((msgs[1].agentName as any)).toBe("dev");
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: "dev",
+					message: {
+						role: "assistant",
+						content: [
+							{
+								type: "toolCall",
+								id: "tc1",
+								name: "web_search",
+								arguments: { query: "auth" },
+							},
+						],
+						model: "m",
+						stopReason: "tool_use",
+						timestamp: 1,
+					},
+				},
+			],
+		},
+	});
+	const env = envelope({
+		type: "message_end",
+		message: {
+			role: "toolResult",
+			toolCallId: "tc1",
+			toolName: "web_search",
+			content: [{ type: "text", text: "找到 3 条结果" }],
+			isError: false,
+			timestamp: 2,
+		},
+	});
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	const msgs = useSessionStore.getState().messagesBySession["s1"];
+	expect(msgs).toHaveLength(2);
+	expect((msgs[1].message as any).role).toBe("toolResult");
+	expect((msgs[1].message as any).toolCallId).toBe("tc1");
+	expect(msgs[1].agentName as any).toBe("dev");
 });
 
 test("agent_start 设置 status=thinking", () => {
-  const env = envelope({ type: "agent_start" });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+	const env = envelope({ type: "agent_start" });
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
 });
 
 test("agent_end 设置 status=idle", () => {
-  useSessionStore.setState({ statusBySession: { s1: "thinking" } });
-  const env = envelope({ type: "agent_end", messages: [], willRetry: false });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  expect(useSessionStore.getState().statusBySession["s1"]).toBe("idle");
+	useSessionStore.setState({ statusBySession: { s1: "thinking" } });
+	const env = envelope({ type: "agent_end", messages: [], willRetry: false });
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	expect(useSessionStore.getState().statusBySession["s1"]).toBe("idle");
 });
 
 test("agent_end 清掉 optimisticSend 的 pending 占位（扩展命令无 agent turn 场景）", () => {
-  // 模拟发送 /mcp-auth 这类扩展命令：乐观占位后没有任何 agent 事件，
-  // kernel 合成的 agent_end 必须把 thinking + loading 气泡一起复位
-  useSessionStore.getState().optimisticSend("s1", "/mcp-auth", "dev");
-  expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
-  expect((useSessionStore.getState().streamingBySession["s1"]?.message as any)?.stopReason).toBe("pending");
+	// 模拟发送 /mcp-auth 这类扩展命令：乐观占位后没有任何 agent 事件，
+	// kernel 合成的 agent_end 必须把 thinking + loading 气泡一起复位
+	useSessionStore.getState().optimisticSend("s1", "/mcp-auth", "dev");
+	expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+	expect(
+		(useSessionStore.getState().streamingBySession["s1"]?.message as any)
+			?.stopReason,
+	).toBe("pending");
 
-  useSessionStore.getState().handleSDKEvent("s1", envelope({ type: "agent_end", messages: [], willRetry: false }));
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
 
-  const s = useSessionStore.getState();
-  expect(s.statusBySession["s1"]).toBe("idle");
-  expect(s.streamingBySession["s1"]).toBeNull();
-  expect(s.thinkingSinceBySession["s1"]).toBeNull();
-  expect(s.optimisticEchoBySession["s1"]).toBe(false);
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("idle");
+	expect(s.streamingBySession["s1"]).toBeNull();
+	expect(s.thinkingSinceBySession["s1"]).toBeNull();
+	expect(s.optimisticEchoBySession["s1"]).toBe(false);
 });
 
 test("agent_end 不清除真实 partial（非 pending 的 streaming 保留）", () => {
-  useSessionStore.setState({
-    statusBySession: { s1: "thinking" },
-    streamingBySession: {
-      s1: { message: { role: "assistant", content: [{ type: "text", text: "半截回复" }], timestamp: 1 } as any, agentName: "dev" },
-    },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", envelope({ type: "agent_end", messages: [], willRetry: false }));
-  expect(useSessionStore.getState().streamingBySession["s1"]).not.toBeNull();
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		streamingBySession: {
+			s1: {
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "半截回复" }],
+					timestamp: 1,
+				} as any,
+				agentName: "dev",
+			},
+		},
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
+	expect(useSessionStore.getState().streamingBySession["s1"]).not.toBeNull();
 });
 
 test("message_update 更新 streamingMessage（用 assistantMessageEvent.partial，rAF 合帧后生效）", async () => {
-  // 先设初始 streaming
-  useSessionStore.setState({
-    streamingBySession: {
-      s1: {
-        message: { role: "assistant", content: [], model: "m", stopReason: "stop", timestamp: 2 },
-        agentName: "dev",
-      },
-    },
-  });
-  const env = envelope({
-    type: "message_update",
-    message: { role: "assistant", content: [{ type: "text", text: "部分" }], model: "m", stopReason: "stop", timestamp: 2 },
-    assistantMessageEvent: {
-      type: "text_delta",
-      contentIndex: 0,
-      delta: "部分",
-      partial: { role: "assistant", content: [{ type: "text", text: "部分" }], model: "m", stopReason: "stop", timestamp: 2 },
-    },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  // rAF 合帧：等一帧后 streaming 才反映最新 partial
-  await new Promise((r) => requestAnimationFrame(r));
-  const streaming = useSessionStore.getState().streamingBySession["s1"];
-  expect(streaming).toBeTruthy();
-  // partial 应反映流式增量
-  expect((streaming!.message as any).content[0].text).toBe("部分");
+	// 先设初始 streaming
+	useSessionStore.setState({
+		streamingBySession: {
+			s1: {
+				message: {
+					role: "assistant",
+					content: [],
+					model: "m",
+					stopReason: "stop",
+					timestamp: 2,
+				},
+				agentName: "dev",
+			},
+		},
+	});
+	const env = envelope({
+		type: "message_update",
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "部分" }],
+			model: "m",
+			stopReason: "stop",
+			timestamp: 2,
+		},
+		assistantMessageEvent: {
+			type: "text_delta",
+			contentIndex: 0,
+			delta: "部分",
+			partial: {
+				role: "assistant",
+				content: [{ type: "text", text: "部分" }],
+				model: "m",
+				stopReason: "stop",
+				timestamp: 2,
+			},
+		},
+	});
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	// rAF 合帧：等一帧后 streaming 才反映最新 partial
+	await new Promise((r) => requestAnimationFrame(r));
+	const streaming = useSessionStore.getState().streamingBySession["s1"];
+	expect(streaming).toBeTruthy();
+	// partial 应反映流式增量
+	expect((streaming!.message as any).content[0].text).toBe("部分");
 });
 
 test("message_update 一帧内多次到达：合帧后 streaming 取最新 partial", async () => {
-  const mk = (text: string) => envelope({
-    type: "message_update",
-    message: { role: "assistant", content: [{ type: "text", text }], model: "m", stopReason: "stop", timestamp: 2 },
-    assistantMessageEvent: {
-      type: "text_delta",
-      contentIndex: 0,
-      delta: text,
-      partial: { role: "assistant", content: [{ type: "text", text }], model: "m", stopReason: "stop", timestamp: 2 },
-    },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", mk("部"));
-  useSessionStore.getState().handleSDKEvent("s1", mk("部分"));
-  useSessionStore.getState().handleSDKEvent("s1", mk("部分内"));
-  await new Promise((r) => requestAnimationFrame(r));
-  const streaming = useSessionStore.getState().streamingBySession["s1"];
-  expect((streaming!.message as any).content[0].text).toBe("部分内");
+	const mk = (text: string) =>
+		envelope({
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text }],
+				model: "m",
+				stopReason: "stop",
+				timestamp: 2,
+			},
+			assistantMessageEvent: {
+				type: "text_delta",
+				contentIndex: 0,
+				delta: text,
+				partial: {
+					role: "assistant",
+					content: [{ type: "text", text }],
+					model: "m",
+					stopReason: "stop",
+					timestamp: 2,
+				},
+			},
+		});
+	useSessionStore.getState().handleSDKEvent("s1", mk("部"));
+	useSessionStore.getState().handleSDKEvent("s1", mk("部分"));
+	useSessionStore.getState().handleSDKEvent("s1", mk("部分内"));
+	await new Promise((r) => requestAnimationFrame(r));
+	const streaming = useSessionStore.getState().streamingBySession["s1"];
+	expect((streaming!.message as any).content[0].text).toBe("部分内");
 });
 
 test("message_end 丢弃挂起的 streaming 帧：旧 partial 不在定稿后复活", async () => {
-  const updateEnv = envelope({
-    type: "message_update",
-    message: { role: "assistant", content: [{ type: "text", text: "部分" }], model: "m", stopReason: "stop", timestamp: 2 },
-    assistantMessageEvent: {
-      type: "text_delta",
-      contentIndex: 0,
-      delta: "部分",
-      partial: { role: "assistant", content: [{ type: "text", text: "部分" }], model: "m", stopReason: "stop", timestamp: 2 },
-    },
-  });
-  const endEnv = envelope({
-    type: "message_end",
-    message: { role: "assistant", content: [{ type: "text", text: "完整回复" }], model: "m", stopReason: "stop", timestamp: 2 },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", updateEnv); // 挂起
-  useSessionStore.getState().handleSDKEvent("s1", endEnv);     // 定稿 + drop 挂起帧
-  await new Promise((r) => requestAnimationFrame(r));
-  // streaming 保持 null（不被旧 partial 复活），定稿消息已落库
-  expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
-  const msgs = useSessionStore.getState().messagesBySession["s1"];
-  expect((msgs[msgs.length - 1].message as any).content[0].text).toBe("完整回复");
+	const updateEnv = envelope({
+		type: "message_update",
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "部分" }],
+			model: "m",
+			stopReason: "stop",
+			timestamp: 2,
+		},
+		assistantMessageEvent: {
+			type: "text_delta",
+			contentIndex: 0,
+			delta: "部分",
+			partial: {
+				role: "assistant",
+				content: [{ type: "text", text: "部分" }],
+				model: "m",
+				stopReason: "stop",
+				timestamp: 2,
+			},
+		},
+	});
+	const endEnv = envelope({
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "完整回复" }],
+			model: "m",
+			stopReason: "stop",
+			timestamp: 2,
+		},
+	});
+	useSessionStore.getState().handleSDKEvent("s1", updateEnv); // 挂起
+	useSessionStore.getState().handleSDKEvent("s1", endEnv); // 定稿 + drop 挂起帧
+	await new Promise((r) => requestAnimationFrame(r));
+	// streaming 保持 null（不被旧 partial 复活），定稿消息已落库
+	expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
+	const msgs = useSessionStore.getState().messagesBySession["s1"];
+	expect((msgs[msgs.length - 1].message as any).content[0].text).toBe(
+		"完整回复",
+	);
 });
 
 test("handleSDKEvent 不影响其他 session 的状态", () => {
-  // s2 已有消息，s1 处理事件不应波及 s2
-  useSessionStore.setState({
-    messagesBySession: { s2: [{ agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } }] },
-  });
-  const env = envelope({ type: "agent_start" });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  expect(useSessionStore.getState().messagesBySession["s2"]).toHaveLength(1);
-  expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+	// s2 已有消息，s1 处理事件不应波及 s2
+	useSessionStore.setState({
+		messagesBySession: {
+			s2: [
+				{
+					agentName: "dev",
+					message: { role: "user", content: "hi", timestamp: 1 },
+				},
+			],
+		},
+	});
+	const env = envelope({ type: "agent_start" });
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	expect(useSessionStore.getState().messagesBySession["s2"]).toHaveLength(1);
+	expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
 });
 
 test("message_end 失败且 content 为空 → 不新增 assistant 行、仅清空 streaming", () => {
-  // 先模拟 streaming 占位 + 一条 user 消息
-  useSessionStore.setState({
-    streamingBySession: {
-      s1: { message: { role: "assistant", content: [], model: "m", stopReason: "stop", timestamp: 2 }, agentName: "dev" },
-    },
-    messagesBySession: { s1: [{ agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } }] },
-  });
-  const env = envelope({
-    type: "message_end",
-    message: { role: "assistant", content: [], model: "m", stopReason: "error", timestamp: 2 },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  // streaming 清空
-  expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
-  // 不新增 assistant 行（仍只有 1 条 user 消息）—— 避免渲染裸头像行
-  expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
+	// 先模拟 streaming 占位 + 一条 user 消息
+	useSessionStore.setState({
+		streamingBySession: {
+			s1: {
+				message: {
+					role: "assistant",
+					content: [],
+					model: "m",
+					stopReason: "stop",
+					timestamp: 2,
+				},
+				agentName: "dev",
+			},
+		},
+		messagesBySession: {
+			s1: [
+				{
+					agentName: "dev",
+					message: { role: "user", content: "hi", timestamp: 1 },
+				},
+			],
+		},
+	});
+	const env = envelope({
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [],
+			model: "m",
+			stopReason: "error",
+			timestamp: 2,
+		},
+	});
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	// streaming 清空
+	expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
+	// 不新增 assistant 行（仍只有 1 条 user 消息）—— 避免渲染裸头像行
+	expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(1);
 });
 
 test("message_end 失败但有部分内容 → 照常合并（保留部分回复，红色渲染）", () => {
-  useSessionStore.setState({
-    streamingBySession: {
-      s1: { message: { role: "assistant", content: [], model: "m", stopReason: "stop", timestamp: 2 }, agentName: "dev" },
-    },
-    messagesBySession: { s1: [{ agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } }] },
-  });
-  const env = envelope({
-    type: "message_end",
-    message: { role: "assistant", content: [{ type: "text", text: "部分回复" }], model: "m", stopReason: "error", timestamp: 2 },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
-  // 合并出一条 assistant 行（共 2 条）
-  expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(2);
+	useSessionStore.setState({
+		streamingBySession: {
+			s1: {
+				message: {
+					role: "assistant",
+					content: [],
+					model: "m",
+					stopReason: "stop",
+					timestamp: 2,
+				},
+				agentName: "dev",
+			},
+		},
+		messagesBySession: {
+			s1: [
+				{
+					agentName: "dev",
+					message: { role: "user", content: "hi", timestamp: 1 },
+				},
+			],
+		},
+	});
+	const env = envelope({
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "部分回复" }],
+			model: "m",
+			stopReason: "error",
+			timestamp: 2,
+		},
+	});
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
+	// 合并出一条 assistant 行（共 2 条）
+	expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(2);
 });
 
 test("truncate(sessionId, fromIndex) 保留 [0, fromIndex)，丢弃其后所有行（重发原地重试用）", () => {
-  useSessionStore.setState({
-    messagesBySession: {
-      s1: [
-        { agentName: undefined, message: { role: "user", content: "失败的那条", timestamp: 1 } },
-        { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "⚠️ 失败" }], model: "system", stopReason: "error", timestamp: 2 } },
-      ],
-    },
-  });
-  useSessionStore.getState().truncate("s1", 0);  // 从失败用户行(index 0)起裁
-  expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(0);
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "失败的那条", timestamp: 1 },
+				},
+				{
+					agentName: "dev",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "⚠️ 失败" }],
+						model: "system",
+						stopReason: "error",
+						timestamp: 2,
+					},
+				},
+			],
+		},
+	});
+	useSessionStore.getState().truncate("s1", 0); // 从失败用户行(index 0)起裁
+	expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(0);
 });
 
 test("truncate 仅裁掉指定索引及之后，保留前序消息", () => {
-  useSessionStore.setState({
-    messagesBySession: {
-      s1: [
-        { agentName: undefined, message: { role: "user", content: "早", timestamp: 1 } },
-        { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "好" }], model: "m", stopReason: "stop", timestamp: 2 } },
-        { agentName: undefined, message: { role: "user", content: "失败的那条", timestamp: 3 } },
-        { agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "⚠️" }], model: "system", stopReason: "error", timestamp: 4 } },
-      ],
-    },
-  });
-  useSessionStore.getState().truncate("s1", 2);  // 裁掉 index 2（失败用户行）及之后
-  const msgs = useSessionStore.getState().messagesBySession["s1"];
-  expect(msgs).toHaveLength(2);
-  expect((msgs[1].message as any).content[0].text).toBe("好");
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "早", timestamp: 1 },
+				},
+				{
+					agentName: "dev",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "好" }],
+						model: "m",
+						stopReason: "stop",
+						timestamp: 2,
+					},
+				},
+				{
+					agentName: undefined,
+					message: { role: "user", content: "失败的那条", timestamp: 3 },
+				},
+				{
+					agentName: "dev",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "⚠️" }],
+						model: "system",
+						stopReason: "error",
+						timestamp: 4,
+					},
+				},
+			],
+		},
+	});
+	useSessionStore.getState().truncate("s1", 2); // 裁掉 index 2（失败用户行）及之后
+	const msgs = useSessionStore.getState().messagesBySession["s1"];
+	expect(msgs).toHaveLength(2);
+	expect((msgs[1].message as any).content[0].text).toBe("好");
 });
 
 // ── 乐观发送（optimistic UI）──
 
 test("optimisticSend 立即追加用户消息 + 占位 assistant streaming + status=thinking", () => {
-  useSessionStore.getState().optimisticSend("s1", "你好", "dev");
-  const s = useSessionStore.getState();
-  expect(s.messagesBySession["s1"]).toHaveLength(1);
-  expect((s.messagesBySession["s1"][0].message as any).role).toBe("user");
-  expect((s.messagesBySession["s1"][0].message as any).content).toBe("你好");
-  // 占位流式 assistant（让 MessageList 渲染 loading 气泡）
-  expect(s.streamingBySession["s1"]).toBeTruthy();
-  expect((s.streamingBySession["s1"]!.message as any).role).toBe("assistant");
-  // 顶部 spinner 立即可见
-  expect(s.statusBySession["s1"]).toBe("thinking");
-  // 标记：等待 SDK message_start(user) 回声替换占位
-  expect(s.optimisticEchoBySession["s1"]).toBe(true);
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	const s = useSessionStore.getState();
+	expect(s.messagesBySession["s1"]).toHaveLength(1);
+	expect((s.messagesBySession["s1"][0].message as any).role).toBe("user");
+	expect((s.messagesBySession["s1"][0].message as any).content).toBe("你好");
+	// 占位流式 assistant（让 MessageList 渲染 loading 气泡）
+	expect(s.streamingBySession["s1"]).toBeTruthy();
+	expect((s.streamingBySession["s1"]!.message as any).role).toBe("assistant");
+	// 顶部 spinner 立即可见
+	expect(s.statusBySession["s1"]).toBe("thinking");
+	// 标记：等待 SDK message_start(user) 回声替换占位
+	expect(s.optimisticEchoBySession["s1"]).toBe(true);
 });
 
 test("message_start(user) 回声 → 替换乐观占位（不重复行），用 SDK 权威 timestamp，清标记", () => {
-  useSessionStore.getState().optimisticSend("s1", "你好", "dev");
-  const env = envelope({
-    type: "message_start",
-    message: { role: "user", content: "你好", timestamp: 999 },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  const s = useSessionStore.getState();
-  expect(s.messagesBySession["s1"]).toHaveLength(1);  // 不重复
-  expect((s.messagesBySession["s1"][0].message as any).timestamp).toBe(999);  // SDK 权威 ts
-  expect(s.optimisticEchoBySession["s1"]).toBe(false);
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	const env = envelope({
+		type: "message_start",
+		message: { role: "user", content: "你好", timestamp: 999 },
+	});
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	const s = useSessionStore.getState();
+	expect(s.messagesBySession["s1"]).toHaveLength(1); // 不重复
+	expect((s.messagesBySession["s1"][0].message as any).timestamp).toBe(999); // SDK 权威 ts
+	expect(s.optimisticEchoBySession["s1"]).toBe(false);
 });
 
 test("message_start(user) 无乐观占位 → 照常追加（不误替换历史用户消息）", () => {
-  // 先有一条 assistant 历史，再收到 user message_start（非乐观路径）
-  useSessionStore.setState({
-    messagesBySession: {
-      s1: [{ agentName: "dev", message: { role: "assistant", content: [{ type: "text", text: "历史" }], model: "m", stopReason: "stop", timestamp: 1 } }],
-    },
-  });
-  const env = envelope({ type: "message_start", message: { role: "user", content: "新问题", timestamp: 2 } });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  const msgs = useSessionStore.getState().messagesBySession["s1"];
-  expect(msgs).toHaveLength(2);  // 追加，不替换
-  expect((msgs[1].message as any).content).toBe("新问题");
+	// 先有一条 assistant 历史，再收到 user message_start（非乐观路径）
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: "dev",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "历史" }],
+						model: "m",
+						stopReason: "stop",
+						timestamp: 1,
+					},
+				},
+			],
+		},
+	});
+	const env = envelope({
+		type: "message_start",
+		message: { role: "user", content: "新问题", timestamp: 2 },
+	});
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	const msgs = useSessionStore.getState().messagesBySession["s1"];
+	expect(msgs).toHaveLength(2); // 追加，不替换
+	expect((msgs[1].message as any).content).toBe("新问题");
 });
 
 // ── failTurn：回合启动失败复位（agent 从未启动、不会有 agent_end）──
 
 test("failTurn 复位 optimisticSend 造成的 thinking 卡死：status→idle、清 streaming 占位与计时", () => {
-  useSessionStore.getState().optimisticSend("s1", "你好", "dev");
-  expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
 
-  useSessionStore.getState().failTurn("s1");
-  const s = useSessionStore.getState();
-  expect(s.statusBySession["s1"]).toBe("idle");
-  expect(s.streamingBySession["s1"]).toBeNull();
-  expect(s.thinkingSinceBySession["s1"]).toBeNull();
-  expect(s.optimisticEchoBySession["s1"]).toBe(false);
-  // 已定稿消息不受影响（用户消息保留）
-  expect(s.messagesBySession["s1"]).toHaveLength(1);
+	useSessionStore.getState().failTurn("s1");
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("idle");
+	expect(s.streamingBySession["s1"]).toBeNull();
+	expect(s.thinkingSinceBySession["s1"]).toBeNull();
+	expect(s.optimisticEchoBySession["s1"]).toBe(false);
+	// 已定稿消息不受影响（用户消息保留）
+	expect(s.messagesBySession["s1"]).toHaveLength(1);
 });
 
 test("failTurn 只影响目标会话，不串扰其它会话的 thinking 状态", () => {
-  useSessionStore.getState().optimisticSend("s1", "你好", "dev");
-  useSessionStore.getState().optimisticSend("s2", "在吗", "dev");
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	useSessionStore.getState().optimisticSend("s2", "在吗", "dev");
 
-  useSessionStore.getState().failTurn("s1");
-  const s = useSessionStore.getState();
-  expect(s.statusBySession["s1"]).toBe("idle");
-  expect(s.statusBySession["s2"]).toBe("thinking");
+	useSessionStore.getState().failTurn("s1");
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("idle");
+	expect(s.statusBySession["s2"]).toBe("thinking");
 });
 
 test("addTokens 累加 token 计数", () => {
-  const store = useSessionStore.getState();
-  store.addTokens("s1", 100, 50);
-  store.addTokens("s1", 200, 80);
-  const s = useSessionStore.getState();
-  expect(s.tokenTotals["s1"]).toEqual({ input: 300, output: 130 });
-  // 独立会话互不干扰
-  s.addTokens("s2", 50, 30);
-  const s2 = useSessionStore.getState();
-  expect(s2.tokenTotals["s1"]).toEqual({ input: 300, output: 130 });
-  expect(s2.tokenTotals["s2"]).toEqual({ input: 50, output: 30 });
+	const store = useSessionStore.getState();
+	store.addTokens("s1", 100, 50);
+	store.addTokens("s1", 200, 80);
+	const s = useSessionStore.getState();
+	expect(s.tokenTotals["s1"]).toEqual({ input: 300, output: 130 });
+	// 独立会话互不干扰
+	s.addTokens("s2", 50, 30);
+	const s2 = useSessionStore.getState();
+	expect(s2.tokenTotals["s1"]).toEqual({ input: 300, output: 130 });
+	expect(s2.tokenTotals["s2"]).toEqual({ input: 50, output: 30 });
 });
 
 test("seedTokenTotal 从历史消息计算累计", () => {
-  const messages: any[] = [
-    { message: { role: "user" } },
-    { message: { role: "assistant", usage: { input: 100, output: 50 } } },
-    { message: { role: "assistant", usage: { input: 200, output: 30 } } },
-    { message: { role: "assistant" } }, // 无 usage 的历史消息，跳过
-  ];
-  useSessionStore.getState().seedTokenTotal("s2", messages);
-  const s = useSessionStore.getState();
-  expect(s.tokenTotals["s2"]).toEqual({ input: 300, output: 80 });
+	const messages: any[] = [
+		{ message: { role: "user" } },
+		{ message: { role: "assistant", usage: { input: 100, output: 50 } } },
+		{ message: { role: "assistant", usage: { input: 200, output: 30 } } },
+		{ message: { role: "assistant" } }, // 无 usage 的历史消息，跳过
+	];
+	useSessionStore.getState().seedTokenTotal("s2", messages);
+	const s = useSessionStore.getState();
+	expect(s.tokenTotals["s2"]).toEqual({ input: 300, output: 80 });
 });
 
 test("seedTokenTotal 无 usage 时不写入", () => {
-  useSessionStore.getState().seedTokenTotal("s3", [{ message: { role: "user" } }] as any[]);
-  expect(useSessionStore.getState().tokenTotals["s3"]).toBeUndefined();
-  expect(useSessionStore.getState().lastUsageBySession["s3"]).toBeUndefined();
+	useSessionStore
+		.getState()
+		.seedTokenTotal("s3", [{ message: { role: "user" } }] as any[]);
+	expect(useSessionStore.getState().tokenTotals["s3"]).toBeUndefined();
+	expect(useSessionStore.getState().lastUsageBySession["s3"]).toBeUndefined();
 });
 
 test("seedTokenTotal 同时写入 lastUsageBySession", () => {
-  const messages: any[] = [
-    { message: { role: "assistant", usage: { input: 100, output: 50 } } },
-    { message: { role: "assistant", usage: { input: 200, output: 30 } } },
-  ];
-  useSessionStore.getState().seedTokenTotal("s4", messages);
-  const s = useSessionStore.getState();
-  expect(s.tokenTotals["s4"]).toEqual({ input: 300, output: 80 });
-  // lastUsage 应是最后一条带 usage 的消息
-  expect(s.lastUsageBySession["s4"]).toEqual({ input: 200, output: 30 } as any);
+	const messages: any[] = [
+		{ message: { role: "assistant", usage: { input: 100, output: 50 } } },
+		{ message: { role: "assistant", usage: { input: 200, output: 30 } } },
+	];
+	useSessionStore.getState().seedTokenTotal("s4", messages);
+	const s = useSessionStore.getState();
+	expect(s.tokenTotals["s4"]).toEqual({ input: 300, output: 80 });
+	// lastUsage 应是最后一条带 usage 的消息
+	expect(s.lastUsageBySession["s4"]).toEqual({ input: 200, output: 30 } as any);
 });
 
 // ── isActive 状态同步：后端返回 isActive → 前端 setActiveStatus ──
 
 test("setActiveStatus true → 设置 statusBySession 为 thinking 且使用传入的 thinkingSince", () => {
-  useSessionStore.getState().setActiveStatus("s1", true, 1720000000000);
-  const s = useSessionStore.getState();
-  expect(s.statusBySession["s1"]).toBe("thinking");
-  expect(s.thinkingSinceBySession["s1"]).toBe(1720000000000);
+	useSessionStore.getState().setActiveStatus("s1", true, 1720000000000);
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("thinking");
+	expect(s.thinkingSinceBySession["s1"]).toBe(1720000000000);
 });
 
 test("setActiveStatus true 无 thinkingSince → 回退为当前时间", () => {
-  const before = Date.now();
-  useSessionStore.getState().setActiveStatus("s2", true);
-  const s = useSessionStore.getState();
-  expect(s.thinkingSinceBySession["s2"]).toBeGreaterThanOrEqual(before);
+	const before = Date.now();
+	useSessionStore.getState().setActiveStatus("s2", true);
+	const s = useSessionStore.getState();
+	expect(s.thinkingSinceBySession["s2"]).toBeGreaterThanOrEqual(before);
 });
 
 test("setActiveStatus false → 不改变 statusBySession", () => {
-  useSessionStore.getState().setActiveStatus("s2", false);
-  expect(useSessionStore.getState().statusBySession["s2"]).toBeUndefined();
+	useSessionStore.getState().setActiveStatus("s2", false);
+	expect(useSessionStore.getState().statusBySession["s2"]).toBeUndefined();
 });
 
 // ── 历史恢复：stopReason 不再影响状态（由 isActive 决定）──
 
 test("setMessages 不再根据 stopReason 自动设置状态", () => {
-  // 空 stopReason → 旧逻辑会置 thinking，新逻辑不干预
-  const incomplete: any[] = [
-    { agentName: "dev", message: { role: "user", content: "hi", timestamp: 1 } },
-    { agentName: "dev", message: { role: "assistant", content: [{ type: "text" as const, text: "..." }], model: "m", stopReason: "", timestamp: 2 } },
-  ];
-  useSessionStore.getState().setMessages("s3", incomplete);
-  // 不自动设为 thinking，需由调用方根据 isActive 调用 setActiveStatus
-  expect(useSessionStore.getState().statusBySession["s3"]).toBeUndefined();
+	// 空 stopReason → 旧逻辑会置 thinking，新逻辑不干预
+	const incomplete: any[] = [
+		{
+			agentName: "dev",
+			message: { role: "user", content: "hi", timestamp: 1 },
+		},
+		{
+			agentName: "dev",
+			message: {
+				role: "assistant",
+				content: [{ type: "text" as const, text: "..." }],
+				model: "m",
+				stopReason: "",
+				timestamp: 2,
+			},
+		},
+	];
+	useSessionStore.getState().setMessages("s3", incomplete);
+	// 不自动设为 thinking，需由调用方根据 isActive 调用 setActiveStatus
+	expect(useSessionStore.getState().statusBySession["s3"]).toBeUndefined();
 });
 
 // ── Provider 连接状态（net:status）──
@@ -506,107 +725,218 @@ test("setMessages 不再根据 stopReason 自动设置状态", () => {
 // 正常回复（message_end stopReason:stop）到达时清除 degraded。
 
 test("setNetStatus / clearNetStatus：按会话隔离地设置 degraded 标记", () => {
-  useSessionStore.getState().setNetStatus("s1", "degraded");
-  useSessionStore.getState().setNetStatus("s2", "degraded");
-  expect(useSessionStore.getState().netStatusBySession["s1"]).toBe("degraded");
-  expect(useSessionStore.getState().netStatusBySession["s2"]).toBe("degraded");
-  // 仅清 s1
-  useSessionStore.getState().clearNetStatus("s1");
-  expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
-  expect(useSessionStore.getState().netStatusBySession["s2"]).toBe("degraded");
+	useSessionStore.getState().setNetStatus("s1", "degraded");
+	useSessionStore.getState().setNetStatus("s2", "degraded");
+	expect(useSessionStore.getState().netStatusBySession["s1"]).toBe("degraded");
+	expect(useSessionStore.getState().netStatusBySession["s2"]).toBe("degraded");
+	// 仅清 s1
+	useSessionStore.getState().clearNetStatus("s1");
+	expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
+	expect(useSessionStore.getState().netStatusBySession["s2"]).toBe("degraded");
 });
 
 test("setNetStatus(null) 等价于 clearNetStatus", () => {
-  useSessionStore.getState().setNetStatus("s1", "degraded");
-  useSessionStore.getState().setNetStatus("s1", null);
-  expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
+	useSessionStore.getState().setNetStatus("s1", "degraded");
+	useSessionStore.getState().setNetStatus("s1", null);
+	expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
 });
 
 test("正常 message_end(stop) 清除该会话的 degraded 标记（网络已恢复）", () => {
-  // 先设置 degraded + streaming 占位
-  useSessionStore.setState({
-    netStatusBySession: { s1: "degraded" },
-    streamingBySession: {
-      s1: { message: { role: "assistant", content: [], model: "m", stopReason: "stop", timestamp: 2 }, agentName: "dev" },
-    },
-  });
-  const env = envelope({
-    type: "message_end",
-    message: { role: "assistant", content: [{ type: "text", text: "回复" }], model: "m", stopReason: "stop", timestamp: 2 },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  // 正常回复 → degraded 已清除
-  expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
+	// 先设置 degraded + streaming 占位
+	useSessionStore.setState({
+		netStatusBySession: { s1: "degraded" },
+		streamingBySession: {
+			s1: {
+				message: {
+					role: "assistant",
+					content: [],
+					model: "m",
+					stopReason: "stop",
+					timestamp: 2,
+				},
+				agentName: "dev",
+			},
+		},
+	});
+	const env = envelope({
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "回复" }],
+			model: "m",
+			stopReason: "stop",
+			timestamp: 2,
+		},
+	});
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	// 正常回复 → degraded 已清除
+	expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
 });
 
 test("agent_start 立即清除 degraded 标记（流式开始即证明网络已恢复，不等 message_end）", () => {
-  useSessionStore.setState({
-    netStatusBySession: { s1: "degraded" },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", envelope({ type: "agent_start" }));
-  // agent turn 开始 → 网络已通 → degraded 立即清除
-  expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
+	useSessionStore.setState({
+		netStatusBySession: { s1: "degraded" },
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent("s1", envelope({ type: "agent_start" }));
+	// agent turn 开始 → 网络已通 → degraded 立即清除
+	expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
 });
 
 test("agent_start 只清除该会话 degraded，不影响其他会话", () => {
-  useSessionStore.setState({
-    netStatusBySession: { s1: "degraded", s2: "degraded" },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", envelope({ type: "agent_start" }));
-  expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
-  expect(useSessionStore.getState().netStatusBySession["s2"]).toBe("degraded");
+	useSessionStore.setState({
+		netStatusBySession: { s1: "degraded", s2: "degraded" },
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent("s1", envelope({ type: "agent_start" }));
+	expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
+	expect(useSessionStore.getState().netStatusBySession["s2"]).toBe("degraded");
 });
 
 test("error message_end 不清除 degraded（fatal 错误仍属异常态）", () => {
-  useSessionStore.setState({
-    netStatusBySession: { s1: "degraded" },
-    streamingBySession: {
-      s1: { message: { role: "assistant", content: [], model: "m", stopReason: "error", timestamp: 2 }, agentName: "dev" },
-    },
-  });
-  // 带 text 内容的 error message_end（fatal，如鉴权失败）会进 messages
-  const env = envelope({
-    type: "message_end",
-    message: { role: "assistant", content: [{ type: "text", text: "401 Unauthorized" }], model: "m", stopReason: "error", timestamp: 2 },
-  });
-  useSessionStore.getState().handleSDKEvent("s1", env);
-  // error → degraded 保留（仍处异常态，需用户处理）
-  expect(useSessionStore.getState().netStatusBySession["s1"]).toBe("degraded");
+	useSessionStore.setState({
+		netStatusBySession: { s1: "degraded" },
+		streamingBySession: {
+			s1: {
+				message: {
+					role: "assistant",
+					content: [],
+					model: "m",
+					stopReason: "error",
+					timestamp: 2,
+				},
+				agentName: "dev",
+			},
+		},
+	});
+	// 带 text 内容的 error message_end（fatal，如鉴权失败）会进 messages
+	const env = envelope({
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "401 Unauthorized" }],
+			model: "m",
+			stopReason: "error",
+			timestamp: 2,
+		},
+	});
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	// error → degraded 保留（仍处异常态，需用户处理）
+	expect(useSessionStore.getState().netStatusBySession["s1"]).toBe("degraded");
 });
 
 test("agent_end 携带 elapsedMs 时写回最后一条 assistant 消息 turnElapsedMs", () => {
-  useSessionStore.getState().setMessages("s1", [
-    { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
-    { message: { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 2, stopReason: "end_turn", model: "m" }, agentName: "dev" },
-  ]);
-  useSessionStore.getState().handleSDKEvent("s1", envelope({
-    type: "agent_end", messages: [], willRetry: false, elapsedMs: 4000,
-  }));
-  const msgs = useSessionStore.getState().messagesBySession["s1"];
-  const lastAsst = [...msgs].reverse().find((m) => (m.message as any).role === "assistant");
-  expect((lastAsst?.message as any).turnElapsedMs).toBe(4000);
+	useSessionStore.getState().setMessages("s1", [
+		{
+			message: {
+				role: "user",
+				content: [{ type: "text", text: "问题" }],
+				timestamp: 1,
+			},
+			agentName: "dev",
+		},
+		{
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "回答" }],
+				timestamp: 2,
+				stopReason: "end_turn",
+				model: "m",
+			},
+			agentName: "dev",
+		},
+	]);
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "agent_end",
+			messages: [],
+			willRetry: false,
+			elapsedMs: 4000,
+		}),
+	);
+	const msgs = useSessionStore.getState().messagesBySession["s1"];
+	const lastAsst = [...msgs]
+		.reverse()
+		.find((m) => (m.message as any).role === "assistant");
+	expect((lastAsst?.message as any).turnElapsedMs).toBe(4000);
 });
 
 test("agent_end 无 elapsedMs 时不写回", () => {
-  useSessionStore.getState().setMessages("s1", [
-    { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
-    { message: { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 2, stopReason: "end_turn", model: "m" }, agentName: "dev" },
-  ]);
-  useSessionStore.getState().handleSDKEvent("s1", envelope({
-    type: "agent_end", messages: [], willRetry: false,
-  }));
-  const msgs = useSessionStore.getState().messagesBySession["s1"];
-  const lastAsst = [...msgs].reverse().find((m) => (m.message as any).role === "assistant");
-  expect((lastAsst?.message as any).turnElapsedMs).toBeUndefined();
+	useSessionStore.getState().setMessages("s1", [
+		{
+			message: {
+				role: "user",
+				content: [{ type: "text", text: "问题" }],
+				timestamp: 1,
+			},
+			agentName: "dev",
+		},
+		{
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "回答" }],
+				timestamp: 2,
+				stopReason: "end_turn",
+				model: "m",
+			},
+			agentName: "dev",
+		},
+	]);
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "agent_end",
+			messages: [],
+			willRetry: false,
+		}),
+	);
+	const msgs = useSessionStore.getState().messagesBySession["s1"];
+	const lastAsst = [...msgs]
+		.reverse()
+		.find((m) => (m.message as any).role === "assistant");
+	expect((lastAsst?.message as any).turnElapsedMs).toBeUndefined();
 });
 
 test("setMessages 合并连续 assistant 时保留 turnElapsedMs", () => {
-  useSessionStore.getState().setMessages("s1", [
-    { message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
-    { message: { role: "assistant", content: [{ type: "text", text: "思考" }], timestamp: 2, stopReason: "end_turn", model: "m" }, agentName: "dev" },
-    { message: { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 3, stopReason: "end_turn", turnElapsedMs: 4000, model: "m" }, agentName: "dev" },
-  ]);
-  const asst = useSessionStore.getState().messagesBySession["s1"].filter((m) => (m.message as any).role === "assistant");
-  expect(asst).toHaveLength(1);
-  expect((asst[0].message as any).turnElapsedMs).toBe(4000);
+	useSessionStore.getState().setMessages("s1", [
+		{
+			message: {
+				role: "user",
+				content: [{ type: "text", text: "问题" }],
+				timestamp: 1,
+			},
+			agentName: "dev",
+		},
+		{
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "思考" }],
+				timestamp: 2,
+				stopReason: "end_turn",
+				model: "m",
+			},
+			agentName: "dev",
+		},
+		{
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "回答" }],
+				timestamp: 3,
+				stopReason: "end_turn",
+				turnElapsedMs: 4000,
+				model: "m",
+			},
+			agentName: "dev",
+		},
+	]);
+	const asst = useSessionStore
+		.getState()
+		.messagesBySession["s1"].filter(
+			(m) => (m.message as any).role === "assistant",
+		);
+	expect(asst).toHaveLength(1);
+	expect((asst[0].message as any).turnElapsedMs).toBe(4000);
 });
