@@ -8,6 +8,10 @@
 
 ### 修复
 
+- **历史/实时会话大量无本轮时长（渲染层合并丢字段）**：上一修复（agent_end 从 handle.messages 取起点）后后端注入/写回已正确——每轮末 assistant 带 turnElapsedMs（真实数据验证 26 个标准会话中 22 个有注入），但前端大部分轮仍显示「本轮过程」。根因：渲染层 `collapseSameTurnAssistants` 合并连续 assistant 行（一轮多条 assistant 中间隔 toolResult 时 store 不合并、由渲染层合并）**只拼接 content、不拷贝 turnElapsedMs**——合并后主消息取第一条 assistant（无该字段），轮末的时长在合并时丢失。修复：合并时补拷 turnElapsedMs（与 setMessages 合并一致）。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`（collapseSameTurnAssistants）；测试 `tests/MessageList.test.tsx`（新增「中间隔 toolResult 的多条 assistant 合并行保留时长」回归用例）。
+  - 验证：浏览器实测历史会话两轮均正确显示——「本轮时长 4 分 34 秒 · 35 个步骤」「本轮时长 5 分 48 秒 · 53 个步骤」，与后端注入毫秒数（274933/348066）完全吻合；frontend 相关 150 pass / 0 fail（MessageList 75 含新用例）；typecheck 全绿。
+
 - **实时轮没有本轮时长（很多成功会话缺失）**：根因是 `agent_end` 事件的 `messages`（Pi `newMessages`）只含本轮产生的 assistant/toolResult/steering 消息，**不含本轮最初的 user 提问**——kernel 从 `event.messages` 找 user 作起点计算耗时，无 steering 的常规轮找不到 user → 不附加 elapsedMs → 所有实时轮无时长（仅历史刷新后才有）。修复：`agent_end` 改从 `handle.messages`（message_end 时已 push 全部消息的快照）取最后 user / 最后 assistant 计算，与 `session-history` 历史注入同语义（最后 assistant.timestamp − 最后 user.timestamp）；失败回合/无 user 仍不附加。
   - 影响范围：`packages/kernel/src/agent-manager.ts`、`tests/agent-manager.test.ts`（用例改为真实场景：user 经 message_end 入 handle.messages，agent_end.messages 不含 user）。
   - 验证：agent-manager+session-history 97 pass；kernel 全量 632 pass / 0 fail；前端相关 149 pass；`typecheck` 通过。

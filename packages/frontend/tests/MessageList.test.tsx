@@ -2427,6 +2427,33 @@ test("有时长的轮：摘要行显示本轮时长 + 步骤数", () => {
 	expect(screen.getByText("本轮时长 4 秒 · 1 个步骤")).toBeTruthy();
 });
 
+test("轮末 assistant 带 turnElapsedMs（中间隔 toolResult 的多条 assistant 合并行）：摘要行显示时长", () => {
+	// 真实场景：一轮含多条 assistant（toolUse 中间块 + 末块 stop），后端把 turnElapsedMs
+	// 注入到轮末 assistant；渲染层 collapseSameTurnAssistants 合并连续 assistant 行时
+	// 必须把 turnElapsedMs 拷到主消息（第一条 assistant），否则时长丢失显示「本轮过程」。
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{ message: { role: "user", content: [{ type: "text", text: "问题" }], timestamp: 1 }, agentName: "dev" },
+				assistantMsgWithExtras(
+					[{ type: "toolCall", id: "t1", name: "read", arguments: { path: "/a" } }],
+					2,
+					{ stopReason: "toolUse" },
+				),
+				{ agentName: "dev", message: { role: "toolResult", toolCallId: "t1", toolName: "read", content: [{ type: "text", text: "结果" }], isError: false, timestamp: 3 } },
+				assistantMsgWithExtras([{ type: "text", text: "最终回复" }], 4, {
+					stopReason: "end_turn",
+					turnElapsedMs: 4000,
+				}),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(<MessageList sessionId="s1" />);
+	expect(screen.getByText("本轮时长 4 秒 · 1 个步骤")).toBeTruthy();
+	expect(screen.queryByText("本轮过程 · 1 个步骤")).toBeNull();
+});
+
 test("纯文本行：无摘要行", () => {
 	useSessionStore.setState({
 		messagesBySession: {

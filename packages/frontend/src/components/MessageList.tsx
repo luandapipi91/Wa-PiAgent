@@ -428,12 +428,16 @@ function collapseSameTurnAssistants(rows: RenderedRow[]): RenderedRow[] {
 			curMsg.role === "assistant" &&
 			prev.main.agentName === row.main.agentName;
 		if (sameTurn) {
+			const mergedMsg: any = {
+				...prevMsg,
+				content: [...(prevMsg.content ?? []), ...(curMsg.content ?? [])],
+			};
+			// 整轮耗时挂在轮末 assistant 上（后端注入/agent_end 写回），
+			// 合并行主消息取第一条 assistant，必须补拷，否则时长丢失（显示「本轮过程」）。
+			if (curMsg.turnElapsedMs != null) mergedMsg.turnElapsedMs = curMsg.turnElapsedMs;
 			prev.main = {
 				agentName: prev.main.agentName,
-				message: {
-					...prevMsg,
-					content: [...(prevMsg.content ?? []), ...(curMsg.content ?? [])],
-				},
+				message: mergedMsg,
 			};
 			for (const [k, v] of row.toolResults) prev.toolResults.set(k, v);
 		} else {
