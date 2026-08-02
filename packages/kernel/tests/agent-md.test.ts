@@ -115,7 +115,8 @@ test("makeDefaultAgentConfig 支持任意 displayName（无内置定义时用名
 test("thinking: null 序列化/解析往返；model null 往返", () => {
   const c = { ...base, thinking: null as any, model: null as any };
   const md = stringifyAgentMd(c);
-  expect(md).toContain("thinking: null");
+  expect(md).not.toContain("thinking: null");
+  expect(md).not.toContain("thinking:");
   const parsed = parseAgentMd(md);
   expect(parsed.thinking).toBeNull();
   expect(parsed.model).toBeNull();
