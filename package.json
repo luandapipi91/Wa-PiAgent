@@ -1,5 +1,6 @@
 {
   "name": "wa-pi",
+  "license": "MIT",
   "devDependencies": {
     "@wa-pi/shared": "workspace:*",
     "typescript": "^5.9.3",

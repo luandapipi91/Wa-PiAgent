@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // wa-pi-bridge.extension.ts —— WaPi RPC 模式宿主工具桥（静态扩展文件）
 //
 // 本文件由 ensureBridgeExtension() 复制到 GENERATED_DIR/wa-pi-bridge.ts，
