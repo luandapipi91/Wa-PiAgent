@@ -156,7 +156,7 @@ test("textToHtml 保留换行：chip 前后跨行，chip 内部不误转", () =>
 // normalizeTriggerChars 把全角触发符符号集中映射为半角，检测/发送路径入口调用。
 
 test("normalizeTriggerChars 把全角触发符符号归一化为半角", () => {
-  expect(normalizeTriggerChars("用 ￥brain ＄x ＠y ＃z ／w")).toBe("用 ¥brain $x @y #z /w");
+  expect(normalizeTriggerChars("用 \uFFE5brain \uFF04x \uFF20y \uFF03z \uFF0Fw")).toBe("用 ¥brain $x @y #z /w");
 });
 
 test("normalizeTriggerChars 不动全角字母数字和中文标点（防止显示/内容回归）", () => {
@@ -172,5 +172,5 @@ test("expandTokens 展开全角 ／ token（U+FF0F）为 /cmd", () => {
 });
 
 test("expandTokens 发送时把普通文本中的全角触发符符号归一化为半角（语义等价，预期行为）", () => {
-  expect(expandTokens("价格 ￥500 和 ＠mention")).toBe("价格 ¥500 和 @mention");
+  expect(expandTokens("价格 \uFFE5500 和 \uFF20mention")).toBe("价格 ¥500 和 @mention");
 });
