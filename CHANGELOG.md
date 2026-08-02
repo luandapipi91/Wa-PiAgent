@@ -6,6 +6,12 @@
 
 ## 2026-08-02
 
+### 修复
+
+- **fix(frontend): 技能/命令/智能体/文件触发符支持全角符号（￥＄＠＃／ 归一化）**——Windows 中文输入法全角模式输入 ￥ 不再失效。触发符归一化逻辑收敛到 `normalizeTriggerChars`（仅归一化 5 个全角符号，不含全角字母数字/标点），`detectTrigger` / `expandTokens` 入口统一调用；`textToSegments` / `textToHtml` / `segmentsToText` 显示路径不归一化。
+  - 影响范围：`packages/frontend/src/quick-invoke/tokens.ts`、`packages/frontend/src/quick-invoke/trigger.ts`；`tests/tokens.test.ts`、`tests/trigger.test.ts`、`tests/ComposerInput.test.tsx`、`e2e/quick-invoke.spec.ts`。
+  - 验证：单元测试覆盖 5 个全角符号触发 + 普通文本不动 + 全角 token 展开 + 全角 token 不误触发；组件测试输入 \uFFE5 弹技能面板；E2E 输入 \uFFE5 弹技能面板；frontend 全量 pass。
+
 ### 变更
 
 - **内置插件与运行时依赖升级**：
