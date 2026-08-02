@@ -21,6 +21,7 @@ import {
 	resolvePiRuntime,
 	type RpcEvent,
 } from "./rpc-client";
+import { composeSubagentPrompt } from "./system-prompt";
 
 /** WaPi 侧的 agent 配置片段（从 AgentConfig 提取） */
 export interface WaPiSpawnConfig {
@@ -111,7 +112,11 @@ export async function runSubagentAgent(
 	try {
 		if (promptFile) {
 			await mkdir(tmpDir, { recursive: true });
-			await writeFile(promptFile, config.systemPrompt, "utf8");
+			await writeFile(
+				promptFile,
+				composeSubagentPrompt(config.systemPrompt),
+				"utf8",
+			);
 		}
 
 		// 进度状态累积
