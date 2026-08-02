@@ -56,11 +56,38 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
   let childExited = false; // 当前 child 是否已退出（重启间隙探活跳过，避免误判）
   let healthTimer = null;
 
+  // 统一重启入口：exit / spawn error 都走这里。spawn 失败（bun 缺失/ENOENT）时
+  // Node 通常只触发 error 不触发 exit——若只 log 不重启，childExited 恒 false、current.pid 为
+  // undefined，探活被 !current?.pid 永久挡掉 → sidecar 静默停摆（比旧 3 次上限更糟）。
+  // 含 stopped 检查、attempts++、日志，延时后 spawnOnce + waitForPort 就绪时重置计数。
+  function scheduleRespawn(reason) {
+    if (respawnState.stopped) return; // 用户已主动退出，不再重启
+    respawnState.attempts++;
+    log.info(`[kernel] ${reason} → 第 ${respawnState.attempts} 次自动重启，${RESPAWN_DELAY_MS}ms 后 respawn...`);
+    setTimeout(() => {
+      if (respawnState.stopped) return; // 退避期间用户退出了
+      current = spawnOnce();
+      // 重启后等待端口就绪（不就绪则下次 exit/error 会再触发）
+      waitForPort(wsPort, 30000).then((ready) => {
+        if (ready) {
+          log.info(`[kernel] 重启就绪 @${wsPort}`);
+          respawnState.attempts = 0;
+          respawnState.failures = 0;
+        } else log.error(`[kernel] 重启后 30s 未就绪`);
+      });
+    }, RESPAWN_DELAY_MS);
+  }
+
   // 创建一个 kernel 子进程并绑定日志/崩溃重启。返回 child。
   function spawnOnce() {
     childExited = false;
     const child = spawn(cmd, finalArg, spawnOpts);
-    child.on("error", (e) => log.error(`[kernel] spawn error: ${e.message}`));
+    child.on("error", (e) => {
+      childExited = true;
+      log.error(`[kernel] spawn error: ${e.message}`);
+      // spawn 失败不触发 exit，须走统一重启入口，否则无限重启语义下静默停摆
+      if (shouldRespawn(null, respawnState)) scheduleRespawn("spawn 失败");
+    });
     child.stdout.on("data", (d) => log.info(`[kernel] ${d.toString().trim()}`));
     child.stderr.on("data", (d) => log.error(`[kernel] ${d.toString().trim()}`));
     child.on("exit", (code, signal) => {
@@ -69,23 +96,8 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
       // SIGKILL=强制杀/可能 OOM，SIGSEGV=段错误）。crash-logger 只能抓 JS 异常，
       // 信号杀死不进 JS，故这里必须记录 signal。
       log.info(`[kernel] 退出 code=${code} signal=${signal ?? "none"}`);
-      // 崩溃（被信号杀 code=null）且非用户主动退出 → 固定间隔后无限自动重启
-      if (shouldRespawn(code, respawnState)) {
-        respawnState.attempts++;
-        log.info(`[kernel] 崩溃自动重启 第 ${respawnState.attempts} 次，${RESPAWN_DELAY_MS}ms 后 respawn...`);
-        setTimeout(() => {
-          if (respawnState.stopped) return; // 退避期间用户退出了
-          current = spawnOnce();
-          // 重启后等待端口就绪（不就绪则下次 exit 会再触发）
-          waitForPort(wsPort, 30000).then((ready) => {
-            if (ready) {
-              log.info(`[kernel] 重启就绪 @${wsPort}`);
-              respawnState.attempts = 0;
-              respawnState.failures = 0;
-            } else log.error(`[kernel] 重启后 30s 未就绪`);
-          });
-        }, RESPAWN_DELAY_MS);
-      }
+      // 崩溃（被信号杀 code=null / Windows 强杀 code=1）且非用户主动退出 → 统一重启入口
+      if (shouldRespawn(code, respawnState)) scheduleRespawn("崩溃");
     });
     return child;
   }
