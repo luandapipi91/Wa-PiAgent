@@ -19,7 +19,15 @@ const RES = join(PKG, "resources");
 
 function run(bin: string, args: string[], cwd = ROOT) {
 	console.log(`[sidecar] $ ${bin} ${args.join(" ")}`);
-	const r = spawnSync(bin, args, { cwd, stdio: "inherit", shell: true });
+	// bun 在 Windows 上通常是 .cmd 包装，直接 spawn 会失败（CreateProcess 不解析 .cmd 扩展名）；
+	// 构建脚本跑在 bun 上，process.execPath 即真实 bun 可执行文件（bun.exe），用它可避免经 shell 解析。
+	// 其余 bin（unzip/chmod）仅在 POSIX 分支调用，是原生二进制，直接 spawn 安全。
+	const resolvedBin = bin === "bun" ? process.execPath : bin;
+	const r = spawnSync(resolvedBin, args, {
+		cwd,
+		stdio: "inherit",
+		shell: false,
+	});
 	if (r.status !== 0) {
 		console.error(`[sidecar] 失败: ${bin}`);
 		process.exit(1);
@@ -193,12 +201,17 @@ export async function buildSidecar(
 	//    首启动态安装到用户可写目录（runtime-deps.cjs），既避免 .app 只读、又减小安装包体积，
 	//    且首启只装用户本机平台的原生预编译。
 	//    ⚠️ bun install --production 不生成锁文件，必须先用无 --production 跑一次产出 bun.lock。
+	//    带 patchedDependencies 并复制补丁文件：pi-mcp-adapter 的 exports/类型补丁在打包态也需应用。
+	//    （TUI-only 命令不再依赖 pi 侧补丁——kernel 发送端 isTuiOnlyCommand 拦截降级，见 agent-manager.prompt。）
 	await writeFile(
 		join(kernelDir, "package.json"),
 		JSON.stringify(
 			{
 				name: "wa-pi-kernel-sidecar",
 				private: true,
+				patchedDependencies: {
+					"pi-mcp-adapter@2.17.0": "patches/pi-mcp-adapter@2.17.0.patch",
+				},
 				dependencies: {
 					"@earendil-works/pi-coding-agent": "^0.83.0",
 					"@earendil-works/pi-ai": "^0.83.0",
@@ -215,6 +228,10 @@ export async function buildSidecar(
 			2,
 		),
 	);
+	// 复制补丁文件到 kernel 目录：bun install --cwd kernelDir 需要能按相对路径找到补丁
+	await cp(join(ROOT, "patches"), join(kernelDir, "patches"), {
+		recursive: true,
+	});
 	run("bun", ["install", "--cwd", kernelDir]); // 产出 bun.lock（--production 不生成锁文件）
 	await rm(join(kernelDir, "node_modules"), { recursive: true, force: true });
 	console.log(
