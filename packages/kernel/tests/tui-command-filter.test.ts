@@ -2,7 +2,11 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { filterTuiCommands, isTuiOnlyExtension, type RawCommandInfo } from "../src/tui-command-filter";
+import {
+	filterTuiCommands,
+	isTuiOnlyExtension,
+	type RawCommandInfo,
+} from "../src/tui-command-filter";
 
 // 每个用例独立的临时扩展目录：tui-ext 含 ui.custom( 调用，plain-ext 不含
 let root: string;
@@ -14,7 +18,10 @@ beforeEach(() => {
 
 	const tuiDir = join(root, "tui-ext");
 	mkdirSync(join(tuiDir, "lib"), { recursive: true });
-	writeFileSync(join(tuiDir, "package.json"), JSON.stringify({ name: "tui-ext" }));
+	writeFileSync(
+		join(tuiDir, "package.json"),
+		JSON.stringify({ name: "tui-ext" }),
+	);
 	writeFileSync(join(tuiDir, "index.ts"), `export const x = 1;\n`);
 	// ui.custom 藏在同包子文件的辅助函数里（模拟 pi-mcp-adapter 的 openMcpAuthPanel）
 	writeFileSync(
@@ -25,7 +32,10 @@ beforeEach(() => {
 
 	const plainDir = join(root, "plain-ext");
 	mkdirSync(plainDir, { recursive: true });
-	writeFileSync(join(plainDir, "package.json"), JSON.stringify({ name: "plain-ext" }));
+	writeFileSync(
+		join(plainDir, "package.json"),
+		JSON.stringify({ name: "plain-ext" }),
+	);
 	writeFileSync(join(plainDir, "index.ts"), `export const y = 2;\n`);
 	plainEntry = join(plainDir, "index.ts");
 });
@@ -34,7 +44,11 @@ afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
-function cmd(name: string, source: RawCommandInfo["source"], path?: string): RawCommandInfo {
+function cmd(
+	name: string,
+	source: RawCommandInfo["source"],
+	path?: string,
+): RawCommandInfo {
 	return {
 		name,
 		source,

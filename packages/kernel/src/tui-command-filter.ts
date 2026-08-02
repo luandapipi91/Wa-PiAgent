@@ -57,8 +57,11 @@ function findPackageRoot(entryPath: string): string {
 	return dirname(entryPath);
 }
 
-/** 判定扩展包是否使用 TUI-only API（ui.custom） */
-export function isTuiOnlyExtension(entryPath: string, baseDir?: string): boolean {
+/** 判定扩展包是否使用 TUI-only API（ui.custom / ui.input / ui.select / ui.confirm / ui.editor） */
+export function isTuiOnlyExtension(
+	entryPath: string,
+	baseDir?: string,
+): boolean {
 	const root = baseDir ?? findPackageRoot(entryPath);
 	const cached = scanCache.get(root);
 	if (cached !== undefined) return cached;
