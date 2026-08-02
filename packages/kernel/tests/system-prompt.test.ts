@@ -8,6 +8,8 @@ import {
 	ensurePromptsConfig,
 	DEFAULT_PROMPT_SEGMENTS,
 	DEFAULT_DELEGATE_MECHANISM_PROMPT,
+	DEFAULT_SELF_PROTECTION_PROMPT,
+	composeSubagentPrompt,
 	WA_PI_DEFAULT_BASE_PROMPT,
 	ENV_CONSTRAINTS_SUFFIX,
 	PROMPTS_SCHEMA_VERSION,
@@ -35,7 +37,8 @@ function tempFile() {
 
 test("composePrompt 默认段落全部出现", () => {
 	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, defaultCtx);
-	// 6 段都应出现（base / delegate-mechanism / delegate-roster / env-constraints / memory-policy / memory-snapshot）
+	// 7 段都应出现（base / self-protection / delegate-mechanism / delegate-roster / env-constraints / memory-policy / memory-snapshot）
+	expect(result).toContain(DEFAULT_SELF_PROTECTION_PROMPT);
 	expect(result).toContain(WA_PI_DEFAULT_BASE_PROMPT);
 	expect(result).toContain(DEFAULT_DELEGATE_MECHANISM_PROMPT);
 	expect(result).toContain("## Available Subagents");
@@ -44,15 +47,17 @@ test("composePrompt 默认段落全部出现", () => {
 	expect(result).toContain("## Memory Snapshot");
 });
 
-test("composePrompt 默认段落顺序：base → delegate-mechanism → roster → env → memory-policy → memory-snapshot", () => {
+test("composePrompt 默认段落顺序：base → self-protection → delegate-mechanism → roster → env → memory-policy → memory-snapshot", () => {
 	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, defaultCtx);
 	const basePos = result.indexOf(WA_PI_DEFAULT_BASE_PROMPT);
+	const selfProtPos = result.indexOf(DEFAULT_SELF_PROTECTION_PROMPT);
 	const mechanismPos = result.indexOf(DEFAULT_DELEGATE_MECHANISM_PROMPT);
 	const rosterPos = result.indexOf("## Available Subagents");
 	const envPos = result.indexOf("Built-in directory:");
 	const policyPos = result.indexOf("## Memory Policy");
 	const memPos = result.indexOf("## Memory Snapshot");
-	expect(basePos).toBeLessThan(mechanismPos);
+	expect(basePos).toBeLessThan(selfProtPos);
+	expect(selfProtPos).toBeLessThan(mechanismPos);
 	expect(mechanismPos).toBeLessThan(rosterPos);
 	expect(rosterPos).toBeLessThan(envPos);
 	expect(envPos).toBeLessThan(policyPos);
@@ -124,6 +129,17 @@ test("composePrompt 静态段（delegate-mechanism）写了 content → 用用�
 
 test("composePrompt 静态段（delegate-mechanism）没写 content → 返回空串（不出现）", () => {
 	const result = composePrompt([{ id: "delegate-mechanism" }], defaultCtx);
+	expect(result).toBe("");
+});
+
+test("composePrompt 静态段（self-protection）默认有 content → 默认提示词出现", () => {
+	const result = composePrompt(DEFAULT_PROMPT_SEGMENTS, defaultCtx);
+	expect(result).toContain("自身进程保护（必须遵守）");
+	expect(result).toContain("禁止 kill / taskkill / pkill / killall");
+});
+
+test("composePrompt 静态段（self-protection）没写 content → 返回空串（不出现）", () => {
+	const result = composePrompt([{ id: "self-protection" }], defaultCtx);
 	expect(result).toBe("");
 });
 
@@ -296,12 +312,44 @@ test("ensurePromptsConfig 迁移旧格式文件（无 schemaVersion）→ 保留
 	expect(byId.has("delegate-roster")).toBe(true);
 	// 缺失段（memory-policy 等）追加最新默认
 	expect(byId.get("memory-policy")!.content ?? "").toBe(""); // 动态段，content 为空由运行时填充
+	// 缺失段（self-protection）追加最新默认静态段
+	expect(byId.get("self-protection")!.content).toBe(DEFAULT_SELF_PROTECTION_PROMPT);
 	expect(byId.has("env-constraints")).toBe(true);
 	expect(byId.has("memory-snapshot")).toBe(true);
 	// 废弃 id 被丢弃
 	expect(byId.has("subagent-clarify")).toBe(false);
 
 	// 磁盘文件已写入新 schemaVersion
+	const raw = JSON.parse(readFileSync(f, "utf8"));
+	expect(raw.schemaVersion).toBe(PROMPTS_SCHEMA_VERSION);
+	rmSync(f, { force: true });
+});
+
+test("ensurePromptsConfig 迁移 22→23：补 self-protection 段且保留 base/delegate-mechanism 用户 content", async () => {
+	const f = tempFile();
+	// 模拟 v22 磁盘文件：已有 base（用户自定义）+ delegate-mechanism（旧内容），无 self-protection 段
+	const v22Segments: PromptSegment[] = [
+		{ id: "base", content: "MY CUSTOM BASE" },
+		{ id: "delegate-mechanism", content: "OLD MECHANISM TEXT" },
+		{ id: "delegate-roster" },
+		{ id: "env-constraints" },
+	];
+	writeFileSync(
+		f,
+		JSON.stringify({ schemaVersion: 22, segments: v22Segments }, null, 2),
+	);
+
+	await ensurePromptsConfig(f);
+
+	const loaded = await loadPromptSegments(f);
+	expect(loaded).not.toBeNull();
+	const byId = new Map((loaded as PromptSegment[]).map((s) => [s.id, s]));
+	// 缺失的 self-protection 段以默认 content 补齐
+	expect(byId.get("self-protection")!.content).toBe(DEFAULT_SELF_PROTECTION_PROMPT);
+	// 已存在段用户 content 保留（不被默认覆盖）
+	expect(byId.get("base")!.content).toBe("MY CUSTOM BASE");
+	expect(byId.get("delegate-mechanism")!.content).toBe("OLD MECHANISM TEXT");
+	// 磁盘已升级到 23
 	const raw = JSON.parse(readFileSync(f, "utf8"));
 	expect(raw.schemaVersion).toBe(PROMPTS_SCHEMA_VERSION);
 	rmSync(f, { force: true });
@@ -344,6 +392,26 @@ test("ensurePromptsConfig 全新机器首次写入含 schemaVersion + 最新静�
 	expect(raw.schemaVersion).toBe(PROMPTS_SCHEMA_VERSION);
 	expect(raw.segments).toEqual(DEFAULT_PROMPT_SEGMENTS);
 	rmSync(f, { force: true });
+});
+
+// ===== 子代理自我保护注入 =====
+
+test("composeSubagentPrompt: 保留原正文并追加自我保护段", () => {
+	const out = composeSubagentPrompt("你是一个调研员");
+	expect(out.startsWith("你是一个调研员")).toBe(true);
+	expect(out).toContain("## 自身进程保护（必须遵守）");
+	expect(out).toContain("禁止 kill / taskkill / pkill / killall");
+});
+
+test("composeSubagentPrompt: 空正文 → 仅返回自我保护段（无前导 \\n\\n）", () => {
+	const out = composeSubagentPrompt("");
+	expect(out).toBe(DEFAULT_SELF_PROTECTION_PROMPT);
+	expect(out.startsWith("\n")).toBe(false);
+});
+
+test("composeSubagentPrompt: 全空白正文 → 同样仅返回自我保护段（trim 后判空）", () => {
+	const out = composeSubagentPrompt("   \n\t ");
+	expect(out).toBe(DEFAULT_SELF_PROTECTION_PROMPT);
 });
 
 test("savePromptSegments 写入 schemaVersion，loadPromptSegments 往返仅返回 segments", async () => {

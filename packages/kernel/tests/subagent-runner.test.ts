@@ -114,6 +114,23 @@ test("thinking 映射：disabled → off；null → 不传 --thinking", async ()
   expect(argv2).not.toContain("--thinking");
 });
 
+test("systemPrompt 为空 → 仍写临时文件并传 --system-prompt（自我保护段兜底注入）", async () => {
+  const dumpFile = join("/tmp", `wa-pi-argv-dump-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+  tmpPaths.push(dumpFile);
+  process.env.ARGV_DUMP_FILE = dumpFile;
+
+  const result = await runSubagentAgent(baseConfig({ systemPrompt: "" }), "任务", "/tmp", {
+    cliPath: ARGV_DUMP_PI,
+    runtime: RUNTIME,
+  });
+  expect(result.isError).toBe(false);
+
+  expect(existsSync(dumpFile)).toBe(true);
+  const argv: string[] = JSON.parse(readFileSync(dumpFile, "utf8").trim().split("\n")[0]);
+  // 空提示词子代理也必须注入自我保护段（经 --system-prompt 传临时文件）
+  expect(argv).toContain("--system-prompt");
+});
+
 test("进程异常（cliPath 指向不存在文件）→ isError=true 且不 throw", async () => {
   const result = await runSubagentAgent(baseConfig(), "任务", "/tmp", {
     cliPath: join(import.meta.dir, "fixtures", "no-such-pi.ts"),

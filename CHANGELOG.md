@@ -6,7 +6,17 @@
 
 ## 2026-08-02
 
+### 新增
+
+- 内核守护增强：kernel sidecar 崩溃改为无限自动重启（移除 3 次上限，固定间隔 2s）；新增端口 9778 健康探活（5s 间隔，连续 3 次失败强杀重启），覆盖「进程存活但端口不可用」场景
+- Agent 自我保护提示词：系统提示词新增 self-protection 段（禁止 agent 误杀宿主 kernel / Electron 进程），主会话与子代理均注入；prompts.json schemaVersion 22 → 23（自动迁移补齐新段）
+
 ### 修复
+
+- kernel 被误杀或被安全软件终止后不再因 3 次上限而永久停摆，窗口存活期间持续自动重启
+- Windows 下强杀 kernel（taskkill /F 实测 exit code=1 而非 null）也能触发自动重启：崩溃判定由「code=null」放宽为「code=0 才不重启」
+- spawn 失败（bun 缺失/ENOENT）不再静默停摆：exit 与 spawn error 统一走 scheduleRespawn 重启入口
+- 空 systemPrompt 的子代理也注入自我保护段（原实现空提示词时跳过注入，子代理完全无约束）
 
 - **markdown 预览左右内间距调到 20px**：按用户要求，markdown 预览内容区左右内间距 20px（`px-5`）、上下保持 10px（`py-2.5`）；代码/图片预览维持 10px（`p-2.5`）不变。
   - 影响范围：`packages/frontend/src/components/blocks/FileViewer.tsx`（markdown 分支）。
@@ -25,6 +35,8 @@
   2. 实时渠道 `agent-manager`：`agent_end` 结算后未重置 `turnUserAt`，下一无 user 轮（如 steer 触发）会误用上一轮旧值算出跨轮时长——结算后重置为 null，无 user 轮不再附加。
   - 影响范围：`packages/kernel/src/session-history.ts`、`packages/kernel/src/agent-manager.ts`；新增回归用例（缺行级 timestamp 不注入 NaN / 结算后无 user 轮不附加跨轮时长），顺手清理 agent_settled 分支重复的 `thinkingSince = null`。
   - 验证：kernel 全量 635 pass / 0 fail（含 2 个新用例）；typecheck 全绿。
+
+---
 
 ## 2026-08-01
 
