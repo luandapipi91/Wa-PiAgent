@@ -17,7 +17,9 @@ wa-pi 桌面应用当前完全依赖系统字体栈（macOS 苹方 / Windows 微
 | 强调文本 | MiSans | Medium 500 | 列表项、重点 |
 | 标题 | MiSans | Bold 700 | 区块标题、对话框标题 |
 | 大标题/Hero | MiSans | Heavy 900 | 欢迎页、空状态大标题 |
-| 代码块/路径/工具参数 | MiSans Mono | Regular 400 + Bold 700 | 与主字体风格统一 |
+| 代码块/路径/工具参数 | JetBrains Mono + MiSans 回退 | Regular 400 + Bold 700 | 拉丁/数字等宽（编程体验），中文注释回退 MiSans（与主字体统一） |
+
+> **决策记录（2026-08-02）**：最初选定 MiSans Mono（统一风），经核实 MiSans Mono **不是小米官方公开发布的字体**（官方字体站与全家桶 zip 均无），故改为 JetBrains Mono（拉丁等宽，OFL-1.1 免费商用）+ 中文回退 MiSans。这是中文开发工具的常见方案。
 
 字体文件：woff2 格式（浏览器原生支持，桌面端本地加载无网络开销）。
 
@@ -28,8 +30,10 @@ wa-pi 桌面应用当前完全依赖系统字体栈（macOS 苹方 / Windows 微
 - `packages/frontend/public/fonts/MiSans-Medium.woff2`
 - `packages/frontend/public/fonts/MiSans-Bold.woff2`
 - `packages/frontend/public/fonts/MiSans-Heavy.woff2`
-- `packages/frontend/public/fonts/MiSansMono-Regular.woff2`
-- `packages/frontend/public/fonts/MiSansMono-Bold.woff2`
+- `packages/frontend/public/fonts/JetBrainsMono-Regular.woff2`
+- `packages/frontend/public/fonts/JetBrainsMono-Bold.woff2`
+- `packages/frontend/public/fonts/LICENSE-MiSans.txt`（小米许可说明）
+- `packages/frontend/public/fonts/LICENSE-JetBrainsMono.txt`（OFL-1.1 许可文本）
 
 **修改文件：**
 - `packages/frontend/src/styles.css` — @font-face 声明 + body font-family
@@ -57,13 +61,13 @@ wa-pi 桌面应用当前完全依赖系统字体栈（macOS 苹方 / Windows 微
 }
 /* Medium 500 / Bold 700 / Heavy 900 同理 */
 @font-face {
-  font-family: "MiSans Mono";
-  src: url("/fonts/MiSansMono-Regular.woff2") format("woff2");
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
-/* MiSans Mono Bold 700 同理 */
+/* JetBrains Mono Bold 700 同理 */
 ```
 
 ### 4.2 body 字体栈（styles.css）
@@ -77,9 +81,11 @@ font-family: "MiSans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Pin
 ```js
 fontFamily: {
   sans: ["MiSans", "-apple-system", "BlinkMacSystemFont", "SF Pro Display", "PingFang SC", "sans-serif"],
-  mono: ["MiSans Mono", "SF Mono", "JetBrains Mono", "monospace"],
+  mono: ["JetBrains Mono", "MiSans", "SF Mono", "monospace"],
 },
 ```
+
+> 注：mono 栈中 `MiSans` 放在 JetBrains Mono 之后——拉丁字符优先 JetBrains Mono 等宽，中文回退到 MiSans 与主字体统一。
 
 ### 4.4 ErrorBoundary（main.tsx:15）
 
@@ -89,29 +95,27 @@ fontFamily: 'MiSans, system-ui, "PingFang SC", sans-serif',
 
 ## 5. 字体文件获取
 
-MiSans / MiSans Mono 官方开源发布（小米），从可靠来源下载 woff2：
-- 优先：小米官方发布渠道（hyperos.mi.com / miui 开发者站点）的 ttf/otf → 本地转换 woff2
-- 备选：GitHub 镜像仓库中的 woff2 文件
+- **MiSans（4 字重 woff2）**：从官方发布包 `MiSans_Global_ALL.zip`（用户已下载至 `C:/Users/co/Downloads/`）提取内层 `MiSans.zip` 的 `woff2/` 目录：`MiSans-Regular.woff2` / `MiSans-Medium.woff2` / `MiSans-Bold.woff2` / `MiSans-Heavy.woff2`（各约 5MB）。
+- **JetBrains Mono（2 字重 woff2）**：从 JetBrains 官方 GitHub 仓库 `JetBrains/JetBrainsMono` 的 `fonts/woff2/` 目录下载 `JetBrainsMono-Regular.woff2` 与 `JetBrainsMono-Bold.woff2`（OFL-1.1）。
+- 许可文件：MiSans 的《MiSans 字体知识产权许可协议》文本 + JetBrains Mono 的 `OFL.txt`，随字体文件放入 `public/fonts/` 并注明「软件使用了 MiSans 字体」（协议要求）。
 
-下载后按字重拆分，命名按上文约定。验证：`fc-scan` 或字体查看器确认字重与字符集（MiSans 覆盖 GB18030 常用汉字，MiSans Mono 覆盖 CJK + 拉丁）。
-
-**许可确认**：MiSans 免费商用授权（小米官方声明可免费使用于商业产品），需保留许可信息；实现时在字体文件旁放置授权说明（LICENSE-MiSans.txt）。
+**MiSans Mono 不存在**：官方字体站与 MiSans 全家桶 zip 均无 MiSans Mono（非小米官方公开发布），代码字体改用 JetBrains Mono + 中文回退 MiSans。
 
 ## 6. 风险与缓解
 
 | 风险 | 影响 | 缓解 |
 |---|---|---|
-| 字体文件体积（~20MB） | 安装包增大 | 本地加载无网络开销；只打包 6 个文件、不打包全家族 |
-| woff2 子集化不足 | 体积偏大 | 若下载源提供子集化 woff2 优先使用；否则接受全量 |
-| 字体下载来源不可靠 | 文件损坏/版权风险 | 从官方渠道获取，校验文件（大小/字体名） |
+| 字体文件体积（~22MB） | 安装包增大 | 本地加载无网络开销；只打包 6 个文件、不打包全家族 |
+| woff2 子集化不足 | 体积偏大 | 官方 woff2 已优化，可接受 |
+| 字体下载来源不可靠 | 文件损坏/版权风险 | MiSans 用官方 zip（用户下载）；JetBrains Mono 用 JetBrains 官方 GitHub；校验文件大小 |
 | splash 页字体不一致 | 启动瞬间观感差异 | 接受（技术限制，splash 显示时间极短），文档注明 |
 | 旧字体测试断言 | 测试失败 | 全量测试回归确认；现有测试无字体断言（已验证） |
 
 ## 7. 测试
 
 - **单元/组件测试**：现有 906 个前端测试全量回归，确认字体改动不破坏渲染（测试不含字体断言，预期全绿）
-- **构建验证**：`bun run --filter @wa-pi/frontend build` 确认 `dist/fonts/` 包含 6 个 woff2
-- **视觉验证**：启动应用，确认标题/正文/代码块/按钮均渲染 MiSans；Windows + macOS 各看一次（本机 Windows 验证；macOS 由字体栈回退保证不崩）
+- **构建验证**：`bun run --filter @wa-pi/frontend build` 确认 `dist/fonts/` 包含 6 个 woff2 + 2 个许可文件
+- **视觉验证**：启动应用，确认标题/正文/代码块/按钮均渲染 MiSans，代码块拉丁字符 JetBrains Mono 等宽、中文 MiSans；Windows 本机验证（macOS 由字体栈回退保证不崩）
 - **E2E**：现有 quick-invoke / composer E2E 回归（字体不影响选择器与交互）
 
 ## 8. 不做的事（Non-goals）
@@ -119,4 +123,5 @@ MiSans / MiSans Mono 官方开源发布（小米），从可靠来源下载 woff
 - 不更换 splash 启动页字体（data URL 技术限制）
 - 不更换 Mermaid 图内字体（SVG 限制）
 - 不做字重可变字体（VF）优化（4 字重已覆盖，避免兼容性风险）
+- 不引入 MiSans Mono（官方不存在）
 - 不修改任何业务逻辑/组件结构
