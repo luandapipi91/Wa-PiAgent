@@ -107,9 +107,12 @@ export const DEFAULT_SELF_PROTECTION_PROMPT =
 	"**识别宿主的方法**：`WA_PI_BRIDGE_URL` 环境变量指向的地址即宿主服务；命令输出中 `netstat`/`tasklist`/`ps` 里占用该端口的 PID 是宿主，不得作为 kill 目标。\n\n" +
 	"**如果用户要求重启或清理端口**：引导用户点击应用界面的「重启应用」，或建议用户退出重开桌面应用；不要自行执行 kill。";
 
-/** 组装子代理系统提示词：子代理正文 + 自我保护段（防止 delegate 的子代理误杀宿主 kernel）。 */
+/** 组装子代理系统提示词：子代理正文 + 自我保护段（防止 delegate 的子代理误杀宿主 kernel）。
+ *  空正文（无约束子代理）时仅返回保护段，保证任何子代理都受保护；
+ *  非空时先 trim 掉前后空白再拼接（避免前导空白破坏首段）。 */
 export function composeSubagentPrompt(systemPrompt: string): string {
-	return `${systemPrompt}\n\n${DEFAULT_SELF_PROTECTION_PROMPT}`;
+	const trimmed = systemPrompt.trim();
+	return trimmed ? `${trimmed}\n\n${DEFAULT_SELF_PROTECTION_PROMPT}` : DEFAULT_SELF_PROTECTION_PROMPT;
 }
 
 /** 默认 delegate-mechanism 段（委托机制：首动作规则 + 路由 + @ 语法 + fleet；正文中文，贴合中文用户请求、字符更省） */
@@ -199,8 +202,8 @@ export function composePrompt(
 		.join("\n\n");
 }
 
-/** prompts.json 的 schema 版本。升级静态段文案（delegate-syntax / subagent-clarify）时递增，
- *  ensurePromptsConfig 据此对已存在文件做迁移——只刷新静态段 content，保留动态段用户自定义。 */
+/** prompts.json 的 schema 版本。新增段/修改默认文案时递增；ensurePromptsConfig 据此对已存在
+ *  文件做迁移——缺失段按最新默认补齐，已存在段 content 保留（含用户自定义，不覆盖）。 */
 export const PROMPTS_SCHEMA_VERSION = 23;
 
 /**

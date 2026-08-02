@@ -140,7 +140,7 @@ test("composePrompt 静态段（self-protection）默认有 content → 默认�
 
 test("composePrompt 静态段（self-protection）没写 content → 返回空串（不出现）", () => {
 	const result = composePrompt([{ id: "self-protection" }], defaultCtx);
-	expect(result).not.toContain("自身进程保护");
+	expect(result).toBe("");
 });
 
 test("composePrompt 动态段写 content（env-constraints）→ 用户覆盖", () => {
@@ -373,9 +373,15 @@ test("composeSubagentPrompt: 保留原正文并追加自我保护段", () => {
 	expect(out).toContain("禁止 kill / taskkill / pkill / killall");
 });
 
-test("composeSubagentPrompt: 空正文也追加自我保护段", () => {
+test("composeSubagentPrompt: 空正文 → 仅返回自我保护段（无前导 \\n\\n）", () => {
 	const out = composeSubagentPrompt("");
-	expect(out).toContain("自身进程保护");
+	expect(out).toBe(DEFAULT_SELF_PROTECTION_PROMPT);
+	expect(out.startsWith("\n")).toBe(false);
+});
+
+test("composeSubagentPrompt: 全空白正文 → 同样仅返回自我保护段（trim 后判空）", () => {
+	const out = composeSubagentPrompt("   \n\t ");
+	expect(out).toBe(DEFAULT_SELF_PROTECTION_PROMPT);
 });
 
 test("savePromptSegments 写入 schemaVersion，loadPromptSegments 往返仅返回 segments", async () => {

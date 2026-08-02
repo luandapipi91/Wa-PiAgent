@@ -102,22 +102,20 @@ export async function runSubagentAgent(
 	opts?: SubagentRunOpts,
 ): Promise<SubagentRunResult> {
 	const startedAt = Date.now();
-	// 子代理系统提示词临时文件（pi 的 --system-prompt 支持文件路径，规避命令行长度限制）
+	// 子代理系统提示词临时文件（pi 的 --system-prompt 支持文件路径，规避命令行长度限制）。
+	// 无条件创建：即使 systemPrompt 为空也要注入自我保护段（composeSubagentPrompt 空正文兜底），
+	// 否则空提示词子代理完全无约束却跳过保护段注入。
 	const tmpDir = join(WA_PI_DIR, "tmp", "subagent-prompts");
-	const promptFile = config.systemPrompt
-		? join(tmpDir, `${config.name}-${randomUUID()}.md`)
-		: null;
+	const promptFile = join(tmpDir, `${config.name}-${randomUUID()}.md`);
 
 	let client: RpcClient | null = null;
 	try {
-		if (promptFile) {
-			await mkdir(tmpDir, { recursive: true });
-			await writeFile(
-				promptFile,
-				composeSubagentPrompt(config.systemPrompt),
-				"utf8",
-			);
-		}
+		await mkdir(tmpDir, { recursive: true });
+		await writeFile(
+			promptFile,
+			composeSubagentPrompt(config.systemPrompt),
+			"utf8",
+		);
 
 		// 进度状态累积
 		const tools: Array<{ id: string; name: string; status: string }> = [];
