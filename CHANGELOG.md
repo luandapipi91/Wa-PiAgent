@@ -6,6 +6,12 @@
 
 ## 2026-08-02
 
+### 变更
+
+- **移除 kernel 每 15s 的诊断心跳日志**：原用于崩溃时判断卡死/OOM 的内存心跳（`[kernel] 心跳 rss=...MB heap=...MB`）每 15 秒刷一条，日常运行刷屏。按用户要求移除，诊断能力由崩溃日志（crash-logger）保留。
+  - 影响范围：`packages/kernel/src/index.ts`（心跳 setInterval 与 shutdown 中的 clearInterval）。
+  - 验证：kernel 全量 635 pass / 0 fail；typecheck 全绿。
+
 ### 新增
 
 - 内核守护增强：kernel sidecar 崩溃改为无限自动重启（移除 3 次上限，固定间隔 2s）；新增端口 9778 健康探活（5s 间隔，连续 3 次失败强杀重启），覆盖「进程存活但端口不可用」场景
