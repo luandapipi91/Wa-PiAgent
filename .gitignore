@@ -63,3 +63,6 @@ cocode-master/
 packages/kernel/tests/fixtures/pi-agent-dir-test/
 nul
 bun.lock
+
+# 本地 worktree 目录（subagent-driven-development 隔离工作区）
+.worktrees/
