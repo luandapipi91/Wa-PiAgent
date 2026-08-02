@@ -13,6 +13,8 @@
 ### 修复
 - kernel 被误杀或被安全软件终止后不再因 3 次上限而永久停摆，窗口存活期间持续自动重启
 - Windows 下强杀 kernel（taskkill /F 实测 exit code=1 而非 null）也能触发自动重启：崩溃判定由「code=null」放宽为「code=0 才不重启」
+- spawn 失败（bun 缺失/ENOENT）不再静默停摆：exit 与 spawn error 统一走 scheduleRespawn 重启入口
+- 空 systemPrompt 的子代理也注入自我保护段（原实现空提示词时跳过注入，子代理完全无约束）
 
 ---
 
