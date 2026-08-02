@@ -8,6 +8,20 @@
 
 ### 变更
 
+- **web-search 默认 provider 改为 anysearch（合并覆盖，不再整文件覆盖）**：kernel 启动 `ensureWebSearchConfig` 改为「读现有 web-search.json → 只合并覆盖 `provider`/`workflow` 两个键 → 写回」，保留用户手动配置的其他字段（如各 provider 的 API key）；默认 provider 从 `auto` 改为 `anysearch`（匿名可用、无需 key，开箱即用，避免 auto 无 key 抛 No search provider available）。
+  - 影响范围：`packages/kernel/src/index.ts`（ensureWebSearchConfig）。
+  - 验证：typecheck 全绿；kernel 全量 642 pass / 0 fail。
+
+### 修复
+
+- **工具白名单清理：移除遗留 `session_search`、补入 `source_check`**：
+  - `session_search` 是旧插件 pi-hermes-memory 替换为 `@amaster.ai/pi-memory` 时漏在白名单的孤儿工具名——运行时无任何注册者，agent 调用必失败。已从 `DEFAULT_AGENT_TOOLS` 移除，并新增守卫断言确保不再回归；前端测试 fixture 中的模拟工具名同步清理（dist/构建产物下次构建自动更新，docs 历史文档保留）。
+  - `source_check`（pi-web-access 提供的来源核查工具，多引擎检索 + passage 级引用评估）此前已注册但未进白名单——已补入 `DEFAULT_AGENT_TOOLS` 网络工具族，前端「内置」工具列表将正常显示。
+  - 影响范围：`packages/shared/src/constants.ts`、`packages/shared/tests/constants.test.ts`、`packages/frontend/tests/store-session.test.ts`（fixture 清理）。
+  - 验证：shared 全量 93 pass / 0 fail；kernel 全量 642 pass / 0 fail；frontend store-session 42 pass / 0 fail；typecheck 全绿。
+
+### 变更
+
 - **移除 kernel 每 15s 的诊断心跳日志**：原用于崩溃时判断卡死/OOM 的内存心跳（`[kernel] 心跳 rss=...MB heap=...MB`）每 15 秒刷一条，日常运行刷屏。按用户要求移除，诊断能力由崩溃日志（crash-logger）保留。
   - 影响范围：`packages/kernel/src/index.ts`（心跳 setInterval 与 shutdown 中的 clearInterval）。
   - 验证：kernel 全量 635 pass / 0 fail；typecheck 全绿。
@@ -21,7 +35,7 @@
 
 - **文件预览窗随流式结束/折叠/组件卸载被自动关闭**：预览开关状态原来在组件本地（FilePill 的 useState + SessionView 的 previewPath），宿主组件（消息行/委派卡/轮级折叠段）随流式结束、折叠、卸载而销毁时预览窗被连带关闭。修复：预览状态提升到全局 session store（`filePreview` + `openFilePreview`/`closeFilePreview`），由 App 根常驻渲染 `FilePreviewModal`，只有用户手动关闭（✕ / ESC / 遮罩点击）才消失；FilePill 点击与 Explorer 双击统一走 `openFilePreview`。
   - 影响范围：`packages/frontend/src/store/session.ts`、新建 `packages/frontend/src/components/blocks/FilePreviewModal.tsx`、`packages/frontend/src/components/blocks/FilePill.tsx`、`packages/frontend/src/App.tsx`、`packages/frontend/src/components/SessionView.tsx`；`tests/FilePill.test.tsx` 两用例适配新架构。
-  - 验证：frontend typecheck 全绿；全量 883 pass / 0 fail。
+  - 验证：frontend typecheck 全绿；全量 893 pass / 0 fail。
 
 - kernel 被误杀或被安全软件终止后不再因 3 次上限而永久停摆，窗口存活期间持续自动重启
 - Windows 下强杀 kernel（taskkill /F 实测 exit code=1 而非 null）也能触发自动重启：崩溃判定由「code=null」放宽为「code=0 才不重启」

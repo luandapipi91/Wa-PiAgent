@@ -26,16 +26,28 @@ import {
 	PROMPTS_FILE,
 	SUBAGENT_OVERRIDES_FILE,
 } from "@wa-pi/shared";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { WSServerEvent } from "@wa-pi/shared";
 
-/** 启动时写入 web-search.json，确保 web_search 工具不弹 curator */
+/**
+ * 启动时确保 web-search.json 的 provider/workflow 为默认值（不弹 curator）。
+ * 只合并覆盖这两个键，保留用户手动配置的其他字段（如各 provider 的 API key）。
+ */
 async function ensureWebSearchConfig(waPiDir: string): Promise<void> {
 	const configPath = join(waPiDir, "web-search.json");
-	const config = { provider: "auto", workflow: "auto-summary" };
+	// 默认 anysearch：匿名可用、无需 API key，开箱即用；
+	// 用户如需其他 provider，显式配置 provider 字段即可（不会被覆盖）。
+	const defaults = { provider: "anysearch", workflow: "auto-summary" };
 	try {
 		await mkdir(waPiDir, { recursive: true });
+		let existing: Record<string, unknown> = {};
+		try {
+			existing = JSON.parse(await readFile(configPath, "utf8"));
+		} catch {
+			/* 文件不存在或损坏 → 用默认值 */
+		}
+		const config = { ...existing, ...defaults };
 		await writeFile(configPath, JSON.stringify(config) + "\n", "utf8");
 	} catch {
 		/* 静默忽略 */
