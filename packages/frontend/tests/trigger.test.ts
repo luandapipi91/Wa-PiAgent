@@ -71,3 +71,38 @@ test("filterItems 大小写不敏感", () => {
   const items = [{ name: "BrainStorm", description: "" }];
   expect(filterItems(items, "brain")).toHaveLength(1);
 });
+
+// ===== 全角触发符（Windows 输入法全角模式插入 U+FFE5 等，需归一化后触发）=====
+
+test("detectTrigger 全角 ￥（U+FFE5）触发技能面板", () => {
+  const result = detectTrigger("用 \uFFE5brain");
+  expect(result).toEqual({ type: "skill", query: "brain" });
+});
+
+test("detectTrigger 全角 ＄（U+FF04）触发技能面板", () => {
+  const result = detectTrigger("用 \uFF04brain");
+  expect(result).toEqual({ type: "skill", query: "brain" });
+});
+
+test("detectTrigger 全角 ＠（U+FF20）触发智能体面板", () => {
+  const result = detectTrigger("hello \uFF20审");
+  expect(result).toEqual({ type: "agent", query: "审" });
+});
+
+test("detectTrigger 全角 ＃（U+FF03）触发文件面板", () => {
+  const result = detectTrigger("打开 \uFF03src/comp");
+  expect(result).toEqual({ type: "file", query: "src/comp" });
+});
+
+test("detectTrigger 全角 ／（U+FF0F）触发命令面板", () => {
+  const result = detectTrigger("text \uFF0Fcmd");
+  expect(result).toEqual({ type: "command", query: "cmd" });
+});
+
+test("detectTrigger 全角 chip token 不触发（归一化后按已存在 token 清洗）", () => {
+  expect(detectTrigger("\uFFE5[skill] 你好")).toBeNull();
+});
+
+test("detectTrigger 全角符号在文本中间不触发（需行首或空格之后）", () => {
+  expect(detectTrigger("email\uFF20test")).toBeNull();
+});

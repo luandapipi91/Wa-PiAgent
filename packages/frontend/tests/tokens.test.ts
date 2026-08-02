@@ -2,7 +2,7 @@ import { test, expect, afterEach } from "bun:test";
 import {
   FILE_TOKEN_RE, SKILL_TOKEN_RE, AGENT_TOKEN_RE,
   expandTokens, textToSegments, segmentsToText, textToHtml, escapeHtml,
-  registerAgentMeta, clearAgentMeta,
+  registerAgentMeta, clearAgentMeta, normalizeTriggerChars,
 } from "../src/quick-invoke/tokens";
 
 test("expandTokens 展开文件 token（#[path] -> #path）", () => {
@@ -149,4 +149,28 @@ test("textToHtml 保留换行：普通文本多行 → \\n 转为 <br>", () => {
 test("textToHtml 保留换行：chip 前后跨行，chip 内部不误转", () => {
   const html = textToHtml("第一行\n#[App.tsx]\n第二行");
   expect(html).toBe("第一行<br><span class=\"chip chip-file\" contenteditable=\"false\" data-token=\"#[App.tsx]\">#App.tsx</span><br>第二行");
+});
+
+// ===== 全角触发符归一化（Windows 输入法全角模式修复）=====
+// 根因：代码匹配 U+00A5（¥），Windows 中文输入法插入 U+FFE5（￥），码点不同导致不触发。
+// normalizeTriggerChars 把全角触发符符号集中映射为半角，检测/发送路径入口调用。
+
+test("normalizeTriggerChars 把全角触发符符号归一化为半角", () => {
+  expect(normalizeTriggerChars("用 ￥brain ＄x ＠y ＃z ／w")).toBe("用 ¥brain $x @y #z /w");
+});
+
+test("normalizeTriggerChars 不动全角字母数字和中文标点（防止显示/内容回归）", () => {
+  expect(normalizeTriggerChars("ＡＢＣ１２３（中文）「引号」［括号］")).toBe("ＡＢＣ１２３（中文）「引号」［括号］");
+});
+
+test("expandTokens 展开全角 ￥ token（U+FFE5）为 /skill:name", () => {
+  expect(expandTokens("用 \uFFE5[brainstorming] 技能")).toBe("用 /skill:brainstorming  技能");
+});
+
+test("expandTokens 展开全角 ／ token（U+FF0F）为 /cmd", () => {
+  expect(expandTokens("\uFF0F[my-command] 执行")).toBe("/my-command  执行");
+});
+
+test("expandTokens 发送时把普通文本中的全角触发符符号归一化为半角（语义等价，预期行为）", () => {
+  expect(expandTokens("价格 ￥500 和 ＠mention")).toBe("价格 ¥500 和 @mention");
 });

@@ -13,6 +13,29 @@ export const SKILL_TOKEN_RE = /[$¥]\[([^\]]+)\]/g;
 /** 命令 token 正则：匹配 /[命令名] */
 export const COMMAND_TOKEN_RE = /\/\[([^\]]+)\]/g;
 
+/**
+ * 全角触发符符号 → 半角映射表。
+ *
+ * 背景：Windows 中文输入法在全角模式下插入的是全角符号（如 ￥ U+FFE5），
+ * 而代码里匹配的是半角 U+00A5。该映射把输入法可能产生的全角触发符
+ * 统一归一化为代码认识的半角等价物，使 $/¥/￥、@/＠、#/＃、//／ 都能触发对应面板。
+ *
+ * 注意：只映射「触发符相关符号」，绝不动全角字母数字（ＡＢＣ０１２３）和
+ * 中文标点（（）、「」、［］等）——那些在中文文本里是正常内容，归一化会造成回归。
+ */
+const FULLWIDTH_TRIGGER_MAP: Record<string, string> = {
+  "\uFFE5": "\u00A5", // ￥ (FULLWIDTH YEN SIGN) → ¥ (YEN SIGN)
+  "\uFF04": "$",       // ＄ (FULLWIDTH DOLLAR SIGN) → $
+  "\uFF20": "@",       // ＠ (FULLWIDTH COMMERCIAL AT) → @
+  "\uFF03": "#",       // ＃ (FULLWIDTH NUMBER SIGN) → #
+  "\uFF0F": "/",       // ／ (FULLWIDTH SOLIDUS) → /
+};
+
+/** 把全角触发符符号归一化为半角（检测/发送路径入口调用；显示路径不调用）。 */
+export function normalizeTriggerChars(text: string): string {
+  return text.replace(/[\uFFE5\uFF04\uFF20\uFF03\uFF0F]/g, ch => FULLWIDTH_TRIGGER_MAP[ch]);
+}
+
 /** segment 类型 */
 export type Segment =
   | { type: "text"; value: string }
@@ -32,7 +55,7 @@ export type Segment =
  * 内联展开为 <skill name="..." location="...">完整 SKILL.md 内容</skill> XML 块。
  */
 export function expandTokens(text: string): string {
-  return text
+  return normalizeTriggerChars(text)
     .replace(FILE_TOKEN_RE, "#$1")
     .replace(SKILL_TOKEN_RE, "/skill:$1 ") // 末尾空格：SDK _expandSkillCommand 用空格分隔技能名和参数
     .replace(COMMAND_TOKEN_RE, "/$1 ");  // 命令 chip 展开为 /命令名 ，pi 识别为斜杠命令
