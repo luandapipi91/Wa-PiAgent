@@ -229,6 +229,44 @@ test("plain text paste is not intercepted", async () => {
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
+// === 富文本粘贴净化 ===
+
+test("粘贴富文本 HTML：只保留纯文本，不插入 HTML 样式", async () => {
+  const setText = mock();
+  renderComposer({ setText, text: "" });
+
+  const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]')!;
+  fireEvent.paste(textbox, {
+    clipboardData: {
+      files: [],
+      getData: (type: string) =>
+        type === "text/html"
+          ? '<span style="color:red;font-weight:bold">加粗<b>内容</b></span>'
+          : "加粗内容",
+    },
+  });
+
+  await waitFor(() => expect(setText).toHaveBeenCalledWith("加粗内容"));
+});
+
+test("粘贴多行富文本：纯文本保留换行，丢弃 HTML 结构", async () => {
+  const setText = mock();
+  renderComposer({ setText, text: "" });
+
+  const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]')!;
+  fireEvent.paste(textbox, {
+    clipboardData: {
+      files: [],
+      getData: (type: string) =>
+        type === "text/html"
+          ? '<div style="color:red">第一行</div><div>第二行</div>'
+          : "第一行\n第二行",
+    },
+  });
+
+  await waitFor(() => expect(setText).toHaveBeenCalledWith("第一行\n第二行"));
+});
+
 // === Quick Invoke 测试 ===
 
 test("输入 # 触发文件面板", async () => {
