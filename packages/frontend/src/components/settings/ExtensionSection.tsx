@@ -9,6 +9,7 @@ export function ExtensionSection() {
     packages,
     installs,
     upgrading,
+    uninstalling,
     error,
     installPackage,
     uninstallPackage,
@@ -182,12 +183,27 @@ export function ExtensionSection() {
                   </button>
                 )}
                 <button
-                  className="px-2 py-1 text-xs rounded-sm font-medium"
+                  className="px-2 py-1 text-xs rounded-sm font-medium disabled:opacity-60"
                   style={{ background: "#fff", color: "var(--danger)", border: "1px solid var(--danger)" }}
                   onClick={() => setConfirmUninstall(pkg.name)}
+                  disabled={uninstalling[pkg.name] === true}
                   data-testid={`ext-uninstall-${pkg.name}`}
                 >
-                  卸载
+                  {uninstalling[pkg.name] ? (
+                    <span className="inline-flex items-center gap-1">
+                      <span
+                        className="inline-block w-3 h-3 rounded-full"
+                        style={{
+                          border: "2px solid var(--danger-soft)",
+                          borderTopColor: "var(--danger)",
+                          animation: "spin 0.8s linear infinite",
+                        }}
+                      />
+                      卸载中…
+                    </span>
+                  ) : (
+                    "卸载"
+                  )}
                 </button>
               </div>
             </div>
