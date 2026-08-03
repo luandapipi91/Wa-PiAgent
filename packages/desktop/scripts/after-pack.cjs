@@ -1,9 +1,35 @@
-// afterPack 钩子：electron-builder 跳过 rcedit（Windows Defender 竞态），
-// 但在 win-unpacked 生成后、NSIS 打包前手动 rcedit 注入图标和版本信息。
+// afterPack 钩子：
+//  - macOS：对 .app 做稳定签名（未签名应用在 macOS 15 上屏幕录制 TCC 权限绑定失效，
+//    重装后权限丢失，system 源录音报 "Invalid capture constraints"）
+//  - Windows：electron-builder 跳过 rcedit（Windows Defender 竞态），
+//    在 win-unpacked 生成后、NSIS 打包前手动 rcedit 注入图标和版本信息。
 const { execFileSync } = require("node:child_process");
 const os = require("node:os");
 const path = require("node:path");
 const fs = require("node:fs");
+const { signMacApp } = require("./mac-sign.cjs");
+
+/** macOS：对打包产物签名（在 dmg/zip 生成前，签名会进入安装包）。 */
+function signMacArtifact(appOutDir, packager) {
+	const appPath = path.join(
+		appOutDir,
+		`${packager.appInfo.productFilename}.app`,
+	);
+	if (!fs.existsSync(appPath)) {
+		console.log(`[afterPack] ${appPath} 不存在，跳过签名`);
+		return;
+	}
+	const result = signMacApp(appPath);
+	if (result.signed) {
+		console.log(
+			`[afterPack] ✅ macOS 产物已签名 (identity=${result.identity}) → ${appPath}`,
+		);
+	} else {
+		console.warn(
+			`[afterPack] ⚠️ macOS 产物签名失败（重装后屏幕录制权限可能失效）: ${result.error}`,
+		);
+	}
+}
 
 function findRcedit() {
 	const cacheDir = path.join(
@@ -28,6 +54,10 @@ function findRcedit() {
 /** @param {import('app-builder-lib').AfterPackContext} context */
 exports.default = async (context) => {
 	const { appOutDir, packager, electronPlatformName } = context;
+	if (electronPlatformName === "darwin") {
+		signMacArtifact(appOutDir, packager);
+		return;
+	}
 	if (electronPlatformName !== "win32") return;
 
 	const rcedit = findRcedit();
