@@ -35,6 +35,7 @@ import type {
 	ExtensionCommandToggleEvent,
 	ExtensionCommandsListResult,
 	ExtensionCommandToggleResult,
+	ExtensionCommandsChangedEvent,
 } from "./extensions";
 import type {
 	MemoryListEvent,
@@ -904,6 +905,7 @@ export type WSServerEvent =
 	| ExtensionNotifyEvent
 	| ExtensionCommandsListResult
 	| ExtensionCommandToggleResult
+	| ExtensionCommandsChangedEvent
 	| MemoryListResult
 	| MemoryChangedEvent
 	| McpListResult

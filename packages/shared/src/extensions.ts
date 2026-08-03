@@ -88,3 +88,8 @@ export interface ExtensionCommandToggleResult {
 	type: "extension:commands:toggle";
 	ok: true;
 }
+
+/** kernel → 前端：命令开关切换成功后广播，前端据此刷新 / 菜单命令列表 */
+export interface ExtensionCommandsChangedEvent {
+	type: "extension:commands:changed";
+}

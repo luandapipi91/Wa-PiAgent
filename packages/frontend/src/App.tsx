@@ -113,6 +113,12 @@ export function App() {
 						.clearNewSessionId(e.session.projectId);
 					useCommandsStore.getState().load(e.session.id);
 					break;
+				// 插件命令开关切换成功后：刷新当前会话的 / 菜单命令列表（开启/关闭立即生效）
+				case "extension:commands:changed": {
+					const sid = useProjectsStore.getState().currentSessionId;
+					if (sid) useCommandsStore.getState().load(sid);
+					break;
+				}
 				// kernel 每次 prompt 都回传用户消息；前端若已通过 Composer.doSend 乐观置入则跳过
 				case "session:echo_user": {
 					const s = useSessionStore.getState();
