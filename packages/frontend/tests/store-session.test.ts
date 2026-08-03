@@ -1,9 +1,26 @@
 // Task 8: store/session.ts — sdk:event 处理与流式两态管理的单测
 // 说明：项目测试栈为 bun:test（非 vitest），按项目既有规范编写。
-import { test, expect, beforeEach } from "bun:test";
+import { test, expect, beforeEach, mock } from "bun:test";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import type { SDKEventEnvelope } from "@wa-pi/shared";
+
+// refreshTokenTotals 会调用 api.get 拉取会话历史；mock 掉 api-client，
+// 返回可注入的 messages，断言聚焦于「/compact 回合结束触发刷新」逻辑。
+const mockMessages: { messages: any[] } = { messages: [] };
+let getCalls = 0;
+
+mock.module("../src/api-client", () => ({
+	api: {
+		get: () => {
+			getCalls++;
+			return Promise.resolve(mockMessages);
+		},
+		post: () => Promise.resolve({}),
+		put: () => Promise.resolve({}),
+		del: () => Promise.resolve({}),
+	},
+}));
 
 beforeEach(() => {
 	// 每个 case 前重置状态，避免相互污染
@@ -13,6 +30,8 @@ beforeEach(() => {
 		statusBySession: {},
 		optimisticEchoBySession: {},
 		historyLoadingBySession: {},
+		tokenTotals: {},
+		lastUsageBySession: {},
 	});
 });
 
@@ -939,4 +958,171 @@ test("setMessages 合并连续 assistant 时保留 turnElapsedMs", () => {
 		);
 	expect(asst).toHaveLength(1);
 	expect((asst[0].message as any).turnElapsedMs).toBe(4000);
+});
+
+// ── 压缩回合结束（agent_end）→ 重拉历史刷新 token 累计 ──
+
+test("agent_end：最后一条 user 以 /compact 开头 → 触发 refreshTokenTotals 重算 token", async () => {
+	getCalls = 0;
+	// 预置：一条 /compact 用户消息 + 旧累计值
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					message: { role: "user", content: "/compact 只保留关键决策", timestamp: 1 },
+					agentName: undefined,
+				},
+				{
+					message: {
+						role: "assistant",
+						content: [],
+						model: "pending",
+						stopReason: "pending",
+						timestamp: 2,
+					},
+					agentName: "dev",
+				},
+			],
+		},
+		tokenTotals: { s1: { input: 1000, output: 500 } },
+	});
+	// mock 返回压缩后的历史（token 已缩小）
+	mockMessages.messages = [
+		{
+			message: { role: "user", content: "/compact 只保留关键决策", timestamp: 1 },
+			agentName: undefined,
+		},
+		{
+			message: {
+				role: "assistant",
+				content: "（压缩摘要）",
+				timestamp: 2,
+				usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0 },
+			},
+			agentName: "dev",
+		},
+	];
+
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
+
+	// 等 refreshTokenTotals 的异步链完成（宏任务级等待，不依赖微任务数量）
+	await new Promise((r) => setTimeout(r, 0));
+
+	expect(getCalls).toBe(1);
+	const totals = useSessionStore.getState().tokenTotals["s1"];
+	expect(totals?.input).toBe(100);
+	expect(totals?.output).toBe(50);
+	expect(useSessionStore.getState().lastUsageBySession["s1"]?.input).toBe(100);
+});
+
+test("agent_end：最后一条 user 不是 /compact → 不触发 refresh", async () => {
+	getCalls = 0;
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					message: { role: "user", content: "普通问题", timestamp: 1 },
+					agentName: undefined,
+				},
+			],
+		},
+		tokenTotals: { s1: { input: 1000, output: 500 } },
+	});
+
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
+	// 宏任务级等待，确认 refresh 未被触发（getCalls 保持 0）
+	await new Promise((r) => setTimeout(r, 0));
+
+	expect(getCalls).toBe(0);
+	expect(useSessionStore.getState().tokenTotals["s1"]?.input).toBe(1000);
+});
+
+test("agent_end：最后一条 user content 为数组（含 /compact 文本）→ 不触发 refresh 也不崩溃", async () => {
+	// 生产代码用 typeof content === "string" 防御：数组形态的 user 消息
+	// 不匹配 /compact 前缀检测，因此不刷新；但 agent_end 流程必须正常完成
+	getCalls = 0;
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					message: {
+						role: "user",
+						content: [{ type: "text", text: "/compact 指令" }],
+						timestamp: 1,
+					},
+					agentName: undefined,
+				},
+			],
+		},
+		tokenTotals: { s1: { input: 1000, output: 500 } },
+	});
+
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
+	// 宏任务级等待，确认 refresh 未被触发（数组 content 不匹配字符串前缀检测）
+	await new Promise((r) => setTimeout(r, 0));
+
+	expect(getCalls).toBe(0);
+	// 状态正常复位，token 累计不被重算覆盖
+	expect(useSessionStore.getState().statusBySession["s1"]).toBe("idle");
+	expect(useSessionStore.getState().tokenTotals["s1"]?.input).toBe(1000);
+});
+
+test("agent_end：无 user 消息（空会话 / 全 assistant）→ 不触发 refresh 也不崩溃", async () => {
+	getCalls = 0;
+	// 空会话
+	useSessionStore.setState({
+		messagesBySession: {},
+		tokenTotals: {},
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
+	await new Promise((r) => setTimeout(r, 0));
+	expect(getCalls).toBe(0);
+
+	// 全 assistant（无任何 user 行）
+	getCalls = 0;
+	useSessionStore.setState({
+		messagesBySession: {
+			s2: [
+				{
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "回答" }],
+						model: "m",
+						stopReason: "stop",
+						timestamp: 1,
+					},
+					agentName: "dev",
+				},
+			],
+		},
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s2",
+			envelope({ type: "agent_end", messages: [], willRetry: false }, "s2"),
+		);
+	await new Promise((r) => setTimeout(r, 0));
+	expect(getCalls).toBe(0);
+	expect(useSessionStore.getState().statusBySession["s2"]).toBe("idle");
 });
