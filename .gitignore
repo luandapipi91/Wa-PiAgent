@@ -66,3 +66,6 @@ bun.lock
 
 # 本地 worktree 目录（subagent-driven-development 隔离工作区）
 .worktrees/
+
+# 隔离工作树
+.worktrees/
