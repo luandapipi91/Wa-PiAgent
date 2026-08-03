@@ -361,4 +361,41 @@ describe("Composer", () => {
     await act(async () => {});
     expect(textbox.textContent).toBe("会话B草稿");
   });
+
+  it("冷加载未编辑即卸载：cleanup 不写空文本，保留存储旧草稿", async () => {
+    // 会话 A 在 IDB 有旧草稿 "old"；loadedBySession 未置位（loadSession 尚未完成）。
+    // 用户未输入就切走/卸载：cleanup flush 不得写 text:""（否则 gap 空串胜出覆盖旧草稿）
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+      loadedBySession: {},
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [], text: "old" };
+
+    const { unmount } = render(<Composer sessionId="s1" agentName="dev" />);
+    unmount(); // loadSession 完成前卸载
+    await act(async () => {}); // 等 loadSession 完成并合并
+    expect(useComposerPrefsStore.getState().bySession["s1"]?.text).toBe("old");
+  });
+
+  it("冷加载间隙已输入：loadSession 完成不恢复旧草稿覆盖用户输入", async () => {
+    // 存储里有旧草稿，但 loadSession 尚未完成（prefsLoaded=false）；
+    // 用户在间隙输入 "hello"（防抖未触发）→ loadSession 完成后恢复 effect 不得用旧草稿覆盖
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+      loadedBySession: {},
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [], text: "旧草稿" };
+
+    render(<Composer sessionId="s1" agentName="dev" />);
+    typeIntoComposer("hello"); // 冷加载间隙即开始输入
+    await act(async () => {}); // 等 loadSession 完成 → prefsLoaded=true
+    const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
+    expect(textbox.textContent).toBe("hello"); // 已输入内容未被旧草稿覆盖
+
+    // 防抖照常写回已输入内容（不干扰、不被旧草稿污染）
+    await new Promise((r) => setTimeout(r, 350));
+    expect(useComposerPrefsStore.getState().bySession["s1"]?.text).toBe("hello");
+  });
 });
