@@ -1034,7 +1034,10 @@ export class WSServer {
 						type: "error",
 						message: `引导失败: ${(err as Error).message}`,
 					});
+					break;
 				}
+				// 注入成功：若会话标题为空则自动补全（与 agent:prompt 行为一致）
+				await this.fillEmptySessionTitle(event.sessionId, event.text);
 				break;
 			}
 			case "steer:immediate-message": {
@@ -1049,7 +1052,10 @@ export class WSServer {
 						type: "error",
 						message: `立即执行失败: ${(err as Error).message}`,
 					});
+					break;
 				}
+				// 注入成功：若会话标题为空则自动补全（与 agent:prompt 行为一致）
+				await this.fillEmptySessionTitle(event.sessionId, event.text);
 				break;
 			}
 			case "clear-queue": {
@@ -1988,6 +1994,32 @@ export class WSServer {
 				}
 				break;
 			}
+		}
+	}
+
+	/**
+	 * 引导（steer）注入消息成功后，若会话标题为空则用消息前 20 字补全并广播 projects:list，
+	 * 与 agent:prompt 的 fillSessionTitleIfEmpty 行为一致。补全失败不影响注入主流程。
+	 */
+	private async fillEmptySessionTitle(
+		sessionId: string,
+		text: string,
+	): Promise<void> {
+		try {
+			const filled = await this.opts.projectStore.fillSessionTitleIfEmpty(
+				sessionId,
+				text.slice(0, 20),
+			);
+			if (filled) {
+				const data = await this.opts.projectStore.load();
+				this.broadcast({
+					type: "projects:list",
+					projects: data.projects,
+					sessions: data.sessions,
+				});
+			}
+		} catch (err) {
+			console.error(`[ws-server] 引导后自动补全标题失败 ${sessionId}:`, err);
 		}
 	}
 
