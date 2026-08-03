@@ -48,16 +48,14 @@ test("打开时拉取命令并按 packageName 过滤，渲染命令列表 + 顶�
   expect(getMock).toHaveBeenCalledWith("/api/extensions/commands");
 });
 
-test("tuiOnly 命令显示 ⚠ TUI 命令不被支持 徽标，普通命令不显示", async () => {
+test("tuiOnly 命令不再显示 ⚠ 徽标（仅保留顶部提示条）", async () => {
   getMock.mockImplementation(async () => ({ commands: sampleCommands() }));
   render(<CommandListModal packageName="superpowers-zh" onClose={() => {}} />);
 
   await screen.findByText("/tui-cmd");
-  const badge = screen.getByText("⚠ TUI 命令不被支持");
-  expect(badge).toBeTruthy();
-
-  // 普通命令行内没有徽标（页面只剩顶部提示条这一处含「TUI」字样的文本）
-  expect(screen.getAllByText(/TUI 命令不被支持/).length).toBe(2);
+  // 行内徽标已移除：全页只应有一处含「TUI 命令不被支持」的文本（顶部提示条）
+  expect(screen.getAllByText(/TUI 命令不被支持/).length).toBe(1);
+  expect(screen.queryByText("⚠ TUI 命令不被支持")).toBeNull();
 });
 
 test("开关切换：立即翻转本地状态并调用 toggle API", async () => {
