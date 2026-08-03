@@ -56,6 +56,32 @@ describe("composer-db", () => {
     expect(await getSessionPrefs("test-session")).toBeUndefined();
   });
 
+  it("stores and retrieves text draft", async () => {
+    await setSessionPrefs({
+      sessionId: "test-session",
+      model: "gpt-4o",
+      thinking: "high",
+      attachments: [],
+      text: "写了一半的草稿",
+      updatedAt: Date.now(),
+    });
+    const prefs = await getSessionPrefs("test-session");
+    expect(prefs?.text).toBe("写了一半的草稿");
+  });
+
+  it("stores and retrieves empty text draft（清空语义）", async () => {
+    await setSessionPrefs({
+      sessionId: "test-session",
+      model: "gpt-4o",
+      thinking: "high",
+      attachments: [],
+      text: "",
+      updatedAt: Date.now(),
+    });
+    const prefs = await getSessionPrefs("test-session");
+    expect(prefs?.text).toBe("");
+  });
+
   it("stores defaults", async () => {
     await setDefaults({ model: "claude-sonnet", thinking: "disabled" });
     const defs = await getDefaults();
