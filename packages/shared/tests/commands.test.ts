@@ -21,6 +21,19 @@ test("CommandInfo 最小结构（name 必填，description/source 可选但 sour
   expect(cmd.source).toBe("extension");
 });
 
+test("CommandInfo 新增 extension 来源可选字段（packageName/enabled/tuiOnly）", () => {
+  const cmd: CommandInfo = {
+    name: "goal",
+    source: "extension",
+    packageName: "@narumitw/pi-goal",
+    enabled: true,
+    tuiOnly: false,
+  };
+  expect(cmd.packageName).toBe("@narumitw/pi-goal");
+  expect(cmd.enabled).toBe(true);
+  expect(cmd.tuiOnly).toBe(false);
+});
+
 test("SessionCommandsRequest 字面量 type 与 ws-server case 一致", () => {
   const req: SessionCommandsRequest = { type: "session:commands", sessionId: "s1" };
   expect(req.type).toBe("session:commands");
