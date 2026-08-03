@@ -2,6 +2,10 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+- **fix(frontend): 聊天输入框粘贴富文本只保留纯文本**——从网页复制内容粘贴到输入框时，contenteditable 默认会把剪贴板 HTML（带网页样式/标签结构）插入 DOM，行为不可控（表格/图片/链接等结构影响换行与内容）。修复：`handlePaste` 检测到 `text/html` 时拦截默认粘贴，只插入 `text/plain` 纯文本（丢弃样式与标签），再触发受控层重新提取；文件/图片粘贴链路不变，纯文本粘贴不拦截。
+  - 影响范围：`packages/frontend/src/components/ui/ComposerInput.tsx`（`handlePaste` 新增富文本拦截 + `insertPlainText` 光标处插入纯文本）、`packages/frontend/tests/ComposerInput.test.tsx`（新增 2 用例）。
+  - 验证：组件测试（富文本粘贴→纯文本；多行富文本→保留换行）红灯→绿灯 TDD；ComposerInput 41 pass；frontend 全量 965 pass / 1 skip / 0 fail、typecheck 通过。
+
 - **feat(frontend): 不支持预览的文件提供「在系统查看文件」**——FileViewer 的 unsupported 分支（如 zip 等无法预览的文件）新增「在系统查看文件」按钮（深色文字无底色：`fv-btn-accent` 透明背景 + 深色文字 + 细边框，hover 浅紫底紫字），点击调用既有 `POST /api/fs/reveal-file` 在系统文件管理器（Windows 资源管理器/访达）中显示该文件；复用 ExplorerPanel「在访达中显示」同款链路，无需新增 kernel/Electron 端点。
   - 影响范围：`packages/frontend/src/components/blocks/FileViewer.tsx`（unsupported 分支加按钮）、`packages/frontend/src/styles.css`（新增 `.fv-btn-accent`）、`packages/frontend/tests/FileViewer.test.tsx`（新增 1 用例）、`packages/frontend/e2e/explorer.spec.ts`（新增 1 E2E 用例）、`packages/frontend/e2e/global-setup.ts`（预置 sample.zip）。
   - 验证：组件测试（按钮渲染 + 深色文字变体类 + 点击调 revealFile + 路径正确）红灯→绿灯 TDD；frontend 全量 963 pass / 1 skip / 0 fail、typecheck 通过；E2E explorer.spec.ts 3/3 PASS（真实浏览器双击 zip → unsupported → 按钮可见）。

@@ -342,11 +342,38 @@ export function ComposerInput({
     e.target.value = "";
   };
 
+  /** contenteditable 光标处插入纯文本（粘贴净化用），并触发 input 让受控层重新提取 */
+  function insertPlainText(el: HTMLElement, text: string): void {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && sel.anchorNode && el.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      const node = document.createTextNode(text);
+      range.insertNode(node);
+      range.setStartAfter(node);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } else {
+      el.insertAdjacentText("beforeend", text);
+    }
+    el.dispatchEvent(new InputEvent("input", { bubbles: true }));
+  }
+
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     const files = e.clipboardData.files;
     if (files.length > 0) {
       e.preventDefault();
       void uploadFiles(files);
+      return;
+    }
+    // 富文本粘贴净化：contenteditable 默认会把剪贴板 HTML（带网页样式）插入 DOM，
+    // 这里拦截只插入纯文本（丢弃样式/标签），再触发受控层重新提取。
+    const getData = (type: string) =>
+      typeof e.clipboardData.getData === "function" ? e.clipboardData.getData(type) : "";
+    if (getData("text/html")) {
+      e.preventDefault();
+      insertPlainText(e.currentTarget, getData("text/plain"));
     }
   };
 
