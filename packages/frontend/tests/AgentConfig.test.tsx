@@ -430,7 +430,7 @@ describe("AgentConfig 内置 subagent（可保存 model/thinking）", () => {
 		);
 	});
 
-	test("内置 subagent 的非 model/thinking 字段只读（opacity-60 + pointer-events-none）", () => {
+	test("内置 subagent 的非 model/thinking 字段只读（pointer-events-none，无 opacity-60）", () => {
 		useSubagentsStore.setState({
 			subagents: [
 				{
@@ -447,9 +447,35 @@ describe("AgentConfig 内置 subagent（可保存 model/thinking）", () => {
 		});
 		render(<AgentConfig agentName="Explore" onClose={() => {}} />);
 		const content = screen.getByTestId("config-tab-content");
-		// 只禁用 checkboxes/buttons/textarea，不禁用 select（model/thinking 可编辑）
+		// 父级 pointer-events-none 禁用全部非 select 控件，仅 model/thinking 的 select 恢复可点
 		expect(content.className).toContain("pointer-events-none");
-		expect(content.className).toContain("[&_textarea]");
+		expect(content.className).toContain("[&_select]:pointer-events-auto");
+	});
+
+	test("内置 subagent 打开时也会拉取系统工具列表（工具 tab 不显示加载中）", () => {
+		apiCalls.length = 0;
+		useSubagentsStore.setState({
+			subagents: [
+				{
+					name: "general-purpose",
+					displayName: "通用子智能体",
+					description: "",
+					emoji: "🧭",
+					gradient: ["#0891b2", "#06b6d4"] as [string, string],
+					readOnly: false,
+					systemPrompt: "x",
+					builtinToolNames: [],
+				},
+			],
+		});
+		render(<AgentConfig agentName="general-purpose" onClose={() => {}} />);
+		// 内置分支也必须拉取系统工具列表（ToolsTab 依赖 tools prop 渲染，
+		// 不拉取则永远停在“加载中...”）
+		expect(
+			apiCalls.some(
+				(c) => c.method === "get" && c.path === "/api/agents/tools",
+			),
+		).toBe(true);
 	});
 
 	test("内置 subagent 显示真实 systemPrompt（来自 useSubagentsStore）", async () => {
