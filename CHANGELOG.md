@@ -6,6 +6,19 @@
 
 ## 2026-08-03
 
+### 新增
+
+- **feat(kernel+frontend): 插件命令级启停管理**——把“自动扫描决定命令显示”改为“用户手动控制命令启停”：插件页每个插件卡片新增「⌘ 附加命令」按钮，弹窗列出该插件注册的斜杠命令，逐条开关（默认全部关闭）；TUI-only 命令在弹窗中标记“⚠ TUI 命令不被支持”；`/` 菜单只显示已开启的插件命令（prompt/builtin 不受影响）。
+  - 内核：删除 `_commandsCache`（5min TTL）与 `scanCache` 两个缓存机制，`getCommands()` 每次实时拉取；`tuiOnlyCommandNames`→`disabledCommandNames`、`isTuiOnlyCommand`→`isCommandDisabled`；发送端用 `_commandsFetched` 标记 + 关闭命令静默降级（加前导空格变普通文本给 LLM）；`filterTuiCommands` 由过滤改为附加 `tuiOnly`/`packageName` 标记全量返回；`session:commands` 与 `extension:commands:list` 统一在 `_fetchCommands` 合并开关状态；settings.json 新增 `waPiCommandToggles`（裸包名 key，缺省关闭）。
+  - 新增 API：`GET /api/extensions/commands`（命令列表 + 开关状态 + TUI 标记）、`POST /api/extensions/commands/toggle`（切换并持久化）。
+  - 前端：新增 `CommandListModal` 弹窗（逐命令开关 + TUI 徽标 + 乐观更新）；`/` 菜单按 `enabled` 过滤；`extension_notify` 系统消息（如 `—— MCP: 5 servers connected ——`）显示 20s 后自动从聊天界面消失。
+  - 影响范围：`packages/shared/src/commands.ts`、`packages/kernel/src/{agent-manager,tui-command-filter,extension-manager,ws-server,routes/extensions}.ts`、`packages/frontend/src/{store/commands,session}.ts`、`packages/frontend/src/components/settings/{CommandListModal,ExtensionSection}`。
+  - 验证：kernel 667 pass、shared 94 pass、前端新增用例全绿；tsc 全绿；旧名 `_commandsCache`/`scanCache`/`tuiOnlyCommandNames`/`isTuiOnlyCommand` 代码级零残留（仅 build-kernel-sidecar.ts 注释已同步清理）。
+
+---
+
+## 2026-08-03
+
 ### 修复
 
 - **fix(frontend): 卸载插件等待反馈——按钮 loading 态（spinner +「卸载中…」+ disabled）**——卸载是异步操作（等待 kernel 事件终结），此前点击确认后无任何反馈、按钮可重复点击导致重复卸载。修复：store 新增 `uninstalling: Record<string, boolean>` 状态（`uninstallPackage` 置位、`setAll` 重置、`setError` 清除，与升级 `upgrading` 对称）；组件在卸载中渲染 spinner（border 2px var(--danger-soft)、borderTopColor var(--danger)、spin 0.8s linear infinite）+「卸载中…」，按钮 `disabled={uninstalling[pkg.name] === true}` 防重复点击，失败后恢复可点。
