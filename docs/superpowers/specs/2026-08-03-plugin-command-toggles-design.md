@@ -62,7 +62,9 @@ pi-goal 插件（`@narumitw/pi-goal`）被 `tui-command-filter.ts` 的扩展级�
 
 ### 4.3 get_commands 返回扩展（kernel → 前端）
 
-`agent-manager.ts` 的 `getCommands` / `_fetchAndCacheCommands` 流程保持，但 `filterTuiCommands` 输出结构改为：
+**删除 5min TTL 全局缓存**（`_commandsCache`）。现有 `getCommands()` 第 1 步的缓存查询、`_fetchAndCacheCommands` 的缓存写入、`markAllDirty`/`markSkillsDirty` 的缓存置空全部移除——不再有 `Date.now()` 过期判断。
+
+`getCommands()` / `_fetchAndCacheCommands` 改为每次实时 RPC 拉取，`filterTuiCommands` 输出结构扩展：
 
 ```ts
 interface CommandInfo {
@@ -78,7 +80,7 @@ interface CommandInfo {
 
 ### 4.4 发送端降级（agent-manager.ts:1065-1073）
 
-现有逻辑：
+现有逻辑依赖 `_commandsCache` 作为"已拉取过"标记：
 
 ```ts
 if (text.startsWith("/")) {
@@ -89,21 +91,31 @@ if (text.startsWith("/")) {
 }
 ```
 
-保持**原样**——因为 `tuiOnlyCommandNames` 的填充逻辑改为"关闭的命令名"后，`isTuiOnlyCommand(cmdName)` 自动覆盖"关闭命令静默降级"的需求。**Composer.tsx / 前端发送路径零改动**。
+改为：用布尔标记 `_commandsFetched` 替代 `_commandsCache` 的判空（作用仍是"首次拉取一次以填充 `tuiOnlyCommandNames`"，但无 TTL、无缓存数据）：
 
-> 命名澄清：`isTuiOnlyCommand` 名称保留但语义变为"命令不可用（关闭）"——为最小改动不改函数名；若实现时改名 `isCommandDisabled` 更清晰，但需同步测试。
+```ts
+if (text.startsWith("/")) {
+  if (!this._commandsFetched) {
+    await this._fetchAndCacheCommands(handle.client).catch(() => []);
+    this._commandsFetched = true;
+  }
+  const sp = text.indexOf(" ");
+  const cmdName = sp === -1 ? text.slice(1) : text.slice(1, sp);
+  if (isTuiOnlyCommand(cmdName)) text = ` ${text}`;
+}
+```
+
+`isTuiOnlyCommand(cmdName)` 语义变为"命令不可用（关闭）"——`tuiOnlyCommandNames` 填充来源改为"命令开关为关闭的扩展命令名"。**Composer.tsx / 前端发送路径零改动**。
+
+> 命名澄清：`isTuiOnlyCommand` 名称保留但语义变化；若实现时改名 `isCommandDisabled` 更清晰，但需同步测试。
 
 ### 4.5 新 API（routes/extensions.ts）
 
-**缓存说明：** 现有 `getCommands()` 依赖 5min TTL 的 `_commandsCache`（服务 `/` 菜单 `session:commands`，避免频繁 RPC）。插件页命令弹窗需要**实时**状态（toggle 后重开弹窗应立即反映），因此新 API **绕过 `_commandsCache`**，直接实时拉取。
-
-- `GET /api/extensions/commands` → `{ commands: CommandInfo[] }`（全部插件命令，含 packageName/enabled/tuiOnly）：
-  - 新增 `getCommandsRealtime()`：不读 `_commandsCache`，直接从活跃 pi 进程 RPC `get_commands` 拉取（复用 `getCommands()` 的 2-5 步借进程逻辑，去掉第 1 步缓存查询）
-  - 拉取后合并开关状态 + TUI 标记返回；**不写入 `_commandsCache`**（避免污染 `/` 菜单缓存语义）
+- `GET /api/extensions/commands` → `{ commands: CommandInfo[] }`（全部插件命令，含 packageName/enabled/tuiOnly）：复用 `getCommands()`（已实时化），不依赖特定 session
 - `POST /api/extensions/commands/toggle` → body `{ name, command, enabled }`：
   - 写 settings `waPiCommandToggles[packageName][command] = enabled`
-  - 调用 `markAllDirty()` 清 `/` 菜单命令缓存（复用现有机制）
-  - 刷新 `tuiOnlyCommandNames` 降级集合
+  - 重置 `_commandsFetched = false` + 清空 `tuiOnlyCommandNames`（下次发送/查询重新拉取刷新）
+  - 无需 `markAllDirty()`（缓存已删除）
 
 ## 5. 前端改动
 
@@ -147,8 +159,8 @@ if (text.startsWith("/")) {
 
 **修改：**
 
-- `packages/kernel/src/tui-command-filter.ts` — filterTuiCommands 改为标记而非删除；tuiOnlyCommandNames 填充来源改为关闭命令
-- `packages/kernel/src/agent-manager.ts` — getCommands 输出结构扩展；新 API 数据源；toggle 后刷新降级集合
+- `packages/kernel/src/agent-manager.ts` — **删除 `_commandsCache` 5min TTL 缓存**（字段、缓存查询、缓存写入、markAllDirty 置空）；新增 `_commandsFetched` 布尔标记；getCommands 每次实时拉取；输出结构扩展；toggle 后重置标记
+- `packages/kernel/src/tui-command-filter.ts` — filterTuiCommands 改为标记而非删除；tuiOnlyCommandNames 填充来源改为关闭命令；新增清除集合方法
 - `packages/kernel/src/routes/extensions.ts` — 两个新路由
 - `packages/kernel/src/settings.ts`（或等效持久化模块）— waPiCommandToggles 读写
 - `packages/frontend/src/components/settings/ExtensionSection.tsx` — 附加命令按钮
@@ -168,6 +180,8 @@ if (text.startsWith("/")) {
 
 ### 单元（kernel，bun:test）
 
+- `_commandsCache` 缓存机制已删除：`getCommands()` 不依赖 TTL 缓存，重复调用每次都实时拉取（mock RpcClient 验证调用次数）
+- `_commandsFetched` 标记：首次发送前拉取一次；toggle 后重置，下次发送重新拉取
 - `isTuiOnlyExtension` 仍能正确识别 TUI-only 扩展（现有用例回归）
 - `filterTuiCommands`：TUI-only 命令不再被删除，附带 `tuiOnly: true`
 - 包名解析：`sourceInfo.path` → `waPiPackages` 格式包名
