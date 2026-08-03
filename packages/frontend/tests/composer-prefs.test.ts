@@ -333,4 +333,61 @@ describe("composer-prefs store", () => {
     const stored = await getSessionPrefs("s-gap-early");
     expect(stored?.attachments).toEqual([{ kind: "snippet", name: "note", content: "hi" }]);
   });
+
+  it("loadSession 恢复 text 草稿", async () => {
+    await dbSetDefaults({ model: null, thinking: "disabled" });
+    await dbSetSessionPrefs({
+      sessionId: "s-draft", model: null, thinking: "disabled",
+      attachments: [], text: "写了一半的消息", updatedAt: Date.now(),
+    });
+
+    await useComposerPrefsStore.getState().loadSession("s-draft");
+
+    expect(useComposerPrefsStore.getState().bySession["s-draft"].text).toBe("写了一半的消息");
+  });
+
+  it("gap 期间写入的 text 在 loadSession 合并中胜出", async () => {
+    await dbSetDefaults({ model: null, thinking: "disabled" });
+    await dbSetSessionPrefs({
+      sessionId: "s-gap-text", model: null, thinking: "disabled",
+      attachments: [], text: "持久层草稿", updatedAt: Date.now(),
+    });
+
+    // 异步 gap：loadSession 发起但未完成时，组件先写入了 text
+    const loadPromise = useComposerPrefsStore.getState().loadSession("s-gap-text");
+    useComposerPrefsStore.getState().setSessionPrefs("s-gap-text", { text: "gap 期间输入" });
+    await loadPromise;
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(useComposerPrefsStore.getState().bySession["s-gap-text"].text).toBe("gap 期间输入");
+  });
+
+  it("发送清空（text: 空串）后 loadSession 不恢复文本", async () => {
+    await dbSetDefaults({ model: null, thinking: "disabled" });
+    await dbSetSessionPrefs({
+      sessionId: "s-sent", model: null, thinking: "disabled",
+      attachments: [], text: "已发送的草稿", updatedAt: Date.now(),
+    });
+    await useComposerPrefsStore.getState().loadSession("s-sent");
+    useComposerPrefsStore.getState().setSessionPrefs("s-sent", { text: "" });
+    await new Promise((r) => setTimeout(r, 10));
+
+    // 模拟重启：内存态重置，持久化数据保留
+    useComposerPrefsStore.setState({ bySession: {}, loadedBySession: {} });
+    await useComposerPrefsStore.getState().loadSession("s-sent");
+
+    expect(useComposerPrefsStore.getState().bySession["s-sent"].text ?? "").toBe("");
+  });
+
+  it("老记录（无 text 字段）加载后 text 为 undefined", async () => {
+    await dbSetDefaults({ model: null, thinking: "disabled" });
+    await dbSetSessionPrefs({
+      sessionId: "s-old", model: null, thinking: "disabled",
+      attachments: [], updatedAt: Date.now(),
+    });
+
+    await useComposerPrefsStore.getState().loadSession("s-old");
+
+    expect(useComposerPrefsStore.getState().bySession["s-old"].text).toBeUndefined();
+  });
 });
