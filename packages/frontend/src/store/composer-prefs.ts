@@ -31,6 +31,7 @@ export interface SessionPrefs {
   // thinking 可选：undefined 表示用户未在此会话显式设置过，组件读取时回退到 defaults.thinking
   thinking?: ThinkingLevel;
   attachments: AttachmentDraft[];
+  text?: string; // 未发送的输入框草稿；缺省/空串 = 无草稿
 }
 
 interface ComposerPrefsState {
@@ -92,9 +93,10 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
           model: gap?.model !== undefined ? gap.model : (stored?.model ?? existing.model),
           thinking: gap?.thinking ?? stored?.thinking ?? existing.thinking,
           attachments: gap?.attachments ?? stored?.attachments ?? existing.attachments,
+          text: gap?.text ?? stored?.text ?? existing.text,
         };
         // gap 写入被守卫拦下未落盘，这里把合并结果统一持久化
-        void dbSetSessionPrefs({ sessionId, model: merged.model, thinking: merged.thinking ?? defaults.thinking, attachments: merged.attachments, updatedAt: Date.now() });
+        void dbSetSessionPrefs({ sessionId, model: merged.model, thinking: merged.thinking ?? defaults.thinking, attachments: merged.attachments, text: merged.text, updatedAt: Date.now() });
         // 保留已有 prefs 的同时，若 defaults 加载延迟则一并更新
         const next: Partial<ComposerPrefsState> = { ...loaded, bySession: { ...s.bySession, [sessionId]: merged } };
         if (s.defaults.model == null && defaults.model != null) next.defaults = defaults;
@@ -111,6 +113,7 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
             // 组件读取时回退到 defaults.thinking（而非硬编码 disabled）
             ...(stored?.thinking !== undefined ? { thinking: stored.thinking } : {}),
             attachments: stored?.attachments ?? [],
+            ...(stored?.text !== undefined ? { text: stored.text } : {}),
           },
         },
       };
