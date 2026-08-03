@@ -44,15 +44,26 @@ async function pollUntil<T>(
 /** 建项目（旧 WS project:create + 等 project:created）：POST 只回 {ok:true}，轮询列表拿项目对象。
  *  同名同目录已存在时（serial 用例重复确保项目存在）不报错，直接返回已建项目。 */
 export async function createProject(name: string, cwd: string): Promise<any> {
-  try {
-    await api("POST", "/api/projects", { name, cwd });
-  } catch (e) {
-    if (!String(e).includes("已存在")) throw e;
+  // projects.json 的读-改-写无锁：kernel 并发会话写入（发送 prompt 派生的 pi 子进程仍在异步写）
+  // 可能覆盖刚建的项目（lost update）——POST 返回 200 但项目从列表消失，轮询永不命中。
+  // 处理：轮询短超时不见 → 幂等重 POST（同名同目录已存在则容忍）→ 再轮询，最多 3 轮。
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await api("POST", "/api/projects", { name, cwd });
+    } catch (e) {
+      if (!String(e).includes("已存在")) throw e;
+    }
+    // 首轮短超时快速发现丢失，避免干等 10s；后续轮用完整超时等 kernel 事件循环平稳
+    const found = await pollUntil(
+      async () => {
+        const data = await api("GET", "/api/projects");
+        return data.projects?.find((p: any) => p.name === name && p.cwd === cwd);
+      },
+      attempt === 0 ? 3_000 : 10_000,
+    ).catch(() => undefined);
+    if (found) return found;
   }
-  return pollUntil(async () => {
-    const data = await api("GET", "/api/projects");
-    return data.projects?.find((p: any) => p.name === name && p.cwd === cwd);
-  });
+  throw new Error(`createProject 失败: ${name} 重 POST 3 轮后仍未出现在项目列表`);
 }
 
 /** 预置模型供应商（旧 WS provider:save + 等 provider:changed：POST 返回时落盘已完成） */
