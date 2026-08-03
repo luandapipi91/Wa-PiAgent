@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-08-03
+
+### 修复
+
+- **fix(build): 生产打包失败——根 package.json 冗余生产依赖与 bun 隔离布局不兼容**——electron-builder 26 检测到 workspace root 后会把根 `dependencies` 纳入依赖收集，但 bun 1.3 隔离安装布局（依赖存放于 `node_modules/.bun/`，非传统 `node_modules/@scope/pkg`）导致收集器报 `Production dependency @amaster.ai/pi-memory not found for package wa-pi`。修复：移除根 package.json 冗余的 `dependencies`（`@amaster.ai/pi-memory`/`pi-open-agents`/`typebox`——三者已分别由 packages/kernel、packages/shared 声明，根代码无直接引用），`bun install` 更新 lockfile 后 electron-builder 依赖收集为空、打包通过。
+  - 影响范围：根 `package.json`、`bun.lock`。
+  - 验证：`build:mac` 全流程通过（typecheck + 全量测试 + sidecar 组装 + electron-builder 出 dmg/zip）；dmg 挂载验证含 Applications 快捷方式与应用本体。
+
+---
+
 ## 2026-08-02
 
 ### 新增
