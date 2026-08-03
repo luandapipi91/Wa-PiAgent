@@ -95,10 +95,14 @@ if (text.startsWith("/")) {
 
 ### 4.5 新 API（routes/extensions.ts）
 
-- `GET /api/extensions/commands` → `{ commands: CommandInfo[] }`（全部插件命令，含 packageName/enabled/tuiOnly；从 agent-manager 借进程拉取，不依赖特定 session）
+**缓存说明：** 现有 `getCommands()` 依赖 5min TTL 的 `_commandsCache`（服务 `/` 菜单 `session:commands`，避免频繁 RPC）。插件页命令弹窗需要**实时**状态（toggle 后重开弹窗应立即反映），因此新 API **绕过 `_commandsCache`**，直接实时拉取。
+
+- `GET /api/extensions/commands` → `{ commands: CommandInfo[] }`（全部插件命令，含 packageName/enabled/tuiOnly）：
+  - 新增 `getCommandsRealtime()`：不读 `_commandsCache`，直接从活跃 pi 进程 RPC `get_commands` 拉取（复用 `getCommands()` 的 2-5 步借进程逻辑，去掉第 1 步缓存查询）
+  - 拉取后合并开关状态 + TUI 标记返回；**不写入 `_commandsCache`**（避免污染 `/` 菜单缓存语义）
 - `POST /api/extensions/commands/toggle` → body `{ name, command, enabled }`：
   - 写 settings `waPiCommandToggles[packageName][command] = enabled`
-  - 调用 `markAllDirty()` 清命令缓存（复用现有机制）
+  - 调用 `markAllDirty()` 清 `/` 菜单命令缓存（复用现有机制）
   - 刷新 `tuiOnlyCommandNames` 降级集合
 
 ## 5. 前端改动
