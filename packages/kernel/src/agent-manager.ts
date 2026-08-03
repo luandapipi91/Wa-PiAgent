@@ -49,6 +49,7 @@ import { buildAdditionalExtensionPaths } from "./extensions";
 import {
 	filterTuiCommands,
 	isCommandDisabled,
+	resetDisabledCommands,
 	type RawCommandInfo,
 } from "./tui-command-filter";
 import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
@@ -271,17 +272,32 @@ export class AgentManager {
 	/**
 	 * 标记当前所有活跃会话为待重建（扩展/插件配置变更后调用）。
 	 * 不立即重建——各会话在下次被 ensureStarted（切换/使用）时各自重建一次。
+	 * 同时重置命令拉取标记与降级集合：插件变更后命令列表变化，发送端下次 / 命令重新拉取。
 	 */
 	markAllDirty(): void {
 		for (const id of this.sessions.keys()) this.dirty.add(id);
+		this._commandsFetched = false;
+		resetDisabledCommands();
 	}
 
 	/**
 	 * 标记当前所有活跃会话为待重建（skill 目录增删 / skill 禁用后调用）。
 	 * 与 markAllDirty 统一为进程重启（--skill 列表构造时固定，只能重启刷新）。
+	 * 同时重置命令拉取标记与降级集合（同上）。
 	 */
 	markSkillsDirty(): void {
 		for (const id of this.sessions.keys()) this.skillDirty.add(id);
+		this._commandsFetched = false;
+		resetDisabledCommands();
+	}
+
+	/**
+	 * 重置命令拉取标记与降级集合（命令开关切换后调用，供 ws-server toggle handler 使用）。
+	 * 发送端下一次 / 命令时重新拉取命令清单，刷新 disabledCommandNames。
+	 */
+	resetCommandState(): void {
+		this._commandsFetched = false;
+		resetDisabledCommands();
 	}
 
 	/** agent 重命名联动：更新活跃会话 meta，标 skillDirty 使下次 ensureStarted 重建 */

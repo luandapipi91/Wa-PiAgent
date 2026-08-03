@@ -1,3 +1,5 @@
+import type { CommandInfo } from "./commands";
+
 // ===== 动态插件管理类型定义 =====
 
 /** 已安装插件信息 */
@@ -64,4 +66,25 @@ export interface ExtensionNotifyEvent {
 	type: "extension_notify";
 	message: string;
 	notifyType?: string;
+}
+
+// 前端 → kernel：插件命令页（无 session 上下文）
+export interface ExtensionCommandsListEvent {
+	type: "extension:commands:list";
+}
+export interface ExtensionCommandToggleEvent {
+	type: "extension:commands:toggle";
+	packageName: string; // 裸包名（waPiCommandToggles key）
+	command: string;
+	enabled: boolean;
+}
+
+// kernel → 前端
+export interface ExtensionCommandsListResult {
+	type: "extension:commands:list";
+	commands: CommandInfo[];
+}
+export interface ExtensionCommandToggleResult {
+	type: "extension:commands:toggle";
+	ok: true;
 }

@@ -30,4 +30,19 @@ export const registerExtensionRoutes: RouteRegistrar = (r, callApi, ctx: RouteCo
     const b = await readJsonBody(req);
     return callApi({ type: "extension:upgrade", name: b.name });
   });
+
+  r.add("GET", "/api/extensions/commands", async () =>
+    callApi({ type: "extension:commands:list" })
+  );
+
+  r.add("POST", "/api/extensions/commands/toggle", async (req) => {
+    const b = await readJsonBody(req);
+    if (!b?.packageName || !b?.command || typeof b.enabled !== "boolean") {
+      return new Response(
+        JSON.stringify({ error: "参数缺失或类型错误" }),
+        { status: 400 }
+      );
+    }
+    return callApi({ type: "extension:commands:toggle", ...b });
+  });
 };
