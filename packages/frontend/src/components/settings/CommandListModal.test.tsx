@@ -146,9 +146,7 @@ test("加载中：api.get 未返回前显示加载指示，返回后切换为命
 			}),
 	);
 
-	render(
-		<CommandListModal packageName="superpowers-zh" onClose={() => {}} />,
-	);
+	render(<CommandListModal packageName="superpowers-zh" onClose={() => {}} />);
 
 	// 加载中：显示加载指示，且不显示空状态/命令列表
 	expect(screen.getByTestId("cmd-loading")).toBeTruthy();
