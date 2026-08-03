@@ -2,6 +2,10 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+- **feat(frontend): 插件命令弹窗增加加载态**——点击「附加命令」打开弹窗时，命令列表在 `api.get` 返回前显示加载指示（spinner + "加载命令…"），避免空白/误显示"未注册命令"；返回后切换为命令列表。
+  - 影响范围：`packages/frontend/src/components/settings/CommandListModal.tsx` 及测试。
+  - 验证：新增「加载中→列表」可控 promise 测试，CommandListModal 7 pass、相关回归 32 pass、frontend typecheck 通过。
+
 - **feat(frontend): 命令弹窗移除「⚠ TUI 命令不被支持」行内徽标**——插件「附加命令」弹窗中每条 TUI 命令旁的警告徽标移除，仅保留弹窗顶部提示条「注意：TUI 命令不被支持」。
   - 影响范围：`packages/frontend/src/components/settings/CommandListModal.tsx` 及测试。
   - 验证：CommandListModal 6 pass（更新为「仅顶部提示条一处含 TUI 文本」断言）、相关回归 31 pass、frontend typecheck 通过。
