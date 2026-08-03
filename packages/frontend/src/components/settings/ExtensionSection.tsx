@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useExtensionsStore } from "../../store/extensions";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { CommandListModal } from "./CommandListModal";
 import { ExtensionInstallCard } from "./ExtensionInstallCard";
 
 export function ExtensionSection() {
@@ -21,6 +22,7 @@ export function ExtensionSection() {
 
   const [inputValue, setInputValue] = useState("");
   const [confirmUninstall, setConfirmUninstall] = useState<string | null>(null);
+  const [commandModalPkg, setCommandModalPkg] = useState<string | null>(null);
 
   const handleInstall = () => {
     const name = inputValue.trim();
@@ -183,6 +185,14 @@ export function ExtensionSection() {
                   </button>
                 )}
                 <button
+                  className="px-2 py-1 text-xs rounded-sm font-medium"
+                  style={{ background: "var(--surface-elevated)", color: "var(--text-primary)", border: "1px solid var(--hairline)" }}
+                  onClick={() => setCommandModalPkg(pkg.name)}
+                  data-testid={`ext-commands-${pkg.name}`}
+                >
+                  ⌘ 附加命令
+                </button>
+                <button
                   className="px-2 py-1 text-xs rounded-sm font-medium disabled:opacity-60"
                   style={{ background: "#fff", color: "var(--danger)", border: "1px solid var(--danger)" }}
                   onClick={() => setConfirmUninstall(pkg.name)}
@@ -215,6 +225,14 @@ export function ExtensionSection() {
       <div className="px-3 py-2.5 rounded-sm text-xs text-secondary" style={{ background: "var(--surface-elevated)", border: "1px solid var(--hairline)" }}>
         💡 安装、卸载、升级操作将在 <strong>下次对话开始时生效</strong>，当前对话不受影响。
       </div>
+
+      {/* 附加命令弹窗 */}
+      {commandModalPkg && (
+        <CommandListModal
+          packageName={commandModalPkg}
+          onClose={() => setCommandModalPkg(null)}
+        />
+      )}
 
       {/* 卸载确认弹窗 */}
       {confirmUninstall && (
