@@ -2,6 +2,8 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+- **feat(frontend): 内置命令新增「压缩上下文」，选中插入 /[compact] chip**——ComposerInput 的 / 命令菜单新增「压缩上下文」项，选中后在输入框插入 `/[compact] ` chip（用户可继续输入自定义压缩指令），发送时展开为 `/compact`。空会话或 AI 运行中时该项禁用。影响文件：`ComposerInput.tsx`（builtinCommands + handleSelect cmd: 分支重构）、`ComposerInput.test.tsx`（3 个新测试）。
+
 - **fix(frontend): 聊天输入框粘贴富文本只保留纯文本**——从网页复制内容粘贴到输入框时，contenteditable 默认会把剪贴板 HTML（带网页样式/标签结构）插入 DOM，行为不可控（表格/图片/链接等结构影响换行与内容）。修复：`handlePaste` 检测到 `text/html` 时拦截默认粘贴，只插入 `text/plain` 纯文本（丢弃样式与标签），再触发受控层重新提取；文件/图片粘贴链路不变，纯文本粘贴不拦截。
   - 影响范围：`packages/frontend/src/components/ui/ComposerInput.tsx`（`handlePaste` 新增富文本拦截 + `insertPlainText` 光标处插入纯文本）、`packages/frontend/tests/ComposerInput.test.tsx`（新增 2 用例）。
   - 验证：组件测试（富文本粘贴→纯文本；多行富文本→保留换行）红灯→绿灯 TDD；ComposerInput 41 pass；frontend 全量 965 pass / 1 skip / 0 fail、typecheck 通过。

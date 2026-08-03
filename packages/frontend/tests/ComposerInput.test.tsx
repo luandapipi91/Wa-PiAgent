@@ -754,6 +754,39 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
       window.removeEventListener("wa-pi:pi-command", piHandler);
     }
   });
+
+  it("输入 / 显示内置命令「压缩上下文」", () => {
+    renderComposer({ text: "/" });
+    expect(screen.getByText("压缩上下文")).toBeDefined();
+  });
+
+  it("选中「压缩上下文」插入 /[compact] chip 且不 dispatch wa-pi:pi-command", () => {
+    const setText = mock();
+    const piHandler = mock();
+    window.addEventListener("wa-pi:pi-command", piHandler);
+    try {
+      // 用 / 不带查询，显示完整菜单
+      renderComposer({ text: "/", setText, isRunning: false, isNewSession: false });
+      fireEvent.click(screen.getByText("压缩上下文"));
+      // 不 dispatch pi-command（内置命令走前端 handler）
+      expect(piHandler).not.toHaveBeenCalled();
+      // 输入框被设置为 /[compact] 前缀（用户可继续输入自定义指令）
+      expect(setText).toHaveBeenCalled();
+      const lastCall = setText.mock.calls.at(-1)?.[0] as string;
+      expect(lastCall).toContain("/[compact]");
+    } finally {
+      window.removeEventListener("wa-pi:pi-command", piHandler);
+    }
+  });
+
+  it("空会话时「压缩上下文」禁用（选中无效）", () => {
+    const setText = mock();
+    renderComposer({ text: "/", setText, isRunning: false, isNewSession: true });
+    // 禁用项由 QuickInvokeMenu 渲染为无 onClick 的项：点击后 setText 不应被调用
+    const item = screen.getByText("压缩上下文");
+    fireEvent.click(item);
+    expect(setText).not.toHaveBeenCalledWith(expect.stringContaining("/[compact]"));
+  });
 });
 
 // ── 超大附件降级为路径引用（Electron）/ 提示超限（浏览器）──

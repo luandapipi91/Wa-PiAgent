@@ -178,6 +178,7 @@ export function ComposerInput({
       { id: "cmd:agents", name: "智能体管理", description: "管理所有智能体配置", source: { type: "builtin", name: "命令" } },
       { id: "cmd:skills", name: "技能管理", description: "管理全局技能启用/禁用", source: { type: "builtin", name: "命令" } },
       { id: "cmd:reload", name: "重载配置", description: "重建 AI 进程使技能/扩展变更生效", source: { type: "builtin", name: "命令" }, disabled: isRunning || isNewSession },
+      { id: "cmd:compact", name: "压缩上下文", description: "压缩会话历史释放 token（可附带自定义压缩指令）", source: { type: "builtin", name: "命令" }, disabled: isRunning || isNewSession },
     ];
     // pi 框架内置命令（选中后发 /命令名 给 pi 解析执行）。
     // 来源：pi 的 BUILTIN_SLASH_COMMANDS，去掉已有前端 handler 的(settings/reload)，
@@ -398,12 +399,25 @@ export function ComposerInput({
     // / 命令触发选中内置命令（如系统设置）时执行动作而非插入 token
     if (triggerType === "command" && item.id.startsWith("cmd:")) {
       setDismissed(true);
+      const cmd = item.id.slice(4); // 去掉 "cmd:" 前缀
+      // 压缩上下文：插入 /[compact] chip（可追加自定义指令），发送时展开为 /compact
+      if (cmd === "compact") {
+        const token = "/[compact] ";
+        if (trigger) {
+          const triggerRe = new RegExp(
+            `/${trigger.query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+          );
+          setText(text.replace(triggerRe, token));
+        } else {
+          setText(token);
+        }
+        return;
+      }
       // 清除输入框中的 / 命令文本
       if (trigger) {
         const triggerRe = new RegExp(`/${trigger.query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
         setText(text.replace(triggerRe, ""));
       }
-      const cmd = item.id.slice(4); // 去掉 "cmd:" 前缀
       if (cmd === "settings") {
         window.dispatchEvent(new CustomEvent("wa-pi:open-settings"));
       } else if (cmd === "agents") {
