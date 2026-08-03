@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { api } from "../api-client";
 import type {
 	SessionMessage,
 	AgentStatus,
@@ -87,6 +88,8 @@ interface SessionState {
 	clearNetStatus: (sessionId: string) => void;
 	// 新增：处理 sdk:event 信封事件（流式两态管理核心入口）
 	handleSDKEvent: (sessionId: string, envelope: SDKEventEnvelope) => void;
+	/** 压缩回合结束（agent_end 且本轮 user 为 /compact）后重拉历史，重算 token 累计 */
+	refreshTokenTotals: (sessionId: string) => Promise<void>;
 	/** 存储子代理进度事件：按 toolCallId → agent 二级索引写入（支持 fleet 多 agent 共享同一 toolCallId）。 */
 	handleSubagentProgress: (
 		sessionId: string,
@@ -250,6 +253,24 @@ export const useSessionStore = create<SessionState>((set) => {
 					messagesBySession: { ...s.messagesBySession, [sessionId]: compacted },
 				};
 			}),
+
+		refreshTokenTotals: async (sessionId) => {
+			try {
+				const res = (await api.get(
+					`/api/sessions/${encodeURIComponent(sessionId)}/messages`,
+				)) as { messages: any[] };
+				if (!res?.messages) return;
+				useSessionStore.setState((s) => ({
+					messagesBySession: {
+						...s.messagesBySession,
+						[sessionId]: res.messages,
+					},
+				}));
+				useSessionStore.getState().seedTokenTotal(sessionId, res.messages);
+			} catch {
+				// 刷新失败不影响主流程，静默忽略
+			}
+		},
 
 		/** 根据 isActive 设置会话状态（历史加载/重连时调用） */
 		setActiveStatus: (
@@ -725,6 +746,18 @@ export const useSessionStore = create<SessionState>((set) => {
 						}
 						return result;
 					});
+					// 压缩回合结束：重拉历史，刷新右上角 token 累计
+					const list = useSessionStore.getState().messagesBySession[sessionId] ?? [];
+					const lastUser = [...list]
+						.reverse()
+						.find((m: any) => (m.message as any)?.role === "user");
+					const lastUserText =
+						typeof lastUser?.message?.content === "string"
+							? (lastUser.message as any).content
+							: "";
+					if (lastUserText.trim().startsWith("/compact")) {
+						void useSessionStore.getState().refreshTokenTotals(sessionId);
+					}
 					break;
 				}
 				// 队列更新：steering / followUp 消息列表
