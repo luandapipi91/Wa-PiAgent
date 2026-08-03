@@ -2,6 +2,10 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+- **feat(frontend): 输入框草稿按会话持久化**——未发送的输入框文本随会话持久化：切走再切回、刷新页面、重启应用后自动还原；发送或手动清空后草稿清除（防抖写回空串，手动清空=放弃草稿）；新建页草稿同样持久化；删除会话时其草稿一并清理；切换会话消除跨会话文本残留。
+  - 影响范围：`packages/frontend/src/store/composer-db.ts`（`ComposerSessionRecord` 新增 `text` 字段）、`packages/frontend/src/store/composer-prefs.ts`（text 合并恢复、`removeSessionPrefs`、newSessionIds hydration 守卫）、`packages/frontend/src/components/Composer.tsx`（恢复/防抖写回/发送清空/切换清理）、`packages/frontend/src/components/NewSessionPane.tsx`（新建页草稿）、`packages/frontend/src/components/ProjectItem.tsx`（删除会话清理草稿）及 tests/e2e。
+  - 验证：frontend 全量 962 pass / 1 skip / 0 fail（含草稿 store/组件用例 12 个）、typecheck 通过、E2E composer.spec.ts 9/9 PASS（新增草稿切回/刷新/发送清空/手动清空/新建页 5 用例）。
+
 - **feat(frontend): 插件命令弹窗增加加载态**——点击「附加命令」打开弹窗时，命令列表在 `api.get` 返回前显示加载指示（spinner + "加载命令…"），避免空白/误显示"未注册命令"；返回后切换为命令列表。
   - 影响范围：`packages/frontend/src/components/settings/CommandListModal.tsx` 及测试。
   - 验证：新增「加载中→列表」可控 promise 测试，CommandListModal 7 pass、相关回归 32 pass、frontend typecheck 通过。
