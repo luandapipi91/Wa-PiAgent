@@ -785,7 +785,8 @@ describe("ComposerInput / 命令菜单（pi 命令动态注册）", () => {
     // 禁用项由 QuickInvokeMenu 渲染为无 onClick 的项：点击后 setText 不应被调用
     const item = screen.getByText("压缩上下文");
     fireEvent.click(item);
-    expect(setText).not.toHaveBeenCalledWith(expect.stringContaining("/[compact]"));
+    // 禁用项无 onClick：渲染期间与点击后 setText 都不应被调用（收紧，防意外触发 setText("") 漏报）
+    expect(setText).not.toHaveBeenCalled();
   });
 });
 

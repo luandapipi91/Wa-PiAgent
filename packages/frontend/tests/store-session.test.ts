@@ -30,6 +30,8 @@ beforeEach(() => {
 		statusBySession: {},
 		optimisticEchoBySession: {},
 		historyLoadingBySession: {},
+		tokenTotals: {},
+		lastUsageBySession: {},
 	});
 });
 
@@ -1008,10 +1010,8 @@ test("agent_end：最后一条 user 以 /compact 开头 → 触发 refreshTokenT
 			envelope({ type: "agent_end", messages: [], willRetry: false }),
 		);
 
-	// 等 refreshTokenTotals 的异步链完成
-	await Promise.resolve();
-	await Promise.resolve();
-	await Promise.resolve();
+	// 等 refreshTokenTotals 的异步链完成（宏任务级等待，不依赖微任务数量）
+	await new Promise((r) => setTimeout(r, 0));
 
 	expect(getCalls).toBe(1);
 	const totals = useSessionStore.getState().tokenTotals["s1"];
@@ -1040,9 +1040,89 @@ test("agent_end：最后一条 user 不是 /compact → 不触发 refresh", asyn
 			"s1",
 			envelope({ type: "agent_end", messages: [], willRetry: false }),
 		);
-	await Promise.resolve();
-	await Promise.resolve();
+	// 宏任务级等待，确认 refresh 未被触发（getCalls 保持 0）
+	await new Promise((r) => setTimeout(r, 0));
 
 	expect(getCalls).toBe(0);
 	expect(useSessionStore.getState().tokenTotals["s1"]?.input).toBe(1000);
+});
+
+test("agent_end：最后一条 user content 为数组（含 /compact 文本）→ 不触发 refresh 也不崩溃", async () => {
+	// 生产代码用 typeof content === "string" 防御：数组形态的 user 消息
+	// 不匹配 /compact 前缀检测，因此不刷新；但 agent_end 流程必须正常完成
+	getCalls = 0;
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					message: {
+						role: "user",
+						content: [{ type: "text", text: "/compact 指令" }],
+						timestamp: 1,
+					},
+					agentName: undefined,
+				},
+			],
+		},
+		tokenTotals: { s1: { input: 1000, output: 500 } },
+	});
+
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
+	// 宏任务级等待，确认 refresh 未被触发（数组 content 不匹配字符串前缀检测）
+	await new Promise((r) => setTimeout(r, 0));
+
+	expect(getCalls).toBe(0);
+	// 状态正常复位，token 累计不被重算覆盖
+	expect(useSessionStore.getState().statusBySession["s1"]).toBe("idle");
+	expect(useSessionStore.getState().tokenTotals["s1"]?.input).toBe(1000);
+});
+
+test("agent_end：无 user 消息（空会话 / 全 assistant）→ 不触发 refresh 也不崩溃", async () => {
+	getCalls = 0;
+	// 空会话
+	useSessionStore.setState({
+		messagesBySession: {},
+		tokenTotals: {},
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
+	await new Promise((r) => setTimeout(r, 0));
+	expect(getCalls).toBe(0);
+
+	// 全 assistant（无任何 user 行）
+	getCalls = 0;
+	useSessionStore.setState({
+		messagesBySession: {
+			s2: [
+				{
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "回答" }],
+						model: "m",
+						stopReason: "stop",
+						timestamp: 1,
+					},
+					agentName: "dev",
+				},
+			],
+		},
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s2",
+			envelope({ type: "agent_end", messages: [], willRetry: false }, "s2"),
+		);
+	await new Promise((r) => setTimeout(r, 0));
+	expect(getCalls).toBe(0);
+	expect(useSessionStore.getState().statusBySession["s2"]).toBe("idle");
 });
