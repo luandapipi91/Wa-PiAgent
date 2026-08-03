@@ -1372,13 +1372,25 @@ export class AgentManager {
 	/** 是否已拉取过命令清单（发送端降级集合填充标记；toggle 后重置） */
 	private _commandsFetched = false;
 
-	/** 从 pi 进程拉取命令清单：附加 TUI 标记、登记关闭命令后返回（不缓存） */
+	/**
+	 * 从 pi 进程拉取命令清单：附加 TUI 标记、合并插件开关状态后返回（不缓存）。
+	 * enabled 合并对齐 extension:commands:list 的语义（kernel 侧统一，/ 菜单与插件页一致）：
+	 * 有 packageName（extension 来源）→ 用 waPiCommandToggles 值（缺省 false）；
+	 * 无 packageName（prompt/builtin 等）→ 不附加 enabled（kernel 不填 → undefined，前端缺省 false）。
+	 * 无 extensionManager（测试等场景）→ 保持原样。
+	 */
 	private async _fetchCommands(
 		client: RpcClient,
 	): Promise<CommandInfo[]> {
 		const { commands } = await client.getCommands();
 		const cmds = filterTuiCommands((commands ?? []) as RawCommandInfo[]);
-		return cmds;
+		if (!this.opts.extensionManager) return cmds;
+		const toggles = await this.opts.extensionManager.getCommandToggles();
+		return cmds.map((cmd) =>
+			cmd.packageName
+				? { ...cmd, enabled: toggles[cmd.packageName]?.[cmd.name] ?? false }
+				: cmd,
+		);
 	}
 
 	/** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */

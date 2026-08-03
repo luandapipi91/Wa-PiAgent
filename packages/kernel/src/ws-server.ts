@@ -1726,16 +1726,10 @@ export class WSServer {
 			case "extension:commands:list": {
 				// 插件命令页无 session 上下文：传空 sessionId，getCommands 会借用任意
 				// 活跃 pi 进程实时拉取命令（无活跃进程返回空数组，不创建孤儿进程）。
+				// enabled 已由 AgentManager._fetchCommands 统一合并（对齐 session:commands 路径），
+				// 这里不再二次合并，直接透传，避免双份合并逻辑漂移。
 				try {
-					const raw = await this.opts.agentManager.getCommands("");
-					const toggles = await this.opts.extensionManager.getCommandToggles();
-					const commands = raw.map((cmd) => ({
-						...cmd,
-						// 有 packageName（extension 来源）→ 合并开关状态（缺省 false）
-						enabled: cmd.packageName
-							? (toggles[cmd.packageName]?.[cmd.name] ?? false)
-							: cmd.enabled,
-					}));
+					const commands = await this.opts.agentManager.getCommands("");
 					reply({ type: "extension:commands:list", commands });
 				} catch (err) {
 					reply({ type: "error", message: (err as Error).message });

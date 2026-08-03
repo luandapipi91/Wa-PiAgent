@@ -90,6 +90,8 @@ interface SetupOpts {
 	configStore?: any;
 	memoryStore?: { getConfig(): Promise<any> };
 	skillManager?: SkillManager;
+	/** 注入 extensionManager 桩（getCommands 合并命令开关状态用；any 便于测试桩） */
+	extensionManager?: any;
 	events?: CapturedEvent[];
 	/** 覆盖默认 fakeClientFactory（如慢启动 / 启动失败 / 预置消息） */
 	createClientFn?: (opts: RpcClientOpts) => RpcClient;
@@ -118,6 +120,7 @@ async function setup(opts: SetupOpts = {}) {
 		createClientFn: opts.createClientFn ?? fakeClientFactory(fakes),
 		...(opts.memoryStore ? { memoryStore: opts.memoryStore } : {}),
 		...(opts.skillManager ? { skillManager: opts.skillManager } : {}),
+		...(opts.extensionManager ? { extensionManager: opts.extensionManager } : {}),
 	});
 	managers.push(am);
 	syspromptSessionIds.push(session.id);
@@ -1728,6 +1731,51 @@ test("getCommands 给 TUI-only 扩展的命令附加 tuiOnly 标记并全量返�
 	expect(commands.find((c) => c.name === "hello")?.tuiOnly).toBe(false);
 	// 无 sourceInfo 的命令原样返回（不附加 tuiOnly 字段）
 	expect(commands.find((c) => c.name === "goal")?.tuiOnly).toBeUndefined();
+});
+
+test("getCommands 合并 extension 命令开关状态（enabled：命中 toggles 用开关值，未记录缺省 false）", async () => {
+	// 造一个临时扩展包：resolvePackageName 从 sourceInfo.path 读 package.json 解析包名
+	const root = join(WA_PI_DIR, "tmp", `toggles-merge-${Date.now()}`);
+	tmpPaths.push(root);
+	const extDir = join(root, "goal-ext");
+	mkdirSync(extDir, { recursive: true });
+	writeFileSync(
+		join(extDir, "package.json"),
+		JSON.stringify({ name: "goal-ext" }),
+	);
+	writeFileSync(join(extDir, "index.ts"), `export const y = 1;\n`);
+
+	const { am, project, session, fakes } = await setup({
+		extensionManager: {
+			// ensureStarted 会调 listEnabledPackageNames 决定 -e 扩展路径
+			listEnabledPackageNames: async () => [],
+			getCommandToggles: async () => ({ "goal-ext": { goal: true } }),
+		},
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	fakes[0].commandsToReturn = [
+		{
+			name: "goal",
+			source: "extension",
+			sourceInfo: { path: join(extDir, "index.ts") },
+		},
+		{
+			name: "hello",
+			source: "extension",
+			sourceInfo: { path: join(extDir, "index.ts") },
+		},
+		{ name: "review", description: "代码审查模板", source: "prompt" },
+	];
+
+	const commands = await am.getCommands(session.id);
+
+	expect(commands).toHaveLength(3);
+	// 开启的命令 → enabled: true
+	expect(commands.find((c) => c.name === "goal")?.enabled).toBe(true);
+	// 未记录开关的命令 → 缺省 false
+	expect(commands.find((c) => c.name === "hello")?.enabled).toBe(false);
+	// 非 extension 命令（prompt 来源）→ 不附加 enabled（保持 kernel 不填 enabled 的语义）
+	expect(commands.find((c) => c.name === "review")?.enabled).toBeUndefined();
 });
 
 test("prompt 首个 / 命令触发一次实时拉取，后续不再拉取（命令原样发送）", async () => {
