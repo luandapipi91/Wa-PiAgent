@@ -261,7 +261,9 @@ test("有进度且未完成时：摘要显示状态/耗时/工具计数，回复
 	expect(screen.getByText(/失败 1/)).toBeTruthy();
 	expect(screen.getByText(/执行中 1/)).toBeTruthy();
 	// 回复区直接显示流式 output（无需展开进度详情）
-	expect(screen.getByTestId("text-block").textContent).toContain("正在分析代码");
+	expect(screen.getByTestId("text-block").textContent).toContain(
+		"正在分析代码",
+	);
 	// 不再逐条列出工具（无 Bash/Read 名称）
 	expect(screen.queryByText(/Bash/)).toBeNull();
 	expect(screen.queryByText(/Read/)).toBeNull();
@@ -518,4 +520,60 @@ test("完成态（done）冻结为后端终值，不被本地推算覆盖", () =
 		nowSpy.mockRestore();
 		vi.useRealTimers();
 	}
+});
+
+test("执行中（有进度）头部点击可折叠/展开整张卡片（不被 hasProgress 钉死）", () => {
+	setProgress("tc-collapse", "general-purpose", {
+		status: "running",
+		output: "正在分析",
+		tools: [],
+		elapsedMs: 1000,
+	});
+	render(
+		<DelegateCard
+			sessionId="s1"
+			toolCall={{
+				type: "toolCall",
+				id: "tc-collapse",
+				name: "delegate",
+				arguments: { agent: "general-purpose", task: "hi" },
+			}}
+		/>,
+	);
+	// 执行中卡片默认展开（任务/摘要/回复可见）
+	expect(screen.getByTestId("delegate-tc-collapse-body")).toBeTruthy();
+	expect(screen.getByText(/正在分析/)).toBeTruthy();
+	// 点头部 → 整张卡片折叠（body 消失）
+	fireEvent.click(screen.getByTestId("delegate-tc-collapse-header"));
+	expect(screen.queryByTestId("delegate-tc-collapse-body")).toBeNull();
+	// 再点头部 → 重新展开
+	fireEvent.click(screen.getByTestId("delegate-tc-collapse-header"));
+	expect(screen.getByTestId("delegate-tc-collapse-body")).toBeTruthy();
+});
+
+test("执行中 progress 陆续到达不自动重新打开已折叠的卡片", () => {
+	// 初始无 progress：执行中卡片默认展开
+	render(
+		<DelegateCard
+			sessionId="s1"
+			toolCall={{
+				type: "toolCall",
+				id: "tc-keepfold",
+				name: "delegate",
+				arguments: { agent: "general-purpose", task: "hi" },
+			}}
+		/>,
+	);
+	expect(screen.getByTestId("delegate-tc-keepfold-body")).toBeTruthy();
+	// 用户折叠卡片
+	fireEvent.click(screen.getByTestId("delegate-tc-keepfold-header"));
+	expect(screen.queryByTestId("delegate-tc-keepfold-body")).toBeNull();
+	// progress 事件到达（执行过程推进）：卡片应保持折叠，不被自动重新打开
+	setProgress("tc-keepfold", "general-purpose", {
+		status: "running",
+		output: "正在分析",
+		tools: [],
+		elapsedMs: 1000,
+	});
+	expect(screen.queryByTestId("delegate-tc-keepfold-body")).toBeNull();
 });
