@@ -21,7 +21,11 @@ import {
 	SUBAGENT_TYPES,
 	normalizeSubagentType,
 } from "@wa-pi/shared";
-import type { DelegationHints, SubagentProgressEvent } from "@wa-pi/shared";
+import type {
+	DelegationHints,
+	SubagentProgressEvent,
+	ToolStats,
+} from "@wa-pi/shared";
 import type { WaPiSpawnConfig, SubagentUsage } from "./subagent-runner";
 import { runSubagentAgent as defaultRunSubagentAgent } from "./subagent-runner";
 import type { SpawnTelemetryInput } from "./subagent-telemetry";
@@ -42,6 +46,8 @@ export interface DelegateSpawnResult {
 	isError: boolean;
 	/** 子代理 token 用量（pi get_session_stats 采集失败时为 undefined） */
 	usage?: SubagentUsage;
+	/** 子代理工具调用统计（与实时 progress 同源；异常路径为 undefined） */
+	toolStats?: ToolStats;
 	elapsedMs?: number;
 }
 
@@ -231,15 +237,17 @@ export function makeSpawnFn(opts: {
 			});
 			return result;
 		}
-		const skillPaths = opts.resolveSkillPaths && config.skills.length
-			? await opts.resolveSkillPaths(config.skills)
-			: undefined;
+		const skillPaths =
+			opts.resolveSkillPaths && config.skills.length
+				? await opts.resolveSkillPaths(config.skills)
+				: undefined;
 		// 派发前自愈 provider-extension：从 config.model（形如 "provider/model"）解析出所需 provider slug，
 		// 交由 ensureExtension 校验/重生 extension 文件，避免子进程加载过时空壳报 "No API key found"。
 		if (opts.ensureExtension) {
-			const modelSlug = config.model && config.model.includes("/")
-				? config.model.slice(0, config.model.indexOf("/"))
-				: undefined;
+			const modelSlug =
+				config.model && config.model.includes("/")
+					? config.model.slice(0, config.model.indexOf("/"))
+					: undefined;
 			await opts.ensureExtension(modelSlug);
 		}
 		const result = await runSubagent(config, task, opts.cwd, {
@@ -281,6 +289,7 @@ async function runWithConcurrency<T>(
 				const i = cursor++;
 				results[i] = await thunks[i]();
 			}
+			return undefined;
 		},
 	);
 	await Promise.all(workers);
@@ -306,7 +315,7 @@ export function makeFleetTool(opts: {
 			args: { tasks: Array<{ agent: string; task: string }> },
 		): Promise<{
 			content: Array<{ type: "text"; text: string }>;
-			details: undefined;
+			details: { fleet: Record<string, ToolStats> } | undefined;
 			isError: boolean;
 		}> {
 			if (args.tasks.length === 0) {
@@ -329,23 +338,26 @@ export function makeFleetTool(opts: {
 					const spawnAgent = normalizeSubagentType(t.agent);
 					// fleet 所有子任务共享同一个 fleet 工具调用的 toolCallId：
 					// 前端 FleetCard 靠它定位卡片，内部按 progress.agent 区分各子任务
-					const { text, isError } = await opts.spawn(
+					const { text, isError, toolStats } = await opts.spawn(
 						spawnAgent,
 						t.task,
 						toolCallId,
 					);
-					return { agent: t.agent, text, isError };
+					return { agent: t.agent, text, isError, toolStats };
 				}),
 				MAX_SUBAGENT_CONCURRENCY,
 			);
-			// 按输入顺序聚合为单段文本
+			// 按输入顺序聚合为单段文本；details 携带各子代理工具调用统计（刷新后仍可显示）
 			const lines = results.map(
 				(r) => `【${r.agent}】${r.isError ? "（失败）" : ""}\n${r.text}`,
 			);
 			const anyError = results.some((r) => r.isError);
+			const fleetStats: Record<string, ToolStats> = {};
+			for (const r of results)
+				if (r.toolStats) fleetStats[r.agent] = r.toolStats;
 			return {
 				content: [{ type: "text" as const, text: lines.join("\n\n") }],
-				details: undefined,
+				details: { fleet: fleetStats },
 				isError: anyError,
 			};
 		},

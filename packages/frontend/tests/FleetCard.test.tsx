@@ -265,7 +265,7 @@ function setFleetProgress(
 	useSessionStore.setState({ progressByToolCall: { [toolCallId]: map } });
 }
 
-test("FleetCard 按 agent 分组展示进度摘要：N 个子智能体：X 运行中 / Y 完成 / Z 出错", () => {
+test("FleetCard 按 agent 展示进度：每任务一行统计（任务 N：调用了 X 个工具 成功 Y 失败 Z 执行中 W）", () => {
 	setFleetProgress("tc-fleet", {
 		"agent-a": { status: "running", output: "a", tools: [], elapsedMs: 1000 },
 		"agent-b": { status: "done", output: "b", tools: [], elapsedMs: 2000 },
@@ -284,14 +284,17 @@ test("FleetCard 按 agent 分组展示进度摘要：N 个子智能体：X 运�
 			}
 		/>,
 	);
-	// 摘要：3 个子智能体：1 运行中 / 1 完成 / 1 出错
-	expect(screen.getByText(/1\s*运行中/)).toBeTruthy();
-	expect(screen.getByText(/1\s*完成/)).toBeTruthy();
-	expect(screen.getByText(/1\s*出错/)).toBeTruthy();
-	expect(screen.getByText(/3\s*个子智能体/)).toBeTruthy();
+	// 每任务统计行：编号 + 工具计数（tasks 为空时按 progress agents 兜底编号）
+	expect(
+		screen.getByText(/任务 1：调用了 0 个工具 成功 0 失败 0 执行中 0/),
+	).toBeTruthy();
+	expect(screen.getByText(/任务 2：调用了 0 个工具/)).toBeTruthy();
+	expect(screen.getByText(/任务 3：调用了 0 个工具/)).toBeTruthy();
+	// 状态（运行中/完成/出错）在展开后可见，不体现在统计行
+	expect(screen.queryByText(/运行中/)).toBeNull();
 });
 
-test("FleetCard 有进度时：回复区流式显示各 agent output（无需展开），展开后状态行含工具计数", () => {
+test("FleetCard 有进度时：统计行含工具计数，点开任务行显示该任务回复", () => {
 	setFleetProgress("tc-exp", {
 		代码审查: {
 			status: "running",
@@ -322,22 +325,97 @@ test("FleetCard 有进度时：回复区流式显示各 agent output（无需展
 			}
 		/>,
 	);
-	// 摘要开关存在且为折叠态（▶）
-	const toggle = screen.getByRole("button", { name: /展开|▶/ });
-	expect(toggle).toBeTruthy();
-	// 回复区直接流式显示各 agent output（无需展开进度详情）
-	expect(screen.getByTestId("text-block").textContent).toContain("审查中");
-	expect(screen.getByTestId("text-block").textContent).toContain("样式完成");
-	// 展开进度详情：各 agent 状态行可见（含工具计数）
-	fireEvent.click(toggle);
-	expect(screen.getAllByText(/代码审查/).length).toBeGreaterThan(0);
-	expect(screen.getAllByText(/前端开发/).length).toBeGreaterThan(0);
-	// 工具只显示计数，不再逐条列出名称（两个 agent 分组各自计数）
-	expect(screen.getAllByText(/共 2 个工具/).length).toBeGreaterThan(0);
-	expect(screen.getAllByText(/成功 1/).length).toBeGreaterThan(0);
-	expect(screen.getAllByText(/执行中 1/).length).toBeGreaterThan(0);
+	// 统计行默认可见，含工具计数（无需展开）
+	expect(
+		screen.getByText(/任务 1：调用了 2 个工具 成功 1 失败 0 执行中 1/),
+	).toBeTruthy();
+	expect(
+		screen.getByText(/任务 2：调用了 1 个工具 成功 1 失败 0 执行中 0/),
+	).toBeTruthy();
+	// 未展开时回复不可见
+	expect(screen.queryByText(/审查中/)).toBeNull();
+	expect(screen.queryByText(/样式完成/)).toBeNull();
+	// 点开任务 1 → 只显示该任务回复
+	const rows = screen.getAllByRole("button", { name: /展开|▶/ });
+	fireEvent.click(rows[0]);
+	expect(screen.getByText(/审查中/)).toBeTruthy();
+	expect(screen.queryByText(/样式完成/)).toBeNull();
+	// 工具只显示计数，不再逐条列出名称
 	expect(screen.queryByText(/Bash/)).toBeNull();
 	expect(screen.queryByText(/Edit/)).toBeNull();
+});
+
+test("FleetCard 任务清单格式：任务 N：委派【agent】task", () => {
+	render(
+		<FleetCard sessionId="s1" toolCall={fleetCall} result={fleetResult} />,
+	);
+	fireEvent.click(screen.getByTestId("fleet-f1-header"));
+	const body = screen.getByTestId("fleet-f1-body");
+	expect(body.textContent).toContain("任务 1：委派【代码审查】review diff");
+	expect(body.textContent).toContain("任务 2：委派【前端开发】重构 UI");
+});
+
+test("FleetCard 完成态按 agent 拆分：每任务点开显示各自回复（无 progress 时统计行显示已完成）", () => {
+	useSessionStore.setState({ progressByToolCall: {} });
+	const splitResult = {
+		...fleetResult,
+		content: [
+			{
+				type: "text" as const,
+				text: "【代码审查】review 通过\n\n【前端开发】UI 已重构",
+			},
+		],
+	};
+	render(
+		<FleetCard sessionId="s1" toolCall={fleetCall} result={splitResult} />,
+	);
+	fireEvent.click(screen.getByTestId("fleet-f1-header"));
+	// 无 progress：统计行显示「已完成 · 点击查看回复」
+	expect(screen.getByText(/任务 1：已完成 · 点击查看回复/)).toBeTruthy();
+	expect(screen.getByText(/任务 2：已完成 · 点击查看回复/)).toBeTruthy();
+	// 点开任务 1 → 只显示代码审查的回复
+	const rows = screen.getAllByRole("button", { name: /展开|▶/ });
+	fireEvent.click(rows[0]);
+	expect(screen.getByText(/review 通过/)).toBeTruthy();
+	expect(screen.queryByText(/UI 已重构/)).toBeNull();
+	// 点开任务 2 → 显示前端开发的回复
+	const rows2 = screen.getAllByRole("button", { name: /展开|▶/ });
+	fireEvent.click(rows2[0]);
+	expect(screen.getByText(/UI 已重构/)).toBeTruthy();
+});
+
+test("FleetCard 完成态读 result.details 持久化统计：无 progress 也显示工具计数", () => {
+	useSessionStore.setState({ progressByToolCall: {} });
+	const splitResult = {
+		...fleetResult,
+		content: [
+			{
+				type: "text" as const,
+				text: "【代码审查】review 通过\n\n【前端开发】UI 已重构",
+			},
+		],
+		details: {
+			fleet: {
+				代码审查: { total: 3, done: 2, error: 1, running: 0 },
+				前端开发: { total: 1, done: 1, error: 0, running: 0 },
+			},
+		},
+	};
+	render(
+		<FleetCard sessionId="s1" toolCall={fleetCall} result={splitResult} />,
+	);
+	fireEvent.click(screen.getByTestId("fleet-f1-header"));
+	// 无 progress 但有持久化统计：完成态统计行显示「已完成 调用了 X 个工具 …」
+	expect(
+		screen.getByText(
+			/任务 1：已完成 调用了 3 个工具 成功 2 失败 1 执行中 0 · 点击查看回复/,
+		),
+	).toBeTruthy();
+	expect(
+		screen.getByText(
+			/任务 2：已完成 调用了 1 个工具 成功 1 失败 0 执行中 0 · 点击查看回复/,
+		),
+	).toBeTruthy();
 });
 
 test("FleetCard 无进度时不渲染子智能体摘要（保持原有行为）", () => {
@@ -384,7 +462,7 @@ test("FleetCard 运行中子代理在无事件推送期间：本地推算计时�
 				}
 			/>,
 		);
-		// 展开进度详情（耗时在 agent 分组内）
+		// 点开任务行（耗时在任务展开区内）
 		fireEvent.click(screen.getByRole("button", { name: /展开|▶/ }));
 		expect(screen.getByText(/1\s*s/)).toBeTruthy();
 		// 3 秒静默（思考中，无新进度事件）：时间前进，计时应本地推算到 4s
@@ -398,4 +476,67 @@ test("FleetCard 运行中子代理在无事件推送期间：本地推算计时�
 		nowSpy.mockRestore();
 		vi.useRealTimers();
 	}
+});
+
+test("FleetCard 有进度时：头部点击折叠/展开整张卡片（子任务展开不锁死卡片）", () => {
+	setFleetProgress("tc-fold", {
+		"agent-a": {
+			status: "running",
+			output: "a",
+			tools: [],
+			elapsedMs: 1000,
+		},
+	});
+	render(
+		<FleetCard
+			sessionId="s1"
+			toolCall={
+				{
+					type: "toolCall",
+					id: "tc-fold",
+					name: "fleet",
+					arguments: { tasks: [] },
+				} as any
+			}
+		/>,
+	);
+	// 有进度时卡片默认展开（任务清单/统计行可见）
+	expect(screen.getByTestId("fleet-tc-fold-body")).toBeTruthy();
+	// 点头部 → 整张卡片折叠
+	fireEvent.click(screen.getByTestId("fleet-tc-fold-header"));
+	expect(screen.queryByTestId("fleet-tc-fold-body")).toBeNull();
+	// 再点头部 → 重新展开
+	fireEvent.click(screen.getByTestId("fleet-tc-fold-header"));
+	expect(screen.getByTestId("fleet-tc-fold-body")).toBeTruthy();
+});
+
+test("FleetCard 子任务详情展开后可单独收起（不受卡片折叠状态影响）", () => {
+	setFleetProgress("tc-item", {
+		"agent-a": {
+			status: "done",
+			output: "回复内容",
+			tools: [],
+			elapsedMs: 1000,
+		},
+	});
+	render(
+		<FleetCard
+			sessionId="s1"
+			toolCall={
+				{
+					type: "toolCall",
+					id: "tc-item",
+					name: "fleet",
+					arguments: { tasks: [] },
+				} as any
+			}
+		/>,
+	);
+	// 点任务行展开详情
+	const row = screen.getByRole("button", { name: /展开|▶/ });
+	fireEvent.click(row);
+	expect(screen.getByText(/回复内容/)).toBeTruthy();
+	// 再点任务行收起详情（不被任何 forceExpanded 锁死）
+	fireEvent.click(screen.getByRole("button", { name: /折叠|▼/ }));
+	expect(screen.queryByText(/回复内容/)).toBeNull();
 });

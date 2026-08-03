@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type {
 	ToolCall,
 	ToolResultMessage,
 	SubagentProgressEvent,
+	ToolStats,
 } from "@wa-pi/shared";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -26,34 +27,144 @@ function statusLabel(status: string): string {
 	return "出错";
 }
 
-// 单个 agent 的进度分组行：本地计时（思考/长工具静默期不冻结）+ 工具计数。
-// 抽成独立组件以承载 useLiveElapsed（Hooks 不能在循环里调用）。
-function AgentProgressItem({ p }: { p: SubagentProgressEvent }) {
-	const seconds = useLiveElapsed(p.elapsedMs, p.status === "running");
-	// 工具计数：按 status 分桶（总数/成功/失败/执行中），取代逐条工具列表
-	const tools = p.tools ?? [];
-	const toolCounts = {
-		total: tools.length,
-		done: tools.filter((t) => t.status === "done").length,
-		error: tools.filter((t) => t.status === "error").length,
-		running: tools.filter((t) => t.status === "running").length,
+/** 工具计数：按 status 分桶（总数/成功/失败/执行中） */
+function countTools(tools: SubagentProgressEvent["tools"] | undefined) {
+	const list = tools ?? [];
+	return {
+		total: list.length,
+		done: list.filter((t) => t.status === "done").length,
+		error: list.filter((t) => t.status === "error").length,
+		running: list.filter((t) => t.status === "running").length,
 	};
+}
+
+/** 从 fleet 聚合结果中按 【agent】 分隔符切分各 agent 的回复文本。
+ *  聚合格式（kernel delegate-tool）：【agent1】（失败）\n内容\n\n【agent2】\n内容。
+ *  只收录 agentNames 里的 agent，避免回复正文里的【】误切。 */
+function extractAgentReplies(
+	full: string,
+	agentNames: string[],
+): Map<string, string> {
+	const map = new Map<string, string>();
+	const re = /【([^】]+)】/g;
+	let match: RegExpExecArray | null;
+	const segments: Array<{ agent: string; text: string }> = [];
+	let lastIndex = 0;
+	let currentAgent: string | null = null;
+	while ((match = re.exec(full)) !== null) {
+		if (currentAgent !== null) {
+			segments.push({
+				agent: currentAgent,
+				text: full.slice(lastIndex, match.index),
+			});
+		}
+		currentAgent = match[1];
+		lastIndex = re.lastIndex;
+	}
+	if (currentAgent !== null) {
+		segments.push({ agent: currentAgent, text: full.slice(lastIndex) });
+	}
+	for (const s of segments) {
+		if (agentNames.includes(s.agent)) map.set(s.agent, s.text.trim());
+	}
+	return map;
+}
+
+/** 回复 markdown memo 化：react-markdown v10 无内置 memo，每次渲染全量重解析整段文本。
+ *  子任务详情展开期间 useLiveElapsed 每秒 tick + 流式 output 高频更新都会触发重渲染，
+ *  不 memo 则回复文本（可能很长）被反复解析，阻塞主线程导致闪烁。
+ *  与 FileViewer.MarkdownPreview 同模式：只接收 text/sessionId 两个稳定 prop，
+ *  components 在内部 useMemo 稳定引用，文本不变时 React 直接跳过重渲染。 */
+const MemoReplyMarkdown = memo(function MemoReplyMarkdown({
+	text,
+	sessionId,
+}: {
+	text: string;
+	sessionId: string;
+}) {
+	const mdComponents = useMemo(
+		() => createMarkdownComponents(sessionId),
+		[sessionId],
+	);
+	return (
+		<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+			{text}
+		</ReactMarkdown>
+	);
+});
+
+/** 单个任务的统计行：`任务 N：调用了 X 个工具 成功 Y 失败 Z 执行中 W`，可独立展开看该任务回复。
+ *  抽成独立组件以承载 useLiveElapsed（Hooks 不能在循环里调用）。
+ *  统计来源：实时 progress.tools 优先，完成态降级读 result.details 持久化统计（刷新后仍可用）。 */
+function FleetTaskItem({
+	index,
+	agent,
+	progress,
+	stats,
+	isCompleted,
+	replyText,
+	sessionId,
+}: {
+	index: number;
+	agent: string;
+	progress?: SubagentProgressEvent;
+	/** 持久化统计（result.details.fleet[agent]）；progress 缺失时兜底 */
+	stats?: ToolStats;
+	/** 是否完成态（result 已返回）；决定是否显示「已完成」前缀 */
+	isCompleted: boolean;
+	replyText?: string;
+	sessionId: string;
+}) {
+	const [expanded, setExpanded] = useState(false);
+	const seconds = useLiveElapsed(
+		progress?.elapsedMs,
+		progress?.status === "running",
+	);
+	const liveStats = progress ? countTools(progress.tools) : undefined;
+	const toolStats = liveStats ?? stats;
+	const hasProgress = !!progress;
+	const showReply = replyText != null && replyText !== "";
+	const label = toolStats
+		? isCompleted
+			? `已完成 调用了 ${toolStats.total} 个工具 成功 ${toolStats.done} 失败 ${toolStats.error} 执行中 ${toolStats.running} · 点击查看回复`
+			: `调用了 ${toolStats.total} 个工具 成功 ${toolStats.done} 失败 ${toolStats.error} 执行中 ${toolStats.running}`
+		: showReply
+			? "已完成 · 点击查看回复"
+			: "运行中";
 	return (
 		<div className="min-w-0">
-			{/* 分组标题：agent 名 + 状态 + 耗时 + 工具计数 */}
-			<div className="text-[11px] text-secondary">
-				<span className="font-semibold">{p.agent}</span> ·{" "}
-				{statusLabel(p.status)} · {seconds}s · 共 {toolCounts.total}{" "}
-				个工具 · 成功 {toolCounts.done} · 失败 {toolCounts.error} · 执行中{" "}
-				{toolCounts.running}
-			</div>
+			<button
+				type="button"
+				aria-label={expanded ? "折叠" : "展开"}
+				onClick={() => setExpanded((v) => !v)}
+				className="w-full flex items-center gap-1.5 text-[11px] text-secondary py-1 text-left"
+				style={{ cursor: "pointer" }}
+			>
+				<span>
+					任务 {index}：{label}
+				</span>
+				<span className="ml-auto flex-shrink-0">{expanded ? "▼" : "▶"}</span>
+			</button>
+			{expanded && (showReply || hasProgress || !!toolStats) && (
+				<div className="mt-1 mb-1 pl-2 border-l border-hairline">
+					{hasProgress && (
+						<div className="text-[11px] text-tertiary mb-1">
+							<span className="font-semibold">{agent}</span> ·{" "}
+							{statusLabel(progress!.status)} · {seconds}s
+						</div>
+					)}
+					<div className="text-[11px] text-tertiary mb-1">📤 回复：</div>
+					<MemoReplyMarkdown text={replyText ?? ""} sessionId={sessionId} />
+				</div>
+			)}
 		</div>
 	);
 }
 
-/** 并行派发卡片：展示 fleet（多智能体并行）的委派信息，子任务列表 + 聚合结果。
- *  有实时进度时：默认折叠，摘要行「N 个子智能体：X 运行中 / Y 完成 / Z 出错」+ ▶/▼，
- *  展开后按 agent 分组（每组同 DelegateCard 展开态：agent 名 + 状态 + output + 工具时间线）。
+/** 并行派发卡片：展示 fleet（多智能体并行）的委派信息。
+ *  结构：任务清单（任务 N：委派【agent】task）+ 每任务统计行（可独立展开看该任务回复）。
+ *  有实时进度时：外层默认展开（保任务清单/统计行可见），头部点击折叠/展开整张卡片；
+ *  子任务行各自独立展开/折叠，互不影响。
  *  与 delegate 的差异：fleet 一个 toolCallId 下多个 agent，直接消费整个内层 map。 */
 export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 	const args = toolCall.arguments as {
@@ -71,13 +182,11 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 	const agents = agentMap ? Object.values(agentMap) : [];
 	const hasProgress = agents.length > 0;
 
-	// 进度态：外层始终展开（保摘要可见），进度详情由 progressExpanded 独立控制（与 DelegateCard 一致）
-	const [progressExpanded, setProgressExpanded] = useState(false);
-	const open = hasProgress || autoOpen;
-	// 有进度时头部点击联动 progressExpanded，与摘要行开关一致
-	const handleToggle = hasProgress
-		? () => setProgressExpanded((v) => !v)
-		: toggle;
+	// 卡片展开态：有进度时不再被 hasProgress 钉死——本地 cardOpen（默认展开）让用户能折叠整张卡片；
+	// 无进度时沿用 autoCollapse 的受控 open（流式展开/完成折叠）。
+	const [cardOpen, setCardOpen] = useState(true);
+	const open = hasProgress ? cardOpen : autoOpen;
+	const handleToggle = hasProgress ? () => setCardOpen((v) => !v) : toggle;
 
 	const failed = !!result?.isError;
 	const full =
@@ -86,22 +195,46 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 				c.type === "text" ? c.text : "",
 			)
 			.join("\n") ?? "";
-	// 将【Agent名】转为 markdown 粗体标题 + 分隔，让各 agent 回复视觉独立
+	// 从 result.details 读持久化的 fleet 工具统计（kernel 注入；刷新/历史会话仍可用）
+	const fleetDetails = (
+		result as unknown as
+			| { details?: { fleet?: Record<string, ToolStats> } }
+			| undefined
+	)?.details;
+	const persistedStats = fleetDetails?.fleet;
+	// 按 agent 拆分聚合结果；无法拆分（老数据/无【】标记）时降级为聚合显示
+	const agentNames = tasks.map((t) => t.agent);
+	const repliesByAgent = extractAgentReplies(full, agentNames);
+	const canSplit = repliesByAgent.size > 0;
 	const formattedFull = full.replace(/【(.+?)】/g, "\n---\n**$1**  \n");
 	const mdComponents = createMarkdownComponents(sessionId);
 
-	// 进度摘要计数：按 status 分桶
-	const counts = { running: 0, done: 0, error: 0 };
-	for (const a of agents)
-		counts[a.status as keyof typeof counts] =
-			(counts[a.status as keyof typeof counts] ?? 0) + 1;
+	// 任务条目：优先按 tasks（编号与任务清单一致），tasks 为空时按 progress agents 兜底
+	const rows = (
+		tasks.length > 0
+			? tasks.map((t, i) => ({
+					index: i + 1,
+					agent: t.agent,
+					progress: agentMap?.[t.agent],
+				}))
+			: agents.map((p, i) => ({
+					index: i + 1,
+					agent: p.agent,
+					progress: p,
+				}))
+	).map((r) => ({
+		...r,
+		stats: persistedStats?.[r.agent],
+		replyText: !result
+			? r.progress?.output
+			: canSplit
+				? repliesByAgent.get(r.agent)
+				: undefined,
+	}));
+	const visibleRows = rows.filter(
+		(r) => r.progress || r.stats || (r.replyText != null && r.replyText !== ""),
+	);
 
-	// 执行中（无 result）：把各 agent 的 progress.output 流式渲染为回复区（同 DelegateCard），
-	// 让子代理回复过程可见而非结束后一次性给回；完成态显示聚合 result。
-	const streamingAgents = !result ? agents.filter((a) => a.output) : [];
-	const showReply = result
-		? !hasProgress || progressExpanded
-		: streamingAgents.length > 0;
 	return (
 		<ProcessCard
 			tone="warning"
@@ -124,71 +257,52 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 			muted={!!result}
 			testId={`fleet-${toolCall.id}`}
 		>
-			<div className="mb-1 space-y-1">
-				{tasks.map((t, i) => (
-					<div key={i} className="flex items-start gap-1.5">
-						<span className="text-tertiary flex-shrink-0 mt-0.5">↳</span>
-						<span>
-							<span className="font-semibold">{t.agent}</span>：{t.task}
-						</span>
-					</div>
-				))}
-			</div>
-			{hasProgress && (
+			{/* 任务清单：任务 N：【agent】task */}
+			{tasks.length > 0 && (
+				<div className="mb-1 space-y-1">
+					{tasks.map((t, i) => (
+						<div key={i} className="flex items-start gap-1.5">
+							<span className="text-tertiary flex-shrink-0 mt-0.5">
+								任务 {i + 1}：委派
+							</span>
+							<span>
+								<span className="font-semibold">【{t.agent}】</span>
+								{t.task}
+							</span>
+						</div>
+					))}
+				</div>
+			)}
+			{/* 每任务统计行（可独立展开看回复） */}
+			{visibleRows.length > 0 && (
 				<div
 					className="mt-2 pt-2 border-t border-hairline"
 					data-testid={`fleet-progress-${toolCall.id}`}
 				>
-					{/* 摘要行：始终可见，点击切换各 agent 进度详情 */}
-					<button
-						type="button"
-						aria-label={progressExpanded ? "折叠" : "展开"}
-						onClick={() => setProgressExpanded((v) => !v)}
-						className="w-full flex items-center gap-1.5 text-[11px] text-tertiary py-1"
-						style={{ cursor: "pointer" }}
-					>
-						<span>
-							{agents.length} 个子智能体：{counts.running} 运行中 /{" "}
-							{counts.done} 完成 / {counts.error} 出错
-						</span>
-						<span className="ml-auto">{progressExpanded ? "▼" : "▶"}</span>
-					</button>
-					{progressExpanded && (
-						<div className="mt-1 min-w-0 space-y-2">
-							{agents.map((p) => (
-								<AgentProgressItem key={p.agent} p={p} />
-							))}
-						</div>
-					)}
+					{visibleRows.map((r) => (
+						<FleetTaskItem
+							key={r.agent}
+							index={r.index}
+							agent={r.agent}
+							progress={r.progress}
+							stats={r.stats}
+							isCompleted={!!result}
+							replyText={r.replyText}
+							sessionId={sessionId}
+						/>
+					))}
 				</div>
 			)}
-			{showReply && (
+			{/* 降级：无法按 agent 拆分时聚合显示回复（老数据兼容） */}
+			{!canSplit && full !== "" && (
 				<div
 					data-testid="text-block"
 					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
 				>
 					<div className="text-[11px] text-tertiary mb-1">📤 回复：</div>
-					{result ? (
-						<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-							{formattedFull}
-						</ReactMarkdown>
-					) : (
-						<div className="space-y-2">
-							{streamingAgents.map((a) => (
-								<div key={a.agent}>
-									<div className="text-[11px] text-tertiary mb-0.5">
-										<span className="font-semibold">{a.agent}</span>：
-									</div>
-									<ReactMarkdown
-										remarkPlugins={[remarkGfm]}
-										components={mdComponents}
-									>
-										{a.output}
-									</ReactMarkdown>
-								</div>
-							))}
-						</div>
-					)}
+					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+						{formattedFull}
+					</ReactMarkdown>
 				</div>
 			)}
 		</ProcessCard>
