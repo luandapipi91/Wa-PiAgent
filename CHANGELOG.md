@@ -169,9 +169,12 @@
 ### 新增功能
 
 - **FileViewer 打开 .md 文件渲染为 markdown 预览**：此前所有文本文件统一走 Prism 高亮，markdown 源文本按代码显示。本变更让 .md 文件改用 ReactMarkdown（remark-gfm）渲染，复用聊天区的 `createMarkdownComponents`——表格/标题等 GFM 语法、代码块（CodeBlockCard/MermaidBlock）、内联路径（FilePill）、外链新标签页打开全部生效；md 分支不注册 `@path:行号` copy 拦截。接受计划内风险：`FileViewer → markdown-components → FilePill → FileViewer` 循环依赖（ESM 函数声明提升 + 组件引用渲染期才访问，typecheck + 组件测试通过证明可用）。
-  - 影响范围：`packages/frontend/src/components/blocks/FileViewer.tsx`（新增 `sessionId` prop）；测试 `packages/frontend/tests/FileViewer.test.tsx`（新增 2 个用例：md 渲染 h1/table/pre 且无 Prism 行号、内联路径渲染 FilePill，TDD 红→绿）。
+  - 影响范围：`packages/frontend/src/components/blocks/FileViewer.tsx`（新增 `sessionId` prop）；`packages/frontend/src/components/blocks/FilePill.tsx`、`packages/frontend/src/components/SessionView.tsx`（透传 `sessionId`）；测试 `packages/frontend/tests/FileViewer.test.tsx`（新增 2 个用例：md 渲染 h1/table/pre 且无 Prism 行号、内联路径渲染 FilePill，TDD 红→绿）。
 
 ### 修复
+
+- **FileViewer md 预览流式期间全量重解析 Markdown**：md 分支每次渲染都新建 `<ReactMarkdown components={createMarkdownComponents(sessionId)}>`，react-markdown v10 无内置 memo，components 引用一变就整份重解析（上限 3MB）；FileViewer 挂在 SessionView 下，流式期间每帧重渲染 → 每帧重解析。修复：新增 memo 化 `MarkdownPreview` 子组件（只接收 content/sessionId 两个稳定 prop，不接收 onClose 等新引用），components 用 `useMemo` 按 sessionId 缓存，与聊天区 `MarkdownBlock` 做法一致。同时补组件测试：mermaid 代码块走 MermaidBlock 分支断言、非 md 路径 `[data-line]` 行号容器回归断言、循环依赖代码内注释。
+  - 影响范围：`packages/frontend/src/components/blocks/FileViewer.tsx`、`packages/frontend/src/components/blocks/markdown-components.tsx`（注释）；测试 `packages/frontend/tests/FileViewer.test.tsx`。
 
 - **主 agent 调用普通工具（bash/read/edit 等）期间/工具输出到达时，页面不自动滚动到底部**：滚动 effect 的活跃信号只认 `streaming`（主流流式占位）与 `hasRunningSubagent`（子代理运行）。主 agent 调用普通工具时：toolCall block 的 `message_end` 已清空 `streaming`，工具执行期间 `tool_execution_*` 事件 store 不消费（`session.ts` default 分支），toolResult 定稿只追加 `messagesBySession`（滚动 effect 依赖不含 messages）——三个阶段都没有信号，工具输出（可能很长）到达时页面停在原位。修复：滚动 effect 的 `active` 合并 `statusBySession === "thinking"`（`agent_start`→`agent_end` 期间主 turn 进行中恒为 thinking），工具执行中 / toolResult 到达时 rAF 循环持续贴底；`agent_end` 回 idle 时走既有兜底再滚一次。该信号天然保留「非回复不抢滚动」「上翻阅读不抢」语义（非回复时 status 为 idle）。
   - 影响范围：`packages/frontend/src/components/MessageList.tsx`；测试 `tests/MessageList.test.tsx`（新增 2 个用例：thinking 中工具输出到达自动跟随滚动、thinking 中用户上翻不抢；TDD 红→绿）。

@@ -1,7 +1,7 @@
 // 文件预览器：移植自 cocode 的 file-viewer，适配 WaPi 的 fs-client（HTTP REST + base64）。
 // 支持：代码语法高亮(行号)、图片缩放/平移、大文件截断提示、选中复制为 @path:行号 引用。
 import { Highlight, themes } from "prism-react-renderer";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { readFile } from "../../fs-client";
@@ -64,6 +64,19 @@ function decodeBase64(b64: string): string {
 	const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
 	return new TextDecoder().decode(bytes);
 }
+
+// md 预览 memo 化：react-markdown v10 无内置 memo，components 引用一变就全量重解析整份 md。
+// FileViewer 挂在 SessionView 下，流式期间 SessionView 每帧重渲染 → 每帧重解析（上限 3MB）。
+// 与聊天区 MarkdownBlock（React.memo）做法一致：只接收 content/sessionId 两个稳定 prop，
+// 不接收 onClose 等新引用，保证组件引用不变时 React 跳过重渲染。
+const MarkdownPreview = memo(function MarkdownPreview({ content, sessionId }: { content: string; sessionId: string }) {
+  const mdComponents = useMemo(() => createMarkdownComponents(sessionId), [sessionId]);
+  return (
+    <div className="prose prose-sm max-w-none" data-testid="text-block">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{content}</ReactMarkdown>
+    </div>
+  );
+});
 
 type FileViewerProps = {
 	path: string;
@@ -335,14 +348,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 					ref={bodyRef}
 					className="flex-1 overflow-auto bg-canvas px-5 py-2.5"
 				>
-					<div className="prose prose-sm max-w-none" data-testid="text-block">
-						<ReactMarkdown
-							remarkPlugins={[remarkGfm]}
-							components={createMarkdownComponents(sessionId ?? "")}
-						>
-							{content}
-						</ReactMarkdown>
-					</div>
+					<MarkdownPreview content={content} sessionId={sessionId ?? ""} />
 				</div>
 				<div
 					className="px-3 py-1 text-[10.5px] text-tertiary border-t border-hairline bg-surface truncate"
