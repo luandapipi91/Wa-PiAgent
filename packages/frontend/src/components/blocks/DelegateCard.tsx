@@ -32,7 +32,7 @@ export function DelegateCard({
 	isStreaming,
 }: Props) {
 	const args = toolCall.arguments as { agent?: string; task?: string };
-	const { open: autoOpen, toggle } = useAutoCollapse({
+	const { open: autoOpen } = useAutoCollapse({
 		isStreaming,
 		isDone: !!result,
 		executingMode: true,
@@ -47,15 +47,16 @@ export function DelegateCard({
 		progress?.status === "running",
 	);
 
-	// 有进度时摘要行需始终可见：强制外层卡片展开，进度详情由 progressExpanded 独立控制。
+	// 卡片展开态：null = 用户未手动操作（hasProgress 时默认展开、否则跟随 autoCollapse）；
+	// 一旦用户点头部折叠/展开就固定，progress 事件陆续到达不重置（避免执行中卡片“自动重新打开”）。
 	const [progressExpanded, setProgressExpanded] = useState(false);
+	const [cardOpen, setCardOpen] = useState<boolean | null>(null);
 	const hasProgress = !!progress;
-	const open = hasProgress || autoOpen;
-	// 有进度时 open 被 hasProgress 钉死为 true，外层 toggle 的效果被吞掉（点头部无反馈）。
-	// 改为让头部点击联动 progressExpanded，与摘要行开关一致——用户点头部即切换进度详情。
-	const handleToggle = hasProgress
-		? () => setProgressExpanded((v) => !v)
-		: toggle;
+	const open = cardOpen ?? (hasProgress ? true : autoOpen);
+	// 头部点击统一记录用户选择（不再区分有无 progress，折叠状态单一来源）。
+	// null 时基于当前显示的 open 取反：执行中默认展开→点击折叠；完成态默认折叠→点击展开。
+	const handleToggle = () =>
+		setCardOpen((v) => !(v ?? (hasProgress ? true : autoOpen)));
 
 	const failed = !!result?.isError;
 	const full =
@@ -117,16 +118,16 @@ export function DelegateCard({
 							style={{ cursor: "pointer" }}
 						>
 							<span>
-								子智能体 · {statusLabel(progress!.status)} · {seconds}s ·{" "}
-								共 {toolCounts.total} 个工具 · 成功 {toolCounts.done} · 失败{" "}
+								子智能体 · {statusLabel(progress!.status)} · {seconds}s · 共{" "}
+								{toolCounts.total} 个工具 · 成功 {toolCounts.done} · 失败{" "}
 								{toolCounts.error} · 执行中 {toolCounts.running}
 							</span>
 							<span className="ml-auto">{progressExpanded ? "▼" : "▶"}</span>
 						</button>
 					) : (
 						<div className="text-[11px] text-tertiary py-1">
-							子智能体 · {statusLabel(progress!.status)} · {seconds}s ·{" "}
-							共 {toolCounts.total} 个工具 · 成功 {toolCounts.done} · 失败{" "}
+							子智能体 · {statusLabel(progress!.status)} · {seconds}s · 共{" "}
+							{toolCounts.total} 个工具 · 成功 {toolCounts.done} · 失败{" "}
 							{toolCounts.error} · 执行中 {toolCounts.running}
 						</div>
 					)}

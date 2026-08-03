@@ -540,3 +540,34 @@ test("FleetCard 子任务详情展开后可单独收起（不受卡片折叠状�
 	fireEvent.click(screen.getByRole("button", { name: /折叠|▼/ }));
 	expect(screen.queryByText(/回复内容/)).toBeNull();
 });
+
+test("FleetCard 执行中 progress 陆续到达不自动重新打开已折叠的卡片", () => {
+	// 初始无 progress：执行中卡片默认展开（任务清单可见）
+	render(
+		<FleetCard
+			sessionId="s1"
+			toolCall={
+				{
+					type: "toolCall",
+					id: "tc-keepfold",
+					name: "fleet",
+					arguments: { tasks: [] },
+				} as any
+			}
+		/>,
+	);
+	expect(screen.getByTestId("fleet-tc-keepfold-body")).toBeTruthy();
+	// 用户折叠卡片
+	fireEvent.click(screen.getByTestId("fleet-tc-keepfold-header"));
+	expect(screen.queryByTestId("fleet-tc-keepfold-body")).toBeNull();
+	// progress 事件到达：卡片应保持折叠
+	setFleetProgress("tc-keepfold", {
+		"agent-a": {
+			status: "running",
+			output: "a",
+			tools: [],
+			elapsedMs: 1000,
+		},
+	});
+	expect(screen.queryByTestId("fleet-tc-keepfold-body")).toBeNull();
+});

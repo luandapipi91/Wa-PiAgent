@@ -171,7 +171,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 		tasks?: Array<{ agent: string; task: string }>;
 	};
 	const tasks = args.tasks ?? [];
-	const { open: autoOpen, toggle } = useAutoCollapse({
+	const { open: autoOpen } = useAutoCollapse({
 		isStreaming,
 		isDone: !!result,
 		executingMode: true,
@@ -182,11 +182,14 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 	const agents = agentMap ? Object.values(agentMap) : [];
 	const hasProgress = agents.length > 0;
 
-	// 卡片展开态：有进度时不再被 hasProgress 钉死——本地 cardOpen（默认展开）让用户能折叠整张卡片；
-	// 无进度时沿用 autoCollapse 的受控 open（流式展开/完成折叠）。
-	const [cardOpen, setCardOpen] = useState(true);
-	const open = hasProgress ? cardOpen : autoOpen;
-	const handleToggle = hasProgress ? () => setCardOpen((v) => !v) : toggle;
+	// 卡片展开态：null = 用户未手动操作（hasProgress 时默认展开、否则跟随 autoCollapse）；
+	// 一旦用户点头部折叠/展开就固定，progress 事件陆续到达不重置（避免执行中卡片“自动重新打开”）。
+	const [cardOpen, setCardOpen] = useState<boolean | null>(null);
+	const open = cardOpen ?? (hasProgress ? true : autoOpen);
+	// 头部点击统一记录用户选择（不再区分有无 progress，折叠状态单一来源）。
+	// null 时基于当前显示的 open 取反：执行中默认展开→点击折叠；完成态默认折叠→点击展开。
+	const handleToggle = () =>
+		setCardOpen((v) => !(v ?? (hasProgress ? true : autoOpen)));
 
 	const failed = !!result?.isError;
 	const full =
