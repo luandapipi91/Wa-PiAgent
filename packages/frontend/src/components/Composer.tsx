@@ -47,11 +47,12 @@ export function Composer({ sessionId, agentName, isRunning, isNewSession, disabl
   // textRef 始终同步最新 text
   useEffect(() => { textRef.current = text; }, [text]);
 
-  // 草稿恢复：prefs 加载完成且有草稿时恢复一次（draftRestoredRef 防止恢复后又被覆盖）
+  // 草稿恢复：prefs 加载完成且有草稿时恢复一次（draftRestoredRef 防止恢复后又被覆盖）。
+  // 仅当用户尚未输入（textRef 为空）才恢复——冷加载间隙用户输入的内容不能被存储旧草稿覆盖
   useEffect(() => {
     if (!draftRestoredRef.current && prefsLoaded) {
       draftRestoredRef.current = true;
-      if (draftText) setText(draftText);
+      if (draftText && textRef.current === "") setText(draftText);
     }
   }, [prefsLoaded, draftText, sessionId]);
 
@@ -65,12 +66,16 @@ export function Composer({ sessionId, agentName, isRunning, isNewSession, disabl
     }, 300);
   };
 
-  // 切走/卸载前 flush：把防抖未触发的最后文本写回（闭包捕获当前 sessionId）
+  // 切走/卸载前 flush：仅当存在未触发的防抖（用户输入过且尚未持久化）时才写回；
+  // 未编辑过不写——否则冷加载间隙切走会用空串覆盖 loadSession 尚未恢复的旧草稿
   useEffect(() => {
     const mySessionId = sessionId;
     return () => {
-      if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
-      setSessionPrefs(mySessionId, { text: textRef.current });
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+        setSessionPrefs(mySessionId, { text: textRef.current });
+      }
     };
   }, [sessionId, setSessionPrefs]);
 
