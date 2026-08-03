@@ -27,7 +27,7 @@ pi-goal 插件（`@narumitw/pi-goal`）被 `tui-command-filter.ts` 的扩展级�
 | 弹窗命令范围 | **仅斜杠命令**（V1 不展示子命令/工具） | 用户确认 C 方案；RPC `get_commands` 不返回子命令，无可靠数据源 |
 | TUI 命令开关 | **可开启**，弹窗仅标记"⚠ TUI 命令不被支持"提示 | 用户知情后自行决定；pi-goal 这类有 RPC 降级的开启后实际可用 |
 | extension_notify 消息 | **显示 20s 后自动消失** | 用户明确要求（针对现有系统消息） |
-| 命令数据 API | **独立 API** `GET /api/extensions/commands`（不依赖 session） | 插件页全局可用；复用 `session:commands` 需 session 且 5min 缓存 |
+| 命令数据 API | **独立 API** `GET /api/extensions/commands`（不依赖 session） | 插件页全局可用；`session:commands` 需 session 且依赖缓存 |
 
 ## 3. 数据模型
 
@@ -48,7 +48,8 @@ pi-goal 插件（`@narumitw/pi-goal`）被 `tui-command-filter.ts` 的扩展级�
 
 ### 4.1 tui-command-filter.ts 调整
 
-- **保留**：`TUI_ONLY_PATTERN`、`isTuiOnlyExtension`（静态扫描扩展包源码，判定是否使用 TUI API）、`scanCache`
+- **保留**：`TUI_ONLY_PATTERN`、`isTuiOnlyExtension`（静态扫描扩展包源码，判定是否使用 TUI API）
+- **删除 `scanCache`**（包根 → 是否 TUI-only 的扫描结果缓存）：与 `_commandsCache` 同属缓存机制，一并移除。`isTuiOnlyExtension` 每次调用都重新扫描源码（受 `MAX_FILES`/`MAX_BYTES` 上限保护，不会无限扫描）
 - **修改**：`filterTuiCommands` 不再把 TUI-only 扩展的命令从结果中删除；改为给每条命令附加 `tuiOnly: true/false` 标记后**全量返回**
 - `tuiOnlyCommandNames` 集合保留（发送端降级仍用它），但填充来源改为"命令开关为关闭"的命令名，而非"被过滤的命令名"
 
@@ -62,9 +63,17 @@ pi-goal 插件（`@narumitw/pi-goal`）被 `tui-command-filter.ts` 的扩展级�
 
 ### 4.3 get_commands 返回扩展（kernel → 前端）
 
-**删除 5min TTL 全局缓存**（`_commandsCache`）。现有 `getCommands()` 第 1 步的缓存查询、`_fetchAndCacheCommands` 的缓存写入、`markAllDirty`/`markSkillsDirty` 的缓存置空全部移除——不再有 `Date.now()` 过期判断。
+**删除 5min TTL 全局缓存**（`_commandsCache`）。**不留任何废弃代码**——完整清理清单：
 
-`getCommands()` / `_fetchAndCacheCommands` 改为每次实时 RPC 拉取，`filterTuiCommands` 输出结构扩展：
+1. 删除字段 `_commandsCache`（agent-manager.ts:1364）
+2. 删除 `getCommands()` 第 1 步缓存查询（1303-1305）
+3. `_fetchAndCacheCommands` 改为 `_fetchCommands`（不再写缓存，函数名同步去掉 "Cache" 废弃语义）
+4. `markAllDirty()` 删 `this._commandsCache = null`（277）；`markSkillsDirty()` 删 `this._commandsCache = null`（286）——**这两个方法本身保留**（主职是标记会话待重建 `dirty.add(id)`，与命令缓存无关）
+5. 更新 1064 注释（去掉"结果有 5min 缓存"表述）
+6. 删除 `tui-command-filter.ts` 的 `scanCache`（字段 44、查询 66、写入 102）及相关注释——`isTuiOnlyExtension` 每次调用重新扫描（受 `MAX_FILES`/`MAX_BYTES` 上限保护）
+7. 测试中如有对缓存行为的断言，一并删除/改为实时拉取断言
+
+`getCommands()` / `_fetchCommands` 每次实时 RPC 拉取，`filterTuiCommands` 输出结构扩展：
 
 ```ts
 interface CommandInfo {
@@ -84,7 +93,7 @@ interface CommandInfo {
 
 ```ts
 if (text.startsWith("/")) {
-  if (!this._commandsCache) await this._fetchAndCacheCommands(handle.client).catch(() => []);
+  if (!this._commandsCache) await this._fetchCommands(handle.client).catch(() => []);
   const sp = text.indexOf(" ");
   const cmdName = sp === -1 ? text.slice(1) : text.slice(1, sp);
   if (isTuiOnlyCommand(cmdName)) text = ` ${text}`;   // 加前导空格 → 普通文本
@@ -96,7 +105,7 @@ if (text.startsWith("/")) {
 ```ts
 if (text.startsWith("/")) {
   if (!this._commandsFetched) {
-    await this._fetchAndCacheCommands(handle.client).catch(() => []);
+    await this._fetchCommands(handle.client).catch(() => []);
     this._commandsFetched = true;
   }
   const sp = text.indexOf(" ");
@@ -159,7 +168,7 @@ if (text.startsWith("/")) {
 
 **修改：**
 
-- `packages/kernel/src/agent-manager.ts` — **删除 `_commandsCache` 5min TTL 缓存**（字段、缓存查询、缓存写入、markAllDirty 置空）；新增 `_commandsFetched` 布尔标记；getCommands 每次实时拉取；输出结构扩展；toggle 后重置标记
+- `packages/kernel/src/agent-manager.ts` — **删除 `_commandsCache` 5min TTL 缓存**（字段、缓存查询、缓存写入、markAllDirty/markSkillsDirty 内部置空行）；`_fetchAndCacheCommands` 改名 `_fetchCommands`（去 Cache 语义）；新增 `_commandsFetched` 布尔标记；getCommands 每次实时拉取；输出结构扩展；toggle 后重置标记
 - `packages/kernel/src/tui-command-filter.ts` — filterTuiCommands 改为标记而非删除；tuiOnlyCommandNames 填充来源改为关闭命令；新增清除集合方法
 - `packages/kernel/src/routes/extensions.ts` — 两个新路由
 - `packages/kernel/src/settings.ts`（或等效持久化模块）— waPiCommandToggles 读写
