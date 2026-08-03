@@ -175,7 +175,12 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
     set(s => {
       if (s.newSessionIds[key] === id) return s;
       const next = { ...s.newSessionIds, [key]: id };
-      void setNewSessionIds(next);
+      // hydration guard：未从持久层加载 defaults 前，s.newSessionIds 还是初始 {}，
+      // 此时直写会用 NewSessionPane 挂载生成的随机 id 覆盖 localStorage 里上次持久化的映射
+      // （冷启动竞态：setNewSessionId 先于 loadDefaults 完成 → 刷新后旧草稿会话 id 永久丢失）。
+      // 未 hydrate 时只更新内存，由 loadDefaults 读回持久化映射后纠正；
+      // hydrate 后（loadDefaults 完成、读到持久化旧映射）正常落盘。
+      if (defaultsHydrated) void setNewSessionIds(next);
       return { newSessionIds: next };
     });
   },
@@ -184,7 +189,8 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
       if (!(key in s.newSessionIds)) return s;
       const next = { ...s.newSessionIds };
       delete next[key];
-      void setNewSessionIds(next);
+      // 与 setNewSessionId 一致的 hydration guard：未 hydrate 前不落盘，避免覆盖持久化映射
+      if (defaultsHydrated) void setNewSessionIds(next);
       return { newSessionIds: next };
     });
   },

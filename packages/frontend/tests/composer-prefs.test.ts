@@ -157,6 +157,22 @@ describe("composer-prefs store", () => {
     expect(await getNewSessionIds()).toEqual({ p1: "ns-1" });
   });
 
+  it("复现：冷启动挂载时 setNewSessionId 写随机 id，不应覆盖 localStorage 持久化的 newSessionIds 映射", async () => {
+    // 上次会话已持久化旧映射（beforeEach 已 _resetDefaultsHydration，模拟未 hydrate）
+    await dbSetNewSessionIds({ p1: "old-draft" });
+
+    // 模拟 NewSessionPane 挂载 effect：hydrate 前写入随机 id
+    useComposerPrefsStore.getState().setNewSessionId("p1", "fresh-random");
+
+    // 关键断言1：守卫拦下——localStorage 仍保持旧映射，未被随机覆盖
+    expect(await getNewSessionIds()).toEqual({ p1: "old-draft" });
+
+    // loadDefaults 姗姗来迟完成：从持久层恢复旧映射
+    await useComposerPrefsStore.getState().loadDefaults();
+    expect(useComposerPrefsStore.getState().newSessionIds).toEqual({ p1: "old-draft" });
+    // 关键断言2：store 内存态也被随机 id 污染的情况在 load 后被纠正
+  });
+
   it("loadSession 不应覆盖已由 setSessionPrefs 设置的 prefs（竞态：auto-select 先于 loadSession 完成）", async () => {
     await dbSetDefaults({ model: null, thinking: "disabled" });
 
