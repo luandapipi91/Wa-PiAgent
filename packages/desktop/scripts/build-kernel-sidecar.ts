@@ -61,7 +61,12 @@ function bunDownloadUrls(archive: string): string[] {
 async function downloadToFile(url: string, dest: string): Promise<boolean> {
 	try {
 		console.log(`[sidecar] 下载 ${url}`);
-		const r = await fetch(url, { redirect: "follow" });
+		// 必须带超时：GitHub 被墙/网络黑洞时 fetch 可能永不返回（无默认超时），
+		// 会卡在第一个 URL 而到不了镜像回退与 host bun 兜底。20s 超时后抛错走下一镜像。
+		const r = await fetch(url, {
+			redirect: "follow",
+			signal: AbortSignal.timeout(20_000),
+		});
 		if (!r.ok || !r.body) {
 			console.warn(`[sidecar] HTTP ${r.status} ${url}`);
 			return false;
