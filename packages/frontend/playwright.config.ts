@@ -8,8 +8,8 @@ import { join } from "node:path";
 // 固定为 ~/.wa-pi-e2e，由 globalSetup 开头清空重建、globalTeardown 整体删除；
 // 也可用 WA_PI_E2E_DIR 环境变量覆盖（多实例并行时）。
 export const E2E_WA_PI_DIR =
-  process.env.WA_PI_E2E_DIR ||
-  join(process.env.HOME || process.env.USERPROFILE || ".", ".wa-pi-e2e");
+	process.env.WA_PI_E2E_DIR ||
+	join(process.env.HOME || process.env.USERPROFILE || ".", ".wa-pi-e2e");
 mkdirSync(E2E_WA_PI_DIR, { recursive: true });
 
 // E2E kernel WS 端口：本机已跑着真实 kernel（9776）时用 WA_PI_E2E_WS_PORT 偏移，
@@ -17,19 +17,25 @@ mkdirSync(E2E_WA_PI_DIR, { recursive: true });
 // vite.config.ts 已将 WA_PI_WS_PORT 注入前端 bundle（WS_PORT）与 /file 代理，全链路同步偏移。
 export const E2E_WS_PORT = Number(process.env.WA_PI_E2E_WS_PORT) || 9776;
 
+// E2E 前端端口：本机 dev（scripts/dev.ts）占用 5180 时用 WA_PI_E2E_WEB_PORT 偏移。
+// 必须同时传 WA_PI_WEB_PORT（vite 监听端口），两者保持一致。
+export const E2E_WEB_PORT = Number(process.env.WA_PI_E2E_WEB_PORT) || 5180;
+
 export default defineConfig({
-  testDir: "./e2e",
-  // 单 worker：全部 spec 共享同一隔离 kernel，session:created 等 SSE 广播会让并行 worker 的
-  // 页面互相干扰（addSession 自动选中他人会话、provider 卡片计数串台），必须串行跑
-  workers: 1,
-  use: { baseURL: "http://localhost:5180", headless: true },
-  // globalSetup 启动隔离 kernel（独立 WA_PI_DIR），globalTeardown 清理
-  globalSetup: "./e2e/global-setup.ts",
-  globalTeardown: "./e2e/global-teardown.ts",
-  webServer: {
-    command: "bun run dev",
-    url: "http://localhost:5180",
-    reuseExistingServer: !process.env.CI,
-    env: { WA_PI_DIR: E2E_WA_PI_DIR, WA_PI_WS_PORT: String(E2E_WS_PORT) },
-  },
+	testDir: "./e2e",
+	// 单 worker：全部 spec 共享同一隔离 kernel，session:created 等 SSE 广播会让并行 worker 的
+	// 页面互相干扰（addSession 自动选中他人会话、provider 卡片计数串台），必须串行跑
+	workers: 1,
+	use: { baseURL: `http://localhost:${E2E_WEB_PORT}`, headless: true },
+	// globalSetup 启动隔离 kernel（独立 WA_PI_DIR），globalTeardown 清理
+	globalSetup: "./e2e/global-setup.ts",
+	globalTeardown: "./e2e/global-teardown.ts",
+	// webServer 只起前端 vite（不起 scripts/dev.ts）：dev.ts 会 killPort + openBrowser，
+	// 在用户本机 dev（5180/9776 已占用）并行跑 e2e 时会误杀真实进程。
+	webServer: {
+		command: "bun run --filter @wa-pi/frontend dev",
+		url: `http://localhost:${E2E_WEB_PORT}`,
+		reuseExistingServer: !process.env.CI,
+		env: { WA_PI_DIR: E2E_WA_PI_DIR, WA_PI_WS_PORT: String(E2E_WS_PORT) },
+	},
 });

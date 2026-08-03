@@ -69,13 +69,24 @@ function decodeBase64(b64: string): string {
 // FileViewer 挂在 SessionView 下，流式期间 SessionView 每帧重渲染 → 每帧重解析（上限 3MB）。
 // 与聊天区 MarkdownBlock（React.memo）做法一致：只接收 content/sessionId 两个稳定 prop，
 // 不接收 onClose 等新引用，保证组件引用不变时 React 跳过重渲染。
-const MarkdownPreview = memo(function MarkdownPreview({ content, sessionId }: { content: string; sessionId: string }) {
-  const mdComponents = useMemo(() => createMarkdownComponents(sessionId), [sessionId]);
-  return (
-    <div className="prose prose-sm max-w-none" data-testid="text-block">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{content}</ReactMarkdown>
-    </div>
-  );
+const MarkdownPreview = memo(function MarkdownPreview({
+	content,
+	sessionId,
+}: {
+	content: string;
+	sessionId: string;
+}) {
+	const mdComponents = useMemo(
+		() => createMarkdownComponents(sessionId),
+		[sessionId],
+	);
+	return (
+		<div className="prose prose-sm max-w-none" data-testid="text-block">
+			<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+				{content}
+			</ReactMarkdown>
+		</div>
+	);
 });
 
 type FileViewerProps = {
