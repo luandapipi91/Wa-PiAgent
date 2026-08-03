@@ -2,7 +2,7 @@
  * 扩展命令域路由测试（阶段二·去 WS 化）
  *
  * 覆盖任务 5 新增的两个 API：
- * - GET  /api/extensions/commands            → 命令列表 + 开关状态合并（extension:commands:list）
+ * - GET  /api/extensions/commands            → 命令列表透传（开关状态已由 AgentManager._fetchCommands 合并）
  * - POST /api/extensions/commands/toggle     → 切换命令开关（extension:commands:toggle）
  *
  * 使用真实 HTTP 请求打 WSServer（port 0 随机端口），agentManager / extensionManager
@@ -80,42 +80,25 @@ test("GET /api/extensions/commands 返回 { commands: [] } 结构（无命令时
   expect(getCommandsSpy).toHaveBeenCalledWith("");
 });
 
-test("GET /api/extensions/commands 合并开关状态（按 packageName 匹配，缺省 false）", async () => {
+test("GET /api/extensions/commands 透传 agentManager 已合并的开关状态（enabled 由 kernel 填充）", async () => {
+  // 合并逻辑已下沉到 AgentManager._fetchCommands（对齐 session:commands 路径）：
+  // 这里模拟 getCommands 已返回带 enabled 的命令，ws-server 应原样透传、不再二次合并。
   getCommandsSpy.mockImplementation(async () => [
-    { name: "goal", description: "设定目标", source: "extension", packageName: "pkg-a" },
-    { name: "hello", source: "extension", packageName: "pkg-b" },
+    { name: "goal", description: "设定目标", source: "extension", packageName: "pkg-a", enabled: true },
+    { name: "hello", source: "extension", packageName: "pkg-b", enabled: false },
     { name: "review", description: "代码审查模板", source: "prompt" },
   ]);
-  getCommandTogglesSpy.mockImplementation(async () => ({
-    "pkg-a": { goal: true },
-  }));
 
   const res = await fetch(`${base}/api/extensions/commands`);
   expect(res.status).toBe(200);
   const body = await res.json();
 
-  expect(body.commands).toHaveLength(3);
-  // 有 packageName → 合并 toggles（命中 → 用开关值）
-  expect(body.commands[0]).toEqual({
-    name: "goal",
-    description: "设定目标",
-    source: "extension",
-    packageName: "pkg-a",
-    enabled: true,
-  });
-  // 有 packageName 但 toggles 无记录 → 缺省 false
-  expect(body.commands[1]).toEqual({
-    name: "hello",
-    source: "extension",
-    packageName: "pkg-b",
-    enabled: false,
-  });
-  // 无 packageName（prompt 来源）→ 原样透传，不附加 enabled
-  expect(body.commands[2]).toEqual({
-    name: "review",
-    description: "代码审查模板",
-    source: "prompt",
-  });
+  // 原样透传（含 enabled），无任何二次改写
+  expect(body.commands).toEqual([
+    { name: "goal", description: "设定目标", source: "extension", packageName: "pkg-a", enabled: true },
+    { name: "hello", source: "extension", packageName: "pkg-b", enabled: false },
+    { name: "review", description: "代码审查模板", source: "prompt" },
+  ]);
 });
 
 test("POST /api/extensions/commands/toggle 成功 → 调 setCommandToggle + 重置命令状态", async () => {
