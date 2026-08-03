@@ -1,16 +1,16 @@
-// tui-command-filter.ts — RPC 模式下 / 菜单的 TUI-only 命令过滤
+// tui-command-filter.ts — RPC 模式下 / 菜单的 TUI-only 命令标记
 //
 // 背景：pi RPC 模式不支持 ctx.ui.custom()（交互式 TUI 面板）。扩展在命令
 // handler 里调用它时，pi 侧补丁会让其同步抛错（兜底防挂死），但更好的体验是
-// 这类命令压根不出现在 / 菜单里。
+// 这类命令不在 / 菜单里展示。
 //
 // 识别策略：静态预扫描。pi 的 get_commands 为每条 extension 命令返回 sourceInfo
 // （扩展入口路径 + baseDir）。扫描该扩展包内的源码文件，命中 ui.custom( 调用
-// 即判定整个扩展为 TUI-only，其贡献的命令全部从菜单过滤。
+// 即判定整个扩展为 TUI-only，其贡献的命令附加 tuiOnly 标记（前端据此隐藏）。
 //
 // 取舍：按扩展粒度而非命令粒度。handler 常把 ui.custom 藏在同包辅助函数里
 // （如 pi-mcp-adapter 的 handler 调用另一个文件里的 openMcpAuthPanel），精确到
-// 命令需要调用图分析，不可靠；代价是同扩展的非 TUI 命令也会被一并隐藏。
+// 命令需要调用图分析，不可靠；代价是同扩展的非 TUI 命令也会被一并标记。
 
 import { readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { dirname, extname, join } from "node:path";
@@ -31,17 +31,14 @@ export interface RawCommandInfo extends CommandInfo {
  * TUI-only API 调用特征：ctx.ui.custom( / ui.input( / ui.select( / ui.confirm( / ui.editor(（含泛型形式）。
  * 这些都是对话类 TUI API——在 RPC 模式（wa-pi GUI）下宿主不实现交互面板，扩展 handler 调它们
  * 只会被静默取消（cancelled）→ 命令被消费但无产出，前端表现为“发送后无响应”。
- * 识别并屏蔽这类扩展，同时把命令名记录进 tuiOnlyCommandNames，kernel 发送时降级为普通文本。
+ * 识别并标记这类扩展贡献的命令（tuiOnly: true）。被关闭的命令名登记进 disabledCommandNames，
+ * kernel 发送时降级为普通文本（登记逻辑由后续任务接 settings 后实现）。
  */
 const TUI_ONLY_PATTERN = /\bui\.(?:custom|input|select|confirm|editor)(?:\s*<[^>]*>)?\s*\(/;
 
 /** 扫描上限：防止异常巨大的包拖慢菜单加载 */
 const MAX_FILES = 300;
 const MAX_BYTES = 5 * 1024 * 1024;
-
-// 扫描结果缓存：包根 → 是否 TUI-only。已装扩展运行期不会变化；运行时新装的
-// 扩展是新路径自然 miss。同路径升级扩展需重启 kernel 后才会重新扫描。
-const scanCache = new Map<string, boolean>();
 
 /** 从扩展入口路径向上找包根（含 package.json 的目录），找不到则退化为入口所在目录 */
 function findPackageRoot(entryPath: string): string {
@@ -63,8 +60,6 @@ export function isTuiOnlyExtension(
 	baseDir?: string,
 ): boolean {
 	const root = baseDir ?? findPackageRoot(entryPath);
-	const cached = scanCache.get(root);
-	if (cached !== undefined) return cached;
 
 	let result = false;
 	let files = 0;
@@ -99,27 +94,30 @@ export function isTuiOnlyExtension(
 		}
 	};
 	walk(root);
-	scanCache.set(root, result);
 	return result;
 }
 
-/** 过滤掉 TUI-only 扩展贡献的命令；非 extension 来源或无 sourceInfo 的命令原样保留 */
+/** 给命令附加 TUI-only 标记；全量返回 */
 export function filterTuiCommands(commands: RawCommandInfo[]): CommandInfo[] {
-	return commands.filter((cmd) => {
-		if (cmd.source !== "extension") return true;
+	return commands.map((cmd) => {
+		if (cmd.source !== "extension") return cmd;
 		const info = cmd.sourceInfo;
-		if (!info?.path) return true;
-		if (!isTuiOnlyExtension(info.path, info.baseDir)) return true;
-		tuiOnlyCommandNames.add(cmd.name);
-		return false;
+		if (!info?.path) return cmd;
+		const tuiOnly = isTuiOnlyExtension(info.path, info.baseDir);
+		return { ...cmd, tuiOnly };
 	});
 }
 
-// 被过滤掉的 TUI-only 命令名集合：prompt 路径据此把这类命令降级为普通文本
+// 被关闭的扩展命令名集合：prompt 路径据此把这类命令降级为普通文本
 // （发送给 pi 前加前导空格，绕过 pi 的 / 命令分发），使其像未知命令一样进入大模型。
-const tuiOnlyCommandNames = new Set<string>();
+const disabledCommandNames = new Set<string>();
 
-/** 判定命令名是否为已识别的 TUI-only 命令（依赖 getCommands 至少拉取过一次） */
-export function isTuiOnlyCommand(name: string): boolean {
-	return tuiOnlyCommandNames.has(name);
+/** 判定命令名是否已关闭（依赖 getCommands 至少拉取过一次） */
+export function isCommandDisabled(name: string): boolean {
+	return disabledCommandNames.has(name);
+}
+
+/** 清空降级集合（toggle 命令开关后调用，下次拉取重新填充） */
+export function resetDisabledCommands(): void {
+	disabledCommandNames.clear();
 }

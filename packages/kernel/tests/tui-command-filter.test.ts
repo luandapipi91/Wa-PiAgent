@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	filterTuiCommands,
+	isCommandDisabled,
 	isTuiOnlyExtension,
+	resetDisabledCommands,
 	type RawCommandInfo,
 } from "../src/tui-command-filter";
 
@@ -109,15 +111,27 @@ test("isTuiOnlyExtension: 命中其他 TUI 对话 API（ui.input / ui.select / u
 	}
 });
 
-test("filterTuiCommands: 过滤 TUI-only 扩展的命令，保留其余", () => {
+test("filterTuiCommands: TUI-only 命令不再删除，附加 tuiOnly: true 标记", () => {
 	const commands: RawCommandInfo[] = [
 		cmd("mcp-auth", "extension", tuiEntry),
 		cmd("hello", "extension", plainEntry),
 		cmd("review", "prompt"),
-		cmd("goal", "extension"), // 无 sourceInfo → 保留
+		cmd("goal", "extension"), // 无 sourceInfo → 原样保留
 	];
-	const names = filterTuiCommands(commands).map((c) => c.name);
-	expect(names).toEqual(["hello", "review", "goal"]);
+	const result = filterTuiCommands(commands);
+	expect(result).toHaveLength(4);
+	expect(result.find((c) => c.name === "mcp-auth")?.tuiOnly).toBe(true);
+	expect(result.find((c) => c.name === "hello")?.tuiOnly).toBe(false);
+	expect(result.find((c) => c.name === "review")?.tuiOnly).toBeUndefined();
+	expect(result.find((c) => c.name === "goal")?.tuiOnly).toBeUndefined();
+});
+
+test("isCommandDisabled / resetDisabledCommands: 初始为空，reset 可重复调用", () => {
+	// 登记逻辑由后续任务接 settings 后实现；此处仅验证集合为空且 reset 不抛错
+	expect(isCommandDisabled("mcp-auth")).toBe(false);
+	expect(() => resetDisabledCommands()).not.toThrow();
+	expect(() => resetDisabledCommands()).not.toThrow();
+	expect(isCommandDisabled("mcp-auth")).toBe(false);
 });
 
 test("filterTuiCommands: 非 extension 来源不看 sourceInfo 也保留", () => {
