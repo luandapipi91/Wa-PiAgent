@@ -1,6 +1,6 @@
 // packages/frontend/src/components/settings/CommandListModal.tsx
 // 插件「附加命令」弹窗：打开时拉取 /api/extensions/commands，按 packageName 过滤，
-// 每条命令带开关（默认关），TUI 命令标记「⚠ TUI 命令不被支持」。
+// 每条命令带开关（默认关）。
 import { useEffect, useState } from "react";
 import type { CommandInfo } from "@wa-pi/shared";
 import { api } from "../../api-client";
@@ -87,14 +87,6 @@ export function CommandListModal({ packageName, onClose }: CommandListModalProps
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-semibold text-primary font-mono">/{cmd.name}</span>
-                  {cmd.tuiOnly && (
-                    <span
-                      className="text-xs px-1.5 py-0.5 rounded font-medium"
-                      style={{ background: "var(--warning-soft)", color: "var(--warning)" }}
-                    >
-                      ⚠ TUI 命令不被支持
-                    </span>
-                  )}
                 </div>
                 {cmd.description && <p className="text-xs text-secondary mt-0.5">{cmd.description}</p>}
               </div>

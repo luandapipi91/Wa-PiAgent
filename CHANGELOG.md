@@ -2,6 +2,10 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+- **feat(frontend): 命令弹窗移除「⚠ TUI 命令不被支持」行内徽标**——插件「附加命令」弹窗中每条 TUI 命令旁的警告徽标移除，仅保留弹窗顶部提示条「注意：TUI 命令不被支持」。
+  - 影响范围：`packages/frontend/src/components/settings/CommandListModal.tsx` 及测试。
+  - 验证：CommandListModal 6 pass（更新为「仅顶部提示条一处含 TUI 文本」断言）、相关回归 31 pass、frontend typecheck 通过。
+
 - **fix(frontend+kernel): 开启命令后 / 菜单不刷新——toggle 成功未通知前端**——根因：`extension:commands:toggle` 成功后仅 `reply({ ok: true })`，不广播任何事件；而 `/` 菜单的 commands store 只在 `ComposerInput` 的 useEffect（sessionId/projectId/agentName 变化）时加载，插件页 toggle 后切回会话界面仍显示旧命令列表。修复：toggle 成功后 `broadcast({ type: "extension:commands:changed" })`；前端 App.tsx 监听该事件，若有当前会话则重新 `load(currentSessionId)`，开启/关闭命令立即反映到 `/` 菜单。
   - 影响范围：`packages/shared/src/extensions.ts`（新增 `ExtensionCommandsChangedEvent`）、`packages/kernel/src/ws-server.ts`、`packages/frontend/src/App.tsx`。
   - 验证：kernel 新增 SSE 广播断言（toggle 成功 → 收到 `extension:commands:changed` 帧）、前端 App 测试新增事件→刷新断言，kernel 672 / shared 94 / frontend typecheck 全绿。
