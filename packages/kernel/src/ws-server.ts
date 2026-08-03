@@ -900,8 +900,7 @@ export class WSServer {
 						} else {
 							// 已有会话但 primaryAgent 与本次发送不一致（新建页挂载时 getCommands
 							// 兜底可能已用默认 agent 建过会话）：同步记录，避免侧栏/重开后显示旧 agent
-							const agentChanged =
-								session.primaryAgent !== event.agentName;
+							const agentChanged = session.primaryAgent !== event.agentName;
 							if (agentChanged) {
 								await this.opts.projectStore.setSessionAgent(
 									session.id,
