@@ -234,10 +234,16 @@ export class AgentManager {
 		agentName: AgentName,
 		sessionId: string,
 	): Promise<SessionHandle> {
-		// 命中缓存：进程已崩溃则拆除重建；否则按 dirty 标记决定重建或直接复用
+		// 命中缓存：进程已崩溃则拆除重建；agentName 不一致也拆除（新会话页 getCommands
+		// 兜底已用默认 agent 启动进程，用户切换后发送若复用会把消息交给旧 agent）；
+		// 否则按 dirty 标记决定重建或直接复用
 		const existing = this.sessions.get(sessionId);
 		if (existing) {
-			if (existing.crashed || !existing.client.isAlive()) {
+			if (
+				existing.crashed ||
+				!existing.client.isAlive() ||
+				existing.meta.agentName !== agentName
+			) {
 				this._teardownSession(sessionId);
 			} else {
 				// 复用缓存即视为"会话被访问"（如打开会话查看消息），刷新活跃时间避免被空闲回收

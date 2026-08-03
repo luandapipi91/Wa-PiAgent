@@ -73,6 +73,7 @@ async function withComposerServer<T>(
     base: string,
     getPromptCalls: () => PromptCall[],
     sse: SseReader,
+    ctx: { fakes: FakeSessionClient[]; projectStore: ProjectStore; configStore: ConfigStore },
   ) => Promise<T>,
 ): Promise<T> {
   const baseDir = makeTempDir("wa-pi-composer-");
@@ -112,7 +113,11 @@ async function withComposerServer<T>(
   const sse = new SseReader(sseRes.body.getReader());
 
   try {
-    return await fn(base, () => fakes.flatMap((f) => f.prompted.map((text) => ({ text }))), sse);
+    return await fn(base, () => fakes.flatMap((f) => f.prompted.map((text) => ({ text }))), sse, {
+      fakes,
+      projectStore,
+      configStore,
+    });
   } finally {
     sse.cancel();
     await server.stop();
@@ -425,6 +430,49 @@ describe("composer attachments integration", () => {
       });
     } finally {
       rmSync(fileDir, { recursive: true, force: true });
+    }
+  });
+
+  it("getCommands 兜底建会话后切换 agent 发送 → 新 agent 进程接管且会话 primaryAgent 同步", async () => {
+    const cwd = makeTempDir("wa-pi-switch-");
+    try {
+      await withComposerServer(async (base, _getPromptCalls, _sse, ctx) => {
+        // 预置 dev / qa 两个智能体（agent_missing 拦截要求目标 agent 真实存在）
+        await ctx.configStore.createAgent("dev");
+        await ctx.configStore.createAgent("qa");
+        const projectId = await createProject(base, _sse, cwd);
+        const sessionId = "s-switch-agent";
+
+        // 1. 模拟新建页挂载：ComposerInput → GET /commands?agentName=dev（默认 agent）
+        //    后端 getCommands 兜底用 dev 创建会话 + 启动进程（不广播 session:created）
+        const cmdRes = await fetch(
+          `${base}/api/sessions/${sessionId}/commands?projectId=${projectId}&agentName=dev`,
+        );
+        expect(cmdRes.ok).toBe(true);
+        let data = await ctx.projectStore.load();
+        expect(data.sessions.find((s) => s.id === sessionId)?.primaryAgent).toBe("dev");
+        expect(ctx.fakes.length).toBe(1);
+
+        // 2. 用户在 dropdown 切到 qa 后发送 → agent:prompt(sessionId, qa)
+        const promptRes = await fetch(`${base}/api/agents/${projectId}/${sessionId}/prompt`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            agentName: "qa",
+            text: "切到qa",
+            model: "test-provider/test-model",
+            thinking: "disabled",
+          }),
+        });
+        expect(promptRes.ok).toBe(true);
+
+        // 3. 旧 dev 进程被拆除，qa 进程接管；会话记录 primaryAgent 同步为 qa
+        await waitFor(() => ctx.fakes.length === 2);
+        data = await ctx.projectStore.load();
+        expect(data.sessions.find((s) => s.id === sessionId)?.primaryAgent).toBe("qa");
+      });
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
     }
   });
 });
