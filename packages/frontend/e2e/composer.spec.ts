@@ -239,4 +239,34 @@ test.describe.serial("Composer 重构", () => {
     await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
     await expect(textbox).toHaveText("新建页的草稿");
   });
+
+  test("草稿：删除会话后其草稿不残留", async ({ page }) => {
+    const sidA = await enterSession(page, "草稿删除会话");
+    const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+    await textbox.fill("将被删除的草稿");
+    await page.waitForTimeout(400); // 等防抖写回 IndexedDB
+
+    // 右键删除会话并确认
+    await page.getByTestId(`session-${sidA}`).click({ button: "right" });
+    await page.getByTestId("menu-delete").click();
+    await page.getByTestId("confirm-ok").click();
+    await page.waitForTimeout(400); // 等 removeSessionPrefs 的异步 IDB delete 落盘
+
+    // 删除后 IndexedDB 中该会话的草稿记录应被清除
+    const removed = await page.evaluate((sid) => {
+      return new Promise<boolean>((resolve) => {
+        const req = indexedDB.open("wa-pi-composer", 1);
+        req.onerror = () => resolve(false);
+        req.onsuccess = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("sessions")) { resolve(true); db.close(); return; }
+          const tx = db.transaction("sessions", "readonly");
+          const get = tx.objectStore("sessions").get(sid);
+          get.onsuccess = () => { resolve(get.result === undefined); db.close(); };
+          get.onerror = () => { resolve(false); db.close(); };
+        };
+      });
+    }, sidA);
+    expect(removed).toBe(true);
+  });
 });
