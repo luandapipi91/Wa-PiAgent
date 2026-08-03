@@ -28,6 +28,7 @@ interface ExtensionsState {
   packages: PackageInfo[];
   installs: Record<string, InstallEntry>;
   upgrading: UpgradingMap;
+  uninstalling: Record<string, boolean>;
   error: string | null;
   load: () => void;
   setAll: (data: ExtensionListResult | ExtensionChangedEvent) => void;
@@ -46,13 +47,14 @@ export const useExtensionsStore = create<ExtensionsState>((set) => ({
   packages: [],
   installs: {},
   upgrading: {},
+  uninstalling: {},
   error: null,
 
   load: () => { api.get("/api/extensions").then((data: any) => { if (data) set({ packages: data.packages ?? [], error: null }); }).catch(() => {}); },
 
   // extension:changed / extension:list 回复：更新真实列表，保留占位 installs；
-  // changed 由 kernel 在操作（含升级）成功后推送 → 清除 upgrading 标记（升级完成）
-  setAll: (data) => set({ packages: data.packages, upgrading: {}, error: null }),
+  // changed 由 kernel 在操作（含升级/卸载）成功后推送 → 清除 upgrading/uninstalling 标记
+  setAll: (data) => set({ packages: data.packages, upgrading: {}, uninstalling: {}, error: null }),
 
   // extension:error：若对应占位条目存在则标记 failed，否则落到全局 error（卸载/升级失败等）
   setError: (data) =>
@@ -68,6 +70,12 @@ export const useExtensionsStore = create<ExtensionsState>((set) => ({
         const nextUp = { ...s.upgrading };
         delete nextUp[data.name];
         return { upgrading: nextUp, error: data.error };
+      }
+      // 卸载失败：清除 uninstalling 标记 + 落全局 error
+      if (s.uninstalling[data.name]) {
+        const nextUn = { ...s.uninstalling };
+        delete nextUn[data.name];
+        return { uninstalling: nextUn, error: data.error };
       }
       return { error: data.error };
     }),
@@ -101,7 +109,7 @@ export const useExtensionsStore = create<ExtensionsState>((set) => ({
   },
 
   uninstallPackage: (name) => {
-    set({ error: null });
+    set((s) => ({ error: null, uninstalling: { ...s.uninstalling, [name]: true } }));
     void api.post("/api/extensions/uninstall", { name });
   },
 
