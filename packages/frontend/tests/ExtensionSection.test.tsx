@@ -1,6 +1,6 @@
 // packages/frontend/tests/ExtensionSection.test.tsx
 import { test, expect, beforeEach, mock } from "bun:test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { ExtensionSection } from "../src/components/settings/ExtensionSection";
 import { useExtensionsStore } from "../src/store/extensions";
 
@@ -48,6 +48,7 @@ beforeEach(() => {
     ],
     installs: {},
     upgrading: {},
+    uninstalling: {},
     error: null,
   });
 });
@@ -174,4 +175,40 @@ test("升级中卡片显示流式进度消息", () => {
   useExtensionsStore.setState({ upgrading: { "superpowers-zh": "下载 superpowers-zh@1.7.0" } });
   render(<ExtensionSection />);
   expect(screen.getByTestId("ext-upgrade-progress-superpowers-zh").textContent).toContain("下载 superpowers-zh@1.7.0");
+});
+
+// ===== 卸载反馈（uninstalling 状态）=====
+
+test("卸载中按钮显示「卸载中」且禁用（防止重复点击）", () => {
+  useExtensionsStore.setState({ uninstalling: { "superpowers-zh": true } });
+  render(<ExtensionSection />);
+  const btn = screen.getByTestId("ext-uninstall-superpowers-zh") as HTMLButtonElement;
+  expect(btn.disabled).toBe(true);
+  expect(btn.textContent).toContain("卸载中");
+});
+
+test("点击确认卸载后按钮进入卸载中状态", () => {
+  render(<ExtensionSection />);
+  fireEvent.click(screen.getByTestId("ext-uninstall-superpowers-zh"));
+  fireEvent.click(screen.getByTestId("confirm-ok"));
+  const btn = screen.getByTestId("ext-uninstall-superpowers-zh") as HTMLButtonElement;
+  expect(btn.disabled).toBe(true);
+  expect(btn.textContent).toContain("卸载中");
+});
+
+test("卸载失败后按钮恢复可点（uninstalling 被清除）", () => {
+  render(<ExtensionSection />);
+  fireEvent.click(screen.getByTestId("ext-uninstall-superpowers-zh"));
+  fireEvent.click(screen.getByTestId("confirm-ok"));
+  // React 19 中非 act 的 store 更新不会同步 commit，需用 act 包裹（RTL 规范）
+  act(() => {
+    useExtensionsStore.getState().setError({
+      type: "extension:error",
+      name: "superpowers-zh",
+      error: "卸载失败",
+    });
+  });
+  const btn = screen.getByTestId("ext-uninstall-superpowers-zh") as HTMLButtonElement;
+  expect(btn.disabled).toBe(false);
+  expect(btn.textContent).toBe("卸载");
 });
