@@ -23,8 +23,15 @@ export const useCommandsStore = create<CommandsState>((set) => ({
     api.get(url)
       .then((data: any) => {
         const all: CommandInfo[] = data?.commands ?? [];
-        // 过滤 skill 类：技能已在 $ 菜单覆盖，/ 菜单不重复展示
-        set({ commands: all.filter(c => c.source !== "skill"), loading: false });
+        // / 菜单过滤：skill 走 $ 菜单不展示；extension 插件命令只显示已开启（enabled === true）
+        set({
+          commands: all.filter((c) => {
+            if (c.source === "skill") return false;                    // 技能走 $ 菜单
+            if (c.source === "extension") return c.enabled === true;   // 插件命令只显示已开启
+            return true;                                                // prompt/builtin 不受影响
+          }),
+          loading: false,
+        });
       })
       .catch(() => set({ loading: false }));
   },
