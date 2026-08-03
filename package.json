@@ -26,10 +26,5 @@
   ],
   "patchedDependencies": {
     "pi-mcp-adapter@2.17.0": "patches/pi-mcp-adapter@2.17.0.patch"
-  },
-  "dependencies": {
-    "@amaster.ai/pi-memory": "^0.1.7",
-    "pi-open-agents": "^0.1.14",
-    "typebox": "^1.3.10"
   }
 }
