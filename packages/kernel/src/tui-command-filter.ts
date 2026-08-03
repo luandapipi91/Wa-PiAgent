@@ -54,6 +54,20 @@ function findPackageRoot(entryPath: string): string {
 	return dirname(entryPath);
 }
 
+/**
+ * 从扩展入口路径读取包根 package.json 的 name 字段（裸包名，waPiCommandToggles key）。
+ * 找不到 package.json / name 缺失 / 读失败时静默返回 undefined（与 isTuiOnlyExtension 同风格，不抛错）。
+ */
+function resolvePackageName(entryPath: string): string | undefined {
+	try {
+		const pkg = JSON.parse(
+			readFileSync(join(findPackageRoot(entryPath), "package.json"), "utf-8"),
+		) as { name?: unknown };
+		if (typeof pkg.name === "string" && pkg.name.length > 0) return pkg.name;
+	} catch {}
+	return undefined;
+}
+
 /** 判定扩展包是否使用 TUI-only API（ui.custom / ui.input / ui.select / ui.confirm / ui.editor） */
 export function isTuiOnlyExtension(
 	entryPath: string,
@@ -97,14 +111,17 @@ export function isTuiOnlyExtension(
 	return result;
 }
 
-/** 给命令附加 TUI-only 标记；全量返回 */
+/** 给命令附加 TUI-only 标记与包名（packageName，供 ws-server 开关合并）；全量返回 */
 export function filterTuiCommands(commands: RawCommandInfo[]): CommandInfo[] {
 	return commands.map((cmd) => {
 		if (cmd.source !== "extension") return cmd;
 		const info = cmd.sourceInfo;
 		if (!info?.path) return cmd;
 		const tuiOnly = isTuiOnlyExtension(info.path, info.baseDir);
-		return { ...cmd, tuiOnly };
+		const packageName = resolvePackageName(info.path);
+		const out: CommandInfo = { ...cmd, tuiOnly };
+		if (packageName !== undefined) out.packageName = packageName;
+		return out;
 	});
 }
 

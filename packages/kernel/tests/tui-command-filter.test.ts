@@ -138,3 +138,30 @@ test("filterTuiCommands: 非 extension 来源不看 sourceInfo 也保留", () =>
 	const commands: RawCommandInfo[] = [cmd("tpl", "prompt", tuiEntry)];
 	expect(filterTuiCommands(commands)).toHaveLength(1);
 });
+
+test("filterTuiCommands: 扩展命令填充 packageName（从包根 package.json 的 name 字段）", () => {
+	// fixture 包 package.json 的 name 为 tui-ext / plain-ext，向上找包根应命中
+	const commands: RawCommandInfo[] = [
+		cmd("mcp-auth", "extension", tuiEntry),
+		cmd("hello", "extension", plainEntry),
+		cmd("goal", "extension"), // 无 sourceInfo → 不填
+		cmd("review", "prompt", tuiEntry), // 非 extension → 不填
+	];
+	const result = filterTuiCommands(commands);
+	expect(result.find((c) => c.name === "mcp-auth")?.packageName).toBe("tui-ext");
+	expect(result.find((c) => c.name === "hello")?.packageName).toBe("plain-ext");
+	expect(result.find((c) => c.name === "goal")?.packageName).toBeUndefined();
+	expect(result.find((c) => c.name === "review")?.packageName).toBeUndefined();
+});
+
+test("filterTuiCommands: package.json 缺失时 packageName 静默为 undefined", () => {
+	// 无 package.json 的扩展目录：resolvePackageName 读不到 name，静默降级不抛错
+	const noPkgDir = join(root, "no-pkg-ext");
+	mkdirSync(noPkgDir, { recursive: true });
+	writeFileSync(join(noPkgDir, "index.ts"), `export const z = 3;\n`);
+	const commands: RawCommandInfo[] = [
+		cmd("z", "extension", join(noPkgDir, "index.ts")),
+	];
+	const result = filterTuiCommands(commands);
+	expect(result[0].packageName).toBeUndefined();
+});
