@@ -9,6 +9,7 @@ interface ComposerSessionRecord {
   model: string | null;
   thinking: ThinkingLevel;
   attachments: AttachmentDraft[];
+  text?: string; // 未发送的输入框草稿；缺省/空串 = 无草稿
   updatedAt: number;
 }
 
