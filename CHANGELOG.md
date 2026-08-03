@@ -2,6 +2,10 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+- **fix(kernel): 关闭命令的发送端静默降级未生效——`disabledCommandNames` 从未被填充（最终审查 C1）**——根因：计划任务 3 的示例代码注释写“登记关闭命令”但代码体无登记语句，实现按计划照抄，集合只有 `has`/`clear` 无 `add`。修复：新增 `registerDisabledCommands` 导出，`_fetchCommands` 在合并 enabled 后把 `enabled === false` 的扩展命令名（含缺省 false）登记进集合；同时修复首次拉取失败仍置位 `_commandsFetched` 的问题（失败不置位、下次 `/` 命令重试）。
+  - 影响范围：`packages/kernel/src/{tui-command-filter,agent-manager}.ts`。
+  - 验证：新增 3 用例（关闭命令 → prompt 加前导空格 `" /goal 设定目标"`、开启命令原样发送、拉取失败不置位重试），kernel 670 pass / tsc 全绿。
+
 ---
 
 ## 2026-08-03

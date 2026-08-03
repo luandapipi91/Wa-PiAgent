@@ -1871,6 +1871,38 @@ test("prompt 关闭命令降级为普通文本：加前导空格绕过 pi 命令
 	expect(fakes[0].prompted[1]).toBe("/hello 你好");
 });
 
+test("prompt 未在 toggles 中记录的命令（缺省 false）同样降级：加前导空格", async () => {
+	// 造临时扩展包：缺省语义 = 未记录的命令视为关闭，也应登记进降级集合
+	const root = join(WA_PI_DIR, "tmp", `disabled-default-${Date.now()}`);
+	tmpPaths.push(root);
+	const extDir = join(root, "goal-ext");
+	mkdirSync(extDir, { recursive: true });
+	writeFileSync(
+		join(extDir, "package.json"),
+		JSON.stringify({ name: "goal-ext" }),
+	);
+	writeFileSync(join(extDir, "index.ts"), `export const y = 1;\n`);
+
+	const { project, session, am, fakes } = await setup({
+		extensionManager: {
+			listEnabledPackageNames: async () => [],
+			// toggles 中完全没有 goal 的记录 → 缺省 false
+			getCommandToggles: async () => ({ "goal-ext": {} }),
+		},
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	fakes[0].commandsToReturn = [
+		{
+			name: "goal",
+			source: "extension",
+			sourceInfo: { path: join(extDir, "index.ts") },
+		},
+	];
+
+	await am.prompt(session.id, "/goal 设定目标", { model: MODEL });
+	expect(fakes[0].prompted[0]).toBe(" /goal 设定目标");
+});
+
 test("prompt 首次拉取命令失败不置位 _commandsFetched：下次 / 命令重试", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
