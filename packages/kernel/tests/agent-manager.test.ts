@@ -1683,7 +1683,7 @@ test("getCommands 会话不存在时自动创建 session 并返回命令", async
 	expect(sessions.find((s: any) => s.id === "new-session-id")).toBeTruthy();
 });
 
-test("getCommands 过滤 TUI-only 扩展的命令（sourceInfo 指向含 ui.custom 的包）", async () => {
+test("getCommands 给 TUI-only 扩展的命令附加 tuiOnly 标记并全量返回", async () => {
 	// 造两个临时扩展包：tui-ext 子文件含 ui.custom( 调用，plain-ext 不含
 	const root = join(WA_PI_DIR, "tmp", `tui-filter-${Date.now()}`);
 	tmpPaths.push(root);
@@ -1722,11 +1722,17 @@ test("getCommands 过滤 TUI-only 扩展的命令（sourceInfo 指向含 ui.cust
 	];
 
 	const commands = await am.getCommands(session.id);
-	expect(commands.map((c) => c.name)).toEqual(["hello", "goal"]);
+	// 任务 2 起 filterTuiCommands 只标记不删除：全量返回，TUI-only 命令附加 tuiOnly: true
+	expect(commands.map((c) => c.name)).toEqual(["mcp-auth", "hello", "goal"]);
+	expect(commands.find((c) => c.name === "mcp-auth")?.tuiOnly).toBe(true);
+	expect(commands.find((c) => c.name === "hello")?.tuiOnly).toBe(false);
+	// 无 sourceInfo 的命令原样返回（不附加 tuiOnly 字段）
+	expect(commands.find((c) => c.name === "goal")?.tuiOnly).toBeUndefined();
 });
 
-test("prompt 时 TUI-only 命令加前导空格降级为普通文本（绕过 pi 命令分发）", async () => {
-	// 造 TUI-only 扩展包并让命令缓存建立（模拟 / 菜单已拉取）
+test("prompt 首个 / 命令触发一次实时拉取，后续不再拉取（命令原样发送）", async () => {
+	// 造 TUI-only 扩展包（tuiOnly 标记由 filterTuiCommands 附加；
+	// 关闭命令登记进 disabledCommandNames 延后到任务 4 接 settings 后实现）
 	const root = join(WA_PI_DIR, "tmp", `tui-filter-${Date.now()}`);
 	tmpPaths.push(root);
 	const tuiDir = join(root, "tui-ext");
@@ -1750,15 +1756,24 @@ test("prompt 时 TUI-only 命令加前导空格降级为普通文本（绕过 pi
 		},
 		{ name: "goal", source: "extension" },
 	];
-	await am.getCommands(session.id); // 建立命令缓存 + TUI 命令集合
+	const getCommandsSpy = mock(fakes[0].getCommands);
+	fakes[0].getCommands = getCommandsSpy;
 
+	// 首个 / 命令触发一次实时拉取（无 5min 缓存），随后命令原样发送
 	await am.prompt(session.id, "/mcp-auth", { model: MODEL });
-	// pi 收到的是带前导空格的普通文本（按普通 prompt 进大模型，不走命令分发）
-	expect(fakes[0].prompted[0]).toBe(" /mcp-auth");
+	expect(getCommandsSpy).toHaveBeenCalledTimes(1);
+	expect((am as any)._commandsFetched).toBe(true);
+	// 降级集合登记由任务 4 接 settings 后实现，当前 isCommandDisabled 为空 → 原样发送
+	expect(fakes[0].prompted[0]).toBe("/mcp-auth");
 
-	// 非 TUI-only 命令原样发送（正常走 pi 命令分发）
+	// 后续 / 命令不再触发拉取（_commandsFetched 已置位）
 	await am.prompt(session.id, "/goal", { model: MODEL });
+	expect(getCommandsSpy).toHaveBeenCalledTimes(1);
 	expect(fakes[0].prompted[1]).toBe("/goal");
+
+	// 非 / 文本不触发拉取
+	await am.prompt(session.id, "你好", { model: MODEL });
+	expect(getCommandsSpy).toHaveBeenCalledTimes(1);
 });
 
 // ─── 扩展命令拦截 prompt 时不卡在 thinking 状态 ─────────────────────────────
