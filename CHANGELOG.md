@@ -8,6 +8,58 @@
 
 ### 修复
 
+- **fix(frontend): 并行派发卡片折叠/展开重叠——展开子任务后整张卡片关不掉**——根因：FleetCard 在 `hasProgress` 时 `open = hasProgress || autoOpen` 恒为 true（卡片被钉死展开），且头部点击被重定向为 `setAllExpanded`（批量展开所有子任务），用户点头部想收卡片实际却在批量展开子任务；同时 `FleetTaskItem` 的 `expanded = forceExpanded || ownExpanded` 一旦被批量展开过，单个子任务行就收不起来了。修复：移除 `allExpanded`/`forceExpanded` 这套与卡片折叠语义冲突的批量交互——头部点击直接切换本地 `cardOpen` 状态折叠/展开整张卡片（有进度时默认展开，统计行仍可见），子任务行各自独立展开/折叠，互不影响。
+  - 影响范围：`packages/frontend/src/components/blocks/FleetCard.tsx`、`packages/frontend/tests/FleetCard.test.tsx`。
+  - 验证：FleetCard 测试 17 pass（新增「头部点击折叠/展开整张卡片」「子任务详情可单独收起」2 个用例）、DelegateCard 16 pass、frontend typecheck 通过。
+
+---
+
+## 2026-08-03
+
+### 修复
+
+- **fix(frontend): 子任务详情展开时回复闪烁——ReactMarkdown 无 memo 导致反复全量重解析**——根因：`FleetTaskItem` 展开期间 `useLiveElapsed` 每秒 tick（running 时每秒 setDisplay）+ 流式 output 高频更新都会触发组件重渲染；而 react-markdown v10 无内置 memo，每次重渲染都全量重新解析整段回复文本（长回复时阻塞主线程 → 闪烁）。另 `createMarkdownComponents` 每次渲染新建对象，components 引用变化会让 memo 失效。修复：新增 `MemoReplyMarkdown`（与 FileViewer.MarkdownPreview 同模式）——`memo()` 包裹 + 内部 `useMemo` 稳定 components，只接收 text/sessionId 稳定 prop；`FleetTaskItem` 展开区改用之。文本不变时 React 跳过重解析，每秒 tick 只更新耗时小段，不再波及回复区。
+  - 影响范围：`packages/frontend/src/components/blocks/FleetCard.tsx`。
+  - 验证：FleetCard + DelegateCard 31 pass、frontend typecheck 通过。
+
+---
+
+## 2026-08-03
+
+### 修复
+
+- **fix(frontend+kernel): 并行委托（fleet）结果展示格式重构 + 完成态工具统计持久化**——用户期望每个任务独立成行：任务清单（`任务 N：委派【agent】task`）+ 每任务统计行（执行中 `调用了 X 个工具 成功 Y 失败 Z 执行中 W` / 完成态 `已完成 调用了 X 个工具 … · 点击查看回复`），点开单个任务才显示该任务的完整回复。原实现为无编号任务列表 + 统一摘要行（N 个子智能体：X 运行中/Y 完成/Z 出错）+ 全部 agent 回复聚合在单个 markdown（一个开关同时展开）
+  - 前端：重构 FleetCard，新增 `FleetTaskItem`（每任务独立展开/折叠，含工具计数与耗时）；任务清单按 `任务 N：委派【agent】task` 格式化；新增 `extractAgentReplies` 按 `【agent】` 分隔符切分 kernel 聚合结果，完成态逐任务展示各自回复；无法切分（老数据）时降级为原聚合展示；头部点击批量展开/折叠全部任务回复。
+  - kernel：工具统计不再只依赖实时 SSE——`subagent-runner` 从 tools 数组计算 `toolStats`（total/done/error/running）加入 `SubagentRunResult`；`delegate-tool` fleet 聚合把各子代理 `toolStats` 写入 toolResult 的 `details.fleet[agent]`，经 pi SDK 原样持久化到会话 JSONL。刷新页面/重载历史会话后完成态统计仍可显示（旧会话无 details 时降级为「已完成 · 点击查看回复」，回复仍可查看）。
+  - 影响范围：`packages/frontend/src/components/blocks/FleetCard.tsx`、`packages/frontend/tests/FleetCard.test.tsx`、`packages/kernel/src/subagent-runner.ts`、`packages/kernel/src/delegate-tool.ts`、`packages/shared/src/types.ts`（新增 `ToolStats`、`ToolResultMessage.details`）、`packages/kernel/tests/subagent-runner.test.ts`、`packages/kernel/tests/delegate-tool.test.ts`。
+  - 验证：FleetCard 测试 15 pass（新增任务清单格式/统计行格式/完成态按 agent 拆分/details 持久化统计 4 个用例）、DelegateCard 16 pass、kernel 全量 648 pass（新增 fleet 聚合 toolStats 用例 + 正常流程 toolStats 断言）、三个包 typecheck 通过。
+
+---
+
+## 2026-08-03
+
+### 修复
+
+- **fix(desktop): runtime 目录卸载扩展失败——`bun remove` 找不到 pi-mcp-adapter patch 文件**——根因：运行时依赖安装在 `~/.wa-pi/runtime`（RUNTIME_DIR），seed 由 `runtime-deps.cjs` 同步，但 `SEED_FILES` 只含 `kernel.js / package.json / bun.lock / tool-schemas.ts / wa-pi-bridge.extension.ts`，**从未复制 `patches/` 目录**；而 sidecar 的 package.json 声明了 `patchedDependencies: pi-mcp-adapter@2.17.0 → patches/pi-mcp-adapter@2.17.0.patch`。应用内卸载（`NpmPackageService.uninstall` → `bun remove`）重新解析依赖树时会校验 patch 文件存在性，缺文件即报 `Couldn't find patch file: 'patches/pi-mcp-adapter@2.17.0.patch'` 并包装为「卸载失败」。修复：`syncSeed` 增加 patches 目录的递归同步（先清空旧的再整体复制，seed 无 patches 时静默跳过）；同时导出 `syncSeed` 便于测试。首启 `bun install --production` 不受影响（production 模式不校验 patch），卸载/安装路径此前必现失败。
+  - 影响范围：`packages/desktop/src/util/runtime-deps.cjs`、新增 `packages/desktop/tests/runtime-deps.test.ts`。
+  - 验证：新增单元测试「syncSeed 复制 patches / patches 缺失静默跳过 / 旧 patches 被整体替换」通过；端到端用真实 seed 同步到临时 runtime 后 `bun install` + `bun remove` 成功（此前必报 patch 缺失）；desktop 全量 43 测试 pass、typecheck 通过。
+
+---
+
+## 2026-08-03
+
+### 修复
+
+- **fix(kernel): 新建会话页切换智能体失效——ensureStarted 复用进程不校验 agentName + 会话 primaryAgent 不同步**——根因：新建会话页挂载时 ComposerInput 立即拉取 `/commands`，后端 `getCommands` 兜底分支（无活跃进程时）用**默认智能体**提前创建会话并启动 pi 进程（不广播 session:created，前端无感知）；用户在 dropdown 切到智能体 B 后发送，`agent:prompt` → `ensureStarted` 只按 sessionId 复用已有活跃进程、**不校验 agentName** → 消息被交给旧智能体 A 的进程处理（前端显示 B、实际回复来自 A），且会话记录 primaryAgent 仍为 A（broadcast projects:list 会把 A 覆盖到前端，侧栏显示旧智能体）。修复两层：① `ensureStarted` 命中缓存时校验 `meta.agentName !== agentName` 则拆除旧进程并按新智能体重建（参考 `switchAgent` 行为）；② `agent:prompt` 对已存在会话且 primaryAgent 不一致时 `setSessionAgent` 同步记录并广播 projects:list。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`（ensureStarted）、`packages/kernel/src/ws-server.ts`（agent:prompt）、`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/composer-attachments.test.ts`（withComposerServer 暴露 ctx）。
+  - 验证：新增单元测试「同 sessionId 但 agentName 变化时拆除旧进程并按新 agent 重建」先红后绿；新增集成测试「getCommands 兜底建会话后切换 agent 发送 → 新 agent 进程接管且会话 primaryAgent 同步」先红后绿（覆盖 REST → ws-server → AgentManager 全链路）；kernel 647 pass / 0 fail；kernel typecheck 通过。
+
+---
+
+## 2026-08-03
+
+### 修复
+
 - **fix(build): 生产打包失败——根 package.json 冗余生产依赖与 bun 隔离布局不兼容**——electron-builder 26 检测到 workspace root 后会把根 `dependencies` 纳入依赖收集，但 bun 1.3 隔离安装布局（依赖存放于 `node_modules/.bun/`，非传统 `node_modules/@scope/pkg`）导致收集器报 `Production dependency @amaster.ai/pi-memory not found for package wa-pi`。修复：移除根 package.json 冗余的 `dependencies`（`@amaster.ai/pi-memory`/`pi-open-agents`/`typebox`——三者已分别由 packages/kernel、packages/shared 声明，根代码无直接引用），`bun install` 更新 lockfile 后 electron-builder 依赖收集为空、打包通过。
   - 影响范围：根 `package.json`、`bun.lock`。
   - 验证：`build:mac` 全流程通过（typecheck + 全量测试 + sidecar 组装 + electron-builder 出 dmg/zip）；dmg 挂载验证含 Applications 快捷方式与应用本体。
