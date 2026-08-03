@@ -260,6 +260,8 @@ export const useSessionStore = create<SessionState>((set) => {
 					`/api/sessions/${encodeURIComponent(sessionId)}/messages`,
 				)) as { messages: any[] };
 				if (!res?.messages) return;
+				// 整表覆盖：agent_end 时刻无 streaming，服务端历史为准；
+				// GET 在途时若乐观消息已写入，SDK 回显会补回，短暂覆盖可接受
 				useSessionStore.setState((s) => ({
 					messagesBySession: {
 						...s.messagesBySession,
