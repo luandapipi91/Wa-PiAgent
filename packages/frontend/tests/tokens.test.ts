@@ -174,3 +174,8 @@ test("expandTokens 展开全角 ／ token（U+FF0F）为 /cmd", () => {
 test("expandTokens 发送时把普通文本中的全角触发符符号归一化为半角（语义等价，预期行为）", () => {
   expect(expandTokens("价格 \uFFE5500 和 \uFF20mention")).toBe("价格 ¥500 和 @mention");
 });
+
+test("expandTokens 展开命令 token（/[/compact] -> /compact 空格）", () => {
+  expect(expandTokens("/[compact] 只保留关键决策")).toBe("/compact  只保留关键决策");
+  expect(expandTokens("/[compact]")).toBe("/compact ");
+});
