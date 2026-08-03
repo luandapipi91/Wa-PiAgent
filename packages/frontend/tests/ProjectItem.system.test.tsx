@@ -2,6 +2,7 @@ import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { ProjectItem } from "../src/components/ProjectItem";
 import { useProjectUiStore } from "../src/store/project-ui";
+import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { SYSTEM_PROJECT_ID, type SessionEntity } from "@wa-pi/shared";
 
 // mock api-client：捕获 REST 调用，必要时断言请求被正确发出。
@@ -183,4 +184,34 @@ test("普通项目下会话右键菜单无'打开工作目录'（行为不变）
     fireEvent.contextMenu(screen.getByText("会话"));
   });
   expect(screen.queryByTestId("menu-open-session-dir")).toBeNull();
+});
+
+test("删除会话时调用 removeSessionPrefs 清理草稿", () => {
+  useComposerPrefsStore.setState({
+    bySession: { "s-del": { model: "m", thinking: "disabled", attachments: [], text: "草稿" } },
+    loadedBySession: { "s-del": true },
+  });
+  const session: SessionEntity = { id: "s-del", projectId: "p1", primaryAgent: "dev", title: "会话", createdAt: 0, lastActivity: 0, piSessionFile: "" };
+
+  render(
+    <ProjectItem
+      project={normalProject}
+      sessions={[session]}
+      currentSessionId={null}
+      selected={false}
+      onSelectSession={() => {}}
+      onNewSessionInProject={() => {}}
+      onSelectProject={() => {}}
+    />
+  );
+
+  // 右键打开会话菜单 → 删除聊天 → 确认
+  fireEvent.contextMenu(screen.getByTestId(`session-s-del`));
+  fireEvent.click(screen.getByTestId("menu-delete"));
+  fireEvent.click(screen.getByTestId("confirm-ok"));
+
+  // 删除请求已发出
+  expect(calls.some(c => c.method === "del" && c.path.includes("/sessions/s-del"))).toBe(true);
+  // composer 草稿已从 store 清理
+  expect(useComposerPrefsStore.getState().bySession["s-del"]).toBeUndefined();
 });

@@ -5,6 +5,7 @@ import { SessionRow } from "./SessionRow";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { api } from "../api-client";
 import { useProjectUiStore } from "../store/project-ui";
+import { useComposerPrefsStore } from "../store/composer-prefs";
 
 interface Props {
   project: ProjectEntity;
@@ -117,7 +118,10 @@ export function ProjectItem(props: Props) {
   const handleDeleteConfirm = () => {
     if (!deleteTarget) return;
     if (deleteKind === "session") {
-      void api.del(`/api/sessions/${encodeURIComponent((deleteTarget as SessionEntity).id)}`);
+      const sid = (deleteTarget as SessionEntity).id;
+      void api.del(`/api/sessions/${encodeURIComponent(sid)}`);
+      // 同步清理该会话的 composer 草稿（IndexedDB + store 内存）
+      useComposerPrefsStore.getState().removeSessionPrefs(sid);
     } else {
       void api.del(`/api/projects/${encodeURIComponent((deleteTarget as ProjectEntity).id)}`);
     }
