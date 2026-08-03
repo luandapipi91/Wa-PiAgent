@@ -745,6 +745,9 @@ export const useSessionStore = create<SessionState>((set) => {
 				case "extension_notify": {
 					const msg = (event as any).message;
 					if (typeof msg === "string") {
+						const timestamp = Date.now();
+						// 是否真正插入（去重命中时不插入，也不调度移除定时器）
+						let inserted = false;
 						set((s) => {
 							const list = s.messagesBySession[sessionId] ?? [];
 							// 去重：与最后一条 extension_notify 内容相同则不重复插入
@@ -757,6 +760,7 @@ export const useSessionStore = create<SessionState>((set) => {
 							) {
 								return s;
 							}
+							inserted = true;
 							return {
 								messagesBySession: {
 									...s.messagesBySession,
@@ -767,7 +771,7 @@ export const useSessionStore = create<SessionState>((set) => {
 												type: "custom",
 												customType: "extension_notify",
 												content: msg,
-												timestamp: Date.now(),
+												timestamp,
 											},
 											agentName,
 											sessionId,
@@ -776,6 +780,30 @@ export const useSessionStore = create<SessionState>((set) => {
 								},
 							};
 						});
+						// 系统提示 20s 后自动从聊天列表消失：按 timestamp 精确匹配移除
+						if (inserted) {
+							setTimeout(() => {
+								set((s) => {
+									const list = s.messagesBySession[sessionId] ?? [];
+									const next = list.filter(
+										(m) =>
+											!(
+												(m.message as any)?.customType ===
+													"extension_notify" &&
+												(m.message as any)?.timestamp === timestamp
+											),
+									);
+									// 消息已被其他操作移除/会话切换：找不到目标则不做无意义 set
+									if (next.length === list.length) return s;
+									return {
+										messagesBySession: {
+											...s.messagesBySession,
+											[sessionId]: next,
+										},
+									};
+								});
+							}, 20_000);
+						}
 					}
 					break;
 				}
