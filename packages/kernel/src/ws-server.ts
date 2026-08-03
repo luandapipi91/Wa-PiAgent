@@ -1746,6 +1746,8 @@ export class WSServer {
 					// 切换命令开关后重置降级集合：发送端下次 / 命令重新拉取，刷新 disabledCommandNames
 					this.opts.agentManager.resetCommandState();
 					reply({ type: "extension:commands:toggle", ok: true });
+					// 广播命令变更事件：前端据此刷新 / 菜单命令列表（开启/关闭后立即生效）
+					this.broadcast({ type: "extension:commands:changed" });
 				} catch (err) {
 					reply({ type: "error", message: (err as Error).message });
 				}

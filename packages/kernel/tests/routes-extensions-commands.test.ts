@@ -156,3 +156,55 @@ test("POST /api/extensions/commands/toggle enabled 非 boolean → 400", async (
   expect((await res.json()).error).toBe("参数缺失或类型错误");
   expect(setCommandToggleSpy).not.toHaveBeenCalled();
 });
+
+test("POST toggle 成功 → 广播 extension:commands:changed（前端 / 菜单刷新）", async () => {
+  setCommandToggleSpy.mockClear();
+  resetCommandStateSpy.mockClear();
+
+  // 连接 SSE 事件总线（首读触发 bus.add，确保广播能送达本连接）
+  const res = await fetch(`${base}/api/events`);
+  const reader = res.body!.getReader();
+  await reader.read(); // 消费首帧（": connected"）
+
+  const toggleRes = await fetch(`${base}/api/extensions/commands/toggle`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ packageName: "pkg-a", command: "goal", enabled: false }),
+  });
+  expect(toggleRes.status).toBe(200);
+
+  // 断言广播帧：type 为 extension:commands:changed
+  const frame = await readSseFrameWithTimeout(reader);
+  expect(frame.type).toBe("extension:commands:changed");
+  reader.releaseLock();
+});
+
+// ─── SSE 帧读取辅助（与 ws-extension-skill-refresh.test.ts 同模式）─────────────────
+async function readSseFrameWithTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs = 3000,
+): Promise<Record<string, unknown>> {
+  const dec = new TextDecoder();
+  let buffer = "";
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const remaining = Math.max(0, deadline - Date.now());
+    const { value, done } = await Promise.race([
+      reader.read(),
+      new Promise<{ done: true; value?: undefined }>((r) =>
+        setTimeout(() => r({ done: true, value: undefined }), remaining),
+      ),
+    ]);
+    if (done) throw new Error("SSE 流超时/关闭，未收到 extension:commands:changed");
+    buffer += dec.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      const raw = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      if (raw.trim().startsWith(":")) continue; // 心跳/注释帧
+      const line = raw.split("\n").find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      return JSON.parse(line.slice(5).trim());
+    }
+  }
+}

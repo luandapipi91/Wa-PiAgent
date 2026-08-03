@@ -3,13 +3,31 @@ import { test, expect, mock, beforeEach } from "bun:test";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import type { AgentConfig } from "@wa-pi/shared";
 
+// mock 原生 fetch：App 挂载/会话切换时 SessionView 会 fetch /api/sessions/:id/messages，
+// happy-dom 对相对 URL 抛 NotSupportedError，必须替换为返回合法结构（与 ComposerInput.test 同模式）
+const originalFetch = globalThis.fetch;
+const fetchMock = mock((input: any) => {
+  const url = String(input);
+  if (url.includes("/messages")) {
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({ messages: [], isActive: false }) } as any);
+  }
+  return originalFetch(input);
+}) as any;
+
 const calls: { method: string; path: string; body?: any }[] = [];
 
 mock.module("../src/api-client", () => ({
   api: {
     // get 返回 null（falsy）：App mount 时各 store.loadAll/load 的 if(data) 分支不触发，
     // 避免异步覆盖测试在 beforeEach 预设的 store 状态（agents/projects 等）。
-    get: (path: string) => { calls.push({ method: "get", path }); return Promise.resolve(null); },
+    // 例外：/messages 路径（SessionView 挂载时读取会话历史）需要合法结构，否则 res.messages 崩溃。
+    get: (path: string) => {
+      calls.push({ method: "get", path });
+      if (path.includes("/messages")) {
+        return Promise.resolve({ messages: [], isActive: false, thinkingSince: null });
+      }
+      return Promise.resolve(null);
+    },
     post: (path: string, body?: any) => { calls.push({ method: "post", path, body }); return Promise.resolve({}); },
     put: (path: string, body?: any) => { calls.push({ method: "put", path, body }); return Promise.resolve({}); },
     del: (path: string, body?: any) => { calls.push({ method: "del", path, body }); return Promise.resolve({}); },
@@ -45,6 +63,7 @@ const emitEvent = (e: any) => { eventHandlers.forEach(h => h(e)); };
 beforeEach(() => {
   calls.length = 0;
   eventHandlers.clear();
+  globalThis.fetch = fetchMock; // 会话视图 fetch messages 走 mock，避免 happy-dom 相对 URL 抛错
   // 有项目无会话 → 默认落在 new-session 视图
   useProjectsStore.setState({
     projects: [project], sessions: [], currentProjectId: "p1", currentSessionId: null,
@@ -129,4 +148,28 @@ test("pendingAgent 首次消费后清除：离开再进新建页不再预选旧�
   act(() => { useProjectsStore.setState({ projects: [project], currentProjectId: "p1" }); });
   await waitFor(() => expect(screen.getByTestId("agent-select")).toBeTruthy());
   expect(screen.getByTestId("agent-select").textContent).toContain("技术实现");
+});
+
+test("extension:commands:changed 事件 → 当前会话 / 菜单命令列表重新拉取", async () => {
+  // 挂载时无当前会话（避免 App 挂载触发原生 fetch messages，与既有测试一致）
+  useProjectsStore.setState({
+    projects: [project],
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "T", createdAt: 0, lastActivity: 0, piSessionFile: "/tmp/s1.jsonl" }],
+    currentProjectId: "p1",
+    currentSessionId: null,
+  });
+  render(<App />);
+  await act(async () => {});
+  calls.length = 0; // 清掉挂载期的拉取记录，聚焦事件触发后的刷新
+
+  // 模拟用户已在会话界面：事件到达前 currentSessionId 已是 s1
+  act(() => {
+    useProjectsStore.setState({ currentSessionId: "s1" });
+    emitEvent({ type: "extension:commands:changed" });
+  });
+  await act(async () => {});
+  // 重新拉取当前会话命令列表（load 是异步 fire-and-forget，用 waitFor 等 api.get 被调用）
+  await waitFor(() => {
+    expect(calls.some(c => c.method === "get" && c.path === "/api/sessions/s1/commands")).toBe(true);
+  });
 });
