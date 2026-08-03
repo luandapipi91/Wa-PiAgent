@@ -13,7 +13,7 @@ mock.module("../src/api-client", () => ({
 }));
 
 beforeEach(() => {
-  useExtensionsStore.setState({ packages: [], installs: {}, upgrading: {}, error: null });
+  useExtensionsStore.setState({ packages: [], installs: {}, upgrading: {}, uninstalling: {}, error: null });
 });
 
 test("installPackage 添加 installing 占位条目", () => {
@@ -138,4 +138,31 @@ test("setError 清除 upgrading 并落到全局 error（升级失败）", () => 
   });
   expect(useExtensionsStore.getState().upgrading["foo"]).toBeUndefined();
   expect(useExtensionsStore.getState().error).toBe("升级失败");
+});
+
+// ===== 卸载反馈（uninstalling 状态）=====
+
+test("uninstallPackage 标记 uninstalling 状态（卸载中）", () => {
+  useExtensionsStore.getState().uninstallPackage("foo");
+  expect(useExtensionsStore.getState().uninstalling["foo"]).toBe(true);
+});
+
+test("setAll（extension:changed）清除 uninstalling（卸载完成）", () => {
+  useExtensionsStore.setState({ uninstalling: { foo: true } });
+  useExtensionsStore.getState().setAll({
+    type: "extension:changed",
+    packages: [{ name: "foo", source: "npm", enabled: true }],
+  });
+  expect(useExtensionsStore.getState().uninstalling["foo"]).toBeUndefined();
+});
+
+test("setError 清除 uninstalling 并落到全局 error（卸载失败）", () => {
+  useExtensionsStore.setState({ uninstalling: { foo: true } });
+  useExtensionsStore.getState().setError({
+    type: "extension:error",
+    name: "foo",
+    error: "卸载失败",
+  });
+  expect(useExtensionsStore.getState().uninstalling["foo"]).toBeUndefined();
+  expect(useExtensionsStore.getState().error).toBe("卸载失败");
 });
