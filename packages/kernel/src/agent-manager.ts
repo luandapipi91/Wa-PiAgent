@@ -49,6 +49,7 @@ import { buildAdditionalExtensionPaths } from "./extensions";
 import {
 	filterTuiCommands,
 	isCommandDisabled,
+	registerDisabledCommands,
 	resetDisabledCommands,
 	type RawCommandInfo,
 } from "./tui-command-filter";
@@ -1078,8 +1079,12 @@ export class AgentManager {
 		// 命令清单未拉取过时先拉一次，填充 disabledCommandNames（无缓存，仅首次/变更后拉取）。
 		if (text.startsWith("/")) {
 			if (!this._commandsFetched) {
-				await this._fetchCommands(handle.client).catch(() => []);
-				this._commandsFetched = true;
+				try {
+					await this._fetchCommands(handle.client);
+					this._commandsFetched = true;
+				} catch {
+					// 拉取失败不置位，下次 / 命令重试（失败窗口内降级集合未填充 → 命令原样发送）
+				}
 			}
 			const sp = text.indexOf(" ");
 			const cmdName = sp === -1 ? text.slice(1) : text.slice(1, sp);
@@ -1378,6 +1383,7 @@ export class AgentManager {
 	 * 有 packageName（extension 来源）→ 用 waPiCommandToggles 值（缺省 false）；
 	 * 无 packageName（prompt/builtin 等）→ 不附加 enabled（kernel 不填 → undefined，前端缺省 false）。
 	 * 无 extensionManager（测试等场景）→ 保持原样。
+	 * 关闭的命令名（enabled === false 的扩展命令）登记进 disabledCommandNames，prompt 发送时降级。
 	 */
 	private async _fetchCommands(
 		client: RpcClient,
@@ -1386,11 +1392,19 @@ export class AgentManager {
 		const cmds = filterTuiCommands((commands ?? []) as RawCommandInfo[]);
 		if (!this.opts.extensionManager) return cmds;
 		const toggles = await this.opts.extensionManager.getCommandToggles();
-		return cmds.map((cmd) =>
+		const merged = cmds.map((cmd) =>
 			cmd.packageName
 				? { ...cmd, enabled: toggles[cmd.packageName]?.[cmd.name] ?? false }
 				: cmd,
 		);
+		// 登记关闭的命令名（缺省 false 语义：未记录 = 关闭，一并登记）。
+		// 用与合并同一次 getCommandToggles() 结果，避免两次读 settings 的不一致窗口。
+		registerDisabledCommands(
+			merged
+				.filter((c) => c.packageName && c.enabled === false)
+				.map((c) => c.name),
+		);
+		return merged;
 	}
 
 	/** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */

@@ -6,6 +6,7 @@ import {
 	filterTuiCommands,
 	isCommandDisabled,
 	isTuiOnlyExtension,
+	registerDisabledCommands,
 	resetDisabledCommands,
 	type RawCommandInfo,
 } from "../src/tui-command-filter";
@@ -127,11 +128,22 @@ test("filterTuiCommands: TUI-only 命令不再删除，附加 tuiOnly: true 标�
 });
 
 test("isCommandDisabled / resetDisabledCommands: 初始为空，reset 可重复调用", () => {
-	// 登记逻辑由后续任务接 settings 后实现；此处仅验证集合为空且 reset 不抛错
+	// 未登记时判定为未关闭；reset 幂等不抛错
 	expect(isCommandDisabled("mcp-auth")).toBe(false);
 	expect(() => resetDisabledCommands()).not.toThrow();
 	expect(() => resetDisabledCommands()).not.toThrow();
 	expect(isCommandDisabled("mcp-auth")).toBe(false);
+});
+
+test("registerDisabledCommands: 登记后 isCommandDisabled 返回 true，reset 后恢复 false", () => {
+	registerDisabledCommands(["mcp-auth", "hello"]);
+	expect(isCommandDisabled("mcp-auth")).toBe(true);
+	expect(isCommandDisabled("hello")).toBe(true);
+	// 未登记的命令不受影响
+	expect(isCommandDisabled("goal")).toBe(false);
+	resetDisabledCommands();
+	expect(isCommandDisabled("mcp-auth")).toBe(false);
+	expect(isCommandDisabled("hello")).toBe(false);
 });
 
 test("filterTuiCommands: 非 extension 来源不看 sourceInfo 也保留", () => {

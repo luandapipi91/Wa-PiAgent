@@ -22,6 +22,7 @@ import {
 import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
 import { SkillManager } from "../src/skill-manager";
+import { resetDisabledCommands } from "../src/tui-command-filter";
 import { getGlobalMemoryStore } from "../src/amaster-memory";
 import {
 	WA_PI_DIR,
@@ -51,6 +52,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+	// 模块级降级集合（disabledCommandNames）跨用例共享，统一清空防串扰
+	resetDisabledCommands();
 	for (const am of managers.splice(0)) await am.disposeAll().catch(() => {});
 	for (const f of tmpPaths.splice(0)) {
 		try {
@@ -1807,11 +1810,11 @@ test("prompt 首个 / 命令触发一次实时拉取，后续不再拉取（命�
 	const getCommandsSpy = mock(fakes[0].getCommands);
 	fakes[0].getCommands = getCommandsSpy;
 
-	// 首个 / 命令触发一次实时拉取（无 5min 缓存），随后命令原样发送
+	// 首个 / 命令触发一次实时拉取（无 5min 缓存）；无 extensionManager → 不合并开关、不登记降级集合，命令原样发送
 	await am.prompt(session.id, "/mcp-auth", { model: MODEL });
 	expect(getCommandsSpy).toHaveBeenCalledTimes(1);
 	expect((am as any)._commandsFetched).toBe(true);
-	// 降级集合登记由任务 4 接 settings 后实现，当前 isCommandDisabled 为空 → 原样发送
+	// 无 extensionManager 时不合并开关、不登记降级集合 → 原样发送
 	expect(fakes[0].prompted[0]).toBe("/mcp-auth");
 
 	// 后续 / 命令不再触发拉取（_commandsFetched 已置位）
@@ -1822,6 +1825,74 @@ test("prompt 首个 / 命令触发一次实时拉取，后续不再拉取（命�
 	// 非 / 文本不触发拉取
 	await am.prompt(session.id, "你好", { model: MODEL });
 	expect(getCommandsSpy).toHaveBeenCalledTimes(1);
+});
+
+test("prompt 关闭命令降级为普通文本：加前导空格绕过 pi 命令分发；开启命令原样发送", async () => {
+	// 造临时扩展包：resolvePackageName 从 sourceInfo.path 读 package.json 解析包名 goal-ext
+	const root = join(WA_PI_DIR, "tmp", `disabled-cmd-${Date.now()}`);
+	tmpPaths.push(root);
+	const extDir = join(root, "goal-ext");
+	mkdirSync(extDir, { recursive: true });
+	writeFileSync(
+		join(extDir, "package.json"),
+		JSON.stringify({ name: "goal-ext" }),
+	);
+	writeFileSync(join(extDir, "index.ts"), `export const y = 1;\n`);
+
+	const { project, session, am, fakes } = await setup({
+		extensionManager: {
+			// ensureStarted 会调 listEnabledPackageNames 决定 -e 扩展路径
+			listEnabledPackageNames: async () => [],
+			getCommandToggles: async () => ({
+				"goal-ext": { goal: false, hello: true },
+			}),
+		},
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	fakes[0].commandsToReturn = [
+		{
+			name: "goal",
+			source: "extension",
+			sourceInfo: { path: join(extDir, "index.ts") },
+		},
+		{
+			name: "hello",
+			source: "extension",
+			sourceInfo: { path: join(extDir, "index.ts") },
+		},
+	];
+
+	// 关闭的命令（toggle 为 false）→ 降级为普通文本，加前导空格
+	await am.prompt(session.id, "/goal 设定目标", { model: MODEL });
+	expect(fakes[0].prompted[0]).toBe(" /goal 设定目标");
+
+	// 开启的命令（toggle 为 true）→ 原样发送
+	await am.prompt(session.id, "/hello 你好", { model: MODEL });
+	expect(fakes[0].prompted[1]).toBe("/hello 你好");
+});
+
+test("prompt 首次拉取命令失败不置位 _commandsFetched：下次 / 命令重试", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+	fakes[0].commandsToReturn = [{ name: "goal", source: "extension" }];
+	const getCommandsSpy = mock(fakes[0].getCommands);
+	fakes[0].getCommands = getCommandsSpy;
+
+	// 首次拉取失败（模拟 pi get_commands 抛错）→ prompt 不抛错、不置位标记
+	getCommandsSpy.mockImplementationOnce(async () => {
+		throw new Error("boom");
+	});
+	await am.prompt(session.id, "/goal", { model: MODEL });
+	expect((am as any)._commandsFetched).toBe(false);
+	// 降级集合未填充 → 命令原样发送
+	expect(fakes[0].prompted[0]).toBe("/goal");
+
+	// 下次 / 命令重试成功 → 置位标记，且不再重复拉取
+	await am.prompt(session.id, "/goal", { model: MODEL });
+	expect((am as any)._commandsFetched).toBe(true);
+	expect(getCommandsSpy).toHaveBeenCalledTimes(2);
+	await am.prompt(session.id, "/goal", { model: MODEL });
+	expect(getCommandsSpy).toHaveBeenCalledTimes(2);
 });
 
 // ─── resetCommandState / dirty 重置命令拉取标记 ────────────────────────────
