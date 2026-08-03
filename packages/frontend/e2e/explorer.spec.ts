@@ -76,4 +76,27 @@ test.describe.serial("文件树 + 文件预览", () => {
     // md 渲染不走 FileViewer 的 Prism 分支：无行号容器
     await expect(page.getByTestId("file-viewer").locator("[data-line]")).toHaveCount(0);
   });
+
+  test("双击不支持预览的文件：显示「在系统查看文件」按钮", async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.goto("/");
+    await page.waitForTimeout(2000);
+
+    const sessionId = await createSession();
+    await page.getByText("E2E项目").first().click();
+    await page.getByTestId(`session-${sessionId}`).click();
+    await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 8000 });
+
+    await page.getByTestId("btn-explorer").click();
+    await expect(page.getByTestId("explorer-aside")).toBeVisible({ timeout: 5000 });
+
+    const zipNode = page.locator('[data-testid="explorer-panel"]').getByText("sample.zip");
+    await expect(zipNode).toBeVisible({ timeout: 5000 });
+    await zipNode.dblclick();
+
+    // unsupported 占位 + 「在系统查看文件」按钮（点击行为由组件测试覆盖，避免 E2E 真实弹出资源管理器）
+    await expect(page.getByTestId("fv-unsupported")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("fv-unsupported")).toContainText("不支持预览该文件");
+    await expect(page.getByRole("button", { name: "在系统查看文件" })).toBeVisible({ timeout: 5000 });
+  });
 });

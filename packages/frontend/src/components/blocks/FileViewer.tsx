@@ -4,7 +4,7 @@ import { Highlight, themes } from "prism-react-renderer";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { readFile } from "../../fs-client";
+import { readFile, revealFile } from "../../fs-client";
 import { createMarkdownComponents } from "./markdown-components";
 
 // 图片扩展名集合（与 kernel checkPreviewable 放行的 image/* 对齐）
@@ -307,9 +307,17 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				<span className="text-[32px]">📄</span>
 				<span className="text-[13px] text-secondary">不支持预览该文件</span>
 				<span className="text-[11px] text-tertiary">{unsupported}</span>
-				<button className="fv-btn" onClick={onClose}>
-					关闭
-				</button>
+				<div className="flex items-center gap-2">
+					<button className="fv-btn" onClick={onClose}>
+						关闭
+					</button>
+					<button
+						className="fv-btn fv-btn-accent"
+						onClick={() => void revealFile(path)}
+					>
+						在系统查看文件
+					</button>
+				</div>
 			</div>
 		);
 	}

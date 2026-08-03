@@ -67,6 +67,8 @@ async function globalSetup() {
     ["# E2E 预览测试", "", "| 列A | 列B |", "|-----|-----|", "| 1   | 2   |", "", "```ts", "const y = 2;", "```", "", "```mermaid", "graph TD", "  A --> B", "```", ""].join("\n"),
     "utf8");
   writeFileSync(join(E2E_WA_PI_DIR, "projects.json"), SEED_PROJECTS_JSON, "utf8");
+  // 预置一个不支持预览的文件（zip）：FileViewer unsupported 分支显示「在系统查看文件」按钮的 E2E 依赖
+  writeFileSync(join(SEED_PROJECT_CWD, "sample.zip"), "PK\x03\x04 e2e-zip-placeholder", "utf8");
   mkdirSync(join(E2E_WA_PI_DIR, "projects-memory", "e2e-project"), { recursive: true });
   writeFileSync(join(E2E_WA_PI_DIR, "projects-memory", "e2e-project", "MEMORY.md"), "E2E 项目记忆条目", "utf8");
 

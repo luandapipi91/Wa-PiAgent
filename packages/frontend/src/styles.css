@@ -272,6 +272,17 @@ body {
 	color: var(--text-primary);
 	border-color: var(--accent);
 }
+/* 深色文字变体：无底色，仅深色文字 + 细边框，hover 浅紫底紫字 */
+.fv-btn-accent {
+	background: transparent;
+	color: var(--text-primary);
+	border-color: var(--hairline-strong);
+}
+.fv-btn-accent:hover {
+	background: var(--accent-soft);
+	color: var(--accent);
+	border-color: var(--accent);
+}
 
 /* ── ExplorerPanel 文件树 ── */
 .ep-tree {

@@ -2,6 +2,10 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+- **feat(frontend): 不支持预览的文件提供「在系统查看文件」**——FileViewer 的 unsupported 分支（如 zip 等无法预览的文件）新增「在系统查看文件」按钮（深色文字无底色：`fv-btn-accent` 透明背景 + 深色文字 + 细边框，hover 浅紫底紫字），点击调用既有 `POST /api/fs/reveal-file` 在系统文件管理器（Windows 资源管理器/访达）中显示该文件；复用 ExplorerPanel「在访达中显示」同款链路，无需新增 kernel/Electron 端点。
+  - 影响范围：`packages/frontend/src/components/blocks/FileViewer.tsx`（unsupported 分支加按钮）、`packages/frontend/src/styles.css`（新增 `.fv-btn-accent`）、`packages/frontend/tests/FileViewer.test.tsx`（新增 1 用例）、`packages/frontend/e2e/explorer.spec.ts`（新增 1 E2E 用例）、`packages/frontend/e2e/global-setup.ts`（预置 sample.zip）。
+  - 验证：组件测试（按钮渲染 + 深色文字变体类 + 点击调 revealFile + 路径正确）红灯→绿灯 TDD；frontend 全量 963 pass / 1 skip / 0 fail、typecheck 通过；E2E explorer.spec.ts 3/3 PASS（真实浏览器双击 zip → unsupported → 按钮可见）。
+
 - **fix(kernel): steer 引导消息不补全空标题会话——队列「引导/立即」注入消息后标题仍为空**——根因：标题补全原先只绑定在 `agent:prompt`（正常发送消息）时刻；`steer:message` / `steer:immediate-message` 注入消息时从不补全，`getCommands` 兜底创建的空标题会话（`title: ""`）若首次消息经队列「引导/立即」发送，标题永远为空。修复：两条 steer 路径注入成功后调用 `fillSessionTitleIfEmpty`（用消息前 20 字补全）并广播 `projects:list`，与 `agent:prompt` 行为一致；已有标题不覆盖，补全失败不影响注入主流程。
   - 影响范围：`packages/kernel/src/ws-server.ts`（新增 `fillEmptySessionTitle`，`steer:message` / `steer:immediate-message` 两分支接入）。
   - 验证：新增 `packages/kernel/tests/steer-title-fill.test.ts` 3 用例（steer 补全 / steer:immediate 补全 / 已有标题不覆盖），相关回归 project-store + session-messages + routes-chat 30 pass。
