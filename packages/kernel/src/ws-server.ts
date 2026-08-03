@@ -898,6 +898,16 @@ export class WSServer {
 						if (isNew) {
 							this.broadcast({ type: "session:created", session });
 						} else {
+							// 已有会话但 primaryAgent 与本次发送不一致（新建页挂载时 getCommands
+							// 兜底可能已用默认 agent 建过会话）：同步记录，避免侧栏/重开后显示旧 agent
+							const agentChanged =
+								session.primaryAgent !== event.agentName;
+							if (agentChanged) {
+								await this.opts.projectStore.setSessionAgent(
+									session.id,
+									event.agentName,
+								);
+							}
 							// 已有会话但标题为空（如 getCommands 兜底创建的会话）：
 							// 首次发送消息时用消息内容自动命名，刷新侧栏标题
 							const filled =
@@ -905,7 +915,7 @@ export class WSServer {
 									session.id,
 									event.text.slice(0, 20),
 								);
-							if (filled) {
+							if (agentChanged || filled) {
 								const data = await this.opts.projectStore.load();
 								this.broadcast({
 									type: "projects:list",

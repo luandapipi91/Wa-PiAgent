@@ -200,6 +200,21 @@ test("ensureStarted 复用已存在的会话（同 sessionId 不重复创建 cli
 	expect(fakes).toHaveLength(1);
 });
 
+test("ensureStarted 同 sessionId 但 agentName 变化时拆除旧进程并按新 agent 重建（不错误复用旧 agent）", async () => {
+	const { project, session, am, fakes } = await setup();
+	// 场景：新会话页挂载时 getCommands 兜底已用默认 agent（dev）启动进程
+	await am.ensureStarted(project.id, "dev", session.id);
+	expect(fakes).toHaveLength(1);
+	expect((am as any).sessions.get(session.id).meta.agentName).toBe("dev");
+
+	// 用户在 dropdown 切到 qa 后发送 → agent:prompt → ensureStarted(projectId, "qa", sessionId)
+	await am.ensureStarted(project.id, "qa", session.id);
+
+	// 旧进程必须被拆除，按新 agent 重建；绝不能复用 dev 进程处理 qa 的消息
+	expect(fakes).toHaveLength(2);
+	expect((am as any).sessions.get(session.id).meta.agentName).toBe("qa");
+});
+
 test("ensureStarted 并发调用同 sessionId 只创建一次（共享创建 Promise）", async () => {
 	const fakes: FakeSessionClient[] = [];
 	const { project, session, am } = await setup({
