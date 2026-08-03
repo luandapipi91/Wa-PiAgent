@@ -163,4 +163,80 @@ test.describe.serial("Composer 重构", () => {
     // 消息列表中出现片段引用
     await expect(page.getByText("[片段: test-snippet]").first()).toBeVisible({ timeout: 8000 });
   });
+
+  test("草稿：切会话回来恢复", async ({ page }) => {
+    // 会话 A（已有草稿）→ 切到新建页 → 切回会话 A
+    const sidA = await enterSession(page, "草稿会话A");
+    const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+    await textbox.fill("写了一半的草稿");
+    await page.waitForTimeout(400); // 等防抖写回
+
+    await page.getByTestId("new-session-btn").click();
+    await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
+
+    await page.getByTestId(`session-${sidA}`).click();
+    await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
+    await expect(textbox).toHaveText("写了一半的草稿");
+  });
+
+  test("草稿：刷新后恢复", async ({ page }) => {
+    const sidA = await enterSession(page, "草稿刷新会话");
+    const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+    await textbox.fill("刷新后仍在的草稿");
+    await page.waitForTimeout(400); // 等防抖写回 IndexedDB
+
+    await page.reload();
+    await page.getByTestId(`session-${sidA}`).click();
+    await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
+    await expect(textbox).toHaveText("刷新后仍在的草稿");
+  });
+
+  test("草稿：发送后清空", async ({ page }) => {
+    const sidA = await enterSession(page, "草稿发送会话");
+    const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+    await textbox.fill("发送后不应残留");
+    await page.waitForTimeout(400);
+    await page.getByTestId("composer-send").click();
+    await expect(textbox).toBeEmpty();
+
+    await page.getByTestId("new-session-btn").click();
+    await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
+    await page.getByTestId(`session-${sidA}`).click();
+    await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
+    await expect(textbox).toBeEmpty();
+  });
+
+  test("草稿：手动清空输入框后不复活", async ({ page }) => {
+    const sidA = await enterSession(page, "草稿清空会话");
+    const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+    await textbox.fill("将被手动清空");
+    await page.waitForTimeout(400);
+    await textbox.fill(""); // 手动清空 = 放弃草稿
+    await page.waitForTimeout(400);
+
+    await page.getByTestId("new-session-btn").click();
+    await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
+    await page.getByTestId(`session-${sidA}`).click();
+    await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
+    await expect(textbox).toBeEmpty();
+  });
+
+  test("草稿：新建页输入切走再回来恢复", async ({ page }) => {
+    // 先建一个真实会话，用于"切走"
+    await enterSession(page, "草稿切走会话");
+    const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+
+    // 回到新建页输入草稿
+    await page.getByTestId("new-session-btn").click();
+    await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
+    await textbox.fill("新建页的草稿");
+    await page.waitForTimeout(400);
+
+    // 切到已有会话再切回新建页
+    await page.locator('aside [data-testid^="session-"]').first().click();
+    await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
+    await page.getByTestId("new-session-btn").click();
+    await expect(page.getByTestId("new-session-pane")).toBeVisible({ timeout: 5000 });
+    await expect(textbox).toHaveText("新建页的草稿");
+  });
 });
