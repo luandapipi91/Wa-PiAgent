@@ -14,6 +14,10 @@ export interface CommandInfo {
   name: string;            // 命令名（不含 / 前缀）
   description?: string;
   source: CommandSource;
+  // 新增（仅 extension 来源填充）：
+  packageName?: string;    // 插件包名（裸包名，如 @narumitw/pi-goal，对应 waPiCommandToggles key）
+  enabled?: boolean;       // 命令开关状态（缺省 false）
+  tuiOnly?: boolean;       // TUI-only 检测标记
 }
 
 // ===== WS 协议事件（命令查询）=====
