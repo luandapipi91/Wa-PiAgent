@@ -390,4 +390,21 @@ describe("composer-prefs store", () => {
 
     expect(useComposerPrefsStore.getState().bySession["s-old"].text).toBeUndefined();
   });
+
+  it("removeSessionPrefs 清内存 + IndexedDB 记录", async () => {
+    await dbSetDefaults({ model: null, thinking: "disabled" });
+    await dbSetSessionPrefs({
+      sessionId: "s-del", model: null, thinking: "disabled",
+      attachments: [], text: "待删除草稿", updatedAt: Date.now(),
+    });
+    await useComposerPrefsStore.getState().loadSession("s-del");
+    expect(useComposerPrefsStore.getState().bySession["s-del"]).toBeDefined();
+
+    useComposerPrefsStore.getState().removeSessionPrefs("s-del");
+    await new Promise((r) => setTimeout(r, 10)); // 等 fire-and-forget 写入完成
+
+    expect(useComposerPrefsStore.getState().bySession["s-del"]).toBeUndefined();
+    expect(useComposerPrefsStore.getState().loadedBySession["s-del"]).toBeUndefined();
+    expect(await getSessionPrefs("s-del")).toBeUndefined();
+  });
 });

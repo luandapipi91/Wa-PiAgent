@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
-import { getDefaults, getNewSessionIds, getSessionPrefs, setDefaults, setNewSessionIds, setSessionPrefs as dbSetSessionPrefs } from "./composer-db";
+import { getDefaults, getNewSessionIds, getSessionPrefs, setDefaults, setNewSessionIds, setSessionPrefs as dbSetSessionPrefs, deleteSessionPrefs } from "./composer-db";
 
 // Hydration guard：标记 defaults 是否已从持久层加载。
 // store 初始内存态 thinking="disabled"，而 loadDefaults 是异步的——若在其完成前
@@ -43,6 +43,7 @@ interface ComposerPrefsState {
   loadDefaults: () => Promise<void>;
   loadSession: (sessionId: string) => Promise<void>;
   setSessionPrefs: (sessionId: string, prefs: Partial<SessionPrefs>) => void;
+  removeSessionPrefs: (sessionId: string) => void;
   setDefaults: (prefs: Partial<{ model: string | null; thinking: ThinkingLevel }>) => void;
   setNewSessionId: (key: string, id: string) => void;
   clearNewSessionId: (key: string) => void;
@@ -145,6 +146,20 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
         bySession: { ...s.bySession, [sessionId]: next },
         defaults: newDefaults,
       };
+    });
+  },
+
+  removeSessionPrefs: (sessionId) => {
+    // 清理 hydration 守卫的会话级跟踪，避免同一 id 复用时旧状态残留
+    loadedSessions.delete(sessionId);
+    gapWrites.delete(sessionId);
+    void deleteSessionPrefs(sessionId);
+    set(s => {
+      const bySession = { ...s.bySession };
+      delete bySession[sessionId];
+      const loadedBySession = { ...s.loadedBySession };
+      delete loadedBySession[sessionId];
+      return { bySession, loadedBySession };
     });
   },
 
