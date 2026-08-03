@@ -519,3 +519,81 @@ test("listEnabledPackageNames 不触碰 pkgService（无版本/registry 查询�
   // 只返回启用列表，不含禁用包
   expect(await mgr.listEnabledPackageNames()).toEqual(["a"]);
 });
+
+// ---- waPiCommandToggles（命令级开关持久化）----
+
+test("getCommandToggle 缺省返回 false（无 settings.json）", async () => {
+  const mgr = mockManager(dir);
+  expect(await mgr.getCommandToggle("my-pkg", "my-command")).toBe(false);
+});
+
+test("getCommandToggle 缺省返回 false（有 settings.json 但无 toggles）", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    waPiPackages: ["npm:my-pkg@1.0.0"],
+  }), "utf8");
+  const mgr = mockManager(dir);
+  expect(await mgr.getCommandToggle("my-pkg", "my-command")).toBe(false);
+});
+
+test("setCommandToggle 持久化后重读返回新值", async () => {
+  const mgr = mockManager(dir);
+  await mgr.setCommandToggle("my-pkg", "cmd-a", true);
+  expect(await mgr.getCommandToggle("my-pkg", "cmd-a")).toBe(true);
+
+  // 新实例重读（模拟重启后从磁盘加载）
+  const mgr2 = mockManager(dir);
+  expect(await mgr2.getCommandToggle("my-pkg", "cmd-a")).toBe(true);
+
+  // settings.json 落盘结构验证
+  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.waPiCommandToggles).toEqual({ "my-pkg": { "cmd-a": true } });
+});
+
+test("setCommandToggle 关闭开关并持久化", async () => {
+  const mgr = mockManager(dir);
+  await mgr.setCommandToggle("my-pkg", "cmd-a", true);
+  await mgr.setCommandToggle("my-pkg", "cmd-a", false);
+  expect(await mgr.getCommandToggle("my-pkg", "cmd-a")).toBe(false);
+
+  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.waPiCommandToggles).toEqual({ "my-pkg": { "cmd-a": false } });
+});
+
+test("getCommandToggles 返回全部（多包多命令）", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    waPiCommandToggles: {
+      "pkg-a": { "cmd-1": true, "cmd-2": false },
+      "pkg-b": { "cmd-3": true },
+    },
+  }), "utf8");
+  const mgr = mockManager(dir);
+  expect(await mgr.getCommandToggles()).toEqual({
+    "pkg-a": { "cmd-1": true, "cmd-2": false },
+    "pkg-b": { "cmd-3": true },
+  });
+});
+
+test("getCommandToggles 无 settings.json 返回空对象", async () => {
+  const mgr = mockManager(dir);
+  expect(await mgr.getCommandToggles()).toEqual({});
+});
+
+test("setCommandToggle 保留其他 toggles 与其他 settings 字段", async () => {
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({
+    npmCommand: ["bun"],
+    waPiPackages: ["npm:my-pkg@1.0.0"],
+    waPiCommandToggles: { "my-pkg": { "cmd-a": true } },
+  }), "utf8");
+  const mgr = mockManager(dir);
+  await mgr.setCommandToggle("my-pkg", "cmd-b", true);
+  await mgr.setCommandToggle("other-pkg", "cmd-x", true);
+
+  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  // 已有 toggles 不被覆盖，其他 settings 字段保留
+  expect(settings.waPiCommandToggles).toEqual({
+    "my-pkg": { "cmd-a": true, "cmd-b": true },
+    "other-pkg": { "cmd-x": true },
+  });
+  expect(settings.npmCommand).toEqual(["bun"]);
+  expect(settings.waPiPackages).toEqual(["npm:my-pkg@1.0.0"]);
+});
