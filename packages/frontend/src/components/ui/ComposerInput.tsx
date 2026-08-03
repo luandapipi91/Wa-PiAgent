@@ -249,6 +249,13 @@ export function ComposerInput({
 				source: { type: "builtin", name: "命令" },
 				disabled: isRunning || isNewSession,
 			},
+			{
+				id: "cmd:compact",
+				name: "压缩上下文",
+				description: "压缩会话历史释放 token（可附带自定义压缩指令）",
+				source: { type: "builtin", name: "命令" },
+				disabled: isRunning || isNewSession,
+			},
 		];
 		// pi 框架内置命令（选中后发 /命令名 给 pi 解析执行）。
 		// 来源：pi 的 BUILTIN_SLASH_COMMANDS，去掉已有前端 handler 的(settings/reload)，
@@ -530,6 +537,20 @@ export function ComposerInput({
 			// / 命令触发选中内置命令（如系统设置）时执行动作而非插入 token
 			if (triggerType === "command" && item.id.startsWith("cmd:")) {
 				setDismissed(true);
+				const cmd = item.id.slice(4); // 去掉 "cmd:" 前缀
+				// 压缩上下文：插入 /[compact] chip（可追加自定义指令），发送时展开为 /compact
+				if (cmd === "compact") {
+					const token = "/[compact] ";
+					if (trigger) {
+						const triggerRe = new RegExp(
+							`/${trigger.query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+						);
+						setText(text.replace(triggerRe, token));
+					} else {
+						setText(token);
+					}
+					return;
+				}
 				// 清除输入框中的 / 命令文本
 				if (trigger) {
 					const triggerRe = new RegExp(
@@ -537,7 +558,6 @@ export function ComposerInput({
 					);
 					setText(text.replace(triggerRe, ""));
 				}
-				const cmd = item.id.slice(4); // 去掉 "cmd:" 前缀
 				if (cmd === "settings") {
 					window.dispatchEvent(new CustomEvent("wa-pi:open-settings"));
 				} else if (cmd === "agents") {

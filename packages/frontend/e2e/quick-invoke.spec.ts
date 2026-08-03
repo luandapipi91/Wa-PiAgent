@@ -156,6 +156,23 @@ test.describe.serial("Quick Invoke 聊天栏快速调用", () => {
     }
   });
 
+  test("输入 / 显示「压缩上下文」命令（E2E 环境无可用 LLM，仅验证菜单可见性）", async ({ page }) => {
+    await enterSession(page, "发起压缩会话");
+
+    const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+
+    // 1. 输入 / 触发命令菜单
+    await textbox.click();
+    await page.keyboard.type("/", { delay: 5 });
+
+    // 2. 菜单出现，断言含「压缩上下文」（禁用态下菜单项仍渲染）
+    await expect(page.getByTestId("quick-invoke-menu")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("quick-invoke-menu")).toContainText("压缩上下文", { timeout: 5000 });
+
+    // 注：选中插入 /[compact] chip 与发送展开链路由单元/组件测试覆盖；
+    // E2E 基建不可达假 provider 使会话常驻 running，cmd:compact 按产品决策禁用，故不点击。
+  });
+
   test("输入全角 ￥（U+FFE5）触发技能面板", async ({ page }) => {
     // 预置技能（与 $ 用例相同的 setup：REST addSkillDir + SSE 回推）
     const skillDirRoot = join(process.env.HOME || "/tmp", `.wa-pi-e2e-quick-invoke-skills-${randomUUID().slice(0, 8)}`);
