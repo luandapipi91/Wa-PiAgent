@@ -82,6 +82,8 @@ interface ExtensionSettings {
   /** WaPi 自有扩展列表（SDK 不读此字段，避免自动发现） */
   waPiPackages?: string[];
   waPiDisabledPackages?: string[];
+  /** 命令级开关：裸包名 → { 命令名 → 是否启用 }；缺省 = 关 */
+  waPiCommandToggles?: Record<string, Record<string, boolean>>;
   /** 旧字段（数据迁移后删除） */
   packages?: string[];
   disabledPackages?: string[];
@@ -399,6 +401,34 @@ export class ExtensionManager {
 
     // 两者皆无 → 未安装
     throw new Error(`未安装: ${name}`);
+  }
+
+  /**
+   * 读取命令开关状态（缺省 false）
+   */
+  async getCommandToggle(packageName: string, command: string): Promise<boolean> {
+    const settings = await this.readSettings();
+    return settings.waPiCommandToggles?.[packageName]?.[command] ?? false;
+  }
+
+  /**
+   * 设置命令开关状态并持久化
+   */
+  async setCommandToggle(packageName: string, command: string, enabled: boolean): Promise<void> {
+    const settings = await this.readSettings();
+    const toggles = settings.waPiCommandToggles ?? {};
+    const pkg = toggles[packageName] ?? {};
+    pkg[command] = enabled;
+    toggles[packageName] = pkg;
+    await this.writeSettings({ ...settings, waPiCommandToggles: toggles });
+  }
+
+  /**
+   * 读取全部命令开关状态
+   */
+  async getCommandToggles(): Promise<Record<string, Record<string, boolean>>> {
+    const settings = await this.readSettings();
+    return settings.waPiCommandToggles ?? {};
   }
 
   /**
