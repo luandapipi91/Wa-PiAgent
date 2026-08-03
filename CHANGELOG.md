@@ -9,8 +9,9 @@
 ### 修复
 
 - **fix(frontend): 卸载插件等待反馈——按钮 loading 态（spinner +「卸载中…」+ disabled）**——卸载是异步操作（等待 kernel 事件终结），此前点击确认后无任何反馈、按钮可重复点击导致重复卸载。修复：store 新增 `uninstalling: Record<string, boolean>` 状态（`uninstallPackage` 置位、`setAll` 重置、`setError` 清除，与升级 `upgrading` 对称）；组件在卸载中渲染 spinner（border 2px var(--danger-soft)、borderTopColor var(--danger)、spin 0.8s linear infinite）+「卸载中…」，按钮 `disabled={uninstalling[pkg.name] === true}` 防重复点击，失败后恢复可点。
-  - 影响范围：`packages/frontend/src/store/extensions.ts`、`packages/frontend/src/components/settings/ExtensionSection.tsx`、`packages/frontend/tests/ExtensionSection.test.tsx`、`packages/frontend/src/store/extensions.test.ts`。
-  - 验证：store 单测 + 组件测试（ExtensionSection.test.tsx 18 pass）、frontend typecheck 通过。——根因：FleetCard 在 `hasProgress` 时 `open = hasProgress || autoOpen` 恒为 true（卡片被钉死展开），且头部点击被重定向为 `setAllExpanded`（批量展开所有子任务），用户点头部想收卡片实际却在批量展开子任务；同时 `FleetTaskItem` 的 `expanded = forceExpanded || ownExpanded` 一旦被批量展开过，单个子任务行就收不起来了。修复：移除 `allExpanded`/`forceExpanded` 这套与卡片折叠语义冲突的批量交互——头部点击直接切换本地 `cardOpen` 状态折叠/展开整张卡片（有进度时默认展开，统计行仍可见），子任务行各自独立展开/折叠，互不影响。
+  - 影响范围：`packages/frontend/src/store/extensions.ts`、`packages/frontend/src/components/settings/ExtensionSection.tsx`、`packages/frontend/tests/ExtensionSection.test.tsx`、`packages/frontend/tests/extensions-store.test.ts`。
+  - 验证：store 单测 + 组件测试（ExtensionSection.test.tsx 18 pass）、frontend typecheck 通过。
+- **fix(frontend): 并行派发卡片折叠/展开重叠——展开子任务后整张卡片关不掉**——根因：FleetCard 在 `hasProgress` 时 `open = hasProgress || autoOpen` 恒为 true（卡片被钉死展开），且头部点击被重定向为 `setAllExpanded`（批量展开所有子任务），用户点头部想收卡片实际却在批量展开子任务；同时 `FleetTaskItem` 的 `expanded = forceExpanded || ownExpanded` 一旦被批量展开过，单个子任务行就收不起来了。修复：移除 `allExpanded`/`forceExpanded` 这套与卡片折叠语义冲突的批量交互——头部点击直接切换本地 `cardOpen` 状态折叠/展开整张卡片（有进度时默认展开，统计行仍可见），子任务行各自独立展开/折叠，互不影响。
   - 影响范围：`packages/frontend/src/components/blocks/FleetCard.tsx`、`packages/frontend/tests/FleetCard.test.tsx`。
   - 验证：FleetCard 测试 17 pass（新增「头部点击折叠/展开整张卡片」「子任务详情可单独收起」2 个用例）、DelegateCard 16 pass、frontend typecheck 通过。
 
