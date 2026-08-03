@@ -12,7 +12,7 @@ pi-goal 插件（`@narumitw/pi-goal`）被 `tui-command-filter.ts` 的扩展级�
 
 - 插件页每条命令可手动启用/关闭
 - 命令默认全部关闭（用户明确选择）
-- 关闭的命令发送时静默降级（复用现有 tuiOnlyCommandNames 加前导空格逻辑）
+- 关闭的命令发送时静默降级（复用现有加前导空格逻辑）
 - TUI-only 检测保留，仅作弹窗标记提示，不再自动过滤显示
 - 顺带增强：现有 `extension_notify` 系统消息（如 `—— MCP: 5 servers connected (234 tools) ——`）显示 20s 后自动从聊天界面隐藏
 
@@ -21,7 +21,7 @@ pi-goal 插件（`@narumitw/pi-goal`）被 `tui-command-filter.ts` 的扩展级�
 | 决策点 | 决定 | 理由 |
 | --- | --- | --- |
 | 命令默认状态 | **全部默认不开启** | 用户明确选择；开启由用户主动操作 |
-| 关闭命令的发送行为 | **纯静默降级**（加前导空格 → 普通文本给 LLM，无提示） | 用户明确选择；复用现有 `tuiOnlyCommandNames` 逻辑 |
+| 关闭命令的发送行为 | **纯静默降级**（加前导空格 → 普通文本给 LLM，无提示） | 用户明确选择；复用现有 `disabledCommandNames` 逻辑（原 `tuiOnlyCommandNames` 改名） |
 | 前端 Composer 发送路径 | **不动** | 用户明确要求；拦截/降级全部在 kernel 侧 |
 | tui-command-filter.ts | **保留文件**，检测逻辑（`isTuiOnlyExtension` 扫描）继续用于弹窗 TUI 标记；**放弃自动过滤显示** | 自动过滤正是误伤根源；"把自动扫描的显示改成手动控制" |
 | 弹窗命令范围 | **仅斜杠命令**（V1 不展示子命令/工具） | 用户确认 C 方案；RPC `get_commands` 不返回子命令，无可靠数据源 |
@@ -37,12 +37,14 @@ pi-goal 插件（`@narumitw/pi-goal`）被 `tui-command-filter.ts` 的扩展级�
 {
   "waPiPackages": ["npm:@narumitw/pi-goal@0.43.0"],
   "waPiCommandToggles": {
-    "npm:@narumitw/pi-goal@0.43.0": {
+    "@narumitw/pi-goal": {
       "goal": true
     }
   }
 }
 ```
+
+> **key 格式：** 用 `package.json` 的 `name` 字段（如 `@narumitw/pi-goal`），**不用** `waPiPackages` 里的 `npm:` 前缀+版本格式——因为 `sourceInfo.path` 向上解析 package.json 拿到的就是裸 name，两边才能对上。
 
 ## 4. kernel 侧改动
 
@@ -51,15 +53,15 @@ pi-goal 插件（`@narumitw/pi-goal`）被 `tui-command-filter.ts` 的扩展级�
 - **保留**：`TUI_ONLY_PATTERN`、`isTuiOnlyExtension`（静态扫描扩展包源码，判定是否使用 TUI API）
 - **删除 `scanCache`**（包根 → 是否 TUI-only 的扫描结果缓存）：与 `_commandsCache` 同属缓存机制，一并移除。`isTuiOnlyExtension` 每次调用都重新扫描源码（受 `MAX_FILES`/`MAX_BYTES` 上限保护，不会无限扫描）
 - **修改**：`filterTuiCommands` 不再把 TUI-only 扩展的命令从结果中删除；改为给每条命令附加 `tuiOnly: true/false` 标记后**全量返回**
-- `tuiOnlyCommandNames` 集合保留（发送端降级仍用它），但填充来源改为"命令开关为关闭"的命令名，而非"被过滤的命令名"
+- **降级集合改名**：`tuiOnlyCommandNames` → `disabledCommandNames`、`isTuiOnlyCommand` → `isCommandDisabled`（语义已从"TUI-only"变为"命令关闭"，保留旧名是误导性命名，违反"不留废弃代码"原则；同步更新 `agent-manager.ts` 引用与测试）
 
 ### 4.2 命令归属与状态解析（新）
 
 `packages/kernel/src/tui-command-filter.ts` 或新文件 `command-toggles.ts`：
 
-- **包名解析**：`sourceInfo.path`（扩展入口绝对路径）向上找 `package.json`，取 `name` 字段 → `packageName`（对齐 `waPiPackages` 中的包名，如 `npm:@narumitw/pi-goal@0.43.0`）
+- **包名解析**：`sourceInfo.path`（扩展入口绝对路径）向上找 `package.json`，取 `name` 字段 → `packageName`（裸包名，如 `@narumitw/pi-goal`）
 - **开关状态**：读 settings `waPiCommandToggles`，按 `packageName + 命令名` 查询 `enabled`（缺省 false）
-- **降级集合**：`tuiOnlyCommandNames` 填充 = 所有"命令开关为关闭"的扩展命令名
+- **降级集合**：`disabledCommandNames` 填充 = 所有"命令开关为关闭"的扩展命令名
 
 ### 4.3 get_commands 返回扩展（kernel → 前端）
 
@@ -81,7 +83,7 @@ interface CommandInfo {
   description?: string;
   source: CommandSource;   // "extension" | "prompt" | "skill" | "builtin"
   // 新增（仅 extension 来源）：
-  packageName?: string;    // 插件包名（waPiPackages 格式）
+  packageName?: string;    // 插件包名（裸包名，如 @narumitw/pi-goal，对应 waPiCommandToggles key）
   enabled?: boolean;       // 命令开关状态（缺省 false）
   tuiOnly?: boolean;       // TUI-only 检测标记
 }
@@ -89,18 +91,18 @@ interface CommandInfo {
 
 ### 4.4 发送端降级（agent-manager.ts:1065-1073）
 
-现有逻辑依赖 `_commandsCache` 作为"已拉取过"标记：
+现有逻辑依赖 `_commandsCache` 作为"已拉取过"标记（下方旧代码保留仅供理解，实际会一并改为新逻辑）：
 
 ```ts
 if (text.startsWith("/")) {
   if (!this._commandsCache) await this._fetchCommands(handle.client).catch(() => []);
   const sp = text.indexOf(" ");
   const cmdName = sp === -1 ? text.slice(1) : text.slice(1, sp);
-  if (isTuiOnlyCommand(cmdName)) text = ` ${text}`;   // 加前导空格 → 普通文本
+  if (isCommandDisabled(cmdName)) text = ` ${text}`;   // 加前导空格 → 普通文本
 }
 ```
 
-改为：用布尔标记 `_commandsFetched` 替代 `_commandsCache` 的判空（作用仍是"首次拉取一次以填充 `tuiOnlyCommandNames`"，但无 TTL、无缓存数据）：
+改为：用布尔标记 `_commandsFetched` 替代 `_commandsCache` 的判空（作用仍是"首次拉取一次以填充 `disabledCommandNames`"，但无 TTL、无缓存数据）：
 
 ```ts
 if (text.startsWith("/")) {
@@ -110,21 +112,19 @@ if (text.startsWith("/")) {
   }
   const sp = text.indexOf(" ");
   const cmdName = sp === -1 ? text.slice(1) : text.slice(1, sp);
-  if (isTuiOnlyCommand(cmdName)) text = ` ${text}`;
+  if (isCommandDisabled(cmdName)) text = ` ${text}`;
 }
 ```
 
-`isTuiOnlyCommand(cmdName)` 语义变为"命令不可用（关闭）"——`tuiOnlyCommandNames` 填充来源改为"命令开关为关闭的扩展命令名"。**Composer.tsx / 前端发送路径零改动**。
-
-> 命名澄清：`isTuiOnlyCommand` 名称保留但语义变化；若实现时改名 `isCommandDisabled` 更清晰，但需同步测试。
+`isCommandDisabled(cmdName)` 判定"命令开关为关闭"——`disabledCommandNames` 填充来源为关闭的扩展命令名。**Composer.tsx / 前端发送路径零改动**。
 
 ### 4.5 新 API（routes/extensions.ts）
 
 - `GET /api/extensions/commands` → `{ commands: CommandInfo[] }`（全部插件命令，含 packageName/enabled/tuiOnly）：复用 `getCommands()`（已实时化），不依赖特定 session
-- `POST /api/extensions/commands/toggle` → body `{ name, command, enabled }`：
+- `POST /api/extensions/commands/toggle` → body `{ packageName, command, enabled }`（`packageName` 为裸包名，如 `@narumitw/pi-goal`）：
   - 写 settings `waPiCommandToggles[packageName][command] = enabled`
-  - 重置 `_commandsFetched = false` + 清空 `tuiOnlyCommandNames`（下次发送/查询重新拉取刷新）
-  - 无需 `markAllDirty()`（缓存已删除）
+  - 重置 `_commandsFetched = false` + 清空 `disabledCommandNames`（下次发送/查询重新拉取刷新）
+  - **无需 `markAllDirty()`**——命令开关不改变 pi 进程加载（插件已加载），无需重建会话；只需刷新降级集合
 
 ## 5. 前端改动
 
@@ -160,16 +160,17 @@ if (text.startsWith("/")) {
 
 | 命令状态 | / 菜单显示 | 发送行为 |
 | --- | --- | --- |
-| 开启（非 TUI） | ✅ 显示 | 正常执行 |
-| 关闭（默认，非 TUI） | ❌ 隐藏 | 静默降级：加前导空格 → 普通文本给 LLM |
-| TUI-only（开启或关闭） | 由开关决定显示 | 发送时静默降级（保留现有逻辑） |
+| 开启（含 TUI-only 但用户选择开启） | ✅ 显示 | 正常执行（TUI-only 且无 RPC 降级的命令可能无响应，弹窗已 ⚠ 提示） |
+| 关闭（默认） | ❌ 隐藏 | 静默降级：加前导空格 → 普通文本给 LLM |
+
+> 发送端**只按开关状态降级**（`isCommandDisabled`），不按 TUI 标记降级——TUI-only 仅作弹窗提示，不影响开关语义。
 
 ## 7. 文件结构
 
 **修改：**
 
 - `packages/kernel/src/agent-manager.ts` — **删除 `_commandsCache` 5min TTL 缓存**（字段、缓存查询、缓存写入、markAllDirty/markSkillsDirty 内部置空行）；`_fetchAndCacheCommands` 改名 `_fetchCommands`（去 Cache 语义）；新增 `_commandsFetched` 布尔标记；getCommands 每次实时拉取；输出结构扩展；toggle 后重置标记
-- `packages/kernel/src/tui-command-filter.ts` — filterTuiCommands 改为标记而非删除；tuiOnlyCommandNames 填充来源改为关闭命令；新增清除集合方法
+- `packages/kernel/src/tui-command-filter.ts` — filterTuiCommands 改为标记而非删除；`tuiOnlyCommandNames` → `disabledCommandNames`、`isTuiOnlyCommand` → `isCommandDisabled`（改名 + 填充来源改为关闭命令）；新增清除集合方法
 - `packages/kernel/src/routes/extensions.ts` — 两个新路由
 - `packages/kernel/src/settings.ts`（或等效持久化模块）— waPiCommandToggles 读写
 - `packages/frontend/src/components/settings/ExtensionSection.tsx` — 附加命令按钮
@@ -177,6 +178,7 @@ if (text.startsWith("/")) {
 - `packages/frontend/src/store/commands.ts` — / 菜单按 enabled 过滤
 - `packages/frontend/src/store/session.ts` — extension_notify 20s 自动移除
 - `packages/shared/src/commands.ts` — CommandInfo 扩展字段
+- `packages/kernel/tests/agent-manager.test.ts` — 缓存相关断言更新（如 markAllDirty 测试不涉及命令缓存）
 
 **测试：**
 
@@ -195,7 +197,8 @@ if (text.startsWith("/")) {
 - `filterTuiCommands`：TUI-only 命令不再被删除，附带 `tuiOnly: true`
 - 包名解析：`sourceInfo.path` → `waPiPackages` 格式包名
 - 开关读写：缺省 false；toggle 后持久化
-- 降级集合：关闭命令名进入 `tuiOnlyCommandNames`；开启命令不在其中
+- 降级集合：关闭命令名进入 `disabledCommandNames`；开启命令不在其中
+- 改名回归：`tuiOnlyCommandNames`/`isTuiOnlyCommand` 旧名全仓库无残留（grep 验证）
 
 ### 组件（前端，Vitest）
 
