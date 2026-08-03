@@ -2,6 +2,10 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+- **fix(frontend+kernel): 开启命令后 / 菜单不刷新——toggle 成功未通知前端**——根因：`extension:commands:toggle` 成功后仅 `reply({ ok: true })`，不广播任何事件；而 `/` 菜单的 commands store 只在 `ComposerInput` 的 useEffect（sessionId/projectId/agentName 变化）时加载，插件页 toggle 后切回会话界面仍显示旧命令列表。修复：toggle 成功后 `broadcast({ type: "extension:commands:changed" })`；前端 App.tsx 监听该事件，若有当前会话则重新 `load(currentSessionId)`，开启/关闭命令立即反映到 `/` 菜单。
+  - 影响范围：`packages/shared/src/extensions.ts`（新增 `ExtensionCommandsChangedEvent`）、`packages/kernel/src/ws-server.ts`、`packages/frontend/src/App.tsx`。
+  - 验证：kernel 新增 SSE 广播断言（toggle 成功 → 收到 `extension:commands:changed` 帧）、前端 App 测试新增事件→刷新断言，kernel 672 / shared 94 / frontend typecheck 全绿。
+
 - **fix(kernel): 关闭命令的发送端静默降级未生效——`disabledCommandNames` 从未被填充（最终审查 C1）**——根因：计划任务 3 的示例代码注释写“登记关闭命令”但代码体无登记语句，实现按计划照抄，集合只有 `has`/`clear` 无 `add`。修复：新增 `registerDisabledCommands` 导出，`_fetchCommands` 在合并 enabled 后把 `enabled === false` 的扩展命令名（含缺省 false）登记进集合；同时修复首次拉取失败仍置位 `_commandsFetched` 的问题（失败不置位、下次 `/` 命令重试）。
   - 影响范围：`packages/kernel/src/{tui-command-filter,agent-manager}.ts`。
   - 验证：新增 3 用例（关闭命令 → prompt 加前导空格 `" /goal 设定目标"`、开启命令原样发送、拉取失败不置位重试），kernel 670 pass / tsc 全绿。
@@ -9,6 +13,12 @@
 ---
 
 ## 2026-08-03
+
+### 修复
+
+- **fix(frontend): 执行中卡片折叠后又被自动重新打开——progress 到达时折叠状态丢失**——根因：DelegateCard/FleetCard 的 `open` 取值来源在「无 progress（autoOpen）」与「有 progress（本地 cardOpen，初始 true）」之间切换；执行早期（progress 事件尚未到达）用户点头部折叠走 `autoOpen` 路径，progress 首次到达后 `hasProgress` 变 true，`open` 切到 `cardOpen`（默认 true）→ 卡片被自动重新打开，表现为「关不掉」。修复：两卡统一为单一折叠状态 `cardOpen: boolean | null`——null 表示未手动操作（有 progress 默认展开、否则跟随 autoCollapse），用户点头部即固定用户选择（基于当前显示的 open 取反，保留完成态「默认折叠、点击展开」语义）；progress 陆续到达不再重置折叠状态。
+  - 影响范围：`packages/frontend/src/components/blocks/DelegateCard.tsx`、`packages/frontend/src/components/blocks/FleetCard.tsx`、两个对应测试文件。
+  - 验证：DelegateCard 18 pass、FleetCard 18 pass（新增「执行中 progress 陆续到达不自动重新打开已折叠的卡片」各 1 用例）、frontend typecheck 通过。
 
 ### 新增
 
@@ -25,6 +35,9 @@
 
 ### 修复
 
+- **fix(frontend): 执行中委托卡片无法关闭——DelegateCard 与 FleetCard 同款折叠 bug**——根因：`open = hasProgress || autoOpen` 在 hasProgress（执行中）时恒为 true，卡片被钉死展开；且头部点击被重定向为 `setProgressExpanded`（进度详情切换），而执行中 progressExpanded 对 UI 毫无影响（执行中回复区不依赖它、摘要行是纯文本）——点头部调了个没用的状态，UI 无反馈，卡片永远关不掉。修复与 FleetCard 同构：引入本地 `cardOpen`（默认展开），`open = hasProgress ? cardOpen : autoOpen`，头部点击切换 cardOpen 折叠/展开整张卡片；`progressExpanded` 保留给完成态摘要行开关（展开/收起最终回复）独立使用。
+  - 影响范围：`packages/frontend/src/components/blocks/DelegateCard.tsx`、`packages/frontend/tests/DelegateCard.test.tsx`。
+  - 验证：DelegateCard 测试 17 pass（新增「执行中（有进度）头部点击可折叠/展开整张卡片」用例）、FleetCard 17 pass、frontend typecheck 通过。调试过程发现：bun + happy-dom 环境下 @testing-library 失败断言（queryByTestId 找不到元素）会卡在 DOM 转储输出，属既有测试环境问题，不影响业务代码。
 - **fix(frontend): 卸载插件等待反馈——按钮 loading 态（spinner +「卸载中…」+ disabled）**——卸载是异步操作（等待 kernel 事件终结），此前点击确认后无任何反馈、按钮可重复点击导致重复卸载。修复：store 新增 `uninstalling: Record<string, boolean>` 状态（`uninstallPackage` 置位、`setAll` 重置、`setError` 清除，与升级 `upgrading` 对称）；组件在卸载中渲染 spinner（border 2px var(--danger-soft)、borderTopColor var(--danger)、spin 0.8s linear infinite）+「卸载中…」，按钮 `disabled={uninstalling[pkg.name] === true}` 防重复点击，失败后恢复可点。
   - 影响范围：`packages/frontend/src/store/extensions.ts`、`packages/frontend/src/components/settings/ExtensionSection.tsx`、`packages/frontend/tests/ExtensionSection.test.tsx`、`packages/frontend/tests/extensions-store.test.ts`。
   - 验证：store 单测 + 组件测试（ExtensionSection.test.tsx 18 pass）、frontend typecheck 通过。
