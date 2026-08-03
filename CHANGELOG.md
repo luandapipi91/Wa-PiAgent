@@ -2,6 +2,14 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+- **fix(kernel): steer 引导消息不补全空标题会话——队列「引导/立即」注入消息后标题仍为空**——根因：标题补全原先只绑定在 `agent:prompt`（正常发送消息）时刻；`steer:message` / `steer:immediate-message` 注入消息时从不补全，`getCommands` 兜底创建的空标题会话（`title: ""`）若首次消息经队列「引导/立即」发送，标题永远为空。修复：两条 steer 路径注入成功后调用 `fillSessionTitleIfEmpty`（用消息前 20 字补全）并广播 `projects:list`，与 `agent:prompt` 行为一致；已有标题不覆盖，补全失败不影响注入主流程。
+  - 影响范围：`packages/kernel/src/ws-server.ts`（新增 `fillEmptySessionTitle`，`steer:message` / `steer:immediate-message` 两分支接入）。
+  - 验证：新增 `packages/kernel/tests/steer-title-fill.test.ts` 3 用例（steer 补全 / steer:immediate 补全 / 已有标题不覆盖），相关回归 project-store + session-messages + routes-chat 30 pass。
+
+- **fix(desktop): macOS 产物构建时做稳定签名——修复重装后屏幕录制权限失效导致 system 录音报 `"Invalid capture constraints"`（根因分析）**——未签名应用在 macOS 15 上「屏幕录制」TCC 权限绑定失效（系统设置显示已开启但实际不生效），重装/更新应用后权限记录丢失，`desktopCapturer.getSources` 拿不到屏幕源，`setDisplayMediaRequestHandler` 回调 video=undefined，Electron 以 `INVALID_DISPLAY_CAPTURE_CONSTRAINTS` 拒绝，前端 toast 显示 "Invalid capture constraints"（"invalid capture"）。修复：afterPack 钩子对 macOS 产物执行 `codesign --force --deep --sign`（优先 `CODESIGN_IDENTITY` 证书，未设置回退 ad-hoc），签名后的 .app 进入 dmg/zip，TCC 权限可按签名身份稳定绑定。
+  - 影响范围：`packages/desktop/scripts/after-pack.cjs`（新增 darwin 分支）、新增 `packages/desktop/scripts/mac-sign.cjs`（身份解析/参数构造/签名执行，可单测）、新增 `packages/desktop/tests/mac-sign.test.ts`。
+  - 验证：mac-sign 7 pass（含真实 codesign 最小 .app 签名+verify 集成测试）、desktop 包全量 50 pass、真实产物 release/mac 签名后 `codesign -dv` 输出 Signature=adhoc。
+
 - **feat(frontend): 输入框草稿按会话持久化**——未发送的输入框文本随会话持久化：切走再切回、刷新页面、重启应用后自动还原；发送或手动清空后草稿清除（防抖写回空串，手动清空=放弃草稿）；新建页草稿同样持久化；删除会话时其草稿一并清理；切换会话消除跨会话文本残留。
   - 影响范围：`packages/frontend/src/store/composer-db.ts`（`ComposerSessionRecord` 新增 `text` 字段）、`packages/frontend/src/store/composer-prefs.ts`（text 合并恢复、`removeSessionPrefs`、newSessionIds hydration 守卫）、`packages/frontend/src/components/Composer.tsx`（恢复/防抖写回/发送清空/切换清理）、`packages/frontend/src/components/NewSessionPane.tsx`（新建页草稿）、`packages/frontend/src/components/ProjectItem.tsx`（删除会话清理草稿）及 tests/e2e。
   - 验证：frontend 全量 962 pass / 1 skip / 0 fail（含草稿 store/组件用例 12 个）、typecheck 通过、E2E composer.spec.ts 9/9 PASS（新增草稿切回/刷新/发送清空/手动清空/新建页 5 用例）。
