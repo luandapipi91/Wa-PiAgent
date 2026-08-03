@@ -274,4 +274,91 @@ describe("Composer", () => {
     // defaults 也不得被 auto-select 污染成第一个模型
     expect(useComposerPrefsStore.getState().defaults.model).not.toBe("openai/gpt-4o");
   });
+
+  it("prefs 含 text 时挂载后恢复草稿", async () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [], text: "写了一半" } },
+      loadedBySession: { s1: true },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [], text: "写了一半" };
+
+    render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
+    const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
+    expect(textbox.textContent).toBe("写了一半");
+  });
+
+  it("输入防抖写回草稿；清空输入框写回空串（手动清空=放弃草稿）", async () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+      loadedBySession: { s1: true },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
+    render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
+    const textbox = typeIntoComposer("草稿");
+    await new Promise((r) => setTimeout(r, 350)); // 等防抖 300ms 触发
+    expect(useComposerPrefsStore.getState().bySession["s1"]?.text).toBe("草稿");
+
+    textbox.textContent = "";
+    fireEvent.input(textbox);
+    await new Promise((r) => setTimeout(r, 350));
+    expect(useComposerPrefsStore.getState().bySession["s1"]?.text).toBe("");
+  });
+
+  it("发送后清空草稿（含防抖未触发场景：发送前输入不复活）", async () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+      loadedBySession: { s1: true },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
+    render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
+    const textbox = typeIntoComposer("立即发送");
+    // 300ms 内点发送：防抖定时器必须被清理，否则发送后草稿会"复活"
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    await waitFor(() => {
+      expect(useComposerPrefsStore.getState().bySession["s1"]?.text).toBe("");
+    });
+    // 等待超过防抖窗口，确认没有被写回发送前文本
+    await new Promise((r) => setTimeout(r, 350));
+    expect(useComposerPrefsStore.getState().bySession["s1"]?.text).toBe("");
+  });
+
+  it("切换 sessionId 后清空旧文本并恢复新会话草稿（组件复用）", async () => {
+    useComposerPrefsStore.setState({
+      bySession: {
+        s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [], text: "会话A草稿" },
+        s2: { model: "openai/gpt-4o", thinking: "disabled", attachments: [], text: "会话B草稿" },
+      },
+      loadedBySession: { s1: true, s2: true },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [], text: "会话A草稿" };
+    composerDbSessions.s2 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [], text: "会话B草稿" };
+    useProjectsStore.setState({
+      projects: [],
+      sessions: [
+        { id: "s1", projectId: "p1", primaryAgent: "dev", title: "t", createdAt: 0, lastActivity: 0, piSessionFile: "" },
+        { id: "s2", projectId: "p1", primaryAgent: "dev", title: "t2", createdAt: 0, lastActivity: 0, piSessionFile: "" },
+      ],
+      currentProjectId: "p1",
+      currentSessionId: "s1",
+    });
+
+    const { rerender } = render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
+    const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
+    expect(textbox.textContent).toBe("会话A草稿");
+
+    rerender(<Composer sessionId="s2" agentName="dev" />);
+    await act(async () => {});
+    expect(textbox.textContent).toBe("会话B草稿");
+  });
 });
