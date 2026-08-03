@@ -1723,6 +1723,40 @@ export class WSServer {
 				}
 				break;
 			}
+			case "extension:commands:list": {
+				// 插件命令页无 session 上下文：传空 sessionId，getCommands 会借用任意
+				// 活跃 pi 进程实时拉取命令（无活跃进程返回空数组，不创建孤儿进程）。
+				try {
+					const raw = await this.opts.agentManager.getCommands("");
+					const toggles = await this.opts.extensionManager.getCommandToggles();
+					const commands = raw.map((cmd) => ({
+						...cmd,
+						// 有 packageName（extension 来源）→ 合并开关状态（缺省 false）
+						enabled: cmd.packageName
+							? (toggles[cmd.packageName]?.[cmd.name] ?? false)
+							: cmd.enabled,
+					}));
+					reply({ type: "extension:commands:list", commands });
+				} catch (err) {
+					reply({ type: "error", message: (err as Error).message });
+				}
+				break;
+			}
+			case "extension:commands:toggle": {
+				try {
+					await this.opts.extensionManager.setCommandToggle(
+						event.packageName,
+						event.command,
+						event.enabled,
+					);
+					// 切换命令开关后重置降级集合：发送端下次 / 命令重新拉取，刷新 disabledCommandNames
+					this.opts.agentManager.resetCommandState();
+					reply({ type: "extension:commands:toggle", ok: true });
+				} catch (err) {
+					reply({ type: "error", message: (err as Error).message });
+				}
+				break;
+			}
 			// ===== 记忆管理 =====
 			case "memory:list": {
 				try {

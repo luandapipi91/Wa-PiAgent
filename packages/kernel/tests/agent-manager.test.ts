@@ -1776,6 +1776,57 @@ test("prompt 首个 / 命令触发一次实时拉取，后续不再拉取（命�
 	expect(getCommandsSpy).toHaveBeenCalledTimes(1);
 });
 
+// ─── resetCommandState / dirty 重置命令拉取标记 ────────────────────────────
+// 跨任务裁定：_commandsFetched 置位后必须有重置入口（ws-server toggle handler 调用），
+// markAllDirty / markSkillsDirty 也应重置（插件安装/升级后命令列表变化，降级集合需刷新）。
+
+test("resetCommandState 重置命令拉取标记：下一次 / 命令重新拉取清单", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+	fakes[0].commandsToReturn = [
+		{ name: "goal", source: "extension" },
+		{ name: "review", source: "prompt" },
+	];
+	const getCommandsSpy = mock(fakes[0].getCommands);
+	fakes[0].getCommands = getCommandsSpy;
+
+	// 首个 / 命令触发一次实时拉取并置位
+	await am.prompt(session.id, "/goal", { model: MODEL });
+	expect((am as any)._commandsFetched).toBe(true);
+	expect(getCommandsSpy).toHaveBeenCalledTimes(1);
+
+	// toggle 命令开关后 resetCommandState → 标记清除，下一次 / 命令重新拉取
+	am.resetCommandState();
+	expect((am as any)._commandsFetched).toBe(false);
+	await am.prompt(session.id, "/review", { model: MODEL });
+	expect(getCommandsSpy).toHaveBeenCalledTimes(2);
+	// 重复调用幂等，不抛错
+	expect(() => am.resetCommandState()).not.toThrow();
+});
+
+test("markAllDirty / markSkillsDirty 重置命令拉取标记（插件变更后降级集合需刷新）", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+	fakes[0].commandsToReturn = [{ name: "goal", source: "extension" }];
+	const getCommandsSpy = mock(fakes[0].getCommands);
+	fakes[0].getCommands = getCommandsSpy;
+
+	await am.prompt(session.id, "/goal", { model: MODEL });
+	expect((am as any)._commandsFetched).toBe(true);
+
+	// markAllDirty（extension 安装/升级/开关变更）→ 重置
+	am.markAllDirty();
+	expect((am as any)._commandsFetched).toBe(false);
+	await am.prompt(session.id, "/goal", { model: MODEL });
+	expect(getCommandsSpy).toHaveBeenCalledTimes(2);
+
+	// markSkillsDirty（skill 目录增删/禁用）→ 同样重置
+	am.markSkillsDirty();
+	expect((am as any)._commandsFetched).toBe(false);
+	await am.prompt(session.id, "/goal", { model: MODEL });
+	expect(getCommandsSpy).toHaveBeenCalledTimes(3);
+});
+
 // ─── 扩展命令拦截 prompt 时不卡在 thinking 状态 ─────────────────────────────
 // 当扩展命令（如 /goal）拦截 prompt 时，agent_start 不会触发，
 // _sendPromptNow 的乐观 busy=true 必须能复位，否则前端永远显示"思考中"。
