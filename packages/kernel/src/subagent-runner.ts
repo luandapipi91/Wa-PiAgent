@@ -12,7 +12,11 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { SubagentProgressEvent, ThinkingLevel } from "@wa-pi/shared";
+import type {
+	SubagentProgressEvent,
+	ThinkingLevel,
+	ToolStats,
+} from "@wa-pi/shared";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import {
 	RpcClient,
@@ -52,6 +56,8 @@ export interface SubagentRunResult {
 	isError: boolean;
 	/** 子代理 token 用量；采集失败（如旧版 pi 不支持）时降级为 undefined */
 	usage?: SubagentUsage;
+	/** 子代理工具调用统计（与实时 progress 的 tools 分桶同源）；异常路径（如进程启动失败）时为 undefined */
+	toolStats?: ToolStats;
 	elapsedMs: number;
 }
 
@@ -87,7 +93,7 @@ function mapThinking(thinking: ThinkingLevel | null): string | undefined {
 		? "off"
 		: thinking === "max"
 			? "xhigh"
-			: thinking;  // minimal／medium／high 直接透传
+			: thinking; // minimal／medium／high 直接透传
 }
 
 /**
@@ -121,6 +127,12 @@ export async function runSubagentAgent(
 		const tools: Array<{ id: string; name: string; status: string }> = [];
 		let output = "";
 		let sawError = false;
+		const toolStats = (): ToolStats => ({
+			total: tools.length,
+			done: tools.filter((t) => t.status === "done").length,
+			error: tools.filter((t) => t.status === "error").length,
+			running: tools.filter((t) => t.status === "running").length,
+		});
 		const emit = (status: SubagentProgressEvent["status"]) => {
 			opts?.onProgress?.({
 				agent: config.name,
@@ -182,7 +194,7 @@ export async function runSubagentAgent(
 				systemPromptFile: promptFile ?? undefined,
 				extensionPaths: opts?.extensionPaths,
 				skillPaths: opts?.skillPaths,
-				noSkills: true,  // 子代理不自动发现技能，只加载显式传入的 --skill 路径
+				noSkills: true, // 子代理不自动发现技能，只加载显式传入的 --skill 路径
 				tools: config.tools.length > 0 ? config.tools : undefined,
 				thinking: mapThinking(config.thinking),
 				model: config.model ?? undefined,
@@ -215,7 +227,8 @@ export async function runSubagentAgent(
 				settled,
 				new Promise<never>((_, reject) =>
 					setTimeout(
-						() => reject(new Error(`子智能体 settle 超时 (${settleTimeoutMs}ms)`)),
+						() =>
+							reject(new Error(`子智能体 settle 超时 (${settleTimeoutMs}ms)`)),
 						settleTimeoutMs,
 					),
 				),
@@ -228,6 +241,7 @@ export async function runSubagentAgent(
 			return {
 				text: "子智能体已被中止",
 				isError: true,
+				toolStats: toolStats(),
 				elapsedMs: Date.now() - startedAt,
 			};
 		}
@@ -272,6 +286,7 @@ export async function runSubagentAgent(
 				text: text || "子智能体模型调用失败",
 				isError: true,
 				usage,
+				toolStats: toolStats(),
 				elapsedMs,
 			};
 		}
@@ -280,6 +295,7 @@ export async function runSubagentAgent(
 			text: text || "（子智能体无输出）",
 			isError: false,
 			usage,
+			toolStats: toolStats(),
 			elapsedMs,
 		};
 	} catch (err) {

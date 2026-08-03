@@ -196,6 +196,18 @@ export interface ToolResultMessage {
 	content: (TextContent | ImageContent)[];
 	isError: boolean;
 	timestamp: number;
+	/** 工具执行的结构化附加信息（如 fleet 各子代理的工具调用统计）。
+	 *  由 kernel 工具 execute 返回，经 pi SDK 原样持久化到会话 JSONL；
+	 *  旧会话无此字段，前端需兼容 undefined。 */
+	details?: unknown;
+}
+
+/** 子代理工具调用统计（总数/成功/失败/执行中），与 SubagentProgressEvent.tools 同源分桶 */
+export interface ToolStats {
+	total: number;
+	done: number;
+	error: number;
+	running: number;
 }
 
 // Pi custom 消息（intercom / pi-subagents 等扩展注入）
