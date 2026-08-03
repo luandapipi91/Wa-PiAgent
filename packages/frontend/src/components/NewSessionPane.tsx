@@ -59,6 +59,11 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
   const setNewSessionId = useComposerPrefsStore(s => s.setNewSessionId);
   const [sessionId, setSessionId] = useState(() => newSessionIds[newSessionKey] ?? randomSessionId());
   const sendingRef = useRef(false);
+  // === 草稿持久化 ===
+  const draftRestoredRef = useRef(false); // 当前草稿 session 是否已尝试恢复（按 sessionId 重置）
+  const textRef = useRef("");             // 始终同步最新 text，供 cleanup flush
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevSessionIdRef = useRef(sessionId);
 
   useEffect(() => {
     const stored = newSessionIds[newSessionKey];
@@ -90,6 +95,49 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
     const resolved = typeof next === "function" ? next(attachments) : next;
     useComposerPrefsStore.getState().setSessionPrefs(sessionId, { attachments: resolved });
   };
+
+  const prefsLoaded = useComposerPrefsStore(s => !!s.loadedBySession[sessionId]);
+  const draftText = prefs?.text;
+
+  // 渲染期：草稿 sessionId 变化（切换项目）→ 清空 + 重置恢复标记
+  if (prevSessionIdRef.current !== sessionId) {
+    prevSessionIdRef.current = sessionId;
+    draftRestoredRef.current = false;
+    setText("");
+  }
+  useEffect(() => { textRef.current = text; }, [text]);
+
+  // 草稿恢复：prefs 加载完成且有草稿时恢复一次（draftRestoredRef 防止恢复后又被覆盖）。
+  // 仅当用户尚未输入（textRef 为空）才恢复——冷加载间隙用户输入的内容不能被存储旧草稿覆盖
+  useEffect(() => {
+    if (!draftRestoredRef.current && prefsLoaded) {
+      draftRestoredRef.current = true;
+      if (draftText && textRef.current === "") setText(draftText);
+    }
+  }, [prefsLoaded, draftText, sessionId]);
+
+  // 防抖写回：输入变化 300ms 后持久化（含清空 → 写空串 = 放弃草稿）
+  const handleTextChange = (next: string) => {
+    setText(next);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      useComposerPrefsStore.getState().setSessionPrefs(sessionId, { text: next });
+    }, 300);
+  };
+
+  // 切走/卸载前 flush：仅当存在未触发的防抖（用户输入过且尚未持久化）时才写回；
+  // 未编辑过不写——否则冷加载间隙切走会用空串覆盖 loadSession 尚未恢复的旧草稿
+  useEffect(() => {
+    const mySessionId = sessionId;
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+        useComposerPrefsStore.getState().setSessionPrefs(mySessionId, { text: textRef.current });
+      }
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     setModel(defaults.model);
@@ -130,7 +178,9 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
       thinking,
       attachments: attachments.length > 0 ? attachments : undefined,
     });
+    if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
     setText("");
+    useComposerPrefsStore.getState().setSessionPrefs(sessionId, { text: "" });
     setAttachments([]);
     setDefaults({ model, thinking });
     setTimeout(() => { sendingRef.current = false; }, 500);
@@ -163,7 +213,7 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
       </div>
       <ComposerInput
         text={text}
-        setText={setText}
+        setText={handleTextChange}
         model={model}
         setModel={m => { setModel(m); setDefaults({ model: m }); }}
         thinking={thinking}

@@ -511,4 +511,45 @@ describe("NewSessionPane", () => {
       expect(state.sessions.some((s) => s.id !== staleId && s.title === "全新会话")).toBe(true);
     });
   });
+
+  it("恢复新建页草稿文本（切走再回来不丢）", async () => {
+    composerDbDefaults.model = "gpt-4o";
+    composerDbDefaults.thinking = "disabled";
+    composerDbNewSessionIds["p1"] = "draft-session-1";
+    // 同步预置内存态：NewSessionPane 挂载时 sessionId-sync effect 先于 loadDefaults 的异步读执行，
+    // 若内存态为空会生成全新随机 id 并回写 db（覆盖上面的映射）；与既有用例「发送后确保导航…」同一套路。
+    useComposerPrefsStore.setState({ newSessionIds: { p1: "draft-session-1" } });
+    composerDbSessions["draft-session-1"] = { model: "gpt-4o", thinking: "disabled", attachments: [], text: "新建页草稿" };
+    useProvidersStore.setState({
+      providers: [
+        { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
+      ],
+    });
+
+    render(<NewSessionPane />);
+    const textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
+    await waitFor(() => {
+      expect(textbox.textContent).toBe("新建页草稿");
+    });
+  });
+
+  it("新建页输入防抖写回草稿", async () => {
+    composerDbDefaults.model = "gpt-4o";
+    composerDbDefaults.thinking = "disabled";
+    composerDbNewSessionIds["p1"] = "draft-session-2";
+    // 同步预置内存态（同「恢复新建页草稿」用例）：确保 sessionId 可预测为 draft-session-2
+    useComposerPrefsStore.setState({ newSessionIds: { p1: "draft-session-2" } });
+    composerDbSessions["draft-session-2"] = { model: "gpt-4o", thinking: "disabled", attachments: [] };
+    useProvidersStore.setState({
+      providers: [
+        { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
+      ],
+    });
+
+    render(<NewSessionPane />);
+    const textbox = typeIntoComposer("新建页输入");
+    await new Promise((r) => setTimeout(r, 350));
+    const sid = useComposerPrefsStore.getState().newSessionIds["p1"] ?? "draft-session-2";
+    expect(useComposerPrefsStore.getState().bySession[sid]?.text).toBe("新建页输入");
+  });
 });
