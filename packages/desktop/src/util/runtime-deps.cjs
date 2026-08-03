@@ -28,6 +28,15 @@ async function syncSeed(seedDir, runtimeDir, log) {
 		const src = path.join(seedDir, f);
 		if (await exists(src)) await fsp.copyFile(src, path.join(runtimeDir, f));
 	}
+	// patchedDependencies（pi-mcp-adapter 补丁）必须随 seed 复制到 runtime：
+	// 运行时在此目录执行 bun remove/add 会重新解析依赖树并校验 patch 文件，
+	// 缺 patches/ 会报 "Couldn't find patch file … 卸载失败"（bun 1.3）。
+	// seedDir 无 patches 时静默跳过（老 seed / dev 场景）。
+	const patchesSrc = path.join(seedDir, "patches");
+	if (await exists(patchesSrc)) {
+		await fsp.rm(path.join(runtimeDir, "patches"), { recursive: true, force: true });
+		await fsp.cp(patchesSrc, path.join(runtimeDir, "patches"), { recursive: true });
+	}
 	log.info(`[deps] seed → ${runtimeDir}`);
 }
 
@@ -129,4 +138,4 @@ async function ensureRuntimeDeps({
 	return runtimeDir;
 }
 
-module.exports = { ensureRuntimeDeps, DEFAULT_REGISTRY, FALLBACK_REGISTRY };
+module.exports = { ensureRuntimeDeps, syncSeed, DEFAULT_REGISTRY, FALLBACK_REGISTRY };
