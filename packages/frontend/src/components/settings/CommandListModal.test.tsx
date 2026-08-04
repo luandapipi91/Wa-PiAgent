@@ -37,7 +37,6 @@ const sampleCommands = () => [
 		source: "extension",
 		packageName: "superpowers-zh",
 		enabled: true,
-		tuiOnly: true,
 	},
 	{
 		name: "other",
@@ -65,14 +64,6 @@ test("打开时拉取命令并按 packageName 过滤，渲染命令列表 + 顶�
 
 	// 打开时调用了 GET
 	expect(getMock).toHaveBeenCalledWith("/api/extensions/commands");
-});
-
-test("tuiOnly 命令不显示 ⚠ 徽标", async () => {
-	getMock.mockImplementation(async () => ({ commands: sampleCommands() }));
-	render(<CommandListModal packageName="superpowers-zh" onClose={() => {}} />);
-
-	await screen.findByText("/tui-cmd");
-	expect(screen.queryByText("⚠ TUI 命令不被支持")).toBeNull();
 });
 
 test("开关切换：立即翻转本地状态并调用 toggle API", async () => {

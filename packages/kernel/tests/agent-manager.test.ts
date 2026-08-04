@@ -1780,20 +1780,17 @@ test("getCommands 会话不存在时自动创建 session 并返回命令", async
 	expect(sessions.find((s: any) => s.id === "new-session-id")).toBeTruthy();
 });
 
-test("getCommands 给 TUI-only 扩展的命令附加 tuiOnly 标记并全量返回", async () => {
-	// 造两个临时扩展包：tui-ext 子文件含 ui.custom( 调用，plain-ext 不含
-	const root = join(WA_PI_DIR, "tmp", `tui-filter-${Date.now()}`);
+test("getCommands 附加 packageName 且不产生 tuiOnly 字段", async () => {
+	// 造两个临时扩展包：goal-ext / plain-ext（package.json name 即 packageName 来源）
+	const root = join(WA_PI_DIR, "tmp", `pkg-name-${Date.now()}`);
 	tmpPaths.push(root);
-	const tuiDir = join(root, "tui-ext");
-	mkdirSync(join(tuiDir, "lib"), { recursive: true });
+	const goalDir = join(root, "goal-ext");
+	mkdirSync(goalDir, { recursive: true });
 	writeFileSync(
-		join(tuiDir, "package.json"),
-		JSON.stringify({ name: "tui-ext" }),
+		join(goalDir, "package.json"),
+		JSON.stringify({ name: "goal-ext" }),
 	);
-	writeFileSync(
-		join(tuiDir, "lib", "panel.ts"),
-		`export const open = (ctx: any) => ctx.ui.custom(() => {});\n`,
-	);
+	writeFileSync(join(goalDir, "index.ts"), `export const x = 1;\n`);
 	const plainDir = join(root, "plain-ext");
 	mkdirSync(plainDir, { recursive: true });
 	writeFileSync(
@@ -1806,25 +1803,26 @@ test("getCommands 给 TUI-only 扩展的命令附加 tuiOnly 标记并全量返�
 	await am.ensureStarted(project.id, "dev", session.id);
 	fakes[0].commandsToReturn = [
 		{
-			name: "mcp-auth",
+			name: "goal",
 			source: "extension",
-			sourceInfo: { path: join(tuiDir, "index.ts") },
+			sourceInfo: { path: join(goalDir, "index.ts") },
 		},
 		{
 			name: "hello",
 			source: "extension",
 			sourceInfo: { path: join(plainDir, "index.ts") },
 		},
-		{ name: "goal", source: "extension" }, // 无 sourceInfo → 保留
+		{ name: "orphan", source: "extension" }, // 无 sourceInfo → 原样保留
 	];
 
 	const commands = await am.getCommands(session.id);
-	// 任务 2 起 filterTuiCommands 只标记不删除：全量返回，TUI-only 命令附加 tuiOnly: true
-	expect(commands.map((c) => c.name)).toEqual(["mcp-auth", "hello", "goal"]);
-	expect(commands.find((c) => c.name === "mcp-auth")?.tuiOnly).toBe(true);
-	expect(commands.find((c) => c.name === "hello")?.tuiOnly).toBe(false);
-	// 无 sourceInfo 的命令原样返回（不附加 tuiOnly 字段）
-	expect(commands.find((c) => c.name === "goal")?.tuiOnly).toBeUndefined();
+	expect(commands.map((c) => c.name)).toEqual(["goal", "hello", "orphan"]);
+	expect(commands.find((c) => c.name === "goal")?.packageName).toBe("goal-ext");
+	expect(commands.find((c) => c.name === "hello")?.packageName).toBe("plain-ext");
+	// 无 sourceInfo 的命令原样返回（不附加 packageName）
+	expect(commands.find((c) => c.name === "orphan")?.packageName).toBeUndefined();
+	// tuiOnly 静态扫描已删除：不再产生 tuiOnly 字段
+	expect(commands.every((c) => !("tuiOnly" in c))).toBe(true);
 });
 
 test("getCommands 合并 extension 命令开关状态（enabled：命中 toggles 用开关值，未记录缺省 true）", async () => {
