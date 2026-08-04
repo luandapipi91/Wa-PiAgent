@@ -4,6 +4,23 @@
 
 ## [Unreleased] - 2026-08-04
 
+### 配置变更
+
+- **附加命令默认全部开启 + 移除「TUI 命令不被支持」提示条**：扩展命令开关
+  缺省语义从「未记录 = 关闭」翻转为「未记录 = 开启」（pi-goal 等有 RPC 降级
+  的命令此前默认被禁用且降级为文本，用户困惑）。`getCommandToggle` 与
+  `_fetchCommands` 合并的缺省值 `?? false → ?? true`；仅显式关闭的命令
+  登记进 disabledCommandNames 降级。同时移除命令列表弹窗顶部
+  「注意：TUI 命令不被支持」黄色提示条（tuiOnly 标记仍在，仅文案下线）。
+  影响范围：`packages/kernel/src/extension-manager.ts`、
+  `packages/kernel/src/agent-manager.ts`、
+  `packages/frontend/src/components/settings/CommandListModal.tsx`、
+  `packages/kernel/tests/extension-manager.test.ts`、
+  `packages/kernel/tests/agent-manager.test.ts`、
+  `packages/frontend/src/components/settings/CommandListModal.test.tsx`。
+
+## [Unreleased] - 2026-08-04
+
 ### 新增功能
 
 - **新增 UI 桥接测试桩扩展 `examples/ext-ui-bridge-demo`**：覆盖全部四类

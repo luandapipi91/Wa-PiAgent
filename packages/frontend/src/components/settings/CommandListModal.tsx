@@ -79,15 +79,6 @@ export function CommandListModal({
 				</button>
 			</div>
 
-			{/* 顶部提示条 */}
-			<div
-				className="px-3 py-2 text-xs"
-				style={{ background: "var(--warning-soft)", color: "var(--warning)" }}
-				data-testid="cmd-notice"
-			>
-				注意：TUI 命令不被支持
-			</div>
-
 			{/* 命令列表 */}
 			<div className="flex-1 overflow-auto">
 				{loading ? (

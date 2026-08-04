@@ -1473,7 +1473,7 @@ export class AgentManager {
 	/**
 	 * 从 pi 进程拉取命令清单：附加 TUI 标记、合并插件开关状态后返回（不缓存）。
 	 * enabled 合并对齐 extension:commands:list 的语义（kernel 侧统一，/ 菜单与插件页一致）：
-	 * 有 packageName（extension 来源）→ 用 waPiCommandToggles 值（缺省 false）；
+	 * 有 packageName（extension 来源）→ 用 waPiCommandToggles 值（缺省 true：附加命令默认全部开启）；
 	 * 无 packageName（prompt/builtin 等）→ 不附加 enabled（kernel 不填 → undefined，前端缺省 false）。
 	 * 无 extensionManager（测试等场景）→ 保持原样。
 	 * 关闭的命令名（enabled === false 的扩展命令）登记进 disabledCommandNames，prompt 发送时降级。
@@ -1485,10 +1485,10 @@ export class AgentManager {
 		const toggles = await this.opts.extensionManager.getCommandToggles();
 		const merged = cmds.map((cmd) =>
 			cmd.packageName
-				? { ...cmd, enabled: toggles[cmd.packageName]?.[cmd.name] ?? false }
+				? { ...cmd, enabled: toggles[cmd.packageName]?.[cmd.name] ?? true }
 				: cmd,
 		);
-		// 登记关闭的命令名（缺省 false 语义：未记录 = 关闭，一并登记）。
+		// 登记关闭的命令名（仅显式 false 登记；未记录缺省 true 不登记）。
 		// 用与合并同一次 getCommandToggles() 结果，避免两次读 settings 的不一致窗口。
 		registerDisabledCommands(
 			merged

@@ -404,11 +404,11 @@ export class ExtensionManager {
   }
 
   /**
-   * 读取命令开关状态（缺省 false）
+   * 读取命令开关状态（缺省 true：附加命令默认全部开启，仅显式关闭的为 false）
    */
   async getCommandToggle(packageName: string, command: string): Promise<boolean> {
     const settings = await this.readSettings();
-    return settings.waPiCommandToggles?.[packageName]?.[command] ?? false;
+    return settings.waPiCommandToggles?.[packageName]?.[command] ?? true;
   }
 
   /**
