@@ -4,6 +4,44 @@
 
 ## [Unreleased] - 2026-08-04
 
+### 修复
+
+- **冷会话点开后「窗口占比」胶囊不显示**：点开会话时前端并行拉 /messages +
+  /stats，而后台预热（session:messages 的 ensureStarted）要 5-10s——stats 落在
+  降级路径没有 contextUsage，且预热完成后无任何通知，占比要等下一回合
+  message_end 才出现。现在预热完成后冷启动场景广播 `session:activated`
+  （热会话不重复广播），前端收听后 `refreshSessionStats` 重拉 /stats 补齐
+  占比/进度条。AgentManager 新增 `isSessionAlive` 用于冷/热判断。
+  影响范围：`packages/kernel/src/ws-server.ts`（session:messages 预热广播）、
+  `packages/kernel/src/agent-manager.ts`（isSessionAlive）、
+  `packages/shared/src/types.ts`（SessionActivatedEvent）、
+  `packages/frontend/src/App.tsx`（事件监听）、
+  `packages/kernel/tests/ws-server-session-prewarm.test.ts`、
+  `packages/kernel/tests/session-messages.test.ts`（桩补 isSessionAlive）、
+  `packages/frontend/tests/App.test.tsx`。
+
+## [Unreleased] - 2026-08-04
+
+### 新增功能
+
+- **系统设置「通用」新增文字大小滑块（12-32px，只缩放文字不动布局）**：
+  拖动滑块调整文字大小，即时生效，localStorage 持久化（`wa-pi-ui-prefs`）。
+  实现：CSS 变量 `--font-scale`（= 字号/16）——全项目字号声明统一挂到该
+  变量：Tailwind px 任意值（199 处 `text-[Npx]` → `text-[calc(Npx*var(--font-scale))]`）、
+  styles.css 自定义规则（10 处）、内联 fontSize（5 处）逐一改为 calc；
+  rem 字号类（text-xs/sm/base/lg/xl/3xl）在 styles.css 末尾加同级覆盖
+  （后定义生效，间距等 rem 布局不受影响）。期间否决过两版方案：根
+  `font-size`（px 声明不缩放，覆盖不全）与 CSS `zoom`/webFrame（vw/vh
+  布局随缩放错位，用户反馈布局错乱）。
+  影响范围：`packages/frontend/src/store/ui-prefs.ts`（新增）、
+  `packages/frontend/src/styles.css`、`packages/frontend/src/main.tsx`、
+  `packages/frontend/src/components/**`（37 个 tsx 机械替换）、
+  `packages/frontend/src/components/settings/GeneralSection.tsx`、
+  `packages/frontend/tests/store-ui-prefs.test.ts`、
+  `packages/frontend/tests/GeneralSection.test.tsx`。
+
+## [Unreleased] - 2026-08-04
+
 ### 新增功能
 
 - **系统设置新增「通用」区块：pi 自动重试次数 / 间隔可配置**：设置页左侧导航
@@ -82,28 +120,41 @@
   `agentManager.getSessionStats`、WS `session:stats` case 与
   REST `GET /api/sessions/:id/stats`；前端 store 扩展 `tokenTotals`
   （cache/total 五字段）与 `contextUsageBySession`，`statsPatch` 为官方数值唯一入口。
-  **子代理消耗计入累计并拆分主/子**：pi 官方 stats 与 jsonl 均不含子代理
-  （delegate/fleet 独立进程）消耗，且 childUsage 不持久化到父会话 jsonl；
-  现由 kernel 在 spawn 完成时（`onSpawnComplete`）累计进内存 map 并串行写回
-  会话记录 `subagentTokens`（重启后惰性恢复），`session:stats` 的 tokens
-  统一为「平铺合计 + main/subagent 拆分」（`mergeTokenUsage`）；
-  前端累计在子代理消耗 >0 时显示「累计 X（主 Y · 子 Z）」。
-  影响范围：`packages/kernel/src/session-history.ts`（computeSessionUsage）、
-  `packages/kernel/src/agent-manager.ts`（getSessionStats/getSubagentTokens）、
-  `packages/kernel/src/ws-server.ts`（session:stats case + mergeTokenUsage）、
-  `packages/kernel/src/project-store.ts`（setSubagentTokens）、
+  **子代理消耗计入累计并拆分主/子**：delegate/fleet 的 toolResult 现携带 pi
+  官方 `usage` 字段（子进程 LLM 消耗，fleet 多任务聚合），pi
+  `get_session_stats` 原生计入累计（"usage reported by tools"），且随
+  toolResult 持久化进 jsonl——重启不丢、无需 kernel 任何记账。
+  主/子拆分统一来自 jsonl 全量扫描（`computeSessionUsage` 改返回
+  `{ main, subagent }`：assistant+compaction/branch_summary→主，
+  toolResult.usage→子）；官方路径 `splitOfficialTokens`（合计含子，主=合计−子，
+  clamp 防旧会话不一致），降级路径 `mergeTokenUsage`（主+子求和）。
+  前端「累计」独立胶囊列（弱化三级灰），子代理消耗 >0 时第二行显示
+  「主 Y · 子 Z」拆分；「占用 + 进度条」为另一独立胶囊（主色加强）。
+  影响范围：`packages/kernel/src/session-history.ts`（computeSessionUsage 拆分）、
+  `packages/kernel/src/agent-manager.ts`（getSessionStats）、
+  `packages/kernel/src/delegate-tool.ts`（toolResult 携带 usage）、
+  `packages/kernel/src/bridge-registry.ts`、`packages/kernel/src/wa-pi-bridge.extension.ts`
+  （usage 透传）、
+  `packages/kernel/src/ws-server.ts`（session:stats + splitOfficialTokens/mergeTokenUsage）、
   `packages/kernel/src/routes/projects-sessions.ts`（REST stats 端点）、
   `packages/shared/src/types.ts`、`packages/frontend/src/store/session.ts`、
   `packages/frontend/src/components/SessionView.tsx`、
   `packages/frontend/src/styles.css`、
   `packages/kernel/tests/session-history.test.ts`、
-  `packages/kernel/tests/agent-manager.test.ts`、
-  `packages/kernel/tests/project-store.test.ts`、
+  `packages/kernel/tests/delegate-tool.test.ts`、
   `packages/kernel/tests/ws-server-session-stats.test.ts`、
   `packages/frontend/tests/SessionView.test.tsx`、
   `packages/frontend/tests/store-session.test.ts`。
 
 ## [Unreleased] - 2026-08-03
+
+### 变更
+
+- **系统设置默认显示「通用」tab**：`useSettingsStore` 的 `activeSection` 初始值从
+  `models` 改为 `general`。此前首次打开设置停在「模型管理」（历史遗留锚点），现在
+  默认展示通用区块（自动重试等基础配置）；模型管理仍需用户手动点击。
+  影响范围：`packages/frontend/src/store/settings.ts`、
+  `packages/frontend/tests/SettingsModal.test.tsx`（供应商相关用例先切到模型管理 tab）。
 
 ### 修复
 
