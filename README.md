@@ -92,7 +92,7 @@ bun run pack:win     # Windows
 bun run pack:linux   # Linux
 ```
 
-首次使用：打开「系统设置 → 模型管理」添加一个模型供应商（OpenAI 兼容或 Anthropic 协议），回到首页选择智能体即可开始对话。所有数据保存在本地 `~/.wa-pi` 目录。
+首次使用：打开「系统设置」→ 在左侧导航切到「模型管理」添加一个模型供应商（OpenAI 兼容或 Anthropic 协议），回到首页选择智能体即可开始对话。所有数据保存在本地 `~/.wa-pi` 目录。
 
 ## 架构
 
