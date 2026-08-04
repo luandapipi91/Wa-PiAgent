@@ -4,14 +4,184 @@
 
 ## [Unreleased] - 2026-08-04
 
+### 新增功能
+
+- **新增 UI 桥接测试桩扩展 `examples/ext-ui-bridge-demo`**：覆盖全部四类
+  扩展 fire-and-forget UI 请求（notify → toast、setStatus → 聊天列底部
+  状态栏、setWidget → Composer 上/下方可折叠文本块、setTitle → 聊天窗
+  顶部状态条）。`session_start` 自动全量触发，另注册 `/uidemo
+  all|notify|status|widget|title|clear` 命令手动演示。仅 `import type`，
+  运行时零依赖，作为本地扩展安装即可用；长期保留在仓库内，不随测试清理。
+  影响范围：`examples/ext-ui-bridge-demo/`（package.json / index.ts /
+  README.md）。
+
+## [Unreleased] - 2026-08-04
+
 ### 修复
 
-- **compactionSummary 消息不再内联渲染摘要正文**：历史里的压缩节点此前渲染为
-  「—— 已压缩早期上下文 · {摘要全文} ——」，摘要本身是完整长篇 markdown
-  （Goal/Progress 等），内联展开直接刷屏。现在只渲染居中提示
-  「—— 已压缩早期上下文 ——」。
-  影响范围：`packages/frontend/src/components/MessageList.tsx`、
-  `packages/frontend/tests/MessageList.test.tsx`。
+- **停止主会话时级联中止子代理进程**：此前点「停止」只 abort 主会话 pi，
+  正在跑的 delegate/fleet 子代理进程继续跑到完成（结果无人消费、token 白烧，
+  fleet 时最多 5 个孤儿进程）。接线已有的半成品能力：会话 handle 新增
+  `subagentAborts` 登记表，`makeSpawnFn` 每次派发创建一个 AbortController
+  登记（完成移除，叠加外层 signal），`runSubagent` 收到 signal 后优雅中止
+  子进程并返回「子智能体已被中止」；`agent-manager.abort()` 与
+  `_teardownSession`（防拆除泄漏）级联触发表内全部 controller。
+  影响范围：`packages/kernel/src/agent-manager.ts`（登记表 + 两处级联）、
+  `packages/kernel/src/delegate-tool.ts`（makeSpawnFn abortRegistry）、
+  `packages/kernel/tests/delegate-tool.test.ts`、
+  `packages/kernel/tests/agent-manager.test.ts`。
+
+## [Unreleased] - 2026-08-04
+
+### 新增功能
+
+- **setWidget 文本块改为可折叠 + 背景透明**：扩展 `setWidget` 此前以
+  `bg-surface-elevated` 不透明色块整段平铺在 Composer 上/下方，占用大量
+  垂直空间。改为可折叠组件：默认收起为一行摘要（▶ 箭头 + widget key +
+  首行预览），点击展开显示完整等宽文本；内容框去掉不透明底色，仅保留
+  左侧 accent 竖线与细边框。收起后只占一行高度。
+  影响范围：`packages/frontend/src/components/SessionView.tsx`
+  （新增 ExtWidget 组件）、`packages/frontend/tests/SessionView.test.tsx`。
+
+## [Unreleased] - 2026-08-04
+
+### 重构
+
+- **移除 pi-open-agents 依赖**：子代理执行实为 wa-pi 自实现（subagent-runner
+  直接 spawn 一次性 pi RPC 子进程；delegate 子进程本就只加载
+  provider-extension），pi-open-agents 在会话进程内注册的能力均无消费——
+  原生 subagent 工具被 allowlist 屏蔽（`BLOCKED=["subagent"]`）、/agent 命令
+  无人调用、banner 只剩误报（「No agent selected」TUI 提示）。移除点：
+  `PKG_EXTENSIONS` 加载清单、kernel/desktop sidecar 依赖声明、
+  build-kernel-sidecar 生成清单；同步清理 delegate-tool/subagent-runner/
+  builtin-agents/subagent-info 的过时注释。验证：kernel 705 测试全过；
+  真实 pi RPC 启动无 extension_error、/agent 命令消失、banner widget 不再出现。
+  修复测试期间发现 fake-pi 桩的 U+2028 不可见字符曾被编辑器归一化丢失，
+  已恢复。影响范围：`packages/kernel/src/extensions.ts`、
+  `packages/kernel/package.json`、`packages/kernel/src/delegate-tool.ts`、
+  `packages/kernel/src/subagent-runner.ts`、`packages/kernel/src/builtin-agents.ts`、
+  `packages/kernel/src/subagent-info.ts`、`packages/kernel/scripts/eval-delegate-trigger.ts`、
+  `packages/desktop/scripts/build-kernel-sidecar.ts`、
+  `packages/desktop/resources/kernel/package.json`、
+  `packages/kernel/tests/extensions.test.ts`、`bun.lock`。
+
+## [Unreleased] - 2026-08-04
+
+### 配置变更
+
+- **移除内置扩展 pi-cache-optimizer**：不再默认加载该扩展，Pi 子进程启动参数
+  中不再包含 `-e pi-cache-optimizer`。依赖同时从 kernel、desktop seed 和
+  sidecar 构建脚本中移除。缓存命中率 UI 仍基于 Pi SDK 返回的
+  `usage.cacheRead / (input + cacheRead + cacheWrite)` 计算，不受影响。
+  影响范围：`packages/kernel/src/extensions.ts`、
+  `packages/kernel/package.json`、
+  `packages/desktop/resources/kernel/package.json`、
+  `packages/desktop/scripts/build-kernel-sidecar.ts`、
+  `bun.lock`。
+
+## [Unreleased] - 2026-08-04
+
+### 修复
+
+- **扩展 UI 文案剥离 ANSI 转义码 + setStatus 状态栏改挂聊天列**：pi 扩展经
+  `ctx.ui.theme` 着色的文本（如 pi-open-agents 的 banner hint）携带
+  `\x1b[38;5;Nm` 终端转义码，此前在 widget/状态栏原样显示为乱码。kernel
+  rpc-client 新增 `stripAnsi`，notify/setStatus/setWidget/setTitle 四类桥接
+  文案统一剥离。同时按产品要求调整 setStatus 状态栏位置：从窗口全局底栏
+  （跨左侧项目列表/右侧文件树）改为只挂聊天列底部、文字右对齐，App 根布局
+  回退为原 flex 行结构。
+  影响范围：`packages/kernel/src/rpc-client.ts`、
+  `packages/frontend/src/App.tsx`（移除全局底栏）、
+  `packages/frontend/src/components/SessionView.tsx`（聊天列状态栏）、
+  `packages/kernel/tests/rpc-client.test.ts`、
+  `packages/kernel/tests/fixtures/fake-pi.ts`（ANSI 桩）、
+  `packages/frontend/tests/SessionView.test.tsx`、
+  `packages/frontend/tests/App.test.tsx`。
+
+## [Unreleased] - 2026-08-04
+
+### 新增功能
+
+- **extension_error 诊断可视化（方案 A）+ 扩展状态展示（setStatus/setWidget/setTitle）**：
+  roadmap Next #1/#2 落地。kernel rpc-client 把 fire-and-forget UI 请求
+  （setStatus/setWidget/setTitle）与 notify 同路径桥接为 sdk:event 转发
+  （set_editor_text 维持不做）。前端四处 UI——
+  ①`extension_error` → error toast 即时提醒 + 系统设置新增「诊断」区块
+  （内存态最近 50 条：时间/扩展/事件/错误，可清空）；
+  ②`setStatus` → 窗口底部 26px 全局状态栏（App 根布局改 flex-col 承载，
+  statusKey 去重、空文案清除）；
+  ③`setTitle` → 聊天窗顶部状态条（产品决策：不写 document.title，
+  避免公共标题被扩展覆盖）；
+  ④`setWidget` → Composer 上/下方文本块（aboveEditor 紫竖线 /
+  belowEditor 灰竖线，等宽字体，widgetLines 空清除）。
+  SDKEvent 补 extension_error/extension_status/extension_widget/
+  extension_title 四个声明。
+  影响范围：`packages/shared/src/types.ts`、
+  `packages/kernel/src/rpc-client.ts`（桥接）、
+  `packages/frontend/src/store/session.ts`（四个 case + 三个状态表）、
+  `packages/frontend/src/store/diagnostics.ts`（新增）、
+  `packages/frontend/src/App.tsx`（底栏 + 标题条 + 根布局 flex-col）、
+  `packages/frontend/src/components/SessionView.tsx`（widget 块）、
+  `packages/frontend/src/components/settings/DiagnosticsSection.tsx`（新增）、
+  `packages/frontend/src/components/SettingsModal.tsx`、
+  `packages/frontend/src/store/settings.ts`、
+  `packages/kernel/tests/rpc-client.test.ts`（fake-pi 补 ui_fire_and_forget）、
+  `packages/kernel/tests/fixtures/fake-pi.ts`、
+  `packages/frontend/tests/store-session.test.ts`、
+  `packages/frontend/tests/DiagnosticsSection.test.tsx`、
+  `packages/frontend/tests/App.test.tsx`。
+
+## [Unreleased] - 2026-08-04
+
+### 新增功能
+
+- **对接 `summarization_retry_*` 事件（roadmap Now #1 收尾）**：压缩/分支摘要的
+  LLM 调用 transient 失败重试此前是无反馈的静默等待。`SDKEvent` 补三个事件
+  声明（`summarization_retry_scheduled{attempt,maxAttempts,delayMs,errorMessage}`、
+  `summarization_retry_attempt_start{source:branchSummary|compaction+reason}`、
+  `summarization_retry_finished`）；前端 store 复用 `retryBySession` 驱动同一
+  黄色重试状态条——scheduled 记录进度、attempt_start 显式保持、finished 清除
+  （最终失败由随后 `compaction_end{errorMessage}` 文案呈现）。SDKEvent 声明
+  覆盖达 20/21（仅余不会产生的 bash_execution_update）。
+  影响范围：`packages/shared/src/types.ts`、
+  `packages/frontend/src/store/session.ts`、
+  `packages/frontend/tests/store-session.test.ts`。
+
+## [Unreleased] - 2026-08-04
+
+### 新增功能
+
+- **对接 `agent_settled` / `turn_start` / `turn_end` 事件（roadmap Now #2 类型债）**：
+  `SDKEvent` 补 `agent_settled` 声明（turn_* 此前已有类型）。前端 store 新增
+  `agent_settled` case——pi 语义为「重试/压缩重试/排队续跑全部终结」，正常
+  已被 `agent_end{willRetry:false}` 复位，此处作思考态兜底（agent_end 缺失/
+  乱序的异常路径防卡死，已空闲则不产生状态变更）；`turn_start`/`turn_end`
+  显式忽略（消息流已由 message_start/update/end 驱动，turn_end 携带的
+  message/toolResults 与之重复不合并；turn 粒度遥测归 roadmap Later）。
+  kernel 侧 agent-manager 本就以 agent_settled 管理 busy/drain，无需改动。
+  影响范围：`packages/shared/src/types.ts`（SDKEvent）、
+  `packages/frontend/src/store/session.ts`、
+  `packages/frontend/tests/store-session.test.ts`。
+
+## [Unreleased] - 2026-08-04
+
+### 修复
+
+- **compactionSummary 消息不再内联渲染摘要正文 + 两条压缩提示路径文案统一**：
+  历史里的压缩节点此前渲染为「—— 已压缩早期上下文 · {摘要全文} ——」，
+  摘要本身是完整长篇 markdown（Goal/Progress 等），内联展开直接刷屏；
+  且 live（compaction_end 插入的「已压缩上下文：X → Y（释放 Z）」）与重载历史
+  的压缩节点提示文案不一致、refreshTokenTotals 保留本地成功消息还会造成重复提示。
+  现统一为「—— 已压缩早期上下文 · 压缩前 X token ——」（jsonl 不持久化
+  estimatedTokensAfter，两边只一致展示 tokensBefore）；refresh 时本地成功的
+  compaction_status 消息被去重（进行中/取消/失败仍保留）。`fmtTok` 提取为
+  公共 `util/format.ts`（SessionView/MessageList/session store 共用）。
+  影响范围：`packages/frontend/src/util/format.ts`（新增）、
+  `packages/frontend/src/components/MessageList.tsx`、
+  `packages/frontend/src/components/SessionView.tsx`、
+  `packages/frontend/src/store/session.ts`、
+  `packages/frontend/tests/MessageList.test.tsx`、
+  `packages/frontend/tests/store-session.test.ts`。
 
 ## [Unreleased] - 2026-08-04
 
@@ -160,6 +330,13 @@
 ## [Unreleased] - 2026-08-03
 
 ### 变更
+
+- **智能体编辑弹窗与列表弹窗叠加显示**：在智能体宫格（列表）里点「编辑 / 新建」打开
+  编辑弹窗时，列表弹窗保持打开（编辑框盖在列表上，关闭编辑框后列表仍在），不再自动
+  关闭。用户可在列表与编辑弹窗间对照选择。侧边栏编辑入口与 ⌘K / `/agents` 命令打开
+  宫格也不再互相关闭。
+  影响范围：`packages/frontend/src/App.tsx`、
+  `packages/frontend/tests/App.test.tsx`（宫格新建 / 编辑用例改为断言列表保持打开）。
 
 - **系统设置默认显示「通用」tab**：`useSettingsStore` 的 `activeSection` 初始值从
   `models` 改为 `general`。此前首次打开设置停在「模型管理」（历史遗留锚点），现在

@@ -220,11 +220,9 @@ export async function buildSidecar(
 				dependencies: {
 					"@earendil-works/pi-coding-agent": "^0.83.0",
 					"@earendil-works/pi-ai": "^0.83.0",
-					"pi-open-agents": "^0.1.12",
 					"pi-web-access": "^0.17.1",
 					"@amaster.ai/pi-memory": "^0.1.5",
 					"pi-mcp-adapter": "^2.13.0",
-					"pi-cache-optimizer": "^2.6.24",
 					"@modelcontextprotocol/sdk": "^1.29.0",
 					typebox: "^1.3.6",
 				},

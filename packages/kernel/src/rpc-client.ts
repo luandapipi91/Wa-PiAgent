@@ -21,6 +21,16 @@ export interface RpcEvent {
 	[k: string]: any;
 }
 
+/**
+ * 剥离 ANSI 转义序列（SGR 颜色 / CSI 控制序列）。
+ * pi 扩展经 ctx.ui.theme 着色的文本（如 theme.fg("dim", ...)）携带 \x1b[38;5;Nm
+ * 这类终端转义码，TUI 下正常，GUI 展示必须剥离，否则原样显示为乱码文本。
+ */
+export function stripAnsi(text: string): string {
+	// eslint-disable-next-line no-control-regex
+	return text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+}
+
 export interface RpcUiRequest {
 	type: "extension_ui_request";
 	id: string;
@@ -413,8 +423,38 @@ export class RpcClient {
 		if (req.method === "notify" && typeof req.message === "string") {
 			this.opts.onEvent({
 				type: "extension_notify",
-				message: req.message,
+				message: stripAnsi(req.message),
 				notifyType: req.notifyType,
+			} as RpcEvent);
+		}
+		// fire-and-forget UI 方法（setStatus/setWidget/setTitle）：pi 不期待响应，
+		// 但 GUI 宿主需要内容来展示——与 notify 同路径桥接为 sdk:event 转发前端。
+		// 文案统一 stripAnsi：扩展经 ctx.ui.theme 着色的文本带终端转义码。
+		// set_editor_text 刻意不转发（产品决策：输入框状态归桌面端自己管理）。
+		if (req.method === "setStatus" && typeof req.statusKey === "string") {
+			this.opts.onEvent({
+				type: "extension_status",
+				statusKey: req.statusKey,
+				statusText:
+					typeof req.statusText === "string"
+						? stripAnsi(req.statusText)
+						: undefined,
+			} as RpcEvent);
+		}
+		if (req.method === "setWidget" && typeof req.widgetKey === "string") {
+			this.opts.onEvent({
+				type: "extension_widget",
+				widgetKey: req.widgetKey,
+				widgetLines: Array.isArray(req.widgetLines)
+					? req.widgetLines.map((l) => stripAnsi(String(l)))
+					: undefined,
+				widgetPlacement: req.widgetPlacement,
+			} as RpcEvent);
+		}
+		if (req.method === "setTitle" && typeof req.title === "string") {
+			this.opts.onEvent({
+				type: "extension_title",
+				title: stripAnsi(req.title),
 			} as RpcEvent);
 		}
 		let fields: UiResponseFields = { cancelled: true };

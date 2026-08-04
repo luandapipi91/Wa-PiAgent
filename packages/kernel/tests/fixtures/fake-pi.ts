@@ -74,6 +74,14 @@ function handle(cmd: any): void {
       emit({ type: "extension_ui_request", id: "ui-req-2", method: "notify", message: "你好" });
       emit({ id: cmd.id, type: "response", command: "ui_notify", success: true });
       break;
+    case "ui_fire_and_forget":
+      // setStatus/setWidget/setTitle：fire-and-forget，应被桥接为 sdk 事件
+      // widget 首行带 ANSI 转义码（模拟 pi 扩展经 ctx.ui.theme 着色）：桥接层必须剥离
+      emit({ type: "extension_ui_request", id: "ui-req-3", method: "setStatus", statusKey: "pi-lens", statusText: "\u001b[38;5;241m分析中 (3/5)\u001b[39m" });
+      emit({ type: "extension_ui_request", id: "ui-req-4", method: "setWidget", widgetKey: "pi-goal", widgetLines: ["\u001b[38;5;241m[No agent selected]\u001b[39m", "进度 4/6"], widgetPlacement: "aboveEditor" });
+      emit({ type: "extension_ui_request", id: "ui-req-5", method: "setTitle", title: "分析中" });
+      emit({ id: cmd.id, type: "response", command: "ui_fire_and_forget", success: true });
+      break;
     case "unicode":
       // 含 U+2028/U+2029 的字符串：JSON.stringify 不转义这两个字符，
       // 客户端必须只在 \n 处断行（readline 会在这里错误断开）

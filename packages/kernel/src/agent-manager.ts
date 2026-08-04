@@ -181,6 +181,9 @@ interface SessionHandle {
 	disposed: boolean;
 	/** 子代理派发遥测收集器（会话销毁时 flush 到 subagent-telemetry.jsonl） */
 	subagentTelemetry: SubagentTelemetry;
+	/** 在跑子代理的中止控制器登记表（delegate/fleet 每次派发创建一个，完成移除）：
+	 *  abort()/_teardownSession 级联触发，让子代理进程随主会话一起停止 */
+	subagentAborts: Set<AbortController>;
 	/** 主会话当前模型（"provider/modelId"）：子智能体「跟随主模型」时透传给 spawn --model */
 	currentModel: string | null;
 	/** 主会话当前 thinking level（prompt 时记录），子智能体「跟随主配置」时透传 */
@@ -566,6 +569,9 @@ export class AgentManager {
 
 		// 会话级子代理遥测收集器：随 spawnFn 生命周期创建，_teardownSession 时 flush
 		const subagentTelemetry = new SubagentTelemetry();
+		// 在跑子代理的中止控制器登记表：spawn 闭包每次派发创建/移除，
+		// abort()/_teardownSession 级联触发（stop 主会话时子代理一起停）
+		const subagentAborts = new Set<AbortController>();
 		// 子进程必须加载 provider-extension（providers.json → 自定义 provider + apiKey），
 		// 否则「跟随主模型」传入的 --model 在子进程里查无此 provider，报 No API key
 		const providerExtPath = join(GENERATED_DIR, "provider-extension.ts");
@@ -609,6 +615,7 @@ export class AgentManager {
 					.map((s) => s.path);
 			},
 			cwd,
+			abortRegistry: subagentAborts,
 			onSpawnComplete: (input) => subagentTelemetry.record(input),
 			// spawn 闭包的 onProgress：从槽位取本次 handleTool 调用注入的 onProgress，
 			// 再叠加会话级 onSubagentProgress（注入 sessionId 后广播到 SSE）。
@@ -799,6 +806,7 @@ export class AgentManager {
 			crashed: false,
 			disposed: false,
 			subagentTelemetry,
+			subagentAborts,
 			currentModel: null,
 			currentThinking: null,
 			netDegraded: false,
@@ -1220,6 +1228,10 @@ export class AgentManager {
 		handle.steerList = [];
 		handle.followUpList = [];
 		this._emitLocalQueueUpdate(sessionId, handle);
+		// 级联中止在跑的子代理进程（delegate/fleet 派发时登记）：
+		// 不中止的话主会话停了子代理仍跑到完成，成孤儿且结果无人消费。
+		for (const c of handle.subagentAborts) c.abort();
+		handle.subagentAborts.clear();
 		console.log(
 			`[agent-manager] abort session=${sessionId} busy=${handle.busy}`,
 		);
@@ -1325,6 +1337,9 @@ export class AgentManager {
 		if (handle) {
 			handle.disposed = true;
 			this._flushSubagentTelemetry(sessionId, handle);
+			// 拆除会话时级联中止在跑的子代理进程（防孤儿泄漏）
+			for (const c of handle.subagentAborts) c.abort();
+			handle.subagentAborts.clear();
 			// dispose 是异步 kill，fire-and-forget（调用方多为同步拆除路径）
 			void handle.client.dispose().catch(() => {});
 			if (handle.promptFile) {

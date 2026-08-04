@@ -1,10 +1,10 @@
-// delegate 关系网调起工具 + pi-open-agents runSubagent 适配。
+// delegate 关系网调起工具。
 //
 // LLM 经 delegate(agent, task) 调起 askTo 内的智能体：
 // - allowlist 在宿主侧强制（扩展原生 subagent 工具不进 allowlist，见 constants.resolveAgentTools）。
 // - 越权调起返回错误文本，不触碰 service。
-// - 合法调起经 spawn 闭包执行：pi-open-agents 的 runSubagent（子进程 async），
-//   由 subagent-runner 适配层封装。
+// - 合法调起经 spawn 闭包执行：wa-pi 自实现的 subagent-runner
+//   （kernel 直接 spawn 一次性 pi RPC 子进程，见 subagent-runner.ts）。
 //
 // 错误语义：execute 返回值带 isError 标记。SDK 层（pi-agent-core）目前不把
 // result.isError 透传到 ToolResultMessage（仅 execute 抛异常才标 isError），
@@ -61,8 +61,9 @@ export type DelegateSpawnFn = (
 
 /**
  * 判断 agent 名是否允许调起：在 askTo 名单内，或者是内置 subagent 类型名。
- * 内置类型（general-purpose / Explore / Plan）走 pi-open-agents 的 AgentDefinition，
- * 不在 WaPi 的 askTo 关系网里——任何主智能体都可调起。
+ * 内置类型（general-purpose / Explore / Plan）走本地 .md 定义（pi-open-agents
+ * frontmatter 格式，见 builtin-agents.ts），不在 WaPi 的 askTo 关系网里——
+ * 任何主智能体都可调起。
  */
 function canInvoke(agent: string, askTo: DelegateTarget[]): boolean {
 	return askTo.some((t) => t.name === agent) || isSubagentType(agent);
@@ -240,6 +241,10 @@ export function makeSpawnFn(opts: {
 	resolveSkillPaths?: (skillNames: string[]) => Promise<string[]>;
 	cwd: string;
 	signal?: AbortSignal;
+	/** 子代理中止登记表：每次派发创建一个 AbortController 加入本表（完成时移除），
+	 *  主会话 abort / 会话拆除时由 agent-manager 级联触发表内全部 controller，
+	 *  runSubagent 收到 signal 后优雅中止子代理进程（否则成孤儿跑到完成、结果无人消费）。 */
+	abortRegistry?: Set<AbortController>;
 	// onProgress 改为 (toolCallId, event)：spawn 闭包拿到 toolCallId 后注入到回调，
 	// 让前端能按 toolCallId 把进度帧路由到对应卡片
 	onProgress?: (toolCallId: string, event: SubagentProgressEvent) => void;
@@ -296,28 +301,41 @@ export function makeSpawnFn(opts: {
 					: undefined;
 			await opts.ensureExtension(modelSlug);
 		}
-		const result = await runSubagent(config, task, opts.cwd, {
-			signal: opts.signal,
-			// 把外层 onProgress(toolCallId, event) 包一层：runSubagentAgent 内部仍以
-			// (event) => void 调用，这里注入闭包捕获的 toolCallId，实现进度帧关联卡片
-			onProgress: opts.onProgress
-				? (event) => opts.onProgress!(toolCallId, event)
-				: undefined,
-			skillPaths,
-			extensionPaths: opts.extensionPaths,
-			cliPath: opts.runnerOpts?.cliPath,
-			runtime: opts.runnerOpts?.runtime,
-			commandTimeoutMs: opts.runnerOpts?.commandTimeoutMs,
-		});
-		opts.onSpawnComplete?.({
-			agent,
-			task,
-			isError: result.isError,
-			returnText: result.text,
-			elapsedMs: result.elapsedMs,
-			childUsage: result.usage,
-		});
-		return result;
+		// 每次派发一个 AbortController 并登记：主会话 abort / 会话拆除时级联触发；
+		// 叠加外层 signal（若有），任一触发都中止本次子代理。
+		const controller = new AbortController();
+		opts.abortRegistry?.add(controller);
+		if (opts.signal?.aborted) controller.abort();
+		else
+			opts.signal?.addEventListener("abort", () => controller.abort(), {
+				once: true,
+			});
+		try {
+			const result = await runSubagent(config, task, opts.cwd, {
+				signal: controller.signal,
+				// 把外层 onProgress(toolCallId, event) 包一层：runSubagentAgent 内部仍以
+				// (event) => void 调用，这里注入闭包捕获的 toolCallId，实现进度帧关联卡片
+				onProgress: opts.onProgress
+					? (event) => opts.onProgress!(toolCallId, event)
+					: undefined,
+				skillPaths,
+				extensionPaths: opts.extensionPaths,
+				cliPath: opts.runnerOpts?.cliPath,
+				runtime: opts.runnerOpts?.runtime,
+				commandTimeoutMs: opts.runnerOpts?.commandTimeoutMs,
+			});
+			opts.onSpawnComplete?.({
+				agent,
+				task,
+				isError: result.isError,
+				returnText: result.text,
+				elapsedMs: result.elapsedMs,
+				childUsage: result.usage,
+			});
+			return result;
+		} finally {
+			opts.abortRegistry?.delete(controller);
+		}
 	};
 }
 

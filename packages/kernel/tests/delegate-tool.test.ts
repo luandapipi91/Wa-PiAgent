@@ -624,3 +624,51 @@ test("fleet: 各子代理 usage 聚合为单个 toolResult.usage", async () => {
 	expect(res.usage?.totalTokens).toBe(410);
 	expect(res.usage?.cost.total).toBe(0.01);
 });
+
+test("makeSpawnFn: 派发登记 AbortController 到 abortRegistry，中止信号级联到 runSubagent", async () => {
+	const resolveConfig = mock(async () => ({
+		name: "test-agent",
+		description: "test desc",
+		systemPrompt: "you are a test agent",
+		model: null,
+		thinking: null,
+		tools: [],
+		skills: [],
+	}));
+	let capturedSignal: AbortSignal | undefined;
+	// 模拟 runSubagent：挂起直到 signal 触发（对齐 subagent-runner 的中止语义）
+	const fakeRunner = mock(
+		async (_config: any, _task: string, _cwd: string, runOpts: any) => {
+			capturedSignal = runOpts?.signal;
+			await new Promise<void>((resolve) => {
+				if (runOpts?.signal?.aborted) return resolve();
+				runOpts?.signal?.addEventListener("abort", () => resolve(), {
+					once: true,
+				});
+			});
+			return { text: "子智能体已被中止", isError: true, elapsedMs: 1 };
+		},
+	);
+	const registry = new Set<AbortController>();
+	const spawn = makeSpawnFn({
+		resolveConfig,
+		cwd: "/tmp",
+		abortRegistry: registry,
+		runSubagentAgent: fakeRunner as any,
+	});
+
+	const p = spawn("test-agent", "task", "tc-abort");
+	// 等一拍让派发进入 runSubagent（controller 已登记）
+	await new Promise((r) => setTimeout(r, 20));
+	expect(registry.size).toBe(1);
+
+	const [controller] = [...registry];
+	controller.abort();
+	const result = await p;
+
+	expect(capturedSignal?.aborted).toBe(true);
+	expect(result.isError).toBe(true);
+	expect(result.text).toContain("已被中止");
+	// 完成后从登记表移除（不泄漏）
+	expect(registry.size).toBe(0);
+});

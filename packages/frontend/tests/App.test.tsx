@@ -172,7 +172,7 @@ test("侧栏右键「编辑智能体」→ 打开 AgentConfig 弹窗", async () 
 	await waitFor(() => expect(screen.getByTestId("agent-config")).toBeTruthy());
 });
 
-test("宫格新建成功 → 关宫格并打开新智能体配置弹窗（乐观打开契约）", async () => {
+test("宫格新建成功 → 编辑弹窗叠加打开，列表保持显示（不自动关）", async () => {
 	useAgentsStore.setState({
 		list: [agent("a1"), agent("a2"), agent("a3"), agent("a4")],
 	});
@@ -185,32 +185,31 @@ test("宫格新建成功 → 关宫格并打开新智能体配置弹窗（乐观
 	});
 	fireEvent.click(screen.getByTestId("gallery-create-ok"));
 	await waitFor(() => {
-		expect(screen.queryByTestId("agent-gallery")).toBeNull();
 		expect(screen.getByTestId("agent-config")).toBeTruthy();
+		// 列表弹窗不自动关闭
+		expect(screen.getByTestId("agent-gallery")).toBeTruthy();
 	});
 	// 配置弹窗头展示新智能体名（draft 未回时回退 agentName；未知名的回退 label 也是它，故多处匹配）
 	expect(screen.getAllByText("新助手").length).toBeGreaterThanOrEqual(1);
 });
 
-test("编辑弹窗打开时再开宫格（wa-pi:open-gallery）→ 编辑弹窗关闭，只显示宫格", async () => {
-	useAgentsStore.setState({ list: [agent("技术实现")] });
+test("宫格里编辑智能体 → 编辑弹窗叠加显示，列表保持打开", async () => {
+	useAgentsStore.setState({
+		list: [agent("技术实现"), agent("a2"), agent("a3"), agent("a4")],
+	});
 	render(<App />);
 	await act(async () => {});
-	// 先打开编辑弹窗（侧边栏右键 → 编辑智能体）
-	fireEvent.contextMenu(screen.getByTestId("agent-技术实现"));
-	fireEvent.click(screen.getByTestId("agent-ctx-edit"));
-	await waitFor(() => expect(screen.getByTestId("agent-config")).toBeTruthy());
+	fireEvent.click(screen.getByTestId("agent-more"));
+	await act(async () => {});
+	expect(screen.getByTestId("agent-gallery")).toBeTruthy();
 
-	// 再触发「智能体管理」命令事件（⌘K 面板 / /agents 同路径）
-	act(() => {
-		window.dispatchEvent(new CustomEvent("wa-pi:open-gallery"));
-	});
+	// 宫格里点「编辑智能体」→ 编辑弹窗打开，列表不关闭
+	fireEvent.contextMenu(screen.getByTestId("gallery-card-技术实现"));
+	fireEvent.click(screen.getByTestId("gallery-ctx-edit"));
+	await act(async () => {});
 
-	// 互斥：宫格打开，编辑弹窗必须关闭
-	await waitFor(() => {
-		expect(screen.getByTestId("agent-gallery")).toBeTruthy();
-		expect(screen.queryByTestId("agent-config")).toBeNull();
-	});
+	expect(screen.getByTestId("agent-config")).toBeTruthy();
+	expect(screen.getByTestId("agent-gallery")).toBeTruthy();
 });
 
 test("pendingAgent 首次消费后清除：离开再进新建页不再预选旧值", async () => {
@@ -298,6 +297,18 @@ test("重试期间顶部显示黄色重试条（优先于红色异常条），�
 	});
 	expect(screen.queryByTestId("retry-status-bar")).toBeNull();
 	expect(screen.getByTestId("net-status-bar")).toBeTruthy();
+});
+
+test("扩展 setTitle → 聊天窗顶部标题条", async () => {
+	useProjectsStore.setState({ currentSessionId: "s1" });
+	useSessionStore.setState({
+		extTitleBySession: { s1: "pi-lens 分析中" },
+	});
+	render(<App />);
+	await act(async () => {});
+	expect(screen.getByTestId("ext-title-bar").textContent).toContain(
+		"pi-lens 分析中",
+	);
 });
 
 test("session:activated（预热完成）触发重拉 stats，补齐占比胶囊数据", async () => {

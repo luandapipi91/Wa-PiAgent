@@ -11,8 +11,8 @@ import { join } from "node:path";
 /**
  * 内置 subagent 的 agent.md 定义内容（frontmatter + 提示词正文）。
  *
- * 提示词从 @gotgenes/pi-subagents 的 default-agents.ts 迁移而来，
- * 切换到 pi-open-agents 后不再依赖包内部源码，改为本地 .md 文件。
+ * 提示词从 @gotgenes/pi-subagents 的 default-agents.ts 迁移而来，现为本地
+ * .md 文件（pi-open-agents frontmatter 格式），不依赖任何包内部源码。
  * 用户可在 ~/.wa-pi/agents/ 覆盖同名文件自定义。
  */
 export const BUILTIN_AGENT_CONTENT: Record<string, string> = {

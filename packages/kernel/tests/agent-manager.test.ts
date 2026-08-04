@@ -571,6 +571,19 @@ test("abort 清空排队列表 + 中断当前运行", async () => {
 	expect(fake.aborts).toBe(1);
 });
 
+test("abort 级联中止登记的子代理（subagentAborts 全部触发并清空）", async () => {
+	const { project, session, am } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+	const handle = (am as any).sessions.get(session.id);
+	// 模拟一个在跑的子代理派发登记
+	const controller = new AbortController();
+	handle.subagentAborts.add(controller);
+
+	await am.abort(session.id);
+	expect(controller.signal.aborted).toBe(true);
+	expect(handle.subagentAborts.size).toBe(0);
+});
+
 test("steerMessage — busy 时立即调 pi steer()", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);

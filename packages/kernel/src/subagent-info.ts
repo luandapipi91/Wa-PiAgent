@@ -1,7 +1,7 @@
 // subagent-info.ts — 内置 subagent 信息读取
 //
-// 切换 pi-open-agents 后，内置 subagent 的 systemPrompt 定义在 builtin-agents.ts 的
-// BUILTIN_AGENT_CONTENT 中（同时写入 ~/.wa-pi/agents/*.md）。不再从 pi-subagents 包内部源码 import。
+// 内置 subagent 的 systemPrompt 定义在 builtin-agents.ts 的
+// BUILTIN_AGENT_CONTENT 中（同时写入 ~/.wa-pi/agents/*.md）。不从任何包内部源码 import。
 // 元信息（emoji/gradient/displayName）仍在 SUBAGENT_TYPES 常量。
 
 import { SUBAGENT_TYPES } from "@wa-pi/shared";
@@ -82,7 +82,7 @@ export function _resetPiDefaultsCache() { _systemPromptCache = null; }
 /**
  * 读取内置 subagent 的 systemPrompt：优先用户覆盖文件（~/.wa-pi/agents/<name>.md，
  * seedBuiltinAgents 写入后不覆盖用户编辑），文件不存在/为空时回退 BUILTIN_AGENT_CONTENT。
- * 供 agent-manager 构造子代理 spawn 配置（替代旧 pi-open-agents loadAgents 文件读取）。
+ * 供 agent-manager 构造子代理 spawn 配置（wa-pi 自实现的 .md 文件读取）。
  */
 export async function readBuiltinAgentPrompt(agentsDir: string, name: string): Promise<string> {
   try {

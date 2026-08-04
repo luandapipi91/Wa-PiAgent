@@ -66,6 +66,10 @@ export function App() {
 	const retryInfo = useSessionStore((s) =>
 		currentSessionId ? (s.retryBySession[currentSessionId] ?? null) : null,
 	);
+	// 扩展 setTitle：会话级标题，聊天窗顶部状态条展示（不写 document.title）。
+	const extTitle = useSessionStore((s) =>
+		currentSessionId ? (s.extTitleBySession[currentSessionId] ?? null) : null,
+	);
 
 	useEffect(() => onConnectionChange(setConnState), []);
 
@@ -279,6 +283,7 @@ export function App() {
 	// 监听来自 CommandPalette 和 SlashMenu 的自定义事件
 	useEffect(() => {
 		const handlers: Record<string, () => void> = {
+			// 打开智能体宫格：不关闭已打开的编辑弹窗（允许两者叠加：编辑框盖在列表上）
 			"wa-pi:open-gallery": () => setGalleryOpen(true),
 			"wa-pi:open-settings": () => useSettingsStore.getState().open(),
 			"wa-pi:open-settings-skills": () => {
@@ -454,7 +459,8 @@ export function App() {
 								animation: "spin 0.8s linear infinite",
 							}}
 						/>
-						模型请求失败，正在自动重试 ({retryInfo.attempt}/{retryInfo.maxAttempts})…
+						模型请求失败，正在自动重试 ({retryInfo.attempt}/
+						{retryInfo.maxAttempts})…
 					</div>
 				)}
 				{netDegraded && !retryInfo && (
@@ -471,6 +477,14 @@ export function App() {
 							}}
 						/>
 						模型连接异常，请检查网络或 Provider 配置后重试
+					</div>
+				)}
+				{extTitle && (
+					<div
+						className="flex items-center justify-center gap-2 px-4 py-1.5 text-[calc(12px*var(--font-scale))] bg-surface-elevated text-secondary border-b border-hairline"
+						data-testid="ext-title-bar"
+					>
+						{extTitle}
 					</div>
 				)}
 				{view === "empty" && (
@@ -498,11 +512,11 @@ export function App() {
 						chatWith(name);
 					}}
 					onEdit={(name) => {
-						setGalleryOpen(false);
+						// 编辑弹窗叠加显示，列表保持打开（用户可在列表与编辑间对照）
 						setConfigAgent(name);
 					}}
 					onCreated={(name) => {
-						setGalleryOpen(false);
+						// 新建后打开编辑弹窗，列表保持打开
 						setConfigAgent(name);
 					}}
 				/>

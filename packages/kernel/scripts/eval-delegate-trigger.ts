@@ -6,7 +6,7 @@
 //
 // 与生产一致的部分（保证测的就是线上行为）：
 // - 系统提示词：composePrompt(prompts.json segments, { defaultBasePrompt, delegateRoster, builtinSkillsDir })
-// - 工具面：默认排除式（不传 --tools，仅 -xt subagent）+ 全套扩展（pi-open-agents/web-access/mcp-adapter + provider-extension + wa-pi-bridge）
+// - 工具面：默认排除式（不传 --tools，仅 -xt subagent）+ 全套扩展（web-access/mcp-adapter + provider-extension + wa-pi-bridge）
 //
 // 与生产不同的部分（压成本）：
 // - bridge 的 /bridge/tool 由本脚本内置 stub server 应答：delegate/fleet 只记录调用并立即

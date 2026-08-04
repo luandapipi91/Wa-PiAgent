@@ -889,6 +889,11 @@ export type SDKEvent =
 			elapsedMs?: number;
 	  }
 	| {
+			// pi 会话级运行完全终结（重试/压缩重试/排队续跑全部耗尽）：
+			// kernel 据此复位 busy 并 drain 队列；前端作思考态兜底复位。
+			type: "agent_settled";
+	  }
+	| {
 			// pi 自动重试开始（transient 错误后退避等待）：前置 agent_end 带 willRetry:true，
 			// 重试期间本轮未终结，前端应保持 thinking。
 			type: "auto_retry_start";
@@ -904,6 +909,31 @@ export type SDKEvent =
 			success: boolean;
 			attempt: number;
 			finalError?: string;
+	  }
+	| {
+			// 压缩/分支摘要的 LLM 调用 transient 失败后安排重试（退避等待开始）：
+			// 与 auto_retry_start 同构，驱动同一重试状态条。
+			type: "summarization_retry_scheduled";
+			attempt: number;
+			maxAttempts: number;
+			delayMs: number;
+			errorMessage: string;
+	  }
+	| {
+			// 摘要重试的新一次尝试开始（退避结束、请求在途）：
+			// 无 reason 的分支摘要变体（wa-pi 不用 fork，防御性声明）。
+			type: "summarization_retry_attempt_start";
+			source: "branchSummary";
+	  }
+	| {
+			type: "summarization_retry_attempt_start";
+			source: "compaction";
+			reason: "manual" | "threshold" | "overflow";
+	  }
+	| {
+			// 摘要重试循环终结（成功或最终失败均不发负载；最终失败由后续
+			// compaction_end{errorMessage} 呈现）。清除重试状态条。
+			type: "summarization_retry_finished";
 	  }
 	| { type: "turn_start" }
 	| {
@@ -966,6 +996,36 @@ export type SDKEvent =
 			type: "extension_notify";
 			message: string;
 			notifyType?: string;
+	  }
+	| {
+			// pi 扩展抛错（extension_error 事件）：extensionPath 标识扩展，
+			// event 为出错的 pi 生命周期钩子（tool_call/session_start 等）。
+			// 前端据此 toast + 写入诊断列表。
+			type: "extension_error";
+			extensionPath: string;
+			event: string;
+			error: string;
+	  }
+	| {
+			// ctx.ui.setStatus（TUI footer 条目，fire-and-forget）：
+			// kernel 从 extension_ui_request 桥接为事件；statusText 缺省/空 = 清除该 key。
+			type: "extension_status";
+			statusKey: string;
+			statusText?: string;
+	  }
+	| {
+			// ctx.ui.setWidget（TUI editor 上/下文本块，fire-and-forget）：
+			// widgetLines 缺省/空 = 清除该 key；placement 缺省按 aboveEditor。
+			type: "extension_widget";
+			widgetKey: string;
+			widgetLines?: string[];
+			widgetPlacement?: "aboveEditor" | "belowEditor";
+	  }
+	| {
+			// ctx.ui.setTitle（fire-and-forget）：GUI 下展示为聊天窗顶部状态条
+			// （产品决策：不写 document.title，避免公共标题被扩展覆盖）。
+			type: "extension_title";
+			title: string;
 	  };
 
 // WS 事件信封：包裹 sessionId 上下文，原始 SDK 事件原样透传
