@@ -378,8 +378,7 @@ describe("Composer", () => {
     expect(useComposerPrefsStore.getState().bySession["s1"]?.text).toBe("old");
   });
 
-  it("冷加载间隙已输入：loadSession 完成不恢复旧草稿覆盖用户输入", async () => {
-    // 存储里有旧草稿，但 loadSession 尚未完成（prefsLoaded=false）；
+  it("冷加载间隙已输入：loadSession 完成不恢复旧草稿覆盖用户输入", async () => {    // 存储里有旧草稿，但 loadSession 尚未完成（prefsLoaded=false）；
     // 用户在间隙输入 "hello"（防抖未触发）→ loadSession 完成后恢复 effect 不得用旧草稿覆盖
     useComposerPrefsStore.setState({
       bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
@@ -397,5 +396,36 @@ describe("Composer", () => {
     // 防抖照常写回已输入内容（不干扰、不被旧草稿污染）
     await new Promise((r) => setTimeout(r, 350));
     expect(useComposerPrefsStore.getState().bySession["s1"]?.text).toBe("hello");
+  });
+
+  it("set_editor_text 注入应用后清除记录：重挂载不重放、不覆盖用户后续编辑的草稿", async () => {
+    // 回归：注入记录曾永留 store，appliedInjectionTsRef 随卸载重置 → 重挂载时
+    // ts!==0 判定通过 → 旧注入重放，冲掉用户之后编辑的草稿（切「新会话」视图再切回即触发）
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+      loadedBySession: { s1: true },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+    useSessionStore.setState({ editorTextInjection: { s1: { text: "注入文本", ts: 123 } } });
+
+    const { unmount } = render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
+    let textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
+    expect(textbox.textContent).toBe("注入文本");
+    // 应用后注入记录已被清除（重挂载无从重放）
+    expect(useSessionStore.getState().editorTextInjection["s1"]).toBeUndefined();
+
+    // 用户继续编辑（等防抖写回草稿）
+    typeIntoComposer("用户改过的");
+    await new Promise((r) => setTimeout(r, 350));
+    expect(useComposerPrefsStore.getState().bySession["s1"]?.text).toBe("用户改过的");
+
+    // 重挂载（模拟切「新会话」视图再切回）：恢复的是用户草稿，而非重放注入
+    unmount();
+    render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
+    textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
+    expect(textbox.textContent).toBe("用户改过的");
   });
 });
