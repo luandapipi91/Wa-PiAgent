@@ -48,7 +48,7 @@ import { mkdir, writeFile, rm, appendFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { buildAdditionalExtensionPaths } from "./extensions";
 import {
-	filterTuiCommands,
+	attachPackageName,
 	type RawCommandInfo,
 } from "./tui-command-filter";
 import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
@@ -1453,7 +1453,7 @@ export class AgentManager {
 	 */
 	private async _fetchCommands(client: RpcClient): Promise<CommandInfo[]> {
 		const { commands } = await client.getCommands();
-		const cmds = filterTuiCommands((commands ?? []) as RawCommandInfo[]);
+		const cmds = attachPackageName((commands ?? []) as RawCommandInfo[]);
 		if (!this.opts.extensionManager) return cmds;
 		const toggles = await this.opts.extensionManager.getCommandToggles();
 		return cmds.map((cmd) =>

@@ -4,6 +4,22 @@
 
 ## [Unreleased] - 2026-08-04
 
+### 重构
+
+- **删除 tuiOnly 静态扫描，仅保留 packageName 附加**：kernel
+  `tui-command-filter.ts` 的 `filterTuiCommands` 改名 `attachPackageName`，
+  不再扫描扩展源码识别 TUI-only 命令（`isTuiOnlyExtension` 同步删除）。
+  理由：pi 官方无 TUI-only 概念（RPC 模式 custom() 返回 undefined、
+  dialog 方法有官方子协议），前端自 e9eeae10 起不再消费 tuiOnly 标记，
+  扫描纯属开销且会误标。`CommandInfo.tuiOnly` 字段一并删除。
+  影响范围：`packages/kernel/src/tui-command-filter.ts`、
+  `packages/kernel/src/agent-manager.ts`、
+  `packages/shared/src/commands.ts`、
+  `packages/shared/tests/commands.test.ts`、
+  `packages/kernel/tests/tui-command-filter.test.ts`、
+  `packages/kernel/tests/agent-manager.test.ts`、
+  `packages/frontend/src/components/settings/CommandListModal.test.tsx`。
+
 ### 修复
 
 - **本地扩展 Windows 绝对路径加载绕过 createRequire**：local 来源插件在
