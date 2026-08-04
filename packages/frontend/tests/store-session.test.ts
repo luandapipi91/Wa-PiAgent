@@ -3,6 +3,7 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
+import { useExtDialogStore } from "../src/store/ext-dialog";
 import type { SDKEventEnvelope } from "@wa-pi/shared";
 
 // refreshTokenTotals 会调用 api.get 拉取会话历史 + 会话统计；mock 掉 api-client，
@@ -36,7 +37,9 @@ beforeEach(() => {
 		tokenTotals: {},
 		lastUsageBySession: {},
 		contextUsageBySession: {},
+		editorTextInjection: {},
 	});
+	useExtDialogStore.setState({ queue: [] });
 });
 
 // 构造 sdk:event 信封的便捷工厂
@@ -1632,4 +1635,54 @@ test("compaction_end 自动压缩（reason=threshold）同样触发 token 刷新
 	expect(useSessionStore.getState().tokenTotals["s1"]?.input).toBe(5000);
 	expect(useSessionStore.getState().tokenTotals["s1"]?.cacheRead).toBe(20000);
 	expect(useSessionStore.getState().tokenTotals["s1"]?.total).toBe(27000);
+});
+
+// ── extension_dialog / extension_editor_text：pi 扩展 dialog 子协议事件分发 ──
+
+test("extension_dialog：入队 useExtDialogStore，字段透传（ExtensionDialog 弹窗消费）", () => {
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "extension_dialog",
+			requestId: "req-1",
+			method: "select",
+			title: "选择方案",
+			message: "请选一个",
+			options: ["A", "B"],
+			placeholder: "输入…",
+			prefill: "预填",
+		}),
+	);
+	const queue = useExtDialogStore.getState().queue;
+	expect(queue).toHaveLength(1);
+	expect(queue[0]).toEqual({
+		requestId: "req-1",
+		sessionId: "s1",
+		method: "select",
+		title: "选择方案",
+		message: "请选一个",
+		options: ["A", "B"],
+		placeholder: "输入…",
+		prefill: "预填",
+	});
+});
+
+test("extension_editor_text：写入 editorTextInjection[sessionId]（Composer 消费替换输入框）", () => {
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({ type: "extension_editor_text", text: "注入的文本" }),
+	);
+	const injection = useSessionStore.getState().editorTextInjection["s1"];
+	expect(injection?.text).toBe("注入的文本");
+	expect(typeof injection?.ts).toBe("number");
+	// 不影响其他会话
+	expect(useSessionStore.getState().editorTextInjection["s2"]).toBeUndefined();
+});
+
+test("extension_editor_text：text 非字符串时忽略（防御异常载荷）", () => {
+	useSessionStore.getState().handleSDKEvent("s1", envelope({
+		type: "extension_editor_text",
+		text: 123 as any,
+	}));
+	expect(useSessionStore.getState().editorTextInjection["s1"]).toBeUndefined();
 });

@@ -21,6 +21,7 @@ import {
 } from "./fixtures/fake-session-client";
 import { getBridgeSession } from "../src/bridge-registry";
 import { askRegistry } from "../src/ask-registry";
+import { extUiRegistry } from "../src/ext-ui-registry";
 import { SkillManager } from "../src/skill-manager";
 import { getGlobalMemoryStore } from "../src/amaster-memory";
 import {
@@ -48,6 +49,7 @@ const syspromptSessionIds: string[] = [];
 
 beforeEach(() => {
 	askRegistry.reset();
+	extUiRegistry.reset();
 });
 
 afterEach(async () => {
@@ -1948,5 +1950,74 @@ test("扩展命令拦截 prompt 时不卡在 busy 状态", async () => {
 
 	// 合成 agent_end：让前端退出 thinking / 清掉 loading 占位
 	expect(events.find((x) => x.e.type === "agent_end")).toBeTruthy();
+});
+
+// ─── 扩展 dialog 子协议：_onExtUiRequest 广播契约（前端 Task 4 消费的字段名）───
+
+test("extension dialog 请求广播 extension_dialog 事件，载荷字段齐全（requestId/method/title/message/options/placeholder/prefill）", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events });
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// 模拟 pi 扩展发起 select 对话：onUiRequest 挂起等前端应答
+	const pending = fakes[0].opts.onUiRequest!({
+		type: "extension_ui_request",
+		id: "req-1",
+		method: "select",
+		title: "选择方案",
+		message: "请选一个",
+		options: ["A", "B"],
+		placeholder: "输入…",
+		prefill: "预填",
+		timeout: 30000,
+	});
+
+	const ev = events.find((x) => x.e.type === "extension_dialog");
+	expect(ev).toBeTruthy();
+	expect(ev!.sessionId).toBe(session.id);
+	expect(ev!.projectId).toBe(project.id);
+	// 前端 ExtensionDialog 依赖的字段名契约：改名/漏字段会让弹窗拿不到数据
+	expect(ev!.e).toEqual({
+		type: "extension_dialog",
+		requestId: "req-1",
+		method: "select",
+		title: "选择方案",
+		message: "请选一个",
+		options: ["A", "B"],
+		placeholder: "输入…",
+		prefill: "预填",
+		timeout: 30000,
+	});
+
+	// 前端应答（POST /api/extensions/dialog/respond → extUiRegistry.respond）后 promise 落地
+	expect(extUiRegistry.respond("req-1", { value: "A" })).toBe(true);
+	await expect(pending).resolves.toEqual({ value: "A" });
+});
+
+test("extension dialog 请求 title/message/options 剥离 ANSI 转义；缺省字段为 undefined", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events });
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	const pending = fakes[0].opts.onUiRequest!({
+		type: "extension_ui_request",
+		id: "req-2",
+		method: "confirm",
+		title: "[31m确认删除[0m",
+		message: "[1m确定吗？[0m",
+	});
+
+	const ev = events.find((x) => x.e.type === "extension_dialog");
+	expect(ev!.e.requestId).toBe("req-2");
+	expect(ev!.e.method).toBe("confirm");
+	expect(ev!.e.title).toBe("确认删除");
+	expect(ev!.e.message).toBe("确定吗？");
+	// 未提供的字段为 undefined（前端按可选渲染）
+	expect(ev!.e.options).toBeUndefined();
+	expect(ev!.e.placeholder).toBeUndefined();
+	expect(ev!.e.prefill).toBeUndefined();
+
+	extUiRegistry.respond("req-2", { confirmed: true });
+	await pending;
 });
 

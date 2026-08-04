@@ -1001,6 +1001,25 @@ export type SDKEvent =
 			notifyType?: string;
 	  }
 	| {
+			// pi 扩展 dialog 子协议（select/confirm/input/editor）：
+			// kernel 从 extension_ui_request 桥接为事件广播；前端弹窗应答
+			// POST /api/extensions/dialog/respond（body: { requestId, value?, confirmed?, cancelled? }）。
+			type: "extension_dialog";
+			requestId: string;
+			method: string;
+			title?: string;
+			message?: string;
+			options?: string[];
+			placeholder?: string;
+			prefill?: string;
+			timeout?: number;
+	  }
+	| {
+			// ctx.ui.setEditorText（fire-and-forget）：替换前端 Composer 输入框内容。
+			type: "extension_editor_text";
+			text: string;
+	  }
+	| {
 			// pi 扩展抛错（extension_error 事件）：extensionPath 标识扩展，
 			// event 为出错的 pi 生命周期钩子（tool_call/session_start 等）。
 			// 前端据此 toast + 写入诊断列表。
