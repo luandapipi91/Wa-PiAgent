@@ -137,7 +137,7 @@ function FleetTaskItem({
 				type="button"
 				aria-label={expanded ? "折叠" : "展开"}
 				onClick={() => setExpanded((v) => !v)}
-				className="w-full flex items-center gap-1.5 text-[11px] text-secondary py-1 text-left"
+				className="w-full flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-secondary py-1 text-left"
 				style={{ cursor: "pointer" }}
 			>
 				<span>
@@ -148,12 +148,12 @@ function FleetTaskItem({
 			{expanded && (showReply || hasProgress || !!toolStats) && (
 				<div className="mt-1 mb-1 pl-2 border-l border-hairline">
 					{hasProgress && (
-						<div className="text-[11px] text-tertiary mb-1">
+						<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1">
 							<span className="font-semibold">{agent}</span> ·{" "}
 							{statusLabel(progress!.status)} · {seconds}s
 						</div>
 					)}
-					<div className="text-[11px] text-tertiary mb-1">📤 回复：</div>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1">📤 回复：</div>
 					<MemoReplyMarkdown text={replyText ?? ""} sessionId={sessionId} />
 				</div>
 			)}
@@ -302,7 +302,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 					data-testid="text-block"
 					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
 				>
-					<div className="text-[11px] text-tertiary mb-1">📤 回复：</div>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1">📤 回复：</div>
 					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
 						{formattedFull}
 					</ReactMarkdown>

@@ -91,7 +91,7 @@ export function McpPage() {
 
         {/* 搜索 */}
         <input
-          className="flex-1 text-[12px] px-3 py-1.5 rounded-lg min-w-0"
+          className="flex-1 text-[calc(12px*var(--font-scale))] px-3 py-1.5 rounded-lg min-w-0"
           style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
           placeholder="🔍 搜索服务器..."
           value={searchQuery}
@@ -102,7 +102,7 @@ export function McpPage() {
         {/* 添加按钮：点击弹出模态表单 */}
         <button
           onClick={openAddForm}
-          className="text-[11px] font-semibold px-3 py-1.5 rounded-md text-white shrink-0"
+          className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white shrink-0"
           style={{ background: "var(--accent)", border: "none" }}
           data-testid="mcp-add-button"
         >+ 手动添加</button>
@@ -111,7 +111,7 @@ export function McpPage() {
       {/* 列表内容 */}
       <div className="flex-1 overflow-y-auto px-5 py-3.5">
         {loading ? (
-          <div className="text-center text-tertiary text-[12.5px] py-8">加载中...</div>
+          <div className="text-center text-tertiary text-[calc(12.5px*var(--font-scale))] py-8">加载中...</div>
         ) : filtered.length === 0 ? (
           <McpEmpty />
         ) : (
@@ -191,12 +191,12 @@ function ScopeDropdown({ selectedProjectId, projects, onSelect }: {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1 text-[11.5px] px-2.5 py-1.5 rounded-md"
+        className="flex items-center gap-1 text-[calc(11.5px*var(--font-scale))] px-2.5 py-1.5 rounded-md"
         style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
         data-testid="mcp-scope-select"
       >
         {label}
-        <span className="text-[9px] opacity-70">▾</span>
+        <span className="text-[calc(9px*var(--font-scale))] opacity-70">▾</span>
       </button>
       {open && (
         <>
@@ -213,7 +213,7 @@ function ScopeDropdown({ selectedProjectId, projects, onSelect }: {
             <button
               type="button"
               onClick={() => { onSelect(null); setOpen(false); }}
-              className="block w-full text-left text-[11.5px] px-3 py-1.5"
+              className="block w-full text-left text-[calc(11.5px*var(--font-scale))] px-3 py-1.5"
               style={itemStyle(isGlobal)}
               data-testid="mcp-scope-option-global"
             >🌐 全局</button>
@@ -225,7 +225,7 @@ function ScopeDropdown({ selectedProjectId, projects, onSelect }: {
                 key={p.id}
                 type="button"
                 onClick={() => { onSelect(p.id); setOpen(false); }}
-                className="block w-full text-left text-[11.5px] px-3 py-1.5 truncate"
+                className="block w-full text-left text-[calc(11.5px*var(--font-scale))] px-3 py-1.5 truncate"
                 style={itemStyle(selectedProjectId === p.id)}
                 data-testid={`mcp-scope-option-project-${p.id}`}
                 title={p.name}

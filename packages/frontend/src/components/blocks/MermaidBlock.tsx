@@ -270,7 +270,7 @@ export function MermaidBlock({ code }: Props) {
 
   if (error) {
     return (
-      <div data-testid="mermaid-error" className="rounded-lg border border-hairline p-3 text-[12px] text-danger bg-surface my-1">
+      <div data-testid="mermaid-error" className="rounded-lg border border-hairline p-3 text-[calc(12px*var(--font-scale))] text-danger bg-surface my-1">
         Mermaid 渲染失败：{error}
       </div>
     );
@@ -278,7 +278,7 @@ export function MermaidBlock({ code }: Props) {
 
   if (!svg) {
     return (
-      <div data-testid="mermaid-loading" className="rounded-lg border border-hairline p-3 text-[12px] text-tertiary bg-surface my-1 text-center">
+      <div data-testid="mermaid-loading" className="rounded-lg border border-hairline p-3 text-[calc(12px*var(--font-scale))] text-tertiary bg-surface my-1 text-center">
         图表渲染中…
       </div>
     );
@@ -311,8 +311,8 @@ export function MermaidBlock({ code }: Props) {
       {modalOpen && (
         <Modal width="85vw" height="85vh" onClose={() => setModalOpen(false)} data-testid="mermaid-modal">
           <div className="flex items-center px-4 py-2.5 border-b border-hairline shrink-0 gap-2">
-            <span className="text-[13px] font-semibold text-primary">图表预览</span>
-            <span data-testid="mermaid-scale-label" className="text-[12px] text-tertiary tabular-nums min-w-[3em] text-center">
+            <span className="text-[calc(13px*var(--font-scale))] font-semibold text-primary">图表预览</span>
+            <span data-testid="mermaid-scale-label" className="text-[calc(12px*var(--font-scale))] text-tertiary tabular-nums min-w-[3em] text-center">
               {Math.round(scale * 100)}%
             </span>
 

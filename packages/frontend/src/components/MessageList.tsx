@@ -361,7 +361,7 @@ export function MessageList({ sessionId }: Props) {
 					className="absolute inset-0 flex items-center justify-center"
 					data-testid={`history-loading-${sessionId}`}
 				>
-					<div className="inline-flex items-center gap-2 text-tertiary text-[13px]">
+					<div className="inline-flex items-center gap-2 text-tertiary text-[calc(13px*var(--font-scale))]">
 						<span
 							className="inline-block w-4 h-4 rounded-full"
 							style={{
@@ -562,7 +562,7 @@ function StreamingRow({
 				🤖
 			</div>
 			<div className="max-w-[78%]">
-				<div className="text-[11px] text-tertiary mb-0.5 font-semibold">
+				<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
 					{streaming.agentName ?? "agent"} · {formatTime(m.timestamp)}
 				</div>
 				<div
@@ -577,7 +577,7 @@ function StreamingRow({
 							animation: "spin 0.8s linear infinite",
 						}}
 					/>
-					<span className="text-[12.5px] text-tertiary">正在思考…</span>
+					<span className="text-[calc(12.5px*var(--font-scale))] text-tertiary">正在思考…</span>
 				</div>
 			</div>
 		</div>
@@ -629,7 +629,7 @@ const MessageRow = memo(function MessageRow({
 		if (!m.content) return null;
 		return (
 			<div
-				className="text-center text-[11.5px] text-tertiary"
+				className="text-center text-[calc(11.5px*var(--font-scale))] text-tertiary"
 				data-testid={`custom-${sessionId}-${m.timestamp}`}
 			>
 				{`—— ${m.content} ——`}
@@ -642,7 +642,7 @@ const MessageRow = memo(function MessageRow({
 	if (m.role === "compactionSummary") {
 		return (
 			<div
-				className="text-center text-[11.5px] text-tertiary"
+				className="text-center text-[calc(11.5px*var(--font-scale))] text-tertiary"
 				data-testid={`compaction-summary-${sessionId}-${m.timestamp}`}
 			>
 				{`—— 已压缩早期上下文 · ${m.summary ?? ""} ——`}
@@ -669,15 +669,15 @@ const MessageRow = memo(function MessageRow({
 				className="flex flex-row-reverse gap-2.5 max-w-[78%] ml-auto"
 				data-testid={`msg-${sessionId}-${m.timestamp}`}
 			>
-				<div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-[11.5px] flex-shrink-0 text-secondary">
+				<div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-[calc(11.5px*var(--font-scale))] flex-shrink-0 text-secondary">
 					我
 				</div>
 				<div className="flex flex-col items-end">
-					<div className="text-[11px] text-tertiary mb-0.5 font-semibold">
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
 						我 · {formatTime(m.timestamp)}
 					</div>
 					<div
-						className="px-3.5 py-2.5 text-[13.5px] bg-surface text-primary border border-hairline"
+						className="px-3.5 py-2.5 text-[calc(13.5px*var(--font-scale))] bg-surface text-primary border border-hairline"
 						style={{ borderRadius: "14px 4px 14px 14px", lineHeight: 1.55 }}
 					>
 						<p dangerouslySetInnerHTML={{ __html: displayHtml }} />
@@ -687,7 +687,7 @@ const MessageRow = memo(function MessageRow({
 							type="button"
 							data-testid={`resend-${sessionId}-${m.timestamp}`}
 							onClick={() => onResend?.(displayText)}
-							className="mt-1 self-end text-[12px] text-secondary hover:text-primary border border-hairline rounded-pill px-2 py-0.5 transition-colors"
+							className="mt-1 self-end text-[calc(12px*var(--font-scale))] text-secondary hover:text-primary border border-hairline rounded-pill px-2 py-0.5 transition-colors"
 						>
 							↻ 重新发送
 						</button>
@@ -790,7 +790,7 @@ const MessageRow = memo(function MessageRow({
 		return (
 			<div key={key} className="flex flex-col gap-1" data-testid="text-bubble">
 				<div
-					className={`text-[13.5px] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`}
+					className={`text-[calc(13.5px*var(--font-scale))] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`}
 					style={{ lineHeight: 1.55, borderRadius: "4px 14px 14px 14px" }}
 				>
 					{seg.texts.map((text, i) => (
@@ -825,7 +825,7 @@ const MessageRow = memo(function MessageRow({
 				🤖
 			</div>
 			<div className={`${hasProcessCard ? "w-[78%]" : "max-w-[78%]"} min-w-0`}>
-				<div className="text-[11px] text-tertiary mb-0.5 font-semibold">
+				<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
 					{row.main.agentName ?? "agent"} · {formatTime(m.timestamp)}
 				</div>
 

@@ -62,7 +62,7 @@ export function AgentDropdown({
         type="button"
         data-testid={pillTestId}
         onClick={() => { setOpen(o => !o); setQuery(""); }}
-        className={`min-w-0 flex items-center gap-1.5 rounded-pill border px-2.5 py-1 text-[12px] cursor-pointer transition-colors ${
+        className={`min-w-0 flex items-center gap-1.5 rounded-pill border px-2.5 py-1 text-[calc(12px*var(--font-scale))] cursor-pointer transition-colors ${
           showMissing
             ? "bg-warning-soft text-warning border-warning-soft"
             : "bg-surface-elevated text-secondary border-hairline hover:text-primary"
@@ -73,18 +73,18 @@ export function AgentDropdown({
         ) : current ? (
           <>
             <span
-              className="w-[18px] h-[18px] rounded-sm flex items-center justify-center text-[11px] flex-none"
+              className="w-[18px] h-[18px] rounded-sm flex items-center justify-center text-[calc(11px*var(--font-scale))] flex-none"
               style={{ background: current.avatarColor?.includes("-")
                 ? `linear-gradient(135deg, ${current.avatarColor.split("-").map(s => s.trim()).join(", ")})`
                 : current.avatarColor || undefined }}
             >{current.avatar}</span>
             <span className="max-w-[180px] truncate">{current.displayName}</span>
-            <span style={{ fontSize: 10 }}>▾</span>
+            <span style={{ fontSize: "calc(10px * var(--font-scale))" }}>▾</span>
           </>
         ) : (
           <>
             <span className="text-tertiary">{placeholder ?? "选择智能体"}</span>
-            <span style={{ fontSize: 10 }}>▾</span>
+            <span style={{ fontSize: "calc(10px * var(--font-scale))" }}>▾</span>
           </>
         )}
       </button>
@@ -98,7 +98,7 @@ export function AgentDropdown({
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="搜索智能体…"
-              className="flex-1 bg-transparent border-0 outline-none text-[12px] text-primary"
+              className="flex-1 bg-transparent border-0 outline-none text-[calc(12px*var(--font-scale))] text-primary"
             />
           </div>
           <div className="max-h-[280px] overflow-y-auto">
@@ -115,7 +115,7 @@ export function AgentDropdown({
               />
             ))}
             {filtered.length === 0 && (
-              <div className="px-3 py-3.5 text-center text-tertiary text-[12px]">无智能体</div>
+              <div className="px-3 py-3.5 text-center text-tertiary text-[calc(12px*var(--font-scale))]">无智能体</div>
             )}
           </div>
         </div>

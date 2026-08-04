@@ -173,7 +173,7 @@ export function CommandPalette({ open, onClose }: Props) {
             spellCheck={false}
             autoComplete="off"
           />
-          <kbd className="text-[10px] px-1.5 py-0.5 rounded border border-hairline text-tertiary">
+          <kbd className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded border border-hairline text-tertiary">
             esc
           </kbd>
         </div>
@@ -187,7 +187,7 @@ export function CommandPalette({ open, onClose }: Props) {
               let running = 0;
               return (
                 <div key={groupName} className="mb-1">
-                  <div className="px-4 py-1.5 text-[11px] font-semibold text-tertiary tracking-wide uppercase">
+                  <div className="px-4 py-1.5 text-[calc(11px*var(--font-scale))] font-semibold text-tertiary tracking-wide uppercase">
                     {groupName}
                   </div>
                   {items.map(item => {
@@ -213,7 +213,7 @@ export function CommandPalette({ open, onClose }: Props) {
                         <span className="flex-1 min-w-0">
                           <span className="text-sm text-primary font-medium block truncate">{item.title}</span>
                           {item.hint && (
-                            <span className="text-[11px] text-tertiary block truncate mt-0.5">{item.hint}</span>
+                            <span className="text-[calc(11px*var(--font-scale))] text-tertiary block truncate mt-0.5">{item.hint}</span>
                           )}
                         </span>
                       </button>
@@ -226,7 +226,7 @@ export function CommandPalette({ open, onClose }: Props) {
         </div>
 
         {/* 底部快捷键提示 */}
-        <div className="flex items-center gap-3 px-4 py-2 border-t border-hairline text-[10px] text-tertiary">
+        <div className="flex items-center gap-3 px-4 py-2 border-t border-hairline text-[calc(10px*var(--font-scale))] text-tertiary">
           <span><kbd className="px-1 rounded border border-hairline">↑↓</kbd> 导航</span>
           <span><kbd className="px-1 rounded border border-hairline">↩</kbd> 执行</span>
           <span><kbd className="px-1 rounded border border-hairline">esc</kbd> 关闭</span>

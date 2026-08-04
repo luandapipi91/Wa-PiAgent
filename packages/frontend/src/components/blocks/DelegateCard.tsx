@@ -114,7 +114,7 @@ export function DelegateCard({
 							type="button"
 							aria-label={progressExpanded ? "折叠" : "展开"}
 							onClick={() => setProgressExpanded((v) => !v)}
-							className="w-full flex items-center gap-1.5 text-[11px] text-tertiary py-1"
+							className="w-full flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-tertiary py-1"
 							style={{ cursor: "pointer" }}
 						>
 							<span>
@@ -125,7 +125,7 @@ export function DelegateCard({
 							<span className="ml-auto">{progressExpanded ? "▼" : "▶"}</span>
 						</button>
 					) : (
-						<div className="text-[11px] text-tertiary py-1">
+						<div className="text-[calc(11px*var(--font-scale))] text-tertiary py-1">
 							子智能体 · {statusLabel(progress!.status)} · {seconds}s · 共{" "}
 							{toolCounts.total} 个工具 · 成功 {toolCounts.done} · 失败{" "}
 							{toolCounts.error} · 执行中 {toolCounts.running}
@@ -139,7 +139,7 @@ export function DelegateCard({
 					data-testid="text-block"
 					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
 				>
-					<div className="text-[11px] text-tertiary mb-1">📤 回复：</div>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1">📤 回复：</div>
 					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
 						{replyText}
 					</ReactMarkdown>

@@ -51,7 +51,7 @@ export function FilePill({ rawText, sessionId }: { rawText: string; sessionId: s
       data-testid="file-pill"
       title={abs}
       onClick={() => useSessionStore.getState().openFilePreview(abs, sessionId)}
-      className="inline-flex items-center gap-1 px-1.5 py-0 rounded-md border border-hairline bg-surface-elevated text-[12px] font-mono text-accent hover:border-accent transition-colors align-baseline"
+      className="inline-flex items-center gap-1 px-1.5 py-0 rounded-md border border-hairline bg-surface-elevated text-[calc(12px*var(--font-scale))] font-mono text-accent hover:border-accent transition-colors align-baseline"
       style={{ cursor: "pointer" }}
     >
       📄 {base}{parsed.line != null ? `:${parsed.line}` : ""}

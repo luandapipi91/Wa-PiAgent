@@ -15,7 +15,7 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Er
           height: "100vh", fontFamily: 'MiSans, system-ui, "PingFang SC", sans-serif',
           color: "#1d1d1f", background: "#F5F5F7", padding: 48, textAlign: "center",
         }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+          <div style={{ fontSize: "calc(48px * var(--font-scale))", marginBottom: 16 }}>⚠️</div>
           <h2 style={{ margin: "0 0 8px" }}>应用发生错误</h2>
           <p style={{ color: "#86868b", maxWidth: 480, lineHeight: 1.6 }}>
             {this.state.error.message}
@@ -24,7 +24,7 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Er
             onClick={() => location.reload()}
             style={{
               marginTop: 24, padding: "10px 28px", borderRadius: 8, border: "none",
-              background: "#4BA26F", color: "#fff", fontSize: 15, cursor: "pointer",
+              background: "#4BA26F", color: "#fff", fontSize: "calc(15px * var(--font-scale))", cursor: "pointer",
             }}
           >重新加载</button>
         </div>

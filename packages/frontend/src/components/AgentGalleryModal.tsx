@@ -134,8 +134,8 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
                 className="w-10 h-10 rounded-lg flex items-center justify-center text-xl mb-2.5"
                 style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
               >{agent.avatar || def.emoji}</div>
-              <div className="text-[13px] font-semibold text-primary mb-1 truncate">{agent.displayName}</div>
-              <div className="text-[11px] text-tertiary leading-[1.5] line-clamp-2">{agent.description}</div>
+              <div className="text-[calc(13px*var(--font-scale))] font-semibold text-primary mb-1 truncate">{agent.displayName}</div>
+              <div className="text-[calc(11px*var(--font-scale))] text-tertiary leading-[1.5] line-clamp-2">{agent.description}</div>
             </div>
           );
         })}
@@ -152,7 +152,7 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
             data-testid={`gallery-card-${t.name}`}
           >
             <span
-              className="absolute top-3 left-3 px-1.5 py-0.5 text-[10px] rounded-sm font-normal"
+              className="absolute top-3 left-3 px-1.5 py-0.5 text-[calc(10px*var(--font-scale))] rounded-sm font-normal"
               style={{ background: "var(--surface-hover)", color: "var(--tertiary)" }}
               data-testid={`gallery-builtin-badge-${t.name}`}
             >内置</span>
@@ -160,13 +160,13 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
               className="w-10 h-10 rounded-lg flex items-center justify-center text-xl mb-2.5"
               style={{ background: `linear-gradient(135deg, ${t.gradient[0]}, ${t.gradient[1]})` }}
             >{t.emoji}</div>
-            <div className="text-[13px] font-semibold text-primary mb-1 truncate">{t.displayName}</div>
-            <div className="text-[11px] text-tertiary leading-[1.5] line-clamp-2">{t.description}</div>
+            <div className="text-[calc(13px*var(--font-scale))] font-semibold text-primary mb-1 truncate">{t.displayName}</div>
+            <div className="text-[calc(11px*var(--font-scale))] text-tertiary leading-[1.5] line-clamp-2">{t.description}</div>
           </div>
         ))}
       </div>
 
-      <div className="px-5 py-2.5 text-[11px] text-tertiary border-t border-hairline">
+      <div className="px-5 py-2.5 text-[calc(11px*var(--font-scale))] text-tertiary border-t border-hairline">
         左键：新建会话（内置仅查看）· 右键：编辑 / 删除 · 右上：新建智能体
       </div>
 

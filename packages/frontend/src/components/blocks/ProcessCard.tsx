@@ -50,18 +50,18 @@ export function ProcessCard(props: {
         style={{ cursor: "pointer" }}
       >
         <span
-          className="w-5 h-5 rounded flex items-center justify-center text-[11px] flex-shrink-0"
+          className="w-5 h-5 rounded flex items-center justify-center text-[calc(11px*var(--font-scale))] flex-shrink-0"
           style={{ background: t.iconBg, color: t.iconColor }}
         >
           {icon}
         </span>
-        <span className="text-[12px] text-primary min-w-0 truncate">{title}</span>
-        <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-tertiary flex-shrink-0">{meta}</span>
-        <span className="text-tertiary" style={{ fontSize: 10 }}>{open ? "▾" : "▸"}</span>
+        <span className="text-[calc(12px*var(--font-scale))] text-primary min-w-0 truncate">{title}</span>
+        <span className="ml-auto inline-flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-tertiary flex-shrink-0">{meta}</span>
+        <span className="text-tertiary" style={{ fontSize: "calc(10px * var(--font-scale))" }}>{open ? "▾" : "▸"}</span>
       </button>
       {open && children != null && (
         <div
-          className="px-3 py-2 border-t border-hairline text-[12px] text-secondary min-w-0"
+          className="px-3 py-2 border-t border-hairline text-[calc(12px*var(--font-scale))] text-secondary min-w-0"
           data-testid={testId ? `${testId}-body` : undefined}
         >
           {children}

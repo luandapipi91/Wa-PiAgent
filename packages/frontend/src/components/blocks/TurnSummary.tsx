@@ -26,7 +26,7 @@ export function TurnSummary({ steps, elapsedMs, children }: {
     type="button"
     aria-expanded={open}
     onClick={() => setOpen((v) => !v)}
-    className="w-full flex items-center gap-2 text-[11px] text-tertiary select-none"
+    className="w-full flex items-center gap-2 text-[calc(11px*var(--font-scale))] text-tertiary select-none"
     data-testid="turn-summary"
    >
     <span className="flex-1 border-t border-hairline" />

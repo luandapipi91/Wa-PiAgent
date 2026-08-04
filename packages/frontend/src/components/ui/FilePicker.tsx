@@ -636,7 +636,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
                 )}
               </div>
               {currentSearchRoot && (
-                <span className="text-[11px] text-tertiary max-w-[340px] truncate" data-testid="search-scope-hint" title={currentSearchRoot}>
+                <span className="text-[calc(11px*var(--font-scale))] text-tertiary max-w-[340px] truncate" data-testid="search-scope-hint" title={currentSearchRoot}>
                   搜索范围: {currentSearchRoot}
                 </span>
               )}
@@ -659,7 +659,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
                 )}
               </div>
               {isSearching && searchDuration !== null && (
-                <span className="text-[11px] text-tertiary" data-testid="search-duration">
+                <span className="text-[calc(11px*var(--font-scale))] text-tertiary" data-testid="search-duration">
                   搜索耗时 {searchDuration}ms
                 </span>
               )}

@@ -53,21 +53,21 @@ export function McpCard({ config, status, toolCount, testing, error, onTest, onV
     >
       {/* 头部：名称 + 状态 */}
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-[13px] font-semibold text-primary">● {config.name}</span>
+        <span className="text-[calc(13px*var(--font-scale))] font-semibold text-primary">● {config.name}</span>
         <span
-          className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+          className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full font-medium"
           style={{ background: st.color + "20", color: st.color }}
         >{st.icon} {label}</span>
       </div>
 
       {/* 描述行 */}
-      <p className="text-[11.5px] text-secondary mb-2 opacity-70 truncate">
+      <p className="text-[calc(11.5px*var(--font-scale))] text-secondary mb-2 opacity-70 truncate">
         {configSummary(config)}
       </p>
 
       {/* 错误信息：danger 样式（红字+红底）已承担错误信号，文本不加 ⚠ 前缀 */}
       {error && !testing && (
-        <p className="text-[11px] mb-2 px-2 py-1 rounded" style={{ color: "var(--danger)", background: "var(--danger-soft)" }} data-testid={`mcp-error-${config.name}`}>
+        <p className="text-[calc(11px*var(--font-scale))] mb-2 px-2 py-1 rounded" style={{ color: "var(--danger)", background: "var(--danger-soft)" }} data-testid={`mcp-error-${config.name}`}>
           {error}
         </p>
       )}
@@ -108,7 +108,7 @@ function CardBtn({ onClick, testId, label, accent, danger, disabled }: {
       onClick={onClick}
       disabled={disabled}
       data-testid={testId}
-      className="text-[11px] px-2.5 py-1 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+      className="text-[calc(11px*var(--font-scale))] px-2.5 py-1 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
       style={{
         color,
         border: `1px solid ${borderColor}`,

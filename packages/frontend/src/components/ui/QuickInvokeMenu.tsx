@@ -105,7 +105,7 @@ export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHov
                     )}
                   </div>
                   {sourceLabel(item.source) && (
-                    <span className="text-[11px] leading-4 text-tertiary px-1.5 py-0.5 border border-hairline rounded-md flex-shrink-0">
+                    <span className="text-[calc(11px*var(--font-scale))] leading-4 text-tertiary px-1.5 py-0.5 border border-hairline rounded-md flex-shrink-0">
                       {sourceLabel(item.source)}
                     </span>
                   )}

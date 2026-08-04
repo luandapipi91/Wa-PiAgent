@@ -25,7 +25,7 @@ export function McpToolsModal({ serverName, tools, loading, onClose }: Props) {
       </div>
       <div className="p-3 border-b border-hairline">
         <input
-          className="w-full text-[12px] px-3 py-1.5 rounded-lg"
+          className="w-full text-[calc(12px*var(--font-scale))] px-3 py-1.5 rounded-lg"
           style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
           placeholder="🔍 搜索工具..."
           value={search}
@@ -40,25 +40,25 @@ export function McpToolsModal({ serverName, tools, loading, onClose }: Props) {
               className="inline-block w-4 h-4 rounded-full animate-spin"
               style={{ border: "2px solid var(--accent)", borderTopColor: "transparent" }}
             />
-            <span className="text-tertiary text-[12.5px]">工具加载中...</span>
+            <span className="text-tertiary text-[calc(12.5px*var(--font-scale))]">工具加载中...</span>
           </div>
         ) : tools.length === 0 ? (
-          <div className="text-center py-8 text-tertiary text-[12.5px]">
+          <div className="text-center py-8 text-tertiary text-[calc(12.5px*var(--font-scale))]">
             暂无可用的工具缓存，请先执行连接测试。
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-8 text-tertiary text-[12.5px]">
+          <div className="text-center py-8 text-tertiary text-[calc(12.5px*var(--font-scale))]">
             没有匹配的工具
           </div>
         ) : (
           <>
             {filtered.map(t => (
               <div key={t.name} className="mb-3 p-3 rounded-lg" style={{ border: "1px solid var(--hairline)" }}>
-                <div className="text-[13px] font-semibold text-primary mb-1">{t.name}</div>
+                <div className="text-[calc(13px*var(--font-scale))] font-semibold text-primary mb-1">{t.name}</div>
                 {t.description && (
-                  <div className="text-[11.5px] text-secondary mb-2">{t.description}</div>
+                  <div className="text-[calc(11.5px*var(--font-scale))] text-secondary mb-2">{t.description}</div>
                 )}
-                <div className="text-[10.5px]" style={{ color: "var(--text-tertiary)" }}>
+                <div className="text-[calc(10.5px*var(--font-scale))]" style={{ color: "var(--text-tertiary)" }}>
                   {t.parameters && t.parameters.length > 0 ? (
                     <div className="p-2 rounded" style={{ background: "var(--surface-elevated)" }}>
                       <div className="font-semibold mb-1">参数</div>
@@ -78,7 +78,7 @@ export function McpToolsModal({ serverName, tools, loading, onClose }: Props) {
                 </div>
               </div>
             ))}
-            <div className="text-[11px] text-tertiary text-center pt-2">
+            <div className="text-[calc(11px*var(--font-scale))] text-tertiary text-center pt-2">
               共 {filtered.length} 个工具
             </div>
           </>

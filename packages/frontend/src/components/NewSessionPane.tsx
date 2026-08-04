@@ -188,13 +188,13 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-10" data-testid="new-session-pane">
-      <h2 className="text-[26px] font-extrabold tracking-tight text-primary mb-2">开始新会话</h2>
+      <h2 className="text-[calc(26px*var(--font-scale))] font-extrabold tracking-tight text-primary mb-2">开始新会话</h2>
       <p className="text-sm text-secondary mb-7">选好项目目录和角色，直接打字发送</p>
       <div className="w-full max-w-2xl mb-4 flex gap-2 items-center">
         <select
           value={projectId ?? ""}
           onChange={e => setProjectId(e.target.value || null)}
-          className="flex-1 bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[12.5px]"
+          className="flex-1 bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[calc(12.5px*var(--font-scale))]"
           data-testid="project-select"
         >
           {projects.length === 0 && <option value="">（无项目，请先新建）</option>}

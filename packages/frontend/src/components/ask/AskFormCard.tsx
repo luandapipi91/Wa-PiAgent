@@ -133,12 +133,12 @@ export function AskFormCard({
 			data-testid={`ask-card-${toolCallId}`}
 		>
 			<div className="flex items-center justify-between px-4 py-2 border-b border-hairline">
-				<span className="text-[11.5px] font-semibold text-accent">{title}</span>
+				<span className="text-[calc(11.5px*var(--font-scale))] font-semibold text-accent">{title}</span>
 				<button
 					onClick={handleCancel}
 					disabled={submitting}
 					aria-label="终止提问"
-					className="text-tertiary hover:text-primary text-[14px] leading-none px-1.5 py-0.5 bg-transparent border-0 cursor-pointer disabled:opacity-50"
+					className="text-tertiary hover:text-primary text-[calc(14px*var(--font-scale))] leading-none px-1.5 py-0.5 bg-transparent border-0 cursor-pointer disabled:opacity-50"
 					data-testid={`ask-collapse-${toolCallId}`}
 				>
 					✕
@@ -154,7 +154,7 @@ export function AskFormCard({
 					const otherActive = s.mode === "other";
 					return (
 						<div key={qi} className="space-y-1.5">
-							<div className="text-[12.5px] font-semibold text-primary">
+							<div className="text-[calc(12.5px*var(--font-scale))] font-semibold text-primary">
 								Q{params.questions.length > 1 ? qi + 1 : ""} · {q.question}
 							</div>
 							{q.options?.map((o) => {
@@ -179,7 +179,7 @@ export function AskFormCard({
 							})}
 							{selPreview && (
 								<div
-									className="ml-6 bg-[#0d1117] text-[#c9d1d9] rounded-sm px-2.5 py-1.5 text-[11px] font-mono overflow-auto"
+									className="ml-6 bg-[#0d1117] text-[#c9d1d9] rounded-sm px-2.5 py-1.5 text-[calc(11px*var(--font-scale))] font-mono overflow-auto"
 									data-testid={`ask-preview-${toolCallId}-${qi}`}
 								>
 									<ReactMarkdown components={{ a: MarkdownLink }}>
@@ -205,11 +205,11 @@ export function AskFormCard({
 									}
 									placeholder="输入自定义答案…"
 									rows={1}
-									className="w-full bg-transparent border border-hairline rounded-sm text-primary outline-none text-[12.5px] p-2 resize-none"
+									className="w-full bg-transparent border border-hairline rounded-sm text-primary outline-none text-[calc(12.5px*var(--font-scale))] p-2 resize-none"
 								/>
 							)}
 							<div className="flex items-center gap-2">
-								<span className="text-[11px] text-tertiary">备注(可选)</span>
+								<span className="text-[calc(11px*var(--font-scale))] text-tertiary">备注(可选)</span>
 								<input
 									value={s.notes}
 									onChange={(e) =>
@@ -217,7 +217,7 @@ export function AskFormCard({
 											st.notes = e.target.value;
 										})
 									}
-									className="flex-1 bg-transparent border border-hairline rounded-sm text-primary outline-none text-[12px] px-2 py-0.5"
+									className="flex-1 bg-transparent border border-hairline rounded-sm text-primary outline-none text-[calc(12px*var(--font-scale))] px-2 py-0.5"
 								/>
 							</div>
 						</div>
@@ -227,7 +227,7 @@ export function AskFormCard({
 			<div className="flex justify-end gap-2 px-4 py-2 border-t border-hairline">
 				{stale && (
 					<span
-						className="text-[11.5px] text-danger mr-auto"
+						className="text-[calc(11.5px*var(--font-scale))] text-danger mr-auto"
 						role="alert"
 						data-testid={`ask-stale-${toolCallId}`}
 					>
@@ -236,7 +236,7 @@ export function AskFormCard({
 				)}
 				{!stale && error && (
 					<span
-						className="text-[11.5px] text-danger mr-auto"
+						className="text-[calc(11.5px*var(--font-scale))] text-danger mr-auto"
 						role="alert"
 						data-testid={`ask-error-${toolCallId}`}
 					>
@@ -246,14 +246,14 @@ export function AskFormCard({
 				<button
 					onClick={handleCancel}
 					disabled={submitting}
-					className="text-[12px] px-3 py-1 rounded-pill bg-danger-soft text-danger border-0 cursor-pointer disabled:opacity-50"
+					className="text-[calc(12px*var(--font-scale))] px-3 py-1 rounded-pill bg-danger-soft text-danger border-0 cursor-pointer disabled:opacity-50"
 				>
 					取消
 				</button>
 				<button
 					onClick={handleSubmit}
 					disabled={!allAnswered || submitting || stale}
-					className="text-[12px] px-4 py-1 rounded-pill border-0 cursor-pointer disabled:cursor-not-allowed"
+					className="text-[calc(12px*var(--font-scale))] px-4 py-1 rounded-pill border-0 cursor-pointer disabled:cursor-not-allowed"
 					style={{
 						background:
 							allAnswered && !submitting && !stale

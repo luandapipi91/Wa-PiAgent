@@ -42,12 +42,12 @@ export function AgentMenuItem({
       }`}
     >
       <span
-        className="w-[22px] h-[22px] rounded-sm flex items-center justify-center text-[12px] flex-none"
+        className="w-[22px] h-[22px] rounded-sm flex items-center justify-center text-[calc(12px*var(--font-scale))] flex-none"
         style={{ background: avatarBackground(avatarColor) }}
       >{avatar ?? "🤖"}</span>
       <span className="min-w-0 flex-1">
-        <div className="text-[12px] text-primary truncate">{name}</div>
-        {description && <div className="text-[11px] text-tertiary truncate">{description}</div>}
+        <div className="text-[calc(12px*var(--font-scale))] text-primary truncate">{name}</div>
+        {description && <div className="text-[calc(11px*var(--font-scale))] text-tertiary truncate">{description}</div>}
       </span>
       {selected && <span className="ml-auto text-accent">✓</span>}
     </div>

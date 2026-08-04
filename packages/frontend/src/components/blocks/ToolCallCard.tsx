@@ -21,7 +21,7 @@ export function formatArgs(args: Record<string, any>): string {
 
 /** 多行/长字符串代码块样式：真实换行缩进展示、带行号，不设高度限制（完整可读） */
 const CODE_BLOCK_CLS =
-	"whitespace-pre-wrap break-words rounded bg-surface px-2 py-1 text-[11px] text-secondary my-1 font-mono";
+	"whitespace-pre-wrap break-words rounded bg-surface px-2 py-1 text-[calc(11px*var(--font-scale))] text-secondary my-1 font-mono";
 
 /** 按行拆分渲染带行号的代码块（行号右对齐固定列宽，内容保留缩进/折行） */
 function LineNumberedLines({ text }: { text: string }) {
@@ -138,18 +138,18 @@ function EditArgsView({ args }: { args: Record<string, any> }) {
 		<div className="space-y-2">
 			{edits.map((e, i) => (
 				<div key={i} className="min-w-0">
-					<div className="text-[11px] text-tertiary font-semibold mb-0.5">
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary font-semibold mb-0.5">
 						{edits.length > 1 ? `编辑 ${i + 1}` : "内容变更"}
 					</div>
 					{e.oldText !== undefined && (
 						<>
-							<div className="text-[11px] text-tertiary">旧</div>
+							<div className="text-[calc(11px*var(--font-scale))] text-tertiary">旧</div>
 							<AutoScrollPre text={e.oldText} />
 						</>
 					)}
 					{e.newText !== undefined && (
 						<>
-							<div className="text-[11px] text-tertiary">新</div>
+							<div className="text-[calc(11px*var(--font-scale))] text-tertiary">新</div>
 							<AutoScrollPre text={e.newText} />
 						</>
 					)}
