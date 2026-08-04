@@ -93,3 +93,19 @@ export interface ExtensionCommandToggleResult {
 export interface ExtensionCommandsChangedEvent {
 	type: "extension:commands:changed";
 }
+
+// 前端 → kernel：pi 扩展 dialog（select/confirm/input/editor）应答
+export interface ExtensionDialogRespondEvent {
+	type: "extension:dialog:respond";
+	requestId: string;
+	sessionId?: string;
+	value?: unknown;
+	confirmed?: boolean;
+	cancelled?: boolean;
+}
+
+// kernel → 前端
+export interface ExtensionDialogRespondResult {
+	type: "extension:dialog:respond";
+	ok: true;
+}

@@ -427,10 +427,9 @@ export class RpcClient {
 				notifyType: req.notifyType,
 			} as RpcEvent);
 		}
-		// fire-and-forget UI 方法（setStatus/setWidget/setTitle）：pi 不期待响应，
+		// fire-and-forget UI 方法（setStatus/setWidget/setTitle/set_editor_text）：pi 不期待响应，
 		// 但 GUI 宿主需要内容来展示——与 notify 同路径桥接为 sdk:event 转发前端。
 		// 文案统一 stripAnsi：扩展经 ctx.ui.theme 着色的文本带终端转义码。
-		// set_editor_text 刻意不转发（产品决策：输入框状态归桌面端自己管理）。
 		if (req.method === "setStatus" && typeof req.statusKey === "string") {
 			this.opts.onEvent({
 				type: "extension_status",
@@ -455,6 +454,14 @@ export class RpcClient {
 			this.opts.onEvent({
 				type: "extension_title",
 				title: stripAnsi(req.title),
+			} as RpcEvent);
+		}
+		// set_editor_text：官方 fire-and-forget「设置输入框文本」，桥接为事件由前端 Composer 消费
+		// （此前刻意不转发；现全量对接子协议，转发语义为「替换输入框内容」）
+		if (req.method === "set_editor_text" && typeof req.text === "string") {
+			this.opts.onEvent({
+				type: "extension_editor_text",
+				text: req.text,
 			} as RpcEvent);
 		}
 		let fields: UiResponseFields = { cancelled: true };

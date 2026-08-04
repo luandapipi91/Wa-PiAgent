@@ -45,4 +45,12 @@ export const registerExtensionRoutes: RouteRegistrar = (r, callApi, ctx: RouteCo
     }
     return callApi({ type: "extension:commands:toggle", ...b });
   });
+
+  r.add("POST", "/api/extensions/dialog/respond", async (req) => {
+    const b = await readJsonBody(req);
+    if (!b?.requestId) {
+      return new Response(JSON.stringify({ error: "参数缺失" }), { status: 400 });
+    }
+    return callApi({ type: "extension:dialog:respond", ...b });
+  });
 };

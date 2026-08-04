@@ -135,6 +135,15 @@ test("setStatus/setWidget/setTitle 桥接为 extension_status/widget/title 事�
 	expect((title as any).title).toBe("分析中");
 });
 
+test("set_editor_text 桥接为 extension_editor_text 事件（转发语义：替换输入框内容）", async () => {
+	const { client, events } = makeClient();
+	await client.start();
+	await client.command({ type: "ui_set_editor_text" });
+	const editorText = events.find((e) => e.type === "extension_editor_text");
+	expect(editorText).toBeTruthy();
+	expect((editorText as any).text).toBe("替换后的输入框内容");
+});
+
 test("stdout 行内 U+2028/U+2029 不造成错误断行", async () => {
 	const { client } = makeClient();
 	await client.start();

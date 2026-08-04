@@ -85,9 +85,13 @@ import {
 	buildPiArgs,
 	resolvePiCliPath,
 	resolvePiRuntime,
+	stripAnsi,
 	type RpcClientOpts,
 	type RpcEvent,
+	type RpcUiRequest,
+	type UiResponseFields,
 } from "./rpc-client";
+import { extUiRegistry } from "./ext-ui-registry";
 import {
 	composePrompt,
 	loadPromptSegments,
@@ -817,6 +821,8 @@ export class AgentManager {
 				WA_PI_SESSION_ID: sessionId,
 			},
 			onEvent: (e) => this._onSessionEvent(sessionId, e),
+			onUiRequest: (req) =>
+				this._onExtUiRequest(sessionId, projectId, agentName, req),
 			onExit: (code, signal) =>
 				this._onProcessExit(sessionId, code, signal, handle),
 		});
@@ -984,6 +990,8 @@ export class AgentManager {
 		handle.crashed = true;
 		handle.busy = false;
 		handle.thinkingSince = null;
+		// 进程已死：挂起的扩展对话永远等不到应答，以 cancelled 解决防 registry 泄漏
+		extUiRegistry.cancelAllForSession(sessionId);
 		console.error(
 			`[kernel] session ${sessionId} pi 进程意外退出 (code=${code} signal=${signal ?? "none"})`,
 		);
@@ -998,6 +1006,31 @@ export class AgentManager {
 				timestamp: Date.now(),
 			},
 		});
+	}
+
+	/** pi 扩展 dialog 请求（select/confirm/input/editor）：注册 pending + 广播给前端，阻塞等应答 */
+	private _onExtUiRequest(
+		sessionId: string,
+		projectId: string,
+		agentName: AgentName,
+		req: RpcUiRequest,
+	): Promise<UiResponseFields> {
+		const promise = extUiRegistry.register(sessionId, req);
+		this.opts.onEvent(sessionId, projectId, agentName, {
+			type: "extension_dialog",
+			requestId: req.id,
+			method: req.method,
+			title: typeof req.title === "string" ? stripAnsi(req.title) : undefined,
+			message:
+				typeof req.message === "string" ? stripAnsi(req.message) : undefined,
+			options: Array.isArray(req.options)
+				? req.options.map((o) => stripAnsi(String(o)))
+				: undefined,
+			placeholder: req.placeholder,
+			prefill: req.prefill,
+			timeout: req.timeout,
+		});
+		return promise;
 	}
 
 	/** 立即发送 prompt（busy 置位 + 失败回退） */
@@ -1189,6 +1222,7 @@ export class AgentManager {
 		}
 
 		askRegistry.cancelAll(sessionId);
+		extUiRegistry.cancelAllForSession(sessionId); // 挂起的扩展对话一并作废
 		handle.steerList = [];
 		handle.followUpList = [];
 		this._emitLocalQueueUpdate(sessionId, handle);
@@ -1296,6 +1330,9 @@ export class AgentManager {
 	/** 拆除单个会话的内部资源（注销 bridge ctx + kill 进程 + 清临时文件与各 Map），不动 disposed 标记 */
 	private _teardownSession(sessionId: string): void {
 		askRegistry.cancelAll(sessionId); // 拆除资源时作废 pending ask
+		// 挂起的扩展对话必须以 cancelled 解决：否则 rpc-client 的 handleUiRequest
+		// 永远不返回（进程已死无实际阻塞，但 registry 条目会泄漏）
+		extUiRegistry.cancelAllForSession(sessionId);
 		unregisterBridgeSession(sessionId);
 		const handle = this.sessions.get(sessionId);
 		if (handle) {
@@ -1445,7 +1482,7 @@ export class AgentManager {
 	}
 
 	/**
-	 * 从 pi 进程拉取命令清单：附加 TUI 标记、合并插件开关状态后返回（不缓存）。
+	 * 从 pi 进程拉取命令清单：附加 packageName、合并插件开关状态后返回（不缓存）。
 	 * enabled 合并对齐 extension:commands:list 的语义（kernel 侧统一，/ 菜单与插件页一致）：
 	 * 有 packageName（extension 来源）→ 用 waPiCommandToggles 值（缺省 true：附加命令默认全部开启）；
 	 * 无 packageName（prompt/builtin 等）→ 不附加 enabled（kernel 不填 → undefined，前端缺省 false）。

@@ -36,6 +36,8 @@ import type {
 	ExtensionCommandsListResult,
 	ExtensionCommandToggleResult,
 	ExtensionCommandsChangedEvent,
+	ExtensionDialogRespondEvent,
+	ExtensionDialogRespondResult,
 } from "./extensions";
 import type {
 	MemoryListEvent,
@@ -539,6 +541,7 @@ export type WSClientEvent =
 	| ExtensionUpgradeEvent
 	| ExtensionCommandsListEvent
 	| ExtensionCommandToggleEvent
+	| ExtensionDialogRespondEvent
 	| MemoryListEvent
 	| MemoryUpdateEvent
 	| MemoryArchiveEvent
@@ -1070,6 +1073,7 @@ export type WSServerEvent =
 	| ExtensionCommandsListResult
 	| ExtensionCommandToggleResult
 	| ExtensionCommandsChangedEvent
+	| ExtensionDialogRespondResult
 	| MemoryListResult
 	| MemoryChangedEvent
 	| McpListResult

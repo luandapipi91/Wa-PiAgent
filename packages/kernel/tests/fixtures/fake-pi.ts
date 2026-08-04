@@ -82,6 +82,11 @@ function handle(cmd: any): void {
       emit({ type: "extension_ui_request", id: "ui-req-5", method: "setTitle", title: "分析中" });
       emit({ id: cmd.id, type: "response", command: "ui_fire_and_forget", success: true });
       break;
+    case "ui_set_editor_text":
+      // set_editor_text：fire-and-forget「替换输入框内容」，应被桥接为 extension_editor_text 事件
+      emit({ type: "extension_ui_request", id: "ui-req-6", method: "set_editor_text", text: "替换后的输入框内容" });
+      emit({ id: cmd.id, type: "response", command: "ui_set_editor_text", success: true });
+      break;
     case "unicode":
       // 含 U+2028/U+2029 的字符串：JSON.stringify 不转义这两个字符，
       // 客户端必须只在 \n 处断行（readline 会在这里错误断开）
