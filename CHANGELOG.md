@@ -4,6 +4,53 @@
 
 ## [Unreleased] - 2026-08-04
 
+### 重构
+
+- **内置命令拦截统一封装到 shared**：新增 `KERNEL_INTERCEPTED_COMMANDS` 清单
+  与 `matchKernelCommand()` 匹配函数（`@wa-pi/shared` commands.ts），作为
+  「kernel 拦截的内置命令」语义的唯一权威来源。kernel `_sendPromptNow` 与
+  前端 `optimisticSend` 不再各自硬编码 `/^\/compact(\s|$)/` 正则，统一改调
+  `matchKernelCommand`；新增内置命令（如未来的 /clear）只需改 shared 一处。
+  影响范围：`packages/shared/src/commands.ts`、
+  `packages/shared/tests/commands.test.ts`、
+  `packages/kernel/src/agent-manager.ts`、
+  `packages/frontend/src/store/session.ts`。
+
+## [Unreleased] - 2026-08-04
+
+### 修复
+
+- **/compact 不再显示为用户聊天消息**：`optimisticSend` 对 `/compact`（含自定义
+  指令）跳过用户消息插入——kernel 已将其转 compact RPC 执行，pi 不产生 user
+  回声，此前聊天列表会孤零零挂一条 "/compact"。思考态与占位 streaming 照常
+  设置。连带删除 `agent_end` 分支里「最后一条 user 以 /compact 开头则刷新
+  token」的失效检测（compaction_end 已是权威刷新点）。影响范围：
+  `packages/frontend/src/store/session.ts`、
+  `packages/frontend/tests/store-session.test.ts`。
+
+## [Unreleased] - 2026-08-04
+
+### 重构
+
+- **移除发送端 / 命令降级拦截**：`prompt` 不再在发送前拉取命令清单、不再把
+  已关闭命令加前导空格降级为普通文本，所有 / 命令原样交给 pi 命令分发。
+  连带移除 `_commandsFetched` 标记、`resetCommandState()`（ws-server toggle
+  不再调用）、`tui-command-filter` 的 `disabledCommandNames` 集合及
+  `isCommandDisabled` / `registerDisabledCommands` / `resetDisabledCommands`
+  三个函数；`markAllDirty` / `markSkillsDirty` 不再重置命令状态。
+  同时修复该移除暴露的既有 bug：`_runCompactCommand` 合成的 `agent_settled`
+  此前经 `opts.onEvent` 直发前端、不触发内部 drain，压缩期间排队的消息会
+  永久卡在 followUpList；现改走 `_onSessionEvent` 正常 drain 后转发。
+  影响范围：`packages/kernel/src/agent-manager.ts`、
+  `packages/kernel/src/tui-command-filter.ts`、
+  `packages/kernel/src/ws-server.ts`、
+  `packages/desktop/scripts/build-kernel-sidecar.ts`（注释）、
+  `packages/kernel/tests/agent-manager.test.ts`、
+  `packages/kernel/tests/tui-command-filter.test.ts`、
+  `packages/kernel/tests/routes-extensions-commands.test.ts`。
+
+## [Unreleased] - 2026-08-04
+
 ### 配置变更
 
 - **附加命令默认全部开启 + 移除「TUI 命令不被支持」提示条**：扩展命令开关

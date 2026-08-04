@@ -37,3 +37,30 @@ export interface SessionCommandsResult {
   sessionId: string;
   commands: CommandInfo[];
 }
+
+// ===== kernel 拦截的 pi 内置命令 =====
+
+/**
+ * kernel 拦截处理的 pi 内置命令清单（拦截语义的唯一权威来源）。
+ * pi RPC 模式不解析内置斜杠命令（仅交互模式解析），文本若按普通 prompt 发出
+ * 会被当作 user 消息发给 LLM，命令从不执行。这些命令由 kernel 显式转对应
+ * RPC 调用执行，不产生 user 回声——前端据此不把命令文本显示为用户聊天消息。
+ */
+export const KERNEL_INTERCEPTED_COMMANDS = ["compact"] as const;
+
+export type KernelInterceptedCommand =
+  (typeof KERNEL_INTERCEPTED_COMMANDS)[number];
+
+/**
+ * 匹配 kernel 拦截的内置命令：命中返回命令名，否则 null。
+ * 命令名后必须跟空白或结束（避免误伤 /compactify 这类同前缀词）。
+ */
+export function matchKernelCommand(
+  text: string,
+): KernelInterceptedCommand | null {
+  const m = /^\/(\w+)(?:\s|$)/.exec(text.trim());
+  if (!m) return null;
+  return (KERNEL_INTERCEPTED_COMMANDS as readonly string[]).includes(m[1])
+    ? (m[1] as KernelInterceptedCommand)
+    : null;
+}

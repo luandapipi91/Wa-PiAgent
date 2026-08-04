@@ -207,7 +207,6 @@ export async function buildSidecar(
 	//    且首启只装用户本机平台的原生预编译。
 	//    ⚠️ bun install --production 不生成锁文件，必须先用无 --production 跑一次产出 bun.lock。
 	//    带 patchedDependencies 并复制补丁文件：pi-mcp-adapter 的 exports/类型补丁在打包态也需应用。
-	//    （TUI-only 命令不再依赖 pi 侧补丁——kernel 发送端 isCommandDisabled 拦截降级，见 agent-manager.prompt。）
 	await writeFile(
 		join(kernelDir, "package.json"),
 		JSON.stringify(
