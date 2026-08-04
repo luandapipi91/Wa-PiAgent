@@ -291,14 +291,15 @@ test("computeSessionUsage：无压缩会话累加全部 assistant usage（含 ca
 		].join("\n") + "\n",
 	);
 
-	const usage = await computeSessionUsage(file);
-	expect(usage).toEqual({
+	const split = await computeSessionUsage(file);
+	expect(split.main).toEqual({
 		input: 1300,
 		output: 300,
 		cacheRead: 13000,
 		cacheWrite: 300,
 		total: 1300 + 300 + 13000 + 300,
 	});
+	expect(split.subagent.total).toBe(0);
 });
 
 test("computeSessionUsage：压缩后仍包含压缩前的 usage（区别于可见消息过滤）", async () => {
@@ -332,9 +333,9 @@ test("computeSessionUsage：压缩后仍包含压缩前的 usage（区别于可�
 		].join("\n") + "\n",
 	);
 
-	const usage = await computeSessionUsage(file);
+	const split = await computeSessionUsage(file);
 	// 与 readSessionHistory 的可见过滤不同：m2（压缩前）的消耗必须保留在累计里
-	expect(usage).toEqual({
+	expect(split.main).toEqual({
 		input: 1000 + 2000 + 300,
 		output: 500 + 800 + 100,
 		cacheRead: 20000 + 30000 + 1000,
@@ -356,18 +357,75 @@ test("computeSessionUsage：无任何 usage 时返回全 0；文件不存在抛�
 			}),
 		].join("\n") + "\n",
 	);
-	const usage = await computeSessionUsage(file);
-	expect(usage).toEqual({
+	const split = await computeSessionUsage(file);
+	expect(split.main).toEqual({
 		input: 0,
 		output: 0,
 		cacheRead: 0,
 		cacheWrite: 0,
 		total: 0,
 	});
+	expect(split.subagent.total).toBe(0);
 
 	await expect(
 		computeSessionUsage(join(dir, "missing.jsonl")),
 	).rejects.toThrow();
+});
+
+test("computeSessionUsage：toolResult.usage 计入子代理拆分，compaction usage 计入主代理", async () => {
+	const file = join(dir, "s.jsonl");
+	writeFileSync(
+		file,
+		[
+			JSON.stringify({ type: "session", version: 3, id: "uuid-1" }),
+			msgUsageFull("m1", null, "user", "问题", 1, { input: 0, output: 0 }),
+			msgUsageFull("m2", "m1", "assistant", "回答", 2, {
+				input: 500,
+				output: 100,
+				cacheRead: 4000,
+			}),
+			// delegate/fleet 的 toolResult 携带子代理 LLM 用量（pi 官方 stats 原生计入）
+			JSON.stringify({
+				type: "message",
+				id: "m3",
+				parentId: "m2",
+				timestamp: new Date(3).toISOString(),
+				message: {
+					role: "toolResult",
+					toolCallId: "call_1",
+					toolName: "delegate",
+					content: [{ type: "text", text: "子代理结果" }],
+					isError: false,
+					timestamp: 3,
+					usage: { input: 300, output: 130, cacheRead: 1000, cacheWrite: 0, cost: { total: 0.01 } },
+				},
+			}),
+			// compaction 条目自带的摘要生成 usage 计入主代理（对齐官方 totals）
+			JSON.stringify({
+				type: "compaction",
+				id: "c1",
+				parentId: "m3",
+				timestamp: new Date(4).toISOString(),
+				summary: "（摘要）",
+				firstKeptEntryId: "m1",
+				tokensBefore: 50000,
+				usage: { input: 32000, output: 1200, cacheRead: 0, cacheWrite: 0, cost: { total: 0.03 } },
+			}),
+		].join("\n") + "\n",
+	);
+
+	const split = await computeSessionUsage(file);
+	expect(split.subagent).toEqual({
+		input: 300,
+		output: 130,
+		cacheRead: 1000,
+		cacheWrite: 0,
+		total: 1430,
+	});
+	expect(split.main.input).toBe(500 + 32000);
+	expect(split.main.output).toBe(100 + 1200);
+	expect(split.main.cacheRead).toBe(4000);
+	expect(split.main.total).toBe(500 + 100 + 4000 + 33200);
 });
 
 test("坏行容错：非法 JSON 行跳过，不影响其余消息", async () => {

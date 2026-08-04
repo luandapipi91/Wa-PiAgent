@@ -317,7 +317,7 @@ export function toTokenSummary(t: any): TokenUsageSummary {
 
 /**
  * 合并主代理用量与子代理累计：返回平铺合计 + main/subagent 拆分。
- * session:stats 的 tokens 统一走这里，保证两条路径（官方 RPC / jsonl 降级）结构一致。
+ * session:stats 的降级路径（jsonl 扫描拆分）走这里。
  */
 export function mergeTokenUsage(
 	main: TokenUsageSummary,
@@ -340,6 +340,38 @@ export function mergeTokenUsage(
 		cacheWrite: main.cacheWrite + sub.cacheWrite,
 		total: main.total + sub.total,
 		main,
+		subagent: sub,
+	};
+}
+
+/**
+ * 官方路径拆分：pi tokens 已含子代理消耗（toolResult.usage），
+ * main = 合计 − 子代理（逐项 clamp ≥0，防御旧 jsonl 无 toolResult.usage 的会话）。
+ */
+export function splitOfficialTokens(
+	total: TokenUsageSummary,
+	subagent?: TokenUsageSummary,
+): TokenUsageSummary & {
+	main: TokenUsageSummary;
+	subagent: TokenUsageSummary;
+} {
+	const sub = subagent ?? {
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		total: 0,
+	};
+	const clamp = (n: number) => Math.max(0, n);
+	return {
+		...total,
+		main: {
+			input: clamp(total.input - sub.input),
+			output: clamp(total.output - sub.output),
+			cacheRead: clamp(total.cacheRead - sub.cacheRead),
+			cacheWrite: clamp(total.cacheWrite - sub.cacheWrite),
+			total: clamp(total.total - sub.total),
+		},
 		subagent: sub,
 	};
 }
@@ -823,6 +855,28 @@ export class WSServer {
 					});
 					break;
 				}
+				// 后台预热 pi 进程（点开会话即激活）。冷启动完成后广播 session:activated——
+				// 官方 get_session_stats 自此可用，前端收听后重拉 /stats 补齐 contextUsage
+				// （否则占比胶囊要等下一回合 message_end 才出现）。热会话不广播（stats 本就可查）。
+				const prewarm = () => {
+					const cold = !this.opts.agentManager.isSessionAlive(session.id);
+					void this.opts.agentManager
+						.ensureStarted(session.projectId, session.primaryAgent, session.id)
+						.then(() => {
+							if (cold) {
+								this.broadcast({
+									type: "session:activated",
+									sessionId: session.id,
+								});
+							}
+						})
+						.catch((err) =>
+							console.error(
+								`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`,
+								err,
+							),
+						);
+				};
 				if (session.piSessionFile) {
 					try {
 						const history = await readSessionHistory(session.piSessionFile, {
@@ -839,18 +893,7 @@ export class WSServer {
 							isActive,
 							thinkingSince,
 						});
-						void this.opts.agentManager
-							.ensureStarted(
-								session.projectId,
-								session.primaryAgent,
-								session.id,
-							)
-							.catch((err) =>
-								console.error(
-									`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`,
-									err,
-								),
-							);
+						prewarm();
 						break;
 					} catch (err) {
 						if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
@@ -861,18 +904,7 @@ export class WSServer {
 								isActive,
 								thinkingSince,
 							});
-							void this.opts.agentManager
-								.ensureStarted(
-									session.projectId,
-									session.primaryAgent,
-									session.id,
-								)
-								.catch((e) =>
-									console.error(
-										`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`,
-										e,
-									),
-								);
+							prewarm();
 							break;
 						}
 						console.warn(
@@ -909,42 +941,40 @@ export class WSServer {
 				break;
 			}
 			case "session:stats": {
-				// 子代理累计（delegate/fleet）：pi 官方 stats 与 jsonl 都不含，
-				// 由 agent-manager 在 spawn 完成时累计并持久化到会话记录
-				const sub =
-					(await this.opts.agentManager.getSubagentTokens(event.sessionId)) ??
-					undefined;
-				// 1) 官方 stats：进程存活时直接拿 pi get_session_stats（主代理累计 + 当前上下文占用）
+				// 主/子拆分统一来源：jsonl 全量扫描（assistant+compaction→主，
+				// toolResult.usage→子代理）。delegate/fleet 的 toolResult 携带 usage 后，
+				// pi 官方 stats 的 tokens 已原生含子代理消耗，官方路径只需补拆分。
+				const { sessions } = await this.opts.projectStore.load();
+				const session = sessions.find((s) => s.id === event.sessionId);
+				const split = session?.piSessionFile
+					? await computeSessionUsage(session.piSessionFile).catch(() => null)
+					: null;
+				// 1) 官方 stats：进程存活时直接拿 pi get_session_stats（累计含子代理 + 当前上下文占用）
 				const official = await this.opts.agentManager.getSessionStats(
 					event.sessionId,
 				);
 				if (official?.tokens) {
-					const main = toTokenSummary(official.tokens);
 					reply({
 						type: "session:stats",
 						sessionId: event.sessionId,
 						stats: {
-							tokens: mergeTokenUsage(main, sub),
+							tokens: splitOfficialTokens(
+								toTokenSummary(official.tokens),
+								split?.subagent,
+							),
 							contextUsage: normalizeContextUsage(official.contextUsage),
 						},
 					});
 					break;
 				}
-				// 2) 本地降级：全量扫 jsonl（主代理口径，含压缩前历史 + 缓存），无 contextUsage
-				const { sessions } = await this.opts.projectStore.load();
-				const session = sessions.find((s) => s.id === event.sessionId);
-				if (session?.piSessionFile) {
-					try {
-						const usage = await computeSessionUsage(session.piSessionFile);
-						reply({
-							type: "session:stats",
-							sessionId: event.sessionId,
-							stats: { tokens: mergeTokenUsage(usage, sub) },
-						});
-						break;
-					} catch {
-						// 落到空 stats
-					}
+				// 2) 本地降级：jsonl 扫描拆分直接给出主/子（含压缩前历史 + 缓存），无 contextUsage
+				if (split) {
+					reply({
+						type: "session:stats",
+						sessionId: event.sessionId,
+						stats: { tokens: mergeTokenUsage(split.main, split.subagent) },
+					});
+					break;
 				}
 				reply({
 					type: "session:stats",

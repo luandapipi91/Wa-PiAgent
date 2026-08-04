@@ -24,7 +24,6 @@ import type {
 	SkillInfo,
 	CommandInfo,
 	SubagentProgressEvent,
-	TokenUsageSummary,
 } from "@wa-pi/shared";
 import {
 	WA_PI_DIR,
@@ -210,11 +209,6 @@ export class AgentManager {
 	private skillDirty = new Set<string>();
 	// 系统提示词段落配置缓存（首次加载后缓存；用户编辑 prompts.json 后需重启 kernel 刷新）
 	private promptSegments: PromptSegment[] | null = null;
-	// 会话级子代理累计 token（delegate/fleet spawn 完成时累加；pi jsonl 不持久化
-	// childUsage，故每次累加后串行写回 projectStore 会话记录，重启后惰性恢复）
-	private subagentTokens = new Map<string, TokenUsageSummary>();
-	// subagentTokens 持久化串行队列：fleet 并发子任务同时完成时避免 load/save 竞态丢数据
-	private subagentPersistQueue: Promise<void> = Promise.resolve();
 
 	constructor(private opts: AgentManagerOpts) {}
 
@@ -615,13 +609,7 @@ export class AgentManager {
 					.map((s) => s.path);
 			},
 			cwd,
-			onSpawnComplete: (input) => {
-				subagentTelemetry.record(input);
-				// 子代理累计 token：pi jsonl 不持久化 childUsage，这里累计并写会话记录
-				if (input.childUsage?.tokens) {
-					this._accumulateSubagentTokens(sessionId, input.childUsage.tokens);
-				}
-			},
+			onSpawnComplete: (input) => subagentTelemetry.record(input),
 			// spawn 闭包的 onProgress：从槽位取本次 handleTool 调用注入的 onProgress，
 			// 再叠加会话级 onSubagentProgress（注入 sessionId 后广播到 SSE）。
 			// 槽位为空时（非 bridge 流式调用路径，如直接调 spawnFn 的测试）仅走 onSubagentProgress。
@@ -1376,54 +1364,9 @@ export class AgentManager {
 		}
 	}
 
-	/**
-	 * 会话级子代理（delegate/fleet）累计 token。pi jsonl 不持久化 childUsage，
-	 * 故由本类在 spawn 完成时累加进内存 map 并串行写回会话记录；
-	 * 首次查询时从 projectStore 惰性恢复（kernel 重启后不丢历史）。
-	 */
-	async getSubagentTokens(
-		sessionId: string,
-	): Promise<TokenUsageSummary | undefined> {
-		if (!this.subagentTokens.has(sessionId)) {
-			const { sessions } = await this.opts.projectStore.load();
-			const saved = sessions.find((s) => s.id === sessionId)?.subagentTokens;
-			if (saved) this.subagentTokens.set(sessionId, saved);
-		}
-		return this.subagentTokens.get(sessionId);
-	}
-
-	/** spawn 完成时累加子代理用量（全 0 跳过），并串行持久化到会话记录 */
-	private _accumulateSubagentTokens(
-		sessionId: string,
-		t: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number },
-	): void {
-		const add = {
-			input: t.input ?? 0,
-			output: t.output ?? 0,
-			cacheRead: t.cacheRead ?? 0,
-			cacheWrite: t.cacheWrite ?? 0,
-		};
-		if (!add.input && !add.output && !add.cacheRead && !add.cacheWrite) return;
-		const cur = this.subagentTokens.get(sessionId) ?? {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			total: 0,
-		};
-		const next: TokenUsageSummary = {
-			input: cur.input + add.input,
-			output: cur.output + add.output,
-			cacheRead: cur.cacheRead + add.cacheRead,
-			cacheWrite: cur.cacheWrite + add.cacheWrite,
-			total: 0,
-		};
-		next.total = next.input + next.output + next.cacheRead + next.cacheWrite;
-		this.subagentTokens.set(sessionId, next);
-		// 覆盖语义 + 串行队列：并发 fleet 子任务同时完成时不丢累计
-		this.subagentPersistQueue = this.subagentPersistQueue
-			.then(() => this.opts.projectStore.setSubagentTokens(sessionId, next))
-			.catch(() => {});
+	/** 会话 pi 进程是否存活（供预热前判断冷/热，决定是否广播 session:activated） */
+	isSessionAlive(sessionId: string): boolean {
+		return this.sessions.get(sessionId)?.client?.isAlive() ?? false;
 	}
 
 	/** 重载当前会话配置：杀旧 pi 进程并用同一 agent 重建（技能/扩展变更生效） */

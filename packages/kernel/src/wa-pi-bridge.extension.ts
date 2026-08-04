@@ -152,6 +152,8 @@ async function callBridge(
 					return {
 						content: finalFrame.result.content,
 						details: finalFrame.result.details,
+						// 子代理用量（delegate/fleet）：透传给 pi，官方 stats 原生计入累计
+						usage: finalFrame.result.usage,
 					};
 				}
 				const err = finalFrame.error ?? "unknown";

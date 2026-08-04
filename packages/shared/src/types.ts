@@ -146,9 +146,6 @@ export interface SessionEntity {
 	createdAt: number;
 	lastActivity: number;
 	piSessionFile: string; // SDK jsonl 文件路径 ~/.wa-pi/sessions/<id>.jsonl
-	/** 子代理（delegate/fleet）累计消耗：pi jsonl 不持久化 childUsage，
-	 *  由 kernel 在 spawn 完成时累计并写在这里，重启后可恢复 */
-	subagentTokens?: TokenUsageSummary;
 }
 
 // ===== Pi 原生消息类型（镜像 @mariozechner/pi-ai，避免运行时依赖）=====
@@ -677,6 +674,12 @@ export interface SessionEchoUserEvent {
 	text: string;
 	agentName: AgentName;
 }
+/** 会话 pi 进程预热完成（点开会话触发后台 ensureStarted）：
+ *  官方 get_session_stats 自此可用，前端应收听后重拉 /stats 补齐 contextUsage。 */
+export interface SessionActivatedEvent {
+	type: "session:activated";
+	sessionId: string;
+}
 export interface AgentConfigEvent {
 	type: "agent:config";
 	agentName: AgentName;
@@ -982,6 +985,7 @@ export type WSServerEvent =
 	| SessionMessagesEvent
 	| SessionAsksEvent
 	| SessionStatsResult
+	| SessionActivatedEvent
 	| SessionEchoUserEvent
 	| AgentConfigEvent
 	| ErrorEvent

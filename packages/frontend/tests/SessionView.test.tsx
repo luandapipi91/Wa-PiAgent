@@ -481,10 +481,10 @@ test("token 胶囊：有 contextUsage 时进度条与「占用」用官方口径
   expect(fill.style.width).toBe("50%");
   // 占用 = contextUsage.used = 64K
   expect(screen.getByTestId("token-occupied").textContent).toContain("占用 64K");
-  // 布局：占用在上（加强）、累计在下（弱化），进度条居中
+  // 布局：占用胶囊（加强）在前、累计胶囊（弱化，独立一列）在后
   const occupied = screen.getByTestId("token-occupied");
-  const totalEl = screen.getByText(/累计 90K/);
-  expect(totalEl.className).toContain("token-total");
+  const totalEl = screen.getByTestId("token-total");
+  expect(totalEl.className).toContain("token-capsule--total");
   expect(
     occupied.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
@@ -504,7 +504,9 @@ test("token 胶囊：有子代理消耗时累计拆分主/子显示", () => {
     projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi", createdAt: 0 }],
   });
   render(<SessionView sessionId="s1" />);
-  expect(screen.getByText(/累计 90K（主 60K · 子 30K）/)).toBeTruthy();
+  // 两行显示：第一行累计合计，第二行主/子拆分
+  expect(screen.getByText(/累计 90K/)).toBeTruthy();
+  expect(screen.getByTestId("token-split").textContent).toContain("主 60K · 子 30K");
 });
 
 test("token 胶囊：无子代理消耗时累计不显示拆分", () => {

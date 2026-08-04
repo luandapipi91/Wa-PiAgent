@@ -136,6 +136,10 @@ export function App() {
 				case "sdk:event":
 					useSessionStore.getState().handleSDKEvent(e.sessionId, e);
 					break;
+				// 会话进程冷启动预热完成：官方 stats 可用，重拉补齐 contextUsage（占比/进度条）
+				case "session:activated":
+					void useSessionStore.getState().refreshSessionStats(e.sessionId);
+					break;
 				// subagent:progress：子代理（delegate/fleet）执行进度，按 toolCallId→agent 写入 store，
 				// 供 DelegateCard/FleetCard 实时渲染。结构与 bridge 流式帧对齐。
 				case "subagent:progress":

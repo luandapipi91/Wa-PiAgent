@@ -278,3 +278,28 @@ test("重试期间顶部显示黄色重试条（优先于红色异常条），�
 	expect(screen.queryByTestId("retry-status-bar")).toBeNull();
 	expect(screen.getByTestId("net-status-bar")).toBeTruthy();
 });
+
+test("session:activated（预热完成）触发重拉 stats，补齐占比胶囊数据", async () => {
+	render(<App />);
+	await act(async () => {});
+	calls.length = 0; // 清掉挂载期拉取，聚焦事件触发后的请求
+
+	act(() => {
+		emitEvent({ type: "session:activated", sessionId: "s1" });
+	});
+	await act(async () => {});
+
+	// refreshSessionStats 只拉 /stats（不动消息列表）
+	await waitFor(() => {
+		expect(
+			calls.some(
+				(c) => c.method === "get" && c.path === "/api/sessions/s1/stats",
+			),
+		).toBe(true);
+	});
+	expect(
+		calls.some(
+			(c) => c.method === "get" && c.path === "/api/sessions/s1/messages",
+		),
+	).toBe(false);
+});

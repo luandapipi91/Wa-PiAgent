@@ -294,14 +294,24 @@ export interface SessionUsageSummary {
 	total: number;
 }
 
+/** computeSessionUsage 的返回：主代理 / 子代理拆分。 */
+export interface SessionUsageSplit {
+	/** 主代理：assistant message usage + compaction/branch_summary 生成消耗（对齐官方 totals） */
+	main: SessionUsageSummary;
+	/** 子代理：toolResult.usage（delegate/fleet 结果携带的子进程 LLM 消耗） */
+	subagent: SessionUsageSummary;
+}
+
 /**
- * 计算整个会话累计消耗的 token 数（供 UI「累计 xxx k」胶囊使用）。
+ * 计算整个会话累计消耗的 token 数，按主/子代理拆分（供 UI「累计 xxx k」胶囊使用）。
  *
  * 与 readSessionHistory 的关键区别：readSessionHistory 为历史列表显示做压缩感知过滤
  * （被压缩的旧消息省略），token 累计若基于它会丢失压缩前的消耗、看起来像
- * 「当前上下文窗口占用」而非「累计消耗」；本函数扫描 jsonl 中全部 assistant
- * message 的 usage（不做压缩过滤、不做分支过滤），口径对齐 pi RPC
- * get_session_stats 的 tokens（input + output + cacheRead + cacheWrite）。
+ * 「当前上下文窗口占用」而非「累计消耗」；本函数扫描 jsonl 中全部条目
+ * （不做压缩过滤、不做分支过滤），口径对齐 pi RPC get_session_stats：
+ * - assistant message.usage → main
+ * - compaction / branch_summary 条目的 usage（摘要生成消耗）→ main
+ * - toolResult message.usage（工具内嵌 LLM 消耗，即 delegate/fleet 子代理）→ subagent
  *
  * usage 为 0 的条目（error 消息、pending 占位等）自然被跳过。
  *
@@ -309,13 +319,20 @@ export interface SessionUsageSummary {
  */
 export async function computeSessionUsage(
 	file: string,
-): Promise<SessionUsageSummary> {
+): Promise<SessionUsageSplit> {
 	const raw = await readFile(file, "utf8"); // ENOENT 等直接抛 → 调用方降级
-	let input = 0;
-	let output = 0;
-	let cacheRead = 0;
-	let cacheWrite = 0;
+	const main = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+	const subagent = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 	let sawAny = false;
+	const add = (
+		acc: { input: number; output: number; cacheRead: number; cacheWrite: number },
+		u: any,
+	) => {
+		acc.input += u.input ?? 0;
+		acc.output += u.output ?? 0;
+		acc.cacheRead += u.cacheRead ?? 0;
+		acc.cacheWrite += u.cacheWrite ?? 0;
+	};
 	for (const line of raw.split("\n")) {
 		if (!line.trim()) continue;
 		let e: any;
@@ -324,23 +341,34 @@ export async function computeSessionUsage(
 		} catch {
 			continue; // 坏行跳过（与 readSessionHistory 一致）
 		}
-		if (!e || typeof e !== "object" || e.type !== "message") continue;
+		if (!e || typeof e !== "object") continue;
+		// compaction / branch_summary 条目：摘要生成的 LLM 消耗计入主代理（对齐官方 totals）
+		if (
+			(e.type === "compaction" || e.type === "branch_summary") &&
+			e.usage
+		) {
+			sawAny = true;
+			add(main, e.usage);
+			continue;
+		}
+		if (e.type !== "message") continue;
 		const m = e.message;
-		if (!m || m.role !== "assistant" || !m.usage) continue;
-		sawAny = true;
-		input += m.usage.input ?? 0;
-		output += m.usage.output ?? 0;
-		cacheRead += m.usage.cacheRead ?? 0;
-		cacheWrite += m.usage.cacheWrite ?? 0;
+		if (!m) continue;
+		if (m.role === "assistant" && m.usage) {
+			sawAny = true;
+			add(main, m.usage);
+		} else if (m.role === "toolResult" && m.usage) {
+			// 工具内嵌 LLM 消耗（delegate/fleet 子代理）：计入子代理拆分
+			sawAny = true;
+			add(subagent, m.usage);
+		}
 	}
 	if (!sawAny && raw.trim().length === 0) {
 		throw new Error(`会话文件无有效行: ${file}`);
 	}
-	return {
-		input,
-		output,
-		cacheRead,
-		cacheWrite,
-		total: input + output + cacheRead + cacheWrite,
-	};
+	const withTotal = (a: typeof main): SessionUsageSummary => ({
+		...a,
+		total: a.input + a.output + a.cacheRead + a.cacheWrite,
+	});
+	return { main: withTotal(main), subagent: withTotal(subagent) };
 }
