@@ -7,8 +7,8 @@ import { createProject, saveProvider, createSessionViaPrompt } from "./helpers";
 // ext-ui-bridge-demo 本地扩展 E2E（回归两个修复 + 对话子协议）：
 // 1. local 路径安装后身份统一为 package.json name：插件列表展示 ext-ui-bridge-demo，
 //    命令扫描 packageName 同名 →「附加命令」弹窗能扫到 /uidemo（此前按绝对路径过滤恒为空）。
-// 2. 会话中发送已注册扩展命令 /uidemo：按正常文本处理——用户气泡正常出现，
-//    命令同时被 pi 执行（notify 系统提示出现）。
+// 2. 会话中发送已注册扩展命令 /uidemo：pi 拦截直接执行 handler（notify 系统提示出现），
+//    不作为用户消息上屏（跟随 TUI 行为：命令被拦截执行，不进聊天列表）。
 // 3. dialog 子协议：/uidemo select 弹 ExtensionDialog，应答后 handler notify 回显结果。
 //
 // 依赖真实 pi 进程（本地扩展经 -e 加载），按 PI_E2E=1 门控，CI 默认跳过。
@@ -117,7 +117,7 @@ test.describe.serial("ext-ui-bridge-demo 本地扩展", () => {
     await expect(page.getByTestId("cmd-row-uidemo")).toBeVisible({ timeout: 20_000 });
   });
 
-  test("发送 /uidemo 用户气泡正常出现，命令同时执行", async ({ page }) => {
+  test("发送 /uidemo 不出现用户消息气泡，命令确实执行", async ({ page }) => {
     const sessionId = await spawnSession();
     await page.goto("/");
     await page.waitForTimeout(500);
@@ -139,16 +139,16 @@ test.describe.serial("ext-ui-bridge-demo 本地扩展", () => {
     await page.keyboard.press("Escape"); // 收起 / 菜单，避免干扰发送
     await page.getByTestId("composer-send").click();
 
-    // 正向控制：命令确实被 pi 执行（handler 的 ctx.ui.notify 桥接为系统提示）
+    // 正向控制：命令确实被 pi 拦截执行（handler 的 ctx.ui.notify 桥接为系统提示）
     await expect(
       page.locator('[data-testid^="custom-"]:has-text("手动 notify")').first(),
     ).toBeVisible({ timeout: 20_000 });
 
-    // 核心断言：用户气泡正常出现（扩展命令按正常文本处理）
-    await expect(page.getByText("/uidemo notify")).toBeVisible();
+    // 核心断言：pi 拦截执行的扩展命令不作为用户消息上屏（跟随 TUI 行为）
+    await expect(page.getByText("/uidemo notify")).toHaveCount(0);
   });
 
-  test("内置插件命令（/mcp，pi-mcp-adapter）用户气泡同样正常出现", async ({ page }) => {
+  test("内置插件命令（/mcp，pi-mcp-adapter）同样不出现用户消息气泡", async ({ page }) => {
     const sessionId = await spawnSession();
     await page.goto("/");
     await page.waitForTimeout(500);
@@ -166,9 +166,9 @@ test.describe.serial("ext-ui-bridge-demo 本地扩展", () => {
     await page.keyboard.press("Escape");
     await page.getByTestId("composer-send").click();
 
-    // 等一小段时间让回显/命令副作用落地，再断言用户气泡出现
+    // 等一小段时间让潜在的回显/命令副作用落地，再断言无用户气泡
     await page.waitForTimeout(3000);
-    await expect(page.getByText("/mcp")).toBeVisible();
+    await expect(page.getByText("/mcp")).toHaveCount(0);
   });
 
   test("扩展 dialog 子协议：/uidemo select 弹窗应答后 notify 回显结果", async ({ page }) => {

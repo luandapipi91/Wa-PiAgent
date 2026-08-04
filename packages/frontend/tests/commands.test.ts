@@ -18,7 +18,7 @@ mock.module("../src/api-client", () => ({
 
 beforeEach(() => {
   mockData.commands = [];
-  useCommandsStore.setState({ commands: [], loading: false });
+  useCommandsStore.setState({ commands: [], allCommands: [], loading: false });
 });
 
 /** 触发 load 并等待 api.get 的 .then 微任务执行完 */
@@ -92,5 +92,24 @@ test("混合场景：只保留 enabled 的 extension + 全部 prompt/builtin，�
     "goal",
     "myreview",
     "compact",
+  ]);
+});
+
+test("allCommands 保留未过滤全量（含关闭开关的 extension 与 skill，供发送判定用）", async () => {
+  mockData.commands = [
+    { name: "goal", source: "extension", packageName: "pkg-a", enabled: true },
+    { name: "review", source: "extension", packageName: "pkg-b", enabled: false },
+    { name: "myreview", source: "prompt" },
+    { name: "myskill", source: "skill" },
+  ];
+  await loadAndSettle();
+  // / 菜单只剩开启的 extension + prompt
+  expect(useCommandsStore.getState().commands.map((c) => c.name)).toEqual(["goal", "myreview"]);
+  // allCommands 全量保留（关闭开关的 review、skill 都在）
+  expect(useCommandsStore.getState().allCommands.map((c) => c.name)).toEqual([
+    "goal",
+    "review",
+    "myreview",
+    "myskill",
   ]);
 });

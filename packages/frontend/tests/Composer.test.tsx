@@ -16,6 +16,7 @@ mock.module("../src/api-client", () => ({
 }));
 
 import { Composer } from "../src/components/Composer";
+import { useCommandsStore } from "../src/store/commands";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
 import { useProjectsStore } from "../src/store/projects";
 import { useProvidersStore } from "../src/store/providers";
@@ -54,6 +55,7 @@ describe("Composer", () => {
       loadedBySession: {},
     });
     useSessionStore.setState({ messagesBySession: {}, streamingBySession: {}, statusBySession: {}, optimisticEchoBySession: {} });
+    useCommandsStore.setState({ commands: [], allCommands: [], loading: false });
     useSkillsStore.setState({
       skills: [], allSkills: [], dirs: [], disabledSkills: [], builtinDir: "", loading: false,
       load: () => {}, setAll: () => {}, toggleSkill: () => {}, addDir: () => {}, removeDir: () => {},
@@ -186,6 +188,75 @@ describe("Composer", () => {
     expect(s.streamingBySession["s1"]).toBeTruthy();
     expect(s.statusBySession["s1"]).toBe("thinking");
     expect(s.optimisticEchoBySession["s1"]).toBe(true);
+  });
+
+  it("已注册扩展命令（/uidemo）：不乐观插入用户消息，仍原样发给 kernel", () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+    // / 菜单命令清单含扩展命令 uidemo（已开启）
+    useCommandsStore.setState({
+      commands: [{ name: "uidemo", source: "extension", packageName: "ext-ui-bridge-demo", enabled: true }],
+      allCommands: [{ name: "uidemo", source: "extension", packageName: "ext-ui-bridge-demo", enabled: true }],
+      loading: false,
+    });
+
+    render(<Composer sessionId="s1" agentName="dev" />);
+    typeIntoComposer("/uidemo notify");
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    const s = useSessionStore.getState();
+    // pi 对已注册扩展命令拦截执行、不产生 user 回声 → 聊天列表不应出现该用户消息
+    expect(s.messagesBySession["s1"] ?? []).toHaveLength(0);
+    expect(s.streamingBySession["s1"]).toBeFalsy();
+    expect(s.statusBySession["s1"]).toBeFalsy();
+    // 文本仍原样交给 kernel 分发
+    expect(lastPrompt()).toMatchObject({ text: "/uidemo notify" });
+  });
+
+  it("未注册 slash 文本（/unknown）：照常乐观插入（作为普通消息发给 LLM）", () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+    useCommandsStore.setState({
+      commands: [{ name: "uidemo", source: "extension", enabled: true }],
+      allCommands: [{ name: "uidemo", source: "extension", enabled: true }],
+      loading: false,
+    });
+
+    render(<Composer sessionId="s1" agentName="dev" />);
+    typeIntoComposer("/unknown 你好");
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    const s = useSessionStore.getState();
+    expect(s.messagesBySession["s1"]).toHaveLength(1);
+    expect((s.messagesBySession["s1"][0].message as any).content).toBe("/unknown 你好");
+  });
+
+  it("开关已关闭的扩展命令（不在 / 菜单但在 allCommands）：仍不乐观插入（pi 注册即拦截）", () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+    // goal 开关已关闭：/ 菜单（commands）不展示，但 allCommands 保留（pi 侧仍注册）
+    useCommandsStore.setState({
+      commands: [],
+      allCommands: [{ name: "goal", source: "extension", packageName: "pi-goal", enabled: false }],
+      loading: false,
+    });
+
+    render(<Composer sessionId="s1" agentName="dev" />);
+    typeIntoComposer("/goal 写个计划");
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    const s = useSessionStore.getState();
+    expect(s.messagesBySession["s1"] ?? []).toHaveLength(0);
+    expect(lastPrompt()).toMatchObject({ text: "/goal 写个计划" });
   });
 
   it("disabled=true 时 textarea 禁用、点发送不触发 agent:prompt", () => {

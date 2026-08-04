@@ -6,6 +6,41 @@
 
 ### 修复
 
+- **扩展命令不作为用户消息上屏（跟随 TUI 行为）**：已注册扩展命令（如
+  /uidemo、内置插件的 /goal）被 pi 拦截直接执行 handler，不写 transcript、
+  不发 user message 事件，但聊天窗会因两条通路多出一条不存在的用户消息：
+  a) kernel `agent:prompt` 无条件回传 `session:echo_user`（新会话页依赖此
+  回显）；b) 前端 `Composer.doSend` 空闲时无条件乐观插入。现 kernel 对
+  slash 文本延迟到 ensureStarted 后查命令清单（命中 extension 来源 → 不
+  回显；未注册 / prompt / skill 来源 / 查询失败 → 照常回显），前端
+  Composer 对命中命令清单的扩展命令跳过乐观插入（commands store 新增
+  未过滤的 `allCommands`，开关关闭的命令 pi 仍会拦截，口径与 kernel 一致）。
+  影响范围：`packages/kernel/src/ws-server.ts`、
+  `packages/frontend/src/store/commands.ts`、
+  `packages/frontend/src/components/Composer.tsx`、
+  `packages/kernel/tests/ws-agent-prompt-echo.test.ts`（新增）、
+  `packages/frontend/tests/Composer.test.tsx`、
+  `packages/frontend/tests/commands.test.ts`、
+  `packages/frontend/e2e/ext-ui-bridge-demo.spec.ts`。
+
+## [Unreleased] - 2026-08-04
+
+### 修复
+
+- **插件安装/卸载/升级后当前会话立即生效**：此前前端收到 `extension:changed`
+  只更新插件列表，`/` 菜单命令缓存不刷新，插件命令要等切换会话才出现；
+  设置页文案也仍是初版设计的"下次对话开始时生效"。现 `extension:changed`
+  事件追加刷新当前会话命令列表（kernel `getCommands` 脏感知：idle 脏会话
+  先重建 pi 进程再返回新清单），`$` 技能菜单本就走 `skill:changed` 实时刷新，
+  两处文案同步改为"当前对话立即生效"。busy 会话维持 deferred（下次发消息生效）。
+  影响范围：`packages/frontend/src/App.tsx`、
+  `packages/frontend/src/components/settings/ExtensionSection.tsx`、
+  `packages/frontend/tests/App.test.tsx`。
+
+## [Unreleased] - 2026-08-04
+
+### 修复
+
 - **扩展 dialog 弹窗仅允许手动取消**：此前点击遮罩/ESC 会以 cancelled 关闭
   弹窗，误触会让 pi 扩展 handler 拿到意外的取消。现 `ExtensionDialog`
   禁用遮罩点击与 ESC 关闭（`Modal` 新增 `closeOnEsc` prop，默认 true 不影响
