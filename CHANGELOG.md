@@ -6,6 +6,17 @@
 
 ### 修复
 
+- **compactionSummary 消息不再内联渲染摘要正文**：历史里的压缩节点此前渲染为
+  「—— 已压缩早期上下文 · {摘要全文} ——」，摘要本身是完整长篇 markdown
+  （Goal/Progress 等），内联展开直接刷屏。现在只渲染居中提示
+  「—— 已压缩早期上下文 ——」。
+  影响范围：`packages/frontend/src/components/MessageList.tsx`、
+  `packages/frontend/tests/MessageList.test.tsx`。
+
+## [Unreleased] - 2026-08-04
+
+### 修复
+
 - **冷会话点开后「窗口占比」胶囊不显示**：点开会话时前端并行拉 /messages +
   /stats，而后台预热（session:messages 的 ensureStarted）要 5-10s——stats 落在
   降级路径没有 contextUsage，且预热完成后无任何通知，占比要等下一回合

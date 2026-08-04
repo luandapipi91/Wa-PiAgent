@@ -12,6 +12,7 @@ import { useProvidersStore } from "../store/providers";
 import { useSkillsStore } from "../store/skills";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { api } from "../api-client";
+import { fmtTok } from "../util/format";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -638,14 +639,19 @@ const MessageRow = memo(function MessageRow({
 	}
 
 	// 上下文压缩摘要消息（role=compactionSummary）：历史重拉时从 jsonl compaction 节点读出，
-	// 表示「此前的对话被压缩成摘要」。居中系统提示样式，与 custom 消息一致。
+	// 与 live 的 compaction_end 状态消息同一文案（jsonl 不持久化 estimatedTokensAfter，
+	// 两边只一致展示 tokensBefore）。摘要是长篇 markdown，不内联渲染。
 	if (m.role === "compactionSummary") {
+		const before =
+			typeof m.tokensBefore === "number"
+				? ` · 压缩前 ${fmtTok(m.tokensBefore)} token`
+				: "";
 		return (
 			<div
 				className="text-center text-[calc(11.5px*var(--font-scale))] text-tertiary"
 				data-testid={`compaction-summary-${sessionId}-${m.timestamp}`}
 			>
-				{`—— 已压缩早期上下文 · ${m.summary ?? ""} ——`}
+				{`—— 已压缩早期上下文${before} ——`}
 			</div>
 		);
 	}
