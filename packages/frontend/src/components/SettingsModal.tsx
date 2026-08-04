@@ -1,5 +1,6 @@
 import { Modal } from "./ui/Modal";
 import { GeneralSection } from "./settings/GeneralSection";
+import { DiagnosticsSection } from "./settings/DiagnosticsSection";
 import { ProviderSection } from "./settings/ProviderSection";
 import { SkillSection } from "./settings/SkillSection";
 import { ExtensionSection } from "./settings/ExtensionSection";
@@ -68,6 +69,14 @@ export function SettingsModal({ onClose }: Props) {
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-mcp"
           >MCP 连接器</button>
+          <button
+            onClick={() => setSection("diagnostics")}
+            className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
+            style={activeSection === "diagnostics"
+              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              : { color: "var(--secondary)" }}
+            data-testid="settings-nav-diagnostics"
+          >诊断</button>
         </nav>
         {/* 右侧内容 */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -77,6 +86,7 @@ export function SettingsModal({ onClose }: Props) {
           {activeSection === "plugins" && <ExtensionSection />}
           {activeSection === "memory" && <MemorySection />}
           {activeSection === "mcp" && <McpSection />}
+          {activeSection === "diagnostics" && <DiagnosticsSection />}
         </div>
       </div>
     </Modal>

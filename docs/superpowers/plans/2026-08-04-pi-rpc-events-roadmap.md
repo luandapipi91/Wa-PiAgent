@@ -54,7 +54,6 @@
 | --- | --- | --- | --- | --- |
 | **扩展错误可视化**（`extension_error` 接入诊断面板 + 可选的 toast） | 扩展/bridge 工具失败现在是静默的（仅 stderr tail），用户和客服都无法定位 | 扩展错误 100% 可见；错误定位时间 < 5min | High | 需要诊断面板形态决策（复用设置页 vs 新增） |
 | **扩展状态展示**（`setStatus`/`setWidget`/`setTitle` 接入 footer/widget 区域） | pi 扩展会通过 fire-and-forget UI 反馈状态（如 "/lens 分析中"），GUI 宿主丢弃导致扩展用户无感知 | 扩展状态展示覆盖率 ≥ 80%；扩展开发者反馈满意度 | Med | 需要 Design 定义 widget 区域视觉 |
-| **重试用户干预**（发送 `abort_retry` 命令 + 重试状态条上提供"取消"按钮） | 用户看到重试提示后需要能立即中止，而非等 maxAttempts 耗尽 | 重试期取消可用率 100%；用户中断后恢复响应 < 1s | Med | 依赖 Initiative 1 先落地状态条 |
 
 ---
 
@@ -77,6 +76,7 @@
 
 | Request | Source | Reason for Deferral | Revisit Condition |
 | --- | --- | --- | --- |
+| 对接 `abort_retry`（重试状态条加「取消重试」按钮） | Next #3 技术评估（2026-08-04） | 功能冗余：pi 源码 `abort()` 第一行即 `abortRetry()`，「停止」是「取消重试」的超集；abort_retry 唯一生效窗口（退避等待期）内两者结果完全一致 | 出现「放弃重试但允许压缩恢复继续跑」的真实场景时 |
 | 对接 `bash` RPC 命令（`bash`/`abort_bash`/`bash_execution_update`） | 协议能力盘点 | 项目刻意走工具调用而非直接 bash 命令，`bash_execution_update` 实际不会产生 | 未来需要"用户手动注入 shell 输出到上下文"场景时 |
 | 对接 `export_html` | 协议能力盘点 | 桌面端有更好的导出渠道（截图/复制/分享），HTML 导出对桌面价值低 | 出现"完整会话归档"产品需求 |
 | 对接 `set_editor_text` 回填 | 协议能力盘点 | 桌面端输入框有自己的状态管理，被 pi 侧覆盖会破坏 UX | 扩展需要"预填用户输入"场景被证实 |
@@ -93,9 +93,9 @@
 | --- | --- | --- | --- |
 | `agent_start` | ✅ 已对接 | agent-manager（busy）/ 前端（thinking） | — |
 | `agent_end` | ✅ 已对接 | agent-manager（耗时）/ 前端（idle） | — |
-| `agent_settled` | ⚠️ 处理但类型缺失 | agent-manager（drain）/ subagent-runner | Now #2 |
-| `turn_start` | ❌ 未对接（显式忽略） | 前端 default 分支 | Later（遥测） |
-| `turn_end` | ❌ 未对接（显式忽略） | 前端 default 分支 | Later（遥测） |
+| `agent_settled` | ✅ 已对接 | agent-manager（busy/drain）/ subagent-runner / 前端（思考态兜底复位） | — |
+| `turn_start` | ✅ 已对接（类型完整，前端显式忽略） | 前端 store（no-op，消息流由 message_* 驱动） | Later（遥测） |
+| `turn_end` | ✅ 已对接（类型完整，前端显式忽略） | 前端 store（no-op，message/toolResults 与 message_end 重复不合并） | Later（遥测） |
 | `message_start` | ✅ 已对接 | 前端 store | — |
 | `message_update` | ✅ 已对接 | 前端 store + 节流 + rAF | — |
 | `message_end` | ✅ 已对接 | agent-manager / sdk-errors / 前端 | — |
@@ -104,14 +104,14 @@
 | `tool_execution_update` | ❌ 未对接 | 无任何 case | Later |
 | `tool_execution_end` | ✅ 已对接 | subagent-runner / 诊断日志 | — |
 | `queue_update` | ✅ 已对接 | agent-manager（本地队列覆写）/ 前端 | — |
-| `compaction_start` | ❌ 未对接 | — | Now #1 |
-| `compaction_end` | ❌ 未对接 | — | Now #1 |
+| `compaction_start` | ✅ 已对接 | 前端 store（「正在压缩上下文…」状态消息） | Now #1（实质已完成） |
+| `compaction_end` | ✅ 已对接 | 前端 store（结果替换 + token 刷新） | Now #1（实质已完成） |
 | `auto_retry_start` | ✅ 已对接 | 前端 store（重试期间保持 thinking） | Now #1（状态条待做） |
 | `auto_retry_end` | ✅ 已对接 | 前端 store（success:false 复位 idle） | Now #1（状态条待做） |
-| `summarization_retry_scheduled` | ❌ 未对接 | — | Now #1 |
-| `summarization_retry_attempt_start` | ❌ 未对接 | — | Now #1 |
-| `summarization_retry_finished` | ❌ 未对接 | — | Now #1 |
-| `extension_error` | ❌ 未对接 | — | Next #1 |
+| `summarization_retry_scheduled` | ✅ 已对接 | 前端 store（复用 retryBySession 黄条） | Now #1（实质已完成） |
+| `summarization_retry_attempt_start` | ✅ 已对接 | 前端 store（显式 no-op，状态保持到 finished） | Now #1（实质已完成） |
+| `summarization_retry_finished` | ✅ 已对接 | 前端 store（清重试进度） | Now #1（实质已完成） |
+| `extension_error` | ✅ 已对接 | 前端 store（toast + 诊断区块） | Next #1（已完成） |
 
 ### extension_ui_request 子协议
 
@@ -119,13 +119,13 @@
 | --- | --- | --- |
 | `select`/`confirm`/`input`/`editor`/`custom` | ✅ 已对接（dialog → 前端 ask 链路） | — |
 | `notify` | ✅ 已对接（→ `extension_notify` toast） | — |
-| `setStatus` | ❌ 只回 cancelled 兜底 | Next #2 |
-| `setWidget` | ❌ 只回 cancelled 兜底 | Next #2 |
-| `setTitle` | ❌ 只回 cancelled 兜底 | Next #2 |
+| `setStatus` | ✅ 已对接（→ 底部全局状态栏） | Next #2（已完成） |
+| `setWidget` | ✅ 已对接（→ Composer 上/下文本块） | Next #2（已完成） |
+| `setTitle` | ✅ 已对接（→ 聊天窗顶部状态条，不写 document.title） | Next #2（已完成） |
 | `set_editor_text` | ❌ 只回 cancelled 兜底 | 不做 |
 
 ### 未发送的 RPC 命令
 
 `cycle_model`、`cycle_thinking_level`、`get_available_thinking_levels`、`abort_retry`、`bash`/`abort_bash`、`export_html`、`fork`/`clone`/`get_fork_messages`、`get_entries`/`get_tree`、`set_session_name`
 
-→ `abort_retry` 归 Next #3；会话树类归 Later；其余进不做清单（理由见上）。
+→ `abort_retry` 经评估归不做清单（与「停止」功能冗余，见上）；会话树类归 Later；其余进不做清单（理由见上）。

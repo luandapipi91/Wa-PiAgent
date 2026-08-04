@@ -114,6 +114,27 @@ test("fire-and-forget UI 请求（notify）不阻塞、不要求响应，且转�
 	expect((notify as any).notifyType).toBeUndefined();
 });
 
+test("setStatus/setWidget/setTitle 桥接为 extension_status/widget/title 事件（ANSI 转义码剥离）", async () => {
+	const { client, events } = makeClient();
+	await client.start();
+	await client.command({ type: "ui_fire_and_forget" });
+	const status = events.find((e) => e.type === "extension_status");
+	expect(status).toBeTruthy();
+	expect((status as any).statusKey).toBe("pi-lens");
+	expect((status as any).statusText).toBe("分析中 (3/5)");
+	const widget = events.find((e) => e.type === "extension_widget");
+	expect(widget).toBeTruthy();
+	// fixture 首行带 \u001b[38;5;241m...\u001b[39m（pi 扩展 theme 着色）：必须剥离
+	expect((widget as any).widgetLines).toEqual([
+		"[No agent selected]",
+		"进度 4/6",
+	]);
+	expect((widget as any).widgetPlacement).toBe("aboveEditor");
+	const title = events.find((e) => e.type === "extension_title");
+	expect(title).toBeTruthy();
+	expect((title as any).title).toBe("分析中");
+});
+
 test("stdout 行内 U+2028/U+2029 不造成错误断行", async () => {
 	const { client } = makeClient();
 	await client.start();

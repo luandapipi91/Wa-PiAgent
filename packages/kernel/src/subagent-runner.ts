@@ -1,8 +1,6 @@
-// subagent-runner.ts — 一次性 pi rpc 子进程执行子智能体
-//
-// RPC 迁移后不再经过 pi-open-agents 的 runSubagent（SDK 形态），
-// 改为 kernel 直接 spawn 一个临时 `pi --mode rpc --no-session` 子进程：
-// 发送任务 → 收集事件流转进度 → agent_settled 后取最终回复 → 销毁进程。
+// subagent-runner.ts — 一次性 pi rpc 子进程执行子智能体（wa-pi 自实现，
+// 不依赖 pi-open-agents：kernel 直接 spawn 临时 `pi --mode rpc --no-session`
+// 子进程，发送任务 → 收集事件流转进度 → agent_settled 后取最终回复 → 销毁进程）。
 //
 // 职责：
 // 1. 把 WaPiSpawnConfig 翻译成 pi CLI 参数（--system-prompt/--tools/--skill/--model/--thinking）

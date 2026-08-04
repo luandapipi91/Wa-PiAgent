@@ -363,6 +363,200 @@ test("重试全流程：agent_end{willRetry:true} → auto_retry_start → agent
 	expect(s.retryBySession["s1"]).toBeUndefined();
 });
 
+// ── agent_settled：会话级运行完全终结，思考态兜底复位 ──
+
+test("agent_settled：thinking 时兜底复位 idle（agent_end 缺失的异常路径）", () => {
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		thinkingSinceBySession: { s1: 333 },
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent("s1", envelope({ type: "agent_settled" }));
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("idle");
+	expect(s.thinkingSinceBySession["s1"]).toBeNull();
+});
+
+test("agent_settled：已空闲则不产生状态变更（避免无效渲染）", () => {
+	useSessionStore.setState({
+		statusBySession: { s1: "idle" },
+		streamingBySession: { s1: null },
+	});
+	const before = useSessionStore.getState();
+	useSessionStore
+		.getState()
+		.handleSDKEvent("s1", envelope({ type: "agent_settled" }));
+	const after = useSessionStore.getState();
+	expect(after.statusBySession).toBe(before.statusBySession);
+	expect(after.streamingBySession).toBe(before.streamingBySession);
+});
+
+// ── turn_start / turn_end：显式忽略（消息流已由 message_* 驱动）──
+
+test("turn_start / turn_end：不改变消息与状态（显式忽略）", () => {
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		thinkingSinceBySession: { s1: 444 },
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent("s1", envelope({ type: "turn_start" }));
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({
+				type: "turn_end",
+				message: { role: "assistant", content: [] } as any,
+				toolResults: [],
+			}),
+		);
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("thinking");
+	expect(s.thinkingSinceBySession["s1"]).toBe(444);
+	expect(s.messagesBySession["s1"]).toBeUndefined();
+});
+
+// ── summarization_retry_*：压缩/分支摘要重试，复用重试状态条 ──
+
+test("summarization_retry_scheduled：记录重试进度（驱动黄色状态条）", () => {
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({
+				type: "summarization_retry_scheduled",
+				attempt: 1,
+				maxAttempts: 3,
+				delayMs: 2000,
+				errorMessage: "terminated",
+			}),
+		);
+	expect(useSessionStore.getState().retryBySession["s1"]).toEqual({
+		attempt: 1,
+		maxAttempts: 3,
+	});
+});
+
+test("summarization_retry_attempt_start：不动重试状态（保持到 finished）", () => {
+	useSessionStore.setState({
+		retryBySession: { s1: { attempt: 1, maxAttempts: 3 } },
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({
+				type: "summarization_retry_attempt_start",
+				source: "compaction",
+				reason: "threshold",
+			}),
+		);
+	expect(useSessionStore.getState().retryBySession["s1"]).toEqual({
+		attempt: 1,
+		maxAttempts: 3,
+	});
+});
+
+test("summarization_retry_finished：清除重试进度；无重试时不产生状态变更", () => {
+	useSessionStore.setState({
+		retryBySession: { s1: { attempt: 2, maxAttempts: 3 } },
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent("s1", envelope({ type: "summarization_retry_finished" }));
+	expect(useSessionStore.getState().retryBySession["s1"]).toBeUndefined();
+
+	// 已无重试状态：不再 set（避免无效渲染）
+	const before = useSessionStore.getState();
+	useSessionStore
+		.getState()
+		.handleSDKEvent("s1", envelope({ type: "summarization_retry_finished" }));
+	expect(useSessionStore.getState().retryBySession).toBe(
+		before.retryBySession,
+	);
+});
+
+// ── extension_error / setStatus / setWidget / setTitle ──
+
+test("extension_error：写入诊断列表 + error toast", async () => {
+	const { useDiagnosticsStore } = await import("../src/store/diagnostics");
+	const { useToastStore } = await import("../src/store/toast");
+	useDiagnosticsStore.setState({ entries: [] });
+	useToastStore.setState({ toasts: [] });
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "extension_error",
+			extensionPath: "/Users/x/.wa-pi/extensions/pi-lens.ts",
+			event: "tool_call",
+			error: "ENOENT: no such file",
+		}),
+	);
+	const entries = useDiagnosticsStore.getState().entries;
+	expect(entries).toHaveLength(1);
+	expect(entries[0].extension).toBe("pi-lens"); // basename 去扩展名
+	expect(entries[0].event).toBe("tool_call");
+	const toasts = useToastStore.getState().toasts;
+	expect(toasts).toHaveLength(1);
+	expect(toasts[0].type).toBe("error");
+	expect(toasts[0].message).toContain("pi-lens");
+	expect(toasts[0].message).toContain("ENOENT");
+});
+
+test("extension_status：按 key 维护状态条目，空文案清除", () => {
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "extension_status",
+			statusKey: "pi-lens",
+			statusText: "分析中 (3/5)",
+		}),
+	);
+	expect(useSessionStore.getState().extStatusBySession["s1"]).toEqual({
+		"pi-lens": "分析中 (3/5)",
+	});
+	// 空 statusText = 清除该 key
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({ type: "extension_status", statusKey: "pi-lens" }),
+	);
+	expect(useSessionStore.getState().extStatusBySession["s1"]).toEqual({});
+});
+
+test("extension_widget：按 key 维护文本块（默认 aboveEditor），空 lines 清除", () => {
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "extension_widget",
+			widgetKey: "pi-goal",
+			widgetLines: ["── 目标 ──", "进度 4/6"],
+		}),
+	);
+	expect(useSessionStore.getState().extWidgetBySession["s1"]).toEqual({
+		"pi-goal": {
+			lines: ["── 目标 ──", "进度 4/6"],
+			placement: "aboveEditor",
+		},
+	});
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({ type: "extension_widget", widgetKey: "pi-goal" }),
+	);
+	expect(useSessionStore.getState().extWidgetBySession["s1"]).toEqual({});
+});
+
+test("extension_title：记录会话级标题", () => {
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({ type: "extension_title", title: "pi-lens 分析中" }),
+	);
+	expect(useSessionStore.getState().extTitleBySession["s1"]).toBe(
+		"pi-lens 分析中",
+	);
+});
+
 test("agent_end 清掉 optimisticSend 的 pending 占位（扩展命令无 agent turn 场景）", () => {
 	// 模拟发送 /mcp-auth 这类扩展命令：乐观占位后没有任何 agent 事件，
 	// kernel 合成的 agent_end 必须把 thinking + loading 气泡一起复位

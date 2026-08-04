@@ -6,7 +6,8 @@ export type SettingsSection =
 	| "skills"
 	| "plugins"
 	| "memory"
-	| "mcp";
+	| "mcp"
+	| "diagnostics";
 
 interface SettingsState {
 	showSettings: boolean;

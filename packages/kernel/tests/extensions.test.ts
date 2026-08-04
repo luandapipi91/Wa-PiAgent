@@ -8,11 +8,11 @@ test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension
   const paths = buildAdditionalExtensionPaths();
 
   // npm 包入口必须存在且解析到实际 .ts 文件
-  const subagents = paths.find((p) => p.includes("pi-open-agents"));
   const webAccess = paths.find((p) => p.includes("pi-web-access"));
-  expect(subagents).toBeTruthy();
+  const mcpAdapter = paths.find((p) => p.includes("pi-mcp-adapter"));
   expect(webAccess).toBeTruthy();
-  for (const p of [subagents, webAccess]) {
+  expect(mcpAdapter).toBeTruthy();
+  for (const p of [webAccess, mcpAdapter]) {
     expect(p!.endsWith(".ts")).toBe(true);
     expect(existsSync(p!)).toBe(true);
   }
@@ -49,8 +49,8 @@ test("buildAdditionalExtensionPaths: 不存在 / 非 Pi 扩展的包被跳过且
   expect(after).toEqual(before);
 });
 
-test("内置扩展清单：含 pi-open-agents，不含 pi-intercom", async () => {
+test("内置扩展清单：不含已移除的 pi-open-agents / 不含 pi-intercom", async () => {
   const paths = buildAdditionalExtensionPaths([]);
-  expect(paths.some(p => p.includes("pi-open-agents"))).toBe(true);
+  expect(paths.some(p => p.includes("pi-open-agents"))).toBe(false);
   expect(paths.some(p => p.includes("pi-intercom"))).toBe(false);
 });

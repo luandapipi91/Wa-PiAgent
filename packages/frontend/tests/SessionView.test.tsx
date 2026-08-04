@@ -535,3 +535,47 @@ test("token 胶囊：无 usage 时不显示", () => {
   render(<SessionView sessionId="s1" />);
   expect(screen.queryByTestId("token-capsules")).toBeNull();
 });
+
+test("扩展 setStatus：聊天列底部状态栏（右对齐），清空后消失", async () => {
+  useSessionStore.setState({
+    extStatusBySession: { s1: { "pi-lens": "分析中 (3/5 文件)" } },
+  });
+  await renderSessionView("s1");
+  const bar = screen.getByTestId("ext-status-bar");
+  expect(bar.textContent).toContain("分析中 (3/5 文件)");
+  // 右对齐（只占中间聊天列，不跨侧栏/文件树）
+  expect(bar.className).toContain("justify-end");
+
+  act(() => {
+    useSessionStore.setState({ extStatusBySession: {} });
+  });
+  expect(screen.queryByTestId("ext-status-bar")).toBeNull();
+});
+
+test("扩展 setWidget：aboveEditor 在 Composer 上方、belowEditor 在下方渲染", async () => {
+  useSessionStore.setState({
+    extWidgetBySession: {
+      s1: {
+        "pi-goal": { lines: ["── 目标 ──", "进度 4/6"], placement: "aboveEditor" as const },
+        "pi-lens": { lines: ["上次分析：3 个文件"], placement: "belowEditor" as const },
+      },
+    },
+  });
+  await renderSessionView("s1");
+  // 默认收起：显示 key + 首行预览，不占完整高度；多行内容（第二行）不可见
+  const goal = screen.getByTestId("ext-widget-pi-goal");
+  expect(goal.textContent).toContain("pi-goal");
+  expect(goal.textContent).toContain("── 目标 ──");
+  expect(goal.textContent).not.toContain("进度 4/6");
+  // 单行 widget 收起时预览即全文
+  expect(screen.getByTestId("ext-widget-pi-lens").textContent).toContain("上次分析：3 个文件");
+
+  // 点击展开后可见全部内容，且内容框背景透明（不带 bg-surface-elevated）
+  fireEvent.click(goal.querySelector("button")!);
+  expect(goal.textContent).toContain("进度 4/6");
+  expect(goal.innerHTML).not.toContain("bg-surface-elevated");
+
+  // 再次点击收起，完整内容消失，恢复一行摘要
+  fireEvent.click(goal.querySelector("button")!);
+  expect(goal.textContent).not.toContain("进度 4/6");
+});

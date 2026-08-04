@@ -66,12 +66,14 @@ export function resolveExtensionEntryFile(pkgName: string, req = require): strin
 /**
  * 第三方 npm Pi 扩展清单。
  * 加扩展：在此追加一行 + packages/kernel/package.json 加依赖。
+ *
+ * 注：pi-open-agents 已于 2026-08-04 移除——子代理执行为 wa-pi 自实现
+ * （subagent-runner 直接 spawn pi RPC 子进程），其进程内能力（原生 subagent
+ * 工具被 allowlist 屏蔽、/agent 命令、banner）均无消费，仅残留误报 banner。
  */
 const PKG_EXTENSIONS = [
-  "pi-open-agents",
   "pi-web-access",
   "pi-mcp-adapter",
-  "pi-cache-optimizer",
 ] as const;
 
 /**

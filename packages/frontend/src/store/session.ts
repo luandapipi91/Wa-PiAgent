@@ -8,6 +8,8 @@ import type {
 	SubagentProgressEvent,
 } from "@wa-pi/shared";
 import { useProjectsStore } from "./projects";
+import { useDiagnosticsStore, extensionNameFromPath } from "./diagnostics";
+import { useToastStore } from "./toast";
 import { StreamingBatcher } from "./streaming-batcher";
 import { fmtTok } from "../util/format";
 
@@ -68,6 +70,18 @@ interface SessionState {
 	// 顶部黄色状态条提示「正在自动重试 (n/m)」（优先于红色 degraded 条）；
 	// auto_retry_end（成功/耗尽/中止）或 agent_end{willRetry:false} 时清除。
 	retryBySession: Record<string, { attempt: number; maxAttempts: number } | null>;
+	// 扩展 ctx.ui.setStatus 状态条目：sessionId → statusKey → 文案，驱动底部状态栏。
+	extStatusBySession: Record<string, Record<string, string>>;
+	// 扩展 ctx.ui.setWidget 文本块：sessionId → widgetKey → 内容与位置，驱动 Composer 上/下 widget。
+	extWidgetBySession: Record<
+		string,
+		Record<
+			string,
+			{ lines: string[]; placement: "aboveEditor" | "belowEditor" }
+		>
+	>;
+	// 扩展 ctx.ui.setTitle：会话级标题，聊天窗顶部状态条展示（不写 document.title）。
+	extTitleBySession: Record<string, string | null>;
 	// 子代理进度：按 toolCallId 再按 agent 分组的 map。
 	// 结构：progressByToolCall[toolCallId][agent] = SubagentProgressEvent。
 	// 这样 delegate（单 agent）与 fleet（多 agent 共享同一 toolCallId）都能用同一结构：
@@ -248,6 +262,9 @@ export const useSessionStore = create<SessionState>((set) => {
 		contextUsageBySession: {},
 		netStatusBySession: {},
 		retryBySession: {},
+		extStatusBySession: {},
+		extWidgetBySession: {},
+		extTitleBySession: {},
 		progressByToolCall: {},
 		progressSessionByToolCall: {},
 		filePreview: null,
@@ -425,6 +442,9 @@ export const useSessionStore = create<SessionState>((set) => {
 				unreadBySession: {},
 				netStatusBySession: {},
 				retryBySession: {},
+				extStatusBySession: {},
+				extWidgetBySession: {},
+				extTitleBySession: {},
 				filePreview: null,
 			}),
 
@@ -901,6 +921,34 @@ export const useSessionStore = create<SessionState>((set) => {
 						};
 					});
 					break;
+				// 压缩/分支摘要的 LLM 重试（transient 失败后退避等待）：与 auto_retry
+				// 同构，复用 retryBySession 驱动同一黄色重试状态条。压缩本身的
+				// 「正在压缩上下文…」消息由 compaction_start/end 负责，互不冲突。
+				case "summarization_retry_scheduled":
+					set((s) => ({
+						retryBySession: {
+							...s.retryBySession,
+							[sessionId]: {
+								attempt: event.attempt,
+								maxAttempts: event.maxAttempts,
+							},
+						},
+					}));
+					break;
+				// 摘要重试的新尝试开始（退避结束、请求在途）：重试状态保持到
+				// summarization_retry_finished（与 auto_retry 行为一致），此处不动。
+				case "summarization_retry_attempt_start":
+					break;
+				// 摘要重试循环终结（成功或最终失败）：清除重试状态条。
+				// 最终失败由随后 compaction_end{errorMessage} 的文案呈现。
+				case "summarization_retry_finished":
+					set((s) => {
+						if (!s.retryBySession[sessionId]) return {};
+						const retryBySession = { ...s.retryBySession };
+						delete retryBySession[sessionId];
+						return { retryBySession };
+					});
+					break;
 				// 队列更新：steering / followUp 消息列表
 				case "queue_update":
 					set((s) => ({
@@ -1067,7 +1115,100 @@ export const useSessionStore = create<SessionState>((set) => {
 					}
 					break;
 				}
-				// turn_start/turn_end/tool_execution_* 暂不在 store 处理：渲染层不消费
+				// pi 会话级运行完全终结（重试/压缩重试/排队续跑全部结束）。
+				// 思考态兜底复位：正常已被 agent_end{willRetry:false} 复位，此处覆盖
+				// agent_end 缺失/乱序的异常路径，防思考态卡死。已空闲则不动，避免无效渲染。
+				case "agent_settled":
+					set((s) => {
+						if (
+							s.statusBySession[sessionId] !== "thinking" &&
+							s.thinkingSinceBySession[sessionId] == null
+						) {
+							return {};
+						}
+						return {
+							statusBySession: {
+								...s.statusBySession,
+								[sessionId]: "idle",
+							},
+							thinkingSinceBySession: {
+								...s.thinkingSinceBySession,
+								[sessionId]: null,
+							},
+						};
+					});
+					break;
+				// turn_start/turn_end：turn 粒度事件（一次 assistant 响应 + 工具调用）。
+				// 暂无 UI 消费（roadmap Later：turn 粒度遥测），显式忽略；
+				// 消息流已由 message_start/update/end 驱动，turn_end 的 message/toolResults
+				// 与之重复，不重复合并。
+				case "turn_start":
+				case "turn_end":
+					break;
+				// pi 扩展抛错：toast 即时提醒 + 写入诊断列表（系统设置 > 诊断 持久可查）。
+				case "extension_error": {
+					const extension = extensionNameFromPath(event.extensionPath);
+					useDiagnosticsStore.getState().add({
+						extension,
+						event: event.event,
+						error: event.error,
+					});
+					useToastStore
+						.getState()
+						.add(
+							`扩展 ${extension} 执行出错（${event.event}）：${event.error}`,
+							"error",
+						);
+					break;
+				}
+				// 扩展 setStatus：维护会话级状态条目（statusText 空 = 清除），驱动底部状态栏。
+				case "extension_status":
+					set((s) => {
+						const cur = { ...(s.extStatusBySession[sessionId] ?? {}) };
+						if (event.statusText && event.statusText.trim()) {
+							cur[event.statusKey] = event.statusText;
+						} else {
+							delete cur[event.statusKey];
+						}
+						return {
+							extStatusBySession: {
+								...s.extStatusBySession,
+								[sessionId]: cur,
+							},
+						};
+					});
+					break;
+				// 扩展 setWidget：维护会话级文本块（widgetLines 空 = 清除），
+				// SessionView 在 Composer 上/下方渲染。
+				case "extension_widget":
+					set((s) => {
+						const cur = { ...(s.extWidgetBySession[sessionId] ?? {}) };
+						if (event.widgetLines && event.widgetLines.length > 0) {
+							cur[event.widgetKey] = {
+								lines: event.widgetLines,
+								placement: event.widgetPlacement ?? "aboveEditor",
+							};
+						} else {
+							delete cur[event.widgetKey];
+						}
+						return {
+							extWidgetBySession: {
+								...s.extWidgetBySession,
+								[sessionId]: cur,
+							},
+						};
+					});
+					break;
+				// 扩展 setTitle：会话级标题，聊天窗顶部状态条展示（不写 document.title）。
+				case "extension_title":
+					set((s) => ({
+						extTitleBySession: {
+							...s.extTitleBySession,
+							[sessionId]: event.title,
+						},
+					}));
+					break;
+				// tool_execution_* 等其他透传事件：渲染层不消费
 				default:
 					break;
 			}

@@ -93,6 +93,18 @@ export function SessionView({ sessionId }: Props) {
 	// 下面的 hooks 必须在 early return 之前调用，否则 session 在/不在两次渲染
 	// 调用的 hooks 数量不一致，触发 "Rendered fewer hooks than expected"。
 	const isRunning = status === "thinking";
+	// 扩展 setStatus 状态条目：聊天列底部状态栏（右对齐）
+	const extStatuses = useSessionStore((s) => s.extStatusBySession[sessionId]);
+	const extStatusEntries = extStatuses ? Object.entries(extStatuses) : [];
+	// 扩展 setWidget 文本块：按 placement 分组到 Composer 上/下方
+	const widgets = useSessionStore((s) => s.extWidgetBySession[sessionId]);
+	const widgetEntries = widgets ? Object.entries(widgets) : [];
+	const aboveWidgets = widgetEntries.filter(
+		([, w]) => w.placement !== "belowEditor",
+	);
+	const belowWidgets = widgetEntries.filter(
+		([, w]) => w.placement === "belowEditor",
+	);
 	const [stopping, setStopping] = useState(false);
 	useEffect(() => {
 		if (!isRunning) setStopping(false);
@@ -432,6 +444,15 @@ export function SessionView({ sessionId }: Props) {
 
 				<MessageList sessionId={sessionId} />
 				<AskDock sessionId={sessionId} />
+				{/* 扩展 setWidget（aboveEditor）：Composer 上方文本块 */}
+				{aboveWidgets.map(([key, w]) => (
+					<ExtWidget
+						key={key}
+						widgetKey={key}
+						lines={w.lines}
+						accentColor="var(--accent)"
+					/>
+				))}
 				<Composer
 					sessionId={sessionId}
 					agentName={session.primaryAgent}
@@ -439,6 +460,34 @@ export function SessionView({ sessionId }: Props) {
 					isNewSession={!messages || messages.length === 0}
 					disabled={isBlocked || reloading}
 				/>
+				{/* 扩展 setWidget（belowEditor）：Composer 下方文本块 */}
+				{belowWidgets.map(([key, w]) => (
+					<ExtWidget
+						key={key}
+						widgetKey={key}
+						lines={w.lines}
+						accentColor="var(--hairline-strong)"
+						className="mx-4 mt-2 mb-2"
+					/>
+				))}
+				{/* 扩展 setStatus：聊天列底部状态栏（右对齐，只占中间区域） */}
+				{extStatusEntries.length > 0 && (
+					<div
+						className="flex items-center justify-end gap-4 px-4 border-t border-hairline bg-surface-elevated text-[calc(11.5px*var(--font-scale))] text-secondary"
+						style={{ height: 26, flexShrink: 0 }}
+						data-testid="ext-status-bar"
+					>
+						{extStatusEntries.map(([key, text]) => (
+							<span key={key} className="flex items-center gap-1.5 min-w-0">
+								<span
+									className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
+									style={{ background: "var(--accent)" }}
+								/>
+								<span className="truncate">{text}</span>
+							</span>
+						))}
+					</div>
+				)}
 			</div>
 			{/* 右侧文件树面板：开关由 explorer store 控制；双击文件弹窗预览 */}
 			{explorerOpen && (
@@ -502,4 +551,57 @@ function ThinkingTimer({ thinkingSince }: { thinkingSince: number | null }) {
 		return () => clearInterval(timer);
 	}, [thinkingSince]);
 	return <>{elapsed}</>;
+}
+
+/**
+ * 扩展 setWidget 文本块：可折叠，默认收起为一行摘要，背景透明不遮挡对话内容。
+ * 收起时只占一行高度（箭头 + widget key + 首行预览），展开后显示完整等宽文本。
+ */
+function ExtWidget({
+	widgetKey,
+	lines,
+	accentColor,
+	className = "mx-4 mb-2",
+}: {
+	widgetKey: string;
+	lines: string[];
+	accentColor: string;
+	className?: string;
+}) {
+	const [collapsed, setCollapsed] = useState(true);
+
+	return (
+		<div className={className} data-testid={`ext-widget-${widgetKey}`}>
+			<button
+				type="button"
+				onClick={() => setCollapsed((v) => !v)}
+				className="flex w-full items-center gap-1.5 text-left text-[calc(11.5px*var(--font-scale))] text-tertiary transition-colors hover:text-secondary"
+			>
+				<span
+					className="inline-block text-[calc(9px*var(--font-scale))] transition-transform"
+					style={{
+						color: accentColor,
+						transform: collapsed ? "rotate(0deg)" : "rotate(90deg)",
+					}}
+				>
+					▶
+				</span>
+				<span className="font-mono">{widgetKey}</span>
+				{collapsed && (
+					<span className="min-w-0 flex-1 truncate text-secondary/60">
+						{lines[0]}
+						{lines.length > 1 ? ` · 共 ${lines.length} 行` : ""}
+					</span>
+				)}
+			</button>
+			{!collapsed && (
+				<div
+					className="mt-1 whitespace-pre-wrap rounded-md border border-hairline/50 px-3 py-2 font-mono text-[calc(12px*var(--font-scale))] text-secondary"
+					style={{ borderLeft: `3px solid ${accentColor}` }}
+				>
+					{lines.join("\n")}
+				</div>
+			)}
+		</div>
+	);
 }
