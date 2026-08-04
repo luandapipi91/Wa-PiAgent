@@ -41,6 +41,7 @@ import { spawn } from "node:child_process";
 import { extname, basename, join, resolve, sep } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
+import { extUiRegistry } from "./ext-ui-registry";
 import { handleBridgeRequest, handleBridgeStream } from "./bridge-registry";
 import {
 	appendChunk,
@@ -1914,6 +1915,24 @@ export class WSServer {
 				} catch (err) {
 					reply({ type: "error", message: (err as Error).message });
 				}
+				break;
+			}
+			case "extension:dialog:respond": {
+				// pi 扩展 dialog 应答：直达 ExtUiRegistry.respond（幂等；未知/已应答 id 报 400）
+				const ok = extUiRegistry.respond(event.requestId, {
+					value: event.value,
+					confirmed: event.confirmed,
+					cancelled: event.cancelled,
+				});
+				if (!ok) {
+					reply({
+						type: "error",
+						message: "对话不存在或已应答",
+						sessionId: event.sessionId,
+					});
+					break;
+				}
+				reply({ type: "extension:dialog:respond", ok: true });
 				break;
 			}
 			// ===== 记忆管理 =====

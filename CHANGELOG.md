@@ -4,6 +4,28 @@
 
 ## [Unreleased] - 2026-08-04
 
+### 新增功能
+
+- **对接 pi 扩展 dialog 子协议（kernel 侧）+ set_editor_text 事件转发**：
+  pi RPC 的 select/confirm/input/editor 对话请求此前一律 auto-cancel
+  （onUiRequest 无人提供）。现新增进程级单例 `ExtUiRegistry`（语义对齐
+  ask-registry）：agent-manager 注入 `onUiRequest`，注册 pending 后以
+  `extension_dialog` 事件（sdk:event 信封）广播前端；前端经
+  `POST /api/extensions/dialog/respond`（WS 事件 `extension:dialog:respond`）
+  应答，未知/已应答 id 返回 400「对话不存在或已应答」。
+  abort / _teardownSession / 进程崩溃均兜底 cancelAllForSession 防泄漏。
+  同时把 fire-and-forget 的 set_editor_text 桥接为 `extension_editor_text`
+  事件（转发语义：替换输入框内容，由前端 Composer 消费），并修正
+  `_fetchCommands` docstring 遗留的「附加 TUI 标记」表述。
+  影响范围：`packages/kernel/src/ext-ui-registry.ts`（新）、
+  `packages/kernel/src/agent-manager.ts`、`packages/kernel/src/ws-server.ts`、
+  `packages/kernel/src/routes/extensions.ts`、`packages/kernel/src/rpc-client.ts`、
+  `packages/shared/src/extensions.ts`、`packages/shared/src/types.ts`、
+  `packages/kernel/tests/ext-ui-registry.test.ts`（新）、
+  `packages/kernel/tests/routes-extensions-commands.test.ts`、
+  `packages/kernel/tests/rpc-client.test.ts`、
+  `packages/kernel/tests/fixtures/fake-pi.ts`。
+
 ### 重构
 
 - **删除 tuiOnly 静态扫描，仅保留 packageName 附加**：kernel

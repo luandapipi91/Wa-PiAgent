@@ -11,6 +11,7 @@
  */
 import { test, expect, beforeAll, afterAll, mock } from "bun:test";
 import { WSServer } from "../src/ws-server";
+import { extUiRegistry } from "../src/ext-ui-registry";
 
 // 可配置 spy 桩：每个测试通过 mockImplementation 覆盖行为
 const getCommandsSpy = mock(async (): Promise<any[]> => []);
@@ -205,6 +206,48 @@ test("POST toggle 成功 → 广播 extension:commands:changed（前端 / 菜单
 	const frame = await readSseFrameWithTimeout(reader);
 	expect(frame.type).toBe("extension:commands:changed");
 	reader.releaseLock();
+});
+
+test("POST /api/extensions/dialog/respond 缺 requestId → 400", async () => {
+	const res = await fetch(`${base}/api/extensions/dialog/respond`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ confirmed: true }),
+	});
+	expect(res.status).toBe(400);
+	expect((await res.json()).error).toBe("参数缺失");
+});
+
+test("POST /api/extensions/dialog/respond 未知/已应答 id → 400「对话不存在或已应答」", async () => {
+	const res = await fetch(`${base}/api/extensions/dialog/respond`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ requestId: "dlg-nope", cancelled: true }),
+	});
+	expect(res.status).toBe(400);
+	expect((await res.json()).error).toBe("对话不存在或已应答");
+});
+
+test("POST /api/extensions/dialog/respond 正常 body → 解决 registry pending 对话", async () => {
+	// 真实注册表：先挂起一个 pending 对话，POST 应答后 promise 应以业务字段解决
+	const pending = extUiRegistry.register("s1", {
+		type: "extension_ui_request",
+		id: "dlg-1",
+		method: "confirm",
+	});
+
+	const res = await fetch(`${base}/api/extensions/dialog/respond`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ requestId: "dlg-1", confirmed: true }),
+	});
+	expect(res.status).toBe(200);
+	expect(await res.json()).toEqual({
+		type: "extension:dialog:respond",
+		ok: true,
+	});
+	// toEqual 忽略 undefined 属性：ws case 透传的 value/cancelled 缺省不影响断言
+	await expect(pending).resolves.toEqual({ confirmed: true });
 });
 
 // ─── SSE 帧读取辅助（与 ws-extension-skill-refresh.test.ts 同模式）─────────────────
