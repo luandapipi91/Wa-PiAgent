@@ -54,7 +54,10 @@ export function parseExtensionInput(raw: string): ParsedInput | null {
     return { source: "npm", name: validated };
   }
 
-  if (input.startsWith("/") || input.startsWith("./") || input.startsWith("~/")) {
+  // Windows 绝对路径：盘符（C:\ 或 C:/）与 UNC（\\server\share）
+  const isWindowsAbs = /^[A-Za-z]:[\\/]/.test(input) || input.startsWith("\\\\");
+
+  if (input.startsWith("/") || input.startsWith("./") || input.startsWith("~/") || isWindowsAbs) {
     return { source: "local", name: input };
   }
 
@@ -71,11 +74,25 @@ export function parseExtensionInput(raw: string): ParsedInput | null {
 // packages/kernel/src/extension-manager.ts
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, resolve, isAbsolute } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { PackageInfo } from "@wa-pi/shared";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import { NpmPackageService } from "./npm-package-service";
 import { hasSkillMd } from "./skill-utils";
+
+/**
+ * 读取本地扩展包 package.json 的 name 字段，作为 local 插件的统一身份标识。
+ * 与命令扫描侧（tui-command-filter resolvePackageName，从 pi get_commands 的
+ * sourceInfo.path 推导包名）保持一致——pi 对 -e 加载的扩展不携带包名，两端只能
+ * 各自从 package.json 推导。读不到（无文件/无 name/解析失败）返回 undefined。
+ */
+function readLocalPkgName(dir: string): string | undefined {
+  try {
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    if (typeof pkg.name === "string" && pkg.name.length > 0) return pkg.name;
+  } catch {}
+  return undefined;
+}
 
 interface ExtensionSettings {
   npmCommand?: string[];
@@ -161,7 +178,12 @@ export class ExtensionManager {
         const name = atIdx > 0 ? rest.slice(0, atIdx) : rest;
         map.set(name, p);
       } else {
-        map.set(p, p);
+        // local 条目：以 package.json name 为身份主键（与命令扫描的 packageName、
+        // 前端列表展示名对齐），同时保留绝对路径别名——install 重复检测按原始
+        // 路径输入查找，旧数据 / API 按路径操作也仍能命中。
+        const pkgName = readLocalPkgName(p);
+        map.set(pkgName ?? p, p);
+        if (pkgName && pkgName !== p) map.set(p, p);
       }
     }
     return map;
@@ -210,7 +232,8 @@ export class ExtensionManager {
         return { name: p.slice(4), source: "git", enabled };
       }
       return {
-        name: p,
+        // local 条目身份统一为 package.json name（读不到时退化为路径）
+        name: readLocalPkgName(p) ?? p,
         source: "local",
         description: this.pkgService.getDescription(p) ?? undefined,
         enabled,
@@ -277,7 +300,10 @@ export class ExtensionManager {
     await this.writeSettings({ ...settings, waPiPackages: updated });
 
     return {
-      name: parsed.name,
+      // local 来源：身份用 package.json name（与 list()/extractNames 对齐），读不到退回原始输入
+      name: parsed.source === "local"
+        ? (readLocalPkgName(entry) ?? parsed.name)
+        : parsed.name,
       source: parsed.source,
       version,
       description: parsed.source === "npm" ? this.pkgService.getDescription(parsed.name) : undefined,

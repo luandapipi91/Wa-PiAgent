@@ -20,6 +20,36 @@
 
 ### 修复
 
+- **扩展命令两个 bug**：
+  1. 发送已注册扩展命令（如 /uidemo）后聊天窗不再出现用户消息气泡。
+     根因有两条插入通路：a) kernel `agent:prompt` 无条件回传
+     `session:echo_user`（新会话页依赖此回显）；b) 前端 `Composer.doSend`
+     空闲时无条件乐观插入用户消息。而 pi 官方行为是对注册扩展命令直接
+     执行 handler、不写 transcript、不发 user message 事件。现 kernel 侧
+     slash 文本延迟到 ensureStarted 后查命令清单（命中 extension 来源 →
+     不回显；未注册 / prompt / skill 来源 / 查询失败 → 照常回显），
+     前端 Composer 对命中命令清单的扩展命令跳过乐观插入，双通路闭合。
+  2. local 插件的命令在「附加命令」弹窗扫不到。根因有二：a) local 插件
+     身份不一致——ExtensionManager 以绝对路径为 name，而命令扫描侧
+     （官方 get_commands RPC + sourceInfo 推导）以 package.json name 为
+     packageName，前端按全等过滤永远为空；现 local 插件身份统一为
+     package.json name（extractNames 保留绝对路径别名，重复检测/旧数据
+     兼容）。b) `getCommands` 借用活跃进程不检查 dirty——安装扩展后旧
+     进程清单过期；现命中/借用 dirty 进程时先重建再取。
+  影响范围：`packages/kernel/src/ws-server.ts`、
+  `packages/kernel/src/extension-manager.ts`、
+  `packages/kernel/src/agent-manager.ts`、
+  `packages/frontend/src/components/Composer.tsx`、
+  `packages/kernel/tests/extension-manager.test.ts`、
+  `packages/kernel/tests/agent-manager.test.ts`、
+  `packages/kernel/tests/ws-agent-prompt-echo.test.ts`（新增）、
+  `packages/frontend/tests/Composer.test.tsx`、
+  `packages/frontend/e2e/ext-ui-bridge-demo.spec.ts`（新增，PI_E2E=1 门控）。
+
+## [Unreleased] - 2026-08-04
+
+### 修复
+
 - **/compact 不再显示为用户聊天消息**：`optimisticSend` 对 `/compact`（含自定义
   指令）跳过用户消息插入——kernel 已将其转 compact RPC 执行，pi 不产生 user
   回声，此前聊天列表会孤零零挂一条 "/compact"。思考态与占位 streaming 照常
@@ -27,6 +57,17 @@
   token」的失效检测（compaction_end 已是权威刷新点）。影响范围：
   `packages/frontend/src/store/session.ts`、
   `packages/frontend/tests/store-session.test.ts`。
+
+## [Unreleased] - 2026-08-04
+
+### 修复
+
+- **本地插件安装支持 Windows 路径**：`parseExtensionInput` 此前只识别 `/`、`./`、
+  `~/` 开头的本地路径，`H:\...` 盘符路径会落入 npm 包名校验被拒绝（报
+  「无效的插件名称格式」）。现新增盘符（`C:\` / `C:/`）与 UNC（`\\server\share`）
+  路径识别，Windows 本地路径可正常安装。
+  影响范围：`packages/kernel/src/extension-manager.ts`、
+  `packages/kernel/tests/extension-manager.test.ts`。
 
 ## [Unreleased] - 2026-08-04
 
