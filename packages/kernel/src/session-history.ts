@@ -22,6 +22,12 @@ interface SessionLogEntry {
 	parentId?: string | null;
 	timestamp?: string;
 	message?: unknown;
+	/** compaction 节点：压缩后保留的第一条 entry id（与 pi buildContextEntries 语义对齐） */
+	firstKeptEntryId?: string;
+	/** compaction 节点：压缩摘要文本 */
+	summary?: string;
+	/** compaction 节点：压缩前上下文 token 估算 */
+	tokensBefore?: number;
 }
 
 /**
@@ -182,14 +188,54 @@ export async function readSessionHistory(
 				typeof cur.parentId === "string" ? byId.get(cur.parentId) : undefined;
 		}
 		chain.reverse();
-		const msgs = chain
-			.filter((e) => e.type === "message" && e.message != null)
+
+		// 压缩感知：与 pi buildContextEntries 同语义——沿链找最新 compaction 节点，
+		// 若存在，被压缩的旧消息省略，上下文 = [compaction 摘要] + [firstKeptEntryId 之后
+		// 的旧消息] + [compaction 之后的新消息]。否则旧消息全部保留（未压缩会话）。
+		// pi 压缩是 append-only（compaction 节点后旧消息仍在链上），不感知的话
+		// 直读 jsonl 会把压缩前的全部 usage 累加进 token 累计、历史列表也不变。
+		let compaction: SessionLogEntry | undefined;
+		for (const e of chain) {
+			if (e.type === "compaction") compaction = e;
+		}
+		let visible = chain;
+		if (compaction) {
+			const cIdx = chain.findIndex((e) => e.id === compaction.id);
+			if (cIdx >= 0) {
+				const keptId = compaction.firstKeptEntryId;
+				const kept: SessionLogEntry[] = [];
+				let foundKept = false;
+				for (let i = 0; i < cIdx; i++) {
+					const e = chain[i];
+					if (typeof keptId === "string" && e.id === keptId) foundKept = true;
+					if (foundKept) kept.push(e);
+				}
+				visible = [compaction, ...kept, ...chain.slice(cIdx + 1)];
+			}
+		}
+
+		const msgs = visible
+			.filter(
+				(e): e is SessionLogEntry & { message: any; timestamp?: string } =>
+					e.type === "message" && e.message != null,
+			)
 			// 浅拷贝 + 附加行级落盘时刻（Pi 单块轮 assistant 消息在 prompt 时预创建，
 			// message.timestamp 不可靠 ≈ user 时刻；真实耗时在 jsonl 每行的落盘 timestamp）
 			.map((e) => ({
 				...(e.message as any),
 				_lineTs: e.timestamp ? Date.parse(e.timestamp) : undefined,
 			}));
+		// 压缩节点转摘要消息（与 pi createCompactionSummaryMessage 对齐：role=compactionSummary）
+		if (compaction && typeof (compaction as any).summary === "string") {
+			const c = compaction as any;
+			msgs.unshift({
+				role: "compactionSummary",
+				summary: c.summary,
+				tokensBefore: c.tokensBefore,
+				timestamp: c.timestamp ? Date.parse(c.timestamp) : undefined,
+				_lineTs: c.timestamp ? Date.parse(c.timestamp) : undefined,
+			});
+		}
 		// 过滤 transient error（网络/超时类临时错误）：这类错误是临时性的，
 		// 不应作为历史消息残留进对话流（刷新后会重新出现并堆积）。
 		// pi 已将其落盘，这里在读出时剔除——仅前端展示层过滤，JSONL 原文不动。
@@ -237,4 +283,64 @@ export async function readSessionHistory(
 			isSessionActive: opts?.isSessionActive,
 		}) as AgentMessage[],
 	);
+}
+
+/** 全会话 token 累计统计（含缓存读取/写入、压缩前的历史消耗）。 */
+export interface SessionUsageSummary {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	total: number;
+}
+
+/**
+ * 计算整个会话累计消耗的 token 数（供 UI「累计 xxx k」胶囊使用）。
+ *
+ * 与 readSessionHistory 的关键区别：readSessionHistory 为历史列表显示做压缩感知过滤
+ * （被压缩的旧消息省略），token 累计若基于它会丢失压缩前的消耗、看起来像
+ * 「当前上下文窗口占用」而非「累计消耗」；本函数扫描 jsonl 中全部 assistant
+ * message 的 usage（不做压缩过滤、不做分支过滤），口径对齐 pi RPC
+ * get_session_stats 的 tokens（input + output + cacheRead + cacheWrite）。
+ *
+ * usage 为 0 的条目（error 消息、pending 占位等）自然被跳过。
+ *
+ * @throws 文件不可读或没有任何有效 JSON 行——调用方应回退进程路径或返回空统计。
+ */
+export async function computeSessionUsage(
+	file: string,
+): Promise<SessionUsageSummary> {
+	const raw = await readFile(file, "utf8"); // ENOENT 等直接抛 → 调用方降级
+	let input = 0;
+	let output = 0;
+	let cacheRead = 0;
+	let cacheWrite = 0;
+	let sawAny = false;
+	for (const line of raw.split("\n")) {
+		if (!line.trim()) continue;
+		let e: any;
+		try {
+			e = JSON.parse(line);
+		} catch {
+			continue; // 坏行跳过（与 readSessionHistory 一致）
+		}
+		if (!e || typeof e !== "object" || e.type !== "message") continue;
+		const m = e.message;
+		if (!m || m.role !== "assistant" || !m.usage) continue;
+		sawAny = true;
+		input += m.usage.input ?? 0;
+		output += m.usage.output ?? 0;
+		cacheRead += m.usage.cacheRead ?? 0;
+		cacheWrite += m.usage.cacheWrite ?? 0;
+	}
+	if (!sawAny && raw.trim().length === 0) {
+		throw new Error(`会话文件无有效行: ${file}`);
+	}
+	return {
+		input,
+		output,
+		cacheRead,
+		cacheWrite,
+		total: input + output + cacheRead + cacheWrite,
+	};
 }

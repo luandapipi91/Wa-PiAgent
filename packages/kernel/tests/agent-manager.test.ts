@@ -58,12 +58,16 @@ afterEach(async () => {
 	for (const f of tmpPaths.splice(0)) {
 		try {
 			rmSync(f, { force: true, recursive: true });
-		} catch {}
+		} catch {
+			// 尽力清理临时文件，失败静默（不干扰测试结果）
+		}
 	}
 	for (const id of syspromptSessionIds.splice(0)) {
 		try {
 			rmSync(syspromptPath(id), { force: true });
-		} catch {}
+		} catch {
+			// 尽力清理系统提示词临时文件，失败静默
+		}
 	}
 });
 
@@ -123,7 +127,9 @@ async function setup(opts: SetupOpts = {}) {
 		createClientFn: opts.createClientFn ?? fakeClientFactory(fakes),
 		...(opts.memoryStore ? { memoryStore: opts.memoryStore } : {}),
 		...(opts.skillManager ? { skillManager: opts.skillManager } : {}),
-		...(opts.extensionManager ? { extensionManager: opts.extensionManager } : {}),
+		...(opts.extensionManager
+			? { extensionManager: opts.extensionManager }
+			: {}),
 	});
 	managers.push(am);
 	syspromptSessionIds.push(session.id);
@@ -137,11 +143,6 @@ function argValues(args: string[], flag: string): string[] {
 		if (args[i] === flag && i + 1 < args.length) out.push(args[i + 1]);
 	}
 	return out;
-}
-
-function lastQueueUpdate(events: CapturedEvent[]) {
-	const qu = [...events].reverse().find((x) => x.e.type === "queue_update");
-	return qu?.e as { steering: string[]; followUp: string[] } | undefined;
 }
 
 /** 慢启动工厂：start 延迟 ms 毫秒（并发 / dispose 竞态 / pendingAborts 用） */
@@ -341,6 +342,86 @@ test("prompt — agent 空闲且无排队 → 直接 prompt", async () => {
 	await am.prompt(session.id, "你好", { model: MODEL });
 
 	expect(fakes[0].prompted).toEqual(["你好"]);
+});
+
+// ─── /compact 压缩上下文命令 ───────────────────────────────────────────────
+// 背景：pi RPC 模式不解析内置斜杠命令（只有交互模式解析，见 pi.dev/docs/latest/rpc），
+// /compact 文本若按普通 prompt 发出会被当作 user 消息发给 LLM，压缩从不发生。
+// kernel 必须拦截 /compact 前缀并显式转 compact RPC。
+
+test("prompt — /compact 文本 → 调 compact RPC 而非 prompt（RPC 模式不解析内置斜杠命令）", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events });
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	await am.prompt(session.id, "/compact", { model: MODEL });
+
+	expect(fakes[0].prompted).toEqual([]); // 绝不能当普通消息发给 LLM
+	expect(fakes[0].compacted).toEqual([{ customInstructions: undefined }]);
+	// 压缩不产生 agent_start/agent_end：kernel 需合成 agent_end 让前端退出思考态 + 刷新 token
+	const types = events.map((x) => x.e.type);
+	expect(types).toContain("agent_end");
+});
+
+test("prompt — /compact 带自定义指令 → customInstructions 透传", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	await am.prompt(session.id, "/compact 只保留关键决策", { model: MODEL });
+
+	expect(fakes[0].prompted).toEqual([]);
+	expect(fakes[0].compacted).toEqual([
+		{ customInstructions: "只保留关键决策" },
+	]);
+});
+
+test("prompt — 非 /compact 前缀（如 /compactify）不受影响，正常走 prompt", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	await am.prompt(session.id, "/compactify 代码", { model: MODEL });
+
+	expect(fakes[0].compacted).toEqual([]);
+	expect(fakes[0].prompted).toEqual(["/compactify 代码"]);
+});
+
+test("prompt — 压缩完成后 drain 压缩期间排队消息（合成 agent_settled）", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	// 预热：触发命令清单拉取，避免与 /compact 的 _fetchCommands 竞态
+	await am.prompt(session.id, "预热", { model: MODEL });
+	fake.compactDelayMs = 30; // 模拟长压缩：挂起 30ms，期间用户消息排队
+
+	const p1 = am.prompt(session.id, "/compact", { model: MODEL });
+	await am.prompt(session.id, "压缩完再答", { model: MODEL });
+	await p1;
+
+	expect(fake.compacted).toEqual([{ customInstructions: undefined }]);
+	expect(fake.prompted).toEqual(["预热", "压缩完再答"]);
+});
+
+test("prompt — compact 失败 → 只合成 agent_end（退出思考态），失败文案由前端 compaction_end 展示", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events });
+	await am.ensureStarted(project.id, "dev", session.id);
+	fakes[0].nextCompactError = new Error(
+		"Nothing to compact (session too small)",
+	);
+
+	await am.prompt(session.id, "/compact", { model: MODEL });
+
+	// 失败详情由 pi 的 compaction_end{errorMessage} 事件负责展示（前端 compaction_end case），
+	// kernel 不再合成 message_end 错误（避免同一失败两条消息）
+	const msgEnd = events.find(
+		(x) => x.e.type === "message_end" && x.e.message?.stopReason === "error",
+	);
+	expect(msgEnd).toBeUndefined();
+	// 仅合成 agent_end 退出思考态
+	const types = events.map((x) => x.e.type);
+	expect(types).toContain("agent_end");
+	expect(types).not.toContain("agent_settled");
+	expect(fakes[0].prompted).toEqual([]);
 });
 
 test("prompt — 未启动的会话抛错", async () => {
@@ -2002,4 +2083,46 @@ test("扩展命令拦截 prompt 时不卡在 busy 状态", async () => {
 
 	// 合成 agent_end：让前端退出 thinking / 清掉 loading 占位
 	expect(events.find((x) => x.e.type === "agent_end")).toBeTruthy();
+});
+
+test("子代理 token 累计：内存累加 + 串行持久化 + 新实例惰性恢复", async () => {
+	const { projectStore, session, am } = await setup();
+	(am as any)._accumulateSubagentTokens(session.id, {
+		input: 100,
+		output: 50,
+		cacheRead: 1000,
+		cacheWrite: 0,
+	});
+	(am as any)._accumulateSubagentTokens(session.id, { input: 200, output: 80 });
+	// 全 0 用量跳过（error 路径无实际消耗）
+	(am as any)._accumulateSubagentTokens(session.id, {});
+	// 等串行持久化队列排空
+	await (am as any).subagentPersistQueue;
+
+	const t = await am.getSubagentTokens(session.id);
+	expect(t).toEqual({
+		input: 300,
+		output: 130,
+		cacheRead: 1000,
+		cacheWrite: 0,
+		total: 1430,
+	});
+	// 持久化到会话记录（pi jsonl 不含 childUsage，重启后靠它恢复）
+	const { sessions } = await projectStore.load();
+	expect(
+		sessions.find((s) => s.id === session.id)?.subagentTokens?.total,
+	).toBe(1430);
+
+	// 模拟 kernel 重启：新实例内存 map 为空，从会话记录惰性恢复
+	const recoveryFakes: FakeSessionClient[] = [];
+	const recovery = new AgentManager({
+		projectStore,
+		configStore: null,
+		onEvent: () => {},
+		createClientFn: fakeClientFactory(recoveryFakes),
+	});
+	managers.push(recovery);
+	const restored = await recovery.getSubagentTokens(session.id);
+	expect(restored?.total).toBe(1430);
+	expect(restored?.cacheRead).toBe(1000);
 });

@@ -2,6 +2,150 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## [Unreleased] - 2026-08-04
+
+### 新增功能
+
+- **系统设置新增「通用」区块：pi 自动重试次数 / 间隔可配置**：设置页左侧导航
+  新增「通用」，可配置 transient 错误（网络/超时/5xx/限流）后的自动重试——
+  重试次数（0-10，默认 3，产品上限 10）与退避间隔基数（0.5-60 秒，默认 2 秒，
+  实际延迟按基数 × 2ⁿ 递增）。持久化到 `~/.wa-pi/settings.json` 的 `retry`
+  字段（pi settings-manager 直接消费，read-modify-write 保留其他字段）；
+  保存后 kernel 标脏活跃会话，下次发消息重建 pi 进程生效，重试状态条
+  「正在自动重试 (n/m)」的 m 同步反映新配置。
+  kernel 新增 `settings-store.ts`（读写 + 校验）、WS `settings:get/save` 事件、
+  REST `GET/PUT /api/settings/retry`（非法值 400 + 中文错误文案）。
+  影响范围：`packages/shared/src/types.ts`（RetrySettings/settings 事件）、
+  `packages/kernel/src/settings-store.ts`、`packages/kernel/src/ws-server.ts`、
+  `packages/kernel/src/routes/settings.ts`、
+  `packages/frontend/src/store/settings.ts`（general 区块）、
+  `packages/frontend/src/components/SettingsModal.tsx`（导航）、
+  `packages/frontend/src/components/settings/GeneralSection.tsx`、
+  `packages/kernel/tests/settings-store.test.ts`、
+  `packages/frontend/tests/GeneralSection.test.tsx`、
+  `packages/frontend/tests/SettingsModal.test.tsx`。
+
+## [Unreleased] - 2026-08-04
+
+### 新增功能
+
+- **自动重试状态条（方案 B：顶部黄条接管）**：pi 自动重试期间（`auto_retry_start`
+  → 退避 → 新尝试），顶部红色「模型连接异常，请检查网络或 Provider 配置」
+  切换为黄色「模型请求失败，正在自动重试 (n/m)…」（复用 reconnecting 的
+  warning 样式），明确传达「可恢复的等待」而非误导性的配置错误告警；
+  重试结束（`auto_retry_end` 成功/耗尽/中止）黄条消失，若 transient 错误
+  仍未恢复则回到红条。store 新增 `retryBySession`（auto_retry_start 记录
+  attempt/maxAttempts，auto_retry_end 与终态 agent_end 清除）；思考行
+  「思考中 · Xs」保持不变。
+  影响范围：`packages/frontend/src/store/session.ts`（retryBySession）、
+  `packages/frontend/src/App.tsx`（retry-status-bar）、
+  `packages/frontend/tests/store-session.test.ts`、
+  `packages/frontend/tests/App.test.tsx`。
+
+## [Unreleased] - 2026-08-04
+
+### 修复
+
+- **接入 pi `auto_retry_start` / `auto_retry_end` 事件：自动重试期间保持思考态**：
+  此前 transient 错误（如 provider 503/超时）触发 pi 自动重试时，
+  `agent_end{willRetry:true}` 会把前端复位为 idle——退避等待期间思考态中断、
+  输入区 spinner 消失，用户误以为回复已结束。现在 `agent_end` 带
+  `willRetry:true` 时不结算（保持 thinking、不标未读、不写回耗时）；
+  新增 `auto_retry_start` case 防御性保持 thinking；`auto_retry_end{success:false}`
+  （重试耗尽 / 退避期被 abort，此路径不会再有 agent_end）复位 idle 防思考态卡死；
+  `success=true` 不动状态（本轮继续，终态由后续 `agent_end{willRetry:false}` 复位）。
+  `SDKEvent` 联合类型补齐两个事件声明。kernel 无需改动（事件本已全量透传，
+  busy 由 agent_settled 管理，重试期间不会误复位）。
+  影响范围：`packages/shared/src/types.ts`（SDKEvent）、
+  `packages/frontend/src/store/session.ts`（agent_end/auto_retry_* case）、
+  `packages/frontend/tests/store-session.test.ts`（5 个重试场景用例）。
+
+## [Unreleased] - 2026-08-04
+
+### 修复
+
+- **token 统计口径修正（累计 / 进度条 / 占用三层分离）**：修复聊天窗口右上角
+  「累计 xxx k」统计错误——此前用「可见消息的 Σ(input+output)」，漏算
+  cacheRead/cacheWrite、压缩后丢历史，且把「累计」误当「当前窗口占比」画进度条。
+  现在三层口径分离：①「累计」= 整个会话累计消耗（含 cache、含压缩前历史），
+  数据源为 pi `get_session_stats().tokens`（进程不在时 kernel 降级扫 jsonl 全量累加）；
+  ②进度条 = 当前上下文窗口占用 / 窗口上限，数据源为
+  `get_session_stats().contextUsage`（used/total/ratio）；③进度条上方新增
+  「占用 xxx k」= 当前窗口已用 token 数。
+  胶囊布局：占用在上（主色，加强）→ 进度条 → 累计在下（小字三级灰，弱化）。
+  **前端已移除全部本地统计**：删除 `addTokens` 增量累加（含 delegate childUsage
+  累加）、`seedTokenTotal` 的可见消息遍历兜底、SessionView 的「lastUsage 估算占用」
+  降级与模型 contextWindow 查表；所有数字只来自 `session:stats`。回合中由
+  `message_end`（assistant 带 usage）触发轻量 `refreshSessionStats`（只拉 /stats），
+  进度条/占用/累计每轮实时更新；进入会话与压缩结束仍走整量 seed/refresh 校正。
+  kernel 新增 `computeSessionUsage`（压缩感知累计，死进程降级）、
+  `agentManager.getSessionStats`、WS `session:stats` case 与
+  REST `GET /api/sessions/:id/stats`；前端 store 扩展 `tokenTotals`
+  （cache/total 五字段）与 `contextUsageBySession`，`statsPatch` 为官方数值唯一入口。
+  **子代理消耗计入累计并拆分主/子**：pi 官方 stats 与 jsonl 均不含子代理
+  （delegate/fleet 独立进程）消耗，且 childUsage 不持久化到父会话 jsonl；
+  现由 kernel 在 spawn 完成时（`onSpawnComplete`）累计进内存 map 并串行写回
+  会话记录 `subagentTokens`（重启后惰性恢复），`session:stats` 的 tokens
+  统一为「平铺合计 + main/subagent 拆分」（`mergeTokenUsage`）；
+  前端累计在子代理消耗 >0 时显示「累计 X（主 Y · 子 Z）」。
+  影响范围：`packages/kernel/src/session-history.ts`（computeSessionUsage）、
+  `packages/kernel/src/agent-manager.ts`（getSessionStats/getSubagentTokens）、
+  `packages/kernel/src/ws-server.ts`（session:stats case + mergeTokenUsage）、
+  `packages/kernel/src/project-store.ts`（setSubagentTokens）、
+  `packages/kernel/src/routes/projects-sessions.ts`（REST stats 端点）、
+  `packages/shared/src/types.ts`、`packages/frontend/src/store/session.ts`、
+  `packages/frontend/src/components/SessionView.tsx`、
+  `packages/frontend/src/styles.css`、
+  `packages/kernel/tests/session-history.test.ts`、
+  `packages/kernel/tests/agent-manager.test.ts`、
+  `packages/kernel/tests/project-store.test.ts`、
+  `packages/kernel/tests/ws-server-session-stats.test.ts`、
+  `packages/frontend/tests/SessionView.test.tsx`、
+  `packages/frontend/tests/store-session.test.ts`。
+
+## [Unreleased] - 2026-08-03
+
+### 修复
+
+- **历史直读感知上下文压缩（readSessionHistory 压缩感知）**：修复压缩后 token 累计不变、
+  历史列表不缩水的根因。pi 压缩是 append-only（compaction 节点后旧消息仍在 jsonl 链上），
+  wa-pi 直读 jsonl 时沿链回溯会把压缩前的全部消息带出（usage 全被累加）。现在
+  `readSessionHistory` 与 pi `buildContextEntries` 同语义：沿链找最新 compaction 节点，
+  被压缩的旧消息省略，只保留压缩摘要 + `firstKeptEntryId` 之后的消息 + 压缩后的新消息；
+  摘要转 `role:"compactionSummary"` 消息（对齐 pi `createCompactionSummaryMessage`），
+  前端 MessageList 居中系统提示渲染。修复后右上角「累计」只反映压缩后的实际 usage，
+  历史列表也正确收缩。
+  影响范围：`packages/kernel/src/session-history.ts`、
+  `packages/frontend/src/components/MessageList.tsx`、
+  `packages/kernel/tests/session-history.test.ts`、`packages/frontend/tests/MessageList.test.tsx`。
+
+### 新增
+
+- **compaction_start / compaction_end 事件对接（前端）**：压缩过程现在有完整可见反馈——
+  压缩开始时在消息列表插入「正在压缩上下文…」状态消息，压缩结束后替换为结果
+  （`已压缩上下文：X → Y token（释放 Z）`，取消/失败显示对应文案）。`compaction_end`
+  成为 token 累计刷新的权威信号（不再依赖 agent_end 的 /compact 文本检测），自动压缩
+  （threshold/overflow）也顺带刷新 token 胶囊；`refreshTokenTotals` 整表覆盖时保留
+  本地 `compaction_status` 消息。kernel 压缩失败不再合成 `message_end` 错误（避免与
+  前端 compaction_end 失败文案重复，仅合成 agent_end 退出思考态）。
+  影响范围：`packages/shared/src/types.ts`（SDKEvent 补两个事件）、
+  `packages/frontend/src/store/session.ts`、`packages/frontend/tests/store-session.test.ts`。
+
+### 修复
+
+- **压缩上下文命令（/compact）真正生效**：修复 cmd:compact 从未触发压缩的根因。
+  wa-pi 以 `pi --mode rpc` 启动，而 pi 只在交互模式解析内置斜杠命令（RPC 模式的
+  `session.prompt()` 只处理扩展命令 / `/skill:` / prompt 模板），`/compact` 文本此前
+  被当作普通 user 消息发给 LLM，jsonl 从不重写、token 从不释放。现在 kernel 在
+  `agentManager._sendPromptNow` 拦截 `/compact` 前缀并显式转 `compact` RPC
+  （customInstructions 透传，超时放宽到 10 分钟），压缩完成/失败后合成
+  `agent_end`（前端退出思考态 + 触发 token 累计刷新）与 `agent_settled`
+  （drain 压缩期间排队的消息）。失败经 `message_end{stopReason:"error"}` 管线
+  红色渲染，不再静默。
+  影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/rpc-client.ts`
+  （command 支持 per-command timeoutMs）、`packages/kernel/tests/agent-manager.test.ts`、
+  `packages/kernel/tests/fixtures/fake-session-client.ts`。
+
 ## [0.1.0] - 2026-08-03 · 初始化版本
 
 wa-pi 桌面应用首个发布版本，整合 2026-07-06 至 2026-08-03 的全部功能改动。

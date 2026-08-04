@@ -149,8 +149,14 @@ bun run typecheck      # 类型检查
 - [x] MCP 图形化管理（含 OAuth）
 - [x] 技能 / 插件 / 记忆系统
 - [x] Electron 桌面打包
+- [ ] 运行状态透明化：重试 / 压缩 / 摘要进度提示（pi RPC 事件对接）
+- [ ] 扩展错误与扩展状态可视化（extension_error / setStatus / setWidget）
+- [ ] 工具执行实时进度与 turn 级性能遥测（tool_execution_update / turn_*）
+- [ ] 会话树与分支管理（fork / clone / get_tree）
 - [ ] 会话录制与回放
 - [ ] 团队协作与共享配置
+
+> pi RPC 事件对接的优先级、成功指标与详细范围见 [docs/superpowers/plans/2026-08-04-pi-rpc-events-roadmap.md](docs/superpowers/plans/2026-08-04-pi-rpc-events-roadmap.md)
 
 ## 贡献
 

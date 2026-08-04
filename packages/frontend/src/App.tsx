@@ -62,6 +62,10 @@ export function App() {
 	const netDegraded = useSessionStore((s) =>
 		currentSessionId ? !!s.netStatusBySession[currentSessionId] : false,
 	);
+	// pi 自动重试进度：重试期间黄色状态条「正在自动重试 (n/m)」优先于红色 degraded 条。
+	const retryInfo = useSessionStore((s) =>
+		currentSessionId ? (s.retryBySession[currentSessionId] ?? null) : null,
+	);
 
 	useEffect(() => onConnectionChange(setConnState), []);
 
@@ -433,7 +437,23 @@ export function App() {
 						连接已断开，正在重连…
 					</div>
 				)}
-				{netDegraded && (
+				{retryInfo && (
+					<div
+						className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs bg-warning-soft text-warning border-b border-warning/20"
+						data-testid="retry-status-bar"
+					>
+						<span
+							className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+							style={{
+								border: "2px solid var(--warning)",
+								borderTopColor: "transparent",
+								animation: "spin 0.8s linear infinite",
+							}}
+						/>
+						模型请求失败，正在自动重试 ({retryInfo.attempt}/{retryInfo.maxAttempts})…
+					</div>
+				)}
+				{netDegraded && !retryInfo && (
 					<div
 						className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs bg-danger-soft text-danger border-b border-danger/20"
 						data-testid="net-status-bar"

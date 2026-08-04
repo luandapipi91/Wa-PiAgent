@@ -32,17 +32,41 @@ interface SessionState {
 		string,
 		{ steering: readonly string[]; followUp: readonly string[] }
 	>;
-	// 会话级 token 累计：按 sessionId 存储 input/output 累计
-	tokenTotals: Record<string, { input: number; output: number }>;
-	// 会话级最近一次调用的 usage（供 SessionView 渲染胶囊）
+	// 会话级 token 累计：按 sessionId 存储全量累计（含缓存读取/写入）。
+	// 语义=整个会话累计消耗的 token（含压缩前历史），与 pi get_session_stats.tokens 同口径；
+	// total = input + output + cacheRead + cacheWrite。
+	tokenTotals: Record<
+		string,
+		{
+			input: number;
+			output: number;
+			cacheRead: number;
+			cacheWrite: number;
+			total: number;
+			/** 主/子代理拆分合计（session:stats 提供；subagent>0 时胶囊展示拆分） */
+			main?: number;
+			subagent?: number;
+		}
+	>;
+	// 会话级最近一次调用的 usage（供 SessionView 渲染「本轮」胶囊）
 	lastUsageBySession: Record<
 		string,
 		{ input: number; output: number; cacheRead: number; cacheWrite: number }
+	>;
+	// 会话级当前上下文窗口占用（pi get_session_stats.contextUsage，pi>=0.80 提供；
+	// 供 SessionView 渲染 token 进度条——用「当前占用」而非「累计」算占比）。
+	contextUsageBySession: Record<
+		string,
+		{ used: number; total: number; ratio: number } | null
 	>;
 	// 会话级 Provider 连接状态：transient 网络错误（Connection error/timeout）时置 "degraded"，
 	// 顶部状态条提示「模型连接异常」；下次成功回复（message_end 正常）或重连后清除。
 	// 与 events.ts 的 ConnectionState（SSE 推送通道）区分——那是 kernel→前端通道。
 	netStatusBySession: Record<string, "degraded" | null>;
+	// 会话级 pi 自动重试状态：auto_retry_start 时置 {attempt, maxAttempts}，
+	// 顶部黄色状态条提示「正在自动重试 (n/m)」（优先于红色 degraded 条）；
+	// auto_retry_end（成功/耗尽/中止）或 agent_end{willRetry:false} 时清除。
+	retryBySession: Record<string, { attempt: number; maxAttempts: number } | null>;
 	// 子代理进度：按 toolCallId 再按 agent 分组的 map。
 	// 结构：progressByToolCall[toolCallId][agent] = SubagentProgressEvent。
 	// 这样 delegate（单 agent）与 fleet（多 agent 共享同一 toolCallId）都能用同一结构：
@@ -108,16 +132,85 @@ interface SessionState {
 	/** 重载中（/reload 命令执行期间禁用发送） */
 	reloading: boolean;
 	setReloading: (v: boolean) => void;
-	/** 累加会话 token 计数（input/output 增量） */
-	addTokens: (sessionId: string, input: number, output: number) => void;
-	/** 从历史消息 seed 累计 token 计数 */
-	seedTokenTotal: (sessionId: string, messages: SessionMessage[]) => void;
+	/**
+	 * 轻量刷新会话 token 统计（累计 + 当前上下文占用）：只拉 GET /stats，不动消息列表。
+	 * 回合中 message_end 触发，保证「累计/占用/进度条」每轮更新；数值全部来自
+	 * session:stats 官方口径（pi get_session_stats；进程不在时 kernel 降级扫 jsonl），
+	 * 前端不做任何本地累加/估算。
+	 */
+	refreshSessionStats: (sessionId: string) => Promise<void>;
+	/**
+	 * 从历史消息/服务端 stats 初始化 token 显示状态。
+	 * lastUsage（「本轮」胶囊）取可见消息中最后一条真实 usage；
+	 * tokenTotals / contextUsage 只认 stats（官方口径），无 stats 不写入。
+	 */
+	seedTokenTotal: (
+		sessionId: string,
+		messages: SessionMessage[],
+		stats?: SessionStatsPayload | null,
+	) => void;
+}
+
+/** kernel session:stats 响应（pi get_session_stats 或本地降级后的统一结构）。 */
+export interface SessionStatsPayload {
+	tokens?: {
+		input?: number;
+		output?: number;
+		cacheRead?: number;
+		cacheWrite?: number;
+		total?: number;
+		/** 主/子代理拆分（仅需 total；旧 kernel 可能缺省） */
+		main?: { total?: number };
+		subagent?: { total?: number };
+	};
+	contextUsage?: {
+		used: number;
+		total: number;
+		ratio: number;
+	} | null;
 }
 
 // 流式标识：同 agent 同时刻同 role 视为同一条流式增量
 function msgKey(m: SessionMessage): string {
 	const inner = m.message as any;
 	return `${inner.role ?? "custom"}-${inner.timestamp}`;
+}
+
+/**
+ * 从 session:stats 响应构造 tokenTotals / contextUsageBySession 的 state patch。
+ * 官方口径唯一入口：seedTokenTotal 与 refreshSessionStats 共用，前端不做本地累加。
+ * contextUsage 缺省（本地降级路径无此字段）时置 null，清掉可能过期的旧值。
+ */
+function statsPatch(
+	s: Pick<SessionState, "tokenTotals" | "contextUsageBySession">,
+	sessionId: string,
+	stats: SessionStatsPayload,
+) {
+	const patch: any = {};
+	const t = stats.tokens;
+	if (t) {
+		const input = t.input ?? 0;
+		const output = t.output ?? 0;
+		const cacheRead = t.cacheRead ?? 0;
+		const cacheWrite = t.cacheWrite ?? 0;
+		patch.tokenTotals = {
+			...s.tokenTotals,
+			[sessionId]: {
+				input,
+				output,
+				cacheRead,
+				cacheWrite,
+				total: t.total ?? input + output + cacheRead + cacheWrite,
+				main: t.main?.total,
+				subagent: t.subagent?.total,
+			},
+		};
+	}
+	patch.contextUsageBySession = {
+		...s.contextUsageBySession,
+		[sessionId]: stats.contextUsage ?? null,
+	};
+	return patch;
 }
 
 export const useSessionStore = create<SessionState>((set) => {
@@ -151,55 +244,45 @@ export const useSessionStore = create<SessionState>((set) => {
 		reloading: false,
 		tokenTotals: {},
 		lastUsageBySession: {},
+		contextUsageBySession: {},
 		netStatusBySession: {},
+		retryBySession: {},
 		progressByToolCall: {},
 		progressSessionByToolCall: {},
 		filePreview: null,
 
-		addTokens: (sessionId, input, output) =>
-			set((s) => {
-				const cur = s.tokenTotals[sessionId] ?? { input: 0, output: 0 };
-				if (input === 0 && output === 0) return {};
-				return {
-					tokenTotals: {
-						...s.tokenTotals,
-						[sessionId]: {
-							input: cur.input + input,
-							output: cur.output + output,
-						},
-					},
-				};
-			}),
-
-		seedTokenTotal: (sessionId, messages) => {
-			let input = 0;
-			let output = 0;
+		seedTokenTotal: (sessionId, messages, stats) => {
+			// lastUsage（供「本轮」胶囊）取可见消息中最后一条真实 usage
 			let lastUsage: any = null;
 			for (const sm of messages) {
 				const m = sm.message as any;
-				if (m.role === "assistant" && m.usage) {
-					input += m.usage.input;
-					output += m.usage.output;
-					lastUsage = m.usage;
-				}
+				if (m.role === "assistant" && m.usage) lastUsage = m.usage;
 			}
-			if (input > 0 || output > 0 || lastUsage) {
-				set((s) => {
-					const patch: any = {};
-					if (input > 0 || output > 0) {
-						patch.tokenTotals = {
-							...s.tokenTotals,
-							[sessionId]: { input, output },
-						};
-					}
-					if (lastUsage) {
-						patch.lastUsageBySession = {
-							...s.lastUsageBySession,
-							[sessionId]: lastUsage,
-						};
-					}
-					return patch;
-				});
+			set((s) => {
+				const patch: any = stats ? statsPatch(s, sessionId, stats) : {};
+				if (lastUsage) {
+					patch.lastUsageBySession = {
+						...s.lastUsageBySession,
+						[sessionId]: lastUsage,
+					};
+				}
+				return patch;
+			});
+		},
+
+		refreshSessionStats: async (sessionId) => {
+			try {
+				const res = await api
+					.get(`/api/sessions/${encodeURIComponent(sessionId)}/stats`)
+					.catch(() => null);
+				const stats = (res as any)?.stats as
+					| SessionStatsPayload
+					| null
+					| undefined;
+				if (!stats) return;
+				set((s) => statsPatch(s, sessionId, stats));
+			} catch {
+				// 刷新失败不影响主流程，静默忽略
 			}
 		},
 
@@ -256,19 +339,36 @@ export const useSessionStore = create<SessionState>((set) => {
 
 		refreshTokenTotals: async (sessionId) => {
 			try {
-				const res = (await api.get(
-					`/api/sessions/${encodeURIComponent(sessionId)}/messages`,
-				)) as { messages: any[] };
+				const [statsRes, messagesRes] = await Promise.all([
+					api
+						.get(`/api/sessions/${encodeURIComponent(sessionId)}/stats`)
+						.catch(() => null),
+					api.get(`/api/sessions/${encodeURIComponent(sessionId)}/messages`),
+				]);
+				const res = messagesRes as { messages: any[] };
 				if (!res?.messages) return;
 				// 整表覆盖：agent_end 时刻无 streaming，服务端历史为准；
-				// GET 在途时若乐观消息已写入，SDK 回显会补回，短暂覆盖可接受
+				// GET 在途时若乐观消息已写入，SDK 回显会补回，短暂覆盖可接受。
+				// 但保留本地 compaction_status（压缩中/结果）消息：它不在服务端历史里，
+				// 整表覆盖会把它冲掉，导致压缩结果提示消失。
+				const prev =
+					useSessionStore.getState().messagesBySession[sessionId] ?? [];
+				const localStatus = prev.filter(
+					(m: any) => (m.message as any)?.customType === "compaction_status",
+				);
 				useSessionStore.setState((s) => ({
 					messagesBySession: {
 						...s.messagesBySession,
-						[sessionId]: res.messages,
+						[sessionId]: [...res.messages, ...localStatus],
 					},
 				}));
-				useSessionStore.getState().seedTokenTotal(sessionId, res.messages);
+				const stats = (statsRes as any)?.stats as
+					| SessionStatsPayload
+					| null
+					| undefined;
+				useSessionStore
+					.getState()
+					.seedTokenTotal(sessionId, res.messages, stats);
 			} catch {
 				// 刷新失败不影响主流程，静默忽略
 			}
@@ -320,6 +420,7 @@ export const useSessionStore = create<SessionState>((set) => {
 				historyLoadingBySession: {},
 				unreadBySession: {},
 				netStatusBySession: {},
+				retryBySession: {},
 				filePreview: null,
 			}),
 
@@ -549,22 +650,6 @@ export const useSessionStore = create<SessionState>((set) => {
 					streamingBatcher.drop(sessionId);
 					const msg = event.message as any;
 					if (msg.role === "toolResult") {
-						// 子 agent usage：delegate 工具返回的 childUsage 累加到会话 token
-						const childUsage = (msg as any).details?.childUsage?.tokens;
-						if (childUsage && (childUsage.input > 0 || childUsage.output > 0)) {
-							set((s) => {
-								const cur = s.tokenTotals[sessionId] ?? { input: 0, output: 0 };
-								return {
-									tokenTotals: {
-										...s.tokenTotals,
-										[sessionId]: {
-											input: cur.input + childUsage.input,
-											output: cur.output + childUsage.output,
-										},
-									},
-								};
-							});
-						}
 						set((s) => {
 							const list = [
 								...(s.messagesBySession[sessionId] ?? []),
@@ -580,7 +665,7 @@ export const useSessionStore = create<SessionState>((set) => {
 						break;
 					}
 					if (msg.role !== "assistant") break;
-					// 记录最近一次调用的 usage（供 SessionView 渲染胶囊）
+					// 记录最近一次调用的 usage（供 SessionView 渲染「本轮」胶囊）
 					if (msg.usage) {
 						set((s) => ({
 							lastUsageBySession: {
@@ -588,20 +673,15 @@ export const useSessionStore = create<SessionState>((set) => {
 								[sessionId]: msg.usage,
 							},
 						}));
-						// 累加 token 计数（跳过全 0 usage，如 error 消息）
-						if (msg.usage.input > 0 || msg.usage.output > 0) {
-							set((s) => {
-								const cur = s.tokenTotals[sessionId] ?? { input: 0, output: 0 };
-								return {
-									tokenTotals: {
-										...s.tokenTotals,
-										[sessionId]: {
-											input: cur.input + msg.usage.input,
-											output: cur.output + msg.usage.output,
-										},
-									},
-								};
-							});
+						// 累计/占用不走本地累加：拉官方 session:stats 刷新（含子代理消耗、
+						// 当前上下文占用），跳过全 0 usage（error 消息无实际消耗）
+						if (
+							msg.usage.input > 0 ||
+							msg.usage.output > 0 ||
+							msg.usage.cacheRead > 0 ||
+							msg.usage.cacheWrite > 0
+						) {
+							void useSessionStore.getState().refreshSessionStats(sessionId);
 						}
 					}
 					// 失败但无实质内容（空 content / 仅空 text block）：跳过合并，避免渲染「裸头像」行。
@@ -688,6 +768,11 @@ export const useSessionStore = create<SessionState>((set) => {
 					break;
 				// agent 结束：回 idle，清起算时间；若该会话非当前会话（用户在别处），标记未读新回复
 				case "agent_end": {
+					// pi 自动重试（transient 错误退避中）：agent_end{willRetry:true} 只是单次
+					// 尝试失败的中间态，随后 auto_retry_start → 退避 → 新 agent_start 继续本轮。
+					// 保持 thinking（不结算 idle/未读/耗时），等真正终态：成功轮的
+					// agent_end{willRetry:false}，或重试耗尽/中止的 auto_retry_end{success:false}。
+					if (event.willRetry === true) break;
 					const away =
 						sessionId !== useProjectsStore.getState().currentSessionId;
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 复活
@@ -703,12 +788,17 @@ export const useSessionStore = create<SessionState>((set) => {
 						const streaming = s.streamingBySession[sessionId];
 						const isPlaceholder =
 							(streaming?.message as any)?.stopReason === "pending";
+						// 防御性清重试进度：终态 agent_end 到达即本轮结束（正常已由
+						// auto_retry_end 清除，此处兜底异常时序防黄条卡住）。
+						const retryBySession = { ...s.retryBySession };
+						delete retryBySession[sessionId];
 						const result: any = {
 							statusBySession: { ...s.statusBySession, [sessionId]: "idle" },
 							thinkingSinceBySession: {
 								...s.thinkingSinceBySession,
 								[sessionId]: null,
 							},
+							retryBySession,
 							unreadBySession: away
 								? { ...s.unreadBySession, [sessionId]: true }
 								: s.unreadBySession,
@@ -749,7 +839,8 @@ export const useSessionStore = create<SessionState>((set) => {
 						return result;
 					});
 					// 压缩回合结束：重拉历史，刷新右上角 token 累计
-					const list = useSessionStore.getState().messagesBySession[sessionId] ?? [];
+					const list =
+						useSessionStore.getState().messagesBySession[sessionId] ?? [];
 					const lastUser = [...list]
 						.reverse()
 						.find((m: any) => (m.message as any)?.role === "user");
@@ -762,6 +853,50 @@ export const useSessionStore = create<SessionState>((set) => {
 					}
 					break;
 				}
+				// pi 自动重试开始（退避等待中）：记录重试进度驱动顶部黄色状态条；
+				// 防御性确保 thinking——正常已被 agent_end{willRetry:true} 分支保持，
+				// 此处兜底任何时序缝隙。
+				case "auto_retry_start":
+					set((s) => ({
+						statusBySession: {
+							...s.statusBySession,
+							[sessionId]: "thinking",
+						},
+						thinkingSinceBySession: {
+							...s.thinkingSinceBySession,
+							[sessionId]: s.thinkingSinceBySession[sessionId] ?? Date.now(),
+						},
+						retryBySession: {
+							...s.retryBySession,
+							[sessionId]: {
+								attempt: event.attempt,
+								maxAttempts: event.maxAttempts,
+							},
+						},
+					}));
+					break;
+				// pi 自动重试终结：清除重试进度（黄条消失；若 netDegraded 仍在则回到红条）。
+				// success=true 时本轮继续（新 agent_start 已到达），终态仍由
+				// agent_end{willRetry:false} 复位；success=false（重试耗尽 / 退避期被
+				// abort）时 abort 路径不会再有 agent_end，必须在此复位 idle 防思考态卡死。
+				case "auto_retry_end":
+					set((s) => {
+						const retryBySession = { ...s.retryBySession };
+						delete retryBySession[sessionId];
+						if (event.success !== false) return { retryBySession };
+						return {
+							retryBySession,
+							statusBySession: {
+								...s.statusBySession,
+								[sessionId]: "idle",
+							},
+							thinkingSinceBySession: {
+								...s.thinkingSinceBySession,
+								[sessionId]: null,
+							},
+						};
+					});
+					break;
 				// 队列更新：steering / followUp 消息列表
 				case "queue_update":
 					set((s) => ({
@@ -774,6 +909,95 @@ export const useSessionStore = create<SessionState>((set) => {
 						},
 					}));
 					break;
+				// 上下文压缩开始：插入居中状态消息（复用 custom 渲染）。手动 /compact 与自动压缩
+				//（threshold/overflow）都会触发；compaction_end 到达时替换为结果。
+				case "compaction_start": {
+					const timestamp = Date.now();
+					set((s) => {
+						const list = s.messagesBySession[sessionId] ?? [];
+						// 去重：已有一条 compaction_status 则不重复插入（连续压缩可能连发）
+						const last = list[list.length - 1]?.message as any;
+						if (last?.customType === "compaction_status") return s;
+						return {
+							messagesBySession: {
+								...s.messagesBySession,
+								[sessionId]: [
+									...list,
+									{
+										message: {
+											type: "custom",
+											customType: "compaction_status",
+											content: "正在压缩上下文…",
+											timestamp,
+										},
+										agentName,
+										sessionId,
+									} as any,
+								],
+							},
+						};
+					});
+					break;
+				}
+				// 上下文压缩结束：替换状态消息为结果（释放 token / 取消 / 失败），并刷新 token 累计。
+				// 这是压缩完成的权威信号（不依赖 agent_end 的文本检测），自动压缩也在此刷新。
+				case "compaction_end": {
+					const e = event as any;
+					const result = e.result;
+					let content: string;
+					if (e.aborted) content = "压缩已取消";
+					else if (e.errorMessage) content = `压缩失败：${e.errorMessage}`;
+					else if (result && typeof result.tokensBefore === "number") {
+						const released =
+							result.tokensBefore - (result.estimatedTokensAfter ?? 0);
+						content = `已压缩上下文：${result.tokensBefore.toLocaleString()} → ${(
+							result.estimatedTokensAfter ?? 0
+						).toLocaleString()} token${released > 0 ? `（释放 ${released.toLocaleString()}）` : ""}`;
+					} else {
+						content = "已压缩上下文";
+					}
+					const timestamp = Date.now();
+					set((s) => {
+						const list = s.messagesBySession[sessionId] ?? [];
+						const msg = {
+							message: {
+								type: "custom",
+								customType: "compaction_status",
+								content,
+								timestamp,
+							},
+							agentName,
+							sessionId,
+						} as any;
+						// 替换最后一条 compaction_status（找不到则直接追加）
+						const idx = [...list]
+							.reverse()
+							.findIndex(
+								(m: any) =>
+									(m.message as any)?.customType === "compaction_status",
+							);
+						if (idx === -1) {
+							return {
+								messagesBySession: {
+									...s.messagesBySession,
+									[sessionId]: [...list, msg],
+								},
+							};
+						}
+						const i = list.length - 1 - idx;
+						const next = [...list];
+						next[i] = msg;
+						return {
+							messagesBySession: {
+								...s.messagesBySession,
+								[sessionId]: next,
+							},
+						};
+					});
+					// 压缩完成（手动/自动）：重拉历史刷新 token 累计
+					void useSessionStore.getState().refreshTokenTotals(sessionId);
+					break;
+				}
 				// pi 扩展 ctx.ui.notify 反馈（如 /lens-toggle 执行结果）：kernel 包装在 sdk:event 内转发，
 				// 这里插入聊天窗口中间的系统提示（复用 custom 消息渲染：居中 —— content ——），
 				// 否则命令执行成功但用户看不到任何反馈（表现为“发送无响应”）。
@@ -823,8 +1047,7 @@ export const useSessionStore = create<SessionState>((set) => {
 									const next = list.filter(
 										(m) =>
 											!(
-												(m.message as any)?.customType ===
-													"extension_notify" &&
+												(m.message as any)?.customType === "extension_notify" &&
 												(m.message as any)?.timestamp === timestamp
 											),
 									);

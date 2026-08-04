@@ -85,6 +85,7 @@ mock.module("../src/events", () => ({
 import { App } from "../src/App";
 import { useProjectsStore } from "../src/store/projects";
 import { useAgentsStore } from "../src/store/agents";
+import { useSessionStore } from "../src/store/session";
 
 const agent = (displayName: string): AgentConfig => ({
 	displayName,
@@ -256,4 +257,24 @@ test("extension:commands:changed 事件 → 当前会话 / 菜单命令列表重
 			),
 		).toBe(true);
 	});
+});
+
+test("重试期间顶部显示黄色重试条（优先于红色异常条），重试结束回到红条", async () => {
+	useProjectsStore.setState({ currentSessionId: "s1" });
+	useSessionStore.setState({
+		netStatusBySession: { s1: "degraded" },
+		retryBySession: { s1: { attempt: 1, maxAttempts: 3 } },
+	});
+	render(<App />);
+	await act(async () => {});
+	// 重试中：黄条显示 (1/3)，红色异常条被压制
+	const bar = screen.getByTestId("retry-status-bar");
+	expect(bar.textContent).toContain("正在自动重试 (1/3)");
+	expect(screen.queryByTestId("net-status-bar")).toBeNull();
+	// 重试结束（耗尽/中止）：黄条消失，红色异常条恢复
+	act(() => {
+		useSessionStore.setState({ retryBySession: {} });
+	});
+	expect(screen.queryByTestId("retry-status-bar")).toBeNull();
+	expect(screen.getByTestId("net-status-bar")).toBeTruthy();
 });

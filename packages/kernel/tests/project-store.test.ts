@@ -213,3 +213,22 @@ test("fillSessionTitleIfEmpty: 会话不存在返回 false", async () => {
   expect(filled).toBe(false);
   rmSync(f, { force: true });
 });
+
+test("setSubagentTokens 覆盖写入并持久化；会话不存在静默跳过", async () => {
+  const f = tempFile();
+  const store = new ProjectStore(f);
+  const p = await store.createProject({ name: "P", cwd: "/p" });
+  const s = await store.createSession({ projectId: p.id, primaryAgent: "dev", title: "会话" });
+  const tokens = { input: 100, output: 50, cacheRead: 1000, cacheWrite: 0, total: 1150 };
+  await store.setSubagentTokens(s.id, tokens);
+  let { sessions } = await store.load();
+  expect(sessions.find(x => x.id === s.id)?.subagentTokens).toEqual(tokens);
+  // 覆盖语义：再次写入替换而非累加（累计在 agent-manager 内存中完成）
+  const more = { ...tokens, total: 2300, cacheRead: 2000 };
+  await store.setSubagentTokens(s.id, more);
+  ({ sessions } = await store.load());
+  expect(sessions.find(x => x.id === s.id)?.subagentTokens?.total).toBe(2300);
+  // 会话不存在：静默跳过，不抛错
+  await store.setSubagentTokens("不存在", tokens);
+  rmSync(f, { force: true });
+});

@@ -4,6 +4,7 @@ import type {
 	AgentName,
 	McpServerStatus,
 	McpToolSummary,
+	TokenUsageSummary,
 } from "@wa-pi/shared";
 import {
 	WS_PORT,
@@ -22,6 +23,7 @@ import type { ExtensionManager } from "./extension-manager";
 import type { MemoryStore } from "./memory-store";
 import type { McpStore } from "./mcp-store";
 import { testProviderConnection } from "./provider-test";
+import { loadRetrySettings, saveRetrySettings } from "./settings-store";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { testConnection, listTools, clearAuth } from "./mcp-connector";
 import { getAllCatalogModels, getProviderDisplayName } from "./pi-catalog";
@@ -56,8 +58,9 @@ import { registerSkillRoutes } from "./routes/skills";
 import { registerExtensionRoutes } from "./routes/extensions";
 import { registerMemoryRoutes } from "./routes/memory";
 import { registerMcpRoutes } from "./routes/mcp";
+import { registerSettingsRoutes } from "./routes/settings";
 import { registerFileRoutes } from "./routes/files";
-import { readSessionHistory } from "./session-history";
+import { readSessionHistory, computeSessionUsage } from "./session-history";
 
 /** 展开路径开头的 ~ 为 HOME 目录（Node.js 不自动展开 shell ~ 约定） */
 function expandTilde(p: string): string {
@@ -277,6 +280,70 @@ export interface WSServerOpts {
 	staticDir?: string;
 }
 
+/**
+ * 归一化 pi get_session_stats 的 contextUsage 字段（版本差异：
+ * 新版本 tokens/contextWindow/percent，旧版本 used/total/ratio），
+ * 统一输出前端使用的 { used, total, ratio }。
+ */
+function normalizeContextUsage(
+	cu: any,
+): { used: number; total: number; ratio: number } | null {
+	if (!cu || typeof cu !== "object") return null;
+	const used = cu.used ?? cu.tokens;
+	const total = cu.total ?? cu.contextWindow;
+	if (typeof used !== "number" || typeof total !== "number" || total <= 0) {
+		return null;
+	}
+	const ratio =
+		cu.ratio ??
+		(typeof cu.percent === "number" ? cu.percent / 100 : used / total);
+	return { used, total, ratio };
+}
+
+/** pi tokens 字段（可选/缺 total）归一化为完整 TokenUsageSummary */
+export function toTokenSummary(t: any): TokenUsageSummary {
+	const input = t?.input ?? 0;
+	const output = t?.output ?? 0;
+	const cacheRead = t?.cacheRead ?? 0;
+	const cacheWrite = t?.cacheWrite ?? 0;
+	return {
+		input,
+		output,
+		cacheRead,
+		cacheWrite,
+		total: t?.total ?? input + output + cacheRead + cacheWrite,
+	};
+}
+
+/**
+ * 合并主代理用量与子代理累计：返回平铺合计 + main/subagent 拆分。
+ * session:stats 的 tokens 统一走这里，保证两条路径（官方 RPC / jsonl 降级）结构一致。
+ */
+export function mergeTokenUsage(
+	main: TokenUsageSummary,
+	subagent?: TokenUsageSummary,
+): TokenUsageSummary & {
+	main: TokenUsageSummary;
+	subagent: TokenUsageSummary;
+} {
+	const sub = subagent ?? {
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		total: 0,
+	};
+	return {
+		input: main.input + sub.input,
+		output: main.output + sub.output,
+		cacheRead: main.cacheRead + sub.cacheRead,
+		cacheWrite: main.cacheWrite + sub.cacheWrite,
+		total: main.total + sub.total,
+		main,
+		subagent: sub,
+	};
+}
+
 export class WSServer {
 	actualPort = 0;
 	private server: any;
@@ -357,6 +424,7 @@ export class WSServer {
 		registerExtensionRoutes(this.router, callApi, ctx);
 		registerMemoryRoutes(this.router, callApi, ctx);
 		registerMcpRoutes(this.router, callApi, ctx);
+		registerSettingsRoutes(this.router, callApi, ctx);
 		registerFileRoutes(this.router, callApi, ctx);
 	}
 
@@ -838,6 +906,51 @@ export class WSServer {
 						thinkingSince,
 					});
 				}
+				break;
+			}
+			case "session:stats": {
+				// 子代理累计（delegate/fleet）：pi 官方 stats 与 jsonl 都不含，
+				// 由 agent-manager 在 spawn 完成时累计并持久化到会话记录
+				const sub =
+					(await this.opts.agentManager.getSubagentTokens(event.sessionId)) ??
+					undefined;
+				// 1) 官方 stats：进程存活时直接拿 pi get_session_stats（主代理累计 + 当前上下文占用）
+				const official = await this.opts.agentManager.getSessionStats(
+					event.sessionId,
+				);
+				if (official?.tokens) {
+					const main = toTokenSummary(official.tokens);
+					reply({
+						type: "session:stats",
+						sessionId: event.sessionId,
+						stats: {
+							tokens: mergeTokenUsage(main, sub),
+							contextUsage: normalizeContextUsage(official.contextUsage),
+						},
+					});
+					break;
+				}
+				// 2) 本地降级：全量扫 jsonl（主代理口径，含压缩前历史 + 缓存），无 contextUsage
+				const { sessions } = await this.opts.projectStore.load();
+				const session = sessions.find((s) => s.id === event.sessionId);
+				if (session?.piSessionFile) {
+					try {
+						const usage = await computeSessionUsage(session.piSessionFile);
+						reply({
+							type: "session:stats",
+							sessionId: event.sessionId,
+							stats: { tokens: mergeTokenUsage(usage, sub) },
+						});
+						break;
+					} catch {
+						// 落到空 stats
+					}
+				}
+				reply({
+					type: "session:stats",
+					sessionId: event.sessionId,
+					stats: null,
+				});
 				break;
 			}
 			case "agent:prompt": {
@@ -1563,6 +1676,23 @@ export class WSServer {
 					models: event.models,
 				});
 				reply({ type: "provider:test", ok: result.ok, error: result.error });
+				break;
+			}
+			case "settings:get": {
+				const retry = await loadRetrySettings();
+				reply({ type: "settings:current", retry });
+				break;
+			}
+			case "settings:save": {
+				try {
+					const retry = await saveRetrySettings(event.retry);
+					// 运行中的 pi 进程仍持启动时加载的旧 settings；标脏让会话下次
+					// 使用时重建进程加载新配置（与 provider:save 一致）。
+					this.opts.agentManager.markAllDirty();
+					reply({ type: "settings:current", retry });
+				} catch (err) {
+					reply({ type: "error", message: (err as Error).message });
+				}
 				break;
 			}
 			case "model:presets": {

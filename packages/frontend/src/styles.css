@@ -249,6 +249,20 @@ body {
 	background: var(--accent);
 	transition: width 0.3s ease;
 }
+/* 「占用 xxx k」：当前上下文窗口已用 token 数（加强：主色，位于进度条上方） */
+.token-occupied {
+	font-size: 11px;
+	line-height: 1.2;
+	color: var(--text-primary);
+	white-space: nowrap;
+}
+/* 「累计 xxx k」：整个会话累计消耗（弱化：小字三级灰，位于进度条下方） */
+.token-total {
+	font-size: 10px;
+	line-height: 1;
+	color: var(--text-tertiary);
+	white-space: nowrap;
+}
 
 /* ── FileViewer / ExplorerPanel 公共按钮 ── */
 .fv-btn {

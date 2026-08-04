@@ -24,6 +24,7 @@ import type {
 	SkillInfo,
 	CommandInfo,
 	SubagentProgressEvent,
+	TokenUsageSummary,
 } from "@wa-pi/shared";
 import {
 	WA_PI_DIR,
@@ -209,6 +210,11 @@ export class AgentManager {
 	private skillDirty = new Set<string>();
 	// 系统提示词段落配置缓存（首次加载后缓存；用户编辑 prompts.json 后需重启 kernel 刷新）
 	private promptSegments: PromptSegment[] | null = null;
+	// 会话级子代理累计 token（delegate/fleet spawn 完成时累加；pi jsonl 不持久化
+	// childUsage，故每次累加后串行写回 projectStore 会话记录，重启后惰性恢复）
+	private subagentTokens = new Map<string, TokenUsageSummary>();
+	// subagentTokens 持久化串行队列：fleet 并发子任务同时完成时避免 load/save 竞态丢数据
+	private subagentPersistQueue: Promise<void> = Promise.resolve();
 
 	constructor(private opts: AgentManagerOpts) {}
 
@@ -609,7 +615,13 @@ export class AgentManager {
 					.map((s) => s.path);
 			},
 			cwd,
-			onSpawnComplete: (input) => subagentTelemetry.record(input),
+			onSpawnComplete: (input) => {
+				subagentTelemetry.record(input);
+				// 子代理累计 token：pi jsonl 不持久化 childUsage，这里累计并写会话记录
+				if (input.childUsage?.tokens) {
+					this._accumulateSubagentTokens(sessionId, input.childUsage.tokens);
+				}
+			},
 			// spawn 闭包的 onProgress：从槽位取本次 handleTool 调用注入的 onProgress，
 			// 再叠加会话级 onSubagentProgress（注入 sessionId 后广播到 SSE）。
 			// 槽位为空时（非 bridge 流式调用路径，如直接调 spawnFn 的测试）仅走 onSubagentProgress。
@@ -1015,6 +1027,15 @@ export class AgentManager {
 		handle: SessionHandle,
 		text: string,
 	): Promise<void> {
+		// /compact 压缩上下文命令：pi RPC 模式不解析内置斜杠命令（仅交互模式解析，
+		// 见 pi.dev/docs/latest/rpc：builtin TUI 命令不会通过 prompt 执行），文本若按普通
+		// prompt 发出会被当作 user 消息发给 LLM，压缩从不发生。这里显式转 compact RPC。
+		// 覆盖 busy 排队 drain / steer 空闲直发等所有经过 _sendPromptNow 的路径。
+		// 精确匹配：/compact 后必须跟空白或结束（避免误伤 /compactify 等词）。
+		if (/^\/compact(\s|$)/.test(text.trim())) {
+			await this._runCompactCommand(sessionId, handle, text);
+			return;
+		}
 		handle.busy = true;
 		// 用户重发触发直接 prompt：网络已恢复，清除 transient degraded 标记，恢复 drain。
 		if (handle.netDegraded) handle.netDegraded = false;
@@ -1046,6 +1067,55 @@ export class AgentManager {
 				);
 			}
 		}, 50);
+	}
+
+	/**
+	 * 执行 /compact 压缩上下文命令：转 pi RPC compact（自定义指令透传）。
+	 *
+	 * 压缩是长耗时操作（LLM 摘要生成），RPC 会 await 到压缩完成才返回；期间保持
+	 * busy 防并发。完成后合成 agent_end（前端退出思考态 + /compact 检测触发 token 刷新）
+	 * 与 agent_settled（复位 busy + drain 压缩期间排队的消息——pi 手动 compact 后
+	 * 不会发 agent_settled，需 kernel 补）。失败复用 message_end{stopReason:"error"}
+	 * 错误渲染管线播报，并同样合成 agent_end 防止思考态卡死。
+	 */
+	private async _runCompactCommand(
+		sessionId: string,
+		handle: SessionHandle,
+		text: string,
+	): Promise<void> {
+		const trimmed = text.trim();
+		const customInstructions =
+			trimmed === "/compact"
+				? undefined
+				: trimmed.slice("/compact".length).trim() || undefined;
+		handle.busy = true;
+		try {
+			await handle.client.compact(customInstructions);
+		} catch (err) {
+			handle.busy = false;
+			handle.thinkingSince = null;
+			// 压缩失败（如会话太小 / 已压缩过）：pi 已 emit compaction_end{errorMessage}，
+			// 前端 compaction_end case 负责展示失败文案（单一来源，避免与 message_end 重复）。
+			// 这里只合成 agent_end 让前端退出思考态（压缩不产生 agent 事件）。
+			this.opts.onEvent(
+				sessionId,
+				handle.meta.projectId,
+				handle.meta.agentName,
+				{ type: "agent_end" },
+			);
+			return;
+		}
+		handle.busy = false;
+		handle.thinkingSince = null;
+		handle.lastActiveAt = Date.now();
+		// 压缩完成：合成 agent_end（前端退出思考态 + 触发 /compact token 刷新）
+		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
+			type: "agent_end",
+		});
+		// 合成 agent_settled：复位 busy + drain 压缩期间排队的 steer/followUp 消息
+		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
+			type: "agent_settled",
+		});
 	}
 
 	/** 推送本地队列快照给前端（补充 pi queue_update 缺失的 followUpList） */
@@ -1291,6 +1361,71 @@ export class AgentManager {
 		return this.sessions.get(sessionId)?.thinkingSince ?? null;
 	}
 
+	/**
+	 * 获取会话 token 统计（pi get_session_stats 官方口径：全会话累计 + 当前上下文占用）。
+	 * 仅当该会话已有存活 pi 进程时返回官方统计；无进程或查询失败返回 undefined，
+	 * 调用方（ws-server session:stats）应降级为本地 jsonl 全量累计（computeSessionUsage）。
+	 */
+	async getSessionStats(sessionId: string): Promise<any | undefined> {
+		const handle = this.sessions.get(sessionId);
+		if (!handle?.client?.isAlive()) return undefined;
+		try {
+			return await handle.client.getSessionStats();
+		} catch {
+			return undefined;
+		}
+	}
+
+	/**
+	 * 会话级子代理（delegate/fleet）累计 token。pi jsonl 不持久化 childUsage，
+	 * 故由本类在 spawn 完成时累加进内存 map 并串行写回会话记录；
+	 * 首次查询时从 projectStore 惰性恢复（kernel 重启后不丢历史）。
+	 */
+	async getSubagentTokens(
+		sessionId: string,
+	): Promise<TokenUsageSummary | undefined> {
+		if (!this.subagentTokens.has(sessionId)) {
+			const { sessions } = await this.opts.projectStore.load();
+			const saved = sessions.find((s) => s.id === sessionId)?.subagentTokens;
+			if (saved) this.subagentTokens.set(sessionId, saved);
+		}
+		return this.subagentTokens.get(sessionId);
+	}
+
+	/** spawn 完成时累加子代理用量（全 0 跳过），并串行持久化到会话记录 */
+	private _accumulateSubagentTokens(
+		sessionId: string,
+		t: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number },
+	): void {
+		const add = {
+			input: t.input ?? 0,
+			output: t.output ?? 0,
+			cacheRead: t.cacheRead ?? 0,
+			cacheWrite: t.cacheWrite ?? 0,
+		};
+		if (!add.input && !add.output && !add.cacheRead && !add.cacheWrite) return;
+		const cur = this.subagentTokens.get(sessionId) ?? {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			total: 0,
+		};
+		const next: TokenUsageSummary = {
+			input: cur.input + add.input,
+			output: cur.output + add.output,
+			cacheRead: cur.cacheRead + add.cacheRead,
+			cacheWrite: cur.cacheWrite + add.cacheWrite,
+			total: 0,
+		};
+		next.total = next.input + next.output + next.cacheRead + next.cacheWrite;
+		this.subagentTokens.set(sessionId, next);
+		// 覆盖语义 + 串行队列：并发 fleet 子任务同时完成时不丢累计
+		this.subagentPersistQueue = this.subagentPersistQueue
+			.then(() => this.opts.projectStore.setSubagentTokens(sessionId, next))
+			.catch(() => {});
+	}
+
 	/** 重载当前会话配置：杀旧 pi 进程并用同一 agent 重建（技能/扩展变更生效） */
 	async reloadSession(sessionId: string): Promise<void> {
 		const handle = this.sessions.get(sessionId);
@@ -1385,9 +1520,7 @@ export class AgentManager {
 	 * 无 extensionManager（测试等场景）→ 保持原样。
 	 * 关闭的命令名（enabled === false 的扩展命令）登记进 disabledCommandNames，prompt 发送时降级。
 	 */
-	private async _fetchCommands(
-		client: RpcClient,
-	): Promise<CommandInfo[]> {
+	private async _fetchCommands(client: RpcClient): Promise<CommandInfo[]> {
 		const { commands } = await client.getCommands();
 		const cmds = filterTuiCommands((commands ?? []) as RawCommandInfo[]);
 		if (!this.opts.extensionManager) return cmds;

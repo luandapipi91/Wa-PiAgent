@@ -129,6 +129,15 @@ export interface ProjectEntity {
 	createdAt: number;
 }
 
+/** token 用量五项合计：session:stats 的主/子代理分解与会话记录持久化共用。 */
+export interface TokenUsageSummary {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	total: number;
+}
+
 export interface SessionEntity {
 	id: string;
 	projectId: string;
@@ -137,6 +146,9 @@ export interface SessionEntity {
 	createdAt: number;
 	lastActivity: number;
 	piSessionFile: string; // SDK jsonl 文件路径 ~/.wa-pi/sessions/<id>.jsonl
+	/** 子代理（delegate/fleet）累计消耗：pi jsonl 不持久化 childUsage，
+	 *  由 kernel 在 spawn 完成时累计并写在这里，重启后可恢复 */
+	subagentTokens?: TokenUsageSummary;
 }
 
 // ===== Pi 原生消息类型（镜像 @mariozechner/pi-ai，避免运行时依赖）=====
@@ -448,6 +460,33 @@ export interface SessionAsksRequest {
 	type: "session:asks";
 	sessionId: string;
 }
+/** 查询会话 token 统计（pi get_session_stats 官方口径，或本地 jsonl 降级）：
+ *  全会话累计 tokens + 当前上下文窗口占用 contextUsage。 */
+export interface SessionStatsRequest {
+	type: "session:stats";
+	sessionId: string;
+}
+
+// ===== 通用设置（系统设置 > 通用）=====
+/** pi 自动重试配置（持久化在 settings.json.retry，pi settings-manager 直接消费） */
+export interface RetrySettings {
+	maxRetries: number; // 重试次数上限，0-10，默认 3
+	baseDelayMs: number; // 指数退避基数（ms），默认 2000；实际延迟 = baseDelayMs × 2^(n-1)
+}
+/** 读取通用设置 */
+export interface SettingsGetRequest {
+	type: "settings:get";
+}
+/** 保存通用设置（retry 为完整对象，整体覆盖 settings.json.retry） */
+export interface SettingsSaveEvent {
+	type: "settings:save";
+	retry: RetrySettings;
+}
+/** kernel → 前端：当前通用设置（settings:get 响应 / settings:save 成功后回显） */
+export interface SettingsCurrentResult {
+	type: "settings:current";
+	retry: RetrySettings;
+}
 
 // client → kernel
 /** 请求内置 subagent 列表（含 pi-subagents 真实 systemPrompt/builtinToolNames + 用户 override） */
@@ -486,6 +525,7 @@ export type WSClientEvent =
 	| ProjectsListRequest
 	| SessionMessagesRequest
 	| SessionAsksRequest
+	| SessionStatsRequest
 	| ProviderListEvent
 	| ProviderSaveEvent
 	| ProviderDeleteEvent
@@ -529,7 +569,9 @@ export type WSClientEvent =
 	| FSRecordingFinalizeRequest
 	| FSRecordingDiscardRequest
 	| SubagentListRequest
-	| SubagentSaveOverrideEvent;
+	| SubagentSaveOverrideEvent
+	| SettingsGetRequest
+	| SettingsSaveEvent;
 
 // kernel → 前端
 /** 内置 subagent 列表结果（前端 AgentConfig 展示 + 收藏用） */
@@ -607,6 +649,27 @@ export interface SessionAsksEvent {
 	type: "session:asks";
 	sessionId: string;
 	pending: string[];
+}
+export interface SessionStatsResult {
+	type: "session:stats";
+	sessionId: string;
+	stats: {
+		/** 平铺五字段 = 主代理 + 子代理合计；main/subagent 为拆分（旧 kernel 可能缺省） */
+		tokens?: {
+			input?: number;
+			output?: number;
+			cacheRead?: number;
+			cacheWrite?: number;
+			total?: number;
+			main?: TokenUsageSummary;
+			subagent?: TokenUsageSummary;
+		};
+		contextUsage?: {
+			used: number;
+			total: number;
+			ratio: number;
+		} | null;
+	} | null;
 }
 export interface SessionEchoUserEvent {
 	type: "session:echo_user";
@@ -822,6 +885,23 @@ export type SDKEvent =
 			willRetry: boolean;
 			elapsedMs?: number;
 	  }
+	| {
+			// pi 自动重试开始（transient 错误后退避等待）：前置 agent_end 带 willRetry:true，
+			// 重试期间本轮未终结，前端应保持 thinking。
+			type: "auto_retry_start";
+			attempt: number;
+			maxAttempts: number;
+			delayMs: number;
+			errorMessage: string;
+	  }
+	| {
+			// pi 自动重试终结：success=true 表示某次重试成功（本轮继续，终态仍由
+			// agent_end 给出）；success=false 表示重试耗尽或退避期被 abort。
+			type: "auto_retry_end";
+			success: boolean;
+			attempt: number;
+			finalError?: string;
+	  }
 	| { type: "turn_start" }
 	| {
 			type: "turn_end";
@@ -861,6 +941,25 @@ export type SDKEvent =
 			followUp: readonly string[];
 	  }
 	| {
+			type: "compaction_start";
+			reason: "manual" | "threshold" | "overflow";
+	  }
+	| {
+			type: "compaction_end";
+			reason: "manual" | "threshold" | "overflow";
+			result: {
+				summary: string;
+				firstKeptEntryId: string;
+				tokensBefore: number;
+				estimatedTokensAfter: number;
+				usage?: any;
+				details?: any;
+			} | null;
+			aborted: boolean;
+			willRetry: boolean;
+			errorMessage?: string;
+	  }
+	| {
 			type: "extension_notify";
 			message: string;
 			notifyType?: string;
@@ -882,6 +981,7 @@ export type WSServerEvent =
 	| SessionCreatedEvent
 	| SessionMessagesEvent
 	| SessionAsksEvent
+	| SessionStatsResult
 	| SessionEchoUserEvent
 	| AgentConfigEvent
 	| ErrorEvent
@@ -929,6 +1029,7 @@ export type WSServerEvent =
 	| FSRecordingDiscardResult
 	| SubagentListResult
 	| SessionCommandsResult
+	| SettingsCurrentResult
 	| SubagentProgressServerEvent;
 
 export type WSEvent = WSClientEvent | WSServerEvent;

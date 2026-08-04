@@ -49,6 +49,11 @@ export const registerProjectSessionRoutes: RouteRegistrar = (
 	r.add("GET", "/api/sessions/:sessionId/messages", async (_req, p) =>
 		callApi({ type: "session:messages", sessionId: p.sessionId }),
 	);
+	// 会话 token 统计（累计消耗 + 当前上下文占用）；进程存活时走 pi get_session_stats，
+	// 否则本地 jsonl 全量累计降级。
+	r.add("GET", "/api/sessions/:sessionId/stats", async (_req, p) =>
+		callApi({ type: "session:stats", sessionId: p.sessionId }),
+	);
 	// ask double check：返回该 session 当前真实 pending 的 ask toolCallId 列表
 	r.add("GET", "/api/sessions/:sessionId/asks", async (_req, p) =>
 		callApi({ type: "session:asks", sessionId: p.sessionId }),

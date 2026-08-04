@@ -2663,3 +2663,40 @@ test("进行中的轮 + 更早的已完成轮：只有一个 turn-summary（第�
 	);
 	expect(screen.getByText("第二轮回复")).toBeTruthy();
 });
+
+// ── compactionSummary 摘要消息渲染 ──
+
+test("compactionSummary 消息：居中系统提示样式，显示压缩摘要", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: {
+						role: "compactionSummary",
+						summary: "早期对话摘要",
+						tokensBefore: 5000,
+						timestamp: 100,
+					} as any,
+				},
+				{
+					agentName: "dev",
+					message: {
+						role: "user",
+						content: [{ type: "text", text: "压缩后问题" }],
+						timestamp: 101,
+					},
+				},
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(<MessageList sessionId="s1" />);
+
+	const el = screen.getByTestId("compaction-summary-s1-100");
+	expect(el).toBeTruthy();
+	expect(el.textContent).toContain("已压缩早期上下文");
+	expect(el.textContent).toContain("早期对话摘要");
+	// 后续正常消息仍渲染
+	expect(screen.getByText("压缩后问题")).toBeTruthy();
+});

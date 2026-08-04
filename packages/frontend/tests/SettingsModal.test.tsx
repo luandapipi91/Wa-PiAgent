@@ -1,5 +1,5 @@
 import { test, expect, mock, beforeEach } from "bun:test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SettingsModal } from "../src/components/SettingsModal";
 import { useSettingsStore } from "../src/store/settings";
 import { useProvidersStore } from "../src/store/providers";
@@ -79,4 +79,12 @@ test("确认删除调用 store.remove", () => {
   fireEvent.click(screen.getByTestId("provider-delete-p1"));
   fireEvent.click(screen.getByTestId("confirm-ok"));
   expect(removeMock).toHaveBeenCalledWith("p1");
+});
+
+test("左侧导航「通用」→ 切换到通用设置区块（自动重试表单）", async () => {
+  render(<SettingsModal onClose={() => {}} />);
+  fireEvent.click(screen.getByTestId("settings-nav-general"));
+  // GeneralSection 挂载后先显示「加载中…」，api 返回后才渲染表单
+  await waitFor(() => expect(screen.getByTestId("retry-max-input")).toBeTruthy());
+  expect(screen.getByTestId("retry-delay-input")).toBeTruthy();
 });

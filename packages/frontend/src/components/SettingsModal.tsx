@@ -1,4 +1,5 @@
 import { Modal } from "./ui/Modal";
+import { GeneralSection } from "./settings/GeneralSection";
 import { ProviderSection } from "./settings/ProviderSection";
 import { SkillSection } from "./settings/SkillSection";
 import { ExtensionSection } from "./settings/ExtensionSection";
@@ -20,8 +21,16 @@ export function SettingsModal({ onClose }: Props) {
         <span className="text-primary font-bold text-base">系统设置</span>
       </div>
       <div className="flex flex-1 min-h-0">
-        {/* 左侧导航：模型管理 + 技能 */}
+        {/* 左侧导航：通用 + 模型管理 + 技能 */}
         <nav className="w-40 border-r border-hairline p-2 flex flex-col gap-1">
+          <button
+            onClick={() => setSection("general")}
+            className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
+            style={activeSection === "general"
+              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              : { color: "var(--secondary)" }}
+            data-testid="settings-nav-general"
+          >通用</button>
           <button
             onClick={() => setSection("models")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
@@ -62,6 +71,7 @@ export function SettingsModal({ onClose }: Props) {
         </nav>
         {/* 右侧内容 */}
         <div className="flex-1 flex flex-col overflow-hidden">
+          {activeSection === "general" && <GeneralSection />}
           {activeSection === "models" && <ProviderSection />}
           {activeSection === "skills" && <SkillSection />}
           {activeSection === "plugins" && <ExtensionSection />}

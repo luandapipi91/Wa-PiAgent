@@ -637,6 +637,19 @@ const MessageRow = memo(function MessageRow({
 		);
 	}
 
+	// 上下文压缩摘要消息（role=compactionSummary）：历史重拉时从 jsonl compaction 节点读出，
+	// 表示「此前的对话被压缩成摘要」。居中系统提示样式，与 custom 消息一致。
+	if (m.role === "compactionSummary") {
+		return (
+			<div
+				className="text-center text-[11.5px] text-tertiary"
+				data-testid={`compaction-summary-${sessionId}-${m.timestamp}`}
+			>
+				{`—— 已压缩早期上下文 · ${m.summary ?? ""} ——`}
+			</div>
+		);
+	}
+
 	const isUser = m.role === "user";
 
 	if (isUser) {
