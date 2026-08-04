@@ -1067,12 +1067,18 @@ export class WSServer {
 								});
 							}
 						}
-						reply({
-							type: "session:echo_user",
-							sessionId: session.id,
-							text: event.text,
-							agentName: event.agentName,
-						});
+						// slash 文本延迟回显：pi 对已注册的扩展命令直接执行 handler（拦截），
+						// 不写 transcript、不发 user message 事件——若照常回显，聊天窗会
+						// 多出一条并不存在的用户消息。需等 ensureStarted 后查命令清单再定。
+						const deferEcho = event.text.startsWith("/");
+						if (!deferEcho) {
+							reply({
+								type: "session:echo_user",
+								sessionId: session.id,
+								text: event.text,
+								agentName: event.agentName,
+							});
+						}
 						await this.opts.projectStore.touchSession(session.id);
 						try {
 							await this.opts.agentManager.ensureStarted(
@@ -1086,6 +1092,33 @@ export class WSServer {
 								return;
 							}
 							promptReady = true;
+							if (deferEcho) {
+								// 命中已注册扩展命令 → pi 直接消费、无用户消息，不回显；
+								// 未注册 / prompt / skill 来源 → 会展开为用户消息发给 LLM，照常回显。
+								// 查询失败时兜底回显（宁可多显示一条，不丢用户消息）。
+								try {
+									const cmdName = event.text.slice(1).split(/\s/, 1)[0];
+									const commands = await this.opts.agentManager.getCommands(
+										session.id,
+									);
+									const hit = commands.find((c) => c.name === cmdName);
+									if (hit?.source !== "extension") {
+										reply({
+											type: "session:echo_user",
+											sessionId: session.id,
+											text: event.text,
+											agentName: event.agentName,
+										});
+									}
+								} catch {
+									reply({
+										type: "session:echo_user",
+										sessionId: session.id,
+										text: event.text,
+										agentName: event.agentName,
+									});
+								}
+							}
 						} catch (err) {
 							this.broadcast({
 								type: "error",

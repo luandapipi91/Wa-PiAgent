@@ -3,15 +3,17 @@ import type { CommandInfo } from "@wa-pi/shared";
 import { api } from "../api-client";
 
 // slash 命令 store — 从 pi 运行时拉取当前会话可用的命令（插件贡献 / prompt 模板）
-// 注意：skill 类命令在此过滤掉（技能走 $ 菜单，避免与 / 菜单重复展示）
+// 注意：skill 类命令在 commands 中过滤掉（技能走 $ 菜单，避免与 / 菜单重复展示）
 interface CommandsState {
-  commands: CommandInfo[];        // 已过滤掉 source==="skill" 的命令
+  commands: CommandInfo[];        // 已过滤：skill 移除、extension 仅保留已开启（/ 菜单展示用）
+  allCommands: CommandInfo[];     // 未过滤全量（含已关闭开关的扩展命令；发送时判定「是否会被 pi 拦截执行」用）
   loading: boolean;
   load: (sessionId: string, projectId?: string, agentName?: string) => void;
 }
 
 export const useCommandsStore = create<CommandsState>((set) => ({
   commands: [],
+  allCommands: [],
   loading: false,
   load: (sessionId, projectId?, agentName?) => {
     set({ loading: true });
@@ -23,13 +25,14 @@ export const useCommandsStore = create<CommandsState>((set) => ({
     api.get(url)
       .then((data: any) => {
         const all: CommandInfo[] = data?.commands ?? [];
-        // / 菜单过滤：skill 走 $ 菜单不展示；extension 插件命令只显示已开启（enabled === true）
         set({
+          // / 菜单过滤：skill 走 $ 菜单不展示；extension 插件命令只显示已开启（enabled === true）
           commands: all.filter((c) => {
             if (c.source === "skill") return false;                    // 技能走 $ 菜单
             if (c.source === "extension") return c.enabled === true;   // 插件命令只显示已开启
             return true;                                                // prompt/builtin 不受影响
           }),
+          allCommands: all,
           loading: false,
         });
       })

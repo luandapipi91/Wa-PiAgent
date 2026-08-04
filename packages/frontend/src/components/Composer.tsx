@@ -5,6 +5,7 @@ import { api } from "../api-client";
 import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
+import { useCommandsStore } from "../store/commands";
 import { useSessionStore } from "../store/session";
 import { expandTokens } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
@@ -108,10 +109,25 @@ export function Composer({ sessionId, agentName, isRunning, isNewSession, disabl
 
   const doSend = (targetAgent: AgentName, expandedText: string) => {
     sendingRef.current = true;
+    // 已注册扩展命令（如 /uidemo、内置插件的 /goal）：pi 拦截直接执行 handler、不产生
+    // user 回声，跳过乐观插入——否则聊天窗会多出一条并不存在的用户消息
+    // （与 kernel 侧 session:echo_user 抑制规则一致）。
+    // 注意用未过滤的 allCommands：开关关闭的命令不出现在 / 菜单，但 pi 只要注册了
+    // 就仍会拦截执行，回显抑制必须与 kernel 口径一致。
+    const trimmed = expandedText.trim();
+    const isExtCmd =
+      trimmed.startsWith("/") &&
+      useCommandsStore.getState().allCommands.some(
+        (c) =>
+          c.source === "extension" &&
+          c.name === trimmed.slice(1).split(/\s/, 1)[0],
+      );
     // 空闲时：乐观 UI 立即显示用户消息 + AI loading，不等 SDK 回声。
     // 运行中：消息发给 kernel 入队（followUp），立即显示在顶部队列面板。
     if (!isRunning) {
-      useSessionStore.getState().optimisticSend(sessionId, expandedText, targetAgent);
+      if (!isExtCmd) {
+        useSessionStore.getState().optimisticSend(sessionId, expandedText, targetAgent);
+      }
     } else {
       // 乐观追加到排队列表，同时标记 optimisticEcho 防止 kernel 的 session:echo_user
       // 把 followUp 消息重复注入到会话列表（echo_user 会对每条 prompt 回传）
