@@ -201,12 +201,12 @@ export function SessionView({ sessionId }: Props) {
 				<header className="flex items-center gap-3 px-5 py-3 border-b border-hairline bg-surface">
 					<div className="flex-1">
 						<div className="flex items-center gap-2">
-							<span className="text-[14px] font-bold text-primary">
+							<span className="text-[calc(14px*var(--font-scale))] font-bold text-primary">
 								{session.title}
 							</span>
 							<AgentSwitcher sessionId={sessionId} />
 						</div>
-						<div className="text-[11.5px] text-tertiary mt-px">
+						<div className="text-[calc(11.5px*var(--font-scale))] text-tertiary mt-px">
 							<span
 								className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle"
 								style={{ background: STATUS_COLORS[headerStatus] }}
@@ -228,47 +228,49 @@ export function SessionView({ sessionId }: Props) {
 							<span className="token-capsule">
 								本轮: ↑{fmtTok(lastUsage.input)}/↓{fmtTok(lastUsage.output)}
 							</span>
-							{tokenTotal && (
-								<span className="token-capsule token-capsule--stack">
-									{(() => {
-										const totalText = fmtTok(tokenTotal.total);
-										// 占用/进度条只认官方 contextUsage（session:stats），无本地估算
-										const used = contextUsage?.used;
-										const cap = contextUsage?.total;
-										// 弱化后的累计（无官方占用数据时独占胶囊）；有子代理消耗时拆分主/子
-										const totalEl = (
-											<span className="token-total">
-												累计 {totalText}
-												{tokenTotal.subagent
-													? `（主 ${fmtTok(
-															tokenTotal.main ??
-																tokenTotal.total - tokenTotal.subagent,
-														)} · 子 ${fmtTok(tokenTotal.subagent)}）`
-													: ""}
+							{/* 占用 + 进度条胶囊（只认官方 contextUsage，无本地估算） */}
+							{contextUsage?.used != null &&
+								contextUsage.total > 0 &&
+								(() => {
+									const pct = Math.min(
+										(contextUsage.used / contextUsage.total) * 100,
+										100,
+									);
+									const w = Math.max(Math.round(pct), 2);
+									return (
+										<span className="token-capsule token-capsule--stack">
+											<span
+												className="token-occupied"
+												data-testid="token-occupied"
+											>
+												占用 {fmtTok(contextUsage.used)}
 											</span>
-										);
-										if (used == null || !cap || cap <= 0) return totalEl;
-										const pct = Math.min((used / cap) * 100, 100);
-										const w = Math.max(Math.round(pct), 2);
-										// 布局：占用（加强）→ 进度条 → 累计（弱化）
-										return (
-											<>
+											<span className="token-progress" data-testid="token-progress">
 												<span
-													className="token-occupied"
-													data-testid="token-occupied"
-												>
-													占用 {fmtTok(used)}
-												</span>
-												<span className="token-progress" data-testid="token-progress">
-													<span
-														className="token-progress-fill"
-														style={{ width: `${w}%` }}
-													/>
-												</span>
-												{totalEl}
-											</>
-										);
-									})()}
+													className="token-progress-fill"
+													style={{ width: `${w}%` }}
+												/>
+											</span>
+										</span>
+									);
+								})()}
+							{/* 累计胶囊：独立一列；有子代理消耗时第二行拆分主/子 */}
+							{tokenTotal && (
+								<span
+									className={`token-capsule token-capsule--total${tokenTotal.subagent ? " token-capsule--stack" : ""}`}
+									data-testid="token-total"
+								>
+									累计 {fmtTok(tokenTotal.total)}
+									{tokenTotal.subagent ? (
+										<span className="token-split" data-testid="token-split">
+											主{" "}
+											{fmtTok(
+												tokenTotal.main ??
+													tokenTotal.total - tokenTotal.subagent,
+											)}{" "}
+											· 子 {fmtTok(tokenTotal.subagent)}
+										</span>
+									) : null}
 								</span>
 							)}
 							{(lastUsage.cacheRead > 0 || lastUsage.cacheWrite > 0) &&
@@ -329,7 +331,7 @@ export function SessionView({ sessionId }: Props) {
 						{(isRunning || followUp.length > 0) && (
 							<div className="flex items-center mb-1">
 								{isRunning && (
-									<span className="flex items-center gap-2 text-[12.5px] text-secondary flex-1">
+									<span className="flex items-center gap-2 text-[calc(12.5px*var(--font-scale))] text-secondary flex-1">
 										<span
 											className="inline-block w-3.5 h-3.5 rounded-full"
 											style={{
@@ -347,7 +349,7 @@ export function SessionView({ sessionId }: Props) {
 										<button
 											onClick={handleStop}
 											disabled={historyLoading || stopping}
-											className={`px-2.5 py-0.5 rounded-pill text-[11.5px] font-semibold border-0 ${historyLoading || stopping ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-danger-soft text-danger cursor-pointer"}`}
+											className={`px-2.5 py-0.5 rounded-pill text-[calc(11.5px*var(--font-scale))] font-semibold border-0 ${historyLoading || stopping ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-danger-soft text-danger cursor-pointer"}`}
 											data-testid="btn-stop"
 										>
 											{stopping ? "停止中…" : "停止"}
@@ -357,7 +359,7 @@ export function SessionView({ sessionId }: Props) {
 										<button
 											onClick={handleClearFollowUp}
 											disabled={historyLoading}
-											className={`text-[11.5px] px-2 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-danger-soft text-danger cursor-pointer"}`}
+											className={`text-[calc(11.5px*var(--font-scale))] px-2 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-danger-soft text-danger cursor-pointer"}`}
 											data-testid="btn-clear-queue"
 										>
 											清空
@@ -374,12 +376,12 @@ export function SessionView({ sessionId }: Props) {
 								style={{ borderLeft: "3px solid var(--warning)" }}
 							>
 								<div className="flex items-center justify-between">
-									<span className="text-warning text-[11.5px] font-bold">
+									<span className="text-warning text-[calc(11.5px*var(--font-scale))] font-bold">
 										引导中
 									</span>
 								</div>
 								{steering.map((msg, i) => (
-									<div key={i} className="text-[12px] text-secondary mt-1 pl-2">
+									<div key={i} className="text-[calc(12px*var(--font-scale))] text-secondary mt-1 pl-2">
 										{msg}
 									</div>
 								))}
@@ -390,7 +392,7 @@ export function SessionView({ sessionId }: Props) {
 						{followUp.length > 0 && (
 							<div>
 								<div className="flex items-center justify-between mb-1">
-									<span className="text-tertiary text-[11.5px]">
+									<span className="text-tertiary text-[calc(11.5px*var(--font-scale))]">
 										排队 {followUp.length} 条
 									</span>
 								</div>
@@ -400,14 +402,14 @@ export function SessionView({ sessionId }: Props) {
 											key={i}
 											className={`flex items-center justify-between px-2.5 py-1.5 ${i < followUp.length - 1 ? "border-b border-hairline" : ""}`}
 										>
-											<span className="text-secondary truncate flex-1 text-[12.5px]">
+											<span className="text-secondary truncate flex-1 text-[calc(12.5px*var(--font-scale))]">
 												{msg}
 											</span>
 											<div className="flex ml-2 gap-2">
 												<button
 													onClick={() => handlePromote(msg)}
 													disabled={historyLoading}
-													className={`text-[11.5px] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-accent-soft text-accent cursor-pointer"}`}
+													className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-accent-soft text-accent cursor-pointer"}`}
 													data-testid="btn-promote"
 												>
 													引导
@@ -416,7 +418,7 @@ export function SessionView({ sessionId }: Props) {
 													<button
 														onClick={() => handleImmediate(msg)}
 														disabled={historyLoading}
-														className={`text-[11.5px] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-success-soft text-success cursor-pointer"}`}
+														className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-success-soft text-success cursor-pointer"}`}
 														data-testid="btn-immediate"
 													>
 														立即
@@ -431,7 +433,7 @@ export function SessionView({ sessionId }: Props) {
 
 						{/* 提示 */}
 						{followUp.length > 0 && (
-							<div className="text-tertiary text-[11.5px] mt-1">
+							<div className="text-tertiary text-[calc(11.5px*var(--font-scale))] mt-1">
 								{isRunning
 									? "💡 引导：下回合立即生效 │ 停止当前后可点击“立即”"
 									: "💡 引导：下回合立即生效 │ 立即：立即执行该消息"}
@@ -464,7 +466,7 @@ export function SessionView({ sessionId }: Props) {
 						data-testid="explorer-aside"
 					>
 						<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline">
-							<span className="text-[12px] font-semibold text-primary flex-1">
+							<span className="text-[calc(12px*var(--font-scale))] font-semibold text-primary flex-1">
 								项目文件
 							</span>
 							<button

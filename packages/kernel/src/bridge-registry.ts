@@ -12,6 +12,8 @@ import { createAgentMemoryTools, type AmasterStore } from "./amaster-memory";
 export interface BridgeToolResult {
   content: Array<{ type: "text"; text: string }>;
   details?: unknown;
+  /** 工具内嵌 LLM 用量（delegate/fleet 子代理消耗）：pi 官方 stats 原生计入累计 */
+  usage?: unknown;
 }
 
 /** 单个会话的宿主工具执行上下文（由 AgentManager 在会话启动时注册） */

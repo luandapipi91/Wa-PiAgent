@@ -570,3 +570,57 @@ test("makeDelegateTool execute 把 toolCallId 透传给 spawn", async () => {
 	await tool.execute("tc-xyz", { agent: "general-purpose", task: "hi" });
 	expect(spawnCalledWith).toBe("tc-xyz");
 });
+
+test("delegate: 子代理 usage 转 pi toolResult.usage 形状（官方 stats 原生计入累计）", async () => {
+	const spawn = mock(async () => ({
+		text: "完成",
+		isError: false,
+		usage: {
+			tokens: { input: 300, output: 130, cacheRead: 1000, cacheWrite: 0, total: 1430 },
+			costTotal: 0.01,
+		},
+	}));
+	const tool = makeDelegateTool({ askTo, spawn });
+	const res = await tool.execute("tc-u1", { agent: "代码审查", task: "t" });
+	// pi addUsageToTotals 直接读 input/output/cacheRead/cacheWrite/cost.total，全部为数
+	expect(res.usage).toEqual({
+		input: 300,
+		output: 130,
+		cacheRead: 1000,
+		cacheWrite: 0,
+		totalTokens: 1430,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.01 },
+	});
+});
+
+test("delegate: 无 usage（采集失败降级）时不带 usage 字段", async () => {
+	const spawn = mock(async () => ({ text: "完成", isError: false }));
+	const tool = makeDelegateTool({ askTo, spawn });
+	const res = await tool.execute("tc-u2", { agent: "代码审查", task: "t" });
+	expect(res.usage).toBeUndefined();
+});
+
+test("fleet: 各子代理 usage 聚合为单个 toolResult.usage", async () => {
+	const usageOf = (input: number) => ({
+		tokens: { input, output: 10, cacheRead: 100, cacheWrite: 0, total: input + 110 },
+		costTotal: 0.01,
+	});
+	const spawn = mock(async (agent: string) => ({
+		text: `${agent}完成`,
+		isError: false,
+		usage: agent === "代码审查" ? usageOf(300) : undefined, // 一个采集失败降级
+	}));
+	const tool = makeFleetTool({ askTo, spawn });
+	const res = await tool.execute("tc-u3", {
+		tasks: [
+			{ agent: "代码审查", task: "a" },
+			{ agent: "质量验收", task: "b" },
+		],
+	});
+	// 只有一个子代理有用量：聚合结果就是它
+	expect(res.usage?.input).toBe(300);
+	expect(res.usage?.output).toBe(10);
+	expect(res.usage?.cacheRead).toBe(100);
+	expect(res.usage?.totalTokens).toBe(410);
+	expect(res.usage?.cost.total).toBe(0.01);
+});

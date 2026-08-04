@@ -134,6 +134,49 @@ export function buildDelegateRoster(
 }
 
 /** 构造 delegate 工具（闭包绑 askTo + spawn）。每个 session 一份实例，始终注册（内置类型不依赖 askTo）。 */
+
+/**
+ * 子代理用量转 pi ToolResultMessage.usage 形状（pi getSessionStats 的
+ * addUsageToTotals 直接读取 input/output/cacheRead/cacheWrite/cost.total，
+ * 全部必须为数，否则 NaN）。携带后 pi 官方 stats 会原生把子代理计入累计。
+ */
+function toPiToolUsage(u?: SubagentUsage) {
+	if (!u) return undefined;
+	const t = u.tokens;
+	return {
+		input: t.input ?? 0,
+		output: t.output ?? 0,
+		cacheRead: t.cacheRead ?? 0,
+		cacheWrite: t.cacheWrite ?? 0,
+		totalTokens:
+			t.total ?? (t.input ?? 0) + (t.output ?? 0) + (t.cacheRead ?? 0) + (t.cacheWrite ?? 0),
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: u.costTotal ?? 0 },
+	};
+}
+
+/** 多子代理用量聚合（fleet）：tokens 逐项相加，cost.total 相加；无任何用量返回 undefined */
+function sumPiToolUsage(usages: Array<SubagentUsage | undefined>) {
+	const shaped = usages.map(toPiToolUsage).filter((x) => x != null);
+	if (shaped.length === 0) return undefined;
+	const acc = {
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: 0,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+	for (const u of shaped) {
+		acc.input += u.input;
+		acc.output += u.output;
+		acc.cacheRead += u.cacheRead;
+		acc.cacheWrite += u.cacheWrite;
+		acc.totalTokens += u.totalTokens;
+		acc.cost.total += u.cost.total;
+	}
+	return acc;
+}
+
 export function makeDelegateTool(opts: {
 	askTo: DelegateTarget[];
 	spawn: DelegateSpawnFn;
@@ -150,6 +193,7 @@ export function makeDelegateTool(opts: {
 			content: Array<{ type: "text"; text: string }>;
 			details: undefined;
 			isError: boolean;
+			usage?: ReturnType<typeof toPiToolUsage>;
 		}> {
 			if (!canInvoke(args.agent, opts.askTo)) {
 				return {
@@ -167,7 +211,7 @@ export function makeDelegateTool(opts: {
 			// 让 spawn 闭包传给 subagent-runner 时能正确匹配 AgentDefinition
 			const spawnAgent = normalizeSubagentType(args.agent);
 			// 透传 toolCallId：前端 DelegateCard 靠它定位卡片，进度帧需关联到正确卡片
-			const { text, isError } = await opts.spawn(
+			const { text, isError, usage } = await opts.spawn(
 				spawnAgent,
 				args.task,
 				toolCallId,
@@ -176,6 +220,8 @@ export function makeDelegateTool(opts: {
 				content: [{ type: "text" as const, text }],
 				details: undefined,
 				isError,
+				// 子代理用量随 toolResult 上报：pi 官方 stats 原生计入累计（usage reported by tools）
+				usage: toPiToolUsage(usage),
 			};
 		},
 	};
@@ -317,6 +363,7 @@ export function makeFleetTool(opts: {
 			content: Array<{ type: "text"; text: string }>;
 			details: { fleet: Record<string, ToolStats> } | undefined;
 			isError: boolean;
+			usage?: ReturnType<typeof sumPiToolUsage>;
 		}> {
 			if (args.tasks.length === 0) {
 				return {
@@ -338,12 +385,12 @@ export function makeFleetTool(opts: {
 					const spawnAgent = normalizeSubagentType(t.agent);
 					// fleet 所有子任务共享同一个 fleet 工具调用的 toolCallId：
 					// 前端 FleetCard 靠它定位卡片，内部按 progress.agent 区分各子任务
-					const { text, isError, toolStats } = await opts.spawn(
+					const { text, isError, toolStats, usage } = await opts.spawn(
 						spawnAgent,
 						t.task,
 						toolCallId,
 					);
-					return { agent: t.agent, text, isError, toolStats };
+					return { agent: t.agent, text, isError, toolStats, usage };
 				}),
 				MAX_SUBAGENT_CONCURRENCY,
 			);
@@ -359,6 +406,8 @@ export function makeFleetTool(opts: {
 				content: [{ type: "text" as const, text: lines.join("\n\n") }],
 				details: { fleet: fleetStats },
 				isError: anyError,
+				// 各子代理用量聚合上报：pi 官方 stats 原生计入累计（usage reported by tools）
+				usage: sumPiToolUsage(results.map((r) => r.usage)),
 			};
 		},
 	};

@@ -47,6 +47,7 @@ test("[第三层] session:messages 走 AgentSession.messages", async () => {
     disposeSession: async () => {},
     disposeAll: async () => {},
     isSessionBusy: (_sid: string) => false,
+    isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => null,
   } as any;
   const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
@@ -90,6 +91,7 @@ test("[第三层] session:messages 会话不存在返回空数组", async () => 
     disposeSession: async () => {},
     disposeAll: async () => {},
     isSessionBusy: (_sid: string) => false,
+    isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => null,
   } as any;
   const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
@@ -150,6 +152,7 @@ test("[第三层] session:messages 文件直读快速路径", async () => {
     disposeSession: async () => {},
     disposeAll: async () => {},
     isSessionBusy: (_sid: string) => false,
+    isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => null,
   } as any;
   const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
@@ -203,6 +206,7 @@ test("[第三层] session:messages 文件缺失（ENOENT）返回空数组", asy
     disposeSession: async () => {},
     disposeAll: async () => {},
     isSessionBusy: (_sid: string) => false,
+    isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => null,
   } as any;
   const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
@@ -246,6 +250,7 @@ test("[第三层] session:messages 会话 busy 时返回 isActive:true", async (
   const agentManager = {
     ensureStarted: async (_pid: string, _an: string, _sid: string) => fakeSession,
     isSessionBusy: (_sid: string) => true,
+    isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => 1720000000000,
     prompt: async () => {},
     abort: async () => {},
