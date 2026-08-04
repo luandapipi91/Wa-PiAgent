@@ -60,20 +60,18 @@ test("打开时拉取命令并按 packageName 过滤，渲染命令列表 + 顶�
 	// 其他插件的命令被过滤掉
 	expect(screen.queryByText("/other")).toBeNull();
 
-	// 顶部提示条
-	expect(screen.getByText("注意：TUI 命令不被支持")).toBeTruthy();
+	// 顶部提示条已移除（TUI 命令提示文案下线）
+	expect(screen.queryByText(/TUI 命令不被支持/)).toBeNull();
 
 	// 打开时调用了 GET
 	expect(getMock).toHaveBeenCalledWith("/api/extensions/commands");
 });
 
-test("tuiOnly 命令不再显示 ⚠ 徽标（仅保留顶部提示条）", async () => {
+test("tuiOnly 命令不显示 ⚠ 徽标", async () => {
 	getMock.mockImplementation(async () => ({ commands: sampleCommands() }));
 	render(<CommandListModal packageName="superpowers-zh" onClose={() => {}} />);
 
 	await screen.findByText("/tui-cmd");
-	// 行内徽标已移除：全页只应有一处含「TUI 命令不被支持」的文本（顶部提示条）
-	expect(screen.getAllByText(/TUI 命令不被支持/).length).toBe(1);
 	expect(screen.queryByText("⚠ TUI 命令不被支持")).toBeNull();
 });
 

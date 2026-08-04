@@ -1830,7 +1830,7 @@ test("getCommands 给 TUI-only 扩展的命令附加 tuiOnly 标记并全量返�
 	expect(commands.find((c) => c.name === "goal")?.tuiOnly).toBeUndefined();
 });
 
-test("getCommands 合并 extension 命令开关状态（enabled：命中 toggles 用开关值，未记录缺省 false）", async () => {
+test("getCommands 合并 extension 命令开关状态（enabled：命中 toggles 用开关值，未记录缺省 true）", async () => {
 	// 造一个临时扩展包：resolvePackageName 从 sourceInfo.path 读 package.json 解析包名
 	const root = join(WA_PI_DIR, "tmp", `toggles-merge-${Date.now()}`);
 	tmpPaths.push(root);
@@ -1869,8 +1869,8 @@ test("getCommands 合并 extension 命令开关状态（enabled：命中 toggles
 	expect(commands).toHaveLength(3);
 	// 开启的命令 → enabled: true
 	expect(commands.find((c) => c.name === "goal")?.enabled).toBe(true);
-	// 未记录开关的命令 → 缺省 false
-	expect(commands.find((c) => c.name === "hello")?.enabled).toBe(false);
+	// 未记录开关的命令 → 缺省 true（附加命令默认全部开启）
+	expect(commands.find((c) => c.name === "hello")?.enabled).toBe(true);
 	// 非 extension 命令（prompt 来源）→ 不附加 enabled（保持 kernel 不填 enabled 的语义）
 	expect(commands.find((c) => c.name === "review")?.enabled).toBeUndefined();
 });
@@ -1965,8 +1965,8 @@ test("prompt 关闭命令降级为普通文本：加前导空格绕过 pi 命令
 	expect(fakes[0].prompted[1]).toBe("/hello 你好");
 });
 
-test("prompt 未在 toggles 中记录的命令（缺省 false）同样降级：加前导空格", async () => {
-	// 造临时扩展包：缺省语义 = 未记录的命令视为关闭，也应登记进降级集合
+test("prompt 未在 toggles 中记录的命令（缺省 true）不降级：原样发送", async () => {
+	// 造临时扩展包：缺省语义 = 未记录的命令默认开启，不登记进降级集合
 	const root = join(WA_PI_DIR, "tmp", `disabled-default-${Date.now()}`);
 	tmpPaths.push(root);
 	const extDir = join(root, "goal-ext");
@@ -1980,7 +1980,7 @@ test("prompt 未在 toggles 中记录的命令（缺省 false）同样降级：�
 	const { project, session, am, fakes } = await setup({
 		extensionManager: {
 			listEnabledPackageNames: async () => [],
-			// toggles 中完全没有 goal 的记录 → 缺省 false
+			// toggles 中完全没有 goal 的记录 → 缺省 true（默认开启）
 			getCommandToggles: async () => ({ "goal-ext": {} }),
 		},
 	});
@@ -1994,7 +1994,7 @@ test("prompt 未在 toggles 中记录的命令（缺省 false）同样降级：�
 	];
 
 	await am.prompt(session.id, "/goal 设定目标", { model: MODEL });
-	expect(fakes[0].prompted[0]).toBe(" /goal 设定目标");
+	expect(fakes[0].prompted[0]).toBe("/goal 设定目标");
 });
 
 test("prompt 首次拉取命令失败不置位 _commandsFetched：下次 / 命令重试", async () => {

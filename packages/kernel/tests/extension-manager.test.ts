@@ -522,17 +522,17 @@ test("listEnabledPackageNames 不触碰 pkgService（无版本/registry 查询�
 
 // ---- waPiCommandToggles（命令级开关持久化）----
 
-test("getCommandToggle 缺省返回 false（无 settings.json）", async () => {
+test("getCommandToggle 缺省返回 true（无 settings.json）", async () => {
   const mgr = mockManager(dir);
-  expect(await mgr.getCommandToggle("my-pkg", "my-command")).toBe(false);
+  expect(await mgr.getCommandToggle("my-pkg", "my-command")).toBe(true);
 });
 
-test("getCommandToggle 缺省返回 false（有 settings.json 但无 toggles）", async () => {
+test("getCommandToggle 缺省返回 true（有 settings.json 但无 toggles）", async () => {
   writeFileSync(join(dir, "settings.json"), JSON.stringify({
     waPiPackages: ["npm:my-pkg@1.0.0"],
   }), "utf8");
   const mgr = mockManager(dir);
-  expect(await mgr.getCommandToggle("my-pkg", "my-command")).toBe(false);
+  expect(await mgr.getCommandToggle("my-pkg", "my-command")).toBe(true);
 });
 
 test("setCommandToggle 持久化后重读返回新值", async () => {
