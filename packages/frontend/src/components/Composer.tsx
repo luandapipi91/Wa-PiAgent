@@ -46,6 +46,13 @@ export function Composer({ sessionId, agentName, isRunning, isNewSession, disabl
       appliedInjectionTsRef.current = injection.ts;
       setText(injection.text);
       setSessionPrefs(sessionId, { text: injection.text });
+      // 应用后立即清除 store 里的注入记录：appliedInjectionTsRef 随卸载重置，
+      // 不清除则 Composer 重挂载（切「新会话」视图再切回）会重放旧注入、覆盖用户草稿
+      useSessionStore.setState(s => {
+        const next = { ...s.editorTextInjection };
+        delete next[sessionId];
+        return { editorTextInjection: next };
+      });
     }
   }, [injection, sessionId, setSessionPrefs]);
 
