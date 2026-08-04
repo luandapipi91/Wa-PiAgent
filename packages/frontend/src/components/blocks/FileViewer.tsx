@@ -164,7 +164,7 @@ function ImageViewer({
 	return (
 		<div className="flex flex-col h-full" data-testid="image-viewer">
 			<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface">
-				<span className="text-[12px] text-secondary flex-1 truncate">
+				<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate">
 					🖼️ {alt}
 				</span>
 				<button
@@ -174,7 +174,7 @@ function ImageViewer({
 				>
 					➖
 				</button>
-				<span className="text-[11px] text-tertiary w-10 text-center">
+				<span className="text-[calc(11px*var(--font-scale))] text-tertiary w-10 text-center">
 					{Math.round(zoom * 100)}%
 				</span>
 				<button
@@ -301,7 +301,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 	if (loading) {
 		return (
 			<div
-				className="flex items-center justify-center h-full text-tertiary text-[13px]"
+				className="flex items-center justify-center h-full text-tertiary text-[calc(13px*var(--font-scale))]"
 				data-testid="fv-loading"
 			>
 				加载中…
@@ -315,9 +315,9 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				className="flex flex-col items-center justify-center h-full gap-3"
 				data-testid="fv-unsupported"
 			>
-				<span className="text-[32px]">📄</span>
-				<span className="text-[13px] text-secondary">不支持预览该文件</span>
-				<span className="text-[11px] text-tertiary">{unsupported}</span>
+				<span className="text-[calc(32px*var(--font-scale))]">📄</span>
+				<span className="text-[calc(13px*var(--font-scale))] text-secondary">不支持预览该文件</span>
+				<span className="text-[calc(11px*var(--font-scale))] text-tertiary">{unsupported}</span>
 				<div className="flex items-center gap-2">
 					<button className="fv-btn" onClick={onClose}>
 						关闭
@@ -339,7 +339,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				className="flex flex-col items-center justify-center h-full gap-3"
 				data-testid="fv-error"
 			>
-				<span className="text-[13px] text-danger">{error}</span>
+				<span className="text-[calc(13px*var(--font-scale))] text-danger">{error}</span>
 				<button className="fv-btn" onClick={onClose}>
 					关闭
 				</button>
@@ -355,7 +355,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 		return (
 			<div className="flex flex-col h-full" data-testid="file-viewer">
 				<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface">
-					<span className="text-[12px] text-secondary flex-1 truncate font-mono">
+					<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono">
 						📄 {fileName}
 					</span>
 					<button className="fv-btn" onClick={onClose} title="关闭">
@@ -370,7 +370,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 					<MarkdownPreview content={content} sessionId={sessionId ?? ""} />
 				</div>
 				<div
-					className="px-3 py-1 text-[10.5px] text-tertiary border-t border-hairline bg-surface truncate"
+					className="px-3 py-1 text-[calc(10.5px*var(--font-scale))] text-tertiary border-t border-hairline bg-surface truncate"
 					title={displayPath}
 				>
 					{displayPath}
@@ -382,7 +382,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 	return (
 		<div className="flex flex-col h-full" data-testid="file-viewer">
 			<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface">
-				<span className="text-[12px] text-secondary flex-1 truncate font-mono">
+				<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono">
 					📄 {fileName}
 				</span>
 				<button className="fv-btn" onClick={onClose} title="关闭">
@@ -396,7 +396,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 					language={language}
 				>
 					{({ tokens, getLineProps, getTokenProps }) => (
-						<pre className="text-[12px] font-mono m-0">
+						<pre className="text-[calc(12px*var(--font-scale))] font-mono m-0">
 							<code>
 								{tokens.map((line, i) => (
 									<div
@@ -427,7 +427,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				</Highlight>
 			</div>
 			<div
-				className="px-3 py-1 text-[10.5px] text-tertiary border-t border-hairline bg-surface truncate"
+				className="px-3 py-1 text-[calc(10.5px*var(--font-scale))] text-tertiary border-t border-hairline bg-surface truncate"
 				title={displayPath}
 			>
 				{displayPath}

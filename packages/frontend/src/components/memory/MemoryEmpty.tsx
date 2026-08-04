@@ -16,7 +16,7 @@ export function MemoryEmpty({ type }: Props) {
           }}
         >📄</div>
         <h4 className="font-extrabold text-base mb-1.5 text-primary">没有指令文件</h4>
-        <p className="text-[12.5px] text-tertiary text-center leading-relaxed">
+        <p className="text-[calc(12.5px*var(--font-scale))] text-tertiary text-center leading-relaxed">
           当前项目根目录下没有 AGENTS.md 或 CLAUDE.md。<br />
           创建后，智能体会自动加载作为行为指令。
         </p>
@@ -34,7 +34,7 @@ export function MemoryEmpty({ type }: Props) {
         }}
       >🧠</div>
       <h4 className="font-extrabold text-lg mb-1.5 text-primary">还没有记忆</h4>
-      <p className="text-[13px] text-tertiary text-center leading-relaxed">
+      <p className="text-[calc(13px*var(--font-scale))] text-tertiary text-center leading-relaxed">
         智能体会在对话中自动学习并记住你的偏好、纠正和经验。<br />
         开始一段对话，记忆会自动积累到这里。
       </p>

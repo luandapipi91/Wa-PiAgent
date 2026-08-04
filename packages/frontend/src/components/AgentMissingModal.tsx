@@ -38,14 +38,14 @@ export function AgentMissingModal({ sessionId, onClose }: Props) {
             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm cursor-pointer text-left border-0 bg-transparent transition-colors text-secondary hover:bg-surface-hover"
           >
             <span
-              className="w-[22px] h-[22px] rounded-sm flex items-center justify-center text-[12px] flex-none"
+              className="w-[22px] h-[22px] rounded-sm flex items-center justify-center text-[calc(12px*var(--font-scale))] flex-none"
               style={{ background: avatarBackground(a.avatarColor) }}
             >{a.avatar}</span>
-            <span className="text-[12px] text-primary">{a.displayName}</span>
+            <span className="text-[calc(12px*var(--font-scale))] text-primary">{a.displayName}</span>
           </button>
         ))}
         {agents.length === 0 && (
-          <div className="px-3 py-3.5 text-center text-tertiary text-[12px]">（无智能体）</div>
+          <div className="px-3 py-3.5 text-center text-tertiary text-[calc(12px*var(--font-scale))]">（无智能体）</div>
         )}
       </div>
     </Modal>

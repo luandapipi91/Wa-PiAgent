@@ -174,12 +174,12 @@ export function SkillSection() {
                   >
                     <span className="text-sm font-semibold text-primary">{skill.name}</span>
                     {tag && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full"
+                      <span className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full"
                         style={{ background: "var(--hairline)", color: "var(--text-tertiary)" }}
                       >{tag}</span>
                     )}
                     {disabled && (
-                      <span className="text-[10px] font-semibold" style={{ color: "var(--danger)" }}>禁用</span>
+                      <span className="text-[calc(10px*var(--font-scale))] font-semibold" style={{ color: "var(--danger)" }}>禁用</span>
                     )}
                     <span className="text-xs text-tertiary flex-1">{expanded ? "▾" : "▸"}</span>
 
@@ -210,7 +210,7 @@ export function SkillSection() {
                   {/* 描述 */}
                   {expanded && skill.description && (
                     <div className="pl-0 pt-1">
-                      <span className="text-[11px] text-tertiary">{skill.description}</span>
+                      <span className="text-[calc(11px*var(--font-scale))] text-tertiary">{skill.description}</span>
                     </div>
                   )}
                 </div>

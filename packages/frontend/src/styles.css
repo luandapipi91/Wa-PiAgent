@@ -50,6 +50,9 @@
 /* 单一真相源：DESIGN.md 所有 token 在此定义。
    tailwind.config.js 引用这些变量；组件用 Tailwind 类或 var(--xxx)。 */
 :root {
+	/* 文字大小缩放系数（系统设置 > 通用 > 文字大小）：只作用于字号，不动布局 */
+	--font-scale: 1;
+
 	/* —— 品牌与强调 —— */
 	--brand: #1d1d1f;
 	--brand-soft: #2c2c2e;
@@ -209,7 +212,7 @@ body {
 
 /* Token 胶囊标签（SessionView header 右侧） */
 .token-capsule {
-	font-size: 11px;
+	font-size: calc(11px * var(--font-scale));
 	padding: 2px 8px;
 	border-radius: 10px;
 	background: var(--bg-secondary);
@@ -224,7 +227,7 @@ body {
 	background: var(--danger-soft);
 	color: var(--danger);
 }
-/* 累计胶囊（含进度条）：纵向排列 */
+/* 占用胶囊（含进度条）：纵向排列 */
 .token-capsule--stack {
 	display: flex;
 	flex-direction: column;
@@ -251,16 +254,19 @@ body {
 }
 /* 「占用 xxx k」：当前上下文窗口已用 token 数（加强：主色，位于进度条上方） */
 .token-occupied {
-	font-size: 11px;
+	font-size: calc(11px * var(--font-scale));
 	line-height: 1.2;
 	color: var(--text-primary);
 	white-space: nowrap;
 }
-/* 「累计 xxx k」：整个会话累计消耗（弱化：小字三级灰，位于进度条下方） */
-.token-total {
-	font-size: 10px;
-	line-height: 1;
+/* 「累计 xxx k」独立胶囊：整个会话累计消耗（弱化：三级灰），子代理消耗 >0 时第二行主/子拆分 */
+.token-capsule--total {
 	color: var(--text-tertiary);
+}
+/* 累计胶囊第二行：主/子代理拆分（小字） */
+.token-split {
+	font-size: calc(10px * var(--font-scale));
+	line-height: 1;
 	white-space: nowrap;
 }
 
@@ -272,7 +278,7 @@ body {
 	min-width: 24px;
 	height: 24px;
 	padding: 0 6px;
-	font-size: 12px;
+	font-size: calc(12px * var(--font-scale));
 	border-radius: 4px;
 	border: 1px solid var(--border-hairline, var(--border));
 	background: var(--bg-secondary);
@@ -302,7 +308,7 @@ body {
 
 /* ── ExplorerPanel 文件树 ── */
 .ep-tree {
-	font-size: 12.5px;
+	font-size: calc(12.5px * var(--font-scale));
 }
 .ep-node {
 	display: flex;
@@ -326,10 +332,10 @@ body {
 	width: 10px;
 	text-align: center;
 	color: var(--text-tertiary);
-	font-size: 9px;
+	font-size: calc(9px * var(--font-scale));
 }
 .ep-icon {
-	font-size: 13px;
+	font-size: calc(13px * var(--font-scale));
 	line-height: 1;
 }
 .ep-name {
@@ -340,7 +346,7 @@ body {
 	padding: 16px;
 	text-align: center;
 	color: var(--text-tertiary);
-	font-size: 12px;
+	font-size: calc(12px * var(--font-scale));
 }
 /* 右键菜单 */
 .ep-ctx-menu {
@@ -357,7 +363,7 @@ body {
 	display: block;
 	width: 100%;
 	padding: 6px 10px;
-	font-size: 12px;
+	font-size: calc(12px * var(--font-scale));
 	text-align: left;
 	border: 0;
 	border-radius: 4px;
@@ -377,8 +383,18 @@ body {
 	background: var(--bg-secondary);
 	border: 1px solid var(--accent);
 	border-radius: 4px;
-	font-size: 12px;
+	font-size: calc(12px * var(--font-scale));
 	color: var(--text-primary);
 	white-space: nowrap;
 	pointer-events: none;
 }
+
+/* ===== 文字大小缩放：覆盖 Tailwind rem 字号类（系统设置 > 通用） =====
+   px 任意值（text-[calc(...)]）与上方自定义规则已逐一挂 --font-scale；
+   这里覆盖实际使用的 rem 字号类，保证两类文字同步缩放。 */
+.text-xs { font-size: calc(0.75rem * var(--font-scale)); }
+.text-sm { font-size: calc(0.875rem * var(--font-scale)); }
+.text-base { font-size: calc(1rem * var(--font-scale)); }
+.text-lg { font-size: calc(1.125rem * var(--font-scale)); }
+.text-xl { font-size: calc(1.25rem * var(--font-scale)); }
+.text-3xl { font-size: calc(1.875rem * var(--font-scale)); }

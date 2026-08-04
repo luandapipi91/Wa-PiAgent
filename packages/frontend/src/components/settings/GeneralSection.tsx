@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api-client";
 import type { RetrySettings } from "@wa-pi/shared";
+import {
+	FONT_SIZE_MAX,
+	FONT_SIZE_MIN,
+	useUiPrefsStore,
+} from "../../store/ui-prefs";
 
 /** 与 kernel settings-store 的产品约束对齐（重试最多 10 次；间隔 0.5s-60s） */
 const MAX_RETRIES = 10;
@@ -19,6 +24,8 @@ export function GeneralSection() {
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
+	const fontSize = useUiPrefsStore((s) => s.fontSize);
+	const setFontSize = useUiPrefsStore((s) => s.setFontSize);
 
 	useEffect(() => {
 		api
@@ -58,6 +65,32 @@ export function GeneralSection() {
 
 	return (
 		<div className="flex flex-col gap-4 p-4 overflow-auto">
+			<div className="flex flex-col gap-1">
+				<span className="text-sm font-medium text-primary">文字大小</span>
+				<span className="text-xs text-tertiary">
+					拖动滑块调整文字大小（{FONT_SIZE_MIN}-{FONT_SIZE_MAX}
+					px），只缩放文字、不改变布局，即时生效。
+				</span>
+			</div>
+			<div className="flex items-center gap-3 w-72">
+				<input
+					type="range"
+					min={FONT_SIZE_MIN}
+					max={FONT_SIZE_MAX}
+					step={1}
+					value={fontSize}
+					onChange={(e) => setFontSize(Number(e.target.value))}
+					className="flex-1 cursor-pointer"
+					style={{ accentColor: "var(--brand)" }}
+					data-testid="font-size-slider"
+				/>
+				<span
+					className="text-sm text-primary w-12 text-right"
+					data-testid="font-size-value"
+				>
+					{fontSize}px
+				</span>
+			</div>
 			<div className="flex flex-col gap-1">
 				<span className="text-sm font-medium text-primary">自动重试</span>
 				<span className="text-xs text-tertiary">

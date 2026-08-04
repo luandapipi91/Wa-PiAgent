@@ -75,7 +75,7 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
 
   return (
     <div className="mb-2 mt-1 border-b border-hairline pb-2">
-      <div className="text-[11px] font-bold text-tertiary px-2 pb-1 uppercase tracking-wide flex items-center justify-between">
+      <div className="text-[calc(11px*var(--font-scale))] font-bold text-tertiary px-2 pb-1 uppercase tracking-wide flex items-center justify-between">
         智能体
         <span className="bg-surface-hover rounded px-1.5 normal-case">{agents.length}</span>
       </div>
@@ -96,7 +96,7 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
               className="w-[26px] h-[26px] rounded-md flex items-center justify-center text-sm flex-shrink-0"
               style={{ background: `linear-gradient(135deg, ${c1}, ${c2})` }}
             >{agent.avatar || def.emoji}</span>
-            <span className="text-[13px] text-secondary flex-1 min-w-0 truncate">{agent.displayName}</span>
+            <span className="text-[calc(13px*var(--font-scale))] text-secondary flex-1 min-w-0 truncate">{agent.displayName}</span>
             <span
               className="w-1.5 h-1.5 rounded-full flex-shrink-0"
               style={{ background: STATUS_COLORS[status] }}
@@ -108,7 +108,7 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
       {agents.length > 3 && (
         <button
           onClick={onMore}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-[13px] text-tertiary transition-colors hover:bg-surface-hover hover:text-secondary text-left"
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-[calc(13px*var(--font-scale))] text-tertiary transition-colors hover:bg-surface-hover hover:text-secondary text-left"
           data-testid="agent-more"
         >⋯ 更多智能体 ({agents.length - 3})</button>
       )}
@@ -124,14 +124,14 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
             }}
             onBlur={() => { setCreating(false); setNewName(""); }}
             placeholder="智能体名称"
-            className="w-full px-2 py-1.5 rounded-sm border border-hairline bg-surface text-[13px] text-primary outline-none placeholder:text-tertiary"
+            className="w-full px-2 py-1.5 rounded-sm border border-hairline bg-surface text-[calc(13px*var(--font-scale))] text-primary outline-none placeholder:text-tertiary"
             data-testid="agent-empty-input"
           />
         </div>
       ) : (
         <button
           onClick={() => setCreating(true)}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-[13px] text-tertiary transition-colors hover:bg-surface-hover hover:text-secondary text-left"
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-[calc(13px*var(--font-scale))] text-tertiary transition-colors hover:bg-surface-hover hover:text-secondary text-left"
           data-testid="agent-empty-create"
         >＋ 新增智能体</button>
       ))}

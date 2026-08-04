@@ -51,10 +51,10 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
       {/* 头部：分类标签 + 作用域 */}
       <div className="flex items-center gap-2 mb-2">
         <span
-          className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+          className="text-[calc(10px*var(--font-scale))] font-semibold px-2 py-0.5 rounded-full"
           style={{ background: cat.bg, color: cat.color }}
         >{cat.label}</span>
-        <span className="text-[10px] text-tertiary">
+        <span className="text-[calc(10px*var(--font-scale))] text-tertiary">
           {entry.scope === "global" ? "○ 全局" : "● 项目"}
         </span>
       </div>
@@ -63,7 +63,7 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
       {editing ? (
         <>
           <textarea
-            className="w-full text-[12.5px] leading-relaxed p-2.5 mb-2 outline-none"
+            className="w-full text-[calc(12.5px*var(--font-scale))] leading-relaxed p-2.5 mb-2 outline-none"
             style={{
               background: "var(--canvas)",
               border: "1px solid var(--hairline-strong)",
@@ -78,13 +78,13 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
           <div className="flex justify-end gap-2">
             <button
               onClick={handleCancel}
-              className="text-[11px] text-secondary px-2.5 py-1 rounded-md"
+              className="text-[calc(11px*var(--font-scale))] text-secondary px-2.5 py-1 rounded-md"
               style={{ border: "1px solid var(--hairline)", background: "transparent" }}
               data-testid="memory-edit-cancel"
             >取消</button>
             <button
               onClick={handleSave}
-              className="text-[11px] font-semibold text-white px-3.5 py-1 rounded-md"
+              className="text-[calc(11px*var(--font-scale))] font-semibold text-white px-3.5 py-1 rounded-md"
               style={{ background: "var(--accent)", border: "none" }}
               data-testid="memory-edit-save"
             >保存</button>
@@ -92,9 +92,9 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
         </>
       ) : (
         <>
-          <p className="text-[12.5px] leading-relaxed text-primary m-0 mb-2">{entry.text}</p>
+          <p className="text-[calc(12.5px*var(--font-scale))] leading-relaxed text-primary m-0 mb-2">{entry.text}</p>
           <div className="flex items-center justify-between">
-            <span className="text-[10.5px] text-tertiary">
+            <span className="text-[calc(10.5px*var(--font-scale))] text-tertiary">
               {isArchived ? `归档于 ${(entry as ArchivedMemory).archivedAt?.slice(0, 10) ?? ""}` : entry.updatedAt?.slice(0, 10) ?? ""}
             </span>
             <div className="flex gap-1.5">
@@ -127,7 +127,7 @@ function CardButton({ onClick, testId, text, color, borderColor }: {
     <button
       onClick={onClick}
       data-testid={testId}
-      className="text-[11px] px-2.5 py-1 rounded-md"
+      className="text-[calc(11px*var(--font-scale))] px-2.5 py-1 rounded-md"
       style={{
         color: color ?? "var(--text-secondary)",
         border: `1px solid ${borderColor ?? "var(--hairline)"}`,

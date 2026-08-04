@@ -22,11 +22,33 @@ mock.module("../src/api-client", () => ({
 }));
 
 import { GeneralSection } from "../src/components/settings/GeneralSection";
+import { useUiPrefsStore } from "../src/store/ui-prefs";
 
 beforeEach(() => {
 	apiCalls.length = 0;
 	getResponse = { retry: { maxRetries: 3, baseDelayMs: 2000 } };
 	putError = null;
+	localStorage.clear();
+	useUiPrefsStore.setState({ fontSize: 16 });
+});
+
+test("文字大小滑块：显示当前字号，拖动即时更新 store 与界面缩放", async () => {
+	render(<GeneralSection />);
+	await waitFor(() =>
+		expect(
+			(screen.getByTestId("retry-max-input") as HTMLInputElement).value,
+		).toBe("3"),
+	);
+	const slider = screen.getByTestId("font-size-slider") as HTMLInputElement;
+	expect(slider.value).toBe("16");
+	expect(screen.getByTestId("font-size-value").textContent).toBe("16px");
+
+	fireEvent.change(slider, { target: { value: "24" } });
+	expect(useUiPrefsStore.getState().fontSize).toBe(24);
+	expect(screen.getByTestId("font-size-value").textContent).toBe("24px");
+	expect(
+		document.documentElement.style.getPropertyValue("--font-scale"),
+	).toBe("1.5");
 });
 
 test("挂载时拉取当前配置并回填表单", async () => {

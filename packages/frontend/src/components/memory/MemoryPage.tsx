@@ -69,14 +69,14 @@ export function MemoryPage() {
         <h2 className="text-base font-extrabold text-primary m-0">🧠 记忆</h2>
         <div className="flex items-center gap-4">
           <label className="flex items-center gap-2 cursor-pointer" data-testid="toggle-review">
-            <span className="text-[11.5px] text-secondary">自动学习</span>
+            <span className="text-[calc(11.5px*var(--font-scale))] text-secondary">自动学习</span>
             <ToggleSwitch
               on={config?.reviewEnabled ?? true}
               onChange={(v) => setConfigValue({ reviewEnabled: v })}
             />
           </label>
           <label className="flex items-center gap-2 cursor-pointer" data-testid="toggle-inject">
-            <span className="text-[11.5px] text-secondary">注入提示</span>
+            <span className="text-[calc(11.5px*var(--font-scale))] text-secondary">注入提示</span>
             <ToggleSwitch
               on={config?.memoryPolicyStyle !== "none"}
               onChange={(v) => setConfigValue({ memoryPolicyStyle: v ? "full" : "none" })}
@@ -108,7 +108,7 @@ export function MemoryPage() {
             </div>
             <div className="flex-1" />
             <select
-              className="text-[11.5px] px-2.5 py-1 rounded-md"
+              className="text-[calc(11.5px*var(--font-scale))] px-2.5 py-1 rounded-md"
               style={{
                 background: "var(--surface)",
                 border: "1px solid var(--hairline)",
@@ -137,7 +137,7 @@ export function MemoryPage() {
             />
 
             <input
-              className="flex-1 text-[12px] px-3 py-1.5 rounded-lg min-w-0"
+              className="flex-1 text-[calc(12px*var(--font-scale))] px-3 py-1.5 rounded-lg min-w-0"
               style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
               placeholder="🔍 搜索记忆..."
               value={searchQuery}
@@ -153,7 +153,7 @@ export function MemoryPage() {
             {activeTab === "saved" && (
               <button
                 onClick={() => setShowAddForm(v => !v)}
-                className="text-[11px] font-semibold px-3 py-1.5 rounded-md text-white shrink-0"
+                className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white shrink-0"
                 style={{ background: "var(--accent)", border: "none" }}
                 data-testid="memory-add-button"
               >+ 添加</button>
@@ -166,7 +166,7 @@ export function MemoryPage() {
       {showAddForm && activeTab === "saved" && (
         <div className="px-5 py-3" style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}>
           <textarea
-            className="w-full text-[12px] p-2.5 rounded-lg resize-none"
+            className="w-full text-[calc(12px*var(--font-scale))] p-2.5 rounded-lg resize-none"
             style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)", minHeight: 72 }}
             placeholder={`输入要保存的${memoryScope === "global" ? "全局" : "项目"}记忆...`}
             value={newMemoryText}
@@ -176,7 +176,7 @@ export function MemoryPage() {
           <div className="flex justify-end gap-2 mt-2">
             <button
               onClick={() => { setShowAddForm(false); setNewMemoryText(""); }}
-              className="text-[11px] px-3 py-1 rounded-md"
+              className="text-[calc(11px*var(--font-scale))] px-3 py-1 rounded-md"
               style={{ border: "1px solid var(--hairline)", color: "var(--text-secondary)" }}
             >取消</button>
             <button
@@ -187,7 +187,7 @@ export function MemoryPage() {
                 setNewMemoryText("");
                 setShowAddForm(false);
               }}
-              className="text-[11px] font-semibold px-3 py-1 rounded-md text-white"
+              className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1 rounded-md text-white"
               style={{ background: "var(--accent)", border: "none" }}
               data-testid="memory-add-save"
             >保存</button>
@@ -239,7 +239,7 @@ function TabButton({ active, onClick, label, count }: {
   return (
     <button
       onClick={onClick}
-      className="text-[12px] font-semibold py-1.5 px-3.5"
+      className="text-[calc(12px*var(--font-scale))] font-semibold py-1.5 px-3.5"
       style={{
         color: active ? "var(--brand)" : "var(--text-secondary)",
         borderBottom: active ? "2px solid var(--accent)" : "2px solid transparent",
@@ -248,7 +248,7 @@ function TabButton({ active, onClick, label, count }: {
       data-testid={`tab-${label}`}
     >
       {label}
-      <span className="text-[10px] text-tertiary ml-1">{count}</span>
+      <span className="text-[calc(10px*var(--font-scale))] text-tertiary ml-1">{count}</span>
     </button>
   );
 }
@@ -259,7 +259,7 @@ function FilterChip({ active, onClick, label }: {
   return (
     <button
       onClick={onClick}
-      className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
+      className="text-[calc(11px*var(--font-scale))] font-semibold px-2.5 py-1 rounded-full"
       style={{
         background: active ? "var(--accent-soft)" : "var(--surface)",
         color: active ? "var(--accent)" : "var(--text-secondary)",
@@ -290,12 +290,12 @@ function MemoryScopeDropdown({ memoryScope, selectedProjectId, projects, onSelec
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1 text-[11.5px] px-2.5 py-1.5 rounded-md"
+        className="flex items-center gap-1 text-[calc(11.5px*var(--font-scale))] px-2.5 py-1.5 rounded-md"
         style={{ background: "var(--surface)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
         data-testid="memory-scope-select"
       >
         {label}
-        <span className="text-[9px] opacity-70">▾</span>
+        <span className="text-[calc(9px*var(--font-scale))] opacity-70">▾</span>
       </button>
       {open && (
         <>
@@ -313,7 +313,7 @@ function MemoryScopeDropdown({ memoryScope, selectedProjectId, projects, onSelec
             <button
               type="button"
               onClick={() => { onSelect("global"); setOpen(false); }}
-              className="block w-full text-left text-[11.5px] px-3 py-1.5"
+              className="block w-full text-left text-[calc(11.5px*var(--font-scale))] px-3 py-1.5"
               style={itemStyle(memoryScope === "global")}
               data-testid="memory-scope-option-global"
             >🌐 全局记忆</button>
@@ -325,7 +325,7 @@ function MemoryScopeDropdown({ memoryScope, selectedProjectId, projects, onSelec
                 key={p.id}
                 type="button"
                 onClick={() => { onSelect("project", p.id); setOpen(false); }}
-                className="block w-full text-left text-[11.5px] px-3 py-1.5 truncate"
+                className="block w-full text-left text-[calc(11.5px*var(--font-scale))] px-3 py-1.5 truncate"
                 style={itemStyle(memoryScope === "project" && selectedProjectId === p.id)}
                 data-testid={`memory-scope-option-project-${p.id}`}
                 title={p.name}

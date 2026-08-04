@@ -35,7 +35,7 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
     <button
       ref={btnRef}
       onClick={() => onSelect(session.id)}
-      className="relative w-full flex items-center gap-2 px-2 py-1.5 text-left text-[13px] rounded-sm transition-colors hover:bg-surface-hover"
+      className="relative w-full flex items-center gap-2 px-2 py-1.5 text-left text-[calc(13px*var(--font-scale))] rounded-sm transition-colors hover:bg-surface-hover"
       style={{
         borderLeft: selected ? "2px solid var(--accent)" : "2px solid transparent",
         background: selected ? "var(--accent-soft)" : undefined,
@@ -60,7 +60,7 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
           />
         </span>
       ) : (
-        <span className="text-[11px] text-tertiary flex-shrink-0">{formatRelativeTime(session.lastActivity)}</span>
+        <span className="text-[calc(11px*var(--font-scale))] text-tertiary flex-shrink-0">{formatRelativeTime(session.lastActivity)}</span>
       )}
       {/* 未读新回复：右上角小圆点 */}
       {unread && (

@@ -28,7 +28,7 @@ export function Sidebar(props: Props) {
     >
       <div className="flex items-center gap-2 px-2 pb-2.5">
         <img src="/logo.svg" alt="WA PI Agent" className="w-7 h-7" style={{ borderRadius: 7 }} />
-        <span className="font-extrabold text-[17px] tracking-tight text-primary">WA PI Agent</span>
+        <span className="font-extrabold text-[calc(17px*var(--font-scale))] tracking-tight text-primary">WA PI Agent</span>
       </div>
       <NewSessionButton onNewSession={props.onNewSession} />
       <AgentListSection onChatWith={props.onChatWith} onEdit={props.onEdit} onMore={props.onMore} />

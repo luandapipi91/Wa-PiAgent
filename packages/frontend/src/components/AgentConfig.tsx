@@ -222,7 +222,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
 				{isBuiltin && (
 					<span
 						data-testid="cfg-builtin-notice"
-						className="text-[11px] text-tertiary self-center mr-auto"
+						className="text-[calc(11px*var(--font-scale))] text-tertiary self-center mr-auto"
 					>
 						内置 subagent，仅 model / 思考强度可设置
 					</span>
@@ -230,7 +230,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
 				{!isBuiltin && nameConflict && (
 					<span
 						data-testid="cfg-name-error"
-						className="text-[11px] text-danger self-center mr-auto"
+						className="text-[calc(11px*var(--font-scale))] text-danger self-center mr-auto"
 					>
 						名称「{trimmedName}」已被占用
 					</span>
@@ -258,7 +258,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
 function Sec({ children }: { children: string }) {
 	return (
 		<div className="flex items-center gap-2 mt-4 first:mt-0 mb-2">
-			<span className="text-[11px] tracking-wide text-tertiary uppercase">
+			<span className="text-[calc(11px*var(--font-scale))] tracking-wide text-tertiary uppercase">
 				{children}
 			</span>
 			<span className="flex-1 h-px bg-hairline" />
@@ -458,7 +458,7 @@ function ToolsTab({
 		return <p className="text-sm text-tertiary">加载中...</p>;
 	return (
 		<div className="flex flex-col">
-			<p className="text-[11px] text-tertiary mb-2">
+			<p className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2">
 				全部勾选 = 全量默认；取消勾选后按显式列表保存
 			</p>
 			{tools.map((t) => (
@@ -469,7 +469,7 @@ function ToolsTab({
 					<span className="flex items-center gap-2">
 						<span className="text-sm text-primary">{t.name}</span>
 						<span
-							className="text-[10px] px-1.5 py-0.5 rounded-full"
+							className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full"
 							style={{
 								background: "var(--hairline)",
 								color: "var(--text-tertiary)",
@@ -512,7 +512,7 @@ function SkillsTab({ draft, onChange }: TabProps) {
 		);
 	return (
 		<div className="flex flex-col">
-			<p className="text-[11px] text-tertiary mb-2">
+			<p className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2">
 				全部勾选 = 全量继承；取消勾选后按显式列表保存
 			</p>
 			{allSkills.map((s) => {
@@ -526,13 +526,13 @@ function SkillsTab({ draft, onChange }: TabProps) {
 					>
 						<span className="flex items-center gap-2 min-w-0">
 							<span className="text-sm text-primary">{s.name}</span>
-							<span className="text-[11px] text-tertiary truncate">
+							<span className="text-[calc(11px*var(--font-scale))] text-tertiary truncate">
 								{s.description}
 							</span>
 							{globallyDisabled && (
 								<span
 									data-testid={`skill-disabled-label-${s.name}`}
-									className="text-[10px] font-semibold"
+									className="text-[calc(10px*var(--font-scale))] font-semibold"
 									style={{ color: "var(--danger)" }}
 								>
 									全局禁用
@@ -592,11 +592,11 @@ function PartnersTab({
 						>
 							<span className="flex items-center gap-2 min-w-0">
 								<span className="text-sm text-primary">{a.displayName}</span>
-								<span className="text-[11px] text-tertiary truncate">
+								<span className="text-[calc(11px*var(--font-scale))] text-tertiary truncate">
 									{a.description}
 								</span>
 								{isSelf && (
-									<span className="text-[10px] text-tertiary shrink-0">
+									<span className="text-[calc(10px*var(--font-scale))] text-tertiary shrink-0">
 										自身
 									</span>
 								)}
@@ -612,7 +612,7 @@ function PartnersTab({
 					);
 				})}
 			</div>
-			<p className="text-[11px] text-tertiary">
+			<p className="text-[calc(11px*var(--font-scale))] text-tertiary">
 				可以在agent执行过程中主动/被动的调用勾选的角色
 			</p>
 		</div>
