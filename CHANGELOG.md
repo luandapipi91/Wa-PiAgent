@@ -4,6 +4,19 @@
 
 ## [Unreleased] - 2026-08-04
 
+### 修复
+
+- **扩展 dialog 弹窗仅允许手动取消**：此前点击遮罩/ESC 会以 cancelled 关闭
+  弹窗，误触会让 pi 扩展 handler 拿到意外的取消。现 `ExtensionDialog`
+  禁用遮罩点击与 ESC 关闭（`Modal` 新增 `closeOnEsc` prop，默认 true 不影响
+  其他弹窗），只有显式点「取消」才应答 cancelled；select 形态补「取消」
+  按钮（此前无按钮，禁用 ESC/遮罩后将无法取消）。
+  影响范围：`packages/frontend/src/components/ui/Modal.tsx`、
+  `packages/frontend/src/components/ExtensionDialog.tsx`、
+  `packages/frontend/tests/ExtensionDialog.test.tsx`。
+
+## [Unreleased] - 2026-08-04
+
 ### 新增功能
 
 - **对接 pi 扩展 dialog 子协议（kernel 侧）+ set_editor_text 事件转发**：

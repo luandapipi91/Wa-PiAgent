@@ -79,17 +79,27 @@ describe("ExtensionDialog", () => {
     });
   });
 
-  it("select：ESC 关闭弹窗 POST { cancelled: true }", async () => {
+  it("select：ESC / 点击遮罩不取消（只有「取消」按钮才取消）", async () => {
     useExtDialogStore.getState().enqueue({
       requestId: "r4", method: "select", title: "t", options: ["A"],
     });
     render(<ExtensionDialog />);
 
     fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(screen.getByTestId("modal-overlay"));
 
+    // 两种误触路径都不应应答、弹窗仍在
+    await new Promise((r) => setTimeout(r, 50));
+    expect(lastRespond()).toBeUndefined();
+    expect(useExtDialogStore.getState().queue).toHaveLength(1);
+    expect(screen.getByTestId("ext-dialog")).toBeTruthy();
+
+    // 只有「取消」按钮才取消
+    fireEvent.click(screen.getByTestId("ext-dialog-cancel"));
     await waitFor(() => {
       expect(lastRespond()?.body).toEqual({ requestId: "r4", cancelled: true });
     });
+    expect(useExtDialogStore.getState().queue).toHaveLength(0);
   });
 
   it("input：单行输入（placeholder）提交 POST { value }；取消 POST { cancelled: true }", async () => {

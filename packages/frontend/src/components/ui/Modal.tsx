@@ -11,17 +11,20 @@ interface ModalProps {
   height?: number | string;
   // 点击遮罩层是否关闭弹窗，默认 true
   closeOnOverlayClick?: boolean;
+  // 按 ESC 是否关闭弹窗，默认 true
+  closeOnEsc?: boolean;
   // 透传到卡片容器的 testid（区分不同弹窗实例）
   "data-testid"?: string;
 }
 
-export function Modal({ children, onClose, width = 480, height, closeOnOverlayClick = true, ...rest }: ModalProps) {
+export function Modal({ children, onClose, width = 480, height, closeOnOverlayClick = true, closeOnEsc = true, ...rest }: ModalProps) {
   // ESC 关闭
   useEffect(() => {
+    if (!closeOnEsc) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, closeOnEsc]);
 
   return (
     <div

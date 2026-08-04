@@ -10,7 +10,7 @@ export function ExtensionDialog() {
   const current = useExtDialogStore((s) => s.queue[0]);
   if (!current) return null;
 
-  // 先弹出队列再 POST：同一请求绝不重复应答（双击 / ESC 与点击竞态）
+  // 先弹出队列再 POST：同一请求绝不重复应答（双击与按钮竞态）
   const respond = async (fields: { value?: unknown; confirmed?: boolean; cancelled?: boolean }) => {
     const cur = useExtDialogStore.getState().queue[0];
     useExtDialogStore.getState().resolveCurrent();
@@ -18,8 +18,16 @@ export function ExtensionDialog() {
     await api.post("/api/extensions/dialog/respond", { requestId: cur.requestId, ...fields }).catch(() => {});
   };
 
+  // 遮罩点击/ESC 不取消：pi handler 在等应答，误触关闭会让扩展拿到意外的 cancelled；
+  // 只有显式点「取消」按钮才取消（产品决策）
   return (
-    <Modal onClose={() => void respond({ cancelled: true })} width={480} data-testid="ext-dialog">
+    <Modal
+      onClose={() => void respond({ cancelled: true })}
+      width={480}
+      closeOnOverlayClick={false}
+      closeOnEsc={false}
+      data-testid="ext-dialog"
+    >
       {/* key=requestId：下一个请求展示时重置内部输入状态 */}
       <DialogBody key={current.requestId} req={current} respond={respond} />
     </Modal>
@@ -91,8 +99,18 @@ function DialogBody({ req, respond }: {
           />
         )}
       </div>
-      {/* select 只点选项或关闭弹窗，无底部按钮 */}
-      {req.method !== "select" && footer}
+      {/* select 无「确认」（点选项即应答），但仍需「取消」——遮罩/ESC 已禁用，这是唯一取消路径 */}
+      {req.method === "select" ? (
+        <div className="flex justify-end gap-2 p-3 border-t border-hairline">
+          <button
+            onClick={() => void respond({ cancelled: true })}
+            className="px-3 py-1.5 rounded-sm text-sm bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary"
+            data-testid="ext-dialog-cancel"
+          >取消</button>
+        </div>
+      ) : (
+        footer
+      )}
     </>
   );
 }
