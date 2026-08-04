@@ -39,7 +39,10 @@
   `packages/frontend/src/components/Composer.tsx`、
   `packages/frontend/src/App.tsx`、
   `packages/frontend/tests/ExtensionDialog.test.tsx`（新）、
-  `packages/frontend/tests/store-session.test.ts`。
+  `packages/frontend/tests/store-session.test.ts`、
+  `examples/ext-ui-bridge-demo/index.ts`（补 dialog/seteditor 子命令）、
+  `examples/ext-ui-bridge-demo/README.md`、
+  `packages/frontend/e2e/ext-ui-bridge-demo.spec.ts`（新，E2E 全链路验证）。
 
 ### 重构
 
