@@ -38,6 +38,7 @@ import {
 	isSubagentType,
 	SYSTEM_PROJECT_ID,
 	SYSTEM_PROJECT_CWD,
+	matchKernelCommand,
 } from "@wa-pi/shared";
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
@@ -48,9 +49,6 @@ import { existsSync } from "node:fs";
 import { buildAdditionalExtensionPaths } from "./extensions";
 import {
 	filterTuiCommands,
-	isCommandDisabled,
-	registerDisabledCommands,
-	resetDisabledCommands,
 	type RawCommandInfo,
 } from "./tui-command-filter";
 import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
@@ -276,32 +274,17 @@ export class AgentManager {
 	/**
 	 * 标记当前所有活跃会话为待重建（扩展/插件配置变更后调用）。
 	 * 不立即重建——各会话在下次被 ensureStarted（切换/使用）时各自重建一次。
-	 * 同时重置命令拉取标记与降级集合：插件变更后命令列表变化，发送端下次 / 命令重新拉取。
 	 */
 	markAllDirty(): void {
 		for (const id of this.sessions.keys()) this.dirty.add(id);
-		this._commandsFetched = false;
-		resetDisabledCommands();
 	}
 
 	/**
 	 * 标记当前所有活跃会话为待重建（skill 目录增删 / skill 禁用后调用）。
 	 * 与 markAllDirty 统一为进程重启（--skill 列表构造时固定，只能重启刷新）。
-	 * 同时重置命令拉取标记与降级集合（同上）。
 	 */
 	markSkillsDirty(): void {
 		for (const id of this.sessions.keys()) this.skillDirty.add(id);
-		this._commandsFetched = false;
-		resetDisabledCommands();
-	}
-
-	/**
-	 * 重置命令拉取标记与降级集合（命令开关切换后调用，供 ws-server toggle handler 使用）。
-	 * 发送端下一次 / 命令时重新拉取命令清单，刷新 disabledCommandNames。
-	 */
-	resetCommandState(): void {
-		this._commandsFetched = false;
-		resetDisabledCommands();
 	}
 
 	/** agent 重命名联动：更新活跃会话 meta，标 skillDirty 使下次 ensureStarted 重建 */
@@ -1023,12 +1006,12 @@ export class AgentManager {
 		handle: SessionHandle,
 		text: string,
 	): Promise<void> {
-		// /compact 压缩上下文命令：pi RPC 模式不解析内置斜杠命令（仅交互模式解析，
-		// 见 pi.dev/docs/latest/rpc：builtin TUI 命令不会通过 prompt 执行），文本若按普通
-		// prompt 发出会被当作 user 消息发给 LLM，压缩从不发生。这里显式转 compact RPC。
+		// pi RPC 模式不解析内置斜杠命令（仅交互模式解析，见 pi.dev/docs/latest/rpc：
+		// builtin TUI 命令不会通过 prompt 执行），文本若按普通 prompt 发出会被当作
+		// user 消息发给 LLM，压缩从不发生。kernel 拦截的内置命令（清单与匹配规则
+		// 统一在 shared matchKernelCommand）显式转对应 RPC 调用。
 		// 覆盖 busy 排队 drain / steer 空闲直发等所有经过 _sendPromptNow 的路径。
-		// 精确匹配：/compact 后必须跟空白或结束（避免误伤 /compactify 等词）。
-		if (/^\/compact(\s|$)/.test(text.trim())) {
+		if (matchKernelCommand(text) === "compact") {
 			await this._runCompactCommand(sessionId, handle, text);
 			return;
 		}
@@ -1108,10 +1091,9 @@ export class AgentManager {
 		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
 			type: "agent_end",
 		});
-		// 合成 agent_settled：复位 busy + drain 压缩期间排队的 steer/followUp 消息
-		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
-			type: "agent_settled",
-		});
+		// 合成 agent_settled：走内部事件入口（复位 busy + drain 压缩期间排队的
+		// steer/followUp 消息），尾部转发 opts.onEvent 通知前端
+		this._onSessionEvent(sessionId, { type: "agent_settled" } as RpcEvent);
 	}
 
 	/** 推送本地队列快照给前端（补充 pi queue_update 缺失的 followUpList） */
@@ -1138,24 +1120,6 @@ export class AgentManager {
 	): Promise<void> {
 		const handle = this.sessions.get(sessionId);
 		if (!handle) throw new Error(`会话未启动: ${sessionId}`);
-
-		// TUI-only 命令（/ 菜单已屏蔽的）不交给 pi 命令分发：加前导空格让 pi
-		// 按普通文本发给大模型（pi 只认 / 开头的文本为命令）。否则 handler 要么
-		// 静默成功（前端什么都看不到），要么触发 RPC 不支持的 TUI 面板。
-		// 命令清单未拉取过时先拉一次，填充 disabledCommandNames（无缓存，仅首次/变更后拉取）。
-		if (text.startsWith("/")) {
-			if (!this._commandsFetched) {
-				try {
-					await this._fetchCommands(handle.client);
-					this._commandsFetched = true;
-				} catch {
-					// 拉取失败不置位，下次 / 命令重试（失败窗口内降级集合未填充 → 命令原样发送）
-				}
-			}
-			const sp = text.indexOf(" ");
-			const cmdName = sp === -1 ? text.slice(1) : text.slice(1, sp);
-			if (isCommandDisabled(cmdName)) text = ` ${text}`;
-		}
 
 		// 所有消息必须跟随用户显式选择的模型，禁止回退到 agent config 或 pi 默认模型
 		if (!opts?.model) {
@@ -1413,10 +1377,12 @@ export class AgentManager {
 		projectId?: string,
 		agentName?: string,
 	): Promise<CommandInfo[]> {
-		// 1. 当前 session 已有活跃进程 → 直接取
+		// 1. 当前 session 已有活跃进程 → 直接取；dirty（扩展/技能变更待重建）则先重建再取，
+		// 否则安装插件后 / 菜单与「附加命令」弹窗拿到的仍是旧进程的过期清单
 		const handle = this.sessions.get(sessionId);
 		if (handle?.client.isAlive()) {
-			return this._fetchCommands(handle.client);
+			const h = await this._reloadIfDirty(sessionId, handle);
+			return this._fetchCommands(h.client);
 		}
 
 		// 2. 当前 session 存在但进程未启动 → ensureStarted 后取
@@ -1431,8 +1397,19 @@ export class AgentManager {
 			return [];
 		}
 
-		// 3. session 不存在（新会话页面）：借用任意活跃进程
-		for (const [_, h] of this.sessions) {
+		// 3. session 不存在（新会话页面）：借用任意活跃进程。
+		// 跳过 dirty 进程（清单已过期）；无干净进程可借时重建首个空闲 dirty 进程再取。
+		let dirtyCandidate: { id: string; handle: SessionHandle } | undefined;
+		for (const [id, h] of this.sessions) {
+			if (!h.client.isAlive()) continue;
+			if (this.dirty.has(id) || this.skillDirty.has(id)) {
+				dirtyCandidate ??= { id, handle: h };
+				continue;
+			}
+			return this._fetchCommands(h.client);
+		}
+		if (dirtyCandidate && !dirtyCandidate.handle.busy) {
+			const h = await this._reloadIfDirty(dirtyCandidate.id, dirtyCandidate.handle);
 			if (h.client.isAlive()) {
 				return this._fetchCommands(h.client);
 			}
@@ -1467,35 +1444,23 @@ export class AgentManager {
 		return [];
 	}
 
-	/** 是否已拉取过命令清单（发送端降级集合填充标记；toggle 后重置） */
-	private _commandsFetched = false;
-
 	/**
 	 * 从 pi 进程拉取命令清单：附加 TUI 标记、合并插件开关状态后返回（不缓存）。
 	 * enabled 合并对齐 extension:commands:list 的语义（kernel 侧统一，/ 菜单与插件页一致）：
 	 * 有 packageName（extension 来源）→ 用 waPiCommandToggles 值（缺省 true：附加命令默认全部开启）；
 	 * 无 packageName（prompt/builtin 等）→ 不附加 enabled（kernel 不填 → undefined，前端缺省 false）。
 	 * 无 extensionManager（测试等场景）→ 保持原样。
-	 * 关闭的命令名（enabled === false 的扩展命令）登记进 disabledCommandNames，prompt 发送时降级。
 	 */
 	private async _fetchCommands(client: RpcClient): Promise<CommandInfo[]> {
 		const { commands } = await client.getCommands();
 		const cmds = filterTuiCommands((commands ?? []) as RawCommandInfo[]);
 		if (!this.opts.extensionManager) return cmds;
 		const toggles = await this.opts.extensionManager.getCommandToggles();
-		const merged = cmds.map((cmd) =>
+		return cmds.map((cmd) =>
 			cmd.packageName
 				? { ...cmd, enabled: toggles[cmd.packageName]?.[cmd.name] ?? true }
 				: cmd,
 		);
-		// 登记关闭的命令名（仅显式 false 登记；未记录缺省 true 不登记）。
-		// 用与合并同一次 getCommandToggles() 结果，避免两次读 settings 的不一致窗口。
-		registerDisabledCommands(
-			merged
-				.filter((c) => c.packageName && c.enabled === false)
-				.map((c) => c.name),
-		);
-		return merged;
 	}
 
 	/** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */

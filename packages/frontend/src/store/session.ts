@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api } from "../api-client";
+import { matchKernelCommand } from "@wa-pi/shared";
 import type {
 	SessionMessage,
 	AgentStatus,
@@ -127,7 +128,7 @@ interface SessionState {
 	clearNetStatus: (sessionId: string) => void;
 	// 新增：处理 sdk:event 信封事件（流式两态管理核心入口）
 	handleSDKEvent: (sessionId: string, envelope: SDKEventEnvelope) => void;
-	/** 压缩回合结束（agent_end 且本轮 user 为 /compact）后重拉历史，重算 token 累计 */
+	/** 压缩结束（compaction_end）后重拉历史，重算 token 累计 */
 	refreshTokenTotals: (sessionId: string) => Promise<void>;
 	/** 存储子代理进度事件：按 toolCallId → agent 二级索引写入（支持 fleet 多 agent 共享同一 toolCallId）。 */
 	handleSubagentProgress: (
@@ -499,18 +500,23 @@ export const useSessionStore = create<SessionState>((set) => {
 			set((s) => {
 				const ts = Date.now();
 				const list = s.messagesBySession[sessionId] ?? [];
+				// kernel 拦截的内置命令（/compact）转 RPC 执行、不产生 user 回声，
+				// 不作为用户消息插入聊天列表（清单与匹配规则统一在 shared matchKernelCommand）
+				const isKernelHandled = matchKernelCommand(text) !== null;
 				return {
 					// 立即追加用户消息（agentName 留空：用户消息不属于具体 agent）
-					messagesBySession: {
-						...s.messagesBySession,
-						[sessionId]: [
-							...list,
-							{
-								message: { role: "user", content: text, timestamp: ts },
-								agentName: undefined,
+					messagesBySession: isKernelHandled
+						? s.messagesBySession
+						: {
+								...s.messagesBySession,
+								[sessionId]: [
+									...list,
+									{
+										message: { role: "user", content: text, timestamp: ts },
+										agentName: undefined,
+									},
+								],
 							},
-						],
-					},
 					// 占位空 assistant streaming：让 MessageList 渲染 loading 气泡；首字到达后由 message_update 填充
 					streamingBySession: {
 						...s.streamingBySession,
@@ -862,19 +868,6 @@ export const useSessionStore = create<SessionState>((set) => {
 						}
 						return result;
 					});
-					// 压缩回合结束：重拉历史，刷新右上角 token 累计
-					const list =
-						useSessionStore.getState().messagesBySession[sessionId] ?? [];
-					const lastUser = [...list]
-						.reverse()
-						.find((m: any) => (m.message as any)?.role === "user");
-					const lastUserText =
-						typeof lastUser?.message?.content === "string"
-							? (lastUser.message as any).content
-							: "";
-					if (lastUserText.trim().startsWith("/compact")) {
-						void useSessionStore.getState().refreshTokenTotals(sessionId);
-					}
 					break;
 				}
 				// pi 自动重试开始（退避等待中）：记录重试进度驱动顶部黄色状态条；

@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import { KERNEL_INTERCEPTED_COMMANDS, matchKernelCommand } from "../src";
 import type {
   CommandInfo,
   CommandSource,
@@ -53,4 +54,30 @@ test("SessionCommandsResult 字面量 type 与 ws-server reply 一致", () => {
   // 验证可赋值给 WSServerEvent 联合
   const e: WSServerEvent = res;
   expect(e.type).toBe("session:commands");
+});
+
+test("matchKernelCommand：命中内置命令（含自定义指令）返回命令名", () => {
+  expect(matchKernelCommand("/compact")).toBe("compact");
+  expect(matchKernelCommand("/compact 只保留关键决策")).toBe("compact");
+  // 前后空白耐受（text.trim()）
+  expect(matchKernelCommand("  /compact  ")).toBe("compact");
+});
+
+test("matchKernelCommand：非内置命令 / 同前缀词 / 普通文本不命中", () => {
+  // 同前缀词不误伤
+  expect(matchKernelCommand("/compactify")).toBe(null);
+  // 未列入 KERNEL_INTERCEPTED_COMMANDS 的命令
+  expect(matchKernelCommand("/goal")).toBe(null);
+  expect(matchKernelCommand("/model gpt-4o")).toBe(null);
+  // 普通文本与非 / 开头
+  expect(matchKernelCommand("你好")).toBe(null);
+  expect(matchKernelCommand("compact")).toBe(null);
+  expect(matchKernelCommand("")).toBe(null);
+});
+
+test("KERNEL_INTERCEPTED_COMMANDS 与 matchKernelCommand 保持一致", () => {
+  // 清单中每条命令都必须能被匹配函数命中（防清单与正则漂移）
+  for (const name of KERNEL_INTERCEPTED_COMMANDS) {
+    expect(matchKernelCommand(`/${name}`)).toBe(name);
+  }
 });

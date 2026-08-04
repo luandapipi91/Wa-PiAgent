@@ -6,8 +6,8 @@
  * - POST /api/extensions/commands/toggle     → 切换命令开关（extension:commands:toggle）
  *
  * 使用真实 HTTP 请求打 WSServer（port 0 随机端口），agentManager / extensionManager
- * 用可配置 spy 桩：list 断言命令与开关状态合并结果，toggle 断言 setCommandToggle 调用参数
- * 与 resetCommandState 联动，非法参数断言 400。
+ * 用可配置 spy 桩：list 断言命令与开关状态合并结果，toggle 断言 setCommandToggle 调用参数，
+ * 非法参数断言 400。
  */
 import { test, expect, beforeAll, afterAll, mock } from "bun:test";
 import { WSServer } from "../src/ws-server";
@@ -16,13 +16,11 @@ import { WSServer } from "../src/ws-server";
 const getCommandsSpy = mock(async (): Promise<any[]> => []);
 const getCommandTogglesSpy = mock(async () => ({}));
 const setCommandToggleSpy = mock(async () => {});
-const resetCommandStateSpy = mock(() => {});
 
 /** 最小 agentManager 桩：仅满足 WSServer 构造与 list/toggle 两条链路 */
 function makeAgentManager() {
 	return {
 		getCommands: getCommandsSpy,
-		resetCommandState: resetCommandStateSpy,
 		disposeAll: async () => {},
 		onEvent: () => {},
 	};
@@ -123,9 +121,8 @@ test("GET /api/extensions/commands 透传 agentManager 已合并的开关状态�
 	]);
 });
 
-test("POST /api/extensions/commands/toggle 成功 → 调 setCommandToggle + 重置命令状态", async () => {
+test("POST /api/extensions/commands/toggle 成功 → 调 setCommandToggle", async () => {
 	setCommandToggleSpy.mockClear();
-	resetCommandStateSpy.mockClear();
 
 	const res = await fetch(`${base}/api/extensions/commands/toggle`, {
 		method: "POST",
@@ -143,8 +140,6 @@ test("POST /api/extensions/commands/toggle 成功 → 调 setCommandToggle + 重
 	});
 	// 正确透传 packageName/command/enabled 到 ExtensionManager
 	expect(setCommandToggleSpy).toHaveBeenCalledWith("pkg-a", "goal", false);
-	// toggle 后必须重置降级集合（_commandsFetched=false + resetDisabledCommands）
-	expect(resetCommandStateSpy).toHaveBeenCalledTimes(1);
 });
 
 test("POST /api/extensions/commands/toggle 缺 packageName → 400", async () => {
@@ -189,7 +184,6 @@ test("POST /api/extensions/commands/toggle enabled 非 boolean → 400", async (
 
 test("POST toggle 成功 → 广播 extension:commands:changed（前端 / 菜单刷新）", async () => {
 	setCommandToggleSpy.mockClear();
-	resetCommandStateSpy.mockClear();
 
 	// 连接 SSE 事件总线（首读触发 bus.add，确保广播能送达本连接）
 	const res = await fetch(`${base}/api/events`);
