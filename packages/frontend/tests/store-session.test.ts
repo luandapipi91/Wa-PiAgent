@@ -1433,7 +1433,7 @@ test("agent_end：无 user 消息（空会话 / 全 assistant）→ 不触发 re
 
 // ── compaction_start / compaction_end：压缩状态消息 + 权威 token 刷新 ──
 
-test("compaction_start 插入「正在压缩上下文」状态消息；compaction_end 替换为释放结果并刷新 token", async () => {
+test("compaction_start 插入「正在压缩上下文」状态消息；compaction_end 替换为结果并刷新 token", async () => {
 	getCalls = 0;
 	useSessionStore.setState({
 		messagesBySession: {},
@@ -1458,7 +1458,17 @@ test("compaction_start 插入「正在压缩上下文」状态消息；compactio
 			},
 		},
 	};
+	// 服务端历史（压缩成功后 jsonl 含 compaction 节点 → 返回 compactionSummary 消息）
 	mockMessages.messages = [
+		{
+			message: {
+				role: "compactionSummary",
+				summary: "摘要",
+				tokensBefore: 1000,
+				timestamp: 1,
+			},
+			agentName: undefined,
+		},
 		{
 			message: {
 				role: "assistant",
@@ -1501,15 +1511,28 @@ test("compaction_start 插入「正在压缩上下文」状态消息；compactio
 			willRetry: false,
 		}),
 	);
+	// live 瞬间：状态消息替换为统一文案（与历史 compactionSummary 渲染一致）
+	const liveMsg = useSessionStore
+		.getState()
+		.messagesBySession["s1"].find(
+			(m) => (m.message as any).customType === "compaction_status",
+		);
+	expect((liveMsg!.message as any).content).toBe(
+		"已压缩早期上下文 · 压缩前 1K token",
+	);
 	await new Promise((r) => setTimeout(r, 0));
-
 	const after = useSessionStore.getState().messagesBySession["s1"];
-	const finalMsg = after.find(
+	// 成功的本地状态消息被去重（服务端 compactionSummary 承担同一文案的展示）；
+	// 进行中/取消/失败才保留本地
+	const localSuccess = after.filter(
 		(m) => (m.message as any).customType === "compaction_status",
 	);
-	expect(finalMsg).toBeDefined();
-	expect((finalMsg!.message as any).content).toContain("1,000 → 300");
-	expect((finalMsg!.message as any).content).toContain("释放 700");
+	expect(localSuccess).toHaveLength(0);
+	// 服务端压缩节点消息存在（渲染文案与 live 一致：—— 已压缩早期上下文 · 压缩前 1K token ——）
+	const summaryMsg = after.find(
+		(m) => (m.message as any).role === "compactionSummary",
+	);
+	expect(summaryMsg).toBeDefined();
 	// compaction_end 是权威信号：触发 refreshTokenTotals（不依赖 agent_end 文本检测）
 	expect(getCalls).toBe(2);
 	expect(useSessionStore.getState().tokenTotals["s1"]?.input).toBe(1000);

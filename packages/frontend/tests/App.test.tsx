@@ -192,6 +192,27 @@ test("宫格新建成功 → 关宫格并打开新智能体配置弹窗（乐观
 	expect(screen.getAllByText("新助手").length).toBeGreaterThanOrEqual(1);
 });
 
+test("编辑弹窗打开时再开宫格（wa-pi:open-gallery）→ 编辑弹窗关闭，只显示宫格", async () => {
+	useAgentsStore.setState({ list: [agent("技术实现")] });
+	render(<App />);
+	await act(async () => {});
+	// 先打开编辑弹窗（侧边栏右键 → 编辑智能体）
+	fireEvent.contextMenu(screen.getByTestId("agent-技术实现"));
+	fireEvent.click(screen.getByTestId("agent-ctx-edit"));
+	await waitFor(() => expect(screen.getByTestId("agent-config")).toBeTruthy());
+
+	// 再触发「智能体管理」命令事件（⌘K 面板 / /agents 同路径）
+	act(() => {
+		window.dispatchEvent(new CustomEvent("wa-pi:open-gallery"));
+	});
+
+	// 互斥：宫格打开，编辑弹窗必须关闭
+	await waitFor(() => {
+		expect(screen.getByTestId("agent-gallery")).toBeTruthy();
+		expect(screen.queryByTestId("agent-config")).toBeNull();
+	});
+});
+
 test("pendingAgent 首次消费后清除：离开再进新建页不再预选旧值", async () => {
 	useAgentsStore.setState({ list: [agent("技术实现"), agent("代码审查")] });
 	// 无项目 → empty 视图（NewSessionPane 未挂载）

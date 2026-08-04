@@ -9,6 +9,7 @@ import type {
 } from "@wa-pi/shared";
 import { useProjectsStore } from "./projects";
 import { StreamingBatcher } from "./streaming-batcher";
+import { fmtTok } from "../util/format";
 
 interface SessionState {
 	// 已定稿消息：渲染主列表来源
@@ -349,13 +350,16 @@ export const useSessionStore = create<SessionState>((set) => {
 				if (!res?.messages) return;
 				// 整表覆盖：agent_end 时刻无 streaming，服务端历史为准；
 				// GET 在途时若乐观消息已写入，SDK 回显会补回，短暂覆盖可接受。
-				// 但保留本地 compaction_status（压缩中/结果）消息：它不在服务端历史里，
-				// 整表覆盖会把它冲掉，导致压缩结果提示消失。
+				// 保留本地 compaction_status 中的「进行中/取消/失败」消息：它们不在服务端历史里，
+				// 整表覆盖会把它冲掉。成功的压缩（「已压缩…」）不保留——服务端历史会渲染
+				// compactionSummary 节点（同一文案），保留本地这条会出现重复提示。
 				const prev =
 					useSessionStore.getState().messagesBySession[sessionId] ?? [];
-				const localStatus = prev.filter(
-					(m: any) => (m.message as any)?.customType === "compaction_status",
-				);
+				const localStatus = prev.filter((m: any) => {
+					const mm = m.message as any;
+					if (mm?.customType !== "compaction_status") return false;
+					return !String(mm?.content ?? "").startsWith("已压缩");
+				});
 				useSessionStore.setState((s) => ({
 					messagesBySession: {
 						...s.messagesBySession,
@@ -948,13 +952,11 @@ export const useSessionStore = create<SessionState>((set) => {
 					if (e.aborted) content = "压缩已取消";
 					else if (e.errorMessage) content = `压缩失败：${e.errorMessage}`;
 					else if (result && typeof result.tokensBefore === "number") {
-						const released =
-							result.tokensBefore - (result.estimatedTokensAfter ?? 0);
-						content = `已压缩上下文：${result.tokensBefore.toLocaleString()} → ${(
-							result.estimatedTokensAfter ?? 0
-						).toLocaleString()} token${released > 0 ? `（释放 ${released.toLocaleString()}）` : ""}`;
+						// 与历史重载的 compactionSummary 渲染保持同一文案（jsonl 不持久化
+						// estimatedTokensAfter，两边只能一致地展示 tokensBefore）
+						content = `已压缩早期上下文 · 压缩前 ${fmtTok(result.tokensBefore)} token`;
 					} else {
-						content = "已压缩上下文";
+						content = "已压缩早期上下文";
 					}
 					const timestamp = Date.now();
 					set((s) => {

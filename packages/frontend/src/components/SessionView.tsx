@@ -16,6 +16,7 @@ import { AgentSwitcher } from "./AgentSwitcher";
 import { ExplorerPanel } from "./ExplorerPanel";
 import { STATUS_COLORS } from "../theme/colors";
 import { api } from "../api-client";
+import { fmtTok } from "../util/format";
 
 interface Props {
 	sessionId: string;
@@ -27,19 +28,6 @@ const AGENT_STATE_LABEL: Record<AgentStatus, string> = {
 	thinking: "思考中",
 	blocked: "等待回复",
 };
-
-/** token 数字格式化：&lt;1000 原值，≥1000 用 K，≥1M 用 M，无小数省略 */
-function fmtTok(n: number): string {
-	if (n >= 1_000_000) {
-		const v = n / 1_000_000;
-		return v % 1 === 0 ? `${v}M` : `${v.toFixed(1)}M`;
-	}
-	if (n >= 1_000) {
-		const v = n / 1_000;
-		return v % 1 === 0 ? `${v}K` : `${v.toFixed(1)}K`;
-	}
-	return String(n);
-}
 
 export function SessionView({ sessionId }: Props) {
 	const session = useProjectsStore((s) =>

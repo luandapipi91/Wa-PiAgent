@@ -2666,7 +2666,7 @@ test("进行中的轮 + 更早的已完成轮：只有一个 turn-summary（第�
 
 // ── compactionSummary 摘要消息渲染 ──
 
-test("compactionSummary 消息：居中系统提示样式，显示压缩摘要", () => {
+test("compactionSummary 消息：居中系统提示样式，不内联渲染摘要正文", () => {
 	useSessionStore.setState({
 		messagesBySession: {
 			s1: [
@@ -2695,8 +2695,10 @@ test("compactionSummary 消息：居中系统提示样式，显示压缩摘要",
 
 	const el = screen.getByTestId("compaction-summary-s1-100");
 	expect(el).toBeTruthy();
-	expect(el.textContent).toContain("已压缩早期上下文");
-	expect(el.textContent).toContain("早期对话摘要");
+	// 与 live compaction_end 状态消息同一文案：—— 已压缩早期上下文 · 压缩前 5K token ——
+	expect(el.textContent).toBe("—— 已压缩早期上下文 · 压缩前 5K token ——");
+	// 摘要正文是长篇 markdown，不应内联展开（刷屏）
+	expect(el.textContent).not.toContain("早期对话摘要");
 	// 后续正常消息仍渲染
 	expect(screen.getByText("压缩后问题")).toBeTruthy();
 });
