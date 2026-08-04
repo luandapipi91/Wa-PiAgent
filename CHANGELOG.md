@@ -4,6 +4,19 @@
 
 ## [Unreleased] - 2026-08-04
 
+### 修复
+
+- **本地扩展 Windows 绝对路径加载绕过 createRequire**：local 来源插件在
+  settings.json `waPiPackages` 里存绝对路径，`buildAdditionalExtensionPaths`
+  原先用 createRequire 解析，Windows 反斜杠路径会被损毁（`H:\a\b` → `H:ab`），
+  导致本地路径安装的扩展从未进入 pi 的 `-e` 加载列表、其命令/工具不注册。
+  现对绝对路径条目改走文件系统直读（新增内部 `resolveLocalExtensionEntry`，
+  优先级与 npm 路径对齐：pi.extensions 声明 → 约定入口），npm 裸包名逻辑不变。
+  影响范围：`packages/kernel/src/extensions.ts`、
+  `packages/kernel/tests/extensions.test.ts`。
+
+## [Unreleased] - 2026-08-04
+
 ### 重构
 
 - **内置命令拦截统一封装到 shared**：新增 `KERNEL_INTERCEPTED_COMMANDS` 清单

@@ -1,8 +1,21 @@
-import { test, expect } from "bun:test";
-import { existsSync } from "node:fs";
+import { test, expect, afterEach } from "bun:test";
+import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { buildAdditionalExtensionPaths } from "../src/extensions";
-import { GENERATED_DIR } from "@wa-pi/shared";
+import { GENERATED_DIR, WA_PI_DIR } from "@wa-pi/shared";
+
+// 测试过程产生的临时目录，afterEach 统一清理
+const tmpPaths: string[] = [];
+
+afterEach(() => {
+	for (const f of tmpPaths.splice(0)) {
+		try {
+			rmSync(f, { force: true, recursive: true });
+		} catch {
+			// 尽力清理临时目录，失败静默（不干扰测试结果）
+		}
+	}
+});
 
 test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension 按需追加", () => {
   const paths = buildAdditionalExtensionPaths();
@@ -53,4 +66,28 @@ test("内置扩展清单：不含已移除的 pi-open-agents / 不含 pi-interco
   const paths = buildAdditionalExtensionPaths([]);
   expect(paths.some(p => p.includes("pi-open-agents"))).toBe(false);
   expect(paths.some(p => p.includes("pi-intercom"))).toBe(false);
+});
+
+test("buildAdditionalExtensionPaths 解析本地绝对路径扩展（pi.extensions 声明）", () => {
+  const root = join(WA_PI_DIR, "tmp", `local-ext-${Date.now()}`);
+  tmpPaths.push(root);
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "package.json"), JSON.stringify({
+    name: "local-demo", pi: { extensions: ["./src"] },
+  }));
+  writeFileSync(join(root, "src", "index.ts"), "export default function() {}\n");
+
+  const paths = buildAdditionalExtensionPaths([root]);
+  expect(paths).toContain(join(root, "src", "index.ts"));
+});
+
+test("buildAdditionalExtensionPaths 本地路径无 pi.extensions 时回退约定入口", () => {
+  const root = join(WA_PI_DIR, "tmp", `local-ext-${Date.now()}-2`);
+  tmpPaths.push(root);
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "local-demo-2" }));
+  writeFileSync(join(root, "index.ts"), "export default function() {}\n");
+
+  const paths = buildAdditionalExtensionPaths([root]);
+  expect(paths).toContain(join(root, "index.ts"));
 });

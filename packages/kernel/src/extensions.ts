@@ -10,8 +10,8 @@
 // - 三级 fallback：package.json 的 pi.extensions 清单 → 约定 index → 包 main。
 
 import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, dirname, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GENERATED_DIR, WA_PI_DIR } from "@wa-pi/shared";
 
@@ -64,6 +64,30 @@ export function resolveExtensionEntryFile(pkgName: string, req = require): strin
 }
 
 /**
+ * 本地路径扩展（local 来源，settings 存绝对路径）解析入口：直接读文件系统，
+ * 绕过 createRequire——它会把 Windows 反斜杠路径损毁（H:\a\b → H:ab）。
+ * 优先级与 resolveExtensionEntryFile 对齐：pi.extensions 声明 → 约定入口。
+ */
+function resolveLocalExtensionEntry(dir: string): string {
+  const pkgPath = join(dir, "package.json");
+  if (existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { pi?: { extensions?: string[] } };
+      const piExts = pkg?.pi?.extensions;
+      if (Array.isArray(piExts) && piExts.length > 0) {
+        const entry = resolveDeclaredEntry(resolve(dir, piExts[0]));
+        if (entry) return entry;
+      }
+    } catch {}
+  }
+  for (const candidate of ["extensions/index.ts", "extensions/index.js", "index.ts", "index.js"]) {
+    const p = join(dir, candidate);
+    if (existsSync(p)) return p;
+  }
+  throw new Error(`本地扩展无有效入口: ${dir}`);
+}
+
+/**
  * 第三方 npm Pi 扩展清单。
  * 加扩展：在此追加一行 + packages/kernel/package.json 加依赖。
  *
@@ -108,6 +132,15 @@ export function buildAdditionalExtensionPaths(dynamicPkgNames: string[] = []): s
   // 动态安装的第三方扩展：把已启用且为 Pi 扩展的包入口并入加载路径，
   // 否则 pi 进程不会加载它们 → 它们的工具/钩子不注册（即动态插件「装了但没生效」的根因）。
   for (const name of dynamicPkgNames) {
+    // local 来源（绝对路径）：走文件系统解析，绕过 createRequire
+    if (isAbsolute(name)) {
+      try {
+        paths.push(resolveLocalExtensionEntry(name));
+      } catch (err) {
+        console.error(`[kernel] 解析本地扩展入口失败 ${name}:`, err);
+      }
+      continue;
+    }
     if (!readPiExtensionsDeclaration(name)) continue;  // 非 Pi 扩展，跳过
     // 动态包优先从 runtime 解析：它们经 bun add 装在 ~/.wa-pi/runtime，pi 对 agent 目录
     // 的自动发现也用同一路径——-e 路径与自动发现路径一致才能被 pi 去重；
