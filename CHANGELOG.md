@@ -22,7 +22,8 @@
   select/confirm/input/editor 四种形态，应答统一 POST respond 路由，
   App 根部挂载）；session store 分发 `extension_dialog` 入队、
   `extension_editor_text` 写入新字段 `editorTextInjection`；Composer 按
-  ts 去重消费注入文本（替换输入框并写草稿）。shared 的 SDK 事件联合类型
+  ts 去重消费注入文本（替换输入框并写草稿，应用后立即清除注入记录，
+  防止组件重挂载时用旧注入覆盖用户草稿）。shared 的 SDK 事件联合类型
   补上两个事件声明；kernel 补 `_onExtUiRequest` 广播契约单测。
   影响范围：`packages/kernel/src/ext-ui-registry.ts`（新）、
   `packages/kernel/src/agent-manager.ts`、`packages/kernel/src/ws-server.ts`、
@@ -89,31 +90,21 @@
 
 ### 修复
 
-- **扩展命令两个 bug**：
-  1. 发送已注册扩展命令（如 /uidemo）后聊天窗不再出现用户消息气泡。
-     根因有两条插入通路：a) kernel `agent:prompt` 无条件回传
-     `session:echo_user`（新会话页依赖此回显）；b) 前端 `Composer.doSend`
-     空闲时无条件乐观插入用户消息。而 pi 官方行为是对注册扩展命令直接
-     执行 handler、不写 transcript、不发 user message 事件。现 kernel 侧
-     slash 文本延迟到 ensureStarted 后查命令清单（命中 extension 来源 →
-     不回显；未注册 / prompt / skill 来源 / 查询失败 → 照常回显），
-     前端 Composer 对命中命令清单的扩展命令跳过乐观插入，双通路闭合。
-  2. local 插件的命令在「附加命令」弹窗扫不到。根因有二：a) local 插件
-     身份不一致——ExtensionManager 以绝对路径为 name，而命令扫描侧
-     （官方 get_commands RPC + sourceInfo 推导）以 package.json name 为
-     packageName，前端按全等过滤永远为空；现 local 插件身份统一为
-     package.json name（extractNames 保留绝对路径别名，重复检测/旧数据
-     兼容）。b) `getCommands` 借用活跃进程不检查 dirty——安装扩展后旧
-     进程清单过期；现命中/借用 dirty 进程时先重建再取。
-  影响范围：`packages/kernel/src/ws-server.ts`、
-  `packages/kernel/src/extension-manager.ts`、
+- **local 插件命令「附加命令」弹窗扫不到**：根因有二：a) local 插件
+  身份不一致——ExtensionManager 以绝对路径为 name，而命令扫描侧
+  （官方 get_commands RPC + sourceInfo 推导）以 package.json name 为
+  packageName，前端按全等过滤永远为空；现 local 插件身份统一为
+  package.json name（extractNames 保留绝对路径别名，重复检测/旧数据
+  兼容）。b) `getCommands` 借用活跃进程不检查 dirty——安装扩展后旧
+  进程清单过期；现命中/借用 dirty 进程时先重建再取。
+  注：调查期间曾实现过「扩展命令不回显用户消息」方案（kernel 延迟
+  echo + Composer 跳过乐观插入），后按产品决策**整体回退**——最终
+  行为为「扩展命令按正常文本发送并回显，pi 同时执行命令 handler」
+  （对齐 pi TUI 行为），相关代码未入库。
+  影响范围：`packages/kernel/src/extension-manager.ts`、
   `packages/kernel/src/agent-manager.ts`、
-  `packages/frontend/src/components/Composer.tsx`、
   `packages/kernel/tests/extension-manager.test.ts`、
-  `packages/kernel/tests/agent-manager.test.ts`、
-  `packages/kernel/tests/ws-agent-prompt-echo.test.ts`（新增）、
-  `packages/frontend/tests/Composer.test.tsx`、
-  `packages/frontend/e2e/ext-ui-bridge-demo.spec.ts`（新增，PI_E2E=1 门控）。
+  `packages/kernel/tests/agent-manager.test.ts`。
 
 ## [Unreleased] - 2026-08-04
 
