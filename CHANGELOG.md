@@ -17,6 +17,13 @@
   同时把 fire-and-forget 的 set_editor_text 桥接为 `extension_editor_text`
   事件（转发语义：替换输入框内容，由前端 Composer 消费），并修正
   `_fetchCommands` docstring 遗留的「附加 TUI 标记」表述。
+  前端侧（本次补充）：新增 `ext-dialog` zustand 队列 store 与
+  `ExtensionDialog` 弹窗组件（Modal 壳，按 method 渲染
+  select/confirm/input/editor 四种形态，应答统一 POST respond 路由，
+  App 根部挂载）；session store 分发 `extension_dialog` 入队、
+  `extension_editor_text` 写入新字段 `editorTextInjection`；Composer 按
+  ts 去重消费注入文本（替换输入框并写草稿）。shared 的 SDK 事件联合类型
+  补上两个事件声明；kernel 补 `_onExtUiRequest` 广播契约单测。
   影响范围：`packages/kernel/src/ext-ui-registry.ts`（新）、
   `packages/kernel/src/agent-manager.ts`、`packages/kernel/src/ws-server.ts`、
   `packages/kernel/src/routes/extensions.ts`、`packages/kernel/src/rpc-client.ts`、
@@ -24,7 +31,15 @@
   `packages/kernel/tests/ext-ui-registry.test.ts`（新）、
   `packages/kernel/tests/routes-extensions-commands.test.ts`、
   `packages/kernel/tests/rpc-client.test.ts`、
-  `packages/kernel/tests/fixtures/fake-pi.ts`。
+  `packages/kernel/tests/agent-manager.test.ts`、
+  `packages/kernel/tests/fixtures/fake-pi.ts`、
+  `packages/frontend/src/store/ext-dialog.ts`（新）、
+  `packages/frontend/src/components/ExtensionDialog.tsx`（新）、
+  `packages/frontend/src/store/session.ts`、
+  `packages/frontend/src/components/Composer.tsx`、
+  `packages/frontend/src/App.tsx`、
+  `packages/frontend/tests/ExtensionDialog.test.tsx`（新）、
+  `packages/frontend/tests/store-session.test.ts`。
 
 ### 重构
 

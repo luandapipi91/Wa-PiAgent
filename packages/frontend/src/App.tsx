@@ -37,6 +37,7 @@ import { ToastContainer } from "./components/ui/Toast";
 import { RecordingCapsule } from "./components/ui/RecordingCapsule";
 import { CommandPalette } from "./components/CommandPalette";
 import { FilePreviewModal } from "./components/blocks/FilePreviewModal";
+import { ExtensionDialog } from "./components/ExtensionDialog";
 
 export type View = "empty" | "new-session" | "session";
 
@@ -551,6 +552,7 @@ export function App() {
 				/>
 			)}
 			<FilePreviewModal />
+			<ExtensionDialog />
 			<ToastContainer />
 			<RecordingCapsule />
 		</div>

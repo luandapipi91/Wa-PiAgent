@@ -11,6 +11,7 @@ import type {
 import { useProjectsStore } from "./projects";
 import { useDiagnosticsStore, extensionNameFromPath } from "./diagnostics";
 import { useToastStore } from "./toast";
+import { useExtDialogStore } from "./ext-dialog";
 import { StreamingBatcher } from "./streaming-batcher";
 import { fmtTok } from "../util/format";
 
@@ -83,6 +84,9 @@ interface SessionState {
 	>;
 	// 扩展 ctx.ui.setTitle：会话级标题，聊天窗顶部状态条展示（不写 document.title）。
 	extTitleBySession: Record<string, string | null>;
+	// 扩展 ctx.ui.setEditorText 注入：sessionId → 待应用的文本（ts 去重，同一次注入只应用一次），
+	// 由 Composer 消费：替换输入框内容并写入草稿。
+	editorTextInjection: Record<string, { text: string; ts: number }>;
 	// 子代理进度：按 toolCallId 再按 agent 分组的 map。
 	// 结构：progressByToolCall[toolCallId][agent] = SubagentProgressEvent。
 	// 这样 delegate（单 agent）与 fleet（多 agent 共享同一 toolCallId）都能用同一结构：
@@ -266,6 +270,7 @@ export const useSessionStore = create<SessionState>((set) => {
 		extStatusBySession: {},
 		extWidgetBySession: {},
 		extTitleBySession: {},
+		editorTextInjection: {},
 		progressByToolCall: {},
 		progressSessionByToolCall: {},
 		filePreview: null,
@@ -1039,6 +1044,33 @@ export const useSessionStore = create<SessionState>((set) => {
 					});
 					// 压缩完成（手动/自动）：重拉历史刷新 token 累计
 					void useSessionStore.getState().refreshTokenTotals(sessionId);
+					break;
+				}
+				// pi 扩展 dialog 请求（select/confirm/input/editor）：入队，ExtensionDialog 弹窗应答
+				case "extension_dialog": {
+					useExtDialogStore.getState().enqueue({
+						requestId: (event as any).requestId,
+						sessionId,
+						method: (event as any).method,
+						title: (event as any).title,
+						message: (event as any).message,
+						options: (event as any).options,
+						placeholder: (event as any).placeholder,
+						prefill: (event as any).prefill,
+					});
+					break;
+				}
+				// pi 扩展 setEditorText：替换 Composer 输入框内容（官方 fire-and-forget 语义）
+				case "extension_editor_text": {
+					const text = (event as any).text;
+					if (typeof text === "string") {
+						set((s) => ({
+							editorTextInjection: {
+								...s.editorTextInjection,
+								[sessionId]: { text, ts: Date.now() },
+							},
+						}));
+					}
 					break;
 				}
 				// pi 扩展 ctx.ui.notify 反馈（如 /lens-toggle 执行结果）：kernel 包装在 sdk:event 内转发，

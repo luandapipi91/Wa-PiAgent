@@ -38,6 +38,17 @@ export function Composer({ sessionId, agentName, isRunning, isNewSession, disabl
 
   const draftText = prefs?.text;
 
+  // pi 扩展 setEditorText：替换输入框内容并写入草稿（ts 去重，同一次注入只应用一次）
+  const injection = useSessionStore((s) => s.editorTextInjection[sessionId]);
+  const appliedInjectionTsRef = useRef(0);
+  useEffect(() => {
+    if (injection && injection.ts !== appliedInjectionTsRef.current) {
+      appliedInjectionTsRef.current = injection.ts;
+      setText(injection.text);
+      setSessionPrefs(sessionId, { text: injection.text });
+    }
+  }, [injection, sessionId, setSessionPrefs]);
+
   // 渲染期：sessionId 变化 → 立即清空输入框（消除旧会话文本残留一帧）+ 重置恢复标记
   if (prevSessionIdRef.current !== sessionId) {
     prevSessionIdRef.current = sessionId;
