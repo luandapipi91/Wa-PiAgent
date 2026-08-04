@@ -13,6 +13,10 @@ import type {
  *   setWidget → extension_widget  → Composer 上/下方可折叠文本块
  *   setTitle  → extension_title   → 聊天窗顶部状态条
  *
+ * 另覆盖请求-应答类子协议（kernel extension_dialog 广播 + 前端应答）：
+ *   select/confirm/input/editor → 前端 ExtensionDialog 弹窗
+ *   setEditorText               → extension_editor_text → Composer 注入
+ *
  * 仅使用 import type，运行时不依赖任何 node_modules，可直接作为本地扩展加载。
  */
 
@@ -48,9 +52,9 @@ export default function (pi: ExtensionAPI) {
 
 	// 手动触发命令（需在「扩展 → 命令」里开启后才能用 /uidemo 调用）
 	pi.registerCommand("uidemo", {
-		description: "UI 桥接测试桩：/uidemo all|notify|status|widget|title|clear",
+		description: "UI 桥接测试桩：/uidemo all|notify|status|widget|title|clear|select|confirm|input|editor|seteditor",
 		getArgumentCompletions: (prefix) =>
-			["all", "notify", "status", "widget", "title", "clear"]
+			["all", "notify", "status", "widget", "title", "clear", "select", "confirm", "input", "editor", "seteditor"]
 				.filter((s) => s.startsWith(prefix))
 				.map((s) => ({ value: s, label: s })),
 		handler: async (args, ctx) => {
@@ -76,6 +80,33 @@ export default function (pi: ExtensionAPI) {
 				case "clear":
 					clearAll(ctx);
 					ctx.ui.notify("ext-ui-bridge-demo: 已清除 status/widget", "info");
+					break;
+				case "select":
+					{
+						const v = await ctx.ui.select("demo select：选一个", ["甲", "乙", "丙"]);
+						ctx.ui.notify(`select 结果: ${String(v)}`, "info");
+					}
+					break;
+				case "confirm":
+					{
+						const ok = await ctx.ui.confirm("demo confirm", "确认继续吗？");
+						ctx.ui.notify(`confirm 结果: ${ok}`, "info");
+					}
+					break;
+				case "input":
+					{
+						const v = await ctx.ui.input("demo input", "随便输入点什么");
+						ctx.ui.notify(`input 结果: ${String(v)}`, "info");
+					}
+					break;
+				case "editor":
+					{
+						const v = await ctx.ui.editor("demo editor", "预填内容\n第二行");
+						ctx.ui.notify(`editor 结果: ${String(v)}`, "info");
+					}
+					break;
+				case "seteditor":
+					ctx.ui.setEditorText("来自 set_editor_text 的文本");
 					break;
 				case "all":
 				default:

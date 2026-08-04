@@ -1,6 +1,6 @@
 # ext-ui-bridge-demo（UI 桥接测试桩）
 
-覆盖 WaPi 支持的全部四类扩展 fire-and-forget UI 请求，用于人工演示/回归验证：
+覆盖 WaPi 支持的全部四类扩展 fire-and-forget UI 请求 + 对话子协议（dialog / set_editor_text），用于人工演示/回归验证：
 
 | 扩展调用 | kernel 桥接事件 | 前端表现 |
 | --- | --- | --- |
@@ -8,6 +8,8 @@
 | `ctx.ui.setStatus(key, text)` | `extension_status` | 聊天列底部状态栏（右对齐） |
 | `ctx.ui.setWidget(key, lines, { placement })` | `extension_widget` | Composer 上/下方**可折叠**文本块（默认收起一行摘要） |
 | `ctx.ui.setTitle(title)` | `extension_title` | 聊天窗顶部状态条 |
+| `ctx.ui.select/confirm/input/editor(...)` | `extension_dialog`（应答 `/api/extensions/dialog/respond`） | ExtensionDialog 弹窗，应答后 notify 回显结果 |
+| `ctx.ui.setEditorText(text)` | `extension_editor_text` | 文本注入 Composer 输入框 |
 
 ## 安装（本地扩展）
 
@@ -42,6 +44,11 @@ curl -X POST http://127.0.0.1:9776/api/extensions/install \
 /uidemo title     # 更新顶部状态条
 /uidemo clear     # 清除 status/widget
 /uidemo all       # 全部重新触发
+/uidemo select    # 弹选择框（甲/乙/丙），应答后 notify 回显
+/uidemo confirm   # 弹确认框，应答后 notify 回显
+/uidemo input     # 弹输入框，应答后 notify 回显
+/uidemo editor    # 弹多行编辑器，应答后 notify 回显
+/uidemo seteditor # 把固定文本注入 Composer
 ```
 
 ## 卸载
