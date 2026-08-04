@@ -5,15 +5,17 @@ import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import type { SDKEventEnvelope } from "@wa-pi/shared";
 
-// refreshTokenTotals 会调用 api.get 拉取会话历史；mock 掉 api-client，
-// 返回可注入的 messages，断言聚焦于「/compact 回合结束触发刷新」逻辑。
+// refreshTokenTotals 会调用 api.get 拉取会话历史 + 会话统计；mock 掉 api-client，
+// 返回可注入的 messages / stats，断言聚焦于「压缩回合结束触发刷新」逻辑。
 const mockMessages: { messages: any[] } = { messages: [] };
+let mockStats: { stats: any } | null = null;
 let getCalls = 0;
 
 mock.module("../src/api-client", () => ({
 	api: {
-		get: () => {
+		get: (url: string) => {
 			getCalls++;
+			if (url.includes("/stats")) return Promise.resolve(mockStats);
 			return Promise.resolve(mockMessages);
 		},
 		post: () => Promise.resolve({}),
@@ -24,6 +26,7 @@ mock.module("../src/api-client", () => ({
 
 beforeEach(() => {
 	// 每个 case 前重置状态，避免相互污染
+	mockStats = null;
 	useSessionStore.setState({
 		messagesBySession: {},
 		streamingBySession: {},
@@ -32,6 +35,7 @@ beforeEach(() => {
 		historyLoadingBySession: {},
 		tokenTotals: {},
 		lastUsageBySession: {},
+		contextUsageBySession: {},
 	});
 });
 
@@ -228,6 +232,135 @@ test("agent_end 设置 status=idle", () => {
 	const env = envelope({ type: "agent_end", messages: [], willRetry: false });
 	useSessionStore.getState().handleSDKEvent("s1", env);
 	expect(useSessionStore.getState().statusBySession["s1"]).toBe("idle");
+});
+
+// ── pi 自动重试：agent_end{willRetry:true} 只是单次尝试失败的中间态，
+//    重试期间（auto_retry_start → 退避 → 新尝试）必须保持 thinking 不中断 ──
+
+test("agent_end{willRetry:true}：保持 thinking 与 thinkingSince，不结算不标未读", () => {
+	useProjectsStore.setState({ currentSessionId: "s-other" }); // 非当前会话也不应标未读
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		thinkingSinceBySession: { s1: 123 },
+		unreadBySession: {},
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: true }),
+		);
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("thinking");
+	expect(s.thinkingSinceBySession["s1"]).toBe(123);
+	expect(s.unreadBySession["s1"]).toBeFalsy();
+});
+
+test("auto_retry_start：记录重试进度 + 防御性保持 thinking（已有 thinkingSince 不覆盖）", () => {
+	useSessionStore.setState({
+		statusBySession: { s1: "idle" },
+		thinkingSinceBySession: { s1: 456 },
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({
+				type: "auto_retry_start",
+				attempt: 1,
+				maxAttempts: 3,
+				delayMs: 1000,
+				errorMessage: "Connection error.",
+			}),
+		);
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("thinking");
+	expect(s.thinkingSinceBySession["s1"]).toBe(456);
+	expect(s.retryBySession["s1"]).toEqual({ attempt: 1, maxAttempts: 3 });
+});
+
+test("auto_retry_end{success:false}：清重试进度并复位 idle（退避期 abort 后不再有 agent_end）", () => {
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		thinkingSinceBySession: { s1: 789 },
+		retryBySession: { s1: { attempt: 3, maxAttempts: 3 } },
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({
+				type: "auto_retry_end",
+				success: false,
+				attempt: 3,
+				finalError: "Retry cancelled",
+			}),
+		);
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("idle");
+	expect(s.thinkingSinceBySession["s1"]).toBeNull();
+	expect(s.retryBySession["s1"]).toBeUndefined();
+});
+
+test("auto_retry_end{success:true}：清重试进度但不动思考态（本轮继续，终态由 agent_end 复位）", () => {
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		thinkingSinceBySession: { s1: 111 },
+		retryBySession: { s1: { attempt: 1, maxAttempts: 3 } },
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "auto_retry_end", success: true, attempt: 1 }),
+		);
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("thinking");
+	expect(s.thinkingSinceBySession["s1"]).toBe(111);
+	expect(s.retryBySession["s1"]).toBeUndefined();
+});
+
+test("重试全流程：agent_end{willRetry:true} → auto_retry_start → agent_end{willRetry:false} 才回 idle", () => {
+	// 模拟 transient 错误后的完整重试序列：思考态贯穿退避期，直到真正终态
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		thinkingSinceBySession: { s1: 222 },
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: true }),
+		);
+	expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({
+				type: "auto_retry_start",
+				attempt: 1,
+				maxAttempts: 3,
+				delayMs: 1000,
+				errorMessage: "Connection error.",
+			}),
+		);
+	expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+	expect(useSessionStore.getState().retryBySession["s1"]).toEqual({
+		attempt: 1,
+		maxAttempts: 3,
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("idle");
+	expect(s.thinkingSinceBySession["s1"]).toBeNull();
+	// 终态 agent_end 防御性清重试进度（无 auto_retry_end 的异常时序也不卡黄条）
+	expect(s.retryBySession["s1"]).toBeUndefined();
 });
 
 test("agent_end 清掉 optimisticSend 的 pending 占位（扩展命令无 agent turn 场景）", () => {
@@ -648,29 +781,144 @@ test("failTurn 只影响目标会话，不串扰其它会话的 thinking 状态"
 	expect(s.statusBySession["s2"]).toBe("thinking");
 });
 
-test("addTokens 累加 token 计数", () => {
-	const store = useSessionStore.getState();
-	store.addTokens("s1", 100, 50);
-	store.addTokens("s1", 200, 80);
+test("refreshSessionStats 用官方 stats 覆盖累计与上下文占用", async () => {
+	mockStats = {
+		stats: {
+			tokens: {
+				input: 50000,
+				output: 8000,
+				cacheRead: 200000,
+				cacheWrite: 500,
+				total: 258500,
+				main: { input: 49700, output: 7870, cacheRead: 199000, cacheWrite: 500, total: 257070 },
+				subagent: { input: 300, output: 130, cacheRead: 1000, cacheWrite: 0, total: 1430 },
+			},
+			contextUsage: { used: 64000, total: 128000, ratio: 0.5 },
+		},
+	};
+	await useSessionStore.getState().refreshSessionStats("s1");
 	const s = useSessionStore.getState();
-	expect(s.tokenTotals["s1"]).toEqual({ input: 300, output: 130 });
+	// 累计 = stats.tokens 全量（含压缩前历史 + 缓存）
+	expect(s.tokenTotals["s1"]).toEqual({
+		input: 50000,
+		output: 8000,
+		cacheRead: 200000,
+		cacheWrite: 500,
+		total: 258500,
+		main: 257070,
+		subagent: 1430,
+	});
+	// 当前上下文占用 = stats.contextUsage
+	expect(s.contextUsageBySession["s1"]).toEqual({
+		used: 64000,
+		total: 128000,
+		ratio: 0.5,
+	});
+
 	// 独立会话互不干扰
-	s.addTokens("s2", 50, 30);
-	const s2 = useSessionStore.getState();
-	expect(s2.tokenTotals["s1"]).toEqual({ input: 300, output: 130 });
-	expect(s2.tokenTotals["s2"]).toEqual({ input: 50, output: 30 });
+	expect(s.tokenTotals["s2"]).toBeUndefined();
+	expect(s.contextUsageBySession["s2"]).toBeUndefined();
 });
 
-test("seedTokenTotal 从历史消息计算累计", () => {
+test("message_end(assistant 带 usage) 触发官方 stats 刷新，不做本地累加", async () => {
+	mockStats = {
+		stats: {
+			tokens: { input: 1000, output: 500, cacheRead: 5000, cacheWrite: 0, total: 6500 },
+			contextUsage: { used: 6000, total: 128000, ratio: 0.047 },
+		},
+	};
+	useSessionStore.getState().handleSDKEvent("s1", envelope({
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "回复" }],
+			model: "m",
+			stopReason: "stop",
+			timestamp: 1,
+			usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0 },
+		},
+	} as any));
+	// 宏任务级等待 refreshSessionStats 的异步链完成
+	await new Promise((r) => setTimeout(r, 0));
+	const s = useSessionStore.getState();
+	// 累计直接取官方 stats（1000/5000），而非本地把本轮 100 加到旧值上
+	expect(s.tokenTotals["s1"]?.input).toBe(1000);
+	expect(s.tokenTotals["s1"]?.cacheRead).toBe(5000);
+	expect(s.contextUsageBySession["s1"]?.used).toBe(6000);
+	// lastUsage 仍是本轮真实 usage（「本轮」胶囊）
+	expect(s.lastUsageBySession["s1"]).toEqual({
+		input: 100,
+		output: 50,
+		cacheRead: 0,
+		cacheWrite: 0,
+	} as any);
+});
+
+test("seedTokenTotal 无 stats 时不写累计（本地消息扫描已移除），仅写 lastUsage", () => {
 	const messages: any[] = [
 		{ message: { role: "user" } },
-		{ message: { role: "assistant", usage: { input: 100, output: 50 } } },
-		{ message: { role: "assistant", usage: { input: 200, output: 30 } } },
-		{ message: { role: "assistant" } }, // 无 usage 的历史消息，跳过
+		{
+			message: {
+				role: "assistant",
+				usage: { input: 100, output: 50, cacheRead: 4000, cacheWrite: 0 },
+			},
+		},
+		{
+			message: {
+				role: "assistant",
+				usage: { input: 200, output: 30, cacheRead: 5000, cacheWrite: 100 },
+			},
+		},
 	];
 	useSessionStore.getState().seedTokenTotal("s2", messages);
 	const s = useSessionStore.getState();
-	expect(s.tokenTotals["s2"]).toEqual({ input: 300, output: 80 });
+	// 不再遍历可见消息累加：无 stats 即无累计
+	expect(s.tokenTotals["s2"]).toBeUndefined();
+	// lastUsage 仍取最后一条真实 usage（供「本轮」胶囊）
+	expect(s.lastUsageBySession["s2"]).toEqual({
+		input: 200,
+		output: 30,
+		cacheRead: 5000,
+		cacheWrite: 100,
+	} as any);
+});
+
+test("seedTokenTotal 优先使用 stats 全量累计（含压缩前历史与缓存）", () => {
+	const messages: any[] = [
+		// 可见消息只有最近一轮（压缩后），usage 很小
+		{
+			message: {
+				role: "assistant",
+				usage: { input: 300, output: 100, cacheRead: 1000, cacheWrite: 0 },
+			},
+		},
+	];
+	// stats 来自 pi get_session_stats：全会话累计（含压缩前历史 + 缓存）
+	const stats = {
+		tokens: {
+			input: 50000,
+			output: 8000,
+			cacheRead: 200000,
+			cacheWrite: 500,
+			total: 258500,
+		},
+	};
+	useSessionStore.getState().seedTokenTotal("s5", messages, stats as any);
+	const s = useSessionStore.getState();
+	expect(s.tokenTotals["s5"]).toEqual({
+		input: 50000,
+		output: 8000,
+		cacheRead: 200000,
+		cacheWrite: 500,
+		total: 258500,
+	});
+	// lastUsage 仍取可见消息中最后一条真实 usage（供「本轮」胶囊）
+	expect(s.lastUsageBySession["s5"]).toEqual({
+		input: 300,
+		output: 100,
+		cacheRead: 1000,
+		cacheWrite: 0,
+	} as any);
 });
 
 test("seedTokenTotal 无 usage 时不写入", () => {
@@ -686,9 +934,18 @@ test("seedTokenTotal 同时写入 lastUsageBySession", () => {
 		{ message: { role: "assistant", usage: { input: 100, output: 50 } } },
 		{ message: { role: "assistant", usage: { input: 200, output: 30 } } },
 	];
-	useSessionStore.getState().seedTokenTotal("s4", messages);
+	const stats = {
+		tokens: { input: 300, output: 80, cacheRead: 0, cacheWrite: 0, total: 380 },
+	};
+	useSessionStore.getState().seedTokenTotal("s4", messages, stats as any);
 	const s = useSessionStore.getState();
-	expect(s.tokenTotals["s4"]).toEqual({ input: 300, output: 80 });
+	expect(s.tokenTotals["s4"]).toEqual({
+		input: 300,
+		output: 80,
+		cacheRead: 0,
+		cacheWrite: 0,
+		total: 380,
+	});
 	// lastUsage 应是最后一条带 usage 的消息
 	expect(s.lastUsageBySession["s4"]).toEqual({ input: 200, output: 30 } as any);
 });
@@ -969,7 +1226,11 @@ test("agent_end：最后一条 user 以 /compact 开头 → 触发 refreshTokenT
 		messagesBySession: {
 			s1: [
 				{
-					message: { role: "user", content: "/compact 只保留关键决策", timestamp: 1 },
+					message: {
+						role: "user",
+						content: "/compact 只保留关键决策",
+						timestamp: 1,
+					},
 					agentName: undefined,
 				},
 				{
@@ -984,12 +1245,35 @@ test("agent_end：最后一条 user 以 /compact 开头 → 触发 refreshTokenT
 				},
 			],
 		},
-		tokenTotals: { s1: { input: 1000, output: 500 } },
+		tokenTotals: {
+			s1: {
+				input: 1000,
+				output: 500,
+				cacheRead: 0,
+				cacheWrite: 0,
+				total: 1500,
+			},
+		},
 	});
-	// mock 返回压缩后的历史（token 已缩小）
+	// mock 返回压缩后的历史（token 已缩小）；stats 返回全会话累计（含压缩前历史 + 缓存）
+	mockStats = {
+		stats: {
+			tokens: {
+				input: 1000,
+				output: 500,
+				cacheRead: 5000,
+				cacheWrite: 0,
+				total: 6500,
+			},
+		},
+	};
 	mockMessages.messages = [
 		{
-			message: { role: "user", content: "/compact 只保留关键决策", timestamp: 1 },
+			message: {
+				role: "user",
+				content: "/compact 只保留关键决策",
+				timestamp: 1,
+			},
 			agentName: undefined,
 		},
 		{
@@ -1013,10 +1297,14 @@ test("agent_end：最后一条 user 以 /compact 开头 → 触发 refreshTokenT
 	// 等 refreshTokenTotals 的异步链完成（宏任务级等待，不依赖微任务数量）
 	await new Promise((r) => setTimeout(r, 0));
 
-	expect(getCalls).toBe(1);
+	expect(getCalls).toBe(2);
 	const totals = useSessionStore.getState().tokenTotals["s1"];
-	expect(totals?.input).toBe(100);
-	expect(totals?.output).toBe(50);
+	// 累计来自 stats 全量（压缩前历史 + 缓存不丢），而非压缩后的可见消息
+	expect(totals?.input).toBe(1000);
+	expect(totals?.output).toBe(500);
+	expect(totals?.cacheRead).toBe(5000);
+	expect(totals?.total).toBe(6500);
+	// lastUsage（本轮胶囊）仍取可见消息最后一条真实 usage
 	expect(useSessionStore.getState().lastUsageBySession["s1"]?.input).toBe(100);
 });
 
@@ -1031,7 +1319,15 @@ test("agent_end：最后一条 user 不是 /compact → 不触发 refresh", asyn
 				},
 			],
 		},
-		tokenTotals: { s1: { input: 1000, output: 500 } },
+		tokenTotals: {
+			s1: {
+				input: 1000,
+				output: 500,
+				cacheRead: 0,
+				cacheWrite: 0,
+				total: 1500,
+			},
+		},
 	});
 
 	useSessionStore
@@ -1064,7 +1360,15 @@ test("agent_end：最后一条 user content 为数组（含 /compact 文本）�
 				},
 			],
 		},
-		tokenTotals: { s1: { input: 1000, output: 500 } },
+		tokenTotals: {
+			s1: {
+				input: 1000,
+				output: 500,
+				cacheRead: 0,
+				cacheWrite: 0,
+				total: 1500,
+			},
+		},
 	});
 
 	useSessionStore
@@ -1125,4 +1429,194 @@ test("agent_end：无 user 消息（空会话 / 全 assistant）→ 不触发 re
 	await new Promise((r) => setTimeout(r, 0));
 	expect(getCalls).toBe(0);
 	expect(useSessionStore.getState().statusBySession["s2"]).toBe("idle");
+});
+
+// ── compaction_start / compaction_end：压缩状态消息 + 权威 token 刷新 ──
+
+test("compaction_start 插入「正在压缩上下文」状态消息；compaction_end 替换为释放结果并刷新 token", async () => {
+	getCalls = 0;
+	useSessionStore.setState({
+		messagesBySession: {},
+		tokenTotals: {
+			s1: {
+				input: 1000,
+				output: 500,
+				cacheRead: 0,
+				cacheWrite: 0,
+				total: 1500,
+			},
+		},
+	});
+	mockStats = {
+		stats: {
+			tokens: {
+				input: 1000,
+				output: 500,
+				cacheRead: 5000,
+				cacheWrite: 0,
+				total: 6500,
+			},
+		},
+	};
+	mockMessages.messages = [
+		{
+			message: {
+				role: "assistant",
+				content: "（压缩后摘要）",
+				timestamp: 2,
+				usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0 },
+			},
+			agentName: "dev",
+		},
+	];
+
+	// 压缩开始：插入状态消息
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "compaction_start", reason: "manual" }),
+		);
+	const during = useSessionStore.getState().messagesBySession["s1"];
+	const statusMsg = during.find(
+		(m) => (m.message as any).customType === "compaction_status",
+	);
+	expect(statusMsg).toBeDefined();
+	expect((statusMsg!.message as any).content).toBe("正在压缩上下文…");
+	expect(getCalls).toBe(0); // 压缩中不刷新
+
+	// 压缩结束：替换状态消息为结果，并刷新 token 累计
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "compaction_end",
+			reason: "manual",
+			result: {
+				summary: "摘要",
+				firstKeptEntryId: "abc",
+				tokensBefore: 1000,
+				estimatedTokensAfter: 300,
+			},
+			aborted: false,
+			willRetry: false,
+		}),
+	);
+	await new Promise((r) => setTimeout(r, 0));
+
+	const after = useSessionStore.getState().messagesBySession["s1"];
+	const finalMsg = after.find(
+		(m) => (m.message as any).customType === "compaction_status",
+	);
+	expect(finalMsg).toBeDefined();
+	expect((finalMsg!.message as any).content).toContain("1,000 → 300");
+	expect((finalMsg!.message as any).content).toContain("释放 700");
+	// compaction_end 是权威信号：触发 refreshTokenTotals（不依赖 agent_end 文本检测）
+	expect(getCalls).toBe(2);
+	expect(useSessionStore.getState().tokenTotals["s1"]?.input).toBe(1000);
+	expect(useSessionStore.getState().tokenTotals["s1"]?.cacheRead).toBe(5000);
+	expect(useSessionStore.getState().lastUsageBySession["s1"]?.input).toBe(100);
+});
+
+test("compaction_end：aborted / errorMessage 不显示 token 结果，分别显示取消/失败文案", async () => {
+	getCalls = 0;
+	useSessionStore.setState({ messagesBySession: {}, tokenTotals: {} });
+	mockMessages.messages = [];
+
+	// 取消：result 为 null、aborted true
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "compaction_end",
+			reason: "manual",
+			result: null,
+			aborted: true,
+			willRetry: false,
+		}),
+	);
+	const cancelled = useSessionStore.getState().messagesBySession["s1"];
+	const cancelledMsg = cancelled.find(
+		(m) => (m.message as any).customType === "compaction_status",
+	);
+	expect((cancelledMsg!.message as any).content).toBe("压缩已取消");
+
+	// 失败：errorMessage 存在
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "compaction_end",
+			reason: "manual",
+			result: null,
+			aborted: false,
+			willRetry: false,
+			errorMessage: "Nothing to compact (session too small)",
+		}),
+	);
+	const failed = useSessionStore.getState().messagesBySession["s1"];
+	const failedMsg = failed.find(
+		(m) => (m.message as any).customType === "compaction_status",
+	);
+	expect((failedMsg!.message as any).content).toBe(
+		"压缩失败：Nothing to compact (session too small)",
+	);
+});
+
+test("compaction_end 自动压缩（reason=threshold）同样触发 token 刷新（不依赖 /compact 文本）", async () => {
+	getCalls = 0;
+	useSessionStore.setState({
+		messagesBySession: {},
+		tokenTotals: {
+			s1: {
+				input: 5000,
+				output: 2000,
+				cacheRead: 0,
+				cacheWrite: 0,
+				total: 7000,
+			},
+		},
+	});
+	mockStats = {
+		stats: {
+			tokens: {
+				input: 5000,
+				output: 2000,
+				cacheRead: 20000,
+				cacheWrite: 0,
+				total: 27000,
+			},
+		},
+	};
+	mockMessages.messages = [
+		{
+			message: {
+				role: "assistant",
+				content: "（自动压缩摘要）",
+				timestamp: 2,
+				usage: { input: 800, output: 300, cacheRead: 0, cacheWrite: 0 },
+			},
+			agentName: "dev",
+		},
+	];
+
+	// 无 compaction_start 直接到 compaction_end（自动压缩开始事件可能已错过）也能刷新
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "compaction_end",
+			reason: "threshold",
+			result: {
+				summary: "摘要",
+				firstKeptEntryId: "abc",
+				tokensBefore: 5000,
+				estimatedTokensAfter: 1100,
+			},
+			aborted: false,
+			willRetry: false,
+		}),
+	);
+	await new Promise((r) => setTimeout(r, 0));
+
+	expect(getCalls).toBe(2);
+	expect(useSessionStore.getState().tokenTotals["s1"]?.input).toBe(5000);
+	expect(useSessionStore.getState().tokenTotals["s1"]?.cacheRead).toBe(20000);
+	expect(useSessionStore.getState().tokenTotals["s1"]?.total).toBe(27000);
 });

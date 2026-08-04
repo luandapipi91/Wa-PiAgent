@@ -113,6 +113,16 @@ export class ProjectStore {
     await this.save(data);
   }
 
+  /** 覆盖写入会话的子代理累计 token（由 agent-manager 内存累计后串行持久化；
+   *  会话记录已删除时静默跳过） */
+  async setSubagentTokens(id: string, tokens: SessionEntity["subagentTokens"]): Promise<void> {
+    const data = await this.load();
+    const s = data.sessions.find(x => x.id === id);
+    if (!s) return;
+    s.subagentTokens = tokens;
+    await this.save(data);
+  }
+
   /**
    * 仅当会话标题为空时填充——用于兜底创建（标题留空）的会话，
    * 在用户首次发送消息时用消息内容自动命名。已有标题（用户手动命名或已填充）不动。

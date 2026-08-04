@@ -81,7 +81,12 @@ beforeEach(() => {
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "" }],
     currentProjectId: "p1", currentSessionId: "s1",
   });
-  useSessionStore.setState({ messagesBySession: {} });
+  useSessionStore.setState({
+    messagesBySession: {},
+    lastUsageBySession: {},
+    tokenTotals: {},
+    contextUsageBySession: {},
+  });
   // 重置 composer-prefs 和 providers，防止测试间状态泄漏
   useComposerPrefsStore.setState({ bySession: {}, defaults: { model: null, thinking: "disabled" } });
   useProvidersStore.setState({ providers: [] });
@@ -372,7 +377,7 @@ test("普通项目会话 header 仍显示 project.cwd（不回归）", async () 
 test("token 胶囊：有 usage 时显示 ↑↓/累计/缓存", () => {
   useSessionStore.setState({
     lastUsageBySession: { s1: { input: 3200, output: 1100, cacheRead: 1500, cacheWrite: 200 } },
-    tokenTotals: { s1: { input: 6400, output: 2100 } },
+    tokenTotals: { s1: { input: 6400, output: 2100, cacheRead: 1500, cacheWrite: 200, total: 10200 } },
   });
   useProjectsStore.setState({
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "/tmp/s1.jsonl" }],
@@ -381,29 +386,18 @@ test("token 胶囊：有 usage 时显示 ↑↓/累计/缓存", () => {
   render(<SessionView sessionId="s1" />);
   expect(screen.getByTestId("token-capsules")).toBeTruthy();
   expect(screen.getByText(/本轮: ↑3\.2K\/↓1\.1K/)).toBeTruthy();
-  expect(screen.getByText(/累计 8\.5K/)).toBeTruthy();
+  // 累计 = total（含 cacheRead/cacheWrite）：6400+2100+1500+200 = 10200 → 10.2K
+  expect(screen.getByText(/累计 10\.2K/)).toBeTruthy();
   // cacheRead/(input+cacheRead+cacheWrite) = 1500/(3200+1500+200) ≈ 30.61% → 30.6%
   expect(screen.getByText(/缓存 30\.6%/)).toBeTruthy();
 });
 
-test("token 胶囊：有模型时累计胶囊显示进度条", () => {
-  // 设置 providers（模型含 contextWindow=128000）
-  useProvidersStore.setState({
-    providers: [{
-      id: "p1", name: "OpenAI", baseUrl: "https://api.openai.com/v1", apiKey: "sk-test",
-      api: "openai-completions" as const,
-      models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }],
-    }],
-  });
-  // 设置当前会话的模型选择（与 provider 匹配）
-  useComposerPrefsStore.setState({
-    bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
-    defaults: { model: "openai/gpt-4o", thinking: "disabled" },
-  });
-  // token 累计 8500 / 128000 ≈ 6.64% → 进度条宽度 7%
+test("token 胶囊：有 contextUsage 时累计胶囊显示进度条", () => {
+  // 占用/进度条只认官方 contextUsage：3200 / 128000 = 2.5% → 宽度 3%
   useSessionStore.setState({
     lastUsageBySession: { s1: { input: 3200, output: 1100, cacheRead: 0, cacheWrite: 0 } },
-    tokenTotals: { s1: { input: 6400, output: 2100 } },
+    tokenTotals: { s1: { input: 6400, output: 2100, cacheRead: 0, cacheWrite: 0, total: 8500 } },
+    contextUsageBySession: { s1: { used: 3200, total: 128000, ratio: 0.025 } },
   });
   useProjectsStore.setState({
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "/tmp/s1.jsonl" }],
@@ -413,18 +407,20 @@ test("token 胶囊：有模型时累计胶囊显示进度条", () => {
   render(<SessionView sessionId="s1" />);
 
   expect(screen.getByTestId("token-capsules")).toBeTruthy();
-  // 进度条存在且宽度为 7%（8500/128000 四舍五入）
+  // 进度条存在且宽度为 3%（当前窗口占用 3200/128000 四舍五入，与累计 8500 无关）
   const progress = screen.getByTestId("token-progress");
   expect(progress).toBeTruthy();
   const fill = progress.querySelector(".token-progress-fill") as HTMLElement;
-  expect(fill.style.width).toBe("7%");
+  expect(fill.style.width).toBe("3%");
+  // 进度条上方显示当前窗口占用 token 数
+  expect(screen.getByTestId("token-occupied").textContent).toContain("占用 3.2K");
 });
 
-test("token 胶囊：无模型时累计胶囊不显示进度条", () => {
-  // 不设置 provider 和 model → contextWindow 不可得 → 不显示进度条
+test("token 胶囊：无 contextUsage 时累计胶囊不显示进度条", () => {
+  // 无官方占用数据 → 不显示进度条/占用，仅弱化累计（本地估算已移除）
   useSessionStore.setState({
     lastUsageBySession: { s1: { input: 3200, output: 1100, cacheRead: 0, cacheWrite: 0 } },
-    tokenTotals: { s1: { input: 6400, output: 2100 } },
+    tokenTotals: { s1: { input: 6400, output: 2100, cacheRead: 0, cacheWrite: 0, total: 8500 } },
   });
   useProjectsStore.setState({
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "/tmp/s1.jsonl" }],
@@ -433,28 +429,20 @@ test("token 胶囊：无模型时累计胶囊不显示进度条", () => {
 
   render(<SessionView sessionId="s1" />);
 
-  // 胶囊组仍显示（有 lastUsage），进度条不应存在
+  // 胶囊组仍显示（有 lastUsage），进度条与「占用」不应存在，仅显示弱化累计
   expect(screen.getByTestId("token-capsules")).toBeTruthy();
   expect(screen.getByText(/本轮: ↑3\.2K\/↓1\.1K/)).toBeTruthy();
+  expect(screen.getByText(/累计 8\.5K/)).toBeTruthy();
   expect(screen.queryByTestId("token-progress")).toBeNull();
+  expect(screen.queryByTestId("token-occupied")).toBeNull();
 });
 
 test("token 胶囊：进度条极小占比也有最小可见宽度", () => {
-  useProvidersStore.setState({
-    providers: [{
-      id: "p1", name: "OpenAI", baseUrl: "https://api.openai.com/v1", apiKey: "sk-test",
-      api: "openai-completions" as const,
-      models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }],
-    }],
-  });
-  useComposerPrefsStore.setState({
-    bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
-    defaults: { model: "openai/gpt-4o", thinking: "disabled" },
-  });
-  // 累计 100 / 128000 ≈ 0.078%，round 后为 0%
+  // 当前占用 100 / 128000 ≈ 0.078%，round 后为 0%
   useSessionStore.setState({
     lastUsageBySession: { s1: { input: 100, output: 0, cacheRead: 0, cacheWrite: 0 } },
-    tokenTotals: { s1: { input: 100, output: 0 } },
+    tokenTotals: { s1: { input: 100, output: 0, cacheRead: 0, cacheWrite: 0, total: 100 } },
+    contextUsageBySession: { s1: { used: 100, total: 128000, ratio: 0.00078 } },
   });
   useProjectsStore.setState({
     sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "/tmp/s1.jsonl" }],
@@ -468,6 +456,69 @@ test("token 胶囊：进度条极小占比也有最小可见宽度", () => {
   const progress = screen.getByTestId("token-progress");
   const fill = progress.querySelector(".token-progress-fill") as HTMLElement;
   expect(parseFloat(fill.style.width)).toBeGreaterThan(0);
+});
+
+test("token 胶囊：有 contextUsage 时进度条与「占用」用官方口径（与累计分离）", () => {
+  // 占用/累计完全由 stats 驱动：占用 64K / 窗口 128K，累计独立为 90K
+  useSessionStore.setState({
+    lastUsageBySession: { s1: { input: 3200, output: 1100, cacheRead: 0, cacheWrite: 0 } },
+    // 累计 = 90K（含缓存、含压缩前历史），与窗口占用无关
+    tokenTotals: { s1: { input: 20000, output: 8000, cacheRead: 60000, cacheWrite: 2000, total: 90000 } },
+    contextUsageBySession: { s1: { used: 64000, total: 128000, ratio: 0.5 } },
+  });
+  useProjectsStore.setState({
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "/tmp/s1.jsonl" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi", createdAt: 0 }],
+  });
+
+  render(<SessionView sessionId="s1" />);
+
+  // 累计仍显示 total：90K
+  expect(screen.getByText(/累计 90K/)).toBeTruthy();
+  // 进度条 = 当前窗口占用 64000/128000 = 50%
+  const progress = screen.getByTestId("token-progress");
+  const fill = progress.querySelector(".token-progress-fill") as HTMLElement;
+  expect(fill.style.width).toBe("50%");
+  // 占用 = contextUsage.used = 64K
+  expect(screen.getByTestId("token-occupied").textContent).toContain("占用 64K");
+  // 布局：占用在上（加强）、累计在下（弱化），进度条居中
+  const occupied = screen.getByTestId("token-occupied");
+  const totalEl = screen.getByText(/累计 90K/);
+  expect(totalEl.className).toContain("token-total");
+  expect(
+    occupied.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    progress.compareDocumentPosition(totalEl) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
+test("token 胶囊：有子代理消耗时累计拆分主/子显示", () => {
+  useSessionStore.setState({
+    lastUsageBySession: { s1: { input: 3200, output: 1100, cacheRead: 0, cacheWrite: 0 } },
+    // 合计 90K = 主 60K + 子 30K
+    tokenTotals: { s1: { input: 20000, output: 8000, cacheRead: 60000, cacheWrite: 2000, total: 90000, main: 60000, subagent: 30000 } },
+  });
+  useProjectsStore.setState({
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "/tmp/s1.jsonl" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi", createdAt: 0 }],
+  });
+  render(<SessionView sessionId="s1" />);
+  expect(screen.getByText(/累计 90K（主 60K · 子 30K）/)).toBeTruthy();
+});
+
+test("token 胶囊：无子代理消耗时累计不显示拆分", () => {
+  useSessionStore.setState({
+    lastUsageBySession: { s1: { input: 3200, output: 1100, cacheRead: 0, cacheWrite: 0 } },
+    tokenTotals: { s1: { input: 20000, output: 8000, cacheRead: 60000, cacheWrite: 2000, total: 90000, main: 90000, subagent: 0 } },
+  });
+  useProjectsStore.setState({
+    sessions: [{ id: "s1", projectId: "p1", primaryAgent: "dev", title: "测试", createdAt: 0, lastActivity: 0, piSessionFile: "/tmp/s1.jsonl" }],
+    projects: [{ id: "p1", name: "test", cwd: "/work/wa-pi", createdAt: 0 }],
+  });
+  render(<SessionView sessionId="s1" />);
+  expect(screen.getByText(/累计 90K/)).toBeTruthy();
+  expect(screen.queryByText(/主 90K/)).toBeNull();
 });
 
 test("token 胶囊：无 usage 时不显示", () => {

@@ -151,9 +151,11 @@ export class RpcClient {
 			throw new Error(`pi rpc 进程不可用${this.formatStderrTail()}`);
 		}
 		const id = cmd.id ?? `req-${++this.seq}`;
-		const payload = { ...cmd, id };
+		// per-command 超时覆盖（compact 等长耗时 LLM 命令），timeoutMs 不进 wire
+		const { timeoutMs: cmdTimeoutMs, ...rest } = cmd;
+		const payload = { ...rest, id };
 		return await new Promise((resolve, reject) => {
-			const timeoutMs = this.opts.commandTimeoutMs ?? 60_000;
+			const timeoutMs = cmdTimeoutMs ?? this.opts.commandTimeoutMs ?? 60_000;
 			const timer = setTimeout(() => {
 				this.pending.delete(id);
 				reject(new Error(`RPC 命令超时 (${timeoutMs}ms): ${cmd.type}`));
@@ -243,6 +245,8 @@ export class RpcClient {
 	compact(customInstructions?: string): Promise<any> {
 		return this.command({
 			type: "compact",
+			// 压缩摘要生成是 LLM 长调用，可能远超默认 60s 命令超时；给足 10 分钟
+			timeoutMs: 10 * 60_000,
 			...(customInstructions ? { customInstructions } : {}),
 		});
 	}

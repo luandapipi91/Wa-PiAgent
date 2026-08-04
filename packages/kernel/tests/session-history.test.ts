@@ -2,7 +2,10 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { readSessionHistory } from "../src/session-history";
+import {
+	readSessionHistory,
+	computeSessionUsage,
+} from "../src/session-history";
 
 let dir: string;
 beforeEach(() => {
@@ -27,6 +30,49 @@ function msg(
 		parentId,
 		timestamp: new Date(lineTs).toISOString(),
 		message: { role, content: [{ type: "text", text }], timestamp: ts },
+	});
+}
+
+/** 构造带 usage 的 assistant 消息（token 累计依赖 assistant.usage） */
+function msgUsage(
+	id: string,
+	parentId: string | null,
+	role: string,
+	text: string,
+	ts: number,
+	usage: { input: number; output: number },
+): string {
+	return JSON.stringify({
+		type: "message",
+		id,
+		parentId,
+		timestamp: new Date(ts).toISOString(),
+		message: {
+			role,
+			content: [{ type: "text", text }],
+			timestamp: ts,
+			...(role === "assistant" ? { usage } : {}),
+		},
+	});
+}
+
+/** 构造 compaction 节点（对齐 pi session-manager.appendCompaction） */
+function compactionEntry(
+	id: string,
+	parentId: string,
+	firstKeptEntryId: string,
+	summary: string,
+	tokensBefore: number,
+	ts: number,
+): string {
+	return JSON.stringify({
+		type: "compaction",
+		id,
+		parentId,
+		timestamp: new Date(ts).toISOString(),
+		summary,
+		firstKeptEntryId,
+		tokensBefore,
 	});
 }
 
@@ -83,6 +129,245 @@ test("分支历史：只返回当前分支（末尾叶子所在链），不含�
 
 	const history = (await readSessionHistory(file)) as any[];
 	expect(history.map((m) => m.content[0].text)).toEqual(["问题", "新回答"]);
+});
+
+// ── 压缩感知：readSessionHistory 需与 pi buildContextEntries 同语义 ──
+// 背景：pi 压缩是 append-only（compaction 节点后旧消息仍在链上），不感知的话
+// 直读 jsonl 会把压缩前的旧消息全部带出（token 累计不变、历史列表不缩）。
+
+test("压缩感知：压缩前的旧消息省略，插入 compactionSummary 摘要消息", async () => {
+	const file = join(dir, "s.jsonl");
+	writeFileSync(
+		file,
+		[
+			JSON.stringify({ type: "session", version: 3, id: "uuid-1" }),
+			msg("m1", null, "user", "问题一", 1),
+			msg("m2", "m1", "assistant", "回答一", 2),
+			msg("m3", "m2", "user", "问题二", 3),
+			msg("m4", "m3", "assistant", "回答二", 4),
+			// firstKeptEntryId 指向链上不存在的 id：旧消息（m1-m4）全部被压缩省略
+			compactionEntry(
+				"c1",
+				"m4",
+				"gone-entry",
+				"（压缩摘要：早期对话）",
+				5000,
+				5,
+			),
+			msg("m5", "c1", "user", "压缩后问题", 6),
+			msg("m6", "m5", "assistant", "压缩后回答", 7),
+		].join("\n") + "\n",
+	);
+
+	const history = (await readSessionHistory(file)) as any[];
+	// 旧消息（m1-m4）省略，只保留压缩摘要 + 压缩后的新消息
+	expect(history.map((m) => m.content?.[0]?.text ?? m.summary)).toEqual([
+		"（压缩摘要：早期对话）",
+		"压缩后问题",
+		"压缩后回答",
+	]);
+	// 摘要消息 role=compactionSummary（与 pi createCompactionSummaryMessage 对齐）
+	expect(history[0].role).toBe("compactionSummary");
+	expect(history[0].summary).toBe("（压缩摘要：早期对话）");
+	expect(history[0].tokensBefore).toBe(5000);
+});
+
+test("压缩感知：firstKeptEntryId 之后的旧消息保留（对齐 pi 保留最近上下文）", async () => {
+	const file = join(dir, "s.jsonl");
+	writeFileSync(
+		file,
+		[
+			JSON.stringify({ type: "session", version: 3, id: "uuid-1" }),
+			msg("m1", null, "user", "问题一", 1),
+			msg("m2", "m1", "assistant", "回答一", 2),
+			msg("m3", "m2", "user", "问题二", 3),
+			msg("m4", "m3", "assistant", "回答二", 4),
+			// firstKeptEntryId=m3：m1/m2 被压缩，m3/m4 保留
+			compactionEntry("c1", "m4", "m3", "（摘要）", 5000, 5),
+			msg("m5", "c1", "user", "压缩后问题", 6),
+		].join("\n") + "\n",
+	);
+
+	const history = (await readSessionHistory(file)) as any[];
+	expect(history.map((m) => m.content?.[0]?.text ?? m.summary)).toEqual([
+		"（摘要）",
+		"问题二",
+		"回答二",
+		"压缩后问题",
+	]);
+});
+
+test("压缩感知：token 累计只累加压缩后保留的 assistant usage", async () => {
+	const file = join(dir, "s.jsonl");
+	writeFileSync(
+		file,
+		[
+			JSON.stringify({ type: "session", version: 3, id: "uuid-1" }),
+			msgUsage("m1", null, "user", "问题一", 1, { input: 0, output: 0 }),
+			msgUsage("m2", "m1", "assistant", "回答一", 2, {
+				input: 1000,
+				output: 500,
+			}),
+			msgUsage("m3", "m2", "user", "问题二", 3, { input: 0, output: 0 }),
+			msgUsage("m4", "m3", "assistant", "回答二", 4, {
+				input: 2000,
+				output: 800,
+			}),
+			compactionEntry("c1", "m4", "m3", "（摘要）", 5000, 5),
+			msgUsage("m5", "c1", "user", "压缩后问题", 6, { input: 0, output: 0 }),
+			msgUsage("m6", "m5", "assistant", "压缩后回答", 7, {
+				input: 300,
+				output: 100,
+			}),
+		].join("\n") + "\n",
+	);
+
+	const history = (await readSessionHistory(file)) as any[];
+	// 只有压缩后保留的 assistant（m4 + m6）带 usage；m2 被压缩省略
+	const usageSum = history
+		.filter((m) => m.role === "assistant" && m.usage)
+		.reduce((acc, m) => acc + m.usage.input + m.usage.output, 0);
+	expect(usageSum).toBe(2000 + 800 + 300 + 100);
+});
+
+// ── computeSessionUsage：全会话 token 累计（含压缩前历史 + 缓存），供 UI「累计」胶囊 ──
+
+/** 构造带完整 usage（含缓存字段）的 assistant 消息 */
+function msgUsageFull(
+	id: string,
+	parentId: string | null,
+	role: string,
+	text: string,
+	ts: number,
+	usage: {
+		input: number;
+		output: number;
+		cacheRead?: number;
+		cacheWrite?: number;
+	},
+): string {
+	return JSON.stringify({
+		type: "message",
+		id,
+		parentId,
+		timestamp: new Date(ts).toISOString(),
+		message: {
+			role,
+			content: [{ type: "text", text }],
+			timestamp: ts,
+			...(role === "assistant"
+				? {
+						usage: {
+							input: usage.input,
+							output: usage.output,
+							cacheRead: usage.cacheRead ?? 0,
+							cacheWrite: usage.cacheWrite ?? 0,
+						},
+					}
+				: {}),
+		},
+	});
+}
+
+test("computeSessionUsage：无压缩会话累加全部 assistant usage（含 cacheRead/cacheWrite）", async () => {
+	const file = join(dir, "s.jsonl");
+	writeFileSync(
+		file,
+		[
+			JSON.stringify({ type: "session", version: 3, id: "uuid-1" }),
+			msgUsageFull("m1", null, "user", "问题一", 1, { input: 0, output: 0 }),
+			msgUsageFull("m2", "m1", "assistant", "回答一", 2, {
+				input: 500,
+				output: 100,
+				cacheRead: 4000,
+			}),
+			msgUsageFull("m3", "m2", "user", "问题二", 3, { input: 0, output: 0 }),
+			msgUsageFull("m4", "m3", "assistant", "回答二", 4, {
+				input: 800,
+				output: 200,
+				cacheRead: 9000,
+				cacheWrite: 300,
+			}),
+		].join("\n") + "\n",
+	);
+
+	const usage = await computeSessionUsage(file);
+	expect(usage).toEqual({
+		input: 1300,
+		output: 300,
+		cacheRead: 13000,
+		cacheWrite: 300,
+		total: 1300 + 300 + 13000 + 300,
+	});
+});
+
+test("computeSessionUsage：压缩后仍包含压缩前的 usage（区别于可见消息过滤）", async () => {
+	const file = join(dir, "s.jsonl");
+	writeFileSync(
+		file,
+		[
+			JSON.stringify({ type: "session", version: 3, id: "uuid-1" }),
+			msgUsageFull("m1", null, "user", "问题一", 1, { input: 0, output: 0 }),
+			msgUsageFull("m2", "m1", "assistant", "回答一", 2, {
+				input: 1000,
+				output: 500,
+				cacheRead: 20000,
+			}),
+			msgUsageFull("m3", "m2", "user", "问题二", 3, { input: 0, output: 0 }),
+			msgUsageFull("m4", "m3", "assistant", "回答二", 4, {
+				input: 2000,
+				output: 800,
+				cacheRead: 30000,
+			}),
+			compactionEntry("c1", "m4", "m3", "（摘要）", 50000, 5),
+			msgUsageFull("m5", "c1", "user", "压缩后问题", 6, {
+				input: 0,
+				output: 0,
+			}),
+			msgUsageFull("m6", "m5", "assistant", "压缩后回答", 7, {
+				input: 300,
+				output: 100,
+				cacheRead: 1000,
+			}),
+		].join("\n") + "\n",
+	);
+
+	const usage = await computeSessionUsage(file);
+	// 与 readSessionHistory 的可见过滤不同：m2（压缩前）的消耗必须保留在累计里
+	expect(usage).toEqual({
+		input: 1000 + 2000 + 300,
+		output: 500 + 800 + 100,
+		cacheRead: 20000 + 30000 + 1000,
+		cacheWrite: 0,
+		total: 3300 + 1400 + 51000 + 0,
+	});
+});
+
+test("computeSessionUsage：无任何 usage 时返回全 0；文件不存在抛错", async () => {
+	const file = join(dir, "s.jsonl");
+	writeFileSync(
+		file,
+		[
+			JSON.stringify({ type: "session", version: 3, id: "uuid-1" }),
+			msgUsageFull("m1", null, "user", "问题一", 1, { input: 0, output: 0 }),
+			msgUsageFull("m2", "m1", "assistant", "回答一", 2, {
+				input: 0,
+				output: 0,
+			}),
+		].join("\n") + "\n",
+	);
+	const usage = await computeSessionUsage(file);
+	expect(usage).toEqual({
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		total: 0,
+	});
+
+	await expect(
+		computeSessionUsage(join(dir, "missing.jsonl")),
+	).rejects.toThrow();
 });
 
 test("坏行容错：非法 JSON 行跳过，不影响其余消息", async () => {
