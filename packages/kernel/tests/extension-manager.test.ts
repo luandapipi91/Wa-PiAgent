@@ -67,6 +67,22 @@ test("parseExtensionInput 解析本地路径", () => {
   expect(r?.name).toBe("/absolute/path");
 });
 
+test("parseExtensionInput 解析 Windows 盘符路径（反斜杠/正斜杠）", () => {
+  const backslash = parseExtensionInput("H:\\workspace\\hiagent\\examples\\ext-ui-bridge-demo");
+  expect(backslash?.source).toBe("local");
+  expect(backslash?.name).toBe("H:\\workspace\\hiagent\\examples\\ext-ui-bridge-demo");
+
+  const slash = parseExtensionInput("H:/workspace/hiagent/examples/ext-ui-bridge-demo");
+  expect(slash?.source).toBe("local");
+  expect(slash?.name).toBe("H:/workspace/hiagent/examples/ext-ui-bridge-demo");
+});
+
+test("parseExtensionInput 解析 Windows UNC 路径", () => {
+  const r = parseExtensionInput("\\\\server\\share\\pkg");
+  expect(r?.source).toBe("local");
+  expect(r?.name).toBe("\\\\server\\share\\pkg");
+});
+
 test("parseExtensionInput 解析 CLI 格式", () => {
   const r = parseExtensionInput("pi install npm:superpowers-zh");
   expect(r?.source).toBe("npm");
@@ -278,6 +294,76 @@ test("install 命中 disabledPackages 时抛「已禁用，请先启用」", asy
   }), "utf8");
   const mgr = mockManager(dir);
   await expect(mgr.install("test-pkg")).rejects.toThrow("该插件已禁用，请先启用");
+});
+
+// ---- local 来源：身份统一为 package.json name ----
+
+/** 造一个带 package.json 的本地扩展目录 */
+function makeLocalPkg(name?: string): string {
+  const pkgDir = join(dir, "local-ext");
+  mkdirSync(pkgDir, { recursive: true });
+  writeFileSync(join(pkgDir, "package.json"), JSON.stringify(name ? { name } : {}), "utf8");
+  return pkgDir;
+}
+
+test("install local：身份用 package.json name，settings 存绝对路径", async () => {
+  const pkgDir = makeLocalPkg("local-demo");
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({ npmCommand: ["bun"] }), "utf8");
+  const mgr = mockManager(dir);
+
+  const info = await mgr.install(pkgDir);
+  expect(info.name).toBe("local-demo");
+  expect(info.source).toBe("local");
+
+  const settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.waPiPackages).toEqual([pkgDir]);
+
+  // list() 展示名也是包名（前端「附加命令」弹窗按此 name 匹配命令的 packageName）
+  const { packages } = await mgr.list();
+  const found = packages.find((p) => p.source === "local");
+  expect(found?.name).toBe("local-demo");
+});
+
+test("install local：重复安装按原始路径命中「已安装」（路径别名）", async () => {
+  const pkgDir = makeLocalPkg("local-demo");
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({ npmCommand: ["bun"] }), "utf8");
+  const mgr = mockManager(dir);
+  await mgr.install(pkgDir);
+  // 再次按同一路径安装：extractNames 的路径别名必须命中，否则产生重复条目
+  await expect(mgr.install(pkgDir)).rejects.toThrow("已安装");
+  // 按包名安装（不同写法同一身份）不重复：包名不是合法输入格式，走 npm 校验被拒，
+  // 这里验证 disable/uninstall 按包名操作即可（见下条）
+});
+
+test("local 生命周期：按包名 disable / enable / uninstall", async () => {
+  const pkgDir = makeLocalPkg("local-demo");
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({ npmCommand: ["bun"] }), "utf8");
+  const mgr = mockManager(dir);
+  await mgr.install(pkgDir);
+
+  await mgr.disable("local-demo");
+  let settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.waPiPackages).toEqual([]);
+  expect(settings.waPiDisabledPackages).toEqual([pkgDir]);
+
+  await mgr.enable("local-demo");
+  settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.waPiPackages).toEqual([pkgDir]);
+  expect(settings.waPiDisabledPackages).toEqual([]);
+
+  await mgr.uninstall("local-demo");
+  settings = JSON.parse(require("node:fs").readFileSync(join(dir, "settings.json"), "utf8"));
+  expect(settings.waPiPackages).toEqual([]);
+});
+
+test("install local：package.json 无 name 字段时身份退化为路径", async () => {
+  const pkgDir = makeLocalPkg();
+  writeFileSync(join(dir, "settings.json"), JSON.stringify({ npmCommand: ["bun"] }), "utf8");
+  const mgr = mockManager(dir);
+  const info = await mgr.install(pkgDir);
+  expect(info.name).toBe(pkgDir);
+  const { packages } = await mgr.list();
+  expect(packages.find((p) => p.source === "local")?.name).toBe(pkgDir);
 });
 
 test("upgrade 对仅在 disabledPackages 的包抛「请先启用后升级」", async () => {
