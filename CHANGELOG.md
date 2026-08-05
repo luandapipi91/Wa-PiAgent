@@ -5,7 +5,18 @@
 ## [Unreleased] - 2026-08-05
 
 ### 变更
-- **动态插件改用 pi 官方 packages 机制 + session.reload 热重载（装卸不丢其他插件 UI）**：
+
+
+- **修复「导出会话→复制图片」取错消息（取到 thinking/前一轮而非当条回复正文）**：
+  根因是 `collectTurns`（export-chat-image.ts）先按原始 timestamp 逐条过滤、再合并同回合
+  assistant，导致流式期间 store 未 compact 的「thinking 块 + text 正文块」被拆散——
+  `uptoTimestamp` 来自渲染合并行（保留回合首块 timestamp），filter 会把同回合 ts 更大的
+  text 正文块误过滤掉，只剩 thinking 文字。修复：filter 改为按「回合首块 timestamp」整回合
+  判定（同 agent 连续 assistant 同回合，与渲染层 collapseSameTurnAssistants 口径一致），
+  整回合要么全部保留要么全部丢弃；合并后 message.timestamp 仍取轮末，保持既有契约。
+  影响范围：`packages/frontend/src/util/export-chat-image.ts`；
+  新增回归测试 `packages/frontend/tests/export-chat-image.test.ts`（8 项）、
+  `packages/frontend/tests/blocks/ExportButton.test.tsx`（4 项）。- **动态插件改用 pi 官方 packages 机制 + session.reload 热重载（装卸不丢其他插件 UI）**：
   此前动态插件走 `-e` 显式传路径（spawn 时固定）+ `waPiPackages`（pi 不读），装卸后必须整进程重建，
   导致其他活跃插件的 widget/status 全部丢失。现改为：
   ① 动态包装到 `~/.wa-pi/npm/node_modules/`（pi user scope 路径，package-manager.js:1677）；

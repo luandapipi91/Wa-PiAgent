@@ -38,19 +38,56 @@ export function collectTurns(
 	uptoTimestamp: number,
 	maxTurns = 5,
 ): ExportTurn[] {
-	// 1. 只留当条（含）之前的 user/assistant
-	const eligible = messages.filter((sm) => {
-		const m = sm.message as any;
+	// 1. 先按「回合首块 timestamp」过滤 user/assistant。
+	//    关键：必须按回合首块时间判断，不能逐条按原始 timestamp 过滤——
+	//    流式期间 store 未 compact，同一回合 assistant 是多条（thinking 块 ts=T1 +
+	//    text 正文块 ts=T2）。uptoTimestamp 来自渲染合并行（保留回合首块 ts=T1），
+	//    若逐条过滤会把同回合 ts 更大的 text 正文块（T2 > T1）误过滤掉，只剩
+	//    thinking 文字。所以先标记每条 assistant 所属回合的首块 ts，整回合
+	//    「首块 ≤ uptoTimestamp」则全部保留，否则全部丢弃。
+	//    user 消息独立成一个边界，按自身 ts 判断。
+	const turnStartTs = new Map<number, number>(); // 原始 index → 回合首块 ts
+	let curTurnStart: number | null = null;
+	let curTurnAgent: string | undefined = undefined;
+	for (let k = 0; k < messages.length; k++) {
+		const m = messages[k].message as any;
+		if (m.role !== "user" && m.role !== "assistant") continue;
 		const ts = typeof m.timestamp === "number" ? m.timestamp : 0;
-		return ts <= uptoTimestamp && (m.role === "user" || m.role === "assistant");
-	});
-	// 2. 合并同轮连续 assistant（拷贝后合并，不改原数组）
-	const merged: SessionMessage[] = [];
-	for (const sm of eligible) {
+		if (m.role === "assistant") {
+			// 同 agent 连续 assistant 属同一回合（与 collapseSameTurnAssistants 口径一致）；
+			// agent 切换或 user 之后开新回合。
+			if (curTurnStart == null || curTurnAgent !== messages[k].agentName) {
+				curTurnStart = ts;
+				curTurnAgent = messages[k].agentName;
+			}
+			turnStartTs.set(k, curTurnStart as number);
+		} else {
+			curTurnStart = null; // user 重置回合起点
+			curTurnAgent = undefined;
+			turnStartTs.set(k, ts);
+		}
+	}
+	const filtered = messages.filter((sm, k) => {
 		const m = sm.message as any;
+		if (m.role !== "user" && m.role !== "assistant") return false;
+		const start = turnStartTs.get(k) ?? 0;
+		return start <= uptoTimestamp;
+	});
+
+	// 2. 合并同回合连续 assistant（拷贝后合并，不改原数组）。
+	//    message.timestamp 更新为轮末（轮结束时刻），ExportTurn.timestamp 取它——
+	//    与既有契约一致（ExportImageCard 显示「AI 回复完成时间」）。
+	const merged: SessionMessage[] = [];
+	for (const sm of filtered) {
+		const m = sm.message as any;
+		if (m.role !== "user" && m.role !== "assistant") continue;
 		const prevRow = merged[merged.length - 1];
 		const prev = prevRow?.message as any;
-		if (m.role === "assistant" && prev?.role === "assistant") {
+		if (
+			m.role === "assistant" &&
+			prev?.role === "assistant" &&
+			prevRow?.agentName === sm.agentName
+		) {
 			prev.content = [
 				...(Array.isArray(prev.content) ? prev.content : []),
 				...(Array.isArray(m.content) ? m.content : []),
