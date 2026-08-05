@@ -28,6 +28,13 @@
   影响范围：`examples/ext-error-spam-demo/`（新增 package.json / index.ts
   / README.md）。
 
+- **聊天消息导出为图片**：AI 回复旁（复制按钮左侧）新增导出 icon，点击弹菜单选
+  「下载 PNG / 复制图片」，把当条消息往前最多 5 轮的文本对话（用户提问 + AI 文字回复，
+  不含思考/工具等过程）生成为分享卡片图片。新增依赖 html-to-image。
+  影响范围：`packages/frontend/src/util/export-chat-image.ts`、
+  `packages/frontend/src/components/blocks/ExportImageCard.tsx`、
+  `packages/frontend/src/components/blocks/ExportButton.tsx`、
+  `packages/frontend/src/components/MessageList.tsx`。
 - **kernel 透传扩展 UI 文本 ANSI 颜色码，fire-and-forget 不再回复
   extension_ui_response**：`RpcClient.handleUiRequest` 此前对
   notify/setStatus/setWidget/setTitle 的文本统一 `stripAnsi` 剥离终端
