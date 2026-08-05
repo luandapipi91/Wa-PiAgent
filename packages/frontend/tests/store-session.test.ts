@@ -32,6 +32,8 @@ beforeEach(() => {
 		messagesBySession: {},
 		streamingBySession: {},
 		statusBySession: {},
+		thinkingSinceBySession: {},
+		retryBySession: {},
 		optimisticEchoBySession: {},
 		historyLoadingBySession: {},
 		tokenTotals: {},
@@ -1033,6 +1035,47 @@ test("复现：POST 超时 failTurn 清标记后 SDK 回声到达 → 应替换�
 	);
 	expect(userMsgs).toHaveLength(1); // 不重复
 	expect((userMsgs[0].message as any).timestamp).toBe(999);
+});
+
+// ── setActiveStatus 状态对齐（历史加载 / SSE 重连）──
+
+test("setActiveStatus(isActive=false)：本地 thinking 残留时复位 idle + 清 streaming 占位 + 清重试条", () => {
+	// 模拟 SSE 断线窗口漏掉终态事件（agent_end/auto_retry_end）后的残留：
+	// kernel 已 idle，但本地还停在思考中、loading 气泡还在转、重试黄条还在
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		thinkingSinceBySession: { s1: 123 },
+		streamingBySession: {
+			s1: {
+				message: {
+					role: "assistant",
+					content: [],
+					model: "pending",
+					stopReason: "pending",
+					timestamp: 123,
+				} as any,
+				agentName: "dev",
+			},
+		},
+		retryBySession: { s1: { attempt: 1, maxAttempts: 3 } },
+	});
+	useSessionStore.getState().setActiveStatus("s1", false);
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("idle");
+	expect(s.thinkingSinceBySession["s1"]).toBeNull();
+	expect(s.streamingBySession["s1"]).toBeNull();
+	expect(s.retryBySession["s1"]).toBeUndefined();
+});
+
+test("setActiveStatus(isActive=false)：本地本就 idle 时不产生状态变更（不新增 idle 键）", () => {
+	useSessionStore.getState().setActiveStatus("s1", false);
+	expect(useSessionStore.getState().statusBySession["s1"]).toBeUndefined();
+});
+
+test("setActiveStatus(isActive=undefined)：响应缺省不可信，不干预本地 thinking", () => {
+	useSessionStore.setState({ statusBySession: { s1: "thinking" } });
+	useSessionStore.getState().setActiveStatus("s1", undefined);
+	expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
 });
 
 // ── failTurn：回合启动失败复位（agent 从未启动、不会有 agent_end）──

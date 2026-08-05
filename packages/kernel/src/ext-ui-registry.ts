@@ -41,6 +41,14 @@ export class ExtUiRegistry {
     }
   }
 
+  /** 该会话是否有等待用户应答的 dialog（turn 看门狗据此排除合法长静默） */
+  hasPendingForSession(sessionId: string): boolean {
+    for (const e of this.byId.values()) {
+      if (e.sessionId === sessionId) return true;
+    }
+    return false;
+  }
+
   /** 测试用：清空全部状态 */
   reset(): void { this.byId.clear(); }
 }

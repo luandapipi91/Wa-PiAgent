@@ -6,6 +6,30 @@
 
 ### 修复
 
+- **断网/错误后对话永远停在"对话中"，不主动断开报错**：两条根因分层修复。
+  1. **kernel 缺 turn 看门狗**（主因）：pi 的 LLM 请求静默挂死（半开连接 / 代理挂起 /
+     `httpIdleTimeout` 配为 disabled）时不发任何事件，busy 会话连空闲回收都跳过 → 无限
+     思考中。新增 `AgentManager.checkStuckSessions`（index.ts 每 30s 扫描）：busy 且超
+     6 分钟（> pi 默认 300s HTTP 空闲超时，pi 自己超时会发事件故不误伤）无任何 pi 事件
+     → 主动 `abort()` 断开 + 合成 `message_end{stopReason:"error"}`（文案避开 transient
+     正则，classifySdkError 归 fatal → 前端红色报错 + failTurn 复位）。排除合法长静默：
+     工具执行中（activeTools 计数）、压缩中（compacting）、扩展 dialog 等应答
+     （extUiRegistry 新增 hasPendingForSession）。
+  2. **前端状态对齐缺陷**：`setActiveStatus(isActive=false)` 此前 `return {}` 不复位，
+     SSE 断线窗口漏掉终态事件（不重放）或 kernel 重启后，重连/加载对齐永远清不掉残留的
+     thinking。现显式 false 时复位 idle + 清 streaming 占位 + 清重试条（无残留时保持
+     no-op；isActive 缺省 undefined 视为响应不可信、不干预）。
+  新增测试：kernel `tests/turn-watchdog.test.ts`（7 个），frontend setActiveStatus
+  对齐 3 个；store-session.test.ts 的 beforeEach 补 thinkingSinceBySession /
+  retryBySession 重置（既有遗漏）；App.test.tsx 的 /messages mock 支持按测试覆写
+  isActive（重试条测试描述运行中会话，改传 isActive=true）。
+  影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/index.ts`、
+  `packages/kernel/src/ext-ui-registry.ts`、`packages/frontend/src/store/session.ts`、
+  `packages/kernel/tests/turn-watchdog.test.ts`（新增）、
+  `packages/frontend/tests/store-session.test.ts`、`packages/frontend/tests/App.test.tsx`。
+
+### 修复
+
 - **发送消息偶现用户消息重复显示**：根因在前端去重逻辑——`message_start(user)` 回声
   仅在「optimisticEcho 标记仍在 且 列表末尾是 user 消息」时才替换乐观占位，而占位与
   回声之间插入任意消息（extension_notify 等）、kernel 50ms 兜底合成 agent_end 提前清

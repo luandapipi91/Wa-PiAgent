@@ -285,12 +285,29 @@ export async function startKernel(opts?: {
 			});
 	}, IDLE_REAP_INTERVAL_MS);
 
+	// turn 静默看门狗：每 30s 扫描，busy 会话超过 6 分钟没收到任何 pi 事件
+	// （LLM 请求半开连接/代理挂起死等，pi 默认 HTTP 空闲超时 300s 内会自己报错发事件，
+	// 超过仍无事件说明完全挂死）→ 主动 abort 断开 + 合成 fatal 错误播报，前端复位报错。
+	const TURN_WATCHDOG_INTERVAL_MS = 30 * 1000;
+	const TURN_WATCHDOG_SILENCE_MS = 6 * 60 * 1000;
+	const watchdogTimer = setInterval(() => {
+		try {
+			const stuck = agentManager.checkStuckSessions(TURN_WATCHDOG_SILENCE_MS);
+			if (stuck.length > 0) {
+				console.log(`[kernel] 看门狗断开 ${stuck.length} 个挂死会话: ${stuck.join(", ")}`);
+			}
+		} catch (e) {
+			console.warn("[kernel] turn 看门狗扫描失败:", e);
+		}
+	}, TURN_WATCHDOG_INTERVAL_MS);
+
 	// 优雅退出：RPC 架构下每个会话是一个 pi 子进程，kernel 退出时必须统一回收，
 	// 避免孤儿进程滞留（SIGINT/SIGTERM 先 disposeAll 再停 server）。
 	// 注意：pi 子进程在 stdin 关闭后也会自行退出（EOF 兜底），这里是主动加速回收。
 	const shutdown = async (signal: string) => {
 		console.log(`[kernel] ${signal} 收到，回收 pi 子进程并停止服务...`);
 		clearInterval(reapTimer);
+		clearInterval(watchdogTimer);
 		eventThrottle.dispose();
 		await agentManager.disposeAll().catch(() => {});
 		await server.stop().catch(() => {});
