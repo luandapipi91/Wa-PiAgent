@@ -1,21 +1,8 @@
-import { test, expect, afterEach } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { test, expect } from "bun:test";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { buildAdditionalExtensionPaths } from "../src/extensions";
-import { GENERATED_DIR, WA_PI_DIR } from "@wa-pi/shared";
-
-// 测试过程产生的临时目录，afterEach 统一清理
-const tmpPaths: string[] = [];
-
-afterEach(() => {
-	for (const f of tmpPaths.splice(0)) {
-		try {
-			rmSync(f, { force: true, recursive: true });
-		} catch {
-			// 尽力清理临时目录，失败静默（不干扰测试结果）
-		}
-	}
-});
+import { GENERATED_DIR } from "@wa-pi/shared";
 
 test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension 按需追加", () => {
   const paths = buildAdditionalExtensionPaths();
@@ -40,54 +27,11 @@ test("buildAdditionalExtensionPaths 返回 npm 扩展入口，provider-extension
   expect(paths.includes(bridgeExt)).toBe(existsSync(bridgeExt));
 });
 
-// ---- 动态扩展注入（option B Gap 1）：把运行时安装并启用的第三方 Pi 扩展入口
-// 加入扩展路径（pi 进程经 -e 加载），否则它们的工具/钩子不注册。
-
-test("buildAdditionalExtensionPaths: 纳入声明 pi.extensions 的动态扩展入口", () => {
-  // pi-web-access 声明 pi.extensions:["./index.ts"] 且可从 kernel 上下文解析，
-  // 用它模拟一个「动态安装的 Pi 扩展」（它同时也是 builtin，故至少 1 条命中）。
-  const paths = buildAdditionalExtensionPaths(["pi-web-access"]);
-  const webAccessPaths = paths.filter((p) => p.includes("pi-web-access"));
-  expect(webAccessPaths.length).toBeGreaterThanOrEqual(1);
-  for (const p of webAccessPaths) {
-    expect(p.endsWith(".ts")).toBe(true);
-    expect(existsSync(p)).toBe(true);
-  }
-});
-
-test("buildAdditionalExtensionPaths: 不存在 / 非 Pi 扩展的包被跳过且不抛错", () => {
-  const before = buildAdditionalExtensionPaths();
-  // 一个肯定不存在于 node_modules 的包名：既非 Pi 扩展也无法解析，必须被静默跳过
-  const after = buildAdditionalExtensionPaths(["totally-fake-pkg-xyz-123"]);
-  expect(after).toEqual(before);
-});
-
 test("内置扩展清单：不含已移除的 pi-open-agents / 不含 pi-intercom", async () => {
-  const paths = buildAdditionalExtensionPaths([]);
-  expect(paths.some(p => p.includes("pi-open-agents"))).toBe(false);
-  expect(paths.some(p => p.includes("pi-intercom"))).toBe(false);
+  const paths = buildAdditionalExtensionPaths();
+  expect(paths.some((p) => p.includes("pi-open-agents"))).toBe(false);
+  expect(paths.some((p) => p.includes("pi-intercom"))).toBe(false);
 });
 
-test("buildAdditionalExtensionPaths 解析本地绝对路径扩展（pi.extensions 声明）", () => {
-  const root = join(WA_PI_DIR, "tmp", `local-ext-${Date.now()}`);
-  tmpPaths.push(root);
-  mkdirSync(join(root, "src"), { recursive: true });
-  writeFileSync(join(root, "package.json"), JSON.stringify({
-    name: "local-demo", pi: { extensions: ["./src"] },
-  }));
-  writeFileSync(join(root, "src", "index.ts"), "export default function() {}\n");
-
-  const paths = buildAdditionalExtensionPaths([root]);
-  expect(paths).toContain(join(root, "src", "index.ts"));
-});
-
-test("buildAdditionalExtensionPaths 本地路径无 pi.extensions 时回退约定入口", () => {
-  const root = join(WA_PI_DIR, "tmp", `local-ext-${Date.now()}-2`);
-  tmpPaths.push(root);
-  mkdirSync(root, { recursive: true });
-  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "local-demo-2" }));
-  writeFileSync(join(root, "index.ts"), "export default function() {}\n");
-
-  const paths = buildAdditionalExtensionPaths([root]);
-  expect(paths).toContain(join(root, "index.ts"));
-});
+// 动态扩展不再走 -e（改由 pi 官方 packages 机制自动加载），故 buildAdditionalExtensionPaths
+// 不再接收动态包名参数。动态扩展的加载/重载由 session.reload() 重读 settings.json packages 实现。

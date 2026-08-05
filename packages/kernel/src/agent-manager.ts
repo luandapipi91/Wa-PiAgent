@@ -384,14 +384,45 @@ export class AgentManager {
 		sessionId: string,
 		handle: SessionHandle,
 	): Promise<SessionHandle> {
-		const isDirty = this.skillDirty.has(sessionId) || this.dirty.has(sessionId);
-		if (!isDirty) return handle;
+		const isSkillDirty = this.skillDirty.has(sessionId);
+		const isExtDirty = this.dirty.has(sessionId);
+		if (!isSkillDirty && !isExtDirty) return handle;
 		if (handle.busy || handle.followUpList.length > 0) return handle; // 进行中，保留 dirty 等 idle
 
 		this.skillDirty.delete(sessionId);
 		this.dirty.delete(sessionId);
-		// 重建：拆除旧进程（不动 disposed）+ 重新 _createSession（同一会话文件，历史不丢）。
-		// 用 starting 锁防止重建期间并发 ensureStarted 重复创建。
+
+		// skillDirty（agent 重命名 / 技能白名单变更）：改 agent 定义层（系统提示词 / 工具集），
+		// session.reload() 不重新读 agent 配置 → 必须整进程重建。
+		if (isSkillDirty) {
+			return this._rebuildSession(sessionId, handle);
+		}
+
+		// dirty（扩展装卸）：走热重载。动态扩展走 pi 官方 packages 机制，session.reload() 重读
+		// settings.json packages 让装卸立即生效；reload 保留进程 + -e 内置扩展，重放 session_start
+		// 让活跃扩展重发 widget/status 恢复 UI。先发 extension_ui_reset 清被卸载扩展的 UI 残留。
+		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
+			type: "extension_ui_reset",
+		} as RpcEvent);
+		try {
+			await handle.client.reloadExtensions();
+			return handle;
+		} catch (err) {
+			// 兜底：热重载失败（桥接扩展未注册 __!wa_pi_reload / pi 旧版本 / 进程异常）
+			// → 回退整进程重建（_rebuildSession 会再发一次 extension_ui_reset）。
+			console.warn(
+				`[kernel] 会话 ${sessionId} 热重载扩展失败，回退整进程重建:`,
+				err,
+			);
+			return this._rebuildSession(sessionId, handle);
+		}
+	}
+
+	/** 整进程重建：拆除旧进程 + 重新 _createSession（同一会话文件，历史不丢）+ 发 extension_ui_reset。 */
+	private async _rebuildSession(
+		sessionId: string,
+		handle: SessionHandle,
+	): Promise<SessionHandle> {
 		this._teardownSession(sessionId);
 		const promise = this._createSession(
 			handle.meta.projectId,
@@ -401,9 +432,6 @@ export class AgentManager {
 		this.starting.set(sessionId, promise);
 		try {
 			const h = await promise;
-			// 扩展/技能变更触发的重建：旧进程发射的扩展 UI（status/widget/title）全部失效，
-			// 合成事件通知前端清空该会话的扩展 UI 残留（进程 resume 不重放扩展的
-			// session_start 钩子，UI 是否重发由扩展自身行为决定）
 			this.opts.onEvent(sessionId, h.meta.projectId, h.meta.agentName, {
 				type: "extension_ui_reset",
 			} as RpcEvent);
@@ -731,28 +759,9 @@ export class AgentManager {
 		//   内置 7 工具 + 扩展工具 + MCP direct 工具全部可用（扩展工具靠 pi 进程加载扩展后
 		//   运行时注册，wa-pi 不感知其工具名但默认全部放行）。
 		// - 显式配置 tools：白名单——config.tools ∪ MCP direct 工具名。
-		const enabledExtensionIds = await this.getEnabledExtensionIds();
-
-		// 当 agent 配置了 skills 白名单时，排除提供技能的 extension（如 superpowers-zh），
-		// 避免 pi 的 -e + resources_discover 机制绕过白名单过滤。
-		// extension skills 已通过 --skill 参数按白名单过滤传入。
-		// 保留 wa-pi-bridge 等工具类 extension（提供 delegate/fleet/memory 工具）。
-		const restrictedSkills = !!config?.skills?.length;
-		const skillProvidingExtIds =
-			restrictedSkills && this.opts.extensionManager
-				? new Set(
-						(
-							await this.opts.extensionManager.getEnabledExtensionSkillPaths()
-						).map((s) => s.packageName),
-					)
-				: new Set<string>();
-		const extensionPaths = restrictedSkills
-			? buildAdditionalExtensionPaths(
-					[...enabledExtensionIds].filter(
-						(id) => !skillProvidingExtIds.has(id),
-					),
-				)
-			: buildAdditionalExtensionPaths([...enabledExtensionIds]);
+		// 动态扩展走 pi 官方 packages 机制（settings.json packages + ~/.wa-pi/npm/），
+		// 不再经 -e；-e 只传内置（PKG_EXTENSIONS）+ provider-extension + wa-pi-bridge。
+		const extensionPaths = buildAdditionalExtensionPaths();
 
 		const restricted = !!config?.tools?.length;
 		const toolArgs: { tools?: string[]; excludeTools?: string[] } = restricted
@@ -930,6 +939,15 @@ export class AgentManager {
 					void this._sendPromptNow(sessionId, handle, text).catch((err) => {
 						console.error(
 							`[kernel] session ${sessionId} followUp drain 失败:`,
+							err,
+						);
+					});
+				} else if (this.skillDirty.has(sessionId) || this.dirty.has(sessionId)) {
+					// 真正 idle（无排队/引导消息）且有 dirty：补重载。对话中装卸插件被 busy 挡住
+					// （保留 dirty），对话结束（agent_settled）且队列空时补热重载/重建。
+					void this._reloadIfDirty(sessionId, handle).catch((err) => {
+						console.error(
+							`[kernel] session ${sessionId} idle 后补重载失败:`,
 							err,
 						);
 					});
