@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@wa-pi/shared": "workspace:*",
+    "html-to-image": "^1.11.13",
     "idb": "^8.0.3",
     "mermaid": "^11.16.0",
     "prism-react-renderer": "^2.4.1",
