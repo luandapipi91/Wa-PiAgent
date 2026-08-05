@@ -4,6 +4,9 @@
 
 let buffer = "";
 let pendingUiResponse: ((resp: any) => void) | null = null;
+// fire-and-forget 方法（notify/setStatus 等）不应收到 extension_ui_response；
+// 这里统计「无 pending 请求却收到的响应」，供测试断言 kernel 没有多余回复
+let unexpectedUiResponses = 0;
 
 function emit(obj: unknown): void {
   process.stdout.write(JSON.stringify(obj) + "\n");
@@ -13,7 +16,8 @@ function handle(cmd: any): void {
   if (cmd.type === "extension_ui_response") {
     const cb = pendingUiResponse;
     pendingUiResponse = null;
-    cb?.(cmd);
+    if (cb) cb(cmd);
+    else unexpectedUiResponses++;
     return;
   }
   switch (cmd.type) {
@@ -76,11 +80,14 @@ function handle(cmd: any): void {
       break;
     case "ui_fire_and_forget":
       // setStatus/setWidget/setTitle：fire-and-forget，应被桥接为 sdk 事件
-      // widget 首行带 ANSI 转义码（模拟 pi 扩展经 ctx.ui.theme 着色）：桥接层必须剥离
+      // widget 首行带 ANSI 转义码（模拟 pi 扩展经 ctx.ui.theme 着色）：桥接层原文透传，前端解析着色
       emit({ type: "extension_ui_request", id: "ui-req-3", method: "setStatus", statusKey: "pi-lens", statusText: "\u001b[38;5;241m分析中 (3/5)\u001b[39m" });
       emit({ type: "extension_ui_request", id: "ui-req-4", method: "setWidget", widgetKey: "pi-goal", widgetLines: ["\u001b[38;5;241m[No agent selected]\u001b[39m", "进度 4/6"], widgetPlacement: "aboveEditor" });
       emit({ type: "extension_ui_request", id: "ui-req-5", method: "setTitle", title: "分析中" });
       emit({ id: cmd.id, type: "response", command: "ui_fire_and_forget", success: true });
+      break;
+    case "get_unexpected_ui_responses":
+      emit({ id: cmd.id, type: "response", command: "get_unexpected_ui_responses", success: true, data: { count: unexpectedUiResponses } });
       break;
     case "ui_set_editor_text":
       // set_editor_text：fire-and-forget「替换输入框内容」，应被桥接为 extension_editor_text 事件

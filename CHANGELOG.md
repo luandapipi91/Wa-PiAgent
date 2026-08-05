@@ -2,6 +2,24 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## [Unreleased] - 2026-08-05
+
+### 变更
+
+- **kernel 透传扩展 UI 文本 ANSI 颜色码，fire-and-forget 不再回复
+  extension_ui_response**：`RpcClient.handleUiRequest` 此前对
+  notify/setStatus/setWidget/setTitle 的文本统一 `stripAnsi` 剥离终端
+  转义码，扩展经 `ctx.ui.theme` 着色的文本到前端后丢失颜色。现改为 ANSI
+  原文透传，由前端解析渲染颜色。同时对齐 pi 官方行为（rpc-mode.js
+  "Fire and forget - no response needed"）：fire-and-forget 方法
+  （notify/setStatus/setWidget/setTitle/set_editor_text）不再回复
+  `extension_ui_response`，仅对话类方法（select/confirm/input/editor/
+  custom）回复。
+  影响范围：`packages/kernel/src/rpc-client.ts`、
+  `packages/kernel/tests/rpc-client.test.ts`、
+  `packages/kernel/tests/fixtures/fake-pi.ts`（新增多余 ui_response 计数，
+  供测试断言）。
+
 ## [Unreleased] - 2026-08-04
 
 ### 修复

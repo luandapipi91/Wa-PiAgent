@@ -73,7 +73,7 @@ export interface RpcClientOpts {
 	spawnFn?: SpawnFn;
 }
 
-/** 需调 onUiRequest 处理的对话类方法；其余方法直接回 cancelled 兜底（不调 onUiRequest） */
+/** 需回复 extension_ui_response 的对话类方法（pi 会挂起等待）；fire-and-forget 方法不回复 */
 const UI_DIALOG_METHODS = new Set([
 	"select",
 	"confirm",
@@ -414,30 +414,27 @@ export class RpcClient {
 	}
 
 	private async handleUiRequest(req: RpcUiRequest): Promise<void> {
-		// 对所有 extension_ui_request 都回复，防止 pi 永久挂起。
-		// 对话类方法：有 onUiRequest 则交其处理；无 handler 则自动取消（发 cancelled）。
-		// 非对话类方法（notify/setStatus 等）：不调 onUiRequest，但发 cancelled 兜底。
+		// fire-and-forget 方法（notify/setStatus/setWidget/setTitle/set_editor_text）：
+		// pi 侧不期待响应（见 pi rpc-mode.js 源码注释 "Fire and forget - no response needed"），
+		// kernel 只桥接为事件转发前端，不回复 extension_ui_response。
+		// 文本统一 ANSI 原文透传：扩展经 ctx.ui.theme 着色的文本带终端转义码，由前端解析渲染颜色。
 		// notify 是扩展命令的 fire-and-forget 反馈（如 /lens-toggle 用 ctx.ui.notify 报告执行结果），
 		// 在 GUI 下若不转发，命令执行成功但用户看不到任何反馈（表现为“发送无响应”）。
 		// 这里把 notify 消息转发为 extension_notify 事件，由宿主（桌面端）展示为 toast。
 		if (req.method === "notify" && typeof req.message === "string") {
 			this.opts.onEvent({
 				type: "extension_notify",
-				message: stripAnsi(req.message),
+				message: req.message,
 				notifyType: req.notifyType,
 			} as RpcEvent);
 		}
-		// fire-and-forget UI 方法（setStatus/setWidget/setTitle/set_editor_text）：pi 不期待响应，
-		// 但 GUI 宿主需要内容来展示——与 notify 同路径桥接为 sdk:event 转发前端。
-		// 文案统一 stripAnsi：扩展经 ctx.ui.theme 着色的文本带终端转义码。
+		// fire-and-forget UI 方法（setStatus/setWidget/setTitle）：与 notify 同路径桥接为 sdk:event 转发前端
 		if (req.method === "setStatus" && typeof req.statusKey === "string") {
 			this.opts.onEvent({
 				type: "extension_status",
 				statusKey: req.statusKey,
 				statusText:
-					typeof req.statusText === "string"
-						? stripAnsi(req.statusText)
-						: undefined,
+					typeof req.statusText === "string" ? req.statusText : undefined,
 			} as RpcEvent);
 		}
 		if (req.method === "setWidget" && typeof req.widgetKey === "string") {
@@ -445,7 +442,7 @@ export class RpcClient {
 				type: "extension_widget",
 				widgetKey: req.widgetKey,
 				widgetLines: Array.isArray(req.widgetLines)
-					? req.widgetLines.map((l) => stripAnsi(String(l)))
+					? req.widgetLines.map((l) => String(l))
 					: undefined,
 				widgetPlacement: req.widgetPlacement,
 			} as RpcEvent);
@@ -453,7 +450,7 @@ export class RpcClient {
 		if (req.method === "setTitle" && typeof req.title === "string") {
 			this.opts.onEvent({
 				type: "extension_title",
-				title: stripAnsi(req.title),
+				title: req.title,
 			} as RpcEvent);
 		}
 		// set_editor_text：官方 fire-and-forget「设置输入框文本」，桥接为事件由前端 Composer 消费
@@ -464,24 +461,28 @@ export class RpcClient {
 				text: req.text,
 			} as RpcEvent);
 		}
-		let fields: UiResponseFields = { cancelled: true };
-		if (UI_DIALOG_METHODS.has(req.method) && this.opts.onUiRequest) {
-			try {
-				fields = await this.opts.onUiRequest(req);
-			} catch {
-				fields = { cancelled: true };
+		// 仅对话类方法回复 extension_ui_response（pi 会挂起等待）：
+		// 有 onUiRequest 则交其处理；无 handler 或处理抛错则自动取消（回 cancelled），防止 pi 永久挂起。
+		if (UI_DIALOG_METHODS.has(req.method)) {
+			let fields: UiResponseFields = { cancelled: true };
+			if (this.opts.onUiRequest) {
+				try {
+					fields = await this.opts.onUiRequest(req);
+				} catch {
+					fields = { cancelled: true };
+				}
 			}
-		}
-		try {
-			this.proc?.stdin?.write(
-				JSON.stringify({
-					type: "extension_ui_response",
-					id: req.id,
-					...fields,
-				}) + "\n",
-			);
-		} catch {
-			/* 进程已退出 */
+			try {
+				this.proc?.stdin?.write(
+					JSON.stringify({
+						type: "extension_ui_response",
+						id: req.id,
+						...fields,
+					}) + "\n",
+				);
+			} catch {
+				/* 进程已退出 */
+			}
 		}
 	}
 }
