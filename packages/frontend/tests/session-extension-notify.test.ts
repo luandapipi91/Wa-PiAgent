@@ -39,7 +39,7 @@ test("handleSDKEvent: extension_notify 插入聊天窗口中间的系统提示�
 	expect(m.timestamp).toBeTypeOf("number");
 });
 
-test("handleSDKEvent: extension_notify 连续同内容去重", () => {
+test("handleSDKEvent: extension_notify 连续同内容不去重，各自插入", () => {
 	const sid = "s-notify-2";
 	const ev = {
 		type: "extension_notify",
@@ -49,7 +49,7 @@ test("handleSDKEvent: extension_notify 连续同内容去重", () => {
 	useSessionStore.getState().handleSDKEvent(sid, envelope(sid, ev));
 	useSessionStore.getState().handleSDKEvent(sid, envelope(sid, ev));
 	useSessionStore.getState().handleSDKEvent(sid, envelope(sid, ev));
-	expect(messages(sid)).toHaveLength(1);
+	expect(messages(sid)).toHaveLength(3);
 });
 
 test("handleSDKEvent: 不同内容 notify 各自插入", () => {

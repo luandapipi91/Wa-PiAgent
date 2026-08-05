@@ -27,6 +27,22 @@
   notify/setStatus/setWidget/setTitle 彩色渲染提供基础设施。
   影响范围：`packages/frontend/src/components/ui/AnsiText.tsx`（新增）、
   `packages/frontend/tests/ansi-text.test.ts`（新增）。
+- **extension_notify 永久保留不去重 + 扩展 UI 文本 ANSI 颜色渲染**：
+  前端 session store 的 `extension_notify` 此前 20s 自动消退且与上一条
+  同内容时去重，扩展的着色反馈既留不住又丢颜色。现移除自动消退
+  setTimeout 与同内容去重逻辑，每条 notify 都永久插入聊天列表；同时
+  MessageList 的 custom 消息、SessionView 的 extStatus 状态栏与
+  ExtWidget 摘要/正文、App 的 extTitle 标题条全部改用 `AnsiText` 渲染，
+  kernel 透传的 ANSI 颜色码解析为内联样式呈现。
+  影响范围：`packages/frontend/src/store/session.ts`、
+  `packages/frontend/src/components/MessageList.tsx`、
+  `packages/frontend/src/components/SessionView.tsx`、
+  `packages/frontend/src/App.tsx`、
+  `packages/frontend/tests/session-extension-notify.test.ts`、
+  `packages/frontend/tests/session-notify-auto-dismiss.test.ts`（重写）、
+  `packages/frontend/tests/MessageList.test.tsx`、
+  `packages/frontend/tests/SessionView.test.tsx`、
+  `packages/frontend/tests/App.test.tsx`。
 
 ## [Unreleased] - 2026-08-04
 

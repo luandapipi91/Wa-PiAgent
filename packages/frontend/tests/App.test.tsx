@@ -349,6 +349,20 @@ test("扩展 setTitle → 聊天窗顶部标题条", async () => {
 	);
 });
 
+test("扩展 setTitle 的 ANSI 颜色解析为内联样式", async () => {
+	useProjectsStore.setState({ currentSessionId: "s1" });
+	useSessionStore.setState({
+		extTitleBySession: { s1: "\x1b[31m告警\x1b[39m pi-lens 分析中" },
+	});
+	render(<App />);
+	await act(async () => {});
+	const bar = screen.getByTestId("ext-title-bar");
+	const colored = screen.getByText("告警");
+	expect(colored.style.color).toBe("#dc2626");
+	expect(bar.textContent).toBe("告警 pi-lens 分析中");
+	expect(bar.textContent).not.toContain("\x1b");
+});
+
 test("session:activated（预热完成）触发重拉 stats，补齐占比胶囊数据", async () => {
 	render(<App />);
 	await act(async () => {});

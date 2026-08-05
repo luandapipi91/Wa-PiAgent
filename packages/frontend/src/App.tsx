@@ -38,6 +38,7 @@ import { RecordingCapsule } from "./components/ui/RecordingCapsule";
 import { CommandPalette } from "./components/CommandPalette";
 import { FilePreviewModal } from "./components/blocks/FilePreviewModal";
 import { ExtensionDialog } from "./components/ExtensionDialog";
+import { AnsiText } from "./components/ui/AnsiText";
 
 export type View = "empty" | "new-session" | "session";
 
@@ -491,7 +492,7 @@ export function App() {
 						className="flex items-center justify-center gap-2 px-4 py-1.5 text-[calc(12px*var(--font-scale))] bg-surface-elevated text-secondary border-b border-hairline"
 						data-testid="ext-title-bar"
 					>
-						{extTitle}
+						<AnsiText text={extTitle} />
 					</div>
 				)}
 				{view === "empty" && (

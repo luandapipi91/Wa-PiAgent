@@ -579,3 +579,32 @@ test("扩展 setWidget：aboveEditor 在 Composer 上方、belowEditor 在下方
   fireEvent.click(goal.querySelector("button")!);
   expect(goal.textContent).not.toContain("进度 4/6");
 });
+
+test("setStatus/setWidget 的 ANSI 颜色解析为内联样式", async () => {
+  useSessionStore.setState({
+    extStatusBySession: { s1: { "pi-lens": "\x1b[31m错误 3 个\x1b[39m" } },
+    extWidgetBySession: {
+      s1: {
+        "pi-goal": { lines: ["\x1b[32m进度 4/6\x1b[39m", "第二行"], placement: "aboveEditor" as const },
+      },
+    },
+  });
+  await renderSessionView("s1");
+
+  // setStatus：颜色段为带内联样式的 span，ANSI 码不外泄
+  const statusColored = screen.getByText("错误 3 个");
+  expect(statusColored.style.color).toBe("#dc2626");
+  expect(screen.getByTestId("ext-status-bar").textContent).not.toContain("\x1b");
+
+  // setWidget 收起摘要：首行颜色解析
+  const widget = screen.getByTestId("ext-widget-pi-goal");
+  const summaryColored = screen.getByText("进度 4/6");
+  expect(summaryColored.style.color).toBe("#34a853");
+
+  // setWidget 展开正文：颜色仍解析，纯文本行保留
+  fireEvent.click(widget.querySelector("button")!);
+  const bodyColored = screen.getByText("进度 4/6");
+  expect(bodyColored.style.color).toBe("#34a853");
+  expect(widget.textContent).toContain("第二行");
+  expect(widget.textContent).not.toContain("\x1b");
+});
