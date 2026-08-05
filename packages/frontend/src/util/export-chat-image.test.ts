@@ -73,6 +73,17 @@ test("纯过程轮（无文字回复）跳过；无配对 user 的 assistant 跳
 	expect(turns[0].assistant).toBe("回答");
 });
 
+test("空白 text 块过滤：与 MessageList fullText 同口径，不保留空字符串/纯空白块", () => {
+	const msgs = [
+		userMsg("问题", 100),
+		aiMsg(["前半", "", "   ", "后半"], 200),
+	];
+	const turns = collectTurns(msgs, 200);
+	expect(turns).toHaveLength(1);
+	// 空白块被丢弃，非空块 \n\n 拼接（与 MessageList segmentBlocks 行为一致）
+	expect(turns[0].assistant).toBe("前半\n\n后半");
+});
+
 test("空结果：当条往前无文本对话返回空数组", () => {
 	const msgs = [
 		aiMsg([], 100, "dev", [{ type: "thinking", thinking: "只想不说" }]),
