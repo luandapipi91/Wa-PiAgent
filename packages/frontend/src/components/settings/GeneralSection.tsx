@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "../../api-client";
 import type { RetrySettings } from "@wa-pi/shared";
 import {
+	EXPORT_TURNS_MAX,
+	EXPORT_TURNS_MIN,
 	FONT_SIZE_MAX,
 	FONT_SIZE_MIN,
 	useUiPrefsStore,
@@ -26,6 +28,8 @@ export function GeneralSection() {
 	const [saved, setSaved] = useState(false);
 	const fontSize = useUiPrefsStore((s) => s.fontSize);
 	const setFontSize = useUiPrefsStore((s) => s.setFontSize);
+	const exportTurns = useUiPrefsStore((s) => s.exportTurns);
+	const setExportTurns = useUiPrefsStore((s) => s.setExportTurns);
 
 	useEffect(() => {
 		api
@@ -89,6 +93,32 @@ export function GeneralSection() {
 					data-testid="font-size-value"
 				>
 					{fontSize}px
+				</span>
+			</div>
+			<div className="flex flex-col gap-1">
+				<span className="text-sm font-medium text-primary">导出轮数</span>
+				<span className="text-xs text-tertiary">
+					导出为图片时，包含当条 AI 回复往前多少轮对话（{EXPORT_TURNS_MIN}-
+					{EXPORT_TURNS_MAX} 轮），即时生效。
+				</span>
+			</div>
+			<div className="flex items-center gap-3 w-72">
+				<input
+					type="range"
+					min={EXPORT_TURNS_MIN}
+					max={EXPORT_TURNS_MAX}
+					step={1}
+					value={exportTurns}
+					onChange={(e) => setExportTurns(Number(e.target.value))}
+					className="flex-1 cursor-pointer"
+					style={{ accentColor: "var(--brand)" }}
+					data-testid="export-turns-slider"
+				/>
+				<span
+					className="text-sm text-primary w-12 text-right"
+					data-testid="export-turns-value"
+				>
+					{exportTurns} 轮
 				</span>
 			</div>
 			<div className="flex flex-col gap-1">

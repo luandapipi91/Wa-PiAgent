@@ -1,15 +1,24 @@
 // ExportButton — AI 回复旁的「导出为图片」按钮（CopyButton 同排左侧）。
 // 点击弹小菜单：下载 PNG（a[download]）/ 复制图片（copyImageToClipboard 双端）。
+// 菜单用 createPortal 提到 body 下（fixed z-50），逃逸 MessageList 滚动容器的
+// overflow 裁剪；空间不足时自动向上翻转。导出轮数取自 useUiPrefsStore（1-5，默认 1）。
 // 图标一律手绘内联 SVG（项目约定：不引图标库）。
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSessionStore } from "../../store/session";
 import { useToastStore } from "../../store/toast";
+import { useUiPrefsStore } from "../../store/ui-prefs";
 import { copyImageToClipboard } from "../../util/clipboard";
 import {
 	collectTurns,
 	downloadBlob,
 	renderTurnsToPngBlob,
 } from "../../util/export-chat-image";
+
+/** 菜单宽度（w-32 = 128px）；与下方坐标计算保持一致。 */
+const MENU_WIDTH = 128;
+/** 菜单高度估算（两项 + py-1 padding），用于判断是否翻转。 */
+const MENU_HEIGHT = 76;
 
 interface Props {
 	sessionId: string;
@@ -47,9 +56,12 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 	const [open, setOpen] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const addToast = useToastStore((s) => s.add);
+	const exportTurns = useUiPrefsStore((s) => s.exportTurns);
 	const wrapRef = useRef<HTMLDivElement>(null);
+	const btnRef = useRef<HTMLButtonElement>(null);
 
-	// 点外部关闭菜单
+	// 点外部关闭菜单（菜单 portal 到 body，但其内部 mousedown stopPropagation，
+	// 不会冒泡到 document；这里只接收菜单/按钮之外的点击）
 	useEffect(() => {
 		if (!open) return;
 		const onDown = (e: MouseEvent) => {
@@ -61,7 +73,7 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 
 	const hasTurns = () => {
 		const msgs = useSessionStore.getState().messagesBySession[sessionId] ?? [];
-		return collectTurns(msgs, uptoTimestamp).length > 0;
+		return collectTurns(msgs, uptoTimestamp, exportTurns).length > 0;
 	};
 
 	const run = async (mode: "download" | "copy") => {
@@ -70,7 +82,7 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 		setBusy(true);
 		try {
 			const msgs = useSessionStore.getState().messagesBySession[sessionId] ?? [];
-			const turns = collectTurns(msgs, uptoTimestamp);
+			const turns = collectTurns(msgs, uptoTimestamp, exportTurns);
 			if (turns.length === 0) {
 				addToast("无可导出的文本对话", "error");
 				return;
@@ -95,9 +107,20 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 	const itemCls = (off: boolean) =>
 		`flex items-center gap-1.5 px-3 py-1.5 text-xs w-full text-left border-0 ${off ? "text-tertiary cursor-not-allowed" : "text-primary hover:bg-surface-elevated cursor-pointer"}`;
 
+	// 菜单坐标：相对按钮定位，下方空间不足时向上翻转，左缘不越出视口
+	const btnRect = btnRef.current?.getBoundingClientRect();
+	const menuStyle: React.CSSProperties = (() => {
+		if (!btnRect) return { display: "none" };
+		const flipUp = btnRect.bottom + MENU_HEIGHT > window.innerHeight;
+		const top = flipUp ? Math.max(4, btnRect.top - MENU_HEIGHT - 4) : btnRect.bottom + 4;
+		const left = Math.max(4, btnRect.right - MENU_WIDTH);
+		return { left, top };
+	})();
+
 	return (
 		<div ref={wrapRef} className="relative">
 			<button
+				ref={btnRef}
 				type="button"
 				data-testid={`export-${sessionId}-${uptoTimestamp}`}
 				onClick={() => setOpen((v) => !v)}
@@ -108,8 +131,12 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 			>
 				<DownloadIcon />
 			</button>
-			{open && (
-				<div className="absolute right-0 top-7 z-20 bg-surface border border-hairline rounded-md shadow-lg py-1 w-32">
+			{open && createPortal(
+				<div
+					className="fixed z-50 bg-surface border border-hairline rounded-md shadow-lg py-1"
+					style={{ ...menuStyle, width: MENU_WIDTH }}
+					onMouseDown={(e) => e.stopPropagation()}
+				>
 					<button
 						type="button"
 						data-testid="export-download"
@@ -128,7 +155,8 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 					>
 						<ImageIcon /> 复制图片
 					</button>
-				</div>
+				</div>,
+				document.body,
 			)}
 		</div>
 	);

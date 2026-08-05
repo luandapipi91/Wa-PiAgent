@@ -5,6 +5,7 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { useSessionStore } from "../../store/session";
+import { useUiPrefsStore } from "../../store/ui-prefs";
 
 const collectMock = mock((..._args: any[]) => [] as any[]);
 const renderMock = mock(async (..._args: any[]) => new Blob(["png"], { type: "image/png" }));
@@ -37,6 +38,7 @@ beforeEach(() => {
 	copyImageMock.mockClear();
 	collectMock.mockReturnValue(ONE_TURN);
 	useSessionStore.setState({ messagesBySession: { [SID]: MESSAGES } } as any);
+	useUiPrefsStore.setState({ exportTurns: 1 });
 });
 
 test("点 icon 展开菜单（两项），再点外部关闭", () => {
@@ -86,4 +88,23 @@ test("生成失败 toast 报错、不抛异常", async () => {
 	await new Promise((r) => setTimeout(r, 10));
 	expect(downloadMock).not.toHaveBeenCalled();
 	// 不抛异常即通过（toast 文案属实现细节，store 已有覆盖）
+});
+
+test("导出轮数设置生效：collectTurns 收到 store 的 exportTurns 作为第三参", async () => {
+	useUiPrefsStore.setState({ exportTurns: 3 });
+	render(<ExportButton sessionId={SID} uptoTimestamp={200} />);
+	fireEvent.click(screen.getByTestId(`export-${SID}-200`));
+	fireEvent.click(screen.getByTestId("export-download"));
+	await new Promise((r) => setTimeout(r, 10));
+	// collectTurns 第三参（maxTurns）应为 store 设置值 3
+	expect(collectMock.mock.calls[0]?.[2]).toBe(3);
+	expect(renderMock).toHaveBeenCalledTimes(1);
+});
+
+test("菜单 portal 到 body：展开后菜单项在 document.body 下", () => {
+	render(<ExportButton sessionId={SID} uptoTimestamp={200} />);
+	fireEvent.click(screen.getByTestId(`export-${SID}-200`));
+	const menu = screen.getByTestId("export-download");
+	// portal 后菜单挂 document.body，不在组件原 wrapRef 子树内
+	expect(document.body.contains(menu)).toBe(true);
 });
