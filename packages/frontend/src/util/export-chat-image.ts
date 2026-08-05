@@ -20,8 +20,10 @@ function extractText(content: any): string {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
 	return content
-		.filter((b) => b?.type === "text")
-		.map((b) => String(b.text ?? ""))
+		.filter(
+			(b) => b?.type === "text" && typeof b.text === "string" && b.text.trim(),
+		)
+		.map((b) => String(b.text))
 		.join("\n\n");
 }
 
@@ -128,8 +130,11 @@ export async function renderTurnsToPngBlob(turns: ExportTurn[]): Promise<Blob> {
 	const root = createRoot(host);
 	try {
 		root.render(createElement(ExportImageCard, { turns }));
-		// 等 React 提交 + 字体加载（图片里不缺字形）
-		await new Promise((r) => setTimeout(r, 50));
+		// 等 React 提交（轮询 firstElementChild 出现，超时兜底）+ 字体加载（图片里不缺字形）
+		const deadline = Date.now() + 1000;
+		while (!host.firstElementChild && Date.now() < deadline) {
+			await new Promise((r) => setTimeout(r, 16));
+		}
 		await (document as any).fonts?.ready;
 		const card = host.firstElementChild as HTMLElement;
 		if (!card) throw new Error("导出卡片渲染失败");
