@@ -14,13 +14,16 @@
   扩展工具的实际放行靠默认 agent 的排除式路径（不配 tools 白名单时全部放行），行为
   完全等价。影响范围：`packages/shared/src/constants.ts`、
   `packages/shared/tests/constants.test.ts`、`packages/kernel/src/agent-manager.ts`。
-- **测试断言跟进 Icon 化改造（emoji → svg）**：前端把技能 chip 闪电符、项目/目录
-  树图标由 Unicode emoji（⚡🏠📁）统一替换为内联 SVG（Icon 组件）后，相关测试断言
-  仍按 emoji 文本匹配，导致 11 个测试失败。已将 ComposerTextarea/tokens 的技能 chip
-  断言改为按 data-token + svg 标记，ProjectItem 图标断言改为按 Icon testId
-  （实现侧给 home/folder/folder-open 三个图标补 testId），DirTreePicker 目录匹配
-  正则去掉 emoji 前缀。修复 24→13 fail（剩余 13 个 DirTreePicker 失败为
-  react-complex-tree 懒加载在测试环境的预存兼容问题，与本次改动无关，留待专项排查）。
+- **测试断言跟进 Icon 化改造（emoji → svg）+ DirTreePicker 查询重构，全量测试转绿**：
+  前端把技能 chip 闪电符、项目/目录树图标由 Unicode emoji（⚡🏠📁📄）统一替换为内联
+  SVG（Icon 组件）后，测试断言仍按 emoji 文本匹配，且 react-complex-tree 的 treeitem
+  `<li>` 内目录名与 svg 图标同层导致 testing-library 的 getByText 因「文本被多元素分割」
+  匹配不到，共 24 个测试失败。修复分三块：(1) ComposerTextarea/tokens 的技能 chip
+  断言改按 data-token + svg 标记；(2) ProjectItem 图标断言改按 Icon testId（实现侧给
+  home/folder/folder-open 三个图标补 testId）；(3) DirTreePicker 新增 treeItem/queryTreeItem
+  helper，直接定位 [data-rct-item-interactive]（rct-tree-item-button，文本载体 + 点击选中
+  目标 + 展开箭头兄弟），替换所有树节点的 getByText/queryByText/click(getByText)，并去掉
+  残留 📁/📄 emoji 正则前缀、修正完整路径字符串转义。全量测试 1058 pass / 0 fail。
   影响范围：`packages/frontend/tests/ComposerTextarea.test.tsx`、
   `packages/frontend/tests/tokens.test.ts`、
   `packages/frontend/tests/ProjectItem.system.test.tsx`、
