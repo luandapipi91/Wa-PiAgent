@@ -332,4 +332,15 @@ export default function (pi: ExtensionAPI) {
 			);
 		},
 	});
+
+	// 内部热重载触发点：kernel 装卸插件后经 prompt("/__!wa_pi_reload") 触发，
+	// 调 ctx.reload() → session.reload()（热重载扩展资源 + 重放 session_start，
+	// 让扩展重发 widget/status）。不走整进程重建，避免清空其他扩展的 UI 状态。
+	// __! 前缀：wa-pi 内部专用命令命名空间，前端命令面板过滤不显示。
+	pi.registerCommand("__!wa_pi_reload", {
+		description: "wa-pi internal: hot-reload extensions without process restart",
+		handler: async (_args, ctx) => {
+			await ctx.reload();
+		},
+	});
 }

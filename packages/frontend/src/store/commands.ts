@@ -24,7 +24,11 @@ export const useCommandsStore = create<CommandsState>((set) => ({
     const url = `/api/sessions/${encodeURIComponent(sessionId)}/commands${qs ? `?${qs}` : ""}`;
     api.get(url)
       .then((data: any) => {
-        const all: CommandInfo[] = data?.commands ?? [];
+        // __! 前缀：wa-pi 内部专用命令（如 __!wa_pi_reload 热重载），不进命令面板、
+        // 不进 allCommands（用户不会手打，仅 kernel 程序化触发）。
+        const all: CommandInfo[] = (data?.commands ?? []).filter(
+          (c) => !c.name.startsWith("__!"),
+        );
         set({
           // / 菜单过滤：skill 走 $ 菜单不展示；extension 插件命令只显示已开启（enabled === true）
           commands: all.filter((c) => {
