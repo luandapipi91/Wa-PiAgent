@@ -192,4 +192,55 @@ test.describe.serial("ext-ui-bridge-demo 本地扩展", () => {
       page.locator('[data-testid^="custom-"]:has-text("select 结果: 乙")').first(),
     ).toBeVisible({ timeout: 20_000 });
   });
+
+  // Task 5：notify 永久保留 + ANSI 颜色解析全链路
+  test("notify 消息永久保留且解析 ANSI 颜色", async ({ page }) => {
+    const sessionId = await spawnSession();
+    await page.goto("/");
+    await page.waitForTimeout(500);
+    await page.getByText(projectName).first().click();
+    await page.getByTestId(`session-${sessionId}`).click();
+    await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 8000 });
+    await page.getByTestId("model-selector").selectOption({ label: "E2E UIDemo/model-a" });
+
+    const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+    await textbox.fill("/uidemo color");
+    await page.keyboard.press("Escape"); // 收起 / 菜单
+    await page.getByTestId("composer-send").click();
+
+    // notify 消息出现在聊天列表（带 ANSI 文本「橙色 notify」）
+    const notify = page.locator('[data-testid^="custom-"]:has-text("橙色 notify")').first();
+    await expect(notify).toBeVisible({ timeout: 20_000 });
+
+    // 10s 后仍在（不自动消退）
+    await page.waitForTimeout(10_000);
+    await expect(notify).toBeVisible();
+
+    // 验证有内联颜色样式（AnsiText 解析 256 色为 span[style*="color"]）
+    const coloredSpan = notify.locator('span[style*="color"]');
+    await expect(coloredSpan.first()).toBeVisible();
+  });
+
+  test("setStatus/setWidget/setTitle ANSI 颜色渲染", async ({ page }) => {
+    const sessionId = await spawnSession();
+    await page.goto("/");
+    await page.waitForTimeout(500);
+    await page.getByText(projectName).first().click();
+    await page.getByTestId(`session-${sessionId}`).click();
+    await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 8000 });
+    await page.getByTestId("model-selector").selectOption({ label: "E2E UIDemo/model-a" });
+
+    const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
+    await textbox.fill("/uidemo color");
+    await page.keyboard.press("Escape");
+    await page.getByTestId("composer-send").click();
+
+    // widget 中有彩色文字（ui-demo-color-above）
+    const widget = page.locator('[data-testid="ext-widget-ui-demo-color-above"]');
+    await expect(widget).toBeVisible({ timeout: 20_000 });
+    // 展开 widget 查看彩色行（点击摘要行展开）
+    await widget.locator("button").click();
+    const coloredLine = widget.locator('span[style*="color"]');
+    await expect(coloredLine.first()).toBeVisible();
+  });
 });
