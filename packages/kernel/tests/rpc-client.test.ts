@@ -114,19 +114,19 @@ test("fire-and-forget UI 请求（notify）不阻塞、不要求响应，且转�
 	expect((notify as any).notifyType).toBeUndefined();
 });
 
-test("setStatus/setWidget/setTitle 桥接为 extension_status/widget/title 事件（ANSI 转义码剥离）", async () => {
+test("setStatus/setWidget/setTitle 桥接为 extension_status/widget/title 事件（ANSI 原文透传）", async () => {
 	const { client, events } = makeClient();
 	await client.start();
 	await client.command({ type: "ui_fire_and_forget" });
 	const status = events.find((e) => e.type === "extension_status");
 	expect(status).toBeTruthy();
 	expect((status as any).statusKey).toBe("pi-lens");
-	expect((status as any).statusText).toBe("分析中 (3/5)");
+	expect((status as any).statusText).toBe("\u001b[38;5;241m分析中 (3/5)\u001b[39m");
 	const widget = events.find((e) => e.type === "extension_widget");
 	expect(widget).toBeTruthy();
-	// fixture 首行带 \u001b[38;5;241m...\u001b[39m（pi 扩展 theme 着色）：必须剥离
+	// fixture 首行带 \u001b[38;5;241m...\u001b[39m（pi 扩展 theme 着色）：kernel 透传原文，由前端解析着色
 	expect((widget as any).widgetLines).toEqual([
-		"[No agent selected]",
+		"\u001b[38;5;241m[No agent selected]\u001b[39m",
 		"进度 4/6",
 	]);
 	expect((widget as any).widgetPlacement).toBe("aboveEditor");
@@ -142,6 +142,20 @@ test("set_editor_text 桥接为 extension_editor_text 事件（转发语义：�
 	const editorText = events.find((e) => e.type === "extension_editor_text");
 	expect(editorText).toBeTruthy();
 	expect((editorText as any).text).toBe("替换后的输入框内容");
+});
+
+test("fire-and-forget 方法不回复 extension_ui_response", async () => {
+	const { client } = makeClient();
+	await client.start();
+	// ui_notify + ui_fire_and_forget 共 4 个 fire-and-forget 请求：
+	// kernel 若回复 extension_ui_response，fake-pi 无 pending 请求会将其计入 unexpectedUiResponses
+	await client.command({ type: "ui_notify" });
+	const data = await client.command({ type: "ui_fire_and_forget" });
+	expect(data).toBeUndefined();
+	// kernel 的回复（若有）异步写入 fake-pi，等一拍再查计数
+	await new Promise((r) => setTimeout(r, 100));
+	const stats = await client.command({ type: "get_unexpected_ui_responses" });
+	expect(stats.count).toBe(0);
 });
 
 test("stdout 行内 U+2028/U+2029 不造成错误断行", async () => {
