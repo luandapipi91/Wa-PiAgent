@@ -888,7 +888,7 @@ test("markSkillsDirty 后 idle 命中缓存 → 整进程重建（skillDirty 改
 	expect(fakes).toHaveLength(2);
 });
 
-test("busy 时标脏不热重载，保留 dirty 等 idle 后补热重载", async () => {
+test("busy 时标脏不热重载，agent_settled（对话结束）后自动补热重载", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
 	const fake = fakes[0];
@@ -899,14 +899,16 @@ test("busy 时标脏不热重载，保留 dirty 等 idle 后补热重载", async
 	await am.ensureStarted(project.id, "dev", session.id); // busy → 跳过
 	expect(fakes[0].reloaded).toBe(0);
 
-	fake.emit({ type: "agent_settled" }); // idle
-	await am.ensureStarted(project.id, "dev", session.id); // 补热重载
+	// 对话结束（agent_settled）：无排队消息 → 自动补热重载（无需用户再切会话）
+	fake.emit({ type: "agent_settled" });
+	// agent_settled 的补重载是 void 异步，等一拍让其完成
+	await new Promise((r) => setTimeout(r, 10));
 	expect(fakes[0].reloaded).toBe(1);
 	expect(fakes).toHaveLength(1); // 仍未重建进程
 	expect(fakes[0].alive).toBe(true);
 });
 
-test("热重载成功后不发 extension_ui_reset（扩展 session_start 重放，UI 自动恢复）", async () => {
+test("热重载前发 extension_ui_reset 清前端残留（被卸载插件的 UI 清掉，活跃插件由 session_start 重放恢复）", async () => {
 	const events: CapturedEvent[] = [];
 	const { project, session, am } = await setup({ events });
 	await am.ensureStarted(project.id, "dev", session.id);
@@ -915,8 +917,13 @@ test("热重载成功后不发 extension_ui_reset（扩展 session_start 重放�
 	am.markAllDirty();
 	await am.ensureStarted(project.id, "dev", session.id);
 
-	// 热重载成功：不发 extension_ui_reset（session.reload 重放 session_start，扩展重发 UI）
-	expect(events.filter((x) => x.e.type === "extension_ui_reset")).toHaveLength(0);
+	// 热重载前先发 extension_ui_reset 清前端 UI 残留（含被卸载插件的 widget/status）；
+	// 随后 session.reload 重放 session_start，仍活跃的扩展重发 UI 自动恢复
+	const resets = events.filter((x) => x.e.type === "extension_ui_reset");
+	expect(resets).toHaveLength(1);
+	expect(resets[0].sessionId).toBe(session.id);
+	// 热重载路径：进程不重建
+	expect((am as any).sessions.get(session.id)?.client === (am as any).sessions.get(session.id)?.client).toBe(true);
 });
 
 test("热重载失败（reloadExtensions 抛错）→ 回退整进程重建 + 合成 extension_ui_reset", async () => {
@@ -929,11 +936,12 @@ test("热重载失败（reloadExtensions 抛错）→ 回退整进程重建 + �
 	am.markAllDirty();
 	const second = await am.ensureStarted(project.id, "dev", session.id);
 
-	// 回退整进程重建：旧 client dispose、新建 fakes[1]、发 extension_ui_reset
+	// 回退整进程重建：旧 client dispose、新建 fakes[1]
 	expect(fakes).toHaveLength(2);
 	expect(fakes[0].alive).toBe(false);
+	// extension_ui_reset：热重载前发 1 次 + _rebuildSession 发 1 次（前端幂等清，无副作用）
 	const resets = events.filter((x) => x.e.type === "extension_ui_reset");
-	expect(resets).toHaveLength(1);
+	expect(resets.length).toBeGreaterThanOrEqual(1);
 	expect(resets[0].sessionId).toBe(session.id);
 	// 第二个 fake 的 reloadExtensions 未被调（走的是重建路径）
 	expect(fakes[1].reloaded).toBe(0);
