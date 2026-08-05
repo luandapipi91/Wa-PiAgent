@@ -5,6 +5,28 @@
 ## [Unreleased] - 2026-08-05
 
 ### 变更
+- **ext-ui-bridge-demo 增加 ANSI 颜色演示命令 + 全链路 E2E 验证**：
+  demo 扩展新增 `/uidemo color` 子命令，一键触发 notify/setStatus/
+  setWidget/setTitle 全部带 ANSI SGR 颜色码的 UI 请求，验证 kernel 透传
+  → 前端 AnsiText 解析的端到端彩色渲染；README 补「颜色演示」章节与表格
+  说明。同步在 `ext-ui-bridge-demo.spec.ts` 追加两条 E2E：① notify 消息
+  永久保留（10s 后仍在）且解析出内联颜色 span；② widget 展开后彩色行可见。
+  E2E 全 7 通过（隔离端口 19776/15180）。
+  影响范围：`examples/ext-ui-bridge-demo/index.ts`、
+  `examples/ext-ui-bridge-demo/README.md`、
+  `packages/frontend/e2e/ext-ui-bridge-demo.spec.ts`。
+
+- **新增 ext-error-spam-demo 扩展错误测试桩**：参照 ext-ui-bridge-demo，
+  新增本地扩展 `examples/ext-error-spam-demo`，用于一次性向「系统设置 >
+  诊断」的扩展错误列表（`extension_error`，内存态最近 50 条）灌满 50 条
+  有区分度的错误，回归 DiagnosticsSection 的满列表渲染 / 截断 / 清空 /
+  滚动表现。机制：注册 50 个 `input` handler 各抛一条带编号（#01..#50 +
+  场景）的错，`emitInput` 对同事件多 handler 逐个独立 try/catch → 一条
+  用户消息正好产生 50 条 `extension_error`；`/exterr fire|off|reset|status`
+  控制装填。规避 kernel 约束：命令 handler 抛错只算 1 条，扩展无主动
+  emit/off 接口，故用 armed 开关 + fired 一次性标志。
+  影响范围：`examples/ext-error-spam-demo/`（新增 package.json / index.ts
+  / README.md）。
 
 - **kernel 透传扩展 UI 文本 ANSI 颜色码，fire-and-forget 不再回复
   extension_ui_response**：`RpcClient.handleUiRequest` 此前对
