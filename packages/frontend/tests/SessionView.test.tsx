@@ -344,7 +344,16 @@ const { useExplorerStore } = await import("../src/store/explorer");
 test("header 含文件树按钮，点击后展开右侧面板", async () => {
   useExplorerStore.getState().setOpen(false);
   await renderSessionView("s1");
-  expect(screen.getByTestId("btn-explorer")).toBeTruthy();
+  const btn = screen.getByTestId("btn-explorer");
+  expect(btn).toBeTruthy();
+  // 图标基础尺寸 18px 且跟随 --font-scale 缩放（与 SettingsButton/ProjectItem 同口径）：
+  // Icon 组件 size=1em + className 挂 calc(18px*var(--font-scale))
+  const svg = btn.querySelector("svg");
+  expect(svg?.getAttribute("width")).toBe("1em");
+  expect(svg?.getAttribute("height")).toBe("1em");
+  expect(svg?.getAttribute("class")).toContain(
+    "text-[calc(18px*var(--font-scale))]",
+  );
 
   // 初始面板收起
   expect(screen.queryByTestId("explorer-aside")).toBeNull();

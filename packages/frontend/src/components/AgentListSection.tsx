@@ -144,21 +144,21 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
           style={{
             left: ctxMenu.x, top: ctxMenu.y,
             background: "var(--surface)",
-            boxShadow: "var(--shadow-lg)", minWidth: 140,
+            boxShadow: "var(--shadow-lg)", minWidth: 140, width: "max-content",
           }}
           onClick={e => e.stopPropagation()}
           data-testid="agent-context-menu"
         >
           <button
             onClick={() => { setCtxMenu(null); onEdit?.(ctxMenu.name); }}
-            className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
+            className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover inline-flex items-center gap-1.5 whitespace-nowrap"
             data-testid="agent-ctx-edit"
-          ><Icon name="edit" size={12} style={{verticalAlign:"-0.125em"}} /> 编辑智能体</button>
+          ><Icon name="edit" size={12} /> 编辑智能体</button>
           <button
             onClick={() => { setCtxMenu(null); setDeleteFor(ctxMenu.name); }}
-            className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
+            className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft inline-flex items-center gap-1.5 whitespace-nowrap"
             data-testid="agent-ctx-delete"
-          ><Icon name="trash" size={12} style={{verticalAlign:"-0.125em"}} /> 删除</button>
+          ><Icon name="trash" size={12} /> 删除</button>
         </div>,
         document.body
       )}

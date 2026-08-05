@@ -104,6 +104,8 @@ export function collectTurns(
 		});
 	}
 	// 3. 逆序配对：assistant → 往前最近的 user
+	//    注意：extension 斜杠命令（pi 拦截执行）不产生 user 消息，此时 user 留空
+	//    仍收集该轮——导出图片里只显示 AI 回复行，不丢这类对话。
 	const turns: ExportTurn[] = [];
 	let i = merged.length - 1;
 	while (i >= 0 && turns.length < maxTurns) {
@@ -127,14 +129,12 @@ export function collectTurns(
 				break;
 			}
 		}
-		if (user) {
-			turns.push({
-				user,
-				assistant,
-				agentName: sm.agentName ?? "agent",
-				timestamp: m.timestamp,
-			});
-		}
+		turns.push({
+			user,
+			assistant,
+			agentName: sm.agentName ?? "agent",
+			timestamp: m.timestamp,
+		});
 		i = Math.min(j, i - 1); // 跳过已配对的 user；未找到（j=-1）时循环终止
 	}
 	return turns.reverse();

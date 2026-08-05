@@ -6,6 +6,84 @@
 
 ### 变更
 
+- **系统设置「导出轮数」文案改为「对话导出轮数」**：明确该设置描述的是导出图片时包含的
+  对话轮数，与导出菜单「仅本次」子面板措辞区分。仅改 UI 文案，行为不变。
+  影响范围：`packages/frontend/src/components/settings/GeneralSection.tsx`。
+
+### 变更
+
+- **agents/ 角色库的角色名中文化**：
+  新增 `scripts/rename-agents-zh.ts`，把 `docs/references/awesome-chatgpt-prompts/agents/` 下
+  2096 个角色文件的英文 displayName 替换为中文可读角色名（英文原题翻译为简洁中文，
+  Gemini/Midjourney 等专有名词与无实义乱码保留原名），文件名同步更新；英文原名保留在
+  frontmatter `# Original` 注释中，正文与贡献者信息不变。已处理 Windows 大小写不敏感下
+  仅改大小写的映射误删问题，并幂等（已含 `# Original` 注释的文件跳过）。
+  新增 `scripts/__tests__/rename-agents-zh.test.ts`（6 个单元测试）。
+  英文原名映射持久化在 `docs/references/awesome-chatgpt-prompts/zh-name-map.json`（2096 条），
+  可从已转换文件的 `# Original` 注释反推重建；脚本幂等且映射缺失时优雅降级。
+  影响范围：`scripts/rename-agents-zh.ts`、`scripts/__tests__/rename-agents-zh.test.ts`（新增）、
+  `docs/references/awesome-chatgpt-prompts/agents/`（2096 个文件改名）、
+  `docs/references/awesome-chatgpt-prompts/zh-name-map.json`（新增）、
+  `docs/references/awesome-chatgpt-prompts/README.md`。
+
+### 变更
+
+- **将 awesome-chatgpt-prompts 的 PROMPTS.md 拆分为单角色提示词文件（wa-pi 可识别格式）**：
+  新增 `scripts/split-prompts.ts`，把 `docs/references/awesome-chatgpt-prompts/PROMPTS.md` 的 2096 条
+  角色提示词按角色拆成 2096 个独立 `.md` 文件，输出到
+  `docs/references/awesome-chatgpt-prompts/agents/`。文件格式与 wa-pi 自定义智能体定义一致
+  （YAML frontmatter：displayName/avatar/avatarColor/description/tools/skills/mcpServers/partners，
+  正文为提示词原文），可直接复制到 `~/.wa-pi/agents/` 被运行时识别；displayName 清洗非法字符
+  （`/ \ : * ? " < > |` → `-`）并截断超长名（≤120 字符），重名自动追加 `-2`/`-3` 后缀；
+  贡献者保留在 frontmatter `# Contributed by` 注释中。README 新增「agents/ 角色库」说明。
+  影响范围：`scripts/split-prompts.ts`（新增）、`docs/references/awesome-chatgpt-prompts/agents/`
+  （2096 个文件，新增）、`docs/references/awesome-chatgpt-prompts/README.md`。
+
+### 变更
+
+- **引入 awesome-chatgpt-prompts 角色提示词参考库（CC0，纯参考资料）**：
+  从 [f/awesome-chatgpt-prompts](https://github.com/f/awesome-chatgpt-prompts) 抓取 `PROMPTS.md`
+  原文（2096 个角色条目 / 2088 个唯一角色）至 `docs/references/awesome-chatgpt-prompts/`，
+  作为提示词写法的外部参考资料，**不接入运行时**（不并入 `DEFAULT_AGENT_SEEDS`、不写入
+  `~/.wa-pi/agents/`、不接前端 UI）。许可证为 CC0 1.0 公共领域（提示词内容部分），随附
+  `LICENSE` / `LICENSE-CC0` / `LICENSE-MIT` 三份许可文本作合规留底；另生成中文索引 `README.md`
+  按字母分桶列出全部角色，便于查阅。
+  影响范围：`docs/references/awesome-chatgpt-prompts/`（PROMPTS.md / LICENSE / LICENSE-CC0 /
+  LICENSE-MIT / README.md，均为新增，无运行时代码改动）。
+
+### 变更
+
+- **斜杠命令触发的对话（无 user 消息）导出图片不再置灰 + 导出按钮长按可选轮数**：
+  根因是 `collectTurns`（export-chat-image.ts）要求每轮 assistant 必须配对前置 user 消息，
+  但 extension 斜杠命令被 pi 拦截执行、不产生 user 消息（kernel ws-server.ts 有意抑制回声，
+  Composer 跳过 optimisticSend），导致这类"只有 assistant 回复"的轮次被跳过 → 导出按钮置灰。
+  修复：assistant 轮找不到配对 user 时 user 文本置空（不再丢弃整轮）；ExportImageCard 对空 user
+  不渲染用户气泡。另新增长按交互——长按「下载 PNG / 复制图片」弹出轮数选择子面板（1-5），
+  选中后仅本次用该轮数执行（不改全局设置）；短按仍用全局 exportTurns 立即执行。
+  影响范围：`packages/frontend/src/util/export-chat-image.ts`、
+  `packages/frontend/src/components/blocks/ExportImageCard.tsx`、
+  `packages/frontend/src/components/blocks/ExportButton.tsx`；
+  更新测试 `packages/frontend/tests/export-chat-image.test.ts`、
+  `packages/frontend/tests/blocks/ExportButton.test.tsx`（含长按轮数交互回归）。
+
+### 变更
+
+- **会话 header「项目文件」按钮图标统一为 Icon 组件 + 18px 跟随字体缩放**：原内联 SVG
+  硬编码 `width/height="15"`，改为 `<Icon name="folder" size="1em" className="text-[calc(18px*var(--font-scale))]"/>`，
+  与侧边栏项目图标 / 系统设置图标完全同口径（基础 18px，随 `--font-scale` 缩放）。
+  影响范围：`packages/frontend/src/components/SessionView.tsx`、
+  `packages/frontend/tests/SessionView.test.tsx`（图标尺寸断言）。
+
+### 变更
+
+- **修复「编辑智能体」右键菜单文字换行**：菜单容器固定 `minWidth:140` 且按钮无 `whitespace-nowrap`，
+  字体缩放后「编辑智能体」宽度超容器导致 icon 后文字折行。修复：按钮加 `whitespace-nowrap`，
+  菜单容器加 `width: max-content` 按内容自适应撑开。
+  影响范围：`packages/frontend/src/components/AgentListSection.tsx`、
+  `packages/frontend/src/components/AgentGalleryModal.tsx`。
+
+### 变更
+
 - **修复「导出会话→复制图片」取错消息（取到 thinking/前一轮而非当条回复正文）**：
   根因是 `collectTurns`（export-chat-image.ts）先按原始 timestamp 逐条过滤、再合并同回合
   assistant，导致流式期间 store 未 compact 的「thinking 块 + text 正文块」被拆散——

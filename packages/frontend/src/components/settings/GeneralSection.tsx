@@ -96,7 +96,7 @@ export function GeneralSection() {
 				</span>
 			</div>
 			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">导出轮数</span>
+				<span className="text-sm font-medium text-primary">对话导出轮数</span>
 				<span className="text-xs text-tertiary">
 					导出为图片时，包含当条 AI 回复往前多少轮对话（{EXPORT_TURNS_MIN}-
 					{EXPORT_TURNS_MAX} 轮），即时生效。
