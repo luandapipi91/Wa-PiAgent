@@ -5,6 +5,14 @@
 ## [Unreleased] - 2026-08-05
 
 ### 变更
+- **插件热重载补全：卸载残留清理 + 对话结束后补重载**：上一条热重载改动有两个缺口。
+  ① 卸载插件后其残留 widget/status 不清——热重载前补发 extension_ui_reset（先清前端残留，
+  再让 session.reload 重放 session_start，仍活跃的扩展自动重发 UI 恢复，被卸载的不再重发）。
+  ② 对话进行中装卸插件，busy 挡住重载（保留 dirty），但对话结束（agent_settled）后无人
+  触发补重载，dirty 一直挂着、用户要切走再切回才生效——现 agent_settled 在队列空且 dirty
+  时自动补触发 _reloadIfDirty。
+  影响范围：`packages/kernel/src/agent-manager.ts`、相关测试。
+### 变更
 - **插件装卸改用热重载，不再丢失其他插件的 widget/status**：安装/卸载插件后，
   当前会话此前的实现是「整进程重建 + 发 extension_ui_reset 整体清空扩展 UI」，
   导致同会话其他无关插件正在显示的 widget/status 被一并清掉、且不自动恢复。

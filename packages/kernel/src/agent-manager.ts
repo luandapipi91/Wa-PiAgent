@@ -399,16 +399,21 @@ export class AgentManager {
 		}
 
 		// dirty（扩展装卸）：走热重载。经桥接扩展 __!wa_pi_reload 命令触发 session.reload()，
-		// 保留 pi 进程、重放 session_start（reason:"reload"），让扩展重发 widget/status——
-		// 避免整进程重建导致其他扩展的 UI 状态被清空丢失。
+		// 保留 pi 进程、重放 session_start（reason:"reload"），让仍加载的扩展重发 widget/status。
+		// 先发 extension_ui_reset 清空前端 UI 残留（含被卸载扩展的 widget/status），
+		// 再让 session.reload 的 session_start 重放——仍活跃的扩展会重发 UI 自动恢复，
+		// 被卸载的扩展不再加载、不会重发，其残留被 reset 清掉。这样既清卸载残留、又保留活跃插件。
 		// await reloadExtensions = 等 session.reload() 完整完成（pi 的 prompt success
 		// 在 command.handler 即 ctx.reload() await 完成后才发）。
+		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
+			type: "extension_ui_reset",
+		} as RpcEvent);
 		try {
 			await handle.client.reloadExtensions();
 			return handle;
 		} catch (err) {
 			// 兜底：热重载失败（桥接扩展未注册 __!wa_pi_reload / pi 旧版本 / 进程异常）
-			// → 回退到整进程重建 + 合成 extension_ui_reset 清空前端残留。
+			// → 回退到整进程重建（_rebuildSession 内部会再发一次 extension_ui_reset）。
 			console.warn(
 				`[kernel] 会话 ${sessionId} 热重载扩展失败，回退整进程重建:`,
 				err,
@@ -961,6 +966,16 @@ export class AgentManager {
 					void this._sendPromptNow(sessionId, handle, text).catch((err) => {
 						console.error(
 							`[kernel] session ${sessionId} followUp drain 失败:`,
+							err,
+						);
+					});
+				} else if (this.skillDirty.has(sessionId) || this.dirty.has(sessionId)) {
+					// 真正 idle（无排队/引导消息）且有 dirty 标记：补重载。
+					// 对话进行中装卸插件被 busy 挡住（保留 dirty），对话结束（agent_settled）
+					// 且队列空时才补热重载——避免对话中打断、也避免对话结束后不生效。
+					void this._reloadIfDirty(sessionId, handle).catch((err) => {
+						console.error(
+							`[kernel] session ${sessionId} idle 后补重载失败:`,
 							err,
 						);
 					});
