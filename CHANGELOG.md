@@ -19,6 +19,14 @@
   `packages/kernel/tests/rpc-client.test.ts`、
   `packages/kernel/tests/fixtures/fake-pi.ts`（新增多余 ui_response 计数，
   供测试断言）。
+- **新增 AnsiText 组件解析 ANSI SGR 颜色码**：新增
+  `packages/frontend/src/components/ui/AnsiText.tsx`，单文件零依赖 ANSI
+  SGR 颜色解析：`parseAnsiToNodes` 纯函数支持 16 色/bright 色/xterm 256
+  色/RGB 真彩的 foreground 与 background、reset(0) 与 39/49 单独复位，
+  非 SGR 序列丢弃；`AnsiText` 组件薄封装供渲染层使用。为后续
+  notify/setStatus/setWidget/setTitle 彩色渲染提供基础设施。
+  影响范围：`packages/frontend/src/components/ui/AnsiText.tsx`（新增）、
+  `packages/frontend/tests/ansi-text.test.ts`（新增）。
 
 ## [Unreleased] - 2026-08-04
 
