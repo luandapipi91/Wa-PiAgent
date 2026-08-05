@@ -216,9 +216,15 @@ export function App() {
 				case "extension:list":
 					useExtensionsStore.getState().setAll(e);
 					break;
-				case "extension:changed":
+				case "extension:changed": {
 					useExtensionsStore.getState().setAll(e);
+					// 安装/卸载/升级后：刷新当前会话 / 菜单。
+					// kernel getCommands 脏感知：idle 的脏会话会先重建 pi 进程再返回新清单，
+					// 因此插件命令在当前会话立即生效；busy 会话保持 deferred（下次交互生效）。
+					const sid = useProjectsStore.getState().currentSessionId;
+					if (sid) useCommandsStore.getState().load(sid);
 					break;
+				}
 				case "extension:error":
 					useExtensionsStore.getState().setError(e);
 					break;

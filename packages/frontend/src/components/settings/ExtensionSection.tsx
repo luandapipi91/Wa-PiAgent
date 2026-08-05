@@ -223,7 +223,7 @@ export function ExtensionSection() {
 
       {/* 底部提示 */}
       <div className="px-3 py-2.5 rounded-sm text-xs text-secondary" style={{ background: "var(--surface-elevated)", border: "1px solid var(--hairline)" }}>
-        💡 安装、卸载、升级操作将在 <strong>下次对话开始时生效</strong>，当前对话不受影响。
+        安装、卸载、升级操作在 <strong>当前对话立即生效</strong>（正在生成回复的会话会在下次发送消息时生效）。
       </div>
 
       {/* 附加命令弹窗 */}
@@ -238,7 +238,7 @@ export function ExtensionSection() {
       {confirmUninstall && (
         <ConfirmDialog
           title="确认卸载"
-          message={`确定要卸载 ${confirmUninstall} 吗？已禁用的插件不会影响下次对话。`}
+          message={`确定要卸载 ${confirmUninstall} 吗？卸载后立即从当前对话移除。`}
           confirmText="卸载"
           danger
           onConfirm={() => {

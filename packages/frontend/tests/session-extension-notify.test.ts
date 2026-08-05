@@ -85,3 +85,23 @@ test("handleSDKEvent: 非 extension_notify 事件不插入提示", () => {
 	);
 	expect(messages(sid)).toHaveLength(0);
 });
+
+test("handleSDKEvent: extension_ui_reset 清空该会话的扩展 UI（status/widget/title）", () => {
+	const sid = "s-reset-1";
+	const handle = useSessionStore.getState().handleSDKEvent;
+	// 先由旧进程发射三类扩展 UI
+	handle(sid, envelope(sid, { type: "extension_status", statusKey: "k1", statusText: "状态" }));
+	handle(sid, envelope(sid, { type: "extension_widget", widgetKey: "w1", widgetLines: ["组件"] }));
+	handle(sid, envelope(sid, { type: "extension_title", title: "标题" }));
+	let st = useSessionStore.getState();
+	expect(st.extStatusBySession[sid]).toEqual({ k1: "状态" });
+	expect(st.extWidgetBySession[sid]?.w1?.lines).toEqual(["组件"]);
+	expect(st.extTitleBySession[sid]).toBe("标题");
+
+	// kernel 重建进程后合成 reset → 全部清空（新进程会重新发射当前 UI）
+	handle(sid, envelope(sid, { type: "extension_ui_reset" }));
+	st = useSessionStore.getState();
+	expect(st.extStatusBySession[sid]).toEqual({});
+	expect(st.extWidgetBySession[sid]).toEqual({});
+	expect(st.extTitleBySession[sid]).toBeNull();
+});

@@ -902,6 +902,25 @@ test("busy 时标脏不重建，保留 dirty 等 idle 后补重建", async () =>
 	expect(r2).not.toBe(r);
 });
 
+test("dirty 重建后合成 extension_ui_reset 事件（前端据此清空扩展 UI 残留）", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am } = await setup({ events });
+	await am.ensureStarted(project.id, "dev", session.id);
+	events.length = 0; // 清掉首次启动期事件，聚焦重建后的合成事件
+
+	am.markAllDirty();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	const resets = events.filter((x) => x.e.type === "extension_ui_reset");
+	expect(resets).toHaveLength(1);
+	expect(resets[0].sessionId).toBe(session.id);
+
+	// 未标脏的再次命中不重建、也不再发 reset
+	events.length = 0;
+	await am.ensureStarted(project.id, "dev", session.id);
+	expect(events.filter((x) => x.e.type === "extension_ui_reset")).toHaveLength(0);
+});
+
 // ─── switchAgent / renameAgentSessions ──────────────────────────────────────
 
 test("switchAgent: 换体重建，sessionId 不变且 config 取新 agent", async () => {

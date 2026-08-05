@@ -1233,6 +1233,25 @@ export const useSessionStore = create<SessionState>((set) => {
 						},
 					}));
 					break;
+				// kernel 合成（插件/技能变更 dirty reload 重建进程后）：
+				// 旧进程发射的扩展 UI（status/widget/title）全部失效，清空残留；
+				// 新进程内扩展 apply 时会重新发射当前 UI
+				case "extension_ui_reset":
+					set((s) => ({
+						extStatusBySession: {
+							...s.extStatusBySession,
+							[sessionId]: {},
+						},
+						extWidgetBySession: {
+							...s.extWidgetBySession,
+							[sessionId]: {},
+						},
+						extTitleBySession: {
+							...s.extTitleBySession,
+							[sessionId]: null,
+						},
+					}));
+					break;
 				// tool_execution_* 等其他透传事件：渲染层不消费
 				default:
 					break;
