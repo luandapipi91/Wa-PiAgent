@@ -266,12 +266,3 @@ test("集成：真实 pi --mode rpc 响应 get_state（offline）", async () => 
 	expect(typeof state.sessionId).toBe("string");
 	expect(state.isStreaming).toBe(false);
 });
-
-test("reloadExtensions 发 /__!wa_pi_reload prompt 并随 success 返回", async () => {
-	const { client } = makeClient();
-	await client.start();
-	// fake-pi 对 prompt 统一回 success；reloadExtensions 内部调 prompt("/__!wa_pi_reload")
-	// 成功 resolve 即说明命令发出且 pi 受理（真实环境下 session.reload 在 success 前完成）
-	await client.reloadExtensions();
-	// 不抛错即通过；fake-pi 不区分消息内容，统一 success
-});

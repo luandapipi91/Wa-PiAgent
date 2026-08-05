@@ -34,11 +34,7 @@ async function loadTools(transform?: (src: string) => string): Promise<any[]> {
   tmpFiles.push(file);
   const mod = await import(pathToFileURL(file).href);
   const tools: any[] = [];
-  mod.default({
-    registerTool: (def: any) => tools.push(def),
-    // bridge 扩展注册的内部命令（__!wa_pi_reload 热重载）——测试桩不收集命令
-    registerCommand: () => {},
-  });
+  mod.default({ registerTool: (def: any) => tools.push(def) });
   return tools;
 }
 

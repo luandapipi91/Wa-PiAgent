@@ -217,14 +217,6 @@ export class RpcClient {
 		return this.command({ type: "steer", message });
 	}
 
-	/** 热重载扩展（经桥接扩展 __!wa_pi_reload 命令触发 session.reload()）。
-	 *  await 此方法 = 等 session.reload() 完整完成：pi 的 prompt success 在
-	 *  command.handler（即 ctx.reload()）await 完成后才发，wa-pi command() await
-	 *  该响应即等 reload 执行完。用于插件装卸后重载扩展，避免整进程重建丢失其他扩展的 UI 状态。 */
-	async reloadExtensions(): Promise<void> {
-		await this.prompt("/__!wa_pi_reload");
-	}
-
 	followUp(message: string): Promise<any> {
 		return this.command({ type: "follow_up", message });
 	}

@@ -384,44 +384,13 @@ export class AgentManager {
 		sessionId: string,
 		handle: SessionHandle,
 	): Promise<SessionHandle> {
-		const isSkillDirty = this.skillDirty.has(sessionId);
-		const isExtDirty = this.dirty.has(sessionId);
-		if (!isSkillDirty && !isExtDirty) return handle;
+		const isDirty = this.skillDirty.has(sessionId) || this.dirty.has(sessionId);
+		if (!isDirty) return handle;
 		if (handle.busy || handle.followUpList.length > 0) return handle; // 进行中，保留 dirty 等 idle
 
 		this.skillDirty.delete(sessionId);
 		this.dirty.delete(sessionId);
-
-		// skillDirty（agent 重命名 / 技能白名单变更）：改的是 agent 定义层（系统提示词 /
-		// 工具集 / 技能目录），session.reload() 不重新读 agent 配置 → 必须整进程重建。
-		if (isSkillDirty) {
-			return this._rebuildSession(sessionId, handle);
-		}
-
-		// dirty（扩展装卸）：走热重载。经桥接扩展 __!wa_pi_reload 命令触发 session.reload()，
-		// 保留 pi 进程、重放 session_start（reason:"reload"），让扩展重发 widget/status——
-		// 避免整进程重建导致其他扩展的 UI 状态被清空丢失。
-		// await reloadExtensions = 等 session.reload() 完整完成（pi 的 prompt success
-		// 在 command.handler 即 ctx.reload() await 完成后才发）。
-		try {
-			await handle.client.reloadExtensions();
-			return handle;
-		} catch (err) {
-			// 兜底：热重载失败（桥接扩展未注册 __!wa_pi_reload / pi 旧版本 / 进程异常）
-			// → 回退到整进程重建 + 合成 extension_ui_reset 清空前端残留。
-			console.warn(
-				`[kernel] 会话 ${sessionId} 热重载扩展失败，回退整进程重建:`,
-				err,
-			);
-			return this._rebuildSession(sessionId, handle);
-		}
-	}
-
-	/** 整进程重建：拆除旧进程 + 重新 _createSession（同一会话文件，历史不丢）+ 发 extension_ui_reset。 */
-	private async _rebuildSession(
-		sessionId: string,
-		handle: SessionHandle,
-	): Promise<SessionHandle> {
+		// 重建：拆除旧进程（不动 disposed）+ 重新 _createSession（同一会话文件，历史不丢）。
 		// 用 starting 锁防止重建期间并发 ensureStarted 重复创建。
 		this._teardownSession(sessionId);
 		const promise = this._createSession(
@@ -432,9 +401,9 @@ export class AgentManager {
 		this.starting.set(sessionId, promise);
 		try {
 			const h = await promise;
-			// 旧进程发射的扩展 UI（status/widget/title）全部失效，合成事件通知前端清空
-			// 该会话的扩展 UI 残留（进程 resume 不重放扩展的 session_start 钩子，
-			// UI 是否重发由扩展自身行为决定）
+			// 扩展/技能变更触发的重建：旧进程发射的扩展 UI（status/widget/title）全部失效，
+			// 合成事件通知前端清空该会话的扩展 UI 残留（进程 resume 不重放扩展的
+			// session_start 钩子，UI 是否重发由扩展自身行为决定）
 			this.opts.onEvent(sessionId, h.meta.projectId, h.meta.agentName, {
 				type: "extension_ui_reset",
 			} as RpcEvent);

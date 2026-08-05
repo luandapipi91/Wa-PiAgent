@@ -5,19 +5,6 @@
 ## [Unreleased] - 2026-08-05
 
 ### 变更
-- **插件装卸改用热重载，不再丢失其他插件的 widget/status**：安装/卸载插件后，
-  当前会话此前的实现是「整进程重建 + 发 extension_ui_reset 整体清空扩展 UI」，
-  导致同会话其他无关插件正在显示的 widget/status 被一并清掉、且不自动恢复。
-  现改为热重载：在 wa-pi-bridge 扩展注册内部命令 `__!wa_pi_reload`（handler 调
-  `ctx.reload()` → `session.reload()`，保留 pi 进程、重载扩展资源、重放
-  session_start 让扩展重发 UI），kernel 的 `_reloadIfDirty`（扩展 dirty 分支）
-  改调它替代整进程重建。热重载失败（旧 pi 版本/进程异常）自动回退原整进程重建
-  + extension_ui_reset，向后兼容。skillDirty（agent 重命名/技能变更）仍走整进程
-  重建（改的是 agent 定义层，热重载不重新读 agent 配置）。`__!` 前缀命令经前端
-  commands store 过滤不进命令面板。
-  影响范围：`packages/kernel/src/wa-pi-bridge.extension.ts`、
-  `packages/kernel/src/rpc-client.ts`、`packages/kernel/src/agent-manager.ts`、
-  `packages/frontend/src/store/commands.ts`、相关测试。
 - **移除空置的 EXTENSION_TOOL_MAP 死代码**：该常量（`packages/shared/src/constants.ts`）
   是 `= {}` 空对象，仓库内无任何写入点——它本想用于「动态插件工具注入 agent allowlist」，
   但 pi 不给宿主提供查询已注册工具的接口（RPC 无列工具命令、package.json 无 tools 声明
