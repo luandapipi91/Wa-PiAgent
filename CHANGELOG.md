@@ -5,6 +5,15 @@
 ## [Unreleased] - 2026-08-05
 
 ### 变更
+- **回退插件装卸热重载方案，恢复整进程重建**：此前两次改动（178c899 + 7f5aeff）
+  尝试用 session.reload() 热重载替代整进程重建以避免丢失其他插件 UI。实测发现
+  方案根本无效：wa-pi 把所有扩展通过 `-e` 参数传给 pi（否则 pi 不加载动态插件），
+  但 `-e` 是 spawn 时固定的，session.reload() 不更新它——卸载的插件路径还在 `-e`
+  里，pi 仍加载。热重载只对 settings.json packages 生效，对 `-e` 路径无效。
+  现回退到整进程重建（装卸→markAllDirty→进程重启→新的 -e 路径），保证装卸立即
+  生效。代价：进程重建会清空所有扩展的 widget/status（pi 不重放 session_start），
+  这是已知的、可接受的副作用（用户重新触发插件命令即可恢复 UI）。
+### 变更
 - **移除空置的 EXTENSION_TOOL_MAP 死代码**：该常量（`packages/shared/src/constants.ts`）
   是 `= {}` 空对象，仓库内无任何写入点——它本想用于「动态插件工具注入 agent allowlist」，
   但 pi 不给宿主提供查询已注册工具的接口（RPC 无列工具命令、package.json 无 tools 声明
