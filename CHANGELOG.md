@@ -5,6 +5,15 @@
 ## [Unreleased] - 2026-08-05
 
 ### 变更
+- **聊天导出菜单改为 portal 浮层 + 新增「导出轮数」设置**：导出按钮的下拉菜单原用
+  absolute 定位，被消息列表滚动容器的 overflow 裁剪、靠近底部时被截断。现改用
+  createPortal 提到 document.body（fixed z-50），按按钮位置计算坐标并在空间不足时
+  自动向上翻转。同时在「系统设置-通用」新增「导出轮数」滑块（1-5 轮，默认 1 轮），
+  持久化到 ui-prefs，ExportButton 导出时读取该值作为 collectTurns 的 maxTurns。
+  影响范围：`packages/frontend/src/store/ui-prefs.ts`、
+  `packages/frontend/src/components/settings/GeneralSection.tsx`、
+  `packages/frontend/src/components/blocks/ExportButton.tsx`、
+  `packages/frontend/src/components/blocks/ExportButton.test.tsx`。
 - **setWidget 收起态改为半透明悬浮队列，不再占用聊天区/输入框垂直空间**：此前
   ExtWidget 即使"收起"仍渲染一个完整按钮行（箭头+key+首行预览+外边距）插入
   文档流，挤压聊天区和 Composer。现重构为：所有 widget（above/below 不分左右）

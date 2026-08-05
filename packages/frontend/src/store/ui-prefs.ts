@@ -8,11 +8,19 @@ import { persist } from "zustand/middleware";
 interface UiPrefsState {
 	fontSize: number;
 	setFontSize: (px: number) => void;
+	/** 聊天导出为图片时取的对话轮数（1-5，默认 1）。 */
+	exportTurns: number;
+	setExportTurns: (n: number) => void;
 }
 
 export const FONT_SIZE_MIN = 12;
 export const FONT_SIZE_MAX = 32;
 export const FONT_SIZE_DEFAULT = 16;
+
+/** 导出图片对话轮数约束：1-5 轮，默认 1 轮（只导当条回复 + 其用户提问）。 */
+export const EXPORT_TURNS_MIN = 1;
+export const EXPORT_TURNS_MAX = 5;
+export const EXPORT_TURNS_DEFAULT = 1;
 
 const STORAGE_KEY = "wa-pi-ui-prefs";
 
@@ -39,6 +47,14 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 				);
 				applyFontSize(clamped);
 				set({ fontSize: clamped });
+			},
+			exportTurns: EXPORT_TURNS_DEFAULT,
+			setExportTurns: (n) => {
+				const clamped = Math.min(
+					EXPORT_TURNS_MAX,
+					Math.max(EXPORT_TURNS_MIN, Math.round(n)),
+				);
+				set({ exportTurns: clamped });
 			},
 		}),
 		{
