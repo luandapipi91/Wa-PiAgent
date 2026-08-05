@@ -5,6 +5,20 @@
 ## [Unreleased] - 2026-08-05
 
 ### 变更
+- **setWidget 收起态改为半透明悬浮队列，不再占用聊天区/输入框垂直空间**：此前
+  ExtWidget 即使"收起"仍渲染一个完整按钮行（箭头+key+首行预览+外边距）插入
+  文档流，挤压聊天区和 Composer。现重构为：所有 widget（above/below 不分左右）
+  收起时排成**单一队列**，半透明（opacity 0.4）悬浮贴 Composer 上沿
+  （position absolute，脱离文档流）→ 零垂直占位；above 用 ↑(紫)、below 用
+  ↓(灰) SVG 图标区分类型。窄条数量溢出时左右出现箭头按钮（26×24px），点击
+  平滑滚动一个窄条宽度，到头自动隐藏。点击窄条 → 展开（testid 转移到展开块）
+  在聊天区与 Composer 之间占位显示完整内容 + "收起 ✕"；收起后窄条回队列。
+  影响范围：`packages/frontend/src/components/SessionView.tsx`（主容器加
+  relative、新增 ExtWidgetDock 组件替代原 above/below 分组渲染的 ExtWidget）、
+  `packages/frontend/tests/SessionView.test.tsx`（2 个 widget 用例适配新交互：
+  点击 chip 展开 / 点击 collapse-btn 收起）、
+  `packages/frontend/e2e/ext-ui-bridge-demo.spec.ts`（widget 颜色用例适配）。
+
 - **ext-ui-bridge-demo 增加 ANSI 颜色演示命令 + 全链路 E2E 验证**：
   demo 扩展新增 `/uidemo color` 子命令，一键触发 notify/setStatus/
   setWidget/setTitle 全部带 ANSI SGR 颜色码的 UI 请求，验证 kernel 透传

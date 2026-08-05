@@ -235,12 +235,14 @@ test.describe.serial("ext-ui-bridge-demo 本地扩展", () => {
     await page.keyboard.press("Escape");
     await page.getByTestId("composer-send").click();
 
-    // widget 中有彩色文字（ui-demo-color-above）
-    const widget = page.locator('[data-testid="ext-widget-ui-demo-color-above"]');
-    await expect(widget).toBeVisible({ timeout: 20_000 });
-    // 展开 widget 查看彩色行（点击摘要行展开）
-    await widget.locator("button").click();
-    const coloredLine = widget.locator('span[style*="color"]');
+    // widget 收起窄条可见（ui-demo-color-above，悬浮队列里的 chip）
+    const chip = page.locator('[data-testid="ext-widget-ui-demo-color-above"]');
+    await expect(chip).toBeVisible({ timeout: 20_000 });
+    // 点击 chip 展开 → testid 转移到展开块，查看彩色行
+    await chip.click();
+    const expanded = page.locator('[data-testid="ext-widget-ui-demo-color-above"]');
+    await expect(expanded).toBeVisible({ timeout: 5000 });
+    const coloredLine = expanded.locator('span[style*="color"]');
     await expect(coloredLine.first()).toBeVisible();
   });
 });
