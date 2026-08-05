@@ -562,7 +562,7 @@ test("扩展 setWidget：aboveEditor 在 Composer 上方、belowEditor 在下方
     },
   });
   await renderSessionView("s1");
-  // 默认收起：显示 key + 首行预览，不占完整高度；多行内容（第二行）不可见
+  // 默认收起（悬浮窄条）：显示 key + 首行预览，多行内容（第二行）不可见
   const goal = screen.getByTestId("ext-widget-pi-goal");
   expect(goal.textContent).toContain("pi-goal");
   expect(goal.textContent).toContain("── 目标 ──");
@@ -570,14 +570,15 @@ test("扩展 setWidget：aboveEditor 在 Composer 上方、belowEditor 在下方
   // 单行 widget 收起时预览即全文
   expect(screen.getByTestId("ext-widget-pi-lens").textContent).toContain("上次分析：3 个文件");
 
-  // 点击展开后可见全部内容，且内容框背景透明（不带 bg-surface-elevated）
-  fireEvent.click(goal.querySelector("button")!);
-  expect(goal.textContent).toContain("进度 4/6");
-  expect(goal.innerHTML).not.toContain("bg-surface-elevated");
+  // 点击窄条展开后：testid 转移到展开块，可见全部内容
+  fireEvent.click(goal);
+  const goalExpanded = screen.getByTestId("ext-widget-pi-goal");
+  expect(goalExpanded.textContent).toContain("进度 4/6");
 
-  // 再次点击收起，完整内容消失，恢复一行摘要
-  fireEvent.click(goal.querySelector("button")!);
-  expect(goal.textContent).not.toContain("进度 4/6");
+  // 点击"收起 ✕"回到窄条，完整内容消失
+  fireEvent.click(screen.getByTestId("ext-widget-collapse-pi-goal"));
+  const goalChip = screen.getByTestId("ext-widget-pi-goal");
+  expect(goalChip.textContent).not.toContain("进度 4/6");
 });
 
 test("setStatus/setWidget 的 ANSI 颜色解析为内联样式", async () => {
@@ -602,9 +603,10 @@ test("setStatus/setWidget 的 ANSI 颜色解析为内联样式", async () => {
   expect(summaryColored.style.color).toBe("#34a853");
 
   // setWidget 展开正文：颜色仍解析，纯文本行保留
-  fireEvent.click(widget.querySelector("button")!);
+  fireEvent.click(widget);
   const bodyColored = screen.getByText("进度 4/6");
   expect(bodyColored.style.color).toBe("#34a853");
-  expect(widget.textContent).toContain("第二行");
-  expect(widget.textContent).not.toContain("\x1b");
+  const widgetExpanded = screen.getByTestId("ext-widget-pi-goal");
+  expect(widgetExpanded.textContent).toContain("第二行");
+  expect(widgetExpanded.textContent).not.toContain("\x1b");
 });

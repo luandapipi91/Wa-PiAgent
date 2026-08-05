@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	SYSTEM_PROJECT_ID,
 	resolveSessionCwd,
@@ -18,6 +18,7 @@ import { STATUS_COLORS } from "../theme/colors";
 import { AnsiText } from "./ui/AnsiText";
 import { api } from "../api-client";
 import { fmtTok } from "../util/format";
+import { Icon } from "./ui/Icon";
 
 interface Props {
 	sessionId: string;
@@ -97,15 +98,9 @@ export function SessionView({ sessionId }: Props) {
 	// 扩展 setStatus 状态条目：聊天列底部状态栏（右对齐）
 	const extStatuses = useSessionStore((s) => s.extStatusBySession[sessionId]);
 	const extStatusEntries = extStatuses ? Object.entries(extStatuses) : [];
-	// 扩展 setWidget 文本块：按 placement 分组到 Composer 上/下方
+	// 扩展 setWidget 文本块：统一交给 ExtWidgetDock 渲染（收起悬浮队列 + 展开占位）
 	const widgets = useSessionStore((s) => s.extWidgetBySession[sessionId]);
 	const widgetEntries = widgets ? Object.entries(widgets) : [];
-	const aboveWidgets = widgetEntries.filter(
-		([, w]) => w.placement !== "belowEditor",
-	);
-	const belowWidgets = widgetEntries.filter(
-		([, w]) => w.placement === "belowEditor",
-	);
 	const [stopping, setStopping] = useState(false);
 	useEffect(() => {
 		if (!isRunning) setStopping(false);
@@ -197,7 +192,7 @@ export function SessionView({ sessionId }: Props) {
 	return (
 		<div className="flex-1 flex h-full" data-testid="session-view">
 			{/* 左侧主区：对话内容 */}
-			<div className="flex-1 flex flex-col overflow-hidden min-w-0">
+			<div className="relative flex-1 flex flex-col overflow-hidden min-w-0">
 				{/* 顶部状态栏 */}
 				<header className="flex items-center gap-3 px-5 py-3 border-b border-hairline bg-surface">
 					<div className="flex-1">
@@ -434,10 +429,13 @@ export function SessionView({ sessionId }: Props) {
 
 						{/* 提示 */}
 						{followUp.length > 0 && (
-							<div className="text-tertiary text-[calc(11.5px*var(--font-scale))] mt-1">
-								{isRunning
-									? "💡 引导：下回合立即生效 │ 停止当前后可点击“立即”"
-									: "💡 引导：下回合立即生效 │ 立即：立即执行该消息"}
+							<div className="text-tertiary text-[calc(11.5px*var(--font-scale))] mt-1 inline-flex items-center gap-1">
+								<Icon name="lightbulb" size={12} />
+								<span>
+									{isRunning
+										? "引导：下回合立即生效 │ 停止当前后可点击“立即”"
+										: "引导：下回合立即生效 │ 立即：立即执行该消息"}
+								</span>
 							</div>
 						)}
 					</div>
@@ -445,15 +443,8 @@ export function SessionView({ sessionId }: Props) {
 
 				<MessageList sessionId={sessionId} />
 				<AskDock sessionId={sessionId} />
-				{/* 扩展 setWidget（aboveEditor）：Composer 上方文本块 */}
-				{aboveWidgets.map(([key, w]) => (
-					<ExtWidget
-						key={key}
-						widgetKey={key}
-						lines={w.lines}
-						accentColor="var(--accent)"
-					/>
-				))}
+				{/* 扩展 setWidget：收起态单一队列悬浮（不占位），展开态占位 */}
+				<ExtWidgetDock widgets={widgetEntries} />
 				<Composer
 					sessionId={sessionId}
 					agentName={session.primaryAgent}
@@ -461,16 +452,6 @@ export function SessionView({ sessionId }: Props) {
 					isNewSession={!messages || messages.length === 0}
 					disabled={isBlocked || reloading}
 				/>
-				{/* 扩展 setWidget（belowEditor）：Composer 下方文本块 */}
-				{belowWidgets.map(([key, w]) => (
-					<ExtWidget
-						key={key}
-						widgetKey={key}
-						lines={w.lines}
-						accentColor="var(--hairline-strong)"
-						className="mx-4 mt-2 mb-2"
-					/>
-				))}
 				{/* 扩展 setStatus：聊天列底部状态栏（右对齐，只占中间区域） */}
 				{extStatusEntries.length > 0 && (
 					<div
@@ -556,55 +537,157 @@ function ThinkingTimer({ thinkingSince }: { thinkingSince: number | null }) {
 	return <>{elapsed}</>;
 }
 
+type WidgetEntry = [string, { lines: string[]; placement?: string }];
+
 /**
- * 扩展 setWidget 文本块：可折叠，默认收起为一行摘要，背景透明不遮挡对话内容。
- * 收起时只占一行高度（箭头 + widget key + 首行预览），展开后显示完整等宽文本。
+ * 扩展 setWidget 文本块容器：
+ * - 收起态：所有 widget（above/below 不分左右）排成单一队列，半透明悬浮贴 Composer 上沿，
+ *   不占文档流高度 → 不挤压聊天区/输入框；above 用 ↑(紫)、below 用 ↓(灰) 图标区分。
+ * - 展开态：点击窄条后在原位置（聊天区与 Composer 之间）插入展开块占位，显示完整内容。
+ * - 溢出：窄条数量超出宽度时，左右出现箭头按钮，点击平滑滚动一个窄条宽度。
  */
-function ExtWidget({
-	widgetKey,
-	lines,
-	accentColor,
-	className = "mx-4 mb-2",
-}: {
-	widgetKey: string;
-	lines: string[];
-	accentColor: string;
-	className?: string;
-}) {
-	const [collapsed, setCollapsed] = useState(true);
+function ExtWidgetDock({ widgets }: { widgets: WidgetEntry[] }) {
+	// expandedKey：当前展开的 widget key（null = 全部收起）
+	const [expandedKey, setExpandedKey] = useState<string | null>(null);
+	const trackRef = useRef<HTMLDivElement>(null);
+	const [overflow, setOverflow] = useState({ left: false, right: false });
+
+	// 计算左右箭头是否显示（溢出 + 未到头）
+	const updateOverflow = () => {
+		const el = trackRef.current;
+		if (!el) return;
+		const hasOverflow = el.scrollWidth > el.clientWidth + 1;
+		setOverflow({
+			left: hasOverflow && el.scrollLeft > 1,
+			right: hasOverflow && el.scrollLeft + el.clientWidth < el.scrollWidth - 1,
+		});
+	};
+
+	useEffect(() => {
+		updateOverflow();
+		const el = trackRef.current;
+		if (!el) return;
+		el.addEventListener("scroll", updateOverflow, { passive: true });
+		const ro = new ResizeObserver(updateOverflow);
+		ro.observe(el);
+		return () => {
+			el.removeEventListener("scroll", updateOverflow);
+			ro.disconnect();
+		};
+	}, [widgets.length]);
+
+	// 点击箭头滚动一个窄条宽度
+	const scrollByChip = (dir: "left" | "right") => {
+		const el = trackRef.current;
+		if (!el) return;
+		const chip = el.querySelector('[data-collapsed="true"]');
+		const step = chip ? (chip as HTMLElement).offsetWidth + 4 : 120;
+		el.scrollBy({ left: dir === "left" ? -step : step, behavior: "smooth" });
+	};
+
+	const expanded = widgets.find(([key]) => key === expandedKey);
 
 	return (
-		<div className={className} data-testid={`ext-widget-${widgetKey}`}>
-			<button
-				type="button"
-				onClick={() => setCollapsed((v) => !v)}
-				className="flex w-full items-center gap-1.5 text-left text-[calc(11.5px*var(--font-scale))] text-tertiary transition-colors hover:text-secondary"
-			>
-				<span
-					className="inline-block text-[calc(9px*var(--font-scale))] transition-transform"
+		<>
+			{/* 展开区：展开的 widget 占位（聊天区与 Composer 之间），收起时为空不占位 */}
+			{expanded && (
+				<div
+					className="mx-4 mb-2 flex-shrink-0 rounded-md border border-hairline/50 px-3 py-2"
+					data-testid={`ext-widget-${expanded[0]}`}
 					style={{
-						color: accentColor,
-						transform: collapsed ? "rotate(0deg)" : "rotate(90deg)",
+						borderLeft: `3px solid ${
+							expanded[1].placement === "belowEditor"
+								? "var(--hairline-strong)"
+								: "var(--accent)"
+						}`,
 					}}
 				>
-					▶
-				</span>
-				<span className="font-mono">{widgetKey}</span>
-				{collapsed && (
-					<span className="min-w-0 flex-1 truncate text-secondary/60">
-						<AnsiText text={lines[0]} />
-						{lines.length > 1 ? ` · 共 ${lines.length} 行` : ""}
-					</span>
-				)}
-			</button>
-			{!collapsed && (
-				<div
-					className="mt-1 whitespace-pre-wrap rounded-md border border-hairline/50 px-3 py-2 font-mono text-[calc(12px*var(--font-scale))] text-secondary"
-					style={{ borderLeft: `3px solid ${accentColor}` }}
-				>
-					<AnsiText text={lines.join("\n")} />
+					<div className="mb-1 flex items-center justify-between">
+						<span className="flex items-center gap-1.5">
+							<span className="font-mono text-[calc(12px*var(--font-scale))] font-semibold text-secondary">
+								{expanded[0]}
+							</span>
+							<span
+								className="text-[calc(10px*var(--font-scale))]"
+								style={{
+									color:
+										expanded[1].placement === "belowEditor"
+											? "var(--text-tertiary)"
+											: "var(--accent)",
+								}}
+							>
+								{expanded[1].placement === "belowEditor" ? "belowEditor" : "aboveEditor"}
+							</span>
+						</span>
+						<button
+							type="button"
+							onClick={() => setExpandedKey(null)}
+							className="rounded px-1.5 py-0.5 text-[calc(11px*var(--font-scale))] text-tertiary transition-colors hover:bg-surface-hover"
+							data-testid={`ext-widget-collapse-${expanded[0]}`}
+						>
+							收起 ✕
+						</button>
+					</div>
+					<div className="whitespace-pre-wrap font-mono text-[calc(12px*var(--font-scale))] text-secondary">
+						<AnsiText text={expanded[1].lines.join("\n")} />
+					</div>
 				</div>
 			)}
-		</div>
+
+			{/* 收起队列：半透明悬浮贴 Composer 上沿，单一队列，溢出时箭头滚动 */}
+			{widgets.filter(([key]) => key !== expandedKey).length > 0 && (
+				<div className="pointer-events-none absolute bottom-[52px] left-0 right-0 z-20 flex items-end">
+					{overflow.left && (
+						<button
+							type="button"
+							onClick={() => scrollByChip("left")}
+							className="pointer-events-auto flex h-6 w-[26px] flex-shrink-0 items-center justify-center rounded-t-md border border-b-0 border-hairline bg-surface text-secondary opacity-70 transition-opacity hover:opacity-100 hover:text-accent"
+							aria-label="向左滚动"
+						>
+							<Icon name="chevron-right" size={13} style={{ transform: "rotate(180deg)" }} />
+						</button>
+					)}
+					<div
+						ref={trackRef}
+						className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto px-[5px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+					>
+						{widgets
+							.filter(([key]) => key !== expandedKey)
+							.map(([key, w]) => {
+								const isAbove = w.placement !== "belowEditor";
+								return (
+									<button
+										key={key}
+										type="button"
+										data-collapsed="true"
+										data-testid={`ext-widget-${key}`}
+										onClick={() => setExpandedKey(key)}
+										className="pointer-events-auto inline-flex max-w-[240px] flex-shrink-0 items-center gap-1.5 truncate rounded-t-md border border-b-0 border-hairline bg-surface px-2.5 py-[3px] font-mono text-[calc(11.5px*var(--font-scale))] text-secondary opacity-40 transition-opacity hover:opacity-85"
+										title={`点击展开 ${key}`}
+									>
+										<span style={{ color: isAbove ? "var(--accent)" : "var(--hairline-strong)" }}>
+											<Icon name={isAbove ? "arrow-up" : "chevron-down"} size={11} />
+										</span>
+										<span className="truncate">
+											{key} · <AnsiText text={w.lines[0]} />
+											{w.lines.length > 1 ? ` · 共${w.lines.length}行` : ""}
+										</span>
+									</button>
+								);
+							})}
+					</div>
+					{overflow.right && (
+						<button
+							type="button"
+							onClick={() => scrollByChip("right")}
+							className="pointer-events-auto flex h-6 w-[26px] flex-shrink-0 items-center justify-center rounded-t-md border border-b-0 border-hairline bg-surface text-secondary opacity-70 transition-opacity hover:opacity-100 hover:text-accent"
+							aria-label="向右滚动"
+						>
+							<Icon name="chevron-right" size={13} />
+						</button>
+					)}
+				</div>
+			)}
+		</>
 	);
 }
