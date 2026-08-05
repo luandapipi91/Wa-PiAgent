@@ -1,6 +1,6 @@
 // export-chat-image 纯逻辑单测：collectTurns 切片/配对/过滤/上限 + downloadBlob。
-import { test, expect } from "bun:test";
-import { collectTurns, downloadBlob } from "./export-chat-image";
+import { test, expect, mock } from "bun:test";
+import { collectTurns, downloadBlob, renderTurnsToPngBlob } from "./export-chat-image";
 
 // 构造 SessionMessage 形 fixture（只保留 collectTurns 关心的字段）
 function userMsg(text: string, ts: number) {
@@ -96,4 +96,27 @@ test("downloadBlob：创建 a[download] 并触发 click", () => {
 	} finally {
 		HTMLAnchorElement.prototype.click = origClick;
 	}
+});
+
+// renderTurnsToPngBlob：mock html-to-image（happy-dom 无 canvas），
+// 验证屏外容器挂载/卸载与 toBlob 调用参数。
+mock.module("html-to-image", () => ({
+	toBlob: async (node: HTMLElement, opts: any) => {
+		(globalThis as any).__toBlobArgs = { text: node.textContent, opts };
+		return new Blob(["png-bytes"], { type: "image/png" });
+	},
+}));
+
+test("renderTurnsToPngBlob：屏外渲染卡片→toBlob→清理容器", async () => {
+	const before = document.body.children.length;
+	const blob = await renderTurnsToPngBlob([
+		{ user: "问", assistant: "答", agentName: "dev", timestamp: 100 },
+	]);
+	expect(blob.type).toBe("image/png");
+	const args = (globalThis as any).__toBlobArgs;
+	expect(args.text).toContain("问");
+	expect(args.text).toContain("答");
+	expect(args.opts.pixelRatio).toBe(2);
+	// 容器已清理（不残留屏外 DOM）
+	expect(document.body.children.length).toBe(before);
 });
