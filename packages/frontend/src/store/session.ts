@@ -100,10 +100,10 @@ interface SessionState {
 	setMessages: (sessionId: string, messages: SessionMessage[]) => void;
 	/** 标记某会话历史是否正在加载（SessionView 发请求置 true、收响应置 false）。 */
 	setHistoryLoading: (sessionId: string, loading: boolean) => void;
-	/** 根据后端 isActive 设置会话 thinking/idle 状态 */
+	/** 根据后端 isActive 设置会话 thinking/idle 状态；isActive 缺省（undefined）时不干预 */
 	setActiveStatus: (
 		sessionId: string,
-		isActive: boolean,
+		isActive: boolean | undefined,
 		thinkingSince?: number | null,
 	) => void;
 	/** 原地重试用：保留 messages[0, fromIndex)，丢弃 [fromIndex, end)。
@@ -404,7 +404,7 @@ export const useSessionStore = create<SessionState>((set) => {
 		/** 根据 isActive 设置会话状态（历史加载/重连时调用） */
 		setActiveStatus: (
 			sessionId: string,
-			isActive: boolean,
+			isActive: boolean | undefined,
 			thinkingSince?: number | null,
 		) =>
 			set((s) => {
@@ -420,7 +420,31 @@ export const useSessionStore = create<SessionState>((set) => {
 						},
 					};
 				}
-				return {};
+				// 仅显式 false 才对齐复位；undefined 说明响应缺省/不可信，保持现状不干预
+				if (isActive !== false) return {};
+				// isActive=false：以 kernel 为权威对齐——SSE 断线窗口漏掉终态事件
+				// （agent_end / auto_retry_end / error 不重放）或 kernel 重启后，本地残留的
+				// thinking / loading 占位 / 重试条必须复位，否则永远停在"对话中"。
+				const needReset =
+					s.statusBySession[sessionId] === "thinking" ||
+					s.thinkingSinceBySession[sessionId] != null ||
+					s.streamingBySession[sessionId] != null ||
+					s.retryBySession[sessionId] != null;
+				if (!needReset) return {};
+				const retryBySession = { ...s.retryBySession };
+				delete retryBySession[sessionId];
+				return {
+					statusBySession: { ...s.statusBySession, [sessionId]: "idle" },
+					thinkingSinceBySession: {
+						...s.thinkingSinceBySession,
+						[sessionId]: null,
+					},
+					streamingBySession: {
+						...s.streamingBySession,
+						[sessionId]: null,
+					},
+					retryBySession,
+				};
 			}),
 
 		setHistoryLoading: (sessionId, loading) =>
