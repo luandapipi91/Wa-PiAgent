@@ -13,6 +13,7 @@ import { useSkillsStore } from "../store/skills";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { api } from "../api-client";
 import { fmtTok } from "../util/format";
+import { Icon } from "./ui/Icon";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -385,7 +386,7 @@ export function MessageList({ sessionId }: Props) {
 					data-testid={`scroll-bottom-${sessionId}`}
 					aria-label="滚动到底部"
 					title="滚动到底部"
-					className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 w-9 h-9 rounded-full bg-surface border border-hairline shadow-md flex items-center justify-center text-secondary hover:text-primary transition-colors"
+					className="absolute bottom-[37px] right-3 z-10 w-9 h-9 rounded-full bg-surface border border-hairline shadow-md flex items-center justify-center text-secondary hover:text-primary transition-colors"
 				>
 					↓
 				</button>
@@ -456,13 +457,13 @@ function stripAttachmentRefs(content: string): string {
 }
 
 /**
- * 把技能引用替换为简洁的技能名显示，统一渲染为 ⚡ 技能名。两种输入形态：
+ * 把技能引用统一改写为 $[name] chip token（渲染为带闪电 SVG 图标的技能 chip）。两种输入形态：
  *
  * 1. <skill name="...">完整内容</skill> XML 块：SDK 的 _expandSkillCommand 把
  *    /skill:name 展开成完整 SKILL.md 内容注入消息，前端只展示技能名。
  * 2. /skill:name 纯文本：输入框里技能是 $[name] chip，发送时 expandTokens 展开为
  *    /skill:name （给 SDK 识别）。当 SDK 未把它再展开成 <skill> XML 时，消息以
- *    纯文本命令形式存储——这条分支兜底把它也渲染为 ⚡ 技能名，与输入框 chip 视觉一致。
+ *    纯文本命令形式存储——这条分支兜底把它也渲染为技能 chip，与输入框视觉一致。
  *    约束：只有 knownSkills（已启用技能列表里真实存在的技能名）才渲染，避免任意 /skill:xxx
  *    文本被误判为技能。
  *
@@ -476,13 +477,15 @@ function formatSkillBlocks(
 	content: string,
 	knownSkills?: ReadonlySet<string>,
 ): string {
+	// 统一改写为 $[name] chip token：textToHtml 渲染为带闪电图标的技能 chip，
+	// 且「重新发送」时 expandTokens 能还原为 /skill:name（技能语义不丢）
 	return content
 		.replace(
 			/<skill name="([^"]+)"[^>]*>[\s\S]*?<\/skill>\s*/g,
-			(_m, name) => `⚡ ${name} `,
+			(_m, name) => `$[${name}] `,
 		)
 		.replace(/\/skill:([^\s/]+)\s*/g, (_m, name) =>
-			knownSkills?.has(name) ? `⚡ ${name} ` : _m,
+			knownSkills?.has(name) ? `$[${name}] ` : _m,
 		);
 }
 
@@ -561,8 +564,8 @@ function StreamingRow({
 		);
 	return (
 		<div className="flex gap-2.5" data-testid={`loading-${sessionId}`}>
-			<div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-sm flex-shrink-0">
-				🤖
+			<div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-sm flex-shrink-0 text-secondary">
+				<Icon name="robot" size={17} testId="avatar-robot" />
 			</div>
 			<div className="max-w-[78%]">
 				<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
@@ -697,7 +700,7 @@ const MessageRow = memo(function MessageRow({
 							onClick={() => onResend?.(displayText)}
 							className="mt-1 self-end text-[calc(12px*var(--font-scale))] text-secondary hover:text-primary border border-hairline rounded-pill px-2 py-0.5 transition-colors"
 						>
-							↻ 重新发送
+							<Icon name="refresh" size={11} style={{verticalAlign:"-0.1em"}} /> 重新发送
 						</button>
 					)}
 				</div>
@@ -833,8 +836,8 @@ const MessageRow = memo(function MessageRow({
 			className="flex gap-2.5"
 			data-testid={`msg-${sessionId}-${m.timestamp}`}
 		>
-			<div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-sm flex-shrink-0">
-				🤖
+			<div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-sm flex-shrink-0 text-secondary">
+				<Icon name="robot" size={17} testId="avatar-robot" />
 			</div>
 			<div className={`${hasProcessCard ? "w-[78%]" : "max-w-[78%]"} min-w-0`}>
 				<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">

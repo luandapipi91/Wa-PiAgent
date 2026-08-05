@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
+import { Icon } from "../ui/Icon";
 import { createMarkdownComponents } from "./markdown-components";
 import { useSessionStore } from "../../store/session";
 import { useLiveElapsed } from "./useLiveElapsed";
@@ -83,7 +84,7 @@ export function DelegateCard({
 	return (
 		<ProcessCard
 			tone="warning"
-			icon="↪"
+			icon={<Icon name="reply" />}
 			title={`委派给 ${args.agent ?? "子智能体"}`}
 			meta={
 				!result ? (
@@ -92,9 +93,15 @@ export function DelegateCard({
 						<span>执行中</span>
 					</>
 				) : failed ? (
-					"✗ 失败"
+					<>
+						<Icon name="x" size={12} />
+						<span>失败</span>
+					</>
 				) : (
-					"✓ 完成"
+					<>
+						<Icon name="check" size={12} />
+						<span>完成</span>
+					</>
 				)
 			}
 			open={open}
@@ -102,7 +109,7 @@ export function DelegateCard({
 			muted={!!result}
 			testId={`delegate-${toolCall.id}`}
 		>
-			<div className="mb-1">📋 任务：{args.task}</div>
+			<div className="mb-1 flex items-start gap-1"><Icon name="clipboard" size={12} style={{ marginTop: 2, flexShrink: 0 }} /><span>任务：{args.task}</span></div>
 			{hasProgress && (
 				<div
 					className="mt-2 pt-2 border-t border-hairline"
@@ -122,7 +129,7 @@ export function DelegateCard({
 								{toolCounts.total} 个工具 · 成功 {toolCounts.done} · 失败{" "}
 								{toolCounts.error} · 执行中 {toolCounts.running}
 							</span>
-							<span className="ml-auto">{progressExpanded ? "▼" : "▶"}</span>
+							<span className="ml-auto"><Icon name={progressExpanded ? "chevron-down" : "chevron-right"} size={10} /></span>
 						</button>
 					) : (
 						<div className="text-[calc(11px*var(--font-scale))] text-tertiary py-1">
@@ -139,7 +146,7 @@ export function DelegateCard({
 					data-testid="text-block"
 					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
 				>
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1">📤 回复：</div>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1"><Icon name="share" size={11} /><span>回复：</span></div>
 					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
 						{replyText}
 					</ReactMarkdown>

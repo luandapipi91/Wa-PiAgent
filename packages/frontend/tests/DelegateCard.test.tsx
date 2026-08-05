@@ -84,7 +84,7 @@ test("执行中（无 result、非流式，如 block 已定稿但工具未返回
 	).toBeNull();
 });
 
-test("失败（result.isError）：meta 含「✗ 失败」，展开后结果文本为 danger 样式", () => {
+test("失败（result.isError）：meta 含「失败」，展开后结果文本为 danger 样式", () => {
 	const errResult = {
 		...result,
 		isError: true,
@@ -92,8 +92,8 @@ test("失败（result.isError）：meta 含「✗ 失败」，展开后结果文
 	};
 	render(<DelegateCard sessionId="s1" toolCall={call} result={errResult} />);
 	const header = screen.getByTestId("delegate-t1-header");
-	expect(header.textContent).toContain("✗ 失败");
-	expect(header.textContent).not.toContain("✓ 完成");
+	expect(header.textContent).toContain("失败");
+	expect(header.textContent).not.toContain("完成");
 	// 展开后结果文本可见且为 danger
 	fireEvent.click(header);
 	const body = screen.getByTestId("delegate-t1-body");

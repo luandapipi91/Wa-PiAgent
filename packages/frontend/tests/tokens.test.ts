@@ -71,13 +71,16 @@ test("textToHtml 渲染文件 chip 为 span", () => {
 });
 
 test("textToHtml 渲染技能 chip 为 span", () => {
-  // 技能 chip 渲染用 ⚡ 图标代替触发符（更直观）
+  // 技能 chip 的闪电图标已由 Unicode ⚡ 改为内联 svg（iconSvg("bolt")），
+  // 故只断言 svg 标记 + 技能名 + class，不再断言 ⚡ 字面量。
   expect(textToHtml("$[brainstorm]")).toContain("data-token=\"$[brainstorm]\"");
-  expect(textToHtml("$[brainstorm]")).toContain("⚡ brainstorm");
+  expect(textToHtml("$[brainstorm]")).toContain("<svg");
+  expect(textToHtml("$[brainstorm]")).toContain("> brainstorm</span>");
   expect(textToHtml("$[brainstorm]")).toContain("chip-skill");
-  // ¥ token 渲染时 chip 同样显示 ⚡（内部统一表示）
+  // ¥ token 渲染时 chip 同样用 svg 闪电（内部统一表示）
   expect(textToHtml("¥[brainstorm]")).toContain("data-token=\"$[brainstorm]\"");
-  expect(textToHtml("¥[brainstorm]")).toContain("⚡ brainstorm");
+  expect(textToHtml("¥[brainstorm]")).toContain("<svg");
+  expect(textToHtml("¥[brainstorm]")).toContain("> brainstorm</span>");
   expect(textToHtml("¥[brainstorm]")).toContain("chip-skill");
 });
 

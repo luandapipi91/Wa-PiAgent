@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Icon } from "../ui/Icon";
 
 export type ProcessTone = "accent" | "success" | "warning" | "danger";
 
@@ -57,7 +58,7 @@ export function ProcessCard(props: {
         </span>
         <span className="text-[calc(12px*var(--font-scale))] text-primary min-w-0 truncate">{title}</span>
         <span className="ml-auto inline-flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-tertiary flex-shrink-0">{meta}</span>
-        <span className="text-tertiary" style={{ fontSize: "calc(10px * var(--font-scale))" }}>{open ? "▾" : "▸"}</span>
+        <span className="text-tertiary inline-flex" style={{ fontSize: "calc(10px * var(--font-scale))" }}><Icon name={open ? "chevron-down" : "chevron-right"} size={10} /></span>
       </button>
       {open && children != null && (
         <div

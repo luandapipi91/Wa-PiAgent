@@ -181,7 +181,7 @@ test("成功的 toolCall（result 且非 isError）→ ✓ 图标 + 绿色（suc
 	// 成功的 toolCall：✓ 图标 + meta「完成」+ success tone + 弱化
 	const card = screen.getByTestId("toolcall-ok1");
 	const header = screen.getByTestId("toolcall-ok1-header");
-	expect(header.textContent).toContain("✓");
+	expect(header.textContent).toContain("完成");
 	expect(header.textContent).toContain("完成");
 	expect(header.textContent).not.toContain("✗");
 	const iconBox = header.querySelector("span")!;
@@ -221,7 +221,7 @@ test("失败的 toolCall（result.isError）→ ✗ 图标 + 红色（danger）�
 	// 失败的 toolCall：✗ 图标 + meta「失败」+ danger tone + 弱化
 	const card = screen.getByTestId("toolcall-e1");
 	const header = screen.getByTestId("toolcall-e1-header");
-	expect(header.textContent).toContain("✗");
+	expect(header.textContent).toContain("失败");
 	expect(header.textContent).toContain("失败");
 	const iconBox = header.querySelector("span")!;
 	expect(iconBox.getAttribute("style")).toContain("var(--danger)");
@@ -1626,7 +1626,7 @@ test("同 agent 多 block 回合流式中：已提交 thinking 行 + 流式 text
 	});
 	render(<MessageList sessionId="s1" />);
 	// 只有一个机器人头像
-	expect(screen.getAllByText("🤖")).toHaveLength(1);
+	expect(screen.getAllByTestId("avatar-robot")).toHaveLength(1);
 	// 已提交 thinking（折叠面板按钮）与流式 text 同处一行，均可见
 	expect(screen.getByText("正在回答")).toBeTruthy();
 	expect(screen.getByTestId("thinking-panel")).toBeTruthy();
@@ -1690,7 +1690,7 @@ test("同一 agent 回合被 toolResult 拆成两条 assistant（中间无用户
 	});
 	render(<MessageList sessionId="s1" />);
 	// 同一回合只渲染一个机器人头像（不应被 toolResult 隔断成两行）
-	expect(screen.getAllByText("🤖")).toHaveLength(1);
+	expect(screen.getAllByTestId("avatar-robot")).toHaveLength(1);
 	// 历史轮折叠：中间 text 段（好的）折叠进摘要行，先展开再断言两段文本同处一行可见
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.getByText("好的")).toBeTruthy();
@@ -1727,7 +1727,7 @@ test("不同 agent 的连续 assistant 不合并（各自一个头像）", () =>
 	});
 	render(<MessageList sessionId="s1" />);
 	// 不同 agent = 不同回合，各自一个头像
-	expect(screen.getAllByText("🤖")).toHaveLength(2);
+	expect(screen.getAllByTestId("avatar-robot")).toHaveLength(2);
 });
 
 // ── 复制按钮 ──
@@ -1813,7 +1813,7 @@ test("用户消息中的 <skill> XML 块显示为技能名而非完整内容", (
 	const bubble = screen.getByTestId("msg-s1-1").querySelector("p")!;
 	const text = bubble.textContent ?? "";
 	// 应显示技能名
-	expect(text).toContain("⚡ speech-recognition");
+	expect(text).toContain("speech-recognition");
 	// 应显示用户附加文本
 	expect(text).toContain("帮我识别录音");
 	// 不应显示技能正文内容
@@ -1849,7 +1849,7 @@ test("用户消息中的多个 <skill> 块都被格式化", () => {
 
 test("用户消息中 <skill> 块后跟 \\n\\n 再跟文本 → 技能名与文本同一行（不换行）", () => {
 	// 真实数据结构：SDK 把 /skill:xxx 展开成 <skill>...</skill>，用户输入的文本追加在后面，
-	// 中间隔着 \n\n。formatSkillBlocks 把 <skill> 替换为 ⚡ name 后，
+	// 中间隔着 \n\n。formatSkillBlocks 把 <skill> 替换为技能 chip token 后，
 	// 不应在技能名和后续文本间保留空行（\n\n 被 textToHtml 转成 <br><br> 会显示为空行）。
 	const skillBlock = `<skill name="speech-recognition" location="/path/SKILL.md">\n内容\n</skill>`;
 	useSessionStore.setState({
@@ -1869,7 +1869,7 @@ test("用户消息中 <skill> 块后跟 \\n\\n 再跟文本 → 技能名与文�
 	render(<MessageList sessionId="s1" />);
 	const bubble = screen.getByTestId("msg-s1-1").querySelector("p")!;
 	const text = bubble.textContent ?? "";
-	expect(text).toContain("⚡ speech-recognition");
+	expect(text).toContain("speech-recognition");
 	expect(text).toContain("sss");
 	// 关键：DOM 里不应有 <br>（\n\n 会被 textToHtml 转成 <br><br> 产生空行）
 	expect(bubble.querySelectorAll("br").length).toBe(0);
@@ -1878,10 +1878,10 @@ test("用户消息中 <skill> 块后跟 \\n\\n 再跟文本 → 技能名与文�
 // === /skill:xxx 纯文本（输入框 chip 经 expandTokens 展开后存入消息，SDK 未再展开成 <skill> XML）回显为技能 chip ===
 // 约束：只有已启用技能列表（skills）里真实存在的技能名才渲染为 chip，避免任意 /skill:xxx 文本被误判。
 
-test("用户消息中 /skill:xxx 纯文本显示为 ⚡ 技能名（技能在 skills 中）", () => {
+test("用户消息中 /skill:xxx 纯文本显示为技能名 chip（技能在 skills 中）", () => {
 	// 真实数据：输入框里技能是 $[test-driven-development] chip，发送时 expandTokens 展开为
 	// /skill:test-driven-development （纯文本，给 SDK 识别）。SDK 未展开成 <skill> XML，
-	// 消息以纯文本命令形式存储。该技能在 skills 中 → formatSkillBlocks 渲染为 ⚡ 技能名。
+	// 消息以纯文本命令形式存储。该技能在 skills 中 → formatSkillBlocks 渲染为技能 chip。
 	useSkillsStore.setState({
 		skills: [
 			{
@@ -1909,8 +1909,8 @@ test("用户消息中 /skill:xxx 纯文本显示为 ⚡ 技能名（技能在 sk
 	render(<MessageList sessionId="s1" />);
 	const bubble = screen.getByTestId("msg-s1-1").querySelector("p")!;
 	const text = bubble.textContent ?? "";
-	// 应显示技能名（与 <skill> XML 块渲染一致的 ⚡ 前缀）
-	expect(text).toContain("⚡ test-driven-development");
+	// 应显示技能名（与 <skill> XML 块渲染一致的 chip）
+	expect(text).toContain("test-driven-development");
 	// 应显示用户附加文本
 	expect(text).toContain("来推进，请回退");
 	// 不应残留原始 /skill: 命令前缀
@@ -1918,7 +1918,7 @@ test("用户消息中 /skill:xxx 纯文本显示为 ⚡ 技能名（技能在 sk
 });
 
 test("用户消息中 /skill:xxx（技能不在 skills 中）保持纯文本不渲染 chip", () => {
-	// 技能名不在技能列表里 → 不应渲染为 ⚡，保持原样纯文本
+	// 技能名不在技能列表里 → 不应渲染为 chip，保持原样纯文本
 	useSkillsStore.setState({
 		skills: [
 			{ name: "其他技能", path: "/y", source: "pkg", enabled: true } as any,
@@ -1939,9 +1939,10 @@ test("用户消息中 /skill:xxx（技能不在 skills 中）保持纯文本不�
 		},
 	});
 	render(<MessageList sessionId="s1" />);
-	const text =
-		screen.getByTestId("msg-s1-1").querySelector("p")!.textContent ?? "";
-	expect(text).not.toContain("⚡");
+	const msg = screen.getByTestId("msg-s1-1");
+	const text = msg.querySelector("p")!.textContent ?? "";
+	// 不渲染为技能 chip，原文纯文本保留
+	expect(msg.querySelector(".chip-skill")).toBeNull();
 	expect(text).toContain("/skill:不存在的技能");
 });
 
@@ -1973,7 +1974,7 @@ test("用户消息中 /skill:xxx 命令后多余空格被压缩为单个（技�
 	render(<MessageList sessionId="s1" />);
 	const text =
 		screen.getByTestId("msg-s1-1").querySelector("p")!.textContent ?? "";
-	expect(text).toContain("⚡ brainstorming");
+	expect(text).toContain("brainstorming");
 	expect(text).toContain("开始吧");
 });
 
@@ -1996,7 +1997,7 @@ test("用户消息中普通 /命令（非 skill）不被误渲染为技能 chip"
 	render(<MessageList sessionId="s1" />);
 	const text =
 		screen.getByTestId("msg-s1-1").querySelector("p")!.textContent ?? "";
-	expect(text).not.toContain("⚡");
+	expect(text).not.toContain("/skill:");
 	expect(text).toContain("/model");
 });
 

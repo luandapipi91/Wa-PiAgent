@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { readFile, revealFile } from "../../fs-client";
 import { createMarkdownComponents } from "./markdown-components";
+import { Icon } from "../ui/Icon";
 
 // 图片扩展名集合（与 kernel checkPreviewable 放行的 image/* 对齐）
 const IMAGE_EXTS = new Set([
@@ -164,15 +165,15 @@ function ImageViewer({
 	return (
 		<div className="flex flex-col h-full" data-testid="image-viewer">
 			<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface">
-				<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate">
-					🖼️ {alt}
+				<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate inline-flex items-center gap-1">
+					<Icon name="image" size={13} /> {alt}
 				</span>
 				<button
 					className="fv-btn"
 					onClick={() => setZoom((z) => clampZoom(z / 1.25))}
 					title="缩小"
 				>
-					➖
+					<Icon name="minus" size={12} />
 				</button>
 				<span className="text-[calc(11px*var(--font-scale))] text-tertiary w-10 text-center">
 					{Math.round(zoom * 100)}%
@@ -182,10 +183,10 @@ function ImageViewer({
 					onClick={() => setZoom((z) => clampZoom(z * 1.25))}
 					title="放大"
 				>
-					➕
+					<Icon name="plus" size={12} />
 				</button>
 				<button className="fv-btn" onClick={onClose} title="关闭">
-					✕
+					<Icon name="x" size={12} />
 				</button>
 			</div>
 			<div
@@ -315,7 +316,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				className="flex flex-col items-center justify-center h-full gap-3"
 				data-testid="fv-unsupported"
 			>
-				<span className="text-[calc(32px*var(--font-scale))]">📄</span>
+				<span className="text-[calc(32px*var(--font-scale))] inline-flex text-tertiary"><Icon name="file" size={32} /></span>
 				<span className="text-[calc(13px*var(--font-scale))] text-secondary">不支持预览该文件</span>
 				<span className="text-[calc(11px*var(--font-scale))] text-tertiary">{unsupported}</span>
 				<div className="flex items-center gap-2">
@@ -355,11 +356,11 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 		return (
 			<div className="flex flex-col h-full" data-testid="file-viewer">
 				<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface">
-					<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono">
-						📄 {fileName}
+					<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono inline-flex items-center gap-1">
+						<Icon name="file" size={12} /> {fileName}
 					</span>
 					<button className="fv-btn" onClick={onClose} title="关闭">
-						✕
+						<Icon name="x" size={12} />
 					</button>
 				</div>
 				{/* markdown 预览：左右内间距 20px（px-5），上下 10px（py-2.5） */}
@@ -382,11 +383,11 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 	return (
 		<div className="flex flex-col h-full" data-testid="file-viewer">
 			<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline bg-surface">
-				<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono">
-					📄 {fileName}
+				<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono inline-flex items-center gap-1">
+					<Icon name="file" size={12} /> {fileName}
 				</span>
 				<button className="fv-btn" onClick={onClose} title="关闭">
-					✕
+					<Icon name="x" size={12} />
 				</button>
 			</div>
 			<div ref={bodyRef} className="flex-1 overflow-auto bg-canvas p-2.5">

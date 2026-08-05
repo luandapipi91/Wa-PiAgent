@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listDir, revealFile } from "../fs-client";
 import { copyToClipboard } from "../util/clipboard";
 import { useToastStore } from "../store/toast";
+import { Icon } from "./ui/Icon";
 
 type Entry = { name: string; path: string; isDir: boolean };
 
@@ -279,9 +280,9 @@ export function ExplorerPanel({
             onContextMenu={(e) => handleContextMenu(e, node)}
           >
             <span className="ep-arrow">
-              {node.entry.isDir ? (node.expanded ? "▾" : "▸") : null}
+              {node.entry.isDir ? <Icon name={node.expanded ? "chevron-down" : "chevron-right"} size={10} /> : null}
             </span>
-            <span className="ep-icon">{node.entry.isDir ? "📁" : "📄"}</span>
+            <span className="ep-icon inline-flex"><Icon name={node.entry.isDir ? "folder" : "file"} size={13} /></span>
             <span className="ep-name">{node.entry.name}</span>
           </div>
         );

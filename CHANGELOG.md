@@ -5,6 +5,26 @@
 ## [Unreleased] - 2026-08-05
 
 ### 变更
+- **测试断言跟进 Icon 化改造（emoji → svg）**：前端把技能 chip 闪电符、项目/目录
+  树图标由 Unicode emoji（⚡🏠📁）统一替换为内联 SVG（Icon 组件）后，相关测试断言
+  仍按 emoji 文本匹配，导致 11 个测试失败。已将 ComposerTextarea/tokens 的技能 chip
+  断言改为按 data-token + svg 标记，ProjectItem 图标断言改为按 Icon testId
+  （实现侧给 home/folder/folder-open 三个图标补 testId），DirTreePicker 目录匹配
+  正则去掉 emoji 前缀。修复 24→13 fail（剩余 13 个 DirTreePicker 失败为
+  react-complex-tree 懒加载在测试环境的预存兼容问题，与本次改动无关，留待专项排查）。
+  影响范围：`packages/frontend/tests/ComposerTextarea.test.tsx`、
+  `packages/frontend/tests/tokens.test.ts`、
+  `packages/frontend/tests/ProjectItem.system.test.tsx`、
+  `packages/frontend/tests/DirTreePicker.test.tsx`、
+  `packages/frontend/src/components/ProjectItem.tsx`。
+- **ext-error-spam-demo 新增 `/exterr one` 命令级错误路径**：原 demo 只能经
+  input handler 凑 50 条（需 `/exterr fire` + 再发一条消息两步触发），无法快速
+  验证单条 extension_error 的渲染。新增 `/exterr one` 子命令，handler 直接 throw，
+  被 pi `_tryExecuteExtensionCommand` 整体 try/catch 捕获为 1 条错误
+  （event:`command`、extensionPath:`command:exterr`），与 input 路径
+  （event:`input`）天然区分。现在两条路径都可在诊断列表回归。
+  影响范围：`examples/ext-error-spam-demo/index.ts`、
+  `examples/ext-error-spam-demo/README.md`。
 - **聊天导出菜单改为 portal 浮层 + 新增「导出轮数」设置**：导出按钮的下拉菜单原用
   absolute 定位，被消息列表滚动容器的 overflow 裁剪、靠近底部时被截断。现改用
   createPortal 提到 document.body（fixed z-50），按按钮位置计算坐标并在空间不足时

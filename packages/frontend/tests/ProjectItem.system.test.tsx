@@ -47,7 +47,8 @@ test("系统项目始终显示 🏠（不论展开/折叠）", () => {
       onSelectProject={() => {}}
     />
   );
-  expect(screen.getByTestId(`project-toggle-${SYSTEM_PROJECT_ID}`).textContent).toContain("🏠");
+  // 图标已由 emoji 改为 Icon(home)；按 testId 断言图标类型，不受 svg 无 textContent 影响
+  expect(screen.getByTestId(`project-toggle-${SYSTEM_PROJECT_ID}`).querySelector('[data-testid="project-icon-home"]')).toBeTruthy();
 
   // 展开状态（清空 collapsedProjectIds）
   act(() => {
@@ -64,9 +65,9 @@ test("系统项目始终显示 🏠（不论展开/折叠）", () => {
       onSelectProject={() => {}}
     />
   );
-  // 展开后图标仍是 🏠（不能变成 📂，否则失去默认工作区辨识度）
-  expect(screen.getByTestId(`project-toggle-${SYSTEM_PROJECT_ID}`).textContent).toContain("🏠");
-  expect(screen.getByTestId(`project-toggle-${SYSTEM_PROJECT_ID}`).textContent).not.toContain("📂");
+  // 展开后图标仍是 home（不能变成 folder-open，否则失去默认工作区辨识度）
+  expect(screen.getByTestId(`project-toggle-${SYSTEM_PROJECT_ID}`).querySelector('[data-testid="project-icon-home"]')).toBeTruthy();
+  expect(screen.queryByTestId("project-icon-folder-open")).toBeNull();
 });
 
 test("系统项目右键菜单不显示'删除项目'", () => {
@@ -137,7 +138,8 @@ test("普通项目折叠时图标用 📁（行为不变）", () => {
       onSelectProject={() => {}}
     />
   );
-  expect(screen.getByTestId("project-toggle-p1").textContent).toContain("📁");
+  // 图标已由 emoji 📁 改为 Icon(folder)；按 testId 断言
+  expect(screen.getByTestId("project-toggle-p1").querySelector('[data-testid="project-icon-folder"]')).toBeTruthy();
 });
 
 test("普通项目右键菜单有'删除项目'（行为不变）", () => {

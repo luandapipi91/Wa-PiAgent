@@ -7,6 +7,7 @@ import {
 } from "@wa-pi/shared";
 import { SessionRow } from "./SessionRow";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
+import { Icon } from "./ui/Icon";
 import { api } from "../api-client";
 import { useProjectUiStore } from "../store/project-ui";
 import { useComposerPrefsStore } from "../store/composer-prefs";
@@ -193,7 +194,7 @@ export function ProjectItem(props: Props) {
 					className="text-tertiary w-5 text-xs flex items-center justify-center"
 					data-testid={`project-toggle-${project.id}`}
 				>
-					{isSystem ? "🏠" : expanded ? "📂" : "📁"}
+					{isSystem ? <Icon name="home" size={13} testId="project-icon-home" /> : expanded ? <Icon name="folder-open" size={13} testId="project-icon-folder-open" /> : <Icon name="folder" size={13} testId="project-icon-folder" />}
 				</button>
 				<button
 					onClick={() => {
