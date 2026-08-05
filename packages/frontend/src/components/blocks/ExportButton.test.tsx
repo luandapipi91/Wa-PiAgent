@@ -8,7 +8,9 @@ import { useSessionStore } from "../../store/session";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 
 const collectMock = mock((..._args: any[]) => [] as any[]);
-const renderMock = mock(async (..._args: any[]) => new Blob(["png"], { type: "image/png" }));
+const renderMock = mock(
+	async (..._args: any[]) => new Blob(["png"], { type: "image/png" }),
+);
 const downloadMock = mock((..._args: any[]) => {});
 const copyImageMock = mock(async (..._args: any[]) => {});
 
@@ -25,10 +27,19 @@ mock.module("../../util/clipboard", () => ({
 import { ExportButton } from "./ExportButton";
 
 const SID = "s1";
-const ONE_TURN = [{ user: "问题", assistant: "回答", agentName: "dev", timestamp: 200 }];
+const ONE_TURN = [
+	{ user: "问题", assistant: "回答", agentName: "dev", timestamp: 200 },
+];
 const MESSAGES = [
 	{ message: { role: "user", content: "问题", timestamp: 100 } },
-	{ message: { role: "assistant", content: [{ type: "text", text: "回答" }], timestamp: 200 }, agentName: "dev" },
+	{
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "回答" }],
+			timestamp: 200,
+		},
+		agentName: "dev",
+	},
 ] as any[];
 
 beforeEach(() => {
@@ -76,8 +87,12 @@ test("无文本对话时菜单两项禁用", () => {
 	collectMock.mockReturnValue([]);
 	render(<ExportButton sessionId={SID} uptoTimestamp={200} />);
 	fireEvent.click(screen.getByTestId(`export-${SID}-200`));
-	expect((screen.getByTestId("export-download") as HTMLButtonElement).disabled).toBe(true);
-	expect((screen.getByTestId("export-copy") as HTMLButtonElement).disabled).toBe(true);
+	expect(
+		(screen.getByTestId("export-download") as HTMLButtonElement).disabled,
+	).toBe(true);
+	expect(
+		(screen.getByTestId("export-copy") as HTMLButtonElement).disabled,
+	).toBe(true);
 });
 
 test("生成失败 toast 报错、不抛异常", async () => {

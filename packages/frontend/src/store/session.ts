@@ -517,7 +517,14 @@ export const useSessionStore = create<SessionState>((set) => {
 								[sessionId]: [
 									...list,
 									{
-										message: { role: "user", content: text, timestamp: ts },
+										// optimistic 标记：SDK user 回声按标记查找替换（不依赖
+										// "列表末尾是 user"），替换时被 SDK 权威版本覆盖、标记随之消失
+										message: {
+											role: "user",
+											content: text,
+											timestamp: ts,
+											optimistic: true,
+										},
 										agentName: undefined,
 									},
 								],
@@ -622,15 +629,26 @@ export const useSessionStore = create<SessionState>((set) => {
 					if (msg.role === "user") {
 						set((s) => {
 							const list = s.messagesBySession[sessionId] ?? [];
-							const last = list[list.length - 1];
-							// 乐观发送已占位（且末尾确为占位用户消息）：用 SDK 权威版本替换，
-							// 同步 timestamp 避免切回会话时 setMessages 合并出重复行；并清标记。
-							const pending =
-								!!s.optimisticEchoBySession[sessionId] &&
-								last &&
-								(last.message as any).role === "user";
+							// 乐观发送的占位消息带 optimistic:true 标记：倒序找到并原位替换为
+							// SDK 权威版本，同步 timestamp 避免切回会话时 setMessages 合并出重复行。
+							// 不依赖"列表末尾是 user"与 optimisticEcho 标记——占位与回声之间插入
+							// 其他消息（extension_notify 等）、兜底 agent_end / failTurn 提前清标记
+							// 都不会再导致回声被追加成重复行。
+							let pendingIdx = -1;
+							for (let i = list.length - 1; i >= 0; i--) {
+								const m = list[i].message as any;
+								if (m.role === "user" && m.optimistic) {
+									pendingIdx = i;
+									break;
+								}
+							}
+							const pending = pendingIdx >= 0;
 							const newList = pending
-								? [...list.slice(0, -1), { message: msg, agentName }]
+								? [
+										...list.slice(0, pendingIdx),
+										{ message: msg, agentName },
+										...list.slice(pendingIdx + 1),
+									]
 								: [...list, { message: msg, agentName }];
 							return pending
 								? {

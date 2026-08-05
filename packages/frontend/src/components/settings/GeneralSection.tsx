@@ -124,12 +124,14 @@ export function GeneralSection() {
 			<div className="flex flex-col gap-1">
 				<span className="text-sm font-medium text-primary">自动重试</span>
 				<span className="text-xs text-tertiary">
-					模型请求遇到网络错误 / 超时 / 5xx / 限流时自动重试，重试间隔按「间隔
-					× 2ⁿ」递增。保存后对新请求生效。
+					模型请求遇到网络错误 / 超时 / 5xx / 限流时自动重试，重试间隔按「间隔 ×
+					2ⁿ」递增。保存后对新请求生效。
 				</span>
 			</div>
 			<label className="flex flex-col gap-1 w-56">
-				<span className="text-xs text-secondary">重试次数（0-{MAX_RETRIES}）</span>
+				<span className="text-xs text-secondary">
+					重试次数（0-{MAX_RETRIES}）
+				</span>
 				<input
 					type="number"
 					min={0}

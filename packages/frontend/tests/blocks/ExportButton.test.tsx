@@ -4,7 +4,14 @@
 // 与剪贴板写入均 mock，避免重依赖；本测试保障「传入 collectTurns 的数据范围正确」，
 // 这正是「复制图片取错消息」bug 的回归防线。
 import { test, expect, mock, beforeEach, afterEach, vi } from "bun:test";
-import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
+import {
+	render,
+	screen,
+	fireEvent,
+	cleanup,
+	waitFor,
+	act,
+} from "@testing-library/react";
 import { ExportButton } from "../../src/components/blocks/ExportButton";
 import { useSessionStore } from "../../src/store/session";
 import { useUiPrefsStore } from "../../src/store/ui-prefs";

@@ -38,7 +38,17 @@ function exportFilename(ts: number): string {
 
 function DownloadIcon() {
 	return (
-		<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			width="14"
+			height="14"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+		>
 			<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
 			<polyline points="7 10 12 15 17 10" />
 			<line x1="12" y1="15" x2="12" y2="3" />
@@ -48,7 +58,17 @@ function DownloadIcon() {
 
 function ImageIcon() {
 	return (
-		<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			width="12"
+			height="12"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+		>
 			<rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
 			<circle cx="8.5" cy="8.5" r="1.5" />
 			<polyline points="21 15 16 10 5 21" />
@@ -64,7 +84,9 @@ interface Props {
 export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 	const [open, setOpen] = useState(false);
 	// 子面板：长按某项后进入选轮数；null=主菜单，"download"|"copy"=为该操作选轮数
-	const [turnPicker, setTurnPicker] = useState<"download" | "copy" | null>(null);
+	const [turnPicker, setTurnPicker] = useState<"download" | "copy" | null>(
+		null,
+	);
 	const [busy, setBusy] = useState(false);
 	const addToast = useToastStore((s) => s.add);
 	const exportTurns = useUiPrefsStore((s) => s.exportTurns);
@@ -79,16 +101,20 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 	useEffect(() => {
 		if (!open) return;
 		const onDown = (e: MouseEvent) => {
-			if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+			if (wrapRef.current && !wrapRef.current.contains(e.target as Node))
+				setOpen(false);
 		};
 		document.addEventListener("mousedown", onDown);
 		return () => document.removeEventListener("mousedown", onDown);
 	}, [open]);
 
 	// 卸载时清理长按计时器
-	useEffect(() => () => {
-		if (pressTimer.current) clearTimeout(pressTimer.current);
-	}, []);
+	useEffect(
+		() => () => {
+			if (pressTimer.current) clearTimeout(pressTimer.current);
+		},
+		[],
+	);
 
 	const hasTurns = (turns = exportTurns) => {
 		const msgs = useSessionStore.getState().messagesBySession[sessionId] ?? [];
@@ -101,7 +127,8 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 		if (busy) return;
 		setBusy(true);
 		try {
-			const msgs = useSessionStore.getState().messagesBySession[sessionId] ?? [];
+			const msgs =
+				useSessionStore.getState().messagesBySession[sessionId] ?? [];
 			const collected = collectTurns(msgs, uptoTimestamp, turns);
 			if (collected.length === 0) {
 				addToast("无可导出的文本对话", "error");
@@ -161,7 +188,9 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 	const menuStyle: React.CSSProperties = (() => {
 		if (!btnRect) return { display: "none" };
 		const flipUp = btnRect.bottom + panelH > window.innerHeight;
-		const top = flipUp ? Math.max(4, btnRect.top - panelH - 4) : btnRect.bottom + 4;
+		const top = flipUp
+			? Math.max(4, btnRect.top - panelH - 4)
+			: btnRect.bottom + 4;
 		const left = Math.max(4, btnRect.right - MENU_WIDTH);
 		return { left, top };
 	})();
@@ -180,65 +209,66 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 			>
 				<DownloadIcon />
 			</button>
-			{open && createPortal(
-				<div
-					className="fixed z-50 bg-surface border border-hairline rounded-md shadow-lg py-1"
-					style={{ ...menuStyle, width: MENU_WIDTH }}
-					onMouseDown={(e) => e.stopPropagation()}
-				>
-					{turnPicker ? (
-						// 轮数子面板：长按触发，仅本次用所选轮数执行（不改全局设置）
-						<div data-testid={`export-turn-picker-${turnPicker}`}>
-							<div className="px-3 pt-0.5 pb-1 text-[10px] text-tertiary">
-								导出轮数 · 仅本次
+			{open &&
+				createPortal(
+					<div
+						className="fixed z-50 bg-surface border border-hairline rounded-md shadow-lg py-1"
+						style={{ ...menuStyle, width: MENU_WIDTH }}
+						onMouseDown={(e) => e.stopPropagation()}
+					>
+						{turnPicker ? (
+							// 轮数子面板：长按触发，仅本次用所选轮数执行（不改全局设置）
+							<div data-testid={`export-turn-picker-${turnPicker}`}>
+								<div className="px-3 pt-0.5 pb-1 text-[10px] text-tertiary">
+									导出轮数 · 仅本次
+								</div>
+								{[1, 2, 3, 4, 5].map((n) => (
+									<button
+										key={n}
+										type="button"
+										data-testid={`export-turn-${n}`}
+										onClick={() => void run(turnPicker, n)}
+										className={itemCls(false)}
+									>
+										{n} 轮{n === exportTurns ? "（默认）" : ""}
+									</button>
+								))}
 							</div>
-							{[1, 2, 3, 4, 5].map((n) => (
+						) : (
+							// 主菜单：短按立即执行（全局轮数）；长按弹轮数子面板
+							<>
 								<button
-									key={n}
 									type="button"
-									data-testid={`export-turn-${n}`}
-									onClick={() => void run(turnPicker, n)}
-									className={itemCls(false)}
+									data-testid="export-download"
+									disabled={disabled}
+									onPointerDown={() => !disabled && startPress("download")}
+									onPointerUp={() => !disabled && endPress()}
+									onPointerLeave={cancelPress}
+									onClick={() => !disabled && tap("download")}
+									className={itemCls(disabled)}
 								>
-									{n} 轮{n === exportTurns ? "（默认）" : ""}
+									<DownloadIcon /> 下载 PNG
 								</button>
-							))}
-						</div>
-					) : (
-						// 主菜单：短按立即执行（全局轮数）；长按弹轮数子面板
-						<>
-							<button
-								type="button"
-								data-testid="export-download"
-								disabled={disabled}
-								onPointerDown={() => !disabled && startPress("download")}
-								onPointerUp={() => !disabled && endPress()}
-								onPointerLeave={cancelPress}
-								onClick={() => !disabled && tap("download")}
-								className={itemCls(disabled)}
-							>
-								<DownloadIcon /> 下载 PNG
-							</button>
-							<button
-								type="button"
-								data-testid="export-copy"
-								disabled={disabled}
-								onPointerDown={() => !disabled && startPress("copy")}
-								onPointerUp={() => !disabled && endPress()}
-								onPointerLeave={cancelPress}
-								onClick={() => !disabled && tap("copy")}
-								className={itemCls(disabled)}
-							>
-								<ImageIcon /> 复制图片
-							</button>
-							<div className="px-3 pt-1 text-[10px] text-tertiary border-t border-hairline mt-0.5">
-								长按可选轮数
-							</div>
-						</>
-					)}
-				</div>,
-				document.body,
-			)}
+								<button
+									type="button"
+									data-testid="export-copy"
+									disabled={disabled}
+									onPointerDown={() => !disabled && startPress("copy")}
+									onPointerUp={() => !disabled && endPress()}
+									onPointerLeave={cancelPress}
+									onClick={() => !disabled && tap("copy")}
+									className={itemCls(disabled)}
+								>
+									<ImageIcon /> 复制图片
+								</button>
+								<div className="px-3 pt-1 text-[10px] text-tertiary border-t border-hairline mt-0.5">
+									长按可选轮数
+								</div>
+							</>
+						)}
+					</div>,
+					document.body,
+				)}
 		</div>
 	);
 }
