@@ -6,7 +6,6 @@
 
 ### 变更
 
-
 - **修复「导出会话→复制图片」取错消息（取到 thinking/前一轮而非当条回复正文）**：
   根因是 `collectTurns`（export-chat-image.ts）先按原始 timestamp 逐条过滤、再合并同回合
   assistant，导致流式期间 store 未 compact 的「thinking 块 + text 正文块」被拆散——
@@ -16,7 +15,20 @@
   整回合要么全部保留要么全部丢弃；合并后 message.timestamp 仍取轮末，保持既有契约。
   影响范围：`packages/frontend/src/util/export-chat-image.ts`；
   新增回归测试 `packages/frontend/tests/export-chat-image.test.ts`（8 项）、
-  `packages/frontend/tests/blocks/ExportButton.test.tsx`（4 项）。- **动态插件改用 pi 官方 packages 机制 + session.reload 热重载（装卸不丢其他插件 UI）**：
+  `packages/frontend/tests/blocks/ExportButton.test.tsx`（4 项）。
+
+### 变更
+
+- **侧边栏图标（项目列表 + 系统设置）基础尺寸 18px 并跟随字体缩放**：项目头部（默认工作区 home / 项目 folder / 展开 folder-open）
+  图标由固定 `size={13}` 改为 `size="1em"`，toggle 按钮字体设为 `text-[calc(18px*var(--font-scale))]`；
+  系统设置按钮 icon 由固定 `size={12}` 改为 `size="1em"` + `text-[calc(18px*var(--font-scale))]`——
+  图标基础尺寸 18px，并随全局字体缩放变量 `--font-scale` 同步缩放（与项目内其余 `text-*` 工具类口径一致）。
+  影响范围：`packages/frontend/src/components/ProjectItem.tsx`、`packages/frontend/src/components/SettingsButton.tsx`、
+  `packages/frontend/tests/ProjectItem.system.test.tsx`、`packages/frontend/tests/SettingsButton.test.tsx`（尺寸断言测试）。
+
+### 变更
+
+- **动态插件改用 pi 官方 packages 机制 + session.reload 热重载（装卸不丢其他插件 UI）**：
   此前动态插件走 `-e` 显式传路径（spawn 时固定）+ `waPiPackages`（pi 不读），装卸后必须整进程重建，
   导致其他活跃插件的 widget/status 全部丢失。现改为：
   ① 动态包装到 `~/.wa-pi/npm/node_modules/`（pi user scope 路径，package-manager.js:1677）；
@@ -33,7 +45,9 @@
   `packages/kernel/src/agent-manager.ts`、`packages/kernel/src/rpc-client.ts`、
   `packages/kernel/src/wa-pi-bridge.extension.ts`、`packages/frontend/src/store/commands.ts`、
   相关测试。
+
 ### 变更
+
 - **回退插件装卸热重载方案，恢复整进程重建**：此前两次改动（178c899 + 7f5aeff）
   尝试用 session.reload() 热重载替代整进程重建以避免丢失其他插件 UI。实测发现
   方案根本无效：wa-pi 把所有扩展通过 `-e` 参数传给 pi（否则 pi 不加载动态插件），
@@ -42,7 +56,9 @@
   现回退到整进程重建（装卸→markAllDirty→进程重启→新的 -e 路径），保证装卸立即
   生效。代价：进程重建会清空所有扩展的 widget/status（pi 不重放 session_start），
   这是已知的、可接受的副作用（用户重新触发插件命令即可恢复 UI）。
+
 ### 变更
+
 - **移除空置的 EXTENSION_TOOL_MAP 死代码**：该常量（`packages/shared/src/constants.ts`）
   是 `= {}` 空对象，仓库内无任何写入点——它本想用于「动态插件工具注入 agent allowlist」，
   但 pi 不给宿主提供查询已注册工具的接口（RPC 无列工具命令、package.json 无 tools 声明
