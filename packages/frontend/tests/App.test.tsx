@@ -279,6 +279,44 @@ test("extension:commands:changed 事件 → 当前会话 / 菜单命令列表重
 	});
 });
 
+test("extension:changed 事件（安装/卸载/升级）→ 当前会话 / 菜单命令列表立即刷新", async () => {
+	// 与 extension:commands:changed 同场景：安装/卸载/升级插件后，
+	// kernel 广播 extension:changed，前端应立即重拉当前会话命令清单
+	// （kernel getCommands 脏感知：idle 脏会话先重建 pi 进程再返回新清单，当前对话即时生效）
+	useProjectsStore.setState({
+		projects: [project],
+		sessions: [
+			{
+				id: "s1",
+				projectId: "p1",
+				primaryAgent: "dev",
+				title: "T",
+				createdAt: 0,
+				lastActivity: 0,
+				piSessionFile: "/tmp/s1.jsonl",
+			},
+		],
+		currentProjectId: "p1",
+		currentSessionId: null,
+	});
+	render(<App />);
+	await act(async () => {});
+	calls.length = 0;
+
+	act(() => {
+		useProjectsStore.setState({ currentSessionId: "s1" });
+		emitEvent({ type: "extension:changed", packages: [] });
+	});
+	await act(async () => {});
+	await waitFor(() => {
+		expect(
+			calls.some(
+				(c) => c.method === "get" && c.path === "/api/sessions/s1/commands",
+			),
+		).toBe(true);
+	});
+});
+
 test("重试期间顶部显示黄色重试条（优先于红色异常条），重试结束回到红条", async () => {
 	useProjectsStore.setState({ currentSessionId: "s1" });
 	useSessionStore.setState({

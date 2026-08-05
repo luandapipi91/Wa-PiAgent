@@ -6,6 +6,23 @@
 
 ### 修复
 
+- **插件卸载/安装后当前会话的扩展 UI 残留不清理**：插件操作触发的 dirty
+  reload 重建 pi 进程后，旧进程发射的扩展 UI（setStatus 状态栏 / setWidget
+  文本块 / setTitle 标题条）仍留在前端 store，被卸载插件的 UI 继续显示。
+  现 kernel `_reloadIfDirty` 重建成功后合成 `extension_ui_reset` 事件
+  （SDKEvent 新增该类型），前端 session store 收到后清空该会话的三类扩展
+  UI 状态；新进程内扩展 `session_start`/apply 会重新发射当前 UI。
+  影响范围：`packages/kernel/src/agent-manager.ts`、
+  `packages/shared/src/types.ts`、
+  `packages/frontend/src/store/session.ts`、
+  `packages/kernel/tests/agent-manager.test.ts`、
+  `packages/frontend/tests/session-extension-notify.test.ts`、
+  `packages/frontend/e2e/extension-hot-reload.spec.ts`（新增）。
+
+## [Unreleased] - 2026-08-04
+
+### 修复
+
 - **扩展命令不作为用户消息上屏（跟随 TUI 行为）**：已注册扩展命令（如
   /uidemo、内置插件的 /goal）被 pi 拦截直接执行 handler，不写 transcript、
   不发 user message 事件，但聊天窗会因两条通路多出一条不存在的用户消息：

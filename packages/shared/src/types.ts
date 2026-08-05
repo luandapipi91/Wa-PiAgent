@@ -1048,6 +1048,12 @@ export type SDKEvent =
 			// （产品决策：不写 document.title，避免公共标题被扩展覆盖）。
 			type: "extension_title";
 			title: string;
+	  }
+	| {
+			// kernel 合成（非 pi 发射）：插件/技能变更 dirty reload 重建会话进程后广播，
+			// 旧进程发射的扩展 UI（status/widget/title）全部失效，前端据此清空残留；
+			// 新进程内扩展 apply 时会重新发射当前 UI。
+			type: "extension_ui_reset";
 	  };
 
 // WS 事件信封：包裹 sessionId 上下文，原始 SDK 事件原样透传
