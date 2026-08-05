@@ -4,7 +4,7 @@
 
 | 扩展调用 | kernel 桥接事件 | 前端表现 |
 | --- | --- | --- |
-| `ctx.ui.notify(msg, type)` | `extension_notify` | toast 即时提醒 |
+| `ctx.ui.notify(msg, type)` | `extension_notify` | 聊天居中消息（永久保留，ANSI 颜色解析） |
 | `ctx.ui.setStatus(key, text)` | `extension_status` | 聊天列底部状态栏（右对齐） |
 | `ctx.ui.setWidget(key, lines, { placement })` | `extension_widget` | Composer 上/下方**可折叠**文本块（默认收起一行摘要） |
 | `ctx.ui.setTitle(title)` | `extension_title` | 聊天窗顶部状态条 |
@@ -42,6 +42,7 @@ curl -X POST http://127.0.0.1:9776/api/extensions/install \
 /uidemo status    # 更新底部状态栏（带当前时间）
 /uidemo widget    # 更新 aboveEditor widget
 /uidemo title     # 更新顶部状态条
+/uidemo color     # 一键触发全部彩色 UI（notify + status + widget + title）
 /uidemo clear     # 清除 status/widget
 /uidemo all       # 全部重新触发
 /uidemo select    # 弹选择框（甲/乙/丙），应答后 notify 回显
@@ -49,6 +50,14 @@ curl -X POST http://127.0.0.1:9776/api/extensions/install \
 /uidemo input     # 弹输入框，应答后 notify 回显
 /uidemo editor    # 弹多行编辑器，应答后 notify 回显
 /uidemo seteditor # 把固定文本注入 Composer
+```
+
+## 颜色演示
+
+扩展文本中的 ANSI SGR 颜色码会原样透传到前端，由 AnsiText 组件解析为彩色文字。
+
+```bash
+/uidemo color    # 一键触发全部彩色 UI（notify + status + widget + title）
 ```
 
 ## 卸载

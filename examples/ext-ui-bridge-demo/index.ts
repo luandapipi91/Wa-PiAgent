@@ -8,10 +8,10 @@ import type {
  * ext-ui-bridge-demo —— WaPi UI 桥接测试桩。
  *
  * 覆盖四类 fire-and-forget 扩展 UI 请求（kernel rpc-client 桥接为 sdk:event）：
- *   notify    → extension_notify  → 前端 toast
- *   setStatus → extension_status  → 聊天列底部状态栏
- *   setWidget → extension_widget  → Composer 上/下方可折叠文本块
- *   setTitle  → extension_title   → 聊天窗顶部状态条
+ *   notify    → extension_notify  → 前端 toast（永久保留 + ANSI 颜色解析）
+ *   setStatus → extension_status  → 聊天列底部状态栏（ANSI 颜色解析）
+ *   setWidget → extension_widget  → Composer 上/下方可折叠文本块（ANSI 颜色解析）
+ *   setTitle  → extension_title   → 聊天窗顶部状态条（ANSI 颜色解析）
  *
  * 另覆盖请求-应答类子协议（kernel extension_dialog 广播 + 前端应答）：
  *   select/confirm/input/editor → 前端 ExtensionDialog 弹窗
@@ -42,6 +42,8 @@ function clearAll(ctx: AnyCtx) {
 	ctx.ui.setStatus("ui-demo", undefined);
 	ctx.ui.setWidget("ui-demo-above", undefined);
 	ctx.ui.setWidget("ui-demo-below", undefined);
+	ctx.ui.setStatus("ui-demo-color", undefined);
+	ctx.ui.setWidget("ui-demo-color-above", undefined);
 }
 
 export default function (pi: ExtensionAPI) {
@@ -52,9 +54,9 @@ export default function (pi: ExtensionAPI) {
 
 	// 手动触发命令（需在「扩展 → 命令」里开启后才能用 /uidemo 调用）
 	pi.registerCommand("uidemo", {
-		description: "UI 桥接测试桩：/uidemo all|notify|status|widget|title|clear|select|confirm|input|editor|seteditor",
+		description: "UI 桥接测试桩：/uidemo all|notify|status|widget|title|color|clear|select|confirm|input|editor|seteditor",
 		getArgumentCompletions: (prefix) =>
-			["all", "notify", "status", "widget", "title", "clear", "select", "confirm", "input", "editor", "seteditor"]
+			["all", "notify", "status", "widget", "title", "color", "clear", "select", "confirm", "input", "editor", "seteditor"]
 				.filter((s) => s.startsWith(prefix))
 				.map((s) => ({ value: s, label: s })),
 		handler: async (args, ctx) => {
@@ -76,6 +78,19 @@ export default function (pi: ExtensionAPI) {
 					break;
 				case "title":
 					ctx.ui.setTitle("手动 setTitle");
+					break;
+				case "color":
+					// 一键触发全部彩色 UI：验证 ANSI SGR 颜色码经 kernel 透传、前端 AnsiText 解析
+					ctx.ui.notify("\x1b[38;5;214m橙色 notify\x1b[39m 普通文字", "warning");
+					ctx.ui.setStatus("ui-demo-color", "\x1b[32m绿色状态\x1b[39m · \x1b[38;5;39m蓝色运行中\x1b[39m");
+					ctx.ui.setWidget("ui-demo-color-above", [
+						"\x1b[31m红色行\x1b[39m",
+						"\x1b[32m绿色行\x1b[39m",
+						"\x1b[33m黄色行\x1b[39m",
+						"\x1b[34m蓝色行\x1b[39m",
+						"\x1b[38;5;214m256色橙色行\x1b[39m",
+					]);
+					ctx.ui.setTitle("\x1b[38;5;39m彩色 UI Demo 标题\x1b[39m");
 					break;
 				case "clear":
 					clearAll(ctx);
