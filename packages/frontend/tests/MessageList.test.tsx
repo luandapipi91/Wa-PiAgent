@@ -2702,3 +2702,31 @@ test("compactionSummary 消息：居中系统提示样式，不内联渲染摘�
 	// 后续正常消息仍渲染
 	expect(screen.getByText("压缩后问题")).toBeTruthy();
 });
+
+// extension_notify 的 content 经 AnsiText 渲染：ANSI 颜色码解析为内联样式 span
+test("extension_notify 消息的 ANSI 颜色解析为内联样式", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: "dev",
+					message: {
+						type: "custom",
+						customType: "extension_notify",
+						content: "\x1b[32m✓ 成功\x1b[39m 普通文本",
+						timestamp: 1,
+					},
+				} as any,
+			],
+		},
+	});
+	render(<MessageList sessionId="s1" />);
+	const el = screen.getByTestId("custom-s1-1");
+	// 绿色段渲染为带内联颜色的 span
+	const colored = el.querySelector("span")!;
+	expect(colored.textContent).toBe("✓ 成功");
+	expect(colored.style.color).toBe("#34a853");
+	// ANSI 码不外泄，reset 后的纯文本仍在
+	expect(el.textContent).toBe("—— ✓ 成功 普通文本 ——");
+	expect(el.textContent).not.toContain("\x1b");
+});

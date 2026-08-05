@@ -15,6 +15,7 @@ import { AskDock } from "./ask/AskDock";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { ExplorerPanel } from "./ExplorerPanel";
 import { STATUS_COLORS } from "../theme/colors";
+import { AnsiText } from "./ui/AnsiText";
 import { api } from "../api-client";
 import { fmtTok } from "../util/format";
 
@@ -483,7 +484,9 @@ export function SessionView({ sessionId }: Props) {
 									className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
 									style={{ background: "var(--accent)" }}
 								/>
-								<span className="truncate">{text}</span>
+								<span className="truncate">
+									<AnsiText text={text} />
+								</span>
 							</span>
 						))}
 					</div>
@@ -589,7 +592,7 @@ function ExtWidget({
 				<span className="font-mono">{widgetKey}</span>
 				{collapsed && (
 					<span className="min-w-0 flex-1 truncate text-secondary/60">
-						{lines[0]}
+						<AnsiText text={lines[0]} />
 						{lines.length > 1 ? ` · 共 ${lines.length} 行` : ""}
 					</span>
 				)}
@@ -599,7 +602,7 @@ function ExtWidget({
 					className="mt-1 whitespace-pre-wrap rounded-md border border-hairline/50 px-3 py-2 font-mono text-[calc(12px*var(--font-scale))] text-secondary"
 					style={{ borderLeft: `3px solid ${accentColor}` }}
 				>
-					{lines.join("\n")}
+					<AnsiText text={lines.join("\n")} />
 				</div>
 			)}
 		</div>

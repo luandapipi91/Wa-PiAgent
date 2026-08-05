@@ -25,6 +25,7 @@ import { createMarkdownComponents } from "./blocks/markdown-components";
 import { ThinkingCard } from "./blocks/ThinkingCard";
 import { TurnSummary } from "./blocks/TurnSummary";
 import { ToolGroupCard } from "./blocks/ToolCallCard";
+import { AnsiText } from "./ui/AnsiText";
 import {
 	textToHtml,
 	ensureChipStyles,
@@ -633,7 +634,7 @@ const MessageRow = memo(function MessageRow({
 				className="text-center text-[calc(11.5px*var(--font-scale))] text-tertiary"
 				data-testid={`custom-${sessionId}-${m.timestamp}`}
 			>
-				{`—— ${m.content} ——`}
+				—— <AnsiText text={m.content} /> ——
 			</div>
 		);
 	}

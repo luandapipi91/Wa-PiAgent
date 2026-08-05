@@ -1075,26 +1075,13 @@ export const useSessionStore = create<SessionState>((set) => {
 				}
 				// pi 扩展 ctx.ui.notify 反馈（如 /lens-toggle 执行结果）：kernel 包装在 sdk:event 内转发，
 				// 这里插入聊天窗口中间的系统提示（复用 custom 消息渲染：居中 —— content ——），
-				// 否则命令执行成功但用户看不到任何反馈（表现为“发送无响应”）。
+				// 文字颜色由 AnsiText 解析 ANSI 码呈现。不再自动消退，不去重。
 				case "extension_notify": {
 					const msg = (event as any).message;
 					if (typeof msg === "string") {
 						const timestamp = Date.now();
-						// 是否真正插入（去重命中时不插入，也不调度移除定时器）
-						let inserted = false;
 						set((s) => {
 							const list = s.messagesBySession[sessionId] ?? [];
-							// 去重：与最后一条 extension_notify 内容相同则不重复插入
-							//（pi 启动时可能连发多条同内容 notify）
-							const last = list[list.length - 1]?.message as any;
-							if (
-								last?.type === "custom" &&
-								last?.customType === "extension_notify" &&
-								last?.content === msg
-							) {
-								return s;
-							}
-							inserted = true;
 							return {
 								messagesBySession: {
 									...s.messagesBySession,
@@ -1114,29 +1101,6 @@ export const useSessionStore = create<SessionState>((set) => {
 								},
 							};
 						});
-						// 系统提示 20s 后自动从聊天列表消失：按 timestamp 精确匹配移除
-						if (inserted) {
-							setTimeout(() => {
-								set((s) => {
-									const list = s.messagesBySession[sessionId] ?? [];
-									const next = list.filter(
-										(m) =>
-											!(
-												(m.message as any)?.customType === "extension_notify" &&
-												(m.message as any)?.timestamp === timestamp
-											),
-									);
-									// 消息已被其他操作移除/会话切换：找不到目标则不做无意义 set
-									if (next.length === list.length) return s;
-									return {
-										messagesBySession: {
-											...s.messagesBySession,
-											[sessionId]: next,
-										},
-									};
-								});
-							}, 20_000);
-						}
 					}
 					break;
 				}
