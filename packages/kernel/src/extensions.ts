@@ -120,43 +120,17 @@ function readPiExtensionsDeclaration(pkgName: string): string[] | undefined {
 }
 
 /**
- * 构造传给 pi 进程 -e 参数的全部扩展入口。
- * 含 wa-pi 自生成的 provider-extension（providers.json → GENERATED_DIR）
- * 与 wa-pi-bridge（ask/memory/delegate/fleet 宿主工具，见 bridge-extension.ts）。
+ * 构造传给 pi 进程 -e 参数的扩展入口（仅内置 + wa-pi 自生成）。
+ * 含 PKG_EXTENSIONS（pi-web-access/pi-mcp-adapter 等 wa-pi 内置依赖）、
+ * provider-extension（providers.json → GENERATED_DIR）、
+ * wa-pi-bridge（ask/memory/delegate/fleet 宿主工具，见 bridge-extension.ts）。
  *
- * @param dynamicPkgNames 运行时安装并启用的第三方扩展包名（来自 ExtensionManager.list()）。
- *   仅纳入声明了 pi.extensions 的包（Pi 扩展信号），其余静默跳过。默认空数组（向后兼容）。
+ * 动态安装的第三方扩展不再走 -e：改由 pi 官方 packages 机制自动加载
+ * （settings.json 的 packages 字段 + 包装在 ~/.wa-pi/npm/node_modules/）。
+ * 这样 session.reload() 能重读 packages 让装卸立即生效，不受 -e spawn 时固化限制。
  */
-export function buildAdditionalExtensionPaths(dynamicPkgNames: string[] = []): string[] {
+export function buildAdditionalExtensionPaths(): string[] {
   const paths = PKG_EXTENSIONS.map((name) => resolveExtensionEntryFile(name));
-  // 动态安装的第三方扩展：把已启用且为 Pi 扩展的包入口并入加载路径，
-  // 否则 pi 进程不会加载它们 → 它们的工具/钩子不注册（即动态插件「装了但没生效」的根因）。
-  for (const name of dynamicPkgNames) {
-    // local 来源（绝对路径）：走文件系统解析，绕过 createRequire
-    if (isAbsolute(name)) {
-      try {
-        paths.push(resolveLocalExtensionEntry(name));
-      } catch (err) {
-        console.error(`[kernel] 解析本地扩展入口失败 ${name}:`, err);
-      }
-      continue;
-    }
-    if (!readPiExtensionsDeclaration(name)) continue;  // 非 Pi 扩展，跳过
-    // 动态包优先从 runtime 解析：它们经 bun add 装在 ~/.wa-pi/runtime，pi 对 agent 目录
-    // 的自动发现也用同一路径——-e 路径与自动发现路径一致才能被 pi 去重；
-    // 若先走 repo require，动态包恰好又是 repo 的传递依赖（如 pi-lens）时，
-    // -e 传入 repo 副本 + pi 自动加载 runtime 副本 = 同一扩展加载两次（flag 冲突）。
-    // 解析不到再回退 repo require（builtin / 已装在 repo 的包）。
-    try {
-      paths.push(resolveExtensionEntryFile(name, runtimeRequire));
-    } catch {
-      try {
-        paths.push(resolveExtensionEntryFile(name));
-      } catch (err) {
-        console.error(`[kernel] 解析动态扩展入口失败 ${name}:`, err);
-      }
-    }
-  }
   // provider-extension / wa-pi-bridge 由 main()/ws-server 动态生成，首启或测试前可能尚未存在
   for (const generated of ["provider-extension.ts", "wa-pi-bridge.ts"]) {
     const p = join(GENERATED_DIR, generated);

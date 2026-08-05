@@ -5,6 +5,24 @@
 ## [Unreleased] - 2026-08-05
 
 ### 变更
+- **动态插件改用 pi 官方 packages 机制 + session.reload 热重载（装卸不丢其他插件 UI）**：
+  此前动态插件走 `-e` 显式传路径（spawn 时固定）+ `waPiPackages`（pi 不读），装卸后必须整进程重建，
+  导致其他活跃插件的 widget/status 全部丢失。现改为：
+  ① 动态包装到 `~/.wa-pi/npm/node_modules/`（pi user scope 路径，package-manager.js:1677）；
+  ② settings.json 用 pi 官方 `packages` 字段（pi 自动加载，替代 waPiPackages + -e 动态部分）；
+  ③ 内置插件（pi-web-access/pi-mcp-adapter）+ provider-extension + wa-pi-bridge 仍走 `-e`
+    （reload 时实例属性保留，不失效）；
+  ④ 装卸后调 `session.reload()`（经 bridge `__!wa_pi_reload` 命令）——重读 settings.json packages
+    让动态插件集变化生效，重放 session_start 让活跃插件重发 widget/status 恢复 UI，被卸载的
+    不重发（其残留由 reload 前的 extension_ui_reset 清掉）。skillDirty（agent 重命名/技能变更）
+    仍走整进程重建（session.reload 不重新读 agent 配置）。
+  数据迁移：旧 `waPiPackages` → `packages`；旧 runtime/node_modules 的动态插件需重装到 npm/
+  （首启迁移或用户重装）。`__!` 前缀命令经前端 commands store 过滤不进命令面板。
+  影响范围：`packages/kernel/src/extension-manager.ts`、`packages/kernel/src/extensions.ts`、
+  `packages/kernel/src/agent-manager.ts`、`packages/kernel/src/rpc-client.ts`、
+  `packages/kernel/src/wa-pi-bridge.extension.ts`、`packages/frontend/src/store/commands.ts`、
+  相关测试。
+### 变更
 - **回退插件装卸热重载方案，恢复整进程重建**：此前两次改动（178c899 + 7f5aeff）
   尝试用 session.reload() 热重载替代整进程重建以避免丢失其他插件 UI。实测发现
   方案根本无效：wa-pi 把所有扩展通过 `-e` 参数传给 pi（否则 pi 不加载动态插件），

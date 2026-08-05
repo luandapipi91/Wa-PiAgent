@@ -34,7 +34,10 @@ async function loadTools(transform?: (src: string) => string): Promise<any[]> {
   tmpFiles.push(file);
   const mod = await import(pathToFileURL(file).href);
   const tools: any[] = [];
-  mod.default({ registerTool: (def: any) => tools.push(def) });
+  mod.default({
+    registerTool: (def: any) => tools.push(def),
+    registerCommand: () => {},
+  });
   return tools;
 }
 
