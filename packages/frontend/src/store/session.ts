@@ -1234,8 +1234,8 @@ export const useSessionStore = create<SessionState>((set) => {
 					}));
 					break;
 				// kernel 合成（插件/技能变更 dirty reload 重建进程后）：
-				// 旧进程发射的扩展 UI（status/widget/title）全部失效，清空残留；
-				// 新进程内扩展 apply 时会重新发射当前 UI
+				// 旧进程发射的扩展 UI（status/widget/title）全部失效，清空残留
+				// （进程 resume 不重放扩展的 session_start 钩子，UI 是否重发由扩展自身决定）
 				case "extension_ui_reset":
 					set((s) => ({
 						extStatusBySession: {

@@ -11,7 +11,8 @@
   文本块 / setTitle 标题条）仍留在前端 store，被卸载插件的 UI 继续显示。
   现 kernel `_reloadIfDirty` 重建成功后合成 `extension_ui_reset` 事件
   （SDKEvent 新增该类型），前端 session store 收到后清空该会话的三类扩展
-  UI 状态；新进程内扩展 `session_start`/apply 会重新发射当前 UI。
+  UI 状态（进程 resume 不重放扩展的 session_start 钩子，UI 是否重发由扩展
+  自身行为决定）。
   影响范围：`packages/kernel/src/agent-manager.ts`、
   `packages/shared/src/types.ts`、
   `packages/frontend/src/store/session.ts`、

@@ -13,7 +13,8 @@ import { createProject, saveProvider, createSessionViaPrompt } from "./helpers";
 //
 // 断言（同一会话页面、不切换不刷新）：
 // 1. 卸载后：demo 的 widget/status/title 消失，/ 菜单不再有 uidemo
-// 2. 重装后：widget/status/title 重新出现（新进程 session_start 发射），/ 菜单恢复 uidemo
+// 2. 重装后：/ 菜单恢复 uidemo，且手动触发命令确认扩展在新进程中真实可用
+//    （pi 进程重建 resume 既有会话时不重放扩展 session_start 钩子，UI 不自动回来）
 //
 // 依赖真实 pi 进程（本地扩展经 -e 加载 + 进程重建），按 PI_E2E=1 门控，CI 默认跳过。
 // 设置页提示文案用例为纯前端行为，始终运行。
@@ -107,9 +108,10 @@ test.describe.serial("插件操作后当前会话立即生效", () => {
 		});
 		await expect(page.getByTestId("ext-status-bar")).toBeVisible();
 		await expect(page.getByTestId("ext-title-bar")).toBeVisible();
-		// / 菜单含 uidemo
-		await textbox.click();
-		await page.keyboard.type("/", { delay: 5 });
+		// / 菜单含 uidemo（fill 替换内容，避免残留 "/" 叠加成 "//" 把过滤词变成 "/"）
+		// 先清空残留 "/"：fill 相同值不触发 input 事件，菜单不会打开
+		await textbox.fill("");
+		await textbox.pressSequentially("/", { delay: 5 });
 		await expect(page.getByTestId("quick-invoke-menu")).toBeVisible({
 			timeout: 5000,
 		});
@@ -129,35 +131,47 @@ test.describe.serial("插件操作后当前会话立即生效", () => {
 		await expect(page.getByTestId("ext-widget-ui-demo-below")).toHaveCount(0);
 		await expect(page.getByTestId("ext-status-bar")).toHaveCount(0);
 		await expect(page.getByTestId("ext-title-bar")).toHaveCount(0);
-		// / 菜单不再有 uidemo（commands store 已随 extension:changed 刷新）
-		await textbox.click();
-		await page.keyboard.type("/", { delay: 5 });
+		// / 菜单不再有 uidemo（commands store 已随 extension:changed 刷新）。
+		// 正向断言内置命令 mcp 仍在，防止「菜单整体为空」造成假通过。
+		// 先清空残留 "/"：fill 相同值不触发 input 事件，菜单不会打开
+		await textbox.fill("");
+		await textbox.pressSequentially("/", { delay: 5 });
 		await expect(page.getByTestId("quick-invoke-menu")).toBeVisible({
 			timeout: 5000,
+		});
+		await expect(page.getByTestId("quick-invoke-menu")).toContainText("mcp", {
+			timeout: REBUILD,
 		});
 		await expect(page.getByTestId("quick-invoke-menu")).not.toContainText(
 			"uidemo",
 		);
 		await page.keyboard.press("Escape");
 
-		// ── 重装：当前会话内扩展 UI 恢复 + / 菜单恢复 uidemo ──
+		// ── 重装：当前会话内 / 菜单恢复 uidemo，且扩展在新进程中真实可用 ──
 		await apiPost("/api/extensions/install", { name: DEMO_DIR });
-		// 再次重建进程（demo 回来）→ reset 后新进程 session_start 重新发射 UI
-		await expect(page.getByTestId("ext-widget-ui-demo-above")).toBeVisible({
-			timeout: REBUILD,
-		});
-		await expect(page.getByTestId("ext-status-bar")).toBeVisible();
-		await expect(page.getByTestId("ext-title-bar")).toBeVisible();
-		await textbox.click();
-		await page.keyboard.type("/", { delay: 5 });
+		// extension:changed → 前端重拉命令 → kernel 重建进程（demo 回来）→ / 菜单恢复。
+		// 注意：pi 进程重建（resume 既有会话）不会重放扩展的 session_start 钩子，
+		// 因此 UI 不会自动回来——这属于扩展自身行为，不在本次断言范围。
+		// 先清空残留 "/"：fill 相同值不触发 input 事件，菜单不会打开
+		await textbox.fill("");
+		await textbox.pressSequentially("/", { delay: 5 });
 		await expect(page.getByTestId("quick-invoke-menu")).toBeVisible({
 			timeout: 5000,
 		});
 		await expect(page.getByTestId("quick-invoke-menu")).toContainText(
 			"uidemo",
-			{ timeout: 8000 },
+			{ timeout: REBUILD },
 		);
 		await page.keyboard.press("Escape");
+		// 扩展在新进程里真实可用：手动触发命令，UI 立即回来
+		await textbox.fill("/uidemo all");
+		await page.keyboard.press("Escape");
+		await page.getByTestId("composer-send").click();
+		await expect(page.getByTestId("ext-widget-ui-demo-above")).toBeVisible({
+			timeout: 20_000,
+		});
+		await expect(page.getByTestId("ext-status-bar")).toBeVisible();
+		await expect(page.getByTestId("ext-title-bar")).toBeVisible();
 	});
 
 	test("设置页提示文案为「当前对话立即生效」", async ({ page }) => {

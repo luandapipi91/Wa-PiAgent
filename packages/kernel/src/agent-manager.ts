@@ -411,7 +411,8 @@ export class AgentManager {
 		try {
 			const h = await promise;
 			// 扩展/技能变更触发的重建：旧进程发射的扩展 UI（status/widget/title）全部失效，
-			// 合成事件通知前端清空该会话的扩展 UI 残留；新进程内扩展 apply 时会重新发射当前 UI
+			// 合成事件通知前端清空该会话的扩展 UI 残留（进程 resume 不重放扩展的
+			// session_start 钩子，UI 是否重发由扩展自身行为决定）
 			this.opts.onEvent(sessionId, h.meta.projectId, h.meta.agentName, {
 				type: "extension_ui_reset",
 			} as RpcEvent);
