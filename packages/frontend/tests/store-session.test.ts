@@ -962,6 +962,79 @@ test("message_start(user) 无乐观占位 → 照常追加（不误替换历史�
 	expect((msgs[1].message as any).content).toBe("新问题");
 });
 
+// ── 用户消息重复 bug 复现：去重依赖「flag 仍在 + 列表末尾是 user」，两种时序都会击穿 ──
+
+test("复现：兜底 agent_end 先于 SDK 回声到达（清标记）→ 回声应替换占位而非追加重复行", () => {
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	// kernel 50ms 兜底（扩展命令场景设计）在正常 prompt 事件延迟 >50ms 时合成 agent_end，
+	// agent_end 处理器会清 optimisticEcho 标记
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
+	// 随后 SDK 权威 user 回声才到达：仍应替换乐观占位
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "message_start",
+			message: { role: "user", content: "你好", timestamp: 999 },
+		}),
+	);
+	const s = useSessionStore.getState();
+	const userMsgs = s.messagesBySession["s1"].filter(
+		(m) => (m.message as any).role === "user",
+	);
+	expect(userMsgs).toHaveLength(1); // 不重复
+	expect((userMsgs[0].message as any).timestamp).toBe(999); // 已替换为 SDK 权威版本
+});
+
+test("复现：乐观占位与 SDK 回声之间插入 extension_notify → 回声应替换占位而非追加重复行", () => {
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	// 冷启动窗口内扩展 ctx.ui.notify 插入一条 custom 消息（列表末尾不再是 user）
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({ type: "extension_notify", message: "扩展已加载" } as any),
+	);
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "message_start",
+			message: { role: "user", content: "你好", timestamp: 999 },
+		}),
+	);
+	const s = useSessionStore.getState();
+	const userMsgs = s.messagesBySession["s1"].filter(
+		(m) => (m.message as any).role === "user",
+	);
+	expect(userMsgs).toHaveLength(1); // 用户消息不重复
+	expect((userMsgs[0].message as any).timestamp).toBe(999);
+	// notify 消息保留在用户消息之后（原位替换，不动其他消息）
+	expect(s.messagesBySession["s1"]).toHaveLength(2);
+	expect((s.messagesBySession["s1"][1].message as any).type).toBe("custom");
+});
+
+test("复现：POST 超时 failTurn 清标记后 SDK 回声到达 → 应替换占位而非追加重复行", () => {
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	// api-client 30s 超时 → Composer catch → failTurn（清标记，乐观消息保留）
+	useSessionStore.getState().failTurn("s1");
+	// kernel 侧实际继续执行成功，SDK 回声随后到达
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "message_start",
+			message: { role: "user", content: "你好", timestamp: 999 },
+		}),
+	);
+	const s = useSessionStore.getState();
+	const userMsgs = s.messagesBySession["s1"].filter(
+		(m) => (m.message as any).role === "user",
+	);
+	expect(userMsgs).toHaveLength(1); // 不重复
+	expect((userMsgs[0].message as any).timestamp).toBe(999);
+});
+
 // ── failTurn：回合启动失败复位（agent 从未启动、不会有 agent_end）──
 
 test("failTurn 复位 optimisticSend 造成的 thinking 卡死：status→idle、清 streaming 占位与计时", () => {

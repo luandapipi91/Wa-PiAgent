@@ -4,6 +4,18 @@
 
 ## [Unreleased] - 2026-08-05
 
+### 修复
+
+- **发送消息偶现用户消息重复显示**：根因在前端去重逻辑——`message_start(user)` 回声
+  仅在「optimisticEcho 标记仍在 且 列表末尾是 user 消息」时才替换乐观占位，而占位与
+  回声之间插入任意消息（extension_notify 等）、kernel 50ms 兜底合成 agent_end 提前清
+  标记、POST 30s 超时 failTurn 清标记，三种时序都会击穿该判定导致回声被追加成重复行。
+  修复：乐观占位消息显式携带 `optimistic: true` 标记，回声倒序查找标记消息原位替换，
+  不再依赖末尾位置与全局标记。transcript 层无重复（纯显示层问题），刷新后历史不受影响。
+  新增 3 个复现测试（先红后绿）。
+  影响范围：`packages/frontend/src/store/session.ts`、
+  `packages/frontend/tests/store-session.test.ts`。
+
 ### 变更
 
 - **系统设置「导出轮数」文案改为「对话导出轮数」**：明确该设置描述的是导出图片时包含的
