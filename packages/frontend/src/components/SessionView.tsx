@@ -302,18 +302,12 @@ export function SessionView({ sessionId }: Props) {
 								: { color: "var(--text-tertiary)" }
 						}
 					>
-						<svg
-							width="15"
-							height="15"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="1.6"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-						>
-							<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
-						</svg>
+						{/* 图标基础尺寸 18px，跟随全局 --font-scale 缩放（与 SettingsButton/ProjectItem 同口径） */}
+						<Icon
+							name="folder"
+							size="1em"
+							className="text-[calc(18px*var(--font-scale))]"
+						/>
 					</button>
 				</header>
 

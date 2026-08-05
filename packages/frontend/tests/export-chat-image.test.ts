@@ -122,9 +122,17 @@ describe("collectTurns", () => {
 		expect(turns[0].assistant).toBe("真正的回复");
 	});
 
-	it("空消息或无配对 user 返回空", () => {
+	it("extension 斜杠命令（assistant 前无 user）：user 置空仍收集该轮", () => {
+		// pi 拦截执行 extension 命令不产生 user 消息，聊天列表只有 assistant 回复。
+		// 该轮必须可导出（user 为空），否则导出按钮会置灰。
+		const ms = [msg("assistant", 100, "命令执行结果")];
+		const turns = collectTurns(ms, 100, 5);
+		expect(turns).toHaveLength(1);
+		expect(turns[0].user).toBe("");
+		expect(turns[0].assistant).toBe("命令执行结果");
+	});
+
+	it("空消息返回空", () => {
 		expect(collectTurns([], 100, 5)).toEqual([]);
-		// 只有 assistant 没有 user
-		expect(collectTurns([msg("assistant", 100, "A")], 100, 5)).toEqual([]);
 	});
 });

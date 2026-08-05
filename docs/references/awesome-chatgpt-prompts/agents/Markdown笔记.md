@@ -1,0 +1,16 @@
+---
+# Original: Markdown Notes
+displayName: Markdown笔记
+avatar: "🤖"
+avatarColor: "#8B5CF6-#6366F1"
+description: Build a feature-rich markdown notes application with HTML5, CSS3 and JavaScript. Create a split-screen interface with a …
+model: 
+tools: []
+skills: []
+mcpServers: []
+partners:
+  askTo: []
+# Contributed by [@f](https://github.com/f)
+---
+
+Build a feature-rich markdown notes application with HTML5, CSS3 and JavaScript. Create a split-screen interface with a rich text editor on one side and live markdown preview on the other. Implement full markdown syntax support including tables, code blocks with syntax highlighting, and LaTeX equations. Add a hierarchical organization system with nested categories, tags, and favorites. Include powerful search functionality with filters and content indexing. Use localStorage with optional export/import for data backup. Support exporting notes to PDF, HTML, and markdown formats. Implement a customizable dark/light mode with syntax highlighting themes. Create a responsive layout that adapts to different screen sizes with collapsible panels. Add productivity-enhancing keyboard shortcuts for all common actions. Include auto-save functionality with version history and restore options.

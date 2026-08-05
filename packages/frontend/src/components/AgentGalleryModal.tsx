@@ -178,7 +178,7 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
           style={{
             left: ctxMenu.x, top: ctxMenu.y,
             background: "var(--surface)",
-            boxShadow: "var(--shadow-lg)", minWidth: 140,
+            boxShadow: "var(--shadow-lg)", minWidth: 140, width: "max-content",
           }}
           onClick={e => e.stopPropagation()}
           data-testid="gallery-context-menu"
@@ -187,22 +187,22 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
             // 内置 subagent：只允许查看（打开只读 AgentConfig）
             <button
               onClick={() => { setCtxMenu(null); onEdit(ctxMenu.name); }}
-              className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
+              className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover inline-flex items-center gap-1.5 whitespace-nowrap"
               data-testid="gallery-ctx-view"
-            ><Icon name="eye" size={12} style={{verticalAlign:"-0.125em"}} /> 查看</button>
+            ><Icon name="eye" size={12} /> 查看</button>
           ) : (
             // 普通智能体：编辑 + 删除
             <>
               <button
                 onClick={() => { setCtxMenu(null); onEdit(ctxMenu.name); }}
-                className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
+                className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover inline-flex items-center gap-1.5 whitespace-nowrap"
                 data-testid="gallery-ctx-edit"
-              ><Icon name="edit" size={12} style={{verticalAlign:"-0.125em"}} /> 编辑智能体</button>
+              ><Icon name="edit" size={12} /> 编辑智能体</button>
               <button
                 onClick={() => { setCtxMenu(null); setDeleteFor(ctxMenu.name); }}
-                className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
+                className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft inline-flex items-center gap-1.5 whitespace-nowrap"
                 data-testid="gallery-ctx-delete"
-              ><Icon name="trash" size={12} style={{verticalAlign:"-0.125em"}} /> 删除</button>
+              ><Icon name="trash" size={12} /> 删除</button>
             </>
           )}
         </div>,
