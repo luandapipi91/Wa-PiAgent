@@ -20,6 +20,7 @@ import { useToastStore } from "../store/toast";
 import { copyToClipboard } from "../util/clipboard";
 import { useAgentsStore } from "../store/agents";
 import { DelegateCard } from "./blocks/DelegateCard";
+import { ExportButton } from "./blocks/ExportButton";
 import { FleetCard } from "./blocks/FleetCard";
 import { createMarkdownComponents } from "./blocks/markdown-components";
 import { ThinkingCard } from "./blocks/ThinkingCard";
@@ -812,7 +813,11 @@ const MessageRow = memo(function MessageRow({
 					))}
 				</div>
 				{seg === segments[lastTextSegIdx] && (
-					<div className="flex justify-end">
+					<div className="flex justify-end items-center">
+						<ExportButton
+							sessionId={sessionId}
+							uptoTimestamp={m.timestamp}
+						/>
 						<CopyButton
 							text={fullText}
 							testId={`copy-${sessionId}-${m.timestamp}`}
