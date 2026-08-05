@@ -8,6 +8,7 @@ import { useSessionStore } from "../store/session";
 import { selectPendingAsks } from "../store/ask";
 import { STATUS_COLORS } from "../theme/colors";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
+import { Icon } from "./ui/Icon";
 
 interface Props {
   onChatWith: (name: string) => void;
@@ -152,12 +153,12 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
             onClick={() => { setCtxMenu(null); onEdit?.(ctxMenu.name); }}
             className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
             data-testid="agent-ctx-edit"
-          >✏️ 编辑智能体</button>
+          ><Icon name="edit" size={12} style={{verticalAlign:"-0.125em"}} /> 编辑智能体</button>
           <button
             onClick={() => { setCtxMenu(null); setDeleteFor(ctxMenu.name); }}
             className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
             data-testid="agent-ctx-delete"
-          >🗑 删除</button>
+          ><Icon name="trash" size={12} style={{verticalAlign:"-0.125em"}} /> 删除</button>
         </div>,
         document.body
       )}

@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { Component } from "react";
 import { App } from "./App";
+import { Icon } from "./components/ui/Icon";
 import "./styles.css";
 
 // 兜底：React 未捕获异常时避免白屏，显示错误摘要供用户反馈
@@ -15,7 +16,7 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Er
           height: "100vh", fontFamily: 'MiSans, system-ui, "PingFang SC", sans-serif',
           color: "#1d1d1f", background: "#F5F5F7", padding: 48, textAlign: "center",
         }}>
-          <div style={{ fontSize: "calc(48px * var(--font-scale))", marginBottom: 16 }}>⚠️</div>
+          <div style={{ marginBottom: 16 }}><Icon name="warning" size={48} /></div>
           <h2 style={{ margin: "0 0 8px" }}>应用发生错误</h2>
           <p style={{ color: "#86868b", maxWidth: 480, lineHeight: 1.6 }}>
             {this.state.error.message}

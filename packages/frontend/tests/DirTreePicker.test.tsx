@@ -88,10 +88,10 @@ test("打开显示盘符根节点", async () => {
   expect(screen.getByTestId("dir-picker")).toBeTruthy();
   expect(screen.getByTestId("dir-pick")).toBeTruthy();
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*C:\\/)).toBeTruthy();
+    expect(screen.getByText(/C:\\/)).toBeTruthy();
   }, { timeout: 3000 });
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*D:\\/)).toBeTruthy();
+    expect(screen.getByText(/D:\\/)).toBeTruthy();
   }, { timeout: 3000 });
 });
 
@@ -125,10 +125,10 @@ test("点击盘符选中后「选择」可点且触发 onPick", async () => {
   const onPick = mock();
   render(<DirTreePicker onPick={onPick} onCancel={() => {}} />);
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*D:\\/)).toBeTruthy();
+    expect(screen.getByText(/D:\\/)).toBeTruthy();
   }, { timeout: 3000 });
   // 点击非自动聚焦的盘符节点，触发选中切换
-  fireEvent.click(screen.getByText(/📁\s*D:\\/));
+  fireEvent.click(screen.getByText(/D:\\/));
   // 等待 selectedPath 更新为 D:\
   await waitFor(() => {
     const headerEl = document.querySelector('.text-blue.font-mono');
@@ -154,11 +154,11 @@ test("输入关键字过滤可见目录，仅显示匹配项及其父级链", as
 
   // 等待 C:\ 预展开完成，子目录加载
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+    expect(screen.getByText(/Windows/)).toBeTruthy();
   }, { timeout: 3000 });
   // 确认 Users 和 Program Files 也都可见
-  expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
-  expect(screen.getByText(/📁\s*Program Files/)).toBeTruthy();
+  expect(screen.getByText(/Users/)).toBeTruthy();
+  expect(screen.getByText(/Program Files/)).toBeTruthy();
 
   // 输入关键字 "Win"
   const searchInput = screen.getByTestId("dir-search") as HTMLInputElement;
@@ -166,21 +166,21 @@ test("输入关键字过滤可见目录，仅显示匹配项及其父级链", as
 
   // Windows 仍然可见（匹配关键字）
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+    expect(screen.getByText(/Windows/)).toBeTruthy();
   }, { timeout: 3000 });
   // C:\ 作为父级链保留
-  expect(screen.getByText(/📁\s*C:\\/)).toBeTruthy();
+  expect(screen.getByText(/C:\\/)).toBeTruthy();
 
   // Users 和 Program Files 不可见（不匹配）
-  expect(screen.queryByText(/📁\s*Users/)).toBeNull();
-  expect(screen.queryByText(/📁\s*Program Files/)).toBeNull();
+  expect(screen.queryByText(/Users/)).toBeNull();
+  expect(screen.queryByText(/Program Files/)).toBeNull();
 });
 
 test("清空搜索恢复全部可见目录", async () => {
   render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+    expect(screen.getByText(/Windows/)).toBeTruthy();
   }, { timeout: 3000 });
 
   // 输入关键字
@@ -189,7 +189,7 @@ test("清空搜索恢复全部可见目录", async () => {
 
   // 确认过滤生效
   await waitFor(() => {
-    expect(screen.queryByText(/📁\s*Users/)).toBeNull();
+    expect(screen.queryByText(/Users/)).toBeNull();
   }, { timeout: 3000 });
 
   // 清空搜索
@@ -197,17 +197,17 @@ test("清空搜索恢复全部可见目录", async () => {
 
   // Users 恢复可见
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+    expect(screen.getByText(/Users/)).toBeTruthy();
   }, { timeout: 3000 });
   // Program Files 也恢复
-  expect(screen.getByText(/📁\s*Program Files/)).toBeTruthy();
+  expect(screen.getByText(/Program Files/)).toBeTruthy();
 });
 
 test("无匹配目录时显示空状态提示", async () => {
   render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*C:\\/)).toBeTruthy();
+    expect(screen.getByText(/C:\\/)).toBeTruthy();
   }, { timeout: 3000 });
 
   const searchInput = screen.getByTestId("dir-search") as HTMLInputElement;
@@ -223,7 +223,7 @@ test("搜索时仍可选择匹配的目录", async () => {
   render(<DirTreePicker onPick={onPick} onCancel={() => {}} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+    expect(screen.getByText(/Windows/)).toBeTruthy();
   }, { timeout: 3000 });
 
   // 输入关键字
@@ -232,9 +232,9 @@ test("搜索时仍可选择匹配的目录", async () => {
 
   // 点击匹配的 Windows 目录
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+    expect(screen.getByText(/Windows/)).toBeTruthy();
   }, { timeout: 3000 });
-  fireEvent.click(screen.getByText(/📁\s*Windows/));
+  fireEvent.click(screen.getByText(/Windows/));
 
   // 点击选择按钮
   fireEvent.click(screen.getByTestId("dir-pick"));
@@ -245,7 +245,7 @@ test("默认不显示文件节点，只显示目录", async () => {
   render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+    expect(screen.getByText(/Users/)).toBeTruthy();
   }, { timeout: 3000 });
 
   expect(screen.queryByText(/pagefile\.sys/)).toBeNull();
@@ -266,7 +266,7 @@ test("showFiles=false 时输入文件名过滤会定位到包含该文件的目�
   render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+    expect(screen.getByText(/Users/)).toBeTruthy();
   }, { timeout: 3000 });
 
   const searchInput = screen.getByTestId("dir-search") as HTMLInputElement;
@@ -274,14 +274,14 @@ test("showFiles=false 时输入文件名过滤会定位到包含该文件的目�
 
   // C:\Users 因包含 package.json 而被保留
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+    expect(screen.getByText(/Users/)).toBeTruthy();
   }, { timeout: 3000 });
-  expect(screen.getByText(/📁\s*C:\\/)).toBeTruthy();
+  expect(screen.getByText(/C:\\/)).toBeTruthy();
 
   // 文件节点本身不显示
   expect(screen.queryByText(/package\.json/)).toBeNull();
   // 不相关目录被过滤掉
-  expect(screen.queryByText(/📁\s*Windows/)).toBeNull();
+  expect(screen.queryByText(/Windows/)).toBeNull();
 });
 
 test("showFiles=true 时输入文件名过滤会显示匹配文件及其父目录链", async () => {
@@ -298,11 +298,11 @@ test("showFiles=true 时输入文件名过滤会显示匹配文件及其父目�
   await waitFor(() => {
     expect(screen.getByText(/package\.json/)).toBeTruthy();
   }, { timeout: 3000 });
-  expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
-  expect(screen.getByText(/📁\s*C:\\/)).toBeTruthy();
+  expect(screen.getByText(/Users/)).toBeTruthy();
+  expect(screen.getByText(/C:\\/)).toBeTruthy();
 
   // 不相关目录被过滤掉
-  expect(screen.queryByText(/📁\s*Windows/)).toBeNull();
+  expect(screen.queryByText(/Windows/)).toBeNull();
   expect(screen.queryByText(/📄\s*pagefile\.sys/)).toBeNull();
 });
 
@@ -333,11 +333,11 @@ test("默认不显示隐藏目录，开启开关后显示隐藏目录", async ()
 
   // 等待 C:\ 子目录加载完成
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+    expect(screen.getByText(/Users/)).toBeTruthy();
   }, { timeout: 3000 });
 
   // 默认不显示隐藏目录
-  expect(screen.queryByText(/📁\s*\.hidden-root/)).toBeNull();
+  expect(screen.queryByText(/\.hidden-root/)).toBeNull();
 
   // 点击显示隐藏目录开关
   const toggle = screen.getByText("显示隐藏目录");
@@ -345,7 +345,7 @@ test("默认不显示隐藏目录，开启开关后显示隐藏目录", async ()
 
   // 隐藏目录应该出现
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*\.hidden-root/)).toBeTruthy();
+    expect(screen.getByText(/\.hidden-root/)).toBeTruthy();
   }, { timeout: 3000 });
 });
 
@@ -353,11 +353,11 @@ test("默认目录模式下可展开用户子目录（懒加载）", async () =>
   render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+    expect(screen.getByText(/Windows/)).toBeTruthy();
   }, { timeout: 3000 });
 
   // 找到 Windows 目录项的展开箭头并点击
-  const windowsText = screen.getByText(/📁\s*Windows/);
+  const windowsText = screen.getByText(/Windows/);
   const titleContainer = windowsText.closest(".rct-tree-item-title-container");
   const arrow = titleContainer?.querySelector(".rct-tree-item-arrow");
   expect(arrow).toBeTruthy();
@@ -370,7 +370,7 @@ test("默认目录模式下可展开用户子目录（懒加载）", async () =>
 
   // System32 子目录应出现
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*System32/)).toBeTruthy();
+    expect(screen.getByText(/System32/)).toBeTruthy();
   }, { timeout: 3000 });
 });
 
@@ -378,7 +378,7 @@ test("搜索过滤后目录仍保留懒加载占位符可展开", async () => {
   render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+    expect(screen.getByText(/Windows/)).toBeTruthy();
   }, { timeout: 3000 });
 
   const searchInput = screen.getByTestId("dir-search") as HTMLInputElement;
@@ -386,11 +386,11 @@ test("搜索过滤后目录仍保留懒加载占位符可展开", async () => {
 
   // Windows 目录被保留
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+    expect(screen.getByText(/Windows/)).toBeTruthy();
   }, { timeout: 3000 });
 
   // 展开 Windows
-  const windowsText = screen.getByText(/📁\s*Windows/);
+  const windowsText = screen.getByText(/Windows/);
   const titleContainer = windowsText.closest(".rct-tree-item-title-container");
   const arrow = titleContainer?.querySelector(".rct-tree-item-arrow");
   fireEvent.click(arrow!);
@@ -406,7 +406,7 @@ test("开启显示隐藏目录后，隐藏目录可被选择", async () => {
   render(<DirTreePicker onPick={onPick} onCancel={() => {}} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+    expect(screen.getByText(/Users/)).toBeTruthy();
   }, { timeout: 3000 });
 
   // 开启显示隐藏目录
@@ -414,9 +414,9 @@ test("开启显示隐藏目录后，隐藏目录可被选择", async () => {
 
   // 等待隐藏目录出现并点击
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*\.hidden-root/)).toBeTruthy();
+    expect(screen.getByText(/\.hidden-root/)).toBeTruthy();
   }, { timeout: 3000 });
-  fireEvent.click(screen.getByText(/📁\s*\.hidden-root/));
+  fireEvent.click(screen.getByText(/\.hidden-root/));
 
   // 选择按钮应可用并触发 onPick
   await waitFor(() => {
@@ -432,7 +432,7 @@ test("搜索中切换显示隐藏目录开关会以新的 showHidden 重新触�
   render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Users/)).toBeTruthy();
+    expect(screen.getByText(/Users/)).toBeTruthy();
   }, { timeout: 3000 });
 
   // 输入搜索词，等待首次搜索发出（showHidden: false）
@@ -478,7 +478,7 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
   try {
     render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
     await waitFor(() => {
-      expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+      expect(screen.getByText(/Windows/)).toBeTruthy();
     }, { timeout: 3000 });
 
     fireEvent.change(screen.getByTestId("dir-search"), { target: { value: "sub" } });
@@ -491,11 +491,11 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
     // 搜索命中叶子目录 subdir（无匹配子项）→ 出现在结果中
     emitEventForTesting({ type: "fs:search:progress", requestId: req.requestId, query: "sub", matches: [{ name: "subdir", isDir: true, path: "C:\\Users\\test\\subdir" }] } as any);
     await waitFor(() => {
-      expect(screen.getByText(/📁\s*subdir/)).toBeTruthy();
+      expect(screen.getByText(/subdir/)).toBeTruthy();
     }, { timeout: 3000 });
 
     // 展开搜索结果里的 subdir → 应懒加载其真实子目录
-    const subdirText = screen.getByText(/📁\s*subdir/);
+    const subdirText = screen.getByText(/subdir/);
     const arrow = subdirText.closest(".rct-tree-item-title-container")?.querySelector(".rct-tree-item-arrow");
     expect(arrow).toBeTruthy();
     fireEvent.click(arrow!);
@@ -505,12 +505,12 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
     }, { timeout: 3000 });
     // 真实子目录 inner 应显示（默认 showFiles=false，文件 note.txt 不显示）
     await waitFor(() => {
-      expect(screen.getByText(/📁\s*inner/)).toBeTruthy();
+      expect(screen.getByText(/inner/)).toBeTruthy();
     }, { timeout: 3000 });
     expect(screen.queryByText(/note\.txt/)).toBeNull();
 
     // 点击下钻出的 inner 目录 → 选中路径应更新，「选择」返回该目录
-    fireEvent.click(screen.getByText(/📁\s*inner/));
+    fireEvent.click(screen.getByText(/inner/));
     await waitFor(() => {
       expect(document.querySelector(".text-blue.font-mono")?.textContent).toBe("C:\\Users\\test\\subdir\\inner");
     }, { timeout: 3000 });
@@ -522,11 +522,11 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
 test("搜索限定到当前选中文件夹的子树，而非所有盘符根", async () => {
   render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+    expect(screen.getByText(/Windows/)).toBeTruthy();
   }, { timeout: 3000 });
 
   // 选中 D:\ 作为当前文件夹
-  fireEvent.click(screen.getByText(/📁\s*D:\\/));
+  fireEvent.click(screen.getByText(/D:\\/));
   await waitFor(() => {
     expect(document.querySelector(".text-blue.font-mono")?.textContent).toBe("D:\\");
   }, { timeout: 3000 });
@@ -567,7 +567,7 @@ test("搜索增量结果更新时，用户已折叠的节点保持折叠", async
   try {
     render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
     await waitFor(() => {
-      expect(screen.getByText(/📁\s*Windows/)).toBeTruthy();
+      expect(screen.getByText(/Windows/)).toBeTruthy();
     }, { timeout: 3000 });
     // selectedPath 默认 = home = C:\Users\test
     expect(document.querySelector(".text-blue.font-mono")?.textContent).toBe("C:\\Users\\test");
@@ -585,16 +585,16 @@ test("搜索增量结果更新时，用户已折叠的节点保持折叠", async
     const mkMatch = () => ({ name: "subdir", isDir: true, path: "C:\\Users\\test\\subdir" });
     emitEventForTesting({ type: "fs:search:progress", requestId: req.requestId, query: "sub", matches: [mkMatch()] } as any);
     await waitFor(() => {
-      expect(screen.getByText(/📁\s*subdir/)).toBeTruthy();
+      expect(screen.getByText(/subdir/)).toBeTruthy();
     }, { timeout: 3000 });
 
     // 折叠搜索根 C:\Users\test → subdir 消失
-    const root0 = screen.getByText(/📁\s*C:\\Users\\test/);
+    const root0 = screen.getByText(/C:\\Users\\test/);
     const arrow = root0.closest(".rct-tree-item-title-container")?.querySelector(".rct-tree-item-arrow");
     expect(arrow).toBeTruthy();
     fireEvent.click(arrow!);
     await waitFor(() => {
-      expect(screen.queryByText(/📁\s*subdir/)).toBeNull();
+      expect(screen.queryByText(/subdir/)).toBeNull();
     }, { timeout: 3000 });
 
     // 第二批增量（内容相同但 searchTreeItems 引用变化）→ 当前 bug 会重展开 C:\Users\test
@@ -602,7 +602,7 @@ test("搜索增量结果更新时，用户已折叠的节点保持折叠", async
     await new Promise((r) => setTimeout(r, 200));
 
     // 折叠应保持：subdir 不应重新出现
-    expect(screen.queryByText(/📁\s*subdir/)).toBeNull();
+    expect(screen.queryByText(/subdir/)).toBeNull();
   } finally {
     _setFsTransport(fsTransport); // 恢复共享 transport
   }

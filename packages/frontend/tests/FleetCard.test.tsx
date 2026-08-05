@@ -87,7 +87,7 @@ test("FleetCard 流式中（isStreaming + 无 result）：默认展开、不透�
 	expect(body.textContent).toContain("重构 UI");
 });
 
-test("FleetCard 失败（result.isError）：meta 含「✗ 失败」", () => {
+test("FleetCard 失败（result.isError）：meta 含「失败」", () => {
 	const errResult = {
 		...fleetResult,
 		isError: true,
@@ -95,8 +95,8 @@ test("FleetCard 失败（result.isError）：meta 含「✗ 失败」", () => {
 	};
 	render(<FleetCard sessionId="s1" toolCall={fleetCall} result={errResult} />);
 	const header = screen.getByTestId("fleet-f1-header");
-	expect(header.textContent).toContain("✗ 失败");
-	expect(header.textContent).not.toContain("✓ 完成");
+	expect(header.textContent).toContain("失败");
+	expect(header.textContent).not.toContain("完成");
 });
 
 test("FleetCard 展开后结果经 ReactMarkdown 渲染", () => {

@@ -200,7 +200,7 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
           {projects.length === 0 && <option value="">（无项目，请先新建）</option>}
           {projects.map(p => (
             <option key={p.id} value={p.id}>
-              {p.id === SYSTEM_PROJECT_ID ? "🏠 " : "📁 "}{p.name}
+              {p.name}
               {p.id === SYSTEM_PROJECT_ID ? "" : ` ${p.cwd}`}
             </option>
           ))}

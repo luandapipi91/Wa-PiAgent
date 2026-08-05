@@ -4,6 +4,8 @@
 // @[名称] 不在 expandTokens 处理——原样保留给主智能体识别（由 systemPrompt 规则触发 delegate）
 // /[名称] 不在 expandTokens 处理——原样保留为 /名称 发送给 pi 解析执行
 
+import { iconSvg } from "../components/ui/Icon";
+
 /** 智能体 token 正则：匹配 @[非]字符的名称] */
 export const AGENT_TOKEN_RE = /@\[([^\]]+)\]/g;
 /** 文件 token 正则：匹配 #[非]字符的路径] */
@@ -241,8 +243,8 @@ export function textToHtml(text: string, opts?: { hideTrigger?: boolean }): stri
     }
     if (s.type === "skill") {
       const token = `$[${s.value}]`;
-      // 用 ⚡ 图标替代触发符 $（输入框和历史回显都显示 ⚡，更直观）
-      return `<span class="chip chip-skill" contenteditable="false" data-token="${escapeHtml(token)}">⚡ ${escapeHtml(s.value)}</span>`;
+      // 用闪电 SVG 图标替代触发符 $（输入框和历史回显都显示图标，更直观）
+      return `<span class="chip chip-skill" contenteditable="false" data-token="${escapeHtml(token)}">${iconSvg("bolt")} ${escapeHtml(s.value)}</span>`;
     }
     if (s.type === "command") {
       const token = `/[${s.value}]`;

@@ -9,6 +9,7 @@ import { selectPendingAsks } from "../store/ask";
 import { STATUS_COLORS } from "../theme/colors";
 import { Modal } from "./ui/Modal";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
+import { Icon } from "./ui/Icon";
 
 interface Props {
   onClose: () => void;
@@ -188,7 +189,7 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
               onClick={() => { setCtxMenu(null); onEdit(ctxMenu.name); }}
               className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
               data-testid="gallery-ctx-view"
-            >👁 查看</button>
+            ><Icon name="eye" size={12} style={{verticalAlign:"-0.125em"}} /> 查看</button>
           ) : (
             // 普通智能体：编辑 + 删除
             <>
@@ -196,12 +197,12 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
                 onClick={() => { setCtxMenu(null); onEdit(ctxMenu.name); }}
                 className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
                 data-testid="gallery-ctx-edit"
-              >✏️ 编辑智能体</button>
+              ><Icon name="edit" size={12} style={{verticalAlign:"-0.125em"}} /> 编辑智能体</button>
               <button
                 onClick={() => { setCtxMenu(null); setDeleteFor(ctxMenu.name); }}
                 className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
                 data-testid="gallery-ctx-delete"
-              >🗑 删除</button>
+              ><Icon name="trash" size={12} style={{verticalAlign:"-0.125em"}} /> 删除</button>
             </>
           )}
         </div>,

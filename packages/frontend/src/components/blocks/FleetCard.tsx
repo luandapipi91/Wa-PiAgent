@@ -9,6 +9,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
+import { Icon } from "../ui/Icon";
 import { createMarkdownComponents } from "./markdown-components";
 import { useSessionStore } from "../../store/session";
 import { useLiveElapsed } from "./useLiveElapsed";
@@ -143,7 +144,7 @@ function FleetTaskItem({
 				<span>
 					任务 {index}：{label}
 				</span>
-				<span className="ml-auto flex-shrink-0">{expanded ? "▼" : "▶"}</span>
+				<span className="ml-auto flex-shrink-0"><Icon name={expanded ? "chevron-down" : "chevron-right"} size={10} /></span>
 			</button>
 			{expanded && (showReply || hasProgress || !!toolStats) && (
 				<div className="mt-1 mb-1 pl-2 border-l border-hairline">
@@ -153,7 +154,7 @@ function FleetTaskItem({
 							{statusLabel(progress!.status)} · {seconds}s
 						</div>
 					)}
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1">📤 回复：</div>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1"><Icon name="share" size={11} /><span>回复：</span></div>
 					<MemoReplyMarkdown text={replyText ?? ""} sessionId={sessionId} />
 				</div>
 			)}
@@ -241,7 +242,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 	return (
 		<ProcessCard
 			tone="warning"
-			icon="↪"
+			icon={<Icon name="reply" />}
 			title={`并行派发 ${tasks.length} 个任务`}
 			meta={
 				!result ? (
@@ -250,9 +251,15 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 						<span>执行中</span>
 					</>
 				) : failed ? (
-					"✗ 失败"
+					<>
+						<Icon name="x" size={12} />
+						<span>失败</span>
+					</>
 				) : (
-					"✓ 完成"
+					<>
+						<Icon name="check" size={12} />
+						<span>完成</span>
+					</>
 				)
 			}
 			open={open}
@@ -302,7 +309,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 					data-testid="text-block"
 					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
 				>
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1">📤 回复：</div>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1"><Icon name="share" size={11} /><span>回复：</span></div>
 					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
 						{formattedFull}
 					</ReactMarkdown>

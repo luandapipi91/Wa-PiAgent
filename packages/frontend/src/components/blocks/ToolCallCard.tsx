@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
+import { Icon } from "../ui/Icon";
 
 /** 格式化工具调用参数 — 截断长值避免撑爆 UI（自 MessageList 迁入） */
 export function formatArgs(args: Record<string, any>): string {
@@ -201,7 +202,15 @@ export function ToolCallCard({
 	return (
 		<ProcessCard
 			tone={tone}
-			icon={!result ? "🔧" : failed ? "✗" : "✓"}
+			icon={
+				!result ? (
+					<Icon name="wrench" />
+				) : failed ? (
+					<Icon name="x" />
+				) : (
+					<Icon name="check" />
+				)
+			}
 			title={toolCallTitle(toolCall)}
 			meta={!result ? <Spinner /> : failed ? "失败" : "完成"}
 			open={open}
@@ -281,24 +290,46 @@ function ToolGroupCardInner({
 		executingMode: true,
 	});
 
-	const status: string[] = [];
-	if (successCount > 0) status.push(`✓${successCount}`);
-	if (failedCount > 0) status.push(`✗${failedCount}`);
-	if (doneCount < total) status.push(`⏳${total - doneCount}`);
+	// 计数摘要：✓成功 ✗失败 ⏳进行中（图标 + 数量）
+	const status: ReactNode[] = [];
+	if (successCount > 0)
+		status.push(
+			<span key="ok" className="inline-flex items-center gap-0.5">
+				<Icon name="check" size={11} />
+				{successCount}
+			</span>,
+		);
+	if (failedCount > 0)
+		status.push(
+			<span key="fail" className="inline-flex items-center gap-0.5">
+				<Icon name="x" size={11} />
+				{failedCount}
+			</span>,
+		);
+	if (doneCount < total)
+		status.push(
+			<span key="run" className="inline-flex items-center gap-0.5">
+				<Icon name="hourglass" size={11} />
+				{total - doneCount}
+			</span>,
+		);
+	const statusEl = (
+		<span className="inline-flex items-center gap-1.5">{status}</span>
+	);
 
 	return (
 		<ProcessCard
 			tone="accent"
-			icon="🔧"
+			icon={<Icon name="wrench" />}
 			title={`${total} 个工具调用`}
 			meta={
 				doneCount < total && isStreaming ? (
 					<>
 						<Spinner />
-						<span>{status.join(" ")}</span>
+						{statusEl}
 					</>
 				) : (
-					status.join(" ")
+					statusEl
 				)
 			}
 			open={open}

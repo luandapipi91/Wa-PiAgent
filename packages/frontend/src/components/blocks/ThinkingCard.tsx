@@ -1,5 +1,6 @@
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
+import { Icon } from "../ui/Icon";
 
 /** 思考过程卡片：流式中展开实时可见，整轮结束自动折叠并弱化 */
 export function ThinkingCard({ thinking, isStreaming }: { thinking: string; isStreaming?: boolean }) {
@@ -7,7 +8,7 @@ export function ThinkingCard({ thinking, isStreaming }: { thinking: string; isSt
   return (
     <ProcessCard
       tone="accent"
-      icon="💭"
+      icon={<Icon name="thought" />}
       title="思考过程"
       meta={isStreaming ? (<><Spinner /><span>思考中…</span></>) : "已完成"}
       open={open}

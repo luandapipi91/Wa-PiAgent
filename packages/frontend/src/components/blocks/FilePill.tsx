@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useProjectsStore } from "../../store/projects";
 import { useSessionStore } from "../../store/session";
+import { Icon } from "../ui/Icon";
 import { parseFilePath } from "./file-path";
 import { statFile } from "../../fs-client";
 
@@ -54,7 +55,7 @@ export function FilePill({ rawText, sessionId }: { rawText: string; sessionId: s
       className="inline-flex items-center gap-1 px-1.5 py-0 rounded-md border border-hairline bg-surface-elevated text-[calc(12px*var(--font-scale))] font-mono text-accent hover:border-accent transition-colors align-baseline"
       style={{ cursor: "pointer" }}
     >
-      📄 {base}{parsed.line != null ? `:${parsed.line}` : ""}
+      <Icon name="file" size={12} /> {base}{parsed.line != null ? `:${parsed.line}` : ""}
     </button>
   );
 }

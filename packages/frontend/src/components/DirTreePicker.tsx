@@ -8,6 +8,7 @@ import {
 } from "react-complex-tree";
 import "react-complex-tree/lib/style-modern.css";
 import { getHome, getRoots, listDir, searchFilesStream, type SearchMatch } from "../fs-client";
+import { Icon } from "./ui/Icon";
 
 // 覆盖 react-complex-tree 默认选中样式：浅色选中背景 + 继承文字颜色
 const TREE_STYLES = `
@@ -551,7 +552,7 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
             onSelectItems={handleSelectItems}
             onFocusItem={handleFocusItem}
             renderItemTitle={({ item }) => (
-              <span>{item.isFolder ? "📁 " : "📄 "}{item.data?.name}</span>
+              <span className="inline-flex items-center gap-1"><Icon name={item.isFolder ? "folder" : "file"} size={12} />{item.data?.name}</span>
             )}
           >
             <Tree treeId="dir-tree" rootItem="root" treeLabel="目录" />

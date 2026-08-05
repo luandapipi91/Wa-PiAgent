@@ -22,14 +22,19 @@ test("渲染文件 chip（#[...]，绿色 chip-file）", () => {
 
 test("渲染技能 chip（$）", () => {
   render(<ComposerTextarea text="用 $[brainstorm]" onTextChange={mock()} onKeyDown={mock()} onPaste={mock()} />);
-  const chip = screen.getByText("⚡ brainstorm");
-  expect(chip.className).toContain("chip-skill");
+  // 技能 chip 的闪电图标已由 Unicode ⚡ 改为内联 svg，文本仅剩技能名；
+  // 按 data-token 定位最稳定（与 agent chip 测试一致）。
+  const chip = document.querySelector('[data-token="$[brainstorm]"]');
+  expect(chip).toBeTruthy();
+  expect(chip!.className).toContain("chip-skill");
 });
 
 test("渲染技能 chip（¥）", () => {
   render(<ComposerTextarea text="用 ¥[brainstorm]" onTextChange={mock()} onKeyDown={mock()} onPaste={mock()} />);
-  const chip = screen.getByText("⚡ brainstorm");
-  expect(chip.className).toContain("chip-skill");
+  // ¥ 触发符内部统一归一为 $ token（见 tokens.ts 技能 chip 渲染），data-token 仍为 $[brainstorm]
+  const chip = document.querySelector('[data-token="$[brainstorm]"]');
+  expect(chip).toBeTruthy();
+  expect(chip!.className).toContain("chip-skill");
 });
 
 test("渲染智能体 chip（@[...]，蓝色 chip-agent）", () => {
