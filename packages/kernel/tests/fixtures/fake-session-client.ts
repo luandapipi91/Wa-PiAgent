@@ -102,19 +102,6 @@ export class FakeSessionClient {
 		this.steered.push(text);
 	}
 
-	/** 热重载扩展调用记录（_reloadIfDirty 经此触发 session.reload()）。
-	 *  设 reloadExtensionsError 注入失败路径（回退整进程重建）。 */
-	reloaded = 0;
-	reloadExtensionsError: Error | null = null;
-	async reloadExtensions(): Promise<void> {
-		if (this.reloadExtensionsError) {
-			const err = this.reloadExtensionsError;
-			this.reloadExtensionsError = null;
-			throw err;
-		}
-		this.reloaded++;
-	}
-
 	async followUp(text: string): Promise<void> {
 		this.followUps.push(text);
 	}

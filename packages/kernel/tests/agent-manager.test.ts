@@ -845,7 +845,7 @@ test("getMessages 在 session 不存在时返回空数组", async () => {
 
 // ─── dirty / skillDirty 标脏重建 ────────────────────────────────────────────
 
-test("markAllDirty 后 idle 命中缓存 → 热重载扩展（不重建进程、调 reloadExtensions、同 handle），并清脏", async () => {
+test("markAllDirty 后 idle 命中缓存 → 重建（dispose 旧 client + 新建），并清脏", async () => {
 	const { project, session, am, fakes } = await setup();
 	const first = await am.ensureStarted(project.id, "dev", session.id);
 	expect(fakes).toHaveLength(1);
@@ -853,15 +853,13 @@ test("markAllDirty 后 idle 命中缓存 → 热重载扩展（不重建进程�
 	am.markAllDirty();
 	const second = await am.ensureStarted(project.id, "dev", session.id);
 
-	// 热重载：进程不重建（fakes 仍 1 个、旧 client 仍 alive），调 reloadExtensions，返回同 handle
-	expect(fakes).toHaveLength(1);
-	expect(fakes[0].alive).toBe(true);
-	expect(fakes[0].reloaded).toBe(1);
-	expect(second).toBe(first);
+	expect(fakes).toHaveLength(2);
+	expect(fakes[0].alive).toBe(false); // 旧 client 被 dispose
+	expect(second).not.toBe(first); // 返回新 handle
 
-	// 清脏后再次命中不再热重载
+	// 清脏后再次命中不再重建
 	await am.ensureStarted(project.id, "dev", session.id);
-	expect(fakes[0].reloaded).toBe(1);
+	expect(fakes).toHaveLength(2);
 });
 
 test("未标脏的会话命中缓存时不重建", async () => {
@@ -871,24 +869,22 @@ test("未标脏的会话命中缓存时不重建", async () => {
 	expect(fakes).toHaveLength(1);
 });
 
-test("markSkillsDirty 后 idle 命中缓存 → 整进程重建（skillDirty 改 agent 定义层，热重载不够）", async () => {
+test("markSkillsDirty 后 idle 命中缓存 → 重建（与 markAllDirty 统一为进程重启）", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
 
 	am.markSkillsDirty();
 	await am.ensureStarted(project.id, "dev", session.id);
 
-	// skillDirty（agent 定义/技能变更）：整进程重建，不走热重载
 	expect(fakes).toHaveLength(2);
 	expect(fakes[0].alive).toBe(false);
-	expect(fakes[0].reloaded).toBe(0); // 未走热重载路径
 
 	// 清脏后不再重建
 	await am.ensureStarted(project.id, "dev", session.id);
 	expect(fakes).toHaveLength(2);
 });
 
-test("busy 时标脏不热重载，保留 dirty 等 idle 后补热重载", async () => {
+test("busy 时标脏不重建，保留 dirty 等 idle 后补重建", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
 	const fake = fakes[0];
@@ -896,47 +892,33 @@ test("busy 时标脏不热重载，保留 dirty 等 idle 后补热重载", async
 	await am.prompt(session.id, "进行中", { model: MODEL }); // busy
 
 	am.markAllDirty();
-	await am.ensureStarted(project.id, "dev", session.id); // busy → 跳过
-	expect(fakes[0].reloaded).toBe(0);
+	const r = await am.ensureStarted(project.id, "dev", session.id); // busy → 跳过
+	expect(fakes).toHaveLength(1);
 
 	fake.emit({ type: "agent_settled" }); // idle
-	await am.ensureStarted(project.id, "dev", session.id); // 补热重载
-	expect(fakes[0].reloaded).toBe(1);
-	expect(fakes).toHaveLength(1); // 仍未重建进程
-	expect(fakes[0].alive).toBe(true);
+	const r2 = await am.ensureStarted(project.id, "dev", session.id); // 补重建
+	expect(fakes).toHaveLength(2);
+	expect(fakes[0].alive).toBe(false);
+	expect(r2).not.toBe(r);
 });
 
-test("热重载成功后不发 extension_ui_reset（扩展 session_start 重放，UI 自动恢复）", async () => {
+test("dirty 重建后合成 extension_ui_reset 事件（前端据此清空扩展 UI 残留）", async () => {
 	const events: CapturedEvent[] = [];
 	const { project, session, am } = await setup({ events });
 	await am.ensureStarted(project.id, "dev", session.id);
-	events.length = 0;
+	events.length = 0; // 清掉首次启动期事件，聚焦重建后的合成事件
 
 	am.markAllDirty();
 	await am.ensureStarted(project.id, "dev", session.id);
 
-	// 热重载成功：不发 extension_ui_reset（session.reload 重放 session_start，扩展重发 UI）
-	expect(events.filter((x) => x.e.type === "extension_ui_reset")).toHaveLength(0);
-});
-
-test("热重载失败（reloadExtensions 抛错）→ 回退整进程重建 + 合成 extension_ui_reset", async () => {
-	const events: CapturedEvent[] = [];
-	const { project, session, am, fakes } = await setup({ events });
-	await am.ensureStarted(project.id, "dev", session.id);
-	fakes[0].reloadExtensionsError = new Error("命令未注册"); // 注入热重载失败
-	events.length = 0;
-
-	am.markAllDirty();
-	const second = await am.ensureStarted(project.id, "dev", session.id);
-
-	// 回退整进程重建：旧 client dispose、新建 fakes[1]、发 extension_ui_reset
-	expect(fakes).toHaveLength(2);
-	expect(fakes[0].alive).toBe(false);
 	const resets = events.filter((x) => x.e.type === "extension_ui_reset");
 	expect(resets).toHaveLength(1);
 	expect(resets[0].sessionId).toBe(session.id);
-	// 第二个 fake 的 reloadExtensions 未被调（走的是重建路径）
-	expect(fakes[1].reloaded).toBe(0);
+
+	// 未标脏的再次命中不重建、也不再发 reset
+	events.length = 0;
+	await am.ensureStarted(project.id, "dev", session.id);
+	expect(events.filter((x) => x.e.type === "extension_ui_reset")).toHaveLength(0);
 });
 
 // ─── switchAgent / renameAgentSessions ──────────────────────────────────────
@@ -1923,32 +1905,34 @@ function rebuildFactory(fakes: FakeSessionClient[]) {
 	};
 }
 
-test("getCommands 命中 dirty 进程先热重载再取（安装扩展后清单不过期）", async () => {
-	const { am, project, session, fakes } = await setup();
+test("getCommands 命中 dirty 进程先重建再取（安装扩展后清单不过期）", async () => {
+	const fakes2: FakeSessionClient[] = [];
+	const { am, project, session } = await setup({
+		createClientFn: rebuildFactory(fakes2),
+	});
 	await am.ensureStarted(project.id, "dev", session.id);
-	fakes[0].commandsToReturn = [{ name: "old-cmd", source: "extension" }];
 	expect((await am.getCommands(session.id)).map((c) => c.name)).toEqual([
 		"old-cmd",
 	]);
 
 	am.markAllDirty(); // 模拟安装/卸载扩展
-	await am.getCommands(session.id);
-	// 扩展 dirty 走热重载：进程不重建，reloadExtensions 被调（真实环境下命令由 session.reload 刷新）
-	expect(fakes).toHaveLength(1);
-	expect(fakes[0].reloaded).toBe(1);
+	const commands = await am.getCommands(session.id);
+	expect(fakes2).toHaveLength(2); // 旧进程被重建
+	expect(commands.map((c) => c.name)).toEqual(["uidemo"]);
 });
 
-test("getCommands 借用进程时热重载 dirty 进程再取", async () => {
-	const { am, project, session, fakes } = await setup();
+test("getCommands 借用进程时跳过 dirty：重建首个空闲 dirty 进程再取", async () => {
+	const fakes2: FakeSessionClient[] = [];
+	const { am, project, session } = await setup({
+		createClientFn: rebuildFactory(fakes2),
+	});
 	await am.ensureStarted(project.id, "dev", session.id);
-	fakes[0].commandsToReturn = [{ name: "old-cmd", source: "extension" }];
 
 	am.markAllDirty();
 	// 「附加命令」弹窗链路：getCommands("") 借用活跃进程
-	await am.getCommands("不存在的session");
-	// 扩展 dirty 走热重载：进程不重建，reloadExtensions 被调
-	expect(fakes).toHaveLength(1);
-	expect(fakes[0].reloaded).toBe(1);
+	const commands = await am.getCommands("不存在的session");
+	expect(fakes2).toHaveLength(2); // dirty 进程被重建，而非直接借用过期清单
+	expect(commands.map((c) => c.name)).toEqual(["uidemo"]);
 });
 
 test("getCommands 借用干净进程不触发重建", async () => {
