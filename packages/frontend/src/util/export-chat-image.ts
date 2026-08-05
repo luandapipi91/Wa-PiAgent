@@ -3,6 +3,10 @@
 // downloadBlob：a[download] 触发浏览器下载；
 // renderTurnsToPngBlob（屏外渲染转 PNG）在 Task 2 加入本文件。
 import type { SessionMessage } from "@wa-pi/shared";
+import { createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { toBlob } from "html-to-image";
+import { ExportImageCard } from "../components/blocks/ExportImageCard";
 
 export interface ExportTurn {
 	user: string; // 用户消息纯文本
@@ -107,4 +111,33 @@ export function downloadBlob(blob: Blob, filename: string): void {
 	a.click();
 	a.remove();
 	setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * 屏外渲染 ExportImageCard 并转 PNG Blob。
+ * 容器 fixed 定位到视口外（display:none 会导致布局为 0，不能用）；
+ * toBlob 负责内联计算样式与 @font-face（MiSans/JetBrains Mono 为同源 woff2）。
+ */
+export async function renderTurnsToPngBlob(turns: ExportTurn[]): Promise<Blob> {
+	const host = document.createElement("div");
+	host.style.position = "fixed";
+	host.style.left = "-10000px";
+	host.style.top = "0";
+	host.style.pointerEvents = "none";
+	document.body.appendChild(host);
+	const root = createRoot(host);
+	try {
+		root.render(createElement(ExportImageCard, { turns }));
+		// 等 React 提交 + 字体加载（图片里不缺字形）
+		await new Promise((r) => setTimeout(r, 50));
+		await (document as any).fonts?.ready;
+		const card = host.firstElementChild as HTMLElement;
+		if (!card) throw new Error("导出卡片渲染失败");
+		const blob = await toBlob(card, { pixelRatio: 2 });
+		if (!blob) throw new Error("PNG 生成失败");
+		return blob;
+	} finally {
+		root.unmount();
+		host.remove();
+	}
 }
