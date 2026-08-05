@@ -191,10 +191,20 @@ export function ProjectItem(props: Props) {
 			>
 				<button
 					onClick={() => toggleProject(project.id)}
-					className="text-tertiary w-5 text-xs flex items-center justify-center"
+					className="text-tertiary w-5 text-[calc(18px*var(--font-scale))] flex items-center justify-center"
 					data-testid={`project-toggle-${project.id}`}
 				>
-					{isSystem ? <Icon name="home" size={13} testId="project-icon-home" /> : expanded ? <Icon name="folder-open" size={13} testId="project-icon-folder-open" /> : <Icon name="folder" size={13} testId="project-icon-folder" />}
+					{isSystem ? (
+						<Icon name="home" size="1em" testId="project-icon-home" />
+					) : expanded ? (
+						<Icon
+							name="folder-open"
+							size="1em"
+							testId="project-icon-folder-open"
+						/>
+					) : (
+						<Icon name="folder" size="1em" testId="project-icon-folder" />
+					)}
 				</button>
 				<button
 					onClick={() => {
