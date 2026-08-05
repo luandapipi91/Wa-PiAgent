@@ -87,7 +87,7 @@ export function downloadBlob(blob: Blob, filename: string): void;
 
 ## 5. 交互与样式
 
-- **图标约束**：本功能所有图标一律使用**内联 SVG**（与 CopyButton 的 svg 一致风格），禁止 emoji / icon font / 图片图标。导出的图片内容里也不放 emoji（AI 头像等聊天窗装饰不进导出卡片）。
+- **图标约束**：本功能所有图标一律使用**内联 SVG**（与 CopyButton 的 svg 一致风格），禁止 emoji / icon font / 图片图标。
 - **ExportButton**：与 CopyButton 同排（其左侧）、同尺寸同 hover 样式（`p-1 rounded-md text-tertiary opacity-60 hover:opacity-100 …`），icon 用下载箭头 svg，title「导出为图片」。点击弹出小菜单（两个选项：下载 PNG / 复制图片，菜单项图标也是内联 SVG），点外部关闭。
 - **ExportImageCard 排版**（导出图片内容，与聊天窗无关的独立卡片）：
   - 白底/浅色底卡片，内边距 24px，宽 640px 固定
