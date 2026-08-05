@@ -10,7 +10,7 @@
 //   工具 execute 回调 kernel /bridge/tool（bridge-registry.ts 注册的 ctx 执行）。
 // - 系统提示词组合（composePrompt）结果写入临时文件，经 --system-prompt <file> 传入。
 // - 工具放行：默认排除式（-xt subagent）；agent 配置显式 tools 时用 --tools 白名单
-//   （config.tools ∪ EXTENSION_TOOL_MAP ∪ MCP direct 工具名）。
+//   （config.tools ∪ MCP direct 工具名）。
 //
 // 依赖注入：
 // - createClientFn 可选参数，缺省时用真实 RpcClient（测试注入假 client）
@@ -30,7 +30,6 @@ import {
 	GENERATED_DIR,
 	DEFAULT_AGENT_TOOLS,
 	BUILTIN_SKILLS_DIR,
-	EXTENSION_TOOL_MAP,
 	resolveAgentTools,
 	resolveSessionCwd,
 	PROMPTS_FILE,
@@ -359,7 +358,7 @@ export class AgentManager {
 
 	/** 全局工具清单：内置（DEFAULT_AGENT_TOOLS）+ MCP direct + 动态插件登记，供详情弹窗勾选。
 	 *  剔除 subagent（宿主不允许直接暴露，关系网调起走 delegate）。
-	 *  source 值：内置 → "内置"，MCP direct → "MCP"，动态插件 → 插件包名。 */
+	 *  source 值：内置 → "内置"，MCP direct → "MCP"。 */
 	async listGlobalTools(): Promise<{ name: string; source: string }[]> {
 		const items = DEFAULT_AGENT_TOOLS.filter((t) => t !== "subagent").map(
 			(name) => ({ name, source: "内置" }),
@@ -372,17 +371,9 @@ export class AgentManager {
 				items.push({ name: t, source: "MCP" });
 			}
 		}
-		// 动态插件登记的工具（EXTENSION_TOOL_MAP 按启用态注入），source 用插件包名
-		const enabledIds = await this.getEnabledExtensionIds();
-		for (const [extId, extTools] of Object.entries(EXTENSION_TOOL_MAP)) {
-			if (!enabledIds.has(extId)) continue;
-			for (const t of extTools) {
-				if (!seen.has(t) && t !== "subagent") {
-					seen.add(t);
-					items.push({ name: t, source: extId });
-				}
-			}
-		}
+		// 注：第三方扩展运行时注册的工具不在此列——pi 不给宿主查询已注册工具的接口
+		// （RPC 无列工具命令、package.json 无 tools 声明），wa-pi 无法采集。扩展工具的
+		// 放行靠默认 agent 的排除式路径（不配 tools 白名单时全部放行）。
 		return items;
 	}
 
@@ -737,8 +728,9 @@ export class AgentManager {
 
 		// 工具放行策略：
 		// - 默认（agent 未显式配置 tools）：排除式——不传 --tools，仅 -xt subagent；
-		//   内置 7 工具 + 扩展工具 + MCP direct 工具全部可用（对齐迁移前 DEFAULT+harvested 的行为）。
-		// - 显式配置 tools：白名单——config.tools ∪ EXTENSION_TOOL_MAP ∪ MCP direct 工具名。
+		//   内置 7 工具 + 扩展工具 + MCP direct 工具全部可用（扩展工具靠 pi 进程加载扩展后
+		//   运行时注册，wa-pi 不感知其工具名但默认全部放行）。
+		// - 显式配置 tools：白名单——config.tools ∪ MCP direct 工具名。
 		const enabledExtensionIds = await this.getEnabledExtensionIds();
 
 		// 当 agent 配置了 skills 白名单时，排除提供技能的 extension（如 superpowers-zh），
@@ -767,9 +759,6 @@ export class AgentManager {
 			? {
 					tools: resolveAgentTools(
 						config!.tools!,
-						enabledExtensionIds,
-						agentName,
-						EXTENSION_TOOL_MAP,
 						await this.getMcpDirectToolNames(),
 					),
 				}

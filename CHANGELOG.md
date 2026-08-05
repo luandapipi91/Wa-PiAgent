@@ -5,6 +5,15 @@
 ## [Unreleased] - 2026-08-05
 
 ### 变更
+- **移除空置的 EXTENSION_TOOL_MAP 死代码**：该常量（`packages/shared/src/constants.ts`）
+  是 `= {}` 空对象，仓库内无任何写入点——它本想用于「动态插件工具注入 agent allowlist」，
+  但 pi 不给宿主提供查询已注册工具的接口（RPC 无列工具命令、package.json 无 tools 声明
+  字段），这条注入链路从未接通。一并清理依赖它的死代码：`resolveAgentTools` 的
+  `toolMap`/`enabledExtensionIds`/`_agentName` 三个恒 no-op 参数、`listGlobalTools` 的
+  空迭代段、相关误导性注释与测试用例。函数签名精简为 `(baseTools, harvestedTools)`。
+  扩展工具的实际放行靠默认 agent 的排除式路径（不配 tools 白名单时全部放行），行为
+  完全等价。影响范围：`packages/shared/src/constants.ts`、
+  `packages/shared/tests/constants.test.ts`、`packages/kernel/src/agent-manager.ts`。
 - **测试断言跟进 Icon 化改造（emoji → svg）**：前端把技能 chip 闪电符、项目/目录
   树图标由 Unicode emoji（⚡🏠📁）统一替换为内联 SVG（Icon 组件）后，相关测试断言
   仍按 emoji 文本匹配，导致 11 个测试失败。已将 ComposerTextarea/tokens 的技能 chip
