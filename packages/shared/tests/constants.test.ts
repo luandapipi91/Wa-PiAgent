@@ -1,7 +1,6 @@
 import { test, expect } from "bun:test";
 import {
 	DEFAULT_AGENT_TOOLS,
-	EXTENSION_TOOL_MAP,
 	resolveAgentTools,
 	SYSTEM_PROJECT_ID,
 	SYSTEM_PROJECT_NAME,
@@ -55,80 +54,50 @@ test("DEFAULT_AGENT_TOOLS 不再包含 pi-lens 专属工具", () => {
 	}
 });
 
-test("EXTENSION_TOOL_MAP 不再包含 pi-lens 键", () => {
-	expect(EXTENSION_TOOL_MAP).not.toHaveProperty("pi-lens");
+test("DEFAULT_AGENT_TOOLS 不再包含 pi-lens 专属工具", () => {
+	for (const tool of REMOVED_LENS_TOOLS) {
+		expect(DEFAULT_AGENT_TOOLS).not.toContain(tool);
+	}
 });
 
-// ---- resolveAgentTools：按已启用扩展「注入」工具（替代旧的从默认集过滤）----
-// 第 4 个参数 toolMap 可注入伪注册表，便于测试，默认用 EXTENSION_TOOL_MAP
+// ---- resolveAgentTools：baseTools + harvestedTools（MCP direct 工具名）合并 ----
 
-test("resolveAgentTools: 注入已启用扩展的工具（保留 base 顺序）", () => {
-	const fakeMap = { "demo-ext": ["demo_tool_a", "demo_tool_b"] };
-	const result = resolveAgentTools(
-		["read", "edit"],
-		new Set(["demo-ext"]),
-		undefined,
-		fakeMap,
-	);
-	expect(result).toEqual(["read", "edit", "demo_tool_a", "demo_tool_b"]);
+test("resolveAgentTools: 注入 harvested（MCP direct）工具名（保留 base 顺序）", () => {
+	const result = resolveAgentTools(["read", "edit"], [
+		"mcp_playwright_browser_navigate",
+		"mcp_playwright_browser_click",
+	]);
+	expect(result).toEqual([
+		"read",
+		"edit",
+		"mcp_playwright_browser_navigate",
+		"mcp_playwright_browser_click",
+	]);
 });
 
-test("resolveAgentTools: 未启用的扩展工具不被注入", () => {
-	const fakeMap = { "demo-ext": ["demo_tool_a"] };
-	const result = resolveAgentTools(["read"], new Set(), undefined, fakeMap);
-	expect(result).toEqual(["read"]);
+test("resolveAgentTools: harvested 与 base 重复时去重", () => {
+	const result = resolveAgentTools(["read", "bash"], [
+		"read",
+		"mcp_playwright_browser_navigate",
+	]);
+	// read 已在 base，去重；只并入新工具
+	expect(result).toEqual(["read", "bash", "mcp_playwright_browser_navigate"]);
 });
 
-test("resolveAgentTools: 已注入工具与 base 重复时去重", () => {
-	const fakeMap = { "demo-ext": ["read", "demo_tool_a"] };
-	const result = resolveAgentTools(
-		["read", "edit"],
-		new Set(["demo-ext"]),
-		undefined,
-		fakeMap,
-	);
-	expect(result).toEqual(["read", "edit", "demo_tool_a"]);
+test("resolveAgentTools: harvested 默认空（仅传 base）", () => {
+	const result = resolveAgentTools(["read", "edit"]);
+	expect(result).toEqual(["read", "edit"]);
 });
 
 test("resolveAgentTools: 不修改原数组（不可变）", () => {
 	const base = ["read", "edit"];
 	const snapshot = [...base];
-	resolveAgentTools(base, new Set(), undefined, {});
+	resolveAgentTools(base, ["mcp_x"]);
 	expect(base).toEqual(snapshot);
 });
 
-// ---- 动态工具发现（option B）：第 5 个参数 harvestedTools 注入 loader.reload() 后
-// 从 runtime.tools 枚举出的工具名。替代手动维护 EXTENSION_TOOL_MAP 的静态登记。
-
-test("resolveAgentTools: 注入运行时发现的扩展工具名（harvested）", () => {
-	const result = resolveAgentTools(["read"], new Set(), undefined, {}, [
-		"hypa_shell",
-		"hypa_read",
-	]);
-	expect(result).toEqual(["read", "hypa_shell", "hypa_read"]);
-});
-
-test("resolveAgentTools: harvested 与 base / toolMap 去重", () => {
-	const result = resolveAgentTools(
-		["read", "bash"],
-		new Set(["e"]),
-		undefined,
-		{ e: ["hypa_shell"] },
-		["read", "hypa_shell", "hypa_ls"],
-	);
-	// read(base) + bash(base) + hypa_shell(toolMap) + hypa_ls(harvested，去重 hypa_shell 已存在)
-	expect(result).toEqual(["read", "bash", "hypa_shell", "hypa_ls"]);
-});
-
-test("resolveAgentTools: harvested 默认空（向后兼容 4 参调用）", () => {
-	const result = resolveAgentTools(["read"], new Set(["e"]), undefined, {
-		e: ["demo_tool_a"],
-	});
-	expect(result).toEqual(["read", "demo_tool_a"]);
-});
-
 test("resolveAgentTools: 扩展原生 subagent 工具被剔除；delegate 放行", () => {
-	const out = resolveAgentTools(DEFAULT_AGENT_TOOLS, new Set(), "dev", {}, [
+	const out = resolveAgentTools(DEFAULT_AGENT_TOOLS, [
 		"subagent",
 		"some_ext_tool",
 	]);

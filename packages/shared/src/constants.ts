@@ -144,9 +144,7 @@ export const ALL_AGENT_NAMES: string[] = [
  *  含 Pi 内置工具、pi-web-access 网络工具、amaster memory 记忆工具。
  *  注意：createAgentSession 的 tools 参数会被 SDK 当作 allowlist 使用，
  *  customTools（memory_add/replace/remove/read）同样要过这道 allowlist，
- *  未列出的工具会被过滤掉，因此必须在这里显式放行。
- *  动态插件注册的工具不再写死在此处，改由 resolveAgentTools 在运行时按
- *  插件启用态从 EXTENSION_TOOL_MAP 注入。 */
+ *  未列出的工具会被过滤掉，因此必须在这里显式放行。 */
 export const DEFAULT_AGENT_TOOLS = [
 	"read",
 	"bash",
@@ -172,56 +170,26 @@ export const DEFAULT_AGENT_TOOLS = [
 	"mcp",
 ];
 
-/** 动态插件注册的工具登记表（运行时按插件启用态注入 agent allowlist）。
- *  键 = 扩展包名，与 settings.json.packages 的 npm:<name>@<version> 中 <name> 一致
- *  （即 ExtensionManager.list() 返回的 PackageInfo.name）。
- *  默认为空：内置工具已在 DEFAULT_AGENT_TOOLS 放行，第三方插件若注册工具，
- *  安装时在此登记即可被注入到启用它的 agent 的 allowlist。 */
-export const EXTENSION_TOOL_MAP: Record<string, string[]> = {};
-
 /**
- * 按「已启用动态插件」向工具 allowlist 注入插件工具的纯函数。
- * - baseTools：agent 配置的 tools 或 DEFAULT_AGENT_TOOLS
- * - enabledExtensionIds：当前启用的插件 id 集合（由 ExtensionManager.list() 提供）
- * - _agentName：预留参数，后期按角色（product/pm/test 不需要代码工具）做进一步过滤
- * - toolMap：工具登记表，默认用 EXTENSION_TOOL_MAP；测试可注入伪注册表
- * - harvestedTools：loader.reload() 后从 runtime.tools 枚举出的「动态发现」工具名
- *   （option B：取代手动维护 EXTENSION_TOOL_MAP 的静态登记）
- * 行为：保留 base 顺序，依次并入 toolMap（按启用态）与 harvestedTools，重复项去重；不修改入参。
- */
-/**
- * 合并工具列表：baseTools + 扩展工具 + harvestedTools。
+ * 合并工具 allowlist：baseTools + harvestedTools（MCP direct 工具名）。
  *
- * @param baseTools 基础工具列表
- * @param enabledExtensionIds 已启用的扩展 ID
- * @param _agentName 预留 agent 名（当前未使用）
- * @param toolMap 扩展名 → 工具名列表
- * @param harvestedTools 动态发现的工具名（含 MCP direct tools）
- * @param opts 可选参数
- * @param opts.allowedMcpServers MCP server 白名单（空/不传=全部放行）
+ * pi 不给宿主提供「查询会话已注册工具」的接口（RPC 无列工具命令、package.json 无
+ * tools 声明字段），第三方扩展运行时注册的工具名无法被 wa-pi 采集。因此工具 allowlist
+ * 只合并两源：agent 显式配置的 baseTools，以及 kernel 侧按 mcp.json 计算出的 MCP direct
+ * 工具名（harvestedTools）。扩展工具的放行靠默认 agent 的排除式路径（excludeTools）——
+ * 凡是 pi 进程加载扩展后注册的工具，默认 agent（不配 tools 白名单）一律放行。
+ *
+ * @param baseTools 基础工具列表（agent 配置的 tools）
+ * @param harvestedTools 动态发现的工具名（MCP direct tools，由 kernel 按启用态计算）
  */
 export function resolveAgentTools(
 	baseTools: string[],
-	enabledExtensionIds: Set<string>,
-	_agentName?: string,
-	toolMap: Record<string, string[]> = EXTENSION_TOOL_MAP,
 	harvestedTools: Iterable<string> = [],
 ): string[] {
 	// 扩展原生 subagent 工具永不放行：LLM 只能走宿主 delegate 工具（allowlist 强制）
 	const BLOCKED = new Set(["subagent"]);
 	const seen = new Set(baseTools);
 	const result = [...baseTools];
-	for (const [extId, extTools] of Object.entries(toolMap)) {
-		if (enabledExtensionIds.has(extId)) {
-			for (const t of extTools) {
-				if (!seen.has(t)) {
-					seen.add(t);
-					result.push(t);
-				}
-			}
-		}
-	}
-	// 动态发现：已加载扩展（builtin + 已启用第三方）注册的工具名，并入 allowlist 末尾
 	for (const t of harvestedTools) {
 		if (!seen.has(t)) {
 			seen.add(t);
