@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { agentDefOf, aggregateAgentState } from "@wa-pi/shared";
 import type { AgentStatus } from "@wa-pi/shared";
+import { api } from "../api-client";
 import { topAgentsByRecency, useAgentsStore } from "../store/agents";
 import { useProjectsStore } from "../store/projects";
 import { useSessionStore } from "../store/session";
@@ -26,11 +27,29 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
   const messagesBySession = useSessionStore(s => s.messagesBySession);
   const [ctxMenu, setCtxMenu] = useState<CtxMenuState | null>(null);
   const [deleteFor, setDeleteFor] = useState<string | null>(null);
+  // 渠道引用提示（删除确认用）：deleteFor 置位时异步拉取，count>0 时拼到确认文案
+  const [usageHint, setUsageHint] = useState("");
   // 空态内联新建（模式同 AgentGalleryModal 的新建小表单）
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
 
   const top = topAgentsByRecency(agents, sessions, 3);
+
+  // 删除二次确认前拉取渠道引用计数：deleteFor 变化触发，
+  // count>0 拼接提示文案；失败或 count=0 显示原文案，不影响删除流程。
+  useEffect(() => {
+    if (!deleteFor) { setUsageHint(""); return; }
+    let cancelled = false;
+    api.get(`/api/channels/agent-usage/${encodeURIComponent(deleteFor)}`)
+      .then((u: any) => {
+        if (cancelled || !u || u.count <= 0) return;
+        setUsageHint(
+          `\n注意：该智能体正被 ${u.count} 个机器人（${(u.channelNames ?? []).join("、")}）使用，删除后这些机器人将改用默认智能体。`,
+        );
+      })
+      .catch(() => { /* 接口失败按原文案，不阻塞删除 */ });
+    return () => { cancelled = true; };
+  }, [deleteFor]);
 
   const submitCreate = () => {
     const name = newName.trim();
@@ -168,7 +187,7 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
         <div data-testid="agent-delete-confirm">
           <ConfirmDialog
             title="删除智能体"
-            message={`确定删除智能体「${agents.find(a => a.displayName === deleteFor)?.displayName ?? deleteFor}」吗？此操作不可撤销。`}
+            message={`确定删除智能体「${agents.find(a => a.displayName === deleteFor)?.displayName ?? deleteFor}」吗？此操作不可撤销。${usageHint}`}
             confirmText="删除"
             danger
             onConfirm={() => {
