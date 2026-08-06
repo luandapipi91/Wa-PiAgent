@@ -122,7 +122,7 @@ kernel 新增模块（职责单一、可独立测试）：
 
 ## 11. 前端 UI
 
-高保真原型（已确认）：`assets/2026-08-06-im-channel-bot/ui-preview-v3.html`（浏览器直接打开即可，企微/飞书官方 logo 在同目录；微信/QQ 品牌 SVG 已内联，实现时存入 frontend 静态资源）。
+高保真原型（已确认）：`assets/2026-08-06-im-channel-bot/ui-preview-v3.html`（浏览器直接打开即可）。四个渠道图标文件齐全（`wecom.ico`、`feishu.ico`、`wechat.svg`、`qq.svg`），实现时存入 frontend 静态资源。
 
 **设置页新 Section「机器人」**（`SettingsModal.tsx` 左侧 nav 加项，`store/settings.ts` 的 `SettingsSection` 联合加 key；仿 `GeneralSection.tsx` 控件风格）：
 
