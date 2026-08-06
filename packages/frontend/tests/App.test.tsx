@@ -25,6 +25,10 @@ const fetchMock = mock((input: any) => {
 
 const calls: { method: string; path: string; body?: any }[] = [];
 
+// /messages 响应的 isActive 可覆写：描述"会话运行中"的测试（自动重试等）需置 true，
+// 否则 setActiveStatus 对齐会把预设的 retryBySession/thinking 复位（isActive=false 语义）。
+let mockIsActive = false;
+
 mock.module("../src/api-client", () => ({
 	api: {
 		// get 返回 null（falsy）：App mount 时各 store.loadAll/load 的 if(data) 分支不触发，
@@ -35,7 +39,7 @@ mock.module("../src/api-client", () => ({
 			if (path.includes("/messages")) {
 				return Promise.resolve({
 					messages: [],
-					isActive: false,
+					isActive: mockIsActive,
 					thinkingSince: null,
 				});
 			}
@@ -109,6 +113,7 @@ const emitEvent = (e: any) => {
 beforeEach(() => {
 	calls.length = 0;
 	eventHandlers.clear();
+	mockIsActive = false;
 	globalThis.fetch = fetchMock; // 会话视图 fetch messages 走 mock，避免 happy-dom 相对 URL 抛错
 	// 有项目无会话 → 默认落在 new-session 视图
 	useProjectsStore.setState({
@@ -319,6 +324,9 @@ test("extension:changed 事件（安装/卸载/升级）→ 当前会话 / 菜�
 
 test("重试期间顶部显示黄色重试条（优先于红色异常条），重试结束回到红条", async () => {
 	useProjectsStore.setState({ currentSessionId: "s1" });
+	// 自动重试中的会话是运行态：/messages 响应需 isActive=true，
+	// 否则 setActiveStatus 对齐会清掉 retryBySession（黄条消失）
+	mockIsActive = true;
 	useSessionStore.setState({
 		netStatusBySession: { s1: "degraded" },
 		retryBySession: { s1: { attempt: 1, maxAttempts: 3 } },
