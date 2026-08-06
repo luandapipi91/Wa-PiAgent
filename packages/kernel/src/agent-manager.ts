@@ -885,7 +885,7 @@ export class AgentManager {
 				handle.busy = true;
 				handle.thinkingSince = Date.now();
 				break;
-			case "message_end":
+		case "message_end":
 				if (event.message) handle.messages.push(event.message);
 				// 本轮 user 落盘时刻（≈ jsonl 行级落盘）：整轮耗时的起点。
 				// 不能用 message.timestamp——Pi 单块轮 assistant 消息对象在 prompt 时预创建，

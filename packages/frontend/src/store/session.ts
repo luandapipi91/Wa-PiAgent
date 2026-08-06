@@ -118,6 +118,14 @@ interface SessionState {
 		text: string,
 		agentName: AgentName,
 	) => void;
+	/** kernel session:echo_user 回声的幂等入口：Composer 已乐观置入则跳过；
+	 *  标志被 message_start/agent_end/failTurn 提前清除后到达（notify 穿插延长冷启动
+	 *  窗口、事件密集致时序非确定），则再查「同内容 user 已存在」避免重复追加。 */
+	echoUser: (
+		sessionId: string,
+		text: string,
+		agentName: AgentName,
+	) => void;
 	clear: () => void;
 	/** 标记会话有未读新回复（后台收到 agent_end 时）。 */
 	markUnread: (sessionId: string) => void;
@@ -578,8 +586,25 @@ export const useSessionStore = create<SessionState>((set) => {
 						...s.optimisticEchoBySession,
 						[sessionId]: true,
 					},
-				};
-			}),
+					};
+				}),
+
+		echoUser: (sessionId, text, agentName) => {
+			const s = useSessionStore.getState();
+			// 1. Composer 已乐观置入 → 标记仍在，跳过
+			if (s.optimisticEchoBySession[sessionId]) return;
+			// 2. 标记已被 message_start/agent_end/failTurn 提前清除，但同内容 user 消息
+			//    已存在（SDK 回声替换占位后、或本轮已回声过）→ 不重复追加。
+			//    覆盖 notify 穿插延长冷启动窗口、echo_user 延迟到达的时序。
+			const list = s.messagesBySession[sessionId] ?? [];
+			const exists = list.some((sm) => {
+				const m = sm.message as any;
+				return m.role === "user" && m.content === text;
+			});
+			if (exists) return;
+			// 3. 既无标记也无同内容消息（NewSessionPane 等未乐观置入）→ 正常追加
+			useSessionStore.getState().optimisticSend(sessionId, text, agentName);
+		},
 
 		truncate: (sessionId, fromIndex) =>
 			set((s) => {

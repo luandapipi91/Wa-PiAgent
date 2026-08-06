@@ -32,6 +32,8 @@ beforeEach(() => {
 		messagesBySession: {},
 		streamingBySession: {},
 		statusBySession: {},
+		thinkingSinceBySession: {},
+		retryBySession: {},
 		optimisticEchoBySession: {},
 		historyLoadingBySession: {},
 		tokenTotals: {},
@@ -1035,6 +1037,47 @@ test("复现：POST 超时 failTurn 清标记后 SDK 回声到达 → 应替换�
 	expect((userMsgs[0].message as any).timestamp).toBe(999);
 });
 
+// ── setActiveStatus 状态对齐（历史加载 / SSE 重连）──
+
+test("setActiveStatus(isActive=false)：本地 thinking 残留时复位 idle + 清 streaming 占位 + 清重试条", () => {
+	// 模拟 SSE 断线窗口漏掉终态事件（agent_end/auto_retry_end）后的残留：
+	// kernel 已 idle，但本地还停在思考中、loading 气泡还在转、重试黄条还在
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		thinkingSinceBySession: { s1: 123 },
+		streamingBySession: {
+			s1: {
+				message: {
+					role: "assistant",
+					content: [],
+					model: "pending",
+					stopReason: "pending",
+					timestamp: 123,
+				} as any,
+				agentName: "dev",
+			},
+		},
+		retryBySession: { s1: { attempt: 1, maxAttempts: 3 } },
+	});
+	useSessionStore.getState().setActiveStatus("s1", false);
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("idle");
+	expect(s.thinkingSinceBySession["s1"]).toBeNull();
+	expect(s.streamingBySession["s1"]).toBeNull();
+	expect(s.retryBySession["s1"]).toBeUndefined();
+});
+
+test("setActiveStatus(isActive=false)：本地本就 idle 时不产生状态变更（不新增 idle 键）", () => {
+	useSessionStore.getState().setActiveStatus("s1", false);
+	expect(useSessionStore.getState().statusBySession["s1"]).toBeUndefined();
+});
+
+test("setActiveStatus(isActive=undefined)：响应缺省不可信，不干预本地 thinking", () => {
+	useSessionStore.setState({ statusBySession: { s1: "thinking" } });
+	useSessionStore.getState().setActiveStatus("s1", undefined);
+	expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+});
+
 // ── failTurn：回合启动失败复位（agent 从未启动、不会有 agent_end）──
 
 test("failTurn 复位 optimisticSend 造成的 thinking 卡死：status→idle、清 streaming 占位与计时", () => {
@@ -1758,4 +1801,95 @@ test("extension_editor_text：text 非字符串时忽略（防御异常载荷）
 		text: 123 as any,
 	}));
 	expect(useSessionStore.getState().editorTextInjection["s1"]).toBeUndefined();
+});
+
+// ── echoUser：kernel session:echo_user 回声的幂等入口（修复 notify 穿插致 user 重复）──
+// 旧实现 echo_user 只查 optimisticEcho 标志，但标志会被 message_start/agent_end/failTurn
+// 提前清除；一旦 echo_user 在清除后到达（notify 穿插延长冷启动窗口、事件密集致时序非确定），
+// 就会再次 optimisticSend 追加第二条 user。echoUser 在标志之外再加「同内容 user 已存在」查重。
+
+test("echoUser：标志为 true 时跳过（正常时序，Composer 已乐观置入）", () => {
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	useSessionStore.getState().echoUser("s1", "你好", "dev");
+	const userMsgs = useSessionStore
+		.getState()
+		.messagesBySession["s1"].filter((m) => (m.message as any).role === "user");
+	expect(userMsgs).toHaveLength(1);
+});
+
+test("echoUser：标志被 message_start 清除后到达，已存在同内容 user → 不重复追加", () => {
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	// message_start(user) 先到：替换占位 + 清标志
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "message_start",
+			message: { role: "user", content: "你好", timestamp: 999 },
+		}),
+	);
+	expect(useSessionStore.getState().optimisticEchoBySession["s1"]).toBe(false);
+	// echo_user 后到：标志已 false，但同内容 user 已存在 → 不追加
+	useSessionStore.getState().echoUser("s1", "你好", "dev");
+	const userMsgs = useSessionStore
+		.getState()
+		.messagesBySession["s1"].filter((m) => (m.message as any).role === "user");
+	expect(userMsgs).toHaveLength(1);
+});
+
+test("echoUser：notify 穿插在占位与 message_start 之间，echo 后到 → user 不重复", () => {
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	// 冷启动窗口内插件 notify 插入 custom 消息
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({ type: "extension_notify", message: "扩展已加载" } as any),
+	);
+	// message_start(user) 替换占位 + 清标志
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "message_start",
+			message: { role: "user", content: "你好", timestamp: 999 },
+		}),
+	);
+	// echo_user 后到（notify 致时序错位）
+	useSessionStore.getState().echoUser("s1", "你好", "dev");
+	const userMsgs = useSessionStore
+		.getState()
+		.messagesBySession["s1"].filter((m) => (m.message as any).role === "user");
+	expect(userMsgs).toHaveLength(1);
+});
+
+test("echoUser：标志被 agent_end 兜底清除后到达，已存在同内容 user → 不重复", () => {
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", messages: [], willRetry: false }),
+		);
+	useSessionStore.getState().echoUser("s1", "你好", "dev");
+	const userMsgs = useSessionStore
+		.getState()
+		.messagesBySession["s1"].filter((m) => (m.message as any).role === "user");
+	expect(userMsgs).toHaveLength(1);
+});
+
+test("echoUser：标志被 failTurn 清除后到达，已存在同内容 user → 不重复", () => {
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	useSessionStore.getState().failTurn("s1");
+	useSessionStore.getState().echoUser("s1", "你好", "dev");
+	const userMsgs = useSessionStore
+		.getState()
+		.messagesBySession["s1"].filter((m) => (m.message as any).role === "user");
+	expect(userMsgs).toHaveLength(1);
+});
+
+test("echoUser：无任何已有 user 消息时正常追加（NewSessionPane 等未乐观置入的场景）", () => {
+	// 既无标志也无 user 消息：echo_user 是唯一来源，应正常追加
+	useSessionStore.getState().echoUser("s1", "首次消息", "dev");
+	const userMsgs = useSessionStore
+		.getState()
+		.messagesBySession["s1"].filter((m) => (m.message as any).role === "user");
+	expect(userMsgs).toHaveLength(1);
+	expect((userMsgs[0].message as any).content).toBe("首次消息");
 });
