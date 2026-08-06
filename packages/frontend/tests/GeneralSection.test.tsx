@@ -46,9 +46,9 @@ test("文字大小滑块：显示当前字号，拖动即时更新 store 与界�
 	fireEvent.change(slider, { target: { value: "24" } });
 	expect(useUiPrefsStore.getState().fontSize).toBe(24);
 	expect(screen.getByTestId("font-size-value").textContent).toBe("24px");
-	expect(
-		document.documentElement.style.getPropertyValue("--font-scale"),
-	).toBe("1.5");
+	expect(document.documentElement.style.getPropertyValue("--font-scale")).toBe(
+		"1.5",
+	);
 });
 
 test("挂载时拉取当前配置并回填表单", async () => {
@@ -84,7 +84,28 @@ test("修改后保存：秒换算为 ms 提交 PUT", async () => {
 	expect(put?.path).toBe("/api/settings/retry");
 	expect(put?.body).toEqual({
 		retry: { maxRetries: 10, baseDelayMs: 1500 },
+		httpIdleTimeoutMs: 120000, // 默认 120s
 	});
+});
+
+test("请求超时：加载 ms 换算为秒，保存时换算回 ms", async () => {
+	getResponse = {
+		retry: { maxRetries: 3, baseDelayMs: 2000 },
+		httpIdleTimeoutMs: 60000, // 60s
+	};
+	render(<GeneralSection />);
+	await waitFor(() =>
+		expect(
+			(screen.getByTestId("http-timeout-input") as HTMLInputElement).value,
+		).toBe("60"),
+	);
+	fireEvent.change(screen.getByTestId("http-timeout-input"), {
+		target: { value: "180" },
+	});
+	fireEvent.click(screen.getByTestId("retry-save-btn"));
+	await waitFor(() => expect(screen.getByText("已保存")).toBeTruthy());
+	const put = apiCalls.find((c) => c.method === "put");
+	expect(put?.body).toMatchObject({ httpIdleTimeoutMs: 180000 });
 });
 
 test("保存失败（如次数超过 10 被 kernel 拒绝）→ 展示错误文案", async () => {
