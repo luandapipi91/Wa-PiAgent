@@ -17,6 +17,7 @@
 3. **企微被动回复不支持纯 text**（官方协议仅 stream/markdown/template_card 等）→ 所有出站统一走 `replyStream(frame, reqId, markdown, finish=true)`，内容即 markdown。
 4. **IM 侧无法获取用户昵称**（非超管创建时 userid 为加密串）→ 会话列表标题：单聊显示 userid，群聊显示 `群聊(<chatId 前8位>)`。
 5. **v1 不实施渠道级固定工作目录绑定**（用户在澄清阶段选择"允许 IM 侧切换"）。
+6. **`$` 技能引用在 kernel 侧内联展开**：SDK 的 `/skill:name` 展开只作用于用户消息文本，`--system-prompt` 路径不生效，因此 ChannelManager 在每次入站消息准备 `imChannelContext` 前自行把 `$[技能名]` 展开为 `<skill name location>SKILL.md 全文</skill>` XML 块（找不到的技能保留原文）。前端编辑框只做 `$` 触发自动补全（插入 `$[技能名]` token 文本），不做 chip 渲染（纯 textarea，保持简单）。
 
 ## Global Constraints
 
@@ -1615,6 +1616,127 @@ git commit -m "feat(kernel): ChannelManager——渠道生命周期、会话映�
 
 ---
 
+### Task 6A: 渠道提示词 `$` 技能 token 展开（kernel）
+
+**Files:**
+- Create: `packages/kernel/src/channels/skill-expand.ts`
+- Modify: `packages/kernel/src/channel-manager.ts`（deps 加 `skillManager`，`handleInbound` 的 ensureStarted 调用前展开）
+- Modify: `packages/kernel/src/index.ts`（ChannelManager 实例化处传 `skillManager`，index.ts:84 附近已有 `SkillManager` 实例）
+- Test: `packages/kernel/tests/skill-expand.test.ts`
+
+**Interfaces:**
+- Consumes: `SkillManager.scan()`（`skill-manager.ts:71`，返回含 `path` 的技能列表，`path` 为含 SKILL.md 的目录绝对路径）；`SkillInfo`（`packages/shared/src/skills.ts:14-19`）
+- Produces: `expandSkillTokens(text: string, skills: { name: string; content: string }[]): string`（纯函数）；ChannelManager 入站链路中 `imChannelContext = expandSkillTokens(channel.extraSystemPrompt, …)`
+
+- [ ] **Step 1: 写失败测试**
+
+`packages/kernel/tests/skill-expand.test.ts`：
+
+```ts
+import { expect, test } from "bun:test";
+import { expandSkillTokens } from "../src/channels/skill-expand";
+
+const skills = [
+	{ name: "brainstorming", content: "# 头脑风暴\n先问清楚再动手。" },
+	{ name: "tdd", content: "# TDD\n先写失败测试。" },
+];
+
+test("展开 $[name] 为 <skill> XML 块", () => {
+	const out = expandSkillTokens("你是客服。$[brainstorming] 其余不变", skills);
+	expect(out).toContain('<skill name="brainstorming"');
+	expect(out).toContain("# 头脑风暴");
+	expect(out).toContain("</skill>");
+	expect(out).toContain("你是客服。");
+	expect(out).toContain("其余不变");
+});
+
+test("多个 token 依次展开；未知技能保留原文", () => {
+	const out = expandSkillTokens("$[tdd] 和 $[不存在的技能]", skills);
+	expect(out).toContain('<skill name="tdd"');
+	expect(out).toContain("# TDD");
+	expect(out).toContain("$[不存在的技能]");
+});
+
+test("无 token → 原样返回；空串 → 空串", () => {
+	expect(expandSkillTokens("没有引用", skills)).toBe("没有引用");
+	expect(expandSkillTokens("", skills)).toBe("");
+});
+```
+
+- [ ] **Step 2: 跑测试确认失败**
+
+Run: `cd packages/kernel && bun test tests/skill-expand.test.ts`
+Expected: FAIL（模块不存在）
+
+- [ ] **Step 3: 实现纯函数 + ChannelManager 集成**
+
+`packages/kernel/src/channels/skill-expand.ts`：
+
+```ts
+/** 技能 token 正则：与前端 quick-invoke 的 $[技能名] / ¥[技能名] 格式一致 */
+const SKILL_TOKEN_RE = /[$¥]\[([^\]]+)\]/g;
+
+/**
+ * 把渠道附加提示词里的 $[技能名] 展开为 <skill> XML 块（仿 SDK _expandSkillCommand 的
+ * 内联格式——SDK 的展开只作用于用户消息文本，--system-prompt 路径不生效，故 kernel 自行展开）。
+ * 找不到的技能保留 $[name] 原文，不静默丢失。
+ */
+export function expandSkillTokens(
+	text: string,
+	skills: { name: string; content: string }[],
+): string {
+	if (!text || !text.includes("$")) return text;
+	return text.replace(SKILL_TOKEN_RE, (raw, name: string) => {
+		const skill = skills.find((s) => s.name === name);
+		if (!skill) return raw;
+		return `<skill name="${skill.name}">\n${skill.content}\n</skill>`;
+	});
+}
+```
+
+`packages/kernel/src/channel-manager.ts` 集成（三处小改）：
+
+```ts
+// 1) ChannelManagerDeps 加字段（SkillManager 类型来自 ./skill-manager）
+skillManager?: { scan(): Promise<{ name: string; path: string }[]> }; // 结构子集，测试可 stub
+
+// 2) 新增私有方法：读取全部技能的名称+内容（技能内容从 <path>/SKILL.md 读；读失败的跳过）
+private async loadSkillContents(): Promise<{ name: string; content: string }[]> {
+	if (!this.deps.skillManager) return [];
+	const skills = await this.deps.skillManager.scan().catch(() => []);
+	const result: { name: string; content: string }[] = [];
+	for (const s of skills as any[]) {
+		try {
+			result.push({ name: s.name, content: await readFile(join(s.path, "SKILL.md"), "utf8") });
+		} catch { /* 单个技能读取失败不阻塞 */ }
+	}
+	return result;
+}
+
+// 3) handleInbound 的 ensureStarted 调用处，extraSystemPrompt 先展开再传入：
+const skills = channel.extraSystemPrompt.includes("$") ? await this.loadSkillContents() : [];
+// …
+{ imChannelContext: channel.extraSystemPrompt ? expandSkillTokens(channel.extraSystemPrompt, skills) : undefined },
+```
+
+`packages/kernel/src/index.ts`：ChannelManager 实例化处加 `skillManager`（复用 :84 附近已有的 `SkillManager` 实例；若 `scan()` 实际签名/返回形状不同，以 `skill-manager.ts` 为准适配上面的结构子集）。
+
+注意：`SkillManager.scan()` 的真实返回形状若不是 `{name, path}[]` 直连（比如包了一层 `{skills}`），实现时以 `skill-manager.ts:71` 为准调整 `loadSkillContents` 的取值路径，并在 Task 6 的 channel-manager 测试 stub 里补 `skillManager: { scan: async () => [] }`。
+
+- [ ] **Step 4: 跑测试确认通过 + ChannelManager 既有测试回归**
+
+Run: `cd packages/kernel && bun test tests/skill-expand.test.ts tests/channel-manager.test.ts && bun test`
+Expected: PASS（若 channel-manager 测试因 deps 新字段报错，补 stub 即可）
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/kernel/src/channels/skill-expand.ts packages/kernel/src/channel-manager.ts packages/kernel/src/index.ts packages/kernel/tests/skill-expand.test.ts
+git commit -m "feat(kernel): 渠道提示词 $[技能] token 内联展开"
+```
+
+---
+
 ### Task 7: REST 路由 + ws-server 业务 case + 智能体引用计数
 
 **Files:**
@@ -2687,6 +2809,222 @@ git commit -m "feat(frontend): 设置页机器人 Section（列表/新建/编辑
 
 ---
 
+### Task 10A: 补充提示词 `$` 技能自动补全输入框（frontend）
+
+**Files:**
+- Create: `packages/frontend/src/components/ui/SkillSuggestTextarea.tsx`
+- Modify: `packages/frontend/src/components/settings/BotsSection.tsx`（提示词 textarea 换用新组件，testid `bot-prompt-textarea` 保持不变）
+- Test: `packages/frontend/tests/SkillSuggestTextarea.test.tsx`
+
+**Interfaces:**
+- Consumes: `detectTrigger(text): { type, query } | null`（`quick-invoke/trigger.ts:26`，纯函数，只取 `type === "skill"` 的结果）；`filterItems(items, query)`（同文件 :65）；`useSkillsStore` 的 `skills`（已启用技能列表）与 `load()`（`store/skills.ts`）
+- Produces: `SkillSuggestTextarea` 组件，props `{ value: string; onChange(v: string): void; rows?: number; placeholder?: string; "data-testid"?: string }`；testid：`skill-suggest-list`、`skill-suggest-item-<name>`
+
+- [ ] **Step 1: 写失败测试**
+
+`packages/frontend/tests/SkillSuggestTextarea.test.tsx`：
+
+```tsx
+import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+
+// 预设技能列表（组件内 skills 非空时不会触发 load 请求）
+const { useSkillsStore } = await import("../src/store/skills");
+const { SkillSuggestTextarea } = await import("../src/components/ui/SkillSuggestTextarea");
+
+function Host() {
+	const [v, setV] = (await import("react")).useState("");
+	return <SkillSuggestTextarea value={v} onChange={setV} data-testid="ta" />;
+}
+
+beforeEach(() => {
+	useSkillsStore.setState({
+		skills: [
+			{ name: "brainstorming", description: "头脑风暴", path: "/x" },
+			{ name: "tdd", description: "测试驱动", path: "/y" },
+		] as any,
+	});
+});
+afterEach(() => cleanup());
+
+test("输入 $ 触发技能列表；继续输入按名称过滤", () => {
+	render(<Host />);
+	const ta = screen.getByTestId("ta") as HTMLTextAreaElement;
+	fireEvent.change(ta, { target: { value: "$" } });
+	expect(screen.getByTestId("skill-suggest-list")).toBeTruthy();
+	expect(screen.getByTestId("skill-suggest-item-brainstorming")).toBeTruthy();
+	fireEvent.change(ta, { target: { value: "$td" } });
+	expect(screen.queryByTestId("skill-suggest-item-brainstorming")).toBeNull();
+	expect(screen.getByTestId("skill-suggest-item-tdd")).toBeTruthy();
+});
+
+test("点击技能项 → 插入 $[名] 替换 $query 片段", () => {
+	render(<Host />);
+	const ta = screen.getByTestId("ta") as HTMLTextAreaElement;
+	fireEvent.change(ta, { target: { value: "你是客服。$brain" } });
+	fireEvent.click(screen.getByTestId("skill-suggest-item-brainstorming"));
+	expect(ta.value).toBe("你是客服。$[brainstorming]");
+	expect(screen.queryByTestId("skill-suggest-list")).toBeNull();
+});
+
+test("无 $ 触发符 → 不出列表；Esc 关闭列表", () => {
+	render(<Host />);
+	const ta = screen.getByTestId("ta") as HTMLTextAreaElement;
+	fireEvent.change(ta, { target: { value: "普通文本" } });
+	expect(screen.queryByTestId("skill-suggest-list")).toBeNull();
+	fireEvent.change(ta, { target: { value: "$t" } });
+	expect(screen.getByTestId("skill-suggest-list")).toBeTruthy();
+	fireEvent.keyDown(ta, { key: "Escape" });
+	expect(screen.queryByTestId("skill-suggest-list")).toBeNull();
+});
+```
+
+（happy-dom 中 `fireEvent.change` 后 `selectionStart` 位于文末；组件读取光标位置时用 `e.target.selectionStart ?? value.length` 兜底。）
+
+- [ ] **Step 2: 跑测试确认失败**
+
+Run: `cd packages/frontend && bun test tests/SkillSuggestTextarea.test.tsx`
+Expected: FAIL（组件不存在）
+
+- [ ] **Step 3: 实现**
+
+`packages/frontend/src/components/ui/SkillSuggestTextarea.tsx`：
+
+```tsx
+import { useEffect, useRef, useState } from "react";
+import { detectTrigger, filterItems } from "../../quick-invoke/trigger";
+import { useSkillsStore } from "../../store/skills";
+
+interface Props {
+	value: string;
+	onChange: (v: string) => void;
+	rows?: number;
+	placeholder?: string;
+	"data-testid"?: string;
+}
+
+/** 支持 $ 技能自动补全的纯文本输入框（仅 skill 一种触发；存储形态为 $[技能名] 纯文本 token） */
+export function SkillSuggestTextarea({ value, onChange, rows = 3, placeholder, "data-testid": testId }: Props) {
+	const skills = useSkillsStore((s) => s.skills);
+	const [open, setOpen] = useState(false);
+	const [query, setQuery] = useState("");
+	const [activeIdx, setActiveIdx] = useState(0);
+	const ref = useRef<HTMLTextAreaElement>(null);
+
+	useEffect(() => {
+		if (skills.length === 0) useSkillsStore.getState().load();
+	}, []);
+
+	const items = open ? filterItems(skills, query) : [];
+
+	const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+		const v = e.target.value;
+		onChange(v);
+		const cursor = e.target.selectionStart ?? v.length;
+		const trigger = detectTrigger(v.slice(0, cursor));
+		if (trigger?.type === "skill") {
+			setQuery(trigger.query);
+			setActiveIdx(0);
+			setOpen(true);
+		} else {
+			setOpen(false);
+		}
+	};
+
+	/** 把光标前的 $query 片段替换为 $[name] token */
+	const pick = (name: string) => {
+		const ta = ref.current!;
+		const cursor = ta.selectionStart ?? value.length;
+		const before = value.slice(0, cursor);
+		const m = before.match(/(?:^|\s)([$¥])([^\s]*)$/);
+		const start = m ? cursor - m[1].length - m[2].length : cursor;
+		const token = `$[${name}]`;
+		const next = value.slice(0, start) + token + value.slice(cursor);
+		onChange(next);
+		setOpen(false);
+		// 光标移到 token 之后
+		requestAnimationFrame(() => {
+			ta.focus();
+			ta.selectionStart = ta.selectionEnd = start + token.length;
+		});
+	};
+
+	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+		if (!open || items.length === 0) return;
+		if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => (i + 1) % items.length); }
+		else if (e.key === "ArrowUp") { e.preventDefault(); setActiveIdx((i) => (i - 1 + items.length) % items.length); }
+		else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pick(items[activeIdx].name); }
+		else if (e.key === "Escape") { e.stopPropagation(); setOpen(false); }
+	};
+
+	return (
+		<div className="relative">
+			<textarea
+				ref={ref}
+				value={value}
+				onChange={handleChange}
+				onKeyDown={handleKeyDown}
+				onBlur={() => setTimeout(() => setOpen(false), 150)} // 延迟关闭让点击先触发
+				rows={rows}
+				placeholder={placeholder}
+				className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-full"
+				data-testid={testId}
+			/>
+			{open && items.length > 0 && (
+				<div
+					className="absolute left-0 right-0 top-full mt-1 rounded-md border border-hairline overflow-hidden z-10"
+					style={{ background: "var(--surface)", boxShadow: "var(--shadow-md)" }}
+					data-testid="skill-suggest-list"
+				>
+					{items.map((s, i) => (
+						<button
+							key={s.name}
+							onMouseDown={(e) => { e.preventDefault(); pick(s.name); }} // mousedown 抢在 blur 前
+							className="w-full text-left px-2.5 py-1.5 border-0 cursor-pointer text-sm"
+							style={{
+								background: i === activeIdx ? "var(--surface-hover)" : "transparent",
+								color: "var(--text-primary)",
+							}}
+							data-testid={`skill-suggest-item-${s.name}`}
+						>
+							⚡ {s.name}
+							{s.description && <span className="text-xs text-tertiary ml-1.5">{s.description}</span>}
+						</button>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+```
+
+`BotsSection.tsx`：提示词 label 内的 `<textarea … data-testid="bot-prompt-textarea" />` 替换为：
+
+```tsx
+<SkillSuggestTextarea
+	value={draft.extraSystemPrompt}
+	onChange={(v) => setDraft({ ...draft, extraSystemPrompt: v })}
+	rows={3}
+	data-testid="bot-prompt-textarea"
+/>
+```
+
+（import 相应组件；原 textarea 的 className 说明文案「追加拼接到系统提示词中，位于记忆内容之前。」保留，并补一句「输入 $ 可引用技能」。）
+
+- [ ] **Step 4: 跑测试确认通过 + BotsSection 既有测试回归**
+
+Run: `cd packages/frontend && bun test tests/SkillSuggestTextarea.test.tsx tests/BotsSection.test.tsx && bun test --isolate`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/frontend/src/components/ui/SkillSuggestTextarea.tsx packages/frontend/src/components/settings/BotsSection.tsx packages/frontend/tests/SkillSuggestTextarea.test.tsx
+git commit -m "feat(frontend): 渠道提示词输入框支持 $ 技能自动补全"
+```
+
+---
+
 ### Task 11: 侧边栏「任务 | IM」页签 + IM 会话列表 + 历史 100 条上限
 
 **Files:**
@@ -3213,6 +3551,6 @@ git commit -m "docs: IM 渠道机器人 v1 收尾（CHANGELOG + 联调记录）"
 
 ## Self-Review 结论
 
-- **规格覆盖**：§4 架构→Task 6/8；§5 数据模型→Task 1；§6 消息链路→Task 6/8；§7 指令→Task 2/6；§8 提示词→Task 5；§9 回复粒度→Task 3/6；§10 智能体删除兜底→Task 6（运行时）+Task 7（引用计数 API）+Task 10（警告条）+Task 12（删除确认提示）；§11 前端→Task 9/10/11；§12 API→Task 7/13；§13 错误处理→Task 6/7/8；§14 四层测试→Task 1-6（单元）、9-12（组件）、13（API）、14（E2E）；§15 风险→Task 15 联调清单。
-- **设计补充**（规格外决定，已在头部列出）：渠道 `model` 字段、默认智能体=列表第一项、出站统一 `replyStream` markdown、IM 会话标题用 userid/群 chatId、不做渠道级固定工作目录。
-- **类型一致性**：`ChannelStatusInfo/ChannelConversationInfo/ChannelInput`、`parseCommand`、`composeReply/chunkByBytes`、`ChannelAdapter/InboundMessage/MockAdapter`、`ChannelManager` 方法名、`useChannelsStore` 动作名已跨任务核对一致。
+- **规格覆盖**：§4 架构→Task 6/8；§5 数据模型→Task 1；§6 消息链路→Task 6/8；§7 指令→Task 2/6；§8 提示词注入（含 `$` 技能引用展开）→Task 5 + Task 6A；§9 回复粒度→Task 3/6；§10 智能体删除兜底→Task 6（运行时）+Task 7（引用计数 API）+Task 10（警告条）+Task 12（删除确认提示）；§11 前端（含 `$` 技能自动补全输入框）→Task 9/10/10A/11；§12 API→Task 7/13；§13 错误处理→Task 6/7/8；§14 四层测试→Task 1-6A（单元）、9-12（组件）、13（API）、14（E2E）；§15 风险→Task 15 联调清单。
+- **设计补充**（规格外决定，已在头部列出）：渠道 `model` 字段、默认智能体=列表第一项、出站统一 `replyStream` markdown、IM 会话标题用 userid/群 chatId、不做渠道级固定工作目录、`$` 技能引用 kernel 侧内联展开。
+- **类型一致性**：`ChannelStatusInfo/ChannelConversationInfo/ChannelInput`、`parseCommand`、`composeReply/chunkByBytes`、`expandSkillTokens`、`ChannelAdapter/InboundMessage/MockAdapter`、`ChannelManager` 方法名、`useChannelsStore` 动作名、`SkillSuggestTextarea` props/testid 已跨任务核对一致。
