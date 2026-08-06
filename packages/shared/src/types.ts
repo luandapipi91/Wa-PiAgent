@@ -480,11 +480,17 @@ export interface SettingsGetRequest {
 export interface SettingsSaveEvent {
 	type: "settings:save";
 	retry: RetrySettings;
+	/** HTTP 空闲超时（ms）：pi undici dispatcher 的 headersTimeout/bodyTimeout。
+	 *  物理断网（连接后挂死）时 pi-ai fetch 无超时，全靠此值兜底 → auto_retry。
+	 *  缺省时不变更现值；传 null 表示显式恢复默认。 */
+	httpIdleTimeoutMs?: number | null;
 }
 /** kernel → 前端：当前通用设置（settings:get 响应 / settings:save 成功后回显） */
 export interface SettingsCurrentResult {
 	type: "settings:current";
 	retry: RetrySettings;
+	/** HTTP 空闲超时（ms），0 = 禁用 */
+	httpIdleTimeoutMs: number;
 }
 
 // client → kernel

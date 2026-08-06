@@ -23,7 +23,13 @@ import type { ExtensionManager } from "./extension-manager";
 import type { MemoryStore } from "./memory-store";
 import type { McpStore } from "./mcp-store";
 import { testProviderConnection } from "./provider-test";
-import { loadRetrySettings, saveRetrySettings } from "./settings-store";
+import {
+	loadRetrySettings,
+	saveRetrySettings,
+	loadHttpIdleTimeoutMs,
+	saveHttpIdleTimeoutMs,
+	DEFAULT_HTTP_IDLE_TIMEOUT_MS,
+} from "./settings-store";
 import { ensureProviderExtensionRegistered } from "./provider-extension";
 import { testConnection, listTools, clearAuth } from "./mcp-connector";
 import { getAllCatalogModels, getProviderDisplayName } from "./pi-catalog";
@@ -1744,16 +1750,25 @@ export class WSServer {
 			}
 			case "settings:get": {
 				const retry = await loadRetrySettings();
-				reply({ type: "settings:current", retry });
+				const httpIdleTimeoutMs = await loadHttpIdleTimeoutMs();
+				reply({ type: "settings:current", retry, httpIdleTimeoutMs });
 				break;
 			}
 			case "settings:save": {
 				try {
 					const retry = await saveRetrySettings(event.retry);
+					// httpIdleTimeoutMs 可选：缺省（undefined）不变更，null 恢复默认，数字则校验保存
+					let httpIdleTimeoutMs = await loadHttpIdleTimeoutMs();
+					if (event.httpIdleTimeoutMs !== undefined) {
+						httpIdleTimeoutMs =
+							event.httpIdleTimeoutMs === null
+								? DEFAULT_HTTP_IDLE_TIMEOUT_MS
+								: await saveHttpIdleTimeoutMs(event.httpIdleTimeoutMs);
+					}
 					// 运行中的 pi 进程仍持启动时加载的旧 settings；标脏让会话下次
 					// 使用时重建进程加载新配置（与 provider:save 一致）。
 					this.opts.agentManager.markAllDirty();
-					reply({ type: "settings:current", retry });
+					reply({ type: "settings:current", retry, httpIdleTimeoutMs });
 				} catch (err) {
 					reply({ type: "error", message: (err as Error).message });
 				}

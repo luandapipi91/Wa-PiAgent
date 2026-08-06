@@ -31,6 +31,7 @@ beforeEach(() => {
 		statusBySession: {},
 		progressByToolCall: {},
 		progressSessionByToolCall: {},
+		netStatusBySession: {},
 	});
 	useProjectsStore.setState({ sessions: [] });
 	useProvidersStore.setState({ providers: [] });
@@ -1308,6 +1309,28 @@ test("正在流式生成时（streaming 存在）→ 不显示「重新发送」
 				},
 			},
 		},
+	});
+	render(<MessageList sessionId="s1" />);
+	expect(screen.queryByTestId("resend-s1-1")).toBeNull();
+});
+
+test("pi 自动重试期间（thinking + netDegraded）→ 不显示「重新发送」（回合仍在进行）", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "hi", timestamp: 1 },
+				},
+			],
+		},
+		// 重试期间：streaming 无（退避等待无内容），但 status=thinking（回合未结束）、
+		// netDegraded 仍在（重试由 transient 错误触发）。末条是 user。
+		// 此组合曾误命中 isTransientErrorTurn 显示重发按钮——但回合还在进行，不应出现。
+		streamingBySession: {},
+		statusBySession: { s1: "thinking" },
+		netStatusBySession: { s1: "degraded" },
+		thinkingSinceBySession: {},
 	});
 	render(<MessageList sessionId="s1" />);
 	expect(screen.queryByTestId("resend-s1-1")).toBeNull();
