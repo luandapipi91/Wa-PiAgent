@@ -50,7 +50,7 @@ test("[第三层] session:messages 走 AgentSession.messages", async () => {
     isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => null,
   } as any;
-  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
+  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, channelManager: null, port: 0 });
   await server.start();
   const base = `http://127.0.0.1:${server.actualPort}`;
 
@@ -94,7 +94,7 @@ test("[第三层] session:messages 会话不存在返回空数组", async () => 
     isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => null,
   } as any;
-  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
+  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, channelManager: null, port: 0 });
   await server.start();
   const base = `http://127.0.0.1:${server.actualPort}`;
 
@@ -155,7 +155,7 @@ test("[第三层] session:messages 文件直读快速路径", async () => {
     isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => null,
   } as any;
-  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
+  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, channelManager: null, port: 0 });
   await server.start();
   const base = `http://127.0.0.1:${server.actualPort}`;
 
@@ -209,7 +209,7 @@ test("[第三层] session:messages 文件缺失（ENOENT）返回空数组", asy
     isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => null,
   } as any;
-  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
+  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, channelManager: null, port: 0 });
   await server.start();
   const base = `http://127.0.0.1:${server.actualPort}`;
 
@@ -257,7 +257,7 @@ test("[第三层] session:messages 会话 busy 时返回 isActive:true", async (
     disposeSession: async () => {},
     disposeAll: async () => {},
   } as any;
-  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, port: 0 });
+  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, channelManager: null, port: 0 });
   await server.start();
   const base = `http://127.0.0.1:${server.actualPort}`;
 
