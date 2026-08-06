@@ -47,6 +47,8 @@ export function App() {
 	// 只订阅渲染所需的最小状态；actions 在回调里用 getState() 取，避免 stale closure
 	const projects = useProjectsStore((s) => s.projects);
 	const currentSessionId = useProjectsStore((s) => s.currentSessionId);
+	// 订阅 IM 会话列表，用于判定当前 session 是否来自 IM 接入（决定 SessionView 是否传 maxHistory/sourceLabel）
+	const conversations = useChannelsStore((s) => s.conversations);
 	const [view, setView] = useState<View>("empty");
 	const [configAgent, setConfigAgent] = useState<AgentName | null>(null);
 	const [galleryOpen, setGalleryOpen] = useState(false);
@@ -507,9 +509,17 @@ export function App() {
 						onConsumePendingAgent={() => setPendingAgent(null)}
 					/>
 				)}
-				{view === "session" && currentSessionId && (
-					<SessionView sessionId={currentSessionId} />
-				)}
+				{view === "session" && currentSessionId && (() => {
+					// IM 接入会话：历史截取 100 条 + 来源徽标；普通本地会话两者皆 undefined
+					const imConv = conversations.find((c) => c.sessionId === currentSessionId);
+					return (
+						<SessionView
+							sessionId={currentSessionId}
+							maxHistory={imConv ? 100 : undefined}
+							sourceLabel={imConv ? `经「${imConv.channelName}」接入` : undefined}
+						/>
+					);
+				})()}
 			</main>
 			{galleryOpen && (
 				<AgentGalleryModal
