@@ -6,6 +6,30 @@
 
 ### 修复
 
+- **物理断网后对话永远"思考中"**：根因是 wa-pi 未配置 `httpIdleTimeoutMs`，
+  沿用 pi 官方默认 300000ms（5min）。物理断网（连接后挂死）时 pi 的 undici fetch
+  要等满 5 分钟才超时 → 才触发 auto_retry → 前端才有重试进度条，期间只显示"思考中"。
+  修复：`settings-store` 新增 `load/saveHttpIdleTimeoutMs`，默认收紧到 120000ms（2min），
+  协议层（`shared/types.ts` + `ws-server.ts`）透传读写；遵循 pi 官方约定（有值原样读、
+  非数字回退默认），不臆造范围校验。顺带修 `saveRetrySettings` 的覆盖 bug：原
+  `settings.retry = {...}` 整体覆盖会冲掉 pi 的 `retry.provider.*`（timeoutMs 等单次
+  请求超时字段），改为 merge 只更新 wa-pi 管理的两项。
+- **pi 自动重试期间误显「重新发送」按钮**：`MessageList` 的 `isTransientErrorTurn`/
+  `isFatalErrorTurn` 只判 `!streaming`，重试退避期间 streaming 为空 + netDegraded 仍在
+  + 末条是 user → 误命中。修复：加 `status !== "thinking"` 守卫——回合进行中（思考/
+  工具/重试）不显示重发按钮，仅回合结束（idle）才允许。
+- **「重新发送」按钮 icon 换行**：button 改 `inline-flex items-center whitespace-nowrap`。
+- **「模型连接异常」状态条的 loading icon 移除**：静态错误提示无需转圈。
+
+  新增测试：断网实验集成测试补"连接后挂死 + httpIdleTimeoutMs"用例（验证 undici 超时
+  → auto_retry → agent_settled 链生效）；settings-store 补 httpIdleTimeoutMs 读写 +
+  retry merge 保留子字段；MessageList 补重试期间不显示重发按钮。
+  影响范围：`packages/kernel/src/settings-store.ts`、`packages/kernel/src/ws-server.ts`、
+  `packages/shared/src/types.ts`、`packages/kernel/tests/settings-store.test.ts`、
+  `packages/kernel/tests/pi-disconnect-experiment.test.ts`、
+  `packages/frontend/src/App.tsx`、`packages/frontend/src/components/MessageList.tsx`、
+  `packages/frontend/tests/MessageList.test.tsx`。
+
 - **修复「发送消息时穿插插件 notify UI 消息会致 user 消息显示 2 条」**：
   根因是 App.tsx 的 `session:echo_user` 处理器只查 `optimisticEchoBySession` 标志，
   而该标志会被 `message_start(user)`/`agent_end` 兜底/`failTurn` 提前清除；插件

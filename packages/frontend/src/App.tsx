@@ -134,9 +134,7 @@ export function App() {
 				// agent_end / failTurn 提前清除，notify 穿插延长冷启动窗口致 echo_user 延迟到达时，
 				// 单靠标志会重复追加第二条 user。收敛查重到 store.echoUser，与乐观发送口径一致。
 				case "session:echo_user": {
-					useSessionStore
-						.getState()
-						.echoUser(e.sessionId, e.text, e.agentName);
+					useSessionStore.getState().echoUser(e.sessionId, e.text, e.agentName);
 					break;
 				}
 				// sdk:event：所有 SDK 流式事件统一走 store.handleSDKEvent 分发
@@ -475,17 +473,9 @@ export function App() {
 				)}
 				{netDegraded && !retryInfo && (
 					<div
-						className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs bg-danger-soft text-danger border-b border-danger/20"
+						className="flex items-center justify-center px-4 py-1.5 text-xs bg-danger-soft text-danger border-b border-danger/20"
 						data-testid="net-status-bar"
 					>
-						<span
-							className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
-							style={{
-								border: "2px solid var(--danger)",
-								borderTopColor: "transparent",
-								animation: "spin 0.8s linear infinite",
-							}}
-						/>
 						模型连接异常，请检查网络或 Provider 配置后重试
 					</div>
 				)}

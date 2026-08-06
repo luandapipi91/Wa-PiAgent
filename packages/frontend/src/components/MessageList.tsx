@@ -108,19 +108,22 @@ export function MessageList({ sessionId }: Props) {
 	const showHistoryLoading =
 		historyLoading && messages.length === 0 && !streaming;
 
-	// 「重新发送」：两种触发场景（当前无新回合在流式）：
-	//  1. 末条是失败的 assistant 回合（stopReason:error，如鉴权/配额 fatal 错误）
+	// 「重新发送」：两种触发场景（回合已结束 status!==thinking 且无流式）：
+	//  1. 末条是失败的 assistant 回复（stopReason:error，如鉴权/配额 fatal 错误）
 	//  2. transient 网络错误（netDegraded）——此类错误不进对话流，末条仍是 user 消息
 	// 两种都定位到最后一条 user 消息，在其下方显示按钮；重发或发新消息后按钮自动消失。
+	// 回合进行中（status==="thinking"：正常思考 / 工具执行 / pi 自动重试退避）不显示——
+	// 重试期间 netDegraded 仍在 + streaming 无 + 末条是 user，曾误命中条件，但回合未结束。
 	let resendUserIdx = -1;
 	const lastMsg = rows[rows.length - 1]?.main.message as any;
+	const turnEnded = !streaming && status !== "thinking";
 	const isFatalErrorTurn =
-		!streaming &&
+		turnEnded &&
 		lastMsg?.role === "assistant" &&
 		lastMsg?.stopReason === "error";
 	// transient 错误后 streaming 占位已被清掉，末条是 user 消息
 	const isTransientErrorTurn =
-		!streaming && netDegraded && lastMsg?.role === "user";
+		turnEnded && netDegraded && lastMsg?.role === "user";
 	if (isFatalErrorTurn || isTransientErrorTurn) {
 		for (let i = rows.length - 1; i >= 0; i--) {
 			if ((rows[i].main.message as any).role === "user") {
@@ -583,7 +586,9 @@ function StreamingRow({
 							animation: "spin 0.8s linear infinite",
 						}}
 					/>
-					<span className="text-[calc(12.5px*var(--font-scale))] text-tertiary">正在思考…</span>
+					<span className="text-[calc(12.5px*var(--font-scale))] text-tertiary">
+						正在思考…
+					</span>
 				</div>
 			</div>
 		</div>
@@ -698,9 +703,9 @@ const MessageRow = memo(function MessageRow({
 							type="button"
 							data-testid={`resend-${sessionId}-${m.timestamp}`}
 							onClick={() => onResend?.(displayText)}
-							className="mt-1 self-end text-[calc(12px*var(--font-scale))] text-secondary hover:text-primary border border-hairline rounded-pill px-2 py-0.5 transition-colors"
+							className="mt-1 self-end inline-flex items-center gap-1 whitespace-nowrap text-[calc(12px*var(--font-scale))] text-secondary hover:text-primary border border-hairline rounded-pill px-2 py-0.5 transition-colors"
 						>
-							<Icon name="refresh" size={11} style={{verticalAlign:"-0.1em"}} /> 重新发送
+							<Icon name="refresh" size={11} /> 重新发送
 						</button>
 					)}
 				</div>
@@ -817,10 +822,7 @@ const MessageRow = memo(function MessageRow({
 				</div>
 				{seg === segments[lastTextSegIdx] && (
 					<div className="flex justify-end items-center">
-						<ExportButton
-							sessionId={sessionId}
-							uptoTimestamp={m.timestamp}
-						/>
+						<ExportButton sessionId={sessionId} uptoTimestamp={m.timestamp} />
 						<CopyButton
 							text={fullText}
 							testId={`copy-${sessionId}-${m.timestamp}`}
