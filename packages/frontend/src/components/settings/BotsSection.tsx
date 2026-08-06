@@ -4,6 +4,7 @@ import { useChannelsStore, type ChannelInput } from "../../store/channels";
 import { useAgentsStore } from "../../store/agents";
 import { useProvidersStore } from "../../store/providers";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { SkillSuggestTextarea } from "../ui/SkillSuggestTextarea";
 import { NewBotDialog } from "./NewBotDialog";
 
 const STATUS_DOT: Record<string, string> = {
@@ -176,11 +177,13 @@ export function BotsSection() {
 						</label>
 						<label className="flex flex-col gap-1 w-full max-w-lg">
 							<span className="text-xs text-secondary">额外系统提示词</span>
-							<textarea value={draft.extraSystemPrompt} rows={3}
-								onChange={(e) => setDraft({ ...draft, extraSystemPrompt: e.target.value })}
-								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
-								data-testid="bot-prompt-textarea" />
-							<span className="text-xs text-tertiary">追加拼接到系统提示词中，位于记忆内容之前。</span>
+							<SkillSuggestTextarea
+								value={draft.extraSystemPrompt}
+								onChange={(v) => setDraft({ ...draft, extraSystemPrompt: v })}
+								rows={3}
+								data-testid="bot-prompt-textarea"
+							/>
+							<span className="text-xs text-tertiary">追加拼接到系统提示词中，位于记忆内容之前。输入 $ 可引用技能。</span>
 						</label>
 						<label className="flex flex-col gap-1 w-72">
 							<span className="text-xs text-secondary">回复粒度</span>
