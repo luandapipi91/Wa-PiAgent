@@ -30,6 +30,9 @@ export const PROMPTS_FILE = `${WA_PI_DIR}/prompts.json`; // 系统提示词段�
 export const SUBAGENT_OVERRIDES_FILE = `${WA_PI_DIR}/subagent-overrides.json`; // 内置 subagent 的 model/thinking 覆盖
 export const GENERATED_DIR = `${WA_PI_DIR}/.generated`; // 自动生成的 Pi extension 文件目录
 export const BUILTIN_SKILLS_DIR = `${WA_PI_DIR}/skills`; // 内置技能目录，kernel 启动时创建，不可删
+export const CHANNELS_FILE = `${WA_PI_DIR}/channels.json`; // IM 渠道机器人配置
+export const CHANNEL_SESSIONS_FILE = `${WA_PI_DIR}/channel-sessions.json`; // IM 会话→hiagent 会话映射
+export const CHANNEL_TMP_DIR = `${WA_PI_DIR}/tmp/channels`; // 渠道图片等临时文件
 
 // ===== 默认工作区（虚拟系统项目）=====
 // 一个常驻、不可删除/改名的虚拟项目，作为"没有具体工程目录时的默认聊天空间"。
