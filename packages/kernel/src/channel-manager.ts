@@ -80,7 +80,16 @@ export class ChannelManager {
 	/** 启动全部 enabled 渠道（kernel 启动时调用） */
 	async start(): Promise<void> {
 		for (const ch of await loadChannels(this.channelsFile)) {
-			if (ch.enabled) await this.connectChannel(ch);
+			if (!ch.enabled) continue;
+			try {
+				await this.connectChannel(ch);
+			} catch (e) {
+				this.statuses.set(ch.id, {
+					status: "error",
+					detail: e instanceof Error ? e.message : String(e),
+				});
+				console.warn(`[channel-manager] 渠道「${ch.name}」启动失败:`, e);
+			}
 		}
 	}
 
@@ -440,9 +449,13 @@ export class ChannelManager {
 		const channel = channels.find((c) => c.id === channelId);
 		if (!channel) return;
 
+		// 找本轮最后一条 assistant 消息：错误状态（stopReason:"error"）编码在消息上，而非 agent_end 事件
+		// （pi 的 AgentEndEvent 只有 {type, messages}；stopReason/errorMessage 在 AssistantMessage 上，
+		// 与 agent-manager.ts:913-919 的判定方式一致）
+		const lastAssistant = [...turn].reverse().find((m: any) => m?.role === "assistant") as any;
 		let text: string;
-		if (event.stopReason === "error") {
-			text = `处理出错：${event.error ?? "未知错误"}`;
+		if (lastAssistant?.stopReason === "error") {
+			text = `处理出错：${lastAssistant.errorMessage ?? "未知错误"}`;
 		} else {
 			text = composeReply(turn, channel.replyGranularity);
 			if (!text) text = "（本轮无文本回复）";
