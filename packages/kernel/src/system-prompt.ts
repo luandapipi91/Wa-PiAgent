@@ -35,6 +35,8 @@ export interface SystemPromptContext {
 	memorySnapshot?: string;
 	/** memory-policy 段的内容（记忆写入策略引导；空串则整段不出现） */
 	memoryPolicy?: string;
+	/** IM 渠道附加提示词：非渠道会话为 undefined/""，段自动消失 */
+	imChannelContext?: string;
 }
 
 /** env-constraints 段的固定文案前缀（builtinSkillsDir 之后拼接） */
@@ -47,6 +49,7 @@ export const DYNAMIC_SEGMENT_IDS = new Set([
 	"base",
 	"delegate-roster",
 	"env-constraints",
+	"im-channel",
 	"memory-snapshot",
 	"memory-policy",
 ]);
@@ -150,6 +153,7 @@ export const DEFAULT_PROMPT_SEGMENTS: PromptSegment[] = [
 	{ id: "delegate-mechanism", content: DEFAULT_DELEGATE_MECHANISM_PROMPT },
 	{ id: "delegate-roster" }, // 动态：buildDelegateRoster（内置+命名统一列表）
 	{ id: "env-constraints" }, // 动态：builtinSkillsDir + ENV_CONSTRAINTS_SUFFIX
+	{ id: "im-channel" }, // 动态：IM 渠道附加提示词（仅渠道会话出现，固定在记忆段之前）
 	{ id: "memory-policy" }, // 动态：memoryPolicy（写入策略引导）
 	{ id: "memory-snapshot" }, // 动态：memorySnapshot
 ];
@@ -175,6 +179,8 @@ function renderSegment(seg: PromptSegment, ctx: SystemPromptContext): string {
 			return ctx.delegateRoster ?? "";
 		case "env-constraints":
 			return `Built-in directory: ${ctx.builtinSkillsDir}${ENV_CONSTRAINTS_SUFFIX}`;
+		case "im-channel":
+			return ctx.imChannelContext ?? "";
 		case "memory-policy":
 			return ctx.memoryPolicy ?? "";
 		case "memory-snapshot":
@@ -205,7 +211,7 @@ export function composePrompt(
 
 /** prompts.json 的 schema 版本。新增段/修改默认文案时递增；ensurePromptsConfig 据此对已存在
  *  文件做迁移——缺失段按最新默认补齐，已存在段 content 保留（含用户自定义，不覆盖）。 */
-export const PROMPTS_SCHEMA_VERSION = 23;
+export const PROMPTS_SCHEMA_VERSION = 24;
 
 /**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。

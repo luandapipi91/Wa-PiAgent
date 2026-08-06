@@ -239,6 +239,7 @@ export class AgentManager {
 		projectId: string,
 		agentName: AgentName,
 		sessionId: string,
+		opts?: { imChannelContext?: string },
 	): Promise<SessionHandle> {
 		// 命中缓存：进程已崩溃则拆除重建；agentName 不一致也拆除（新会话页 getCommands
 		// 兜底已用默认 agent 启动进程，用户切换后发送若复用会把消息交给旧 agent）；
@@ -265,7 +266,12 @@ export class AgentManager {
 		// 之前被 dispose 过的 sessionId 允许重新创建
 		this.disposed.delete(sessionId);
 
-		const promise = this._createSession(projectId, agentName, sessionId);
+		const promise = this._createSession(
+			projectId,
+			agentName,
+			sessionId,
+			opts?.imChannelContext,
+		);
 		this.starting.set(sessionId, promise);
 		try {
 			return await promise;
@@ -445,6 +451,7 @@ export class AgentManager {
 		projectId: string,
 		agentName: AgentName,
 		sessionId: string,
+		imChannelContext?: string,
 	): Promise<SessionHandle> {
 		// 启动时写入内置 subagent 的 .md 定义文件（~/.wa-pi/agents/*.md），已存在不覆盖
 		const agentsDir = join(WA_PI_DIR, "agents");
@@ -740,6 +747,9 @@ export class AgentManager {
 			// 记忆快照不再注入 composePrompt，改为 --append-system-prompt 挂载到末尾，
 			// 使核心提示词完全静态化，最大化 LLM prompt caching 前缀命中率。
 			memorySnapshot: "",
+			// IM 渠道附加提示词（仅渠道会话传入，非渠道会话为空 → im-channel 段不出现）。
+			// 渠道提示词变更后由调用方 markAllDirty() 触发下次 ensureStarted 重建生效。
+			imChannelContext: imChannelContext ?? "",
 		});
 		const tmpDir = join(WA_PI_DIR, "tmp", "sysprompts");
 		await mkdir(tmpDir, { recursive: true });
