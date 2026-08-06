@@ -66,6 +66,7 @@ import { registerExtensionRoutes } from "./routes/extensions";
 import { registerMemoryRoutes } from "./routes/memory";
 import { registerMcpRoutes } from "./routes/mcp";
 import { registerSettingsRoutes } from "./routes/settings";
+import { registerChannelRoutes } from "./routes/channels";
 import { registerFileRoutes } from "./routes/files";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
 
@@ -278,6 +279,8 @@ export interface WSServerOpts {
 	memoryStore: MemoryStore;
 	mcpStore: McpStore;
 	agentManager: AgentManager;
+	/** IM 渠道机器人管理器（Task 8 注入真实实例；测试/未启用时为 null，相关 case 走降级路径） */
+	channelManager: import("./channel-manager").ChannelManager | null;
 	dataDir?: string;
 	/** provider-extension.ts 输出目录（测试注入临时目录，避免覆盖真实 GENERATED_DIR） */
 	generatedDir?: string;
@@ -464,6 +467,7 @@ export class WSServer {
 		registerMemoryRoutes(this.router, callApi, ctx);
 		registerMcpRoutes(this.router, callApi, ctx);
 		registerSettingsRoutes(this.router, callApi, ctx);
+		registerChannelRoutes(this.router, callApi, ctx);
 		registerFileRoutes(this.router, callApi, ctx);
 	}
 
@@ -2217,6 +2221,62 @@ export class WSServer {
 						error: (err as Error).message,
 					});
 				}
+				break;
+			}
+			// ---------- IM 渠道机器人域（Task 7） ----------
+			// channelManager 可空：未启用时列表类返回空，写操作不走（前端不暴露入口）。
+			// create/update/delete 用 try/catch：ChannelManager 抛错 → reply error → callApi 映射 HTTP 400。
+			case "channels:list": {
+				const channels = this.opts.channelManager
+					? await this.opts.channelManager.listWithStatus()
+					: [];
+				reply({ type: "channels:current", channels });
+				break;
+			}
+			case "channels:create":
+			case "channels:update":
+			case "channels:delete": {
+				try {
+					const cm = this.opts.channelManager!;
+					if (event.type === "channels:create") await cm.create(event.channel);
+					else if (event.type === "channels:update")
+						await cm.update(event.id, event.channel);
+					else await cm.remove(event.id);
+					reply({ type: "channels:current", channels: await cm.listWithStatus() });
+				} catch (err) {
+					reply({ type: "error", message: (err as Error).message });
+				}
+				break;
+			}
+			case "channels:agent-usage": {
+				const usage = await this.opts.channelManager!.agentUsage(event.agentName);
+				reply({
+					type: "channels:agent-usage-result",
+					agentName: event.agentName,
+					...usage,
+				});
+				break;
+			}
+			case "channel-conversations:list": {
+				const conversations = this.opts.channelManager
+					? await this.opts.channelManager.listConversations()
+					: [];
+				reply({ type: "channel-conversations:current", conversations });
+				break;
+			}
+			// mock 端点（测试专用，事件类型未进 WSClientEvent 联合，用 as any 兜底）
+			case "channels:mock-inbound" as any: {
+				this.opts.channelManager?.mockInbound(
+					(event as any).id,
+					(event as any).chatId,
+					(event as any).text,
+				);
+				reply({ type: "ok" } as any);
+				break;
+			}
+			case "channels:mock-outbox" as any: {
+				const messages = this.opts.channelManager?.mockOutbox((event as any).id) ?? [];
+				reply({ type: "ok", messages } as any);
 				break;
 			}
 		}

@@ -56,7 +56,7 @@ async function setup() {
     configStore, projectStore, providerStore, skillManager,
     extensionManager: new ExtensionManager(join(projFile, "..")),
     memoryStore: null as any, mcpStore: null as any,
-    agentManager, port: 0, generatedDir,
+    agentManager, channelManager: null, port: 0, generatedDir,
   });
   await server.start();
   const base = `http://127.0.0.1:${server.actualPort}`;

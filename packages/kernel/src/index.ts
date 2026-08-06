@@ -168,6 +168,7 @@ export async function startKernel(opts?: {
 		mcpStore,
 		dataDir: WA_PI_DIR,
 		agentManager: null as any, // 占位，下面赋值
+		channelManager: null, // Task 8 注入真实 ChannelManager 实例
 		port: opts?.port ?? WS_PORT,
 		...(opts?.staticDir ? { staticDir: opts.staticDir } : {}),
 	});
