@@ -129,12 +129,14 @@ export function App() {
 					if (sid) useCommandsStore.getState().load(sid);
 					break;
 				}
-				// kernel 每次 prompt 都回传用户消息；前端若已通过 Composer.doSend 乐观置入则跳过
+				// kernel 每次 prompt 都回传用户消息；前端若已通过 Composer.doSend 乐观置入则跳过。
+				// echoUser 在「标志仍在」之外再查「同内容 user 已存在」：标志会被 message_start /
+				// agent_end / failTurn 提前清除，notify 穿插延长冷启动窗口致 echo_user 延迟到达时，
+				// 单靠标志会重复追加第二条 user。收敛查重到 store.echoUser，与乐观发送口径一致。
 				case "session:echo_user": {
-					const s = useSessionStore.getState();
-					if (!s.optimisticEchoBySession[e.sessionId]) {
-						s.optimisticSend(e.sessionId, e.text, e.agentName);
-					}
+					useSessionStore
+						.getState()
+						.echoUser(e.sessionId, e.text, e.agentName);
 					break;
 				}
 				// sdk:event：所有 SDK 流式事件统一走 store.handleSDKEvent 分发
