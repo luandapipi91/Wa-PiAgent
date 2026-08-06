@@ -2,7 +2,25 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## [Unreleased] - 2026-08-06
+
+### 修复
+
+- **修复「发送消息时穿插插件 notify UI 消息会致 user 消息显示 2 条」**：
+  根因是 App.tsx 的 `session:echo_user` 处理器只查 `optimisticEchoBySession` 标志，
+  而该标志会被 `message_start(user)`/`agent_end` 兜底/`failTurn` 提前清除；插件
+  `extension_notify` 消息穿插延长冷启动窗口、致事件密集，使 `echo_user` 与 SDK
+  `message_start` 时序非确定——一旦 echo_user 在标志清除后到达，就会再次
+  `optimisticSend` 追加第二条 user。修复：在 store 新增 `echoUser` 幂等入口，
+  除标志外再查「同内容 user 消息已存在」，收敛查重逻辑；App.tsx `session:echo_user`
+  分支改调 `echoUser`。
+  影响范围：`packages/frontend/src/store/session.ts`（新增 `echoUser`）、
+  `packages/frontend/src/App.tsx`（改调 `echoUser`）；
+  新增回归测试 `packages/frontend/tests/store-session.test.ts`（6 项 echoUser）、
+  `packages/frontend/tests/App-echo-user.test.tsx`（2 项端到端）。
+
 ## [Unreleased] - 2026-08-05
+
 
 ### 修复
 
