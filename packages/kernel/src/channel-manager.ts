@@ -263,7 +263,8 @@ export class ChannelManager {
 		// 找/建映射
 		const mappings = await loadChannelMappings(this.mappingsFile);
 		let mapping = mappings.find((m) => m.channelId === channel.id && m.chatId === msg.chatId);
-		if (!mapping) {
+		const isNewMapping = !mapping;
+		if (isNewMapping) {
 			mapping = {
 				channelId: channel.id,
 				chatId: msg.chatId,
@@ -276,6 +277,8 @@ export class ChannelManager {
 			mappings.push(mapping);
 		}
 		const persist = () => saveChannelMappings(mappings, this.mappingsFile);
+		// 新建映射立即落盘：即使本轮处理出错（model/智能体解析失败），会话列表也能反映该 IM 对话
+		if (isNewMapping) await persist();
 
 		// 指令拦截
 		if (msg.text?.trim().startsWith("/")) {
@@ -320,6 +323,9 @@ export class ChannelManager {
 		try {
 			const sessionId = await this.ensureSession(mapping, agent);
 			this.sessionIndex.set(sessionId, key);
+			// 会话建立后立即落盘映射：即使后续 prompt 失败（model 无效等），
+			// 侧边栏 IM 列表也能反映该对话，用户重发时可续在同一会话
+			await persist();
 			await this.deps.agentManager.ensureStarted(
 				mapping.currentProjectId,
 				agent.displayName,
