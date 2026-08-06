@@ -22,6 +22,7 @@ const MAX_DELAY_S = 60;
 export function GeneralSection() {
 	const [maxRetries, setMaxRetries] = useState("3");
 	const [delaySeconds, setDelaySeconds] = useState("2");
+	const [httpTimeoutSeconds, setHttpTimeoutSeconds] = useState("120");
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -40,6 +41,12 @@ export function GeneralSection() {
 					setMaxRetries(String(retry.maxRetries));
 					setDelaySeconds(String(retry.baseDelayMs / 1000));
 				}
+				const httpIdleMs = (res as any)?.httpIdleTimeoutMs as
+					| number
+					| undefined;
+				if (typeof httpIdleMs === "number") {
+					setHttpTimeoutSeconds(String(Math.round(httpIdleMs / 1000)));
+				}
 			})
 			.catch((e) => setError(e instanceof Error ? e.message : String(e)))
 			.finally(() => setLoading(false));
@@ -48,12 +55,14 @@ export function GeneralSection() {
 	const handleSave = async () => {
 		const retries = Number(maxRetries);
 		const delayMs = Math.round(Number(delaySeconds) * 1000);
+		const httpIdleMs = Math.round(Number(httpTimeoutSeconds) * 1000);
 		setSaving(true);
 		setError(null);
 		setSaved(false);
 		try {
 			await api.put("/api/settings/retry", {
 				retry: { maxRetries: retries, baseDelayMs: delayMs },
+				httpIdleTimeoutMs: httpIdleMs,
 			});
 			setSaved(true);
 		} catch (e) {
@@ -164,6 +173,25 @@ export function GeneralSection() {
 					data-testid="retry-delay-input"
 				/>
 			</label>
+			<label className="flex flex-col gap-1 w-56">
+				<span className="text-xs text-secondary">请求超时（秒）</span>
+				<input
+					type="number"
+					min={10}
+					step={10}
+					value={httpTimeoutSeconds}
+					onChange={(e) => {
+						setHttpTimeoutSeconds(e.target.value);
+						setSaved(false);
+					}}
+					className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
+					data-testid="http-timeout-input"
+				/>
+			</label>
+			<span className="text-xs text-tertiary -mt-1">
+				单次模型请求无响应的超时（断网时 fetch 等满此值才触发自动重试）。 默认
+				120 秒；过短易因网络波动误判，过长断网后体感卡住。
+			</span>
 			<div className="flex items-center gap-3">
 				<button
 					onClick={() => void handleSave()}
