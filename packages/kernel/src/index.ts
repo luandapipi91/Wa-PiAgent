@@ -18,6 +18,9 @@ import { classifySdkError } from "./sdk-errors";
 import { SdkEventThrottle } from "./event-throttle";
 import { cleanupRecordingTemp } from "./recording-store";
 import { createCrashLogger, installCrashHandlers } from "./crash-logger";
+import { ChannelManager } from "./channel-manager";
+import { WecomAdapter } from "./channels/wecom-adapter";
+import { MockAdapter } from "./channels/mock-adapter";
 import {
 	WS_PORT,
 	WA_PI_DIR,
@@ -181,6 +184,9 @@ export async function startKernel(opts?: {
 	// message_update 经 SdkEventThrottle 节流合并（每 token 全量 partial 的 O(n²) 卡顿修复），
 	// 其余事件类型原样透传、顺序不变。
 	const eventThrottle = new SdkEventThrottle((e) => broadcast(e));
+	// 前向声明：onEvent 闭包内引用 channelManager，但其值在下方 AgentManager 构造后才赋。
+	// 闭包仅在运行期（首条事件到达时）解析，此时 const 已初始化，故安全；TS 需显式声明以通过。
+	let channelManager: ChannelManager;
 	const agentManager = new AgentManager({
 		projectStore,
 		configStore,
@@ -199,6 +205,9 @@ export async function startKernel(opts?: {
 					`[kernel] sdk ${et}: ${(event as any)?.toolName} sid=${sessionId}`,
 				);
 			}
+			// 渠道回复出口：agent_end 时按 replyGranularity 组装 IM 回复。
+			// 必须在 throttle 之前——agent_end 不可被节流丢弃（否则渠道收不到回复）。
+			channelManager.onSessionEvent(sessionId, event as any);
 			eventThrottle.handle({
 				type: "sdk:event",
 				projectId,
@@ -264,8 +273,30 @@ export async function startKernel(opts?: {
 	// 回填真实 agentManager（绕开 TS 的「构造时已确定」语义；opts 为 private 故用 any 桥接）
 	(server as any).opts.agentManager = agentManager;
 
+	// 渠道管理器：在 agentManager 之后构造（onEvent 闭包与 replyTurn 依赖它）。
+	// adapterFactories 显式传入，避免 ChannelManager 构造函数的 mock 兜底重复注册。
+	// WA_PI_CHANNELS_MOCK=1 时附带注册 mock 工厂，供 E2E 与开发注入测试消息。
+	channelManager = new ChannelManager({
+		configStore,
+		projectStore,
+		agentManager,
+		skillManager, // 渠道提示词 $[技能名] token 内联展开用
+		broadcast,
+		adapterFactories: {
+			wecom: (c) => new WecomAdapter(c),
+			...(process.env.WA_PI_CHANNELS_MOCK === "1"
+				? { mock: (c) => new MockAdapter(c) }
+				: {}),
+		},
+	});
+	(server as any).opts.channelManager = channelManager; // 与 agentManager 同模式回填
+
 	await server.start();
 	console.log(`[kernel] HTTP 监听 http://127.0.0.1:${server.actualPort}`);
+
+	// 启动全部 enabled 渠道（无渠道时 ChannelManager.start() 空转不报错）。
+	// 放在 server.start() 之后：渠道进站会触发 ensureStarted/broadcast，HTTP 已就绪。
+	await channelManager.start();
 
 	// 空闲会话子进程回收：每 30s 扫描，回收 lastActivity 超过 1 分钟且非 busy 的会话进程。
 	// dispose 只杀进程、保留会话记录与 jsonl 历史，用户再点开时冷启动恢复。
@@ -293,6 +324,8 @@ export async function startKernel(opts?: {
 		console.log(`[kernel] ${signal} 收到，回收 pi 子进程并停止服务...`);
 		clearInterval(reapTimer);
 		eventThrottle.dispose();
+		// 先断渠道长连接（避免关闭期收到新进站再触发 agent 调用），再回收 pi 子进程
+		await channelManager.stop().catch(() => {});
 		await agentManager.disposeAll().catch(() => {});
 		await server.stop().catch(() => {});
 		await crashLogger.flush().catch(() => {}); // 确保崩溃日志落盘
