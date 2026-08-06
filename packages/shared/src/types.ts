@@ -504,6 +504,63 @@ export interface SubagentSaveOverrideEvent {
 	override: SubagentOverride;
 }
 
+// ===== IM 渠道机器人（v1 企业微信）=====
+/** IM 渠道类型：v1 仅 wecom 可用；mock 仅在 WA_PI_CHANNELS_MOCK=1 测试模式下注册 */
+export type ChannelType = "wecom" | "wechat" | "feishu" | "qq" | "mock";
+/** 机器人回复粒度：simple=仅正文；standard=正文+文件变更汇总 */
+export type ReplyGranularity = "simple" | "standard";
+export interface ChannelCredentials {
+	botId: string;
+	secret: string;
+}
+export interface ChannelConfig {
+	id: string;
+	type: ChannelType;
+	name: string;
+	enabled: boolean;
+	credentials: ChannelCredentials;
+	/** 关联智能体 displayName */
+	agentName: string;
+	/** "provider/modelId"；null = 跟随智能体 */
+	model: string | null;
+	/** 渠道附加系统提示词，注入位置在记忆段之前 */
+	extraSystemPrompt: string;
+	replyGranularity: ReplyGranularity;
+	createdAt: number;
+}
+export type ChannelStatus = "connected" | "connecting" | "disconnected" | "error";
+/** API 输出形态：secret 已脱敏，附实时连接状态 */
+export interface ChannelStatusInfo extends Omit<ChannelConfig, "credentials"> {
+	credentials: { botId: string; secret: string };
+	status: ChannelStatus;
+	statusDetail?: string;
+}
+/** 侧边栏 IM 页签的会话列表项 */
+export interface ChannelConversationInfo {
+	channelId: string;
+	channelName: string;
+	channelType: ChannelType;
+	chatId: string;
+	chatType: "single" | "group";
+	sessionId: string;
+	projectId: string;
+	projectName: string;
+	lastMessagePreview: string;
+	updatedAt: number;
+}
+export interface ChannelsListRequest { type: "channels:list" }
+export interface ChannelsCreateRequest { type: "channels:create"; channel: Omit<ChannelConfig, "id" | "createdAt"> }
+export interface ChannelsUpdateRequest { type: "channels:update"; id: string; channel: Partial<Omit<ChannelConfig, "id" | "createdAt">> }
+export interface ChannelsDeleteRequest { type: "channels:delete"; id: string }
+export interface ChannelAgentUsageRequest { type: "channels:agent-usage"; agentName: string }
+export interface ChannelConversationsListRequest { type: "channel-conversations:list" }
+export interface ChannelsCurrentResult { type: "channels:current"; channels: ChannelStatusInfo[] }
+export interface ChannelAgentUsageResult { type: "channels:agent-usage-result"; agentName: string; count: number; channelNames: string[] }
+export interface ChannelConversationsResult { type: "channel-conversations:current"; conversations: ChannelConversationInfo[] }
+/** 轻量变更标记：前端收到后重新拉取对应列表 */
+export interface ChannelsChangedEvent { type: "channels:changed" }
+export interface ChannelConversationsChangedEvent { type: "channel-conversations:changed" }
+
 export type WSClientEvent =
 	| PromptEvent
 	| AbortEvent
@@ -577,7 +634,13 @@ export type WSClientEvent =
 	| SubagentListRequest
 	| SubagentSaveOverrideEvent
 	| SettingsGetRequest
-	| SettingsSaveEvent;
+	| SettingsSaveEvent
+	| ChannelsListRequest
+	| ChannelsCreateRequest
+	| ChannelsUpdateRequest
+	| ChannelsDeleteRequest
+	| ChannelAgentUsageRequest
+	| ChannelConversationsListRequest;
 
 // kernel → 前端
 /** 内置 subagent 列表结果（前端 AgentConfig 展示 + 收藏用） */
@@ -1129,6 +1192,11 @@ export type WSServerEvent =
 	| SubagentListResult
 	| SessionCommandsResult
 	| SettingsCurrentResult
-	| SubagentProgressServerEvent;
+	| SubagentProgressServerEvent
+	| ChannelsCurrentResult
+	| ChannelAgentUsageResult
+	| ChannelConversationsResult
+	| ChannelsChangedEvent
+	| ChannelConversationsChangedEvent;
 
 export type WSEvent = WSClientEvent | WSServerEvent;

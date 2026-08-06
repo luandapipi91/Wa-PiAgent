@@ -37,6 +37,7 @@ test("[第三层] 建项目→发消息→自动建会话", async () => {
     memoryStore: null as any,
     mcpStore: null as any,
     agentManager,
+    channelManager: null,
     port: 0,
   });
   await server.start();

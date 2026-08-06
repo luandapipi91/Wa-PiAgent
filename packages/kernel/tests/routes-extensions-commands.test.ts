@@ -54,6 +54,7 @@ beforeAll(async () => {
 		skillManager: {} as any,
 		memoryStore: {} as any,
 		mcpStore: {} as any,
+		channelManager: null,
 		port: 0, // 随机端口
 	});
 	await server.start();
