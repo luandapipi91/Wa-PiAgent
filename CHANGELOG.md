@@ -6,26 +6,17 @@
 
 ### 修复
 
-- **断网/错误后对话永远停在"对话中"，不主动断开报错**：两条根因分层修复。
-  1. **kernel 缺 turn 看门狗**（主因）：pi 的 LLM 请求静默挂死（半开连接 / 代理挂起 /
-     `httpIdleTimeout` 配为 disabled）时不发任何事件，busy 会话连空闲回收都跳过 → 无限
-     思考中。新增 `AgentManager.checkStuckSessions`（index.ts 每 30s 扫描）：busy 且超
-     6 分钟（> pi 默认 300s HTTP 空闲超时，pi 自己超时会发事件故不误伤）无任何 pi 事件
-     → 主动 `abort()` 断开 + 合成 `message_end{stopReason:"error"}`（文案避开 transient
-     正则，classifySdkError 归 fatal → 前端红色报错 + failTurn 复位）。排除合法长静默：
-     工具执行中（activeTools 计数）、压缩中（compacting）、扩展 dialog 等应答
-     （extUiRegistry 新增 hasPendingForSession）。
-  2. **前端状态对齐缺陷**：`setActiveStatus(isActive=false)` 此前 `return {}` 不复位，
-     SSE 断线窗口漏掉终态事件（不重放）或 kernel 重启后，重连/加载对齐永远清不掉残留的
-     thinking。现显式 false 时复位 idle + 清 streaming 占位 + 清重试条（无残留时保持
-     no-op；isActive 缺省 undefined 视为响应不可信、不干预）。
-  新增测试：kernel `tests/turn-watchdog.test.ts`（7 个），frontend setActiveStatus
-  对齐 3 个；store-session.test.ts 的 beforeEach 补 thinkingSinceBySession /
-  retryBySession 重置（既有遗漏）；App.test.tsx 的 /messages mock 支持按测试覆写
-  isActive（重试条测试描述运行中会话，改传 isActive=true）。
-  影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/index.ts`、
-  `packages/kernel/src/ext-ui-registry.ts`、`packages/frontend/src/store/session.ts`、
-  `packages/kernel/tests/turn-watchdog.test.ts`（新增）、
+- **前端状态对齐缺陷（断线/kernel 重启后永远"对话中"）**：`setActiveStatus(isActive=false)`
+  此前 `return {}` 不复位，SSE 断线窗口漏掉终态事件（不重放）或 kernel 重启后，重连/
+  加载对齐永远清不掉残留的 thinking。现显式 false 时复位 idle + 清 streaming 占位 +
+  清重试条（无残留时保持 no-op；isActive 缺省 undefined 视为响应不可信、不干预）。
+  注：曾基于"pi 断网后静默挂死不报事件"的假设加过 kernel turn 看门狗，经真实 pi RPC
+  断网实验（连接拒绝 15.7s / 黑洞地址 ~100s 内均走完整 auto_retry → agent_settled
+  终态链）证伪，已整体回滚 kernel 侧改动。
+  新增测试：frontend setActiveStatus 对齐 3 个；store-session.test.ts 的 beforeEach
+  补 thinkingSinceBySession / retryBySession 重置（既有遗漏）；App.test.tsx 的
+  /messages mock 支持按测试覆写 isActive（重试条测试描述运行中会话，改传 isActive=true）。
+  影响范围：`packages/frontend/src/store/session.ts`、
   `packages/frontend/tests/store-session.test.ts`、`packages/frontend/tests/App.test.tsx`。
 
 ### 修复
