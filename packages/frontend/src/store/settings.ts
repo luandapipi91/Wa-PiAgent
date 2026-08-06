@@ -7,6 +7,7 @@ export type SettingsSection =
 	| "plugins"
 	| "memory"
 	| "mcp"
+	| "bots"
 	| "diagnostics";
 
 interface SettingsState {

@@ -6,6 +6,7 @@ import { SkillSection } from "./settings/SkillSection";
 import { ExtensionSection } from "./settings/ExtensionSection";
 import { MemorySection } from "./settings/MemorySection";
 import { McpSection } from "./settings/McpSection";
+import { BotsSection } from "./settings/BotsSection";
 import { useSettingsStore } from "../store/settings";
 
 interface Props {
@@ -70,6 +71,14 @@ export function SettingsModal({ onClose }: Props) {
             data-testid="settings-nav-mcp"
           >MCP 连接器</button>
           <button
+            onClick={() => setSection("bots")}
+            className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
+            style={activeSection === "bots"
+              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              : { color: "var(--secondary)" }}
+            data-testid="settings-nav-bots"
+          >机器人</button>
+          <button
             onClick={() => setSection("diagnostics")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "diagnostics"
@@ -86,6 +95,7 @@ export function SettingsModal({ onClose }: Props) {
           {activeSection === "plugins" && <ExtensionSection />}
           {activeSection === "memory" && <MemorySection />}
           {activeSection === "mcp" && <McpSection />}
+          {activeSection === "bots" && <BotsSection />}
           {activeSection === "diagnostics" && <DiagnosticsSection />}
         </div>
       </div>

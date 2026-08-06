@@ -138,6 +138,8 @@ async function globalSetup() {
 			WA_PI_DIR: E2E_WA_PI_DIR,
 			WA_PI_WS_PORT: String(E2E_WS_PORT),
 			WA_PI_SKIP_AGENT_SEED: "1",
+			// 开启渠道 mock 适配器 + mock 测试端点，供 channels.spec.ts 全链路 E2E
+			WA_PI_CHANNELS_MOCK: "1",
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 		shell: true, // Windows 下 bun 是 npm 装的 .cmd shim，需要 shell 解析，否则 spawn ENOENT

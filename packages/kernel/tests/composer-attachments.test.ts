@@ -101,6 +101,7 @@ async function withComposerServer<T>(
     mcpStore: null as any,
     dataDir,
     agentManager,
+    channelManager: null,
     port: 0,
   });
 

@@ -300,6 +300,7 @@ async function startTestServer(extraOpts: Partial<WSServerOpts> = {}) {
     mcpStore: null as any,
     dataDir,
     agentManager: { disposeAll: async () => {} } as any,
+    channelManager: null,
     port: 0,
     ...extraOpts,
   });
