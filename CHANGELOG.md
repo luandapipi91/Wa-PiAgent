@@ -4,6 +4,16 @@
 
 ## [Unreleased] - 2026-08-06
 
+### 新增
+
+- **IM 渠道机器人功能设计文档**：v1 接入企业微信智能机器人（WebSocket 长连接，手动配置
+  Bot ID/Secret），kernel 内置 ChannelManager + ChannelAdapter 接口；支持多机器人多开、
+  绑定系统智能体（删除兜底降级默认）、IM 指令切换工作区（/new /projects /use /help）、
+  渠道附加系统提示词（插在记忆段之前）、简洁/标准两档回复粒度；前端设置页新增「机器人」
+  Section + 侧边栏「任务 | IM」页签（IM 会话最多加载 100 条）。
+  影响范围：`docs/superpowers/specs/2026-08-06-im-channel-bot-design.md`（含高保真原型
+  assets/2026-08-06-im-channel-bot/）。
+
 ### 修复
 
 - **物理断网后对话永远"思考中"**：根因是 wa-pi 未配置 `httpIdleTimeoutMs`，
