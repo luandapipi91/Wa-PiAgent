@@ -2,13 +2,14 @@ import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 const apiCalls: { method: string; path: string; body?: any }[] = [];
-mock.module("../src/api-client", () => ({
-	api: {
-		get: async (path: string) => {
-			if (path === "/api/channels") return { channels: [] };
-			if (path === "/api/channel-conversations") return { conversations: [] };
-			return {};
-		},
+	mock.module("../src/api-client", () => ({
+		api: {
+			get: async (path: string) => {
+				if (path === "/api/channels") return { channels: [] };
+				if (path === "/api/channel-conversations") return { conversations: [] };
+				if (path === "/api/skills") return { skills: [], allSkills: [], dirs: [], disabledSkills: [], builtinDir: "" };
+				return {};
+			},
 		post: async (path: string, body: any) => {
 			apiCalls.push({ method: "POST", path, body });
 			return { channels: [{ id: "ch_new", ...body.channel }] };
