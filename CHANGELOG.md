@@ -6,13 +6,25 @@
 
 ### 新增
 
-- **IM 渠道机器人功能设计文档**：v1 接入企业微信智能机器人（WebSocket 长连接，手动配置
-  Bot ID/Secret），kernel 内置 ChannelManager + ChannelAdapter 接口；支持多机器人多开、
-  绑定系统智能体（删除兜底降级默认）、IM 指令切换工作区（/new /projects /use /help）、
-  渠道附加系统提示词（插在记忆段之前）、简洁/标准两档回复粒度；前端设置页新增「机器人」
-  Section + 侧边栏「任务 | IM」页签（IM 会话最多加载 100 条）。
-  影响范围：`docs/superpowers/specs/2026-08-06-im-channel-bot-design.md`（含高保真原型
-  assets/2026-08-06-im-channel-bot/）。
+- **IM 渠道机器人 v1（企业微信）**：把企微智能机器人消息接入系统智能体，回复推回 IM。
+  - **kernel**：新增 `ChannelManager`（渠道生命周期、会话映射 `channelId+chatId`→`projectId+sessionId`、
+    每会话 FIFO、`agent_end` 后按粒度组装回复、智能体删除兜底降级默认）+ `ChannelAdapter` 接口
+    + `WecomAdapter`（`@wecom/aibot-node-sdk` WebSocket 长连接，无需公网回调）+ `MockAdapter`（测试用）；
+    渠道配置存 `~/.wa-pi/channels.json`、会话映射存 `channel-sessions.json`（API 输出 secret 脱敏）；
+    IM 斜杠指令 `/new` `/projects` `/use <工作区>` `/help`；渠道附加提示词注入系统提示词
+    `im-channel` 段（固定在记忆段之前），支持 `$[技能名]` token 内联展开为技能全文；
+    简洁/标准两档回复粒度（标准附文件变更汇总）；同 Bot ID 单连接冲突检测；图片进站 + 不支持类型兜底。
+  - **前端**：设置页新增「机器人」Section（列表/新建弹层/编辑/删除/连接状态/智能体删除警告条），
+    渠道图标（wecom 可用，微信/飞书/QQ 置灰「敬请期待」）；补充提示词输入框支持 `$` 技能自动补全；
+    侧边栏「任务 | IM」页签 + IM 会话列表（历史最多 100 条 + 来源徽标）；删除智能体时提示被渠道引用情况。
+  - **四层测试**：单元（channel-store/commands/reply-composer/mock-adapter/skill-expand/channel-manager）、
+    组件（BotsSection/SkillSuggestTextarea/ImConversationList/channels-store/agent-delete-usage-hint）、
+    API（`scripts/channels-api-it.sh` 9 步 curl 集成验收）、E2E（`channels.spec.ts` mock 渠道全链路）。
+  - 影响范围：`packages/shared/src/{types,constants}.ts`、`packages/kernel/src/{channel-store,channel-manager}.ts`、
+    `packages/kernel/src/channels/{types,mock-adapter,wecom-adapter,commands,reply-composer,skill-expand}.ts`、
+    `packages/kernel/src/routes/channels.ts`、`packages/kernel/src/{ws-server,index,system-prompt,agent-manager}.ts`、
+    `packages/frontend/src/{store/channels.ts,components/**}`、`packages/frontend/e2e/channels.spec.ts`、
+    `scripts/channels-api-it.sh`。
 
 ### 修复
 
