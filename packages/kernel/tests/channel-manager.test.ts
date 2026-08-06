@@ -139,6 +139,29 @@ test("agent_end：按粒度组装并经适配器回复；正文+文件变更", a
 	expect(adapter!.outbox.at(-1)!.text).toBe("已修复。\n\n📄 修改：a.ts");
 });
 
+test("agent_end：错误回合读取最后 assistant 消息的 stopReason/errorMessage（而非事件字段）", async () => {
+	await manager.create(channel);
+	adapter!.inject({ chatId: "u1", text: "改个 bug" });
+	await new Promise((r) => setTimeout(r, 50));
+	const sid = prompted[0].sessionId;
+	messagesBySession[sid] = [
+		{ role: "user", content: [{ type: "text", text: "改个 bug" }] },
+		{
+			role: "assistant",
+			content: [{ type: "text", text: "" }],
+			model: "p/m",
+			stopReason: "error",
+			errorMessage: "模型不可用",
+		},
+	];
+	manager.onSessionEvent(sid, { type: "agent_end" });
+	await new Promise((r) => setTimeout(r, 50));
+	const reply = adapter!.outbox.at(-1)!.text;
+	expect(reply).toContain("处理出错");
+	expect(reply).toContain("模型不可用");
+	expect(reply).not.toContain("（本轮无文本回复）");
+});
+
 test("智能体删除兜底：降级为列表第一项并记 warning", async () => {
 	await manager.create({ ...channel, agentName: "已删除的智能体" });
 	adapter!.inject({ chatId: "u1", text: "在吗" });
