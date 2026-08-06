@@ -21,6 +21,7 @@ import { useExtensionsStore } from "./store/extensions";
 import { useCommandsStore } from "./store/commands";
 import { useMcpStore } from "./store/mcp";
 import { useMemoryStore } from "./store/memory";
+import { useChannelsStore } from "./store/channels";
 import { useToastStore } from "./store/toast";
 import { useComposerPrefsStore } from "./store/composer-prefs";
 import { useSubagentsStore } from "./store/subagents";
@@ -254,6 +255,12 @@ export function App() {
 					break;
 				case "mcp:tools":
 					useMcpStore.getState().setToolsResult(e as any);
+					break;
+				case "channels:changed":
+					void useChannelsStore.getState().loadBots();
+					break;
+				case "channel-conversations:changed":
+					void useChannelsStore.getState().loadConversations();
 					break;
 			}
 		});
