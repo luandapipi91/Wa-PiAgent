@@ -19,8 +19,26 @@
   新增回归测试 `packages/frontend/tests/store-session.test.ts`（6 项 echoUser）、
   `packages/frontend/tests/App-echo-user.test.tsx`（2 项端到端）。
 
-## [Unreleased] - 2026-08-05
+### 重构
 
+- **移除冗余的 kernel turn 看门狗（经断网实验证实 pi 自身有兜底）**：此前的
+  `checkStuckSessions`（每 30s 扫描，busy 会话超 6 分钟无 pi 事件即主动 abort）基于
+  "pi 断网后静默挂死不报事件"的假设。新增真实 pi 子进程断网实验集成测试
+  (`tests/pi-disconnect-experiment.test.ts`)证伪该假设——连接拒绝 (127.0.0.1:1) 与
+  黑洞地址 (10.255.255.1) 两种断网形态下，pi 均经 pi-ai 的 retryAssistantCall 有界重试
+  后发出完整终态链：`message_end(error) → auto_retry_start/end → agent_settled`，无静默
+  挂死（实测连接拒绝 ~1.5s、黑洞地址 ~76s 收敛）。故删除看门狗实现。
+  删除范围：`agent-manager.ts` 的 `checkStuckSessions` 方法 + `lastEventAt`/`activeTools`/
+  `compacting` 字段（仅看门狗消费）及其在 `_onSessionEvent` 的事件维护分支；`index.ts`
+  的 `watchdogTimer` 定时器；`ext-ui-registry.ts` 的 `hasPendingForSession`（仅看门狗调用）。
+  保留 `thinkingSince`（前端"对话中"状态对齐仍用）。
+  注：上一轮 commit (bf82cbe) 声称"已整体回滚 kernel 侧改动"但实际只删了测试文件，
+  实现代码仍在运行——本次才真正回滚到与"pi 自身有兜底"一致的状态。
+  影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/index.ts`、
+  `packages/kernel/src/ext-ui-registry.ts`、
+  `packages/kernel/tests/pi-disconnect-experiment.test.ts`（新增）。
+
+## [Unreleased] - 2026-08-05
 
 ### 修复
 
@@ -28,9 +46,6 @@
   此前 `return {}` 不复位，SSE 断线窗口漏掉终态事件（不重放）或 kernel 重启后，重连/
   加载对齐永远清不掉残留的 thinking。现显式 false 时复位 idle + 清 streaming 占位 +
   清重试条（无残留时保持 no-op；isActive 缺省 undefined 视为响应不可信、不干预）。
-  注：曾基于"pi 断网后静默挂死不报事件"的假设加过 kernel turn 看门狗，经真实 pi RPC
-  断网实验（连接拒绝 15.7s / 黑洞地址 ~100s 内均走完整 auto_retry → agent_settled
-  终态链）证伪，已整体回滚 kernel 侧改动。
   新增测试：frontend setActiveStatus 对齐 3 个；store-session.test.ts 的 beforeEach
   补 thinkingSinceBySession / retryBySession 重置（既有遗漏）；App.test.tsx 的
   /messages mock 支持按测试覆写 isActive（重试条测试描述运行中会话，改传 isActive=true）。

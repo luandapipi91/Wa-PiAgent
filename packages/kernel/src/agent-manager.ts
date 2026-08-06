@@ -195,14 +195,6 @@ interface SessionHandle {
 	/** 最近一次活跃时间戳（ms）：prompt / message_end / steer / 打开会话时刷新。
 	 *  供 reapIdleSessions 判断是否回收该会话子进程，避免每轮读盘。 */
 	lastActiveAt: number;
-	/** 最近一次收到 pi 事件的时间戳（ms）：任何事件经 _onSessionEvent 都刷新。
-	 *  供 checkStuckSessions 判断 turn 是否静默挂死（LLM 请求半开连接无事件）。 */
-	lastEventAt: number;
-	/** 在途工具调用计数（tool_execution_start +1 / end -1）：>0 时长静默合法（长 bash /
-	 *  delegate 子代理），看门狗不得误杀 */
-	activeTools: number;
-	/** 压缩进行中（compaction_start/end 维护）：摘要 LLM 调用可能数分钟无事件，看门狗排除 */
-	compacting: boolean;
 }
 
 export class AgentManager {
@@ -811,9 +803,6 @@ export class AgentManager {
 			currentThinking: null,
 			netDegraded: false,
 			lastActiveAt: Date.now(),
-			lastEventAt: Date.now(),
-			activeTools: 0,
-			compacting: false,
 		};
 		const client = createClient({
 			cliPath: resolvePiCliPath(),
@@ -891,29 +880,12 @@ export class AgentManager {
 		const handle = this.sessions.get(sessionId);
 		if (!handle) return;
 
-		// 任何事件都视为活动信号：刷新 turn 看门狗的静默计时起点
-		handle.lastEventAt = Date.now();
-
 		switch (event.type) {
 			case "agent_start":
 				handle.busy = true;
 				handle.thinkingSince = Date.now();
 				break;
-			// 在途工具计数（看门狗排除项：长 bash / delegate 子代理期间静默合法）
-			case "tool_execution_start":
-				handle.activeTools++;
-				break;
-			case "tool_execution_end":
-				handle.activeTools = Math.max(0, handle.activeTools - 1);
-				break;
-			// 压缩期间摘要 LLM 调用可能数分钟无其他事件（看门狗排除项）
-			case "compaction_start":
-				handle.compacting = true;
-				break;
-			case "compaction_end":
-				handle.compacting = false;
-				break;
-			case "message_end":
+		case "message_end":
 				if (event.message) handle.messages.push(event.message);
 				// 本轮 user 落盘时刻（≈ jsonl 行级落盘）：整轮耗时的起点。
 				// 不能用 message.timestamp——Pi 单块轮 assistant 消息对象在 prompt 时预创建，
@@ -1579,61 +1551,6 @@ export class AgentManager {
 			}
 		}
 		return reaped;
-	}
-
-	/**
-	 * turn 静默看门狗：busy 会话超过 silenceMs 没收到任何 pi 事件 → 判定 LLM 请求
-	 * 静默挂死（半开连接 / 代理挂起 / pi httpIdleTimeout 配为 disabled），主动 abort
-	 * 断开并合成 message_end{stopReason:"error"} 播报（classifySdkError 默认归 fatal →
-	 * 前端红色错误消息 + failTurn 复位思考态）。abort 后 pi 自身会补 agent_end /
-	 * agent_settled，均为幂等复位。
-	 *
-	 * 阈值必须大于 pi 默认 HTTP 空闲超时（300s）：pi 自己超时会发事件（刷新 lastEventAt）
-	 * 并进自动重试，看门狗只在 pi 完全不发事件时才介入。
-	 *
-	 * 排除合法长静默：工具执行中（activeTools>0，长 bash / delegate 子代理）、
-	 * 压缩中（compacting）、扩展 dialog 等待用户应答（extUiRegistry pending）。
-	 * 返回被断开的 sessionId 列表，供调用方记日志。
-	 */
-	checkStuckSessions(
-		silenceMs: number = 6 * 60 * 1000,
-		now: number = Date.now(),
-	): string[] {
-		const stuck: string[] = [];
-		for (const [id, handle] of this.sessions) {
-			if (!handle.busy || handle.thinkingSince == null) continue;
-			if (handle.disposed || handle.crashed) continue;
-			// 合法长静默排除：在途工具 / 压缩中 / 扩展 dialog 等应答
-			if (handle.activeTools > 0 || handle.compacting) continue;
-			if (extUiRegistry.hasPendingForSession(id)) continue;
-			if (now - handle.lastEventAt < silenceMs) continue;
-
-			console.error(
-				`[kernel] session ${id} turn 静默 ${Math.round((now - handle.lastEventAt) / 1000)}s 无事件，判定挂死，主动断开`,
-			);
-			// 先复位 busy：即使 abort 无响应，会话也不再阻挡回收/重发；
-			// pi 后续的 agent_end / agent_settled 到达均为幂等
-			handle.busy = false;
-			handle.thinkingSince = null;
-			// 合成错误事件（同 _onProcessExit 通道）：文案刻意避开 transient 正则
-			// （timeout/connection/terminated 等），确保 classifySdkError 归 fatal
-			this.opts.onEvent(id, handle.meta.projectId, handle.meta.agentName, {
-				type: "message_end",
-				message: {
-					role: "assistant",
-					content: [],
-					stopReason: "error",
-					errorMessage:
-						"模型响应长时间无事件（疑似断网或代理挂起），已主动断开本轮对话，请检查网络后重新发送",
-					timestamp: Date.now(),
-				},
-			});
-			void handle.client.abort().catch((err) => {
-				console.warn(`[kernel] session ${id} 看门狗 abort 失败:`, err);
-			});
-			stuck.push(id);
-		}
-		return stuck;
 	}
 
 	/**
