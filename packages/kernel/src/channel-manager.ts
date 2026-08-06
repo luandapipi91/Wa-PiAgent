@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
@@ -28,6 +28,7 @@ import { parseCommand } from "./channels/commands";
 import { chunkByBytes, composeReply } from "./channels/reply-composer";
 import type { ChannelAdapter, InboundMessage } from "./channels/types";
 import { MockAdapter } from "./channels/mock-adapter";
+import { expandSkillTokens } from "./channels/skill-expand";
 import type { AgentManager } from "./agent-manager";
 import type { ConfigStore } from "./config-store";
 import type { ProjectStore } from "./project-store";
@@ -44,6 +45,8 @@ export interface ChannelManagerDeps {
 	channelsFile?: string;
 	mappingsFile?: string;
 	tmpDir?: string;
+	/** 技能管理器（结构子集）：用于展开渠道提示词里的 $[技能名] token；缺省不展开 */
+	skillManager?: { scan(): Promise<{ skills: { name: string; path: string }[] }> };
 }
 
 export class ChannelManager {
@@ -296,6 +299,11 @@ export class ChannelManager {
 			}
 		}
 
+		// 渠道附加提示词中含 $ 才扫描技能（避免每条消息都 scan）；进站早期加载，供 ensureStarted 使用
+		const skills = channel.extraSystemPrompt?.includes("$")
+			? await this.loadSkillContents()
+			: [];
+
 		// 智能体解析（每次入站实时解析：删除立即可感知，兜底列表第一项）
 		const agent = await this.resolveAgent(channel);
 		if (!agent) {
@@ -316,7 +324,7 @@ export class ChannelManager {
 				mapping.currentProjectId,
 				agent.displayName,
 				sessionId,
-				{ imChannelContext: channel.extraSystemPrompt || undefined },
+				{ imChannelContext: channel.extraSystemPrompt ? expandSkillTokens(channel.extraSystemPrompt, skills) : undefined },
 			);
 
 			// 图片附件
@@ -352,6 +360,23 @@ export class ChannelManager {
 		mapping.updatedAt = Date.now();
 		await persist();
 		this.deps.broadcast({ type: "channel-conversations:changed" });
+	}
+
+	/** 读取全部已启用技能的 name + SKILL.md 内容（读失败的技能跳过，不阻塞入站） */
+	private async loadSkillContents(): Promise<{ name: string; content: string }[]> {
+		if (!this.deps.skillManager) return [];
+		const { skills } = await this.deps.skillManager
+			.scan()
+			.catch(() => ({ skills: [] as { name: string; path: string }[] }));
+		const result: { name: string; content: string }[] = [];
+		for (const s of skills) {
+			try {
+				result.push({ name: s.name, content: await readFile(join(s.path, "SKILL.md"), "utf8") });
+			} catch {
+				/* 单个技能读取失败不阻塞 */
+			}
+		}
+		return result;
 	}
 
 	/** 智能体解析：渠道指定 → 删除兜底 listAgents()[0]（与前端新建会话的默认规则一致） */
