@@ -526,6 +526,10 @@ export interface ChannelConfig {
 	/** 渠道附加系统提示词，注入位置在记忆段之前 */
 	extraSystemPrompt: string;
 	replyGranularity: ReplyGranularity;
+	/** 默认工作目录（项目 id），默认 __system__（默认工作区） */
+	defaultProjectId: string;
+	/** 是否允许 IM 侧切换工作目录（/use、/projects 指令），默认 false */
+	allowProjectSwitch: boolean;
 	createdAt: number;
 }
 export type ChannelStatus = "connected" | "connecting" | "disconnected" | "error";
