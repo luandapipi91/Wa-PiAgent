@@ -194,7 +194,7 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
         <select
           value={projectId ?? ""}
           onChange={e => setProjectId(e.target.value || null)}
-          className="flex-1 bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[calc(12.5px*var(--font-scale))]"
+          className="flex-1 min-w-0 bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[calc(12.5px*var(--font-scale))]"
           data-testid="project-select"
         >
           {projects.length === 0 && <option value="">（无项目，请先新建）</option>}

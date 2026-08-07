@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentConfig, AgentName } from "@wa-pi/shared";
 import { filterItems } from "../../quick-invoke/trigger";
 import { AgentMenuItem } from "./AgentMenuItem";
@@ -31,6 +31,26 @@ export function AgentDropdown({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const toggleOpen = () => {
+    setOpen(o => !o);
+    setQuery("");
+  };
+
+  // 视口钳制：菜单展开后实测边界，左右任一侧超出可视区则用 transform 平移回屏幕内
+  //（小窗口/按钮贴近屏幕边缘时 absolute left-0 会整体撑出屏幕）
+  useLayoutEffect(() => {
+    if (!open || !menuRef.current) return;
+    const m = menuRef.current;
+    m.style.transform = "";
+    const r = m.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return; // 未布局（如测试环境）不钳制
+    let dx = 0;
+    if (r.right > window.innerWidth - 8) dx = window.innerWidth - 8 - r.right;
+    if (r.left + dx < 8) dx = 8 - r.left;
+    if (dx !== 0) m.style.transform = `translateX(${dx}px)`;
+  }, [open]);
 
   // 点击组件外部关闭下拉
   useEffect(() => {
@@ -63,19 +83,19 @@ export function AgentDropdown({
     (!query || defaultLabel.toLowerCase().includes(query.toLowerCase()));
 
   return (
-    <div className="relative" ref={rootRef}>
+    <div className="relative min-w-0 max-w-full" ref={rootRef}>
       <button
         type="button"
         data-testid={pillTestId}
-        onClick={() => { setOpen(o => !o); setQuery(""); }}
-        className={`min-w-0 flex items-center gap-1.5 rounded-pill border px-2.5 py-1 text-[calc(12px*var(--font-scale))] cursor-pointer transition-colors ${
+        onClick={toggleOpen}
+        className={`min-w-0 w-full flex items-center gap-1.5 rounded-pill border px-2.5 py-1 text-[calc(12px*var(--font-scale))] cursor-pointer transition-colors ${
           showMissing
             ? "bg-warning-soft text-warning border-warning-soft"
             : "bg-surface-elevated text-secondary border-hairline hover:text-primary"
         }`}
       >
         {showMissing ? (
-          <span data-testid={`${itemTestIdPrefix}-missing`}>⚠️ 原智能体已删除，点击重选 ▾</span>
+          <span data-testid={`${itemTestIdPrefix}-missing`} className="truncate">⚠️ 原智能体已删除，点击重选 ▾</span>
         ) : current ? (
           <>
             <span
@@ -96,7 +116,11 @@ export function AgentDropdown({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-20 min-w-[220px] bg-surface-elevated border border-hairline rounded-md shadow-lg p-1">
+        <div
+          ref={menuRef}
+          data-testid={`${itemTestIdPrefix}-menu`}
+          className="absolute left-0 top-full mt-1 z-20 min-w-[220px] max-w-[calc(100vw-16px)] overflow-x-hidden bg-surface-elevated border border-hairline rounded-md shadow-lg p-1"
+        >
           <div className="flex items-center gap-1.5 bg-surface border border-hairline rounded-sm px-2 py-1.5 mx-0.5 mb-1 text-tertiary">
             🔍
             <input
