@@ -21,6 +21,11 @@
   （`name→displayName` / `emoji→avatar` / 正文→`systemPromptBody` 等），便于将来评估接入。
   影响范围：`docs/references/agency-agents-zh/`（整库 + 新增 `README-INDEX.md`，无运行时代码改动）。
 
+### 修复
+
+- **添加/编辑供应商弹窗点击阴影不再关闭**：`ProviderFormModal` 传入 `closeOnOverlayClick={false}`，防止用户填写表单时误点遮罩丢失已输入内容。ESC、取消按钮仍可关闭。
+  - 影响范围：`packages/frontend/src/components/settings/ProviderFormModal.tsx`、`packages/frontend/tests/ProviderFormModal.test.tsx`。
+
 ---
 
 ## 2026-08-07
