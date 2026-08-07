@@ -202,7 +202,8 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 							<span className="text-[calc(14px*var(--font-scale))] font-bold text-primary">
 								{session.title}
 							</span>
-							<AgentSwitcher sessionId={sessionId} />
+							{/* IM 接入会话：智能体由机器人配置锁定，不暴露切换入口；普通会话保留 */}
+							{!sourceLabel && <AgentSwitcher sessionId={sessionId} />}
 						</div>
 						<div className="text-[calc(11.5px*var(--font-scale))] text-tertiary mt-px">
 							<span
