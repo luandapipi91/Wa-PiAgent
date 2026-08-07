@@ -17,7 +17,7 @@
 ## 关键决策（已与用户确认）
 
 - 触发时机：**无模型（providers 为空）时自动弹出** + 设置弹窗提供「重新打开引导」入口
-- 步骤流程：**2 步**（模型 → 智能体）；第 1 步不可跳过（未保存成功 provider 前「下一步」置灰），第 2 步可跳过
+- 步骤流程：**2 步**（模型 → 智能体）；**两步都不强制**——第 1 步未保存模型也可直接进入第 2 步，第 2 步可跳过
 - 智能体步骤操作：创建新智能体 或 从预设选择；选定后成为**默认智能体**
 - 预设展示：**搜索 + 部门分组浏览**
 - 预设选择器使用范围：**向导 + 宫格新建流程共用同一组件**；宫格原「输入名字创建」流程被新面板取代
@@ -36,10 +36,7 @@ flowchart TD
     B --> C{providers 为空?}
     C -- 否 --> Z[正常进入主界面]
     C -- 是 --> D[自动弹出向导 · 第 1 步 配置模型]
-    D --> E{保存成功 ≥1 个 provider?}
-    E -- 否 --> F[「下一步」置灰<br/>可关闭向导 = 跳过]
-    F --> C
-    E -- 是 --> G[第 2 步 设置默认智能体]
+    D --> G[第 2 步 设置默认智能体<br/>第 1 步不强制：未保存模型也可「下一步」]
     G --> H{选择路径}
     H -- 创建新智能体 --> I[随机人名 + 🎲/手改<br/>POST /api/agents]
     H -- 从预设选择 --> J[搜索 / 部门分组浏览 268 个预设]
@@ -163,7 +160,7 @@ kernel 改动限于新增独立文件，不碰现有 seed / 路由逻辑。
   - `wizardOpen: boolean` + open/close（不持久化，仅会话内）
 - `src/components/onboarding/OnboardingWizard.tsx`：
   - Modal（沿用 createPortal + 自定义 Modal 惯例）+ 两步步骤条
-  - 第 1 步：嵌入抽出的 `ProviderForm`，保存成功 ≥1 个 provider 后「下一步」才可点
+  - 第 1 步：嵌入抽出的 `ProviderForm`；**不强制保存**，「下一步」始终可点
   - 第 2 步：内嵌 `AgentCreatePicker`；「完成」「跳过」「上一步」
   - 中途关闭 = 跳过；providers 仍为空则下次启动再弹
 - `src/components/onboarding/AgentCreatePicker.tsx`（向导第 2 步 + 宫格新建共用）：
@@ -197,7 +194,7 @@ kernel 改动限于新增独立文件，不碰现有 seed / 路由逻辑。
 |------|------|
 | displayName 重名 | 前端置灰提示 + kernel 409 |
 | 预设 id 不存在 | kernel 404，前端 Toast 提示 |
-| 模型步未保存任何 provider | 「下一步」置灰 |
+| 模型步未保存任何 provider | 不拦截，可直接进入第 2 步；providers 仍为空则下次启动向导再弹 |
 | 向导中途 Esc / 关闭 | 视为跳过；providers 仍为空则下次启动再弹 |
 | 预设角色与 9 个内置智能体同角色名 | 无冲突（保存用人名，文件名不撞） |
 | agency-presets.json 缺失/损坏 | kernel 启动不崩溃，presets 返回空列表 |
@@ -211,7 +208,7 @@ kernel 改动限于新增独立文件，不碰现有 seed / 路由逻辑。
    - name-pool：查重重试
    - pickDefaultAgent：四级优先级
 2. **组件测试（Vitest + testing-library + happy-dom）**
-   - OnboardingWizard：步骤流转、第 1 步闸门
+   - OnboardingWizard：步骤流转（第 1 步不保存模型也可进入第 2 步）
    - AgentCreatePicker：搜索过滤、部门分组、命名面板（随机名 / 🎲 / 手改 / 重名置灰）
 3. **API 集成测试（curl）**
    - `GET /api/agents/presets` 成功
