@@ -166,7 +166,11 @@ export const DEFAULT_PROMPT_SEGMENTS: PromptSegment[] = [
  * - 返回空串表示该段不出现（如 delegatePrompt 为空时 delegate-network 不出现）
  */
 function renderSegment(seg: PromptSegment, ctx: SystemPromptContext): string {
-	// 用户在 prompts.json 里显式写了 content：所有段（含动态段）都允许覆盖
+	// im-channel 为运行时注入段（渠道附加提示词）：始终取上下文值，
+	// 忽略 prompts.json 里可能残留的 content，避免用户手填内容静默覆盖渠道提示词
+	if (seg.id === IM_CHANNEL_SEGMENT_ID) return ctx.imChannelContext ?? "";
+
+	// 用户在 prompts.json 里显式写了 content：其余段（含动态段）都允许覆盖
 	if (seg.content && seg.content.length > 0) {
 		return seg.content;
 	}
@@ -179,8 +183,6 @@ function renderSegment(seg: PromptSegment, ctx: SystemPromptContext): string {
 			return ctx.delegateRoster ?? "";
 		case "env-constraints":
 			return `Built-in directory: ${ctx.builtinSkillsDir}${ENV_CONSTRAINTS_SUFFIX}`;
-		case "im-channel":
-			return ctx.imChannelContext ?? "";
 		case "memory-policy":
 			return ctx.memoryPolicy ?? "";
 		case "memory-snapshot":
@@ -210,8 +212,33 @@ export function composePrompt(
 }
 
 /** prompts.json 的 schema 版本。新增段/修改默认文案时递增；ensurePromptsConfig 据此对已存在
- *  文件做迁移——缺失段按最新默认补齐，已存在段 content 保留（含用户自定义，不覆盖）。 */
-export const PROMPTS_SCHEMA_VERSION = 24;
+ *  文件做迁移——缺失段按最新默认补齐，已存在段 content 保留（含用户自定义，不覆盖）。
+ *  v25：im-channel 段改为纯运行时注入，不再写入 prompts.json（保存时剔除，运行时补回）。 */
+export const PROMPTS_SCHEMA_VERSION = 25;
+
+/** im-channel 段 id：IM 渠道附加提示词，运行时注入段——不持久化到 prompts.json */
+export const IM_CHANNEL_SEGMENT_ID = "im-channel";
+
+/**
+ * 确保段列表含 im-channel 占位段（无 content，运行时由 ctx.imChannelContext 填充）。
+ * 该段不写入 prompts.json（savePromptSegments 剔除），运行时加载段列表后需用本函数补回；
+ * 位置固定在 memory-policy 之前。已存在（旧版文件残留）则剥掉持久化的 content。
+ */
+export function ensureImChannelSegment(
+	segments: PromptSegment[],
+): PromptSegment[] {
+	const idx = segments.findIndex((s) => s.id === IM_CHANNEL_SEGMENT_ID);
+	if (idx >= 0) {
+		if (!segments[idx].content) return segments;
+		const next = segments.slice();
+		next[idx] = { id: IM_CHANNEL_SEGMENT_ID };
+		return next;
+	}
+	const seg: PromptSegment = { id: IM_CHANNEL_SEGMENT_ID };
+	const memIdx = segments.findIndex((s) => s.id === "memory-policy");
+	if (memIdx < 0) return [...segments, seg];
+	return [...segments.slice(0, memIdx), seg, ...segments.slice(memIdx)];
+}
 
 /**
  * 加载 prompts.json 的 segments；不存在或格式错误时返回 null（由调用方决定是否初始化）。
@@ -245,6 +272,7 @@ async function loadPromptsRawVersion(filePath: string): Promise<number> {
 
 /**
  * 保存段落配置到 prompts.json（写入当前 schemaVersion）。
+ * im-channel 段为运行时注入段，一律剔除不落盘（spec：该段不写入 prompts.json）。
  */
 export async function savePromptSegments(
 	filePath: string,
@@ -252,11 +280,12 @@ export async function savePromptSegments(
 ): Promise<void> {
 	const { writeFile, mkdir } = await import("node:fs/promises");
 	const { dirname } = await import("node:path");
+	const persisted = segments.filter((s) => s.id !== IM_CHANNEL_SEGMENT_ID);
 	await mkdir(dirname(filePath), { recursive: true });
 	await writeFile(
 		filePath,
 		JSON.stringify(
-			{ schemaVersion: PROMPTS_SCHEMA_VERSION, segments },
+			{ schemaVersion: PROMPTS_SCHEMA_VERSION, segments: persisted },
 			null,
 			2,
 		),

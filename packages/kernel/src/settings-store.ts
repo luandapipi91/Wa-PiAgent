@@ -1,6 +1,6 @@
 // 通用设置读写（系统设置 > 通用）：pi 自动重试配置 + HTTP 空闲超时。
 //
-// 背景：pi 子进程以 PI_CODING_AGENT_DIR=~/.wa-pi 启动，pi 的 settings-manager
+// 背景：pi 子进程以 PI_CODING_AGENT_DIR=~/.pi/agent 启动，pi 的 settings-manager
 // 从同一 settings.json 读取：
 //   - retry 字段（maxRetries / baseDelayMs，指数退避 delay = baseDelayMs × 2^(n-1)）
 //   - httpIdleTimeoutMs（pi-coding-agent 的 undici dispatcher 用作 headersTimeout /

@@ -1,6 +1,6 @@
 // E2E globalSetup：启动隔离 kernel（端口 9776），把进程 pid 存到全局供 teardown 清理
 import { spawn } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createWriteStream, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
 
@@ -129,6 +129,16 @@ async function globalSetup() {
 		"utf8",
 	);
 
+	// 安全闸门：WS 端口已被占用说明有别的 kernel 在跑（很可能是用户正在使用的真实实例）。
+	// 曾经因此把测试渠道写进、甚至误删用户真实渠道配置——此处必须直接中止，绝不复用。
+	// 本机有真实 kernel 时请用 WA_PI_E2E_WS_PORT / WA_PI_E2E_WEB_PORT（+WA_PI_WEB_PORT）偏移。
+	if (await checkPort(E2E_WS_PORT)) {
+		throw new Error(
+			`[e2e] 端口 ${E2E_WS_PORT} 已被占用（疑似正在运行的真实 kernel），为避免污染真实数据已中止。` +
+				`请设置 WA_PI_E2E_WS_PORT / WA_PI_E2E_WEB_PORT / WA_PI_WEB_PORT 使用偏移端口。`,
+		);
+	}
+
 	// 启动 kernel，注入独立 WA_PI_DIR（覆盖 ~/.wa-pi）与 WS 端口（默认 9776，可偏移避开本机真实 kernel）
 	// WA_PI_SKIP_AGENT_SEED=1：关闭内置角色 seed，保持隔离环境只有预置的 dev.md，
 	// 否则 kernel 启动会补齐 11 个内置角色，打破 agents.spec.ts「初始仅 1 个智能体」的前提
@@ -143,9 +153,14 @@ async function globalSetup() {
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 		shell: true, // Windows 下 bun 是 npm 装的 .cmd shim，需要 shell 解析，否则 spawn ENOENT
+		// POSIX：shell:true 时 child.pid 是 sh 的 pid，SIGTERM 只杀 shell、kernel 成孤儿占用端口。
+		// detached 让子进程成为进程组组长，teardown 用 kill(-pid) 杀整个进程组
+		detached: process.platform !== "win32",
 	});
-	child.stdout?.on("data", () => {}); // 防 stdout 缓冲写满阻塞
-	child.stderr?.on("data", () => {});
+	// kernel 日志落盘：失败排查用（e2e/kernel.log，teardown 不删，下次运行覆盖）
+	const kernelLog = createWriteStream(join(process.cwd(), "e2e", ".kernel-e2e.log"));
+	child.stdout?.pipe(kernelLog, { end: false });
+	child.stderr?.pipe(kernelLog, { end: false });
 
 	// 等 kernel 起来（轮询 WS 端口）
 	const deadline = Date.now() + 15000;

@@ -337,6 +337,18 @@ test("默认工作区会话 header 显示友好文案", async () => {
   expect(screen.queryByText(/\/tmp\/workdir/)).toBeNull();
 });
 
+test("IM 接入会话：sourceLabel 拼到状态行末尾，不再显示「仅显示最近」提示", async () => {
+  await act(async () => {
+    render(<SessionView sessionId="s1" sourceLabel={`经「小 co 助手」接入`} />);
+  });
+  // sourceLabel 跟在状态行末尾，与状态文案同处一段灰色小字（跨 JSX 表达式，断 textContent）
+  const statusRow = screen.getByTestId("session-status-dot").parentElement;
+  expect(statusRow?.textContent).toContain("经「小 co 助手」接入");
+  // 不再有独立的来源徽标组和历史条数提示
+  expect(screen.queryByTestId("im-source-badge")).toBeNull();
+  expect(screen.queryByText(/仅显示最近/)).toBeNull();
+});
+
 // === 文件树面板（ExplorerPanel）===
 // explorer store 状态在测试间共享，需手动重置
 const { useExplorerStore } = await import("../src/store/explorer");

@@ -62,7 +62,7 @@ export async function startKernel(opts?: {
 	port?: number;
 }): Promise<{ port: number; stop: () => Promise<void> }> {
 	// 让 pi 生态（pi-mcp-adapter 的 mcp-auth 等深导入模块）在本进程内解析到
-	// ~/.wa-pi 作为 agent 目录；RPC 模式下 pi 子进程的环境变量由
+	// ~/.pi/agent 作为 agent 目录；RPC 模式下 pi 子进程的环境变量由
 	// AgentManager 在 spawn 时逐个注入（PI_CODING_AGENT_DIR=WA_PI_DIR），
 	// 这里保留进程级设置供 kernel 内部的 pi 扩展包代码使用。
 	process.env.PI_CODING_AGENT_DIR = WA_PI_DIR;
@@ -205,8 +205,8 @@ export async function startKernel(opts?: {
 					`[kernel] sdk ${et}: ${(event as any)?.toolName} sid=${sessionId}`,
 				);
 			}
-			// 渠道回复出口：agent_end 时按 replyGranularity 组装 IM 回复。
-			// 必须在 throttle 之前——agent_end 不可被节流丢弃（否则渠道收不到回复）。
+			// 渠道回复出口：agent_settled 时按 replyGranularity 组装 IM 回复。
+			// 必须在 throttle 之前——agent_settled 不可被节流丢弃（否则渠道收不到回复）。
 			channelManager.onSessionEvent(sessionId, event as any);
 			eventThrottle.handle({
 				type: "sdk:event",

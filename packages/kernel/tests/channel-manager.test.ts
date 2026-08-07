@@ -66,6 +66,7 @@ beforeEach(async () => {
 			},
 			getMessages: (sid: string) => messagesBySession[sid] ?? [],
 			isSessionBusy: () => false,
+			markAllDirty: () => {},
 		} as any,
 		broadcast: (e: any) => broadcasted.push(e.type),
 		adapterFactories: {
@@ -101,6 +102,7 @@ test("进站文本：建映射、建会话、ensureStarted 携带渠道提示词
 	expect(ensured[0][0]).toBe("__system__");
 	expect(ensured[0][3]).toEqual({ imChannelContext: "渠道规则" });
 	expect(prompted[0].opts.model).toBe("p/m"); // 渠道 model 优先
+	expect(broadcasted).toContain("session:created"); // 前端侧边栏增量感知新会话
 	expect(broadcasted).toContain("channel-conversations:changed");
 });
 
@@ -119,7 +121,7 @@ test("/use 切换工作区后，下一条消息落到对应项目会话", async 
 	expect(adapter!.outbox.at(-1)!.text).toContain("已切换");
 });
 
-test("agent_end：按粒度组装并经适配器回复；正文+文件变更", async () => {
+test("agent_settled：按粒度组装并经适配器回复；正文+文件变更", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "改个 bug" });
 	await new Promise((r) => setTimeout(r, 50));
@@ -134,12 +136,12 @@ test("agent_end：按粒度组装并经适配器回复；正文+文件变更", a
 			],
 		},
 	];
-	manager.onSessionEvent(sid, { type: "agent_end" });
+	manager.onSessionEvent(sid, { type: "agent_settled" });
 	await new Promise((r) => setTimeout(r, 50));
 	expect(adapter!.outbox.at(-1)!.text).toBe("已修复。\n\n📄 修改：a.ts");
 });
 
-test("agent_end：错误回合读取最后 assistant 消息的 stopReason/errorMessage（而非事件字段）", async () => {
+test("agent_settled：错误回合读取最后 assistant 消息的 stopReason/errorMessage（而非事件字段）", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "改个 bug" });
 	await new Promise((r) => setTimeout(r, 50));
@@ -154,12 +156,40 @@ test("agent_end：错误回合读取最后 assistant 消息的 stopReason/errorM
 			errorMessage: "模型不可用",
 		},
 	];
-	manager.onSessionEvent(sid, { type: "agent_end" });
+	manager.onSessionEvent(sid, { type: "agent_settled" });
 	await new Promise((r) => setTimeout(r, 50));
 	const reply = adapter!.outbox.at(-1)!.text;
 	expect(reply).toContain("处理出错");
 	expect(reply).toContain("模型不可用");
 	expect(reply).not.toContain("（本轮无文本回复）");
+});
+
+test("自动重试期间每次失败尝试的 agent_end 不触发回复；agent_settled 一轮只回一条", async () => {
+	await manager.create(channel);
+	adapter!.inject({ chatId: "u1", text: "改个 bug" });
+	await new Promise((r) => setTimeout(r, 50));
+	const sid = prompted[0].sessionId;
+	messagesBySession[sid] = [
+		{ role: "user", content: [{ type: "text", text: "改个 bug" }] },
+		{
+			role: "assistant",
+			content: [],
+			stopReason: "error",
+			errorMessage: "Connection error.",
+		},
+	];
+	const before = adapter!.outbox.length;
+	// pi 自动重试：每次失败尝试都发 agent_end——这些不应产生 IM 回复
+	manager.onSessionEvent(sid, { type: "agent_end" });
+	manager.onSessionEvent(sid, { type: "agent_end" });
+	manager.onSessionEvent(sid, { type: "agent_end" });
+	await new Promise((r) => setTimeout(r, 50));
+	expect(adapter!.outbox.length).toBe(before);
+	// 终态 agent_settled 才回复，且只回一条
+	manager.onSessionEvent(sid, { type: "agent_settled" });
+	await new Promise((r) => setTimeout(r, 50));
+	expect(adapter!.outbox.length).toBe(before + 1);
+	expect(adapter!.outbox.at(-1)!.text).toContain("Connection error.");
 });
 
 test("智能体删除兜底：降级为列表第一项并记 warning", async () => {
@@ -191,6 +221,26 @@ test("agentUsage：统计引用某智能体的渠道", async () => {
 	expect(usage.count).toBe(1);
 	expect(usage.channelNames).toEqual(["测试机器人"]);
 	expect((await manager.agentUsage("没人用")).count).toBe(0);
+});
+
+test("Bot ID 冲突：create/update 重复 botId 抛 ChannelConflictError（含 disabled 渠道）", async () => {
+	const { ChannelConflictError } = await import("../src/channel-manager");
+	await manager.create({ ...channel, enabled: false });
+	// create 重复（即使已有渠道是 disabled）
+	await expect(
+		manager.create({ ...channel, name: "第二个机器人" }),
+	).rejects.toBeInstanceOf(ChannelConflictError);
+	// update 改成别人占用的 botId
+	await manager.create({ ...channel, name: "丙", credentials: { botId: "b2", secret: "s" } });
+	const list = await manager.listWithStatus();
+	const third = list.find((c) => c.name === "丙")!;
+	await expect(
+		manager.update(third.id, { credentials: { botId: "b", secret: "s" } }),
+	).rejects.toBeInstanceOf(ChannelConflictError);
+	// update 自己保持原 botId 不冲突
+	await expect(
+		manager.update(third.id, { name: "丙改" }),
+	).resolves.toBeUndefined();
 });
 
 test("listConversations：返回会话列表项（含预览与项目名）", async () => {

@@ -10,6 +10,8 @@ interface Props {
   /** value 在 agents 中找不到（已删除）时 pill 显示警示态 */
   missing?: boolean;
   placeholder?: string;
+  /** 列表顶部固定的「默认」项文案（如不绑定具体智能体的场景）；点击回调 onPick("" as AgentName) */
+  defaultLabel?: string;
   /** pill 按钮的 testid，默认 "agent-select" */
   pillTestId?: string;
   /** 搜索框/列表项 testid 前缀，默认 "agent"（衍生 ${prefix}-search / ${prefix}-item-${name} / ${prefix}-missing） */
@@ -23,7 +25,7 @@ interface Props {
  * 列表项渲染复用 AgentMenuItem，与 QuickInvokeMenu 的 @ 智能体弹窗视觉一致。
  */
 export function AgentDropdown({
-  agents, value, onPick, missing = false, placeholder,
+  agents, value, onPick, missing = false, placeholder, defaultLabel,
   pillTestId = "agent-select", itemTestIdPrefix = "agent",
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -55,6 +57,10 @@ export function AgentDropdown({
     onPick(name);
     closeMenu();
   };
+  // 固定「默认」项：仅在未搜索或命中搜索词时显示
+  const showDefault =
+    !!defaultLabel &&
+    (!query || defaultLabel.toLowerCase().includes(query.toLowerCase()));
 
   return (
     <div className="relative" ref={rootRef}>
@@ -102,6 +108,15 @@ export function AgentDropdown({
             />
           </div>
           <div className="max-h-[280px] overflow-y-auto">
+            {showDefault && (
+              <AgentMenuItem
+                name={defaultLabel}
+                avatar="✨"
+                selected={!value}
+                onClick={() => handlePick("" as AgentName)}
+                testId={`${itemTestIdPrefix}-item-default`}
+              />
+            )}
             {filtered.map(a => (
               <AgentMenuItem
                 key={a.displayName}

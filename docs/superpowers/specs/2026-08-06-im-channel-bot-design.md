@@ -62,6 +62,7 @@ kernel 新增模块（职责单一、可独立测试）：
     "enabled": true,
     "credentials": { "botId": "...", "secret": "..." },
     "agentName": "研发助手",           // 智能体 displayName；空 = 系统默认
+    "model": null,                     // 模型覆盖（providerSlug/modelId）；null = 跟随智能体 model
     "extraSystemPrompt": "……",
     "replyGranularity": "standard"    // simple | standard
   }]
@@ -124,13 +125,13 @@ kernel 新增模块（职责单一、可独立测试）：
 
 ## 11. 前端 UI
 
-高保真原型（已确认）：`assets/2026-08-06-im-channel-bot/ui-preview-v3.html`（浏览器直接打开即可）。四个渠道图标文件齐全（`wecom.ico`、`feishu.ico`、`wechat.svg`、`qq.svg`），实现时存入 frontend 静态资源。
+高保真原型（已确认）：`specs/assets/2026-08-06-im-channel-bot/ui-preview-v3.html`（浏览器直接打开即可）。四个渠道图标文件齐全（`wecom.ico`、`feishu.ico`、`wechat.svg`、`qq.svg`），实现时存入 frontend 静态资源。
 
 **设置页新 Section「机器人」**（`SettingsModal.tsx` 左侧 nav 加项，`store/settings.ts` 的 `SettingsSection` 联合加 key；仿 `GeneralSection.tsx` 控件风格）：
 
 - 左：机器人列表（渠道图标 + 名称 + 启用开关 + 连接状态点）+「新建机器人」
 - 新建弹层选渠道类型：企业微信可用；微信/飞书/QQ 置灰「敬请期待」
-- 右：详情表单 — 名称、Bot ID、Secret（密码框）、关联智能体下拉、额外系统提示词输入框（支持 `$` 触发技能自动补全，插入 `$[技能名]`；复用现有 `detectTrigger`/`filterItems` 纯函数与 `useSkillsStore` 数据源）、回复粒度下拉（简洁/标准）、启用开关、删除机器人、保存
+- 右：详情表单 — 名称、Bot ID、Secret（密码框）、关联智能体下拉、额外系统提示词输入框（支持 `$` 触发技能自动补全，插入 `$[技能名]`；复用现有 `detectTrigger`/`filterItems` 纯函数（`packages/frontend/src/quick-invoke/trigger.ts`）与 `useSkillsStore` 数据源）、回复粒度下拉（简洁/标准）、启用开关、删除机器人、保存
 - 保存即时生效（启停对应 WS 连接）；连接状态经 SSE 实时刷新
 
 **侧边栏 IM 页签**（`Sidebar.tsx`）：
@@ -160,7 +161,7 @@ kernel 新增模块（职责单一、可独立测试）：
 ## 14. 测试策略（四层，缺一不可）
 
 1. **单元**（bun:test）：channel-store 读写与迁移、会话映射增删查、指令解析（/new /use /projects /help）、回复粒度组装、channel 提示词段插入位置、智能体删除兜底降级、Bot ID 冲突检测
-2. **组件**（Vitest + @testing-library/react + happy-dom）：机器人 Section 渲染/增删改/启停交互、渠道选择弹层置灰态、智能体删除警告条、侧边栏任务/IM 页签切换
+2. **组件**（bun:test + @testing-library/react + happy-dom）：机器人 Section 渲染/增删改/启停交互、渠道选择弹层置灰态、智能体删除警告条、侧边栏任务/IM 页签切换
 3. **API**（curl 集成）：channels CRUD 正常路径 + 错误路径（缺 botId 400、重复 Bot ID 409、删除后被引用智能体的引用计数）
 4. **E2E**（Playwright）：设置页创建机器人 → MockAdapter（实现同一 `ChannelAdapter` 接口的内存假渠道）灌入消息 → 侧边栏 IM 页签出现会话 → 界面追问 → 断言 MockAdapter 收到按粒度组装的回复；finally 清理测试数据。真实企微连通用真实测试 Bot ID 人工验证一次。截图测试完成后全部删除
 

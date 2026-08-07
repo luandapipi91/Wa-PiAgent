@@ -35,6 +35,9 @@ import type { ProjectStore } from "./project-store";
 
 type AdapterFactory = (channel: ChannelConfig) => ChannelAdapter;
 
+/** Bot ID 冲突（同一 Bot ID 已被其他渠道占用）：ws-server 据此把错误映射为 HTTP 409 */
+export class ChannelConflictError extends Error {}
+
 export interface ChannelManagerDeps {
 	configStore: ConfigStore;
 	projectStore: ProjectStore;
@@ -113,7 +116,7 @@ export class ChannelManager {
 		if (err) throw new Error(err);
 		const channels = await loadChannels(this.channelsFile);
 		if (channels.some((c) => c.credentials.botId === input.credentials.botId)) {
-			throw new Error("Bot ID 已被其他机器人使用（同一 Bot ID 仅允许一条长连接）");
+			throw new ChannelConflictError("Bot ID 已被其他机器人使用（同一 Bot ID 仅允许一条长连接）");
 		}
 		const channel: ChannelConfig = {
 			...input,
@@ -147,7 +150,7 @@ export class ChannelManager {
 				(c) => c.id !== id && c.credentials.botId === next.credentials.botId,
 			)
 		) {
-			throw new Error("Bot ID 已被其他机器人使用（同一 Bot ID 仅允许一条长连接）");
+			throw new ChannelConflictError("Bot ID 已被其他机器人使用（同一 Bot ID 仅允许一条长连接）");
 		}
 		channels[idx] = next;
 		await saveChannels(channels, this.channelsFile);
@@ -206,9 +209,11 @@ export class ChannelManager {
 		return result.sort((a, b) => b.updatedAt - a.updatedAt);
 	}
 
-	/** 由 index.ts 的 AgentManager onEvent 挂钩（throttle 之前调用，agent_end 不可被节流丢弃） */
+	/** 由 index.ts 的 AgentManager onEvent 挂钩（throttle 之前调用，agent_settled 不可被节流丢弃） */
 	onSessionEvent(sessionId: string, event: { type: string; [k: string]: any }): void {
-		if (event.type !== "agent_end") return;
+		// 用 agent_settled 而非 agent_end：pi 自动重试期间每次失败尝试都会发 agent_end，
+		// 按 agent_end 回复会让 IM 用户收到多条重复错误回复；agent_settled 一轮只发一次（终态）
+		if (event.type !== "agent_settled") return;
 		const key = this.sessionIndex.get(sessionId);
 		if (!key) return; // 非渠道会话
 		void this.replyTurn(sessionId, key, event).catch((e) =>
@@ -273,7 +278,7 @@ export class ChannelManager {
 		const mappings = await loadChannelMappings(this.mappingsFile);
 		let mapping = mappings.find((m) => m.channelId === channel.id && m.chatId === msg.chatId);
 		const isNewMapping = !mapping;
-		if (isNewMapping) {
+		if (!mapping) {
 			mapping = {
 				channelId: channel.id,
 				chatId: msg.chatId,
@@ -378,15 +383,16 @@ export class ChannelManager {
 	}
 
 	/** 读取全部已启用技能的 name + SKILL.md 内容（读失败的技能跳过，不阻塞入站） */
-	private async loadSkillContents(): Promise<{ name: string; content: string }[]> {
+	private async loadSkillContents(): Promise<{ name: string; content: string; location: string }[]> {
 		if (!this.deps.skillManager) return [];
 		const { skills } = await this.deps.skillManager
 			.scan()
 			.catch(() => ({ skills: [] as { name: string; path: string }[] }));
-		const result: { name: string; content: string }[] = [];
+		const result: { name: string; content: string; location: string }[] = [];
 		for (const s of skills) {
 			try {
-				result.push({ name: s.name, content: await readFile(join(s.path, "SKILL.md"), "utf8") });
+				const location = join(s.path, "SKILL.md");
+				result.push({ name: s.name, content: await readFile(location, "utf8"), location });
 			} catch {
 				/* 单个技能读取失败不阻塞 */
 			}
@@ -425,11 +431,15 @@ export class ChannelManager {
 			id: `im-${mapping.channelId}-${mapping.currentProjectId}-${createdAt}`,
 			createdAt,
 		});
+		console.warn(`[dbg] ensureSession agent=${JSON.stringify(agent)} primaryAgent=${session.primaryAgent}`); // 临时调试
 		mapping.sessions[mapping.currentProjectId] = session.id;
+		// 广播 session:created：前端侧边栏会话列表增量感知（本路径不经 ws-server，不广播则
+		// 前端 sessions 列表无此会话，点击 IM 会话时 SessionView 因找不到 session 渲染空白）
+		this.deps.broadcast({ type: "session:created", session });
 		return session.id;
 	}
 
-	/** agent_end → 按粒度组装回复（stopReason=error 或空正文 → 错误提示） */
+	/** agent_settled → 按粒度组装回复（stopReason=error 或空正文 → 错误提示） */
 	private async replyTurn(
 		sessionId: string,
 		key: string,

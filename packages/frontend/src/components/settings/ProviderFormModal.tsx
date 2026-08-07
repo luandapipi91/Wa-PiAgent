@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Modal } from "../ui/Modal";
 import { TagInput } from "../ui/TagInput";
 import { useProvidersStore } from "../../store/providers";
+import { useToastStore } from "../../store/toast";
 import { api } from "../../api-client";
 import type { ModelProvider, ProviderApi, ProviderModel, ModelPreset } from "@wa-pi/shared";
 
@@ -154,7 +155,13 @@ export function ProviderFormModal({ initial, onClose }: Props) {
   const handleTest = async () => {
     setTestStatus({ state: "testing" });
     const result = await test({ baseUrl, apiKey, api: providerApi, models: modelIds.map(id => modelConfigs[id]) });
-    setTestStatus(result.ok ? { state: "ok" } : { state: "fail", error: result.error });
+    if (result.ok) {
+      setTestStatus({ state: "ok" });
+    } else {
+      // 连接失败：用 toast 提示，不再 inline 显示失败文案（成功仍 inline「✓ 连接成功」）
+      setTestStatus({ state: "idle" });
+      useToastStore.getState().add(result.error ?? "连接失败", "error");
+    }
   };
 
   return (
@@ -325,10 +332,9 @@ export function ProviderFormModal({ initial, onClose }: Props) {
             </div>
           </div>
         )}
-        {/* 测试连接结果 */}
+        {/* 测试连接结果（失败改用 toast，这里只保留测试中/成功的 inline 提示） */}
         {testStatus.state === "testing" && <span className="text-xs text-secondary">测试中…</span>}
         {testStatus.state === "ok" && <span className="text-xs" style={{ color: "var(--success)" }}>✓ 连接成功</span>}
-        {testStatus.state === "fail" && <span className="text-xs" style={{ color: "var(--danger)" }}>✗ 失败：{testStatus.error}</span>}
       </div>
       {dropPos && selectedPreset && createPortal(
         (() => {

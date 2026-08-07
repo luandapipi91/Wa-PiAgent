@@ -21,10 +21,10 @@ export const WS_PORT = resolvePort(env.WA_PI_WS_PORT, 9776);
 export const PREVIEW_PORT = resolvePort(env.WA_PI_PREVIEW_PORT, 9777);
 /** 前端 dev 端口（Vite）；desktop 不用（走同源 9776）。 */
 export const FRONTEND_PORT = resolvePort(env.WA_PI_WEB_PORT, 5180);
-/** wa-pi 数据目录（默认 ~/.wa-pi），可用 WA_PI_DIR 环境变量覆盖。 */
-export const WA_PI_DIR = env.WA_PI_DIR || `${HOME}/.wa-pi`;
+/** wa-pi 数据目录（默认复用 Pi 框架自带 ~/.pi/agent），可用 WA_PI_DIR 环境变量覆盖。 */
+export const WA_PI_DIR = env.WA_PI_DIR || `${HOME}/.pi/agent`;
 export const PROJECTS_FILE = `${WA_PI_DIR}/projects.json`;
-export const PI_AGENTS_DIR = `${WA_PI_DIR}/agents`; // ← 改：从 ~/.pi/agent/agents 改为 .wa-pi/agents
+export const PI_AGENTS_DIR = `${WA_PI_DIR}/agents`;
 export const PROVIDERS_FILE = `${WA_PI_DIR}/providers.json`;
 export const PROMPTS_FILE = `${WA_PI_DIR}/prompts.json`; // 系统提示词段落配置（顺序+内容），启动时若无则初始化默认值
 export const SUBAGENT_OVERRIDES_FILE = `${WA_PI_DIR}/subagent-overrides.json`; // 内置 subagent 的 model/thinking 覆盖
@@ -36,7 +36,7 @@ export const CHANNEL_TMP_DIR = `${WA_PI_DIR}/tmp/channels`; // 渠道图片等�
 
 // ===== 默认工作区（虚拟系统项目）=====
 // 一个常驻、不可删除/改名的虚拟项目，作为"没有具体工程目录时的默认聊天空间"。
-// 该项目下的每个会话有独立 cwd（~/.wa-pi/workdir/<session.createdAt>/），
+// 该项目下的每个会话有独立 cwd（~/.pi/agent/workdir/<session.createdAt>/），
 // 详见 resolveSessionCwd 纯函数（pure.ts）。
 export const SYSTEM_PROJECT_ID = "__system__";
 export const SYSTEM_PROJECT_NAME = "默认工作区";

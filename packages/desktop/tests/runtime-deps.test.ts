@@ -1,5 +1,5 @@
 // runtime-deps.cjs 的 seed 同步逻辑测试。
-// 回归场景：~/.wa-pi/runtime 执行 bun remove 时因缺 patches/ 报
+// 回归场景：~/.pi/agent/runtime 执行 bun remove 时因缺 patches/ 报
 // "Couldn't find patch file" 导致卸载失败（bun 1.3 解析 patchedDependencies 会校验 patch 文件）。
 import { test, expect } from "bun:test";
 import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";

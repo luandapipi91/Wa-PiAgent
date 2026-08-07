@@ -8,6 +8,7 @@ import {
 	FONT_SIZE_MIN,
 	useUiPrefsStore,
 } from "../../store/ui-prefs";
+import { useToastStore } from "../../store/toast";
 
 /** 与 kernel settings-store 的产品约束对齐（重试最多 10 次；间隔 0.5s-60s） */
 const MAX_RETRIES = 10;
@@ -57,7 +58,6 @@ export function GeneralSection() {
 		const delayMs = Math.round(Number(delaySeconds) * 1000);
 		const httpIdleMs = Math.round(Number(httpTimeoutSeconds) * 1000);
 		setSaving(true);
-		setError(null);
 		setSaved(false);
 		try {
 			await api.put("/api/settings/retry", {
@@ -66,7 +66,9 @@ export function GeneralSection() {
 			});
 			setSaved(true);
 		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
+			// 保存失败：用 toast 提示，不再在按钮旁显示 inline 文本
+			// （加载配置失败的 error state 仍保留 inline，由 useEffect 设置）
+			useToastStore.getState().add(e instanceof Error ? e.message : String(e), "error");
 		} finally {
 			setSaving(false);
 		}

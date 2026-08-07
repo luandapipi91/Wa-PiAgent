@@ -169,7 +169,7 @@ ${registrations}
  * （contextWindow / maxTokens / cost 等），目录中找不到的模型使用默认值。
  *
  * generatedDir 可注入输出目录（默认 GENERATED_DIR）：测试必须传临时目录，
- * 否则会覆盖真实 ~/.wa-pi/.generated/provider-extension.ts。
+ * 否则会覆盖真实 ~/.pi/agent/.generated/provider-extension.ts。
  */
 export async function ensureProviderExtensionRegistered(
 	store: ProviderStore,

@@ -67,6 +67,7 @@ import { registerMemoryRoutes } from "./routes/memory";
 import { registerMcpRoutes } from "./routes/mcp";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerChannelRoutes } from "./routes/channels";
+import { ChannelConflictError } from "./channel-manager";
 import { registerFileRoutes } from "./routes/files";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
 
@@ -196,7 +197,7 @@ export async function uniquePath(dir: string, name: string): Promise<string> {
  * 从 fs:upload / fs:copy / fs:recording 等事件解析本次操作的 cwd。
  *
  * - 普通项目会话 / 未带 sessionId → 返回 project.cwd（行为不变）
- * - 默认工作区会话 + sessionId → 用 resolveSessionCwd 推导 ~/.wa-pi/workdir/<createdAt>/
+ * - 默认工作区会话 + sessionId → 用 resolveSessionCwd 推导 ~/.pi/agent/workdir/<createdAt>/
  *
  * 携带 sessionId 但 session 实体不存在时降级返回 project.cwd（保守地与旧调用方一致）。
  */
@@ -424,7 +425,7 @@ export class WSServer {
 	 * - reply 中的 progress 帧 → SSE 总线（带 requestId/id，前端按 id 过滤）
 	 * - responseTypes 之外的 reply → SSE 总线（广播语义，如 session:echo_user / extension:changed）
 	 * - 其余最后一个 reply → HTTP 响应体；无 reply（fire-and-forget）→ 200 {ok:true}
-	 * - {type:"error"} reply → 400 {error, ...原字段}
+	 * - {type:"error"} reply → 400 {error, ...原字段}；reply 携带 status 字段时按其映射（如 409 冲突）
 	 */
 	async callApi(
 		event: WSClientEvent,
@@ -445,8 +446,9 @@ export class WSServer {
 		const last = kept[kept.length - 1];
 		if (!last) return Response.json({ ok: true });
 		if (last.type === "error") {
-			const { type: _t, message, ...rest } = last as any;
-			return Response.json({ ...rest, error: message }, { status: 400 });
+			const { type: _t, message, status, ...rest } = last as any;
+			const code = typeof status === "number" ? status : 400;
+			return Response.json({ ...rest, error: message }, { status: code });
 		}
 		for (const e of kept.slice(0, -1)) this.broadcast(e);
 		return Response.json(last);
@@ -1277,8 +1279,12 @@ export class WSServer {
 			}
 			case "agent:delete": {
 				try {
+					// 删除前取渠道引用计数（渠道服务未启用则缺省）：随响应返回，便于调用方提示影响面
+					const channelRefs = this.opts.channelManager
+						? await this.opts.channelManager.agentUsage(event.name)
+						: undefined;
 					await this.opts.configStore.deleteAgent(event.name);
-					reply({ type: "agent:deleted", name: event.name });
+					reply({ type: "agent:deleted", name: event.name, channelRefs });
 					this.broadcast({
 						type: "agent:list",
 						agents: await this.opts.configStore.listAgents(),
@@ -2225,7 +2231,8 @@ export class WSServer {
 			}
 			// ---------- IM 渠道机器人域（Task 7） ----------
 			// channelManager 可空：未启用时列表类返回空，写操作不走（前端不暴露入口）。
-			// create/update/delete 用 try/catch：ChannelManager 抛错 → reply error → callApi 映射 HTTP 400。
+			// create/update/delete 用 try/catch：ChannelManager 抛错 → reply error → callApi 映射 HTTP 400；
+			// ChannelConflictError（Bot ID 冲突）额外携带 status:409 → callApi 映射 HTTP 409。
 			case "channels:list": {
 				const channels = this.opts.channelManager
 					? await this.opts.channelManager.listWithStatus()
@@ -2244,7 +2251,11 @@ export class WSServer {
 					else await cm.remove(event.id);
 					reply({ type: "channels:current", channels: await cm.listWithStatus() });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					reply({
+						type: "error",
+						message: (err as Error).message,
+						...(err instanceof ChannelConflictError ? { status: 409 } : {}),
+					});
 				}
 				break;
 			}

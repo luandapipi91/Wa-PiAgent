@@ -80,3 +80,39 @@ test("agents 为空时下拉显示无智能体", () => {
   fireEvent.click(screen.getByTestId("agent-select"));
   expect(screen.getByText(/无智能体/)).toBeTruthy();
 });
+
+test("defaultLabel：列表顶部固定默认项，点击回调 onPick(\"\")；搜索可过滤", () => {
+  const picks: string[] = [];
+  render(
+    <AgentDropdown
+      agents={useAgentsStore.getState().list}
+      value="dev"
+      onPick={(n) => { picks.push(n); }}
+      defaultLabel="系统默认（列表第一项）"
+    />,
+  );
+  fireEvent.click(screen.getByTestId("agent-select"));
+  // 默认项固定在列表顶部
+  const def = screen.getByTestId("agent-item-default");
+  expect(def.textContent).toContain("系统默认");
+  fireEvent.click(def);
+  expect(picks).toEqual([""]);
+
+  // 搜索不命中默认项文案时默认项隐藏
+  render(
+    <AgentDropdown
+      agents={useAgentsStore.getState().list}
+      value={null}
+      onPick={() => {}}
+      defaultLabel="系统默认（列表第一项）"
+      pillTestId="agent-select-2"
+      itemTestIdPrefix="agent2"
+    />,
+  );
+  fireEvent.click(screen.getByTestId("agent-select-2"));
+  expect(screen.getByTestId("agent2-item-default")).toBeTruthy();
+  fireEvent.change(screen.getByTestId("agent2-search"), { target: { value: "验收" } });
+  expect(screen.queryByTestId("agent2-item-default")).toBeNull();
+  fireEvent.change(screen.getByTestId("agent2-search"), { target: { value: "默认" } });
+  expect(screen.getByTestId("agent2-item-default")).toBeTruthy();
+});

@@ -17,7 +17,7 @@ import { GENERATED_DIR, WA_PI_DIR } from "@wa-pi/shared";
 
 const require = createRequire(import.meta.url);
 // runtimeRequire：dev 模式下内核源码跑在 packages/kernel/src/，require 从 repo 解析不到
-// 运行时安装的动态包（bun add 在 ~/.wa-pi/runtime/node_modules）。用 runtimeRequire 兜底。
+// 运行时安装的动态包（bun add 在 ~/.pi/agent/runtime/node_modules）。用 runtimeRequire 兜底。
 // 生产模式内核 bundle 已在 runtime 目录，两个 require 解析结果一致（都从 runtime 出发）。
 const runtimeRequire = createRequire(join(WA_PI_DIR, "runtime", "package.json"));
 
@@ -106,7 +106,7 @@ const PKG_EXTENSIONS = [
  * 动态加载时据此 gate，避免把任意已启用 npm 包的 main 当扩展入口导入（执行其副作用）。
  *
  * 先尝试 require（dev 模式下包在 repo node_modules；生产 bundle 已在 runtime），
- * 解析失败再尝试 runtimeRequire（dev 模式下运行时安装的动态包在 ~/.wa-pi/runtime）。
+ * 解析失败再尝试 runtimeRequire（dev 模式下运行时安装的动态包在 ~/.pi/agent/runtime）。
  */
 function readPiExtensionsDeclaration(pkgName: string): string[] | undefined {
   const parse = (req: NodeRequire) => {
@@ -126,7 +126,7 @@ function readPiExtensionsDeclaration(pkgName: string): string[] | undefined {
  * wa-pi-bridge（ask/memory/delegate/fleet 宿主工具，见 bridge-extension.ts）。
  *
  * 动态安装的第三方扩展不再走 -e：改由 pi 官方 packages 机制自动加载
- * （settings.json 的 packages 字段 + 包装在 ~/.wa-pi/npm/node_modules/）。
+ * （settings.json 的 packages 字段 + 包装在 ~/.pi/agent/npm/node_modules/）。
  * 这样 session.reload() 能重读 packages 让装卸立即生效，不受 -e spawn 时固化限制。
  */
 export function buildAdditionalExtensionPaths(): string[] {

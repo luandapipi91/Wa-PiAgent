@@ -72,9 +72,13 @@ export class NpmPackageService {
     }
   }
 
-  /** 升级 npm 包到最新版 */
+  /** 升级 npm 包到最新版。
+   *  用 `add <name>`（不带版本号）而非 `update <name>`：bun 默认把精确版本写入
+   *  package.json（save-exact），而 `update` 只在现有 semver 范围内重新解析——
+   *  精确版本范围内只有自身一个版本，导致 exit 0 但版本不变（升级静默失败）。
+   *  `add` 会强制解析到最新版并写入，与 install 行为一致。 */
   async upgrade(name: string, onProgress?: (line: string) => void): Promise<{ version: string }> {
-    const { exitCode, stderr } = await this.spawn(["update", name], onProgress);
+    const { exitCode, stderr } = await this.spawn(["add", name], onProgress);
     if (exitCode !== 0) {
       throw new Error(`升级失败: ${stderr || `exit code ${exitCode}`}`);
     }

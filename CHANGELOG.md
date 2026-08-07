@@ -2,1027 +2,571 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
-## [Unreleased] - 2026-08-06
+---
 
-### 新增
-
-- **IM 渠道机器人 v1（企业微信）**：把企微智能机器人消息接入系统智能体，回复推回 IM。
-  - **kernel**：新增 `ChannelManager`（渠道生命周期、会话映射 `channelId+chatId`→`projectId+sessionId`、
-    每会话 FIFO、`agent_end` 后按粒度组装回复、智能体删除兜底降级默认）+ `ChannelAdapter` 接口
-    + `WecomAdapter`（`@wecom/aibot-node-sdk` WebSocket 长连接，无需公网回调）+ `MockAdapter`（测试用）；
-    渠道配置存 `~/.wa-pi/channels.json`、会话映射存 `channel-sessions.json`（API 输出 secret 脱敏）；
-    IM 斜杠指令 `/new` `/projects` `/use <工作区>` `/help`；渠道附加提示词注入系统提示词
-    `im-channel` 段（固定在记忆段之前），支持 `$[技能名]` token 内联展开为技能全文；
-    简洁/标准两档回复粒度（标准附文件变更汇总）；同 Bot ID 单连接冲突检测；图片进站 + 不支持类型兜底。
-  - **前端**：设置页新增「机器人」Section（列表/新建弹层/编辑/删除/连接状态/智能体删除警告条），
-    渠道图标（wecom 可用，微信/飞书/QQ 置灰「敬请期待」）；补充提示词输入框支持 `$` 技能自动补全；
-    侧边栏「任务 | IM」页签 + IM 会话列表（历史最多 100 条 + 来源徽标）；删除智能体时提示被渠道引用情况。
-  - **四层测试**：单元（channel-store/commands/reply-composer/mock-adapter/skill-expand/channel-manager）、
-    组件（BotsSection/SkillSuggestTextarea/ImConversationList/channels-store/agent-delete-usage-hint）、
-    API（`scripts/channels-api-it.sh` 9 步 curl 集成验收）、E2E（`channels.spec.ts` mock 渠道全链路）。
-  - 影响范围：`packages/shared/src/{types,constants}.ts`、`packages/kernel/src/{channel-store,channel-manager}.ts`、
-    `packages/kernel/src/channels/{types,mock-adapter,wecom-adapter,commands,reply-composer,skill-expand}.ts`、
-    `packages/kernel/src/routes/channels.ts`、`packages/kernel/src/{ws-server,index,system-prompt,agent-manager}.ts`、
-    `packages/frontend/src/{store/channels.ts,components/**}`、`packages/frontend/e2e/channels.spec.ts`、
-    `scripts/channels-api-it.sh`。
+## 2026-07-30
 
 ### 修复
 
-- **物理断网后对话永远"思考中"**：根因是 wa-pi 未配置 `httpIdleTimeoutMs`，
-  沿用 pi 官方默认 300000ms（5min）。物理断网（连接后挂死）时 pi 的 undici fetch
-  要等满 5 分钟才超时 → 才触发 auto_retry → 前端才有重试进度条，期间只显示"思考中"。
-  修复：`settings-store` 新增 `load/saveHttpIdleTimeoutMs`，默认收紧到 120000ms（2min），
-  协议层（`shared/types.ts` + `ws-server.ts`）透传读写；遵循 pi 官方约定（有值原样读、
-  非数字回退默认），不臆造范围校验。顺带修 `saveRetrySettings` 的覆盖 bug：原
-  `settings.retry = {...}` 整体覆盖会冲掉 pi 的 `retry.provider.*`（timeoutMs 等单次
-  请求超时字段），改为 merge 只更新 wa-pi 管理的两项。
-- **pi 自动重试期间误显「重新发送」按钮**：`MessageList` 的 `isTransientErrorTurn`/
-  `isFatalErrorTurn` 只判 `!streaming`，重试退避期间 streaming 为空 + netDegraded 仍在
-  + 末条是 user → 误命中。修复：加 `status !== "thinking"` 守卫——回合进行中（思考/
-  工具/重试）不显示重发按钮，仅回合结束（idle）才允许。
-- **「重新发送」按钮 icon 换行**：button 改 `inline-flex items-center whitespace-nowrap`。
-- **「模型连接异常」状态条的 loading icon 移除**：静态错误提示无需转圈。
+- **网络错误不再灌入对话流，改用状态条提示**：根因是底层 SDK（`@anthropic-ai/sdk` / `openai`）的 `APIConnectionError`（默认文案 "Connection error."）经 pi-ai 不变形塞进 `message_end{stopReason:"error", errorMessage}`，被 kernel 翻译成 `{type:"error"}` 后前端 append 成红色会话消息，且 pi 落盘到 JSONL 导致重连/重试 N 次堆积 N 条。修复：kernel 侧按错误文案分类——transient（网络/超时/限流/5xx）改广播 `{type:"net:status"}` 驱动顶部「模型连接异常」状态条，不进对话流；fatal（鉴权失败/配额耗尽/模型不可用）保留红色会话消息。同时历史回读过滤掉 transient error，避免刷新后残留。分类正则复用 pi-ai `utils/retry.js` 语义。
+  - 影响范围：`packages/kernel/src/sdk-errors.ts`、`packages/kernel/src/index.ts`、`packages/kernel/src/session-history.ts`、`packages/shared/src/types.ts`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/App.tsx`
 
-  新增测试：断网实验集成测试补"连接后挂死 + httpIdleTimeoutMs"用例（验证 undici 超时
-  → auto_retry → agent_settled 链生效）；settings-store 补 httpIdleTimeoutMs 读写 +
-  retry merge 保留子字段；MessageList 补重试期间不显示重发按钮。
-  影响范围：`packages/kernel/src/settings-store.ts`、`packages/kernel/src/ws-server.ts`、
-  `packages/shared/src/types.ts`、`packages/kernel/tests/settings-store.test.ts`、
-  `packages/kernel/tests/pi-disconnect-experiment.test.ts`、
-  `packages/frontend/src/App.tsx`、`packages/frontend/src/components/MessageList.tsx`、
-  `packages/frontend/tests/MessageList.test.tsx`。
+- **每个会话固定自己的思考强度，未设置时回退全局默认**：根因是 `loadSession` 把 defaults.thinking 填进了每个会话的 bySession.thinking，导致无法区分"用户显式设的"和"defaults 填充的"；一旦 defaults 变化，所有未显式设置的会话 thinking 跟着变。修复：`SessionPrefs.thinking` 改为可选，`loadSession` 仅在用户显式设置过时才填 thinking（否则保持 undefined）；Composer/MessageList 读取时回退到 `defaults.thinking` 而非硬编码 "disabled"。
+  - 影响范围：`packages/frontend/src/store/composer-prefs.ts`、`packages/frontend/src/components/Composer.tsx`、`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/tests/composer-prefs.test.ts`
 
-- **修复「发送消息时穿插插件 notify UI 消息会致 user 消息显示 2 条」**：
-  根因是 App.tsx 的 `session:echo_user` 处理器只查 `optimisticEchoBySession` 标志，
-  而该标志会被 `message_start(user)`/`agent_end` 兜底/`failTurn` 提前清除；插件
-  `extension_notify` 消息穿插延长冷启动窗口、致事件密集，使 `echo_user` 与 SDK
-  `message_start` 时序非确定——一旦 echo_user 在标志清除后到达，就会再次
-  `optimisticSend` 追加第二条 user。修复：在 store 新增 `echoUser` 幂等入口，
-  除标志外再查「同内容 user 消息已存在」，收敛查重逻辑；App.tsx `session:echo_user`
-  分支改调 `echoUser`。
-  影响范围：`packages/frontend/src/store/session.ts`（新增 `echoUser`）、
-  `packages/frontend/src/App.tsx`（改调 `echoUser`）；
-  新增回归测试 `packages/frontend/tests/store-session.test.ts`（6 项 echoUser）、
-  `packages/frontend/tests/App-echo-user.test.tsx`（2 项端到端）。
+- **重启后会话标题丢失（变成角色名）**：根因是 `projectStore.createSession` 无去重，直接 `sessions.push`；`getCommands` 兜底分支用 `title: agentName` 创建已存在的 session 时，push 了重复记录覆盖了正常标题。修复：`createSession` 对同 id 幂等——已存在则返回已有记录，不新增不覆盖。
+  - 影响范围：`packages/kernel/src/project-store.ts`、`packages/kernel/tests/project-store.test.ts`
 
-### 重构
+## 2026-07-29
 
-- **移除冗余的 kernel turn 看门狗（经断网实验证实 pi 自身有兜底）**：此前的
-  `checkStuckSessions`（每 30s 扫描，busy 会话超 6 分钟无 pi 事件即主动 abort）基于
-  "pi 断网后静默挂死不报事件"的假设。新增真实 pi 子进程断网实验集成测试
-  (`tests/pi-disconnect-experiment.test.ts`)证伪该假设——连接拒绝 (127.0.0.1:1) 与
-  黑洞地址 (10.255.255.1) 两种断网形态下，pi 均经 pi-ai 的 retryAssistantCall 有界重试
-  后发出完整终态链：`message_end(error) → auto_retry_start/end → agent_settled`，无静默
-  挂死（实测连接拒绝 ~1.5s、黑洞地址 ~76s 收敛）。故删除看门狗实现。
-  删除范围：`agent-manager.ts` 的 `checkStuckSessions` 方法 + `lastEventAt`/`activeTools`/
-  `compacting` 字段（仅看门狗消费）及其在 `_onSessionEvent` 的事件维护分支；`index.ts`
-  的 `watchdogTimer` 定时器；`ext-ui-registry.ts` 的 `hasPendingForSession`（仅看门狗调用）。
-  保留 `thinkingSince`（前端"对话中"状态对齐仍用）。
-  注：上一轮 commit (bf82cbe) 声称"已整体回滚 kernel 侧改动"但实际只删了测试文件，
-  实现代码仍在运行——本次才真正回滚到与"pi 自身有兜底"一致的状态。
-  影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/index.ts`、
-  `packages/kernel/src/ext-ui-registry.ts`、
-  `packages/kernel/tests/pi-disconnect-experiment.test.ts`（新增）。
+- **重启后思考强度被重置为 disabled（hydration 竞态根因，第三次修复）**：前两次修复（`setSessionPrefs` 增量同步、defaults 改用 localStorage）都没解决，因为真正根因是 **stale state 持久化竞态**——`useComposerPrefsStore` 初始内存态 `thinking: "disabled"`，而 `loadDefaults` 是异步的；若在其完成前触发 `setDefaults`/`setSessionPrefs`（用户改 model、附件 auto-select 等），两者内部 `{...s.defaults, ...prefs}` 会拿初始 `disabled` 当"当前 defaults"**无条件写回 localStorage**，覆盖用户上次存的 high/max。`loadDefaults` 姗姗来迟时读到的已是 `disabled`。用户用 F12 实测确认 localStorage 键存在、值确为 disabled，排除了"存不进去"和"读错"。修复：加 hydration guard——`loadDefaults`/`loadSession` 完成后才标记 `defaultsHydrated=true`，此前持久化函数只更新内存、不写回；hydrate 后恢复正常持久化。
+  - 影响范围：`packages/frontend/src/store/composer-prefs.ts`、`packages/frontend/tests/composer-prefs.test.ts`（新增 hydration 竞态回归测试，并修正既有"重启往返"测试补上 hydrate 时序）
 
-## [Unreleased] - 2026-08-05
+- **编辑供应商弹窗：选中快捷供应商后手动输入模型 id，快捷下拉卡住关不掉**：根因是 TagInput 回车/分隔符提交后会清空输入文本并回调 `onInputText("")`，而 ProviderFormModal 把"空搜索"解释为"显示全部预设模型"，导致下拉在添加模型后反而重新弹出全部候选项且无法关闭。修复：TagInput 新增 `onSubmit` 回调（回车/分隔符成功提交且非空白时触发，顺序置于 `onInputText` 之后），ProviderFormModal 在 `onSubmit` 时 `setDropPos(null)` 收起快捷下拉；并补 `onBlur` 延迟收起（点击外部关闭）。同时给 TagInput 的两条提交路径统一了 onInputText→onSubmit 的调用顺序，避免空串回调重新打开下拉。
+  - 影响范围：`packages/frontend/src/components/ui/TagInput.tsx`、`packages/frontend/src/components/settings/ProviderFormModal.tsx`、`packages/frontend/tests/TagInput.test.tsx`、`packages/frontend/tests/ProviderFormModal.test.tsx`
+
+- **provider 配置变更后，已运行的会话用旧 extension 导致新增模型 "Model not found"**：`provider:save` / `provider:delete` 会重写 `provider-extension.ts`，但运行中的 pi session 进程仍加载启动时的旧版本 extension，用户新增的模型（含斜杠 id 如 `deepseek-ai/deepseek-v4-pro`）在旧 session 里查无此模型，发消息时报 `Model not found`。修复：这两处在重写 extension 后调用 `agentManager.markAllDirty()`，与 `extension:toggle` 等 extension 变更保持一致——激活会话下次使用时（空闲）自动重建进程、重新加载最新 extension；会话历史不丢。
+  - 影响范围：`packages/kernel/src/ws-server.ts`、`packages/kernel/tests/ws-provider-dirty.test.ts`
+
+- **切换会话后思考强度丢失，重启后回到 off**：根因有二：① `setSessionPrefs`（Composer 改 model/thinking 时调用）会把整个 session prefs 覆盖到全局 defaults——切到老会话改 model 时，老会话的 thinking（off）被误写进 defaults，污染新会话默认值；② defaults 持久化用 IndexedDB，在 Electron 打包态下 openDB 可能失败，getDefaults 永远返回兜底的 disabled，导致"只要重启就 off"。修复：① `setSessionPrefs` 只把用户本次显式修改的字段增量同步到 defaults；② defaults/recording/newSessionIds 改用 localStorage 持久化（同步、不依赖 IndexedDB 初始化，Electron 下更可靠），session 级 prefs（含 attachments）仍走 IndexedDB。
+  - 影响范围：`packages/frontend/src/store/composer-prefs.ts`、`packages/frontend/src/store/composer-db.ts`、`packages/frontend/tests/composer-prefs.test.ts`、`packages/frontend/tests/composer-db.test.ts`
+
+- **打包后固定端口 9778，被占用时启动页提示并支持一键重启**：端口变化会导致前端 IndexedDB origin 改变（`http://127.0.0.1:不同端口`），跨 origin 数据不可见，是多个"打包后状态丢失"问题的隐患源头。改为固定端口：端口空闲直接用；被占用时启动页显示提示 +「重启应用」按钮，点击后自动杀掉占用进程（跨平台 lsof/netstat 查 PID + kill）并 relaunch。
+  - 影响范围：`packages/desktop/src/main.cjs`、`packages/desktop/src/preload.cjs`、`packages/desktop/src/util/port.cjs`、`packages/desktop/tests/port.cjs.test.ts`
+
+- **Mermaid 图表在流式生成过程中闪现"Mermaid 渲染失败"**：流式生成时代码块内容频繁变化且中途不完整，mermaid 解析必然失败并立即显示错误。修复：render 失败时对错误做 400ms debounce，期间 code 变化会取消错误并回到"图表渲染中…"占位态；仅当 code 稳定后仍失败才显示真正的错误提示。
+  - 影响范围：`packages/frontend/src/components/blocks/MermaidBlock.tsx`、`packages/frontend/tests/blocks/MermaidBlock.test.tsx`
+
+- **打包后新建会话会跳转到列表里的某个旧会话，而非新建**：根因是 `NewSessionPane` 的 `newSessionIds`（按项目持久化的"新建会话候选 id"）在会话发送后未及时清理（依赖 kernel `session:created` 事件触发 `clearNewSessionId`，打包态响应慢或 app 重启后从 IndexedDB 读出残留值），导致下次新建会话时 `sessionId` 复用一个已存在的旧会话 id；`addSession` 因此去重 no-op，`selectSession` 把 `currentSessionId` 设成那个旧 id，表现为"跳到上一个会话"。修复：`handleSend` 检测到当前 `sessionId` 已被占用时，生成全新 id 并回填 `newSessionIds`，确保每次发送都是新会话。
+  - 影响范围：`packages/frontend/src/components/NewSessionPane.tsx`、`packages/frontend/tests/NewSessionPane.test.tsx`
+
+- **打包（生产安装包）后复制功能失效，点击复制提示"复制失败"**：根因是 Electron 20+ 默认开启 sandbox，preload 脚本 `require("electron")` 解构出的 `clipboard` 不在 sandbox 白名单模块内，导致 preload 加载失败、`window.waPiClipboard` 未注入，前端回退 `navigator.clipboard` 在打包环境的 HTTP 内核页面下失败。修复：在 splashWindow 与 mainWindow 的 `webPreferences` 显式设置 `sandbox: false`，使 preload 的 `clipboard` 桥接恢复正常；`nodeIntegration` 仍为 `false`、`contextIsolation` 仍为 `true`，安全档位不降。
+  - 影响范围：`packages/desktop/src/main.cjs`、新增 `packages/desktop/tests/web-preferences.test.ts`
+
+## 2026-07-30
 
 ### 修复
 
-- **前端状态对齐缺陷（断线/kernel 重启后永远"对话中"）**：`setActiveStatus(isActive=false)`
-  此前 `return {}` 不复位，SSE 断线窗口漏掉终态事件（不重放）或 kernel 重启后，重连/
-  加载对齐永远清不掉残留的 thinking。现显式 false 时复位 idle + 清 streaming 占位 +
-  清重试条（无残留时保持 no-op；isActive 缺省 undefined 视为响应不可信、不干预）。
-  新增测试：frontend setActiveStatus 对齐 3 个；store-session.test.ts 的 beforeEach
-  补 thinkingSinceBySession / retryBySession 重置（既有遗漏）；App.test.tsx 的
-  /messages mock 支持按测试覆写 isActive（重试条测试描述运行中会话，改传 isActive=true）。
-  影响范围：`packages/frontend/src/store/session.ts`、
-  `packages/frontend/tests/store-session.test.ts`、`packages/frontend/tests/App.test.tsx`。
+- **委托子智能体报 "No API key found for the selected model"**：「跟随主模型」（override/agent 未单独配 model）实际只传了 `null`，子进程没有 `--model` 回退到 pi 默认模型且无 key；且 spawn 时未加载 provider-extension，自定义 provider 在子进程根本不存在。修复：① prompt 时把主会话当前模型记录到 `SessionHandle.currentModel`，`resolveSpawnConfig` 在 model 为空时自动跟随；② `makeSpawnFn` 新增 `extensionPaths` 透传，spawn 子进程时加载 `provider-extension.ts`（含自定义 provider + apiKey）。
+- 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/delegate-tool.ts`、`packages/kernel/tests/agent-manager-subagent-overrides.test.ts`
 
-### 修复
-
-- **发送消息偶现用户消息重复显示**：根因在前端去重逻辑——`message_start(user)` 回声
-  仅在「optimisticEcho 标记仍在 且 列表末尾是 user 消息」时才替换乐观占位，而占位与
-  回声之间插入任意消息（extension_notify 等）、kernel 50ms 兜底合成 agent_end 提前清
-  标记、POST 30s 超时 failTurn 清标记，三种时序都会击穿该判定导致回声被追加成重复行。
-  修复：乐观占位消息显式携带 `optimistic: true` 标记，回声倒序查找标记消息原位替换，
-  不再依赖末尾位置与全局标记。transcript 层无重复（纯显示层问题），刷新后历史不受影响。
-  新增 3 个复现测试（先红后绿）。
-  影响范围：`packages/frontend/src/store/session.ts`、
-  `packages/frontend/tests/store-session.test.ts`。
-
-### 变更
-
-- **系统设置「导出轮数」文案改为「对话导出轮数」**：明确该设置描述的是导出图片时包含的
-  对话轮数，与导出菜单「仅本次」子面板措辞区分。仅改 UI 文案，行为不变。
-  影响范围：`packages/frontend/src/components/settings/GeneralSection.tsx`。
-
-### 变更
-
-- **agents/ 角色库的角色名中文化**：
-  新增 `scripts/rename-agents-zh.ts`，把 `docs/references/awesome-chatgpt-prompts/agents/` 下
-  2096 个角色文件的英文 displayName 替换为中文可读角色名（英文原题翻译为简洁中文，
-  Gemini/Midjourney 等专有名词与无实义乱码保留原名），文件名同步更新；英文原名保留在
-  frontmatter `# Original` 注释中，正文与贡献者信息不变。已处理 Windows 大小写不敏感下
-  仅改大小写的映射误删问题，并幂等（已含 `# Original` 注释的文件跳过）。
-  新增 `scripts/__tests__/rename-agents-zh.test.ts`（6 个单元测试）。
-  英文原名映射持久化在 `docs/references/awesome-chatgpt-prompts/zh-name-map.json`（2096 条），
-  可从已转换文件的 `# Original` 注释反推重建；脚本幂等且映射缺失时优雅降级。
-  影响范围：`scripts/rename-agents-zh.ts`、`scripts/__tests__/rename-agents-zh.test.ts`（新增）、
-  `docs/references/awesome-chatgpt-prompts/agents/`（2096 个文件改名）、
-  `docs/references/awesome-chatgpt-prompts/zh-name-map.json`（新增）、
-  `docs/references/awesome-chatgpt-prompts/README.md`。
-
-### 变更
-
-- **将 awesome-chatgpt-prompts 的 PROMPTS.md 拆分为单角色提示词文件（wa-pi 可识别格式）**：
-  新增 `scripts/split-prompts.ts`，把 `docs/references/awesome-chatgpt-prompts/PROMPTS.md` 的 2096 条
-  角色提示词按角色拆成 2096 个独立 `.md` 文件，输出到
-  `docs/references/awesome-chatgpt-prompts/agents/`。文件格式与 wa-pi 自定义智能体定义一致
-  （YAML frontmatter：displayName/avatar/avatarColor/description/tools/skills/mcpServers/partners，
-  正文为提示词原文），可直接复制到 `~/.wa-pi/agents/` 被运行时识别；displayName 清洗非法字符
-  （`/ \ : * ? " < > |` → `-`）并截断超长名（≤120 字符），重名自动追加 `-2`/`-3` 后缀；
-  贡献者保留在 frontmatter `# Contributed by` 注释中。README 新增「agents/ 角色库」说明。
-  影响范围：`scripts/split-prompts.ts`（新增）、`docs/references/awesome-chatgpt-prompts/agents/`
-  （2096 个文件，新增）、`docs/references/awesome-chatgpt-prompts/README.md`。
-
-### 变更
-
-- **引入 awesome-chatgpt-prompts 角色提示词参考库（CC0，纯参考资料）**：
-  从 [f/awesome-chatgpt-prompts](https://github.com/f/awesome-chatgpt-prompts) 抓取 `PROMPTS.md`
-  原文（2096 个角色条目 / 2088 个唯一角色）至 `docs/references/awesome-chatgpt-prompts/`，
-  作为提示词写法的外部参考资料，**不接入运行时**（不并入 `DEFAULT_AGENT_SEEDS`、不写入
-  `~/.wa-pi/agents/`、不接前端 UI）。许可证为 CC0 1.0 公共领域（提示词内容部分），随附
-  `LICENSE` / `LICENSE-CC0` / `LICENSE-MIT` 三份许可文本作合规留底；另生成中文索引 `README.md`
-  按字母分桶列出全部角色，便于查阅。
-  影响范围：`docs/references/awesome-chatgpt-prompts/`（PROMPTS.md / LICENSE / LICENSE-CC0 /
-  LICENSE-MIT / README.md，均为新增，无运行时代码改动）。
-
-### 变更
-
-- **斜杠命令触发的对话（无 user 消息）导出图片不再置灰 + 导出按钮长按可选轮数**：
-  根因是 `collectTurns`（export-chat-image.ts）要求每轮 assistant 必须配对前置 user 消息，
-  但 extension 斜杠命令被 pi 拦截执行、不产生 user 消息（kernel ws-server.ts 有意抑制回声，
-  Composer 跳过 optimisticSend），导致这类"只有 assistant 回复"的轮次被跳过 → 导出按钮置灰。
-  修复：assistant 轮找不到配对 user 时 user 文本置空（不再丢弃整轮）；ExportImageCard 对空 user
-  不渲染用户气泡。另新增长按交互——长按「下载 PNG / 复制图片」弹出轮数选择子面板（1-5），
-  选中后仅本次用该轮数执行（不改全局设置）；短按仍用全局 exportTurns 立即执行。
-  影响范围：`packages/frontend/src/util/export-chat-image.ts`、
-  `packages/frontend/src/components/blocks/ExportImageCard.tsx`、
-  `packages/frontend/src/components/blocks/ExportButton.tsx`；
-  更新测试 `packages/frontend/tests/export-chat-image.test.ts`、
-  `packages/frontend/tests/blocks/ExportButton.test.tsx`（含长按轮数交互回归）。
-
-### 变更
-
-- **会话 header「项目文件」按钮图标统一为 Icon 组件 + 18px 跟随字体缩放**：原内联 SVG
-  硬编码 `width/height="15"`，改为 `<Icon name="folder" size="1em" className="text-[calc(18px*var(--font-scale))]"/>`，
-  与侧边栏项目图标 / 系统设置图标完全同口径（基础 18px，随 `--font-scale` 缩放）。
-  影响范围：`packages/frontend/src/components/SessionView.tsx`、
-  `packages/frontend/tests/SessionView.test.tsx`（图标尺寸断言）。
-
-### 变更
-
-- **修复「编辑智能体」右键菜单文字换行**：菜单容器固定 `minWidth:140` 且按钮无 `whitespace-nowrap`，
-  字体缩放后「编辑智能体」宽度超容器导致 icon 后文字折行。修复：按钮加 `whitespace-nowrap`，
-  菜单容器加 `width: max-content` 按内容自适应撑开。
-  影响范围：`packages/frontend/src/components/AgentListSection.tsx`、
-  `packages/frontend/src/components/AgentGalleryModal.tsx`。
-
-### 变更
-
-- **修复「导出会话→复制图片」取错消息（取到 thinking/前一轮而非当条回复正文）**：
-  根因是 `collectTurns`（export-chat-image.ts）先按原始 timestamp 逐条过滤、再合并同回合
-  assistant，导致流式期间 store 未 compact 的「thinking 块 + text 正文块」被拆散——
-  `uptoTimestamp` 来自渲染合并行（保留回合首块 timestamp），filter 会把同回合 ts 更大的
-  text 正文块误过滤掉，只剩 thinking 文字。修复：filter 改为按「回合首块 timestamp」整回合
-  判定（同 agent 连续 assistant 同回合，与渲染层 collapseSameTurnAssistants 口径一致），
-  整回合要么全部保留要么全部丢弃；合并后 message.timestamp 仍取轮末，保持既有契约。
-  影响范围：`packages/frontend/src/util/export-chat-image.ts`；
-  新增回归测试 `packages/frontend/tests/export-chat-image.test.ts`（8 项）、
-  `packages/frontend/tests/blocks/ExportButton.test.tsx`（4 项）。
-
-### 变更
-
-- **侧边栏图标（项目列表 + 系统设置）基础尺寸 18px 并跟随字体缩放**：项目头部（默认工作区 home / 项目 folder / 展开 folder-open）
-  图标由固定 `size={13}` 改为 `size="1em"`，toggle 按钮字体设为 `text-[calc(18px*var(--font-scale))]`；
-  系统设置按钮 icon 由固定 `size={12}` 改为 `size="1em"` + `text-[calc(18px*var(--font-scale))]`——
-  图标基础尺寸 18px，并随全局字体缩放变量 `--font-scale` 同步缩放（与项目内其余 `text-*` 工具类口径一致）。
-  影响范围：`packages/frontend/src/components/ProjectItem.tsx`、`packages/frontend/src/components/SettingsButton.tsx`、
-  `packages/frontend/tests/ProjectItem.system.test.tsx`、`packages/frontend/tests/SettingsButton.test.tsx`（尺寸断言测试）。
-
-### 变更
-
-- **动态插件改用 pi 官方 packages 机制 + session.reload 热重载（装卸不丢其他插件 UI）**：
-  此前动态插件走 `-e` 显式传路径（spawn 时固定）+ `waPiPackages`（pi 不读），装卸后必须整进程重建，
-  导致其他活跃插件的 widget/status 全部丢失。现改为：
-  ① 动态包装到 `~/.wa-pi/npm/node_modules/`（pi user scope 路径，package-manager.js:1677）；
-  ② settings.json 用 pi 官方 `packages` 字段（pi 自动加载，替代 waPiPackages + -e 动态部分）；
-  ③ 内置插件（pi-web-access/pi-mcp-adapter）+ provider-extension + wa-pi-bridge 仍走 `-e`
-    （reload 时实例属性保留，不失效）；
-  ④ 装卸后调 `session.reload()`（经 bridge `__!wa_pi_reload` 命令）——重读 settings.json packages
-    让动态插件集变化生效，重放 session_start 让活跃插件重发 widget/status 恢复 UI，被卸载的
-    不重发（其残留由 reload 前的 extension_ui_reset 清掉）。skillDirty（agent 重命名/技能变更）
-    仍走整进程重建（session.reload 不重新读 agent 配置）。
-  数据迁移：旧 `waPiPackages` → `packages`；旧 runtime/node_modules 的动态插件需重装到 npm/
-  （首启迁移或用户重装）。`__!` 前缀命令经前端 commands store 过滤不进命令面板。
-  影响范围：`packages/kernel/src/extension-manager.ts`、`packages/kernel/src/extensions.ts`、
-  `packages/kernel/src/agent-manager.ts`、`packages/kernel/src/rpc-client.ts`、
-  `packages/kernel/src/wa-pi-bridge.extension.ts`、`packages/frontend/src/store/commands.ts`、
-  相关测试。
-
-### 变更
-
-- **回退插件装卸热重载方案，恢复整进程重建**：此前两次改动（178c899 + 7f5aeff）
-  尝试用 session.reload() 热重载替代整进程重建以避免丢失其他插件 UI。实测发现
-  方案根本无效：wa-pi 把所有扩展通过 `-e` 参数传给 pi（否则 pi 不加载动态插件），
-  但 `-e` 是 spawn 时固定的，session.reload() 不更新它——卸载的插件路径还在 `-e`
-  里，pi 仍加载。热重载只对 settings.json packages 生效，对 `-e` 路径无效。
-  现回退到整进程重建（装卸→markAllDirty→进程重启→新的 -e 路径），保证装卸立即
-  生效。代价：进程重建会清空所有扩展的 widget/status（pi 不重放 session_start），
-  这是已知的、可接受的副作用（用户重新触发插件命令即可恢复 UI）。
-
-### 变更
-
-- **移除空置的 EXTENSION_TOOL_MAP 死代码**：该常量（`packages/shared/src/constants.ts`）
-  是 `= {}` 空对象，仓库内无任何写入点——它本想用于「动态插件工具注入 agent allowlist」，
-  但 pi 不给宿主提供查询已注册工具的接口（RPC 无列工具命令、package.json 无 tools 声明
-  字段），这条注入链路从未接通。一并清理依赖它的死代码：`resolveAgentTools` 的
-  `toolMap`/`enabledExtensionIds`/`_agentName` 三个恒 no-op 参数、`listGlobalTools` 的
-  空迭代段、相关误导性注释与测试用例。函数签名精简为 `(baseTools, harvestedTools)`。
-  扩展工具的实际放行靠默认 agent 的排除式路径（不配 tools 白名单时全部放行），行为
-  完全等价。影响范围：`packages/shared/src/constants.ts`、
-  `packages/shared/tests/constants.test.ts`、`packages/kernel/src/agent-manager.ts`。
-- **测试断言跟进 Icon 化改造（emoji → svg）+ DirTreePicker 查询重构，全量测试转绿**：
-  前端把技能 chip 闪电符、项目/目录树图标由 Unicode emoji（⚡🏠📁📄）统一替换为内联
-  SVG（Icon 组件）后，测试断言仍按 emoji 文本匹配，且 react-complex-tree 的 treeitem
-  `<li>` 内目录名与 svg 图标同层导致 testing-library 的 getByText 因「文本被多元素分割」
-  匹配不到，共 24 个测试失败。修复分三块：(1) ComposerTextarea/tokens 的技能 chip
-  断言改按 data-token + svg 标记；(2) ProjectItem 图标断言改按 Icon testId（实现侧给
-  home/folder/folder-open 三个图标补 testId）；(3) DirTreePicker 新增 treeItem/queryTreeItem
-  helper，直接定位 [data-rct-item-interactive]（rct-tree-item-button，文本载体 + 点击选中
-  目标 + 展开箭头兄弟），替换所有树节点的 getByText/queryByText/click(getByText)，并去掉
-  残留 📁/📄 emoji 正则前缀、修正完整路径字符串转义。全量测试 1058 pass / 0 fail。
-  影响范围：`packages/frontend/tests/ComposerTextarea.test.tsx`、
-  `packages/frontend/tests/tokens.test.ts`、
-  `packages/frontend/tests/ProjectItem.system.test.tsx`、
-  `packages/frontend/tests/DirTreePicker.test.tsx`、
-  `packages/frontend/src/components/ProjectItem.tsx`。
-- **ext-error-spam-demo 新增 `/exterr one` 命令级错误路径**：原 demo 只能经
-  input handler 凑 50 条（需 `/exterr fire` + 再发一条消息两步触发），无法快速
-  验证单条 extension_error 的渲染。新增 `/exterr one` 子命令，handler 直接 throw，
-  被 pi `_tryExecuteExtensionCommand` 整体 try/catch 捕获为 1 条错误
-  （event:`command`、extensionPath:`command:exterr`），与 input 路径
-  （event:`input`）天然区分。现在两条路径都可在诊断列表回归。
-  影响范围：`examples/ext-error-spam-demo/index.ts`、
-  `examples/ext-error-spam-demo/README.md`。
-- **聊天导出菜单改为 portal 浮层 + 新增「导出轮数」设置**：导出按钮的下拉菜单原用
-  absolute 定位，被消息列表滚动容器的 overflow 裁剪、靠近底部时被截断。现改用
-  createPortal 提到 document.body（fixed z-50），按按钮位置计算坐标并在空间不足时
-  自动向上翻转。同时在「系统设置-通用」新增「导出轮数」滑块（1-5 轮，默认 1 轮），
-  持久化到 ui-prefs，ExportButton 导出时读取该值作为 collectTurns 的 maxTurns。
-  影响范围：`packages/frontend/src/store/ui-prefs.ts`、
-  `packages/frontend/src/components/settings/GeneralSection.tsx`、
-  `packages/frontend/src/components/blocks/ExportButton.tsx`、
-  `packages/frontend/src/components/blocks/ExportButton.test.tsx`。
-- **setWidget 收起态改为半透明悬浮队列，不再占用聊天区/输入框垂直空间**：此前
-  ExtWidget 即使"收起"仍渲染一个完整按钮行（箭头+key+首行预览+外边距）插入
-  文档流，挤压聊天区和 Composer。现重构为：所有 widget（above/below 不分左右）
-  收起时排成**单一队列**，半透明（opacity 0.4）悬浮贴 Composer 上沿
-  （position absolute，脱离文档流）→ 零垂直占位；above 用 ↑(紫)、below 用
-  ↓(灰) SVG 图标区分类型。窄条数量溢出时左右出现箭头按钮（26×24px），点击
-  平滑滚动一个窄条宽度，到头自动隐藏。点击窄条 → 展开（testid 转移到展开块）
-  在聊天区与 Composer 之间占位显示完整内容 + "收起 ✕"；收起后窄条回队列。
-  影响范围：`packages/frontend/src/components/SessionView.tsx`（主容器加
-  relative、新增 ExtWidgetDock 组件替代原 above/below 分组渲染的 ExtWidget）、
-  `packages/frontend/tests/SessionView.test.tsx`（2 个 widget 用例适配新交互：
-  点击 chip 展开 / 点击 collapse-btn 收起）、
-  `packages/frontend/e2e/ext-ui-bridge-demo.spec.ts`（widget 颜色用例适配）。
-
-- **ext-ui-bridge-demo 增加 ANSI 颜色演示命令 + 全链路 E2E 验证**：
-  demo 扩展新增 `/uidemo color` 子命令，一键触发 notify/setStatus/
-  setWidget/setTitle 全部带 ANSI SGR 颜色码的 UI 请求，验证 kernel 透传
-  → 前端 AnsiText 解析的端到端彩色渲染；README 补「颜色演示」章节与表格
-  说明。同步在 `ext-ui-bridge-demo.spec.ts` 追加两条 E2E：① notify 消息
-  永久保留（10s 后仍在）且解析出内联颜色 span；② widget 展开后彩色行可见。
-  E2E 全 7 通过（隔离端口 19776/15180）。
-  影响范围：`examples/ext-ui-bridge-demo/index.ts`、
-  `examples/ext-ui-bridge-demo/README.md`、
-  `packages/frontend/e2e/ext-ui-bridge-demo.spec.ts`。
-
-- **新增 ext-error-spam-demo 扩展错误测试桩**：参照 ext-ui-bridge-demo，
-  新增本地扩展 `examples/ext-error-spam-demo`，用于一次性向「系统设置 >
-  诊断」的扩展错误列表（`extension_error`，内存态最近 50 条）灌满 50 条
-  有区分度的错误，回归 DiagnosticsSection 的满列表渲染 / 截断 / 清空 /
-  滚动表现。机制：注册 50 个 `input` handler 各抛一条带编号（#01..#50 +
-  场景）的错，`emitInput` 对同事件多 handler 逐个独立 try/catch → 一条
-  用户消息正好产生 50 条 `extension_error`；`/exterr fire|off|reset|status`
-  控制装填。规避 kernel 约束：命令 handler 抛错只算 1 条，扩展无主动
-  emit/off 接口，故用 armed 开关 + fired 一次性标志。
-  影响范围：`examples/ext-error-spam-demo/`（新增 package.json / index.ts
-  / README.md）。
-
-- **聊天消息导出为图片**：AI 回复旁（复制按钮左侧）新增导出 icon，点击弹菜单选
-  「下载 PNG / 复制图片」，把当条消息往前最多 5 轮的文本对话（用户提问 + AI 文字回复，
-  不含思考/工具等过程）生成为分享卡片图片。新增依赖 html-to-image。
-  影响范围：`packages/frontend/src/util/export-chat-image.ts`、
-  `packages/frontend/src/components/blocks/ExportImageCard.tsx`、
-  `packages/frontend/src/components/blocks/ExportButton.tsx`、
-  `packages/frontend/src/components/MessageList.tsx`。
-- **kernel 透传扩展 UI 文本 ANSI 颜色码，fire-and-forget 不再回复
-  extension_ui_response**：`RpcClient.handleUiRequest` 此前对
-  notify/setStatus/setWidget/setTitle 的文本统一 `stripAnsi` 剥离终端
-  转义码，扩展经 `ctx.ui.theme` 着色的文本到前端后丢失颜色。现改为 ANSI
-  原文透传，由前端解析渲染颜色。同时对齐 pi 官方行为（rpc-mode.js
-  "Fire and forget - no response needed"）：fire-and-forget 方法
-  （notify/setStatus/setWidget/setTitle/set_editor_text）不再回复
-  `extension_ui_response`，仅对话类方法（select/confirm/input/editor/
-  custom）回复。
-  影响范围：`packages/kernel/src/rpc-client.ts`、
-  `packages/kernel/tests/rpc-client.test.ts`、
-  `packages/kernel/tests/fixtures/fake-pi.ts`（新增多余 ui_response 计数，
-  供测试断言）。
-- **新增 AnsiText 组件解析 ANSI SGR 颜色码**：新增
-  `packages/frontend/src/components/ui/AnsiText.tsx`，单文件零依赖 ANSI
-  SGR 颜色解析：`parseAnsiToNodes` 纯函数支持 16 色/bright 色/xterm 256
-  色/RGB 真彩的 foreground 与 background、reset(0) 与 39/49 单独复位，
-  非 SGR 序列丢弃；`AnsiText` 组件薄封装供渲染层使用。为后续
-  notify/setStatus/setWidget/setTitle 彩色渲染提供基础设施。
-  影响范围：`packages/frontend/src/components/ui/AnsiText.tsx`（新增）、
-  `packages/frontend/tests/ansi-text.test.ts`（新增）。
-- **extension_notify 永久保留不去重 + 扩展 UI 文本 ANSI 颜色渲染**：
-  前端 session store 的 `extension_notify` 此前 20s 自动消退且与上一条
-  同内容时去重，扩展的着色反馈既留不住又丢颜色。现移除自动消退
-  setTimeout 与同内容去重逻辑，每条 notify 都永久插入聊天列表；同时
-  MessageList 的 custom 消息、SessionView 的 extStatus 状态栏与
-  ExtWidget 摘要/正文、App 的 extTitle 标题条全部改用 `AnsiText` 渲染，
-  kernel 透传的 ANSI 颜色码解析为内联样式呈现。
-  影响范围：`packages/frontend/src/store/session.ts`、
-  `packages/frontend/src/components/MessageList.tsx`、
-  `packages/frontend/src/components/SessionView.tsx`、
-  `packages/frontend/src/App.tsx`、
-  `packages/frontend/tests/session-extension-notify.test.ts`、
-  `packages/frontend/tests/session-notify-auto-dismiss.test.ts`（重写）、
-  `packages/frontend/tests/MessageList.test.tsx`、
-  `packages/frontend/tests/SessionView.test.tsx`、
-  `packages/frontend/tests/App.test.tsx`。
-
-## [Unreleased] - 2026-08-04
-
-### 修复
-
-- **插件卸载/安装后当前会话的扩展 UI 残留不清理**：插件操作触发的 dirty
-  reload 重建 pi 进程后，旧进程发射的扩展 UI（setStatus 状态栏 / setWidget
-  文本块 / setTitle 标题条）仍留在前端 store，被卸载插件的 UI 继续显示。
-  现 kernel `_reloadIfDirty` 重建成功后合成 `extension_ui_reset` 事件
-  （SDKEvent 新增该类型），前端 session store 收到后清空该会话的三类扩展
-  UI 状态（进程 resume 不重放扩展的 session_start 钩子，UI 是否重发由扩展
-  自身行为决定）。
-  影响范围：`packages/kernel/src/agent-manager.ts`、
-  `packages/shared/src/types.ts`、
-  `packages/frontend/src/store/session.ts`、
-  `packages/kernel/tests/agent-manager.test.ts`、
-  `packages/frontend/tests/session-extension-notify.test.ts`、
-  `packages/frontend/e2e/extension-hot-reload.spec.ts`（新增）。
-
-## [Unreleased] - 2026-08-04
-
-### 修复
-
-- **扩展命令不作为用户消息上屏（跟随 TUI 行为）**：已注册扩展命令（如
-  /uidemo、内置插件的 /goal）被 pi 拦截直接执行 handler，不写 transcript、
-  不发 user message 事件，但聊天窗会因两条通路多出一条不存在的用户消息：
-  a) kernel `agent:prompt` 无条件回传 `session:echo_user`（新会话页依赖此
-  回显）；b) 前端 `Composer.doSend` 空闲时无条件乐观插入。现 kernel 对
-  slash 文本延迟到 ensureStarted 后查命令清单（命中 extension 来源 → 不
-  回显；未注册 / prompt / skill 来源 / 查询失败 → 照常回显），前端
-  Composer 对命中命令清单的扩展命令跳过乐观插入（commands store 新增
-  未过滤的 `allCommands`，开关关闭的命令 pi 仍会拦截，口径与 kernel 一致）。
-  影响范围：`packages/kernel/src/ws-server.ts`、
-  `packages/frontend/src/store/commands.ts`、
-  `packages/frontend/src/components/Composer.tsx`、
-  `packages/kernel/tests/ws-agent-prompt-echo.test.ts`（新增）、
-  `packages/frontend/tests/Composer.test.tsx`、
-  `packages/frontend/tests/commands.test.ts`、
-  `packages/frontend/e2e/ext-ui-bridge-demo.spec.ts`。
-
-## [Unreleased] - 2026-08-04
-
-### 修复
-
-- **插件安装/卸载/升级后当前会话立即生效**：此前前端收到 `extension:changed`
-  只更新插件列表，`/` 菜单命令缓存不刷新，插件命令要等切换会话才出现；
-  设置页文案也仍是初版设计的"下次对话开始时生效"。现 `extension:changed`
-  事件追加刷新当前会话命令列表（kernel `getCommands` 脏感知：idle 脏会话
-  先重建 pi 进程再返回新清单），`$` 技能菜单本就走 `skill:changed` 实时刷新，
-  两处文案同步改为"当前对话立即生效"。busy 会话维持 deferred（下次发消息生效）。
-  影响范围：`packages/frontend/src/App.tsx`、
-  `packages/frontend/src/components/settings/ExtensionSection.tsx`、
-  `packages/frontend/tests/App.test.tsx`。
-
-## [Unreleased] - 2026-08-04
-
-### 修复
-
-- **扩展 dialog 弹窗仅允许手动取消**：此前点击遮罩/ESC 会以 cancelled 关闭
-  弹窗，误触会让 pi 扩展 handler 拿到意外的取消。现 `ExtensionDialog`
-  禁用遮罩点击与 ESC 关闭（`Modal` 新增 `closeOnEsc` prop，默认 true 不影响
-  其他弹窗），只有显式点「取消」才应答 cancelled；select 形态补「取消」
-  按钮（此前无按钮，禁用 ESC/遮罩后将无法取消）。
-  影响范围：`packages/frontend/src/components/ui/Modal.tsx`、
-  `packages/frontend/src/components/ExtensionDialog.tsx`、
-  `packages/frontend/tests/ExtensionDialog.test.tsx`。
-
-## [Unreleased] - 2026-08-04
+- **聊天界面未选模型时，默认自动选择第一个可用模型**：`ModelSelector` 组件在 `value` 为 null 且存在可用模型时，自动选中第一个模型，避免发送按钮因未选模型而被禁用（原先显示 disabled placeholder "选择模型"，用户必须手动选择才能发送消息）。该行为每个组件实例仅触发一次，后续可由用户手动切换。
+  - 影响范围：`packages/frontend/src/components/ui/ModelSelector.tsx`
 
 ### 新增功能
 
-- **对接 pi 扩展 dialog 子协议（kernel 侧）+ set_editor_text 事件转发**：
-  pi RPC 的 select/confirm/input/editor 对话请求此前一律 auto-cancel
-  （onUiRequest 无人提供）。现新增进程级单例 `ExtUiRegistry`（语义对齐
-  ask-registry）：agent-manager 注入 `onUiRequest`，注册 pending 后以
-  `extension_dialog` 事件（sdk:event 信封）广播前端；前端经
-  `POST /api/extensions/dialog/respond`（WS 事件 `extension:dialog:respond`）
-  应答，未知/已应答 id 返回 400「对话不存在或已应答」。
-  abort / _teardownSession / 进程崩溃均兜底 cancelAllForSession 防泄漏。
-  同时把 fire-and-forget 的 set_editor_text 桥接为 `extension_editor_text`
-  事件（转发语义：替换输入框内容，由前端 Composer 消费），并修正
-  `_fetchCommands` docstring 遗留的「附加 TUI 标记」表述。
-  前端侧（本次补充）：新增 `ext-dialog` zustand 队列 store 与
-  `ExtensionDialog` 弹窗组件（Modal 壳，按 method 渲染
-  select/confirm/input/editor 四种形态，应答统一 POST respond 路由，
-  App 根部挂载）；session store 分发 `extension_dialog` 入队、
-  `extension_editor_text` 写入新字段 `editorTextInjection`；Composer 按
-  ts 去重消费注入文本（替换输入框并写草稿，应用后立即清除注入记录，
-  防止组件重挂载时用旧注入覆盖用户草稿）。shared 的 SDK 事件联合类型
-  补上两个事件声明；kernel 补 `_onExtUiRequest` 广播契约单测。
-  影响范围：`packages/kernel/src/ext-ui-registry.ts`（新）、
-  `packages/kernel/src/agent-manager.ts`、`packages/kernel/src/ws-server.ts`、
-  `packages/kernel/src/routes/extensions.ts`、`packages/kernel/src/rpc-client.ts`、
-  `packages/shared/src/extensions.ts`、`packages/shared/src/types.ts`、
-  `packages/kernel/tests/ext-ui-registry.test.ts`（新）、
-  `packages/kernel/tests/routes-extensions-commands.test.ts`、
-  `packages/kernel/tests/rpc-client.test.ts`、
-  `packages/kernel/tests/agent-manager.test.ts`、
-  `packages/kernel/tests/fixtures/fake-pi.ts`、
-  `packages/frontend/src/store/ext-dialog.ts`（新）、
-  `packages/frontend/src/components/ExtensionDialog.tsx`（新）、
-  `packages/frontend/src/store/session.ts`、
-  `packages/frontend/src/components/Composer.tsx`、
-  `packages/frontend/src/App.tsx`、
-  `packages/frontend/tests/ExtensionDialog.test.tsx`（新）、
-  `packages/frontend/tests/store-session.test.ts`、
-  `examples/ext-ui-bridge-demo/index.ts`（补 dialog/seteditor 子命令）、
-  `examples/ext-ui-bridge-demo/README.md`、
-  `packages/frontend/e2e/ext-ui-bridge-demo.spec.ts`（新，E2E 全链路验证）。
+- **新增 README.md**：面向第三方的项目介绍——产品定位、核心特性（多智能体/会话/MCP/模型/技能/插件/记忆/双端）、快速开始、mermaid 架构图、项目结构、开发指南、路线图；配图 3 张真实界面截图（`docs/assets/readme/`：会话界面、MCP 连接器、模型管理）。
+- 影响范围：`README.md`（新增）、`docs/assets/readme/`（新增 3 张截图）
 
-### 重构
-
-- **删除 tuiOnly 静态扫描，仅保留 packageName 附加**：kernel
-  `tui-command-filter.ts` 的 `filterTuiCommands` 改名 `attachPackageName`，
-  不再扫描扩展源码识别 TUI-only 命令（`isTuiOnlyExtension` 同步删除）。
-  理由：pi 官方无 TUI-only 概念（RPC 模式 custom() 返回 undefined、
-  dialog 方法有官方子协议），前端自 e9eeae10 起不再消费 tuiOnly 标记，
-  扫描纯属开销且会误标。`CommandInfo.tuiOnly` 字段一并删除。
-  影响范围：`packages/kernel/src/tui-command-filter.ts`、
-  `packages/kernel/src/agent-manager.ts`、
-  `packages/shared/src/commands.ts`、
-  `packages/shared/tests/commands.test.ts`、
-  `packages/kernel/tests/tui-command-filter.test.ts`、
-  `packages/kernel/tests/agent-manager.test.ts`、
-  `packages/frontend/src/components/settings/CommandListModal.test.tsx`。
+## 2026-07-30
 
 ### 修复
 
-- **本地扩展 Windows 绝对路径加载绕过 createRequire**：local 来源插件在
-  settings.json `waPiPackages` 里存绝对路径，`buildAdditionalExtensionPaths`
-  原先用 createRequire 解析，Windows 反斜杠路径会被损毁（`H:\a\b` → `H:ab`），
-  导致本地路径安装的扩展从未进入 pi 的 `-e` 加载列表、其命令/工具不注册。
-  现对绝对路径条目改走文件系统直读（新增内部 `resolveLocalExtensionEntry`，
-  优先级与 npm 路径对齐：pi.extensions 声明 → 约定入口），npm 裸包名逻辑不变。
-  影响范围：`packages/kernel/src/extensions.ts`、
-  `packages/kernel/tests/extensions.test.ts`。
+- **打包后 MCP 连接报 "Executable not found: npx" 和 "-32000 Connection closed"**：
+  1. `main.cjs` 的 `ensureRuntimeBinLinks` 新增 npx/npm 包装脚本（透传 `bun x`/`bun`）
+  2. 新增 `findSystemNode()` 搜索 Homebrew/nvm/fnm 下的真实 Node.js，优先使用而非 bun 替代（MCP 服务器多为 Node 包，bun 不完全兼容）
+  3. Windows 对应 .cmd 包装脚本同步支持
+  - 影响范围：`packages/desktop/src/main.cjs`
 
-## [Unreleased] - 2026-08-04
+- **已完成 thinking 块因新 thinking 到达而误展开**：thinking 段不再合并（每段独立成卡）；合并行通过 `streamingStartIdx` 区分 finalized/streaming 内容
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`
 
-### 重构
+- **过程卡片展开/弱化逻辑统一**：`useAutoCollapse` 新增 `executingMode` 参数——该模式下 `autoOpen = !isDone`。所有工具/委托卡片统一规则：未完成→展开不透明；已完成→折叠半透明
+  - 影响范围：`useAutoCollapse.ts`、`DelegateCard.tsx`、`FleetCard.tsx`、`ToolCallCard.tsx`
 
-- **内置命令拦截统一封装到 shared**：新增 `KERNEL_INTERCEPTED_COMMANDS` 清单
-  与 `matchKernelCommand()` 匹配函数（`@wa-pi/shared` commands.ts），作为
-  「kernel 拦截的内置命令」语义的唯一权威来源。kernel `_sendPromptNow` 与
-  前端 `optimisticSend` 不再各自硬编码 `/^\/compact(\s|$)/` 正则，统一改调
-  `matchKernelCommand`；新增内置命令（如未来的 /clear）只需改 shared 一处。
-  影响范围：`packages/shared/src/commands.ts`、
-  `packages/shared/tests/commands.test.ts`、
-  `packages/kernel/src/agent-manager.ts`、
-  `packages/frontend/src/store/session.ts`。
+- **全项目重命名 HiAgent → WA PI Agent / wa-pi**：产品展示名改为「WA PI Agent」（窗口标题、侧边栏、托盘、productName）；标识符统一 `wa-pi`（npm 包名 `@hiagent/*` → `@wa-pi/*`、数据目录 `~/.hiagent` → `~/.wa-pi`、项目级 `.hiagent/` → `.wa-pi/`、环境变量 `HIAGENT_*` → `WA_PI_*`、二进制 `hiagent-kernel` → `wa-pi-kernel`、`hiagent-bridge.extension.ts` → `wa-pi-bridge.extension.ts`、代码标识符 HiAgent* → WaPi*、settings 字段 hiagent_packages → waPiPackages 等）。约 290 个文件。不迁移旧数据：`~/.hiagent` 保留但不再读取，WA PI Agent 从全新数据目录启动。
+- 未改：cocode-master（内嵌第三方仓库）、CHANGELOG 历史条目、gitee 远端仓库名（需平台侧另行改名）、`.workflow/release.yml` 的 OWNER/REPO（指向 gitee 仓库，待仓库改名后同步）。
+- 影响范围：全仓库（详见 git diff）
 
-## [Unreleased] - 2026-08-04
+## 2026-07-30
 
 ### 修复
 
-- **local 插件命令「附加命令」弹窗扫不到**：根因有二：a) local 插件
-  身份不一致——ExtensionManager 以绝对路径为 name，而命令扫描侧
-  （官方 get_commands RPC + sourceInfo 推导）以 package.json name 为
-  packageName，前端按全等过滤永远为空；现 local 插件身份统一为
-  package.json name（extractNames 保留绝对路径别名，重复检测/旧数据
-  兼容）。b) `getCommands` 借用活跃进程不检查 dirty——安装扩展后旧
-  进程清单过期；现命中/借用 dirty 进程时先重建再取。
-  注：调查期间曾实现过「扩展命令不回显用户消息」方案（kernel 延迟
-  echo + Composer 跳过乐观插入），后按产品决策**整体回退**——最终
-  行为为「扩展命令按正常文本发送并回显，pi 同时执行命令 handler」
-  （对齐 pi TUI 行为），相关代码未入库。
-  影响范围：`packages/kernel/src/extension-manager.ts`、
-  `packages/kernel/src/agent-manager.ts`、
-  `packages/kernel/tests/extension-manager.test.ts`、
-  `packages/kernel/tests/agent-manager.test.ts`。
+- **已完成 thinking 块因新 thinking 到达而误展开**：多段 thinking 合并为一段 + 合并行内所有 segment 共享 `isStreaming`，导致新的 thinking 流式到达时已完成的 thinking 段也被标记为流式、重新展开。改为：1) thinking 段不再合并（每段独立成卡）；2) 合并行通过 `streamingStartIdx` 区分 finalized/streaming 内容，仅 streaming 段获得 `isStreaming=true`。
+- 影响范围：`packages/frontend/src/components/MessageList.tsx`（segmentBlocks + 渲染 + RenderedRow 类型）
 
-## [Unreleased] - 2026-08-04
+- **过程卡片（toolCall/delegate/fleet）展开/弱化逻辑统一**：原逻辑 `autoOpen = isStreaming && !isDone` 导致工具调用、委托在"执行中"阶段（block 已定稿但 result 未返回）自动折叠，用户看不到执行进度。改为 `useAutoCollapse` 支持 `executingMode` 参数——该模式下 `autoOpen = !isDone`，所有卡片统一规则：未完成（无 result 或流式中）→ 展开不透明；已完成（有 result）→ 折叠半透明；手动展开后完成 → 展开半透明。ThinkingCard 保持原逻辑不变（`executingMode=false`）。
+- 影响范围：`packages/frontend/src/components/blocks/useAutoCollapse.ts`、`DelegateCard.tsx`、`FleetCard.tsx`、`ToolCallCard.tsx`
 
-### 修复
+---
 
-- **/compact 不再显示为用户聊天消息**：`optimisticSend` 对 `/compact`（含自定义
-  指令）跳过用户消息插入——kernel 已将其转 compact RPC 执行，pi 不产生 user
-  回声，此前聊天列表会孤零零挂一条 "/compact"。思考态与占位 streaming 照常
-  设置。连带删除 `agent_end` 分支里「最后一条 user 以 /compact 开头则刷新
-  token」的失效检测（compaction_end 已是权威刷新点）。影响范围：
-  `packages/frontend/src/store/session.ts`、
-  `packages/frontend/tests/store-session.test.ts`。
-
-## [Unreleased] - 2026-08-04
-
-### 修复
-
-- **本地插件安装支持 Windows 路径**：`parseExtensionInput` 此前只识别 `/`、`./`、
-  `~/` 开头的本地路径，`H:\...` 盘符路径会落入 npm 包名校验被拒绝（报
-  「无效的插件名称格式」）。现新增盘符（`C:\` / `C:/`）与 UNC（`\\server\share`）
-  路径识别，Windows 本地路径可正常安装。
-  影响范围：`packages/kernel/src/extension-manager.ts`、
-  `packages/kernel/tests/extension-manager.test.ts`。
-
-## [Unreleased] - 2026-08-04
-
-### 重构
-
-- **移除发送端 / 命令降级拦截**：`prompt` 不再在发送前拉取命令清单、不再把
-  已关闭命令加前导空格降级为普通文本，所有 / 命令原样交给 pi 命令分发。
-  连带移除 `_commandsFetched` 标记、`resetCommandState()`（ws-server toggle
-  不再调用）、`tui-command-filter` 的 `disabledCommandNames` 集合及
-  `isCommandDisabled` / `registerDisabledCommands` / `resetDisabledCommands`
-  三个函数；`markAllDirty` / `markSkillsDirty` 不再重置命令状态。
-  同时修复该移除暴露的既有 bug：`_runCompactCommand` 合成的 `agent_settled`
-  此前经 `opts.onEvent` 直发前端、不触发内部 drain，压缩期间排队的消息会
-  永久卡在 followUpList；现改走 `_onSessionEvent` 正常 drain 后转发。
-  影响范围：`packages/kernel/src/agent-manager.ts`、
-  `packages/kernel/src/tui-command-filter.ts`、
-  `packages/kernel/src/ws-server.ts`、
-  `packages/desktop/scripts/build-kernel-sidecar.ts`（注释）、
-  `packages/kernel/tests/agent-manager.test.ts`、
-  `packages/kernel/tests/tui-command-filter.test.ts`、
-  `packages/kernel/tests/routes-extensions-commands.test.ts`。
-
-## [Unreleased] - 2026-08-04
+## 2026-07-29
 
 ### 配置变更
 
-- **附加命令默认全部开启 + 移除「TUI 命令不被支持」提示条**：扩展命令开关
-  缺省语义从「未记录 = 关闭」翻转为「未记录 = 开启」（pi-goal 等有 RPC 降级
-  的命令此前默认被禁用且降级为文本，用户困惑）。`getCommandToggle` 与
-  `_fetchCommands` 合并的缺省值 `?? false → ?? true`；仅显式关闭的命令
-  登记进 disabledCommandNames 降级。同时移除命令列表弹窗顶部
-  「注意：TUI 命令不被支持」黄色提示条（tuiOnly 标记仍在，仅文案下线）。
-  影响范围：`packages/kernel/src/extension-manager.ts`、
-  `packages/kernel/src/agent-manager.ts`、
-  `packages/frontend/src/components/settings/CommandListModal.tsx`、
-  `packages/kernel/tests/extension-manager.test.ts`、
-  `packages/kernel/tests/agent-manager.test.ts`、
-  `packages/frontend/src/components/settings/CommandListModal.test.tsx`。
+- **前后端依赖整体升级**：pi-coding-agent 0.80.10→0.82.1、pi-ai→0.82.1、pi-mcp-adapter 2.13.0→2.15.0、pi-web-access→0.15.0、pi-cache-optimizer→2.6.25、pi-memory→0.1.6、@modelcontextprotocol/sdk→1.30.0、vite 6→8、@vitejs/plugin-react 4→6、electron 33→43、electron-builder 25→26、@playwright/test→1.62 等；两个补丁按新版本重建（pi-coding-agent 0.82.1 的 PI_TUI_ONLY 两个 hunk、pi-mcp-adapter 2.15.0 的 mcp-auth.ts exports hunk——上游仍未原生导出）。typebox 因 pi 系包内嵌 1.1.38，保持 1.1.38 对齐（升 1.3.8 会导致泛型实例化过深 TS2589）。typescript 停留 5.x（TS7 为原生预览版暂不跟进）、tailwind 停留 3.x（v4 配置体系重写另行评估）。pi 0.82 契约变化适配：`AgentToolResult.details` 改必填（hiagent-bridge.extension.ts 类型对齐）。
+- 影响范围：各 `package.json`、`bun.lock`、`patches/`、`packages/kernel/src/hiagent-bridge.extension.ts`
 
-## [Unreleased] - 2026-08-04
-
-### 新增功能
-
-- **新增 UI 桥接测试桩扩展 `examples/ext-ui-bridge-demo`**：覆盖全部四类
-  扩展 fire-and-forget UI 请求（notify → toast、setStatus → 聊天列底部
-  状态栏、setWidget → Composer 上/下方可折叠文本块、setTitle → 聊天窗
-  顶部状态条）。`session_start` 自动全量触发，另注册 `/uidemo
-  all|notify|status|widget|title|clear` 命令手动演示。仅 `import type`，
-  运行时零依赖，作为本地扩展安装即可用；长期保留在仓库内，不随测试清理。
-  影响范围：`examples/ext-ui-bridge-demo/`（package.json / index.ts /
-  README.md）。
-
-## [Unreleased] - 2026-08-04
-
-### 修复
-
-- **停止主会话时级联中止子代理进程**：此前点「停止」只 abort 主会话 pi，
-  正在跑的 delegate/fleet 子代理进程继续跑到完成（结果无人消费、token 白烧，
-  fleet 时最多 5 个孤儿进程）。接线已有的半成品能力：会话 handle 新增
-  `subagentAborts` 登记表，`makeSpawnFn` 每次派发创建一个 AbortController
-  登记（完成移除，叠加外层 signal），`runSubagent` 收到 signal 后优雅中止
-  子进程并返回「子智能体已被中止」；`agent-manager.abort()` 与
-  `_teardownSession`（防拆除泄漏）级联触发表内全部 controller。
-  影响范围：`packages/kernel/src/agent-manager.ts`（登记表 + 两处级联）、
-  `packages/kernel/src/delegate-tool.ts`（makeSpawnFn abortRegistry）、
-  `packages/kernel/tests/delegate-tool.test.ts`、
-  `packages/kernel/tests/agent-manager.test.ts`。
-
-## [Unreleased] - 2026-08-04
-
-### 新增功能
-
-- **setWidget 文本块改为可折叠 + 背景透明**：扩展 `setWidget` 此前以
-  `bg-surface-elevated` 不透明色块整段平铺在 Composer 上/下方，占用大量
-  垂直空间。改为可折叠组件：默认收起为一行摘要（▶ 箭头 + widget key +
-  首行预览），点击展开显示完整等宽文本；内容框去掉不透明底色，仅保留
-  左侧 accent 竖线与细边框。收起后只占一行高度。
-  影响范围：`packages/frontend/src/components/SessionView.tsx`
-  （新增 ExtWidget 组件）、`packages/frontend/tests/SessionView.test.tsx`。
-
-## [Unreleased] - 2026-08-04
-
-### 重构
-
-- **移除 pi-open-agents 依赖**：子代理执行实为 wa-pi 自实现（subagent-runner
-  直接 spawn 一次性 pi RPC 子进程；delegate 子进程本就只加载
-  provider-extension），pi-open-agents 在会话进程内注册的能力均无消费——
-  原生 subagent 工具被 allowlist 屏蔽（`BLOCKED=["subagent"]`）、/agent 命令
-  无人调用、banner 只剩误报（「No agent selected」TUI 提示）。移除点：
-  `PKG_EXTENSIONS` 加载清单、kernel/desktop sidecar 依赖声明、
-  build-kernel-sidecar 生成清单；同步清理 delegate-tool/subagent-runner/
-  builtin-agents/subagent-info 的过时注释。验证：kernel 705 测试全过；
-  真实 pi RPC 启动无 extension_error、/agent 命令消失、banner widget 不再出现。
-  修复测试期间发现 fake-pi 桩的 U+2028 不可见字符曾被编辑器归一化丢失，
-  已恢复。影响范围：`packages/kernel/src/extensions.ts`、
-  `packages/kernel/package.json`、`packages/kernel/src/delegate-tool.ts`、
-  `packages/kernel/src/subagent-runner.ts`、`packages/kernel/src/builtin-agents.ts`、
-  `packages/kernel/src/subagent-info.ts`、`packages/kernel/scripts/eval-delegate-trigger.ts`、
-  `packages/desktop/scripts/build-kernel-sidecar.ts`、
-  `packages/desktop/resources/kernel/package.json`、
-  `packages/kernel/tests/extensions.test.ts`、`bun.lock`。
-
-## [Unreleased] - 2026-08-04
+## 2026-07-29
 
 ### 配置变更
 
-- **移除内置扩展 pi-cache-optimizer**：不再默认加载该扩展，Pi 子进程启动参数
-  中不再包含 `-e pi-cache-optimizer`。依赖同时从 kernel、desktop seed 和
-  sidecar 构建脚本中移除。缓存命中率 UI 仍基于 Pi SDK 返回的
-  `usage.cacheRead / (input + cacheRead + cacheWrite)` 计算，不受影响。
-  影响范围：`packages/kernel/src/extensions.ts`、
-  `packages/kernel/package.json`、
-  `packages/desktop/resources/kernel/package.json`、
-  `packages/desktop/scripts/build-kernel-sidecar.ts`、
-  `bun.lock`。
+- **pi-coding-agent 补丁移除 bash 默认超时 hunk**：应要求恢复上游行为（bash 工具无默认 120s 超时，超时参数可缺省）。补丁现仅含 RPC `custom()` 抛错（PI_TUI_ONLY）与命令分发降级两个 hunk。注意：长耗时 bash 命令不再被 120s 默认超时打断，若出现挂起类问题需另行评估。
+- 影响范围：`patches/@earendil-works%2Fpi-coding-agent@0.80.10.patch`
 
-## [Unreleased] - 2026-08-04
+## 2026-07-29
 
 ### 修复
 
-- **扩展 UI 文案剥离 ANSI 转义码 + setStatus 状态栏改挂聊天列**：pi 扩展经
-  `ctx.ui.theme` 着色的文本（如 pi-open-agents 的 banner hint）携带
-  `\x1b[38;5;Nm` 终端转义码，此前在 widget/状态栏原样显示为乱码。kernel
-  rpc-client 新增 `stripAnsi`，notify/setStatus/setWidget/setTitle 四类桥接
-  文案统一剥离。同时按产品要求调整 setStatus 状态栏位置：从窗口全局底栏
-  （跨左侧项目列表/右侧文件树）改为只挂聊天列底部、文字右对齐，App 根布局
-  回退为原 flex 行结构。
-  影响范围：`packages/kernel/src/rpc-client.ts`、
-  `packages/frontend/src/App.tsx`（移除全局底栏）、
-  `packages/frontend/src/components/SessionView.tsx`（聊天列状态栏）、
-  `packages/kernel/tests/rpc-client.test.ts`、
-  `packages/kernel/tests/fixtures/fake-pi.ts`（ANSI 桩）、
-  `packages/frontend/tests/SessionView.test.tsx`、
-  `packages/frontend/tests/App.test.tsx`。
+- **`/mcp-auth` 在 hiagent 卡死**：pi RPC 模式 `ctx.ui.custom()` 是静默 no-op（renderFn 永不调用），pi-mcp-adapter 的裸 `/mcp-auth` 面板命令 `await new Promise(...)` 永久挂起。根因修复改为两层通用方案（替代原 pi-mcp-adapter 定向补丁，该补丁的 commands.ts 守卫 hunk 已移除，仅保留 `mcp-auth.ts` exports hunk）：
+  1. **pi 侧兜底**：`patches/@earendil-works%2Fpi-coding-agent@0.80.10.patch` 新增 hunk——RPC 模式 `custom()` 改为同步抛错，任何插件的 TUI 面板命令都快速失败（经 pi 命令分发 catch → emitError），永不挂死会话。
+  2. **`/` 菜单静态预扫描屏蔽**：kernel 新增 `tui-command-filter.ts`，`AgentManager.getCommands` 对 pi 返回的 extension 命令按 `sourceInfo.path` 扫描扩展包源码，命中 `ui.custom(` 即判定 TUI-only 并从菜单过滤（按扩展粒度，同扩展非 TUI 命令会被一并隐藏，为已接受的取舍）。
+- **手动发送扩展命令后前端永远"思考中"且无法停止**：扩展命令被 pi 拦截后不产生 agent_start/agent_end，前端 `optimisticSend` 的 thinking + loading 占位等不到终态。修复：kernel `_sendPromptNow` 的 50ms 无 agent_start 检查复位 busy 时，合成 `agent_end` 广播让前端退出思考态；前端 `agent_end` 处理同步清理 `stopReason==="pending"` 的乐观占位与回声标记（正常流程为 no-op）。
+- **TUI-only 命令降级为大模型普通输入**（最终产品决策，替代中途的"报错横幅"方案——该方案已回退）：两层覆盖——① kernel `prompt()` 发送前检查命令名是否属于已识别的 TUI-only 集合（菜单过滤时记录），命中则加前导空格绕过 pi 的 `/` 命令分发（解决 handler"静默成功"不触发 custom() 时前端什么都看不到的问题）；② pi 补丁中 `_tryExecuteExtensionCommand` 捕获 `PI_TUI_ONLY` 错误时 `return false`（覆盖集合未建立或 handler 运行时才触及 custom() 的路径）。原始 `/xxx` 文本按未知命令的既有路径流入大模型，与"菜单屏蔽=命令不存在"的定位一致。`/mcp-auth <server>` 等不触发 `custom()` 的正常路径不受影响。
+- 影响范围：`packages/kernel/src/tui-command-filter.ts`（新增）、`packages/kernel/src/agent-manager.ts`（getCommands 拉取点合并 + 合成 agent_end）、`packages/frontend/src/store/session.ts`（agent_end 清理 pending 占位）、`packages/kernel/tests/tui-command-filter.test.ts`（新增）、`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/fixtures/fake-session-client.ts`、`packages/frontend/tests/store-session.test.ts`、`patches/pi-mcp-adapter@2.13.0.patch`、`patches/@earendil-works%2Fpi-coding-agent@0.80.10.patch`（原 `patches/@earendil-works/pi-coding-agent@0.80.10.patch` 由 bun 1.3 重生成并改名）
 
-## [Unreleased] - 2026-08-04
-
-### 新增功能
-
-- **extension_error 诊断可视化（方案 A）+ 扩展状态展示（setStatus/setWidget/setTitle）**：
-  roadmap Next #1/#2 落地。kernel rpc-client 把 fire-and-forget UI 请求
-  （setStatus/setWidget/setTitle）与 notify 同路径桥接为 sdk:event 转发
-  （set_editor_text 维持不做）。前端四处 UI——
-  ①`extension_error` → error toast 即时提醒 + 系统设置新增「诊断」区块
-  （内存态最近 50 条：时间/扩展/事件/错误，可清空）；
-  ②`setStatus` → 窗口底部 26px 全局状态栏（App 根布局改 flex-col 承载，
-  statusKey 去重、空文案清除）；
-  ③`setTitle` → 聊天窗顶部状态条（产品决策：不写 document.title，
-  避免公共标题被扩展覆盖）；
-  ④`setWidget` → Composer 上/下方文本块（aboveEditor 紫竖线 /
-  belowEditor 灰竖线，等宽字体，widgetLines 空清除）。
-  SDKEvent 补 extension_error/extension_status/extension_widget/
-  extension_title 四个声明。
-  影响范围：`packages/shared/src/types.ts`、
-  `packages/kernel/src/rpc-client.ts`（桥接）、
-  `packages/frontend/src/store/session.ts`（四个 case + 三个状态表）、
-  `packages/frontend/src/store/diagnostics.ts`（新增）、
-  `packages/frontend/src/App.tsx`（底栏 + 标题条 + 根布局 flex-col）、
-  `packages/frontend/src/components/SessionView.tsx`（widget 块）、
-  `packages/frontend/src/components/settings/DiagnosticsSection.tsx`（新增）、
-  `packages/frontend/src/components/SettingsModal.tsx`、
-  `packages/frontend/src/store/settings.ts`、
-  `packages/kernel/tests/rpc-client.test.ts`（fake-pi 补 ui_fire_and_forget）、
-  `packages/kernel/tests/fixtures/fake-pi.ts`、
-  `packages/frontend/tests/store-session.test.ts`、
-  `packages/frontend/tests/DiagnosticsSection.test.tsx`、
-  `packages/frontend/tests/App.test.tsx`。
-
-## [Unreleased] - 2026-08-04
-
-### 新增功能
-
-- **对接 `summarization_retry_*` 事件（roadmap Now #1 收尾）**：压缩/分支摘要的
-  LLM 调用 transient 失败重试此前是无反馈的静默等待。`SDKEvent` 补三个事件
-  声明（`summarization_retry_scheduled{attempt,maxAttempts,delayMs,errorMessage}`、
-  `summarization_retry_attempt_start{source:branchSummary|compaction+reason}`、
-  `summarization_retry_finished`）；前端 store 复用 `retryBySession` 驱动同一
-  黄色重试状态条——scheduled 记录进度、attempt_start 显式保持、finished 清除
-  （最终失败由随后 `compaction_end{errorMessage}` 文案呈现）。SDKEvent 声明
-  覆盖达 20/21（仅余不会产生的 bash_execution_update）。
-  影响范围：`packages/shared/src/types.ts`、
-  `packages/frontend/src/store/session.ts`、
-  `packages/frontend/tests/store-session.test.ts`。
-
-## [Unreleased] - 2026-08-04
-
-### 新增功能
-
-- **对接 `agent_settled` / `turn_start` / `turn_end` 事件（roadmap Now #2 类型债）**：
-  `SDKEvent` 补 `agent_settled` 声明（turn_* 此前已有类型）。前端 store 新增
-  `agent_settled` case——pi 语义为「重试/压缩重试/排队续跑全部终结」，正常
-  已被 `agent_end{willRetry:false}` 复位，此处作思考态兜底（agent_end 缺失/
-  乱序的异常路径防卡死，已空闲则不产生状态变更）；`turn_start`/`turn_end`
-  显式忽略（消息流已由 message_start/update/end 驱动，turn_end 携带的
-  message/toolResults 与之重复不合并；turn 粒度遥测归 roadmap Later）。
-  kernel 侧 agent-manager 本就以 agent_settled 管理 busy/drain，无需改动。
-  影响范围：`packages/shared/src/types.ts`（SDKEvent）、
-  `packages/frontend/src/store/session.ts`、
-  `packages/frontend/tests/store-session.test.ts`。
-
-## [Unreleased] - 2026-08-04
+## 2025-08-02
 
 ### 修复
 
-- **compactionSummary 消息不再内联渲染摘要正文 + 两条压缩提示路径文案统一**：
-  历史里的压缩节点此前渲染为「—— 已压缩早期上下文 · {摘要全文} ——」，
-  摘要本身是完整长篇 markdown（Goal/Progress 等），内联展开直接刷屏；
-  且 live（compaction_end 插入的「已压缩上下文：X → Y（释放 Z）」）与重载历史
-  的压缩节点提示文案不一致、refreshTokenTotals 保留本地成功消息还会造成重复提示。
-  现统一为「—— 已压缩早期上下文 · 压缩前 X token ——」（jsonl 不持久化
-  estimatedTokensAfter，两边只一致展示 tokensBefore）；refresh 时本地成功的
-  compaction_status 消息被去重（进行中/取消/失败仍保留）。`fmtTok` 提取为
-  公共 `util/format.ts`（SessionView/MessageList/session store 共用）。
-  影响范围：`packages/frontend/src/util/format.ts`（新增）、
-  `packages/frontend/src/components/MessageList.tsx`、
-  `packages/frontend/src/components/SessionView.tsx`、
-  `packages/frontend/src/store/session.ts`、
-  `packages/frontend/tests/MessageList.test.tsx`、
-  `packages/frontend/tests/store-session.test.ts`。
-
-## [Unreleased] - 2026-08-04
+- **`/mcp-auth` 卡住**：`RpcClient.handleUiRequest` 中 `UI_DIALOG_METHODS` 缺少 `custom` 方法，导致 pi-mcp-adapter 的 `ctx.ui.custom()` 面板请求无回复，pi 进程永久挂起。将 `custom` 加入对话方法集合，无 handler 时自动回 `cancelled`。
+- **数据清理**：`~/.hiagent/subagent-overrides.json` 中测试遗留的 `"test-model"` 无效模型已清除；引用不存在工作目录的过期会话文件 `s-518cb4ab-...jsonl` 已删除。
+- 影响范围：`packages/kernel/src/rpc-client.ts`
+## 2025-07-28
 
 ### 修复
 
-- **冷会话点开后「窗口占比」胶囊不显示**：点开会话时前端并行拉 /messages +
-  /stats，而后台预热（session:messages 的 ensureStarted）要 5-10s——stats 落在
-  降级路径没有 contextUsage，且预热完成后无任何通知，占比要等下一回合
-  message_end 才出现。现在预热完成后冷启动场景广播 `session:activated`
-  （热会话不重复广播），前端收听后 `refreshSessionStats` 重拉 /stats 补齐
-  占比/进度条。AgentManager 新增 `isSessionAlive` 用于冷/热判断。
-  影响范围：`packages/kernel/src/ws-server.ts`（session:messages 预热广播）、
-  `packages/kernel/src/agent-manager.ts`（isSessionAlive）、
-  `packages/shared/src/types.ts`（SessionActivatedEvent）、
-  `packages/frontend/src/App.tsx`（事件监听）、
-  `packages/kernel/tests/ws-server-session-prewarm.test.ts`、
-  `packages/kernel/tests/session-messages.test.ts`（桩补 isSessionAlive）、
-  `packages/frontend/tests/App.test.tsx`。
+- **思考文本不换行**：ThinkingCard/ThinkingPanel 加 `break-words`，ProcessCard 加 `min-w-0`
+- **工具来源标签细化**：`listGlobalTools()` 来源从"扩展"细化为 `内置` / `MCP` / 插件包名
+- **打包后启动白屏**：`runtime-deps.cjs` 的 `SEED_FILES` 补上 `tool-schemas.ts` 和 `hiagent-bridge.extension.ts`
 
-## [Unreleased] - 2026-08-04
+## 2026-07-29
+
+### 修复
+
+- **文件预览 ENOENT 自动搜索回退**：文件不存在时从祖先目录递归搜索同名文件
+- **文件预览胶囊仅对可解析路径显示**：`FilePill` 异步校验存在性，不存在回退为纯文本
+- **切回会话时 ask_user_question 被错误取消**：`reconcileDanglingAsks` 新增 `isSessionActive` 参数，活跃会话跳过对账
+
+### 配置变更
+
+- **web_search 默认参数**：启动时写入配置 `workflow: "auto-summary"`，bridge 拦截器强制 `numResults=8`
+- **web_search provider 修复**：provider 从硬编码 `exa` 改为 `auto`
+
+---
+
+## 2026-07-28（晚）
+
+### 修复
+
+- **委托提示词 v14 定稿**：deepseek-v4-flash 无思考模式 60/60 通过，提示词总量约 -60%
+- **派发评测脚本加固**：每用例前重新生成扩展文件，启动即退出自动重试，评测改在隔离 worktree
+
+---
+
+## 2026-07-28
+
+### 修复
+
+- **新建会话 `/` 菜单不显示动态插件命令**：`getCommands` 支持新会话场景自动创建 session + 启动 pi 进程
+- **`/goal` 等命令执行后界面永久显示"思考中"**：50ms 延迟检查自动复位 busy 状态
+- **扩展安装/升级/卸载永久卡"安装中"**：终态事件改为 `broadcast` 而非 `reply`
 
 ### 新增功能
 
-- **系统设置「通用」新增文字大小滑块（12-32px，只缩放文字不动布局）**：
-  拖动滑块调整文字大小，即时生效，localStorage 持久化（`wa-pi-ui-prefs`）。
-  实现：CSS 变量 `--font-scale`（= 字号/16）——全项目字号声明统一挂到该
-  变量：Tailwind px 任意值（199 处 `text-[Npx]` → `text-[calc(Npx*var(--font-scale))]`）、
-  styles.css 自定义规则（10 处）、内联 fontSize（5 处）逐一改为 calc；
-  rem 字号类（text-xs/sm/base/lg/xl/3xl）在 styles.css 末尾加同级覆盖
-  （后定义生效，间距等 rem 布局不受影响）。期间否决过两版方案：根
-  `font-size`（px 声明不缩放，覆盖不全）与 CSS `zoom`/webFrame（vw/vh
-  布局随缩放错位，用户反馈布局错乱）。
-  影响范围：`packages/frontend/src/store/ui-prefs.ts`（新增）、
-  `packages/frontend/src/styles.css`、`packages/frontend/src/main.tsx`、
-  `packages/frontend/src/components/**`（37 个 tsx 机械替换）、
-  `packages/frontend/src/components/settings/GeneralSection.tsx`、
-  `packages/frontend/tests/store-ui-prefs.test.ts`、
-  `packages/frontend/tests/GeneralSection.test.tsx`。
+- **内联 `/` 命令菜单动态注册 pi 的 slash 命令**：新增 `get_commands` 全链路，支持插件贡献命令
 
-## [Unreleased] - 2026-08-04
+### 修复
+
+- **MCP 连接器永久卡"测试中"**：结果事件改为 `broadcast` 而非 `reply`
+- **MCP 工具列表弹窗尺寸**：改为 60vw / 80vh
+
+---
+
+## 2025-01-22
 
 ### 新增功能
 
-- **系统设置新增「通用」区块：pi 自动重试次数 / 间隔可配置**：设置页左侧导航
-  新增「通用」，可配置 transient 错误（网络/超时/5xx/限流）后的自动重试——
-  重试次数（0-10，默认 3，产品上限 10）与退避间隔基数（0.5-60 秒，默认 2 秒，
-  实际延迟按基数 × 2ⁿ 递增）。持久化到 `~/.wa-pi/settings.json` 的 `retry`
-  字段（pi settings-manager 直接消费，read-modify-write 保留其他字段）；
-  保存后 kernel 标脏活跃会话，下次发消息重建 pi 进程生效，重试状态条
-  「正在自动重试 (n/m)」的 m 同步反映新配置。
-  kernel 新增 `settings-store.ts`（读写 + 校验）、WS `settings:get/save` 事件、
-  REST `GET/PUT /api/settings/retry`（非法值 400 + 中文错误文案）。
-  影响范围：`packages/shared/src/types.ts`（RetrySettings/settings 事件）、
-  `packages/kernel/src/settings-store.ts`、`packages/kernel/src/ws-server.ts`、
-  `packages/kernel/src/routes/settings.ts`、
-  `packages/frontend/src/store/settings.ts`（general 区块）、
-  `packages/frontend/src/components/SettingsModal.tsx`（导航）、
-  `packages/frontend/src/components/settings/GeneralSection.tsx`、
-  `packages/kernel/tests/settings-store.test.ts`、
-  `packages/frontend/tests/GeneralSection.test.tsx`、
-  `packages/frontend/tests/SettingsModal.test.tsx`。
+- **Token 消耗进度条**：百分比胶囊改为进度条，宽度 = 累计 token / 模型 contextWindow
 
-## [Unreleased] - 2026-08-04
+---
 
-### 新增功能
-
-- **自动重试状态条（方案 B：顶部黄条接管）**：pi 自动重试期间（`auto_retry_start`
-  → 退避 → 新尝试），顶部红色「模型连接异常，请检查网络或 Provider 配置」
-  切换为黄色「模型请求失败，正在自动重试 (n/m)…」（复用 reconnecting 的
-  warning 样式），明确传达「可恢复的等待」而非误导性的配置错误告警；
-  重试结束（`auto_retry_end` 成功/耗尽/中止）黄条消失，若 transient 错误
-  仍未恢复则回到红条。store 新增 `retryBySession`（auto_retry_start 记录
-  attempt/maxAttempts，auto_retry_end 与终态 agent_end 清除）；思考行
-  「思考中 · Xs」保持不变。
-  影响范围：`packages/frontend/src/store/session.ts`（retryBySession）、
-  `packages/frontend/src/App.tsx`（retry-status-bar）、
-  `packages/frontend/tests/store-session.test.ts`、
-  `packages/frontend/tests/App.test.tsx`。
-
-## [Unreleased] - 2026-08-04
+## 2026-07-27
 
 ### 修复
 
-- **接入 pi `auto_retry_start` / `auto_retry_end` 事件：自动重试期间保持思考态**：
-  此前 transient 错误（如 provider 503/超时）触发 pi 自动重试时，
-  `agent_end{willRetry:true}` 会把前端复位为 idle——退避等待期间思考态中断、
-  输入区 spinner 消失，用户误以为回复已结束。现在 `agent_end` 带
-  `willRetry:true` 时不结算（保持 thinking、不标未读、不写回耗时）；
-  新增 `auto_retry_start` case 防御性保持 thinking；`auto_retry_end{success:false}`
-  （重试耗尽 / 退避期被 abort，此路径不会再有 agent_end）复位 idle 防思考态卡死；
-  `success=true` 不动状态（本轮继续，终态由后续 `agent_end{willRetry:false}` 复位）。
-  `SDKEvent` 联合类型补齐两个事件声明。kernel 无需改动（事件本已全量透传，
-  busy 由 agent_settled 管理，重试期间不会误复位）。
-  影响范围：`packages/shared/src/types.ts`（SDKEvent）、
-  `packages/frontend/src/store/session.ts`（agent_end/auto_retry_* case）、
-  `packages/frontend/tests/store-session.test.ts`（5 个重试场景用例）。
-
-## [Unreleased] - 2026-08-04
-
-### 修复
-
-- **token 统计口径修正（累计 / 进度条 / 占用三层分离）**：修复聊天窗口右上角
-  「累计 xxx k」统计错误——此前用「可见消息的 Σ(input+output)」，漏算
-  cacheRead/cacheWrite、压缩后丢历史，且把「累计」误当「当前窗口占比」画进度条。
-  现在三层口径分离：①「累计」= 整个会话累计消耗（含 cache、含压缩前历史），
-  数据源为 pi `get_session_stats().tokens`（进程不在时 kernel 降级扫 jsonl 全量累加）；
-  ②进度条 = 当前上下文窗口占用 / 窗口上限，数据源为
-  `get_session_stats().contextUsage`（used/total/ratio）；③进度条上方新增
-  「占用 xxx k」= 当前窗口已用 token 数。
-  胶囊布局：占用在上（主色，加强）→ 进度条 → 累计在下（小字三级灰，弱化）。
-  **前端已移除全部本地统计**：删除 `addTokens` 增量累加（含 delegate childUsage
-  累加）、`seedTokenTotal` 的可见消息遍历兜底、SessionView 的「lastUsage 估算占用」
-  降级与模型 contextWindow 查表；所有数字只来自 `session:stats`。回合中由
-  `message_end`（assistant 带 usage）触发轻量 `refreshSessionStats`（只拉 /stats），
-  进度条/占用/累计每轮实时更新；进入会话与压缩结束仍走整量 seed/refresh 校正。
-  kernel 新增 `computeSessionUsage`（压缩感知累计，死进程降级）、
-  `agentManager.getSessionStats`、WS `session:stats` case 与
-  REST `GET /api/sessions/:id/stats`；前端 store 扩展 `tokenTotals`
-  （cache/total 五字段）与 `contextUsageBySession`，`statsPatch` 为官方数值唯一入口。
-  **子代理消耗计入累计并拆分主/子**：delegate/fleet 的 toolResult 现携带 pi
-  官方 `usage` 字段（子进程 LLM 消耗，fleet 多任务聚合），pi
-  `get_session_stats` 原生计入累计（"usage reported by tools"），且随
-  toolResult 持久化进 jsonl——重启不丢、无需 kernel 任何记账。
-  主/子拆分统一来自 jsonl 全量扫描（`computeSessionUsage` 改返回
-  `{ main, subagent }`：assistant+compaction/branch_summary→主，
-  toolResult.usage→子）；官方路径 `splitOfficialTokens`（合计含子，主=合计−子，
-  clamp 防旧会话不一致），降级路径 `mergeTokenUsage`（主+子求和）。
-  前端「累计」独立胶囊列（弱化三级灰），子代理消耗 >0 时第二行显示
-  「主 Y · 子 Z」拆分；「占用 + 进度条」为另一独立胶囊（主色加强）。
-  影响范围：`packages/kernel/src/session-history.ts`（computeSessionUsage 拆分）、
-  `packages/kernel/src/agent-manager.ts`（getSessionStats）、
-  `packages/kernel/src/delegate-tool.ts`（toolResult 携带 usage）、
-  `packages/kernel/src/bridge-registry.ts`、`packages/kernel/src/wa-pi-bridge.extension.ts`
-  （usage 透传）、
-  `packages/kernel/src/ws-server.ts`（session:stats + splitOfficialTokens/mergeTokenUsage）、
-  `packages/kernel/src/routes/projects-sessions.ts`（REST stats 端点）、
-  `packages/shared/src/types.ts`、`packages/frontend/src/store/session.ts`、
-  `packages/frontend/src/components/SessionView.tsx`、
-  `packages/frontend/src/styles.css`、
-  `packages/kernel/tests/session-history.test.ts`、
-  `packages/kernel/tests/delegate-tool.test.ts`、
-  `packages/kernel/tests/ws-server-session-stats.test.ts`、
-  `packages/frontend/tests/SessionView.test.tsx`、
-  `packages/frontend/tests/store-session.test.ts`。
-
-## [Unreleased] - 2026-08-03
-
-### 变更
-
-- **智能体编辑弹窗与列表弹窗叠加显示**：在智能体宫格（列表）里点「编辑 / 新建」打开
-  编辑弹窗时，列表弹窗保持打开（编辑框盖在列表上，关闭编辑框后列表仍在），不再自动
-  关闭。用户可在列表与编辑弹窗间对照选择。侧边栏编辑入口与 ⌘K / `/agents` 命令打开
-  宫格也不再互相关闭。
-  影响范围：`packages/frontend/src/App.tsx`、
-  `packages/frontend/tests/App.test.tsx`（宫格新建 / 编辑用例改为断言列表保持打开）。
-
-- **系统设置默认显示「通用」tab**：`useSettingsStore` 的 `activeSection` 初始值从
-  `models` 改为 `general`。此前首次打开设置停在「模型管理」（历史遗留锚点），现在
-  默认展示通用区块（自动重试等基础配置）；模型管理仍需用户手动点击。
-  影响范围：`packages/frontend/src/store/settings.ts`、
-  `packages/frontend/tests/SettingsModal.test.tsx`（供应商相关用例先切到模型管理 tab）。
-
-### 修复
-
-- **历史直读感知上下文压缩（readSessionHistory 压缩感知）**：修复压缩后 token 累计不变、
-  历史列表不缩水的根因。pi 压缩是 append-only（compaction 节点后旧消息仍在 jsonl 链上），
-  wa-pi 直读 jsonl 时沿链回溯会把压缩前的全部消息带出（usage 全被累加）。现在
-  `readSessionHistory` 与 pi `buildContextEntries` 同语义：沿链找最新 compaction 节点，
-  被压缩的旧消息省略，只保留压缩摘要 + `firstKeptEntryId` 之后的消息 + 压缩后的新消息；
-  摘要转 `role:"compactionSummary"` 消息（对齐 pi `createCompactionSummaryMessage`），
-  前端 MessageList 居中系统提示渲染。修复后右上角「累计」只反映压缩后的实际 usage，
-  历史列表也正确收缩。
-  影响范围：`packages/kernel/src/session-history.ts`、
-  `packages/frontend/src/components/MessageList.tsx`、
-  `packages/kernel/tests/session-history.test.ts`、`packages/frontend/tests/MessageList.test.tsx`。
+- **委托提示词 v3 融合版定稿**：A/B 实测驱动，explore 88.9%、simple 0% 误派
+- **派发评测脚本扩容**：用例 30→60 条，新增 `--repeat N` 多轮采样
 
 ### 新增
 
-- **compaction_start / compaction_end 事件对接（前端）**：压缩过程现在有完整可见反馈——
-  压缩开始时在消息列表插入「正在压缩上下文…」状态消息，压缩结束后替换为结果
-  （`已压缩上下文：X → Y token（释放 Z）`，取消/失败显示对应文案）。`compaction_end`
-  成为 token 累计刷新的权威信号（不再依赖 agent_end 的 /compact 文本检测），自动压缩
-  （threshold/overflow）也顺带刷新 token 胶囊；`refreshTokenTotals` 整表覆盖时保留
-  本地 `compaction_status` 消息。kernel 压缩失败不再合成 `message_end` 错误（避免与
-  前端 compaction_end 失败文案重复，仅合成 agent_end 退出思考态）。
-  影响范围：`packages/shared/src/types.ts`（SDKEvent 补两个事件）、
-  `packages/frontend/src/store/session.ts`、`packages/frontend/tests/store-session.test.ts`。
+- **Mermaid 图表渲染**：mermaid 代码块渲染为可视化图表，支持缩放/拖拽/PNG 导出
+- **刷新页面后会话未还原进行中状态**：`setMessages` 自动检测未完成的 assistant 消息
+- **工具卡片展开/收起宽度跳变**：含过程卡片的列改为固定 `w-[78%]`
+- **Token 显示 6 项缺陷修复**：大小写/箭头方向/缓存/子 agent usage/全 0 跳过/存量无胶囊
+- **内置 pi-cache-optimizer**：Token/缓存显示，子 agent usage 累加
+- **首次打开存量会话慢（5-10s → ~0.3s）**：`session:messages` 改为直接解析 JSONL 文件
+- **高级项目经理 + 会议纪要专家角色**
+- **角色设置工具 Tab 一直加载中**：改为读 HTTP 响应体
+- **编辑角色时 SkillsTab 崩溃**：防御性 `skills ?? []`
+- **`get is not defined` 记忆/指令/配置加载失败**：补 `get` 参数
+- **归档记忆删除不掉**：entryId 做 `encodeURIComponent`
+- **指令文件扫描对齐 pi 框架**：候选文件名/祖先目录遍历/去重
+- **指令文件 Tab 无项目上下文时加载失败**：移除 `activeProjectId` 守卫
+
+---
+
+## 2026-07-26
+
+### 设计
+
+- **排队系统重构设计**：采用 pi 原生 `steer()` + HiAgent 本地列表管理
 
 ### 修复
 
-- **压缩上下文命令（/compact）真正生效**：修复 cmd:compact 从未触发压缩的根因。
-  wa-pi 以 `pi --mode rpc` 启动，而 pi 只在交互模式解析内置斜杠命令（RPC 模式的
-  `session.prompt()` 只处理扩展命令 / `/skill:` / prompt 模板），`/compact` 文本此前
-  被当作普通 user 消息发给 LLM，jsonl 从不重写、token 从不释放。现在 kernel 在
-  `agentManager._sendPromptNow` 拦截 `/compact` 前缀并显式转 `compact` RPC
-  （customInstructions 透传，超时放宽到 10 分钟），压缩完成/失败后合成
-  `agent_end`（前端退出思考态 + 触发 token 累计刷新）与 `agent_settled`
-  （drain 压缩期间排队的消息）。失败经 `message_end{stopReason:"error"}` 管线
-  红色渲染，不再静默。
-  影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/rpc-client.ts`
-  （command 支持 per-command timeoutMs）、`packages/kernel/tests/agent-manager.test.ts`、
-  `packages/kernel/tests/fixtures/fake-session-client.ts`。
+- **流式输出 fallback**：`message_update` 缺失 partial 时用 `event.message` 兜底
+- **SSE 事件帧修复**：帧格式从命名事件改为无名事件
+- **REST 响应体丢失**：8 个 store 的 `load()` 补上 `.then(data => set(...))`
+- **Composer 错误兜底**：失败时 `failTurn()` 复位 UI
 
-## [0.1.0] - 2026-08-03 · 初始化版本
+### 重构
 
-wa-pi 桌面应用首个发布版本，整合 2026-07-06 至 2026-08-03 的全部功能改动。
+- **阶段一卡顿修复**：kernel 端 50ms 节流 + 前端 rAF 合帧
+- **去 WS 化阶段二**：全量迁移到 HTTP REST + SSE
+- **去 WS 化测试迁移**：所有测试适配 HTTP fetch + SSE
 
-### 核心对话
+---
 
-- 消息流式渲染与自动滚动：rAF 合帧跟随、子代理回复跟随、工具卡片长文本自动滚动、流式期间卡顿优化（memo 化解析/高亮）。
-- 轮级折叠摘要行 + 整轮耗时显示（历史与实时渠道语义一致）。
-- 粘贴富文本只保留纯文本；输入框草稿按会话持久化（刷新/重启还原，发送后清除）。
-- 内置命令「压缩上下文」（cmd:compact）：压缩会话历史释放 token，支持自定义压缩指令（选中插入 /[compact] chip，发送展开为 /compact）；压缩回合结束后自动刷新 token 累计显示。
-- 点击会话不重排，仅折叠→展开时按最近活跃重排；会话列表时间实时刷新。
-- 切换会话模型不被重置（冷加载竞态修复）；会话标题自动补全（含引导消息、兜底空标题）；重发失败消息展示去重。
-- ask 提问：提交卡死修复 + double check 机制（失效提问标 stale 禁用提交）。
-- 错误提示优化：404 等确定性错误不再误判网络重试，HTML 错误页清洗为可读提示。
+## 2026-07-25
 
-### 多智能体
+### 新增
 
-- 内置 subagent（通用 / Explore / Plan）与命名智能体统一管理；model / 思考强度 override 持久化并在调用端（delegate / fleet spawn）生效。
-- 内置面板只读展示（仅 model / 思考强度可设置），文字正常色；工具 tab 正常加载工具列表；关系网 ask 协作（含文案更新）。
-- 委托 / 并行卡片：子代理回复流式输出、工具调用计数、计时本地推算不回跳、卡片可折叠、回复区 memo 防闪烁。
+- **智能体编辑窗口放大**：80vw × 80vh，禁用遮罩关闭
 
-### 文件与预览
+### 修复
 
-- 文件预览：代码（带行号）/ markdown / 图片；.md 渲染为 markdown 预览；不支持预览的文件提供「在系统查看文件」。
-- 预览窗口改为全局状态（不再随流式结束/折叠/组件卸载关闭）；markdown 排版统一（行高/内边距）；链接新标签打开 + 蓝色下划线。
+- **代码块内 markdown 表格逐格竖排**：CSS 作用域防护
+- **AI 回复中表格/列表行间距异常**：lineHeight 从 3.1 改为 1.55
 
-### 插件系统
+---
 
-- 插件命令级启停管理（弹窗逐条开关，/ 菜单只显示已开启命令）；TUI-only 命令改为 kernel 发送端拦截。
-- 命令弹窗加载态、移除 TUI 徽标；卸载 / 升级等待反馈（防重复点击）；动态插件操作后自动刷新技能列表。
-- 运行时依赖 seed 补全 patches（修复应用内卸载扩展失败）；web-search 默认 provider 改 anysearch；工具白名单清理。
+## 2026-07-25
 
-### 记忆
+### 修复
 
-- 记忆写入策略引导（full / compact / none 三档）；用户 / 项目记忆按策略主动写入；记忆写入冒烟评测脚本。
+- **动态扩展与 agent 目录双重加载**：动态包优先 runtimeRequire
+- **pi-mcp-adapter 升级 2.13.0**：bun patch 补 exports
+- **发送按钮因过期模型 prefs 置灰**：自愈逻辑按 id 兜底匹配
 
-### 桌面端
+---
 
-- macOS 产物稳定签名（修复重装后屏幕录制权限失效）；Windows 打包镜像固化 + 依赖收集修复。
-- GPU 硬件加速开启（修复 Electron 交互/滚动掉帧）；kernel 崩溃日志 + 自动重启；端口幽灵占用清理（防重启死循环）。
-- UI 字体 MiSans + 代码字体 JetBrains Mono；项目 MIT 开源许可落地。
+## 2026-07-24
 
-### 稳定性与工程
+### 修复
 
-- 各项竞态 / 超时 / 进程泄漏修复：bridge 空闲超时误杀（心跳帧）、delegate/fleet 超时、停止消息异常、子代理进程回收、hydration 竞态（草稿/附件/模型）、edit 卡片畸形参数渲染崩溃等。
-- E2E 隔离基础设施（固定隔离目录、REST 辅助层、串行执行）；四层测试全绿（kernel / shared / desktop / frontend）。
+- **角色提示词未注入系统提示词**：replace 模式正文替代默认 base
+- **主智能体不主动派发子代理**：恢复 Proactive Delegation / Fleet 两节
+- **FilePicker 搜索结果目录无法展开**：搜索态下 `listDir` 加载真实子目录
+- **DirTreePicker 搜索切换隐藏目录不触发**：补齐 `showHidden` 依赖
+- **工具调用卡弱化时机**：拿到 result 即弱化，不再区分成功/失败
+- **阻止加载 Pi 默认 skill 目录**：传 `--no-skills` + 显式 `--skill`
+- **聊天界面时间线渲染顺序**：按事件到达顺序交错渲染
+- **子代理无效模型导致进程崩溃**：校验 override model 格式
+- **pi-lens 双重加载 + 工具被过滤**：路径归属判定 + 白名单放行
+- **关系网 tab 开关样式**：改为统一 Switch 组件
+
+### 新增
+
+- **首启预置 7 个专家角色**：前端/后端/PM/测试分析师/数据分析师/代码审查/UX 设计师
+- **子代理派发遥测 + 评测脚本**：`subagent-telemetry.jsonl` + `eval-delegate-trigger.ts`
+- **聊天界面 cocode 显示模式对齐**：ProcessCard 体系 + 折叠/语法高亮/FilePill
+- **系统设置-技能页面优化**：搜索框 + 按钮 icon 化
+- **CoCode vs HiAgent 差异对比文档**
+
+### 变更
+
+- **移除 4 个旧默认角色**
+
+### 重构
+
+- **bridge 扩展静态化**：`tool-schemas.ts` 作为唯一真源
+- **delegate 工具描述移除硬编码内置类型名**
+
+---
+
+## 2026-07-23
+
+### 修复
+
+- **清理 kernel/tests 残留临时文件**
+- **frontend 测试套件 11 个既有失败**：zustand store 污染修复
+- **引导消息重复发送**：`_promptLocks` 只覆盖 `ensureStarted`
+
+### 新增
+
+- **RPC 迁移验收 E2E**
+- **bridge 扩展层**：pi RPC 子进程架构的宿主工具桥
+- **技能触发符支持 ¥**
+
+### 重构
+
+- **kernel 测试套件适配 pi RPC 子进程架构**：6 个测试文件重写
+- **kernel 从 pi SDK 内嵌迁移到 pi RPC 子进程架构**：`rpc-client.ts` + `agent-manager.ts` 重写
+
+---
+
+## 2026-07-22
+
+### 修复
+
+- **主智能体不主动调用子智能体**：提示词引导重构（OpenCode 式强制策略）
+- **按 R 重启端口冲突**：POSIX 递归杀整棵进程树
+- **同一回合文本被拆成多个气泡**：重写 `segmentBlocks`
+
+### 新增
+
+- **内置智能体设置支持保存 model 和思考强度**
+- **委派引导可配置化**：AgentConfig 新增 `delegationHints` 字段
+
+### 修复（测试基础设施）
+
+- **测试架构隔离**：kernel 不再被强加 happy-dom
+- **store-subagents 测试跨文件 mock 泄漏**
+- **SessionView 违反 React Hooks 规则**
+
+### 移除
+
+- **死字段 `partners.askFrom`**
+- **死字段 `inheritProjectContext`**
+
+---
+
+## 2026-07-21
+
+### 新增
+
+- **默认工作区虚拟项目**：常驻"🏠 默认工作区"（`id="__system__"`）
+- **系统提示词可配置化组装框架**：6 段拼装 + `prompts.json` 配置
+- **内置 subagent 类型（general-purpose / Explore / Plan）全链路**
+- **@ 智能体 chip 渲染 + 按钮选择器自适应**
+
+### 修复
+
+- **宫格弹窗左键内置 subagent 无效**：改为打开只读详情
+- **多行发送换行丢失**：contenteditable 块级元素转 `\n`
+- **内置 subagent 无 askTo 时无法调起**：始终注册 delegate/fleet 工具
+- **@ 内置 subagent 中文 token 识别失败**：token 改用英文 name
+
+### 设计
+
+- **知识库检索技术方案调研**
+- **@ 智能体语义改造 spec**
+
+---
+
+## 2026-07-20
+
+### 新增
+
+- **@ 候选菜单只显示 askTo 名单内**
+- **系统提示词加 @[agentName] 委托规则**
+- **askTo 非空时同时注册 fleet 工具**
+
+### 重构
+
+- **彻底移除 AgentConfig.name 字段**：displayName 成为唯一标识符
+- **Composer 发送路径不剥离 @[xxx]**
+
+### 修复
+
+- **历史消息中 @[智能体] 渲染为 chip**
+- **委托后刷新出现空气泡**：兼容 `role: "custom"` 判断
+
+---
+
+## 2026-07-19
+
+### 新增
+
+- **多智能体矩阵重写**：动态增删改查 + 关系网调起 + @/$/# 触发符 + DelegateCard
+- **新建会话页智能体选择器**：搜索下拉 + 默认选中最近使用
+
+---
+
+## 2026-07-17
+
+### 修复
+
+- **动态插件升级无反馈**：新增 upgrading 状态 + 进度推送
+- **未配置模型也能发送**：闸门改为验证模型真实存在
+- **agent 启动失败后会话卡"思考中"**：`failTurn()` 复位状态
+- **打包后 `modelRuntime.getModels` 报错**：改用包根动态 import
+- **Quick Invoke 菜单过窄**：加宽至 560px + 自动滚入视野
+- **quick-invoke E2E 全部不可用**：5 个既有缺陷修复
+
+### 新增
+
+- **@ 文件选择支持文件夹**：📁/📄 图标区分
+
+### 修复
+
+- **记忆页开关失效**：kernel 注入链路补消费点
+- **Plugin 技能描述显示为 "|"**：支持 YAML 块标量解析
+- **大文件上传超时**：`maxPayloadLength` 参数名修正 + WS 自动重连
+- **会话状态点永远显示"空闲"**：改用活的会话级状态
+- **业务校验错误崩掉 kernel 进程**：dispatch 边界加 try/catch
+
+---
+
+## 2026-07-16
+
+### 新增
+
+- **Quick Invoke 聊天栏快速调用**：@ 文件选择 + $ 技能选择 + contenteditable
+- **模型供应商预设快捷选择**：10 条主流预设
+
+### 修复
+
+- **新会话发送后白屏**：kernel 创建 session 后立即回传用户消息
+- **停止/队列按钮无响应**：session 注册时机提前
+- **会话列表时间不更新**：`message_end` 也调 `touchSession`
+
+### 变更
+
+- **思考过程合并 + 工具调用分组折叠**：两层折叠面板
+
+---
+
+## 2026-07-15
+
+### 重构
+
+- **MCP 连接器改用直连 MCP SDK**：连接测试/工具列举不再经 Pi agent session
+
+### 修复
+
+- **HTTP MCP 鉴权失败**：url 分支透传 headers
+- **已连接 MCP 仍保留连接测试按钮**
+
+### 新增
+
+- **切换 MCP 项目作用域后自动连接测试**
+- **MCP 编辑改为模态弹窗**
+- **MCP 查看工具加载过渡**
+
+---
+
+## 2026-07-14
+
+### 修复
+
+- **动态插件工具自动发现**：改为遍历扩展的 `.tools` Map
+- **SDK 自动发现冲突**：改用自有字段 `hiagent_packages`
+- **包管理器鲁棒性**：`process.execPath` 替代 `bun`、自动创建 package.json
+- **Dev 模式运行时包解析**：新增 `runtimeRequire` 兜底
+
+---
+
+## 2026-07-13
+
+### 新增
+
+- **动态插件系统**：安装/卸载/升级/启用/禁用 npm 插件
+
+### 重构
+
+- **桌面 shell 从 tray-binary 迁到 Electron**：为录音系统声音铺基座
+
+---
+
+## 2026-07-12
+
+### 重构
+
+- **桌面分发定为文件夹模型**：bun build 打包 kernel.js + node_modules
+- **前后端端口支持 `.env` 动态配置**
+
+### 新增
+
+- **ask_user_question 结构化澄清提问工具**
+- **agent 系统提示词注入执行环境信息**
+- **kernel 可导入 + 可选静态前端伺服**
+
+### 修复
+
+- **pi-lens 双重加载 + 工具白名单过滤**
+- **记忆页作用域选择器状态丢失**
+
+---
+
+## 2026-07-11
+
+### 重构
+
+- **FilePicker 手风琴展开 + 限定范围搜索**
+
+### 新增
+
+- **记忆管理**：集成 pi-hermes-memory，增删改查 + 指令文件加载
+
+---
+
+## 2026-07-10
+
+### 修复
+
+- **dev 脚本按 R 重启端口漂移**：`strictPort: true` 固守 5180
+
+### 新增
+
+- **grep/find/ls 与 web_search/fetch_content 工具**
+
+---
+
+## 2026-07-09
+
+### 新增
+
+- **Composer 重构**：胶囊输入 + per-session 偏好持久化 + 模型切换/思考强度/附件
+- **技能管理**：目录管理 + 启用/禁用 + 热生效
+- **系统设置页 + 模型供应商管理**
+- **DirTreePicker 搜索过滤**
+
+---
+
+## 2026-07-08
+
+### 新增
+
+- **Steer 消息队列控制**：followUp 排队 + 引导/立即/取消/清空
+- **项目列表右键菜单**：查看文件夹 + 删除项目
+
+### 重构
+
+- **Pi SDK 模式重构**：从 spawn RPC 子进程改为同进程 SDK 直连
+
+### 修复
+
+- **pi-intercom 打包为项目依赖**、**Composer 发送防抖**、**会话列表重复**、**首条消息丢失**、**多 session 共享进程问题**、**dev 端口清理**等多项
+
+---
+
+## 2026-07-07
+
+### 架构重构
+
+- **移除 Rust 窗口层**：bun 一键启动前后端，全 bun:test
+- **Pi 原生消息模型重构**：收敛到 Pi 富消息模型，删除 broker-proxy 旁路系统
+
+### 新增
+
+- **编排画布**：React Flow 4 agent 节点 + 连线
+- **会话列表交互**：右键菜单 + 删除确认
+- **多智能体委派**（后随消息模型重构废弃）
+
+### 修复
+
+- **消息流全链路打通**、**会话消息重复**、**E2E 白屏**等多项
+
+### 测试
+
+- **E2E 基础设施 + 7 spec**
+- **MVP 四层测试全绿**：kernel 47 + frontend 42 + E2E 4
+
+---
+
+## 2026-07-06
+
+### 新增
+
+- **前端数据层**：WS 客户端 + 4 个 Zustand store

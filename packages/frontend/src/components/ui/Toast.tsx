@@ -5,8 +5,9 @@ export function ToastContainer() {
 
   if (toasts.length === 0) return null;
 
+  // 顶部水平居中、向下 10vh（toast 3 秒自动消失 + 点击即关）
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2" style={{ maxWidth: 360 }}>
+    <div className="fixed left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2" style={{ top: "10vh", maxWidth: 360 }} data-testid="toast-container">
       {toasts.map(t => (
         <div
           key={t.id}

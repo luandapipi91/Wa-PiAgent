@@ -128,3 +128,24 @@ test("NpmPackageService.upgrade 把子进程输出按行流式回推", async () 
     rmSync(realDir, { recursive: true, force: true });
   }
 });
+
+// 回归：upgrade 必须用 `add <name>` 而非 `update <name>`。
+// bun 默认把精确版本写入 package.json，`update` 只在现有 semver 范围内重新解析，
+// 精确版本范围内只有自身 → exit 0 但版本不变（升级静默失败，与 install 用 add 不一致）。
+// 用脚本把收到的 args 打印到 stderr，断言第一个 arg 是 "add" 而非 "update"。
+test("NpmPackageService.upgrade 用 add 而非 update 强制解析最新版", async () => {
+  const realDir = mkdtempSync(join(tmpdir(), "npm-svc-"));
+  try {
+    // 打印 npmCommand 之后的第一个位置参数（即 add/update 子命令）
+    // bun -e <script> add demo → process.argv = [bun, "add", "demo"]
+    const script = "console.error(process.argv[1]);";
+    const svc = new NpmPackageService(realDir, { npmCommand: ["bun", "-e", script] });
+    const lines: string[] = [];
+    await expect(svc.upgrade("demo", (l) => lines.push(l))).rejects.toThrow();
+    // spawn 把 npmCommand + args 拼接，脚本里 process.argv[2] = 第一个 args（add/update）
+    expect(lines[0]).toBe("add");
+    expect(lines[0]).not.toBe("update");
+  } finally {
+    rmSync(realDir, { recursive: true, force: true });
+  }
+});

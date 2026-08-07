@@ -119,7 +119,7 @@ export interface SubagentInfo {
 	readOnly: boolean;
 	systemPrompt: string;
 	builtinToolNames: string[];
-	/** 委派引导：从 ~/.wa-pi/agents/*.md 的 frontmatter 提取，前端只读展示 */
+	/** 委派引导：从 ~/.pi/agent/agents/*.md 的 frontmatter 提取，前端只读展示 */
 	delegationHints?: DelegationHints;
 	override?: SubagentOverride;
 }
@@ -147,7 +147,7 @@ export interface SessionEntity {
 	title: string;
 	createdAt: number;
 	lastActivity: number;
-	piSessionFile: string; // SDK jsonl 文件路径 ~/.wa-pi/sessions/<id>.jsonl
+	piSessionFile: string; // SDK jsonl 文件路径 ~/.pi/agent/sessions/<id>.jsonl
 }
 
 // ===== Pi 原生消息类型（镜像 @mariozechner/pi-ai，避免运行时依赖）=====
@@ -768,6 +768,8 @@ export interface AgentCreatedEvent {
 export interface AgentDeletedEvent {
 	type: "agent:deleted";
 	name: string;
+	/** 被删除智能体的渠道引用计数（渠道服务未启用时缺省）：删除后这些机器人将降级用默认智能体 */
+	channelRefs?: { count: number; channelNames: string[] };
 }
 export interface AgentToolItem {
 	name: string;
@@ -787,6 +789,7 @@ export interface ErrorEvent {
 	message: string;
 	agentName?: AgentName;
 	sessionId?: string; // 真正出错的会话；前端据此精确路由，缺省回落 currentSessionId
+	status?: number; // REST 适配层（callApi）映射的 HTTP 状态码提示，缺省 400；如 Bot ID 冲突 → 409
 }
 // 模型 Provider 连接状态：网络类临时错误（Connection error / timeout 等）。
 // 与 SSE 推送通道的 ConnectionState 区分——后者是 kernel→前端通道，这是 kernel→provider。

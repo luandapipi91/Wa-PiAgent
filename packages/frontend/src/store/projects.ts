@@ -10,7 +10,7 @@ interface ProjectsState {
   currentProjectId: string | null;
   currentSessionId: string | null;
   dirPickerOpen: boolean;
-  load: () => void;
+  load: () => Promise<void>;
   setAll: (projects: ProjectEntity[], sessions: SessionEntity[]) => void;
   createProject: (name: string, cwd: string) => void;
   createProjectFromDir: () => void;
@@ -29,7 +29,7 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
   currentProjectId: null,
   currentSessionId: null,
   dirPickerOpen: false,
-  load: () => { api.get("/api/projects").then((data: any) => { if (data) set({ projects: data.projects ?? [], sessions: data.sessions ?? [] }); }).catch(() => {}); },
+  load: () => api.get("/api/projects").then((data: any) => { if (data) set({ projects: data.projects ?? [], sessions: data.sessions ?? [] }); }).catch(() => {}),
   setAll: (projects, sessions) => set(s => {
     // 当前选中的会话若已从列表中删除，则清空 currentSessionId，触发视图切换到新建会话页
     const stillExists = s.currentSessionId && sessions.some(x => x.id === s.currentSessionId);

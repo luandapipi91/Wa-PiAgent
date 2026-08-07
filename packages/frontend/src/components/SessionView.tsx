@@ -18,14 +18,11 @@ import { STATUS_COLORS } from "../theme/colors";
 import { AnsiText } from "./ui/AnsiText";
 import { api } from "../api-client";
 import { fmtTok } from "../util/format";
-import { sliceHistory } from "../util/slice-history";
 import { Icon } from "./ui/Icon";
 
 interface Props {
 	sessionId: string;
-	/** IM 会话历史条数上限：设置后只保留末尾 N 条（典型 100） */
-	maxHistory?: number;
-	/** 来源徽标文案（IM 接入会话显示，如「经『客服机器人』接入」） */
+	/** 来源文案（IM 接入会话显示，拼到 header 状态行末尾，如「经『客服机器人』接入」） */
 	sourceLabel?: string;
 }
 
@@ -36,7 +33,7 @@ const AGENT_STATE_LABEL: Record<AgentStatus, string> = {
 	blocked: "等待回复",
 };
 
-export function SessionView({ sessionId, maxHistory, sourceLabel }: Props) {
+export function SessionView({ sessionId, sourceLabel }: Props) {
 	const session = useProjectsStore((s) =>
 		s.sessions.find((x) => x.id === sessionId),
 	);
@@ -84,7 +81,7 @@ export function SessionView({ sessionId, maxHistory, sourceLabel }: Props) {
 					isActive: boolean;
 					thinkingSince: number | null;
 				};
-				useSessionStore.getState().setMessages(sessionId, sliceHistory(res.messages, maxHistory));
+				useSessionStore.getState().setMessages(sessionId, res.messages);
 				useSessionStore
 					.getState()
 					.seedTokenTotal(sessionId, res.messages, (statsRes as any)?.stats);
@@ -218,6 +215,7 @@ export function SessionView({ sessionId, maxHistory, sourceLabel }: Props) {
 								? "默认工作区 · 工作目录"
 								: (project?.cwd ?? "")}{" "}
 							· {AGENT_STATE_LABEL[headerStatus]}
+							{sourceLabel && ` · ${sourceLabel}`}
 						</div>
 					</div>
 					{/* Token 胶囊标签组 */}
@@ -291,17 +289,6 @@ export function SessionView({ sessionId, maxHistory, sourceLabel }: Props) {
 										</span>
 									);
 								})()}
-						</div>
-					)}
-					{/* IM 来源徽标 + 「仅显示最近 N 条」上限提示：仅 IM 接入会话显示 */}
-					{(sourceLabel || maxHistory) && (
-						<div className="flex items-center gap-2" data-testid="im-source-group">
-							{sourceLabel && (
-								<span className="token-capsule" data-testid="im-source-badge">{sourceLabel}</span>
-							)}
-							{maxHistory && (
-								<span className="token-capsule">仅显示最近 {maxHistory} 条</span>
-							)}
 						</div>
 					)}
 					{/* 文件树面板开关按钮 */}

@@ -8,7 +8,7 @@ import {
  * 启动时确保默认工作区虚拟项目存在（幂等）。
  *
  * - 若 projects.json 中无 SYSTEM_PROJECT_ID 记录 → 写入一条
- * - 始终确保 SYSTEM_PROJECT_CWD 根目录存在（~/.wa-pi/workdir）
+ * - 始终确保 SYSTEM_PROJECT_CWD 根目录存在（~/.pi/agent/workdir）
  *
  * 不抛错：失败仅 console.warn，不阻塞 kernel 启动。
  */

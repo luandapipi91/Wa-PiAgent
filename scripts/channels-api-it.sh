@@ -25,11 +25,11 @@ curl -s "$BASE/api/channels" > /tmp/ch-res.json
 grep -q '\*\*\*\*1234' /tmp/ch-res.json || fail "secret 应脱敏为 ****1234"
 grep -q "secret-1234\"" /tmp/ch-res.json && fail "明文 secret 泄漏"
 
-# 4) 重复 Bot ID → 400
+# 4) 重复 Bot ID → 409
 code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/channels" \
 	-H "Content-Type: application/json" \
 	-d '{"channel":{"type":"mock","name":"y","enabled":true,"credentials":{"botId":"b1","secret":"s"},"agentName":"","model":"p/m","extraSystemPrompt":"","replyGranularity":"simple"}}')
-[ "$code" = "400" ] || fail "重复 Bot ID 应返回 400，实际 $code"
+[ "$code" = "409" ] || fail "重复 Bot ID 应返回 409，实际 $code"
 
 # 5) 更新名称 → 200
 code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BASE/api/channels/$CH_ID" \

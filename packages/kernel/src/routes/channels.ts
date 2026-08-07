@@ -4,8 +4,8 @@
  * 将 /api/channels* REST 端点映射到原 channels:* WSClientEvent，
  * 经 callApi 适配器复用 ws-server.handle() 业务逻辑（ChannelManager 调用）。
  *
- * 状态码约定：路由层不设置状态码。callApi 对 handle() 最后一个 reply 为
- * {type:"error"} 的返回 HTTP 400（ChannelManager 抛错 → handle catch → reply error），
+ * 状态码约定：callApi 对 handle() 最后一个 reply 为 {type:"error"} 的返回 HTTP 400；
+ * reply 携带 status 字段时按其映射（Bot ID 冲突 ChannelConflictError → 409）。
  * 其余业务 reply 返回 200。与 routes/settings.ts 同模式。
  *
  * mock 端点（mock-inbound / mock-outbox）仅在 WA_PI_CHANNELS_MOCK=1 时注册，

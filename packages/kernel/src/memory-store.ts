@@ -4,7 +4,7 @@
 // - 记忆读写全部委托 amaster-memory（@amaster.ai/pi-memory host-controlled 包装层）：
 //   全局 <waPiDir>/memories/global，项目 <waPiDir>/projects-memory/<basename>。
 //   § 分隔格式由 amaster 单一维护，避免外部裸写触发 drift 检测。
-// - 归档使用 sidecar JSON（~/.wa-pi/memory-archive.json），wa-pi 自管，不进 amaster 文件。
+// - 归档使用 sidecar JSON（~/.pi/agent/memory-archive.json），wa-pi 自管，不进 amaster 文件。
 // - 记忆配置开关读写 hermes-memory-config.json。
 // - 指令文件仅扫描 AGENTS.md / CLAUDE.md（全局 + 项目 cwd）；记忆内容已由 memory tab
 //   展示、并由 AgentManager 注入系统提示词快照，不再作为指令文件重复注入。
