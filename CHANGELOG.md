@@ -40,6 +40,8 @@
   2. `AgentDropdown` 根节点补 `min-w-0 max-w-full`、pill 按钮补 `w-full`、警示文案补 `truncate`，使 pill 在窄行内可截断收缩；
   3. 下拉菜单新增视口钳制：展开后实测边界，左右任一侧超出可视区 8px 边距即用 `translateX` 平移回屏幕内，并加 `max-w-[calc(100vw-16px)]` 兜底。
   - 影响范围：`packages/frontend/src/components/ui/AgentDropdown.tsx`、`packages/frontend/src/components/NewSessionPane.tsx`、`packages/frontend/tests/AgentDropdown.test.tsx`。
+- **委托/工具/思考卡片长文本不再撑破卡片**：`ProcessCard` 基座 body 统一加 `overflow-wrap:anywhere`（可继承，覆盖所有过程卡），长无空格串（路径/base64/URL）任意位置断行；同时修复 `DelegateCard` 任务行 flex 子项因 min-content 不收缩导致的溢出。此前仅 markdown 正文气泡有换行兜底，卡片正文缺失。
+  - 影响范围：`packages/frontend/src/components/blocks/ProcessCard.tsx`、`packages/frontend/tests/ProcessCard.test.tsx`。
 - **统一「打开系统文件/目录」入口文案，按平台区分**：
   4 处入口文案此前各不相同（「在访达中显示」「在系统查看文件」「查看文件夹」「打开工作目录」），统一为同一句平台相关文案：Windows 显示「在资源管理器中打开」、macOS 显示「在访达中打开」、Linux/其他显示「在文件管理器中打开」。前端此前无平台检测能力，新增 `packages/frontend/src/util/platform.ts`（基于 `navigator.userAgent` 的纯前端客户端检测）。FileViewer unsupported 按钮补 `data-testid="fv-reveal"` 让 E2E 平台无关。后端逻辑（kernel spawn / REST / WS 端点）未改动。
   - 影响范围：`packages/frontend/src/util/platform.ts`（新）、`packages/frontend/src/components/{ExplorerPanel,ProjectItem}.tsx`、`packages/frontend/src/components/blocks/FileViewer.tsx`、`packages/frontend/tests/{platform,ExplorerPanel,FileViewer,ProjectItem.system}.test.tsx`、`packages/frontend/e2e/{explorer.spec,default-workspace.spec,global-setup}.ts`。
