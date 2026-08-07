@@ -57,11 +57,9 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
   addSession: (sess) => set(s => {
     // 去重：同 id session 已存在则忽略（kernel 可能重复广播 session:created）
     if (s.sessions.some(x => x.id === sess.id)) return s;
-    return {
-      sessions: [...s.sessions, sess],
-      currentSessionId: sess.id,
-      currentProjectId: sess.projectId,
-    };
+    // 只 append 到列表，不自动选中：IM 渠道被动创建的会话（session:created 广播）
+    // 不应抢占当前视图打扰用户；调用方需要选中时显式调 selectSession（NewSessionPane 已如此）。
+    return { sessions: [...s.sessions, sess] };
   }),
   selectProject: (id) => set({ currentProjectId: id }),
   selectSession: (id) => set(s => {

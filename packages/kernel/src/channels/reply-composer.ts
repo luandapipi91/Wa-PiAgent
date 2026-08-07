@@ -17,6 +17,20 @@ export function extractAssistantText(turnMessages: AgentMessage[]): string {
 	return parts.join("\n").trim();
 }
 
+/** 提取最后一条 assistant 消息的全部 text 块（跳过 thinking/toolCall）；无则返回空串 */
+function extractLastAssistantText(turnMessages: AgentMessage[]): string {
+	let last: AgentMessage | undefined;
+	for (let i = turnMessages.length - 1; i >= 0; i--) {
+		if (turnMessages[i].role === "assistant") { last = turnMessages[i]; break; }
+	}
+	if (!last) return "";
+	const parts: string[] = [];
+	for (const block of last.content as any[]) {
+		if (block.type === "text" && typeof block.text === "string") parts.push(block.text);
+	}
+	return parts.join("\n").trim();
+}
+
 /** 提取本轮 edit/write 工具调用的文件路径（去重、保序） */
 export function extractChangedFiles(turnMessages: AgentMessage[]): string[] {
 	const files: string[] = [];
@@ -42,6 +56,10 @@ export function composeReply(
 	granularity: ReplyGranularity,
 ): string {
 	const text = extractAssistantText(turnMessages);
+	if (granularity === "minimal") {
+		// 极简：只回最后一条 assistant 消息的全部文字（丢弃前面过程性消息）
+		return extractLastAssistantText(turnMessages);
+	}
 	if (granularity === "simple") return text;
 	const files = extractChangedFiles(turnMessages);
 	return files.length > 0 ? `${text}\n\n📄 修改：${files.join("、")}` : text;

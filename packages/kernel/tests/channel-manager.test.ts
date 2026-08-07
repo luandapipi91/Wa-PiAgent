@@ -257,6 +257,93 @@ test("listConversations：返回会话列表项（含预览与项目名）", asy
 	expect(convs[0].lastMessagePreview).toBe("你好呀");
 });
 
+test("/new 归档当前会话：历史会话仍在 IM tab 可见（listConversations 返回两条）", async () => {
+	await manager.create(channel);
+	// 第一条消息建立会话 A
+	adapter!.inject({ chatId: "u1", text: "第一次对话" });
+	await new Promise((r) => setTimeout(r, 50));
+	const firstSid = sessionsCreated[0].id;
+	// 让会话 A 在 projectStore 里可见（createSession mock 不回填 load，手动塞）
+	projectSessions.push({
+		id: firstSid,
+		projectId: "__system__",
+		primaryAgent: "前端开发者",
+		title: "IM · u1",
+		createdAt: 1000,
+		lastActivity: 1000,
+		piSessionFile: "",
+	});
+
+	// /new 归档会话 A（不进智能体，不新增 prompt）
+	broadcasted.length = 0;
+	const promptedBeforeNew = prompted.length;
+	adapter!.inject({ chatId: "u1", text: "/new" });
+	await new Promise((r) => setTimeout(r, 50));
+	expect(prompted).toHaveLength(promptedBeforeNew);
+	expect(adapter!.outbox.at(-1)!.text).toContain("新会话");
+	// 广播 channel-conversations:changed 让前端 IM 列表刷新
+	expect(broadcasted).toContain("channel-conversations:changed");
+
+	// 第二条消息建立会话 B（新的当前会话）
+	adapter!.inject({ chatId: "u1", text: "第二次对话" });
+	await new Promise((r) => setTimeout(r, 50));
+	const secondSid = sessionsCreated[1].id;
+	projectSessions.push({
+		id: secondSid,
+		projectId: "__system__",
+		primaryAgent: "前端开发者",
+		title: "IM · u1",
+		createdAt: 2000,
+		lastActivity: 2000,
+		piSessionFile: "",
+	});
+
+	// IM tab 列表应同时返回当前会话 B 和归档的历史会话 A
+	const convs = await manager.listConversations();
+	expect(convs).toHaveLength(2);
+	const sessionIds = convs.map((c) => c.sessionId);
+	expect(sessionIds).toContain(firstSid);
+	expect(sessionIds).toContain(secondSid);
+	// 当前会话 B 有预览；历史会话 A 预览为空
+	const histConv = convs.find((c) => c.sessionId === firstSid)!;
+	expect(histConv.lastMessagePreview).toBe("");
+	const curConv = convs.find((c) => c.sessionId === secondSid)!;
+	expect(curConv.lastMessagePreview).toBe("第二次对话");
+});
+
+test("onSessionDeleted：删除 IM 会话时联动清理映射（当前指针 + 历史归档）", async () => {
+	await manager.create(channel);
+	adapter!.inject({ chatId: "u1", text: "第一条" });
+	await new Promise((r) => setTimeout(r, 50));
+	const sid = sessionsCreated[0].id;
+	projectSessions.push({
+		id: sid, projectId: "__system__", primaryAgent: "dev",
+		title: "IM · u1", createdAt: 1, lastActivity: 1, piSessionFile: "",
+	});
+
+	// /new 归档
+	adapter!.inject({ chatId: "u1", text: "/new" });
+	await new Promise((r) => setTimeout(r, 50));
+
+	// 模拟前端删除该历史会话：onSessionDeleted 应清理 historySessionIds
+	broadcasted.length = 0;
+	await manager.onSessionDeleted(sid);
+	expect(broadcasted).toContain("channel-conversations:changed");
+
+	// 历史会话实体也被从 projectStore 移除（模拟 deleteSession）
+	projectSessions.splice(0, projectSessions.length);
+	// listConversations 不再返回已删除的历史会话
+	const convs = await manager.listConversations();
+	expect(convs.find((c) => c.sessionId === sid)).toBeUndefined();
+});
+
+test("onSessionDeleted：非 IM 会话在 mapping 里查不到 → no-op（不广播不落盘）", async () => {
+	await manager.create(channel);
+	broadcasted.length = 0;
+	await manager.onSessionDeleted("some-random-session-id");
+	expect(broadcasted).toHaveLength(0);
+});
+
 test("映射缓存的会话已被删除 → 兜底新建会话，不抛'会话不存在'", async () => {
 	await manager.create(channel);
 	// 第一条消息：建立映射 + 创建会话 A
@@ -370,6 +457,42 @@ test("流式多消息轮（工具调用）：第二条消息的流式帧含已�
 	const lastFrame = streamFrames.at(-1)!;
 	expect(lastFrame.text).toContain("正在修复");
 	expect(lastFrame.text).toContain("已修复");
+});
+
+test("极简回复（minimal）：禁用流式增量，终态帧只含最后一条 assistant 消息全文", async () => {
+	await manager.create({ ...channel, replyGranularity: "minimal", name: "极简机器人" });
+	adapter!.inject({ chatId: "u1", text: "总结一下" });
+	await new Promise((r) => setTimeout(r, 50));
+	const sid = prompted[0].sessionId;
+
+	// 过程性 text_delta 不应产生任何流式帧（minimal 禁流）
+	manager.onSessionEvent(sid, textDeltaEvent("我先检查一下。"));
+	await new Promise((r) => setTimeout(r, 20));
+	manager.onSessionEvent(sid, textDeltaEvent("修复完成。\n主要改动：\n- 改了 a.ts"));
+	await new Promise((r) => setTimeout(r, 20));
+	expect(adapter!.outbox.filter((m) => m.streamId)).toHaveLength(0);
+
+	// agent_settled 终态：一次性发最后一条 assistant 消息全文（丢弃过程消息）
+	messagesBySession[sid] = [
+		{ role: "user", content: [{ type: "text", text: "总结一下" }] },
+		{
+			role: "assistant",
+			content: [
+				{ type: "text", text: "我先检查一下。" },
+				{ type: "toolCall", id: "1", name: "edit", arguments: { path: "a.ts" } },
+			],
+		},
+		{
+			role: "assistant",
+			content: [{ type: "text", text: "修复完成。\n主要改动：\n- 改了 a.ts" }],
+		},
+	];
+	manager.onSessionEvent(sid, { type: "agent_settled" });
+	await new Promise((r) => setTimeout(r, 50));
+
+	const sent = adapter!.outbox.filter((m) => !m.streamId);
+	expect(sent.length).toBeGreaterThanOrEqual(1);
+	expect(sent.at(-1)!.text).toBe("修复完成。\n主要改动：\n- 改了 a.ts");
 });
 
 test("错误回合不走流式终结，走 sendText 新消息", async () => {

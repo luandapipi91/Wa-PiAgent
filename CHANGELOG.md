@@ -6,6 +6,49 @@
 
 ## 2026-08-07
 
+### 新增
+
+- **IM `/new` 命令保留历史会话 + IM tab 右键删除**：此前 `/new` 只删除"IM 对话→会话"的映射指针，
+  旧会话虽仍在磁盘但从 IM tab 消失、无法查看和删除。
+  - `/new` 改为归档当前会话（写入 `historySessionIds`）而非丢弃；旧会话继续在 IM tab 显示，
+    新会话作为当前活跃会话，同一 IM 对话下可有多条历史会话。
+  - `listConversations` 同时返回当前活跃会话与历史归档会话（实体已删则不显示）。
+  - IM tab 会话项新增右键菜单「删除聊天」，确认后走既有 `DELETE /api/sessions/:id`；
+    删除时联动清理 IM 映射（当前指针 + 历史归档）并广播刷新。
+  - 影响范围：`packages/kernel/src/channel-store.ts`（`ChannelSessionMapping` 增 `historySessionIds`）、
+    `packages/kernel/src/channel-manager.ts`（`/new` 归档、`listConversations` 返回历史、新增 `onSessionDeleted`）、
+    `packages/kernel/src/ws-server.ts`（`session:delete` 联动调用）、
+    `packages/frontend/src/components/ImConversationList.tsx`（右键菜单 + 删除确认）、对应测试。
+
+### 修复
+
+- **IM 消息自动弹出会话打扰工作**：企业微信发消息时，软件界面会自动切到 IM 会话视图，
+  打断用户当前工作。
+  - 根因：后端新建 IM 会话时广播 `session:created`，前端 `addSession` 无条件把新会话设为
+    `currentSessionId`，派生 view effect 检测到后自动 `setView("session")` 弹出。
+  - 修复：`addSession` 去掉自动设 `currentSessionId`/`currentProjectId` 的副作用，只 append。
+    需要选中会话的调用方（NewSessionPane 用户主动新建）已显式调 `selectSession`，不受影响。
+  - 影响范围：`packages/frontend/src/store/projects.ts`（addSession）、
+    `packages/frontend/tests/store-projects.test.ts`（回归测试）。
+
+### 新增
+
+- **机器人回复粒度新增「极简」选项**：在原有「标准(正文+文件变更)」「简洁(仅正文)」基础上，
+  增加 `minimal`（极简）——只把 Agent **最后一条 assistant 消息的全部文字**发给用户，
+  丢弃工具调用前的过程性消息（如「我先检查一下」），适合只关心最终结果的场景。
+  - 语义：「最后一条」= 一轮里按消息粒度取最后一条 role=assistant 的消息，拼接其全部 text 块；
+    该消息若含多行多段则全部保留。
+  - 流式行为：minimal 模式禁用流式增量推送（过程文字不实时显示），等 agent_settled
+    一次性发送最后一条 assistant 消息全文，避免过程文字先流式显示再被覆盖。
+  - 影响范围：`packages/shared/src/types.ts`（`ReplyGranularity` 扩展为
+    `"minimal" | "simple" | "standard"`）、
+    `packages/kernel/src/channels/reply-composer.ts`（`composeReply` 新增 minimal 分支 +
+    `extractLastAssistantText`）、
+    `packages/kernel/src/channel-manager.ts`（`streamUpdate` minimal 模式直接 return 禁流）、
+    `packages/kernel/src/channel-store.ts`（校验白名单）、
+    `packages/frontend/src/components/settings/BotsSection.tsx`（表单下拉新增选项）、
+    对应测试。
+
 ### 修复
 
 - **流式回复清空前序内容**：工具调用场景下，一轮产生多条 assistant 消息（文字→工具→文字），
