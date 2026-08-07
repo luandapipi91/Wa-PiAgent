@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-08-08
+
+### 变更
+
+- **引入 agency-agents-zh 中文角色智能体参考库（MIT，纯参考资料）**：
+  从 [jnMetaCode/agency-agents-zh](https://github.com/jnMetaCode/agency-agents-zh)（19k+ Stars）
+  下载完整仓库（main 分支 tarball，原文未改动）至 `docs/references/agency-agents-zh/`。
+  该库含 **268 个中文角色智能体**（带身份/规则/工作流/交付物的真 agent 定义，非单段提示词），
+  覆盖工程/设计/营销/产品/游戏/安全/GIS/金融等 19 个部门。许可证为 MIT（含原英文版与中文翻译双版权声明），
+  随附原始 `LICENSE`。**不接入运行时**（不并入 `DEFAULT_AGENT_SEEDS`、不写 `~/.wa-pi/agents/`、不接前端 UI）；
+  另生成 `README-INDEX.md`：完整智能体索引 + 与 hiagent 角色 `.md` 格式的字段映射对照
+  （`name→displayName` / `emoji→avatar` / 正文→`systemPromptBody` 等），便于将来评估接入。
+  影响范围：`docs/references/agency-agents-zh/`（整库 + 新增 `README-INDEX.md`，无运行时代码改动）。
+
+---
+
 ## 2026-08-07
 
 ### 修复
