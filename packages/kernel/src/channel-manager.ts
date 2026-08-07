@@ -55,13 +55,13 @@ export interface ChannelManagerDeps {
 export class ChannelManager {
 	private adapters = new Map<string, ChannelAdapter>();
 	private statuses = new Map<string, { status: ChannelStatus; detail?: string }>();
-	/** channelId:chatId → 最近一条进站帧（被动回复必须携带） */
+	/** channelId:chatId:fromUserId → 最近一条进站帧（被动回复必须携带） */
 	private lastFrames = new Map<string, unknown>();
 	/** sessionId → 回复基线（getMessages 下标），agent_end 后更新，避免排队回合重复回复 */
 	private replyBaseline = new Map<string, number>();
 	/** sessionId → 映射键，onSessionEvent 反查用 */
 	private sessionIndex = new Map<string, string>();
-	/** 流式回复状态：key（channelId:chatId）→ { streamId, 节流 timer, 最近发送时间, 挂起的最新文本 } */
+	/** 流式回复状态：key（channelId:chatId:fromUserId）→ { streamId, 节流 timer, 最近发送时间, 挂起的最新文本 } */
 	private activeStreams = new Map<string, { streamId: string; timer?: ReturnType<typeof setTimeout>; lastSendAt: number; pendingText?: string }>();
 	/** 流式节流最小间隔（ms）：避免每个 token 一次 WS 往返打爆企微 */
 	private static readonly STREAM_THROTTLE_MS = 500;
@@ -229,6 +229,7 @@ export class ChannelManager {
 					channelType: channel.type,
 					chatId: m.chatId,
 					chatType: m.chatType,
+					fromUserId: m.fromUserId ?? "",
 					sessionId,
 					projectId: m.currentProjectId,
 					projectName: project?.name ?? m.currentProjectId,
@@ -249,6 +250,7 @@ export class ChannelManager {
 					channelType: channel.type,
 					chatId: m.chatId,
 					chatType: m.chatType,
+					fromUserId: m.fromUserId ?? "",
 					sessionId: hid,
 					projectId: ses.projectId,
 					projectName: project?.name ?? ses.projectId,
@@ -355,9 +357,14 @@ export class ChannelManager {
 	}
 
 	/** mock 测试端点：注入进站消息 / 读取出站记录 */
-	mockInbound(channelId: string, chatId: string, text: string): void {
+	mockInbound(
+		channelId: string,
+		chatId: string,
+		text: string,
+		opts?: { fromUserId?: string; chatType?: "single" | "group" },
+	): void {
 		const a = this.adapters.get(channelId);
-		if (a instanceof MockAdapter) a.inject({ chatId, text });
+		if (a instanceof MockAdapter) a.inject({ chatId, text, ...opts });
 		else throw new Error("该渠道不是 mock 类型或未启用");
 	}
 	mockOutbox(channelId: string): { text: string }[] {
@@ -394,7 +401,7 @@ export class ChannelManager {
 		adapter: ChannelAdapter,
 		msg: InboundMessage,
 	): Promise<void> {
-		const key = `${channel.id}:${msg.chatId}`;
+		const key = `${channel.id}:${msg.chatId}:${msg.fromUserId}`;
 		this.lastFrames.set(key, msg.replyFrame);
 		const reply = async (text: string) => {
 			for (const chunk of chunkByBytes(text)) {
@@ -407,15 +414,22 @@ export class ChannelManager {
 			return;
 		}
 
-		// 找/建映射
+		// 找/建映射：群聊按「群+用户」匹配（同群不同用户各开独立会话）；单聊 fromUserId 恒等于 chatId。
+		// 旧群记录 fromUserId 为空串 → 不命中 → 自然为该用户新建 mapping（旧群会话仍可在 IM tab 右键删除）
 		const mappings = await loadChannelMappings(this.mappingsFile);
-		let mapping = mappings.find((m) => m.channelId === channel.id && m.chatId === msg.chatId);
+		let mapping = mappings.find(
+			(m) =>
+				m.channelId === channel.id &&
+				m.chatId === msg.chatId &&
+				m.fromUserId === msg.fromUserId,
+		);
 		const isNewMapping = !mapping;
 		if (!mapping) {
 			mapping = {
 				channelId: channel.id,
 				chatId: msg.chatId,
 				chatType: msg.chatType,
+				fromUserId: msg.fromUserId,
 				currentProjectId: SYSTEM_PROJECT_ID,
 				sessions: {},
 				lastMessagePreview: "",
@@ -581,7 +595,11 @@ export class ChannelManager {
 		const session = await this.deps.projectStore.createSession({
 			projectId: mapping.currentProjectId,
 			primaryAgent: agent.displayName,
-			title: `IM · ${mapping.chatId.slice(0, 12)}`,
+			// 群聊按「群+用户」隔离，标题带发送者；单聊 chatId 即 userid，标题不变
+			title:
+				mapping.chatType === "group"
+					? `IM · 群${mapping.chatId.slice(0, 8)} · ${mapping.fromUserId}`
+					: `IM · ${mapping.chatId.slice(0, 12)}`,
 			id: `im-${mapping.channelId}-${mapping.currentProjectId}-${createdAt}`,
 			createdAt,
 		});

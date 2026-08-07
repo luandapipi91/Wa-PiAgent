@@ -51,13 +51,13 @@ test("渲染会话项并点击回调 onSelectSession", () => {	useChannelsStore.
 		conversations: [
 			{
 				channelId: "ch_1", channelName: "客服机器人", channelType: "wecom",
-				chatId: "zhangsan", chatType: "single",
+				chatId: "zhangsan", chatType: "single", fromUserId: "zhangsan",
 				sessionId: "sess_1", projectId: "__system__", projectName: "默认工作区",
 				lastMessagePreview: "好的", updatedAt: Date.now(),
 			},
 			{
 				channelId: "ch_1", channelName: "客服机器人", channelType: "wecom",
-				chatId: "wr_abcdef123", chatType: "group",
+				chatId: "wr_abcdef123", chatType: "group", fromUserId: "lisi",
 				sessionId: "sess_2", projectId: "p1", projectName: "hiagent",
 				lastMessagePreview: "收到", updatedAt: Date.now() - 86_400_000,
 			},
@@ -65,9 +65,9 @@ test("渲染会话项并点击回调 onSelectSession", () => {	useChannelsStore.
 	});
 	const onSelect = mock();
 	render(<ImConversationList onSelectSession={onSelect} />);
-	// 单聊显示 userid；群聊显示 群聊(前8位)
+	// 单聊显示 userid；群聊显示 群聊(前8位) · 发送者（区分同群不同用户）
 	expect(screen.getByText("zhangsan")).toBeTruthy();
-	expect(screen.getByText("群聊(wr_abcde)")).toBeTruthy();
+	expect(screen.getByText("群聊(wr_abcde) · lisi")).toBeTruthy();
 	expect(screen.getByText(/hiagent/)).toBeTruthy();
 	fireEvent.click(screen.getByTestId("im-conv-sess_1"));
 	expect(onSelect).toHaveBeenCalledWith("sess_1");

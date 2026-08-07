@@ -517,12 +517,18 @@ export function App() {
 					/>
 				)}
 				{view === "session" && currentSessionId && (() => {
-					// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined
+					// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined。
+					// 群聊会话按「群+用户」隔离，文案追加群与发送者，便于在会话详情区分。
 					const imConv = conversations.find((c) => c.sessionId === currentSessionId);
+					const label = imConv
+						? imConv.chatType === "group"
+							? `经「${imConv.channelName}」接入 · 群${imConv.chatId.slice(0, 8)} · ${imConv.fromUserId}`
+							: `经「${imConv.channelName}」接入`
+						: undefined;
 					return (
 						<SessionView
 							sessionId={currentSessionId}
-							sourceLabel={imConv ? `经「${imConv.channelName}」接入` : undefined}
+							sourceLabel={label}
 						/>
 					);
 				})()}

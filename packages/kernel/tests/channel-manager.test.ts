@@ -311,6 +311,45 @@ test("/new 归档当前会话：历史会话仍在 IM tab 可见（listConversat
 	expect(curConv.lastMessagePreview).toBe("第二次对话");
 });
 
+test("群聊隔离：同群不同用户 → 各自独立 mapping/会话；listConversations 可区分", async () => {
+	await manager.create(channel);
+	// 同一群 g1，用户 A 发消息
+	adapter!.inject({ chatId: "g1", fromUserId: "userA", chatType: "group", text: "A 的消息" });
+	await new Promise((r) => setTimeout(r, 50));
+	// 同一群 g1，用户 B 发消息
+	adapter!.inject({ chatId: "g1", fromUserId: "userB", chatType: "group", text: "B 的消息" });
+	await new Promise((r) => setTimeout(r, 50));
+
+	// 两个用户各建了一个独立会话（而非群维度共享一个）
+	expect(sessionsCreated).toHaveLength(2);
+	expect(sessionsCreated[0].id).not.toBe(sessionsCreated[1].id);
+	// 群聊会话标题带发送者（区分不同用户）
+	expect(sessionsCreated[0].title).toContain("userA");
+	expect(sessionsCreated[1].title).toContain("userB");
+
+	// listConversations 返回两条，fromUserId 各异、标题可区分
+	const convs = await manager.listConversations();
+	expect(convs).toHaveLength(2);
+	const userIds = convs.map((c) => c.fromUserId).sort();
+	expect(userIds).toEqual(["userA", "userB"]);
+});
+
+test("群聊隔离：同群同用户复用同一会话（不重复建会话）", async () => {
+	await manager.create(channel);
+	adapter!.inject({ chatId: "g1", fromUserId: "userA", chatType: "group", text: "第一条" });
+	await new Promise((r) => setTimeout(r, 50));
+	// 让首次建立的会话在 projectStore 可见（mock createSession 不回填 load，手动塞）
+	const sid = sessionsCreated[0].id;
+	projectSessions.push({
+		id: sid, projectId: "__system__", primaryAgent: "前端开发者",
+		title: sessionsCreated[0].title, createdAt: 1, lastActivity: 1, piSessionFile: "",
+	});
+	adapter!.inject({ chatId: "g1", fromUserId: "userA", chatType: "group", text: "第二条" });
+	await new Promise((r) => setTimeout(r, 50));
+	// 同群同用户 → 复用会话，只建一个
+	expect(sessionsCreated).toHaveLength(1);
+});
+
 test("onSessionDeleted：删除 IM 会话时联动清理映射（当前指针 + 历史归档）", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "第一条" });

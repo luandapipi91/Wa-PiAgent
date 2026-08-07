@@ -546,6 +546,8 @@ export interface ChannelConversationInfo {
 	channelType: ChannelType;
 	chatId: string;
 	chatType: "single" | "group";
+	/** 群聊下发送者 userid（群+用户隔离维度）；单聊下等于 chatId */
+	fromUserId: string;
 	sessionId: string;
 	projectId: string;
 	projectName: string;

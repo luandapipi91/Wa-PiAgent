@@ -2286,6 +2286,10 @@ export class WSServer {
 					(event as any).id,
 					(event as any).chatId,
 					(event as any).text,
+					{
+						fromUserId: (event as any).fromUserId,
+						chatType: (event as any).chatType,
+					},
 				);
 				reply({ type: "ok" } as any);
 				break;
