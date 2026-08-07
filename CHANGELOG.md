@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **新增初始化向导（Onboarding Wizard）设计文档**：
+  `docs/superpowers/specs/2026-08-07-onboarding-wizard-design.md`（状态：已确认）。针对首次启动无模型时的硬性阻塞点，设计 2 步初始化向导：①配置模型（复用供应商表单）→ ②设置默认智能体（新建或从 agency-agents-zh 预设库选）。文档含触发时机、步骤流程、关键决策与字段映射。
+  影响范围：`docs/superpowers/specs/`（纯设计文档，无运行时代码改动）。
 - **引入 agency-agents-zh 中文角色智能体参考库（MIT，纯参考资料）**：
   从 [jnMetaCode/agency-agents-zh](https://github.com/jnMetaCode/agency-agents-zh)（19k+ Stars）
   下载完整仓库（main 分支 tarball，原文未改动）至 `docs/references/agency-agents-zh/`。
