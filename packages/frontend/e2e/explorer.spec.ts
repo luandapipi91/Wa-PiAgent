@@ -105,7 +105,7 @@ test.describe
 			).toHaveCount(0);
 		});
 
-		test("双击不支持预览的文件：显示「在系统查看文件」按钮", async ({
+		test("双击不支持预览的文件：显示在文件管理器中打开按钮", async ({
 			page,
 		}) => {
 			test.setTimeout(60_000);
@@ -130,15 +130,16 @@ test.describe
 			await expect(zipNode).toBeVisible({ timeout: 5000 });
 			await zipNode.dblclick();
 
-			// unsupported 占位 + 「在系统查看文件」按钮（点击行为由组件测试覆盖，避免 E2E 真实弹出资源管理器）
+			// unsupported 占位 + 「在文件管理器中打开」按钮（点击行为由组件测试覆盖，避免 E2E 真实弹出资源管理器）
 			await expect(page.getByTestId("fv-unsupported")).toBeVisible({
 				timeout: 5000,
 			});
 			await expect(page.getByTestId("fv-unsupported")).toContainText(
 				"不支持预览该文件",
 			);
+			// 按钮文案随平台变化，用 testId 定位避免绑定具体文案
 			await expect(
-				page.getByRole("button", { name: "在系统查看文件" }),
+				page.getByTestId("fv-reveal"),
 			).toBeVisible({ timeout: 5000 });
 		});
 	});

@@ -66,7 +66,7 @@ test("unsupported 文件：显示不支持占位", async () => {
 	);
 });
 
-test("unsupported 文件：显示「在系统查看文件」按钮，点击调用 revealFile", async () => {
+test("unsupported 文件：显示在文件管理器中打开按钮，点击调用 revealFile", async () => {
 	fake.setResponse("fs:readFile", {
 		type: "fs:unsupported",
 		reason: "不支持的文件类型: application/zip",
@@ -78,7 +78,9 @@ test("unsupported 文件：显示「在系统查看文件」按钮，点击调�
 		),
 	);
 
-	const btn = screen.getByRole("button", { name: "在系统查看文件" });
+	// 按钮文案随平台变化（测试环境 happy-dom UA 含 Win → 在资源管理器中打开）；
+	// 用 testId 定位避免绑定具体平台文案
+	const btn = screen.getByTestId("fv-reveal");
 	// 深色文字变体：带 fv-btn-accent 类（区别于灰「关闭」按钮）
 	expect(btn.className).toContain("fv-btn-accent");
 	fireEvent.click(btn);
