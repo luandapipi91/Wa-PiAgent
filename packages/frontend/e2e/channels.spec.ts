@@ -247,6 +247,58 @@ test.describe.serial("IM 渠道机器人", () => {
 		}, 10_000);
 	});
 
+	test("群聊隔离：同群不同用户 → IM 列表出现两个独立会话，标题可区分", async ({
+		page,
+	}) => {
+		// 假 provider 的连接失败会走内核自动重试，留足超时
+		test.setTimeout(120_000);
+		await page.goto("/");
+		// 建独立的 mock 渠道（与上一用例隔离），用 group 类型 + 显式 fromUserId
+		const res = await page.request.post(`${KERNEL}/api/channels`, {
+			data: {
+				channel: {
+					type: "mock",
+					name: "E2E-Group",
+					enabled: true,
+					credentials: { botId: "mock-g", secret: "mock-s" },
+					agentName: "dev",
+					model: null,
+					extraSystemPrompt: "",
+					replyGranularity: "standard",
+				},
+			},
+		});
+		expect(res.ok()).toBeTruthy();
+		const groupChannelId = ((await res.json()) as any).channels[0].id;
+
+		// 同一群 roomA，用户 alice 发消息
+		await page.request.post(`${KERNEL}/api/channels/${groupChannelId}/mock-inbound`, {
+			data: { chatId: "roomA", fromUserId: "alice", chatType: "group", text: "你好" },
+		});
+		// 同一群 roomA，用户 bob 发消息
+		await page.request.post(`${KERNEL}/api/channels/${groupChannelId}/mock-inbound`, {
+			data: { chatId: "roomA", fromUserId: "bob", chatType: "group", text: "在吗" },
+		});
+		// 等两条进站消息各自的回复入 outbox（假 provider 下回复为错误提示，链路通即可）
+		await pollUntil(async () => {
+			const r = await page.request.get(
+				`${KERNEL}/api/channels/${groupChannelId}/mock-outbox`,
+			);
+			const body = (await r.json()) as any;
+			return body.messages?.length >= 2 ? body : null;
+		}, 90_000);
+
+		// 侧边栏 IM 页签：同群两个用户应出现两个独立会话，标题含发送者可区分
+		await page.getByTestId("sidebar-tab-im").click();
+		await expect(page.getByTestId("im-conv-list")).toBeVisible({ timeout: 5000 });
+		// 群聊标题格式「群聊(roomA前8位) · 发送者」——两个用户各自一项
+		await expect(page.getByText("群聊(roomA) · alice")).toBeVisible({ timeout: 5000 });
+		await expect(page.getByText("群聊(roomA) · bob")).toBeVisible({ timeout: 5000 });
+
+		// 清理本用例渠道
+		await page.request.delete(`${KERNEL}/api/channels/${groupChannelId}`);
+	});
+
 	test.afterAll(async ({ request }) => {
 		if (channelId) await request.delete(`${KERNEL}/api/channels/${channelId}`);
 		rmSync(join(tmpdir(), "wa-pi-e2e-channels-skill"), { recursive: true, force: true });

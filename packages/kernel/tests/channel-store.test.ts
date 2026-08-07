@@ -79,6 +79,7 @@ test("mappings：保存/读取往返一致", async () => {
 		channelId: "ch_1",
 		chatId: "wr_xxx",
 		chatType: "group",
+		fromUserId: "u_group",
 		currentProjectId: "__system__",
 		sessions: { __system__: "sess_1" },
 		lastMessagePreview: "你好",
@@ -87,6 +88,66 @@ test("mappings：保存/读取往返一致", async () => {
 	await saveChannelMappings([m], mappingsFile);
 	expect(await loadChannelMappings(mappingsFile)).toEqual([m]);
 	expect(await loadChannelMappings(join(dir, "nonexistent.json"))).toEqual([]);
+});
+
+test("migrations：schemaVersion<2 → 单聊补 fromUserId=chatId、群聊留空、升版写盘", async () => {
+	// 模拟旧版 channel-sessions.json：schemaVersion=1、mapping 无 fromUserId
+	const oldData = {
+		schemaVersion: 1,
+		mappings: [
+			{
+				channelId: "ch_1",
+				chatId: "zhangsan", // 单聊：chatId 即 userid
+				chatType: "single",
+				currentProjectId: "__system__",
+				sessions: { __system__: "sess_single" },
+				lastMessagePreview: "hi",
+				updatedAt: 1,
+			},
+			{
+				channelId: "ch_1",
+				chatId: "wr_group123", // 群聊：旧记录不续接
+				chatType: "group",
+				currentProjectId: "__system__",
+				sessions: { __system__: "sess_group_old" },
+				lastMessagePreview: "hello",
+				updatedAt: 2,
+			},
+		],
+	};
+	await writeFile(mappingsFile, JSON.stringify(oldData), "utf8");
+	const loaded = await loadChannelMappings(mappingsFile);
+	// 单聊 fromUserId = chatId（无损）
+	expect(loaded[0].fromUserId).toBe("zhangsan");
+	// 群聊 fromUserId 留空（不再续接）
+	expect(loaded[1].fromUserId).toBe("");
+	// 写盘升版到 2，重复 load 不再触发迁移
+	const onDisk = JSON.parse(await readFile(mappingsFile, "utf8"));
+	expect(onDisk.schemaVersion).toBe(2);
+});
+
+test("migrations：schemaVersion>=2 不重复迁移", async () => {
+	const newData = {
+		schemaVersion: 2,
+		mappings: [
+			{
+				channelId: "ch_1",
+				chatId: "u1",
+				chatType: "single",
+				fromUserId: "u1",
+				currentProjectId: "__system__",
+				sessions: {},
+				lastMessagePreview: "",
+				updatedAt: 1,
+			},
+		],
+	};
+	await writeFile(mappingsFile, JSON.stringify(newData), "utf8");
+	const before = await readFile(mappingsFile, "utf8");
+	await loadChannelMappings(mappingsFile);
+	const after = await readFile(mappingsFile, "utf8");
+	// 已是新版本，不写盘（内容不变）
+	expect(after).toBe(before);
 });
 
 test("loadChannels: 旧数据（无 defaultProjectId/allowProjectSwitch）读取兜底", async () => {

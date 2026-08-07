@@ -10,9 +10,11 @@ interface Props {
 	onSelectSession: (id: string) => void;
 }
 
-/** 列表项标题：单聊显示 userid；群聊显示 群聊(chatId 前8位)（v1 拿不到用户昵称） */
+/** 列表项标题：单聊显示 userid；群聊显示 群聊(chatId 前8位) · 发送者（v1 拿不到用户昵称，用 userid 区分） */
 function titleOf(c: ChannelConversationInfo): string {
-	return c.chatType === "group" ? `群聊(${c.chatId.slice(0, 8)})` : c.chatId;
+	return c.chatType === "group"
+		? `群聊(${c.chatId.slice(0, 8)}) · ${c.fromUserId}`
+		: c.chatId;
 }
 
 function timeOf(ts: number): string {

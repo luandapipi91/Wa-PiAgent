@@ -8,6 +8,25 @@
 
 ### 新增
 
+- **企微群聊会话从「群维度」改「群+用户维度」隔离**：此前同一群里所有用户共享一个会话（A 的上下文 B 可见）；
+  现改为同群每个用户各开独立会话（key 从 `channelId:chatId` 升级为 `channelId:chatId:fromUserId`），
+  A/B 上下文互不可见，且修复了同群多用户并发流式回复串帧的潜在 bug。
+  - 数据结构：`ChannelSessionMapping` 增 `fromUserId`；`ChannelConversationInfo` 增 `fromUserId`。
+  - 迁移：`loadChannelMappings` 一次性升级 `schemaVersion` 1→2，单聊无损补 `fromUserId=chatId`，
+    群聊旧记录保留在 IM 列表但不再续接（该群用户下次发消息按新维度新建），可右键删除。
+  - UI：IM 列表群聊会话标题改为「群聊(群id前8位) · 发送者userid」；会话详情来源文案追加群与发送者。
+  - mock 链路：`mockInbound` / `ws-server` / `routes/channels` 透传 `fromUserId`/`chatType`，E2E 可验证群隔离。
+  - 影响范围：`packages/shared/src/types.ts`、`packages/kernel/src/channel-store.ts`（迁移）、
+    `packages/kernel/src/channel-manager.ts`（key/find/title/listConversations/mockInbound）、
+    `packages/kernel/src/ws-server.ts`、`packages/kernel/src/routes/channels.ts`、
+    `packages/frontend/src/components/ImConversationList.tsx`、`packages/frontend/src/App.tsx`、对应测试。
+
+---
+
+## 2026-08-07
+
+### 新增
+
 - **IM `/new` 命令保留历史会话 + IM tab 右键删除**：此前 `/new` 只删除"IM 对话→会话"的映射指针，
   旧会话虽仍在磁盘但从 IM tab 消失、无法查看和删除。
   - `/new` 改为归档当前会话（写入 `historySessionIds`）而非丢弃；旧会话继续在 IM tab 显示，

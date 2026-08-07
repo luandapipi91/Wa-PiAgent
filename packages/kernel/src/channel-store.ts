@@ -7,11 +7,16 @@ import {
 	type ChannelConfig,
 } from "@wa-pi/shared";
 
-/** IM 会话映射：一个 IM 对话（channelId+chatId）在每个项目下对应一个稳定 hiagent 会话 */
+/**
+ * IM 会话映射：一个 IM 对话（channelId+chatId+fromUserId）在每个项目下对应一个稳定 hiagent 会话。
+ * 群聊按「群+用户」隔离（同群不同用户各开独立会话），单聊 fromUserId 恒等于 chatId。
+ */
 export interface ChannelSessionMapping {
 	channelId: string;
 	chatId: string;
 	chatType: "single" | "group";
+	/** 群聊下发送者 userid（隔离维度）；单聊下等于 chatId。旧数据迁移时单聊补 = chatId，群聊留空 */
+	fromUserId?: string;
 	/** /use 指令切换；默认 __system__（默认工作区） */
 	currentProjectId: string;
 	/** projectId → sessionId */
@@ -58,15 +63,33 @@ export async function saveChannels(
 export async function loadChannelMappings(
 	file: string = CHANNEL_SESSIONS_FILE,
 ): Promise<ChannelSessionMapping[]> {
-	const raw = await readJson<{ mappings?: ChannelSessionMapping[] }>(file, {});
-	return Array.isArray(raw.mappings) ? raw.mappings : [];
+	const raw = await readJson<{
+		mappings?: ChannelSessionMapping[];
+		schemaVersion?: number;
+	}>(file, {});
+	const mappings = Array.isArray(raw.mappings) ? raw.mappings : [];
+	// schemaVersion<2 迁移：旧 mapping 无 fromUserId 字段。
+	// 单聊 fromUserId 恒等于 chatId → 无损补齐；群聊 fromUserId 留空（旧群记录不再续接，
+	// 该群用户下次发消息按新维度新建 mapping，旧群会话仍可在 IM tab 右键删除）。
+	if ((raw.schemaVersion ?? 1) < 2) {
+		let changed = false;
+		for (const m of mappings) {
+			if (m.fromUserId === undefined) {
+				m.fromUserId = m.chatType === "group" ? "" : m.chatId;
+				changed = true;
+			}
+		}
+		// 升版写盘防重复迁移；无 mapping 或已就绪则不写
+		if (changed) await saveChannelMappings(mappings, file);
+	}
+	return mappings;
 }
 
 export async function saveChannelMappings(
 	mappings: ChannelSessionMapping[],
 	file: string = CHANNEL_SESSIONS_FILE,
 ): Promise<void> {
-	await writeJson(file, { schemaVersion: 1, mappings });
+	await writeJson(file, { schemaVersion: 2, mappings });
 }
 
 const VALID_TYPES = new Set(["wecom", "wechat", "feishu", "qq", "mock"]);

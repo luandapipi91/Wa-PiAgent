@@ -52,6 +52,8 @@ export const registerChannelRoutes: RouteRegistrar = (r, callApi) => {
 				id: p.id,
 				chatId: b.chatId,
 				text: b.text,
+				fromUserId: b.fromUserId,
+				chatType: b.chatType,
 			} as any);
 		});
 		r.add("GET", "/api/channels/:id/mock-outbox", async (_req, p) =>
