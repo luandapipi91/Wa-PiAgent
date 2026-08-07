@@ -100,13 +100,26 @@ export class WecomAdapter implements ChannelAdapter {
 		this.client.disconnect();
 	}
 
-	/** 一次性 markdown 回复 = 流式回复直接 finish（企微被动回复不支持纯 text） */
+	/** 一次性 markdown 回复 = 流式回复直接 finish（企微被动回复不支持纯 text）。
+	 *  每次生成新 streamId + finish=true，用于错误回复、非流式兜底。 */
 	async sendText(replyFrame: unknown, markdown: string): Promise<void> {
 		await this.client.replyStream(
 			replyFrame as WsFrame,
 			generateReqId("stream"),
 			markdown,
 			true,
+		);
+	}
+
+	/** 流式增量回复：同 streamId 复用更新同一条消息。
+	 *  用 replyStreamNonBlocking：上一帧 ack 未返回时中间帧自动 skip（返回 'skipped'），
+	 *  避免 token 生成快于企微 ack 时中间帧排队积压。 */
+	async streamReply(replyFrame: unknown, streamId: string, content: string, finish: boolean): Promise<void> {
+		await this.client.replyStreamNonBlocking(
+			replyFrame as WsFrame,
+			streamId,
+			content,
+			finish,
 		);
 	}
 

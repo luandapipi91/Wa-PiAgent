@@ -25,7 +25,7 @@ import {
 	type ChannelSessionMapping,
 } from "./channel-store";
 import { parseCommand } from "./channels/commands";
-import { chunkByBytes, composeReply } from "./channels/reply-composer";
+import { chunkByBytes, composeReply, extractAssistantText } from "./channels/reply-composer";
 import type { ChannelAdapter, InboundMessage } from "./channels/types";
 import { MockAdapter } from "./channels/mock-adapter";
 import { expandSkillTokens } from "./channels/skill-expand";
@@ -61,6 +61,10 @@ export class ChannelManager {
 	private replyBaseline = new Map<string, number>();
 	/** sessionId → 映射键，onSessionEvent 反查用 */
 	private sessionIndex = new Map<string, string>();
+	/** 流式回复状态：key（channelId:chatId）→ { streamId, 节流 timer, 最近发送时间, 挂起的最新文本 } */
+	private activeStreams = new Map<string, { streamId: string; timer?: ReturnType<typeof setTimeout>; lastSendAt: number; pendingText?: string }>();
+	/** 流式节流最小间隔（ms）：避免每个 token 一次 WS 往返打爆企微 */
+	private static readonly STREAM_THROTTLE_MS = 500;
 	private factories: Partial<Record<ChannelType, AdapterFactory>>;
 
 	constructor(private deps: ChannelManagerDeps) {
@@ -211,14 +215,91 @@ export class ChannelManager {
 
 	/** 由 index.ts 的 AgentManager onEvent 挂钩（throttle 之前调用，agent_settled 不可被节流丢弃） */
 	onSessionEvent(sessionId: string, event: { type: string; [k: string]: any }): void {
+		const key = this.sessionIndex.get(sessionId);
+		if (!key) return; // 非渠道会话
+
+		// 流式增量：message_update（含 text_delta）→ 节流推送累计文本
+		if (event.type === "message_update") {
+			void this.streamUpdate(sessionId, key, event).catch((e) =>
+				console.warn("[channel-manager] 流式推送失败:", e),
+			);
+			return;
+		}
+
 		// 用 agent_settled 而非 agent_end：pi 自动重试期间每次失败尝试都会发 agent_end，
 		// 按 agent_end 回复会让 IM 用户收到多条重复错误回复；agent_settled 一轮只发一次（终态）
 		if (event.type !== "agent_settled") return;
-		const key = this.sessionIndex.get(sessionId);
-		if (!key) return; // 非渠道会话
 		void this.replyTurn(sessionId, key, event).catch((e) =>
 			console.warn("[channel-manager] 回复失败:", e),
 		);
+	}
+
+	/** 流式增量推送：本轮已落地 assistant 文本 + 当前 partial 文本，节流后经适配器 streamReply 发送。
+	 *  适配器不支持 streamReply 时静默（终态 agent_settled 兜底整轮发送）。 */
+	private async streamUpdate(sessionId: string, key: string, event: { [k: string]: any }): Promise<void> {
+		const sep = key.indexOf(":");
+		const channelId = key.slice(0, sep);
+		const adapter = this.adapters.get(channelId);
+		const frame = this.lastFrames.get(key);
+		if (!adapter || !frame || !adapter.streamReply) return;
+
+		// 仅 text_delta 触发流式（工具调用阶段无 text_delta，消息自然停在上一段末尾）
+		const ae = event.assistantMessageEvent;
+		if (!ae || ae.type !== "text_delta") return;
+
+		// 累计文本 = 本轮已落地的 assistant 消息文本 + 当前正在生成的 partial 文本。
+		// 一轮里有多条 assistant 消息（工具调用导致）：第二条 partial 只含自己文本，
+		// 不拼已落地历史会让企微流式消息（整体替换）"清空"前一条的内容。
+		const baseline = this.replyBaseline.get(sessionId) ?? 0;
+		const settled = this.deps.agentManager.getMessages(sessionId).slice(baseline);
+		const settledText = extractAssistantText(settled);
+		const partialText = extractAssistantText([ae.partial]);
+		const text = [settledText, partialText].filter(Boolean).join("\n");
+		if (!text) return;
+
+		// 节流：距上次发送不足间隔则延迟到间隔后发最新文本（取最新丢中间，避免 token 风暴）
+		let stream = this.activeStreams.get(key);
+		if (!stream) {
+			stream = { streamId: randomUUID(), lastSendAt: 0 };
+			this.activeStreams.set(key, stream);
+		}
+		const now = Date.now();
+		const elapsed = now - stream.lastSendAt;
+		// 已有挂起的节流：只更新 pendingText，timer 触发时发最新的（不每个 delta 都发）
+		if (stream.timer) {
+			stream.pendingText = text;
+			return;
+		}
+		if (elapsed < ChannelManager.STREAM_THROTTLE_MS) {
+			stream.pendingText = text;
+			stream.timer = setTimeout(() => {
+				if (!stream) return;
+				stream.timer = undefined;
+				// 发挂起期间最新的文本；若无 pending（未被更新）发注册时的
+				void this.sendStreamFrame(key, frame, stream.streamId, stream.pendingText ?? text, false);
+				stream.pendingText = undefined;
+			}, ChannelManager.STREAM_THROTTLE_MS - elapsed);
+			return;
+		}
+		await this.sendStreamFrame(key, frame, stream.streamId, text, false);
+	}
+
+	/** 发送单个流式帧并更新 lastSendAt */
+	private async sendStreamFrame(
+		key: string,
+		frame: unknown,
+		streamId: string,
+		content: string,
+		finish: boolean,
+	): Promise<void> {
+		const sep = key.indexOf(":");
+		const channelId = key.slice(0, sep);
+		const adapter = this.adapters.get(channelId);
+		if (!adapter?.streamReply) return;
+		await adapter.streamReply(frame, streamId, content, finish);
+		const stream = this.activeStreams.get(key);
+		if (stream) stream.lastSendAt = Date.now();
+		if (finish) this.activeStreams.delete(key);
 	}
 
 	/** mock 测试端点：注入进站消息 / 读取出站记录 */
@@ -413,13 +494,26 @@ export class ChannelManager {
 		return agents[0] ?? null;
 	}
 
-	/** 会话解析：__system__ 需先 mkdir 与 createdAt 严格同名的目录（既有 ws-server 约定） */
+	/** 会话解析：__system__ 需先 mkdir 与 createdAt 严格同名的目录（既有 ws-server 约定）。
+	 *  映射里缓存的 sessionId 可能已失效（用户在前端删除了该会话，或数据文件被清理/迁移），
+	 *  此时不抛"会话不存在"阻断 IM 通讯，而是兜底新建会话并更新映射。 */
 	private async ensureSession(
 		mapping: ChannelSessionMapping,
 		agent: AgentConfig,
 	): Promise<string> {
 		const existing = mapping.sessions[mapping.currentProjectId];
-		if (existing) return existing;
+		if (existing) {
+			// 校验缓存的 sessionId 在 project-store 中仍存在，失效则兜底新建
+			const { sessions } = await this.deps.projectStore.load();
+			if (sessions.some((s) => s.id === existing)) {
+				return existing;
+			}
+			// 旧会话已被删除：清除失效映射，走下方新建流程
+			delete mapping.sessions[mapping.currentProjectId];
+			console.warn(
+				`[channel-manager] IM 映射缓存的会话 ${existing} 已失效（project-store 中不存在），兜底新建会话`,
+			);
+		}
 		const createdAt = Date.now();
 		if (mapping.currentProjectId === SYSTEM_PROJECT_ID) {
 			await mkdir(join(SYSTEM_PROJECT_CWD, String(createdAt)), { recursive: true });
@@ -431,7 +525,6 @@ export class ChannelManager {
 			id: `im-${mapping.channelId}-${mapping.currentProjectId}-${createdAt}`,
 			createdAt,
 		});
-		console.warn(`[dbg] ensureSession agent=${JSON.stringify(agent)} primaryAgent=${session.primaryAgent}`); // 临时调试
 		mapping.sessions[mapping.currentProjectId] = session.id;
 		// 广播 session:created：前端侧边栏会话列表增量感知（本路径不经 ws-server，不广播则
 		// 前端 sessions 列表无此会话，点击 IM 会话时 SessionView 因找不到 session 渲染空白）
@@ -464,14 +557,28 @@ export class ChannelManager {
 		// 与 agent-manager.ts:913-919 的判定方式一致）
 		const lastAssistant = [...turn].reverse().find((m: any) => m?.role === "assistant") as any;
 		let text: string;
-		if (lastAssistant?.stopReason === "error") {
+		const isError = lastAssistant?.stopReason === "error";
+		if (isError) {
 			text = `处理出错：${lastAssistant.errorMessage ?? "未知错误"}`;
 		} else {
 			text = composeReply(turn, channel.replyGranularity);
 			if (!text) text = "（本轮无文本回复）";
 		}
-		for (const chunk of chunkByBytes(text)) {
-			await adapter.sendText(frame, chunk);
+
+		// 错误回合始终走 sendText（新消息，醒目）；
+		// 正常回合若有活跃 stream（本轮已产生 text_delta）→ 适配器支持流式时用同 streamId
+		// 发终结帧锁定消息；否则（适配器不支持 / 本轮无 text_delta）走 sendText 整轮发送。
+		const stream = this.activeStreams.get(key);
+		const useStream = !isError && !!adapter.streamReply && !!stream;
+		if (stream?.timer) { clearTimeout(stream.timer); stream.timer = undefined; }
+		if (useStream) {
+			await this.sendStreamFrame(key, frame, stream!.streamId, text, true);
+		} else {
+			for (const chunk of chunkByBytes(text)) {
+				await adapter.sendText(frame, chunk);
+			}
+			// 无活跃 stream 但 activeStreams 残留（如本轮仅工具调用无 text_delta）：清理
+			this.activeStreams.delete(key);
 		}
 	}
 }

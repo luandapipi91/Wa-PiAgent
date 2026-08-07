@@ -4,6 +4,62 @@
 
 ---
 
+## 2026-08-07
+
+### 修复
+
+- **流式回复清空前序内容**：工具调用场景下，一轮产生多条 assistant 消息（文字→工具→文字），
+  第二条消息流式时企微里之前已显示的内容被清空。
+  - 根因：`streamUpdate` 只取当前 partial 的文本，不含本轮已落地的历史消息文本；
+    企微 `replyStream` 是整体替换，新 partial 文本比旧内容短 → 看起来"清空"。
+    附带修复节流 bug：挂起期间新 delta 未更新待发文本，只发首个 delta 的旧文本。
+  - 修复：流式累计文本 = 本轮已落地 assistant 消息文本 + 当前 partial 文本；
+    节流挂起期间更新 pendingText，timer 触发时发最新。
+  - 影响范围：`packages/kernel/src/channel-manager.ts`（streamUpdate 文本拼接 + 节流）、
+    `packages/kernel/tests/channel-manager.test.ts`（多消息轮流式回归测试）。
+
+### 新增
+
+- **企业微信流式回复**：IM 渠道回复从"整轮生成完才一次性发送"改为 token 级流式增量
+  更新——企微里能看到回复像打字机一样实时增长。默认启用，适配器不支持时自动降级为整轮发送。
+  - 技术基础：企微 SDK `replyStream(frame, streamId, content, finish)` 同 streamId 复用即可
+    增量更新同一条消息；agent 层已有 `message_update`(text_delta) 事件，只是被
+    `onSessionEvent` 的 `if (type !== "agent_settled") return` 挡掉了。
+  - 改动：
+    - `ChannelAdapter` 接口新增可选 `streamReply` 方法（能力探测，不实现则降级 sendText）
+    - `WecomAdapter.streamReply` 用 `replyStreamNonBlocking`（背压自动跳帧）
+    - `ChannelManager.onSessionEvent` 消费 `message_update`(text_delta) → 500ms 节流推送
+      累计文本；`agent_settled` 发 finish=true 终结帧（composeReply 兜底含文件汇总）
+    - 工具调用阶段无 text_delta，消息自然停在上一段文字末尾（不会卡住）
+  - 兼容：适配器不支持 streamReply 时自动降级 sendText；错误回合始终走 sendText。
+  - 影响范围：`packages/kernel/src/channels/{types,wecom-adapter,mock-adapter}.ts`、
+    `packages/kernel/src/channel-manager.ts`、各层测试。
+
+### 修复
+
+- **IM 渠道：映射缓存的会话被删除后报"会话不存在"阻断通讯**：用户在 IM 对话中收到
+  `处理出错：会话不存在: im-ch_xxx`，无法继续沟通。
+  - 根因：`ChannelManager.ensureSession` 只检查 IM 映射里是否缓存了 sessionId，不校验该
+    session 在 project-store 中是否还存在。当用户在前端删除会话、或数据文件被清理/迁移后，
+    映射与实体不一致——`ensureStarted` 在 project-store 找不到 session 抛错，被入站 catch
+    转成错误回复推给用户。
+  - 修复：`ensureSession` 命中缓存时先用 `projectStore.load()` 校验 sessionId 存在；失效则
+    清除旧映射、兜底新建会话（符合"IM 通讯不应被会话状态问题阻断"的原则）。同步移除遗留的
+    `[dbg] ensureSession` 临时调试日志。
+  - 影响范围：`packages/kernel/src/channel-manager.ts`（ensureSession 方法）、
+    `packages/kernel/tests/channel-manager.test.ts`（新增失效会话兜底回归测试）。
+
+- **IM 渠道会话泄漏到任务列表**：IM 消息创建的会话（`im-` 前缀）会出现在侧边栏"任务"
+  页签的默认工作区下，用户感觉"消息进到了普通任务会话而不是 IM"。
+  - 根因：`SessionEntity` 没有"类型/来源"字段，任务页签 `ProjectItem` 仅按 `projectId`
+    过滤会话，不排除 IM 创建的会话——IM 会话 `projectId` 也是 `__system__`，于是混入
+    任务列表。IM 页签（`ImConversationList`）走独立的 `/api/channel-conversations` 数据源，
+    与任务页签互不过滤。
+  - 修复：`ProjectItem` 会话过滤增加 `!s.id.startsWith("im-")`，让 IM 会话只归属 IM
+    页签。最小改动，不改数据模型。
+  - 影响范围：`packages/frontend/src/components/ProjectItem.tsx`（过滤条件）、
+    `packages/frontend/tests/ProjectList.test.tsx`（新增 IM 会话排除回归测试）。
+
 ## 2026-07-30
 
 ### 修复

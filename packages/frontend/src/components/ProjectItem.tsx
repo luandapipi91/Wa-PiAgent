@@ -59,7 +59,8 @@ export function ProjectItem(props: Props) {
 	const lastOrderRef = useRef<string[] | null>(null);
 	const prevExpandedRef = useRef<boolean>(expanded);
 	const mySessions = (() => {
-		const list = sessions.filter((s) => s.projectId === project.id);
+		// IM 渠道会话（im- 前缀）归属 IM 页签，不在任务列表显示
+		const list = sessions.filter((s) => s.projectId === project.id && !s.id.startsWith("im-"));
 		// 折叠 → 展开：重新按 lastActivity 倒序重排
 		if (expanded && !prevExpandedRef.current) {
 			lastOrderRef.current = [...list]
