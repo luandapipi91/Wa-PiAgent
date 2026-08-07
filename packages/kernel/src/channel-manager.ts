@@ -430,7 +430,7 @@ export class ChannelManager {
 				chatId: msg.chatId,
 				chatType: msg.chatType,
 				fromUserId: msg.fromUserId,
-				currentProjectId: SYSTEM_PROJECT_ID,
+				currentProjectId: channel.defaultProjectId ?? SYSTEM_PROJECT_ID,
 				sessions: {},
 				lastMessagePreview: "",
 				updatedAt: Date.now(),
@@ -447,6 +447,7 @@ export class ChannelManager {
 			const cmd = parseCommand(msg.text, {
 				projects: projects.map((p) => ({ id: p.id, name: p.name })),
 				currentProjectId: mapping.currentProjectId,
+				allowSwitch: channel.allowProjectSwitch ?? false,
 			});
 			if (cmd.handled) {
 				if (cmd.switchProjectId) {
@@ -575,10 +576,19 @@ export class ChannelManager {
 		mapping: ChannelSessionMapping,
 		agent: AgentConfig,
 	): Promise<string> {
+		const { projects, sessions } = await this.deps.projectStore.load();
+
+		// 项目删除兜底：currentProjectId 指向已删除项目时降级为默认工作区
+		if (!projects.some((p) => p.id === mapping.currentProjectId)) {
+			console.warn(
+				`[channel-manager] IM 映射 currentProjectId=${mapping.currentProjectId} 对应项目已删除，降级为默认工作区`,
+			);
+			mapping.currentProjectId = SYSTEM_PROJECT_ID;
+		}
+
 		const existing = mapping.sessions[mapping.currentProjectId];
 		if (existing) {
 			// 校验缓存的 sessionId 在 project-store 中仍存在，失效则兜底新建
-			const { sessions } = await this.deps.projectStore.load();
 			if (sessions.some((s) => s.id === existing)) {
 				return existing;
 			}
