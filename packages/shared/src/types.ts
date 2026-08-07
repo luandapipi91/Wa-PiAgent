@@ -507,8 +507,8 @@ export interface SubagentSaveOverrideEvent {
 // ===== IM 渠道机器人（v1 企业微信）=====
 /** IM 渠道类型：v1 仅 wecom 可用；mock 仅在 WA_PI_CHANNELS_MOCK=1 测试模式下注册 */
 export type ChannelType = "wecom" | "wechat" | "feishu" | "qq" | "mock";
-/** 机器人回复粒度：simple=仅正文；standard=正文+文件变更汇总 */
-export type ReplyGranularity = "simple" | "standard";
+/** 机器人回复粒度：minimal=只回最后一段正文；simple=仅正文；standard=正文+文件变更汇总 */
+export type ReplyGranularity = "minimal" | "simple" | "standard";
 export interface ChannelCredentials {
 	botId: string;
 	secret: string;

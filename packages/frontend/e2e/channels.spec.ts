@@ -198,6 +198,53 @@ test.describe.serial("IM 渠道机器人", () => {
 			const body = (await r.json()) as any;
 			return body.messages?.length >= 2 ? body : null;
 		}, 90_000);
+
+		// ---- /new 保留历史 + 右键删除 ----
+		// 记录当前（第一个）会话 id，发 /new 后它应作为历史会话继续可见
+		const firstConvItems = await page
+			.locator('button[data-testid^="im-conv-"]', { hasText: "u-e2e" })
+			.all();
+		expect(firstConvItems.length).toBeGreaterThanOrEqual(1);
+		const firstConvTestId = await firstConvItems[0].getAttribute("data-testid");
+		const firstSessionId = firstConvTestId!.replace("im-conv-", "");
+
+		// /new 归档当前会话（指令不走智能体，立即返回）
+		await page.request.post(`${KERNEL}/api/channels/${channelId}/mock-inbound`, {
+			data: { chatId: "u-e2e", text: "/new" },
+		});
+		await pollUntil(async () => {
+			const r = await page.request.get(
+				`${KERNEL}/api/channels/${channelId}/mock-outbox`,
+			);
+			const body = (await r.json()) as any;
+			return body.messages?.at(-1)?.text?.includes("新会话") ? body : null;
+		});
+
+		// 再发一条消息触发新会话建立；新会话落盘后前端 IM 列表刷新出现两条
+		await page.request.post(`${KERNEL}/api/channels/${channelId}/mock-inbound`, {
+			data: { chatId: "u-e2e", text: "新话题" },
+		});
+		// IM 列表出现两个 u-e2e 会话项（历史 + 当前）
+		await pollUntil(async () => {
+			const items = await page
+				.locator('button[data-testid^="im-conv-"]', { hasText: "u-e2e" })
+				.all();
+			return items.length >= 2 ? items.length : null;
+		}, 30_000);
+
+		// 右键历史会话 → 删除聊天 → 确认 → 列表只剩当前会话
+		await page.locator(`button[data-testid="im-conv-${firstSessionId}"]`).click({ button: "right" });
+		await expect(page.getByTestId("im-conv-context-menu")).toBeVisible();
+		await page.getByTestId("im-menu-delete").click();
+		await expect(page.getByTestId("confirm-dialog")).toBeVisible();
+		await page.getByTestId("confirm-ok").click();
+		// 历史会话从列表消失（onSessionDeleted 清理 mapping + 前端刷新）
+		await pollUntil(async () => {
+			const gone = await page
+				.locator(`button[data-testid="im-conv-${firstSessionId}"]`)
+				.count();
+			return gone === 0 ? true : null;
+		}, 10_000);
 	});
 
 	test.afterAll(async ({ request }) => {

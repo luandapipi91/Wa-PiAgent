@@ -52,6 +52,30 @@ test("composeReply：standard 附文件变更；无变更时不附", () => {
 	expect(composeReply([noEdit as any], "standard")).toBe("好的");
 });
 
+test("composeReply：minimal 只回最后一条 assistant 消息的全部文字（丢弃过程消息）", () => {
+	const multi: any[] = [
+		{
+			role: "assistant",
+			content: [
+				{ type: "text", text: "我先检查一下。" },
+				{ type: "toolCall", id: "1", name: "edit", arguments: { path: "a.ts" } },
+			],
+		},
+		{
+			role: "assistant",
+			content: [
+				{ type: "text", text: "修复完成。\n主要改动：\n- 改了 a.ts\n\n建议尽快发布。" },
+			],
+		},
+	];
+	// 取最后一条 assistant 消息的全部文字（含多行多段），非最后一句/最后一段
+	expect(composeReply(multi, "minimal")).toBe("修复完成。\n主要改动：\n- 改了 a.ts\n\n建议尽快发布。");
+});
+
+test("composeReply：minimal 无 assistant 消息时返回空串", () => {
+	expect(composeReply([{ role: "user", content: [{ type: "text", text: "问" }] } as any], "minimal")).toBe("");
+});
+
 test("chunkByBytes：按 UTF-8 字节上限切分且不在多字节字符中间切断", () => {
 	const text = "汉".repeat(100); // 每字 3 字节
 	const chunks = chunkByBytes(text, 30);

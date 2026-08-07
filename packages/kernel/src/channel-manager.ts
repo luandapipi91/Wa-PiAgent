@@ -177,6 +177,31 @@ export class ChannelManager {
 		this.deps.broadcast({ type: "channels:changed" });
 	}
 
+	/** 会话被删除时联动清理 IM 映射（当前指针 + 历史归档）。
+	 *  ws-server 的 session:delete 分支在删完 ProjectStore 后调用。
+	 *  非 IM 会话在 mapping 里查不到 → no-op。 */
+	async onSessionDeleted(sessionId: string): Promise<void> {
+		const mappings = await loadChannelMappings(this.mappingsFile);
+		let changed = false;
+		for (const m of mappings) {
+			for (const [pid, sid] of Object.entries(m.sessions)) {
+				if (sid === sessionId) {
+					delete m.sessions[pid];
+					changed = true;
+				}
+			}
+			if (m.historySessionIds?.length) {
+				const before = m.historySessionIds.length;
+				m.historySessionIds = m.historySessionIds.filter((id) => id !== sessionId);
+				if (m.historySessionIds.length !== before) changed = true;
+			}
+		}
+		if (changed) {
+			await saveChannelMappings(mappings, this.mappingsFile);
+			this.deps.broadcast({ type: "channel-conversations:changed" });
+		}
+	}
+
 	/** 智能体被渠道引用的统计（删除智能体确认提示用） */
 	async agentUsage(agentName: string): Promise<{ count: number; channelNames: string[] }> {
 		const channels = await loadChannels(this.channelsFile);
@@ -185,7 +210,7 @@ export class ChannelManager {
 	}
 
 	async listConversations(): Promise<ChannelConversationInfo[]> {
-		const [mappings, channels, { projects }] = await Promise.all([
+		const [mappings, channels, { projects, sessions }] = await Promise.all([
 			loadChannelMappings(this.mappingsFile),
 			loadChannels(this.channelsFile),
 			this.deps.projectStore.load(),
@@ -194,21 +219,43 @@ export class ChannelManager {
 		for (const m of mappings) {
 			const channel = channels.find((c) => c.id === m.channelId);
 			if (!channel) continue; // 渠道已删：历史映射不在列表显示
+			// 当前活跃会话（预览来自 mapping）
 			const sessionId = m.sessions[m.currentProjectId];
-			if (!sessionId) continue;
-			const project = projects.find((p) => p.id === m.currentProjectId);
-			result.push({
-				channelId: m.channelId,
-				channelName: channel.name,
-				channelType: channel.type,
-				chatId: m.chatId,
-				chatType: m.chatType,
-				sessionId,
-				projectId: m.currentProjectId,
-				projectName: project?.name ?? m.currentProjectId,
-				lastMessagePreview: m.lastMessagePreview,
-				updatedAt: m.updatedAt,
-			});
+			if (sessionId) {
+				const project = projects.find((p) => p.id === m.currentProjectId);
+				result.push({
+					channelId: m.channelId,
+					channelName: channel.name,
+					channelType: channel.type,
+					chatId: m.chatId,
+					chatType: m.chatType,
+					sessionId,
+					projectId: m.currentProjectId,
+					projectName: project?.name ?? m.currentProjectId,
+					lastMessagePreview: m.lastMessagePreview,
+					updatedAt: m.updatedAt,
+				});
+			}
+			// 已归档的历史会话（/new 产生）：从 projectStore 查实体拿 projectId/lastActivity；
+			// 实体已被删除（用户右键删过）则跳过——不展示已不存在的会话
+			for (const hid of m.historySessionIds ?? []) {
+				if (hid === sessionId) continue; // 去重：归档后同一会话又变成当前（理论上不会）
+				const ses = sessions.find((s) => s.id === hid);
+				if (!ses) continue;
+				const project = projects.find((p) => p.id === ses.projectId);
+				result.push({
+					channelId: m.channelId,
+					channelName: channel.name,
+					channelType: channel.type,
+					chatId: m.chatId,
+					chatType: m.chatType,
+					sessionId: hid,
+					projectId: ses.projectId,
+					projectName: project?.name ?? ses.projectId,
+					lastMessagePreview: "",
+					updatedAt: ses.lastActivity,
+				});
+			}
 		}
 		return result.sort((a, b) => b.updatedAt - a.updatedAt);
 	}
@@ -242,6 +289,11 @@ export class ChannelManager {
 		const adapter = this.adapters.get(channelId);
 		const frame = this.lastFrames.get(key);
 		if (!adapter || !frame || !adapter.streamReply) return;
+
+		// 极简回复禁用流式增量：过程文字不推送，等 agent_settled 一次性发最后一段
+		const channels = await loadChannels(this.channelsFile);
+		const channel = channels.find((c) => c.id === channelId);
+		if (channel?.replyGranularity === "minimal") return;
 
 		// 仅 text_delta 触发流式（工具调用阶段无 text_delta，消息自然停在上一段末尾）
 		const ae = event.assistantMessageEvent;
@@ -389,8 +441,16 @@ export class ChannelManager {
 					await persist();
 				}
 				if (cmd.resetSession) {
+					// 归档当前会话到 historySessionIds（/new 不覆盖历史：旧会话仍在 IM tab 可见、可删）
+					const cur = mapping.sessions[mapping.currentProjectId];
+					if (cur) {
+						const hist = mapping.historySessionIds ?? [];
+						if (!hist.includes(cur)) hist.push(cur);
+						mapping.historySessionIds = hist;
+					}
 					delete mapping.sessions[mapping.currentProjectId];
 					await persist();
+					this.deps.broadcast({ type: "channel-conversations:changed" });
 				}
 				await reply(cmd.reply ?? "好的");
 				return;
