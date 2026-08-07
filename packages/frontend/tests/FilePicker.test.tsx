@@ -83,12 +83,28 @@ beforeEach(() => { document.body.innerHTML = ""; handlers.clear(); sendCalls.len
 // 不 unmount 会泄漏到下一用例，污染 sendCalls。
 afterEach(() => cleanup());
 
+// react-complex-tree 的 treeitem <li> 里目录名与 svg 图标同层，导致 testing-library
+// 的 getByText 因「文本被多元素分割」匹配不到（且 emoji 图标改 svg 后不再贡献文本）。
+// 这里直接定位 [data-rct-item-interactive]（= .rct-tree-item-button）：
+// 它是文本载体（textContent 含目录名）、点击选中目标、且 .closest 能命中的
+// title-container 内（展开箭头为其兄弟元素）——与渲染层图标实现（emoji / svg）解耦，最稳。
+function treeItem(text: string): Element {
+  const items = Array.from(document.querySelectorAll('[data-rct-item-interactive]'));
+  const found = items.find((el) => (el.textContent ?? "").trim() === text || (el.textContent ?? "").includes(text));
+  if (!found) throw new Error(`找不到含 "${text}" 的 treeitem`);
+  return found;
+}
+function queryTreeItem(text: string): Element | null {
+  const items = Array.from(document.querySelectorAll('[data-rct-item-interactive]'));
+  return items.find((el) => (el.textContent ?? "").trim() === text || (el.textContent ?? "").includes(text)) ?? null;
+}
+
 test("defaultPath 定位展开到项目目录：逐级 listDir、显示 demo 节点并默认聚焦", async () => {
   render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
 
   // demo 节点可见 = 已逐级展开到项目目录
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
 
   // 逐级 listDir 覆盖项目目录的各级父目录
@@ -107,11 +123,11 @@ test("未传 defaultPath 时回退展开到主目录，项目深层节点不可�
 
   // 主目录 test 的子目录 projects 可见（test 被展开后懒载入子项）
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*projects/)).toBeTruthy();
+    expect(treeItem("projects")).toBeTruthy();
   }, { timeout: 3000 });
 
   // demo 在 projects 之下，projects 未展开故不可见
-  expect(screen.queryByText(/📁\s*demo/)).toBeNull();
+  expect(queryTreeItem("demo")).toBeNull();
 });
 
 test("defaultPath 盘符大小写与根不一致仍能定位（Windows 大小写无关）", async () => {
@@ -119,7 +135,7 @@ test("defaultPath 盘符大小写与根不一致仍能定位（Windows 大小写
   render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={"c:\\Users\\test\\projects\\demo"} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
 });
 
@@ -128,7 +144,7 @@ test("defaultPath 指向不存在的路径时回退到主目录", async () => {
 
   // 回退到主目录后 projects 可见
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*projects/)).toBeTruthy();
+    expect(treeItem("projects")).toBeTruthy();
   }, { timeout: 3000 });
 });
 
@@ -139,23 +155,23 @@ test("手风琴：展开兄弟文件夹时，已展开的兄弟被折叠", async
 
   // 主目录 test 被展开（未传 defaultPath 时回退到主目录）
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*projects/)).toBeTruthy();
+    expect(treeItem("projects")).toBeTruthy();
   }, { timeout: 3000 });
 
   // 展开 Public（test 的兄弟）→ test 应被折叠，其子项 projects 不再可见
-  const publicText = screen.getByText(/📁\s*Public/);
+  const publicText = treeItem("Public");
   const publicTitle = publicText.closest(".rct-tree-item-title-container");
   const publicArrow = publicTitle?.querySelector(".rct-tree-item-arrow");
   expect(publicArrow).toBeTruthy();
   fireEvent.click(publicArrow!);
 
   await waitFor(() => {
-    expect(screen.queryByText(/📁\s*projects/)).toBeNull();
+    expect(queryTreeItem("projects")).toBeNull();
   }, { timeout: 3000 });
 
   // Public 展开后子项可见
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*Downloads/)).toBeTruthy();
+    expect(treeItem("Downloads")).toBeTruthy();
   }, { timeout: 3000 });
 });
 
@@ -180,7 +196,7 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
   try {
     render(<FilePicker onPick={() => {}} onCancel={() => {}} />);
     await waitFor(() => {
-      expect(screen.getByText(/📁\s*projects/)).toBeTruthy();
+      expect(treeItem("projects")).toBeTruthy();
     }, { timeout: 3000 });
 
     fireEvent.change(screen.getByTestId("file-picker-search"), { target: { value: "demo" } });
@@ -193,11 +209,11 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
     // 搜索命中叶子目录 demo（无匹配子项）→ 出现在结果中
     emitEventForTesting({ type: "fs:search:progress", requestId: req.requestId, query: "demo", matches: [{ name: "demo", isDir: true, path: "C:\\Users\\test\\projects\\demo" }] } as any);
     await waitFor(() => {
-      expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+      expect(treeItem("demo")).toBeTruthy();
     }, { timeout: 3000 });
 
     // 展开搜索结果里的 demo → 应懒加载其真实子目录
-    const demoText = screen.getByText(/📁\s*demo/);
+    const demoText = treeItem("demo");
     const arrow = demoText.closest(".rct-tree-item-title-container")?.querySelector(".rct-tree-item-arrow");
     expect(arrow).toBeTruthy();
     fireEvent.click(arrow!);
@@ -207,9 +223,9 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
     }, { timeout: 3000 });
     // 真实子项（文件夹 + 文件）都应显示
     await waitFor(() => {
-      expect(screen.getByText(/📁\s*alpha/)).toBeTruthy();
-      expect(screen.getByText(/📁\s*bravo/)).toBeTruthy();
-      expect(screen.getByText(/📄\s*z-note\.txt/)).toBeTruthy();
+      expect(treeItem("alpha")).toBeTruthy();
+      expect(treeItem("bravo")).toBeTruthy();
+      expect(treeItem("z-note.txt")).toBeTruthy();
     }, { timeout: 3000 });
   } finally {
     _setFsTransport(fsTransport); // 恢复共享 transport
@@ -220,11 +236,11 @@ test("搜索根跟随用户聚焦的目录", async () => {
   render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
 
   // 点击 projects 目录节点 → 设为活动目录
-  fireEvent.click(screen.getByText(/📁\s*projects/));
+  fireEvent.click(treeItem("projects"));
 
   // 清空观察记录，只看搜索请求
   sendCalls.length = 0;
@@ -246,7 +262,7 @@ test("未聚焦目录时搜索根回退到 defaultPath", async () => {
   render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
 
   // 不点击任何节点，直接搜索
@@ -286,7 +302,7 @@ test("搜索增量结果到达时，用户已折叠的节点保持折叠", async
   try {
     render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
     await waitFor(() => {
-      expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+      expect(treeItem("demo")).toBeTruthy();
     }, { timeout: 3000 });
 
     // 搜索 demo 子树
@@ -303,16 +319,16 @@ test("搜索增量结果到达时，用户已折叠的节点保持折叠", async
     const mkMatch = () => ({ name: "src", isDir: true, path: "C:\\Users\\test\\projects\\demo\\src" });
     emitEventForTesting({ type: "fs:search:progress", requestId: req.requestId, query: "src", matches: [mkMatch()] } as any);
     await waitFor(() => {
-      expect(screen.getByText(/📁\s*src/)).toBeTruthy();
+      expect(treeItem("src")).toBeTruthy();
     }, { timeout: 3000 });
 
     // 折叠搜索根 demo → src 消失
-    const demoRoot = screen.getByText(/📁\s*C:\\Users\\test\\projects\\demo/);
+    const demoRoot = treeItem("C:\\Users\\test\\projects\\demo");
     const arrow = demoRoot.closest(".rct-tree-item-title-container")?.querySelector(".rct-tree-item-arrow");
     expect(arrow).toBeTruthy();
     fireEvent.click(arrow!);
     await waitFor(() => {
-      expect(screen.queryByText(/📁\s*src/)).toBeNull();
+      expect(queryTreeItem("src")).toBeNull();
     }, { timeout: 3000 });
 
     // 第二批增量（内容相同但 searchTreeItems 引用变化）：
@@ -320,7 +336,7 @@ test("搜索增量结果到达时，用户已折叠的节点保持折叠", async
     emitEventForTesting({ type: "fs:search:progress", requestId: req.requestId, query: "src", matches: [mkMatch()] } as any);
     await new Promise((r) => setTimeout(r, 300));
 
-    expect(screen.queryByText(/📁\s*src/)).toBeNull();
+    expect(queryTreeItem("src")).toBeNull();
   } finally {
     _setFsTransport(fsTransport); // 恢复共享 transport
   }
@@ -333,20 +349,23 @@ test("附件选择器：同一目录下先显示文件夹，后显示文件", as
 
   // demo 被默认展开并懒载入其子项（fixtures 中文件在前、文件夹在后交错）
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*alpha/)).toBeTruthy();
+    expect(treeItem("alpha")).toBeTruthy();
   }, { timeout: 3000 });
 
-  // 取 demo 节点直接子项，按 DOM 渲染顺序收集文本
-  const demoLi = screen.getByText(/📁\s*demo/).closest(".rct-tree-item-li");
+  // 取 demo 节点直接子项，按 DOM 渲染顺序收集文本（svg 图标不贡献文本，只剩名称）
+  const demoLi = treeItem("demo").closest(".rct-tree-item-li");
   expect(demoLi).toBeTruthy();
   const group = demoLi!.querySelector("ul.rct-tree-items-container");
   expect(group).toBeTruthy();
   const childTexts = Array.from(group!.children).map((li) => (li.textContent ?? "").trim());
 
-  // 所有文件夹（📁）必须排在第一个文件（📄）之前
-  const firstFileIdx = childTexts.findIndex((t) => t.startsWith("📄"));
+  // demo fixture：文件夹 alpha/bravo，文件 z-note.txt/m-doc.md。
+  // 按名称集合区分类型，断言所有文件夹都排在第一个文件之前
+  const folderNames = new Set(["alpha", "bravo"]);
+  const fileNames = new Set(["z-note.txt", "m-doc.md"]);
+  const firstFileIdx = childTexts.findIndex((t) => fileNames.has(t));
   const folderIdxs = childTexts
-    .map((t, i) => (t.startsWith("📁") ? i : -1))
+    .map((t, i) => (folderNames.has(t) ? i : -1))
     .filter((i) => i >= 0);
   expect(firstFileIdx).toBeGreaterThan(-1);
   expect(folderIdxs.length).toBeGreaterThan(0);
@@ -361,7 +380,7 @@ test("搜索范围提示显示在“选择文件或文件夹”标题下方", as
   render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
 
   const title = screen.getByText(/选择文件或文件夹/);
@@ -383,7 +402,7 @@ test("输入搜索内容后“搜索范围”提示仍然显示在标题下方",
 
   // 初始：提示可见
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
   await screen.findByTestId("search-scope-hint");
 
@@ -403,7 +422,7 @@ test("搜索内容变更后清空上一次的搜索结果（新查询无匹配�
   render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
 
   // 第一次搜索：有匹配，建立搜索结果树（等待 onDone 落定）
@@ -436,7 +455,7 @@ test("搜索态下切换“显示隐藏目录”不应抛错，搜索结果仍�
     render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+      expect(treeItem("demo")).toBeTruthy();
     }, { timeout: 3000 });
 
     // 搜索：建立搜索结果树（path-based id 命名空间）
@@ -455,7 +474,7 @@ test("搜索态下切换“显示隐藏目录”不应抛错，搜索结果仍�
 
     // 未抛出运行时错误，且搜索结果（demo 节点）仍可见
     expect(errors).toEqual([]);
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   } finally {
     window.removeEventListener("error", onError);
   }
@@ -469,7 +488,7 @@ test("搜索过程中切换“显示隐藏目录”会以新的 showHidden 重�
   render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
 
   // 搜索：发出首轮 fs:search（showHidden=false）
@@ -518,11 +537,11 @@ test("搜索过程中切换“显示隐藏目录”后，嵌套搜索结果保�
 
   try {
     render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
-    await waitFor(() => expect(screen.getByText(/📁\s*demo/)).toBeTruthy(), { timeout: 3000 });
+    await waitFor(() => expect(treeItem("demo")).toBeTruthy(), { timeout: 3000 });
 
     // 搜索 leaf → 嵌套结果 mid/leaf（中间目录 mid 展开后 leaf 可见）
     fireEvent.change(screen.getByTestId("file-picker-search"), { target: { value: "leaf" } });
-    await waitFor(() => expect(screen.getByText(/📄\s*leaf/)).toBeTruthy(), { timeout: 3000 });
+    await waitFor(() => expect(treeItem("leaf")).toBeTruthy(), { timeout: 3000 });
     const before = sendCalls.filter((e: any) => e.type === "fs:search").length;
 
     // 切换显示隐藏目录 → 重新搜索
@@ -536,7 +555,7 @@ test("搜索过程中切换“显示隐藏目录”后，嵌套搜索结果保�
     }, { timeout: 3000 });
 
     // 重新搜索落定后，中间目录 mid 应保持展开、leaf 仍可见
-    await waitFor(() => expect(screen.getByText(/📄\s*leaf/)).toBeTruthy(), { timeout: 1500 });
+    await waitFor(() => expect(treeItem("leaf")).toBeTruthy(), { timeout: 1500 });
   } finally {
     _setFsTransport(fsTransport); // 恢复共享 transport
   }
@@ -548,16 +567,16 @@ test("点击文件/文件夹标题不会自动选中，添加按钮不显示数�
   render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
 
   // 等待 demo 子项懒加载完成
   await waitFor(() => {
-    expect(screen.getByText(/📄\s*z-note/)).toBeTruthy();
+    expect(treeItem("z-note")).toBeTruthy();
   }, { timeout: 3000 });
 
   // 点击文件标题文本（非复选框），应只聚焦不选中
-  const fileTitle = screen.getByText(/📄\s*z-note/);
+  const fileTitle = treeItem("z-note");
   fireEvent.click(fileTitle);
 
   // 添加按钮不应包含选中数量
@@ -574,7 +593,7 @@ test("点击复选框可选中文件，添加按钮显示正确数量", async ()
   render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
 
   // 找到所有复选框并点击第一个
@@ -596,7 +615,7 @@ test("可多选多个文件/文件夹，添加按钮显示累计数量", async (
   render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
 
   const checkboxes = screen.getAllByTestId("file-picker-checkbox");
@@ -618,7 +637,7 @@ test("再次点击已选中的复选框可取消选中", async () => {
   render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
 
   const checkboxes = screen.getAllByTestId("file-picker-checkbox");
@@ -646,7 +665,7 @@ test("点击添加按钮时 onPick 收到正确选中的文件/文件夹列表",
   render(<FilePicker onPick={(s) => { picks.push(s); }} onCancel={() => {}} defaultPath={PROJECT} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
 
   const checkboxes = screen.getAllByTestId("file-picker-checkbox");
@@ -675,11 +694,11 @@ test("搜索过程中聚焦目录不改变搜索范围，新搜索仍用原根",
   render(<FilePicker onPick={() => {}} onCancel={() => {}} defaultPath={PROJECT} />);
 
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
 
   // 搜索前先点击 projects 目录 → 设活动目录为 projects
-  fireEvent.click(screen.getByText(/📁\s*projects/));
+  fireEvent.click(treeItem("projects"));
 
   // 开始搜索：搜索根应为 projects
   sendCalls.length = 0;
@@ -697,9 +716,9 @@ test("搜索过程中聚焦目录不改变搜索范围，新搜索仍用原根",
   // 搜索过程中点击 demo 目录（在搜索结果中可见）→ 不应更新搜索根
   // 先等搜索结果渲染出 demo 目录（fs:search 只代表请求已发出，结果是异步到达的，直接点会偶发找不到）
   await waitFor(() => {
-    expect(screen.getByText(/📁\s*demo/)).toBeTruthy();
+    expect(treeItem("demo")).toBeTruthy();
   }, { timeout: 3000 });
-  fireEvent.click(screen.getByText(/📁\s*demo/));
+  fireEvent.click(treeItem("demo"));
 
   // 改变搜索词以触发新一轮搜索
   sendCalls.length = 0;

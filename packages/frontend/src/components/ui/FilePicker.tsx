@@ -12,6 +12,7 @@ import {
 } from "react-complex-tree";
 import "react-complex-tree/lib/style-modern.css";
 import { getHome, getRoots, listDir, searchFilesStream, type SearchMatch } from "../../fs-client";
+import { Icon } from "./Icon";
 
 const TREE_STYLES = `
 .rct-tree-item-title-container {
@@ -686,7 +687,10 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
                 onFocusItem={handleFocusItem}
                 renderItemTitle={({ item }) => (
                   <span className="flex items-center justify-between w-full gap-3">
-                    <span>{item.isFolder ? "📁 " : "📄 "}{item.data?.name}</span>
+                    <span className="inline-flex items-center gap-1">
+                      <Icon name={item.isFolder ? "folder" : "file"} size={12} />
+                      {item.data?.name}
+                    </span>
                     <input
                       type="checkbox"
                       data-testid="file-picker-checkbox"
