@@ -485,14 +485,17 @@ export class AgentManager {
 
 		// 解析启用 skill 的目录路径，传给 pi 的 --skill 参数。
 		// 先按全局启用状态扫描，再按 agent 配置的 skills 白名单过滤（空数组 = 全量）。
+		// skillsAllOff=true 表示显式全不选：不传任何技能路径。
 		const enabledSkills = await resolveEnabledSkills(
 			this.opts.skillManager,
 			this.opts.extensionManager,
 		);
 		const additionalSkillPaths = (
-			config?.skills?.length
-				? enabledSkills.filter((s) => config.skills!.includes(s.name))
-				: enabledSkills
+			config?.skillsAllOff
+				? []
+				: config?.skills?.length
+					? enabledSkills.filter((s) => config.skills!.includes(s.name))
+					: enabledSkills
 		).map((s) => s.path);
 
 		// host-controlled 记忆：预取全局+项目记忆快照注入系统提示词；记忆读取失败降级为空快照。

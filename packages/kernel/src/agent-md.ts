@@ -126,6 +126,8 @@ export function parseAgentMd(md: string): AgentConfig {
 			// 防御：过滤空字符串（如旧格式 skills: 被解析为 [""] 的残留数据）
 			return raw.filter((s: string) => s !== "");
 		})(),
+		// 技能显式全不选：仅 frontmatter 写出 true 时为 true，其余（缺失/false）为 undefined
+		skillsAllOff: y.skillsAllOff === true ? true : undefined,
 		mcpServers: Array.isArray(y.mcpServers) ? (y.mcpServers as string[]) : [],
 		partners,
 		delegationHints: (() => {
@@ -160,6 +162,8 @@ export function stringifyAgentMd(c: AgentConfig): string {
 	if (c.thinking !== null) fm.push(`thinking: ${c.thinking}`);
 	fm.push(`tools: [${c.tools.join(", ")}]`);
 	fm.push(`skills: [${c.skills.join(", ")}]`);
+	// 技能显式全不选：仅 true 时写出（默认/undefined 不污染旧 agent.md）
+	if (c.skillsAllOff) fm.push(`skillsAllOff: true`);
 	fm.push(
 		`mcpServers: ${c.mcpServers.length ? `[${c.mcpServers.join(", ")}]` : "[]"}`,
 	);

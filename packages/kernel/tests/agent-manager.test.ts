@@ -1448,6 +1448,36 @@ test("skillManager 为空时仍传 --no-skills 但不传 --skill", async () => {
 	expect(args).not.toContain("--skill");
 });
 
+test("skillsAllOff=true 时不传任何 --skill（显式全不选，仍传 --no-skills）", async () => {
+	const skillRoot = tmpSkillRoot();
+	tmpPaths.push(skillRoot);
+	const userDir = join(skillRoot, "user-skills");
+	mkdirSync(userDir, { recursive: true });
+	createSkillAt(userDir, "my-skill", "测试技能");
+	const skillManager = new SkillManager(skillRoot);
+	await skillManager.addDir(userDir);
+
+	const configStore = {
+		getAgent: mock(async () => ({
+			displayName: "dev",
+			skills: [],
+			skillsAllOff: true, // 显式全不选
+			partners: { askTo: [] },
+		})),
+	} as any;
+	const { project, session, am, fakes } = await setup({
+		skillManager,
+		configStore,
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	const args = fakes[0].opts.args ?? [];
+	expect(args).toContain("--no-skills");
+	const skills = argValues(args, "--skill");
+	// 全不选：即使全局有启用的技能，也不应传入任何 --skill
+	expect(skills).toEqual([]);
+});
+
 // ─── 进程崩溃 ───────────────────────────────────────────────────────────────
 
 test("进程意外退出 → 合成 message_end 错误事件 + 下次 ensureStarted 重建新 client", async () => {

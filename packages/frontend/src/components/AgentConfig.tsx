@@ -495,16 +495,39 @@ function SkillsTab({ draft, onChange }: TabProps) {
 	const all = allSkills.map((s) => s.name);
 	// 防御：draft.skills 可能因磁盘残留为非数组，统一规范化为 []
 	const skills: string[] = Array.isArray(draft.skills) ? draft.skills : [];
-	// 与工具同语义：空数组 = 全量继承，展示态全部勾选
-	const checked = (n: string) => skills.length === 0 || skills.includes(n);
+	// 显式全不选：skillsAllOff=true 时不加载任何技能；与 skills:[] 的"继承全部"区分
+	const allOff = draft.skillsAllOff === true;
+	// 全部选中态 = 非全不选且空数组（继承全部）。逐项勾选态：非全不选且（空数组=全选 或 在白名单内）
+	const allChecked = !allOff && skills.length === 0;
+	const checked = (n: string) => !allOff && (skills.length === 0 || skills.includes(n));
+
+	// 全选开关：全选→点击变全不选；非全选（部分/全不选）→点击变全选
+	const toggleAll = () => {
+		if (allChecked) {
+			onChange({ ...draft, skills: [], skillsAllOff: true });
+		} else {
+			onChange({ ...draft, skills: [], skillsAllOff: undefined });
+		}
+	};
+	// 逐项切换：取消至全部为空时归一化为全不选（skillsAllOff:true），避免落回"继承全部"
 	const toggle = (n: string) => {
+		if (allOff) {
+			// 全不选态下勾选某项 → 转为只含该项的显式列表
+			onChange({ ...draft, skills: [n], skillsAllOff: undefined });
+			return;
+		}
 		const next =
 			skills.length === 0
 				? all.filter((x) => x !== n)
 				: skills.includes(n)
 					? skills.filter((x) => x !== n)
 					: [...skills, n];
-		onChange({ ...draft, skills: next });
+		// 全部取消 → 归一化为显式全不选
+		if (next.length === 0) {
+			onChange({ ...draft, skills: [], skillsAllOff: true });
+		} else {
+			onChange({ ...draft, skills: next, skillsAllOff: undefined });
+		}
 	};
 	if (allSkills.length === 0)
 		return (
@@ -515,6 +538,17 @@ function SkillsTab({ draft, onChange }: TabProps) {
 			<p className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2">
 				全部勾选 = 全量继承；取消勾选后按显式列表保存
 			</p>
+			{/* 全部勾选开关：ON=继承全部；点击在全选↔全不选间切换 */}
+			<div className="flex items-center gap-2 py-1 justify-between border-b border-hairline mb-1">
+				<span className="text-[calc(11px*var(--font-scale))] text-secondary font-semibold">
+					全部勾选
+				</span>
+				<SwitchButton
+					on={allChecked}
+					onClick={toggleAll}
+					testId="skill-select-all"
+				/>
+			</div>
 			{allSkills.map((s) => {
 				const globallyDisabled = disabledSkills.includes(s.name);
 				return (
@@ -525,14 +559,20 @@ function SkillsTab({ draft, onChange }: TabProps) {
 						style={{ opacity: globallyDisabled ? 0.5 : 1 }}
 					>
 						<span className="flex items-center gap-2 min-w-0">
-							<span className="text-sm text-primary">{s.name}</span>
-							<span className="text-[calc(11px*var(--font-scale))] text-tertiary truncate">
-								{s.description}
+							<span
+								data-testid={`skill-name-${s.name}`}
+								className="text-sm text-primary whitespace-nowrap shrink-0"
+							>
+								{s.name}
 							</span>
+							<SkillDescBubble
+								name={s.name}
+								description={s.description}
+							/>
 							{globallyDisabled && (
 								<span
 									data-testid={`skill-disabled-label-${s.name}`}
-									className="text-[calc(10px*var(--font-scale))] font-semibold"
+									className="text-[calc(10px*var(--font-scale))] font-semibold whitespace-nowrap shrink-0"
 									style={{ color: "var(--danger)" }}
 								>
 									全局禁用
@@ -548,6 +588,58 @@ function SkillsTab({ draft, onChange }: TabProps) {
 				);
 			})}
 		</div>
+	);
+}
+
+/**
+ * 技能描述：超长省略 + 点击弹出气泡显示完整内容。
+ * 点击描述切换气泡显隐；点击气泡外部（document click）自动关闭。
+ */
+function SkillDescBubble({
+	name,
+	description,
+}: {
+	name: string;
+	description: string;
+}) {
+	const [open, setOpen] = useState(false);
+	// 点击外部关闭：监听 document click，气泡内/触发器的点击通过 stopPropagation 排除
+	useEffect(() => {
+		if (!open) return;
+		const onDocClick = () => setOpen(false);
+		document.addEventListener("click", onDocClick);
+		return () => document.removeEventListener("click", onDocClick);
+	}, [open]);
+	if (!description) return null;
+	return (
+		<span className="relative min-w-0">
+			<span
+				data-testid={`skill-desc-${name}`}
+				className="text-[calc(11px*var(--font-scale))] text-tertiary truncate cursor-pointer hover:text-secondary"
+				onClick={(e) => {
+					e.stopPropagation();
+					setOpen((v) => !v);
+				}}
+			>
+				{description}
+			</span>
+			{open && (
+				<span
+					data-testid={`skill-desc-bubble-${name}`}
+					className="absolute z-50 top-full left-0 mt-1 px-2 py-1 rounded-sm shadow-lg whitespace-normal break-all"
+					style={{
+						background: "var(--surface)",
+						border: "1px solid var(--hairline)",
+						color: "var(--text-primary)",
+						maxWidth: "16rem",
+						fontSize: "calc(11px*var(--font-scale))",
+					}}
+					onClick={(e) => e.stopPropagation()}
+				>
+					{description}
+				</span>
+			)}
+		</span>
 	);
 }
 

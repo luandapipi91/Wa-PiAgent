@@ -25,6 +25,14 @@
 
 ## 2026-08-07
 
+### 新增功能
+
+- **编辑智能体弹窗 - 技能 tab 改造**：
+  1. 顶部新增「全部勾选」开关，支持在全选↔全不选间切换；逐项取消至全部为空时也自动进入全不选态。
+  2. 新增 `AgentConfig.skillsAllOff?: boolean` 字段表达"显式全不选"——此前 `skills:[]` 被复用为"继承全部"，无法表达"不加载任何技能"。kernel 主会话与子代理派发路径均已识别该字段，`skillsAllOff=true` 时 `--skill` 列表为空（`--no-skills` 仍传，运行时确为零技能）。
+  3. 技能名不再换行（`whitespace-nowrap`）；技能描述超长省略，点击弹出气泡显示完整描述，再次点击/点击外部关闭（新增轻量内联 `SkillDescBubble` 子组件，不引入第三方库）。
+  - 影响范围：`packages/shared/src/types.ts`、`packages/kernel/src/agent-md.ts`、`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/delegate-tool.ts`、`packages/frontend/src/components/AgentConfig.tsx` 及对应 kernel/前端测试、`packages/frontend/e2e/agents.spec.ts`。
+
 ### 修复
 
 - **统一「打开系统文件/目录」入口文案，按平台区分**：

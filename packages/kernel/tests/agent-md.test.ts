@@ -231,3 +231,25 @@ test("skills 序列化往返：非空数组不丢项", () => {
 	const c2 = parseAgentMd(stringifyAgentMd(c));
 	expect(c2.skills).toEqual(["pdf", "web"]);
 });
+
+test("skillsAllOff: true 序列化写出并解析往返一致", () => {
+	const c = { ...base, skills: [], skillsAllOff: true };
+	const md = stringifyAgentMd(c);
+	expect(md).toContain("skillsAllOff: true");
+	const parsed = parseAgentMd(md);
+	expect(parsed.skillsAllOff).toBe(true);
+	expect(parsed.skills).toEqual([]);
+});
+
+test("skillsAllOff 未配置时不写入 frontmatter（不污染旧文件）", () => {
+	const md = stringifyAgentMd(base);
+	expect(md).not.toContain("skillsAllOff");
+	expect(parseAgentMd(md).skillsAllOff).toBeUndefined();
+});
+
+test("skillsAllOff 为 false 时不写入 frontmatter", () => {
+	const c = { ...base, skillsAllOff: false };
+	const md = stringifyAgentMd(c);
+	expect(md).not.toContain("skillsAllOff");
+	expect(parseAgentMd(md).skillsAllOff).toBeUndefined();
+});
