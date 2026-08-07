@@ -256,13 +256,7 @@ export function BotsSection() {
 							</label>
 							<span className="text-xs text-tertiary">开启后 IM 侧可通过 /use、/projects 指令查看并切换工作区。</span>
 						</div>
-						<label className="flex items-center gap-2 text-sm text-secondary">
-							<input type="checkbox" checked={draft.enabled}
-								onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
-								data-testid="bot-enabled-toggle" />
-							启用（保存后生效）
-						</label>
-						<div className="flex items-center gap-3 border-t border-hairline pt-3">
+					<div className="flex items-center gap-3 border-t border-hairline pt-3">
 							{selectedId && (
 								<button onClick={() => setConfirmDelete(true)}
 									className="px-3 py-1.5 rounded-sm text-sm border border-hairline cursor-pointer"
