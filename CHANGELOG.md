@@ -35,6 +35,11 @@
 
 ### 修复
 
+- **角色选择器小窗口下不再超出屏幕**：
+  1. `NewSessionPane` 项目下拉（`select`）缺 `min-w-0`，选中项文本撑出 min-content 宽度，把同行角色选择器 pill 挤出可视区——补 `min-w-0` 让其可收缩；
+  2. `AgentDropdown` 根节点补 `min-w-0 max-w-full`、pill 按钮补 `w-full`、警示文案补 `truncate`，使 pill 在窄行内可截断收缩；
+  3. 下拉菜单新增视口钳制：展开后实测边界，左右任一侧超出可视区 8px 边距即用 `translateX` 平移回屏幕内，并加 `max-w-[calc(100vw-16px)]` 兜底。
+  - 影响范围：`packages/frontend/src/components/ui/AgentDropdown.tsx`、`packages/frontend/src/components/NewSessionPane.tsx`、`packages/frontend/tests/AgentDropdown.test.tsx`。
 - **统一「打开系统文件/目录」入口文案，按平台区分**：
   4 处入口文案此前各不相同（「在访达中显示」「在系统查看文件」「查看文件夹」「打开工作目录」），统一为同一句平台相关文案：Windows 显示「在资源管理器中打开」、macOS 显示「在访达中打开」、Linux/其他显示「在文件管理器中打开」。前端此前无平台检测能力，新增 `packages/frontend/src/util/platform.ts`（基于 `navigator.userAgent` 的纯前端客户端检测）。FileViewer unsupported 按钮补 `data-testid="fv-reveal"` 让 E2E 平台无关。后端逻辑（kernel spawn / REST / WS 端点）未改动。
   - 影响范围：`packages/frontend/src/util/platform.ts`（新）、`packages/frontend/src/components/{ExplorerPanel,ProjectItem}.tsx`、`packages/frontend/src/components/blocks/FileViewer.tsx`、`packages/frontend/tests/{platform,ExplorerPanel,FileViewer,ProjectItem.system}.test.tsx`、`packages/frontend/e2e/{explorer.spec,default-workspace.spec,global-setup}.ts`。

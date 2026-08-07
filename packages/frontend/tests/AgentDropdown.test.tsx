@@ -66,6 +66,29 @@ test("点击组件外部关闭下拉", () => {
   expect(screen.queryByTestId("agent-search")).toBeNull();
 });
 
+test("空间充足时菜单不平移", () => {
+  render(<AgentDropdown agents={useAgentsStore.getState().list} value="dev" onPick={() => {}} />);
+  fireEvent.click(screen.getByTestId("agent-select"));
+  expect(screen.getByTestId("agent-menu").style.transform).toBe("");
+});
+
+test("菜单超出视口右边缘时向左平移回屏幕内", () => {
+  // 模拟菜单渲染后右缘超出视口（happy-dom innerWidth 默认 1024，余 8px 边距 → 上限 1016）
+  const original = HTMLDivElement.prototype.getBoundingClientRect;
+  HTMLDivElement.prototype.getBoundingClientRect = function () {
+    return { left: 900, right: 1140, top: 0, bottom: 300, width: 240, height: 300, x: 900, y: 0, toJSON: () => ({}) } as DOMRect;
+  };
+  try {
+    render(<AgentDropdown agents={useAgentsStore.getState().list} value="dev" onPick={() => {}} />);
+    fireEvent.click(screen.getByTestId("agent-select"));
+    const menu = screen.getByTestId("agent-menu");
+    expect(menu.style.transform).toBe("translateX(-124px)");
+    expect(menu.className).toContain("max-w-[calc(100vw-16px)]");
+  } finally {
+    HTMLDivElement.prototype.getBoundingClientRect = original;
+  }
+});
+
 test("搜索按 displayName 过滤（用户可见名称）", () => {
   const agents = [cfg("技术实现"), cfg("项目管理")];
   render(<AgentDropdown agents={agents} value="技术实现" onPick={() => {}} />);
