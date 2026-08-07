@@ -223,6 +223,7 @@ export function BotsSection() {
 								data-testid="bot-granularity-select">
 								<option value="standard">标准回复 · 正文 + 文件变更</option>
 								<option value="simple">简洁回复 · 仅正文</option>
+								<option value="minimal">极简回复 · 仅最后一段</option>
 							</select>
 						</label>
 						<label className="flex items-center gap-2 text-sm text-secondary">

@@ -13,11 +13,34 @@ test("setAll 设置项目列表", () => {
   expect(useProjectsStore.getState().projects).toHaveLength(1);
 });
 
-test("addSession 切到新会话", () => {
+test("addSession 只 append 不自动选中（避免 IM 会话被动创建时抢占视图）", () => {
   useProjectsStore.getState().addSession({
     id: "s1", projectId: "p1", primaryAgent: "dev",
     title: "t", createdAt: 0, lastActivity: 0, piSessionFile: "",
   });
+  expect(useProjectsStore.getState().sessions).toHaveLength(1);
+  // 不自动设 currentSessionId——选中是 selectSession 的职责
+  expect(useProjectsStore.getState().currentSessionId).toBeNull();
+});
+
+test("IM 会话（session:created 广播）append 时不抢占当前视图", () => {
+  // 用户正在 s1 会话工作
+  useProjectsStore.getState().addSession({
+    id: "s1", projectId: "p1", primaryAgent: "dev",
+    title: "我的工作会话", createdAt: 0, lastActivity: 0, piSessionFile: "",
+  });
+  useProjectsStore.getState().selectSession("s1");
+  expect(useProjectsStore.getState().currentSessionId).toBe("s1");
+
+  // IM 消息进来，后端广播 session:created → addSession（IM 会话）
+  useProjectsStore.getState().addSession({
+    id: "im-ch_xxx-__system__-1700000000000",
+    projectId: "__system__", primaryAgent: "前端开发者",
+    title: "IM · woq4", createdAt: 0, lastActivity: 0, piSessionFile: "",
+  });
+  // IM 会话进列表了
+  expect(useProjectsStore.getState().sessions).toHaveLength(2);
+  // 但当前视图仍是用户的工作会话，没被打断
   expect(useProjectsStore.getState().currentSessionId).toBe("s1");
 });
 

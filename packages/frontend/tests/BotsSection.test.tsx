@@ -109,6 +109,17 @@ function seedBot() {
 	});
 }
 
+test("回复粒度：可切换为 minimal 并保存 → 载荷携带 replyGranularity=minimal", async () => {
+	seedBot();
+	render(<BotsSection />);
+	fireEvent.click(screen.getByTestId("bot-card-ch_1"));
+	fireEvent.change(screen.getByTestId("bot-granularity-select"), { target: { value: "minimal" } });
+	fireEvent.click(screen.getByTestId("bot-save-btn"));
+	const { waitFor } = await import("@testing-library/react");
+	await waitFor(() => expect(apiCalls.some((c) => c.method === "PUT")).toBe(true));
+	expect(apiCalls.find((c) => c.method === "PUT")!.body.channel.replyGranularity).toBe("minimal");
+});
+
 test("编辑：改名后保存 → PUT 正确载荷（secret 留空不修改）", async () => {
 	seedBot();
 	render(<BotsSection />);

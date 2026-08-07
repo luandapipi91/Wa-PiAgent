@@ -832,6 +832,11 @@ export class WSServer {
 					projects: data.projects,
 					sessions: data.sessions,
 				});
+				// 联动清理 IM 映射（当前指针 + 历史归档），刷新 IM tab 列表。
+				// 非 IM 会话在 mapping 里查不到 → no-op。
+				if (this.opts.channelManager) {
+					await this.opts.channelManager.onSessionDeleted(event.sessionId);
+				}
 				break;
 			}
 			case "session:asks": {
