@@ -62,7 +62,7 @@ export function ProcessCard(props: {
       </button>
       {open && children != null && (
         <div
-          className="px-3 py-2 border-t border-hairline text-[calc(12px*var(--font-scale))] text-secondary min-w-0"
+          className="px-3 py-2 border-t border-hairline text-[calc(12px*var(--font-scale))] text-secondary min-w-0 [overflow-wrap:anywhere]"
           data-testid={testId ? `${testId}-body` : undefined}
         >
           {children}

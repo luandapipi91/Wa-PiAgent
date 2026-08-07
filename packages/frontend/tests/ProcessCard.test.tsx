@@ -27,3 +27,8 @@ test("muted 时根节点带 data-muted 且透明度弱化", () => {
   expect(root.getAttribute("data-muted")).toBe("true");
   expect(root.className).toContain("opacity-55");
 });
+
+test("body 带 overflow-wrap:anywhere 兜底（长无空格串任意断行，不撑破卡片）", () => {
+  render(<ProcessCard tone="accent" icon="💭" title="t" open={true} onToggle={() => {}} testId="pc">b</ProcessCard>);
+  expect(screen.getByTestId("pc-body").className).toContain("overflow-wrap:anywhere");
+});
