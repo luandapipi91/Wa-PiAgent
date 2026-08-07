@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listDir, revealFile } from "../fs-client";
 import { copyToClipboard } from "../util/clipboard";
+import { openInFileManagerLabel } from "../util/platform";
 import { useToastStore } from "../store/toast";
 import { Icon } from "./ui/Icon";
 
@@ -46,7 +47,7 @@ function ExplorerContextMenu({
   return (
     <div className="ep-ctx-menu" data-ctx-menu="" style={{ left: x, top: y }}>
       <button className="ep-ctx-item" onClick={() => { void copyToClipboard(entry.path); onClose(); }}>复制路径</button>
-      <button className="ep-ctx-item" onClick={() => { onReveal(entry.path); onClose(); }}>在访达中显示</button>
+      <button className="ep-ctx-item" onClick={() => { onReveal(entry.path); onClose(); }}>{openInFileManagerLabel()}</button>
     </div>
   );
 }

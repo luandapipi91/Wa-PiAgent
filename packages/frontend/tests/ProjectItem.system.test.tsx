@@ -150,11 +150,11 @@ test("系统项目右键菜单不显示'删除项目'", () => {
 		);
 	});
 	expect(screen.queryByTestId("menu-delete-project")).toBeNull();
-	// "查看文件夹" 仍然显示
+	// 「在文件管理器中打开」入口（项目目录）仍然显示
 	expect(screen.getByTestId("menu-open-dir")).toBeTruthy();
 });
 
-test("系统项目下会话右键菜单有'打开工作目录'项", () => {
+test("系统项目下会话右键菜单有'在文件管理器中打开'项", () => {
 	const session: SessionEntity = {
 		id: "s1",
 		projectId: SYSTEM_PROJECT_ID,
@@ -179,7 +179,7 @@ test("系统项目下会话右键菜单有'打开工作目录'项", () => {
 		fireEvent.contextMenu(screen.getByText("会话"));
 	});
 	expect(screen.getByTestId("menu-open-session-dir")).toBeTruthy();
-	// 点击"打开工作目录"应调用 POST /api/projects/{projectId}/open-dir，携带 sessionId
+	// 点击「在文件管理器中打开」应调用 POST /api/projects/{projectId}/open-dir，携带 sessionId
 	act(() => {
 		fireEvent.click(screen.getByTestId("menu-open-session-dir"));
 	});
@@ -233,7 +233,7 @@ test("普通项目右键菜单有'删除项目'（行为不变）", () => {
 	expect(screen.getByTestId("menu-delete-project")).toBeTruthy();
 });
 
-test("普通项目下会话右键菜单无'打开工作目录'（行为不变）", () => {
+test("普通项目下会话右键菜单无'在文件管理器中打开'（行为不变）", () => {
 	const session: SessionEntity = {
 		id: "s1",
 		projectId: "p1",

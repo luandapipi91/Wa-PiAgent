@@ -49,7 +49,7 @@ test.describe.serial("默认工作区", () => {
     await page.getByText("默认工作区").first().click({ button: "right" });
     // 等菜单出现
     await expect(page.getByTestId("project-context-menu")).toBeVisible({ timeout: 2000 });
-    // "查看文件夹" 应该存在
+    // 「在文件管理器中打开」入口应该存在
     await expect(page.getByTestId("menu-open-dir")).toBeVisible();
     // "删除项目" 不应该存在
     await expect(page.getByTestId("menu-delete-project")).toHaveCount(0);

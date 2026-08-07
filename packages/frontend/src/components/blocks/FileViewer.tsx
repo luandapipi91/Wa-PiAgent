@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { readFile, revealFile } from "../../fs-client";
 import { createMarkdownComponents } from "./markdown-components";
+import { openInFileManagerLabel } from "../../util/platform";
 import { Icon } from "../ui/Icon";
 
 // 图片扩展名集合（与 kernel checkPreviewable 放行的 image/* 对齐）
@@ -326,8 +327,9 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 					<button
 						className="fv-btn fv-btn-accent"
 						onClick={() => void revealFile(path)}
+						data-testid="fv-reveal"
 					>
-						在系统查看文件
+						{openInFileManagerLabel()}
 					</button>
 				</div>
 			</div>

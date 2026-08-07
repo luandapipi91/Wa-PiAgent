@@ -114,7 +114,7 @@ async function globalSetup() {
 		SEED_PROJECTS_JSON,
 		"utf8",
 	);
-	// 预置一个不支持预览的文件（zip）：FileViewer unsupported 分支显示「在系统查看文件」按钮的 E2E 依赖
+	// 预置一个不支持预览的文件（zip）：FileViewer unsupported 分支显示「在文件管理器中打开」按钮的 E2E 依赖
 	writeFileSync(
 		join(SEED_PROJECT_CWD, "sample.zip"),
 		"PK\x03\x04 e2e-zip-placeholder",

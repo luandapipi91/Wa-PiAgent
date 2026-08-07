@@ -11,6 +11,7 @@ import { Icon } from "./ui/Icon";
 import { api } from "../api-client";
 import { useProjectUiStore } from "../store/project-ui";
 import { useComposerPrefsStore } from "../store/composer-prefs";
+import { openInFileManagerLabel } from "../util/platform";
 
 interface Props {
 	project: ProjectEntity;
@@ -159,7 +160,7 @@ export function ProjectItem(props: Props) {
 		);
 	};
 
-	// 系统项目下的会话专属"打开工作目录"：带 sessionId 让 main 打开会话所在目录
+	// 系统项目下的会话专属「在文件管理器中打开」：带 sessionId 让 main 打开会话所在目录
 	const handleOpenSessionDir = (session: SessionEntity) => {
 		setSessionMenu(null);
 		void api.post(`/api/projects/${encodeURIComponent(project.id)}/open-dir`, {
@@ -275,7 +276,7 @@ export function ProjectItem(props: Props) {
 								className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
 								data-testid="menu-open-session-dir"
 							>
-								打开工作目录
+								{openInFileManagerLabel()}
 							</button>
 						)}
 					</div>,
@@ -302,7 +303,7 @@ export function ProjectItem(props: Props) {
 							className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
 							data-testid="menu-open-dir"
 						>
-							查看文件夹
+							{openInFileManagerLabel()}
 						</button>
 						{!isSystem && (
 							<button
