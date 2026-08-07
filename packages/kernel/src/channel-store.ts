@@ -15,6 +15,8 @@ export interface ChannelSessionMapping {
 	currentProjectId: string;
 	/** projectId → sessionId */
 	sessions: Record<string, string>;
+	/** 已归档的会话 id（/new 产生的历史会话）；listConversations 据此在 IM tab 展示历史 */
+	historySessionIds?: string[];
 	lastMessagePreview: string;
 	updatedAt: number;
 }
@@ -61,7 +63,7 @@ export async function saveChannelMappings(
 }
 
 const VALID_TYPES = new Set(["wecom", "wechat", "feishu", "qq", "mock"]);
-const VALID_GRANULARITY = new Set(["simple", "standard"]);
+const VALID_GRANULARITY = new Set(["minimal", "simple", "standard"]);
 
 /** 校验渠道入参；合法返回 null，非法返回中文错误（直接回前端展示） */
 export function validateChannelInput(

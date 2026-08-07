@@ -1,8 +1,22 @@
 import { afterEach, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+// api mock：按 path 分发（与 channels-store.test.tsx 同款，避免 mock.module 互相覆盖时
+// 缺方法导致同批跑的测试失败）；del 用 spy 断言删除调用
+const delMock = mock();
 mock.module("../src/api-client", () => ({
-	api: { get: async () => ({ conversations: [] }) },
+	api: {
+		get: async (path: string) => {
+			if (path === "/api/channel-conversations") return { conversations: [] };
+			if (path === "/api/channels") return { channels: [] };
+			return {};
+		},
+		del: delMock,
+	},
+}));
+// composer-prefs 的 removeSessionSession 在删除时被调用，mock 掉避免触碰 IndexedDB
+mock.module("../src/store/composer-prefs", () => ({
+	useComposerPrefsStore: { getState: () => ({ removeSessionPrefs: () => {} }) },
 }));
 
 const { ImConversationList } = await import("../src/components/ImConversationList");
@@ -75,4 +89,52 @@ test("会话列表超过 100 条只显示最近 100 条（按 updatedAt 倒序�
 	// 最近的最在前（updatedAt 倒序）：首项应为 sess_104，末项为 sess_5
 	expect(items[0].getAttribute("data-testid")).toBe("im-conv-sess_104");
 	expect(items[99].getAttribute("data-testid")).toBe("im-conv-sess_5");
+});
+
+test("右键会话弹菜单，点删除聊天弹确认框，确认后调 DELETE /api/sessions/:id", async () => {
+	useChannelsStore.setState({
+		conversations: [
+			{
+				channelId: "ch_1", channelName: "客服机器人", channelType: "wecom",
+				chatId: "zhangsan", chatType: "single",
+				sessionId: "sess_del", projectId: "__system__", projectName: "默认工作区",
+				lastMessagePreview: "好的", updatedAt: Date.now(),
+			},
+		] as any,
+	});
+	delMock.mockClear();
+	render(<ImConversationList onSelectSession={() => {}} />);
+	// 右键会话项 → 弹出菜单（contextmenu 事件触发原生监听）
+	fireEvent.contextMenu(screen.getByTestId("im-conv-sess_del"));
+	expect(screen.getByTestId("im-conv-context-menu")).toBeTruthy();
+	expect(screen.getByTestId("im-menu-delete")).toBeTruthy();
+	// 点「删除聊天」→ 弹确认框
+	fireEvent.click(screen.getByTestId("im-menu-delete"));
+	expect(screen.getByTestId("confirm-dialog")).toBeTruthy();
+	// 确认 → 调 DELETE 接口
+	fireEvent.click(screen.getByTestId("confirm-ok"));
+	expect(delMock).toHaveBeenCalledTimes(1);
+	expect(delMock.mock.calls[0][0]).toContain("/api/sessions/sess_del");
+});
+
+test("确认删除后确认框关闭", async () => {
+	useChannelsStore.setState({
+		conversations: [
+			{
+				channelId: "ch_1", channelName: "客服机器人", channelType: "wecom",
+				chatId: "zhangsan", chatType: "single",
+				sessionId: "sess_del2", projectId: "__system__", projectName: "默认工作区",
+				lastMessagePreview: "", updatedAt: Date.now(),
+			},
+		] as any,
+	});
+	delMock.mockClear();
+	render(<ImConversationList onSelectSession={() => {}} />);
+	fireEvent.contextMenu(screen.getByTestId("im-conv-sess_del2"));
+	fireEvent.click(screen.getByTestId("im-menu-delete"));
+	fireEvent.click(screen.getByTestId("confirm-ok"));
+	// 确认后对话框消失
+	await waitFor(() => {
+		expect(screen.queryByTestId("confirm-dialog")).toBeNull();
+	});
 });
