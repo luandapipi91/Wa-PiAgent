@@ -10,6 +10,14 @@ let postError: Error | null = null;
 				if (path === "/api/channels") return { channels: [] };
 				if (path === "/api/channel-conversations") return { conversations: [] };
 				if (path === "/api/skills") return { skills: [], allSkills: [], dirs: [], disabledSkills: [], builtinDir: "" };
+				if (path === "/api/projects")
+					return {
+						projects: [
+							{ id: "__system__", name: "默认工作区", cwd: "/x", createdAt: 1 },
+							{ id: "p1", name: "hiagent", cwd: "/y", createdAt: 2 },
+						],
+						sessions: [],
+					};
 				return {};
 			},
 		post: async (path: string, body: any) => {
@@ -32,12 +40,20 @@ const { BotsSection } = await import("../src/components/settings/BotsSection");
 const { useChannelsStore } = await import("../src/store/channels");
 const { useAgentsStore } = await import("../src/store/agents");
 const { useToastStore } = await import("../src/store/toast");
+const { useProjectsStore } = await import("../src/store/projects");
 
 beforeEach(() => {
 	apiCalls.length = 0;
 	postError = null;
 	useToastStore.setState({ toasts: [] });
 	useChannelsStore.setState({ bots: [], conversations: [] });
+	useProjectsStore.setState({
+		projects: [
+			{ id: "__system__", name: "默认工作区", cwd: "/x", createdAt: 1 },
+			{ id: "p1", name: "hiagent", cwd: "/y", createdAt: 2 },
+		],
+		sessions: [],
+	} as any);
 	useAgentsStore.setState({
 		list: [
 			{ displayName: "前端开发者", model: "p/m" },
@@ -197,4 +213,61 @@ test("保存失败 → 用 toast 提示错误，按钮旁不再出现 inline 文
 	});
 	// 2. 保存按钮旁不再渲染 inline 报错
 	expect(screen.queryByTestId("bot-save-error")).toBeNull();
+});
+
+test("新建草稿：默认工作目录默认选中「默认工作区」，允许切换默认不勾", () => {
+	render(<BotsSection />);
+	fireEvent.click(screen.getByTestId("bots-new-btn"));
+	fireEvent.click(screen.getByTestId("channel-chip-wecom"));
+
+	const select = screen.getByTestId("bot-default-project-select") as HTMLSelectElement;
+	expect(select.value).toBe("__system__");
+	expect(select.textContent).toContain("默认工作区");
+	expect(
+		(screen.getByTestId("bot-allow-switch-toggle") as HTMLInputElement).checked,
+	).toBe(false);
+});
+
+test("新建保存：勾选允许切换 + 选择其他工作区 → POST 载荷含两字段", async () => {
+	render(<BotsSection />);
+	fireEvent.click(screen.getByTestId("bots-new-btn"));
+	fireEvent.click(screen.getByTestId("channel-chip-wecom"));
+	fireEvent.change(screen.getByTestId("bot-name-input"), { target: { value: "客服机器人" } });
+	fireEvent.change(screen.getByTestId("bot-botid-input"), { target: { value: "ww123" } });
+	fireEvent.change(screen.getByTestId("bot-secret-input"), { target: { value: "sec456" } });
+	// 默认工作目录切到 hiagent，勾选允许切换
+	fireEvent.change(screen.getByTestId("bot-default-project-select"), { target: { value: "p1" } });
+	fireEvent.click(screen.getByTestId("bot-allow-switch-toggle"));
+	fireEvent.click(screen.getByTestId("bot-save-btn"));
+
+	const { waitFor } = await import("@testing-library/react");
+	await waitFor(() => expect(apiCalls.some((c) => c.method === "POST")).toBe(true));
+	const post = apiCalls.find((c) => c.method === "POST")!;
+	expect(post.path).toBe("/api/channels");
+	expect(post.body.channel.defaultProjectId).toBe("p1");
+	expect(post.body.channel.allowProjectSwitch).toBe(true);
+});
+
+test("编辑回填：旧数据（无两个新字段）→ 回退 __system__ 且不勾选", () => {
+	// 构造不含 defaultProjectId/allowProjectSwitch 的旧格式 bot
+	useChannelsStore.setState({
+		bots: [
+			{
+				id: "ch_1", type: "wecom", name: "旧机器人", enabled: true,
+				credentials: { botId: "ww1", secret: "****" },
+				agentName: "前端开发者", model: null,
+				extraSystemPrompt: "", replyGranularity: "standard", createdAt: 1,
+				status: "connected",
+			} as any,
+		],
+	});
+	render(<BotsSection />);
+	fireEvent.click(screen.getByTestId("bot-card-ch_1"));
+
+	expect(
+		(screen.getByTestId("bot-default-project-select") as HTMLSelectElement).value,
+	).toBe("__system__");
+	expect(
+		(screen.getByTestId("bot-allow-switch-toggle") as HTMLInputElement).checked,
+	).toBe(false);
 });

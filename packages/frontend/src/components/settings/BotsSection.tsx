@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { resolveProviderSlug, type ChannelType } from "@wa-pi/shared";
+import { resolveProviderSlug, SYSTEM_PROJECT_ID, SYSTEM_PROJECT_NAME, type ChannelType, type ProjectEntity } from "@wa-pi/shared";
 import { useChannelsStore, type ChannelInput } from "../../store/channels";
+import { useProjectsStore } from "../../store/projects";
 import { useAgentsStore } from "../../store/agents";
 import { useProvidersStore } from "../../store/providers";
 import { useToastStore } from "../../store/toast";
@@ -26,6 +27,7 @@ function emptyDraft(type: ChannelType): ChannelInput {
 		credentials: { botId: "", secret: "" },
 		agentName: "", model: null,
 		extraSystemPrompt: "", replyGranularity: "standard",
+		defaultProjectId: SYSTEM_PROJECT_ID, allowProjectSwitch: false,
 	};
 }
 
@@ -34,12 +36,13 @@ export function BotsSection() {
 	const { loadBots, createBot, updateBot, deleteBot } = useChannelsStore.getState();
 	const agents = useAgentsStore((s) => s.list);
 	const providers = useProvidersStore((s) => s.providers);
+	const projects = useProjectsStore((s) => s.projects);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [draft, setDraft] = useState<ChannelInput | null>(null); // 非 null = 新建/编辑中的表单
 	const [showNew, setShowNew] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 
-	useEffect(() => { void loadBots(); }, []);
+	useEffect(() => { void loadBots(); void useProjectsStore.getState().load(); }, []);
 
 	// 模型选项（与 ModelSelector 同源：providerSlug/modelId），首项「跟随智能体」
 	const modelOptions = (() => {
@@ -61,6 +64,8 @@ export function BotsSection() {
 			credentials: { botId: b.credentials.botId, secret: "" },
 			agentName: b.agentName, model: b.model,
 			extraSystemPrompt: b.extraSystemPrompt, replyGranularity: b.replyGranularity,
+			defaultProjectId: b.defaultProjectId ?? SYSTEM_PROJECT_ID,
+			allowProjectSwitch: b.allowProjectSwitch ?? false,
 		});
 	};
 
@@ -226,6 +231,31 @@ export function BotsSection() {
 								<option value="minimal">极简回复 · 仅最后一段</option>
 							</select>
 						</label>
+						<label className="flex flex-col gap-1 w-72">
+							<span className="text-xs text-secondary">默认工作目录</span>
+							<select value={draft.defaultProjectId}
+								onChange={(e) => setDraft({ ...draft, defaultProjectId: e.target.value })}
+								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
+								data-testid="bot-default-project-select">
+								{/* 兜底：projects 尚未加载完成时临时补「默认工作区」项，避免 select 显示空白 */}
+								{(projects.some((p) => p.id === draft.defaultProjectId)
+									? projects
+									: [{ id: SYSTEM_PROJECT_ID, name: SYSTEM_PROJECT_NAME, cwd: "", createdAt: 0 } as ProjectEntity, ...projects]
+								).map((p) => (
+									<option key={p.id} value={p.id}>{p.name}</option>
+								))}
+							</select>
+							<span className="text-xs text-tertiary">IM 会话默认落在该工作区。</span>
+						</label>
+						<div className="flex flex-col gap-1">
+							<label className="flex items-center gap-2 text-sm text-secondary">
+								<input type="checkbox" checked={draft.allowProjectSwitch}
+									onChange={(e) => setDraft({ ...draft, allowProjectSwitch: e.target.checked })}
+									data-testid="bot-allow-switch-toggle" />
+								允许切换工作目录
+							</label>
+							<span className="text-xs text-tertiary">开启后 IM 侧可通过 /use、/projects 指令查看并切换工作区。</span>
+						</div>
 						<label className="flex items-center gap-2 text-sm text-secondary">
 							<input type="checkbox" checked={draft.enabled}
 								onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
