@@ -12,6 +12,8 @@ const channel: ChannelConfig = {
 	model: null,
 	extraSystemPrompt: "",
 	replyGranularity: "standard",
+	defaultProjectId: "__system__",
+	allowProjectSwitch: false,
 	createdAt: 1,
 };
 

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test, mock } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,6 +26,8 @@ const channel: Omit<ChannelConfig, "id" | "createdAt"> = {
 	model: "p/m",
 	extraSystemPrompt: "渠道规则",
 	replyGranularity: "standard",
+	defaultProjectId: "__system__",
+	allowProjectSwitch: true,
 };
 
 beforeEach(async () => {
@@ -52,7 +54,10 @@ beforeEach(async () => {
 		} as any,
 		projectStore: {
 			load: async () => ({
-				projects: [{ id: "__system__", name: "默认工作区", cwd: "/x", createdAt: 1 }],
+				projects: [
+					{ id: "__system__", name: "默认工作区", cwd: "/x", createdAt: 1 },
+					{ id: "proj_x", name: "项目X", cwd: "/y", createdAt: 2 },
+				],
 				sessions: projectSessions,
 			}),
 			createSession: async (input: any) => {
@@ -556,4 +561,44 @@ test("错误回合不走流式终结，走 sendText 新消息", async () => {
 	const last = adapter!.outbox.at(-1)!;
 	expect(last.streamId).toBeUndefined();
 	expect(last.text).toBe("处理出错：模型超时");
+});
+
+// ===== 渠道默认工作区 + 切换开关 + 项目删除兜底（Task 4） =====
+
+test("新建映射使用渠道 defaultProjectId（非默认工作区）", async () => {
+	await manager.create({ ...channel, defaultProjectId: "proj_x" });
+	adapter!.inject({ chatId: "u_custom", text: "你好" });
+	await new Promise((r) => setTimeout(r, 50));
+	expect(sessionsCreated).toHaveLength(1);
+	expect(sessionsCreated[0].projectId).toBe("proj_x");
+	expect(ensured[0][0]).toBe("proj_x");
+});
+
+test("allowProjectSwitch=false：/use 被拒，不进智能体、不切换", async () => {
+	await manager.create({ ...channel, allowProjectSwitch: false });
+	adapter!.inject({ chatId: "u_ns", text: "/use 项目X" });
+	await new Promise((r) => setTimeout(r, 50));
+	// 拒绝回复经适配器 outbox（不经过 agentManager.prompt）
+	expect(prompted).toHaveLength(0);
+	expect(adapter!.outbox.at(-1)!.text).toContain("不支持切换工作目录");
+	// 后续普通消息仍落在默认工作区
+	adapter!.inject({ chatId: "u_ns", text: "你好" });
+	await new Promise((r) => setTimeout(r, 50));
+	expect(sessionsCreated[0].projectId).toBe("__system__");
+});
+
+test("defaultProjectId 指向已删除项目 → ensureSession 降级为 __system__ 并 warn", async () => {
+	const warnSpy = mock(() => {});
+	const origWarn = console.warn;
+	console.warn = warnSpy;
+	try {
+		await manager.create({ ...channel, defaultProjectId: "proj_deleted" });
+		adapter!.inject({ chatId: "u_dead", text: "你好" });
+		await new Promise((r) => setTimeout(r, 50));
+		expect(sessionsCreated).toHaveLength(1);
+		expect(sessionsCreated[0].projectId).toBe("__system__");
+		expect(warnSpy).toHaveBeenCalled();
+	} finally {
+		console.warn = origWarn;
+	}
 });
