@@ -183,18 +183,21 @@ test.describe.serial("IM 渠道机器人", () => {
 		await page
 			.getByTestId("model-selector")
 			.selectOption({ label: "E2E Channels/model-a" });
+		// 思考强度调 off：假 provider 不可达，pi 自动重试链在 thinking=high 下 settle 需 ~90s，
+		// off 下 ~15s；本步验证的是链路闭环而非重试时长
+		await page.getByTestId("thinking-selector").selectOption("disabled");
 		await page
 			.locator('[data-testid="composer-input"] [role="textbox"]')
 			.fill("界面追问一条");
 		await page.getByTestId("composer-send").click();
-		// 假 provider 连接失败会走内核自动重试（退避），留足 60s
+		// 假 provider 连接失败会走内核自动重试（退避），留足 90s
 		await pollUntil(async () => {
 			const r = await page.request.get(
 				`${KERNEL}/api/channels/${channelId}/mock-outbox`,
 			);
 			const body = (await r.json()) as any;
 			return body.messages?.length >= 2 ? body : null;
-		}, 60_000);
+		}, 90_000);
 	});
 
 	test.afterAll(async ({ request }) => {

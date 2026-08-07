@@ -10,8 +10,8 @@ import type {
 export class MockAdapter implements ChannelAdapter {
 	readonly type = "mock" as const;
 	status: ChannelStatus = "disconnected";
-	/** 出站记录：{ replyFrame, text } */
-	outbox: { replyFrame: unknown; text: string }[] = [];
+	/** 出站记录：sendText 整轮发送 { text }；streamReply 流式帧 { streamId, text, finish } */
+	outbox: { replyFrame: unknown; text: string; streamId?: string; finish?: boolean }[] = [];
 	/** 模拟下载图片时返回的内容 */
 	imageStub: Buffer = Buffer.from("fake-image");
 	private msgCb?: (msg: InboundMessage) => void;
@@ -27,6 +27,10 @@ export class MockAdapter implements ChannelAdapter {
 	}
 	async sendText(replyFrame: unknown, markdown: string): Promise<void> {
 		this.outbox.push({ replyFrame, text: markdown });
+	}
+	/** 流式增量回复（内存记录供测试断言流式帧序列） */
+	async streamReply(replyFrame: unknown, streamId: string, content: string, finish: boolean): Promise<void> {
+		this.outbox.push({ replyFrame, text: content, streamId, finish });
 	}
 	async downloadImage(_image: ChannelImageRef): Promise<Buffer> {
 		return this.imageStub;

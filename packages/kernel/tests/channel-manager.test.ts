@@ -14,6 +14,8 @@ let ensured: any[];
 let messagesBySession: Record<string, any[]>;
 let sessionsCreated: any[];
 let broadcasted: string[];
+// projectStore.load 返回的 sessions 列表：默认空，单测可往里塞数据模拟"会话存在"
+let projectSessions: any[];
 
 const channel: Omit<ChannelConfig, "id" | "createdAt"> = {
 	type: "mock",
@@ -33,6 +35,7 @@ beforeEach(async () => {
 	messagesBySession = {};
 	sessionsCreated = [];
 	broadcasted = [];
+	projectSessions = [];
 	manager = new ChannelManager({
 		channelsFile: join(dir, "channels.json"),
 		mappingsFile: join(dir, "mappings.json"),
@@ -50,7 +53,7 @@ beforeEach(async () => {
 		projectStore: {
 			load: async () => ({
 				projects: [{ id: "__system__", name: "默认工作区", cwd: "/x", createdAt: 1 }],
-				sessions: [],
+				sessions: projectSessions,
 			}),
 			createSession: async (input: any) => {
 				sessionsCreated.push(input);
@@ -252,4 +255,143 @@ test("listConversations：返回会话列表项（含预览与项目名）", asy
 	expect(convs[0].channelName).toBe("测试机器人");
 	expect(convs[0].projectName).toBe("默认工作区");
 	expect(convs[0].lastMessagePreview).toBe("你好呀");
+});
+
+test("映射缓存的会话已被删除 → 兜底新建会话，不抛'会话不存在'", async () => {
+	await manager.create(channel);
+	// 第一条消息：建立映射 + 创建会话 A
+	adapter!.inject({ chatId: "u1", text: "第一条" });
+	await new Promise((r) => setTimeout(r, 50));
+	expect(sessionsCreated).toHaveLength(1);
+	const staleSid = sessionsCreated[0].id;
+	expect(staleSid.startsWith("im-")).toBe(true);
+	// 用户未收到"会话不存在"错误
+	expect(adapter!.outbox.some((m) => m.text.includes("会话不存在"))).toBe(false);
+
+	// 模拟会话被删除（前端删会话 / 数据清理）：project-store 里不再有该 session
+	// projectSessions 本来就是 []（createSession 是独立 mock 不回填 load），无需改动
+
+	// 第二条消息：映射里还缓存着失效的 staleSid，应兜底新建会话 B 而非报错
+	adapter!.inject({ chatId: "u1", text: "第二条" });
+	await new Promise((r) => setTimeout(r, 50));
+
+	// 新建了第二个会话，id 与失效的不同
+	expect(sessionsCreated).toHaveLength(2);
+	const newSid = sessionsCreated[1].id;
+	expect(newSid).not.toBe(staleSid);
+	// ensureStarted 用的是新会话 id（兜底成功，未阻断）
+	expect(ensured[1][2]).toBe(newSid);
+	// 用户没有收到任何"会话不存在"错误回复
+	expect(adapter!.outbox.some((m) => m.text.includes("会话不存在"))).toBe(false);
+	// prompt 在新会话里执行
+	expect(prompted[1].sessionId).toBe(newSid);
+});
+
+// ===== 流式回复 =====
+
+/** 构造 message_update(text_delta) 事件：partial.content 含累计 text 块 */
+function textDeltaEvent(partialText: string) {
+	return {
+		type: "message_update",
+		message: { role: "assistant", content: [{ type: "text", text: partialText }] },
+		assistantMessageEvent: {
+			type: "text_delta",
+			partial: { role: "assistant", content: [{ type: "text", text: partialText }] },
+		},
+	};
+}
+
+test("流式回复：text_delta → streamReply 增量帧（streamId 稳定）；agent_settled → 终结帧", async () => {
+	await manager.create(channel);
+	adapter!.inject({ chatId: "u1", text: "写首诗" });
+	await new Promise((r) => setTimeout(r, 50));
+	const sid = prompted[0].sessionId;
+
+	// 首个 text_delta：发首帧（finish=false）
+	manager.onSessionEvent(sid, textDeltaEvent("床前"));
+	await new Promise((r) => setTimeout(r, 20));
+	// 流式帧已入 outbox
+	const streamFrames = adapter!.outbox.filter((m) => m.streamId);
+	expect(streamFrames.length).toBeGreaterThanOrEqual(1);
+	const streamId = streamFrames[0].streamId;
+	expect(streamFrames[0].finish).toBe(false);
+	expect(streamFrames[0].text).toBe("床前");
+
+	// 第二个 text_delta：streamId 不变，内容更新
+	manager.onSessionEvent(sid, textDeltaEvent("床前明月光"));
+	await new Promise((r) => setTimeout(r, 20));
+
+	// agent_settled 终结：用 composeReply 文本发 finish=true
+	messagesBySession[sid] = [
+		{ role: "user", content: [{ type: "text", text: "写首诗" }] },
+		{ role: "assistant", content: [{ type: "text", text: "床前明月光" }] },
+	];
+	manager.onSessionEvent(sid, { type: "agent_settled" });
+	await new Promise((r) => setTimeout(r, 50));
+
+	// 所有流式帧 streamId 一致
+	const allStreamFrames = adapter!.outbox.filter((m) => m.streamId);
+	expect(allStreamFrames.every((m) => m.streamId === streamId)).toBe(true);
+	// 终结帧 finish=true
+	const finalFrame = allStreamFrames.at(-1)!;
+	expect(finalFrame.finish).toBe(true);
+	expect(finalFrame.text).toBe("床前明月光");
+});
+
+test("流式多消息轮（工具调用）：第二条消息的流式帧含已落地历史，不清空", async () => {
+	await manager.create(channel);
+	adapter!.inject({ chatId: "u1", text: "改个 bug" });
+	await new Promise((r) => setTimeout(r, 50));
+	const sid = prompted[0].sessionId;
+
+	// 第一条 assistant 消息流式（"正在修复"）+ 工具调用后已落地
+	manager.onSessionEvent(sid, textDeltaEvent("正在修复"));
+	await new Promise((r) => setTimeout(r, 20));
+	messagesBySession[sid] = [
+		{ role: "user", content: [{ type: "text", text: "改个 bug" }] },
+		{
+			role: "assistant",
+			content: [
+				{ type: "text", text: "正在修复" },
+				{ type: "toolCall", id: "1", name: "edit", arguments: { path: "a.ts" } },
+			],
+		},
+	];
+
+	// 工具执行需要时间：等待节流间隔过去后再发第二条消息的 delta（模拟真实时序）
+	await new Promise((r) => setTimeout(r, 550));
+
+	// 第二条 assistant 消息开始流式（partial 只有自己的文本"已修复"）
+	manager.onSessionEvent(sid, textDeltaEvent("已修复"));
+	await new Promise((r) => setTimeout(r, 20));
+
+	// 最后一个流式帧应含两条消息的累计文本（"正在修复" + "已修复"），而非只有"已修复"
+	const streamFrames = adapter!.outbox.filter((m) => m.streamId);
+	const lastFrame = streamFrames.at(-1)!;
+	expect(lastFrame.text).toContain("正在修复");
+	expect(lastFrame.text).toContain("已修复");
+});
+
+test("错误回合不走流式终结，走 sendText 新消息", async () => {
+	await manager.create(channel);
+	adapter!.inject({ chatId: "u1", text: "报错的请求" });
+	await new Promise((r) => setTimeout(r, 50));
+	const sid = prompted[0].sessionId;
+
+	// 先产生流式帧
+	manager.onSessionEvent(sid, textDeltaEvent("正在处理"));
+	await new Promise((r) => setTimeout(r, 20));
+
+	// agent_settled 时是错误回合
+	messagesBySession[sid] = [
+		{ role: "user", content: [{ type: "text", text: "报错的请求" }] },
+		{ role: "assistant", content: [{ type: "text", text: "" }], stopReason: "error", errorMessage: "模型超时" },
+	];
+	manager.onSessionEvent(sid, { type: "agent_settled" });
+	await new Promise((r) => setTimeout(r, 50));
+
+	// 最后一条是 sendText（非流式），内容为错误提示
+	const last = adapter!.outbox.at(-1)!;
+	expect(last.streamId).toBeUndefined();
+	expect(last.text).toBe("处理出错：模型超时");
 });

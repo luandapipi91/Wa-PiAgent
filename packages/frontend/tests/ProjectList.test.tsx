@@ -47,6 +47,46 @@ test("渲染项目 + 会话", () => {
 	expect(screen.getByText("会话1")).toBeTruthy();
 });
 
+test("IM 渠道会话（im- 前缀）不在任务列表显示，只属于 IM 页签", () => {
+	useProjectsStore.setState({
+		projects: [{ id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp", createdAt: 0 }],
+		sessions: [
+			{
+				id: "normal-session",
+				projectId: SYSTEM_PROJECT_ID,
+				primaryAgent: "dev",
+				title: "普通会话",
+				createdAt: 0,
+				lastActivity: Date.now(),
+				piSessionFile: "",
+			},
+			{
+				id: "im-ch_abc-__system__-1700000000000",
+				projectId: SYSTEM_PROJECT_ID,
+				primaryAgent: "前端开发者",
+				title: "IM · woq4IJEAAAQW",
+				createdAt: 0,
+				lastActivity: Date.now(),
+				piSessionFile: "",
+			},
+		],
+		currentProjectId: null,
+		currentSessionId: null,
+	});
+	render(
+		<ProjectList
+			onSelectSession={() => {}}
+			onNewSessionInProject={() => {}}
+			onSelectProject={() => {}}
+			onNewProject={() => {}}
+		/>,
+	);
+	// 普通会话正常显示
+	expect(screen.getByText("普通会话")).toBeTruthy();
+	// IM 会话不在任务列表
+	expect(screen.queryByText("IM · woq4IJEAAAQW")).toBeNull();
+});
+
 // 该用例对应的"项目名旁 + 号"按钮已在 9c97fd8 移除（点击项目名即可新建会话），
 // testid `new-in-p1` 不复存在，故跳过。保留用例以备将来恢复该交互时参考。
 test.skip("项目内 ＋ 触发 onNewSessionInProject", () => {
