@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import {
 	CHANNELS_FILE,
 	CHANNEL_SESSIONS_FILE,
+	SYSTEM_PROJECT_ID,
 	type ChannelConfig,
 } from "@wa-pi/shared";
 
@@ -38,7 +39,13 @@ export async function loadChannels(
 	file: string = CHANNELS_FILE,
 ): Promise<ChannelConfig[]> {
 	const raw = await readJson<{ channels?: ChannelConfig[] }>(file, {});
-	return Array.isArray(raw.channels) ? raw.channels : [];
+	const list = Array.isArray(raw.channels) ? raw.channels : [];
+	// 旧数据兼容：缺省字段归一化，不写盘
+	for (const c of list) {
+		if (!c.defaultProjectId) c.defaultProjectId = SYSTEM_PROJECT_ID;
+		if (typeof c.allowProjectSwitch !== "boolean") c.allowProjectSwitch = false;
+	}
+	return list;
 }
 
 export async function saveChannels(
@@ -75,6 +82,8 @@ export function validateChannelInput(
 	if (!input.credentials?.secret?.trim()) return "Secret 不能为空";
 	if (!VALID_GRANULARITY.has(input.replyGranularity))
 		return `非法的回复粒度: ${input.replyGranularity}`;
+	// defaultProjectId 缺失回退默认工作区（与 loadChannels 读取兜底一致，不报错）
+	if (!input.defaultProjectId) input.defaultProjectId = SYSTEM_PROJECT_ID;
 	return null;
 }
 

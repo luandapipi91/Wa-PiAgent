@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,7 +11,7 @@ import {
 	maskSecret,
 	type ChannelSessionMapping,
 } from "../src/channel-store";
-import type { ChannelConfig } from "@wa-pi/shared";
+import { SYSTEM_PROJECT_ID, type ChannelConfig } from "@wa-pi/shared";
 
 let dir: string;
 let channelsFile: string;
@@ -35,6 +35,8 @@ const sample: ChannelConfig = {
 	model: null,
 	extraSystemPrompt: "回复控制在200字内",
 	replyGranularity: "standard",
+	defaultProjectId: "__system__",
+	allowProjectSwitch: false,
 	createdAt: 1786000000,
 };
 
@@ -85,4 +87,79 @@ test("mappings：保存/读取往返一致", async () => {
 	await saveChannelMappings([m], mappingsFile);
 	expect(await loadChannelMappings(mappingsFile)).toEqual([m]);
 	expect(await loadChannelMappings(join(dir, "nonexistent.json"))).toEqual([]);
+});
+
+test("loadChannels: 旧数据（无 defaultProjectId/allowProjectSwitch）读取兜底", async () => {
+	// 模拟旧版 channels.json：不含新字段
+	const file = join(dir, "channels.json");
+	await writeFile(
+		file,
+		JSON.stringify({
+			schemaVersion: 1,
+			channels: [
+				{
+					id: "ch_old",
+					type: "wecom",
+					name: "旧机器人",
+					enabled: true,
+					credentials: { botId: "b1", secret: "s1" },
+					agentName: "前端开发者",
+					model: null,
+					extraSystemPrompt: "",
+					replyGranularity: "simple",
+					createdAt: 1,
+				},
+			],
+		}),
+		"utf8",
+	);
+	const list = await loadChannels(file);
+	expect(list).toHaveLength(1);
+	expect(list[0].defaultProjectId).toBe(SYSTEM_PROJECT_ID);
+	expect(list[0].allowProjectSwitch).toBe(false);
+});
+
+test("loadChannels: 新数据保留显式配置值", async () => {
+	const file = join(dir, "channels.json");
+	await writeFile(
+		file,
+		JSON.stringify({
+			schemaVersion: 1,
+			channels: [
+				{
+					id: "ch_new",
+					type: "wecom",
+					name: "新机器人",
+					enabled: true,
+					credentials: { botId: "b1", secret: "s1" },
+					agentName: "前端开发者",
+					model: null,
+					extraSystemPrompt: "",
+					replyGranularity: "simple",
+					defaultProjectId: "proj_x",
+					allowProjectSwitch: true,
+					createdAt: 1,
+				},
+			],
+		}),
+		"utf8",
+	);
+	const list = await loadChannels(file);
+	expect(list[0].defaultProjectId).toBe("proj_x");
+	expect(list[0].allowProjectSwitch).toBe(true);
+});
+
+test("validateChannelInput: defaultProjectId 缺失时回退默认工作区（不报错）", () => {
+	const err = validateChannelInput({
+		type: "wecom",
+		name: "机器人",
+		enabled: true,
+		credentials: { botId: "b1", secret: "s1" },
+		agentName: "前端开发者",
+		model: null,
+		extraSystemPrompt: "",
+		replyGranularity: "simple",
+		// 故意不传 defaultProjectId / allowProjectSwitch
+	} as any);
+	expect(err).toBeNull();
 });
