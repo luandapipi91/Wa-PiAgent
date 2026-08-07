@@ -385,6 +385,107 @@ describe("AgentConfig 4 tab", () => {
 		const webRow = screen.getByTestId("skill-row-web");
 		expect(webRow.style.opacity).toBe("1");
 	});
+
+	test("技能 tab：全部勾选开关默认 ON（skills 空数组、非 allOff）", () => {
+		useSkillsStore.setState({
+			allSkills: [
+				{ name: "pdf", description: "PDF 处理", path: "/p/pdf" },
+				{ name: "web", description: "网页访问", path: "/p/web" },
+			],
+		});
+		renderConfig();
+		fireEvent.click(screen.getByTestId("tab-skills"));
+		// skills 空数组 = 继承全部 → 全选开关应为 ON
+		expect(
+			screen.getByTestId("skill-select-all").getAttribute("data-on"),
+		).toBe("true");
+		// 各技能开关也均为 ON
+		expect(
+			screen.getByTestId("skill-switch-pdf").getAttribute("data-on"),
+		).toBe("true");
+		expect(
+			screen.getByTestId("skill-switch-web").getAttribute("data-on"),
+		).toBe("true");
+	});
+
+	test("技能 tab：点击全部勾选开关 → 全不选，保存写入 skillsAllOff: true", () => {
+		useSkillsStore.setState({
+			allSkills: [
+				{ name: "pdf", description: "PDF 处理", path: "/p/pdf" },
+				{ name: "web", description: "网页访问", path: "/p/web" },
+			],
+		});
+		renderConfig();
+		fireEvent.click(screen.getByTestId("tab-skills"));
+		// 默认全选 ON，点击 → 全不选
+		fireEvent.click(screen.getByTestId("skill-select-all"));
+		expect(
+			screen.getByTestId("skill-select-all").getAttribute("data-on"),
+		).toBe("false");
+		// 所有技能开关变 OFF
+		expect(
+			screen.getByTestId("skill-switch-pdf").getAttribute("data-on"),
+		).toBe("false");
+		expect(
+			screen.getByTestId("skill-switch-web").getAttribute("data-on"),
+		).toBe("false");
+		// 保存写入 skillsAllOff: true
+		fireEvent.click(screen.getByText("保存"));
+		expect(lastSaved("dev").config.skillsAllOff).toBe(true);
+	});
+
+	test("技能 tab：逐项取消至全不选，自动进入全不选态（skillsAllOff: true）", () => {
+		useSkillsStore.setState({
+			allSkills: [
+				{ name: "pdf", description: "PDF 处理", path: "/p/pdf" },
+				{ name: "web", description: "网页访问", path: "/p/web" },
+			],
+		});
+		renderConfig();
+		fireEvent.click(screen.getByTestId("tab-skills"));
+		// 逐项取消两个技能
+		fireEvent.click(screen.getByTestId("skill-switch-pdf"));
+		fireEvent.click(screen.getByTestId("skill-switch-web"));
+		// 全选开关变 OFF
+		expect(
+			screen.getByTestId("skill-select-all").getAttribute("data-on"),
+		).toBe("false");
+		// 保存：因全部取消，应归一化为 skillsAllOff: true
+		fireEvent.click(screen.getByText("保存"));
+		expect(lastSaved("dev").config.skillsAllOff).toBe(true);
+	});
+
+	test("技能 tab：技能名不换行（whitespace-nowrap）", () => {
+		useSkillsStore.setState({
+			allSkills: [
+				{ name: "pdf", description: "PDF 处理", path: "/p/pdf" },
+			],
+		});
+		renderConfig();
+		fireEvent.click(screen.getByTestId("tab-skills"));
+		const nameEl = screen.getByTestId("skill-name-pdf");
+		expect(nameEl.className).toContain("whitespace-nowrap");
+	});
+
+	test("技能 tab：描述超长省略，点击弹出气泡显示完整描述；再次点击关闭", () => {
+		const longDesc = "这是一段非常长的技能描述用于测试省略与点击气泡展示完整内容的功能".repeat(
+			2,
+		);
+		useSkillsStore.setState({
+			allSkills: [{ name: "pdf", description: longDesc, path: "/p/pdf" }],
+		});
+		renderConfig();
+		fireEvent.click(screen.getByTestId("tab-skills"));
+		// 初始无气泡
+		expect(screen.queryByTestId("skill-desc-bubble-pdf")).toBeNull();
+		// 点击描述 → 弹出气泡，显示完整描述
+		fireEvent.click(screen.getByTestId("skill-desc-pdf"));
+		const bubble = screen.getByTestId("skill-desc-bubble-pdf");
+		expect(bubble.textContent).toBe(longDesc);
+		// 再次点击 → 关闭
+		fireEvent.click(screen.getByTestId("skill-desc-pdf"));
+		expect(screen.queryByTestId("skill-desc-bubble-pdf")).toBeNull();
+	});
 });
 
 describe("AgentConfig 内置 subagent（可保存 model/thinking）", () => {

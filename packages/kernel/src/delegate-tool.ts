@@ -288,8 +288,11 @@ export function makeSpawnFn(opts: {
 			});
 			return result;
 		}
-		const skillPaths =
-			opts.resolveSkillPaths && config.skills.length
+		// skillsAllOff=true 表示显式全不选：子代理也不加载任何技能（传空数组）
+		// 否则 skills 非空按白名单解析，空数组则 undefined（保持原语义）
+		const skillPaths = config.skillsAllOff
+			? []
+			: opts.resolveSkillPaths && config.skills.length
 				? await opts.resolveSkillPaths(config.skills)
 				: undefined;
 		// 派发前自愈 provider-extension：从 config.model（形如 "provider/model"）解析出所需 provider slug，

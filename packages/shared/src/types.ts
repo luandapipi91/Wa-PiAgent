@@ -96,6 +96,8 @@ export interface AgentConfig {
 	thinking: ThinkingLevel | null; // null = 跟随当前会话默认
 	tools: string[];
 	skills: string[];
+	// 技能显式全不选：true = 该智能体不加载任何技能（与 skills:[] 的"继承全部"语义区分）
+	skillsAllOff?: boolean;
 	mcpServers: string[];
 	partners: Partners;
 	delegationHints?: DelegationHints; // 委派引导：注入 delegate 工具描述

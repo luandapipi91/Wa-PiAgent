@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR } from "../playwright.config";
 import {
@@ -10,6 +10,8 @@ import {
   getAgentConfig,
   saveAgentConfig,
   saveProvider,
+  addSkillDir,
+  removeSkillDir,
 } from "./helpers";
 
 // Task 18: 多智能体矩阵关键链路 E2E
@@ -280,5 +282,106 @@ test.describe.serial("多智能体矩阵关键链路", () => {
       await deleteAgentQuiet(A1);
       await deleteAgentQuiet(A3);
     }
+  });
+});
+
+// 编辑智能体 - 技能 tab：全部勾选开关（支持全不选）+ 技能名不换行 + 描述点击气泡
+// 独立 describe：自包含地注入测试技能目录 + 凑齐宫格入口所需智能体，不依赖上方串行状态
+test.describe.serial("技能 tab：全部勾选开关与描述气泡", () => {
+  const SK_AGENT = "e2e-skill-agent";
+  const SK_FILLER1 = "e2e-skill-f1";
+  const SK_FILLER2 = "e2e-skill-f2";
+  const SK_FILLER3 = "e2e-skill-f3";
+  // 测试技能目录（含一个长描述技能用于气泡验证）
+  const e2eSkillDir = join(E2E_WA_PI_DIR, "e2e-skill-tab-skills");
+  const longDesc = "这是一段很长的技能描述用于验证超长省略与点击气泡显示完整内容的功能，需要足够长才能触发省略号".repeat(2);
+
+  test.beforeAll(async () => {
+    // 注入测试技能目录
+    const skillDir = join(e2eSkillDir, "e2e-skill-long");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      `---\nname: e2e-skill-long\ndescription: ${longDesc}\n---\n# e2e-skill-long`,
+    );
+    const skillDir2 = join(e2eSkillDir, "e2e-skill-short");
+    mkdirSync(skillDir2, { recursive: true });
+    writeFileSync(
+      join(skillDir2, "SKILL.md"),
+      `---\nname: e2e-skill-short\ndescription: 短技能\n---\n# e2e-skill-short`,
+    );
+    await addSkillDir(e2eSkillDir);
+    // 凑齐宫格入口（agent-more 需 >3 个智能体）：dev(研发) + 目标 + 3 个 filler
+    await createAgent(SK_AGENT);
+    await createAgent(SK_FILLER1);
+    await createAgent(SK_FILLER2);
+    await createAgent(SK_FILLER3);
+  });
+
+  test.afterAll(async () => {
+    // 清理测试技能目录与智能体
+    await removeSkillDir(e2eSkillDir).catch(() => {});
+    rmSync(e2eSkillDir, { recursive: true, force: true });
+    for (const n of [SK_AGENT, SK_FILLER1, SK_FILLER2, SK_FILLER3])
+      await deleteAgentQuiet(n);
+  });
+
+  test("全部勾选开关：默认 ON → 点击全不选 → 再次点击恢复全选；描述点击气泡", async ({ page }) => {
+    await page.goto("/", { timeout: 60_000 });
+    test.setTimeout(120_000);
+
+    // 打开宫格 → 右键目标 agent → 编辑
+    await page.getByTestId("agent-more").click();
+    await page.getByTestId(`gallery-card-${SK_AGENT}`).click({ button: "right" });
+    await page.getByTestId("gallery-ctx-edit").click();
+    await expect(page.getByTestId("agent-config")).toBeVisible();
+    await expect(page.getByTestId("cfg-name-input")).toHaveValue(SK_AGENT, { timeout: 10_000 });
+
+    // 切到技能 tab
+    await page.getByTestId("tab-skills").click();
+    // 等待测试技能出现（store 异步加载）
+    await expect(page.getByTestId("skill-switch-e2e-skill-long")).toBeVisible({ timeout: 10_000 });
+
+    // 全部勾选开关默认 ON
+    await expect(page.getByTestId("skill-select-all")).toHaveAttribute("data-on", "true");
+    await expect(page.getByTestId("skill-switch-e2e-skill-long")).toHaveAttribute("data-on", "true");
+    await expect(page.getByTestId("skill-switch-e2e-skill-short")).toHaveAttribute("data-on", "true");
+
+    // 点击全部勾选开关 → 全不选
+    await page.getByTestId("skill-select-all").click();
+    await expect(page.getByTestId("skill-select-all")).toHaveAttribute("data-on", "false");
+    await expect(page.getByTestId("skill-switch-e2e-skill-long")).toHaveAttribute("data-on", "false");
+    await expect(page.getByTestId("skill-switch-e2e-skill-short")).toHaveAttribute("data-on", "false");
+
+    // 保存 → 验证持久化 skillsAllOff: true（REST 读取配置，getAgentConfig 已返回 config 对象）
+    await page.getByTestId("agent-config").getByRole("button", { name: "保存" }).click();
+    await expect(page.getByTestId("agent-config")).toHaveCount(0);
+    const cfgAfter = await getAgentConfig(SK_AGENT);
+    expect(cfgAfter.skillsAllOff).toBe(true);
+
+    // 重开验证：全不选态应持久化（开关 OFF）。刷新页面重置所有 modal 状态再重开
+    await page.goto("/", { timeout: 60_000 });
+    await page.getByTestId("agent-more").click();
+    await page.getByTestId(`gallery-card-${SK_AGENT}`).click({ button: "right" });
+    await page.getByTestId("gallery-ctx-edit").click();
+    await expect(page.getByTestId("agent-config")).toBeVisible();
+    await page.getByTestId("tab-skills").click();
+    await expect(page.getByTestId("skill-switch-e2e-skill-long")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("skill-select-all")).toHaveAttribute("data-on", "false");
+    await expect(page.getByTestId("skill-switch-e2e-skill-long")).toHaveAttribute("data-on", "false");
+
+    // 描述气泡：点击超长描述 → 弹出完整描述 → 再次点击关闭
+    await expect(page.getByTestId("skill-desc-bubble-e2e-skill-long")).toHaveCount(0);
+    await page.getByTestId("skill-desc-e2e-skill-long").click();
+    await expect(page.getByTestId("skill-desc-bubble-e2e-skill-long")).toBeVisible();
+    await expect(page.getByTestId("skill-desc-bubble-e2e-skill-long")).toContainText(longDesc);
+    await page.getByTestId("skill-desc-e2e-skill-long").click();
+    await expect(page.getByTestId("skill-desc-bubble-e2e-skill-long")).toHaveCount(0);
+
+    // 恢复全选并保存，避免污染其他用例
+    await page.getByTestId("skill-select-all").click();
+    await expect(page.getByTestId("skill-select-all")).toHaveAttribute("data-on", "true");
+    await page.getByTestId("agent-config").getByRole("button", { name: "保存" }).click();
+    await expect(page.getByTestId("agent-config")).toHaveCount(0);
   });
 });
