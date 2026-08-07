@@ -8,6 +8,23 @@
 
 ### 新增
 
+- **企微机器人默认工作目录 + 切换工作目录开关**：机器人配置新增「默认工作目录」（默认 `__system__`）与「允许切换工作目录」开关（默认关闭）。
+  - 动机：原所有 IM 会话硬性落在默认工作区，且 `/use`、`/projects` 对所有机器人无条件开放。
+  - 改动：
+    - `ChannelConfig` 新增 `defaultProjectId`、`allowProjectSwitch` 字段。
+    - `loadChannels` 读取旧数据归一化兜底；`validateChannelInput` 对缺失 `defaultProjectId` 回退默认工作区。
+    - `channel-manager` 新建 IM 映射时使用渠道默认工作区；`ensureSession` 对失效 projectId 降级为默认工作区并 warn。
+    - `commands.ts` 新增 `CommandContext.allowSwitch`，关闭时 `/use`、`/projects` 返回拒绝回复，`/help` 文案不含这两条。
+    - 前端 `BotsSection` 表单新增项目下拉与 checkbox。
+  - 兼容：旧 `channels.json` 无需迁移，读取时兜底。
+  - 影响范围：`packages/shared/src/types.ts`、`packages/kernel/src/channel-store.ts`、`packages/kernel/src/channel-manager.ts`、`packages/kernel/src/channels/commands.ts`、`packages/kernel/tests/`（channel-store/channel-manager/channel-commands/mock-adapter）、`packages/frontend/src/components/settings/BotsSection.tsx`、`packages/frontend/tests/BotsSection.test.tsx`、`scripts/channels-api-it.sh`、`packages/frontend/e2e/wecom-bot-default-workdir.spec.ts`。
+
+---
+
+## 2026-08-07
+
+### 新增
+
 - **企微群聊会话从「群维度」改「群+用户维度」隔离**：此前同一群里所有用户共享一个会话（A 的上下文 B 可见）；
   现改为同群每个用户各开独立会话（key 从 `channelId:chatId` 升级为 `channelId:chatId:fromUserId`），
   A/B 上下文互不可见，且修复了同群多用户并发流式回复串帧的潜在 bug。
