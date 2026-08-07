@@ -20,6 +20,11 @@ curl -s -X POST "$BASE/api/channels" -H "Content-Type: application/json" \
 CH_ID=$(grep -o '"id":"ch_[^"]*"' /tmp/ch-res.json | head -1 | sed 's/"id":"//;s/"//')
 [ -n "$CH_ID" ] || fail "创建后应返回渠道 id"
 
+# 2.1) 新字段兜底：创建未传 defaultProjectId/allowProjectSwitch → 列表返回默认值
+curl -s "$BASE/api/channels" > /tmp/ch-res.json
+grep -q '"defaultProjectId":"__system__"' /tmp/ch-res.json || fail "defaultProjectId 应兜底为 __system__"
+grep -q '"allowProjectSwitch":false' /tmp/ch-res.json || fail "allowProjectSwitch 应兜底为 false"
+
 # 3) 列表脱敏
 curl -s "$BASE/api/channels" > /tmp/ch-res.json
 grep -q '\*\*\*\*1234' /tmp/ch-res.json || fail "secret 应脱敏为 ****1234"
@@ -35,6 +40,27 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/channels" \
 code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BASE/api/channels/$CH_ID" \
 	-H "Content-Type: application/json" -d '{"channel":{"name":"验收机器人2"}}')
 [ "$code" = "200" ] || fail "更新应返回 200，实际 $code"
+
+# 5.1) 默认不支持切换：/use 被拒
+curl -s -X POST "$BASE/api/channels/$CH_ID/mock-inbound" -H "Content-Type: application/json" \
+	-d '{"chatId":"u-it","text":"/use 默认工作区"}' > /dev/null
+sleep 2
+curl -s "$BASE/api/channels/$CH_ID/mock-outbox" > /tmp/ch-res.json
+grep -q "不支持切换工作目录" /tmp/ch-res.json || fail "开关关闭时 /use 应被拒"
+
+# 5.2) 开启允许切换 → 200 且回显
+code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BASE/api/channels/$CH_ID" \
+	-H "Content-Type: application/json" -d '{"channel":{"allowProjectSwitch":true}}')
+[ "$code" = "200" ] || fail "更新 allowProjectSwitch 应返回 200，实际 $code"
+curl -s "$BASE/api/channels" > /tmp/ch-res.json
+grep -q '"allowProjectSwitch":true' /tmp/ch-res.json || fail "allowProjectSwitch 应更新为 true"
+
+# 5.3) 开启后 /use 可用
+curl -s -X POST "$BASE/api/channels/$CH_ID/mock-inbound" -H "Content-Type: application/json" \
+	-d '{"chatId":"u-it","text":"/use 默认工作区"}' > /dev/null
+sleep 2
+curl -s "$BASE/api/channels/$CH_ID/mock-outbox" > /tmp/ch-res.json
+grep -q "已切换" /tmp/ch-res.json || fail "开关开启后 /use 应切换成功"
 
 # 6) 智能体引用计数（本脚本创建的渠道 agentName 为空，应为 0）
 # 中文名需 URL 编码；用 printf 逐字节转 %HH（纯 shell，不依赖 JS 运行时）
