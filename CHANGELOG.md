@@ -8,6 +8,8 @@
 
 ### 变更
 
+- **清理已沉淀的设计原型 mockup 与早期差异文档**：删除 `docs/superpowers/mockups/` 下 16 个早期 UI 原型 HTML（其设计已沉淀进 `docs/superpowers/specs/2026-07-05-wa-pi-design.md`）及 `docs/chat-ui-diff-cocode-vs-wa-pi.md`（cocode vs wa-pi 早期 UI 差异对比，已被实际实现取代）。specs 文档附录中的 mockup 索引保留为历史溯源记录。
+  影响范围：`docs/superpowers/mockups/`（删除）、`docs/chat-ui-diff-cocode-vs-wa-pi.md`（删除）。
 - **新增初始化向导（Onboarding Wizard）设计文档**：
   `docs/superpowers/specs/2026-08-07-onboarding-wizard-design.md`（状态：已确认）。针对首次启动无模型时的硬性阻塞点，设计 2 步初始化向导：①配置模型（复用供应商表单）→ ②设置默认智能体（新建或从 agency-agents-zh 预设库选）。文档含触发时机、步骤流程、关键决策与字段映射。
   影响范围：`docs/superpowers/specs/`（纯设计文档，无运行时代码改动）。
