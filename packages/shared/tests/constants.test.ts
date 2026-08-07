@@ -11,6 +11,7 @@ import {
 	SUBAGENT_TYPES,
 	isSubagentType,
 	normalizeSubagentType,
+	WA_PI_DIR,
 } from "../src/constants";
 
 // pi-lens 已彻底移除：这些工具名不应再出现在默认 allowlist 或扩展映射里
@@ -108,17 +109,31 @@ test("resolveAgentTools: 扩展原生 subagent 工具被剔除；delegate 放行
 
 // ---- 默认工作区（虚拟系统项目）常量 ----
 
+// ---- WA_PI_DIR 默认指向 Pi 框架自带目录 ~/.pi/agent ----
+// 项目复用 Pi 默认数据目录，不再自维护 ~/.wa-pi。
+// 可用 WA_PI_DIR 环境变量覆盖（测试与 E2E 隔离目录用）。
+test("WA_PI_DIR 默认指向 Pi 框架目录 ~/.pi/agent", () => {
+	// 测试环境通常未设 WA_PI_DIR；若设了则跳过默认值断言（隔离目录场景）。
+	if (process.env.WA_PI_DIR) return;
+	const HOME = process.env.HOME || process.env.USERPROFILE || ".";
+	expect(WA_PI_DIR).toBe(`${HOME}/.pi/agent`);
+	expect(WA_PI_DIR.includes(".wa-pi")).toBe(false);
+});
+
 test("SYSTEM_PROJECT_* 常量定义", () => {
 	expect(SYSTEM_PROJECT_ID).toBe("__system__");
 	expect(SYSTEM_PROJECT_NAME).toBe("默认工作区");
 	expect(SYSTEM_PROJECT_CWD.endsWith("workdir")).toBe(true);
-	expect(SYSTEM_PROJECT_CWD.includes("wa-pi")).toBe(true);
+	// 落在 Pi 默认目录 .pi/agent 下，不再是 .wa-pi
+	expect(SYSTEM_PROJECT_CWD.includes(".pi/agent")).toBe(true);
+	expect(SYSTEM_PROJECT_CWD.includes(".wa-pi")).toBe(false);
 	expect(WORKDIR_TTL_DAYS).toBe(7);
 });
 
-test("PROMPTS_FILE 指向 ~/.wa-pi/prompts.json", () => {
+test("PROMPTS_FILE 指向 ~/.pi/agent/prompts.json", () => {
 	expect(PROMPTS_FILE.endsWith("prompts.json")).toBe(true);
-	expect(PROMPTS_FILE.includes("wa-pi")).toBe(true);
+	expect(PROMPTS_FILE.includes(".pi/agent")).toBe(true);
+	expect(PROMPTS_FILE.includes(".wa-pi")).toBe(false);
 });
 
 // ---- 内置 subagent 类型 ----
@@ -187,9 +202,10 @@ test("isSubagentType / normalizeSubagentType 识别 Plan", () => {
 
 // ---- SUBAGENT_OVERRIDES_FILE：内置 subagent 的 model/thinking 覆盖文件路径 ----
 
-test("SUBAGENT_OVERRIDES_FILE 指向 ~/.wa-pi/subagent-overrides.json", () => {
+test("SUBAGENT_OVERRIDES_FILE 指向 ~/.pi/agent/subagent-overrides.json", () => {
 	expect(SUBAGENT_OVERRIDES_FILE.endsWith("subagent-overrides.json")).toBe(
 		true,
 	);
-	expect(SUBAGENT_OVERRIDES_FILE.includes("wa-pi")).toBe(true);
+	expect(SUBAGENT_OVERRIDES_FILE.includes(".pi/agent")).toBe(true);
+	expect(SUBAGENT_OVERRIDES_FILE.includes(".wa-pi")).toBe(false);
 });

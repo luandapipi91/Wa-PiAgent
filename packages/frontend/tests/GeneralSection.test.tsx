@@ -23,6 +23,7 @@ mock.module("../src/api-client", () => ({
 
 import { GeneralSection } from "../src/components/settings/GeneralSection";
 import { useUiPrefsStore } from "../src/store/ui-prefs";
+import { useToastStore } from "../src/store/toast";
 
 beforeEach(() => {
 	apiCalls.length = 0;
@@ -30,6 +31,7 @@ beforeEach(() => {
 	putError = null;
 	localStorage.clear();
 	useUiPrefsStore.setState({ fontSize: 16 });
+	useToastStore.setState({ toasts: [] });
 });
 
 test("文字大小滑块：显示当前字号，拖动即时更新 store 与界面缩放", async () => {
@@ -108,7 +110,7 @@ test("请求超时：加载 ms 换算为秒，保存时换算回 ms", async () =
 	expect(put?.body).toMatchObject({ httpIdleTimeoutMs: 180000 });
 });
 
-test("保存失败（如次数超过 10 被 kernel 拒绝）→ 展示错误文案", async () => {
+test("保存失败（如次数超过 10 被 kernel 拒绝）→ 用 toast 提示，不再显示 inline 报错", async () => {
 	putError = new Error("重试次数需为 0-10 的整数");
 	render(<GeneralSection />);
 	await waitFor(() =>
@@ -120,9 +122,12 @@ test("保存失败（如次数超过 10 被 kernel 拒绝）→ 展示错误文�
 		target: { value: "99" },
 	});
 	fireEvent.click(screen.getByTestId("retry-save-btn"));
-	await waitFor(() =>
-		expect(screen.getByTestId("retry-save-error").textContent).toContain(
-			"0-10",
-		),
-	);
+	await waitFor(() => {
+		// toast store 出现一条 error 条目，文案为后端错误
+		expect(useToastStore.getState().toasts).toHaveLength(1);
+		expect(useToastStore.getState().toasts[0].type).toBe("error");
+		expect(useToastStore.getState().toasts[0].message).toContain("0-10");
+	});
+	// 保存按钮旁不再渲染 inline 报错
+	expect(screen.queryByTestId("retry-save-error")).toBeNull();
 });

@@ -2,7 +2,7 @@
 //
 // 背景：kernel 是独立 bun 子进程，desktop 侧只能捕获它的 stdout/stderr。
 // 历史 bug 中 kernel 被 Bun 因未捕获异常杀死（日志仅 退出 code=null，无堆栈），
-// 无法定位根因。本模块把异常堆栈追加写入 ~/.wa-pi/logs/kernel-crash.log，
+// 无法定位根因。本模块把异常堆栈追加写入 ~/.pi/agent/logs/kernel-crash.log，
 // 供后续排查。写入静默吞错——日志失败绝不能反过来再杀进程。
 
 import { appendFile, mkdir } from "node:fs/promises";

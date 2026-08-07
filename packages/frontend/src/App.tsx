@@ -47,7 +47,7 @@ export function App() {
 	// 只订阅渲染所需的最小状态；actions 在回调里用 getState() 取，避免 stale closure
 	const projects = useProjectsStore((s) => s.projects);
 	const currentSessionId = useProjectsStore((s) => s.currentSessionId);
-	// 订阅 IM 会话列表，用于判定当前 session 是否来自 IM 接入（决定 SessionView 是否传 maxHistory/sourceLabel）
+	// 订阅 IM 会话列表，用于判定当前 session 是否来自 IM 接入（决定 SessionView 是否传 sourceLabel）
 	const conversations = useChannelsStore((s) => s.conversations);
 	const [view, setView] = useState<View>("empty");
 	const [configAgent, setConfigAgent] = useState<AgentName | null>(null);
@@ -426,7 +426,14 @@ export function App() {
 				onEdit={(name) => setConfigAgent(name)}
 				onMore={() => setGalleryOpen(true)}
 				onSelectSession={(id) => {
-					useProjectsStore.getState().selectSession(id);
+					const st = useProjectsStore.getState();
+					if (!st.sessions.some((x) => x.id === id)) {
+						// 兜底：会话不在本地列表（如 kernel 侧建的 IM 接入会话尚未同步）时先重拉再选中，
+						// 否则 SessionView 找不到 session 渲染空白
+						void st.load().then(() => useProjectsStore.getState().selectSession(id));
+					} else {
+						st.selectSession(id);
+					}
 					setView("session");
 				}}
 				onNewSessionInProject={(pid) => {
@@ -510,12 +517,11 @@ export function App() {
 					/>
 				)}
 				{view === "session" && currentSessionId && (() => {
-					// IM 接入会话：历史截取 100 条 + 来源徽标；普通本地会话两者皆 undefined
+					// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined
 					const imConv = conversations.find((c) => c.sessionId === currentSessionId);
 					return (
 						<SessionView
 							sessionId={currentSessionId}
-							maxHistory={imConv ? 100 : undefined}
 							sourceLabel={imConv ? `经「${imConv.channelName}」接入` : undefined}
 						/>
 					);

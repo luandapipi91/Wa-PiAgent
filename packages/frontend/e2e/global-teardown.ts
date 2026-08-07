@@ -15,7 +15,13 @@ async function globalTeardown() {
       if (process.platform === "win32") {
         spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
       } else {
-        process.kill(pid, "SIGTERM");
+        // POSIX：配合 globalSetup 的 detached:true，负 pid 杀整个进程组（sh + bun kernel），
+        // 避免只杀 shell 导致 kernel 成孤儿占用 9776（组杀失败回退单杀）
+        try {
+          process.kill(-pid, "SIGTERM");
+        } catch {
+          process.kill(pid, "SIGTERM");
+        }
       }
     }
   } catch {}

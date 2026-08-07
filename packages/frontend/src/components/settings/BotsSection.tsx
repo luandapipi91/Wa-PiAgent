@@ -3,6 +3,8 @@ import { resolveProviderSlug, type ChannelType } from "@wa-pi/shared";
 import { useChannelsStore, type ChannelInput } from "../../store/channels";
 import { useAgentsStore } from "../../store/agents";
 import { useProvidersStore } from "../../store/providers";
+import { useToastStore } from "../../store/toast";
+import { AgentDropdown } from "../ui/AgentDropdown";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { SkillSuggestTextarea } from "../ui/SkillSuggestTextarea";
 import { NewBotDialog } from "./NewBotDialog";
@@ -36,7 +38,6 @@ export function BotsSection() {
 	const [draft, setDraft] = useState<ChannelInput | null>(null); // 非 null = 新建/编辑中的表单
 	const [showNew, setShowNew] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => { void loadBots(); }, []);
 
@@ -61,12 +62,10 @@ export function BotsSection() {
 			agentName: b.agentName, model: b.model,
 			extraSystemPrompt: b.extraSystemPrompt, replyGranularity: b.replyGranularity,
 		});
-		setError(null);
 	};
 
 	const handleSave = async () => {
 		if (!draft) return;
-		setError(null);
 		try {
 			if (selectedId) {
 				// secret 留空 = 不修改（kernel 侧 merge）
@@ -81,7 +80,8 @@ export function BotsSection() {
 			setDraft(null);
 			setSelectedId(null);
 		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
+			// 保存失败：用 toast 提示，不再在按钮旁显示 inline 文本
+			useToastStore.getState().add(e instanceof Error ? e.message : String(e), "error");
 		}
 	};
 
@@ -100,9 +100,12 @@ export function BotsSection() {
 					data-testid="bots-new-btn"
 				>＋ 新建机器人</button>
 				{bots.map((b) => (
-					<button
+					<div
 						key={b.id}
+						role="button"
+						tabIndex={0}
 						onClick={() => openEdit(b.id)}
+						onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openEdit(b.id); }}
 						className="text-left px-2.5 py-2 rounded-md border cursor-pointer"
 						style={{
 							borderColor: selectedId === b.id ? "var(--hairline-strong)" : "var(--hairline)",
@@ -112,13 +115,35 @@ export function BotsSection() {
 					>
 						<div className="flex items-center gap-1.5 text-sm font-medium text-primary">
 							<img src={`/channels/${b.type}.ico`} alt="" className="w-4 h-4 rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-							{b.name}
+							<span className="flex-1 truncate">{b.name}</span>
+							{/* 内联启用开关：即时生效（PUT 后 kernel 启停对应 WS 连接），不进入编辑表单 */}
+							<button
+								onClick={(e) => {
+									e.stopPropagation();
+									void updateBot(b.id, { enabled: !b.enabled }).catch((err) =>
+										useToastStore.getState().add(err instanceof Error ? err.message : String(err), "error"),
+									);
+								}}
+								title={b.enabled ? "点击停用" : "点击启用"}
+								className="border-0 bg-transparent p-0 cursor-pointer shrink-0"
+								data-testid={`bot-toggle-${b.id}`}
+							>
+								<span
+									className="relative inline-block w-7 h-4 rounded-full align-middle"
+									style={{ background: b.enabled ? "var(--success)" : "var(--hairline-strong)" }}
+								>
+									<span
+										className="absolute top-0.5 w-3 h-3 rounded-full"
+										style={{ left: b.enabled ? 14 : 2, background: "var(--surface)" }}
+									/>
+								</span>
+							</button>
 						</div>
 						<div className="flex items-center gap-1 mt-1 text-xs text-tertiary">
 							<span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: STATUS_DOT[b.status] }} />
 							{STATUS_TEXT[b.status]}{b.statusDetail ? ` · ${b.statusDetail}` : ""}
 						</div>
-					</button>
+					</div>
 				))}
 			</div>
 
@@ -149,22 +174,27 @@ export function BotsSection() {
 									data-testid="bot-secret-input" />
 							</label>
 						</div>
-						<label className="flex flex-col gap-1 w-72">
+						<div className="flex flex-col gap-1 w-72">
 							<span className="text-xs text-secondary">关联智能体</span>
-							<select value={draft.agentName}
-								onChange={(e) => setDraft({ ...draft, agentName: e.target.value })}
-								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
-								data-testid="bot-agent-select">
-								<option value="">系统默认（列表第一项）</option>
-								{agents.map((a) => <option key={a.displayName} value={a.displayName}>{a.displayName}</option>)}
-							</select>
+							<div>
+								<AgentDropdown
+									agents={agents}
+									value={draft.agentName || null}
+									onPick={(name) => setDraft({ ...draft, agentName: name })}
+									missing={agentMissing}
+									placeholder="系统默认（列表第一项）"
+									defaultLabel="系统默认（列表第一项）"
+									pillTestId="bot-agent-select"
+									itemTestIdPrefix="bot-agent"
+								/>
+							</div>
 							{agentMissing && (
 								<span className="text-xs px-2 py-1 rounded-sm" style={{ background: "var(--warning-soft)", color: "var(--warning)" }}
 									data-testid="bot-agent-missing-warning">
 									⚠️ 原智能体已删除，当前降级使用系统默认智能体
 								</span>
 							)}
-						</label>
+						</div>
 						<label className="flex flex-col gap-1 w-72">
 							<span className="text-xs text-secondary">模型</span>
 							<select value={draft.model ?? ""}
@@ -213,7 +243,6 @@ export function BotsSection() {
 								className="px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer"
 								style={{ background: "var(--brand)", color: "var(--on-brand)" }}
 								data-testid="bot-save-btn">保存</button>
-							{error && <span className="text-xs" style={{ color: "var(--danger)" }} data-testid="bot-save-error">{error}</span>}
 						</div>
 					</>
 				)}
@@ -222,7 +251,7 @@ export function BotsSection() {
 			{showNew && (
 				<NewBotDialog
 					onClose={() => setShowNew(false)}
-					onSelect={(type) => { setShowNew(false); setSelectedId(null); setDraft(emptyDraft(type)); setError(null); }}
+					onSelect={(type) => { setShowNew(false); setSelectedId(null); setDraft(emptyDraft(type)); }}
 				/>
 			)}
 			{confirmDelete && selectedId && (

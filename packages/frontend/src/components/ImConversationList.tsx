@@ -26,12 +26,18 @@ export function ImConversationList({ onSelectSession }: Props) {
 		void useChannelsStore.getState().loadConversations();
 	}, []);
 
+	// 列表只展示最近 100 条会话记录（按 updatedAt 倒序）。注意：这是会话列表项数量上限，
+	// 不是会话内消息历史的截断——会话内的完整消息历史照常加载。
+	const recent = [...conversations]
+		.sort((a, b) => b.updatedAt - a.updatedAt)
+		.slice(0, 100);
+
 	if (conversations.length === 0) {
-		return <div className="p-4 text-center text-xs text-tertiary">暂无 IM 会话。在设置页配置机器人后，来自 IM 的对话会出现在这里。</div>;
+		return <div className="flex-1 flex items-center justify-center p-4 text-center text-xs text-tertiary">暂无 IM 会话。在设置页配置机器人后，来自 IM 的对话会出现在这里。</div>;
 	}
 	return (
-		<div className="flex flex-col gap-1 overflow-auto" data-testid="im-conv-list">
-			{conversations.map((c) => (
+		<div className="flex-1 flex flex-col gap-1 overflow-auto" data-testid="im-conv-list">
+			{recent.map((c) => (
 				<button
 					key={c.sessionId}
 					onClick={() => onSelectSession(c.sessionId)}

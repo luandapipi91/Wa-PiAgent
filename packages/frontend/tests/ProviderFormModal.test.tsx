@@ -73,10 +73,12 @@ mock.module("../src/api-client", () => ({
 }));
 
 import { ProviderFormModal } from "../src/components/settings/ProviderFormModal";
+import { useToastStore } from "../src/store/toast";
 
 beforeEach(() => {
   useProvidersStore.setState(useProvidersStore.getInitialState(), true);
   apiCalls.length = 0;
+  useToastStore.setState({ toasts: [] });
 });
 
 afterEach(() => {
@@ -399,4 +401,39 @@ test("编辑已有 provider（带 slug）时保留原 slug", async () => {
   fireEvent.click(screen.getByTestId("provider-save-btn"));
   const saved = saveMock.mock.calls[0][0];
   expect(saved.slug).toBe("opencode-go");
+});
+
+// ===== 测试连接失败 → toast（不再 inline）=====
+
+test("测试连接失败 → 用 toast 提示，不再 inline 显示失败文案", async () => {
+  // stub store.test 返回失败
+  useProvidersStore.setState({
+    test: async () => ({ ok: false, error: "API Key 无效" }),
+  });
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
+  fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Test" } });
+  fireEvent.change(screen.getByTestId("field-baseUrl"), { target: { value: "https://api.test.com/v1" } });
+  fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-x" } });
+  fireEvent.click(screen.getByText("测试连接"));
+  await waitFor(() => {
+    expect(useToastStore.getState().toasts).toHaveLength(1);
+    expect(useToastStore.getState().toasts[0].type).toBe("error");
+    expect(useToastStore.getState().toasts[0].message).toBe("API Key 无效");
+  });
+  // 不再 inline 显示失败文案
+  expect(screen.queryByText(/失败/)).toBeNull();
+});
+
+test("测试连接成功 → 仍 inline 显示「✓ 连接成功」，不弹 toast", async () => {
+  useProvidersStore.setState({
+    test: async () => ({ ok: true }),
+  });
+  await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
+  fireEvent.change(screen.getByTestId("field-name"), { target: { value: "Test" } });
+  fireEvent.change(screen.getByTestId("field-baseUrl"), { target: { value: "https://api.test.com/v1" } });
+  fireEvent.change(screen.getByTestId("field-apiKey"), { target: { value: "sk-x" } });
+  fireEvent.click(screen.getByText("测试连接"));
+  await waitFor(() => expect(screen.getByText(/连接成功/)).toBeTruthy());
+  // 成功不弹 toast
+  expect(useToastStore.getState().toasts).toHaveLength(0);
 });

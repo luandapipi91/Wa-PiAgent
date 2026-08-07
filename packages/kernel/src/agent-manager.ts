@@ -94,6 +94,7 @@ import { extUiRegistry } from "./ext-ui-registry";
 import {
 	composePrompt,
 	loadPromptSegments,
+	ensureImChannelSegment,
 	DEFAULT_PROMPT_SEGMENTS,
 	DEFAULT_MEMORY_POLICY_PROMPT,
 	COMPACT_MEMORY_POLICY_PROMPT,
@@ -226,7 +227,8 @@ export class AgentManager {
 		const { ensurePromptsConfig } = await import("./system-prompt");
 		await ensurePromptsConfig(PROMPTS_FILE);
 		const loaded = await loadPromptSegments(PROMPTS_FILE);
-		this.promptSegments = loaded ?? DEFAULT_PROMPT_SEGMENTS;
+		// im-channel 段不落盘（savePromptSegments 剔除），运行时补回占位
+		this.promptSegments = ensureImChannelSegment(loaded ?? DEFAULT_PROMPT_SEGMENTS);
 		return this.promptSegments;
 	}
 
@@ -453,7 +455,7 @@ export class AgentManager {
 		sessionId: string,
 		imChannelContext?: string,
 	): Promise<SessionHandle> {
-		// 启动时写入内置 subagent 的 .md 定义文件（~/.wa-pi/agents/*.md），已存在不覆盖
+		// 启动时写入内置 subagent 的 .md 定义文件（~/.pi/agent/agents/*.md），已存在不覆盖
 		const agentsDir = join(WA_PI_DIR, "agents");
 		seedBuiltinAgents(agentsDir);
 
@@ -522,7 +524,7 @@ export class AgentManager {
 		}));
 
 		// resolveSpawnConfig：从 ConfigStore 读 WaPi 配置（用户在 UI 设置的 model/thinking/tools/skills），
-		// 内置 subagent 类型不在 store 里——从 SUBAGENT_TYPES 常量读元信息 + ~/.wa-pi/agents/*.md 读系统提示词。
+		// 内置 subagent 类型不在 store 里——从 SUBAGENT_TYPES 常量读元信息 + ~/.pi/agent/agents/*.md 读系统提示词。
 		const resolveSpawnConfig = async (
 			agentName: string,
 		): Promise<WaPiSpawnConfig | null> => {
@@ -531,7 +533,7 @@ export class AgentManager {
 				const builtin = SUBAGENT_TYPES.find((t) => t.name === agentName);
 				if (builtin) {
 					const prompt = await readBuiltinAgentPrompt(agentsDir, agentName);
-					// 读取用户保存的 model/thinking 覆盖（~/.wa-pi/subagent-overrides.json）
+					// 读取用户保存的 model/thinking 覆盖（~/.pi/agent/subagent-overrides.json）
 					const { getSubagentOverride } = await import("./subagent-store");
 					const { SUBAGENT_OVERRIDES_FILE } = await import("@wa-pi/shared");
 					const override = await getSubagentOverride(
@@ -647,7 +649,7 @@ export class AgentManager {
 			},
 		});
 
-		// 内置 subagent 的委派引导从 ~/.wa-pi/agents/*.md 的 frontmatter 提取（与命名智能体统一来源）
+		// 内置 subagent 的委派引导从 ~/.pi/agent/agents/*.md 的 frontmatter 提取（与命名智能体统一来源）
 		const { getSubagentInfo } = await import("./subagent-info");
 		const builtinSubagents = await getSubagentInfo([]);
 		const builtinHints: Record<
@@ -769,7 +771,7 @@ export class AgentManager {
 		//   内置 7 工具 + 扩展工具 + MCP direct 工具全部可用（扩展工具靠 pi 进程加载扩展后
 		//   运行时注册，wa-pi 不感知其工具名但默认全部放行）。
 		// - 显式配置 tools：白名单——config.tools ∪ MCP direct 工具名。
-		// 动态扩展走 pi 官方 packages 机制（settings.json packages + ~/.wa-pi/npm/），
+		// 动态扩展走 pi 官方 packages 机制（settings.json packages + ~/.pi/agent/npm/），
 		// 不再经 -e；-e 只传内置（PKG_EXTENSIONS）+ provider-extension + wa-pi-bridge。
 		const extensionPaths = buildAdditionalExtensionPaths();
 

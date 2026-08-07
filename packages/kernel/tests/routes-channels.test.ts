@@ -11,6 +11,7 @@
 import { test, expect } from "bun:test";
 import { HttpRouter } from "../src/http-router";
 import { registerChannelRoutes } from "../src/routes/channels";
+import { ChannelConflictError } from "../src/channel-manager";
 import type { WSClientEvent } from "@wa-pi/shared";
 
 /** 满足 channels 域所需 ChannelManager 接口的最小桩（用例可改 list 注入数据） */
@@ -21,6 +22,8 @@ const stubManager = {
 	},
 	async create(input: any) {
 		if (!input.credentials?.botId) throw new Error("Bot ID 不能为空");
+		if (this.list.some((c: any) => c.credentials?.botId === input.credentials.botId))
+			throw new ChannelConflictError("Bot ID 已被其他机器人使用（同一 Bot ID 仅允许一条长连接）");
 		this.list.push({
 			...input,
 			id: "ch_x",
@@ -57,7 +60,7 @@ type StubManager = typeof stubManager;
  * fn 结束（含抛错）后自动停止服务。
  *
  * callApi 语义与 ws-server.callApi 逐字对齐：
- * - 最后一个 reply 为 {type:"error"} → 400 {error, ...}
+ * - 最后一个 reply 为 {type:"error"} → 400 {error, ...}；reply 携带 status 字段时按其映射（如 409）
  * - 否则 → 200，body 为最后一帧
  * - 无 reply（fire-and-forget）→ 200 {ok:true}
  */
@@ -88,7 +91,11 @@ async function withChannelsServer<T>(
 					else await cm.remove((event as any).id);
 					reply({ type: "channels:current", channels: await cm.listWithStatus() });
 				} catch (err) {
-					reply({ type: "error", message: (err as Error).message });
+					reply({
+						type: "error",
+						message: (err as Error).message,
+						...(err instanceof ChannelConflictError ? { status: 409 } : {}),
+					});
 				}
 				break;
 			}
@@ -121,8 +128,9 @@ async function withChannelsServer<T>(
 		}
 		if (!lastReply) return Response.json({ ok: true });
 		if (lastReply.type === "error") {
-			const { type: _t, message, ...rest } = lastReply;
-			return Response.json({ ...rest, error: message }, { status: 400 });
+			const { type: _t, message, status, ...rest } = lastReply;
+			const code = typeof status === "number" ? status : 400;
+			return Response.json({ ...rest, error: message }, { status: code });
 		}
 		return Response.json(lastReply);
 	};
@@ -177,6 +185,24 @@ test("POST /api/channels 缺 botId → 400 中文错误", async () => {
 		expect(res.status).toBe(400);
 		expect(((await res.json()) as any).error).toContain("Bot ID");
 	});
+});
+
+test("POST /api/channels 重复 botId → 409 冲突", async () => {
+	stubManager.list = [
+		{ id: "ch_a", name: "已占用", credentials: { botId: "b-dup", secret: "****" } },
+	];
+	await withChannelsServer(stubManager, async (base) => {
+		const res = await fetch(`${base}/api/channels`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				channel: { name: "y", credentials: { botId: "b-dup", secret: "s" } },
+			}),
+		});
+		expect(res.status).toBe(409);
+		expect(((await res.json()) as any).error).toContain("Bot ID");
+	});
+	stubManager.list = [];
 });
 
 test("GET /api/channels/agent-usage/:name 返回引用计数（中文名需 URL 编码）", async () => {
