@@ -165,7 +165,7 @@ export function ProviderFormModal({ initial, onClose }: Props) {
   };
 
   return (
-    <Modal onClose={onClose} width={640} data-testid="provider-form-modal">
+    <Modal onClose={onClose} width={640} closeOnOverlayClick={false} data-testid="provider-form-modal">
       <div className="p-4 border-b border-hairline">
         <span className="text-primary font-bold text-sm">{initial ? "编辑供应商" : "添加供应商"}</span>
       </div>

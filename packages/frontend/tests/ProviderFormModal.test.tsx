@@ -108,6 +108,13 @@ test("渲染表单字段", async () => {
   expect(screen.getByText(/模型 ID/)).toBeTruthy();
 });
 
+test("点击阴影不关闭弹窗（防止误触丢失表单）", async () => {
+  const onClose = mock();
+  await renderWithFlush(<ProviderFormModal onClose={onClose} />);
+  fireEvent.click(screen.getByTestId("modal-overlay"));
+  expect(onClose).not.toHaveBeenCalled();
+});
+
 test("快捷选择搜索框存在", async () => {
   await renderWithFlush(<ProviderFormModal onClose={() => {}} />);
   const input = screen.getByTestId("preset-search") as HTMLInputElement;
