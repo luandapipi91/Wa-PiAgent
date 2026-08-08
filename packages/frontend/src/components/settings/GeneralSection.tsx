@@ -73,7 +73,7 @@ export function GeneralSection() {
 		const httpIdleMs = Math.round(Number(httpTimeoutSeconds) * 1000);
 		setSaving(true);
 		setSaved(false);
-			try {
+		try {
 			await api.put("/api/settings/retry", {
 				retry: { maxRetries: retries, baseDelayMs: delayMs },
 				httpIdleTimeoutMs: httpIdleMs,
@@ -87,22 +87,31 @@ export function GeneralSection() {
 		} catch (e) {
 			// 保存失败：用 toast 提示，不再在按钮旁显示 inline 文本
 			// （加载配置失败的 error state 仍保留 inline，由 useEffect 设置）
-			useToastStore.getState().add(e instanceof Error ? e.message : String(e), "error");
+			useToastStore
+				.getState()
+				.add(e instanceof Error ? e.message : String(e), "error");
 		} finally {
 			setSaving(false);
 		}
 	};
 
 	if (loading) {
-		return <div className="p-4 text-sm text-tertiary">{t("common.loading")}</div>;
+		return (
+			<div className="p-4 text-sm text-tertiary">{t("common.loading")}</div>
+		);
 	}
 
 	return (
 		<div className="flex flex-col gap-4 p-4 overflow-auto">
 			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">{t("settings.general.fontSize.label")}</span>
+				<span className="text-sm font-medium text-primary">
+					{t("settings.general.fontSize.label")}
+				</span>
 				<span className="text-xs text-tertiary">
-					{t("settings.general.fontSize.desc", { min: FONT_SIZE_MIN, max: FONT_SIZE_MAX })}
+					{t("settings.general.fontSize.desc", {
+						min: FONT_SIZE_MIN,
+						max: FONT_SIZE_MAX,
+					})}
 				</span>
 			</div>
 			<div className="flex items-center gap-3 w-72">
@@ -128,9 +137,14 @@ export function GeneralSection() {
 				</span>
 			</div>
 			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">{t("settings.general.exportTurns.label")}</span>
+				<span className="text-sm font-medium text-primary">
+					{t("settings.general.exportTurns.label")}
+				</span>
 				<span className="text-xs text-tertiary">
-					{t("settings.general.exportTurns.desc", { min: EXPORT_TURNS_MIN, max: EXPORT_TURNS_MAX })}
+					{t("settings.general.exportTurns.desc", {
+						min: EXPORT_TURNS_MIN,
+						max: EXPORT_TURNS_MAX,
+					})}
 				</span>
 			</div>
 			<div className="flex items-center gap-3 w-72">
@@ -156,7 +170,9 @@ export function GeneralSection() {
 				</span>
 			</div>
 			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">{t("settings.general.retry.label")}</span>
+				<span className="text-sm font-medium text-primary">
+					{t("settings.general.retry.label")}
+				</span>
 				<span className="text-xs text-tertiary">
 					{t("settings.general.retry.desc")}
 				</span>
@@ -181,7 +197,10 @@ export function GeneralSection() {
 			</label>
 			<label className="flex flex-col gap-1 w-56">
 				<span className="text-xs text-secondary">
-					{t("settings.general.retry.delayLabel", { min: MIN_DELAY_S, max: MAX_DELAY_S })}
+					{t("settings.general.retry.delayLabel", {
+						min: MIN_DELAY_S,
+						max: MAX_DELAY_S,
+					})}
 				</span>
 				<input
 					type="number"
@@ -198,7 +217,9 @@ export function GeneralSection() {
 				/>
 			</label>
 			<label className="flex flex-col gap-1 w-56">
-				<span className="text-xs text-secondary">{t("settings.general.retry.httpTimeoutLabel")}</span>
+				<span className="text-xs text-secondary">
+					{t("settings.general.retry.httpTimeoutLabel")}
+				</span>
 				<input
 					type="number"
 					min={10}
@@ -217,7 +238,9 @@ export function GeneralSection() {
 			</span>
 			{/* 语言切换：草稿态，点保存才生效 */}
 			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">{t("settings.general.language.label")}</span>
+				<span className="text-sm font-medium text-primary">
+					{t("settings.general.language.label")}
+				</span>
 				<span className="text-xs text-tertiary">
 					{t("settings.general.language.desc")}
 				</span>
@@ -248,7 +271,9 @@ export function GeneralSection() {
 				>
 					{saving ? t("common.saving") : t("common.save")}
 				</button>
-				{saved && <span className="text-xs text-secondary">{t("common.saved")}</span>}
+				{saved && (
+					<span className="text-xs text-secondary">{t("common.saved")}</span>
+				)}
 				{error && (
 					<span
 						className="text-xs"

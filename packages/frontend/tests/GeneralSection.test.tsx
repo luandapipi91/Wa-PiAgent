@@ -50,16 +50,16 @@ test("文字大小滑块：显示当前字号，拖动只改草稿，点保存�
 	expect(screen.getByTestId("font-size-value").textContent).toBe("24px");
 	expect(useUiPrefsStore.getState().fontSize).toBe(16);
 	// 初始 16px → 1.0；未保存时不应变成 1.5
-	expect(
-		document.documentElement.style.getPropertyValue("--font-scale"),
-	).toBe("1");
+	expect(document.documentElement.style.getPropertyValue("--font-scale")).toBe(
+		"1",
+	);
 
 	// 点保存：store 更新 + CSS 变量应用
 	fireEvent.click(screen.getByTestId("retry-save-btn"));
 	await waitFor(() => expect(useUiPrefsStore.getState().fontSize).toBe(24));
-	expect(
-		document.documentElement.style.getPropertyValue("--font-scale"),
-	).toBe("1.5");
+	expect(document.documentElement.style.getPropertyValue("--font-scale")).toBe(
+		"1.5",
+	);
 });
 
 test("导出轮数滑块：拖动只改草稿，点保存才生效", async () => {
