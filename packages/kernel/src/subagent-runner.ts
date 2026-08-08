@@ -34,6 +34,8 @@ export interface WaPiSpawnConfig {
 	thinking: ThinkingLevel | null;
 	tools: string[];
 	skills: string[];
+	/** 显式全不选技能（delegate/fleet 子代理不加载任何技能，传空数组） */
+	skillsAllOff?: boolean;
 }
 
 /** 子代理会话 token 用量（pi get_session_stats 采集，用于派发遥测） */

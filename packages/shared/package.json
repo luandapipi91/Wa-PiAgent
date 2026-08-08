@@ -8,7 +8,7 @@
     "./tool-schemas": "./src/tool-schemas.ts"
   },
   "dependencies": {
-    "typebox": "^1.3.6"
+    "typebox": "^1.3.11"
   },
   "scripts": {
     "test": "bun test",
