@@ -594,4 +594,37 @@ describe("NewSessionPane", () => {
     const sid = useProjectsStore.getState().currentSessionId!;
     expect(useComposerPrefsStore.getState().bySession[sid]?.model).toBe("openai/gpt-5");
   });
+
+  it("未传 onSendSteer 时 Ctrl+Enter 仍发送（回归：NewSessionPane 不因新分支拦截而无动作）", async () => {
+    composerDbDefaults.model = "gpt-4o";
+    composerDbDefaults.thinking = "disabled";
+    useProvidersStore.setState({
+      providers: [
+        { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }] },
+      ],
+    });
+    render(<NewSessionPane />);
+
+    await waitFor(() => {
+      expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
+    });
+    const textbox = typeIntoComposer("Ctrl+Enter 也要发送");
+    await waitFor(() => {
+      expect((screen.getByTestId("composer-send") as HTMLButtonElement).disabled).toBe(false);
+    });
+    fireEvent.keyDown(textbox, { key: "Enter", ctrlKey: true });
+
+    // NewSessionPane 未传 onSendSteer：Ctrl+Enter 回退普通发送 → 仍调 /prompt 并清空文本
+    // （改动前 Ctrl+Enter 落入普通 Enter 分支同样发送，此处验证行为未回归）
+    await waitFor(() => {
+      expect(lastPrompt()).toMatchObject({
+        agentName: useAgentsStore.getState().list[0].displayName,
+        text: "Ctrl+Enter 也要发送",
+        model: "openai/gpt-4o",
+      });
+    });
+    await waitFor(() => {
+      expect(textbox.textContent).toBe("");
+    });
+  });
 });

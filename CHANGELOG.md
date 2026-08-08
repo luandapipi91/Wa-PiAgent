@@ -16,6 +16,9 @@
 
 - **新增功能：桌面版「系统设置 → 关于」应用版本检查与自动更新（electron-updater）**。desktop 新增 `updater/` 模块（updater 装配层 NsisUpdater + IPC + 事件翻译），preload 暴露 `waPiUpdater` 桥接，main.cjs 接线 `setupUpdater`；frontend 新增 updater store（Zustand 状态机 + IPC 桥接）+ 设置页「关于」页签（AboutSection 6 状态 UI，全量 i18n 中英双语）；浏览器版经 vite define 注入 package.json 版本号，关于页同样显示版本（桌面版由 app.getVersion() 覆盖）。四层测试：desktop 单测、前端组件测试、E2E（mock waPiUpdater 完整流程）。
 
+- **新增功能：输入框支持 Ctrl+Enter（macOS Cmd+Enter）引导发送**。agent 运行中（回复过程中）按 Ctrl+Enter 直接把输入框内容作为引导（steering）消息发送（调 `/api/sessions/:sessionId/steer`，乐观更新引导队列），空闲时等同普通发送；Enter 行为不变（运行中仍进排队队列），Shift+Enter 换行不变。`ComposerInput` 新增 `onSendSteer` prop 与 Ctrl/Cmd+Enter 按键分支（保留 IME 组词保护），`Composer` 新增 `handleSendSteer` 回调（空闲委托 doSend、运行中复刻 `SessionView.handlePromote` 的 steering 队列去重模式，不设 optimisticEcho——`/steer` 不触发 `session:echo_user`；运行中仅清空文本、保留附件）。新增 3 个组件测试（运行中→/steer、空闲→/prompt、IME 拦截）。
+  - 影响范围：`packages/frontend/src/components/Composer.tsx`、`packages/frontend/src/components/ui/ComposerInput.tsx`、`packages/frontend/tests/Composer.test.tsx`。
+
 - **修复(kernel)：会话被清理与后台预热/拉取历史并发时的竞态噪音日志降级**。四个 `console.error`（拉取历史消息失败 / 后台预热会话进程失败 / pi rpc 进程已退出 / 会话已清理）在 `reapIdleSessions` 或 `session:delete` 与冷启动并发时成串打印，视觉上等同崩溃，实为预期关闭流程（jsonl 直读已兜底历史、dispose 只杀进程保留会话记录、下次发消息会重新拉起）。修复：①`agent-manager.ts` `_createSession` 的 `getMessages` catch 中 `disposed.has(sessionId)` 命中（dispose 打断拉取）→ 静默；②「会话已清理」错误加 `code = "SESSION_DISPOSED"` 语义标记；③`ws-server.ts` `prewarm` catch 识别 `SESSION_DISPOSED` → 静默。真异常（进程崩溃、非 dispose 启动失败）仍打 error 便于排障。新增 4 个回归测试（dispose 竞态静默 + 非 dispose 仍打印，agent-manager 与 ws-server 各 2 个）。
   - 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/ws-server-session-prewarm.test.ts`。
 
