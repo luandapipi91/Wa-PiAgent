@@ -71,6 +71,15 @@ export async function saveProvider(provider: object): Promise<void> {
   await api("POST", "/api/providers", { provider });
 }
 
+/** 清空全部模型供应商（onboarding 向导测试的前置条件）。
+ *  DELETE /api/providers/:name 路由参数名虽叫 name，实现按 id 删除（provider:delete 的 id 字段）。 */
+export async function deleteAllProviders(): Promise<void> {
+  const data = await api("GET", "/api/providers");
+  for (const p of (data.providers ?? []) as { id: string }[]) {
+    await api("DELETE", `/api/providers/${encodeURIComponent(p.id)}`).catch(() => {});
+  }
+}
+
 /** 新建智能体（旧 WS agent:create + 等 agent:created）：POST 直接回 agent:created reply */
 export async function createAgent(displayName: string): Promise<any> {
   const res = await api("POST", "/api/agents", { displayName });

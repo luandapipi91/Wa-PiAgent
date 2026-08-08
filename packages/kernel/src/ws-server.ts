@@ -1021,6 +1021,13 @@ export class WSServer {
 							existing &&
 							!(await this.opts.configStore.getAgent(existing.primaryAgent))
 						) {
+							// 同时广播：REST 下 reply 只进 HTTP 400 响应体，不上 SSE 总线，
+							// 前端重选弹窗（AgentMissingModal）监听的是事件流里的 error 事件
+							this.broadcast({
+								type: "error",
+								message: "agent_missing",
+								sessionId: event.sessionId,
+							});
 							reply({
 								type: "error",
 								message: "agent_missing",

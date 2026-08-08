@@ -8,6 +8,12 @@
 
 ### 变更
 
+- **新增初始化向导 Playwright E2E（初始化向导 Task 12）**：`e2e/onboarding-wizard.spec.ts` 两个用例——① providers 为空自动弹出 → 跳过模型配置 → 预设（代码审查员）创建并改名 → API 断言 `systemPromptBody` 注入名字 → reload 后新建会话页 `agent-select` 默认选中；② 有 provider 时不自动弹 → 设置页 `reopen-onboarding` 重开向导。`e2e/helpers.ts` 新增 `deleteAllProviders`（`DELETE /api/providers/:name` 路由参数名虽叫 name，实际按 id 删除）。未补任何组件 testid（`settings-btn`/`agent-select`/`reopen-onboarding`/向导与 picker testid 均已存在）。
+  - 连带修复 `e2e/agents.spec.ts`（Task 11 改过但未执行过）三处：① 宫格新建/编辑的契约是「编辑弹窗叠加、宫格保持打开」，关闭编辑弹窗后直接断言卡片，不能再点 `agent-more`（会被宫格 overlay 拦截）；② 技能 tab 用例中途 reload 后界面变英文（见下条），两处「保存」按钮改 `cfg-save` testid；③ `agent-missing` 重选弹窗在 REST 化后不可达——kernel `agent:prompt` 的 `agent_missing` 拦截只 `reply`（REST 下变成 HTTP 400 响应体，不上 SSE 总线），前端弹窗监听的是事件流 `error` 事件，kernel 侧补一行 `broadcast` 恢复 WS 时代语义。
+  - 发现（未修，超出本任务范围）：headless Chromium `navigator.language=en-US`，首载时 `detectInitialLanguage` 得 "en"，但 `ui-prefs` rehydrate 用 store 默认值 "zh" 覆盖显示为中文，随后 `main.tsx` 把 "en" 写回 localStorage——导致同一 context 内 reload 后界面变英文。建议后续统一首载语言来源。
+  - 影响范围：`packages/frontend/e2e/onboarding-wizard.spec.ts`（新）、`e2e/helpers.ts`、`e2e/agents.spec.ts`、`packages/kernel/src/ws-server.ts`。
+  - 验证：`bunx playwright test e2e/onboarding-wizard.spec.ts` 2 passed ×2 轮；`e2e/agents.spec.ts` 8 passed；kernel `bun test` 821 pass / 0 fail（含 composer-attachments 的 agent_missing 拦截用例）。
+
 - **宫格新建流程升级为 AgentCreatePicker（初始化向导 Task 11）**：`AgentGalleryModal` 的「＋ 新建智能体」由 inline 输入框流程（`newName`/`submitCreate`/`gallery-create-input`）替换为 Task 9 的 `AgentCreatePicker`（显式 `autoFocusTab="preset"`，因组件默认值是 `"blank"`）。创建成功 → 关闭面板 → 调 `props.onCreated(name)`（乐观打开契约不变）；宫格场景不调 `setDefaultAgent`（向导专属）。`gallery-create` 按钮 testid 保留；删除/chatWith/编辑等其余宫格功能不动。清理孤立文案键 `agentGallery.namePlaceholder`（zh/en 同步删除）。
   - 影响范围：`packages/frontend/src/components/AgentGalleryModal.tsx`、`AgentGalleryModal-create.test.tsx`（新，2 测试）、`src/i18n/locales/zh.ts`、`en.ts`、`tests/AgentGalleryModal.test.tsx` 与 `tests/App.test.tsx`（宫格新建用例改为 picker 流程）、`e2e/agents.spec.ts`（宫格 UI 新建步骤改 picker testid）。
 
