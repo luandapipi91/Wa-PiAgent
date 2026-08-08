@@ -15,7 +15,6 @@ wa-pi 遵循各依赖自身的开源许可证。所有直接运行时依赖均�
 | @earendil-works/pi-coding-agent | ^0.83.0 | MIT | Mario Zechner |
 | @modelcontextprotocol/sdk | ^1.30.0 | MIT | Copyright (c) 2024 Anthropic, PBC |
 | pi-mcp-adapter | 2.17.0 | MIT | Copyright (c) 2026 Nico Bailon |
-| pi-open-agents | ^0.1.14 | MIT | Copyright (c) 2026 Andrea Tomassi；代码源自 pi-agent-mode / pi-subagents / opencode（均 MIT） |
 | pi-web-access | ^0.17.1 | MIT | Copyright (c) 2025 Nico Bailon |
 | pi-cache-optimizer | ^2.6.25 | MIT | Copyright (c) 2026 freescheme |
 | typebox | ^1.3.10 | MIT | Copyright (c) 2017-2026 Haydn Paterson |

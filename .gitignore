@@ -57,7 +57,6 @@ packages/desktop/src/embedded/
 # 注：packages/desktop/src/embedded-assets.ts 是入库的 typed stub（让 typecheck 在
 # 全新检出下也能通过），build.ts 在打包时临时重新生成、用完恢复，必须保持 tracked。
 .mcp.json
-cocode-master/
 # 测试运行时残留：rpc-client.test.ts / bridge.test.ts 以 fixtures/pi-agent-dir-test 作
 # PI_CODING_AGENT_DIR 启动真实 pi，pi 会往里写 auth.json。属运行时产物，不入库。
 packages/kernel/tests/fixtures/pi-agent-dir-test/
