@@ -1,5 +1,8 @@
 import { create } from "zustand";
 
+// vite 构建时从 package.json 注入；浏览器 dev（未走 vite define）为 undefined，兜底 "—"。
+const BUILD_VERSION = (import.meta.env.WA_PI_VERSION as string | undefined) ?? "—";
+
 export type UpdaterStatus =
 	| "idle" | "checking" | "up-to-date"
 	| "available" | "downloading" | "downloaded"
@@ -36,7 +39,9 @@ interface UpdaterState {
 
 const initialState = {
 	status: "idle" as UpdaterStatus,
-	appVersion: "",
+	// 桌面版会被 initUpdater 的 getInfo 覆盖为 app.getVersion()；
+	// 浏览器版无 waPiUpdater，靠构建时注入的版本号兜底显示。
+	appVersion: BUILD_VERSION,
 	latestVersion: null,
 	releaseNotes: null,
 	progress: 0,
@@ -117,7 +122,11 @@ export const useUpdaterStore = create<UpdaterState>((set) => ({
 /** 初始化：拉取版本信息 + 订阅 updater:event */
 export function initUpdater() {
 	const api = window.waPiUpdater;
-	if (!api) return;
+	if (!api) {
+		// 浏览器版：明确标记非桌面（隐藏自动更新控件），版本号已由 initialState 提供。
+		useUpdaterStore.setState({ isDesktop: false });
+		return;
+	}
 	void api.getInfo().then((info) => {
 		useUpdaterStore.setState({ appVersion: info.appVersion, isDesktop: info.isDesktop });
 	});
