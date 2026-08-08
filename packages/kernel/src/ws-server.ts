@@ -70,7 +70,7 @@ import { registerChannelRoutes } from "./routes/channels";
 import { ChannelConflictError } from "./channel-manager";
 import { registerFileRoutes } from "./routes/files";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
-import { listPresets, createAgentFromPreset } from "./preset-store";
+import { listPresets, getPreset, createAgentFromPreset } from "./preset-store";
 
 /** 展开路径开头的 ~ 为 HOME 目录（Node.js 不自动展开 shell ~ 约定） */
 function expandTilde(p: string): string {
@@ -1300,6 +1300,16 @@ export class WSServer {
 				} catch (err) {
 					console.error("[ws] agent:presets error:", err);
 					reply({ type: "agent:presets", presets: [] });
+				}
+				break;
+			}
+			case "agent:preset:get": {
+				// 单个预设完整内容（含 body 正文），供「查看提示词」按需获取
+				const preset = getPreset(event.id);
+				if (!preset) {
+					reply({ type: "error", message: `预设不存在: ${event.id}`, status: 404 });
+				} else {
+					reply({ type: "agent:preset", preset });
 				}
 				break;
 			}

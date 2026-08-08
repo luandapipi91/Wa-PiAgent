@@ -24,8 +24,9 @@ test("默认展示两个 Tab，预设 Tab 加载并分组展示", async () => {
   render(<AgentCreatePicker onCreated={() => {}} />);
   fireEvent.click(await screen.findByTestId("picker-tab-preset"));
   expect(await screen.findByText("代码审查员")).toBeTruthy();
-  expect(screen.getByText("工程部")).toBeTruthy();
-  expect(screen.getByText("营销部")).toBeTruthy();
+  // 部门名同时出现在筛选下拉和分组标题里，用卡片 testid 断言两个部门都有内容
+  expect(screen.getByTestId("preset-card-engineering-code-reviewer")).toBeTruthy();
+  expect(screen.getByTestId("preset-card-marketing-seo-specialist")).toBeTruthy();
 });
 
 test("搜索按名字/描述过滤", async () => {
@@ -87,4 +88,41 @@ test("409 时 toast 提示且自动换名", async () => {
   fireEvent.click(screen.getByTestId("preset-save-btn"));
   await new Promise(r => setTimeout(r, 0));
   expect(input.value).not.toBe(before); // 自动重随机
+});
+
+test("部门下拉筛选：选中工程部后只显示工程部分组", async () => {
+  render(<AgentCreatePicker onCreated={() => {}} />);
+  fireEvent.click(await screen.findByTestId("picker-tab-preset"));
+  await screen.findByText("代码审查员");
+  fireEvent.change(screen.getByTestId("preset-dept-filter"), { target: { value: "工程部" } });
+  expect(screen.getByTestId("preset-card-engineering-code-reviewer")).toBeTruthy();
+  expect(screen.queryByTestId("preset-card-marketing-seo-specialist")).toBeNull();
+});
+
+test("部门筛选与搜索叠加生效", async () => {
+  render(<AgentCreatePicker onCreated={() => {}} />);
+  fireEvent.click(await screen.findByTestId("picker-tab-preset"));
+  await screen.findByText("代码审查员");
+  fireEvent.change(screen.getByTestId("preset-dept-filter"), { target: { value: "营销部" } });
+  fireEvent.change(screen.getByTestId("preset-search-input"), { target: { value: "代码" } });
+  // 营销部里没有匹配「代码」的预设
+  expect(screen.queryByTestId("preset-card-engineering-code-reviewer")).toBeNull();
+  expect(screen.queryByTestId("preset-card-marketing-seo-specialist")).toBeNull();
+});
+
+test("右键预设卡片弹出完整提示词", async () => {
+  getMock.mockImplementation(async (path: string) => {
+    if (path === "/api/agents/presets") return { type: "agent:presets", presets: PRESETS };
+    if (path === "/api/agents/presets/engineering-code-reviewer") {
+      return { type: "agent:preset", preset: { ...PRESETS[0], body: "# 代码审查员 Agent 人格\n你是代码审查专家。" } };
+    }
+    return {};
+  });
+  render(<AgentCreatePicker onCreated={() => {}} />);
+  fireEvent.click(await screen.findByTestId("picker-tab-preset"));
+  const card = await screen.findByTestId("preset-card-engineering-code-reviewer");
+  fireEvent.contextMenu(card);
+  const body = await screen.findByTestId("preset-prompt-body");
+  expect(body.textContent).toContain("代码审查员 Agent 人格");
+  // 左键行为不受影响：仍然进入命名面板
 });

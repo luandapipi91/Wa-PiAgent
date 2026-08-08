@@ -55,3 +55,20 @@ test("POST /api/agents/from-preset 错误状态码透传（409）", async () => 
   );
   expect(res!.status).toBe(409);
 });
+
+test("GET /api/agents/presets/:id 翻译为 agent:preset:get 事件", async () => {
+  const { fn, calls } = fakeCallApi(() => ({ body: { type: "agent:preset", preset: {} } }));
+  const router = new HttpRouter();
+  registerAgentRoutes(router, fn as any, {} as any);
+  const res = await router.handle(new Request("http://x/api/agents/presets/engineering-code-reviewer"));
+  expect(calls[0]).toEqual({ type: "agent:preset:get", id: "engineering-code-reviewer" });
+  expect(res!.status).toBe(200);
+});
+
+test("GET /api/agents/presets/:id 未知 id 透传 404", async () => {
+  const { fn } = fakeCallApi(() => ({ body: { error: "预设不存在: x" }, status: 404 }));
+  const router = new HttpRouter();
+  registerAgentRoutes(router, fn as any, {} as any);
+  const res = await router.handle(new Request("http://x/api/agents/presets/not-exist"));
+  expect(res!.status).toBe(404);
+});

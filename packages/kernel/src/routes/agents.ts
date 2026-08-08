@@ -21,6 +21,10 @@ export const registerAgentRoutes: RouteRegistrar = (
 		callApi({ type: "agent:tools:list" }),
 	);
 	r.add("GET", "/api/agents/presets", async () => callApi({ type: "agent:presets" }));
+	// 注意注册在 :name/config 之前：避免 /api/agents/presets/config 被 :name 通配吞掉
+	r.add("GET", "/api/agents/presets/:id", async (_req, p) =>
+		callApi({ type: "agent:preset:get", id: p.id }),
+	);
 	r.add("POST", "/api/agents/from-preset", async (req) => {
 		const b = await readJsonBody(req);
 		return callApi({ type: "agent:create-from-preset", id: b.id, displayName: b.displayName });

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AgencyPresetMeta } from "@wa-pi/shared";
+import type { AgencyPreset, AgencyPresetMeta } from "@wa-pi/shared";
 import { api } from "../../api-client";
 import { randomPersonName } from "../../data/name-pool";
 import { useAgentsStore } from "../../store/agents";
 import { useToastStore } from "../../store/toast";
 import { useTranslation } from "../../i18n/useTranslation";
+import { Modal } from "../ui/Modal";
 
 interface Props {
   /** 创建/保存成功回调（向导场景负责设默认并关闭；宫格场景负责刷新） */
@@ -92,12 +93,15 @@ function BlankCreate({ existingNames, onCreated }: { existingNames: string[]; on
   );
 }
 
-/** 预设选择：搜索 + 部门分组 + 命名面板 */
+/** 预设选择：搜索 + 部门筛选 + 部门分组 + 命名面板；右键卡片查看完整提示词 */
 function PresetPick({ existingNames, onCreated }: { existingNames: string[]; onCreated: (n: string) => void }) {
   const { t } = useTranslation();
   const [presets, setPresets] = useState<AgencyPresetMeta[]>([]);
   const [search, setSearch] = useState("");
+  const [dept, setDept] = useState("");
   const [view, setView] = useState<View>({ kind: "list" });
+  // 提示词预览：body 按需拉取，null = 加载中
+  const [promptFor, setPromptFor] = useState<{ meta: AgencyPresetMeta; body: string | null } | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -110,11 +114,19 @@ function PresetPick({ existingNames, onCreated }: { existingNames: string[]; onC
     })();
   }, []);
 
+  /** 部门列表（按预设出现顺序去重） */
+  const departments = useMemo(
+    () => Array.from(new Set(presets.map(p => p.department))),
+    [presets],
+  );
+
   const groups = useMemo(() => {
     const kw = search.trim().toLowerCase();
-    const filtered = kw
-      ? presets.filter(p => p.name.toLowerCase().includes(kw) || p.description.toLowerCase().includes(kw))
-      : presets;
+    const filtered = presets.filter(p => {
+      if (dept && p.department !== dept) return false;
+      if (!kw) return true;
+      return p.name.toLowerCase().includes(kw) || p.description.toLowerCase().includes(kw);
+    });
     const map = new Map<string, AgencyPresetMeta[]>();
     for (const p of filtered) {
       const arr = map.get(p.department) ?? [];
@@ -122,7 +134,19 @@ function PresetPick({ existingNames, onCreated }: { existingNames: string[]; onC
       map.set(p.department, arr);
     }
     return Array.from(map.entries());
-  }, [presets, search]);
+  }, [presets, search, dept]);
+
+  /** 右键卡片：拉取完整提示词并弹出预览 */
+  const showPrompt = async (p: AgencyPresetMeta) => {
+    setPromptFor({ meta: p, body: null });
+    try {
+      const res = (await api.get(`/api/agents/presets/${encodeURIComponent(p.id)}`)) as { preset?: AgencyPreset };
+      setPromptFor({ meta: p, body: res.preset?.body ?? "" });
+    } catch (e) {
+      setPromptFor(null);
+      useToastStore.getState().add(e instanceof Error ? e.message : String(e), "error");
+    }
+  };
 
   if (view.kind === "naming") {
     return <NamingPanel preset={view.preset} existingNames={existingNames}
@@ -131,18 +155,27 @@ function PresetPick({ existingNames, onCreated }: { existingNames: string[]; onC
 
   return (
     <div className="flex flex-col gap-2">
-      <input data-testid="preset-search-input" value={search} onChange={e => setSearch(e.target.value)}
-        placeholder={t("agentCreatePicker.searchPlaceholder", { count: presets.length })}
-        className="rounded-md border border-hairline bg-surface px-3 py-2 text-sm text-primary" />
+      <div className="flex gap-2">
+        <input data-testid="preset-search-input" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder={t("agentCreatePicker.searchPlaceholder", { count: presets.length })}
+          className="flex-1 rounded-md border border-hairline bg-surface px-3 py-2 text-sm text-primary" />
+        <select data-testid="preset-dept-filter" value={dept} onChange={e => setDept(e.target.value)}
+          className="rounded-md border border-hairline bg-surface px-2 py-2 text-xs text-primary">
+          <option value="">{t("agentCreatePicker.allDepartments")}</option>
+          {departments.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+      </div>
+      <div className="text-xs text-tertiary">{t("agentCreatePicker.rightClickHint")}</div>
       <div className="flex max-h-[45vh] flex-col gap-3 overflow-auto">
-        {groups.map(([dept, list]) => (
-          <div key={dept}>
+        {groups.map(([deptName, list]) => (
+          <div key={deptName}>
             {/* 计数放子 span：部门名独占直接文本节点，便于按名字断言 */}
-            <div className="mb-1 text-xs font-medium text-tertiary">{dept}<span>（{list.length}）</span></div>
+            <div className="mb-1 text-xs font-medium text-tertiary">{deptName}<span>（{list.length}）</span></div>
             <div className="grid grid-cols-2 gap-2">
               {list.map(p => (
                 <button key={p.id} data-testid={`preset-card-${p.id}`}
                   onClick={() => setView({ kind: "naming", preset: p })}
+                  onContextMenu={e => { e.preventDefault(); void showPrompt(p); }}
                   className="rounded-lg border border-hairline p-2 text-left hover:border-accent">
                   <div className="text-sm text-primary">{p.emoji} <b>{p.name}</b></div>
                   <div className="mt-0.5 line-clamp-2 text-xs text-tertiary">{p.description}</div>
@@ -153,6 +186,20 @@ function PresetPick({ existingNames, onCreated }: { existingNames: string[]; onC
         ))}
         {groups.length === 0 && <div className="py-6 text-center text-xs text-tertiary">{t("agentCreatePicker.noMatch")}</div>}
       </div>
+
+      {/* 提示词预览弹窗（右键卡片打开） */}
+      {promptFor && (
+        <Modal onClose={() => setPromptFor(null)} width={640} data-testid="preset-prompt-modal">
+          <div className="px-5 py-3.5 border-b border-hairline text-sm font-bold text-primary">
+            {promptFor.meta.emoji} {promptFor.meta.name} · {promptFor.meta.department}
+          </div>
+          <div className="px-5 py-4 max-h-[70vh] overflow-y-auto">
+            {promptFor.body === null
+              ? <div className="text-xs text-tertiary">{t("agentCreatePicker.promptLoading")}</div>
+              : <pre data-testid="preset-prompt-body" className="whitespace-pre-wrap font-mono text-xs text-secondary">{promptFor.body}</pre>}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
