@@ -473,7 +473,6 @@ const en = {
 		usageHint:
 			"Note: this agent is used by {{count}} bot(s) ({{names}}). Deleting it will make them fall back to the default agent.",
 		titleAllCount: "All agents {{count}}",
-		namePlaceholder: "Agent name",
 		createAgent: "＋ New agent",
 		builtinBadge: "Built-in",
 		footerHint:
@@ -483,6 +482,26 @@ const en = {
 		deleteTitle: "Delete agent",
 		deleteConfirmMsg:
 			'Delete agent "{{name}}"? This cannot be undone. {{usageHint}}',
+	},
+	agentCreatePicker: {
+		tabBlank: "✚ New agent", tabPreset: "📚 Pick from presets",
+		nameLabel: "Its name", reshuffle: "Shuffle",
+		nameTaken: "This name is taken",
+		creating: "Creating…", create: "Create",
+		searchPlaceholder: "🔍 Search {{count}} preset agents (name / description)…",
+		noMatch: "No matching presets",
+		roleLine: "Role: {{name}} · {{department}}",
+		saving: "Saving…", saveAsMine: "Save as my agent ✓",
+		backToList: "← Back to list",
+	},
+	onboardingWizard: {
+		title: "Welcome — Quick Setup",
+		stepIndicator: "Step {{step}} of 2",
+		step1Desc: "Set up a model provider first (or do it later — just click Next).",
+		step2Desc: "Create your first agent, or pick an expert from the preset library. They will become your default agent.",
+		back: "← Back", next: "Next →", skip: "Skip",
+		providerSaved: "Model provider saved",
+		agentCreated: "\"{{name}}\" has joined your team and been set as the default agent",
 	},
 	agentList: {
 		usageHint:
@@ -618,6 +637,11 @@ const en = {
 				taskDone: "Task complete",
 				needsAction: "Action required",
 				preview: "Preview",
+			},
+			onboarding: {
+				label: "Onboarding",
+				desc: "Reopen the onboarding wizard to configure models and the default agent",
+				button: "Reopen wizard",
 			},
 		},
 		diagnostics: {

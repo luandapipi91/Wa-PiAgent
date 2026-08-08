@@ -102,16 +102,18 @@ test.describe.serial("多智能体矩阵关键链路", () => {
       await expect(page.getByTestId("gallery-card-研发")).toBeVisible();
       await expect(page.getByTestId(`gallery-card-${A1}`)).toBeVisible();
 
-      // 宫格内 UI 新建：确定后按乐观打开契约直接进入详情弹窗
+      // 宫格内 UI 新建：AgentCreatePicker（默认预设 Tab，切空白创建）；
+      // 确定后按乐观打开契约直接进入详情弹窗
       await page.getByTestId("gallery-create").click();
-      await page.getByTestId("gallery-create-input").fill(UI_AGENT);
-      await page.getByTestId("gallery-create-ok").click();
+      await page.getByTestId("picker-tab-blank").click();
+      await page.getByTestId("blank-name-input").fill(UI_AGENT);
+      await page.getByTestId("blank-create-btn").click();
       await expect(page.getByTestId("agent-config")).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId("cfg-name-input")).toHaveValue(UI_AGENT, { timeout: 10_000 });
       await page.getByTestId("agent-config").getByRole("button", { name: "关闭" }).click();
 
-      // 重开宫格：新卡片出现
-      await page.getByTestId("agent-more").click();
+      // 新建契约是「宫格保持打开，编辑弹窗叠加」（App.tsx onCreated 不关列表），
+      // 关闭编辑弹窗后宫格仍在，直接断言新卡片出现（不能再点 agent-more，会被宫格 overlay 拦截）
       await expect(page.getByTestId(`gallery-card-${UI_AGENT}`)).toBeVisible({ timeout: 10_000 });
 
       // 右键卡片 →【编辑智能体】→ 详情弹窗
@@ -150,8 +152,8 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     await expect(cfg).toHaveCount(0);
 
     // config:save 保存后 kernel 广播 agent:list（含非改名路径），store 实时刷新：
-    // 不 reload，重开宫格直接断言卡片简介已变为新值
-    await page.getByTestId("agent-more").click();
+    // 不 reload；编辑弹窗是叠加在宫格上的（App.tsx onEdit 列表保持打开），
+    // 关闭编辑弹窗后宫格仍在，直接断言卡片简介已变为新值（不能再点 agent-more，会被宫格 overlay 拦截）
     await expect(page.getByTestId(`gallery-card-${A1}`)).toContainText("E2E 矩阵简介", { timeout: 10_000 });
 
     // 重开详情弹窗验证保存已持久化到 kernel（agent:config:get 重取文件）
@@ -354,7 +356,9 @@ test.describe.serial("技能 tab：全部勾选开关与描述气泡", () => {
     await expect(page.getByTestId("skill-switch-e2e-skill-short")).toHaveAttribute("data-on", "false");
 
     // 保存 → 验证持久化 skillsAllOff: true（REST 读取配置，getAgentConfig 已返回 config 对象）
-    await page.getByTestId("agent-config").getByRole("button", { name: "保存" }).click();
+    // 用 cfg-save testid 而非按钮文案：本用例中途会 reload，headless Chromium navigator.language=en-US，
+    // reload 后 detectInitialLanguage 读到 main.tsx 写入的持久化 "en" → 界面变英文，文案选择器会失配
+    await page.getByTestId("cfg-save").click();
     await expect(page.getByTestId("agent-config")).toHaveCount(0);
     const cfgAfter = await getAgentConfig(SK_AGENT);
     expect(cfgAfter.skillsAllOff).toBe(true);
@@ -378,10 +382,10 @@ test.describe.serial("技能 tab：全部勾选开关与描述气泡", () => {
     await page.getByTestId("skill-desc-e2e-skill-long").click();
     await expect(page.getByTestId("skill-desc-bubble-e2e-skill-long")).toHaveCount(0);
 
-    // 恢复全选并保存，避免污染其他用例
+    // 恢复全选并保存，避免污染其他用例（cfg-save：reload 后界面为英文，见上方说明）
     await page.getByTestId("skill-select-all").click();
     await expect(page.getByTestId("skill-select-all")).toHaveAttribute("data-on", "true");
-    await page.getByTestId("agent-config").getByRole("button", { name: "保存" }).click();
+    await page.getByTestId("cfg-save").click();
     await expect(page.getByTestId("agent-config")).toHaveCount(0);
   });
 });

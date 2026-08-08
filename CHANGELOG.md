@@ -94,6 +94,8 @@
 
 ### 变更
 
+- **新增功能** — 初始化向导：无模型时自动弹出两步引导（配置模型 → 设置默认智能体），设置页可重开；智能体支持从 268 个 agency 预设库选择并以人名保存（随机人名可改）；宫格新建流程升级为同一面板；新建会话默认智能体优先使用向导设置值。附带修复 kernel bug：`agent:prompt` 的 `agent_missing` 拦截在 REST 化后只 `reply` 不上事件总线，导致前端重选弹窗不可达，补一行 `broadcast` 恢复 WS 时代语义。影响范围：kernel（preset-store、agents 路由、ws-server cases）、shared（agency-presets 类型）、frontend（onboarding 向导、AgentCreatePicker、ui-prefs、NewSessionPane、AgentGalleryModal、GeneralSection）
+
 - **前端 6 个组件文案接入 i18n（中英双语）**：`NewSessionPane`/`AgentGalleryModal`/`AgentListSection`/`ProjectItem`/`Composer`/`CommandPalette` 的硬编码中文 UI 文案替换为 `t()`。各组件经门面 `import { useTranslation } from "../i18n/useTranslation"` 引入并在组件内 `const { t } = useTranslation()`。
   - `NewSessionPane`：标题/副标题/无项目选项/placeholder 接入 `newSession.*`；placeholder 用 `t("newSession.placeholder", { agent: agentName ?? "研发" })` 保留占位回退。
   - `AgentGalleryModal`：usageHint 改用 `t("agentGallery.usageHint", { count, names })` 拼接前导 `\n`（与原 `\n注意：...` 输出一致）；标题 `全部智能体 N 个` → `agentGallery.titleAllCount`（资源值已含" 个"，断言通过）；placeholder/确定/取消/新建/内置/页脚/右键查看·编辑/删除确认框接入 `agentGallery.*` + `common.*`。`SUBAGENT_TYPES.map(t => ...)` 参数遮蔽翻译函数 `t`，提前算好 `builtinBadge` 常量传入 JSX。

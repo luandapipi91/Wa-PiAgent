@@ -22,6 +22,9 @@ interface UiPrefsState {
 	/** 需要操作（ask_user_question 待回答）提示音开关（默认 true），即时生效。 */
 	soundNeedsAction: boolean;
 	setSoundNeedsAction: (v: boolean) => void;
+	/** 向导设置的默认智能体（displayName），null = 未设置 */
+	defaultAgent: string | null;
+	setDefaultAgent: (name: string | null) => void;
 }
 
 export const FONT_SIZE_MIN = 12;
@@ -83,6 +86,8 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 			setSoundTaskDone: (v) => set({ soundTaskDone: v }),
 			soundNeedsAction: SOUND_NEEDS_ACTION_DEFAULT,
 			setSoundNeedsAction: (v) => set({ soundNeedsAction: v }),
+			defaultAgent: null,
+			setDefaultAgent: (name) => set({ defaultAgent: name }),
 		}),
 		{
 			name: STORAGE_KEY,

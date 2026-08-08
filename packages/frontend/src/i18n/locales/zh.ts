@@ -460,7 +460,6 @@ const zh = {
 		usageHint:
 			"注意：该智能体正被 {{count}} 个机器人（{{names}}）使用，删除后这些机器人将改用默认智能体。",
 		titleAllCount: "全部智能体 {{count}} 个",
-		namePlaceholder: "智能体名称",
 		createAgent: "＋ 新建智能体",
 		builtinBadge: "内置",
 		footerHint:
@@ -470,6 +469,26 @@ const zh = {
 		deleteTitle: "删除智能体",
 		deleteConfirmMsg:
 			"确定删除智能体「{{name}}」吗？此操作不可撤销。{{usageHint}}",
+	},
+	agentCreatePicker: {
+		tabBlank: "✚ 创建新智能体", tabPreset: "📚 从预设选择",
+		nameLabel: "TA 的名字", reshuffle: "换一个",
+		nameTaken: "这个名字已被占用",
+		creating: "创建中…", create: "创建",
+		searchPlaceholder: "🔍 搜索 {{count}} 个预设智能体（名字 / 描述）…",
+		noMatch: "没有匹配的预设",
+		roleLine: "角色：{{name}} · {{department}}",
+		saving: "保存中…", saveAsMine: "保存为我的智能体 ✓",
+		backToList: "← 返回列表",
+	},
+	onboardingWizard: {
+		title: "欢迎使用 — 快速初始化",
+		stepIndicator: "第 {{step}} 步 / 共 2 步",
+		step1Desc: "先配置一个模型供应商（也可以稍后再配，直接点「下一步」）。",
+		step2Desc: "创建你的第一个智能体，或从预设库挑一位专家。TA 将成为你的默认智能体。",
+		back: "← 上一步", next: "下一步 →", skip: "跳过",
+		providerSaved: "模型供应商已保存",
+		agentCreated: "「{{name}}」已加入你的团队，并设为默认智能体",
 	},
 	agentList: {
 		usageHint:
@@ -605,6 +624,11 @@ const zh = {
 				taskDone: "任务完成",
 				needsAction: "需要操作",
 				preview: "试听",
+			},
+			onboarding: {
+				label: "初始化引导",
+				desc: "重新打开新手引导，配置模型与默认智能体",
+				button: "重新打开引导",
 			},
 		},
 		diagnostics: {
