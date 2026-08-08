@@ -201,7 +201,9 @@ export function AgentConfig({ agentName, onClose }: Props) {
 				className={`px-5 py-4 flex-1 min-h-0 overflow-y-auto ${isBuiltin ? "pointer-events-none [&_select]:pointer-events-auto" : ""}`}
 				data-testid="config-tab-content"
 			>
-				{!draft && <p className="text-sm text-tertiary">{t("agentConfig.loading")}</p>}
+				{!draft && (
+					<p className="text-sm text-tertiary">{t("agentConfig.loading")}</p>
+				)}
 				{/* 内置 subagent：所有字段只读，onChange 用 noop 防止编辑 */}
 				{draft && tab === "basic" && (
 					<BasicTab draft={draft} onChange={handleChange} />
@@ -504,7 +506,8 @@ function SkillsTab({ draft, onChange }: TabProps) {
 	const allOff = draft.skillsAllOff === true;
 	// 全部选中态 = 非全不选且空数组（继承全部）。逐项勾选态：非全不选且（空数组=全选 或 在白名单内）
 	const allChecked = !allOff && skills.length === 0;
-	const checked = (n: string) => !allOff && (skills.length === 0 || skills.includes(n));
+	const checked = (n: string) =>
+		!allOff && (skills.length === 0 || skills.includes(n));
 
 	// 全选开关：全选→点击变全不选；非全选（部分/全不选）→点击变全选
 	const toggleAll = () => {
@@ -540,9 +543,6 @@ function SkillsTab({ draft, onChange }: TabProps) {
 		);
 	return (
 		<div className="flex flex-col">
-			<p className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2">
-				{t("agentConfig.skillsHint")}
-			</p>
 			{/* 全部勾选开关：ON=继承全部；点击在全选↔全不选间切换 */}
 			<div className="flex items-center gap-2 py-1 justify-between border-b border-hairline mb-1">
 				<span className="text-[calc(11px*var(--font-scale))] text-secondary font-semibold">
@@ -570,19 +570,16 @@ function SkillsTab({ draft, onChange }: TabProps) {
 							>
 								{s.name}
 							</span>
-							<SkillDescBubble
-								name={s.name}
-								description={s.description}
-							/>
-								{globallyDisabled && (
-									<span
-										data-testid={`skill-disabled-label-${s.name}`}
-										className="text-[calc(10px*var(--font-scale))] font-semibold whitespace-nowrap shrink-0"
-										style={{ color: "var(--danger)" }}
-									>
-										{t("agentConfig.skillsGlobalDisabled")}
-									</span>
-								)}
+							<SkillDescBubble name={s.name} description={s.description} />
+							{globallyDisabled && (
+								<span
+									data-testid={`skill-disabled-label-${s.name}`}
+									className="text-[calc(10px*var(--font-scale))] font-semibold whitespace-nowrap shrink-0"
+									style={{ color: "var(--danger)" }}
+								>
+									{t("agentConfig.skillsGlobalDisabled")}
+								</span>
+							)}
 						</span>
 						<SwitchButton
 							on={checked(s.name)}
@@ -676,7 +673,9 @@ function PartnersTab({
 			/>
 			<div className="flex flex-col">
 				{filtered.length === 0 && (
-					<p className="text-sm text-tertiary py-1">{t("agentConfig.partnerNoMatch")}</p>
+					<p className="text-sm text-tertiary py-1">
+						{t("agentConfig.partnerNoMatch")}
+					</p>
 				)}
 				{filtered.map((a) => {
 					const isSelf = a.displayName === selfName;
