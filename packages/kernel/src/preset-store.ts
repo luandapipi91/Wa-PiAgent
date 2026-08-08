@@ -33,7 +33,9 @@ export function getPreset(id: string): AgencyPreset | undefined {
 export function buildAgentConfigFromPreset(preset: AgencyPreset, displayName: string): AgentConfig {
   const config = makeDefaultAgentConfig(displayName);
   if (preset.emoji) config.avatar = preset.emoji;
-  if (preset.color) config.avatarColor = `${preset.color}-${preset.color}`;
+  // 仅接受 hex 颜色：预设库里有非合法 CSS 颜色（如 "indigo"），原样拼进渐变会让整条
+  // linear-gradient 声明失效、且带 "-" 的值会搅乱前端 split("-") 解构，此时保留默认渐变
+  if (preset.color && /^#[0-9a-f]{3,8}$/i.test(preset.color)) config.avatarColor = `${preset.color}-${preset.color}`;
   config.description = preset.description;
   config.systemPromptBody = `你的名字是「${displayName}」。\n\n${preset.body}`;
   return config;
