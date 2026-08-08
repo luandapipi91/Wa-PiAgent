@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **修复(frontend)：设置弹窗左侧导航选中 tab 高亮为会话选中同款浅绿**。SettingsModal 左侧导航（通用/模型/技能/…）选中 tab 原来用灰色底 `var(--surface-hover)` + `var(--brand)` 文字，与会话选中（SessionRow）的浅绿 `--accent-soft` 底 + `--accent` 文字不一致。修复：9 个导航 tab 的选中样式统一改为 `background: var(--accent-soft)`、`color: var(--accent)`，与会话选中视觉对齐。新增回归测试（选中 tab 浅绿、切换后旧 tab 恢复无底色）。
+  - 影响范围：`packages/frontend/src/components/SettingsModal.tsx`、`packages/frontend/tests/SettingsModal.test.tsx`。
+
 - **重构(desktop)：自动更新源 Gitee Release → 阿里云 OSS**。Gitee Release 单文件 100MB 限制与 146MB 安装包冲突，改为 OSS（bucket `coaicom`，河源 region，公开读）。改用 electron-updater 内置 GenericProvider（`setFeedURL`），删除自定义 GiteeProvider/gitee-api（OSS 是静态对象存储，无需 Gitee 的 API 层列附件）。`publish-gitee.ts` 换成 `publish-oss.ts`（ali-oss SDK，分片上传 exe + 注入 releaseNotes 到 latest.yml）。electron-builder.yml 加 `publish: generic` 配置使打包自动生成 latest.yml。AK/SK 只走环境变量。
   - 影响范围：删除 `packages/desktop/src/updater/gitee-api.{cjs,test.ts}`、`gitee-provider.{cjs,test.ts}`、`scripts/publish-gitee.ts`；改 `updater.cjs`/`main.cjs`/`electron-builder.yml`；新增 `scripts/publish-oss.ts`、`packages/desktop/RELEASE_NOTES.md`；根 `package.json` 加 devDep `ali-oss`。
 
