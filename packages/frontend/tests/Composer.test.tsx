@@ -499,4 +499,64 @@ describe("Composer", () => {
     textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
     expect(textbox.textContent).toBe("用户改过的");
   });
+
+  it("运行中 Ctrl+Enter 发送引导消息（steering）：调 /steer、入 steering 队列、不进 followUp、清空输入框", async () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
+    render(<Composer sessionId="s1" agentName="dev" isRunning />);
+    await act(async () => {});
+    const textbox = typeIntoComposer("引导消息");
+    fireEvent.keyDown(textbox, { key: "Enter", ctrlKey: true });
+
+    await waitFor(() => {
+      const steerReq = sent.filter((s) => s.path && s.path.includes("/steer")).at(-1);
+      expect(steerReq?.path).toBe("/api/sessions/s1/steer");
+      expect(steerReq?.body).toMatchObject({ text: "引导消息" });
+      const s = useSessionStore.getState();
+      expect(s.queueBySession["s1"]?.steering).toContain("引导消息");
+      expect(s.queueBySession["s1"]?.followUp ?? []).not.toContain("引导消息");
+      // 发送后清空输入框（setText 异步渲染，在 waitFor 内断言）
+      expect(textbox.textContent).toBe("");
+    });
+    // 不得走 /prompt（引导消息不能进入 followUp 排队）
+    expect(sent.filter((s) => s.path && s.path.includes("/prompt"))).toHaveLength(0);
+  });
+
+  it("空闲时 Ctrl+Enter 等同普通发送：调 /prompt", async () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
+    render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
+    const textbox = typeIntoComposer("普通消息");
+    fireEvent.keyDown(textbox, { key: "Enter", ctrlKey: true });
+
+    await waitFor(() => {
+      const req = sent.filter((s) => s.path && s.path.includes("/prompt")).at(-1);
+      expect(req?.path).toBe("/api/agents/p1/s1/prompt");
+      expect(req?.body).toMatchObject({ text: "普通消息", agentName: "dev" });
+    });
+  });
+
+  it("IME 组词中 Ctrl+Enter 不触发发送", async () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
+    render(<Composer sessionId="s1" agentName="dev" isRunning />);
+    await act(async () => {});
+    const textbox = typeIntoComposer("测试");
+    fireEvent.keyDown(textbox, { key: "Enter", ctrlKey: true, isComposing: true });
+
+    expect(sent.length).toBe(0);
+  });
 });
