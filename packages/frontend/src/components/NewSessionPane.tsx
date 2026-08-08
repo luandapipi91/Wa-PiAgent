@@ -5,6 +5,7 @@ import { useProjectsStore } from "../store/projects";
 import { useAgentsStore, topAgentsByRecency } from "../store/agents";
 import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
+import { useUiPrefsStore } from "../store/ui-prefs";
 import { api } from "../api-client";
 import { expandTokens } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
@@ -18,13 +19,17 @@ interface Props {
   onConsumePendingAgent?: () => void;
 }
 
-/** 计算新建会话的默认智能体：pendingAgent 优先 → 最近使用者 → 列表第一项 */
-function pickDefaultAgent(
+/** 计算新建会话的默认智能体：pendingAgent → defaultAgent（向导设置）→ 最近使用者 → 列表第一项 */
+export function pickDefaultAgent(
   agents: ReturnType<typeof useAgentsStore.getState>["list"],
   sessions: ReturnType<typeof useProjectsStore.getState>["sessions"],
   pendingAgent?: string | null,
+  defaultAgent?: string | null,
 ): AgentName | null {
   if (pendingAgent) return pendingAgent as AgentName;
+  if (defaultAgent && agents.some(a => a.displayName === defaultAgent)) {
+    return defaultAgent as AgentName;
+  }
   if (sessions.length > 0) {
     const r = topAgentsByRecency(agents, sessions, 1)[0]?.displayName;
     if (r) return r;
@@ -36,8 +41,9 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
   const { t } = useTranslation();
   const { projects, currentProjectId, sessions } = useProjectsStore();
   const agents = useAgentsStore(s => s.list);
+  const defaultAgent = useUiPrefsStore(s => s.defaultAgent);
   // 默认选中最近使用的智能体（pendingAgent 优先）；空列表时为 null（发送前置条件拦截）
-  const [agentName, setAgentName] = useState<AgentName | null>(pickDefaultAgent(agents, sessions, pendingAgent));
+  const [agentName, setAgentName] = useState<AgentName | null>(pickDefaultAgent(agents, sessions, pendingAgent, defaultAgent));
   const [text, setText] = useState("");
   const initialProject =
     currentProjectId
@@ -51,8 +57,8 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
   useEffect(() => { if (pendingAgent) setAgentName(pendingAgent as AgentName); }, [pendingAgent]);
   // 首载 agent:list 回包晚于挂载：list 空转非空且 agentName 仍为 null 时回填（沿用 pendingAgent 优先级 + recency）；已选中则不干预
   useEffect(() => {
-    if (!agentName && agents.length > 0) setAgentName(pickDefaultAgent(agents, sessions, pendingAgent));
-  }, [agents, agentName, pendingAgent, sessions]);
+    if (!agentName && agents.length > 0) setAgentName(pickDefaultAgent(agents, sessions, pendingAgent, defaultAgent));
+  }, [agents, agentName, pendingAgent, sessions, defaultAgent]);
   // 挂载消费一次：初始值取用后通知 App 清除 pendingAgent（空依赖，仅首次挂载）
   useEffect(() => { if (pendingAgent) onConsumePendingAgent?.(); }, []);
   // 新建会话的 sessionId 按当前项目持久化，切换再回来仍能对应同一组 composer 附件/录音
