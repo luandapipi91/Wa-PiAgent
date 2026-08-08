@@ -77,7 +77,12 @@ export function ExplorerPanel({
     try {
       const entries = await listDir(dir);
       return entries
-        .map(e => ({ name: e.name, path: joinPath(dir, e.name), isDir: e.isDir }));
+        .map(e => ({ name: e.name, path: joinPath(dir, e.name), isDir: e.isDir }))
+        // 排序：文件夹在前、文件在后；同类按名称（大小写不敏感、数字自然序）
+        .sort((a, b) => {
+          if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+          return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
+        });
     } catch (err) {
       console.error("[ExplorerPanel] listDir failed", err);
       return [];
