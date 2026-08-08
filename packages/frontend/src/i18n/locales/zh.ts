@@ -407,6 +407,15 @@ const zh = {
 		saving: "保存中…", saveAsMine: "保存为我的智能体 ✓",
 		backToList: "← 返回列表",
 	},
+	onboardingWizard: {
+		title: "欢迎使用 — 快速初始化",
+		stepIndicator: "第 {{step}} 步 / 共 2 步",
+		step1Desc: "先配置一个模型供应商（也可以稍后再配，直接点「下一步」）。",
+		step2Desc: "创建你的第一个智能体，或从预设库挑一位专家。TA 将成为你的默认智能体。",
+		back: "← 上一步", next: "下一步 →", skip: "跳过",
+		providerSaved: "模型供应商已保存",
+		agentCreated: "「{{name}}」已加入你的团队，并设为默认智能体",
+	},
 	agentList: {
 		usageHint: "注意：该智能体正被 {{count}} 个机器人（{{names}}）使用，删除后这些机器人将改用默认智能体。",
 		sectionTitle: "智能体", more: "⋯ 更多智能体 ({{count}})",
@@ -505,6 +514,11 @@ const zh = {
 				desc: "选择界面显示语言，即时生效。首次启动时根据浏览器语言自动选择。",
 				zh: "中文",
 				en: "English",
+			},
+			onboarding: {
+				label: "初始化引导",
+				desc: "重新打开新手引导，配置模型与默认智能体",
+				button: "重新打开引导",
 			},
 		},
 		diagnostics: {

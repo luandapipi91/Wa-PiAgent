@@ -12,6 +12,8 @@ interface TestInput {
 interface ProvidersState {
   providers: ModelProvider[];
   loading: boolean;
+  /** 首次 load() 返回合法 providers 数组才为 true（App 首次启动引导据此判定，避免 mount 闪弹/SSE 早到事件误触发） */
+  loaded: boolean;
   load: () => void;
   save: (p: ModelProvider) => void;
   remove: (id: string) => void;
@@ -22,7 +24,8 @@ interface ProvidersState {
 export const useProvidersStore = create<ProvidersState>((set) => ({
   providers: [],
   loading: false,
-  load: () => { api.get("/api/providers").then((data: any) => { if (data) set({ providers: data.providers ?? [], loading: false }); }).catch(() => set({ loading: false })); },
+  loaded: false,
+  load: () => { api.get("/api/providers").then((data: any) => { if (data) set({ providers: data.providers ?? [], loading: false, loaded: Array.isArray(data.providers) }); }).catch(() => set({ loading: false })); },
   save: (p) => { void api.post("/api/providers", { provider: p }); },
   remove: (id) => { void api.del(`/api/providers/${encodeURIComponent(id)}`); },
   setProviders: (ps) => set({ providers: ps, loading: false }),
