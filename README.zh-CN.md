@@ -10,13 +10,14 @@
 
 一条命令都不用记：会话、模型、MCP、技能、记忆，全部点点鼠标搞定。
 
-图形化会话管理 · 多智能体协作 · IM 机器人渠道 · MCP 生态 · 桌面与浏览器双端
+图形化会话管理 · 多智能体协作 · IM 机器人渠道 · MCP 生态 · 桌面与浏览器双端 · 中文 / English 双语界面
 
 ![Runtime](https://img.shields.io/badge/Runtime-Bun-f9f1e1?logo=bun&logoColor=000)
 ![Language](https://img.shields.io/badge/Language-TypeScript-3178c6?logo=typescript&logoColor=fff)
 ![Frontend](https://img.shields.io/badge/React_19-Vite_8-646cff?logo=vite&logoColor=fff)
 ![Desktop](https://img.shields.io/badge/Desktop-Electron-47848f?logo=electron&logoColor=fff)
 ![Agent Engine](https://img.shields.io/badge/Agent_Engine-pi-5B5BD6)
+![i18n](https://img.shields.io/badge/i18n-%E4%B8%AD%E6%96%87%20%7C%20English-2ea44f)
 
 </div>
 

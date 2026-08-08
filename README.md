@@ -10,13 +10,14 @@
 
 Not a single command to memorize: sessions, models, MCP, skills, and memory — all point-and-click.
 
-Visual session management · Multi-agent collaboration · IM bot channels · MCP ecosystem · Desktop & browser
+Visual session management · Multi-agent collaboration · IM bot channels · MCP ecosystem · Desktop & browser · 中文 / English UI
 
 ![Runtime](https://img.shields.io/badge/Runtime-Bun-f9f1e1?logo=bun&logoColor=000)
 ![Language](https://img.shields.io/badge/Language-TypeScript-3178c6?logo=typescript&logoColor=fff)
 ![Frontend](https://img.shields.io/badge/React_19-Vite_8-646cff?logo=vite&logoColor=fff)
 ![Desktop](https://img.shields.io/badge/Desktop-Electron-47848f?logo=electron&logoColor=fff)
 ![Agent Engine](https://img.shields.io/badge/Agent_Engine-pi-5B5BD6)
+![i18n](https://img.shields.io/badge/i18n-%E4%B8%AD%E6%96%87%20%7C%20English-2ea44f)
 
 </div>
 
