@@ -4,9 +4,96 @@
 
 ---
 
+## 2026-08-07
+
+### 变更
+
+- **前端 6 个组件文案接入 i18n（中英双语）**：`NewSessionPane`/`AgentGalleryModal`/`AgentListSection`/`ProjectItem`/`Composer`/`CommandPalette` 的硬编码中文 UI 文案替换为 `t()`。各组件经门面 `import { useTranslation } from "../i18n/useTranslation"` 引入并在组件内 `const { t } = useTranslation()`。
+  - `NewSessionPane`：标题/副标题/无项目选项/placeholder 接入 `newSession.*`；placeholder 用 `t("newSession.placeholder", { agent: agentName ?? "研发" })` 保留占位回退。
+  - `AgentGalleryModal`：usageHint 改用 `t("agentGallery.usageHint", { count, names })` 拼接前导 `\n`（与原 `\n注意：...` 输出一致）；标题 `全部智能体 N 个` → `agentGallery.titleAllCount`（资源值已含" 个"，断言通过）；placeholder/确定/取消/新建/内置/页脚/右键查看·编辑/删除确认框接入 `agentGallery.*` + `common.*`。`SUBAGENT_TYPES.map(t => ...)` 参数遮蔽翻译函数 `t`，提前算好 `builtinBadge` 常量传入 JSX。
+  - `AgentListSection`：usageHint 同 Gallery 模式；区头/更多入口/placeholder/新增/右键编辑·删除/确认框接入 `agentList.*` + `common.*`。
+  - `ProjectItem`：prompt 标题、右键重命名/删除聊天/删除项目、ConfirmDialog title/message/confirmText 接入 `projectItem.*` + `common.delete`；`openInFileManagerLabel()` 调用保持不变（util 单独迁移）。
+  - `Composer`：placeholder 三态接入 `composerExtra.placeholderBlocked`/`placeholderQueued` + 复用 `newSession.placeholder`。
+  - `CommandPalette`：命令/技能分组、系统设置/智能体管理标题及其 hint、placeholder、空态、底部 导航/执行/关闭 接入 `commandPalette.*` + `composer.cmdSettings`/`cmdAgents`/`cmdAgentsDesc` + `common.close`；`commandItems`/`skillItems` 的 useMemo 依赖数组补 `t`。
+  - 验证：`bun run test tests/NewSessionPane.test.tsx tests/AgentGalleryModal.test.tsx tests/AgentListSection.test.tsx tests/ProjectItem.system.test.tsx tests/CommandPalette.test.tsx tests/Composer.test.tsx` 81 pass / 0 fail，测试文件未改动。关键断言（搜索技能和命令... / 技能 / 命令 / 系统设置 / 智能体管理 / 没有匹配的结果、更多智能体 (2)、内置 / N 个）全绿。
+  - 影响范围：`packages/frontend/src/components/NewSessionPane.tsx`、`AgentGalleryModal.tsx`、`AgentListSection.tsx`、`ProjectItem.tsx`、`Composer.tsx`、`CommandPalette.tsx`。
+
+---
+
+### 变更
+
+- **前端 7 个组件文案接入 i18n（中英双语）**：`ImConversationList`/`ExtensionDialog`/`AgentSwitcher`/`SessionRow`/`AgentMissingModal`/`Sidebar`/`ProjectList` 的硬编码中文 UI 文案替换为 `t()`。各组件经门面 `import { useTranslation } from "../i18n/useTranslation"` 引入并在组件内 `const { t } = useTranslation()`。
+  - `ImConversationList`：模块级 `titleOf` 改为组件内函数（依赖 `t`），群聊标题用 `t("im.groupTitle", { chatId, from })`；空态 `im.emptyHint`、菜单 `im.deleteChat`、确认框 `im.deleteConfirmMessage`/`common.delete`。`ImConvRow` 通过 `titleOf` prop 接收组件内函数。
+  - `ExtensionDialog`：footer 与 select-only 态取消/确认按钮 → `common.cancel`/`common.confirm`（动态 req 载荷不迁移）。
+  - `AgentSwitcher`：`已切换为 ${agentName}` 在写入 message.content 时构造时插值 `t("agentSwitcher.switchedMessage", { agent })`（避免存入模板占位符，保证测试断言 `content==="已切换为 代码审查"`）；确认框 title/message/cancel/confirm 接入 `agentSwitcher.*` + `common.cancel`。`t` 加入 effect 依赖数组。
+  - `SessionRow`：`运行中` aria-label → `common.statusRunning`；`有新回复` aria-label 资源无对应 key，按指示保留原文。
+  - `AgentMissingModal`：标题/正文/空列表 → `agentMissing.title`/`message`/`empty`。
+  - `Sidebar`：tab 文案 `任务`/`IM` → `sidebar.tabTasks`/`tabIm`；tab 循环变量 `t` 重命名为 `tabKey` 以让位翻译函数 `t`（必须改动）。品牌名 WA PI Agent 不迁移。
+  - `ProjectList`：区头 `项目` → `projectList.sectionTitle`；`＋ 新建项目` → `projectList.newProject`。
+  - 验证：`bun run test tests/ImConversationList.test.tsx tests/ExtensionDialog.test.tsx tests/AgentSwitcher.test.tsx tests/App-agent-missing.test.tsx tests/ProjectList.test.tsx tests/Sidebar.test.tsx` 38 pass / 1 skip / 0 fail，测试文件未改动。关键断言（ImConversationList 群聊(wr_abcde) · lisi / 暂无 IM 会话、AgentSwitcher content==="已切换为 代码审查"、AgentMissingModal 请重新选择智能体后重发消息、ProjectList 项目）全绿。
+  - 影响范围：`packages/frontend/src/components/ImConversationList.tsx`、`ExtensionDialog.tsx`、`AgentSwitcher.tsx`、`SessionRow.tsx`、`AgentMissingModal.tsx`、`Sidebar.tsx`、`ProjectList.tsx`。
+
+---
+
+### 变更
+
+- **前端 5 个组件 + platform.ts 文案接入 i18n（中英双语）**：`EmptyState`/`SettingsButton`/`NewSessionButton`/`ExplorerPanel` 硬编码中文 UI 文案替换为 `t()`；`util/platform.ts` 的 `openInFileManagerLabel` 改造为接收可选 `labels` 参数（默认回退中文，行为不变）。
+  - 各组件经门面 `import { useTranslation } from "../i18n/useTranslation"` 引入并在组件内 `const { t } = useTranslation()`。
+  - `EmptyState`：标题/副标题/新建项目按钮（`emptyState.*`）。
+  - `SettingsButton`：`系统设置` 文案 + `aria-label`/`title`（`settings.title`）。
+  - `NewSessionButton`：`＋ 新建会话`（`sidebar.newSession`）。
+  - `ExplorerPanel`：右键菜单 `复制路径`、toast `打开失败`、占位 `未设置工作目录`/`加载失败：${error}`/`加载中…`（`explorer.*` + `common.loading`）。子组件 `ExplorerContextMenu` 通过 `t` props 接收翻译函数（类型 `TFunction`）。`openInFileManagerLabel()` 调用保持不变（util 改造，组件本轮不改）。
+  - `util/platform.ts`：`openInFileManagerLabel` 改为 `openInFileManagerLabel(labels?)`，不传参时回退原中文默认值，保证普通函数调用与单测行为零变化；为后续组件传入 i18n 值预留入口。
+  - 验证：`bun run test tests/ExplorerPanel.test.tsx tests/SettingsButton.test.tsx tests/NewSessionButton.test.tsx tests/ProjectItem.system.test.tsx` 14 pass / 0 fail；`bun run typecheck` 通过。关键断言（ExplorerPanel 复制路径/在资源管理器中打开/未设置工作目录、NewSessionButton 含新建会话）全绿，测试文件未改动。
+  - 影响范围：`packages/frontend/src/components/EmptyState.tsx`、`SettingsButton.tsx`、`NewSessionButton.tsx`、`ExplorerPanel.tsx`、`packages/frontend/src/util/platform.ts`。
+
+---
+
+## 2026-08-07
+
+### 变更
+
+- **前端 ask 提问卡 + 目录树选择器文案接入 i18n（中英双语）**：`src/components/ask/AskFormCard.tsx` 与 `src/components/DirTreePicker.tsx` 的硬编码中文 UI 文案替换为 `t()`。经门面 import `useTranslation`（ask 目录用 `../../i18n/useTranslation`，根目录 `components/` 用 `../i18n/useTranslation`）并在组件内 `const { t } = useTranslation()`。
+  - `AskFormCard`：标题插值（`emoji`+`agent` 回退 `ask.agentFallback`）、`aria-label` 终止、其他选项、自定义答案 placeholder、备注 label、stale/提交失败两处错误文案、取消、提交中/提交按钮全部接入。
+  - `DirTreePicker`：`buildSearchTree` 由模块级函数改为接收 `rootName` 参数（由组件传入 `t("filePicker.thisPc")`）；初始 root 占位 `加载中…`、主 tree 根 `此电脑`、标题「选择项目目录」、搜索 placeholder/搜索中/无匹配、treeLabel 目录、显示隐藏目录、取消、选择按钮全部接入；复用 `filePicker.*` 与 `dirPicker.*` key。
+  - `AskDock` 经核对无硬编码 UI 文案（仅注释），跳过。
+  - 验证：`bun run test tests/AskFormCard.test.tsx tests/AskDock.test.tsx tests/DirTreePicker.test.tsx` 38 pass / 0 fail，测试文件未改动。
+  - 影响范围：`packages/frontend/src/components/ask/AskFormCard.tsx`、`packages/frontend/src/components/DirTreePicker.tsx`。
+
+---
+
+## 2026-08-07
+
+
+### 变更
+
+- **记忆模块 4 个组件文案接入 i18n（中英双语）**：`src/components/memory/` 下 `MemoryPage`/`MemoryCard`/`MemoryEmpty`/`InstructionItem` 全部硬编码中文 UI 文案替换为 `t()`。各组件顶部经门面 `import { useTranslation } from "../../i18n/useTranslation"` 引入并在组件内 `const { t } = useTranslation()`。
+  - `MemoryPage`：标题/开关/tab label/筛选 chip/分类 chip/添加按钮/表单 placeholder/取消保存/作用域下拉文案（含 `📁 {{name}}` 插值）。**tab label 资源值保持 `已保存`/`归档`/`指令文件`，`data-testid={tab-${label}}` 自然不变**，5 处单测 + 4 处 E2E 断言零回归；筛选 `filterProject` 中文值保持「项目」满足 E2E `getByRole("button",{name:"项目"})`。
+  - `MemoryCard`：模块级 `CATEGORY_STYLE` 常量把中文 `label` 改为 `labelKey`（存 i18n key），组件内用 `t(cat.labelKey)` 渲染；作用域标记/编辑按钮/归档时间（含插值）/操作按钮全部接入。
+  - `MemoryEmpty`/`InstructionItem`：空状态标题与提示、作用域徽标/查看/关闭按钮全部接入。
+  - 验证：`bun run test tests/MemoryPage.test.tsx` 17 pass / 0 fail。资源 key 中文值与原硬编码值逐一核对一致，测试文件未改动。
+  - 影响范围：`packages/frontend/src/components/memory/MemoryPage.tsx`、`MemoryCard.tsx`、`MemoryEmpty.tsx`、`InstructionItem.tsx`。
+
+---
+
 ## 2026-08-08
 
 ### 变更
+
+- **i18n 修复：补齐英文界面露中文的遗漏点 + 非组件层文案迁移**：
+  - **组件层遗漏**：`openInFileManagerLabel()` 4 处调用（ExplorerPanel/ProjectItem×2/FileViewer）补传 i18n labels；FileViewer markdown 头 `title="关闭"` 漏改修复；`main.tsx` ErrorBoundary 兜底页（应用发生错误/重新加载）改用 i18next 实例 t（class 组件不能用 hook，但 ./i18n 已先初始化）。
+  - **store/工具层用户可见文案**：`store/session.ts`（压缩上下文 5 处消息 + 扩展错误 toast）、`store/projects.ts`（重复目录提示）、`store/mcp.ts`（连接失败）、`store/recording.ts`（busy 冲突 Error/录音文件名/beforeunload 提示）、`recording/recorder.ts`（已有录音/无音频轨道 Error）、`fs-client.ts`（不支持预览/读取失败/复制失败）全部接入 i18n（统一 `import i18n from "../i18n"` 走门面实例，解决 `bun test --isolate` 下直接 import i18next 实例未初始化的问题）。
+  - **耦合判断解耦**：`store/session.ts` 的 `startsWith("已压缩")` 改用结构化 `compactionEnded` 标志判断压缩是否结束（避免 i18n 化后文案判断失效）；`AskFormCard` 的 `message.includes("失效")` 改用 HTTP 400 状态判断。
+  - **MermaidBlock** 3 处内部中文 Error 改英文（技术性错误，不直接露界面）。
+  - 新增 key：`message.compactionProgress/Aborted/Failed/Done/DoneNoToken`、`message.extensionError`、`store.duplicateProjectCwd/mcpConnectFailed/recordingFile/recordingBusy/recordingNoAudioTrack/unsupportedPreview/readFailed/copyFailedShort`、`common.appError`。
+  - 验证：全量单测 1158 pass / typecheck 通过。
+  - 影响范围：`packages/frontend`（`src/store/`、`src/recording/`、`src/fs-client.ts`、`src/main.tsx`、`src/components/`、`src/i18n/locales/`）。
+
+- **前端引入国际化（i18n）基础设施，中/英双语支持**：引入 `react-i18next`，搭建 i18n 框架（`src/i18n/`：`index.ts` 模块顶层初始化 i18next 实例、`detect.ts` 首次启动语言检测纯函数、`locales/zh.ts`+`en.ts` 翻译资源）。**首次启动按 `navigator.language` 自动选择**（`zh*`→中文，其余→英文，无法访问 navigator 时回退中文；用户显式选择过则尊重 localStorage 持久化值）。扩展 `ui-prefs` store 新增 `language` 字段 + `setLanguage`（同步 i18n 实例 + `<html lang>`），`main.tsx` 在渲染前完成语言决策。
+  - **系统设置-通用新增「语言」切换项**（下拉，中文/English，`data-testid=language-select`），即时生效并持久化到 localStorage。
+  - 设置弹窗 `SettingsModal`（标题+8 项导航）与 `GeneralSection` 全部文案接入 `t()`；**设置面板全部 8 个分区及子弹窗**完成中英双语；**前端全部组件文案完成中英双语**——核心交互（MessageList/ComposerInput/SessionView/App/AgentConfig/FilePicker）、`blocks/` 全部消息块（11 个）、`ui/` 全部控件（8 个）、`mcp/`（6 个）、`memory/`（4 个）、`ask/`（2 个）、根目录长尾（DirTreePicker/NewSessionPane/AgentGalleryModal/ProjectItem/CommandPalette/Composer/AgentListSection/ExplorerPanel/ImConversationList/ExtensionDialog/AgentSwitcher/SessionRow/AgentMissingModal/Sidebar/ProjectList/EmptyState/SettingsButton/NewSessionButton）及 `util/platform.ts`（openInFileManagerLabel 改为可选参数，默认行为不变）。
+  - 测试基建：`happydom-setup.ts` 通过环境变量 `WA_PI_LANG` 锁定组件测试为中文（解决 `bun test --isolate` 下 globalThis 不共享的时序问题），新增 `.env.test` + `bun --env-file=.env.test test` 跨平台加载；引入 `src/i18n/useTranslation.ts` 门面确保每个组件模块图触发 i18next 初始化。新增 `i18n-detect`/`store-ui-prefs-language` 单测、`GeneralSection-language` 组件测试、`language-switch` E2E。全量单测/组件测试不回归。
+  - 影响范围：`packages/frontend`（`src/i18n/`、`src/store/ui-prefs.ts`、`src/main.tsx`、`src/components/` 全部、`src/util/platform.ts`、`tests/`、`e2e/`、`.env.test`、`package.json`）。
 
 - **清理已沉淀的设计原型 mockup 与早期差异文档**：删除 `docs/superpowers/mockups/` 下 16 个早期 UI 原型 HTML（其设计已沉淀进 `docs/superpowers/specs/2026-07-05-wa-pi-design.md`）及 `docs/chat-ui-diff-cocode-vs-wa-pi.md`（cocode vs wa-pi 早期 UI 差异对比，已被实际实现取代）。specs 文档附录中的 mockup 索引保留为历史溯源记录。
   影响范围：`docs/superpowers/mockups/`（删除）、`docs/chat-ui-diff-cocode-vs-wa-pi.md`（删除）。

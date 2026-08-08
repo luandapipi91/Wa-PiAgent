@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { SkillSource } from "@wa-pi/shared";
+import { useTranslation } from "../../i18n/useTranslation";
 import { AgentMenuItem } from "./AgentMenuItem";
 
 export interface MenuItem {
@@ -23,20 +24,20 @@ interface Props {
   emptyText?: string;
 }
 
-/** 来源标签文本 */
-function sourceLabel(source?: SkillSource): string | null {
-  if (!source) return null;
-  switch (source.type) {
-    case "builtin": return "内置";
-    case "project": return "项目";
-    case "user": return "用户";
-    case "extension": return source.name ?? "扩展";
-    default: return null;
-  }
-}
-
 export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHover, emptyText }: Props) {
   const highlightedElRef = useRef<HTMLElement | null>(null);
+  const { t } = useTranslation();
+  /** 来源标签文本 */
+  const sourceLabel = (source?: SkillSource): string | null => {
+    if (!source) return null;
+    switch (source.type) {
+      case "builtin": return t("ui.quickInvokeMenu.sourceBuiltin");
+      case "project": return t("ui.quickInvokeMenu.sourceProject");
+      case "user": return t("ui.quickInvokeMenu.sourceUser");
+      case "extension": return source.name ?? t("ui.quickInvokeMenu.sourceExtension");
+      default: return null;
+    }
+  };
 
   // 键盘上下导航时，让高亮项自动滚动到可视区域内
   useEffect(() => {
@@ -50,7 +51,7 @@ export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHov
     >
       {items.length === 0 ? (
         <div className="px-4 py-3 text-sm text-tertiary text-center">
-          {emptyText ?? "无匹配结果"}
+          {emptyText ?? t("ui.quickInvokeMenu.emptyDefault")}
         </div>
       ) : type === "agent" ? (
         // @ 智能体：复用 AgentMenuItem，与 AgentDropdown 视觉完全一致

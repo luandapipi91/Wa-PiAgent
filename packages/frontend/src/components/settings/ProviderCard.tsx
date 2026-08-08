@@ -1,3 +1,4 @@
+import { useTranslation } from "../../i18n/useTranslation";
 import type { ModelProvider } from "@wa-pi/shared";
 
 interface Props {
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export function ProviderCard({ provider, onEdit, onTest, onDelete, testStatus }: Props) {
+  const { t } = useTranslation();
   return (
     <div
       className="rounded-sm border border-hairline p-3 flex flex-col gap-2"
@@ -29,17 +31,17 @@ export function ProviderCard({ provider, onEdit, onTest, onDelete, testStatus }:
           >{m.id}</span>
         ))}
       </div>
-      {testStatus?.state === "testing" && <span className="text-xs text-secondary">测试中…</span>}
-      {testStatus?.state === "ok" && <span className="text-xs" style={{ color: "var(--success)" }}>✓ 连接成功</span>}
+      {testStatus?.state === "testing" && <span className="text-xs text-secondary">{t("settings.provider.testing")}</span>}
+      {testStatus?.state === "ok" && <span className="text-xs" style={{ color: "var(--success)" }}>{t("settings.provider.ok")}</span>}
       {testStatus?.state === "fail" && <span className="text-xs" style={{ color: "var(--danger)" }}>✗ {testStatus.error}</span>}
       <div className="flex gap-2">
-        <button onClick={onEdit} className="px-2 py-1 rounded-sm text-xs text-secondary border border-hairline hover:text-primary">编辑</button>
-        <button onClick={onTest} className="px-2 py-1 rounded-sm text-xs text-secondary border border-hairline hover:text-primary">测试连接</button>
+        <button onClick={onEdit} className="px-2 py-1 rounded-sm text-xs text-secondary border border-hairline hover:text-primary">{t("settings.provider.edit")}</button>
+        <button onClick={onTest} className="px-2 py-1 rounded-sm text-xs text-secondary border border-hairline hover:text-primary">{t("settings.provider.testConnection")}</button>
         <button
           onClick={onDelete}
           className="px-2 py-1 rounded-sm text-xs text-secondary border border-hairline hover:text-danger"
           data-testid={`provider-delete-${provider.id}`}
-        >删除</button>
+        >{t("settings.provider.delete")}</button>
       </div>
     </div>
   );

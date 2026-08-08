@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
+import { useTranslation } from "../../i18n/useTranslation";
 import { Icon } from "../ui/Icon";
 import { createMarkdownComponents } from "./markdown-components";
 import { useSessionStore } from "../../store/session";
@@ -16,13 +17,6 @@ interface Props {
 	isStreaming?: boolean;
 }
 
-// 子代理状态文案映射：SubagentProgressEvent.status → 中文展示
-function statusLabel(status: string): string {
-	if (status === "running") return "运行中";
-	if (status === "done") return "完成";
-	return "出错";
-}
-
 /** 委派卡片：流式中展开（任务可见），完成即折叠；子智能体回复用 ReactMarkdown 渲染。
  *  有实时进度（progress）时：始终显示一行摘要（状态/耗时/工具数）+ ▶/▼ 开关，
  *  展开后看实时 output 与工具时间线；完成态也保持折叠一致——展开才看结果详情。 */
@@ -33,6 +27,13 @@ export function DelegateCard({
 	isStreaming,
 }: Props) {
 	const args = toolCall.arguments as { agent?: string; task?: string };
+	const { t } = useTranslation();
+	// 子代理状态文案映射：SubagentProgressEvent.status → 展示
+	const statusLabel = (status: string): string => {
+		if (status === "running") return t("common.statusRunning");
+		if (status === "done") return t("common.statusDone");
+		return t("common.statusError");
+	};
 	const { open: autoOpen } = useAutoCollapse({
 		isStreaming,
 		isDone: !!result,
@@ -85,22 +86,22 @@ export function DelegateCard({
 		<ProcessCard
 			tone="warning"
 			icon={<Icon name="reply" />}
-			title={`委派给 ${args.agent ?? "子智能体"}`}
+			title={t("blocks.delegate.title", { agent: args.agent ?? t("blocks.delegate.defaultAgent") })}
 			meta={
 				!result ? (
 					<>
 						<Spinner />
-						<span>执行中</span>
+						<span>{t("blocks.delegate.executingMeta")}</span>
 					</>
 				) : failed ? (
 					<>
 						<Icon name="x" size={12} />
-						<span>失败</span>
+						<span>{t("blocks.delegate.failedMeta")}</span>
 					</>
 				) : (
 					<>
 						<Icon name="check" size={12} />
-						<span>完成</span>
+						<span>{t("blocks.delegate.doneMeta")}</span>
 					</>
 				)
 			}
@@ -109,7 +110,7 @@ export function DelegateCard({
 			muted={!!result}
 			testId={`delegate-${toolCall.id}`}
 		>
-			<div className="mb-1 flex items-start gap-1"><Icon name="clipboard" size={12} style={{ marginTop: 2, flexShrink: 0 }} /><span>任务：{args.task}</span></div>
+			<div className="mb-1 flex items-start gap-1"><Icon name="clipboard" size={12} style={{ marginTop: 2, flexShrink: 0 }} /><span>{t("blocks.delegate.taskLabel")}{args.task}</span></div>
 			{hasProgress && (
 				<div
 					className="mt-2 pt-2 border-t border-hairline"
@@ -117,27 +118,37 @@ export function DelegateCard({
 				>
 					{/* 摘要行：始终可见。执行中为纯文本；完成态为开关（展开看最终回复） */}
 					{result ? (
-						<button
-							type="button"
-							aria-label={progressExpanded ? "折叠" : "展开"}
-							onClick={() => setProgressExpanded((v) => !v)}
-							className="w-full flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-tertiary py-1"
-							style={{ cursor: "pointer" }}
-						>
-							<span>
-								子智能体 · {statusLabel(progress!.status)} · {seconds}s · 共{" "}
-								{toolCounts.total} 个工具 · 成功 {toolCounts.done} · 失败{" "}
-								{toolCounts.error} · 执行中 {toolCounts.running}
-							</span>
-							<span className="ml-auto"><Icon name={progressExpanded ? "chevron-down" : "chevron-right"} size={10} /></span>
-						</button>
-					) : (
-						<div className="text-[calc(11px*var(--font-scale))] text-tertiary py-1">
-							子智能体 · {statusLabel(progress!.status)} · {seconds}s · 共{" "}
-							{toolCounts.total} 个工具 · 成功 {toolCounts.done} · 失败{" "}
-							{toolCounts.error} · 执行中 {toolCounts.running}
-						</div>
-					)}
+							<button
+								type="button"
+								aria-label={progressExpanded ? t("common.collapse") : t("common.expand")}
+								onClick={() => setProgressExpanded((v) => !v)}
+								className="w-full flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-tertiary py-1"
+								style={{ cursor: "pointer" }}
+							>
+								<span>
+									{t("blocks.delegate.progressSummary", {
+										status: statusLabel(progress!.status),
+										seconds,
+										total: toolCounts.total,
+										done: toolCounts.done,
+										error: toolCounts.error,
+										running: toolCounts.running,
+									})}
+								</span>
+								<span className="ml-auto"><Icon name={progressExpanded ? "chevron-down" : "chevron-right"} size={10} /></span>
+							</button>
+						) : (
+							<div className="text-[calc(11px*var(--font-scale))] text-tertiary py-1">
+								{t("blocks.delegate.progressSummary", {
+									status: statusLabel(progress!.status),
+									seconds,
+									total: toolCounts.total,
+									done: toolCounts.done,
+									error: toolCounts.error,
+									running: toolCounts.running,
+								})}
+							</div>
+						)}
 				</div>
 			)}
 			{/* 回复：执行中流式显示 progress.output；完成态仅展开时显示最终 result */}
@@ -146,7 +157,7 @@ export function DelegateCard({
 					data-testid="text-block"
 					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
 				>
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1"><Icon name="share" size={11} /><span>回复：</span></div>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1"><Icon name="share" size={11} /><span>{t("blocks.delegate.replyLabel")}</span></div>
 					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
 						{replyText}
 					</ReactMarkdown>

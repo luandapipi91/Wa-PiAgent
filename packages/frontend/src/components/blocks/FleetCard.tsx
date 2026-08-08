@@ -9,6 +9,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
+import { useTranslation } from "../../i18n/useTranslation";
 import { Icon } from "../ui/Icon";
 import { createMarkdownComponents } from "./markdown-components";
 import { useSessionStore } from "../../store/session";
@@ -19,13 +20,6 @@ interface Props {
 	toolCall: ToolCall;
 	result?: ToolResultMessage;
 	isStreaming?: boolean;
-}
-
-// 子代理状态文案映射：SubagentProgressEvent.status → 中文展示
-function statusLabel(status: string): string {
-	if (status === "running") return "运行中";
-	if (status === "done") return "完成";
-	return "出错";
 }
 
 /** 工具计数：按 status 分桶（总数/成功/失败/执行中） */
@@ -117,6 +111,13 @@ function FleetTaskItem({
 	sessionId: string;
 }) {
 	const [expanded, setExpanded] = useState(false);
+	const { t } = useTranslation();
+	// 子代理状态文案映射：SubagentProgressEvent.status → 展示
+	const statusLabel = (status: string): string => {
+		if (status === "running") return t("common.statusRunning");
+		if (status === "done") return t("common.statusDone");
+		return t("common.statusError");
+	};
 	const seconds = useLiveElapsed(
 		progress?.elapsedMs,
 		progress?.status === "running",
@@ -127,22 +128,22 @@ function FleetTaskItem({
 	const showReply = replyText != null && replyText !== "";
 	const label = toolStats
 		? isCompleted
-			? `已完成 调用了 ${toolStats.total} 个工具 成功 ${toolStats.done} 失败 ${toolStats.error} 执行中 ${toolStats.running} · 点击查看回复`
-			: `调用了 ${toolStats.total} 个工具 成功 ${toolStats.done} 失败 ${toolStats.error} 执行中 ${toolStats.running}`
+			? t("blocks.fleet.taskLabelCompletedWithStats", { total: toolStats.total, done: toolStats.done, error: toolStats.error, running: toolStats.running })
+			: t("blocks.fleet.taskLabelRunningWithStats", { total: toolStats.total, done: toolStats.done, error: toolStats.error, running: toolStats.running })
 		: showReply
-			? "已完成 · 点击查看回复"
-			: "运行中";
+			? t("blocks.fleet.taskLabelCompletedNoStats")
+			: t("blocks.fleet.taskLabelRunning");
 	return (
 		<div className="min-w-0">
 			<button
 				type="button"
-				aria-label={expanded ? "折叠" : "展开"}
+				aria-label={expanded ? t("common.collapse") : t("common.expand")}
 				onClick={() => setExpanded((v) => !v)}
 				className="w-full flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-secondary py-1 text-left"
 				style={{ cursor: "pointer" }}
 			>
 				<span>
-					任务 {index}：{label}
+					{t("blocks.fleet.taskPrefix", { index })}{label}
 				</span>
 				<span className="ml-auto flex-shrink-0"><Icon name={expanded ? "chevron-down" : "chevron-right"} size={10} /></span>
 			</button>
@@ -154,7 +155,7 @@ function FleetTaskItem({
 							{statusLabel(progress!.status)} · {seconds}s
 						</div>
 					)}
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1"><Icon name="share" size={11} /><span>回复：</span></div>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1"><Icon name="share" size={11} /><span>{t("blocks.fleet.replyLabel")}</span></div>
 					<MemoReplyMarkdown text={replyText ?? ""} sessionId={sessionId} />
 				</div>
 			)}
@@ -172,6 +173,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 		tasks?: Array<{ agent: string; task: string }>;
 	};
 	const tasks = args.tasks ?? [];
+	const { t } = useTranslation();
 	const { open: autoOpen } = useAutoCollapse({
 		isStreaming,
 		isDone: !!result,
@@ -243,22 +245,22 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 		<ProcessCard
 			tone="warning"
 			icon={<Icon name="reply" />}
-			title={`并行派发 ${tasks.length} 个任务`}
+			title={t("blocks.fleet.title", { count: tasks.length })}
 			meta={
 				!result ? (
 					<>
 						<Spinner />
-						<span>执行中</span>
+						<span>{t("blocks.fleet.metaRunning")}</span>
 					</>
 				) : failed ? (
 					<>
 						<Icon name="x" size={12} />
-						<span>失败</span>
+						<span>{t("blocks.fleet.metaFailed")}</span>
 					</>
 				) : (
 					<>
 						<Icon name="check" size={12} />
-						<span>完成</span>
+						<span>{t("common.statusDone")}</span>
 					</>
 				)
 			}
@@ -270,17 +272,17 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 			{/* 任务清单：任务 N：【agent】task */}
 			{tasks.length > 0 && (
 				<div className="mb-1 space-y-1">
-					{tasks.map((t, i) => (
-						<div key={i} className="flex items-start gap-1.5">
-							<span className="text-tertiary flex-shrink-0 mt-0.5">
-								任务 {i + 1}：委派
-							</span>
-							<span>
-								<span className="font-semibold">【{t.agent}】</span>
-								{t.task}
-							</span>
-						</div>
-					))}
+					{tasks.map((tk, i) => (
+							<div key={i} className="flex items-start gap-1.5">
+								<span className="text-tertiary flex-shrink-0 mt-0.5">
+									{t("blocks.fleet.delegatePrefix", { index: i + 1 })}
+								</span>
+								<span>
+									<span className="font-semibold">【{tk.agent}】</span>
+									{tk.task}
+								</span>
+							</div>
+						))}
 				</div>
 			)}
 			{/* 每任务统计行（可独立展开看回复） */}
@@ -309,7 +311,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 					data-testid="text-block"
 					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
 				>
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1"><Icon name="share" size={11} /><span>回复：</span></div>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1"><Icon name="share" size={11} /><span>{t("blocks.fleet.replyLabel")}</span></div>
 					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
 						{formattedFull}
 					</ReactMarkdown>

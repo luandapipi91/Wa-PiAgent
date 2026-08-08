@@ -6,6 +6,7 @@ import type {
 	ThinkingLevel,
 } from "@wa-pi/shared";
 import { isModelAvailable } from "@wa-pi/shared";
+import { useTranslation } from "../i18n/useTranslation";
 import { useSessionStore } from "../store/session";
 import { useProjectsStore } from "../store/projects";
 import { useProvidersStore } from "../store/providers";
@@ -51,6 +52,7 @@ interface RenderedRow {
 }
 
 export function MessageList({ sessionId }: Props) {
+	const { t } = useTranslation();
 	const messages = useSessionStore(
 		(s) => s.messagesBySession[sessionId] ?? EMPTY,
 	);
@@ -377,7 +379,7 @@ export function MessageList({ sessionId }: Props) {
 								animation: "spin 0.8s linear infinite",
 							}}
 						/>
-						加载会话…
+						{t("message.loadSession")}
 					</div>
 				</div>
 			)}
@@ -387,8 +389,8 @@ export function MessageList({ sessionId }: Props) {
 					type="button"
 					onClick={handleScrollToBottom}
 					data-testid={`scroll-bottom-${sessionId}`}
-					aria-label="滚动到底部"
-					title="滚动到底部"
+					aria-label={t("message.scrollToBottom")}
+					title={t("message.scrollToBottom")}
 					className="absolute bottom-[37px] right-3 z-10 w-9 h-9 rounded-full bg-surface border border-hairline shadow-md flex items-center justify-center text-secondary hover:text-primary transition-colors"
 				>
 					↓
@@ -516,7 +518,7 @@ export function buildResendPrompt(args: {
 	};
 }
 
-function formatTime(timestamp: number): string {
+function formatTime(timestamp: number, yesterdayLabel: string): string {
 	const now = new Date();
 	const d = new Date(timestamp);
 
@@ -534,7 +536,7 @@ function formatTime(timestamp: number): string {
 	const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 
 	if (isSameDay(d, now)) return time;
-	if (isYesterday(d, now)) return `昨天 ${time}`;
+	if (isYesterday(d, now)) return `${yesterdayLabel} ${time}`;
 	return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${time}`;
 }
 
@@ -546,6 +548,7 @@ function StreamingRow({
 	streaming: SessionMessage;
 	sessionId: string;
 }) {
+	const { t } = useTranslation();
 	const m = streaming.message as any;
 	const hasContent =
 		Array.isArray(m.content) &&
@@ -572,8 +575,8 @@ function StreamingRow({
 			</div>
 			<div className="max-w-[78%]">
 				<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
-					{streaming.agentName ?? "agent"} · {formatTime(m.timestamp)}
-				</div>
+						{streaming.agentName ?? t("message.defaultAgent")} · {formatTime(m.timestamp, t("common.yesterday"))}
+					</div>
 				<div
 					className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-surface border border-hairline"
 					style={{ borderRadius: "4px 14px 14px 14px" }}
@@ -587,8 +590,8 @@ function StreamingRow({
 						}}
 					/>
 					<span className="text-[calc(12.5px*var(--font-scale))] text-tertiary">
-						正在思考…
-					</span>
+							{t("message.thinking")}
+						</span>
 				</div>
 			</div>
 		</div>
@@ -614,6 +617,7 @@ const MessageRow = memo(function MessageRow({
 }) {
 	const m = row.main.message as any;
 	// hook 须在顶层、任何 early return 之前
+	const { t } = useTranslation();
 	const mdComponents = useMemo(
 		() => createMarkdownComponents(sessionId),
 		[sessionId],
@@ -654,14 +658,14 @@ const MessageRow = memo(function MessageRow({
 	if (m.role === "compactionSummary") {
 		const before =
 			typeof m.tokensBefore === "number"
-				? ` · 压缩前 ${fmtTok(m.tokensBefore)} token`
+				? t("message.compactionBefore", { count: fmtTok(m.tokensBefore) })
 				: "";
 		return (
 			<div
 				className="text-center text-[calc(11.5px*var(--font-scale))] text-tertiary"
 				data-testid={`compaction-summary-${sessionId}-${m.timestamp}`}
 			>
-				{`—— 已压缩早期上下文${before} ——`}
+				{t("message.compactionSummary", { before })}
 			</div>
 		);
 	}
@@ -686,12 +690,12 @@ const MessageRow = memo(function MessageRow({
 				data-testid={`msg-${sessionId}-${m.timestamp}`}
 			>
 				<div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-[calc(11.5px*var(--font-scale))] flex-shrink-0 text-secondary">
-					我
-				</div>
-				<div className="flex flex-col items-end">
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
-						我 · {formatTime(m.timestamp)}
+						{t("message.me")}
 					</div>
+					<div className="flex flex-col items-end">
+						<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
+							{t("message.me")} · {formatTime(m.timestamp, t("common.yesterday"))}
+						</div>
 					<div
 						className="px-3.5 py-2.5 text-[calc(13.5px*var(--font-scale))] bg-surface text-primary border border-hairline"
 						style={{ borderRadius: "14px 4px 14px 14px", lineHeight: 1.55 }}
@@ -705,8 +709,8 @@ const MessageRow = memo(function MessageRow({
 							onClick={() => onResend?.(displayText)}
 							className="mt-1 self-end inline-flex items-center gap-1 whitespace-nowrap text-[calc(12px*var(--font-scale))] text-secondary hover:text-primary border border-hairline rounded-pill px-2 py-0.5 transition-colors"
 						>
-							<Icon name="refresh" size={11} /> 重新发送
-						</button>
+							<Icon name="refresh" size={11} /> {t("message.resend")}
+							</button>
 					)}
 				</div>
 			</div>
@@ -843,7 +847,7 @@ const MessageRow = memo(function MessageRow({
 			</div>
 			<div className={`${hasProcessCard ? "w-[78%]" : "max-w-[78%]"} min-w-0`}>
 				<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
-					{row.main.agentName ?? "agent"} · {formatTime(m.timestamp)}
+					{row.main.agentName ?? t("message.defaultAgent")} · {formatTime(m.timestamp, t("common.yesterday"))}
 				</div>
 
 				{canCollapse ? (
@@ -962,12 +966,13 @@ function segmentBlocks(blocks: any[]): Segment[] {
 
 function CopyButton({ text, testId }: { text: string; testId?: string }) {
 	const addToast = useToastStore((s) => s.add);
+	const { t } = useTranslation();
 	const handleCopy = async () => {
 		try {
 			await copyToClipboard(text);
-			addToast("已复制到剪贴板", "success");
+			addToast(t("common.copiedToClipboard"), "success");
 		} catch {
-			addToast("复制失败", "error");
+			addToast(t("common.copyFailed"), "error");
 		}
 	};
 	return (
@@ -976,8 +981,8 @@ function CopyButton({ text, testId }: { text: string; testId?: string }) {
 			data-testid={testId}
 			onClick={handleCopy}
 			className="p-1 rounded-md text-tertiary opacity-60 hover:opacity-100 hover:text-primary hover:bg-surface-elevated transition-colors"
-			title="复制"
-			aria-label="复制回答"
+			title={t("common.copy")}
+			aria-label={t("common.copyAnswer")}
 		>
 			<svg
 				xmlns="http://www.w3.org/2000/svg"

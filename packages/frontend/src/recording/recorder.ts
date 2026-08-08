@@ -1,3 +1,4 @@
+import i18n from "../i18n";
 import { appendRecording, finalizeRecording, discardRecording } from "../fs-client";
 
 const TIMESLICE_MS = 2000;
@@ -69,7 +70,7 @@ class RecordingManager implements RecordingEngine {
   private failed = false;
 
   async start(args: StartArgs): Promise<void> {
-    if (this.recorder) throw new Error("已有录音进行中");
+    if (this.recorder) throw new Error(i18n.t("store.recordingBusy"));
     this.projectId = args.projectId;
     this.sessionId = args.sessionId;
     this.recId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -82,7 +83,7 @@ class RecordingManager implements RecordingEngine {
     this.stream = stream;
 
     const audioTracks = stream.getAudioTracks();
-    if (audioTracks.length === 0) { this.releaseTracks(); throw new Error("未获取到音频轨道"); }
+    if (audioTracks.length === 0) { this.releaseTracks(); throw new Error(i18n.t("store.recordingNoAudioTrack")); }
     for (const t of stream.getVideoTracks()) t.stop();   // 系统 audio：丢弃 video
 
     const recorder = new MediaRecorder(new MediaStream(audioTracks), pickAudioMimeType() ? { mimeType: pickAudioMimeType() } : undefined);

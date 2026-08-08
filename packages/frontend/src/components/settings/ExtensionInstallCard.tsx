@@ -1,3 +1,4 @@
+import { useTranslation } from "../../i18n/useTranslation";
 import type { InstallEntry } from "../../store/extensions";
 
 interface ExtensionInstallCardProps {
@@ -13,6 +14,7 @@ interface ExtensionInstallCardProps {
 export function ExtensionInstallCard({ entry, onRetry, onRemove }: ExtensionInstallCardProps) {
   const { name, status, error, progress } = entry;
   const isInstalling = status === "installing";
+  const { t } = useTranslation();
 
   return (
     <div
@@ -34,7 +36,7 @@ export function ExtensionInstallCard({ entry, onRetry, onRemove }: ExtensionInst
             }}
             data-testid={`ext-install-status-${name}`}
           >
-            {isInstalling ? "安装中…" : "安装失败"}
+            {isInstalling ? t("settings.extension.installStatusInstalling") : t("settings.extension.installStatusFailed")}
           </span>
         </div>
 
@@ -54,7 +56,7 @@ export function ExtensionInstallCard({ entry, onRetry, onRemove }: ExtensionInst
               className="text-xs text-secondary mt-1 line-clamp-1 font-mono"
               data-testid={`ext-install-progress-${name}`}
             >
-              {progress ?? "正在安装…"}
+              {progress ?? t("settings.extension.installProgressDefault")}
             </p>
           </div>
         ) : (
@@ -63,7 +65,7 @@ export function ExtensionInstallCard({ entry, onRetry, onRemove }: ExtensionInst
             style={{ color: "var(--danger)" }}
             data-testid={`ext-install-progress-${name}`}
           >
-            {error ?? "安装失败"}
+            {error ?? t("settings.extension.installFailedDefault")}
           </p>
         )}
       </div>
@@ -76,7 +78,7 @@ export function ExtensionInstallCard({ entry, onRetry, onRemove }: ExtensionInst
             onClick={() => onRetry(name)}
             data-testid={`ext-retry-${name}`}
           >
-            ↻ 重试
+            {t("settings.extension.retry")}
           </button>
           <button
             className="px-2 py-1 text-xs rounded-sm font-medium"
@@ -84,7 +86,7 @@ export function ExtensionInstallCard({ entry, onRetry, onRemove }: ExtensionInst
             onClick={() => onRemove(name)}
             data-testid={`ext-remove-${name}`}
           >
-            🗑 移除
+            {t("settings.extension.remove")}
           </button>
         </div>
       )}

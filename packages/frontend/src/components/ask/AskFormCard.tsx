@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { AgentName, AskParams, AskReply } from "@wa-pi/shared";
 import { AGENT_DEFS } from "@wa-pi/shared";
 import { api } from "../../api-client";
+import { useTranslation } from "../../i18n/useTranslation";
 // 项目现有代码（TextBlock.tsx / MessageList.tsx）统一用默认导入；保持一致。
 import ReactMarkdown from "react-markdown";
 import { MarkdownLink } from "../blocks/markdown-components";
@@ -40,6 +41,7 @@ export function AskFormCard({
 	});
 	const [submitting, setSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const { t } = useTranslation();
 
 	const patch = (qi: number, fn: (s: QState) => void) =>
 		setState((prev) => {
@@ -107,13 +109,12 @@ export function AskFormCard({
 			});
 			// 提交成功：卡片保持 pending 直到 toolResult 到达使 pendingAsks 移除它（由父层卸载）
 		} catch (err) {
-			// 失败必须恢复 UI，否则 submitting 永久为 true、按钮永远“提交中…”——卡死。
-			const message = err instanceof Error ? err.message : String(err);
-			const stale =
-				(err as { status?: number })?.status === 400 ||
-				message.includes("失效");
+			// 失败必须恢复 UI，否则 submitting 永久为 true、按钮永远"提交中…"——卡死。
+			// stale 判断用结构化的 HTTP 400 状态（后端 ask 失效返回 400），
+			// 不依赖错误消息文案，避免 i18n 化后文案判断失效。
+			const stale = (err as { status?: number })?.status === 400;
 			setSubmitting(false);
-			setError(stale ? "该提问已失效，请重新发起" : "提交失败，请重试");
+			setError(stale ? t("ask.errorStale") : t("ask.errorSubmit"));
 		}
 	};
 
@@ -125,7 +126,10 @@ export function AskFormCard({
 	};
 
 	const agentEm = agentName ? AGENT_DEFS[agentName]?.emoji : undefined;
-	const title = `${agentEm ?? "📌"} ${agentName ?? "agent"} 提问 · 请回复以继续`;
+	const title = t("ask.title", {
+		emoji: agentEm ?? "📌",
+		agent: agentName ?? t("ask.agentFallback"),
+	});
 
 	return (
 		<div
@@ -137,7 +141,7 @@ export function AskFormCard({
 				<button
 					onClick={handleCancel}
 					disabled={submitting}
-					aria-label="终止提问"
+					aria-label={t("ask.ariaAbort")}
 					className="text-tertiary hover:text-primary text-[calc(14px*var(--font-scale))] leading-none px-1.5 py-0.5 bg-transparent border-0 cursor-pointer disabled:opacity-50"
 					data-testid={`ask-collapse-${toolCallId}`}
 				>
@@ -193,7 +197,7 @@ export function AskFormCard({
 								className={`w-full text-left flex gap-2 items-start px-2.5 py-1.5 rounded-sm border transition-colors ${otherActive ? "bg-accent-soft border-accent text-primary" : "bg-surface border-hairline text-secondary hover:border-accent"}`}
 							>
 								<span className="text-accent">{otherActive ? "◉" : "○"}</span>
-								<span className="font-medium text-primary">其他…</span>
+								<span className="font-medium text-primary">{t("ask.otherOption")}</span>
 							</button>
 							{otherActive && (
 								<textarea
@@ -203,13 +207,13 @@ export function AskFormCard({
 											st.custom = e.target.value;
 										})
 									}
-									placeholder="输入自定义答案…"
+									placeholder={t("ask.customAnswerPlaceholder")}
 									rows={1}
 									className="w-full bg-transparent border border-hairline rounded-sm text-primary outline-none text-[calc(12.5px*var(--font-scale))] p-2 resize-none"
 								/>
 							)}
 							<div className="flex items-center gap-2">
-								<span className="text-[calc(11px*var(--font-scale))] text-tertiary">备注(可选)</span>
+								<span className="text-[calc(11px*var(--font-scale))] text-tertiary">{t("ask.notesLabel")}</span>
 								<input
 									value={s.notes}
 									onChange={(e) =>
@@ -230,8 +234,8 @@ export function AskFormCard({
 						className="text-[calc(11.5px*var(--font-scale))] text-danger mr-auto"
 						role="alert"
 						data-testid={`ask-stale-${toolCallId}`}
-					>
-						该提问已失效，请重新发起
+						>
+						{t("ask.errorStale")}
 					</span>
 				)}
 				{!stale && error && (
@@ -247,8 +251,8 @@ export function AskFormCard({
 					onClick={handleCancel}
 					disabled={submitting}
 					className="text-[calc(12px*var(--font-scale))] px-3 py-1 rounded-pill bg-danger-soft text-danger border-0 cursor-pointer disabled:opacity-50"
-				>
-					取消
+					>
+					{t("common.cancel")}
 				</button>
 				<button
 					onClick={handleSubmit}
@@ -262,7 +266,7 @@ export function AskFormCard({
 						color: "var(--on-accent)",
 					}}
 				>
-					{submitting ? "提交中…" : "提交"}
+					{submitting ? t("ask.submitting") : t("ask.submit")}
 				</button>
 			</div>
 		</div>

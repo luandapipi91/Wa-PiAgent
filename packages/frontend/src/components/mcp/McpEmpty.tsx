@@ -1,4 +1,7 @@
+import { useTranslation } from "../../i18n/useTranslation";
+
 export function McpEmpty() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center justify-center py-16" data-testid="mcp-empty">
       <div
@@ -9,10 +12,10 @@ export function McpEmpty() {
           border: "1px solid var(--hairline)",
         }}
       >🔌</div>
-      <h4 className="font-extrabold text-lg mb-1.5 text-primary">暂无 MCP 服务器</h4>
+      <h4 className="font-extrabold text-lg mb-1.5 text-primary">{t("mcpEmpty.title")}</h4>
       <p className="text-[calc(13px*var(--font-scale))] text-tertiary text-center leading-relaxed">
-        点击上方「+ 手动添加」按钮添加 MCP 服务器配置。<br />
-        配置将写入当前作用域的 .mcp.json 文件。
+        {t("mcpEmpty.hint1")}<br />
+        {t("mcpEmpty.hint2")}
       </p>
     </div>
   );

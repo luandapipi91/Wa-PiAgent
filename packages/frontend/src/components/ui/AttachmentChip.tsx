@@ -1,4 +1,5 @@
 import type { AttachmentDraft } from "@wa-pi/shared";
+import { useTranslation } from "../../i18n/useTranslation";
 
 interface Props {
   attachment: AttachmentDraft;
@@ -6,6 +7,7 @@ interface Props {
 }
 
 export function AttachmentChip({ attachment, onRemove }: Props) {
+  const { t } = useTranslation();
   const label = attachment.kind === "snippet"
     ? attachment.content.slice(0, 20) + (attachment.content.length > 20 ? "…" : "")
     : attachment.name;
@@ -22,7 +24,7 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
         <span className="truncate max-w-[150px]">{label}</span>
         <button
           type="button"
-          aria-label="移除附件"
+          aria-label={t("ui.attachmentChip.removeAriaLabel")}
           data-testid="attachment-remove"
           onClick={onRemove}
           className="text-tertiary hover:text-danger ml-1"

@@ -1,3 +1,4 @@
+import { useTranslation } from "../i18n/useTranslation";
 import { Modal } from "./ui/Modal";
 import { GeneralSection } from "./settings/GeneralSection";
 import { DiagnosticsSection } from "./settings/DiagnosticsSection";
@@ -16,11 +17,12 @@ interface Props {
 export function SettingsModal({ onClose }: Props) {
   const activeSection = useSettingsStore(s => s.activeSection);
   const setSection = useSettingsStore(s => s.setSection);
+  const { t } = useTranslation();
 
   return (
     <Modal onClose={onClose} width="80vw" height="80vh" data-testid="settings-modal">
       <div className="p-4 border-b border-hairline">
-        <span className="text-primary font-bold text-base">系统设置</span>
+        <span className="text-primary font-bold text-base">{t("settings.title")}</span>
       </div>
       <div className="flex flex-1 min-h-0">
         {/* 左侧导航：通用 + 模型管理 + 技能 */}
@@ -32,28 +34,28 @@ export function SettingsModal({ onClose }: Props) {
               ? { background: "var(--surface-hover)", color: "var(--brand)" }
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-general"
-          >通用</button>
+          >{t("settings.nav.general")}</button>
           <button
             onClick={() => setSection("models")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "models"
               ? { background: "var(--surface-hover)", color: "var(--brand)" }
               : { color: "var(--secondary)" }}
-          >模型管理</button>
+          >{t("settings.nav.models")}</button>
           <button
             onClick={() => setSection("skills")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "skills"
               ? { background: "var(--surface-hover)", color: "var(--brand)" }
               : { color: "var(--secondary)" }}
-          >技能</button>
+          >{t("settings.nav.skills")}</button>
           <button
             onClick={() => setSection("plugins")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "plugins"
               ? { background: "var(--surface-hover)", color: "var(--brand)" }
               : { color: "var(--secondary)" }}
-          >插件</button>
+          >{t("settings.nav.plugins")}</button>
           <button
             onClick={() => setSection("memory")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
@@ -61,7 +63,7 @@ export function SettingsModal({ onClose }: Props) {
               ? { background: "var(--surface-hover)", color: "var(--brand)" }
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-memory"
-          >记忆</button>
+          >{t("settings.nav.memory")}</button>
           <button
             onClick={() => setSection("mcp")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
@@ -69,7 +71,7 @@ export function SettingsModal({ onClose }: Props) {
               ? { background: "var(--surface-hover)", color: "var(--brand)" }
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-mcp"
-          >MCP 连接器</button>
+          >{t("settings.nav.mcp")}</button>
           <button
             onClick={() => setSection("bots")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
@@ -77,7 +79,7 @@ export function SettingsModal({ onClose }: Props) {
               ? { background: "var(--surface-hover)", color: "var(--brand)" }
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-bots"
-          >机器人</button>
+          >{t("settings.nav.bots")}</button>
           <button
             onClick={() => setSection("diagnostics")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
@@ -85,7 +87,7 @@ export function SettingsModal({ onClose }: Props) {
               ? { background: "var(--surface-hover)", color: "var(--brand)" }
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-diagnostics"
-          >诊断</button>
+          >{t("settings.nav.diagnostics")}</button>
         </nav>
         {/* 右侧内容 */}
         <div className="flex-1 flex flex-col overflow-hidden">

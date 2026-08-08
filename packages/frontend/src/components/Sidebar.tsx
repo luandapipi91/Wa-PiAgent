@@ -7,6 +7,7 @@ import { SettingsButton } from "./SettingsButton";
 import { ImConversationList } from "./ImConversationList";
 import { useSettingsStore } from "../store/settings";
 import { useSidebarStore } from "../store/sidebar";
+import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
   onNewSession: () => void;
@@ -22,6 +23,7 @@ interface Props {
 
 export function Sidebar(props: Props) {
   const width = useSidebarStore((s) => s.width);
+  const { t } = useTranslation();
   // 侧边栏页签：任务（默认）| IM。切换只切换内容区，SettingsButton 始终可见。
   const [tab, setTab] = useState<"tasks" | "im">("tasks");
   return (
@@ -36,16 +38,16 @@ export function Sidebar(props: Props) {
       </div>
       {/* 任务 | IM 分段控件 */}
       <div className="flex rounded-md p-0.5" style={{ background: "var(--surface-hover)" }}>
-        {(["tasks", "im"] as const).map((t) => (
+        {(["tasks", "im"] as const).map((tabKey) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={tabKey}
+            onClick={() => setTab(tabKey)}
             className="flex-1 text-xs font-medium py-1 rounded-sm border-0 cursor-pointer"
-            style={tab === t
+            style={tab === tabKey
               ? { background: "var(--surface)", color: "var(--text-primary)", boxShadow: "var(--shadow-sm)" }
               : { background: "transparent", color: "var(--text-secondary)" }}
-            data-testid={t === "tasks" ? "sidebar-tab-tasks" : "sidebar-tab-im"}
-          >{t === "tasks" ? "任务" : "IM"}</button>
+            data-testid={tabKey === "tasks" ? "sidebar-tab-tasks" : "sidebar-tab-im"}
+          >{tabKey === "tasks" ? t("sidebar.tabTasks") : t("sidebar.tabIm")}</button>
         ))}
       </div>
       {tab === "tasks" ? (

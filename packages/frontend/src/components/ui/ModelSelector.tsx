@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useProvidersStore } from "../../store/providers";
+import { useTranslation } from "../../i18n/useTranslation";
 import { resolveProviderSlug } from "@wa-pi/shared";
 
 interface Props {
@@ -16,6 +17,7 @@ interface Props {
 
 export function ModelSelector({ value, onChange, disabled, autoSelectEnabled = true }: Props) {
   const providers = useProvidersStore(s => s.providers);
+  const { t } = useTranslation();
   const models = useMemo(() => {
     const slugs: string[] = [];
     return providers.flatMap(p => {
@@ -58,7 +60,7 @@ export function ModelSelector({ value, onChange, disabled, autoSelectEnabled = t
   }, [fullValue, models, onChange]);
 
   if (models.length === 0) {
-    return <span className="text-xs text-tertiary">未配置模型</span>;
+    return <span className="text-xs text-tertiary">{t("ui.modelSelector.notConfigured")}</span>;
   }
 
   return (
@@ -67,10 +69,10 @@ export function ModelSelector({ value, onChange, disabled, autoSelectEnabled = t
       value={fullValue}
       onChange={e => onChange(e.target.value)}
       disabled={disabled}
-      aria-label="选择模型"
+      aria-label={t("ui.modelSelector.ariaLabel")}
       className="bg-transparent text-xs text-secondary outline-none cursor-pointer disabled:cursor-not-allowed"
     >
-      <option value="" disabled>选择模型</option>
+      <option value="" disabled>{t("ui.modelSelector.placeholderOption")}</option>
       {models.map(m => (
         <option key={`${m.providerSlug}/${m.id}`} value={`${m.providerSlug}/${m.id}`}>
           {m.providerName}/{m.id}

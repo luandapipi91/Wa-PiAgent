@@ -12,6 +12,7 @@ import { api } from "../api-client";
 import { useProjectUiStore } from "../store/project-ui";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { openInFileManagerLabel } from "../util/platform";
+import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
 	project: ProjectEntity;
@@ -36,6 +37,7 @@ interface ProjectMenuState {
 }
 
 export function ProjectItem(props: Props) {
+	const { t } = useTranslation();
 	const expanded = useProjectUiStore((s) => s.isExpanded(props.project.id));
 	const toggleProject = useProjectUiStore((s) => s.toggleProject);
 	const setExpanded = useProjectUiStore((s) => s.setExpanded);
@@ -132,7 +134,7 @@ export function ProjectItem(props: Props) {
 	// ---- 操作 ----
 	const handleRename = (session: SessionEntity) => {
 		setSessionMenu(null);
-		const title = window.prompt("重命名会话", session.title);
+		const title = window.prompt(t("projectItem.renamePromptTitle"), session.title);
 		if (title && title.trim()) {
 			void api.post(`/api/sessions/${encodeURIComponent(session.id)}/rename`, {
 				title: title.trim(),
@@ -260,15 +262,15 @@ export function ProjectItem(props: Props) {
 							onClick={() => handleRename(sessionMenu.session)}
 							className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
 							data-testid="menu-rename"
-						>
-							重命名会话
+							>
+							{t("projectItem.ctxRenameSession")}
 						</button>
 						<button
 							onClick={() => handleDeleteClick(sessionMenu.session)}
 							className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
 							data-testid="menu-delete"
 						>
-							删除聊天
+							{t("projectItem.ctxDeleteChat")}
 						</button>
 						{isSystem && (
 							<button
@@ -276,7 +278,7 @@ export function ProjectItem(props: Props) {
 								className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
 								data-testid="menu-open-session-dir"
 							>
-								{openInFileManagerLabel()}
+								{openInFileManagerLabel({ mac: t("common.openInFinder"), windows: t("common.openInExplorer"), linux: t("common.openInFileManager") })}
 							</button>
 						)}
 					</div>,
@@ -311,7 +313,7 @@ export function ProjectItem(props: Props) {
 								className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
 								data-testid="menu-delete-project"
 							>
-								删除项目
+								{t("projectItem.ctxDeleteProject")}
 							</button>
 						)}
 					</div>,
@@ -320,15 +322,15 @@ export function ProjectItem(props: Props) {
 
 			{/* 删除确认框 */}
 			{deleteTarget && (
-				<ConfirmDialog
-					title={deleteKind === "session" ? "删除聊天" : "删除项目"}
-					message={
-						deleteKind === "session"
-							? `确定删除会话「${(deleteTarget as SessionEntity).title}」吗？此操作不可撤销。`
-							: `确定删除项目「${(deleteTarget as ProjectEntity).name}」吗？该项目下的所有会话也会被一并删除，此操作不可撤销。`
-					}
-					confirmText="删除"
-					danger
+			<ConfirmDialog
+				title={deleteKind === "session" ? t("projectItem.ctxDeleteChat") : t("projectItem.ctxDeleteProject")}
+				message={
+					deleteKind === "session"
+						? t("projectItem.deleteSessionMsg", { title: (deleteTarget as SessionEntity).title })
+						: t("projectItem.deleteProjectMsg", { name: (deleteTarget as ProjectEntity).name })
+				}
+				confirmText={t("common.delete")}
+				danger
 					onConfirm={handleDeleteConfirm}
 					onCancel={() => {
 						setDeleteTarget(null);

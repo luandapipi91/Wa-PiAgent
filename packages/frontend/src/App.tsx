@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AgentName } from "@wa-pi/shared";
+import { useTranslation } from "./i18n/useTranslation";
 import { Sidebar } from "./components/Sidebar";
 import { SidebarResizer } from "./components/SidebarResizer";
 import { useSidebarStore } from "./store/sidebar";
@@ -45,6 +46,7 @@ export type View = "empty" | "new-session" | "session";
 
 export function App() {
 	// 只订阅渲染所需的最小状态；actions 在回调里用 getState() 取，避免 stale closure
+	const { t } = useTranslation();
 	const projects = useProjectsStore((s) => s.projects);
 	const currentSessionId = useProjectsStore((s) => s.currentSessionId);
 	// 订阅 IM 会话列表，用于判定当前 session 是否来自 IM 接入（决定 SessionView 是否传 sourceLabel）
@@ -310,17 +312,17 @@ export function App() {
 			"wa-pi:reload-config": async () => {
 				const sid = useProjectsStore.getState().currentSessionId;
 				if (!sid) {
-					useToastStore.getState().add("没有打开的会话", "error");
+					useToastStore.getState().add(t("app.noOpenSession"), "error");
 					return;
 				}
 				const status = useSessionStore.getState().statusBySession[sid];
 				if (status === "thinking") {
-					useToastStore.getState().add("请在 AI 回复完成后再重载", "error");
+					useToastStore.getState().add(t("app.reloadWhileThinking"), "error");
 					return;
 				}
 				const msgs = useSessionStore.getState().messagesBySession[sid] ?? [];
 				if (msgs.length === 0) {
-					useToastStore.getState().add("请先发送消息启动会话", "error");
+					useToastStore.getState().add(t("app.reloadNoMessage"), "error");
 					return;
 				}
 				const ts = Date.now();
@@ -330,7 +332,7 @@ export function App() {
 					message: {
 						type: "custom",
 						customType: "reload_config",
-						content: "正在重载配置…",
+						content: t("app.reloadingConfig"),
 						timestamp: ts,
 					} as any,
 				});
@@ -341,7 +343,7 @@ export function App() {
 						message: {
 							type: "custom",
 							customType: "reload_config",
-							content: "配置已重载",
+							content: t("app.configReloaded"),
 							timestamp: ts,
 						} as any,
 					});
@@ -350,11 +352,11 @@ export function App() {
 					useExtensionsStore.getState().load();
 					useAgentsStore.getState().loadAll();
 					useSubagentsStore.getState().load();
-					useToastStore.getState().add("配置已重载", "success");
+					useToastStore.getState().add(t("app.configReloaded"), "success");
 				} catch (err: any) {
 					useToastStore
 						.getState()
-						.add(`重载失败: ${err?.message ?? err}`, "error");
+						.add(t("app.reloadFailed", { error: err?.message ?? String(err) }), "error");
 				} finally {
 					useSessionStore.getState().setReloading(false);
 				}
@@ -369,14 +371,14 @@ export function App() {
 			if (!cmdText) return;
 			const sid = useProjectsStore.getState().currentSessionId;
 			if (!sid) {
-				useToastStore.getState().add("没有打开的会话", "error");
+				useToastStore.getState().add(t("app.noOpenSession"), "error");
 				return;
 			}
 			const { sessions, currentProjectId } = useProjectsStore.getState();
 			const session = sessions.find((s) => s.id === sid);
 			const pid = session?.projectId ?? currentProjectId ?? "";
 			if (!pid) {
-				useToastStore.getState().add("找不到当前项目", "error");
+				useToastStore.getState().add(t("app.projectNotFound"), "error");
 				return;
 			}
 			const prefs = useComposerPrefsStore.getState().bySession[sid] ?? {
@@ -384,7 +386,7 @@ export function App() {
 				thinking: useComposerPrefsStore.getState().defaults.thinking,
 			};
 			if (!prefs.model) {
-				useToastStore.getState().add("请先选择模型", "error");
+				useToastStore.getState().add(t("app.chooseModelFirst"), "error");
 				return;
 			}
 			// 乐观显示用户消息（与 Composer.doSend 一致），再发 prompt
@@ -467,7 +469,7 @@ export function App() {
 								animation: "spin 0.8s linear infinite",
 							}}
 						/>
-						连接已断开，正在重连…
+						{t("app.reconnecting")}
 					</div>
 				)}
 				{retryInfo && (
@@ -483,8 +485,7 @@ export function App() {
 								animation: "spin 0.8s linear infinite",
 							}}
 						/>
-						模型请求失败，正在自动重试 ({retryInfo.attempt}/
-						{retryInfo.maxAttempts})…
+						{t("app.retrying", { attempt: retryInfo.attempt, max: retryInfo.maxAttempts })}
 					</div>
 				)}
 				{netDegraded && !retryInfo && (
@@ -492,7 +493,7 @@ export function App() {
 						className="flex items-center justify-center px-4 py-1.5 text-xs bg-danger-soft text-danger border-b border-danger/20"
 						data-testid="net-status-bar"
 					>
-						模型连接异常，请检查网络或 Provider 配置后重试
+						{t("app.netDegraded")}
 					</div>
 				)}
 				{extTitle && (
@@ -522,8 +523,8 @@ export function App() {
 					const imConv = conversations.find((c) => c.sessionId === currentSessionId);
 					const label = imConv
 						? imConv.chatType === "group"
-							? `经「${imConv.channelName}」接入 · 群${imConv.chatId.slice(0, 8)} · ${imConv.fromUserId}`
-							: `经「${imConv.channelName}」接入`
+							? t("app.imSourceGroup", { channel: imConv.channelName, chatId: imConv.chatId.slice(0, 8), from: imConv.fromUserId })
+							: t("app.imSourceSingle", { channel: imConv.channelName })
 						: undefined;
 					return (
 						<SessionView

@@ -1,6 +1,7 @@
 // MemoryCard.tsx — 记忆卡片（含行内编辑态）
 import { useState } from "react";
 import type { MemoryEntry, ArchivedMemory } from "@wa-pi/shared";
+import { useTranslation } from "../../i18n/useTranslation";
 
 interface Props {
   entry: MemoryEntry;
@@ -11,14 +12,15 @@ interface Props {
   onPurge?: () => void;
 }
 
-// 分类标签配色
-const CATEGORY_STYLE: Record<string, { bg: string; color: string; label: string }> = {
-  memory: { bg: "var(--success-soft)", color: "var(--success)", label: "记忆" },
-  user: { bg: "var(--accent-soft)", color: "var(--accent)", label: "用户" },
-  failure: { bg: "var(--danger-soft)", color: "var(--danger)", label: "失败" },
+// 分类标签配色（label 文案走 i18n：memory.categoryMemory / categoryUser / categoryFailure）
+const CATEGORY_STYLE: Record<string, { bg: string; color: string; labelKey: string }> = {
+  memory: { bg: "var(--success-soft)", color: "var(--success)", labelKey: "memory.categoryMemory" },
+  user: { bg: "var(--accent-soft)", color: "var(--accent)", labelKey: "memory.categoryUser" },
+  failure: { bg: "var(--danger-soft)", color: "var(--danger)", labelKey: "memory.categoryFailure" },
 };
 
 export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestore, onPurge }: Props) {
+  const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(entry.text);
 
@@ -53,9 +55,9 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
         <span
           className="text-[calc(10px*var(--font-scale))] font-semibold px-2 py-0.5 rounded-full"
           style={{ background: cat.bg, color: cat.color }}
-        >{cat.label}</span>
+        >{t(cat.labelKey)}</span>
         <span className="text-[calc(10px*var(--font-scale))] text-tertiary">
-          {entry.scope === "global" ? "○ 全局" : "● 项目"}
+          {entry.scope === "global" ? t("memoryCard.scopeGlobal") : t("memoryCard.scopeProject")}
         </span>
       </div>
 
@@ -81,13 +83,13 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
               className="text-[calc(11px*var(--font-scale))] text-secondary px-2.5 py-1 rounded-md"
               style={{ border: "1px solid var(--hairline)", background: "transparent" }}
               data-testid="memory-edit-cancel"
-            >取消</button>
+            >{t("memoryCard.cancelButton")}</button>
             <button
               onClick={handleSave}
               className="text-[calc(11px*var(--font-scale))] font-semibold text-white px-3.5 py-1 rounded-md"
               style={{ background: "var(--accent)", border: "none" }}
               data-testid="memory-edit-save"
-            >保存</button>
+            >{t("memoryCard.saveButton")}</button>
           </div>
         </>
       ) : (
@@ -95,20 +97,20 @@ export function MemoryCard({ entry, mode = "active", onEdit, onArchive, onRestor
           <p className="text-[calc(12.5px*var(--font-scale))] leading-relaxed text-primary m-0 mb-2">{entry.text}</p>
           <div className="flex items-center justify-between">
             <span className="text-[calc(10.5px*var(--font-scale))] text-tertiary">
-              {isArchived ? `归档于 ${(entry as ArchivedMemory).archivedAt?.slice(0, 10) ?? ""}` : entry.updatedAt?.slice(0, 10) ?? ""}
+              {isArchived ? t("memoryCard.archivedAt", { date: (entry as ArchivedMemory).archivedAt?.slice(0, 10) ?? "" }) : entry.updatedAt?.slice(0, 10) ?? ""}
             </span>
             <div className="flex gap-1.5">
               {isArchived ? (
                 <>
-                  <CardButton onClick={onRestore} testId="memory-restore" text="恢复"
+                  <CardButton onClick={onRestore} testId="memory-restore" text={t("memoryCard.restoreButton")}
                     color="var(--accent)" borderColor="var(--accent)" />
-                  <CardButton onClick={onPurge} testId="memory-purge" text="彻底删除"
+                  <CardButton onClick={onPurge} testId="memory-purge" text={t("memoryCard.purgeButton")}
                     color="var(--danger)" borderColor="var(--danger)" />
                 </>
               ) : (
                 <>
-                  <CardButton onClick={() => setEditing(true)} testId="memory-edit" text="编辑" />
-                  <CardButton onClick={onArchive} testId="memory-archive" text="归档" />
+                  <CardButton onClick={() => setEditing(true)} testId="memory-edit" text={t("memoryCard.editButton")} />
+                  <CardButton onClick={onArchive} testId="memory-archive" text={t("memoryCard.archiveButton")} />
                 </>
               )}
             </div>

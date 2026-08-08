@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import type { McpServerConfig } from "@wa-pi/shared";
+import { useTranslation } from "../../i18n/useTranslation";
 
 type Transport = "stdio" | "http";
 
@@ -27,6 +28,7 @@ function pairsToEnv(pairs: EnvPair[]): Record<string, string> | undefined {
 }
 
 export function McpForm({ initial, onSave, onCancel }: Props) {
+  const { t } = useTranslation();
   const [name, setName] = useState(initial?.name ?? "");
   const [transport, setTransport] = useState<Transport>(initial?.url ? "http" : "stdio");
   const [command, setCommand] = useState(initial?.command ?? "");
@@ -78,11 +80,11 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
     <div className="flex flex-col gap-2.5" data-testid="mcp-form">
       {/* 名称 */}
       <div>
-        <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">名称</label>
+        <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">{t("mcpForm.nameLabel")}</label>
         <input
           className="w-full text-[calc(12px*var(--font-scale))] px-2.5 py-1.5 rounded-md"
           style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-          placeholder="服务器名称（如 chrome-devtools）"
+          placeholder={t("mcpForm.namePlaceholder")}
           value={name}
           onChange={e => setName(e.target.value)}
           data-testid="mcp-form-name"
@@ -91,21 +93,21 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
 
         {/* 传输类型 */}
         <div className="flex gap-2">
-          <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary">传输类型</label>
+          <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary">{t("mcpForm.transportLabel")}</label>
           <div className="flex gap-1.5">
-            {(["stdio", "http"] as Transport[]).map(t => (
+            {(["stdio", "http"] as Transport[]).map(tr => (
               <button
-                key={t}
+                key={tr}
                 type="button"
-                onClick={() => setTransport(t)}
+                onClick={() => setTransport(tr)}
                 className="text-[calc(11px*var(--font-scale))] font-semibold px-2.5 py-1 rounded-full"
                 style={{
-                  background: transport === t ? "var(--accent-soft)" : "var(--surface)",
-                  color: transport === t ? "var(--accent)" : "var(--text-secondary)",
-                  border: transport === t ? "none" : "1px solid var(--hairline)",
+                  background: transport === tr ? "var(--accent-soft)" : "var(--surface)",
+                  color: transport === tr ? "var(--accent)" : "var(--text-secondary)",
+                  border: transport === tr ? "none" : "1px solid var(--hairline)",
                 }}
-                data-testid={`mcp-form-transport-${t}`}
-              >{t === "stdio" ? "stdio" : "HTTP"}</button>
+                data-testid={`mcp-form-transport-${tr}`}
+              >{tr === "stdio" ? t("mcpForm.transportStdio") : t("mcpForm.transportHttp")}</button>
             ))}
           </div>
         </div>
@@ -114,22 +116,22 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
         {transport === "stdio" && (
           <>
             <div>
-              <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">Command</label>
+              <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">{t("mcpForm.commandLabel")}</label>
               <input
                 className="w-full text-[calc(12px*var(--font-scale))] px-2.5 py-1.5 rounded-md"
                 style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-                placeholder="npx"
+                placeholder={t("mcpForm.commandPlaceholder")}
                 value={command}
                 onChange={e => setCommand(e.target.value)}
                 data-testid="mcp-form-command"
               />
             </div>
             <div>
-              <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">Args</label>
+              <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">{t("mcpForm.argsLabel")}</label>
               <input
                 className="w-full text-[calc(12px*var(--font-scale))] px-2.5 py-1.5 rounded-md"
                 style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-                placeholder="-y some-mcp-server@latest"
+                placeholder={t("mcpForm.argsPlaceholder")}
                 value={argsText}
                 onChange={e => setArgsText(e.target.value)}
                 data-testid="mcp-form-args"
@@ -138,14 +140,14 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
 
             {/* 环境变量 */}
             <div>
-              <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">环境变量</label>
+              <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">{t("mcpForm.envLabel")}</label>
               <div className="flex flex-col gap-1">
                 {envPairs.map((pair, i) => (
                   <div key={i} className="flex gap-1 items-center">
                     <input
                       className="text-[calc(12px*var(--font-scale))] px-2 py-1 rounded-md flex-1"
                       style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-                      placeholder="KEY"
+                      placeholder={t("mcpForm.envKeyPlaceholder")}
                       value={pair.key}
                       onChange={e => {
                         const next = [...envPairs];
@@ -157,7 +159,7 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
                     <input
                       className="text-[calc(12px*var(--font-scale))] px-2 py-1 rounded-md flex-1"
                       style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-                      placeholder="VALUE"
+                      placeholder={t("mcpForm.envValuePlaceholder")}
                       value={pair.value}
                       onChange={e => {
                         const next = [...envPairs];
@@ -172,7 +174,7 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
                       style={{ color: "var(--danger)", border: "1px solid var(--danger)", background: "#fff" }}
                       onClick={() => setEnvPairs(envPairs.filter((_, j) => j !== i))}
                       data-testid={`mcp-form-env-remove-${i}`}
-                      title="移除此环境变量"
+                      title={t("mcpForm.envRemoveTitle")}
                     >×</button>
                   </div>
                 ))}
@@ -182,7 +184,7 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
                   style={{ color: "var(--accent)", border: "1px solid var(--accent)", background: "transparent" }}
                   onClick={() => setEnvPairs([...envPairs, { key: "", value: "" }])}
                   data-testid="mcp-form-env-add"
-                >+ 添加环境变量</button>
+                >{t("mcpForm.envAdd")}</button>
               </div>
             </div>
           </>
@@ -192,22 +194,22 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
         {transport === "http" && (
           <>
             <div>
-              <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">URL</label>
+              <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">{t("mcpForm.urlLabel")}</label>
               <input
                 className="w-full text-[calc(12px*var(--font-scale))] px-2.5 py-1.5 rounded-md"
                 style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-                placeholder="http://localhost:3845/mcp"
+                placeholder={t("mcpForm.urlPlaceholder")}
                 value={url}
                 onChange={e => setUrl(e.target.value)}
                 data-testid="mcp-form-url"
               />
             </div>
             <div>
-              <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">Authorization</label>
+              <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">{t("mcpForm.authLabel")}</label>
               <input
                 className="w-full text-[calc(12px*var(--font-scale))] px-2.5 py-1.5 rounded-md"
                 style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-                placeholder="Bearer your-token（仅填 token 会自动补 Bearer）"
+                placeholder={t("mcpForm.authPlaceholder")}
                 value={auth}
                 onChange={e => setAuth(e.target.value)}
                 data-testid="mcp-form-auth"
@@ -218,7 +220,7 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
 
         {/* 生命周期 */}
         <div>
-          <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">生命周期</label>
+          <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">{t("mcpForm.lifecycleLabel")}</label>
           <select
             className="text-[calc(12px*var(--font-scale))] px-2.5 py-1.5 rounded-md"
             style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
@@ -226,19 +228,19 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
             onChange={e => setLifecycle(e.target.value as "lazy" | "eager" | "keep-alive")}
             data-testid="mcp-form-lifecycle"
           >
-            <option value="lazy">lazy — 按需连接</option>
-            <option value="eager">eager — 启动时连接</option>
-            <option value="keep-alive">keep-alive — 保持连接</option>
+            <option value="lazy">{t("mcpForm.lifecycleLazy")}</option>
+            <option value="eager">{t("mcpForm.lifecycleEager")}</option>
+            <option value="keep-alive">{t("mcpForm.lifecycleKeepAlive")}</option>
           </select>
         </div>
 
         {/* 超时 */}
         <div>
-          <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">超时 (ms)</label>
+          <label className="text-[calc(11px*var(--font-scale))] font-semibold text-secondary block mb-0.5">{t("mcpForm.timeoutLabel")}</label>
           <input
             className="w-full text-[calc(12px*var(--font-scale))] px-2.5 py-1.5 rounded-md"
             style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-            placeholder="30000"
+            placeholder={t("mcpForm.timeoutPlaceholder")}
             value={timeout}
             onChange={e => setTimeout_(e.target.value.replace(/\D/g, ""))}
             data-testid="mcp-form-timeout"
@@ -252,14 +254,14 @@ export function McpForm({ initial, onSave, onCancel }: Props) {
             className="text-[calc(11px*var(--font-scale))] px-3 py-1 rounded-md"
             style={{ border: "1px solid var(--hairline)", color: "var(--text-secondary)", background: "transparent" }}
             data-testid="mcp-form-cancel"
-          >取消</button>
+          >{t("mcpForm.cancel")}</button>
           <button
             onClick={handleSubmit}
             className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1 rounded-md text-white"
             style={{ background: "var(--accent)", border: "none" }}
             disabled={!name.trim()}
             data-testid="mcp-form-save"
-          >保存</button>
+          >{t("mcpForm.save")}</button>
         </div>
     </div>
   );

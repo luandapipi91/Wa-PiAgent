@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "../../i18n/useTranslation";
 import { api } from "../../api-client";
 import type { RetrySettings } from "@wa-pi/shared";
 import {
@@ -9,6 +10,7 @@ import {
 	useUiPrefsStore,
 } from "../../store/ui-prefs";
 import { useToastStore } from "../../store/toast";
+import type { AppLanguage } from "../../i18n/detect";
 
 /** 与 kernel settings-store 的产品约束对齐（重试最多 10 次；间隔 0.5s-60s） */
 const MAX_RETRIES = 10;
@@ -32,6 +34,9 @@ export function GeneralSection() {
 	const setFontSize = useUiPrefsStore((s) => s.setFontSize);
 	const exportTurns = useUiPrefsStore((s) => s.exportTurns);
 	const setExportTurns = useUiPrefsStore((s) => s.setExportTurns);
+	const language = useUiPrefsStore((s) => s.language);
+	const setLanguage = useUiPrefsStore((s) => s.setLanguage);
+	const { t } = useTranslation();
 
 	useEffect(() => {
 		api
@@ -75,16 +80,15 @@ export function GeneralSection() {
 	};
 
 	if (loading) {
-		return <div className="p-4 text-sm text-tertiary">加载中…</div>;
+		return <div className="p-4 text-sm text-tertiary">{t("common.loading")}</div>;
 	}
 
 	return (
 		<div className="flex flex-col gap-4 p-4 overflow-auto">
 			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">文字大小</span>
+				<span className="text-sm font-medium text-primary">{t("settings.general.fontSize.label")}</span>
 				<span className="text-xs text-tertiary">
-					拖动滑块调整文字大小（{FONT_SIZE_MIN}-{FONT_SIZE_MAX}
-					px），只缩放文字、不改变布局，即时生效。
+					{t("settings.general.fontSize.desc", { min: FONT_SIZE_MIN, max: FONT_SIZE_MAX })}
 				</span>
 			</div>
 			<div className="flex items-center gap-3 w-72">
@@ -107,10 +111,9 @@ export function GeneralSection() {
 				</span>
 			</div>
 			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">对话导出轮数</span>
+				<span className="text-sm font-medium text-primary">{t("settings.general.exportTurns.label")}</span>
 				<span className="text-xs text-tertiary">
-					导出为图片时，包含当条 AI 回复往前多少轮对话（{EXPORT_TURNS_MIN}-
-					{EXPORT_TURNS_MAX} 轮），即时生效。
+					{t("settings.general.exportTurns.desc", { min: EXPORT_TURNS_MIN, max: EXPORT_TURNS_MAX })}
 				</span>
 			</div>
 			<div className="flex items-center gap-3 w-72">
@@ -129,20 +132,19 @@ export function GeneralSection() {
 					className="text-sm text-primary w-12 text-right"
 					data-testid="export-turns-value"
 				>
-					{exportTurns} 轮
+					{exportTurns} {t("settings.general.exportTurns.unit")}
 				</span>
 			</div>
 			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">自动重试</span>
-				<span className="text-xs text-tertiary">
-					模型请求遇到网络错误 / 超时 / 5xx / 限流时自动重试，重试间隔按「间隔 ×
-					2ⁿ」递增。保存后对新请求生效。
-				</span>
-			</div>
-			<label className="flex flex-col gap-1 w-56">
-				<span className="text-xs text-secondary">
-					重试次数（0-{MAX_RETRIES}）
-				</span>
+				<span className="text-sm font-medium text-primary">{t("settings.general.retry.label")}</span>
+					<span className="text-xs text-tertiary">
+						{t("settings.general.retry.desc")}
+					</span>
+				</div>
+				<label className="flex flex-col gap-1 w-56">
+					<span className="text-xs text-secondary">
+						{t("settings.general.retry.maxLabel", { max: MAX_RETRIES })}
+					</span>
 				<input
 					type="number"
 					min={0}
@@ -159,7 +161,7 @@ export function GeneralSection() {
 			</label>
 			<label className="flex flex-col gap-1 w-56">
 				<span className="text-xs text-secondary">
-					重试间隔基数（秒，{MIN_DELAY_S}-{MAX_DELAY_S}）
+					{t("settings.general.retry.delayLabel", { min: MIN_DELAY_S, max: MAX_DELAY_S })}
 				</span>
 				<input
 					type="number"
@@ -176,7 +178,7 @@ export function GeneralSection() {
 				/>
 			</label>
 			<label className="flex flex-col gap-1 w-56">
-				<span className="text-xs text-secondary">请求超时（秒）</span>
+				<span className="text-xs text-secondary">{t("settings.general.retry.httpTimeoutLabel")}</span>
 				<input
 					type="number"
 					min={10}
@@ -191,8 +193,7 @@ export function GeneralSection() {
 				/>
 			</label>
 			<span className="text-xs text-tertiary -mt-1">
-				单次模型请求无响应的超时（断网时 fetch 等满此值才触发自动重试）。 默认
-				120 秒；过短易因网络波动误判，过长断网后体感卡住。
+				{t("settings.general.retry.httpTimeoutHint")}
 			</span>
 			<div className="flex items-center gap-3">
 				<button
@@ -205,10 +206,10 @@ export function GeneralSection() {
 							: { background: "var(--brand)", color: "var(--on-brand)" }
 					}
 					data-testid="retry-save-btn"
-				>
-					{saving ? "保存中…" : "保存"}
-				</button>
-				{saved && <span className="text-xs text-secondary">已保存</span>}
+					>
+						{saving ? t("common.saving") : t("common.save")}
+					</button>
+					{saved && <span className="text-xs text-secondary">{t("common.saved")}</span>}
 				{error && (
 					<span
 						className="text-xs"
@@ -219,6 +220,21 @@ export function GeneralSection() {
 					</span>
 				)}
 			</div>
+			<div className="flex flex-col gap-1">
+				<span className="text-sm font-medium text-primary">{t("settings.general.language.label")}</span>
+				<span className="text-xs text-tertiary">
+					{t("settings.general.language.desc")}
+				</span>
+			</div>
+			<select
+				value={language}
+				onChange={(e) => setLanguage(e.target.value as AppLanguage)}
+				className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-56"
+				data-testid="language-select"
+			>
+				<option value="zh">{t("settings.general.language.zh")}</option>
+				<option value="en">{t("settings.general.language.en")}</option>
+			</select>
 		</div>
 	);
 }

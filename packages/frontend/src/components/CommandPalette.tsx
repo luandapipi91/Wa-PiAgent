@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSkillsStore } from "../store/skills";
 import { useSettingsStore } from "../store/settings";
 import { useAgentsStore } from "../store/agents";
+import { useTranslation } from "../i18n/useTranslation";
 
 /** 调色板中的一项 */
 interface PaletteItem {
@@ -33,6 +34,7 @@ function fuzzyMatch(item: PaletteItem, query: string): boolean {
 }
 
 export function CommandPalette({ open, onClose }: Props) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -44,33 +46,33 @@ export function CommandPalette({ open, onClose }: Props) {
   const commandItems = useMemo<PaletteItem[]>(() => [
     {
       id: "cmd-settings",
-      group: "命令",
-      title: "系统设置",
-      hint: "管理模型、技能、插件、记忆、MCP 连接器",
+      group: t("commandPalette.groupCommands"),
+      title: t("composer.cmdSettings"),
+      hint: t("commandPalette.settingsFullHint"),
       keywords: ["settings", "设置", "配置"],
       run: () => { onClose(); useSettingsStore.getState().open(); },
     },
     {
       id: "cmd-agents",
-      group: "命令",
-      title: "智能体管理",
-      hint: "管理所有智能体配置",
+      group: t("commandPalette.groupCommands"),
+      title: t("composer.cmdAgents"),
+      hint: t("composer.cmdAgentsDesc"),
       keywords: ["agent", "智能体", "agents"],
       run: () => { onClose(); window.dispatchEvent(new CustomEvent("wa-pi:open-gallery")); },
     },
-  ], [onClose]);
+  ], [onClose, t]);
 
   // 构建技能项
   const skillItems = useMemo<PaletteItem[]>(() =>
     skills.map(s => ({
       id: `skill-${s.name}`,
-      group: "技能",
+      group: t("commandPalette.groupSkills"),
       title: s.name,
       hint: s.description,
       keywords: [s.name, s.description],
       run: () => { onClose(); /* 将技能名写入剪贴板，方便用户在输入框中用 $[技能名] 引用 */ },
     })),
-  [skills, onClose]);
+  [skills, onClose, t]);
 
   // 合并所有项：命令在前，技能在后
   const allItems = useMemo(() => [...commandItems, ...skillItems], [commandItems, skillItems]);
@@ -169,7 +171,7 @@ export function CommandPalette({ open, onClose }: Props) {
             className="flex-1 bg-transparent text-sm text-primary outline-none placeholder:text-tertiary"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="搜索技能和命令..."
+            placeholder={t("commandPalette.searchPlaceholder")}
             spellCheck={false}
             autoComplete="off"
           />
@@ -181,7 +183,7 @@ export function CommandPalette({ open, onClose }: Props) {
         {/* 列表 */}
         <div className="flex-1 overflow-y-auto py-2 min-h-0">
           {flat.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-tertiary">没有匹配的结果</div>
+            <div className="px-4 py-8 text-center text-sm text-tertiary">{t("commandPalette.emptyResult")}</div>
           ) : (
             grouped.map(([groupName, items]) => {
               let running = 0;
@@ -227,9 +229,9 @@ export function CommandPalette({ open, onClose }: Props) {
 
         {/* 底部快捷键提示 */}
         <div className="flex items-center gap-3 px-4 py-2 border-t border-hairline text-[calc(10px*var(--font-scale))] text-tertiary">
-          <span><kbd className="px-1 rounded border border-hairline">↑↓</kbd> 导航</span>
-          <span><kbd className="px-1 rounded border border-hairline">↩</kbd> 执行</span>
-          <span><kbd className="px-1 rounded border border-hairline">esc</kbd> 关闭</span>
+          <span><kbd className="px-1 rounded border border-hairline">↑↓</kbd> {t("commandPalette.hintNavigate")}</span>
+          <span><kbd className="px-1 rounded border border-hairline">↩</kbd> {t("commandPalette.hintRun")}</span>
+          <span><kbd className="px-1 rounded border border-hairline">esc</kbd> {t("common.close")}</span>
         </div>
       </div>
     </div>

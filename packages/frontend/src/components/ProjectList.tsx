@@ -2,6 +2,7 @@ import { useProjectsStore } from "../store/projects";
 import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 import type { View } from "../App";
 import { ProjectItem } from "./ProjectItem";
+import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
   onSelectSession: (id: string) => void;
@@ -13,6 +14,7 @@ interface Props {
 
 export function ProjectList(props: Props) {
   const { projects, sessions, currentSessionId, currentProjectId } = useProjectsStore();
+  const { t } = useTranslation();
   const isNewSessionView = props.currentView === "new-session";
   // 默认工作区（系统项目）渲染在列表最顶部，与普通项目共用同一滚动容器
   const systemProject = projects.find(p => p.id === SYSTEM_PROJECT_ID);
@@ -33,7 +35,7 @@ export function ProjectList(props: Props) {
         />
       )}
       {userProjects.length > 0 && (
-        <div className="text-[calc(11px*var(--font-scale))] font-bold text-tertiary px-2 py-1 border-t border-dashed border-hairline mt-2 uppercase tracking-wide">项目</div>
+        <div className="text-[calc(11px*var(--font-scale))] font-bold text-tertiary px-2 py-1 border-t border-dashed border-hairline mt-2 uppercase tracking-wide">{t("projectList.sectionTitle")}</div>
       )}
       {userProjects.map(p => (
         <ProjectItem
@@ -52,7 +54,7 @@ export function ProjectList(props: Props) {
         onClick={props.onNewProject}
         className="w-full text-left px-2 py-1.5 text-xs text-tertiary transition-colors hover:text-brand"
         data-testid="new-project-btn"
-      >＋ 新建项目</button>
+      >{t("projectList.newProject")}</button>
     </div>
   );
 }

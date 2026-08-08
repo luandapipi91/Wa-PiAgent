@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import i18n from "../i18n";
 import type { AttachmentDraft } from "@wa-pi/shared";
 import { getRecordingManager, formatDuration, type StartArgs, type RecordingResult } from "../recording/recorder";
 import { useComposerPrefsStore } from "./composer-prefs";
@@ -34,7 +35,7 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
 
   start: async (opts) => {
     if (get().status !== "idle") {
-      throw new Error(`${get().ownerLabel} 正在录音，需要等到上一个录音结束才能开始新的录音`);
+      throw new Error(i18n.t("ui.recording.busyConflict", { owner: get().ownerLabel }));
     }
     set({ error: undefined });
     try {
@@ -80,7 +81,7 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
       // audio draft 写入归属会话 composer
       const draft: AttachmentDraft = {
         kind: "audio" as const,
-        name: `录音 ${formatDuration(result.durationMs)}.webm`,
+        name: i18n.t("store.recordingFile", { duration: formatDuration(result.durationMs) }),
         path: result.path,
         size: result.size,
         ...(result.durationMs ? { durationMs: result.durationMs } : {}),
@@ -97,7 +98,7 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
 
 function beforeUnloadHandler(e: BeforeUnloadEvent) {
   e.preventDefault();
-  e.returnValue = "正在录音，退出将丢失未保存录音";
+  e.returnValue = i18n.t("ui.recording.beforeunloadWarn");
 }
 
 let beforeUnloadRegistered = false;

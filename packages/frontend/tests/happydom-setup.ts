@@ -19,6 +19,12 @@ GlobalRegistrator.register();
 // @ts-ignore：fake-indexeddb 的 types 在 exports 解析上有问题，运行时无影响
 await import("fake-indexeddb/auto");
 
+// 触发 i18n 模块顶层初始化（import 链会 init i18next 实例）。组件迁移到
+// useTranslation() 后依赖该实例就绪。测试语言锁定中文由 .env.test 的 WA_PI_LANG
+// 负责（detect.ts 读 process.env.WA_PI_LANG；bun --env-file=.env.test 加载，进程级
+// 共享，能在 bun:test --isolate 各文件独立模块图下可靠生效）。
+await import("../src/i18n");
+
 // @testing-library/react 的 auto-cleanup 只在模块首次加载时注册一次 afterEach，
 // 仅对「触发首次加载的那个文件」生效。bun 多文件共享同一 happy-dom document →
 // 跨文件 body 残留，getByTestId 会命中上个文件遗留的元素。这里在每个文件 preload

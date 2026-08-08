@@ -1,3 +1,4 @@
+import { useTranslation } from "../../i18n/useTranslation";
 import { useDiagnosticsStore } from "../../store/diagnostics";
 
 /**
@@ -7,6 +8,7 @@ import { useDiagnosticsStore } from "../../store/diagnostics";
 export function DiagnosticsSection() {
 	const entries = useDiagnosticsStore((s) => s.entries);
 	const clear = useDiagnosticsStore((s) => s.clear);
+	const { t } = useTranslation();
 
 	const fmtTime = (ts: number) => {
 		const d = new Date(ts);
@@ -18,7 +20,7 @@ export function DiagnosticsSection() {
 		<div className="flex flex-col gap-2 p-4 overflow-auto">
 			<div className="flex items-center">
 				<span className="text-sm font-medium text-primary">
-					扩展错误（最近 {entries.length} 条）
+					{t("settings.diagnostics.title", { count: entries.length })}
 				</span>
 				{entries.length > 0 && (
 					<button
@@ -26,13 +28,13 @@ export function DiagnosticsSection() {
 						className="ml-auto text-[calc(11.5px*var(--font-scale))] px-2.5 py-0.5 rounded-pill border-0 bg-danger-soft text-danger cursor-pointer"
 						data-testid="diag-clear-btn"
 					>
-						清空
+						{t("settings.diagnostics.clear")}
 					</button>
 				)}
 			</div>
 			{entries.length === 0 && (
 				<div className="text-tertiary text-sm text-center py-10">
-					暂无扩展错误
+					{t("settings.diagnostics.empty")}
 				</div>
 			)}
 			{entries.map((e) => (

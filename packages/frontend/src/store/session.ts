@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import i18n from "../i18n";
 import { api } from "../api-client";
 import { matchKernelCommand } from "@wa-pi/shared";
 import type {
@@ -389,7 +390,8 @@ export const useSessionStore = create<SessionState>((set) => {
 				const localStatus = prev.filter((m: any) => {
 					const mm = m.message as any;
 					if (mm?.customType !== "compaction_status") return false;
-					return !String(mm?.content ?? "").startsWith("已压缩");
+					// 保留进行中/取消/失败的压缩状态消息；移除成功的（服务端历史会渲染 compactionSummary）。
+					return !mm?.compactionDone;
 				});
 				useSessionStore.setState((s) => ({
 					messagesBySession: {
@@ -1044,7 +1046,7 @@ export const useSessionStore = create<SessionState>((set) => {
 										message: {
 											type: "custom",
 											customType: "compaction_status",
-											content: "正在压缩上下文…",
+											content: i18n.t("message.compactionProgress"),
 											timestamp,
 										},
 										agentName,
@@ -1059,31 +1061,39 @@ export const useSessionStore = create<SessionState>((set) => {
 				// 上下文压缩结束：替换状态消息为结果（释放 token / 取消 / 失败），并刷新 token 累计。
 				// 这是压缩完成的权威信号（不依赖 agent_end 的文本检测），自动压缩也在此刷新。
 				case "compaction_end": {
-					const e = event as any;
-					const result = e.result;
-					let content: string;
-					if (e.aborted) content = "压缩已取消";
-					else if (e.errorMessage) content = `压缩失败：${e.errorMessage}`;
-					else if (result && typeof result.tokensBefore === "number") {
-						// 与历史重载的 compactionSummary 渲染保持同一文案（jsonl 不持久化
-						// estimatedTokensAfter，两边只能一致地展示 tokensBefore）
-						content = `已压缩早期上下文 · 压缩前 ${fmtTok(result.tokensBefore)} token`;
-					} else {
-						content = "已压缩早期上下文";
-					}
-					const timestamp = Date.now();
-					set((s) => {
-						const list = s.messagesBySession[sessionId] ?? [];
-						const msg = {
-							message: {
-								type: "custom",
-								customType: "compaction_status",
-								content,
-								timestamp,
-							},
-							agentName,
-							sessionId,
-						} as any;
+				const e = event as any;
+				const result = e.result;
+				let content: string;
+				// 是否成功压缩（用于重拉历史时移除：成功消息由服务端 compactionSummary 重新渲染，
+				// 取消/失败的消息服务端没有，需保留在本地）。
+				let compactionDone = false;
+				if (e.aborted) content = i18n.t("message.compactionAborted");
+				else if (e.errorMessage) content = i18n.t("message.compactionFailed", { error: e.errorMessage });
+				else if (result && typeof result.tokensBefore === "number") {
+					// 与历史重载的 compactionSummary 渲染保持同一文案（jsonl 不持久化
+					// estimatedTokensAfter，两边只能一致地展示 tokensBefore）
+					content = i18n.t("message.compactionDone", { count: fmtTok(result.tokensBefore) });
+					compactionDone = true;
+				} else {
+					content = i18n.t("message.compactionDoneNoToken");
+					compactionDone = true;
+				}
+				const timestamp = Date.now();
+				set((s) => {
+					const list = s.messagesBySession[sessionId] ?? [];
+					const msg = {
+						message: {
+							type: "custom",
+							customType: "compaction_status",
+							content,
+							// 结构化标志：仅成功压缩设置（服务端历史会渲染 compactionSummary，
+							// 重拉时移除避免重复）；取消/失败不设（服务端没有，需保留本地）。
+							compactionDone,
+							timestamp,
+						},
+						agentName,
+						sessionId,
+					} as any;
 						// 替换最后一条 compaction_status（找不到则直接追加）
 						const idx = [...list]
 							.reverse()
@@ -1212,7 +1222,7 @@ export const useSessionStore = create<SessionState>((set) => {
 					useToastStore
 						.getState()
 						.add(
-							`扩展 ${extension} 执行出错（${event.event}）：${event.error}`,
+							i18n.t("message.extensionError", { ext: extension, event: event.event, error: event.error }),
 							"error",
 						);
 					break;

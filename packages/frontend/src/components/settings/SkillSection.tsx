@@ -1,19 +1,20 @@
 import { useState } from "react";
+import { useTranslation } from "../../i18n/useTranslation";
 import { useSkillsStore } from "../../store/skills";
 import { DirTreePicker } from "../DirTreePicker";
 import type { SkillInfo, SkillSourceType } from "@wa-pi/shared";
 
-/** 分组定义：label + source 类型过滤 */
+/** 分组定义：labelKey（i18n key）+ source 类型过滤 */
 interface SkillGroup {
   key: string;
-  label: string;
+  labelKey: string;
   types: SkillSourceType[];
 }
 
 const GROUPS: SkillGroup[] = [
-  { key: "builtin", label: "内置技能", types: ["builtin"] },
-  { key: "local", label: "个人技能", types: ["project", "user"] },
-  { key: "extension", label: "Plugin 技能", types: ["extension"] },
+  { key: "builtin", labelKey: "settings.skill.groupBuiltin", types: ["builtin"] },
+  { key: "local", labelKey: "settings.skill.groupLocal", types: ["project", "user"] },
+  { key: "extension", labelKey: "settings.skill.groupExtension", types: ["extension"] },
 ];
 
 /** 判断技能属于哪个分组 */
@@ -24,22 +25,23 @@ function getGroupKey(source?: { type: SkillSourceType; name?: string }): string 
   return "builtin";
 }
 
-/** 来源标签文本 */
-function sourceLabel(source?: { type: SkillSourceType; name?: string }): string | null {
-  if (!source) return null;
-  if (source.type === "builtin") return "内置";
-  if (source.type === "project") return "项目";
-  if (source.type === "user") return "个人";
-  if (source.type === "extension") return source.name ?? "Plugin";
-  return null;
-}
-
 export function SkillSection() {
   const { allSkills, dirs, disabledSkills, builtinDir, toggleSkill, addDir, removeDir, load } = useSkillsStore();
+  const { t } = useTranslation();
   const [dirExpanded, setDirExpanded] = useState(true);
   const [showDirPicker, setShowDirPicker] = useState(false);
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
+
+  /** 来源标签文本 */
+  const sourceLabel = (source?: { type: SkillSourceType; name?: string }): string | null => {
+    if (!source) return null;
+    if (source.type === "builtin") return t("settings.skill.sourceBuiltin");
+    if (source.type === "project") return t("settings.skill.sourceProject");
+    if (source.type === "user") return t("settings.skill.sourceUser");
+    if (source.type === "extension") return source.name ?? t("settings.skill.sourceExtension");
+    return null;
+  };
 
   const toggleExpand = (name: string) => {
     setExpandedSkills(prev => {
@@ -78,15 +80,15 @@ export function SkillSection() {
             className="flex items-center gap-2 text-sm text-primary text-left"
             data-testid="skill-dir-toggle"
           >
-            <span>技能目录{!dirExpanded ? `：${builtinDir}` : ""}</span>
+            <span>{t("settings.skill.dirTitle")}{!dirExpanded ? `：${builtinDir}` : ""}</span>
             <span>{dirExpanded ? "▾" : "▸"}</span>
           </button>
           <div className="flex items-center gap-1">
             <button
               onClick={() => setShowDirPicker(true)}
               className="p-1 text-secondary hover:text-primary"
-              title="添加技能目录"
-              aria-label="添加技能目录"
+              title={t("settings.skill.addDir")}
+              aria-label={t("settings.skill.addDir")}
               data-testid="skill-add-dir-btn"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -96,8 +98,8 @@ export function SkillSection() {
             <button
               onClick={() => load()}
               className="p-1 text-secondary hover:text-primary"
-              title="刷新技能"
-              aria-label="刷新技能"
+              title={t("settings.skill.refresh")}
+              aria-label={t("settings.skill.refresh")}
               data-testid="skill-refresh-btn"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -114,13 +116,13 @@ export function SkillSection() {
               <div key={dir} className="flex items-center justify-between py-1">
                 <span className="text-sm text-secondary">{dir}</span>
                 {dir === builtinDir ? (
-                  <span className="text-xs text-tertiary">[内置]</span>
+                  <span className="text-xs text-tertiary">{t("settings.skill.builtinTag")}</span>
                 ) : (
                   <button
                     onClick={() => removeDir(dir)}
                     className="text-xs text-secondary hover:text-danger"
                     data-testid={`skill-dir-remove-${dir}`}
-                  >删除</button>
+                  >{t("settings.skill.deleteDir")}</button>
                 )}
               </div>
             ))}
@@ -133,17 +135,17 @@ export function SkillSection() {
         type="text"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="搜索技能名称..."
+        placeholder={t("settings.skill.searchPlaceholder")}
         className="px-2 py-1 text-sm text-primary bg-transparent border border-hairline rounded-sm outline-none"
         data-testid="skill-search-input"
       />
 
       {/* 技能分组列表 */}
       {allSkills.length === 0 && (
-        <span className="text-sm text-tertiary py-2">暂无技能，添加技能目录后自动扫描</span>
+        <span className="text-sm text-tertiary py-2">{t("settings.skill.empty")}</span>
       )}
       {allSkills.length > 0 && filteredSkills.length === 0 && (
-        <span className="text-sm text-tertiary py-2">无匹配的技能</span>
+        <span className="text-sm text-tertiary py-2">{t("settings.skill.noMatch")}</span>
       )}
 
       {visibleGroups.map(group => {
@@ -152,7 +154,7 @@ export function SkillSection() {
           <div key={group.key} className="flex flex-col gap-1">
             {/* 分组标题 */}
             <div className="text-xs font-bold text-secondary tracking-wide border-b border-hairline pb-1 mb-1">
-              {group.label} {items.length} 项
+              {t(group.labelKey)} {t("settings.skill.itemCount", { count: items.length })}
             </div>
 
             {items.map(skill => {
@@ -179,7 +181,7 @@ export function SkillSection() {
                       >{tag}</span>
                     )}
                     {disabled && (
-                      <span className="text-[calc(10px*var(--font-scale))] font-semibold" style={{ color: "var(--danger)" }}>禁用</span>
+                      <span className="text-[calc(10px*var(--font-scale))] font-semibold" style={{ color: "var(--danger)" }}>{t("settings.skill.disabled")}</span>
                     )}
                     <span className="text-xs text-tertiary flex-1">{expanded ? "▾" : "▸"}</span>
 

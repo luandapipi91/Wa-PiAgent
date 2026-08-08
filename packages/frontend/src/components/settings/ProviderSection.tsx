@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useProvidersStore } from "../../store/providers";
+import { useTranslation } from "../../i18n/useTranslation";
 import { ProviderCard } from "./ProviderCard";
 import { ProviderFormModal } from "./ProviderFormModal";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
@@ -7,6 +8,7 @@ import type { ModelProvider } from "@wa-pi/shared";
 
 export function ProviderSection() {
   const { providers, remove, test } = useProvidersStore();
+  const { t } = useTranslation();
   const [editing, setEditing] = useState<ModelProvider | null>(null);
   const [adding, setAdding] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ModelProvider | null>(null);
@@ -28,7 +30,7 @@ export function ProviderSection() {
         className="self-start px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer"
         style={{ background: "var(--brand)", color: "var(--on-brand)" }}
         data-testid="add-provider-btn"
-      >+ 添加供应商</button>
+      >{t("settings.provider.add")}</button>
       {providers.map(p => (
         <ProviderCard
           key={p.id}
@@ -43,10 +45,10 @@ export function ProviderSection() {
       {editing && <ProviderFormModal initial={editing} onClose={() => setEditing(null)} />}
       {confirmDelete && (
         <ConfirmDialog
-          title="删除供应商"
-          message={`确定删除「${confirmDelete.name}」？此操作不可撤销。`}
+          title={t("settings.provider.deleteTitle")}
+          message={t("settings.provider.deleteMessage", { name: confirmDelete.name })}
           danger
-          confirmText="删除"
+          confirmText={t("settings.provider.delete")}
           onConfirm={() => { remove(confirmDelete.id); setConfirmDelete(null); }}
           onCancel={() => setConfirmDelete(null)}
         />

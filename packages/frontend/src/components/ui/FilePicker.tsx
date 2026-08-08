@@ -11,6 +11,7 @@ import {
   type TreeItemIndex,
 } from "react-complex-tree";
 import "react-complex-tree/lib/style-modern.css";
+import { useTranslation } from "../../i18n/useTranslation";
 import { getHome, getRoots, listDir, searchFilesStream, type SearchMatch } from "../../fs-client";
 import { Icon } from "./Icon";
 
@@ -210,9 +211,10 @@ function filterTreeItems(
 function buildSearchTree(
   matches: { name: string; isDir: boolean; path: string }[],
   roots: string[],
+  rootName: string,
 ): Record<TreeItemIndex, TreeItem<FsNodeData>> {
   const items: Record<TreeItemIndex, TreeItem<FsNodeData>> = {
-    root: { index: "root", children: [], isFolder: true, data: { path: "", name: "此电脑", isDir: true } },
+    root: { index: "root", children: [], isFolder: true, data: { path: "", name: rootName, isDir: true } },
   };
 
   for (const [i, r] of roots.entries()) {
@@ -275,13 +277,14 @@ function buildSearchTree(
 }
 
 export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }: Props) {
+  const { t } = useTranslation();
   const [focusedItem, setFocusedItem] = useState<TreeItemIndex | undefined>();
   const [selectedItems, setSelectedItems] = useState<TreeItemIndex[]>([]);
   const [expandedItems, setExpandedItems] = useState<TreeItemIndex[]>([]);
   const [showHidden, setShowHidden] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [treeItems, setTreeItems] = useState<Record<TreeItemIndex, TreeItem<FsNodeData>>>({
-    root: { index: "root", children: [], isFolder: true, data: { path: "", name: "加载中…", isDir: true } },
+    root: { index: "root", children: [], isFolder: true, data: { path: "", name: t("filePicker.loading"), isDir: true } },
   });
   const [searchTreeItems, setSearchTreeItems] = useState<Record<TreeItemIndex, TreeItem<FsNodeData>> | null>(null);
   const [searchDuration, setSearchDuration] = useState<number | null>(null);
@@ -317,7 +320,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
       rootsRef.current = roots;
       const rootChildren: TreeItemIndex[] = roots.map((_, i) => `root_${i}`);
       const items: Record<TreeItemIndex, TreeItem<FsNodeData>> = {
-        root: { index: "root", children: rootChildren, isFolder: true, data: { path: "", name: "此电脑", isDir: true } },
+        root: { index: "root", children: rootChildren, isFolder: true, data: { path: "", name: t("filePicker.thisPc"), isDir: true } },
       };
       for (const [i, r] of roots.entries()) {
         items[`root_${i}`] = { index: `root_${i}`, children: [`${LD}root_${i}`], isFolder: true, data: { path: r, name: r, isDir: true } };
@@ -532,7 +535,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
     setSearchLoading(true);
     const allMatches = new Map<string, SearchMatch>();
     const rebuild = () => {
-      const tree = buildSearchTree(Array.from(allMatches.values()), searchRoots);
+      const tree = buildSearchTree(Array.from(allMatches.values()), searchRoots, t("filePicker.thisPc"));
       // 搜索树中有子节点的目录首次出现时即标记为「已自动展开」并加入 expandedItems，
       // 使结果立即可见；同时避免后续 autoExpand effect 因 searchTreeItems 与
       // expandedItems 的 setState 批处理时序，在用户折叠后又把节点重新展开。
@@ -629,16 +632,16 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
           <div className="p-4 border-b border-surface0 flex items-start justify-between gap-3">
             <div className="flex flex-col gap-1 min-w-0">
               <div className="text-text font-medium truncate">
-                选择文件或文件夹
+                {t("filePicker.title")}
                 {selections.length > 0 && (
                   <span className="ml-3 text-xs text-blue font-mono">
-                    已选 {selections.length} 项
+                    {t("filePicker.selected", { count: selections.length })}
                   </span>
                 )}
               </div>
               {currentSearchRoot && (
                 <span className="text-[calc(11px*var(--font-scale))] text-tertiary max-w-[340px] truncate" data-testid="search-scope-hint" title={currentSearchRoot}>
-                  搜索范围: {currentSearchRoot}
+                  {t("filePicker.searchScope", { root: currentSearchRoot })}
                 </span>
               )}
             </div>
@@ -647,7 +650,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
                 <input
                   type="text"
                   className="w-48 px-3 py-1.5 text-sm border border-hairline rounded bg-surface0 text-text placeholder:text-tertiary focus:outline-none focus:border-blue pr-8"
-                  placeholder="搜索文件名…"
+                  placeholder={t("filePicker.searchPlaceholder")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   data-testid="file-picker-search"
@@ -661,16 +664,16 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
               </div>
               {isSearching && searchDuration !== null && (
                 <span className="text-[calc(11px*var(--font-scale))] text-tertiary" data-testid="search-duration">
-                  搜索耗时 {searchDuration}ms
+                  {t("filePicker.searchDuration", { ms: searchDuration })}
                 </span>
               )}
             </div>
           </div>
           <div className="flex-1 overflow-auto p-2 text-text" style={{ minHeight: 320 }}>
             {isSearching && searchLoading && !hasSearchResults ? (
-              <div className="flex items-center justify-center h-32 text-sm text-tertiary">搜索中…</div>
+              <div className="flex items-center justify-center h-32 text-sm text-tertiary">{t("filePicker.searching")}</div>
             ) : isSearching && !hasSearchResults ? (
-              <div className="flex items-center justify-center h-32 text-sm text-tertiary">无匹配结果</div>
+              <div className="flex items-center justify-center h-32 text-sm text-tertiary">{t("filePicker.noMatch")}</div>
             ) : (
               <ControlledTreeEnvironment<FsNodeData>
                 ref={envRef}
@@ -709,7 +712,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
                   </span>
                 )}
               >
-                <Tree treeId="file-picker" rootItem="root" treeLabel="文件" />
+                <Tree treeId="file-picker" rootItem="root" treeLabel={t("filePicker.treeLabel")} />
               </ControlledTreeEnvironment>
             )}
           </div>
@@ -735,17 +738,17 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
                   }}
                 />
               </span>
-              显示隐藏目录
+              {t("filePicker.showHidden")}
             </label>
             <div className="flex gap-2">
-              <button onClick={onCancel} className="px-3 py-1 text-sm text-subtext hover:text-text" data-testid="file-picker-cancel">取消</button>
+              <button onClick={onCancel} className="px-3 py-1 text-sm text-subtext hover:text-text" data-testid="file-picker-cancel">{t("common.cancel")}</button>
               <button
                 onClick={() => onPick(selections)}
                 disabled={selections.length === 0}
                 className="px-3 py-1 text-sm rounded disabled:opacity-40"
                 style={{ background: "#1D1D1F", color: "#FFFFFF" }}
                 data-testid="file-picker-ok"
-              >添加 {selections.length > 0 ? `(${selections.length})` : ""}</button>
+              >{t("filePicker.add")} {selections.length > 0 ? `(${selections.length})` : ""}</button>
             </div>
           </div>
         </div>

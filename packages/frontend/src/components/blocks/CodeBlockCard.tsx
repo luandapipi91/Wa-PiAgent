@@ -1,5 +1,6 @@
 import { memo, useState } from "react";
 import { Highlight, themes } from "prism-react-renderer";
+import { useTranslation } from "../../i18n/useTranslation";
 import { useToastStore } from "../../store/toast";
 import { copyToClipboard } from "../../util/clipboard";
 
@@ -10,6 +11,7 @@ const COLLAPSE_LINES = 20;
 export const CodeBlockCard = memo(function CodeBlockCard({ language, code }: { language: string; code: string }) {
   const [expanded, setExpanded] = useState(false);
   const addToast = useToastStore(s => s.add);
+  const { t } = useTranslation();
   const lines = code.replace(/\n$/, "").split("\n");
   const collapsible = lines.length > COLLAPSE_LINES;
   const shown = collapsible && !expanded ? lines.slice(0, COLLAPSE_LINES).join("\n") : lines.join("\n");
@@ -18,9 +20,9 @@ export const CodeBlockCard = memo(function CodeBlockCard({ language, code }: { l
   const copy = async () => {
     try {
       await copyToClipboard(code);
-      addToast("已复制到剪贴板", "success");
+      addToast(t("common.copiedToClipboard"), "success");
     } catch {
-      addToast("复制失败", "error");
+      addToast(t("common.copyFailed"), "error");
     }
   };
 
@@ -35,7 +37,7 @@ export const CodeBlockCard = memo(function CodeBlockCard({ language, code }: { l
           className="ml-auto text-[calc(11px*var(--font-scale))] text-tertiary hover:text-primary transition-colors"
           style={{ cursor: "pointer" }}
         >
-          复制
+          {t("blocks.codeBlock.copy")}
         </button>
       </div>
       <Highlight theme={themes.github} code={shown} language={lang}>
@@ -60,7 +62,7 @@ export const CodeBlockCard = memo(function CodeBlockCard({ language, code }: { l
           className="w-full text-center text-[calc(11px*var(--font-scale))] text-tertiary hover:text-primary py-1 border-t border-hairline bg-surface-elevated transition-colors"
           style={{ cursor: "pointer" }}
         >
-          {expanded ? "收起" : `+${lines.length - COLLAPSE_LINES} more lines`}
+          {expanded ? t("blocks.codeBlock.collapse") : t("blocks.codeBlock.moreLines", { n: lines.length - COLLAPSE_LINES })}
         </button>
       )}
     </div>

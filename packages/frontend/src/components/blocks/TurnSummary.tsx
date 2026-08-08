@@ -1,12 +1,21 @@
 import { useState } from "react";
+import { useTranslation } from "../../i18n/useTranslation";
 
-/** 时长格式化：<60s → "45 秒"；>=60s → "2 分 15 秒" */
-export function formatElapsed(ms: number): string {
+/** 时长格式化：<60s → "45 秒"；>=60s → "2 分 15 秒"。
+ *  secLabel/minLabel 可选，用于本地化单位（默认中文，保持导出函数的测试兼容）。 */
+export function formatElapsed(
+	ms: number,
+	labels?: { seconds?: (sec: number) => string; minutesSeconds?: (min: number, sec: number) => string },
+): string {
  const totalSec = Math.max(0, Math.floor(ms / 1000));
- if (totalSec < 60) return `${totalSec} 秒`;
+ if (totalSec < 60) {
+	return labels?.seconds ? labels.seconds(totalSec) : `${totalSec} 秒`;
+ }
  const min = Math.floor(totalSec / 60);
  const sec = totalSec % 60;
- return `${min} 分 ${sec} 秒`;
+ return labels?.minutesSeconds
+	? labels.minutesSeconds(min, sec)
+	: `${min} 分 ${sec} 秒`;
 }
 
 /**
@@ -19,6 +28,7 @@ export function TurnSummary({ steps, elapsedMs, children }: {
  elapsedMs?: number;
  children: React.ReactNode;
 }) {
+ const { t } = useTranslation();
  const [open, setOpen] = useState(false);
  return (
   <div className="flex flex-col gap-1">
@@ -32,8 +42,14 @@ export function TurnSummary({ steps, elapsedMs, children }: {
     <span className="flex-1 border-t border-hairline" />
     <span className="whitespace-nowrap">
      {elapsedMs != null
-      ? `本轮时长 ${formatElapsed(elapsedMs)} · ${steps} 个步骤`
-      : `本轮过程 · ${steps} 个步骤`}
+      ? t("blocks.turnSummary.withDuration", {
+					elapsed: formatElapsed(elapsedMs, {
+						seconds: (s) => t("blocks.turnSummary.seconds", { sec: s }),
+						minutesSeconds: (m, s) => t("blocks.turnSummary.minutesSeconds", { min: m, sec: s }),
+					}),
+					steps,
+				})
+      : t("blocks.turnSummary.processOnly", { steps })}
     </span>
     <span className="flex-1 border-t border-hairline" />
    </button>

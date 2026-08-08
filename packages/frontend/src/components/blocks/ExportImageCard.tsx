@@ -5,6 +5,7 @@
 import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useTranslation } from "../../i18n/useTranslation";
 import { createMarkdownComponents } from "./markdown-components";
 import type { ExportTurn } from "../../util/export-chat-image";
 
@@ -19,6 +20,7 @@ function formatTime(ts: number): string {
 }
 
 export function ExportImageCard({ turns }: Props) {
+	const { t } = useTranslation();
 	// "export" 是占位 sessionId：FilePill 等交互组件在图片里只是静态样式
 	const mdComponents = useMemo(() => createMarkdownComponents("export"), []);
 	return (
@@ -58,7 +60,7 @@ export function ExportImageCard({ turns }: Props) {
 				</div>
 			))}
 			<div className="border-t border-hairline pt-2 mt-1 text-center text-[11px] text-tertiary">
-				WA PI Agent
+				{t("blocks.exportImageCard.signature")}
 			</div>
 		</div>
 	);

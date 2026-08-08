@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api-client";
 import { Modal } from "./ui/Modal";
 import { useExtDialogStore, type ExtDialogRequest } from "../store/ext-dialog";
+import { useTranslation } from "../i18n/useTranslation";
 
 // pi 扩展 dialog 弹窗（select/confirm/input/editor）：kernel 把 pi 的 extension_ui_request
 // 桥接为 sdk:event(extension_dialog) 写入 ext-dialog store 队列，本组件逐个展示队首；
@@ -40,6 +41,7 @@ function DialogBody({ req, respond }: {
 }) {
   // editor 用 prefill 预填；input 从空开始（placeholder 仅提示）
   const [text, setText] = useState(req.method === "editor" ? (req.prefill ?? "") : "");
+  const { t } = useTranslation();
 
   const footer = (
     <div className="flex justify-end gap-2 p-3 border-t border-hairline">
@@ -47,13 +49,13 @@ function DialogBody({ req, respond }: {
         onClick={() => void respond({ cancelled: true })}
         className="px-3 py-1.5 rounded-sm text-sm bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary"
         data-testid="ext-dialog-cancel"
-      >取消</button>
+      >{t("common.cancel")}</button>
       <button
         onClick={() => void respond(req.method === "confirm" ? { confirmed: true } : { value: text })}
         className="px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer"
         style={{ background: "var(--brand)", color: "var(--on-brand)" }}
         data-testid="ext-dialog-ok"
-      >确认</button>
+      >{t("common.confirm")}</button>
     </div>
   );
 
@@ -106,7 +108,7 @@ function DialogBody({ req, respond }: {
             onClick={() => void respond({ cancelled: true })}
             className="px-3 py-1.5 rounded-sm text-sm bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary"
             data-testid="ext-dialog-cancel"
-          >取消</button>
+          >{t("common.cancel")}</button>
         </div>
       ) : (
         footer

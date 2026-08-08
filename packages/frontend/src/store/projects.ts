@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import i18n from "../i18n";
 import type { ProjectEntity, SessionEntity } from "@wa-pi/shared";
 import { api } from "../api-client";
 import { basename } from "../pick-directory";
@@ -43,7 +44,7 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
   createProjectFromPath: (cwd: string) => {
     set({ dirPickerOpen: false });
     if (useProjectsStore.getState().projects.some(p => p.cwd === cwd)) {
-      useToastStore.getState().add("相同目录的项目已存在");
+      useToastStore.getState().add(i18n.t("store.duplicateProjectCwd"));
       return;
     }
     const name = basename(cwd);

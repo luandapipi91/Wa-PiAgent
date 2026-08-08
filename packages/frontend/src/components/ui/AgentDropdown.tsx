@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentConfig, AgentName } from "@wa-pi/shared";
+import { useTranslation } from "../../i18n/useTranslation";
 import { filterItems } from "../../quick-invoke/trigger";
 import { AgentMenuItem } from "./AgentMenuItem";
 
@@ -32,6 +33,7 @@ export function AgentDropdown({
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
 
   const toggleOpen = () => {
     setOpen(o => !o);
@@ -95,7 +97,7 @@ export function AgentDropdown({
         }`}
       >
         {showMissing ? (
-          <span data-testid={`${itemTestIdPrefix}-missing`} className="truncate">⚠️ 原智能体已删除，点击重选 ▾</span>
+          <span data-testid={`${itemTestIdPrefix}-missing`} className="truncate">{t("ui.agentDropdown.missingHint")}</span>
         ) : current ? (
           <>
             <span
@@ -109,7 +111,7 @@ export function AgentDropdown({
           </>
         ) : (
           <>
-            <span className="text-tertiary">{placeholder ?? "选择智能体"}</span>
+            <span className="text-tertiary">{placeholder ?? t("ui.agentDropdown.placeholderDefault")}</span>
             <span style={{ fontSize: "calc(10px * var(--font-scale))" }}>▾</span>
           </>
         )}
@@ -127,7 +129,7 @@ export function AgentDropdown({
               data-testid={`${itemTestIdPrefix}-search`}
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="搜索智能体…"
+              placeholder={t("ui.agentDropdown.searchPlaceholder")}
               className="flex-1 bg-transparent border-0 outline-none text-[calc(12px*var(--font-scale))] text-primary"
             />
           </div>
@@ -154,7 +156,7 @@ export function AgentDropdown({
               />
             ))}
             {filtered.length === 0 && (
-              <div className="px-3 py-3.5 text-center text-tertiary text-[calc(12px*var(--font-scale))]">无智能体</div>
+              <div className="px-3 py-3.5 text-center text-tertiary text-[calc(12px*var(--font-scale))]">{t("ui.agentDropdown.empty")}</div>
             )}
           </div>
         </div>

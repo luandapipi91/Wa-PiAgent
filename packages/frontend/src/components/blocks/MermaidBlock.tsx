@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import mermaid from "mermaid";
 import { Modal } from "../ui/Modal";
 import { useToastStore } from "../../store/toast";
+import { useTranslation } from "../../i18n/useTranslation";
 import { copyToClipboard, copyImageToClipboard } from "../../util/clipboard";
 
 const MIN_SCALE = 0.25;
@@ -88,7 +89,7 @@ async function svgToPngBlob(svgText: string): Promise<Blob> {
   const svgEl = container.querySelector("svg");
   if (!svgEl) {
     document.body.removeChild(container);
-    throw new Error("无效的 SVG");
+    throw new Error("Invalid SVG");
   }
 
   const vb = svgEl.getAttribute("viewBox")?.split(/\s+/).map(Number);
@@ -122,12 +123,12 @@ async function svgToPngBlob(svgText: string): Promise<Blob> {
       ctx.drawImage(img, 0, 0, w, h);
       canvas.toBlob((png) => {
         if (png) resolve(png);
-        else reject(new Error("Canvas toBlob 失败"));
+        else reject(new Error("Canvas toBlob failed"));
       }, "image/png");
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("SVG 加载失败"));
+      reject(new Error("SVG load failed"));
     };
     img.src = url;
   });
@@ -144,6 +145,7 @@ export function MermaidBlock({ code }: Props) {
   const lastSvgRef = useRef<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const addToast = useToastStore((s) => s.add);
+  const { t } = useTranslation();
 
   useEffect(() => {
     let cancelled = false;
@@ -251,27 +253,27 @@ export function MermaidBlock({ code }: Props) {
   const copyCode = useCallback(async () => {
     try {
       await copyToClipboard(code);
-      addToast("Mermaid 代码已复制", "success");
+      addToast(t("blocks.mermaid.toastCodeCopied"), "success");
     } catch {
-      addToast("复制失败", "error");
+      addToast(t("common.copyFailed"), "error");
     }
-  }, [code, addToast]);
+  }, [code, addToast, t]);
 
   const copyImage = useCallback(async () => {
     if (!svg) return;
     try {
       const png = await svgToPngBlob(svg);
       await copyImageToClipboard(png);
-      addToast("图表已复制（PNG）", "success");
+      addToast(t("blocks.mermaid.toastImageCopied"), "success");
     } catch {
-      addToast("复制失败", "error");
+      addToast(t("common.copyFailed"), "error");
     }
-  }, [svg, addToast]);
+  }, [svg, addToast, t]);
 
   if (error) {
     return (
       <div data-testid="mermaid-error" className="rounded-lg border border-hairline p-3 text-[calc(12px*var(--font-scale))] text-danger bg-surface my-1">
-        Mermaid 渲染失败：{error}
+        {t("blocks.mermaid.renderError", { error })}
       </div>
     );
   }
@@ -279,7 +281,7 @@ export function MermaidBlock({ code }: Props) {
   if (!svg) {
     return (
       <div data-testid="mermaid-loading" className="rounded-lg border border-hairline p-3 text-[calc(12px*var(--font-scale))] text-tertiary bg-surface my-1 text-center">
-        图表渲染中…
+        {t("blocks.mermaid.loading")}
       </div>
     );
   }
@@ -302,7 +304,7 @@ export function MermaidBlock({ code }: Props) {
         <button
           type="button" data-testid="mermaid-zoom-btn" onClick={openModal}
           className="absolute right-1.5 top-1.5 w-6 h-6 rounded-md bg-surface-elevated border border-hairline flex items-center justify-center text-tertiary hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
-          title="放大查看"
+          title={t("blocks.mermaid.tooltipZoomOpen")}
         >
           {zoomInIcon}
         </button>
@@ -311,32 +313,32 @@ export function MermaidBlock({ code }: Props) {
       {modalOpen && (
         <Modal width="85vw" height="85vh" onClose={() => setModalOpen(false)} data-testid="mermaid-modal">
           <div className="flex items-center px-4 py-2.5 border-b border-hairline shrink-0 gap-2">
-            <span className="text-[calc(13px*var(--font-scale))] font-semibold text-primary">图表预览</span>
+            <span className="text-[calc(13px*var(--font-scale))] font-semibold text-primary">{t("blocks.mermaid.modalTitle")}</span>
             <span data-testid="mermaid-scale-label" className="text-[calc(12px*var(--font-scale))] text-tertiary tabular-nums min-w-[3em] text-center">
               {Math.round(scale * 100)}%
             </span>
 
             <button type="button" data-testid="mermaid-zoom-out" onClick={zoomOut} disabled={scale <= MIN_SCALE}
-              className="w-6 h-6 rounded-md border border-hairline flex items-center justify-center text-tertiary hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors" title="缩小">{zoomOutIcon}</button>
+              className="w-6 h-6 rounded-md border border-hairline flex items-center justify-center text-tertiary hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors" title={t("blocks.mermaid.tooltipZoomOut")}>{zoomOutIcon}</button>
             <button type="button" data-testid="mermaid-zoom-in" onClick={zoomIn} disabled={scale >= MAX_SCALE}
-              className="w-6 h-6 rounded-md border border-hairline flex items-center justify-center text-tertiary hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors" title="放大">{zoomInIcon}</button>
+              className="w-6 h-6 rounded-md border border-hairline flex items-center justify-center text-tertiary hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors" title={t("blocks.mermaid.tooltipZoomIn")}>{zoomInIcon}</button>
 
             {/* 右侧：复制 + 关闭 */}
             <span className="ml-auto" />
 
             <button type="button" data-testid="mermaid-copy-code" onClick={copyCode}
-              className="w-6 h-6 rounded-md border border-hairline flex items-center justify-center text-tertiary hover:text-primary transition-colors" title="复制 Mermaid 代码">
+              className="w-6 h-6 rounded-md border border-hairline flex items-center justify-center text-tertiary hover:text-primary transition-colors" title={t("blocks.mermaid.tooltipCopyCode")}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" ry="1" /></svg>
             </button>
             <button type="button" data-testid="mermaid-copy-image" onClick={copyImage}
-              className="w-6 h-6 rounded-md border border-hairline flex items-center justify-center text-tertiary hover:text-primary transition-colors" title="复制图表图片">
+              className="w-6 h-6 rounded-md border border-hairline flex items-center justify-center text-tertiary hover:text-primary transition-colors" title={t("blocks.mermaid.tooltipCopyImage")}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
             </button>
 
             <span className="w-px h-4 bg-hairline mx-1" />
 
             <button type="button" data-testid="mermaid-modal-close" onClick={() => setModalOpen(false)}
-              className="w-7 h-7 rounded-md flex items-center justify-center text-tertiary hover:text-primary hover:bg-surface-hover transition-colors" title="关闭">{closeIcon}</button>
+              className="w-7 h-7 rounded-md flex items-center justify-center text-tertiary hover:text-primary hover:bg-surface-hover transition-colors" title={t("common.close")}>{closeIcon}</button>
           </div>
 
           <div data-testid="mermaid-modal-viewport" className="flex-1 min-h-0 overflow-auto bg-[#f8f8f8]"

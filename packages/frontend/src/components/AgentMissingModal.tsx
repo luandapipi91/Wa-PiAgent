@@ -1,6 +1,7 @@
 import { useAgentsStore } from "../store/agents";
 import { api } from "../api-client";
 import { Modal } from "./ui/Modal";
+import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
   sessionId: string;
@@ -18,6 +19,7 @@ function avatarBackground(color?: string): string | undefined {
 // 恢复流程非主动切换——不弹缓存确认框，点击即发送 session:set-agent；失败消息由用户手动重发
 export function AgentMissingModal({ sessionId, onClose }: Props) {
   const agents = useAgentsStore(s => s.list);
+  const { t } = useTranslation();
   const pick = (name: string) => {
     void api.post(`/api/sessions/${encodeURIComponent(sessionId)}/set-agent`, { agentName: name });
     onClose();
@@ -25,9 +27,9 @@ export function AgentMissingModal({ sessionId, onClose }: Props) {
   return (
     <Modal onClose={onClose} width={400} data-testid="agent-missing-modal">
       <div className="p-4 border-b border-hairline">
-        <div className="text-primary font-bold text-sm">原智能体已删除</div>
+        <div className="text-primary font-bold text-sm">{t("agentMissing.title")}</div>
       </div>
-      <div className="px-4 pt-3 text-sm text-secondary leading-relaxed">请重新选择智能体后重发消息</div>
+      <div className="px-4 pt-3 text-sm text-secondary leading-relaxed">{t("agentMissing.message")}</div>
       <div className="p-2 max-h-[300px] overflow-y-auto">
         {agents.map(a => (
           <button
@@ -45,7 +47,7 @@ export function AgentMissingModal({ sessionId, onClose }: Props) {
           </button>
         ))}
         {agents.length === 0 && (
-          <div className="px-3 py-3.5 text-center text-tertiary text-[calc(12px*var(--font-scale))]">（无智能体）</div>
+          <div className="px-3 py-3.5 text-center text-tertiary text-[calc(12px*var(--font-scale))]">{t("agentMissing.empty")}</div>
         )}
       </div>
     </Modal>
