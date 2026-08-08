@@ -234,45 +234,41 @@ export function GeneralSection() {
 					{t("settings.general.sound.desc")}
 				</span>
 			</div>
-			<div className="flex items-center justify-between">
-				<label
-					className="flex items-center gap-2 text-sm text-primary cursor-pointer"
-					onClick={() => setSoundTaskDone(!soundTaskDone)}
-				>
+			<div className="flex items-center">
+				<span className="text-sm text-primary" style={{ marginRight: 30 }}>
 					{t("settings.general.sound.taskDone")}
-					<SoundSwitch
-						on={soundTaskDone}
-						onToggle={() => setSoundTaskDone(!soundTaskDone)}
-						testId="sound-task-done-toggle"
-					/>
-				</label>
+				</span>
 				<button
 					onClick={previewTaskDone}
 					className="px-2.5 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
+					style={{ marginRight: 50 }}
 					data-testid="sound-task-done-preview"
 				>
 					{t("settings.general.sound.preview")}
 				</button>
+				<SoundSwitch
+					on={soundTaskDone}
+					onToggle={() => setSoundTaskDone(!soundTaskDone)}
+					testId="sound-task-done-toggle"
+				/>
 			</div>
-			<div className="flex items-center justify-between">
-				<label
-					className="flex items-center gap-2 text-sm text-primary cursor-pointer"
-					onClick={() => setSoundNeedsAction(!soundNeedsAction)}
-				>
+			<div className="flex items-center">
+				<span className="text-sm text-primary" style={{ marginRight: 30 }}>
 					{t("settings.general.sound.needsAction")}
-					<SoundSwitch
-						on={soundNeedsAction}
-						onToggle={() => setSoundNeedsAction(!soundNeedsAction)}
-						testId="sound-needs-action-toggle"
-					/>
-				</label>
+				</span>
 				<button
 					onClick={previewNeedsAction}
 					className="px-2.5 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
+					style={{ marginRight: 50 }}
 					data-testid="sound-needs-action-preview"
 				>
 					{t("settings.general.sound.preview")}
 				</button>
+				<SoundSwitch
+					on={soundNeedsAction}
+					onToggle={() => setSoundNeedsAction(!soundNeedsAction)}
+					testId="sound-needs-action-toggle"
+				/>
 			</div>
 			<div className="flex flex-col gap-1">
 				<span className="text-sm font-medium text-primary">
