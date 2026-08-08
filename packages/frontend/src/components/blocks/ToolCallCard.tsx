@@ -142,17 +142,23 @@ function EditArgsView({ args }: { args: Record<string, any> }) {
 			{edits.map((e, i) => (
 				<div key={i} className="min-w-0">
 					<div className="text-[calc(11px*var(--font-scale))] text-tertiary font-semibold mb-0.5">
-						{edits.length > 1 ? t("blocks.toolCall.editNumber", { index: i + 1 }) : t("blocks.toolCall.contentChange")}
+						{edits.length > 1
+							? t("blocks.toolCall.editNumber", { index: i + 1 })
+							: t("blocks.toolCall.contentChange")}
 					</div>
 					{e.oldText !== undefined && (
 						<>
-							<div className="text-[calc(11px*var(--font-scale))] text-tertiary">{t("blocks.toolCall.oldText")}</div>
+							<div className="text-[calc(11px*var(--font-scale))] text-tertiary">
+								{t("blocks.toolCall.oldText")}
+							</div>
 							<AutoScrollPre text={e.oldText} />
 						</>
 					)}
 					{e.newText !== undefined && (
 						<>
-							<div className="text-[calc(11px*var(--font-scale))] text-tertiary">{t("blocks.toolCall.newText")}</div>
+							<div className="text-[calc(11px*var(--font-scale))] text-tertiary">
+								{t("blocks.toolCall.newText")}
+							</div>
 							<AutoScrollPre text={e.newText} />
 						</>
 					)}
@@ -215,7 +221,15 @@ export function ToolCallCard({
 				)
 			}
 			title={toolCallTitle(toolCall, t("blocks.toolCall.askUserQuestionName"))}
-			meta={!result ? <Spinner /> : failed ? t("blocks.toolCall.failedMeta") : t("blocks.toolCall.doneMeta")}
+			meta={
+				!result ? (
+					<Spinner />
+				) : failed ? (
+					t("blocks.toolCall.failedMeta")
+				) : (
+					t("blocks.toolCall.doneMeta")
+				)
+			}
 			open={open}
 			onToggle={toggle}
 			muted={!!result}

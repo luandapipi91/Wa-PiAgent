@@ -86,7 +86,9 @@ export function DelegateCard({
 		<ProcessCard
 			tone="warning"
 			icon={<Icon name="reply" />}
-			title={t("blocks.delegate.title", { agent: args.agent ?? t("blocks.delegate.defaultAgent") })}
+			title={t("blocks.delegate.title", {
+				agent: args.agent ?? t("blocks.delegate.defaultAgent"),
+			})}
 			meta={
 				!result ? (
 					<>
@@ -110,7 +112,17 @@ export function DelegateCard({
 			muted={!!result}
 			testId={`delegate-${toolCall.id}`}
 		>
-			<div className="mb-1 flex items-start gap-1"><Icon name="clipboard" size={12} style={{ marginTop: 2, flexShrink: 0 }} /><span>{t("blocks.delegate.taskLabel")}{args.task}</span></div>
+			<div className="mb-1 flex items-start gap-1">
+				<Icon
+					name="clipboard"
+					size={12}
+					style={{ marginTop: 2, flexShrink: 0 }}
+				/>
+				<span>
+					{t("blocks.delegate.taskLabel")}
+					{args.task}
+				</span>
+			</div>
 			{hasProgress && (
 				<div
 					className="mt-2 pt-2 border-t border-hairline"
@@ -118,27 +130,16 @@ export function DelegateCard({
 				>
 					{/* 摘要行：始终可见。执行中为纯文本；完成态为开关（展开看最终回复） */}
 					{result ? (
-							<button
-								type="button"
-								aria-label={progressExpanded ? t("common.collapse") : t("common.expand")}
-								onClick={() => setProgressExpanded((v) => !v)}
-								className="w-full flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-tertiary py-1"
-								style={{ cursor: "pointer" }}
-							>
-								<span>
-									{t("blocks.delegate.progressSummary", {
-										status: statusLabel(progress!.status),
-										seconds,
-										total: toolCounts.total,
-										done: toolCounts.done,
-										error: toolCounts.error,
-										running: toolCounts.running,
-									})}
-								</span>
-								<span className="ml-auto"><Icon name={progressExpanded ? "chevron-down" : "chevron-right"} size={10} /></span>
-							</button>
-						) : (
-							<div className="text-[calc(11px*var(--font-scale))] text-tertiary py-1">
+						<button
+							type="button"
+							aria-label={
+								progressExpanded ? t("common.collapse") : t("common.expand")
+							}
+							onClick={() => setProgressExpanded((v) => !v)}
+							className="w-full flex items-center gap-1.5 text-[calc(11px*var(--font-scale))] text-tertiary py-1"
+							style={{ cursor: "pointer" }}
+						>
+							<span>
 								{t("blocks.delegate.progressSummary", {
 									status: statusLabel(progress!.status),
 									seconds,
@@ -147,8 +148,26 @@ export function DelegateCard({
 									error: toolCounts.error,
 									running: toolCounts.running,
 								})}
-							</div>
-						)}
+							</span>
+							<span className="ml-auto">
+								<Icon
+									name={progressExpanded ? "chevron-down" : "chevron-right"}
+									size={10}
+								/>
+							</span>
+						</button>
+					) : (
+						<div className="text-[calc(11px*var(--font-scale))] text-tertiary py-1">
+							{t("blocks.delegate.progressSummary", {
+								status: statusLabel(progress!.status),
+								seconds,
+								total: toolCounts.total,
+								done: toolCounts.done,
+								error: toolCounts.error,
+								running: toolCounts.running,
+							})}
+						</div>
+					)}
 				</div>
 			)}
 			{/* 回复：执行中流式显示 progress.output；完成态仅展开时显示最终 result */}
@@ -157,7 +176,10 @@ export function DelegateCard({
 					data-testid="text-block"
 					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
 				>
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1"><Icon name="share" size={11} /><span>{t("blocks.delegate.replyLabel")}</span></div>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1">
+						<Icon name="share" size={11} />
+						<span>{t("blocks.delegate.replyLabel")}</span>
+					</div>
 					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
 						{replyText}
 					</ReactMarkdown>
