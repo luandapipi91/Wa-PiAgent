@@ -21,6 +21,9 @@ const MAX_DELAY_S = 60;
  * 通用设置：pi 自动重试配置（transient 错误——网络/超时/5xx/限流——后的自动重试）。
  * 保存到 settings.json.retry，pi 进程启动时加载；kernel 保存后会标脏活跃会话，
  * 下次发消息时重建进程生效。
+ *
+ * 语言切换为草稿态：select 只改本地 draft，点「保存」才调 setLanguage 生效；
+ * 关闭窗口不保存则还原（组件卸载，store 仍为原值）。
  */
 export function GeneralSection() {
 	const [maxRetries, setMaxRetries] = useState("3");
@@ -37,6 +40,8 @@ export function GeneralSection() {
 	const language = useUiPrefsStore((s) => s.language);
 	const setLanguage = useUiPrefsStore((s) => s.setLanguage);
 	const { t } = useTranslation();
+	// 语言草稿：select 改草稿，点保存才 setLanguage 生效；关闭窗口丢弃草稿。
+	const [draftLang, setDraftLang] = useState<AppLanguage>(language);
 
 	useEffect(() => {
 		api
@@ -69,6 +74,8 @@ export function GeneralSection() {
 				retry: { maxRetries: retries, baseDelayMs: delayMs },
 				httpIdleTimeoutMs: httpIdleMs,
 			});
+			// 语言草稿生效（仅当与当前值不同时才写入）
+			if (draftLang !== language) setLanguage(draftLang);
 			setSaved(true);
 		} catch (e) {
 			// 保存失败：用 toast 提示，不再在按钮旁显示 inline 文本
@@ -129,7 +136,7 @@ export function GeneralSection() {
 					data-testid="export-turns-slider"
 				/>
 				<span
-					className="text-sm text-primary w-12 text-right"
+					className="text-sm text-primary w-16 text-right whitespace-nowrap"
 					data-testid="export-turns-value"
 				>
 					{exportTurns} {t("settings.general.exportTurns.unit")}
@@ -137,14 +144,14 @@ export function GeneralSection() {
 			</div>
 			<div className="flex flex-col gap-1">
 				<span className="text-sm font-medium text-primary">{t("settings.general.retry.label")}</span>
-					<span className="text-xs text-tertiary">
-						{t("settings.general.retry.desc")}
-					</span>
-				</div>
-				<label className="flex flex-col gap-1 w-56">
-					<span className="text-xs text-secondary">
-						{t("settings.general.retry.maxLabel", { max: MAX_RETRIES })}
-					</span>
+				<span className="text-xs text-tertiary">
+					{t("settings.general.retry.desc")}
+				</span>
+			</div>
+			<label className="flex flex-col gap-1 w-56">
+				<span className="text-xs text-secondary">
+					{t("settings.general.retry.maxLabel", { max: MAX_RETRIES })}
+				</span>
 				<input
 					type="number"
 					min={0}
@@ -195,6 +202,25 @@ export function GeneralSection() {
 			<span className="text-xs text-tertiary -mt-1">
 				{t("settings.general.retry.httpTimeoutHint")}
 			</span>
+			{/* 语言切换：草稿态，点保存才生效 */}
+			<div className="flex flex-col gap-1">
+				<span className="text-sm font-medium text-primary">{t("settings.general.language.label")}</span>
+				<span className="text-xs text-tertiary">
+					{t("settings.general.language.desc")}
+				</span>
+			</div>
+			<select
+				value={draftLang}
+				onChange={(e) => {
+					setDraftLang(e.target.value as AppLanguage);
+					setSaved(false);
+				}}
+				className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-56"
+				data-testid="language-select"
+			>
+				<option value="zh">{t("settings.general.language.zh")}</option>
+				<option value="en">{t("settings.general.language.en")}</option>
+			</select>
 			<div className="flex items-center gap-3">
 				<button
 					onClick={() => void handleSave()}
@@ -206,10 +232,10 @@ export function GeneralSection() {
 							: { background: "var(--brand)", color: "var(--on-brand)" }
 					}
 					data-testid="retry-save-btn"
-					>
-						{saving ? t("common.saving") : t("common.save")}
-					</button>
-					{saved && <span className="text-xs text-secondary">{t("common.saved")}</span>}
+				>
+					{saving ? t("common.saving") : t("common.save")}
+				</button>
+				{saved && <span className="text-xs text-secondary">{t("common.saved")}</span>}
 				{error && (
 					<span
 						className="text-xs"
@@ -220,21 +246,6 @@ export function GeneralSection() {
 					</span>
 				)}
 			</div>
-			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">{t("settings.general.language.label")}</span>
-				<span className="text-xs text-tertiary">
-					{t("settings.general.language.desc")}
-				</span>
-			</div>
-			<select
-				value={language}
-				onChange={(e) => setLanguage(e.target.value as AppLanguage)}
-				className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-56"
-				data-testid="language-select"
-			>
-				<option value="zh">{t("settings.general.language.zh")}</option>
-				<option value="en">{t("settings.general.language.en")}</option>
-			</select>
 		</div>
 	);
 }

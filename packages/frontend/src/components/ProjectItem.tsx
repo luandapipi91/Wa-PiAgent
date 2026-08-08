@@ -227,7 +227,7 @@ export function ProjectItem(props: Props) {
 					data-testid={`project-name-${project.id}`}
 					title={project.cwd}
 				>
-					{project.name}
+					{isSystem ? t("projectList.systemProjectName") : project.name}
 				</button>
 			</div>
 

@@ -248,7 +248,7 @@ export function BotsSection() {
 									? projects
 									: [{ id: SYSTEM_PROJECT_ID, name: SYSTEM_PROJECT_NAME, cwd: "", createdAt: 0 } as ProjectEntity, ...projects]
 								).map((p) => (
-									<option key={p.id} value={p.id}>{p.name}</option>
+									<option key={p.id} value={p.id}>{p.id === SYSTEM_PROJECT_ID ? t("projectList.systemProjectName") : p.name}</option>
 								))}
 							</select>
 							<span className="text-xs text-tertiary">{t("settings.bot.defaultProjectHint")}</span>

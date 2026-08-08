@@ -46,7 +46,9 @@ test.describe("系统设置-通用 语言切换", () => {
     await page.getByTestId("settings-btn").click();
     await expect(page.getByTestId("settings-modal")).toBeVisible({ timeout: 5000 });
 
+    // 语言为草稿态：select 改英文后需点保存才生效
     await page.getByTestId("language-select").selectOption("en");
+    await page.getByTestId("retry-save-btn").click();
 
     await expect(page.getByText("Settings").first()).toBeVisible();
     await expect(page.getByTestId("settings-nav-general")).toHaveText("General");
@@ -87,7 +89,9 @@ test.describe("系统设置-通用 语言切换", () => {
     // 起始英文
     await expect(page.getByText("Settings").first()).toBeVisible();
 
+    // 语言为草稿态：select 改中文后需点保存才生效
     await page.getByTestId("language-select").selectOption("zh");
+    await page.getByTestId("retry-save-btn").click();
     await expect(page.getByText("系统设置").first()).toBeVisible();
     await expect(page.getByTestId("settings-nav-general")).toHaveText("通用");
     await expect(page.getByText("文字大小").first()).toBeVisible();
