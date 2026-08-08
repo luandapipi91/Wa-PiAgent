@@ -396,6 +396,17 @@ const zh = {
 		ctxView: " 查看", ctxEdit: " 编辑智能体",
 		deleteTitle: "删除智能体", deleteConfirmMsg: "确定删除智能体「{{name}}」吗？此操作不可撤销。{{usageHint}}",
 	},
+	agentCreatePicker: {
+		tabBlank: "✚ 创建新智能体", tabPreset: "📚 从预设选择",
+		nameLabel: "TA 的名字", reshuffle: "换一个",
+		nameTaken: "这个名字已被占用",
+		creating: "创建中…", create: "创建",
+		searchPlaceholder: "🔍 搜索 {{count}} 个预设智能体（名字 / 描述）…",
+		noMatch: "没有匹配的预设",
+		roleLine: "角色：{{name}} · {{department}}",
+		saving: "保存中…", saveAsMine: "保存为我的智能体 ✓",
+		backToList: "← 返回列表",
+	},
 	agentList: {
 		usageHint: "注意：该智能体正被 {{count}} 个机器人（{{names}}）使用，删除后这些机器人将改用默认智能体。",
 		sectionTitle: "智能体", more: "⋯ 更多智能体 ({{count}})",
