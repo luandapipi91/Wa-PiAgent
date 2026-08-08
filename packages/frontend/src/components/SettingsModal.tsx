@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useTranslation } from "../i18n/useTranslation";
 import { Modal } from "./ui/Modal";
 import { GeneralSection } from "./settings/GeneralSection";
@@ -10,6 +11,7 @@ import { McpSection } from "./settings/McpSection";
 import { BotsSection } from "./settings/BotsSection";
 import { AboutSection } from "./settings/AboutSection";
 import { useSettingsStore } from "../store/settings";
+import { useUpdaterStore } from "../store/updater";
 
 interface Props {
   onClose: () => void;
@@ -19,6 +21,17 @@ export function SettingsModal({ onClose }: Props) {
   const activeSection = useSettingsStore(s => s.activeSection);
   const setSection = useSettingsStore(s => s.setSection);
   const { t } = useTranslation();
+
+  // 打开设置时自动检查更新（仅桌面版，浏览器无 waPiUpdater）
+  const isDesktop = useUpdaterStore(s => s.isDesktop);
+  const updaterStatus = useUpdaterStore(s => s.status);
+  const checkForUpdates = useUpdaterStore(s => s.checkForUpdates);
+  useEffect(() => {
+    if (isDesktop) void checkForUpdates();
+  }, [isDesktop, checkForUpdates]);
+
+  // 有新版本且当前不在「关于」tab → 关于按钮显示红点
+  const showUpdateDot = (updaterStatus === "available" || updaterStatus === "downloaded") && activeSection !== "about";
 
   return (
     <Modal onClose={onClose} width="80vw" height="80vh" data-testid="settings-modal">
@@ -91,12 +104,21 @@ export function SettingsModal({ onClose }: Props) {
           >{t("settings.nav.diagnostics")}</button>
           <button
             onClick={() => setSection("about")}
-            className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
+            className="relative px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "about"
               ? { background: "var(--surface-hover)", color: "var(--brand)" }
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-about"
-          >{t("settings.nav.about")}</button>
+          >
+            {t("settings.nav.about")}
+            {showUpdateDot && (
+              <span
+                className="absolute top-1 right-1.5 w-1.5 h-1.5 rounded-full"
+                style={{ background: "var(--danger, #ef4444)" }}
+                data-testid="update-badge"
+              />
+            )}
+          </button>
         </nav>
         {/* 右侧内容 */}
         <div className="flex-1 flex flex-col overflow-hidden">
