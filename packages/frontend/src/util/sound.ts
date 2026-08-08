@@ -15,7 +15,8 @@ function getCtx(): AudioContext | null {
 			if (!AC) return null;
 			ctx = new AC();
 		}
-		if (ctx!.state === "suspended") void ctx!.resume();
+		// resume() 返回 Promise：自动播放策略阻止时（如 Safari）会 reject，必须捕获，否则产生 unhandled rejection 控制台报错
+		if (ctx!.state === "suspended") void ctx!.resume().catch(() => {});
 		return ctx;
 	} catch {
 		return null;
