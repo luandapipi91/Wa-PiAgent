@@ -59,6 +59,12 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
   useEffect(() => {
     if (!agentName && agents.length > 0) setAgentName(pickDefaultAgent(agents, sessions, pendingAgent, defaultAgent));
   }, [agents, agentName, pendingAgent, sessions, defaultAgent]);
+  // 向导重设默认智能体后同步已挂载面板的选择（defaultAgent 只有向导会写，覆盖当前选择语义正确）
+  useEffect(() => {
+    if (defaultAgent && agents.some(a => a.displayName === defaultAgent)) {
+      setAgentName(defaultAgent as AgentName);
+    }
+  }, [defaultAgent]);
   // 挂载消费一次：初始值取用后通知 App 清除 pendingAgent（空依赖，仅首次挂载）
   useEffect(() => { if (pendingAgent) onConsumePendingAgent?.(); }, []);
   // 新建会话的 sessionId 按当前项目持久化，切换再回来仍能对应同一组 composer 附件/录音
