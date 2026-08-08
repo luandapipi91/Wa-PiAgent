@@ -42,6 +42,10 @@ export function GeneralSection() {
 	const { t } = useTranslation();
 	// 语言草稿：select 改草稿，点保存才 setLanguage 生效；关闭窗口丢弃草稿。
 	const [draftLang, setDraftLang] = useState<AppLanguage>(language);
+	// 字号 / 导出轮数草稿：滑块只改草稿，点保存才 setFontSize/setExportTurns 生效，
+	// 与语言/重试配置一致（保存后才生效）。关闭窗口不保存则还原（store 仍为原值）。
+	const [draftFontSize, setDraftFontSize] = useState(fontSize);
+	const [draftExportTurns, setDraftExportTurns] = useState(exportTurns);
 
 	useEffect(() => {
 		api
@@ -69,11 +73,14 @@ export function GeneralSection() {
 		const httpIdleMs = Math.round(Number(httpTimeoutSeconds) * 1000);
 		setSaving(true);
 		setSaved(false);
-		try {
+			try {
 			await api.put("/api/settings/retry", {
 				retry: { maxRetries: retries, baseDelayMs: delayMs },
 				httpIdleTimeoutMs: httpIdleMs,
 			});
+			// 字号 / 导出轮数草稿生效（仅当与当前值不同时才写入）
+			if (draftFontSize !== fontSize) setFontSize(draftFontSize);
+			if (draftExportTurns !== exportTurns) setExportTurns(draftExportTurns);
 			// 语言草稿生效（仅当与当前值不同时才写入）
 			if (draftLang !== language) setLanguage(draftLang);
 			setSaved(true);
@@ -104,8 +111,11 @@ export function GeneralSection() {
 					min={FONT_SIZE_MIN}
 					max={FONT_SIZE_MAX}
 					step={1}
-					value={fontSize}
-					onChange={(e) => setFontSize(Number(e.target.value))}
+					value={draftFontSize}
+					onChange={(e) => {
+						setDraftFontSize(Number(e.target.value));
+						setSaved(false);
+					}}
 					className="flex-1 cursor-pointer"
 					style={{ accentColor: "var(--brand)" }}
 					data-testid="font-size-slider"
@@ -114,7 +124,7 @@ export function GeneralSection() {
 					className="text-sm text-primary w-12 text-right"
 					data-testid="font-size-value"
 				>
-					{fontSize}px
+					{draftFontSize}px
 				</span>
 			</div>
 			<div className="flex flex-col gap-1">
@@ -129,8 +139,11 @@ export function GeneralSection() {
 					min={EXPORT_TURNS_MIN}
 					max={EXPORT_TURNS_MAX}
 					step={1}
-					value={exportTurns}
-					onChange={(e) => setExportTurns(Number(e.target.value))}
+					value={draftExportTurns}
+					onChange={(e) => {
+						setDraftExportTurns(Number(e.target.value));
+						setSaved(false);
+					}}
 					className="flex-1 cursor-pointer"
 					style={{ accentColor: "var(--brand)" }}
 					data-testid="export-turns-slider"
@@ -139,7 +152,7 @@ export function GeneralSection() {
 					className="text-sm text-primary w-16 text-right whitespace-nowrap"
 					data-testid="export-turns-value"
 				>
-					{exportTurns} {t("settings.general.exportTurns.unit")}
+					{draftExportTurns} {t("settings.general.exportTurns.unit")}
 				</span>
 			</div>
 			<div className="flex flex-col gap-1">

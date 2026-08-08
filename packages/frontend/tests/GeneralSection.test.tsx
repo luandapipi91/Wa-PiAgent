@@ -34,7 +34,7 @@ beforeEach(() => {
 	useToastStore.setState({ toasts: [] });
 });
 
-test("文字大小滑块：显示当前字号，拖动即时更新 store 与界面缩放", async () => {
+test("文字大小滑块：显示当前字号，拖动只改草稿，点保存才生效", async () => {
 	render(<GeneralSection />);
 	await waitFor(() =>
 		expect(
@@ -45,12 +45,42 @@ test("文字大小滑块：显示当前字号，拖动即时更新 store 与界�
 	expect(slider.value).toBe("16");
 	expect(screen.getByTestId("font-size-value").textContent).toBe("16px");
 
+	// 拖动：界面显示草稿值，但 store 与 CSS 变量不立即变（保存后才生效）
 	fireEvent.change(slider, { target: { value: "24" } });
-	expect(useUiPrefsStore.getState().fontSize).toBe(24);
 	expect(screen.getByTestId("font-size-value").textContent).toBe("24px");
-	expect(document.documentElement.style.getPropertyValue("--font-scale")).toBe(
-		"1.5",
+	expect(useUiPrefsStore.getState().fontSize).toBe(16);
+	// 初始 16px → 1.0；未保存时不应变成 1.5
+	expect(
+		document.documentElement.style.getPropertyValue("--font-scale"),
+	).toBe("1");
+
+	// 点保存：store 更新 + CSS 变量应用
+	fireEvent.click(screen.getByTestId("retry-save-btn"));
+	await waitFor(() => expect(useUiPrefsStore.getState().fontSize).toBe(24));
+	expect(
+		document.documentElement.style.getPropertyValue("--font-scale"),
+	).toBe("1.5");
+});
+
+test("导出轮数滑块：拖动只改草稿，点保存才生效", async () => {
+	render(<GeneralSection />);
+	await waitFor(() =>
+		expect(
+			(screen.getByTestId("retry-max-input") as HTMLInputElement).value,
+		).toBe("3"),
 	);
+	const slider = screen.getByTestId("export-turns-slider") as HTMLInputElement;
+	expect(slider.value).toBe("1");
+	expect(screen.getByTestId("export-turns-value").textContent).toContain("1");
+
+	// 拖动到 3：界面显示草稿，store 不变
+	fireEvent.change(slider, { target: { value: "3" } });
+	expect(screen.getByTestId("export-turns-value").textContent).toContain("3");
+	expect(useUiPrefsStore.getState().exportTurns).toBe(1);
+
+	// 点保存：store 更新
+	fireEvent.click(screen.getByTestId("retry-save-btn"));
+	await waitFor(() => expect(useUiPrefsStore.getState().exportTurns).toBe(3));
 });
 
 test("挂载时拉取当前配置并回填表单", async () => {
