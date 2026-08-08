@@ -13,8 +13,7 @@ mock.module("../src/util/sound", () => ({
 
 mock.module("../src/api-client", () => ({
 	api: {
-		get: () =>
-			Promise.resolve({ retry: { maxRetries: 3, baseDelayMs: 2000 } }),
+		get: () => Promise.resolve({ retry: { maxRetries: 3, baseDelayMs: 2000 } }),
 		post: () => Promise.resolve({}),
 		put: () => Promise.resolve({}),
 		del: () => Promise.resolve({}),

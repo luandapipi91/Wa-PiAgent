@@ -55,10 +55,10 @@
 
 	/* —— 品牌与强调 —— */
 	/* brand 用青蛙绿 #4BA26F（与 logo.svg / desktop BRAND_GREEN 统一） */
-	--brand: #4BA26F;
-	--brand-soft: #6BB58A;
+	--brand: #4ba26f;
+	--brand-soft: #6bb58a;
 	--on-brand: #ffffff;
-	--accent: #4BA26F;
+	--accent: #4ba26f;
 	--accent-soft: #e8f5ee;
 	--on-accent: #ffffff;
 
@@ -435,9 +435,21 @@ input[type="range"]::-moz-range-thumb {
 /* ===== 文字大小缩放：覆盖 Tailwind rem 字号类（系统设置 > 通用） =====
    px 任意值（text-[calc(...)]）与上方自定义规则已逐一挂 --font-scale；
    这里覆盖实际使用的 rem 字号类，保证两类文字同步缩放。 */
-.text-xs { font-size: calc(0.75rem * var(--font-scale)); }
-.text-sm { font-size: calc(0.875rem * var(--font-scale)); }
-.text-base { font-size: calc(1rem * var(--font-scale)); }
-.text-lg { font-size: calc(1.125rem * var(--font-scale)); }
-.text-xl { font-size: calc(1.25rem * var(--font-scale)); }
-.text-3xl { font-size: calc(1.875rem * var(--font-scale)); }
+.text-xs {
+	font-size: calc(0.75rem * var(--font-scale));
+}
+.text-sm {
+	font-size: calc(0.875rem * var(--font-scale));
+}
+.text-base {
+	font-size: calc(1rem * var(--font-scale));
+}
+.text-lg {
+	font-size: calc(1.125rem * var(--font-scale));
+}
+.text-xl {
+	font-size: calc(1.25rem * var(--font-scale));
+}
+.text-3xl {
+	font-size: calc(1.875rem * var(--font-scale));
+}
