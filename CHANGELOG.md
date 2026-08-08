@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **新增 AgentCreatePicker 组件（初始化向导 Task 9）**：`packages/frontend/src/components/onboarding/AgentCreatePicker.tsx`，向导第 2 步与宫格新建共用。空白创建（随机人名 + 🎲 换名 + 重名置灰，走 `POST /api/agents`）/ 预设选择（搜索 + 部门分组 + 命名面板，走 `POST /api/agents/from-preset`，409 时 toast 并自动换名）。文案走 i18n 新增 `agentCreatePicker.*` 键（zh/en 同步）。注意：`autoFocusTab` 默认值为 `"blank"`（简报示例代码写的 `"preset"` 与其自带的逐字测试冲突——测试 5 不点 Tab 直接断言空白面板可见）。
+  - 影响范围：`packages/frontend/src/components/onboarding/AgentCreatePicker.tsx`、`AgentCreatePicker.test.tsx`、`packages/frontend/src/i18n/locales/zh.ts`、`en.ts`。
+
 - **新增 agents presets API curl 集成测试脚本（初始化向导 Task 5）**：`scripts/agents-presets-api-it.sh`，覆盖 `GET /api/agents/presets`（数组/预设 id/元数据不含 body）、`POST /api/agents/from-preset`（200/重名 409/未知 id 404/正文注入名字）及清理（DELETE 200）共 9 项断言；`BASE_URL` 环境变量可覆盖，默认 `http://127.0.0.1:9776`。
   - 影响范围：`scripts/agents-presets-api-it.sh`。
 

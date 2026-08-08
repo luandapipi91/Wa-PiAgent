@@ -396,6 +396,17 @@ const en = {
 		ctxView: " View", ctxEdit: " Edit agent",
 		deleteTitle: "Delete agent", deleteConfirmMsg: "Delete agent \"{{name}}\"? This cannot be undone. {{usageHint}}",
 	},
+	agentCreatePicker: {
+		tabBlank: "✚ New agent", tabPreset: "📚 Pick from presets",
+		nameLabel: "Its name", reshuffle: "Shuffle",
+		nameTaken: "This name is taken",
+		creating: "Creating…", create: "Create",
+		searchPlaceholder: "🔍 Search {{count}} preset agents (name / description)…",
+		noMatch: "No matching presets",
+		roleLine: "Role: {{name}} · {{department}}",
+		saving: "Saving…", saveAsMine: "Save as my agent ✓",
+		backToList: "← Back to list",
+	},
 	agentList: {
 		usageHint: "Note: this agent is used by {{count}} bot(s) ({{names}}). Deleting it will make them fall back to the default agent.",
 		sectionTitle: "Agents", more: "⋯ More agents ({{count}})",
