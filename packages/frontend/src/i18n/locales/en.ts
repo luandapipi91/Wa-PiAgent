@@ -387,6 +387,7 @@ const en = {
 	newSession: {
 		title: "Start a new session", subtitle: "Pick a project directory and a role, then type to send",
 		noProjectOption: "(no project, create one first)", placeholder: "Message {{agent}}...",
+		defaultAgent: "agent",
 	},
 	agentGallery: {
 		usageHint: "Note: this agent is used by {{count}} bot(s) ({{names}}). Deleting it will make them fall back to the default agent.",

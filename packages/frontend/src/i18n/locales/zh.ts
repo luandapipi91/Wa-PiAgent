@@ -387,6 +387,7 @@ const zh = {
 	newSession: {
 		title: "开始新会话", subtitle: "选好项目目录和角色，直接打字发送",
 		noProjectOption: "（无项目，请先新建）", placeholder: "给{{agent}}发消息...",
+		defaultAgent: "研发",
 	},
 	agentGallery: {
 		usageHint: "注意：该智能体正被 {{count}} 个机器人（{{names}}）使用，删除后这些机器人将改用默认智能体。",
