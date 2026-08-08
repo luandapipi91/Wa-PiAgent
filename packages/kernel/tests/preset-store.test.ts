@@ -8,6 +8,7 @@ import {
   buildAgentConfigFromPreset,
   createAgentFromPreset,
 } from "../src/preset-store";
+import { makeDefaultAgentConfig } from "../src/agent-md";
 
 function tempAgentsDir() {
   const dir = join(import.meta.dir, ".tmp-presets-" + Math.random().toString(36).slice(2));
@@ -37,6 +38,23 @@ test("buildAgentConfigFromPreset 注入名字与预设字段", () => {
   if (preset.color) expect(config.avatarColor).toBe(`${preset.color}-${preset.color}`);
   expect(config.systemPromptBody!.startsWith("你的名字是「林晓岚」。")).toBe(true);
   expect(config.systemPromptBody!).toContain(preset.body.slice(0, 20));
+});
+
+test("buildAgentConfigFromPreset 非法 CSS 颜色时保留默认渐变", () => {
+  // 预设库中部分 color（如 "indigo"）不是合法 CSS 颜色，拼进渐变会让整条声明失效，
+  // 此时应回落到 makeDefaultAgentConfig 的默认渐变
+  const preset = {
+    id: "fake-indigo",
+    name: "假预设",
+    department: "测试部",
+    description: "用于测试颜色守卫",
+    emoji: "🧪",
+    color: "indigo",
+    body: "正文内容",
+  };
+  const config = buildAgentConfigFromPreset(preset, "林晓岚");
+  expect(config.avatarColor).toBe(makeDefaultAgentConfig("任意名").avatarColor);
+  expect(config.avatarColor).not.toBe("indigo-indigo");
 });
 
 test("createAgentFromPreset 成功创建并写盘", async () => {
