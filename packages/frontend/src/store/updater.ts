@@ -83,7 +83,7 @@ function applyEvent(state: UpdaterState, payload: Record<string, unknown>): Part
  * - checkForUpdates/downloadUpdate/quitAndInstall 调 IPC；事件流经 onEvent → applyEvent 更新状态
  * - initUpdater 在 App 挂载时调用：拉取版本信息 + 订阅事件；浏览器 dev 下无 waPiUpdater 直接返回
  */
-export const useUpdaterStore = create<UpdaterState>((set, get) => ({
+export const useUpdaterStore = create<UpdaterState>((set) => ({
 	...initialState,
 
 	checkForUpdates: async () => {

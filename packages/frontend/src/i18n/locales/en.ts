@@ -506,7 +506,6 @@ const en = {
 			empty: "No extension errors",
 		},
 		about: {
-			versionLabel: "Version",
 			version: "Version {{version}}",
 			checkUpdate: "Check for Updates",
 			checking: "Checking for updates…",

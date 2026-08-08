@@ -53,14 +53,26 @@ async function main() {
     console.error("创建 release 失败:", createRes.status, await createRes.text());
     process.exit(1);
   }
-  const release = await createRes.json();
+  let releaseId: number;
+  if (createRes.status === 409) {
+    // tag 已存在：查询已有 release 取 id（补丁发版场景）
+    const listRes = await fetch(`${API}/repos/${OWNER}/${REPO}/releases/tags/v${version}?access_token=${token}`);
+    if (!listRes.ok) {
+      console.error(`tag v${version} 已存在但查询 release 失败:`, listRes.status, await listRes.text());
+      console.error(`请手动到 https://gitee.com/${OWNER}/${REPO}/releases/v${version} 上传产物`);
+      process.exit(1);
+    }
+    releaseId = (await listRes.json()).id;
+  } else {
+    releaseId = (await createRes.json()).id;
+  }
 
   // 2) 上传附件
   for (const a of artifacts) {
     const form = new FormData();
     form.append("file", new Blob([readFileSync(a.path)]), a.name);
     form.append("access_token", token);
-    const upRes = await fetch(`${API}/repos/${OWNER}/${REPO}/releases/${release.id}/attach_files`, {
+    const upRes = await fetch(`${API}/repos/${OWNER}/${REPO}/releases/${releaseId}/attach_files`, {
       method: "POST",
       body: form,
     });

@@ -506,7 +506,6 @@ const zh = {
 			empty: "暂无扩展错误",
 		},
 		about: {
-			versionLabel: "版本",
 			version: "版本 {{version}}",
 			checkUpdate: "检查更新",
 			checking: "正在检查更新…",

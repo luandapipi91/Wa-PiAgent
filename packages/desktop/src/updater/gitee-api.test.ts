@@ -1,7 +1,5 @@
 import { test, expect, describe } from "bun:test";
 import {
-  fetchGiteeLatestRelease,
-  fetchGiteeAttachFiles,
   fetchText,
   findLatestYml,
   buildGiteeApi,
