@@ -199,17 +199,25 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
         document.body
       )}
 
-      {/* 新建智能体面板：与删除确认同层；创建成功后关闭面板并回调 onCreated（乐观打开契约）。
+      {/* 新建智能体面板：独立弹窗层（与删除确认同层），避免塞在宫格卡片底部被挤出视口。
+          创建成功后关闭面板并回调 onCreated（乐观打开契约）。
           宫格场景不调 setDefaultAgent（向导专属），autoFocusTab 默认 preset。 */}
       {creating && (
-        <AgentCreatePicker
-          autoFocusTab="preset"
-          onCreated={(name) => {
-            setCreating(false);
-            onCreated(name);
-          }}
-          onCancel={() => setCreating(false)}
-        />
+        <Modal onClose={() => setCreating(false)} width={560} data-testid="agent-create-modal">
+          <div className="px-5 py-3.5 border-b border-hairline text-sm font-bold text-primary">
+            {t("agentGallery.createAgent")}
+          </div>
+          <div className="px-5 py-4 max-h-[70vh] overflow-y-auto">
+            <AgentCreatePicker
+              autoFocusTab="preset"
+              onCreated={(name) => {
+                setCreating(false);
+                onCreated(name);
+              }}
+              onCancel={() => setCreating(false)}
+            />
+          </div>
+        </Modal>
       )}
 
       {/* 删除二次确认 */}
