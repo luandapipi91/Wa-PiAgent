@@ -26,6 +26,7 @@ import { useChannelsStore } from "./store/channels";
 import { useToastStore } from "./store/toast";
 import { useComposerPrefsStore } from "./store/composer-prefs";
 import { useSubagentsStore } from "./store/subagents";
+import { initUpdater } from "./store/updater";
 import {
 	onMessage,
 	connectEvents,
@@ -88,6 +89,8 @@ export function App() {
 		useExtensionsStore.getState().load();
 		useAgentsStore.getState().loadAll();
 		useSubagentsStore.getState().load();
+		// 应用更新 IPC 桥接：desktop 下订阅 updater 事件并拉取版本信息；浏览器 dev 下无 waPiUpdater 直接返回
+		initUpdater();
 		const offReconnect = onReconnect(() => {
 			// SSE 断线重连后刷新快照对齐状态。
 			// kernel 可能经历崩溃重启（见 kernel-sidecar auto-respawn），重连后需把

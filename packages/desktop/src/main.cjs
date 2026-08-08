@@ -296,6 +296,21 @@ app.whenReady().then(async () => {
 	setProgress(10, "正在初始化…");
 	createWindow();
 
+	// 自动更新：系统设置 → 关于（Gitee Releases + electron-updater）
+	// WA_PI_UPDATER_* env 仅供 E2E/测试指向本地 mock，生产默认走 https://gitee.com/api/v5
+	const { setupUpdater } = require("./updater/updater.cjs");
+	setupUpdater({
+		getMainWindow: () => mainWindow,
+		log: (m) => log.info(m),
+		isPackaged: app.isPackaged,
+		currentVersion: app.getVersion(),
+		config: {
+			baseUrl: process.env.WA_PI_UPDATER_BASE_URL || undefined,
+			owner: process.env.WA_PI_UPDATER_OWNER || undefined,
+			repo: process.env.WA_PI_UPDATER_REPO || undefined,
+		},
+	});
+
 	// 端口被占用时启动页「重启应用」按钮的处理：杀掉占用 9778 的进程后重启本应用
 	ipcMain.handle("app:restart-after-port-kill", async () => {
 		const pids = await killPortOccupants(FIXED_PORT, undefined, (m) => log.info(m));
