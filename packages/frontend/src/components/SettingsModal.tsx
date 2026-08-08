@@ -8,6 +8,7 @@ import { ExtensionSection } from "./settings/ExtensionSection";
 import { MemorySection } from "./settings/MemorySection";
 import { McpSection } from "./settings/McpSection";
 import { BotsSection } from "./settings/BotsSection";
+import { AboutSection } from "./settings/AboutSection";
 import { useSettingsStore } from "../store/settings";
 
 interface Props {
@@ -88,6 +89,14 @@ export function SettingsModal({ onClose }: Props) {
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-diagnostics"
           >{t("settings.nav.diagnostics")}</button>
+          <button
+            onClick={() => setSection("about")}
+            className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
+            style={activeSection === "about"
+              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              : { color: "var(--secondary)" }}
+            data-testid="settings-nav-about"
+          >{t("settings.nav.about")}</button>
         </nav>
         {/* 右侧内容 */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -99,6 +108,7 @@ export function SettingsModal({ onClose }: Props) {
           {activeSection === "mcp" && <McpSection />}
           {activeSection === "bots" && <BotsSection />}
           {activeSection === "diagnostics" && <DiagnosticsSection />}
+          {activeSection === "about" && <AboutSection />}
         </div>
       </div>
     </Modal>

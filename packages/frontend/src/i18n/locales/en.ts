@@ -472,6 +472,7 @@ const en = {
 			mcp: "MCP Connectors",
 			bots: "Bots",
 			diagnostics: "Diagnostics",
+			about: "About",
 		},
 		general: {
 			fontSize: {
@@ -503,6 +504,22 @@ const en = {
 			title: "Extension errors ({{count}} most recent)",
 			clear: "Clear",
 			empty: "No extension errors",
+		},
+		about: {
+			versionLabel: "Version",
+			version: "Version {{version}}",
+			checkUpdate: "Check for Updates",
+			checking: "Checking for updates…",
+			foundNew: "New version available",
+			downloadNow: "Download & Update",
+			downloading: "Downloading",
+			downloaded: "Update ready",
+			downloadedHint: "Version {{version}} has been downloaded",
+			restartInstall: "Restart & Install",
+			upToDate: "You're up to date",
+			desktopOnly: "Auto-update is only available in the desktop app",
+			retry: "Retry",
+			updateFailed: "Update failed",
 		},
 		provider: {
 			add: "+ Add provider",
