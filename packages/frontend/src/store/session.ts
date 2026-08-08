@@ -15,6 +15,7 @@ import { useToastStore } from "./toast";
 import { useExtDialogStore } from "./ext-dialog";
 import { StreamingBatcher } from "./streaming-batcher";
 import { fmtTok } from "../util/format";
+import { playNeedsAction, playTaskDone } from "../util/sound";
 
 interface SessionState {
 	// 已定稿消息：渲染主列表来源
@@ -769,6 +770,16 @@ export const useSessionStore = create<SessionState>((set) => {
 						break;
 					}
 					if (msg.role !== "assistant") break;
+					// 需要操作提示音：assistant 消息含新的 ask_user_question 工具调用时播放。
+					// 历史消息经 api 加载直接 set、不经过 message_end，不会误触发。
+					if (
+						Array.isArray(msg.content) &&
+						msg.content.some(
+							(b: any) => b?.type === "toolCall" && b.name === "ask_user_question",
+						)
+					) {
+						playNeedsAction();
+					}
 					// 记录最近一次调用的 usage（供 SessionView 渲染「本轮」胶囊）
 					if (msg.usage) {
 						set((s) => ({
@@ -877,6 +888,8 @@ export const useSessionStore = create<SessionState>((set) => {
 					// 保持 thinking（不结算 idle/未读/耗时），等真正终态：成功轮的
 					// agent_end{willRetry:false}，或重试耗尽/中止的 auto_retry_end{success:false}。
 					if (event.willRetry === true) break;
+					// 任务完成提示音：仅终态播放（自动重试中间态上面已 break）
+					playTaskDone();
 					const away =
 						sessionId !== useProjectsStore.getState().currentSessionId;
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 复活
