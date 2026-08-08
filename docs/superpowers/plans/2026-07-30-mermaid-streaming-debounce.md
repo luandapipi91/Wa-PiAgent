@@ -333,7 +333,7 @@ git commit -m "docs: 更新 CHANGELOG——Mermaid 流式渲染防闪烁"
 
 - [ ] **Step 1: 启动前端 dev 服务**
 
-Run: `cd /Users/pipi/work/HiAgent && export PATH="$HOME/.bun/bin:$PATH" && bun run dev:frontend`
+Run: `cd /path/to/HiAgent && export PATH="$HOME/.bun/bin:$PATH" && bun run dev:frontend`
 Expected: Vite dev server 起来，可访问前端页面。
 
 - [ ] **Step 2: 发一条会生成 Mermaid 图的消息，观察流式过程**
@@ -355,7 +355,7 @@ Expected: Vite dev server 起来，可访问前端页面。
 
 删除本次验证产生的所有截图文件（无论存放位置）：
 
-Run: `find /Users/pipi/work/HiAgent -name "*.png" -newer /tmp/marker 2>/dev/null -delete`（或手动删除本次产生的截图，确认不残留）。
+Run: `find /path/to/HiAgent -name "*.png" -newer /tmp/marker 2>/dev/null -delete`（或手动删除本次产生的截图，确认不残留）。
 
 Expected: 项目中无本次测试残留截图。
 

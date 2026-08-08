@@ -99,14 +99,14 @@ export interface SubagentProgressServerEvent {
 确认 `packages/shared/src/index.ts` 里 `export * from "./types"` 或等价导出已覆盖新类型（通常已是 `export *`，无需改）。运行：
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun -e "import { type SubagentProgressEvent, type BridgeStreamFrame, type SubagentProgressServerEvent } from '@wa-pi/shared'; console.log('ok')"
+cd /path/to/HiAgent && bun -e "import { type SubagentProgressEvent, type BridgeStreamFrame, type SubagentProgressServerEvent } from '@wa-pi/shared'; console.log('ok')"
 ```
 预期：输出 `ok`，无 TS 报错。
 
 - [ ] **Step 4: 类型检查**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bunx tsc --noEmit -p packages/shared/tsconfig.json 2>&1 | head -20
+cd /path/to/HiAgent && bunx tsc --noEmit -p packages/shared/tsconfig.json 2>&1 | head -20
 ```
 预期：无新增错误（可能有既存无关错误，忽略）。
 
@@ -161,21 +161,21 @@ import type { SubagentProgressEvent } from "@wa-pi/shared";
 - [ ] **Step 3: 搜其他引用点，确保都有 import**
 
 ```bash
-cd /Users/pipi/work/HiAgent && grep -rn "SubagentProgressEvent" packages/kernel/src packages/frontend/src
+cd /path/to/HiAgent && grep -rn "SubagentProgressEvent" packages/kernel/src packages/frontend/src
 ```
 预期：所有引用处要么从 `@wa-pi/shared` import，要么从仍 export 它的文件引（subagent-runner 不再 export 它了）。若 kernel 内其他文件直接 `import { SubagentProgressEvent } from "./subagent-runner"`，改为从 `@wa-pi/shared`。
 
 - [ ] **Step 4: 类型检查**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bunx tsc --noEmit -p packages/kernel/tsconfig.json 2>&1 | grep -i "subagentprogress\|cannot find" | head
+cd /path/to/HiAgent && bunx tsc --noEmit -p packages/kernel/tsconfig.json 2>&1 | grep -i "subagentprogress\|cannot find" | head
 ```
 预期：无 `Cannot find name 'SubagentProgressEvent'` 错误。
 
 - [ ] **Step 5: 跑现有 kernel 测试确保未破坏**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/subagent-runner.test.ts 2>&1 | tail -20
+cd /path/to/HiAgent && bun test packages/kernel/tests/subagent-runner.test.ts 2>&1 | tail -20
 ```
 预期：全部通过（仅类型来源变更，行为不变）。
 
@@ -256,7 +256,7 @@ test("makeDelegateTool execute 把 toolCallId 透传给 spawn", async () => {
 - [ ] **Step 2: 运行测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/delegate-tool.test.ts 2>&1 | tail -15
+cd /path/to/HiAgent && bun test packages/kernel/tests/delegate-tool.test.ts 2>&1 | tail -15
 ```
 预期：FAIL（当前 onProgress 签名是 `(event) => void`，且 spawn 不接受 toolCallId）。
 
@@ -308,7 +308,7 @@ const result = await runSubagent(config, task, opts.cwd, {
 - [ ] **Step 7: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/delegate-tool.test.ts 2>&1 | tail -15
+cd /path/to/HiAgent && bun test packages/kernel/tests/delegate-tool.test.ts 2>&1 | tail -15
 ```
 预期：PASS。
 
@@ -316,7 +316,7 @@ cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/delegate-tool.test
 
 `agent-manager.ts:534-559` 的 `makeSpawnFn({...})` 目前不传 onProgress，签名变更不影响（新参数可选）。但 `spawnFn` 被调用的地方（搜索 `spawnFn(` 或经 delegateTool 间接调用）需确认无需改。运行全量 kernel 测试：
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ 2>&1 | tail -25
+cd /path/to/HiAgent && bun test packages/kernel/tests/ 2>&1 | tail -25
 ```
 预期：无新增失败。若 agent-manager.test.ts 因 spawn 签名失败，按报错适配（给 spawn 调用补 toolCallId 参数）。
 
@@ -407,7 +407,7 @@ test("handleBridgeStream 对 memory_add 返回 null（非流式工具走旧路�
 - [ ] **Step 2: 运行测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/bridge.test.ts 2>&1 | tail -15
+cd /path/to/HiAgent && bun test packages/kernel/tests/bridge.test.ts 2>&1 | tail -15
 ```
 预期：FAIL（`handleBridgeStream` 未导出）。
 
@@ -485,7 +485,7 @@ export async function handleBridgeStream(
 - [ ] **Step 5: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/bridge.test.ts 2>&1 | tail -15
+cd /path/to/HiAgent && bun test packages/kernel/tests/bridge.test.ts 2>&1 | tail -15
 ```
 预期：两个新测试 PASS，旧测试不破坏。
 
@@ -592,7 +592,7 @@ test("子代理执行时 onSubagentProgress 回调被触发并携带 sessionId/t
 - [ ] **Step 6: 跑 kernel 全量测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ 2>&1 | tail -25
+cd /path/to/HiAgent && bun test packages/kernel/tests/ 2>&1 | tail -25
 ```
 预期：无新增失败。
 
@@ -690,7 +690,7 @@ return new Response(stream, {
 - [ ] **Step 3: 跑现有 bridge 测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/bridge.test.ts 2>&1 | tail -15
+cd /path/to/HiAgent && bun test packages/kernel/tests/bridge.test.ts 2>&1 | tail -15
 ```
 预期：PASS（bridge.test.ts 的全链路 HTTP 测试会覆盖新端点）。若有测试因响应格式变化失败，更新断言（delegate 的响应现在是 NDJSON 而非 JSON）。
 
@@ -789,7 +789,7 @@ test("流中断（无 final）退化为错误结果", async () => {
 - [ ] **Step 3: 运行测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/bridge-extension.test.ts 2>&1 | tail -15
+cd /path/to/HiAgent && bun test packages/kernel/tests/bridge-extension.test.ts 2>&1 | tail -15
 ```
 预期：FAIL（当前 callBridge 用 `await res.json()`，读不了流）。
 
@@ -845,14 +845,14 @@ return { content: data.content, details: data.details };
 - [ ] **Step 5: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/bridge-extension.test.ts 2>&1 | tail -15
+cd /path/to/HiAgent && bun test packages/kernel/tests/bridge-extension.test.ts 2>&1 | tail -15
 ```
 预期：两个测试 PASS。
 
 - [ ] **Step 6: 跑 kernel 全量测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ 2>&1 | tail -25
+cd /path/to/HiAgent && bun test packages/kernel/tests/ 2>&1 | tail -25
 ```
 预期：无新增失败。
 
@@ -932,7 +932,7 @@ test("handleSubagentProgress 存储并按 toolCallId 索引", () => {
 - [ ] **Step 4: 跑测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/frontend/tests/session-progress.test.ts 2>&1 | tail -10
+cd /path/to/HiAgent && bun test packages/frontend/tests/session-progress.test.ts 2>&1 | tail -10
 ```
 预期：PASS。
 
@@ -994,7 +994,7 @@ test("有进度时默认折叠显示摘要，展开后显示 output 和工具", 
 - [ ] **Step 2: 运行测试验证失败**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/frontend/tests/DelegateCard.test.tsx 2>&1 | tail -15
+cd /path/to/HiAgent && bun test packages/frontend/tests/DelegateCard.test.tsx 2>&1 | tail -15
 ```
 预期：FAIL（当前无进度渲染逻辑）。
 
@@ -1038,7 +1038,7 @@ const [expanded, setExpanded] = useState(false);
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/frontend/tests/DelegateCard.test.tsx 2>&1 | tail -15
+cd /path/to/HiAgent && bun test packages/frontend/tests/DelegateCard.test.tsx 2>&1 | tail -15
 ```
 预期：PASS。
 
@@ -1098,7 +1098,7 @@ test("FleetCard 按 agent 分组展示进度摘要", () => {
 参照 DelegateCard 模式，FleetCard 渲染摘要 + 分组列表（每组同 DelegateCard 展开态）。
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/frontend/tests/FleetCard.test.tsx 2>&1 | tail -15
+cd /path/to/HiAgent && bun test packages/frontend/tests/FleetCard.test.tsx 2>&1 | tail -15
 ```
 
 - [ ] **Step 4: Commit**
@@ -1142,7 +1142,7 @@ curl -X POST http://localhost:<port>/bridge/tool \
 - [ ] **Step 3: 跑全量测试**
 
 ```bash
-cd /Users/pipi/work/HiAgent && bun test packages/kernel/tests/ packages/frontend/tests/ 2>&1 | tail -30
+cd /path/to/HiAgent && bun test packages/kernel/tests/ packages/frontend/tests/ 2>&1 | tail -30
 ```
 预期：全部通过。
 

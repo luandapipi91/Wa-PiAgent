@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 项目根目录为 `/Users/pipi/work/WaPi`。
+- 项目根目录为 `/path/to/WaPi`。
 - 所有代码改动必须附带对应测试（单元 / 组件 / API / E2E 四层）。
 - 禁止运行 `git push` / `git reset` / `git rebase`；每次任务完成后在本地 `git commit`。
 - 前端测试用 `bun:test`（kernel/shared）和 Vitest + `@testing-library/react` + `happy-dom`（frontend）。
@@ -98,7 +98,7 @@ describe("ProviderModel supportsVision", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi && bun test packages/shared/tests/types.test.ts`
+Run: `cd /path/to/WaPi && bun test packages/shared/tests/types.test.ts`
 Expected: FAIL with "Cannot find module" or type errors (if test file doesn't exist yet).
 
 - [ ] **Step 3: Write minimal implementation**
@@ -141,13 +141,13 @@ export interface ProviderModel {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi && bun test packages/shared/tests/types.test.ts`
+Run: `cd /path/to/WaPi && bun test packages/shared/tests/types.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/shared/src/types.ts packages/shared/src/providers.ts packages/shared/tests/types.test.ts
 git commit -m "feat(shared): PromptEvent 扩展 model/thinking/attachments，新增 fs:readFile，ProviderModel 支持 supportsVision"
 ```
@@ -204,7 +204,7 @@ describe("composer-db", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/composer-db.test.ts`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/composer-db.test.ts`
 Expected: FAIL - module not found.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -212,7 +212,7 @@ Expected: FAIL - module not found.
 Install `idb` and `fake-indexeddb` in the frontend package:
 
 ```bash
-cd /Users/pipi/work/WaPi/packages/frontend
+cd /path/to/WaPi/packages/frontend
 bun add idb
 bun add -d fake-indexeddb
 ```
@@ -306,13 +306,13 @@ export async function setDefaults(prefs: { model: string | null; thinking: "disa
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/composer-db.test.ts`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/composer-db.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/frontend/src/store/composer-db.ts packages/frontend/tests/composer-db.test.ts packages/frontend/package.json bun.lock tests/setup.ts
 git commit -m "feat(frontend): IndexedDB 封装 composer 偏好"
 ```
@@ -357,7 +357,7 @@ describe("composer-prefs store", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/composer-prefs.test.ts`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/composer-prefs.test.ts`
 Expected: FAIL - module not found.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -435,13 +435,13 @@ export const useComposerPrefsStore = create<ComposerPrefsState>((set) => ({
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/composer-prefs.test.ts`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/composer-prefs.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/frontend/src/store/composer-prefs.ts packages/frontend/tests/composer-prefs.test.ts
 git commit -m "feat(frontend): Composer 偏好 Zustand store"
 ```
@@ -487,7 +487,7 @@ describe("ModelSelector", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/ModelSelector.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/ModelSelector.test.tsx`
 Expected: FAIL - module not found.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -530,13 +530,13 @@ export function ModelSelector({ value, onChange, disabled }: Props) {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/ModelSelector.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/ModelSelector.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/frontend/src/components/ui/ModelSelector.tsx packages/frontend/tests/ModelSelector.test.tsx
 git commit -m "feat(frontend): ModelSelector 组件"
 ```
@@ -571,7 +571,7 @@ describe("ThinkingToggle", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/ThinkingToggle.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/ThinkingToggle.test.tsx`
 Expected: FAIL - module not found.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -603,13 +603,13 @@ export function ThinkingToggle({ value, onChange }: Props) {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/ThinkingToggle.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/ThinkingToggle.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/frontend/src/components/ui/ThinkingToggle.tsx packages/frontend/tests/ThinkingToggle.test.tsx
 git commit -m "feat(frontend): ThinkingToggle 组件"
 ```
@@ -646,7 +646,7 @@ describe("AttachmentChip", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/AttachmentChip.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/AttachmentChip.test.tsx`
 Expected: FAIL - module not found.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -683,13 +683,13 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/AttachmentChip.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/AttachmentChip.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/frontend/src/components/ui/AttachmentChip.tsx packages/frontend/tests/AttachmentChip.test.tsx
 git commit -m "feat(frontend): AttachmentChip 组件"
 ```
@@ -726,7 +726,7 @@ describe("AttachmentPathModal", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/AttachmentPathModal.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/AttachmentPathModal.test.tsx`
 Expected: FAIL - module not found.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -776,13 +776,13 @@ export function AttachmentPathModal({ fileName, onConfirm, onCancel }: Props) {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/AttachmentPathModal.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/AttachmentPathModal.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/frontend/src/components/ui/AttachmentPathModal.tsx packages/frontend/tests/AttachmentPathModal.test.tsx
 git commit -m "feat(frontend): 附件路径补填弹窗"
 ```
@@ -837,7 +837,7 @@ describe("ComposerInput", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/ComposerInput.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/ComposerInput.test.tsx`
 Expected: FAIL - module not found.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -961,13 +961,13 @@ export function ComposerInput({
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/ComposerInput.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/ComposerInput.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/frontend/src/components/ui/ComposerInput.tsx packages/frontend/tests/ComposerInput.test.tsx
 git commit -m "feat(frontend): 共用 ComposerInput 胶囊输入组件"
 ```
@@ -1012,7 +1012,7 @@ Note: This test may need adjustment based on actual `ws-instance.ts` internals.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/fs-client.test.ts`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/fs-client.test.ts`
 Expected: FAIL - `readFile` not exported.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1036,13 +1036,13 @@ export function readFile(path: string): Promise<{ content: string; mimeType?: st
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/fs-client.test.ts`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/fs-client.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/frontend/src/fs-client.ts packages/frontend/tests/fs-client.test.ts
 git commit -m "feat(frontend): fs-client 新增 readFile"
 ```
@@ -1091,7 +1091,7 @@ describe("Composer", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/Composer.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/Composer.test.tsx`
 Expected: FAIL - test may fail due to current Composer not using ComposerInput.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1169,13 +1169,13 @@ export function Composer({ sessionId, agentName, isRunning }: Props) {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/Composer.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/Composer.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/frontend/src/components/Composer.tsx packages/frontend/tests/Composer.test.tsx
 git commit -m "feat(frontend): Composer 接入 ComposerInput 与 prefs store"
 ```
@@ -1226,7 +1226,7 @@ describe("NewSessionPane", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/NewSessionPane.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/NewSessionPane.test.tsx`
 Expected: FAIL - current NewSessionPane not using ComposerInput.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1332,13 +1332,13 @@ export function NewSessionPane() {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/NewSessionPane.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/NewSessionPane.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/frontend/src/components/NewSessionPane.tsx packages/frontend/tests/NewSessionPane.test.tsx
 git commit -m "feat(frontend): NewSessionPane 接入 ComposerInput 与 prefs store"
 ```
@@ -1381,7 +1381,7 @@ describe("ProviderFormModal supportsVision", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/ProviderFormModal.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/ProviderFormModal.test.tsx`
 Expected: FAIL - toggle not present.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1412,13 +1412,13 @@ In `packages/frontend/src/components/settings/ProviderFormModal.tsx`:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx vitest run tests/ProviderFormModal.test.tsx`
+Run: `cd /path/to/WaPi/packages/frontend && bunx vitest run tests/ProviderFormModal.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/frontend/src/components/settings/ProviderFormModal.tsx packages/frontend/tests/ProviderFormModal.test.tsx
 git commit -m "feat(frontend): 供应商模型列表增加 supportsVision 开关"
 ```
@@ -1456,7 +1456,7 @@ describe("fs:readFile", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/ws-server.test.ts -t "fs:readFile"`
+Run: `cd /path/to/WaPi/packages/kernel && bun test tests/ws-server.test.ts -t "fs:readFile"`
 Expected: FAIL - handler not implemented.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1498,13 +1498,13 @@ function guessMimeType(path: string): string {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/ws-server.test.ts -t "fs:readFile"`
+Run: `cd /path/to/WaPi/packages/kernel && bun test tests/ws-server.test.ts -t "fs:readFile"`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/kernel/src/ws-server.ts packages/kernel/tests/ws-server.test.ts
 git commit -m "feat(kernel): 新增 fs:readFile handler"
 ```
@@ -1545,7 +1545,7 @@ describe("buildPromptContent", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/agent-manager.test.ts -t "buildPromptContent"`
+Run: `cd /path/to/WaPi/packages/kernel && bun test tests/agent-manager.test.ts -t "buildPromptContent"`
 Expected: FAIL - function not exported.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1646,13 +1646,13 @@ Note: `resolveModel` import path may need adjustment if `AttachmentRef` is used.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/agent-manager.test.ts -t "buildPromptContent"`
+Run: `cd /path/to/WaPi/packages/kernel && bun test tests/agent-manager.test.ts -t "buildPromptContent"`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/kernel/src/agent-manager.ts packages/kernel/src/ws-server.ts packages/kernel/tests/agent-manager.test.ts
 git commit -m "feat(kernel): agent:prompt 支持 model/thinking/attachments"
 ```
@@ -1687,7 +1687,7 @@ describe("shouldSendAsImage", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/agent-manager.test.ts -t "shouldSendAsImage"`
+Run: `cd /path/to/WaPi/packages/kernel && bun test tests/agent-manager.test.ts -t "shouldSendAsImage"`
 Expected: FAIL - function not defined.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1718,13 +1718,13 @@ Update `prompt()` to pass `providers` to `buildPromptContent`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/agent-manager.test.ts -t "shouldSendAsImage"`
+Run: `cd /path/to/WaPi/packages/kernel && bun test tests/agent-manager.test.ts -t "shouldSendAsImage"`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/kernel/src/agent-manager.ts packages/kernel/tests/agent-manager.test.ts
 git commit -m "feat(kernel): 根据 supportsVision 判断图片是否直接发送"
 ```
@@ -1762,7 +1762,7 @@ describe("provider-store supportsVision", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/provider-store.test.ts -t "supportsVision"`
+Run: `cd /path/to/WaPi/packages/kernel && bun test tests/provider-store.test.ts -t "supportsVision"`
 Expected: FAIL - field not persisted.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1771,13 +1771,13 @@ In `packages/kernel/src/provider-store.ts`, ensure the save/load uses `ModelProv
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/provider-store.test.ts -t "supportsVision"`
+Run: `cd /path/to/WaPi/packages/kernel && bun test tests/provider-store.test.ts -t "supportsVision"`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/kernel/src/provider-store.ts packages/kernel/tests/provider-store.test.ts
 git commit -m "feat(kernel): provider-store 持久化 supportsVision"
 ```
@@ -1816,7 +1816,7 @@ describe("composer attachments integration", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/composer-attachments.test.ts`
+Run: `cd /path/to/WaPi/packages/kernel && bun test tests/composer-attachments.test.ts`
 Expected: FAIL - test file not found.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1825,13 +1825,13 @@ Create the test file following existing patterns in `packages/kernel/tests/ws-se
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/composer-attachments.test.ts`
+Run: `cd /path/to/WaPi/packages/kernel && bun test tests/composer-attachments.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/kernel/tests/composer-attachments.test.ts
 git commit -m "test(kernel): Composer 附件 API 集成测试"
 ```
@@ -1865,7 +1865,7 @@ test("composer attachment flow", async ({ page }) => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx playwright test e2e/composer.spec.ts`
+Run: `cd /path/to/WaPi/packages/frontend && bunx playwright test e2e/composer.spec.ts`
 Expected: FAIL - spec not found.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1874,13 +1874,13 @@ Create `packages/frontend/e2e/composer.spec.ts` following patterns in `packages/
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/pipi/work/WaPi/packages/frontend && bunx playwright test e2e/composer.spec.ts`
+Run: `cd /path/to/WaPi/packages/frontend && bunx playwright test e2e/composer.spec.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add packages/frontend/e2e/composer.spec.ts
 git commit -m "test(e2e): Composer 重构 E2E 测试"
 ```
@@ -1903,7 +1903,7 @@ git commit -m "test(e2e): Composer 重构 E2E 测试"
 - [ ] **Step 2: Commit**
 
 ```bash
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 git add CHANGELOG.md
 git commit -m "docs: 更新 CHANGELOG"
 ```

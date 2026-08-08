@@ -3,7 +3,7 @@ import { parseFilePath } from "../src/components/blocks/file-path";
 
 test("识别相对/绝对/家目录路径", () => {
   expect(parseFilePath("packages/frontend/src/App.tsx")).toEqual({ path: "packages/frontend/src/App.tsx", line: undefined, col: undefined });
-  expect(parseFilePath("/Users/pipi/x.md")?.path).toBe("/Users/pipi/x.md");
+  expect(parseFilePath("/Users/example/x.md")?.path).toBe("/Users/example/x.md");
   expect(parseFilePath("~/docs/a.md")?.path).toBe("~/docs/a.md");
   expect(parseFilePath("./src/b.ts")?.path).toBe("./src/b.ts");
 });

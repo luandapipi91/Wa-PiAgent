@@ -118,7 +118,7 @@ export interface SessionEntity {
 
 - [ ] **Step 6: 运行 typecheck 验证**
 
-Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/shared typecheck 2>&1 | head -20`
+Run: `cd /path/to/WaPi && bun run --filter @wa-pi/shared typecheck 2>&1 | head -20`
 Expected: 可能因为 kernel/frontend 还引用了已删除的类型而报错，记录错误供后续任务修复
 
 - [ ] **Step 7: Commit**
@@ -147,7 +147,7 @@ git commit -m "refactor(types): 删除废弃类型，新增 SDKEvent/AssistantMe
 
 - [ ] **Step 2: 运行 typecheck 验证**
 
-Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/shared typecheck 2>&1 | head -20`
+Run: `cd /path/to/WaPi && bun run --filter @wa-pi/shared typecheck 2>&1 | head -20`
 Expected: 可能因为 kernel 还引用 WA_PI_PI_AGENT_DIR 而报错，记录错误供后续任务修复
 
 - [ ] **Step 3: Commit**
@@ -190,7 +190,7 @@ test("createSession 生成 piSessionFile 路径", async () => {
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/project-store.test.ts --filter "piSessionFile" 2>&1 | tail -5`
+Run: `cd /path/to/WaPi && bun test packages/kernel/tests/project-store.test.ts --filter "piSessionFile" 2>&1 | tail -5`
 Expected: FAIL（piSessionFile 为 undefined）
 
 - [ ] **Step 3: 修改 createSession 生成 piSessionFile**
@@ -225,7 +225,7 @@ async createSession(input: {
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/project-store.test.ts 2>&1 | tail -10`
+Run: `cd /path/to/WaPi && bun test packages/kernel/tests/project-store.test.ts 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -363,7 +363,7 @@ test("disposeSession 清理 session 和 unsubscribe", async () => {
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/agent-manager.test.ts 2>&1 | tail -10`
+Run: `cd /path/to/WaPi && bun test packages/kernel/tests/agent-manager.test.ts 2>&1 | tail -10`
 Expected: FAIL（AgentManager 构造签名不匹配）
 
 - [ ] **Step 3: 重写 agent-manager.ts**
@@ -499,7 +499,7 @@ export class AgentManager {
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/agent-manager.test.ts 2>&1 | tail -10`
+Run: `cd /path/to/WaPi && bun test packages/kernel/tests/agent-manager.test.ts 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -533,7 +533,7 @@ git commit -m "refactor(agent-manager): 重写为 SDK 直连 — Map<sessionId, 
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts 2>&1 | tail -10`
+Run: `cd /path/to/WaPi && bun test packages/kernel/tests/ws-server.test.ts 2>&1 | tail -10`
 Expected: FAIL
 
 - [ ] **Step 3: 修改 ws-server.ts 的 handle 方法**
@@ -619,7 +619,7 @@ case "session:delete": {
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts 2>&1 | tail -10`
+Run: `cd /path/to/WaPi && bun test packages/kernel/tests/ws-server.test.ts 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -683,7 +683,7 @@ main().catch(e => { console.error(e); process.exit(1); });
 
 - [ ] **Step 2: 运行 kernel 启动验证**
 
-Run: `cd /Users/pipi/work/WaPi && timeout 5 bun run --filter @wa-pi/kernel dev 2>&1 | head -10`
+Run: `cd /path/to/WaPi && timeout 5 bun run --filter @wa-pi/kernel dev 2>&1 | head -10`
 Expected: 看到 `[kernel] WS 监听 ws://127.0.0.1:9776`（不崩溃）
 
 - [ ] **Step 3: Commit**
@@ -717,20 +717,20 @@ rm packages/kernel/tests/state-aggregator.test.ts
 搜索并清理代码中对已删除文件的引用：
 
 ```bash
-cd /Users/pipi/work/WaPi && grep -rn "pi-rpc-client\|state-aggregator\|PiRpcClient\|StateAggregator\|PiEvent" packages/ --include="*.ts" --include="*.tsx" | grep -v node_modules | grep -v ".test."
+cd /path/to/WaPi && grep -rn "pi-rpc-client\|state-aggregator\|PiRpcClient\|StateAggregator\|PiEvent" packages/ --include="*.ts" --include="*.tsx" | grep -v node_modules | grep -v ".test."
 ```
 
 修复所有引用点（主要是 `agent-manager.ts` 的 import、`ws-server.ts` 的 import）。
 
 - [ ] **Step 3: 运行 typecheck 验证**
 
-Run: `cd /Users/pipi/work/WaPi && bun run typecheck 2>&1 | head -20`
+Run: `cd /path/to/WaPi && bun run typecheck 2>&1 | head -20`
 Expected: 无 pi-rpc-client / state-aggregator 相关错误
 
 - [ ] **Step 4: 清理测试垃圾文件**
 
 ```bash
-cd /Users/pipi/work/WaPi && rm -f packages/kernel/tests/ws-proj.json* packages/kernel/tests/ws-sess*
+cd /path/to/WaPi && rm -f packages/kernel/tests/ws-proj.json* packages/kernel/tests/ws-sess*
 ```
 
 - [ ] **Step 5: Commit**
@@ -822,7 +822,7 @@ describe("store/session sdk:event 处理", () => {
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend test -- --run store-session 2>&1 | tail -10`
+Run: `cd /path/to/WaPi && bun run --filter @wa-pi/frontend test -- --run store-session 2>&1 | tail -10`
 Expected: FAIL（handleSDKEvent 方法不存在）
 
 - [ ] **Step 3: 修改 store/session.ts**
@@ -901,7 +901,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend test -- --run store-session 2>&1 | tail -10`
+Run: `cd /path/to/WaPi && bun run --filter @wa-pi/frontend test -- --run store-session 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -937,7 +937,7 @@ case "sdk:event": {
 
 - [ ] **Step 2: 运行前端测试验证不报错**
 
-Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend test -- --run 2>&1 | tail -10`
+Run: `cd /path/to/WaPi && bun run --filter @wa-pi/frontend test -- --run 2>&1 | tail -10`
 Expected: 现有测试 PASS（store-projects、DirTreePicker、ProjectItem 不受影响）
 
 - [ ] **Step 3: Commit**
@@ -977,7 +977,7 @@ export function MessageList({ sessionId }: Props) {
 
 - [ ] **Step 2: 运行前端测试验证**
 
-Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend test -- --run 2>&1 | tail -10`
+Run: `cd /path/to/WaPi && bun run --filter @wa-pi/frontend test -- --run 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 3: Commit**
@@ -1091,7 +1091,7 @@ test("ensureIntercomInstalled 幂等（已存在不重复写入）", async () =>
 
 - [ ] **Step 4: 运行测试**
 
-Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/intercom-setup.test.ts 2>&1 | tail -10`
+Run: `cd /path/to/WaPi && bun test packages/kernel/tests/intercom-setup.test.ts 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1117,7 +1117,7 @@ git commit -m "feat(intercom): 首次启动自动配置 pi-intercom 扩展到 ~/
 
 - [ ] **Step 2: 运行测试**
 
-Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/session-messages.test.ts 2>&1 | tail -10`
+Run: `cd /path/to/WaPi && bun test packages/kernel/tests/session-messages.test.ts 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 3: Commit**
@@ -1136,17 +1136,17 @@ git commit -m "test(session-messages): 适配 SDK — 从 session.messages 读�
 
 - [ ] **Step 1: 全量 typecheck**
 
-Run: `cd /Users/pipi/work/WaPi && bun run typecheck 2>&1`
+Run: `cd /path/to/WaPi && bun run typecheck 2>&1`
 Expected: 无错误
 
 - [ ] **Step 2: kernel 全量测试**
 
-Run: `cd /Users/pipi/work/WaPi && bun test packages/kernel/ 2>&1 | tail -20`
+Run: `cd /path/to/WaPi && bun test packages/kernel/ 2>&1 | tail -20`
 Expected: 全部 PASS
 
 - [ ] **Step 3: 前端全量测试**
 
-Run: `cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend test -- --run 2>&1 | tail -20`
+Run: `cd /path/to/WaPi && bun run --filter @wa-pi/frontend test -- --run 2>&1 | tail -20`
 Expected: 全部 PASS
 
 - [ ] **Step 4: 更新 CHANGELOG.md**
@@ -1181,13 +1181,13 @@ git commit -m "docs(changelog): 记录 Pi SDK 模式重构"
 
 - [ ] **Step 2: 运行 E2E（如有 Pi 环境）**
 
-Run: `cd /Users/pipi/work/WaPi && PI_E2E=1 bun run --filter @wa-pi/frontend e2e 2>&1 | tail -20`
+Run: `cd /path/to/WaPi && PI_E2E=1 bun run --filter @wa-pi/frontend e2e 2>&1 | tail -20`
 Expected: intercom 委派流程通过
 
 - [ ] **Step 3: 清理截图**
 
 ```bash
-cd /Users/pipi/work/WaPi && find . -name "*.png" -path "*/e2e/*" -delete 2>/dev/null; find . -name "*.png" -path "*/test-results/*" -delete 2>/dev/null
+cd /path/to/WaPi && find . -name "*.png" -path "*/e2e/*" -delete 2>/dev/null; find . -name "*.png" -path "*/test-results/*" -delete 2>/dev/null
 ```
 
 - [ ] **Step 4: Commit**

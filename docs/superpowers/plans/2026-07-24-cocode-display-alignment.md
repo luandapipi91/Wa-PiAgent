@@ -786,7 +786,7 @@ import { parseFilePath } from "../src/components/blocks/file-path";
 
 test("识别相对/绝对/家目录路径", () => {
   expect(parseFilePath("packages/frontend/src/App.tsx")).toEqual({ path: "packages/frontend/src/App.tsx", line: undefined, col: undefined });
-  expect(parseFilePath("/Users/pipi/x.md")?.path).toBe("/Users/pipi/x.md");
+  expect(parseFilePath("/Users/example/x.md")?.path).toBe("/Users/example/x.md");
   expect(parseFilePath("~/docs/a.md")?.path).toBe("~/docs/a.md");
   expect(parseFilePath("./src/b.ts")?.path).toBe("./src/b.ts");
 });
@@ -1063,7 +1063,7 @@ git commit -m "test(frontend): 聊天过程卡片/代码块/FilePill E2E"
 ```bash
 cd packages/frontend && bun test
 bun run --filter @wa-pi/frontend typecheck
-cd /Users/pipi/work/WaPi && bun test --path-ignore-patterns "packages/frontend/**"
+cd /path/to/WaPi && bun test --path-ignore-patterns "packages/frontend/**"
 ```
 Expected: 全绿；typecheck 无错（kernel/shared 未改，root 测试应无变化）
 

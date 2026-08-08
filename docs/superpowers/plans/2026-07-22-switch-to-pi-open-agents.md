@@ -53,7 +53,7 @@
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
-cd /Users/pipi/work/WaPi
+cd /path/to/WaPi
 bun add pi-open-agents --filter @wa-pi/kernel
 ```
 
@@ -107,7 +107,7 @@ console.log("[kernel] additionalExtensionPaths 含 pi-open-agents:", !!subagentP
 
 - [ ] **Step 3: 验证编译**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun build src/index.ts --no-bundle 2>&1 | head -5`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/kernel && bun build src/index.ts --no-bundle 2>&1 | head -5`
 Expected: 无报错（runtime 错误后续 Task 修复）
 
 - [ ] **Step 4: Commit**
@@ -205,7 +205,7 @@ test("buildAgentDefinition config.skills 为空时不设 skills（继承全部�
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/subagent-runner.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/kernel && bun test tests/subagent-runner.test.ts`
 Expected: FAIL — 模块不存在
 
 - [ ] **Step 3: 实现 subagent-runner.ts**
@@ -343,7 +343,7 @@ export async function runSubagentAgent(
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/subagent-runner.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/kernel && bun test tests/subagent-runner.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -432,7 +432,7 @@ test("makeFleetTool 并行调起多个子智能体，按输入顺序聚合", asy
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/delegate-tool.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/kernel && bun test tests/delegate-tool.test.ts`
 Expected: 部分 FAIL（旧测试因 spawnViaSubagentsService 移除断言变化）
 
 - [ ] **Step 3: 重写 delegate-tool.ts**
@@ -490,7 +490,7 @@ export function makeSpawnFn(opts: {
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/delegate-tool.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/kernel && bun test tests/delegate-tool.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -573,7 +573,7 @@ test("seedBuiltinAgents 已存在的文件不覆盖", () => {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/builtin-agents.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/kernel && bun test tests/builtin-agents.test.ts`
 Expected: FAIL — 模块不存在
 
 - [ ] **Step 3: 实现 builtin-agents.ts**
@@ -707,7 +707,7 @@ export function seedBuiltinAgents(agentsDir: string): void {
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test tests/builtin-agents.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/kernel && bun test tests/builtin-agents.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: agent-manager 启动时调 seedBuiltinAgents**
@@ -814,7 +814,7 @@ const delegateTools = [
 
 - [ ] **Step 3: 验证编译**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun build src/index.ts --no-bundle 2>&1 | head -10`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/kernel && bun build src/index.ts --no-bundle 2>&1 | head -10`
 Expected: 无 "Cannot find module" 或类型错误
 
 - [ ] **Step 4: Commit**
@@ -882,7 +882,7 @@ Expected: 无输出
 
 - [ ] **Step 6: 运行测试**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi && bun test packages/shared/tests/types.test.ts packages/kernel/tests/agent-md.test.ts`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi && bun test packages/shared/tests/types.test.ts packages/kernel/tests/agent-md.test.ts`
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -933,7 +933,7 @@ export async function getSubagentInfo(overrides: SubagentOverride[]): Promise<Su
 
 - [ ] **Step 2: 运行测试**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ --grep "subagent" 2>&1 | tail -10`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi && bun test packages/kernel/tests/ --grep "subagent" 2>&1 | tail -10`
 Expected: PASS（或因 mock 变化需更新测试）
 
 - [ ] **Step 3: Commit**
@@ -952,17 +952,17 @@ git commit -m "refactor(kernel): subagent-info 不再 import pi-subagents 内部
 
 - [ ] **Step 1: 运行 kernel 全套测试**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test 2>&1 | tail -20`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/kernel && bun test 2>&1 | tail -20`
 Expected: 记录所有 FAIL
 
 - [ ] **Step 2: 运行 shared 全套测试**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/shared && bun test 2>&1 | tail -10`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/shared && bun test 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 3: 运行 frontend 全套测试**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/frontend && bun test 2>&1 | tail -15`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/frontend && bun test 2>&1 | tail -15`
 Expected: 记录所有 FAIL
 
 - [ ] **Step 4: 逐个修复 FAIL 测试**
@@ -999,7 +999,7 @@ git commit -m "test: 修复 pi-open-agents 切换后的测试回归"
 
 - [ ] **Step 2: 全量测试最终验证**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi && bun test --path-ignore-patterns "**/e2e/**" 2>&1 | tail -10`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi && bun test --path-ignore-patterns "**/e2e/**" 2>&1 | tail -10`
 Expected: 除预先存在的 flaky 测试外全部 PASS
 
 - [ ] **Step 3: Commit**
@@ -1080,7 +1080,7 @@ test("resolveAgentTools: server 名含连字符时按 _ 前缀匹配", () => {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/shared && bun test tests/constants.test.ts -t "mcpServers"`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/shared && bun test tests/constants.test.ts -t "mcpServers"`
 Expected: FAIL — `allowedMcpServers` 参数不存在
 
 - [ ] **Step 3: 修改 resolveAgentTools 增加 allowedMcpServers 参数**
@@ -1153,7 +1153,7 @@ export function resolveAgentTools(
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/shared && bun test tests/constants.test.ts -t "mcpServers"`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/shared && bun test tests/constants.test.ts -t "mcpServers"`
 Expected: PASS
 
 - [ ] **Step 5: agent-manager 传入 config.mcpServers**
@@ -1172,7 +1172,7 @@ const tools = resolveAgentTools(
 
 - [ ] **Step 6: 运行 kernel 测试确认无回归**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/kernel && bun test 2>&1 | tail -10`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/kernel && bun test 2>&1 | tail -10`
 Expected: 无新增 FAIL
 
 - [ ] **Step 7: Commit**
@@ -1227,7 +1227,7 @@ test("MCP tab 展示 MCP 服务器列表并支持勾选", async () => {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/frontend && bun test tests/AgentConfig.test.tsx -t "MCP tab"`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/frontend && bun test tests/AgentConfig.test.tsx -t "MCP tab"`
 Expected: FAIL — `tab-mcp` 不存在
 
 - [ ] **Step 3: 修改 AgentConfig.tsx 新增 MCP tab**
@@ -1297,7 +1297,7 @@ import { useMcpStore } from "../store/mcp";
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi/packages/frontend && bun test tests/AgentConfig.test.tsx`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi/packages/frontend && bun test tests/AgentConfig.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1330,7 +1330,7 @@ git commit -m "feat(frontend): AgentConfig 弹窗新增 MCP 服务器 tab"
 
 - [ ] **Step 3: 运行全量测试**
 
-Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /Users/pipi/work/WaPi && bun test --path-ignore-patterns "**/e2e/**" 2>&1 | tail -10`
+Run: `export PATH="$HOME/.bun/bin:$PATH" && cd /path/to/WaPi && bun test --path-ignore-patterns "**/e2e/**" 2>&1 | tail -10`
 Expected: 全部 PASS
 
 - [ ] **Step 4: Commit**

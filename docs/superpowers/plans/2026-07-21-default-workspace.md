@@ -68,7 +68,7 @@ test("SYSTEM_PROJECT_* 常量定义", () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/shared/tests/constants.test.ts
+cd /path/to/WaPi && bun test packages/shared/tests/constants.test.ts
 ```
 
 Expected: FAIL，报错 "SYSTEM_PROJECT_ID is not exported" 或类似
@@ -96,7 +96,7 @@ export const WORKDIR_TTL_DAYS = 7;
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/shared/tests/constants.test.ts
+cd /path/to/WaPi && bun test packages/shared/tests/constants.test.ts
 ```
 
 Expected: PASS
@@ -104,7 +104,7 @@ Expected: PASS
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/shared typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/shared typecheck
 ```
 
 Expected: 无错误
@@ -112,7 +112,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/shared/src/constants.ts packages/shared/tests/constants.test.ts && git commit -m "feat(shared): 新增 SYSTEM_PROJECT_* 常量与 WORKDIR_TTL_DAYS"
+cd /path/to/WaPi && git add packages/shared/src/constants.ts packages/shared/tests/constants.test.ts && git commit -m "feat(shared): 新增 SYSTEM_PROJECT_* 常量与 WORKDIR_TTL_DAYS"
 ```
 
 ---
@@ -165,7 +165,7 @@ test("resolveSessionCwd 系统项目返回 workdir/<createdAt>", () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/shared/tests/pure.test.ts
+cd /path/to/WaPi && bun test packages/shared/tests/pure.test.ts
 ```
 
 Expected: FAIL，报错 "resolveSessionCwd is not exported"
@@ -205,7 +205,7 @@ export function resolveSessionCwd(
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/shared/tests/pure.test.ts
+cd /path/to/WaPi && bun test packages/shared/tests/pure.test.ts
 ```
 
 Expected: PASS（所有原有测试 + 2 个新测试全过）
@@ -213,7 +213,7 @@ Expected: PASS（所有原有测试 + 2 个新测试全过）
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/shared typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/shared typecheck
 ```
 
 Expected: 无错误
@@ -221,7 +221,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/shared/src/pure.ts packages/shared/tests/pure.test.ts && git commit -m "feat(shared): 新增 resolveSessionCwd 纯函数（前后端共享）"
+cd /path/to/WaPi && git add packages/shared/src/pure.ts packages/shared/tests/pure.test.ts && git commit -m "feat(shared): 新增 resolveSessionCwd 纯函数（前后端共享）"
 ```
 
 ---
@@ -300,7 +300,7 @@ test("createSystemProject 不影响 createProject 的 cwd 去重", async () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/project-store.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/project-store.test.ts
 ```
 
 Expected: FAIL，报错 "store.createSystemProject is not a function"
@@ -335,7 +335,7 @@ Expected: FAIL，报错 "store.createSystemProject is not a function"
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/project-store.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/project-store.test.ts
 ```
 
 Expected: PASS（所有原有测试 + 3 个新测试全过）
@@ -343,7 +343,7 @@ Expected: PASS（所有原有测试 + 3 个新测试全过）
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 Expected: 无错误
@@ -351,7 +351,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/kernel/src/project-store.ts packages/kernel/tests/project-store.test.ts && git commit -m "feat(kernel): ProjectStore 新增 createSystemProject 幂等方法"
+cd /path/to/WaPi && git add packages/kernel/src/project-store.ts packages/kernel/tests/project-store.test.ts && git commit -m "feat(kernel): ProjectStore 新增 createSystemProject 幂等方法"
 ```
 
 ---
@@ -421,7 +421,7 @@ test("ensureSystemProject 创建 workdir 根目录", async () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ensure-system-project.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/ensure-system-project.test.ts
 ```
 
 Expected: FAIL，报错 "Cannot find module '../src/ensure-system-project'"
@@ -462,7 +462,7 @@ export async function ensureSystemProject(projectStore: ProjectStore): Promise<v
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ensure-system-project.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/ensure-system-project.test.ts
 ```
 
 Expected: PASS
@@ -488,7 +488,7 @@ import { WS_PORT, WA_PI_DIR, BUILTIN_SKILLS_DIR, SYSTEM_PROJECT_CWD } from "@wa-
 - [ ] **Step 6: 手动启动 kernel 验证 seed 生效**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel dev &
+cd /path/to/WaPi && bun run --filter @wa-pi/kernel dev &
 sleep 3
 cat ~/.wa-pi/projects.json | grep __system__
 kill %1 2>/dev/null
@@ -499,7 +499,7 @@ Expected: 输出含 `"id": "__system__"` 的一条记录；`~/.wa-pi/workdir` �
 - [ ] **Step 7: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/kernel/src/ensure-system-project.ts packages/kernel/tests/ensure-system-project.test.ts packages/kernel/src/index.ts && git commit -m "feat(kernel): 启动时 seed 默认工作区虚拟项目"
+cd /path/to/WaPi && git add packages/kernel/src/ensure-system-project.ts packages/kernel/tests/ensure-system-project.test.ts packages/kernel/src/index.ts && git commit -m "feat(kernel): 启动时 seed 默认工作区虚拟项目"
 ```
 
 ---
@@ -556,7 +556,7 @@ test("createSession 不传 createdAt 时仍用 Date.now()", async () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/project-store.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/project-store.test.ts
 ```
 
 Expected: FAIL，报错 "createdAt does not exist in type ..." 或 ts 类型错误
@@ -598,7 +598,7 @@ async createSession(input: {
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/project-store.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/project-store.test.ts
 ```
 
 Expected: PASS
@@ -606,7 +606,7 @@ Expected: PASS
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 Expected: 无错误
@@ -614,7 +614,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/kernel/src/project-store.ts packages/kernel/tests/project-store.test.ts && git commit -m "feat(kernel): createSession 支持外部传入 createdAt（默认工作区用）"
+cd /path/to/WaPi && git add packages/kernel/src/project-store.ts packages/kernel/tests/project-store.test.ts && git commit -m "feat(kernel): createSession 支持外部传入 createdAt（默认工作区用）"
 ```
 
 ---
@@ -728,7 +728,7 @@ this.sessionCwd.set(sessionId, cwd);
 - [ ] **Step 2: 跑现有 kernel 测试验证不回归**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/
+cd /path/to/WaPi && bun test packages/kernel/tests/
 ```
 
 Expected: 所有现有测试 PASS（agent-manager 改动是行为兼容的，普通项目走 `resolveSessionCwd` 的 fallback 分支返回 `project.cwd`）
@@ -736,7 +736,7 @@ Expected: 所有现有测试 PASS（agent-manager 改动是行为兼容的，普
 - [ ] **Step 3: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 Expected: 无错误
@@ -744,7 +744,7 @@ Expected: 无错误
 - [ ] **Step 4: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/kernel/src/agent-manager.ts && git commit -m "feat(kernel): _createSession 用 resolveSessionCwd 替换 project.cwd（支持默认工作区）"
+cd /path/to/WaPi && git add packages/kernel/src/agent-manager.ts && git commit -m "feat(kernel): _createSession 用 resolveSessionCwd 替换 project.cwd（支持默认工作区）"
 ```
 
 ---
@@ -868,7 +868,7 @@ test("根目录不存在 → 返回 0 不抛错", async () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/workdir-cleaner.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/workdir-cleaner.test.ts
 ```
 
 Expected: FAIL，报错 "Cannot find module '../src/workdir-cleaner'"
@@ -948,7 +948,7 @@ export async function cleanupExpiredWorkdirs(
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/workdir-cleaner.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/workdir-cleaner.test.ts
 ```
 
 Expected: PASS（5 个测试全过）
@@ -980,7 +980,7 @@ setInterval(() => {
 - [ ] **Step 6: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 Expected: 无错误
@@ -988,7 +988,7 @@ Expected: 无错误
 - [ ] **Step 7: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/kernel/src/workdir-cleaner.ts packages/kernel/tests/workdir-cleaner.test.ts packages/kernel/src/index.ts && git commit -m "feat(kernel): 新增 workdir 7 天清理任务 + 启动集成"
+cd /path/to/WaPi && git add packages/kernel/src/workdir-cleaner.ts packages/kernel/tests/workdir-cleaner.test.ts packages/kernel/src/index.ts && git commit -m "feat(kernel): 新增 workdir 7 天清理任务 + 启动集成"
 ```
 
 ---
@@ -1053,7 +1053,7 @@ test("project:update 系统项目被拦截", async () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts -t "系统项目"
+cd /path/to/WaPi && bun test packages/kernel/tests/ws-server.test.ts -t "系统项目"
 ```
 
 Expected: FAIL
@@ -1097,7 +1097,7 @@ import { ..., SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/ws-server.test.ts
 ```
 
 Expected: PASS（所有原有 + 2 个新测试）
@@ -1105,7 +1105,7 @@ Expected: PASS（所有原有 + 2 个新测试）
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 Expected: 无错误
@@ -1113,7 +1113,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/kernel/src/ws-server.ts packages/kernel/tests/ws-server.test.ts && git commit -m "feat(kernel): ws-server 拦截对默认工作区的删除/改名请求"
+cd /path/to/WaPi && git add packages/kernel/src/ws-server.ts packages/kernel/tests/ws-server.test.ts && git commit -m "feat(kernel): ws-server 拦截对默认工作区的删除/改名请求"
 ```
 
 ---
@@ -1180,7 +1180,7 @@ test("agent:prompt 默认工作区新建会话时创建 workdir 子目录", asyn
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts -t "默认工作区新建会话"
+cd /path/to/WaPi && bun test packages/kernel/tests/ws-server.test.ts -t "默认工作区新建会话"
 ```
 
 Expected: FAIL，子目录不存在
@@ -1248,7 +1248,7 @@ import { ..., SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD } from "@wa-pi/shared";
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/ws-server.test.ts
 ```
 
 Expected: PASS
@@ -1256,7 +1256,7 @@ Expected: PASS
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 Expected: 无错误
@@ -1264,7 +1264,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/kernel/src/ws-server.ts packages/kernel/tests/ws-server.test.ts && git commit -m "feat(kernel): agent:prompt 默认工作区新建会话时创建 workdir/<createdAt>/ 子目录"
+cd /path/to/WaPi && git add packages/kernel/src/ws-server.ts packages/kernel/tests/ws-server.test.ts && git commit -m "feat(kernel): agent:prompt 默认工作区新建会话时创建 workdir/<createdAt>/ 子目录"
 ```
 
 ---
@@ -1385,7 +1385,7 @@ test("fs:upload 未携带 sessionId 时仍写 project.cwd/.wa-pi/uploads（向�
 - [ ] **Step 6: 跑测试**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/ws-server.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/ws-server.test.ts
 ```
 
 Expected: PASS
@@ -1393,7 +1393,7 @@ Expected: PASS
 - [ ] **Step 7: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck && bun run --filter @wa-pi/shared typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/kernel typecheck && bun run --filter @wa-pi/shared typecheck
 ```
 
 Expected: 无错误
@@ -1401,7 +1401,7 @@ Expected: 无错误
 - [ ] **Step 8: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/shared/src/types.ts packages/kernel/src/ws-server.ts packages/kernel/tests/ws-server.test.ts && git commit -m "feat(kernel): fs:upload/copy/recording 支持默认工作区 session 级 cwd"
+cd /path/to/WaPi && git add packages/shared/src/types.ts packages/kernel/src/ws-server.ts packages/kernel/tests/ws-server.test.ts && git commit -m "feat(kernel): fs:upload/copy/recording 支持默认工作区 session 级 cwd"
 ```
 
 ---
@@ -1468,7 +1468,7 @@ case "project:open-dir": {
 - [ ] **Step 3: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck && bun run --filter @wa-pi/shared typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/kernel typecheck && bun run --filter @wa-pi/shared typecheck
 ```
 
 Expected: 无错误
@@ -1476,7 +1476,7 @@ Expected: 无错误
 - [ ] **Step 4: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/shared/src/types.ts packages/kernel/src/ws-server.ts && git commit -m "feat(kernel): project:open-dir 支持 sessionId 打开默认工作区会话级目录"
+cd /path/to/WaPi && git add packages/shared/src/types.ts packages/kernel/src/ws-server.ts && git commit -m "feat(kernel): project:open-dir 支持 sessionId 打开默认工作区会话级目录"
 ```
 
 ---
@@ -1534,7 +1534,7 @@ test("默认工作区不出现在项目区（去重）", () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/Sidebar.test.tsx
+cd /path/to/WaPi && bun test packages/frontend/tests/Sidebar.test.tsx
 ```
 
 Expected: FAIL（找不到"默认"区标题）
@@ -1604,7 +1604,7 @@ const userProjects = projects.filter(p => p.id !== SYSTEM_PROJECT_ID);
 - [ ] **Step 5: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/Sidebar.test.tsx packages/frontend/tests/ProjectList.test.tsx
+cd /path/to/WaPi && bun test packages/frontend/tests/Sidebar.test.tsx packages/frontend/tests/ProjectList.test.tsx
 ```
 
 Expected: PASS
@@ -1612,7 +1612,7 @@ Expected: PASS
 - [ ] **Step 6: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/frontend typecheck
 ```
 
 Expected: 无错误
@@ -1620,7 +1620,7 @@ Expected: 无错误
 - [ ] **Step 7: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/frontend/src/components/Sidebar.tsx packages/frontend/src/components/ProjectList.tsx packages/frontend/tests/Sidebar.test.tsx packages/frontend/tests/ProjectList.test.tsx && git commit -m "feat(frontend): Sidebar 新增'默认'独立区 + ProjectList 过滤系统项目"
+cd /path/to/WaPi && git add packages/frontend/src/components/Sidebar.tsx packages/frontend/src/components/ProjectList.tsx packages/frontend/tests/Sidebar.test.tsx packages/frontend/tests/ProjectList.test.tsx && git commit -m "feat(frontend): Sidebar 新增'默认'独立区 + ProjectList 过滤系统项目"
 ```
 
 ---
@@ -1735,7 +1735,7 @@ test("普通项目下会话右键菜单无'打开工作目录'（行为不变）
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/ProjectItem.system.test.tsx
+cd /path/to/WaPi && bun test packages/frontend/tests/ProjectItem.system.test.tsx
 ```
 
 Expected: FAIL
@@ -1798,7 +1798,7 @@ const handleOpenSessionDir = (session: SessionEntity) => {
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/ProjectItem.system.test.tsx
+cd /path/to/WaPi && bun test packages/frontend/tests/ProjectItem.system.test.tsx
 ```
 
 Expected: PASS
@@ -1806,7 +1806,7 @@ Expected: PASS
 - [ ] **Step 5: 跑现有 ProjectItem 测试确保不回归**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/ProjectItem.sort-menu.test.tsx
+cd /path/to/WaPi && bun test packages/frontend/tests/ProjectItem.sort-menu.test.tsx
 ```
 
 Expected: PASS
@@ -1814,7 +1814,7 @@ Expected: PASS
 - [ ] **Step 6: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/frontend typecheck
 ```
 
 Expected: 无错误
@@ -1822,7 +1822,7 @@ Expected: 无错误
 - [ ] **Step 7: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/frontend/src/components/ProjectItem.tsx packages/frontend/tests/ProjectItem.system.test.tsx && git commit -m "feat(frontend): ProjectItem 默认工作区差异化（图标/菜单/打开工作目录）"
+cd /path/to/WaPi && git add packages/frontend/src/components/ProjectItem.tsx packages/frontend/tests/ProjectItem.system.test.tsx && git commit -m "feat(frontend): ProjectItem 默认工作区差异化（图标/菜单/打开工作目录）"
 ```
 
 ---
@@ -1884,7 +1884,7 @@ test("首次进入时默认选中默认工作区", () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/NewSessionPane.test.tsx
+cd /path/to/WaPi && bun test packages/frontend/tests/NewSessionPane.test.tsx
 ```
 
 Expected: FAIL
@@ -1923,7 +1923,7 @@ const initialProject =
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/NewSessionPane.test.tsx
+cd /path/to/WaPi && bun test packages/frontend/tests/NewSessionPane.test.tsx
 ```
 
 Expected: PASS
@@ -1931,7 +1931,7 @@ Expected: PASS
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/frontend typecheck
 ```
 
 Expected: 无错误
@@ -1939,7 +1939,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/frontend/src/components/NewSessionPane.tsx packages/frontend/tests/NewSessionPane.test.tsx && git commit -m "feat(frontend): NewSessionPane 项目下拉加入默认工作区 + 默认选中"
+cd /path/to/WaPi && git add packages/frontend/src/components/NewSessionPane.tsx packages/frontend/tests/NewSessionPane.test.tsx && git commit -m "feat(frontend): NewSessionPane 项目下拉加入默认工作区 + 默认选中"
 ```
 
 ---
@@ -1996,7 +1996,7 @@ test("普通项目会话 header 仍显示 project.cwd（不回归）", () => {
 - [ ] **Step 2: 跑测试验证失败**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/SessionView.test.tsx
+cd /path/to/WaPi && bun test packages/frontend/tests/SessionView.test.tsx
 ```
 
 Expected: FAIL
@@ -2035,7 +2035,7 @@ import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 - [ ] **Step 4: 跑测试验证通过**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/frontend/tests/SessionView.test.tsx
+cd /path/to/WaPi && bun test packages/frontend/tests/SessionView.test.tsx
 ```
 
 Expected: PASS
@@ -2043,7 +2043,7 @@ Expected: PASS
 - [ ] **Step 5: typecheck**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/frontend typecheck
 ```
 
 Expected: 无错误
@@ -2051,7 +2051,7 @@ Expected: 无错误
 - [ ] **Step 6: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/frontend/src/components/SessionView.tsx packages/frontend/tests/SessionView.test.tsx && git commit -m "feat(frontend): SessionView 默认工作区会话 header 显示友好文案"
+cd /path/to/WaPi && git add packages/frontend/src/components/SessionView.tsx packages/frontend/tests/SessionView.test.tsx && git commit -m "feat(frontend): SessionView 默认工作区会话 header 显示友好文案"
 ```
 
 ---
@@ -2144,7 +2144,7 @@ test("集成：project:update 拦截系统项目", async () => {
 - [ ] **Step 2: 跑集成测试**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/default-workspace.integration.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/default-workspace.integration.test.ts
 ```
 
 Expected: PASS
@@ -2152,7 +2152,7 @@ Expected: PASS
 - [ ] **Step 3: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/kernel/tests/default-workspace.integration.test.ts && git commit -m "test(kernel): 默认工作区第三层集成测试"
+cd /path/to/WaPi && git add packages/kernel/tests/default-workspace.integration.test.ts && git commit -m "test(kernel): 默认工作区第三层集成测试"
 ```
 
 ---
@@ -2252,7 +2252,7 @@ test.afterAll(() => {
 - [ ] **Step 2: 跑 E2E**
 
 ```bash
-cd /Users/pipi/work/WaPi/packages/frontend && bun run e2e -- e2e/default-workspace.spec.ts
+cd /path/to/WaPi/packages/frontend && bun run e2e -- e2e/default-workspace.spec.ts
 ```
 
 Expected: PASS
@@ -2260,14 +2260,14 @@ Expected: PASS
 - [ ] **Step 3: 清理截图**
 
 ```bash
-find /Users/pipi/work/WaPi -name "*.png" -path "*/e2e/*" -newer /tmp/marker -delete 2>/dev/null
+find /path/to/WaPi -name "*.png" -path "*/e2e/*" -newer /tmp/marker -delete 2>/dev/null
 # 或手动检查 e2e 目录
 ```
 
 - [ ] **Step 4: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add packages/frontend/e2e/default-workspace.spec.ts && git commit -m "test(e2e): 默认工作区完整流程 E2E 测试"
+cd /path/to/WaPi && git add packages/frontend/e2e/default-workspace.spec.ts && git commit -m "test(e2e): 默认工作区完整流程 E2E 测试"
 ```
 
 ---
@@ -2279,7 +2279,7 @@ cd /Users/pipi/work/WaPi && git add packages/frontend/e2e/default-workspace.spec
 - [ ] **Step 1: 跑全量测试**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test
+cd /path/to/WaPi && bun test
 ```
 
 Expected: 所有测试 PASS
@@ -2287,7 +2287,7 @@ Expected: 所有测试 PASS
 - [ ] **Step 2: typecheck 全量**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run typecheck
+cd /path/to/WaPi && bun run typecheck
 ```
 
 Expected: 无错误
@@ -2311,13 +2311,13 @@ Expected: 无错误
 - [ ] **Step 4: commit**
 
 ```bash
-cd /Users/pipi/work/WaPi && git add CHANGELOG.md && git commit -m "docs: 更新 CHANGELOG（默认工作区功能）"
+cd /path/to/WaPi && git add CHANGELOG.md && git commit -m "docs: 更新 CHANGELOG（默认工作区功能）"
 ```
 
 - [ ] **Step 5: 最终验证**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run dev &
+cd /path/to/WaPi && bun run dev &
 sleep 5
 # 打开 desktop，手动验证：
 # 1. 侧栏有"默认"独立区 + 🏠 默认工作区

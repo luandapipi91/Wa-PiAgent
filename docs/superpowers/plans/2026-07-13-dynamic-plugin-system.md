@@ -85,7 +85,7 @@ export interface ExtensionErrorEvent { type: "extension:error"; name: string; er
 - [ ] **Step 2: 验证类型编译**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/shared typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/shared typecheck
 ```
 
 - [ ] **Step 3: Commit**
@@ -266,7 +266,7 @@ test("构造函数接受自定义 npmCommand", () => {
 - [ ] **Step 3: 运行测试**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/npm-package-service.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/npm-package-service.test.ts
 ```
 
 Expected: 4 tests PASS
@@ -314,7 +314,7 @@ git commit -m "feat(kernel): 新增 NpmPackageService — Bun.spawn 封装包管
 - [ ] **Step 3: 运行测试**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/extensions.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/extensions.test.ts
 ```
 
 Expected: 1 test PASS (`buildAdditionalExtensionPaths`)
@@ -865,7 +865,7 @@ test("不可变更新：保留 settings.json 其他字段", async () => {
 - [ ] **Step 4: 运行测试**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun test packages/kernel/tests/extension-manager.test.ts
+cd /path/to/WaPi && bun test packages/kernel/tests/extension-manager.test.ts
 ```
 
 Expected: 14 tests PASS
@@ -985,7 +985,7 @@ case "extension:toggle": {
 - [ ] **Step 3: 验证编译**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/kernel typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/kernel typecheck
 ```
 
 - [ ] **Step 4: Commit**
@@ -1083,7 +1083,7 @@ if (msg.type === "extension:error") {
 - [ ] **Step 3: 验证编译**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/frontend typecheck
 ```
 
 - [ ] **Step 4: Commit**
@@ -1303,7 +1303,7 @@ export function ExtensionSection() {
 - [ ] **Step 2: 验证编译**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend typecheck
+cd /path/to/WaPi && bun run --filter @wa-pi/frontend typecheck
 ```
 
 - [ ] **Step 3: Commit**
@@ -1399,7 +1399,7 @@ test("安装按钮在输入为空时禁用", () => {
 - [ ] **Step 2: 运行测试**
 
 ```bash
-cd /Users/pipi/work/WaPi && bun run --filter @wa-pi/frontend test -- ExtensionSection
+cd /path/to/WaPi && bun run --filter @wa-pi/frontend test -- ExtensionSection
 ```
 
 Expected: 7 tests PASS

@@ -507,7 +507,7 @@ git commit -m "feat(frontend): extension_notify 系统消息 20s 后自动消失
 运行：
 
 ```bash
-cd /Users/pipi/work/HiAgent
+cd /path/to/HiAgent
 grep -rn "_commandsCache\|tuiOnlyCommandNames\|isTuiOnlyCommand\|scanCache" packages/ --include="*.ts" --include="*.tsx" | grep -v node_modules | grep -v dist
 ```
 

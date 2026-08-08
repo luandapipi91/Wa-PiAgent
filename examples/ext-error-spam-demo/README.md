@@ -21,7 +21,7 @@
 扩展管理页 → 安装扩展 → 输入本目录绝对路径：
 
 ```
-/Users/pipi/work/HiAgent/examples/ext-error-spam-demo
+/path/to/HiAgent/examples/ext-error-spam-demo
 ```
 
 或走 API：
@@ -29,7 +29,7 @@
 ```bash
 curl -X POST http://127.0.0.1:9776/api/extensions/install \
   -H 'Content-Type: application/json' \
-  -d '{"name": "/Users/pipi/work/HiAgent/examples/ext-error-spam-demo"}'
+  -d '{"name": "/path/to/HiAgent/examples/ext-error-spam-demo"}'
 ```
 
 安装后在扩展管理页开启 `exterr` 命令开关。
@@ -38,13 +38,13 @@ curl -X POST http://127.0.0.1:9776/api/extensions/install \
 
 1. `/exterr one` —— 直接抛 1 条命令级错误（event 为 `command`，extensionPath 为 `command:exterr`），用于快速验证单条错误的渲染与诊断列表写入。
 2. `/exterr fire` —— 装填 50 条错误（toast 提示「已装填，发任意消息触发」）。
-2. **发任意一条消息**（内容无关紧要）→ 50 个 `input` handler 各抛一条带编号的错误：
+3. **发任意一条消息**（内容无关紧要）→ 50 个 `input` handler 各抛一条带编号的错误：
    - 右上角 toast 逐一弹出（共 50 条）
    - 「系统设置 > 诊断」出现 50 行，每行 `error` 形如 `模拟扩展错误 #03/50: JSON 解析失败`。
-3. `/exterr status` —— 查看本轮剩余条数（一轮触发后应为 `0/50`）。
-4. `/exterr reset` —— 清空 `fired` 标志，配合已 `fire` 状态，再发一条消息又满 50 条（用于验证旧条目被挤出的截断逻辑）。
-5. 「系统设置 > 诊断」点「清空」→ 列表清空。
-6. `/exterr off` —— 卸装，不再产生错误（handler 遍历空转，开销可忽略）。
+4. `/exterr status` —— 查看本轮剩余条数（一轮触发后应为 `0/50`）。
+5. `/exterr reset` —— 清空 `fired` 标志，配合已 `fire` 状态，再发一条消息又满 50 条（用于验证旧条目被挤出的截断逻辑）。
+6. 「系统设置 > 诊断」点「清空」→ 列表清空。
+7. `/exterr off` —— 卸装，不再产生错误（handler 遍历空转，开销可忽略）。
 
 ## 命令一览
 

@@ -84,12 +84,12 @@ export interface ChannelConfig {
 
 - [ ] **Step 2: 验证 shared 包类型编译通过**
 
-Run: `cd /Users/pipi/work/HiAgent && bun run --filter @wa-pi/shared test`
+Run: `cd /path/to/HiAgent && bun run --filter @wa-pi/shared test`
 Expected: PASS（现有 shared 测试全过；纯类型新增不破坏运行时）。
 
 - [ ] **Step 3: 验证 kernel/frontend 类型编译通过（类型联动检查）**
 
-Run: `cd /Users/pipi/work/HiAgent && bunx tsc --noEmit -p packages/kernel/tsconfig.json && bunx tsc --noEmit -p packages/frontend/tsconfig.json`
+Run: `cd /path/to/HiAgent && bunx tsc --noEmit -p packages/kernel/tsconfig.json && bunx tsc --noEmit -p packages/frontend/tsconfig.json`
 Expected: 报错集中在"缺少 defaultProjectId/allowProjectSwitch 属性"的构造点(channel-store 测试、BotsSection emptyDraft 等)。这些报错正是后续任务要修复的点；本步只确认类型已正确导出且报错仅限于"待补字段"，不涉及类型本身语法错误。
 
 - [ ] **Step 4: Commit**
@@ -202,7 +202,7 @@ test("validateChannelInput: defaultProjectId 缺失时回退默认工作区（�
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/channel-store.test.ts`
+Run: `cd /path/to/HiAgent/packages/kernel && bun test tests/channel-store.test.ts`
 Expected: 三个新测试 FAIL（`defaultProjectId` 为 `undefined`、`allowProjectSwitch` 为 `undefined`、类型断言不通过）。
 
 - [ ] **Step 3: 实现 loadChannels 归一化**
@@ -254,7 +254,7 @@ export function validateChannelInput(
 
 - [ ] **Step 5: 运行测试验证通过**
 
-Run: `cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/channel-store.test.ts`
+Run: `cd /path/to/HiAgent/packages/kernel && bun test tests/channel-store.test.ts`
 Expected: PASS（含三个新测试）。
 
 - [ ] **Step 6: Commit**
@@ -342,7 +342,7 @@ test("allowSwitch=true：/help 含 /use 和 /projects", () => {
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/channel-commands.test.ts`
+Run: `cd /path/to/HiAgent/packages/kernel && bun test tests/channel-commands.test.ts`
 Expected: 新测试 FAIL（`CommandContext` 无 `allowSwitch` 字段，TS 报错或行为不符）。
 
 - [ ] **Step 3: 实现 CommandContext 扩展 + 开关逻辑**
@@ -411,7 +411,7 @@ export function parseCommand(text: string, ctx: CommandContext): CommandResult {
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/channel-commands.test.ts`
+Run: `cd /path/to/HiAgent/packages/kernel && bun test tests/channel-commands.test.ts`
 Expected: PASS（含新测试 + 既有测试）。
 
 > 注意：既有测试若构造 `CommandContext` 时未传 `allowSwitch`，会因新字段必填而 TS 报错。需把既有测试的 ctx 补上 `allowSwitch: true`（保持原行为）。本步骤包含对既有测试的最小补字段改动。
@@ -525,7 +525,7 @@ test("defaultProjectId 指向已删除项目时，ensureSession 降级为 __syst
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/channel-manager.test.ts`
+Run: `cd /path/to/HiAgent/packages/kernel && bun test tests/channel-manager.test.ts`
 Expected: 新测试 FAIL（新建映射仍用 `SYSTEM_PROJECT_ID`；`/use` 未被拒；删除项目未降级）。
 
 - [ ] **Step 3: 实现 handleInbound 新建映射用 defaultProjectId**
@@ -609,12 +609,12 @@ private async ensureSession(
 
 - [ ] **Step 6: 运行测试验证通过**
 
-Run: `cd /Users/pipi/work/HiAgent/packages/kernel && bun test tests/channel-manager.test.ts`
+Run: `cd /path/to/HiAgent/packages/kernel && bun test tests/channel-manager.test.ts`
 Expected: PASS（含三个新测试 + 既有测试）。
 
 - [ ] **Step 7: 运行 kernel 全量测试确认无回归**
 
-Run: `cd /Users/pipi/work/HiAgent/packages/kernel && bun test`
+Run: `cd /path/to/HiAgent/packages/kernel && bun test`
 Expected: PASS（全量绿）。
 
 - [ ] **Step 8: Commit**
@@ -776,7 +776,7 @@ test("编辑回填：已有机器人字段正确回显", async () => {
 
 - [ ] **Step 2: 运行测试验证失败**
 
-Run: `cd /Users/pipi/work/HiAgent/packages/frontend && bun test --isolate tests/BotsSection.test.tsx`
+Run: `cd /path/to/HiAgent/packages/frontend && bun test --isolate tests/BotsSection.test.tsx`
 Expected: FAIL（找不到 `bot-default-project-select` / `bot-allow-switch-toggle`）。
 
 - [ ] **Step 3: 实现 BotsSection 表单**
@@ -853,14 +853,14 @@ const openEdit = (id: string) => {
 
 - [ ] **Step 4: 运行测试验证通过**
 
-Run: `cd /Users/pipi/work/HiAgent/packages/frontend && bun test --isolate tests/BotsSection.test.tsx`
+Run: `cd /path/to/HiAgent/packages/frontend && bun test --isolate tests/BotsSection.test.tsx`
 Expected: PASS。
 
 > 若失败且报 testid 不匹配，对照现有 BotsSection 的 add/save/id/secret 按钮 testid 修正测试，或补齐组件 testid（保持与现有命名风格一致）。
 
 - [ ] **Step 5: 运行前端全量组件测试确认无回归**
 
-Run: `cd /Users/pipi/work/HiAgent/packages/frontend && bun test --isolate`
+Run: `cd /path/to/HiAgent/packages/frontend && bun test --isolate`
 Expected: PASS。
 
 - [ ] **Step 6: Commit**
@@ -1004,7 +1004,7 @@ test.describe.serial("企微机器人：默认工作目录 + 切换开关", () =
 
 - [ ] **Step 2: 运行 E2E**
 
-Run: `cd /Users/pipi/work/HiAgent && bun run --filter @wa-pi/frontend e2e -- --grep "默认工作目录"`
+Run: `cd /path/to/HiAgent && bun run --filter @wa-pi/frontend e2e -- --grep "默认工作目录"`
 Expected: PASS。失败截图在 `packages/frontend/e2e/` 或 playwright-output 下，**测试完成后删除截图文件**。
 
 - [ ] **Step 3: 清理截图**
