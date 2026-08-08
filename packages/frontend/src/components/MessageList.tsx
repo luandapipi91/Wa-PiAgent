@@ -554,11 +554,11 @@ function StreamingRow({
 		Array.isArray(m.content) &&
 		m.content.some(
 			(b: any) =>
-				(b.type === "text" &&
+				(b?.type === "text" &&
 					typeof b.text === "string" &&
 					b.text.trim().length > 0) ||
-				b.type === "thinking" ||
-				b.type === "toolCall",
+				b?.type === "thinking" ||
+				b?.type === "toolCall",
 		);
 	if (hasContent)
 		return (
@@ -925,6 +925,9 @@ function segmentBlocks(blocks: any[]): Segment[] {
 
 	for (let idx = 0; idx < blocks.length; idx++) {
 		const b = blocks[idx];
+		// 流式累积（message_update 按 contentIndex 赋值）会产出稀疏数组空洞，
+		// 历史 JSONL 也可能带 null 元素；for 循环不跳过空洞，必须跳过 undefined
+		if (!b) continue;
 		if (b.type === "thinking") {
 			// thinking 不合并：每段独立成卡，区分 finalized/streaming
 			push();

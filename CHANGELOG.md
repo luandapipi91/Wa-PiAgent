@@ -17,6 +17,8 @@
 
 ### 变更
 
+- **修复(frontend)：会话消息流渲染崩溃 `Cannot read properties of undefined (reading 'type')`**。根因：pi-ai 0.84 的 `message_update` 只发 delta，前端按 `contentIndex` 累积 content——一轮含 `text → toolCall → text` 时 toolCall 占位的索引从未赋值，产生稀疏数组空洞（历史 JSONL 也可能带 null 元素）；`MessageList.segmentBlocks` 用 for 循环直接 `blocks[idx]` 访问（不跳过空洞），元素 undefined 时 `b.type` 崩溃，fleet/delegate 场景最易触发（调用前 text + 调用后 text 正好形成空洞）。修复：`segmentBlocks` 跳过 undefined 元素；同步给 `StreamingRow.hasContent`、`hasMeaningfulContent`、`FleetCard`/`DelegateCard`/`ToolCallCard` 的 content 遍历加 `?.` 保护（防御其他渲染路径）。新增稀疏空洞/显式 undefined 渲染测试 2 例，全量 1235 例通过。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/components/blocks/FleetCard.tsx`、`packages/frontend/src/components/blocks/DelegateCard.tsx`、`packages/frontend/src/components/blocks/ToolCallCard.tsx`、`packages/frontend/tests/MessageList-sparse-content.test.tsx`。
 - **调整(frontend)：初始化引导入口从「通用」迁移到「关于」tab，按钮改为 icon**。入口形态改为说明文字「重新打开新手引导，配置模型与默认智能体」+ 火箭 icon 按钮（testid `reopen-onboarding` 不变）；i18n 键从 `settings.general.onboarding.*` 移到 `settings.about.onboardingDesc/onboardingButton`。
   - 影响范围：`packages/frontend/src/components/settings/AboutSection.tsx`、`GeneralSection.tsx`、`src/i18n/locales/{zh,en}.ts`、`e2e/onboarding-wizard.spec.ts`。
 - **调整(frontend)：新建智能体面板细节优化**。命名面板的「← 返回列表」与「取消」改为同一行（左/右）；提示词预览弹窗标题栏加 × 关闭 icon（`preset-prompt-close`）；预设卡片网格从 2 列改为 3 列，弹窗宽度 560 → 720。

@@ -64,7 +64,7 @@ export function DelegateCard({
 	const full =
 		result?.content
 			.map((c: ToolResultMessage["content"][number]) =>
-				c.type === "text" ? c.text : "",
+				c?.type === "text" ? c.text : "",
 			)
 			.join("\n") ?? "";
 	const mdComponents = createMarkdownComponents(sessionId);
