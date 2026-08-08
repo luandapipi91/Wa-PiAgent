@@ -46,10 +46,7 @@ import { relative, join } from "node:path";
 import { mkdir, writeFile, rm, appendFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { buildAdditionalExtensionPaths } from "./extensions";
-import {
-	attachPackageName,
-	type RawCommandInfo,
-} from "./tui-command-filter";
+import { attachPackageName, type RawCommandInfo } from "./tui-command-filter";
 import { getGlobalMemoryStore, getProjectMemoryStore } from "./amaster-memory";
 import { reconcileDanglingAsks } from "./ask-tool";
 import {
@@ -228,7 +225,9 @@ export class AgentManager {
 		await ensurePromptsConfig(PROMPTS_FILE);
 		const loaded = await loadPromptSegments(PROMPTS_FILE);
 		// im-channel 段不落盘（savePromptSegments 剔除），运行时补回占位
-		this.promptSegments = ensureImChannelSegment(loaded ?? DEFAULT_PROMPT_SEGMENTS);
+		this.promptSegments = ensureImChannelSegment(
+			loaded ?? DEFAULT_PROMPT_SEGMENTS,
+		);
 		return this.promptSegments;
 	}
 
@@ -589,6 +588,7 @@ export class AgentManager {
 				thinking: cfg.thinking,
 				tools: cfg.tools,
 				skills: cfg.skills,
+				skillsAllOff: cfg.skillsAllOff,
 			};
 		};
 
@@ -906,7 +906,7 @@ export class AgentManager {
 				handle.busy = true;
 				handle.thinkingSince = Date.now();
 				break;
-		case "message_end":
+			case "message_end":
 				if (event.message) handle.messages.push(event.message);
 				// 本轮 user 落盘时刻（≈ jsonl 行级落盘）：整轮耗时的起点。
 				// 不能用 message.timestamp——Pi 单块轮 assistant 消息对象在 prompt 时预创建，
@@ -963,7 +963,10 @@ export class AgentManager {
 							err,
 						);
 					});
-				} else if (this.skillDirty.has(sessionId) || this.dirty.has(sessionId)) {
+				} else if (
+					this.skillDirty.has(sessionId) ||
+					this.dirty.has(sessionId)
+				) {
 					// 真正 idle（无排队/引导消息）且有 dirty：补重载。对话中装卸插件被 busy 挡住
 					// （保留 dirty），对话结束（agent_settled）且队列空时补热重载/重建。
 					void this._reloadIfDirty(sessionId, handle).catch((err) => {
@@ -1481,7 +1484,10 @@ export class AgentManager {
 			return this._fetchCommands(h.client);
 		}
 		if (dirtyCandidate && !dirtyCandidate.handle.busy) {
-			const h = await this._reloadIfDirty(dirtyCandidate.id, dirtyCandidate.handle);
+			const h = await this._reloadIfDirty(
+				dirtyCandidate.id,
+				dirtyCandidate.handle,
+			);
 			if (h.client.isAlive()) {
 				return this._fetchCommands(h.client);
 			}

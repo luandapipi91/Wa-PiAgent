@@ -8,6 +8,21 @@
 
 ### 变更
 
+- **依赖升级(全仓)：核心依赖批量升级到最新 minor/patch 版本**。覆盖 4 个包：kernel（`@earendil-works/pi-ai` ^0.83.0→^0.84.1、`@earendil-works/pi-coding-agent` ^0.83.0→^0.84.1、`@amaster.ai/pi-memory` ^0.1.6→^0.1.8、`pi-web-access` ^0.17.1→^0.19.0、`typebox` ^1.3.6→^1.3.11）、frontend（`vite` ^8.1.5→^8.2.1、`@vitejs/plugin-react` ^6.0.4→^6.0.5、`mermaid` ^11.16.0→^11.16.1、`happy-dom`/`@happy-dom/global-registrator` ^20.11.1→^20.11.2、`@playwright/test` ^1.62.0→^1.62.1、`@types/react` ^19.2.17→^19.2.18、`@types/react-dom` ^19.2.3→^19.2.4）、desktop（`electron` ^43→^43.3.0、`electron-builder` ^26→^26.15.3）、根（`@types/bun` ^1.3.0→^1.3.14）。大版本跳升项按约定保持不动：`pi-mcp-adapter` 2.17.0（项目自定义 patch）、`tailwindcss` 3（4 为 CSS-first 重构）、`typescript` 5（7 待单独评估）。验证：全仓 typecheck 通过、单测全绿（kernel 815 / shared 95 / desktop 56 / frontend 1199）、vite build 成功、E2E 核心流程通过。
+  - 影响范围：`package.json`、`packages/{kernel,shared,frontend,desktop}/package.json`、`bun.lock`。
+
+- **修复(kernel)：`WaPiSpawnConfig` 补充 `skillsAllOff` 字段，修复子代理技能全关语义失效**。`delegate-tool.ts` 访问 `config.skillsAllOff` 决定是否给子代理传空技能数组，但 `WaPiSpawnConfig`（subagent-runner.ts）从未定义该字段——运行时恒为 `undefined`，导致「显式全不选技能」永远走白名单分支、typecheck 报 TS2339。修复：接口补 `skillsAllOff?: boolean`，`agent-manager.ts` 的 `resolveSpawnConfig` 从 `AgentConfig` 透传该值。
+  - 影响范围：`packages/kernel/src/subagent-runner.ts`、`packages/kernel/src/agent-manager.ts`。
+
+- **文档：README 改为英文默认版，中文版拆分为 README.zh-CN.md，两版顶部互相跳转**。原中文 README 整体迁至 `README.zh-CN.md`（顶部加「[English](./README.md) | **简体中文**」切换行）；`README.md` 重写为完整英文版（忠实翻译全部章节：定位、三分钟上手、CLI vs GUI 对比、7 个特性节、架构、项目结构、开发、路线图五大方向），顶部加「**English** | [简体中文](./README.zh-CN.md)」切换行。截图素材共用 docs/assets/readme/（界面截图为中文 UI，与双语界面特性一致）。
+  - 影响范围：`README.md`（重写为英文）、`README.zh-CN.md`（新增，原中文内容）。
+
+- **文档：README 插件生态与 pi RPC 事件透明化升级为已交付亮点，新增插件管理截图**。经代码核实（rpc-client.ts / store/session.ts / ExtensionSection.tsx / extension-manager.ts）：重试/压缩/摘要进度提示、extension_error/setStatus/setWidget 可视化、插件动态安装/卸载/升级（热加载、markAllDirty + reloadExtensions）均已完整实现，从路线图「持续推进」注记移入「已经交付」清单（新增 2 条勾选）；核心特性新增「插件生态」大节（动态安装/卸载/升级、TUI 插件 UI 原语 GUI 原生呈现、slash 命令管理）并配新截图 `docs/assets/readme/readme-extensions.png`（Playwright 对运行中应用实拍，2880x1800@2x）；「可观测与诊断」节扩写为「运行状态透明化」。诚实性边界：tool_execution_update 的 partialResult 与 turn_* 遥测尚无 UI 消费，README 未宣称；TUI 支持表述限定为「UI 原语桥接」，不含全屏终端 UI。
+  - 影响范围：`README.md`、`docs/assets/readme/readme-extensions.png`（新增）。
+
+- **文档：README.md 全面重写（定位深化 + 路线图换新 + 修复过时点）**。定位在「pi agent 的 GUI 框架」基础上强化吸引力文案（新标语、截图前置、「三分钟上手」快速开始）；路线图未来方向替换为五大新方向——可视化流程编排、定时任务、连接器、产物分享、差异监控（各附一句话价值描述），已完成项补充 IM 机器人渠道、桌面自动更新、中英双语。修复 Explore 审查发现的过时点：`WA_PI_DIR` 默认值 `~/.wa-pi` → `~/.pi/agent`（2 处）；新增「IM 机器人渠道」（企业微信已支持、微信/飞书/QQ 预留）与「可观测与诊断」特性节；架构图与项目结构补充 IM 渠道；打包命令补充 `pack:all`；开发节补充 `WA_PI_PREVIEW_PORT` 与前端 e2e 说明。
+  - 影响范围：`README.md`。
+
 - **文档：重写 README.md，产品定位调整为「pi agent 的 GUI 框架」**。主标语从「多智能体协作工作台」改为「pi agent 的 GUI 框架——给 AI 编程智能体一个友好的桌面操作体验」；「这是什么」章节重写为 GUI 框架叙事（pi 引擎为内核、本框架提供图形化桌面体验、引擎与界面解耦），多智能体协作降级为框架之上的增值能力；新增「为什么选择 GUI」章节（CLI vs GUI 对比表）；架构章节补充「GUI 负责体验，pi 负责智能，内核负责编排」的职责定位。功能事实（特性、快速开始、项目结构、路线图等）保持不变。
   - 影响范围：`README.md`。
 
