@@ -249,46 +249,49 @@ export type RoleMessage = UserMessage | AssistantMessage | ToolResultMessage;
 export type AgentMessage = RoleMessage | CustomMessage;
 
 // 镜像 @earendil-works/pi-ai AssistantMessageEvent（流式增量事件）
+// 0.84 起 RPC/JSON 序列化（toJsonEvent）会剥离 partial 快照：message_update 只携带
+// delta 事件（type/contentIndex/delta），partial 仅存在于 pi-ai 进程内事件流。
+// 因此这里把 partial 声明为可选：消费方不得依赖它（需自行从 deltas 累积）。
 export type AssistantMessageEvent =
-	| { type: "start"; partial: AssistantMessage }
-	| { type: "text_start"; contentIndex: number; partial: AssistantMessage }
+	| { type: "start"; partial?: AssistantMessage }
+	| { type: "text_start"; contentIndex: number; partial?: AssistantMessage }
 	| {
 			type: "text_delta";
 			contentIndex: number;
 			delta: string;
-			partial: AssistantMessage;
+			partial?: AssistantMessage;
 	  }
 	| {
 			type: "text_end";
 			contentIndex: number;
 			content: string;
-			partial: AssistantMessage;
+			partial?: AssistantMessage;
 	  }
-	| { type: "thinking_start"; contentIndex: number; partial: AssistantMessage }
+	| { type: "thinking_start"; contentIndex: number; partial?: AssistantMessage }
 	| {
 			type: "thinking_delta";
 			contentIndex: number;
 			delta: string;
-			partial: AssistantMessage;
+			partial?: AssistantMessage;
 	  }
 	| {
 			type: "thinking_end";
 			contentIndex: number;
 			content: string;
-			partial: AssistantMessage;
+			partial?: AssistantMessage;
 	  }
-	| { type: "toolcall_start"; contentIndex: number; partial: AssistantMessage }
+	| { type: "toolcall_start"; contentIndex: number; partial?: AssistantMessage }
 	| {
 			type: "toolcall_delta";
 			contentIndex: number;
 			delta: string;
-			partial: AssistantMessage;
+			partial?: AssistantMessage;
 	  }
 	| {
 			type: "toolcall_end";
 			contentIndex: number;
 			toolCall: ToolCall;
-			partial: AssistantMessage;
+			partial?: AssistantMessage;
 	  }
 	| {
 			type: "done";
@@ -534,7 +537,11 @@ export interface ChannelConfig {
 	allowProjectSwitch: boolean;
 	createdAt: number;
 }
-export type ChannelStatus = "connected" | "connecting" | "disconnected" | "error";
+export type ChannelStatus =
+	| "connected"
+	| "connecting"
+	| "disconnected"
+	| "error";
 /** API 输出形态：secret 已脱敏，附实时连接状态 */
 export interface ChannelStatusInfo extends Omit<ChannelConfig, "credentials"> {
 	credentials: { botId: string; secret: string };
@@ -556,18 +563,50 @@ export interface ChannelConversationInfo {
 	lastMessagePreview: string;
 	updatedAt: number;
 }
-export interface ChannelsListRequest { type: "channels:list" }
-export interface ChannelsCreateRequest { type: "channels:create"; channel: Omit<ChannelConfig, "id" | "createdAt"> }
-export interface ChannelsUpdateRequest { type: "channels:update"; id: string; channel: Partial<Omit<ChannelConfig, "id" | "createdAt">> }
-export interface ChannelsDeleteRequest { type: "channels:delete"; id: string }
-export interface ChannelAgentUsageRequest { type: "channels:agent-usage"; agentName: string }
-export interface ChannelConversationsListRequest { type: "channel-conversations:list" }
-export interface ChannelsCurrentResult { type: "channels:current"; channels: ChannelStatusInfo[] }
-export interface ChannelAgentUsageResult { type: "channels:agent-usage-result"; agentName: string; count: number; channelNames: string[] }
-export interface ChannelConversationsResult { type: "channel-conversations:current"; conversations: ChannelConversationInfo[] }
+export interface ChannelsListRequest {
+	type: "channels:list";
+}
+export interface ChannelsCreateRequest {
+	type: "channels:create";
+	channel: Omit<ChannelConfig, "id" | "createdAt">;
+}
+export interface ChannelsUpdateRequest {
+	type: "channels:update";
+	id: string;
+	channel: Partial<Omit<ChannelConfig, "id" | "createdAt">>;
+}
+export interface ChannelsDeleteRequest {
+	type: "channels:delete";
+	id: string;
+}
+export interface ChannelAgentUsageRequest {
+	type: "channels:agent-usage";
+	agentName: string;
+}
+export interface ChannelConversationsListRequest {
+	type: "channel-conversations:list";
+}
+export interface ChannelsCurrentResult {
+	type: "channels:current";
+	channels: ChannelStatusInfo[];
+}
+export interface ChannelAgentUsageResult {
+	type: "channels:agent-usage-result";
+	agentName: string;
+	count: number;
+	channelNames: string[];
+}
+export interface ChannelConversationsResult {
+	type: "channel-conversations:current";
+	conversations: ChannelConversationInfo[];
+}
 /** 轻量变更标记：前端收到后重新拉取对应列表 */
-export interface ChannelsChangedEvent { type: "channels:changed" }
-export interface ChannelConversationsChangedEvent { type: "channel-conversations:changed" }
+export interface ChannelsChangedEvent {
+	type: "channels:changed";
+}
+export interface ChannelConversationsChangedEvent {
+	type: "channel-conversations:changed";
+}
 
 export type WSClientEvent =
 	| PromptEvent
@@ -1026,8 +1065,9 @@ export type SDKEvent =
 	  }
 	| { type: "message_start"; message: AgentMessage }
 	| {
+			// 0.84 起 RPC 只发 assistantMessageEvent delta，不再携带累积 message 字段
 			type: "message_update";
-			message: AgentMessage;
+			message?: AgentMessage;
 			assistantMessageEvent: AssistantMessageEvent;
 	  }
 	| { type: "message_end"; message: AgentMessage }

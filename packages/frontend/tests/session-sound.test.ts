@@ -57,14 +57,20 @@ beforeEach(() => {
 test("agent_end 终态（willRetry:false）→ 播放任务完成提示音一次", () => {
 	useSessionStore
 		.getState()
-		.handleSDKEvent("s1", envelope({ type: "agent_end", willRetry: false } as any));
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", willRetry: false } as any),
+		);
 	expect(soundCalls.taskDone).toBe(1);
 });
 
 test("agent_end 中间态（willRetry:true，自动重试退避中）→ 不播放", () => {
 	useSessionStore
 		.getState()
-		.handleSDKEvent("s1", envelope({ type: "agent_end", willRetry: true } as any));
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "agent_end", willRetry: true } as any),
+		);
 	expect(soundCalls.taskDone).toBe(0);
 });
 
