@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-08
+
+### 变更
+
+- **修复(kernel)：企微 IM 流式推送断线期 unhandledRejection 崩溃**。根因：`channel-manager.ts` 流式节流的 setTimeout 回调内 `void this.sendStreamFrame(...)` 缺少 `.catch()`——企微 WS 断线（网络波动/重连中）时 SDK `send()` 抛 `WebSocket not connected, unable to send data` 并经 `sendReply → processReplyQueue → item.reject` 传播，setTimeout 回调是独立异步任务、不在外层 `streamUpdate().catch()` 覆盖内，rejection 无人消费触发 kernel 崩溃日志。修复：该调用补 `.catch()`（与 streamUpdate/replyTurn/handleInbound 消费点模式一致），错误记 warn 后静默（agent_settled 终态仍会重试整轮回复）。新增回归测试「节流 setTimeout 回调：streamReply 失败（WS 断线）不产生 unhandledRejection，记 warn」，测试堆栈与线上 kernel-crash.log 完全一致。
+  - 影响范围：`packages/kernel/src/channel-manager.ts`、`packages/kernel/tests/channel-manager.test.ts`。
+
+---
+
 ## 2026-08-08 — 发版 v0.1.6
 
 ### 变更

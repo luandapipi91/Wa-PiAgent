@@ -402,14 +402,16 @@ export class ChannelManager {
 			stream.timer = setTimeout(() => {
 				if (!stream) return;
 				stream.timer = undefined;
-				// 发挂起期间最新的文本；若无 pending（未被更新）发注册时的
+				// 发挂起期间最新的文本；若无 pending（未被更新）发注册时的。
+				// 断线窗口内 SDK send() 抛错 → sendStreamFrame reject，此处必须消费，
+				// 否则 rejection 到达 setTimeout 回调无人处理 → unhandledRejection 崩溃。
 				void this.sendStreamFrame(
 					key,
 					frame,
 					stream.streamId,
 					stream.pendingText ?? text,
 					false,
-				);
+				).catch((e) => console.warn("[channel-manager] 流式推送失败:", e));
 				stream.pendingText = undefined;
 			}, ChannelManager.STREAM_THROTTLE_MS - elapsed);
 			return;
