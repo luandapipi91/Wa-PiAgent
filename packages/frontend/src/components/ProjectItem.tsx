@@ -7,6 +7,7 @@ import {
 } from "@wa-pi/shared";
 import { SessionRow } from "./SessionRow";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
+import { Modal } from "./ui/Modal";
 import { Icon } from "./ui/Icon";
 import { api } from "../api-client";
 import { useProjectUiStore } from "../store/project-ui";
@@ -52,6 +53,9 @@ export function ProjectItem(props: Props) {
 	const [deleteKind, setDeleteKind] = useState<"session" | "project" | null>(
 		null,
 	);
+	// 重命名弹窗
+	const [renameTarget, setRenameTarget] = useState<SessionEntity | null>(null);
+	const [renameValue, setRenameValue] = useState("");
 
 	const { project, sessions, currentSessionId, selected, isNewSessionView } =
 		props;
@@ -63,7 +67,9 @@ export function ProjectItem(props: Props) {
 	const prevExpandedRef = useRef<boolean>(expanded);
 	const mySessions = (() => {
 		// IM 渠道会话（im- 前缀）归属 IM 页签，不在任务列表显示
-		const list = sessions.filter((s) => s.projectId === project.id && !s.id.startsWith("im-"));
+		const list = sessions.filter(
+			(s) => s.projectId === project.id && !s.id.startsWith("im-"),
+		);
 		// 折叠 → 展开：重新按 lastActivity 倒序重排
 		if (expanded && !prevExpandedRef.current) {
 			lastOrderRef.current = [...list]
@@ -134,12 +140,24 @@ export function ProjectItem(props: Props) {
 	// ---- 操作 ----
 	const handleRename = (session: SessionEntity) => {
 		setSessionMenu(null);
-		const title = window.prompt(t("projectItem.renamePromptTitle"), session.title);
-		if (title && title.trim()) {
-			void api.post(`/api/sessions/${encodeURIComponent(session.id)}/rename`, {
-				title: title.trim(),
-			});
+		setRenameValue(session.title);
+		setRenameTarget(session);
+	};
+
+	const handleRenameConfirm = () => {
+		if (!renameTarget) return;
+		const title = renameValue.trim();
+		if (title) {
+			void api.post(
+				`/api/sessions/${encodeURIComponent(renameTarget.id)}/rename`,
+				{ title },
+			);
 		}
+		setRenameTarget(null);
+	};
+
+	const handleRenameCancel = () => {
+		setRenameTarget(null);
 	};
 
 	const handleDeleteClick = (session: SessionEntity) => {
@@ -262,7 +280,7 @@ export function ProjectItem(props: Props) {
 							onClick={() => handleRename(sessionMenu.session)}
 							className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
 							data-testid="menu-rename"
-							>
+						>
 							{t("projectItem.ctxRenameSession")}
 						</button>
 						<button
@@ -278,7 +296,11 @@ export function ProjectItem(props: Props) {
 								className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
 								data-testid="menu-open-session-dir"
 							>
-								{openInFileManagerLabel({ mac: t("common.openInFinder"), windows: t("common.openInExplorer"), linux: t("common.openInFileManager") })}
+								{openInFileManagerLabel({
+									mac: t("common.openInFinder"),
+									windows: t("common.openInExplorer"),
+									linux: t("common.openInFileManager"),
+								})}
 							</button>
 						)}
 					</div>,
@@ -305,7 +327,11 @@ export function ProjectItem(props: Props) {
 							className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
 							data-testid="menu-open-dir"
 						>
-							{openInFileManagerLabel({ mac: t("common.openInFinder"), windows: t("common.openInExplorer"), linux: t("common.openInFileManager") })}
+							{openInFileManagerLabel({
+								mac: t("common.openInFinder"),
+								windows: t("common.openInExplorer"),
+								linux: t("common.openInFileManager"),
+							})}
 						</button>
 						{!isSystem && (
 							<button
@@ -320,17 +346,74 @@ export function ProjectItem(props: Props) {
 					document.body,
 				)}
 
+			{/* 重命名弹窗 */}
+			{renameTarget && (
+				<Modal
+					onClose={handleRenameCancel}
+					width={400}
+					data-testid="rename-dialog"
+				>
+					<div className="p-4 border-b border-hairline">
+						<div className="text-primary font-bold text-sm">
+							{t("projectItem.renamePromptTitle")}
+						</div>
+					</div>
+					<div className="p-4">
+						<input
+							className="w-full px-2.5 py-1.5 rounded-md"
+							style={{
+								background: "var(--canvas)",
+								border: "1px solid var(--hairline)",
+								color: "var(--text-primary)",
+							}}
+							value={renameValue}
+							onChange={(e) => setRenameValue(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") handleRenameConfirm();
+							}}
+							autoFocus
+							data-testid="rename-input"
+						/>
+					</div>
+					<div className="flex justify-end gap-2 p-3 border-t border-hairline">
+						<button
+							onClick={handleRenameCancel}
+							className="px-3 py-1.5 rounded-sm text-sm bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary"
+							data-testid="rename-cancel"
+						>
+							{t("common.cancel")}
+						</button>
+						<button
+							onClick={handleRenameConfirm}
+							className="px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer"
+							style={{ background: "var(--brand)", color: "var(--on-brand)" }}
+							data-testid="rename-ok"
+						>
+							{t("common.confirm")}
+						</button>
+					</div>
+				</Modal>
+			)}
+
 			{/* 删除确认框 */}
 			{deleteTarget && (
-			<ConfirmDialog
-				title={deleteKind === "session" ? t("projectItem.ctxDeleteChat") : t("projectItem.ctxDeleteProject")}
-				message={
-					deleteKind === "session"
-						? t("projectItem.deleteSessionMsg", { title: (deleteTarget as SessionEntity).title })
-						: t("projectItem.deleteProjectMsg", { name: (deleteTarget as ProjectEntity).name })
-				}
-				confirmText={t("common.delete")}
-				danger
+				<ConfirmDialog
+					title={
+						deleteKind === "session"
+							? t("projectItem.ctxDeleteChat")
+							: t("projectItem.ctxDeleteProject")
+					}
+					message={
+						deleteKind === "session"
+							? t("projectItem.deleteSessionMsg", {
+									title: (deleteTarget as SessionEntity).title,
+								})
+							: t("projectItem.deleteProjectMsg", {
+									name: (deleteTarget as ProjectEntity).name,
+								})
+					}
+					confirmText={t("common.delete")}
+					danger
 					onConfirm={handleDeleteConfirm}
 					onCancel={() => {
 						setDeleteTarget(null);

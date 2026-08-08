@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-09 — 重命名会话改用内置弹窗
+
+### 变更
+
+- **重构(frontend)：会话「重命名」从浏览器原生 `window.prompt` 改为内置 `Modal` 组件弹窗**。右键菜单点击「重命名会话」后，弹出与删除确认框同风格的输入弹窗（预填当前标题、支持 Enter 提交、取消/确认按钮），与删除会话的 ConfirmDialog 体验对齐，消除全仓唯一一处原生 prompt。后端接口 `POST /api/sessions/:id/rename` 不变。
+  - 影响范围：`packages/frontend/src/components/ProjectItem.tsx`、`packages/frontend/tests/ProjectItem.sort-menu.test.tsx`（新增 4 条重命名弹窗测试）。
+
+---
+
 ## 2026-08-09 — 恢复 README 截图素材
 
 ### 变更
