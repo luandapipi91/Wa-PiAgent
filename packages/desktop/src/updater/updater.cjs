@@ -1,4 +1,4 @@
-// 自动更新装配层：创建 NsisUpdater、注入 GiteeProvider、注册 IPC、事件翻译广播。
+// 自动更新装配层：创建 NsisUpdater、配置 GenericProvider（OSS 公开读）、注册 IPC、事件翻译广播。
 // translateUpdaterEvent / updaterPhases 为纯函数（可单测）；setupUpdater 依赖 Electron 环境（main 进程调用）。
 
 const updaterPhases = ["checking", "available", "up-to-date", "downloading", "downloaded", "error"];
@@ -35,7 +35,6 @@ function translateUpdaterEvent({ type, info, progress, error }) {
 // —— Electron 装配（main 进程调用）——
 
 const { NsisUpdater } = require("electron-updater");
-const { GiteeProvider } = require("./gitee-provider.cjs");
 
 // 前端 phase → electron-updater 事件名 的显式映射表。
 // 用普通对象 + 遍历，避免晦涩的链式 .map() 写法，语义一眼可懂。
@@ -54,7 +53,7 @@ const PHASE_TO_EVENT = {
  * @param {(msg: string) => void} deps.log
  * @param {boolean} deps.isPackaged 是否打包版（dev 下禁用真实更新）
  * @param {string} deps.currentVersion app.getVersion()
- * @param {{ baseUrl?: string, owner?: string, repo?: string }} [deps.config] 可覆盖（E2E/测试指向本地 mock）
+ * @param {{ feedUrl?: string }} [deps.config] 可覆盖更新源 URL（E2E/测试指向本地 mock）
  */
 function setupUpdater({ getMainWindow, log, isPackaged, currentVersion, config = {} }) {
 	const { ipcMain } = require("electron");
@@ -90,18 +89,12 @@ function setupUpdater({ getMainWindow, log, isPackaged, currentVersion, config =
 		error: (m) => log(`[updater] ${m}`),
 		debug: (m) => log(`[updater] ${m}`),
 	};
-	// 注入自定义 Provider：从 Gitee Releases 拉版本 + 下载地址
-	const provider = new GiteeProvider({
-		runtimeOptions: {
-			isUseMultipleRangeRequest: true,
-			platform: process.platform === "darwin" ? "darwin" : process.platform === "linux" ? "linux" : "win32",
-			executor: updater.httpExecutor,
-		},
-		baseUrl: config.baseUrl || "https://gitee.com/api/v5",
-		owner: config.owner || "luandapipi",
-		repo: config.repo || "HiAgent",
+	// 配置更新源：GenericProvider 从 OSS 公开读拉 latest.yml + 安装包。
+	// setFeedURL 是官方注入路径（内部自动构造 GenericProvider + clientPromise）。
+	updater.setFeedURL({
+		provider: "generic",
+		url: config.feedUrl || "https://coaicom.oss-cn-heyuan.aliyuncs.com/releases/",
 	});
-	updater.provider = provider;
 
 	// 注册事件监听：把 electron-updater 原生事件翻译成前端 phase 载荷并广播
 	for (const [phase, eventName] of Object.entries(PHASE_TO_EVENT)) {
