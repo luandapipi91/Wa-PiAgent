@@ -441,6 +441,7 @@ const en = {
 	},
 	projectList: {
 		sectionTitle: "Projects", newProject: "＋ New project",
+		systemProjectName: "Default workspace",
 	},
 	store: {
 		duplicateProjectCwd: "A project with this directory already exists",

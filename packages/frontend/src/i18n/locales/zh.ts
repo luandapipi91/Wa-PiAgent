@@ -441,6 +441,7 @@ const zh = {
 	},
 	projectList: {
 		sectionTitle: "项目", newProject: "＋ 新建项目",
+		systemProjectName: "默认工作区",
 	},
 	store: {
 		duplicateProjectCwd: "相同目录的项目已存在",

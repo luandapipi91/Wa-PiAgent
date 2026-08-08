@@ -202,8 +202,7 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
           {projects.length === 0 && <option value="">{t("newSession.noProjectOption")}</option>}
           {projects.map(p => (
             <option key={p.id} value={p.id}>
-              {p.name}
-              {p.id === SYSTEM_PROJECT_ID ? "" : ` ${p.cwd}`}
+              {p.id === SYSTEM_PROJECT_ID ? `🏠 ${t("projectList.systemProjectName")}` : `${p.name} ${p.cwd}`}
             </option>
           ))}
         </select>
