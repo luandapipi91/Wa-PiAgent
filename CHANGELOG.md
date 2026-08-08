@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **新增 OnboardingWizard 初始化向导（初始化向导 Task 10）**：两步向导（第 1 步模型供应商表单 `ProviderForm`，不强制保存可直接「下一步」；第 2 步 `AgentCreatePicker autoFocusTab="preset"`，可「跳过」，创建成功即 `setDefaultAgent` + toast + 关闭）。新增 `useOnboardingStore`（`wizardOpen`/`openWizard`/`closeWizard`，不持久化）；`App.tsx` 在 `providersLoaded && providers.length === 0` 时自动弹出（`store/providers.ts` 新增 `loaded` 标志——仅 `load()` 返回合法 `providers` 数组（`Array.isArray`）后置 true，避免 mount 闪弹及 SSE 早到空事件误触发；未采用「loading 初始 true」方案，因 App 测试 mock api.get 返回 `null`/`{}` 时语义不清，且 `loaded` 不受 `setProviders` 影响）；`GeneralSection` 末尾新增「初始化引导」设置块（`reopen-onboarding`：关闭设置弹窗并重开向导）。文案走 i18n 新增 `onboardingWizard.*`（9 键）与 `settings.general.onboarding.*`（3 键），zh/en 同步。
+  - 影响范围：`packages/frontend/src/store/onboarding.ts`（新）、`src/components/onboarding/OnboardingWizard.tsx`（新）、`OnboardingWizard.test.tsx`（新，5 测试）、`src/App.tsx`、`src/components/settings/GeneralSection.tsx`、`src/store/providers.ts`、`src/i18n/locales/zh.ts`、`en.ts`。
+
 - **新增 AgentCreatePicker 组件（初始化向导 Task 9）**：`packages/frontend/src/components/onboarding/AgentCreatePicker.tsx`，向导第 2 步与宫格新建共用。空白创建（随机人名 + 🎲 换名 + 重名置灰，走 `POST /api/agents`）/ 预设选择（搜索 + 部门分组 + 命名面板，走 `POST /api/agents/from-preset`，409 时 toast 并自动换名）。文案走 i18n 新增 `agentCreatePicker.*` 键（zh/en 同步）。注意：`autoFocusTab` 默认值为 `"blank"`（简报示例代码写的 `"preset"` 与其自带的逐字测试冲突——测试 5 不点 Tab 直接断言空白面板可见）。
   - 影响范围：`packages/frontend/src/components/onboarding/AgentCreatePicker.tsx`、`AgentCreatePicker.test.tsx`、`packages/frontend/src/i18n/locales/zh.ts`、`en.ts`。
 

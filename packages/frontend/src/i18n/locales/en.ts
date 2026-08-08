@@ -407,6 +407,15 @@ const en = {
 		saving: "Saving…", saveAsMine: "Save as my agent ✓",
 		backToList: "← Back to list",
 	},
+	onboardingWizard: {
+		title: "Welcome — Quick Setup",
+		stepIndicator: "Step {{step}} of 2",
+		step1Desc: "Set up a model provider first (or do it later — just click Next).",
+		step2Desc: "Create your first agent, or pick an expert from the preset library. They will become your default agent.",
+		back: "← Back", next: "Next →", skip: "Skip",
+		providerSaved: "Model provider saved",
+		agentCreated: "\"{{name}}\" has joined your team and been set as the default agent",
+	},
 	agentList: {
 		usageHint: "Note: this agent is used by {{count}} bot(s) ({{names}}). Deleting it will make them fall back to the default agent.",
 		sectionTitle: "Agents", more: "⋯ More agents ({{count}})",
@@ -505,6 +514,11 @@ const en = {
 				desc: "Choose the interface language. Takes effect immediately. On first launch it is auto-selected based on your browser language.",
 				zh: "中文",
 				en: "English",
+			},
+			onboarding: {
+				label: "Onboarding",
+				desc: "Reopen the onboarding wizard to configure models and the default agent",
+				button: "Reopen wizard",
 			},
 		},
 		diagnostics: {
