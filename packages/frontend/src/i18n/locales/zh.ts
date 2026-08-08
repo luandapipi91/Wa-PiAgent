@@ -390,7 +390,7 @@ const zh = {
 	},
 	agentGallery: {
 		usageHint: "注意：该智能体正被 {{count}} 个机器人（{{names}}）使用，删除后这些机器人将改用默认智能体。",
-		titleAllCount: "全部智能体 {{count}} 个", namePlaceholder: "智能体名称",
+		titleAllCount: "全部智能体 {{count}} 个",
 		createAgent: "＋ 新建智能体", builtinBadge: "内置",
 		footerHint: "左键：新建会话（内置仅查看）· 右键：编辑 / 删除 · 右上：新建智能体",
 		ctxView: " 查看", ctxEdit: " 编辑智能体",

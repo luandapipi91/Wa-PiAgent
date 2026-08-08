@@ -12,6 +12,7 @@ import { Modal } from "./ui/Modal";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { Icon } from "./ui/Icon";
 import { useTranslation } from "../i18n/useTranslation";
+import { AgentCreatePicker } from "./onboarding/AgentCreatePicker";
 
 interface Props {
   onClose: () => void;
@@ -37,8 +38,8 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
   const [deleteFor, setDeleteFor] = useState<string | null>(null);
   // 渠道引用提示（删除确认用）：deleteFor 置位时异步拉取，count>0 时拼到确认文案
   const [usageHint, setUsageHint] = useState("");
+  // creating 语义：新建面板（AgentCreatePicker）是否打开
   const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState("");
 
   // 删除二次确认前拉取渠道引用计数：deleteFor 变化触发，
   // count>0 拼接提示文案；失败或 count=0 显示原文案，不阻塞删除流程。
@@ -87,52 +88,18 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
         }))
     );
 
-  const submitCreate = () => {
-    const name = newName.trim();
-    if (!name) return;
-    useAgentsStore.getState().createAgent(name);
-    setCreating(false);
-    setNewName("");
-    onCreated(name);
-  };
-
   return (
     <Modal onClose={onClose} width={640} data-testid="agent-gallery">
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-hairline">
         <div className="text-sm font-bold text-primary">
           {t("agentGallery.titleAllCount", { count: agents.length })}
         </div>
-        {creating ? (
-          <div className="flex items-center gap-2">
-            <input
-              autoFocus
-              value={newName}
-              onChange={e => setNewName(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") submitCreate(); }}
-              placeholder={t("agentGallery.namePlaceholder")}
-              className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none placeholder:text-tertiary"
-              data-testid="gallery-create-input"
-            />
-            <button
-              onClick={submitCreate}
-              className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer"
-              style={{ background: "var(--accent)", color: "#fff" }}
-              data-testid="gallery-create-ok"
-            >{t("common.confirm")}</button>
-            <button
-              onClick={() => { setCreating(false); setNewName(""); }}
-              className="px-3 py-1.5 rounded-sm text-xs bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary"
-              data-testid="gallery-create-cancel"
-            >{t("common.cancel")}</button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setCreating(true)}
-            className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer"
-            style={{ background: "var(--accent)", color: "#fff" }}
-            data-testid="gallery-create"
-          >{t("agentGallery.createAgent")}</button>
-        )}
+        <button
+          onClick={() => setCreating(true)}
+          className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer"
+          style={{ background: "var(--accent)", color: "#fff" }}
+          data-testid="gallery-create"
+        >{t("agentGallery.createAgent")}</button>
       </div>
 
       <div className="grid grid-cols-3 gap-3 px-5 py-4 max-h-[440px] overflow-y-auto">
@@ -230,6 +197,19 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
           )}
         </div>,
         document.body
+      )}
+
+      {/* 新建智能体面板：与删除确认同层；创建成功后关闭面板并回调 onCreated（乐观打开契约）。
+          宫格场景不调 setDefaultAgent（向导专属），autoFocusTab 默认 preset。 */}
+      {creating && (
+        <AgentCreatePicker
+          autoFocusTab="preset"
+          onCreated={(name) => {
+            setCreating(false);
+            onCreated(name);
+          }}
+          onCancel={() => setCreating(false)}
+        />
       )}
 
       {/* 删除二次确认 */}
