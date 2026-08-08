@@ -570,13 +570,11 @@ function StreamingRow({
 		);
 	return (
 		<div className="flex gap-2.5" data-testid={`loading-${sessionId}`}>
-			<div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-sm flex-shrink-0 text-secondary">
-				<Icon name="robot" size={17} testId="avatar-robot" />
-			</div>
 			<div className="max-w-[78%]">
 				<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
-						{streaming.agentName ?? t("message.defaultAgent")} · {formatTime(m.timestamp, t("common.yesterday"))}
-					</div>
+					{streaming.agentName ?? t("message.defaultAgent")} ·{" "}
+					{formatTime(m.timestamp, t("common.yesterday"))}
+				</div>
 				<div
 					className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-surface border border-hairline"
 					style={{ borderRadius: "4px 14px 14px 14px" }}
@@ -590,8 +588,8 @@ function StreamingRow({
 						}}
 					/>
 					<span className="text-[calc(12.5px*var(--font-scale))] text-tertiary">
-							{t("message.thinking")}
-						</span>
+						{t("message.thinking")}
+					</span>
 				</div>
 			</div>
 		</div>
@@ -689,13 +687,10 @@ const MessageRow = memo(function MessageRow({
 				className="flex flex-row-reverse gap-2.5 max-w-[78%] ml-auto"
 				data-testid={`msg-${sessionId}-${m.timestamp}`}
 			>
-				<div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-[calc(11.5px*var(--font-scale))] flex-shrink-0 text-secondary">
-						{t("message.me")}
+				<div className="flex flex-col items-end">
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
+						{t("message.me")} · {formatTime(m.timestamp, t("common.yesterday"))}
 					</div>
-					<div className="flex flex-col items-end">
-						<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
-							{t("message.me")} · {formatTime(m.timestamp, t("common.yesterday"))}
-						</div>
 					<div
 						className="px-3.5 py-2.5 text-[calc(13.5px*var(--font-scale))] bg-surface text-primary border border-hairline"
 						style={{ borderRadius: "14px 4px 14px 14px", lineHeight: 1.55 }}
@@ -710,7 +705,7 @@ const MessageRow = memo(function MessageRow({
 							className="mt-1 self-end inline-flex items-center gap-1 whitespace-nowrap text-[calc(12px*var(--font-scale))] text-secondary hover:text-primary border border-hairline rounded-pill px-2 py-0.5 transition-colors"
 						>
 							<Icon name="refresh" size={11} /> {t("message.resend")}
-							</button>
+						</button>
 					)}
 				</div>
 			</div>
@@ -842,12 +837,10 @@ const MessageRow = memo(function MessageRow({
 			className="flex gap-2.5"
 			data-testid={`msg-${sessionId}-${m.timestamp}`}
 		>
-			<div className="w-[30px] h-[30px] rounded-sm flex items-center justify-center text-sm flex-shrink-0 text-secondary">
-				<Icon name="robot" size={17} testId="avatar-robot" />
-			</div>
 			<div className={`${hasProcessCard ? "w-[78%]" : "max-w-[78%]"} min-w-0`}>
 				<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
-					{row.main.agentName ?? t("message.defaultAgent")} · {formatTime(m.timestamp, t("common.yesterday"))}
+					{row.main.agentName ?? t("message.defaultAgent")} ·{" "}
+					{formatTime(m.timestamp, t("common.yesterday"))}
 				</div>
 
 				{canCollapse ? (

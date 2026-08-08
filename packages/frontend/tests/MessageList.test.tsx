@@ -417,6 +417,25 @@ test("用户消息旁显示名称和发送时间（今天）", () => {
 	expect(screen.getByText(/^我 · 14:22$/)).toBeTruthy();
 });
 
+test("用户消息头像「我」方块已移除：行内只剩内容列，名字行保留", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "hello", timestamp: 1 },
+				},
+			],
+		},
+	});
+	render(<MessageList sessionId="s1" />);
+	const row = screen.getByTestId("msg-s1-1");
+	// 头像方块已移除：行内只剩内容列（名字行 + 气泡），不再有独立的「我」占位
+	expect(row.children).toHaveLength(1);
+	// 名字行保留
+	expect(screen.getByText(/^我 ·/)).toBeTruthy();
+});
+
 test("昨天的消息显示「昨天」前缀", () => {
 	const ts = new Date();
 	ts.setDate(ts.getDate() - 1);
@@ -1614,7 +1633,7 @@ test("streaming 有内容 → 不显示 loading，正常渲染流式消息", () 
 // 又把 streaming 填满——若各行其道会渲染出「已提交 assistant 行 + 流式 assistant 行」两个头像。
 // 期望：同 agent 同回合的流式增量并入最后一条已定稿 assistant 行，全程一个头像。
 
-test("同 agent 多 block 回合流式中：已提交 thinking 行 + 流式 text 行 → 合并为单行（仅一个头像）", () => {
+test("同 agent 多 block 回合流式中：已提交 thinking 行 + 流式 text 行 → 合并为单行（仅一个名字行）", () => {
 	useSessionStore.setState({
 		messagesBySession: {
 			s1: [
@@ -1648,8 +1667,10 @@ test("同 agent 多 block 回合流式中：已提交 thinking 行 + 流式 text
 		},
 	});
 	render(<MessageList sessionId="s1" />);
-	// 只有一个机器人头像
-	expect(screen.getAllByTestId("avatar-robot")).toHaveLength(1);
+	// 机器人头像已移除，不再渲染 avatar-robot
+	expect(screen.queryAllByTestId("avatar-robot")).toHaveLength(0);
+	// 合并为单行：agent 名字行只出现一次
+	expect(screen.getAllByText(/^dev ·/)).toHaveLength(1);
 	// 已提交 thinking（折叠面板按钮）与流式 text 同处一行，均可见
 	expect(screen.getByText("正在回答")).toBeTruthy();
 	expect(screen.getByTestId("thinking-panel")).toBeTruthy();
@@ -1660,7 +1681,7 @@ test("同 agent 多 block 回合流式中：已提交 thinking 行 + 流式 text
 // toolResult 不单独成行（preprocess 已把它挂到前一个 assistant），但会隔断相邻 assistant 的合并——
 // 这里验证渲染层跨过 toolResult 把同一 agent 的连续 assistant 合并。
 
-test("同一 agent 回合被 toolResult 拆成两条 assistant（中间无用户消息）→ 合并为单行（一个头像）", () => {
+test("同一 agent 回合被 toolResult 拆成两条 assistant（中间无用户消息）→ 合并为单行（仅一个名字行）", () => {
 	useSessionStore.setState({
 		messagesBySession: {
 			s1: [
@@ -1712,15 +1733,17 @@ test("同一 agent 回合被 toolResult 拆成两条 assistant（中间无用户
 		streamingBySession: {},
 	});
 	render(<MessageList sessionId="s1" />);
-	// 同一回合只渲染一个机器人头像（不应被 toolResult 隔断成两行）
-	expect(screen.getAllByTestId("avatar-robot")).toHaveLength(1);
+	// 机器人头像已移除，不再渲染 avatar-robot
+	expect(screen.queryAllByTestId("avatar-robot")).toHaveLength(0);
+	// 同一回合合并为单行：agent 名字行只出现一次（不应被 toolResult 隔断成两行）
+	expect(screen.getAllByText(/^dev ·/)).toHaveLength(1);
 	// 历史轮折叠：中间 text 段（好的）折叠进摘要行，先展开再断言两段文本同处一行可见
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.getByText("好的")).toBeTruthy();
 	expect(screen.getByText("答案是")).toBeTruthy();
 });
 
-test("不同 agent 的连续 assistant 不合并（各自一个头像）", () => {
+test("不同 agent 的连续 assistant 不合并（各自独立名字行）", () => {
 	useSessionStore.setState({
 		messagesBySession: {
 			s1: [
@@ -1749,8 +1772,11 @@ test("不同 agent 的连续 assistant 不合并（各自一个头像）", () =>
 		streamingBySession: {},
 	});
 	render(<MessageList sessionId="s1" />);
-	// 不同 agent = 不同回合，各自一个头像
-	expect(screen.getAllByTestId("avatar-robot")).toHaveLength(2);
+	// 机器人头像已移除，不再渲染 avatar-robot
+	expect(screen.queryAllByTestId("avatar-robot")).toHaveLength(0);
+	// 不同 agent = 不同回合，各自独立名字行
+	expect(screen.getAllByText(/^dev ·/)).toHaveLength(1);
+	expect(screen.getAllByText(/^product ·/)).toHaveLength(1);
 });
 
 // ── 复制按钮 ──
@@ -2321,12 +2347,12 @@ test("含工具卡片的消息列固定 78% 宽（展开/收起宽度一致）",
 	});
 	render(<MessageList sessionId="s1" />);
 	const row = screen.getByTestId("msg-s1-10");
-	const column = row.children[1] as HTMLElement; // 头像后的内容列
+	const column = row.children[0] as HTMLElement; // 头像已移除，内容列是首个子元素
 	expect(column.className.split(" ")).toContain("w-[78%]");
 	// 展开轮级摘要行 + 工具卡后列宽 class 不变（宽度不随卡片开合变化）
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	fireEvent.click(screen.getByTestId("toolcall-tcw-header"));
-	expect((row.children[1] as HTMLElement).className.split(" ")).toContain(
+	expect((row.children[0] as HTMLElement).className.split(" ")).toContain(
 		"w-[78%]",
 	);
 });
@@ -2338,7 +2364,7 @@ test("纯文本消息列保持内容驱动（max-w-[78%]，不固定宽）", () 
 		},
 	});
 	render(<MessageList sessionId="s1" />);
-	const column = screen.getByTestId("msg-s1-10").children[1] as HTMLElement;
+	const column = screen.getByTestId("msg-s1-10").children[0] as HTMLElement;
 	expect(column.className.split(" ")).toContain("max-w-[78%]");
 	expect(column.className.split(" ")).not.toContain("w-[78%]");
 });
@@ -2350,7 +2376,7 @@ test("含 thinking 卡片的消息列固定 78% 宽", () => {
 		},
 	});
 	render(<MessageList sessionId="s1" />);
-	const column = screen.getByTestId("msg-s1-10").children[1] as HTMLElement;
+	const column = screen.getByTestId("msg-s1-10").children[0] as HTMLElement;
 	expect(column.className.split(" ")).toContain("w-[78%]");
 });
 

@@ -11,7 +11,7 @@
 - **修复(frontend+kernel)：适配 pi 0.84 移除 message_update partial 快照的流式协议变更**。pi 0.84.0 起 RPC `message_update` 只发 `assistantMessageEvent` delta（text_delta/thinking_delta 的 contentIndex+delta），不再携带累积 `message` 字段与 `partial` 快照；此前 wa-pi 前端流式渲染与企微渠道流式推送都依赖被移除字段（前端打字机效果消失、channel-manager 因 `extractAssistantText([undefined])` 抛 TypeError 被静默吞掉致 IM 流式退化）。修复：前端 `store/session.ts` 改为在 message_start 骨架基础上把 delta 累积到对应 content block（text/thinking）；`channel-manager.ts` 增加 per-session delta 累积（message_start 重置 / message_end 清空 / agent_settled 清空），流式帧用「已落地文本 + 当前 delta 累积」拼装；`shared/types.ts` 镜像类型同步 0.84 契约（`AssistantMessageEvent.partial` 改可选、`message_update.message` 改可选），`event-throttle.ts` 注释更新。测试同步改写为 0.84 事件形状（store-session 3 例、channel-manager textDeltaEvent helper 与多消息轮边界事件）。
   - 影响范围：`packages/frontend/src/store/session.ts`、`packages/frontend/tests/store-session.test.ts`、`packages/kernel/src/channel-manager.ts`、`packages/kernel/tests/channel-manager.test.ts`、`packages/shared/src/types.ts`、`packages/kernel/src/event-throttle.ts`。
 
-- **移除(frontend)：对话消息行不再显示机器人头像，保留智能体名字**。`MessageList.tsx` 中正常 assistant 回复行与流式「思考中」加载占位两处的 robot 图标头像容器删除（名字行不变，AI 名字 + 时间照常显示）；用户消息的「我」占位保持不变。同步更新 `MessageList.test.tsx`：3 处头像断言改为「不再渲染 avatar-robot」+ 用名字行次数验证回合合并逻辑，3 处宽度断言从 `children[1]` 改为 `children[0]`（头像移除后内容列成为首个子元素）。
+- **移除(frontend)：对话消息行不再显示机器人/用户头像，保留智能体名字**。`MessageList.tsx` 中正常 assistant 回复行与流式「思考中」加载占位两处的 robot 图标头像容器、以及用户消息行右侧的「我」占位方块均删除（名字行不变：AI 名字 + 时间、用户「我 · 时间」照常显示）。同步更新 `MessageList.test.tsx`：3 处头像断言改为「不再渲染 avatar-robot」+ 用名字行次数验证回合合并逻辑，3 处宽度断言从 `children[1]` 改为 `children[0]`（头像移除后内容列成为首个子元素），新增 1 个用户消息行内只剩内容列的断言。
   - 影响范围：`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/tests/MessageList.test.tsx`。
 
 ---
