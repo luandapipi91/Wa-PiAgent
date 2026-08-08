@@ -305,7 +305,7 @@ export function ProjectItem(props: Props) {
 							className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
 							data-testid="menu-open-dir"
 						>
-							{openInFileManagerLabel()}
+							{openInFileManagerLabel({ mac: t("common.openInFinder"), windows: t("common.openInExplorer"), linux: t("common.openInFileManager") })}
 						</button>
 						{!isSystem && (
 							<button
