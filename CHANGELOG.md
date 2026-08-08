@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-08 — 发版 v0.1.6
+
+### 变更
+
+- **发版(desktop)：发布 v0.1.6 桌面安装包（WA PI Agent，NSIS）到阿里云 OSS**。自 v0.1.4（08-08 16:05 打包）以来的增量：①新增任务完成/需要操作提示音（通用设置独立开关 + 试听，agent_end 终态与新 ask_user_question 触发，IM 渠道会话不播放）；②对话消息移除机器人/用户头像，仅保留智能体名字；③渠道流式回复适配 pi-ai 0.84（message_update 无 partial 快照，改 delta 累积）；④核心依赖批量升级（pi-ai ^0.84.1、vite ^8.2.1、electron ^43.3.0、electron-builder ^26.15.3 等）+ 修复 skillsAllOff 透传；⑤README 英文化（拆分 README.zh-CN.md）+ 插件生态截图 + i18n badge。产物 WaPi-Setup-0.1.6.exe + latest.yml（注入 releaseNotes）上传至 `coaicom/releases/`，终端用户通过「系统设置 → 关于」检查更新拉取。
+  - 影响范围：`packages/desktop/package.json`（0.1.4 → 0.1.6）、`packages/frontend/package.json`（0.1.0 → 0.1.6）、`packages/desktop/RELEASE_NOTES.md`。
+
+---
+
 ## 2026-08-08
 
 ### 变更
