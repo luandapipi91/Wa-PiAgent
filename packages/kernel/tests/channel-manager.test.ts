@@ -620,6 +620,42 @@ test("极简回复（minimal）：禁用流式增量，终态帧只含最后一�
 	expect(sent.at(-1)!.text).toBe("修复完成。\n主要改动：\n- 改了 a.ts");
 });
 
+test("节流 setTimeout 回调：streamReply 失败（WS 断线）不产生 unhandledRejection，记 warn", async () => {
+	await manager.create(channel);
+	adapter!.inject({ chatId: "u1", text: "写首诗" });
+	await new Promise((r) => setTimeout(r, 50));
+	const sid = prompted[0].sessionId;
+
+	// 监听 unhandledRejection：验证断线期流式帧失败不再成为未处理拒绝
+	const unhandled: unknown[] = [];
+	const onUnhandled = (reason: unknown) => unhandled.push(reason);
+	process.on("unhandledRejection", onUnhandled);
+	const warnSpy = mock(() => {});
+	const origWarn = console.warn;
+	console.warn = warnSpy;
+	try {
+		manager.onSessionEvent(sid, assistantStartEvent());
+		// 首个 delta：距上次发送 0 < 500ms → 直接发送（成功）
+		manager.onSessionEvent(sid, textDeltaEvent("床前"));
+		await new Promise((r) => setTimeout(r, 20));
+		// 第二个 delta：距上次发送 < 500ms → 进入节流 setTimeout 分支
+		manager.onSessionEvent(sid, textDeltaEvent("明月光"));
+		// 模拟企微 WS 断线：之后 streamReply 一律失败（与 SDK send() 抛错一致）
+		adapter!.streamReply = async () => {
+			throw new Error("WebSocket not connected, unable to send data");
+		};
+		// 等待节流 timer 触发（≤500ms），回调内 sendStreamFrame → reject
+		await new Promise((r) => setTimeout(r, 700));
+		// 修复前：rejection 到达 setTimeout 回调无人消费 → unhandledRejection
+		expect(unhandled).toHaveLength(0);
+		// 修复后：错误被 .catch 捕获并 console.warn
+		expect(warnSpy).toHaveBeenCalled();
+	} finally {
+		process.removeListener("unhandledRejection", onUnhandled);
+		console.warn = origWarn;
+	}
+});
+
 test("错误回合不走流式终结，走 sendText 新消息", async () => {
 	await manager.create(channel);
 	adapter!.inject({ chatId: "u1", text: "报错的请求" });
