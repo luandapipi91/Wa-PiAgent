@@ -72,9 +72,9 @@ test("parseExtensionInput 解析 Windows 盘符路径（反斜杠/正斜杠）",
   expect(backslash?.source).toBe("local");
   expect(backslash?.name).toBe("H:\\workspace\\hiagent\\examples\\ext-ui-bridge-demo");
 
-  const slash = parseExtensionInput("H:/workspace/hiagent/examples/ext-ui-bridge-demo");
+  const slash = parseExtensionInput("/path/to/HiAgent/examples/ext-ui-bridge-demo");
   expect(slash?.source).toBe("local");
-  expect(slash?.name).toBe("H:/workspace/hiagent/examples/ext-ui-bridge-demo");
+  expect(slash?.name).toBe("/path/to/HiAgent/examples/ext-ui-bridge-demo");
 });
 
 test("parseExtensionInput 解析 Windows UNC 路径", () => {
