@@ -20,6 +20,11 @@ export const registerAgentRoutes: RouteRegistrar = (
 	r.add("GET", "/api/agents/tools", async () =>
 		callApi({ type: "agent:tools:list" }),
 	);
+	r.add("GET", "/api/agents/presets", async () => callApi({ type: "agent:presets" }));
+	r.add("POST", "/api/agents/from-preset", async (req) => {
+		const b = await readJsonBody(req);
+		return callApi({ type: "agent:create-from-preset", id: b.id, displayName: b.displayName });
+	});
 	r.add("GET", "/api/agents/:name/config", async (_req, p) =>
 		callApi({ type: "agent:config:get", agentName: p.name }),
 	);

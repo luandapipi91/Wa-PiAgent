@@ -70,6 +70,7 @@ import { registerChannelRoutes } from "./routes/channels";
 import { ChannelConflictError } from "./channel-manager";
 import { registerFileRoutes } from "./routes/files";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
+import { listPresets, createAgentFromPreset } from "./preset-store";
 
 /** 展开路径开头的 ~ 为 HOME 目录（Node.js 不自动展开 shell ~ 约定） */
 function expandTilde(p: string): string {
@@ -1278,6 +1279,32 @@ export class WSServer {
 					reply({
 						type: "error",
 						message: err instanceof Error ? err.message : String(err),
+					});
+				}
+				break;
+			}
+			case "agent:presets": {
+				try {
+					reply({ type: "agent:presets", presets: listPresets() });
+				} catch (err) {
+					console.error("[ws] agent:presets error:", err);
+					reply({ type: "agent:presets", presets: [] });
+				}
+				break;
+			}
+			case "agent:create-from-preset": {
+				const result = await createAgentFromPreset(
+					this.opts.configStore,
+					event.id,
+					event.displayName,
+				);
+				if (!result.ok) {
+					reply({ type: "error", message: result.error, status: result.status });
+				} else {
+					reply({ type: "agent:created", agent: result.agent });
+					this.broadcast({
+						type: "agent:list",
+						agents: await this.opts.configStore.listAgents(),
 					});
 				}
 				break;
