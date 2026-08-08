@@ -18,3 +18,17 @@ contextBridge.exposeInMainWorld("waPiApp", {
   // Electron 32+ 废弃了 File.path，必须经此 API 获取。
   getPathForFile: (file) => webUtils.getPathForFile(file),
 });
+
+// 自动更新桥接：暴露给渲染进程（系统设置 → 关于 页签）
+// IPC 通道由 updater/updater.cjs 的 setupUpdater 注册。
+contextBridge.exposeInMainWorld("waPiUpdater", {
+  getInfo: () => ipcRenderer.invoke("updater:get-info"),
+  check: () => ipcRenderer.invoke("updater:check"),
+  download: () => ipcRenderer.invoke("updater:download"),
+  quitAndInstall: () => ipcRenderer.invoke("updater:quit-and-install"),
+  onEvent: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("updater:event", listener);
+    return () => ipcRenderer.removeListener("updater:event", listener);
+  },
+});

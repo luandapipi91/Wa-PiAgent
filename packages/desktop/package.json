@@ -14,7 +14,9 @@
     "build:mac": "bun run scripts/build.ts --target=mac",
     "build:all": "bun run build:win && bun run build:linux && bun run build:mac"
   },
-  "dependencies": {},
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
   "devDependencies": {
     "electron": "^43",
     "electron-builder": "^26",

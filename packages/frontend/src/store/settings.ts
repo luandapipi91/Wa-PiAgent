@@ -8,7 +8,8 @@ export type SettingsSection =
 	| "memory"
 	| "mcp"
 	| "bots"
-	| "diagnostics";
+	| "diagnostics"
+	| "about";
 
 interface SettingsState {
 	showSettings: boolean;
