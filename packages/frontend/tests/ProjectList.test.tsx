@@ -119,7 +119,36 @@ test("新建项目按钮", () => {
 			onNewProject={fn}
 		/>,
 	);
+	// 无用户项目时不显示「项目」标题行，底部文字按钮是唯一新建入口
+	expect(screen.queryByText("项目")).toBeNull();
+	expect(screen.getByTestId("new-project-btn")).toBeTruthy();
 	fireEvent.click(screen.getByTestId("new-project-btn"));
+	expect(fn).toHaveBeenCalledTimes(1);
+});
+
+test("有用户项目时：新建入口为标题行右侧 + 图标，底部文字按钮隐藏", () => {
+	useProjectsStore.setState({
+		projects: [{ id: "p1", name: "项目A", cwd: "/a", createdAt: 0 }],
+		sessions: [],
+		currentProjectId: null,
+		currentSessionId: null,
+	});
+	const fn = mock();
+	render(
+		<ProjectList
+			onSelectSession={() => {}}
+			onNewSessionInProject={() => {}}
+			onSelectProject={() => {}}
+			onNewProject={fn}
+		/>,
+	);
+	// + 图标按钮存在（与底部文字按钮共用 new-project-btn，但此时文字按钮不渲染）
+	const iconBtn = screen.getByTestId("new-project-btn");
+	expect(iconBtn).toBeTruthy();
+	// 底部文字按钮不显示
+	expect(screen.queryByText("＋ 新建项目")).toBeNull();
+	// 点击 + 图标触发 onNewProject
+	fireEvent.click(iconBtn);
 	expect(fn).toHaveBeenCalledTimes(1);
 });
 

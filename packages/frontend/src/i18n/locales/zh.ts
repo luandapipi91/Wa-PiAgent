@@ -443,7 +443,7 @@ const zh = {
 		yesterday: "昨天",
 	},
 	projectList: {
-		sectionTitle: "项目", newProject: "＋ 新建项目",
+		sectionTitle: "项目", newProject: "＋ 新建项目", newProjectHint: "新建项目",
 		systemProjectName: "默认工作区",
 	},
 	store: {
