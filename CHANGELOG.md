@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **新增(desktop)：GiteeProvider 自定义 electron-updater provider（应用自动更新 Task 3）**。新增 `packages/desktop/src/updater/gitee-provider.cjs`（CommonJS），继承 `Provider` 基类实现 `getLatestVersion`（拉 latest release + 附件、解析 latest.yml、附 releaseNotes）与 `resolveFiles`（把 latest.yml 里的相对文件名映射为 Gitee 绝对下载 URL），`fetch` 复用 Task 2 的 `buildGiteeApi`/`fetchText`/`findLatestYml`。新增 4 个 `bun:test` 用例（全绿）。
+  - 影响范围：`packages/desktop/src/updater/gitee-provider.cjs`、`packages/desktop/src/updater/gitee-provider.test.ts`。
+
 - **新增(desktop)：gitee-api 纯函数层（应用自动更新 Task 2）**。新增 `packages/desktop/src/updater/gitee-api.cjs`（CommonJS），封装 Gitee API v5 的 `releases/latest` 与 `releases/{id}/attach_files` 请求/解析，`fetch` 由调用方注入（便于测试 mock），与 electron-updater 解耦。导出 `buildGiteeApi`（返回 `{ fetchLatestRelease, fetchAttachFiles, fetchImpl }`）、`fetchText(api, url)`（下载 latest.yml 文本）、`findLatestYml(files)`（定位 Windows 通道文件）。包含 404/429 可读错误处理。修正了简报里 `buildGiteeApi` 返回对象未暴露 `fetchImpl` 导致 `fetchText` 无法命中 mock fetch 的问题。新增 6 个 `bun:test` 用例（全绿）。
   - 影响范围：`packages/desktop/src/updater/gitee-api.cjs`、`packages/desktop/src/updater/gitee-api.test.ts`（新建 `src/updater/` 目录）。
 
