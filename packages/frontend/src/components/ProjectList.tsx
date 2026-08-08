@@ -2,6 +2,7 @@ import { useProjectsStore } from "../store/projects";
 import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 import type { View } from "../App";
 import { ProjectItem } from "./ProjectItem";
+import { Icon } from "./ui/Icon";
 import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
@@ -35,7 +36,18 @@ export function ProjectList(props: Props) {
         />
       )}
       {userProjects.length > 0 && (
-        <div className="text-[calc(11px*var(--font-scale))] font-bold text-tertiary px-2 py-1 border-t border-dashed border-hairline mt-2 uppercase tracking-wide">{t("projectList.sectionTitle")}</div>
+        <div className="flex items-center justify-between text-[calc(11px*var(--font-scale))] font-bold text-tertiary px-2 py-1 border-t border-dashed border-hairline mt-2 uppercase tracking-wide">
+          <span>{t("projectList.sectionTitle")}</span>
+          <button
+            onClick={props.onNewProject}
+            title={t("projectList.newProjectHint")}
+            aria-label={t("projectList.newProjectHint")}
+            data-testid="new-project-btn"
+            className="p-0.5 text-tertiary transition-colors hover:text-brand"
+          >
+            <Icon name="plus" size={14} />
+          </button>
+        </div>
       )}
       {userProjects.map(p => (
         <ProjectItem
@@ -50,11 +62,13 @@ export function ProjectList(props: Props) {
           onSelectProject={props.onSelectProject}
         />
       ))}
-      <button
-        onClick={props.onNewProject}
-        className="w-full text-left px-2 py-1.5 text-xs text-tertiary transition-colors hover:text-brand"
-        data-testid="new-project-btn"
-      >{t("projectList.newProject")}</button>
+      {userProjects.length === 0 && (
+        <button
+          onClick={props.onNewProject}
+          className="w-full text-left px-2 py-1.5 text-xs text-tertiary transition-colors hover:text-brand"
+          data-testid="new-project-btn"
+        >{t("projectList.newProject")}</button>
+      )}
     </div>
   );
 }
