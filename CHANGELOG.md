@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **新增(frontend)：设置页「关于」页签 + 应用自动更新 UI（Task 8/9）**。SettingsModal 左侧导航末尾新增「关于」入口（`settings.nav.about`），右侧渲染 `AboutSection` 组件，接入 Task 7 的 `useUpdaterStore` 渲染更新状态机（idle/checking/available/downloading/downloaded/up-to-date/error 6 态 UI：检查更新按钮、发现新版本+releaseNotes、下载进度条+字节计数、更新就绪重启安装、已是最新、错误重试）；非桌面环境隐藏更新控件仅提示。所有文案接入 i18n（`settings.about.*`，中英双语），应用名"WA PI Agent"作为产品名不翻译。新增 7 个组件测试（TDD：RED Cannot find module → GREEN 7 pass）。测试通过 mock `window.waPiUpdater` + beforeEach 调 `initUpdater()` 订阅事件流，使 `_emit` 能驱动 store 状态机（简报测试缺此订阅步骤，已补）。
+  - 影响范围：`packages/frontend/src/store/settings.ts`、`packages/frontend/src/components/SettingsModal.tsx`、`packages/frontend/src/components/settings/AboutSection.tsx`（新建）、`packages/frontend/tests/AboutSection.test.tsx`（新建）、`packages/frontend/src/i18n/locales/zh.ts`、`packages/frontend/src/i18n/locales/en.ts`。
+
 - **修复(kernel)：会话被清理与后台预热/拉取历史并发时的竞态噪音日志降级**。四个 `console.error`（拉取历史消息失败 / 后台预热会话进程失败 / pi rpc 进程已退出 / 会话已清理）在 `reapIdleSessions` 或 `session:delete` 与冷启动并发时成串打印，视觉上等同崩溃，实为预期关闭流程（jsonl 直读已兜底历史、dispose 只杀进程保留会话记录、下次发消息会重新拉起）。修复：①`agent-manager.ts` `_createSession` 的 `getMessages` catch 中 `disposed.has(sessionId)` 命中（dispose 打断拉取）→ 静默；②「会话已清理」错误加 `code = "SESSION_DISPOSED"` 语义标记；③`ws-server.ts` `prewarm` catch 识别 `SESSION_DISPOSED` → 静默。真异常（进程崩溃、非 dispose 启动失败）仍打 error 便于排障。新增 4 个回归测试（dispose 竞态静默 + 非 dispose 仍打印，agent-manager 与 ws-server 各 2 个）。
   - 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/ws-server-session-prewarm.test.ts`。
 

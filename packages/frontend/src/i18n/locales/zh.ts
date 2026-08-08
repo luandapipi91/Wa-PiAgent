@@ -472,6 +472,7 @@ const zh = {
 			mcp: "MCP 连接器",
 			bots: "机器人",
 			diagnostics: "诊断",
+			about: "关于",
 		},
 		general: {
 			fontSize: {
@@ -503,6 +504,22 @@ const zh = {
 			title: "扩展错误（最近 {{count}} 条）",
 			clear: "清空",
 			empty: "暂无扩展错误",
+		},
+		about: {
+			versionLabel: "版本",
+			version: "版本 {{version}}",
+			checkUpdate: "检查更新",
+			checking: "正在检查更新…",
+			foundNew: "发现新版本",
+			downloadNow: "立即更新",
+			downloading: "正在下载",
+			downloaded: "更新已就绪",
+			downloadedHint: "新版本 {{version}} 已下载完成",
+			restartInstall: "立即重启安装",
+			upToDate: "已是最新版本",
+			desktopOnly: "自动更新仅适用于桌面安装版",
+			retry: "重试",
+			updateFailed: "更新失败",
 		},
 		provider: {
 			add: "+ 添加供应商",
