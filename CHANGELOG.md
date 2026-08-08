@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-08
+
+### 变更
+
+- **新增 agents presets API curl 集成测试脚本（初始化向导 Task 5）**：`scripts/agents-presets-api-it.sh`，覆盖 `GET /api/agents/presets`（数组/预设 id/元数据不含 body）、`POST /api/agents/from-preset`（200/重名 409/未知 id 404/正文注入名字）及清理（DELETE 200）共 9 项断言；`BASE_URL` 环境变量可覆盖，默认 `http://127.0.0.1:9776`。
+  - 影响范围：`scripts/agents-presets-api-it.sh`。
+
+---
+
 ## 2026-08-07
 
 ### 变更
