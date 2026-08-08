@@ -73,7 +73,10 @@ interface SessionState {
 	// 会话级 pi 自动重试状态：auto_retry_start 时置 {attempt, maxAttempts}，
 	// 顶部黄色状态条提示「正在自动重试 (n/m)」（优先于红色 degraded 条）；
 	// auto_retry_end（成功/耗尽/中止）或 agent_end{willRetry:false} 时清除。
-	retryBySession: Record<string, { attempt: number; maxAttempts: number } | null>;
+	retryBySession: Record<
+		string,
+		{ attempt: number; maxAttempts: number } | null
+	>;
 	// 扩展 ctx.ui.setStatus 状态条目：sessionId → statusKey → 文案，驱动底部状态栏。
 	extStatusBySession: Record<string, Record<string, string>>;
 	// 扩展 ctx.ui.setWidget 文本块：sessionId → widgetKey → 内容与位置，驱动 Composer 上/下 widget。
@@ -123,11 +126,7 @@ interface SessionState {
 	/** kernel session:echo_user 回声的幂等入口：Composer 已乐观置入则跳过；
 	 *  标志被 message_start/agent_end/failTurn 提前清除后到达（notify 穿插延长冷启动
 	 *  窗口、事件密集致时序非确定），则再查「同内容 user 已存在」避免重复追加。 */
-	echoUser: (
-		sessionId: string,
-		text: string,
-		agentName: AgentName,
-	) => void;
+	echoUser: (sessionId: string, text: string, agentName: AgentName) => void;
 	clear: () => void;
 	/** 标记会话有未读新回复（后台收到 agent_end 时）。 */
 	markUnread: (sessionId: string) => void;
@@ -589,8 +588,8 @@ export const useSessionStore = create<SessionState>((set) => {
 						...s.optimisticEchoBySession,
 						[sessionId]: true,
 					},
-					};
-				}),
+				};
+			}),
 
 		echoUser: (sessionId, text, agentName) => {
 			const s = useSessionStore.getState();
@@ -806,7 +805,8 @@ export const useSessionStore = create<SessionState>((set) => {
 						!sessionId.startsWith("im-") &&
 						Array.isArray(msg.content) &&
 						msg.content.some(
-							(b: any) => b?.type === "toolCall" && b.name === "ask_user_question",
+							(b: any) =>
+								b?.type === "toolCall" && b.name === "ask_user_question",
 						)
 					) {
 						playNeedsAction();
@@ -1106,39 +1106,44 @@ export const useSessionStore = create<SessionState>((set) => {
 				// 上下文压缩结束：替换状态消息为结果（释放 token / 取消 / 失败），并刷新 token 累计。
 				// 这是压缩完成的权威信号（不依赖 agent_end 的文本检测），自动压缩也在此刷新。
 				case "compaction_end": {
-				const e = event as any;
-				const result = e.result;
-				let content: string;
-				// 是否成功压缩（用于重拉历史时移除：成功消息由服务端 compactionSummary 重新渲染，
-				// 取消/失败的消息服务端没有，需保留在本地）。
-				let compactionDone = false;
-				if (e.aborted) content = i18n.t("message.compactionAborted");
-				else if (e.errorMessage) content = i18n.t("message.compactionFailed", { error: e.errorMessage });
-				else if (result && typeof result.tokensBefore === "number") {
-					// 与历史重载的 compactionSummary 渲染保持同一文案（jsonl 不持久化
-					// estimatedTokensAfter，两边只能一致地展示 tokensBefore）
-					content = i18n.t("message.compactionDone", { count: fmtTok(result.tokensBefore) });
-					compactionDone = true;
-				} else {
-					content = i18n.t("message.compactionDoneNoToken");
-					compactionDone = true;
-				}
-				const timestamp = Date.now();
-				set((s) => {
-					const list = s.messagesBySession[sessionId] ?? [];
-					const msg = {
-						message: {
-							type: "custom",
-							customType: "compaction_status",
-							content,
-							// 结构化标志：仅成功压缩设置（服务端历史会渲染 compactionSummary，
-							// 重拉时移除避免重复）；取消/失败不设（服务端没有，需保留本地）。
-							compactionDone,
-							timestamp,
-						},
-						agentName,
-						sessionId,
-					} as any;
+					const e = event as any;
+					const result = e.result;
+					let content: string;
+					// 是否成功压缩（用于重拉历史时移除：成功消息由服务端 compactionSummary 重新渲染，
+					// 取消/失败的消息服务端没有，需保留在本地）。
+					let compactionDone = false;
+					if (e.aborted) content = i18n.t("message.compactionAborted");
+					else if (e.errorMessage)
+						content = i18n.t("message.compactionFailed", {
+							error: e.errorMessage,
+						});
+					else if (result && typeof result.tokensBefore === "number") {
+						// 与历史重载的 compactionSummary 渲染保持同一文案（jsonl 不持久化
+						// estimatedTokensAfter，两边只能一致地展示 tokensBefore）
+						content = i18n.t("message.compactionDone", {
+							count: fmtTok(result.tokensBefore),
+						});
+						compactionDone = true;
+					} else {
+						content = i18n.t("message.compactionDoneNoToken");
+						compactionDone = true;
+					}
+					const timestamp = Date.now();
+					set((s) => {
+						const list = s.messagesBySession[sessionId] ?? [];
+						const msg = {
+							message: {
+								type: "custom",
+								customType: "compaction_status",
+								content,
+								// 结构化标志：仅成功压缩设置（服务端历史会渲染 compactionSummary，
+								// 重拉时移除避免重复）；取消/失败不设（服务端没有，需保留本地）。
+								compactionDone,
+								timestamp,
+							},
+							agentName,
+							sessionId,
+						} as any;
 						// 替换最后一条 compaction_status（找不到则直接追加）
 						const idx = [...list]
 							.reverse()
@@ -1264,12 +1269,14 @@ export const useSessionStore = create<SessionState>((set) => {
 						event: event.event,
 						error: event.error,
 					});
-					useToastStore
-						.getState()
-						.add(
-							i18n.t("message.extensionError", { ext: extension, event: event.event, error: event.error }),
-							"error",
-						);
+					useToastStore.getState().add(
+						i18n.t("message.extensionError", {
+							ext: extension,
+							event: event.event,
+							error: event.error,
+						}),
+						"error",
+					);
 					break;
 				}
 				// 扩展 setStatus：维护会话级状态条目（statusText 空 = 清除），驱动底部状态栏。

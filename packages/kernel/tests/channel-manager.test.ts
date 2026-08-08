@@ -140,7 +140,12 @@ test("agent_settled：按粒度组装并经适配器回复；正文+文件变更
 			role: "assistant",
 			content: [
 				{ type: "text", text: "已修复。" },
-				{ type: "toolCall", id: "1", name: "edit", arguments: { path: "a.ts" } },
+				{
+					type: "toolCall",
+					id: "1",
+					name: "edit",
+					arguments: { path: "a.ts" },
+				},
 			],
 		},
 	];
@@ -239,7 +244,11 @@ test("Bot ID 冲突：create/update 重复 botId 抛 ChannelConflictError（含 
 		manager.create({ ...channel, name: "第二个机器人" }),
 	).rejects.toBeInstanceOf(ChannelConflictError);
 	// update 改成别人占用的 botId
-	await manager.create({ ...channel, name: "丙", credentials: { botId: "b2", secret: "s" } });
+	await manager.create({
+		...channel,
+		name: "丙",
+		credentials: { botId: "b2", secret: "s" },
+	});
 	const list = await manager.listWithStatus();
 	const third = list.find((c) => c.name === "丙")!;
 	await expect(
@@ -319,10 +328,20 @@ test("/new 归档当前会话：历史会话仍在 IM tab 可见（listConversat
 test("群聊隔离：同群不同用户 → 各自独立 mapping/会话；listConversations 可区分", async () => {
 	await manager.create(channel);
 	// 同一群 g1，用户 A 发消息
-	adapter!.inject({ chatId: "g1", fromUserId: "userA", chatType: "group", text: "A 的消息" });
+	adapter!.inject({
+		chatId: "g1",
+		fromUserId: "userA",
+		chatType: "group",
+		text: "A 的消息",
+	});
 	await new Promise((r) => setTimeout(r, 50));
 	// 同一群 g1，用户 B 发消息
-	adapter!.inject({ chatId: "g1", fromUserId: "userB", chatType: "group", text: "B 的消息" });
+	adapter!.inject({
+		chatId: "g1",
+		fromUserId: "userB",
+		chatType: "group",
+		text: "B 的消息",
+	});
 	await new Promise((r) => setTimeout(r, 50));
 
 	// 两个用户各建了一个独立会话（而非群维度共享一个）
@@ -341,15 +360,30 @@ test("群聊隔离：同群不同用户 → 各自独立 mapping/会话；listCo
 
 test("群聊隔离：同群同用户复用同一会话（不重复建会话）", async () => {
 	await manager.create(channel);
-	adapter!.inject({ chatId: "g1", fromUserId: "userA", chatType: "group", text: "第一条" });
+	adapter!.inject({
+		chatId: "g1",
+		fromUserId: "userA",
+		chatType: "group",
+		text: "第一条",
+	});
 	await new Promise((r) => setTimeout(r, 50));
 	// 让首次建立的会话在 projectStore 可见（mock createSession 不回填 load，手动塞）
 	const sid = sessionsCreated[0].id;
 	projectSessions.push({
-		id: sid, projectId: "__system__", primaryAgent: "前端开发者",
-		title: sessionsCreated[0].title, createdAt: 1, lastActivity: 1, piSessionFile: "",
+		id: sid,
+		projectId: "__system__",
+		primaryAgent: "前端开发者",
+		title: sessionsCreated[0].title,
+		createdAt: 1,
+		lastActivity: 1,
+		piSessionFile: "",
 	});
-	adapter!.inject({ chatId: "g1", fromUserId: "userA", chatType: "group", text: "第二条" });
+	adapter!.inject({
+		chatId: "g1",
+		fromUserId: "userA",
+		chatType: "group",
+		text: "第二条",
+	});
 	await new Promise((r) => setTimeout(r, 50));
 	// 同群同用户 → 复用会话，只建一个
 	expect(sessionsCreated).toHaveLength(1);
@@ -361,8 +395,13 @@ test("onSessionDeleted：删除 IM 会话时联动清理映射（当前指针 + 
 	await new Promise((r) => setTimeout(r, 50));
 	const sid = sessionsCreated[0].id;
 	projectSessions.push({
-		id: sid, projectId: "__system__", primaryAgent: "dev",
-		title: "IM · u1", createdAt: 1, lastActivity: 1, piSessionFile: "",
+		id: sid,
+		projectId: "__system__",
+		primaryAgent: "dev",
+		title: "IM · u1",
+		createdAt: 1,
+		lastActivity: 1,
+		piSessionFile: "",
 	});
 
 	// /new 归档
@@ -397,7 +436,9 @@ test("映射缓存的会话已被删除 → 兜底新建会话，不抛'会话�
 	const staleSid = sessionsCreated[0].id;
 	expect(staleSid.startsWith("im-")).toBe(true);
 	// 用户未收到"会话不存在"错误
-	expect(adapter!.outbox.some((m) => m.text.includes("会话不存在"))).toBe(false);
+	expect(adapter!.outbox.some((m) => m.text.includes("会话不存在"))).toBe(
+		false,
+	);
 
 	// 模拟会话被删除（前端删会话 / 数据清理）：project-store 里不再有该 session
 	// projectSessions 本来就是 []（createSession 是独立 mock 不回填 load），无需改动
@@ -413,22 +454,36 @@ test("映射缓存的会话已被删除 → 兜底新建会话，不抛'会话�
 	// ensureStarted 用的是新会话 id（兜底成功，未阻断）
 	expect(ensured[1][2]).toBe(newSid);
 	// 用户没有收到任何"会话不存在"错误回复
-	expect(adapter!.outbox.some((m) => m.text.includes("会话不存在"))).toBe(false);
+	expect(adapter!.outbox.some((m) => m.text.includes("会话不存在"))).toBe(
+		false,
+	);
 	// prompt 在新会话里执行
 	expect(prompted[1].sessionId).toBe(newSid);
 });
 
 // ===== 流式回复 =====
 
-/** 构造 message_update(text_delta) 事件：partial.content 含累计 text 块 */
-function textDeltaEvent(partialText: string) {
+/** 构造 message_update(text_delta) 事件：0.84 起 RPC 剥离 partial，只含 delta 增量 */
+function textDeltaEvent(delta: string) {
 	return {
 		type: "message_update",
-		message: { role: "assistant", content: [{ type: "text", text: partialText }] },
-		assistantMessageEvent: {
-			type: "text_delta",
-			partial: { role: "assistant", content: [{ type: "text", text: partialText }] },
-		},
+		assistantMessageEvent: { type: "text_delta", delta },
+	};
+}
+
+/** 构造 assistant 消息开始事件（重置流式 delta 累积） */
+function assistantStartEvent() {
+	return {
+		type: "message_start",
+		message: { role: "assistant", content: [{ type: "text", text: "" }] },
+	};
+}
+
+/** 构造 assistant 消息定稿事件（清空流式 delta 累积） */
+function assistantEndEvent(text: string) {
+	return {
+		type: "message_end",
+		message: { role: "assistant", content: [{ type: "text", text }] },
 	};
 }
 
@@ -438,7 +493,9 @@ test("流式回复：text_delta → streamReply 增量帧（streamId 稳定）�
 	await new Promise((r) => setTimeout(r, 50));
 	const sid = prompted[0].sessionId;
 
-	// 首个 text_delta：发首帧（finish=false）
+	// assistant 消息开始：重置 delta 累积
+	manager.onSessionEvent(sid, assistantStartEvent());
+	// 首个 text_delta（增量）：发首帧（finish=false）
 	manager.onSessionEvent(sid, textDeltaEvent("床前"));
 	await new Promise((r) => setTimeout(r, 20));
 	// 流式帧已入 outbox
@@ -448,9 +505,12 @@ test("流式回复：text_delta → streamReply 增量帧（streamId 稳定）�
 	expect(streamFrames[0].finish).toBe(false);
 	expect(streamFrames[0].text).toBe("床前");
 
-	// 第二个 text_delta：streamId 不变，内容更新
-	manager.onSessionEvent(sid, textDeltaEvent("床前明月光"));
+	// 第二个 text_delta（增量）：streamId 不变，内容更新
+	manager.onSessionEvent(sid, textDeltaEvent("明月光"));
 	await new Promise((r) => setTimeout(r, 20));
+
+	// assistant 消息定稿：清空 delta 累积（该消息已进 getMessages）
+	manager.onSessionEvent(sid, assistantEndEvent("床前明月光"));
 
 	// agent_settled 终结：用 composeReply 文本发 finish=true
 	messagesBySession[sid] = [
@@ -475,16 +535,24 @@ test("流式多消息轮（工具调用）：第二条消息的流式帧含已�
 	await new Promise((r) => setTimeout(r, 50));
 	const sid = prompted[0].sessionId;
 
-	// 第一条 assistant 消息流式（"正在修复"）+ 工具调用后已落地
+	// 第一条 assistant 消息流式（"正在修复"）
+	manager.onSessionEvent(sid, assistantStartEvent());
 	manager.onSessionEvent(sid, textDeltaEvent("正在修复"));
 	await new Promise((r) => setTimeout(r, 20));
+	// 第一条消息定稿（工具调用开始前）：清空 delta 累积
+	manager.onSessionEvent(sid, assistantEndEvent("正在修复"));
 	messagesBySession[sid] = [
 		{ role: "user", content: [{ type: "text", text: "改个 bug" }] },
 		{
 			role: "assistant",
 			content: [
 				{ type: "text", text: "正在修复" },
-				{ type: "toolCall", id: "1", name: "edit", arguments: { path: "a.ts" } },
+				{
+					type: "toolCall",
+					id: "1",
+					name: "edit",
+					arguments: { path: "a.ts" },
+				},
 			],
 		},
 	];
@@ -492,7 +560,8 @@ test("流式多消息轮（工具调用）：第二条消息的流式帧含已�
 	// 工具执行需要时间：等待节流间隔过去后再发第二条消息的 delta（模拟真实时序）
 	await new Promise((r) => setTimeout(r, 550));
 
-	// 第二条 assistant 消息开始流式（partial 只有自己的文本"已修复"）
+	// 第二条 assistant 消息开始流式（delta 只含自己的文本"已修复"）
+	manager.onSessionEvent(sid, assistantStartEvent());
 	manager.onSessionEvent(sid, textDeltaEvent("已修复"));
 	await new Promise((r) => setTimeout(r, 20));
 
@@ -504,7 +573,11 @@ test("流式多消息轮（工具调用）：第二条消息的流式帧含已�
 });
 
 test("极简回复（minimal）：禁用流式增量，终态帧只含最后一条 assistant 消息全文", async () => {
-	await manager.create({ ...channel, replyGranularity: "minimal", name: "极简机器人" });
+	await manager.create({
+		...channel,
+		replyGranularity: "minimal",
+		name: "极简机器人",
+	});
 	adapter!.inject({ chatId: "u1", text: "总结一下" });
 	await new Promise((r) => setTimeout(r, 50));
 	const sid = prompted[0].sessionId;
@@ -512,7 +585,10 @@ test("极简回复（minimal）：禁用流式增量，终态帧只含最后一�
 	// 过程性 text_delta 不应产生任何流式帧（minimal 禁流）
 	manager.onSessionEvent(sid, textDeltaEvent("我先检查一下。"));
 	await new Promise((r) => setTimeout(r, 20));
-	manager.onSessionEvent(sid, textDeltaEvent("修复完成。\n主要改动：\n- 改了 a.ts"));
+	manager.onSessionEvent(
+		sid,
+		textDeltaEvent("修复完成。\n主要改动：\n- 改了 a.ts"),
+	);
 	await new Promise((r) => setTimeout(r, 20));
 	expect(adapter!.outbox.filter((m) => m.streamId)).toHaveLength(0);
 
@@ -523,7 +599,12 @@ test("极简回复（minimal）：禁用流式增量，终态帧只含最后一�
 			role: "assistant",
 			content: [
 				{ type: "text", text: "我先检查一下。" },
-				{ type: "toolCall", id: "1", name: "edit", arguments: { path: "a.ts" } },
+				{
+					type: "toolCall",
+					id: "1",
+					name: "edit",
+					arguments: { path: "a.ts" },
+				},
 			],
 		},
 		{
@@ -552,7 +633,12 @@ test("错误回合不走流式终结，走 sendText 新消息", async () => {
 	// agent_settled 时是错误回合
 	messagesBySession[sid] = [
 		{ role: "user", content: [{ type: "text", text: "报错的请求" }] },
-		{ role: "assistant", content: [{ type: "text", text: "" }], stopReason: "error", errorMessage: "模型超时" },
+		{
+			role: "assistant",
+			content: [{ type: "text", text: "" }],
+			stopReason: "error",
+			errorMessage: "模型超时",
+		},
 	];
 	manager.onSessionEvent(sid, { type: "agent_settled" });
 	await new Promise((r) => setTimeout(r, 50));

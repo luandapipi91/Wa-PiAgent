@@ -25,7 +25,11 @@ import {
 	type ChannelSessionMapping,
 } from "./channel-store";
 import { parseCommand } from "./channels/commands";
-import { chunkByBytes, composeReply, extractAssistantText } from "./channels/reply-composer";
+import {
+	chunkByBytes,
+	composeReply,
+	extractAssistantText,
+} from "./channels/reply-composer";
 import type { ChannelAdapter, InboundMessage } from "./channels/types";
 import { MockAdapter } from "./channels/mock-adapter";
 import { expandSkillTokens } from "./channels/skill-expand";
@@ -49,12 +53,17 @@ export interface ChannelManagerDeps {
 	mappingsFile?: string;
 	tmpDir?: string;
 	/** 技能管理器（结构子集）：用于展开渠道提示词里的 $[技能名] token；缺省不展开 */
-	skillManager?: { scan(): Promise<{ skills: { name: string; path: string }[] }> };
+	skillManager?: {
+		scan(): Promise<{ skills: { name: string; path: string }[] }>;
+	};
 }
 
 export class ChannelManager {
 	private adapters = new Map<string, ChannelAdapter>();
-	private statuses = new Map<string, { status: ChannelStatus; detail?: string }>();
+	private statuses = new Map<
+		string,
+		{ status: ChannelStatus; detail?: string }
+	>();
 	/** channelId:chatId:fromUserId → 最近一条进站帧（被动回复必须携带） */
 	private lastFrames = new Map<string, unknown>();
 	/** sessionId → 回复基线（getMessages 下标），agent_end 后更新，避免排队回合重复回复 */
@@ -62,7 +71,17 @@ export class ChannelManager {
 	/** sessionId → 映射键，onSessionEvent 反查用 */
 	private sessionIndex = new Map<string, string>();
 	/** 流式回复状态：key（channelId:chatId:fromUserId）→ { streamId, 节流 timer, 最近发送时间, 挂起的最新文本 } */
-	private activeStreams = new Map<string, { streamId: string; timer?: ReturnType<typeof setTimeout>; lastSendAt: number; pendingText?: string }>();
+	private activeStreams = new Map<
+		string,
+		{
+			streamId: string;
+			timer?: ReturnType<typeof setTimeout>;
+			lastSendAt: number;
+			pendingText?: string;
+		}
+	>();
+	/** sessionId → 当前正在流式的 assistant 消息 delta 累积文本（0.84 起 RPC 无 partial 快照） */
+	private streamingDeltas = new Map<string, string>();
 	/** 流式节流最小间隔（ms）：避免每个 token 一次 WS 往返打爆企微 */
 	private static readonly STREAM_THROTTLE_MS = 500;
 	private factories: Partial<Record<ChannelType, AdapterFactory>>;
@@ -101,7 +120,8 @@ export class ChannelManager {
 	}
 
 	async stop(): Promise<void> {
-		for (const a of this.adapters.values()) await a.disconnect().catch(() => {});
+		for (const a of this.adapters.values())
+			await a.disconnect().catch(() => {});
 		this.adapters.clear();
 	}
 
@@ -109,8 +129,13 @@ export class ChannelManager {
 		const channels = await loadChannels(this.channelsFile);
 		return channels.map((c) => ({
 			...c,
-			credentials: { botId: c.credentials.botId, secret: maskSecret(c.credentials.secret) },
-			status: this.statuses.get(c.id)?.status ?? (c.enabled ? "connecting" : "disconnected"),
+			credentials: {
+				botId: c.credentials.botId,
+				secret: maskSecret(c.credentials.secret),
+			},
+			status:
+				this.statuses.get(c.id)?.status ??
+				(c.enabled ? "connecting" : "disconnected"),
 			statusDetail: this.statuses.get(c.id)?.detail,
 		}));
 	}
@@ -120,7 +145,9 @@ export class ChannelManager {
 		if (err) throw new Error(err);
 		const channels = await loadChannels(this.channelsFile);
 		if (channels.some((c) => c.credentials.botId === input.credentials.botId)) {
-			throw new ChannelConflictError("Bot ID 已被其他机器人使用（同一 Bot ID 仅允许一条长连接）");
+			throw new ChannelConflictError(
+				"Bot ID 已被其他机器人使用（同一 Bot ID 仅允许一条长连接）",
+			);
 		}
 		const channel: ChannelConfig = {
 			...input,
@@ -139,7 +166,12 @@ export class ChannelManager {
 		const channels = await loadChannels(this.channelsFile);
 		const idx = channels.findIndex((c) => c.id === id);
 		if (idx < 0) throw new Error("机器人不存在");
-		const next = { ...channels[idx], ...patch, id, createdAt: channels[idx].createdAt };
+		const next = {
+			...channels[idx],
+			...patch,
+			id,
+			createdAt: channels[idx].createdAt,
+		};
 		// credentials 合并：secret 缺省（前端留空表示不修改）时保留原值
 		if (patch.credentials && patch.credentials.secret === undefined) {
 			next.credentials = {
@@ -154,12 +186,17 @@ export class ChannelManager {
 				(c) => c.id !== id && c.credentials.botId === next.credentials.botId,
 			)
 		) {
-			throw new ChannelConflictError("Bot ID 已被其他机器人使用（同一 Bot ID 仅允许一条长连接）");
+			throw new ChannelConflictError(
+				"Bot ID 已被其他机器人使用（同一 Bot ID 仅允许一条长连接）",
+			);
 		}
 		channels[idx] = next;
 		await saveChannels(channels, this.channelsFile);
 		// 重建连接（先断后连，enabled 才连）
-		await this.adapters.get(id)?.disconnect().catch(() => {});
+		await this.adapters
+			.get(id)
+			?.disconnect()
+			.catch(() => {});
 		this.adapters.delete(id);
 		if (next.enabled) await this.connectChannel(next);
 		else this.statuses.set(id, { status: "disconnected" });
@@ -170,8 +207,14 @@ export class ChannelManager {
 
 	async remove(id: string): Promise<void> {
 		const channels = await loadChannels(this.channelsFile);
-		await saveChannels(channels.filter((c) => c.id !== id), this.channelsFile);
-		await this.adapters.get(id)?.disconnect().catch(() => {});
+		await saveChannels(
+			channels.filter((c) => c.id !== id),
+			this.channelsFile,
+		);
+		await this.adapters
+			.get(id)
+			?.disconnect()
+			.catch(() => {});
 		this.adapters.delete(id);
 		this.statuses.delete(id);
 		this.deps.broadcast({ type: "channels:changed" });
@@ -192,7 +235,9 @@ export class ChannelManager {
 			}
 			if (m.historySessionIds?.length) {
 				const before = m.historySessionIds.length;
-				m.historySessionIds = m.historySessionIds.filter((id) => id !== sessionId);
+				m.historySessionIds = m.historySessionIds.filter(
+					(id) => id !== sessionId,
+				);
 				if (m.historySessionIds.length !== before) changed = true;
 			}
 		}
@@ -203,9 +248,13 @@ export class ChannelManager {
 	}
 
 	/** 智能体被渠道引用的统计（删除智能体确认提示用） */
-	async agentUsage(agentName: string): Promise<{ count: number; channelNames: string[] }> {
+	async agentUsage(
+		agentName: string,
+	): Promise<{ count: number; channelNames: string[] }> {
 		const channels = await loadChannels(this.channelsFile);
-		const used = channels.filter((c) => c.agentName === agentName).map((c) => c.name);
+		const used = channels
+			.filter((c) => c.agentName === agentName)
+			.map((c) => c.name);
 		return { count: used.length, channelNames: used };
 	}
 
@@ -263,9 +312,23 @@ export class ChannelManager {
 	}
 
 	/** 由 index.ts 的 AgentManager onEvent 挂钩（throttle 之前调用，agent_settled 不可被节流丢弃） */
-	onSessionEvent(sessionId: string, event: { type: string; [k: string]: any }): void {
+	onSessionEvent(
+		sessionId: string,
+		event: { type: string; [k: string]: any },
+	): void {
 		const key = this.sessionIndex.get(sessionId);
 		if (!key) return; // 非渠道会话
+
+		// 消息边界（0.84 无 partial 快照，流式文本靠 delta 累积）：
+		// assistant 消息开始 → 重置累积；结束 → 该消息已进 getMessages（settled 覆盖），清空累积。
+		if (event.type === "message_start" && event.message?.role === "assistant") {
+			this.streamingDeltas.set(sessionId, "");
+			return;
+		}
+		if (event.type === "message_end") {
+			this.streamingDeltas.delete(sessionId);
+			return;
+		}
 
 		// 流式增量：message_update（含 text_delta）→ 节流推送累计文本
 		if (event.type === "message_update") {
@@ -278,6 +341,7 @@ export class ChannelManager {
 		// 用 agent_settled 而非 agent_end：pi 自动重试期间每次失败尝试都会发 agent_end，
 		// 按 agent_end 回复会让 IM 用户收到多条重复错误回复；agent_settled 一轮只发一次（终态）
 		if (event.type !== "agent_settled") return;
+		this.streamingDeltas.delete(sessionId);
 		void this.replyTurn(sessionId, key, event).catch((e) =>
 			console.warn("[channel-manager] 回复失败:", e),
 		);
@@ -285,7 +349,11 @@ export class ChannelManager {
 
 	/** 流式增量推送：本轮已落地 assistant 文本 + 当前 partial 文本，节流后经适配器 streamReply 发送。
 	 *  适配器不支持 streamReply 时静默（终态 agent_settled 兜底整轮发送）。 */
-	private async streamUpdate(sessionId: string, key: string, event: { [k: string]: any }): Promise<void> {
+	private async streamUpdate(
+		sessionId: string,
+		key: string,
+		event: { [k: string]: any },
+	): Promise<void> {
 		const sep = key.indexOf(":");
 		const channelId = key.slice(0, sep);
 		const adapter = this.adapters.get(channelId);
@@ -301,13 +369,18 @@ export class ChannelManager {
 		const ae = event.assistantMessageEvent;
 		if (!ae || ae.type !== "text_delta") return;
 
-		// 累计文本 = 本轮已落地的 assistant 消息文本 + 当前正在生成的 partial 文本。
-		// 一轮里有多条 assistant 消息（工具调用导致）：第二条 partial 只含自己文本，
-		// 不拼已落地历史会让企微流式消息（整体替换）"清空"前一条的内容。
+		// 累计文本 = 本轮已落地的 assistant 消息文本 + 当前正在流式的 delta 累积文本。
+		// 一轮里有多条 assistant 消息（工具调用导致）：message_end 已清空累积，第二条消息的
+		// delta 从零累积，只含自己的文本；不拼已落地历史会让企微流式消息（整体替换）
+		// "清空"前一条的内容。
+		const prevDelta = this.streamingDeltas.get(sessionId) ?? "";
+		const partialText = prevDelta + (ae.delta ?? "");
+		this.streamingDeltas.set(sessionId, partialText);
 		const baseline = this.replyBaseline.get(sessionId) ?? 0;
-		const settled = this.deps.agentManager.getMessages(sessionId).slice(baseline);
+		const settled = this.deps.agentManager
+			.getMessages(sessionId)
+			.slice(baseline);
 		const settledText = extractAssistantText(settled);
-		const partialText = extractAssistantText([ae.partial]);
 		const text = [settledText, partialText].filter(Boolean).join("\n");
 		if (!text) return;
 
@@ -330,7 +403,13 @@ export class ChannelManager {
 				if (!stream) return;
 				stream.timer = undefined;
 				// 发挂起期间最新的文本；若无 pending（未被更新）发注册时的
-				void this.sendStreamFrame(key, frame, stream.streamId, stream.pendingText ?? text, false);
+				void this.sendStreamFrame(
+					key,
+					frame,
+					stream.streamId,
+					stream.pendingText ?? text,
+					false,
+				);
 				stream.pendingText = undefined;
 			}, ChannelManager.STREAM_THROTTLE_MS - elapsed);
 			return;
@@ -378,7 +457,10 @@ export class ChannelManager {
 	private async connectChannel(channel: ChannelConfig): Promise<void> {
 		const factory = this.factories[channel.type];
 		if (!factory) {
-			this.statuses.set(channel.id, { status: "error", detail: `渠道类型 ${channel.type} 暂未支持` });
+			this.statuses.set(channel.id, {
+				status: "error",
+				detail: `渠道类型 ${channel.type} 暂未支持`,
+			});
 			return;
 		}
 		const adapter = factory(channel);
@@ -410,7 +492,9 @@ export class ChannelManager {
 		};
 
 		if (msg.unsupported) {
-			await reply(`暂不支持该消息类型（${msg.unsupported}），请发送文本或图片。`);
+			await reply(
+				`暂不支持该消息类型（${msg.unsupported}），请发送文本或图片。`,
+			);
 			return;
 		}
 
@@ -485,7 +569,9 @@ export class ChannelManager {
 		}
 		const model = channel.model ?? agent.model;
 		if (!model) {
-			await reply("机器人未配置可用模型：请在设置页为机器人或关联智能体指定模型。");
+			await reply(
+				"机器人未配置可用模型：请在设置页为机器人或关联智能体指定模型。",
+			);
 			return;
 		}
 
@@ -500,7 +586,11 @@ export class ChannelManager {
 				mapping.currentProjectId,
 				agent.displayName,
 				sessionId,
-				{ imChannelContext: channel.extraSystemPrompt ? expandSkillTokens(channel.extraSystemPrompt, skills) : undefined },
+				{
+					imChannelContext: channel.extraSystemPrompt
+						? expandSkillTokens(channel.extraSystemPrompt, skills)
+						: undefined,
+				},
 			);
 
 			// 图片附件
@@ -520,7 +610,10 @@ export class ChannelManager {
 				}
 			}
 
-			this.replyBaseline.set(sessionId, this.deps.agentManager.getMessages(sessionId).length);
+			this.replyBaseline.set(
+				sessionId,
+				this.deps.agentManager.getMessages(sessionId).length,
+			);
 			const text = msg.text?.trim() || (msg.image ? "请分析这张图片" : "");
 			await this.deps.agentManager.prompt(sessionId, text, {
 				model,
@@ -539,7 +632,9 @@ export class ChannelManager {
 	}
 
 	/** 读取全部已启用技能的 name + SKILL.md 内容（读失败的技能跳过，不阻塞入站） */
-	private async loadSkillContents(): Promise<{ name: string; content: string; location: string }[]> {
+	private async loadSkillContents(): Promise<
+		{ name: string; content: string; location: string }[]
+	> {
 		if (!this.deps.skillManager) return [];
 		const { skills } = await this.deps.skillManager
 			.scan()
@@ -548,7 +643,11 @@ export class ChannelManager {
 		for (const s of skills) {
 			try {
 				const location = join(s.path, "SKILL.md");
-				result.push({ name: s.name, content: await readFile(location, "utf8"), location });
+				result.push({
+					name: s.name,
+					content: await readFile(location, "utf8"),
+					location,
+				});
 			} catch {
 				/* 单个技能读取失败不阻塞 */
 			}
@@ -557,7 +656,9 @@ export class ChannelManager {
 	}
 
 	/** 智能体解析：渠道指定 → 删除兜底 listAgents()[0]（与前端新建会话的默认规则一致） */
-	private async resolveAgent(channel: ChannelConfig): Promise<AgentConfig | null> {
+	private async resolveAgent(
+		channel: ChannelConfig,
+	): Promise<AgentConfig | null> {
 		const bound = await this.deps.configStore.getAgent(channel.agentName);
 		if (bound) return bound;
 		const agents = await this.deps.configStore.listAgents();
@@ -600,7 +701,9 @@ export class ChannelManager {
 		}
 		const createdAt = Date.now();
 		if (mapping.currentProjectId === SYSTEM_PROJECT_ID) {
-			await mkdir(join(SYSTEM_PROJECT_CWD, String(createdAt)), { recursive: true });
+			await mkdir(join(SYSTEM_PROJECT_CWD, String(createdAt)), {
+				recursive: true,
+			});
 		}
 		const session = await this.deps.projectStore.createSession({
 			projectId: mapping.currentProjectId,
@@ -643,7 +746,9 @@ export class ChannelManager {
 		// 找本轮最后一条 assistant 消息：错误状态（stopReason:"error"）编码在消息上，而非 agent_end 事件
 		// （pi 的 AgentEndEvent 只有 {type, messages}；stopReason/errorMessage 在 AssistantMessage 上，
 		// 与 agent-manager.ts:913-919 的判定方式一致）
-		const lastAssistant = [...turn].reverse().find((m: any) => m?.role === "assistant") as any;
+		const lastAssistant = [...turn]
+			.reverse()
+			.find((m: any) => m?.role === "assistant") as any;
 		let text: string;
 		const isError = lastAssistant?.stopReason === "error";
 		if (isError) {
@@ -658,7 +763,10 @@ export class ChannelManager {
 		// 发终结帧锁定消息；否则（适配器不支持 / 本轮无 text_delta）走 sendText 整轮发送。
 		const stream = this.activeStreams.get(key);
 		const useStream = !isError && !!adapter.streamReply && !!stream;
-		if (stream?.timer) { clearTimeout(stream.timer); stream.timer = undefined; }
+		if (stream?.timer) {
+			clearTimeout(stream.timer);
+			stream.timer = undefined;
+		}
 		if (useStream) {
 			await this.sendStreamFrame(key, frame, stream!.streamId, text, true);
 		} else {

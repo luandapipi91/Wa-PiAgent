@@ -266,18 +266,16 @@ test("auto_retry_start：记录重试进度 + 防御性保持 thinking（已有 
 		statusBySession: { s1: "idle" },
 		thinkingSinceBySession: { s1: 456 },
 	});
-	useSessionStore
-		.getState()
-		.handleSDKEvent(
-			"s1",
-			envelope({
-				type: "auto_retry_start",
-				attempt: 1,
-				maxAttempts: 3,
-				delayMs: 1000,
-				errorMessage: "Connection error.",
-			}),
-		);
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "auto_retry_start",
+			attempt: 1,
+			maxAttempts: 3,
+			delayMs: 1000,
+			errorMessage: "Connection error.",
+		}),
+	);
 	const s = useSessionStore.getState();
 	expect(s.statusBySession["s1"]).toBe("thinking");
 	expect(s.thinkingSinceBySession["s1"]).toBe(456);
@@ -290,17 +288,15 @@ test("auto_retry_end{success:false}：清重试进度并复位 idle（退避期 
 		thinkingSinceBySession: { s1: 789 },
 		retryBySession: { s1: { attempt: 3, maxAttempts: 3 } },
 	});
-	useSessionStore
-		.getState()
-		.handleSDKEvent(
-			"s1",
-			envelope({
-				type: "auto_retry_end",
-				success: false,
-				attempt: 3,
-				finalError: "Retry cancelled",
-			}),
-		);
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "auto_retry_end",
+			success: false,
+			attempt: 3,
+			finalError: "Retry cancelled",
+		}),
+	);
 	const s = useSessionStore.getState();
 	expect(s.statusBySession["s1"]).toBe("idle");
 	expect(s.thinkingSinceBySession["s1"]).toBeNull();
@@ -338,18 +334,16 @@ test("重试全流程：agent_end{willRetry:true} → auto_retry_start → agent
 			envelope({ type: "agent_end", messages: [], willRetry: true }),
 		);
 	expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
-	useSessionStore
-		.getState()
-		.handleSDKEvent(
-			"s1",
-			envelope({
-				type: "auto_retry_start",
-				attempt: 1,
-				maxAttempts: 3,
-				delayMs: 1000,
-				errorMessage: "Connection error.",
-			}),
-		);
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "auto_retry_start",
+			attempt: 1,
+			maxAttempts: 3,
+			delayMs: 1000,
+			errorMessage: "Connection error.",
+		}),
+	);
 	expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
 	expect(useSessionStore.getState().retryBySession["s1"]).toEqual({
 		attempt: 1,
@@ -407,16 +401,14 @@ test("turn_start / turn_end：不改变消息与状态（显式忽略）", () =>
 	useSessionStore
 		.getState()
 		.handleSDKEvent("s1", envelope({ type: "turn_start" }));
-	useSessionStore
-		.getState()
-		.handleSDKEvent(
-			"s1",
-			envelope({
-				type: "turn_end",
-				message: { role: "assistant", content: [] } as any,
-				toolResults: [],
-			}),
-		);
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "turn_end",
+			message: { role: "assistant", content: [] } as any,
+			toolResults: [],
+		}),
+	);
 	const s = useSessionStore.getState();
 	expect(s.statusBySession["s1"]).toBe("thinking");
 	expect(s.thinkingSinceBySession["s1"]).toBe(444);
@@ -426,18 +418,16 @@ test("turn_start / turn_end：不改变消息与状态（显式忽略）", () =>
 // ── summarization_retry_*：压缩/分支摘要重试，复用重试状态条 ──
 
 test("summarization_retry_scheduled：记录重试进度（驱动黄色状态条）", () => {
-	useSessionStore
-		.getState()
-		.handleSDKEvent(
-			"s1",
-			envelope({
-				type: "summarization_retry_scheduled",
-				attempt: 1,
-				maxAttempts: 3,
-				delayMs: 2000,
-				errorMessage: "terminated",
-			}),
-		);
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "summarization_retry_scheduled",
+			attempt: 1,
+			maxAttempts: 3,
+			delayMs: 2000,
+			errorMessage: "terminated",
+		}),
+	);
 	expect(useSessionStore.getState().retryBySession["s1"]).toEqual({
 		attempt: 1,
 		maxAttempts: 3,
@@ -448,16 +438,14 @@ test("summarization_retry_attempt_start：不动重试状态（保持到 finishe
 	useSessionStore.setState({
 		retryBySession: { s1: { attempt: 1, maxAttempts: 3 } },
 	});
-	useSessionStore
-		.getState()
-		.handleSDKEvent(
-			"s1",
-			envelope({
-				type: "summarization_retry_attempt_start",
-				source: "compaction",
-				reason: "threshold",
-			}),
-		);
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "summarization_retry_attempt_start",
+			source: "compaction",
+			reason: "threshold",
+		}),
+	);
 	expect(useSessionStore.getState().retryBySession["s1"]).toEqual({
 		attempt: 1,
 		maxAttempts: 3,
@@ -478,9 +466,7 @@ test("summarization_retry_finished：清除重试进度；无重试时不产生�
 	useSessionStore
 		.getState()
 		.handleSDKEvent("s1", envelope({ type: "summarization_retry_finished" }));
-	expect(useSessionStore.getState().retryBySession).toBe(
-		before.retryBySession,
-	);
+	expect(useSessionStore.getState().retryBySession).toBe(before.retryBySession);
 });
 
 // ── extension_error / setStatus / setWidget / setTitle ──
@@ -523,10 +509,12 @@ test("extension_status：按 key 维护状态条目，空文案清除", () => {
 		"pi-lens": "分析中 (3/5)",
 	});
 	// 空 statusText = 清除该 key
-	useSessionStore.getState().handleSDKEvent(
-		"s1",
-		envelope({ type: "extension_status", statusKey: "pi-lens" }),
-	);
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "extension_status", statusKey: "pi-lens" }),
+		);
 	expect(useSessionStore.getState().extStatusBySession["s1"]).toEqual({});
 });
 
@@ -545,18 +533,22 @@ test("extension_widget：按 key 维护文本块（默认 aboveEditor），空 l
 			placement: "aboveEditor",
 		},
 	});
-	useSessionStore.getState().handleSDKEvent(
-		"s1",
-		envelope({ type: "extension_widget", widgetKey: "pi-goal" }),
-	);
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "extension_widget", widgetKey: "pi-goal" }),
+		);
 	expect(useSessionStore.getState().extWidgetBySession["s1"]).toEqual({});
 });
 
 test("extension_title：记录会话级标题", () => {
-	useSessionStore.getState().handleSDKEvent(
-		"s1",
-		envelope({ type: "extension_title", title: "pi-lens 分析中" }),
-	);
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "extension_title", title: "pi-lens 分析中" }),
+		);
 	expect(useSessionStore.getState().extTitleBySession["s1"]).toBe(
 		"pi-lens 分析中",
 	);
@@ -609,8 +601,8 @@ test("agent_end 不清除真实 partial（非 pending 的 streaming 保留）", 
 	expect(useSessionStore.getState().streamingBySession["s1"]).not.toBeNull();
 });
 
-test("message_update 更新 streamingMessage（用 assistantMessageEvent.partial，rAF 合帧后生效）", async () => {
-	// 先设初始 streaming
+test("message_update 累积 text_delta（0.84：无 partial 快照，delta 追加到 content[contentIndex]）", async () => {
+	// 先设初始 streaming（message_start 骨架，content 空数组）
 	useSessionStore.setState({
 		streamingBySession: {
 			s1: {
@@ -625,90 +617,61 @@ test("message_update 更新 streamingMessage（用 assistantMessageEvent.partial
 			},
 		},
 	});
+	// 0.84 RPC 事件：只有 assistantMessageEvent.delta，无 partial/message 累积字段
 	const env = envelope({
 		type: "message_update",
-		message: {
-			role: "assistant",
-			content: [{ type: "text", text: "部分" }],
-			model: "m",
-			stopReason: "stop",
-			timestamp: 2,
-		},
 		assistantMessageEvent: {
 			type: "text_delta",
 			contentIndex: 0,
 			delta: "部分",
-			partial: {
-				role: "assistant",
-				content: [{ type: "text", text: "部分" }],
-				model: "m",
-				stopReason: "stop",
-				timestamp: 2,
-			},
 		},
 	});
 	useSessionStore.getState().handleSDKEvent("s1", env);
-	// rAF 合帧：等一帧后 streaming 才反映最新 partial
-	await new Promise((r) => requestAnimationFrame(r));
 	const streaming = useSessionStore.getState().streamingBySession["s1"];
 	expect(streaming).toBeTruthy();
-	// partial 应反映流式增量
+	// delta 累积到 content[0] 的 text block
 	expect((streaming!.message as any).content[0].text).toBe("部分");
 });
 
-test("message_update 一帧内多次到达：合帧后 streaming 取最新 partial", async () => {
-	const mk = (text: string) =>
+test("message_update 多次 text_delta：文本按序累积（0.84 delta 增量）", async () => {
+	const mk = (delta: string) =>
 		envelope({
 			type: "message_update",
-			message: {
-				role: "assistant",
-				content: [{ type: "text", text }],
-				model: "m",
-				stopReason: "stop",
-				timestamp: 2,
-			},
 			assistantMessageEvent: {
 				type: "text_delta",
 				contentIndex: 0,
-				delta: text,
-				partial: {
+				delta,
+			},
+		});
+	// 已有骨架：content[0] 是空 text block（message_start 骨架）
+	useSessionStore.setState({
+		streamingBySession: {
+			s1: {
+				message: {
 					role: "assistant",
-					content: [{ type: "text", text }],
+					content: [{ type: "text", text: "" }],
 					model: "m",
 					stopReason: "stop",
 					timestamp: 2,
 				},
+				agentName: "dev",
 			},
-		});
+		},
+	});
 	useSessionStore.getState().handleSDKEvent("s1", mk("部"));
-	useSessionStore.getState().handleSDKEvent("s1", mk("部分"));
-	useSessionStore.getState().handleSDKEvent("s1", mk("部分内"));
-	await new Promise((r) => requestAnimationFrame(r));
+	useSessionStore.getState().handleSDKEvent("s1", mk("分"));
+	useSessionStore.getState().handleSDKEvent("s1", mk("内"));
 	const streaming = useSessionStore.getState().streamingBySession["s1"];
 	expect((streaming!.message as any).content[0].text).toBe("部分内");
 });
 
-test("message_end 丢弃挂起的 streaming 帧：旧 partial 不在定稿后复活", async () => {
+test("message_end 丢弃挂起的 streaming 帧：旧 delta 不在定稿后复活", async () => {
 	const updateEnv = envelope({
 		type: "message_update",
-		message: {
-			role: "assistant",
-			content: [{ type: "text", text: "部分" }],
-			model: "m",
-			stopReason: "stop",
-			timestamp: 2,
-		},
 		assistantMessageEvent: {
 			type: "text_delta",
 			contentIndex: 0,
 			delta: "部分",
-			partial: {
-				role: "assistant",
-				content: [{ type: "text", text: "部分" }],
-				model: "m",
-				stopReason: "stop",
-				timestamp: 2,
-			},
 		},
 	});
 	const endEnv = envelope({
@@ -721,10 +684,25 @@ test("message_end 丢弃挂起的 streaming 帧：旧 partial 不在定稿后复
 			timestamp: 2,
 		},
 	});
-	useSessionStore.getState().handleSDKEvent("s1", updateEnv); // 挂起
+	// 先建 streaming 骨架，再 update + end
+	useSessionStore.setState({
+		streamingBySession: {
+			s1: {
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "" }],
+					model: "m",
+					stopReason: "stop",
+					timestamp: 2,
+				},
+				agentName: "dev",
+			},
+		},
+	});
+	useSessionStore.getState().handleSDKEvent("s1", updateEnv); // 累积 "部分"
 	useSessionStore.getState().handleSDKEvent("s1", endEnv); // 定稿 + drop 挂起帧
 	await new Promise((r) => requestAnimationFrame(r));
-	// streaming 保持 null（不被旧 partial 复活），定稿消息已落库
+	// streaming 保持 null（不被旧 delta 复活），定稿消息已落库
 	expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
 	const msgs = useSessionStore.getState().messagesBySession["s1"];
 	expect((msgs[msgs.length - 1].message as any).content[0].text).toBe(
@@ -914,7 +892,9 @@ test("optimisticSend 立即追加用户消息 + 占位 assistant streaming + sta
 });
 
 test("optimisticSend /compact 不插入用户消息（kernel 转 compact RPC，无 user 回声）", () => {
-	useSessionStore.getState().optimisticSend("s1", "/compact 只保留关键决策", "dev");
+	useSessionStore
+		.getState()
+		.optimisticSend("s1", "/compact 只保留关键决策", "dev");
 	const s = useSessionStore.getState();
 	// 聊天列表不出现 /compact 用户消息
 	expect(s.messagesBySession["s1"] ?? []).toHaveLength(0);
@@ -995,10 +975,12 @@ test("复现：兜底 agent_end 先于 SDK 回声到达（清标记）→ 回声
 test("复现：乐观占位与 SDK 回声之间插入 extension_notify → 回声应替换占位而非追加重复行", () => {
 	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
 	// 冷启动窗口内扩展 ctx.ui.notify 插入一条 custom 消息（列表末尾不再是 user）
-	useSessionStore.getState().handleSDKEvent(
-		"s1",
-		envelope({ type: "extension_notify", message: "扩展已加载" } as any),
-	);
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "extension_notify", message: "扩展已加载" } as any),
+		);
 	useSessionStore.getState().handleSDKEvent(
 		"s1",
 		envelope({
@@ -1113,8 +1095,20 @@ test("refreshSessionStats 用官方 stats 覆盖累计与上下文占用", async
 				cacheRead: 200000,
 				cacheWrite: 500,
 				total: 258500,
-				main: { input: 49700, output: 7870, cacheRead: 199000, cacheWrite: 500, total: 257070 },
-				subagent: { input: 300, output: 130, cacheRead: 1000, cacheWrite: 0, total: 1430 },
+				main: {
+					input: 49700,
+					output: 7870,
+					cacheRead: 199000,
+					cacheWrite: 500,
+					total: 257070,
+				},
+				subagent: {
+					input: 300,
+					output: 130,
+					cacheRead: 1000,
+					cacheWrite: 0,
+					total: 1430,
+				},
 			},
 			contextUsage: { used: 64000, total: 128000, ratio: 0.5 },
 		},
@@ -1146,21 +1140,30 @@ test("refreshSessionStats 用官方 stats 覆盖累计与上下文占用", async
 test("message_end(assistant 带 usage) 触发官方 stats 刷新，不做本地累加", async () => {
 	mockStats = {
 		stats: {
-			tokens: { input: 1000, output: 500, cacheRead: 5000, cacheWrite: 0, total: 6500 },
+			tokens: {
+				input: 1000,
+				output: 500,
+				cacheRead: 5000,
+				cacheWrite: 0,
+				total: 6500,
+			},
 			contextUsage: { used: 6000, total: 128000, ratio: 0.047 },
 		},
 	};
-	useSessionStore.getState().handleSDKEvent("s1", envelope({
-		type: "message_end",
-		message: {
-			role: "assistant",
-			content: [{ type: "text", text: "回复" }],
-			model: "m",
-			stopReason: "stop",
-			timestamp: 1,
-			usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0 },
-		},
-	} as any));
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "回复" }],
+				model: "m",
+				stopReason: "stop",
+				timestamp: 1,
+				usage: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0 },
+			},
+		} as any),
+	);
 	// 宏任务级等待 refreshSessionStats 的异步链完成
 	await new Promise((r) => setTimeout(r, 0));
 	const s = useSessionStore.getState();
@@ -1784,10 +1787,12 @@ test("extension_dialog：入队 useExtDialogStore，字段透传（ExtensionDial
 });
 
 test("extension_editor_text：写入 editorTextInjection[sessionId]（Composer 消费替换输入框）", () => {
-	useSessionStore.getState().handleSDKEvent(
-		"s1",
-		envelope({ type: "extension_editor_text", text: "注入的文本" }),
-	);
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "extension_editor_text", text: "注入的文本" }),
+		);
 	const injection = useSessionStore.getState().editorTextInjection["s1"];
 	expect(injection?.text).toBe("注入的文本");
 	expect(typeof injection?.ts).toBe("number");
@@ -1796,10 +1801,13 @@ test("extension_editor_text：写入 editorTextInjection[sessionId]（Composer �
 });
 
 test("extension_editor_text：text 非字符串时忽略（防御异常载荷）", () => {
-	useSessionStore.getState().handleSDKEvent("s1", envelope({
-		type: "extension_editor_text",
-		text: 123 as any,
-	}));
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "extension_editor_text",
+			text: 123 as any,
+		}),
+	);
 	expect(useSessionStore.getState().editorTextInjection["s1"]).toBeUndefined();
 });
 
@@ -1839,10 +1847,12 @@ test("echoUser：标志被 message_start 清除后到达，已存在同内容 us
 test("echoUser：notify 穿插在占位与 message_start 之间，echo 后到 → user 不重复", () => {
 	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
 	// 冷启动窗口内插件 notify 插入 custom 消息
-	useSessionStore.getState().handleSDKEvent(
-		"s1",
-		envelope({ type: "extension_notify", message: "扩展已加载" } as any),
-	);
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			"s1",
+			envelope({ type: "extension_notify", message: "扩展已加载" } as any),
+		);
 	// message_start(user) 替换占位 + 清标志
 	useSessionStore.getState().handleSDKEvent(
 		"s1",
