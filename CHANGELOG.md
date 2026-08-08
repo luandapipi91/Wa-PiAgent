@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **新增(frontend)：系统设置-通用新增「提示音」设置**。任务完成（agent_end 终态）与需要操作（新 ask_user_question 待回答）时播放 WebAudio 蜂鸣提示音，两种事件独立开关（默认开）、各带试听按钮，即时生效并持久化到 localStorage；浏览器自动播放策略阻止时静默降级。需要操作提示音带 500ms 去抖防叠加。
+  - 影响范围：`packages/frontend/src/util/sound.ts`（新增）、`packages/frontend/src/store/ui-prefs.ts`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/components/settings/GeneralSection.tsx`、`packages/frontend/src/i18n/locales/{zh,en}.ts`。
+
 - **修复(frontend)：系统设置-通用页签内所有内容改为保存后才生效**。字号滑块（fontSize）与导出轮数滑块（exportTurns）原来拖动即写 store 即时生效，与同页的语言/重试配置（草稿态 + 点保存生效）行为不一致。修复：两个滑块改为草稿态（draftFontSize/draftExportTurns），拖动只改界面显示，点「保存」时才调用 `setFontSize`/`setExportTurns` 应用（仅当与当前值不同才写入）；关闭弹窗不保存则还原。导出按钮运行时读取的是已保存的 store 值，语义不变。更新 1 个测试为草稿态断言 + 新增 1 个导出轮数草稿测试。
   - 影响范围：`packages/frontend/src/components/settings/GeneralSection.tsx`、`packages/frontend/tests/GeneralSection.test.tsx`。
 
