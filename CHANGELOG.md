@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **新增功能(frontend)：侧边栏「新建项目」入口移至「项目」标题行右侧 + 图标**。有用户项目时，新建入口从列表底部文字按钮移到「项目」分组标题行右侧的 + 图标按钮（复用 Icon 组件 plus 图标，title/aria-label 提示「新建项目」，hover 变 brand 色）；无用户项目时保持现状（底部文字按钮、标题行不渲染）。i18n 新增 projectList.newProjectHint 中英文案。新增有项目场景组件测试（+ 图标存在、底部按钮隐藏、点击触发新建），强化无项目场景回归断言。
+  - 影响范围：`packages/frontend/src/components/ProjectList.tsx`、`packages/frontend/src/i18n/locales/{en,zh}.ts`、`packages/frontend/tests/ProjectList.test.tsx`。
+
 - **新增功能：桌面版「系统设置 → 关于」应用版本检查与自动更新（Gitee Releases + electron-updater）**。desktop 新增 `updater/` 模块（gitee-api 纯函数层、GiteeProvider 自定义 provider、updater 装配层 NsisUpdater + IPC + 事件翻译），preload 暴露 `waPiUpdater` 桥接，main.cjs 接线 `setupUpdater`；frontend 新增 updater store（Zustand 状态机 + IPC 桥接）+ 设置页「关于」页签（AboutSection 6 状态 UI，全量 i18n 中英双语）；浏览器版经 vite define 注入 package.json 版本号，关于页同样显示版本（桌面版由 app.getVersion() 覆盖）。新增 `scripts/publish-gitee.ts` 发版辅助脚本。四层测试：desktop 单测 18 例、前端组件测试 7 例、E2E 1 例（mock waPiUpdater 完整流程）。
   - 影响范围：`packages/desktop/src/updater/`（gitee-api.cjs/gitee-provider.cjs/updater.cjs + 测试）、`packages/desktop/src/preload.cjs`、`packages/desktop/src/main.cjs`、`packages/frontend/src/store/updater.ts`、`packages/frontend/src/components/settings/AboutSection.tsx`、`packages/frontend/src/components/SettingsModal.tsx`、`packages/frontend/src/i18n/locales/{en,zh}.ts`、`packages/frontend/vite.config.ts`、`packages/frontend/e2e/updater.spec.ts`、`scripts/publish-gitee.ts`。
 
