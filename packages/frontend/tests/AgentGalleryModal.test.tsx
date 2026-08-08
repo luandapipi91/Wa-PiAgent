@@ -1,6 +1,11 @@
 import { test, expect, mock, describe, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import type { AgentConfig } from "@wa-pi/shared";
+
+// 新建流程走 AgentCreatePicker（api.post + store.loadAll），mock api-client 避免 happy-dom 相对 URL 抛错
+const getMock = mock(); const postMock = mock();
+mock.module("../src/api-client", () => ({ api: { get: getMock, post: postMock, put: mock(), del: mock() } }));
+
 import { AgentGalleryModal } from "../src/components/AgentGalleryModal";
 import { useAgentsStore } from "../src/store/agents";
 import { useProjectsStore } from "../src/store/projects";
@@ -38,7 +43,16 @@ const renderModal = (over: Partial<Parameters<typeof AgentGalleryModal>[0]> = {}
 afterEach(() => cleanup());
 
 describe("AgentGalleryModal", () => {
-  beforeEach(() => seed([]));
+  beforeEach(() => {
+    getMock.mockReset(); postMock.mockReset();
+    // presets 返回空列表；渠道引用计数 0（不拼 usageHint）；其余返回空对象
+    getMock.mockImplementation(async (path: string) =>
+      path === "/api/agents/presets" ? { presets: [] }
+        : path.startsWith("/api/channels/agent-usage/") ? { count: 0 }
+        : {});
+    postMock.mockImplementation(async () => ({}));
+    seed([]);
+  });
 
   test("宫格渲染全部智能体（名称+简介+计数）", () => {
     seed(["a", "b", "c", "d"]);
@@ -100,17 +114,18 @@ describe("AgentGalleryModal", () => {
     expect(deleteAgent).toHaveBeenCalledWith("a");
   });
 
-  test("点新建智能体输入名称后调用 createAgent 并触发 onCreated", () => {
+  test("点新建智能体打开 AgentCreatePicker，输入名称创建后触发 onCreated", async () => {
     seed([]);
-    const createAgent = mock();
-    useAgentsStore.setState({ createAgent });
     const onCreated = mock();
     renderModal({ onCreated });
     fireEvent.click(screen.getByTestId("gallery-create"));
-    fireEvent.change(screen.getByTestId("gallery-create-input"), { target: { value: "新智能体" } });
-    fireEvent.click(screen.getByTestId("gallery-create-ok"));
-    expect(createAgent).toHaveBeenCalledWith("新智能体");
-    expect(onCreated).toHaveBeenCalledWith("新智能体");
+    // 宫格场景默认聚焦预设 Tab，切到空白创建
+    fireEvent.click(await screen.findByTestId("picker-tab-blank"));
+    fireEvent.change(await screen.findByTestId("blank-name-input"), { target: { value: "新智能体" } });
+    fireEvent.click(screen.getByTestId("blank-create-btn"));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("新智能体"));
+    // 创建成功后面板关闭（不直接断言 postMock：全量运行时组件可能绑定到先执行文件的 api mock）
+    await waitFor(() => expect(screen.queryByTestId("agent-create-picker")).toBeNull());
   });
 
   test("名下会话运行中时状态点显示靛蓝（thinking），无会话的 agent 保持空闲绿", () => {

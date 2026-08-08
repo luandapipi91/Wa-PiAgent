@@ -70,6 +70,7 @@ import { registerChannelRoutes } from "./routes/channels";
 import { ChannelConflictError } from "./channel-manager";
 import { registerFileRoutes } from "./routes/files";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
+import { listPresets, createAgentFromPreset } from "./preset-store";
 
 /** 展开路径开头的 ~ 为 HOME 目录（Node.js 不自动展开 shell ~ 约定） */
 function expandTilde(p: string): string {
@@ -1024,6 +1025,13 @@ export class WSServer {
 							existing &&
 							!(await this.opts.configStore.getAgent(existing.primaryAgent))
 						) {
+							// 同时广播：REST 下 reply 只进 HTTP 400 响应体，不上 SSE 总线，
+							// 前端重选弹窗（AgentMissingModal）监听的是事件流里的 error 事件
+							this.broadcast({
+								type: "error",
+								message: "agent_missing",
+								sessionId: event.sessionId,
+							});
 							reply({
 								type: "error",
 								message: "agent_missing",
@@ -1282,6 +1290,32 @@ export class WSServer {
 					reply({
 						type: "error",
 						message: err instanceof Error ? err.message : String(err),
+					});
+				}
+				break;
+			}
+			case "agent:presets": {
+				try {
+					reply({ type: "agent:presets", presets: listPresets() });
+				} catch (err) {
+					console.error("[ws] agent:presets error:", err);
+					reply({ type: "agent:presets", presets: [] });
+				}
+				break;
+			}
+			case "agent:create-from-preset": {
+				const result = await createAgentFromPreset(
+					this.opts.configStore,
+					event.id,
+					event.displayName,
+				);
+				if (!result.ok) {
+					reply({ type: "error", message: result.error, status: result.status });
+				} else {
+					reply({ type: "agent:created", agent: result.agent });
+					this.broadcast({
+						type: "agent:list",
+						agents: await this.opts.configStore.listAgents(),
 					});
 				}
 				break;

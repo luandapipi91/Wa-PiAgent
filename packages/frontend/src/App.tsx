@@ -12,6 +12,8 @@ import { AgentGalleryModal } from "./components/AgentGalleryModal";
 import { AgentMissingModal } from "./components/AgentMissingModal";
 import { DirTreePicker } from "./components/DirTreePicker";
 import { SettingsModal } from "./components/SettingsModal";
+import { OnboardingWizard } from "./components/onboarding/OnboardingWizard";
+import { useOnboardingStore } from "./store/onboarding";
 import { useSettingsStore } from "./store/settings";
 import { useProvidersStore } from "./store/providers";
 import { useProjectsStore } from "./store/projects";
@@ -78,6 +80,9 @@ export function App() {
 	const extTitle = useSessionStore((s) =>
 		currentSessionId ? (s.extTitleBySession[currentSessionId] ?? null) : null,
 	);
+	// 首次启动引导：providers 首次加载完成且为空时自动弹出初始化向导
+	const providers = useProvidersStore((s) => s.providers);
+	const providersLoaded = useProvidersStore((s) => s.loaded);
 
 	useEffect(() => onConnectionChange(setConnState), []);
 
@@ -283,6 +288,15 @@ export function App() {
 		else if (currentSessionId) setView("session");
 		else setView("new-session");
 	}, [projects.length, currentSessionId]);
+
+	// 首次启动引导：无任何模型供应商时自动弹出初始化向导。
+	// 等首次 load() 成功返回（loaded=true）再判定，避免 mount 即闪弹、
+	// 也避免 load 前的 SSE provider:list 空事件误触发。
+	useEffect(() => {
+		if (providersLoaded && providers.length === 0) {
+			useOnboardingStore.getState().openWizard();
+		}
+	}, [providersLoaded, providers]);
 
 	// 点智能体 → 带着预选切到新建会话视图（与 NewSessionButton 的视图切换一致）
 	const chatWith = (name: string) => {
@@ -576,6 +590,11 @@ export function App() {
 			)}
 			{useSettingsStore((s) => s.showSettings) && (
 				<SettingsModal onClose={() => useSettingsStore.getState().close()} />
+			)}
+			{useOnboardingStore((s) => s.wizardOpen) && (
+				<OnboardingWizard
+					onClose={() => useOnboardingStore.getState().closeWizard()}
+				/>
 			)}
 			{paletteOpen && (
 				<CommandPalette
