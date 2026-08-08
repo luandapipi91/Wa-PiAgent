@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **新增(frontend)：updater store 状态机 + IPC 桥接（应用自动更新 Task 7）**。新增 `packages/frontend/src/store/updater.ts`（Zustand store）：`UpdaterStatus` 状态机（idle/checking/up-to-date/available/downloading/downloaded/error）、`applyEvent` 把 desktop `updater:event` phase 载荷映射为状态切片、`checkForUpdates`/`downloadUpdate`/`quitAndInstall` 调 `window.waPiUpdater` IPC、`initUpdater` 在 mount 时拉取版本信息并订阅事件（浏览器 dev 下无 `waPiUpdater` 直接返回）。`declare global` 补 `window.waPiUpdater` 类型声明。在 `App.tsx` 主 useEffect（`useSubagentsStore.getState().load()` 之后）调 `initUpdater()`。无单测（状态机由 Task 9 AboutSection 组件测试覆盖，YAGNI）。缩进适配现有 store 风格（tab，非简报的 2 空格）。
+  - 影响范围：`packages/frontend/src/store/updater.ts`（新建）、`packages/frontend/src/App.tsx`。
+
 - **新增(desktop)：updater 装配层（应用自动更新 Task 4）**。新增 `packages/desktop/src/updater/updater.cjs`（CommonJS），含纯函数 `translateUpdaterEvent`/`updaterPhases`（autoUpdater 事件 → 前端 `updater:event` phase 载荷）与 Electron 装配 `setupUpdater`（构造 `NsisUpdater`、`autoDownload=false`、注入 `GiteeProvider`、注册 `updater:get-info`/`updater:check`/`updater:download`/`updater:quit-and-install` IPC、dev 模式占位 handler、广播 `updater:event`）。新增 8 个 `bun:test` 用例（全绿）。修正简报里 `update-downloaded` 测试断言为 `{ phase: "downloaded", version: null }`（实现保留 version 字段供前端任务 7 消费），并把事件注册重写为显式 `PHASE_TO_EVENT` 映射表遍历，替代简报里的迷宫式 `.map()` 链。
   - 影响范围：`packages/desktop/src/updater/updater.cjs`、`packages/desktop/src/updater/updater.test.ts`。
 
