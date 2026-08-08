@@ -16,7 +16,7 @@
 扩展管理页 → 安装扩展 → 输入本目录绝对路径：
 
 ```
-/Users/pipi/work/HiAgent/examples/ext-ui-bridge-demo
+/path/to/HiAgent/examples/ext-ui-bridge-demo
 ```
 
 或走 API：
@@ -24,7 +24,7 @@
 ```bash
 curl -X POST http://127.0.0.1:9776/api/extensions/install \
   -H 'Content-Type: application/json' \
-  -d '{"name": "/Users/pipi/work/HiAgent/examples/ext-ui-bridge-demo"}'
+  -d '{"name": "/path/to/HiAgent/examples/ext-ui-bridge-demo"}'
 ```
 
 ## 演示
