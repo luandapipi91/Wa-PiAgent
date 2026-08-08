@@ -203,7 +203,7 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
           创建成功后关闭面板并回调 onCreated（乐观打开契约）。
           宫格场景不调 setDefaultAgent（向导专属），autoFocusTab 默认 preset。 */}
       {creating && (
-        <Modal onClose={() => setCreating(false)} width={560} data-testid="agent-create-modal">
+        <Modal onClose={() => setCreating(false)} width={720} data-testid="agent-create-modal">
           <div className="px-5 py-3.5 border-b border-hairline text-sm font-bold text-primary">
             {t("agentGallery.createAgent")}
           </div>
