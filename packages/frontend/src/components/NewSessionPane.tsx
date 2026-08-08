@@ -216,7 +216,7 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
         text={text}
         setText={handleTextChange}
         model={model}
-        setModel={m => { setModel(m); setDefaults({ model: m }); }}
+        setModel={m => { setModel(m); useComposerPrefsStore.getState().setSessionPrefs(sessionId, { model: m }); }}
         thinking={thinking}
         setThinking={t => { setThinking(t); setDefaults({ thinking: t }); }}
         attachments={attachments}
