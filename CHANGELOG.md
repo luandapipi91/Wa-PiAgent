@@ -8,6 +8,12 @@
 
 ### 变更
 
+- **修复(frontend)：系统设置-通用页签内所有内容改为保存后才生效**。字号滑块（fontSize）与导出轮数滑块（exportTurns）原来拖动即写 store 即时生效，与同页的语言/重试配置（草稿态 + 点保存生效）行为不一致。修复：两个滑块改为草稿态（draftFontSize/draftExportTurns），拖动只改界面显示，点「保存」时才调用 `setFontSize`/`setExportTurns` 应用（仅当与当前值不同才写入）；关闭弹窗不保存则还原。导出按钮运行时读取的是已保存的 store 值，语义不变。更新 1 个测试为草稿态断言 + 新增 1 个导出轮数草稿测试。
+  - 影响范围：`packages/frontend/src/components/settings/GeneralSection.tsx`、`packages/frontend/tests/GeneralSection.test.tsx`。
+
+- **移除(frontend)：技能 tab 的「全部勾选 = 全量继承；取消勾选后按显式列表保存」提示行**。AgentConfig 技能 tab 顶部不再显示 skillsHint 说明文字，删除组件中的提示段落与 en/zh 两个语言文件中的 `skillsHint` 翻译键（全部勾选开关和逐项勾选交互不变）。
+  - 影响范围：`packages/frontend/src/components/AgentConfig.tsx`、`packages/frontend/src/i18n/locales/{en,zh}.ts`。
+
 - **修复(frontend)：设置弹窗左侧导航选中 tab 高亮为会话选中同款浅绿**。SettingsModal 左侧导航（通用/模型/技能/…）选中 tab 原来用灰色底 `var(--surface-hover)` + `var(--brand)` 文字，与会话选中（SessionRow）的浅绿 `--accent-soft` 底 + `--accent` 文字不一致。修复：9 个导航 tab 的选中样式统一改为 `background: var(--accent-soft)`、`color: var(--accent)`，与会话选中视觉对齐。新增回归测试（选中 tab 浅绿、切换后旧 tab 恢复无底色）。
   - 影响范围：`packages/frontend/src/components/SettingsModal.tsx`、`packages/frontend/tests/SettingsModal.test.tsx`。
 
