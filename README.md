@@ -23,11 +23,6 @@ Visual session management · Multi-agent collaboration · IM bot channels · MCP
 
 ---
 
-<div align="center">
-<img src="docs/assets/readme/readme-session.png" alt="Session view" width="900" />
-<br/><em>Session view: reasoning, tool calls, streaming replies, and token stats at a glance</em>
-</div>
-
 ## What is this
 
 WA PI Agent is a **graphical desktop framework** for the [pi](https://github.com/earendil-works) agent engine. pi is a powerful AI coding agent engine, but it ships with a CLI only — configuration means hand-editing JSON, juggling multiple sessions is painful, and MCP failures surface as raw stack traces. WA PI Agent wraps it in a complete GUI, turning every engine capability into something you can see and click.
@@ -98,11 +93,6 @@ All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any
 - **Connection testing + live tool listing**, with a built-in OAuth authorization flow
 - Failures come with **human-readable diagnostics** instead of raw stack traces
 
-<div align="center">
-<img src="docs/assets/readme/readme-mcp.png" alt="MCP connectors" width="900" />
-<br/><em>MCP connectors: connection status, tool counts, error diagnostics</em>
-</div>
-
 ### 🧩 Plugin ecosystem: dynamic install / uninstall / upgrade, hot-reloaded
 
 - **Full lifecycle in the GUI**: type an npm package name (`name@version`, git URLs, and local paths supported) to install; uninstall, enable/disable, and upgrade are all one click
@@ -111,20 +101,11 @@ All data stays in your local `~/.pi/agent` directory. Nothing is uploaded to any
 - **TUI plugins work out of the box**: extensions written for pi need no changes — status bars, widgets, dialogs, and notifications render as native GUI components
 - Slash commands contributed by plugins can be inspected and toggled individually
 
-<div align="center">
-<img src="docs/assets/readme/readme-extensions.png" alt="Plugin management" width="900" />
-<br/><em>Plugin management: dynamic install / uninstall / upgrade, hot-reloaded</em>
-</div>
-
 ### 🧠 Models / Skills / Memory
 
 - **Model management**: custom OpenAI-compatible / Anthropic providers, multi-model mounting, connection tests
 - **Skill system**: a directory is a skill; pluggable enable/disable
 - **Memory system**: global and project-level memory, letting agents accumulate experience across sessions
-
-<div align="center">
-<img src="docs/assets/readme/readme-models.png" alt="Model management" width="900" />
-</div>
 
 ### 🩺 Transparent runtime status
 
@@ -170,8 +151,7 @@ graph LR
 │   ├── desktop/     # Electron shell, auto-update and packaging scripts
 │   └── shared/      # Types and constants shared by frontend and backend
 ├── patches/         # bun patches for upstream deps (pi / pi-mcp-adapter)
-├── scripts/         # dev startup orchestration, OSS publishing
-└── docs/            # Design docs and README assets
+└── scripts/         # dev startup orchestration, OSS publishing
 ```
 
 ## Development
@@ -213,4 +193,4 @@ Issues and PRs are welcome. Before submitting, make sure `bun test` passes and a
 
 ## License
 
-No open-source license has been chosen yet — please contact the author before redistributing or reusing.
+Released under the [MIT License](./LICENSE).
