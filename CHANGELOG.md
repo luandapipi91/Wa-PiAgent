@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **新增(frontend)：关于页签更新流程 E2E（应用自动更新 Task 10）**。新增 `packages/frontend/e2e/updater.spec.ts`：通过 `addInitScript` 在页面加载前注入 mock 的 `window.waPiUpdater`（dev 浏览器下真实 IPC 不可用），复用 `settings-provider.spec.ts` 的 `createProject` + 打开设置模式，验证完整 UI 流程：检查更新 → 发现新版本 0.2.0（`download-update-btn`）→ 立即更新 → 进度条（`download-progress-bar`）→ 更新就绪（`install-update-btn`）。断言以 testid 主导（i18n 无关），mock 事件流模拟 check→available、download→downloading(进度序列)→downloaded。**修正简报两处错误**：①打开设置按钮 testid 是 `settings-btn`（简报写成 `settings-button`，实际 SettingsButton.tsx 用 `settings-btn`）；②去掉 `--project=chromium`（playwright.config 未定义 projects，只有一个默认项目，传该参数报 "Project(s) chromium not found"）。改用现代 locator 风格（`getByTestId` 替代 `page.click('[data-testid=...]')`）与既有 E2E 一致。E2E 实测 PASS（1 passed, 1.8s）。
+  - 影响范围：`packages/frontend/e2e/updater.spec.ts`（新建）。
+
 - **新增(frontend)：设置页「关于」页签 + 应用自动更新 UI（Task 8/9）**。SettingsModal 左侧导航末尾新增「关于」入口（`settings.nav.about`），右侧渲染 `AboutSection` 组件，接入 Task 7 的 `useUpdaterStore` 渲染更新状态机（idle/checking/available/downloading/downloaded/up-to-date/error 6 态 UI：检查更新按钮、发现新版本+releaseNotes、下载进度条+字节计数、更新就绪重启安装、已是最新、错误重试）；非桌面环境隐藏更新控件仅提示。所有文案接入 i18n（`settings.about.*`，中英双语），应用名"WA PI Agent"作为产品名不翻译。新增 7 个组件测试（TDD：RED Cannot find module → GREEN 7 pass）。测试通过 mock `window.waPiUpdater` + beforeEach 调 `initUpdater()` 订阅事件流，使 `_emit` 能驱动 store 状态机（简报测试缺此订阅步骤，已补）。
   - 影响范围：`packages/frontend/src/store/settings.ts`、`packages/frontend/src/components/SettingsModal.tsx`、`packages/frontend/src/components/settings/AboutSection.tsx`（新建）、`packages/frontend/tests/AboutSection.test.tsx`（新建）、`packages/frontend/src/i18n/locales/zh.ts`、`packages/frontend/src/i18n/locales/en.ts`。
 
