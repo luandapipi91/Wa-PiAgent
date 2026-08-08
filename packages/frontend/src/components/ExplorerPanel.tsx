@@ -77,7 +77,6 @@ export function ExplorerPanel({
     try {
       const entries = await listDir(dir);
       return entries
-        .filter(e => !e.name.startsWith("."))  // 隐藏文件/目录过滤
         .map(e => ({ name: e.name, path: joinPath(dir, e.name), isDir: e.isDir }));
     } catch (err) {
       console.error("[ExplorerPanel] listDir failed", err);
