@@ -1,5 +1,8 @@
 import { useUpdaterStore } from "../../store/updater";
+import { useSettingsStore } from "../../store/settings";
+import { useOnboardingStore } from "../../store/onboarding";
 import { useTranslation } from "../../i18n/useTranslation";
+import { Icon } from "../ui/Icon";
 
 /** 字节数格式化：B / KB / MB / GB */
 function fmtBytes(n: number): string {
@@ -171,6 +174,23 @@ export function AboutSection() {
 					)}
 				</div>
 			)}
+
+			{/* 初始化引导入口：说明文字后跟 icon 按钮（关闭设置并重开新手向导） */}
+			<div className="mt-5 flex items-center gap-1.5 text-xs text-tertiary">
+				<span>{t("settings.about.onboardingDesc")}</span>
+				<button
+					data-testid="reopen-onboarding"
+					title={t("settings.about.onboardingButton")}
+					aria-label={t("settings.about.onboardingButton")}
+					onClick={() => {
+						useSettingsStore.getState().close();
+						useOnboardingStore.getState().openWizard();
+					}}
+					className="inline-flex items-center justify-center w-6 h-6 rounded-sm border border-hairline text-secondary hover:text-primary cursor-pointer"
+				>
+					<Icon name="rocket" size={13} />
+				</button>
+			</div>
 		</div>
 	);
 }

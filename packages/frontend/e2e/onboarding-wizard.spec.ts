@@ -92,6 +92,8 @@ test.describe.serial("初始化向导", () => {
     // 设置 → 通用（默认页签）→ 重新打开引导
     await page.getByTestId("settings-btn").click();
     await expect(page.getByTestId("settings-modal")).toBeVisible();
+    // 入口在「关于」tab
+    await page.getByTestId("settings-nav-about").click();
     await page.getByTestId("reopen-onboarding").click();
 
     // 设置弹窗关闭、向导重开在第 1 步

@@ -11,8 +11,6 @@ import {
 } from "../../store/ui-prefs";
 import { useToastStore } from "../../store/toast";
 import { previewNeedsAction, previewTaskDone } from "../../util/sound";
-import { useSettingsStore } from "../../store/settings";
-import { useOnboardingStore } from "../../store/onboarding";
 import type { AppLanguage } from "../../i18n/detect";
 
 /** 与 kernel settings-store 的产品约束对齐（重试最多 10 次；间隔 0.5s-60s） */
@@ -377,33 +375,16 @@ export function GeneralSection() {
 				{saved && (
 					<span className="text-xs text-secondary">{t("common.saved")}</span>
 				)}
-				{error && (
-					<span
-						className="text-xs"
-						style={{ color: "var(--danger)" }}
-						data-testid="retry-save-error"
-					>
-						{error}
-					</span>
-				)}
-			</div>
-			{/* 初始化引导入口：关闭设置弹窗并重开新手向导 */}
-			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">{t("settings.general.onboarding.label")}</span>
-				<span className="text-xs text-tertiary">
-					{t("settings.general.onboarding.desc")}
-				</span>
-			</div>
-			<button
-				data-testid="reopen-onboarding"
-				onClick={() => {
-					useSettingsStore.getState().close();
-					useOnboardingStore.getState().openWizard();
-				}}
-				className="self-start px-3 py-1.5 rounded-sm text-sm border border-hairline text-secondary hover:text-primary"
-			>
-				{t("settings.general.onboarding.button")}
-			</button>
+					{error && (
+						<span
+							className="text-xs"
+							style={{ color: "var(--danger)" }}
+							data-testid="retry-save-error"
+						>
+							{error}
+						</span>
+					)}
+				</div>
 		</div>
 	);
 }

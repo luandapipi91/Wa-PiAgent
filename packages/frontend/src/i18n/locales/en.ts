@@ -641,11 +641,6 @@ const en = {
 				needsAction: "Action required",
 				preview: "Preview",
 			},
-			onboarding: {
-				label: "Onboarding",
-				desc: "Reopen the onboarding wizard to configure models and the default agent",
-				button: "Reopen wizard",
-			},
 		},
 		diagnostics: {
 			title: "Extension errors ({{count}} most recent)",
@@ -654,6 +649,8 @@ const en = {
 		},
 		about: {
 			version: "Version {{version}}",
+			onboardingDesc: "Reopen the onboarding wizard to configure models and the default agent",
+			onboardingButton: "Reopen wizard",
 			checkUpdate: "Check for Updates",
 			checking: "Checking for updates…",
 			foundNew: "New version available",
