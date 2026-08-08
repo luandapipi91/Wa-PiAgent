@@ -547,9 +547,51 @@ describe("NewSessionPane", () => {
     });
 
     render(<NewSessionPane />);
-    const textbox = typeIntoComposer("新建页输入");
+    typeIntoComposer("新建页输入");
     await new Promise((r) => setTimeout(r, 350));
     const sid = useComposerPrefsStore.getState().newSessionIds["p1"] ?? "draft-session-2";
     expect(useComposerPrefsStore.getState().bySession[sid]?.text).toBe("新建页输入");
+  });
+
+  it("新建页切换模型后发送：会话级 prefs 记录所选模型（聊天界面显示与所选一致）", async () => {
+    composerDbDefaults.model = "gpt-4o";
+    composerDbDefaults.thinking = "disabled";
+    useProvidersStore.setState({
+      providers: [
+        { id: "p1", name: "openai", api: "openai-completions", baseUrl: "", apiKey: "", models: [{ id: "gpt-4o", contextWindow: 128000, maxTokens: 4096 }, { id: "gpt-5", contextWindow: 128000, maxTokens: 4096 }] },
+      ],
+    });
+
+    render(<NewSessionPane />);
+
+    // 初始默认模型 gpt-4o
+    await waitFor(() => {
+      expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-4o");
+    });
+
+    // 用户在新建页把模型切换为 gpt-5
+    // happy-dom 对受控 select 的 value 变化检测有兼容问题：首次 fireEvent.change 不触发
+    // React onChange（value tracker 未感知 DOM 变化），第二次才生效。真实浏览器无此问题。
+    fireEvent.change(screen.getByTestId("model-selector"), { target: { value: "openai/gpt-5", selectedIndex: 2 } });
+    fireEvent.change(screen.getByTestId("model-selector"), { target: { value: "openai/gpt-5", selectedIndex: 2 } });
+    await waitFor(() => {
+      expect((screen.getByTestId("model-selector") as HTMLSelectElement).value).toBe("openai/gpt-5");
+    });
+
+    typeIntoComposer("hello");
+    await waitFor(() => {
+      expect((screen.getByTestId("composer-send") as HTMLButtonElement).disabled).toBe(false);
+    });
+    fireEvent.click(screen.getByTestId("composer-send"));
+
+    // 发送的 prompt 用的是用户选择的模型
+    await waitFor(() => {
+      expect(lastPrompt()).toMatchObject({ model: "openai/gpt-5" });
+    });
+
+    // 关键断言：发送后会话级 prefs 必须是用户刚选的模型 gpt-5
+    // （进入会话后 Composer/ModelSelector 读的是 bySession[sessionId].model）
+    const sid = useProjectsStore.getState().currentSessionId!;
+    expect(useComposerPrefsStore.getState().bySession[sid]?.model).toBe("openai/gpt-5");
   });
 });
