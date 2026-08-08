@@ -1,0 +1,17 @@
+{
+  "name": "@wa-pi/shared",
+  "version": "0.0.0",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tool-schemas": "./src/tool-schemas.ts"
+  },
+  "dependencies": {
+    "typebox": "^1.3.11"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  }
+}
