@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-09 — 发版 v0.1.8
+
+### 变更
+
+- **发版(desktop)：重新发版为 v0.1.8 桌面安装包（WA PI Agent，NSIS）到阿里云 OSS**。0.1.7 打包完成后未发布（版本号未对外），实际发版版本号修正为 0.1.8，内容与 0.1.7 一致（初始化向导、预设智能体、fleet 同名串台修复、企微 IM 断线崩溃修复、预设头像/同步修复、仓库脱敏）。产物 WaPi-Setup-0.1.8.exe + latest.yml（注入 releaseNotes）上传至 coaicom/releases/。
+  - 影响范围：`packages/desktop/package.json`（0.1.7 → 0.1.8）、`packages/frontend/package.json`（0.1.7 → 0.1.8）、`packages/desktop/RELEASE_NOTES.md`。
+
+---
+
 ## 2026-08-09 — 发版 v0.1.7
 
 ### 变更
