@@ -1,6 +1,11 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
+import { readFileSync } from "node:fs";
+
+// 应用版本号：构建时从 package.json 读取，注入 import.meta.env.WA_PI_VERSION。
+// 浏览器 bundle 无 Electron 的 app.getVersion()，靠此让「关于」页显示版本号。
+const appVersion = JSON.parse(readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf8")).version;
 
 export default defineConfig(({ mode }) => {
   const envVars = loadEnv(mode, process.cwd(), "");          // 读 .env（含非 VITE_ 前缀）
@@ -11,6 +16,7 @@ export default defineConfig(({ mode }) => {
   // WA_PI_WS_PORT 同理注入，让浏览器 bundle 的 WS_PORT 指向 .env 配置的后端端口。
   const defineEntries: Record<string, string> = {
     "import.meta.env.WA_PI_WS_PORT": JSON.stringify(process.env.WA_PI_WS_PORT ?? envVars.WA_PI_WS_PORT ?? "9776"),
+    "import.meta.env.WA_PI_VERSION": JSON.stringify(appVersion),
   };
   for (const key of ["WA_PI_DIR", "HOME", "USERPROFILE"]) {
     const val = process.env[key] ?? envVars[key];
