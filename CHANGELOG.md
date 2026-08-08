@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **新增功能：输入框支持 Ctrl+Enter（macOS Cmd+Enter）引导发送**。agent 运行中（回复过程中）按 Ctrl+Enter 直接把输入框内容作为引导（steering）消息发送（调 `/api/sessions/:sessionId/steer`，乐观更新引导队列），空闲时等同普通发送；Enter 行为不变（运行中仍进排队队列），Shift+Enter 换行不变。`ComposerInput` 新增 `onSendSteer` prop 与 Ctrl/Cmd+Enter 按键分支（保留 IME 组词保护），`Composer` 新增 `handleSendSteer` 回调（空闲委托 doSend、运行中复刻 `SessionView.handlePromote` 的 steering 队列去重模式，不设 optimisticEcho——`/steer` 不触发 `session:echo_user`；运行中仅清空文本、保留附件）。新增 3 个组件测试（运行中→/steer、空闲→/prompt、IME 拦截）。
+  - 影响范围：`packages/frontend/src/components/Composer.tsx`、`packages/frontend/src/components/ui/ComposerInput.tsx`、`packages/frontend/tests/Composer.test.tsx`。
+
 - **新增功能：桌面版「系统设置 → 关于」应用版本检查与自动更新（Gitee Releases + electron-updater）**。desktop 新增 `updater/` 模块（gitee-api 纯函数层、GiteeProvider 自定义 provider、updater 装配层 NsisUpdater + IPC + 事件翻译），preload 暴露 `waPiUpdater` 桥接，main.cjs 接线 `setupUpdater`；frontend 新增 updater store（Zustand 状态机 + IPC 桥接）+ 设置页「关于」页签（AboutSection 6 状态 UI，全量 i18n 中英双语）；浏览器版经 vite define 注入 package.json 版本号，关于页同样显示版本（桌面版由 app.getVersion() 覆盖）。新增 `scripts/publish-gitee.ts` 发版辅助脚本。四层测试：desktop 单测 18 例、前端组件测试 7 例、E2E 1 例（mock waPiUpdater 完整流程）。
   - 影响范围：`packages/desktop/src/updater/`（gitee-api.cjs/gitee-provider.cjs/updater.cjs + 测试）、`packages/desktop/src/preload.cjs`、`packages/desktop/src/main.cjs`、`packages/frontend/src/store/updater.ts`、`packages/frontend/src/components/settings/AboutSection.tsx`、`packages/frontend/src/components/SettingsModal.tsx`、`packages/frontend/src/i18n/locales/{en,zh}.ts`、`packages/frontend/vite.config.ts`、`packages/frontend/e2e/updater.spec.ts`、`scripts/publish-gitee.ts`。
 
