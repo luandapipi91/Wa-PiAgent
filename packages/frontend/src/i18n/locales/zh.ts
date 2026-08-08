@@ -628,11 +628,6 @@ const zh = {
 				needsAction: "需要操作",
 				preview: "试听",
 			},
-			onboarding: {
-				label: "初始化引导",
-				desc: "重新打开新手引导，配置模型与默认智能体",
-				button: "重新打开引导",
-			},
 		},
 		diagnostics: {
 			title: "扩展错误（最近 {{count}} 条）",
@@ -641,6 +636,8 @@ const zh = {
 		},
 		about: {
 			version: "版本 {{version}}",
+			onboardingDesc: "重新打开新手引导，配置模型与默认智能体",
+			onboardingButton: "重新打开引导",
 			checkUpdate: "检查更新",
 			checking: "正在检查更新…",
 			foundNew: "发现新版本",
