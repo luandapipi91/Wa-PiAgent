@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **新增(desktop)：updater 装配层（应用自动更新 Task 4）**。新增 `packages/desktop/src/updater/updater.cjs`（CommonJS），含纯函数 `translateUpdaterEvent`/`updaterPhases`（autoUpdater 事件 → 前端 `updater:event` phase 载荷）与 Electron 装配 `setupUpdater`（构造 `NsisUpdater`、`autoDownload=false`、注入 `GiteeProvider`、注册 `updater:get-info`/`updater:check`/`updater:download`/`updater:quit-and-install` IPC、dev 模式占位 handler、广播 `updater:event`）。新增 8 个 `bun:test` 用例（全绿）。修正简报里 `update-downloaded` 测试断言为 `{ phase: "downloaded", version: null }`（实现保留 version 字段供前端任务 7 消费），并把事件注册重写为显式 `PHASE_TO_EVENT` 映射表遍历，替代简报里的迷宫式 `.map()` 链。
+  - 影响范围：`packages/desktop/src/updater/updater.cjs`、`packages/desktop/src/updater/updater.test.ts`。
+
 - **新增(desktop)：GiteeProvider 自定义 electron-updater provider（应用自动更新 Task 3）**。新增 `packages/desktop/src/updater/gitee-provider.cjs`（CommonJS），继承 `Provider` 基类实现 `getLatestVersion`（拉 latest release + 附件、解析 latest.yml、附 releaseNotes）与 `resolveFiles`（把 latest.yml 里的相对文件名映射为 Gitee 绝对下载 URL），`fetch` 复用 Task 2 的 `buildGiteeApi`/`fetchText`/`findLatestYml`。新增 4 个 `bun:test` 用例（全绿）。
   - 影响范围：`packages/desktop/src/updater/gitee-provider.cjs`、`packages/desktop/src/updater/gitee-provider.test.ts`。
 
