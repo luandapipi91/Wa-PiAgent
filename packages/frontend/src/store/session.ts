@@ -731,21 +731,50 @@ export const useSessionStore = create<SessionState>((set) => {
 					}
 					break;
 				}
-				// 流式增量：用 assistantMessageEvent.partial 覆盖 streamingMessage（rAF 合帧提交）
+				// 流式增量：0.84 起 RPC 只发 assistantMessageEvent delta（无 partial 快照），
+				// 需自行把 delta 累积到 streaming message 的对应 content block。
+				// toolcall_delta 不做流式累积（参数 JSON 片段），message_end 用权威消息定稿覆盖。
 				case "message_update": {
-					const partial = (event as any).assistantMessageEvent?.partial;
-					const streamingMsg = partial ?? (event as any).message;
-					if (streamingMsg) {
-						// 直接 set 流式内容，不经过 rAF 合帧。
-						// rAF 在部分浏览器环境下可能延迟过长（尤其是后台标签页），
-						// 导致流式输出感觉"一次全出来"。
-						set((s) => ({
+					const ae = (event as any).assistantMessageEvent;
+					if (!ae) break;
+					const delta = ae.delta;
+					if (typeof delta !== "string") break;
+					set((s) => {
+						const cur = s.streamingBySession[sessionId];
+						if (!cur) return {};
+						const msg = cur.message as any;
+						const content = Array.isArray(msg.content)
+							? msg.content.map((b: any) => ({ ...b }))
+							: [];
+						const idx =
+							typeof ae.contentIndex === "number" ? ae.contentIndex : 0;
+						const block = content[idx];
+						if (ae.type === "text_delta") {
+							if (block?.type === "text") {
+								content[idx] = { ...block, text: (block.text ?? "") + delta };
+							} else if (!block) {
+								content[idx] = { type: "text", text: delta };
+							}
+						} else if (ae.type === "thinking_delta") {
+							if (block?.type === "thinking") {
+								content[idx] = {
+									...block,
+									thinking: (block.thinking ?? "") + delta,
+								};
+							} else if (!block) {
+								content[idx] = { type: "thinking", thinking: delta };
+							}
+						}
+						return {
 							streamingBySession: {
 								...s.streamingBySession,
-								[sessionId]: { message: streamingMsg, agentName },
+								[sessionId]: {
+									message: { ...msg, content },
+									agentName: cur.agentName,
+								},
 							},
-						}));
-					}
+						};
+					});
 					break;
 				}
 				// 流式结束：assistant — 合并到同 turn 的最后一条 assistant 消息
@@ -772,7 +801,9 @@ export const useSessionStore = create<SessionState>((set) => {
 					if (msg.role !== "assistant") break;
 					// 需要操作提示音：assistant 消息含新的 ask_user_question 工具调用时播放。
 					// 历史消息经 api 加载直接 set、不经过 message_end，不会误触发。
+					// IM 渠道会话（sessionId 以 im- 开头）不播放提示音。
 					if (
+						!sessionId.startsWith("im-") &&
 						Array.isArray(msg.content) &&
 						msg.content.some(
 							(b: any) => b?.type === "toolCall" && b.name === "ask_user_question",
@@ -888,8 +919,9 @@ export const useSessionStore = create<SessionState>((set) => {
 					// 保持 thinking（不结算 idle/未读/耗时），等真正终态：成功轮的
 					// agent_end{willRetry:false}，或重试耗尽/中止的 auto_retry_end{success:false}。
 					if (event.willRetry === true) break;
-					// 任务完成提示音：仅终态播放（自动重试中间态上面已 break）
-					playTaskDone();
+					// 任务完成提示音：仅终态播放（自动重试中间态上面已 break）；
+					// IM 渠道会话（sessionId 以 im- 开头）不播放提示音。
+					if (!sessionId.startsWith("im-")) playTaskDone();
 					const away =
 						sessionId !== useProjectsStore.getState().currentSessionId;
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 复活

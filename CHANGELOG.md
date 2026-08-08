@@ -8,7 +8,22 @@
 
 ### 变更
 
-- **依赖升级(全仓)：核心依赖批量升级到最新 minor/patch 版本**。覆盖 4 个包：kernel（`@earendil-works/pi-ai` ^0.83.0→^0.84.1、`@earendil-works/pi-coding-agent` ^0.83.0→^0.84.1、`@amaster.ai/pi-memory` ^0.1.6→^0.1.8、`pi-web-access` ^0.17.1→^0.19.0、`typebox` ^1.3.6→^1.3.11）、frontend（`vite` ^8.1.5→^8.2.1、`@vitejs/plugin-react` ^6.0.4→^6.0.5、`mermaid` ^11.16.0→^11.16.1、`happy-dom`/`@happy-dom/global-registrator` ^20.11.1→^20.11.2、`@playwright/test` ^1.62.0→^1.62.1、`@types/react` ^19.2.17→^19.2.18、`@types/react-dom` ^19.2.3→^19.2.4）、desktop（`electron` ^43→^43.3.0、`electron-builder` ^26→^26.15.3）、根（`@types/bun` ^1.3.0→^1.3.14）。大版本跳升项按约定保持不动：`pi-mcp-adapter` 2.17.0（项目自定义 patch）、`tailwindcss` 3（4 为 CSS-first 重构）、`typescript` 5（7 待单独评估）。验证：全仓 typecheck 通过、单测全绿（kernel 815 / shared 95 / desktop 56 / frontend 1199）、vite build 成功、E2E 核心流程通过。
+- **修复(frontend+kernel)：适配 pi 0.84 移除 message_update partial 快照的流式协议变更**。pi 0.84.0 起 RPC `message_update` 只发 `assistantMessageEvent` delta（text_delta/thinking_delta 的 contentIndex+delta），不再携带累积 `message` 字段与 `partial` 快照；此前 wa-pi 前端流式渲染与企微渠道流式推送都依赖被移除字段（前端打字机效果消失、channel-manager 因 `extractAssistantText([undefined])` 抛 TypeError 被静默吞掉致 IM 流式退化）。修复：前端 `store/session.ts` 改为在 message_start 骨架基础上把 delta 累积到对应 content block（text/thinking）；`channel-manager.ts` 增加 per-session delta 累积（message_start 重置 / message_end 清空 / agent_settled 清空），流式帧用「已落地文本 + 当前 delta 累积」拼装；`shared/types.ts` 镜像类型同步 0.84 契约（`AssistantMessageEvent.partial` 改可选、`message_update.message` 改可选），`event-throttle.ts` 注释更新。测试同步改写为 0.84 事件形状（store-session 3 例、channel-manager textDeltaEvent helper 与多消息轮边界事件）。
+  - 影响范围：`packages/frontend/src/store/session.ts`、`packages/frontend/tests/store-session.test.ts`、`packages/kernel/src/channel-manager.ts`、`packages/kernel/tests/channel-manager.test.ts`、`packages/shared/src/types.ts`、`packages/kernel/src/event-throttle.ts`。
+
+- **移除(frontend)：对话消息行不再显示机器人头像，保留智能体名字**。`MessageList.tsx` 中正常 assistant 回复行与流式「思考中」加载占位两处的 robot 图标头像容器删除（名字行不变，AI 名字 + 时间照常显示）；用户消息的「我」占位保持不变。同步更新 `MessageList.test.tsx`：3 处头像断言改为「不再渲染 avatar-robot」+ 用名字行次数验证回合合并逻辑，3 处宽度断言从 `children[1]` 改为 `children[0]`（头像移除后内容列成为首个子元素）。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/tests/MessageList.test.tsx`。
+
+---
+
+## 2026-08-08
+
+### 变更
+
+- **文档：README 双语版头部增加中英界面支持标识**。两个版本（`README.md` / `README.zh-CN.md`）的关键词行末尾追加「中文 / English UI（双语界面）」，徽章行追加 i18n 徽章（shields.io，已验证可访问）。
+  - 影响范围：`README.md`、`README.zh-CN.md`。
+
+- **依赖升级(全仓):核心依赖批量升级到最新 minor/patch 版本**。覆盖 4 个包:kernel(`@earendil-works/pi-ai` ^0.83.0→^0.84.1、`@earendil-works/pi-coding-agent` ^0.83.0→^0.84.1、`@amaster.ai/pi-memory` ^0.1.6→^0.1.8、`pi-web-access` ^0.17.1→^0.19.0、`typebox` ^1.3.6→^1.3.11)、frontend(`vite` ^8.1.5→^8.2.1、`@vitejs/plugin-react` ^6.0.4→^6.0.5、`mermaid` ^11.16.0→^11.16.1、`happy-dom`/`@happy-dom/global-registrator` ^20.11.1→^20.11.2、`@playwright/test` ^1.62.0→^1.62.1、`@types/react` ^19.2.17→^19.2.18、`@types/react-dom` ^19.2.3→^19.2.4)、desktop(`electron` ^43→^43.3.0、`electron-builder` ^26→^26.15.3)、根(`@types/bun` ^1.3.0→^1.3.14)。大版本跳升项按约定保持不动:`pi-mcp-adapter` 2.17.0(项目自定义 patch)、`tailwindcss` 3(4 为 CSS-first 重构)、`typescript` 5(7 待单独评估)。验证:全仓 typecheck 通过、单测全绿(kernel 815 / shared 95 / desktop 56 / frontend 1199)、vite build 成功、E2E 核心流程通过。
   - 影响范围：`package.json`、`packages/{kernel,shared,frontend,desktop}/package.json`、`bun.lock`。
 
 - **修复(kernel)：`WaPiSpawnConfig` 补充 `skillsAllOff` 字段，修复子代理技能全关语义失效**。`delegate-tool.ts` 访问 `config.skillsAllOff` 决定是否给子代理传空技能数组，但 `WaPiSpawnConfig`（subagent-runner.ts）从未定义该字段——运行时恒为 `undefined`，导致「显式全不选技能」永远走白名单分支、typecheck 报 TS2339。修复：接口补 `skillsAllOff?: boolean`，`agent-manager.ts` 的 `resolveSpawnConfig` 从 `AgentConfig` 透传该值。
@@ -26,7 +41,7 @@
 - **文档：重写 README.md，产品定位调整为「pi agent 的 GUI 框架」**。主标语从「多智能体协作工作台」改为「pi agent 的 GUI 框架——给 AI 编程智能体一个友好的桌面操作体验」；「这是什么」章节重写为 GUI 框架叙事（pi 引擎为内核、本框架提供图形化桌面体验、引擎与界面解耦），多智能体协作降级为框架之上的增值能力；新增「为什么选择 GUI」章节（CLI vs GUI 对比表）；架构章节补充「GUI 负责体验，pi 负责智能，内核负责编排」的职责定位。功能事实（特性、快速开始、项目结构、路线图等）保持不变。
   - 影响范围：`README.md`。
 
-- **新增(frontend)：系统设置-通用新增「提示音」设置**。任务完成（agent_end 终态）与需要操作（新 ask_user_question 待回答）时播放 WebAudio 蜂鸣提示音，两种事件独立开关（默认开）、各带试听按钮，即时生效并持久化到 localStorage；浏览器自动播放策略阻止时静默降级。需要操作提示音带 500ms 去抖防叠加。开关以 switch 滑块呈现（位于「自动重试」上方）。
+- **新增(frontend)：系统设置-通用新增「提示音」设置**。任务完成（agent_end 终态）与需要操作（新 ask_user_question 待回答）时播放 WebAudio 蜂鸣提示音，两种事件独立开关（默认开）、各带试听按钮，即时生效并持久化到 localStorage；浏览器自动播放策略阻止时静默降级。需要操作提示音带 500ms 去抖防叠加。开关以 switch 滑块呈现（位于「自动重试」上方）。IM 渠道会话（sessionId 以 `im-` 开头，如企业微信）不播放提示音。
   - 影响范围：`packages/frontend/src/util/sound.ts`（新增）、`packages/frontend/src/store/ui-prefs.ts`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/components/settings/GeneralSection.tsx`、`packages/frontend/src/i18n/locales/{zh,en}.ts`。
 
 - **修复(frontend)：系统设置-通用页签内所有内容改为保存后才生效**。字号滑块（fontSize）与导出轮数滑块（exportTurns）原来拖动即写 store 即时生效，与同页的语言/重试配置（草稿态 + 点保存生效）行为不一致。修复：两个滑块改为草稿态（draftFontSize/draftExportTurns），拖动只改界面显示，点「保存」时才调用 `setFontSize`/`setExportTurns` 应用（仅当与当前值不同才写入）；关闭弹窗不保存则还原。导出按钮运行时读取的是已保存的 store 值，语义不变。更新 1 个测试为草稿态断言 + 新增 1 个导出轮数草稿测试。

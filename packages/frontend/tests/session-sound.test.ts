@@ -113,3 +113,39 @@ test("message_end toolResult → 不播放需要操作提示音", () => {
 	);
 	expect(soundCalls.needsAction).toBe(0);
 });
+
+test("agent_end 终态但会话来自 IM 渠道（im- 前缀）→ 不播放任务完成提示音", () => {
+	const imSessionId = "im-wecom-p1-123";
+	useSessionStore
+		.getState()
+		.handleSDKEvent(
+			imSessionId,
+			envelope({ type: "agent_end", willRetry: false } as any, imSessionId),
+		);
+	expect(soundCalls.taskDone).toBe(0);
+});
+
+test("message_end 含 ask_user_question 但会话来自 IM 渠道（im- 前缀）→ 不播放", () => {
+	const imSessionId = "im-wecom-p1-123";
+	useSessionStore.getState().handleSDKEvent(
+		imSessionId,
+		envelope(
+			{
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [
+						{
+							type: "toolCall",
+							id: "tc-1",
+							name: "ask_user_question",
+							arguments: { question: "选哪个？" },
+						},
+					],
+				},
+			} as any,
+			imSessionId,
+		),
+	);
+	expect(soundCalls.needsAction).toBe(0);
+});
