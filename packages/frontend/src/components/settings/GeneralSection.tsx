@@ -10,6 +10,7 @@ import {
 	useUiPrefsStore,
 } from "../../store/ui-prefs";
 import { useToastStore } from "../../store/toast";
+import { previewNeedsAction, previewTaskDone } from "../../util/sound";
 import type { AppLanguage } from "../../i18n/detect";
 
 /** 与 kernel settings-store 的产品约束对齐（重试最多 10 次；间隔 0.5s-60s） */
@@ -39,6 +40,10 @@ export function GeneralSection() {
 	const setExportTurns = useUiPrefsStore((s) => s.setExportTurns);
 	const language = useUiPrefsStore((s) => s.language);
 	const setLanguage = useUiPrefsStore((s) => s.setLanguage);
+	const soundTaskDone = useUiPrefsStore((s) => s.soundTaskDone);
+	const setSoundTaskDone = useUiPrefsStore((s) => s.setSoundTaskDone);
+	const soundNeedsAction = useUiPrefsStore((s) => s.soundNeedsAction);
+	const setSoundNeedsAction = useUiPrefsStore((s) => s.setSoundNeedsAction);
 	const { t } = useTranslation();
 	// 语言草稿：select 改草稿，点保存才 setLanguage 生效；关闭窗口丢弃草稿。
 	const [draftLang, setDraftLang] = useState<AppLanguage>(language);
@@ -283,6 +288,53 @@ export function GeneralSection() {
 						{error}
 					</span>
 				)}
+			</div>
+			{/* 提示音：即时生效，不参与上面的草稿 + 保存流程 */}
+			<div className="flex flex-col gap-1">
+				<span className="text-sm font-medium text-primary">
+					{t("settings.general.sound.label")}
+				</span>
+				<span className="text-xs text-tertiary">
+					{t("settings.general.sound.desc")}
+				</span>
+			</div>
+			<div className="flex items-center gap-2">
+				<label className="flex items-center gap-2 text-sm text-primary cursor-pointer">
+					<input
+						type="checkbox"
+						checked={soundTaskDone}
+						onChange={(e) => setSoundTaskDone(e.target.checked)}
+						style={{ accentColor: "var(--brand)" }}
+						data-testid="sound-task-done-toggle"
+					/>
+					{t("settings.general.sound.taskDone")}
+				</label>
+				<button
+					onClick={previewTaskDone}
+					className="px-2 py-0.5 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer"
+					data-testid="sound-task-done-preview"
+				>
+					{t("settings.general.sound.preview")}
+				</button>
+			</div>
+			<div className="flex items-center gap-2">
+				<label className="flex items-center gap-2 text-sm text-primary cursor-pointer">
+					<input
+						type="checkbox"
+						checked={soundNeedsAction}
+						onChange={(e) => setSoundNeedsAction(e.target.checked)}
+						style={{ accentColor: "var(--brand)" }}
+						data-testid="sound-needs-action-toggle"
+					/>
+					{t("settings.general.sound.needsAction")}
+				</label>
+				<button
+					onClick={previewNeedsAction}
+					className="px-2 py-0.5 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer"
+					data-testid="sound-needs-action-preview"
+				>
+					{t("settings.general.sound.preview")}
+				</button>
 			</div>
 		</div>
 	);

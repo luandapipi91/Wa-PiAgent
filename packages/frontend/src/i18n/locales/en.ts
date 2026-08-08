@@ -612,6 +612,13 @@ const en = {
 				zh: "中文",
 				en: "English",
 			},
+			sound: {
+				label: "Sound",
+				desc: "Play a sound when a task finishes or needs your action. Effective immediately.",
+				taskDone: "Task complete",
+				needsAction: "Action required",
+				preview: "Preview",
+			},
 		},
 		diagnostics: {
 			title: "Extension errors ({{count}} most recent)",
