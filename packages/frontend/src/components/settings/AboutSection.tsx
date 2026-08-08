@@ -57,7 +57,7 @@ export function AboutSection() {
 						<button
 							className="px-6 py-2 rounded-sm text-sm font-medium border-0 cursor-pointer"
 							style={{ background: "var(--brand)", color: "var(--on-brand)" }}
-							onClick={() => void checkForUpdates()}
+							onClick={() => void checkForUpdates(true)}
 							data-testid="check-update-btn"
 						>
 							{t("settings.about.checkUpdate")}
@@ -162,7 +162,7 @@ export function AboutSection() {
 									color: "var(--text-secondary)",
 									background: "transparent",
 								}}
-								onClick={() => void checkForUpdates()}
+								onClick={() => void checkForUpdates(true)}
 								data-testid="retry-update-btn"
 							>
 								{t("settings.about.retry")}

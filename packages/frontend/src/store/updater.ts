@@ -24,6 +24,9 @@ declare global {
 
 interface UpdaterState {
 	status: UpdaterStatus;
+	// 是否由用户主动触发（点「检查更新」按钮）。自动检查（打开设置）为 false，
+	// 其「已是最新」结果静默不展示，避免无谓的 ✓ 提示打扰。
+	userTriggered: boolean;
 	appVersion: string;
 	latestVersion: string | null;
 	releaseNotes: string | null;
@@ -32,13 +35,14 @@ interface UpdaterState {
 	total: number;
 	error: string | null;
 	isDesktop: boolean;
-	checkForUpdates: () => Promise<void>;
+	checkForUpdates: (userTriggered?: boolean) => Promise<void>;
 	downloadUpdate: () => Promise<void>;
 	quitAndInstall: () => Promise<void>;
 }
 
 const initialState = {
 	status: "idle" as UpdaterStatus,
+	userTriggered: false,
 	// 桌面版会被 initUpdater 的 getInfo 覆盖为 app.getVersion()；
 	// 浏览器版无 waPiUpdater，靠构建时注入的版本号兜底显示。
 	appVersion: BUILD_VERSION,
@@ -64,7 +68,8 @@ function applyEvent(state: UpdaterState, payload: Record<string, unknown>): Part
 				error: null,
 			};
 		case "up-to-date":
-			return { status: "up-to-date", error: null };
+			// 自动检查（非用户触发）的「已是最新」静默回退 idle，不展示 ✓ 提示
+			return state.userTriggered ? { status: "up-to-date", error: null } : { status: "idle", error: null };
 		case "downloading":
 			return {
 				status: "downloading",
@@ -91,10 +96,10 @@ function applyEvent(state: UpdaterState, payload: Record<string, unknown>): Part
 export const useUpdaterStore = create<UpdaterState>((set) => ({
 	...initialState,
 
-	checkForUpdates: async () => {
+	checkForUpdates: async (userTriggered = false) => {
 		const api = window.waPiUpdater;
 		if (!api) return;
-		set({ status: "checking", error: null });
+		set({ status: "checking", error: null, userTriggered });
 		try {
 			await api.check();
 		} catch (e) {
