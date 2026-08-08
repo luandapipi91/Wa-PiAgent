@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-09 — 恢复 README 截图素材
+
+### 变更
+
+- **文档：恢复 README 引用的 4 张界面截图**。撤销 `bd92abcd`（chore: 移除 docs 目录）对 README 素材的误删：从 git 历史恢复 `docs/assets/readme/`（readme-session / readme-mcp / readme-extensions / readme-models 四张 PNG），并在 `README.md` / `README.zh-CN.md` 恢复对应的 4 处 `<img>` 引用（会话界面、MCP 连接器、插件管理、模型管理），与删除前版本完全一致。docs/ 下第三方参考文档（references）不恢复。
+  - 影响范围：`docs/assets/readme/`（新增 4 张图片）、`README.md`、`README.zh-CN.md`。
+
+---
+
 ## 2026-08-09 — 发版 v0.1.8
 
 ### 变更

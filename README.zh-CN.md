@@ -23,6 +23,11 @@
 
 ---
 
+<div align="center">
+<img src="docs/assets/readme/readme-session.png" alt="会话界面" width="900" />
+<br/><em>会话界面：思考过程、工具调用、流式回复与 Token 统计一目了然</em>
+</div>
+
 ## 这是什么
 
 WA PI Agent 是 [pi](https://github.com/earendil-works) agent 引擎的**图形化桌面框架**。pi 是一个强大的 AI 编程智能体引擎，但原生只有命令行界面——配置靠手改 JSON、多会话难管理、MCP 报错只有一堆堆栈。WA PI Agent 为它套上一层完整的 GUI，把引擎的每一项能力都变成看得见、点得着的界面操作。
@@ -93,6 +98,11 @@ bun run pack:all     # 全平台
 - **连接测试 + 工具清单实时查看**，OAuth 授权流程内置支持
 - 连接失败给出**可读的错误诊断**（而非原始报错堆栈）
 
+<div align="center">
+<img src="docs/assets/readme/readme-mcp.png" alt="MCP 连接器" width="900" />
+<br/><em>MCP 连接器：连接状态、工具数量、错误诊断</em>
+</div>
+
 ### 🧩 插件生态：动态安装 / 卸载 / 升级，热加载即时生效
 
 - **图形化全生命周期管理**：输入 npm 包名（支持 `name@version`、git URL、本地路径）一键安装，卸载、启用/禁用、版本升级全部点按钮完成
@@ -101,11 +111,20 @@ bun run pack:all     # 全平台
 - **TUI 插件开箱即用**：为 pi 编写的扩展无需修改——状态栏、Widget、对话框、通知等 UI 原语自动以 GUI 原生组件呈现
 - 插件贡献的 slash 命令可逐项查看与开关
 
+<div align="center">
+<img src="docs/assets/readme/readme-extensions.png" alt="插件管理" width="900" />
+<br/><em>插件管理：动态安装 / 卸载 / 升级，热加载即时生效</em>
+</div>
+
 ### 🧠 模型 / 技能 / 记忆
 
 - **模型管理**：自定义 OpenAI 兼容 / Anthropic 协议供应商，多模型挂载、连接测试
 - **技能系统**：目录即技能，可插拔启用/禁用
 - **记忆系统**：全局 / 项目两级记忆，智能体跨会话积累经验
+
+<div align="center">
+<img src="docs/assets/readme/readme-models.png" alt="模型管理" width="900" />
+</div>
 
 ### 🩺 运行状态透明化
 
