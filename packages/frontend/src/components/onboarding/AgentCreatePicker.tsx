@@ -174,7 +174,7 @@ function PresetPick({ existingNames, onCreated, onCancel }: { existingNames: str
           <div key={deptName}>
             {/* 计数放子 span：部门名独占直接文本节点，便于按名字断言 */}
             <div className="mb-1 text-xs font-medium text-tertiary">{deptName}<span>（{list.length}）</span></div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {list.map(p => (
                 <button key={p.id} data-testid={`preset-card-${p.id}`}
                   onClick={() => setView({ kind: "naming", preset: p })}

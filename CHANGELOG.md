@@ -10,7 +10,7 @@
 
 - **调整(frontend)：初始化引导入口从「通用」迁移到「关于」tab，按钮改为 icon**。入口形态改为说明文字「重新打开新手引导，配置模型与默认智能体」+ 火箭 icon 按钮（testid `reopen-onboarding` 不变）；i18n 键从 `settings.general.onboarding.*` 移到 `settings.about.onboardingDesc/onboardingButton`。
   - 影响范围：`packages/frontend/src/components/settings/AboutSection.tsx`、`GeneralSection.tsx`、`src/i18n/locales/{zh,en}.ts`、`e2e/onboarding-wizard.spec.ts`。
-- **调整(frontend)：新建智能体面板细节优化**。命名面板的「← 返回列表」与「取消」改为同一行（左/右）；提示词预览弹窗标题栏加 × 关闭 icon（`preset-prompt-close`）。
+- **调整(frontend)：新建智能体面板细节优化**。命名面板的「← 返回列表」与「取消」改为同一行（左/右）；提示词预览弹窗标题栏加 × 关闭 icon（`preset-prompt-close`）；预设卡片网格从 2 列改为 3 列。
   - 影响范围：`packages/frontend/src/components/onboarding/AgentCreatePicker.tsx`。
 - **新增(kernel+frontend)：预设智能体支持右键查看完整提示词 + 部门筛选**。新建智能体面板的预设 Tab：卡片右键弹出完整提示词预览（新增 `GET /api/agents/presets/:id` 按需返回含正文的完整预设，列表接口仍只回元数据）；搜索框旁新增部门下拉筛选（与关键词搜索叠加生效）。
   - 影响范围：`packages/shared/src/types.ts`（`AgentPresetGetRequest`/`AgentPresetResult`）、`packages/kernel/src/ws-server.ts`、`packages/kernel/src/routes/agents.ts`、`packages/kernel/tests/agent-presets-routes.test.ts`、`packages/frontend/src/components/onboarding/AgentCreatePicker.tsx`、`packages/frontend/src/i18n/locales/{zh,en}.ts`。
