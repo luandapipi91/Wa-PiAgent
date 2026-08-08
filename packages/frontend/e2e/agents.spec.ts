@@ -102,10 +102,12 @@ test.describe.serial("多智能体矩阵关键链路", () => {
       await expect(page.getByTestId("gallery-card-研发")).toBeVisible();
       await expect(page.getByTestId(`gallery-card-${A1}`)).toBeVisible();
 
-      // 宫格内 UI 新建：确定后按乐观打开契约直接进入详情弹窗
+      // 宫格内 UI 新建：AgentCreatePicker（默认预设 Tab，切空白创建）；
+      // 确定后按乐观打开契约直接进入详情弹窗
       await page.getByTestId("gallery-create").click();
-      await page.getByTestId("gallery-create-input").fill(UI_AGENT);
-      await page.getByTestId("gallery-create-ok").click();
+      await page.getByTestId("picker-tab-blank").click();
+      await page.getByTestId("blank-name-input").fill(UI_AGENT);
+      await page.getByTestId("blank-create-btn").click();
       await expect(page.getByTestId("agent-config")).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId("cfg-name-input")).toHaveValue(UI_AGENT, { timeout: 10_000 });
       await page.getByTestId("agent-config").getByRole("button", { name: "关闭" }).click();

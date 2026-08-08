@@ -185,10 +185,12 @@ test("宫格新建成功 → 编辑弹窗叠加打开，列表保持显示（不
 	await act(async () => {});
 	fireEvent.click(screen.getByTestId("agent-more"));
 	fireEvent.click(screen.getByTestId("gallery-create"));
-	fireEvent.change(screen.getByTestId("gallery-create-input"), {
+	// 新建流程走 AgentCreatePicker（宫格场景默认预设 Tab，切到空白创建）
+	fireEvent.click(await screen.findByTestId("picker-tab-blank"));
+	fireEvent.change(await screen.findByTestId("blank-name-input"), {
 		target: { value: "新助手" },
 	});
-	fireEvent.click(screen.getByTestId("gallery-create-ok"));
+	fireEvent.click(screen.getByTestId("blank-create-btn"));
 	await waitFor(() => {
 		expect(screen.getByTestId("agent-config")).toBeTruthy();
 		// 列表弹窗不自动关闭

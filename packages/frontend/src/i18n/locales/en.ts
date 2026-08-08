@@ -390,7 +390,7 @@ const en = {
 	},
 	agentGallery: {
 		usageHint: "Note: this agent is used by {{count}} bot(s) ({{names}}). Deleting it will make them fall back to the default agent.",
-		titleAllCount: "All agents {{count}}", namePlaceholder: "Agent name",
+		titleAllCount: "All agents {{count}}",
 		createAgent: "＋ New agent", builtinBadge: "Built-in",
 		footerHint: "Left-click: new session (built-in is view-only) · Right-click: edit / delete · Top-right: new agent",
 		ctxView: " View", ctxEdit: " Edit agent",

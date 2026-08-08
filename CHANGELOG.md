@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **宫格新建流程升级为 AgentCreatePicker（初始化向导 Task 11）**：`AgentGalleryModal` 的「＋ 新建智能体」由 inline 输入框流程（`newName`/`submitCreate`/`gallery-create-input`）替换为 Task 9 的 `AgentCreatePicker`（显式 `autoFocusTab="preset"`，因组件默认值是 `"blank"`）。创建成功 → 关闭面板 → 调 `props.onCreated(name)`（乐观打开契约不变）；宫格场景不调 `setDefaultAgent`（向导专属）。`gallery-create` 按钮 testid 保留；删除/chatWith/编辑等其余宫格功能不动。清理孤立文案键 `agentGallery.namePlaceholder`（zh/en 同步删除）。
+  - 影响范围：`packages/frontend/src/components/AgentGalleryModal.tsx`、`AgentGalleryModal-create.test.tsx`（新，2 测试）、`src/i18n/locales/zh.ts`、`en.ts`、`tests/AgentGalleryModal.test.tsx` 与 `tests/App.test.tsx`（宫格新建用例改为 picker 流程）、`e2e/agents.spec.ts`（宫格 UI 新建步骤改 picker testid）。
+
 - **新增 OnboardingWizard 初始化向导（初始化向导 Task 10）**：两步向导（第 1 步模型供应商表单 `ProviderForm`，不强制保存可直接「下一步」；第 2 步 `AgentCreatePicker autoFocusTab="preset"`，可「跳过」，创建成功即 `setDefaultAgent` + toast + 关闭）。新增 `useOnboardingStore`（`wizardOpen`/`openWizard`/`closeWizard`，不持久化）；`App.tsx` 在 `providersLoaded && providers.length === 0` 时自动弹出（`store/providers.ts` 新增 `loaded` 标志——仅 `load()` 返回合法 `providers` 数组（`Array.isArray`）后置 true，避免 mount 闪弹及 SSE 早到空事件误触发；未采用「loading 初始 true」方案，因 App 测试 mock api.get 返回 `null`/`{}` 时语义不清，且 `loaded` 不受 `setProviders` 影响）；`GeneralSection` 末尾新增「初始化引导」设置块（`reopen-onboarding`：关闭设置弹窗并重开向导）。文案走 i18n 新增 `onboardingWizard.*`（9 键）与 `settings.general.onboarding.*`（3 键），zh/en 同步。
   - 影响范围：`packages/frontend/src/store/onboarding.ts`（新）、`src/components/onboarding/OnboardingWizard.tsx`（新）、`OnboardingWizard.test.tsx`（新，5 测试）、`src/App.tsx`、`src/components/settings/GeneralSection.tsx`、`src/store/providers.ts`、`src/i18n/locales/zh.ts`、`en.ts`。
 
