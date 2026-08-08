@@ -19,6 +19,59 @@ const MIN_DELAY_S = 0.5;
 const MAX_DELAY_S = 60;
 
 /**
+ * 内联 switch 滑块（与设置弹窗内插件/命令开关风格一致：38×22 轨道 + 18×18 白点）。
+ * 提示音开关即时生效，不走保存草稿流。
+ */
+function SoundSwitch({
+	on,
+	onToggle,
+	testId,
+}: {
+	on: boolean;
+	onToggle: () => void;
+	testId: string;
+}) {
+	return (
+		<div
+			role="switch"
+			aria-checked={on}
+			tabIndex={0}
+			onClick={(e) => {
+				e.stopPropagation();
+				onToggle();
+			}}
+			onKeyDown={(e) => {
+				if (e.key === " " || e.key === "Enter") {
+					e.preventDefault();
+					onToggle();
+				}
+			}}
+			className="relative shrink-0 cursor-pointer"
+			style={{
+				width: 38,
+				height: 22,
+				borderRadius: 9999,
+				background: on ? "var(--success)" : "#cbd5e1",
+				transition: "background 0.2s",
+			}}
+			data-testid={testId}
+			data-on={on ? "true" : "false"}
+		>
+			<span
+				className="absolute top-0.5 rounded-full bg-white transition-all"
+				style={{
+					width: 18,
+					height: 18,
+					left: on ? undefined : 2,
+					right: on ? 2 : undefined,
+					boxShadow: "0 1px 2px rgba(0,0,0,.1)",
+				}}
+			/>
+		</div>
+	);
+}
+
+/**
  * 通用设置：pi 自动重试配置（transient 错误——网络/超时/5xx/限流——后的自动重试）。
  * 保存到 settings.json.retry，pi 进程启动时加载；kernel 保存后会标脏活跃会话，
  * 下次发消息时重建进程生效。
@@ -174,6 +227,49 @@ export function GeneralSection() {
 					{draftExportTurns} {t("settings.general.exportTurns.unit")}
 				</span>
 			</div>
+			{/* 提示音：即时生效，不参与上面的草稿 + 保存流程 */}
+			<div className="flex flex-col gap-1">
+				<span className="text-sm font-medium text-primary">
+					{t("settings.general.sound.label")}
+				</span>
+				<span className="text-xs text-tertiary">
+					{t("settings.general.sound.desc")}
+				</span>
+			</div>
+			<div className="flex items-center gap-2">
+				<SoundSwitch
+					on={soundTaskDone}
+					onToggle={() => setSoundTaskDone(!soundTaskDone)}
+					testId="sound-task-done-toggle"
+				/>
+				<span className="text-sm text-primary">
+					{t("settings.general.sound.taskDone")}
+				</span>
+				<button
+					onClick={previewTaskDone}
+					className="px-2 py-0.5 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer"
+					data-testid="sound-task-done-preview"
+				>
+					{t("settings.general.sound.preview")}
+				</button>
+			</div>
+			<div className="flex items-center gap-2">
+				<SoundSwitch
+					on={soundNeedsAction}
+					onToggle={() => setSoundNeedsAction(!soundNeedsAction)}
+					testId="sound-needs-action-toggle"
+				/>
+				<span className="text-sm text-primary">
+					{t("settings.general.sound.needsAction")}
+				</span>
+				<button
+					onClick={previewNeedsAction}
+					className="px-2 py-0.5 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer"
+					data-testid="sound-needs-action-preview"
+				>
+					{t("settings.general.sound.preview")}
+				</button>
+			</div>
 			<div className="flex flex-col gap-1">
 				<span className="text-sm font-medium text-primary">
 					{t("settings.general.retry.label")}
@@ -288,53 +384,6 @@ export function GeneralSection() {
 						{error}
 					</span>
 				)}
-			</div>
-			{/* 提示音：即时生效，不参与上面的草稿 + 保存流程 */}
-			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">
-					{t("settings.general.sound.label")}
-				</span>
-				<span className="text-xs text-tertiary">
-					{t("settings.general.sound.desc")}
-				</span>
-			</div>
-			<div className="flex items-center gap-2">
-				<label className="flex items-center gap-2 text-sm text-primary cursor-pointer">
-					<input
-						type="checkbox"
-						checked={soundTaskDone}
-						onChange={(e) => setSoundTaskDone(e.target.checked)}
-						style={{ accentColor: "var(--brand)" }}
-						data-testid="sound-task-done-toggle"
-					/>
-					{t("settings.general.sound.taskDone")}
-				</label>
-				<button
-					onClick={previewTaskDone}
-					className="px-2 py-0.5 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer"
-					data-testid="sound-task-done-preview"
-				>
-					{t("settings.general.sound.preview")}
-				</button>
-			</div>
-			<div className="flex items-center gap-2">
-				<label className="flex items-center gap-2 text-sm text-primary cursor-pointer">
-					<input
-						type="checkbox"
-						checked={soundNeedsAction}
-						onChange={(e) => setSoundNeedsAction(e.target.checked)}
-						style={{ accentColor: "var(--brand)" }}
-						data-testid="sound-needs-action-toggle"
-					/>
-					{t("settings.general.sound.needsAction")}
-				</label>
-				<button
-					onClick={previewNeedsAction}
-					className="px-2 py-0.5 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer"
-					data-testid="sound-needs-action-preview"
-				>
-					{t("settings.general.sound.preview")}
-				</button>
 			</div>
 		</div>
 	);
