@@ -16,6 +16,9 @@ interface UiPrefsState {
 	/** 界面语言（默认 zh；首次启动由 i18n/detect 决定后写入）。 */
 	language: AppLanguage;
 	setLanguage: (lang: AppLanguage) => void;
+	/** 向导设置的默认智能体（displayName），null = 未设置 */
+	defaultAgent: string | null;
+	setDefaultAgent: (name: string | null) => void;
 }
 
 export const FONT_SIZE_MIN = 12;
@@ -70,6 +73,8 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 				// 同步 i18n 实例 + <html lang>；changeLanguage 内部幂等。
 				void changeLanguage(lang);
 			},
+			defaultAgent: null,
+			setDefaultAgent: (name) => set({ defaultAgent: name }),
 		}),
 		{
 			name: STORAGE_KEY,
