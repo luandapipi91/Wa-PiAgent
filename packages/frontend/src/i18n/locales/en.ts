@@ -443,7 +443,7 @@ const en = {
 		yesterday: "Yesterday",
 	},
 	projectList: {
-		sectionTitle: "Projects", newProject: "＋ New project",
+		sectionTitle: "Projects", newProject: "＋ New project", newProjectHint: "New project",
 		systemProjectName: "Default workspace",
 	},
 	store: {
