@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-09 — 发版 v0.1.7
+
+### 变更
+
+- **发版(desktop)：发布 v0.1.7 桌面安装包（WA PI Agent，NSIS）到阿里云 OSS**。自 v0.1.6 以来的 27 个提交：①新增初始化向导（无模型自动弹出、设置页可重开、复用 ProviderForm、defaultAgent 优先级）；②新增预设智能体体系（268 条预设数据、preset-store、from-preset 创建 API、presets/:id 详情接口、部门筛选、随机中文人名库、AgentCreatePicker 空白/预设两 Tab、3 列卡片弹窗 720 宽）；③修复（fleet 同名 agent 任务卡片串台、企微 IM 流式推送断线期 unhandledRejection 崩溃、预设非 hex 颜色头像渐变、defaultAgent 变更同步、宫格面板被挤出视口）；④测试与文档（presets curl 集成测试、初始化向导 E2E、脱敏公开仓库本机路径）。产物 WaPi-Setup-0.1.7.exe + latest.yml（注入 releaseNotes）上传至 coaicom/releases/。
+  - 影响范围：`packages/desktop/package.json`（0.1.6 → 0.1.7）、`packages/frontend/package.json`（0.1.6 → 0.1.7）、`packages/desktop/RELEASE_NOTES.md`。
+
+---
+
 ## 2026-08-09
 
 ### 变更
