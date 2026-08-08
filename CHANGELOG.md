@@ -4,33 +4,11 @@
 
 ---
 
-## 2026-08-08
-
-### 变更
-
-- **新增初始化向导 Playwright E2E（初始化向导 Task 12）**：`e2e/onboarding-wizard.spec.ts` 两个用例——① providers 为空自动弹出 → 跳过模型配置 → 预设（代码审查员）创建并改名 → API 断言 `systemPromptBody` 注入名字 → reload 后新建会话页 `agent-select` 默认选中；② 有 provider 时不自动弹 → 设置页 `reopen-onboarding` 重开向导。`e2e/helpers.ts` 新增 `deleteAllProviders`（`DELETE /api/providers/:name` 路由参数名虽叫 name，实际按 id 删除）。未补任何组件 testid（`settings-btn`/`agent-select`/`reopen-onboarding`/向导与 picker testid 均已存在）。
-  - 连带修复 `e2e/agents.spec.ts`（Task 11 改过但未执行过）三处：① 宫格新建/编辑的契约是「编辑弹窗叠加、宫格保持打开」，关闭编辑弹窗后直接断言卡片，不能再点 `agent-more`（会被宫格 overlay 拦截）；② 技能 tab 用例中途 reload 后界面变英文（见下条），两处「保存」按钮改 `cfg-save` testid；③ `agent-missing` 重选弹窗在 REST 化后不可达——kernel `agent:prompt` 的 `agent_missing` 拦截只 `reply`（REST 下变成 HTTP 400 响应体，不上 SSE 总线），前端弹窗监听的是事件流 `error` 事件，kernel 侧补一行 `broadcast` 恢复 WS 时代语义。
-  - 发现（未修，超出本任务范围）：headless Chromium `navigator.language=en-US`，首载时 `detectInitialLanguage` 得 "en"，但 `ui-prefs` rehydrate 用 store 默认值 "zh" 覆盖显示为中文，随后 `main.tsx` 把 "en" 写回 localStorage——导致同一 context 内 reload 后界面变英文。建议后续统一首载语言来源。
-  - 影响范围：`packages/frontend/e2e/onboarding-wizard.spec.ts`（新）、`e2e/helpers.ts`、`e2e/agents.spec.ts`、`packages/kernel/src/ws-server.ts`。
-  - 验证：`bunx playwright test e2e/onboarding-wizard.spec.ts` 2 passed ×2 轮；`e2e/agents.spec.ts` 8 passed；kernel `bun test` 821 pass / 0 fail（含 composer-attachments 的 agent_missing 拦截用例）。
-
-- **宫格新建流程升级为 AgentCreatePicker（初始化向导 Task 11）**：`AgentGalleryModal` 的「＋ 新建智能体」由 inline 输入框流程（`newName`/`submitCreate`/`gallery-create-input`）替换为 Task 9 的 `AgentCreatePicker`（显式 `autoFocusTab="preset"`，因组件默认值是 `"blank"`）。创建成功 → 关闭面板 → 调 `props.onCreated(name)`（乐观打开契约不变）；宫格场景不调 `setDefaultAgent`（向导专属）。`gallery-create` 按钮 testid 保留；删除/chatWith/编辑等其余宫格功能不动。清理孤立文案键 `agentGallery.namePlaceholder`（zh/en 同步删除）。
-  - 影响范围：`packages/frontend/src/components/AgentGalleryModal.tsx`、`AgentGalleryModal-create.test.tsx`（新，2 测试）、`src/i18n/locales/zh.ts`、`en.ts`、`tests/AgentGalleryModal.test.tsx` 与 `tests/App.test.tsx`（宫格新建用例改为 picker 流程）、`e2e/agents.spec.ts`（宫格 UI 新建步骤改 picker testid）。
-
-- **新增 OnboardingWizard 初始化向导（初始化向导 Task 10）**：两步向导（第 1 步模型供应商表单 `ProviderForm`，不强制保存可直接「下一步」；第 2 步 `AgentCreatePicker autoFocusTab="preset"`，可「跳过」，创建成功即 `setDefaultAgent` + toast + 关闭）。新增 `useOnboardingStore`（`wizardOpen`/`openWizard`/`closeWizard`，不持久化）；`App.tsx` 在 `providersLoaded && providers.length === 0` 时自动弹出（`store/providers.ts` 新增 `loaded` 标志——仅 `load()` 返回合法 `providers` 数组（`Array.isArray`）后置 true，避免 mount 闪弹及 SSE 早到空事件误触发；未采用「loading 初始 true」方案，因 App 测试 mock api.get 返回 `null`/`{}` 时语义不清，且 `loaded` 不受 `setProviders` 影响）；`GeneralSection` 末尾新增「初始化引导」设置块（`reopen-onboarding`：关闭设置弹窗并重开向导）。文案走 i18n 新增 `onboardingWizard.*`（9 键）与 `settings.general.onboarding.*`（3 键），zh/en 同步。
-  - 影响范围：`packages/frontend/src/store/onboarding.ts`（新）、`src/components/onboarding/OnboardingWizard.tsx`（新）、`OnboardingWizard.test.tsx`（新，5 测试）、`src/App.tsx`、`src/components/settings/GeneralSection.tsx`、`src/store/providers.ts`、`src/i18n/locales/zh.ts`、`en.ts`。
-
-- **新增 AgentCreatePicker 组件（初始化向导 Task 9）**：`packages/frontend/src/components/onboarding/AgentCreatePicker.tsx`，向导第 2 步与宫格新建共用。空白创建（随机人名 + 🎲 换名 + 重名置灰，走 `POST /api/agents`）/ 预设选择（搜索 + 部门分组 + 命名面板，走 `POST /api/agents/from-preset`，409 时 toast 并自动换名）。文案走 i18n 新增 `agentCreatePicker.*` 键（zh/en 同步）。注意：`autoFocusTab` 默认值为 `"blank"`（简报示例代码写的 `"preset"` 与其自带的逐字测试冲突——测试 5 不点 Tab 直接断言空白面板可见）。
-  - 影响范围：`packages/frontend/src/components/onboarding/AgentCreatePicker.tsx`、`AgentCreatePicker.test.tsx`、`packages/frontend/src/i18n/locales/zh.ts`、`en.ts`。
-
-- **新增 agents presets API curl 集成测试脚本（初始化向导 Task 5）**：`scripts/agents-presets-api-it.sh`，覆盖 `GET /api/agents/presets`（数组/预设 id/元数据不含 body）、`POST /api/agents/from-preset`（200/重名 409/未知 id 404/正文注入名字）及清理（DELETE 200）共 9 项断言；`BASE_URL` 环境变量可覆盖，默认 `http://127.0.0.1:9776`。
-  - 影响范围：`scripts/agents-presets-api-it.sh`。
-
----
-
 ## 2026-08-07
 
 ### 变更
+
+- **新增功能** — 初始化向导：无模型时自动弹出两步引导（配置模型 → 设置默认智能体），设置页可重开；智能体支持从 268 个 agency 预设库选择并以人名保存（随机人名可改）；宫格新建流程升级为同一面板；新建会话默认智能体优先使用向导设置值。附带修复 kernel bug：`agent:prompt` 的 `agent_missing` 拦截在 REST 化后只 `reply` 不上事件总线，导致前端重选弹窗不可达，补一行 `broadcast` 恢复 WS 时代语义。影响范围：kernel（preset-store、agents 路由、ws-server cases）、shared（agency-presets 类型）、frontend（onboarding 向导、AgentCreatePicker、ui-prefs、NewSessionPane、AgentGalleryModal、GeneralSection）
 
 - **前端 6 个组件文案接入 i18n（中英双语）**：`NewSessionPane`/`AgentGalleryModal`/`AgentListSection`/`ProjectItem`/`Composer`/`CommandPalette` 的硬编码中文 UI 文案替换为 `t()`。各组件经门面 `import { useTranslation } from "../i18n/useTranslation"` 引入并在组件内 `const { t } = useTranslation()`。
   - `NewSessionPane`：标题/副标题/无项目选项/placeholder 接入 `newSession.*`；placeholder 用 `t("newSession.placeholder", { agent: agentName ?? "研发" })` 保留占位回退。
