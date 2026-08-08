@@ -37,12 +37,12 @@ export function AboutSection() {
 
 	return (
 		<div className="flex flex-col items-center p-8 overflow-auto gap-0" data-testid="about-section">
-			<div
-				className="w-24 h-24 rounded-[22px] flex items-center justify-center shadow-md"
-				style={{ background: "var(--brand)" }}
-			>
-				<span className="text-white text-[40px] font-black select-none">WA</span>
-			</div>
+			<img
+				src="/app-icon.png"
+				alt="WA PI Agent"
+				className="w-24 h-24 rounded-[22px] shadow-md"
+				draggable={false}
+			/>
 			<div className="mt-4 text-lg font-semibold text-primary">WA PI Agent</div>
 			<div className="mt-1 text-[13px] text-secondary">
 				{t("settings.about.version", { version: appVersion || "—" })}

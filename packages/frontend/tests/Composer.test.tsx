@@ -1,6 +1,7 @@
 import "./mock-composer-db";
 import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import type { AttachmentDraft } from "@wa-pi/shared";
 import { composerDbDefaults, composerDbSessions } from "./mock-composer-db";
 
 const sent: any[] = [];
@@ -498,5 +499,93 @@ describe("Composer", () => {
     await act(async () => {});
     textbox = screen.getByTestId("composer-input").querySelector('[role="textbox"]') as HTMLElement;
     expect(textbox.textContent).toBe("用户改过的");
+  });
+
+  it("运行中 Ctrl+Enter 发送引导消息（steering）：调 /steer、入 steering 队列、不进 followUp、清空输入框、保留附件", async () => {
+    const keptAttachment: AttachmentDraft[] = [{ kind: "snippet", name: "keep", content: "keep" }];
+    useComposerPrefsStore.setState({
+      bySession: {
+        s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: keptAttachment },
+      },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: keptAttachment };
+
+    render(<Composer sessionId="s1" agentName="dev" isRunning />);
+    await act(async () => {});
+    const textbox = typeIntoComposer("引导消息");
+    fireEvent.keyDown(textbox, { key: "Enter", ctrlKey: true });
+
+    await waitFor(() => {
+      const steerReq = sent.filter((s) => s.path && s.path.includes("/steer")).at(-1);
+      expect(steerReq?.path).toBe("/api/sessions/s1/steer");
+      expect(steerReq?.body).toMatchObject({ text: "引导消息" });
+      const s = useSessionStore.getState();
+      expect(s.queueBySession["s1"]?.steering).toContain("引导消息");
+      expect(s.queueBySession["s1"]?.followUp ?? []).not.toContain("引导消息");
+      // 发送后清空输入框（setText 异步渲染，在 waitFor 内断言）
+      expect(textbox.textContent).toBe("");
+    });
+    // 不得走 /prompt（引导消息不能进入 followUp 排队）
+    expect(sent.filter((s) => s.path && s.path.includes("/prompt"))).toHaveLength(0);
+    // 运行中 steer 只清空文本、保留附件（/steer 只接受 text，附件不随引导发送清空）
+    expect(useComposerPrefsStore.getState().bySession["s1"]?.attachments).toEqual(keptAttachment);
+  });
+
+  it("空闲时 Ctrl+Enter 等同普通发送：调 /prompt", async () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
+    render(<Composer sessionId="s1" agentName="dev" />);
+    await act(async () => {});
+    const textbox = typeIntoComposer("普通消息");
+    fireEvent.keyDown(textbox, { key: "Enter", ctrlKey: true });
+
+    await waitFor(() => {
+      const req = sent.filter((s) => s.path && s.path.includes("/prompt")).at(-1);
+      expect(req?.path).toBe("/api/agents/p1/s1/prompt");
+      expect(req?.body).toMatchObject({ text: "普通消息", agentName: "dev" });
+    });
+    // 空闲 Ctrl+Enter 等同普通发送：不得调用 /steer
+    expect(sent.filter((s) => s.path && s.path.includes("/steer"))).toHaveLength(0);
+  });
+
+  it("IME 组词中 Ctrl+Enter 不触发发送", async () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
+    render(<Composer sessionId="s1" agentName="dev" isRunning />);
+    await act(async () => {});
+    const textbox = typeIntoComposer("测试");
+    fireEvent.keyDown(textbox, { key: "Enter", ctrlKey: true, isComposing: true });
+
+    await waitFor(() => expect(sent.length).toBe(0));
+  });
+
+  it("macOS Cmd+Enter 运行中同样引导发送：调 /steer", async () => {
+    useComposerPrefsStore.setState({
+      bySession: { s1: { model: "openai/gpt-4o", thinking: "disabled", attachments: [] } },
+    });
+    composerDbDefaults.model = "openai/gpt-4o";
+    composerDbSessions.s1 = { model: "openai/gpt-4o", thinking: "disabled", attachments: [] };
+
+    render(<Composer sessionId="s1" agentName="dev" isRunning />);
+    await act(async () => {});
+    const textbox = typeIntoComposer("Cmd 引导");
+    fireEvent.keyDown(textbox, { key: "Enter", metaKey: true });
+
+    await waitFor(() => {
+      const steerReq = sent.filter((s) => s.path && s.path.includes("/steer")).at(-1);
+      expect(steerReq?.path).toBe("/api/sessions/s1/steer");
+      expect(steerReq?.body).toMatchObject({ text: "Cmd 引导" });
+    });
+    // metaKey 与 ctrlKey 统一处理：不得走 /prompt
+    expect(sent.filter((s) => s.path && s.path.includes("/prompt"))).toHaveLength(0);
   });
 });

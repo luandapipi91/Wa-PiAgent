@@ -166,6 +166,40 @@ export function Composer({ sessionId, agentName, isRunning, isNewSession, disabl
     doSend(agentName, expandedText);
   };
 
+  const handleSendSteer = () => {
+    if (disabled) return;
+    const expandedText = expandTokens(text);
+    if (!expandedText.trim() || !isModelAvailable(model, providers) || sendingRef.current || !projectId) return;
+    if (!isRunning) {
+      // 空闲：等同普通发送（走 doSend 完整清理逻辑）
+      doSend(agentName, expandedText);
+      return;
+    }
+    // 运行中：乐观加入 steering 队列 + 调 /steer（复刻 SessionView.handlePromote 模式，
+    // 不设 optimisticEcho——/steer 不触发 session:echo_user，与 handlePromote 一致）
+    useSessionStore.setState((s) => {
+      const cur = s.queueBySession[sessionId];
+      return {
+        queueBySession: {
+          ...s.queueBySession,
+          [sessionId]: {
+            steering: cur?.steering?.includes(expandedText) ? cur.steering : [...(cur?.steering ?? []), expandedText],
+            followUp: cur?.followUp ?? [],
+          },
+        },
+      };
+    });
+    api
+      .post(`/api/sessions/${encodeURIComponent(sessionId)}/steer`, { text: expandedText })
+      .catch((err) => console.error("[composer] 引导发送失败:", err));
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    setText("");
+    setSessionPrefs(sessionId, { text: "" });
+  };
+
   return (
     <div className="px-6 py-3 pb-5" data-testid="composer">
       <ComposerInput
@@ -184,6 +218,7 @@ export function Composer({ sessionId, agentName, isRunning, isNewSession, disabl
         projectId={projectId}
         sessionId={sessionId}
         onSend={handleSend}
+        onSendSteer={handleSendSteer}
         sendDisabled={!projectId}
         disabled={disabled}
         placeholder={disabled ? t("composerExtra.placeholderBlocked") : (isRunning ? t("composerExtra.placeholderQueued") : t("newSession.placeholder", { agent: agentName }))}

@@ -13,7 +13,7 @@
 ## 2. 现状（已核实）
 
 - 键盘链路：`ComposerTextarea`（contenteditable）→ `onKeyDown` → `ComposerInput.handleKeyDown`（`ComposerInput.tsx` 646-686 行）→ `onSend` → `Composer.handleSend` → `doSend`（`Composer.tsx` 97-154 行）
-- 按键模型：`Enter` = 发送（运行中进 followUp 队列）；`Shift+Enter` = 换行；**无 Ctrl/Cmd+Enter 处理**
+- 按键模型：`Enter` = 发送（运行中进 followUp 队列）；`Shift+Enter` = 换行；**无专门的 Ctrl/Cmd+Enter 分支**——但 Ctrl+Enter 满足普通 Enter 分支条件（`key==='Enter' && !shiftKey`）实际也触发发送；Ctrl+Shift+Enter 因 `shiftKey` 为 true 不触发发送（走浏览器默认）
 - IME 保护：`ComposerInput.tsx` 652-653 行 `isComposing`/`keyCode===229` 时提前 return
 - QuickInvoke 面板打开时 `Enter` 优先选中菜单项（666-673 行）
 - steering 路径：前端 `SessionView.handlePromote` → `POST /api/sessions/:sessionId/steer` → kernel `steer:message` → `agent-manager.steerMessage()`（1231-1253 行）：
@@ -129,3 +129,4 @@ const handleSendSteer = () => {
 - 现有测试 `Composer.test.tsx` 127-156 行断言"运行中发送进 followUp 队列"——针对的是 `Enter`/发送按钮，不受影响
 - kernel 侧无改动，`/steer` 路由已存在且验证过
 - macOS `Cmd+Enter` 与 Windows `Ctrl+Enter` 统一处理（`e.metaKey`/`e.ctrlKey`）
+- **NewSessionPane（未传 `onSendSteer`）回归**：改动前其 Ctrl+Enter 落入普通 Enter 分支（`key==='Enter' && !shiftKey`）会发送；改动后新分支拦截 Ctrl+Enter，若直接 `onSendSteer?.()` 则变为无动作。修复为回退 `onSendSteer ? onSendSteer() : onSend()`，未传 `onSendSteer` 时保持"Ctrl+Enter = 发送"的改动前行为不变
