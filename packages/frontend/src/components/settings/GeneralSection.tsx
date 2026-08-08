@@ -234,35 +234,41 @@ export function GeneralSection() {
 					{t("settings.general.sound.desc")}
 				</span>
 			</div>
-			<div className="flex items-center gap-2">
-				<SoundSwitch
-					on={soundTaskDone}
-					onToggle={() => setSoundTaskDone(!soundTaskDone)}
-					testId="sound-task-done-toggle"
-				/>
-				<span className="text-sm text-primary">
+			<div className="flex items-center justify-between">
+				<label
+					className="flex items-center gap-2 text-sm text-primary cursor-pointer"
+					onClick={() => setSoundTaskDone(!soundTaskDone)}
+				>
 					{t("settings.general.sound.taskDone")}
-				</span>
+					<SoundSwitch
+						on={soundTaskDone}
+						onToggle={() => setSoundTaskDone(!soundTaskDone)}
+						testId="sound-task-done-toggle"
+					/>
+				</label>
 				<button
 					onClick={previewTaskDone}
-					className="px-2 py-0.5 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer"
+					className="px-2.5 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
 					data-testid="sound-task-done-preview"
 				>
 					{t("settings.general.sound.preview")}
 				</button>
 			</div>
-			<div className="flex items-center gap-2">
-				<SoundSwitch
-					on={soundNeedsAction}
-					onToggle={() => setSoundNeedsAction(!soundNeedsAction)}
-					testId="sound-needs-action-toggle"
-				/>
-				<span className="text-sm text-primary">
+			<div className="flex items-center justify-between">
+				<label
+					className="flex items-center gap-2 text-sm text-primary cursor-pointer"
+					onClick={() => setSoundNeedsAction(!soundNeedsAction)}
+				>
 					{t("settings.general.sound.needsAction")}
-				</span>
+					<SoundSwitch
+						on={soundNeedsAction}
+						onToggle={() => setSoundNeedsAction(!soundNeedsAction)}
+						testId="sound-needs-action-toggle"
+					/>
+				</label>
 				<button
 					onClick={previewNeedsAction}
-					className="px-2 py-0.5 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer"
+					className="px-2.5 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
 					data-testid="sound-needs-action-preview"
 				>
 					{t("settings.general.sound.preview")}
