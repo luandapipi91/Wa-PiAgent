@@ -438,6 +438,8 @@ const zh = {
 	},
 	sessionRow: {
 		hasNewReply: "有新回复",
+		justNow: "刚刚",
+		yesterday: "昨天",
 	},
 	projectList: {
 		sectionTitle: "项目", newProject: "＋ 新建项目",

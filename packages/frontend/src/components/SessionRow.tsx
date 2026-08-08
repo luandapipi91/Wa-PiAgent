@@ -62,7 +62,7 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
           />
         </span>
       ) : (
-        <span className="text-[calc(11px*var(--font-scale))] text-tertiary flex-shrink-0">{formatRelativeTime(session.lastActivity)}</span>
+        <span className="text-[calc(11px*var(--font-scale))] text-tertiary flex-shrink-0">{formatRelativeTime(session.lastActivity, Date.now(), { justNow: t("sessionRow.justNow"), yesterday: t("sessionRow.yesterday") })}</span>
       )}
       {/* 未读新回复：右上角小圆点 */}
       {unread && (

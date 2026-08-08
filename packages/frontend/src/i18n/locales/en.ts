@@ -438,6 +438,8 @@ const en = {
 	},
 	sessionRow: {
 		hasNewReply: "New reply",
+		justNow: "Just now",
+		yesterday: "Yesterday",
 	},
 	projectList: {
 		sectionTitle: "Projects", newProject: "＋ New project",
