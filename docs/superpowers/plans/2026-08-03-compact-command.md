@@ -419,7 +419,7 @@ git commit -m "test(e2e): 压缩上下文命令选中插入 chip 并展开发送
 
 - [ ] **步骤 2：全量验证**
 
-运行：`cd H:/workspace/hiagent && bun run test`
+运行：`cd /path/to/HiAgent && bun run test`
 预期：kernel / shared / desktop / frontend 全部 PASS
 
 - [ ] **步骤 3：Commit**

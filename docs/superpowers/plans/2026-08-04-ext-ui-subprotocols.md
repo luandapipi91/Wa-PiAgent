@@ -123,7 +123,7 @@ Expected: 全 PASS
 - [ ] **Step 5: 真实验证（隔离 kernel）**
 
 用调试 kernel（WA_PI_DIR 隔离、WA_PI_WS_PORT=19876）：
-1. `POST /api/extensions/install` 装 `H:\workspace\hiagent\examples\ext-ui-bridge-demo`（已装则跳过）
+1. `POST /api/extensions/install` 装 `/path/to/HiAgent\examples\ext-ui-bridge-demo`（已装则跳过）
 2. `POST /api/agents/:pid/:sid/prompt` 建会话（agentName 用 displayName「研发」）
 3. `GET /api/extensions/commands` 应含 `uidemo` 且 `packageName === "ext-ui-bridge-demo"`
 

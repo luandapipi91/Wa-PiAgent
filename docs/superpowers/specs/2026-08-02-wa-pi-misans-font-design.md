@@ -95,7 +95,7 @@ fontFamily: 'MiSans, system-ui, "PingFang SC", sans-serif',
 
 ## 5. 字体文件获取
 
-- **MiSans（4 字重 woff2）**：从官方发布包 `MiSans_Global_ALL.zip`（用户已下载至 `C:/Users/co/Downloads/`）提取内层 `MiSans.zip` 的 `woff2/` 目录：`MiSans-Regular.woff2` / `MiSans-Medium.woff2` / `MiSans-Bold.woff2` / `MiSans-Heavy.woff2`（各约 5MB）。
+- **MiSans（4 字重 woff2）**：从官方发布包 `MiSans_Global_ALL.zip`（用户已下载至 `C:/Users/<user>/Downloads/`）提取内层 `MiSans.zip` 的 `woff2/` 目录：`MiSans-Regular.woff2` / `MiSans-Medium.woff2` / `MiSans-Bold.woff2` / `MiSans-Heavy.woff2`（各约 5MB）。
 - **JetBrains Mono（2 字重 woff2）**：从 JetBrains 官方 GitHub 仓库 `JetBrains/JetBrainsMono` 的 `fonts/woff2/` 目录下载 `JetBrainsMono-Regular.woff2` 与 `JetBrainsMono-Bold.woff2`（OFL-1.1）。
 - 许可文件：MiSans 的《MiSans 字体知识产权许可协议》文本 + JetBrains Mono 的 `OFL.txt`，随字体文件放入 `public/fonts/` 并注明「软件使用了 MiSans 字体」（协议要求）。
 

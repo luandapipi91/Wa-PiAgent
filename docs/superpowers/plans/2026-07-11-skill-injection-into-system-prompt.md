@@ -905,7 +905,7 @@ git commit -m "refactor(kernel): skill 配置变更改调 markSkillsDirty（走�
 - [ ] **Step 1: 启动 kernel，确认提示词含 skills 段**
 
 Run: `cd packages/kernel && bun run dev`
-操作：前端打开「系统设置 → 技能」，确认已配置的 skill 目录（如 `C:\Users\co\.reasonix\skills`）；新建一个会话发条消息。
+操作：前端打开「系统设置 → 技能」，确认已配置的 skill 目录（如 `C:\Users\<user>\.reasonix\skills`）；新建一个会话发条消息。
 Expected: kernel 控制台输出 `[wa-pi][debug] system prompt for ...:` 后接的提示词中包含 skills 段（如 `## Skills` 或 skill 名称列表）。
 
 - [ ] **Step 2: 验证 skill 变更后惰性重建生效**

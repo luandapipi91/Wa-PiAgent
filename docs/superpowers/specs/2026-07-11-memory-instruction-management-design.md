@@ -235,7 +235,7 @@ MEMORY.md / USER.md / failures.md 内部用 `§` 符号分隔条目。解析算�
       "text": "旧的测试框架用 Jest，现已迁移到 bun:test",
       "category": "memory",
       "scope": "global",
-      "sourceFile": "C:\\Users\\co\\.wa-pi\\pi-hermes-memory\\MEMORY.md",
+      "sourceFile": "C:\\Users\\<user>\\.wa-pi\\pi-hermes-memory\\MEMORY.md",
       "rawIndex": 1,
       "archivedAt": "2026-07-01T10:30:00Z"
     }

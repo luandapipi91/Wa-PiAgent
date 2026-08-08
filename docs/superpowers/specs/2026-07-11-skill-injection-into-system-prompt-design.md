@@ -8,7 +8,7 @@
 
 wa-pi 的 skill 管理存在断点：**前端能看到技能，agent 看不到**。
 
-- `skill-manager.ts` 扫描 `settings.json` 的 `userSkillDirs`（如 `C:\Users\co\.reasonix\skills`），仅供前端 UI 列表 / 开关使用。
+- `skill-manager.ts` 扫描 `settings.json` 的 `userSkillDirs`（如 `C:\Users\<user>\.reasonix\skills`），仅供前端 UI 列表 / 开关使用。
 - `agent-manager.ts` 创建 SDK `DefaultResourceLoader` 时未传入任何 skill 路径。
 - SDK 的 `buildSystemPrompt`（customPrompt 分支）追加 skills 段的条件是 `skills.length > 0`，而 `loader.getSkills().skills` 为空 → skills 段被跳过。
 
@@ -28,7 +28,7 @@ SDK `includeDefaults` 还会自动扫描两个固定目录：`<agentDir>/skills`
 
 SDK 的 `settings.skills`（`globalSettings.skills`）**不是扫描目录列表**，而是一组 include/exclude 模式（`+path` 强制包含 / `!pattern` 排除 / 普通模式包含），作用对象是**已被自动扫描到的 skill 路径**（`isEnabledByOverrides`）。它只做 enable/disable 过滤，不添加新扫描目录。
 
-`userSkillDirs`（`C:\Users\co\.reasonix\skills`）不是 SDK 的固定扫描目录，写进 `settings.skills` 匹配不到任何已发现路径 → 无效。
+`userSkillDirs`（`C:\Users\<user>\.reasonix\skills`）不是 SDK 的固定扫描目录，写进 `settings.skills` 匹配不到任何已发现路径 → 无效。
 
 ### 2.3 `additionalSkillPaths` 是唯一通道，但构造时固定
 
