@@ -119,6 +119,9 @@ test("新建项目按钮", () => {
 			onNewProject={fn}
 		/>,
 	);
+	// 无用户项目时不显示「项目」标题行，底部文字按钮是唯一新建入口
+	expect(screen.queryByText("项目")).toBeNull();
+	expect(screen.getByTestId("new-project-btn")).toBeTruthy();
 	fireEvent.click(screen.getByTestId("new-project-btn"));
 	expect(fn).toHaveBeenCalledTimes(1);
 });
