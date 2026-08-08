@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { AppLanguage } from "../i18n/detect";
+import { changeLanguage } from "../i18n";
 
 /** 界面文字大小（px），12-32，默认 16。
  *  只缩放文字、不动布局：经 CSS 变量 --font-scale（= fontSize/16）实现，
@@ -11,6 +13,9 @@ interface UiPrefsState {
 	/** 聊天导出为图片时取的对话轮数（1-5，默认 1）。 */
 	exportTurns: number;
 	setExportTurns: (n: number) => void;
+	/** 界面语言（默认 zh；首次启动由 i18n/detect 决定后写入）。 */
+	language: AppLanguage;
+	setLanguage: (lang: AppLanguage) => void;
 }
 
 export const FONT_SIZE_MIN = 12;
@@ -21,6 +26,9 @@ export const FONT_SIZE_DEFAULT = 16;
 export const EXPORT_TURNS_MIN = 1;
 export const EXPORT_TURNS_MAX = 5;
 export const EXPORT_TURNS_DEFAULT = 1;
+
+/** 默认语言。i18n/detect.ts 负责实际首次检测，store 初始值用 zh 兜底。 */
+export const LANGUAGE_DEFAULT: AppLanguage = "zh";
 
 const STORAGE_KEY = "wa-pi-ui-prefs";
 
@@ -56,12 +64,21 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 				);
 				set({ exportTurns: clamped });
 			},
+			language: LANGUAGE_DEFAULT,
+			setLanguage: (lang) => {
+				set({ language: lang });
+				// 同步 i18n 实例 + <html lang>；changeLanguage 内部幂等。
+				void changeLanguage(lang);
+			},
 		}),
 		{
 			name: STORAGE_KEY,
-			// localStorage 恢复后立即应用，避免文字先小后大闪一下
+			// localStorage 恢复后立即应用，避免文字先小后大闪一下；
+			// 语言同样在恢复后应用，保持 i18n 实例与持久化值一致。
 			onRehydrateStorage: () => (state) => {
-				if (state) applyFontSize(state.fontSize);
+				if (!state) return;
+				applyFontSize(state.fontSize);
+				if (state.language) void changeLanguage(state.language);
 			},
 		},
 	),

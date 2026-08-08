@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AgentConfig, AgentName, AgentToolItem } from "@wa-pi/shared";
 import { agentDefOf, resolveProviderSlug, isSubagentType } from "@wa-pi/shared";
+import { useTranslation } from "../i18n/useTranslation";
 import { useAgentsStore } from "../store/agents";
 import { useSkillsStore } from "../store/skills";
 import { useProvidersStore } from "../store/providers";
@@ -18,11 +19,11 @@ interface Props {
 
 type Tab = "basic" | "tools" | "skills" | "partners";
 
-const TABS: { key: Tab; label: string }[] = [
-	{ key: "basic", label: "基本" },
-	{ key: "tools", label: "工具" },
-	{ key: "skills", label: "技能" },
-	{ key: "partners", label: "关系网" },
+const TABS: { key: Tab; labelKey: string }[] = [
+	{ key: "basic", labelKey: "agentConfig.tabBasic" },
+	{ key: "tools", labelKey: "agentConfig.tabTools" },
+	{ key: "skills", labelKey: "agentConfig.tabSkills" },
+	{ key: "partners", labelKey: "agentConfig.tabPartners" },
 ];
 
 const inp =
@@ -34,6 +35,7 @@ interface TabProps {
 }
 
 export function AgentConfig({ agentName, onClose }: Props) {
+	const { t } = useTranslation();
 	const [tab, setTab] = useState<Tab>("basic");
 	const [draft, setDraft] = useState<AgentConfig | null>(null);
 	const [tools, setTools] = useState<AgentToolItem[]>([]);
@@ -184,14 +186,14 @@ export function AgentConfig({ agentName, onClose }: Props) {
 				</div>
 			</header>
 			<nav className="flex gap-1 px-4 pt-2 border-b border-hairline">
-				{TABS.map((t) => (
+				{TABS.map((tb) => (
 					<button
-						key={t.key}
-						onClick={() => setTab(t.key)}
-						data-testid={`tab-${t.key}`}
-						className={`px-3 py-1.5 text-xs rounded-t-sm transition-colors ${tab === t.key ? "text-primary font-semibold bg-surface-hover" : "text-tertiary hover:text-secondary"}`}
+						key={tb.key}
+						onClick={() => setTab(tb.key)}
+						data-testid={`tab-${tb.key}`}
+						className={`px-3 py-1.5 text-xs rounded-t-sm transition-colors ${tab === tb.key ? "text-primary font-semibold bg-surface-hover" : "text-tertiary hover:text-secondary"}`}
 					>
-						{t.label}
+						{t(tb.labelKey)}
 					</button>
 				))}
 			</nav>
@@ -199,7 +201,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
 				className={`px-5 py-4 flex-1 min-h-0 overflow-y-auto ${isBuiltin ? "pointer-events-none [&_select]:pointer-events-auto" : ""}`}
 				data-testid="config-tab-content"
 			>
-				{!draft && <p className="text-sm text-tertiary">加载中...</p>}
+				{!draft && <p className="text-sm text-tertiary">{t("agentConfig.loading")}</p>}
 				{/* 内置 subagent：所有字段只读，onChange 用 noop 防止编辑 */}
 				{draft && tab === "basic" && (
 					<BasicTab draft={draft} onChange={handleChange} />
@@ -224,7 +226,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
 						data-testid="cfg-builtin-notice"
 						className="text-[calc(11px*var(--font-scale))] text-tertiary self-center mr-auto"
 					>
-						内置 subagent，仅 model / 思考强度可设置
+						{t("agentConfig.builtinNotice")}
 					</span>
 				)}
 				{!isBuiltin && nameConflict && (
@@ -232,14 +234,14 @@ export function AgentConfig({ agentName, onClose }: Props) {
 						data-testid="cfg-name-error"
 						className="text-[calc(11px*var(--font-scale))] text-danger self-center mr-auto"
 					>
-						名称「{trimmedName}」已被占用
+						{t("agentConfig.nameConflict", { name: trimmedName })}
 					</span>
 				)}
 				<button
 					onClick={onClose}
 					className="px-3 py-1.5 rounded-sm text-xs bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary"
 				>
-					关闭
+					{t("common.close")}
 				</button>
 				<button
 					onClick={save}
@@ -248,7 +250,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
 					className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
 					style={{ background: "var(--accent)", color: "#fff" }}
 				>
-					保存
+					{t("common.save")}
 				</button>
 			</footer>
 		</Modal>
@@ -276,6 +278,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function BasicTab({ draft, onChange }: TabProps) {
+	const { t } = useTranslation();
 	// 模型下拉：扁平化 providers（同 ModelSelector），slug/id 作为 option value
 	const providers = useProvidersStore((s) => s.providers);
 	const models = useMemo(() => {
@@ -300,8 +303,8 @@ function BasicTab({ draft, onChange }: TabProps) {
 
 	return (
 		<div>
-			<Sec>身份</Sec>
-			<Row label="名称">
+			<Sec>{t("agentConfig.secIdentity")}</Sec>
+			<Row label={t("agentConfig.labelName")}>
 				<input
 					value={draft.displayName}
 					onChange={(e) => onChange({ ...draft, displayName: e.target.value })}
@@ -309,14 +312,14 @@ function BasicTab({ draft, onChange }: TabProps) {
 					data-testid="cfg-name-input"
 				/>
 			</Row>
-			<Row label="简介">
+			<Row label={t("agentConfig.labelDesc")}>
 				<input
 					value={draft.description}
 					onChange={(e) => onChange({ ...draft, description: e.target.value })}
 					className={inp}
 				/>
 			</Row>
-			<Row label="头像">
+			<Row label={t("agentConfig.labelAvatar")}>
 				<input
 					value={draft.avatar}
 					onChange={(e) => onChange({ ...draft, avatar: e.target.value })}
@@ -325,8 +328,8 @@ function BasicTab({ draft, onChange }: TabProps) {
 				/>
 			</Row>
 
-			<Sec>模型</Sec>
-			<Row label="模型">
+			<Sec>{t("agentConfig.secModel")}</Sec>
+			<Row label={t("agentConfig.labelModel")}>
 				<select
 					value={effectiveModel}
 					onChange={(e) =>
@@ -335,7 +338,7 @@ function BasicTab({ draft, onChange }: TabProps) {
 					className={inp}
 					data-testid="cfg-model-select"
 				>
-					<option value="">默认（跟随全局）</option>
+					<option value="">{t("agentConfig.modelDefault")}</option>
 					{models.map((m) => (
 						<option
 							key={`${m.providerSlug}/${m.id}`}
@@ -346,7 +349,7 @@ function BasicTab({ draft, onChange }: TabProps) {
 					))}
 				</select>
 			</Row>
-			<Row label="思考">
+			<Row label={t("agentConfig.labelThinking")}>
 				<select
 					value={draft.thinking ?? ""}
 					onChange={(e) =>
@@ -358,15 +361,15 @@ function BasicTab({ draft, onChange }: TabProps) {
 					className={inp}
 					data-testid="cfg-thinking-select"
 				>
-					<option value="">跟随当前</option>
-					<option value="disabled">思考 off</option>
-					<option value="medium">思考 mid</option>
-					<option value="high">思考 high</option>
-					<option value="max">思考 max</option>
+					<option value="">{t("agentConfig.thinkingFollow")}</option>
+					<option value="disabled">{t("agentConfig.thinkingOff")}</option>
+					<option value="medium">{t("agentConfig.thinkingMid")}</option>
+					<option value="high">{t("agentConfig.thinkingHigh")}</option>
+					<option value="max">{t("agentConfig.thinkingMax")}</option>
 				</select>
 			</Row>
 
-			<Sec>提示词</Sec>
+			<Sec>{t("agentConfig.secPrompt")}</Sec>
 			<textarea
 				value={draft.systemPromptBody ?? ""}
 				onChange={(e) =>
@@ -376,8 +379,8 @@ function BasicTab({ draft, onChange }: TabProps) {
 				rows={4}
 			/>
 
-			<Sec>委派引导</Sec>
-			<Row label="何时调起">
+			<Sec>{t("agentConfig.secDelegateHints")}</Sec>
+			<Row label={t("agentConfig.labelWhenToDelegate")}>
 				<textarea
 					value={draft.delegationHints?.whenToDelegate ?? ""}
 					onChange={(e) =>
@@ -391,11 +394,11 @@ function BasicTab({ draft, onChange }: TabProps) {
 					}
 					className={`${inp} w-full min-h-[56px] resize-y leading-relaxed`}
 					rows={2}
-					placeholder="什么场景下主智能体应调起本智能体，如：用户描述新需求、需要梳理业务流程"
+					placeholder={t("agentConfig.hintsWhenPlaceholder")}
 					data-testid="cfg-hints-when"
 				/>
 			</Row>
-			<Row label="何时不调起">
+			<Row label={t("agentConfig.labelWhenNotTo")}>
 				<textarea
 					value={draft.delegationHints?.whenNotTo ?? ""}
 					onChange={(e) =>
@@ -409,11 +412,11 @@ function BasicTab({ draft, onChange }: TabProps) {
 					}
 					className={`${inp} w-full min-h-[56px] resize-y leading-relaxed`}
 					rows={2}
-					placeholder="什么场景下不该调起，如：已明确到具体代码文件的修改"
+					placeholder={t("agentConfig.hintsNotPlaceholder")}
 					data-testid="cfg-hints-not"
 				/>
 			</Row>
-			<Row label="调起收益">
+			<Row label={t("agentConfig.labelBenefit")}>
 				<textarea
 					value={draft.delegationHints?.benefit ?? ""}
 					onChange={(e) =>
@@ -427,7 +430,7 @@ function BasicTab({ draft, onChange }: TabProps) {
 					}
 					className={`${inp} w-full min-h-[56px] resize-y leading-relaxed`}
 					rows={2}
-					placeholder="调起本智能体的好处，如：把多次 grep 探索的噪声挡在主上下文之外"
+					placeholder={t("agentConfig.hintsBenefitPlaceholder")}
 					data-testid="cfg-hints-benefit"
 				/>
 			</Row>
@@ -440,7 +443,8 @@ function ToolsTab({
 	onChange,
 	tools,
 }: TabProps & { tools: AgentToolItem[] }) {
-	const all = tools.map((t) => t.name);
+	const { t } = useTranslation();
+	const all = tools.map((tl) => tl.name);
 	// 防御：draft.tools 可能因磁盘残留/API 兼容性为非数组，统一规范化为 []
 	const dtools: string[] = Array.isArray(draft.tools) ? draft.tools : [];
 	// 空数组 = 全量默认（kernel 语义）：展示态全部勾选，取消勾选即转为显式列表
@@ -455,19 +459,19 @@ function ToolsTab({
 		onChange({ ...draft, tools: next });
 	};
 	if (tools.length === 0)
-		return <p className="text-sm text-tertiary">加载中...</p>;
+		return <p className="text-sm text-tertiary">{t("agentConfig.loading")}</p>;
 	return (
 		<div className="flex flex-col">
 			<p className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2">
-				全部勾选 = 全量默认；取消勾选后按显式列表保存
+				{t("agentConfig.toolsHint")}
 			</p>
-			{tools.map((t) => (
+			{tools.map((tl) => (
 				<label
-					key={t.name}
+					key={tl.name}
 					className="flex items-center gap-2 py-1 cursor-pointer justify-between"
 				>
 					<span className="flex items-center gap-2">
-						<span className="text-sm text-primary">{t.name}</span>
+						<span className="text-sm text-primary">{tl.name}</span>
 						<span
 							className="text-[calc(10px*var(--font-scale))] px-1.5 py-0.5 rounded-full"
 							style={{
@@ -475,13 +479,13 @@ function ToolsTab({
 								color: "var(--text-tertiary)",
 							}}
 						>
-							{t.source}
+							{tl.source}
 						</span>
 					</span>
 					<SwitchButton
-						on={checked(t.name)}
-						onClick={() => toggle(t.name)}
-						testId={`tool-switch-${t.name}`}
+						on={checked(tl.name)}
+						onClick={() => toggle(tl.name)}
+						testId={`tool-switch-${tl.name}`}
 					/>
 				</label>
 			))}
@@ -490,6 +494,7 @@ function ToolsTab({
 }
 
 function SkillsTab({ draft, onChange }: TabProps) {
+	const { t } = useTranslation();
 	const allSkills = useSkillsStore((s) => s.allSkills);
 	const disabledSkills = useSkillsStore((s) => s.disabledSkills);
 	const all = allSkills.map((s) => s.name);
@@ -531,17 +536,17 @@ function SkillsTab({ draft, onChange }: TabProps) {
 	};
 	if (allSkills.length === 0)
 		return (
-			<p className="text-sm text-tertiary">暂无技能，可在设置中添加技能目录</p>
+			<p className="text-sm text-tertiary">{t("agentConfig.skillsEmpty")}</p>
 		);
 	return (
 		<div className="flex flex-col">
 			<p className="text-[calc(11px*var(--font-scale))] text-tertiary mb-2">
-				全部勾选 = 全量继承；取消勾选后按显式列表保存
+				{t("agentConfig.skillsHint")}
 			</p>
 			{/* 全部勾选开关：ON=继承全部；点击在全选↔全不选间切换 */}
 			<div className="flex items-center gap-2 py-1 justify-between border-b border-hairline mb-1">
 				<span className="text-[calc(11px*var(--font-scale))] text-secondary font-semibold">
-					全部勾选
+					{t("agentConfig.skillsSelectAll")}
 				</span>
 				<SwitchButton
 					on={allChecked}
@@ -569,15 +574,15 @@ function SkillsTab({ draft, onChange }: TabProps) {
 								name={s.name}
 								description={s.description}
 							/>
-							{globallyDisabled && (
-								<span
-									data-testid={`skill-disabled-label-${s.name}`}
-									className="text-[calc(10px*var(--font-scale))] font-semibold whitespace-nowrap shrink-0"
-									style={{ color: "var(--danger)" }}
-								>
-									全局禁用
-								</span>
-							)}
+								{globallyDisabled && (
+									<span
+										data-testid={`skill-disabled-label-${s.name}`}
+										className="text-[calc(10px*var(--font-scale))] font-semibold whitespace-nowrap shrink-0"
+										style={{ color: "var(--danger)" }}
+									>
+										{t("agentConfig.skillsGlobalDisabled")}
+									</span>
+								)}
 						</span>
 						<SwitchButton
 							on={checked(s.name)}
@@ -648,6 +653,7 @@ function PartnersTab({
 	onChange,
 	selfName,
 }: TabProps & { selfName: string }) {
+	const { t } = useTranslation();
 	const agents = useAgentsStore((s) => s.list);
 	const [query, setQuery] = useState("");
 	const filtered = filterItems(
@@ -664,13 +670,13 @@ function PartnersTab({
 			<input
 				value={query}
 				onChange={(e) => setQuery(e.target.value)}
-				placeholder="搜索智能体"
+				placeholder={t("agentConfig.partnerSearchPlaceholder")}
 				className={`${inp} w-full`}
 				data-testid="partner-search"
 			/>
 			<div className="flex flex-col">
 				{filtered.length === 0 && (
-					<p className="text-sm text-tertiary py-1">无匹配智能体</p>
+					<p className="text-sm text-tertiary py-1">{t("agentConfig.partnerNoMatch")}</p>
 				)}
 				{filtered.map((a) => {
 					const isSelf = a.displayName === selfName;
@@ -689,7 +695,7 @@ function PartnersTab({
 								</span>
 								{isSelf && (
 									<span className="text-[calc(10px*var(--font-scale))] text-tertiary shrink-0">
-										自身
+										{t("agentConfig.partnerSelf")}
 									</span>
 								)}
 							</span>
@@ -705,7 +711,7 @@ function PartnersTab({
 				})}
 			</div>
 			<p className="text-[calc(11px*var(--font-scale))] text-tertiary">
-				可以在agent执行过程中主动/被动的调用勾选的角色
+				{t("agentConfig.partnerHint")}
 			</p>
 		</div>
 	);

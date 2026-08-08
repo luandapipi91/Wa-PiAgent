@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "../../i18n/useTranslation";
 import { resolveProviderSlug, SYSTEM_PROJECT_ID, SYSTEM_PROJECT_NAME, type ChannelType, type ProjectEntity } from "@wa-pi/shared";
 import { useChannelsStore, type ChannelInput } from "../../store/channels";
 import { useProjectsStore } from "../../store/projects";
@@ -16,8 +17,12 @@ const STATUS_DOT: Record<string, string> = {
 	error: "var(--danger)",
 	disconnected: "var(--hairline-strong)",
 };
-const STATUS_TEXT: Record<string, string> = {
-	connected: "已连接", connecting: "连接中", error: "异常", disconnected: "未连接",
+/** 状态文本 i18n key（按渠道状态映射） */
+const STATUS_TEXT_KEY: Record<string, string> = {
+	connected: "settings.bot.statusConnected",
+	connecting: "settings.bot.statusConnecting",
+	error: "settings.bot.statusError",
+	disconnected: "settings.bot.statusDisconnected",
 };
 
 /** 新建草稿的默认值 */
@@ -37,6 +42,7 @@ export function BotsSection() {
 	const agents = useAgentsStore((s) => s.list);
 	const providers = useProvidersStore((s) => s.providers);
 	const projects = useProjectsStore((s) => s.projects);
+	const { t } = useTranslation();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [draft, setDraft] = useState<ChannelInput | null>(null); // 非 null = 新建/编辑中的表单
 	const [showNew, setShowNew] = useState(false);
@@ -102,8 +108,8 @@ export function BotsSection() {
 					onClick={() => setShowNew(true)}
 					className="px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer"
 					style={{ background: "var(--brand)", color: "var(--on-brand)" }}
-					data-testid="bots-new-btn"
-				>＋ 新建机器人</button>
+						data-testid="bots-new-btn"
+					>{t("settings.bot.newBot")}</button>
 				{bots.map((b) => (
 					<div
 						key={b.id}
@@ -129,7 +135,7 @@ export function BotsSection() {
 										useToastStore.getState().add(err instanceof Error ? err.message : String(err), "error"),
 									);
 								}}
-								title={b.enabled ? "点击停用" : "点击启用"}
+								title={b.enabled ? t("settings.bot.clickDisable") : t("settings.bot.clickEnable")}
 								className="border-0 bg-transparent p-0 cursor-pointer shrink-0"
 								data-testid={`bot-toggle-${b.id}`}
 							>
@@ -146,7 +152,7 @@ export function BotsSection() {
 						</div>
 						<div className="flex items-center gap-1 mt-1 text-xs text-tertiary">
 							<span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: STATUS_DOT[b.status] }} />
-							{STATUS_TEXT[b.status]}{b.statusDetail ? ` · ${b.statusDetail}` : ""}
+							{t(STATUS_TEXT_KEY[b.status] ?? "settings.bot.statusDisconnected")}{b.statusDetail ? ` · ${b.statusDetail}` : ""}
 						</div>
 					</div>
 				))}
@@ -154,25 +160,25 @@ export function BotsSection() {
 
 			{/* 右：表单 */}
 			<div className="flex-1 flex flex-col gap-3 p-4 overflow-auto">
-				{!draft && <div className="text-sm text-tertiary p-4">选择左侧机器人进行配置，或新建一个。</div>}
+				{!draft && <div className="text-sm text-tertiary p-4">{t("settings.bot.emptyForm")}</div>}
 				{draft && (
 					<>
 						<label className="flex flex-col gap-1 w-72">
-							<span className="text-xs text-secondary">名称</span>
+							<span className="text-xs text-secondary">{t("settings.bot.nameLabel")}</span>
 							<input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })}
 								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
 								data-testid="bot-name-input" />
 						</label>
 						<div className="flex gap-3">
 							<label className="flex flex-col gap-1 w-56">
-								<span className="text-xs text-secondary">Bot ID</span>
+								<span className="text-xs text-secondary">{t("settings.bot.botIdLabel")}</span>
 								<input value={draft.credentials.botId}
 									onChange={(e) => setDraft({ ...draft, credentials: { ...draft.credentials, botId: e.target.value } })}
 									className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
 									data-testid="bot-botid-input" />
 							</label>
 							<label className="flex flex-col gap-1 w-56">
-								<span className="text-xs text-secondary">Secret{selectedId ? "（留空不修改）" : ""}</span>
+								<span className="text-xs text-secondary">{t("settings.bot.secretLabel")}{selectedId ? t("settings.bot.secretKeepEmpty") : ""}</span>
 								<input type="password" value={draft.credentials.secret}
 									onChange={(e) => setDraft({ ...draft, credentials: { ...draft.credentials, secret: e.target.value } })}
 									className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
@@ -180,15 +186,15 @@ export function BotsSection() {
 							</label>
 						</div>
 						<div className="flex flex-col gap-1 w-72">
-							<span className="text-xs text-secondary">关联智能体</span>
+							<span className="text-xs text-secondary">{t("settings.bot.agentLabel")}</span>
 							<div>
 								<AgentDropdown
 									agents={agents}
 									value={draft.agentName || null}
 									onPick={(name) => setDraft({ ...draft, agentName: name })}
 									missing={agentMissing}
-									placeholder="系统默认（列表第一项）"
-									defaultLabel="系统默认（列表第一项）"
+									placeholder={t("settings.bot.agentPlaceholder")}
+									defaultLabel={t("settings.bot.agentDefaultLabel")}
 									pillTestId="bot-agent-select"
 									itemTestIdPrefix="bot-agent"
 								/>
@@ -196,43 +202,43 @@ export function BotsSection() {
 							{agentMissing && (
 								<span className="text-xs px-2 py-1 rounded-sm" style={{ background: "var(--warning-soft)", color: "var(--warning)" }}
 									data-testid="bot-agent-missing-warning">
-									⚠️ 原智能体已删除，当前降级使用系统默认智能体
+									{t("settings.bot.agentMissingWarn")}
 								</span>
 							)}
 						</div>
 						<label className="flex flex-col gap-1 w-72">
-							<span className="text-xs text-secondary">模型</span>
+							<span className="text-xs text-secondary">{t("settings.bot.modelLabel")}</span>
 							<select value={draft.model ?? ""}
 								onChange={(e) => setDraft({ ...draft, model: e.target.value || null })}
 								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
 								data-testid="bot-model-select">
-								<option value="">跟随智能体</option>
+								<option value="">{t("settings.bot.modelFollowAgent")}</option>
 								{modelOptions.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
 							</select>
 						</label>
 						<label className="flex flex-col gap-1 w-full max-w-lg">
-							<span className="text-xs text-secondary">额外系统提示词</span>
+							<span className="text-xs text-secondary">{t("settings.bot.promptLabel")}</span>
 							<SkillSuggestTextarea
 								value={draft.extraSystemPrompt}
 								onChange={(v) => setDraft({ ...draft, extraSystemPrompt: v })}
 								rows={3}
 								data-testid="bot-prompt-textarea"
 							/>
-							<span className="text-xs text-tertiary">追加拼接到系统提示词中，位于记忆内容之前。输入 $ 可引用技能。</span>
+							<span className="text-xs text-tertiary">{t("settings.bot.promptHint")}</span>
 						</label>
 						<label className="flex flex-col gap-1 w-72">
-							<span className="text-xs text-secondary">回复粒度</span>
+							<span className="text-xs text-secondary">{t("settings.bot.granularityLabel")}</span>
 							<select value={draft.replyGranularity}
 								onChange={(e) => setDraft({ ...draft, replyGranularity: e.target.value as any })}
 								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
 								data-testid="bot-granularity-select">
-								<option value="standard">标准回复 · 正文 + 文件变更</option>
-								<option value="simple">简洁回复 · 仅正文</option>
-								<option value="minimal">极简回复 · 仅最后一段</option>
+								<option value="standard">{t("settings.bot.granularityStandard")}</option>
+								<option value="simple">{t("settings.bot.granularitySimple")}</option>
+								<option value="minimal">{t("settings.bot.granularityMinimal")}</option>
 							</select>
 						</label>
 						<label className="flex flex-col gap-1 w-72">
-							<span className="text-xs text-secondary">默认工作目录</span>
+							<span className="text-xs text-secondary">{t("settings.bot.defaultProjectLabel")}</span>
 							<select value={draft.defaultProjectId}
 								onChange={(e) => setDraft({ ...draft, defaultProjectId: e.target.value })}
 								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
@@ -245,29 +251,29 @@ export function BotsSection() {
 									<option key={p.id} value={p.id}>{p.name}</option>
 								))}
 							</select>
-							<span className="text-xs text-tertiary">IM 会话默认落在该工作区。</span>
+							<span className="text-xs text-tertiary">{t("settings.bot.defaultProjectHint")}</span>
 						</label>
 						<div className="flex flex-col gap-1">
 							<label className="flex items-center gap-2 text-sm text-secondary">
 								<input type="checkbox" checked={draft.allowProjectSwitch}
 									onChange={(e) => setDraft({ ...draft, allowProjectSwitch: e.target.checked })}
 									data-testid="bot-allow-switch-toggle" />
-								允许切换工作目录
+								{t("settings.bot.allowSwitchLabel")}
 							</label>
-							<span className="text-xs text-tertiary">开启后 IM 侧可通过 /use、/projects 指令查看并切换工作区。</span>
+							<span className="text-xs text-tertiary">{t("settings.bot.allowSwitchHint")}</span>
 						</div>
 					<div className="flex items-center gap-3 border-t border-hairline pt-3">
 							{selectedId && (
 								<button onClick={() => setConfirmDelete(true)}
 									className="px-3 py-1.5 rounded-sm text-sm border border-hairline cursor-pointer"
 									style={{ color: "var(--danger)" }}
-									data-testid="bot-delete-btn">删除机器人</button>
+									data-testid="bot-delete-btn">{t("settings.bot.deleteBot")}</button>
 							)}
 							<span className="flex-1" />
 							<button onClick={() => void handleSave()}
 								className="px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer"
 								style={{ background: "var(--brand)", color: "var(--on-brand)" }}
-								data-testid="bot-save-btn">保存</button>
+								data-testid="bot-save-btn">{t("settings.bot.save")}</button>
 						</div>
 					</>
 				)}
@@ -281,9 +287,9 @@ export function BotsSection() {
 			)}
 			{confirmDelete && selectedId && (
 				<ConfirmDialog
-					title="删除机器人"
-					message={`确定删除「${selected?.name}」吗？历史会话保留，但机器人将断开连接。`}
-					confirmText="删除"
+					title={t("settings.bot.deleteTitle")}
+					message={t("settings.bot.deleteMessage", { name: selected?.name ?? "" })}
+					confirmText={t("settings.bot.delete")}
 					danger
 					onCancel={() => setConfirmDelete(false)}
 					onConfirm={() => {

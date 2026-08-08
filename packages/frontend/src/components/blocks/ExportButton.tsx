@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { useSessionStore } from "../../store/session";
 import { useToastStore } from "../../store/toast";
 import { useUiPrefsStore } from "../../store/ui-prefs";
+import { useTranslation } from "../../i18n/useTranslation";
 import { copyImageToClipboard } from "../../util/clipboard";
 import {
 	collectTurns,
@@ -90,6 +91,7 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 	const [busy, setBusy] = useState(false);
 	const addToast = useToastStore((s) => s.add);
 	const exportTurns = useUiPrefsStore((s) => s.exportTurns);
+	const { t } = useTranslation();
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const btnRef = useRef<HTMLButtonElement>(null);
 	// 长按计时器：pointer down 启动，up/leave 取消；触发则进入轮数子面板
@@ -131,20 +133,20 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 				useSessionStore.getState().messagesBySession[sessionId] ?? [];
 			const collected = collectTurns(msgs, uptoTimestamp, turns);
 			if (collected.length === 0) {
-				addToast("无可导出的文本对话", "error");
+				addToast(t("blocks.exportBtn.toastNoContent"), "error");
 				return;
 			}
 			const blob = await renderTurnsToPngBlob(collected);
 			if (mode === "download") {
 				downloadBlob(blob, exportFilename(uptoTimestamp));
-				addToast("图片已下载", "success");
+				addToast(t("blocks.exportBtn.toastDownloaded"), "success");
 			} else {
 				await copyImageToClipboard(blob);
-				addToast("图片已复制", "success");
+				addToast(t("blocks.exportBtn.toastCopied"), "success");
 			}
 		} catch {
 			// spec §7：复制失败与生成失败文案区分（剪贴板权限拒绝走「复制失败」）
-			addToast(mode === "copy" ? "复制失败" : "导出失败，请重试", "error");
+			addToast(mode === "copy" ? t("common.copyFailed") : t("blocks.exportBtn.toastExportFailed"), "error");
 		} finally {
 			setBusy(false);
 		}
@@ -204,8 +206,8 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 				onClick={() => setOpen((v) => !v)}
 				disabled={busy}
 				className="p-1 rounded-md text-tertiary opacity-60 hover:opacity-100 hover:text-primary hover:bg-surface-elevated transition-colors"
-				title="导出为图片"
-				aria-label="导出为图片"
+				title={t("blocks.exportBtn.triggerLabel")}
+				aria-label={t("blocks.exportBtn.triggerLabel")}
 			>
 				<DownloadIcon />
 			</button>
@@ -220,7 +222,7 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 							// 轮数子面板：长按触发，仅本次用所选轮数执行（不改全局设置）
 							<div data-testid={`export-turn-picker-${turnPicker}`}>
 								<div className="px-3 pt-0.5 pb-1 text-[10px] text-tertiary">
-									导出轮数 · 仅本次
+									{t("blocks.exportBtn.turnPickerTitle")}
 								</div>
 								{[1, 2, 3, 4, 5].map((n) => (
 									<button
@@ -230,7 +232,7 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 										onClick={() => void run(turnPicker, n)}
 										className={itemCls(false)}
 									>
-										{n} 轮{n === exportTurns ? "（默认）" : ""}
+										{t("blocks.exportBtn.turnItem", { n })}{n === exportTurns ? t("blocks.exportBtn.turnDefaultSuffix") : ""}
 									</button>
 								))}
 							</div>
@@ -247,7 +249,7 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 									onClick={() => !disabled && tap("download")}
 									className={itemCls(disabled)}
 								>
-									<DownloadIcon /> 下载 PNG
+									<DownloadIcon /> {t("blocks.exportBtn.downloadPng")}
 								</button>
 								<button
 									type="button"
@@ -259,10 +261,10 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 									onClick={() => !disabled && tap("copy")}
 									className={itemCls(disabled)}
 								>
-									<ImageIcon /> 复制图片
+									<ImageIcon /> {t("blocks.exportBtn.copyImage")}
 								</button>
 								<div className="px-3 pt-1 text-[10px] text-tertiary border-t border-hairline mt-0.5">
-									长按可选轮数
+									{t("blocks.exportBtn.hintLongPress")}
 								</div>
 							</>
 						)}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "../../i18n/useTranslation";
 import { Modal } from "../ui/Modal";
 import { TagInput } from "../ui/TagInput";
 import { useProvidersStore } from "../../store/providers";
@@ -18,6 +19,7 @@ const DEFAULT_MAX_TOKENS = 4096;
 export function ProviderFormModal({ initial, onClose }: Props) {
   const save = useProvidersStore(s => s.save);
   const test = useProvidersStore(s => s.test);
+  const { t } = useTranslation();
 
   const [name, setName] = useState(initial?.name ?? "");
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
@@ -160,25 +162,25 @@ export function ProviderFormModal({ initial, onClose }: Props) {
     } else {
       // 连接失败：用 toast 提示，不再 inline 显示失败文案（成功仍 inline「✓ 连接成功」）
       setTestStatus({ state: "idle" });
-      useToastStore.getState().add(result.error ?? "连接失败", "error");
+      useToastStore.getState().add(result.error ?? t("settings.provider.connectFailed"), "error");
     }
   };
 
   return (
     <Modal onClose={onClose} width={640} closeOnOverlayClick={false} data-testid="provider-form-modal">
       <div className="p-4 border-b border-hairline">
-        <span className="text-primary font-bold text-sm">{initial ? "编辑供应商" : "添加供应商"}</span>
+        <span className="text-primary font-bold text-sm">{initial ? t("settings.provider.editTitle") : t("settings.provider.addTitle")}</span>
       </div>
       <div className="p-4 flex flex-col gap-3 overflow-auto" style={{ maxHeight: "70vh" }}>
         <div className="flex flex-col gap-1" ref={presetContainerRef}>
-          <span className="text-xs text-secondary">快捷选择</span>
+          <span className="text-xs text-secondary">{t("settings.provider.presetLabel")}</span>
           <div className="relative">
             <div className="relative">
             <input
               data-testid="preset-search"
               type="text"
               value={selectedPresetKey ? (selectedPreset?.name ?? selectedPresetKey) : presetSearch}
-              placeholder="搜索供应商…"
+              placeholder={t("settings.provider.presetPlaceholder")}
               onChange={e => { setPresetSearch(e.target.value); setShowPresetDropdown(true); if (selectedPresetKey) applyPreset(""); }}
               onFocus={() => setShowPresetDropdown(true)}
               onBlur={() => setTimeout(() => setShowPresetDropdown(false), 150)}
@@ -201,15 +203,15 @@ export function ProviderFormModal({ initial, onClose }: Props) {
                     data-testid="preset-option" data-key={p.key}
                     className={`px-2 py-1.5 text-sm cursor-pointer border-b border-hairline last:border-b-0 hover:bg-surface-hover ${p.key === selectedPresetKey ? "font-bold" : "text-primary"}`}
                     onMouseDown={e => { e.preventDefault(); applyPreset(p.key); }}
-                  >{p.name} <span className="text-tertiary text-xs">({p.models.length} 个模型)</span></div>
+                  >{p.name} <span className="text-tertiary text-xs">{t("settings.provider.presetModelCount", { count: p.models.length })}</span></div>
                 ))}
               </div>
             )}
           </div>
-          {initial && <span className="text-xs" style={{ color: "var(--danger)" }}>选择预设会覆盖当前表单</span>}
+          {initial && <span className="text-xs" style={{ color: "var(--danger)" }}>{t("settings.provider.presetOverwriteWarn")}</span>}
         </div>
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-secondary">供应商名称</span>
+          <span className="text-xs text-secondary">{t("settings.provider.nameFieldLabel")}</span>
           <input
             data-testid="field-name"
             value={name}
@@ -238,11 +240,11 @@ export function ProviderFormModal({ initial, onClose }: Props) {
           />
         </label>
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-secondary">API 格式</span>
+          <span className="text-xs text-secondary">{t("settings.provider.apiFormatLabel")}</span>
           <div className="flex gap-4">
             <label className="flex items-center gap-1.5 text-sm text-primary cursor-pointer">
               <input type="radio" checked={providerApi === "openai-completions"} onChange={() => setProviderApi("openai-completions")} />
-              OpenAI 兼容
+              {t("settings.provider.openaiCompatible")}
             </label>
             <label className="flex items-center gap-1.5 text-sm text-primary cursor-pointer">
               <input type="radio" checked={providerApi === "anthropic-messages"} onChange={() => setProviderApi("anthropic-messages")} />
@@ -251,10 +253,10 @@ export function ProviderFormModal({ initial, onClose }: Props) {
           </div>
         </div>
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-secondary">模型 ID（输入 | 添加，× 移除）</span>
+          <span className="text-xs text-secondary">{t("settings.provider.modelIdFieldLabel")}</span>
           <div ref={tagContainerRef}>
           <TagInput key={tagKey} value={modelIds} onChange={handleTagsChange}
-            placeholder="输入模型 ID，回车或 | 添加"
+            placeholder={t("settings.provider.modelTagPlaceholder")}
             onFocus={() => {
               if (selectedPreset && tagContainerRef.current) {
                 const r = tagContainerRef.current.getBoundingClientRect();
@@ -275,15 +277,15 @@ export function ProviderFormModal({ initial, onClose }: Props) {
         </div>
         {modelIds.length > 0 && (
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-secondary">模型列表</span>
+            <span className="text-xs text-secondary">{t("settings.provider.modelListLabel")}</span>
             <div className="rounded-sm border border-hairline overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-surface-hover text-tertiary">
                   <tr>
-                    <th className="text-left px-2 py-1 font-normal">模型 ID</th>
-                    <th className="text-left px-2 py-1 font-normal">上下文窗口</th>
-                    <th className="text-left px-2 py-1 font-normal">最大输出</th>
-                    <th className="text-left px-2 py-1 font-normal">图片</th>
+                    <th className="text-left px-2 py-1 font-normal">{t("settings.provider.modelIdCol")}</th>
+                    <th className="text-left px-2 py-1 font-normal">{t("settings.provider.contextWindowCol")}</th>
+                    <th className="text-left px-2 py-1 font-normal">{t("settings.provider.maxTokensCol")}</th>
+                    <th className="text-left px-2 py-1 font-normal">{t("settings.provider.visionCol")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -333,8 +335,8 @@ export function ProviderFormModal({ initial, onClose }: Props) {
           </div>
         )}
         {/* 测试连接结果（失败改用 toast，这里只保留测试中/成功的 inline 提示） */}
-        {testStatus.state === "testing" && <span className="text-xs text-secondary">测试中…</span>}
-        {testStatus.state === "ok" && <span className="text-xs" style={{ color: "var(--success)" }}>✓ 连接成功</span>}
+        {testStatus.state === "testing" && <span className="text-xs text-secondary">{t("settings.provider.testing")}</span>}
+        {testStatus.state === "ok" && <span className="text-xs" style={{ color: "var(--success)" }}>{t("settings.provider.ok")}</span>}
       </div>
       {dropPos && selectedPreset && createPortal(
         (() => {
@@ -352,7 +354,7 @@ export function ProviderFormModal({ initial, onClose }: Props) {
                   data-testid="model-quick-option"
                   className="px-2 py-1.5 text-sm text-primary hover:bg-surface-hover cursor-pointer border-b border-hairline last:border-b-0"
                   onMouseDown={e => { e.preventDefault(); addModelFromPreset(m.id); }}
-                >{m.id} <span className="text-tertiary text-xs">({m.contextWindow.toLocaleString()} ctx, {m.maxTokens.toLocaleString()} out{m.supportsVision ? ", 视觉" : ""})</span></div>
+                >{m.id} <span className="text-tertiary text-xs">({m.contextWindow.toLocaleString()} ctx, {m.maxTokens.toLocaleString()} out{m.supportsVision ? `, ${t("settings.provider.visionTag")}` : ""})</span></div>
               ))}
             </div>
           );
@@ -364,16 +366,16 @@ export function ProviderFormModal({ initial, onClose }: Props) {
           onClick={handleTest}
           disabled={!baseUrl || !apiKey}
           className="px-3 py-1.5 rounded-sm text-sm border border-hairline text-secondary hover:text-primary disabled:opacity-50"
-        >测试连接</button>
+        >{t("settings.provider.testConnection")}</button>
         <div className="flex gap-2">
-          <button onClick={onClose} className="px-3 py-1.5 rounded-sm text-sm bg-surface-hover text-secondary border border-hairline hover:text-primary">取消</button>
+          <button onClick={onClose} className="px-3 py-1.5 rounded-sm text-sm bg-surface-hover text-secondary border border-hairline hover:text-primary">{t("settings.provider.cancel")}</button>
           <button
             onClick={handleSave}
             disabled={!valid}
             data-testid="provider-save-btn"
             className="px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ background: "var(--brand)", color: "var(--on-brand)" }}
-          >保存</button>
+          >{t("common.save")}</button>
         </div>
       </div>
     </Modal>

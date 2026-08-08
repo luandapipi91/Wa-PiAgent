@@ -11,6 +11,7 @@ import { STATUS_COLORS } from "../theme/colors";
 import { Modal } from "./ui/Modal";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { Icon } from "./ui/Icon";
+import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
   onClose: () => void;
@@ -25,6 +26,9 @@ interface Props {
 interface CtxMenuState { x: number; y: number; name: string; }
 
 export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Props) {
+  const { t } = useTranslation();
+  // 内置 subagent 卡片的 .map(t => ...) 箭头参数遮蔽了 i18n 的 t，提前算好角标文案
+  const builtinBadge = t("agentGallery.builtinBadge");
   const agents = useAgentsStore(s => s.list);
   const sessions = useProjectsStore(s => s.sessions);
   const statusBySession = useSessionStore(s => s.statusBySession);
@@ -45,7 +49,7 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
       .then((u: any) => {
         if (cancelled || !u || u.count <= 0) return;
         setUsageHint(
-          `\n注意：该智能体正被 ${u.count} 个机器人（${(u.channelNames ?? []).join("、")}）使用，删除后这些机器人将改用默认智能体。`,
+          "\n" + t("agentGallery.usageHint", { count: u.count, names: (u.channelNames ?? []).join("、") }),
         );
       })
       .catch(() => { /* 接口失败按原文案，不阻塞删除 */ });
@@ -96,7 +100,7 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
     <Modal onClose={onClose} width={640} data-testid="agent-gallery">
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-hairline">
         <div className="text-sm font-bold text-primary">
-          全部智能体 <span className="text-xs font-normal text-tertiary ml-1">{agents.length} 个</span>
+          {t("agentGallery.titleAllCount", { count: agents.length })}
         </div>
         {creating ? (
           <div className="flex items-center gap-2">
@@ -105,7 +109,7 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
               value={newName}
               onChange={e => setNewName(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") submitCreate(); }}
-              placeholder="智能体名称"
+              placeholder={t("agentGallery.namePlaceholder")}
               className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none placeholder:text-tertiary"
               data-testid="gallery-create-input"
             />
@@ -114,12 +118,12 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
               className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer"
               style={{ background: "var(--accent)", color: "#fff" }}
               data-testid="gallery-create-ok"
-            >确定</button>
+            >{t("common.confirm")}</button>
             <button
               onClick={() => { setCreating(false); setNewName(""); }}
               className="px-3 py-1.5 rounded-sm text-xs bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary"
               data-testid="gallery-create-cancel"
-            >取消</button>
+            >{t("common.cancel")}</button>
           </div>
         ) : (
           <button
@@ -127,7 +131,7 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
             className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer"
             style={{ background: "var(--accent)", color: "#fff" }}
             data-testid="gallery-create"
-          >＋ 新建智能体</button>
+          >{t("agentGallery.createAgent")}</button>
         )}
       </div>
 
@@ -175,7 +179,7 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
               className="absolute top-3 left-3 px-1.5 py-0.5 text-[calc(10px*var(--font-scale))] rounded-sm font-normal"
               style={{ background: "var(--surface-hover)", color: "var(--tertiary)" }}
               data-testid={`gallery-builtin-badge-${t.name}`}
-            >内置</span>
+            >{builtinBadge}</span>
             <div
               className="w-10 h-10 rounded-lg flex items-center justify-center text-xl mb-2.5"
               style={{ background: `linear-gradient(135deg, ${t.gradient[0]}, ${t.gradient[1]})` }}
@@ -187,7 +191,7 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
       </div>
 
       <div className="px-5 py-2.5 text-[calc(11px*var(--font-scale))] text-tertiary border-t border-hairline">
-        左键：新建会话（内置仅查看）· 右键：编辑 / 删除 · 右上：新建智能体
+        {t("agentGallery.footerHint")}
       </div>
 
       {/* agent 右键菜单 */}
@@ -208,20 +212,20 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
               onClick={() => { setCtxMenu(null); onEdit(ctxMenu.name); }}
               className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover inline-flex items-center gap-1.5 whitespace-nowrap"
               data-testid="gallery-ctx-view"
-            ><Icon name="eye" size={12} /> 查看</button>
+            ><Icon name="eye" size={12} />{t("agentGallery.ctxView")}</button>
           ) : (
             // 普通智能体：编辑 + 删除
             <>
               <button
                 onClick={() => { setCtxMenu(null); onEdit(ctxMenu.name); }}
                 className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover inline-flex items-center gap-1.5 whitespace-nowrap"
-                data-testid="gallery-ctx-edit"
-              ><Icon name="edit" size={12} /> 编辑智能体</button>
+              data-testid="gallery-ctx-edit"
+            ><Icon name="edit" size={12} />{t("agentGallery.ctxEdit")}</button>
               <button
                 onClick={() => { setCtxMenu(null); setDeleteFor(ctxMenu.name); }}
                 className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft inline-flex items-center gap-1.5 whitespace-nowrap"
                 data-testid="gallery-ctx-delete"
-              ><Icon name="trash" size={12} /> 删除</button>
+              ><Icon name="trash" size={12} /> {t("common.delete")}</button>
             </>
           )}
         </div>,
@@ -232,9 +236,9 @@ export function AgentGalleryModal({ onClose, onChatWith, onEdit, onCreated }: Pr
       {deleteFor && (
         <div data-testid="gallery-delete-confirm">
           <ConfirmDialog
-            title="删除智能体"
-            message={`确定删除智能体「${agents.find(a => a.displayName === deleteFor)?.displayName ?? deleteFor}」吗？此操作不可撤销。${usageHint}`}
-            confirmText="删除"
+            title={t("agentGallery.deleteTitle")}
+            message={t("agentGallery.deleteConfirmMsg", { name: agents.find(a => a.displayName === deleteFor)?.displayName ?? deleteFor, usageHint })}
+            confirmText={t("common.delete")}
             danger
             onConfirm={() => {
               useAgentsStore.getState().deleteAgent(deleteFor);

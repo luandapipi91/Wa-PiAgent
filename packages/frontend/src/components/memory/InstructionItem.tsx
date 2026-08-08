@@ -2,12 +2,14 @@
 import { useState } from "react";
 import type { InstructionFile } from "@wa-pi/shared";
 import { Modal } from "../ui/Modal";
+import { useTranslation } from "../../i18n/useTranslation";
 
 interface Props {
   instruction: InstructionFile;
 }
 
 export function InstructionItem({ instruction }: Props) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const isGlobal = instruction.scope === "global";
   const summary = instruction.content.slice(0, 100).trim() + (instruction.content.length > 100 ? "..." : "");
@@ -40,7 +42,7 @@ export function InstructionItem({ instruction }: Props) {
                 background: isGlobal ? "var(--accent-soft)" : "var(--success-soft)",
                 color: isGlobal ? "var(--accent)" : "var(--success)",
               }}
-            >{isGlobal ? "全局" : "项目"}</span>
+            >{isGlobal ? t("memoryInstruction.scopeGlobal") : t("memoryInstruction.scopeProject")}</span>
           </div>
           <p className="text-[calc(11px*var(--font-scale))] text-tertiary font-mono mb-1.5">{instruction.path}</p>
           <p className="text-[calc(11.5px*var(--font-scale))] text-secondary leading-relaxed m-0">{summary}</p>
@@ -49,7 +51,7 @@ export function InstructionItem({ instruction }: Props) {
           onClick={() => setOpen(true)}
           className="text-[calc(11px*var(--font-scale))] text-secondary px-3 py-1 rounded-md"
           style={{ border: "1px solid var(--hairline)", background: "transparent" }}
-        >查看</button>
+        >{t("memoryInstruction.viewButton")}</button>
       </div>
 
       {open && (
@@ -65,7 +67,7 @@ export function InstructionItem({ instruction }: Props) {
               className="text-[calc(12px*var(--font-scale))] text-secondary px-2.5 py-1 rounded-md"
               style={{ border: "1px solid var(--hairline)", background: "transparent" }}
               data-testid="instruction-view-close"
-            >关闭</button>
+            >{t("memoryInstruction.closeButton")}</button>
           </div>
           {/* 文件路径 */}
           <div className="px-5 py-2" style={{ borderBottom: "1px solid var(--hairline)" }}>

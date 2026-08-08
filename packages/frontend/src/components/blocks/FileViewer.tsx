@@ -5,6 +5,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { readFile, revealFile } from "../../fs-client";
+import { useTranslation } from "../../i18n/useTranslation";
 import { createMarkdownComponents } from "./markdown-components";
 import { openInFileManagerLabel } from "../../util/platform";
 import { Icon } from "../ui/Icon";
@@ -112,6 +113,7 @@ function ImageViewer({
 	const [dragging, setDragging] = useState(false);
 	const dragRef = useRef({ startX: 0, startY: 0, panX: 0, panY: 0 });
 	const bodyRef = useRef<HTMLDivElement>(null);
+	const { t } = useTranslation();
 
 	const clampZoom = (z: number) => Math.max(0.1, Math.min(20, z));
 	const zoomReset = () => {
@@ -172,7 +174,7 @@ function ImageViewer({
 				<button
 					className="fv-btn"
 					onClick={() => setZoom((z) => clampZoom(z / 1.25))}
-					title="缩小"
+					title={t("blocks.fileViewer.zoomOut")}
 				>
 					<Icon name="minus" size={12} />
 				</button>
@@ -182,11 +184,11 @@ function ImageViewer({
 				<button
 					className="fv-btn"
 					onClick={() => setZoom((z) => clampZoom(z * 1.25))}
-					title="放大"
+					title={t("blocks.fileViewer.zoomIn")}
 				>
 					<Icon name="plus" size={12} />
 				</button>
-				<button className="fv-btn" onClick={onClose} title="关闭">
+				<button className="fv-btn" onClick={onClose} title={t("common.close")}>
 					<Icon name="x" size={12} />
 				</button>
 			</div>
@@ -221,6 +223,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 	const [error, setError] = useState<string | null>(null);
 	const [unsupported, setUnsupported] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
+	const { t } = useTranslation();
 	const [resolvedPath, setResolvedPath] = useState<string | undefined>(
 		undefined,
 	);
@@ -257,7 +260,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 			.catch((err: unknown) => {
 				if (!alive) return;
 				setError(
-					`无法读取文件：${err instanceof Error ? err.message : "未知错误"}`,
+					t("blocks.fileViewer.readError", { message: err instanceof Error ? err.message : t("blocks.fileViewer.unknownError") }),
 				);
 				setLoading(false);
 			});
@@ -306,7 +309,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				className="flex items-center justify-center h-full text-tertiary text-[calc(13px*var(--font-scale))]"
 				data-testid="fv-loading"
 			>
-				加载中…
+				{t("blocks.fileViewer.loading")}
 			</div>
 		);
 	}
@@ -318,18 +321,18 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				data-testid="fv-unsupported"
 			>
 				<span className="text-[calc(32px*var(--font-scale))] inline-flex text-tertiary"><Icon name="file" size={32} /></span>
-				<span className="text-[calc(13px*var(--font-scale))] text-secondary">不支持预览该文件</span>
+				<span className="text-[calc(13px*var(--font-scale))] text-secondary">{t("blocks.fileViewer.unsupported")}</span>
 				<span className="text-[calc(11px*var(--font-scale))] text-tertiary">{unsupported}</span>
 				<div className="flex items-center gap-2">
 					<button className="fv-btn" onClick={onClose}>
-						关闭
+						{t("common.close")}
 					</button>
 					<button
 						className="fv-btn fv-btn-accent"
 						onClick={() => void revealFile(path)}
 						data-testid="fv-reveal"
 					>
-						{openInFileManagerLabel()}
+						{openInFileManagerLabel({ mac: t("common.openInFinder"), windows: t("common.openInExplorer"), linux: t("common.openInFileManager") })}
 					</button>
 				</div>
 			</div>
@@ -344,7 +347,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 			>
 				<span className="text-[calc(13px*var(--font-scale))] text-danger">{error}</span>
 				<button className="fv-btn" onClick={onClose}>
-					关闭
+					{t("common.close")}
 				</button>
 			</div>
 		);
@@ -361,7 +364,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 					<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono inline-flex items-center gap-1">
 						<Icon name="file" size={12} /> {fileName}
 					</span>
-					<button className="fv-btn" onClick={onClose} title="关闭">
+					<button className="fv-btn" onClick={onClose} title={t("common.close")}>
 						<Icon name="x" size={12} />
 					</button>
 				</div>
@@ -388,7 +391,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono inline-flex items-center gap-1">
 					<Icon name="file" size={12} /> {fileName}
 				</span>
-				<button className="fv-btn" onClick={onClose} title="关闭">
+				<button className="fv-btn" onClick={onClose} title={t("common.close")}>
 					<Icon name="x" size={12} />
 				</button>
 			</div>

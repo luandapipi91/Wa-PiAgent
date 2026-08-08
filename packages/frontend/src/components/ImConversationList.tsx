@@ -5,16 +5,10 @@ import { useComposerPrefsStore } from "../store/composer-prefs";
 import type { ChannelConversationInfo } from "@wa-pi/shared";
 import { api } from "../api-client";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
+import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
 	onSelectSession: (id: string) => void;
-}
-
-/** 列表项标题：单聊显示 userid；群聊显示 群聊(chatId 前8位) · 发送者（v1 拿不到用户昵称，用 userid 区分） */
-function titleOf(c: ChannelConversationInfo): string {
-	return c.chatType === "group"
-		? `群聊(${c.chatId.slice(0, 8)}) · ${c.fromUserId}`
-		: c.chatId;
 }
 
 function timeOf(ts: number): string {
@@ -34,10 +28,16 @@ interface MenuState {
 }
 
 export function ImConversationList({ onSelectSession }: Props) {
+	const { t } = useTranslation();
 	const conversations = useChannelsStore((s) => s.conversations);
 	useEffect(() => {
 		void useChannelsStore.getState().loadConversations();
 	}, []);
+	/** 列表项标题：单聊显示 userid；群聊显示 群聊(chatId 前8位) · 发送者（v1 拿不到用户昵称，用 userid 区分） */
+	const titleOf = (c: ChannelConversationInfo) =>
+		c.chatType === "group"
+			? t("im.groupTitle", { chatId: c.chatId.slice(0, 8), from: c.fromUserId })
+			: c.chatId;
 
 	// 右键菜单 + 删除确认
 	const [menu, setMenu] = useState<MenuState | null>(null);
@@ -83,7 +83,7 @@ export function ImConversationList({ onSelectSession }: Props) {
 	};
 
 	if (conversations.length === 0) {
-		return <div className="flex-1 flex items-center justify-center p-4 text-center text-xs text-tertiary">暂无 IM 会话。在设置页配置机器人后，来自 IM 的对话会出现在这里。</div>;
+		return <div className="flex-1 flex items-center justify-center p-4 text-center text-xs text-tertiary">{t("im.emptyHint")}</div>;
 	}
 	return (
 		<div className="flex-1 flex flex-col gap-1 overflow-auto" data-testid="im-conv-list">
@@ -91,6 +91,7 @@ export function ImConversationList({ onSelectSession }: Props) {
 				<ImConvRow
 					key={c.sessionId}
 					conv={c}
+					titleOf={titleOf}
 					onSelect={onSelectSession}
 					onContextMenu={(e) => setMenu({ x: e.clientX, y: e.clientY, conv: c })}
 				/>
@@ -116,7 +117,7 @@ export function ImConversationList({ onSelectSession }: Props) {
 							className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
 							data-testid="im-menu-delete"
 						>
-							删除聊天
+							{t("im.deleteChat")}
 						</button>
 					</div>,
 					document.body,
@@ -125,9 +126,9 @@ export function ImConversationList({ onSelectSession }: Props) {
 			{/* 删除确认框 */}
 			{deleteTarget && (
 				<ConfirmDialog
-					title="删除聊天"
-					message={`确定删除会话「${titleOf(deleteTarget)}」吗？此操作不可撤销。`}
-					confirmText="删除"
+					title={t("im.deleteChat")}
+					message={t("im.deleteConfirmMessage", { title: titleOf(deleteTarget) })}
+					confirmText={t("common.delete")}
 					danger
 					onConfirm={handleDeleteConfirm}
 					onCancel={() => setDeleteTarget(null)}
@@ -140,10 +141,12 @@ export function ImConversationList({ onSelectSession }: Props) {
 /** 单个 IM 会话项：原生 contextmenu 监听确保 preventDefault 生效（与 SessionRow 一致） */
 function ImConvRow({
 	conv,
+	titleOf,
 	onSelect,
 	onContextMenu,
 }: {
 	conv: ChannelConversationInfo;
+	titleOf: (c: ChannelConversationInfo) => string;
 	onSelect: (id: string) => void;
 	onContextMenu: (e: MouseEvent) => void;
 }) {

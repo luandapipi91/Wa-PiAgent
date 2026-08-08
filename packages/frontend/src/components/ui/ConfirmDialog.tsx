@@ -1,3 +1,4 @@
+import { useTranslation } from "../../i18n/useTranslation";
 import { Modal } from "./Modal";
 
 interface ConfirmDialogProps {
@@ -12,10 +13,13 @@ interface ConfirmDialogProps {
 
 export function ConfirmDialog({
   title, message,
-  confirmText = "确认", cancelText = "取消",
+  confirmText, cancelText,
   danger = false,
   onConfirm, onCancel,
 }: ConfirmDialogProps) {
+  const { t } = useTranslation();
+  const confirm = confirmText ?? t("ui.confirmDialog.defaultConfirm");
+  const cancel = cancelText ?? t("ui.confirmDialog.defaultCancel");
   return (
     <Modal onClose={onCancel} width={400} data-testid="confirm-dialog">
       <div className="p-4 border-b border-hairline">
@@ -27,7 +31,7 @@ export function ConfirmDialog({
           onClick={onCancel}
           className="px-3 py-1.5 rounded-sm text-sm bg-surface-hover text-secondary border border-hairline transition-colors hover:text-primary"
           data-testid="confirm-cancel"
-        >{cancelText}</button>
+        >{cancel}</button>
         <button
           onClick={onConfirm}
           className="px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer"
@@ -36,7 +40,7 @@ export function ConfirmDialog({
             color: danger ? "var(--on-danger)" : "var(--on-brand)",
           }}
           data-testid="confirm-ok"
-        >{confirmText}</button>
+        >{confirm}</button>
       </div>
     </Modal>
   );

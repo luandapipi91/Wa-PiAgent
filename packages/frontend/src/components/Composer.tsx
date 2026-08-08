@@ -9,6 +9,7 @@ import { useCommandsStore } from "../store/commands";
 import { useSessionStore } from "../store/session";
 import { expandTokens } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
+import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
   sessionId: string;
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export function Composer({ sessionId, agentName, isRunning, isNewSession, disabled }: Props) {
+  const { t } = useTranslation();
   const [text, setText] = useState("");
   // === 草稿持久化 ===
   const draftRestoredRef = useRef(false); // 当前 session 是否已尝试恢复草稿（按 sessionId 重置）
@@ -184,7 +186,7 @@ export function Composer({ sessionId, agentName, isRunning, isNewSession, disabl
         onSend={handleSend}
         sendDisabled={!projectId}
         disabled={disabled}
-        placeholder={disabled ? "请先回答上方提问…" : (isRunning ? "输入要加入队列的消息..." : `给${agentName}发消息...`)}
+        placeholder={disabled ? t("composerExtra.placeholderBlocked") : (isRunning ? t("composerExtra.placeholderQueued") : t("newSession.placeholder", { agent: agentName }))}
         isRunning={isRunning}
         isNewSession={isNewSession}
         currentAgentName={agentName}

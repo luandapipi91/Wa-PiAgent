@@ -6,9 +6,11 @@ import { McpEmpty } from "./McpEmpty";
 import { McpFormModal } from "./McpFormModal";
 import { McpToolsModal } from "./McpToolsModal";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { useTranslation } from "../../i18n/useTranslation";
 import type { McpServerConfig } from "@wa-pi/shared";
 
 export function McpPage() {
+  const { t } = useTranslation();
   const {
     servers, serverStatuses, toolCounts, toolsCache, loadingTools, testingServers, errors,
     selectedProjectId, searchQuery, loading,
@@ -77,7 +79,7 @@ export function McpPage() {
         className="flex items-center px-5 py-3.5"
         style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}
       >
-        <h2 className="text-base font-extrabold text-primary m-0">🔌 MCP 连接器</h2>
+        <h2 className="text-base font-extrabold text-primary m-0">{t("mcp.pageTitle")}</h2>
       </div>
 
       {/* 工具栏 */}
@@ -93,7 +95,7 @@ export function McpPage() {
         <input
           className="flex-1 text-[calc(12px*var(--font-scale))] px-3 py-1.5 rounded-lg min-w-0"
           style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-          placeholder="🔍 搜索服务器..."
+          placeholder={t("mcp.searchPlaceholder")}
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
           data-testid="mcp-search"
@@ -105,13 +107,13 @@ export function McpPage() {
           className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white shrink-0"
           style={{ background: "var(--accent)", border: "none" }}
           data-testid="mcp-add-button"
-        >+ 手动添加</button>
+        >{t("mcp.addButton")}</button>
       </div>
 
       {/* 列表内容 */}
       <div className="flex-1 overflow-y-auto px-5 py-3.5">
         {loading ? (
-          <div className="text-center text-tertiary text-[calc(12.5px*var(--font-scale))] py-8">加载中...</div>
+          <div className="text-center text-tertiary text-[calc(12.5px*var(--font-scale))] py-8">{t("mcp.loading")}</div>
         ) : filtered.length === 0 ? (
           <McpEmpty />
         ) : (
@@ -156,9 +158,9 @@ export function McpPage() {
       {/* 删除确认弹窗 */}
       {confirmDelete && (
         <ConfirmDialog
-          title="确认删除"
-          message={`确定要删除 MCP 服务器 ${confirmDelete} 吗？`}
-          confirmText="删除"
+          title={t("mcp.deleteTitle")}
+          message={t("mcp.deleteMessage", { name: confirmDelete })}
+          confirmText={t("common.delete")}
           danger
           onConfirm={() => handleDelete(confirmDelete)}
           onCancel={() => setConfirmDelete(null)}
@@ -175,11 +177,12 @@ function ScopeDropdown({ selectedProjectId, projects, onSelect }: {
   projects: { id: string; name: string }[];
   onSelect: (projectId: string | null) => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const isGlobal = selectedProjectId === null;
   const label = isGlobal
-    ? "🌐 全局"
-    : (projects.find(p => p.id === selectedProjectId)?.name ?? "项目");
+    ? t("mcp.globalScope")
+    : (projects.find(p => p.id === selectedProjectId)?.name ?? t("common.scopeProject"));
 
   const itemStyle = (active: boolean): CSSProperties => ({
     color: active ? "var(--accent)" : "var(--text-primary)",
@@ -216,7 +219,7 @@ function ScopeDropdown({ selectedProjectId, projects, onSelect }: {
               className="block w-full text-left text-[calc(11.5px*var(--font-scale))] px-3 py-1.5"
               style={itemStyle(isGlobal)}
               data-testid="mcp-scope-option-global"
-            >🌐 全局</button>
+            >{t("mcp.globalScope")}</button>
             {projects.length > 0 && (
               <div className="my-1" style={{ borderTop: "1px solid var(--hairline)" }} />
             )}
@@ -229,7 +232,7 @@ function ScopeDropdown({ selectedProjectId, projects, onSelect }: {
                 style={itemStyle(selectedProjectId === p.id)}
                 data-testid={`mcp-scope-option-project-${p.id}`}
                 title={p.name}
-              >📁 {p.name}</button>
+              >{t("mcp.projectOption", { name: p.name })}</button>
             ))}
           </div>
         </>

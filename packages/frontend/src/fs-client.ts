@@ -1,4 +1,5 @@
 // 把 fs 系列 REST 调用封装成 Promise，供 react-complex-tree DataProvider 异步调用。
+import i18n from "./i18n";
 import { api } from "./api-client";
 import type { DirEntry } from "@wa-pi/shared";
 
@@ -47,8 +48,8 @@ export async function statFile(path: string): Promise<boolean> {
 
 export async function readFile(path: string): Promise<{ content: string; mimeType?: string; resolvedPath?: string; unsupported?: string }> {
   const res = (await transport.post("/api/fs/read-file", { path })) as { content: string; mimeType?: string; resolvedPath?: string; reason?: string; type?: string };
-  if (res.type === "fs:unsupported") return { content: "", unsupported: res.reason ?? "不支持预览该文件" };
-  if (!res.content) throw new Error(res.reason ?? "读取失败");
+  if (res.type === "fs:unsupported") return { content: "", unsupported: res.reason ?? i18n.t("store.unsupportedPreview") };
+  if (!res.content) throw new Error(res.reason ?? i18n.t("store.readFailed"));
   return { content: res.content, mimeType: res.mimeType, resolvedPath: res.resolvedPath };
 }
 
@@ -63,7 +64,7 @@ export async function copyToUploads(
   sessionId?: string,
 ): Promise<{ path: string }> {
   const res = (await transport.post("/api/fs/copy", { projectId, source, sessionId })) as { path: string; error?: string };
-  if (!res.path) throw new Error(res.error ?? "复制失败");
+  if (!res.path) throw new Error(res.error ?? i18n.t("store.copyFailedShort"));
   return { path: res.path };
 }
 

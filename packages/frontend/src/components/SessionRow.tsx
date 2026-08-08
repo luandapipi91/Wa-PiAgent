@@ -3,6 +3,7 @@ import type { SessionEntity } from "@wa-pi/shared";
 import { formatRelativeTime } from "@wa-pi/shared";
 import { agentEmoji } from "../theme/agents";
 import { useSessionStore } from "../store/session";
+import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
   session: SessionEntity;
@@ -14,6 +15,7 @@ interface Props {
 
 export function SessionRow({ session, selected, onSelect, onContextMenu }: Props) {
   const btnRef = useRef<HTMLButtonElement>(null);
+  const { t } = useTranslation();
   // 该会话是否有未读新回复（后台收到回复完成时置位，进入会话清掉）
   const unread = useSessionStore(s => !!s.unreadBySession[session.id]);
   // 该会话是否正在运行（agent 处理中）：运行时右侧时间位换成 loading 转圈，结束恢复时间
@@ -50,7 +52,7 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
       {isRunning ? (
         <span
           data-testid={`session-running-${session.id}`}
-          aria-label="运行中"
+          aria-label={t("common.statusRunning")}
           className="flex-shrink-0 inline-flex items-center justify-center"
           style={{ width: 14, height: 14 }}
         >
@@ -66,7 +68,7 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
       {unread && (
         <span
           data-testid={`unread-tag-${session.id}`}
-          aria-label="有新回复"
+          aria-label={t("sessionRow.hasNewReply")}
           className="absolute select-none pointer-events-none"
           style={{ top: 2, right: 2, width: 7, height: 7, borderRadius: "50%", background: "var(--accent)" }}
         />

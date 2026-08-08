@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRecordingStore, type RecordingSource } from "../../store/recording";
 import { useProjectsStore } from "../../store/projects";
 import { useToastStore } from "../../store/toast";
+import { useTranslation } from "../../i18n/useTranslation";
 import { setRecordingPrefs } from "../../store/composer-db";
 import { formatDuration } from "../../recording/recorder";
 
@@ -12,6 +13,7 @@ const CAPSULE_WIDTH = 280;
 export function RecordingCapsule() {
   const { status, source, owningSessionId, ownerLabel, elapsedMs, pause, resume, stop } = useRecordingStore();
   const currentSessionId = useProjectsStore(s => s.currentSessionId);
+  const { t } = useTranslation();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [pos, setPos] = useState(() => ({
     x: typeof window !== "undefined" ? window.innerWidth - DEFAULT_RIGHT - CAPSULE_WIDTH : DEFAULT_RIGHT,
@@ -63,7 +65,7 @@ export function RecordingCapsule() {
     if (status === "idle") {
       useRecordingStore.setState({ source: next });
     } else {
-      useToastStore.getState().add(`已切换为${next === "mic" ? "麦克风" : "系统音频"}，下次录音生效`);
+      useToastStore.getState().add(t("ui.recording.capsuleSourceSwitched", { source: next === "mic" ? t("ui.recording.sourceMic") : t("ui.recording.sourceSystem") }));
     }
     setSwitcherOpen(false);
   }
@@ -81,18 +83,18 @@ export function RecordingCapsule() {
         data-testid="recording-capsule-header"
         className="flex items-center gap-2 cursor-grab active:cursor-grabbing"
         onPointerDown={onPointerDown}
-        title="拖动"
+        title={t("ui.recording.capsuleDragTitle")}
       >
         <span className="text-secondary">⠿</span>
-        <span className="text-xs font-medium text-secondary">录音中</span>
+        <span className="text-xs font-medium text-secondary">{t("ui.recording.capsuleRecordingLabel")}</span>
       </div>
 
       <div data-testid="recording-capsule-controls" className="flex items-center gap-3 flex-nowrap">
         <div className="relative">
           <button
             type="button"
-            aria-label="切换音源"
-            title={source === "mic" ? "麦克风" : "系统音频"}
+            aria-label={t("ui.recording.capsuleSwitchSource")}
+            title={source === "mic" ? t("ui.recording.sourceMic") : t("ui.recording.sourceSystem")}
             onClick={() => setSwitcherOpen(o => !o)}
             className="text-xl hover:opacity-80"
           >
@@ -104,17 +106,17 @@ export function RecordingCapsule() {
                 type="button"
                 onClick={() => pickSource("mic")}
                 className={`block w-full text-left px-3 py-1.5 hover:bg-surface-hover ${source === "mic" ? "text-primary" : ""}`}
-              >🎤 麦克风</button>
+              >{t("ui.recording.micOption")}</button>
               <button
                 type="button"
                 onClick={() => pickSource("system")}
                 className={`block w-full text-left px-3 py-1.5 hover:bg-surface-hover ${source === "system" ? "text-primary" : ""}`}
-              >🖥 系统音频</button>
+              >{t("ui.recording.systemOption")}</button>
             </div>
           )}
         </div>
         {!isOwner && <span className="text-xs text-tertiary truncate max-w-[140px]">{ownerLabel}</span>}
-        <span data-testid="recording-timer" aria-live="polite" aria-label="录音时长" className="font-mono tabular-nums text-lg text-secondary">{formatDuration(elapsedMs)}</span>
+        <span data-testid="recording-timer" aria-live="polite" aria-label={t("ui.recording.capsuleDurationLabel")} className="font-mono tabular-nums text-lg text-secondary">{formatDuration(elapsedMs)}</span>
         <span
           data-testid="recording-status-dot"
           className={`inline-block w-2.5 h-2.5 rounded-full ${dotColor} ${status === "recording" ? "animate-pulse" : ""}`}
@@ -125,8 +127,8 @@ export function RecordingCapsule() {
             ? (
               <button
                 type="button"
-                aria-label="暂停录音"
-                title="暂停录音"
+                aria-label={t("ui.recording.capsulePause")}
+                title={t("ui.recording.capsulePause")}
                 onClick={pause}
                 className="text-xl text-secondary hover:text-primary"
               >⏸</button>
@@ -134,16 +136,16 @@ export function RecordingCapsule() {
             : (
               <button
                 type="button"
-                aria-label="继续录音"
-                title="继续录音"
+                aria-label={t("ui.recording.capsuleResume")}
+                title={t("ui.recording.capsuleResume")}
                 onClick={resume}
                 className="text-xl text-secondary hover:text-primary"
               >▶</button>
             )}
           <button
             type="button"
-            aria-label="停止录音"
-            title="停止录音"
+            aria-label={t("ui.recording.capsuleStop")}
+            title={t("ui.recording.capsuleStop")}
             onClick={() => void stop()}
             className="text-xl text-danger hover:opacity-80"
           >⏹</button>

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import i18n from "../i18n";
 import type { McpServerConfig, McpServerStatus, McpToolSummary } from "@wa-pi/shared";
 import type { McpListResult, McpChangedEvent, McpTestResult, McpToolsResult } from "@wa-pi/shared";
 import { api } from "../api-client";
@@ -78,7 +79,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
         testingServers: nextTesting,
         serverStatuses: { ...s.serverStatuses, [data.serverName]: status },
         errors: status === "error"
-          ? { ...s.errors, [data.serverName]: data.error ?? "连接失败" }
+          ? { ...s.errors, [data.serverName]: data.error ?? i18n.t("store.mcpConnectFailed") }
           : s.errors,
         toolCounts: status === "connected" && data.toolCount != null
           ? { ...s.toolCounts, [data.serverName]: data.toolCount }

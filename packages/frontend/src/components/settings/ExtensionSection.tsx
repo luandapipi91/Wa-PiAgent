@@ -1,5 +1,6 @@
 // packages/frontend/src/components/settings/ExtensionSection.tsx
 import { useState } from "react";
+import { useTranslation } from "../../i18n/useTranslation";
 import { useExtensionsStore } from "../../store/extensions";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { CommandListModal } from "./CommandListModal";
@@ -19,6 +20,7 @@ export function ExtensionSection() {
     retryInstall,
     removeInstall,
   } = useExtensionsStore();
+  const { t } = useTranslation();
 
   const [inputValue, setInputValue] = useState("");
   const [confirmUninstall, setConfirmUninstall] = useState<string | null>(null);
@@ -41,12 +43,12 @@ export function ExtensionSection() {
     <div className="flex flex-col gap-4 p-4 overflow-auto">
       {/* 安装区域 */}
       <div>
-        <span className="text-xs font-bold text-tertiary uppercase tracking-wide">安装新插件</span>
+        <span className="text-xs font-bold text-tertiary uppercase tracking-wide">{t("settings.extension.installTitle")}</span>
         <div className="flex gap-2 mt-2">
           <input
             className="flex-1 px-3 py-2 text-sm border border-hairline rounded-sm bg-surface text-primary placeholder:text-tertiary focus:outline-none focus:border-accent"
             style={{ boxShadow: "none" }}
-            placeholder="npm 包名 (如 superpowers-zh 或 npm:superpowers-zh)…"
+            placeholder={t("settings.extension.installPlaceholder")}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -59,7 +61,7 @@ export function ExtensionSection() {
             disabled={!inputValue.trim()}
             data-testid="ext-install-btn"
           >
-            安装
+            {t("settings.extension.install")}
           </button>
         </div>
       </div>
@@ -76,11 +78,11 @@ export function ExtensionSection() {
       {/* 插件列表 */}
       <div>
         <span className="text-xs font-bold text-tertiary uppercase tracking-wide">
-          已安装插件 · {packages.length}
+          {t("settings.extension.installedTitle", { count: packages.length })}
         </span>
 
         {packages.length === 0 && installEntries.length === 0 && (
-          <p className="text-sm text-tertiary py-4">暂无插件，输入上方包名开始安装</p>
+          <p className="text-sm text-tertiary py-4">{t("settings.extension.empty")}</p>
         )}
 
         <div className="flex flex-col gap-2 mt-2">
@@ -112,7 +114,7 @@ export function ExtensionSection() {
                   )}
                   {pkg.latestVersion && pkg.enabled && (
                     <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ background: "var(--warning-soft)", color: "var(--warning)" }}>
-                      v{pkg.latestVersion} 可用
+                      {t("settings.extension.versionAvailable", { version: pkg.latestVersion })}
                     </span>
                   )}
                   {pkg.source !== "npm" && (
@@ -132,7 +134,7 @@ export function ExtensionSection() {
                     style={{ color: "var(--warning)" }}
                     data-testid={`ext-upgrade-progress-${pkg.name}`}
                   >
-                    {upgrading[pkg.name] || "正在升级…"}
+                    {upgrading[pkg.name] || t("settings.extension.upgrading")}
                   </p>
                 )}
 
@@ -166,7 +168,7 @@ export function ExtensionSection() {
                     className="text-xs"
                     style={{ color: pkg.enabled ? "var(--success)" : "var(--text-tertiary)" }}
                   >
-                    {pkg.enabled ? "已启用" : "已禁用"}
+                    {pkg.enabled ? t("settings.extension.enabled") : t("settings.extension.disabled")}
                   </span>
                 </label>
               </div>
@@ -181,7 +183,7 @@ export function ExtensionSection() {
                     disabled={upgrading[pkg.name] !== undefined}
                     data-testid={`ext-upgrade-${pkg.name}`}
                   >
-                    {upgrading[pkg.name] !== undefined ? "⟳ 升级中…" : "⬆ 升级"}
+                    {upgrading[pkg.name] !== undefined ? t("settings.extension.upgradingBtn") : t("settings.extension.upgrade")}
                   </button>
                 )}
                 <button
@@ -190,7 +192,7 @@ export function ExtensionSection() {
                   onClick={() => setCommandModalPkg(pkg.name)}
                   data-testid={`ext-commands-${pkg.name}`}
                 >
-                  ⌘ 附加命令
+                  {t("settings.extension.commands")}
                 </button>
                 <button
                   className="px-2 py-1 text-xs rounded-sm font-medium disabled:opacity-60"
@@ -209,10 +211,10 @@ export function ExtensionSection() {
                           animation: "spin 0.8s linear infinite",
                         }}
                       />
-                      卸载中…
+                      {t("settings.extension.uninstalling")}
                     </span>
                   ) : (
-                    "卸载"
+                    t("settings.extension.uninstall")
                   )}
                 </button>
               </div>
@@ -223,7 +225,7 @@ export function ExtensionSection() {
 
       {/* 底部提示 */}
       <div className="px-3 py-2.5 rounded-sm text-xs text-secondary" style={{ background: "var(--surface-elevated)", border: "1px solid var(--hairline)" }}>
-        安装、卸载、升级操作在 <strong>当前对话立即生效</strong>（正在生成回复的会话会在下次发送消息时生效）。
+        {t("settings.extension.hintPrefix")}<strong>{t("settings.extension.hintHighlight")}</strong>{t("settings.extension.hintSuffix")}
       </div>
 
       {/* 附加命令弹窗 */}
@@ -237,9 +239,9 @@ export function ExtensionSection() {
       {/* 卸载确认弹窗 */}
       {confirmUninstall && (
         <ConfirmDialog
-          title="确认卸载"
-          message={`确定要卸载 ${confirmUninstall} 吗？卸载后立即从当前对话移除。`}
-          confirmText="卸载"
+          title={t("settings.extension.confirmUninstallTitle")}
+          message={t("settings.extension.confirmUninstallMessage", { name: confirmUninstall })}
+          confirmText={t("settings.extension.confirmUninstall")}
           danger
           onConfirm={() => {
             uninstallPackage(confirmUninstall);

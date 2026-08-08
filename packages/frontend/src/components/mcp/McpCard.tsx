@@ -1,4 +1,5 @@
 import type { McpServerConfig, McpServerStatus } from "@wa-pi/shared";
+import { useTranslation } from "../../i18n/useTranslation";
 
 interface Props {
   config: McpServerConfig;
@@ -15,30 +16,32 @@ interface Props {
   onDelete: () => void;
 }
 
-const STATUS_CONFIG: Record<McpServerStatus, { icon: string; label: string; color: string }> = {
-  connected:    { icon: "🟢", label: "已连接", color: "var(--success)" },
-  needs_auth:   { icon: "🟡", label: "OAuth 需授权", color: "var(--warning)" },
-  error:        { icon: "🔴", label: "连接错误", color: "var(--danger)" },
-  disconnected: { icon: "🔴", label: "未连接", color: "var(--text-tertiary)" },
+const STATUS_CONFIG: Record<McpServerStatus, { icon: string; labelKey: string; color: string }> = {
+  connected:    { icon: "🟢", labelKey: "mcpCard.connected", color: "var(--success)" },
+  needs_auth:   { icon: "🟡", labelKey: "mcpCard.needsAuth", color: "var(--warning)" },
+  error:        { icon: "🔴", labelKey: "mcpCard.error", color: "var(--danger)" },
+  disconnected: { icon: "🔴", labelKey: "mcpCard.disconnected", color: "var(--text-tertiary)" },
 };
 
 /** 生成服务器配置的描述文本 */
-function configSummary(config: McpServerConfig): string {
+function configSummary(config: McpServerConfig, emptyLabel: string): string {
   if (config.command) {
     const args = config.args?.join(" ") ?? "";
     return [config.command, args].filter(Boolean).join(" ");
   }
   if (config.url) return config.url;
-  return "未配置";
+  return emptyLabel;
 }
 
 export function McpCard({ config, status, toolCount, testing, error, onTest, onViewTools, onAuth, onClearAuth, onEdit, onDelete }: Props) {
-  const st = testing
-    ? { icon: "⏳", label: "测试中...", color: "var(--accent)" }
+  const { t } = useTranslation();
+  const cfg = testing
+    ? { icon: "⏳", labelKey: "mcpCard.testing", color: "var(--accent)" }
     : (STATUS_CONFIG[status] ?? STATUS_CONFIG.disconnected);
+  const st = { icon: cfg.icon, color: cfg.color, label: t(cfg.labelKey) };
 
   const label = (!testing && status === "connected" && toolCount != null)
-    ? `已连接 · ${toolCount} 工具`
+    ? t("mcpCard.connectedWithTools", { count: toolCount })
     : st.label;
 
   return (
@@ -62,7 +65,7 @@ export function McpCard({ config, status, toolCount, testing, error, onTest, onV
 
       {/* 描述行 */}
       <p className="text-[calc(11.5px*var(--font-scale))] text-secondary mb-2 opacity-70 truncate">
-        {configSummary(config)}
+        {configSummary(config, t("mcpCard.summaryEmpty"))}
       </p>
 
       {/* 错误信息：danger 样式（红字+红底）已承担错误信号，文本不加 ⚠ 前缀 */}
@@ -77,17 +80,17 @@ export function McpCard({ config, status, toolCount, testing, error, onTest, onV
         <CardBtn
           onClick={onTest}
           testId={`mcp-test-${config.name}`}
-          label={testing ? "测试中..." : "连接测试"}
+          label={testing ? t("mcpCard.testing") : t("mcpCard.testButton")}
           disabled={testing}
         />
-        <CardBtn onClick={onViewTools} testId={`mcp-tools-${config.name}`} label="查看工具" disabled={testing} />
+        <CardBtn onClick={onViewTools} testId={`mcp-tools-${config.name}`} label={t("mcpCard.viewToolsButton")} disabled={testing} />
         {status === "needs_auth" ? (
-          <CardBtn onClick={onAuth} testId={`mcp-auth-${config.name}`} label="授权" accent disabled={testing} />
+          <CardBtn onClick={onAuth} testId={`mcp-auth-${config.name}`} label={t("mcpCard.authButton")} accent disabled={testing} />
         ) : config.auth ? (
-          <CardBtn onClick={onClearAuth} testId={`mcp-clearauth-${config.name}`} label="清除授权" disabled={testing} />
+          <CardBtn onClick={onClearAuth} testId={`mcp-clearauth-${config.name}`} label={t("mcpCard.clearAuthButton")} disabled={testing} />
         ) : null}
-        <CardBtn onClick={onEdit} testId={`mcp-edit-${config.name}`} label="编辑" disabled={testing} />
-        <CardBtn onClick={onDelete} testId={`mcp-delete-${config.name}`} label="删除" danger disabled={testing} />
+        <CardBtn onClick={onEdit} testId={`mcp-edit-${config.name}`} label={t("mcpCard.editButton")} disabled={testing} />
+        <CardBtn onClick={onDelete} testId={`mcp-delete-${config.name}`} label={t("mcpCard.deleteButton")} danger disabled={testing} />
       </div>
     </div>
   );

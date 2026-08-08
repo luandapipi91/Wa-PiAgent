@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
+import { useTranslation } from "../../i18n/useTranslation";
 import { Icon } from "../ui/Icon";
 
 /** 格式化工具调用参数 — 截断长值避免撑爆 UI（自 MessageList 迁入） */
@@ -120,6 +121,7 @@ function PrettyArgsView({ args }: { args: Record<string, any> }) {
 
 /** edit 工具专用参数视图：文件路径 + 新旧内容代码块（兼容 edits 数组与平铺两种参数结构） */
 function EditArgsView({ args }: { args: Record<string, any> }) {
+	const { t } = useTranslation();
 	const edits = Array.isArray(args.edits)
 		? args.edits
 		: args.oldText !== undefined || args.newText !== undefined
@@ -140,17 +142,17 @@ function EditArgsView({ args }: { args: Record<string, any> }) {
 			{edits.map((e, i) => (
 				<div key={i} className="min-w-0">
 					<div className="text-[calc(11px*var(--font-scale))] text-tertiary font-semibold mb-0.5">
-						{edits.length > 1 ? `编辑 ${i + 1}` : "内容变更"}
+						{edits.length > 1 ? t("blocks.toolCall.editNumber", { index: i + 1 }) : t("blocks.toolCall.contentChange")}
 					</div>
 					{e.oldText !== undefined && (
 						<>
-							<div className="text-[calc(11px*var(--font-scale))] text-tertiary">旧</div>
+							<div className="text-[calc(11px*var(--font-scale))] text-tertiary">{t("blocks.toolCall.oldText")}</div>
 							<AutoScrollPre text={e.oldText} />
 						</>
 					)}
 					{e.newText !== undefined && (
 						<>
-							<div className="text-[calc(11px*var(--font-scale))] text-tertiary">新</div>
+							<div className="text-[calc(11px*var(--font-scale))] text-tertiary">{t("blocks.toolCall.newText")}</div>
 							<AutoScrollPre text={e.newText} />
 						</>
 					)}
@@ -161,8 +163,8 @@ function EditArgsView({ args }: { args: Record<string, any> }) {
 }
 
 /** 卡片标题：edit 显示文件名，其余工具显示名称 + 截断参数 */
-function toolCallTitle(toolCall: ToolCall): ReactNode {
-	const name = toolCall.name === "ask_user_question" ? "问答" : toolCall.name;
+function toolCallTitle(toolCall: ToolCall, askLabel: string): ReactNode {
+	const name = toolCall.name === "ask_user_question" ? askLabel : toolCall.name;
 	if (toolCall.name === "edit") {
 		const path =
 			typeof toolCall.arguments.path === "string"
@@ -197,6 +199,7 @@ export function ToolCallCard({
 		isDone: !!result,
 		executingMode: true,
 	});
+	const { t } = useTranslation();
 	const failed = !!result?.isError;
 	const tone = !result ? "accent" : failed ? "danger" : "success";
 	return (
@@ -211,8 +214,8 @@ export function ToolCallCard({
 					<Icon name="check" />
 				)
 			}
-			title={toolCallTitle(toolCall)}
-			meta={!result ? <Spinner /> : failed ? "失败" : "完成"}
+			title={toolCallTitle(toolCall, t("blocks.toolCall.askUserQuestionName"))}
+			meta={!result ? <Spinner /> : failed ? t("blocks.toolCall.failedMeta") : t("blocks.toolCall.doneMeta")}
 			open={open}
 			onToggle={toggle}
 			muted={!!result}
@@ -289,6 +292,7 @@ function ToolGroupCardInner({
 		isDone: doneCount === total,
 		executingMode: true,
 	});
+	const { t } = useTranslation();
 
 	// 计数摘要：✓成功 ✗失败 ⏳进行中（图标 + 数量）
 	const status: ReactNode[] = [];
@@ -321,7 +325,7 @@ function ToolGroupCardInner({
 		<ProcessCard
 			tone="accent"
 			icon={<Icon name="wrench" />}
-			title={`${total} 个工具调用`}
+			title={t("blocks.toolCall.groupTitle", { total })}
 			meta={
 				doneCount < total && isStreaming ? (
 					<>

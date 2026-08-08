@@ -7,6 +7,7 @@ import {
   type TreeItemIndex,
 } from "react-complex-tree";
 import "react-complex-tree/lib/style-modern.css";
+import { useTranslation } from "../i18n/useTranslation";
 import { getHome, getRoots, listDir, searchFilesStream, type SearchMatch } from "../fs-client";
 import { Icon } from "./ui/Icon";
 
@@ -149,9 +150,10 @@ function filterTreeItems(
 function buildSearchTree(
   matches: { name: string; isDir: boolean; path: string }[],
   roots: string[],
+  rootName: string,
 ): Record<TreeItemIndex, TreeItem<FsNodeData>> {
   const items: Record<TreeItemIndex, TreeItem<FsNodeData>> = {
-    root: { index: "root", children: [], isFolder: true, data: { path: "", name: "此电脑", isDir: true } },
+    root: { index: "root", children: [], isFolder: true, data: { path: "", name: rootName, isDir: true } },
   };
 
   for (const [i, r] of roots.entries()) {
@@ -199,6 +201,7 @@ function buildSearchTree(
 }
 
 export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
+  const { t } = useTranslation();
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [focusedItem, setFocusedItem] = useState<TreeItemIndex | undefined>();
   const [selectedItems, setSelectedItems] = useState<TreeItemIndex[]>([]);
@@ -206,7 +209,7 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
   const [showHidden, setShowHidden] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [treeItems, setTreeItems] = useState<Record<TreeItemIndex, TreeItem<FsNodeData>>>({
-    root: { index: "root", children: [], isFolder: true, data: { path: "", name: "加载中…", isDir: true } },
+    root: { index: "root", children: [], isFolder: true, data: { path: "", name: t("filePicker.loading"), isDir: true } },
   });
   const [searchTreeItems, setSearchTreeItems] = useState<Record<TreeItemIndex, TreeItem<FsNodeData>> | null>(null);
   const [searchDuration, setSearchDuration] = useState<number | null>(null);
@@ -232,7 +235,7 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
       rootsRef.current = roots;
       const rootChildren: TreeItemIndex[] = roots.map((_, i) => `root_${i}`);
       const items: Record<TreeItemIndex, TreeItem<FsNodeData>> = {
-        root: { index: "root", children: rootChildren, isFolder: true, data: { path: "", name: "此电脑", isDir: true } },
+        root: { index: "root", children: rootChildren, isFolder: true, data: { path: "", name: t("filePicker.thisPc"), isDir: true } },
       };
       for (const [i, r] of roots.entries()) {
         items[`root_${i}`] = { index: `root_${i}`, children: [`${LD}root_${i}`], isFolder: true, data: { path: r, name: r, isDir: true } };
@@ -443,7 +446,7 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
     const rebuild = () => {
       const matches = Array.from(allMatches.values());
       const filtered = showFiles ? matches : matches.filter((m) => m.isDir);
-      setSearchTreeItems(buildSearchTree(filtered, searchRoots));
+      setSearchTreeItems(buildSearchTree(filtered, searchRoots, t("filePicker.thisPc")));
     };
 
     let cleanup: (() => void) | null = null;
@@ -513,14 +516,14 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
       <div className="bg-surface w-[600px] max-h-[80vh] rounded-lg flex flex-col border border-hairline shadow-lg" style={{ background: "#FFFFFF" }}>
         <div className="p-4 border-b border-surface0 flex items-center justify-between gap-3">
           <div className="text-text font-medium truncate">
-            选择项目目录
+            {t("dirPicker.title")}
             {selectedPath && <span className="ml-3 text-xs text-blue font-mono">{selectedPath}</span>}
           </div>
           <div className="relative flex items-center">
             <input
               type="text"
               className="w-48 px-3 py-1.5 text-sm border border-hairline rounded bg-surface0 text-text placeholder:text-tertiary focus:outline-none focus:border-blue pr-8"
-              placeholder="搜索文件名…"
+              placeholder={t("filePicker.searchPlaceholder")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               data-testid="dir-search"
@@ -535,9 +538,9 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
         </div>
         <div className="flex-1 overflow-auto p-2 text-text" style={{ minHeight: 320 }}>
           {isSearching && searchLoading && !hasSearchResults ? (
-            <div className="flex items-center justify-center h-32 text-sm text-tertiary">搜索中…</div>
+            <div className="flex items-center justify-center h-32 text-sm text-tertiary">{t("filePicker.searching")}</div>
           ) : isSearching && !hasSearchResults ? (
-            <div className="flex items-center justify-center h-32 text-sm text-tertiary">无匹配结果</div>
+            <div className="flex items-center justify-center h-32 text-sm text-tertiary">{t("filePicker.noMatch")}</div>
           ) : (
           <ControlledTreeEnvironment<FsNodeData>
             items={displayItems}
@@ -555,7 +558,7 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
               <span className="inline-flex items-center gap-1"><Icon name={item.isFolder ? "folder" : "file"} size={12} />{item.data?.name}</span>
             )}
           >
-            <Tree treeId="dir-tree" rootItem="root" treeLabel="目录" />
+            <Tree treeId="dir-tree" rootItem="root" treeLabel={t("dirPicker.treeLabel")} />
           </ControlledTreeEnvironment>
           )}
         </div>
@@ -580,17 +583,17 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
                 }}
               />
             </span>
-            显示隐藏目录
+            {t("filePicker.showHidden")}
           </label>
           <div className="flex gap-2">
-          <button onClick={onCancel} className="px-3 py-1 text-sm text-subtext hover:text-text" data-testid="dir-cancel">取消</button>
+          <button onClick={onCancel} className="px-3 py-1 text-sm text-subtext hover:text-text" data-testid="dir-cancel">{t("common.cancel")}</button>
           <button
             onClick={() => selectedPath && onPick(selectedPath)}
             disabled={!selectedPath}
             className="px-3 py-1 text-sm rounded disabled:opacity-40"
             style={{ background: "#1D1D1F", color: "#FFFFFF" }}
             data-testid="dir-pick"
-          >选择</button>
+          >{t("dirPicker.pick")}</button>
           </div>
         </div>
       </div>

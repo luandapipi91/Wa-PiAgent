@@ -1,9 +1,12 @@
 // MemoryEmpty.tsx — 空状态组件
+import { useTranslation } from "../../i18n/useTranslation";
+
 interface Props {
   type: "memory" | "instructions";
 }
 
 export function MemoryEmpty({ type }: Props) {
+  const { t } = useTranslation();
   if (type === "instructions") {
     return (
       <div className="flex flex-col items-center justify-center py-16" data-testid="memory-empty-instructions">
@@ -15,10 +18,10 @@ export function MemoryEmpty({ type }: Props) {
             border: "1px solid var(--hairline)",
           }}
         >📄</div>
-        <h4 className="font-extrabold text-base mb-1.5 text-primary">没有指令文件</h4>
+        <h4 className="font-extrabold text-base mb-1.5 text-primary">{t("memoryEmpty.instructionsTitle")}</h4>
         <p className="text-[calc(12.5px*var(--font-scale))] text-tertiary text-center leading-relaxed">
-          当前项目根目录下没有 AGENTS.md 或 CLAUDE.md。<br />
-          创建后，智能体会自动加载作为行为指令。
+          {t("memoryEmpty.instructionsHint1")}<br />
+          {t("memoryEmpty.instructionsHint2")}
         </p>
       </div>
     );
@@ -33,10 +36,10 @@ export function MemoryEmpty({ type }: Props) {
           border: "1px solid var(--hairline)",
         }}
       >🧠</div>
-      <h4 className="font-extrabold text-lg mb-1.5 text-primary">还没有记忆</h4>
+      <h4 className="font-extrabold text-lg mb-1.5 text-primary">{t("memoryEmpty.memoryTitle")}</h4>
       <p className="text-[calc(13px*var(--font-scale))] text-tertiary text-center leading-relaxed">
-        智能体会在对话中自动学习并记住你的偏好、纠正和经验。<br />
-        开始一段对话，记忆会自动积累到这里。
+        {t("memoryEmpty.memoryHint1")}<br />
+        {t("memoryEmpty.memoryHint2")}
       </p>
     </div>
   );

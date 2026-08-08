@@ -2,11 +2,13 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useMemoryStore } from "../../store/memory";
 import { useProjectsStore } from "../../store/projects";
+import { useTranslation } from "../../i18n/useTranslation";
 import { MemoryCard } from "./MemoryCard";
 import { InstructionItem } from "./InstructionItem";
 import { MemoryEmpty } from "./MemoryEmpty";
 
 export function MemoryPage() {
+  const { t } = useTranslation();
   const {
     memories, archived, instructions, config,
     activeTab, categoryFilter, scopeFilter, memoryScope, selectedProjectId, searchQuery,
@@ -66,17 +68,17 @@ export function MemoryPage() {
         className="flex items-center justify-between px-5 py-3.5"
         style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}
       >
-        <h2 className="text-base font-extrabold text-primary m-0">🧠 记忆</h2>
+        <h2 className="text-base font-extrabold text-primary m-0">{t("memory.pageTitle")}</h2>
         <div className="flex items-center gap-4">
           <label className="flex items-center gap-2 cursor-pointer" data-testid="toggle-review">
-            <span className="text-[calc(11.5px*var(--font-scale))] text-secondary">自动学习</span>
+            <span className="text-[calc(11.5px*var(--font-scale))] text-secondary">{t("memory.toggleReview")}</span>
             <ToggleSwitch
               on={config?.reviewEnabled ?? true}
               onChange={(v) => setConfigValue({ reviewEnabled: v })}
             />
           </label>
           <label className="flex items-center gap-2 cursor-pointer" data-testid="toggle-inject">
-            <span className="text-[calc(11.5px*var(--font-scale))] text-secondary">注入提示</span>
+            <span className="text-[calc(11.5px*var(--font-scale))] text-secondary">{t("memory.toggleInject")}</span>
             <ToggleSwitch
               on={config?.memoryPolicyStyle !== "none"}
               onChange={(v) => setConfigValue({ memoryPolicyStyle: v ? "full" : "none" })}
@@ -90,9 +92,9 @@ export function MemoryPage() {
         className="flex px-5"
         style={{ background: "var(--surface)", borderBottom: "1px solid var(--hairline)" }}
       >
-        <TabButton active={activeTab === "saved"} onClick={() => setTab("saved")} label="已保存" count={memories.length} />
-        <TabButton active={activeTab === "archived"} onClick={() => setTab("archived")} label="归档" count={archived.length} />
-        <TabButton active={activeTab === "instructions"} onClick={() => setTab("instructions")} label="指令文件" count={instructions.length} />
+        <TabButton active={activeTab === "saved"} onClick={() => setTab("saved")} label={t("memory.tabSaved")} count={memories.length} />
+        <TabButton active={activeTab === "archived"} onClick={() => setTab("archived")} label={t("memory.tabArchived")} count={archived.length} />
+        <TabButton active={activeTab === "instructions"} onClick={() => setTab("instructions")} label={t("memory.tabInstructions")} count={instructions.length} />
       </div>
 
       {/* 工具栏 */}
@@ -103,7 +105,7 @@ export function MemoryPage() {
             <div className="flex gap-1.5">
               {(["all", "project", "global"] as const).map(f => (
                 <FilterChip key={f} active={scopeFilter === f} onClick={() => setScopeFilter(f)}
-                  label={f === "all" ? "全部" : f === "project" ? "项目" : "全局"} />
+                  label={f === "all" ? t("memory.filterAll") : f === "project" ? t("memory.filterProject") : t("memory.filterGlobal")} />
               ))}
             </div>
             <div className="flex-1" />
@@ -139,7 +141,7 @@ export function MemoryPage() {
             <input
               className="flex-1 text-[calc(12px*var(--font-scale))] px-3 py-1.5 rounded-lg min-w-0"
               style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)" }}
-              placeholder="🔍 搜索记忆..."
+              placeholder={t("memory.searchPlaceholder")}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               data-testid="memory-search"
@@ -147,7 +149,7 @@ export function MemoryPage() {
             <div className="flex gap-1.5 shrink-0">
               {(["all", "memory", "user", "failure"] as const).map(f => (
                 <FilterChip key={f} active={categoryFilter === f} onClick={() => setCategoryFilter(f)}
-                  label={f === "all" ? "全部" : f === "memory" ? "记忆" : f === "user" ? "用户" : "失败"} />
+                  label={f === "all" ? t("memory.filterAll") : f === "memory" ? t("memory.categoryMemory") : f === "user" ? t("memory.categoryUser") : t("memory.categoryFailure")} />
               ))}
             </div>
             {activeTab === "saved" && (
@@ -156,7 +158,7 @@ export function MemoryPage() {
                 className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1.5 rounded-md text-white shrink-0"
                 style={{ background: "var(--accent)", border: "none" }}
                 data-testid="memory-add-button"
-              >+ 添加</button>
+              >{t("memory.addButton")}</button>
             )}
           </>
         )}
@@ -168,7 +170,7 @@ export function MemoryPage() {
           <textarea
             className="w-full text-[calc(12px*var(--font-scale))] p-2.5 rounded-lg resize-none"
             style={{ background: "var(--canvas)", border: "1px solid var(--hairline)", color: "var(--text-primary)", minHeight: 72 }}
-            placeholder={`输入要保存的${memoryScope === "global" ? "全局" : "项目"}记忆...`}
+            placeholder={memoryScope === "global" ? t("memory.addPlaceholderGlobal") : t("memory.addPlaceholderProject")}
             value={newMemoryText}
             onChange={e => setNewMemoryText(e.target.value)}
             data-testid="memory-add-textarea"
@@ -178,7 +180,7 @@ export function MemoryPage() {
               onClick={() => { setShowAddForm(false); setNewMemoryText(""); }}
               className="text-[calc(11px*var(--font-scale))] px-3 py-1 rounded-md"
               style={{ border: "1px solid var(--hairline)", color: "var(--text-secondary)" }}
-            >取消</button>
+            >{t("memory.addCancel")}</button>
             <button
               onClick={() => {
                 const text = newMemoryText.trim();
@@ -190,7 +192,7 @@ export function MemoryPage() {
               className="text-[calc(11px*var(--font-scale))] font-semibold px-3 py-1 rounded-md text-white"
               style={{ background: "var(--accent)", border: "none" }}
               data-testid="memory-add-save"
-            >保存</button>
+            >{t("memory.addSave")}</button>
           </div>
         </div>
       )}
@@ -275,10 +277,11 @@ function MemoryScopeDropdown({ memoryScope, selectedProjectId, projects, onSelec
   projects: { id: string; name: string }[];
   onSelect: (scope: "global" | "project", projectId?: string) => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const label = memoryScope === "global"
-    ? "全局记忆"
-    : (projects.find(p => p.id === selectedProjectId)?.name ?? "项目记忆");
+    ? t("memory.scopeGlobalBtn")
+    : (projects.find(p => p.id === selectedProjectId)?.name ?? t("memory.scopeProjectBtn"));
 
   const itemStyle = (active: boolean): CSSProperties => ({
     color: active ? "var(--accent)" : "var(--text-primary)",
@@ -316,7 +319,7 @@ function MemoryScopeDropdown({ memoryScope, selectedProjectId, projects, onSelec
               className="block w-full text-left text-[calc(11.5px*var(--font-scale))] px-3 py-1.5"
               style={itemStyle(memoryScope === "global")}
               data-testid="memory-scope-option-global"
-            >🌐 全局记忆</button>
+            >{t("memory.globalOption")}</button>
             {projects.length > 0 && (
               <div className="my-1" style={{ borderTop: "1px solid var(--hairline)" }} />
             )}
@@ -329,7 +332,7 @@ function MemoryScopeDropdown({ memoryScope, selectedProjectId, projects, onSelec
                 style={itemStyle(memoryScope === "project" && selectedProjectId === p.id)}
                 data-testid={`memory-scope-option-project-${p.id}`}
                 title={p.name}
-              >📁 {p.name}</button>
+              >{t("memory.projectOption", { name: p.name })}</button>
             ))}
           </div>
         </>

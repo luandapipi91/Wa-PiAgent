@@ -9,6 +9,7 @@ import { api } from "../api-client";
 import { expandTokens } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
 import { AgentDropdown } from "./ui/AgentDropdown";
+import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
   /** 侧栏/宫格「新建会话」带过来的预选智能体；为空则取最近使用的智能体 */
@@ -32,6 +33,7 @@ function pickDefaultAgent(
 }
 
 export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: Props) {
+  const { t } = useTranslation();
   const { projects, currentProjectId, sessions } = useProjectsStore();
   const agents = useAgentsStore(s => s.list);
   // 默认选中最近使用的智能体（pendingAgent 优先）；空列表时为 null（发送前置条件拦截）
@@ -188,8 +190,8 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-10" data-testid="new-session-pane">
-      <h2 className="text-[calc(26px*var(--font-scale))] font-extrabold tracking-tight text-primary mb-2">开始新会话</h2>
-      <p className="text-sm text-secondary mb-7">选好项目目录和角色，直接打字发送</p>
+      <h2 className="text-[calc(26px*var(--font-scale))] font-extrabold tracking-tight text-primary mb-2">{t("newSession.title")}</h2>
+      <p className="text-sm text-secondary mb-7">{t("newSession.subtitle")}</p>
       <div className="w-full max-w-2xl mb-4 flex gap-2 items-center">
         <select
           value={projectId ?? ""}
@@ -197,7 +199,7 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
           className="flex-1 min-w-0 bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[calc(12.5px*var(--font-scale))]"
           data-testid="project-select"
         >
-          {projects.length === 0 && <option value="">（无项目，请先新建）</option>}
+          {projects.length === 0 && <option value="">{t("newSession.noProjectOption")}</option>}
           {projects.map(p => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -224,7 +226,7 @@ export function NewSessionPane({ pendingAgent = null, onConsumePendingAgent }: P
         sessionId={sessionId}
         onSend={handleSend}
         sendDisabled={!projectId || !agentName}
-        placeholder="给研发发消息..."
+        placeholder={t("newSession.placeholder", { agent: agentName ?? "研发" })}
         currentAgentName={agentName ?? undefined}
         isRunning={false}
         isNewSession={true}

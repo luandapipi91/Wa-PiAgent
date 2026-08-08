@@ -2,6 +2,7 @@
 // 插件「附加命令」弹窗：打开时拉取 /api/extensions/commands，按 packageName 过滤，
 // 每条命令带开关（默认关）。
 import { useEffect, useState } from "react";
+import { useTranslation } from "../../i18n/useTranslation";
 import type { CommandInfo } from "@wa-pi/shared";
 import { api } from "../../api-client";
 import { Modal } from "../ui/Modal";
@@ -17,6 +18,7 @@ export function CommandListModal({
 }: CommandListModalProps) {
 	const [commands, setCommands] = useState<CommandInfo[]>([]);
 	const [loading, setLoading] = useState(true);
+	const { t } = useTranslation();
 
 	// 打开时拉取全部命令并按 packageName 过滤
 	useEffect(() => {
@@ -67,13 +69,13 @@ export function CommandListModal({
 			{/* 标题栏 */}
 			<div className="flex items-center justify-between px-4 py-3 border-b border-hairline">
 				<span className="text-sm font-semibold text-primary">
-					⌘ {packageName} · 附加命令
+					{t("settings.extension.commandTitle", { name: packageName })}
 				</span>
 				<button
 					className="text-lg leading-none text-tertiary hover:text-primary cursor-pointer"
 					onClick={onClose}
 					data-testid="cmd-modal-close"
-					aria-label="关闭"
+					aria-label={t("common.close")}
 				>
 					×
 				</button>
@@ -93,16 +95,16 @@ export function CommandListModal({
 								borderTopColor: "var(--accent)",
 								animation: "spin 0.8s linear infinite",
 							}}
-						/>
-						加载命令…
-					</div>
-				) : commands.length === 0 ? (
-					<p
-						className="text-sm text-tertiary py-6 text-center"
-						data-testid="cmd-empty"
-					>
-						该插件未注册斜杠命令
-					</p>
+							/>
+							{t("settings.extension.commandLoading")}
+						</div>
+					) : commands.length === 0 ? (
+						<p
+							className="text-sm text-tertiary py-6 text-center"
+							data-testid="cmd-empty"
+						>
+							{t("settings.extension.commandEmpty")}
+						</p>
 				) : (
 					commands.map((cmd) => (
 						<div

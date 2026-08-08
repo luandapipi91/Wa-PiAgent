@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from "react";
 import type { AttachmentDraft, ThinkingLevel } from "@wa-pi/shared";
 import { isModelAvailable, SUBAGENT_TYPES } from "@wa-pi/shared";
+import { useTranslation } from "../../i18n/useTranslation";
 import { uploadFile, copyToUploads, searchFilesStream } from "../../fs-client";
 import { useProjectsStore } from "../../store/projects";
 import { useProvidersStore } from "../../store/providers";
@@ -74,6 +75,7 @@ export function ComposerInput({
 	const [uploadError, setUploadError] = useState<string | null>(null);
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const uploading = pendingUploads > 0;
+	const { t } = useTranslation();
 	// 附件选择器默认定位到当前项目目录（cwd），方便就近选取项目内文件
 	const projectCwd = useProjectsStore(
 		(s) => s.projects.find((p) => p.id === projectId)?.cwd,
@@ -226,34 +228,34 @@ export function ComposerInput({
 		const builtinCommands: MenuItem[] = [
 			{
 				id: "cmd:settings",
-				name: "系统设置",
-				description: "打开系统设置面板",
-				source: { type: "builtin", name: "命令" },
+				name: t("composer.cmdSettings"),
+				description: t("composer.cmdSettingsDesc"),
+				source: { type: "builtin", name: t("composer.sourceCommand") },
 			},
 			{
 				id: "cmd:agents",
-				name: "智能体管理",
-				description: "管理所有智能体配置",
-				source: { type: "builtin", name: "命令" },
+				name: t("composer.cmdAgents"),
+				description: t("composer.cmdAgentsDesc"),
+				source: { type: "builtin", name: t("composer.sourceCommand") },
 			},
 			{
 				id: "cmd:skills",
-				name: "技能管理",
-				description: "管理全局技能启用/禁用",
-				source: { type: "builtin", name: "命令" },
+				name: t("composer.cmdSkills"),
+				description: t("composer.cmdSkillsDesc"),
+				source: { type: "builtin", name: t("composer.sourceCommand") },
 			},
 			{
 				id: "cmd:reload",
-				name: "重载配置",
-				description: "重建 AI 进程使技能/扩展变更生效",
-				source: { type: "builtin", name: "命令" },
+				name: t("composer.cmdReload"),
+				description: t("composer.cmdReloadDesc"),
+				source: { type: "builtin", name: t("composer.sourceCommand") },
 				disabled: isRunning || isNewSession,
 			},
 			{
 				id: "cmd:compact",
-				name: "压缩上下文",
-				description: "压缩会话历史释放 token（可附带自定义压缩指令）",
-				source: { type: "builtin", name: "命令" },
+				name: t("composer.cmdCompact"),
+				description: t("composer.cmdCompactDesc"),
+				source: { type: "builtin", name: t("composer.sourceCommand") },
 				disabled: isRunning || isNewSession,
 			},
 		];
@@ -295,7 +297,7 @@ export function ComposerInput({
 			description: c.description,
 			source:
 				c.source === "extension"
-					? { type: "extension" as const, name: "插件" }
+					? { type: "extension" as const, name: t("composer.sourcePlugin") }
 					: c.source === "prompt"
 						? { type: "builtin" as const, name: "prompt" }
 						: { type: "builtin" as const, name: "pi" },
@@ -316,7 +318,7 @@ export function ComposerInput({
 			? filterItems([...frameworkItems, ...dynamicItems], q)
 			: [...frameworkItems, ...dynamicItems];
 		return [...filteredCommands, ...filteredPi, ...skillEntries];
-	}, [triggerType, trigger, allSkills, piCommands, isRunning, isNewSession]);
+	}, [triggerType, trigger, allSkills, piCommands, isRunning, isNewSession, t]);
 
 	// 当前面板列表项
 	const menuItems =
@@ -395,7 +397,7 @@ export function ComposerInput({
 					size: 0,
 				} as AttachmentDraft);
 			} catch (err) {
-				setUploadError(err instanceof Error ? err.message : "添加附件失败");
+				setUploadError(err instanceof Error ? err.message : t("composer.addAttachmentFailed"));
 			} finally {
 				setPendingUploads((n) => n - 1);
 			}
@@ -425,18 +427,18 @@ export function ComposerInput({
 							...prev,
 							{ kind, name: file.name, path, size: file.size },
 						]);
-					} catch {
-						setUploadError(`无法获取文件路径: ${file.name}`);
-					} finally {
+						} catch {
+							setUploadError(t("composer.getPathFailed", { name: file.name }));
+						} finally {
 						setPendingUploads((n) => n - 1);
 					}
 				}
 			} else {
 				// 浏览器：无法获取真实路径，维持超限提示
 				const names = oversized
-					.map((f) => `"${f.name}" (${(f.size / 1024 / 1024).toFixed(0)}MB)`)
-					.join("、");
-				setUploadError(`附件超过 ${MAX_MB}MB 上限: ${names}`);
+						.map((f) => `"${f.name}" (${(f.size / 1024 / 1024).toFixed(0)}MB)`)
+						.join("、");
+					setUploadError(t("composer.oversized", { max: MAX_MB, names }));
 			}
 		} else {
 			setUploadError(null);
@@ -457,7 +459,7 @@ export function ComposerInput({
 					{ kind, name: file.name, path, size: file.size },
 				]);
 			} catch (err) {
-				setUploadError(err instanceof Error ? err.message : "上传失败");
+				setUploadError(err instanceof Error ? err.message : t("composer.uploadFailed"));
 			} finally {
 				setPendingUploads((n) => n - 1);
 			}
@@ -698,13 +700,13 @@ export function ComposerInput({
 					emptyText={
 						triggerType === "agent"
 							? agentAskToEmpty
-								? "当前智能体无可调起的子智能体，请在智能体配置中设置关系网"
-								: "无匹配智能体"
+								? t("composer.emptyAgentNoAskTo")
+								: t("composer.emptyAgent")
 							: triggerType === "file"
-								? "无匹配文件"
+								? t("composer.emptyFile")
 								: triggerType === "skill"
-									? "无匹配技能"
-									: "无匹配命令"
+									? t("composer.emptySkill")
+									: t("composer.emptyCommand")
 					}
 				/>
 			)}
@@ -727,7 +729,7 @@ export function ComposerInput({
 							onClick={() => setPickerOpen(true)}
 							disabled={uploading}
 							className="text-lg text-secondary hover:text-primary disabled:opacity-50"
-							title="添加附件"
+							title={t("composer.addAttachment")}
 						>
 							📎
 						</button>
@@ -752,14 +754,14 @@ export function ComposerInput({
 							autoSelectEnabled={modelAutoSelectEnabled}
 						/>
 						<ThinkingSelector value={thinking} onChange={setThinking} />
-						{uploading && (
-							<span
-								className="text-xs text-tertiary"
-								data-testid="upload-spinner"
-							>
-								上传中...
-							</span>
-						)}
+							{uploading && (
+								<span
+									className="text-xs text-tertiary"
+									data-testid="upload-spinner"
+								>
+									{t("composer.uploading")}
+								</span>
+							)}
 					</div>
 					<button
 						data-testid="composer-send"

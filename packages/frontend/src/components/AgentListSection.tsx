@@ -10,6 +10,7 @@ import { selectPendingAsks } from "../store/ask";
 import { STATUS_COLORS } from "../theme/colors";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { Icon } from "./ui/Icon";
+import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
   onChatWith: (name: string) => void;
@@ -21,6 +22,7 @@ interface Props {
 interface CtxMenuState { x: number; y: number; name: string; }
 
 export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
+  const { t } = useTranslation();
   const agents = useAgentsStore(s => s.list);
   const sessions = useProjectsStore(s => s.sessions);
   const statusBySession = useSessionStore(s => s.statusBySession);
@@ -44,7 +46,7 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
       .then((u: any) => {
         if (cancelled || !u || u.count <= 0) return;
         setUsageHint(
-          `\n注意：该智能体正被 ${u.count} 个机器人（${(u.channelNames ?? []).join("、")}）使用，删除后这些机器人将改用默认智能体。`,
+          "\n" + t("agentList.usageHint", { count: u.count, names: (u.channelNames ?? []).join("、") }),
         );
       })
       .catch(() => { /* 接口失败按原文案，不阻塞删除 */ });
@@ -96,7 +98,7 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
   return (
     <div className="mb-2 mt-1 border-b border-hairline pb-2">
       <div className="text-[calc(11px*var(--font-scale))] font-bold text-tertiary px-2 pb-1 uppercase tracking-wide flex items-center justify-between">
-        智能体
+        {t("agentList.sectionTitle")}
         <span className="bg-surface-hover rounded px-1.5 normal-case">{agents.length}</span>
       </div>
       {top.map(agent => {
@@ -130,7 +132,7 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
           onClick={onMore}
           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-[calc(13px*var(--font-scale))] text-tertiary transition-colors hover:bg-surface-hover hover:text-secondary text-left"
           data-testid="agent-more"
-        >⋯ 更多智能体 ({agents.length - 3})</button>
+        >{t("agentList.more", { count: agents.length - 3 })}</button>
       )}
       {agents.length === 0 && (creating ? (
         <div className="px-2 py-1">
@@ -143,7 +145,7 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
               else if (e.key === "Escape") { setCreating(false); setNewName(""); }
             }}
             onBlur={() => { setCreating(false); setNewName(""); }}
-            placeholder="智能体名称"
+            placeholder={t("agentList.namePlaceholder")}
             className="w-full px-2 py-1.5 rounded-sm border border-hairline bg-surface text-[calc(13px*var(--font-scale))] text-primary outline-none placeholder:text-tertiary"
             data-testid="agent-empty-input"
           />
@@ -153,7 +155,7 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
           onClick={() => setCreating(true)}
           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-[calc(13px*var(--font-scale))] text-tertiary transition-colors hover:bg-surface-hover hover:text-secondary text-left"
           data-testid="agent-empty-create"
-        >＋ 新增智能体</button>
+        >{t("agentList.createAgent")}</button>
       ))}
 
       {/* agent 右键菜单 */}
@@ -172,12 +174,12 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
             onClick={() => { setCtxMenu(null); onEdit?.(ctxMenu.name); }}
             className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover inline-flex items-center gap-1.5 whitespace-nowrap"
             data-testid="agent-ctx-edit"
-          ><Icon name="edit" size={12} /> 编辑智能体</button>
+          ><Icon name="edit" size={12} />{t("agentList.ctxEdit")}</button>
           <button
             onClick={() => { setCtxMenu(null); setDeleteFor(ctxMenu.name); }}
             className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft inline-flex items-center gap-1.5 whitespace-nowrap"
             data-testid="agent-ctx-delete"
-          ><Icon name="trash" size={12} /> 删除</button>
+          ><Icon name="trash" size={12} /> {t("common.delete")}</button>
         </div>,
         document.body
       )}
@@ -186,9 +188,9 @@ export function AgentListSection({ onChatWith, onEdit, onMore }: Props) {
       {deleteFor && (
         <div data-testid="agent-delete-confirm">
           <ConfirmDialog
-            title="删除智能体"
-            message={`确定删除智能体「${agents.find(a => a.displayName === deleteFor)?.displayName ?? deleteFor}」吗？此操作不可撤销。${usageHint}`}
-            confirmText="删除"
+            title={t("agentList.deleteTitle")}
+            message={t("agentList.deleteConfirmMsg", { name: agents.find(a => a.displayName === deleteFor)?.displayName ?? deleteFor, usageHint })}
+            confirmText={t("common.delete")}
             danger
             onConfirm={() => {
               useAgentsStore.getState().deleteAgent(deleteFor);

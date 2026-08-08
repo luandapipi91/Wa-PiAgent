@@ -1,6 +1,7 @@
 import type { McpServerConfig } from "@wa-pi/shared";
 import { Modal } from "../ui/Modal";
 import { McpForm } from "./McpForm";
+import { useTranslation } from "../../i18n/useTranslation";
 
 interface Props {
   initial?: McpServerConfig;
@@ -10,7 +11,8 @@ interface Props {
 
 /** 新增/编辑 MCP 服务器的模态弹窗：Modal 壳 + 标题栏 + McpForm 表单体 */
 export function McpFormModal({ initial, onSave, onClose }: Props) {
-  const title = initial ? `编辑 ${initial.name}` : "新增 MCP 服务器";
+  const { t } = useTranslation();
+  const title = initial ? t("mcpForm.editTitle", { name: initial.name }) : t("mcpForm.addTitle");
 
   return (
     <Modal onClose={onClose} width={520} data-testid="mcp-form-modal">

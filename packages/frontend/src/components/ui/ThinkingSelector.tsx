@@ -1,10 +1,11 @@
 import type { ThinkingLevel } from "@wa-pi/shared";
+import { useTranslation } from "../../i18n/useTranslation";
 
-const LABELS: Record<ThinkingLevel, string> = {
-  disabled: "思考 off",
-  medium: "思考 mid",
-  high: "思考 high",
-  max: "思考 max",
+const LABEL_KEYS: Record<ThinkingLevel, string> = {
+  disabled: "ui.thinkingSelector.optionDisabled",
+  medium: "ui.thinkingSelector.optionMedium",
+  high: "ui.thinkingSelector.optionHigh",
+  max: "ui.thinkingSelector.optionMax",
 };
 
 interface Props {
@@ -13,18 +14,19 @@ interface Props {
 }
 
 export function ThinkingSelector({ value, onChange }: Props) {
+  const { t } = useTranslation();
   return (
     <select
       data-testid="thinking-selector"
       value={value}
       onChange={e => onChange(e.target.value as ThinkingLevel)}
-      aria-label="思考强度"
+      aria-label={t("ui.thinkingSelector.ariaLabel")}
       className="bg-transparent text-xs text-secondary outline-none cursor-pointer"
     >
-      <option value="disabled">{LABELS.disabled}</option>
-      <option value="medium">{LABELS.medium}</option>
-      <option value="high">{LABELS.high}</option>
-      <option value="max">{LABELS.max}</option>
+      <option value="disabled">{t(LABEL_KEYS.disabled)}</option>
+      <option value="medium">{t(LABEL_KEYS.medium)}</option>
+      <option value="high">{t(LABEL_KEYS.high)}</option>
+      <option value="max">{t(LABEL_KEYS.max)}</option>
     </select>
   );
 }

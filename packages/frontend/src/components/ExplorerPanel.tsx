@@ -2,10 +2,12 @@
 // 特性：扁平数组懒加载、5s 轮询、展开状态 ref 保持、右键复制路径/在访达显示、双击文件预览。
 // WaPi 的 listDir 返回 DirEntry{name,isDir}（无 path），前端按父目录拼接绝对路径。
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { TFunction } from "i18next";
 import { listDir, revealFile } from "../fs-client";
 import { copyToClipboard } from "../util/clipboard";
 import { openInFileManagerLabel } from "../util/platform";
 import { useToastStore } from "../store/toast";
+import { useTranslation } from "../i18n/useTranslation";
 import { Icon } from "./ui/Icon";
 
 type Entry = { name: string; path: string; isDir: boolean };
@@ -24,11 +26,12 @@ function joinPath(parent: string, name: string): string {
 
 /** 右键菜单 */
 function ExplorerContextMenu({
-  x, y, entry, onClose, onReveal,
+  x, y, entry, onClose, onReveal, t,
 }: {
   x: number; y: number; entry: Entry;
   onClose: () => void;
   onReveal: (path: string) => void;
+  t: TFunction;
 }) {
   useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -46,8 +49,8 @@ function ExplorerContextMenu({
 
   return (
     <div className="ep-ctx-menu" data-ctx-menu="" style={{ left: x, top: y }}>
-      <button className="ep-ctx-item" onClick={() => { void copyToClipboard(entry.path); onClose(); }}>复制路径</button>
-      <button className="ep-ctx-item" onClick={() => { onReveal(entry.path); onClose(); }}>{openInFileManagerLabel()}</button>
+      <button className="ep-ctx-item" onClick={() => { void copyToClipboard(entry.path); onClose(); }}>{t("explorer.ctxCopyPath")}</button>
+      <button className="ep-ctx-item" onClick={() => { onReveal(entry.path); onClose(); }}>{openInFileManagerLabel({ mac: t("common.openInFinder"), windows: t("common.openInExplorer"), linux: t("common.openInFileManager") })}</button>
     </div>
   );
 }
@@ -59,6 +62,7 @@ export function ExplorerPanel({
   workspaceDir: string;
   onOpenFile: (path: string) => void;
 }) {
+  const { t } = useTranslation();
   const [flatList, setFlatList] = useState<FlatNode[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; entry: Entry } | null>(null);
@@ -209,8 +213,8 @@ export function ExplorerPanel({
 
   const handleReveal = useCallback(async (path: string) => {
     try { await revealFile(path); }
-    catch { addToast("打开失败", "error"); }
-  }, [addToast]);
+    catch { addToast(t("explorer.revealFailed"), "error"); }
+  }, [addToast, t]);
 
   // 拖拽到输入框生成 @提及：dispatch 自定义事件，由 Composer 监听并插入
   const startDrag = useCallback((e: React.PointerEvent, node: FlatNode) => {
@@ -255,13 +259,13 @@ export function ExplorerPanel({
   }, []);
 
   if (!workspaceDir) {
-    return <div className="ep-empty">未设置工作目录</div>;
+    return <div className="ep-empty">{t("explorer.emptyNoWorkspace")}</div>;
   }
   if (error) {
-    return <div className="ep-empty">加载失败：{error}</div>;
+    return <div className="ep-empty">{t("explorer.loadFailed", { error })}</div>;
   }
   if (loading && flatList.length === 0) {
-    return <div className="ep-empty">加载中…</div>;
+    return <div className="ep-empty">{t("common.loading")}</div>;
   }
 
   return (
@@ -293,6 +297,7 @@ export function ExplorerPanel({
           x={ctxMenu.x} y={ctxMenu.y} entry={ctxMenu.entry}
           onClose={() => setCtxMenu(null)}
           onReveal={handleReveal}
+          t={t}
         />
       )}
     </div>
