@@ -36,6 +36,8 @@ interface Props {
 	projectId?: string;
 	sessionId: string;
 	onSend: () => void;
+	/** Ctrl/Cmd+Enter 引导发送回调（运行中走 steering，空闲等同普通发送）；不传则 Ctrl+Enter 无动作 */
+	onSendSteer?: () => void;
 	sendDisabled?: boolean;
 	disabled?: boolean;
 	placeholder?: string;
@@ -61,6 +63,7 @@ export function ComposerInput({
 	projectId,
 	sessionId,
 	onSend,
+	onSendSteer,
 	sendDisabled,
 	disabled,
 	placeholder,
@@ -676,13 +679,19 @@ export function ComposerInput({
 					return;
 				}
 			}
+			// Ctrl/Cmd+Enter：引导发送（运行中走 steering，空闲等同普通发送）
+			if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+				e.preventDefault();
+				if (canSend) onSendSteer?.();
+				return;
+			}
 			// 正常 Enter 发送
 			if (e.key === "Enter" && !e.shiftKey) {
 				e.preventDefault();
 				if (canSend) onSend();
 			}
 		},
-		[menuOpen, menuItems, highlightedIndex, handleSelect, canSend, onSend],
+		[menuOpen, menuItems, highlightedIndex, handleSelect, canSend, onSend, onSendSteer],
 	);
 
 	return (
