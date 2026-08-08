@@ -35,12 +35,14 @@ function countTools(tools: SubagentProgressEvent["tools"] | undefined) {
 
 /** 从 fleet 聚合结果中按 【agent】 分隔符切分各 agent 的回复文本。
  *  聚合格式（kernel delegate-tool）：【agent1】（失败）\n内容\n\n【agent2】\n内容。
- *  只收录 agentNames 里的 agent，避免回复正文里的【】误切。 */
+ *  返回与 agentNames 顺序一一对应的回复数组（同名 agent 按出现顺序对应同名任务）；
+ *  段落数与任务数不匹配（正文误含【】、老数据无标记）时返回 null，调用方降级为聚合显示。
+ *  修复背景：旧实现用 Map<agent, text> 同名覆盖，同名 agent 任务时前一个任务的回复被
+ *  后一个覆盖（串台/丢内容）。 */
 function extractAgentReplies(
 	full: string,
 	agentNames: string[],
-): Map<string, string> {
-	const map = new Map<string, string>();
+): string[] | null {
 	const re = /【([^】]+)】/g;
 	let match: RegExpExecArray | null;
 	const segments: Array<{ agent: string; text: string }> = [];
@@ -59,10 +61,32 @@ function extractAgentReplies(
 	if (currentAgent !== null) {
 		segments.push({ agent: currentAgent, text: full.slice(lastIndex) });
 	}
+	// 段落数必须与任务数一致：正文误含【】/老数据格式异常时切分不可靠，返回 null 降级
+	if (segments.length !== agentNames.length) return null;
+	// 校验每段 agent 名都来自任务清单，且同名出现次数不超过任务清单中同名次数
+	const nameCount = new Map<string, number>();
+	for (const n of agentNames) nameCount.set(n, (nameCount.get(n) ?? 0) + 1);
+	const segCount = new Map<string, number>();
 	for (const s of segments) {
-		if (agentNames.includes(s.agent)) map.set(s.agent, s.text.trim());
+		const c = (segCount.get(s.agent) ?? 0) + 1;
+		if (c > (nameCount.get(s.agent) ?? 0)) return null;
+		segCount.set(s.agent, c);
 	}
-	return map;
+	// 按任务清单顺序分配：同名 agent 第 k 次出现 → 清单中第 k 个同名任务
+	const out: Array<string | undefined> = new Array(agentNames.length);
+	let segIdx = 0;
+	for (let i = 0; i < agentNames.length; i++) {
+		while (
+			segIdx < segments.length &&
+			segments[segIdx].agent !== agentNames[i]
+		) {
+			segIdx++;
+		}
+		if (segIdx >= segments.length) return null;
+		out[i] = segments[segIdx].text.trim();
+		segIdx++;
+	}
+	return out as string[];
 }
 
 /** 回复 markdown memo 化：react-markdown v10 无内置 memo，每次渲染全量重解析整段文本。
@@ -128,8 +152,18 @@ function FleetTaskItem({
 	const showReply = replyText != null && replyText !== "";
 	const label = toolStats
 		? isCompleted
-			? t("blocks.fleet.taskLabelCompletedWithStats", { total: toolStats.total, done: toolStats.done, error: toolStats.error, running: toolStats.running })
-			: t("blocks.fleet.taskLabelRunningWithStats", { total: toolStats.total, done: toolStats.done, error: toolStats.error, running: toolStats.running })
+			? t("blocks.fleet.taskLabelCompletedWithStats", {
+					total: toolStats.total,
+					done: toolStats.done,
+					error: toolStats.error,
+					running: toolStats.running,
+				})
+			: t("blocks.fleet.taskLabelRunningWithStats", {
+					total: toolStats.total,
+					done: toolStats.done,
+					error: toolStats.error,
+					running: toolStats.running,
+				})
 		: showReply
 			? t("blocks.fleet.taskLabelCompletedNoStats")
 			: t("blocks.fleet.taskLabelRunning");
@@ -143,9 +177,12 @@ function FleetTaskItem({
 				style={{ cursor: "pointer" }}
 			>
 				<span>
-					{t("blocks.fleet.taskPrefix", { index })}{label}
+					{t("blocks.fleet.taskPrefix", { index })}
+					{label}
 				</span>
-				<span className="ml-auto flex-shrink-0"><Icon name={expanded ? "chevron-down" : "chevron-right"} size={10} /></span>
+				<span className="ml-auto flex-shrink-0">
+					<Icon name={expanded ? "chevron-down" : "chevron-right"} size={10} />
+				</span>
 			</button>
 			{expanded && (showReply || hasProgress || !!toolStats) && (
 				<div className="mt-1 mb-1 pl-2 border-l border-hairline">
@@ -155,7 +192,10 @@ function FleetTaskItem({
 							{statusLabel(progress!.status)} · {seconds}s
 						</div>
 					)}
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1"><Icon name="share" size={11} /><span>{t("blocks.fleet.replyLabel")}</span></div>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1">
+						<Icon name="share" size={11} />
+						<span>{t("blocks.fleet.replyLabel")}</span>
+					</div>
 					<MemoReplyMarkdown text={replyText ?? ""} sessionId={sessionId} />
 				</div>
 			)}
@@ -208,10 +248,10 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 			| undefined
 	)?.details;
 	const persistedStats = fleetDetails?.fleet;
-	// 按 agent 拆分聚合结果；无法拆分（老数据/无【】标记）时降级为聚合显示
+	// 按 agent 顺序切分各任务回复；null 表示无法可靠拆分（正文误含【】/老数据）→ 降级聚合显示
 	const agentNames = tasks.map((t) => t.agent);
 	const repliesByAgent = extractAgentReplies(full, agentNames);
-	const canSplit = repliesByAgent.size > 0;
+	const canSplit = repliesByAgent !== null;
 	const formattedFull = full.replace(/【(.+?)】/g, "\n---\n**$1**  \n");
 	const mdComponents = createMarkdownComponents(sessionId);
 
@@ -234,7 +274,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 		replyText: !result
 			? r.progress?.output
 			: canSplit
-				? repliesByAgent.get(r.agent)
+				? repliesByAgent![r.index - 1]
 				: undefined,
 	}));
 	const visibleRows = rows.filter(
@@ -273,16 +313,16 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 			{tasks.length > 0 && (
 				<div className="mb-1 space-y-1">
 					{tasks.map((tk, i) => (
-							<div key={i} className="flex items-start gap-1.5">
-								<span className="text-tertiary flex-shrink-0 mt-0.5">
-									{t("blocks.fleet.delegatePrefix", { index: i + 1 })}
-								</span>
-								<span>
-									<span className="font-semibold">【{tk.agent}】</span>
-									{tk.task}
-								</span>
-							</div>
-						))}
+						<div key={i} className="flex items-start gap-1.5">
+							<span className="text-tertiary flex-shrink-0 mt-0.5">
+								{t("blocks.fleet.delegatePrefix", { index: i + 1 })}
+							</span>
+							<span>
+								<span className="font-semibold">【{tk.agent}】</span>
+								{tk.task}
+							</span>
+						</div>
+					))}
 				</div>
 			)}
 			{/* 每任务统计行（可独立展开看回复） */}
@@ -293,7 +333,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 				>
 					{visibleRows.map((r) => (
 						<FleetTaskItem
-							key={r.agent}
+							key={`${r.index}-${r.agent}`}
 							index={r.index}
 							agent={r.agent}
 							progress={r.progress}
@@ -311,7 +351,10 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 					data-testid="text-block"
 					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
 				>
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1"><Icon name="share" size={11} /><span>{t("blocks.fleet.replyLabel")}</span></div>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1">
+						<Icon name="share" size={11} />
+						<span>{t("blocks.fleet.replyLabel")}</span>
+					</div>
 					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
 						{formattedFull}
 					</ReactMarkdown>

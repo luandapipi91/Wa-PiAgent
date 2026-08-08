@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-09
+
+### 变更
+
+- **修复(frontend)：fleet 并行派发同名 agent 任务时卡片内容串台**。根因：`FleetCard` 的 `extractAgentReplies` 用 `Map<agent, text>` 聚合——fleet 任务清单里出现同名 agent（LLM 常把多个独立任务派给同一智能体，schema 未禁止）时同名 `map.set` 覆盖，任务 1 的回复丢失、展开后显示任务 2 的内容；同时 `FleetTaskItem` 的 `key={r.agent}` 同名冲突触发 React 重复 key 警告。修复：`extractAgentReplies` 改为按段落顺序精确分配（同名按出现顺序对应同名任务），段落数与任务数不匹配（正文误含 `【】`/老数据无标记）时返回 null 降级为聚合显示；任务行 key 改为 `${index}-${agent}` 唯一。新增同名场景测试 3 个（任务 1/任务 2 各显其文 + 不同 agent 回归保护），原 18 个 FleetCard 测试全部保持通过。
+  - 影响范围：`packages/frontend/src/components/blocks/FleetCard.tsx`、`packages/frontend/tests/FleetCard-same-agent.test.tsx`。
+
+---
+
 ## 2026-08-08
 
 ### 变更
