@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-09 — 发版 v0.1.9
+
+### 变更
+
+- **发版(desktop)：发布 v0.1.9 桌面安装包（WA PI Agent，NSIS）到阿里云 OSS + GitHub Release**。自 v0.1.8 以来：会话重命名改用内置 Modal 弹窗（替代浏览器原生 prompt，新增 4 条测试）。产物 WaPi-Setup-0.1.9.exe + latest.yml 上传至 coaicom/releases/，GitHub Release v0.1.9 同步发布。
+  - 影响范围：`packages/desktop/package.json`（0.1.8 → 0.1.9）、`packages/frontend/package.json`（0.1.8 → 0.1.9）、`packages/desktop/RELEASE_NOTES.md`。
+
+---
+
 ## 2026-08-09 — 重命名会话改用内置弹窗
 
 ### 变更
