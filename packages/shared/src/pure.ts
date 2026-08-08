@@ -2,15 +2,20 @@ import type { AgentState, AgentStateKey, AgentName, AgentStatus } from "./types"
 import { SYSTEM_PROJECT_ID, SYSTEM_PROJECT_CWD } from "./constants";
 
 // 相对时间格式化：刚刚 / 2m / 1h / 昨天 / Nd / M/D
-export function formatRelativeTime(ts: number, now: number = Date.now()): string {
+// labels 可选，用于本地化"刚刚"和"昨天"（默认中文，保持导出函数兼容）。
+export function formatRelativeTime(
+  ts: number,
+  now: number = Date.now(),
+  labels?: { justNow?: string; yesterday?: string },
+): string {
   const diff = now - ts;
   const min = Math.floor(diff / 60000);
-  if (min < 1) return "刚刚";
+  if (min < 1) return labels?.justNow ?? "刚刚";
   if (min < 60) return `${min}m`;
   const hour = Math.floor(min / 60);
   if (hour < 24) return `${hour}h`;
   const day = Math.floor(hour / 24);
-  if (day === 1) return "昨天";
+  if (day === 1) return labels?.yesterday ?? "昨天";
   if (day < 7) return `${day}d`;
   const d = new Date(ts);
   return `${d.getMonth() + 1}/${d.getDate()}`;
