@@ -291,6 +291,62 @@ test("ensureStarted 创建过程中被 dispose 时清理资源并拒绝", async 
 	expect(fakes[0].alive).toBe(false); // client 已被 dispose
 });
 
+test("dispose 竞态下 getMessages 失败：不打印「拉取历史消息失败」（预期路径静默）", async () => {
+	const fakes: FakeSessionClient[] = [];
+	const { project, session, am } = await setup({
+		// start 慢 + getMessages 失败：模拟 dispose 打断拉取历史消息的竞态
+		createClientFn: (o) => {
+			const fake = new FakeSessionClient(o);
+			fake.start = async () => {
+				await new Promise((r) => setTimeout(r, 60));
+				fake.started = true;
+			};
+			fake.getMessagesError = new Error("pi rpc 进程已退出 (code=null, signal=SIGTERM)");
+			fakes.push(fake);
+			return fake as unknown as RpcClient;
+		},
+	});
+
+	const logs: string[] = [];
+	const origError = console.error;
+	console.error = (...args: unknown[]) => logs.push(String(args[0]));
+	try {
+		const startPromise = am.ensureStarted(project.id, "dev", session.id);
+		await am.disposeSession(session.id);
+		await expect(startPromise).rejects.toThrow("会话已清理");
+	} finally {
+		console.error = origError;
+	}
+
+	// 核心断言：dispose 打断 getMessages 是预期路径，不应打印拉取失败日志
+	expect(logs.some((l) => l.includes("拉取历史消息失败"))).toBe(false);
+});
+
+test("非 dispose 的 getMessages 失败：仍打印「拉取历史消息失败」（真异常保留）", async () => {
+	const fakes: FakeSessionClient[] = [];
+	const { project, session, am } = await setup({
+		createClientFn: (o) => {
+			const fake = new FakeSessionClient(o);
+			fake.getMessagesError = new Error("进程崩溃");
+			fakes.push(fake);
+			return fake as unknown as RpcClient;
+		},
+	});
+
+	const logs: string[] = [];
+	const origError = console.error;
+	console.error = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+	try {
+		// 非 dispose：ensureStarted 应成功（getMessages 兜底 messages=[]），但仍打印拉取失败
+		await am.ensureStarted(project.id, "dev", session.id);
+	} finally {
+		console.error = origError;
+	}
+
+	expect(logs.some((l) => l.includes("拉取历史消息失败"))).toBe(true);
+	expect(logs.some((l) => l.includes("进程崩溃"))).toBe(true);
+});
+
 test("创建期间收到的 abort 在 client 就绪后立即执行（pendingAborts）", async () => {
 	const { project, session, am, fakes } = await setup();
 

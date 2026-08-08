@@ -888,12 +888,16 @@ export class WSServer {
 								});
 							}
 						})
-						.catch((err) =>
+						.catch((err) => {
+							// dispose 竞态（session:delete / 空闲回收与预热并发）导致 ensureStarted
+							// 抛「会话已清理」是预期控制流，静默不打印；其他启动失败仍打 error。
+							if ((err as Error & { code?: string })?.code === "SESSION_DISPOSED")
+								return;
 							console.error(
 								`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`,
 								err,
-							),
-						);
+							);
+						});
 				};
 				if (session.piSessionFile) {
 					try {
