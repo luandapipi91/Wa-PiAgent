@@ -232,7 +232,7 @@ export function ToolCallCard({
 				>
 					{result.content.map(
 						(c: any, i: number) =>
-							c.type === "text" && <div key={i}>{c.text}</div>,
+							c?.type === "text" && <div key={i}>{c.text}</div>,
 					)}
 				</div>
 			)}

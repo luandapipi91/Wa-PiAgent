@@ -238,7 +238,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 	const full =
 		result?.content
 			.map((c: ToolResultMessage["content"][number]) =>
-				c.type === "text" ? c.text : "",
+				c?.type === "text" ? c.text : "",
 			)
 			.join("\n") ?? "";
 	// 从 result.details 读持久化的 fleet 工具统计（kernel 注入；刷新/历史会话仍可用）

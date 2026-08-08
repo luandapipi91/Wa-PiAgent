@@ -836,11 +836,11 @@ export const useSessionStore = create<SessionState>((set) => {
 						Array.isArray(msg.content) &&
 						msg.content.some(
 							(b: any) =>
-								(b.type === "text" &&
+								(b?.type === "text" &&
 									typeof b.text === "string" &&
 									b.text.trim().length > 0) ||
-								b.type === "thinking" ||
-								b.type === "toolCall",
+								b?.type === "thinking" ||
+								b?.type === "toolCall",
 						);
 					if (msg.stopReason === "error" && !hasMeaningfulContent) {
 						set((s) => ({
