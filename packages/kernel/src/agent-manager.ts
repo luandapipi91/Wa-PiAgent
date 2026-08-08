@@ -874,7 +874,11 @@ export class AgentManager {
 			const messages = await client.getMessages();
 			handle.messages = reconcileDanglingAsks(messages) as any[];
 		} catch (err) {
-			console.error(`[kernel] session ${sessionId} 拉取历史消息失败:`, err);
+			// dispose 打断 getMessages 是预期路径（reapIdleSessions/session:delete 与冷启动并发），
+			// 静默不打印；非 dispose 的拉取失败（进程崩溃等）仍打 error 便于排障。
+			if (!this.disposed.has(sessionId)) {
+				console.error(`[kernel] session ${sessionId} 拉取历史消息失败:`, err);
+			}
 			handle.messages = [];
 		}
 
@@ -882,7 +886,9 @@ export class AgentManager {
 		if (this.disposed.has(sessionId)) {
 			this.disposed.delete(sessionId);
 			this._teardownSession(sessionId);
-			throw new Error(`会话已清理: ${sessionId}`);
+			const err = new Error(`会话已清理: ${sessionId}`);
+			(err as Error & { code?: string }).code = "SESSION_DISPOSED";
+			throw err;
 		}
 
 		return handle;

@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **修复(kernel)：会话被清理与后台预热/拉取历史并发时的竞态噪音日志降级**。四个 `console.error`（拉取历史消息失败 / 后台预热会话进程失败 / pi rpc 进程已退出 / 会话已清理）在 `reapIdleSessions` 或 `session:delete` 与冷启动并发时成串打印，视觉上等同崩溃，实为预期关闭流程（jsonl 直读已兜底历史、dispose 只杀进程保留会话记录、下次发消息会重新拉起）。修复：①`agent-manager.ts` `_createSession` 的 `getMessages` catch 中 `disposed.has(sessionId)` 命中（dispose 打断拉取）→ 静默；②「会话已清理」错误加 `code = "SESSION_DISPOSED"` 语义标记；③`ws-server.ts` `prewarm` catch 识别 `SESSION_DISPOSED` → 静默。真异常（进程崩溃、非 dispose 启动失败）仍打 error 便于排障。新增 4 个回归测试（dispose 竞态静默 + 非 dispose 仍打印，agent-manager 与 ws-server 各 2 个）。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/ws-server-session-prewarm.test.ts`。
+
 - **新增(frontend)：updater store 状态机 + IPC 桥接（应用自动更新 Task 7）**。新增 `packages/frontend/src/store/updater.ts`（Zustand store）：`UpdaterStatus` 状态机（idle/checking/up-to-date/available/downloading/downloaded/error）、`applyEvent` 把 desktop `updater:event` phase 载荷映射为状态切片、`checkForUpdates`/`downloadUpdate`/`quitAndInstall` 调 `window.waPiUpdater` IPC、`initUpdater` 在 mount 时拉取版本信息并订阅事件（浏览器 dev 下无 `waPiUpdater` 直接返回）。`declare global` 补 `window.waPiUpdater` 类型声明。在 `App.tsx` 主 useEffect（`useSubagentsStore.getState().load()` 之后）调 `initUpdater()`。无单测（状态机由 Task 9 AboutSection 组件测试覆盖，YAGNI）。缩进适配现有 store 风格（tab，非简报的 2 空格）。
   - 影响范围：`packages/frontend/src/store/updater.ts`（新建）、`packages/frontend/src/App.tsx`。
 
