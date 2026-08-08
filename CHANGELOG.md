@@ -8,6 +8,13 @@
 
 ### 变更
 
+- **新增(kernel+frontend)：预设智能体支持右键查看完整提示词 + 部门筛选**。新建智能体面板的预设 Tab：卡片右键弹出完整提示词预览（新增 `GET /api/agents/presets/:id` 按需返回含正文的完整预设，列表接口仍只回元数据）；搜索框旁新增部门下拉筛选（与关键词搜索叠加生效）。
+  - 影响范围：`packages/shared/src/types.ts`（`AgentPresetGetRequest`/`AgentPresetResult`）、`packages/kernel/src/ws-server.ts`、`packages/kernel/src/routes/agents.ts`、`packages/kernel/tests/agent-presets-routes.test.ts`、`packages/frontend/src/components/onboarding/AgentCreatePicker.tsx`、`packages/frontend/src/i18n/locales/{zh,en}.ts`。
+- **修复(frontend)：宫格新建智能体面板改为独立弹窗**。之前 AgentCreatePicker 渲染在宫格卡片内部底部，被挤出视口导致点击「新建智能体」看似无反应；改为独立居中 Modal（标题栏 + 70vh 滚动区）。
+  - 影响范围：`packages/frontend/src/components/AgentGalleryModal.tsx`。
+
+---
+
 - **修复(frontend)：fleet 并行派发同名 agent 任务时卡片内容串台**。根因：`FleetCard` 的 `extractAgentReplies` 用 `Map<agent, text>` 聚合——fleet 任务清单里出现同名 agent（LLM 常把多个独立任务派给同一智能体，schema 未禁止）时同名 `map.set` 覆盖，任务 1 的回复丢失、展开后显示任务 2 的内容；同时 `FleetTaskItem` 的 `key={r.agent}` 同名冲突触发 React 重复 key 警告。修复：`extractAgentReplies` 改为按段落顺序精确分配（同名按出现顺序对应同名任务），段落数与任务数不匹配（正文误含 `【】`/老数据无标记）时返回 null 降级为聚合显示；任务行 key 改为 `${index}-${agent}` 唯一。新增同名场景测试 3 个（任务 1/任务 2 各显其文 + 不同 agent 回归保护），原 18 个 FleetCard 测试全部保持通过。
   - 影响范围：`packages/frontend/src/components/blocks/FleetCard.tsx`、`packages/frontend/tests/FleetCard-same-agent.test.tsx`。
 

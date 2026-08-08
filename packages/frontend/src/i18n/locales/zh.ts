@@ -480,6 +480,9 @@ const zh = {
 		roleLine: "角色：{{name}} · {{department}}",
 		saving: "保存中…", saveAsMine: "保存为我的智能体 ✓",
 		backToList: "← 返回列表",
+		allDepartments: "全部部门",
+		rightClickHint: "💡 右键卡片可查看完整提示词",
+		promptLoading: "加载提示词…",
 	},
 	onboardingWizard: {
 		title: "欢迎使用 — 快速初始化",

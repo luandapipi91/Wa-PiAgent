@@ -493,6 +493,9 @@ const en = {
 		roleLine: "Role: {{name}} · {{department}}",
 		saving: "Saving…", saveAsMine: "Save as my agent ✓",
 		backToList: "← Back to list",
+		allDepartments: "All departments",
+		rightClickHint: "💡 Right-click a card to view the full prompt",
+		promptLoading: "Loading prompt…",
 	},
 	onboardingWizard: {
 		title: "Welcome — Quick Setup",

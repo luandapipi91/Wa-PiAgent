@@ -1,6 +1,6 @@
 // WaPi 共享类型定义
 
-import type { AgencyPresetMeta } from "./agency-presets";
+import type { AgencyPreset, AgencyPresetMeta } from "./agency-presets";
 import type {
 	ProviderListEvent,
 	ProviderSaveEvent,
@@ -440,6 +440,11 @@ export interface AgentCreateEvent {
 export interface AgentPresetsRequest {
 	type: "agent:presets";
 }
+export interface AgentPresetGetRequest {
+	type: "agent:preset:get";
+	/** 预设 id，如 "engineering-frontend-developer" */
+	id: string;
+}
 export interface AgentCreateFromPresetEvent {
 	type: "agent:create-from-preset";
 	/** 预设 id，如 "engineering-frontend-developer" */
@@ -638,6 +643,7 @@ export type WSClientEvent =
 	| AgentListRequest
 	| AgentCreateEvent
 	| AgentPresetsRequest
+	| AgentPresetGetRequest
 	| AgentCreateFromPresetEvent
 	| AgentDeleteEvent
 	| AgentToolsListRequest
@@ -828,6 +834,11 @@ export interface AgentCreatedEvent {
 export interface AgentPresetsResult {
 	type: "agent:presets";
 	presets: AgencyPresetMeta[];
+}
+export interface AgentPresetResult {
+	type: "agent:preset";
+	/** 完整预设（含 body 正文），用于「查看提示词」 */
+	preset: AgencyPreset;
 }
 export interface AgentDeletedEvent {
 	type: "agent:deleted";
@@ -1218,6 +1229,7 @@ export type WSServerEvent =
 	| AgentListResult
 	| AgentCreatedEvent
 	| AgentPresetsResult
+	| AgentPresetResult
 	| AgentDeletedEvent
 	| AgentToolsListResult
 	| SessionUpdatedEvent
