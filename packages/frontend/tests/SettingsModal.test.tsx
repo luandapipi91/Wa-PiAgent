@@ -121,3 +121,16 @@ test("默认打开显示「通用」区块（activeSection 初始值 general）"
 		expect(screen.getByTestId("retry-max-input")).toBeTruthy(),
 	);
 });
+
+test("左侧导航选中 tab 高亮为会话选中同款浅绿底色（accent-soft）", () => {
+	render(<SettingsModal onClose={() => {}} />);
+	const general = screen.getByTestId("settings-nav-general");
+	expect(general.style.background).toBe("var(--accent-soft)");
+	expect(general.style.color).toBe("var(--accent)");
+	// 点击切到「内存」后，新选中 tab 同样浅绿，旧 tab 恢复无底色
+	fireEvent.click(screen.getByTestId("settings-nav-memory"));
+	const memory = screen.getByTestId("settings-nav-memory");
+	expect(memory.style.background).toBe("var(--accent-soft)");
+	expect(memory.style.color).toBe("var(--accent)");
+	expect(general.style.background).not.toBe("var(--accent-soft)");
+});

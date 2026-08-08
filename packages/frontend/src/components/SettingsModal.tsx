@@ -45,7 +45,7 @@ export function SettingsModal({ onClose }: Props) {
             onClick={() => setSection("general")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "general"
-              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              ? { background: "var(--accent-soft)", color: "var(--accent)" }
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-general"
           >{t("settings.nav.general")}</button>
@@ -53,28 +53,28 @@ export function SettingsModal({ onClose }: Props) {
             onClick={() => setSection("models")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "models"
-              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              ? { background: "var(--accent-soft)", color: "var(--accent)" }
               : { color: "var(--secondary)" }}
           >{t("settings.nav.models")}</button>
           <button
             onClick={() => setSection("skills")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "skills"
-              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              ? { background: "var(--accent-soft)", color: "var(--accent)" }
               : { color: "var(--secondary)" }}
           >{t("settings.nav.skills")}</button>
           <button
             onClick={() => setSection("plugins")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "plugins"
-              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              ? { background: "var(--accent-soft)", color: "var(--accent)" }
               : { color: "var(--secondary)" }}
           >{t("settings.nav.plugins")}</button>
           <button
             onClick={() => setSection("memory")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "memory"
-              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              ? { background: "var(--accent-soft)", color: "var(--accent)" }
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-memory"
           >{t("settings.nav.memory")}</button>
@@ -82,7 +82,7 @@ export function SettingsModal({ onClose }: Props) {
             onClick={() => setSection("mcp")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "mcp"
-              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              ? { background: "var(--accent-soft)", color: "var(--accent)" }
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-mcp"
           >{t("settings.nav.mcp")}</button>
@@ -90,7 +90,7 @@ export function SettingsModal({ onClose }: Props) {
             onClick={() => setSection("bots")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "bots"
-              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              ? { background: "var(--accent-soft)", color: "var(--accent)" }
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-bots"
           >{t("settings.nav.bots")}</button>
@@ -98,7 +98,7 @@ export function SettingsModal({ onClose }: Props) {
             onClick={() => setSection("diagnostics")}
             className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "diagnostics"
-              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              ? { background: "var(--accent-soft)", color: "var(--accent)" }
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-diagnostics"
           >{t("settings.nav.diagnostics")}</button>
@@ -106,7 +106,7 @@ export function SettingsModal({ onClose }: Props) {
             onClick={() => setSection("about")}
             className="relative px-2 py-1.5 rounded-sm text-sm font-medium text-left"
             style={activeSection === "about"
-              ? { background: "var(--surface-hover)", color: "var(--brand)" }
+              ? { background: "var(--accent-soft)", color: "var(--accent)" }
               : { color: "var(--secondary)" }}
             data-testid="settings-nav-about"
           >
