@@ -16,6 +16,12 @@ interface UiPrefsState {
 	/** 界面语言（默认 zh；首次启动由 i18n/detect 决定后写入）。 */
 	language: AppLanguage;
 	setLanguage: (lang: AppLanguage) => void;
+	/** 任务完成提示音开关（默认 true），即时生效。 */
+	soundTaskDone: boolean;
+	setSoundTaskDone: (v: boolean) => void;
+	/** 需要操作（ask_user_question 待回答）提示音开关（默认 true），即时生效。 */
+	soundNeedsAction: boolean;
+	setSoundNeedsAction: (v: boolean) => void;
 }
 
 export const FONT_SIZE_MIN = 12;
@@ -29,6 +35,9 @@ export const EXPORT_TURNS_DEFAULT = 1;
 
 /** 默认语言。i18n/detect.ts 负责实际首次检测，store 初始值用 zh 兜底。 */
 export const LANGUAGE_DEFAULT: AppLanguage = "zh";
+
+export const SOUND_TASK_DONE_DEFAULT = true;
+export const SOUND_NEEDS_ACTION_DEFAULT = true;
 
 const STORAGE_KEY = "wa-pi-ui-prefs";
 
@@ -70,6 +79,10 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 				// 同步 i18n 实例 + <html lang>；changeLanguage 内部幂等。
 				void changeLanguage(lang);
 			},
+			soundTaskDone: SOUND_TASK_DONE_DEFAULT,
+			setSoundTaskDone: (v) => set({ soundTaskDone: v }),
+			soundNeedsAction: SOUND_NEEDS_ACTION_DEFAULT,
+			setSoundNeedsAction: (v) => set({ soundNeedsAction: v }),
 		}),
 		{
 			name: STORAGE_KEY,
