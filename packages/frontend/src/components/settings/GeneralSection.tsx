@@ -235,7 +235,7 @@ export function GeneralSection() {
 				</span>
 			</div>
 			<div className="flex items-center">
-				<span className="text-sm text-primary" style={{ marginRight: 30 }}>
+				<span className="text-sm text-primary" style={{ marginRight: 15 }}>
 					{t("settings.general.sound.taskDone")}
 				</span>
 				<button
@@ -253,7 +253,7 @@ export function GeneralSection() {
 				/>
 			</div>
 			<div className="flex items-center">
-				<span className="text-sm text-primary" style={{ marginRight: 30 }}>
+				<span className="text-sm text-primary" style={{ marginRight: 15 }}>
 					{t("settings.general.sound.needsAction")}
 				</span>
 				<button
