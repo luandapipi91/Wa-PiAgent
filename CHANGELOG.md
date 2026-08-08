@@ -8,6 +8,9 @@
 
 ### 变更
 
+- **新增(desktop)：gitee-api 纯函数层（应用自动更新 Task 2）**。新增 `packages/desktop/src/updater/gitee-api.cjs`（CommonJS），封装 Gitee API v5 的 `releases/latest` 与 `releases/{id}/attach_files` 请求/解析，`fetch` 由调用方注入（便于测试 mock），与 electron-updater 解耦。导出 `buildGiteeApi`（返回 `{ fetchLatestRelease, fetchAttachFiles, fetchImpl }`）、`fetchText(api, url)`（下载 latest.yml 文本）、`findLatestYml(files)`（定位 Windows 通道文件）。包含 404/429 可读错误处理。修正了简报里 `buildGiteeApi` 返回对象未暴露 `fetchImpl` 导致 `fetchText` 无法命中 mock fetch 的问题。新增 6 个 `bun:test` 用例（全绿）。
+  - 影响范围：`packages/desktop/src/updater/gitee-api.cjs`、`packages/desktop/src/updater/gitee-api.test.ts`（新建 `src/updater/` 目录）。
+
 - **修复(frontend)：新建页切换模型后发送，聊天界面模型选择器显示旧模型**。`NewSessionPane` 的 `setModel` 回调原来只更新本地 state + 全局 `defaults.model`，未写入会话级 `bySession[sessionId].model`；发送后进入会话 `Composer` 读取会话级 prefs 显示旧模型（用户选的模型 A 变成了旧值 B）。修复：`setModel` 回调同步调用 `setSessionPrefs(sessionId, { model: m })`，与 `Composer.tsx` 行为对齐。新增回归测试 `NewSessionPane.test.tsx`（新建页切换模型后发送 → 会话级 prefs 记录所选模型）。
   - 影响范围：`packages/frontend/src/components/NewSessionPane.tsx`、`packages/frontend/tests/NewSessionPane.test.tsx`。
 
