@@ -184,7 +184,6 @@ export function GeneralSection() {
 						setSaved(false);
 					}}
 					className="flex-1 cursor-pointer"
-					style={{ accentColor: "var(--brand)" }}
 					data-testid="font-size-slider"
 				/>
 				<span
@@ -217,7 +216,6 @@ export function GeneralSection() {
 						setSaved(false);
 					}}
 					className="flex-1 cursor-pointer"
-					style={{ accentColor: "var(--brand)" }}
 					data-testid="export-turns-slider"
 				/>
 				<span
