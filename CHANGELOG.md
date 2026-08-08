@@ -8,7 +8,10 @@
 
 ### 变更
 
-- **新增(frontend)：系统设置-通用新增「提示音」设置**。任务完成（agent_end 终态）与需要操作（新 ask_user_question 待回答）时播放 WebAudio 蜂鸣提示音，两种事件独立开关（默认开）、各带试听按钮，即时生效并持久化到 localStorage；浏览器自动播放策略阻止时静默降级。需要操作提示音带 500ms 去抖防叠加。
+- **文档：重写 README.md，产品定位调整为「pi agent 的 GUI 框架」**。主标语从「多智能体协作工作台」改为「pi agent 的 GUI 框架——给 AI 编程智能体一个友好的桌面操作体验」；「这是什么」章节重写为 GUI 框架叙事（pi 引擎为内核、本框架提供图形化桌面体验、引擎与界面解耦），多智能体协作降级为框架之上的增值能力；新增「为什么选择 GUI」章节（CLI vs GUI 对比表）；架构章节补充「GUI 负责体验，pi 负责智能，内核负责编排」的职责定位。功能事实（特性、快速开始、项目结构、路线图等）保持不变。
+  - 影响范围：`README.md`。
+
+- **新增(frontend)：系统设置-通用新增「提示音」设置**。任务完成（agent_end 终态）与需要操作（新 ask_user_question 待回答）时播放 WebAudio 蜂鸣提示音，两种事件独立开关（默认开）、各带试听按钮，即时生效并持久化到 localStorage；浏览器自动播放策略阻止时静默降级。需要操作提示音带 500ms 去抖防叠加。开关以 switch 滑块呈现（位于「自动重试」上方）。
   - 影响范围：`packages/frontend/src/util/sound.ts`（新增）、`packages/frontend/src/store/ui-prefs.ts`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/components/settings/GeneralSection.tsx`、`packages/frontend/src/i18n/locales/{zh,en}.ts`。
 
 - **修复(frontend)：系统设置-通用页签内所有内容改为保存后才生效**。字号滑块（fontSize）与导出轮数滑块（exportTurns）原来拖动即写 store 即时生效，与同页的语言/重试配置（草稿态 + 点保存生效）行为不一致。修复：两个滑块改为草稿态（draftFontSize/draftExportTurns），拖动只改界面显示，点「保存」时才调用 `setFontSize`/`setExportTurns` 应用（仅当与当前值不同才写入）；关闭弹窗不保存则还原。导出按钮运行时读取的是已保存的 store 值，语义不变。更新 1 个测试为草稿态断言 + 新增 1 个导出轮数草稿测试。

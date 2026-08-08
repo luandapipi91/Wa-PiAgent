@@ -11,12 +11,12 @@ test("设置-通用：提示音开关可切换并持久化", async ({ page }) =>
 	const needsAction = page.getByTestId("sound-needs-action-toggle");
 	await expect(taskDone).toBeVisible();
 	await expect(needsAction).toBeVisible();
-	await expect(taskDone).toBeChecked();
-	await expect(needsAction).toBeChecked();
+	await expect(taskDone).toHaveAttribute("data-on", "true");
+	await expect(needsAction).toHaveAttribute("data-on", "true");
 
 	// 关闭任务完成提示音 → 持久化到 localStorage
 	await taskDone.click();
-	await expect(taskDone).not.toBeChecked();
+	await expect(taskDone).toHaveAttribute("data-on", "false");
 	const persisted = await page.evaluate(() => {
 		const raw = localStorage.getItem("wa-pi-ui-prefs");
 		return raw ? JSON.parse(raw).state : null;
@@ -27,5 +27,8 @@ test("设置-通用：提示音开关可切换并持久化", async ({ page }) =>
 	// 刷新后保持
 	await page.reload();
 	await page.getByTestId("settings-btn").click();
-	await expect(page.getByTestId("sound-task-done-toggle")).not.toBeChecked();
+	await expect(page.getByTestId("sound-task-done-toggle")).toHaveAttribute(
+		"data-on",
+		"false",
+	);
 });

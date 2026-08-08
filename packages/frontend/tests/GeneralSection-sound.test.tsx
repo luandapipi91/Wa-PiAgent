@@ -37,16 +37,12 @@ async function renderLoaded() {
 	await waitFor(() => screen.getByTestId("retry-max-input"));
 }
 
-test("渲染两个提示音开关（默认勾选）与试听按钮", async () => {
+test("渲染两个提示音开关（默认开）与试听按钮", async () => {
 	await renderLoaded();
-	const taskDone = screen.getByTestId(
-		"sound-task-done-toggle",
-	) as HTMLInputElement;
-	const needsAction = screen.getByTestId(
-		"sound-needs-action-toggle",
-	) as HTMLInputElement;
-	expect(taskDone.checked).toBe(true);
-	expect(needsAction.checked).toBe(true);
+	const taskDone = screen.getByTestId("sound-task-done-toggle");
+	const needsAction = screen.getByTestId("sound-needs-action-toggle");
+	expect(taskDone.getAttribute("data-on")).toBe("true");
+	expect(needsAction.getAttribute("data-on")).toBe("true");
 	expect(screen.getByTestId("sound-task-done-preview")).toBeTruthy();
 	expect(screen.getByTestId("sound-needs-action-preview")).toBeTruthy();
 });
@@ -55,6 +51,9 @@ test("切换任务完成开关：即时写入 store 并持久化，无需点保�
 	await renderLoaded();
 	fireEvent.click(screen.getByTestId("sound-task-done-toggle"));
 	expect(useUiPrefsStore.getState().soundTaskDone).toBe(false);
+	expect(
+		screen.getByTestId("sound-task-done-toggle").getAttribute("data-on"),
+	).toBe("false");
 	const raw = localStorage.getItem("wa-pi-ui-prefs");
 	expect(JSON.parse(raw!).state.soundTaskDone).toBe(false);
 	// 另一个开关不受影响
@@ -65,6 +64,9 @@ test("切换需要操作开关：即时写入 store", async () => {
 	await renderLoaded();
 	fireEvent.click(screen.getByTestId("sound-needs-action-toggle"));
 	expect(useUiPrefsStore.getState().soundNeedsAction).toBe(false);
+	expect(
+		screen.getByTestId("sound-needs-action-toggle").getAttribute("data-on"),
+	).toBe("false");
 	expect(useUiPrefsStore.getState().soundTaskDone).toBe(true);
 });
 
