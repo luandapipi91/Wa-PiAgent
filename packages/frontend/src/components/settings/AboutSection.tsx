@@ -38,7 +38,7 @@ export function AboutSection() {
 	return (
 		<div className="flex flex-col items-center p-8 overflow-auto gap-0" data-testid="about-section">
 			<img
-				src="/app-icon.png"
+				src="/logo.svg"
 				alt="WA PI Agent"
 				className="w-24 h-24 rounded-[22px] shadow-md"
 				draggable={false}

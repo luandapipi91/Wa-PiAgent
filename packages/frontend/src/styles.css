@@ -54,11 +54,12 @@
 	--font-scale: 1;
 
 	/* —— 品牌与强调 —— */
-	--brand: #1d1d1f;
-	--brand-soft: #2c2c2e;
+	/* brand 用青蛙绿 #4BA26F（与 logo.svg / desktop BRAND_GREEN 统一） */
+	--brand: #4BA26F;
+	--brand-soft: #6BB58A;
 	--on-brand: #ffffff;
-	--accent: #5b5bd6;
-	--accent-soft: #eeeeff;
+	--accent: #4BA26F;
+	--accent-soft: #e8f5ee;
 	--on-accent: #ffffff;
 
 	/* —— 文字层级 —— */
