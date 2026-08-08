@@ -126,3 +126,30 @@ test("右键预设卡片弹出完整提示词", async () => {
   expect(body.textContent).toContain("代码审查员 Agent 人格");
   // 左键行为不受影响：仍然进入命名面板
 });
+
+test("提示词弹窗的关闭 icon 可关闭弹窗", async () => {
+  getMock.mockImplementation(async (path: string) => {
+    if (path === "/api/agents/presets") return { type: "agent:presets", presets: PRESETS };
+    if (path === "/api/agents/presets/engineering-code-reviewer") {
+      return { type: "agent:preset", preset: { ...PRESETS[0], body: "正文" } };
+    }
+    return {};
+  });
+  render(<AgentCreatePicker onCreated={() => {}} />);
+  fireEvent.click(await screen.findByTestId("picker-tab-preset"));
+  fireEvent.contextMenu(await screen.findByTestId("preset-card-engineering-code-reviewer"));
+  await screen.findByTestId("preset-prompt-body");
+  fireEvent.click(screen.getByTestId("preset-prompt-close"));
+  expect(screen.queryByTestId("preset-prompt-modal")).toBeNull();
+});
+
+test("命名面板里「返回列表」与「取消」同一行", async () => {
+  render(<AgentCreatePicker onCreated={() => {}} onCancel={() => {}} />);
+  fireEvent.click(await screen.findByTestId("picker-tab-preset"));
+  fireEvent.click(await screen.findByTestId("preset-card-engineering-code-reviewer"));
+  const back = await screen.findByTestId("preset-back");
+  const cancel = screen.getByTestId("picker-cancel");
+  // 同一行的标志：两个按钮的直接父元素是同一个 flex 行容器
+  expect(back.parentElement).toBe(cancel.parentElement);
+  expect(back.parentElement!.className).toContain("justify-between");
+});

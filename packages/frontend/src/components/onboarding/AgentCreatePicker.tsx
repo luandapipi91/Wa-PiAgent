@@ -6,6 +6,7 @@ import { useAgentsStore } from "../../store/agents";
 import { useToastStore } from "../../store/toast";
 import { useTranslation } from "../../i18n/useTranslation";
 import { Modal } from "../ui/Modal";
+import { Icon } from "../ui/Icon";
 
 interface Props {
   /** 创建/保存成功回调（向导场景负责设默认并关闭；宫格场景负责刷新） */
@@ -43,8 +44,10 @@ export function AgentCreatePicker({ onCreated, onCancel, autoFocusTab = "blank" 
       </div>
       {tab === "blank"
         ? <BlankCreate existingNames={existingNames} onCreated={onCreated} />
-        : <PresetPick existingNames={existingNames} onCreated={onCreated} />}
-      {onCancel && <button onClick={onCancel} className="self-end text-xs text-tertiary">{t("common.cancel")}</button>}
+        : <PresetPick existingNames={existingNames} onCreated={onCreated} onCancel={onCancel} />}
+      {onCancel && tab === "blank" && (
+        <button data-testid="picker-cancel" onClick={onCancel} className="self-end text-xs text-tertiary">{t("common.cancel")}</button>
+      )}
     </div>
   );
 }
@@ -94,7 +97,7 @@ function BlankCreate({ existingNames, onCreated }: { existingNames: string[]; on
 }
 
 /** 预设选择：搜索 + 部门筛选 + 部门分组 + 命名面板；右键卡片查看完整提示词 */
-function PresetPick({ existingNames, onCreated }: { existingNames: string[]; onCreated: (n: string) => void }) {
+function PresetPick({ existingNames, onCreated, onCancel }: { existingNames: string[]; onCreated: (n: string) => void; onCancel?: () => void }) {
   const { t } = useTranslation();
   const [presets, setPresets] = useState<AgencyPresetMeta[]>([]);
   const [search, setSearch] = useState("");
@@ -150,7 +153,7 @@ function PresetPick({ existingNames, onCreated }: { existingNames: string[]; onC
 
   if (view.kind === "naming") {
     return <NamingPanel preset={view.preset} existingNames={existingNames}
-      onBack={() => setView({ kind: "list" })} onCreated={onCreated} />;
+      onBack={() => setView({ kind: "list" })} onCreated={onCreated} onCancel={onCancel} />;
   }
 
   return (
@@ -187,11 +190,25 @@ function PresetPick({ existingNames, onCreated }: { existingNames: string[]; onC
         {groups.length === 0 && <div className="py-6 text-center text-xs text-tertiary">{t("agentCreatePicker.noMatch")}</div>}
       </div>
 
+      {onCancel && (
+        <button data-testid="picker-cancel" onClick={onCancel} className="self-end text-xs text-tertiary">{t("common.cancel")}</button>
+      )}
+
       {/* 提示词预览弹窗（右键卡片打开） */}
       {promptFor && (
         <Modal onClose={() => setPromptFor(null)} width={640} data-testid="preset-prompt-modal">
-          <div className="px-5 py-3.5 border-b border-hairline text-sm font-bold text-primary">
-            {promptFor.meta.emoji} {promptFor.meta.name} · {promptFor.meta.department}
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-hairline">
+            <div className="text-sm font-bold text-primary">
+              {promptFor.meta.emoji} {promptFor.meta.name} · {promptFor.meta.department}
+            </div>
+            <button
+              data-testid="preset-prompt-close"
+              aria-label={t("common.close")}
+              onClick={() => setPromptFor(null)}
+              className="inline-flex items-center justify-center w-6 h-6 rounded-sm text-tertiary hover:text-primary cursor-pointer"
+            >
+              <Icon name="x" size={14} />
+            </button>
           </div>
           <div className="px-5 py-4 max-h-[70vh] overflow-y-auto">
             {promptFor.body === null
@@ -205,9 +222,9 @@ function PresetPick({ existingNames, onCreated }: { existingNames: string[]; onC
 }
 
 /** 命名面板：随机人名（🎲/手改）+ 角色能力 + 保存 */
-function NamingPanel({ preset, existingNames, onBack, onCreated }: {
+function NamingPanel({ preset, existingNames, onBack, onCreated, onCancel }: {
   preset: AgencyPresetMeta; existingNames: string[];
-  onBack: () => void; onCreated: (n: string) => void;
+  onBack: () => void; onCreated: (n: string) => void; onCancel?: () => void;
 }) {
   const { t } = useTranslation();
   const [name, setName] = useState(() => randomPersonName(existingNames));
@@ -254,7 +271,13 @@ function NamingPanel({ preset, existingNames, onBack, onCreated }: {
           {saving ? t("agentCreatePicker.saving") : t("agentCreatePicker.saveAsMine")}
         </button>
       </div>
-      <button data-testid="preset-back" onClick={onBack} className="self-start text-xs text-tertiary">{t("agentCreatePicker.backToList")}</button>
+      {/* 返回列表与取消同行（左/右） */}
+      <div className="flex items-center justify-between">
+        <button data-testid="preset-back" onClick={onBack} className="text-xs text-tertiary">{t("agentCreatePicker.backToList")}</button>
+        {onCancel && (
+          <button data-testid="picker-cancel" onClick={onCancel} className="text-xs text-tertiary">{t("common.cancel")}</button>
+        )}
+      </div>
     </div>
   );
 }
