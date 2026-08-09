@@ -44,6 +44,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { FilePreviewModal } from "./components/blocks/FilePreviewModal";
 import { ExtensionDialog } from "./components/ExtensionDialog";
 import { AnsiText } from "./components/ui/AnsiText";
+import { useTrashStore } from "./store/trash";
 
 export type View = "empty" | "new-session" | "session";
 
@@ -125,6 +126,7 @@ export function App() {
 			switch (e.type) {
 				case "projects:list":
 					ps.setAll(e.projects, e.sessions);
+					void useTrashStore.getState().refreshBadge();
 					break;
 				case "project:created":
 					ps.addProject(e.project);

@@ -6,6 +6,7 @@ interface TrashState {
   sessions: SessionEntity[];
   projects: ProjectEntity[];
   total: number;
+  badgeCount: number;
   currentPage: number;
   pageSize: number;
   activeProjectId: string | null;
@@ -14,6 +15,7 @@ interface TrashState {
   viewerSessionId: string | null;
 
   loadTrash: () => Promise<void>;
+  refreshBadge: () => Promise<void>;
   setPage: (page: number) => void;
   setProjectFilter: (projectId: string | null) => void;
   toggleSelect: (id: string) => void;
@@ -30,6 +32,7 @@ export const useTrashStore = create<TrashState>((set, get) => ({
   sessions: [],
   projects: [],
   total: 0,
+  badgeCount: 0,
   currentPage: 0,
   pageSize: 100,
   activeProjectId: null,
@@ -54,11 +57,19 @@ export const useTrashStore = create<TrashState>((set, get) => ({
         sessions: res.sessions ?? [],
         projects: res.projects ?? [],
         total: res.total ?? 0,
+        badgeCount: res.total ?? 0,
         loading: false,
       });
     } catch {
       set({ loading: false });
     }
+  },
+
+  refreshBadge: async () => {
+    try {
+      const res = (await api.get("/api/trash/sessions?limit=1")) as { total?: number };
+      set({ badgeCount: res?.total ?? 0 });
+    } catch { /* 角标刷新失败静默，不影响主流程 */ }
   },
 
   setPage: (page) => { set({ currentPage: page }); void get().loadTrash(); },
@@ -91,6 +102,7 @@ export const useTrashStore = create<TrashState>((set, get) => ({
       return { selectedIds: next };
     });
     await get().loadTrash();
+    void get().refreshBadge();
   },
 
   permanentlyDelete: async (ids) => {
@@ -107,6 +119,7 @@ export const useTrashStore = create<TrashState>((set, get) => ({
     const res = (await api.del("/api/trash/sessions")) as { deleted?: number };
     set({ selectedIds: new Set() });
     await get().loadTrash();
+    void get().refreshBadge();
     return res.deleted ?? 0;
   },
 
