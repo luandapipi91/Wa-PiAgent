@@ -43,6 +43,7 @@ packages/kernel/tests/user-skills*
 
 # superpowers SDD 归档（本地开发用，不入库）
 .superpowers/
+docs/superpowers/
 .reasonix/
 .playwright-mcp/
 .worktrees/
