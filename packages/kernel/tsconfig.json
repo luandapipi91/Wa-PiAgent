@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    // tsc 仅用于类型检查（构建走 bun build）；开启 allowImportingTsExtensions
+    // 以允许深导入 pi-mcp-adapter 的 TypeScript 源文件（该包只发布 .ts 源码）。
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "tests"],
+  // wa-pi-bridge.extension.ts 是「静态扩展模板」：运行时由 ensureBridgeExtension()
+  // 连同 tool-schemas.ts 一起复制到 GENERATED_DIR 供 pi 进程加载，不属于 kernel
+  // 自身类型图（其 ./tool-schemas.ts 在 kernel/src 下不存在），故排除出类型检查。
+  "exclude": ["src/wa-pi-bridge.extension.ts", "tests/fixtures"]
+}
