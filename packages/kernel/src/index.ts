@@ -16,7 +16,7 @@ import { ensurePromptsConfig } from "./system-prompt";
 import { ensureSubagentOverrides } from "./subagent-store";
 import { loadTrashSettings } from "./settings-store";
 import { classifySdkError } from "./sdk-errors";
-import { SdkEventThrottle } from "./event-throttle";
+import { SdkEventThrottle, SubagentProgressThrottle } from "./event-throttle";
 import { cleanupRecordingTemp } from "./recording-store";
 import { createCrashLogger, installCrashHandlers } from "./crash-logger";
 import { ChannelManager } from "./channel-manager";
@@ -185,6 +185,17 @@ export async function startKernel(opts?: {
 	// message_update 经 SdkEventThrottle 节流合并（每 token 全量 partial 的 O(n²) 卡顿修复），
 	// 其余事件类型原样透传、顺序不变。
 	const eventThrottle = new SdkEventThrottle((e) => broadcast(e));
+	// subagent:progress 经 SubagentProgressThrottle 窗口合并（delegate/fleet 每 token
+	// 一帧 SSE → 前端卡片每帧重渲染的卡顿修复），终态立即透传不延迟。
+	const subagentProgressThrottle = new SubagentProgressThrottle(
+		(sessionId, toolCallId, event) =>
+			broadcast({
+				type: "subagent:progress",
+				sessionId,
+				toolCallId,
+				progress: event,
+			}),
+	);
 	// 前向声明：onEvent 闭包内引用 channelManager，但其值在下方 AgentManager 构造后才赋。
 	// 闭包仅在运行期（首条事件到达时）解析，此时 const 已初始化，故安全；TS 需显式声明以通过。
 	let channelManager: ChannelManager;
@@ -261,14 +272,9 @@ export async function startKernel(opts?: {
 				)
 				.catch(() => {});
 		},
-		// 子代理进度广播出口：spawn 闭包 onProgress → onSubagentProgress → SSE subagent:progress → 前端卡片
+		// 子代理进度广播出口：spawn 闭包 onProgress → onSubagentProgress → 节流合并 → SSE subagent:progress → 前端卡片
 		onSubagentProgress: (sessionId, toolCallId, event) => {
-			broadcast({
-				type: "subagent:progress",
-				sessionId,
-				toolCallId,
-				progress: event,
-			});
+			subagentProgressThrottle.handle(sessionId, toolCallId, event);
 		},
 	});
 	// 回填真实 agentManager（绕开 TS 的「构造时已确定」语义；opts 为 private 故用 any 桥接）
