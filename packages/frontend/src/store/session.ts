@@ -245,9 +245,12 @@ function statsPatch(
 export const useSessionStore = create<SessionState>((set) => {
 	// streaming 渲染 rAF 合帧（阶段一·卡顿修复项 2）：一帧内多次 message_update
 	// 只提交一次（取最新），避免每 token 一次全量重渲染；终态事件 drop 防旧 partial 复活。
+	// 箭头包裹：裸引用 requestAnimationFrame 会被 StreamingBatcher 以成员访问方式
+	// 调用（this=batcher 实例），触发原生 rAF 的 "Illegal invocation"，导致真实浏览器
+	// 流式预览失效。箭头内裸调用 rAF，this 绑定回 globalThis/window。
 	const raf: (fn: () => void) => unknown =
 		typeof requestAnimationFrame !== "undefined"
-			? requestAnimationFrame
+			? (fn) => requestAnimationFrame(fn)
 			: (fn) => setTimeout(fn, 16);
 	const caf: (h: unknown) => void =
 		typeof cancelAnimationFrame !== "undefined"
