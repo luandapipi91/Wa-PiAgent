@@ -484,14 +484,19 @@ const en = {
 			'Delete agent "{{name}}"? This cannot be undone. {{usageHint}}',
 	},
 	agentCreatePicker: {
-		tabBlank: "✚ New agent", tabPreset: "📚 Pick from presets",
-		nameLabel: "Its name", reshuffle: "Shuffle",
+		tabBlank: "✚ New agent",
+		tabPreset: "📚 Pick from presets",
+		nameLabel: "Its name",
+		reshuffle: "Shuffle",
 		nameTaken: "This name is taken",
-		creating: "Creating…", create: "Create",
-		searchPlaceholder: "🔍 Search {{count}} preset agents (name / description)…",
+		creating: "Creating…",
+		create: "Create",
+		searchPlaceholder:
+			"🔍 Search {{count}} preset agents (name / description)…",
 		noMatch: "No matching presets",
 		roleLine: "Role: {{name}} · {{department}}",
-		saving: "Saving…", saveAsMine: "Save as my agent ✓",
+		saving: "Saving…",
+		saveAsMine: "Save as my agent ✓",
 		backToList: "← Back to list",
 		allDepartments: "All departments",
 		rightClickHint: "💡 Right-click a card to view the full prompt",
@@ -500,11 +505,16 @@ const en = {
 	onboardingWizard: {
 		title: "Welcome — Quick Setup",
 		stepIndicator: "Step {{step}} of 2",
-		step1Desc: "Set up a model provider first (or do it later — just click Next).",
-		step2Desc: "Create your first agent, or pick an expert from the preset library. They will become your default agent.",
-		back: "← Back", next: "Next →", skip: "Skip",
+		step1Desc:
+			"Set up a model provider first (or do it later — just click Next).",
+		step2Desc:
+			"Create your first agent, or pick an expert from the preset library. They will become your default agent.",
+		back: "← Back",
+		next: "Next →",
+		skip: "Skip",
 		providerSaved: "Model provider saved",
-		agentCreated: "\"{{name}}\" has joined your team and been set as the default agent",
+		agentCreated:
+			'"{{name}}" has joined your team and been set as the default agent',
 	},
 	agentList: {
 		usageHint:
@@ -520,7 +530,9 @@ const en = {
 	},
 	projectItem: {
 		renamePromptTitle: "Rename session",
+		renameProjectTitle: "Rename project",
 		ctxRenameSession: "Rename session",
+		ctxRenameProject: "Rename project",
 		ctxDeleteChat: "Delete chat",
 		ctxDeleteProject: "Delete project",
 		deleteSessionMsg: 'Delete session "{{title}}"? This cannot be undone.',
@@ -641,6 +653,7 @@ const en = {
 				needsAction: "Action required",
 				preview: "Preview",
 			},
+			autoLaunch: "Launch at login",
 		},
 		diagnostics: {
 			title: "Extension errors ({{count}} most recent)",
@@ -649,7 +662,8 @@ const en = {
 		},
 		about: {
 			version: "Version {{version}}",
-			onboardingDesc: "Reopen the onboarding wizard to configure models and the default agent",
+			onboardingDesc:
+				"Reopen the onboarding wizard to configure models and the default agent",
 			onboardingButton: "Reopen wizard",
 			checkUpdate: "Check for Updates",
 			checking: "Checking for updates…",
