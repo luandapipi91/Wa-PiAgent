@@ -151,6 +151,8 @@ export interface SessionEntity {
 	createdAt: number;
 	lastActivity: number;
 	piSessionFile: string; // SDK jsonl 文件路径 ~/.pi/agent/sessions/<id>.jsonl
+	deletedAt?: number;
+	deletedReason?: "manual" | "auto";
 }
 
 // ===== Pi 原生消息类型（镜像 @mariozechner/pi-ai，避免运行时依赖）=====
@@ -421,6 +423,28 @@ export interface SessionDeleteEvent {
 	type: "session:delete";
 	sessionId: string;
 }
+
+// ===== 回收站（软删除）WS 事件 =====
+export interface TrashListRequest {
+	type: "trash:list";
+	projectId?: string;
+	offset?: number;
+	limit?: number;
+}
+
+export interface TrashRestoreEvent {
+	type: "trash:restore";
+	sessionIds: string[];
+}
+
+export interface TrashDeleteEvent {
+	type: "trash:delete";
+	sessionIds: string[];
+}
+
+export interface TrashEmptyEvent {
+	type: "trash:empty";
+}
 export interface AgentConfigGetEvent {
 	type: "agent:config:get";
 	agentName: AgentName;
@@ -492,6 +516,13 @@ export interface SessionStatsRequest {
 export interface RetrySettings {
 	maxRetries: number; // 重试次数上限，0-10，默认 3
 	baseDelayMs: number; // 指数退避基数（ms），默认 2000；实际延迟 = baseDelayMs × 2^(n-1)
+}
+/** 回收站自动归档/清除设置（持久化在 settings.json.trash） */
+export interface TrashSettings {
+	autoArchiveEnabled: boolean;
+	autoArchiveDays: number;
+	autoPurgeEnabled: boolean;
+	autoPurgeDays: number;
 }
 /** 读取通用设置 */
 export interface SettingsGetRequest {
@@ -706,7 +737,11 @@ export type WSClientEvent =
 	| ChannelsUpdateRequest
 	| ChannelsDeleteRequest
 	| ChannelAgentUsageRequest
-	| ChannelConversationsListRequest;
+	| ChannelConversationsListRequest
+	| TrashListRequest
+	| TrashRestoreEvent
+	| TrashDeleteEvent
+	| TrashEmptyEvent;
 
 // kernel → 前端
 /** 内置 subagent 列表结果（前端 AgentConfig 展示 + 收藏用） */
@@ -764,6 +799,18 @@ export interface ProjectsListEvent {
 	type: "projects:list";
 	projects: ProjectEntity[];
 	sessions: SessionEntity[];
+}
+export interface TrashListResult {
+	type: "trash:list";
+	sessions: SessionEntity[];
+	projects: ProjectEntity[];
+	total: number;
+}
+
+export interface TrashOpResult {
+	type: "trash:op";
+	success: boolean;
+	deleted?: number;
 }
 export interface ProjectCreatedEvent {
 	type: "project:created";
@@ -1278,6 +1325,8 @@ export type WSServerEvent =
 	| ChannelAgentUsageResult
 	| ChannelConversationsResult
 	| ChannelsChangedEvent
-	| ChannelConversationsChangedEvent;
+	| ChannelConversationsChangedEvent
+	| TrashListResult
+	| TrashOpResult;
 
 export type WSEvent = WSClientEvent | WSServerEvent;
