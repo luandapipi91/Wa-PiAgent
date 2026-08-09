@@ -1,0 +1,71 @@
+# Brainstorming session files (temporary mockups)
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+target/
+test-results/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# Logs
+*.log
+
+# Vite / WaPi local state
+.vite/
+.wa-pi/
+
+# Pi local state (uncomment if you want to ignore project-local pi state)
+# .pi/
+
+# kernel 测试残留（ws-server 集成测试产生的临时文件）
+packages/kernel/tests/ws-proj*
+packages/kernel/tests/ws-sess*
+packages/kernel/tests/ws-cfg*
+packages/kernel/tests/.tmp-*
+packages/kernel/tests/.non-existent-*
+packages/kernel/tests/plock-*
+packages/kernel/tests/user-skills*
+
+# superpowers SDD 归档（本地开发用，不入库）
+.superpowers/
+docs/superpowers/
+.reasonix/
+.playwright-mcp/
+.worktrees/
+.zcode/
+# 特性开发 worktree 隔离目录
+.claude/
+
+.spike/
+
+# desktop 构建中间产物（build.ts 生成，不入库）
+packages/desktop/src/embedded/
+# 注：packages/desktop/src/embedded-assets.ts 是入库的 typed stub（让 typecheck 在
+# 全新检出下也能通过），build.ts 在打包时临时重新生成、用完恢复，必须保持 tracked。
+.mcp.json
+# 测试运行时残留：rpc-client.test.ts / bridge.test.ts 以 fixtures/pi-agent-dir-test 作
+# PI_CODING_AGENT_DIR 启动真实 pi，pi 会往里写 auth.json。属运行时产物，不入库。
+packages/kernel/tests/fixtures/pi-agent-dir-test/
+nul
+bun.lock
+
+# 本地 worktree 目录（subagent-driven-development 隔离工作区）
+.worktrees/
+
+# 隔离工作树
+.worktrees/

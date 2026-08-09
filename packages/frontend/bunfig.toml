@@ -1,0 +1,5 @@
+[test]
+preload = ["./tests/happydom-setup.ts"]
+# 排除 Playwright E2E 目录（e2e/*.spec.ts 用 @playwright/test，由 `bun run e2e`
+# 经 playwright test 运行），避免被 `bun test`(单元测试)误抓导致报错。
+pathIgnorePatterns = ["**/e2e/**"]
