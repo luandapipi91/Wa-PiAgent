@@ -112,6 +112,10 @@ async loadTrash(opts?: {
     offset?: number;
     limit?: number;
 }): Promise<{ sessions: SessionEntity[]; total: number }>
+
+// 自动清理回收站：永久删除 deletedAt < purgeBefore 的会话
+// 返回被清理的数量
+async purgeOldTrashSessions(purgeBefore: number): Promise<number>
 ```
 
 ### 5.2 WebSocket 事件（`kernel/src/ws-server.ts`）
@@ -187,7 +191,7 @@ if (settings.autoPurgeEnabled) {
 | ------ | ------ |
 | 恢复会话时原项目已被删除 | 会话 `projectId` 改为 `SYSTEM_PROJECT_ID`（默认工作区） |
 | 自动归档时用户正在使用某会话 | `touchSession` 已更新 `lastActivity`，不会误归档活跃会话 |
-| IM 会话被恢复 | 恢复后重新出现在 IM 页签列表中（通过 `channelManager` 联动） |
+| IM 会话被恢复 | `restoreSession` 后通过 `projects:list` 广播自然回到活跃列表；IM 页签列表因重新包含该 `im-` 前缀会话而自动显示 |
 | jsonl 消息文件已被手动删除 | 消息查看器显示"消息文件不存在"，元数据仍可见、可恢复 |
 | `trash:restore` 中包含不存在/非回收站的 sessionId | 跳过无效 ID，不报错，返回 `success: true` |
 | `trash:delete` 空数组 | 无操作，返回 `success: true` |
