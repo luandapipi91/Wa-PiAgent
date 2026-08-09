@@ -4,7 +4,58 @@
 
 ---
 
-## 2026-08-09 — 发版 v0.1.10
+## 2026-08-09 — 新增开机自启功能
+
+### 变更
+
+- **新增功能：系统设置 → 通用中新增「开机自启」开关，默认安装后开启**。使用 Electron 原生 `app.setLoginItemSettings` API，通过 IPC 同步前端偏好到系统注册表/启动项。仅在桌面打包版显示该选项（检测 `window.waPiApp.setLoginItem` 是否存在）。
+  - 影响范围：
+    - `packages/desktop/src/main.cjs`（新增 IPC handler `app:get-login-item` / `app:set-login-item`）
+    - `packages/desktop/src/preload.cjs`（waPiApp 暴露 `getLoginItem` / `setLoginItem`）
+    - `packages/frontend/src/store/ui-prefs.ts`（新增 `autoLaunch` 字段，默认 `AUTO_LAUNCH_DEFAULT = true`）
+    - `packages/frontend/src/components/settings/GeneralSection.tsx`（mount 时同步 store 偏好到系统 + toggle UI）
+    - `packages/frontend/src/util/clipboard.ts`（扩展 waPiApp 类型声明）
+    - `packages/frontend/src/i18n/locales/zh.ts` + `en.ts`（新增文案）
+  - 新增测试：`tests/store-ui-prefs-autolaunch.test.ts`（默认值 true + setter 持久化）。
+
+---
+
+### 变更
+
+- **修复(frontend)：不同项目（不同 ProjectItem 组件）右键时菜单重叠**。根因：`sessionMenu` 和 `projectMenu` 是每个 ProjectItem 的局部状态，跨组件不互斥。修复：右键时 dispatch 全局 `project-menu-close` 事件，所有 ProjectItem 监听该事件关闭自身菜单，确保同一时间只有一个菜单。同时修复了同一组件内会话/项目菜单的互斥逻辑。
+  - 影响范围：`packages/frontend/src/components/ProjectItem.tsx`（handler 中 `window.dispatchEvent` + 新增 `useEffect` 监听全局事件）。
+- **改进(frontend)：重命名弹窗禁止点击遮罩关闭**。防止用户误触遮罩区域导致弹窗意外关闭、输入内容丢失。改为 `closeOnOverlayClick={false}`，仅通过取消按钮、确认按钮或 ESC 关闭。
+  - 影响范围：`packages/frontend/src/components/ProjectItem.tsx`（Modal 属性 `closeOnOverlayClick={false}`）。
+  - 新增测试：`ProjectItem.rename.test.tsx`（跨组件互斥 + 遮罩不关闭）。
+
+---
+
+## 2026-08-09 — 修复右键菜单不互斥（多个菜单同时显示）
+
+### 变更
+
+- **修复(frontend)：右键项目和会话时菜单不互斥，导致多个菜单同时显示**。根因：`handleSessionContextMenu` 和 `handleProjectContextMenu` 各自只设置自己的菜单状态，不清理对方的。修复后两个 handler 在打开自己菜单前清除对方菜单状态。此修复同时解决了多菜单叠加导致的渲染卡顿和点击外部不关闭的问题。
+  - 影响范围：`packages/frontend/src/components/ProjectItem.tsx`（`handleSessionContextMenu` 加 `setProjectMenu(null)`、`handleProjectContextMenu` 加 `setSessionMenu(null)`）。
+  - 新增测试：`ProjectItem.rename.test.tsx`（右键互斥 + Modal 遮罩关闭）。
+
+---
+
+## 2026-08-09 — 项目右键菜单添加重命名功能
+
+### 变更
+
+- **新增功能(frontend)：项目右键菜单添加「重命名项目」选项，复用会话重命名的 Modal 弹窗模式**。后端 PATCH /api/projects/:id API 链路已就绪（project:update → projectStore.updateProject → broadcast），前端只需接入。系统项目（默认工作区）不显示重命名选项（与删除项目一致）。
+  - 影响范围：`packages/frontend/src/api-client.ts`（新增 `patch` 方法）、`packages/frontend/src/components/ProjectItem.tsx`（扩展 renameTarget 类型支持 ProjectEntity、新增 handleProjectRename、右键菜单加重命名项、Modal 标题区分项目/会话）、`packages/frontend/src/i18n/locales/zh.ts` + `en.ts`（新增 ctxRenameProject / renameProjectTitle 文案）。
+  - 新增测试：`packages/frontend/tests/ProjectItem.rename.test.tsx`（菜单显示/隐藏、Modal 预填、PATCH API 调用）。
+
+---
+
+## 2026-08-09 — 修复 anthropic-messages 格式 provider 测试连接 404
+
+### 变更
+
+- **修复(kernel)：`provider-test.ts` 中 `anthropic-messages` 格式的测试连接拼接路径错误**。根因：测试连接代码对 anthropic-messages 分支拼接的 URL 是 `{baseUrl}/messages`，但 Anthropic SDK（pi-ai 实际调用时使用的）拼接的是 `{baseUrl}/v1/messages`。这导致所有 baseUrl 不自带 `/v1` 的 Anthropic 兼容 provider（如 Kimi Code `https://api.kimi.com/coding`）在点击「测试连接」时返回 404 `resource_not_found_error`，尽管实际对话能正常工作。修复后路径改为 `{baseUrl}/v1/messages`，与 SDK 行为一致。同时修正了原有测试中错误的 baseUrl 约定（不应带 `/v1`），并新增 Kimi Code 回归测试。
+  - 影响范围：`packages/kernel/src/provider-test.ts`（URL 拼接 `/messages` → `/v1/messages`）、`packages/kernel/tests/provider-test.test.ts`（baseUrl 约定修正 + 新增回归测试）。
 
 ### 变更
 

@@ -22,6 +22,9 @@ interface UiPrefsState {
 	/** 需要操作（ask_user_question 待回答）提示音开关（默认 true），即时生效。 */
 	soundNeedsAction: boolean;
 	setSoundNeedsAction: (v: boolean) => void;
+	/** 开机自启开关（默认 true，安装后默认开启），通过 IPC 同步到系统注册表 */
+	autoLaunch: boolean;
+	setAutoLaunch: (v: boolean) => void;
 	/** 向导设置的默认智能体（displayName），null = 未设置 */
 	defaultAgent: string | null;
 	setDefaultAgent: (name: string | null) => void;
@@ -41,6 +44,9 @@ export const LANGUAGE_DEFAULT: AppLanguage = "zh";
 
 export const SOUND_TASK_DONE_DEFAULT = true;
 export const SOUND_NEEDS_ACTION_DEFAULT = true;
+
+/** 开机自启默认值：安装后默认开启 */
+export const AUTO_LAUNCH_DEFAULT = true;
 
 const STORAGE_KEY = "wa-pi-ui-prefs";
 
@@ -86,6 +92,8 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 			setSoundTaskDone: (v) => set({ soundTaskDone: v }),
 			soundNeedsAction: SOUND_NEEDS_ACTION_DEFAULT,
 			setSoundNeedsAction: (v) => set({ soundNeedsAction: v }),
+			autoLaunch: AUTO_LAUNCH_DEFAULT,
+			setAutoLaunch: (v) => set({ autoLaunch: v }),
 			defaultAgent: null,
 			setDefaultAgent: (name) => set({ defaultAgent: name }),
 		}),

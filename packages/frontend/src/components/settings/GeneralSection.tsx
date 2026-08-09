@@ -97,6 +97,8 @@ export function GeneralSection() {
 	const setSoundTaskDone = useUiPrefsStore((s) => s.setSoundTaskDone);
 	const soundNeedsAction = useUiPrefsStore((s) => s.soundNeedsAction);
 	const setSoundNeedsAction = useUiPrefsStore((s) => s.setSoundNeedsAction);
+	const autoLaunch = useUiPrefsStore((s) => s.autoLaunch);
+	const setAutoLaunch = useUiPrefsStore((s) => s.setAutoLaunch);
 	const { t } = useTranslation();
 	// 语言草稿：select 改草稿，点保存才 setLanguage 生效；关闭窗口丢弃草稿。
 	const [draftLang, setDraftLang] = useState<AppLanguage>(language);
@@ -123,6 +125,11 @@ export function GeneralSection() {
 			})
 			.catch((e) => setError(e instanceof Error ? e.message : String(e)))
 			.finally(() => setLoading(false));
+	}, []);
+
+	// 开机自启：mount 时将 store 偏好同步到系统
+	useEffect(() => {
+		window.waPiApp?.setLoginItem?.(autoLaunch);
 	}, []);
 
 	const handleSave = async () => {
@@ -270,6 +277,23 @@ export function GeneralSection() {
 					testId="sound-needs-action-toggle"
 				/>
 			</div>
+			{typeof window !== "undefined" && window.waPiApp?.setLoginItem && (
+				<div className="flex items-center">
+					<span className="text-sm text-primary" style={{ marginRight: 15 }}>
+						{t("settings.general.autoLaunch")}
+					</span>
+					<div className="flex-1" />
+					<SoundSwitch
+						on={autoLaunch}
+						onToggle={() => {
+							const v = !autoLaunch;
+							setAutoLaunch(v);
+							window.waPiApp?.setLoginItem?.(v);
+						}}
+						testId="auto-launch-toggle"
+					/>
+				</div>
+			)}
 			<div className="flex flex-col gap-1">
 				<span className="text-sm font-medium text-primary">
 					{t("settings.general.retry.label")}
@@ -375,16 +399,16 @@ export function GeneralSection() {
 				{saved && (
 					<span className="text-xs text-secondary">{t("common.saved")}</span>
 				)}
-					{error && (
-						<span
-							className="text-xs"
-							style={{ color: "var(--danger)" }}
-							data-testid="retry-save-error"
-						>
-							{error}
-						</span>
-					)}
-				</div>
+				{error && (
+					<span
+						className="text-xs"
+						style={{ color: "var(--danger)" }}
+						data-testid="retry-save-error"
+					>
+						{error}
+					</span>
+				)}
+			</div>
 		</div>
 	);
 }

@@ -14,8 +14,7 @@ const fsp = require("node:fs/promises");
 const { createLogger } = require("./util/log.cjs");
 const { isPortInUse, killPortOccupants } = require("./util/port.cjs");
 
-const WA_PI_DIR =
-	process.env.WA_PI_DIR || path.join(os.homedir(), ".wa-pi");
+const WA_PI_DIR = process.env.WA_PI_DIR || path.join(os.homedir(), ".wa-pi");
 const log = createLogger(path.join(WA_PI_DIR, "logs", "desktop.log"));
 
 // 与前端 --canvas 对齐：主窗口/启动页用同色底，消除首帧白屏闪烁
@@ -28,7 +27,10 @@ let sidecar = null;
 let isQuitting = false;
 // kernel 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
 // 因此固定端口，被占用时由启动页「重启应用」一键清理
-const FIXED_PORT = Number(process.env.WA_PI_WS_PORT) > 0 ? Number(process.env.WA_PI_WS_PORT) : 9778;
+const FIXED_PORT =
+	Number(process.env.WA_PI_WS_PORT) > 0
+		? Number(process.env.WA_PI_WS_PORT)
+		: 9778;
 // 内核是否就绪（mainWindow 是否已加载真实页面）。未就绪时点托盘/Dock 应聚焦启动页，而非弹出空白主窗口。
 let kernelReady = false;
 
@@ -79,7 +81,12 @@ function createSplash() {
 		icon: path.join(__dirname, "assets", "icon.ico"),
 		show: true, // 立即显示：内核首启被 Defender 扫描可能数分钟，这几分钟用户要看到进度而非白屏
 		// sandbox:false：preload 需 require('electron').clipboard 注入 waPiClipboard（sandbox 下该模块不在白名单，会导致复制失效）
-		webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false, preload: path.join(__dirname, "preload.cjs") },
+		webPreferences: {
+			nodeIntegration: false,
+			contextIsolation: true,
+			sandbox: false,
+			preload: path.join(__dirname, "preload.cjs"),
+		},
 	});
 	splashWindow.loadURL(buildSplashURL());
 	splashWindow.on("closed", () => {
@@ -100,13 +107,17 @@ function findSystemNode() {
 	const candidates =
 		process.platform === "win32"
 			? [
-				path.join(process.env.ProgramFiles || "C:\\Program Files", "nodejs", "node.exe"),
-			]
+					path.join(
+						process.env.ProgramFiles || "C:\\Program Files",
+						"nodejs",
+						"node.exe",
+					),
+				]
 			: [
-				"/opt/homebrew/bin/node",       // Apple Silicon Homebrew
-				"/usr/local/bin/node",           // Intel Homebrew / manual install
-				"/usr/bin/node",                 // Xcode CLT / system
-			];
+					"/opt/homebrew/bin/node", // Apple Silicon Homebrew
+					"/usr/local/bin/node", // Intel Homebrew / manual install
+					"/usr/bin/node", // Xcode CLT / system
+				];
 	// also check common nvm paths
 	const home = os.homedir();
 	const nvmDir = process.env.NVM_DIR || path.join(home, ".nvm");
@@ -127,7 +138,14 @@ function findSystemNode() {
 			const aliasDefault = path.join(fnmDir, "aliases", "default");
 			if (fs.existsSync(aliasDefault)) {
 				const ver = fs.readFileSync(aliasDefault, "utf8").trim();
-				const p = path.join(fnmDir, "node-versions", ver, "installation", "bin", "node");
+				const p = path.join(
+					fnmDir,
+					"node-versions",
+					ver,
+					"installation",
+					"bin",
+					"node",
+				);
 				if (fs.existsSync(p)) candidates.push(p);
 			}
 		}
@@ -138,7 +156,13 @@ function findSystemNode() {
 	return null;
 }
 
-async function ensureRuntimeBinLinks({ runtimeDir, seedDir, kernelExe, waPiDir, log }) {
+async function ensureRuntimeBinLinks({
+	runtimeDir,
+	seedDir,
+	kernelExe,
+	waPiDir,
+	log,
+}) {
 	if (!app.isPackaged) return null;
 	const binDir = path.join(waPiDir, "bin");
 	// 使用 seedDir 中的真实内核二进制路径（wa-pi-kernel 不会被复制到 runtimeDir）
@@ -147,17 +171,32 @@ async function ensureRuntimeBinLinks({ runtimeDir, seedDir, kernelExe, waPiDir, 
 	if (process.platform === "win32") {
 		// Windows 下符号链接需要权限/开发模式，改用 .cmd 包装脚本
 		const t = target;
-		await fsp.writeFile(path.join(binDir, "npx.cmd"), `@echo off\r\n"${t}" x %*\r\n`);
-		await fsp.writeFile(path.join(binDir, "bun.cmd"), `@echo off\r\n"${t}" %*\r\n`);
+		await fsp.writeFile(
+			path.join(binDir, "npx.cmd"),
+			`@echo off\r\n"${t}" x %*\r\n`,
+		);
+		await fsp.writeFile(
+			path.join(binDir, "bun.cmd"),
+			`@echo off\r\n"${t}" %*\r\n`,
+		);
 		const sysNode = findSystemNode();
 		if (sysNode) {
-			await fsp.writeFile(path.join(binDir, "node.cmd"), `@echo off\r\n"${sysNode}" %*\r\n`);
+			await fsp.writeFile(
+				path.join(binDir, "node.cmd"),
+				`@echo off\r\n"${sysNode}" %*\r\n`,
+			);
 			log.info(`[runtime-bin] Windows node.cmd -> ${sysNode} (system)`);
 		} else {
-			await fsp.writeFile(path.join(binDir, "node.cmd"), `@echo off\r\n"${t}" %*\r\n`);
+			await fsp.writeFile(
+				path.join(binDir, "node.cmd"),
+				`@echo off\r\n"${t}" %*\r\n`,
+			);
 			log.info(`[runtime-bin] Windows node.cmd -> ${t} (bun fallback)`);
 		}
-		await fsp.writeFile(path.join(binDir, "npm.cmd"), `@echo off\r\nif /i "%~1"=="exec" (shift & "${t}" x %*) else "${t}" %*\r\n`);
+		await fsp.writeFile(
+			path.join(binDir, "npm.cmd"),
+			`@echo off\r\nif /i "%~1"=="exec" (shift & "${t}" x %*) else "${t}" %*\r\n`,
+		);
 		log.info(`[runtime-bin] Windows: npx/bun/node/npm.cmd -> ${t}`);
 		return binDir;
 	}
@@ -181,14 +220,14 @@ async function ensureRuntimeBinLinks({ runtimeDir, seedDir, kernelExe, waPiDir, 
 	}
 	// npx 包装脚本：直接透传到 bun x（bun x 自动确认安装，忽略 -y/--yes）
 	const npxScript = `#!/bin/sh
-exec "${target}" x "\$@"
+exec "${target}" x "$@"
 `;
 	await fsp.writeFile(npxPath, npxScript);
 	await fsp.chmod(npxPath, 0o755);
 	// npm exec -> bun x wrapper
 	const npmScript = `#!/bin/sh
-if [ "\$1" = "exec" ]; then shift; exec "${target}" x "\$@"; fi
-exec "${target}" "\$@"
+if [ "$1" = "exec" ]; then shift; exec "${target}" x "$@"; fi
+exec "${target}" "$@"
 `;
 	await fsp.writeFile(npmPath, npmScript);
 	await fsp.chmod(npmPath, 0o755);
@@ -215,7 +254,12 @@ function createWindow() {
 		backgroundColor: CANVAS_BG,
 		icon: path.join(__dirname, "assets", "icon.ico"),
 		// sandbox:false：preload 需 require('electron').clipboard 注入 waPiClipboard（sandbox 下该模块不在白名单，会导致复制失效）
-		webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false, preload: path.join(__dirname, "preload.cjs") },
+		webPreferences: {
+			nodeIntegration: false,
+			contextIsolation: true,
+			sandbox: false,
+			preload: path.join(__dirname, "preload.cjs"),
+		},
 	});
 	// 点关闭按钮 → 最小化到托盘，不退出
 	mainWindow.on("close", (event) => {
@@ -231,7 +275,12 @@ function createWindow() {
 	// 调试：F12 / Cmd+Alt+I 打开 DevTools（打包态排查持久化等问题）
 	mainWindow.webContents.on("before-input-event", (_event, input) => {
 		if (input.type !== "keyDown") return;
-		if (input.key === "F12" || ((input.control || input.meta) && input.alt && input.key.toLowerCase() === "i")) {
+		if (
+			input.key === "F12" ||
+			((input.control || input.meta) &&
+				input.alt &&
+				input.key.toLowerCase() === "i")
+		) {
 			mainWindow.webContents.toggleDevTools();
 		}
 	});
@@ -274,8 +323,14 @@ app.commandLine.appendSwitch("ignore-gpu-blocklist");
 
 app.whenReady().then(async () => {
 	// GPU 信息取证：记录实际 GPU 后端，便于确认合成是否走了硬件加速（vs 软件渲染）。
-	app.getGPUInfo("complete")
-		.then((info) => log.info("GPU 信息:", JSON.stringify(info?.gpuDevice ?? info?.auxAttributes ?? {}, null, 0)))
+	app
+		.getGPUInfo("complete")
+		.then((info) =>
+			log.info(
+				"GPU 信息:",
+				JSON.stringify(info?.gpuDevice ?? info?.auxAttributes ?? {}, null, 0),
+			),
+		)
 		.catch(() => {});
 	// 单实例：第二实例 → 激活既有窗口
 	const gotLock = app.requestSingleInstanceLock();
@@ -311,19 +366,36 @@ app.whenReady().then(async () => {
 
 	// 端口被占用时启动页「重启应用」按钮的处理：杀掉占用 9778 的进程后重启本应用
 	ipcMain.handle("app:restart-after-port-kill", async () => {
-		const pids = await killPortOccupants(FIXED_PORT, undefined, (m) => log.info(m));
-		log.info(`[port-kill] 端口 ${FIXED_PORT} 占用进程已清理: ${pids.join(", ") || "(无)"}`);
+		const pids = await killPortOccupants(FIXED_PORT, undefined, (m) =>
+			log.info(m),
+		);
+		log.info(
+			`[port-kill] 端口 ${FIXED_PORT} 占用进程已清理: ${pids.join(", ") || "(无)"}`,
+		);
 		// 短暂等待端口真正释放
 		await new Promise((r) => setTimeout(r, 500));
 		// 清理后仍占用：幽灵句柄由无我方特征的进程持有（如 agent 帮用户起的 dev server），
 		// 自动清理无能为力——诚实提示，不再 relaunch 进同一个死循环
 		if (await isPortInUse(FIXED_PORT)) {
 			log.error(`[port-kill] 端口 ${FIXED_PORT} 清理后仍被占用，放弃重启`);
-			setProgress(-1, `端口 ${FIXED_PORT} 仍被占用，自动清理失败。请在任务管理器中结束残留的 bun / wa-pi 进程，或重启电脑后再试。`);
+			setProgress(
+				-1,
+				`端口 ${FIXED_PORT} 仍被占用，自动清理失败。请在任务管理器中结束残留的 bun / wa-pi 进程，或重启电脑后再试。`,
+			);
 			return;
 		}
 		app.relaunch();
 		app.exit(0);
+	});
+
+	// 开机自启：读取/设置系统登录项
+	ipcMain.handle("app:get-login-item", () => {
+		return app.getLoginItemSettings().openAtLogin;
+	});
+
+	ipcMain.handle("app:set-login-item", (_e, enabled) => {
+		app.setLoginItemSettings({ openAtLogin: enabled });
+		return app.getLoginItemSettings().openAtLogin;
 	});
 
 	// 托盘 + 菜单
@@ -377,8 +449,13 @@ app.whenReady().then(async () => {
 	const actualPort = FIXED_PORT;
 	if (await isPortInUse(FIXED_PORT)) {
 		log.error(`端口 ${FIXED_PORT} 被占用，等待用户在启动页点击重启`);
-		setProgress(-1, `端口 ${FIXED_PORT} 被占用，可能是上次未正常退出。点击下方按钮自动清理并重启。`);
-		splashWindow?.webContents?.executeJavaScript("window.__showRestart&&window.__showRestart()").catch(() => {});
+		setProgress(
+			-1,
+			`端口 ${FIXED_PORT} 被占用，可能是上次未正常退出。点击下方按钮自动清理并重启。`,
+		);
+		splashWindow?.webContents
+			?.executeJavaScript("window.__showRestart&&window.__showRestart()")
+			.catch(() => {});
 		return;
 	}
 	log.info(`kernel 端口固定为 ${actualPort}`);

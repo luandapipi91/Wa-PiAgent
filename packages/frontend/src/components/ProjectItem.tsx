@@ -54,7 +54,9 @@ export function ProjectItem(props: Props) {
 		null,
 	);
 	// 重命名弹窗
-	const [renameTarget, setRenameTarget] = useState<SessionEntity | null>(null);
+	const [renameTarget, setRenameTarget] = useState<
+		SessionEntity | ProjectEntity | null
+	>(null);
 	const [renameValue, setRenameValue] = useState("");
 
 	const { project, sessions, currentSessionId, selected, isNewSessionView } =
@@ -107,12 +109,14 @@ export function ProjectItem(props: Props) {
 
 	// ---- 会话右键 ----
 	const handleSessionContextMenu = (e: MouseEvent, session: SessionEntity) => {
+		window.dispatchEvent(new CustomEvent("project-menu-close"));
 		setSessionMenu({ x: e.clientX, y: e.clientY, session });
 	};
 
 	// ---- 项目右键 ----
 	const handleProjectContextMenu = (e: MouseEvent) => {
 		e.preventDefault();
+		window.dispatchEvent(new CustomEvent("project-menu-close"));
 		setProjectMenu({ x: e.clientX, y: e.clientY });
 	};
 
@@ -137,6 +141,16 @@ export function ProjectItem(props: Props) {
 		};
 	}, [sessionMenu, projectMenu]);
 
+	// 跨组件菜单互斥：任何 ProjectItem 打开菜单时关闭自己的
+	useEffect(() => {
+		const onCloseAll = () => {
+			setSessionMenu(null);
+			setProjectMenu(null);
+		};
+		window.addEventListener("project-menu-close", onCloseAll);
+		return () => window.removeEventListener("project-menu-close", onCloseAll);
+	}, []);
+
 	// ---- 操作 ----
 	const handleRename = (session: SessionEntity) => {
 		setSessionMenu(null);
@@ -144,14 +158,26 @@ export function ProjectItem(props: Props) {
 		setRenameTarget(session);
 	};
 
+	const handleProjectRename = () => {
+		setProjectMenu(null);
+		setRenameValue(project.name);
+		setRenameTarget(project);
+	};
+
 	const handleRenameConfirm = () => {
 		if (!renameTarget) return;
-		const title = renameValue.trim();
-		if (title) {
-			void api.post(
-				`/api/sessions/${encodeURIComponent(renameTarget.id)}/rename`,
-				{ title },
-			);
+		const name = renameValue.trim();
+		if (name) {
+			if ("cwd" in renameTarget) {
+				void api.patch(`/api/projects/${encodeURIComponent(renameTarget.id)}`, {
+					name,
+				});
+			} else {
+				void api.post(
+					`/api/sessions/${encodeURIComponent(renameTarget.id)}/rename`,
+					{ title: name },
+				);
+			}
 		}
 		setRenameTarget(null);
 	};
@@ -334,13 +360,22 @@ export function ProjectItem(props: Props) {
 							})}
 						</button>
 						{!isSystem && (
-							<button
-								onClick={handleProjectDeleteClick}
-								className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
-								data-testid="menu-delete-project"
-							>
-								{t("projectItem.ctxDeleteProject")}
-							</button>
+							<>
+								<button
+									onClick={handleProjectRename}
+									className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover"
+									data-testid="menu-rename-project"
+								>
+									{t("projectItem.ctxRenameProject")}
+								</button>
+								<button
+									onClick={handleProjectDeleteClick}
+									className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft"
+									data-testid="menu-delete-project"
+								>
+									{t("projectItem.ctxDeleteProject")}
+								</button>
+							</>
 						)}
 					</div>,
 					document.body,
@@ -351,11 +386,14 @@ export function ProjectItem(props: Props) {
 				<Modal
 					onClose={handleRenameCancel}
 					width={400}
+					closeOnOverlayClick={false}
 					data-testid="rename-dialog"
 				>
 					<div className="p-4 border-b border-hairline">
 						<div className="text-primary font-bold text-sm">
-							{t("projectItem.renamePromptTitle")}
+							{"cwd" in renameTarget
+								? t("projectItem.renameProjectTitle")
+								: t("projectItem.renamePromptTitle")}
 						</div>
 					</div>
 					<div className="p-4">
