@@ -441,6 +441,8 @@ export const useSessionStore = create<SessionState>((set) => {
 					s.streamingBySession[sessionId] != null ||
 					s.retryBySession[sessionId] != null;
 				if (!needReset) return {};
+				// 丢弃 batcher 挂起帧，防止 flush 把旧 partial 提交回 streamingBySession 复活
+				streamingBatcher.drop(sessionId);
 				const retryBySession = { ...s.retryBySession };
 				delete retryBySession[sessionId];
 				return {

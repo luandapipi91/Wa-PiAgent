@@ -77,3 +77,15 @@ test("message_end 定稿丢弃挂起帧：权威消息进 messages，旧 partial
   const text = (msgs[msgs.length - 1].message as any).content[0].text;
   expect(text).toBe("权威定稿"); // 不含 "旧增量"
 });
+
+test("setActiveStatus(false) 复位丢弃挂起帧：streaming 保持 null，旧 partial 不复活", async () => {
+  const h = useSessionStore.getState().handleSDKEvent;
+  h("s1", startEnv);
+  h("s1", updateEnv("旧增量")); // delta 挂起，rAF 已调度
+  // 同帧内 setActiveStatus(false) 复位（SSE 断线对齐路径）
+  useSessionStore.getState().setActiveStatus("s1", false);
+  expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
+  // 下一帧 flush 不得把挂起的旧 partial 提交回来
+  await flushFrames();
+  expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
+});
