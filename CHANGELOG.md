@@ -4,6 +4,42 @@
 
 ---
 
+## 2026-08-09 — 修复切换模型后会话模型被回滚（loadSession 竞态）
+
+### 修复
+
+- **根因**：`composer-prefs.ts` 的 `loadSession` else 分支（会话首次加载）用 `getDefaults()` 的 **T0 快照**无条件覆盖内存 `defaults`。而 `getDefaults()` 是同步读 localStorage（快照在调用时即捕获），`getSessionPrefs()` 是真实 IDB 读（挂起窗口）——窗口内用户若切换了模型，`loadSession` 完成时会把内存 defaults 回滚到开读时刻的旧值。这是「有时候切换了模型再切换回来，会话模型就变了」的竞态根因（是否触发取决于 IDB 读取是否撞上模型切换，故间歇出现）。
+
+- **修复方案**：else 分支与 existing 分支对齐同一守卫——仅当内存 `defaults.model == null`（冷启动尚未加载）时才从持久层 T0 值填充，否则保留内存当前值；会话模型回退链改为 `stored?.model ?? s.defaults.model ?? defaults.model`（优先内存当前值，再持久层快照）。
+  - 影响范围：`packages/frontend/src/store/composer-prefs.ts`
+
+### 测试
+
+- 新增确定性竞态复现测试：利用 `getDefaults()` 同步捕获快照的特性，在 `loadSession()` 返回后同步改 defaults，断言完成后内存 defaults 不被回滚（修复前 fail、修复后 pass）。
+- 全量回归：frontend 1261 pass / 0 fail，typecheck 全绿。
+
+## 2026-08-09 — 修复 fleet 同名 agent 并行委托状态显示一模一样
+
+### 修复
+
+- **根因**：fleet（并行委托）中 LLM 常把多个任务派给同一智能体（同名 agent），而进度事件/持久化统计均按 `agent` 名字做 key，同名任务互相覆盖（后写覆盖先写），导致前端各任务行显示「完成/进行中/失败一模一样」。昨日修复（6ace36c4）只解决了回复文本串台，未覆盖进度/统计通道。
+
+- **修复方案**：每个 fleet 任务分配 `taskIndex`（原始数组序号 0-based），从 kernel → bridge → store → 前端全链路携带，按序号而非名字区分各子任务：
+  - `SubagentProgressEvent` 增加 `taskIndex?: number` 字段
+  - `DelegateSpawnFn` 增加 `taskIndex?: number` 参数
+  - kernel `delegate-tool.ts`：fleet 循环传 `index` 给 spawn；`makeSpawnFn` 闭包把 `taskIndex` 注入 onProgress 事件；`details.fleet` 改按 `String(index)` 存储
+  - 前端 `store/session.ts`：`handleSubagentProgress` 按 `String(taskIndex ?? agent)` 键入（无 taskIndex 的 delegate 单任务/老数据按 agent 名降级）
+  - 前端 `FleetCard.tsx`：任务行按 `String(i)` 匹配进度/统计，老数据按 agent 名降级
+  - 影响范围：`packages/shared/src/types.ts`、`packages/kernel/src/delegate-tool.ts`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/components/blocks/FleetCard.tsx`
+
+### 测试（四层全场景覆盖）
+
+- **① 单元（kernel/store）**：kernel delegate-tool 6 例（同名 agent 多任务各收不同 taskIndex、details.fleet 按序号 key 不互相覆盖、越权项不打乱编号、onProgress 事件注入 taskIndex、delegate 单任务向后兼容）+ store 2 例（同名 agent 不同 taskIndex 独立存储、无 taskIndex 按 agent 名降级）
+- **② 组件（FleetCard）**：3 例（运行态各任务行显示各自独立工具统计、完成态 details 按序号 key 各显示各自统计、老数据按名字 key 降级不崩溃）
+- **③ 集成（agent-manager）**：2 例（fleet 3 子任务 taskIndex 端到端透传到广播、同名 agent 多任务各带不同 taskIndex 忠实复现）
+- **④ E2E（真实 Chromium）**：1 例（浏览器侧注入同名 agent fleet 数据 + progress 事件，断言各任务行显示独立统计）
+- 全量回归：kernel 840 pass / frontend 1260 pass，typecheck 全绿
+
 ## 2026-08-09 — 新增开机自启功能
 
 ### 变更

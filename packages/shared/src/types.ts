@@ -761,6 +761,8 @@ export interface SubagentProgressEvent {
 	output: string;
 	tools: Array<{ id: string; name: string; status: string }>;
 	elapsedMs: number;
+	/** fleet 任务序号（0-based）；同名 agent 多任务靠它区分，避免按 agent 名做 key 时互相覆盖 */
+	taskIndex?: number;
 }
 
 /** bridge 流式协议帧（NDJSON，每帧一行） */

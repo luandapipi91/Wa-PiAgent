@@ -57,6 +57,8 @@ export type DelegateSpawnFn = (
 	agent: string,
 	task: string,
 	toolCallId: string,
+	/** fleet 任务序号（0-based）；fleet execute 传入，spawn 闭包据此注入 onProgress 事件 */
+	taskIndex?: number,
 ) => Promise<DelegateSpawnResult>;
 
 /**
@@ -150,8 +152,18 @@ function toPiToolUsage(u?: SubagentUsage) {
 		cacheRead: t.cacheRead ?? 0,
 		cacheWrite: t.cacheWrite ?? 0,
 		totalTokens:
-			t.total ?? (t.input ?? 0) + (t.output ?? 0) + (t.cacheRead ?? 0) + (t.cacheWrite ?? 0),
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: u.costTotal ?? 0 },
+			t.total ??
+			(t.input ?? 0) +
+				(t.output ?? 0) +
+				(t.cacheRead ?? 0) +
+				(t.cacheWrite ?? 0),
+		cost: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			total: u.costTotal ?? 0,
+		},
 	};
 }
 
@@ -276,7 +288,12 @@ export function makeSpawnFn(opts: {
 }): DelegateSpawnFn {
 	const runSubagent = opts.runSubagentAgent ?? defaultRunSubagentAgent;
 	// 闭包接受 toolCallId（来自 delegate/fleet execute 透传），用于把 onProgress 关联到正确卡片
-	return async (agent: string, task: string, toolCallId: string) => {
+	return async (
+		agent: string,
+		task: string,
+		toolCallId: string,
+		taskIndex?: number,
+	) => {
 		const config = await opts.resolveConfig(agent);
 		if (!config) {
 			const result = { text: `智能体「${agent}」配置未找到`, isError: true };
@@ -319,7 +336,7 @@ export function makeSpawnFn(opts: {
 				// 把外层 onProgress(toolCallId, event) 包一层：runSubagentAgent 内部仍以
 				// (event) => void 调用，这里注入闭包捕获的 toolCallId，实现进度帧关联卡片
 				onProgress: opts.onProgress
-					? (event) => opts.onProgress!(toolCallId, event)
+					? (event) => opts.onProgress!(toolCallId, { ...event, taskIndex })
 					: undefined,
 				skillPaths,
 				extensionPaths: opts.extensionPaths,
@@ -394,9 +411,10 @@ export function makeFleetTool(opts: {
 				};
 			}
 			const results = await runWithConcurrency(
-				args.tasks.map((t) => async () => {
+				args.tasks.map((t, index) => async () => {
 					if (!canInvoke(t.agent, opts.askTo)) {
 						return {
+							index,
 							agent: t.agent,
 							text: buildNotAllowedMessage(t.agent, opts.askTo),
 							isError: true,
@@ -405,13 +423,14 @@ export function makeFleetTool(opts: {
 					// 内置 subagent 中文别名归一化（同 delegate 单任务路径）
 					const spawnAgent = normalizeSubagentType(t.agent);
 					// fleet 所有子任务共享同一个 fleet 工具调用的 toolCallId：
-					// 前端 FleetCard 靠它定位卡片，内部按 progress.agent 区分各子任务
+					// 前端 FleetCard 靠它定位卡片，内部按 progress.taskIndex 区分各子任务
 					const { text, isError, toolStats, usage } = await opts.spawn(
 						spawnAgent,
 						t.task,
 						toolCallId,
+						index,
 					);
-					return { agent: t.agent, text, isError, toolStats, usage };
+					return { index, agent: t.agent, text, isError, toolStats, usage };
 				}),
 				MAX_SUBAGENT_CONCURRENCY,
 			);
@@ -422,7 +441,7 @@ export function makeFleetTool(opts: {
 			const anyError = results.some((r) => r.isError);
 			const fleetStats: Record<string, ToolStats> = {};
 			for (const r of results)
-				if (r.toolStats) fleetStats[r.agent] = r.toolStats;
+				if (r.toolStats) fleetStats[String(r.index)] = r.toolStats;
 			return {
 				content: [{ type: "text" as const, text: lines.join("\n\n") }],
 				details: { fleet: fleetStats },

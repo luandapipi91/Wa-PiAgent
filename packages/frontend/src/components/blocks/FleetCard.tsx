@@ -261,7 +261,7 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 			? tasks.map((t, i) => ({
 					index: i + 1,
 					agent: t.agent,
-					progress: agentMap?.[t.agent],
+					progress: agentMap?.[String(i)],
 				}))
 			: agents.map((p, i) => ({
 					index: i + 1,
@@ -270,7 +270,9 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 				}))
 	).map((r) => ({
 		...r,
-		stats: persistedStats?.[r.agent],
+		// 统计优先按任务序号取（同名 agent 不再互相覆盖）；
+		// 老数据 details.fleet 按名字 key 时降级按 agent 名取
+		stats: persistedStats?.[String(r.index - 1)] ?? persistedStats?.[r.agent],
 		replyText: !result
 			? r.progress?.output
 			: canSplit

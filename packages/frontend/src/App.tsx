@@ -375,7 +375,10 @@ export function App() {
 				} catch (err: any) {
 					useToastStore
 						.getState()
-						.add(t("app.reloadFailed", { error: err?.message ?? String(err) }), "error");
+						.add(
+							t("app.reloadFailed", { error: err?.message ?? String(err) }),
+							"error",
+						);
 				} finally {
 					useSessionStore.getState().setReloading(false);
 				}
@@ -451,7 +454,9 @@ export function App() {
 					if (!st.sessions.some((x) => x.id === id)) {
 						// 兜底：会话不在本地列表（如 kernel 侧建的 IM 接入会话尚未同步）时先重拉再选中，
 						// 否则 SessionView 找不到 session 渲染空白
-						void st.load().then(() => useProjectsStore.getState().selectSession(id));
+						void st
+							.load()
+							.then(() => useProjectsStore.getState().selectSession(id));
 					} else {
 						st.selectSession(id);
 					}
@@ -504,7 +509,10 @@ export function App() {
 								animation: "spin 0.8s linear infinite",
 							}}
 						/>
-						{t("app.retrying", { attempt: retryInfo.attempt, max: retryInfo.maxAttempts })}
+						{t("app.retrying", {
+							attempt: retryInfo.attempt,
+							max: retryInfo.maxAttempts,
+						})}
 					</div>
 				)}
 				{netDegraded && !retryInfo && (
@@ -536,22 +544,27 @@ export function App() {
 						onConsumePendingAgent={() => setPendingAgent(null)}
 					/>
 				)}
-				{view === "session" && currentSessionId && (() => {
-					// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined。
-					// 群聊会话按「群+用户」隔离，文案追加群与发送者，便于在会话详情区分。
-					const imConv = conversations.find((c) => c.sessionId === currentSessionId);
-					const label = imConv
-						? imConv.chatType === "group"
-							? t("app.imSourceGroup", { channel: imConv.channelName, chatId: imConv.chatId.slice(0, 8), from: imConv.fromUserId })
-							: t("app.imSourceSingle", { channel: imConv.channelName })
-						: undefined;
-					return (
-						<SessionView
-							sessionId={currentSessionId}
-							sourceLabel={label}
-						/>
-					);
-				})()}
+				{view === "session" &&
+					currentSessionId &&
+					(() => {
+						// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined。
+						// 群聊会话按「群+用户」隔离，文案追加群与发送者，便于在会话详情区分。
+						const imConv = conversations.find(
+							(c) => c.sessionId === currentSessionId,
+						);
+						const label = imConv
+							? imConv.chatType === "group"
+								? t("app.imSourceGroup", {
+										channel: imConv.channelName,
+										chatId: imConv.chatId.slice(0, 8),
+										from: imConv.fromUserId,
+									})
+								: t("app.imSourceSingle", { channel: imConv.channelName })
+							: undefined;
+						return (
+							<SessionView sessionId={currentSessionId} sourceLabel={label} />
+						);
+					})()}
 			</main>
 			{galleryOpen && (
 				<AgentGalleryModal
