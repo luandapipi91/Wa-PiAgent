@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { api, ApiError } from "../api-client";
+import { Icon } from "./ui/Icon";
 import { useTrashStore } from "../store/trash";
 import { useTranslation } from "../i18n/useTranslation";
 import ReactMarkdown from "react-markdown";
@@ -100,7 +101,7 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 					</button>
 				</div>
 				<div className="flex-1 flex flex-col items-center justify-center text-tertiary gap-2">
-					<span className="text-3xl">⚠️</span>
+					<Icon name="warning" size={30} />
 					<span>{t("trash.messagesNotFound")}</span>
 					<span className="text-[10px] opacity-60">{error}</span>
 				</div>
@@ -123,7 +124,7 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 
 			{/* Notice */}
 			<div className="mx-5 my-2 px-3 py-2 rounded bg-warning-soft border border-warning text-xs text-warning flex items-center gap-2 shrink-0">
-				<span>⚠️</span>
+				<Icon name="warning" size={12} className="shrink-0" />
 				<span>
 					{t("trash.viewerNotice")}
 					<button
@@ -144,7 +145,7 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 					</div>
 				) : messages.length === 0 ? (
 					<div className="flex items-center justify-center h-full text-tertiary text-sm">
-						📭
+						<Icon name="inbox" size={32} />
 					</div>
 				) : (
 					<div className="flex flex-col gap-4 max-w-3xl mx-auto">
@@ -185,7 +186,8 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 
 			{/* Footer */}
 			<div className="px-5 py-2 border-t border-hairline text-center text-xs text-tertiary shrink-0">
-				📖 {t("trash.viewerReadonly")}
+				<Icon name="book" size={12} className="inline-block align-[-0.125em]" />{" "}
+				{t("trash.viewerReadonly")}
 			</div>
 		</div>
 	);

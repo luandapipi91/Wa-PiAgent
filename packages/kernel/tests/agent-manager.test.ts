@@ -301,7 +301,9 @@ test("dispose 竞态下 getMessages 失败：不打印「拉取历史消息失�
 				await new Promise((r) => setTimeout(r, 60));
 				fake.started = true;
 			};
-			fake.getMessagesError = new Error("pi rpc 进程已退出 (code=null, signal=SIGTERM)");
+			fake.getMessagesError = new Error(
+				"pi rpc 进程已退出 (code=null, signal=SIGTERM)",
+			);
 			fakes.push(fake);
 			return fake as unknown as RpcClient;
 		},
@@ -981,7 +983,9 @@ test("扩展 dirty 热重载前发 extension_ui_reset 清前端残留（活跃�
 	// 未标脏的再次命中不重载、也不再发 reset
 	events.length = 0;
 	await am.ensureStarted(project.id, "dev", session.id);
-	expect(events.filter((x) => x.e.type === "extension_ui_reset")).toHaveLength(0);
+	expect(events.filter((x) => x.e.type === "extension_ui_reset")).toHaveLength(
+		0,
+	);
 });
 
 test("热重载失败（reloadExtensions 抛错）→ 回退整进程重建 + 合成 extension_ui_reset", async () => {
@@ -1906,9 +1910,11 @@ test("getCommands 会话不存在时自动创建 session 并返回命令", async
 	expect(commands).toHaveLength(1);
 	expect(commands[0].name).toBe("goal");
 
-	// session 已被创建并存到 ProjectStore
+	// session 已被创建并存到 ProjectStore（预热占位记录：不进侧栏，首条消息时转正）
 	const { sessions } = await (am as any).opts.projectStore.load();
-	expect(sessions.find((s: any) => s.id === "new-session-id")).toBeTruthy();
+	const created = sessions.find((s: any) => s.id === "new-session-id");
+	expect(created).toBeTruthy();
+	expect(created.placeholder).toBe(true);
 });
 
 test("getCommands 附加 packageName 且不产生 tuiOnly 字段", async () => {
@@ -1949,9 +1955,13 @@ test("getCommands 附加 packageName 且不产生 tuiOnly 字段", async () => {
 	const commands = await am.getCommands(session.id);
 	expect(commands.map((c) => c.name)).toEqual(["goal", "hello", "orphan"]);
 	expect(commands.find((c) => c.name === "goal")?.packageName).toBe("goal-ext");
-	expect(commands.find((c) => c.name === "hello")?.packageName).toBe("plain-ext");
+	expect(commands.find((c) => c.name === "hello")?.packageName).toBe(
+		"plain-ext",
+	);
 	// 无 sourceInfo 的命令原样返回（不附加 packageName）
-	expect(commands.find((c) => c.name === "orphan")?.packageName).toBeUndefined();
+	expect(
+		commands.find((c) => c.name === "orphan")?.packageName,
+	).toBeUndefined();
 	// tuiOnly 静态扫描已删除：不再产生 tuiOnly 字段
 	expect(commands.every((c) => !("tuiOnly" in c))).toBe(true);
 });
@@ -2147,4 +2157,3 @@ test("extension dialog 请求 title/message/options 剥离 ANSI 转义；缺省�
 	extUiRegistry.respond("req-2", { confirmed: true });
 	await pending;
 });
-

@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { SessionEntity, ProjectEntity } from "@wa-pi/shared";
 import { agentDefOf, SYSTEM_PROJECT_NAME } from "@wa-pi/shared";
+import { Icon } from "./ui/Icon";
 import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
@@ -29,7 +30,7 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 	const { t } = useTranslation();
 	const isIM = session.id.startsWith("im-");
 	const def = agentDefOf(session.primaryAgent);
-	const emoji = def?.emoji ?? "🤖";
+	const emoji = def?.emoji;
 	const projectName = project?.name ?? SYSTEM_PROJECT_NAME;
 	const reason =
 		session.deletedReason === "auto"
@@ -63,11 +64,21 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 				className="accent-brand shrink-0"
 				data-testid={`trash-checkbox-${session.id}`}
 			/>
-			<span className="text-base shrink-0">{emoji}</span>
+			<span className="text-base shrink-0">
+				{emoji ?? <Icon name="robot" size="1em" />}
+			</span>
 			<span
 				className={`text-sm font-medium truncate w-40 shrink-0 ${selected ? "text-white" : ""}`}
 			>
-				{isIM && "📱 "}
+				{isIM && (
+					<>
+						<Icon
+							name="smartphone"
+							size="1em"
+							className="inline-block align-[-0.125em]"
+						/>{" "}
+					</>
+				)}
 				{session.primaryAgent}
 			</span>
 			{isIM && (
@@ -117,7 +128,7 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 					e.stopPropagation();
 					onView(session.id);
 				}}
-				className={`w-7 h-7 rounded border text-xs shrink-0 ${
+				className={`w-7 h-7 rounded border text-xs shrink-0 inline-flex items-center justify-center ${
 					selected
 						? "border-white/40 bg-white/15 text-white hover:bg-white/25"
 						: "border-hairline bg-surface hover:border-brand"
@@ -125,7 +136,7 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 				title={t("trash.view")}
 				data-testid={`trash-view-${session.id}`}
 			>
-				👁
+				<Icon name="eye" size={14} />
 			</button>
 		</div>
 	);

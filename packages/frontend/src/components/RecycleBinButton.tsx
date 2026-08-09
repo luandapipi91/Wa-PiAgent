@@ -1,3 +1,4 @@
+import { Icon } from "./ui/Icon";
 import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
@@ -15,7 +16,11 @@ export function RecycleBinButton({ onClick, count }: Props) {
 			className="w-full text-left px-2 py-1.5 text-xs text-tertiary transition-colors hover:text-brand inline-flex items-center gap-1"
 			data-testid="recycle-bin-btn"
 		>
-			<span className="text-[calc(16px*var(--font-scale))]">🗑️</span>{" "}
+			<Icon
+				name="trash"
+				size="1em"
+				className="text-[calc(16px*var(--font-scale))]"
+			/>{" "}
 			{t("trash.title")}
 			{count != null && count > 0 && (
 				<span
