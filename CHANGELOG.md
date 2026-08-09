@@ -57,6 +57,125 @@
 - **修复(kernel)：`provider-test.ts` 中 `anthropic-messages` 格式的测试连接拼接路径错误**。根因：测试连接代码对 anthropic-messages 分支拼接的 URL 是 `{baseUrl}/messages`，但 Anthropic SDK（pi-ai 实际调用时使用的）拼接的是 `{baseUrl}/v1/messages`。这导致所有 baseUrl 不自带 `/v1` 的 Anthropic 兼容 provider（如 Kimi Code `https://api.kimi.com/coding`）在点击「测试连接」时返回 404 `resource_not_found_error`，尽管实际对话能正常工作。修复后路径改为 `{baseUrl}/v1/messages`，与 SDK 行为一致。同时修正了原有测试中错误的 baseUrl 约定（不应带 `/v1`），并新增 Kimi Code 回归测试。
   - 影响范围：`packages/kernel/src/provider-test.ts`（URL 拼接 `/messages` → `/v1/messages`）、`packages/kernel/tests/provider-test.test.ts`（baseUrl 约定修正 + 新增回归测试）。
 
+---
+
+## 2026-08-09 — 修复：最终代码审查发现的 5 个问题
+
+### 类型
+
+修复
+
+### 摘要
+
+- **Important #1**：`saveTrashSettings` 添加 clamp 校验（[1,365]），负数/0 不再导致全量归档/清除；PUT 路由回显归一化结果；前端 `GeneralSection` 用 `Math.max(1, ...)` 兜底
+- **Important #2**：`deleteProject` 物理删除子会话改为软删除（移入回收站），避免绕过回收站直接丢失数据
+- **Important #3**：`session:messages` handler 添加 `deletedAt` 守卫，软删除会话只读模式不 touch、不 prewarm，避免复活 pi 进程
+- **Minor #M4**：TrashSessionRow 查看按钮 title 从 `trash.viewerBack`（"返回回收站"）修正为新增 key `trash.view`（"查看消息"）
+- **Minor #M6**：Sidebar 加载回收站总数并传入 RecycleBinButton，角标不再为死代码
+
+### 影响范围
+
+- `packages/kernel/src/settings-store.ts`、`routes/settings.ts`、`project-store.ts`、`ws-server.ts`
+- `packages/frontend/src/components/Sidebar.tsx`、`TrashSessionRow.tsx`、`settings/GeneralSection.tsx`
+- `packages/frontend/src/i18n/locales/zh.ts`、`en.ts`
+- 单元测试：`settings-trash.test.ts`（+3）、`project-store-trash.test.ts`（+3）
+
+---
+
+## 2026-08-09 — 新增功能：回收站弹窗 + 会话行 + 只读消息查看器 + Sidebar 集成
+
+### 变更
+
+- **新增(frontend)：TrashSessionRow 组件**。单行会话条目，含复选框、agent emoji、agent 名、项目标签、删除原因标签（手动/自动）、相对时间、查看按钮（👁）。`memo` 优化重渲染。项目名回退到 SYSTEM_PROJECT_NAME。
+  - 影响范围：`packages/frontend/src/components/TrashSessionRow.tsx`（新建）。
+- **新增(frontend)：RecycleBinModal 组件**。80vw×80vh 弹窗，布局为 Header（标题+计数+关闭）→ 项目筛选 Tab → 会话列表（全选/选中计数/行渲染）→ 分页 → 底部操作栏（恢复/删除/清空）。清空和物理删除各包裹 ConfirmDialog 确认弹窗。store.viewerSessionId 非空时切换为 TrashMessageViewer 视图（ESC/遮罩点击返回列表）。
+  - 影响范围：`packages/frontend/src/components/RecycleBinModal.tsx`（新建）。
+- **新增(frontend)：TrashMessageViewer 组件**。只读消息查看器，复用 `/api/sessions/:id/messages` 端点加载历史（软删除不删 jsonl 文件），通过 `useSessionStore.setMessages` 注入后复用 MessageList 渲染。含警告提示条（只读模式+恢复链接）和返回按钮。
+  - 影响范围：`packages/frontend/src/components/TrashMessageViewer.tsx`（新建）。
+- **修改(frontend)：Sidebar.tsx 集成**。底部栏从单独 SettingsButton 改为 RecycleBinButton + SettingsButton 并排（flex gap-1）。新增 showTrash state 控制 RecycleBinModal 开关。
+  - 影响范围：`packages/frontend/src/components/Sidebar.tsx`。
+- **新增(frontend)：分页 i18n key**。在 zh.ts / en.ts 的 trash 分组新增 prevPage / nextPage，替代简报中的语言检测 hack。
+  - 影响范围：`packages/frontend/src/i18n/locales/zh.ts`、`packages/frontend/src/i18n/locales/en.ts`。
+
+---
+
+## 2026-08-09 — 新增功能：前端回收站 i18n 文案 + store/trash.ts + RecycleBinButton 组件
+
+### 变更
+
+- **新增(frontend)：回收站 i18n 文案**。在 `zh.ts` / `en.ts` 的 `sidebar` 分组后新增 `trash` 分组（23 个 key：标题、空态、计数、全选/选中状态、恢复/彻底删除/清空操作、删除原因、只读查看器提示、确认弹窗文案、IM 标签等），并在 `settings` 分组新增 `trashSection` / `trashAutoArchive` / `trashArchiveDays` / `trashAutoPurge` / `trashPurgeDays` 5 个设置项文案。中英结构完全镜像。
+  - 影响范围：`packages/frontend/src/i18n/locales/zh.ts`、`packages/frontend/src/i18n/locales/en.ts`。
+- **新增(frontend)：store/trash.ts**。基于 zustand 的回收站状态管理：`loadTrash`（分页 + 项目过滤拉取回收站会话）、`toggleSelect` / `selectAllOnPage` / `clearSelection`（批量选择）、`restore` / `permanentlyDelete` / `emptyTrash`（恢复/物理删除/清空，操作后自动刷新列表并清理选择集）、`openViewer` / `closeViewer`（只读查看器）。API 契约对齐后端 `GET/POST/DELETE /api/trash/sessions`。
+  - 影响范围：`packages/frontend/src/store/trash.ts`（新建）。
+- **重构(frontend)：projects store setAll 防御性过滤**。在 `useProjectsStore.setAll` 中新增 `sessions.filter(x => !x.deletedAt)` 过滤，剥离软删除会话，确保主列表只展示活跃会话（后端 `loadActive()` 已过滤，此处为防御性安全网）。
+  - 影响范围：`packages/frontend/src/store/projects.ts`。
+- **新增(frontend)：RecycleBinButton 组件**。回收站入口按钮，参考 `SettingsButton.tsx` 样式，支持角标显示回收站会话数（>99 显示 99+）。Sidebar 集成推迟至 Task 8（RecycleBinModal 创建后）。
+  - 影响范围：`packages/frontend/src/components/RecycleBinButton.tsx`（新建）。
+
+---
+
+## 2026-08-09 — 新增功能：会话自动归档调度器（回收站定时归档 + 可选自动清理）
+
+### 变更
+
+- **新增(kernel)：会话自动归档调度器**。在 `index.ts` 的 `startKernel()` 中、`server.start()` 之后新增 `runAutoArchive()` 调度器：每 6 小时执行一次，启动时立即执行一次。读取 `loadTrashSettings()`，把超过 `autoArchiveDays` 未活动的会话经 `projectStore.archiveStaleSessions()` 软删除到回收站，归档后调用 `server.broadcastProjectsList()` 刷新前端列表；若启用 `autoPurgeEnabled`，再经 `purgeOldTrashSessions()` 物理清理超过 `autoPurgeDays` 的回收站会话。调度器独立于 workdir 清理与空闲会话回收，复用同一 `setInterval` + `clearInterval` 模式。
+- **新增(kernel)：shutdown 清理归档 timer**。在 `shutdown()` 函数中新增 `clearInterval(archiveTimer)`，与 `reapTimer` 一并清理，避免退出后残留定时器。
+  - 影响范围：`packages/kernel/src/index.ts`。
+
+---
+
+## 2026-08-09 — 新增功能：回收站 WS 事件处理器 + HTTP 路由 + projects:list 过滤已删除会话
+
+### 变更
+
+- **新增(kernel)：WS 层回收站事件处理器**。在 `ws-server.ts` 的 `handle()` switch 中新增 4 个 case：`trash:list`（分页查询回收站会话，返回 sessions/projects/total）、`trash:restore`（批量恢复后广播 projects:list）、`trash:delete`（永久删除指定会话）、`trash:empty`（清空回收站并返回删除数量）。
+- **新增(kernel)：`broadcastProjectsList()` 公开辅助方法**。封装 `loadActive()` + `broadcast({type:"projects:list"})`，统一过滤已软删除会话。将 `ws-server.ts` 中全部 9 处手动 `load()` + `broadcast(projects:list)` 模式（project:update、project:delete、session:rename、session:set-agent、session:reload、session:delete、agent:prompt 填充标题、agent:save 改名、fillEmptySessionTitle）替换为此方法。`projects:list` 定向 reply 也改为 `loadActive()`。
+  - 影响范围：`packages/kernel/src/ws-server.ts`。
+- **新增(kernel)：回收站 HTTP 路由**。在 `routes/projects-sessions.ts` 新增 `GET /api/trash/sessions`（分页查询）、`POST /api/trash/sessions/restore`（批量恢复）、`DELETE /api/trash/sessions`（带 sessionIds 数组则永久删除，否则清空回收站）。
+  - 影响范围：`packages/kernel/src/routes/projects-sessions.ts`。
+- **新增(kernel)：回收站设置 HTTP 路由**。在 `routes/settings.ts` 新增 `GET /api/settings/trash` 和 `PUT /api/settings/trash`，直接调用 `loadTrashSettings` / `saveTrashSettings` 读写 settings.json（不走 WS callApi）。
+  - 影响范围：`packages/kernel/src/routes/settings.ts`。
+
+---
+
+## 2026-08-09 — 新增功能：回收站设置存储 loadTrashSettings/saveTrashSettings
+
+### 变更
+
+- **新增(kernel)：回收站自动归档/清除设置的持久化读写**。在 `settings-store.ts` 新增 `TRASH_DEFAULTS`（默认开启 7 天自动归档、关闭自动清除、清除阈值 30 天）与 `loadTrashSettings` / `saveTrashSettings`（read-modify-write，保留 settings.json 内 retry/httpIdleTimeoutMs 等其他字段），与既有 `loadRetrySettings` / `saveRetrySettings` 同构，均带可选 `file` 参数以便测试隔离。配套单元测试 3 例覆盖「无文件回退默认值」「保存后读回」「保留其他字段」。
+  - 影响范围：`packages/kernel/src/settings-store.ts`（新增 `TRASH_DEFAULTS` + 2 函数 + import `TrashSettings`）、`packages/kernel/src/__tests__/settings-trash.test.ts`（新增）。
+
+---
+
+## 2026-08-09 — 新增功能：ProjectStore 回收站查询与自动归档/清理方法
+
+### 变更
+
+- **新增(kernel)：ProjectStore 回收站查询与生命周期管理能力**。新增三个方法：`loadTrash`（分页查询回收站，支持 `projectId` 过滤与 `offset/limit` 分页，按 `deletedAt` 倒序，返回 `{ sessions, total }`）、`archiveStaleSessions(thresholdMs)`（扫描超过阈值未活动且未删除的会话，标记软删除 `deletedReason="auto"`）、`purgeOldTrashSessions(purgeBefore)`（永久删除 `deletedAt` 早于指定时间点的回收站会话）。配套单元测试 9 例覆盖分页/过滤/空集/阈值边界/已删除跳过等场景。
+  - 影响范围：`packages/kernel/src/project-store.ts`（新增 3 方法）、`packages/kernel/src/__tests__/project-store-trash.test.ts`（追加 9 测试）。
+
+---
+
+## 2026-08-09 — 新增功能：ProjectStore 软删除/恢复/彻底删除/清空回收站 + loadActive
+
+### 变更
+
+- **新增(kernel)：ProjectStore 回收站存储层能力**。将 `deleteSession` 从物理删除改为软删除（置 `deletedAt` / `deletedReason="manual"`），新增四个方法：`loadActive`（仅返回未软删除会话）、`restoreSession`（清空软删除标记，原项目不存在则归入默认工作区）、`permanentlyDeleteSessions`（按 id 批量物理移除）、`emptyTrash`（清空所有已软删除会话并返回移除数量）。配套单元测试 8 例覆盖正常路径与边界（no-op、空回收站、不存在 id）。
+  - 影响范围：`packages/kernel/src/project-store.ts`（改造 `deleteSession` + 新增 4 方法 + import `SYSTEM_PROJECT_ID`）、`packages/kernel/src/__tests__/project-store-trash.test.ts`（新增）。
+
+---
+
+## 2026-08-09 — 新增功能：会话回收站类型定义
+
+### 变更
+
+- **新增(shared)：会话回收站功能的共享类型定义**。为 `SessionEntity` 新增软删除字段（`deletedAt` / `deletedReason`），新增 `TrashSettings`（自动归档/清除设置），新增回收站 WS 事件类型（`TrashListRequest` / `TrashRestoreEvent` / `TrashDeleteEvent` / `TrashEmptyEvent` / `TrashListResult` / `TrashOpResult`），并追加到 `WSClientEvent` / `WSServerEvent` 联合类型。
+  - 影响范围：`packages/shared/src/types.ts`。
+
+---
+
+## 2026-08-09 — 发版 v0.1.10
+
 ### 变更
 
 - **发版(desktop)：发布 v0.1.10 桌面安装包（WA PI Agent，NSIS）到阿里云 OSS + GitHub Release**。自 v0.1.9 以来：文件树重新显示隐藏项（listDir 透传 showHidden）、点击附件 chip 内置文件预览器预览、streaming 期间不再提前显示复制/导出按钮。产物 WaPi-Setup-0.1.10.exe + latest.yml 上传至 coaicom/releases/，GitHub Release v0.1.10 同步发布。

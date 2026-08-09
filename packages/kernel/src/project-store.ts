@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-import { PROJECTS_FILE, WA_PI_DIR } from "@wa-pi/shared";
+import { PROJECTS_FILE, WA_PI_DIR, SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 import type { ProjectEntity, SessionEntity, AgentName } from "@wa-pi/shared";
 
 interface ProjectsFile {
@@ -78,7 +78,13 @@ export class ProjectStore {
   async deleteProject(id: string): Promise<void> {
     const data = await this.load();
     data.projects = data.projects.filter(p => p.id !== id);
-    data.sessions = data.sessions.filter(s => s.projectId !== id);
+    // 软删除该项目下的活跃会话（移入回收站，而非物理删除）
+    for (const session of data.sessions) {
+      if (session.projectId === id && !session.deletedAt) {
+        session.deletedAt = Date.now();
+        session.deletedReason = "manual";
+      }
+    }
     await this.save(data);
   }
 
@@ -139,8 +145,127 @@ export class ProjectStore {
 
   async deleteSession(id: string): Promise<void> {
     const data = await this.load();
-    data.sessions = data.sessions.filter(s => s.id !== id);
+    const session = data.sessions.find(s => s.id === id);
+    if (session) {
+      session.deletedAt = Date.now();
+      session.deletedReason = "manual";
+    }
     await this.save(data);
+  }
+
+  /**
+   * 加载全部数据，但会话只返回未软删除的（deletedAt 为空）。
+   * 用于侧栏列表等只关心可见会话的场景。
+   */
+  async loadActive(): Promise<ProjectsFile> {
+    const data = await this.load();
+    return {
+      projects: data.projects,
+      sessions: data.sessions.filter(s => !s.deletedAt),
+    };
+  }
+
+  /**
+   * 从回收站恢复会话：清空 deletedAt/deletedReason。
+   * 若会话原属项目已不存在，则归入默认工作区（SYSTEM_PROJECT_ID）。
+   * 对未删除的会话调用为 no-op（仅清空本就为空的字段）。
+   */
+  async restoreSession(id: string): Promise<void> {
+    const data = await this.load();
+    const session = data.sessions.find(s => s.id === id);
+    if (session) {
+      // 如果原项目已被删除，恢复到默认工作区
+      if (!data.projects.find(p => p.id === session.projectId)) {
+        session.projectId = SYSTEM_PROJECT_ID;
+      }
+      session.deletedAt = undefined;
+      session.deletedReason = undefined;
+    }
+    await this.save(data);
+  }
+
+  /**
+   * 彻底删除：从存储中物理移除指定会话记录。
+   * 不存在的 id 静默忽略。空数组直接返回。
+   */
+  async permanentlyDeleteSessions(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    const data = await this.load();
+    data.sessions = data.sessions.filter(s => !idSet.has(s.id));
+    await this.save(data);
+  }
+
+  /**
+   * 清空回收站：物理移除所有已软删除（deletedAt 非空）的会话。
+   * @returns 实际移除的会话数量
+   */
+  async emptyTrash(): Promise<number> {
+    const data = await this.load();
+    const before = data.sessions.length;
+    data.sessions = data.sessions.filter(s => !s.deletedAt);
+    const removed = before - data.sessions.length;
+    await this.save(data);
+    return removed;
+  }
+
+  /**
+   * 分页查询回收站：返回所有已软删除的会话，支持按项目过滤与 offset/limit 分页。
+   * 结果按 deletedAt 倒序（最近删除的在前），total 为过滤后的总数（不受分页影响）。
+   */
+  async loadTrash(opts?: {
+    projectId?: string;
+    offset?: number;
+    limit?: number;
+  }): Promise<{ sessions: SessionEntity[]; total: number }> {
+    const data = await this.load();
+    let deleted = data.sessions.filter(s => s.deletedAt);
+    if (opts?.projectId) {
+      deleted = deleted.filter(s => s.projectId === opts.projectId);
+    }
+    // 按 deletedAt 倒序（最近删除的在前）
+    deleted.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+    const total = deleted.length;
+    const offset = opts?.offset ?? 0;
+    const limit = opts?.limit ?? 100;
+    const sessions = deleted.slice(offset, offset + limit);
+    return { sessions, total };
+  }
+
+  /**
+   * 自动归档：将超过阈值未活动且未删除的会话标记为软删除（deletedReason="auto"）。
+   * @param thresholdMs 不活动阈值（毫秒），如 7 天
+   * @returns 本次被归档的会话列表
+   */
+  async archiveStaleSessions(thresholdMs: number): Promise<SessionEntity[]> {
+    const data = await this.load();
+    const cutoff = Date.now() - thresholdMs;
+    const archived: SessionEntity[] = [];
+    for (const session of data.sessions) {
+      if (!session.deletedAt && session.lastActivity < cutoff) {
+        session.deletedAt = Date.now();
+        session.deletedReason = "auto";
+        archived.push(session);
+      }
+    }
+    if (archived.length > 0) await this.save(data);
+    return archived;
+  }
+
+  /**
+   * 自动清理：永久删除 deletedAt 早于 purgeBefore 的回收站会话。
+   * @param purgeBefore 时间点（毫秒），早于此点的已删除会话将被物理移除
+   * @returns 实际移除的会话数量
+   */
+  async purgeOldTrashSessions(purgeBefore: number): Promise<number> {
+    const data = await this.load();
+    const before = data.sessions.length;
+    data.sessions = data.sessions.filter(
+      s => !s.deletedAt || s.deletedAt >= purgeBefore
+    );
+    const removed = before - data.sessions.length;
+    if (removed > 0) await this.save(data);
+    return removed;
   }
 
   // 改 session 归属项目（老数据迁移用：孤儿 session 归入默认项目）
