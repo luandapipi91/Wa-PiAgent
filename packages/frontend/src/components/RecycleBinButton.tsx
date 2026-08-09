@@ -19,7 +19,7 @@ export function RecycleBinButton({ onClick, count }: Props) {
 			{t("trash.title")}
 			{count != null && count > 0 && (
 				<span
-					className="ml-1 text-[10px] bg-danger text-on-danger rounded-full px-1.5 leading-4"
+					className="ml-1 text-[10px] bg-danger text-white rounded-full px-1.5 leading-4"
 					data-testid="recycle-bin-badge"
 				>
 					{count > 99 ? "99+" : count}
