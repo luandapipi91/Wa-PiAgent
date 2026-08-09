@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../api-client";
+import { api, ApiError } from "../api-client";
 import { useTrashStore } from "../store/trash";
 import { useSessionStore } from "../store/session";
 import { MessageList } from "./MessageList";
@@ -14,24 +14,42 @@ interface Props {
 export function TrashMessageViewer({ sessionId, onBack }: Props) {
 	const { t } = useTranslation();
 	const [loading, setLoading] = useState(true);
-	const [notFound, setNotFound] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [msgCount, setMsgCount] = useState(0);
 
 	useEffect(() => {
+		let cancelled = false;
 		setLoading(true);
-		setNotFound(false);
-		// 复用现有的 /api/sessions/:id/messages 端点
-		// 软删除不删 jsonl 文件，直接读取历史
+		setError(null);
+
+		// 回收站专用端点：直接读 jsonl，不经过 AgentManager
 		void api
 			.get(`/api/trash/sessions/${encodeURIComponent(sessionId)}/messages`)
 			.then((res) => {
-				const data = res as { messages: SessionMessage[] };
-				useSessionStore.getState().setMessages(sessionId, data.messages ?? []);
+				if (cancelled) return;
+				const data = res as { messages?: SessionMessage[] };
+				const messages = data?.messages ?? [];
+				setMsgCount(messages.length);
+				// 与正常 SessionView 加载一致：先标 loading，再写入消息，再清 loading
+				useSessionStore.getState().setHistoryLoading(sessionId, true);
+				useSessionStore.getState().setMessages(sessionId, messages);
+				useSessionStore.getState().setHistoryLoading(sessionId, false);
 				setLoading(false);
 			})
-			.catch(() => {
-				setNotFound(true);
+			.catch((err) => {
+				if (cancelled) return;
+				console.error("[TrashMessageViewer] 加载消息失败:", err);
+				if (err instanceof ApiError) {
+					setError(`${err.message} (HTTP ${err.status})`);
+				} else {
+					setError(err instanceof Error ? err.message : String(err));
+				}
 				setLoading(false);
 			});
+
+		return () => {
+			cancelled = true;
+		};
 	}, [sessionId]);
 
 	const handleRestore = async () => {
@@ -39,20 +57,19 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 		onBack();
 	};
 
-	if (notFound) {
+	// 错误状态
+	if (error) {
 		return (
 			<div className="flex flex-col h-full">
 				<div className="flex items-center gap-2 px-5 py-3 border-b border-hairline">
-					<button
-						onClick={onBack}
-						className="text-brand text-sm"
-						data-testid="trash-viewer-back"
-					>
+					<button onClick={onBack} className="text-brand text-sm" data-testid="trash-viewer-back">
 						‹ {t("trash.viewerBack")}
 					</button>
 				</div>
-				<div className="flex-1 flex items-center justify-center text-tertiary">
-					{t("trash.messagesNotFound")}
+				<div className="flex-1 flex flex-col items-center justify-center text-tertiary gap-2">
+					<span className="text-3xl">⚠️</span>
+					<span>{t("trash.messagesNotFound")}</span>
+					<span className="text-[10px] text-tertiary/60">{error}</span>
 				</div>
 			</div>
 		);
@@ -62,11 +79,7 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 		<div className="flex flex-col h-full">
 			{/* Header */}
 			<div className="flex items-center gap-2 px-5 py-3 border-b border-hairline">
-				<button
-					onClick={onBack}
-					className="text-brand text-sm"
-					data-testid="trash-viewer-back"
-				>
+				<button onClick={onBack} className="text-brand text-sm" data-testid="trash-viewer-back">
 					‹ {t("trash.viewerBack")}
 				</button>
 			</div>
@@ -92,6 +105,10 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 				{loading ? (
 					<div className="flex items-center justify-center h-full text-tertiary">
 						...
+					</div>
+				) : msgCount === 0 ? (
+					<div className="flex items-center justify-center h-full text-tertiary text-sm">
+						📭
 					</div>
 				) : (
 					<MessageList sessionId={sessionId} />
