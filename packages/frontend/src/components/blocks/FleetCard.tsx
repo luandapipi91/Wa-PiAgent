@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useState } from "react";
 import type {
 	ToolCall,
 	ToolResultMessage,
@@ -14,6 +14,7 @@ import { Icon } from "../ui/Icon";
 import { createMarkdownComponents } from "./markdown-components";
 import { useSessionStore } from "../../store/session";
 import { useLiveElapsed } from "./useLiveElapsed";
+import { StreamingOutput } from "./StreamingOutput";
 
 interface Props {
 	sessionId: string;
@@ -88,29 +89,6 @@ function extractAgentReplies(
 	}
 	return out as string[];
 }
-
-/** 回复 markdown memo 化：react-markdown v10 无内置 memo，每次渲染全量重解析整段文本。
- *  子任务详情展开期间 useLiveElapsed 每秒 tick + 流式 output 高频更新都会触发重渲染，
- *  不 memo 则回复文本（可能很长）被反复解析，阻塞主线程导致闪烁。
- *  与 FileViewer.MarkdownPreview 同模式：只接收 text/sessionId 两个稳定 prop，
- *  components 在内部 useMemo 稳定引用，文本不变时 React 直接跳过重渲染。 */
-const MemoReplyMarkdown = memo(function MemoReplyMarkdown({
-	text,
-	sessionId,
-}: {
-	text: string;
-	sessionId: string;
-}) {
-	const mdComponents = useMemo(
-		() => createMarkdownComponents(sessionId),
-		[sessionId],
-	);
-	return (
-		<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-			{text}
-		</ReactMarkdown>
-	);
-});
 
 /** 单个任务的统计行：`任务 N：调用了 X 个工具 成功 Y 失败 Z 执行中 W`，可独立展开看该任务回复。
  *  抽成独立组件以承载 useLiveElapsed（Hooks 不能在循环里调用）。
@@ -196,7 +174,11 @@ function FleetTaskItem({
 						<Icon name="share" size={11} />
 						<span>{t("blocks.fleet.replyLabel")}</span>
 					</div>
-					<MemoReplyMarkdown text={replyText ?? ""} sessionId={sessionId} />
+					<StreamingOutput
+						text={replyText ?? ""}
+						sessionId={sessionId}
+						streaming={!isCompleted}
+					/>
 				</div>
 			)}
 		</div>
@@ -208,7 +190,7 @@ function FleetTaskItem({
  *  有实时进度时：外层默认展开（保任务清单/统计行可见），头部点击折叠/展开整张卡片；
  *  子任务行各自独立展开/折叠，互不影响。
  *  与 delegate 的差异：fleet 一个 toolCallId 下多个 agent，直接消费整个内层 map。 */
-export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
+export const FleetCard = memo(function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 	const args = toolCall.arguments as {
 		tasks?: Array<{ agent: string; task: string }>;
 	};
@@ -364,4 +346,4 @@ export function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
 			)}
 		</ProcessCard>
 	);
-}
+});

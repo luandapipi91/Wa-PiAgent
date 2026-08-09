@@ -1,14 +1,12 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
 import { useTranslation } from "../../i18n/useTranslation";
 import { Icon } from "../ui/Icon";
-import { createMarkdownComponents } from "./markdown-components";
 import { useSessionStore } from "../../store/session";
 import { useLiveElapsed } from "./useLiveElapsed";
+import { StreamingOutput } from "./StreamingOutput";
 
 interface Props {
 	sessionId: string;
@@ -20,7 +18,7 @@ interface Props {
 /** 委派卡片：流式中展开（任务可见），完成即折叠；子智能体回复用 ReactMarkdown 渲染。
  *  有实时进度（progress）时：始终显示一行摘要（状态/耗时/工具数）+ ▶/▼ 开关，
  *  展开后看实时 output 与工具时间线；完成态也保持折叠一致——展开才看结果详情。 */
-export function DelegateCard({
+export const DelegateCard = memo(function DelegateCard({
 	sessionId,
 	toolCall,
 	result,
@@ -67,7 +65,6 @@ export function DelegateCard({
 				c?.type === "text" ? c.text : "",
 			)
 			.join("\n") ?? "";
-	const mdComponents = createMarkdownComponents(sessionId);
 
 	// 工具计数：按 status 分桶（总数/成功/失败/执行中），取代逐条工具列表
 	const tools = progress?.tools ?? [];
@@ -180,11 +177,14 @@ export function DelegateCard({
 						<Icon name="share" size={11} />
 						<span>{t("blocks.delegate.replyLabel")}</span>
 					</div>
-					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-						{replyText}
-					</ReactMarkdown>
+					{/* 执行中：纯文本预览（停顿 500ms 才切 markdown）；完成：完整 markdown */}
+					<StreamingOutput
+						text={replyText}
+						sessionId={sessionId}
+						streaming={!result}
+					/>
 				</div>
 			)}
 		</ProcessCard>
 	);
-}
+});
