@@ -203,6 +203,65 @@ export class ProjectStore {
     return removed;
   }
 
+  /**
+   * 分页查询回收站：返回所有已软删除的会话，支持按项目过滤与 offset/limit 分页。
+   * 结果按 deletedAt 倒序（最近删除的在前），total 为过滤后的总数（不受分页影响）。
+   */
+  async loadTrash(opts?: {
+    projectId?: string;
+    offset?: number;
+    limit?: number;
+  }): Promise<{ sessions: SessionEntity[]; total: number }> {
+    const data = await this.load();
+    let deleted = data.sessions.filter(s => s.deletedAt);
+    if (opts?.projectId) {
+      deleted = deleted.filter(s => s.projectId === opts.projectId);
+    }
+    // 按 deletedAt 倒序（最近删除的在前）
+    deleted.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+    const total = deleted.length;
+    const offset = opts?.offset ?? 0;
+    const limit = opts?.limit ?? 100;
+    const sessions = deleted.slice(offset, offset + limit);
+    return { sessions, total };
+  }
+
+  /**
+   * 自动归档：将超过阈值未活动且未删除的会话标记为软删除（deletedReason="auto"）。
+   * @param thresholdMs 不活动阈值（毫秒），如 7 天
+   * @returns 本次被归档的会话列表
+   */
+  async archiveStaleSessions(thresholdMs: number): Promise<SessionEntity[]> {
+    const data = await this.load();
+    const cutoff = Date.now() - thresholdMs;
+    const archived: SessionEntity[] = [];
+    for (const session of data.sessions) {
+      if (!session.deletedAt && session.lastActivity < cutoff) {
+        session.deletedAt = Date.now();
+        session.deletedReason = "auto";
+        archived.push(session);
+      }
+    }
+    if (archived.length > 0) await this.save(data);
+    return archived;
+  }
+
+  /**
+   * 自动清理：永久删除 deletedAt 早于 purgeBefore 的回收站会话。
+   * @param purgeBefore 时间点（毫秒），早于此点的已删除会话将被物理移除
+   * @returns 实际移除的会话数量
+   */
+  async purgeOldTrashSessions(purgeBefore: number): Promise<number> {
+    const data = await this.load();
+    const before = data.sessions.length;
+    data.sessions = data.sessions.filter(
+      s => !s.deletedAt || s.deletedAt >= purgeBefore
+    );
+    const removed = before - data.sessions.length;
+    if (removed > 0) await this.save(data);
+    return removed;
+  }
+
   // 改 session 归属项目（老数据迁移用：孤儿 session 归入默认项目）
   async reassignSession(sessionId: string, projectId: string): Promise<void> {
     const data = await this.load();

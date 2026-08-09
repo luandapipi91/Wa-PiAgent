@@ -113,4 +113,104 @@ describe("ProjectStore soft delete", () => {
         expect(found!.projectId).toBe("__system__");
         expect(found!.deletedAt).toBeUndefined();
     });
+
+    test("loadTrash returns only deleted sessions with total", async () => {
+        const s = makeStore();
+        const { s1, s2 } = await seed(s);
+        await s.deleteSession(s1.id);
+        await s.deleteSession(s2.id);
+        const result = await s.loadTrash();
+        expect(result.total).toBe(2);
+        expect(result.sessions.length).toBe(2);
+    });
+
+    test("loadTrash filters by projectId", async () => {
+        const s = makeStore();
+        const { p, s1, s2 } = await seed(s);
+        await s.deleteSession(s1.id);
+        await s.deleteSession(s2.id);
+        const result = await s.loadTrash({ projectId: p.id });
+        expect(result.total).toBe(1);
+        expect(result.sessions[0].id).toBe(s2.id);
+    });
+
+    test("loadTrash paginates with offset/limit", async () => {
+        const s = makeStore();
+        const { s1, s2 } = await seed(s);
+        await s.deleteSession(s1.id);
+        await s.deleteSession(s2.id);
+        const page1 = await s.loadTrash({ offset: 0, limit: 1 });
+        expect(page1.sessions.length).toBe(1);
+        expect(page1.total).toBe(2);
+        const page2 = await s.loadTrash({ offset: 1, limit: 1 });
+        expect(page2.sessions.length).toBe(1);
+        expect(page2.sessions[0].id).not.toBe(page1.sessions[0].id);
+    });
+
+    test("loadTrash returns empty when no deleted sessions", async () => {
+        const s = makeStore();
+        await seed(s);
+        const result = await s.loadTrash();
+        expect(result.total).toBe(0);
+        expect(result.sessions.length).toBe(0);
+    });
+
+    test("archiveStaleSessions archives inactive sessions", async () => {
+        const s = makeStore();
+        const { s1 } = await seed(s);
+        // 手动设置 lastActivity 为 10 天前
+        const data = await s.load();
+        const session = data.sessions.find(x => x.id === s1.id);
+        session!.lastActivity = Date.now() - 10 * 24 * 60 * 60 * 1000;
+        await s.save(data);
+        // 7 天阈值
+        const archived = await s.archiveStaleSessions(7 * 24 * 60 * 60 * 1000);
+        expect(archived.length).toBe(1);
+        expect(archived[0].id).toBe(s1.id);
+        expect(archived[0].deletedReason).toBe("auto");
+    });
+
+    test("archiveStaleSessions does not archive already-deleted sessions", async () => {
+        const s = makeStore();
+        const { s1, s2 } = await seed(s);
+        await s.deleteSession(s1.id);
+        const data = await s.load();
+        data.sessions.find(x => x.id === s2.id)!.lastActivity = Date.now() - 10 * 24 * 60 * 60 * 1000;
+        await s.save(data);
+        const archived = await s.archiveStaleSessions(7 * 24 * 60 * 60 * 1000);
+        expect(archived.length).toBe(1);
+        expect(archived[0].id).toBe(s2.id);
+    });
+
+    test("archiveStaleSessions respects threshold", async () => {
+        const s = makeStore();
+        const { s1 } = await seed(s);
+        const data = await s.load();
+        data.sessions.find(x => x.id === s1.id)!.lastActivity = Date.now() - 3 * 24 * 60 * 60 * 1000;
+        await s.save(data);
+        const archived = await s.archiveStaleSessions(7 * 24 * 60 * 60 * 1000);
+        expect(archived.length).toBe(0);
+    });
+
+    test("purgeOldTrashSessions permanently deletes old trash", async () => {
+        const s = makeStore();
+        const { s1 } = await seed(s);
+        await s.deleteSession(s1.id);
+        // 手动设置 deletedAt 为 40 天前
+        const data = await s.load();
+        data.sessions.find(x => x.id === s1.id)!.deletedAt = Date.now() - 40 * 24 * 60 * 60 * 1000;
+        await s.save(data);
+        const purged = await s.purgeOldTrashSessions(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        expect(purged).toBe(1);
+        const after = await s.load();
+        expect(after.sessions.find(x => x.id === s1.id)).toBeUndefined();
+    });
+
+    test("purgeOldTrashSessions keeps recent trash", async () => {
+        const s = makeStore();
+        const { s1 } = await seed(s);
+        await s.deleteSession(s1.id); // deletedAt = now
+        const purged = await s.purgeOldTrashSessions(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        expect(purged).toBe(0);
+    });
 });

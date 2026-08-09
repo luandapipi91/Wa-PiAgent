@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-09 — 新增功能：ProjectStore 回收站查询与自动归档/清理方法
+
+### 变更
+
+- **新增(kernel)：ProjectStore 回收站查询与生命周期管理能力**。新增三个方法：`loadTrash`（分页查询回收站，支持 `projectId` 过滤与 `offset/limit` 分页，按 `deletedAt` 倒序，返回 `{ sessions, total }`）、`archiveStaleSessions(thresholdMs)`（扫描超过阈值未活动且未删除的会话，标记软删除 `deletedReason="auto"`）、`purgeOldTrashSessions(purgeBefore)`（永久删除 `deletedAt` 早于指定时间点的回收站会话）。配套单元测试 9 例覆盖分页/过滤/空集/阈值边界/已删除跳过等场景。
+  - 影响范围：`packages/kernel/src/project-store.ts`（新增 3 方法）、`packages/kernel/src/__tests__/project-store-trash.test.ts`（追加 9 测试）。
+
+---
+
 ## 2026-08-09 — 新增功能：ProjectStore 软删除/恢复/彻底删除/清空回收站 + loadActive
 
 ### 变更
