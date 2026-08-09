@@ -629,7 +629,10 @@ export const useSessionStore = create<SessionState>((set) => {
 				return {
 					progressByToolCall: {
 						...s.progressByToolCall,
-						[toolCallId]: { ...prev, [progress.agent]: progress },
+						[toolCallId]: {
+							...prev,
+							[String(progress.taskIndex ?? progress.agent)]: progress,
+						},
 					},
 					progressSessionByToolCall: {
 						...s.progressSessionByToolCall,

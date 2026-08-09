@@ -35,13 +35,16 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 			.get(`/api/trash/sessions/${encodeURIComponent(sessionId)}/messages`)
 			.then((res) => {
 				if (cancelled) return;
-				const data = res as { messages?: { message: AgentMessage; agentName?: string }[] };
+				const data = res as {
+					messages?: { message: AgentMessage; agentName?: string }[];
+				};
 				const msgs = (data?.messages ?? []).map((m) => {
 					const msg = m.message as any;
 					return {
 						role: msg.role ?? "unknown",
 						content: msg.content ?? "",
-						timestamp: typeof msg.timestamp === "number" ? msg.timestamp : undefined,
+						timestamp:
+							typeof msg.timestamp === "number" ? msg.timestamp : undefined,
 						agentName: m.agentName,
 					};
 				});
@@ -51,11 +54,17 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 			.catch((err) => {
 				if (cancelled) return;
 				console.error("[TrashMessageViewer] 加载失败:", err);
-				setError(err instanceof ApiError ? `${err.message} (HTTP ${err.status})` : String(err));
+				setError(
+					err instanceof ApiError
+						? `${err.message} (HTTP ${err.status})`
+						: String(err),
+				);
 				setLoading(false);
 			});
 
-		return () => { cancelled = true; };
+		return () => {
+			cancelled = true;
+		};
 	}, [sessionId]);
 
 	const handleRestore = async () => {
@@ -86,7 +95,9 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 		return (
 			<div className="flex flex-col h-full">
 				<div className="flex items-center gap-2 px-5 py-3 border-b border-hairline">
-					<button onClick={onBack} className="text-brand text-sm">‹ {t("trash.viewerBack")}</button>
+					<button onClick={onBack} className="text-brand text-sm">
+						‹ {t("trash.viewerBack")}
+					</button>
 				</div>
 				<div className="flex-1 flex flex-col items-center justify-center text-tertiary gap-2">
 					<span className="text-3xl">⚠️</span>
@@ -101,7 +112,11 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 		<div className="flex flex-col h-full">
 			{/* Header */}
 			<div className="flex items-center gap-2 px-5 py-3 border-b border-hairline shrink-0">
-				<button onClick={onBack} className="text-brand text-sm" data-testid="trash-viewer-back">
+				<button
+					onClick={onBack}
+					className="text-brand text-sm"
+					data-testid="trash-viewer-back"
+				>
 					‹ {t("trash.viewerBack")}
 				</button>
 			</div>
@@ -111,7 +126,10 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 				<span>⚠️</span>
 				<span>
 					{t("trash.viewerNotice")}
-					<button onClick={() => void handleRestore()} className="text-brand underline ml-1">
+					<button
+						onClick={() => void handleRestore()}
+						className="text-brand underline ml-1"
+					>
 						{t("trash.viewerRestoreLink")}
 					</button>
 					<span className="ml-1">{t("trash.viewerRestoreHint")}</span>
@@ -121,9 +139,13 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 			{/* Messages — 自主渲染，不依赖 MessageList */}
 			<div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-3 min-h-0">
 				{loading ? (
-					<div className="flex items-center justify-center h-full text-tertiary">...</div>
+					<div className="flex items-center justify-center h-full text-tertiary">
+						...
+					</div>
 				) : messages.length === 0 ? (
-					<div className="flex items-center justify-center h-full text-tertiary text-sm">📭</div>
+					<div className="flex items-center justify-center h-full text-tertiary text-sm">
+						📭
+					</div>
 				) : (
 					<div className="flex flex-col gap-4 max-w-3xl mx-auto">
 						{messages.map((msg, i) => {
@@ -144,10 +166,14 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 										}`}
 									>
 										{!isUser && msg.agentName && (
-											<div className="text-[10px] text-tertiary mb-1 font-medium">{msg.agentName}</div>
+											<div className="text-[10px] text-tertiary mb-1 font-medium">
+												{msg.agentName}
+											</div>
 										)}
 										<div className="prose prose-sm max-w-none [&_pre]:bg-black/5 [&_pre]:rounded [&_code]:text-brand [&_code]:bg-brand/10 [&_code]:px-1 [&_code]:rounded">
-											<ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+											<ReactMarkdown remarkPlugins={[remarkGfm]}>
+												{text}
+											</ReactMarkdown>
 										</div>
 									</div>
 								</div>

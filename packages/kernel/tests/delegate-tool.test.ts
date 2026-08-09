@@ -263,7 +263,7 @@ test("fleet: 内置类型名也放行（每个 task 独立校验）", async () =
 });
 
 test("fleet: 内置类型 + 越权 agent 混合时越权项报错但其它项正常", async () => {
-	const spawn = mock(async (agent: string, task: string) => ({
+	const spawn = mock(async (agent: string, _task: string) => ({
 		text: `${agent}:ok`,
 		isError: false,
 	}));
@@ -300,7 +300,7 @@ test("fleet: 并发执行多个合法任务，结果按输入顺序聚合", asyn
 });
 
 test("fleet: 单个任务失败不影响其他任务，聚合标记 isError", async () => {
-	const spawn = mock(async (agent: string, task: string) => {
+	const spawn = mock(async (agent: string, _task: string) => {
 		if (agent === "代码审查") return { text: "评审通过", isError: false };
 		return { text: "测试失败", isError: true };
 	});
@@ -354,8 +354,8 @@ test("fleet: 聚合各子代理 toolStats 到 details.fleet（完成态持久化
 	expect(res.isError).toBe(false);
 	expect(res.details).toEqual({
 		fleet: {
-			代码审查: { total: 3, done: 2, error: 1, running: 0 },
-			质量验收: { total: 1, done: 1, error: 0, running: 0 },
+			"0": { total: 3, done: 2, error: 1, running: 0 },
+			"1": { total: 1, done: 1, error: 0, running: 0 },
 		},
 	});
 });
@@ -576,7 +576,13 @@ test("delegate: 子代理 usage 转 pi toolResult.usage 形状（官方 stats �
 		text: "完成",
 		isError: false,
 		usage: {
-			tokens: { input: 300, output: 130, cacheRead: 1000, cacheWrite: 0, total: 1430 },
+			tokens: {
+				input: 300,
+				output: 130,
+				cacheRead: 1000,
+				cacheWrite: 0,
+				total: 1430,
+			},
 			costTotal: 0.01,
 		},
 	}));
@@ -602,7 +608,13 @@ test("delegate: 无 usage（采集失败降级）时不带 usage 字段", async 
 
 test("fleet: 各子代理 usage 聚合为单个 toolResult.usage", async () => {
 	const usageOf = (input: number) => ({
-		tokens: { input, output: 10, cacheRead: 100, cacheWrite: 0, total: input + 110 },
+		tokens: {
+			input,
+			output: 10,
+			cacheRead: 100,
+			cacheWrite: 0,
+			total: input + 110,
+		},
 		costTotal: 0.01,
 	});
 	const spawn = mock(async (agent: string) => ({
@@ -671,4 +683,176 @@ test("makeSpawnFn: 派发登记 AbortController 到 abortRegistry，中止信号
 	expect(result.text).toContain("已被中止");
 	// 完成后从登记表移除（不泄漏）
 	expect(registry.size).toBe(0);
+});
+
+// ---- 同名 agent 任务隔离（taskIndex）----
+// 根因：fleet 同名 agent 的进度/统计按 agent 名做 key，互相覆盖，前端
+// 显示「完成/进行中/失败一模一样」。修复：每个 fleet 任务分配 taskIndex
+// （原始数组序号），从 spawn → onProgress → details 全链路携带。
+
+// A1：fleet 同名 agent 多任务各自收到不同 taskIndex（原始数组序号）
+test("fleet: 同名 agent 多任务各自收到不同 taskIndex（原始数组序号）", async () => {
+	const taskIndexs: number[] = [];
+	const spawn = mock(
+		async (
+			_agent: string,
+			_task: string,
+			_tcId: string,
+			taskIndex?: number,
+		) => {
+			taskIndexs.push(taskIndex!);
+			return { text: "done", isError: false };
+		},
+	);
+	const tool = makeFleetTool({ askTo, spawn });
+	await tool.execute("tc-dup-idx", {
+		tasks: [
+			{ agent: "Explore", task: "A" },
+			{ agent: "Explore", task: "B" },
+			{ agent: "Explore", task: "C" },
+		],
+	});
+	expect(taskIndexs).toEqual([0, 1, 2]);
+});
+
+// A2：同名 agent 的 details.fleet 按任务序号 key（不互相覆盖）
+test("fleet: 同名 agent 的 details.fleet 按任务序号 key（不互相覆盖）", async () => {
+	const spawn = mock(
+		async (
+			_agent: string,
+			_task: string,
+			_tcId: string,
+			taskIndex?: number,
+		) => ({
+			text: "done",
+			isError: false,
+			toolStats:
+				taskIndex === 0
+					? { total: 3, done: 2, error: 1, running: 0 }
+					: { total: 5, done: 5, error: 0, running: 0 },
+		}),
+	);
+	const tool = makeFleetTool({ askTo, spawn });
+	const res = await tool.execute("tc-dup-stats", {
+		tasks: [
+			{ agent: "Explore", task: "A" },
+			{ agent: "Explore", task: "B" },
+		],
+	});
+	expect(res.details).toEqual({
+		fleet: {
+			"0": { total: 3, done: 2, error: 1, running: 0 },
+			"1": { total: 5, done: 5, error: 0, running: 0 },
+		},
+	});
+});
+
+// A3：越权项不打乱 taskIndex 编号（按原始数组序号）
+test("fleet: 越权项不打乱 taskIndex 编号（按原始数组序号）", async () => {
+	const spawn = mock(
+		async (
+			_agent: string,
+			_task: string,
+			_tcId: string,
+			taskIndex?: number,
+		) => ({
+			text: `idx-${taskIndex}`,
+			isError: false,
+		}),
+	);
+	const tool = makeFleetTool({ askTo: [], spawn });
+	await tool.execute("tc-mix-idx", {
+		tasks: [
+			{ agent: "Explore", task: "A" }, // 0 → spawn
+			{ agent: "陌生人", task: "X" }, // 1 → 越权跳过
+			{ agent: "Explore", task: "B" }, // 2 → spawn
+		],
+	});
+	// 第三个任务（原始序号 2）仍收到 taskIndex=2，未被越权项挤成 1
+	expect(spawn.mock.calls.map((c) => c[3])).toEqual([0, 2]);
+});
+
+// A4：makeSpawnFn 把 taskIndex 注入 onProgress 事件（同名 agent 各帧带正确 index）
+test("makeSpawnFn: fleet 调用时把 taskIndex 注入 onProgress 事件", async () => {
+	const events: Array<{ agent: string; taskIndex?: number }> = [];
+	const onProgress = mock((_tcId: string, event: any) =>
+		events.push({ agent: event.agent, taskIndex: event.taskIndex }),
+	);
+	const spawnFn = makeSpawnFn({
+		resolveConfig: async () => ({
+			name: "Explore",
+			description: "",
+			systemPrompt: "",
+			model: null,
+			thinking: null,
+			tools: [],
+			skills: [],
+		}),
+		cwd: "/tmp",
+		onProgress,
+		runSubagentAgent: (async (
+			_config: any,
+			_task: string,
+			_cwd: string,
+			opts: any,
+		) => {
+			opts?.onProgress?.({
+				agent: "Explore",
+				status: "running",
+				output: "",
+				tools: [],
+				elapsedMs: 1,
+			});
+			return { text: "done", isError: false, elapsedMs: 1 };
+		}) as any,
+	});
+	// spawnFn 接受第 4 个参数 taskIndex（fleet 传入）
+	await spawnFn("Explore", "task A", "tc-idx", 0);
+	await spawnFn("Explore", "task B", "tc-idx", 1);
+	expect(events.map((e) => e.taskIndex)).toEqual([0, 1]);
+});
+
+// A5：delegate 单任务路径不传 taskIndex（spawn 第 4 参为 undefined）
+test("makeSpawnFn: 未传 taskIndex（delegate 单任务）时 onProgress 事件不带 taskIndex", async () => {
+	const events: any[] = [];
+	const onProgress = mock((_tcId: string, event: any) => events.push(event));
+	const spawnFn = makeSpawnFn({
+		resolveConfig: async () => ({
+			name: "Explore",
+			description: "",
+			systemPrompt: "",
+			model: null,
+			thinking: null,
+			tools: [],
+			skills: [],
+		}),
+		cwd: "/tmp",
+		onProgress,
+		runSubagentAgent: (async (
+			_config: any,
+			_task: string,
+			_cwd: string,
+			opts: any,
+		) => {
+			opts?.onProgress?.({
+				agent: "Explore",
+				status: "running",
+				output: "",
+				tools: [],
+				elapsedMs: 1,
+			});
+			return { text: "done", isError: false, elapsedMs: 1 };
+		}) as any,
+	});
+	// delegate 路径只传 3 个参数，无 taskIndex
+	await spawnFn("Explore", "task", "tc-single");
+	expect(events[0].taskIndex).toBeUndefined();
+});
+
+// A6：makeDelegateTool execute 调 spawn 只传 3 参（不传 taskIndex）
+test("delegate: 单任务路径 execute 调 spawn 只传 3 参（不传 taskIndex）", async () => {
+	const spawn = mock(async () => ({ text: "ok", isError: false }));
+	const tool = makeDelegateTool({ askTo, spawn });
+	await tool.execute("tc-single-del", { agent: "代码审查", task: "review" });
+	expect(spawn.mock.calls[0]).toHaveLength(3);
 });
