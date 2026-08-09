@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-08-09 — 修复 StreamingBatcher rAF 裸引用 this 错位致真实浏览器流式预览失效（task-7 P0）
+
+### 修复
+
+- **fix(frontend)**：`store/session.ts` 传给 `StreamingBatcher` 的 `raf` 由裸引用 `requestAnimationFrame` 改为箭头包裹 `(fn) => requestAnimationFrame(fn)`。裸引用在 batcher 内 `this.scheduleFn(cb)`（this=batcher 实例）的成员访问调用下，被真实 Chromium 原生 rAF 检测到 receiver≠window 拒绝并抛 `Illegal invocation`，导致所有 `message_update(text_delta)` 流式预览在真实浏览器不更新（直到 `message_end` 定稿），任务 1–6 的 rAF 合帧优化在真实浏览器从未生效。happy-dom 的 rAF 是 setTimeout mock、不校验 receiver，故组件层从未暴露。`caf` 已是箭头包裹，未改。
+  - 影响范围：`packages/frontend/src/store/session.ts`。
+
+### 测试
+
+- 新增 `store/session-raf-regression.test.ts`：用「校验 receiver 的 rAF 替身」模拟原生严格语义，断言 message_update 流式路径在严格 rAF 下不抛 Illegal invocation（修复前 FAIL、修复后 PASS）。
+- E2E 场景 1「流式对话：合帧更新→定稿后代码块高亮」为真实 Chromium 回归守卫，修复后转 PASS。
+
+---
+
 ## 2026-08-09 — 修复虚拟化后「进入会话定位到最新」回归 + 补滚动行为自动化覆盖（task-6 审查修复）
 
 ### 修复
