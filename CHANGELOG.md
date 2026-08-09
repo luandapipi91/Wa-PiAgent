@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-08-09 — llm-ui React 19 兼容性 spike（流式渲染性能优化前置验证）
+
+### 新增（验证）
+
+- **test(frontend)**：新增 `@llm-ui/react|markdown|code ^0.13.3` 依赖并编写兼容性 spike 测试，验证 `useLLMOutput` 在 React 19.2 + happy-dom 下运行时完全兼容（无 hooks 报错/渲染崩溃）。三个 peer 声明 `react ^18` 实测兼容，bun install peer warning 为预期内已知项。spike 用例 3/3 PASS（文本+闭合代码块分段、未闭合走 partial、parse 提取 language/code）。**未安装 shiki**。spike 全绿，任务 5（llm-ui StreamingMarkdown 实现）解锁，回退到 Streamdown 的路径不需要走。
+  - 偏离记录：用例 1 因 llm-ui 为代码块前后各产一个 markdown fallback 块（正确分段行为），`getByTestId` 遇多元素抛错，属测试写法问题（非运行时不兼容），改 `getAllByTestId` 后全绿。
+  - 影响范围：`packages/frontend/package.json`、`packages/frontend/tests/blocks/llm-ui-spike.test.tsx`。
+
+---
+
 ## 2026-08-09 — 子代理卡片 memo + 流式输出停顿前纯文本预览降级渲染
 
 ### 性能优化
