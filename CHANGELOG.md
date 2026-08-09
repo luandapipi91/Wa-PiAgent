@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-09 — 子代理卡片 memo + 流式输出停顿前纯文本预览降级渲染
+
+### 性能优化
+
+- **perf(blocks)**：`DelegateCard`/`FleetCard` 用 `memo` 包裹，避免父组件（MessageRow）每帧重渲染传导；新增 `StreamingOutput` 组件——子代理执行中（progress.output 高频增长）且未停顿时渲染 `whitespace-pre-wrap` 纯文本预览（与 ThinkingCard 同款低成本渲染），停顿 500ms（`useSettled`）或流式结束后才切完整 markdown。新增 `useSettled` hook 实现「停顿」检测。
+  - 影响范围：`packages/frontend/src/components/blocks/{DelegateCard,FleetCard,StreamingOutput,useSettled}.tsx/ts`，对应测试。
+
+---
+
 ## 2026-08-09
 
 ### 变更
