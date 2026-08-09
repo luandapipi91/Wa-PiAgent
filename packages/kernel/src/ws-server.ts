@@ -422,6 +422,20 @@ export class WSServer {
 	}
 
 	/**
+	 * 广播当前活跃项目/会话列表（projects:list）。
+	 * 统一封装 loadActive + broadcast——过滤已软删除会话，供各 handler 写操作后刷新侧栏。
+	 * 公开方法：index.ts 的 archiveStaleSessions/purgeOldTrashSessions 定时任务也调用。
+	 */
+	async broadcastProjectsList(): Promise<void> {
+		const data = await this.opts.projectStore.loadActive();
+		this.broadcast({
+			type: "projects:list",
+			projects: data.projects,
+			sessions: data.sessions,
+		});
+	}
+
+	/**
 	 * REST 适配器：复用 handle() 业务逻辑（不改 case），把 WS 请求/响应语义映射到 HTTP。
 	 * - reply 中的 progress 帧 → SSE 总线（带 requestId/id，前端按 id 过滤）
 	 * - responseTypes 之外的 reply → SSE 总线（广播语义，如 session:echo_user / extension:changed）
@@ -668,7 +682,8 @@ export class WSServer {
 	): Promise<void> {
 		switch (event.type) {
 			case "projects:list": {
-				const { projects, sessions } = await this.opts.projectStore.load();
+				const { projects, sessions } =
+					await this.opts.projectStore.loadActive();
 				reply({ type: "projects:list", projects, sessions }); // 定向回请求者
 				break;
 			}
@@ -690,12 +705,7 @@ export class WSServer {
 					name: event.name,
 					cwd: event.cwd,
 				});
-				const data = await this.opts.projectStore.load();
-				this.broadcast({
-					type: "projects:list",
-					projects: data.projects,
-					sessions: data.sessions,
-				});
+				await this.broadcastProjectsList();
 				break;
 			}
 			case "project:delete": {
@@ -705,12 +715,7 @@ export class WSServer {
 					break;
 				}
 				await this.opts.projectStore.deleteProject(event.projectId);
-				const data = await this.opts.projectStore.load();
-				this.broadcast({
-					type: "projects:list",
-					projects: data.projects,
-					sessions: data.sessions,
-				});
+				await this.broadcastProjectsList();
 				break;
 			}
 			case "project:open-dir": {
@@ -739,12 +744,7 @@ export class WSServer {
 					event.sessionId,
 					event.title,
 				);
-				const data = await this.opts.projectStore.load();
-				this.broadcast({
-					type: "projects:list",
-					projects: data.projects,
-					sessions: data.sessions,
-				});
+				await this.broadcastProjectsList();
 				break;
 			}
 			case "session:set-agent": {
@@ -768,12 +768,7 @@ export class WSServer {
 						sessionId: event.sessionId,
 						primaryAgent: event.agentName,
 					});
-					const data = await this.opts.projectStore.load();
-					this.broadcast({
-						type: "projects:list",
-						projects: data.projects,
-						sessions: data.sessions,
-					});
+					await this.broadcastProjectsList();
 				} catch (err) {
 					reply({
 						type: "error",
@@ -787,12 +782,7 @@ export class WSServer {
 				try {
 					await this.opts.agentManager.reloadSession(event.sessionId);
 					// 重建后 broadcast 更新列表（重建可能改变 session 的 piSessionFile 等）
-					const data = await this.opts.projectStore.load();
-					this.broadcast({
-						type: "projects:list",
-						projects: data.projects,
-						sessions: data.sessions,
-					});
+					await this.broadcastProjectsList();
 				} catch (err) {
 					reply({
 						type: "error",
@@ -827,17 +817,48 @@ export class WSServer {
 				// 先清理 SDK session（解绑事件订阅 + dispose），再删 ProjectStore 里的会话记录
 				await this.opts.agentManager.disposeSession(event.sessionId);
 				await this.opts.projectStore.deleteSession(event.sessionId);
-				const data = await this.opts.projectStore.load();
-				this.broadcast({
-					type: "projects:list",
-					projects: data.projects,
-					sessions: data.sessions,
-				});
+				await this.broadcastProjectsList();
 				// 联动清理 IM 映射（当前指针 + 历史归档），刷新 IM tab 列表。
 				// 非 IM 会话在 mapping 里查不到 → no-op。
 				if (this.opts.channelManager) {
 					await this.opts.channelManager.onSessionDeleted(event.sessionId);
 				}
+				break;
+			}
+			// ===== 回收站（软删除）WS 事件 =====
+			case "trash:list": {
+				const result = await this.opts.projectStore.loadTrash({
+					projectId: event.projectId,
+					offset: event.offset,
+					limit: event.limit ?? 100,
+				});
+				const { projects } = await this.opts.projectStore.load();
+				reply({
+					type: "trash:list",
+					sessions: result.sessions,
+					projects,
+					total: result.total,
+				});
+				break;
+			}
+			case "trash:restore": {
+				for (const id of event.sessionIds) {
+					await this.opts.projectStore.restoreSession(id);
+				}
+				await this.broadcastProjectsList();
+				reply({ type: "trash:op", success: true });
+				break;
+			}
+			case "trash:delete": {
+				await this.opts.projectStore.permanentlyDeleteSessions(
+					event.sessionIds,
+				);
+				reply({ type: "trash:op", success: true });
+				break;
+			}
+			case "trash:empty": {
+				const deleted = await this.opts.projectStore.emptyTrash();
+				reply({ type: "trash:op", success: true, deleted });
 				break;
 			}
 			case "session:asks": {
@@ -1088,12 +1109,7 @@ export class WSServer {
 									event.text.slice(0, 20),
 								);
 							if (agentChanged || filled) {
-								const data = await this.opts.projectStore.load();
-								this.broadcast({
-									type: "projects:list",
-									projects: data.projects,
-									sessions: data.sessions,
-								});
+								await this.broadcastProjectsList();
 							}
 						}
 						// slash 文本延迟回显：pi 对已注册的扩展命令直接执行 handler（拦截），
@@ -1401,12 +1417,7 @@ export class WSServer {
 						event.agentName,
 						event.config.displayName,
 					);
-					const data = await this.opts.projectStore.load();
-					this.broadcast({
-						type: "projects:list",
-						projects: data.projects,
-						sessions: data.sessions,
-					});
+					await this.broadcastProjectsList();
 					this.broadcast({
 						type: "agent:list",
 						agents: await this.opts.configStore.listAgents(),
@@ -2364,12 +2375,7 @@ export class WSServer {
 				text.slice(0, 20),
 			);
 			if (filled) {
-				const data = await this.opts.projectStore.load();
-				this.broadcast({
-					type: "projects:list",
-					projects: data.projects,
-					sessions: data.sessions,
-				});
+				await this.broadcastProjectsList();
 			}
 		} catch (err) {
 			console.error(`[ws-server] 引导后自动补全标题失败 ${sessionId}:`, err);
