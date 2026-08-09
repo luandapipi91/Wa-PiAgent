@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-09 — 新增功能：会话回收站类型定义
+
+### 变更
+
+- **新增(shared)：会话回收站功能的共享类型定义**。为 `SessionEntity` 新增软删除字段（`deletedAt` / `deletedReason`），新增 `TrashSettings`（自动归档/清除设置），新增回收站 WS 事件类型（`TrashListRequest` / `TrashRestoreEvent` / `TrashDeleteEvent` / `TrashEmptyEvent` / `TrashListResult` / `TrashOpResult`），并追加到 `WSClientEvent` / `WSServerEvent` 联合类型。
+  - 影响范围：`packages/shared/src/types.ts`。
+
+---
+
 ## 2026-08-09 — 发版 v0.1.10
 
 ### 变更
