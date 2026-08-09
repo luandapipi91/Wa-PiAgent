@@ -593,6 +593,8 @@ const en = {
 		confirmDeleteMsg: "Permanently delete {{count}} selected sessions? This cannot be undone.",
 		messagesNotFound: "Message file not found",
 		imTag: "IM",
+		prevPage: "Prev",
+		nextPage: "Next",
 	},
 	sessionRow: {
 		hasNewReply: "New reply",

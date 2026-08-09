@@ -580,6 +580,8 @@ const zh = {
 		confirmDeleteMsg: "确定要永久删除选中的 {{count}} 个会话吗？删除后将无法恢复。",
 		messagesNotFound: "消息文件不存在",
 		imTag: "IM会话",
+		prevPage: "上一页",
+		nextPage: "下一页",
 	},
 	sessionRow: {
 		hasNewReply: "有新回复",
