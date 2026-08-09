@@ -736,46 +736,44 @@ export const useSessionStore = create<SessionState>((set) => {
 				// 流式增量：0.84 起 RPC 只发 assistantMessageEvent delta（无 partial 快照），
 				// 需自行把 delta 累积到 streaming message 的对应 content block。
 				// toolcall_delta 不做流式累积（参数 JSON 片段），message_end 用权威消息定稿覆盖。
+				// rAF 合帧（流式卡顿修复）：不再每事件 set()，delta 累积进 batcher 挂起帧，
+				// 一帧内多个 delta 合并为一次 zustand 提交（取最新）。
+				// 累积基准必须含 batcher 挂起值（peek），否则同帧内后到的 delta 覆盖先到的。
 				case "message_update": {
 					const ae = (event as any).assistantMessageEvent;
 					if (!ae) break;
 					const delta = ae.delta;
 					if (typeof delta !== "string") break;
-					set((s) => {
-						const cur = s.streamingBySession[sessionId];
-						if (!cur) return {};
-						const msg = cur.message as any;
-						const content = Array.isArray(msg.content)
-							? msg.content.map((b: any) => ({ ...b }))
-							: [];
-						const idx =
-							typeof ae.contentIndex === "number" ? ae.contentIndex : 0;
-						const block = content[idx];
-						if (ae.type === "text_delta") {
-							if (block?.type === "text") {
-								content[idx] = { ...block, text: (block.text ?? "") + delta };
-							} else if (!block) {
-								content[idx] = { type: "text", text: delta };
-							}
-						} else if (ae.type === "thinking_delta") {
-							if (block?.type === "thinking") {
-								content[idx] = {
-									...block,
-									thinking: (block.thinking ?? "") + delta,
-								};
-							} else if (!block) {
-								content[idx] = { type: "thinking", thinking: delta };
-							}
+					const cur =
+						streamingBatcher.peek(sessionId) ??
+						useSessionStore.getState().streamingBySession[sessionId];
+					if (!cur) break;
+					const msg = cur.message as any;
+					const content = Array.isArray(msg.content)
+						? msg.content.map((b: any) => ({ ...b }))
+						: [];
+					const idx =
+						typeof ae.contentIndex === "number" ? ae.contentIndex : 0;
+					const block = content[idx];
+					if (ae.type === "text_delta") {
+						if (block?.type === "text") {
+							content[idx] = { ...block, text: (block.text ?? "") + delta };
+						} else if (!block) {
+							content[idx] = { type: "text", text: delta };
 						}
-						return {
-							streamingBySession: {
-								...s.streamingBySession,
-								[sessionId]: {
-									message: { ...msg, content },
-									agentName: cur.agentName,
-								},
-							},
-						};
+					} else if (ae.type === "thinking_delta") {
+						if (block?.type === "thinking") {
+							content[idx] = {
+								...block,
+								thinking: (block.thinking ?? "") + delta,
+							};
+						} else if (!block) {
+							content[idx] = { type: "thinking", thinking: delta };
+						}
+					}
+					streamingBatcher.update(sessionId, {
+						message: { ...msg, content },
+						agentName: cur.agentName,
 					});
 					break;
 				}

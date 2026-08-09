@@ -6,6 +6,14 @@ import { useProjectsStore } from "../src/store/projects";
 import { useExtDialogStore } from "../src/store/ext-dialog";
 import type { SDKEventEnvelope } from "@wa-pi/shared";
 
+// message_update 已接 rAF 合帧（batcher）：断言前需等帧末提交
+const flushFrames = () =>
+  new Promise<void>((resolve) => {
+    const raf: (fn: () => void) => void =
+      globalThis.requestAnimationFrame ?? ((fn) => setTimeout(fn, 16) as any);
+    raf(() => raf(() => resolve()));
+  });
+
 // refreshTokenTotals 会调用 api.get 拉取会话历史 + 会话统计；mock 掉 api-client，
 // 返回可注入的 messages / stats，断言聚焦于「压缩回合结束触发刷新」逻辑。
 const mockMessages: { messages: any[] } = { messages: [] };
@@ -627,6 +635,7 @@ test("message_update 累积 text_delta（0.84：无 partial 快照，delta 追�
 		},
 	});
 	useSessionStore.getState().handleSDKEvent("s1", env);
+	await flushFrames();
 	const streaming = useSessionStore.getState().streamingBySession["s1"];
 	expect(streaming).toBeTruthy();
 	// delta 累积到 content[0] 的 text block
@@ -661,6 +670,7 @@ test("message_update 多次 text_delta：文本按序累积（0.84 delta 增量�
 	useSessionStore.getState().handleSDKEvent("s1", mk("部"));
 	useSessionStore.getState().handleSDKEvent("s1", mk("分"));
 	useSessionStore.getState().handleSDKEvent("s1", mk("内"));
+	await flushFrames();
 	const streaming = useSessionStore.getState().streamingBySession["s1"];
 	expect((streaming!.message as any).content[0].text).toBe("部分内");
 });

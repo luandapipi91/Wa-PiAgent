@@ -61,3 +61,18 @@ test("drop 丢弃该 session 挂起帧，后续帧不再提交（防止 message_
   expect(commits).toHaveLength(1);
   expect(commits[0][0]).toBe("s2");
 });
+
+test("peek 读取挂起帧：update 后可见最新值，flush/drop 后为 undefined", () => {
+  const commits: [string, any][] = [];
+  const raf = fakeRaf();
+  const b = new StreamingBatcher((sid, v) => commits.push([sid, v]), raf.schedule, raf.cancel);
+  expect(b.peek("s1")).toBeUndefined();
+  b.update("s1", { message: "a" });
+  b.update("s1", { message: "ab" });
+  expect(b.peek("s1")).toEqual({ message: "ab" }); // 取最新挂起值
+  raf.advance();
+  expect(b.peek("s1")).toBeUndefined(); // flush 后清空
+  b.update("s1", { message: "x" });
+  b.drop("s1");
+  expect(b.peek("s1")).toBeUndefined(); // drop 后清空
+});
