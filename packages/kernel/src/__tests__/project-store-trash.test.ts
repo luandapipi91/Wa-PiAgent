@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, afterEach } from "bun:test";
 import { ProjectStore } from "../project-store";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -94,5 +94,23 @@ describe("ProjectStore soft delete", () => {
         const data = await s.loadActive();
         expect(data.sessions.length).toBe(1);
         expect(data.sessions[0].id).toBe(s2.id);
+    });
+
+    test("restoreSession assigns SYSTEM_PROJECT_ID when original project deleted", async () => {
+        const s = makeStore();
+        const { s2 } = await seed(s);
+        // 软删除会话
+        await s.deleteSession(s2.id);
+        // 模拟原项目已删除：将 projectId 重指向不存在的项目。
+        // 注：deleteProject 会级联物理删除该项目下所有会话，无法用它制造孤儿会话，
+        // 故用 reassignSession（文档即“孤儿 session 归入默认项目”）制造孤儿场景，
+        // 以覆盖 restoreSession 的孤儿恢复分支。
+        await s.reassignSession(s2.id, "deleted-project-id");
+        // 恢复 —— 原项目不存在，应归入默认工作区
+        await s.restoreSession(s2.id);
+        const data = await s.load();
+        const found = data.sessions.find(x => x.id === s2.id);
+        expect(found!.projectId).toBe("__system__");
+        expect(found!.deletedAt).toBeUndefined();
     });
 });
