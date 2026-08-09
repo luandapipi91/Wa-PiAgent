@@ -36,6 +36,11 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 			? t("trash.reasonAuto")
 			: t("trash.reasonManual");
 
+	// 选中态下标签样式（半透明白底 + 白字）
+	const tagStyle = selected
+		? { backgroundColor: "rgba(255,255,255,0.2)", color: "#fff", border: "1px solid rgba(255,255,255,0.35)" }
+		: { backgroundColor: undefined, color: undefined, border: undefined };
+
 	return (
 		<div
 			className={`flex items-center gap-3 px-3 py-2.5 rounded cursor-pointer transition-colors border ${
@@ -55,13 +60,18 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 				data-testid={`trash-checkbox-${session.id}`}
 			/>
 			<span className="text-base shrink-0">{emoji}</span>
-			<span className="text-sm font-medium truncate w-40 shrink-0">
+			<span className={`text-sm font-medium truncate w-40 shrink-0 ${selected ? "text-white" : ""}`}>
 				{isIM && "📱 "}
 				{session.primaryAgent}
 			</span>
 			{isIM && (
 				<span
-					className="text-[10px] px-2 py-0.5 rounded-full bg-warning-soft text-warning border border-warning shrink-0"
+					className={`text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${
+						selected
+							? ""
+							: "bg-warning-soft text-warning border-warning"
+					}`}
+					style={selected ? tagStyle : undefined}
 					data-testid="trash-row-im-tag"
 				>
 					{t("trash.imTag")}
@@ -69,21 +79,28 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 			)}
 			<span
 				className="text-[10px] px-2 py-0.5 rounded-full shrink-0"
-				style={{
-					backgroundColor: "rgba(75, 162, 111, 0.1)",
-					color: "var(--brand)",
-					border: "1px solid rgba(75, 162, 111, 0.25)",
-				}}
+				style={
+					selected
+						? tagStyle
+							: {
+									backgroundColor: "rgba(75, 162, 111, 0.1)",
+									color: "var(--brand)",
+									border: "1px solid rgba(75, 162, 111, 0.25)",
+							  }
+				}
 			>
 				{projectName}
 			</span>
-			<span className="flex-1 text-xs text-tertiary flex items-center gap-1 min-w-0">
+			<span className={`flex-1 text-xs flex items-center gap-1 min-w-0 ${selected ? "text-white/80" : "text-tertiary"}`}>
 				<span
 					className={`text-[10px] px-1.5 py-0.5 rounded ${
-						session.deletedReason === "auto"
-							? "bg-warning-soft text-warning"
-							: "bg-danger-soft text-danger"
+						selected
+							? ""
+							: session.deletedReason === "auto"
+								? "bg-warning-soft text-warning"
+								: "bg-danger-soft text-danger"
 					}`}
+					style={selected ? tagStyle : undefined}
 				>
 					{reason}
 				</span>
@@ -92,9 +109,13 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 			<button
 				onClick={(e) => {
 					e.stopPropagation();
-					onView(session.id);
+				onView(session.id);
 				}}
-				className="w-7 h-7 rounded border border-hairline bg-surface hover:border-brand text-xs shrink-0"
+				className={`w-7 h-7 rounded border text-xs shrink-0 ${
+					selected
+						? "border-white/40 bg-white/15 text-white hover:bg-white/25"
+							: "border-hairline bg-surface hover:border-brand"
+				}`}
 				title={t("trash.view")}
 				data-testid={`trash-view-${session.id}`}
 			>
