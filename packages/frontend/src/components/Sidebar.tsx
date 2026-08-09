@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import type { View } from "../App";
-import { api } from "../api-client";
 import { NewSessionButton } from "./NewSessionButton";
 import { AgentListSection } from "./AgentListSection";
 import { ProjectList } from "./ProjectList";
@@ -10,6 +9,7 @@ import { RecycleBinModal } from "./RecycleBinModal";
 import { ImConversationList } from "./ImConversationList";
 import { useSettingsStore } from "../store/settings";
 import { useSidebarStore } from "../store/sidebar";
+import { useTrashStore } from "../store/trash";
 import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
@@ -30,14 +30,9 @@ export function Sidebar(props: Props) {
   // 侧边栏页签：任务（默认）| IM。切换只切换内容区，SettingsButton 始终可见。
   const [tab, setTab] = useState<"tasks" | "im">("tasks");
   const [showTrash, setShowTrash] = useState(false);
-  const [trashCount, setTrashCount] = useState(0);
-  useEffect(() => {
-    // 预加载回收站总数（轻量请求）
-    api
-      .get("/api/trash/sessions?limit=1")
-      .then((res: any) => setTrashCount(res?.total ?? 0))
-      .catch(() => {});
-  }, []);
+  const trashCount = useTrashStore((s) => s.badgeCount);
+  const refreshBadge = useTrashStore((s) => s.refreshBadge);
+  useEffect(() => { void refreshBadge(); }, [refreshBadge]);
   return (
     <aside
       className="flex flex-col gap-1.5 p-3.5 overflow-hidden border-r border-hairline"
@@ -83,7 +78,9 @@ export function Sidebar(props: Props) {
         <RecycleBinButton onClick={() => setShowTrash(true)} count={trashCount} />
         <SettingsButton onClick={() => useSettingsStore.getState().open()} />
       </div>
-      {showTrash && <RecycleBinModal onClose={() => setShowTrash(false)} />}
+      {showTrash && (
+        <RecycleBinModal onClose={() => { setShowTrash(false); void refreshBadge(); }} />
+      )}
     </aside>
   );
 }
