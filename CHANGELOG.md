@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-08-09 — 新增功能：回收站 WS 事件处理器 + HTTP 路由 + projects:list 过滤已删除会话
+
+### 变更
+
+- **新增(kernel)：WS 层回收站事件处理器**。在 `ws-server.ts` 的 `handle()` switch 中新增 4 个 case：`trash:list`（分页查询回收站会话，返回 sessions/projects/total）、`trash:restore`（批量恢复后广播 projects:list）、`trash:delete`（永久删除指定会话）、`trash:empty`（清空回收站并返回删除数量）。
+- **新增(kernel)：`broadcastProjectsList()` 公开辅助方法**。封装 `loadActive()` + `broadcast({type:"projects:list"})`，统一过滤已软删除会话。将 `ws-server.ts` 中全部 9 处手动 `load()` + `broadcast(projects:list)` 模式（project:update、project:delete、session:rename、session:set-agent、session:reload、session:delete、agent:prompt 填充标题、agent:save 改名、fillEmptySessionTitle）替换为此方法。`projects:list` 定向 reply 也改为 `loadActive()`。
+  - 影响范围：`packages/kernel/src/ws-server.ts`。
+- **新增(kernel)：回收站 HTTP 路由**。在 `routes/projects-sessions.ts` 新增 `GET /api/trash/sessions`（分页查询）、`POST /api/trash/sessions/restore`（批量恢复）、`DELETE /api/trash/sessions`（带 sessionIds 数组则永久删除，否则清空回收站）。
+  - 影响范围：`packages/kernel/src/routes/projects-sessions.ts`。
+- **新增(kernel)：回收站设置 HTTP 路由**。在 `routes/settings.ts` 新增 `GET /api/settings/trash` 和 `PUT /api/settings/trash`，直接调用 `loadTrashSettings` / `saveTrashSettings` 读写 settings.json（不走 WS callApi）。
+  - 影响范围：`packages/kernel/src/routes/settings.ts`。
+
+---
+
 ## 2026-08-09 — 新增功能：回收站设置存储 loadTrashSettings/saveTrashSettings
 
 ### 变更
