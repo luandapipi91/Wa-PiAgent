@@ -21,6 +21,44 @@ async function seed(s: ProjectStore) {
 describe("ProjectStore soft delete", () => {
     afterEach(async () => { await rm(TEST_FILE, { force: true }); });
 
+    test("deleteProject soft-deletes active sessions instead of physically removing them", async () => {
+        const s = makeStore();
+        const { p, s2 } = await seed(s);
+        await s.deleteProject(p.id);
+        const data = await s.load();
+        // 项目被删除
+        expect(data.projects.find(x => x.id === p.id)).toBeUndefined();
+        // 会话记录仍在（软删除），且有 deletedAt
+        const found = data.sessions.find(x => x.id === s2.id);
+        expect(found).toBeDefined();
+        expect(found!.deletedAt).toBeGreaterThan(0);
+        expect(found!.deletedReason).toBe("manual");
+    });
+
+    test("deleteProject does not re-delete already-deleted sessions", async () => {
+        const s = makeStore();
+        const { p, s2 } = await seed(s);
+        // 先手动软删除
+        await s.deleteSession(s2.id);
+        const data1 = await s.load();
+        const firstDeletedAt = data1.sessions.find(x => x.id === s2.id)!.deletedAt;
+        // 删除项目
+        await s.deleteProject(p.id);
+        const data2 = await s.load();
+        const found = data2.sessions.find(x => x.id === s2.id);
+        // deletedAt 不应被覆盖
+        expect(found!.deletedAt).toBe(firstDeletedAt);
+    });
+
+    test("deleteProject soft-deleted sessions appear in trash", async () => {
+        const s = makeStore();
+        const { p, s2 } = await seed(s);
+        await s.deleteProject(p.id);
+        const trash = await s.loadTrash();
+        expect(trash.total).toBe(1);
+        expect(trash.sessions.find(x => x.id === s2.id)).toBeDefined();
+    });
+
     test("deleteSession sets deletedAt instead of removing", async () => {
         const s = makeStore();
         const { s1 } = await seed(s);
@@ -102,7 +140,8 @@ describe("ProjectStore soft delete", () => {
         // 软删除会话
         await s.deleteSession(s2.id);
         // 模拟原项目已删除：将 projectId 重指向不存在的项目。
-        // 注：deleteProject 会级联物理删除该项目下所有会话，无法用它制造孤儿会话，
+        // 注：deleteProject 会软删除（移入回收站）该项目下所有会话，
+        // 无法用它直接制造已软删除但原项目不存在的场景，
         // 故用 reassignSession（文档即“孤儿 session 归入默认项目”）制造孤儿场景，
         // 以覆盖 restoreSession 的孤儿恢复分支。
         await s.reassignSession(s2.id, "deleted-project-id");

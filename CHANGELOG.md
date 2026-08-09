@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-08-09 — 修复：最终代码审查发现的 5 个问题
+
+### 类型
+修复
+
+### 摘要
+- **Important #1**：`saveTrashSettings` 添加 clamp 校验（[1,365]），负数/0 不再导致全量归档/清除；PUT 路由回显归一化结果；前端 `GeneralSection` 用 `Math.max(1, ...)` 兜底
+- **Important #2**：`deleteProject` 物理删除子会话改为软删除（移入回收站），避免绕过回收站直接丢失数据
+- **Important #3**：`session:messages` handler 添加 `deletedAt` 守卫，软删除会话只读模式不 touch、不 prewarm，避免复活 pi 进程
+- **Minor #M4**：TrashSessionRow 查看按钮 title 从 `trash.viewerBack`（"返回回收站"）修正为新增 key `trash.view`（"查看消息"）
+- **Minor #M6**：Sidebar 加载回收站总数并传入 RecycleBinButton，角标不再为死代码
+
+### 影响范围
+- `packages/kernel/src/settings-store.ts`、`routes/settings.ts`、`project-store.ts`、`ws-server.ts`
+- `packages/frontend/src/components/Sidebar.tsx`、`TrashSessionRow.tsx`、`settings/GeneralSection.tsx`
+- `packages/frontend/src/i18n/locales/zh.ts`、`en.ts`
+- 单元测试：`settings-trash.test.ts`（+3）、`project-store-trash.test.ts`（+3）
+
+---
+
 ## 2026-08-09 — 新增功能：回收站弹窗 + 会话行 + 只读消息查看器 + Sidebar 集成
 
 ### 变更

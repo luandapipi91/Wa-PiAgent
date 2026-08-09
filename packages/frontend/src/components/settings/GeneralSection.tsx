@@ -148,9 +148,9 @@ export function GeneralSection() {
 		await api.put("/api/settings/trash", {
 			trash: {
 				autoArchiveEnabled: autoArchive,
-				autoArchiveDays: Number(archiveDays) || 7,
+				autoArchiveDays: Math.max(1, Number(archiveDays) || 7),
 				autoPurgeEnabled: autoPurge,
-				autoPurgeDays: Number(purgeDays) || 30,
+				autoPurgeDays: Math.max(1, Number(purgeDays) || 30),
 			},
 		});
 	};

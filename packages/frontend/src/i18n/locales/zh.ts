@@ -573,6 +573,7 @@ const zh = {
 		viewerRestoreLink: "恢复会话",
 		viewerRestoreHint: "恢复后可继续对话",
 		viewerReadonly: "只读模式 — 恢复会话后可继续对话",
+		view: "查看消息",
 		viewerBack: "返回回收站",
 		confirmEmptyTitle: "清空回收站",
 		confirmEmptyMsg: "确定要永久删除回收站中的全部 {{count}} 个会话吗？此操作不可撤销。",
