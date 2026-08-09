@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-08-09 — 流式 text 段改 llm-ui 分块渲染，未闭合代码块跳过 Prism 高亮
+
+### 性能优化
+
+- **perf(frontend)**：流式进行中的 text 段改用 llm-ui `useLLMOutput` 分块渲染（`StreamingMarkdown`）。闭合代码块拆为独立 `CodeBlockCard`（其 memo 使 code 不变时跳过 Prism 重跑），未闭合代码块渲染纯 `<pre>`（跳过每帧全量 Prism 高亮——流式卡顿热点之一）；闭合 mermaid 块走 `MermaidBlock`；markdown fallback 段复用现有 `createMarkdownComponents`（FilePill/MarkdownLink 零改动）。定稿后仍切回原 `MarkdownBlock`（ReactMarkdown + remarkGfm 完整渲染）。
+  - 新增 `streaming-code-block.tsx`（llm-ui 代码块适配层：`findComplete/PartialCodeBlock` + `parse` 纯函数）与 `StreamingMarkdown.tsx`（memo 化，blocks/fallbackBlock 引用稳定）；改 `MessageList.tsx` `renderSeg` text 分支按 `segIsStreaming` 分发到 `StreamingMarkdown`（流式中）/ `MarkdownBlock`（定稿）。
+  - 影响范围：`packages/frontend/src/components/blocks/{streaming-code-block,StreamingMarkdown}.tsx`、`packages/frontend/src/components/MessageList.tsx`，及对应测试。
+
+---
+
 ## 2026-08-09 — llm-ui React 19 兼容性 spike（流式渲染性能优化前置验证）
 
 ### 新增（验证）
