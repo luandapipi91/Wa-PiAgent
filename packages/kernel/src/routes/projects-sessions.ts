@@ -1,8 +1,9 @@
 /**
  * 项目 / 会话域路由（阶段二·去 WS 化）
  */
-import type { RouteContext, RouteRegistrar } from "./types";
+import type { RouteRegistrar } from "./types";
 import { readJsonBody } from "./types";
+import { readSessionHistory } from "../session-history";
 
 export const registerProjectSessionRoutes: RouteRegistrar = (
 	r,
@@ -103,5 +104,23 @@ export const registerProjectSessionRoutes: RouteRegistrar = (
 			return callApi({ type: "trash:delete", sessionIds: b.sessionIds });
 		}
 		return callApi({ type: "trash:empty" });
+	});
+	// 回收站只读消息查看：直接读 jsonl，不经过 AgentManager（已 dispose 的会话不走 touch/prewarm）
+	r.add("GET", "/api/trash/sessions/:sessionId/messages", async (_req, p) => {
+		const { sessions } = await ctx.projectStore.load();
+		const session = sessions.find((s) => s.id === p.sessionId);
+		if (!session || !session.piSessionFile) {
+			return Response.json({ messages: [] });
+		}
+		try {
+			const history = await readSessionHistory(session.piSessionFile);
+			const messages = history.map((m) => ({
+				message: m,
+				agentName: session.primaryAgent,
+			}));
+			return Response.json({ messages });
+		} catch {
+			return Response.json({ messages: [] });
+		}
 	});
 };

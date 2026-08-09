@@ -22,7 +22,7 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 		// 复用现有的 /api/sessions/:id/messages 端点
 		// 软删除不删 jsonl 文件，直接读取历史
 		void api
-			.get(`/api/sessions/${encodeURIComponent(sessionId)}/messages`)
+			.get(`/api/trash/sessions/${encodeURIComponent(sessionId)}/messages`)
 			.then((res) => {
 				const data = res as { messages: SessionMessage[] };
 				useSessionStore.getState().setMessages(sessionId, data.messages ?? []);
