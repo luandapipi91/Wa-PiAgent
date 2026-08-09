@@ -31,6 +31,12 @@ export class StreamingBatcher<T = unknown> {
     this.pending.delete(sessionId);
   }
 
+  /** 读取该 session 尚未提交的挂起帧；无挂起帧返回 undefined。
+   *  message_update 累积 delta 必须基于「已提交值 + 挂起值」，否则同帧内中间 delta 会丢。 */
+  peek(sessionId: string): T | undefined {
+    return this.pending.get(sessionId);
+  }
+
   /** 立即提交所有挂起帧 */
   flush(): void {
     if (this.rafHandle != null) {
