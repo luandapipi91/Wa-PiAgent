@@ -90,40 +90,6 @@ test("流式更新时历史消息行不重渲染（Markdown 不重解析）", ()
 	expect(mdRenderCount - initial).toBe(2);
 });
 
-// ── 审查发现 I-1 修复：MessageList → StreamingMarkdown 流式新路径集成覆盖 ──
-// 上面合并行场景（"回答二" + 流式）实际未走 StreamingMarkdown：合并行
-// streamingStartIdx = lastMain.content.length = 1，而两段连续 text 合并为一个
-// segment、firstBlockIdx = 0，故 segIsStreaming = isStreaming && (0 >= 1) = false
-// → text 分支走 MarkdownBlock。真正的流式新路径（segIsStreaming=true）此前无集成覆盖。
-//
-// 触发条件：streaming 独立成行（无前置定稿 assistant 行 → mergeStreamingIntoLast=false
-// → StreamingRow → MessageRow row.streamingStartIdx==null），即"全新回合"。
+// 全新回合流式路径覆盖：llm-ui 已移除，流式 text 段走 MarkdownBlock（与定稿同路径），
+// 由上方"流式更新时历史消息行不重渲染"用例覆盖，不再需要 StreamingMarkdown 专属断言。
 
-test("全新回合流式 text 段走 StreamingMarkdown 渲染路径", () => {
-	// 全新回合：只有 user 消息 + 流式 assistant 回复（无已定稿 assistant 行）。
-	// streaming 不合并进任何行 → StreamingRow → MessageRow(streamingStartIdx==null)
-	// → segIsStreaming = isStreaming && (null==null) = true → StreamingMarkdown。
-	useSessionStore.setState({
-		messagesBySession: { s1: [userMsg(1, "你好")] },
-		streamingBySession: { s1: streamingMsg("流式中的文本") },
-	});
-	const { getByTestId } = render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
-	// StreamingMarkdown 外层容器渲染且含流式文本（注：MarkdownBlock 同名 testid，
-	// 故下方未闭合代码块用例以 streaming-code-plain 作为路径铁证）
-	const textBlock = getByTestId("text-block");
-	expect(textBlock.textContent).toContain("流式中的文本");
-});
-
-test("全新回合流式未闭合代码块：纯 <pre> 跳过 Prism 高亮（StreamingMarkdown 路径铁证）", () => {
-	useSessionStore.setState({
-		messagesBySession: { s1: [userMsg(1, "写个函数")] },
-		streamingBySession: { s1: streamingMsg("```ts\nconst x = 1") },
-	});
-	const { getByTestId, queryByTestId } = render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
-	// 未闭合代码块 → StreamingCodeBlockView 渲染纯 <pre>。streaming-code-plain 是
-	// StreamingMarkdown 独有 testid（MarkdownBlock 路径绝不产生它）→ 路径铁证。
-	const pre = getByTestId("streaming-code-plain");
-	expect(pre.textContent).toContain("const x = 1");
-	// 未闭合不渲染 CodeBlockCard，验证跳过 Prism 高亮（核心优化目标）
-	expect(queryByTestId("code-block-card")).toBeNull();
-});
