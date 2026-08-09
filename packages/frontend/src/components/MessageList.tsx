@@ -181,6 +181,10 @@ export function MessageList({ sessionId }: Props) {
 	);
 
 	const virtuosoRef = useRef<VirtuosoHandle>(null);
+	// 每会话只滚一次到最新回复的守卫：记录已初始化的 sessionId。
+	// MessageList 跨会话切换不卸载（key={sessionId} 仅重建 Virtuoso），故 ref 持久，
+	// 同会话后续消息增长（流式/新轮）不在此抢滚动（由 followOutput 跟随）。
+	const didInitScrollRef = useRef<string | null>(null);
 	// stickBottom：用户是否「停在底部」。用户向上翻阅即置 false——此时即便 AI 在回复，
 	// 也不抢滚动（不阻碍用户阅读历史）；用户回到底部或点浮动按钮再置 true。
 	const [stickBottom, setStickBottom] = useState(true);
@@ -259,19 +263,25 @@ export function MessageList({ sessionId }: Props) {
 		setStickBottom(true);
 	}, [listRows.length]);
 
-	// 进入会话（含切换）：key={sessionId} 重建 Virtuoso 后，定位到最新回复。
-	// virtuosoRef.scrollToIndex 由 Virtuoso 内部 queue，测量就绪后执行——替代旧 rAF 双滚
-	// （无 forced reflow）。仅切换会话触发一次；同会话内消息增长由 followOutput 跟随。
+	// 进入会话（含切换）：历史消息到达后定位到最新回复。依赖 listRows.length 是关键——
+	// SessionView 异步 api.get(.../messages) 加载历史，首访空缓存时本 effect 首次运行
+	// listRows 仍为空（早退）；历史到达后 listRows.length 由 0 变非空才重跑滚到底。
+	// 若仅依赖 [sessionId]，历史到达后不重跑 → 用户停在历史顶部（回归）。didInitScrollRef
+	// 守卫每会话只滚一次：同会话后续消息增长由 followOutput 跟随，不在此抢滚动。
+	// virtuosoRef.scrollToIndex 由 Virtuoso 内部 queue，测量就绪后执行（无 forced reflow）。
 	useEffect(() => {
-		if (listRows.length > 0) {
+		if (
+			listRows.length > 0 &&
+			didInitScrollRef.current !== sessionId
+		) {
+			didInitScrollRef.current = sessionId;
 			virtuosoRef.current?.scrollToIndex({
 				index: listRows.length - 1,
 				align: "end",
 				behavior: "auto",
 			});
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [sessionId]);
+	}, [sessionId, listRows.length]);
 
 	// 进行中的轮判定：status==="thinking"（agent_start 已到、agent_end 未到）且无独立 streaming
 	// 占位时，渲染列表最后一行是已定稿 assistant 行 → 它属于进行中的轮。即使已定稿也不折叠——

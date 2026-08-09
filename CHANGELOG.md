@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-08-09 — 修复虚拟化后「进入会话定位到最新」回归 + 补滚动行为自动化覆盖（task-6 审查修复）
+
+### 修复
+
+- **fix(frontend)**：进入会话的滚动定位 effect 依赖由 `[sessionId]` 改为 `[sessionId, listRows.length]` + 每会话一次守卫（`didInitScrollRef`），复刻虚拟化前的旧语义。回归原因：SessionView 异步 `api.get(.../messages)` 加载历史，首访空缓存时 effect 首次运行 `listRows` 仍为空（早退），历史到达后若仅依赖 `[sessionId]` 则不重跑，用户停在历史顶部而非最新回复（头号行为回归）。`listRows.length` 列入依赖后，历史异步到达（0→非空）触发重跑，定位到末行；守卫保证同会话后续消息增长（流式/新轮）不在此抢滚动（由 `followOutput` 跟随）。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`。
+
+### 测试补覆盖（审查 Important-2）
+
+- 新增 `packages/frontend/tests/MessageList.enter-scroll.test.tsx`（组件级，3 用例）：mock `react-virtuoso` 捕获 `scrollToIndex` 调用，断言首访空缓存/复访有缓存/切换到空缓存三种场景下异步历史到达后定位到末行（index 48）。happy-dom 无真实滚动几何，故用 mock 捕获调用而非断言 scrollTop。
+- 新增 `packages/frontend/e2e/streaming-render-perf.spec.ts`（E2E，1 用例）：真实浏览器中 seed 长会话（60 轮）→ 进入即定位到底部（断言 scrollTop 距底 ≤40px + 末轮回复可见）→ 上滑到顶部断言浮钮出现 + 首轮问题可见 → 点浮钮断言回底 + 浮钮消失。覆盖被删的 13 个滚动行为测试核心子集（进入定位/上滑浮钮/点浮钮回底）。
+
+---
+
 ## 2026-08-09 — 消息列表 react-virtuoso 虚拟化，滚动收编 followOutput 移除无限 rAF 循环
 
 ### 性能优化
