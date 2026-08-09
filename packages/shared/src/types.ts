@@ -153,6 +153,10 @@ export interface SessionEntity {
 	piSessionFile: string; // SDK jsonl 文件路径 ~/.pi/agent/sessions/<id>.jsonl
 	deletedAt?: number;
 	deletedReason?: "manual" | "auto";
+	/** 预热占位记录：新建会话页挂载时 getCommands 兜底创建（预热 pi 进程用），
+	 * 尚无用户消息。loadActive（侧栏列表）过滤此类记录；首次发送消息时由
+	 * fillSessionTitleIfEmpty 填标题并清除该标记（转正）。 */
+	placeholder?: boolean;
 }
 
 // ===== Pi 原生消息类型（镜像 @mariozechner/pi-ai，避免运行时依赖）=====

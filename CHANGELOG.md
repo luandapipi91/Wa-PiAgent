@@ -4,6 +4,71 @@
 
 ---
 
+## 2026-08-09 — 修复设置页改 API key 不生效（auth.json 过期凭证劫持）
+
+### 修复
+
+- **根因**：pi 鉴权协议规定凭证存储（`~/.pi/agent/auth.json`）优先于 `registerProvider` 注入的 apiKey（pi-ai `resolveProviderAuth`），且 `AuthStorage` 进程启动时缓存、reload 不重读。auth.json 残留过期 key 时，设置页改 key 经任何机制都无法生效。
+- **变更**：`ProviderStore` 保存/删除 provider 时同步 pi auth.json——保存按注册 slug 写入/覆盖 `{ type: "api_key", key }`（不覆盖 oauth 登录凭证）；删除仅当条目 type=api_key 且 key 匹配时移除（不动用户自行 login 的凭证）；slug 变更时清理旧条目。authFile 默认取 providers.json 同目录，测试天然隔离。
+- **影响范围**：`packages/kernel/src/provider-store.ts`、新增 `packages/kernel/tests/provider-store-auth-sync.test.ts`
+- **验证**：新增 7 个单测全绿 + 既有 provider 相关 26 个单测不回归；独立 kernel 实例（隔离 WA_PI_DIR）API 集成测试通过（POST 同步→改 key 覆盖→DELETE 移除且其他条目无影响）。**生效需重启应用**（运行中的 pi 会话进程内存仍缓存旧凭证）。
+
+---
+
+## 2026-08-09 — 修复回收站眼睛/关闭图标不居中
+
+### 修复
+
+- **变更**：emoji 换 SVG 后，`TrashSessionRow` 查看按钮（eye）与 `RecycleBinModal` 关闭按钮（x）失去居中——原为 emoji 文本依赖按钮默认文本居中，替换为 SVG 后需显式 flex 居中。两个按钮 className 增加 `inline-flex items-center justify-center`。
+- **影响范围**：`packages/frontend/src/components/TrashSessionRow.tsx`、`packages/frontend/src/components/RecycleBinModal.tsx`
+- **验证**：`tsc --noEmit` 通过；前端全量单测 1262 pass 0 fail
+
+---
+
+## 2026-08-09 — 回收站功能 emoji 图标全面替换为自建 SVG `<Icon>` 组件
+
+### 重构
+
+- **变更**：回收站相关 UI 中的 emoji/符号图标全部替换为 `packages/frontend/src/components/ui/Icon.tsx` 的 `<Icon>` 组件；`Icon.tsx` 新增 3 个图标：`inbox`（空态托盘）、`smartphone`（IM 手机标记）、`book`（只读提示），风格与现有图标一致（24 viewBox、stroke currentColor、1.6 线宽、圆角端点）。`IconName` 从 ICONS key 推导，无需手动扩类型。
+- **替换映射**：RecycleBinButton（🗑️→trash，沿用 --font-scale 缩放写法）、RecycleBinModal（标题 🗑️→trash、✕→x、空态 📭→inbox 48px、恢复 ↩️→reply、删除 🗑️→trash、清空 ⚡→bolt）、TrashSessionRow（📱→smartphone、👁→eye、头像充底 🤖→渲染 robot 图标，有 emoji 时仍显示 emoji）、TrashMessageViewer（⚠️→warning ×2、📭→inbox、📖→book）、GeneralSection（🗑️→trash）。
+- **影响范围**：`packages/frontend/src/components/ui/Icon.tsx`、`RecycleBinButton.tsx`、`RecycleBinModal.tsx`、`TrashSessionRow.tsx`、`TrashMessageViewer.tsx`、`settings/GeneralSection.tsx`、`tests/Icon.test.tsx`（新图标加入冒烟名单）
+- **验证**：`tsc --noEmit` 通过；前端全量单测 1262 pass 0 fail；grep 确认 5 个文件不再残留 emoji/符号图标；回收站 UI 无 E2E spec 引用，无需运行
+
+---
+
+## 2026-08-09 — 修复「新会话消息都跑到同一个会话」（草稿 id 未消费）
+
+### 修复
+
+- **根因**：新建会话页的草稿 sessionId 持久化在 localStorage/IDB，全前端唯一清除点是 App.tsx 对 `session:created` 广播的处理。而 kernel 对 placeholder 占位会话的首发消息走 `isNew=false` 分支、**不广播 session:created** → 草稿 id 永久残留 → 下次进新建页复用同一 id。发送守卫（`existed` 检查本地 sessions 列表）在稳态下能自愈，但在两个窗口失效：① 重启竞态（列表未加载就发送）；② 会话被删除后（loadActive 过滤 deletedAt，kernel 的 existing 查找却不过滤）——后者会确定性地把所有消息写进回收站里的同一个会话。
+
+- **修复方案**：`NewSessionPane.handleSend` 发送成功后无条件 `clearNewSessionId(newSessionKey)`——发送即消费草稿 id，不再依赖 kernel 广播这一间接信号；挂载同步 effect 会按需重新生成全新草稿 id。
+
+- **影响范围**：`packages/frontend/src/components/NewSessionPane.tsx`、`packages/frontend/src/components/new-session-send.test.tsx`（新增）、`packages/frontend/e2e/new-session-draft.spec.ts`（新增）
+
+- **验证**：第二层组件测试（模拟持久层恢复残留草稿 id → 发送 → 断言草稿被消费，修复前 RED / 修复后 GREEN）+ 第四层 Playwright E2E（删除会话后再新建发送 → 断言消息进入全新会话；已验证回退修复后该 E2E 稳定复现 bug）；前端全量 1262 pass 0 fail
+
+---
+
+## 2026-08-09 — 修复「莫名其妙的空会话」（预热占位记录残留）
+
+### 修复
+
+- **根因**：新建会话页挂载时 `ComposerInput` 拉取 slash 命令 → `AgentManager.getCommands` 第 4 兜底分支会**静默创建空标题 session 记录**（预热 pi 进程用）并落盘 projects.json。用户未发送消息就离开时，既有的孤儿回滚机制（`_onProcessExit` 删记录）只在进程**崩溃**时生效；**60 秒空闲回收**走 `disposeSession`（`disposed=true` 直接 return）和**关闭应用**两条路径都跳过回滚 → 空记录永久残留，下次启动才在侧栏现身，看似「莫名其妙」。
+
+- **修复方案**：给兜底记录打 `placeholder` 标记，可见性与进程退出时序彻底解耦——
+  - `SessionEntity` 新增 `placeholder?: boolean`；`getCommands` 兜底建记录时传 `placeholder: true`
+  - `ProjectStore.loadActive()`（侧栏列表数据源）过滤 placeholder 记录 → 幽灵会话永不进侧栏
+  - `fillSessionTitleIfEmpty()` 首次发消息填标题时同步清除 placeholder（转正），ws-server 现有逻辑自动广播 projects:list，会话正常出现
+  - 进程启动链路不变（`_createSession` 仍依赖记录存在，预热设计保留）
+  - 顺带修复既有 lint 阻断：`project-store-trash.test.ts` 对 private `save` 的直调改为 `(s as any)` 反射（与 trash-messages-integration 既有实践一致）；`e2e-integration.test.ts` 删除两个未使用变量
+
+- **影响范围**：`packages/shared/src/types.ts`、`packages/kernel/src/project-store.ts`、`packages/kernel/src/agent-manager.ts`、`packages/kernel/tests/{project-store,agent-manager,e2e-integration}.test.ts`、`packages/kernel/src/__tests__/project-store-trash.test.ts`、`packages/frontend/e2e/placeholder-session.spec.ts`（新增）
+
+- **验证**：第一层 bun:test 单元测试（placeholder 过滤/转正）+ 第三层 HTTP 集成测试（拉 commands→侧栏无记录→首发消息→转正出现）+ 第四层 Playwright E2E（placeholder-session.spec.ts 幽灵不可见/正常会话对照可见）全部通过；kernel 全量 873 pass，2 个失败均为改动前既有（孤儿回滚、deleteProject 级联）
+
+---
+
 ## 2026-08-09 — 修复切换模型后会话模型被回滚（loadSession 竞态）
 
 ### 修复

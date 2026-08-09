@@ -201,7 +201,7 @@ describe("ProjectStore soft delete", () => {
         const data = await s.load();
         const session = data.sessions.find(x => x.id === s1.id);
         session!.lastActivity = Date.now() - 10 * 24 * 60 * 60 * 1000;
-        await s.save(data);
+        await (s as any).save(data) // save 为 private，测试需要绕过;
         // 7 天阈值
         const archived = await s.archiveStaleSessions(7 * 24 * 60 * 60 * 1000);
         expect(archived.length).toBe(1);
@@ -215,7 +215,7 @@ describe("ProjectStore soft delete", () => {
         await s.deleteSession(s1.id);
         const data = await s.load();
         data.sessions.find(x => x.id === s2.id)!.lastActivity = Date.now() - 10 * 24 * 60 * 60 * 1000;
-        await s.save(data);
+        await (s as any).save(data) // save 为 private，测试需要绕过;
         const archived = await s.archiveStaleSessions(7 * 24 * 60 * 60 * 1000);
         expect(archived.length).toBe(1);
         expect(archived[0].id).toBe(s2.id);
@@ -226,7 +226,7 @@ describe("ProjectStore soft delete", () => {
         const { s1 } = await seed(s);
         const data = await s.load();
         data.sessions.find(x => x.id === s1.id)!.lastActivity = Date.now() - 3 * 24 * 60 * 60 * 1000;
-        await s.save(data);
+        await (s as any).save(data) // save 为 private，测试需要绕过;
         const archived = await s.archiveStaleSessions(7 * 24 * 60 * 60 * 1000);
         expect(archived.length).toBe(0);
     });
@@ -238,7 +238,7 @@ describe("ProjectStore soft delete", () => {
         // 手动设置 deletedAt 为 40 天前
         const data = await s.load();
         data.sessions.find(x => x.id === s1.id)!.deletedAt = Date.now() - 40 * 24 * 60 * 60 * 1000;
-        await s.save(data);
+        await (s as any).save(data) // save 为 private，测试需要绕过;
         const purged = await s.purgeOldTrashSessions(Date.now() - 30 * 24 * 60 * 60 * 1000);
         expect(purged).toBe(1);
         const after = await s.load();

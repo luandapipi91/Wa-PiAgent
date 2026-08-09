@@ -10,6 +10,7 @@ import {
 	useUiPrefsStore,
 } from "../../store/ui-prefs";
 import { useToastStore } from "../../store/toast";
+import { Icon } from "../ui/Icon";
 import { previewNeedsAction, previewTaskDone } from "../../util/sound";
 import type { AppLanguage } from "../../i18n/detect";
 
@@ -133,7 +134,8 @@ export function GeneralSection() {
 	}, []);
 	// 回收站设置单独加载（GET /api/settings/trash），失败静默、沿用默认值
 	useEffect(() => {
-		api.get("/api/settings/trash")
+		api
+			.get("/api/settings/trash")
 			.then((res) => {
 				const trash = (res as { trash?: TrashSettings })?.trash;
 				if (trash) {
@@ -416,7 +418,12 @@ export function GeneralSection() {
 			{/* 回收站自动归档/清理设置 */}
 			<div className="border-t border-hairline pt-4">
 				<span className="text-sm font-medium text-primary block mb-3">
-					🗑️ {t("settings.trashSection")}
+					<Icon
+						name="trash"
+						size="1em"
+						className="inline-block align-[-0.125em]"
+					/>{" "}
+					{t("settings.trashSection")}
 				</span>
 				{/* 自动归档开关 */}
 				<div className="flex items-center justify-between mb-2">

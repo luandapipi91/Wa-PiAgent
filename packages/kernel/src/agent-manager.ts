@@ -1508,9 +1508,12 @@ export class AgentManager {
 				primaryAgent: agentName as AgentName,
 				id: sessionId,
 				// 兜底创建时还没有用户消息文本，留空占位；
-				// 后续 agent:prompt 首次发送时会用消息内容填充标题
+				// 后续 agent:prompt 首次发送时会用消息内容填充标题。
+				// placeholder 标记使该记录不进侧栏（loadActive 过滤），避免用户
+				// 未发送就离开时留下「莫名其妙的空会话」；首次发消息时转正。
 				title: "",
 				createdAt,
+				placeholder: true,
 			});
 			await this.ensureStarted(projectId, agentName as AgentName, sessionId);
 			const h = this.sessions.get(sessionId);

@@ -163,7 +163,10 @@ const ICONS = {
 	// ── 业务对象 ──
 	rocket: (
 		<>
-			<path d="M12 15c-1.5-1.5-2-4-1-7 1.2-3.4 4-5.5 8-6-.5 4-2.6 6.8-6 8-3 1-5.5.5-7-1l6 6z" transform="rotate(45 12 12)" />
+			<path
+				d="M12 15c-1.5-1.5-2-4-1-7 1.2-3.4 4-5.5 8-6-.5 4-2.6 6.8-6 8-3 1-5.5.5-7-1l6 6z"
+				transform="rotate(45 12 12)"
+			/>
 			<path d="M9 15c-2 .5-3.5 2-4 5 3-.5 4.5-2 5-4" />
 		</>
 	),
@@ -212,6 +215,18 @@ const ICONS = {
 			<path d="M9 21h6M12 17v4" />
 		</>
 	),
+	inbox: (
+		<>
+			<path d="M5.5 5.2L2.5 12v6a2 2 0 0 0 2 2h15a2 2 0 0 0 2-2v-6l-3-6.8a2 2 0 0 0-1.8-1.2H7.3a2 2 0 0 0-1.8 1.2z" />
+			<path d="M2.5 12h5.5l2 3h4l2-3h5.5" />
+		</>
+	),
+	smartphone: (
+		<>
+			<rect x="7" y="2.5" width="10" height="19" rx="2.5" />
+			<path d="M10.5 18.5h3" />
+		</>
+	),
 	pause: (
 		<>
 			<rect x="7" y="5" width="3.2" height="14" rx="1" {...F} />
@@ -231,6 +246,12 @@ const ICONS = {
 			<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" />
 			<path d="M14 3v5h5" />
 			<path d="M9 12.5h6M9 16h6" />
+		</>
+	),
+	book: (
+		<>
+			<path d="M2.5 4h5.5a4 4 0 0 1 4 4v12.5a3 3 0 0 0-3-3H2.5z" />
+			<path d="M21.5 4H16a4 4 0 0 0-4 4v12.5a3 3 0 0 1 3-3h6.5z" />
 		</>
 	),
 	pin: (
@@ -321,16 +342,13 @@ export function Icon({
 }
 
 /** 内联 SVG 字符串（contenteditable chip 等 innerHTML 场景），与 Icon 同一套图形 */
-export function iconSvg(
-	name: IconName,
-	size = 12,
-	strokeWidth = 1.8,
-): string {
+export function iconSvg(name: IconName, size = 12, strokeWidth = 1.8): string {
 	const node = ICONS[name] as any;
 	const render = (n: any): string => {
 		if (n == null || typeof n === "boolean") return "";
 		if (Array.isArray(n)) return n.map(render).join("");
-		if (n.type === Symbol.for("react.fragment")) return render(n.props.children);
+		if (n.type === Symbol.for("react.fragment"))
+			return render(n.props.children);
 		const p = n.props ?? {};
 		const attrs = Object.entries(p)
 			.filter(([k]) => k !== "children")
@@ -340,7 +358,9 @@ export function iconSvg(
 			})
 			.join(" ");
 		const inner = render(p.children);
-		return inner ? `<${n.type} ${attrs}>${inner}</${n.type}>` : `<${n.type} ${attrs}/>`;
+		return inner
+			? `<${n.type} ${attrs}>${inner}</${n.type}>`
+			: `<${n.type} ${attrs}/>`;
 	};
 	return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-0.125em" aria-hidden="true">${render(node)}</svg>`;
 }
