@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-09
+
+### 变更
+
+- **chore(desktop)：版本号 0.1.10 → 0.1.11，RELEASE_NOTES 更新为当版内容**（补记回收站 SVG 图标化、auth.json 凭证修复、新会话草稿修复三条已发布变更）。
+  - 影响范围：`packages/desktop/package.json`、`packages/desktop/RELEASE_NOTES.md`。
+
+---
+
 ## 2026-08-09 — 修复设置页改 API key 不生效（auth.json 过期凭证劫持）
 
 ### 修复
