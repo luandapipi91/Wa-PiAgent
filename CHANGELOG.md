@@ -4,6 +4,49 @@
 
 ---
 
+## 2026-08-09 — 修复 streaming 期间提前显示复制/导出按钮
+
+### 变更
+
+- **修复(frontend)：AI 回复未结束时（streaming），消息上的复制和导出按钮提前显示**。根因：`MessageList.tsx` 中 `renderSeg` 的按钮渲染条件仅检查 `seg === segments[lastTextSegIdx]`，缺少 `!isStreaming` 判断。修复后加入 `&& !isStreaming`，确保按钮仅在消息完成后显示。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`（`renderSeg` 按钮条件加 `!isStreaming`；导出 `MessageRow` 供测试；清理 2 个预先存在的 lint 问题：删除未使用的 `mdComponents`、`processSegs` 的 `s` 参数改为 `_`）。
+  - 新增测试：`packages/frontend/tests/MessageRow-streaming.test.tsx`（streaming 时按钮不渲染 + 非 streaming 时按钮渲染）。
+
+---
+
+## 2026-08-09 — 点击附件 chip 用内置文件预览器打开预览
+
+### 变更
+
+- **修复(frontend+kernel)：右侧项目文件树重新显示 .git/.env/.vscode 等隐藏文件/文件夹**。此前 commit 13aab6b3 删除了 ExplorerPanel 前端的 dotfile 过滤，但未给 `listDir` 传 `showHidden=true`，kernel `routes/fs.ts` 的 `showHidden || !name.startsWith(".")` 过滤仍在——修复未闭环，隐藏项依旧不显示。修复：`ExplorerPanel.tsx` 调 `listDir(dir, true)` 放行隐藏项；kernel 将 list-dir 的 readdir+dotfile 过滤逻辑抽取为可测的导出函数 `listDir(path, showHidden)`（行为不变，路由复用）。新增测试：前端组件测试断言 listDir 请求携带 `showHidden: true`；kernel 测试锁定 dotfile 过滤契约（showHidden 缺省过滤 / true 放行 .git/.gitignore）。
+  - 影响范围：`packages/frontend/src/components/ExplorerPanel.tsx`、`packages/frontend/tests/ExplorerPanel.test.tsx`、`packages/kernel/src/routes/fs.ts`、`packages/kernel/tests/fs-routes.test.ts`。
+
+- **新增功能(frontend)：点击附件 chip 时，用应用内置的文件预览弹窗（FilePreviewModal + FileViewer）预览文件内容**，与点击消息中的文件引用、双击文件树体验一致。snippet 类型（无文件路径）不支持预览。
+  - 影响范围：`packages/frontend/src/components/ui/AttachmentChip.tsx`（新增 `onClick` prop，chip 本体可点击，删除按钮 stopPropagation）；`packages/frontend/src/components/ui/ComposerInput.tsx`（传入 onClick 回调，调用 `useSessionStore.openFilePreview`）。
+  - 新增测试：`packages/frontend/tests/AttachmentChip.test.tsx`（点击 chip 本体触发 onClick；点击删除按钮不触发 onClick）。
+
+---
+
+## 2026-08-09 — 粘贴超过 30 行文本自动转为文件附件
+
+### 变更
+
+- **新增功能(frontend)：粘贴文本超过 30 行时，自动转为 .txt 文件附件上传，不再撑爆输入框**。≤30 行的文本正常插入输入框。
+  - 影响范围：`packages/frontend/src/components/ui/ComposerInput.tsx`（`handlePaste` 增加行数阈值判断；`uploadFiles` 签名扩展为 `FileList | File[]`）。
+  - 新增测试：`packages/frontend/tests/ComposerInput.test.tsx`（>30 行→文件上传；≤30 行→正常粘贴）。
+
+---
+
+## 2026-08-09 — 新建角色默认关系网包含所有内置智能体
+
+### 变更
+
+- **功能优化(kernel)：新建角色（空白创建 & 预设创建）时，`partners.askTo` 默认填入所有内置智能体（ALL_AGENT_NAMES），用户无需手动到关系网 tab 逐个勾选**。之前默认为空，用户每次新建角色都需要手动配置关系网。
+  - 影响范围：`packages/kernel/src/agent-md.ts`（`makeDefaultAgentConfig` 默认 partners.askTo 从 `[]` 改为 `[...ALL_AGENT_NAMES]`）。空白创建（POST /api/agents）与预设创建（POST /api/agents/from-preset → `buildAgentConfigFromPreset` → `makeDefaultAgentConfig`）两条路径同时生效。
+  - 新增测试：`agent-md.test.ts`（makeDefaultAgentConfig 默认关系网）、`preset-store.test.ts`（buildAgentConfigFromPreset 继承默认关系网）。
+
+---
+
 ## 2026-08-09 — 发版 v0.1.9
 
 ### 变更

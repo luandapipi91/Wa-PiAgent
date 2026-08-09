@@ -598,7 +598,7 @@ function StreamingRow({
 
 // React.memo：流式期间只有 props 变化的行（合并的末行 / StreamingRow）重渲染，
 // 历史行引用稳定（preprocess 已 useMemo），整行跳过——避免每帧全量重解析 Markdown/Prism。
-const MessageRow = memo(function MessageRow({
+export const MessageRow = memo(function MessageRow({
 	row,
 	sessionId,
 	showResend,
@@ -616,10 +616,6 @@ const MessageRow = memo(function MessageRow({
 	const m = row.main.message as any;
 	// hook 须在顶层、任何 early return 之前
 	const { t } = useTranslation();
-	const mdComponents = useMemo(
-		() => createMarkdownComponents(sessionId),
-		[sessionId],
-	);
 	// 技能名集合：用于过滤 /skill:xxx 纯文本渲染——只有已启用技能列表里真实存在的技能名
 	// 才渲染为 chip，避免任意 /skill:xxx 文本被误判。selector 返回稳定数组引用，再 useMemo 成 Set，
 	// 避免 selector 每次返回新 Set 触发无限重渲染。
@@ -744,7 +740,7 @@ const MessageRow = memo(function MessageRow({
 	// text 流式仍在跑，折叠会藏住实时过程；必须等 agent_end（整轮结束）才折叠。
 	const canCollapse = hasProcessCard && !isStreaming && !isActiveTurnRow;
 	// 过程段 + 中间 text 段（除最后一段 text 外全部折叠进摘要行）；最后一段 text 是最终回复，保留在外
-	const processSegs = segments.filter((s, i) => i !== lastTextSegIdx);
+	const processSegs = segments.filter((_, i) => i !== lastTextSegIdx);
 	const finalTextSeg =
 		lastTextSegIdx >= 0 ? segments[lastTextSegIdx] : undefined;
 	// 步骤数只计过程段（thinking/toolCalls/delegate/fleet），中间 text 段不计
@@ -819,7 +815,7 @@ const MessageRow = memo(function MessageRow({
 						/>
 					))}
 				</div>
-				{seg === segments[lastTextSegIdx] && (
+				{seg === segments[lastTextSegIdx] && !isStreaming && (
 					<div className="flex justify-end items-center">
 						<ExportButton sessionId={sessionId} uptoTimestamp={m.timestamp} />
 						<CopyButton

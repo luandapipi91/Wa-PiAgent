@@ -4,65 +4,151 @@ import { AttachmentChip } from "../src/components/ui/AttachmentChip";
 import type { AttachmentDraft } from "@wa-pi/shared";
 
 test("renders file name and calls onRemove", () => {
-  const onRemove = mock();
-  render(<AttachmentChip attachment={{ kind: "file", name: "a.txt", path: "/tmp/a.txt", size: 100 }} onRemove={onRemove} />);
-  expect(screen.getByText("a.txt")).toBeTruthy();
-  fireEvent.click(screen.getByTestId("attachment-remove"));
-  expect(onRemove).toHaveBeenCalled();
+	const onRemove = mock();
+	render(
+		<AttachmentChip
+			attachment={{
+				kind: "file",
+				name: "a.txt",
+				path: "/tmp/a.txt",
+				size: 100,
+			}}
+			onRemove={onRemove}
+		/>,
+	);
+	expect(screen.getByText("a.txt")).toBeTruthy();
+	fireEvent.click(screen.getByTestId("attachment-remove"));
+	expect(onRemove).toHaveBeenCalled();
 });
 
 test("snippet content is truncated beyond 20 characters", () => {
-  const onRemove = mock();
-  const longContent = "this is a very long snippet text that should be truncated";
-  render(<AttachmentChip attachment={{ kind: "snippet", name: "long-snippet", content: longContent }} onRemove={onRemove} />);
-  expect(screen.getByText(longContent.slice(0, 20) + "…")).toBeTruthy();
+	const onRemove = mock();
+	const longContent =
+		"this is a very long snippet text that should be truncated";
+	render(
+		<AttachmentChip
+			attachment={{
+				kind: "snippet",
+				name: "long-snippet",
+				content: longContent,
+			}}
+			onRemove={onRemove}
+		/>,
+	);
+	expect(screen.getByText(longContent.slice(0, 20) + "…")).toBeTruthy();
 });
 
 test("folder attachment renders folder icon", () => {
-  const onRemove = mock();
-  render(
-    <AttachmentChip
-      attachment={{ kind: "folder", name: "docs", path: "/tmp/docs" }}
-      onRemove={onRemove}
-    />,
-  );
-  const chip = screen.getByText("docs").parentElement;
-  expect(chip?.textContent).toContain("📁");
+	const onRemove = mock();
+	render(
+		<AttachmentChip
+			attachment={{ kind: "folder", name: "docs", path: "/tmp/docs" }}
+			onRemove={onRemove}
+		/>,
+	);
+	const chip = screen.getByText("docs").parentElement;
+	expect(chip?.textContent).toContain("📁");
 });
 
 test("image attachment renders camera icon", () => {
-  const onRemove = mock();
-  render(
-    <AttachmentChip
-      attachment={{ kind: "image", name: "cat.png", path: "/tmp/cat.png", size: 1024 }}
-      onRemove={onRemove}
-    />,
-  );
-  const chip = screen.getByText("cat.png").parentElement;
-  expect(chip?.textContent).toContain("📷");
+	const onRemove = mock();
+	render(
+		<AttachmentChip
+			attachment={{
+				kind: "image",
+				name: "cat.png",
+				path: "/tmp/cat.png",
+				size: 1024,
+			}}
+			onRemove={onRemove}
+		/>,
+	);
+	const chip = screen.getByText("cat.png").parentElement;
+	expect(chip?.textContent).toContain("📷");
 });
 
 test("remove button has accessible label and type button", () => {
-  const onRemove = mock();
-  render(<AttachmentChip attachment={{ kind: "file", name: "a.txt", path: "/tmp/a.txt", size: 100 }} onRemove={onRemove} />);
-  const removeButton = screen.getByLabelText("移除附件");
-  expect(removeButton.tagName).toBe("BUTTON");
-  expect((removeButton as HTMLButtonElement).type).toBe("button");
+	const onRemove = mock();
+	render(
+		<AttachmentChip
+			attachment={{
+				kind: "file",
+				name: "a.txt",
+				path: "/tmp/a.txt",
+				size: 100,
+			}}
+			onRemove={onRemove}
+		/>,
+	);
+	const removeButton = screen.getByLabelText("移除附件");
+	expect(removeButton.tagName).toBe("BUTTON");
+	expect((removeButton as HTMLButtonElement).type).toBe("button");
 });
 
 test("audio chip 渲染文件名 + 麦克风图标 + 移除按钮，不渲染 <audio>", () => {
-  const a: AttachmentDraft = { kind: "audio", name: "录音 0:02.webm", path: "/p/.wa-pi/uploads/rec.webm", size: 10, durationMs: 2000 };
-  const onRemove = () => {};
-  render(<AttachmentChip attachment={a} onRemove={onRemove} />);
-  expect(screen.getByText("录音 0:02.webm")).toBeTruthy();
-  const chip = screen.getByTestId("attachment-chip");
-  expect(chip.textContent).toContain("🎤");
-  expect(document.querySelector("audio")).toBeNull();
-  expect(screen.getByLabelText("移除附件")).toBeTruthy();
+	const a: AttachmentDraft = {
+		kind: "audio",
+		name: "录音 0:02.webm",
+		path: "/p/.wa-pi/uploads/rec.webm",
+		size: 10,
+		durationMs: 2000,
+	};
+	const onRemove = () => {};
+	render(<AttachmentChip attachment={a} onRemove={onRemove} />);
+	expect(screen.getByText("录音 0:02.webm")).toBeTruthy();
+	const chip = screen.getByTestId("attachment-chip");
+	expect(chip.textContent).toContain("🎤");
+	expect(document.querySelector("audio")).toBeNull();
+	expect(screen.getByLabelText("移除附件")).toBeTruthy();
 });
 
 test("非 audio（file）chip 不渲染 <audio>", () => {
-  const a: AttachmentDraft = { kind: "file", name: "a.txt", path: "/p/a.txt", size: 1 };
-  render(<AttachmentChip attachment={a} onRemove={() => {}} />);
-  expect(document.querySelector("audio")).toBeNull();
+	const a: AttachmentDraft = {
+		kind: "file",
+		name: "a.txt",
+		path: "/p/a.txt",
+		size: 1,
+	};
+	render(<AttachmentChip attachment={a} onRemove={() => {}} />);
+	expect(document.querySelector("audio")).toBeNull();
+});
+
+// === 点击 chip 打开文件预览 ===
+
+test("传入 onClick 时，点击 chip 本体触发 onClick", () => {
+	const onClick = mock();
+	render(
+		<AttachmentChip
+			attachment={{
+				kind: "file",
+				name: "a.txt",
+				path: "/tmp/a.txt",
+				size: 100,
+			}}
+			onRemove={mock()}
+			onClick={onClick}
+		/>,
+	);
+	fireEvent.click(screen.getByTestId("attachment-chip"));
+	expect(onClick).toHaveBeenCalled();
+});
+
+test("点击删除按钮不触发 chip 的 onClick", () => {
+	const onClick = mock();
+	const onRemove = mock();
+	render(
+		<AttachmentChip
+			attachment={{
+				kind: "file",
+				name: "a.txt",
+				path: "/tmp/a.txt",
+				size: 100,
+			}}
+			onRemove={onRemove}
+			onClick={onClick}
+		/>,
+	);
+	fireEvent.click(screen.getByTestId("attachment-remove"));
+	expect(onRemove).toHaveBeenCalled();
+	expect(onClick).not.toHaveBeenCalled();
 });
