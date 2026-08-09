@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-08-09 — 新增功能：会话自动归档调度器（回收站定时归档 + 可选自动清理）
+
+### 变更
+
+- **新增(kernel)：会话自动归档调度器**。在 `index.ts` 的 `startKernel()` 中、`server.start()` 之后新增 `runAutoArchive()` 调度器：每 6 小时执行一次，启动时立即执行一次。读取 `loadTrashSettings()`，把超过 `autoArchiveDays` 未活动的会话经 `projectStore.archiveStaleSessions()` 软删除到回收站，归档后调用 `server.broadcastProjectsList()` 刷新前端列表；若启用 `autoPurgeEnabled`，再经 `purgeOldTrashSessions()` 物理清理超过 `autoPurgeDays` 的回收站会话。调度器独立于 workdir 清理与空闲会话回收，复用同一 `setInterval` + `clearInterval` 模式。
+- **新增(kernel)：shutdown 清理归档 timer**。在 `shutdown()` 函数中新增 `clearInterval(archiveTimer)`，与 `reapTimer` 一并清理，避免退出后残留定时器。
+  - 影响范围：`packages/kernel/src/index.ts`。
+
+---
+
 ## 2026-08-09 — 新增功能：回收站 WS 事件处理器 + HTTP 路由 + projects:list 过滤已删除会话
 
 ### 变更
