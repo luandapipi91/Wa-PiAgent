@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-09 — 新增功能：回收站设置存储 loadTrashSettings/saveTrashSettings
+
+### 变更
+
+- **新增(kernel)：回收站自动归档/清除设置的持久化读写**。在 `settings-store.ts` 新增 `TRASH_DEFAULTS`（默认开启 7 天自动归档、关闭自动清除、清除阈值 30 天）与 `loadTrashSettings` / `saveTrashSettings`（read-modify-write，保留 settings.json 内 retry/httpIdleTimeoutMs 等其他字段），与既有 `loadRetrySettings` / `saveRetrySettings` 同构，均带可选 `file` 参数以便测试隔离。配套单元测试 3 例覆盖「无文件回退默认值」「保存后读回」「保留其他字段」。
+  - 影响范围：`packages/kernel/src/settings-store.ts`（新增 `TRASH_DEFAULTS` + 2 函数 + import `TrashSettings`）、`packages/kernel/src/__tests__/settings-trash.test.ts`（新增）。
+
+---
+
 ## 2026-08-09 — 新增功能：ProjectStore 回收站查询与自动归档/清理方法
 
 ### 变更
