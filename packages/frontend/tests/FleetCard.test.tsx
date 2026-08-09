@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import type { SessionMessage } from "@wa-pi/shared";
 import { FleetCard } from "../src/components/blocks/FleetCard";
 import { MessageList } from "../src/components/MessageList";
+import { VirtuosoMockContext } from "react-virtuoso";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
@@ -134,7 +135,7 @@ test("MessageList 中 fleet 工具调用渲染为 FleetCard（非 ToolCallCard�
 			],
 		},
 	});
-	render(<MessageList sessionId="s1" />);
+	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
 	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	// fleet 卡片直接可见（内联在消息流中）
@@ -175,7 +176,7 @@ test("fleet 与普通 toolCall 混合：fleet 独立成卡，普通调用为独�
 			],
 		},
 	});
-	render(<MessageList sessionId="s1" />);
+	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
 	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	// fleet 卡片直接可见
@@ -232,7 +233,7 @@ test("fleet 与 delegate 混合：各自独立成卡，互不干扰", () => {
 			],
 		},
 	});
-	render(<MessageList sessionId="s1" />);
+	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
 	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.getByTestId("fleet-f1")).toBeTruthy();

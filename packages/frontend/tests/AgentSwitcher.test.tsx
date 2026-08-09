@@ -23,6 +23,7 @@ mock.module("../src/api-client", () => ({
 
 import { AgentSwitcher } from "../src/components/AgentSwitcher";
 import { MessageList } from "../src/components/MessageList";
+import { VirtuosoMockContext } from "react-virtuoso";
 import { useAgentsStore } from "../src/store/agents";
 import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
@@ -139,6 +140,6 @@ test("MessageList 把 agent_switch custom 消息渲染为居中灰字分隔行",
       ],
     },
   });
-  render(<MessageList sessionId="s1" />);
+  render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
   expect(screen.getByText("—— 已切换为 代码审查 ——")).toBeTruthy();
 });
