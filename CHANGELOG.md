@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-09 — 发版 v0.1.10
+
+### 变更
+
+- **发版(desktop)：发布 v0.1.10 桌面安装包（WA PI Agent，NSIS）到阿里云 OSS + GitHub Release**。自 v0.1.9 以来：文件树重新显示隐藏项（listDir 透传 showHidden）、点击附件 chip 内置文件预览器预览、streaming 期间不再提前显示复制/导出按钮。产物 WaPi-Setup-0.1.10.exe + latest.yml 上传至 coaicom/releases/，GitHub Release v0.1.10 同步发布。
+  - 影响范围：`packages/desktop/package.json`（0.1.9 → 0.1.10）、`packages/frontend/package.json`（0.1.9 → 0.1.10）、`packages/desktop/RELEASE_NOTES.md`。
+
+---
+
 ## 2026-08-09 — 修复 streaming 期间提前显示复制/导出按钮
 
 ### 变更
