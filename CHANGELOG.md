@@ -4,6 +4,21 @@
 
 ---
 
+## 2026-08-09 — 新增功能：前端回收站 i18n 文案 + store/trash.ts + RecycleBinButton 组件
+
+### 变更
+
+- **新增(frontend)：回收站 i18n 文案**。在 `zh.ts` / `en.ts` 的 `sidebar` 分组后新增 `trash` 分组（23 个 key：标题、空态、计数、全选/选中状态、恢复/彻底删除/清空操作、删除原因、只读查看器提示、确认弹窗文案、IM 标签等），并在 `settings` 分组新增 `trashSection` / `trashAutoArchive` / `trashArchiveDays` / `trashAutoPurge` / `trashPurgeDays` 5 个设置项文案。中英结构完全镜像。
+  - 影响范围：`packages/frontend/src/i18n/locales/zh.ts`、`packages/frontend/src/i18n/locales/en.ts`。
+- **新增(frontend)：store/trash.ts**。基于 zustand 的回收站状态管理：`loadTrash`（分页 + 项目过滤拉取回收站会话）、`toggleSelect` / `selectAllOnPage` / `clearSelection`（批量选择）、`restore` / `permanentlyDelete` / `emptyTrash`（恢复/物理删除/清空，操作后自动刷新列表并清理选择集）、`openViewer` / `closeViewer`（只读查看器）。API 契约对齐后端 `GET/POST/DELETE /api/trash/sessions`。
+  - 影响范围：`packages/frontend/src/store/trash.ts`（新建）。
+- **重构(frontend)：projects store setAll 防御性过滤**。在 `useProjectsStore.setAll` 中新增 `sessions.filter(x => !x.deletedAt)` 过滤，剥离软删除会话，确保主列表只展示活跃会话（后端 `loadActive()` 已过滤，此处为防御性安全网）。
+  - 影响范围：`packages/frontend/src/store/projects.ts`。
+- **新增(frontend)：RecycleBinButton 组件**。回收站入口按钮，参考 `SettingsButton.tsx` 样式，支持角标显示回收站会话数（>99 显示 99+）。Sidebar 集成推迟至 Task 8（RecycleBinModal 创建后）。
+  - 影响范围：`packages/frontend/src/components/RecycleBinButton.tsx`（新建）。
+
+---
+
 ## 2026-08-09 — 新增功能：会话自动归档调度器（回收站定时归档 + 可选自动清理）
 
 ### 变更
