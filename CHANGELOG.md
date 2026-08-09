@@ -44,26 +44,6 @@
 
 ---
 
-## 2026-08-09 — 流式 text 段改 llm-ui 分块渲染，未闭合代码块跳过 Prism 高亮
-
-### 性能优化
-
-- **perf(frontend)**：流式进行中的 text 段改用 llm-ui `useLLMOutput` 分块渲染（`StreamingMarkdown`）。闭合代码块拆为独立 `CodeBlockCard`（其 memo 使 code 不变时跳过 Prism 重跑），未闭合代码块渲染纯 `<pre>`（跳过每帧全量 Prism 高亮——流式卡顿热点之一）；闭合 mermaid 块走 `MermaidBlock`；markdown fallback 段复用现有 `createMarkdownComponents`（FilePill/MarkdownLink 零改动）。定稿后仍切回原 `MarkdownBlock`（ReactMarkdown + remarkGfm 完整渲染）。
-  - 新增 `streaming-code-block.tsx`（llm-ui 代码块适配层：`findComplete/PartialCodeBlock` + `parse` 纯函数）与 `StreamingMarkdown.tsx`（memo 化，blocks/fallbackBlock 引用稳定）；改 `MessageList.tsx` `renderSeg` text 分支按 `segIsStreaming` 分发到 `StreamingMarkdown`（流式中）/ `MarkdownBlock`（定稿）。
-  - 影响范围：`packages/frontend/src/components/blocks/{streaming-code-block,StreamingMarkdown}.tsx`、`packages/frontend/src/components/MessageList.tsx`，及对应测试。
-
----
-
-## 2026-08-09 — llm-ui React 19 兼容性 spike（流式渲染性能优化前置验证）
-
-### 新增（验证）
-
-- **test(frontend)**：新增 `@llm-ui/react|markdown|code ^0.13.3` 依赖并编写兼容性 spike 测试，验证 `useLLMOutput` 在 React 19.2 + happy-dom 下运行时完全兼容（无 hooks 报错/渲染崩溃）。三个 peer 声明 `react ^18` 实测兼容，bun install peer warning 为预期内已知项。spike 用例 3/3 PASS（文本+闭合代码块分段、未闭合走 partial、parse 提取 language/code）。**未安装 shiki**。spike 全绿，任务 5（llm-ui StreamingMarkdown 实现）解锁，回退到 Streamdown 的路径不需要走。
-  - 偏离记录：用例 1 因 llm-ui 为代码块前后各产一个 markdown fallback 块（正确分段行为），`getByTestId` 遇多元素抛错，属测试写法问题（非运行时不兼容），改 `getAllByTestId` 后全绿。
-  - 影响范围：`packages/frontend/package.json`、`packages/frontend/tests/blocks/llm-ui-spike.test.tsx`。
-
----
-
 ## 2026-08-09 — 子代理卡片 memo + 流式输出停顿前纯文本预览降级渲染
 
 ### 性能优化
