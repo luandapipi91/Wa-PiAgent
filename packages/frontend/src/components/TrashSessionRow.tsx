@@ -67,7 +67,14 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 					{t("trash.imTag")}
 				</span>
 			)}
-			<span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-soft text-brand border border-brand shrink-0">
+			<span
+				className="text-[10px] px-2 py-0.5 rounded-full shrink-0"
+				style={{
+					backgroundColor: "rgba(75, 162, 111, 0.1)",
+					color: "var(--brand)",
+					border: "1px solid rgba(75, 162, 111, 0.25)",
+				}}
+			>
 				{projectName}
 			</span>
 			<span className="flex-1 text-xs text-tertiary flex items-center gap-1 min-w-0">
