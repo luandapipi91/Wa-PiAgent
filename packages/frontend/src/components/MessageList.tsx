@@ -269,10 +269,7 @@ export function MessageList({ sessionId }: Props) {
 	// 守卫每会话只滚一次：同会话后续消息增长由 followOutput 跟随，不在此抢滚动。
 	// virtuosoRef.scrollToIndex 由 Virtuoso 内部 queue，测量就绪后执行（无 forced reflow）。
 	useEffect(() => {
-		if (
-			listRows.length > 0 &&
-			didInitScrollRef.current !== sessionId
-		) {
+		if (listRows.length > 0 && didInitScrollRef.current !== sessionId) {
 			didInitScrollRef.current = sessionId;
 			virtuosoRef.current?.scrollToIndex({
 				index: listRows.length - 1,
@@ -281,6 +278,21 @@ export function MessageList({ sessionId }: Props) {
 			});
 		}
 	}, [sessionId, listRows.length]);
+
+	// 流式期间的强制贴底滚动（恢复 virtuoso 改造前的「每帧贴底」语义）。
+	// followOutput 在「用户消息已追加但 autoScrollActive 尚未置真」的窗口里返回 false 不滚，
+	// 之后 isAtBottom 变 false 导致 followOutput 死锁永不跟随。此 effect 在 autoScrollActive
+	// 置真（thinking/streaming 开始）或行数增长时强制定位到末行，把 isAtBottom 推回 true，
+	// followOutput 随后接管 token 增长的平滑跟随。stickBottom=false（用户上翻阅读历史）时不抢滚动。
+	useEffect(() => {
+		if (stickBottom && autoScrollActive && listRows.length > 0) {
+			virtuosoRef.current?.scrollToIndex({
+				index: listRows.length - 1,
+				align: "end",
+				behavior: "auto",
+			});
+		}
+	}, [listRows.length, autoScrollActive, stickBottom]);
 
 	// 进行中的轮判定：status==="thinking"（agent_start 已到、agent_end 未到）且无独立 streaming
 	// 占位时，渲染列表最后一行是已定稿 assistant 行 → 它属于进行中的轮。即使已定稿也不折叠——
@@ -301,10 +313,9 @@ export function MessageList({ sessionId }: Props) {
 				key={sessionId}
 				ref={virtuosoRef}
 				data-testid="message-list"
-				className="absolute inset-0 p-4"
+				className="absolute inset-0 p-4 overflow-x-hidden"
 				data={listRows}
 				computeItemKey={(_i, vr) => vr.key}
-				alignToBottom
 				increaseViewportBy={400}
 				atBottomThreshold={20}
 				atBottomStateChange={setStickBottom}
