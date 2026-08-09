@@ -16,6 +16,7 @@ import { api } from "../api-client";
 import { fmtTok } from "../util/format";
 import { Icon } from "./ui/Icon";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useToastStore } from "../store/toast";
@@ -38,9 +39,6 @@ import {
 
 const EMPTY: SessionMessage[] = [];
 
-// 自动滚动：距离底部多少像素内视为“已在底部”
-const BOTTOM_THRESHOLD = 20;
-
 interface Props {
 	sessionId: string;
 }
@@ -51,6 +49,11 @@ interface RenderedRow {
 	/** 合并行中专用的 streaming 起始 index（内容数组中从该 index 开始为新到达的流式块） */
 	streamingStartIdx?: number;
 }
+
+/** Virtuoso 列表项：消息行或独立流式占位行 */
+type VirtuosoRow =
+	| { kind: "message"; key: string; row: RenderedRow; index: number }
+	| { kind: "streaming"; key: string; streaming: SessionMessage };
 
 export function MessageList({ sessionId }: Props) {
 	const { t } = useTranslation();
@@ -177,113 +180,22 @@ export function MessageList({ sessionId }: Props) {
 		[session, sessionId],
 	);
 
-	const containerRef = useRef<HTMLDivElement>(null);
+	const virtuosoRef = useRef<VirtuosoHandle>(null);
 	// stickBottom：用户是否「停在底部」。用户向上翻阅即置 false——此时即便 AI 在回复，
 	// 也不抢滚动（不阻碍用户阅读历史）；用户回到底部或点浮动按钮再置 true。
 	const [stickBottom, setStickBottom] = useState(true);
-	// 记录已为其执行过「进入即滚到底」的会话，避免同会话内重复滚动。
-	const didInitScrollRef = useRef<string | null>(null);
-
-	// 记录上一次滚动位置：用于在 handleScroll 中区分「用户向上滚动」与「程序化贴底」。
-	// 程序化贴底（rAF 循环 scrollToBottom）会异步触发原生 scroll 事件，若一律按
-	// isNearBottom 更新 stickBottom，会在内容增长竞态下误判——贴底 scrollTop 是上一帧值、
-	// scrollHeight 已随新 token 增长，单帧增长 ≥ BOTTOM_THRESHOLD 时 isNearBottom 返回
-	// false，stickBottom 被置 false 而杀死自动滚动循环（长文本流式输出中途停止滚动）。
-	const lastScrollTopRef = useRef(Infinity);
-
-	const isNearBottom = useCallback(() => {
-		const el = containerRef.current;
-		if (!el) return true;
-		return el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD;
-	}, []);
-
-	const scrollToBottom = useCallback(() => {
-		const el = containerRef.current;
-		if (el) el.scrollTop = el.scrollHeight;
-	}, []);
-
-	const handleScroll = useCallback(() => {
-		const el = containerRef.current;
-		if (!el) return;
-		const st = el.scrollTop;
-		// 识别「用户向上滚动」（scrollTop 减小）与「程序化贴底」（rAF 循环设置
-		// scrollTop=scrollHeight，scrollTop 增大/不变）。
-		// 初始 Infinity：首次 scroll 事件无法用方向判断时，退化为按 isNearBottom 判定
-		// （容器初始在顶部且内容超高 → 视为用户不在底部）。
-		if (st < lastScrollTopRef.current) {
-			// 用户向上滚动（滚轮上滚 / PageUp / 拖拽上移）：明显离开底部才停用自动滚动；
-			// 轻微上翻（仍在 BOTTOM_THRESHOLD 内）保持贴底。
-			if (!isNearBottom()) setStickBottom(false);
-		} else if (isNearBottom()) {
-			// 向下滚动 / 程序化贴底且确实在底部 → 确认贴底。
-			setStickBottom(true);
-		}
-		// 向下滚动但不在底部：可能是程序化贴底竞态——rAF 循环设置 scrollTop=scrollHeight
-		// 会异步触发原生 scroll 事件，派发时 scrollTop 是上一帧贴底位置、scrollHeight 已随
-		// 新内容增长（单帧增长 ≥ BOTTOM_THRESHOLD 时 isNearBottom 误判 false）。此时保持
-		// stickBottom 现状（不置 false），避免误杀自动滚动循环；也可能是用户下拖到中间，
-		// 保持现状同样正确（不抢滚动）。
-		lastScrollTopRef.current = st;
-	}, [isNearBottom]);
-
-	// 自动跟随滚动：AI 回复（主流 streaming）、子代理运行（delegate/fleet 流式内容增长）
-	// 或主 agent turn 进行中（status==="thinking"——覆盖调用普通工具期间：toolCall 定稿后
-	// streaming 已清空、工具执行中 / toolResult 到达时内容仍会增长）且用户停在底部时，
-	// rAF 循环每帧贴底一次（合帧——同帧多次内容变化只滚一次，避免同帧读写
-	// scrollHeight/scrollTop 造成 forced reflow）。循环不依赖内容更新信号：streaming 引用
-	// 每帧变、子代理 output 增长或 toolResult 定稿都无需重启 effect，自然覆盖两种情况。
-	// 结束后（active 由真变假）messages/卡片内容已定稿，兜底再滚一次，避免最后一段
-	// 内容停在视口下方（尾部裁切）；平时（非回复）不自动滚动，不抢用户阅读位置。
-	const scrollActiveRef = useRef(false);
-	useEffect(() => {
-		const active = !!(streaming || hasRunningSubagent || status === "thinking");
-		if (active && stickBottom) {
-			scrollActiveRef.current = true;
-			let rafId = 0;
-			const loop = () => {
-				scrollToBottom();
-				rafId = requestAnimationFrame(loop);
-			};
-			rafId = requestAnimationFrame(loop);
-			return () => cancelAnimationFrame(rafId);
-		}
-		const wasActive = scrollActiveRef.current;
-		scrollActiveRef.current = false;
-		if (wasActive && stickBottom) {
-			// 刚结束：内容已定稿，下一帧布局稳定后贴底一次
-			const raf = requestAnimationFrame(scrollToBottom);
-			return () => cancelAnimationFrame(raf);
-		}
-	}, [streaming, hasRunningSubagent, status, stickBottom, scrollToBottom]);
+	// 自动滚动激活：主 agent 回复（streaming/thinking）或子代理运行中。
+	// followOutput 回调在列表内容增长时触发，闭包每帧随渲染刷新，直接读最新 state。
+	const autoScrollActive = !!(
+		streaming ||
+		hasRunningSubagent ||
+		status === "thinking"
+	);
 
 	// 切换会话：重置停留状态为新会话「在底部」。
 	useEffect(() => {
 		setStickBottom(true);
 	}, [sessionId]);
-
-	// 进入会话（含切换）：消息加载后一次性滚到底显示最新回复；同会话后续消息变化不再自动滚。
-	// 这不属于「平时抢滚动」——仅在每个会话首次进入时触发一次。
-	// 历史长会话含 ReactMarkdown/代码块/图片等异步布局内容，首帧 scrollHeight 往往偏小，
-	// 故滚动后再用 rAF 校正一次（等下一帧布局撑开后重新贴底）。
-	useEffect(() => {
-		if (
-			sessionId &&
-			messages.length > 0 &&
-			didInitScrollRef.current !== sessionId
-		) {
-			didInitScrollRef.current = sessionId;
-			scrollToBottom();
-			const raf = requestAnimationFrame(() => {
-				scrollToBottom();
-			});
-			return () => cancelAnimationFrame(raf);
-		}
-	}, [sessionId, messages, scrollToBottom]);
-
-	const handleScrollToBottom = useCallback(() => {
-		scrollToBottom();
-		setStickBottom(true);
-	}, [scrollToBottom]);
 
 	// 同回合多 block 合并：SDK 对一个 turn 的每个 block（thinking/text/toolCall）发独立
 	// message_start/end，store 在每个 block 的 message_end 即定稿进 messages 并清空 streaming。
@@ -317,6 +229,50 @@ export function MessageList({ sessionId }: Props) {
 		displayRows = [...rows.slice(0, -1), merged];
 	}
 
+	// virtuoso 数据：displayRows + 独立流式占位行（未合并进末行时追加在末尾）。
+	// key 与改造前一致（agentName:timestamp），computeItemKey 消费。
+	const listRows = useMemo<VirtuosoRow[]>(() => {
+		const out: VirtuosoRow[] = displayRows.map((row, i) => ({
+			kind: "message",
+			key: `${row.main.agentName ?? ""}:${(row.main.message as any).timestamp}`,
+			row,
+			index: i,
+		}));
+		if (streaming && !mergeStreamingIntoLast) {
+			out.push({
+				kind: "streaming",
+				key: `streaming:${(streaming.message as any).timestamp}`,
+				streaming,
+			});
+		}
+		return out;
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [displayRows, streaming, mergeStreamingIntoLast]);
+
+	// 浮动按钮「滚动到底部」：跳到最后一项并恢复贴底跟随。
+	const handleScrollToBottom = useCallback(() => {
+		virtuosoRef.current?.scrollToIndex({
+			index: listRows.length - 1,
+			align: "end",
+			behavior: "auto",
+		});
+		setStickBottom(true);
+	}, [listRows.length]);
+
+	// 进入会话（含切换）：key={sessionId} 重建 Virtuoso 后，定位到最新回复。
+	// virtuosoRef.scrollToIndex 由 Virtuoso 内部 queue，测量就绪后执行——替代旧 rAF 双滚
+	// （无 forced reflow）。仅切换会话触发一次；同会话内消息增长由 followOutput 跟随。
+	useEffect(() => {
+		if (listRows.length > 0) {
+			virtuosoRef.current?.scrollToIndex({
+				index: listRows.length - 1,
+				align: "end",
+				behavior: "auto",
+			});
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [sessionId]);
+
 	// 进行中的轮判定：status==="thinking"（agent_start 已到、agent_end 未到）且无独立 streaming
 	// 占位时，渲染列表最后一行是已定稿 assistant 行 → 它属于进行中的轮。即使已定稿也不折叠——
 	// 一轮 agent 调用中第一个块（thinking+工具）定稿后整轮还在跑（长工具执行/后续 text 流式），
@@ -332,40 +288,53 @@ export function MessageList({ sessionId }: Props) {
 
 	return (
 		<div className="relative flex-1 min-h-0 overflow-hidden">
-			<div
-				ref={containerRef}
-				onScroll={handleScroll}
-				className="absolute inset-0 overflow-auto p-4 flex flex-col gap-4"
+			<Virtuoso
+				key={sessionId}
+				ref={virtuosoRef}
 				data-testid="message-list"
-			>
-				{displayRows.map((row, i) => {
+				className="absolute inset-0 p-4"
+				data={listRows}
+				computeItemKey={(_i, vr) => vr.key}
+				alignToBottom
+				increaseViewportBy={400}
+				atBottomThreshold={20}
+				atBottomStateChange={setStickBottom}
+				followOutput={(isAtBottom) =>
+					isAtBottom && autoScrollActive ? "auto" : false
+				}
+				itemContent={(i, vr) => {
+					if (vr.kind === "streaming") {
+						return (
+							<div className="pb-4">
+								<StreamingRow streaming={vr.streaming} sessionId={sessionId} />
+							</div>
+						);
+					}
+					const row = vr.row;
 					// 合并后的末行正处于流式中，不挂「重新发送」（流式中本就不显示）
 					const isMergedStreamingRow =
 						mergeStreamingIntoLast && i === displayRows.length - 1;
 					const showResend = !isMergedStreamingRow && i === resendUserIdx;
-					// 稳定 key：agentName + timestamp，而非数组 index。同 turn 合并（流式结束、
-					// collapseSameTurnAssistants）会让行数变化、后续行 index 位移；用 index 会让
-					// 合并后 key 复用的行保留/丢失展开态（如 CodeBlockCard）。timestamp 是消息
-					// 创建时刻（毫秒），合并行沿用首条 timestamp，key 保持稳定。
-					const rowKey = `${row.main.agentName ?? ""}:${(row.main.message as any).timestamp}`;
 					return (
-						<MessageRow
-							key={rowKey}
-							row={row}
-							sessionId={sessionId}
-							showResend={showResend}
-							onResend={
-								showResend ? (text: string) => handleResend(text, i) : undefined
-							}
-							isStreaming={isMergedStreamingRow}
-							isActiveTurnRow={isActiveTurnRow && i === displayRows.length - 1}
-						/>
+						<div className="pb-4">
+							<MessageRow
+								row={row}
+								sessionId={sessionId}
+								showResend={showResend}
+								onResend={
+									showResend
+										? (text: string) => handleResend(text, vr.index)
+										: undefined
+								}
+								isStreaming={isMergedStreamingRow}
+								isActiveTurnRow={
+									isActiveTurnRow && i === displayRows.length - 1
+								}
+							/>
+						</div>
 					);
-				})}
-				{streaming && !mergeStreamingIntoLast && (
-					<StreamingRow streaming={streaming} sessionId={sessionId} />
-				)}
-			</div>
+				}}
+			/>
 			{showHistoryLoading && (
 				<div
 					className="absolute inset-0 flex items-center justify-center"

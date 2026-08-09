@@ -3,6 +3,7 @@ import { test, expect, beforeEach, mock, afterEach } from "bun:test";
 import { render, screen, waitFor, act, fireEvent, cleanup } from "@testing-library/react";
 import { SYSTEM_PROJECT_ID, type SessionMessage } from "@wa-pi/shared";
 import { SessionView } from "../src/components/SessionView";
+import { VirtuosoMockContext } from "react-virtuoso";
 import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
@@ -95,7 +96,11 @@ beforeEach(() => {
 // 渲染并等待异步 effect（composer-prefs loadSession、api.get 等）落定，
 // 减少 React act 警告。
 async function renderSessionView(sessionId: string) {
-  const result = render(<SessionView sessionId={sessionId} />);
+  const result = render(
+    <VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
+      <SessionView sessionId={sessionId} />
+    </VirtuosoMockContext.Provider>,
+  );
   await act(async () => {});
   return result;
 }

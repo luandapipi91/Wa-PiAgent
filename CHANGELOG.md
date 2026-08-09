@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-08-09 — 消息列表 react-virtuoso 虚拟化，滚动收编 followOutput 移除无限 rAF 循环
+
+### 性能优化
+
+- **perf(frontend)**：消息列表改用 `react-virtuoso@4.18.11` 虚拟化渲染，仅渲染可视区 + overscan 行（`increaseViewportBy=400`），可视区外行卸载——长会话不再全量渲染所有 `MessageRow`（含 Markdown/Prism 重解析）。删除流式期间无限 `requestAnimationFrame` 贴底循环（每帧读 `scrollHeight` + 写 `scrollTop` 造成 forced reflow），滚动跟随收编到 Virtuoso `followOutput`（`autoScrollActive` 时贴底）+ `atBottomStateChange`（驱动 `stickBottom`/浮动按钮）。「进入会话滚到底」改为一次性 `virtuosoRef.scrollToIndex`（无 rAF 循环）。
+  - 已知权衡（已记录）：可视区外行被卸载，其内部 `useState` 不保留——`useAutoCollapse` 自动折叠语义不变（props 驱动），仅「用户手动展开后滚出视口再滚回」会回到自动态，可接受。
+  - 偏离记录：简报原定 `initialTopMostItemIndex={listRows.length-1}` 在 `VirtuosoMockContext`（happy-dom 测试）下触发 react-virtuoso 4.18.11 mock 限制——任何 N≥1 均渲染 0 行（已实证）；改用一次性 effect（`virtuosoRef.scrollToIndex`）实现「进入会话滚到底」，真实浏览器行为不变，性能目标（移除 rAF 循环）不变。`data-testid="virtuoso-scroller"` 断言因 MessageList 传 `data-testid="message-list"` 覆盖了 Virtuoso 默认 testid，改用 `data-virtuoso-scroller="true"` 标记断言。
+  - 测试调整：删除 13 个针对旧滚动算法（rAF/handleScroll/isNearBottom/setScrollMetrics mock）的测试（被测代码已删除，行为外包给 react-virtuoso，happy-dom 无法验证真实滚动→改由步骤 7 冒烟覆盖）；重写空 session 断言；新增 `MessageList.virtualized.test.tsx`（itemContent 分发、流式占位行、Virtuoso 接管滚动守护网）；所有 `render(<MessageList/>)` 测试包 `VirtuosoMockContext.Provider`。
+  - 影响范围：`packages/frontend/package.json`、`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/tests/{MessageList,MessageList.virtualized,MessageList.streaming-render,MessageList-sparse-content,MessageRow-streaming,AgentSwitcher,DelegateCard,FleetCard,SessionView}.test.tsx`。
+
+---
+
 ## 2026-08-09 — 流式 text 段改 llm-ui 分块渲染，未闭合代码块跳过 Prism 高亮
 
 ### 性能优化

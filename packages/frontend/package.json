@@ -25,6 +25,7 @@
     "react-dom": "^19.2.8",
     "react-i18next": "^17.0.11",
     "react-markdown": "^10.1.0",
+    "react-virtuoso": "^4.18.11",
     "reactflow": "^11.11.4",
     "remark-gfm": "^4.0.1",
     "zustand": "^5.0.14"

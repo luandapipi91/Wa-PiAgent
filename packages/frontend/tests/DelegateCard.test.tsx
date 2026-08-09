@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import type { SessionMessage, SubagentProgressEvent } from "@wa-pi/shared";
 import { DelegateCard } from "../src/components/blocks/DelegateCard";
 import { MessageList } from "../src/components/MessageList";
+import { VirtuosoMockContext } from "react-virtuoso";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
@@ -144,7 +145,7 @@ test("MessageList 内联渲染 DelegateCard：无普通 toolCall 时不出现分
 			],
 		},
 	});
-	render(<MessageList sessionId="s1" />);
+	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
 	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	// delegate 内联在消息流中，无需任何工具调用分组即可见
@@ -186,7 +187,7 @@ test("delegate 与普通 toolCall 混合：delegate 内联独立成卡，普通�
 			],
 		},
 	});
-	render(<MessageList sessionId="s1" />);
+	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
 	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	// delegate 卡片直接可见（内联在消息流中）
@@ -374,7 +375,7 @@ test("MessageList 对非 delegate 调用仍渲染 ToolCallCard", () => {
 			],
 		},
 	});
-	render(<MessageList sessionId="s1" />);
+	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
 	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.getByTestId("toolcall-c1")).toBeTruthy();

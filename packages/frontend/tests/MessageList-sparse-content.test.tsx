@@ -1,6 +1,7 @@
 import { test, expect, beforeEach } from "bun:test";
 import { render, screen } from "@testing-library/react";
 import { MessageList } from "../src/components/MessageList";
+import { VirtuosoMockContext } from "react-virtuoso";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 import { useComposerPrefsStore } from "../src/store/composer-prefs";
@@ -42,7 +43,7 @@ test("复现：content 含稀疏空洞（text→toolCall→text）渲染 Message
 			s1: [assistantMsg(1, content)],
 		},
 	});
-	render(<MessageList sessionId="s1" />);
+	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
 	fireEventExpand();
 
 	// 渲染不崩，两段文本可见
@@ -63,7 +64,7 @@ test("复现：content 含显式 undefined 元素渲染 MessageList 不崩溃", 
 			s1: [assistantMsg(1, content)],
 		},
 	});
-	render(<MessageList sessionId="s1" />);
+	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
 	fireEventExpand();
 
 	expect(screen.getByText(/正常段落/)).toBeTruthy();
