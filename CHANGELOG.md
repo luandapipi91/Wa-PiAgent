@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-09 — 新增功能：ProjectStore 软删除/恢复/彻底删除/清空回收站 + loadActive
+
+### 变更
+
+- **新增(kernel)：ProjectStore 回收站存储层能力**。将 `deleteSession` 从物理删除改为软删除（置 `deletedAt` / `deletedReason="manual"`），新增四个方法：`loadActive`（仅返回未软删除会话）、`restoreSession`（清空软删除标记，原项目不存在则归入默认工作区）、`permanentlyDeleteSessions`（按 id 批量物理移除）、`emptyTrash`（清空所有已软删除会话并返回移除数量）。配套单元测试 8 例覆盖正常路径与边界（no-op、空回收站、不存在 id）。
+  - 影响范围：`packages/kernel/src/project-store.ts`（改造 `deleteSession` + 新增 4 方法 + import `SYSTEM_PROJECT_ID`）、`packages/kernel/src/__tests__/project-store-trash.test.ts`（新增）。
+
+---
+
 ## 2026-08-09 — 新增功能：会话回收站类型定义
 
 ### 变更
