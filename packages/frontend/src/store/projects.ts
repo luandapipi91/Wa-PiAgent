@@ -32,9 +32,12 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
   dirPickerOpen: false,
   load: () => api.get("/api/projects").then((data: any) => { if (data) set({ projects: data.projects ?? [], sessions: data.sessions ?? [] }); }).catch(() => {}),
   setAll: (projects, sessions) => set(s => {
+    // 防御性过滤：剥离软删除会话，确保当前列表只展示活跃会话。
+    // 后端 trash:list 单独返回回收站会话，主列表不应混入 deletedAt 项。
+    const active = sessions.filter(x => !x.deletedAt);
     // 当前选中的会话若已从列表中删除，则清空 currentSessionId，触发视图切换到新建会话页
-    const stillExists = s.currentSessionId && sessions.some(x => x.id === s.currentSessionId);
-    return { projects, sessions, currentSessionId: stillExists ? s.currentSessionId : null };
+    const stillExists = s.currentSessionId && active.some(x => x.id === s.currentSessionId);
+    return { projects, sessions: active, currentSessionId: stillExists ? s.currentSessionId : null };
   }),
   createProject: (name, cwd) => { void api.post("/api/projects", { name, cwd }); },
   // 新建项目：打开目录树选择器（DirTreePicker），用户点选目录后走 createProjectFromPath

@@ -16,7 +16,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { WA_PI_DIR } from "@wa-pi/shared";
-import type { RetrySettings } from "@wa-pi/shared";
+import type { RetrySettings, TrashSettings } from "@wa-pi/shared";
 
 /** 与 pi settings-manager 的默认值对齐（未配置时的回退） */
 export const RETRY_DEFAULTS: RetrySettings = {
@@ -91,6 +91,60 @@ export async function saveRetrySettings(
 	await mkdir(dirname(file), { recursive: true });
 	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
 	return { maxRetries, baseDelayMs };
+}
+
+/** 回收站自动归档/清除默认设置（持久化在 settings.json.trash） */
+export const TRASH_DEFAULTS: TrashSettings = {
+	autoArchiveEnabled: true,
+	autoArchiveDays: 7,
+	autoPurgeEnabled: false,
+	autoPurgeDays: 30,
+};
+
+/** 读取回收站设置；未配置或字段缺失时逐项回退默认值（read-modify-write 保留其他字段） */
+export async function loadTrashSettings(
+	file: string = SETTINGS_FILE,
+): Promise<TrashSettings> {
+	const trash = (await readSettingsJson(file)).trash;
+	if (!trash || typeof trash !== "object") return { ...TRASH_DEFAULTS };
+	return {
+		autoArchiveEnabled:
+			typeof trash.autoArchiveEnabled === "boolean"
+				? trash.autoArchiveEnabled
+				: TRASH_DEFAULTS.autoArchiveEnabled,
+		autoArchiveDays:
+			typeof trash.autoArchiveDays === "number"
+				? trash.autoArchiveDays
+				: TRASH_DEFAULTS.autoArchiveDays,
+		autoPurgeEnabled:
+			typeof trash.autoPurgeEnabled === "boolean"
+				? trash.autoPurgeEnabled
+				: TRASH_DEFAULTS.autoPurgeEnabled,
+		autoPurgeDays:
+			typeof trash.autoPurgeDays === "number"
+				? trash.autoPurgeDays
+				: TRASH_DEFAULTS.autoPurgeDays,
+	};
+}
+
+/** 保存回收站设置（read-modify-write，保留 settings.json 内其他字段）。
+ *  保存边界 clamp 到 [1, 365]：负数或 0 会导致全量归档/清除，保存即归一化。 */
+export async function saveTrashSettings(
+	trash: TrashSettings,
+	file: string = SETTINGS_FILE,
+): Promise<TrashSettings> {
+	// clamp 到合理范围（保存边界是权威边界）
+	const clamped: TrashSettings = {
+		autoArchiveEnabled: trash.autoArchiveEnabled,
+		autoArchiveDays: Math.max(1, Math.min(365, Math.floor(trash.autoArchiveDays))),
+		autoPurgeEnabled: trash.autoPurgeEnabled,
+		autoPurgeDays: Math.max(1, Math.min(365, Math.floor(trash.autoPurgeDays))),
+	};
+	const settings = await readSettingsJson(file);
+	settings.trash = clamped;
+	await mkdir(dirname(file), { recursive: true });
+	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
+	return clamped;
 }
 
 /** 读取 HTTP 空闲超时（ms）；未配置或非数字返回 wa-pi 默认值（非 pi 的 300000） */

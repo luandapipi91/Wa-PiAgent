@@ -78,4 +78,30 @@ export const registerProjectSessionRoutes: RouteRegistrar = (
 			agentName: url.searchParams.get("agentName") || undefined,
 		});
 	});
+	// ===== 回收站（软删除会话）HTTP 路由 =====
+	r.add("GET", "/api/trash/sessions", async (req) => {
+		const url = new URL(req.url, "http://localhost");
+		const projectId = url.searchParams.get("projectId") ?? undefined;
+		const offset = url.searchParams.get("offset")
+			? Number(url.searchParams.get("offset"))
+			: undefined;
+		const limit = url.searchParams.get("limit")
+			? Number(url.searchParams.get("limit"))
+			: undefined;
+		return callApi({ type: "trash:list", projectId, offset, limit });
+	});
+	r.add("POST", "/api/trash/sessions/restore", async (req) => {
+		const b = await readJsonBody(req);
+		return callApi({
+			type: "trash:restore",
+			sessionIds: b.sessionIds ?? [],
+		});
+	});
+	r.add("DELETE", "/api/trash/sessions", async (req) => {
+		const b = await readJsonBody(req);
+		if (b.sessionIds && Array.isArray(b.sessionIds)) {
+			return callApi({ type: "trash:delete", sessionIds: b.sessionIds });
+		}
+		return callApi({ type: "trash:empty" });
+	});
 };

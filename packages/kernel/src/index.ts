@@ -14,6 +14,7 @@ import { ensureSystemProject } from "./ensure-system-project";
 import { cleanupExpiredWorkdirs } from "./workdir-cleaner";
 import { ensurePromptsConfig } from "./system-prompt";
 import { ensureSubagentOverrides } from "./subagent-store";
+import { loadTrashSettings } from "./settings-store";
 import { classifySdkError } from "./sdk-errors";
 import { SdkEventThrottle } from "./event-throttle";
 import { cleanupRecordingTemp } from "./recording-store";
@@ -317,12 +318,52 @@ export async function startKernel(opts?: {
 			});
 	}, IDLE_REAP_INTERVAL_MS);
 
+	// —— 会话自动归档调度器 ——
+	// 每 6 小时检查一次：把超过 autoArchiveDays 未活动的会话软删除到回收站，
+	// 可选永久清理超过 autoPurgeDays 的回收站会话。归档后刷新前端会话列表。
+	// 必须在 server 就绪后启动：runAutoArchive 调用 server.broadcastProjectsList()。
+	const ARCHIVE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 小时
+	async function runAutoArchive() {
+		try {
+			const settings = await loadTrashSettings();
+			if (!settings.autoArchiveEnabled) return;
+
+			const thresholdMs = settings.autoArchiveDays * DAY_MS;
+			const archived = await projectStore.archiveStaleSessions(thresholdMs);
+			if (archived.length > 0) {
+				console.log(
+					`[kernel] 自动归档了 ${archived.length} 个未活动会话到回收站`,
+				);
+				await server.broadcastProjectsList();
+			}
+
+			// 可选：自动清理过期回收站会话（物理删除）
+			if (settings.autoPurgeEnabled) {
+				const purgeBefore = Date.now() - settings.autoPurgeDays * DAY_MS;
+				const purged =
+					await projectStore.purgeOldTrashSessions(purgeBefore);
+				if (purged > 0) {
+					console.log(`[kernel] 自动清理了 ${purged} 个过期回收站会话`);
+				}
+			}
+		} catch (e) {
+			console.warn("[kernel] 回收站自动归档失败:", e);
+		}
+	}
+	// 启动时立即检查一次 + 定时执行
+	void runAutoArchive();
+	const archiveTimer = setInterval(
+		() => void runAutoArchive(),
+		ARCHIVE_CHECK_INTERVAL_MS,
+	);
+
 	// 优雅退出：RPC 架构下每个会话是一个 pi 子进程，kernel 退出时必须统一回收，
 	// 避免孤儿进程滞留（SIGINT/SIGTERM 先 disposeAll 再停 server）。
 	// 注意：pi 子进程在 stdin 关闭后也会自行退出（EOF 兜底），这里是主动加速回收。
 	const shutdown = async (signal: string) => {
 		console.log(`[kernel] ${signal} 收到，回收 pi 子进程并停止服务...`);
 		clearInterval(reapTimer);
+		clearInterval(archiveTimer); // 回收站自动归档
 		eventThrottle.dispose();
 		// 先断渠道长连接（避免关闭期收到新进站再触发 agent 调用），再回收 pi 子进程
 		await channelManager.stop().catch(() => {});
