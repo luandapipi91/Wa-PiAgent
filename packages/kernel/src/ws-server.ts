@@ -878,9 +878,12 @@ export class WSServer {
 				const thinkingSince = this.opts.agentManager.getThinkingSince(
 					event.sessionId,
 				);
+				// 已软删除的会话只读模式：不 touch、不 prewarm（仅做只读 jsonl 读取）
+				const isDeleted = !!session?.deletedAt;
 				// 打开会话查看消息视为活跃：同步刷新磁盘 lastActivity（保持会话列表排序反映最近查看，
 				// 并与 AgentManager 内存 lastActiveAt 一致）。fire-and-forget，不阻塞历史读取。
-				if (session) {
+				// 但已软删除的会话不 touch——避免从回收站查看时刷新 lastActivity 导致排序异常。
+				if (session && !isDeleted) {
 					void this.opts.projectStore
 						.touchSession(event.sessionId)
 						.catch(() => {});
@@ -899,6 +902,8 @@ export class WSServer {
 				// 官方 get_session_stats 自此可用，前端收听后重拉 /stats 补齐 contextUsage
 				// （否则占比胶囊要等下一回合 message_end 才出现）。热会话不广播（stats 本就可查）。
 				const prewarm = () => {
+					// 已软删除的会话不启动 pi 进程（只读查看模式）
+					if (isDeleted) return;
 					const cold = !this.opts.agentManager.isSessionAlive(session.id);
 					void this.opts.agentManager
 						.ensureStarted(session.projectId, session.primaryAgent, session.id)

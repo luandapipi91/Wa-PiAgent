@@ -88,7 +88,7 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 					onView(session.id);
 				}}
 				className="w-7 h-7 rounded border border-hairline bg-surface hover:border-brand text-xs shrink-0"
-				title={t("trash.viewerBack")}
+				title={t("trash.view")}
 				data-testid={`trash-view-${session.id}`}
 			>
 				👁

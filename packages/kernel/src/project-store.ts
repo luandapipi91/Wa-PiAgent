@@ -78,7 +78,13 @@ export class ProjectStore {
   async deleteProject(id: string): Promise<void> {
     const data = await this.load();
     data.projects = data.projects.filter(p => p.id !== id);
-    data.sessions = data.sessions.filter(s => s.projectId !== id);
+    // 软删除该项目下的活跃会话（移入回收站，而非物理删除）
+    for (const session of data.sessions) {
+      if (session.projectId === id && !session.deletedAt) {
+        session.deletedAt = Date.now();
+        session.deletedReason = "manual";
+      }
+    }
     await this.save(data);
   }
 

@@ -41,4 +41,34 @@ describe("Trash settings", () => {
 		expect(raw.retry).toEqual({ maxRetries: 5 });
 		expect(raw.trash).toBeDefined();
 	});
+
+	test("saveTrashSettings clamps autoArchiveDays to [1, 365]", async () => {
+		const saved = await saveTrashSettings(
+			{ autoArchiveEnabled: true, autoArchiveDays: -5, autoPurgeEnabled: false, autoPurgeDays: 30 },
+			TEST_FILE,
+		);
+		// 负数 clamp 到 1，返回值反映归一化结果
+		expect(saved.autoArchiveDays).toBe(1);
+		// 持久化的值也应被 clamp
+		const loaded = await loadTrashSettings(TEST_FILE);
+		expect(loaded.autoArchiveDays).toBe(1);
+	});
+
+	test("saveTrashSettings clamps values above 365", async () => {
+		const saved = await saveTrashSettings(
+			{ autoArchiveEnabled: true, autoArchiveDays: 999, autoPurgeEnabled: true, autoPurgeDays: 500 },
+			TEST_FILE,
+		);
+		expect(saved.autoArchiveDays).toBe(365);
+		expect(saved.autoPurgeDays).toBe(365);
+	});
+
+	test("saveTrashSettings floors non-integer values", async () => {
+		const saved = await saveTrashSettings(
+			{ autoArchiveEnabled: true, autoArchiveDays: 7.9, autoPurgeEnabled: false, autoPurgeDays: 30.1 },
+			TEST_FILE,
+		);
+		expect(saved.autoArchiveDays).toBe(7);
+		expect(saved.autoPurgeDays).toBe(30);
+	});
 });

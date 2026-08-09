@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { View } from "../App";
+import { api } from "../api-client";
 import { NewSessionButton } from "./NewSessionButton";
 import { AgentListSection } from "./AgentListSection";
 import { ProjectList } from "./ProjectList";
@@ -29,6 +30,14 @@ export function Sidebar(props: Props) {
   // 侧边栏页签：任务（默认）| IM。切换只切换内容区，SettingsButton 始终可见。
   const [tab, setTab] = useState<"tasks" | "im">("tasks");
   const [showTrash, setShowTrash] = useState(false);
+  const [trashCount, setTrashCount] = useState(0);
+  useEffect(() => {
+    // 预加载回收站总数（轻量请求）
+    api
+      .get("/api/trash/sessions?limit=1")
+      .then((res: any) => setTrashCount(res?.total ?? 0))
+      .catch(() => {});
+  }, []);
   return (
     <aside
       className="flex flex-col gap-1.5 p-3.5 overflow-hidden border-r border-hairline"
@@ -71,7 +80,7 @@ export function Sidebar(props: Props) {
         <ImConversationList onSelectSession={props.onSelectSession} />
       )}
       <div className="flex items-center gap-1">
-        <RecycleBinButton onClick={() => setShowTrash(true)} />
+        <RecycleBinButton onClick={() => setShowTrash(true)} count={trashCount} />
         <SettingsButton onClick={() => useSettingsStore.getState().open()} />
       </div>
       {showTrash && <RecycleBinModal onClose={() => setShowTrash(false)} />}

@@ -586,6 +586,7 @@ const en = {
 		viewerRestoreLink: "Restore session",
 		viewerRestoreHint: "to continue chatting",
 		viewerReadonly: "Read-only mode — restore to continue",
+		view: "View messages",
 		viewerBack: "Back to Recycle Bin",
 		confirmEmptyTitle: "Empty Recycle Bin",
 		confirmEmptyMsg: "Permanently delete all {{count}} sessions? This cannot be undone.",

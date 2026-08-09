@@ -24,7 +24,7 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi) => {
 	});
 	r.add("PUT", "/api/settings/trash", async (req) => {
 		const b = await readJsonBody(req);
-		await saveTrashSettings(b.trash);
-		return Response.json({ trash: b.trash });
+		const saved = await saveTrashSettings(b.trash);
+		return Response.json({ trash: saved });
 	});
 };
