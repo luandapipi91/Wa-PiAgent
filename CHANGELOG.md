@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-08-09 — 新增功能：回收站弹窗 + 会话行 + 只读消息查看器 + Sidebar 集成
+
+### 变更
+
+- **新增(frontend)：TrashSessionRow 组件**。单行会话条目，含复选框、agent emoji、agent 名、项目标签、删除原因标签（手动/自动）、相对时间、查看按钮（👁）。`memo` 优化重渲染。项目名回退到 SYSTEM_PROJECT_NAME。
+  - 影响范围：`packages/frontend/src/components/TrashSessionRow.tsx`（新建）。
+- **新增(frontend)：RecycleBinModal 组件**。80vw×80vh 弹窗，布局为 Header（标题+计数+关闭）→ 项目筛选 Tab → 会话列表（全选/选中计数/行渲染）→ 分页 → 底部操作栏（恢复/删除/清空）。清空和物理删除各包裹 ConfirmDialog 确认弹窗。store.viewerSessionId 非空时切换为 TrashMessageViewer 视图（ESC/遮罩点击返回列表）。
+  - 影响范围：`packages/frontend/src/components/RecycleBinModal.tsx`（新建）。
+- **新增(frontend)：TrashMessageViewer 组件**。只读消息查看器，复用 `/api/sessions/:id/messages` 端点加载历史（软删除不删 jsonl 文件），通过 `useSessionStore.setMessages` 注入后复用 MessageList 渲染。含警告提示条（只读模式+恢复链接）和返回按钮。
+  - 影响范围：`packages/frontend/src/components/TrashMessageViewer.tsx`（新建）。
+- **修改(frontend)：Sidebar.tsx 集成**。底部栏从单独 SettingsButton 改为 RecycleBinButton + SettingsButton 并排（flex gap-1）。新增 showTrash state 控制 RecycleBinModal 开关。
+  - 影响范围：`packages/frontend/src/components/Sidebar.tsx`。
+- **新增(frontend)：分页 i18n key**。在 zh.ts / en.ts 的 trash 分组新增 prevPage / nextPage，替代简报中的语言检测 hack。
+  - 影响范围：`packages/frontend/src/i18n/locales/zh.ts`、`packages/frontend/src/i18n/locales/en.ts`。
+
+---
+
 ## 2026-08-09 — 新增功能：前端回收站 i18n 文案 + store/trash.ts + RecycleBinButton 组件
 
 ### 变更
