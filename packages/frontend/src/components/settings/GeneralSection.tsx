@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "../../i18n/useTranslation";
 import { api } from "../../api-client";
-import type { RetrySettings } from "@wa-pi/shared";
+import type { RetrySettings, TrashSettings } from "@wa-pi/shared";
 import {
 	EXPORT_TURNS_MAX,
 	EXPORT_TURNS_MIN,
@@ -104,6 +104,11 @@ export function GeneralSection() {
 	// 与语言/重试配置一致（保存后才生效）。关闭窗口不保存则还原（store 仍为原值）。
 	const [draftFontSize, setDraftFontSize] = useState(fontSize);
 	const [draftExportTurns, setDraftExportTurns] = useState(exportTurns);
+	// 回收站自动归档/清理设置：草稿态，点保存才生效
+	const [autoArchive, setAutoArchive] = useState(true);
+	const [archiveDays, setArchiveDays] = useState("7");
+	const [autoPurge, setAutoPurge] = useState(false);
+	const [purgeDays, setPurgeDays] = useState("30");
 
 	useEffect(() => {
 		api
@@ -124,6 +129,31 @@ export function GeneralSection() {
 			.catch((e) => setError(e instanceof Error ? e.message : String(e)))
 			.finally(() => setLoading(false));
 	}, []);
+	// 回收站设置单独加载（GET /api/settings/trash），失败静默、沿用默认值
+	useEffect(() => {
+		api.get("/api/settings/trash")
+			.then((res) => {
+				const trash = (res as { trash?: TrashSettings })?.trash;
+				if (trash) {
+					setAutoArchive(trash.autoArchiveEnabled);
+					setArchiveDays(String(trash.autoArchiveDays));
+					setAutoPurge(trash.autoPurgeEnabled);
+					setPurgeDays(String(trash.autoPurgeDays));
+				}
+			})
+			.catch(() => {});
+	}, []);
+
+	const saveTrashSettings = async () => {
+		await api.put("/api/settings/trash", {
+			trash: {
+				autoArchiveEnabled: autoArchive,
+				autoArchiveDays: Number(archiveDays) || 7,
+				autoPurgeEnabled: autoPurge,
+				autoPurgeDays: Number(purgeDays) || 30,
+			},
+		});
+	};
 
 	const handleSave = async () => {
 		const retries = Number(maxRetries);
@@ -136,6 +166,7 @@ export function GeneralSection() {
 				retry: { maxRetries: retries, baseDelayMs: delayMs },
 				httpIdleTimeoutMs: httpIdleMs,
 			});
+			await saveTrashSettings();
 			// 字号 / 导出轮数草稿生效（仅当与当前值不同时才写入）
 			if (draftFontSize !== fontSize) setFontSize(draftFontSize);
 			if (draftExportTurns !== exportTurns) setExportTurns(draftExportTurns);
@@ -358,6 +389,80 @@ export function GeneralSection() {
 				<option value="zh">{t("settings.general.language.zh")}</option>
 				<option value="en">{t("settings.general.language.en")}</option>
 			</select>
+			{/* 回收站自动归档/清理设置 */}
+			<div className="border-t border-hairline pt-4">
+				<span className="text-sm font-medium text-primary block mb-3">
+					🗑️ {t("settings.trashSection")}
+				</span>
+				{/* 自动归档开关 */}
+				<div className="flex items-center justify-between mb-2">
+					<span className="text-sm text-primary">
+						{t("settings.trashAutoArchive")}
+					</span>
+					<SoundSwitch
+						on={autoArchive}
+						onToggle={() => {
+							setAutoArchive(!autoArchive);
+							setSaved(false);
+						}}
+						testId="trash-auto-archive-toggle"
+					/>
+				</div>
+				<div
+					className={`flex items-center gap-2 mb-4 ${autoArchive ? "" : "opacity-40"}`}
+				>
+					<input
+						type="number"
+						min={1}
+						max={365}
+						value={archiveDays}
+						onChange={(e) => {
+							setArchiveDays(e.target.value);
+							setSaved(false);
+						}}
+						disabled={!autoArchive}
+						className="w-16 px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary text-center outline-none"
+						data-testid="trash-archive-days-input"
+					/>
+					<span className="text-xs text-tertiary">
+						{t("settings.trashArchiveDays", { days: archiveDays })}
+					</span>
+				</div>
+				{/* 自动清理开关 */}
+				<div className="flex items-center justify-between mb-2">
+					<span className="text-sm text-primary">
+						{t("settings.trashAutoPurge")}
+					</span>
+					<SoundSwitch
+						on={autoPurge}
+						onToggle={() => {
+							setAutoPurge(!autoPurge);
+							setSaved(false);
+						}}
+						testId="trash-auto-purge-toggle"
+					/>
+				</div>
+				<div
+					className={`flex items-center gap-2 ${autoPurge ? "" : "opacity-40"}`}
+				>
+					<input
+						type="number"
+						min={1}
+						max={365}
+						value={purgeDays}
+						onChange={(e) => {
+							setPurgeDays(e.target.value);
+							setSaved(false);
+						}}
+						disabled={!autoPurge}
+						className="w-16 px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary text-center outline-none"
+						data-testid="trash-purge-days-input"
+					/>
+					<span className="text-xs text-tertiary">
+						{t("settings.trashPurgeDays", { days: purgeDays })}
+					</span>
+				</div>
+			</div>
 			<div className="flex items-center gap-3">
 				<button
 					onClick={() => void handleSave()}
