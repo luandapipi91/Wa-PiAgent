@@ -5,6 +5,7 @@ import {
 	validateAgentConfig,
 	makeDefaultAgentConfig,
 } from "../src/agent-md";
+import { ALL_AGENT_NAMES } from "@wa-pi/shared";
 import type { AgentConfig } from "@wa-pi/shared";
 
 const DEV_MD = `---
@@ -137,6 +138,11 @@ test("makeDefaultAgentConfig 支持任意 displayName（无内置定义时用名
 	const c = makeDefaultAgentConfig("文档写手");
 	expect(c.displayName).toBe("文档写手");
 	expect(c.avatar).toBe("🤖");
+});
+
+test("makeDefaultAgentConfig 默认关系网包含所有内置智能体", () => {
+	const c = makeDefaultAgentConfig("文档写手");
+	expect(c.partners.askTo).toEqual(ALL_AGENT_NAMES);
 });
 
 test("thinking: null 序列化时不写 thinking 行（避免 pi 解析 'null' 字符串报 parse warning）；解析往返仍 null；model null 往返", () => {

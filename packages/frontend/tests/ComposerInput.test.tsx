@@ -350,6 +350,57 @@ test("粘贴多行富文本：纯文本保留换行，丢弃 HTML 结构", async
 	await waitFor(() => expect(setText).toHaveBeenCalledWith("第一行\n第二行"));
 });
 
+// === 长文本粘贴自动转附件（>30 行 → 文件上传）===
+
+test("粘贴超过 30 行文本：转为文件附件上传，不插入输入框", async () => {
+	const setAttachments = mock() as any;
+	const setText = mock();
+	renderComposer({ setAttachments, setText, text: "" });
+
+	const longText = Array.from({ length: 31 }, (_, i) => `第${i + 1}行`).join(
+		"\n",
+	);
+	const textbox = screen
+		.getByTestId("composer-input")
+		.querySelector('[role="textbox"]')!;
+	fireEvent.paste(textbox, {
+		clipboardData: {
+			files: [],
+			getData: (type: string) => (type === "text/plain" ? longText : ""),
+		},
+	});
+
+	// 应上传文件
+	await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+	// 应添加附件
+	await waitFor(() => expect(setAttachments).toHaveBeenCalled());
+	const attachments = setAttachments.mock.calls[0][0]([]);
+	expect(attachments[0]).toMatchObject({ kind: "file" });
+	// 不应插入输入框
+	expect(setText).not.toHaveBeenCalled();
+});
+
+test("粘贴不超过 30 行文本：正常处理，不上传文件", async () => {
+	const setText = mock();
+	renderComposer({ setText, text: "" });
+
+	const shortText = Array.from({ length: 10 }, (_, i) => `第${i + 1}行`).join(
+		"\n",
+	);
+	const textbox = screen
+		.getByTestId("composer-input")
+		.querySelector('[role="textbox"]')!;
+	fireEvent.paste(textbox, {
+		clipboardData: {
+			files: [],
+			getData: (type: string) => (type === "text/plain" ? shortText : ""),
+		},
+	});
+
+	await new Promise((r) => setTimeout(r, 50));
+	expect(fetchMock).not.toHaveBeenCalled();
+});
+
 // === Quick Invoke 测试 ===
 
 test("输入 # 触发文件面板", async () => {

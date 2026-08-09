@@ -5,6 +5,7 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { uploadFile, copyToUploads, searchFilesStream } from "../../fs-client";
 import { useProjectsStore } from "../../store/projects";
 import { useProvidersStore } from "../../store/providers";
+import { useSessionStore } from "../../store/session";
 import { useSkillsStore } from "../../store/skills";
 import { useCommandsStore } from "../../store/commands";
 import { useAgentsStore } from "../../store/agents";
@@ -400,7 +401,11 @@ export function ComposerInput({
 					size: 0,
 				} as AttachmentDraft);
 			} catch (err) {
-				setUploadError(err instanceof Error ? err.message : t("composer.addAttachmentFailed"));
+				setUploadError(
+					err instanceof Error
+						? err.message
+						: t("composer.addAttachmentFailed"),
+				);
 			} finally {
 				setPendingUploads((n) => n - 1);
 			}
@@ -408,7 +413,7 @@ export function ComposerInput({
 		setPickerOpen(false);
 	};
 
-	const uploadFiles = async (files: FileList | null) => {
+	const uploadFiles = async (files: FileList | File[] | null) => {
 		if (!files || files.length === 0 || !projectId) return;
 		const MAX_MB = 50;
 		const MAX_BYTES = MAX_MB * 1024 * 1024;
@@ -430,18 +435,18 @@ export function ComposerInput({
 							...prev,
 							{ kind, name: file.name, path, size: file.size },
 						]);
-						} catch {
-							setUploadError(t("composer.getPathFailed", { name: file.name }));
-						} finally {
+					} catch {
+						setUploadError(t("composer.getPathFailed", { name: file.name }));
+					} finally {
 						setPendingUploads((n) => n - 1);
 					}
 				}
 			} else {
 				// 浏览器：无法获取真实路径，维持超限提示
 				const names = oversized
-						.map((f) => `"${f.name}" (${(f.size / 1024 / 1024).toFixed(0)}MB)`)
-						.join("、");
-					setUploadError(t("composer.oversized", { max: MAX_MB, names }));
+					.map((f) => `"${f.name}" (${(f.size / 1024 / 1024).toFixed(0)}MB)`)
+					.join("、");
+				setUploadError(t("composer.oversized", { max: MAX_MB, names }));
 			}
 		} else {
 			setUploadError(null);
@@ -462,7 +467,9 @@ export function ComposerInput({
 					{ kind, name: file.name, path, size: file.size },
 				]);
 			} catch (err) {
-				setUploadError(err instanceof Error ? err.message : t("composer.uploadFailed"));
+				setUploadError(
+					err instanceof Error ? err.message : t("composer.uploadFailed"),
+				);
 			} finally {
 				setPendingUploads((n) => n - 1);
 			}
@@ -504,15 +511,25 @@ export function ComposerInput({
 			void uploadFiles(files);
 			return;
 		}
-		// 富文本粘贴净化：contenteditable 默认会把剪贴板 HTML（带网页样式）插入 DOM，
-		// 这里拦截只插入纯文本（丢弃样式/标签），再触发受控层重新提取。
 		const getData = (type: string) =>
 			typeof e.clipboardData.getData === "function"
 				? e.clipboardData.getData(type)
 				: "";
+		const plainText = getData("text/plain");
+		// 超过 30 行的文本 → 转为 .txt 文件附件上传，避免撑爆输入框
+		if (plainText && plainText.split("\n").length > 30) {
+			e.preventDefault();
+			const file = new File([plainText], "pasted-text.txt", {
+				type: "text/plain",
+			});
+			void uploadFiles([file]);
+			return;
+		}
+		// 富文本粘贴净化：contenteditable 默认会把剪贴板 HTML（带网页样式）插入 DOM，
+		// 这里拦截只插入纯文本（丢弃样式/标签），再触发受控层重新提取。
 		if (getData("text/html")) {
 			e.preventDefault();
-			insertPlainText(e.currentTarget, getData("text/plain"));
+			insertPlainText(e.currentTarget, plainText);
 		}
 	};
 
@@ -694,7 +711,15 @@ export function ComposerInput({
 				if (canSend) onSend();
 			}
 		},
-		[menuOpen, menuItems, highlightedIndex, handleSelect, canSend, onSend, onSendSteer],
+		[
+			menuOpen,
+			menuItems,
+			highlightedIndex,
+			handleSelect,
+			canSend,
+			onSend,
+			onSendSteer,
+		],
 	);
 
 	return (
@@ -766,14 +791,14 @@ export function ComposerInput({
 							autoSelectEnabled={modelAutoSelectEnabled}
 						/>
 						<ThinkingSelector value={thinking} onChange={setThinking} />
-							{uploading && (
-								<span
-									className="text-xs text-tertiary"
-									data-testid="upload-spinner"
-								>
-									{t("composer.uploading")}
-								</span>
-							)}
+						{uploading && (
+							<span
+								className="text-xs text-tertiary"
+								data-testid="upload-spinner"
+							>
+								{t("composer.uploading")}
+							</span>
+						)}
 					</div>
 					<button
 						data-testid="composer-send"
@@ -807,6 +832,14 @@ export function ComposerInput({
 							key={i}
 							attachment={a}
 							onRemove={() => removeAttachment(i)}
+							onClick={
+								a.kind !== "snippet" && a.path
+									? () =>
+											useSessionStore
+												.getState()
+												.openFilePreview(a.path, sessionId)
+									: undefined
+							}
 						/>
 					))}
 				</div>
