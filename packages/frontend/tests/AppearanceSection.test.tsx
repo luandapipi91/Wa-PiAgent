@@ -1,5 +1,6 @@
 import { test, expect, beforeEach } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
+import { useUiPrefsStore } from "../src/store/ui-prefs";
 
 beforeEach(() => {
 	Object.defineProperty(window, "matchMedia", {
@@ -18,6 +19,12 @@ beforeEach(() => {
 	document.documentElement.dataset.theme = "";
 	document.documentElement.dataset.accent = "";
 	localStorage.clear();
+	// 显式重置 store 内存状态，避免测试间共享单例导致依赖执行顺序
+	useUiPrefsStore.setState({
+		themeMode: "system",
+		themeColor: "green",
+		fontSize: 16,
+	});
 });
 
 test("渲染界面主题分段控制器，默认选中「跟随系统」", async () => {
@@ -80,4 +87,5 @@ test("字号滑块：拖动即时生效，写入 store", async () => {
 	expect(slider.value).toBe("16");
 	fireEvent.change(slider, { target: { value: "20" } });
 	expect(useUiPrefsStore.getState().fontSize).toBe(20);
+	expect(screen.getByTestId("font-size-value").textContent).toBe("20px");
 });
