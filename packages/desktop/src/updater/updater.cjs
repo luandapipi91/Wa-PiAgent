@@ -53,6 +53,16 @@ function makeQuitAndInstallHandler({ updater, onBeforeQuitAndInstall }) {
 	return async () => {
 		await onBeforeQuitAndInstall?.();
 		updater.quitAndInstall(false, true);
+		// macOS 兜底：Tray 保活致 quitAndInstall 后应用不退出，
+		// 1.5s 后强制退出让 ShipIt 替换 .app
+		if (process.platform === "darwin") {
+			const { app } = require("electron");
+			setTimeout(() => {
+				try {
+					app.exit(0);
+				} catch {}
+			}, 1500);
+		}
 		return { ok: true };
 	};
 }

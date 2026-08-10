@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-08-10 — v0.1.19 修复 macOS Tray 保活阻止更新退出
+
+### 修复
+
+- **fix(desktop)·macOS OTA**：托盘保活致 quitAndInstall 后应用不退出，ShipIt 无法替换 .app。修复：quitAndInstall 后 1.5s 兜底 app.exit(0) 强制退出。
+
+---
+
 ## 2026-08-10 — v0.1.18 热修复：macOS 自动更新 ShipIt 中止
 
 ### 修复
