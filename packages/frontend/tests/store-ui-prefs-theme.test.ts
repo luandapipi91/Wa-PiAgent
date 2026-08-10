@@ -1,5 +1,9 @@
 import { beforeEach, expect, test } from "bun:test";
-import { useUiPrefsStore } from "../src/store/ui-prefs";
+import {
+	THEME_COLOR_DEFAULT,
+	THEME_MODE_DEFAULT,
+	useUiPrefsStore,
+} from "../src/store/ui-prefs";
 
 // mock matchMedia（happy-dom 不提供）
 let darkMode = false;
@@ -25,14 +29,14 @@ beforeEach(() => {
 	useUiPrefsStore.setState({ themeMode: "system", themeColor: "green" });
 });
 
-test("themeMode 默认为 system", async () => {
-	const { useUiPrefsStore } = await import("../src/store/ui-prefs");
-	expect(useUiPrefsStore.getState().themeMode).toBe("system");
+// 直接断言导出的默认值常量，绕开 store 单例被 beforeEach 重置造成的自证循环
+// （若实现里默认值被错改，读回 store 仍会得到 beforeEach 写入的值，无法暴露问题）。
+test("themeMode 默认为 system", () => {
+	expect(THEME_MODE_DEFAULT).toBe("system");
 });
 
-test("themeColor 默认为 green", async () => {
-	const { useUiPrefsStore } = await import("../src/store/ui-prefs");
-	expect(useUiPrefsStore.getState().themeColor).toBe("green");
+test("themeColor 默认为 green", () => {
+	expect(THEME_COLOR_DEFAULT).toBe("green");
 });
 
 test("setThemeMode('dark') 设置 store 值并应用 data-theme 到 <html>", async () => {
@@ -47,6 +51,13 @@ test("setThemeColor('blue') 设置 store 值并应用 data-accent 到 <html>", a
 	useUiPrefsStore.getState().setThemeColor("blue");
 	expect(useUiPrefsStore.getState().themeColor).toBe("blue");
 	expect(document.documentElement.dataset.accent).toBe("blue");
+});
+
+test("setThemeMode('light') 应用 data-theme='light' 到 <html>", async () => {
+	const { useUiPrefsStore } = await import("../src/store/ui-prefs");
+	useUiPrefsStore.getState().setThemeMode("light");
+	expect(useUiPrefsStore.getState().themeMode).toBe("light");
+	expect(document.documentElement.dataset.theme).toBe("light");
 });
 
 test("system 模式下 matchMedia 返回 light → data-theme 为 light", async () => {

@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-10 — 修复 ui-prefs theme 测试默认值用例为重言式
+
+### 修复
+
+- **test(frontend)·默认值用例重言式**：`store-ui-prefs-theme.test.ts` 的「themeMode 默认为 system / themeColor 默认为 green」两个用例原本先经 `beforeEach` 写入同值再读回断言，是 `setState(X) → 断言 == X` 的自证循环，实现里默认值被改错也无法暴露。改为直接断言导出的 `THEME_MODE_DEFAULT` / `THEME_COLOR_DEFAULT` 常量；并补 `setThemeMode('light')` 用例覆盖显式 light 路径。
+- 影响范围：`packages/frontend/tests/store-ui-prefs-theme.test.ts`。
+
+---
+
 ## 2026-08-10 — ui-prefs store 新增 themeMode / themeColor 状态
 
 ### 新增
