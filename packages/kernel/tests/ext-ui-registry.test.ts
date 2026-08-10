@@ -1,5 +1,5 @@
 import { test, expect, beforeEach } from "bun:test";
-import { ExtUiRegistry } from "../src/ext-ui-registry";
+import { ExtUiRegistry, extUiRegistry } from "../src/ext-ui-registry";
 
 let reg: ExtUiRegistry;
 beforeEach(() => { reg = new ExtUiRegistry(); });
@@ -27,4 +27,17 @@ test("cancelAllForSession 以 cancelled 解决该会话全部 pending，不影�
   await expect(p1).resolves.toEqual({ cancelled: true });
   expect(reg.respond("b", { value: "x" })).toBe(true);
   await expect(p2).resolves.toEqual({ value: "x" });
+});
+
+test("hasPendingForSession：有/无 pending 条目的判定", () => {
+	extUiRegistry.reset();
+	expect(extUiRegistry.hasPendingForSession("s1")).toBe(false);
+	void extUiRegistry.register("s1", {
+		id: "r1",
+		method: "select",
+	} as any);
+	expect(extUiRegistry.hasPendingForSession("s1")).toBe(true);
+	expect(extUiRegistry.hasPendingForSession("s2")).toBe(false);
+	extUiRegistry.cancelAllForSession("s1");
+	expect(extUiRegistry.hasPendingForSession("s1")).toBe(false);
 });

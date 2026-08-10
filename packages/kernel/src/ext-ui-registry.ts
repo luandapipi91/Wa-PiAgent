@@ -41,6 +41,14 @@ export class ExtUiRegistry {
     }
   }
 
+  /** 该 session 是否有 pending 的扩展 dialog（回合看门狗误判防护：等用户应答是正常的长无事件状态） */
+  hasPendingForSession(sessionId: string): boolean {
+    for (const e of this.byId.values()) {
+      if (e.sessionId === sessionId && !e.done) return true;
+    }
+    return false;
+  }
+
   /** 测试用：清空全部状态 */
   reset(): void { this.byId.clear(); }
 }
