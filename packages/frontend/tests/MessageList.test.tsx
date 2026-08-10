@@ -391,6 +391,202 @@ test("空 session 无消息", () => {
 	expect(screen.queryByTestId(/^msg-empty-/)).toBeNull();
 });
 
+// 工具调用前的流式 text 定格在未闭合代码围栏（```）时：
+// StreamingMarkdown 的 codeBlock partial 渲染空 <pre>（带边框背景），
+// 外层气泡容器（bg-surface border）仍在 → 视觉上出现空白气泡。
+// 回归：llm-ui 恢复后流式 text 走 StreamingMarkdown，未闭合围栏被
+// markdownLookBack/codeBlock partial 扣留为空；修复应不渲染空白气泡。
+test("工具调用前流式 text 定格未闭合代码围栏 → 不渲染空白气泡", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "hi", timestamp: 1 },
+				},
+			],
+		},
+		streamingBySession: {
+			s1: {
+				agentName: "product",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "text", text: "```" },
+						{
+							type: "toolCall",
+							id: "c1",
+							name: "bash",
+							arguments: { command: "ls" },
+						},
+					],
+					model: "m",
+					stopReason: "stop",
+					timestamp: 2,
+				},
+			},
+		},
+	});
+	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	// 流式 text 定格未闭合围栏 → 不可见，不应渲染空白气泡容器
+	expect(screen.queryByTestId("text-bubble")).toBeNull();
+	expect(screen.queryByTestId("text-block")).toBeNull();
+	expect(screen.queryByTestId("streaming-code-plain")).toBeNull();
+	// 工具调用仍正常渲染（StreamingRow → ToolGroupCard）
+	expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
+});
+
+test("工具调用前流式 text 定格未闭合 markdown（**）→ 不渲染空白气泡", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "hi", timestamp: 1 },
+				},
+			],
+		},
+		streamingBySession: {
+			s1: {
+				agentName: "product",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "text", text: "**" },
+						{
+							type: "toolCall",
+							id: "c2",
+							name: "bash",
+							arguments: { command: "ls" },
+						},
+					],
+					model: "m",
+					stopReason: "stop",
+					timestamp: 2,
+				},
+			},
+		},
+	});
+	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	// 未闭合加粗被 lookBack 扣留 → 不可见，不渲染空白气泡
+	expect(screen.queryByTestId("text-bubble")).toBeNull();
+	// 工具调用仍正常渲染
+	expect(screen.getByTestId("toolcall-c2")).toBeTruthy();
+});
+
+// or 分支正向保护：流式 text 部分可见（markdown 或 code 至少一种有内容）→ 必须保留气泡，
+// 防止后人把 isStreamingTextVisible 的 || 改成 && 或删掉 codeVisible 判断而误杀正常文本。
+test("工具调用前流式 text 部分可见（前置文本+未闭合加粗）→ 保留气泡", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "hi", timestamp: 1 },
+				},
+			],
+		},
+		streamingBySession: {
+			s1: {
+				agentName: "product",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "text", text: "强调：**" },
+						{
+							type: "toolCall",
+							id: "c3",
+							name: "bash",
+							arguments: { command: "ls" },
+						},
+					],
+					model: "m",
+					stopReason: "stop",
+					timestamp: 2,
+				},
+			},
+		},
+	});
+	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	// 前置文本「强调：」可见 → 气泡必须保留
+	expect(screen.getByTestId("text-bubble")).toBeTruthy();
+	expect(screen.getByTestId("text-block").textContent).toContain("强调：");
+	expect(screen.getByTestId("toolcall-c3")).toBeTruthy();
+});
+
+test("工具调用前流式纯文本 → 保留气泡", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "hi", timestamp: 1 },
+				},
+			],
+		},
+		streamingBySession: {
+			s1: {
+				agentName: "product",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "text", text: "hello world" },
+						{
+							type: "toolCall",
+							id: "c4",
+							name: "bash",
+							arguments: { command: "ls" },
+						},
+					],
+					model: "m",
+					stopReason: "stop",
+					timestamp: 2,
+				},
+			},
+		},
+	});
+	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	expect(screen.getByTestId("text-bubble")).toBeTruthy();
+	expect(screen.getByTestId("toolcall-c4")).toBeTruthy();
+});
+
+test("工具调用前流式未闭合代码块有内容 → 保留气泡", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "hi", timestamp: 1 },
+				},
+			],
+		},
+		streamingBySession: {
+			s1: {
+				agentName: "product",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "text", text: "```\nconsole.log(1)" },
+						{
+							type: "toolCall",
+							id: "c5",
+							name: "bash",
+							arguments: { command: "ls" },
+						},
+					],
+					model: "m",
+					stopReason: "stop",
+					timestamp: 2,
+				},
+			},
+		},
+	});
+	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	// 未闭合但有代码内容 → codeVisible 分支，气泡保留
+	expect(screen.getByTestId("text-bubble")).toBeTruthy();
+	expect(screen.getByTestId("toolcall-c5")).toBeTruthy();
+});
+
 test("AI 消息名称旁显示发送时间（今天）", () => {
 	const ts = new Date();
 	ts.setHours(10, 31, 0, 0);
