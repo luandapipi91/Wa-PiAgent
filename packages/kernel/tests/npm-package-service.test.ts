@@ -149,3 +149,16 @@ test("NpmPackageService.upgrade 用 add 而非 update 强制解析最新版", as
     rmSync(realDir, { recursive: true, force: true });
   }
 });
+
+// install 超时：子进程挂起时按 opTimeoutMs 终止并报超时错误
+// 离线/镜像源不可达时 bun add 会挂起，无超时则前端安装占位永远转圈
+test("install 超时：子进程挂起时按 opTimeoutMs 终止并报超时错误", async () => {
+	const svc = new NpmPackageService(dir, {
+		// bun -e 起一个 30s 空转的假包管理器（多余参数进 argv，不影响脚本执行）
+		npmCommand: [process.execPath, "-e", "setTimeout(() => {}, 30000)"],
+		opTimeoutMs: 300,
+	});
+	const startedAt = Date.now();
+	await expect(svc.install("some-pkg")).rejects.toThrow("超时");
+	expect(Date.now() - startedAt).toBeLessThan(5_000);
+}, 10_000);
