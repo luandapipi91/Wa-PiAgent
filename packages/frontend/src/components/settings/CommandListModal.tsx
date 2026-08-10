@@ -137,7 +137,7 @@ export function CommandListModal({
 									style={{
 										width: 38,
 										height: 22,
-										background: cmd.enabled ? "var(--success)" : "#cbd5e1",
+										background: cmd.enabled ? "var(--brand)" : "var(--hairline-strong)",
 									}}
 								>
 									<span

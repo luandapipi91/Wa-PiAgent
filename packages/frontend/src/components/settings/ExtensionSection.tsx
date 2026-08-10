@@ -150,7 +150,7 @@ export function ExtensionSection() {
                     style={{
                       width: 38,
                       height: 22,
-                      background: pkg.enabled ? "var(--success)" : "#cbd5e1",
+                      background: pkg.enabled ? "var(--brand)" : "var(--hairline-strong)",
                     }}
                   >
                     <span
