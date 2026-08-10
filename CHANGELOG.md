@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-08-10 — 图标重新生成：logo.svg 换版（HiAgent/126 绿底）后重跑图标链路
+
+### 配置变更
+
+- **chore(icons)**：根 `logo.svg` 更新为 HiAgent 图标（绿底 120→126、padding 10→7）后，重跑全部图标生成链路，桌面/托盘图标与新 logo 对齐：
+  - `genicon.py`（cairosvg + PIL）重新栅格化：`icon-mac.png`(1024) / `icon.png`(512) / `icon.ico`(16-256 多尺寸) / `tray_windows.ico` / `tray_darwin.png`(128) / `tray_linux.png`(64)。
+  - `generate-icons.sh`（macOS sips + iconutil）重新合成 `icon-mac.icns`（10 尺寸 iconset）。
+  - 影响范围：`packages/desktop/src/assets/*`（8 个产物）。
+  - 注意：`packages/frontend/public/logo.svg`（应用内侧边栏/关于页 logo）仍为旧版，如需同步需另行复制根 `logo.svg`。
+
+---
+
 ## 2026-08-10 — 移除过时的 skip 用例（ProjectList「项目内 ＋」交互已下线）
 
 ### 清理
