@@ -115,7 +115,7 @@ const STREAM_TOOLS = new Set(["delegate", "fleet"]);
 export async function handleBridgeStream(
   body: unknown,
   write: (ndjsonLine: string) => void,
-  opts?: { heartbeatMs?: number },
+  opts?: { heartbeatMs?: number; signal?: AbortSignal },
 ): Promise<BridgeResponse | null> {
   if (!body || typeof body !== "object") return { ok: false, status: 400, error: "invalid_body" };
   const { token, sessionId, toolCallId, tool, params } = body as Record<string, unknown>;
@@ -147,7 +147,10 @@ export async function handleBridgeStream(
   );
 
   try {
-    const result = await ctx.handleTool(tool, toolCallId, params, new AbortController().signal, (e: SubagentProgressEvent) => {
+    // signal 来自 ws-server 流式分支：客户端断连（stream cancel）时 abort，
+    // 级联中止正在执行的 delegate/fleet 子代理，防孤儿进程跑满 settle 超时、
+    // 结果无人消费还持续烧 token。缺省用永不 abort 的兜底（测试/直调场景）。
+    const result = await ctx.handleTool(tool, toolCallId, params, opts?.signal ?? new AbortController().signal, (e: SubagentProgressEvent) => {
       emit({ type: "progress", tool, toolCallId, progress: e });
     });
     emit({ type: "final", tool, toolCallId, ok: true, result });

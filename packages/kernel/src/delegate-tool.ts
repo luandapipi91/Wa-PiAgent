@@ -253,6 +253,10 @@ export function makeSpawnFn(opts: {
 	resolveSkillPaths?: (skillNames: string[]) => Promise<string[]>;
 	cwd: string;
 	signal?: AbortSignal;
+	/** 调用级信号槽（bridge 流式断连时由 ws-server 触发）：
+	 *  与 opts.signal（会话级）叠加，任一触发都中止本次派发的子代理。
+	 *  每次派发时调用取值——同一 spawnFn 服务多次工具调用，信号是每次调用不同的。 */
+	getCallSignal?: () => AbortSignal | undefined;
 	/** 子代理中止登记表：每次派发创建一个 AbortController 加入本表（完成时移除），
 	 *  主会话 abort / 会话拆除时由 agent-manager 级联触发表内全部 controller，
 	 *  runSubagent 收到 signal 后优雅中止子代理进程（否则成孤儿跑到完成、结果无人消费）。 */
@@ -330,6 +334,15 @@ export function makeSpawnFn(opts: {
 			opts.signal?.addEventListener("abort", () => controller.abort(), {
 				once: true,
 			});
+		// 叠加调用级信号（bridge 断连）：与外层会话级 signal 任一触发都中止本次派发
+		const callSignal = opts.getCallSignal?.();
+		if (callSignal) {
+			if (callSignal.aborted) controller.abort();
+			else
+				callSignal.addEventListener("abort", () => controller.abort(), {
+					once: true,
+				});
+		}
 		try {
 			const result = await runSubagent(config, task, opts.cwd, {
 				signal: controller.signal,

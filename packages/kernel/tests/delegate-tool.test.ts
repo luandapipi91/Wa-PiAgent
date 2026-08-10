@@ -849,6 +849,38 @@ test("makeSpawnFn: 未传 taskIndex（delegate 单任务）时 onProgress 事件
 	expect(events[0].taskIndex).toBeUndefined();
 });
 
+test("makeSpawnFn getCallSignal：调用级信号 abort 时中止派发中的子代理", async () => {
+	const callCtrl = new AbortController();
+	let seenSignal: AbortSignal | undefined;
+	const spawn = makeSpawnFn({
+		resolveConfig: async () => ({
+			name: "Explore",
+			description: "探索",
+			systemPrompt: "",
+			model: null,
+			thinking: null,
+			tools: [],
+			skills: [],
+		}),
+		cwd: "/tmp",
+		getCallSignal: () => callCtrl.signal,
+		// 注入桩实现绕过真实子进程：挂起直到信号中止（验证信号叠加传递）
+		runSubagentAgent: async (_config, _task, _cwd, opts) => {
+			seenSignal = opts?.signal;
+			await new Promise<void>((r) =>
+				opts?.signal?.addEventListener("abort", () => r(), { once: true }),
+			);
+			return { text: "子智能体已被中止", isError: true, elapsedMs: 1 };
+		},
+	});
+	const p = spawn("Explore", "任务", "tc1");
+	await new Promise((r) => setTimeout(r, 20));
+	callCtrl.abort();
+	const res = await p;
+	expect(seenSignal?.aborted).toBe(true);
+	expect(res.isError).toBe(true);
+});
+
 // A6：makeDelegateTool execute 调 spawn 只传 3 参（不传 taskIndex）
 test("delegate: 单任务路径 execute 调 spawn 只传 3 参（不传 taskIndex）", async () => {
 	const spawn = mock(async () => ({ text: "ok", isError: false }));
