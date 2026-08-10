@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-08-10 — ask 改走流式 NDJSON 路径，心跳保活修复 Bun idleTimeout 255s 提前掐断
+
+### 修复
+
+- **fix(kernel)**：`ask_user_question` 由旧同步 JSON 路径改走 NDJSON 流式分支（加入 `bridge-registry` 的 `STREAM_TOOLS`，抽出 `isBridgeStreamTool` 供 `ws-server` 路由复用，防两处字面量漂移）。
+  - 背景：ask 等待用户回答期间服务端一个字节不写，Bun.serve 的 `idleTimeout` 上限 255s（ws-server 已设满）会提前掐断连接——pi 侧 bridge 设计的 600s 等待上限实际约 4 分钟就失效，用户离开 5 分钟回来答题时提问已被静默取消。改走流式后复用既有的 15s ping 心跳，持续刷新 pi 侧 600s 空闲超时。
+  - 行为变化：ask 等待不再有 600s 隐性截断，对齐 ask-registry「等用户回答或中断」的设计意图；僵尸提问清理由既有 stream cancel → signal 链路保证（abort 时以 cancelled 解决）。
+  - 影响范围：`packages/kernel/src/bridge-registry.ts`（STREAM_TOOLS + `isBridgeStreamTool` 导出）、`packages/kernel/src/ws-server.ts`（流式分支判断改用 `isBridgeStreamTool`）、`packages/kernel/src/ask-registry.ts`（顶部注释措辞更新为准确语义）。
+
+---
+
 ## 2026-08-10 — 主会话回合看门狗（pi 假死自动恢复，修复 #2 永久「思考中」）
 
 ### 新增功能

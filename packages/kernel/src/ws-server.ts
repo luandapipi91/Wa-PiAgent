@@ -48,7 +48,7 @@ import { extname, basename, join, resolve, sep } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
 import { extUiRegistry } from "./ext-ui-registry";
-import { handleBridgeRequest, handleBridgeStream } from "./bridge-registry";
+import { handleBridgeRequest, handleBridgeStream, isBridgeStreamTool } from "./bridge-registry";
 import {
 	appendChunk,
 	finalizeRecording,
@@ -539,9 +539,9 @@ export class WSServer {
 					const toolName = (body as any)?.tool;
 					if (toolName) console.log(`[kernel] bridge tool: ${toolName}`);
 
-					// 流式分支：delegate/fleet 返回 NDJSON 流（边执行边 enqueue，立即返回 Response）；
+					// 流式分支：delegate/fleet/ask_user_question 返回 NDJSON 流（边执行边 enqueue，立即返回 Response）；
 					// 其余工具走旧同步 JSON。
-					if (toolName === "delegate" || toolName === "fleet") {
+					if (isBridgeStreamTool(toolName)) {
 						const enc = new TextEncoder();
 						let controllerRef: ReadableStreamDefaultController<Uint8Array> | null =
 							null;

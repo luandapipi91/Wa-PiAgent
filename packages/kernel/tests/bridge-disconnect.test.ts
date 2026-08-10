@@ -161,3 +161,106 @@ test("Bun.serve 探针：客户端 abort NDJSON 流式 fetch → 服务端 strea
 		server.stop(true);
 	}
 });
+
+// ask 改流式后的僵尸清理回归：ask 走 NDJSON 流式分支，stream signal abort
+// 必须级联到 pending ask（以 cancelled 解决），防「连接断了但提问条目残留」。
+test("流式 ask：stream signal abort 后 pending ask 以 cancelled 解决（僵尸清理）", async () => {
+	registerBridgeSession("s1", {
+		cwd: "/tmp",
+		handleTool: (tool, toolCallId, p, signal) =>
+			runAskTool("s1", toolCallId, p, signal),
+	});
+	const ctrl = new AbortController();
+	const frames: string[] = [];
+	const doneP = handleBridgeStream(
+		{
+			token: getBridgeToken(),
+			sessionId: "s1",
+			toolCallId: "tc-ask",
+			tool: "ask_user_question",
+			params,
+		},
+		(line) => frames.push(line),
+		{ signal: ctrl.signal, heartbeatMs: 50 },
+	);
+	await new Promise((r) => setTimeout(r, 30));
+	expect(askRegistry.pendingToolCallIds("s1")).toEqual(["tc-ask"]);
+	ctrl.abort();
+	await doneP;
+	expect(askRegistry.pendingToolCallIds("s1")).toEqual([]);
+	// 流以 final 帧正常收尾（cancelled 结果帧），不是中断无帧
+	const final = frames
+		.map((l) => l.trim())
+		.filter(Boolean)
+		.map((l) => JSON.parse(l))
+		.find((f) => f.type === "final");
+	expect(final).toBeDefined();
+});
+
+// Bun 行为探针：idleTimeout=1s 下，流式心跳（100ms）能否让 1.5s 才完成的请求正常交付。
+// 若本测试失败，说明心跳不足以对抗 Bun idleTimeout，ask 流式化方案无效，需回炉。
+test("Bun 探针：idleTimeout=1s 下流式心跳保活，1.5s 后正常收到 final 帧", async () => {
+	registerBridgeSession("s1", {
+		cwd: "/tmp",
+		handleTool: async () => {
+			// 1.5s 后才返回：远超 1s idleTimeout，无心跳必然断连
+			await new Promise((r) => setTimeout(r, 1500));
+			return { content: [{ type: "text" as const, text: "ok" }] };
+		},
+	});
+	const server = Bun.serve({
+		port: 0,
+		idleTimeout: 1, // 1s 空闲断连（Bun 上限 255s，测试取最小值加速验证）
+		async fetch(req) {
+			const body = await req.json();
+			const stream = new ReadableStream<Uint8Array>({
+				start(controller) {
+					const enc = new TextEncoder();
+					const write = (l: string) => {
+						try {
+							controller.enqueue(enc.encode(l));
+						} catch {
+							/* 已关闭 */
+						}
+					};
+					void handleBridgeStream(body, write, { heartbeatMs: 100 }).then(
+						() => {
+							try {
+								controller.close();
+							} catch {
+								/* 已关闭 */
+							}
+						},
+					);
+				},
+			});
+			return new Response(stream, {
+				headers: { "content-type": "application/x-ndjson" },
+			});
+		},
+	});
+	try {
+		const res = await fetch(`http://127.0.0.1:${server.port}/bridge/tool`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				token: getBridgeToken(),
+				sessionId: "s1",
+				toolCallId: "tc1",
+				tool: "ask_user_question",
+				params,
+			}),
+			// Bun 专属：关闭 300s 原生硬超时（与 wa-pi-bridge.extension.ts 同处理）
+			...({ timeout: false } as object),
+		});
+		const text = await res.text();
+		const final = text
+			.split("\n")
+			.filter(Boolean)
+			.map((l) => JSON.parse(l))
+			.find((f) => f.type === "final");
+		expect(final?.ok).toBe(true);
+	} finally {
+		server.stop(true);
+	}
+}, 10_000);

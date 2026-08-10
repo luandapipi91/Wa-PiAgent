@@ -2,7 +2,10 @@
 //
 // 工具 execute 在此 await ask()，agent 回合阻塞；前端 agent:answer 经 ws-server
 // 调 resolve()，agent:cancel-ask / abort / immediate / dispose 调 cancel()/cancelAll()。
-// 不设硬超时——等用户回答或中断。所有 resolve/cancel 对未知/已解决 id 幂等。
+// 不设硬超时——等用户回答或中断。等待期间连接保活由 bridge 流式路径的 15s 心跳负责
+// （ask 走 NDJSON 流式，见 bridge-registry STREAM_TOOLS）；客户端断连时经
+// stream cancel → signal 链路以 cancelled 解决（防僵尸提问）。
+// 所有 resolve/cancel 对未知/已解决 id 幂等。
 import {
 	replyToAnswers,
 	type AskParams,
