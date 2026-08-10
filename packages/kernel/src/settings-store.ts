@@ -165,7 +165,6 @@ export async function saveHttpIdleTimeoutMs(
 	file: string = SETTINGS_FILE,
 ): Promise<number> {
 	if (
-		!Number.isFinite(timeoutMs) ||
 		!Number.isInteger(timeoutMs) ||
 		timeoutMs < HTTP_IDLE_TIMEOUT_MIN_MS
 	) {

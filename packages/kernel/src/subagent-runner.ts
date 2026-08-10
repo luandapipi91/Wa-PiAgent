@@ -71,7 +71,7 @@ export interface SubagentRunOpts {
 	/** 测试覆盖：pi CLI 入口 / 运行时 */
 	cliPath?: string;
 	runtime?: string;
-	/** RPC 命令超时毫秒数，默认 30 分钟（1800000）；设为 Infinity 关闭超时（settle 兑底同样跳过） */
+	/** RPC 命令超时毫秒数，默认 30 分钟（1800000）；设为 Infinity 关闭超时（settle 兜底同样跳过） */
 	commandTimeoutMs?: number;
 	/** abort 宽限期毫秒数（测试覆盖用）：收到中止信号后等子代理响应 abort RPC 的时长，
 	 *  到期强制返回并由 finally dispose 强杀进程。默认 10000 */
