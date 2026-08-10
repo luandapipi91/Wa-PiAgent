@@ -101,10 +101,18 @@ function parseLstart(s) {
   return Number.isFinite(d.getTime()) ? d.getTime() : null;
 }
 
-/** 校验②③原料：{ exe, createdAt } | null（进程已死 / 查询失败返回 null） */
+/**
+ * 校验②③原料（三态结果，区分「进程不存在」与「查询失败」，避免静默失效不可观测）：
+ *   { ok: true, identity: { exe, createdAt } }     查询成功
+ *   { ok: false, reason: "not-found" }             进程确实不存在（命令成功执行但无输出）
+ *   { ok: false, reason: "error", detail }         查询失败（命令执行出错/非 0 退出码/输出或时间格式异常）
+ * 两者必须区分：not-found 是正常清理路径（删登记）；error 可能是工具/权限/格式问题，
+ * 调用方应保留登记+记日志，避免「只删不杀 → 幽灵进程继续占 9778 且登记被删」的静默失效。
+ */
 function getProcessIdentity(pid, opts) {
+  const platform = opts.platform ?? process.platform;
   try {
-    if ((opts.platform ?? process.platform) === "win32") {
+    if (platform === "win32") {
       // Windows：PowerShell 取 CreationDate（CIM DateTime，ISO 8601）与 ExecutablePath
       const cmd =
         `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | ` +
@@ -113,27 +121,37 @@ function getProcessIdentity(pid, opts) {
         encoding: "utf8",
         maxBuffer: 16 * 1024 * 1024,
       }) ?? {};
+      if (res.error) return { ok: false, reason: "error", detail: `命令执行失败: ${res.error.message ?? res.error}` };
+      if (res.status !== 0) return { ok: false, reason: "error", detail: `PowerShell 退出码 ${res.status}` };
       const out = String(res.stdout ?? "").trim();
-      if (!out || out === "null") return null; // 进程不存在 → CIM 无输出
-      const obj = JSON.parse(out);
-      if (!obj || obj.ProcessId == null) return null;
+      if (!out || out === "null") return { ok: false, reason: "not-found" }; // 进程不存在 → CIM 无输出
+      let obj;
+      try {
+        obj = JSON.parse(out);
+      } catch (e) {
+        return { ok: false, reason: "error", detail: `输出非 JSON: ${e?.message ?? e}` };
+      }
+      if (!obj || obj.ProcessId == null) return { ok: false, reason: "not-found" }; // 空集合边缘情况
       const createdAt = parseIsoMs(String(obj.CreationDate ?? ""));
-      if (createdAt === null) return null;
-      return { exe: String(obj.ExecutablePath ?? ""), createdAt };
+      if (createdAt === null) return { ok: false, reason: "error", detail: "CreationDate 解析失败（格式不符）" };
+      return { ok: true, identity: { exe: String(obj.ExecutablePath ?? ""), createdAt } };
     }
     // mac/linux：ps 取 lstart（创建时间，本地时间）+ command（exe 取首 token）
     const res = opts.spawnSync("ps", ["-o", "lstart=,command=", "-p", String(pid)], {
       encoding: "utf8",
     }) ?? {};
+    if (res.error) return { ok: false, reason: "error", detail: `命令执行失败: ${res.error.message ?? res.error}` };
     const out = String(res.stdout ?? "").trim();
-    // 进程不存在时 ps 输出为空 → null
+    // 进程不存在时 ps 无输出（退出码 1）→ not-found
+    if (!out) return { ok: false, reason: "not-found" };
+    if (res.status !== 0) return { ok: false, reason: "error", detail: `ps 退出码 ${res.status}` };
     const m = out.match(/^(\S+\s+\S+\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.*)$/);
-    if (!m) return null;
+    if (!m) return { ok: false, reason: "error", detail: "ps 输出格式不符" };
     const createdAt = parseLstart(m[1]);
-    if (createdAt === null) return null;
-    return { exe: m[2].split(/\s+/)[0], createdAt };
-  } catch {
-    return null;
+    if (createdAt === null) return { ok: false, reason: "error", detail: "lstart 解析失败（格式不符）" };
+    return { ok: true, identity: { exe: m[2].split(/\s+/)[0], createdAt } };
+  } catch (e) {
+    return { ok: false, reason: "error", detail: `未预期异常: ${e?.message ?? e}` };
   }
 }
 
@@ -170,12 +188,14 @@ function killProcess(pid, opts) {
 
 /**
  * sweep 的杀伐部分（可被 restart-after-port-kill 复用）：
- * 对每条登记：① 已死 → 删文件记 deleted；② 身份查询失败 → 删文件记 deleted；
+ * 对每条登记：① 已死 → 删文件记 deleted；
+ * ② 进程不存在（not-found）→ 删文件记 deleted；
+ * ②' 身份查询失败（error：工具/权限/输出格式问题）→ 保留登记记 errors 并记日志（下轮再试，不静默丢名单）；
  * ③ 非我方（PID 复用 / exe 不符）→ 删文件记 skipped 不杀；
  * ④ 三重校验全过 → 杀：成功删文件记 killed，失败保留文件记 skipped（下轮再试）。
  */
 function killRegisteredProcesses(opts) {
-  const result = { killed: [], deleted: [], skipped: [] };
+  const result = { killed: [], deleted: [], skipped: [], errors: [] };
   for (const entry of loadRegistry(opts)) {
     // ① 进程已死 → 只删登记
     if (!isProcessAlive(entry.pid, opts)) {
@@ -183,15 +203,22 @@ function killRegisteredProcesses(opts) {
       result.deleted.push(entry.pid);
       continue;
     }
-    // ②③ 原料：查询失败（进程刚消失/权限不足）→ 只删登记
-    const identity = getProcessIdentity(entry.pid, opts);
-    if (!identity) {
-      unregisterProcess(entry.pid, opts);
-      result.deleted.push(entry.pid);
+    // ②③ 原料：三态结果——区分「进程不存在」与「查询失败」
+    const q = getProcessIdentity(entry.pid, opts);
+    if (!q.ok) {
+      if (q.reason === "not-found") {
+        // 进程确实不存在（命令成功执行但无输出）→ 正常清理：只删登记
+        unregisterProcess(entry.pid, opts);
+        result.deleted.push(entry.pid);
+      } else {
+        // 查询失败（工具/权限/格式问题）→ 保留登记（下轮再试）+ 记日志，避免静默丢名单
+        opts.log?.(`[registry] 身份查询失败 PID ${entry.pid}: ${q.detail ?? q.reason}（保留登记，下轮重试）`);
+        result.errors.push({ pid: entry.pid, reason: q.detail ?? q.reason });
+      }
       continue;
     }
     // ②+③ 非我方（PID 复用 / exe 不符）→ 只删登记不动进程
-    if (!isOurs(entry, identity, opts)) {
+    if (!isOurs(entry, q.identity, opts)) {
       unregisterProcess(entry.pid, opts);
       result.skipped.push(entry.pid);
       continue;
@@ -208,11 +235,12 @@ function killRegisteredProcesses(opts) {
 }
 
 /**
- * 启动清扫：返回 { killed:[], deleted:[], skipped:[] }。
- * 先做 TTL 兜底（超期只删文件不碰进程），再把其余条目交给杀伐部分。
+ * 启动清扫：返回 { killed:[], deleted:[], skipped:[], errors:[] }。
+ * 先做 TTL 兜底（超期只删文件不碰进程），再把其余条目交给杀伐部分；
+ * errors 为身份查询失败（非进程不存在）的条目 [{ pid, reason }]，失败不杀且保留登记。
  */
 function sweepRegistry(opts) {
-  const result = { killed: [], deleted: [], skipped: [] };
+  const result = { killed: [], deleted: [], skipped: [], errors: [] };
   const now = opts.now();
   for (const entry of loadRegistry(opts)) {
     // TTL 兜底：超期记录只删文件不碰进程（pid 可能早已换主）
@@ -225,6 +253,7 @@ function sweepRegistry(opts) {
   result.killed.push(...r.killed);
   result.deleted.push(...r.deleted);
   result.skipped.push(...r.skipped);
+  result.errors.push(...r.errors);
   return result;
 }
 

@@ -459,10 +459,11 @@ app.whenReady().then(async () => {
 	// 避免残留进程继续占着 9778（Windows 升级后幽灵占用治理第一步；D 任务再完善自愈循环）。
 	try {
 		const r = sweepRegistry(registryOpts);
-		if (r.killed.length || r.deleted.length || r.skipped.length) {
+		if (r.killed.length || r.deleted.length || r.skipped.length || r.errors.length) {
 			log.info(
 				`[registry] 启动清扫: killed=[${r.killed.join(",") || "无"}] ` +
-					`deleted=[${r.deleted.join(",") || "无"}] skipped=[${r.skipped.join(",") || "无"}]`,
+					`deleted=[${r.deleted.join(",") || "无"}] skipped=[${r.skipped.join(",") || "无"}] ` +
+					`errors=[${r.errors.map((e) => `${e.pid}:${e.reason}`).join(";") || "无"}]`,
 			);
 		}
 	} catch (e) {

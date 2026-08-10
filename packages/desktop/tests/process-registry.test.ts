@@ -56,6 +56,7 @@ function makeOpts(overrides: any = {}) {
   const fs = makeMemFs(overrides.seed ?? {});
   const spawnCalls: { cmd: string; args: string[] }[] = [];
   const killCalls: [number, unknown][] = [];
+  const logs: string[] = [];
   const spawnSync = mock((cmd: string, args: string[]) => {
     spawnCalls.push({ cmd, args });
     return overrides.spawnResult ? overrides.spawnResult(cmd, args) : { stdout: "", status: 0 };
@@ -68,12 +69,15 @@ function makeOpts(overrides: any = {}) {
     fs,
     spawnCalls,
     killCalls,
+    logs,
     opts: {
       fs,
       spawnSync,
       now: () => overrides.now ?? NOW,
       waPiDir: overrides.waPiDir ?? WAPI_DIR,
-      log: () => {},
+      log: (m: string) => {
+        logs.push(m);
+      },
       platform: overrides.platform ?? "win32",
       kill,
     },
@@ -179,10 +183,11 @@ test("sweepRegistry: 进程已死（kill 探测抛 ESRCH）→ 只删不杀", ()
   expect(ctx.fs.store.has(path.join(REG_DIR, "1001.json"))).toBe(false);
 });
 
-test("sweepRegistry: identity 查询返回 null（进程消失）→ 只删不杀", () => {
-  const ctx = makeOpts({ seed: seedOne() }); // powershell 返回空 stdout → identity null
+test("sweepRegistry: 进程不存在（查询成功但无输出 → not-found）→ 正常删登记", () => {
+  const ctx = makeOpts({ seed: seedOne() }); // powershell 返回空 stdout → not-found
   const r = sweepRegistry(ctx.opts);
   expect(r.deleted).toEqual([1001]);
+  expect(r.errors).toEqual([]);
   expect(ctx.spawnCalls.some((c) => c.cmd === "powershell")).toBe(true);
   expect(ctx.spawnCalls.some((c) => c.cmd === "taskkill")).toBe(false);
   expect(ctx.fs.store.has(path.join(REG_DIR, "1001.json"))).toBe(false);
@@ -280,16 +285,52 @@ test("getProcessIdentity: Windows 走 PowerShell 解析 CreationDate/ExecutableP
         : { stdout: "", status: 0 },
   });
   const id = getProcessIdentity(555, ctx.opts);
-  expect(id).toEqual({ exe: "C:\\wa-pi\\kernel.exe", createdAt: Date.parse("2023-11-14T22:13:20.123+08:00") });
+  expect(id).toEqual({
+    ok: true,
+    identity: { exe: "C:\\wa-pi\\kernel.exe", createdAt: Date.parse("2023-11-14T22:13:20.123+08:00") },
+  });
   const ps = ctx.spawnCalls.find((c) => c.cmd === "powershell");
   // args = ["-NoProfile", "-Command", <CIM 查询串>]
   expect(ps!.args).toEqual(["-NoProfile", "-Command", expect.stringContaining("Get-CimInstance Win32_Process -Filter \"ProcessId=555\"") as any]);
   expect(ps!.args[2]).toContain("CreationDate");
 });
 
-test("getProcessIdentity: Windows 进程不存在（stdout 空）→ null", () => {
+test("getProcessIdentity: Windows 进程不存在（stdout 空）→ not-found 结果", () => {
   const ctx = makeOpts(); // powershell 空 stdout
-  expect(getProcessIdentity(999999, ctx.opts)).toBeNull();
+  expect(getProcessIdentity(999999, ctx.opts)).toEqual({ ok: false, reason: "not-found" });
+});
+
+test("getProcessIdentity: Windows 查询失败（res.error：命令无法执行）→ reason=error", () => {
+  const ctx = makeOpts({
+    spawnResult: () => ({ error: new Error("spawn powershell ENOENT"), stdout: "", status: null }),
+  });
+  const id = getProcessIdentity(555, ctx.opts) as any;
+  expect(id.ok).toBe(false);
+  expect(id.reason).toBe("error");
+});
+
+test("getProcessIdentity: Windows 查询失败（PowerShell 退出码非 0）→ reason=error", () => {
+  const ctx = makeOpts({
+    spawnResult: () => ({ stdout: "", status: 1 }),
+  });
+  const id = getProcessIdentity(555, ctx.opts) as any;
+  expect(id.ok).toBe(false);
+  expect(id.reason).toBe("error");
+});
+
+test("getProcessIdentity: Windows 查询失败（CreationDate 格式不符）→ reason=error", () => {
+  const ctx = makeOpts({
+    spawnResult: (cmd: string) =>
+      cmd === "powershell"
+        ? {
+            stdout: JSON.stringify({ ProcessId: 555, ExecutablePath: "C:\\x.exe", CreationDate: "not-a-date" }),
+            status: 0,
+          }
+        : { stdout: "", status: 0 },
+  });
+  const id = getProcessIdentity(555, ctx.opts) as any;
+  expect(id.ok).toBe(false);
+  expect(id.reason).toBe("error");
 });
 
 test("getProcessIdentity: 非 Windows 走 ps 解析 lstart，exe 取 command 首 token", () => {
@@ -301,9 +342,51 @@ test("getProcessIdentity: 非 Windows 走 ps 解析 lstart，exe 取 command 首
         : { stdout: "", status: 0 },
   });
   const id = getProcessIdentity(777, ctx.opts);
-  expect(id).toEqual({ exe: "/data/wa-pi/runtime/kernel.exe", createdAt: new Date(2026, 7, 10, 14, 48, 27).getTime() });
+  expect(id).toEqual({
+    ok: true,
+    identity: { exe: "/data/wa-pi/runtime/kernel.exe", createdAt: new Date(2026, 7, 10, 14, 48, 27).getTime() },
+  });
   const ps = ctx.spawnCalls.find((c) => c.cmd === "ps");
   expect(ps!.args).toEqual(["-o", "lstart=,command=", "-p", "777"]);
+});
+
+test("getProcessIdentity: ps 输出格式不符（stdout 非空但不匹配）→ reason=error", () => {
+  const ctx = makeOpts({
+    platform: "darwin",
+    spawnResult: (cmd: string) =>
+      cmd === "ps" ? { stdout: "boom garbage output\n", status: 0 } : { stdout: "", status: 0 },
+  });
+  const id = getProcessIdentity(777, ctx.opts) as any;
+  expect(id.ok).toBe(false);
+  expect(id.reason).toBe("error");
+});
+
+test("sweepRegistry: 身份查询失败 → 保留登记 + errors 可观测 + 日志记录，不杀进程", () => {
+  const ctx = makeOpts({
+    seed: seedOne(),
+    spawnResult: () => ({ error: new Error("spawn powershell ENOENT"), stdout: "", status: null }),
+  });
+  const r = sweepRegistry(ctx.opts);
+  expect(r.deleted).toEqual([]);
+  expect(r.killed).toEqual([]);
+  expect(r.skipped).toEqual([]);
+  expect(r.errors).toEqual([{ pid: 1001, reason: expect.stringContaining("命令执行失败") as any }]);
+  expect(ctx.logs.some((m) => m.includes("1001") && m.includes("身份查询失败"))).toBe(true);
+  expect(ctx.fs.store.has(path.join(REG_DIR, "1001.json"))).toBe(true); // 保留登记，下轮再试，避免静默丢名单
+  expect(ctx.spawnCalls.some((c) => c.cmd === "taskkill")).toBe(false); // 查询失败不杀
+});
+
+test("sweepRegistry: 进程不存在（ps 空输出 + status 1）→ 正常 deleted 路径不受影响", () => {
+  const ctx = makeOpts({
+    platform: "darwin",
+    seed: seedOne(),
+    spawnResult: (cmd: string) => (cmd === "ps" ? { stdout: "", status: 1 } : { stdout: "", status: 0 }),
+  });
+  const r = sweepRegistry(ctx.opts);
+  expect(r.deleted).toEqual([1001]);
+  expect(r.errors).toEqual([]);
+  expect(ctx.spawnCalls.some((c) => c.cmd === "taskkill")).toBe(false);
+  expect(ctx.fs.store.has(path.join(REG_DIR, "1001.json"))).toBe(false);
 });
 
 test("isProcessAlive: 真实存活进程（自身 pid，信号 0 仅探测）→ true", () => {
