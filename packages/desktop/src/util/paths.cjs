@@ -27,7 +27,7 @@ function resolveWebDir(isPackaged, resourcesPath, env) {
   return path.join(devRepoRoot(), "packages", "frontend", "dist");
 }
 
-// runtime 目录：用户可写（~/.wa-pi/runtime）。packaged 下首启在此动态安装 node_modules（原生 addon）并跑 kernel.js。
+// runtime 目录：用户可写（WA_PI_DIR/runtime，默认 ~/.pi/agent/runtime）。packaged 下首启在此动态安装 node_modules（原生 addon）并跑 kernel.js。
 // .app 内 Resources/kernel 是只读 seed，无法就地 install，故复制 seed 到 runtime 再装。
 function resolveRuntimeDir(waPiDir) {
   return path.join(waPiDir, "runtime");

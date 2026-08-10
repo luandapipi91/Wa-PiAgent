@@ -1,6 +1,6 @@
 import { test, expect, mock } from "bun:test";
 import { createServer } from "node:net";
-import { waitForPort, findAvailablePort, killPortOccupants, waitPortReleased } from "../src/util/port.cjs";
+import { waitForPort, findAvailablePort, killPortOccupants, waitPortReleased, resolveWaPiDir } from "../src/util/port.cjs";
 
 test("waitForPort: 端口起来后 resolve true", async () => {
   const s = createServer();
@@ -245,5 +245,20 @@ test("killPortOccupants: 同前缀兄弟目录（如 wa-pi-ghost2）的进程不
     if (savedDir === undefined) delete process.env.WA_PI_DIR;
     else process.env.WA_PI_DIR = savedDir;
     await new Promise<void>((r) => s.close(() => r()));
+  }
+});
+
+// 数据目录默认值必须与 kernel 侧一致（~/.pi/agent）。迁移前 main.cjs/port.cjs 硬编码
+// ~/.wa-pi，与 kernel 的 ~/.pi/agent 分裂——日志/runtime 写旧目录、内核读新目录。
+test("resolveWaPiDir: 默认 ~/.pi/agent（与 kernel WA_PI_DIR 一致），env 可覆盖", () => {
+  const prev = process.env.WA_PI_DIR;
+  try {
+    delete process.env.WA_PI_DIR;
+    expect(resolveWaPiDir()).toContain(".pi/agent");
+    expect(resolveWaPiDir()).not.toContain(".wa-pi");
+    process.env.WA_PI_DIR = "/custom/dir";
+    expect(resolveWaPiDir()).toBe("/custom/dir");
+  } finally {
+    if (prev === undefined) delete process.env.WA_PI_DIR; else process.env.WA_PI_DIR = prev;
   }
 });

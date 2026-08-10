@@ -38,7 +38,7 @@ async function findAvailablePort(startPort, maxTries = 100) {
  * netstat 给出的 PID 已不存在，taskkill 无从下手。
  * 此时枚举存活进程，按「确认 wa-pi 相关进程的子孙链」圈定清理范围，避免误杀
  * 其他工作区 / CLI 模式的正常进程：
- * - 种子：命令行含 wa-pi 数据目录路径（~/.wa-pi 或 WA_PI_DIR）——pi 会话/子代理
+ * - 种子：命令行含 wa-pi 数据目录路径（WA_PI_DIR，默认 ~/.pi/agent）——pi 会话/子代理
  *   进程带 --session <dir>/sessions/... 参数，packaged kernel 带 <dir>/runtime/kernel.js。
  *   仅含 pi-coding-agent / wa-pi-kernel 字样但与我方数据目录无关的进程不匹配。
  * - 子孙链：种子的后代进程（cmd/bun shim、子代理起的后台命令）即使命令行无特征，
@@ -51,7 +51,9 @@ const GHOST_SCAN_PS =
 
 /** wa-pi 数据目录（与 kernel 侧 WA_PI_DIR 解析一致；调用时读取，便于测试注入 env） */
 function resolveWaPiDir() {
-  return process.env.WA_PI_DIR || join(homedir(), ".wa-pi");
+  // 与 kernel 侧 WA_PI_DIR 解析一致（shared/constants.ts）：默认复用 Pi 框架 ~/.pi/agent，
+  // env 可覆盖。曾硬编码 ~/.wa-pi 导致 main 日志/runtime 与 kernel 数据目录分裂。
+  return process.env.WA_PI_DIR || join(homedir(), ".pi", "agent");
 }
 
 function escapeRegExp(s) {
@@ -200,4 +202,4 @@ async function killPortOccupants(port, spawnFn = spawnSync, logFn = console.log)
   return pids.map((p) => Number(p)).filter((n) => Number.isFinite(n));
 }
 
-module.exports = { isPortInUse, waitForPort, findAvailablePort, killPortOccupants, waitPortReleased, scanProcesses };
+module.exports = { isPortInUse, waitForPort, findAvailablePort, killPortOccupants, waitPortReleased, scanProcesses, resolveWaPiDir };
