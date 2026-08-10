@@ -120,19 +120,19 @@ export function ensureChipStyles() {
       flex-shrink: 0;
     }
     .chip-file {
-      background-color: #22C55E20;
-      color: #16A34A;
-      border: 1px solid #22C55E40;
+      background-color: var(--success-soft);
+      color: var(--success);
+      border: 1px solid var(--success-soft);
     }
     .chip-skill {
-      background-color: #5B5BD620;
-      color: #5B5BD6;
-      border: 1px solid #5B5BD640;
+      background-color: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid var(--accent-soft);
     }
     .chip-command {
-      background-color: #F59E0B20;
-      color: #D97706;
-      border: 1px solid #F59E0B40;
+      background-color: var(--warning-soft);
+      color: var(--warning);
+      border: 1px solid var(--warning-soft);
     }
     [contenteditable][data-placeholder]:empty::before {
       content: attr(data-placeholder);
