@@ -13,8 +13,7 @@ const fsp = require("node:fs/promises");
 const { createLogger } = require("./util/log.cjs");
 const { findAvailablePort } = require("./util/port.cjs");
 
-const WA_PI_DIR =
-	process.env.WA_PI_DIR || path.join(os.homedir(), ".wa-pi");
+const WA_PI_DIR = process.env.WA_PI_DIR || path.join(os.homedir(), ".wa-pi");
 const log = createLogger(path.join(WA_PI_DIR, "logs", "desktop.log"));
 
 // 与前端 --canvas 对齐：主窗口/启动页用同色底，消除首帧白屏闪烁
@@ -70,7 +69,12 @@ function createSplash() {
 		icon: path.join(__dirname, "assets", "icon.ico"),
 		show: true, // 立即显示：内核首启被 Defender 扫描可能数分钟，这几分钟用户要看到进度而非白屏
 		// sandbox:false：preload 需 require('electron').clipboard 注入 waPiClipboard（sandbox 下该模块不在白名单，会导致复制失效）
-		webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false, preload: path.join(__dirname, "preload.cjs") },
+		webPreferences: {
+			nodeIntegration: false,
+			contextIsolation: true,
+			sandbox: false,
+			preload: path.join(__dirname, "preload.cjs"),
+		},
 	});
 	splashWindow.loadURL(buildSplashURL());
 	splashWindow.on("closed", () => {
@@ -91,13 +95,17 @@ function findSystemNode() {
 	const candidates =
 		process.platform === "win32"
 			? [
-				path.join(process.env.ProgramFiles || "C:\\Program Files", "nodejs", "node.exe"),
-			]
+					path.join(
+						process.env.ProgramFiles || "C:\\Program Files",
+						"nodejs",
+						"node.exe",
+					),
+				]
 			: [
-				"/opt/homebrew/bin/node",       // Apple Silicon Homebrew
-				"/usr/local/bin/node",           // Intel Homebrew / manual install
-				"/usr/bin/node",                 // Xcode CLT / system
-			];
+					"/opt/homebrew/bin/node", // Apple Silicon Homebrew
+					"/usr/local/bin/node", // Intel Homebrew / manual install
+					"/usr/bin/node", // Xcode CLT / system
+				];
 	// also check common nvm paths
 	const home = os.homedir();
 	const nvmDir = process.env.NVM_DIR || path.join(home, ".nvm");
@@ -118,7 +126,14 @@ function findSystemNode() {
 			const aliasDefault = path.join(fnmDir, "aliases", "default");
 			if (fs.existsSync(aliasDefault)) {
 				const ver = fs.readFileSync(aliasDefault, "utf8").trim();
-				const p = path.join(fnmDir, "node-versions", ver, "installation", "bin", "node");
+				const p = path.join(
+					fnmDir,
+					"node-versions",
+					ver,
+					"installation",
+					"bin",
+					"node",
+				);
 				if (fs.existsSync(p)) candidates.push(p);
 			}
 		}
@@ -129,7 +144,13 @@ function findSystemNode() {
 	return null;
 }
 
-async function ensureRuntimeBinLinks({ runtimeDir, seedDir, kernelExe, waPiDir, log }) {
+async function ensureRuntimeBinLinks({
+	runtimeDir,
+	seedDir,
+	kernelExe,
+	waPiDir,
+	log,
+}) {
 	if (!app.isPackaged) return null;
 	const binDir = path.join(waPiDir, "bin");
 	// 使用 seedDir 中的真实内核二进制路径（wa-pi-kernel 不会被复制到 runtimeDir）
@@ -138,17 +159,32 @@ async function ensureRuntimeBinLinks({ runtimeDir, seedDir, kernelExe, waPiDir, 
 	if (process.platform === "win32") {
 		// Windows 下符号链接需要权限/开发模式，改用 .cmd 包装脚本
 		const t = target;
-		await fsp.writeFile(path.join(binDir, "npx.cmd"), `@echo off\r\n"${t}" x %*\r\n`);
-		await fsp.writeFile(path.join(binDir, "bun.cmd"), `@echo off\r\n"${t}" %*\r\n`);
+		await fsp.writeFile(
+			path.join(binDir, "npx.cmd"),
+			`@echo off\r\n"${t}" x %*\r\n`,
+		);
+		await fsp.writeFile(
+			path.join(binDir, "bun.cmd"),
+			`@echo off\r\n"${t}" %*\r\n`,
+		);
 		const sysNode = findSystemNode();
 		if (sysNode) {
-			await fsp.writeFile(path.join(binDir, "node.cmd"), `@echo off\r\n"${sysNode}" %*\r\n`);
+			await fsp.writeFile(
+				path.join(binDir, "node.cmd"),
+				`@echo off\r\n"${sysNode}" %*\r\n`,
+			);
 			log.info(`[runtime-bin] Windows node.cmd -> ${sysNode} (system)`);
 		} else {
-			await fsp.writeFile(path.join(binDir, "node.cmd"), `@echo off\r\n"${t}" %*\r\n`);
+			await fsp.writeFile(
+				path.join(binDir, "node.cmd"),
+				`@echo off\r\n"${t}" %*\r\n`,
+			);
 			log.info(`[runtime-bin] Windows node.cmd -> ${t} (bun fallback)`);
 		}
-		await fsp.writeFile(path.join(binDir, "npm.cmd"), `@echo off\r\nif /i "%~1"=="exec" (shift & "${t}" x %*) else "${t}" %*\r\n`);
+		await fsp.writeFile(
+			path.join(binDir, "npm.cmd"),
+			`@echo off\r\nif /i "%~1"=="exec" (shift & "${t}" x %*) else "${t}" %*\r\n`,
+		);
 		log.info(`[runtime-bin] Windows: npx/bun/node/npm.cmd -> ${t}`);
 		return binDir;
 	}
@@ -172,14 +208,14 @@ async function ensureRuntimeBinLinks({ runtimeDir, seedDir, kernelExe, waPiDir, 
 	}
 	// npx 包装脚本：直接透传到 bun x（bun x 自动确认安装，忽略 -y/--yes）
 	const npxScript = `#!/bin/sh
-exec "${target}" x "\$@"
+exec "${target}" x "$@"
 `;
 	await fsp.writeFile(npxPath, npxScript);
 	await fsp.chmod(npxPath, 0o755);
 	// npm exec -> bun x wrapper
 	const npmScript = `#!/bin/sh
-if [ "\$1" = "exec" ]; then shift; exec "${target}" x "\$@"; fi
-exec "${target}" "\$@"
+if [ "$1" = "exec" ]; then shift; exec "${target}" x "$@"; fi
+exec "${target}" "$@"
 `;
 	await fsp.writeFile(npmPath, npmScript);
 	await fsp.chmod(npmPath, 0o755);
@@ -206,7 +242,12 @@ function createWindow() {
 		backgroundColor: CANVAS_BG,
 		icon: path.join(__dirname, "assets", "icon.ico"),
 		// sandbox:false：preload 需 require('electron').clipboard 注入 waPiClipboard（sandbox 下该模块不在白名单，会导致复制失效）
-		webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false, preload: path.join(__dirname, "preload.cjs") },
+		webPreferences: {
+			nodeIntegration: false,
+			contextIsolation: true,
+			sandbox: false,
+			preload: path.join(__dirname, "preload.cjs"),
+		},
 	});
 	// 点关闭按钮 → 最小化到托盘，不退出
 	mainWindow.on("close", (event) => {
