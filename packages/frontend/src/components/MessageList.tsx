@@ -233,14 +233,17 @@ export function MessageList({ sessionId }: Props) {
 	}
 
 	// virtuoso 数据：displayRows + 独立流式占位行（未合并进末行时追加在末尾）。
-	// key 与改造前一致（agentName:timestamp），computeItemKey 消费。
+	// computeItemKey 消费。key 基础为 agentName:timestamp，重复时追加序号后缀保证唯一
+	// （同 turn 多 assistant 被 custom 消息隔断、不同 turn 巧合同 timestamp 等场景）。
 	const listRows = useMemo<VirtuosoRow[]>(() => {
-		const out: VirtuosoRow[] = displayRows.map((row, i) => ({
-			kind: "message",
-			key: `${row.main.agentName ?? ""}:${(row.main.message as any).timestamp}`,
-			row,
-			index: i,
-		}));
+		const seen = new Map<string, number>();
+		const out: VirtuosoRow[] = displayRows.map((row, i) => {
+			let key = `${row.main.agentName ?? ""}:${(row.main.message as any).timestamp}`;
+			const n = seen.get(key) ?? 0;
+			seen.set(key, n + 1);
+			if (n > 0) key = `${key}#${n}`;
+			return { kind: "message" as const, key, row, index: i };
+		});
 		if (streaming && !mergeStreamingIntoLast) {
 			out.push({
 				kind: "streaming",
@@ -313,7 +316,7 @@ export function MessageList({ sessionId }: Props) {
 				key={sessionId}
 				ref={virtuosoRef}
 				data-testid="message-list"
-				className="absolute inset-0 p-4 overflow-x-hidden"
+				className="absolute inset-0 pt-4 pb-4 overflow-x-hidden"
 				data={listRows}
 				computeItemKey={(_i, vr) => vr.key}
 				increaseViewportBy={400}
@@ -325,7 +328,7 @@ export function MessageList({ sessionId }: Props) {
 				itemContent={(i, vr) => {
 					if (vr.kind === "streaming") {
 						return (
-							<div className="pb-4">
+							<div className="px-4 pb-4">
 								<StreamingRow streaming={vr.streaming} sessionId={sessionId} />
 							</div>
 						);
@@ -336,7 +339,7 @@ export function MessageList({ sessionId }: Props) {
 						mergeStreamingIntoLast && i === displayRows.length - 1;
 					const showResend = !isMergedStreamingRow && i === resendUserIdx;
 					return (
-						<div className="pb-4">
+						<div className="px-4 pb-4">
 							<MessageRow
 								row={row}
 								sessionId={sessionId}
@@ -402,6 +405,10 @@ function preprocess(messages: SessionMessage[]): RenderedRow[] {
 					m as ToolResultMessage,
 				);
 		} else {
+			// subagent-notification 渲染层已过滤（return null），数据层也跳过：
+			// 避免占独立行打断同 turn assistant 连续性 → collapseSameTurnAssistants 无法合并 → duplicate key
+			if (m.role === "custom" && m.customType === "subagent-notification")
+				continue;
 			rows.push({ main: sm, toolResults: new Map() });
 			lastAssistantIdx = m.role === "assistant" ? rows.length - 1 : -1;
 		}

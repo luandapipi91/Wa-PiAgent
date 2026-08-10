@@ -138,7 +138,10 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 			</div>
 
 			{/* Messages — 自主渲染，不依赖 MessageList */}
-			<div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-3 min-h-0">
+			<div
+				ref={scrollRef}
+				className="flex-1 overflow-y-auto overflow-x-hidden px-5 py-3 min-h-0"
+			>
 				{loading ? (
 					<div className="flex items-center justify-center h-full text-tertiary">
 						...
@@ -157,10 +160,10 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 							return (
 								<div
 									key={i}
-									className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+									className={`flex min-w-0 ${isUser ? "justify-end" : "justify-start"}`}
 								>
 									<div
-										className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+										className={`max-w-[80%] min-w-0 overflow-hidden break-words px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
 											isUser
 												? "bg-brand text-white rounded-br-sm"
 												: "bg-surface-hover text-text rounded-bl-sm border border-hairline"
@@ -171,7 +174,7 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 												{msg.agentName}
 											</div>
 										)}
-										<div className="prose prose-sm max-w-none [&_pre]:bg-black/5 [&_pre]:rounded [&_code]:text-brand [&_code]:bg-brand/10 [&_code]:px-1 [&_code]:rounded">
+										<div className="prose prose-sm max-w-none break-words [&_pre]:bg-black/5 [&_pre]:rounded [&_pre]:overflow-x-auto [&_code]:text-brand [&_code]:bg-brand/10 [&_code]:px-1 [&_code]:rounded">
 											<ReactMarkdown remarkPlugins={[remarkGfm]}>
 												{text}
 											</ReactMarkdown>
