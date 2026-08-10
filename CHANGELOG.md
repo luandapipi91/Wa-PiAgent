@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-08-10 — httpIdleTimeoutMs 默认值落盘 + 保存校验（修复 #5）
+
+### 修复
+
+- **fix(kernel)**：启动时 ensure httpIdleTimeoutMs 默认值（120000ms）落盘到 settings.json，修复新用户无此字段时 pi 回退官方默认 300000ms（物理断网后前端多卡 3 分钟）。
+  - 新增 `ensureHttpIdleTimeout`（read-modify-write，仅字段缺失/非数字时写入默认值，已有用户配置不动）。
+  - `saveHttpIdleTimeoutMs` 新增下限校验（≥10000ms 的有限整数）：0 会被 pi 翻译成 int32 上限（≈永不超时），负数/小数/Infinity 一并拒绝。
+  - `settings:save` 的 null「恢复默认」分支由只改局部变量改为真正落盘，修复重启后旧值复活。
+  - 影响范围：`packages/kernel/src/settings-store.ts`、`packages/kernel/src/index.ts`、`packages/kernel/src/ws-server.ts`。
+
+---
+
 ## 2026-08-10 — ask 改走流式 NDJSON 路径，心跳保活修复 Bun idleTimeout 255s 提前掐断
 
 ### 修复

@@ -14,7 +14,7 @@ import { ensureSystemProject } from "./ensure-system-project";
 import { cleanupExpiredWorkdirs } from "./workdir-cleaner";
 import { ensurePromptsConfig } from "./system-prompt";
 import { ensureSubagentOverrides } from "./subagent-store";
-import { loadTrashSettings } from "./settings-store";
+import { loadTrashSettings, ensureHttpIdleTimeout } from "./settings-store";
 import { classifySdkError } from "./sdk-errors";
 import { SdkEventThrottle, SubagentProgressThrottle } from "./event-throttle";
 import { cleanupRecordingTemp } from "./recording-store";
@@ -122,6 +122,9 @@ export async function startKernel(opts?: {
 	console.log(`[kernel] 默认工作区已就绪: ${SYSTEM_PROJECT_CWD}`);
 
 	await ensureWebSearchConfig(WA_PI_DIR);
+
+	// httpIdleTimeoutMs 默认值落盘：pi 缺省回退官方 300s，断网反馈慢 2.5 倍
+	await ensureHttpIdleTimeout();
 
 	// 启动时确保 prompts.json 配置存在（幂等），用户可手动编辑调整段落顺序/内容
 	await ensurePromptsConfig(PROMPTS_FILE);
