@@ -87,28 +87,6 @@ test("IM 渠道会话（im- 前缀）不在任务列表显示，只属于 IM 页
 	expect(screen.queryByText("IM · woq4IJEAAAQW")).toBeNull();
 });
 
-// 该用例对应的"项目名旁 + 号"按钮已在 9c97fd8 移除（点击项目名即可新建会话），
-// testid `new-in-p1` 不复存在，故跳过。保留用例以备将来恢复该交互时参考。
-test.skip("项目内 ＋ 触发 onNewSessionInProject", () => {
-	useProjectsStore.setState({
-		projects: [{ id: "p1", name: "P", cwd: "/a", createdAt: 0 }],
-		sessions: [],
-		currentProjectId: null,
-		currentSessionId: null,
-	});
-	const fn = mock();
-	render(
-		<ProjectList
-			onSelectSession={() => {}}
-			onNewSessionInProject={fn}
-			onSelectProject={() => {}}
-			onNewProject={() => {}}
-		/>,
-	);
-	fireEvent.click(screen.getByTestId("new-in-p1"));
-	expect(fn).toHaveBeenCalledWith("p1");
-});
-
 test("新建项目按钮", () => {
 	const fn = mock();
 	render(

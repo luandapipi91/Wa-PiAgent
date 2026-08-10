@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-10 — 移除过时的 skip 用例（ProjectList「项目内 ＋」交互已下线）
+
+### 清理
+
+- **chore(test)**：删除 `ProjectList.test.tsx` 中 `test.skip("项目内 ＋ 触发 onNewSessionInProject")`。该用例对应的「项目名旁 + 号」按钮已在 9c97fd8 移除（点击项目名即可新建会话），testid `new-in-p1` 不复存在，保留仅作参考已无价值。删除后前端全量 1320 pass/0 fail/0 skip。
+  - 影响范围：`packages/frontend/tests/ProjectList.test.tsx`。
+
+---
+
 ## 2026-08-10 — 回归测试：修复 3 个过时断言（CommandListModal 主题色 / ExplorerPanel 平台文案）
 
 ### 修复
