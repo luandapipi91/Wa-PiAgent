@@ -74,7 +74,7 @@ test("开关切换：立即翻转本地状态并调用 toggle API", async () => 
 	const toggle = await screen.findByTestId("cmd-toggle-goal");
 	// 初始关：按钮背景为灰色
 	const knob = toggle.querySelector("span");
-	expect((knob as HTMLElement).style.background).toBe("#cbd5e1");
+	expect((knob as HTMLElement).style.background).toBe("var(--hairline-strong)");
 
 	fireEvent.click(toggle);
 
@@ -86,7 +86,7 @@ test("开关切换：立即翻转本地状态并调用 toggle API", async () => 
 	});
 	// 乐观更新：开关立即变绿
 	const knobAfter = toggle.querySelector("span");
-	expect((knobAfter as HTMLElement).style.background).toBe("var(--success)");
+	expect((knobAfter as HTMLElement).style.background).toBe("var(--brand)");
 });
 
 test("默认关：enabled=false 的命令开关初始为关闭状态", async () => {
@@ -95,12 +95,12 @@ test("默认关：enabled=false 的命令开关初始为关闭状态", async () 
 
 	const offToggle = await screen.findByTestId("cmd-toggle-goal");
 	const offKnob = offToggle.querySelector("span");
-	expect((offKnob as HTMLElement).style.background).toBe("#cbd5e1");
+	expect((offKnob as HTMLElement).style.background).toBe("var(--hairline-strong)");
 
 	// enabled=true 的命令开关初始为开启（绿色）
 	const onToggle = screen.getByTestId("cmd-toggle-tui-cmd");
 	const onKnob = onToggle.querySelector("span");
-	expect((onKnob as HTMLElement).style.background).toBe("var(--success)");
+	expect((onKnob as HTMLElement).style.background).toBe("var(--brand)");
 });
 
 test("空状态：该插件未注册斜杠命令", async () => {
