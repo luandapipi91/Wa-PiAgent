@@ -63,7 +63,13 @@ function loadRegistry(opts) {
       continue;
     }
     const pid = Number(entry?.pid);
-    if (!Number.isFinite(pid)) {
+    // createdAt/registeredAt 非法（缺失/非数字/NaN）→ 删文件跳过：NaN 会让 isOurs 的
+    // 时间差比较恒 false（可能误杀）且 TTL 判断恒不超期（登记永久残留）
+    if (
+      !Number.isFinite(pid) ||
+      !Number.isFinite(entry?.createdAt) ||
+      !Number.isFinite(entry?.registeredAt)
+    ) {
       try { opts.fs.unlinkSync(full); } catch {}
       continue;
     }

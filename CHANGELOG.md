@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-08-10 — 最终审查修复：createdAt 取 spawn 时刻 + 自愈异常兜底 + 登记簿坏值校验
+
+### 修复
+
+- **fix(desktop)·登记 createdAt 取进程真实创建时刻**：原 `main.cjs` 在 `startSidecar` 等端口就绪（最长 30s，Windows 冷启动/升级后首启可能更久）后才 `Date.now()` 登记，下轮清扫 `isOurs` 的 2s 容差校验会误判真身幽灵 kernel 为 PID 复用（只删登记不杀，登记簿核心目标静默失效）。`kernel-sidecar.cjs` 的 `spawnOnce` 现与 `lastPid` 同步捕获 `currentSpawnedAt = now()`（新增注入 `now`，默认 `Date.now`），返回值只增不改地多带 `createdAt`；`main.cjs` 改用 `sidecar.createdAt` 登记。
+- **fix(desktop)·自愈路径异常兜底**：`isPortInUse/killPortOccupants/sweepRegistry` 裸调，一旦 `taskkill` ENOENT 或 fs 异常抛出，`whenReady` promise 链断裂、splash 永久卡在「正在自动清理…」。自愈块现包 `try/catch`，异常与「自愈失败」走同一出口（弹错误页 `setProgress(-1,…)` + `__showRestart()` + return），正常路径行为不变。
+- **fix(desktop)·登记簿坏数值条目防御**：`loadRegistry` 对 `createdAt/registeredAt` 增加 `Number.isFinite` 校验，非法（缺失/非数字/NaN）即删文件跳过——NaN 会让 `isOurs` 时间差比较恒 false（可能误杀）且 TTL 判断恒不超期（登记永久残留）。
+- **fix(desktop)·小修**：`scheduleRespawn` 日志硬编码 `RESPAWN_DELAY_MS` 换为注入的 `respawnDelayMs`（纯显示）；`makeQuitAndInstallHandler` JSDoc 注明回调抛错会中断 `quitAndInstall`，调用方应自行捕获；main.cjs 注释编号理顺（原三处重复 `2a)`，改为 2a/2b/2c/2c+/2d）。
+- 影响范围：`packages/desktop/src/kernel-sidecar.cjs`、`packages/desktop/src/main.cjs`、`packages/desktop/src/util/process-registry.cjs`、`packages/desktop/src/updater/updater.cjs`、`packages/desktop/tests/kernel-sidecar.test.ts`、`packages/desktop/tests/process-registry.test.ts`。
+
+---
+
 ## 2026-08-10 — win 升级后端口幽灵占用治理：进程登记簿 + 退出清理加固 + 升级前优雅停 kernel + 启动自愈
 
 ### 修复

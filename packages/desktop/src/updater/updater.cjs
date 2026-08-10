@@ -44,6 +44,7 @@ function translateUpdaterEvent({ type, info, progress, error }) {
 // updater:quit-and-install 的 handler 工厂（纯逻辑，可单测；setupUpdater 依赖 Electron 无法直接测）。
 // 升级安装前先 await onBeforeQuitAndInstall（停 kernel、等端口释放等优雅清理）完成，再调 quitAndInstall。
 /**
+ * 注意：onBeforeQuitAndInstall 回调抛错会中断 quitAndInstall（跳过安装），调用方应自行捕获异常。
  * @param {object} deps
  * @param {{ quitAndInstall: (isSilent: boolean, isForceRunAfter: boolean) => void }} deps.updater electron-updater 实例
  * @param {() => Promise<void>} [deps.onBeforeQuitAndInstall] 升级安装前回调（可选，未提供时直接 quitAndInstall）

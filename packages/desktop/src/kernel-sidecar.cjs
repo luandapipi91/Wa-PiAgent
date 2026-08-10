@@ -37,12 +37,14 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
   //   checkPortFn    替换探活 checkPort（测试恒健康，避免真探活/真杀）
   //   killFn         替换 killTree（测试记录被杀 pid，绝不真杀进程）
   //   respawnDelayMs 替换重启间隔（测试缩短，避免真等 2s）
+  //   now            替换时钟（测试可控 createdAt，避免真时间不确定）
   const {
     spawnFn = spawn,
     waitForPortFn = waitForPort,
     checkPortFn = checkPort,
     killFn = killTree,
     respawnDelayMs = RESPAWN_DELAY_MS,
+    now = Date.now,
   } = deps;
   // dev: repo 下用 bun 跑 kernel 源码入口；packaged: kernelDir 里 wa-pi-kernel(.exe) run kernel.js
   // Windows dev 路径上 "bun" 是 .cmd shim——Node 20+ 出于 CVE-2024-27980 默认拒绝 spawn
@@ -67,6 +69,7 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
   const respawnState = { stopped: false, attempts: 0, failures: 0, failThreshold: HEALTH_FAIL_THRESHOLD };
   let current = null; // 当前 child 引用（重启时替换）
   let lastPid = null; // 最近一次成功 spawn 的 pid（stop 兜底：current 无有效 pid 时用它）
+  let currentSpawnedAt = null; // 最近一次成功 spawn 的创建时刻（登记簿 createdAt 用它，非端口就绪时刻）
   let childExited = false; // 当前 child 是否已退出（重启间隙探活跳过，避免误判）
   let healthTimer = null;
 
@@ -77,7 +80,7 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
   function scheduleRespawn(reason) {
     if (respawnState.stopped) return; // 用户已主动退出，不再重启
     respawnState.attempts++;
-    log.info(`[kernel] ${reason} → 第 ${respawnState.attempts} 次自动重启，${RESPAWN_DELAY_MS}ms 后 respawn...`);
+    log.info(`[kernel] ${reason} → 第 ${respawnState.attempts} 次自动重启，${respawnDelayMs}ms 后 respawn...`);
     setTimeout(() => {
       if (respawnState.stopped) return; // 退避期间用户退出了
       current = spawnOnce();
@@ -96,8 +99,13 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
   function spawnOnce() {
     childExited = false;
     const child = spawnFn(cmd, finalArg, spawnOpts);
-    // spawn 成功（child.pid 有值）才更新 lastPid：spawn 失败（bun 缺失/ENOENT 等）pid 为 undefined，不能污染兜底记录
-    if (child.pid != null) lastPid = child.pid;
+    // spawn 成功（child.pid 有值）才更新 lastPid/currentSpawnedAt：spawn 失败（bun 缺失/ENOENT 等）pid 为 undefined，不能污染兜底记录
+    if (child.pid != null) {
+      lastPid = child.pid;
+      // 与 lastPid 同步捕获进程创建时刻：main.cjs 用它登记 createdAt，避免启动耗时 >2s
+      // 时下轮清扫的 isOurs 时间一致性校验误判 PID 复用（登记簿核心目标静默失效）
+      currentSpawnedAt = now();
+    }
     child.on("error", (e) => {
       childExited = true;
       log.error(`[kernel] spawn error: ${e.message}`);
@@ -149,6 +157,9 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
     child: current,
     pid: current.pid,
     port: wsPort,
+    // 进程创建时刻（spawn 成功即记录，非端口就绪时刻）：main.cjs 用它登记 createdAt。
+    // 注意返回值只能增不能改——child/pid/port/stop 已有调用方使用
+    createdAt: currentSpawnedAt,
     // 主动停止：置 stopped 标志后 kill，防止 exit handler 误判为崩溃而重启；停止探活。
     // 兜底：current 无有效 pid（spawn 失败/重启间隙）时用最近一次成功 spawn 的 lastPid，
     // 避免「current?.pid 为 undefined → killTree 静默跳过」导致 Windows 升级后幽灵残留。

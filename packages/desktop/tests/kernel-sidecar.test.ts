@@ -78,6 +78,61 @@ test("stop(): 重启后 current.pid 有效 → 杀 current（lastPid 只作兜�
   expect(killed).toEqual([222]);
 });
 
+test("startSidecar: 返回 createdAt 为 spawn 时刻（非端口就绪时刻）", async () => {
+  // 可控时钟：spawn 触发 → 2000；端口就绪 → 9999。旧实现取"就绪时刻"会返回 9999，
+  // 修复后取 spawn 时刻返回 2000——登记簿 createdAt 用它做 PID 复用一致性校验的基准，
+  // 若取就绪时刻，启动耗时 >2s（Windows 升级后首启）时下轮清扫会误判 PID 复用。
+  let clock = 1000;
+  const now = () => clock;
+  const children = [fakeChild(902)];
+  const sidecar = await startSidecar({
+    isPackaged: false,
+    kernelDir: "/fake/kernel",
+    webDir: "/fake/web",
+    kernelExe: "/fake/kernel/wa-pi-kernel",
+    port: 9778,
+    log: { info() {}, error() {} },
+    deps: {
+      now,
+      spawnFn: (() => {
+        clock = 2000; // spawn 发生 → 进程创建时刻
+        return children[0];
+      }) as any,
+      waitForPortFn: (async () => {
+        clock = 9999; // 端口就绪时刻（若 createdAt 取该时刻则错）
+        return true;
+      }) as any,
+      checkPortFn: (async () => true) as any,
+      killFn: (() => {}) as any,
+      respawnDelayMs: 5,
+    },
+  });
+  expect(sidecar.createdAt).toBe(2000); // spawn 时刻，而非端口就绪时刻 9999
+});
+
+test("scheduleRespawn: 日志用注入的 respawnDelayMs（非硬编码常量）", async () => {
+  const children = [fakeChild(111)];
+  const logs: string[] = [];
+  await startSidecar({
+    isPackaged: false,
+    kernelDir: "/fake/kernel",
+    webDir: "/fake/web",
+    kernelExe: "/fake/kernel/wa-pi-kernel",
+    port: 9778,
+    log: { info: (m: string) => logs.push(m), error() {} },
+    deps: {
+      spawnFn: (() => children[0]) as any,
+      waitForPortFn: (async () => true) as any,
+      checkPortFn: (async () => true) as any,
+      killFn: (() => {}) as any,
+      respawnDelayMs: 7,
+    },
+  });
+  children[0].emit("exit", null, "SIGKILL"); // 崩溃 → scheduleRespawn 记日志
+  await new Promise((r) => setTimeout(r, 30)); // 等 respawn 定时器（7ms）跑完
+  expect(logs.some((m) => m.includes("7ms 后 respawn"))).toBe(true);
+});
+
 test("waitForPort 未就绪 → 杀当前 pid 后抛 kernel not ready（killFn 已接线）", async () => {
   const children = [fakeChild(777)];
   const killed: number[] = [];
