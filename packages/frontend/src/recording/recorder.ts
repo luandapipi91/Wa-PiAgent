@@ -43,6 +43,27 @@ export interface RecordingEngine {
   stop(): Promise<RecordingResult>;
 }
 
+/**
+ * 把 getUserMedia / getDisplayMedia 的浏览器原始错误映射为业务可读文案。
+ * 无权限时浏览器抛 DOMException（NotAllowedError 等），直接展示 message 是英文原文
+ * （如 "Permission denied"），用户无法理解。此处按 DOMException.name 分类映射。
+ * 非 DOMException（意外错误）保留原 message，由调用方兜底。
+ */
+export function toRecordingErrorMessage(err: unknown): string {
+  const e = err as { name?: string; message?: string } | null;
+  switch (e?.name) {
+    case "NotAllowedError":
+      return i18n.t("store.recordingPermissionDenied");
+    case "NotFoundError":
+      return i18n.t("store.recordingDeviceNotFound");
+    case "NotReadableError":
+    case "AbortError":
+      return i18n.t("store.recordingDeviceBusy");
+    default:
+      return i18n.t("store.recordingDeviceGeneric", { detail: e?.message ?? String(err) });
+  }
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -77,9 +98,16 @@ class RecordingManager implements RecordingEngine {
     this.onTick = args.onTick;
     this.failed = false;
 
-    const stream = args.source === "mic"
-      ? await navigator.mediaDevices.getUserMedia({ audio: true })
-      : await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    let stream: MediaStream;
+    try {
+      stream = args.source === "mic"
+        ? await navigator.mediaDevices.getUserMedia({ audio: true })
+        : await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    } catch (err) {
+      // 无权限/无设备/被占用：浏览器抛 DOMException，原始 message 是英文，用户无法理解。
+      // 按 DOMException.name 映射为业务文案后再上抛（RecordButton 直接展示 message）。
+      throw new Error(toRecordingErrorMessage(err));
+    }
     this.stream = stream;
 
     const audioTracks = stream.getAudioTracks();
@@ -131,17 +159,25 @@ class RecordingManager implements RecordingEngine {
     });
   }
 
-  private fail(err: Error): void {
+  private fail(_err: Error): void {
     if (this.failed) return;
     this.failed = true;
-    try { void discardRecording(this.projectId, this.recId, this.sessionId); } catch {}
+    // 清理失败 best-effort：discard 失败不阻断自洁流程（残留分片由 kernel 侧清扫兜底），仅记录日志
+    try {
+      void discardRecording(this.projectId, this.recId, this.sessionId);
+    } catch (e) {
+      console.warn("[recording] discard 失败（可忽略）", e);
+    }
     this.onTick = null;
     if (this.tickTimer) { clearInterval(this.tickTimer); this.tickTimer = null; }
     // 自洁：失败后立即停 recorder，触发 onstop → cleanup() 释放 tracks，
     // 不依赖外部 stop()（append 失败时 store 无从感知）。guard 防 onerror 路径已自动 stop 的二次调用。
+    // stop() 抛错可忽略：state 已异常，cleanup 仍会执行，仅记录日志。
     try {
       if (this.recorder && this.recorder.state !== "inactive") this.recorder.stop();
-    } catch {}
+    } catch (e) {
+      console.warn("[recording] 自洁 stop 失败（可忽略）", e);
+    }
   }
 
   private releaseTracks(): void { this.stream?.getTracks().forEach(t => t.stop()); }
