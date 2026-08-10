@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-10 — 登记簿清扫连带 kernel 子孙链（方案 B）
+
+### 改进
+
+- **feat(desktop)·清扫连带 kernel 子孙链**：进程登记簿只登记 kernel sidecar 一个 pid，清扫时 `taskkill /T` 连带杀 kernel 进程树——但 pi 子进程若已脱离 kernel 树（ppid 被 reparent 到其他进程）或未被单独登记，会漏杀且其继承的幽灵句柄继续占 9778。现 `killRegisteredProcesses` 新增可选 `opts.scanProcesses`（默认 `() => []`，生产由 main.cjs 传入真实实现），进入杀伐分支时先取全量进程表，`collectDescendants([entry.pid], procs, selfPid)` BFS 收集 kernel 所有存活子孙（visited 防环、排除自身 pid、不含 root 自身），先逐个连带杀子孙（失败记 skipped 不阻断）再杀 root；子孙不写登记文件。`port.cjs` 导出 `scanProcesses`（PowerShell 全量进程表，非 Windows 返回 []）。未传 `scanProcesses` 或进程表为空时行为与现状完全一致。
+- 影响范围：`packages/desktop/src/util/port.cjs`、`packages/desktop/src/util/process-registry.cjs`、`packages/desktop/tests/process-registry.test.ts`（新增 10 用例）。
+
+---
+
 ## 2026-08-10 — 最终审查修复：createdAt 取 spawn 时刻 + 自愈异常兜底 + 登记簿坏值校验
 
 ### 修复

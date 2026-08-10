@@ -172,6 +172,44 @@ function isOurs(entry, identity, opts) {
   return exe.includes("wa-pi-kernel") || (dir !== "" && exe.includes(dir));
 }
 
+/** 命令行摘要（日志用，压缩空白并截断到 80 字符） */
+function summarizeCmd(cmd) {
+  const s = String(cmd ?? "").replace(/\s+/g, " ").trim();
+  return s.length > 80 ? s.slice(0, 77) + "..." : s;
+}
+
+/**
+ * 从 rootPids 出发 BFS 收集所有存活子孙（不含根自身，不含 selfPid），
+ * 用于清扫时连带清理仍挂在 kernel 进程树上的 pi 子进程（方案 B）。
+ * 先建 ppid → children 映射，再逐层向下遍历；visited Set 防环
+ * （进程表异常出现环时不死循环）；selfPid 命中即整棵子树跳过。
+ * @param {number[]} rootPids 根 pid 列表（如登记的 kernel pid）
+ * @param {{pid:number, ppid:number, cmd:string}[]} procs 全量进程表（scanProcesses 输出）
+ * @param {number} [selfPid] 自身 pid（排除，避免杀到自己）
+ * @returns {{pid:number, ppid:number, cmd:string}[]} 从根出发的所有子孙（不含根自身，不含 selfPid）
+ */
+function collectDescendants(rootPids, procs, selfPid) {
+  const childrenOf = new Map();
+  for (const p of procs) {
+    const list = childrenOf.get(p.ppid) ?? [];
+    list.push(p);
+    childrenOf.set(p.ppid, list);
+  }
+  const visited = new Set(rootPids); // root 预标记：防环回指 root（root 自身不入结果）
+  const queue = [...rootPids];
+  const out = [];
+  while (queue.length > 0) {
+    const pid = queue.shift();
+    for (const c of childrenOf.get(pid) ?? []) {
+      if (c.pid === selfPid || visited.has(c.pid)) continue; // 入队即标记，防重复入队
+      visited.add(c.pid);
+      out.push(c);
+      queue.push(c.pid);
+    }
+  }
+  return out;
+}
+
 /** 执行杀伐：Windows taskkill /T /F（进程树）；其他 process.kill SIGKILL。返回是否成功 */
 function killProcess(pid, opts) {
   if ((opts.platform ?? process.platform) === "win32") {
@@ -229,7 +267,18 @@ function killRegisteredProcesses(opts) {
       result.skipped.push(entry.pid);
       continue;
     }
-    // 三重校验全过 → 杀
+    // 三重校验全过 → 杀：先连带清理 kernel 子孙（仍挂树上的 pi 子进程，未单独登记），
+    // 再杀 root。scanProcesses 非 Windows/查询失败返回 [] 时子孙链为空，行为与现状一致。
+    const procs = opts.scanProcesses?.() ?? [];
+    const descendants = collectDescendants([entry.pid], procs, opts.selfPid ?? process.pid);
+    for (const child of descendants) {
+      opts.log?.(`[registry] 连带清理 kernel 子孙 PID ${child.pid}（${summarizeCmd(child.cmd)}）`);
+      if (killProcess(child.pid, opts)) {
+        result.killed.push(child.pid);
+      } else {
+        result.skipped.push(child.pid); // 子孙杀失败不阻断杀 root
+      }
+    }
     if (killProcess(entry.pid, opts)) {
       unregisterProcess(entry.pid, opts);
       result.killed.push(entry.pid);
@@ -272,4 +321,5 @@ module.exports = {
   isOurs,
   sweepRegistry,
   killRegisteredProcesses,
+  collectDescendants,
 };

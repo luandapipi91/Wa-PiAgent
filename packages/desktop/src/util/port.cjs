@@ -200,4 +200,4 @@ async function killPortOccupants(port, spawnFn = spawnSync, logFn = console.log)
   return pids.map((p) => Number(p)).filter((n) => Number.isFinite(n));
 }
 
-module.exports = { isPortInUse, waitForPort, findAvailablePort, killPortOccupants, waitPortReleased };
+module.exports = { isPortInUse, waitForPort, findAvailablePort, killPortOccupants, waitPortReleased, scanProcesses };
