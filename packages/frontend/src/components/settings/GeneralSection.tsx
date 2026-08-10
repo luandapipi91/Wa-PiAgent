@@ -5,8 +5,6 @@ import type { RetrySettings, TrashSettings } from "@wa-pi/shared";
 import {
 	EXPORT_TURNS_MAX,
 	EXPORT_TURNS_MIN,
-	FONT_SIZE_MAX,
-	FONT_SIZE_MIN,
 	useUiPrefsStore,
 } from "../../store/ui-prefs";
 import { useToastStore } from "../../store/toast";
@@ -88,8 +86,6 @@ export function GeneralSection() {
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
-	const fontSize = useUiPrefsStore((s) => s.fontSize);
-	const setFontSize = useUiPrefsStore((s) => s.setFontSize);
 	const exportTurns = useUiPrefsStore((s) => s.exportTurns);
 	const setExportTurns = useUiPrefsStore((s) => s.setExportTurns);
 	const language = useUiPrefsStore((s) => s.language);
@@ -103,9 +99,8 @@ export function GeneralSection() {
 	const { t } = useTranslation();
 	// 语言草稿：select 改草稿，点保存才 setLanguage 生效；关闭窗口丢弃草稿。
 	const [draftLang, setDraftLang] = useState<AppLanguage>(language);
-	// 字号 / 导出轮数草稿：滑块只改草稿，点保存才 setFontSize/setExportTurns 生效，
+	// 导出轮数草稿：滑块只改草稿，点保存才 setExportTurns 生效，
 	// 与语言/重试配置一致（保存后才生效）。关闭窗口不保存则还原（store 仍为原值）。
-	const [draftFontSize, setDraftFontSize] = useState(fontSize);
 	const [draftExportTurns, setDraftExportTurns] = useState(exportTurns);
 	// 回收站自动归档/清理设置：草稿态，点保存才生效
 	const [autoArchive, setAutoArchive] = useState(true);
@@ -176,8 +171,7 @@ export function GeneralSection() {
 				httpIdleTimeoutMs: httpIdleMs,
 			});
 			await saveTrashSettings();
-			// 字号 / 导出轮数草稿生效（仅当与当前值不同时才写入）
-			if (draftFontSize !== fontSize) setFontSize(draftFontSize);
+			// 导出轮数草稿生效（仅当与当前值不同时才写入）
 			if (draftExportTurns !== exportTurns) setExportTurns(draftExportTurns);
 			// 语言草稿生效（仅当与当前值不同时才写入）
 			if (draftLang !== language) setLanguage(draftLang);
@@ -201,38 +195,6 @@ export function GeneralSection() {
 
 	return (
 		<div className="flex flex-col gap-4 p-4 overflow-auto">
-			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">
-					{t("settings.general.fontSize.label")}
-				</span>
-				<span className="text-xs text-tertiary">
-					{t("settings.general.fontSize.desc", {
-						min: FONT_SIZE_MIN,
-						max: FONT_SIZE_MAX,
-					})}
-				</span>
-			</div>
-			<div className="flex items-center gap-3 w-72">
-				<input
-					type="range"
-					min={FONT_SIZE_MIN}
-					max={FONT_SIZE_MAX}
-					step={1}
-					value={draftFontSize}
-					onChange={(e) => {
-						setDraftFontSize(Number(e.target.value));
-						setSaved(false);
-					}}
-					className="flex-1 cursor-pointer"
-					data-testid="font-size-slider"
-				/>
-				<span
-					className="text-sm text-primary w-12 text-right"
-					data-testid="font-size-value"
-				>
-					{draftFontSize}px
-				</span>
-			</div>
 			<div className="flex flex-col gap-1">
 				<span className="text-sm font-medium text-primary">
 					{t("settings.general.exportTurns.label")}

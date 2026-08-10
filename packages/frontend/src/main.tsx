@@ -33,7 +33,7 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Er
             onClick={() => location.reload()}
             style={{
               marginTop: 24, padding: "10px 28px", borderRadius: 8, border: "none",
-              background: "#4BA26F", color: "#fff", fontSize: "calc(15px * var(--font-scale))", cursor: "pointer",
+              background: "var(--brand)", color: "#fff", fontSize: "calc(15px * var(--font-scale))", cursor: "pointer",
             }}
           >{i18n.t("common.reload")}</button>
         </div>
