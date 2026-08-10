@@ -69,3 +69,6 @@ bun.lock
 
 # 隔离工作树
 .worktrees/
+
+# CI workflow 本地配置（不入库）
+.workflow/
