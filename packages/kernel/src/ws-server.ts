@@ -613,8 +613,10 @@ export class WSServer {
 						});
 					}
 
-					// 非流式工具（ask/memory）：旧同步 JSON 路径
-					const r = await handleBridgeRequest(body);
+					// 非流式工具（ask/memory）：旧同步 JSON 路径。
+					// 透传 req.signal：客户端断连（pi 侧空闲超时/进程退出）时 abort，
+					// 让 askRegistry 里的 pending ask 以 cancelled 解决，防僵尸提问。
+					const r = await handleBridgeRequest(body, req.signal);
 					if (!r.ok)
 						return Response.json({ error: r.error }, { status: r.status });
 					return Response.json(r.result, { status: 200 });
