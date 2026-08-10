@@ -4,6 +4,32 @@
 
 ---
 
+## 2026-08-10 — 修复对话界面 React duplicate key 警告 + Virtuoso 横向溢出 + 回收站长内容换行
+
+### 修复
+
+- **fix(frontend)·duplicate key**：`MessageList.tsx` react-virtuoso 渲染出现 `Encountered two children with the same key` 警告。根因：同 turn 的多条 assistant 消息被 `subagent-notification` custom 消息隔断，`collapseSameTurnAssistants` 因 custom 占独立行无法合并，导致两条 `agentName:timestamp` 完全相同的行进入最终渲染列表。
+  - 修复 ①（治本）：`preprocess` 跳过 `subagent-notification`（渲染层本就 `return null`，数据层不应占独立行打断 assistant 连续性）。
+  - 修复 ②（防御）：`listRows` key 重复时追加 `#序号` 后缀保证全局唯一。
+
+- **fix(frontend)·横向溢出**：Virtuoso scroller 的 `p-4`（全方向 padding）导致 item 宽度计算溢出——react-virtuoso 把 item `width` 设为 `scroller.clientWidth`（含左右 padding），但 item 渲染在 padding 内部，右边界超出物理视口，用户消息被截。
+  - 修复：scroller 改为 `pt-4 pb-4`（仅垂直 padding），水平 padding 移至 itemContent 包裹 div（`px-4 pb-4`）。
+
+- **fix(frontend)·回收站换行**：`TrashMessageViewer` 查看会话详情时，长 URL / 连续英文 / 代码行无换行点，撑破 `max-w-[80%]` 约束导致横向滚动。
+  - 修复：消息气泡加 `min-w-0 break-words overflow-hidden`；prose 容器加 `break-words`；代码块加 `[&_pre]:overflow-x-auto`（内部滚动而非撑破）；滚动容器加 `overflow-x-hidden` 兜底。
+  - 影响范围：`packages/frontend/src/components/TrashMessageViewer.tsx`。
+
+### 影响范围
+
+- `packages/frontend/src/components/MessageList.tsx`
+
+### 验证
+
+- 新增 `tests/MessageList.duplicate-key.test.tsx`（3 用例）：subagent-notification 不打断合并、同 timestamp 不同 turn key 去重、delegate 场景。修复前精确复现报错，修复后全部通过。
+- typecheck 通过，MessageList 相关测试全部通过。
+
+---
+
 ## 2026-08-09 — 修复 StreamingBatcher rAF 裸引用 this 错位致真实浏览器流式预览失效（task-7 P0）
 
 ### 修复
