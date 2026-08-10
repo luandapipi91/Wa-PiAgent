@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-10
+
+### 变更
+
+- **chore(desktop)：版本号 0.1.19 → 0.1.20，RELEASE_NOTES 更新为当版内容**（内部清理说明，无界面变化）。
+  - 影响范围：`packages/desktop/package.json`、`packages/desktop/RELEASE_NOTES.md`。
+
+---
+
 ## 2026-08-10 — 清理 wa-pi → ~/.pi/agent 改名残留（死文件 + E2E 死回退 + 过时注释）
 
 ### 清理

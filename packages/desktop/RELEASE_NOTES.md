@@ -1,5 +1,5 @@
-WA PI Agent 0.1.19 更新内容：
+WA PI Agent 0.1.20 更新内容：
 
-【修复】
+【改进】
 
-- 修复 macOS 自动更新安装失败：托盘保活导致 quitAndInstall 后应用不退出，ShipIt 无法替换 .app（新增 app.exit 强制退出兜底）
+- 内部清理：移除改名遗留的无用文件与过时代码，完善 Windows 平台测试覆盖（无界面变化）
