@@ -5,16 +5,24 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 export interface NpmPackageServiceOpts {
   /** 包管理器命令，默认 ["bun"]，从 settings.json.npmCommand 读取 */
   npmCommand?: string[];
+  /** install/uninstall/upgrade 子进程超时（ms），默认 120000；测试注入短值 */
+  opTimeoutMs?: number;
 }
+
+/** 包管理器操作默认超时：镜像源不可达/离线时 bun add 会挂起，
+ *  2 分钟无结果判定失败（getLatestVersion 的 5s kill 同款防护思路） */
+const NPM_OP_TIMEOUT_MS = 120_000;
 
 export class NpmPackageService {
   private npmCommand: string[];
+  private opTimeoutMs: number;
 
   constructor(
     private runtimeDir: string,
     opts: NpmPackageServiceOpts = {},
   ) {
     this.npmCommand = opts.npmCommand ?? ["bun"];
+    this.opTimeoutMs = opts.opTimeoutMs ?? NPM_OP_TIMEOUT_MS;
     // 确保 runtimeDir 及其 package.json 始终存在，否则 bun add/remove 的 cwd
     // 和 package.json 缺失会导致 "No package.json, so nothing to remove"。
     if (!existsSync(this.runtimeDir)) mkdirSync(this.runtimeDir, { recursive: true });
@@ -34,7 +42,9 @@ export class NpmPackageService {
     return Bun.which(cmd) ?? cmd;
   }
 
-  /** 执行包管理器子进程，返回 exitCode + stderr；onProgress 按行转发 stdout/stderr */
+  /** 执行包管理器子进程，返回 exitCode + stderr；onProgress 按行转发 stdout/stderr。
+   *  超时（默认 opTimeoutMs）kill 进程并返回 exitCode=-1 + 超时说明，
+   *  由调用方统一走「exitCode !== 0 → throw」的既有错误路径。 */
   private async spawn(args: string[], onProgress?: (line: string) => void): Promise<{ exitCode: number; stderr: string }> {
     const [cmd, ...rest] = [...this.npmCommand, ...args];
     const resolvedCmd = this.resolveCommand(cmd);
@@ -42,13 +52,29 @@ export class NpmPackageService {
       cwd: this.runtimeDir,
       stdio: ["pipe", "pipe", "pipe"],
     });
-    // 并发排空 stdout/stderr 防止管道阻塞；按行回推进度
-    const [stderr] = await Promise.all([
-      drainLines(proc.stderr, onProgress),
-      drainLines(proc.stdout, onProgress),
-    ]);
-    const exitCode = await proc.exited;
-    return { exitCode, stderr };
+    // 超时 kill：离线/镜像源不可达时 bun add 会挂起，无超时则前端安装占位永远转圈
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { proc.kill(); } catch { /* 进程可能已退出 */ }
+    }, this.opTimeoutMs);
+    try {
+      // 并发排空 stdout/stderr 防止管道阻塞；按行回推进度
+      const [stderr] = await Promise.all([
+        drainLines(proc.stderr, onProgress),
+        drainLines(proc.stdout, onProgress),
+      ]);
+      const exitCode = await proc.exited;
+      if (timedOut) {
+        return {
+          exitCode: -1,
+          stderr: `操作超时 (${this.opTimeoutMs}ms) 已终止，请检查网络或镜像源配置后重试`,
+        };
+      }
+      return { exitCode, stderr };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** 安装 npm 包 */
