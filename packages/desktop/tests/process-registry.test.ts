@@ -157,6 +157,30 @@ test("loadRegistry: 读取多条登记；坏 JSON 文件被删除且不阻塞其
   expect(ctx.fs.store.has(path.join(REG_DIR, "1001.json"))).toBe(true);
 });
 
+test("loadRegistry: createdAt/registeredAt 非法（缺失/非数字）→ 删文件跳过，不阻塞其他条目", () => {
+  const seed = {
+    [path.join(REG_DIR, "1001.json")]: JSON.stringify(entry1001),
+    [path.join(REG_DIR, "2001.json")]: JSON.stringify({
+      pid: 2001,
+      exe: "/x/kernel",
+      createdAt: "garbage", // 非数字 → 非法
+      registeredAt: NOW,
+    }),
+    [path.join(REG_DIR, "3001.json")]: JSON.stringify({
+      pid: 3001,
+      exe: "/x/kernel",
+      createdAt: NOW,
+      registeredAt: null, // null → 非法
+    }),
+  };
+  const ctx = makeOpts({ seed });
+  const entries = loadRegistry(ctx.opts);
+  expect(entries.map((e) => e.pid)).toEqual([1001]);
+  expect(ctx.fs.store.has(path.join(REG_DIR, "2001.json"))).toBe(false); // createdAt 非法 → 已删
+  expect(ctx.fs.store.has(path.join(REG_DIR, "3001.json"))).toBe(false); // registeredAt 非法 → 已删
+  expect(ctx.fs.store.has(path.join(REG_DIR, "1001.json"))).toBe(true); // 合法条目不受影响
+});
+
 test("sweepRegistry: 超 TTL → 只删文件不杀（不查身份不杀进程）", () => {
   const expired = { ...entry1001, registeredAt: NOW - TTL - 1 };
   const ctx = makeOpts({ seed: { [path.join(REG_DIR, "1001.json")]: JSON.stringify(expired) } });

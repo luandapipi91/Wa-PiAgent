@@ -500,38 +500,52 @@ app.whenReady().then(async () => {
 		log.error("[registry] 启动清扫失败", e);
 	}
 
-	// 2a) 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
+	// 2b) 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
 	// 因此固定 FIXED_PORT，不再自动后移。被占用时先静默自愈（最多 3 轮：杀占用+登记簿清扫），
 	// 自愈失败才弹错误页提供「重启应用」一键清理（80% 的占用自动清理就能好，无需用户介入）。
 	const actualPort = FIXED_PORT;
-	if (await isPortInUse(FIXED_PORT)) {
-		log.error(`端口 ${FIXED_PORT} 被占用，尝试自动清理`);
-		setProgress(10, "检测到端口占用，正在自动清理…");
-		const healed = await attemptSelfHeal({
-			rounds: 3,
-			isPortInUse: () => isPortInUse(FIXED_PORT),
-			killPortOccupants: () =>
-				killPortOccupants(FIXED_PORT, undefined, (m) => log.info(m)),
-			sweepRegistry: () => sweepRegistry(registryOpts),
-			waitMs: 500,
-			log: (m) => log.info(m),
-		});
-		if (!healed.healed) {
-			log.error(`端口 ${FIXED_PORT} 自愈失败，等待用户在启动页点击重启`);
-			setProgress(
-				-1,
-				`端口 ${FIXED_PORT} 被占用，可能是上次未正常退出。点击下方按钮自动清理并重启。`,
-			);
-			splashWindow?.webContents
-				?.executeJavaScript("window.__showRestart&&window.__showRestart()")
-				.catch(() => {});
-			return;
+	// 自愈失败统一出口：弹错误页 + 显示「重启应用」按钮。自愈内部异常（taskkill ENOENT、
+	// fs 异常等）同样走这里——若直接抛出，whenReady 的 promise 链断裂、splash 永久卡在
+	// "正在自动清理…"，变成死端（全包无 unhandledRejection 兜底，必须就地接住）。
+	const selfHealFailed = (err) => {
+		if (err) log.error(`端口 ${FIXED_PORT} 自动清理异常`, err);
+		setProgress(
+			-1,
+			`端口 ${FIXED_PORT} 被占用，可能是上次未正常退出。点击下方按钮自动清理并重启。`,
+		);
+		splashWindow?.webContents
+			?.executeJavaScript("window.__showRestart&&window.__showRestart()")
+			.catch(() => {});
+	};
+	try {
+		if (await isPortInUse(FIXED_PORT)) {
+			log.error(`端口 ${FIXED_PORT} 被占用，尝试自动清理`);
+			setProgress(10, "检测到端口占用，正在自动清理…");
+			const healed = await attemptSelfHeal({
+				rounds: 3,
+				isPortInUse: () => isPortInUse(FIXED_PORT),
+				killPortOccupants: () =>
+					killPortOccupants(FIXED_PORT, undefined, (m) => log.info(m)),
+				sweepRegistry: () => sweepRegistry(registryOpts),
+				waitMs: 500,
+				log: (m) => log.info(m),
+			});
+			if (!healed.healed) {
+				log.error(`端口 ${FIXED_PORT} 自愈失败，等待用户在启动页点击重启`);
+				selfHealFailed();
+				return;
+			}
+			log.info(`端口 ${FIXED_PORT} 自动清理成功`);
 		}
-		log.info(`端口 ${FIXED_PORT} 自动清理成功`);
+	} catch (e) {
+		// 自愈路径异常兜底（isPortInUse/killPortOccupants/sweepRegistry 裸调可能抛）：
+		// 转成可操作的错误页，不让 splash 卡死
+		selfHealFailed(e);
+		return;
 	}
 	log.info(`kernel 端口固定为 ${actualPort}`);
 
-	// 2a) 首启依赖检测/动态安装（packaged：~/.wa-pi/runtime 下用阿里源装原生 addon 等）
+	// 2c) 首启依赖检测/动态安装（packaged：~/.wa-pi/runtime 下用阿里源装原生 addon 等）
 	let runDir = seedDir;
 	if (app.isPackaged) {
 		const { ensureRuntimeDeps } = require("./util/runtime-deps.cjs");
@@ -566,7 +580,7 @@ app.whenReady().then(async () => {
 		clearInterval(installTrickle);
 	}
 
-	// 2a+) 为 packaged 运行环境补充 bun/node 命令，供动态插件安装/运行 npm 包工具。
+	// 2c+) 为 packaged 运行环境补充 bun/node 命令，供动态插件安装/运行 npm 包工具。
 	// 打包版只有 wa-pi-kernel(=bun)，部分 npm 包脚本的 shebang 需要 node。
 	if (app.isPackaged) {
 		try {
@@ -587,7 +601,7 @@ app.whenReady().then(async () => {
 		}
 	}
 
-	// 2b) 启动内核（packaged 从 runtimeDir 跑；dev 从源码跑）
+	// 2d) 启动内核（packaged 从 runtimeDir 跑；dev 从源码跑）
 	setProgress(85, "正在启动内核…");
 	let kp = 85;
 	const trickle = setInterval(() => {
@@ -603,9 +617,11 @@ app.whenReady().then(async () => {
 			log,
 			port: actualPort,
 		});
-		// 登记 kernel 进程（createdAt 用启动时刻：kernel 由我们 spawn，此刻即创建时刻）
+		// 登记 kernel 进程（createdAt 用 sidecar 返回的 spawn 时刻：进程真实创建时刻，
+		// 而非 startSidecar 等端口就绪后的时刻——启动耗时 >2s 时后者会让下轮清扫的
+		// isOurs 时间一致性校验误判 PID 复用，登记簿核心目标静默失效）
 		try {
-			registerProcess(sidecar.pid, { exe: kernelExe, createdAt: Date.now() }, registryOpts);
+			registerProcess(sidecar.pid, { exe: kernelExe, createdAt: sidecar.createdAt }, registryOpts);
 		} catch (e) {
 			log.error("[registry] 登记 kernel 进程失败", e);
 		}
