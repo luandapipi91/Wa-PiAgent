@@ -4,6 +4,29 @@
 
 ---
 
+## 2026-08-10 — 清理 wa-pi → ~/.pi/agent 改名残留（死文件 + E2E 死回退 + 过时注释）
+
+### 清理
+
+- **chore(desktop)**：删除根目录死文件 `packages/desktop/main.cjs`——该文件硬编码旧数据目录 `~/.wa-pi`，但不被任何代码 require、不在 electron-builder 打包列表（`files` 只含 `src/**`）、`package.json` 入口为 `src/main.cjs`。是改名 commit 6970bc40 后唯一残留在「生产代码文件」里的旧路径，虽为死代码但易误导后人复制粘贴。
+- **fix(frontend·e2e)**：清理 2 处 E2E 测试的死回退分支——`chat-blocks.spec.ts` 与 `chat-export.spec.ts` 的 `readDeepseekKey()` 原有回退读 `~/.wa-pi/providers.json`，改名后该文件不存在、永远静默走 catch。删除死分支并修正误导性错误文案。
+- **docs(scripts)**：`scripts/split-prompts.ts` 注释中 `~/.wa-pi/agents/` → `~/.pi/agent/agents/`（过时路径）。
+- 影响范围：仅死代码/测试/注释，生产逻辑零改动；frontend typecheck 通过，desktop port 测试 14 pass / 0 fail。
+
+---
+
+## 2026-08-10 — 进程 kill 测试 Windows 路径分隔符兼容性修复
+
+### 修复
+
+- **fix(desktop·test)**：进程 kill（sweepRegistry / killPortOccupants / killRegisteredProcesses 等）相关单测此前仅在 macOS 验证，Windows 上因路径分隔符差异挂掉 20 例（非被测逻辑 bug）。修复 3 处测试代码的跨平台路径处理，使“启动进程Kill”代码在 Windows 上获得完整测试覆盖：
+  - `process-registry.test.ts`：`makeMemFs.readdirSync` 用 `path.sep` 替代硬编码 `/`（否则 Windows 反斜杠 key 的 `startsWith` 永不匹配，`loadRegistry` 恒返回空）。
+  - `process-registry.test.ts`：`WAPI_DIR` 改用 `path.join("/data","wa-pi")` 构造，使数据目录与 `path.join` 派生的 exe 路径分隔符一致（否则 `isOurs` 的 `exe.includes(dir)` 恒 false，三重校验全过路径无法触发）。
+  - `port.cjs.test.ts`：`resolveWaPiDir` 断言改用 `path.join(".pi","agent")`（否则 Windows 上实际为反斜杠不匹配正斜杠字面量）。
+  - 影响范围：仅测试文件（`tests/process-registry.test.ts`、`tests/port.cjs.test.ts`），被测代码未改动；5 个进程管理测试文件 67 例全绿，desktop 全套 109 pass / 0 fail 无回归。
+
+---
+
 ## 2026-08-10 — v0.1.19 修复 macOS Tray 保活阻止更新退出
 
 ### 修复

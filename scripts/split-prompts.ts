@@ -6,7 +6,7 @@
  *
  * 输出目录：docs/references/awesome-chatgpt-prompts/agents/
  * 每个角色一个 <displayName>.md，格式与 packages/kernel/src/agent-md.ts 的 stringifyAgentMd 一致，
- * 可整体复制到 ~/.wa-pi/agents/ 被运行时直接识别。
+ * 可整体复制到 ~/.pi/agent/agents/ 被运行时直接识别。
  *
  * 用法：bun scripts/split-prompts.ts [--dry-run]
  */

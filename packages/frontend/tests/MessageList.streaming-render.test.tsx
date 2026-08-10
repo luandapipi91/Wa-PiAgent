@@ -19,10 +19,17 @@ import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
 
 function userMsg(timestamp: number, text: string): SessionMessage {
-	return { agentName: undefined, message: { role: "user", content: text, timestamp } } as SessionMessage;
+	return {
+		agentName: undefined,
+		message: { role: "user", content: text, timestamp },
+	} as SessionMessage;
 }
 
-function assistantMsg(timestamp: number, text: string, agentName: SessionMessage["agentName"] = "product"): SessionMessage {
+function assistantMsg(
+	timestamp: number,
+	text: string,
+	agentName: SessionMessage["agentName"] = "product",
+): SessionMessage {
 	return {
 		agentName,
 		message: {
@@ -64,7 +71,13 @@ test("流式更新时历史消息行不重渲染（Markdown 不重解析）", ()
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 初始：两条 assistant 各渲染一次 Markdown
 	const initial = mdRenderCount;
 	expect(initial).toBe(2);
@@ -107,7 +120,13 @@ test("全新回合流式 text 段走 StreamingMarkdown 渲染路径", () => {
 		messagesBySession: { s1: [userMsg(1, "你好")] },
 		streamingBySession: { s1: streamingMsg("流式中的文本") },
 	});
-	const { getByTestId } = render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	const { getByTestId } = render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// StreamingMarkdown 外层容器渲染且含流式文本（注：MarkdownBlock 同名 testid，
 	// 故下方未闭合代码块用例以 streaming-code-plain 作为路径铁证）
 	const textBlock = getByTestId("text-block");
@@ -119,7 +138,13 @@ test("全新回合流式未闭合代码块：纯 <pre> 跳过 Prism 高亮（Str
 		messagesBySession: { s1: [userMsg(1, "写个函数")] },
 		streamingBySession: { s1: streamingMsg("```ts\nconst x = 1") },
 	});
-	const { getByTestId, queryByTestId } = render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	const { getByTestId, queryByTestId } = render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 未闭合代码块 → StreamingCodeBlockView 渲染纯 <pre>。streaming-code-plain 是
 	// StreamingMarkdown 独有 testid（MarkdownBlock 路径绝不产生它）→ 路径铁证。
 	const pre = getByTestId("streaming-code-plain");
