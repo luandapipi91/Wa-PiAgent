@@ -70,7 +70,13 @@ test("用户消息靠右、agent 消息靠左（flex-row-reverse）", () => {
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const userRow = screen.getByTestId("msg-s1-1");
 	const agentRow = screen.getByTestId("msg-s1-2");
 	expect(userRow.className).toContain("flex-row-reverse");
@@ -97,7 +103,13 @@ test("assistant 消息按 content block 渲染 thinking + text + toolCall", () =
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// text block 立即可见（text 段保留在轮级摘要行外）
 	expect(screen.getByText("答案")).toBeTruthy();
 	// 已定稿含过程段的行：过程段折叠到轮级摘要行，thinking 内容不可见
@@ -141,7 +153,13 @@ test("toolResult 按 toolCallId 关联到前一个 assistant 消息，不单独�
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// toolResult 不单独成行：只有 1 个 MessageRow（msg-s1-1），无 msg-s1-2
 	expect(screen.getByTestId("msg-s1-1")).toBeTruthy();
 	expect(screen.queryByTestId("msg-s1-2")).toBeNull();
@@ -177,7 +195,13 @@ test("成功的 toolCall（result 且非 isError）→ ✓ 图标 + 绿色（suc
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 过程段折叠在轮级摘要行内：先展开再断言工具卡样式
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	// 成功的 toolCall：✓ 图标 + meta「完成」+ success tone + 弱化
@@ -217,7 +241,13 @@ test("失败的 toolCall（result.isError）→ ✗ 图标 + 红色（danger）�
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 过程段折叠在轮级摘要行内：先展开再断言工具卡样式
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	// 失败的 toolCall：✗ 图标 + meta「失败」+ danger tone + 弱化
@@ -245,7 +275,13 @@ test("intercom toolCall 渲染 DelegateCard（委派卡片）", () => {
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// intercom toolCall 和普通 toolCall 一样渲染 ToolCallCard（非 delegate 名），无专门 delegate card
 	expect(screen.queryByTestId("delegate-d1")).toBeNull();
 	// 过程段折叠在轮级摘要行内：先展开再断言 header
@@ -273,7 +309,13 @@ test("text → toolCall → text（无 delegate）→ 两个文本气泡按时�
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 历史轮折叠：中间 text 段也折叠进摘要行，先展开摘要行再断言两个气泡的时序
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	// 两段 text 都应可见
@@ -324,7 +366,13 @@ test("text → toolCall → text → delegate → text → toolCall → text →
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 历史轮折叠：中间 text 段也折叠进摘要行，先展开摘要行再断言四个气泡的时序
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	// 时间线顺序：
@@ -353,7 +401,13 @@ test("只有 toolCall 的 assistant 消息不渲染空白文字气泡", () => {
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// toolCall 折叠在轮级摘要行内：先展开摘要行，单卡直接可见（不成组）
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
@@ -377,7 +431,13 @@ test("空字符串 text block 不渲染空白文字气泡", () => {
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// toolCall 折叠在轮级摘要行内：先展开摘要行，单卡直接可见（不成组）
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
@@ -385,7 +445,13 @@ test("空字符串 text block 不渲染空白文字气泡", () => {
 });
 
 test("空 session 无消息", () => {
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="empty" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="empty" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// Virtuoso 接管滚动容器：message-list 容器存在，但无任何消息行
 	expect(screen.getByTestId("message-list")).toBeTruthy();
 	expect(screen.queryByTestId(/^msg-empty-/)).toBeNull();
@@ -427,7 +493,13 @@ test("工具调用前流式 text 定格未闭合代码围栏 → 不渲染空白
 			},
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 流式 text 定格未闭合围栏 → 不可见，不应渲染空白气泡容器
 	expect(screen.queryByTestId("text-bubble")).toBeNull();
 	expect(screen.queryByTestId("text-block")).toBeNull();
@@ -467,7 +539,13 @@ test("工具调用前流式 text 定格未闭合 markdown（**）→ 不渲染�
 			},
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 未闭合加粗被 lookBack 扣留 → 不可见，不渲染空白气泡
 	expect(screen.queryByTestId("text-bubble")).toBeNull();
 	// 工具调用仍正常渲染
@@ -507,7 +585,13 @@ test("工具调用前流式 text 部分可见（前置文本+未闭合加粗）�
 			},
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 前置文本「强调：」可见 → 气泡必须保留
 	expect(screen.getByTestId("text-bubble")).toBeTruthy();
 	expect(screen.getByTestId("text-block").textContent).toContain("强调：");
@@ -545,7 +629,13 @@ test("工具调用前流式纯文本 → 保留气泡", () => {
 			},
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByTestId("text-bubble")).toBeTruthy();
 	expect(screen.getByTestId("toolcall-c4")).toBeTruthy();
 });
@@ -581,7 +671,13 @@ test("工具调用前流式未闭合代码块有内容 → 保留气泡", () => 
 			},
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 未闭合但有代码内容 → codeVisible 分支，气泡保留
 	expect(screen.getByTestId("text-bubble")).toBeTruthy();
 	expect(screen.getByTestId("toolcall-c5")).toBeTruthy();
@@ -595,7 +691,13 @@ test("AI 消息名称旁显示发送时间（今天）", () => {
 			s1: [assistantMsg(ts.getTime(), [{ type: "text", text: "你好" }], "dev")],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByText(/^dev · 10:31$/)).toBeTruthy();
 });
 
@@ -612,7 +714,13 @@ test("用户消息旁显示名称和发送时间（今天）", () => {
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByText(/^我 · 14:22$/)).toBeTruthy();
 });
 
@@ -627,7 +735,13 @@ test("用户消息头像「我」方块已移除：行内只剩内容列，名�
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const row = screen.getByTestId("msg-s1-1");
 	// 头像方块已移除：行内只剩内容列（名字行 + 气泡），不再有独立的「我」占位
 	expect(row.children).toHaveLength(1);
@@ -650,7 +764,13 @@ test("昨天的消息显示「昨天」前缀", () => {
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByText(/^dev · 昨天 09:05$/)).toBeTruthy();
 });
 
@@ -670,7 +790,13 @@ test("更早的消息显示月日和时间", () => {
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const month = String(ts.getMonth() + 1).padStart(2, "0");
 	const day = String(ts.getDate()).padStart(2, "0");
 	expect(
@@ -686,12 +812,21 @@ test("默认停在底部 → 不显示「滚动到底部」浮动按钮", () => 
 	useSessionStore.setState({
 		messagesBySession: {
 			s1: [
-				{ agentName: undefined, message: { role: "user", content: "hi", timestamp: 1 } },
+				{
+					agentName: undefined,
+					message: { role: "user", content: "hi", timestamp: 1 },
+				},
 				assistantMsg(2, [{ type: "text", text: "reply" }]),
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.queryByTestId("scroll-bottom-s1")).toBeNull();
 });
 
@@ -760,7 +895,13 @@ test("最后一条为失败 assistant → 其前一条用户消息下方出现�
 		},
 		streamingBySession: {},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByTestId("resend-s1-1")).toBeTruthy();
 });
 
@@ -786,7 +927,13 @@ test("最后一条为正常 assistant → 无「重新发送」按钮", () => {
 		},
 		streamingBySession: {},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.queryByTestId("resend-s1-1")).toBeNull();
 });
 
@@ -823,7 +970,13 @@ test("正在流式生成时（streaming 存在）→ 不显示「重新发送」
 			},
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.queryByTestId("resend-s1-1")).toBeNull();
 });
 
@@ -845,7 +998,13 @@ test("pi 自动重试期间（thinking + netDegraded）→ 不显示「重新发
 		netStatusBySession: { s1: "degraded" },
 		thinkingSinceBySession: {},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.queryByTestId("resend-s1-1")).toBeNull();
 });
 
@@ -897,7 +1056,13 @@ test("点击「重新发送」→ 原地重试：裁掉失败回合（用户消�
 			},
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	fireEvent.click(screen.getByTestId("resend-s1-1"));
 	const s = useSessionStore.getState();
 	// 失败回合被裁掉，立即乐观重建用户消息（不叠加，仍 1 条）+ loading 占位
@@ -942,7 +1107,13 @@ test("过期 model（provider 已删除）→ 点「重新发送」不裁剪、�
 			},
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	fireEvent.click(screen.getByTestId("resend-s1-1"));
 	const s = useSessionStore.getState();
 	// 原消息保留（不裁剪）、不产生新的乐观消息和 loading 占位
@@ -968,7 +1139,13 @@ test("netDegraded + 末条是 user 消息 → 显示「重新发送」按钮（t
 		streamingBySession: {}, // transient 错误后 streaming 占位已被清掉
 		netStatusBySession: { s1: "degraded" },
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByTestId("resend-s1-1")).toBeTruthy();
 });
 
@@ -996,7 +1173,13 @@ test("netDegraded 但 streaming 仍在（pi 重试中）→ 不显示「重新�
 		},
 		netStatusBySession: { s1: "degraded" },
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 重试期间（streaming 存在）不显示重发按钮
 	expect(screen.queryByTestId("resend-s1-1")).toBeNull();
 });
@@ -1025,7 +1208,13 @@ test("无 degraded 且末条是 user（正常对话）→ 不显示「重新发�
 		},
 		netStatusBySession: {},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.queryByTestId("resend-s1-1")).toBeNull();
 });
 
@@ -1068,7 +1257,13 @@ test("点击「重新发送」（transient 场景）→ 重发同一条 + 清除
 			},
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	fireEvent.click(screen.getByTestId("resend-s1-1"));
 	const s = useSessionStore.getState();
 	// 乐观重建用户消息（重发同一条，不叠加）+ loading 占位
@@ -1096,7 +1291,13 @@ test("streaming 占位（空 content）→ 渲染 loading 气泡「正在思考�
 			},
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByTestId("loading-s1")).toBeTruthy();
 	expect(screen.getByText("正在思考…")).toBeTruthy();
 });
@@ -1116,7 +1317,13 @@ test("streaming 有内容 → 不显示 loading，正常渲染流式消息", () 
 			},
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.queryByTestId("loading-s1")).toBeNull();
 	expect(screen.getByText("部分回复")).toBeTruthy();
 });
@@ -1160,7 +1367,13 @@ test("同 agent 多 block 回合流式中：已提交 thinking 行 + 流式 text
 			},
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 机器人头像已移除，不再渲染 avatar-robot
 	expect(screen.queryAllByTestId("avatar-robot")).toHaveLength(0);
 	// 合并为单行：agent 名字行只出现一次
@@ -1226,7 +1439,13 @@ test("同一 agent 回合被 toolResult 拆成两条 assistant（中间无用户
 		},
 		streamingBySession: {},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 机器人头像已移除，不再渲染 avatar-robot
 	expect(screen.queryAllByTestId("avatar-robot")).toHaveLength(0);
 	// 同一回合合并为单行：agent 名字行只出现一次（不应被 toolResult 隔断成两行）
@@ -1265,7 +1484,13 @@ test("不同 agent 的连续 assistant 不合并（各自独立名字行）", ()
 		},
 		streamingBySession: {},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 机器人头像已移除，不再渲染 avatar-robot
 	expect(screen.queryAllByTestId("avatar-robot")).toHaveLength(0);
 	// 不同 agent = 不同回合，各自独立名字行
@@ -1281,7 +1506,13 @@ test("assistant 文字消息显示「复制」按钮", () => {
 			s1: [assistantMsg(1, [{ type: "text", text: "这是回答" }])],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByTestId("copy-s1-1")).toBeTruthy();
 });
 
@@ -1300,7 +1531,13 @@ test("无文字内容的 assistant 消息不显示「复制」按钮", () => {
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.queryByTestId("copy-s1-1")).toBeNull();
 });
 
@@ -1326,7 +1563,13 @@ test("点击「复制」将回答文本写入剪贴板并提示成功", async ()
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	fireEvent.click(screen.getByTestId("copy-s1-1"));
 	await waitFor(() => expect(copied).toBe("第一段\n\n第二段"));
 	expect(
@@ -1352,7 +1595,13 @@ test("用户消息中的 <skill> XML 块显示为技能名而非完整内容", (
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const bubble = screen.getByTestId("msg-s1-1").querySelector("p")!;
 	const text = bubble.textContent ?? "";
 	// 应显示技能名
@@ -1381,7 +1630,13 @@ test("用户消息中的多个 <skill> 块都被格式化", () => {
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const text =
 		screen.getByTestId("msg-s1-1").querySelector("p")!.textContent ?? "";
 	expect(text).toContain("brainstorming");
@@ -1409,7 +1664,13 @@ test("用户消息中 <skill> 块后跟 \\n\\n 再跟文本 → 技能名与文�
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const bubble = screen.getByTestId("msg-s1-1").querySelector("p")!;
 	const text = bubble.textContent ?? "";
 	expect(text).toContain("speech-recognition");
@@ -1449,7 +1710,13 @@ test("用户消息中 /skill:xxx 纯文本显示为技能名 chip（技能在 sk
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const bubble = screen.getByTestId("msg-s1-1").querySelector("p")!;
 	const text = bubble.textContent ?? "";
 	// 应显示技能名（与 <skill> XML 块渲染一致的 chip）
@@ -1481,7 +1748,13 @@ test("用户消息中 /skill:xxx（技能不在 skills 中）保持纯文本不�
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const msg = screen.getByTestId("msg-s1-1");
 	const text = msg.querySelector("p")!.textContent ?? "";
 	// 不渲染为技能 chip，原文纯文本保留
@@ -1514,7 +1787,13 @@ test("用户消息中 /skill:xxx 命令后多余空格被压缩为单个（技�
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const text =
 		screen.getByTestId("msg-s1-1").querySelector("p")!.textContent ?? "";
 	expect(text).toContain("brainstorming");
@@ -1537,7 +1816,13 @@ test("用户消息中普通 /命令（非 skill）不被误渲染为技能 chip"
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const text =
 		screen.getByTestId("msg-s1-1").querySelector("p")!.textContent ?? "";
 	expect(text).not.toContain("/skill:");
@@ -1568,7 +1853,13 @@ test("Pi SDK custom 消息（role=custom + subagent-notification）→ 不渲染
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 不应渲染任何 msg 行（不应出现空气泡）
 	expect(screen.queryAllByText(/技术实现/)).toHaveLength(0);
 	// 不应泄露 task-notification XML 文本
@@ -1593,7 +1884,13 @@ test("前端构造的 custom 消息（type=custom + agent_switch）→ 仍渲染
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByTestId("custom-s1-1")).toBeTruthy();
 	expect(screen.getByText(/已切换为 质量验收/)).toBeTruthy();
 });
@@ -1616,7 +1913,13 @@ test("Pi SDK custom 消息 content 是字符串 → 不应掉到 assistant 分�
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 不应出现 assistant 风格的气泡（左对齐 🤖 + agent 名 + 空白）
 	expect(screen.queryAllByText(/技术实现/)).toHaveLength(0);
 	// 不应出现 msg testid（assistant 气泡才有）
@@ -1643,7 +1946,13 @@ test("历史用户消息中 @[智能体名称] 渲染为 chip 样式（非字面
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 
 	// 应该有 chip-agent 元素
 	const chip = document.querySelector(".chip-agent");
@@ -1674,7 +1983,13 @@ test("历史用户消息中非 token 文本仍正常显示（chip 与正文共�
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 
 	// chip 部分
 	expect(document.querySelector(".chip-agent")).toBeTruthy();
@@ -1718,7 +2033,13 @@ test("组件挂载时自动注册 agentsStore 中的智能体 meta（chip 渲染
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 
 	// 组件挂载后 useEffect 应自动注册 → chip 应包含头像 📋（waitFor 等 effect 执行）
 	await waitFor(() => {
@@ -1736,7 +2057,13 @@ test("流式中 thinking 块默认展开", () => {
 			s1: assistantMsg(10, [{ type: "thinking", thinking: "让我想想" }]),
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByTestId("thinking-panel-body").textContent).toContain(
 		"让我想想",
 	);
@@ -1752,7 +2079,13 @@ test("已完成的 thinking 块不会因新 thinking 流式到达而重新展开
 			s1: assistantMsg(2, [{ type: "thinking", thinking: "第二段思考中" }]),
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 两个 thinking 段各自独立成卡
 	const cards = screen.getAllByTestId("thinking-panel");
 	expect(cards).toHaveLength(2);
@@ -1789,7 +2122,13 @@ test("流式中工具调用块默认展开，完成后（历史）折叠到轮�
 			s1: [assistantMsg(10, [tc]), { agentName: "product", message: tr }],
 		},
 	});
-	const { unmount } = render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	const { unmount } = render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByTestId("turn-summary")).toBeTruthy();
 	expect(screen.queryByTestId("toolcall-tc1-body")).toBeNull();
 	// 展开轮级摘要行后：工具卡折叠（body 仍不可见）+ muted（历史已完成）
@@ -1804,7 +2143,13 @@ test("流式中工具调用块默认展开，完成后（历史）折叠到轮�
 		messagesBySession: { s1: [] },
 		streamingBySession: { s1: assistantMsg(10, [tc]) },
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByTestId("toolcall-tc1-body")).toBeTruthy();
 });
 
@@ -1814,7 +2159,13 @@ test("用户点击折叠的卡片后内容展开（尊重手动选择）", () =>
 			s1: [assistantMsg(10, [{ type: "thinking", thinking: "历史思考" }])],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.queryByTestId("thinking-panel-body")).toBeNull();
 	// 已定稿含过程段：先展开轮级摘要行，再点 thinking 卡 header 展开内容
 	fireEvent.click(screen.getByTestId("turn-summary"));
@@ -1839,7 +2190,13 @@ test("含工具卡片的消息列固定 78% 宽（展开/收起宽度一致）",
 			s1: [assistantMsg(10, [{ type: "text", text: "好" }, tc])],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const row = screen.getByTestId("msg-s1-10");
 	const column = row.children[0] as HTMLElement; // 头像已移除，内容列是首个子元素
 	expect(column.className.split(" ")).toContain("w-[78%]");
@@ -1857,7 +2214,13 @@ test("纯文本消息列保持内容驱动（max-w-[78%]，不固定宽）", () 
 			s1: [assistantMsg(10, [{ type: "text", text: "好" }])],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const column = screen.getByTestId("msg-s1-10").children[0] as HTMLElement;
 	expect(column.className.split(" ")).toContain("max-w-[78%]");
 	expect(column.className.split(" ")).not.toContain("w-[78%]");
@@ -1869,7 +2232,13 @@ test("含 thinking 卡片的消息列固定 78% 宽", () => {
 			s1: [assistantMsg(10, [{ type: "thinking", thinking: "想" }])],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const column = screen.getByTestId("msg-s1-10").children[0] as HTMLElement;
 	expect(column.className.split(" ")).toContain("w-[78%]");
 });
@@ -1919,7 +2288,13 @@ test("已定稿含过程段的行：折叠为摘要行，text 保留，点击展
 		},
 		streamingBySession: { s1: null },
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 
 	// 折叠态：摘要行出现、text 保留、过程段不直接可见
 	expect(screen.getByTestId("turn-summary")).toBeTruthy();
@@ -1967,7 +2342,13 @@ test("有时长的轮：摘要行显示本轮时长 + 步骤数", () => {
 		},
 		streamingBySession: { s1: null },
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByText("本轮时长 4 秒 · 1 个步骤")).toBeTruthy();
 });
 
@@ -2017,7 +2398,13 @@ test("轮末 assistant 带 turnElapsedMs（中间隔 toolResult 的多条 assist
 		},
 		streamingBySession: { s1: null },
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.getByText("本轮时长 4 秒 · 1 个步骤")).toBeTruthy();
 	expect(screen.queryByText("本轮过程 · 1 个步骤")).toBeNull();
 });
@@ -2039,7 +2426,13 @@ test("纯文本行：无摘要行", () => {
 		},
 		streamingBySession: { s1: null },
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	expect(screen.queryByTestId("turn-summary")).toBeNull();
 	expect(screen.getByText("纯文本回复")).toBeTruthy();
 });
@@ -2083,7 +2476,13 @@ test("多段 text 的轮：折叠态只显示最后一段回复，中间 text �
 		},
 		streamingBySession: { s1: null },
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 
 	// 折叠态：只显示最后一段 text 回复，中间 text 与思考不可见
 	expect(screen.getByTestId("turn-summary")).toBeTruthy();
@@ -2130,7 +2529,13 @@ test("进行中的轮（thinking）：末行已定稿含过程段 → 不折叠�
 		},
 		streamingBySession: { s1: null },
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 
 	// 无摘要行；过程段直接可见（thinking 卡存在、toolCall 卡 header 可见、text 可见）
 	expect(screen.queryByTestId("turn-summary")).toBeNull();
@@ -2194,7 +2599,13 @@ test("进行中的轮 + 更早的已完成轮：只有一个 turn-summary（第�
 		},
 		streamingBySession: { s1: null },
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 
 	// 只有一个 turn-summary（第一轮完成 → 折叠；第二轮进行中 → 不折叠）
 	const summaries = screen.getAllByTestId("turn-summary");
@@ -2235,7 +2646,13 @@ test("compactionSummary 消息：居中系统提示样式，不内联渲染摘�
 		},
 		streamingBySession: { s1: null },
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 
 	const el = screen.getByTestId("compaction-summary-s1-100");
 	expect(el).toBeTruthy();
@@ -2264,7 +2681,13 @@ test("extension_notify 消息的 ANSI 颜色解析为内联样式", () => {
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	const el = screen.getByTestId("custom-s1-1");
 	// 绿色段渲染为带内联颜色的 span
 	const colored = el.querySelector("span")!;
