@@ -100,6 +100,84 @@
 	--shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04);
 }
 
+/* ===== 主题颜色（浅色模式）：放在 :root 之后、深色模式之前 ===== */
+/* green 为默认品牌色，浅色值保留在 :root 中作为 fallback */
+:root[data-accent="blue"] {
+	--brand: #3b82f6; --brand-soft: #6ba5f8; --on-brand: #ffffff;
+	--accent: #3b82f6; --accent-soft: #e0ecff; --on-accent: #ffffff;
+}
+:root[data-accent="purple"] {
+	--brand: #7c5cf6; --brand-soft: #9a80f9; --on-brand: #ffffff;
+	--accent: #7c5cf6; --accent-soft: #efe9fe; --on-accent: #ffffff;
+}
+:root[data-accent="yellow"] {
+	--brand: #c8941f; --brand-soft: #d6ab48; --on-brand: #ffffff;
+	--accent: #c8941f; --accent-soft: #f5ecd5; --on-accent: #ffffff;
+}
+:root[data-accent="orange"] {
+	--brand: #ed7d2d; --brand-soft: #f29a55; --on-brand: #ffffff;
+	--accent: #ed7d2d; --accent-soft: #fdeed8; --on-accent: #ffffff;
+}
+:root[data-accent="red"] {
+	--brand: #f0556b; --brand-soft: #f37989; --on-brand: #ffffff;
+	--accent: #f0556b; --accent-soft: #fce8ec; --on-accent: #ffffff;
+}
+
+/* ===== 深色模式基础色板（覆盖 :root 默认值） ===== */
+:root[data-theme="dark"] {
+	--canvas: #1a1a1e;
+	--canvas-grad-end: #131315;
+	--surface: #2c2c2e;
+	--surface-elevated: #343436;
+	--surface-hover: #38383a;
+	--text-primary: #f5f5f7;
+	--text-secondary: #aeaeb2;
+	--text-tertiary: #8e8e93;
+	--hairline: #38383a;
+	--hairline-strong: #48484a;
+	--success: #30d158;
+	--success-soft: rgba(48, 209, 88, 0.15);
+	--warning: #ffd60a;
+	--warning-soft: rgba(255, 214, 10, 0.15);
+	--danger: #ff453a;
+	--danger-soft: rgba(255, 69, 58, 0.15);
+}
+
+/* ===== 深色模式下的主题颜色覆盖（accent-soft 用 rgba 自动适配深色背景） ===== */
+:root[data-accent="green"][data-theme="dark"] {
+	--brand: #5cb87f; --brand-soft: #7cc99a;
+	--accent: #5cb87f; --accent-soft: rgba(75, 162, 111, 0.15);
+}
+:root[data-accent="blue"][data-theme="dark"] {
+	--brand: #5b9bfa; --brand-soft: #7db3fb;
+	--accent: #5b9bfa; --accent-soft: rgba(59, 130, 246, 0.15);
+}
+:root[data-accent="purple"][data-theme="dark"] {
+	--brand: #957ffa; --brand-soft: #ac99fb;
+	--accent: #957ffa; --accent-soft: rgba(124, 92, 246, 0.15);
+}
+:root[data-accent="yellow"][data-theme="dark"] {
+	--brand: #dcae42; --brand-soft: #e5bf6b;
+	--accent: #dcae42; --accent-soft: rgba(200, 148, 31, 0.18);
+}
+:root[data-accent="orange"][data-theme="dark"] {
+	--brand: #f59648; --brand-soft: #f8ad72;
+	--accent: #f59648; --accent-soft: rgba(237, 125, 45, 0.15);
+}
+:root[data-accent="red"][data-theme="dark"] {
+	--brand: #f47085; --brand-soft: #f78c9d;
+	--accent: #f47085; --accent-soft: rgba(240, 85, 107, 0.15);
+}
+
+/* ===== 无 data-accent 时的 fallback（默认等同于 green） ===== */
+:root:not([data-accent]) {
+	/* 默认等同于 green：浅色值已在 :root 中定义 */
+}
+:root:not([data-accent])[data-theme="dark"] {
+	--brand: #5cb87f; --brand-soft: #7cc99a;
+	--accent: #5cb87f; --accent-soft: rgba(75, 162, 111, 0.15);
+}
+
 body {
 	margin: 0;
 	font-family:
