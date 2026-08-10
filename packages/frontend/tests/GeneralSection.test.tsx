@@ -30,7 +30,6 @@ beforeEach(() => {
 	getResponse = { retry: { maxRetries: 3, baseDelayMs: 2000 } };
 	putError = null;
 	localStorage.clear();
-	useUiPrefsStore.setState({ fontSize: 16 });
 	useToastStore.setState({ toasts: [] });
 });
 

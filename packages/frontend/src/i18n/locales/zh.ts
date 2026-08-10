@@ -640,10 +640,6 @@ const zh = {
 		trashAutoPurge: "自动清理回收站",
 		trashPurgeDays: "超过 {{days}} 天自动删除",
 		general: {
-			fontSize: {
-				label: "文字大小",
-				desc: "拖动滑块调整文字大小（{{min}}-{{max}}px），只缩放文字、不改变布局，即时生效。",
-			},
 			exportTurns: {
 				label: "对话导出轮数",
 				desc: "导出为图片时，包含当条 AI 回复往前多少轮对话（{{min}}-{{max}} 轮），即时生效。",

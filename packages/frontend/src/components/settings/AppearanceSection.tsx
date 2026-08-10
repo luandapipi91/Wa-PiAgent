@@ -143,6 +143,7 @@ export function AppearanceSection() {
 					value={fontSize}
 					onChange={(e) => setFontSize(Number(e.target.value))}
 					className="flex-1 cursor-pointer"
+					aria-label={t("settings.appearance.fontSize.label")}
 					data-testid="font-size-slider"
 				/>
 				<span

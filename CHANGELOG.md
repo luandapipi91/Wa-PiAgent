@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-08-10 — 最终审查修复（system 实时跟随 + i18n 孤儿键 + yellow 对比度）
+
+### 修复
+
+- **fix(frontend)·system 主题实时跟随（Critical）**：`ui-prefs.ts` 仅在 `applyThemeMode()` 调用时读取一次 `matchMedia.matches`，未注册 `change` 监听，导致「跟随系统」模式下 OS 运行期切换明暗时应用不更新。修复：store 定义之后注册模块级 `matchMedia("(prefers-color-scheme: dark)")` 的 `change` 监听，事件触发且 `themeMode === "system"` 时重新 apply。
+- **fix(frontend)·清理 i18n 孤儿键（Important）**：字号已迁移到 `settings.appearance.fontSize`，但 `settings.general.fontSize`（label/desc）在 `zh.ts`/`en.ts` 仍残留且无组件引用。修复：删除两份 locale 文件中 `settings.general.fontSize` 整块。
+- **fix(frontend)·深色 yellow 对比度（Important）**：深色模式下 yellow 的 `--brand: #dcae42`（浅黄）配 `--on-brand: #ffffff`（继承自 :root）对比度约 2.5:1，低于 WCAG AA。修复：`:root[data-accent="yellow"][data-theme="dark"]` 补 `--on-brand: #1a1a1e; --on-accent: #1a1a1e;`。
+- **fix(frontend)·移除冗余 setState（Minor）**：`GeneralSection.test.tsx` 的 `beforeEach` 中 `useUiPrefsStore.setState({ fontSize: 16 })` 已无实际作用（GeneralSection 不再读写 fontSize），移除。
+- **fix(frontend)·字号滑块无障碍（Minor）**：`AppearanceSection.tsx` 字号 range input 补 `aria-label`。
+- 影响范围：`packages/frontend/src/store/ui-prefs.ts`、`packages/frontend/src/i18n/locales/{zh,en}.ts`、`packages/frontend/src/styles.css`、`packages/frontend/src/components/settings/AppearanceSection.tsx`、`packages/frontend/tests/GeneralSection.test.tsx`。
+
+---
+
 ## 2026-08-10 — 集成外观设置（导航 + 字号迁移 + 硬编码修复）
 
 ### 新增

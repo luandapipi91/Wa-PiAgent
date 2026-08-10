@@ -167,3 +167,13 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 		},
 	),
 );
+
+// 跟随系统：OS 明暗模式变化时，system 模式下自动重新 apply
+if (typeof window !== "undefined" && window.matchMedia) {
+	const mql = window.matchMedia("(prefers-color-scheme: dark)");
+	mql.addEventListener("change", () => {
+		if (useUiPrefsStore.getState().themeMode === "system") {
+			applyThemeMode("system");
+		}
+	});
+}
