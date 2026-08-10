@@ -656,10 +656,6 @@ const en = {
 		trashAutoPurge: "Auto-purge recycle bin",
 		trashPurgeDays: "After {{days}} days in trash",
 		general: {
-			fontSize: {
-				label: "Font size",
-				desc: "Drag the slider to adjust text size ({{min}}-{{max}}px). Only scales text, not layout. Takes effect immediately.",
-			},
 			exportTurns: {
 				label: "Export conversation turns",
 				desc: "When exporting to image, how many turns of dialogue before the current AI reply to include ({{min}}-{{max}} turns). Takes effect immediately.",

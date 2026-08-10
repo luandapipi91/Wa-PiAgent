@@ -159,6 +159,7 @@
 :root[data-accent="yellow"][data-theme="dark"] {
 	--brand: #dcae42; --brand-soft: #e5bf6b;
 	--accent: #dcae42; --accent-soft: rgba(200, 148, 31, 0.18);
+	--on-brand: #1a1a1e; --on-accent: #1a1a1e;
 }
 :root[data-accent="orange"][data-theme="dark"] {
 	--brand: #f59648; --brand-soft: #f8ad72;
