@@ -640,6 +640,7 @@ const en = {
 		title: "Settings",
 		nav: {
 			general: "General",
+			appearance: "Appearance",
 			models: "Models",
 			skills: "Skills",
 			plugins: "Plugins",
@@ -687,6 +688,23 @@ const en = {
 				preview: "Preview",
 			},
 			autoLaunch: "Launch at login",
+		},
+		appearance: {
+			themeMode: {
+				label: "Theme",
+				desc: "Choose light, dark, or follow system",
+				system: "System",
+				light: "Light",
+				dark: "Dark",
+			},
+			themeColor: {
+				label: "Accent Color",
+				desc: "Click to choose your preferred accent color",
+			},
+			fontSize: {
+				label: "Font size",
+				desc: "Drag the slider to adjust text size ({{min}}-{{max}}px). Only scales text, not layout. Takes effect immediately.",
+			},
 		},
 		diagnostics: {
 			title: "Extension errors ({{count}} most recent)",
