@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-08-10 — 流式 bridge 断连信号透传至子代理（修复孤儿子代理跑满 settle 超时）
+
+### 修复
+
+- **fix(kernel)**：流式 bridge 三处断链修复——① `ws-server` 流式分支 `cancel()` 只置 `closed` 标记停写帧、不中止执行：新增 `streamAbort` AbortController，客户端断连 cancel 时 abort；② `handleBridgeStream` 给 `handleTool` 传 `new AbortController().signal`（永不 abort）：改为透传 `opts.signal`；③ `agent-manager` delegate/fleet 分支忽略 `signal` 参数：新增调用级信号槽位 `currentCallSignal`，`makeSpawnFn` 经 `getCallSignal` 叠加中止。
+  - 后果：pi 侧 bridge 600s 空闲超时放弃后，kernel 子代理照常跑满 30min settle 超时，结果写进已关闭的流被丢弃，期间持续烧 API 配额。
+  - 影响范围：`packages/kernel/src/bridge-registry.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/src/delegate-tool.ts`、`packages/kernel/src/agent-manager.ts`。
+
+---
+
 ## 2026-08-10 — subagent-runner settle 竞速重构（abort 短路 + Infinity 守卫 + 计时器清理）
 
 ### 修复

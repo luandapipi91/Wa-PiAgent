@@ -628,6 +628,9 @@ export class AgentManager {
 		let currentSubagentOnProgress:
 			| ((event: SubagentProgressEvent) => void)
 			| undefined;
+		// 调用级断连信号槽位：与 currentSubagentOnProgress 同生命周期（handleTool 调用期间稳定），
+		// spawn 闭包经 getCallSignal 取值叠加中止（bridge 流式断连 → 中止子代理）
+		let currentCallSignal: AbortSignal | undefined;
 
 		const spawnFn = makeSpawnFn({
 			resolveConfig: resolveSpawnConfig,
@@ -657,6 +660,7 @@ export class AgentManager {
 			},
 			cwd,
 			abortRegistry: subagentAborts,
+			getCallSignal: () => currentCallSignal,
 			onSpawnComplete: (input) => subagentTelemetry.record(input),
 			// spawn 闭包的 onProgress：从槽位取本次 handleTool 调用注入的 onProgress，
 			// 再叠加会话级 onSubagentProgress（注入 sessionId 后广播到 SSE）。
@@ -719,6 +723,7 @@ export class AgentManager {
 				// fleet 在此 await 内并发多个子代理，共享同一 onProgress + toolCallId，槽位稳定不串。
 				if (tool === "delegate" || tool === "fleet") {
 					currentSubagentOnProgress = onProgress;
+					currentCallSignal = signal;
 					try {
 						if (tool === "delegate") {
 							return await delegateTool.execute(
@@ -732,6 +737,7 @@ export class AgentManager {
 						);
 					} finally {
 						currentSubagentOnProgress = undefined;
+						currentCallSignal = undefined;
 					}
 				}
 				if (!memoryEnabled && tool.startsWith("memory_")) {

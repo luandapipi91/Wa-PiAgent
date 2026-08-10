@@ -551,6 +551,9 @@ export class WSServer {
 						// 否则同步 throw 沿子代理 stdout 回调链冒泡成 unhandledRejection 内核异常。
 						let closed = false;
 						const onStreamCancel = this.opts.onBridgeStreamCancel;
+						// 消费方断连时中止 kernel 侧正在执行的 delegate/fleet：
+						// cancel() 是唯一可靠的断连感知点（Bun 流式响应在客户端 abort 时触发 cancel）
+						const streamAbort = new AbortController();
 						const stream = new ReadableStream<Uint8Array>({
 							start(controller) {
 								controllerRef = controller;
@@ -558,6 +561,8 @@ export class WSServer {
 							cancel() {
 								closed = true;
 								controllerRef = null;
+								// 客户端断连 → 中止子代理执行（防孤儿子代理跑满 30min settle 超时）
+								streamAbort.abort();
 								// 测试钩子：通知调用方服务端已感知断连（确定性等待用）
 								onStreamCancel?.();
 							},
@@ -584,7 +589,7 @@ export class WSServer {
 						// 关键时序：不 await，后台执行。立即 return Response 让消费方拿到响应头
 						// （满足 headersTimeout），handleBridgeStream 边跑边 enqueue 进度帧
 						// （消费方边读边收到，重置 bodyTimeout，避免 undici idle 空闲断连）。
-						void handleBridgeStream(body, writeLine)
+						void handleBridgeStream(body, writeLine, { signal: streamAbort.signal })
 							.then((r) => {
 								if (r) {
 									// 流式工具返回了非 null：说明 handleBridgeStream 在写帧前
