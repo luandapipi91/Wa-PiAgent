@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-10 — 消息气泡最大宽度 78% → 90%
+
+### 改进
+
+- **feat(frontend)**：用户与 agent 消息气泡最大宽度从 78% 调整为 90%（含过程卡片的固定列宽同步 78%→90%）。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/tests/MessageList.test.tsx`（宽度断言同步）。
+
+---
+
 ## 2026-08-10 — v0.1.15 发版：进程登记簿 + 端口自愈 + 流式渲染修复 + 图标更新
 
 ### 新增
