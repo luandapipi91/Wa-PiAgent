@@ -17,7 +17,8 @@ const { isPortInUse, killPortOccupants, waitPortReleased } = require("./util/por
 const { registerProcess, unregisterProcess, sweepRegistry } = require("./util/process-registry.cjs");
 const { attemptSelfHeal } = require("./util/startup-heal.cjs");
 
-const WA_PI_DIR = process.env.WA_PI_DIR || path.join(os.homedir(), ".wa-pi");
+// 与 kernel 侧 WA_PI_DIR 一致（~/.pi/agent，env 可覆盖）：
+const WA_PI_DIR = process.env.WA_PI_DIR || path.join(os.homedir(), ".pi", "agent");
 const log = createLogger(path.join(WA_PI_DIR, "logs", "desktop.log"));
 
 // 进程登记簿（G）：kernel 启动登记 / 退出自删 / 启动清扫，全程依赖注入便于测试
@@ -108,7 +109,7 @@ function createSplash() {
 
 // packaged 下运行时只有 wa-pi-kernel(=bun)，PATH 上缺少 node/npm/bun/npx。
 // 动态插件可能需要 bun 来装 npm 包，装好的 bin 脚本 shebang 又需要 node。
-// 因此在 ~/.wa-pi/bin 下创建 bun / node 符号链接指向 wa-pi-kernel，
+// 因此在 WA_PI_DIR/bin 下创建 bun / node 符号链接指向 wa-pi-kernel，
 // 并把该目录追加到 sidecar 的 PATH。
 // npx 需要特殊处理：bun x 等价于 npx，创建包装脚本去除 -y/--yes（bun x 自动确认）。
 // node：优先搜索系统真实 Node.js（MCP 服务器大多是 Node 包，bun 不完全兼容），
@@ -478,7 +479,7 @@ app.whenReady().then(async () => {
 		process.resourcesPath,
 		process.env,
 	);
-	const runtimeDir = resolveRuntimeDir(WA_PI_DIR); // ~/.wa-pi/runtime 可写
+	const runtimeDir = resolveRuntimeDir(WA_PI_DIR); // WA_PI_DIR/runtime 可写（默认 ~/.pi/agent/runtime）
 	// packaged 下 sidecar 二进制已重命名为 wa-pi-kernel（分发进程名不暴露 bun）；dev 仍用 host bun。
 	const kernelExe = path.join(
 		seedDir,
@@ -545,7 +546,7 @@ app.whenReady().then(async () => {
 	}
 	log.info(`kernel 端口固定为 ${actualPort}`);
 
-	// 2c) 首启依赖检测/动态安装（packaged：~/.wa-pi/runtime 下用阿里源装原生 addon 等）
+	// 2c) 首启依赖检测/动态安装（packaged：WA_PI_DIR/runtime 下用阿里源装原生 addon 等）
 	let runDir = seedDir;
 	if (app.isPackaged) {
 		const { ensureRuntimeDeps } = require("./util/runtime-deps.cjs");

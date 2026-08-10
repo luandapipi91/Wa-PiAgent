@@ -2,7 +2,7 @@
 // 背景：kernel.js 已 bundle 所有 JS，但 ast-grep / better-sqlite3 / koffi 等原生 addon 无法内联，
 // 运行时需要 node_modules。.app 内 Resources/kernel 只读，不能就地 install，故：
 //   seed  （.app 只读）：kernel.js + package.json + bun.lock + wa-pi-kernel
-//   runtime（~/.wa-pi/runtime 可写）：复制 seed → bun install 产出 node_modules → 跑 kernel.js
+//   runtime（WA_PI_DIR/runtime 可写，默认 ~/.pi/agent/runtime）：复制 seed → bun install 产出 node_modules → 跑 kernel.js
 // 用 .installed-version 标记触发升级重装；默认阿里源(npmmirror)，失败回退官方源。
 const { spawn } = require("node:child_process");
 const fsp = require("node:fs/promises");

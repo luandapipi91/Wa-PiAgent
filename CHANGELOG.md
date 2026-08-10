@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-10 — desktop 数据目录与 kernel 对齐（~/.wa-pi → ~/.pi/agent）
+
+### 修复
+
+- **fix(desktop)**：main 进程与 port 工具硬编码 `~/.wa-pi` 作为 WA_PI_DIR 兜底，与 kernel/shared 已迁移的 `~/.pi/agent` 分裂——日志/runtime 写旧目录、内核读新目录。统一改为 `~/.pi/agent`（env 可覆盖），并同步过时注释。新增 `resolveWaPiDir` 导出 + 单测锁定默认值。
+  - 影响范围：`packages/desktop/src/main.cjs`、`packages/desktop/src/util/{port,paths,runtime-deps}.cjs`、`packages/desktop/tests/port.cjs.test.ts`。
+
+---
+
 ## 2026-08-10 — 录音权限错误改为业务可读文案
 
 ### 修复
