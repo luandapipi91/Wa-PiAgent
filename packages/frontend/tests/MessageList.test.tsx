@@ -2175,10 +2175,10 @@ test("用户点击折叠的卡片后内容展开（尊重手动选择）", () =>
 	);
 });
 
-// 宽度稳定性（展开/收起工具卡片不跳变）：含过程卡片的消息列固定 78%，
-// 纯文本消息保持内容驱动（max-w-[78%] shrink-wrap）
-// 注：class 断言按空格切词精确匹配，避免 "max-w-[78%]" 子串误命中 "w-[78%]"
-test("含工具卡片的消息列固定 78% 宽（展开/收起宽度一致）", () => {
+// 宽度稳定性（展开/收起工具卡片不跳变）：含过程卡片的消息列固定 90%，
+// 纯文本消息保持内容驱动（max-w-[90%] shrink-wrap）
+// 注：class 断言按空格切词精确匹配，避免 "max-w-[90%]" 子串误命中 "w-[90%]"
+test("含工具卡片的消息列固定 90% 宽（展开/收起宽度一致）", () => {
 	const tc = {
 		type: "toolCall",
 		id: "tcw",
@@ -2199,16 +2199,16 @@ test("含工具卡片的消息列固定 78% 宽（展开/收起宽度一致）",
 	);
 	const row = screen.getByTestId("msg-s1-10");
 	const column = row.children[0] as HTMLElement; // 头像已移除，内容列是首个子元素
-	expect(column.className.split(" ")).toContain("w-[78%]");
+	expect(column.className.split(" ")).toContain("w-[90%]");
 	// 展开轮级摘要行 + 工具卡后列宽 class 不变（宽度不随卡片开合变化）
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	fireEvent.click(screen.getByTestId("toolcall-tcw-header"));
 	expect((row.children[0] as HTMLElement).className.split(" ")).toContain(
-		"w-[78%]",
+		"w-[90%]",
 	);
 });
 
-test("纯文本消息列保持内容驱动（max-w-[78%]，不固定宽）", () => {
+test("纯文本消息列保持内容驱动（max-w-[90%]，不固定宽）", () => {
 	useSessionStore.setState({
 		messagesBySession: {
 			s1: [assistantMsg(10, [{ type: "text", text: "好" }])],
@@ -2222,11 +2222,11 @@ test("纯文本消息列保持内容驱动（max-w-[78%]，不固定宽）", () 
 		</VirtuosoMockContext.Provider>,
 	);
 	const column = screen.getByTestId("msg-s1-10").children[0] as HTMLElement;
-	expect(column.className.split(" ")).toContain("max-w-[78%]");
-	expect(column.className.split(" ")).not.toContain("w-[78%]");
+	expect(column.className.split(" ")).toContain("max-w-[90%]");
+	expect(column.className.split(" ")).not.toContain("w-[90%]");
 });
 
-test("含 thinking 卡片的消息列固定 78% 宽", () => {
+test("含 thinking 卡片的消息列固定 90% 宽", () => {
 	useSessionStore.setState({
 		messagesBySession: {
 			s1: [assistantMsg(10, [{ type: "thinking", thinking: "想" }])],
@@ -2240,7 +2240,7 @@ test("含 thinking 卡片的消息列固定 78% 宽", () => {
 		</VirtuosoMockContext.Provider>,
 	);
 	const column = screen.getByTestId("msg-s1-10").children[0] as HTMLElement;
-	expect(column.className.split(" ")).toContain("w-[78%]");
+	expect(column.className.split(" ")).toContain("w-[90%]");
 });
 
 // ── 轮级折叠摘要行：已定稿含过程段的行折叠为摘要行，text 保留在外 ──
