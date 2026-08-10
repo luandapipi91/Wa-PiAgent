@@ -11,11 +11,22 @@ const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
+const { spawnSync } = require("node:child_process");
 const { createLogger } = require("./util/log.cjs");
 const { isPortInUse, killPortOccupants } = require("./util/port.cjs");
+const { registerProcess, unregisterProcess, sweepRegistry } = require("./util/process-registry.cjs");
 
 const WA_PI_DIR = process.env.WA_PI_DIR || path.join(os.homedir(), ".wa-pi");
 const log = createLogger(path.join(WA_PI_DIR, "logs", "desktop.log"));
+
+// 进程登记簿（G）：kernel 启动登记 / 退出自删 / 启动清扫，全程依赖注入便于测试
+const registryOpts = {
+	fs,
+	spawnSync,
+	now: () => Date.now(),
+	waPiDir: WA_PI_DIR,
+	log: (m) => log.info(m),
+};
 
 // 与前端 --canvas 对齐：主窗口/启动页用同色底，消除首帧白屏闪烁
 const CANVAS_BG = "#F5F5F7";
@@ -444,6 +455,20 @@ app.whenReady().then(async () => {
 		process.platform === "win32" ? "wa-pi-kernel.exe" : "wa-pi-kernel",
 	);
 
+	// 2a) 启动清扫：清掉上轮异常退出残留的 kernel 登记（TTL 兜底 + 三重校验），
+	// 避免残留进程继续占着 9778（Windows 升级后幽灵占用治理第一步；D 任务再完善自愈循环）。
+	try {
+		const r = sweepRegistry(registryOpts);
+		if (r.killed.length || r.deleted.length || r.skipped.length) {
+			log.info(
+				`[registry] 启动清扫: killed=[${r.killed.join(",") || "无"}] ` +
+					`deleted=[${r.deleted.join(",") || "无"}] skipped=[${r.skipped.join(",") || "无"}]`,
+			);
+		}
+	} catch (e) {
+		log.error("[registry] 启动清扫失败", e);
+	}
+
 	// 2a) 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
 	// 因此固定 FIXED_PORT，不再自动后移。被占用时在启动页提示并提供「重启应用」一键杀占用+重启。
 	const actualPort = FIXED_PORT;
@@ -532,6 +557,12 @@ app.whenReady().then(async () => {
 			log,
 			port: actualPort,
 		});
+		// 登记 kernel 进程（createdAt 用启动时刻：kernel 由我们 spawn，此刻即创建时刻）
+		try {
+			registerProcess(sidecar.pid, { exe: kernelExe, createdAt: Date.now() }, registryOpts);
+		} catch (e) {
+			log.error("[registry] 登记 kernel 进程失败", e);
+		}
 		clearInterval(trickle);
 		setProgress(98, "正在加载界面…");
 		// 内核页面渲染完成 → 关启动页、显示主窗口
@@ -558,6 +589,10 @@ async function cleanup() {
 	log.info("退出清理");
 	try {
 		if (sidecar) sidecar.stop();
+	} catch {}
+	// best-effort 自删：进程退出时清掉登记，避免残留（即使自删失败，下次启动清扫也会兜底）
+	try {
+		if (sidecar) unregisterProcess(sidecar.pid, registryOpts);
 	} catch {}
 	await log.flush();
 }
