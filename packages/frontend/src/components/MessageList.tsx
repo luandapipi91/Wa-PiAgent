@@ -260,14 +260,17 @@ export function MessageList({ sessionId }: Props) {
 	}, [displayRows, streaming, mergeStreamingIntoLast]);
 
 	// 浮动按钮「滚动到底部」：跳到最后一项并恢复贴底跟随。
-	const handleScrollToBottom = useCallback(() => {
+	const scrollToEnd = useCallback(() => {
 		virtuosoRef.current?.scrollToIndex({
 			index: listRows.length - 1,
 			align: "end",
 			behavior: "auto",
 		});
-		setStickBottom(true);
 	}, [listRows.length]);
+	const handleScrollToBottom = useCallback(() => {
+		scrollToEnd();
+		setStickBottom(true);
+	}, [scrollToEnd]);
 
 	// 进入会话（含切换）：历史消息到达后定位到最新回复。依赖 listRows.length 是关键——
 	// SessionView 异步 api.get(.../messages) 加载历史，首访空缓存时本 effect 首次运行
@@ -278,13 +281,9 @@ export function MessageList({ sessionId }: Props) {
 	useEffect(() => {
 		if (listRows.length > 0 && didInitScrollRef.current !== sessionId) {
 			didInitScrollRef.current = sessionId;
-			virtuosoRef.current?.scrollToIndex({
-				index: listRows.length - 1,
-				align: "end",
-				behavior: "auto",
-			});
+			scrollToEnd();
 		}
-	}, [sessionId, listRows.length]);
+	}, [sessionId, listRows.length, scrollToEnd]);
 
 	// 流式期间的强制贴底滚动（恢复 virtuoso 改造前的「每帧贴底」语义）。
 	// followOutput 在「用户消息已追加但 autoScrollActive 尚未置真」的窗口里返回 false 不滚，
@@ -293,13 +292,9 @@ export function MessageList({ sessionId }: Props) {
 	// followOutput 随后接管 token 增长的平滑跟随。stickBottom=false（用户上翻阅读历史）时不抢滚动。
 	useEffect(() => {
 		if (stickBottom && autoScrollActive && listRows.length > 0) {
-			virtuosoRef.current?.scrollToIndex({
-				index: listRows.length - 1,
-				align: "end",
-				behavior: "auto",
-			});
+			scrollToEnd();
 		}
-	}, [listRows.length, autoScrollActive, stickBottom]);
+	}, [listRows.length, autoScrollActive, stickBottom, scrollToEnd]);
 
 	// 子代理 progress 增长不改变 listRows.length，上面依赖 listRows.length 的 effect 不触发。
 	// 此 interval 在 autoScrollActive && stickBottom 期间每 200ms 强制定位到末行，
@@ -307,14 +302,10 @@ export function MessageList({ sessionId }: Props) {
 	useEffect(() => {
 		if (!autoScrollActive || !stickBottom) return;
 		const interval = setInterval(() => {
-			virtuosoRef.current?.scrollToIndex({
-				index: listRows.length - 1,
-				align: "end",
-				behavior: "auto",
-			});
+			scrollToEnd();
 		}, 200);
 		return () => clearInterval(interval);
-	}, [autoScrollActive, stickBottom, listRows.length]);
+	}, [autoScrollActive, stickBottom, listRows.length, scrollToEnd]);
 
 	// atBottomStateChange：autoScrollActive 期间内容增长导致的暂时性 not-at-bottom
 	// 不置 stickBottom=false（区分「程序化贴底竞态」与「用户主动上翻」）。
@@ -326,6 +317,54 @@ export function MessageList({ sessionId }: Props) {
 			setStickBottom(false);
 		}
 	}, []);
+
+	// 用户主动上翻 → 无条件停止自动跟随。
+	// 67760b5 的 atBottomStateChange 守卫在 autoScrollActive 期间忽略 not-at-bottom，
+	// 但那无法区分「内容增长导致的暂时性离底」与「用户主动翻阅历史」——AI 回复中
+	// 用户手动滚动会被无视，200ms interval 持续拉回底部。
+	//
+	// 完整方案：监听 Virtuoso 滚动容器的原生 scroll 事件，覆盖所有用户滚动路径
+	// （wheel / touch / 滚动条拖动 / 键盘 PageUp/方向键）。用 scrollTop 方向区分
+	// 「程序化贴底」与「用户上翻」：程序化 scrollToEnd 总是向下滚（scrollTop 增大），
+	// 用户翻阅历史是向上滚（scrollTop 减小）。内容增长不产生 scroll 事件，
+	// autoScrollActive 守卫仍挡住 atBottomStateChange 的程序化离底竞态，两路互补。
+	const lastScrollTopRef = useRef(0);
+	const scrollerElRef = useRef<HTMLElement | null>(null);
+	const handleScrollerScroll = useCallback(() => {
+		const el = scrollerElRef.current;
+		if (!el) return;
+		const st = el.scrollTop;
+		// 向上滚动（scrollTop 减小）= 用户翻阅历史 → 停止跟随；
+		// 向下/贴底（scrollTop 增大或不变）= 程序化贴底或用户在底部 → 保持跟随。
+		// 向上滚动（scrollTop 减小）= 用户翻阅历史 → 停止跟随；
+		// 向下/贴底（scrollTop 增大或不变）= 程序化贴底或用户在底部 → 保持跟随。
+		// 已知局限：内容变短（compaction 替换历史/顶部项尺寸变化）时浏览器会被动
+		// clamp scrollTop 减小，可能短暂误停跟随——但用户仍贴底时 atBottomStateChange
+		// 随后会置回 true 自愈，仅产生一次浮动按钮闪现，无实际体验问题。
+		if (st < lastScrollTopRef.current) {
+			setStickBottom(false);
+		}
+		lastScrollTopRef.current = st;
+	}, []);
+	// Virtuoso scrollerRef：拿到内部滚动容器，挂原生 scroll 监听（滚动条/键盘等
+	// 非 wheel/touch 输入路径只产生原生 scroll 事件）。组件卸载时 ref 回调传 null，
+	// 由 React 合成事件系统之外的原生 listener 手动移除。类型允许 Window
+	//（Virtuoso 在 window 滚动场景下用 Window 作为 scroller），实际仅处理 HTMLElement。
+	const attachScroller = useCallback((el: HTMLElement | Window | null) => {
+		if (scrollerElRef.current && scrollerElRef.current !== el) {
+			scrollerElRef.current.removeEventListener("scroll", handleScrollerScroll);
+		}
+		if (el instanceof HTMLElement) {
+			scrollerElRef.current = el;
+			// 与 Virtuoso 自身一致标 passive：该 listener 不 preventDefault，且避免未来误加
+			el.addEventListener("scroll", handleScrollerScroll, { passive: true });
+			lastScrollTopRef.current = el.scrollTop;
+		} else {
+			// window 滚动模式下 Virtuoso 传 null（当前布局 absolute inset-0 不会触发），
+			// 上翻检测在该模式静默不生效；若未来改页面级滚动需同步处理。
+			scrollerElRef.current = null;
+		}
+	}, [handleScrollerScroll]);
 
 	// 进行中的轮判定：status==="thinking"（agent_start 已到、agent_end 未到）且无独立 streaming
 	// 占位时，渲染列表最后一行是已定稿 assistant 行 → 它属于进行中的轮。即使已定稿也不折叠——
@@ -345,6 +384,7 @@ export function MessageList({ sessionId }: Props) {
 			<Virtuoso
 				key={sessionId}
 				ref={virtuosoRef}
+				scrollerRef={attachScroller}
 				data-testid="message-list"
 				className="absolute inset-0 pt-4 pb-4 overflow-x-hidden"
 				data={listRows}

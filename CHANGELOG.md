@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-08-10 — 修复：AI 回复中用户手动上翻被自动滚动拉回底部
+
+### 修复
+
+- **fix(frontend)**：用户手动滚动（wheel / touch / 滚动条拖动 / 键盘 PageUp/方向键）翻阅历史时，即使 AI 正在回复（autoScrollActive），也不再被 200ms 自动贴底 interval 拉回底部。根因：67760b5 的 `atBottomStateChange` 守卫用 autoScrollActive 区分「内容增长离底」与「用户上翻」，但无法真正区分——AI 回复期间用户滚动被无视。修复：监听 Virtuoso 滚动容器原生 scroll 事件（scrollerRef），用 scrollTop 方向识别用户上翻（向上滚=scrollTop 减小=翻阅历史），无条件置 `stickBottom=false`；程序化贴底（scrollToEnd 向下滚）不触发，`atBottomStateChange` 守卫仍挡住内容增长竞态。
+  - 已知局限：内容变短（compaction 替换历史）时浏览器被动 clamp scrollTop 减小可能短暂误停跟随，`atBottomStateChange` 随后自愈（浮动按钮闪现一次）。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/tests/MessageList.subagent-scroll.test.tsx`（新增 wheel 上翻 + 滚动条拖动 + 程序化贴底不误停三个用例）。
+
+---
+
 ## 2026-08-10 — 登记簿清扫连带 kernel 子孙链（方案 B）
 
 ### 改进
