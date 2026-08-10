@@ -72,7 +72,7 @@ export type BridgeResponse =
  * { token, sessionId, toolCallId, tool, params } → 校验 → ctx.handleTool。
  * 校验失败/未注册返回结构化错误（由 ws-server 翻译成 HTTP 状态码）。
  */
-export async function handleBridgeRequest(body: unknown): Promise<BridgeResponse> {
+export async function handleBridgeRequest(body: unknown, signal?: AbortSignal): Promise<BridgeResponse> {
   if (!body || typeof body !== "object") {
     return { ok: false, status: 400, error: "invalid_body" };
   }
@@ -88,7 +88,10 @@ export async function handleBridgeRequest(body: unknown): Promise<BridgeResponse
     return { ok: false, status: 404, error: "unknown_session" };
   }
   try {
-    const result = await ctx.handleTool(tool, toolCallId, params, new AbortController().signal);
+    // signal 来自 HTTP 请求（ws-server 透传 req.signal）：客户端断连（如 pi 侧 bridge
+    // 空闲超时 abort fetch）时服务端感知，ask 等阻塞工具据此作废 registry 条目，
+    // 避免「条目仍在 pending、但已无人等待结果」的僵尸提问。缺省用永不 abort 的兜底。
+    const result = await ctx.handleTool(tool, toolCallId, params, signal ?? new AbortController().signal);
     return { ok: true, status: 200, result };
   } catch (err) {
     return { ok: false, status: 500, error: err instanceof Error ? err.message : String(err) };
