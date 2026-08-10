@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-10 — kernel 超时与信号链路治理（7 项汇总）
+
+### 修复
+
+- kernel 超时与信号链路治理（7 项）：①流式 delegate/fleet 断连后子代理不再孤儿运行（信号链接通至进程强杀）；②主会话新增回合看门狗——pi 假死 5 分钟无事件自动终止并提示重发，等待用户回答（ask/扩展对话）期间豁免；③停止子代理后 10 秒宽限即强杀，不再后台跑满 30 分钟；④ask 改走流式心跳保活，修复 ~4 分钟被提前掐断（行为变化：ask 等待不再有 600s 隐性截断）；⑤httpIdleTimeoutMs 默认值（120s）启动时落盘，修复新用户实际用 300s 的问题；⑥扩展安装/卸载/升级加 2 分钟超时，防离线挂起；⑦修复 commandTimeoutMs=Infinity 反而立即超时的隐患。
+- 影响范围：packages/kernel（subagent-runner / rpc-client / bridge-registry / ws-server / agent-manager / delegate-tool / settings-store / npm-package-service / ext-ui-registry / ask-registry）
+
+---
+
 ## 2026-08-10 — httpIdleTimeoutMs 默认值落盘 + 保存校验（修复 #5）
 
 ### 修复
