@@ -13,7 +13,7 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const { spawnSync } = require("node:child_process");
 const { createLogger } = require("./util/log.cjs");
-const { isPortInUse, killPortOccupants } = require("./util/port.cjs");
+const { isPortInUse, killPortOccupants, waitPortReleased } = require("./util/port.cjs");
 const { registerProcess, unregisterProcess, sweepRegistry } = require("./util/process-registry.cjs");
 
 const WA_PI_DIR = process.env.WA_PI_DIR || path.join(os.homedir(), ".wa-pi");
@@ -372,6 +372,35 @@ app.whenReady().then(async () => {
 		currentVersion: app.getVersion(),
 		config: {
 			feedUrl: process.env.WA_PI_UPDATER_FEED_URL || undefined,
+		},
+		// 升级安装前优雅停 kernel：停 sidecar（同步阻塞杀进程树）→ 等端口真正释放 →
+		// 登记簿兜底清扫（清运行期 kernel 重启换 pid 等残留）→ 自删登记。
+		// sidecar 在下方 startSidecar 之后才赋值，这里必须用 getter 闭包读当前值，
+		// 不能引用声明时（null）的值。全程 best-effort：异常只记日志，绝不阻断安装。
+		onBeforeQuitAndInstall: async () => {
+			try {
+				const sc = sidecar;
+				if (sc) sc.stop();
+				const released = await waitPortReleased(FIXED_PORT);
+				if (!released) {
+					log.error(`[updater] 升级前端口 ${FIXED_PORT} 未在预期窗口内释放`);
+				}
+				try {
+					const r = sweepRegistry(registryOpts);
+					if (r.killed.length || r.deleted.length || r.skipped.length || r.errors.length) {
+						log.info(
+							`[registry] 升级前清扫: killed=[${r.killed.join(",") || "无"}] ` +
+								`deleted=[${r.deleted.join(",") || "无"}] skipped=[${r.skipped.join(",") || "无"}] ` +
+								`errors=[${r.errors.map((e) => `${e.pid}:${e.reason}`).join(";") || "无"}]`,
+						);
+					}
+				} catch (e) {
+					log.error("[registry] 升级前清扫失败", e);
+				}
+				if (sc) unregisterProcess(sc.pid, registryOpts);
+			} catch (e) {
+				log.error("[updater] 升级前清理失败（继续安装）", e);
+			}
 		},
 	});
 

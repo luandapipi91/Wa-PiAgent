@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-10 — 升级安装前优雅停 kernel：停 sidecar + 等端口释放 + 登记簿清扫
+
+### 改进
+
+- **feat(desktop)·升级前先停 kernel 再安装**：`updater:quit-and-install` 原为直接 `quitAndInstall`，kernel 进程树全靠 NSIS 安装程序杀（不可靠，PowerShell 被禁用时漏杀 kernel，升级后 9778 幽灵占用）。抽出可测纯函数 `makeQuitAndInstallHandler`：先 `await onBeforeQuitAndInstall` 完成（停 sidecar → `waitPortReleased(FIXED_PORT)` → `sweepRegistry` 兜底清扫 → 自删登记），再 `quitAndInstall(false, true)`；清理全程 best-effort，异常只记日志绝不阻断安装。`setupUpdater` 新增可选 deps `onBeforeQuitAndInstall`，main.cjs 注入 getter 闭包 `() => sidecar`（装配时 sidecar 尚未赋值，不能引用声明时值）。
+- 影响范围：`packages/desktop/src/updater/updater.cjs`、`packages/desktop/src/updater/updater.test.ts`（新增 2 用例）、`packages/desktop/src/main.cjs`。
+
+---
+
 ## 2026-08-10 — 退出清理加固：before-quit 同步杀进程树 + sidecar stop 用 lastPid 兜底
 
 ### 修复
