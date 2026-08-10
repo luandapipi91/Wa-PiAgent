@@ -11,6 +11,7 @@
 // 若未提供 OSS_AK/OSS_SK，打印手动上传指引后退出（不失败）。
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
+// @ts-expect-error ali-oss 无内置类型声明
 import OSS from "ali-oss";
 
 const version = process.argv[2];
@@ -34,15 +35,23 @@ interface Artifact {
   key: string;
 }
 
-/** 扫 release 目录，挑出 latest.yml + 当前版本 exe + blockmap */
+/** 扫 release 目录，挑出 Windows + macOS 平台的更新产物 */
 function listArtifacts(): Artifact[] {
   const names = readdirSync(releaseDir);
   const out: Artifact[] = [];
+  // electron-updater 按平台读不同清单：Windows 读 latest.yml，macOS 读 latest-mac.yml
+  const targets = [
+    "latest.yml",
+    "latest-mac.yml",
+    `WaPi-Setup-${version}.exe`,
+    `WaPi-Setup-${version}.exe.blockmap`,
+    `WaPi-Setup-${version}.dmg`,
+    `WaPi-Setup-${version}.dmg.blockmap`,
+    `WaPi-Setup-${version}.zip`,
+    `WaPi-Setup-${version}.zip.blockmap`,
+  ];
   for (const name of names) {
-    const isLatestYml = name === "latest.yml";
-    const isExe = name === `WaPi-Setup-${version}.exe`;
-    const isBlockmap = name === `WaPi-Setup-${version}.exe.blockmap`;
-    if (isLatestYml || isExe || isBlockmap) {
+    if (targets.includes(name)) {
       out.push({ path: join(releaseDir, name), key: `${PREFIX}/${name}` });
     }
   }
@@ -102,18 +111,18 @@ async function main() {
   const headers = { "x-oss-object-acl": "public-read" };
 
   for (const a of artifacts) {
-    if (a.key.endsWith(".exe")) {
-      // 安装包较大（~146MB），用分片上传支持进度与断点续传
+    if (a.key.endsWith(".exe") || a.key.endsWith(".dmg") || a.key.endsWith(".zip")) {
+      // 安装包较大（142~166MB），用分片上传支持进度与断点续传
       const size = statSync(a.path).size;
       console.log(`↑ 分片上传 ${a.key}（${(size / 1024 / 1024).toFixed(1)} MB）…`);
       await store.multipartUpload(a.key, a.path, {
         headers,
         partSize: 5 * 1024 * 1024,
-        progress: (p) => process.stdout.write(`\r  ${Math.round(p * 100)}%`),
+        progress: (p: number) => process.stdout.write(`\r  ${Math.round(p * 100)}%`),
       });
       process.stdout.write("\n");
-    } else if (a.key.endsWith("latest.yml")) {
-      // latest.yml：注入 releaseNotes 后上传
+    } else if (a.key.endsWith(".yml")) {
+      // latest.yml / latest-mac.yml：注入 releaseNotes 后上传
       const body = injectReleaseNotes(a.path);
       await store.put(a.key, Buffer.from(body, "utf8"), { headers });
       console.log(`✓ 已上传 ${a.key}（已注入 releaseNotes）`);
