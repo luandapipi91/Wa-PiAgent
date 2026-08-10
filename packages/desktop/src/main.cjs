@@ -38,6 +38,7 @@ let splashWindow = null;
 let mainWindow = null;
 let sidecar = null;
 let isQuitting = false;
+let isUpdating = false;
 // kernel 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
 // 因此固定端口，被占用时由启动页「重启应用」一键清理
 const FIXED_PORT =
@@ -380,6 +381,7 @@ app.whenReady().then(async () => {
 		// sidecar 在下方 startSidecar 之后才赋值，这里必须用 getter 闭包读当前值，
 		// 不能引用声明时（null）的值。全程 best-effort：异常只记日志，绝不阻断安装。
 		onBeforeQuitAndInstall: async () => {
+			isUpdating = true;
 			try {
 				const sc = sidecar;
 				if (sc) sc.stop();
@@ -662,6 +664,7 @@ async function cleanup() {
 app.on("before-quit", () => {
 	isQuitting = true;
 	cleanup();
+	if (isUpdating) return;
 	// 兜底清扫：清登记簿里我方残留（如运行期 kernel 重启换了 pid、或自删登记失败）。
 	// sweepRegistry 全程同步（loadRegistry/三重校验/杀伐均为 sync + spawnSync），
 	// 在同步监听器里直接调用即同步杀完——杀进程是 spawnSync 阻塞完成的，
