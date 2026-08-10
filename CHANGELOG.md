@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-08-10 — 主会话回合看门狗（pi 假死自动恢复，修复 #2 永久「思考中」）
+
+### 新增功能
+
+- **feat(kernel)**：主会话回合看门狗——busy 期间无任何 pi 事件超过 `idleMs`（默认 5 分钟）判定 pi 假死（MCP 卡死 / LLM 流停滞但 TCP 未断 / 扩展死锁），强杀进程走既有 `_onProcessExit` 崩溃恢复路径（标 crashed、合成错误事件播报前端、下次 ensureStarted 重建）。另加整轮硬上限 `hardCapMs`（默认 2 小时）。
+  - 背景：主会话 busy 复位完全依赖 pi 发 `agent_settled`，pi 假死时不退出也不发事件 → busy 永真：前端永久「思考中」、排队消息永不 drain。子代理有 30 分钟 settle 兑现兜底，主会话此前无等价机制。
+  - 关键约束：等待用户回答（ask）或扩展 dialog 期间 pi 同样长时间不发事件且 busy=true——看门狗触发时检查 `askRegistry.pendingToolCallIds` 与 `extUiRegistry.hasPendingForSession`，有 pending 则跳过本次触发并重新武装 idle 计时，不误杀。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`（常量 + opts + SessionHandle 字段 + 3 个私有方法 + 4 处武装点 + 8 处解除点 + 播报文案）、`packages/kernel/src/ext-ui-registry.ts`（新增 `hasPendingForSession`）。
+
+---
+
 ## 2026-08-10 — 流式 bridge 断连信号透传至子代理（修复孤儿子代理跑满 settle 超时）
 
 ### 修复

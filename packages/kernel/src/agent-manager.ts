@@ -138,6 +138,8 @@ export interface AgentManagerOpts {
 	bridgeBaseUrl?: () => string;
 	// 测试注入 mock；生产留空 → 真实 RpcClient
 	createClientFn?: CreateClientFn;
+	/** 回合看门狗超时配置（测试注入短超时；生产留空用默认 5min idle / 2h 硬上限） */
+	turnWatchdog?: { idleMs?: number; hardCapMs?: number };
 	// 记忆配置读取（reviewEnabled 自动学习开关 / memoryPolicyStyle 注入提示开关）。
 	// 可空：测试场景不传视为全开（与历史行为一致）；生产注入 MemoryStore。
 	memoryStore?: { getConfig(): Promise<MemoryConfig> };
@@ -150,6 +152,13 @@ export const WA_PI_DEFAULT_SYSTEM_PROMPT = WA_PI_DEFAULT_BASE_PROMPT;
 
 /** 永不放行给 LLM 直接调用的工具（subagent 必须走宿主 delegate 工具） */
 const ALWAYS_EXCLUDED_TOOLS = ["subagent"];
+
+/** 回合看门狗：busy 期间无任何 pi 事件超过该时长判定 pi 假死（MCP 卡死 / LLM 流停滞但
+ *  TCP 未断 / 扩展死锁），强杀进程走崩溃恢复路径。默认 5 分钟。 */
+const TURN_IDLE_WATCHDOG_MS = 5 * 60_000;
+/** 回合硬上限：单轮无论是否有事件流动，超过该时长强制终止（防无人值守会话烧穿配额）。
+ *  默认 2 小时。等待用户回答（ask / 扩展 dialog）期间同样豁免（见 _onTurnWatchdogFire）。 */
+const TURN_HARD_CAP_MS = 2 * 3600_000;
 
 /** 单个会话的运行时句柄 */
 interface SessionHandle {
@@ -193,6 +202,12 @@ interface SessionHandle {
 	/** 最近一次活跃时间戳（ms）：prompt / message_end / steer / 打开会话时刷新。
 	 *  供 reapIdleSessions 判断是否回收该会话子进程，避免每轮读盘。 */
 	lastActiveAt: number;
+	/** 回合看门狗 idle 计时（busy 期间每个事件重置）与整轮硬上限计时（回合内只武装一次）；
+	 *  busy 复位 / 会话拆除 / 进程退出时清除 */
+	watchdogIdleTimer?: ReturnType<typeof setTimeout>;
+	watchdogHardTimer?: ReturnType<typeof setTimeout>;
+	/** 看门狗强杀标记：_onProcessExit 据此给出准确的前端播报文案 */
+	watchdogKilled?: boolean;
 }
 
 export class AgentManager {
@@ -918,10 +933,71 @@ export class AgentManager {
 
 	// ---- 事件与队列 ----
 
+	/** 武装/重置回合看门狗：idle 计时每次调用重置（事件流动即存活证明）；
+	 *  硬上限计时只在未武装时设置（整轮起点，不因事件刷新）。 */
+	private _armTurnWatchdog(sessionId: string, handle: SessionHandle): void {
+		const idleMs = this.opts.turnWatchdog?.idleMs ?? TURN_IDLE_WATCHDOG_MS;
+		const hardMs = this.opts.turnWatchdog?.hardCapMs ?? TURN_HARD_CAP_MS;
+		if (handle.watchdogIdleTimer) clearTimeout(handle.watchdogIdleTimer);
+		handle.watchdogIdleTimer = setTimeout(
+			() => this._onTurnWatchdogFire(sessionId, "idle"),
+			idleMs,
+		);
+		if (!handle.watchdogHardTimer) {
+			handle.watchdogHardTimer = setTimeout(
+				() => this._onTurnWatchdogFire(sessionId, "hard-cap"),
+				hardMs,
+			);
+		}
+	}
+
+	/** 解除回合看门狗（busy 复位 / 会话拆除 / 进程退出时调用）。幂等。 */
+	private _disarmTurnWatchdog(handle: SessionHandle): void {
+		if (handle.watchdogIdleTimer) {
+			clearTimeout(handle.watchdogIdleTimer);
+			handle.watchdogIdleTimer = undefined;
+		}
+		if (handle.watchdogHardTimer) {
+			clearTimeout(handle.watchdogHardTimer);
+			handle.watchdogHardTimer = undefined;
+		}
+	}
+
+	/** 看门狗触发：pi 假死（存活但不发事件），abort RPC 对假死进程无效，
+	 *  直接 dispose 强杀；进程退出走 _onProcessExit 既有崩溃恢复路径
+	 *  （标 crashed、合成错误事件播报前端、下次 ensureStarted 重建）。
+	 *  等待用户回答（ask / 扩展 dialog）是正常的长无事件状态：跳过本次触发并
+	 *  重新武装 idle 计时，绝不误杀。 */
+	private _onTurnWatchdogFire(
+		sessionId: string,
+		reason: "idle" | "hard-cap",
+	): void {
+		const handle = this.sessions.get(sessionId);
+		if (!handle || !handle.busy || handle.disposed) return;
+		if (
+			askRegistry.pendingToolCallIds(sessionId).length > 0 ||
+			extUiRegistry.hasPendingForSession(sessionId)
+		) {
+			this._armTurnWatchdog(sessionId, handle);
+			return;
+		}
+		console.error(
+			`[agent-manager] 回合看门狗触发 session=${sessionId} reason=${reason}，强杀 pi 进程`,
+		);
+		handle.watchdogKilled = true;
+		// 级联中止在跑子代理（runner 收到 signal 后按 abortGraceMs 宽限退出，见任务 1）
+		for (const c of handle.subagentAborts) c.abort();
+		handle.subagentAborts.clear();
+		void handle.client.dispose().catch(() => {});
+	}
+
 	/** pi 事件入口：维护 busy/队列，再转发给上层 */
 	private _onSessionEvent(sessionId: string, event: RpcEvent): void {
 		const handle = this.sessions.get(sessionId);
 		if (!handle) return;
+
+		// busy 期间任何事件都是存活证明：重置看门狗 idle 计时（agent_start 置 busy 后也经此武装）
+		if (handle.busy) this._armTurnWatchdog(sessionId, handle);
 
 		switch (event.type) {
 			case "agent_start":
@@ -958,6 +1034,7 @@ export class AgentManager {
 				break;
 			}
 			case "agent_settled":
+				this._disarmTurnWatchdog(handle);
 				handle.busy = false;
 				handle.thinkingSince = null;
 				// transient 网络错误期间跳过 drain：此时网络仍不可用，
@@ -1033,6 +1110,7 @@ export class AgentManager {
 		handle: SessionHandle,
 	): void {
 		if (handle.disposed) return;
+		this._disarmTurnWatchdog(handle);
 		// 孤儿会话回滚：piSessionFile 不存在说明从未 prompt（如 getCommands 兜底创建后
 		// 用户离开）。删除记录避免「列表出现、点进去空白」；正常会话崩溃不删（有消息文件）。
 		if (handle.piSessionFile && !existsSync(handle.piSessionFile)) {
@@ -1062,7 +1140,9 @@ export class AgentManager {
 				role: "assistant",
 				content: [],
 				stopReason: "error",
-				errorMessage: `agent 进程意外退出 (code=${code})，请重新发送消息`,
+				errorMessage: handle.watchdogKilled
+					? "agent 长时间无响应（回合看门狗），已自动终止卡死进程，请重新发送消息"
+					: `agent 进程意外退出 (code=${code})，请重新发送消息`,
 				timestamp: Date.now(),
 			},
 		});
@@ -1109,12 +1189,14 @@ export class AgentManager {
 			return;
 		}
 		handle.busy = true;
+		this._armTurnWatchdog(sessionId, handle);
 		// 用户重发触发直接 prompt：网络已恢复，清除 transient degraded 标记，恢复 drain。
 		if (handle.netDegraded) handle.netDegraded = false;
 		try {
 			await handle.client.prompt(text);
 		} catch (err) {
 			handle.busy = false;
+			this._disarmTurnWatchdog(handle);
 			handle.thinkingSince = null;
 			throw err;
 		}
@@ -1127,6 +1209,7 @@ export class AgentManager {
 		setTimeout(() => {
 			if (handle.busy && handle.thinkingSince === null) {
 				handle.busy = false;
+				this._disarmTurnWatchdog(handle);
 				// 扩展命令不产生任何 agent 事件：前端 optimisticSend 的 thinking/loading
 				// 占位等不到终态事件，会一直转圈。合成 agent_end 让前端退出思考态。
 				this.opts.onEvent(
@@ -1161,10 +1244,12 @@ export class AgentManager {
 				? undefined
 				: trimmed.slice("/compact".length).trim() || undefined;
 		handle.busy = true;
+		this._armTurnWatchdog(sessionId, handle);
 		try {
 			await handle.client.compact(customInstructions);
 		} catch (err) {
 			handle.busy = false;
+			this._disarmTurnWatchdog(handle);
 			handle.thinkingSince = null;
 			// 压缩失败（如会话太小 / 已压缩过）：pi 已 emit compaction_end{errorMessage}，
 			// 前端 compaction_end case 负责展示失败文案（单一来源，避免与 message_end 重复）。
@@ -1178,6 +1263,7 @@ export class AgentManager {
 			return;
 		}
 		handle.busy = false;
+		this._disarmTurnWatchdog(handle);
 		handle.thinkingSince = null;
 		handle.lastActiveAt = Date.now();
 		// 压缩完成：合成 agent_end（前端退出思考态 + 触发 /compact token 刷新）
@@ -1300,6 +1386,7 @@ export class AgentManager {
 			);
 		});
 		handle.busy = false;
+		this._disarmTurnWatchdog(handle);
 		handle.thinkingSince = null;
 		console.log(`[agent-manager] abort DONE session=${sessionId}`);
 	}
@@ -1397,6 +1484,7 @@ export class AgentManager {
 		const handle = this.sessions.get(sessionId);
 		if (handle) {
 			handle.disposed = true;
+			this._disarmTurnWatchdog(handle);
 			this._flushSubagentTelemetry(sessionId, handle);
 			// 拆除会话时级联中止在跑的子代理进程（防孤儿泄漏）
 			for (const c of handle.subagentAborts) c.abort();

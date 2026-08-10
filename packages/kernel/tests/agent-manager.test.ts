@@ -102,6 +102,8 @@ interface SetupOpts {
 	/** 覆盖默认 fakeClientFactory（如慢启动 / 启动失败 / 预置消息） */
 	createClientFn?: (opts: RpcClientOpts) => RpcClient;
 	agentName?: string;
+	/** 注入回合看门狗短超时（任务 3 测试用） */
+	turnWatchdog?: { idleMs?: number; hardCapMs?: number };
 }
 
 /** 造测试项目 + 会话实体 + 注入 fake client 的 AgentManager */
@@ -129,6 +131,7 @@ async function setup(opts: SetupOpts = {}) {
 		...(opts.extensionManager
 			? { extensionManager: opts.extensionManager }
 			: {}),
+		...(opts.turnWatchdog ? { turnWatchdog: opts.turnWatchdog } : {}),
 	});
 	managers.push(am);
 	syspromptSessionIds.push(session.id);
@@ -2194,4 +2197,114 @@ test("extension dialog 请求 title/message/options 剥离 ANSI 转义；缺省�
 
 	extUiRegistry.respond("req-2", { confirmed: true });
 	await pending;
+});
+
+// ─── 回合看门狗（任务 3：pi 假死自动恢复）───────────────────────────────
+// 背景：主会话 busy 复位完全依赖 pi 发 agent_settled。pi 假死（MCP 工具卡死 /
+// LLM 流停滞但 TCP 未断 / 扩展死锁）时不退出也不发事件 → busy 永真：前端永久
+// 「思考中」、排队消息永不 drain。回合看门狗：busy 期间无任何 pi 事件超过 idleMs
+// 强杀进程走崩溃恢复路径。等待用户回答（ask / 扩展 dialog）是正常的长无事件状态，
+// 看门狗触发时检查 pending 并跳过重新武装。
+
+test("回合看门狗：busy 后无任何事件 → 强杀进程并播报前端", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({
+		events,
+		turnWatchdog: { idleMs: 200, hardCapMs: 60_000 },
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.autoSettle = false;
+	// 写 piSessionFile 让 _onProcessExit 走正常崩溃分支（孤儿回滚分支不播报 message_end）
+	writeFileSync(
+		session.piSessionFile,
+		'{"role":"user","content":"hi"}\n',
+	);
+	await am.prompt(session.id, "你好", { model: MODEL });
+	// agent_start 置位 thinkingSince，防 _sendPromptNow 的 50ms 乐观复位清掉 busy
+	fake.emit({ type: "agent_start" } as any);
+	// 之后无任何事件（模拟 pi 假死）→ 200ms 后看门狗触发
+	await new Promise((r) => setTimeout(r, 600));
+	expect(fake.alive).toBe(false); // dispose 强杀
+	// 真实 RpcClient dispose 会触发进程 exit → onExit；fake 不模拟，手动补 exit 事件
+	fake.opts.onExit?.(null, "SIGKILL");
+	expect(
+		events.some(
+			(c) =>
+				c.e.type === "message_end" &&
+				String(c.e.message?.errorMessage ?? "").includes("看门狗"),
+		),
+	).toBe(true);
+	expect(am.isSessionStreaming(session.id)).toBe(false);
+});
+
+test("回合看门狗：持续有事件流动时不触发", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({
+		events,
+		turnWatchdog: { idleMs: 300, hardCapMs: 60_000 },
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.autoSettle = false;
+	await am.prompt(session.id, "你好", { model: MODEL });
+	fake.emit({ type: "agent_start" } as any);
+	// 每 100ms 注入一个事件，持续 700ms（超 idleMs 两倍），看门狗不应触发
+	for (let i = 0; i < 7; i++) {
+		fake.emit({
+			type: "message_update",
+			assistantMessageEvent: { type: "text_delta", delta: "x" },
+		} as any);
+		await new Promise((r) => setTimeout(r, 100));
+	}
+	expect(fake.alive).toBe(true);
+	fake.emit({ type: "agent_settled" } as any);
+});
+
+test("回合看门狗：agent_settled 后计时器清除，不再误触发", async () => {
+	const { project, session, am, fakes } = await setup({
+		turnWatchdog: { idleMs: 150, hardCapMs: 60_000 },
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	// autoSettle=true：prompt 后立即 agent_start + agent_settled，回合结束
+	await am.prompt(session.id, "你好", { model: MODEL });
+	await new Promise((r) => setTimeout(r, 400));
+	expect(fakes[0].alive).toBe(true); // 看门狗已解除，不误杀空闲会话
+});
+
+test("回合看门狗：pending ask 等待用户回答期间不误杀（跳过并重新武装）", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({
+		events,
+		turnWatchdog: { idleMs: 200, hardCapMs: 60_000 },
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.autoSettle = false;
+	await am.prompt(session.id, "你好", { model: MODEL });
+	fake.emit({ type: "agent_start" } as any);
+	// 模拟工具调用进入 ask 等待用户回答（正常的长无事件状态）
+	const askController = new AbortController();
+	const askP = askRegistry.ask(
+		session.id,
+		"tc-ask",
+		{
+			questions: [
+				{
+					question: "Q?",
+					header: "h",
+					options: [
+						{ label: "A", description: "x" },
+						{ label: "B", description: "y" },
+					],
+				},
+			],
+		},
+		askController.signal,
+	);
+	await new Promise((r) => setTimeout(r, 600)); // 超 idleMs 两倍多
+	expect(fake.alive).toBe(true); // 等待用户回答，不得触发看门狗
+	askRegistry.cancelAll(session.id);
+	await askP.catch(() => {});
+	fake.emit({ type: "agent_settled" } as any);
 });
