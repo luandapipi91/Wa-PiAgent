@@ -141,7 +141,7 @@ export function BotsSection() {
 							>
 								<span
 									className="relative inline-block w-7 h-4 rounded-full align-middle"
-									style={{ background: b.enabled ? "var(--success)" : "var(--hairline-strong)" }}
+									style={{ background: b.enabled ? "var(--brand)" : "var(--hairline-strong)" }}
 								>
 									<span
 										className="absolute top-0.5 w-3 h-3 rounded-full"

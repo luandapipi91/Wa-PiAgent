@@ -737,7 +737,7 @@ function SwitchButton({
 				width: 38,
 				height: 22,
 				borderRadius: 9999,
-				background: on ? "var(--success)" : "#cbd5e1",
+				background: on ? "var(--brand)" : "var(--hairline-strong)",
 				transition: "background 0.2s",
 			}}
 			data-testid={testId}

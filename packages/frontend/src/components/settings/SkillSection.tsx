@@ -191,7 +191,7 @@ export function SkillSection() {
                       className="relative shrink-0 cursor-pointer"
                       style={{
                         width: 38, height: 22, borderRadius: 9999,
-                        background: disabled ? "#cbd5e1" : "var(--success)",
+                        background: disabled ? "var(--hairline-strong)" : "var(--brand)",
                         transition: "background 0.2s",
                       }}
                       data-testid={`skill-switch-${skill.name}`}
