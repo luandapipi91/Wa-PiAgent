@@ -4,6 +4,21 @@
 
 ---
 
+## 2026-08-10 — 集成外观设置（导航 + 字号迁移 + 硬编码修复）
+
+### 新增
+
+- **feat(frontend)·导航集成**：`SettingsModal.tsx` 左侧导航在「通用」后新增「外观」按钮（`settings-nav-appearance`），右侧内容区新增 `AppearanceSection` 渲染分支。
+- **feat(frontend)·类型扩展**：`SettingsSection` 类型新增 `"appearance"` 联合成员。
+
+### 修复
+
+- **fix(frontend)·字号迁移**：`GeneralSection.tsx` 移除全部字号相关代码（fontSize/setFontSize store 引用、draftFontSize 草稿态、字号 label/slider/value DOM、handleSave 中字号写入逻辑、`FONT_SIZE_MIN/MAX` import），字号功能已迁移至 `AppearanceSection`。
+- **fix(frontend)·硬编码颜色**：`main.tsx` 错误边界重载按钮的 `background: "#4BA26F"` 改为 `background: "var(--brand)"`，纳入主题变量体系。
+- 影响范围：`packages/frontend/src/store/settings.ts`、`packages/frontend/src/components/SettingsModal.tsx`、`packages/frontend/src/components/settings/GeneralSection.tsx`、`packages/frontend/src/main.tsx`、`packages/frontend/tests/GeneralSection.test.tsx`。
+
+---
+
 ## 2026-08-10 — 修复 AppearanceSection 测试隔离 + 补字号 UI 断言
 
 ### 修复

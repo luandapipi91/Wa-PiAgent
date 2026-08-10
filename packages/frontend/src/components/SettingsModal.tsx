@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "../i18n/useTranslation";
 import { Modal } from "./ui/Modal";
 import { GeneralSection } from "./settings/GeneralSection";
+import { AppearanceSection } from "./settings/AppearanceSection";
 import { DiagnosticsSection } from "./settings/DiagnosticsSection";
 import { ProviderSection } from "./settings/ProviderSection";
 import { SkillSection } from "./settings/SkillSection";
@@ -50,7 +51,7 @@ export function SettingsModal({ onClose }: Props) {
 				</span>
 			</div>
 			<div className="flex flex-1 min-h-0">
-				{/* 左侧导航：通用 + 模型管理 + 技能 */}
+				{/* 左侧导航：通用 + 外观 + 模型管理 + 技能 */}
 				<nav className="w-40 border-r border-hairline p-2 flex flex-col gap-1">
 					<button
 						onClick={() => setSection("general")}
@@ -63,6 +64,18 @@ export function SettingsModal({ onClose }: Props) {
 						data-testid="settings-nav-general"
 					>
 						{t("settings.nav.general")}
+					</button>
+					<button
+						onClick={() => setSection("appearance")}
+						className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
+						style={
+							activeSection === "appearance"
+								? { background: "var(--accent-soft)", color: "var(--accent)" }
+								: { color: "var(--secondary)" }
+						}
+						data-testid="settings-nav-appearance"
+					>
+						{t("settings.nav.appearance")}
 					</button>
 					<button
 						onClick={() => setSection("models")}
@@ -168,6 +181,7 @@ export function SettingsModal({ onClose }: Props) {
 				{/* 右侧内容 */}
 				<div className="flex-1 flex flex-col overflow-hidden">
 					{activeSection === "general" && <GeneralSection />}
+					{activeSection === "appearance" && <AppearanceSection />}
 					{activeSection === "models" && <ProviderSection />}
 					{activeSection === "skills" && <SkillSection />}
 					{activeSection === "plugins" && <ExtensionSection />}

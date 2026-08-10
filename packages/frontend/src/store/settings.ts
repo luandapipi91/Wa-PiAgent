@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 export type SettingsSection =
 	| "general"
+	| "appearance"
 	| "models"
 	| "skills"
 	| "plugins"
