@@ -3,6 +3,8 @@ import {
 	resolveIdentity,
 	buildSignArgs,
 	signMacApp,
+	hasCert,
+	DEFAULT_SELF_SIGNED_CERT,
 } from "../scripts/mac-sign.cjs";
 import {
 	mkdtempSync,
@@ -16,20 +18,56 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 describe("resolveIdentity", () => {
-	test("未设置 CODESIGN_IDENTITY → 回退 ad-hoc（-）", () => {
-		expect(resolveIdentity({})).toBe("-");
-		expect(resolveIdentity({ CODESIGN_IDENTITY: "  " })).toBe("-");
+	const noCert = {
+		exec: () => {
+			throw new Error("cert not found");
+		},
+	};
+	const hasCertEnv = { exec: () => undefined };
+
+	test("无 CODESIGN_IDENTITY 且钥匙串无证书 → 回退 ad-hoc（-）", () => {
+		expect(resolveIdentity({}, noCert)).toBe("-");
+		expect(resolveIdentity({ CODESIGN_IDENTITY: "  " }, noCert)).toBe("-");
 	});
 
-	test("设置了 CODESIGN_IDENTITY → 使用证书身份（去空白）", () => {
+	test("钥匙串有默认自签名证书时自动使用（避免静默回退 ad-hoc）", () => {
+		expect(resolveIdentity({}, hasCertEnv)).toBe("WA PI Agent Self-Signed");
+		expect(DEFAULT_SELF_SIGNED_CERT).toBe("WA PI Agent Self-Signed");
+	});
+
+	test("WA_PI_SELF_SIGNED_CERT 可覆盖证书名 / 空字符串禁用回退", () => {
 		expect(
-			resolveIdentity({
-				CODESIGN_IDENTITY: "Developer ID Application: ACME (ABC123)",
-			}),
-		).toBe("Developer ID Application: ACME (ABC123)");
-		expect(resolveIdentity({ CODESIGN_IDENTITY: "  my-cert  " })).toBe(
-			"my-cert",
+			resolveIdentity({ WA_PI_SELF_SIGNED_CERT: "My Cert" }, hasCertEnv),
+		).toBe("My Cert");
+		expect(resolveIdentity({ WA_PI_SELF_SIGNED_CERT: "" }, hasCertEnv)).toBe(
+			"-",
 		);
+	});
+
+	test("设置了 CODESIGN_IDENTITY → 使用证书身份（去空白），传 - 强制 ad-hoc", () => {
+		expect(
+			resolveIdentity(
+				{ CODESIGN_IDENTITY: "Developer ID Application: ACME (ABC123)" },
+				hasCertEnv,
+			),
+		).toBe("Developer ID Application: ACME (ABC123)");
+		expect(
+			resolveIdentity({ CODESIGN_IDENTITY: "  my-cert  " }, hasCertEnv),
+		).toBe("my-cert");
+		expect(resolveIdentity({ CODESIGN_IDENTITY: "-" }, hasCertEnv)).toBe("-");
+	});
+});
+
+describe("hasCert", () => {
+	test("security 查询成功 → true", () => {
+		expect(hasCert("X", () => undefined)).toBe(true);
+	});
+	test("security 查询失败（无证书）→ false", () => {
+		expect(
+			hasCert("X", () => {
+				throw new Error("no");
+			}),
+		).toBe(false);
 	});
 });
 
@@ -68,13 +106,21 @@ function makeFakeApp(): string {
 	return dir;
 }
 
+const realExecFileSync = require("node:child_process").execFileSync;
+
+/** codesign 走真实执行、security 视为无证书（强制 ad-hoc 路径）的桩。 */
+function execNoCert(cmd, args, opts) {
+	if (cmd === "security") throw new Error("cert not found");
+	return realExecFileSync(cmd, args, opts);
+}
+
 const darwin = process.platform === "darwin" ? test : test.skip;
 
 describe("signMacApp", () => {
-	darwin("成功签名最小 .app 并通过 verify（真实 codesign）", () => {
+	darwin("成功签名最小 .app 并通过 verify（无证书→ad-hoc）", () => {
 		const app = makeFakeApp();
 		try {
-			const result = signMacApp(app, { env: {} });
+			const result = signMacApp(app, { env: {}, exec: execNoCert });
 			expect(result.signed).toBe(true);
 			expect(result.identity).toBe("-");
 		} finally {

@@ -6,13 +6,40 @@
 // 让 TCC 能按签名身份绑定权限。
 const { execFileSync } = require("node:child_process");
 
+/** 项目自签名证书默认名（登录钥匙串）。OTA 更新依赖它：ad-hoc 签名的 requirement 是 cdhash，
+ *  更新验证必然失败；自签名证书签名的 requirement 是 certificate leaf = H"..."（证书哈希），
+ *  同一证书签的新版本互相满足，Squirrel.Mac 更新验证可过。 */
+const DEFAULT_SELF_SIGNED_CERT = "WA PI Agent Self-Signed";
+
+/** 钥匙串里是否存在给定证书（只读查询，不弹窗）。 */
+function hasCert(name, exec = execFileSync) {
+	try {
+		exec("security", ["find-certificate", "-c", name, "-a"], {
+			stdio: "ignore",
+		});
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /**
- * 决定签名身份：优先环境变量 CODESIGN_IDENTITY（正式 Developer ID 证书），
- * 未设置时回退 ad-hoc（"-"，不需要证书）。
+ * 决定签名身份，优先级：
+ * 1. CODESIGN_IDENTITY（显式指定，正式 Developer ID 或自签名证书名；传 "-" 强制 ad-hoc）
+ * 2. 钥匙串存在默认自签名证书（WA_PI_SELF_SIGNED_CERT 可覆盖名称）时自动使用，保证 OTA 更新签名验证稳定
+ * 3. 都没有 → 回退 ad-hoc（"-"，不需要证书）
  */
-function resolveIdentity(env = process.env) {
+function resolveIdentity(env = process.env, options = {}) {
+	const { exec = execFileSync } = options;
 	const id = (env.CODESIGN_IDENTITY || "").trim();
-	return id || "-";
+	if (id) return id;
+	const raw =
+		env.WA_PI_SELF_SIGNED_CERT !== undefined
+			? env.WA_PI_SELF_SIGNED_CERT
+			: DEFAULT_SELF_SIGNED_CERT;
+	const selfSigned = raw.trim();
+	if (selfSigned && hasCert(selfSigned, exec)) return selfSigned;
+	return "-";
 }
 
 /** 构造 codesign 参数。--deep 递归签名内部 Electron Framework/helpers。 */
@@ -26,7 +53,7 @@ function buildSignArgs(appPath, identity) {
  */
 function signMacApp(appPath, options = {}) {
 	const { env = process.env, exec = execFileSync } = options;
-	const identity = resolveIdentity(env);
+	const identity = resolveIdentity(env, { exec });
 	const args = buildSignArgs(appPath, identity);
 	try {
 		exec("codesign", args, { stdio: "inherit" });
@@ -41,4 +68,10 @@ function signMacApp(appPath, options = {}) {
 	}
 }
 
-module.exports = { resolveIdentity, buildSignArgs, signMacApp };
+module.exports = {
+	resolveIdentity,
+	buildSignArgs,
+	signMacApp,
+	hasCert,
+	DEFAULT_SELF_SIGNED_CERT,
+};
