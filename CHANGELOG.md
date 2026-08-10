@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-08-10 — subagent-runner settle 竞速重构（abort 短路 + Infinity 守卫 + 计时器清理）
+
+### 修复
+
+- **fix(kernel)**：子代理 abort 短路宽限强杀——收到 abort 信号后宽限 `abortGraceMs`（默认 10s），到期不等 settle 超时走 finally dispose 强杀进程，修复用户点停止后子代理后台最长再活 30 分钟的问题。
+- **fix(kernel)**：`setTimeout(fn, Infinity)` 在 Node/Bun 溢出按 1ms 处理导致误超时——`subagent-runner.ts` settle 兜底与 `rpc-client.ts` command() 计时器均加 `Number.isFinite()` 守卫跳过 `Infinity`。
+- **fix(kernel)**：settle 先兑现时 setTimeout 不清理的计时器泄漏——race 后 finally 清理 settle/grace 两个计时器。
+  - 影响范围：`packages/kernel/src/subagent-runner.ts`、`packages/kernel/src/rpc-client.ts`。
+
+---
+
 ## 2026-08-10
 
 ### 变更

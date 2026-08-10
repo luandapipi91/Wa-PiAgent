@@ -266,3 +266,10 @@ test("集成：真实 pi --mode rpc 响应 get_state（offline）", async () => 
 	expect(typeof state.sessionId).toBe("string");
 	expect(state.isStreaming).toBe(false);
 });
+
+test("commandTimeoutMs=Infinity 时命令不误超时（setTimeout 溢出守卫）", async () => {
+	const { client } = makeClient({ commandTimeoutMs: Infinity });
+	await client.start();
+	const state = await client.getState();
+	expect(state.isStreaming).toBe(false);
+});
