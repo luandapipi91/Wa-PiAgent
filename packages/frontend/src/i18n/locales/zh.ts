@@ -624,6 +624,7 @@ const zh = {
 		title: "系统设置",
 		nav: {
 			general: "通用",
+			appearance: "外观",
 			models: "模型管理",
 			skills: "技能",
 			plugins: "插件",
@@ -671,6 +672,23 @@ const zh = {
 				preview: "试听",
 			},
 			autoLaunch: "开机自启",
+		},
+		appearance: {
+			themeMode: {
+				label: "界面主题",
+				desc: "选择浅色、深色或跟随系统",
+				system: "跟随系统",
+				light: "浅色",
+				dark: "深色",
+			},
+			themeColor: {
+				label: "主题颜色",
+				desc: "点击选择你喜欢的强调色",
+			},
+			fontSize: {
+				label: "文字大小",
+				desc: "拖动滑块调整文字大小（{{min}}-{{max}}px），只缩放文字、不改变布局，即时生效。",
+			},
 		},
 		diagnostics: {
 			title: "扩展错误（最近 {{count}} 条）",

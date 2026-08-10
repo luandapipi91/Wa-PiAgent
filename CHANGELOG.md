@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-08-10 — 新建 AppearanceSection 组件 + appearance i18n 翻译键
+
+### 新增
+
+- **feat(frontend)·外观设置组件**：新建 `AppearanceSection.tsx`，包含三块 UI：① 主题模式分段控制器（system/light/dark），点击即时写入 store 并更新 `<html data-theme>`；② 6 色主题颜色圆点（green/blue/purple/yellow/orange/red），点击即时写入 store 并更新 `<html data-accent>`；③ 字号滑块（12-32px），拖动即时生效、无需草稿态/保存按钮。
+- **feat(i18n)·翻译键**：zh.ts / en.ts 的 `settings.nav` 新增 `appearance` 导航项；`settings` 新增 `appearance` 块（themeMode / themeColor / fontSize 三组 label+desc）。
+- 影响范围：`packages/frontend/src/components/settings/AppearanceSection.tsx`、`packages/frontend/src/i18n/locales/zh.ts`、`packages/frontend/src/i18n/locales/en.ts`、`packages/frontend/tests/AppearanceSection.test.tsx`。
+
+---
+
 ## 2026-08-10 — 修复 ui-prefs theme 测试默认值用例为重言式
 
 ### 修复
