@@ -49,7 +49,9 @@ test("渲染项目 + 会话", () => {
 
 test("IM 渠道会话（im- 前缀）不在任务列表显示，只属于 IM 页签", () => {
 	useProjectsStore.setState({
-		projects: [{ id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp", createdAt: 0 }],
+		projects: [
+			{ id: SYSTEM_PROJECT_ID, name: "默认工作区", cwd: "/tmp", createdAt: 0 },
+		],
 		sessions: [
 			{
 				id: "normal-session",
