@@ -194,6 +194,9 @@ export function MessageList({ sessionId }: Props) {
 		hasRunningSubagent ||
 		status === "thinking"
 	);
+	// ref 供 atBottomStateChange 回调读取最新值（回调闭包不随渲染刷新）
+	const autoScrollActiveRef = useRef(autoScrollActive);
+	autoScrollActiveRef.current = autoScrollActive;
 
 	// 切换会话：重置停留状态为新会话「在底部」。
 	useEffect(() => {
@@ -297,6 +300,32 @@ export function MessageList({ sessionId }: Props) {
 		}
 	}, [listRows.length, autoScrollActive, stickBottom]);
 
+	// 子代理 progress 增长不改变 listRows.length，上面依赖 listRows.length 的 effect 不触发。
+	// 此 interval 在 autoScrollActive && stickBottom 期间每 200ms 强制定位到末行，
+	// 确保 DelegateCard 内部内容增长（子代理输出/工具结果追加）时视口跟随。
+	useEffect(() => {
+		if (!autoScrollActive || !stickBottom) return;
+		const interval = setInterval(() => {
+			virtuosoRef.current?.scrollToIndex({
+				index: listRows.length - 1,
+				align: "end",
+				behavior: "auto",
+			});
+		}, 200);
+		return () => clearInterval(interval);
+	}, [autoScrollActive, stickBottom, listRows.length]);
+
+	// atBottomStateChange：autoScrollActive 期间内容增长导致的暂时性 not-at-bottom
+	// 不置 stickBottom=false（区分「程序化贴底竞态」与「用户主动上翻」）。
+	// autoScrollActive 结束后恢复正常行为——用户上翻即暂停跟随。
+	const handleAtBottomChange = useCallback((atBottom: boolean) => {
+		if (atBottom) {
+			setStickBottom(true);
+		} else if (!autoScrollActiveRef.current) {
+			setStickBottom(false);
+		}
+	}, []);
+
 	// 进行中的轮判定：status==="thinking"（agent_start 已到、agent_end 未到）且无独立 streaming
 	// 占位时，渲染列表最后一行是已定稿 assistant 行 → 它属于进行中的轮。即使已定稿也不折叠——
 	// 一轮 agent 调用中第一个块（thinking+工具）定稿后整轮还在跑（长工具执行/后续 text 流式），
@@ -321,7 +350,7 @@ export function MessageList({ sessionId }: Props) {
 				computeItemKey={(_i, vr) => vr.key}
 				increaseViewportBy={400}
 				atBottomThreshold={20}
-				atBottomStateChange={setStickBottom}
+				atBottomStateChange={handleAtBottomChange}
 				followOutput={(isAtBottom) =>
 					isAtBottom && autoScrollActive ? "auto" : false
 				}
