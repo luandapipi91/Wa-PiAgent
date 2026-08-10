@@ -88,7 +88,13 @@ test("子代理运行中时定期 scrollToIndex 到末行（interval 贴底）",
 		statusBySession: { s1: "thinking" },
 		progressByToolCall: {
 			tc1: {
-				Explore: { agent: "Explore", status: "running", output: "正在搜索...", tools: [], elapsedMs: 1000 },
+				Explore: {
+					agent: "Explore",
+					status: "running",
+					output: "正在搜索...",
+					tools: [],
+					elapsedMs: 1000,
+				},
 			},
 		},
 		progressSessionByToolCall: { tc1: "s1" },
