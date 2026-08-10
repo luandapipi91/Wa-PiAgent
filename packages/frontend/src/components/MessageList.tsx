@@ -352,21 +352,27 @@ export function MessageList({ sessionId }: Props) {
 	// 非 wheel/touch 输入路径只产生原生 scroll 事件）。组件卸载时 ref 回调传 null，
 	// 由 React 合成事件系统之外的原生 listener 手动移除。类型允许 Window
 	//（Virtuoso 在 window 滚动场景下用 Window 作为 scroller），实际仅处理 HTMLElement。
-	const attachScroller = useCallback((el: HTMLElement | Window | null) => {
-		if (scrollerElRef.current && scrollerElRef.current !== el) {
-			scrollerElRef.current.removeEventListener("scroll", handleScrollerScroll);
-		}
-		if (el instanceof HTMLElement) {
-			scrollerElRef.current = el;
-			// 与 Virtuoso 自身一致标 passive：该 listener 不 preventDefault，且避免未来误加
-			el.addEventListener("scroll", handleScrollerScroll, { passive: true });
-			lastScrollTopRef.current = el.scrollTop;
-		} else {
-			// window 滚动模式下 Virtuoso 传 null（当前布局 absolute inset-0 不会触发），
-			// 上翻检测在该模式静默不生效；若未来改页面级滚动需同步处理。
-			scrollerElRef.current = null;
-		}
-	}, [handleScrollerScroll]);
+	const attachScroller = useCallback(
+		(el: HTMLElement | Window | null) => {
+			if (scrollerElRef.current && scrollerElRef.current !== el) {
+				scrollerElRef.current.removeEventListener(
+					"scroll",
+					handleScrollerScroll,
+				);
+			}
+			if (el instanceof HTMLElement) {
+				scrollerElRef.current = el;
+				// 与 Virtuoso 自身一致标 passive：该 listener 不 preventDefault，且避免未来误加
+				el.addEventListener("scroll", handleScrollerScroll, { passive: true });
+				lastScrollTopRef.current = el.scrollTop;
+			} else {
+				// window 滚动模式下 Virtuoso 传 null（当前布局 absolute inset-0 不会触发），
+				// 上翻检测在该模式静默不生效；若未来改页面级滚动需同步处理。
+				scrollerElRef.current = null;
+			}
+		},
+		[handleScrollerScroll],
+	);
 
 	// 进行中的轮判定：status==="thinking"（agent_start 已到、agent_end 未到）且无独立 streaming
 	// 占位时，渲染列表最后一行是已定稿 assistant 行 → 它属于进行中的轮。即使已定稿也不折叠——
