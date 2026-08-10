@@ -28,7 +28,7 @@ win:
     - target: nsis
       arch: [x64]
   icon: src/assets/icon.ico
-  signAndEditExecutable: false # Windows Defender 锁定 exe 导致 rcedit 竞态失败
+  signExecutable: false # 跳过签名但保留 resEdit 图标嵌入
 nsis:
   oneClick: false
   perMachine: true

@@ -1,4 +1,10 @@
-import { useState, useEffect, useRef, type MouseEvent } from "react";
+import {
+	useState,
+	useEffect,
+	useRef,
+	useLayoutEffect,
+	type MouseEvent,
+} from "react";
 import { createPortal } from "react-dom";
 import {
 	SYSTEM_PROJECT_ID,
@@ -37,6 +43,45 @@ interface ProjectMenuState {
 	y: number;
 }
 
+/** 将菜单坐标钳制到视口内，避免底部/右缘溢出（纯函数，便于测试） */
+export function clampMenuPos(
+	x: number,
+	y: number,
+	width: number,
+	height: number,
+	vw: number,
+	vh: number,
+	margin = 8,
+): { left: number; top: number } {
+	let top = y;
+	let left = x;
+	if (top + height > vh - margin) top = Math.max(margin, vh - height - margin);
+	if (left + width > vw - margin) left = Math.max(margin, vw - width - margin);
+	return { left, top };
+}
+
+/** 浮层渲染后（paint 前）测量尺寸并钳制坐标到视口内 */
+function useClampMenu(
+	ref: React.RefObject<HTMLDivElement | null>,
+	pos: { x: number; y: number } | null,
+) {
+	useLayoutEffect(() => {
+		const el = ref.current;
+		if (!el || !pos) return;
+		const { width, height } = el.getBoundingClientRect();
+		const { left, top } = clampMenuPos(
+			pos.x,
+			pos.y,
+			width,
+			height,
+			window.innerWidth,
+			window.innerHeight,
+		);
+		el.style.left = `${left}px`;
+		el.style.top = `${top}px`;
+	});
+}
+
 export function ProjectItem(props: Props) {
 	const { t } = useTranslation();
 	const expanded = useProjectUiStore((s) => s.isExpanded(props.project.id));
@@ -44,8 +89,13 @@ export function ProjectItem(props: Props) {
 	const setExpanded = useProjectUiStore((s) => s.setExpanded);
 	// 会话右键菜单
 	const [sessionMenu, setSessionMenu] = useState<SessionMenuState | null>(null);
+	const sessionMenuRef = useRef<HTMLDivElement>(null);
 	// 项目右键菜单
 	const [projectMenu, setProjectMenu] = useState<ProjectMenuState | null>(null);
+	const projectMenuRef = useRef<HTMLDivElement>(null);
+	// 菜单渲染后钳制到视口内
+	useClampMenu(sessionMenuRef, sessionMenu);
+	useClampMenu(projectMenuRef, projectMenu);
 	// 删除确认框
 	const [deleteTarget, setDeleteTarget] = useState<
 		SessionEntity | ProjectEntity | null
@@ -291,6 +341,7 @@ export function ProjectItem(props: Props) {
 			{sessionMenu &&
 				createPortal(
 					<div
+						ref={sessionMenuRef}
 						className="fixed z-50 rounded-md py-1 text-sm border border-hairline"
 						style={{
 							left: sessionMenu.x,
@@ -337,6 +388,7 @@ export function ProjectItem(props: Props) {
 			{projectMenu &&
 				createPortal(
 					<div
+						ref={projectMenuRef}
 						className="fixed z-50 rounded-md py-1 text-sm border border-hairline"
 						style={{
 							left: projectMenu.x,

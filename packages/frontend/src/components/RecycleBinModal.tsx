@@ -182,7 +182,7 @@ export function RecycleBinModal({ onClose }: Props) {
 						}
 						disabled={selectedCount === 0}
 						className="px-4 py-2 rounded text-sm disabled:opacity-40"
-					style={{ background: "var(--brand)", color: "var(--on-brand)" }}
+						style={{ background: "var(--brand)", color: "var(--on-brand)" }}
 						data-testid="trash-restore-btn"
 					>
 						<Icon

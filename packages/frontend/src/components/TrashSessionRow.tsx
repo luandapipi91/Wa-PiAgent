@@ -98,7 +98,6 @@ export const TrashSessionRow = memo(function TrashSessionRow({
 					selected
 						? tagStyle
 						: {
-
 								backgroundColor: "var(--accent-soft)",
 								color: "var(--accent)",
 								border: "1px solid var(--hairline)",

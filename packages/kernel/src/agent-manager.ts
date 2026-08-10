@@ -408,10 +408,26 @@ export class AgentManager {
 		// dirty（扩展装卸）：走热重载。动态扩展走 pi 官方 packages 机制，session.reload() 重读
 		// settings.json packages 让装卸立即生效；reload 保留进程 + -e 内置扩展，重放 session_start
 		// 让活跃扩展重发 widget/status 恢复 UI。先发 extension_ui_reset 清被卸载扩展的 UI 残留。
+		//
+		// 安全检查：热重载经 prompt("/__!wa_pi_reload") 触发，依赖 pi 拦截为扩展命令。
+		// 若命令未注册（扩展加载竞态 / pi 版本差异 / reload 后 runner 丢失注册），
+		// pi 会把 /__!wa_pi_reload 当普通消息发给 LLM——prompt 仍成功返回（LLM 回复了），
+		// catch 分支不会触发，导致内部命令泄漏到会话 transcript。
+		// 发 prompt 前先验证命令是否注册，未注册直接走整进程重建。
 		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
 			type: "extension_ui_reset",
 		} as RpcEvent);
 		try {
+			const { commands } = await handle.client.getCommands();
+			const hasReloadCmd = commands?.some(
+				(c: any) => c.name === "__!wa_pi_reload",
+			);
+			if (!hasReloadCmd) {
+				console.warn(
+					`[kernel] 会话 ${sessionId} 未注册 __!wa_pi_reload 命令，回退整进程重建`,
+				);
+				return this._rebuildSession(sessionId, handle);
+			}
 			await handle.client.reloadExtensions();
 			return handle;
 		} catch (err) {

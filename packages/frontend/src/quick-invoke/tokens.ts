@@ -26,11 +26,11 @@ export const COMMAND_TOKEN_RE = /\/\[([^\]]+)\]/g;
  * （（）、「」、［］等）在中文文本里是正常内容，不在此转换，避免改变用户语义。
  */
 const FULLWIDTH_TRIGGER_MAP: Record<string, string> = {
-  "\uFFE5": "\u00A5", // ￥ (FULLWIDTH YEN SIGN) → ¥ (YEN SIGN)
-  "\uFF04": "$",       // ＄ (FULLWIDTH DOLLAR SIGN) → $
-  "\uFF20": "@",       // ＠ (FULLWIDTH COMMERCIAL AT) → @
-  "\uFF03": "#",       // ＃ (FULLWIDTH NUMBER SIGN) → #
-  "\uFF0F": "/",       // ／ (FULLWIDTH SOLIDUS) → /
+	"\uFFE5": "\u00A5", // ￥ (FULLWIDTH YEN SIGN) → ¥ (YEN SIGN)
+	"\uFF04": "$", // ＄ (FULLWIDTH DOLLAR SIGN) → $
+	"\uFF20": "@", // ＠ (FULLWIDTH COMMERCIAL AT) → @
+	"\uFF03": "#", // ＃ (FULLWIDTH NUMBER SIGN) → #
+	"\uFF0F": "/", // ／ (FULLWIDTH SOLIDUS) → /
 };
 
 /**
@@ -40,16 +40,19 @@ const FULLWIDTH_TRIGGER_MAP: Record<string, string> = {
  * 输入框所见即所得（用户原文在发送前不被改写），发送时才做归一化/展开变换。
  */
 export function normalizeTriggerChars(text: string): string {
-  return text.replace(/[\uFFE5\uFF04\uFF20\uFF03\uFF0F]/g, ch => FULLWIDTH_TRIGGER_MAP[ch]);
+	return text.replace(
+		/[\uFFE5\uFF04\uFF20\uFF03\uFF0F]/g,
+		(ch) => FULLWIDTH_TRIGGER_MAP[ch],
+	);
 }
 
 /** segment 类型 */
 export type Segment =
-  | { type: "text"; value: string }
-  | { type: "agent"; value: string }
-  | { type: "file"; value: string }
-  | { type: "skill"; value: string }
-  | { type: "command"; value: string };
+	| { type: "text"; value: string }
+	| { type: "agent"; value: string }
+	| { type: "file"; value: string }
+	| { type: "skill"; value: string }
+	| { type: "command"; value: string };
 
 /**
  * 发送时把 chip token 展开为纯文本引用标记。
@@ -62,25 +65,31 @@ export type Segment =
  * 内联展开为 <skill name="..." location="...">完整 SKILL.md 内容</skill> XML 块。
  */
 export function expandTokens(text: string): string {
-  return normalizeTriggerChars(text)
-    .replace(FILE_TOKEN_RE, "#$1")
-    .replace(SKILL_TOKEN_RE, "/skill:$1 ") // 末尾空格：SDK _expandSkillCommand 用空格分隔技能名和参数
-    .replace(COMMAND_TOKEN_RE, "/$1 ");  // 命令 chip 展开为 /命令名 ，pi 识别为斜杠命令
+	return normalizeTriggerChars(text)
+		.replace(FILE_TOKEN_RE, "#$1")
+		.replace(SKILL_TOKEN_RE, "/skill:$1 ") // 末尾空格：SDK _expandSkillCommand 用空格分隔技能名和参数
+		.replace(COMMAND_TOKEN_RE, "/$1 "); // 命令 chip 展开为 /命令名 ，pi 识别为斜杠命令
 }
 
 // 智能体名称 -> 头像/颜色/显示名 全局注册表，供 textToHtml 渲染 chip 时使用。
 // 对内置 subagent：name 是英文 type name（如 "Plan"，用于 token @[Plan]），
 // displayName 是中文（如"规划子智能体"，用于 chip 显示文本）。
-const agentMetaLookup = new Map<string, { avatar?: string; avatarColor?: string; displayName?: string }>();
+const agentMetaLookup = new Map<
+	string,
+	{ avatar?: string; avatarColor?: string; displayName?: string }
+>();
 
 /** 注册智能体头像信息，供 chip 渲染时查找。displayName 用于 token 名与显示名不一致的场景（内置 subagent）。 */
-export function registerAgentMeta(name: string, meta: { avatar?: string; avatarColor?: string; displayName?: string }) {
-  agentMetaLookup.set(name, meta);
+export function registerAgentMeta(
+	name: string,
+	meta: { avatar?: string; avatarColor?: string; displayName?: string },
+) {
+	agentMetaLookup.set(name, meta);
 }
 
 /** 清除所有已注册的智能体头像信息（测试用） */
 export function clearAgentMeta() {
-  agentMetaLookup.clear();
+	agentMetaLookup.clear();
 }
 
 // chip 内联样式注入
@@ -88,10 +97,10 @@ let chipStyleInjected = false;
 
 /** 确保 chip 样式已注入到 document.head（多次调用安全，只注入一次） */
 export function ensureChipStyles() {
-  if (chipStyleInjected || typeof document === "undefined") return;
-  chipStyleInjected = true;
-  const style = document.createElement("style");
-  style.textContent = `
+	if (chipStyleInjected || typeof document === "undefined") return;
+	chipStyleInjected = true;
+	const style = document.createElement("style");
+	style.textContent = `
     .chip {
       display: inline-flex;
       align-items: center;
@@ -140,16 +149,16 @@ export function ensureChipStyles() {
       pointer-events: none;
     }
   `;
-  document.head.appendChild(style);
+	document.head.appendChild(style);
 }
 
 /** 转义 HTML 特殊字符，防止 XSS */
 export function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+	return str
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;");
 }
 
 /**
@@ -161,44 +170,46 @@ export function escapeHtml(str: string): string {
  * 也插入结果数组，破坏 segment 划分。
  */
 export function textToSegments(text: string): Segment[] {
-  const combined = /(@\[[^\]]+\]|#\[[^\]]+\]|[$¥]\[[^\]]+\]|\/\[[^\]]+\])/g;
-  const parts = text.split(combined).filter(p => p !== "");
-  const segs: Segment[] = [];
-  for (const part of parts) {
-    const agentMatch = part.match(/^@\[([^\]]+)\]$/);
-    if (agentMatch) {
-      segs.push({ type: "agent", value: agentMatch[1] });
-      continue;
-    }
-    const fileMatch = part.match(/^#\[([^\]]+)\]$/);
-    if (fileMatch) {
-      segs.push({ type: "file", value: fileMatch[1] });
-      continue;
-    }
-    const skillMatch = part.match(/^[$¥]\[([^\]]+)\]$/);
-    if (skillMatch) {
-      segs.push({ type: "skill", value: skillMatch[1] });
-      continue;
-    }
-    const commandMatch = part.match(/^\/\[([^\]]+)\]$/);
-    if (commandMatch) {
-      segs.push({ type: "command", value: commandMatch[1] });
-      continue;
-    }
-    segs.push({ type: "text", value: part });
-  }
-  return segs;
+	const combined = /(@\[[^\]]+\]|#\[[^\]]+\]|[$¥]\[[^\]]+\]|\/\[[^\]]+\])/g;
+	const parts = text.split(combined).filter((p) => p !== "");
+	const segs: Segment[] = [];
+	for (const part of parts) {
+		const agentMatch = part.match(/^@\[([^\]]+)\]$/);
+		if (agentMatch) {
+			segs.push({ type: "agent", value: agentMatch[1] });
+			continue;
+		}
+		const fileMatch = part.match(/^#\[([^\]]+)\]$/);
+		if (fileMatch) {
+			segs.push({ type: "file", value: fileMatch[1] });
+			continue;
+		}
+		const skillMatch = part.match(/^[$¥]\[([^\]]+)\]$/);
+		if (skillMatch) {
+			segs.push({ type: "skill", value: skillMatch[1] });
+			continue;
+		}
+		const commandMatch = part.match(/^\/\[([^\]]+)\]$/);
+		if (commandMatch) {
+			segs.push({ type: "command", value: commandMatch[1] });
+			continue;
+		}
+		segs.push({ type: "text", value: part });
+	}
+	return segs;
 }
 
 /** segment 数组还原为纯文本 token 字符串 */
 export function segmentsToText(segs: Segment[]): string {
-  return segs.map(s => {
-    if (s.type === "agent") return `@[${s.value}]`;
-    if (s.type === "file") return `#[${s.value}]`;
-    if (s.type === "skill") return `$[${s.value}]`;
-    if (s.type === "command") return `/[${s.value}]`;
-    return s.value;
-  }).join("");
+	return segs
+		.map((s) => {
+			if (s.type === "agent") return `@[${s.value}]`;
+			if (s.type === "file") return `#[${s.value}]`;
+			if (s.type === "skill") return `$[${s.value}]`;
+			if (s.type === "command") return `/[${s.value}]`;
+			return s.value;
+		})
+		.join("");
 }
 
 /**
@@ -206,11 +217,11 @@ export function segmentsToText(segs: Segment[]): string {
  * chip 内部含 data-token 属性（原始 token）和显示文本（触发符 + 名称）。
  */
 function avatarStyle(color?: string): string {
-  if (!color) return "";
-  const parts = color.split("-").map(s => s.trim());
-  return parts.length >= 2
-    ? `linear-gradient(135deg, ${parts.join(", ")})`
-    : color;
+	if (!color) return "";
+	const parts = color.split("-").map((s) => s.trim());
+	return parts.length >= 2
+		? `linear-gradient(135deg, ${parts.join(", ")})`
+		: color;
 }
 
 /**
@@ -221,38 +232,43 @@ function avatarStyle(color?: string): string {
  *   用于历史消息渲染（MessageList）：展示场景不需要看到触发符，更干净。
  *   输入框 ComposerTextarea 默认 false：保留 @ 让用户看到触发符。
  */
-export function textToHtml(text: string, opts?: { hideTrigger?: boolean }): string {
-  const hideTrigger = opts?.hideTrigger ?? false;
-  const segs = textToSegments(text);
-  return segs.map(s => {
-    if (s.type === "agent") {
-      const token = `@[${s.value}]`;
-      const meta = agentMetaLookup.get(s.value);
-      const avatarHtml = meta?.avatar
-        ? `<span class="chip-agent-avatar" style="background:${escapeHtml(avatarStyle(meta.avatarColor))}">${escapeHtml(meta.avatar)}</span>`
-        : "";
-      const trigger = hideTrigger ? "" : "@";
-      // 内置 subagent 的 token 用英文 name（与提示词一致），但 chip 显示其中文 displayName（若有注册）
-      const display = meta?.displayName ?? s.value;
-      // @ 在 avatar 之前（最前面），更符合"@某人"的视觉习惯
-      return `<span class="chip chip-agent" contenteditable="false" data-token="${escapeHtml(token)}">${trigger}${avatarHtml}${escapeHtml(display)}</span>`;
-    }
-    if (s.type === "file") {
-      const token = `#[${s.value}]`;
-      return `<span class="chip chip-file" contenteditable="false" data-token="${escapeHtml(token)}">#${escapeHtml(s.value)}</span>`;
-    }
-    if (s.type === "skill") {
-      const token = `$[${s.value}]`;
-      // 用闪电 SVG 图标替代触发符 $（输入框和历史回显都显示图标，更直观）
-      return `<span class="chip chip-skill" contenteditable="false" data-token="${escapeHtml(token)}">${iconSvg("bolt")} ${escapeHtml(s.value)}</span>`;
-    }
-    if (s.type === "command") {
-      const token = `/[${s.value}]`;
-      return `<span class="chip chip-command" contenteditable="false" data-token="${escapeHtml(token)}">/${escapeHtml(s.value)}</span>`;
-    }
-    // 先 escapeHtml 防注入，再把换行转为 <br>（在转义之后做，
-    // 这样 <br> 的尖括号是我们生成的、不会被二次转义）。
-    // 用户在 contenteditable 里换行产生 \n，渲染为历史消息时必须保留可见换行。
-    return escapeHtml(s.value).replace(/\n/g, "<br>");
-  }).join("");
+export function textToHtml(
+	text: string,
+	opts?: { hideTrigger?: boolean },
+): string {
+	const hideTrigger = opts?.hideTrigger ?? false;
+	const segs = textToSegments(text);
+	return segs
+		.map((s) => {
+			if (s.type === "agent") {
+				const token = `@[${s.value}]`;
+				const meta = agentMetaLookup.get(s.value);
+				const avatarHtml = meta?.avatar
+					? `<span class="chip-agent-avatar" style="background:${escapeHtml(avatarStyle(meta.avatarColor))}">${escapeHtml(meta.avatar)}</span>`
+					: "";
+				const trigger = hideTrigger ? "" : "@";
+				// 内置 subagent 的 token 用英文 name（与提示词一致），但 chip 显示其中文 displayName（若有注册）
+				const display = meta?.displayName ?? s.value;
+				// @ 在 avatar 之前（最前面），更符合"@某人"的视觉习惯
+				return `<span class="chip chip-agent" contenteditable="false" data-token="${escapeHtml(token)}">${trigger}${avatarHtml}${escapeHtml(display)}</span>`;
+			}
+			if (s.type === "file") {
+				const token = `#[${s.value}]`;
+				return `<span class="chip chip-file" contenteditable="false" data-token="${escapeHtml(token)}">#${escapeHtml(s.value)}</span>`;
+			}
+			if (s.type === "skill") {
+				const token = `$[${s.value}]`;
+				// 用闪电 SVG 图标替代触发符 $（输入框和历史回显都显示图标，更直观）
+				return `<span class="chip chip-skill" contenteditable="false" data-token="${escapeHtml(token)}">${iconSvg("bolt")} ${escapeHtml(s.value)}</span>`;
+			}
+			if (s.type === "command") {
+				const token = `/[${s.value}]`;
+				return `<span class="chip chip-command" contenteditable="false" data-token="${escapeHtml(token)}">/${escapeHtml(s.value)}</span>`;
+			}
+			// 先 escapeHtml 防注入，再把换行转为 <br>（在转义之后做，
+			// 这样 <br> 的尖括号是我们生成的、不会被二次转义）。
+			// 用户在 contenteditable 里换行产生 \n，渲染为历史消息时必须保留可见换行。
+			return escapeHtml(s.value).replace(/\n/g, "<br>");
+		})
+		.join("");
 }
