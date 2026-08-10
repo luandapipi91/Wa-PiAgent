@@ -30,7 +30,20 @@ function forceKill(pid) {
   } catch {}
 }
 
-async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, port }) {
+async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, port, deps = {} }) {
+  // 依赖注入（测试用，可选）：默认全走真实实现，生产行为不变。
+  //   spawnFn        替换 spawn（测试返回 fake child）
+  //   waitForPortFn  替换 waitForPort（测试立即就绪，不真等端口）
+  //   checkPortFn    替换探活 checkPort（测试恒健康，避免真探活/真杀）
+  //   killFn         替换 killTree（测试记录被杀 pid，绝不真杀进程）
+  //   respawnDelayMs 替换重启间隔（测试缩短，避免真等 2s）
+  const {
+    spawnFn = spawn,
+    waitForPortFn = waitForPort,
+    checkPortFn = checkPort,
+    killFn = killTree,
+    respawnDelayMs = RESPAWN_DELAY_MS,
+  } = deps;
   // dev: repo 下用 bun 跑 kernel 源码入口；packaged: kernelDir 里 wa-pi-kernel(.exe) run kernel.js
   // Windows dev 路径上 "bun" 是 .cmd shim——Node 20+ 出于 CVE-2024-27980 默认拒绝 spawn
   // .cmd/.bat（spawn EINVAL），必须 shell:true 让 cmd.exe 解析 PATHEXT。
@@ -53,6 +66,7 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
   // 守护状态：stopped（用户主动退出）+ attempts（重启计数，仅日志）+ failures（探活连续失败计数）
   const respawnState = { stopped: false, attempts: 0, failures: 0, failThreshold: HEALTH_FAIL_THRESHOLD };
   let current = null; // 当前 child 引用（重启时替换）
+  let lastPid = null; // 最近一次成功 spawn 的 pid（stop 兜底：current 无有效 pid 时用它）
   let childExited = false; // 当前 child 是否已退出（重启间隙探活跳过，避免误判）
   let healthTimer = null;
 
@@ -68,20 +82,22 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
       if (respawnState.stopped) return; // 退避期间用户退出了
       current = spawnOnce();
       // 重启后等待端口就绪（不就绪则下次 exit/error 会再触发）
-      waitForPort(wsPort, 30000).then((ready) => {
+      waitForPortFn(wsPort, 30000).then((ready) => {
         if (ready) {
           log.info(`[kernel] 重启就绪 @${wsPort}`);
           respawnState.attempts = 0;
           respawnState.failures = 0;
         } else log.error(`[kernel] 重启后 30s 未就绪`);
       });
-    }, RESPAWN_DELAY_MS);
+    }, respawnDelayMs);
   }
 
   // 创建一个 kernel 子进程并绑定日志/崩溃重启。返回 child。
   function spawnOnce() {
     childExited = false;
-    const child = spawn(cmd, finalArg, spawnOpts);
+    const child = spawnFn(cmd, finalArg, spawnOpts);
+    // spawn 成功（child.pid 有值）才更新 lastPid：spawn 失败（bun 缺失/ENOENT 等）pid 为 undefined，不能污染兜底记录
+    if (child.pid != null) lastPid = child.pid;
     child.on("error", (e) => {
       childExited = true;
       log.error(`[kernel] spawn error: ${e.message}`);
@@ -109,7 +125,7 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
       if (respawnState.stopped || childExited || inFlight || !current?.pid) return;
       inFlight = true;
       try {
-        const healthy = await checkPort(wsPort);
+        const healthy = await checkPortFn(wsPort);
         const { shouldRestart, failures } = updateHealthState(respawnState, healthy);
         respawnState.failures = failures;
         if (shouldRestart) {
@@ -125,19 +141,23 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
 
   current = spawnOnce();
   log.info(`kernel sidecar pid=${current.pid} cmd=${cmd} ${arg.join(" ")} port=${wsPort}`);
-  const ready = await waitForPort(wsPort, 30000);
-  if (!ready) { respawnState.stopped = true; log.error("kernel sidecar 30s 未就绪"); killTree(current.pid); throw new Error("kernel not ready"); }
+  const ready = await waitForPortFn(wsPort, 30000);
+  if (!ready) { respawnState.stopped = true; log.error("kernel sidecar 30s 未就绪"); killFn(current.pid); throw new Error("kernel not ready"); }
   log.info(`kernel 就绪 @${wsPort}`);
   startHealthCheck();
   return {
     child: current,
     pid: current.pid,
     port: wsPort,
-    // 主动停止：置 stopped 标志后 kill，防止 exit handler 误判为崩溃而重启；停止探活
+    // 主动停止：置 stopped 标志后 kill，防止 exit handler 误判为崩溃而重启；停止探活。
+    // 兜底：current 无有效 pid（spawn 失败/重启间隙）时用最近一次成功 spawn 的 lastPid，
+    // 避免「current?.pid 为 undefined → killTree 静默跳过」导致 Windows 升级后幽灵残留。
     stop: () => {
       respawnState.stopped = true;
       if (healthTimer) clearInterval(healthTimer);
-      killTree(current?.pid);
+      const pid = current?.pid ?? lastPid;
+      if (pid != null) killFn(pid);
+      else log.error("[kernel] stop 时无可用 pid（从未成功 spawn），跳过杀进程");
     },
   };
 }
