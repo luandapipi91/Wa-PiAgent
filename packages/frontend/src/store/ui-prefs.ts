@@ -3,6 +3,17 @@ import { persist } from "zustand/middleware";
 import type { AppLanguage } from "../i18n/detect";
 import { changeLanguage } from "../i18n";
 
+/** 界面主题模式 */
+export type ThemeMode = "system" | "light" | "dark";
+/** 主题颜色 */
+export type ThemeColor =
+	| "green"
+	| "blue"
+	| "purple"
+	| "yellow"
+	| "orange"
+	| "red";
+
 /** 界面文字大小（px），12-32，默认 16。
  *  只缩放文字、不动布局：经 CSS 变量 --font-scale（= fontSize/16）实现，
  *  全项目字号声明（Tailwind 任意值 / 自定义规则 / rem 字号类覆盖）均以
@@ -25,6 +36,12 @@ interface UiPrefsState {
 	/** 开机自启开关（默认 true，安装后默认开启），通过 IPC 同步到系统注册表 */
 	autoLaunch: boolean;
 	setAutoLaunch: (v: boolean) => void;
+	/** 界面主题模式（默认 system，跟随操作系统明暗） */
+	themeMode: ThemeMode;
+	setThemeMode: (mode: ThemeMode) => void;
+	/** 主题颜色（默认 green） */
+	themeColor: ThemeColor;
+	setThemeColor: (color: ThemeColor) => void;
 	/** 向导设置的默认智能体（displayName），null = 未设置 */
 	defaultAgent: string | null;
 	setDefaultAgent: (name: string | null) => void;
@@ -48,7 +65,36 @@ export const SOUND_NEEDS_ACTION_DEFAULT = true;
 /** 开机自启默认值：安装后默认开启 */
 export const AUTO_LAUNCH_DEFAULT = true;
 
+export const THEME_MODE_DEFAULT: ThemeMode = "system";
+export const THEME_COLOR_DEFAULT: ThemeColor = "green";
+
 const STORAGE_KEY = "wa-pi-ui-prefs";
+
+/** 解析 system 模式的实际明暗值 */
+function resolveActualTheme(mode: ThemeMode): "light" | "dark" {
+	if (mode !== "system") return mode;
+	return window.matchMedia("(prefers-color-scheme: dark)").matches
+		? "dark"
+		: "light";
+}
+
+/** 应用明暗模式到 <html data-theme> */
+function applyThemeMode(mode: ThemeMode) {
+	try {
+		document.documentElement.dataset.theme = resolveActualTheme(mode);
+	} catch {
+		/* 非浏览器环境静默降级 */
+	}
+}
+
+/** 应用主题颜色到 <html data-accent> */
+function applyThemeColor(color: ThemeColor) {
+	try {
+		document.documentElement.dataset.accent = color;
+	} catch {
+		/* 非浏览器环境静默降级 */
+	}
+}
 
 /** 应用文字缩放系数到根节点 CSS 变量（16px = 1.0） */
 function applyFontSize(px: number) {
@@ -94,6 +140,16 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 			setSoundNeedsAction: (v) => set({ soundNeedsAction: v }),
 			autoLaunch: AUTO_LAUNCH_DEFAULT,
 			setAutoLaunch: (v) => set({ autoLaunch: v }),
+			themeMode: THEME_MODE_DEFAULT,
+			setThemeMode: (mode) => {
+				set({ themeMode: mode });
+				applyThemeMode(mode);
+			},
+			themeColor: THEME_COLOR_DEFAULT,
+			setThemeColor: (color) => {
+				set({ themeColor: color });
+				applyThemeColor(color);
+			},
 			defaultAgent: null,
 			setDefaultAgent: (name) => set({ defaultAgent: name }),
 		}),
@@ -104,6 +160,8 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 			onRehydrateStorage: () => (state) => {
 				if (!state) return;
 				applyFontSize(state.fontSize);
+				if (state.themeMode) applyThemeMode(state.themeMode);
+				if (state.themeColor) applyThemeColor(state.themeColor);
 				if (state.language) void changeLanguage(state.language);
 			},
 		},

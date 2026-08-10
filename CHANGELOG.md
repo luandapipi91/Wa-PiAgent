@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-08-10 — ui-prefs store 新增 themeMode / themeColor 状态
+
+### 新增
+
+- **feat(frontend)·主题外观**：`ui-prefs` store 新增 `themeMode`（system/light/dark，默认 system）与 `themeColor`（green/blue/purple/yellow/orange/red，默认 green）两个持久化状态及其 setter。
+  - `setThemeMode` / `setThemeColor` 分别将解析后的明暗值与颜色写入 `<html>` 的 `data-theme` / `data-accent` 属性；`system` 模式经 `matchMedia("(prefers-color-scheme: dark)")` 解析为实际明暗值。
+  - 导出 `ThemeMode` / `ThemeColor` 类型与 `THEME_MODE_DEFAULT` / `THEME_COLOR_DEFAULT` 默认值常量。
+  - localStorage 恢复（rehydrate）后立即重放 `data-theme` / `data-accent`，避免刷新后闪变。
+  - 影响范围：`packages/frontend/src/store/ui-prefs.ts`。
+
+### 验证
+
+- 新增 `tests/store-ui-prefs-theme.test.ts`（6 用例）：默认值、setter 更新 store + 应用 DOM 属性、system 模式跟随 matchMedia 明暗。
+- typecheck 通过，store-ui-prefs 相关测试全部通过。
+
+---
+
 ## 2026-08-10 — 修复对话界面 React duplicate key 警告 + Virtuoso 横向溢出 + 回收站长内容换行
 
 ### 修复
