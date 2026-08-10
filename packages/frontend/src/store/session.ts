@@ -757,8 +757,7 @@ export const useSessionStore = create<SessionState>((set) => {
 					const content = Array.isArray(msg.content)
 						? msg.content.map((b: any) => ({ ...b }))
 						: [];
-					const idx =
-						typeof ae.contentIndex === "number" ? ae.contentIndex : 0;
+					const idx = typeof ae.contentIndex === "number" ? ae.contentIndex : 0;
 					const block = content[idx];
 					if (ae.type === "text_delta") {
 						if (block?.type === "text") {
