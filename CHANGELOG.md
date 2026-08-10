@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-08-10 — v0.1.18 热修复：macOS 自动更新 ShipIt 中止
+
+### 修复
+
+- **fix(desktop)·macOS OTA 安装失败**：Squirrel.Mac ShipIt 检测到应用运行实例中止安装（"App Still Running Error"）。根因：before-quit 的 sweepRegistry 同步阻塞致应用退出延迟。修复：onBeforeQuitAndInstall 设 isUpdating 标志，before-quit 检测到时跳过兜底清扫让应用秒退。
+
+---
+
 ## 2026-08-10 — desktop 数据目录与 kernel 对齐（~/.wa-pi → ~/.pi/agent）
 
 ### 修复
