@@ -74,6 +74,7 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
     if (!target) return { currentSessionId: id };
     return {
       currentSessionId: id,
+      currentProjectId: target.projectId,
       sessions: s.sessions.map(x => x.id === id ? { ...x, lastActivity: Date.now() } : x),
     };
   }),
