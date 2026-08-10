@@ -4,7 +4,15 @@
 
 ---
 
-## 2026-08-10 — v0.1.14 热修复：macOS 自动更新无法安装
+## 2026-08-10 — 退出清理加固：before-quit 同步杀进程树 + sidecar stop 用 lastPid 兜底
+
+### 修复
+
+- **fix(desktop)·sidecar stop 不再静默失效**：`kernel-sidecar.cjs` 的 `stop()` 原为 `killTree(current?.pid)`，`current` 无有效 pid（spawn 失败/重启间隙，pid 为 undefined）时静默跳过，退出时可能残留幽灵进程继续占 9778。新增模块内 `lastPid`（spawnOnce 成功 spawn 后更新），`stop()` 用 `current?.pid ?? lastPid` 兜底；同时给 `startSidecar` 增加最小依赖注入（`deps`：spawnFn/waitForPortFn/checkPortFn/killFn/respawnDelayMs，默认真实实现，生产行为不变），使测试可构造「current 无有效 pid 但 lastPid 有值」状态而绝不真起 kernel/真杀进程。
+- **fix(desktop)·before-quit 补 sweepRegistry 兜底**：退出监听器里 `cleanup()` 之后同步调用一次 `sweepRegistry(registryOpts)`，清登记簿里我方残留（运行期 kernel 重启换 pid / 自删登记失败）。sweepRegistry 全程同步（loadRegistry/三重校验/杀伐均 sync + spawnSync），在同步监听器里直接调用即同步杀完，不存在“调 async 不 await 就退出导致没杀到”的窗口。
+- 影响范围：`packages/desktop/src/kernel-sidecar.cjs`、`packages/desktop/src/main.cjs`、`packages/desktop/tests/kernel-sidecar.test.ts`（新增 5 用例）。
+
+---
 
 ### 修复
 

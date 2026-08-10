@@ -600,6 +600,22 @@ async function cleanup() {
 app.on("before-quit", () => {
 	isQuitting = true;
 	cleanup();
+	// 兜底清扫：清登记簿里我方残留（如运行期 kernel 重启换了 pid、或自删登记失败）。
+	// sweepRegistry 全程同步（loadRegistry/三重校验/杀伐均为 sync + spawnSync），
+	// 在同步监听器里直接调用即同步杀完——杀进程是 spawnSync 阻塞完成的，
+	// 不存在“调了 async 不 await 就退出导致没杀到”的窗口（cleanup 里 sidecar.stop 同样同步阻塞）。
+	try {
+		const r = sweepRegistry(registryOpts);
+		if (r.killed.length || r.deleted.length || r.skipped.length || r.errors.length) {
+			log.info(
+				`[registry] 退出兜底清扫: killed=[${r.killed.join(",") || "无"}] ` +
+					`deleted=[${r.deleted.join(",") || "无"}] skipped=[${r.skipped.join(",") || "无"}] ` +
+					`errors=[${r.errors.map((e) => `${e.pid}:${e.reason}`).join(";") || "无"}]`,
+			);
+		}
+	} catch (e) {
+		log.error("[registry] 退出兜底清扫失败", e);
+	}
 });
 
 // 窗口关闭 → 隐藏到托盘；保持后台运行（真正退出时不阻止）
