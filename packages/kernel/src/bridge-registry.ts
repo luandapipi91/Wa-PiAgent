@@ -100,8 +100,15 @@ export async function handleBridgeRequest(body: unknown, signal?: AbortSignal): 
 
 // ---- 流式分支 ----
 
-/** 流式工具集合（仅这些走 NDJSON 流式，其余走旧同步路径） */
-const STREAM_TOOLS = new Set(["delegate", "fleet"]);
+/** 流式工具集合（仅这些走 NDJSON 流式，其余走旧同步路径）。
+ *  ask 也在内：等待用户回答期间服务端长时间不写数据，Bun idleTimeout（上限 255s）
+ *  会提前掐断非流式连接（设计等待 600s 实际 ~255s 失效）；走流式后 15s 心跳保活。 */
+const STREAM_TOOLS = new Set(["delegate", "fleet", "ask_user_question"]);
+
+/** 判断工具是否走 NDJSON 流式分支（ws-server 路由与本模块共用，防两处字面量漂移） */
+export function isBridgeStreamTool(tool: string): boolean {
+  return STREAM_TOOLS.has(tool);
+}
 
 /**
  * 处理 POST /bridge/tool 的流式分支：
