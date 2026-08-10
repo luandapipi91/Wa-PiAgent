@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-08-10 — 回归测试：修复 3 个过时断言（CommandListModal 主题色 / ExplorerPanel 平台文案）
+
+### 修复
+
+- **fix(test)**：前端全量回归（--isolate）3 个失败均为测试断言未跟上实现变更，产品代码无 bug：
+  - `CommandListModal.test.tsx`：开关背景色断言 `#cbd5e1` → `var(--hairline-strong)`（关闭态）、`var(--success)` → `var(--brand)`（开启态），对齐 0e467e8 主题 CSS 变量化后与其他开关组件（BotsSection/ExtensionSection）一致的实现。
+  - `ExplorerPanel.test.tsx`：右键菜单平台文案断言「在资源管理器中打开」→「在文件管理器中打开」。根因：`detectPlatform` 用 `/Win/`（区分大小写），happy-dom UA `(X11; Darwin x64)` 中 `win` 为小写不匹配 → 归 linux；原注释「UA 含 Win」假设错误。
+  - 影响范围：`packages/frontend/src/components/settings/CommandListModal.test.tsx`、`packages/frontend/tests/ExplorerPanel.test.tsx`。
+  - 回归验证：前端 1320 pass/0 fail/1 skip、kernel 890、shared 97、desktop 106，四包 typecheck 通过。
+
+---
+
 ## 2026-08-10 — 修复：工具调用前流式 text 定格未闭合 markdown 语法时出现空白气泡
 
 ### 修复

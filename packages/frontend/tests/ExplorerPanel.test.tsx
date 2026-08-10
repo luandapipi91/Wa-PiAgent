@@ -86,8 +86,10 @@ test("右键文件弹出菜单，含复制路径项", async () => {
 	const node = await waitFor(() => screen.getByText("b.ts"));
 	fireEvent.contextMenu(node);
 	await waitFor(() => expect(screen.getByText("复制路径")).toBeTruthy());
-	// 菜单文案随平台变化（测试环境 happy-dom UA 含 Win → 在资源管理器中打开）
-	expect(screen.getByText("在资源管理器中打开")).toBeTruthy();
+	// 菜单文案随平台变化：detectPlatform 用 /Win/（区分大小写），happy-dom UA
+	// "(X11; Darwin x64)" 中 "win" 为小写不匹配 → 归 linux → 显示「在文件管理器中打开」。
+	// 真实 mac/Windows UA 分别含 Macintosh/Windows NT，会走对应文案分支。
+	expect(screen.getByText("在文件管理器中打开")).toBeTruthy();
 });
 
 test("未设置 workspaceDir 显示占位", () => {
