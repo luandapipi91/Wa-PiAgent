@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-10 — win 升级后端口幽灵占用治理：进程登记簿 + 退出清理加固 + 升级前优雅停 kernel + 启动自愈
+
+### 修复
+
+- **fix(desktop)·启动端口占用静默自愈**：端口被占时不再直接弹错误页等用户点按钮（80% 情况其实自动清理就能好），改为先 `attemptSelfHeal` 静默自愈最多 3 轮——每轮 `killPortOccupants` 杀占用进程 + `sweepRegistry` 清登记簿残留，等 500ms 复查端口；任一轮释放即继续正常启动，轮尽仍占用才走原弹错误页逻辑（`setProgress(-1,…)` + `__showRestart()`）。自愈过程启动页提示「检测到端口占用，正在自动清理…」，每轮结果记日志。抽 `src/util/startup-heal.cjs` 纯函数（isPortInUse/killPortOccupants/sweepRegistry/waitMs/log 全部依赖注入，可测）。
+- 影响范围：`packages/desktop`。
+
+---
+
 ## 2026-08-10 — 升级安装前优雅停 kernel：停 sidecar + 等端口释放 + 登记簿清扫
 
 ### 改进

@@ -15,6 +15,7 @@ const { spawnSync } = require("node:child_process");
 const { createLogger } = require("./util/log.cjs");
 const { isPortInUse, killPortOccupants, waitPortReleased } = require("./util/port.cjs");
 const { registerProcess, unregisterProcess, sweepRegistry } = require("./util/process-registry.cjs");
+const { attemptSelfHeal } = require("./util/startup-heal.cjs");
 
 const WA_PI_DIR = process.env.WA_PI_DIR || path.join(os.homedir(), ".wa-pi");
 const log = createLogger(path.join(WA_PI_DIR, "logs", "desktop.log"));
@@ -500,18 +501,33 @@ app.whenReady().then(async () => {
 	}
 
 	// 2a) 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
-	// 因此固定 FIXED_PORT，不再自动后移。被占用时在启动页提示并提供「重启应用」一键杀占用+重启。
+	// 因此固定 FIXED_PORT，不再自动后移。被占用时先静默自愈（最多 3 轮：杀占用+登记簿清扫），
+	// 自愈失败才弹错误页提供「重启应用」一键清理（80% 的占用自动清理就能好，无需用户介入）。
 	const actualPort = FIXED_PORT;
 	if (await isPortInUse(FIXED_PORT)) {
-		log.error(`端口 ${FIXED_PORT} 被占用，等待用户在启动页点击重启`);
-		setProgress(
-			-1,
-			`端口 ${FIXED_PORT} 被占用，可能是上次未正常退出。点击下方按钮自动清理并重启。`,
-		);
-		splashWindow?.webContents
-			?.executeJavaScript("window.__showRestart&&window.__showRestart()")
-			.catch(() => {});
-		return;
+		log.error(`端口 ${FIXED_PORT} 被占用，尝试自动清理`);
+		setProgress(10, "检测到端口占用，正在自动清理…");
+		const healed = await attemptSelfHeal({
+			rounds: 3,
+			isPortInUse: () => isPortInUse(FIXED_PORT),
+			killPortOccupants: () =>
+				killPortOccupants(FIXED_PORT, undefined, (m) => log.info(m)),
+			sweepRegistry: () => sweepRegistry(registryOpts),
+			waitMs: 500,
+			log: (m) => log.info(m),
+		});
+		if (!healed.healed) {
+			log.error(`端口 ${FIXED_PORT} 自愈失败，等待用户在启动页点击重启`);
+			setProgress(
+				-1,
+				`端口 ${FIXED_PORT} 被占用，可能是上次未正常退出。点击下方按钮自动清理并重启。`,
+			);
+			splashWindow?.webContents
+				?.executeJavaScript("window.__showRestart&&window.__showRestart()")
+				.catch(() => {});
+			return;
+		}
+		log.info(`端口 ${FIXED_PORT} 自动清理成功`);
 	}
 	log.info(`kernel 端口固定为 ${actualPort}`);
 
