@@ -645,7 +645,7 @@ function StreamingRow({
 		);
 	return (
 		<div className="flex gap-2.5" data-testid={`loading-${sessionId}`}>
-			<div className="max-w-[78%]">
+			<div className="max-w-[90%]">
 				<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
 					{streaming.agentName ?? t("message.defaultAgent")} ·{" "}
 					{formatTime(m.timestamp, t("common.yesterday"))}
@@ -755,7 +755,7 @@ export const MessageRow = memo(function MessageRow({
 		const displayHtml = textToHtml(displayText, { hideTrigger: true });
 		return (
 			<div
-				className="flex flex-row-reverse gap-2.5 max-w-[78%] ml-auto"
+				className="flex flex-row-reverse gap-2.5 max-w-[90%] ml-auto"
 				data-testid={`msg-${sessionId}-${m.timestamp}`}
 			>
 				<div className="flex flex-col items-end">
@@ -798,8 +798,8 @@ export const MessageRow = memo(function MessageRow({
 	// 错误消息（stopReason === "error"）：红色文字
 	const isError = m.stopReason === "error";
 
-	// 宽度稳定性：含过程卡片（thinking/toolCalls/delegate/fleet）的消息列固定 78% 宽。
-	// 内容驱动的列（max-w-[78%]）会被卡片展开后的宽内容（JSON/thinking 正文）撑大，
+	// 宽度稳定性：含过程卡片（thinking/toolCalls/delegate/fleet）的消息列固定 90% 宽。
+	// 内容驱动的列（max-w-[90%]）会被卡片展开后的宽内容（JSON/thinking 正文）撑大，
 	// 导致展开/收起卡片时整列跳宽；纯文本消息保持 shrink-wrap 气泡不变。
 	const hasProcessCard = segments.some(
 		(s) =>
@@ -925,7 +925,7 @@ export const MessageRow = memo(function MessageRow({
 			className="flex gap-2.5"
 			data-testid={`msg-${sessionId}-${m.timestamp}`}
 		>
-			<div className={`${hasProcessCard ? "w-[78%]" : "max-w-[78%]"} min-w-0`}>
+			<div className={`${hasProcessCard ? "w-[90%]" : "max-w-[90%]"} min-w-0`}>
 				<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
 					{row.main.agentName ?? t("message.defaultAgent")} ·{" "}
 					{formatTime(m.timestamp, t("common.yesterday"))}
