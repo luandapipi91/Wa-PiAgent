@@ -41,6 +41,22 @@ function translateUpdaterEvent({ type, info, progress, error }) {
 
 // —— Electron 装配（main 进程调用）——
 
+// updater:quit-and-install 的 handler 工厂（纯逻辑，可单测；setupUpdater 依赖 Electron 无法直接测）。
+// 升级安装前先 await onBeforeQuitAndInstall（停 kernel、等端口释放等优雅清理）完成，再调 quitAndInstall。
+/**
+ * 注意：onBeforeQuitAndInstall 回调抛错会中断 quitAndInstall（跳过安装），调用方应自行捕获异常。
+ * @param {object} deps
+ * @param {{ quitAndInstall: (isSilent: boolean, isForceRunAfter: boolean) => void }} deps.updater electron-updater 实例
+ * @param {() => Promise<void>} [deps.onBeforeQuitAndInstall] 升级安装前回调（可选，未提供时直接 quitAndInstall）
+ */
+function makeQuitAndInstallHandler({ updater, onBeforeQuitAndInstall }) {
+	return async () => {
+		await onBeforeQuitAndInstall?.();
+		updater.quitAndInstall(false, true);
+		return { ok: true };
+	};
+}
+
 const { NsisUpdater, MacUpdater, LinuxUpdater } = require("electron-updater");
 
 // 前端 phase → electron-updater 事件名 的显式映射表。
@@ -61,6 +77,8 @@ const PHASE_TO_EVENT = {
  * @param {boolean} deps.isPackaged 是否打包版（dev 下禁用真实更新）
  * @param {string} deps.currentVersion app.getVersion()
  * @param {{ feedUrl?: string }} [deps.config] 可覆盖更新源 URL（E2E/测试指向本地 mock）
+ * @param {() => Promise<void>} [deps.onBeforeQuitAndInstall] 升级安装前回调（停 kernel 等优雅清理）；
+ *   调用方应自行捕获异常，失败不应阻断安装
  */
 function setupUpdater({
 	getMainWindow,
@@ -68,6 +86,7 @@ function setupUpdater({
 	isPackaged,
 	currentVersion,
 	config = {},
+	onBeforeQuitAndInstall,
 }) {
 	const { ipcMain } = require("electron");
 
@@ -154,12 +173,10 @@ function setupUpdater({
 	});
 
 	// IPC：退出并安装（isSilent=false, isForceRunAfter=true）
-	ipcMain.handle("updater:quit-and-install", () => {
-		updater.quitAndInstall(false, true);
-		return { ok: true };
-	});
+	// 先等升级前清理（停 kernel + 等端口释放）完成，避免 Windows 下 NSIS 杀进程树不可靠导致 9778 幽灵占用
+	ipcMain.handle("updater:quit-and-install", makeQuitAndInstallHandler({ updater, onBeforeQuitAndInstall }));
 
 	log("[updater] 已装配（packaged）");
 }
 
-module.exports = { updaterPhases, translateUpdaterEvent, setupUpdater };
+module.exports = { updaterPhases, translateUpdaterEvent, setupUpdater, makeQuitAndInstallHandler };
