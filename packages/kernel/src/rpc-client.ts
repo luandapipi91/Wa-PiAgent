@@ -90,7 +90,7 @@ export class RpcClient {
 		{
 			resolve: (data: any) => void;
 			reject: (err: Error) => void;
-			timer: ReturnType<typeof setTimeout>;
+			timer: ReturnType<typeof setTimeout> | undefined;
 		}
 	>();
 	private stderrTail: string[] = [];
@@ -166,10 +166,13 @@ export class RpcClient {
 		const payload = { ...rest, id };
 		return await new Promise((resolve, reject) => {
 			const timeoutMs = cmdTimeoutMs ?? this.opts.commandTimeoutMs ?? 60_000;
-			const timer = setTimeout(() => {
-				this.pending.delete(id);
-				reject(new Error(`RPC 命令超时 (${timeoutMs}ms): ${cmd.type}`));
-			}, timeoutMs);
+			// Infinity 显式关闭超时：setTimeout(Infinity) 溢出按 1ms 处理会立即误超时
+			const timer = Number.isFinite(timeoutMs)
+				? setTimeout(() => {
+						this.pending.delete(id);
+						reject(new Error(`RPC 命令超时 (${timeoutMs}ms): ${cmd.type}`));
+					}, timeoutMs)
+				: undefined;
 			this.pending.set(id, { resolve, reject, timer });
 			try {
 				proc.stdin!.write(JSON.stringify(payload) + "\n");

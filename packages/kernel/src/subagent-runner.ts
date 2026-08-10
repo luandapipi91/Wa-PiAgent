@@ -71,9 +71,16 @@ export interface SubagentRunOpts {
 	/** 测试覆盖：pi CLI 入口 / 运行时 */
 	cliPath?: string;
 	runtime?: string;
-	/** RPC 命令超时毫秒数，默认 30 分钟（1800000）；设为 Infinity 可无限等待 */
+	/** RPC 命令超时毫秒数，默认 30 分钟（1800000）；设为 Infinity 关闭超时（settle 兑底同样跳过） */
 	commandTimeoutMs?: number;
+	/** abort 宽限期毫秒数（测试覆盖用）：收到中止信号后等子代理响应 abort RPC 的时长，
+	 *  到期强制返回并由 finally dispose 强杀进程。默认 10000 */
+	abortGraceMs?: number;
 }
+
+/** abort 宽限期默认值：收到中止信号后等子代理响应 abort RPC 的时间，
+ *  到期不再等待 settle，走 finally dispose 强杀（防用户停止后子代理后台再活满 settle 超时） */
+export const ABORT_GRACE_MS = 10_000;
 
 /**
  * thinking → pi CLI thinking level 映射。
@@ -220,19 +227,51 @@ export async function runSubagentAgent(
 		try {
 			await client.prompt(task);
 			// settled 超时兜底：子代理 pi 若卡死（永不发 agent_settled 也不退出），
-			// 超时后 fail → 走 finally dispose 回收进程。否则 await settled 永久阻塞，
+			// 超时后 reject → 走 finally dispose 回收进程。否则 await settled 永久阻塞，
 			// 进程泄漏累积 → macOS SIGKILL（历史 bug）。
+			// Infinity 显式关闭超时：setTimeout(Infinity) 在 Node/Bun 溢出按 1ms 处理，
+			// 会直接误超时，必须 Number.isFinite 特判跳过。
 			const settleTimeoutMs = opts?.commandTimeoutMs ?? 1_800_000;
-			await Promise.race([
-				settled,
-				new Promise<never>((_, reject) =>
-					setTimeout(
-						() =>
-							reject(new Error(`子智能体 settle 超时 (${settleTimeoutMs}ms)`)),
-						settleTimeoutMs,
-					),
-				),
-			]);
+			const abortGraceMs = opts?.abortGraceMs ?? ABORT_GRACE_MS;
+			let settleTimer: ReturnType<typeof setTimeout> | undefined;
+			let graceTimer: ReturnType<typeof setTimeout> | undefined;
+			const racers: Promise<void>[] = [settled];
+			if (Number.isFinite(settleTimeoutMs)) {
+				racers.push(
+					new Promise<never>((_, reject) => {
+						settleTimer = setTimeout(
+							() =>
+								reject(
+									new Error(`子智能体 settle 超时 (${settleTimeoutMs}ms)`),
+								),
+							settleTimeoutMs,
+						);
+					}),
+				);
+			}
+			// abort 短路：子代理可能卡在不可中断的工具里收不到 abort RPC，若仍等
+			// settle 超时（默认 30 分钟），用户点停止后子代理进程在后台继续存活烧配额。
+			// 宽限 abortGraceMs 等子代理响应 abort，到期 resolve —— 走下方
+			// signal.aborted 分支返回「子智能体已被中止」，finally dispose 强杀进程。
+			if (opts?.signal) {
+				const sig = opts.signal;
+				racers.push(
+					new Promise<void>((resolve) => {
+						const arm = () => {
+							graceTimer = setTimeout(resolve, abortGraceMs);
+						};
+						if (sig.aborted) arm();
+						else sig.addEventListener("abort", arm, { once: true });
+					}),
+				);
+			}
+			try {
+				await Promise.race(racers);
+			} finally {
+				// settle 先兑现时清理两个计时器，防长期高频派发累积挂起计时器
+				if (settleTimer !== undefined) clearTimeout(settleTimer);
+				if (graceTimer !== undefined) clearTimeout(graceTimer);
+			}
 		} finally {
 			opts?.signal?.removeEventListener("abort", onAbort);
 		}

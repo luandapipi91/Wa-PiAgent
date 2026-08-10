@@ -208,3 +208,32 @@ test("卡死超时：pi 永不 settle 时按 commandTimeoutMs 超时返回 isErr
 	expect(result.isError).toBe(true);
 	expect(result.text).toContain("超时");
 }, 10000); // 测试自身 10s 兜底（验证不永久阻塞）
+
+test("abort 短路：子代理不响应 abort 时按 abortGraceMs 强制返回，不等 settle 超时", async () => {
+	const ctrl = new AbortController();
+	const startedAt = Date.now();
+	// hang-pi 收到 abort RPC 只回 success、永不 settle（模拟卡在不可中断工具里）
+	const resultP = runSubagentAgent(baseConfig(), "任务", "/tmp", {
+		cliPath: HANG_PI,
+		runtime: RUNTIME,
+		commandTimeoutMs: 60_000, // settle 超时故意拉长：验证不等它
+		abortGraceMs: 300,
+		signal: ctrl.signal,
+	});
+	await new Promise((r) => setTimeout(r, 200));
+	ctrl.abort();
+	const result = await resultP;
+	expect(Date.now() - startedAt).toBeLessThan(5_000);
+	expect(result.isError).toBe(true);
+	expect(result.text).toContain("中止");
+}, 10_000);
+
+test("Infinity：commandTimeoutMs=Infinity 时正常 settle，不误判超时", async () => {
+	const result = await runSubagentAgent(baseConfig(), "测试任务", "/tmp", {
+		cliPath: FAKE_PI,
+		runtime: RUNTIME,
+		commandTimeoutMs: Infinity,
+	});
+	expect(result.isError).toBe(false);
+	expect(result.text).toContain("回声:测试任务");
+});
