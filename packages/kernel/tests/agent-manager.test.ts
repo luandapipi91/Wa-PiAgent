@@ -907,6 +907,9 @@ test("markAllDirty 后 idle 命中缓存 → 热重载（不重建进程、调 r
 	const { project, session, am, fakes } = await setup();
 	const first = await am.ensureStarted(project.id, "dev", session.id);
 	expect(fakes).toHaveLength(1);
+	fakes[0].commandsToReturn = [
+		{ name: "__!wa_pi_reload", source: "extension" },
+	];
 
 	am.markAllDirty();
 	const second = await am.ensureStarted(project.id, "dev", session.id);
@@ -951,6 +954,7 @@ test("busy 时标脏不热重载，agent_settled（对话结束）后自动补�
 	await am.ensureStarted(project.id, "dev", session.id);
 	const fake = fakes[0];
 	fake.autoSettle = false;
+	fake.commandsToReturn = [{ name: "__!wa_pi_reload", source: "extension" }];
 	await am.prompt(session.id, "进行中", { model: MODEL }); // busy
 
 	am.markAllDirty();
@@ -967,8 +971,11 @@ test("busy 时标脏不热重载，agent_settled（对话结束）后自动补�
 
 test("扩展 dirty 热重载前发 extension_ui_reset 清前端残留（活跃插件由 session_start 重放恢复）", async () => {
 	const events: CapturedEvent[] = [];
-	const { project, session, am } = await setup({ events });
+	const { project, session, am, fakes } = await setup({ events });
 	await am.ensureStarted(project.id, "dev", session.id);
+	fakes[0].commandsToReturn = [
+		{ name: "__!wa_pi_reload", source: "extension" },
+	];
 	events.length = 0;
 
 	am.markAllDirty();
@@ -1003,6 +1010,41 @@ test("热重载失败（reloadExtensions 抛错）→ 回退整进程重建 + �
 	expect(fakes[0].alive).toBe(false);
 	const resets = events.filter((x) => x.e.type === "extension_ui_reset");
 	expect(resets.length).toBeGreaterThanOrEqual(1);
+});
+
+test("__!wa_pi_reload 命令未注册时 → 不调 reloadExtensions（防泄漏），回退整进程重建", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events });
+	await am.ensureStarted(project.id, "dev", session.id);
+	// commandsToReturn 默认为空——模拟 __!wa_pi_reload 未注册的场景
+	events.length = 0;
+
+	am.markAllDirty();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// 未注册 __!wa_pi_reload → 不能走热重载（否则 prompt("/__!wa_pi_reload")
+	// 被 pi 当普通消息发给 LLM，泄漏到会话 transcript）。
+	// 应回退整进程重建：旧 client dispose、新建 fakes[1]
+	expect(fakes).toHaveLength(2);
+	expect(fakes[0].alive).toBe(false);
+	expect(fakes[0].reloaded).toBe(0); // 未调 reloadExtensions
+});
+
+test("__!wa_pi_reload 命令已注册时 → 走热重载（不重建进程）", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+	// 模拟命令已注册
+	fakes[0].commandsToReturn = [
+		{ name: "__!wa_pi_reload", source: "extension" },
+	];
+
+	am.markAllDirty();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// 命令已注册 → 安全走热重载
+	expect(fakes).toHaveLength(1); // 未重建
+	expect(fakes[0].reloaded).toBe(1);
+	expect(fakes[0].alive).toBe(true);
 });
 
 // ─── switchAgent / renameAgentSessions ──────────────────────────────────────
@@ -1600,7 +1642,8 @@ test("孤儿会话（piSessionFile 不存在）进程退出 → 删除 session �
 
 	// 回滚：session 记录应被删除
 	await new Promise((r) => setTimeout(r, 50)); // 等 fire-and-forget deleteSession 落盘
-	const { sessions } = await projectStore.load();
+	// deleteSession 是软删除（设 deletedAt），loadActive 过滤已删除的会话
+	const { sessions } = await projectStore.loadActive();
 	expect(sessions.find((s) => s.id === session.id)).toBeUndefined();
 	expect(rollbacks).toEqual([session.id]);
 });
@@ -2013,24 +2056,16 @@ test("getCommands 合并 extension 命令开关状态（enabled：命中 toggles
 
 // ─── getCommands：dirty 进程（扩展/技能变更待重建）处理 ─────────────────────
 
-/** 工厂：第二个起创建的 fake 返回新命令清单（模拟重建后加载了新扩展） */
-function rebuildFactory(fakes: FakeSessionClient[]) {
-	return (opts: RpcClientOpts) => {
-		const fake = new FakeSessionClient(opts);
-		fake.commandsToReturn = [
-			{ name: fakes.length === 0 ? "old-cmd" : "uidemo", source: "extension" },
-		];
-		fakes.push(fake);
-		return fake as unknown as RpcClient;
-	};
-}
-
 test("getCommands 命中 dirty 进程先热重载再取（安装扩展后清单不过期）", async () => {
 	const { am, project, session, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
-	fakes[0].commandsToReturn = [{ name: "old-cmd", source: "extension" }];
+	fakes[0].commandsToReturn = [
+		{ name: "old-cmd", source: "extension" },
+		{ name: "__!wa_pi_reload", source: "extension" },
+	];
 	expect((await am.getCommands(session.id)).map((c) => c.name)).toEqual([
 		"old-cmd",
+		"__!wa_pi_reload",
 	]);
 
 	am.markAllDirty(); // 模拟安装/卸载扩展
@@ -2043,7 +2078,10 @@ test("getCommands 命中 dirty 进程先热重载再取（安装扩展后清单�
 test("getCommands 借用进程时热重载 dirty 进程再取", async () => {
 	const { am, project, session, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
-	fakes[0].commandsToReturn = [{ name: "old-cmd", source: "extension" }];
+	fakes[0].commandsToReturn = [
+		{ name: "old-cmd", source: "extension" },
+		{ name: "__!wa_pi_reload", source: "extension" },
+	];
 
 	am.markAllDirty();
 	// 「附加命令」弹窗链路：getCommands("") 借用活跃进程

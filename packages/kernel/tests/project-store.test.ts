@@ -51,7 +51,7 @@ test("createSession 归属项目", async () => {
 	rmSync(f, { force: true });
 });
 
-test("deleteProject 级联删 session", async () => {
+test("deleteProject 级联删 session（项目硬删除，会话软删除进回收站）", async () => {
 	const f = tempFile();
 	const store = new ProjectStore(f);
 	const p = await store.createProject({ name: "P", cwd: "/p" });
@@ -61,9 +61,16 @@ test("deleteProject 级联删 session", async () => {
 		title: "s1",
 	});
 	await store.deleteProject(p.id);
-	const { projects, sessions } = await store.load();
+	// 项目本身硬删除
+	const { projects } = await store.load();
 	expect(projects).toEqual([]);
-	expect(sessions).toEqual([]);
+	// 会话软删除（进回收站可恢复，非物理移除）
+	const { sessions: active } = await store.loadActive();
+	expect(active).toEqual([]);
+	const { sessions: trashed } = await store.loadTrash();
+	expect(trashed).toHaveLength(1);
+	expect(trashed[0].deletedAt).toBeTruthy();
+	expect(trashed[0].deletedReason).toBe("manual");
 	rmSync(f, { force: true });
 });
 

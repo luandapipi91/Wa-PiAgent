@@ -78,6 +78,92 @@
 
 ---
 
+## 2026-08-10 — 修复提问卡片竞态误判失效 + bridge 断连后的僵尸提问
+
+### 修复
+
+- **提问「很快失效」无法回复**：前端 AskDock 渲染提问卡片后立即向 `/asks` 核对后端注册表，而 assistant 消息（卡片渲染）可能先于 bridge 工具注册到达 kernel——首次核对误 miss 即判「提问已失效」且不再复查，有效提问无法回答。修复：首次 miss 宽限 500ms 复查一次，仍 miss 才确认失效（宽限期内提交由后端 400 兜底）。
+  影响范围：`packages/frontend/src/components/ask/AskDock.tsx`。
+- **bridge 断连后的僵尸提问**：pi 进程内 bridge 扩展的 ask 空闲超时（600s）abort fetch 后，kernel 侧 askRegistry 条目使用永不 abort 的信号、永不清理——卡片看似有效但回答被静默吞掉。修复：ws-server 把 `req.signal` 透传 `handleBridgeRequest` → `runAskTool`，客户端断连时条目以 cancelled 解决（Bun 断连时 abort `req.signal`，已探针验证）。
+  影响范围：`packages/kernel/src/ws-server.ts`、`packages/kernel/src/bridge-registry.ts`。
+- **测试**：kernel 新增 `tests/bridge-disconnect.test.ts`（真实 Bun.serve + 客户端 abort 集成）；前端 `tests/AskDock.test.tsx` 新增竞态防护用例；E2E 新增 `e2e/ask-stale.spec.ts`（真实浏览器双场景：竞态宽限内注册不误判 / 持续 miss 宽限后判失效）。
+
+---
+
+## 2026-08-10 — 修复热重载 `__!wa_pi_reload` 命令泄漏到会话 transcript
+
+### 修复
+
+- **热重载 `__!wa_pi_reload` 命令泄漏到会话 transcript**：`_reloadIfDirty` 经 `prompt("/__!wa_pi_reload")` 触发 pi 热重载，依赖 pi 将其拦截为扩展命令。若命令未注册（扩展加载竞态 / pi 版本差异 / reload 后 runner 重建丢失注册），pi 把 `/__!wa_pi_reload` 当普通消息发给 LLM——prompt 仍成功返回（LLM 回复了），catch 分支不触发，`/__!wa_pi_reload` 泄漏为用户消息出现在聊天列表。修复：发 prompt 前先 `getCommands()` 验证命令已注册，未注册直接走整进程重建 `_rebuildSession`。
+  影响范围：`packages/kernel/src/agent-manager.ts`（`_reloadIfDirty` 方法）。
+
+## 2026-08-10 — 修复项目列表右键菜单超出窗口底部不可见
+
+### 修复
+
+- **fix(frontend)·右键菜单溢出**：项目列表右键菜单（项目菜单 + 会话菜单）直接用鼠标 `clientX/clientY` 作为 `fixed` 定位坐标，没有视口边界检测——当右键位置靠近窗口底部时，菜单向下展开超出窗口边界，底部内容不可见。
+  - 修复：提取纯函数 `clampMenuPos`（视口边界钳制计算），新增 `useClampMenu` hook 在 `useLayoutEffect` 中测量菜单实际尺寸（paint 前）并将坐标钳制到视口内（底部/右缘溢出时上移/左移）。
+  - 影响范围：`packages/frontend/src/components/ProjectItem.tsx`（项目菜单 + 会话菜单），新增 `packages/frontend/tests/ProjectItem-context-menu.test.tsx`（7 个纯函数单元测试 + 3 个组件测试）。
+
+## 2026-08-10 — v0.1.13 核心新功能：主题与外观系统（明暗模式 + 6 色主题 + 字号）
+
+### 新增
+
+- **feat(frontend)·主题外观系统**：CSS 变量分层重构，支持明暗模式（light / dark / system，跟随系统时实时切换）、6 种主题色、自定义字号。新增 `AppearanceSection` 设置组件与 `ui-prefs` store（themeMode / themeColor）。全局组件适配主题色跟随：聊天界面 chip token、回收站恢复按钮与工作区 tag 底色等。
+- **feat(frontend)·外观设置集成**：设置页新增外观导航入口，字号从原位置迁移，修复硬编码颜色。
+
+### 修复
+
+- **fix(frontend)·主题细节**：system 模式实时跟随系统切换；修复 i18n 孤儿键、yellow 主题色对比度。
+- **fix(ask)·提问卡片竞态**：提问卡片竞态误判失效 + bridge 断连后的僵尸提问。
+
+### 影响范围
+
+- `packages/frontend/src/store/ui-prefs.ts`、`packages/frontend/src/components/settings/AppearanceSection.tsx`
+- 全局 CSS 变量分层 + 各组件主题适配（回收站、聊天 chip token、工作区 tag 等）
+
+---
+
+## 2026-08-10 — v0.1.13 发版：项目右键菜单视口钳制 + 扩展热重载安全检查 + 设置页布局
+
+### 修复
+
+- **fix(frontend)·右键菜单溢出**：项目右键菜单在屏幕底部/右缘时溢出视口。新增 `clampMenuPos` 纯函数 + `useClampMenu` hook，浮层渲染后测量尺寸并钳制坐标到可视区域。新增配套测试 `ProjectItem-context-menu.test.tsx`。
+- **fix(kernel)·热重载命令泄漏**：扩展热重载经 `prompt("/__!wa_pi_reload")` 触发，若命令未注册（扩展加载竞态 / pi 版本差异），pi 会把内部命令当普通消息发给 LLM，泄漏到会话 transcript。发 prompt 前先 `getCommands()` 验证命令注册，未注册回退整进程重建。
+
+### 改进
+
+- **improve(frontend)·设置页布局**：声音开关改用 `justify-between` 替代硬编码 marginRight，布局更稳健。
+
+### 影响范围
+
+- `packages/frontend/src/components/ProjectItem.tsx`
+- `packages/frontend/src/components/settings/GeneralSection.tsx`
+- `packages/kernel/src/agent-manager.ts`、`packages/kernel/tests/agent-manager.test.ts`
+- `packages/frontend/tests/ProjectItem-context-menu.test.tsx`（新增）
+
+---
+
+## 2026-08-10 — 修复 Windows 打包后任务栏图标显示为 Electron 默认图标
+
+### 修复
+
+- **fix(desktop)·Windows 图标缺失**：打包后 Windows 任务栏/窗口显示 Electron 原始图标而非自定义 icon.ico。根因：`electron-builder.yml` 的 `signAndEditExecutable: false` 同时关闭了 exe 资源编辑（图标嵌入）和签名——electron-builder 26 用纯 JS 的 `resEdit` 库嵌入图标（macOS 交叉打包无需 wine），但该开关直接跳过此步骤；补偿用的 `after-pack.cjs` 手动 rcedit 在 macOS 上必然失败（winCodeSign 未下载 + 路径写死 Windows）。
+  - 修复：`signAndEditExecutable: false` → `signExecutable: false`（只跳过签名，保留 resEdit 图标嵌入）。
+  - 清理：移除 `after-pack.cjs` 中已失效的 Windows rcedit 手动注入分支（macOS 签名分支保留）。
+
+### 影响范围
+
+- `packages/desktop/electron-builder.yml`
+- `packages/desktop/scripts/after-pack.cjs`
+
+### 验证
+
+- macOS 交叉打包 Windows（`bun run scripts/build.ts --target=win --no-test`）成功。
+- 解析产物 `release/win-unpacked/WA PI Agent.exe` 的 PE 资源：RT_ICON(type=3) 条目数从 4（Electron 默认：16/32/48/256）变为 7（自定义 icon.ico：16/24/32/48/64/128/256），与原始 icon.ico 完全一致。
+
+---
+
 ## 2026-08-10 — 修复对话界面 React duplicate key 警告 + Virtuoso 横向溢出 + 回收站长内容换行
 
 ### 修复
