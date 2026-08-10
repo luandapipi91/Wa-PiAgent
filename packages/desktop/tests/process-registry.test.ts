@@ -11,6 +11,7 @@ import {
   isOurs,
   sweepRegistry,
   killRegisteredProcesses,
+  collectDescendants,
 } from "../src/util/process-registry.cjs";
 
 const TTL = 7 * 24 * 3600 * 1000;
@@ -80,6 +81,8 @@ function makeOpts(overrides: any = {}) {
       },
       platform: overrides.platform ?? "win32",
       kill,
+      // scanProcesses 默认不注入（undefined）：模拟 main.cjs 现有调用不传时的行为
+      scanProcesses: overrides.scanProcesses,
     },
   };
 }
@@ -429,4 +432,140 @@ test("isOurs: ②③ 组合判断——创建时间一致且 exe 含我方特征
   expect(isOurs(entry, { exe: entry1001.exe, createdAt: NOW + 86400000 }, opts)).toBe(false); // ②创建时间不符
   expect(isOurs(entry, { exe: "/usr/bin/other", createdAt: NOW }, opts)).toBe(false); // ③exe 不符
   expect(isOurs(entry, null as any, opts)).toBe(false);
+});
+
+// ---------- collectDescendants 纯函数（方案 B：清扫连带 kernel 子孙链） ----------
+
+test("collectDescendants: 单根多直接子 → 全部收集，不含无关进程", () => {
+  const procs = [
+    { pid: 2001, ppid: 1001, cmd: "child-a" },
+    { pid: 2002, ppid: 1001, cmd: "child-b" },
+    { pid: 3001, ppid: 999, cmd: "unrelated" },
+  ];
+  const out = collectDescendants([1001], procs);
+  expect(out.map((p) => p.pid)).toEqual([2001, 2002]);
+});
+
+test("collectDescendants: 多层链 root→a→b→c 按 BFS 顺序全收集，且不含 root 自身", () => {
+  const procs = [
+    { pid: 1001, ppid: 1, cmd: "kernel root" },
+    { pid: 2001, ppid: 1001, cmd: "a" },
+    { pid: 2002, ppid: 2001, cmd: "b" },
+    { pid: 2003, ppid: 2002, cmd: "c" },
+  ];
+  const out = collectDescendants([1001], procs);
+  expect(out.map((p) => p.pid)).toEqual([2001, 2002, 2003]); // root 自身不在结果
+});
+
+test("collectDescendants: 环（子指向父）不陷入死循环", () => {
+  const procs = [
+    { pid: 2001, ppid: 1001, cmd: "a" },
+    { pid: 2002, ppid: 2001, cmd: "b" },
+    { pid: 1001, ppid: 2002, cmd: "root-back-edge" }, // 环：2002 的“子”是 root
+  ];
+  const out = collectDescendants([1001], procs);
+  expect(out.map((p) => p.pid)).toEqual([2001, 2002]);
+});
+
+test("collectDescendants: 排除 selfPid，且不遍历其子树", () => {
+  const procs = [
+    { pid: 2001, ppid: 1001, cmd: "a" },
+    { pid: 2002, ppid: 2001, cmd: "b" },
+    { pid: 2003, ppid: 2002, cmd: "c" },
+  ];
+  // selfPid=2002：2002 及其子树 2003 都不收集
+  expect(collectDescendants([1001], procs, 2002).map((p) => p.pid)).toEqual([2001]);
+});
+
+test("collectDescendants: 多个 rootPids 分别收集", () => {
+  const procs = [
+    { pid: 2001, ppid: 1001, cmd: "a1" },
+    { pid: 2002, ppid: 2001, cmd: "b1" },
+    { pid: 3001, ppid: 1002, cmd: "a2" },
+    { pid: 9999, ppid: 1, cmd: "unrelated" },
+  ];
+  const out = collectDescendants([1001, 1002], procs);
+  // BFS：两个 root 的直接子先出，再下一层
+  expect(out.map((p) => p.pid)).toEqual([2001, 3001, 2002]);
+});
+
+// ---------- killRegisteredProcesses 连带子孙杀伐（方案 B） ----------
+
+test("killRegisteredProcesses: 连带清理 kernel 子孙——先杀子孙再杀 root，killed 含全部", () => {
+  const procs = [
+    { pid: 2001, ppid: 1001, cmd: "pi child agent" },
+    { pid: 2002, ppid: 2001, cmd: "bun shim" },
+  ];
+  const ctx = makeOpts({
+    seed: seedOne(),
+    spawnResult: (cmd: string) => {
+      if (cmd === "powershell") return identityResult(NOW)(cmd);
+      return { stdout: "", status: 0 }; // taskkill 一律成功
+    },
+  });
+  ctx.opts.scanProcesses = () => procs;
+  const r = killRegisteredProcesses(ctx.opts);
+  const taskkills = ctx.spawnCalls.filter((c) => c.cmd === "taskkill");
+  // 调用顺序：子孙（BFS 顺序）先于 root
+  expect(taskkills.map((c) => c.args[1])).toEqual(["2001", "2002", "1001"]);
+  expect(r.killed).toEqual([2001, 2002, 1001]);
+  expect(r.skipped).toEqual([]);
+  expect(ctx.fs.store.has(path.join(REG_DIR, "1001.json"))).toBe(false); // root 杀成功删登记
+  // 子孙杀伐日志含 PID 与命令行摘要
+  expect(ctx.logs.some((m) => m.includes("连带清理") && m.includes("2001") && m.includes("pi child agent"))).toBe(true);
+});
+
+test("killRegisteredProcesses: scanProcesses 返回 []（非 Windows/查询失败）→ 与现状一致，只杀 root", () => {
+  const ctx = makeOpts({ seed: seedOne(), spawnResult: identityResult(NOW) });
+  ctx.opts.scanProcesses = () => [];
+  const r = killRegisteredProcesses(ctx.opts);
+  expect(r.killed).toEqual([1001]);
+  expect(r.skipped).toEqual([]);
+  expect(ctx.spawnCalls.filter((c) => c.cmd === "taskkill").map((c) => c.args[1])).toEqual(["1001"]);
+});
+
+test("killRegisteredProcesses: 未传 scanProcesses（默认空表）→ 行为与现状完全一致", () => {
+  const ctx = makeOpts({ seed: seedOne(), spawnResult: identityResult(NOW) });
+  const r = killRegisteredProcesses(ctx.opts); // 不设 scanProcesses
+  expect(r.killed).toEqual([1001]);
+  expect(r.skipped).toEqual([]);
+  expect(ctx.spawnCalls.filter((c) => c.cmd === "taskkill").map((c) => c.args[1])).toEqual(["1001"]);
+});
+
+test("killRegisteredProcesses: 子孙在进程表但已死（taskkill 非 0）→ 记 skipped，不阻断杀 root", () => {
+  const procs = [{ pid: 2001, ppid: 1001, cmd: "dead child" }];
+  const ctx = makeOpts({
+    seed: seedOne(),
+    spawnResult: (cmd: string, args: string[]) => {
+      if (cmd === "powershell") return identityResult(NOW)(cmd);
+      if (cmd === "taskkill" && args[1] === "2001") return { stdout: "", status: 128 }; // 进程已死
+      return { stdout: "", status: 0 };
+    },
+  });
+  ctx.opts.scanProcesses = () => procs;
+  const r = killRegisteredProcesses(ctx.opts);
+  expect(r.skipped).toContain(2001);
+  expect(r.killed).toEqual([1001]); // root 照常杀
+  expect(ctx.fs.store.has(path.join(REG_DIR, "1001.json"))).toBe(false);
+});
+
+test("killRegisteredProcesses: 子孙杀失败（kill 抛错）→ 记 skipped，不阻断杀 root（非 win 平台）", () => {
+  const procs = [{ pid: 2001, ppid: 1001, cmd: "child" }];
+  const ctx = makeOpts({
+    platform: "darwin",
+    seed: seedOne(),
+    spawnResult: (cmd: string) =>
+      cmd === "ps"
+        ? { stdout: `${lstartFor(NOW)}     ${entry1001.exe} run kernel.js\n`, status: 0 }
+        : { stdout: "", status: 0 },
+  });
+  ctx.opts.kill = mock((pid: number) => {
+    if (pid === 2001) throw new Error("no such process"); // 子孙已死
+    return undefined; // root 成功
+  }) as any;
+  ctx.opts.scanProcesses = () => procs;
+  const r = killRegisteredProcesses(ctx.opts);
+  expect(r.skipped).toContain(2001);
+  expect(r.killed).toEqual([1001]);
+  expect(ctx.fs.store.has(path.join(REG_DIR, "1001.json"))).toBe(false);
 });
