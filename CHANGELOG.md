@@ -4,7 +4,45 @@
 
 ---
 
-## 2026-08-10 — v0.1.14 热修复：macOS 自动更新无法安装
+## 2026-08-10 — 最终审查修复：createdAt 取 spawn 时刻 + 自愈异常兜底 + 登记簿坏值校验
+
+### 修复
+
+- **fix(desktop)·登记 createdAt 取进程真实创建时刻**：原 `main.cjs` 在 `startSidecar` 等端口就绪（最长 30s，Windows 冷启动/升级后首启可能更久）后才 `Date.now()` 登记，下轮清扫 `isOurs` 的 2s 容差校验会误判真身幽灵 kernel 为 PID 复用（只删登记不杀，登记簿核心目标静默失效）。`kernel-sidecar.cjs` 的 `spawnOnce` 现与 `lastPid` 同步捕获 `currentSpawnedAt = now()`（新增注入 `now`，默认 `Date.now`），返回值只增不改地多带 `createdAt`；`main.cjs` 改用 `sidecar.createdAt` 登记。
+- **fix(desktop)·自愈路径异常兜底**：`isPortInUse/killPortOccupants/sweepRegistry` 裸调，一旦 `taskkill` ENOENT 或 fs 异常抛出，`whenReady` promise 链断裂、splash 永久卡在「正在自动清理…」。自愈块现包 `try/catch`，异常与「自愈失败」走同一出口（弹错误页 `setProgress(-1,…)` + `__showRestart()` + return），正常路径行为不变。
+- **fix(desktop)·登记簿坏数值条目防御**：`loadRegistry` 对 `createdAt/registeredAt` 增加 `Number.isFinite` 校验，非法（缺失/非数字/NaN）即删文件跳过——NaN 会让 `isOurs` 时间差比较恒 false（可能误杀）且 TTL 判断恒不超期（登记永久残留）。
+- **fix(desktop)·小修**：`scheduleRespawn` 日志硬编码 `RESPAWN_DELAY_MS` 换为注入的 `respawnDelayMs`（纯显示）；`makeQuitAndInstallHandler` JSDoc 注明回调抛错会中断 `quitAndInstall`，调用方应自行捕获；main.cjs 注释编号理顺（原三处重复 `2a)`，改为 2a/2b/2c/2c+/2d）。
+- 影响范围：`packages/desktop/src/kernel-sidecar.cjs`、`packages/desktop/src/main.cjs`、`packages/desktop/src/util/process-registry.cjs`、`packages/desktop/src/updater/updater.cjs`、`packages/desktop/tests/kernel-sidecar.test.ts`、`packages/desktop/tests/process-registry.test.ts`。
+
+---
+
+## 2026-08-10 — win 升级后端口幽灵占用治理：进程登记簿 + 退出清理加固 + 升级前优雅停 kernel + 启动自愈
+
+### 修复
+
+- **fix(desktop)·启动端口占用静默自愈**：端口被占时不再直接弹错误页等用户点按钮（80% 情况其实自动清理就能好），改为先 `attemptSelfHeal` 静默自愈最多 3 轮——每轮 `killPortOccupants` 杀占用进程 + `sweepRegistry` 清登记簿残留，等 500ms 复查端口；任一轮释放即继续正常启动，轮尽仍占用才走原弹错误页逻辑（`setProgress(-1,…)` + `__showRestart()`）。自愈过程启动页提示「检测到端口占用，正在自动清理…」，每轮结果记日志。抽 `src/util/startup-heal.cjs` 纯函数（isPortInUse/killPortOccupants/sweepRegistry/waitMs/log 全部依赖注入，可测）。
+- 影响范围：`packages/desktop`。
+
+---
+
+## 2026-08-10 — 升级安装前优雅停 kernel：停 sidecar + 等端口释放 + 登记簿清扫
+
+### 改进
+
+- **feat(desktop)·升级前先停 kernel 再安装**：`updater:quit-and-install` 原为直接 `quitAndInstall`，kernel 进程树全靠 NSIS 安装程序杀（不可靠，PowerShell 被禁用时漏杀 kernel，升级后 9778 幽灵占用）。抽出可测纯函数 `makeQuitAndInstallHandler`：先 `await onBeforeQuitAndInstall` 完成（停 sidecar → `waitPortReleased(FIXED_PORT)` → `sweepRegistry` 兜底清扫 → 自删登记），再 `quitAndInstall(false, true)`；清理全程 best-effort，异常只记日志绝不阻断安装。`setupUpdater` 新增可选 deps `onBeforeQuitAndInstall`，main.cjs 注入 getter 闭包 `() => sidecar`（装配时 sidecar 尚未赋值，不能引用声明时值）。
+- 影响范围：`packages/desktop/src/updater/updater.cjs`、`packages/desktop/src/updater/updater.test.ts`（新增 2 用例）、`packages/desktop/src/main.cjs`。
+
+---
+
+## 2026-08-10 — 退出清理加固：before-quit 同步杀进程树 + sidecar stop 用 lastPid 兜底
+
+### 修复
+
+- **fix(desktop)·sidecar stop 不再静默失效**：`kernel-sidecar.cjs` 的 `stop()` 原为 `killTree(current?.pid)`，`current` 无有效 pid（spawn 失败/重启间隙，pid 为 undefined）时静默跳过，退出时可能残留幽灵进程继续占 9778。新增模块内 `lastPid`（spawnOnce 成功 spawn 后更新），`stop()` 用 `current?.pid ?? lastPid` 兜底；同时给 `startSidecar` 增加最小依赖注入（`deps`：spawnFn/waitForPortFn/checkPortFn/killFn/respawnDelayMs，默认真实实现，生产行为不变），使测试可构造「current 无有效 pid 但 lastPid 有值」状态而绝不真起 kernel/真杀进程。
+- **fix(desktop)·before-quit 补 sweepRegistry 兜底**：退出监听器里 `cleanup()` 之后同步调用一次 `sweepRegistry(registryOpts)`，清登记簿里我方残留（运行期 kernel 重启换 pid / 自删登记失败）。sweepRegistry 全程同步（loadRegistry/三重校验/杀伐均 sync + spawnSync），在同步监听器里直接调用即同步杀完，不存在“调 async 不 await 就退出导致没杀到”的窗口。
+- 影响范围：`packages/desktop/src/kernel-sidecar.cjs`、`packages/desktop/src/main.cjs`、`packages/desktop/tests/kernel-sidecar.test.ts`（新增 5 用例）。
+
+---
 
 ### 修复
 
