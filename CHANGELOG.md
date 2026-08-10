@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-08-10 — v0.1.14 热修复：macOS 自动更新无法安装
+
+### 修复
+
+- **fix(desktop)·macOS 更新安装失败**：`updater.cjs` 硬编码使用 `NsisUpdater`（Windows NSIS 专用），macOS 上 `quitAndInstall` 只退出应用不安装。改为按 `process.platform` 选择 updater 类（macOS→MacUpdater / Linux→LinuxUpdater / Windows→NsisUpdater），与 electron-updater autoUpdater 单例的平台分发逻辑一致。同步清理既有 code smell（PHASE_TO_EVENT 遍历解构变量 phase 未使用）。
+- **fix(publish-oss)·macOS 产物遗漏**：`listArtifacts` 只上传 Windows 产物（latest.yml + exe），macOS 的 latest-mac.yml + dmg/zip 从未上传，导致 Mac 客户端收不到更新推送。扩展为两平台同时上传，releaseNotes 注入对两个 yml 都生效。
+
+### 注意
+
+- macOS 自动更新有“鸡生蛋”约束：当前已安装版本（旧 NsisUpdater）的自动安装逻辑是坏的，用户须手动下载 dmg 安装一次 0.1.14，之后该版本用 MacUpdater 即可正常自动更新。
+
+---
+
 ## 2026-08-10 — 最终审查修复（system 实时跟随 + i18n 孤儿键 + yellow 对比度）
 
 ### 修复

@@ -1,7 +1,14 @@
 // 自动更新装配层：创建 NsisUpdater、配置 GenericProvider（OSS 公开读）、注册 IPC、事件翻译广播。
 // translateUpdaterEvent / updaterPhases 为纯函数（可单测）；setupUpdater 依赖 Electron 环境（main 进程调用）。
 
-const updaterPhases = ["checking", "available", "up-to-date", "downloading", "downloaded", "error"];
+const updaterPhases = [
+	"checking",
+	"available",
+	"up-to-date",
+	"downloading",
+	"downloaded",
+	"error",
+];
 
 // autoUpdater 事件 → 前端 updater:event 载荷（{ phase, ... }）。未知事件返回 null。
 function translateUpdaterEvent({ type, info, progress, error }) {
@@ -34,7 +41,7 @@ function translateUpdaterEvent({ type, info, progress, error }) {
 
 // —— Electron 装配（main 进程调用）——
 
-const { NsisUpdater } = require("electron-updater");
+const { NsisUpdater, MacUpdater, LinuxUpdater } = require("electron-updater");
 
 // 前端 phase → electron-updater 事件名 的显式映射表。
 // 用普通对象 + 遍历，避免晦涩的链式 .map() 写法，语义一眼可懂。
@@ -55,7 +62,13 @@ const PHASE_TO_EVENT = {
  * @param {string} deps.currentVersion app.getVersion()
  * @param {{ feedUrl?: string }} [deps.config] 可覆盖更新源 URL（E2E/测试指向本地 mock）
  */
-function setupUpdater({ getMainWindow, log, isPackaged, currentVersion, config = {} }) {
+function setupUpdater({
+	getMainWindow,
+	log,
+	isPackaged,
+	currentVersion,
+	config = {},
+}) {
 	const { ipcMain } = require("electron");
 
 	// 广播：把翻译后的 payload 推到渲染进程 updater:event 通道
@@ -76,12 +89,18 @@ function setupUpdater({ getMainWindow, log, isPackaged, currentVersion, config =
 		// dev 模式：注册占位 handler，返回不可用，避免误触发真实更新
 		ipcMain.handle("updater:check", () => ({ ok: false, reason: "dev" }));
 		ipcMain.handle("updater:download", () => ({ ok: false, reason: "dev" }));
-		ipcMain.handle("updater:quit-and-install", () => ({ ok: false, reason: "dev" }));
+		ipcMain.handle("updater:quit-and-install", () => ({
+			ok: false,
+			reason: "dev",
+		}));
 		return;
 	}
 
-	// 直接构造 NsisUpdater 实例（不用 autoUpdater 单例，后者在非 Electron 环境访问会抛错）
-	const updater = new NsisUpdater();
+	// 按平台选择 updater（显式 new，避免 autoUpdater 单例在非 Electron 环境访问抛错）
+	let UpdaterClass = NsisUpdater;
+	if (process.platform === "darwin") UpdaterClass = MacUpdater;
+	else if (process.platform === "linux") UpdaterClass = LinuxUpdater;
+	const updater = new UpdaterClass();
 	updater.autoDownload = false; // 不自动下载，等用户点击后再 downloadUpdate()
 	updater.logger = {
 		info: (m) => log(`[updater] ${m}`),
@@ -93,11 +112,12 @@ function setupUpdater({ getMainWindow, log, isPackaged, currentVersion, config =
 	// setFeedURL 是官方注入路径（内部自动构造 GenericProvider + clientPromise）。
 	updater.setFeedURL({
 		provider: "generic",
-		url: config.feedUrl || "https://coaicom.oss-cn-heyuan.aliyuncs.com/releases/",
+		url:
+			config.feedUrl || "https://coaicom.oss-cn-heyuan.aliyuncs.com/releases/",
 	});
 
 	// 注册事件监听：把 electron-updater 原生事件翻译成前端 phase 载荷并广播
-	for (const [phase, eventName] of Object.entries(PHASE_TO_EVENT)) {
+	for (const [, eventName] of Object.entries(PHASE_TO_EVENT)) {
 		updater.on(eventName, (...args) => {
 			const payload = translateUpdaterEvent({
 				type: eventName,
