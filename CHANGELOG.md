@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-10 — 录音权限错误改为业务可读文案
+
+### 修复
+
+- **fix(frontend)**：无录音权限/无设备/设备被占用时，不再展示浏览器原始英文报错（如 `Permission denied`），改为按 `DOMException.name` 映射的业务文案：`NotAllowedError`→请在系统设置允许麦克风/屏幕录制权限；`NotFoundError`→未找到录音设备；`NotReadableError`/`AbortError`→设备被占用；其他→兜底保留详情。新增 `toRecordingErrorMessage` 纯函数（可单测），`RecordingManager.start()` 对 `getUserMedia`/`getDisplayMedia` 抛错统一映射后上抛。
+  - 影响范围：`packages/frontend/src/recording/recorder.ts`、`packages/frontend/src/i18n/locales/{zh,en}.ts`、`packages/frontend/tests/{recorder,recorder-permission}.test.ts`。
+
+---
+
 ## 2026-08-10 — v0.1.16 维护版本（验证 macOS 自动更新链路）
 
 ### 构建
