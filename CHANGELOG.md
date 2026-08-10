@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-08-10 — 修复：工具调用前流式 text 定格未闭合 markdown 语法时出现空白气泡
+
+### 修复
+
+- **fix(frontend)**：AI 流式输出中 text 段定格在未闭合 markdown 语法（代码围栏 ` ``` ` / 加粗 `**`，随后工具调用出现）时，不再渲染空白气泡。根因：恢复 llm-ui 后流式 text 走 `StreamingMarkdown`，其 `markdownLookBack`/`codeBlockLookBack` 会扣留未闭合语法尾巴 → 渲染为空，但外层气泡容器（`bg-surface border`）仍在 → 视觉上出现空白气泡。修复：新增 `isStreamingTextVisible` 预判（复用 llm-ui lookBack 计算可见文本），流式 text 段无可见内容时跳过整个气泡容器；`streaming-code-block` 未闭合且代码为空时不渲染空 `<pre>`。定稿段（MarkdownBlock 直接渲染全文）不受影响。
+  - 影响范围：`packages/frontend/src/components/MessageList.tsx`（含模块级可见性缓存，避免流式每帧重复 mdast 解析）、`packages/frontend/src/components/blocks/streaming-code-block.tsx`、`packages/frontend/tests/MessageList.test.tsx`（新增未闭合围栏/加粗两个红灯用例 + 部分可见保留 3 个正向用例）。
+
+---
+
 ## 2026-08-10 — 修复：AI 回复中用户手动上翻被自动滚动拉回底部
 
 ### 修复

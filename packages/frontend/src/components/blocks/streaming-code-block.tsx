@@ -30,6 +30,9 @@ const StreamingCodeBlockView: LLMOutputComponent = ({ blockMatch }) => {
     blockMatch.isComplete,
   );
   if (!blockMatch.isComplete) {
+    // 未闭合代码块且尚无实际代码内容（如流式刚输出 ``` 围栏、工具调用前定格）：
+    // 渲染空 <pre> 会产生带边框背景的空白气泡。内容为空时不渲染。
+    if (!code.trim()) return null;
     return (
       <pre
         data-testid="streaming-code-plain"
