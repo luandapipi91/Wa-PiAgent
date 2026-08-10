@@ -12,6 +12,7 @@ import {
 	saveRetrySettings,
 	loadHttpIdleTimeoutMs,
 	saveHttpIdleTimeoutMs,
+	ensureHttpIdleTimeout,
 } from "../src/settings-store";
 
 // settings-store 直接读写磁盘 settings.json：用临时目录隔离，不碰真实 ~/.wa-pi
@@ -164,4 +165,34 @@ test("saveHttpIdleTimeoutMs：写入并保留其他字段（read-modify-write）
 	// retry 等其他字段不被冲掉
 	expect(onDisk.retry).toEqual({ maxRetries: 5, baseDelayMs: 3000 });
 	expect(onDisk.defaultModel).toBe("m");
+});
+
+test("ensureHttpIdleTimeout：字段缺失时写入默认值，保留文件其他字段", async () => {
+	await writeFile(file, JSON.stringify({ retry: { maxRetries: 5 } }), "utf8");
+	await ensureHttpIdleTimeout(file);
+	const raw = JSON.parse(await readFile(file, "utf8"));
+	expect(raw.httpIdleTimeoutMs).toBe(DEFAULT_HTTP_IDLE_TIMEOUT_MS);
+	expect(raw.retry.maxRetries).toBe(5); // 其他字段不动
+});
+
+test("ensureHttpIdleTimeout：已有用户值不覆盖；非数字（如字符串）归一为默认", async () => {
+	await writeFile(file, JSON.stringify({ httpIdleTimeoutMs: 90_000 }), "utf8");
+	await ensureHttpIdleTimeout(file);
+	expect(JSON.parse(await readFile(file, "utf8")).httpIdleTimeoutMs).toBe(90_000);
+
+	await writeFile(file, JSON.stringify({ httpIdleTimeoutMs: "120000" }), "utf8");
+	await ensureHttpIdleTimeout(file);
+	expect(JSON.parse(await readFile(file, "utf8")).httpIdleTimeoutMs).toBe(
+		DEFAULT_HTTP_IDLE_TIMEOUT_MS,
+	);
+});
+
+test("saveHttpIdleTimeoutMs：拒绝 0 / 负数 / 小数 / Infinity（0 会被 pi 翻译成永不超时）", async () => {
+	await writeFile(file, JSON.stringify({}), "utf8");
+	await expect(saveHttpIdleTimeoutMs(0, file)).rejects.toThrow("整数");
+	await expect(saveHttpIdleTimeoutMs(-1000, file)).rejects.toThrow("整数");
+	await expect(saveHttpIdleTimeoutMs(1500.5, file)).rejects.toThrow("整数");
+	await expect(saveHttpIdleTimeoutMs(Infinity, file)).rejects.toThrow("整数");
+	// 合法值正常保存
+	await expect(saveHttpIdleTimeoutMs(60_000, file)).resolves.toBe(60_000);
 });

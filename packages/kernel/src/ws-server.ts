@@ -1848,7 +1848,8 @@ export class WSServer {
 					if (event.httpIdleTimeoutMs !== undefined) {
 						httpIdleTimeoutMs =
 							event.httpIdleTimeoutMs === null
-								? DEFAULT_HTTP_IDLE_TIMEOUT_MS
+								? // 恢复默认必须落盘：只改局部变量的话重启后旧值复活
+									await saveHttpIdleTimeoutMs(DEFAULT_HTTP_IDLE_TIMEOUT_MS)
 								: await saveHttpIdleTimeoutMs(event.httpIdleTimeoutMs);
 					}
 					// 运行中的 pi 进程仍持启动时加载的旧 settings；标脏让会话下次

@@ -32,6 +32,8 @@ export const BASE_DELAY_MAX_MS = 60_000;
  *  wa-pi 收紧到 120000（2min）——物理断网（连接后挂死）后 2 分钟内 undici 超时
  *  → pi 走 auto_retry → agent_settled，前端不再无限"对话中"。 */
 export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 120_000;
+/** HTTP 空闲超时下限（ms）：0 会被 pi 翻译成 int32 上限（≈24.8 天）永不超时，禁止 */
+export const HTTP_IDLE_TIMEOUT_MIN_MS = 10_000;
 
 const SETTINGS_FILE = join(WA_PI_DIR, "settings.json");
 
@@ -162,9 +164,34 @@ export async function saveHttpIdleTimeoutMs(
 	timeoutMs: number,
 	file: string = SETTINGS_FILE,
 ): Promise<number> {
+	if (
+		!Number.isFinite(timeoutMs) ||
+		!Number.isInteger(timeoutMs) ||
+		timeoutMs < HTTP_IDLE_TIMEOUT_MIN_MS
+	) {
+		throw new Error(
+			`HTTP 空闲超时需为 ≥${HTTP_IDLE_TIMEOUT_MIN_MS}ms 的整数`,
+		);
+	}
 	const settings = await readSettingsJson(file);
 	settings.httpIdleTimeoutMs = timeoutMs;
 	await mkdir(dirname(file), { recursive: true });
 	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
 	return timeoutMs;
+}
+
+/**
+ * 启动时确保 settings.json 落盘 httpIdleTimeoutMs 默认值。
+ * 背景：pi 子进程启动时从 settings.json 读该字段，缺省时回退 pi 官方默认 300000ms
+ * （而非 wa-pi 宣称的 120000ms），物理断网后前端要多卡 3 分钟才有反馈。
+ * 仅在字段缺失/非数字时写入，已有用户配置不动（read-modify-write 保留其他字段）。
+ */
+export async function ensureHttpIdleTimeout(
+	file: string = SETTINGS_FILE,
+): Promise<void> {
+	const settings = await readSettingsJson(file);
+	if (typeof settings.httpIdleTimeoutMs === "number") return;
+	settings.httpIdleTimeoutMs = DEFAULT_HTTP_IDLE_TIMEOUT_MS;
+	await mkdir(dirname(file), { recursive: true });
+	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
 }
