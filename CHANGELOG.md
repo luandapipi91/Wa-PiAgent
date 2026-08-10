@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-08-10 — 修复 macOS OTA 更新签名验证失败（自签名证书方案 B）
+
+### 修复
+
+- **fix(desktop)**：macOS 自动更新报 "Code signature at URL ... did not pass validation"。根因：mac 包一直为 ad-hoc 签名（无 Developer ID），ad-hoc 签名的 designated requirement 是自身 cdhash，Squirrel.Mac 用已安装 App 的 requirement 验证新包时 cdhash 必然不匹配 → 更新永远失败。
+  - 方案：登录钥匙串新建自签名代码签名证书 `WA PI Agent Self-Signed`（有效期 20 年，p12 备份在 `~/.wa-pi/signing/`）。自签名证书签名的 requirement 是 `certificate leaf = H"..."`（证书哈希约束，不依赖信任库），同一证书签的新版本互相满足 → Squirrel 验证通过，无需用户机器装 CA、无需 Apple 账号。
+  - `mac-sign.cjs`：`resolveIdentity` 增加安全回退——无 `CODESIGN_IDENTITY` 时自动检测钥匙串中的默认自签名证书（`WA_PI_SELF_SIGNED_CERT` 可覆盖名，空字符串禁用），避免静默回退 ad-hoc 导致更新再次失效；`signMacApp` 把注入的 exec 传给 `resolveIdentity` 便于测试。
+  - 影响范围：`packages/desktop/scripts/mac-sign.cjs`、`packages/desktop/tests/mac-sign.test.ts`（resolveIdentity/hasCert 新用例）。
+  - ⚠️ 升级门槛：已安装的 ad-hoc 版无法 OTA 升到自签名版（旧 requirement 是 cdhash），需手动下载安装一次自签名版；证书丢失=所有已发布版本更新验证失效，密钥必须长期保存。
+
+---
+
 ## 2026-08-10 — 消息气泡最大宽度 78% → 90%
 
 ### 改进
