@@ -4,6 +4,19 @@
 
 ---
 
+
+## 2026-08-10 — 恢复 llm-ui 流式渲染（撤销 59bc91c revert，重新采用第三方 llm ui 渲染流式 text 段）
+
+### 决策反转
+
+- **revert(frontend)**：撤销 `59bc91c`（revert: 移除 llm-ui 流式渲染），重新引入 `@llm-ui/react|markdown|code ^0.13.3` 与 `StreamingMarkdown`/`streaming-code-block`。流式 text 段按 `segIsStreaming` 分发回 llm-ui 分块渲染（闭合代码块拆独立 `CodeBlockCard` 跳过 Prism 重跑、未闭合走纯 `<pre>`、mermaid 闭合块走 `MermaidBlock`），定稿仍切回 `MarkdownBlock`。
+  - 恢复原因：决策反转，仍希望使用第三方 llm ui 的流式渲染方案。保留 4 项低成本优化（batcher 合帧/kernel 节流/子代理卡片降级/virtuoso 虚拟化）不变。
+  - 影响范围：`packages/frontend/package.json`、`MessageList.tsx`、`blocks/{StreamingMarkdown,streaming-code-block}.tsx`、对应测试；CHANGELOG 补回 08-09 两条 llm-ui 历史条目。
+  - 已知问题：`MessageList.streaming-render.test.tsx` 顶部 `mock.module("react-markdown")` 为进程级 mock，与 `StreamingMarkdown.test.tsx` 同进程运行时污染其 2 个断言（strong 渲染），属历史遗留（llm-ui 时代同样存在），非本次恢复引入。
+
+---
+
+D
 ## 2026-08-10 — 最终审查修复：createdAt 取 spawn 时刻 + 自愈异常兜底 + 登记簿坏值校验
 
 ### 修复
@@ -43,6 +56,8 @@
 - 影响范围：`packages/desktop/src/kernel-sidecar.cjs`、`packages/desktop/src/main.cjs`、`packages/desktop/tests/kernel-sidecar.test.ts`（新增 5 用例）。
 
 ---
+
+## 2026-08-10 — v0.1.14 热修复：macOS 自动更新无法安装
 
 ### 修复
 
@@ -278,6 +293,26 @@
   - 偏离记录：简报原定 `initialTopMostItemIndex={listRows.length-1}` 在 `VirtuosoMockContext`（happy-dom 测试）下触发 react-virtuoso 4.18.11 mock 限制——任何 N≥1 均渲染 0 行（已实证）；改用一次性 effect（`virtuosoRef.scrollToIndex`）实现「进入会话滚到底」，真实浏览器行为不变，性能目标（移除 rAF 循环）不变。`data-testid="virtuoso-scroller"` 断言因 MessageList 传 `data-testid="message-list"` 覆盖了 Virtuoso 默认 testid，改用 `data-virtuoso-scroller="true"` 标记断言。
   - 测试调整：删除 13 个针对旧滚动算法（rAF/handleScroll/isNearBottom/setScrollMetrics mock）的测试（被测代码已删除，行为外包给 react-virtuoso，happy-dom 无法验证真实滚动→改由步骤 7 冒烟覆盖）；重写空 session 断言；新增 `MessageList.virtualized.test.tsx`（itemContent 分发、流式占位行、Virtuoso 接管滚动守护网）；所有 `render(<MessageList/>)` 测试包 `VirtuosoMockContext.Provider`。
   - 影响范围：`packages/frontend/package.json`、`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/tests/{MessageList,MessageList.virtualized,MessageList.streaming-render,MessageList-sparse-content,MessageRow-streaming,AgentSwitcher,DelegateCard,FleetCard,SessionView}.test.tsx`。
+
+---
+
+## 2026-08-09 — 流式 text 段改 llm-ui 分块渲染，未闭合代码块跳过 Prism 高亮
+
+### 性能优化
+
+- **perf(frontend)**：流式进行中的 text 段改用 llm-ui `useLLMOutput` 分块渲染（`StreamingMarkdown`）。闭合代码块拆为独立 `CodeBlockCard`（其 memo 使 code 不变时跳过 Prism 重跑），未闭合代码块渲染纯 `<pre>`（跳过每帧全量 Prism 高亮——流式卡顿热点之一）；闭合 mermaid 块走 `MermaidBlock`；markdown fallback 段复用现有 `createMarkdownComponents`（FilePill/MarkdownLink 零改动）。定稿后仍切回原 `MarkdownBlock`（ReactMarkdown + remarkGfm 完整渲染）。
+  - 新增 `streaming-code-block.tsx`（llm-ui 代码块适配层：`findComplete/PartialCodeBlock` + `parse` 纯函数）与 `StreamingMarkdown.tsx`（memo 化，blocks/fallbackBlock 引用稳定）；改 `MessageList.tsx` `renderSeg` text 分支按 `segIsStreaming` 分发到 `StreamingMarkdown`（流式中）/ `MarkdownBlock`（定稿）。
+  - 影响范围：`packages/frontend/src/components/blocks/{streaming-code-block,StreamingMarkdown}.tsx`、`packages/frontend/src/components/MessageList.tsx`，及对应测试。
+
+---
+
+## 2026-08-09 — llm-ui React 19 兼容性 spike（流式渲染性能优化前置验证）
+
+### 新增（验证）
+
+- **test(frontend)**：新增 `@llm-ui/react|markdown|code ^0.13.3` 依赖并编写兼容性 spike 测试，验证 `useLLMOutput` 在 React 19.2 + happy-dom 下运行时完全兼容（无 hooks 报错/渲染崩溃）。三个 peer 声明 `react ^18` 实测兼容，bun install peer warning 为预期内已知项。spike 用例 3/3 PASS（文本+闭合代码块分段、未闭合走 partial、parse 提取 language/code）。**未安装 shiki**。spike 全绿，任务 5（llm-ui StreamingMarkdown 实现）解锁，回退到 Streamdown 的路径不需要走。
+  - 偏离记录：用例 1 因 llm-ui 为代码块前后各产一个 markdown fallback 块（正确分段行为），`getByTestId` 遇多元素抛错，属测试写法问题（非运行时不兼容），改 `getAllByTestId` 后全绿。
+  - 影响范围：`packages/frontend/package.json`、`packages/frontend/tests/blocks/llm-ui-spike.test.tsx`。
 
 ---
 
