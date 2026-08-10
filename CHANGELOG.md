@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-08-10 — 修复 AppearanceSection 测试隔离 + 补字号 UI 断言
+
+### 修复
+
+- **fix(frontend)·测试隔离**：`AppearanceSection.test.tsx` 的 `beforeEach` 仅重置 DOM dataset 和 localStorage，未重置 zustand store 内存状态。store 单例在文件内共享，若调整测试执行顺序（如 Test 5 先于 Test 4），Test 4 的 green 默认选中断言会因残留 blue 状态而失败。修复：顶部静态 import `useUiPrefsStore`，`beforeEach` 中显式 `setState` 重置 themeMode/themeColor/fontSize 到默认值，消除执行顺序依赖。
+- **test(frontend)·字号 UI 断言**：Test 6 补充 `font-size-value` 元素文本断言（`"20px"`），验证 store → UI 显示值的数据流闭环。
+- 影响范围：`packages/frontend/tests/AppearanceSection.test.tsx`。
+
+---
+
 ## 2026-08-10 — 新建 AppearanceSection 组件 + appearance i18n 翻译键
 
 ### 新增
