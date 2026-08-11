@@ -3,6 +3,7 @@ import { useSettingsStore } from "../../store/settings";
 import { useOnboardingStore } from "../../store/onboarding";
 import { useTranslation } from "../../i18n/useTranslation";
 import { Icon } from "../ui/Icon";
+import { VersionTimeline } from "./VersionTimeline";
 
 /** 字节数格式化：B / KB / MB / GB */
 function fmtBytes(n: number): string {
@@ -59,6 +60,18 @@ export function AboutSection() {
 				style={{ background: "var(--hairline)" }}
 			/>
 
+			{/* 更新历史时间线 */}
+			<div className="w-full max-w-[480px] mt-2">
+				<div className="text-xs font-medium text-secondary mb-3">
+					{t("settings.about.updateHistory")}
+				</div>
+				<VersionTimeline />
+			</div>
+			<div
+				className="w-[280px] h-px my-5"
+				style={{ background: "var(--hairline)" }}
+			/>
+
 			{!showUpdateControls ? (
 				<div className="text-xs text-tertiary">
 					{t("settings.about.desktopOnly")}
@@ -98,7 +111,7 @@ export function AboutSection() {
 								{t("settings.about.foundNew")} <b>{ver}</b>
 							</div>
 							{releaseNotes && (
-								<div className="text-xs text-tertiary text-center leading-5 max-w-[340px]">
+								<div className="text-xs text-tertiary text-center leading-5 max-w-[340px] whitespace-pre-wrap">
 									{releaseNotes}
 								</div>
 							)}
