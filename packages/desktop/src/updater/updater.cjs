@@ -49,19 +49,27 @@ function translateUpdaterEvent({ type, info, progress, error }) {
  * @param {{ quitAndInstall: (isSilent: boolean, isForceRunAfter: boolean) => void }} deps.updater electron-updater 实例
  * @param {() => Promise<void>} [deps.onBeforeQuitAndInstall] 升级安装前回调（可选，未提供时直接 quitAndInstall）
  */
-function makeQuitAndInstallHandler({ updater, onBeforeQuitAndInstall }) {
+function makeQuitAndInstallHandler({
+	updater,
+	onBeforeQuitAndInstall,
+	destroyTray,
+}) {
 	return async () => {
 		await onBeforeQuitAndInstall?.();
+		destroyTray?.();
 		updater.quitAndInstall(false, true);
-		// macOS 兜底：Tray 保活致 quitAndInstall 后应用不退出，
-		// 1.5s 后强制退出让 ShipIt 替换 .app
+		// macOS：Squirrel.Mac 的 quitAndInstall 在应用退出后通过 relaunch 自动重启，
+		// 但 relaunch 在 ShipIt 完成安装前就执行 → ShipIt "App Still Running" → 安装失败。
+		// 解法：注册 update-downloaded 事件（ShipIt 准备就绪信号），触发时 app.exit(0)
+		// 绕过 Squirrel.Mac 的正常退出流程（含 relaunch），让 ShipIt 在无实例环境下完成安装。
 		if (process.platform === "darwin") {
-			const { app } = require("electron");
-			setTimeout(() => {
+			// MacUpdater 不转发 nativeUpdater 的 update-downloaded 事件给 updater 实例，
+			// 必须直接监听 nativeUpdater（Squirrel.Mac AutoUpdater）。
+			updater.nativeUpdater?.once?.("update-downloaded", () => {
 				try {
-					app.exit(0);
+					require("electron").app.exit(0);
 				} catch {}
-			}, 1500);
+			});
 		}
 		return { ok: true };
 	};
@@ -184,9 +192,17 @@ function setupUpdater({
 
 	// IPC：退出并安装（isSilent=false, isForceRunAfter=true）
 	// 先等升级前清理（停 kernel + 等端口释放）完成，避免 Windows 下 NSIS 杀进程树不可靠导致 9778 幽灵占用
-	ipcMain.handle("updater:quit-and-install", makeQuitAndInstallHandler({ updater, onBeforeQuitAndInstall }));
+	ipcMain.handle(
+		"updater:quit-and-install",
+		makeQuitAndInstallHandler({ updater, onBeforeQuitAndInstall }),
+	);
 
 	log("[updater] 已装配（packaged）");
 }
 
-module.exports = { updaterPhases, translateUpdaterEvent, setupUpdater, makeQuitAndInstallHandler };
+module.exports = {
+	updaterPhases,
+	translateUpdaterEvent,
+	setupUpdater,
+	makeQuitAndInstallHandler,
+};
