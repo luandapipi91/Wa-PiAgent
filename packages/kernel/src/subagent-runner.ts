@@ -74,9 +74,10 @@ export interface SubagentRunOpts {
 	/** RPC 命令超时毫秒数，默认 30 分钟（1800000）；设为 Infinity 关闭超时（settle 兜底同样跳过） */
 	commandTimeoutMs?: number;
 	/** 无进展探活超时毫秒数，默认 5 分钟（300000）。进程存活但无任何业务事件
-	 *  （message_update / tool_execution_* / agent_start|end）超过该时长判定卡死；
-	 *  工具执行中（tool_execution_start~end 之间）豁免——等工具返回是合法静默。
-	 *  设为 Infinity 关闭探活。 */
+	 *  （message_update / tool_execution_* / agent_start|end / thinking_delta）
+	 *  超过该时长判定卡死。工具执行中同样不豁免：正常长工具（bash 等）会持续发
+	 *  tool_execution_update 流式输出刷新计时；完全静默（含等工具返回）超时判死——
+	 *  没有任何进展的静默本身就是卡死信号。设为 Infinity 关闭探活。 */
 	idleTimeoutMs?: number;
 	/** abort 宽限期毫秒数（测试覆盖用）：收到中止信号后等子代理响应 abort RPC 的时长，
 	 *  到期强制返回并由 finally dispose 强杀进程。默认 10000 */
@@ -169,18 +170,14 @@ export async function runSubagentAgent(
 		// （unhandled rejection）。挂空 catch 兜底；await settled 处仍能拿到原 rejection。
 		settled.catch(() => {});
 
-		// 无进展探活（防卡死）：任何业务事件刷新计时；工具执行中（start~end）豁免。
-		// 进程存活但不发事件（MCP 卡死 / LLM 流停滞 / 死循环）时，idleTimeoutMs 判死。
+		// 无进展探活（防卡死）：任何业务事件刷新计时，超过 idleTimeoutMs 无事件判死。
+		// 无工具执行豁免：tool_execution_update（长工具流式输出）/ message_update /
+		// thinking_delta 都是进展，会刷新计时；完全静默（含等工具返回）超时判死。
 		const idleTimeoutMs = opts?.idleTimeoutMs ?? LIVENESS_IDLE_MS;
-		let toolInFlight = false;
 		let livenessTimer: ReturnType<typeof setTimeout> | undefined;
 		const armLiveness = () => {
 			if (livenessTimer) clearTimeout(livenessTimer);
 			livenessTimer = setTimeout(() => {
-				if (toolInFlight) {
-					armLiveness(); // 工具执行中：等返回是合法静默，重置继续等
-					return;
-				}
 				fail(new Error(`子智能体无进展超时 (${idleTimeoutMs}ms)`));
 			}, idleTimeoutMs);
 		};
@@ -195,13 +192,16 @@ export async function runSubagentAgent(
 					touch();
 					break;
 				case "tool_execution_start":
-					toolInFlight = true;
 					touch();
 					tools.push({ id: e.toolCallId, name: e.toolName, status: "running" });
 					emit("running");
 					break;
+				case "tool_execution_update":
+					// 长运行工具的 partialResult 流式输出（如 bash 逐行到达）= 有进展，
+					// 刷新探活计时；工具仍在执行中（status 不变 running，无需额外 emit）。
+					touch();
+					break;
 				case "tool_execution_end": {
-					toolInFlight = false;
 					touch();
 					const t = tools.find((x) => x.id === e.toolCallId);
 					if (t) t.status = e.isError ? "error" : "done";

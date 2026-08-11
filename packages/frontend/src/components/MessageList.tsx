@@ -411,23 +411,43 @@ export function MessageList({ sessionId }: Props) {
 	}, [autoScrollActive, stickBottom, listRows.length, scrollToEnd]);
 
 	// atBottomStateChange：区分「用户主动滚离底部」与「内容高度被动变化导致离底」。
-	// 用户主动滚动（wheel/touch/键盘/滚动条）→ 停止跟随；内容折叠/展开导致被动离底
-	//（如用户贴底时上方某行展开，最新内容被顶到视口下方）→ 保持贴底并自动滚回底部。
+	// 用户主动滚动（wheel/touch/键盘/滚动条，含触摸惯性——无输入事件但 scrollTop
+	// 变化）→ 停止跟随；内容折叠/展开导致被动离底（如用户贴底时上方某行展开，最新
+	// 内容被顶到视口下方）→ 保持贴底并自动滚回底部。
 	// autoScrollActive 期间内容增长导致的暂时性 not-at-bottom 仍忽略（程序化贴底竞态）。
+	// 用户滚动离底由 handleScrollerScroll 同步置 stickBottom=false + userScrolledAwayRef；
+	// 但 Virtuoso 的 scroll 监听器先于本组件注册，同一用户手势里 atBottomStateChange(false)
+	// 可能先于 handleScrollerScroll 触发（此时 stickBottomRef 仍是 true）——延迟一帧再
+	// 决定是否拉回，让 scroll 事件先处理完用户滚动标记，避免误拉回惯性上翻的用户。
 	const handleAtBottomChange = useCallback(
 		(atBottom: boolean) => {
 			if (atBottom) {
 				everAtBottomRef.current = true;
+				userScrolledAwayRef.current = false;
 				setStickBottom(true);
-			} else if (isUserScrollInput()) {
-				setStickBottom(false);
 			} else if (stickBottomRef.current) {
-				// 内容高度变化（折叠/展开）被动离底：用户意图贴底 → 滚回底部
-				scrollToEnd();
+				if (atBottomTimerRef.current) clearTimeout(atBottomTimerRef.current);
+				atBottomTimerRef.current = setTimeout(() => {
+					atBottomTimerRef.current = undefined;
+					if (userScrolledAwayRef.current) {
+						// 用户刚上翻（含惯性滚动）→ 不拉回，停止跟随
+						userScrolledAwayRef.current = false;
+					} else if (stickBottomRef.current) {
+						// 内容高度变化（折叠/展开）被动离底：用户意图贴底 → 滚回底部
+						scrollToEnd();
+					}
+				}, 0);
 			}
 		},
-		[isUserScrollInput, scrollToEnd],
+		[scrollToEnd],
 	);
+
+	// 卸载时清理延迟判断 timer（防卸载后 scrollToEnd 触发）
+	useEffect(() => {
+		return () => {
+			if (atBottomTimerRef.current) clearTimeout(atBottomTimerRef.current);
+		};
+	}, []);
 
 	// 用户主动上翻 → 无条件停止自动跟随。
 	// 67760b5 的 atBottomStateChange 守卫在 autoScrollActive 期间忽略 not-at-bottom，
@@ -440,17 +460,40 @@ export function MessageList({ sessionId }: Props) {
 	// 用户翻阅历史是向上滚（scrollTop 减小）。内容增长不产生 scroll 事件，
 	// autoScrollActive 守卫仍挡住 atBottomStateChange 的程序化离底竞态，两路互补。
 	const lastScrollTopRef = useRef(0);
+	// 最近一次 scroll 时的 maxScrollTop（scrollHeight - clientHeight），用于区分
+	// 「用户滚动上翻」与「内容折叠被动 clamp」：内容折叠时 maxScrollTop 同步减小，
+	// 无 clamp 理由时 scrollTop 减小只能是用户滚动（含触摸惯性——惯性阶段无输入事件）。
+	// -1 = 未测量：attachScroller 后首个 scroll 事件只记录基线（内容可能尚未就绪）。
+	const lastMaxScrollTopRef = useRef(-1);
+	// 最近一次 scroll 事件是否判定为「用户上翻」（同步标记，供 handleAtBottomChange
+	// 在 Virtuoso 先于本组件执行 scroll 监听时区分「用户滚动离底」与「内容被动离底」）。
+	const userScrolledAwayRef = useRef(false);
+	// handleAtBottomChange 延迟一帧判断用的 timer（卸载时清理）
+	const atBottomTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const scrollerElRef = useRef<HTMLElement | null>(null);
 	const handleScrollerScroll = useCallback(() => {
 		const el = scrollerElRef.current;
 		if (!el) return;
 		const st = el.scrollTop;
-		// 仅「用户主动滚动输入」时按方向判定上翻：内容折叠导致浏览器被动 clamp
-		// scrollTop 减小（无用户输入）不置 stickBottom=false——否则贴底时折叠某行
-		// 会误判「用户上翻」→ 反复出现浮钮（用户报告 bug）。
+		const maxScrollTop = el.scrollHeight - el.clientHeight;
+		const prevMax = lastMaxScrollTopRef.current;
+		lastMaxScrollTopRef.current = maxScrollTop;
+		if (prevMax < 0) {
+			// 首帧只记录基线（attachScroller 时内容可能尚未就绪/测试 mock 初始 0）
+			lastScrollTopRef.current = st;
+			return;
+		}
+		// 用户主动上翻：scrollTop 减小，且（有滚动输入标记 或 maxScrollTop 未减小）。
+		// maxScrollTop 未减小 = 内容高度没变（无 clamp 理由），scrollTop 减小只能是
+		// 用户滚动（wheel/触摸惯性/键盘/滚动条）——触摸惯性阶段无输入事件，靠此识别。
+		// 内容折叠导致被动 clamp：scrollTop 减小且 maxScrollTop 同步减小 → 不是上翻。
 		// 向下/贴底（scrollTop 增大或不变）= 程序化贴底或用户在底部 → 保持跟随。
-		if (isUserScrollInput() && st < lastScrollTopRef.current) {
+		if (
+			st < lastScrollTopRef.current &&
+			(isUserScrollInput() || maxScrollTop >= prevMax)
+		) {
 			setStickBottom(false);
+			userScrolledAwayRef.current = true;
 		}
 		lastScrollTopRef.current = st;
 	}, [isUserScrollInput]);
@@ -489,6 +532,7 @@ export function MessageList({ sessionId }: Props) {
 				});
 				el.addEventListener("pointerup", handlePointerUp, { passive: true });
 				lastScrollTopRef.current = el.scrollTop;
+				lastMaxScrollTopRef.current = -1; // 首个 scroll 事件只记录基线
 			} else {
 				// window 滚动模式下 Virtuoso 传 null（当前布局 absolute inset-0 不会触发），
 				// 上翻检测在该模式静默不生效；若未来改页面级滚动需同步处理。
