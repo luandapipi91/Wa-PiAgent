@@ -13,12 +13,21 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const { spawnSync } = require("node:child_process");
 const { createLogger } = require("./util/log.cjs");
-const { isPortInUse, killPortOccupants, waitPortReleased } = require("./util/port.cjs");
-const { registerProcess, unregisterProcess, sweepRegistry } = require("./util/process-registry.cjs");
+const {
+	isPortInUse,
+	killPortOccupants,
+	waitPortReleased,
+} = require("./util/port.cjs");
+const {
+	registerProcess,
+	unregisterProcess,
+	sweepRegistry,
+} = require("./util/process-registry.cjs");
 const { attemptSelfHeal } = require("./util/startup-heal.cjs");
 
 // 与 kernel 侧 WA_PI_DIR 一致（~/.pi/agent，env 可覆盖）：
-const WA_PI_DIR = process.env.WA_PI_DIR || path.join(os.homedir(), ".pi", "agent");
+const WA_PI_DIR =
+	process.env.WA_PI_DIR || path.join(os.homedir(), ".pi", "agent");
 const log = createLogger(path.join(WA_PI_DIR, "logs", "desktop.log"));
 
 // 进程登记簿（G）：kernel 启动登记 / 退出自删 / 启动清扫，全程依赖注入便于测试
@@ -39,6 +48,7 @@ let mainWindow = null;
 let sidecar = null;
 let isQuitting = false;
 let isUpdating = false;
+let trayInstance = null;
 // kernel 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
 // 因此固定端口，被占用时由启动页「重启应用」一键清理
 const FIXED_PORT =
@@ -391,7 +401,12 @@ app.whenReady().then(async () => {
 				}
 				try {
 					const r = sweepRegistry(registryOpts);
-					if (r.killed.length || r.deleted.length || r.skipped.length || r.errors.length) {
+					if (
+						r.killed.length ||
+						r.deleted.length ||
+						r.skipped.length ||
+						r.errors.length
+					) {
 						log.info(
 							`[registry] 升级前清扫: killed=[${r.killed.join(",") || "无"}] ` +
 								`deleted=[${r.deleted.join(",") || "无"}] skipped=[${r.skipped.join(",") || "无"}] ` +
@@ -450,7 +465,7 @@ app.whenReady().then(async () => {
 			: process.platform === "win32"
 				? "tray_windows.ico"
 				: "tray_linux.png";
-	startTray({
+	trayInstance = startTray({
 		iconPath: path.join(__dirname, "assets", trayIconName),
 		onOpen: activateApp,
 		onQuit: () => app.quit(),
@@ -492,7 +507,12 @@ app.whenReady().then(async () => {
 	// 避免残留进程继续占着 9778（Windows 升级后幽灵占用治理第一步；D 任务再完善自愈循环）。
 	try {
 		const r = sweepRegistry(registryOpts);
-		if (r.killed.length || r.deleted.length || r.skipped.length || r.errors.length) {
+		if (
+			r.killed.length ||
+			r.deleted.length ||
+			r.skipped.length ||
+			r.errors.length
+		) {
 			log.info(
 				`[registry] 启动清扫: killed=[${r.killed.join(",") || "无"}] ` +
 					`deleted=[${r.deleted.join(",") || "无"}] skipped=[${r.skipped.join(",") || "无"}] ` +
@@ -624,7 +644,11 @@ app.whenReady().then(async () => {
 		// 而非 startSidecar 等端口就绪后的时刻——启动耗时 >2s 时后者会让下轮清扫的
 		// isOurs 时间一致性校验误判 PID 复用，登记簿核心目标静默失效）
 		try {
-			registerProcess(sidecar.pid, { exe: kernelExe, createdAt: sidecar.createdAt }, registryOpts);
+			registerProcess(
+				sidecar.pid,
+				{ exe: kernelExe, createdAt: sidecar.createdAt },
+				registryOpts,
+			);
 		} catch (e) {
 			log.error("[registry] 登记 kernel 进程失败", e);
 		}
@@ -671,7 +695,12 @@ app.on("before-quit", () => {
 	// 不存在“调了 async 不 await 就退出导致没杀到”的窗口（cleanup 里 sidecar.stop 同样同步阻塞）。
 	try {
 		const r = sweepRegistry(registryOpts);
-		if (r.killed.length || r.deleted.length || r.skipped.length || r.errors.length) {
+		if (
+			r.killed.length ||
+			r.deleted.length ||
+			r.skipped.length ||
+			r.errors.length
+		) {
 			log.info(
 				`[registry] 退出兜底清扫: killed=[${r.killed.join(",") || "无"}] ` +
 					`deleted=[${r.deleted.join(",") || "无"}] skipped=[${r.skipped.join(",") || "无"}] ` +
