@@ -2,6 +2,16 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-11 — refactor(desktop): runtime-bin node 链接一律指向 bun，消除对系统 node 依赖
+
+### 变更
+
+- **背景**：打包版为动态插件（npm 包）与 MCP server 提供 node/npx/npm 命令。此前 node 链接优先系统 node（`findSystemNode` 搜索 Program Files/nvm/fnm），否则 bun 冒充——打包版因此依赖用户机器是否安装 node。
+- **PoC 验证**：`runtime-bin-bun-poc.test.ts` 验证 bun 冒充 node 5/5 通过——node --version、shebang（#!/usr/bin/env node）脚本、Node API（fs/path/child_process/http/os）、npx→bun x 运行 tsc、npm install + bun 运行 prettier。唯一差异：`node --version` 输出 bun 版本号（1.3.14）而非 node 版本号（v24.3.0），影响极小（多数包用 process.version）。
+- **修改**：`ensureRuntimeBinLinks` 的 node 链接（Windows node.cmd / POSIX 符号链接）总是指向 bun；删除 `findSystemNode` 函数；移除未使用的 runtimeDir/seedDir 参数。
+- 验证：desktop 测试 108 pass/10 fail（10 个为既有失败：端口清理/平台相关，stash 还原对比确认非本次引入）；PoC 5/5 pass。
+- 影响范围：packages/desktop/src/main.cjs、packages/desktop/tests/runtime-bin-bun-poc.test.ts（新增）。
+
 ## 2026-08-11 — revert(frontend): 移除 llm-ui 流式渲染回退自实现 MarkdownBlock，彻底解决内存溢出
 
 ### 变更
