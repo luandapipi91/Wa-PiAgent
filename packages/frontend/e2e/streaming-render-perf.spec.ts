@@ -136,6 +136,8 @@ test("长会话虚拟化：进入即定位最新 → 上滑浮钮 → 点浮钮�
 		const el = document.querySelector(
 			'[data-testid="message-list"]',
 		) as HTMLElement;
+		// 用户滚动输入（wheel）→ MessageList 标记「用户主动滚动」→ 才置 stickBottom=false
+		el.dispatchEvent(new Event("wheel", { bubbles: true }));
 		el.scrollTop = 0;
 		// 派发原生 scroll 事件触发 Virtuoso 的 atBottomStateChange（→ stickBottom=false）
 		el.dispatchEvent(new Event("scroll", { bubbles: true }));
@@ -247,6 +249,8 @@ test.describe("流式渲染性能优化验收", () => {
 		await page
 			.locator('[data-testid="message-list"]')
 			.evaluate((el, t) => {
+				// 用户滚动输入（wheel）→ 标记「用户主动滚动」
+				el.dispatchEvent(new Event("wheel", { bubbles: true }));
 				el.scrollTop = t;
 				el.dispatchEvent(new Event("scroll", { bubbles: true }));
 			}, top);
