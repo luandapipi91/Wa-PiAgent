@@ -41,6 +41,9 @@ import {
 
 const EMPTY: SessionMessage[] = [];
 
+/** 会话新建中加载页窗口（ms）：发送 prompt 后超过该时长无回调则自动隐藏（兜底，防扩展命令无 agent turn 永久悬挂）。 */
+export const INITIALIZING_WINDOW_MS = 20_000;
+
 interface Props {
 	sessionId: string;
 }
@@ -88,6 +91,29 @@ export function MessageList({ sessionId }: Props) {
 	const historyLoading = useSessionStore(
 		(s) => s.historyLoadingBySession[sessionId] ?? false,
 	);
+	const pendingPromptAt = useSessionStore(
+		(s) => s.pendingPromptAtBySession[sessionId] ?? 0,
+	);
+	const promptError = useSessionStore(
+		(s) => s.promptErrorBySession[sessionId] ?? "",
+	);
+	// 「会话新建中」窗口：发送 prompt 后 20s 内、无消息/流式时显示加载页；到期自动隐藏（兜底）。
+	// 时间戳+窗口方案：不依赖回调清除逻辑，回调到达后 messages 非空、条件自然失效；
+	// 无回调时窗口到期由下方一次性定时器触发重渲染自然隐藏。
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (!pendingPromptAt) return;
+		const remain = pendingPromptAt + INITIALIZING_WINDOW_MS - Date.now();
+		if (remain <= 0) return;
+		const t = setTimeout(() => setNow(Date.now()), remain + 50);
+		return () => clearTimeout(t);
+	}, [pendingPromptAt]);
+	const showSessionInitializing =
+		!promptError &&
+		pendingPromptAt > 0 &&
+		now - pendingPromptAt < INITIALIZING_WINDOW_MS &&
+		messages.length === 0 &&
+		!streaming;
 	// transient 网络错误（Connection error/timeout）时为 "degraded"：
 	// 驱动「重新发送」按钮（transient 不进对话流，原 stopReason:error 条件永不命中）。
 	const netDegraded = useSessionStore(
@@ -112,9 +138,15 @@ export function MessageList({ sessionId }: Props) {
 		});
 	}
 
-	// 历史加载中且尚无消息（且未在流式）：显示居中 loading，避免切换会话时对话区空白
+	// 历史加载中且尚无消息（且未在流式）：显示居中 loading，避免切换会话时对话区空白。
+	// 与「会话新建中」互斥：pending 窗口内只显示一个 loading（新会话发送场景历史请求
+	// 会与 pending 同时满足，叠加成两个 spinner）。
 	const showHistoryLoading =
-		historyLoading && messages.length === 0 && !streaming;
+		!promptError &&
+		historyLoading &&
+		messages.length === 0 &&
+		!streaming &&
+		!showSessionInitializing;
 
 	// 「重新发送」：两种触发场景（回合已结束 status!==thinking 且无流式）：
 	//  1. 末条是失败的 assistant 回复（stopReason:error，如鉴权/配额 fatal 错误）
@@ -469,7 +501,9 @@ export function MessageList({ sessionId }: Props) {
 	// 在 Virtuoso 先于本组件执行 scroll 监听时区分「用户滚动离底」与「内容被动离底」）。
 	const userScrolledAwayRef = useRef(false);
 	// handleAtBottomChange 延迟一帧判断用的 timer（卸载时清理）
-	const atBottomTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const atBottomTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+		undefined,
+	);
 	const scrollerElRef = useRef<HTMLElement | null>(null);
 	const handleScrollerScroll = useCallback(() => {
 		const el = scrollerElRef.current;
@@ -614,6 +648,35 @@ export function MessageList({ sessionId }: Props) {
 					);
 				}}
 			/>
+			{showSessionInitializing && (
+				<div
+					className="absolute inset-0 flex items-center justify-center pointer-events-none"
+					data-testid={`session-initializing-${sessionId}`}
+				>
+					<div className="inline-flex items-center gap-2 text-tertiary text-[calc(13px*var(--font-scale))]">
+						<span
+							className="inline-block w-4 h-4 rounded-full"
+							style={{
+								border: "2px solid var(--accent-soft)",
+								borderTopColor: "var(--accent)",
+								animation: "spin 0.8s linear infinite",
+							}}
+						/>
+						{t("message.initializing")}
+					</div>
+				</div>
+			)}
+			{promptError && messages.length === 0 && !streaming && (
+				<div
+					className="absolute inset-0 flex items-center justify-center pointer-events-none"
+					data-testid={`prompt-error-${sessionId}`}
+				>
+					<div className="inline-flex items-start gap-2 text-danger text-[calc(13px*var(--font-scale))] max-w-[80%]">
+						<span className="mt-0.5 shrink-0">⚠️</span>
+						<span>{t("message.promptFailed", { error: promptError })}</span>
+					</div>
+				</div>
+			)}
 			{showHistoryLoading && (
 				<div
 					className="absolute inset-0 flex items-center justify-center"

@@ -32,6 +32,7 @@ import { useProjectsStore } from "../store/projects";
 import { useAgentsStore } from "../store/agents";
 import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
+import { useSessionStore } from "../store/session";
 
 beforeEach(() => {
 	// 防御：全量运行时其他测试可能替换 globalThis.window（同 AgentGalleryModal-create.test.tsx）
@@ -93,4 +94,36 @@ test("新建会话发送后草稿 id 被消费，不会被下次新建复用", a
 	expect(useComposerPrefsStore.getState().newSessionIds["proj-1"]).not.toBe(
 		"draft-123",
 	);
+});
+
+test("新建会话发送后记录 pendingPromptAt（窗口内显示「会话新建中」加载页）", async () => {
+	useSessionStore.setState({ pendingPromptAtBySession: {} } as any);
+	render(<NewSessionPane />);
+	await new Promise((r) => setTimeout(r, 50));
+	const editor = await screen.findByRole("textbox");
+	editor.textContent = "你好";
+	fireEvent.input(editor);
+	fireEvent.click(screen.getByTestId("composer-send"));
+	await new Promise((r) => setTimeout(r, 0));
+	const sid = useProjectsStore.getState().currentSessionId!;
+	expect(sid).toBeTruthy();
+	// 发送后立即记录发送时刻戳：窗口内无消息/流式时显示「会话新建中」加载页
+	expect(
+		useSessionStore.getState().pendingPromptAtBySession[sid],
+	).toBeGreaterThan(0);
+});
+
+test("api.post 失败时记录 promptError（错误不被吞）", async () => {
+	postMock.mockReset();
+	postMock.mockRejectedValue(new Error("agent 启动失败: No API key"));
+	render(<NewSessionPane />);
+	await new Promise((r) => setTimeout(r, 50));
+	const textbox = screen.getByRole("textbox");
+	fireEvent.input(textbox, { target: { textContent: "你好" } });
+	fireEvent.keyDown(textbox, { key: "Enter" });
+	await new Promise((r) => setTimeout(r, 20));
+	const errs = useSessionStore.getState().promptErrorBySession;
+	const values = Object.values(errs).filter((v) => !!v);
+	expect(values.length).toBeGreaterThan(0);
+	expect(values[0]).toContain("No API key");
 });

@@ -9,6 +9,7 @@ import { useProjectsStore } from "../store/projects";
 import { useAgentsStore, topAgentsByRecency } from "../store/agents";
 import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
+import { useSessionStore } from "../store/session";
 import { useUiPrefsStore } from "../store/ui-prefs";
 import { api } from "../api-client";
 import { expandTokens } from "../quick-invoke/tokens";
@@ -230,21 +231,34 @@ export function NewSessionPane({
 		});
 		// 确保导航到目标会话（addSession 遇去重时会 no-op，currentSessionId 需显式设置）
 		useProjectsStore.getState().selectSession(finalId);
+		// 标记 pending：发送 prompt 时刻戳，MessageList 在收到服务器回调前显示「会话新建中」加载页；
+		// 时间戳+窗口方案：回调到达后消息出现、条件自然失效，无需显式清除；无回调时窗口到期自动隐藏。
+		useSessionStore.getState().setPendingPromptAt(finalId, Date.now());
 		// 发送即消费草稿 id：placeholder 会话首发消息时 kernel 走 isNew=false 分支，不广播
 		// session:created——若只依赖 App.tsx 里那一个 clearNewSessionId 清除点，草稿 id 会
 		// 永久残留（localStorage/IDB 持久化），下次进新建页复用同一 id，消息全落进同一会话。
 		// 这里主动清除；挂载同步 effect 会按需重新生成全新草稿 id。
 		useComposerPrefsStore.getState().clearNewSessionId(newSessionKey);
-		void api.post(
-			`/api/agents/${encodeURIComponent(projectId)}/${encodeURIComponent(finalId)}/prompt`,
-			{
-				agentName,
-				text: expandedText,
-				model,
-				thinking,
-				attachments: attachments.length > 0 ? attachments : undefined,
-			},
-		);
+		void api
+			.post(
+				`/api/agents/${encodeURIComponent(projectId)}/${encodeURIComponent(finalId)}/prompt`,
+				{
+					agentName,
+					text: expandedText,
+					model,
+					thinking,
+					attachments: attachments.length > 0 ? attachments : undefined,
+				},
+			)
+			.catch((err: unknown) => {
+				// 请求失败/超时：记录错误，MessageList 显示「发送失败」。
+				// 服务器后续若仍有事件到达（echoUser/handleSDKEvent）会自动清错误，
+				// 避免 HTTP 超时但 pi 实际继续处理时的误报。
+				const msg = err instanceof Error ? err.message : String(err);
+				useSessionStore
+					.getState()
+					.setPromptError(finalId, msg || "request failed");
+			});
 		if (debounceRef.current) {
 			clearTimeout(debounceRef.current);
 			debounceRef.current = null;
