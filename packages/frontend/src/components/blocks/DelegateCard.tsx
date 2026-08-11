@@ -120,6 +120,26 @@ export const DelegateCard = memo(function DelegateCard({
 					{args.task}
 				</span>
 			</div>
+			{/* 回复：执行中流式显示 progress.output；完成态仅展开时显示最终 result */}
+			{showReply && (
+				<div
+					data-testid="text-block"
+					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
+				>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1">
+						<Icon name="share" size={11} />
+						<span>{t("blocks.delegate.replyLabel")}</span>
+					</div>
+					{/* 执行中：纯文本预览（停顿 500ms 才切 markdown）；完成：完整 markdown */}
+					<StreamingOutput
+						text={replyText}
+						sessionId={sessionId}
+						streaming={!result}
+					/>
+				</div>
+			)}
+			{/* 状态摘要行（含「子智能体 · 运行中 · Ns · 共 N 个工具 · 成功/失败/执行中」）
+			    渲染在卡片底部：位于任务/回复之后，视觉上作为整张卡片的汇总尾行 */}
 			{hasProgress && (
 				<div
 					className="mt-2 pt-2 border-t border-hairline"
@@ -165,24 +185,6 @@ export const DelegateCard = memo(function DelegateCard({
 							})}
 						</div>
 					)}
-				</div>
-			)}
-			{/* 回复：执行中流式显示 progress.output；完成态仅展开时显示最终 result */}
-			{showReply && (
-				<div
-					data-testid="text-block"
-					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
-				>
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1">
-						<Icon name="share" size={11} />
-						<span>{t("blocks.delegate.replyLabel")}</span>
-					</div>
-					{/* 执行中：纯文本预览（停顿 500ms 才切 markdown）；完成：完整 markdown */}
-					<StreamingOutput
-						text={replyText}
-						sessionId={sessionId}
-						streaming={!result}
-					/>
 				</div>
 			)}
 		</ProcessCard>

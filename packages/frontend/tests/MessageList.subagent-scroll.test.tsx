@@ -343,19 +343,33 @@ function forceStickBottomFalse() {
 	expect(mockScrollerEl).not.toBeNull();
 	// 用户主动滚动输入（wheel）——修复后仅用户输入才置 stickBottom=false
 	mockScrollerEl!.dispatchEvent(new Event("wheel", { bubbles: true }));
-	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 1600, writable: true });
-	Object.defineProperty(mockScrollerEl!, "scrollHeight", { value: 2000, writable: true });
-	Object.defineProperty(mockScrollerEl!, "clientHeight", { value: 400, writable: true });
+	Object.defineProperty(mockScrollerEl!, "scrollTop", {
+		value: 1600,
+		writable: true,
+	});
+	Object.defineProperty(mockScrollerEl!, "scrollHeight", {
+		value: 2000,
+		writable: true,
+	});
+	Object.defineProperty(mockScrollerEl!, "clientHeight", {
+		value: 400,
+		writable: true,
+	});
 	// 程序化贴底（scrollTop 增大）——初始化 lastScrollTopRef
 	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
 	// 用户上翻（scrollTop 减小）→ stickBottom=false
-	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 500, writable: true });
+	Object.defineProperty(mockScrollerEl!, "scrollTop", {
+		value: 500,
+		writable: true,
+	});
 	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
 }
 
 test("stickBottom=false（用户不在底部）时发送新消息 → 应恢复贴底并滚动到底部", async () => {
 	useSessionStore.setState({
-		messagesBySession: { s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")] },
+		messagesBySession: {
+			s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")],
+		},
 		statusBySession: { s1: "idle" },
 	});
 	render(<MessageList sessionId="s1" />);
@@ -382,7 +396,9 @@ test("stickBottom=false（用户不在底部）时发送新消息 → 应恢复�
 
 test("回归防护：AI 回复中（无新 user 消息）用户上翻 → 不恢复贴底（319fd76b 语义保持）", async () => {
 	useSessionStore.setState({
-		messagesBySession: { s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的")] },
+		messagesBySession: {
+			s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的")],
+		},
 		statusBySession: { s1: "thinking" },
 		streamingBySession: {
 			s1: {
@@ -430,18 +446,32 @@ function simulateUserWheelUp() {
 	// 用户滚轮输入（MessageList 监听 wheel 标记「用户滚动输入」）
 	mockScrollerEl!.dispatchEvent(new Event("wheel", { bubbles: true }));
 	// 贴底状态（scrollTop 增大，不触发停止）
-	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 1600, writable: true });
-	Object.defineProperty(mockScrollerEl!, "scrollHeight", { value: 2000, writable: true });
-	Object.defineProperty(mockScrollerEl!, "clientHeight", { value: 400, writable: true });
+	Object.defineProperty(mockScrollerEl!, "scrollTop", {
+		value: 1600,
+		writable: true,
+	});
+	Object.defineProperty(mockScrollerEl!, "scrollHeight", {
+		value: 2000,
+		writable: true,
+	});
+	Object.defineProperty(mockScrollerEl!, "clientHeight", {
+		value: 400,
+		writable: true,
+	});
 	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
 	// 用户上翻：scrollTop 减小
-	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 500, writable: true });
+	Object.defineProperty(mockScrollerEl!, "scrollTop", {
+		value: 500,
+		writable: true,
+	});
 	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
 }
 
 test("内容展开导致被动离底（无用户输入）→ 不误置 stickBottom、自动滚回底部", async () => {
 	useSessionStore.setState({
-		messagesBySession: { s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")] },
+		messagesBySession: {
+			s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")],
+		},
 		statusBySession: { s1: "idle" },
 	});
 	render(<MessageList sessionId="s1" />);
@@ -464,7 +494,9 @@ test("内容展开导致被动离底（无用户输入）→ 不误置 stickBott
 
 test("内容折叠导致 scrollTop 被动减小（无用户输入）→ 不误置 stickBottom", async () => {
 	useSessionStore.setState({
-		messagesBySession: { s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")] },
+		messagesBySession: {
+			s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")],
+		},
 		statusBySession: { s1: "idle" },
 	});
 	render(<MessageList sessionId="s1" />);
@@ -475,12 +507,24 @@ test("内容折叠导致 scrollTop 被动减小（无用户输入）→ 不误�
 	await new Promise((r) => setTimeout(r, 30));
 
 	// 内容折叠：内容变短 → 浏览器被动 clamp scrollTop 减小（无用户输入）→ scroll 事件
-	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 800, writable: true });
-	Object.defineProperty(mockScrollerEl!, "scrollHeight", { value: 2000, writable: true });
-	Object.defineProperty(mockScrollerEl!, "clientHeight", { value: 400, writable: true });
+	Object.defineProperty(mockScrollerEl!, "scrollTop", {
+		value: 800,
+		writable: true,
+	});
+	Object.defineProperty(mockScrollerEl!, "scrollHeight", {
+		value: 2000,
+		writable: true,
+	});
+	Object.defineProperty(mockScrollerEl!, "clientHeight", {
+		value: 400,
+		writable: true,
+	});
 	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
 	// 模拟 clamp 后 scrollTop 继续减小（浏览器收缩内容）
-	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 600, writable: true });
+	Object.defineProperty(mockScrollerEl!, "scrollTop", {
+		value: 600,
+		writable: true,
+	});
 	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
 	// 折叠完成后仍在底部（新 maxScrollTop = 600 + 400 = 1000？非精确；这里简化：
 	// Virtuoso 重新评估后 atBottomStateChange(true) 恢复贴底）
@@ -498,7 +542,9 @@ test("内容折叠导致 scrollTop 被动减小（无用户输入）→ 不误�
 
 test("回归防护：用户主动上翻（wheel 输入）后仍停止跟随（319fd76b 语义保持）", async () => {
 	useSessionStore.setState({
-		messagesBySession: { s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")] },
+		messagesBySession: {
+			s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")],
+		},
 		statusBySession: { s1: "thinking" },
 		progressByToolCall: {
 			tc1: {

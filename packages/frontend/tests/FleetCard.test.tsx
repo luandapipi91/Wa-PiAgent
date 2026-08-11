@@ -135,7 +135,13 @@ test("MessageList 中 fleet 工具调用渲染为 FleetCard（非 ToolCallCard�
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	// fleet 卡片直接可见（内联在消息流中）
@@ -176,7 +182,13 @@ test("fleet 与普通 toolCall 混合：fleet 独立成卡，普通调用为独�
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	// fleet 卡片直接可见
@@ -233,7 +245,13 @@ test("fleet 与 delegate 混合：各自独立成卡，互不干扰", () => {
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.getByTestId("fleet-f1")).toBeTruthy();
@@ -571,4 +589,81 @@ test("FleetCard 执行中 progress 陆续到达不自动重新打开已折叠的
 		},
 	});
 	expect(screen.queryByTestId("fleet-tc-keepfold-body")).toBeNull();
+});
+
+test("FleetCard 子任务展开：状态行（agent·状态·秒数）渲染在回复之后（详情底部）", () => {
+	setFleetProgress("tc-st-order", {
+		代码审查: {
+			status: "running",
+			output: "审查中",
+			tools: [{ id: "t1", name: "Bash", status: "done" }],
+			elapsedMs: 5000,
+		},
+	});
+	const { container } = render(
+		<FleetCard
+			sessionId="s1"
+			toolCall={
+				{
+					type: "toolCall",
+					id: "tc-st-order",
+					name: "fleet",
+					arguments: { tasks: [] },
+				} as any
+			}
+		/>,
+	);
+	const rows = screen.getAllByRole("button", { name: /展开|▶/ });
+	fireEvent.click(rows[0]);
+	const html = container.innerHTML;
+	const statusPos = html.indexOf("运行中 · 5s");
+	const replyPos = html.indexOf("审查中");
+	expect(statusPos).toBeGreaterThan(-1); // 状态行存在
+	expect(replyPos).toBeGreaterThan(-1); // 回复存在
+	// 状态行必须在回复之后 = 详情底部
+	expect(statusPos).toBeGreaterThan(replyPos);
+});
+
+test("FleetCard 降级聚合显示：统计行（fleet-progress）渲染在聚合回复区之后（卡片底部）", () => {
+	setFleetProgress("tc-old-order", {
+		代码审查: {
+			status: "done",
+			output: "ok",
+			tools: [{ id: "t1", name: "Bash", status: "done" }],
+			elapsedMs: 1000,
+		},
+	});
+	const { container } = render(
+		<FleetCard
+			sessionId="s1"
+			toolCall={
+				{
+					type: "toolCall",
+					id: "tc-old-order",
+					name: "fleet",
+					arguments: { tasks: [] },
+				} as any
+			}
+			result={
+				{
+					role: "toolResult",
+					toolCallId: "tc-old-order",
+					toolName: "fleet",
+					content: [{ type: "text", text: "正文【包含】无法切分" }],
+					isError: false,
+					timestamp: 0,
+				} as any
+			}
+		/>,
+	);
+	// 降级：聚合回复区可见
+	expect(screen.getByTestId("text-block")).toBeTruthy();
+	const progress = container.querySelector(
+		"[data-testid='fleet-progress-tc-old-order']",
+	);
+	const textBlock = container.querySelector("[data-testid='text-block']");
+	expect(progress).toBeTruthy();
+	// 统计行必须在聚合回复区之后 = 卡片底部
+	const rel = textBlock!.compareDocumentPosition(progress!);
+	expect(rel & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
