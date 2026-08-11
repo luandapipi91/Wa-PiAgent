@@ -381,9 +381,12 @@ export function MessageList({ sessionId }: Props) {
 	// 独立 streaming 占位存在时（StreamingRow），进行中内容在占位行里，最后一行是上一个已完成轮，
 	// 不标记（历史轮全部可折叠）；合并进末行的流式块由 isStreaming=true 自身阻断折叠。
 	const lastDisplayRow = displayRows[displayRows.length - 1];
+	// 进行中的轮：status==="thinking"（agent_start 已到、agent_end 未到）且末行是 assistant。
+	// 不含 !streaming：streaming 有值但未合并进末行时（agentName 不同 / 末行非 assistant），
+	// isStreaming 和 isActiveTurnRow 会同时为 false，导致折叠+按钮提前出现。
+	// 去掉 !streaming 后，只要还在 thinking 就阻止折叠和按钮，不管 streaming 状态。
 	const isActiveTurnRow =
 		status === "thinking" &&
-		!streaming &&
 		!!lastDisplayRow &&
 		(lastDisplayRow.main.message as any).role === "assistant";
 
