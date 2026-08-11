@@ -185,8 +185,8 @@ export async function startKernel(opts?: {
 
 	// AgentManager.onEvent 直接广播 sdk:event
 	// pi RPC 事件与 shared SDKEvent 结构兼容但 TS 判为不同类型，event 用 any 桥接
-	// message_update 经 SdkEventThrottle 节流合并（每 token 全量 partial 的 O(n²) 卡顿修复），
-	// 其余事件类型原样透传、顺序不变。
+	// 0.84 起 message_update 只携带 delta 增量（无 partial 快照）：SdkEventThrottle
+	// 不再节流合并（丢帧=丢字），全部事件原样透传、顺序不变；渲染合帧由前端承担。
 	const eventThrottle = new SdkEventThrottle((e) => broadcast(e));
 	// subagent:progress 经 SubagentProgressThrottle 窗口合并（delegate/fleet 每 token
 	// 一帧 SSE → 前端卡片每帧重渲染的卡顿修复），终态立即透传不延迟。
@@ -349,8 +349,7 @@ export async function startKernel(opts?: {
 			// 可选：自动清理过期回收站会话（物理删除）
 			if (settings.autoPurgeEnabled) {
 				const purgeBefore = Date.now() - settings.autoPurgeDays * DAY_MS;
-				const purged =
-					await projectStore.purgeOldTrashSessions(purgeBefore);
+				const purged = await projectStore.purgeOldTrashSessions(purgeBefore);
 				if (purged > 0) {
 					console.log(`[kernel] 自动清理了 ${purged} 个过期回收站会话`);
 				}
