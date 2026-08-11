@@ -31,6 +31,8 @@ const zh = {
 	},
 	message: {
 		loadSession: "加载会话…",
+		initializing: "会话新建中…",
+		promptFailed: "发送失败：{{error}}",
 		scrollToBottom: "滚动到底部",
 		thinking: "正在思考…",
 		me: "我",

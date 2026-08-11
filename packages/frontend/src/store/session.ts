@@ -34,6 +34,12 @@ interface SessionState {
 	optimisticEchoBySession: Record<string, boolean>;
 	// 历史加载标记：切换会话后已发 session:messages 但未收到响应（首次进入、无消息时用于显示 loading）
 	historyLoadingBySession: Record<string, boolean>;
+	// 新建会话发送 prompt 的时刻戳（Date.now()）：MessageList 据此判断是否显示「会话新建中」加载页。
+	// 方案：时间戳 + 窗口自然过期——不依赖任何回调清除逻辑（回调到达后消息出现、条件自然失效）。
+	pendingPromptAtBySession: Record<string, number>;
+	// 新建会话发送 prompt 的失败错误消息（空串=无错误）：HTTP 失败/超时写入，
+	// 收到服务器事件清除。MessageList 据此显示「发送失败」而非无限转圈/白屏。
+	promptErrorBySession: Record<string, string>;
 	// 会话级消息队列：steering 引导队列（来自 pi queue_update）+ followUp 排队队列
 	queueBySession: Record<
 		string,
@@ -105,6 +111,8 @@ interface SessionState {
 	setMessages: (sessionId: string, messages: SessionMessage[]) => void;
 	/** 标记某会话历史是否正在加载（SessionView 发请求置 true、收响应置 false）。 */
 	setHistoryLoading: (sessionId: string, loading: boolean) => void;
+	setPendingPromptAt: (sessionId: string, at: number) => void;
+	setPromptError: (sessionId: string, msg: string) => void;
 	/** 根据后端 isActive 设置会话 thinking/idle 状态；isActive 缺省（undefined）时不干预 */
 	setActiveStatus: (
 		sessionId: string,
@@ -271,6 +279,8 @@ export const useSessionStore = create<SessionState>((set) => {
 		thinkingSinceBySession: {},
 		optimisticEchoBySession: {},
 		historyLoadingBySession: {},
+		pendingPromptAtBySession: {},
+		promptErrorBySession: {},
 		unreadBySession: {},
 		queueBySession: {},
 		reloading: false,
@@ -462,6 +472,27 @@ export const useSessionStore = create<SessionState>((set) => {
 				};
 			}),
 
+		setPendingPromptAt: (sessionId, at) =>
+			set((s) => {
+				if (s.pendingPromptAtBySession?.[sessionId] === at) return {};
+				return {
+					pendingPromptAtBySession: {
+						...s.pendingPromptAtBySession,
+						[sessionId]: at,
+					},
+				};
+			}),
+		setPromptError: (sessionId, msg) =>
+			set((s) => {
+				const prev = s.promptErrorBySession?.[sessionId] ?? "";
+				if (prev === msg) return {};
+				return {
+					promptErrorBySession: {
+						...s.promptErrorBySession,
+						[sessionId]: msg,
+					},
+				};
+			}),
 		setHistoryLoading: (sessionId, loading) =>
 			set((s) => {
 				// 状态相同则不触发重渲染
@@ -484,6 +515,8 @@ export const useSessionStore = create<SessionState>((set) => {
 				thinkingSinceBySession: {},
 				optimisticEchoBySession: {},
 				historyLoadingBySession: {},
+				pendingPromptAtBySession: {},
+				promptErrorBySession: {},
 				unreadBySession: {},
 				netStatusBySession: {},
 				retryBySession: {},
@@ -598,6 +631,14 @@ export const useSessionStore = create<SessionState>((set) => {
 
 		echoUser: (sessionId, text, agentName) => {
 			const s = useSessionStore.getState();
+			// 收到 echo_user 即服务器已响应：清「会话新建中」pending（加载页退出主路径）。
+			// 时间戳窗口保留为兜底（事件丢失/延迟超 20s 时仍能隐藏）。
+			if (s.pendingPromptAtBySession?.[sessionId]) {
+				useSessionStore.getState().setPendingPromptAt(sessionId, 0);
+			}
+			if (s.promptErrorBySession?.[sessionId]) {
+				useSessionStore.getState().setPromptError(sessionId, "");
+			}
 			// 1. Composer 已乐观置入 → 标记仍在，跳过
 			if (s.optimisticEchoBySession[sessionId]) return;
 			// 2. 标记已被 message_start/agent_end/failTurn 提前清除，但同内容 user 消息
@@ -681,6 +722,16 @@ export const useSessionStore = create<SessionState>((set) => {
 		// 处理 sdk:event 信封事件：按 SDKEvent.type 分发到对应状态
 		handleSDKEvent: (sessionId, envelope) => {
 			const { event, agentName } = envelope;
+			// 收到该 session 任意服务器事件（含扩展命令 50ms 后合成的空 agent_end）→
+			// 服务器已响应：清「会话新建中」pending，加载页退出。
+			// 扩展命令被 pi 拦截执行：无 echo_user / agent_start / message_start，
+			// 唯一信号就是合成 agent_end——若不清 pending，加载页会硬撑 20s 才消失（白屏）。
+			if (useSessionStore.getState().pendingPromptAtBySession?.[sessionId]) {
+				useSessionStore.getState().setPendingPromptAt(sessionId, 0);
+			}
+			if (useSessionStore.getState().promptErrorBySession?.[sessionId]) {
+				useSessionStore.getState().setPromptError(sessionId, "");
+			}
 			switch (event.type) {
 				// 用户消息：直接定稿进 messages
 				case "message_start": {

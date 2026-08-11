@@ -31,6 +31,8 @@ const en = {
 	},
 	message: {
 		loadSession: "Loading session…",
+		initializing: "Starting session…",
+		promptFailed: "Send failed: {{error}}",
 		scrollToBottom: "Scroll to bottom",
 		thinking: "Thinking…",
 		me: "Me",
