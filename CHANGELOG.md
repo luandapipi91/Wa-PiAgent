@@ -2,6 +2,25 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-11 — fix(kernel): spawn pi 传 --offline——关闭子进程启动时模型目录网络刷新与共享锁竞争
+
+### 变更
+
+- **kernel spawn pi 时传 --offline**：主会话（agent-manager.ts）与子代理（subagent-runner.ts）的 buildPiArgs 调用加 `offline: true`。此前未传 offline，每个 pi RPC 子进程启动都会在后台执行 modelRuntime.refresh()（网络刷新模型目录 + 写共享 ~/.pi/agent/models-store.json），同时新建两个会话时第二个进程会与第一个竞争 withLockAsync 异步锁（stale 30s、指数退避最坏 ~42s），导致第二个会话 ensureStarted 被拖长、超过前端 30s 硬超时后表现为「卡住/无响应」。
+- **offline 无功能副作用**：kernel 模型目录由 pi-catalog.ts + providerStore 自管理；pi 的扩展/技能加载走本地路径（-e/--skill），不受 PI_OFFLINE 门控；模型解析基于本地缓存。
+- 验证：agent-manager + subagent-runner 测试 111 pass / 0 fail（新增 --offline 断言）。
+- 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/subagent-runner.ts`、`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/subagent-runner.test.ts`。
+
+## 2026-08-11 — fix(frontend): api.post 错误不再被吞——创建失败显示「发送失败」提示，收到服务器事件自动清除
+
+### 变更
+
+- **新建会话发送失败不再无感知**：NewSessionPane 的 api.post 此前用 void 吞掉异常（30s 硬超时/非 2xx 失败不可见，配合加载页 20s 窗口到期后白屏）。现新增 promptErrorBySession store 状态，api.post catch 写入错误消息，MessageList 在「有错误 && 无消息 && 无流式」时显示居中「发送失败：{error}」提示（text-danger、pointer-events-none 纯视觉覆盖层）。
+- **显示条件不依赖加载页窗口**：api.post 超时 30s > 加载页窗口 20s，窗口外错误也必须可见。
+- **收到服务器事件自动清除**：echoUser / handleSDKEvent 收到该 session 任意事件时同时清 pending 与清 error——HTTP 超时但 pi 实际继续处理时不会误报（事件到达即撤下错误提示）。
+- 验证：组件测试 12 pass / 0 fail（错误记录 / 窗口内错误优先 / 窗口外仍显示 / echoUser 清除）。
+- 影响范围：`packages/frontend/src/store/session.ts`、`packages/frontend/src/components/NewSessionPane.tsx`、`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/src/i18n/locales/{zh,en}.ts`、`packages/frontend/src/components/new-session-send.test.tsx`、`packages/frontend/tests/MessageList.session-initializing.test.tsx`、`packages/frontend/e2e/new-session-initializing.spec.ts`。
+
 ## 2026-08-11 — feat(frontend): 新会话发送后显示「会话新建中」加载页（消除白屏）
 
 ### 变更
