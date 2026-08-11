@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-08-11 — feat(kernel): 子代理无进展探活——5 分钟无业务事件判死强杀，不杀主代理
+
+### 新增
+
+- 子代理（delegate/fleet）运行中若进程存活但**无任何业务事件超过 5 分钟**（默认，可注入 idleTimeoutMs），判定卡死 → abort + 宽限强杀 → 主代理收到「子代理无进展超时」的工具错误结果，继续自己的回合（不再依赖杀主代理兑底）。
+- **工具执行中豁免**：`tool_execution_start`~`end` 期间探活暂停（MCP HTTP 请求等合法长静默不误判）；长推理/流式输出有 `message_update` 持续刷新，天然不误判。
+- 与既有 settle 超时（30 分钟兑底）并行，探活更早发现卡死（5 分钟 vs 30 分钟）；`finally dispose` 强杀进程防泄漏。
+- TDD：新增「无进展探活判死」「工具执行中豁免」两个测试（`hang-pi.ts` / 新 `tool-exec-pi.ts` fixture），kernel 全量 924 pass / 0 fail。
+- 影响范围：`packages/kernel/src/subagent-runner.ts`（`SubagentRunOpts.idleTimeoutMs`、`LIVENESS_IDLE_MS`）、`packages/kernel/tests/subagent-runner.test.ts`、`packages/kernel/tests/fixtures/tool-exec-pi.ts`。
+
 ## 2026-08-11 — fix(frontend): 贴底时折叠/展开内容反复出现「滚动到底部」浮钮
 
 ### 修复
