@@ -6,6 +6,7 @@ import type { ChannelConversationInfo } from "@wa-pi/shared";
 import { api } from "../api-client";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { useTranslation } from "../i18n/useTranslation";
+import { useSessionStore } from "../store/session";
 
 interface Props {
 	onSelectSession: (id: string) => void;
@@ -41,7 +42,8 @@ export function ImConversationList({ onSelectSession }: Props) {
 
 	// 右键菜单 + 删除确认
 	const [menu, setMenu] = useState<MenuState | null>(null);
-	const [deleteTarget, setDeleteTarget] = useState<ChannelConversationInfo | null>(null);
+	const [deleteTarget, setDeleteTarget] =
+		useState<ChannelConversationInfo | null>(null);
 
 	// 列表只展示最近 100 条会话记录（按 updatedAt 倒序）。注意：这是会话列表项数量上限，
 	// 不是会话内消息历史的截断——会话内的完整消息历史照常加载。
@@ -79,21 +81,31 @@ export function ImConversationList({ onSelectSession }: Props) {
 		void api.del(`/api/sessions/${encodeURIComponent(sid)}`);
 		// 同步清理该会话的 composer 草稿（与任务侧删除一致）
 		useComposerPrefsStore.getState().removeSessionPrefs(sid);
+		useSessionStore.getState().removeSession(sid);
 		setDeleteTarget(null);
 	};
 
 	if (conversations.length === 0) {
-		return <div className="flex-1 flex items-center justify-center p-4 text-center text-xs text-tertiary">{t("im.emptyHint")}</div>;
+		return (
+			<div className="flex-1 flex items-center justify-center p-4 text-center text-xs text-tertiary">
+				{t("im.emptyHint")}
+			</div>
+		);
 	}
 	return (
-		<div className="flex-1 flex flex-col gap-1 overflow-auto" data-testid="im-conv-list">
+		<div
+			className="flex-1 flex flex-col gap-1 overflow-auto"
+			data-testid="im-conv-list"
+		>
 			{recent.map((c) => (
 				<ImConvRow
 					key={c.sessionId}
 					conv={c}
 					titleOf={titleOf}
 					onSelect={onSelectSession}
-					onContextMenu={(e) => setMenu({ x: e.clientX, y: e.clientY, conv: c })}
+					onContextMenu={(e) =>
+						setMenu({ x: e.clientX, y: e.clientY, conv: c })
+					}
 				/>
 			))}
 
@@ -127,7 +139,9 @@ export function ImConversationList({ onSelectSession }: Props) {
 			{deleteTarget && (
 				<ConfirmDialog
 					title={t("im.deleteChat")}
-					message={t("im.deleteConfirmMessage", { title: titleOf(deleteTarget) })}
+					message={t("im.deleteConfirmMessage", {
+						title: titleOf(deleteTarget),
+					})}
 					confirmText={t("common.delete")}
 					danger
 					onConfirm={handleDeleteConfirm}
@@ -170,15 +184,25 @@ function ImConvRow({
 			style={{ background: "transparent" }}
 			data-testid={`im-conv-${conv.sessionId}`}
 		>
-			<img src={`/channels/${conv.channelType}.ico`} alt="" className="w-6 h-6 rounded"
-				onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+			<img
+				src={`/channels/${conv.channelType}.ico`}
+				alt=""
+				className="w-6 h-6 rounded"
+				onError={(e) => {
+					(e.target as HTMLImageElement).style.display = "none";
+				}}
+			/>
 			<span className="min-w-0 flex-1">
-				<span className="block text-sm font-medium text-primary truncate">{titleOf(conv)}</span>
+				<span className="block text-sm font-medium text-primary truncate">
+					{titleOf(conv)}
+				</span>
 				<span className="block text-xs text-tertiary truncate">
 					{conv.channelName} · {conv.projectName} · {conv.lastMessagePreview}
 				</span>
 			</span>
-			<span className="text-xs text-tertiary flex-none">{timeOf(conv.updatedAt)}</span>
+			<span className="text-xs text-tertiary flex-none">
+				{timeOf(conv.updatedAt)}
+			</span>
 		</button>
 	);
 }
