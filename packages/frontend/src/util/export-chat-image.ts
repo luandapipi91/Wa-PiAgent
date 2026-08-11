@@ -158,6 +158,53 @@ export function downloadBlob(blob: Blob, filename: string): void {
  * 容器 fixed 定位到视口外（display:none 会导致布局为 0，不能用）；
  * toBlob 负责内联计算样式与 @font-face（MiSans/JetBrains Mono 为同源 woff2）。
  */
+// mermaid 屏外渲染等待：MermaidBlock 有 1000ms 防抖 + 异步 render Promise，
+// 导出前必须等它离开 loading 占位，否则 PNG 里 UML 图是「渲染中」占位（用户可见的图没渲染完成）。
+// 成功 → mermaid-svg；失败 → mermaid-error（loading 同样消失）。超时兑底防死等。
+const MERMAID_RENDER_TIMEOUT_MS = 10_000;
+
+// mermaid 导出白字修复：html-to-image 对 SVG 直接 cloneNode（不深入内联样式），
+// mermaid label 文字颜色由 SVG 内 <style>（.label{color:#333}）提供，
+// 导出为 PNG 时该颜色丢失 → 下载/复制的图里 UML 文字变白。
+// 真实浏览器验证：在字符串层（outerHTML 重新解析）给 foreignObject 内 div/span/p
+// 内联十六进制 color/fill 可修复；DOM API（setAttribute/style）写同样值无效
+// （Chromium 对 foreignObject 内 HTML 样式快照只认字符串解析路径）。
+// 颜色取 mermaid default 主题 label 主色 #333333。
+const MERMAID_LABEL_COLOR = "#333333";
+
+/** 给 mermaid SVG 字符串的 foreignObject 内 div/span/p 内联文字颜色（十六进制）。 */
+export function fixMermaidLabelColors(svgText: string): string {
+	return svgText.replace(
+		/<(div|span|p)([^>]*?)>/g,
+		(_m, tag: string, attrs: string) => {
+			if (attrs.includes("style=")) {
+				const withColor = attrs.replace(
+					'style="',
+					`style="color:${MERMAID_LABEL_COLOR};fill:${MERMAID_LABEL_COLOR};`,
+				);
+				return `<${tag}${withColor}>`;
+			}
+			return `<${tag}${attrs} style="color:${MERMAID_LABEL_COLOR};fill:${MERMAID_LABEL_COLOR}">`;
+		},
+	);
+}
+
+/** 对 host 内所有 mermaid svg（[data-testid="mermaid-svg"] 内）应用颜色内联。 */
+function inlineMermaidLabelColors(host: HTMLElement): void {
+	const svgList = host.querySelectorAll('[data-testid="mermaid-svg"] svg');
+	for (const svgEl of svgList) {
+		const fixed = fixMermaidLabelColors(svgEl.outerHTML);
+		if (fixed === svgEl.outerHTML) continue;
+		// 用 XML 解析 + 节点替换（避免 innerHTML/outerHTML 写入），
+		// 真实浏览器验证：字符串解析路径内联的颜色才会被 SVG-as-image 渲染尊重。
+		const doc = new DOMParser().parseFromString(fixed, "image/svg+xml");
+		const newSvg = doc.documentElement;
+		if (newSvg?.tagName.toLowerCase() === "svg") {
+			svgEl.replaceWith(newSvg);
+		}
+	}
+}
+
 export async function renderTurnsToPngBlob(turns: ExportTurn[]): Promise<Blob> {
 	const host = document.createElement("div");
 	host.style.position = "fixed";
@@ -174,8 +221,20 @@ export async function renderTurnsToPngBlob(turns: ExportTurn[]): Promise<Blob> {
 			await new Promise((r) => setTimeout(r, 16));
 		}
 		await (document as any).fonts?.ready;
+		// 等 mermaid 异步渲染完成（防抖 1000ms + render Promise + 错误 debounce），
+		// 否则 toBlob 截到的是 mermaid-loading 占位。无 mermaid 时 querySelector 为 null，零额外延迟。
+		const mermaidDeadline = Date.now() + MERMAID_RENDER_TIMEOUT_MS;
+		while (
+			host.querySelector('[data-testid="mermaid-loading"]') &&
+			Date.now() < mermaidDeadline
+		) {
+			await new Promise((r) => setTimeout(r, 50));
+		}
 		const card = host.firstElementChild as HTMLElement;
 		if (!card) throw new Error("导出卡片渲染失败");
+		// 修复 mermaid 导出白字：给 foreignObject 内 label 内联十六进制颜色
+		// （html-to-image 导出时 SVG <style> 提供的颜色会丢失 → 白字）。
+		inlineMermaidLabelColors(host);
 		const blob = await toBlob(card, { pixelRatio: 2 });
 		if (!blob) throw new Error("PNG 生成失败");
 		return blob;

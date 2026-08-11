@@ -1,10 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import {
-	render,
-	fireEvent,
-	cleanup,
-	within,
-} from "@testing-library/react";
+import { render, fireEvent, cleanup, within } from "@testing-library/react";
 import { VersionTimeline } from "./VersionTimeline";
 
 beforeEach(() => cleanup());

@@ -4,6 +4,7 @@ import {
 	collectTurns,
 	downloadBlob,
 	renderTurnsToPngBlob,
+	fixMermaidLabelColors,
 } from "./export-chat-image";
 
 // 构造 SessionMessage 形 fixture（只保留 collectTurns 关心的字段）
@@ -145,11 +146,28 @@ test("downloadBlob：创建 a[download] 并触发 click", () => {
 });
 
 // renderTurnsToPngBlob：mock html-to-image（happy-dom 无 canvas），
-// 验证屏外容器挂载/卸载与 toBlob 调用参数。
+// 验证屏外容器挂载/卸载与 toBlob 调用参数。记录 html 供 mermaid 时序断言。
 mock.module("html-to-image", () => ({
 	toBlob: async (node: HTMLElement, opts: any) => {
-		(globalThis as any).__toBlobArgs = { text: node.textContent, opts };
+		(globalThis as any).__toBlobArgs = {
+			text: node.textContent,
+			html: node.innerHTML,
+			opts,
+		};
 		return new Blob(["png-bytes"], { type: "image/png" });
+	},
+}));
+
+// mermaid：happy-dom 无真实 mermaid 渲染，mock render 返回含 foreignObject 的 svg
+// （模拟真实 mermaid label 结构：<style> 控制颜色 + div>span>p 承载文字）。
+// 与 MermaidBlock.test.tsx 同口径：MermaidBlock 顶层 import 的 mermaid 同样被替换。
+mock.module("mermaid", () => ({
+	default: {
+		initialize: () => {},
+		render: (_id: string, _code: string) =>
+			Promise.resolve({
+				svg: `<svg width="200" height="100"><style>.nodeLabel{color:#333}</style><foreignObject width="100" height="50"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell;"><span class="nodeLabel"><p>节点</p></span></div></foreignObject></svg>`,
+			}),
 	},
 }));
 
@@ -165,4 +183,35 @@ test("renderTurnsToPngBlob：屏外渲染卡片→toBlob→清理容器", async 
 	expect(args.opts.pixelRatio).toBe(2);
 	// 容器已清理（不残留屏外 DOM）
 	expect(document.body.children.length).toBe(before);
+});
+
+test("含 mermaid 的导出：toBlob 前等待 mermaid 渲染完成，不截到 loading 占位", async () => {
+	const blob = await renderTurnsToPngBlob([
+		{
+			user: "问",
+			assistant: "```mermaid\ngraph TD\nA-->B\n```",
+			agentName: "dev",
+			timestamp: 100,
+		},
+	]);
+	expect(blob.type).toBe("image/png");
+	const args = (globalThis as any).__toBlobArgs;
+	// 关键断言：截图时 mermaid 已渲染完成（mermaid-svg 出现、loading 占位消失），
+	// 而不是 1000ms 防抖尚未触发时的「加载中」占位——修复前此断言失败（导出图缺 UML 图）。
+	expect(args.html).toContain('data-testid="mermaid-svg"');
+	expect(args.html).not.toContain('data-testid="mermaid-loading"');
+});
+
+test("含 mermaid 的导出：foreignObject 内 label 已内联十六进制颜色（修复导出白字）", () => {
+	// 修复前：mermaid SVG 内 <style> 提供的 label 颜色在 html-to-image 导出时丢失 → 导出图白字。
+	// 修复后：导出前对 mermaid svg 做字符串层内联 color:#333333（十六进制，真实浏览器验证有效）。
+	const svg = `<svg><style>.nodeLabel{color:#333}</style><foreignObject width="100" height="50"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell;"><span class="nodeLabel"><p>节点</p></span></div></foreignObject></svg>`;
+	const fixed = fixMermaidLabelColors(svg);
+	// 文字承载元素（span/p）已带内联十六进制颜色
+	expect(fixed).toContain(
+		'<span class="nodeLabel" style="color:#333333;fill:#333333">',
+	);
+	expect(fixed).toContain("color:#333333");
+	// 原有样式保留（不丢 mermaid 的 display 等内联样式）
+	expect(fixed).toContain("display: table-cell");
 });
