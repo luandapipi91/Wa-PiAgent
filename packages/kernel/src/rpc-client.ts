@@ -550,7 +550,7 @@ export interface PiLaunchSpec {
 	model?: string;
 	/** --name <name>：会话显示名 */
 	name?: string;
-	/** --offline：禁用启动网络操作（测试用） */
+	/** --offline：关闭子进程启动时模型目录网络刷新（离线模式） */
 	offline?: boolean;
 	/** --no-context-files：不读 AGENTS.md/CLAUDE.md（子代理用） */
 	noContextFiles?: boolean;
