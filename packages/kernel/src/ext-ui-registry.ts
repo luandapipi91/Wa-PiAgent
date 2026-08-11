@@ -6,51 +6,45 @@
 import type { RpcUiRequest, UiResponseFields } from "./rpc-client";
 
 interface Entry {
-  sessionId: string;
-  resolve: (f: UiResponseFields) => void;
-  done: boolean;
+	sessionId: string;
+	resolve: (f: UiResponseFields) => void;
+	done: boolean;
 }
 
 export class ExtUiRegistry {
-  private byId = new Map<string, Entry>();
+	private byId = new Map<string, Entry>();
 
-  register(sessionId: string, req: RpcUiRequest): Promise<UiResponseFields> {
-    const entry: Entry = { sessionId, resolve: () => {}, done: false };
-    const promise = new Promise<UiResponseFields>((resolve) => {
-      entry.resolve = (f) => {
-        if (entry.done) return;
-        entry.done = true;
-        this.byId.delete(req.id);
-        resolve(f);
-      };
-    });
-    this.byId.set(req.id, entry);
-    return promise;
-  }
+	register(sessionId: string, req: RpcUiRequest): Promise<UiResponseFields> {
+		const entry: Entry = { sessionId, resolve: () => {}, done: false };
+		const promise = new Promise<UiResponseFields>((resolve) => {
+			entry.resolve = (f) => {
+				if (entry.done) return;
+				entry.done = true;
+				this.byId.delete(req.id);
+				resolve(f);
+			};
+		});
+		this.byId.set(req.id, entry);
+		return promise;
+	}
 
-  respond(requestId: string, fields: UiResponseFields): boolean {
-    const entry = this.byId.get(requestId);
-    if (!entry) return false;
-    entry.resolve(fields);
-    return true;
-  }
+	respond(requestId: string, fields: UiResponseFields): boolean {
+		const entry = this.byId.get(requestId);
+		if (!entry) return false;
+		entry.resolve(fields);
+		return true;
+	}
 
-  cancelAllForSession(sessionId: string): void {
-    for (const e of [...this.byId.values()]) {
-      if (e.sessionId === sessionId) e.resolve({ cancelled: true });
-    }
-  }
+	cancelAllForSession(sessionId: string): void {
+		for (const e of [...this.byId.values()]) {
+			if (e.sessionId === sessionId) e.resolve({ cancelled: true });
+		}
+	}
 
-  /** 该 session 是否有 pending 的扩展 dialog（回合看门狗误判防护：等用户应答是正常的长无事件状态） */
-  hasPendingForSession(sessionId: string): boolean {
-    for (const e of this.byId.values()) {
-      if (e.sessionId === sessionId && !e.done) return true;
-    }
-    return false;
-  }
-
-  /** 测试用：清空全部状态 */
-  reset(): void { this.byId.clear(); }
+	/** 测试用：清空全部状态 */
+	reset(): void {
+		this.byId.clear();
+	}
 }
 
 export const extUiRegistry = new ExtUiRegistry();
