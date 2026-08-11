@@ -11,9 +11,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@llm-ui/code": "^0.13.3",
-    "@llm-ui/markdown": "^0.13.3",
-    "@llm-ui/react": "^0.13.3",
     "@tailwindcss/typography": "^0.5.20",
     "@wa-pi/shared": "workspace:*",
     "html-to-image": "^1.11.13",
