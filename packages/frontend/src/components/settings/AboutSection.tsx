@@ -60,18 +60,6 @@ export function AboutSection() {
 				style={{ background: "var(--hairline)" }}
 			/>
 
-			{/* 更新历史时间线 */}
-			<div className="w-full max-w-[480px] mt-2">
-				<div className="text-xs font-medium text-secondary mb-3">
-					{t("settings.about.updateHistory")}
-				</div>
-				<VersionTimeline />
-			</div>
-			<div
-				className="w-[280px] h-px my-5"
-				style={{ background: "var(--hairline)" }}
-			/>
-
 			{!showUpdateControls ? (
 				<div className="text-xs text-tertiary">
 					{t("settings.about.desktopOnly")}
@@ -223,6 +211,16 @@ export function AboutSection() {
 					)}
 				</div>
 			)}
+
+			{/* 更新历史时间线：max-height + 独立滚动，不挤压上方更新控件 */}
+			<div className="w-full max-w-[480px] mt-2">
+				<div className="text-xs font-medium text-secondary mb-3">
+					{t("settings.about.updateHistory")}
+				</div>
+				<div className="max-h-[400px] overflow-y-auto">
+					<VersionTimeline />
+				</div>
+			</div>
 
 			{/* 初始化引导入口：说明文字后跟 icon 按钮（关闭设置并重开新手向导） */}
 			<div className="mt-5 flex items-center gap-1.5 text-xs text-tertiary">
