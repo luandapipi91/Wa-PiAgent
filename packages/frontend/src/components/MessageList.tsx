@@ -22,12 +22,10 @@ import remarkGfm from "remark-gfm";
 import { useToastStore } from "../store/toast";
 import { copyToClipboard } from "../util/clipboard";
 import { useAgentsStore } from "../store/agents";
-import { isStreamingTextVisible } from "../store/streaming-visible-cache";
 import { DelegateCard } from "./blocks/DelegateCard";
 import { ExportButton } from "./blocks/ExportButton";
 import { FleetCard } from "./blocks/FleetCard";
 import { createMarkdownComponents } from "./blocks/markdown-components";
-import { StreamingMarkdown } from "./blocks/StreamingMarkdown";
 import { ThinkingCard } from "./blocks/ThinkingCard";
 import { TurnSummary } from "./blocks/TurnSummary";
 import { ToolGroupCard } from "./blocks/ToolCallCard";
@@ -1113,39 +1111,19 @@ export const MessageRow = memo(function MessageRow({
 			);
 		}
 		// 主回复内容 — 文字 + markdown
-		// 流式 text 段可能定格在未闭合 markdown 语法（工具调用前）：llm-ui 的
-		// markdownLookBack/codeBlockLookBack 会扣留未闭合尾巴，渲染为空 → 气泡容器
-		// （bg-surface border）仍在 → 视觉上出现空白气泡。这里预判可见性，
-		// 不可见的流式 text 跳过；整段全不可见则不渲染气泡容器。
-		const visibleStreamingTexts = segIsStreaming
-			? seg.texts.filter((text) => isStreamingTextVisible(text))
-			: seg.texts;
-		if (visibleStreamingTexts.length === 0) return null;
 		return (
 			<div key={key} className="flex flex-col gap-1" data-testid="text-bubble">
 				<div
 					className={`text-[calc(13.5px*var(--font-scale))] px-3.5 py-2.5 bg-surface border border-hairline shadow-sm ${isError ? "text-danger" : "text-primary"}`}
 					style={{ lineHeight: 1.55, borderRadius: "4px 14px 14px 14px" }}
 				>
-					{visibleStreamingTexts.map((text, i) =>
-						segIsStreaming ? (
-							// 流式中的 text 段：llm-ui 分块渲染（闭合块 memo 化、未闭合尾巴不高亮不解析）
-							<StreamingMarkdown
-								key={seg.blockIdxs[i]}
-								text={text}
-								sessionId={sessionId}
-							/>
-						) : (
-							// 分片 memo：流式期间已定稿 block（text 引用不变）跳过重渲染，
-							// 只有流式中的 block 每帧重跑 Markdown——避免合并行里定稿段落
-							// 随每帧重建全量重解析。key 用 block 原始 idx（稳定），不用数组 index。
-							<MarkdownBlock
-								key={seg.blockIdxs[i]}
-								text={text}
-								sessionId={sessionId}
-							/>
-						),
-					)}
+					{seg.texts.map((text, i) => (
+						<MarkdownBlock
+							key={seg.blockIdxs[i]}
+							text={text}
+							sessionId={sessionId}
+						/>
+					))}
 				</div>
 				{seg === segments[lastTextSegIdx] &&
 					!isStreaming &&

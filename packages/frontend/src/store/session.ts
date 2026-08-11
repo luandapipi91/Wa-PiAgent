@@ -14,7 +14,6 @@ import { useDiagnosticsStore, extensionNameFromPath } from "./diagnostics";
 import { useToastStore } from "./toast";
 import { useExtDialogStore } from "./ext-dialog";
 import { StreamingBatcher } from "./streaming-batcher";
-import { clearStreamingVisibleCache } from "./streaming-visible-cache";
 import { fmtTok } from "../util/format";
 import { playNeedsAction, playTaskDone } from "../util/sound";
 
@@ -898,8 +897,6 @@ export const useSessionStore = create<SessionState>((set) => {
 				case "message_end": {
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 在定稿后复活
 					streamingBatcher.drop(sessionId);
-					// 回合结束：清空流式可见性缓存（释放流式中间状态字符串）
-					clearStreamingVisibleCache();
 					const msg = event.message as any;
 					if (msg.role === "toolResult") {
 						set((s) => {
