@@ -9,7 +9,9 @@ import { readFile, revealFile } from "../../fs-client";
 import { useTranslation } from "../../i18n/useTranslation";
 import { createMarkdownComponents } from "./markdown-components";
 import { openInFileManagerLabel } from "../../util/platform";
+import { useSessionStore } from "../../store/session";
 import { Icon } from "../ui/Icon";
+import { useIsDarkMode } from "../../theme/use-is-dark-mode";
 
 // 图片扩展名集合（与 kernel checkPreviewable 放行的 image/* 对齐）
 const IMAGE_EXTS = new Set([
@@ -166,6 +168,33 @@ const MarkdownPreview = memo(function MarkdownPreview({
 					height={props.height}
 				/>
 			),
+			// md 里的链接：
+			// - 相对路径（指向仓库内其他文件）→ 在预览器内打开目标文件（与 FilePill 同机制）
+			// - 外部链接（http/https/mailto 等）→ MarkdownLink target=_blank → setWindowOpenHandler → 系统浏览器
+			a: (props: any) => {
+				const href = props.href ?? "";
+				if (
+					href &&
+					!/^(https?:|mailto:|tel:|#|data:|blob:|file:)/i.test(href)
+				) {
+					const abs =
+						`${baseDir.replace(/\\/g, "/").replace(/\/$/, "")}/${href.replace(/^\.\//, "")}`.replace(
+							/\/+/g,
+							"/",
+						);
+					return (
+						<a
+							{...props}
+							onClick={(e) => {
+								e.preventDefault();
+								useSessionStore.getState().openFilePreview(abs, sessionId);
+							}}
+						/>
+					);
+				}
+				const ExternalLink = base.a as any;
+				return <ExternalLink {...props} />;
+			},
 		};
 	}, [sessionId, baseDir]);
 	return (
@@ -313,6 +342,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 	const [unsupported, setUnsupported] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
 	const { t } = useTranslation();
+	const isDark = useIsDarkMode();
 	const [resolvedPath, setResolvedPath] = useState<string | undefined>(
 		undefined,
 	);
@@ -513,7 +543,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 			</div>
 			<div ref={bodyRef} className="flex-1 overflow-auto bg-surface p-2.5">
 				<Highlight
-					theme={themes.github}
+					theme={isDark ? themes.nightOwl : themes.github}
 					code={content ?? ""}
 					language={language}
 				>
