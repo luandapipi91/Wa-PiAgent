@@ -42,7 +42,9 @@ function resolveIdentity(env = process.env, options = {}) {
 	return "-";
 }
 
-/** 构造 codesign 参数。--deep 递归签名内部 Electron Framework/helpers。 */
+/** 构造 codesign 参数。保留 --deep 确保内部 Framework/helpers 全部签名（否则
+ *  codesign 拒绝签名 .app 外层）。--deep 破坏 zip 符号链接的问题由 afterAllArtifactBuild
+ *  钩子用 ditto 重新打包 zip 解决。 */
 function buildSignArgs(appPath, identity) {
 	return ["--force", "--deep", "--sign", identity, appPath];
 }

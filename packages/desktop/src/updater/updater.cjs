@@ -53,23 +53,25 @@ function makeQuitAndInstallHandler({
 	updater,
 	onBeforeQuitAndInstall,
 	destroyTray,
+	log = console.log,
 }) {
 	return async () => {
 		await onBeforeQuitAndInstall?.();
+		log("[updater] destroyTray 开始");
 		destroyTray?.();
+		log("[updater] destroyTray 完成");
+		log("[updater] quitAndInstall 调用中…");
 		updater.quitAndInstall(false, true);
-		// macOS：Squirrel.Mac 的 quitAndInstall 在应用退出后通过 relaunch 自动重启，
-		// 但 relaunch 在 ShipIt 完成安装前就执行 → ShipIt "App Still Running" → 安装失败。
-		// 解法：注册 update-downloaded 事件（ShipIt 准备就绪信号），触发时 app.exit(0)
-		// 绕过 Squirrel.Mac 的正常退出流程（含 relaunch），让 ShipIt 在无实例环境下完成安装。
+		// macOS 兜底：quitAndInstall 内部走 Squirrel.Mac 退出流程（含 ShipIt 安装 + 自动重启）。
+		// 如果 5 秒后进程还在（quitAndInstall 未生效，如 Tray 残留保活），强制退出。
+		// 正常情况下 quitAndInstall 会在 1-2 秒内退出进程，此兜底不会触发。
 		if (process.platform === "darwin") {
-			// MacUpdater 不转发 nativeUpdater 的 update-downloaded 事件给 updater 实例，
-			// 必须直接监听 nativeUpdater（Squirrel.Mac AutoUpdater）。
-			updater.nativeUpdater?.once?.("update-downloaded", () => {
+			setTimeout(() => {
+				log("[updater] 兜底 app.exit(0)（quitAndInstall 超时未退出）");
 				try {
 					require("electron").app.exit(0);
 				} catch {}
-			});
+			}, 5_000);
 		}
 		return { ok: true };
 	};
@@ -97,6 +99,7 @@ const PHASE_TO_EVENT = {
  * @param {{ feedUrl?: string }} [deps.config] 可覆盖更新源 URL（E2E/测试指向本地 mock）
  * @param {() => Promise<void>} [deps.onBeforeQuitAndInstall] 升级安装前回调（停 kernel 等优雅清理）；
  *   调用方应自行捕获异常，失败不应阻断安装
+ * @param {() => void} [deps.destroyTray] 销毁托盘（macOS 防 Tray 保活阻止退出）
  */
 function setupUpdater({
 	getMainWindow,
@@ -105,6 +108,7 @@ function setupUpdater({
 	currentVersion,
 	config = {},
 	onBeforeQuitAndInstall,
+	destroyTray,
 }) {
 	const { ipcMain } = require("electron");
 
@@ -194,7 +198,12 @@ function setupUpdater({
 	// 先等升级前清理（停 kernel + 等端口释放）完成，避免 Windows 下 NSIS 杀进程树不可靠导致 9778 幽灵占用
 	ipcMain.handle(
 		"updater:quit-and-install",
-		makeQuitAndInstallHandler({ updater, onBeforeQuitAndInstall }),
+		makeQuitAndInstallHandler({
+			updater,
+			onBeforeQuitAndInstall,
+			destroyTray,
+			log: (m) => log(`[updater] ${m}`),
+		}),
 	);
 
 	log("[updater] 已装配（packaged）");
