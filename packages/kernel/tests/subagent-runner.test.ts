@@ -100,6 +100,7 @@ test("config 映射为 CLI 参数：--model/--thinking(max→xhigh)/--tools/--no
 	expect(argv[0]).toBe("--mode");
 	expect(argv[1]).toBe("rpc");
 	expect(argv).toContain("--no-session");
+	expect(argv).toContain("--offline");
 	const valueOf = (flag: string) => argv[argv.indexOf(flag) + 1];
 	expect(valueOf("--model")).toBe("openai/gpt-4o");
 	expect(valueOf("--thinking")).toBe("xhigh"); // max → xhigh 映射

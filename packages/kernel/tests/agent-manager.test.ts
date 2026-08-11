@@ -170,6 +170,7 @@ test("ensureStarted 创建 pi rpc client 并传入会话参数（--session / --s
 	expect(argValues(args, "--system-prompt")).toEqual([
 		syspromptPath(session.id),
 	]);
+	expect(args).toContain("--offline");
 	// bridge 上下文已注册（宿主工具经 wa-pi-bridge 扩展回调 kernel）
 	expect(getBridgeSession(session.id)).toBeDefined();
 });

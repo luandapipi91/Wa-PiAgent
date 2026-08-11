@@ -841,6 +841,7 @@ export class AgentManager {
 				extensionPaths: extensionPaths,
 				skillPaths: additionalSkillPaths,
 				noSkills: true,
+				offline: true,
 				thinking,
 				name: `${agentName}-${sessionId.slice(0, 8)}`,
 				...toolArgs,
