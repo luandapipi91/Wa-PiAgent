@@ -20,6 +20,7 @@ import { useProjectUiStore } from "../store/project-ui";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { openInFileManagerLabel } from "../util/platform";
 import { useTranslation } from "../i18n/useTranslation";
+import { useSessionStore } from "../store/session";
 
 interface Props {
 	project: ProjectEntity;
@@ -271,6 +272,7 @@ export function ProjectItem(props: Props) {
 			void api.del(`/api/sessions/${encodeURIComponent(sid)}`);
 			// 同步清理该会话的 composer 草稿（IndexedDB + store 内存）
 			useComposerPrefsStore.getState().removeSessionPrefs(sid);
+			useSessionStore.getState().removeSession(sid);
 		} else {
 			void api.del(
 				`/api/projects/${encodeURIComponent((deleteTarget as ProjectEntity).id)}`,

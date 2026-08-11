@@ -22,8 +22,7 @@ import remarkGfm from "remark-gfm";
 import { useToastStore } from "../store/toast";
 import { copyToClipboard } from "../util/clipboard";
 import { useAgentsStore } from "../store/agents";
-import { markdownLookBack } from "@llm-ui/markdown";
-import { codeBlockLookBack } from "@llm-ui/code";
+import { isStreamingTextVisible } from "../store/streaming-visible-cache";
 import { DelegateCard } from "./blocks/DelegateCard";
 import { ExportButton } from "./blocks/ExportButton";
 import { FleetCard } from "./blocks/FleetCard";
@@ -1246,39 +1245,6 @@ type Segment =
  * 例：text₁ → toolCall → text₂ → delegate → text₃ → fleet → text₄
  *   → [text₁][toolCalls][delegate][text₂][fleet][text₃][text₄]
  */
-/**
- * 流式 text 段可见性预判：llm-ui 的 markdownLookBack/codeBlockLookBack 会扣留
- * 未闭合的 markdown 语法尾巴（工具调用前 text 常定格在 ``` 或 **）。若两种
- * lookBack 都扣留为空（无可见文本），该段渲染后是空 → 气泡容器产生空白气泡，
- * 应跳过。定稿段（MarkdownBlock 直接渲染全文）不受此影响，不走本判断。
- */
-// 流式定格场景下同一 text 会跨帧重复判断（toolCall block 流式更新每帧重渲染），
-// markdownLookBack 内部做两次 mdast 全量解析——模块级缓存避免每帧重复解析。
-// 带上限：超出清空（流式文本不断增长，早期缓存自然失效，无需 LRU）。
-const _streamingVisibleCache = new Map<string, boolean>();
-const _STREAMING_VISIBLE_CACHE_MAX = 256;
-function isStreamingTextVisible(text: string): boolean {
-	if (!text?.trim()) return false;
-	const cached = _streamingVisibleCache.get(text);
-	if (cached !== undefined) return cached;
-	const params = {
-		output: text,
-		isComplete: false,
-		visibleTextLengthTarget: Infinity,
-		isStreamFinished: false,
-	};
-	// markdown 消费 isComplete/visibleTextLengthTarget/isStreamFinished，
-	// code 消费 output/isComplete/visibleTextLengthTarget（共享同一 params 对象）。
-	const mdVisible = markdownLookBack()(params).visibleText.trim();
-	const codeVisible = codeBlockLookBack()(params).visibleText.trim();
-	const visible = mdVisible.length > 0 || codeVisible.length > 0;
-	if (_streamingVisibleCache.size >= _STREAMING_VISIBLE_CACHE_MAX) {
-		_streamingVisibleCache.clear();
-	}
-	_streamingVisibleCache.set(text, visible);
-	return visible;
-}
-
 function segmentBlocks(blocks: any[]): Segment[] {
 	const segs: Segment[] = [];
 	let cur: Segment | null = null;

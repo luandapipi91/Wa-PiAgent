@@ -14,6 +14,7 @@ import { useDiagnosticsStore, extensionNameFromPath } from "./diagnostics";
 import { useToastStore } from "./toast";
 import { useExtDialogStore } from "./ext-dialog";
 import { StreamingBatcher } from "./streaming-batcher";
+import { clearStreamingVisibleCache } from "./streaming-visible-cache";
 import { fmtTok } from "../util/format";
 import { playNeedsAction, playTaskDone } from "../util/sound";
 
@@ -135,6 +136,9 @@ interface SessionState {
 	 *  标志被 message_start/agent_end/failTurn 提前清除后到达（notify 穿插延长冷启动
 	 *  窗口、事件密集致时序非确定），则再查「同内容 user 已存在」避免重复追加。 */
 	echoUser: (sessionId: string, text: string, agentName: AgentName) => void;
+	/** 删除会话：从所有 per-session Record 中清除指定会话的数据（消息历史、
+	 *  流式占位、状态、token 统计、子代理进度等），释放内存。调用点：删除会话时。 */
+	removeSession: (sessionId: string) => void;
 	clear: () => void;
 	/** 标记会话有未读新回复（后台收到 agent_end 时）。 */
 	markUnread: (sessionId: string) => void;
@@ -507,6 +511,56 @@ export const useSessionStore = create<SessionState>((set) => {
 			}),
 
 		setReloading: (v) => set({ reloading: v }),
+		removeSession: (sessionId) => {
+			// 丢弃挂起的流式 rAF 帧，防 partial 复活
+			streamingBatcher.drop(sessionId);
+			set((s) => {
+				// 从 per-session Record 中删除指定 key（不存在则原样返回，避免无谓新对象）
+				const prune = <T extends Record<string, unknown>>(rec: T): T => {
+					if (!(sessionId in rec)) return rec;
+					const next = { ...rec };
+					delete next[sessionId];
+					return next;
+				};
+				// 反查并清理该会话的子代理进度
+				const tcIds = Object.keys(s.progressSessionByToolCall).filter(
+					(k) => s.progressSessionByToolCall[k] === sessionId,
+				);
+				const nextProg = tcIds.length
+					? { ...s.progressByToolCall }
+					: s.progressByToolCall;
+				const nextProgSess = tcIds.length
+					? { ...s.progressSessionByToolCall }
+					: s.progressSessionByToolCall;
+				for (const id of tcIds) {
+					delete nextProg[id];
+					delete nextProgSess[id];
+				}
+				return {
+					messagesBySession: prune(s.messagesBySession),
+					streamingBySession: prune(s.streamingBySession),
+					statusBySession: prune(s.statusBySession),
+					thinkingSinceBySession: prune(s.thinkingSinceBySession),
+					unreadBySession: prune(s.unreadBySession),
+					optimisticEchoBySession: prune(s.optimisticEchoBySession),
+					historyLoadingBySession: prune(s.historyLoadingBySession),
+					pendingPromptAtBySession: prune(s.pendingPromptAtBySession),
+					promptErrorBySession: prune(s.promptErrorBySession),
+					queueBySession: prune(s.queueBySession),
+					tokenTotals: prune(s.tokenTotals),
+					lastUsageBySession: prune(s.lastUsageBySession),
+					contextUsageBySession: prune(s.contextUsageBySession),
+					netStatusBySession: prune(s.netStatusBySession),
+					retryBySession: prune(s.retryBySession),
+					extStatusBySession: prune(s.extStatusBySession),
+					extWidgetBySession: prune(s.extWidgetBySession),
+					extTitleBySession: prune(s.extTitleBySession),
+					editorTextInjection: prune(s.editorTextInjection),
+					progressByToolCall: nextProg,
+					progressSessionByToolCall: nextProgSess,
+				};
+			});
+		},
 		clear: () =>
 			set({
 				messagesBySession: {},
@@ -523,6 +577,13 @@ export const useSessionStore = create<SessionState>((set) => {
 				extStatusBySession: {},
 				extWidgetBySession: {},
 				extTitleBySession: {},
+				queueBySession: {},
+				tokenTotals: {},
+				lastUsageBySession: {},
+				contextUsageBySession: {},
+				progressByToolCall: {},
+				progressSessionByToolCall: {},
+				editorTextInjection: {},
 				filePreview: null,
 			}),
 
@@ -837,6 +898,8 @@ export const useSessionStore = create<SessionState>((set) => {
 				case "message_end": {
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 在定稿后复活
 					streamingBatcher.drop(sessionId);
+					// 回合结束：清空流式可见性缓存（释放流式中间状态字符串）
+					clearStreamingVisibleCache();
 					const msg = event.message as any;
 					if (msg.role === "toolResult") {
 						set((s) => {
