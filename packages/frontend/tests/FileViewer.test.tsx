@@ -1,5 +1,5 @@
 // FileViewer 组件测试：文本高亮渲染、图片 data URI、unsupported、loading、error 态、关闭回调。
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import {
 	render,
 	screen,
@@ -10,6 +10,7 @@ import {
 import { FileViewer } from "../src/components/blocks/FileViewer";
 import { _setFsTransport } from "../src/fs-client";
 import { makeFakeFsTransport } from "./fs-transport";
+import { useSessionStore } from "../src/store/session";
 
 const fake = makeFakeFsTransport();
 
@@ -241,4 +242,37 @@ test("md 文件：原始 HTML（div/img/br）渲染为真实标签，相对路�
 			(c.body as any)?.path?.includes("assets/pic.png"),
 	);
 	expect(readCall).toBeTruthy();
+});
+
+test("md 链接：相对路径点击在预览器内打开、外部链接 target=_blank", async () => {
+	fake.setResponse("fs:readFile", {
+		content: Buffer.from(
+			"[文档](./docs/intro.md)\n\n[外部](https://example.com)",
+			"utf-8",
+		).toString("base64"),
+		mimeType: "text/markdown",
+	});
+	const openSpy = spyOn(
+		useSessionStore.getState(),
+		"openFilePreview",
+	).mockImplementation(() => {});
+	render(
+		<FileViewer
+			path="/work/demo/README.md"
+			sessionId="s1"
+			onClose={() => {}}
+		/>,
+	);
+
+	await waitFor(() => expect(screen.getByText("文档")).toBeTruthy());
+
+	// 相对路径链接：点击触发 openFilePreview（解析为基于预览文件目录的绝对路径）
+	fireEvent.click(screen.getByText("文档"));
+	expect(openSpy).toHaveBeenCalledWith("/work/demo/docs/intro.md", "s1");
+
+	// 外部链接：target=_blank（交给 setWindowOpenHandler 内置窗口打开）
+	const externalLink = screen.getByText("外部");
+	expect(externalLink.getAttribute("target")).toBe("_blank");
+
+	openSpy.mockRestore();
 });

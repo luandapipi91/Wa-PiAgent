@@ -296,6 +296,43 @@ function createWindow() {
 	mainWindow.on("closed", () => {
 		mainWindow = null;
 	});
+	// 链接处理：外部链接在内置浏览器窗口打开（标题默认为应用名），不用系统浏览器。
+	// 应用自身本地服务地址（相对路径被浏览器解析为 localhost URL）不打开——
+	// FileViewer 里的相对路径链接由前端 onClick 拦截在预览器内打开，不走到这里。
+	const isSelfUrl = (url) =>
+		/^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/i.test(url);
+	const openInChildWindow = (url) => {
+		const child = new BrowserWindow({
+			parent: mainWindow,
+			title: "WA PI Agent",
+			width: 1000,
+			height: 700,
+			backgroundColor: "#ffffff",
+			webPreferences: {
+				nodeIntegration: false,
+				contextIsolation: true,
+			},
+		});
+		child.loadURL(url);
+		// 子窗口里的链接也用内置窗口打开，不创建裸 Electron 窗口
+		child.webContents.setWindowOpenHandler(({ url: childUrl }) => {
+			openInChildWindow(childUrl);
+			return { action: "deny" };
+		});
+	};
+	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+		if (!isSelfUrl(url) && /^(https?:|mailto:|tel:)/i.test(url)) {
+			openInChildWindow(url);
+		}
+		return { action: "deny" };
+	});
+	// 防御：无 target=_blank 的链接会在当前窗口导航，阻止主窗口被外部地址劫持
+	mainWindow.webContents.on("will-navigate", (event, url) => {
+		if (!isSelfUrl(url)) {
+			event.preventDefault();
+			openInChildWindow(url);
+		}
+	});
 	// 调试：F12 / Cmd+Alt+I 打开 DevTools（打包态排查持久化等问题）
 	mainWindow.webContents.on("before-input-event", (_event, input) => {
 		if (input.type !== "keyDown") return;

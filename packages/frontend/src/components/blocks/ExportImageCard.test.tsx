@@ -34,6 +34,13 @@ test("底部署名行 WA PI Agent", () => {
 	expect(screen.getByText("WA PI Agent")).toBeTruthy();
 });
 
+test("markdown 容器带 text-block 且为 prose-sm（跟随主题色 + 换行排版）", () => {
+	render(<ExportImageCard turns={TURNS} />);
+	const textBlock = document.querySelector('[data-testid="text-block"]');
+	expect(textBlock).not.toBeNull();
+	expect(textBlock?.className).toContain("prose-sm");
+});
+
 test("仅导出 agent 回复：user 为空的轮次不渲染用户气泡", () => {
 	render(
 		<ExportImageCard
