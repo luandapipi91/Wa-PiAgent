@@ -717,6 +717,7 @@ const zh = {
 			downloaded: "更新已就绪",
 			downloadedHint: "新版本 {{version}} 已下载完成",
 			restartInstall: "立即重启安装",
+			installing: "正在安装更新，请稍候…",
 			upToDate: "已是最新版本",
 			desktopOnly: "自动更新仅适用于桌面安装版",
 			retry: "重试",

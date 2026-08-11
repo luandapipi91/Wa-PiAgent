@@ -7,7 +7,8 @@ import { Icon } from "../ui/Icon";
 /** 字节数格式化：B / KB / MB / GB */
 function fmtBytes(n: number): string {
 	if (!n) return "0 B";
-	if (n >= 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
+	if (n >= 1024 * 1024 * 1024)
+		return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
 	if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
 	if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
 	return `${n} B`;
@@ -39,7 +40,10 @@ export function AboutSection() {
 	const ver = latestVersion ? `v${latestVersion}` : "";
 
 	return (
-		<div className="flex flex-col items-center p-8 overflow-auto gap-0" data-testid="about-section">
+		<div
+			className="flex flex-col items-center p-8 overflow-auto gap-0"
+			data-testid="about-section"
+		>
 			<img
 				src="/logo.svg"
 				alt="WA PI Agent"
@@ -50,12 +54,20 @@ export function AboutSection() {
 			<div className="mt-1 text-[13px] text-secondary">
 				{t("settings.about.version", { version: appVersion || "—" })}
 			</div>
-			<div className="w-[280px] h-px my-5" style={{ background: "var(--hairline)" }} />
+			<div
+				className="w-[280px] h-px my-5"
+				style={{ background: "var(--hairline)" }}
+			/>
 
 			{!showUpdateControls ? (
-				<div className="text-xs text-tertiary">{t("settings.about.desktopOnly")}</div>
+				<div className="text-xs text-tertiary">
+					{t("settings.about.desktopOnly")}
+				</div>
 			) : (
-				<div className="flex flex-col items-center gap-3 w-[340px]" data-testid="updater-status">
+				<div
+					className="flex flex-col items-center gap-3 w-[340px]"
+					data-testid="updater-status"
+				>
 					{status === "idle" && (
 						<button
 							className="px-6 py-2 rounded-sm text-sm font-medium border-0 cursor-pointer"
@@ -92,7 +104,10 @@ export function AboutSection() {
 							)}
 							<button
 								className="px-5 py-2 rounded-sm text-sm font-medium border-0 cursor-pointer"
-								style={{ background: "var(--accent)", color: "var(--on-accent)" }}
+								style={{
+									background: "var(--accent)",
+									color: "var(--on-accent)",
+								}}
 								onClick={() => void downloadUpdate()}
 								data-testid="download-update-btn"
 							>
@@ -130,11 +145,16 @@ export function AboutSection() {
 
 					{status === "downloaded" && (
 						<>
-							<div className="text-sm font-medium" style={{ color: "var(--success)" }}>
+							<div
+								className="text-sm font-medium"
+								style={{ color: "var(--success)" }}
+							>
 								{t("settings.about.downloaded")}
 							</div>
 							<div className="text-xs text-secondary">
-								{t("settings.about.downloadedHint", { version: latestVersion ?? "" })}
+								{t("settings.about.downloadedHint", {
+									version: latestVersion ?? "",
+								})}
 							</div>
 							<button
 								className="px-5 py-2 rounded-sm text-sm font-medium border-0 cursor-pointer"
@@ -144,6 +164,22 @@ export function AboutSection() {
 							>
 								{t("settings.about.restartInstall")}
 							</button>
+						</>
+					)}
+
+					{status === "installing" && (
+						<>
+							<div className="text-sm font-medium text-primary">
+								{t("settings.about.installing")}
+							</div>
+							<div
+								className="w-5 h-5 rounded-full border-2 border-transparent animate-spin mt-1"
+								style={{
+									borderTopColor: "var(--accent)",
+									borderRightColor: "var(--accent)",
+								}}
+								data-testid="install-spinner"
+							/>
 						</>
 					)}
 
