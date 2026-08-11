@@ -601,9 +601,11 @@ const en = {
 		view: "View messages",
 		viewerBack: "Back to Recycle Bin",
 		confirmEmptyTitle: "Empty Recycle Bin",
-		confirmEmptyMsg: "Permanently delete all {{count}} sessions? This cannot be undone.",
+		confirmEmptyMsg:
+			"Permanently delete all {{count}} sessions? This cannot be undone.",
 		confirmDeleteTitle: "Delete Selected Sessions",
-		confirmDeleteMsg: "Permanently delete {{count}} selected sessions? This cannot be undone.",
+		confirmDeleteMsg:
+			"Permanently delete {{count}} selected sessions? This cannot be undone.",
 		messagesNotFound: "Message file not found",
 		imTag: "IM",
 		prevPage: "Prev",
@@ -626,9 +628,12 @@ const en = {
 		recordingFile: "Recording {{duration}}.webm",
 		recordingBusy: "A recording is already in progress",
 		recordingNoAudioTrack: "No audio track captured",
-		recordingPermissionDenied: "Recording permission denied. Please allow microphone / screen recording access in System Settings and try again.",
-		recordingDeviceNotFound: "No recording device found (microphone or system audio).",
-		recordingDeviceBusy: "Recording device is in use by another app. Close it and try again.",
+		recordingPermissionDenied:
+			"Recording permission denied. Please allow microphone / screen recording access in System Settings and try again.",
+		recordingDeviceNotFound:
+			"No recording device found (microphone or system audio).",
+		recordingDeviceBusy:
+			"Recording device is in use by another app. Close it and try again.",
 		recordingDeviceGeneric: "Recording failed to start: {{detail}}",
 		unsupportedPreview: "This file type cannot be previewed",
 		readFailed: "Read failed",
@@ -655,6 +660,7 @@ const en = {
 			about: "About",
 		},
 		trashSection: "Session Recycle Bin",
+		exportSection: "Export conversation",
 		trashAutoArchive: "Auto-archive inactive sessions",
 		trashArchiveDays: "After {{days}} days inactive",
 		trashAutoPurge: "Auto-purge recycle bin",
@@ -664,6 +670,12 @@ const en = {
 				label: "Export conversation turns",
 				desc: "When exporting to image, how many turns of dialogue before the current AI reply to include ({{min}}-{{max}} turns). Takes effect immediately.",
 				unit: "turns",
+			},
+			exportIncludeUser: {
+				label: "Image export options",
+				desc: "Choose which messages to include when exporting to image.",
+				both: "Both sides",
+				agentOnly: "Agent replies only",
 			},
 			retry: {
 				label: "Auto retry",

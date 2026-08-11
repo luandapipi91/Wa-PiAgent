@@ -116,6 +116,15 @@ test("导出轮数设置生效：collectTurns 收到 store 的 exportTurns 作�
 	expect(renderMock).toHaveBeenCalledTimes(1);
 });
 
+test("图片导出选项生效：collectTurns 收到 store 的 exportIncludeUser 作为第四参", async () => {
+	useUiPrefsStore.setState({ exportTurns: 1, exportIncludeUser: false });
+	render(<ExportButton sessionId={SID} uptoTimestamp={200} />);
+	fireEvent.click(screen.getByTestId(`export-${SID}-200`));
+	fireEvent.click(screen.getByTestId("export-download"));
+	await new Promise((r) => setTimeout(r, 10));
+	expect(collectMock.mock.calls[0]?.[3]).toBe(false);
+});
+
 test("菜单 portal 到 body：展开后菜单项在 document.body 下", () => {
 	render(<ExportButton sessionId={SID} uptoTimestamp={200} />);
 	fireEvent.click(screen.getByTestId(`export-${SID}-200`));

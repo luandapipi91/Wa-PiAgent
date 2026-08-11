@@ -978,6 +978,11 @@ export class AgentManager {
 			askRegistry.pendingToolCallIds(sessionId).length > 0 ||
 			extUiRegistry.hasPendingForSession(sessionId)
 		) {
+			// timer 已 fire 但引用仍非空（setTimeout 返回值 fire 后不自动清空），
+			// 先清空对应引用，否则 _armTurnWatchdog 中 hard-cap 的
+			// 「仅在引用为空时武装」判断会跳过，本轮剩余时间 hard-cap 永久失效
+			if (reason === "idle") handle.watchdogIdleTimer = undefined;
+			else handle.watchdogHardTimer = undefined;
 			this._armTurnWatchdog(sessionId, handle);
 			return;
 		}

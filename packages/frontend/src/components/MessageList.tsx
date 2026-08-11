@@ -907,15 +907,17 @@ export const MessageRow = memo(function MessageRow({
 						),
 					)}
 				</div>
-				{seg === segments[lastTextSegIdx] && !isStreaming && (
-					<div className="flex justify-end items-center">
-						<ExportButton sessionId={sessionId} uptoTimestamp={m.timestamp} />
-						<CopyButton
-							text={fullText}
-							testId={`copy-${sessionId}-${m.timestamp}`}
-						/>
-					</div>
-				)}
+				{seg === segments[lastTextSegIdx] &&
+					!isStreaming &&
+					!isActiveTurnRow && (
+						<div className="flex justify-end items-center">
+							<ExportButton sessionId={sessionId} uptoTimestamp={m.timestamp} />
+							<CopyButton
+								text={fullText}
+								testId={`copy-${sessionId}-${m.timestamp}`}
+							/>
+						</div>
+					)}
 			</div>
 		);
 	};
@@ -931,24 +933,27 @@ export const MessageRow = memo(function MessageRow({
 					{formatTime(m.timestamp, t("common.yesterday"))}
 				</div>
 
-				{canCollapse ? (
-					<>
-						<TurnSummary steps={processSteps} elapsedMs={m.turnElapsedMs}>
-							{processSegs.map((seg, si) => renderSeg(seg, si, false))}
-						</TurnSummary>
-						{finalTextSeg && renderSeg(finalTextSeg, processSegs.length, false)}
-					</>
-				) : (
-					segments.map((seg, si) =>
-						renderSeg(
-							seg,
-							si,
-							!!isStreaming &&
-								(row.streamingStartIdx == null ||
-									seg.firstBlockIdx >= row.streamingStartIdx),
-						),
-					)
-				)}
+				<div className="flex flex-col gap-1.5">
+					{canCollapse ? (
+						<>
+							<TurnSummary steps={processSteps} elapsedMs={m.turnElapsedMs}>
+								{processSegs.map((seg, si) => renderSeg(seg, si, false))}
+							</TurnSummary>
+							{finalTextSeg &&
+								renderSeg(finalTextSeg, processSegs.length, false)}
+						</>
+					) : (
+						segments.map((seg, si) =>
+							renderSeg(
+								seg,
+								si,
+								!!isStreaming &&
+									(row.streamingStartIdx == null ||
+										seg.firstBlockIdx >= row.streamingStartIdx),
+							),
+						)
+					)}
+				</div>
 			</div>
 		</div>
 	);

@@ -585,9 +585,11 @@ const zh = {
 		view: "查看消息",
 		viewerBack: "返回回收站",
 		confirmEmptyTitle: "清空回收站",
-		confirmEmptyMsg: "确定要永久删除回收站中的全部 {{count}} 个会话吗？此操作不可撤销。",
+		confirmEmptyMsg:
+			"确定要永久删除回收站中的全部 {{count}} 个会话吗？此操作不可撤销。",
 		confirmDeleteTitle: "彻底删除选中会话",
-		confirmDeleteMsg: "确定要永久删除选中的 {{count}} 个会话吗？删除后将无法恢复。",
+		confirmDeleteMsg:
+			"确定要永久删除选中的 {{count}} 个会话吗？删除后将无法恢复。",
 		messagesNotFound: "消息文件不存在",
 		imTag: "IM会话",
 		prevPage: "上一页",
@@ -610,7 +612,8 @@ const zh = {
 		recordingFile: "录音 {{duration}}.webm",
 		recordingBusy: "已有录音进行中",
 		recordingNoAudioTrack: "未获取到音频轨道",
-		recordingPermissionDenied: "没有录音权限，请在系统设置中允许麦克风/屏幕录制权限后重试",
+		recordingPermissionDenied:
+			"没有录音权限，请在系统设置中允许麦克风/屏幕录制权限后重试",
 		recordingDeviceNotFound: "未找到可用的录音设备（麦克风或系统音频）",
 		recordingDeviceBusy: "录音设备被其他应用占用，请关闭占用后重试",
 		recordingDeviceGeneric: "录音启动失败：{{detail}}",
@@ -639,6 +642,7 @@ const zh = {
 			about: "关于",
 		},
 		trashSection: "会话回收站",
+		exportSection: "对话导出",
 		trashAutoArchive: "自动归档未活动的会话",
 		trashArchiveDays: "超过 {{days}} 天未活动",
 		trashAutoPurge: "自动清理回收站",
@@ -648,6 +652,12 @@ const zh = {
 				label: "对话导出轮数",
 				desc: "导出为图片时，包含当条 AI 回复往前多少轮对话（{{min}}-{{max}} 轮），即时生效。",
 				unit: "轮",
+			},
+			exportIncludeUser: {
+				label: "图片导出选项",
+				desc: "选择导出图片时包含哪些消息。",
+				both: "对话双方",
+				agentOnly: "仅导出 agent 回复",
 			},
 			retry: {
 				label: "自动重试",

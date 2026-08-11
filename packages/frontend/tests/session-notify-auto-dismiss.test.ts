@@ -1,4 +1,4 @@
-// extension_notify 系统消息插入后永久保留：不自动消退、不去重。
+// extension_notify 系统消息插入后 30s 自动消失：30s 定时移除，不去重。
 // 说明：项目测试栈为 bun:test，fake timers 用 bun:test 导出的 vi（与既有 .tsx 测试一致）。
 import { test, expect, beforeEach, afterEach, vi } from "bun:test";
 import { useSessionStore } from "../src/store/session";
@@ -38,23 +38,27 @@ function messages(sid: string) {
 	return useSessionStore.getState().messagesBySession[sid] ?? [];
 }
 
-test("extension_notify 插入后永久保留，不自动消退", () => {
+test("extension_notify 插入后 30s 自动消失", () => {
 	const sid = "s-auto-1";
 	notify(sid, "MCP: 5 servers connected");
 	expect(messages(sid)).toHaveLength(1);
 
-	// 快进 60s：仍在
-	vi.advanceTimersByTime(60_000);
+	// 29s：仍在（未到 30s）
+	vi.advanceTimersByTime(29_000);
 	expect(messages(sid)).toHaveLength(1);
+
+	// 累计 31s：定时器已触发，消失
+	vi.advanceTimersByTime(2_000);
+	expect(messages(sid)).toHaveLength(0);
 });
 
-test("多条同内容 notify 不去重，各自保留", () => {
+test("多条同内容 notify 不去重，各自 30s 后消失", () => {
 	const sid = "s-auto-2";
 	notify(sid, "same");
 	notify(sid, "same");
 	expect(messages(sid)).toHaveLength(2);
 
-	// 快进 60s：两条都仍在
-	vi.advanceTimersByTime(60_000);
-	expect(messages(sid)).toHaveLength(2);
+	// 两条各自的 30s 定时器都会触发，全部移除
+	vi.advanceTimersByTime(31_000);
+	expect(messages(sid)).toHaveLength(0);
 });
