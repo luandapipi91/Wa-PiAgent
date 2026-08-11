@@ -208,6 +208,25 @@ interface SessionHandle {
 	watchdogHardTimer?: ReturnType<typeof setTimeout>;
 	/** 看门狗强杀标记：_onProcessExit 据此给出准确的前端播报文案 */
 	watchdogKilled?: boolean;
+	/** 回合看门狗自动重试计数（0=未重试）。看门狗终止后自动重发最后 user 消息 1 次，
+	 *  重建进程后由 _retryAfterWatchdog 继承计数，再次触发才播报错误（防无限重试）；
+	 *  成功回合结束（agent_settled）清零。 */
+	watchdogRetryCount?: number;
+}
+
+/** 提取历史消息中最后一条 user 消息的文本（看门狗自动重试重发用）。
+ *  content 拼接全部 text 块；找到 user 但无文本（纯附件消息）或没有 user 消息返回 null。 */
+function extractLastUserText(messages: any[]): string | null {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i];
+		if (m?.role !== "user") continue;
+		const texts = (m.content ?? [])
+			.filter((c: any) => c?.type === "text" && typeof c.text === "string")
+			.map((c: any) => c.text);
+		if (texts.length > 0) return texts.join("\n");
+		return null;
+	}
+	return null;
 }
 
 export class AgentManager {
@@ -1042,6 +1061,8 @@ export class AgentManager {
 				this._disarmTurnWatchdog(handle);
 				handle.busy = false;
 				handle.thinkingSince = null;
+				// 成功回合结束：看门狗重试计数清零（下次卡死重新计数）
+				handle.watchdogRetryCount = 0;
 				// transient 网络错误期间跳过 drain：此时网络仍不可用，
 				// 自动发送排队/引导消息会再失败。队列保留，等用户重发恢复。
 				if (handle.netDegraded) {
@@ -1138,6 +1159,19 @@ export class AgentManager {
 		console.error(
 			`[kernel] session ${sessionId} pi 进程意外退出 (code=${code} signal=${signal ?? "none"})`,
 		);
+		// 看门狗终止 → 自动重试 1 次：重建进程重发最后 user 消息，让主 agent 带着历史
+		// 自己继续（而非立即报错打断用户）。重试后再卡死（watchdogRetryCount ≥ 1）或
+		// 取不到可重发的用户消息时才走下方错误播报。
+		if (handle.watchdogKilled && (handle.watchdogRetryCount ?? 0) < 1) {
+			const lastUserText = extractLastUserText(handle.messages);
+			if (lastUserText) {
+				console.warn(
+					`[kernel] session ${sessionId} 看门狗终止，自动重试 1 次（重建进程重发最后用户消息）`,
+				);
+				void this._retryAfterWatchdog(sessionId, handle, lastUserText);
+				return;
+			}
+		}
 		// 合成 message_end 错误事件：复用 extractSdkErrorMessage → 前端 ⚠️ 渲染管线
 		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
 			type: "message_end",
@@ -1151,6 +1185,67 @@ export class AgentManager {
 				timestamp: Date.now(),
 			},
 		});
+	}
+
+	/**
+	 * 看门狗终止后的自动重试：重建 pi 进程并重发最后一条用户消息。
+	 *
+	 * 语义：错误不再直接报给用户——把超时状态作为上下文交给重建后的主 agent，由它
+	 * 带着历史自行继续（重发即「系统替用户重发一次」）。重试进程再次触发看门狗
+	 * （_onProcessExit 中 watchdogRetryCount ≥ 1）或重建/重发失败时才补播错误。
+	 * 恢复用户显式选择的模型与 thinking level（重建进程默认回落到 agent config）。
+	 */
+	private async _retryAfterWatchdog(
+		sessionId: string,
+		handle: SessionHandle,
+		text: string,
+	): Promise<void> {
+		const retryCount = (handle.watchdogRetryCount ?? 0) + 1;
+		const { projectId, agentName } = handle.meta;
+		const model = handle.currentModel;
+		const thinking = handle.currentThinking;
+		try {
+			const newHandle = await this.ensureStarted(
+				projectId,
+				agentName,
+				sessionId,
+			);
+			// 重建后继承重试计数：再次卡死时不无限重试
+			newHandle.watchdogRetryCount = retryCount;
+			// 恢复用户显式选择的模型与 thinking level（currentModel 为 "provider/modelId"）
+			if (model) {
+				const slash = model.indexOf("/");
+				await newHandle.client.setModel(
+					slash >= 0 ? model.slice(0, slash) : model,
+					slash >= 0 ? model.slice(slash + 1) : model,
+				);
+				newHandle.currentModel = model;
+			}
+			if (thinking) {
+				await newHandle.client.setThinkingLevel(mapThinkingLevel(thinking));
+				newHandle.currentThinking = thinking;
+			}
+			await this._sendPromptNow(sessionId, newHandle, text);
+		} catch (err) {
+			console.error(`[kernel] session ${sessionId} 看门狗重试失败:`, err);
+			// 重试失败（进程重建/重发失败）：补播错误事件，否则前端永久思考态且用户无感知
+			this.opts.onEvent(
+				sessionId,
+				handle.meta.projectId,
+				handle.meta.agentName,
+				{
+					type: "message_end",
+					message: {
+						role: "assistant",
+						content: [],
+						stopReason: "error",
+						errorMessage:
+							"agent 长时间无响应（回合看门狗），自动重试失败，请重新发送消息",
+						timestamp: Date.now(),
+					},
+				},
+			);
+		}
 	}
 
 	/** pi 扩展 dialog 请求（select/confirm/input/editor）：注册 pending + 广播给前端，阻塞等应答 */
