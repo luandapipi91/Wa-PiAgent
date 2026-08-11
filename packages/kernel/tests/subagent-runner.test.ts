@@ -237,3 +237,44 @@ test("Infinity：commandTimeoutMs=Infinity 时正常 settle，不误判超时", 
 	expect(result.isError).toBe(false);
 	expect(result.text).toContain("回声:测试任务");
 });
+
+// 无进展探活：子代理进程存活但不发任何业务事件（hang-pi 发 agent_start 后永久静默）→
+// idleTimeoutMs 后判死返回 isError（比 settle 超时更早发现卡死，不杀主代理）。
+test("无进展探活：无任何业务事件超过 idleTimeoutMs 判死返回 isError", async () => {
+	const startedAt = Date.now();
+	const result = await runSubagentAgent(baseConfig(), "任务", "/tmp", {
+		cliPath: HANG_PI,
+		runtime: RUNTIME,
+		commandTimeoutMs: 60_000, // settle 超时故意拉长：验证探活先触发，不等它
+		idleTimeoutMs: 400,
+	});
+	expect(result.isError).toBe(true);
+	expect(result.text).toContain("无进展");
+	expect(Date.now() - startedAt).toBeLessThan(10_000); // 远早于 60s settle 兑底
+}, 10_000);
+
+// 工具执行中豁免：子代理发 tool_execution_start 后长时间无事件（MCP HTTP 等待）→
+// 探活不得判死；用户 abort 才终止。
+const TOOL_EXEC_PI = join(import.meta.dir, "fixtures", "tool-exec-pi.ts");
+test("工具执行中豁免：tool_execution_start 后静默不判死，abort 才终止", async () => {
+	const ctrl = new AbortController();
+	const resultP = runSubagentAgent(baseConfig(), "任务", "/tmp", {
+		cliPath: TOOL_EXEC_PI,
+		runtime: RUNTIME,
+		commandTimeoutMs: 60_000, // settle 超时拉长
+		idleTimeoutMs: 300, // 探活短阈值：验证豁免后不被判死
+		abortGraceMs: 300,
+		signal: ctrl.signal,
+	});
+	// 等待远超探活阈值（300ms）→ 工具执行中，探活应豁免不判死
+	await new Promise((r) => setTimeout(r, 800));
+	let returned = false;
+	void resultP.then(() => {
+		returned = true;
+	});
+	expect(returned).toBe(false); // 未返回：探活豁免生效
+	ctrl.abort();
+	const result = await resultP;
+	expect(result.isError).toBe(true);
+	expect(result.text).toContain("中止");
+}, 10_000);

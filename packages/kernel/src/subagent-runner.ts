@@ -73,6 +73,11 @@ export interface SubagentRunOpts {
 	runtime?: string;
 	/** RPC 命令超时毫秒数，默认 30 分钟（1800000）；设为 Infinity 关闭超时（settle 兜底同样跳过） */
 	commandTimeoutMs?: number;
+	/** 无进展探活超时毫秒数，默认 5 分钟（300000）。进程存活但无任何业务事件
+	 *  （message_update / tool_execution_* / agent_start|end）超过该时长判定卡死；
+	 *  工具执行中（tool_execution_start~end 之间）豁免——等工具返回是合法静默。
+	 *  设为 Infinity 关闭探活。 */
+	idleTimeoutMs?: number;
 	/** abort 宽限期毫秒数（测试覆盖用）：收到中止信号后等子代理响应 abort RPC 的时长，
 	 *  到期强制返回并由 finally dispose 强杀进程。默认 10000 */
 	abortGraceMs?: number;
@@ -81,6 +86,9 @@ export interface SubagentRunOpts {
 /** abort 宽限期默认值：收到中止信号后等子代理响应 abort RPC 的时间，
  *  到期不再等待 settle，走 finally dispose 强杀（防用户停止后子代理后台再活满 settle 超时） */
 export const ABORT_GRACE_MS = 10_000;
+
+/** 无进展探活默认超时：子代理进程存活但 5 分钟无任何业务事件判定卡死。 */
+export const LIVENESS_IDLE_MS = 5 * 60_000;
 
 /**
  * thinking → pi CLI thinking level 映射。
@@ -161,19 +169,47 @@ export async function runSubagentAgent(
 		// （unhandled rejection）。挂空 catch 兜底；await settled 处仍能拿到原 rejection。
 		settled.catch(() => {});
 
+		// 无进展探活（防卡死）：任何业务事件刷新计时；工具执行中（start~end）豁免。
+		// 进程存活但不发事件（MCP 卡死 / LLM 流停滞 / 死循环）时，idleTimeoutMs 判死。
+		const idleTimeoutMs = opts?.idleTimeoutMs ?? LIVENESS_IDLE_MS;
+		let toolInFlight = false;
+		let livenessTimer: ReturnType<typeof setTimeout> | undefined;
+		const armLiveness = () => {
+			if (livenessTimer) clearTimeout(livenessTimer);
+			livenessTimer = setTimeout(() => {
+				if (toolInFlight) {
+					armLiveness(); // 工具执行中：等返回是合法静默，重置继续等
+					return;
+				}
+				fail(new Error(`子智能体无进展超时 (${idleTimeoutMs}ms)`));
+			}, idleTimeoutMs);
+		};
+		const touch = () => {
+			if (Number.isFinite(idleTimeoutMs)) armLiveness();
+		};
+
 		const onEvent = (e: RpcEvent) => {
 			switch (e.type) {
+				case "agent_start":
+				case "agent_end":
+					touch();
+					break;
 				case "tool_execution_start":
+					toolInFlight = true;
+					touch();
 					tools.push({ id: e.toolCallId, name: e.toolName, status: "running" });
 					emit("running");
 					break;
 				case "tool_execution_end": {
+					toolInFlight = false;
+					touch();
 					const t = tools.find((x) => x.id === e.toolCallId);
 					if (t) t.status = e.isError ? "error" : "done";
 					emit("running");
 					break;
 				}
 				case "message_update": {
+					touch();
 					const delta = e.assistantMessageEvent;
 					if (delta?.type === "text_delta" && typeof delta.delta === "string") {
 						output += delta.delta;
@@ -182,12 +218,14 @@ export async function runSubagentAgent(
 					break;
 				}
 				case "message_end": {
+					touch();
 					const msg = e.message;
 					if (msg?.role === "assistant" && msg?.stopReason === "error")
 						sawError = true;
 					break;
 				}
 				case "agent_settled":
+					touch();
 					settle();
 					break;
 			}
@@ -249,6 +287,13 @@ export async function runSubagentAgent(
 					}),
 				);
 			}
+			if (Number.isFinite(idleTimeoutMs)) {
+				racers.push(
+					new Promise<never>(() => {
+						armLiveness(); // fire 时内部用 fail() 判死（含工具执行中豁免重置）
+					}),
+				);
+			}
 			// abort 短路：子代理可能卡在不可中断的工具里收不到 abort RPC，若仍等
 			// settle 超时（默认 30 分钟），用户点停止后子代理进程在后台继续存活烧配额。
 			// 宽限 abortGraceMs 等子代理响应 abort，到期 resolve —— 走下方
@@ -271,6 +316,7 @@ export async function runSubagentAgent(
 				// settle 先兑现时清理两个计时器，防长期高频派发累积挂起计时器
 				if (settleTimer !== undefined) clearTimeout(settleTimer);
 				if (graceTimer !== undefined) clearTimeout(graceTimer);
+				if (livenessTimer !== undefined) clearTimeout(livenessTimer);
 			}
 		} finally {
 			opts?.signal?.removeEventListener("abort", onAbort);
