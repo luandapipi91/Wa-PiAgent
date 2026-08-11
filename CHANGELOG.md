@@ -2,6 +2,38 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-11 — fix(kernel): 探活移除「工具执行中豁免」——统一按 idleTimeoutMs 判死，tool_execution_update 计入进展
+
+### 变更
+
+- **移除「工具执行中（start~end）豁免」**：工具执行中完全静默同样按 `idleTimeoutMs`（默认 5 分钟）判死。依据：正常长工具（bash 等）会持续发 `tool_execution_update` 流式输出（pi rpc.md partialResult），任何业务事件刷新计时；完全静默（含等工具返回）本身就是无进展信号，不应无限续命。
+- `onEvent` 新增 `tool_execution_update` 处理（刷新探活计时）：此前该事件被忽略——活跃工具持续流式输出超过阈值会被误判卡死（有进展却无事件计数）。
+- 移除 `toolExecTimeoutMs` 双阈值（`TOOL_EXEC_TIMEOUT_MS` / `SubagentRunOpts.toolExecTimeoutMs`），统一为一套 idle 阈值，逻辑更简单。
+- TDD：新增「工具执行中静默按 idleTimeoutMs 判死」「工具执行中持续流式输出不判死」（新 fixture `tool-exec-update-pi.ts`）；原「工具执行中豁免」测试语义反转。
+- 影响范围：`packages/kernel/src/subagent-runner.ts`、`packages/kernel/tests/subagent-runner.test.ts`、`packages/kernel/tests/fixtures/tool-exec-update-pi.ts`。
+
+## 2026-08-11 — fix(desktop): ditto 重打包后 blockmap 重新生成（修复增量更新退化为全量下载）
+
+### 修复
+
+- `after-all-artifact-build.cjs` 原 blockmap 重生成逻辑无效：`require("app-builder-lib")` 导入的 `generateDifferential` 从未被调用；`npx electron-builder --mac --dir` 只产出 .app 目录、不产出 zip 的 blockmap → blockmap 实际缺失 → macOS 增量更新退化为全量下载。
+- 修复：用 `app-builder-lib` 的 `buildBlockMap`（纯 JS Rabin 分块，无外部二进制依赖）对 ditto 重打包后的 zip 重新生成 blockmap；从 electron-builder 解析起点加载（bun 安装下该依赖对其他包不可直接解析）。
+- 测试：新增 `after-all-artifact-build.test.ts`（验证 blockmap 是 gzip JSON 且含 Rabin checksums）。
+- 影响范围：`packages/desktop/scripts/after-all-artifact-build.cjs`、`packages/desktop/tests/after-all-artifact-build.test.ts`。
+
+## 2026-08-11 — fix(frontend): 触摸惯性滚动被误判「被动离底」强制拉回底部
+
+### 修复
+
+- **根因**：`isUserScrollInput` 只标记 wheel / touchstart / keydown / pointerdown，触摸屏惯性滚动阶段（手指离开后）无输入事件但 scrollTop 持续变化 → `handleAtBottomChange(false)` 走「内容被动离底」分支 → `scrollToEnd()` 把惯性上翻的用户强制拉回底部，打断阅读。
+- **修改**（`packages/frontend/src/components/MessageList.tsx`）：
+  - scroll 事件里用 `maxScrollTop` 判定：scrollTop 减小且 maxScrollTop 未减小（无 clamp 理由）= 用户滚动（含惯性）→ 置 `stickBottom=false` + `userScrolledAwayRef`；内容折叠时 maxScrollTop 同步减小才不判上翻。
+  - `handleAtBottomChange` 延迟一帧重查（Virtuoso 的 scroll 监听先于本组件执行）：用户滚动不拉回，内容被动离底才滚回底部。
+- **测试**：新增「触摸惯性滚动不被拉回」用例；「内容折叠」用例补充 scrollHeight 减小模拟（真实 clamp 场景）。
+- **影响范围**：`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/tests/MessageList.subagent-scroll.test.tsx`。
+
+---
+
 ---
 
 ## 2026-08-11 — feat(kernel): 子代理无进展探活——5 分钟无业务事件判死强杀，不杀主代理
@@ -9,9 +41,9 @@
 ### 新增
 
 - 子代理（delegate/fleet）运行中若进程存活但**无任何业务事件超过 5 分钟**（默认，可注入 idleTimeoutMs），判定卡死 → abort + 宽限强杀 → 主代理收到「子代理无进展超时」的工具错误结果，继续自己的回合（不再依赖杀主代理兑底）。
-- **工具执行中豁免**：`tool_execution_start`~`end` 期间探活暂停（MCP HTTP 请求等合法长静默不误判）；长推理/流式输出有 `message_update` 持续刷新，天然不误判。
+- **进展刷新**：`tool_execution_update`（长工具流式输出）/ `message_update` / `thinking_delta` 任何业务事件刷新探活计时；长推理/流式输出天然不误判。（注：后经迭代移除「工具执行中豁免」，统一按 idleTimeoutMs 判死，见顶部条目）
 - 与既有 settle 超时（30 分钟兑底）并行，探活更早发现卡死（5 分钟 vs 30 分钟）；`finally dispose` 强杀进程防泄漏。
-- TDD：新增「无进展探活判死」「工具执行中豁免」两个测试（`hang-pi.ts` / 新 `tool-exec-pi.ts` fixture），kernel 全量 924 pass / 0 fail。
+- TDD：新增「无进展探活判死」「工具执行中静默判死」测试（`hang-pi.ts` / `tool-exec-pi.ts` fixture），kernel 全量 925 pass / 0 fail。
 - 影响范围：`packages/kernel/src/subagent-runner.ts`（`SubagentRunOpts.idleTimeoutMs`、`LIVENESS_IDLE_MS`）、`packages/kernel/tests/subagent-runner.test.ts`、`packages/kernel/tests/fixtures/tool-exec-pi.ts`。
 
 ## 2026-08-11 — fix(frontend): 贴底时折叠/展开内容反复出现「滚动到底部」浮钮

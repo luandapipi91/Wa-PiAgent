@@ -253,26 +253,57 @@ test("无进展探活：无任何业务事件超过 idleTimeoutMs 判死返回 i
 	expect(Date.now() - startedAt).toBeLessThan(10_000); // 远早于 60s settle 兑底
 }, 10_000);
 
-// 工具执行中豁免：子代理发 tool_execution_start 后长时间无事件（MCP HTTP 等待）→
-// 探活不得判死；用户 abort 才终止。
+// 工具执行中静默（tool_execution_start 后无任何事件，如 MCP HTTP 等待）→ 无进展，
+// 同样按 idleTimeoutMs 判死——不再有「工具执行中豁免」无限续命。
+// 正常长工具（bash 等）会持续发 tool_execution_update 流式输出刷新计时，不会误杀；
+// 完全静默的工具要么在等（超过 idle 仍无任何事件本身可疑），要么已卡死，判死合理。
 const TOOL_EXEC_PI = join(import.meta.dir, "fixtures", "tool-exec-pi.ts");
-test("工具执行中豁免：tool_execution_start 后静默不判死，abort 才终止", async () => {
-	const ctrl = new AbortController();
+test("工具执行中静默同样按 idleTimeoutMs 判死（不再豁免）", async () => {
 	const resultP = runSubagentAgent(baseConfig(), "任务", "/tmp", {
 		cliPath: TOOL_EXEC_PI,
 		runtime: RUNTIME,
-		commandTimeoutMs: 60_000, // settle 超时拉长
-		idleTimeoutMs: 300, // 探活短阈值：验证豁免后不被判死
-		abortGraceMs: 300,
-		signal: ctrl.signal,
+		commandTimeoutMs: 60_000, // settle 超时故意拉长：验证探活先触发
+		idleTimeoutMs: 400,
 	});
-	// 等待远超探活阈值（300ms）→ 工具执行中，探活应豁免不判死
-	await new Promise((r) => setTimeout(r, 800));
+	// 先挂返回监听（必须在 await 之前，否则 resolve 后注册回调丢失首帧）
 	let returned = false;
 	void resultP.then(() => {
 		returned = true;
 	});
-	expect(returned).toBe(false); // 未返回：探活豁免生效
+	// 等待远超 idleTimeoutMs（400ms）：工具执行中静默也应判死
+	await new Promise((r) => setTimeout(r, 1_000));
+	expect(returned).toBe(true); // 已判死返回（不再豁免）
+	const result = await resultP;
+	expect(result.isError).toBe(true);
+	expect(result.text).toContain("无进展");
+}, 10_000);
+
+// 工具执行中持续流式输出（tool_execution_update，如 bash 逐行输出）→ 有进展，不得判死。
+// 背景：tool_execution_update 是长运行工具的 partialResult 流式事件（pi rpc.md）。
+// 只要工具有输出，事件就会刷新 idle 计时；只有完全静默才判死。
+const TOOL_EXEC_UPDATE_PI = join(
+	import.meta.dir,
+	"fixtures",
+	"tool-exec-update-pi.ts",
+);
+test("工具执行中持续流式输出（tool_execution_update）→ 不算卡死，不判死", async () => {
+	const ctrl = new AbortController();
+	const resultP = runSubagentAgent(baseConfig(), "任务", "/tmp", {
+		cliPath: TOOL_EXEC_UPDATE_PI,
+		runtime: RUNTIME,
+		commandTimeoutMs: 60_000,
+		idleTimeoutMs: 200, // 每 50ms 一个 update 刷新计时，远超 idle 也不判死
+		abortGraceMs: 300,
+		signal: ctrl.signal,
+	});
+	// 先挂返回监听（必须在 await 之前，否则 resolve 后注册回调丢失首帧）
+	let returned = false;
+	void resultP.then(() => {
+		returned = true;
+	});
+	// 等待远超 idleTimeoutMs（200ms）：持续流式输出应不断刷新计时，不判死
+	await new Promise((r) => setTimeout(r, 800));
+	expect(returned).toBe(false); // 未返回：流式输出 = 有进展，探活不触发
 	ctrl.abort();
 	const result = await resultP;
 	expect(result.isError).toBe(true);

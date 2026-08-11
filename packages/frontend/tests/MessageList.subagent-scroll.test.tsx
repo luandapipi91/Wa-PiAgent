@@ -520,7 +520,13 @@ test("内容折叠导致 scrollTop 被动减小（无用户输入）→ 不误�
 		writable: true,
 	});
 	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
-	// 模拟 clamp 后 scrollTop 继续减小（浏览器收缩内容）
+	// 内容折叠：scrollHeight 同步减小（内容变短）→ maxScrollTop 减小 → 浏览器
+	// 被动 clamp scrollTop（无用户输入）→ scroll 事件。maxScrollTop 同步减小是
+	// 「被动 clamp」与「用户上翻」的关键区别（用户上翻时内容高度不变）。
+	Object.defineProperty(mockScrollerEl!, "scrollHeight", {
+		value: 1000,
+		writable: true,
+	});
 	Object.defineProperty(mockScrollerEl!, "scrollTop", {
 		value: 600,
 		writable: true,
@@ -567,6 +573,59 @@ test("回归防护：用户主动上翻（wheel 输入）后仍停止跟随（31
 
 	// 用户 wheel 上翻（输入标记 + scrollTop 减小）→ 停止跟随
 	simulateUserWheelUp();
+	await new Promise((r) => setTimeout(r, 600));
+	expect(scrollToIndexCalls.length).toBe(countBeforeScroll);
+});
+
+// ============================================================================
+// 触摸惯性滚动——不应被拉回底部（bug：惯性滚动被误判为「内容被动离底」→ 强制拉回）
+// 背景：isUserScrollInput 只标记 wheel/touchstart/keydown/pointerdown。触摸屏惯性
+// 滚动阶段（手指离开后）不再触发这些事件，但 scrollTop 持续变化。此时
+// handleAtBottomChange(false) 走「内容被动离底」分支 → scrollToEnd() 把正在惯性
+// 上翻的用户强制拉回底部，打断阅读。修复：scroll 事件里用 maxScrollTop 判定——
+// scrollTop 减小且 maxScrollTop 未减小（无 clamp 理由）= 用户滚动（含惯性），
+// 置 stickBottom=false；内容折叠时 maxScrollTop 同步减小才不判上翻。
+// ============================================================================
+test("触摸惯性滚动（无输入事件但 scrollTop 减小、maxScrollTop 不变）→ 视为用户上翻，不被拉回底部", async () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")],
+		},
+		statusBySession: { s1: "thinking" },
+		progressByToolCall: {
+			tc1: {
+				Explore: {
+					agent: "Explore",
+					status: "running",
+					output: "正在搜索...",
+					tools: [],
+					elapsedMs: 1000,
+				},
+			},
+		},
+		progressSessionByToolCall: { tc1: "s1" },
+	});
+	render(<MessageList sessionId="s1" />);
+	await waitFor(() => expect(scrollToIndexCalls.length).toBeGreaterThan(0));
+	await new Promise((r) => setTimeout(r, 250));
+	const countBeforeScroll = scrollToIndexCalls.length;
+	expect(countBeforeScroll).toBeGreaterThan(0);
+
+	expect(mockScrollerEl).not.toBeNull();
+	// 贴底基线（程序化贴底：scrollTop 增大，仅建立滚动基线）
+	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 1600, writable: true });
+	Object.defineProperty(mockScrollerEl!, "scrollHeight", { value: 2000, writable: true });
+	Object.defineProperty(mockScrollerEl!, "clientHeight", { value: 400, writable: true });
+	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
+
+	// 触摸惯性上翻：无任何输入事件（无 wheel/touch/pointer/keydown），
+	// 仅原生 scroll——scrollTop 减小、maxScrollTop 不变（内容高度没变）
+	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 500, writable: true });
+	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
+	// Virtuoso 检测到离底（与真实浏览器一致：scroll 事件后回调）
+	mockAtBottomStateChange!(false);
+
+	// 修复后：惯性上翻视为用户上翻 → interval 停止（不被拉回底部）
 	await new Promise((r) => setTimeout(r, 600));
 	expect(scrollToIndexCalls.length).toBe(countBeforeScroll);
 });
