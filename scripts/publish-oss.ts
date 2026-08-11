@@ -101,10 +101,12 @@ async function main() {
 		console.error(`release 目录未找到版本 ${version} 的产物：${releaseDir}`);
 		process.exit(1);
 	}
-	const hasLatestYml = artifacts.some((a) => a.key.endsWith("latest.yml"));
+	const hasLatestYml = artifacts.some(
+		(a) => a.key.endsWith("latest.yml") || a.key.endsWith("latest-mac.yml"),
+	);
 	if (!hasLatestYml) {
 		console.error(
-			"release 目录缺少 latest.yml（需先在 electron-builder.yml 配 publish 后重新打包）",
+			"release 目录缺少 latest.yml / latest-mac.yml（需先在 electron-builder.yml 配 publish 后重新打包）",
 		);
 		process.exit(1);
 	}
