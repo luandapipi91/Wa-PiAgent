@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-08-11 — fix(frontend): 贴底时折叠/展开内容反复出现「滚动到底部」浮钮
+
+### 修复
+
+- **根因**：`stickBottom`（是否贴底）判定无法区分「用户主动滚动」与「内容高度被动变化」——对话中某行折叠（内容变短，浏览器被动 clamp scrollTop 减小 → scroll 事件误判「用户上翻」）或展开（内容变长，maxScrollTop 增大 → Virtuoso 调 atBottomStateChange(false)），用户明明一直贴底，stickBottom 却被误置 false → 浮钮反复出现、自动滚动路径全部失效。这是 319fd76b 提交注释中承认的已知局限被真实触发。
+- **修改**（`packages/frontend/src/components/MessageList.tsx`）：
+  - 引入「用户主动滚动输入」检测：wheel / touchstart / 滚动键 keydown / 滚动条拖动（pointerdown+pointermove）刷新输入时间戳（350ms 窗口）。
+  - `handleScrollerScroll` 仅当用户输入窗口内且 scrollTop 减小才置 stickBottom=false——内容折叠导致的被动 clamp 不再误判。
+  - `handleAtBottomChange(false)` 仅用户输入时置 false；内容被动离底时保持贴底并自动滚回底部（用户贴底时上方某行展开 → 最新内容被顶到视口下方 → 自动跟随）。
+- **测试**：`tests/MessageList.subagent-scroll.test.tsx` 新增 3 用例（内容展开/折叠不误置、用户主动上翻回归防护），既有上翻/滚动条用例同步改为带用户输入标记；`e2e/send-scroll.spec.ts` 新增 2 场景（贴底时展开/折叠不出现浮钮），`streaming-render-perf.spec.ts` 的 scrollTo 同步模拟用户输入。
+- **影响范围**：packages/frontend MessageList 自动滚动判定。
+
+---
+
+## 2026-08-11 — refactor(kernel): 移除主会话回合看门狗（不再杀主代理）
+
+### 变更
+
+- **移除主会话回合看门狗**（`agent-manager.ts` 的 `_armTurnWatchdog/_disarmTurnWatchdog/_onTurnWatchdogFire`、`TURN_IDLE_WATCHDOG_MS/TURN_HARD_CAP_MS`、`turnWatchdog` 选项、2379acdc 的自动重试逻辑 `_retryAfterWatchdog`/`extractLastUserText`、`ext-ui-registry.hasPendingForSession`）。
+  - 原因：看门狗在 busy 期间主会话无事件时强杀主代理，与「杀子代理、不杀主代理」的设计意图相悖；子代理执行期间主会话无事件导致误杀正常工作的主代理（已报「agent 长时间无响应已自动终止」）。
+  - 依据：① 主代理假死由 pi 自身有界重试兑底（2d3d32c2 断网实验验证，无静默挂死）；② 子代理卡死已有独立治理（`subagent-runner.ts` settle 超时 30 分钟 + abort 宽限 10 秒强杀），不需要杀主代理来兑底。
+  - 错误播报文案统一为「agent 进程意外退出 (code=...)，请重新发送消息」（删除看门狗专属文案）。
+  - TDD：红灯测试「busy 后无任何事件不再强杀主代理」先失败（旧实现杀进程）→ 移除实现 → 绿灯；删除 10 个看门狗测试。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/ext-ui-registry.ts`、`packages/kernel/tests/agent-manager.test.ts`、`packages/kernel/tests/ext-ui-registry.test.ts`。
+
 ## 2026-08-11 — fix(kernel): 看门狗误杀报错文案简化
 
 ### 变更

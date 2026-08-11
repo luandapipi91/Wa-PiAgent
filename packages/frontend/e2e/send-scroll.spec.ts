@@ -54,6 +54,8 @@ async function scrollMetrics(page: import("@playwright/test").Page) {
 }
 async function scrollTo(page: import("@playwright/test").Page, top: number) {
 	await page.locator('[data-testid="message-list"]').evaluate((el, t) => {
+		// 用户滚动输入（wheel）→ MessageList 标记「用户主动滚动」→ 才置 stickBottom=false
+		el.dispatchEvent(new Event("wheel", { bubbles: true }));
 		el.scrollTop = t;
 		el.dispatchEvent(new Event("scroll", { bubbles: true }));
 	}, top);
@@ -145,5 +147,99 @@ test.describe("发送消息自动滚动", () => {
 
 		await expect(page.getByText("完整流式回复内容").first()).toBeVisible({ timeout: 8000 });
 		await expect.poll(async () => (await scrollMetrics(page))?.dist ?? 9999, { timeout: 8000 }).toBeLessThanOrEqual(40);
+	});
+});
+
+test.describe("贴底时内容变化不误置浮钮", () => {
+	test.beforeEach(async () => {
+		await saveProvider({
+			id: "e2e-send-scroll-provider",
+			name: "E2E SendScroll",
+			slug: "e2e-send-scroll",
+			baseUrl: "http://localhost:9999/v1",
+			apiKey: "sk-e2e",
+			api: "openai-completions",
+			models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+		});
+	});
+
+	// 内容展开（变长）：用户贴底时上方某行展开 → 最新内容被顶到视口下方。
+	// 旧逻辑：atBottomStateChange(false) 在 idle 下误置 stickBottom=false → 浮钮出现。
+	// 修复：无用户输入 → 不置 false，自动滚回底部。
+	test("展开（内容变长）→ 不出现浮钮、保持贴底", async ({ page }) => {
+		test.setTimeout(90_000);
+		const sid = "s-e2e-sendscroll-expand";
+		seedLongSession(sid, "E2E展开滚动");
+		await page.goto("/");
+		await page.getByTestId(`session-${sid}`).click();
+		await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 10_000 });
+		await expect(page.getByText("回答 60：")).toBeVisible({ timeout: 15_000 });
+		await expect.poll(async () => (await scrollMetrics(page))?.dist ?? 9999, { timeout: 15_000 }).toBeLessThanOrEqual(40);
+
+		// 模拟展开：向 store 注入一条高内容的 assistant 消息（内容变长 → maxScrollTop 增大）
+		await page.evaluate(async (sid) => {
+			// @ts-expect-error — vite 运行时解析 /src/* 别名
+			const { useSessionStore } = await import("/src/store/session.ts");
+			const s = useSessionStore.getState();
+			const list = s.messagesBySession[sid] ?? [];
+			s.append(sid, {
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "展开的长内容：".repeat(40) }],
+					model: "m",
+					stopReason: "end_turn",
+					timestamp: Date.now(),
+				},
+				agentName: "dev",
+				sessionId: sid,
+			} as any);
+		}, sid);
+
+		// 内容变化后：浮钮不出现（stickBottom 未被误置）、仍贴底
+		const floatBtn = page.getByTestId(`scroll-bottom-${sid}`);
+		await page.waitForTimeout(800);
+		await expect(floatBtn).toBeHidden({ timeout: 3000 });
+		await expect.poll(async () => (await scrollMetrics(page))?.dist ?? 9999, { timeout: 5000 }).toBeLessThanOrEqual(40);
+	});
+
+	// 内容折叠（变短）：用户贴底时上方某行折叠 → 浏览器被动 clamp scrollTop 减小。
+	// 旧逻辑：scroll 事件误判「用户上翻」→ stickBottom=false → 浮钮出现。
+	test("折叠（内容变短）→ 不出现浮钮、保持贴底", async ({ page }) => {
+		test.setTimeout(90_000);
+		const sid = "s-e2e-sendscroll-collapse";
+		seedLongSession(sid, "E2E折叠滚动");
+		await page.goto("/");
+		await page.getByTestId(`session-${sid}`).click();
+		await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 10_000 });
+		await expect(page.getByText("回答 60：")).toBeVisible({ timeout: 15_000 });
+		await expect.poll(async () => (await scrollMetrics(page))?.dist ?? 9999, { timeout: 15_000 }).toBeLessThanOrEqual(40);
+
+		// 模拟折叠：把最后一条 assistant 消息内容替换为超短文本（内容变短 → scrollHeight 减小，
+		// 浏览器被动 clamp scrollTop 减小 → scroll 事件）。真实折叠同样改变行高。
+		await page.evaluate(async (sid) => {
+			// @ts-expect-error — vite 运行时解析 /src/* 别名
+			const { useSessionStore } = await import("/src/store/session.ts");
+			const s = useSessionStore.getState();
+			const list = [...(s.messagesBySession[sid] ?? [])];
+			for (let i = list.length - 1; i >= 0; i--) {
+				const m = list[i].message as any;
+				if (m.role === "assistant") {
+					list[i] = {
+						...list[i],
+						message: { ...m, content: [{ type: "text", text: "已折叠" }] },
+					};
+					break;
+				}
+			}
+			useSessionStore.setState((st: any) => ({
+				messagesBySession: { ...st.messagesBySession, [sid]: list },
+			}));
+		}, sid);
+
+		// 折叠后：浮钮不出现（stickBottom 未被误置）、仍贴底
+		const floatBtn = page.getByTestId(`scroll-bottom-${sid}`);
+		await page.waitForTimeout(800);
+		await expect(floatBtn).toBeHidden({ timeout: 3000 });
+		await expect.poll(async () => (await scrollMetrics(page))?.dist ?? 9999, { timeout: 5000 }).toBeLessThanOrEqual(40);
 	});
 });

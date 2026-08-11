@@ -5,11 +5,13 @@
 //
 // mock react-virtuoso 捕获 scrollToIndex 调用（同 enter-scroll.test.tsx 模式）。
 import { test, expect, mock, beforeEach } from "bun:test";
-import { render, waitFor, fireEvent } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 
 const scrollToIndexCalls: any[] = [];
 // mock Virtuoso 捕获 scrollerRef 回调，供测试模拟原生 scroll（滚动条/键盘等非 wheel/touch 路径）
 let mockScrollerEl: HTMLElement | null = null;
+// 暴露 atBottomStateChange 供测试模拟「内容展开/折叠导致被动离底」（Virtuoso 数据变化后调用）
+let mockAtBottomStateChange: ((atBottom: boolean) => void) | null = null;
 mock.module("react-virtuoso", () => {
 	const { forwardRef, useImperativeHandle, createElement } = require("react");
 	const Virtuoso = forwardRef(function MockVirtuoso(props: any, ref: any) {
@@ -20,6 +22,7 @@ mock.module("react-virtuoso", () => {
 			}),
 			[],
 		);
+		mockAtBottomStateChange = props.atBottomStateChange ?? null;
 		const data = props.data ?? [];
 		// 模拟 Virtuoso 的 scrollerRef 回调：把渲染的滚动容器交给宿主监听原生 scroll
 		const scrollerRef = (el: HTMLElement | null) => {
@@ -74,6 +77,7 @@ function assistantMsg(ts: number, text: string): SessionMessage {
 beforeEach(() => {
 	scrollToIndexCalls.length = 0;
 	mockScrollerEl = null;
+	mockAtBottomStateChange = null;
 	useSessionStore.setState({
 		messagesBySession: {},
 		streamingBySession: {},
@@ -193,6 +197,8 @@ test("用户手动上翻（wheel 向上）后 interval 停止强制滚动到底�
 		value: 400,
 		writable: true,
 	});
+	// 用户滚轮输入（MessageList 监听 wheel 标记「用户滚动输入」）
+	mockScrollerEl!.dispatchEvent(new Event("wheel", { bubbles: true }));
 	// 贴底状态（不触发停止）
 	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
 	// wheel 上翻 → scrollTop 减小 → 原生 scroll 事件
@@ -254,6 +260,8 @@ test("用户拖滚动条（原生 scroll，非 wheel/touch）后 interval 停止
 		value: 400,
 		writable: true,
 	});
+	// 用户按下滚动条（MessageList 监听 pointerdown 标记「用户滚动输入」）
+	mockScrollerEl!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
 	// 第一次：模拟程序化贴底后的状态（scrollTop 增大，不触发停止）
 	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
 	// 第二次：用户向上拖滚动条（scrollTop 减小 → 翻阅历史 → 停止跟随）
@@ -333,6 +341,8 @@ test("程序化贴底（scrollTop 增大）不误停 interval：自动滚动继�
 // 用原生 scroll 事件（scrollTop 减小）置 stickBottom=false——与 handleScrollerScroll 交互。
 function forceStickBottomFalse() {
 	expect(mockScrollerEl).not.toBeNull();
+	// 用户主动滚动输入（wheel）——修复后仅用户输入才置 stickBottom=false
+	mockScrollerEl!.dispatchEvent(new Event("wheel", { bubbles: true }));
 	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 1600, writable: true });
 	Object.defineProperty(mockScrollerEl!, "scrollHeight", { value: 2000, writable: true });
 	Object.defineProperty(mockScrollerEl!, "clientHeight", { value: 400, writable: true });
@@ -400,4 +410,117 @@ test("回归防护：AI 回复中（无新 user 消息）用户上翻 → 不恢
 	// 等 500ms：无新 user 消息 → 不应恢复滚动（interval 停止）
 	await new Promise((r) => setTimeout(r, 500));
 	expect(scrollToIndexCalls.length).toBe(afterUpScroll);
+});
+
+// ============================================================================
+// 内容折叠/展开导致被动离底——不应误置 stickBottom（bug：贴底时反复出现浮钮）
+// 背景：用户一直贴底（stickBottom=true）。对话中某行折叠（内容变短，浏览器被动
+// clamp scrollTop 减小 → scroll 事件误判「用户上翻」）或展开（内容变长，
+// maxScrollTop 增大 → Virtuoso 调 atBottomStateChange(false)）——用户没有主动滚动，
+// 但 stickBottom 被误置 false → 浮钮反复出现，且后续自动滚动路径全部失效。
+// 修复：区分「用户主动滚动输入」（wheel/touch/keyboard/滚动条拖动）与「内容高度
+// 被动变化」——只有用户主动滚动才置 stickBottom=false；内容变化导致被动离底时
+// 保持贴底并滚回底部。
+// ============================================================================
+
+// 模拟用户主动滚动输入（wheel）：触发 MessageList 的输入标记后改变 scrollTop。
+// 真实时序：先处于底部（scrollTop=1600），再 wheel 上翻（scrollTop 减小）。
+function simulateUserWheelUp() {
+	expect(mockScrollerEl).not.toBeNull();
+	// 用户滚轮输入（MessageList 监听 wheel 标记「用户滚动输入」）
+	mockScrollerEl!.dispatchEvent(new Event("wheel", { bubbles: true }));
+	// 贴底状态（scrollTop 增大，不触发停止）
+	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 1600, writable: true });
+	Object.defineProperty(mockScrollerEl!, "scrollHeight", { value: 2000, writable: true });
+	Object.defineProperty(mockScrollerEl!, "clientHeight", { value: 400, writable: true });
+	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
+	// 用户上翻：scrollTop 减小
+	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 500, writable: true });
+	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
+}
+
+test("内容展开导致被动离底（无用户输入）→ 不误置 stickBottom、自动滚回底部", async () => {
+	useSessionStore.setState({
+		messagesBySession: { s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")] },
+		statusBySession: { s1: "idle" },
+	});
+	render(<MessageList sessionId="s1" />);
+	await waitFor(() => expect(scrollToIndexCalls.length).toBeGreaterThan(0));
+	scrollToIndexCalls.length = 0;
+	// 已贴底（进入会话定位完成后，Virtuoso 会在贴底时调 atBottomStateChange(true)）
+	expect(mockAtBottomStateChange).not.toBeNull();
+	mockAtBottomStateChange!(true);
+	await new Promise((r) => setTimeout(r, 30));
+
+	// 内容展开：某行从折叠变展开 → 内容变长 → maxScrollTop 增大，视口被动离开底部。
+	// Virtuoso 数据变化后调用 atBottomStateChange(false)。用户没有滚动输入。
+	mockAtBottomStateChange!(false);
+
+	// 修复后：无用户输入 → 不置 stickBottom=false，且自动滚回底部（scrollToEnd 被调用）
+	await waitFor(() => {
+		expect(scrollToIndexCalls.length).toBeGreaterThan(0);
+	});
+});
+
+test("内容折叠导致 scrollTop 被动减小（无用户输入）→ 不误置 stickBottom", async () => {
+	useSessionStore.setState({
+		messagesBySession: { s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")] },
+		statusBySession: { s1: "idle" },
+	});
+	render(<MessageList sessionId="s1" />);
+	await waitFor(() => expect(scrollToIndexCalls.length).toBeGreaterThan(0));
+	scrollToIndexCalls.length = 0;
+	// 已贴底
+	mockAtBottomStateChange!(true);
+	await new Promise((r) => setTimeout(r, 30));
+
+	// 内容折叠：内容变短 → 浏览器被动 clamp scrollTop 减小（无用户输入）→ scroll 事件
+	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 800, writable: true });
+	Object.defineProperty(mockScrollerEl!, "scrollHeight", { value: 2000, writable: true });
+	Object.defineProperty(mockScrollerEl!, "clientHeight", { value: 400, writable: true });
+	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
+	// 模拟 clamp 后 scrollTop 继续减小（浏览器收缩内容）
+	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 600, writable: true });
+	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
+	// 折叠完成后仍在底部（新 maxScrollTop = 600 + 400 = 1000？非精确；这里简化：
+	// Virtuoso 重新评估后 atBottomStateChange(true) 恢复贴底）
+	mockAtBottomStateChange!(true);
+
+	// 关键断言：无用户输入时 scroll 事件不应置 stickBottom=false。
+	// 验证方式：若误置 false，后续「回到底部」不会自动滚动；修复后保持贴底，
+	// 此刻再触发内容变化（展开）应自动滚回底部。
+	scrollToIndexCalls.length = 0;
+	mockAtBottomStateChange!(false); // 无用户输入 → 不置 false → 滚回底部
+	await waitFor(() => {
+		expect(scrollToIndexCalls.length).toBeGreaterThan(0);
+	});
+});
+
+test("回归防护：用户主动上翻（wheel 输入）后仍停止跟随（319fd76b 语义保持）", async () => {
+	useSessionStore.setState({
+		messagesBySession: { s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")] },
+		statusBySession: { s1: "thinking" },
+		progressByToolCall: {
+			tc1: {
+				Explore: {
+					agent: "Explore",
+					status: "running",
+					output: "正在搜索...",
+					tools: [],
+					elapsedMs: 1000,
+				},
+			},
+		},
+		progressSessionByToolCall: { tc1: "s1" },
+	});
+	render(<MessageList sessionId="s1" />);
+	await waitFor(() => expect(scrollToIndexCalls.length).toBeGreaterThan(0));
+	await new Promise((r) => setTimeout(r, 250));
+	const countBeforeScroll = scrollToIndexCalls.length;
+	expect(countBeforeScroll).toBeGreaterThan(0);
+
+	// 用户 wheel 上翻（输入标记 + scrollTop 减小）→ 停止跟随
+	simulateUserWheelUp();
+	await new Promise((r) => setTimeout(r, 600));
+	expect(scrollToIndexCalls.length).toBe(countBeforeScroll);
 });

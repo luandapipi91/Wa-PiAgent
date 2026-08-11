@@ -190,6 +190,39 @@ export function MessageList({ sessionId }: Props) {
 	// stickBottom：用户是否「停在底部」。用户向上翻阅即置 false——此时即便 AI 在回复，
 	// 也不抢滚动（不阻碍用户阅读历史）；用户回到底部或点浮动按钮再置 true。
 	const [stickBottom, setStickBottom] = useState(true);
+	// ref 供回调/定时读取最新值（闭包不随渲染刷新）
+	const stickBottomRef = useRef(stickBottom);
+	stickBottomRef.current = stickBottom;
+	// 用户主动滚动输入检测：wheel/touch/keyboard/滚动条拖动 刷新时间戳。
+	// 用于区分「用户主动滚动」与「内容高度被动变化」（折叠/展开/流式定稿/图片加载）——
+	// 后者不应置 stickBottom=false（贴底时折叠/展开反复出现浮钮的根因）。
+	const lastUserScrollInputRef = useRef(0);
+	const markUserScrollInput = useCallback(() => {
+		lastUserScrollInputRef.current = Date.now();
+	}, []);
+	const isUserScrollInput = useCallback(() => {
+		return Date.now() - lastUserScrollInputRef.current < 350;
+	}, []);
+	// 滚动条拖动：pointerdown 后 pointermove 持续刷新输入标记（拖动超过 350ms 不中断）
+	const pointerDownRef = useRef(false);
+	const handlePointerDown = useCallback(() => {
+		pointerDownRef.current = true;
+		markUserScrollInput();
+	}, [markUserScrollInput]);
+	const handlePointerMove = useCallback(() => {
+		if (pointerDownRef.current) markUserScrollInput();
+	}, [markUserScrollInput]);
+	const handlePointerUp = useCallback(() => {
+		pointerDownRef.current = false;
+	}, []);
+	// 键盘滚动（PageUp/PageDown/方向键/Home/End/空格）
+	const handleKeyDown = useCallback(
+		(e: KeyboardEvent) => {
+			const SCROLL_KEYS = ["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End", " "];
+			if (SCROLL_KEYS.includes(e.key)) markUserScrollInput();
+		},
+		[markUserScrollInput],
+	);
 	// 会话内是否曾贴底：atBottomStateChange(true) 置位。进入会话定位重试用它区分
 	// 「定位失败从未贴底」（重试）与「用户已贴底后上翻」（不拉回）。
 	const everAtBottomRef = useRef(false);
@@ -369,17 +402,24 @@ export function MessageList({ sessionId }: Props) {
 		return () => clearInterval(interval);
 	}, [autoScrollActive, stickBottom, listRows.length, scrollToEnd]);
 
-	// atBottomStateChange：autoScrollActive 期间内容增长导致的暂时性 not-at-bottom
-	// 不置 stickBottom=false（区分「程序化贴底竞态」与「用户主动上翻」）。
-	// autoScrollActive 结束后恢复正常行为——用户上翻即暂停跟随。
-	const handleAtBottomChange = useCallback((atBottom: boolean) => {
-		if (atBottom) {
-			everAtBottomRef.current = true;
-			setStickBottom(true);
-		} else if (!autoScrollActiveRef.current) {
-			setStickBottom(false);
-		}
-	}, []);
+	// atBottomStateChange：区分「用户主动滚离底部」与「内容高度被动变化导致离底」。
+	// 用户主动滚动（wheel/touch/键盘/滚动条）→ 停止跟随；内容折叠/展开导致被动离底
+	//（如用户贴底时上方某行展开，最新内容被顶到视口下方）→ 保持贴底并自动滚回底部。
+	// autoScrollActive 期间内容增长导致的暂时性 not-at-bottom 仍忽略（程序化贴底竞态）。
+	const handleAtBottomChange = useCallback(
+		(atBottom: boolean) => {
+			if (atBottom) {
+				everAtBottomRef.current = true;
+				setStickBottom(true);
+			} else if (isUserScrollInput()) {
+				setStickBottom(false);
+			} else if (stickBottomRef.current) {
+				// 内容高度变化（折叠/展开）被动离底：用户意图贴底 → 滚回底部
+				scrollToEnd();
+			}
+		},
+		[isUserScrollInput, scrollToEnd],
+	);
 
 	// 用户主动上翻 → 无条件停止自动跟随。
 	// 67760b5 的 atBottomStateChange 守卫在 autoScrollActive 期间忽略 not-at-bottom，
@@ -397,34 +437,43 @@ export function MessageList({ sessionId }: Props) {
 		const el = scrollerElRef.current;
 		if (!el) return;
 		const st = el.scrollTop;
-		// 向上滚动（scrollTop 减小）= 用户翻阅历史 → 停止跟随；
+		// 仅「用户主动滚动输入」时按方向判定上翻：内容折叠导致浏览器被动 clamp
+		// scrollTop 减小（无用户输入）不置 stickBottom=false——否则贴底时折叠某行
+		// 会误判「用户上翻」→ 反复出现浮钮（用户报告 bug）。
 		// 向下/贴底（scrollTop 增大或不变）= 程序化贴底或用户在底部 → 保持跟随。
-		// 向上滚动（scrollTop 减小）= 用户翻阅历史 → 停止跟随；
-		// 向下/贴底（scrollTop 增大或不变）= 程序化贴底或用户在底部 → 保持跟随。
-		// 已知局限：内容变短（compaction 替换历史/顶部项尺寸变化）时浏览器会被动
-		// clamp scrollTop 减小，可能短暂误停跟随——但用户仍贴底时 atBottomStateChange
-		// 随后会置回 true 自愈，仅产生一次浮动按钮闪现，无实际体验问题。
-		if (st < lastScrollTopRef.current) {
+		if (isUserScrollInput() && st < lastScrollTopRef.current) {
 			setStickBottom(false);
 		}
 		lastScrollTopRef.current = st;
-	}, []);
+	}, [isUserScrollInput]);
 	// Virtuoso scrollerRef：拿到内部滚动容器，挂原生 scroll 监听（滚动条/键盘等
 	// 非 wheel/touch 输入路径只产生原生 scroll 事件）。组件卸载时 ref 回调传 null，
 	// 由 React 合成事件系统之外的原生 listener 手动移除。类型允许 Window
 	//（Virtuoso 在 window 滚动场景下用 Window 作为 scroller），实际仅处理 HTMLElement。
+	// 额外挂用户滚动输入监听（wheel/touchstart/keydown/pointerdown+move）：标记
+	// 「用户主动滚动」，与内容高度被动变化（折叠/展开/流式定稿）区分。
 	const attachScroller = useCallback(
 		(el: HTMLElement | Window | null) => {
 			if (scrollerElRef.current && scrollerElRef.current !== el) {
-				scrollerElRef.current.removeEventListener(
-					"scroll",
-					handleScrollerScroll,
-				);
+				const prev = scrollerElRef.current;
+				prev.removeEventListener("scroll", handleScrollerScroll);
+				prev.removeEventListener("wheel", markUserScrollInput);
+				prev.removeEventListener("touchstart", markUserScrollInput);
+				prev.removeEventListener("keydown", handleKeyDown);
+				prev.removeEventListener("pointerdown", handlePointerDown);
+				prev.removeEventListener("pointermove", handlePointerMove);
+				prev.removeEventListener("pointerup", handlePointerUp);
 			}
 			if (el instanceof HTMLElement) {
 				scrollerElRef.current = el;
 				// 与 Virtuoso 自身一致标 passive：该 listener 不 preventDefault，且避免未来误加
 				el.addEventListener("scroll", handleScrollerScroll, { passive: true });
+				el.addEventListener("wheel", markUserScrollInput, { passive: true });
+				el.addEventListener("touchstart", markUserScrollInput, { passive: true });
+				el.addEventListener("keydown", handleKeyDown, { passive: true });
+				el.addEventListener("pointerdown", handlePointerDown, { passive: true });
+				el.addEventListener("pointermove", handlePointerMove, { passive: true });
+				el.addEventListener("pointerup", handlePointerUp, { passive: true });
 				lastScrollTopRef.current = el.scrollTop;
 			} else {
 				// window 滚动模式下 Virtuoso 传 null（当前布局 absolute inset-0 不会触发），
@@ -432,7 +481,14 @@ export function MessageList({ sessionId }: Props) {
 				scrollerElRef.current = null;
 			}
 		},
-		[handleScrollerScroll],
+		[
+			handleScrollerScroll,
+			markUserScrollInput,
+			handleKeyDown,
+			handlePointerDown,
+			handlePointerMove,
+			handlePointerUp,
+		],
 	);
 
 	// 进行中的轮判定：status==="thinking"（agent_start 已到、agent_end 未到）且无独立 streaming
