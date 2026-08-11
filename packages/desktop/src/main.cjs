@@ -126,11 +126,7 @@ function createSplash() {
 // node：优先搜索系统真实 Node.js（MCP 服务器大多是 Node 包，bun 不完全兼容），
 // 找不到才回退到 wa-pi-kernel。
 
-async function ensureRuntimeBinLinks({
-	kernelExe,
-	waPiDir,
-	log,
-}) {
+async function ensureRuntimeBinLinks({ kernelExe, waPiDir, log }) {
 	if (!app.isPackaged) return null;
 	const binDir = path.join(waPiDir, "bin");
 	// 使用 seedDir 中的真实内核二进制路径（wa-pi-kernel 不会被复制到 runtimeDir）
@@ -143,7 +139,7 @@ async function ensureRuntimeBinLinks({
 			path.join(binDir, "npx.cmd"),
 			`@echo off\r\n"${t}" x %*\r\n`,
 		);
-			await fsp.writeFile(
+		await fsp.writeFile(
 			path.join(binDir, "bun.cmd"),
 			`@echo off\r\n"${t}" %*\r\n`,
 		);
