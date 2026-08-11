@@ -126,63 +126,7 @@ function createSplash() {
 // node：优先搜索系统真实 Node.js（MCP 服务器大多是 Node 包，bun 不完全兼容），
 // 找不到才回退到 wa-pi-kernel。
 
-/** 搜索系统上的真实 Node.js 安装路径 */
-function findSystemNode() {
-	const candidates =
-		process.platform === "win32"
-			? [
-					path.join(
-						process.env.ProgramFiles || "C:\\Program Files",
-						"nodejs",
-						"node.exe",
-					),
-				]
-			: [
-					"/opt/homebrew/bin/node", // Apple Silicon Homebrew
-					"/usr/local/bin/node", // Intel Homebrew / manual install
-					"/usr/bin/node", // Xcode CLT / system
-				];
-	// also check common nvm paths
-	const home = os.homedir();
-	const nvmDir = process.env.NVM_DIR || path.join(home, ".nvm");
-	try {
-		const versionsDir = path.join(nvmDir, "versions", "node");
-		if (fs.existsSync(versionsDir)) {
-			const versions = fs.readdirSync(versionsDir).sort().reverse();
-			for (const v of versions) {
-				const p = path.join(versionsDir, v, "bin", "node");
-				if (fs.existsSync(p)) candidates.push(p);
-			}
-		}
-	} catch {}
-	// fnm
-	try {
-		const fnmDir = process.env.FNM_DIR || path.join(home, ".fnm");
-		if (fs.existsSync(fnmDir)) {
-			const aliasDefault = path.join(fnmDir, "aliases", "default");
-			if (fs.existsSync(aliasDefault)) {
-				const ver = fs.readFileSync(aliasDefault, "utf8").trim();
-				const p = path.join(
-					fnmDir,
-					"node-versions",
-					ver,
-					"installation",
-					"bin",
-					"node",
-				);
-				if (fs.existsSync(p)) candidates.push(p);
-			}
-		}
-	} catch {}
-	for (const c of candidates) {
-		if (fs.existsSync(c)) return c;
-	}
-	return null;
-}
-
 async function ensureRuntimeBinLinks({
-	runtimeDir,
-	seedDir,
 	kernelExe,
 	waPiDir,
 	log,
@@ -199,24 +143,16 @@ async function ensureRuntimeBinLinks({
 			path.join(binDir, "npx.cmd"),
 			`@echo off\r\n"${t}" x %*\r\n`,
 		);
-		await fsp.writeFile(
+			await fsp.writeFile(
 			path.join(binDir, "bun.cmd"),
 			`@echo off\r\n"${t}" %*\r\n`,
 		);
-		const sysNode = findSystemNode();
-		if (sysNode) {
-			await fsp.writeFile(
-				path.join(binDir, "node.cmd"),
-				`@echo off\r\n"${sysNode}" %*\r\n`,
-			);
-			log.info(`[runtime-bin] Windows node.cmd -> ${sysNode} (system)`);
-		} else {
-			await fsp.writeFile(
-				path.join(binDir, "node.cmd"),
-				`@echo off\r\n"${t}" %*\r\n`,
-			);
-			log.info(`[runtime-bin] Windows node.cmd -> ${t} (bun fallback)`);
-		}
+		// node 一律指向 bun（PoC 验证 bun 冒充 node 可运行 shebang 脚本/npm 包/npx 工具）
+		await fsp.writeFile(
+			path.join(binDir, "node.cmd"),
+			`@echo off\r\n"${t}" %*\r\n`,
+		);
+		log.info(`[runtime-bin] Windows node.cmd -> ${t} (bun)`);
 		await fsp.writeFile(
 			path.join(binDir, "npm.cmd"),
 			`@echo off\r\nif /i "%~1"=="exec" (shift & "${t}" x %*) else "${t}" %*\r\n`,
@@ -233,15 +169,9 @@ async function ensureRuntimeBinLinks({
 	await fsp.rm(npxPath, { force: true });
 	await fsp.rm(npmPath, { force: true });
 	await fsp.symlink(target, bunLink);
-	// node：优先系统真实 Node.js，MCP 服务器通常是 Node 包需要原生支持
-	const systemNode = findSystemNode();
-	if (systemNode) {
-		await fsp.symlink(systemNode, nodeLink);
-		log.info(`[runtime-bin] node -> ${systemNode} (system)`);
-	} else {
-		await fsp.symlink(target, nodeLink);
-		log.info(`[runtime-bin] node -> ${target} (bun fallback)`);
-	}
+	// node 一律指向 bun（PoC 验证 bun 冒充 node 可运行 shebang 脚本/npm 包/npx 工具）
+	await fsp.symlink(target, nodeLink);
+	log.info(`[runtime-bin] node -> ${target} (bun)`);
 	// npx 包装脚本：直接透传到 bun x（bun x 自动确认安装，忽略 -y/--yes）
 	const npxScript = `#!/bin/sh
 exec "${target}" x "$@"
@@ -651,8 +581,6 @@ app.whenReady().then(async () => {
 	if (app.isPackaged) {
 		try {
 			const binDir = await ensureRuntimeBinLinks({
-				runtimeDir,
-				seedDir,
 				kernelExe,
 				waPiDir: WA_PI_DIR,
 				log,
