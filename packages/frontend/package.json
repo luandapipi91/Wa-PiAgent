@@ -14,6 +14,7 @@
     "@llm-ui/code": "^0.13.3",
     "@llm-ui/markdown": "^0.13.3",
     "@llm-ui/react": "^0.13.3",
+    "@tailwindcss/typography": "^0.5.20",
     "@wa-pi/shared": "workspace:*",
     "html-to-image": "^1.11.13",
     "i18next": "^26.3.6",
@@ -27,6 +28,7 @@
     "react-markdown": "^10.1.0",
     "react-virtuoso": "^4.18.11",
     "reactflow": "^11.11.4",
+    "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
     "zustand": "^5.0.14"
   },

@@ -2,6 +2,40 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-11 — feat(frontend): 新会话发送后显示「会话新建中」加载页（消除白屏）
+
+### 变更
+
+- **新会话发送后不再白屏**：从 NewSessionPane 发送 prompt 到收到服务器回调之间，MessageList 显示居中的「会话新建中…」加载页（spinner + 文案），回调到达后消息出现、加载页自然消失。
+- **方案：发送时刻戳 + 时间窗口自然过期 + 事件响应提前退出**：store 新增 `pendingPromptAtBySession`（发送时刻的 Date.now()）+ `setPendingPromptAt`；MessageList 根据 `pendingAt > 0 && now - pendingAt < 20s && 无消息 && 无流式` 显示加载页，回调到达后 messages 非空条件自然失效。规避了 optimisticSend 会把 `/` 插件命令文本插入对话框的问题（新会话入口本就不走 optimisticSend）。
+- **扩展命令 50ms 后合成的空 agent_end 是唯一信号**：扩展命令（source=extension）被 pi 拦截执行，无 echo_user / agent_start / message_start，kernel 在 50ms 后合成空 agent_end。`handleSDKEvent`/`echoUser` 收到该会话任意服务器事件即清 pending（加载页退出主路径），时间戳窗口保留为兜底——修复扩展命令下加载页硬撑 20s 才消失（白屏、后台命令却早已执行完）的问题。
+- **两个 loading 互斥**：「会话新建中」与「加载会话」（historyLoading）条件重叠时会叠加两个 spinner；pending 窗口内只显示「会话新建中」，pending 退出后历史加载正常显示。
+- **20s 兜底**：事件全部丢失/延迟超时仍能自动隐藏，不永久悬挂；加载页为 `pointer-events-none` 纯视觉覆盖层，不阻塞输入/发送/切换会话。
+- 验证：单测 6 pass（加载页显示/回调后消失/超时隐藏/合成 agent_end 退出/互斥 x2）；前端全量串行 1361 pass；E2E（Playwright 真实浏览器，route 延迟 prompt 制造回调窗口）断言加载页出现→不叠加历史加载→回调到达后消失。
+- 影响范围：`packages/frontend/src/store/session.ts`（pendingPromptAtBySession + setPendingPromptAt + 事件响应清除）、`packages/frontend/src/components/NewSessionPane.tsx`（发送时记录时间戳）、`packages/frontend/src/components/MessageList.tsx`（加载页渲染 + 窗口逻辑 + 互斥）、`packages/frontend/tests/MessageList.session-initializing.test.tsx`（新测试）、`packages/frontend/e2e/new-session-initializing.spec.ts`（新 E2E）、`packages/frontend/src/i18n/locales/{zh,en}.ts`（message.initializing）。
+
+## 2026-08-11 — fix(frontend): md 预览渲染原始 HTML（rehype-raw）+ 内嵌相对路径图片加载
+
+### 变更
+
+- **md 文件预览渲染原始 HTML**：react-markdown 默认不渲染原始 HTML（防 XSS，将 `<div>/<img>/<br>` 转义成文本），导致 README 类文件里 `<div align="center">`、`<img>` 等标签在预览器里显示为一堆标签源码，而浏览器直接渲染。文件预览器（FileViewer）的 MarkdownPreview 接入 `rehype-raw`，HTML 渲染为真实标签（div 居中、img、br 换行）。
+- **md 内嵌相对路径图片加载**：README 里 `<img src="docs/xxx.png">` 相对路径经 fs-client 按预览文件所在目录解析读取，转 data URI 显示；远程 URL/绝对路径直接使用；加载失败显示占位。新增 `PreviewImage` 组件，仅覆盖 FileViewer 的 img 渲染。
+- **图片尺寸透传**：`PreviewImage` 透传 `width/height`——README 里 `<img width="96">` 的 logo 不再按 SVG 原始大尺寸显示，恢复 96px。
+- **图片宽度约束与行内对齐**：styles.css 的 `[data-testid="text-block"] img` 设置 `display: inline-block`（覆盖 preflight 的 `display: block`，badge 类小图排一行不换行、div 居中生效）、`max-width: 100%`、margin 统一 0.25em（覆盖 typography 的 2em——其 `:last-child` 清 margin-bottom 导致行内最后一个 img 垂直错位 12px）。
+- **范围决策**：仅文件预览器启用 rehype-raw；聊天区（MessageList）保持默认不渲染原始 HTML——聊天区内容来自 AI/工具输出不可信，渲染 HTML 有 XSS 风险；文件预览器预览用户主动打开的本地文件，渲染 HTML 符合预期。
+- 验证：新增组件测试「md 文件：原始 HTML（div/img/br）渲染为真实标签，相对路径图片经 fs-client 读成 data URI」（含 width 透传断言，9 pass）；Playwright 真实浏览器验证 logo 96px 居中、badge 4 个同排对齐、div align center 居中、img max-width 生效；FileViewer/MessageList 相关测试 84+ pass。
+- 影响范围：`packages/frontend/src/components/blocks/FileViewer.tsx`（rehype-raw + PreviewImage）、`packages/frontend/src/styles.css`（img 样式）、`packages/frontend/package.json`（新增 rehype-raw）、`packages/frontend/tests/FileViewer.test.tsx`（新测试）。
+
+## 2026-08-11 — fix(frontend): markdown 渲染对齐网页排版（启用 typography）+ 文件预览底色改白
+
+### 变更
+
+- **markdown 渲染启用 @tailwindcss/typography**：此前 `prose` 类名是空壳（未装插件、tailwind.config plugins 为空），叠加 Tailwind preflight 重置，h1-h6 与正文同字号、ul/ol 无项目符号、blockquote 无边框、table 无边框——文件预览器/聊天区的 markdown 渲染与网页（浏览器打开 md 文件）差异巨大。安装 `@tailwindcss/typography@0.5.20` 并在 tailwind.config.js 注册后，标题层级/列表符号/引用块/表格边框等排版恢复网页级效果。
+- **typography 颜色变量对齐应用主题**：在 styles.css 中覆盖 `[data-testid="text-block"].prose-sm` 的 `--tw-prose-*` 变量为 `var(--text-primary)/var(--accent)/var(--surface)` 等，浅色/深色主题（`[data-theme="dark"]`）下自动跟随；作用域限 `.prose-sm`（文件预览器+聊天区），避免影响 TextBlock 的 `prose-invert` 深色导出场景。
+- **文件预览内容区底色由灰改白**：markdown 与代码/文本预览容器 `bg-canvas`（浅色 `#f5f5f7`）→ `bg-surface`（纯白），与弹窗标题栏/路径栏一致；图片预览区保持 `bg-canvas` 不动。
+- 验证：编译 CSS 确认排版规则生成；Playwright 真实浏览器断言浅色/深色主题下 h1 字号阶梯、ul 项目符号、blockquote 左边框、table th/td 边框、pre 背景、链接色均正确；FileViewer/MessageList 等核心测试通过。
+- 影响范围：`packages/frontend/tailwind.config.js`（注册 typography 插件）、`packages/frontend/src/styles.css`（prose 变量覆盖）、`packages/frontend/src/components/blocks/FileViewer.tsx`（bg-surface）、`packages/frontend/package.json`（新增 @tailwindcss/typography）。
+
 ## 2026-08-11 — fix(kernel): 探活移除「工具执行中豁免」——统一按 idleTimeoutMs 判死，tool_execution_update 计入进展
 
 ### 变更

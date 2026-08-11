@@ -188,3 +188,57 @@ test("md 文件：内联路径复用聊天区渲染为文件胶囊", async () =>
 
 	await waitFor(() => expect(screen.getByTestId("file-pill")).toBeTruthy());
 });
+
+// ===== md 原始 HTML 渲染（rehype-raw）=====
+
+const MD_WITH_HTML = `# HTML 渲染测试
+
+<div align="center">
+<img src="assets/pic.png" alt="测试图" width="96" />
+</div>
+
+段落 <br/> 换行
+`;
+
+test("md 文件：原始 HTML（div/img/br）渲染为真实标签，相对路径图片经 fs-client 读成 data URI", async () => {
+	const htmlFake = makeFakeFsTransport((evt) => {
+		if (evt.type === "fs:readFile") {
+			if (evt.path === "/work/demo/README.md") {
+				return {
+					content: Buffer.from(MD_WITH_HTML, "utf-8").toString("base64"),
+					mimeType: "text/markdown",
+				};
+			}
+			if (evt.path === "/work/demo/assets/pic.png") {
+				return { content: btoa("fake-png"), mimeType: "image/png" };
+			}
+		}
+		return undefined;
+	});
+	_setFsTransport(htmlFake.transport);
+	render(<FileViewer path="/work/demo/README.md" onClose={() => {}} />);
+
+	await waitFor(() => expect(screen.getByTestId("text-block")).toBeTruthy());
+	const tb = screen.getByTestId("text-block");
+	// div/br 渲染为真实标签（不再是转义文本）
+	expect(tb.querySelector("div[align='center']")).toBeTruthy();
+	expect(tb.querySelector("br")).toBeTruthy();
+	// 不应出现转义后的 HTML 文本
+	expect(tb.textContent).not.toContain("&lt;div");
+	// img 渲染且相对路径被解析成 data URI（经 fs-client 按文件目录读取）
+	await waitFor(() => {
+		const img = tb.querySelector("img");
+		expect(img).toBeTruthy();
+		expect(img?.getAttribute("src")).toMatch(/^data:image\/png;base64,/);
+		expect(img?.getAttribute("alt")).toBe("测试图");
+		// width 透传：README 里 <img width="96"> 的尺寸不能丢
+		expect(img?.getAttribute("width")).toBe("96");
+	});
+	// 相对路径基于预览文件目录解析（/work/demo/ + assets/pic.png）
+	const readCall = htmlFake.calls.find(
+		(c) =>
+			c.type === "fs:readFile" &&
+			(c.body as any)?.path?.includes("assets/pic.png"),
+	);
+	expect(readCall).toBeTruthy();
+});

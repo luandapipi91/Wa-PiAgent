@@ -3,6 +3,7 @@
 import { Highlight, themes } from "prism-react-renderer";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import { readFile, revealFile } from "../../fs-client";
 import { useTranslation } from "../../i18n/useTranslation";
@@ -68,6 +69,75 @@ function decodeBase64(b64: string): string {
 	return new TextDecoder().decode(bytes);
 }
 
+/** md 内嵌图片：远程 URL/绝对路径直接使用，相对路径基于预览文件所在目录解析，经 fs-client 读成 data URI 显示 */
+function PreviewImage({
+	src,
+	alt,
+	baseDir,
+	width,
+	height,
+}: {
+	src?: string;
+	alt?: string;
+	baseDir: string;
+	width?: number | string;
+	height?: number | string;
+}) {
+	const [dataSrc, setDataSrc] = useState<string | null>(null);
+	const [failed, setFailed] = useState(false);
+
+	useEffect(() => {
+		let alive = true;
+		setDataSrc(null);
+		setFailed(false);
+		if (!src) return;
+		// 远程 URL / data URI / 绝对路径（/ 开头或 Windows 盘符）：直接使用
+		if (
+			/^(https?:|data:|blob:|file:)/i.test(src) ||
+			src.startsWith("/") ||
+			/^[A-Za-z]:[\\/]/.test(src)
+		) {
+			setDataSrc(src);
+			return;
+		}
+		// 相对路径：基于预览文件所在目录解析
+		const abs = baseDir
+			? `${baseDir.replace(/\\/g, "/").replace(/\/$/, "")}/${src}`
+			: src;
+		readFile(abs)
+			.then((r) => {
+				if (!alive) return;
+				if (r.unsupported || !r.mimeType?.startsWith("image/")) {
+					setFailed(true);
+					return;
+				}
+				setDataSrc(`data:${r.mimeType};base64,${r.content}`);
+			})
+			.catch(() => {
+				if (alive) setFailed(true);
+			});
+		return () => {
+			alive = false;
+		};
+	}, [src, baseDir]);
+
+	if (failed) {
+		return (
+			<span className="inline-block text-tertiary text-[calc(12px*var(--font-scale))]">
+				[图片加载失败]
+			</span>
+		);
+	}
+	if (!dataSrc) {
+		return (
+			<span className="inline-block text-tertiary text-[calc(12px*var(--font-scale))]">
+				加载中…
+			</span>
+		);
+	}
+	return <img src={dataSrc} alt={alt ?? ""} width={width} height={height} />;
+}
+
 // md 预览 memo 化：react-markdown v10 无内置 memo，components 引用一变就全量重解析整份 md。
 // FileViewer 挂在 SessionView 下，流式期间 SessionView 每帧重渲染 → 每帧重解析（上限 3MB）。
 // 与聊天区 MarkdownBlock（React.memo）做法一致：只接收 content/sessionId 两个稳定 prop，
@@ -75,17 +145,36 @@ function decodeBase64(b64: string): string {
 const MarkdownPreview = memo(function MarkdownPreview({
 	content,
 	sessionId,
+	baseDir,
 }: {
 	content: string;
 	sessionId: string;
+	baseDir: string;
 }) {
-	const mdComponents = useMemo(
-		() => createMarkdownComponents(sessionId),
-		[sessionId],
-	);
+	const mdComponents = useMemo(() => {
+		const base = createMarkdownComponents(sessionId);
+		return {
+			...base,
+			// md 内嵌图片：相对路径解析为基于预览文件目录的本地文件；
+			// width/height 透传（README 里 <img width="96"> 的尺寸不能丢）
+			img: (props: any) => (
+				<PreviewImage
+					src={props.src}
+					alt={props.alt}
+					baseDir={baseDir}
+					width={props.width}
+					height={props.height}
+				/>
+			),
+		};
+	}, [sessionId, baseDir]);
 	return (
 		<div className="prose prose-sm max-w-none" data-testid="text-block">
-			<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+			<ReactMarkdown
+				remarkPlugins={[remarkGfm]}
+				rehypePlugins={[rehypeRaw]}
+				components={mdComponents}
+			>
 				{content}
 			</ReactMarkdown>
 		</div>
@@ -260,7 +349,12 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 			.catch((err: unknown) => {
 				if (!alive) return;
 				setError(
-					t("blocks.fileViewer.readError", { message: err instanceof Error ? err.message : t("blocks.fileViewer.unknownError") }),
+					t("blocks.fileViewer.readError", {
+						message:
+							err instanceof Error
+								? err.message
+								: t("blocks.fileViewer.unknownError"),
+					}),
 				);
 				setLoading(false);
 			});
@@ -320,9 +414,15 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				className="flex flex-col items-center justify-center h-full gap-3"
 				data-testid="fv-unsupported"
 			>
-				<span className="text-[calc(32px*var(--font-scale))] inline-flex text-tertiary"><Icon name="file" size={32} /></span>
-				<span className="text-[calc(13px*var(--font-scale))] text-secondary">{t("blocks.fileViewer.unsupported")}</span>
-				<span className="text-[calc(11px*var(--font-scale))] text-tertiary">{unsupported}</span>
+				<span className="text-[calc(32px*var(--font-scale))] inline-flex text-tertiary">
+					<Icon name="file" size={32} />
+				</span>
+				<span className="text-[calc(13px*var(--font-scale))] text-secondary">
+					{t("blocks.fileViewer.unsupported")}
+				</span>
+				<span className="text-[calc(11px*var(--font-scale))] text-tertiary">
+					{unsupported}
+				</span>
 				<div className="flex items-center gap-2">
 					<button className="fv-btn" onClick={onClose}>
 						{t("common.close")}
@@ -332,7 +432,11 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 						onClick={() => void revealFile(path)}
 						data-testid="fv-reveal"
 					>
-						{openInFileManagerLabel({ mac: t("common.openInFinder"), windows: t("common.openInExplorer"), linux: t("common.openInFileManager") })}
+						{openInFileManagerLabel({
+							mac: t("common.openInFinder"),
+							windows: t("common.openInExplorer"),
+							linux: t("common.openInFileManager"),
+						})}
 					</button>
 				</div>
 			</div>
@@ -345,7 +449,9 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				className="flex flex-col items-center justify-center h-full gap-3"
 				data-testid="fv-error"
 			>
-				<span className="text-[calc(13px*var(--font-scale))] text-danger">{error}</span>
+				<span className="text-[calc(13px*var(--font-scale))] text-danger">
+					{error}
+				</span>
 				<button className="fv-btn" onClick={onClose}>
 					{t("common.close")}
 				</button>
@@ -364,16 +470,26 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 					<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono inline-flex items-center gap-1">
 						<Icon name="file" size={12} /> {fileName}
 					</span>
-					<button className="fv-btn" onClick={onClose} title={t("common.close")}>
+					<button
+						className="fv-btn"
+						onClick={onClose}
+						title={t("common.close")}
+					>
 						<Icon name="x" size={12} />
 					</button>
 				</div>
 				{/* markdown 预览：左右内间距 20px（px-5），上下 10px（py-2.5） */}
 				<div
 					ref={bodyRef}
-					className="flex-1 overflow-auto bg-canvas px-5 py-2.5"
+					className="flex-1 overflow-auto bg-surface px-5 py-2.5"
 				>
-					<MarkdownPreview content={content} sessionId={sessionId ?? ""} />
+					<MarkdownPreview
+						content={content}
+						sessionId={sessionId ?? ""}
+						baseDir={
+							displayPath.replace(/\\/g, "/").replace(/\/[^/]*$/, "") ?? ""
+						}
+					/>
 				</div>
 				<div
 					className="px-3 py-1 text-[calc(10.5px*var(--font-scale))] text-tertiary border-t border-hairline bg-surface truncate"
@@ -395,7 +511,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 					<Icon name="x" size={12} />
 				</button>
 			</div>
-			<div ref={bodyRef} className="flex-1 overflow-auto bg-canvas p-2.5">
+			<div ref={bodyRef} className="flex-1 overflow-auto bg-surface p-2.5">
 				<Highlight
 					theme={themes.github}
 					code={content ?? ""}
