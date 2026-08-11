@@ -1,112 +1,50 @@
 /**
  * sdk:event 出口节流器（阶段一·卡顿修复项 1）
  *
- * pi 每 token delta 发一个 message_update（0.84 起仅携带 delta 事件，无 partial 快照），
- * 若原样广播，序列化/传输/渲染总成本随输出长度增长。这里对同一 session 的 message_update
- * 做节流合并：窗口内最多发一帧（首帧立即发，后续合并为窗口末的最新帧），中间帧丢弃。
- * 协议不变、前端无感；非 update 事件到达前先冲刷 pending 帧以保证事件顺序。
+ * 历史：pi 每 token delta 发一个 message_update，若原样广播，序列化/传输/渲染总成本
+ * 随输出长度增长，曾对同一 session 的 message_update 做窗口合并（首帧立即、窗口末发最新帧）。
+ *
+ * 现状：0.84 起 RPC 序列化剥离 partial 快照，message_update 只携带 delta 增量
+ * （无累积快照，见 shared/types.ts AssistantMessageEvent 注释）。节流丢帧 = 永久丢字：
+ * 前端按到达顺序把 delta 累积到 content block，中间帧一旦丢弃，流式预览就跳字/乱序
+ * （只有 message_end 权威消息定稿后才正确）。因此本类不再对 sdk:event 做任何合并/丢弃，
+ * 原样透传保证每个 delta 帧到达前端；渲染合帧已由前端 streaming-batcher（rAF）承担。
  */
 import type { SDKEventEnvelope } from "@wa-pi/shared";
 import type { SubagentProgressEvent } from "@wa-pi/shared";
 
 export interface SdkEventThrottleOptions {
-	/** 节流窗口（毫秒），默认 50 */
+	/** 节流窗口（毫秒），默认 50（已弃用：message_update 为 delta 增量不可丢帧） */
 	intervalMs?: number;
-	/** 以下为可注入依赖，测试用假时钟保证确定性 */
+	/** 以下为可注入依赖（已弃用：本类不再节流，仅保留签名兼容） */
 	now?: () => number;
 	schedule?: (fn: () => void, ms: number) => unknown;
 	cancelSchedule?: (handle: unknown) => void;
 }
 
-interface SessionState {
-	/** 本 session 最近一次实际发送的时间戳 */
-	lastSentAt: number;
-	/** 窗口内挂起的最新一帧（等待窗口末发送） */
-	pending: SDKEventEnvelope | null;
-	/** 窗口末冲刷定时器 */
-	timer: unknown;
-}
-
 export class SdkEventThrottle {
 	private readonly send: (e: SDKEventEnvelope) => void;
-	private readonly intervalMs: number;
-	private readonly now: () => number;
-	private readonly schedule: (fn: () => void, ms: number) => unknown;
-	private readonly cancelSchedule: (handle: unknown) => void;
-	private readonly sessions = new Map<string, SessionState>();
 	private disposed = false;
 
 	constructor(
 		send: (e: SDKEventEnvelope) => void,
-		opts: SdkEventThrottleOptions = {},
+		_opts: SdkEventThrottleOptions = {},
 	) {
 		this.send = send;
-		this.intervalMs = opts.intervalMs ?? 50;
-		this.now = opts.now ?? Date.now;
-		this.schedule = opts.schedule ?? ((fn, ms) => setTimeout(fn, ms));
-		this.cancelSchedule =
-			opts.cancelSchedule ?? ((h) => clearTimeout(h as any));
 	}
 
+	/**
+	 * 原样透传（不节流）：0.84 delta 协议下 message_update 丢帧 = 永久丢字，
+	 * 前端 streaming-batcher 已承担渲染合帧，kernel 侧无需再合并。
+	 */
 	handle(envelope: SDKEventEnvelope): void {
 		if (this.disposed) return;
-		if (envelope.event.type === "message_update") {
-			this.handleUpdate(envelope);
-			return;
-		}
-		// 非 update 事件：先冲刷同 session 的 pending 帧，保持事件顺序，再透传
-		this.flush(envelope.sessionId);
 		this.send(envelope);
 	}
 
-	/** 停止服务时调用：丢弃所有 pending 帧并取消定时器 */
+	/** 停止服务时调用：此后不再透传 */
 	dispose(): void {
 		this.disposed = true;
-		for (const [, st] of this.sessions) {
-			if (st.timer != null) this.cancelSchedule(st.timer);
-		}
-		this.sessions.clear();
-	}
-
-	private handleUpdate(envelope: SDKEventEnvelope): void {
-		const st = this.stateFor(envelope.sessionId);
-		const elapsed = this.now() - st.lastSentAt;
-		if (st.pending == null && st.timer == null && elapsed >= this.intervalMs) {
-			// 窗口外：立即发送
-			st.lastSentAt = this.now();
-			this.send(envelope);
-			return;
-		}
-		// 窗口内：挂起最新帧（覆盖旧 pending），并确保窗口末有冲刷定时器
-		st.pending = envelope;
-		if (st.timer == null) {
-			const remaining = Math.max(this.intervalMs - elapsed, 0);
-			st.timer = this.schedule(() => this.flush(envelope.sessionId), remaining);
-		}
-	}
-
-	private flush(sessionId: string): void {
-		const st = this.sessions.get(sessionId);
-		if (!st) return;
-		if (st.timer != null) {
-			this.cancelSchedule(st.timer);
-			st.timer = null;
-		}
-		if (st.pending != null) {
-			const pending = st.pending;
-			st.pending = null;
-			st.lastSentAt = this.now();
-			this.send(pending);
-		}
-	}
-
-	private stateFor(sessionId: string): SessionState {
-		let st = this.sessions.get(sessionId);
-		if (!st) {
-			st = { lastSentAt: -Infinity, pending: null, timer: null };
-			this.sessions.set(sessionId, st);
-		}
-		return st;
 	}
 }
 
@@ -120,7 +58,11 @@ export interface SubagentProgressThrottleOptions {
 
 interface ProgressKeyState {
 	lastSentAt: number;
-	pending: { sessionId: string; toolCallId: string; event: SubagentProgressEvent } | null;
+	pending: {
+		sessionId: string;
+		toolCallId: string;
+		event: SubagentProgressEvent;
+	} | null;
 	timer: unknown;
 }
 
@@ -134,7 +76,11 @@ interface ProgressKeyState {
  * - 终态（status !== "running"）不延迟：先冲刷挂起帧保序，再立即透传。
  */
 export class SubagentProgressThrottle {
-	private readonly send: (sessionId: string, toolCallId: string, event: SubagentProgressEvent) => void;
+	private readonly send: (
+		sessionId: string,
+		toolCallId: string,
+		event: SubagentProgressEvent,
+	) => void;
 	private readonly intervalMs: number;
 	private readonly now: () => number;
 	private readonly schedule: (fn: () => void, ms: number) => unknown;
@@ -143,7 +89,11 @@ export class SubagentProgressThrottle {
 	private disposed = false;
 
 	constructor(
-		send: (sessionId: string, toolCallId: string, event: SubagentProgressEvent) => void,
+		send: (
+			sessionId: string,
+			toolCallId: string,
+			event: SubagentProgressEvent,
+		) => void,
 		opts: SubagentProgressThrottleOptions = {},
 	) {
 		this.send = send;
@@ -154,7 +104,11 @@ export class SubagentProgressThrottle {
 			opts.cancelSchedule ?? ((h) => clearTimeout(h as any));
 	}
 
-	handle(sessionId: string, toolCallId: string, event: SubagentProgressEvent): void {
+	handle(
+		sessionId: string,
+		toolCallId: string,
+		event: SubagentProgressEvent,
+	): void {
 		if (this.disposed) return;
 		const key = `${sessionId} ${toolCallId} ${event.taskIndex ?? event.agent}`;
 		if (event.status !== "running") {
