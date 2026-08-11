@@ -2360,3 +2360,162 @@ test("回合看门狗：hard-cap 在 ask 豁免后仍能重新武装（不永久
 		),
 	).toBe(true);
 });
+
+// 看门狗终止后的自动重试（任务：不再直接报错打断用户，先重建进程重发最后一条
+// user 消息让主 agent 自己继续；重试后再卡死才报错给用户）
+test("回合看门狗：终止后自动重试 1 次（重建进程重发最后用户消息，不报错给用户）", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({
+		events,
+		turnWatchdog: { idleMs: 200, hardCapMs: 60_000 },
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.autoSettle = false;
+	writeFileSync(session.piSessionFile, '{"role":"user","content":"hi"}\n');
+	await am.prompt(session.id, "你好", { model: MODEL });
+	// 历史注入：最后一条 user 消息落盘（自动重试应重发它）
+	fake.emit({
+		type: "message_end",
+		message: { role: "user", content: [{ type: "text", text: "你好" }] },
+	} as any);
+	fake.emit({ type: "agent_start" } as any);
+	// 卡死 → 看门狗强杀
+	await new Promise((r) => setTimeout(r, 600));
+	expect(fake.alive).toBe(false);
+	fake.opts.onExit?.(null, "SIGKILL");
+	// 自动重试：重建进程 + 重发最后 user 消息（不打断用户）
+	await new Promise((r) => setTimeout(r, 200));
+	expect(fakes.length).toBe(2);
+	expect(fakes[1].prompted).toContain("你好");
+	// 不播报「请重新发送消息」错误给用户
+	expect(
+		events.some(
+			(c) =>
+				c.e.type === "message_end" &&
+				String(c.e.message?.errorMessage ?? "").includes("看门狗"),
+		),
+	).toBe(false);
+	// 重试回合正常结束（新 fake autoSettle：prompt 自动 agent_start + agent_settled）
+	expect(am.isSessionStreaming(session.id)).toBe(false);
+});
+
+test("回合看门狗：重试后再次卡死才报错给用户（只重试 1 次，不无限重试）", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({
+		events,
+		turnWatchdog: { idleMs: 200, hardCapMs: 60_000 },
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.autoSettle = false;
+	writeFileSync(session.piSessionFile, '{"role":"user","content":"hi"}\n');
+	await am.prompt(session.id, "你好", { model: MODEL });
+	// 历史注入：最后一条 user 消息落盘（自动重试应重发它）
+	fake.emit({
+		type: "message_end",
+		message: { role: "user", content: [{ type: "text", text: "你好" }] },
+	} as any);
+	fake.emit({ type: "agent_start" } as any);
+	// 第一次卡死 → 看门狗强杀 → 自动重试
+	await new Promise((r) => setTimeout(r, 600));
+	fake.opts.onExit?.(null, "SIGKILL");
+	// 等重试进程创建（fake 同步创建，prompt 已执行完）
+	let newFake: FakeSessionClient;
+	const deadline = Date.now() + 3000;
+	while (Date.now() < deadline && fakes.length < 2) {
+		await new Promise((r) => setTimeout(r, 10));
+	}
+	newFake = fakes[1];
+	newFake.autoSettle = false; // 重发后不自动 settle，保留 busy 以触发第二次看门狗
+	expect(newFake.prompted).toContain("你好");
+	// _sendPromptNow 的 50ms 乐观复位曾清掉 busy 与看门狗计时器（fake 无 agent_start
+	// 同步注入）；重发 agent_start 恢复 busy 后，再注入一条事件让 idle 计时重新武装
+	newFake.emit({ type: "agent_start" } as any);
+	newFake.emit({
+		type: "message_update",
+		assistantMessageEvent: { type: "text_delta", delta: "x" },
+	} as any);
+	// 重试的进程也卡死 → 第二次看门狗强杀
+	await new Promise((r) => setTimeout(r, 600));
+	expect(newFake.alive).toBe(false);
+	newFake.opts.onExit?.(null, "SIGKILL");
+	// 第二次才播报错误给用户
+	expect(
+		events.some(
+			(c) =>
+				c.e.type === "message_end" &&
+				String(c.e.message?.errorMessage ?? "").includes("看门狗"),
+		),
+	).toBe(true);
+	// 不再产生第三次进程（只重试 1 次）
+	expect(fakes.length).toBe(2);
+});
+
+test("回合看门狗：非看门狗崩溃不重试，直接播报错误（行为不变）", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({ events });
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.messagesToReturn = [
+		{ role: "user", content: [{ type: "text", text: "你好" }] },
+	];
+	writeFileSync(session.piSessionFile, '{"role":"user","content":"hi"}\n');
+	await am.prompt(session.id, "你好", { model: MODEL });
+	fake.emit({ type: "agent_start" } as any);
+	fake.emit({ type: "agent_settled" } as any);
+	// 会话空闲后进程意外退出（非看门狗）
+	fake.simulateCrash(1);
+	expect(
+		events.some(
+			(c) =>
+				c.e.type === "message_end" &&
+				String(c.e.message?.errorMessage ?? "").includes("意外退出"),
+		),
+	).toBe(true);
+	// 不自动重建 / 不重发
+	await new Promise((r) => setTimeout(r, 100));
+	expect(fakes.length).toBe(1);
+	expect(fake.prompted).toEqual(["你好"]);
+});
+
+test("回合看门狗：自动重试失败（进程重建失败）→ 补播「自动重试失败」错误给用户", async () => {
+	const events: CapturedEvent[] = [];
+	const fakes: FakeSessionClient[] = [];
+	// 第 2 个进程（自动重试 spawn）start 抛错，模拟重建失败
+	let n = 0;
+	const failingFactory = (o: RpcClientOpts) => {
+		n++;
+		const fake = new FakeSessionClient(o);
+		if (n === 2) fake.startError = new Error("spawn failed");
+		fakes.push(fake);
+		return fake as unknown as RpcClient;
+	};
+	const { project, session, am } = await setup({
+		events,
+		createClientFn: failingFactory,
+		turnWatchdog: { idleMs: 200, hardCapMs: 60_000 },
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.autoSettle = false;
+	writeFileSync(session.piSessionFile, '{"role":"user","content":"hi"}\n');
+	await am.prompt(session.id, "你好", { model: MODEL });
+	fake.emit({
+		type: "message_end",
+		message: { role: "user", content: [{ type: "text", text: "你好" }] },
+	} as any);
+	fake.emit({ type: "agent_start" } as any);
+	await new Promise((r) => setTimeout(r, 600));
+	fake.opts.onExit?.(null, "SIGKILL");
+	// 重试尝试 spawn 新进程但失败 → 补播错误（否则前端永久思考态且用户无感知）
+	await new Promise((r) => setTimeout(r, 200));
+	expect(fakes.length).toBe(2);
+	expect(
+		events.some(
+			(c) =>
+				c.e.type === "message_end" &&
+				String(c.e.message?.errorMessage ?? "").includes("自动重试失败"),
+		),
+	).toBe(true);
+});
