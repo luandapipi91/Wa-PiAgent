@@ -421,6 +421,12 @@ app.whenReady().then(async () => {
 				log.error("[updater] 升级前清理失败（继续安装）", e);
 			}
 		},
+		destroyTray: () => {
+			try {
+				trayInstance?.destroy();
+			} catch {}
+			trayInstance = null;
+		},
 	});
 
 	// 端口被占用时启动页「重启应用」按钮的处理：杀掉占用 9778 的进程后重启本应用
