@@ -67,8 +67,9 @@ beforeEach(() => {
 	useSessionStore.setState({
 		messagesBySession: { s1: streamingMessages },
 	});
-	// 默认导出 1 轮
-	useUiPrefsStore.setState({ exportTurns: 1 });
+	// 默认导出 1 轮；本文件聚焦「导出范围（uptoTimestamp）正确」，
+	// 显式声明导出双方（exportIncludeUser=true），隔离图片导出选项默认值影响。
+	useUiPrefsStore.setState({ exportTurns: 1, exportIncludeUser: true });
 });
 
 afterEach(() => cleanup());

@@ -2216,10 +2216,7 @@ test("回合看门狗：busy 后无任何事件 → 强杀进程并播报前端"
 	const fake = fakes[0];
 	fake.autoSettle = false;
 	// 写 piSessionFile 让 _onProcessExit 走正常崩溃分支（孤儿回滚分支不播报 message_end）
-	writeFileSync(
-		session.piSessionFile,
-		'{"role":"user","content":"hi"}\n',
-	);
+	writeFileSync(session.piSessionFile, '{"role":"user","content":"hi"}\n');
 	await am.prompt(session.id, "你好", { model: MODEL });
 	// agent_start 置位 thinkingSince，防 _sendPromptNow 的 50ms 乐观复位清掉 busy
 	fake.emit({ type: "agent_start" } as any);
@@ -2307,4 +2304,59 @@ test("回合看门狗：pending ask 等待用户回答期间不误杀（跳过�
 	askRegistry.cancelAll(session.id);
 	await askP.catch(() => {});
 	fake.emit({ type: "agent_settled" } as any);
+});
+
+test("回合看门狗：hard-cap 在 ask 豁免后仍能重新武装（不永久失效）", async () => {
+	const events: CapturedEvent[] = [];
+	// idleMs 设大让 hard-cap 主导；hardCapMs 短值验证 fire 后能否重新武装
+	const { project, session, am, fakes } = await setup({
+		events,
+		turnWatchdog: { idleMs: 60_000, hardCapMs: 200 },
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.autoSettle = false;
+	writeFileSync(session.piSessionFile, '{"role":"user","content":"hi"}\n');
+	await am.prompt(session.id, "你好", { model: MODEL });
+	fake.emit({ type: "agent_start" } as any);
+
+	// 模拟工具调用进入 ask 等待用户回答（正常的长无事件状态）
+	const askController = new AbortController();
+	const askP = askRegistry.ask(
+		session.id,
+		"tc-ask",
+		{
+			questions: [
+				{
+					question: "Q?",
+					header: "h",
+					options: [
+						{ label: "A", description: "x" },
+						{ label: "B", description: "y" },
+					],
+				},
+			],
+		},
+		askController.signal,
+	);
+
+	// 等 hard-cap fire 并被 ask 豁免（豁免时不清空引用则 hard-cap 永久失效）
+	await new Promise((r) => setTimeout(r, 350));
+	expect(fake.alive).toBe(true); // ask 豁免，不得强杀
+
+	// 用户回答后退出 ask，agent 继续但不发事件（模拟 pi 假死）
+	askRegistry.cancelAll(session.id);
+	await askP.catch(() => {});
+
+	// hard-cap 应已重新武装：再等一轮（无 ask pending），必须强杀
+	await new Promise((r) => setTimeout(r, 350));
+	expect(fake.alive).toBe(false); // hard-cap 重新武装后再次触发强杀
+	fake.opts.onExit?.(null, "SIGKILL");
+	expect(
+		events.some(
+			(c) =>
+				c.e.type === "message_end" &&
+				String(c.e.message?.errorMessage ?? "").includes("看门狗"),
+		),
+	).toBe(true);
 });

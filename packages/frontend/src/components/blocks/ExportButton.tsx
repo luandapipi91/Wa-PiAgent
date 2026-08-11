@@ -91,6 +91,7 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 	const [busy, setBusy] = useState(false);
 	const addToast = useToastStore((s) => s.add);
 	const exportTurns = useUiPrefsStore((s) => s.exportTurns);
+	const exportIncludeUser = useUiPrefsStore((s) => s.exportIncludeUser);
 	const { t } = useTranslation();
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const btnRef = useRef<HTMLButtonElement>(null);
@@ -120,7 +121,9 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 
 	const hasTurns = (turns = exportTurns) => {
 		const msgs = useSessionStore.getState().messagesBySession[sessionId] ?? [];
-		return collectTurns(msgs, uptoTimestamp, turns).length > 0;
+		return (
+			collectTurns(msgs, uptoTimestamp, turns, exportIncludeUser).length > 0
+		);
 	};
 
 	const run = async (mode: "download" | "copy", turns: number) => {
@@ -131,7 +134,12 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 		try {
 			const msgs =
 				useSessionStore.getState().messagesBySession[sessionId] ?? [];
-			const collected = collectTurns(msgs, uptoTimestamp, turns);
+			const collected = collectTurns(
+				msgs,
+				uptoTimestamp,
+				turns,
+				exportIncludeUser,
+			);
 			if (collected.length === 0) {
 				addToast(t("blocks.exportBtn.toastNoContent"), "error");
 				return;
@@ -146,7 +154,12 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 			}
 		} catch {
 			// spec §7：复制失败与生成失败文案区分（剪贴板权限拒绝走「复制失败」）
-			addToast(mode === "copy" ? t("common.copyFailed") : t("blocks.exportBtn.toastExportFailed"), "error");
+			addToast(
+				mode === "copy"
+					? t("common.copyFailed")
+					: t("blocks.exportBtn.toastExportFailed"),
+				"error",
+			);
 		} finally {
 			setBusy(false);
 		}
@@ -232,7 +245,10 @@ export function ExportButton({ sessionId, uptoTimestamp }: Props) {
 										onClick={() => void run(turnPicker, n)}
 										className={itemCls(false)}
 									>
-										{t("blocks.exportBtn.turnItem", { n })}{n === exportTurns ? t("blocks.exportBtn.turnDefaultSuffix") : ""}
+										{t("blocks.exportBtn.turnItem", { n })}
+										{n === exportTurns
+											? t("blocks.exportBtn.turnDefaultSuffix")
+											: ""}
 									</button>
 								))}
 							</div>

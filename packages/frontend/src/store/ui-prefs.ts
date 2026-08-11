@@ -24,6 +24,9 @@ interface UiPrefsState {
 	/** 聊天导出为图片时取的对话轮数（1-5，默认 1）。 */
 	exportTurns: number;
 	setExportTurns: (n: number) => void;
+	/** 图片导出范围：true=对话双方，false=仅导出 agent 回复（默认 true）。 */
+	exportIncludeUser: boolean;
+	setExportIncludeUser: (v: boolean) => void;
 	/** 界面语言（默认 zh；首次启动由 i18n/detect 决定后写入）。 */
 	language: AppLanguage;
 	setLanguage: (lang: AppLanguage) => void;
@@ -55,6 +58,9 @@ export const FONT_SIZE_DEFAULT = 16;
 export const EXPORT_TURNS_MIN = 1;
 export const EXPORT_TURNS_MAX = 5;
 export const EXPORT_TURNS_DEFAULT = 1;
+
+/** 图片导出范围默认值：仅导出 agent 回复（不包含用户提问气泡）。 */
+export const EXPORT_INCLUDE_USER_DEFAULT = false;
 
 /** 默认语言。i18n/detect.ts 负责实际首次检测，store 初始值用 zh 兜底。 */
 export const LANGUAGE_DEFAULT: AppLanguage = "zh";
@@ -128,6 +134,8 @@ export const useUiPrefsStore = create<UiPrefsState>()(
 				);
 				set({ exportTurns: clamped });
 			},
+			exportIncludeUser: EXPORT_INCLUDE_USER_DEFAULT,
+			setExportIncludeUser: (v) => set({ exportIncludeUser: v }),
 			language: LANGUAGE_DEFAULT,
 			setLanguage: (lang) => {
 				set({ language: lang });

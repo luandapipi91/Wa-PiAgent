@@ -8,7 +8,6 @@ import {
 	useUiPrefsStore,
 } from "../../store/ui-prefs";
 import { useToastStore } from "../../store/toast";
-import { Icon } from "../ui/Icon";
 import { previewNeedsAction, previewTaskDone } from "../../util/sound";
 import type { AppLanguage } from "../../i18n/detect";
 
@@ -16,6 +15,10 @@ import type { AppLanguage } from "../../i18n/detect";
 const MAX_RETRIES = 10;
 const MIN_DELAY_S = 0.5;
 const MAX_DELAY_S = 60;
+
+/** 图片导出范围选项：true=对话双方，false=仅导出 agent 回复。
+ *  渲染为 tab 二选一（样式同外观-界面主题）。 */
+const EXPORT_INCLUDE_OPTIONS = [{ value: true }, { value: false }];
 
 /**
  * 内联 switch 滑块（与设置弹窗内插件/命令开关风格一致：38×22 轨道 + 18×18 白点）。
@@ -88,6 +91,8 @@ export function GeneralSection() {
 	const [saved, setSaved] = useState(false);
 	const exportTurns = useUiPrefsStore((s) => s.exportTurns);
 	const setExportTurns = useUiPrefsStore((s) => s.setExportTurns);
+	const exportIncludeUser = useUiPrefsStore((s) => s.exportIncludeUser);
+	const setExportIncludeUser = useUiPrefsStore((s) => s.setExportIncludeUser);
 	const language = useUiPrefsStore((s) => s.language);
 	const setLanguage = useUiPrefsStore((s) => s.setLanguage);
 	const soundTaskDone = useUiPrefsStore((s) => s.soundTaskDone);
@@ -102,6 +107,9 @@ export function GeneralSection() {
 	// 导出轮数草稿：滑块只改草稿，点保存才 setExportTurns 生效，
 	// 与语言/重试配置一致（保存后才生效）。关闭窗口不保存则还原（store 仍为原值）。
 	const [draftExportTurns, setDraftExportTurns] = useState(exportTurns);
+	// 图片导出范围草稿：tab 只改草稿，点保存才 setExportIncludeUser 生效。
+	const [draftExportIncludeUser, setDraftExportIncludeUser] =
+		useState(exportIncludeUser);
 	// 回收站自动归档/清理设置：草稿态，点保存才生效
 	const [autoArchive, setAutoArchive] = useState(true);
 	const [archiveDays, setArchiveDays] = useState("7");
@@ -173,6 +181,9 @@ export function GeneralSection() {
 			await saveTrashSettings();
 			// 导出轮数草稿生效（仅当与当前值不同时才写入）
 			if (draftExportTurns !== exportTurns) setExportTurns(draftExportTurns);
+			// 图片导出范围草稿生效（仅当与当前值不同时才写入）
+			if (draftExportIncludeUser !== exportIncludeUser)
+				setExportIncludeUser(draftExportIncludeUser);
 			// 语言草稿生效（仅当与当前值不同时才写入）
 			if (draftLang !== language) setLanguage(draftLang);
 			setSaved(true);
@@ -195,102 +206,7 @@ export function GeneralSection() {
 
 	return (
 		<div className="flex flex-col gap-4 p-4 overflow-auto">
-			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">
-					{t("settings.general.exportTurns.label")}
-				</span>
-				<span className="text-xs text-tertiary">
-					{t("settings.general.exportTurns.desc", {
-						min: EXPORT_TURNS_MIN,
-						max: EXPORT_TURNS_MAX,
-					})}
-				</span>
-			</div>
-			<div className="flex items-center gap-3 w-72">
-				<input
-					type="range"
-					min={EXPORT_TURNS_MIN}
-					max={EXPORT_TURNS_MAX}
-					step={1}
-					value={draftExportTurns}
-					onChange={(e) => {
-						setDraftExportTurns(Number(e.target.value));
-						setSaved(false);
-					}}
-					className="flex-1 cursor-pointer"
-					data-testid="export-turns-slider"
-				/>
-				<span
-					className="text-sm text-primary w-16 text-right whitespace-nowrap"
-					data-testid="export-turns-value"
-				>
-					{draftExportTurns} {t("settings.general.exportTurns.unit")}
-				</span>
-			</div>
-			{/* 提示音：即时生效，不参与上面的草稿 + 保存流程 */}
-			<div className="flex flex-col gap-1">
-				<span className="text-sm font-medium text-primary">
-					{t("settings.general.sound.label")}
-				</span>
-				<span className="text-xs text-tertiary">
-					{t("settings.general.sound.desc")}
-				</span>
-			</div>
-			<div className="flex items-center justify-between">
-				<div className="flex items-center">
-					<span className="text-sm text-primary" style={{ marginRight: 15 }}>
-						{t("settings.general.sound.taskDone")}
-					</span>
-					<button
-						onClick={previewTaskDone}
-						className="px-2.5 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
-						data-testid="sound-task-done-preview"
-					>
-						{t("settings.general.sound.preview")}
-					</button>
-				</div>
-				<SoundSwitch
-					on={soundTaskDone}
-					onToggle={() => setSoundTaskDone(!soundTaskDone)}
-					testId="sound-task-done-toggle"
-				/>
-			</div>
-			<div className="flex items-center justify-between">
-				<div className="flex items-center">
-					<span className="text-sm text-primary" style={{ marginRight: 15 }}>
-						{t("settings.general.sound.needsAction")}
-					</span>
-					<button
-						onClick={previewNeedsAction}
-						className="px-2.5 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
-						data-testid="sound-needs-action-preview"
-					>
-						{t("settings.general.sound.preview")}
-					</button>
-				</div>
-				<SoundSwitch
-					on={soundNeedsAction}
-					onToggle={() => setSoundNeedsAction(!soundNeedsAction)}
-					testId="sound-needs-action-toggle"
-				/>
-			</div>
-			{typeof window !== "undefined" && window.waPiApp?.setLoginItem && (
-				<div className="flex items-center">
-					<span className="text-sm text-primary" style={{ marginRight: 15 }}>
-						{t("settings.general.autoLaunch")}
-					</span>
-					<div className="flex-1" />
-					<SoundSwitch
-						on={autoLaunch}
-						onToggle={() => {
-							const v = !autoLaunch;
-							setAutoLaunch(v);
-							window.waPiApp?.setLoginItem?.(v);
-						}}
-						testId="auto-launch-toggle"
-					/>
-				</div>
-			)}
+			{/* 自动重试：草稿态，点保存才生效 */}
 			<div className="flex flex-col gap-1">
 				<span className="text-sm font-medium text-primary">
 					{t("settings.general.retry.label")}
@@ -358,35 +274,58 @@ export function GeneralSection() {
 			<span className="text-xs text-tertiary -mt-1">
 				{t("settings.general.retry.httpTimeoutHint")}
 			</span>
-			{/* 语言切换：草稿态，点保存才生效 */}
+			<div className="border-t border-hairline" />
+			{/* 提示音：即时生效，不参与上面的草稿 + 保存流程 */}
 			<div className="flex flex-col gap-1">
 				<span className="text-sm font-medium text-primary">
-					{t("settings.general.language.label")}
+					{t("settings.general.sound.label")}
 				</span>
 				<span className="text-xs text-tertiary">
-					{t("settings.general.language.desc")}
+					{t("settings.general.sound.desc")}
 				</span>
 			</div>
-			<select
-				value={draftLang}
-				onChange={(e) => {
-					setDraftLang(e.target.value as AppLanguage);
-					setSaved(false);
-				}}
-				className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-56"
-				data-testid="language-select"
-			>
-				<option value="zh">{t("settings.general.language.zh")}</option>
-				<option value="en">{t("settings.general.language.en")}</option>
-			</select>
-			{/* 回收站自动归档/清理设置 */}
-			<div className="border-t border-hairline pt-4">
+			<div className="flex items-center justify-between">
+				<div className="flex items-center">
+					<span className="text-sm text-primary" style={{ marginRight: 15 }}>
+						{t("settings.general.sound.taskDone")}
+					</span>
+					<button
+						onClick={previewTaskDone}
+						className="px-2.5 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
+						data-testid="sound-task-done-preview"
+					>
+						{t("settings.general.sound.preview")}
+					</button>
+				</div>
+				<SoundSwitch
+					on={soundTaskDone}
+					onToggle={() => setSoundTaskDone(!soundTaskDone)}
+					testId="sound-task-done-toggle"
+				/>
+			</div>
+			<div className="flex items-center justify-between">
+				<div className="flex items-center">
+					<span className="text-sm text-primary" style={{ marginRight: 15 }}>
+						{t("settings.general.sound.needsAction")}
+					</span>
+					<button
+						onClick={previewNeedsAction}
+						className="px-2.5 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
+						data-testid="sound-needs-action-preview"
+					>
+						{t("settings.general.sound.preview")}
+					</button>
+				</div>
+				<SoundSwitch
+					on={soundNeedsAction}
+					onToggle={() => setSoundNeedsAction(!soundNeedsAction)}
+					testId="sound-needs-action-toggle"
+				/>
+			</div>
+			<div className="border-t border-hairline" />
+			{/* 会话回收站：草稿态，点保存才生效 */}
+			<div>
 				<span className="text-sm font-medium text-primary block mb-3">
-					<Icon
-						name="trash"
-						size="1em"
-						className="inline-block align-[-0.125em]"
-					/>{" "}
 					{t("settings.trashSection")}
 				</span>
 				{/* 自动归档开关 */}
@@ -458,6 +397,131 @@ export function GeneralSection() {
 					</span>
 				</div>
 			</div>
+			<div className="border-t border-hairline" />
+			{/* 对话导出分组：导出轮数 + 图片导出范围（副标题「对话导出」） */}
+			<span className="text-sm font-medium text-primary block mb-3">
+				{t("settings.exportSection")}
+			</span>
+			{/* 对话导出轮数：草稿态，点保存才生效 */}
+			<div className="flex flex-col gap-1">
+				<span className="text-sm font-medium text-primary">
+					{t("settings.general.exportTurns.label")}
+				</span>
+				<span className="text-xs text-tertiary">
+					{t("settings.general.exportTurns.desc", {
+						min: EXPORT_TURNS_MIN,
+						max: EXPORT_TURNS_MAX,
+					})}
+				</span>
+			</div>
+			<div className="flex items-center gap-3 w-72">
+				<input
+					type="range"
+					min={EXPORT_TURNS_MIN}
+					max={EXPORT_TURNS_MAX}
+					step={1}
+					value={draftExportTurns}
+					onChange={(e) => {
+						setDraftExportTurns(Number(e.target.value));
+						setSaved(false);
+					}}
+					className="flex-1 cursor-pointer"
+					data-testid="export-turns-slider"
+				/>
+				<span
+					className="text-sm text-primary w-16 text-right whitespace-nowrap"
+					data-testid="export-turns-value"
+				>
+					{draftExportTurns} {t("settings.general.exportTurns.unit")}
+				</span>
+			</div>
+			{/* 图片导出范围：tab 二选一，右对齐（与提示音/开机自启等开关同行布局），
+			    草稿态，点保存才生效（样式同外观-界面主题） */}
+			<div className="flex items-center justify-between gap-4">
+				<div className="flex flex-col gap-1">
+					<span className="text-sm font-medium text-primary">
+						{t("settings.general.exportIncludeUser.label")}
+					</span>
+					<span className="text-xs text-tertiary">
+						{t("settings.general.exportIncludeUser.desc")}
+					</span>
+				</div>
+				<div className="inline-flex shrink-0 bg-surface-hover rounded-md p-0.5">
+					{EXPORT_INCLUDE_OPTIONS.map((opt) => (
+						<button
+							key={String(opt.value)}
+							onClick={() => {
+								setDraftExportIncludeUser(opt.value);
+								setSaved(false);
+							}}
+							data-testid={`export-include-user-${opt.value ? "both" : "agent-only"}`}
+							data-active={
+								draftExportIncludeUser === opt.value ? "true" : "false"
+							}
+							className="px-3 py-1.5 rounded-sm text-sm transition-all"
+							style={
+								draftExportIncludeUser === opt.value
+									? {
+											background: "var(--surface)",
+											color: "var(--text-primary)",
+											fontWeight: 600,
+											boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+										}
+									: {
+											color: "var(--text-secondary)",
+										}
+							}
+						>
+							{t(
+								opt.value
+									? "settings.general.exportIncludeUser.both"
+									: "settings.general.exportIncludeUser.agentOnly",
+							)}
+						</button>
+					))}
+				</div>
+			</div>
+			<div className="border-t border-hairline" />
+			{/* 语言切换：草稿态，点保存才生效 */}
+			<div className="flex flex-col gap-1">
+				<span className="text-sm font-medium text-primary">
+					{t("settings.general.language.label")}
+				</span>
+				<span className="text-xs text-tertiary">
+					{t("settings.general.language.desc")}
+				</span>
+			</div>
+			<select
+				value={draftLang}
+				onChange={(e) => {
+					setDraftLang(e.target.value as AppLanguage);
+					setSaved(false);
+				}}
+				className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-56"
+				data-testid="language-select"
+			>
+				<option value="zh">{t("settings.general.language.zh")}</option>
+				<option value="en">{t("settings.general.language.en")}</option>
+			</select>
+			<div className="border-t border-hairline" />
+			{/* 开机自启：即时生效（经 IPC 同步系统） */}
+			{typeof window !== "undefined" && window.waPiApp?.setLoginItem && (
+				<div className="flex items-center">
+					<span className="text-sm text-primary" style={{ marginRight: 15 }}>
+						{t("settings.general.autoLaunch")}
+					</span>
+					<div className="flex-1" />
+					<SoundSwitch
+						on={autoLaunch}
+						onToggle={() => {
+							const v = !autoLaunch;
+							setAutoLaunch(v);
+							window.waPiApp?.setLoginItem?.(v);
+						}}
+						testId="auto-launch-toggle"
+					/>
+				</div>
+			)}
 			<div className="flex items-center gap-3">
 				<button
 					onClick={() => void handleSave()}

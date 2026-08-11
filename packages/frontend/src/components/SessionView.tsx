@@ -215,10 +215,10 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 							/>
 							{/* 默认工作区会话：不暴露内部工作目录，显示友好文案；普通项目会话仍显示 cwd */}
 							{session.projectId === SYSTEM_PROJECT_ID
-									? t("session.defaultWorkspace")
-									: (project?.cwd ?? "")}{" "}
-								· {t(AGENT_STATE_KEY[headerStatus])}
-								{sourceLabel && ` · ${sourceLabel}`}
+								? t("session.defaultWorkspace")
+								: (project?.cwd ?? "")}{" "}
+							· {t(AGENT_STATE_KEY[headerStatus])}
+							{sourceLabel && ` · ${sourceLabel}`}
 						</div>
 					</div>
 					{/* Token 胶囊标签组 */}
@@ -228,7 +228,10 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 							data-testid="token-capsules"
 						>
 							<span className="token-capsule">
-								{t("session.thisTurn", { input: fmtTok(lastUsage.input), output: fmtTok(lastUsage.output) })}
+								{t("session.thisTurn", {
+									input: fmtTok(lastUsage.input),
+									output: fmtTok(lastUsage.output),
+								})}
 							</span>
 							{/* 占用 + 进度条胶囊（只认官方 contextUsage，无本地估算） */}
 							{contextUsage?.used != null &&
@@ -245,9 +248,14 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 												className="token-occupied"
 												data-testid="token-occupied"
 											>
-												{t("session.occupied", { used: fmtTok(contextUsage.used) })}
+												{t("session.occupied", {
+													used: fmtTok(contextUsage.used),
+												})}
 											</span>
-											<span className="token-progress" data-testid="token-progress">
+											<span
+												className="token-progress"
+												data-testid="token-progress"
+											>
 												<span
 													className="token-progress-fill"
 													style={{ width: `${w}%` }}
@@ -261,7 +269,7 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 								<span
 									className={`token-capsule token-capsule--total${tokenTotal.subagent ? " token-capsule--stack" : ""}`}
 									data-testid="token-total"
-									>
+								>
 									{t("session.total", { total: fmtTok(tokenTotal.total) })}
 									{tokenTotal.subagent ? (
 										<span className="token-split" data-testid="token-split">
@@ -271,7 +279,10 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 														tokenTotal.total - tokenTotal.subagent,
 												),
 											})}{" "}
-											· {t("session.totalSplitSub", { sub: fmtTok(tokenTotal.subagent) })}
+											·{" "}
+											{t("session.totalSplitSub", {
+												sub: fmtTok(tokenTotal.subagent),
+											})}
 										</span>
 									) : null}
 								</span>
@@ -289,7 +300,7 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 										<span
 											className={`token-capsule token-capsule--cache${danger ? " token-capsule--cache-danger" : ""}`}
 										>
-											{t("session.cache", { rate: Math.round(rate * 10) / 10 })}
+											{t("session.cache", { rate: Math.floor(rate * 10) / 10 })}
 										</span>
 									);
 								})()}
@@ -327,42 +338,43 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 						{/* 状态栏：spinner + 计时 + 停止 + 清空 */}
 						{(isRunning || followUp.length > 0) && (
 							<div className="flex items-center mb-1">
+								{isRunning && (
+									<span className="flex items-center gap-2 text-[calc(12.5px*var(--font-scale))] text-secondary flex-1">
+										<span
+											className="inline-block w-3.5 h-3.5 rounded-full"
+											style={{
+												border: "2px solid var(--accent-soft)",
+												borderTopColor: "var(--accent)",
+												animation: "spin 0.8s linear infinite",
+											}}
+										/>
+										{t("session.stateThinking")} ·{" "}
+										<ThinkingTimer thinkingSince={thinkingSince} />s
+									</span>
+								)}
+								{!isRunning && <span className="flex-1" />}
+								<div className="flex items-center gap-2">
 									{isRunning && (
-										<span className="flex items-center gap-2 text-[calc(12.5px*var(--font-scale))] text-secondary flex-1">
-											<span
-												className="inline-block w-3.5 h-3.5 rounded-full"
-												style={{
-													border: "2px solid var(--accent-soft)",
-													borderTopColor: "var(--accent)",
-													animation: "spin 0.8s linear infinite",
-												}}
-											/>
-											{t("session.stateThinking")} · <ThinkingTimer thinkingSince={thinkingSince} />s
-										</span>
+										<button
+											onClick={handleStop}
+											disabled={historyLoading || stopping}
+											className={`px-2.5 py-0.5 rounded-pill text-[calc(11.5px*var(--font-scale))] font-semibold border-0 ${historyLoading || stopping ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-danger-soft text-danger cursor-pointer"}`}
+											data-testid="btn-stop"
+										>
+											{stopping ? t("session.stopping") : t("session.stop")}
+										</button>
 									)}
-									{!isRunning && <span className="flex-1" />}
-									<div className="flex items-center gap-2">
-										{isRunning && (
-											<button
-												onClick={handleStop}
-												disabled={historyLoading || stopping}
-												className={`px-2.5 py-0.5 rounded-pill text-[calc(11.5px*var(--font-scale))] font-semibold border-0 ${historyLoading || stopping ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-danger-soft text-danger cursor-pointer"}`}
-												data-testid="btn-stop"
-											>
-												{stopping ? t("session.stopping") : t("session.stop")}
-											</button>
-										)}
-										{followUp.length > 0 && (
-											<button
-												onClick={handleClearFollowUp}
-												disabled={historyLoading}
-												className={`text-[calc(11.5px*var(--font-scale))] px-2 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-danger-soft text-danger cursor-pointer"}`}
-												data-testid="btn-clear-queue"
-											>
-												{t("session.clear")}
-											</button>
-										)}
-									</div>
+									{followUp.length > 0 && (
+										<button
+											onClick={handleClearFollowUp}
+											disabled={historyLoading}
+											className={`text-[calc(11.5px*var(--font-scale))] px-2 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-danger-soft text-danger cursor-pointer"}`}
+											data-testid="btn-clear-queue"
+										>
+											{t("session.clear")}
+										</button>
+									)}
+								</div>
 							</div>
 						)}
 
@@ -378,7 +390,10 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 									</span>
 								</div>
 								{steering.map((msg, i) => (
-									<div key={i} className="text-[calc(12px*var(--font-scale))] text-secondary mt-1 pl-2">
+									<div
+										key={i}
+										className="text-[calc(12px*var(--font-scale))] text-secondary mt-1 pl-2"
+									>
 										{msg}
 									</div>
 								))}
@@ -407,20 +422,20 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 													onClick={() => handlePromote(msg)}
 													disabled={historyLoading}
 													className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-accent-soft text-accent cursor-pointer"}`}
-												data-testid="btn-promote"
+													data-testid="btn-promote"
+												>
+													{t("session.steeringBtn")}
+												</button>
+												{!isRunning && (
+													<button
+														onClick={() => handleImmediate(msg)}
+														disabled={historyLoading}
+														className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-success-soft text-success cursor-pointer"}`}
+														data-testid="btn-immediate"
 													>
-														{t("session.steeringBtn")}
+														{t("session.immediateBtn")}
 													</button>
-													{!isRunning && (
-														<button
-															onClick={() => handleImmediate(msg)}
-															disabled={historyLoading}
-															className={`text-[calc(11.5px*var(--font-scale))] px-1.5 py-0.5 rounded-pill border-0 ${historyLoading ? "bg-surface-elevated text-tertiary cursor-not-allowed" : "bg-success-soft text-success cursor-pointer"}`}
-															data-testid="btn-immediate"
-														>
-															{t("session.immediateBtn")}
-														</button>
-													)}
+												)}
 											</div>
 										</div>
 									))}
@@ -434,9 +449,9 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 								<Icon name="lightbulb" size={12} />
 								<span>
 									{isRunning
-											? t("session.steerHintRunning")
-											: t("session.steerHintIdle")}
-									</span>
+										? t("session.steerHintRunning")
+										: t("session.steerHintIdle")}
+								</span>
 							</div>
 						)}
 					</div>
@@ -550,7 +565,13 @@ type WidgetEntry = [string, { lines: string[]; placement?: string }];
  * - 展开态：点击窄条后在原位置（聊天区与 Composer 之间）插入展开块占位，显示完整内容。
  * - 溢出：窄条数量超出宽度时，左右出现箭头按钮，点击平滑滚动一个窄条宽度。
  */
-function ExtWidgetDock({ widgets, children }: { widgets: WidgetEntry[]; children?: React.ReactNode }) {
+function ExtWidgetDock({
+	widgets,
+	children,
+}: {
+	widgets: WidgetEntry[];
+	children?: React.ReactNode;
+}) {
 	const { t } = useTranslation();
 	// expandedKey：当前展开的 widget key（null = 全部收起）
 	const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -621,7 +642,9 @@ function ExtWidgetDock({ widgets, children }: { widgets: WidgetEntry[]; children
 											: "var(--accent)",
 								}}
 							>
-								{expanded[1].placement === "belowEditor" ? "belowEditor" : "aboveEditor"}
+								{expanded[1].placement === "belowEditor"
+									? "belowEditor"
+									: "aboveEditor"}
 							</span>
 						</span>
 						<button
@@ -652,7 +675,11 @@ function ExtWidgetDock({ widgets, children }: { widgets: WidgetEntry[]; children
 								className="pointer-events-auto flex h-6 w-[26px] flex-shrink-0 items-center justify-center rounded-md border border-hairline bg-surface text-secondary opacity-70 transition-opacity hover:opacity-100 hover:text-accent"
 								aria-label={t("session.scrollLeft")}
 							>
-								<Icon name="chevron-right" size={13} style={{ transform: "rotate(180deg)" }} />
+								<Icon
+									name="chevron-right"
+									size={13}
+									style={{ transform: "rotate(180deg)" }}
+								/>
 							</button>
 						)}
 						<div
@@ -673,27 +700,38 @@ function ExtWidgetDock({ widgets, children }: { widgets: WidgetEntry[]; children
 											className="pointer-events-auto inline-flex max-w-[240px] flex-shrink-0 items-center gap-1.5 truncate rounded-md border border-hairline bg-surface px-2.5 py-[3px] font-mono text-[calc(11.5px*var(--font-scale))] text-secondary opacity-40 transition-opacity hover:opacity-85"
 											title={t("session.clickExpand", { key })}
 										>
-											<span style={{ color: isAbove ? "var(--accent)" : "var(--hairline-strong)" }}>
-												<Icon name={isAbove ? "arrow-up" : "arrow-down"} size={11} />
+											<span
+												style={{
+													color: isAbove
+														? "var(--accent)"
+														: "var(--hairline-strong)",
+												}}
+											>
+												<Icon
+													name={isAbove ? "arrow-up" : "arrow-down"}
+													size={11}
+												/>
 											</span>
 											<span className="truncate">
 												{key} · <AnsiText text={w.lines[0]} />
-												{w.lines.length > 1 ? ` · ${t("session.widgetLines", { count: w.lines.length })}` : ""}
+												{w.lines.length > 1
+													? ` · ${t("session.widgetLines", { count: w.lines.length })}`
+													: ""}
 											</span>
 										</button>
-								);
-							})}
-					</div>
-					{overflow.right && (
-						<button
+									);
+								})}
+						</div>
+						{overflow.right && (
+							<button
 								type="button"
 								onClick={() => scrollByChip("right")}
 								className="pointer-events-auto flex h-6 w-[26px] flex-shrink-0 items-center justify-center rounded-md border border-hairline bg-surface text-secondary opacity-70 transition-opacity hover:opacity-100 hover:text-accent"
 								aria-label={t("session.scrollRight")}
 							>
-							<Icon name="chevron-right" size={13} />
-						</button>
-					)}
+								<Icon name="chevron-right" size={13} />
+							</button>
+						)}
 					</div>
 				)}
 			</div>

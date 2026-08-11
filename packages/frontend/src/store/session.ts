@@ -1207,7 +1207,7 @@ export const useSessionStore = create<SessionState>((set) => {
 				}
 				// pi 扩展 ctx.ui.notify 反馈（如 /lens-toggle 执行结果）：kernel 包装在 sdk:event 内转发，
 				// 这里插入聊天窗口中间的系统提示（复用 custom 消息渲染：居中 —— content ——），
-				// 文字颜色由 AnsiText 解析 ANSI 码呈现。不再自动消退，不去重。
+				// 文字颜色由 AnsiText 解析 ANSI 码呈现。30s 后自动消退（同内容不去重）。
 				case "extension_notify": {
 					const msg = (event as any).message;
 					if (typeof msg === "string") {
@@ -1233,6 +1233,29 @@ export const useSessionStore = create<SessionState>((set) => {
 								},
 							};
 						});
+						// 系统提示 30s 后自动从聊天列表消失：按 timestamp 精确匹配移除。
+						// 多条同内容 notify 不去重，各自定时器移除自己；目标已被其他操作
+						// 移除时 filter 无变化 → return s 不做无意义 set（幂等）。
+						setTimeout(() => {
+							set((s) => {
+								const list = s.messagesBySession[sessionId] ?? [];
+								const next = list.filter(
+									(m) =>
+										!(
+											(m.message as any)?.customType === "extension_notify" &&
+											(m.message as any)?.timestamp === timestamp
+										),
+								);
+								// 消息已被其他操作移除/会话切换：找不到目标则不做无意义 set
+								if (next.length === list.length) return s;
+								return {
+									messagesBySession: {
+										...s.messagesBySession,
+										[sessionId]: next,
+									},
+								};
+							});
+						}, 30_000);
 					}
 					break;
 				}

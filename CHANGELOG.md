@@ -4,6 +4,68 @@
 
 ---
 
+## 2026-08-10 — v0.1.20 发版：kernel 回合看门狗 + 子进程超时治理 + ask 流式 NDJSON
+
+### 新增
+
+- 主会话回合看门狗：pi 假死 5 分钟无事件自动强杀恢复，等待用户输入豁免
+
+### 修复
+
+- 扩展安装/卸载/升级子进程 2 分钟超时；httpIdleTimeoutMs 默认值落盘；ask 流式 NDJSON；bridge 断连信号透传；子代理 abort 宽限强杀；清理 wa-pi 改名残留
+
+---
+
+## 2026-08-11 — 左上角 logo 放大 1.5 倍
+
+### 变更
+
+- **左上角品牌 logo 放大 1.5 倍**：`Sidebar` 顶部的 `/logo.svg` 由 28px×28px（`w-7 h-7`）放大到 38px×38px，圆角按同比例 7px→9.5px；右侧「WA PI Agent」文字由 17px 加大到 18px。
+  影响范围：`packages/frontend/src/components/Sidebar.tsx`。
+
+## 2026-08-11 — 缓存命中率改为向下取整，避免 99.95%+ 误导性显示为 100%
+
+### 修复
+
+- **缓存命中率显示误导**：`SessionView` 顶部 token 胶囊的缓存百分比用 `Math.round` 保留一位小数，命中率 ≥99.95% 时四舍五入显示为刺眼的「缓存 100%」。长上下文下命中率天然接近 100%（99.8%~99.97%），用户误以为整轮无新增消耗。改为 `Math.floor` 向下取整，99.95% 显示 99.9%，只有精确 100% 才显示 100%。
+  影响范围：`packages/frontend/src/components/SessionView.tsx`（缓存百分比计算）、`packages/frontend/tests/SessionView.test.tsx`（新增边界测试）。
+
+## 2026-08-11 — feat(frontend): 系统设置新增图片导出范围选项 + 通用设置项顺序调整
+
+### 新增
+
+- **feat(frontend)**：系统设置「通用」新增「图片导出选项」tab（仅导出 agent 回复 / 对话双方，默认仅 agent 回复），样式与「外观-界面主题」一致（底槽 + 选中高亮），控件右对齐与提示音/开机自启等开关同行布局。选择结果持久化到 `wa-pi-ui-prefs`（新增 `exportIncludeUser`，默认 false=仅 agent 回复），导出图片时 `collectTurns` 按此决定 user 气泡是否渲染（false 时 user 留空，ExportImageCard 已有空气泡不渲染逻辑，天然支持）。
+- **调整（frontend）**：「通用」设置项顺序调整为：自动重试 → 提示音 → 会话回收站 → 对话导出 → 语言 → 开机自启；导出轮数与图片导出选项归入分组标题「对话导出」（i18n `settings.exportSection`）；分组间以横线（border-t）分隔；会话回收站分组标题移除 trash 图标。
+- TDD：先改 export-chat-image.test.ts / ExportButton.test.tsx，新增 GeneralSection.test.tsx（tab 选中态、保存写入 store、分组标题、横线分隔、设置项 DOM 顺序），红灯后实现绿灯。tests/blocks/ExportButton.test.tsx 的 beforeEach 显式声明 exportIncludeUser=true（该文件聚焦导出范围正确性，隔离默认值影响）。
+- 影响范围：`packages/frontend/src/store/ui-prefs.ts`、`packages/frontend/src/util/export-chat-image.ts`、`packages/frontend/src/components/blocks/ExportButton.tsx`、`packages/frontend/src/components/settings/GeneralSection.tsx`、`packages/frontend/src/i18n/locales/{zh,en}.ts`、`packages/frontend/tests/blocks/ExportButton.test.tsx`
+
+---
+
+### 修复
+
+- **feat(frontend)**：pi 扩展的 ctx.ui.notify 对话中间通知改为 30s 后自动从聊天列表消失（此前 cf95951 改为永久保留）。按 timestamp 精确匹配移除，目标已被其他操作移除时幂等跳过；多条同内容 notify 不去重，各自定时器移除自己。TDD：先改测试（session-notify-auto-dismiss.test.ts）验证红灯，再实现绿灯。
+- 影响范围：`packages/frontend/src/store/session.ts`、`packages/frontend/tests/session-notify-auto-dismiss.test.ts`
+
+---
+
+## 2026-08-11 — fix(frontend): 统一 thinking/tool/text block 间距，用父容器 gap 替代单边 margin
+
+### 修复
+
+- **fix(frontend)**：消息列表中思考过程、工具调用、文字回答三类 block 之间的垂直间距不一致——过程卡片（ProcessCard）自带 `mb-1.5`（6px）而文字气泡（text-bubble）无任何 margin，导致「卡片→文字」6px、「文字→卡片」0px；折叠态展开后 TurnSummary children 容器用 `gap-1`（4px）也与其他不一致。修复：segments 外层包 `flex flex-col gap-1.5` 统一管理间距，去掉 ProcessCard 的单边 `mb-1.5`，TurnSummary children 容器 `gap-1` → `gap-1.5`。新增 2 个组件测试验证非折叠态与折叠态展开后的间距容器。
+- 影响范围：`packages/frontend/src/components/MessageList.tsx`、`packages/frontend/src/components/blocks/ProcessCard.tsx`、`packages/frontend/src/components/blocks/TurnSummary.tsx`
+
+---
+
+## 2026-08-11 — fix(kernel): 回合看门狗 hard-cap 在 ask 豁免后重新武装
+
+### 修复
+
+- **fix(kernel)**：回合看门狗的 hard-cap 计时器在 ask/扩展对话豁免后不会重新武装——setTimeout 返回值 fire 后引用仍非空，`_armTurnWatchdog` 的「仅在引用为空时武装」判断跳过，导致本轮剩余时间 hard-cap 永久失效（idle 看门狗仍生效，非完全裸奔）。修复：`_onTurnWatchdogFire` 豁免分支先清空已 fire 的 timer 引用再重新 arm。
+- 影响范围：`packages/kernel/src/agent-manager.ts`
+
+---
+
 ## 2026-08-10 — kernel 超时与信号链路治理（7 项汇总）
 
 ### 修复
@@ -397,6 +459,13 @@
 - **测试**：kernel 新增 `tests/bridge-disconnect.test.ts`（真实 Bun.serve + 客户端 abort 集成）；前端 `tests/AskDock.test.tsx` 新增竞态防护用例；E2E 新增 `e2e/ask-stale.spec.ts`（真实浏览器双场景：竞态宽限内注册不误判 / 持续 miss 宽限后判失效）。
 
 ---
+
+## 2026-08-10 — 修复进行中轮次提前显示复制/导出按钮
+
+### 修复
+
+- **进行中的轮次（thinking / 工具执行中）提前显示复制和导出按钮**：`MessageRow` 的按钮显示条件仅为 `!isStreaming`，但一轮中工具执行完毕后、下一段 text 流式开始前有个窗口 `isStreaming=false` 但整轮未结束（`status` 仍为 `thinking`），复制/导出按钮提前出现。修复：追加 `!isActiveTurnRow` 条件，确保只在整轮结束（`agent_end` 到达、`status` 回 `idle`）后才显示。
+  影响范围：`packages/frontend/src/components/MessageList.tsx`（按钮渲染条件）。
 
 ## 2026-08-10 — 修复热重载 `__!wa_pi_reload` 命令泄漏到会话 transcript
 

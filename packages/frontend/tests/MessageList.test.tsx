@@ -1,7 +1,11 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { SessionMessage } from "@wa-pi/shared";
-import { MessageList, buildResendPrompt } from "../src/components/MessageList";
+import {
+	MessageList,
+	MessageRow,
+	buildResendPrompt,
+} from "../src/components/MessageList";
 import { VirtuosoMockContext } from "react-virtuoso";
 import { useSessionStore } from "../src/store/session";
 import { useProjectsStore } from "../src/store/projects";
@@ -1579,6 +1583,27 @@ test("点击「复制」将回答文本写入剪贴板并提示成功", async ()
 
 // === 技能块格式化测试 ===
 
+test("进行中的轮（thinking 中、无 streaming）不显示复制/导出按钮", () => {
+	// 直接渲染 MessageRow，绕开 MessageList 的 autoScroll 定时器
+	const msg = assistantMsg(1, [{ type: "text", text: "已定稿的回答" }]);
+	render(
+		<MessageRow
+			row={{ main: msg, toolResults: new Map() }}
+			sessionId="s1"
+			isActiveTurnRow
+		/>,
+	);
+	expect(screen.queryByTestId("copy-s1-1")).toBeNull();
+});
+
+test("轮次结束后（非 active turn）显示复制/导出按钮", () => {
+	const msg = assistantMsg(1, [{ type: "text", text: "已完成的回答" }]);
+	render(
+		<MessageRow row={{ main: msg, toolResults: new Map() }} sessionId="s1" />,
+	);
+	expect(screen.getByTestId("copy-s1-1")).toBeTruthy();
+});
+
 test("用户消息中的 <skill> XML 块显示为技能名而非完整内容", () => {
 	const skillBlock = `<skill name="speech-recognition" location="/path/SKILL.md">\nReferences are relative to /path.\n\n# 通用语音识别\n一大串技能内容...\n</skill>`;
 	useSessionStore.setState({
@@ -2696,4 +2721,78 @@ test("extension_notify 消息的 ANSI 颜色解析为内联样式", () => {
 	// ANSI 码不外泄，reset 后的纯文本仍在
 	expect(el.textContent).toBe("—— ✓ 成功 普通文本 ——");
 	expect(el.textContent).not.toContain("\x1b");
+});
+
+// ─── block 间距统一：thinking / tool / text 由父容器 gap-1.5 管理间距 ───
+
+test("block 间距：非折叠态 segments 容器用 gap-1.5 统一管理间距", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				assistantMsg(1, [
+					{ type: "thinking", thinking: "思考" },
+					{
+						type: "toolCall",
+						id: "c1",
+						name: "read",
+						arguments: { path: "/a" },
+					},
+					{ type: "text", text: "回答" },
+				]),
+			],
+		},
+		statusBySession: { s1: "thinking" },
+	});
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	// 非折叠态：thinking/toolCall/text 直接渲染在同一 flex 容器中
+	const textBubble = screen.getByTestId("text-bubble");
+	const container = textBubble.parentElement!;
+	expect(container.className).toContain("flex-col");
+	expect(container.className).toContain("gap-1.5");
+	// 过程卡片不再自带 mb-1.5（间距交给父容器 gap）
+	expect(screen.getByTestId("thinking-panel").className).not.toContain(
+		"mb-1.5",
+	);
+	expect(screen.getByTestId("toolcall-c1").className).not.toContain("mb-1.5");
+});
+
+test("block 间距：折叠态展开后 children 容器也用 gap-1.5", () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				assistantMsgWithExtras(
+					[
+						{ type: "thinking", thinking: "思考" },
+						{
+							type: "toolCall",
+							id: "c1",
+							name: "read",
+							arguments: { path: "/a" },
+						},
+						{ type: "text", text: "回复" },
+					],
+					1,
+				),
+			],
+		},
+		streamingBySession: { s1: null },
+	});
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
+	// 折叠态：展开摘要行后，过程段在 children 容器中渲染
+	fireEvent.click(screen.getByTestId("turn-summary"));
+	const thinkingCard = screen.getByTestId("thinking-panel");
+	const childrenContainer = thinkingCard.parentElement!;
+	expect(childrenContainer.className).toContain("gap-1.5");
 });

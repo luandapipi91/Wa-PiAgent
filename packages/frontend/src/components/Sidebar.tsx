@@ -45,10 +45,10 @@ export function Sidebar(props: Props) {
 				<img
 					src="/logo.svg"
 					alt="WA PI Agent"
-					className="w-7 h-7"
-					style={{ borderRadius: 7 }}
+					className="w-[38px] h-[38px]"
+					style={{ borderRadius: 9.5 }}
 				/>
-				<span className="font-extrabold text-[calc(17px*var(--font-scale))] tracking-tight text-primary">
+				<span className="font-extrabold text-[calc(18px*var(--font-scale))] tracking-tight text-primary">
 					WA PI Agent
 				</span>
 			</div>

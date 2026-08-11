@@ -37,6 +37,7 @@ export function collectTurns(
 	messages: SessionMessage[],
 	uptoTimestamp: number,
 	maxTurns = 5,
+	includeUser = true,
 ): ExportTurn[] {
 	// 1. 先按「回合首块 timestamp」过滤 user/assistant。
 	//    关键：必须按回合首块时间判断，不能逐条按原始 timestamp 过滤——
@@ -48,7 +49,7 @@ export function collectTurns(
 	//    user 消息独立成一个边界，按自身 ts 判断。
 	const turnStartTs = new Map<number, number>(); // 原始 index → 回合首块 ts
 	let curTurnStart: number | null = null;
-	let curTurnAgent: string | undefined = undefined;
+	let curTurnAgent: string | undefined;
 	for (let k = 0; k < messages.length; k++) {
 		const m = messages[k].message as any;
 		if (m.role !== "user" && m.role !== "assistant") continue;
@@ -130,7 +131,7 @@ export function collectTurns(
 			}
 		}
 		turns.push({
-			user,
+			user: includeUser ? user : "",
 			assistant,
 			agentName: sm.agentName ?? "agent",
 			timestamp: m.timestamp,
