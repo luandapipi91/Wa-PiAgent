@@ -4,6 +4,66 @@
 
 ---
 
+## 2026-08-11 — fix(kernel): IM 渠道流式 delta 按 contentIndex 分块累积（并发竞态修复）
+
+### 修复
+
+- **IM 渠道流式回复多 text block 拼接错乱**：`channel-manager.ts` 累积 `text_delta` 时不区分 `contentIndex`，且累积发生在 async `streamUpdate` 内（含 `await loadChannels`），同一帧多个 delta 并发调用恢复顺序不定，导致同一 text block 的 delta 顺序被打乱（实测 `"月光光床前明"`）或多 block 交错拼接。
+  - 修复：delta 累积移到同步 `onSessionEvent`（顺序 = 事件到达顺序），按 `contentIndex` 分块追加，`streamUpdate` 只读累积值；推送时按 contentIndex 升序拼接各 block（thinking/toolCall 分隔的多段文本不交错）。
+  - TDD：新增测试「同一消息多 text block（不同 contentIndex）按块累积，不交错拼接」，红灯（Received 错乱）→ 修复 → 绿灯，单文件连跑 8 次稳定。
+  - 影响范围：`packages/kernel/src/channel-manager.ts`、`packages/kernel/tests/channel-manager.test.ts`。
+
+### 测试治理
+
+- **bridge 心跳探针测试 flaky**：`bridge-disconnect.test.ts` 的「Bun 探针：idleTimeout=1s 下流式心跳保活」在极限参数（idleTimeout=1s + 1.5s 延迟）下偶发时序抖动（~3%，高负载并发更易触发；非产品 bug，产品默认心跳 15s vs pi 600s 空闲余量 40 倍）。加 `{ retry: 2, timeout: 10_000 }` 消除 CI 抖动，真失败（心跳失效）仍会报出。
+
+## 2026-08-11 — feat(kernel): 回合看门狗终止后自动重试 1 次，不再直接报错打断用户
+
+### 新增
+
+- **自动重试**：回合看门狗判定 pi 假死强杀进程后，不再立即向用户播报「请重新发送消息」红色错误，而是自动重建进程并重发最后一条用户消息，让主 agent 带着历史上下文自己继续（等价于系统替用户重发一次）。重试后再次触发看门狗（只重试 1 次，不无限重试）或取不到可重发的用户消息时才走原有错误播报。
+- **重试失败兜底**：自动重试时进程重建/重发失败，补播「自动重试失败」错误事件，避免前端永久思考态且用户无感知。
+- **模型恢复**：重试重建进程后恢复用户显式选择的模型与 thinking level（`handle.currentModel` / `currentThinking`），不回落 agent config。
+- 影响范围：`packages/kernel/src/agent-manager.ts`（`_onProcessExit` 重试分支、新增 `_retryAfterWatchdog`、`extractLastUserText`、`SessionHandle.watchdogRetryCount`）；测试 `packages/kernel/tests/agent-manager.test.ts`（+4 例：重试 1 次不报错、重试后再卡死才报错、非看门狗崩溃不重试、重试失败补播错误）。
+
+---
+
+## 2026-08-11 — fix(kernel): 流式输出丢帧修复——SdkEventThrottle 不再丢弃 message_update 增量
+
+### 修复
+
+- **AI 回复流式输出过程中文字跳字/顺序错乱，完整输出后内容才正确**：kernel `SdkEventThrottle` 对 `message_update` 做 50ms 窗口节流（首帧立即发、窗口末只发最新一帧、中间帧丢弃）。pi 0.84 起 RPC 序列化剥离 partial 快照，`message_update` 只携带 delta 增量（无累积快照），节流丢帧 = 永久丢字——前端按到达顺序把 delta 累积到 content block，缺失帧导致流式预览跳字/拼接乱序；`message_end` 权威消息定稿覆盖后才显示正确。
+  - `SdkEventThrottle` 改为全部事件原样透传（不再对 delta 做任何合并/丢弃）；渲染合帧已由前端 streaming-batcher（rAF）承担，kernel 侧无需再节流。
+  - 子代理进度 `SubagentProgressThrottle` 不受影响：其 progress.output 为完整快照（整帧覆盖语义），丢帧只降刷新率不丢字。
+  - 影响范围：`packages/kernel/src/event-throttle.ts`、`packages/kernel/src/index.ts`（注释同步）；新增 `packages/kernel/tests/event-throttle.test.ts`（4 例：窗口内多 delta 全量保序、多 contentIndex 交错、非 update 透传、dispose）。
+
+## 2026-08-11 — fix(desktop): 打包版启动卡死「正在初始化」——trayInstance 被 biome 误改为 const
+
+### 修复
+
+- **fix(desktop)**：新打包版本安装后启动卡死「正在初始化」。根因：新增 `trayInstance` 变量时 biome 自动修复把 `let trayInstance = null` 误改为 `const trayInstance = null`，而 `trayInstance = startTray(...)`（第 474 行）对 const 赋值 → `TypeError: Assignment to constant variable` → whenReady 的 promise 链断裂 → kernel sidecar 不启动 → splash 永久卡在初始化。修复：改回 `let`。
+- 影响范围：`packages/desktop/src/main.cjs`（1 行：const → let）
+
+---
+
+## 2026-08-11 — fix(desktop): macOS OTA 更新无效——销毁 Tray 替代 app.exit(0) 兜底，让 ShipIt 正常走完安装
+
+### 修复
+
+- **fix(desktop)**：macOS 点击「立即更新」后窗口关闭但版本不变。根因：Tray 保活阻止 `app.quit()` 退出，旧修复用 `app.exit(0)` 强杀绕过 Tray——但也绕过了 Squirrel.Mac 的 ShipIt 守护进程（日志证实 ShipIt 从未运行），.app 包从未被替换。正确修复：`quitAndInstall` 前先 `tray.destroy()` 销毁 Tray，让 `app.quit()` 正常走完退出→ShipIt 替换→重启；移除 `app.exit(0)` 兜底。
+- 影响范围：`packages/desktop/src/updater/updater.cjs`、`packages/desktop/src/main.cjs`、`packages/desktop/src/updater/updater.test.ts`
+
+---
+
+## 2026-08-11 — 记忆 tab 徽标计数修复：按作用域统计，不再混入项目记忆
+
+### 修复
+
+- **记忆 tab 徽标虚高**：已保存/指令文件 tab 的计数此前直接用后端返回的未过滤数组长度。有活动项目时后端一次返回全局+项目全部条目（如全局 USER 4 + 项目 MEMORY 5 = 徽标 9），而列表按作用域过滤只显示当前作用域（如全局 4 条），导致「徽标 9 vs 实际 4 条」不一致。
+  - 已保存 tab 徽标改为当前 `memoryScope` 下的记忆总数（不随分类/搜索临时筛选跳动）；
+  - 指令文件 tab 徽标改为与 `scopeFilter` 联动（`all` 时全部，否则按 scope 过滤），与列表同口径。
+  - 影响范围：`packages/frontend/src/components/memory/MemoryPage.tsx`（新增 `MemoryPage.test.tsx` 回归测试 3 例）。
+
 ## 2026-08-10 — v0.1.20 发版：kernel 回合看门狗 + 子进程超时治理 + ask 流式 NDJSON
 
 ### 新增

@@ -572,6 +572,55 @@ test("流式多消息轮（工具调用）：第二条消息的流式帧含已�
 	expect(lastFrame.text).toContain("已修复");
 });
 
+test("流式回复：同一消息多 text block（不同 contentIndex）按块累积，不交错拼接", async () => {
+	await manager.create(channel);
+	adapter!.inject({ chatId: "u1", text: "分析代码" });
+	await new Promise((r) => setTimeout(r, 50));
+	const sid = prompted[0].sessionId;
+
+	// assistant 消息开始：重置累积
+	manager.onSessionEvent(sid, assistantStartEvent());
+	// 一条 assistant 消息含多个 text block（如 idx1 总结 + idx3 修复说明，中间 idx2 是 toolCall），
+	// delta 按 contentIndex 交错到达：每个 block 的文本必须各自完整累积，再按 contentIndex 升序拼接。
+	manager.onSessionEvent(sid, {
+		type: "message_update",
+		assistantMessageEvent: {
+			type: "text_delta",
+			contentIndex: 1,
+			delta: "床前明",
+		},
+	});
+	manager.onSessionEvent(sid, {
+		type: "message_update",
+		assistantMessageEvent: {
+			type: "text_delta",
+			contentIndex: 3,
+			delta: "修复完成",
+		},
+	});
+	manager.onSessionEvent(sid, {
+		type: "message_update",
+		assistantMessageEvent: {
+			type: "text_delta",
+			contentIndex: 1,
+			delta: "月光光",
+		},
+	});
+	manager.onSessionEvent(sid, {
+		type: "message_update",
+		assistantMessageEvent: { type: "text_delta", contentIndex: 3, delta: "！" },
+	});
+	// 等待流式节流窗口（STREAM_THROTTLE_MS=500ms）冲刷挂起帧
+	await new Promise((r) => setTimeout(r, 600));
+
+	const streamFrames = adapter!.outbox.filter((m) => m.streamId);
+	const lastFrame = streamFrames.at(-1)!;
+	// 两个 block 各自完整累积、按 contentIndex 升序拼接，而非按到达顺序交错
+	expect(lastFrame.text).toContain("床前明月光");
+	expect(lastFrame.text).toContain("修复完成！");
+	expect(lastFrame.text).not.toContain("床前明修复完成");
+});
+
 test("极简回复（minimal）：禁用流式增量，终态帧只含最后一条 assistant 消息全文", async () => {
 	await manager.create({
 		...channel,

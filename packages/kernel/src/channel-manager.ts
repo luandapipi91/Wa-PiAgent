@@ -80,8 +80,8 @@ export class ChannelManager {
 			pendingText?: string;
 		}
 	>();
-	/** sessionId → 当前正在流式的 assistant 消息 delta 累积文本（0.84 起 RPC 无 partial 快照） */
-	private streamingDeltas = new Map<string, string>();
+	/** sessionId → 当前正在流式的 assistant 消息各 text block（contentIndex → 累积文本）的 delta 累积（0.84 起 RPC 无 partial 快照） */
+	private streamingDeltas = new Map<string, Map<number, string>>();
 	/** 流式节流最小间隔（ms）：避免每个 token 一次 WS 往返打爆企微 */
 	private static readonly STREAM_THROTTLE_MS = 500;
 	private factories: Partial<Record<ChannelType, AdapterFactory>>;
@@ -322,7 +322,7 @@ export class ChannelManager {
 		// 消息边界（0.84 无 partial 快照，流式文本靠 delta 累积）：
 		// assistant 消息开始 → 重置累积；结束 → 该消息已进 getMessages（settled 覆盖），清空累积。
 		if (event.type === "message_start" && event.message?.role === "assistant") {
-			this.streamingDeltas.set(sessionId, "");
+			this.streamingDeltas.set(sessionId, new Map());
 			return;
 		}
 		if (event.type === "message_end") {
@@ -332,6 +332,18 @@ export class ChannelManager {
 
 		// 流式增量：message_update（含 text_delta）→ 节流推送累计文本
 		if (event.type === "message_update") {
+			// 同步累积（保序）：streamUpdate 是 async 且有 await，若在它内部累积，
+			// 并发调用（同一帧多个 delta）恢复顺序不定，会把同一 contentIndex 的
+			// delta 顺序打乱。这里在同步事件路径按 contentIndex 分块追加，
+			// 顺序 = 事件到达顺序；streamUpdate 只读累积值推送。
+			const ae = (event as any).assistantMessageEvent;
+			if (ae && ae.type === "text_delta") {
+				const idx = typeof ae.contentIndex === "number" ? ae.contentIndex : 0;
+				const deltas =
+					this.streamingDeltas.get(sessionId) ?? new Map<number, string>();
+				deltas.set(idx, (deltas.get(idx) ?? "") + (ae.delta ?? ""));
+				this.streamingDeltas.set(sessionId, deltas);
+			}
 			void this.streamUpdate(sessionId, key, event).catch((e) =>
 				console.warn("[channel-manager] 流式推送失败:", e),
 			);
@@ -369,13 +381,17 @@ export class ChannelManager {
 		const ae = event.assistantMessageEvent;
 		if (!ae || ae.type !== "text_delta") return;
 
-		// 累计文本 = 本轮已落地的 assistant 消息文本 + 当前正在流式的 delta 累积文本。
-		// 一轮里有多条 assistant 消息（工具调用导致）：message_end 已清空累积，第二条消息的
-		// delta 从零累积，只含自己的文本；不拼已落地历史会让企微流式消息（整体替换）
-		// "清空"前一条的内容。
-		const prevDelta = this.streamingDeltas.get(sessionId) ?? "";
-		const partialText = prevDelta + (ae.delta ?? "");
-		this.streamingDeltas.set(sessionId, partialText);
+		// 读取同步累积的各 text block 文本（onSessionEvent 已按 contentIndex 分块累积、
+		// 保序，这里只读不再写）。按 contentIndex 升序拼接：一条消息内多个 text block
+		// （thinking/toolCall 分隔）不会交错拼错，且拼接与到达顺序无关。
+		const deltas = this.streamingDeltas.get(sessionId);
+		const partialText = deltas
+			? [...deltas.entries()]
+					.sort((a, b) => a[0] - b[0])
+					.map(([, t]) => t)
+					.filter(Boolean)
+					.join("\n")
+			: "";
 		const baseline = this.replyBaseline.get(sessionId) ?? 0;
 		const settled = this.deps.agentManager
 			.getMessages(sessionId)
