@@ -84,9 +84,7 @@ function formatReleaseNotes(entry: {
 function injectReleaseNotes(ymlPath: string): string {
 	let yml = readFileSync(ymlPath, "utf8");
 	if (!existsSync(historyFile)) {
-		console.warn(
-			`⚠ 未找到 ${historyFile}，latest.yml 不注入 releaseNotes`,
-		);
+		console.warn(`⚠ 未找到 ${historyFile}，latest.yml 不注入 releaseNotes`);
 		return yml;
 	}
 	const history = JSON.parse(readFileSync(historyFile, "utf8"));
@@ -99,10 +97,7 @@ function injectReleaseNotes(ymlPath: string): string {
 		.map((l) => `  ${l}`)
 		.join("\n")}\n`;
 	if (/^releaseNotes:/m.test(yml)) {
-		yml = yml.replace(
-			/^releaseNotes:[\s\S]*?(?=\n\S|\n$|$)/m,
-			block.trimEnd(),
-		);
+		yml = yml.replace(/^releaseNotes:[\s\S]*?(?=\n\S|\n$|$)/m, block.trimEnd());
 	} else {
 		yml = yml.trimEnd() + "\n" + block;
 	}

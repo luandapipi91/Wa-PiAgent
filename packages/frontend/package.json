@@ -1,6 +1,6 @@
 {
   "name": "@wa-pi/frontend",
-  "version": "0.1.10",
+  "version": "0.1.22",
   "license": "MIT",
   "type": "module",
   "scripts": {
