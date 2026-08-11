@@ -1,11 +1,17 @@
 import { create } from "zustand";
 
 // vite 构建时从 package.json 注入；浏览器 dev（未走 vite define）为 undefined，兜底 "—"。
-const BUILD_VERSION = (import.meta.env.WA_PI_VERSION as string | undefined) ?? "—";
+const BUILD_VERSION =
+	(import.meta.env.WA_PI_VERSION as string | undefined) ?? "—";
 
 export type UpdaterStatus =
-	| "idle" | "checking" | "up-to-date"
-	| "available" | "downloading" | "downloaded"
+	| "idle"
+	| "checking"
+	| "up-to-date"
+	| "available"
+	| "downloading"
+	| "downloaded"
+	| "installing"
 	| "error";
 
 interface WaPiUpdaterApi {
@@ -55,7 +61,10 @@ const initialState = {
 	isDesktop: false,
 };
 
-function applyEvent(state: UpdaterState, payload: Record<string, unknown>): Partial<UpdaterState> {
+function applyEvent(
+	state: UpdaterState,
+	payload: Record<string, unknown>,
+): Partial<UpdaterState> {
 	const phase = payload.phase as UpdaterStatus;
 	switch (phase) {
 		case "checking":
@@ -69,7 +78,9 @@ function applyEvent(state: UpdaterState, payload: Record<string, unknown>): Part
 			};
 		case "up-to-date":
 			// 自动检查（非用户触发）的「已是最新」静默回退 idle，不展示 ✓ 提示
-			return state.userTriggered ? { status: "up-to-date", error: null } : { status: "idle", error: null };
+			return state.userTriggered
+				? { status: "up-to-date", error: null }
+				: { status: "idle", error: null };
 		case "downloading":
 			return {
 				status: "downloading",
@@ -81,7 +92,10 @@ function applyEvent(state: UpdaterState, payload: Record<string, unknown>): Part
 		case "downloaded":
 			return { status: "downloaded", error: null };
 		case "error":
-			return { status: "error", error: (payload.message as string) ?? "更新失败" };
+			return {
+				status: "error",
+				error: (payload.message as string) ?? "更新失败",
+			};
 		default:
 			return {};
 	}
@@ -120,6 +134,7 @@ export const useUpdaterStore = create<UpdaterState>((set) => ({
 	quitAndInstall: async () => {
 		const api = window.waPiUpdater;
 		if (!api) return;
+		set({ status: "installing" });
 		await api.quitAndInstall();
 	},
 }));
@@ -133,7 +148,10 @@ export function initUpdater() {
 		return;
 	}
 	void api.getInfo().then((info) => {
-		useUpdaterStore.setState({ appVersion: info.appVersion, isDesktop: info.isDesktop });
+		useUpdaterStore.setState({
+			appVersion: info.appVersion,
+			isDesktop: info.isDesktop,
+		});
 	});
 	api.onEvent((payload) => {
 		useUpdaterStore.setState((s) => applyEvent(s, payload));

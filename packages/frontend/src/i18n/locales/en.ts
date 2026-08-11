@@ -736,6 +736,7 @@ const en = {
 			downloaded: "Update ready",
 			downloadedHint: "Version {{version}} has been downloaded",
 			restartInstall: "Restart & Install",
+			installing: "Installing update, please wait…",
 			upToDate: "You're up to date",
 			desktopOnly: "Auto-update is only available in the desktop app",
 			retry: "Retry",
