@@ -190,6 +190,9 @@ export function MessageList({ sessionId }: Props) {
 	// stickBottom：用户是否「停在底部」。用户向上翻阅即置 false——此时即便 AI 在回复，
 	// 也不抢滚动（不阻碍用户阅读历史）；用户回到底部或点浮动按钮再置 true。
 	const [stickBottom, setStickBottom] = useState(true);
+	// 会话内是否曾贴底：atBottomStateChange(true) 置位。进入会话定位重试用它区分
+	// 「定位失败从未贴底」（重试）与「用户已贴底后上翻」（不拉回）。
+	const everAtBottomRef = useRef(false);
 	// 自动滚动激活：主 agent 回复（streaming/thinking）或子代理运行中。
 	// followOutput 回调在列表内容增长时触发，闭包每帧随渲染刷新，直接读最新 state。
 	const autoScrollActive = !!(
@@ -204,6 +207,7 @@ export function MessageList({ sessionId }: Props) {
 	// 切换会话：重置停留状态为新会话「在底部」。
 	useEffect(() => {
 		setStickBottom(true);
+		everAtBottomRef.current = false;
 	}, [sessionId]);
 
 	// 同回合多 block 合并：SDK 对一个 turn 的每个 block（thinking/text/toolCall）发独立
@@ -274,16 +278,72 @@ export function MessageList({ sessionId }: Props) {
 		setStickBottom(true);
 	}, [scrollToEnd]);
 
+	// 发送消息恢复贴底跟随。
+	// 背景：进入会话定位到底存在竞态（scrollToEnd 与 Virtuoso 数据就绪竞争）——偶发定位
+	// 失败后视口停在中部/顶部，atBottomStateChange(false) 把 stickBottom 置 false；此后用户
+	// 发送新消息，三条自动滚动路径（强制贴底 effect / 200ms interval / followOutput）全部
+	// 依赖 stickBottom=true → 全部失效 → 新消息在视口外（「发送消息不自动滚到底」）。
+	// 发送动作本身是明确的「回到最新」意图（标准 IM 行为），应恢复跟随。检测信号：
+	// 历史已加载（didInitScrollRef 已设置）后，最后一条 user 消息的时间戳变化 = 用户新发送/
+	// 回声。历史首次填充时 didInitScrollRef 未设置，不触发（避免初始化滚动被重复拉起）。
+	// 该恢复不影响 319fd76b 语义：AI 回复中（无新 user 消息）用户上翻仍不抢滚动。
+	const lastUserTs = useMemo(() => {
+		for (let i = displayRows.length - 1; i >= 0; i--) {
+			const m = displayRows[i].main.message as any;
+			if (m.role === "user") return m.timestamp as number | undefined;
+		}
+		return undefined;
+	}, [displayRows]);
+	const prevUserTsRef = useRef<number | undefined>(undefined);
+	useEffect(() => {
+		if (
+			didInitScrollRef.current === sessionId &&
+			lastUserTs !== undefined &&
+			lastUserTs !== prevUserTsRef.current
+		) {
+			prevUserTsRef.current = lastUserTs;
+			setStickBottom(true);
+		}
+	}, [lastUserTs, sessionId]);
+
 	// 进入会话（含切换）：历史消息到达后定位到最新回复。依赖 listRows.length 是关键——
 	// SessionView 异步 api.get(.../messages) 加载历史，首访空缓存时本 effect 首次运行
 	// listRows 仍为空（早退）；历史到达后 listRows.length 由 0 变非空才重跑滚到底。
 	// 若仅依赖 [sessionId]，历史到达后不重跑 → 用户停在历史顶部（回归）。didInitScrollRef
 	// 守卫每会话只滚一次：同会话后续消息增长由 followOutput 跟随，不在此抢滚动。
-	// virtuosoRef.scrollToIndex 由 Virtuoso 内部 queue，测量就绪后执行（无 forced reflow）。
+	//
+	// 已知竞态：Virtuoso 首次大数据渲染（虚拟化测量未就绪）时 scrollToIndex 可能静默失败，
+	// 偶发导致视口停在顶部/中部，atBottomStateChange(false) 把 stickBottom 置 false——
+	// 此后用户发送消息三条自动滚动路径全失效（已由「发送恢复贴底」逻辑兜底，但进入会话
+	// 本身看不到最新回复仍是体验问题）。此处补强：仅当 !autoScrollActive（idle，无 interval
+	// 兜底）时启用 200ms 收敛——thinking/流式中 interval 已持续贴底，重试会与用户极快上翻
+	// 冲突（回归防护用例）。重试仅当从未贴底（定位失败）时进行；已贴底后用户上翻绝不拉回。
 	useEffect(() => {
 		if (listRows.length > 0 && didInitScrollRef.current !== sessionId) {
 			didInitScrollRef.current = sessionId;
 			scrollToEnd();
+			if (!autoScrollActiveRef.current) {
+				// Virtuoso 虚拟化首次大数据渲染时 scrollToIndex 定位不精确（估算行高），
+				// idle 无 interval/强制贴底兜底 → 视口可能停在中部。此处 200ms 收敛：
+				// 渲染逐步收敛后 scrollToIndex 精确到底（真实 atBottomStateChange(true) →
+				// everAtBottomRef 置位），即停止——避免把进入会话后 3s 内用户的上翻拉回。
+				// 3s 上限兜底（防意外永不贴底）。仅 idle 时启用。
+				const startedAt = Date.now();
+				const converge = setInterval(() => {
+					const el = scrollerElRef.current;
+					if (!el || everAtBottomRef.current || Date.now() - startedAt > 3000) {
+						clearInterval(converge);
+						return;
+					}
+					if (
+						el.scrollHeight - el.clientHeight - el.scrollTop > 40 &&
+						listRows.length > 0
+					) {
+						scrollToEnd();
+					}
+				}, 200);
+				return () => clearInterval(converge);
+			}
 		}
 	}, [sessionId, listRows.length, scrollToEnd]);
 
@@ -314,6 +374,7 @@ export function MessageList({ sessionId }: Props) {
 	// autoScrollActive 结束后恢复正常行为——用户上翻即暂停跟随。
 	const handleAtBottomChange = useCallback((atBottom: boolean) => {
 		if (atBottom) {
+			everAtBottomRef.current = true;
 			setStickBottom(true);
 		} else if (!autoScrollActiveRef.current) {
 			setStickBottom(false);

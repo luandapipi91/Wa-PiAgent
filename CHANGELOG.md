@@ -4,6 +4,67 @@
 
 ---
 
+## 2026-08-11 — fix(kernel): 看门狗误杀报错文案简化
+
+### 变更
+
+- 看门狗终止播报文案由「agent 长时间无响应（回合看门狗），已自动终止卡死进程，请重新发送消息」简化为「agent 长时间无响应已自动终止，请重新发送消息」（去掉内部术语「回合看门狗」「卡死进程」，同步更新 4 处测试断言）。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/tests/agent-manager.test.ts`。
+
+## 2026-08-11 — fix(kernel): 回合看门狗误杀——子代理（delegate/fleet）执行期间不再误判主代理假死
+
+### 修复
+
+- **主代理对话全被回合看门狗误杀（报「agent 长时间无响应，已自动终止卡死进程」）**：看门狗 idle 判定依赖 busy 期间收到 pi 事件刷新计时，但子代理（delegate/fleet）执行期间主会话**无 pi 事件**——子代理进度走 `onSubagentProgress` 独立通道（index.ts 单独 broadcast），不经 `_onSessionEvent`。主代理等待子代理超过 idle 阈值（默认 5 分钟）即被误判假死强杀；自动重试后主代理再次 delegate → 再次误杀 → 才播报错误。
+  - 修复：`_onTurnWatchdogFire` 豁免条件增加 `handle.subagentAborts.size > 0`（有活跃子代理在跑 = 正常长无事件状态，同 ask/扩展 dialog 豁免），跳过触发并重新武装 idle 计时。子代理自身有 settle 超时兜底，不会无限执行。
+  - TDD：新增测试「回合看门狗：子代理（delegate/fleet）执行期间不误杀主代理」，红灯（fake.alive=false 误杀）→ 修复 → 绿灯。
+  - 影响范围：`packages/kernel/src/agent-manager.ts`、`packages/kernel/tests/agent-manager.test.ts`。
+
+## 2026-08-11 — fix(frontend): 发送消息后不自动滚动到底（stickBottom 误置 + 进入定位竞态）
+
+### 修复
+
+- **根因链**：① 进入会话定位到底存在竞态——Virtuoso 虚拟化首次大数据渲染时 scrollToIndex 基于估算行高定位，偶发失败或停在中部，视口不在底部 → `atBottomStateChange(false)` 把 stickBottom 置 false；② 此后用户发送新消息，三条自动滚动路径（强制贴底 effect / 200ms interval / followOutput）全部依赖 stickBottom=true → 全部失效 → 新消息在视口外（用户报告「发送消息不自动滚到底」）。
+- **修改**（`packages/frontend/src/components/MessageList.tsx`）：
+  - 发送恢复贴底：新 user 消息到达（乐观置入/回声）时 `setStickBottom(true)`——发送是明确的「回到最新」意图（标准 IM 行为），不再受此前 stickBottom 误置影响。不影响 319fd76b 语义：AI 回复中（无新 user 消息）用户上翻仍不抢滚动。
+  - 进入会话定位收敛：idle 状态（无 interval 兜底）下 200ms 有界收敛（3s 上限），渲染收敛后 scrollToIndex 精确到底，真实贴底（atBottomStateChange(true) → everAtBottomRef）即停止——避免把进入后 3s 内用户上翻拉回。
+- **测试**：`tests/MessageList.subagent-scroll.test.tsx` 新增 2 用例（stickBottom=false 发送恢复贴底、AI 回复中上翻不恢复回归防护）；`e2e/send-scroll.spec.ts` 新增 3 场景（进入即发送、上翻后发送、发送+流式跟随）。修复前 A 场景 e2e 偶发失败率约 1/3，修复后 4 连全过。
+- **影响范围**：packages/frontend MessageList 自动滚动逻辑。
+
+---
+
+## 2026-08-11 — fix(kernel): 用户主动停止不再误报「The operation was aborted.」红色错误
+
+### 修复
+
+- **根因**：用户点击「停止」时，pi 内部某些异步操作（工具执行 / 模型刷新 / 认证操作等）被 AbortSignal 中断，会把 AbortError 当成普通运行时错误，以 `stopReason:"error"` + `errorMessage:"The operation was aborted"` 上报。kernel 的 `classifySdkError` 中该文案既不匹配 transient 也不匹配 fatal 正则 → 默认归 fatal → 广播 `{type:"error"}` → 前端显示红色错误消息（误报——主动停止本应静默）。
+- **修改**：`packages/kernel/src/sdk-errors.ts` 新增 abort 类文案识别（`isAbortErrorMessage`，匹配消息尾部 `aborted` 语义，刻意排除 quota 语境等中间态）；`classifySdkError` / `extractSdkErrorMessage` 对 abort 类直接返回 `null`（不广播、不显示），与 pi 正常编码的 `stopReason:"aborted"` 走同一静默通道；`isTransientErrorMessage` 对 abort 类返回 `true`，保证历史回读（session-history）也剔除这类残留。
+- **测试**：`packages/kernel/tests/sdk-errors.test.ts` +13 例（各 abort 变体 → null / 历史过滤 true / 回归：quota 含 aborted 仍 fatal、Connection error 仍 transient）。47 pass / 0 fail。
+- 影响范围：`packages/kernel/src/sdk-errors.ts`、`packages/kernel/tests/sdk-errors.test.ts`。
+
+---
+
+## 2026-08-11 — fix(frontend): 并行委托（FleetCard）状态栏移到卡片底部，与 DelegateCard 一致
+
+### 调整
+
+- **FleetCard 子任务展开详情**：状态行（`【agent】 · 状态 · 秒数`）从回复上方移到 StreamingOutput 之后，作为该子任务尾部状态。
+- **FleetCard 降级聚合场景**：每任务统计行（`fleet-progress-*` 容器）移到聚合回复区（`text-block`）之后，保证统计行始终在卡片底部（正常场景本就位于底部，降级场景同步对齐）。
+- TDD：新增 2 例——「子任务展开：状态行渲染在回复之后」「降级聚合：统计行渲染在聚合回复区之后」；既有 26 例全绿。
+- 影响范围：`packages/frontend/src/components/blocks/FleetCard.tsx`（内层 FleetTaskItem 状态行 + 外层块交换）、`packages/frontend/tests/FleetCard.test.tsx`（+2 例）。
+
+---
+
+## 2026-08-11 — fix(frontend): 委托卡片状态摘要行移到卡片底部（任务/回复之上，作为汇总尾行）
+
+### 调整
+
+- **委托卡片（DelegateCard）状态摘要行**（「子智能体 · 运行中 · 51s · 共 18 个工具 · 成功 18 · 失败 0 · 执行中 0」）从任务行下方移到卡片 body 底部：顺序变为 任务 → 回复 → 状态摘要。执行中为纯文本、完成态为展开开关（展开看回复详情）的行为不变，仅视觉位置调整。
+- TDD：新增测试「有进度时：状态摘要行渲染在卡片底部（回复区之后）」断言 `delegate-progress-*` 位于 `text-block` 之后；现有文本/交互断言不受影响。
+- 影响范围：`packages/frontend/src/components/blocks/DelegateCard.tsx`（JSX 块交换）、`packages/frontend/tests/DelegateCard.test.tsx`（+1 例）。
+
+---
+
 ## 2026-08-11 — fix(kernel): IM 渠道流式 delta 按 contentIndex 分块累积（并发竞态修复）
 
 ### 修复

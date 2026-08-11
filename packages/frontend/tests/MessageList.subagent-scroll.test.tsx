@@ -319,3 +319,85 @@ test("程序化贴底（scrollTop 增大）不误停 interval：自动滚动继�
 	await new Promise((r) => setTimeout(r, 600));
 	expect(scrollToIndexCalls.length).toBeGreaterThan(countBeforeScroll);
 });
+
+// ============================================================================
+// 发送消息恢复贴底跟随——回归守护（bug：发送消息不自动滚到底）
+// 背景：进入会话定位到底存在竞态（scrollToEnd 与 Virtuoso 数据就绪竞争）——偶发定位
+// 失败后视口停在中部/顶部，atBottomStateChange(false) 把 stickBottom 置 false；此后用户
+// 发送新消息，三条自动滚动路径（强制贴底 effect / 200ms interval / followOutput）全部
+// 依赖 stickBottom=true → 全部失效 → 新消息在视口外。修复：新 user 消息到达（发送/回声）
+// → 恢复 stickBottom=true（发送是明确的「回到最新」意图，标准 IM 行为）。
+// ============================================================================
+
+// 复刻进入会话定位失败后的状态：视口不在底部（stickBottom=false）。
+// 用原生 scroll 事件（scrollTop 减小）置 stickBottom=false——与 handleScrollerScroll 交互。
+function forceStickBottomFalse() {
+	expect(mockScrollerEl).not.toBeNull();
+	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 1600, writable: true });
+	Object.defineProperty(mockScrollerEl!, "scrollHeight", { value: 2000, writable: true });
+	Object.defineProperty(mockScrollerEl!, "clientHeight", { value: 400, writable: true });
+	// 程序化贴底（scrollTop 增大）——初始化 lastScrollTopRef
+	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
+	// 用户上翻（scrollTop 减小）→ stickBottom=false
+	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 500, writable: true });
+	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
+}
+
+test("stickBottom=false（用户不在底部）时发送新消息 → 应恢复贴底并滚动到底部", async () => {
+	useSessionStore.setState({
+		messagesBySession: { s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")] },
+		statusBySession: { s1: "idle" },
+	});
+	render(<MessageList sessionId="s1" />);
+	// 等初始进入会话滚动完成
+	await waitFor(() => expect(scrollToIndexCalls.length).toBeGreaterThan(0));
+	scrollToIndexCalls.length = 0;
+
+	// 用户不在底部（模拟进入定位失败/用户上翻后的 stickBottom=false）
+	forceStickBottomFalse();
+	// 等 scroll 事件置 stickBottom=false 生效（浮钮逻辑）
+	await new Promise((r) => setTimeout(r, 50));
+	scrollToIndexCalls.length = 0;
+
+	// 用户发送新消息（乐观置入 + thinking）
+	useSessionStore.getState().optimisticSend("s1", "新问题", "dev");
+
+	// 修复后：发送消息应恢复贴底 → scrollToIndex 被调用滚到末行
+	await waitFor(() => {
+		expect(scrollToIndexCalls.length).toBeGreaterThan(0);
+	});
+	const last = scrollToIndexCalls[scrollToIndexCalls.length - 1];
+	expect(last.align).toBe("end");
+});
+
+test("回归防护：AI 回复中（无新 user 消息）用户上翻 → 不恢复贴底（319fd76b 语义保持）", async () => {
+	useSessionStore.setState({
+		messagesBySession: { s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的")] },
+		statusBySession: { s1: "thinking" },
+		streamingBySession: {
+			s1: {
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "正在回复" }],
+					model: "pending",
+					stopReason: "pending",
+					timestamp: 999,
+				},
+				agentName: "dev",
+			},
+		},
+	});
+	render(<MessageList sessionId="s1" />);
+	await waitFor(() => expect(scrollToIndexCalls.length).toBeGreaterThan(0));
+	scrollToIndexCalls.length = 0;
+	await new Promise((r) => setTimeout(r, 250)); // interval 已在跑
+
+	// 用户上翻 → stickBottom=false → interval 停止
+	forceStickBottomFalse();
+	await new Promise((r) => setTimeout(r, 300));
+	const afterUpScroll = scrollToIndexCalls.length;
+
+	// 等 500ms：无新 user 消息 → 不应恢复滚动（interval 停止）
+	await new Promise((r) => setTimeout(r, 500));
+	expect(scrollToIndexCalls.length).toBe(afterUpScroll);
+});
