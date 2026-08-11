@@ -36,7 +36,13 @@ function seedLongSession() {
 	}
 	mkdirSync(join(E2E_WA_PI_DIR, "sessions"), { recursive: true });
 
-	const line = (id: string, parentId: string | null, role: string, text: string, ts: number) =>
+	const line = (
+		id: string,
+		parentId: string | null,
+		role: string,
+		text: string,
+		ts: number,
+	) =>
 		JSON.stringify({
 			type: "message",
 			id,
@@ -95,7 +101,9 @@ async function scrollMetrics(page: import("@playwright/test").Page) {
 	});
 }
 
-test("长会话虚拟化：进入即定位最新 → 上滑浮钮 → 点浮钮回底", async ({ page }) => {
+test("长会话虚拟化：进入即定位最新 → 上滑浮钮 → 点浮钮回底", async ({
+	page,
+}) => {
 	test.setTimeout(90_000);
 	seedLongSession();
 	// 预置模型供应商：隔离环境默认无 provider，App 首启会弹出 onboarding 向导
@@ -115,7 +123,9 @@ test("长会话虚拟化：进入即定位最新 → 上滑浮钮 → 点浮钮�
 	await expect(row).toBeVisible({ timeout: 10_000 });
 	await row.click();
 
-	await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 10_000 });
+	await expect(page.getByTestId("session-view")).toBeVisible({
+		timeout: 10_000,
+	});
 	// 末轮回复渲染（定位到底部后末行可见）
 	await expect(page.getByText("回答 60：")).toBeVisible({ timeout: 15_000 });
 
@@ -148,7 +158,9 @@ test("长会话虚拟化：进入即定位最新 → 上滑浮钮 → 点浮钮�
 	const afterUp = await scrollMetrics(page);
 	expect(afterUp!.scrollTop).toBeLessThan(80);
 	// 首轮用户问题在顶部可见（虚拟化在顶部窗口渲染）
-	await expect(page.getByText("这是第 1 个用户问题")).toBeVisible({ timeout: 8_000 });
+	await expect(page.getByText("这是第 1 个用户问题")).toBeVisible({
+		timeout: 8_000,
+	});
 
 	// 3) 点浮钮 → 回到底部、浮钮消失
 	await floatBtn.click();
@@ -242,18 +254,13 @@ test.describe("流式渲染性能优化验收", () => {
 	}
 
 	// 滚动 message-list 到指定 scrollTop 并派发原生 scroll 事件（触发 virtuoso atBottomStateChange）
-	async function scrollTo(
-		page: import("@playwright/test").Page,
-		top: number,
-	) {
-		await page
-			.locator('[data-testid="message-list"]')
-			.evaluate((el, t) => {
-				// 用户滚动输入（wheel）→ 标记「用户主动滚动」
-				el.dispatchEvent(new Event("wheel", { bubbles: true }));
-				el.scrollTop = t;
-				el.dispatchEvent(new Event("scroll", { bubbles: true }));
-			}, top);
+	async function scrollTo(page: import("@playwright/test").Page, top: number) {
+		await page.locator('[data-testid="message-list"]').evaluate((el, t) => {
+			// 用户滚动输入（wheel）→ 标记「用户主动滚动」
+			el.dispatchEvent(new Event("wheel", { bubbles: true }));
+			el.scrollTop = t;
+			el.dispatchEvent(new Event("scroll", { bubbles: true }));
+		}, top);
 	}
 
 	test("流式对话：合帧更新 → 定稿后代码块高亮", async ({ page }) => {
@@ -266,9 +273,30 @@ test.describe("流式渲染性能优化验收", () => {
 			const { useSessionStore } = await import("/src/store/session.ts");
 			const h = useSessionStore.getState().handleSDKEvent;
 			const now = Date.now();
-			h(sid, { event: { type: "message_start", message: { role: "assistant", content: [], model: "m", timestamp: now } }, agentName: "dev" } as any);
+			h(sid, {
+				event: {
+					type: "message_start",
+					message: {
+						role: "assistant",
+						content: [],
+						model: "m",
+						timestamp: now,
+					},
+				},
+				agentName: "dev",
+			} as any);
 			for (let i = 0; i < 20; i++) {
-				h(sid, { event: { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: `片段${i} ` } }, agentName: "dev" } as any);
+				h(sid, {
+					event: {
+						type: "message_update",
+						assistantMessageEvent: {
+							type: "text_delta",
+							contentIndex: 0,
+							delta: `片段${i} `,
+						},
+					},
+					agentName: "dev",
+				} as any);
 			}
 		}, sessionId);
 
@@ -283,8 +311,12 @@ test.describe("流式渲染性能优化验收", () => {
 					type: "message_end",
 					message: {
 						role: "assistant",
-						content: [{ type: "text", text: "完整回复\n\n```js\nconst x = 1;\n```" }],
-						model: "m", stopReason: "end_turn", timestamp: Date.now(),
+						content: [
+							{ type: "text", text: "完整回复\n\n```js\nconst x = 1;\n```" },
+						],
+						model: "m",
+						stopReason: "end_turn",
+						timestamp: Date.now(),
 					},
 				},
 				agentName: "dev",
@@ -292,10 +324,14 @@ test.describe("流式渲染性能优化验收", () => {
 		}, sessionId);
 
 		// 定稿后代码块高亮卡片出现（llm-ui 块边界 → CodeBlockCard）
-		await expect(page.getByTestId("code-block-card")).toBeVisible({ timeout: 5000 });
+		await expect(page.getByTestId("code-block-card")).toBeVisible({
+			timeout: 5000,
+		});
 	});
 
-	test("delegate 子代理：运行中纯文本预览，完成后 markdown", async ({ page }) => {
+	test("delegate 子代理：运行中纯文本预览，完成后 markdown", async ({
+		page,
+	}) => {
 		test.setTimeout(30_000);
 		const sessionId = await enterSession(page, "delegate 测试");
 		await waitHistoryReady(page, sessionId);
@@ -306,14 +342,27 @@ test.describe("流式渲染性能优化验收", () => {
 			useSessionStore.getState().append(sid, {
 				message: {
 					role: "assistant",
-					content: [{ type: "toolCall", id: "tc-sp-1", name: "delegate", arguments: { agent: "pm", task: "调研" } }],
-					model: "m", stopReason: "tool_use", timestamp: Date.now(),
+					content: [
+						{
+							type: "toolCall",
+							id: "tc-sp-1",
+							name: "delegate",
+							arguments: { agent: "pm", task: "调研" },
+						},
+					],
+					model: "m",
+					stopReason: "tool_use",
+					timestamp: Date.now(),
 				},
 				agentName: "dev",
 				sessionId: sid,
 			} as any);
 			useSessionStore.getState().handleSubagentProgress(sid, "tc-sp-1", {
-				agent: "pm", status: "running", output: "**加粗** 中", tools: [], elapsedMs: 100,
+				agent: "pm",
+				status: "running",
+				output: "**加粗** 中",
+				tools: [],
+				elapsedMs: 100,
 			});
 		}, sessionId);
 
@@ -327,9 +376,11 @@ test.describe("流式渲染性能优化验收", () => {
 			const { useSessionStore } = await import("/src/store/session.ts");
 			useSessionStore.getState().append(sid, {
 				message: {
-					role: "toolResult", toolCallId: "tc-sp-1",
+					role: "toolResult",
+					toolCallId: "tc-sp-1",
 					content: [{ type: "text", text: "**加粗** 结果" }],
-					isError: false, timestamp: Date.now(),
+					isError: false,
+					timestamp: Date.now(),
 				},
 				agentName: "dev",
 				sessionId: sid,
@@ -357,9 +408,16 @@ test.describe("流式渲染性能优化验收", () => {
 			const msgs = [];
 			for (let i = 0; i < 200; i++) {
 				msgs.push({
-					message: i % 2 === 0
-						? { role: "user", content: `问题 ${i}`, timestamp: 1000 + i }
-						: { role: "assistant", content: [{ type: "text", text: `回答 ${i}` }], model: "m", stopReason: "end_turn", timestamp: 1000 + i },
+					message:
+						i % 2 === 0
+							? { role: "user", content: `问题 ${i}`, timestamp: 1000 + i }
+							: {
+									role: "assistant",
+									content: [{ type: "text", text: `回答 ${i}` }],
+									model: "m",
+									stopReason: "end_turn",
+									timestamp: 1000 + i,
+								},
 					agentName: i % 2 === 0 ? undefined : "dev",
 				});
 			}

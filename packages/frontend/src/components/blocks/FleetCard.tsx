@@ -164,12 +164,6 @@ function FleetTaskItem({
 			</button>
 			{expanded && (showReply || hasProgress || !!toolStats) && (
 				<div className="mt-1 mb-1 pl-2 border-l border-hairline">
-					{hasProgress && (
-						<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1">
-							<span className="font-semibold">{agent}</span> ·{" "}
-							{statusLabel(progress!.status)} · {seconds}s
-						</div>
-					)}
 					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1">
 						<Icon name="share" size={11} />
 						<span>{t("blocks.fleet.replyLabel")}</span>
@@ -179,6 +173,13 @@ function FleetTaskItem({
 						sessionId={sessionId}
 						streaming={!isCompleted}
 					/>
+					{/* 状态行（agent · 状态 · 秒数）：渲染在回复之后，作为该子任务的尾部状态 */}
+					{hasProgress && (
+						<div className="text-[calc(11px*var(--font-scale))] text-tertiary mt-1">
+							<span className="font-semibold">{agent}</span> ·{" "}
+							{statusLabel(progress!.status)} · {seconds}s
+						</div>
+					)}
 				</div>
 			)}
 		</div>
@@ -190,7 +191,12 @@ function FleetTaskItem({
  *  有实时进度时：外层默认展开（保任务清单/统计行可见），头部点击折叠/展开整张卡片；
  *  子任务行各自独立展开/折叠，互不影响。
  *  与 delegate 的差异：fleet 一个 toolCallId 下多个 agent，直接消费整个内层 map。 */
-export const FleetCard = memo(function FleetCard({ sessionId, toolCall, result, isStreaming }: Props) {
+export const FleetCard = memo(function FleetCard({
+	sessionId,
+	toolCall,
+	result,
+	isStreaming,
+}: Props) {
 	const args = toolCall.arguments as {
 		tasks?: Array<{ agent: string; task: string }>;
 	};
@@ -309,7 +315,22 @@ export const FleetCard = memo(function FleetCard({ sessionId, toolCall, result, 
 					))}
 				</div>
 			)}
-			{/* 每任务统计行（可独立展开看回复） */}
+			{/* 降级：无法按 agent 拆分时聚合显示回复（老数据兼容） */}
+			{!canSplit && full !== "" && (
+				<div
+					data-testid="text-block"
+					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
+				>
+					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1">
+						<Icon name="share" size={11} />
+						<span>{t("blocks.fleet.replyLabel")}</span>
+					</div>
+					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+						{formattedFull}
+					</ReactMarkdown>
+				</div>
+			)}
+			{/* 每任务统计行（可独立展开看回复）：渲染在卡片底部，作为汇总尾行 */}
 			{visibleRows.length > 0 && (
 				<div
 					className="mt-2 pt-2 border-t border-hairline"
@@ -327,21 +348,6 @@ export const FleetCard = memo(function FleetCard({ sessionId, toolCall, result, 
 							sessionId={sessionId}
 						/>
 					))}
-				</div>
-			)}
-			{/* 降级：无法按 agent 拆分时聚合显示回复（老数据兼容） */}
-			{!canSplit && full !== "" && (
-				<div
-					data-testid="text-block"
-					className={`mt-2 pt-2 border-t border-hairline ${failed ? "text-danger" : ""}`}
-				>
-					<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-1 flex items-center gap-1">
-						<Icon name="share" size={11} />
-						<span>{t("blocks.fleet.replyLabel")}</span>
-					</div>
-					<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-						{formattedFull}
-					</ReactMarkdown>
 				</div>
 			)}
 		</ProcessCard>

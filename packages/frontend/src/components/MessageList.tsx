@@ -218,7 +218,15 @@ export function MessageList({ sessionId }: Props) {
 	// 键盘滚动（PageUp/PageDown/方向键/Home/End/空格）
 	const handleKeyDown = useCallback(
 		(e: KeyboardEvent) => {
-			const SCROLL_KEYS = ["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End", " "];
+			const SCROLL_KEYS = [
+				"PageUp",
+				"PageDown",
+				"ArrowUp",
+				"ArrowDown",
+				"Home",
+				"End",
+				" ",
+			];
 			if (SCROLL_KEYS.includes(e.key)) markUserScrollInput();
 		},
 		[markUserScrollInput],
@@ -469,10 +477,16 @@ export function MessageList({ sessionId }: Props) {
 				// 与 Virtuoso 自身一致标 passive：该 listener 不 preventDefault，且避免未来误加
 				el.addEventListener("scroll", handleScrollerScroll, { passive: true });
 				el.addEventListener("wheel", markUserScrollInput, { passive: true });
-				el.addEventListener("touchstart", markUserScrollInput, { passive: true });
+				el.addEventListener("touchstart", markUserScrollInput, {
+					passive: true,
+				});
 				el.addEventListener("keydown", handleKeyDown, { passive: true });
-				el.addEventListener("pointerdown", handlePointerDown, { passive: true });
-				el.addEventListener("pointermove", handlePointerMove, { passive: true });
+				el.addEventListener("pointerdown", handlePointerDown, {
+					passive: true,
+				});
+				el.addEventListener("pointermove", handlePointerMove, {
+					passive: true,
+				});
 				el.addEventListener("pointerup", handlePointerUp, { passive: true });
 				lastScrollTopRef.current = el.scrollTop;
 			} else {

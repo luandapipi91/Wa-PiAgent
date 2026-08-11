@@ -145,7 +145,13 @@ test("MessageList 内联渲染 DelegateCard：无普通 toolCall 时不出现分
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	// delegate 内联在消息流中，无需任何工具调用分组即可见
@@ -187,7 +193,13 @@ test("delegate 与普通 toolCall 混合：delegate 内联独立成卡，普通�
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	// delegate 卡片直接可见（内联在消息流中）
@@ -375,7 +387,13 @@ test("MessageList 对非 delegate 调用仍渲染 ToolCallCard", () => {
 			],
 		},
 	});
-	render(<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}><MessageList sessionId="s1" /></VirtuosoMockContext.Provider>);
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" />
+		</VirtuosoMockContext.Provider>,
+	);
 	// 轮级折叠：已定稿行过程段默认折叠进摘要行，先展开再断言卡片
 	fireEvent.click(screen.getByTestId("turn-summary"));
 	expect(screen.getByTestId("toolcall-c1")).toBeTruthy();
@@ -577,4 +595,37 @@ test("执行中 progress 陆续到达不自动重新打开已折叠的卡片", (
 		elapsedMs: 1000,
 	});
 	expect(screen.queryByTestId("delegate-tc-keepfold-body")).toBeNull();
+});
+
+test("有进度时：状态摘要行渲染在卡片底部（回复区之后）", () => {
+	setProgress("tc-order", "general-purpose", {
+		status: "running",
+		output: "正在分析代码",
+		tools: [{ id: "t1", name: "Bash", status: "done" }],
+		elapsedMs: 12000,
+	});
+	const { container } = render(
+		<DelegateCard
+			sessionId="s1"
+			toolCall={{
+				type: "toolCall",
+				id: "tc-order",
+				name: "delegate",
+				arguments: { agent: "general-purpose", task: "hi" },
+			}}
+		/>,
+	);
+	const body = container.querySelector(
+		"[data-testid='delegate-tc-order-body']",
+	);
+	const reply = container.querySelector("[data-testid='text-block']");
+	const progress = container.querySelector(
+		"[data-testid='delegate-progress-tc-order']",
+	);
+	expect(body).toBeTruthy();
+	expect(reply).toBeTruthy();
+	expect(progress).toBeTruthy();
+	// 状态摘要行（含「运行中 · 12s · 共 1 个工具」）必须在回复区之后 = 卡片底部
+	const rel = reply!.compareDocumentPosition(progress!);
+	expect(rel & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
