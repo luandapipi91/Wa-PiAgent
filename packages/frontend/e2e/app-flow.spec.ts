@@ -63,9 +63,11 @@ test("编排画布显示 4 节点", async () => {
 test("Agent 配置 modal 打开并切换 tab", async ({ page }) => {
   await enterSession(page, "配置测试会话");
   // 隔离环境仅内置 dev（displayName 研发，global-setup 预置；旧用例的「技术实现」已不存在）。
-  // 详情弹窗现经侧栏右键【编辑智能体】打开（左键是带着预选切新建会话页）
-  await page.getByTestId("agent-研发").click({ button: "right" });
-  await page.getByTestId("agent-ctx-edit").click();
+  // 详情弹窗现经折叠栏 → 宫格卡片右键【编辑】打开（左键是带着预选切新建会话页）
+  await page.getByTestId("agent-collapsed").click();
+  await expect(page.getByTestId("agent-gallery")).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId("gallery-card-研发").click({ button: "right" });
+  await page.getByTestId("gallery-ctx-edit").click();
   await expect(page.getByTestId("agent-config")).toBeVisible();
   // tab 现为 基本/工具/技能/关系网：基本页含系统提示词 textarea
   await page.getByTestId("tab-basic").click();
@@ -73,7 +75,8 @@ test("Agent 配置 modal 打开并切换 tab", async ({ page }) => {
   await page.locator("textarea").first().fill("你是资深工程师 v2-e2e");
   await expect(page.locator("textarea").first()).toHaveValue("你是资深工程师 v2-e2e");
   await page.getByTestId("tab-partners").click();
-  await expect(page.getByText(/可发起 ask/)).toBeVisible();
+  // 关系网 tab 现渲染 partner-search 搜索框（旧文案「可发起 ask」已不存在，改用与 agents.spec 一致的 testid 断言）
+  await expect(page.getByTestId("partner-search")).toBeVisible();
 });
 
 });
