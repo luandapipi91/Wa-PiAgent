@@ -2,6 +2,20 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-13 — feat(desktop): 首启按需下载 Node.js 运行时，解决无 node 环境 MCP npx 报错
+
+### 变更
+
+- **问题**：打包版只捆绑 bun（wa-pi-kernel.exe），从不捆绑 node。用户未安装 node 时，MCP 服务器通过 `npx -y <package>` 启动会报错（`"node" is not recognized` / npx-resolver 30s 卡顿 / POSIX shim 无法执行等）——MCP 服务器是第三方进程，其内部对 node 运行时的依赖无法通过 bun 兼容性兜底解决。
+- **方案**：首启时检测系统 node，无系统 node 则自动下载 Node.js LTS（v22.23.2）到 `~/.pi/agent/node/`。通过 IP 地理位置检测（ip-api.com）自动选择下载源：国内用户优先 npmmirror，国外用户优先 nodejs.org。下载的 node 自带完整 npm/npx。
+- **改动**：
+  - 新增 `packages/desktop/src/util/node-runtime.cjs`：IP 检测（detectIsCN）+ 下载源选择 + node LTS 下载/解压/版本管理（ensureNodeRuntime）
+  - `main.cjs` 启动流程新增 2b+) 步骤：在首启依赖安装（2c）前检测/下载 node，splash 显示进度
+  - `ensureRuntimeBinLinks` 改造：有真实 node 时 binDir 只生成 bun.cmd（避免 bun x 包装脚本遮蔽 node 自带的 npm/npx），node/npm/npx 由下载的 node 目录自带，PATH 追加 binDir + nodeDir
+  - 无 node（下载失败）时保持现有 bun fallback 行为不变
+- **影响范围**：`packages/desktop/src/util/node-runtime.cjs`（新增）、`packages/desktop/src/main.cjs`（ensureRuntimeBinLinks + 启动流程）
+- **验证**：单元测试 21/21 + E2E 2/2 全通过——IP 检测 CN → npmmirror 下载 34MB → 解压 → node v22.23.2 / npm 10.9.8 / npx 10.9.8 全部可用；端到端 `npx -y @modelcontextprotocol/server-filesystem` 成功启动
+
 ## 2026-08-13 — fix(kernel): RPC 模式 custom() 挂根治——bridge 扩展 session_start patch
 
 ### 变更
