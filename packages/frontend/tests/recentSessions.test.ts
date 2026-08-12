@@ -50,6 +50,22 @@ test("dayLabelOf：今天/昨天/M月D日/跨年加年份", () => {
   expect(dayLabelOf(new Date(2025, 11, 20, 9, 0).getTime(), NOW, t)).toBe("2025年12月20日");
 });
 
+test("lastActivity 缺失回退 createdAt；空数组返回 []；未知 projectId 回退 pid", () => {
+  // 空数组 → 空结果
+  expect(buildRecentSessions(projects, [], NOW, t)).toEqual([]);
+
+  const sessions = [
+    mk("s1", "p1", NOW - 5000),                        // lastActivity 正常
+    mk("s2", "p1", 0, { createdAt: NOW - 1000 }),      // lastActivity=0 → 回退 createdAt，应排最前
+    mk("s3", "unknown", 0, { createdAt: NOW - 60000 }), // lastActivity=0 + 未知 projectId
+  ];
+  const items = buildRecentSessions(projects, sessions, NOW, t);
+  // lastActivity=0 时按 createdAt 排序
+  expect(items.map((i) => i.session.id)).toEqual(["s2", "s1", "s3"]);
+  // 未知 projectId 回退 pid 作为项目名
+  expect(items[2].projectName).toBe("unknown");
+});
+
 test("按天分组键正确（组内保持倒序）", () => {
   const sessions = [
     mk("s1", "p1", NOW - 3600000), // 今天
