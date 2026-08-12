@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.1.24",
+    "date": "2026-08-12",
+    "sections": {
+      "修复": [
+        "便签快捷选项滚轮横向滚动修复：改用原生 passive:false 绑定，消除控制台 preventDefault 警告，页面纵向滚动不再被误拦"
+      ]
+    }
+  },
+  {
     "version": "0.1.23",
     "date": "2026-08-12",
     "sections": {
