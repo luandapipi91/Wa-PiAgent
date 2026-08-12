@@ -18,9 +18,13 @@ contextBridge.exposeInMainWorld("waPiClipboard", {
 	},
 });
 
-// 端口占用时启动页「重启应用」按钮调用：主进程杀占用进程后 relaunch
+// 端口占用时启动页「换端口启动」/「退出」按钮调用：
+// - switchPortStart：主进程找可用端口后 relaunch 带新端口
+// - quit：直接退出应用（splash 无边框，错误态下的主动退出途径）
 contextBridge.exposeInMainWorld("waPiApp", {
 	restartAfterPortKill: () => ipcRenderer.invoke("app:restart-after-port-kill"),
+	switchPortStart: () => ipcRenderer.invoke("app:switch-port-start"),
+	quit: () => ipcRenderer.invoke("app:quit"),
 	// 大文件附件降级用：从渲染进程的 File 对象取真实文件系统路径
 	// （contextIsolation:true 下渲染进程无法直接访问 webUtils）。
 	// Electron 32+ 废弃了 File.path，必须经此 API 获取。

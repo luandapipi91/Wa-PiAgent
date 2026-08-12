@@ -65,34 +65,14 @@ function buildSplashURL() {
 	const logoB64 = fs.existsSync(logoPath)
 		? fs.readFileSync(logoPath).toString("base64")
 		: "";
-	const logoSrc = logoB64 ? `data:image/png;base64,${logoB64}` : "";
-	const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8"/><style>
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{height:100%}
-body{background:${CANVAS_BG};display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;color:#1d1d1f;user-select:none;overflow:hidden;-webkit-app-region:drag}
-.logo{width:96px;height:96px;border-radius:22px;box-shadow:0 8px 24px rgba(0,0,0,.12);margin-bottom:24px}
-.name{font-size:20px;font-weight:600;letter-spacing:.5px;margin-bottom:34px}
-.bar{width:200px;height:4px;border-radius:99px;background:#e5e5ea;overflow:hidden}
-.fill{height:100%;width:8%;border-radius:99px;background:${BRAND_GREEN};transition:width .45s cubic-bezier(.4,0,.2,1)}
-.status{margin-top:16px;font-size:12px;color:#86868b;min-height:16px;text-align:center;padding:0 24px}
-.err{color:#d9404d}
-#restart-btn{display:none;margin-top:20px;padding:8px 20px;border:0;border-radius:8px;background:${BRAND_GREEN};color:#fff;font-size:13px;font-weight:600;cursor:pointer;-webkit-app-region:no-drag}
-#restart-btn:active{opacity:.85}
-</style></head><body>
-${logoSrc ? `<img class="logo" src="${logoSrc}" alt="WA PI Agent"/>` : `<div class="logo" style="background:${BRAND_GREEN}"></div>`}
-<div class="name">WA PI Agent</div>
-<div class="bar"><div class="fill" id="fill"></div></div>
-<div class="status" id="status">正在启动…</div>
-<button id="restart-btn" type="button">重启应用</button>
-<script>
-window.__setProgress=function(p,t){var f=document.getElementById('fill');if(f)f.style.width=Math.max(5,Math.min(100,p))+'%';var s=document.getElementById('status');if(s){if(t){s.textContent=t;s.className='status';}if(p<0){s.className='status err';}}};
-window.__showRestart=function(){var b=document.getElementById('restart-btn');if(b)b.style.display='block';};
-document.getElementById('restart-btn').addEventListener('click',function(){this.disabled=true;this.textContent='正在重启…';if(window.waPiApp)window.waPiApp.restartAfterPortKill();});
-</script>
-</body></html>`;
+	const { buildSplashHTML } = require("./util/splash-html.cjs");
+	const html = buildSplashHTML({
+		logoB64,
+		canvasBg: CANVAS_BG,
+		brandGreen: BRAND_GREEN,
+	});
 	return "data:text/html;charset=utf-8," + encodeURIComponent(html);
 }
-
 function createSplash() {
 	splashWindow = new BrowserWindow({
 		width: 360,
@@ -400,7 +380,8 @@ app.whenReady().then(async () => {
 		},
 	});
 
-	// 端口被占用时启动页「重启应用」按钮的处理：杀掉占用 9778 的进程后重启本应用
+	// 端口被占用时启动页「换端口启动」按钮的处理：杀掉占用进程后重启本应用（保留；
+	// 与 switch-port-start 并存，重启仍优先清理占用端口）
 	ipcMain.handle("app:restart-after-port-kill", async () => {
 		const pids = await killPortOccupants(FIXED_PORT, undefined, (m) =>
 			log.info(m),
@@ -411,17 +392,46 @@ app.whenReady().then(async () => {
 		// 短暂等待端口真正释放
 		await new Promise((r) => setTimeout(r, 500));
 		// 清理后仍占用：幽灵句柄由无我方特征的进程持有（如 agent 帮用户起的 dev server），
-		// 自动清理无能为力——诚实提示，不再 relaunch 进同一个死循环
+		// 自动清理无能为力——诚实提示，提供换端口启动/退出，不再 relaunch 进同一个死循环
 		if (await isPortInUse(FIXED_PORT)) {
 			log.error(`[port-kill] 端口 ${FIXED_PORT} 清理后仍被占用，放弃重启`);
 			setProgress(
 				-1,
-				`端口 ${FIXED_PORT} 仍被占用，自动清理失败。请在任务管理器中结束残留的 bun / wa-pi 进程，或重启电脑后再试。`,
+				`端口 ${FIXED_PORT} 仍被占用，自动清理失败。可换端口启动，或在任务管理器中结束残留进程后再试。`,
 			);
+			splashWindow?.webContents
+				?.executeJavaScript(
+					"window.__showActions&&window.__showActions({switchPort:true,quit:true})",
+				)
+				.catch(() => {});
 			return;
 		}
 		app.relaunch();
 		app.exit(0);
+	});
+
+	// 端口自愈失败后「换端口启动」：从下一个端口开始找可用端口，relaunch 带新端口
+	ipcMain.handle("app:switch-port-start", async () => {
+		const { findAvailablePort } = require("./util/port.cjs");
+		const { pickSwitchPort } = require("./util/port-switch.cjs");
+		const newPort = await pickSwitchPort(FIXED_PORT, { findAvailablePort });
+		if (!newPort) {
+			log.error(`[port-switch] 找不到可用端口（从 ${FIXED_PORT + 1} 起）`);
+			setProgress(-1, "未找到可用端口，请检查网络或重启电脑后再试。");
+			return;
+		}
+		log.info(
+			`[port-switch] 端口 ${FIXED_PORT} 被占用，换端口启动 → ${newPort}`,
+		);
+		app.relaunch({
+			env: { ...process.env, WA_PI_WS_PORT: String(newPort) },
+		});
+		app.exit(0);
+	});
+
+	// 启动页错误态「退出」按钮：直接退出应用（splash 无边框，这是错误态唯一主动退出途径）
+	ipcMain.handle("app:quit", () => {
+		app.quit();
 	});
 
 	// 开机自启：读取/设置系统登录项
@@ -502,19 +512,21 @@ app.whenReady().then(async () => {
 
 	// 2b) 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
 	// 因此固定 FIXED_PORT，不再自动后移。被占用时先静默自愈（最多 3 轮：杀占用+登记簿清扫），
-	// 自愈失败才弹错误页提供「重启应用」一键清理（80% 的占用自动清理就能好，无需用户介入）。
+	// 自愈失败才弹错误页提供「换端口启动」+「退出」选项（80% 的占用自动清理就能好，无需用户介入）。
 	const actualPort = FIXED_PORT;
-	// 自愈失败统一出口：弹错误页 + 显示「重启应用」按钮。自愈内部异常（taskkill ENOENT、
+	// 自愈失败统一出口：弹错误页 + 显示「换端口启动 / 退出」按钮。自愈内部异常（taskkill ENOENT、
 	// fs 异常等）同样走这里——若直接抛出，whenReady 的 promise 链断裂、splash 永久卡在
 	// "正在自动清理…"，变成死端（全包无 unhandledRejection 兜底，必须就地接住）。
 	const selfHealFailed = (err) => {
 		if (err) log.error(`端口 ${FIXED_PORT} 自动清理异常`, err);
 		setProgress(
 			-1,
-			`端口 ${FIXED_PORT} 被占用，可能是上次未正常退出。点击下方按钮自动清理并重启。`,
+			`端口 ${FIXED_PORT} 被占用，自动清理失败。可换端口启动，或退出后检查占用进程。`,
 		);
 		splashWindow?.webContents
-			?.executeJavaScript("window.__showRestart&&window.__showRestart()")
+			?.executeJavaScript(
+				"window.__showActions&&window.__showActions({switchPort:true,quit:true})",
+			)
 			.catch(() => {});
 	};
 	try {
