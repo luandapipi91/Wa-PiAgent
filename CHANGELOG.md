@@ -22,8 +22,9 @@
 
 - **ExplorerPanel / 公共按钮 fv-btn / token 胶囊**：迁移悬空 CSS 变量（`--bg-secondary`/`--bg-tertiary`/`--border` → `--surface-hover`/`--surface-elevated`/`--hairline`/`--accent`）。此前这些变量从未定义，hover 背景、按钮边框在浅色和暗色下都实际失效；迁移后恢复生效并跟随主题。
 - **DirTreePicker（选目录弹窗）**：移除硬编码颜色（面板 `#FFFFFF`、按钮 `#1D1D1F` → `bg-surface`/`bg-brand text-white` 主按钮范式）；清理旧 Tailwind 死类（`text-text`/`bg-surface0`/`border-surface0`/`text-subtext`/`text-blue`/`border-blue`/`border-t-blue` → `text-primary`/`bg-surface-elevated`/`border-hairline`/`text-secondary`/`text-brand`）；第三方树组件 react-complex-tree 的选中/悬停/选中竖条改用项目 token（自动跟随深浅色与 6 色主题），并覆盖库内层 button 背景为透明，暗色下选中态统一为品牌软背景。
+- **FilePicker（附件文件选择器，对话界面 📎）**：同 DirTreePicker 修复集——移除硬编码颜色（面板/确定按钮）、清理死类、TREE_STYLES 改用项目 token + 覆盖库选中 button 层（修复暗色下选中目录「亮灰底 + 白字不可读」）、复选框 `accent-blue` → `accent-brand` 跟随主题色。
 - **验证**：新增 DirTreePicker（6 用例）与 ExplorerPanel（3 用例）组件测试；单测全量回归 927 pass；typecheck 通过；E2E 60 pass（15 个既有失败与本次改动无关）；dev 环境浅色/暗色 computed style 逐项验证 token 生效。
-- 影响范围：packages/frontend/src/styles.css、packages/frontend/src/components/DirTreePicker.tsx、packages/frontend/src/components/DirTreePicker.test.tsx、packages/frontend/src/components/ExplorerPanel.test.tsx。
+- 影响范围：packages/frontend/src/styles.css、packages/frontend/src/components/DirTreePicker.tsx、packages/frontend/src/components/DirTreePicker.test.tsx、packages/frontend/src/components/ExplorerPanel.test.tsx、packages/frontend/src/components/ui/FilePicker.tsx。
 
 ## 2026-08-12 — feat(frontend/kernel): 文件不支持预览时新增「默认方式打开」按钮（系统默认应用打开文件）
 
