@@ -76,7 +76,7 @@ describe("AskQuickBar", () => {
 
 	it("单行渲染：提示文字 + 选项 + 提交 icon + 展开按钮", () => {
 		renderBar();
-		expect(screen.getByText("Agent 有 2 个问题待回答")).toBeTruthy();
+		expect(screen.getByText("需要回答：")).toBeTruthy();
 		expect(screen.getByText("高")).toBeTruthy();
 		expect(screen.getByRole("button", { name: "提交" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "展开" })).toBeTruthy();
@@ -234,5 +234,74 @@ describe("AskQuickBar", () => {
 			configurable: true,
 		});
 		expect(optsRow.scrollWidth).toBeLessThanOrEqual(optsRow.clientWidth);
+	});
+
+	it("溢出时：显示左右「<」「>」按钮；点「>」向右滚动、点「<」向左滚动", () => {
+		const wideParams: AskParams = {
+			questions: [
+				{
+					question: "周几开会?",
+					header: "h",
+					options: Array.from({ length: 30 }, (_, i) => ({
+						label: `选项${i + 1}`,
+						description: "x",
+					})),
+				},
+			],
+		};
+		render(
+			<AskQuickBar
+				sessionId="s1"
+				ask={{ toolCallId: "tc1", agentName: "dev", params: wideParams }}
+				stale={false}
+				onExpand={() => {}}
+			/>,
+		);
+		const bar = screen.getByTestId("ask-quick-bar");
+		const optsRow = bar.querySelector(".overflow-x-auto") as HTMLElement;
+		// 构造溢出尺寸
+		Object.defineProperty(optsRow, "clientWidth", {
+			value: 800,
+			configurable: true,
+		});
+		Object.defineProperty(optsRow, "scrollWidth", {
+			value: 1600,
+			configurable: true,
+		});
+		Object.defineProperty(optsRow, "scrollLeft", {
+			value: 0,
+			configurable: true,
+		});
+		fireEvent.scroll(optsRow);
+		// 左右按钮出现
+		const leftBtn = screen.getByRole("button", { name: "向左滚动" });
+		const rightBtn = screen.getByRole("button", { name: "向右滚动" });
+		expect(leftBtn).toBeTruthy();
+		expect(rightBtn).toBeTruthy();
+		// 点击按钮不应报错（滚动行为由 E2E 真实验证；happy-dom 无布局引擎，scrollLeft 不可靠）
+		fireEvent.click(rightBtn);
+		fireEvent.click(leftBtn);
+		expect(screen.getByRole("button", { name: "向左滚动" })).toBeTruthy();
+	});
+
+	it("无溢出时：不显示左右滚动按钮", () => {
+		renderBar();
+		const bar = screen.getByTestId("ask-quick-bar");
+		const optsRow = bar.querySelector(".overflow-x-auto") as HTMLElement;
+		Object.defineProperty(optsRow, "clientWidth", {
+			value: 800,
+			configurable: true,
+		});
+		Object.defineProperty(optsRow, "scrollWidth", {
+			value: 800,
+			configurable: true,
+		});
+		Object.defineProperty(optsRow, "scrollLeft", {
+			value: 0,
+			configurable: true,
+		});
+		fireEvent.scroll(optsRow);
+		expect(screen.queryByRole("button", { name: "向左滚动" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "向右滚动" })).toBeNull();
 	});
 });

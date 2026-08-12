@@ -446,6 +446,7 @@ const zh = {
 		submitting: "提交中…",
 		submit: "提交",
 		stickyPrompt: "Agent 有 {{n}} 个问题待回答",
+		stickyShort: "需要回答：",
 		expand: "展开",
 		collapse: "收起",
 	},
