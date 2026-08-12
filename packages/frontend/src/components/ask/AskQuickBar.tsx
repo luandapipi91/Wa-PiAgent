@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api-client";
 import { useTranslation } from "../../i18n/useTranslation";
 import { buildQuickReply } from "../../store/ask";
@@ -15,7 +15,8 @@ interface Props {
 
 /** 单行便签（折叠态）：内嵌快捷选项 + 提交 icon。
  *  全部问题选齐后手动点提交（不自动提交，避免误触）。
- *  只处理单个 ask；多 ask 场景由 AskDock 决定降级为纯提示。 */
+ *  只处理单个 ask；多 ask 场景由 AskDock 决定降级为纯提示。
+ *  选项溢出时左右显示「<」「>」按钮点击滚动；隐藏原生滚动条（不占空间）。 */
 export function AskQuickBar({
 	sessionId,
 	ask,
@@ -27,6 +28,9 @@ export function AskQuickBar({
 	const [quickSel, setQuickSel] = useState<Record<number, Set<string>>>({});
 	const [submitting, setSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	// 选项是否溢出（需要左右按钮）；由滚动事件时按尺寸判定
+	const [hasOverflow, setHasOverflow] = useState(false);
+	const optsRowRef = useRef<HTMLDivElement>(null);
 
 	const params = ask.params;
 	const totalQuestions = params.questions.length;
@@ -66,16 +70,40 @@ export function AskQuickBar({
 		}
 	};
 
+	const handleScroll = () => {
+		const el = optsRowRef.current;
+		if (!el) return;
+		setHasOverflow(el.scrollWidth > el.clientWidth);
+	};
+
+	// 挂载及参数变化时初始检测：溢出则显示左右按钮（无需用户先滚动）
+	useEffect(() => {
+		const el = optsRowRef.current;
+		if (!el) return;
+		setHasOverflow(el.scrollWidth > el.clientWidth);
+	}, [params]);
+
+	const scrollBy = (delta: number) => {
+		const el = optsRowRef.current;
+		if (!el) return;
+		try {
+			el.scrollLeft = Math.max(
+				0,
+				Math.min(el.scrollLeft + delta, el.scrollWidth - el.clientWidth),
+			);
+		} catch {
+			// 测试环境（happy-dom 无布局引擎）scrollLeft 赋值可能抛错，静默
+		}
+		setHasOverflow(el.scrollWidth > el.clientWidth);
+	};
+
 	return (
 		<div
 			className="flex items-center gap-2 h-[42px] px-3 rounded-md border border-hairline bg-surface shadow-sm"
 			data-testid="ask-quick-bar"
 		>
-			<span className="rounded-full bg-accent-soft text-accent text-[calc(11px*var(--font-scale))] px-1.5 leading-4 flex-shrink-0">
-				{totalQuestions}
-			</span>
 			<span className="text-secondary text-[calc(12px*var(--font-scale))] whitespace-nowrap flex-shrink-0">
-				{t("ask.stickyPrompt", { n: totalQuestions })}
+				{t("ask.stickyShort")}
 			</span>
 			{(stale || error) && (
 				<span
@@ -86,34 +114,64 @@ export function AskQuickBar({
 					{stale ? t("ask.errorStale") : error}
 				</span>
 			)}
-			<div className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto whitespace-nowrap scrollbar-none">
-				{params.questions.map((q, qi) => (
-					<span key={qi} className="flex items-center gap-1 flex-shrink-0">
-						<span className="text-tertiary text-[calc(11px*var(--font-scale))] mx-0.5">
-							Q{totalQuestions > 1 ? qi + 1 : ""}
+			{hasOverflow && (
+				<button
+					onClick={() => scrollBy(-120)}
+					aria-label="向左滚动"
+					className="w-[20px] h-[20px] rounded-full border border-hairline bg-surface text-secondary hover:text-primary hover:border-accent flex-shrink-0 flex items-center justify-center cursor-pointer"
+					data-testid="ask-quick-scroll-left"
+				>
+					<svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+						<path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+					</svg>
+				</button>
+			)}
+			<div className="relative flex-1 min-w-0">
+				<div
+					ref={optsRowRef}
+					onScroll={handleScroll}
+					className="flex items-center gap-1 overflow-x-auto whitespace-nowrap scrollbar-none"
+				>
+					{params.questions.map((q, qi) => (
+						<span key={qi} className="flex items-center gap-1 flex-shrink-0">
+							<span className="text-tertiary text-[calc(11px*var(--font-scale))] mx-0.5">
+								Q{totalQuestions > 1 ? qi + 1 : ""}
+							</span>
+							{q.options.map((o) => {
+								const checked = quickSel[qi]?.has(o.label) ?? false;
+								return (
+									<button
+										key={o.label}
+										onClick={() => {
+											if (stale || submitting) return;
+											toggle(qi, o.label, q.multiSelect === true);
+										}}
+										className={`rounded-full border px-2.5 py-0.5 text-[calc(11.5px*var(--font-scale))] transition-colors flex-shrink-0 ${
+											checked
+												? "bg-accent-soft border-accent text-accent"
+												: "bg-surface border-hairline text-secondary hover:border-accent"
+										} ${stale || submitting ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
+									>
+										{o.label}
+									</button>
+								);
+							})}
 						</span>
-						{q.options.map((o) => {
-							const checked = quickSel[qi]?.has(o.label) ?? false;
-							return (
-								<button
-									key={o.label}
-									onClick={() => {
-										if (stale || submitting) return;
-										toggle(qi, o.label, q.multiSelect === true);
-									}}
-									className={`rounded-full border px-2.5 py-0.5 text-[calc(11.5px*var(--font-scale))] transition-colors flex-shrink-0 ${
-										checked
-											? "bg-accent-soft border-accent text-accent"
-											: "bg-surface border-hairline text-secondary hover:border-accent"
-									} ${stale || submitting ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
-								>
-									{o.label}
-								</button>
-							);
-						})}
-					</span>
-				))}
+					))}
+				</div>
 			</div>
+			{hasOverflow && (
+				<button
+					onClick={() => scrollBy(120)}
+					aria-label="向右滚动"
+					className="w-[20px] h-[20px] rounded-full border border-hairline bg-surface text-secondary hover:text-primary hover:border-accent flex-shrink-0 flex items-center justify-center cursor-pointer"
+					data-testid="ask-quick-scroll-right"
+				>
+					<svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+						<path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+					</svg>
+				</button>
+			)}
 			<button
 				onClick={handleSubmit}
 				disabled={!allAnswered || submitting}

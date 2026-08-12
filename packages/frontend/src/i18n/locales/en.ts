@@ -459,6 +459,7 @@ const en = {
 		submitting: "Submitting…",
 		submit: "Submit",
 		stickyPrompt: "Agent has {{n}} questions to answer",
+		stickyShort: "Answer needed:",
 		expand: "Expand",
 		collapse: "Collapse",
 	},
