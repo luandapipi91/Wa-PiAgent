@@ -87,9 +87,16 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 				useSessionStore
 					.getState()
 					.seedTokenTotal(sessionId, res.messages, (statsRes as any)?.stats);
-				useSessionStore
-					.getState()
-					.setActiveStatus(sessionId, res.isActive, res.thinkingSince);
+				// thinking 的设置由 isActive=true 驱动（打开正在跑的会话补设）；
+				// 清除由 SDK 事件（agent_end / failTurn / agent_settled）驱动。
+				// isActive=false 不在此干预——避免冷启动竞态（getCommands 先触发 ensureStarted
+				// 使 starting 有 sid 但 _promptLocks 未命中）误报 false 而清除乐观 thinking。
+				// 重连/重启的权威复位由 onReconnect 的 setActiveStatus 负责。
+				if (res.isActive) {
+					useSessionStore
+						.getState()
+						.setActiveStatus(sessionId, true, res.thinkingSince);
+				}
 			} finally {
 				useSessionStore.getState().setHistoryLoading(sessionId, false);
 			}

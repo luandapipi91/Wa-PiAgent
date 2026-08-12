@@ -115,11 +115,9 @@ export function App() {
 					.then((r) => r.json())
 					.then((body: any) => {
 						useSessionStore.getState().setMessages(sid, body.messages);
-						// 重连/重启为权威对齐：强制复位（跳过乐观回显保护）——
-						// 残留的 optimisticEcho 标记不应遮蔽 kernel 快照的复位语义。
 						useSessionStore
 							.getState()
-							.setActiveStatus(sid, body.isActive, body.thinkingSince, true);
+							.setActiveStatus(sid, body.isActive, body.thinkingSince);
 						useSessionStore.getState().setHistoryLoading(sid, false);
 					});
 		});
