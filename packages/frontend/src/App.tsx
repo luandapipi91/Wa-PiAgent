@@ -446,8 +446,6 @@ export function App() {
 		<div className="flex h-screen bg-canvas">
 			<Sidebar
 				onNewSession={() => setView("new-session")}
-				onChatWith={chatWith}
-				onEdit={(name) => setConfigAgent(name)}
 				onMore={() => setGalleryOpen(true)}
 				onSelectSession={(id) => {
 					const st = useProjectsStore.getState();
