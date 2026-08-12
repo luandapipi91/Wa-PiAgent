@@ -295,6 +295,7 @@ test("auto_retry_end{success:false}：清重试进度并复位 idle（退避期 
 		statusBySession: { s1: "thinking" },
 		thinkingSinceBySession: { s1: 789 },
 		retryBySession: { s1: { attempt: 3, maxAttempts: 3 } },
+		optimisticEchoBySession: { s1: true }, // 残留乐观标记应被终态复位清除
 	});
 	useSessionStore.getState().handleSDKEvent(
 		"s1",
@@ -309,6 +310,7 @@ test("auto_retry_end{success:false}：清重试进度并复位 idle（退避期 
 	expect(s.statusBySession["s1"]).toBe("idle");
 	expect(s.thinkingSinceBySession["s1"]).toBeNull();
 	expect(s.retryBySession["s1"]).toBeUndefined();
+	expect(s.optimisticEchoBySession["s1"]).toBe(false);
 });
 
 test("auto_retry_end{success:true}：清重试进度但不动思考态（本轮继续，终态由 agent_end 复位）", () => {
@@ -376,6 +378,7 @@ test("agent_settled：thinking 时兜底复位 idle（agent_end 缺失的异常�
 	useSessionStore.setState({
 		statusBySession: { s1: "thinking" },
 		thinkingSinceBySession: { s1: 333 },
+		optimisticEchoBySession: { s1: true }, // 残留乐观标记应被终态兜底清除
 	});
 	useSessionStore
 		.getState()
@@ -383,6 +386,7 @@ test("agent_settled：thinking 时兜底复位 idle（agent_end 缺失的异常�
 	const s = useSessionStore.getState();
 	expect(s.statusBySession["s1"]).toBe("idle");
 	expect(s.thinkingSinceBySession["s1"]).toBeNull();
+	expect(s.optimisticEchoBySession["s1"]).toBe(false);
 });
 
 test("agent_settled：已空闲则不产生状态变更（避免无效渲染）", () => {
@@ -1068,6 +1072,57 @@ test("setActiveStatus(isActive=undefined)：响应缺省不可信，不干预本
 	useSessionStore.setState({ statusBySession: { s1: "thinking" } });
 	useSessionStore.getState().setActiveStatus("s1", undefined);
 	expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+});
+
+test("setActiveStatus(isActive=false)：乐观发送等待回显中不清除 thinking（新建会话发送后 GET /messages 竞态）", () => {
+	// 模拟新建会话发送消息：前端 POST /prompt → kernel echo_user → optimisticSend
+	// （status=thinking + optimisticEcho=true）。随后 SessionView 挂载的 GET /messages
+	// 返回 isActive=false——kernel 冷启动由 getCommands/prewarm 触发时 starting 有该
+	// sessionId 但 _promptLocks 尚未命中（POST 还在路上），isActive 被误判为 false。
+	// 若照常复位会清掉乐观 thinking，导致「正在思考」闪退（回归）。
+	useSessionStore.getState().optimisticSend("s1", "你好", "dev");
+	expect(useSessionStore.getState().statusBySession["s1"]).toBe("thinking");
+	expect(useSessionStore.getState().optimisticEchoBySession["s1"]).toBe(true);
+
+	useSessionStore.getState().setActiveStatus("s1", false);
+	const s = useSessionStore.getState();
+	// 标记未清除：thinking 保持（等 SDK message_start/agent_start 到达后自然流转）
+	expect(s.statusBySession["s1"]).toBe("thinking");
+	expect(s.optimisticEchoBySession["s1"]).toBe(true);
+
+	// 回显到达（message_start user 回显）清标记后，后续 isActive=false 才恢复复位语义
+	useSessionStore.setState((st) => ({
+		optimisticEchoBySession: { ...st.optimisticEchoBySession, s1: false },
+	}));
+	useSessionStore.getState().setActiveStatus("s1", false);
+	expect(useSessionStore.getState().statusBySession["s1"]).toBe("idle");
+});
+
+test("setActiveStatus(isActive=false)：历史会话打开（无乐观发送）仍正常复位", () => {
+	// 打开历史会话：没有 optimisticEcho 标记，GET /messages 返回 isActive=false 时
+	// 本地残留 thinking 应被复位（kernel 为权威），与修复前行为一致
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		thinkingSinceBySession: { s1: 123 },
+	});
+	useSessionStore.getState().setActiveStatus("s1", false);
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("idle");
+	expect(s.thinkingSinceBySession["s1"]).toBeNull();
+});
+
+test("setActiveStatus(isActive=false, force=true)：权威对齐强制复位（SSE 断线重连 / kernel 重启）", () => {
+	// 重连/重启语义：kernel 快照为权威，即使乐观回显标记残留也必须复位——
+	// 否则断线窗口漏掉的 agent_end 不重放，thinking 会永久卡死（不遮蔽复位）
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		thinkingSinceBySession: { s1: 456 },
+		optimisticEchoBySession: { s1: true },
+	});
+	useSessionStore.getState().setActiveStatus("s1", false, null, true);
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("idle");
+	expect(s.thinkingSinceBySession["s1"]).toBeNull();
 });
 
 // ── failTurn：回合启动失败复位（agent 从未启动、不会有 agent_end）──
