@@ -629,6 +629,11 @@ const en = {
 		newProjectHint: "New project",
 		systemProjectName: "Default workspace",
 	},
+	recentSessions: {
+		today: "Today",
+		yesterday: "Yesterday",
+		empty: "No sessions yet. Click ＋ to start one.",
+	},
 	store: {
 		duplicateProjectCwd: "A project with this directory already exists",
 		mcpConnectFailed: "Connection failed",
