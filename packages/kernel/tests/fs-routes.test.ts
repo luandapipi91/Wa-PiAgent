@@ -93,3 +93,12 @@ describe("list-dir dotfile 过滤", () => {
 		]);
 	});
 });
+
+describe("defaultOpenCommand（系统默认应用打开命令选择）", () => {
+	it("按平台返回 open/start/xdg-open", () => {
+		const { defaultOpenCommand } = require("../src/routes/fs");
+		expect(defaultOpenCommand("darwin")).toBe("open");
+		expect(defaultOpenCommand("win32")).toBe("start");
+		expect(defaultOpenCommand("linux")).toBe("xdg-open");
+	});
+});

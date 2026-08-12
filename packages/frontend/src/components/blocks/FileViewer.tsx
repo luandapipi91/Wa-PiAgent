@@ -5,7 +5,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
-import { readFile, revealFile } from "../../fs-client";
+import { readFile, revealFile, openFileWithDefaultApp } from "../../fs-client";
 import { useTranslation } from "../../i18n/useTranslation";
 import { createMarkdownComponents } from "./markdown-components";
 import { openInFileManagerLabel } from "../../util/platform";
@@ -170,7 +170,7 @@ const MarkdownPreview = memo(function MarkdownPreview({
 			),
 			// md 里的链接：
 			// - 相对路径（指向仓库内其他文件）→ 在预览器内打开目标文件（与 FilePill 同机制）
-			// - 外部链接（http/https/mailto 等）→ MarkdownLink target=_blank → setWindowOpenHandler → 系统浏览器
+			// - 外部链接（http/https/mailto 等）→ MarkdownLink target=_blank → setWindowOpenHandler → 应用内新窗口打开
 			a: (props: any) => {
 				const href = props.href ?? "";
 				if (
@@ -456,6 +456,13 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				<div className="flex items-center gap-2">
 					<button className="fv-btn" onClick={onClose}>
 						{t("common.close")}
+					</button>
+					<button
+						className="fv-btn"
+						onClick={() => void openFileWithDefaultApp(path)}
+						data-testid="fv-open-default"
+					>
+						{t("common.openWithDefaultApp")}
 					</button>
 					<button
 						className="fv-btn fv-btn-accent"

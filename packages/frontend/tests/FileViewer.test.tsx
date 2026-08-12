@@ -91,6 +91,29 @@ test("unsupported 文件：显示在文件管理器中打开按钮，点击调�
 	expect((call!.body as { path: string }).path).toBe("/work/demo/a.zip");
 });
 
+test("unsupported 文件：显示默认方式打开按钮，点击调用 openFileWithDefaultApp", async () => {
+	fake.setResponse("fs:readFile", {
+		type: "fs:unsupported",
+		reason: "不支持的文件类型: application/zip",
+	});
+	render(<FileViewer path="/work/demo/a.zip" onClose={() => {}} />);
+	await waitFor(() =>
+		expect(screen.getByTestId("fv-unsupported").textContent).toContain(
+			"不支持预览该文件",
+		),
+	);
+
+	const btn = screen.getByTestId("fv-open-default");
+	expect(btn.className).toContain("fv-btn");
+	fireEvent.click(btn);
+
+	const call = fake.calls.find(
+		(c) => c.path === "/api/fs/open-with-default-app",
+	);
+	expect(call).toBeTruthy();
+	expect((call!.body as { path: string }).path).toBe("/work/demo/a.zip");
+});
+
 test("读取失败：显示错误态 + 关闭按钮", async () => {
 	// 让 readFile 抛错：transport.post 返回空对象 → readFile 因 !res.content throw
 	fake.setResponse("fs:readFile", {});

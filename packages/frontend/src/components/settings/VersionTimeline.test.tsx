@@ -25,9 +25,9 @@ test("旧版本默认收起，点击版本号展开", () => {
 test("maxEntries 截断：超出部分不渲染", () => {
 	const { container } = render(<VersionTimeline maxEntries={2} />);
 	const timeline = within(container).getByTestId("version-timeline");
-	// 只渲染最新 2 条（0.1.22 + 0.1.21），其余不出现
-	expect(within(timeline).queryByText("v0.1.20")).toBeNull();
-	expect(within(timeline).queryByText("v0.1.19")).toBeNull();
-	expect(within(timeline).getByText("v0.1.22")).toBeTruthy();
-	expect(within(timeline).getByText("v0.1.21")).toBeTruthy();
+	// 只渲染最新 2 条（0.1.24 + 0.1.23），其余不出现（数据已推进，断言跟随当前 version-history.json）
+	expect(within(timeline).queryByText("v0.1.22")).toBeNull();
+	expect(within(timeline).queryByText("v0.1.21")).toBeNull();
+	expect(within(timeline).getByText("v0.1.24")).toBeTruthy();
+	expect(within(timeline).getByText("v0.1.23")).toBeTruthy();
 });

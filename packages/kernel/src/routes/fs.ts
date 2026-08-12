@@ -16,6 +16,27 @@ function expandTilde(p: string): string {
 	return p;
 }
 
+/** 系统默认应用打开文件/目录的命令（按平台）：mac open / win start / linux xdg-open */
+export function defaultOpenCommand(platform: NodeJS.Platform): string {
+	return platform === "darwin"
+		? "open"
+		: platform === "win32"
+			? "start"
+			: "xdg-open";
+}
+
+/**
+ * spawn 系统打开命令：不经 shell（参数数组传递，避免用户路径含特殊字符时的命令注入）。
+ * Windows 的 start 是 cmd 内置，经 cmd /c 调用且首参数为空串占位窗口标题。
+ */
+export function spawnOpen(cmd: string, target: string): void {
+	if (process.platform === "win32") {
+		spawn("cmd", ["/c", cmd, "", target], { stdio: "ignore" });
+	} else {
+		spawn(cmd, [target], { stdio: "ignore" });
+	}
+}
+
 /** 列出目录条目：showHidden=false 时过滤点开头项；symlink 解析目标类型（断链按文件处理） */
 export async function listDir(
 	path: string,
@@ -293,15 +314,58 @@ export const registerFsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 				});
 			}
 			const dir = dirname(absPath);
-			const openCmd =
-				process.platform === "darwin"
-					? "open"
-					: process.platform === "win32"
-						? "start"
-						: "xdg-open";
-			spawn(openCmd, [dir], { shell: true, stdio: "ignore" });
+			spawnOpen(defaultOpenCommand(process.platform), dir);
 			return Response.json({
 				type: "fs:reveal-file",
+				path,
+				resolvedPath: absPath,
+			});
+		} catch (e) {
+			return Response.json({
+				type: "fs:error",
+				path,
+				reason: String(e instanceof Error ? e.message : e),
+			});
+		}
+	});
+
+	// POST /api/fs/open-with-default-app：用系统默认应用打开文件本身（等同双击）。
+	// 文件不存在时按 basename 递归搜索回退（与 reveal-file 一致）。
+	r.add("POST", "/api/fs/open-with-default-app", async (req) => {
+		const b = await readJsonBody(req);
+		const { path } = b;
+		if (typeof path !== "string")
+			return Response.json({ error: "缺少 path" }, { status: 400 });
+		try {
+			let absPath = expandTilde(path);
+			if (!existsSync(absPath)) {
+				// ENOENT 回退：在最近存在祖先目录下递归搜索同名文件
+				const name = basename(absPath);
+				let searchRoot = dirname(absPath);
+				while (searchRoot && !existsSync(searchRoot)) {
+					const parent = dirname(searchRoot);
+					if (parent === searchRoot) {
+						searchRoot = "";
+						break;
+					}
+					searchRoot = parent;
+				}
+				if (searchRoot && name) {
+					const found = await findFileByBasename(searchRoot, name);
+					if (found) absPath = found;
+				}
+			}
+			if (!existsSync(absPath)) {
+				return Response.json({
+					type: "fs:error",
+					path,
+					reason: `ENOENT: 文件不存在且搜索无结果: ${absPath}`,
+				});
+			}
+			// Windows 的 start 首参数是窗口标题，经 spawnOpen 内部 cmd /c 传空串占位
+			spawnOpen(defaultOpenCommand(process.platform), absPath);
+			return Response.json({
+				type: "fs:open-with-default-app",
 				path,
 				resolvedPath: absPath,
 			});

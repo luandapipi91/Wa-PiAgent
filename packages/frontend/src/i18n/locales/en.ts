@@ -28,6 +28,7 @@ const en = {
 		openInFinder: "Reveal in Finder",
 		openInExplorer: "Reveal in File Explorer",
 		openInFileManager: "Reveal in file manager",
+		openWithDefaultApp: "Open with Default App",
 	},
 	message: {
 		loadSession: "Loading session…",

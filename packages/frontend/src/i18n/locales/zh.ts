@@ -28,6 +28,7 @@ const zh = {
 		openInFinder: "在访达中打开",
 		openInExplorer: "在资源管理器中打开",
 		openInFileManager: "在文件管理器中打开",
+		openWithDefaultApp: "默认方式打开",
 	},
 	message: {
 		loadSession: "加载会话…",
