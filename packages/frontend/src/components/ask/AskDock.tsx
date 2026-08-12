@@ -15,12 +15,19 @@ const STALE_GRACE_MS = 500;
 
 const STORAGE_KEY = "wa-pi:ask-dock-expanded";
 function loadExpanded(): boolean {
-	try { return localStorage.getItem(STORAGE_KEY) !== "0"; } // 无记录 → 默认展开
-	catch { return true; }
+	try {
+		return localStorage.getItem(STORAGE_KEY) !== "0";
+	} catch {
+		// 无记录 → 默认展开
+		return true;
+	}
 }
 function saveExpanded(v: boolean): void {
-	try { localStorage.setItem(STORAGE_KEY, v ? "1" : "0"); }
-	catch { /* localStorage 不可用时静默降级 */ }
+	try {
+		localStorage.setItem(STORAGE_KEY, v ? "1" : "0");
+	} catch {
+		/* localStorage 不可用时静默降级 */
+	}
 }
 
 export function AskDock({ sessionId }: { sessionId: string }) {
@@ -36,7 +43,10 @@ export function AskDock({ sessionId }: { sessionId: string }) {
 	}, [currentToolCallId]);
 	const { t } = useTranslation();
 
-	const setExpandedPersist = (v: boolean) => { saveExpanded(v); setExpanded(v); };
+	const setExpandedPersist = (v: boolean) => {
+		saveExpanded(v);
+		setExpanded(v);
+	};
 
 	useEffect(() => {
 		if (asks.length === 0) return;
@@ -77,10 +87,7 @@ export function AskDock({ sessionId }: { sessionId: string }) {
 
 	if (asks.length === 0) return null;
 	return (
-		<div
-			className="relative px-6 pt-3"
-			data-testid={`ask-dock-${sessionId}`}
-		>
+		<div className="relative px-6 pt-3" data-testid={`ask-dock-${sessionId}`}>
 			{expanded ? (
 				<div
 					className="absolute bottom-0 left-0 right-0 z-20 max-h-[calc(100vh-160px)] overflow-y-auto"
@@ -95,7 +102,9 @@ export function AskDock({ sessionId }: { sessionId: string }) {
 									params={a.params}
 									agentName={a.agentName}
 									stale={staleIds.has(a.toolCallId)}
-									initialSelected={a.toolCallId === asks[0].toolCallId ? quickSel : undefined}
+									initialSelected={
+										a.toolCallId === asks[0].toolCallId ? quickSel : undefined
+									}
 									onCollapse={() => setExpandedPersist(false)}
 								/>
 							</div>

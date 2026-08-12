@@ -8,11 +8,11 @@ import type { SDKEventEnvelope } from "@wa-pi/shared";
 
 // message_update 已接 rAF 合帧（batcher）：断言前需等帧末提交
 const flushFrames = () =>
-  new Promise<void>((resolve) => {
-    const raf: (fn: () => void) => void =
-      globalThis.requestAnimationFrame ?? ((fn) => setTimeout(fn, 16) as any);
-    raf(() => raf(() => resolve()));
-  });
+	new Promise<void>((resolve) => {
+		const raf: (fn: () => void) => void =
+			globalThis.requestAnimationFrame ?? ((fn) => setTimeout(fn, 16) as any);
+		raf(() => raf(() => resolve()));
+	});
 
 // refreshTokenTotals 会调用 api.get 拉取会话历史 + 会话统计；mock 掉 api-client，
 // 返回可注入的 messages / stats，断言聚焦于「压缩回合结束触发刷新」逻辑。

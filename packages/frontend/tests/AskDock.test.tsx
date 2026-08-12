@@ -112,7 +112,8 @@ describe("AskDock double check", () => {
 		render(<AskDock sessionId="s1" />);
 		// 失效判定有竞态宽限（~500ms 后复查），用 waitFor 等失效态出现
 		await waitFor(
-			() => expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy(),
+			() =>
+				expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy(),
 			{ timeout: 3000 },
 		);
 		fireEvent.click(screen.getByText("PostgreSQL"));
@@ -217,7 +218,6 @@ describe("AskDock 折叠便签 + 悬浮展开", () => {
 						options: [
 							{ label: "X", description: "x" },
 							{ label: "Y", description: "y" },
-
 						],
 					},
 				],
@@ -250,9 +250,9 @@ describe("AskDock 折叠便签 + 悬浮展开", () => {
 			() => expect(screen.getByTestId("ask-card-tc1")).toBeTruthy(),
 			{ timeout: 1000 },
 		);
-		expect(
-			screen.getByText("SQLite").closest("button")?.className,
-		).toContain("bg-accent-soft");
+		expect(screen.getByText("SQLite").closest("button")?.className).toContain(
+			"bg-accent-soft",
+		);
 		expect(
 			(screen.getByRole("button", { name: "提交" }) as HTMLButtonElement)
 				.disabled,

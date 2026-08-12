@@ -148,7 +148,9 @@ export function AskFormCard({
 			data-testid={`ask-card-${toolCallId}`}
 		>
 			<div className="flex items-center justify-between px-4 py-2 border-b border-hairline">
-				<span className="text-[calc(11.5px*var(--font-scale))] font-semibold text-accent">{title}</span>
+				<span className="text-[calc(11.5px*var(--font-scale))] font-semibold text-accent">
+					{title}
+				</span>
 			</div>
 			<div className="px-4 py-3 space-y-3 max-h-[50vh] overflow-auto">
 				{params.questions.map((q, qi) => {
@@ -199,7 +201,9 @@ export function AskFormCard({
 								className={`w-full text-left flex gap-2 items-start px-2.5 py-1.5 rounded-sm border transition-colors ${otherActive ? "bg-accent-soft border-accent text-primary" : "bg-surface border-hairline text-secondary hover:border-accent"}`}
 							>
 								<span className="text-accent">{otherActive ? "◉" : "○"}</span>
-								<span className="font-medium text-primary">{t("ask.otherOption")}</span>
+								<span className="font-medium text-primary">
+									{t("ask.otherOption")}
+								</span>
 							</button>
 							{otherActive && (
 								<textarea
@@ -215,7 +219,9 @@ export function AskFormCard({
 								/>
 							)}
 							<div className="flex items-center gap-2">
-								<span className="text-[calc(11px*var(--font-scale))] text-tertiary">{t("ask.notesLabel")}</span>
+								<span className="text-[calc(11px*var(--font-scale))] text-tertiary">
+									{t("ask.notesLabel")}
+								</span>
 								<input
 									value={s.notes}
 									onChange={(e) =>
@@ -244,7 +250,7 @@ export function AskFormCard({
 						className="text-[calc(11.5px*var(--font-scale))] text-danger mr-auto"
 						role="alert"
 						data-testid={`ask-stale-${toolCallId}`}
-						>
+					>
 						{t("ask.errorStale")}
 					</span>
 				)}
@@ -261,7 +267,7 @@ export function AskFormCard({
 					onClick={handleCancel}
 					disabled={submitting}
 					className="text-[calc(12px*var(--font-scale))] px-3 py-1 rounded-pill bg-danger-soft text-danger border-0 cursor-pointer disabled:opacity-50"
-					>
+				>
 					{t("common.cancel")}
 				</button>
 				<button
