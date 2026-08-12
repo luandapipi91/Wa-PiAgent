@@ -42,7 +42,6 @@ mock.module("../src/api-client", () => ({
 	},
 }));
 
-const { AgentListSection } = await import("../src/components/AgentListSection");
 const { AgentGalleryModal } = await import("../src/components/AgentGalleryModal");
 const { useAgentsStore } = await import("../src/store/agents");
 const { useProjectsStore } = await import("../src/store/projects");
@@ -74,15 +73,6 @@ function seed(names: string[]) {
 
 const noop = () => {};
 
-// 右键 → 删除 → 等二次确认弹窗出现并等异步 usage 拉取完成
-async function openDeleteConfirm(testId: string) {
-	fireEvent.contextMenu(screen.getByTestId(testId));
-	fireEvent.click(screen.getByTestId("agent-ctx-delete"));
-	await waitFor(() =>
-		expect(screen.getByTestId("agent-delete-confirm")).toBeTruthy(),
-	);
-}
-
 async function openGalleryDeleteConfirm(testId: string) {
 	fireEvent.contextMenu(screen.getByTestId(testId));
 	fireEvent.click(screen.getByTestId("gallery-ctx-delete"));
@@ -96,49 +86,6 @@ async function openGalleryDeleteConfirm(testId: string) {
 afterEach(() => {
 	cleanup();
 	failNextUsage = false;
-});
-
-describe("智能体删除确认：渠道引用提示（AgentListSection）", () => {
-	beforeEach(() => seed([]));
-
-	test("被渠道引用的智能体 → 确认文案含机器人引用提示", async () => {
-		seed(["前端开发者", "后端架构师"]);
-		render(<AgentListSection onChatWith={noop} onEdit={noop} onMore={noop} />);
-		await openDeleteConfirm("agent-前端开发者");
-		// 异步拉取 usage 完成后提示文本出现
-		await waitFor(() => {
-			const msg = screen.getByTestId("confirm-dialog").textContent ?? "";
-			expect(msg).toContain("2 个机器人");
-			expect(msg).toContain("客服机器人");
-			expect(msg).toContain("测试机器人");
-			expect(msg).toContain("默认智能体");
-		});
-	});
-
-	test("无渠道引用的智能体 → 确认文案不含机器人提示（原样）", async () => {
-		seed(["前端开发者", "后端架构师"]);
-		render(<AgentListSection onChatWith={noop} onEdit={noop} onMore={noop} />);
-		await openDeleteConfirm("agent-后端架构师");
-		// usage.count=0，等异步落定后文案不含「机器人」
-		await waitFor(() => {
-			const msg = screen.getByTestId("confirm-dialog").textContent ?? "";
-			expect(msg).toContain("删除智能体「后端架构师」");
-			expect(msg).not.toContain("机器人");
-			expect(msg).not.toContain("默认智能体");
-		});
-	});
-
-	test("usage 接口失败 → 不崩溃，按原文案显示（无提示）", async () => {
-		seed(["前端开发者"]);
-		failNextUsage = true;
-		render(<AgentListSection onChatWith={noop} onEdit={noop} onMore={noop} />);
-		await openDeleteConfirm("agent-前端开发者");
-		// 等一拍确保 reject 已被消费
-		await new Promise((r) => setTimeout(r, 10));
-		const msg = screen.getByTestId("confirm-dialog").textContent ?? "";
-		expect(msg).toContain("删除智能体「前端开发者」");
-		expect(msg).not.toContain("机器人");
-	});
 });
 
 describe("智能体删除确认：渠道引用提示（AgentGalleryModal）", () => {

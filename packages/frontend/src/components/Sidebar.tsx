@@ -15,8 +15,6 @@ import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
 	onNewSession: () => void;
-	onChatWith: (name: string) => void;
-	onEdit: (name: string) => void;
 	onMore: () => void;
 	onSelectSession: (id: string) => void;
 	onNewSessionInProject: (projectId: string) => void;
@@ -85,12 +83,7 @@ export function Sidebar(props: Props) {
 			{tab === "tasks" ? (
 				<>
 					<NewSessionButton onNewSession={props.onNewSession} />
-					{/* 任务 5 将把 AgentListSection 改为仅传 onMore；此处保持现有 3 个 props 不动 */}
-					<AgentListSection
-						onChatWith={props.onChatWith}
-						onEdit={props.onEdit}
-						onMore={props.onMore}
-					/>
+					<AgentListSection onMore={props.onMore} />
 					{/* 任务视图内查看维度：项目分组 | 最近时间线 */}
 					<div
 						className="flex rounded-md p-0.5"
