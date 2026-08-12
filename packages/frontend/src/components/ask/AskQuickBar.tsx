@@ -101,6 +101,20 @@ export function AskQuickBar({
 		syncScroll();
 	};
 
+	// 鼠标滚轮：纵向 deltaY 转换为横向滚动（选项区横向滚动，阻止页面纵向滚动）
+	const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+		const el = optsRowRef.current;
+		if (!el) return;
+		const canScroll =
+			el.scrollWidth > el.clientWidth &&
+			(el.scrollLeft > 0 || e.deltaY > 0) &&
+			(el.scrollLeft < el.scrollWidth - el.clientWidth || e.deltaY < 0);
+		if (!canScroll) return;
+		e.preventDefault();
+		const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+		scrollBy(delta);
+	};
+
 	return (
 		<div
 			className="flex items-center gap-2 h-[42px] px-3 rounded-md border border-hairline bg-surface shadow-sm"
@@ -141,6 +155,7 @@ export function AskQuickBar({
 				<div
 					ref={optsRowRef}
 					onScroll={handleScroll}
+					onWheel={handleWheel}
 					className="flex items-center gap-1 overflow-x-auto whitespace-nowrap scrollbar-none"
 				>
 					{params.questions.map((q, qi) => (
