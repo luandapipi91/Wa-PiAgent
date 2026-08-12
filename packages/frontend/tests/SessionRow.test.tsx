@@ -12,7 +12,7 @@ const session: SessionEntity = {
 // 渲染后清理 DOM：happy-dom 全局 document 跨测试共享，不清理会互相污染
 afterEach(() => cleanup());
 
-beforeEach(() => { useSessionStore.setState({ unreadBySession: {}, statusBySession: {} }); });
+beforeEach(() => { useSessionStore.setState({ unreadBySession: {}, statusBySession: {}, messagesBySession: {} }); });
 
 test("显示 emoji + 标题 + 相对时间", () => {
   render(<table><tbody><SessionRow session={session} selected={false} onSelect={() => {}} /></tbody></table>);
@@ -116,6 +116,9 @@ test("有 pending ask（thinking）→ 显示问号，不显示 spinner", () => 
   render(<SessionRow session={session} selected={false} onSelect={() => {}} />);
   expect(screen.getByTestId("session-awaiting-s1")).toBeTruthy();
   expect(screen.queryByTestId("session-running-s1")).toBeNull();
+  // a11y：等待回答语义 + 问号替代时间位
+  expect(screen.getByLabelText("等待回答")).toBeTruthy();
+  expect(screen.queryByText("2m")).toBeNull();
 });
 
 test("thinking 且无 pending ask → 仍显示 spinner", () => {
