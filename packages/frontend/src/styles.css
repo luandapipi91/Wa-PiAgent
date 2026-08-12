@@ -612,3 +612,9 @@ input[type="range"]::-moz-range-thumb {
 .text-3xl {
 	font-size: calc(1.875rem * var(--font-scale));
 }
+/* markdown 排版正文（@tailwindcss/typography 默认 .prose-sm .875rem 固定字号）
+   不覆盖则不随系统设置>文字大小变化（聊天窗口 markdown 正文、文件预览、回收站查看器、导出图片）。
+   只覆盖 .prose-sm 不动 .prose 基类：TextBlock（ask 预览，prose 无 prose-sm）靠 .text-sm 覆盖缩放 */
+.prose-sm {
+	font-size: calc(0.875rem * var(--font-scale));
+}
