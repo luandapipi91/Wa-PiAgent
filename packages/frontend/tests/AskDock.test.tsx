@@ -77,6 +77,7 @@ const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
 describe("AskDock double check", () => {
 	beforeEach(() => {
+		localStorage.clear();
 		useSessionStore.setState({ messagesBySession: {} });
 		pendingIds = [];
 		getCalls.length = 0;
@@ -142,5 +143,149 @@ describe("AskDock double check", () => {
 			(screen.getByRole("button", { name: "提交" }) as HTMLButtonElement)
 				.disabled,
 		).toBe(false);
+	});
+});
+
+describe("AskDock 折叠便签 + 悬浮展开", () => {
+	beforeEach(() => {
+		localStorage.clear();
+		useSessionStore.setState({ messagesBySession: {} });
+		pendingIds = ["tc1"];
+		getCalls.length = 0;
+		flipAfterFirstCall = false;
+	});
+
+	it("默认展开（无 localStorage 记录）：渲染 AskFormCard 悬浮弹窗", async () => {
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		await flush();
+		expect(screen.getByTestId("ask-card-tc1")).toBeTruthy();
+		expect(screen.queryByTestId("ask-quick-bar")).toBeNull();
+	});
+
+	it("点「收起」回便签态，并写入 localStorage（全局持久化）", async () => {
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		await flush();
+		fireEvent.click(screen.getByRole("button", { name: "收起" }));
+		expect(screen.getByTestId("ask-quick-bar")).toBeTruthy();
+		expect(screen.queryByTestId("ask-card-tc1")).toBeNull();
+		expect(localStorage.getItem("wa-pi:ask-dock-expanded")).toBe("0");
+	});
+
+	it("localStorage 记录为收起 → 重挂载仍收起（记住上次状态）", async () => {
+		localStorage.setItem("wa-pi:ask-dock-expanded", "0");
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		await flush();
+		expect(screen.getByTestId("ask-quick-bar")).toBeTruthy();
+		expect(screen.queryByTestId("ask-card-tc1")).toBeNull();
+	});
+
+	it("点「展开」→ 悬浮弹窗容器有 absolute 类（不挤压文档流）", async () => {
+		localStorage.setItem("wa-pi:ask-dock-expanded", "0");
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		await flush();
+		fireEvent.click(screen.getByRole("button", { name: "展开" }));
+		await waitFor(
+			() => expect(screen.getByTestId("ask-card-tc1")).toBeTruthy(),
+			{ timeout: 1000 },
+		);
+		expect(localStorage.getItem("wa-pi:ask-dock-expanded")).toBe("1");
+		const dock = screen.getByTestId("ask-dock-s1");
+		expect(dock.className).toContain("relative");
+		expect(dock.querySelector("[data-testid='ask-float-layer']")).toBeTruthy();
+	});
+
+	it("多个 pending ask → 展开显示全部卡片", async () => {
+		const askCall2 = {
+			type: "toolCall",
+			id: "tc2",
+			name: "ask_user_question",
+			arguments: {
+				questions: [
+					{
+						question: "另一个问题?",
+						header: "h",
+						options: [
+							{ label: "X", description: "x" },
+							{ label: "Y", description: "y" },
+
+						],
+					},
+				],
+			},
+		};
+		seedPendingAsk("s1", [askCall, askCall2]);
+		render(<AskDock sessionId="s1" />); // 默认展开 → 直接显示两个卡片
+		await flush();
+		await waitFor(
+			() => expect(screen.getByTestId("ask-card-tc2")).toBeTruthy(),
+			{ timeout: 1000 },
+		);
+	});
+
+	it("便签选过旧 ask → 旧 ask 被回答、新 ask 到达 → 新 ask 卡片无预选注入、提交禁用", async () => {
+		// ask1（tc1，选项 SQLite/PostgreSQL）：默认展开
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		await flush();
+		expect(screen.getByTestId("ask-card-tc1")).toBeTruthy();
+
+		// 收起 → 便签 → 点选「SQLite」（AskDock.quickSel 被写入）
+		fireEvent.click(screen.getByRole("button", { name: "收起" }));
+		expect(screen.getByTestId("ask-quick-bar")).toBeTruthy();
+		fireEvent.click(screen.getByText("SQLite"));
+
+		// 再展开：预选注入 ask1 卡片（SQLite 选中、提交可用）——确认复现前提成立
+		fireEvent.click(screen.getByRole("button", { name: "展开" }));
+		await waitFor(
+			() => expect(screen.getByTestId("ask-card-tc1")).toBeTruthy(),
+			{ timeout: 1000 },
+		);
+		expect(
+			screen.getByText("SQLite").closest("button")?.className,
+		).toContain("bg-accent-soft");
+		expect(
+			(screen.getByRole("button", { name: "提交" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(false);
+
+		// 旧 ask 被回答（store 清空）→ 新 ask（tc2，选项 X/Y）到达
+		fireEvent.click(screen.getByRole("button", { name: "收起" }));
+		seedPendingAsk("s1", []);
+		await flush();
+		pendingIds = ["tc2"]; // 后端 registry 同步为新 ask，避免 double check 误判失效
+		const askCall2 = {
+			type: "toolCall",
+			id: "tc2",
+			name: "ask_user_question",
+			arguments: {
+				questions: [
+					{
+						question: "另一个问题?",
+						header: "h",
+						options: [
+							{ label: "X", description: "x" },
+							{ label: "Y", description: "y" },
+						],
+					},
+				],
+			},
+		};
+		seedPendingAsk("s1", [askCall2]);
+		await flush();
+
+		// 展开 ask2：不得注入旧预选（X/Y 选项里没有 SQLite），提交必须禁用
+		fireEvent.click(screen.getByRole("button", { name: "展开" }));
+		await waitFor(
+			() => expect(screen.getByTestId("ask-card-tc2")).toBeTruthy(),
+			{ timeout: 1000 },
+		);
+		expect(
+			(screen.getByRole("button", { name: "提交" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(true);
 	});
 });

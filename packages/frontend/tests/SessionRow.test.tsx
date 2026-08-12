@@ -12,7 +12,7 @@ const session: SessionEntity = {
 // 渲染后清理 DOM：happy-dom 全局 document 跨测试共享，不清理会互相污染
 afterEach(() => cleanup());
 
-beforeEach(() => { useSessionStore.setState({ unreadBySession: {}, statusBySession: {} }); });
+beforeEach(() => { useSessionStore.setState({ unreadBySession: {}, statusBySession: {}, messagesBySession: {} }); });
 
 test("显示 emoji + 标题 + 相对时间", () => {
   render(<table><tbody><SessionRow session={session} selected={false} onSelect={() => {}} /></tbody></table>);
@@ -71,4 +71,62 @@ test("会话空闲显示时间、无 loading", () => {
   render(<SessionRow session={session} selected={false} onSelect={() => {}} />);
   expect(screen.getByText("2m")).toBeTruthy();
   expect(screen.queryByTestId("session-running-s1")).toBeNull();
+});
+
+// ── pending ask：等待用户回答时显示问号，替代误导的 spinner ──
+
+test("有 pending ask（thinking）→ 显示问号，不显示 spinner", () => {
+  // 1) 置 statusBySession = thinking
+  useSessionStore.setState((s) => ({
+    statusBySession: { ...s.statusBySession, s1: "thinking" },
+  }));
+  // 2) 注入一条含 ask_user_question（无 toolResult）的 assistant 消息
+  useSessionStore.setState((s) => ({
+    messagesBySession: {
+      ...s.messagesBySession,
+      s1: [
+        {
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "toolCall",
+                id: "tc1",
+                name: "ask_user_question",
+                arguments: {
+                  questions: [
+                    {
+                      question: "Q?",
+                      header: "h",
+                      options: [{ label: "A", description: "x" }],
+                    },
+                  ],
+                },
+              },
+            ],
+            model: "m",
+            stopReason: "tool_use",
+            timestamp: 1,
+          },
+          agentName: "dev",
+        },
+      ],
+    },
+  }));
+  render(<SessionRow session={session} selected={false} onSelect={() => {}} />);
+  expect(screen.getByTestId("session-awaiting-s1")).toBeTruthy();
+  expect(screen.queryByTestId("session-running-s1")).toBeNull();
+  // a11y：等待回答语义 + 问号替代时间位
+  expect(screen.getByLabelText("等待回答")).toBeTruthy();
+  expect(screen.queryByText("2m")).toBeNull();
+});
+
+test("thinking 且无 pending ask → 仍显示 spinner", () => {
+  useSessionStore.setState((s) => ({
+    statusBySession: { ...s.statusBySession, s1: "thinking" },
+    messagesBySession: { ...s.messagesBySession, s1: [] },
+  }));
+  render(<SessionRow session={session} selected={false} onSelect={() => {}} />);
+  expect(screen.getByTestId("session-running-s1")).toBeTruthy();
+  expect(screen.queryByTestId("session-awaiting-s1")).toBeNull();
 });

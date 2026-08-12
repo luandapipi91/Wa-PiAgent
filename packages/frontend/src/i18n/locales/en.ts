@@ -458,6 +458,9 @@ const en = {
 		errorSubmit: "Submit failed, please retry.",
 		submitting: "Submitting…",
 		submit: "Submit",
+		stickyPrompt: "Agent has {{n}} questions to answer",
+		expand: "Expand",
+		collapse: "Collapse",
 	},
 	dirPicker: {
 		title: "Select project directory",
@@ -617,6 +620,7 @@ const en = {
 		hasNewReply: "New reply",
 		justNow: "Just now",
 		yesterday: "Yesterday",
+		awaitingAnswer: "Awaiting your answer",
 	},
 	projectList: {
 		sectionTitle: "Projects",
