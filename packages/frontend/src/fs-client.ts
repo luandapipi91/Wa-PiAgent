@@ -85,6 +85,11 @@ export async function revealFile(path: string): Promise<void> {
 	await transport.post("/api/fs/reveal-file", { path });
 }
 
+/** 用系统默认应用打开文件本身（等同双击，macOS open / Windows start / Linux xdg-open） */
+export async function openFileWithDefaultApp(path: string): Promise<void> {
+	await transport.post("/api/fs/open-with-default-app", { path });
+}
+
 export async function copyToUploads(
 	projectId: string,
 	source: string,
