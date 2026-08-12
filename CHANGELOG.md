@@ -2,12 +2,27 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-13 — feat(desktop): 端口自愈失败时提供「换端口启动」+「退出」选项
+
+### 变更
+
+- **问题**：启动时固定端口 9778 被占用且自动清理失效时，splash 错误态只有「重启应用」按钮；若清理后仍被占用（幽灵句柄），用户无任何操作途径（splash 无边框、无标题栏，只能任务管理器强杀）。
+- **方案**：把「重启应用」替换为「换端口启动」（从 9778 下一个端口找可用端口，relaunch 带 WA_PI_WS_PORT 环境变量），并新增「退出」按钮。
+- **改动**：
+  - 新增 `util/splash-html.cjs`：启动页 HTML 生成提取为纯函数（buildSplashHTML），错误态按钮改为 switch-port-btn + quit-btn，__showRestart 替换为__showActions({switchPort, quit})
+  - 新增 `util/port-switch.cjs`：pickSwitchPort（从 basePort+1 找可用端口，纯函数）
+  - `main.cjs`：buildSplashURL 改用 buildSplashHTML；新增 ipc handler `app:switch-port-start`（findAvailablePort + relaunch 带 env）与 `app:quit`；selfHealFailed 与 restart-after-port-kill 清理后仍占用分支均显示换端口/退出按钮
+  - `preload.cjs`：waPiApp 新增 switchPortStart / quit
+  - 前端零改动（同源相对路径，换端口后 loadURL 指向新端口即可）
+- **注意**：换端口后 IndexedDB origin 改变，跨 origin 数据不可见（沿用原有固定端口注释的说明）。
+- **测试**：splash-html.test.ts 6 个（按钮存在性/替换语义/__showActions/点击绑定）+ port-switch.test.ts 2 个（从 basePort+1 找端口/找不到返回 null），全通过；startup-heal / port.cjs 回归 18 个通过。
+
 ## 2026-08-13 — feat(desktop): 首启按需下载 Node.js 运行时，解决无 node 环境 MCP npx 报错
 
 ### 变更
 
 - **问题**：打包版只捆绑 bun（wa-pi-kernel.exe），从不捆绑 node。用户未安装 node 时，MCP 服务器通过 `npx -y <package>` 启动会报错（`"node" is not recognized` / npx-resolver 30s 卡顿 / POSIX shim 无法执行等）——MCP 服务器是第三方进程，其内部对 node 运行时的依赖无法通过 bun 兼容性兜底解决。
-- **方案**：首启时检测系统 node，无系统 node 则自动下载 Node.js LTS（v22.23.2）到 `~/.pi/agent/node/`。通过 IP 地理位置检测（ip-api.com）自动选择下载源：国内用户优先 npmmirror，国外用户优先 nodejs.org。下载的 node 自带完整 npm/npx。
+- **方案**：首启时检测系统 node，无系统 node 则自动下载 Node.js LTS（v22.23.2）到 `~/.pi/agent/node/`。通过 IP 地理位置检测（api.country.is）自动选择下载源：国内用户优先 npmmirror，国外用户优先 nodejs.org。下载的 node 自带完整 npm/npx。
 - **改动**：
   - 新增 `packages/desktop/src/util/node-runtime.cjs`：IP 检测（detectIsCN）+ 下载源选择 + node LTS 下载/解压/版本管理（ensureNodeRuntime）
   - `main.cjs` 启动流程新增 2b+) 步骤：在首启依赖安装（2c）前检测/下载 node，splash 显示进度
