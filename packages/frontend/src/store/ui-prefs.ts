@@ -77,7 +77,7 @@ export const THEME_COLOR_DEFAULT: ThemeColor = "green";
 const STORAGE_KEY = "wa-pi-ui-prefs";
 
 /** 解析 system 模式的实际明暗值 */
-function resolveActualTheme(mode: ThemeMode): "light" | "dark" {
+export function resolveActualTheme(mode: ThemeMode): "light" | "dark" {
 	if (mode !== "system") return mode;
 	return window.matchMedia("(prefers-color-scheme: dark)").matches
 		? "dark"

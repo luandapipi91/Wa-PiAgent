@@ -3,6 +3,7 @@ import { useSettingsStore } from "../../store/settings";
 import { useOnboardingStore } from "../../store/onboarding";
 import { useTranslation } from "../../i18n/useTranslation";
 import { Icon } from "../ui/Icon";
+import { VersionTimeline } from "./VersionTimeline";
 
 /** 字节数格式化：B / KB / MB / GB */
 function fmtBytes(n: number): string {
@@ -98,7 +99,7 @@ export function AboutSection() {
 								{t("settings.about.foundNew")} <b>{ver}</b>
 							</div>
 							{releaseNotes && (
-								<div className="text-xs text-tertiary text-center leading-5 max-w-[340px]">
+								<div className="text-xs text-tertiary text-center leading-5 max-w-[340px] whitespace-pre-wrap">
 									{releaseNotes}
 								</div>
 							)}
@@ -210,6 +211,16 @@ export function AboutSection() {
 					)}
 				</div>
 			)}
+
+			{/* 更新历史时间线：max-height + 独立滚动，不挤压上方更新控件 */}
+			<div className="w-full max-w-[480px] mt-2">
+				<div className="text-xs font-medium text-secondary mb-3">
+					{t("settings.about.updateHistory")}
+				</div>
+				<div className="max-h-[400px] overflow-y-auto">
+					<VersionTimeline />
+				</div>
+			</div>
 
 			{/* 初始化引导入口：说明文字后跟 icon 按钮（关闭设置并重开新手向导） */}
 			<div className="mt-5 flex items-center gap-1.5 text-xs text-tertiary">

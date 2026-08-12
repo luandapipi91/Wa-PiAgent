@@ -743,6 +743,7 @@ const en = {
 			desktopOnly: "Auto-update is only available in the desktop app",
 			retry: "Retry",
 			updateFailed: "Update failed",
+			updateHistory: "Update History",
 		},
 		provider: {
 			add: "+ Add provider",

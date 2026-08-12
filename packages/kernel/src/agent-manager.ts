@@ -1408,7 +1408,12 @@ export class AgentManager {
 
 	/** 查询会话是否正在处理中（agent_start 后 agent_settled 前） */
 	isSessionBusy(sessionId: string): boolean {
-		return this.sessions.get(sessionId)?.busy === true;
+		const handle = this.sessions.get(sessionId);
+		if (handle?.busy === true) return true;
+		// 冷启动期间（_createSession 进行中），pi 进程尚未就绪但会话正在初始化，
+		// 不应被 GET /messages 视为"空闲"——否则前端 setActiveStatus(false) 会清除
+		// 乐观 thinking 状态，导致新建会话时"正在思考"闪退
+		return this.starting.has(sessionId);
 	}
 
 	/** 查询会话开始处理的时间戳，用于前端恢复思考计时 */
