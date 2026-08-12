@@ -14,6 +14,8 @@ interface Props {
 	agentName?: AgentName;
 	/** double check 命中：后端 registry 已无此 ask（已取消/会话切换/重启残留）。显示失效并禁用提交。 */
 	stale?: boolean;
+	/** 便签快捷选择带入的预选（可选）。缺省行为与原来一致。 */
+	initialSelected?: Record<number, Set<string>>;
 }
 
 interface QState {
@@ -31,11 +33,17 @@ export function AskFormCard({
 	params,
 	agentName,
 	stale = false,
+	initialSelected,
 }: Props) {
 	const [state, setState] = useState<Record<number, QState>>(() => {
 		const init: Record<number, QState> = {};
 		params.questions.forEach((_, i) => {
-			init[i] = { mode: "option", selected: new Set(), custom: "", notes: "" };
+			init[i] = {
+				mode: "option",
+				selected: new Set(initialSelected?.[i] ?? []),
+				custom: "",
+				notes: "",
+			};
 		});
 		return init;
 	});
