@@ -3,6 +3,8 @@ import type { SessionEntity } from "@wa-pi/shared";
 import { formatRelativeTime } from "@wa-pi/shared";
 import { agentEmoji } from "../theme/agents";
 import { useSessionStore } from "../store/session";
+import { selectPendingAsks } from "../store/ask";
+import { Icon } from "./ui/Icon";
 import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
@@ -20,6 +22,10 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
   const unread = useSessionStore(s => !!s.unreadBySession[session.id]);
   // 该会话是否正在运行（agent 处理中）：运行时右侧时间位换成 loading 转圈，结束恢复时间
   const isRunning = useSessionStore(s => s.statusBySession[session.id] === "thinking");
+  // 该会话是否有 pending ask（等用户回答）：有则显示问号而非 spinner
+  const hasPendingAsk = useSessionStore(s =>
+    selectPendingAsks(s.messagesBySession[session.id] ?? []).length > 0,
+  );
 
   // 用原生事件监听确保 preventDefault 能阻止浏览器右键菜单
   useEffect(() => {
@@ -48,8 +54,17 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
     >
       <span className="text-sm">{agentEmoji(session.primaryAgent)}</span>
       <span className="flex-1 min-w-0 truncate">{session.title}</span>
-      {/* 右侧：运行中显示 loading 转圈，否则显示相对时间 */}
-      {isRunning ? (
+      {/* 右侧：pending ask 显示问号；运行中显示 loading 转圈；否则显示相对时间 */}
+      {hasPendingAsk ? (
+        <span
+          data-testid={`session-awaiting-${session.id}`}
+          aria-label={t("sessionRow.awaitingAnswer")}
+          className="flex-shrink-0 inline-flex items-center justify-center text-accent"
+          style={{ width: 14, height: 14 }}
+        >
+          <Icon name="question" size={13} />
+        </span>
+      ) : isRunning ? (
         <span
           data-testid={`session-running-${session.id}`}
           aria-label={t("common.statusRunning")}
