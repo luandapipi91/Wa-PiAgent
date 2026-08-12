@@ -28,6 +28,12 @@ export function AskDock({ sessionId }: { sessionId: string }) {
 	const [staleIds, setStaleIds] = useState<Set<string>>(new Set());
 	const [expanded, setExpanded] = useState<boolean>(loadExpanded);
 	const [quickSel, setQuickSel] = useState<Record<number, Set<string>>>({});
+	// ask 身份变化（当前 ask 被回答、新 ask 到达）时丢弃便签旧预选，
+	// 避免把上一轮选项集合里选的 label 注入到选项不同的新 ask（非法 label 提交）。
+	const currentToolCallId = asks[0]?.toolCallId;
+	useEffect(() => {
+		setQuickSel({});
+	}, [currentToolCallId]);
 	const { t } = useTranslation();
 
 	const setExpandedPersist = (v: boolean) => { saveExpanded(v); setExpanded(v); };
