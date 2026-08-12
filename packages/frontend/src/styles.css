@@ -223,6 +223,22 @@ body {
 	background: transparent;
 }
 
+/* 单行便签选项区专用：横向细滚动条 + 底部留白，避免滚动条挤压 chip 垂直居中 */
+.scrollbar-thin {
+	scrollbar-width: thin;
+}
+.scrollbar-thin::-webkit-scrollbar {
+	height: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+	background: transparent;
+	margin-top: 2px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+	background: var(--hairline-strong);
+	border-radius: 9999px;
+}
+
 /* ===== 滑块（range input）：轨道浅灰底色、thumb 品牌色 ===== */
 input[type="range"] {
 	-webkit-appearance: none;
