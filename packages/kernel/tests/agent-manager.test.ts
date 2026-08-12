@@ -292,6 +292,30 @@ test("ensureStarted 创建过程中被 dispose 时清理资源并拒绝", async 
 	expect(fakes[0].alive).toBe(false); // client 已被 dispose
 });
 
+test("isSessionBusy 在冷启动期间返回 true（pi 进程尚未就绪但 ensureStarted 进行中）", async () => {
+	const fakes: FakeSessionClient[] = [];
+	const { project, session, am } = await setup({
+		createClientFn: slowFactory(fakes, 100),
+	});
+
+	// 发起创建但不 await——模拟前端 POST /prompt 后 GET /messages 并发到达 kernel
+	const startPromise = am.ensureStarted(project.id, "dev", session.id);
+
+	// 让事件循环进入 _createSession（starting.set 已在 ensureStarted 中同步执行）
+	await new Promise((r) => setTimeout(r, 10));
+
+	// 冷启动进行中：pi 进程尚未就绪，但会话正在初始化。
+	// GET /messages 的 isSessionBusy 应返回 true，防止前端 setActiveStatus(false)
+	// 错误清除乐观 thinking 状态（新建会话时"正在思考"闪退 bug 的根因）
+	expect(am.isSessionBusy(session.id)).toBe(true);
+
+	// 等待创建完成
+	await startPromise;
+
+	// 创建完成后、prompt 之前，busy 恢复 false（_sendPromptNow 尚未调用）
+	expect(am.isSessionBusy(session.id)).toBe(false);
+});
+
 test("dispose 竞态下 getMessages 失败：不打印「拉取历史消息失败」（预期路径静默）", async () => {
 	const fakes: FakeSessionClient[] = [];
 	const { project, session, am } = await setup({

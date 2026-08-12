@@ -29,7 +29,14 @@ const ak = process.env.OSS_AK;
 const sk = process.env.OSS_SK;
 const repoRoot = join(import.meta.dir, "..");
 const releaseDir = join(repoRoot, "packages", "desktop", "release");
-const notesFile = join(repoRoot, "packages", "desktop", "RELEASE_NOTES.md");
+const historyFile = join(
+	repoRoot,
+	"packages",
+	"frontend",
+	"src",
+	"data",
+	"version-history.json",
+);
 
 interface Artifact {
 	path: string;
@@ -60,17 +67,31 @@ function listArtifacts(): Artifact[] {
 	return out;
 }
 
-/** 把 RELEASE_NOTES.md 内容注入 latest.yml 的 releaseNotes 字段，返回修改后的文本 */
+/** 从 version-history.json 第一条提取内容，格式化为 releaseNotes 文本 */
+function formatReleaseNotes(entry: {
+	version: string;
+	sections: Record<string, string[]>;
+}): string {
+	const lines: string[] = [`WA PI Agent ${entry.version} 更新内容：`];
+	for (const [category, items] of Object.entries(entry.sections)) {
+		lines.push("", `【${category}】`);
+		for (const item of items) lines.push(`- ${item}`);
+	}
+	return lines.join("\n");
+}
+
+/** 从 version-history.json 提取最新版本内容注入 latest.yml 的 releaseNotes 字段 */
 function injectReleaseNotes(ymlPath: string): string {
 	let yml = readFileSync(ymlPath, "utf8");
-	if (!existsSync(notesFile)) {
-		console.warn(`⚠ 未找到 ${notesFile}，latest.yml 不注入 releaseNotes`);
+	if (!existsSync(historyFile)) {
+		console.warn(`⚠ 未找到 ${historyFile}，latest.yml 不注入 releaseNotes`);
 		return yml;
 	}
-	const notes = readFileSync(notesFile, "utf8").trim();
+	const history = JSON.parse(readFileSync(historyFile, "utf8"));
+	if (!Array.isArray(history) || history.length === 0) return yml;
+	const notes = formatReleaseNotes(history[0]);
 	if (!notes) return yml;
 	// latest.yml 是 YAML；releaseNotes 含换行，用 YAML 字面量块（|）最稳。
-	// 若已有 releaseNotes 行则替换，否则追加。
 	const block = `releaseNotes: |-\n${notes
 		.split("\n")
 		.map((l) => `  ${l}`)

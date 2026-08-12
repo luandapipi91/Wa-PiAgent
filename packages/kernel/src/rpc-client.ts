@@ -5,12 +5,13 @@
 // - 命令/响应按 id 关联；type 非 "response"/"extension_ui_request" 的一律视为事件走 onEvent
 // - JSONL 严格按 \n 切分（不用 readline：U+2028/U+2029 在 JSON 字符串内合法，
 //   readline 会错误断行，见 pi RPC 文档的 strict JSONL 说明）
-// - spawn 实现可注入：测试用假进程/假脚本，生产用 node:child_process.spawn
+// - spawn 实现可注入：测试用假进程/假脚本，生产用 Bun.spawn（Windows 下只向子进程传
+//   stdio 句柄，避免 kernel 被杀后子进程仍持有监听端口——见 port.cjs 幽灵占用注释）
 // - extension_ui_request 子协议：onUiRequest 返回值写成 extension_ui_response；
 //   未提供 handler 时对话类方法自动回 cancelled，避免 pi 侧无限等待
 
-import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
-import { once } from "node:events";
+import { spawn as bunSpawn, type Subprocess } from "bun";
+import { Readable } from "node:stream";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { existsSync } from "node:fs";
@@ -49,7 +50,7 @@ export type SpawnFn = (
 	command: string,
 	args: string[],
 	opts: { cwd: string; env: Record<string, string> },
-) => ChildProcess;
+) => Subprocess;
 
 export interface RpcClientOpts {
 	/** pi CLI 入口（dist/cli.js）绝对路径 */
@@ -69,7 +70,7 @@ export interface RpcClientOpts {
 	onExit?: (code: number | null, signal: string | null) => void;
 	/** 单条命令超时（ms），默认 60_000；超时只 reject 该命令，不杀进程 */
 	commandTimeoutMs?: number;
-	/** 测试注入：替换 node:child_process.spawn */
+	/** 测试注入：替换 Bun.spawn */
 	spawnFn?: SpawnFn;
 }
 
@@ -83,7 +84,7 @@ const UI_DIALOG_METHODS = new Set([
 ]);
 
 export class RpcClient {
-	private proc: ChildProcess | null = null;
+	private proc: Subprocess | null = null;
 	private seq = 0;
 	private pending = new Map<
 		string,
@@ -104,18 +105,31 @@ export class RpcClient {
 		const spawnFn: SpawnFn =
 			this.opts.spawnFn ??
 			((cmd, args, o) =>
-				nodeSpawn(cmd, args, { ...o, stdio: ["pipe", "pipe", "pipe"] }));
+				bunSpawn([cmd, ...args], {
+					cwd: o.cwd,
+					env: o.env,
+					stdin: "pipe",
+					stdout: "pipe",
+					stderr: "pipe",
+					windowsHide: true,
+				}));
 		const env = { ...process.env, ...this.opts.env } as Record<string, string>;
-		const proc = spawnFn(
-			this.opts.runtime,
-			[this.opts.cliPath, "--mode", "rpc", ...(this.opts.args ?? [])],
-			{ cwd: this.opts.cwd, env },
-		);
+		let proc: Subprocess;
+		try {
+			proc = spawnFn(
+				this.opts.runtime,
+				[this.opts.cliPath, "--mode", "rpc", ...(this.opts.args ?? [])],
+				{ cwd: this.opts.cwd, env },
+			);
+		} catch (err) {
+			// Bun.spawn 同步失败（ENOENT 等）直接 throw，与旧 spawn error 语义一致
+			throw err instanceof Error ? err : new Error(String(err));
+		}
 		this.proc = proc;
 
-		proc.stdout!.setEncoding?.("utf8");
-		this.attachStdout(proc);
-		proc.stderr?.on("data", (chunk: Buffer | string) => {
+		// Bun 的 stdout/stderr 是 web ReadableStream，转回 Node Readable 复用 JSONL 逻辑
+		this.attachStdout(Readable.fromWeb(proc.stdout as any));
+		Readable.fromWeb(proc.stderr as any).on("data", (chunk: Buffer | string) => {
 			const text = chunk.toString();
 			for (const line of text.split(/\r?\n/)) {
 				if (!line.trim()) continue;
@@ -123,30 +137,31 @@ export class RpcClient {
 				if (this.stderrTail.length > 50) this.stderrTail.shift();
 			}
 		});
-		proc.on("exit", (code, signal) => {
-			this.exited = true;
-			const err = new Error(
-				`pi rpc 进程已退出 (code=${code}, signal=${signal})${this.formatStderrTail()}`,
-			);
-			for (const [id, p] of this.pending) {
-				clearTimeout(p.timer);
-				p.reject(err);
-				this.pending.delete(id);
-			}
-			this.opts.onExit?.(code, signal);
-		});
-		proc.on("error", () => {
-			/* 由 start 的 race 与 exit 处理 */
-		});
+		proc.exited.then(
+			(code) => {
+				this.onProcExit(code, proc.signalCode ?? null);
+			},
+			(err) => {
+				// spawn 失败（如运行时缺失）时 exited reject，同样走退出处理
+				this.stderrTail.push(`[rpc-client] spawn 失败: ${String(err)}`);
+				this.onProcExit(null, null);
+			},
+		);
+	}
 
-		// spawn 成功事件先到即就绪；error 先到即失败；500ms 兜底视为存活（某些运行时可能不发 spawn 事件）
-		await Promise.race([
-			once(proc, "spawn").then(() => undefined),
-			once(proc, "error").then(([err]) => {
-				throw err instanceof Error ? err : new Error(String(err));
-			}),
-			new Promise<void>((resolve) => setTimeout(resolve, 500)),
-		]);
+	/** 进程退出统一处理：置 exited、reject 全部 pending、透传 onExit */
+	private onProcExit(code: number | null, signal: string | null): void {
+		if (this.exited) return;
+		this.exited = true;
+		const err = new Error(
+			`pi rpc 进程已退出 (code=${code}, signal=${signal})${this.formatStderrTail()}`,
+		);
+		for (const [id, p] of this.pending) {
+			clearTimeout(p.timer);
+			p.reject(err);
+			this.pending.delete(id);
+		}
+		this.opts.onExit?.(code, signal);
 	}
 
 	/** 进程是否仍存活 */
@@ -175,7 +190,7 @@ export class RpcClient {
 				: undefined;
 			this.pending.set(id, { resolve, reject, timer });
 			try {
-				proc.stdin!.write(JSON.stringify(payload) + "\n");
+				(proc.stdin as any)?.write(JSON.stringify(payload) + "\n");
 			} catch (err) {
 				clearTimeout(timer);
 				this.pending.delete(id);
@@ -333,7 +348,10 @@ export class RpcClient {
 	async dispose(): Promise<void> {
 		const proc = this.proc;
 		if (!proc || !this.isAlive()) return;
-		const exitPromise = once(proc, "exit").catch(() => undefined);
+		const exitPromise = proc.exited.then(
+			() => undefined,
+			() => undefined,
+		);
 		try {
 			proc.kill();
 		} catch {
@@ -368,7 +386,7 @@ export class RpcClient {
 	}
 
 	/** 按 strict JSONL 切分 stdout：只在 \n 处断行，去掉行尾 \r */
-	private attachStdout(proc: ChildProcess): void {
+	private attachStdout(stream: NodeJS.ReadableStream): void {
 		const decoder = new StringDecoder("utf8");
 		let buffer = "";
 		const onLine = (line: string) => {
@@ -384,7 +402,7 @@ export class RpcClient {
 			}
 			this.dispatch(msg);
 		};
-		proc.stdout!.on("data", (chunk: Buffer | string) => {
+		stream.on("data", (chunk: Buffer | string) => {
 			buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
 			for (;;) {
 				const idx = buffer.indexOf("\n");
@@ -395,7 +413,7 @@ export class RpcClient {
 				onLine(line);
 			}
 		});
-		proc.stdout!.on("end", () => {
+		stream.on("end", () => {
 			buffer += decoder.end();
 			if (buffer.length > 0) {
 				let line = buffer;
@@ -485,7 +503,7 @@ export class RpcClient {
 				}
 			}
 			try {
-				this.proc?.stdin?.write(
+				(this.proc?.stdin as any)?.write(
 					JSON.stringify({
 						type: "extension_ui_response",
 						id: req.id,

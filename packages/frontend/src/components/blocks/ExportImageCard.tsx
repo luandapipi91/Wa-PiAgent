@@ -27,7 +27,11 @@ export function ExportImageCard({ turns }: Props) {
 		<div
 			data-testid="export-image-card"
 			className="bg-canvas text-primary"
-			style={{ width: 640, padding: 24, fontFamily: '"MiSans", system-ui, sans-serif' }}
+			style={{
+				width: 640,
+				padding: 24,
+				fontFamily: '"MiSans", system-ui, sans-serif',
+			}}
 		>
 			{turns.map((t, i) => (
 				<div key={i} className="flex flex-col gap-2 mb-5">
@@ -50,9 +54,13 @@ export function ExportImageCard({ turns }: Props) {
 						</div>
 						<div
 							className="prose prose-sm max-w-none text-[13.5px]"
+							data-testid="text-block"
 							style={{ lineHeight: 1.55 }}
 						>
-							<ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+							<ReactMarkdown
+								remarkPlugins={[remarkGfm]}
+								components={mdComponents}
+							>
 								{t.assistant}
 							</ReactMarkdown>
 						</div>

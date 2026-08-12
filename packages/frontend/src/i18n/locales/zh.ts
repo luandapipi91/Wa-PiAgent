@@ -724,6 +724,7 @@ const zh = {
 			desktopOnly: "自动更新仅适用于桌面安装版",
 			retry: "重试",
 			updateFailed: "更新失败",
+			updateHistory: "更新历史",
 		},
 		provider: {
 			add: "+ 添加供应商",
