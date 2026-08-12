@@ -1,7 +1,7 @@
 // ask_user_question 前端派生状态：从 messagesBySession 派生 pending 提问 + 有效的会话状态。
 import { useMemo } from "react";
 import { useSessionStore } from "./session";
-import type { AgentName, AskParams, SessionMessage } from "@wa-pi/shared";
+import type { AgentName, AskParams, AskReply, SessionMessage } from "@wa-pi/shared";
 
 export interface PendingAsk {
   toolCallId: string;
@@ -41,3 +41,18 @@ export function useIsBlocked(sessionId: string): boolean {
 }
 
 const EMPTY: SessionMessage[] = [];
+
+/** 便签快捷选择 → 完整 AskReply。任一问题未选中返回 null（不可提交）。
+ *  后端契约：/answer 一次提交整个 toolCallId 的全部问题，不能逐问题提交。 */
+export function buildQuickReply(
+	params: AskParams,
+	quickSel: Record<number, Set<string>>,
+): AskReply | null {
+	const replies = params.questions.map((q, qi) => {
+		const sel = quickSel[qi];
+		if (!sel || sel.size === 0) return null;
+		return { questionIndex: qi, selected: [...sel] };
+	});
+	if (replies.some((r) => r === null)) return null;
+	return { replies: replies as AskReply["replies"] };
+}
