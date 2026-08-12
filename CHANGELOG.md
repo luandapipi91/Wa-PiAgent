@@ -2,6 +2,15 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-12 — fix(frontend): AskQuickBar 滚轮横向滚动改用原生 passive:false 绑定，消除 preventDefault 警告
+
+### 变更
+
+- **根因**：AskQuickBar 选项区用 React 合成 `onWheel` 调 `e.preventDefault()` 阻止页面纵向滚动。React 的 wheel 监听器注册为 passive，preventDefault 无效且控制台报 `Unable to preventDefault inside passive event listener invocation`——实际拦不住页面滚动。
+- **修复**：改为 `useEffect` 中原生 `addEventListener("wheel", handler, { passive: false })`（与 MermaidBlock/FileViewer 滚轮缩放一致），preventDefault 生效，页面纵向滚动被拦截、选项区横向滚动。
+- **验证**：TDD——新增测试验证 wheel 用原生绑定且非 passive（happy-dom 把 `{passive:false}` 规范化为布尔 false，断言兼容）；AskQuickBar 15 pass / AskDock+AskFormCard 25 pass / typecheck 无错误。
+- 影响范围：packages/frontend/src/components/ask/AskQuickBar.tsx。
+
 ## 2026-08-12 — feat(ask): 便签选项区支持鼠标滚轮横向滚动
 
 ### 变更
