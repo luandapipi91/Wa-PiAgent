@@ -67,13 +67,15 @@ test("侧边栏最近视图：时间线渲染 + 点击会话切换 + 停留在�
 				'[data-testid^="session-"]:not([data-testid^="session-subtitle-"])',
 			)
 			.first();
-		if (await firstSession.count()) {
-			await firstSession.click();
-			await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 10_000 });
-			// 侧边栏仍处于「最近」视图：时间线仍在、分段控件高亮项为最近
-			await expect(page.getByTestId("recent-sessions-list")).toBeVisible();
-			await expect(page.getByTestId("session-scope-recent")).toBeVisible();
-		}
+		// 数据是测试自建（createSessionViaPrompt 成功才继续），时间线行必然存在。
+		// 不做 count() 条件化：若时间线渲染回归导致列表为空，toBeVisible 直接判红，
+		// 避免核心断言被静默跳过造成假绿。
+		await expect(firstSession).toBeVisible({ timeout: 10_000 });
+		await firstSession.click();
+		await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 10_000 });
+		// 侧边栏仍处于「最近」视图：时间线仍在、分段控件高亮项为最近
+		await expect(page.getByTestId("recent-sessions-list")).toBeVisible();
+		await expect(page.getByTestId("session-scope-recent")).toBeVisible();
 
 		// 切回「项目」，项目列表可见（ProjectList 根节点无 testid，用项目名按钮判定）
 		await page.getByTestId("session-scope-project").click();
