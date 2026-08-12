@@ -22,7 +22,18 @@ const TREE_STYLES = `
 .rct-tree-item-title-container-selected,
 .rct-tree-item-title-container-focused,
 .rct-tree-item-title-container-selected.rct-tree-item-title-container-focused {
-  background: rgba(59, 130, 246, 0.15) !important;
+  background: var(--accent-soft) !important;
+}
+.rct-tree-item-title-container-selected .rct-tree-item-button,
+.rct-tree-item-title-container-focused .rct-tree-item-button {
+  background-color: transparent !important;
+}
+.rct-tree-item-button:hover {
+  background-color: var(--surface-hover) !important;
+  color: inherit !important;
+}
+.rct-tree-item-title-container-selected .rct-tree-item-button::before {
+  background-color: var(--accent) !important;
 }
 .rct-tree-item-button,
 .rct-tree-item-arrow {
@@ -628,13 +639,13 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
     <>
       <style>{TREE_STYLES}</style>
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" data-testid="file-picker">
-        <div className="bg-surface w-[680px] max-h-[85vh] rounded-lg flex flex-col border border-hairline shadow-lg" style={{ background: "#FFFFFF" }}>
-          <div className="p-4 border-b border-surface0 flex items-start justify-between gap-3">
+        <div className="bg-surface w-[680px] max-h-[85vh] rounded-lg flex flex-col border border-hairline shadow-lg">
+          <div className="p-4 border-b border-hairline flex items-start justify-between gap-3">
             <div className="flex flex-col gap-1 min-w-0">
-              <div className="text-text font-medium truncate">
+              <div className="text-primary font-medium truncate">
                 {t("filePicker.title")}
                 {selections.length > 0 && (
-                  <span className="ml-3 text-xs text-blue font-mono">
+                  <span className="ml-3 text-xs text-brand font-mono">
                     {t("filePicker.selected", { count: selections.length })}
                   </span>
                 )}
@@ -649,7 +660,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
               <div className="relative flex items-center">
                 <input
                   type="text"
-                  className="w-48 px-3 py-1.5 text-sm border border-hairline rounded bg-surface0 text-text placeholder:text-tertiary focus:outline-none focus:border-blue pr-8"
+                  className="w-48 px-3 py-1.5 text-sm border border-hairline rounded bg-surface-elevated text-primary placeholder:text-tertiary focus:outline-none focus:border-brand pr-8"
                   placeholder={t("filePicker.searchPlaceholder")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -657,7 +668,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
                 />
                 {searchLoading && (
                   <span
-                    className="absolute right-2 w-3.5 h-3.5 border-2 border-hairline border-t-blue rounded-full animate-spin"
+                    className="absolute right-2 w-3.5 h-3.5 border-2 border-hairline border-t-brand rounded-full animate-spin"
                     data-testid="file-picker-search-loading"
                   />
                 )}
@@ -669,7 +680,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
               )}
             </div>
           </div>
-          <div className="flex-1 overflow-auto p-2 text-text" style={{ minHeight: 320 }}>
+          <div className="flex-1 overflow-auto p-2 text-primary" style={{ minHeight: 320 }}>
             {isSearching && searchLoading && !hasSearchResults ? (
               <div className="flex items-center justify-center h-32 text-sm text-tertiary">{t("filePicker.searching")}</div>
             ) : isSearching && !hasSearchResults ? (
@@ -697,7 +708,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
                     <input
                       type="checkbox"
                       data-testid="file-picker-checkbox"
-                      className="w-3.5 h-3.5 accent-blue cursor-pointer shrink-0"
+                      className="w-3.5 h-3.5 accent-brand cursor-pointer shrink-0"
                       checked={selectedItems.includes(item.index)}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -716,7 +727,7 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
               </ControlledTreeEnvironment>
             )}
           </div>
-          <div className="p-3 border-t border-surface0 flex gap-2 justify-between items-center">
+          <div className="p-3 border-t border-hairline flex gap-2 justify-between items-center">
             <label className="flex items-center gap-2 text-xs text-tertiary cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -741,12 +752,11 @@ export function FilePicker({ onPick, onCancel, multiSelect = true, defaultPath }
               {t("filePicker.showHidden")}
             </label>
             <div className="flex gap-2">
-              <button onClick={onCancel} className="px-3 py-1 text-sm text-subtext hover:text-text" data-testid="file-picker-cancel">{t("common.cancel")}</button>
+              <button onClick={onCancel} className="px-3 py-1 text-sm text-secondary hover:text-primary" data-testid="file-picker-cancel">{t("common.cancel")}</button>
               <button
                 onClick={() => onPick(selections)}
                 disabled={selections.length === 0}
-                className="px-3 py-1 text-sm rounded disabled:opacity-40"
-                style={{ background: "#1D1D1F", color: "#FFFFFF" }}
+                className="px-3 py-1 text-sm rounded bg-brand text-white disabled:opacity-40"
                 data-testid="file-picker-ok"
               >{t("filePicker.add")} {selections.length > 0 ? `(${selections.length})` : ""}</button>
             </div>

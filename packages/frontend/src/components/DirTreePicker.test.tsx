@@ -60,8 +60,12 @@ test("死类已清理：标题/取消/搜索框不再含 text-text、text-subtex
 	expect(search.className).not.toMatch(
 		/text-text|bg-surface0|border-surface0|text-subtext|text-blue|border-blue|border-t-blue/,
 	);
-	expect(screen.getByTestId("dir-cancel").className).toContain("text-secondary");
-	expect(screen.getByTestId("dir-cancel").className).not.toContain("text-subtext");
+	expect(screen.getByTestId("dir-cancel").className).toContain(
+		"text-secondary",
+	);
+	expect(screen.getByTestId("dir-cancel").className).not.toContain(
+		"text-subtext",
+	);
 });
 
 test("TREE_STYLES 覆盖库选中/聚焦按钮背景为 transparent（暗色适配关键）", async () => {
