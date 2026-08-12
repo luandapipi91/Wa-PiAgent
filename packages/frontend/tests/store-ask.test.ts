@@ -1,6 +1,6 @@
-import { test, expect } from "bun:test";
-import { selectPendingAsks } from "../src/store/ask";
-import type { SessionMessage } from "@wa-pi/shared";
+import { describe, expect, it, test } from "bun:test";
+import { buildQuickReply, selectPendingAsks } from "../src/store/ask";
+import type { AskParams, SessionMessage } from "@wa-pi/shared";
 
 function assistantMsg(toolCalls: any[], timestamp = 1): SessionMessage {
   return { message: { role: "assistant", content: toolCalls, model: "m", stopReason: "tool_use", timestamp } as any, agentName: "dev" };
@@ -32,4 +32,51 @@ test("selectPendingAsks: 多个 pending；忽略非 ask 的 toolCall", () => {
   ])];
   const pending = selectPendingAsks(msgs);
   expect(pending.map(p => p.toolCallId).sort()).toEqual(["tc1", "tc3"]);
+});
+
+describe("buildQuickReply", () => {
+	const params2: AskParams = {
+		questions: [
+			{
+				question: "优先级?",
+				header: "h",
+				options: [
+					{ label: "高", description: "x" },
+					{ label: "低", description: "y" },
+				],
+			},
+			{
+				question: "多选?",
+				header: "h",
+				multiSelect: true,
+				options: [
+					{ label: "A", description: "x" },
+					{ label: "B", description: "y" },
+				],
+			},
+		],
+	};
+
+	it("全部问题都选中 → 生成完整 replies", () => {
+		const reply = buildQuickReply(params2, {
+			0: new Set(["高"]),
+			1: new Set(["A", "B"]),
+		});
+		expect(reply).toEqual({
+			replies: [
+				{ questionIndex: 0, selected: ["高"] },
+				{ questionIndex: 1, selected: ["A", "B"] },
+			],
+		});
+	});
+
+	it("任一问题未选中 → 返回 null（不可提交）", () => {
+		const reply = buildQuickReply(params2, { 0: new Set(["高"]) });
+		expect(reply).toBeNull();
+	});
+
+	it("空选择集 → 返回 null", () => {
+		const reply = buildQuickReply(params2, {});
+		expect(reply).toBeNull();
+	});
 });
