@@ -117,9 +117,9 @@ describe("AskQuickBar", () => {
 		fireEvent.click(screen.getByText("B"));
 		fireEvent.click(screen.getByRole("button", { name: "提交" }));
 		expect(sent[0].body.reply.replies[0].selected).toEqual(["低"]);
-		expect(
-			(sent[0].body.reply.replies[1].selected as string[]).sort(),
-		).toEqual(["A", "B"]);
+		expect((sent[0].body.reply.replies[1].selected as string[]).sort()).toEqual(
+			["A", "B"],
+		);
 	});
 
 	it("点展开按钮 → onExpand 触发", () => {
@@ -163,7 +163,7 @@ describe("AskQuickBar", () => {
 				},
 			],
 		};
-		const { container } = render(
+		render(
 			<AskQuickBar
 				sessionId="s1"
 				ask={{ toolCallId: "tc1", agentName: "dev", params: wideParams }}
@@ -172,13 +172,12 @@ describe("AskQuickBar", () => {
 			/>,
 		);
 		const bar = screen.getByTestId("ask-quick-bar");
-		// 选项区容器：单行、溢出横向滚动
-		const optsRow = bar.querySelector(
-			".overflow-x-auto",
-		) as HTMLElement;
+		// 选项区容器：单行、溢出横向滚动（隐藏原生滚动条，不占空间）
+		const optsRow = bar.querySelector(".overflow-x-auto") as HTMLElement;
 		expect(optsRow).toBeTruthy();
 		expect(optsRow.className).toContain("overflow-x-auto");
 		expect(optsRow.className).toContain("whitespace-nowrap");
+		expect(optsRow.className).toContain("scrollbar-none");
 		// 内容应超出可视宽度（可横向滚动）。happy-dom 布局测量不可靠，手动 stub 尺寸验证滚动语义
 		Object.defineProperty(optsRow, "scrollWidth", {
 			value: 2000,
@@ -213,12 +212,12 @@ describe("AskQuickBar", () => {
 			/>,
 		);
 		const bar = screen.getByTestId("ask-quick-bar");
-		// 便签高度足够容纳 chip + 滚动条（不再 h-[34px] 挤压）
+		// 便签高度足够容纳 chip（42px，滚动条不占空间时 chip 完全居中）
 		expect(bar.className).not.toContain("h-[34px]");
 		expect(bar.className).toMatch(/h-\[4[0-9]px\]/);
-		// 选项区自定义滚动条（细胶囊，避免默认滚动条挤压）
+		// 选项区隐藏原生滚动条（不占空间，滚动能力保留）
 		const optsRow = bar.querySelector(".overflow-x-auto") as HTMLElement;
-		expect(optsRow.className).toContain("scrollbar-thin");
+		expect(optsRow.className).toContain("scrollbar-none");
 	});
 
 	it("选项少、不超出 → 选项区不产生横向滚动需求", () => {
