@@ -113,7 +113,10 @@ export function AskDock({ sessionId }: { sessionId: string }) {
 					</div>
 				</>
 			) : asks.length === 1 ? (
+				// key=toolCallId：折叠态 ask 直接切换（toolCallId 变化）时强制整体重挂载，
+				// AskQuickBar 内部 quickSel 预选随身份变化自然归零，无需在子组件内加 effect。
 				<AskQuickBar
+					key={asks[0].toolCallId}
 					sessionId={sessionId}
 					ask={asks[0]}
 					stale={staleIds.has(asks[0].toolCallId)}
