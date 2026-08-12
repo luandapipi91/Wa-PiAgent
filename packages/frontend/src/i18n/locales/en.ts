@@ -586,6 +586,8 @@ const en = {
 		tabTasks: "Tasks",
 		tabIm: "IM",
 		newSession: "＋ New session",
+		scopeProject: "Projects",
+		scopeRecent: "Recent",
 	},
 	trash: {
 		title: "Recycle Bin",
