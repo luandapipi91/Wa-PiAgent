@@ -27,6 +27,7 @@ function makeServer(opts: { alive: { v: boolean }; broadcasts: any[] }) {
 		},
 		agentManager: {
 			isSessionBusy: () => false,
+			isSessionActive: () => false,
 			getThinkingSince: () => null,
 			isSessionAlive: () => opts.alive.v,
 			ensureStarted: async () => {

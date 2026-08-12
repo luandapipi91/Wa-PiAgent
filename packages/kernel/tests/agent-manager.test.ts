@@ -292,7 +292,7 @@ test("ensureStarted 创建过程中被 dispose 时清理资源并拒绝", async 
 	expect(fakes[0].alive).toBe(false); // client 已被 dispose
 });
 
-test("isSessionBusy 在冷启动期间返回 true（pi 进程尚未就绪但 ensureStarted 进行中）", async () => {
+test("isSessionActive 在 prompt 排队且冷启动期间返回 true（新建会话发送消息场景）", async () => {
 	const fakes: FakeSessionClient[] = [];
 	const { project, session, am } = await setup({
 		createClientFn: slowFactory(fakes, 100),
@@ -304,16 +304,49 @@ test("isSessionBusy 在冷启动期间返回 true（pi 进程尚未就绪但 ens
 	// 让事件循环进入 _createSession（starting.set 已在 ensureStarted 中同步执行）
 	await new Promise((r) => setTimeout(r, 10));
 
-	// 冷启动进行中：pi 进程尚未就绪，但会话正在初始化。
-	// GET /messages 的 isSessionBusy 应返回 true，防止前端 setActiveStatus(false)
+	// 冷启动进行中 + prompt 排队中（agent:prompt 的 _promptLocks 命中）：
+	// GET /messages 的 isActive 应返回 true，防止前端 setActiveStatus(false)
 	// 错误清除乐观 thinking 状态（新建会话时"正在思考"闪退 bug 的根因）
-	expect(am.isSessionBusy(session.id)).toBe(true);
+	expect(am.isSessionActive(session.id, true)).toBe(true);
 
 	// 等待创建完成
 	await startPromise;
 
 	// 创建完成后、prompt 之前，busy 恢复 false（_sendPromptNow 尚未调用）
-	expect(am.isSessionBusy(session.id)).toBe(false);
+	expect(am.isSessionActive(session.id, true)).toBe(false);
+});
+
+test("isSessionActive 在冷启动但无 prompt 排队时返回 false（打开历史会话场景，回归）", async () => {
+	const fakes: FakeSessionClient[] = [];
+	const { project, session, am } = await setup({
+		createClientFn: slowFactory(fakes, 100),
+	});
+
+	// 打开历史会话：getCommands / prewarm 触发冷启动（无 prompt 排队），
+	// GET /messages 的 isActive 必须为 false——否则前端 setActiveStatus(true)
+	// 会把 idle 历史会话误标 thinking，且冷启动完成后无 agent 事件复位，
+	// 导致会话列表项永久转圈（回归：da7acb15 用 starting.has 一刀切）
+	const startPromise = am.ensureStarted(project.id, "dev", session.id);
+	await new Promise((r) => setTimeout(r, 10));
+
+	expect(am.isSessionActive(session.id, false)).toBe(false);
+
+	// 冷启动完成后仍非 busy（无 prompt）
+	await startPromise;
+	expect(am.isSessionActive(session.id, false)).toBe(false);
+});
+
+test("isSessionActive 在 handle.busy 时短路返回 true（即使无 prompt 排队）", async () => {
+	const { project, session, am } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// 手动置 busy 模拟 agent 正在处理（agent_start 后 agent_settled 前）
+	const handle = (am as any).sessions.get(session.id);
+	handle.busy = true;
+
+	// busy 优先：promptQueued=false 也应返回 true（会话确实在处理中）
+	expect(am.isSessionActive(session.id, false)).toBe(true);
+	expect(am.isSessionActive(session.id, true)).toBe(true);
 });
 
 test("dispose 竞态下 getMessages 失败：不打印「拉取历史消息失败」（预期路径静默）", async () => {

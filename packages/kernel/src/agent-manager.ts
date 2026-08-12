@@ -1406,14 +1406,33 @@ export class AgentManager {
 		this.skillDirty.delete(sessionId);
 	}
 
-	/** 查询会话是否正在处理中（agent_start 后 agent_settled 前） */
+	/**
+	 * 查询会话是否正在处理中（agent_start 后 agent_settled 前）。
+	 * @deprecated 仅保留为公开 API 兼容；GET /messages 的 isActive 请用
+	 * isSessionActive（含冷启动 + prompt 排队语义）。本方法只查 handle.busy，
+	 * 冷启动 + prompt 排队时返回 false 但 isActive 应为 true。
+	 */
 	isSessionBusy(sessionId: string): boolean {
+		return this.sessions.get(sessionId)?.busy === true;
+	}
+
+	/**
+	 * 判断会话对 GET /messages 应报告的 isActive。
+	 * - 真正在处理中（handle.busy，agent_start 后 agent_settled 前）→ true
+	 * - 冷启动中且 prompt 排队中（新建会话发送消息，等待 pi 进程就绪后即将 prompt）→ true
+	 * - 冷启动中但无 prompt 排队（getCommands / prewarm 预热，打开历史会话仅查看）→ false
+	 * - 会话已预热（handle 存在）但 prompt 排队中（_promptLocks 已 set、prompt() 尚未调用）：
+	 *   starting.has=false 且 handle.busy=false → false；该窗口极短（锁内 I/O 后同微任务
+	 *   批次调用 prompt），与 da7acb15 之前行为一致，无回归。
+	 *
+	 * 不能仅用 starting.has 判 busy：冷启动被多种场景共用，打开历史会话时
+	 * getCommands 也会触发 ensureStarted，若视为 busy，前端 setActiveStatus(true)
+	 * 会把 idle 会话误标 thinking 且无 agent 事件复位（一直转圈）——回归自 da7acb15。
+	 */
+	isSessionActive(sessionId: string, promptQueued: boolean): boolean {
 		const handle = this.sessions.get(sessionId);
 		if (handle?.busy === true) return true;
-		// 冷启动期间（_createSession 进行中），pi 进程尚未就绪但会话正在初始化，
-		// 不应被 GET /messages 视为"空闲"——否则前端 setActiveStatus(false) 会清除
-		// 乐观 thinking 状态，导致新建会话时"正在思考"闪退
-		return this.starting.has(sessionId);
+		return this.starting.has(sessionId) && promptQueued;
 	}
 
 	/** 查询会话开始处理的时间戳，用于前端恢复思考计时 */

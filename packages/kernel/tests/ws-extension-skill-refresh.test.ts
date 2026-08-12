@@ -162,6 +162,7 @@ async function setup() {
 		disposeSession: async () => {},
 		disposeAll: async () => {},
 		isSessionBusy: () => false,
+		isSessionActive: () => false,
 		getThinkingSince: () => null,
 	} as any;
 

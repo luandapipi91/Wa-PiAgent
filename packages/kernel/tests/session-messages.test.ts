@@ -47,6 +47,7 @@ test("[第三层] session:messages 走 AgentSession.messages", async () => {
     disposeSession: async () => {},
     disposeAll: async () => {},
     isSessionBusy: (_sid: string) => false,
+    isSessionActive: (_sid: string, _pq: boolean) => false,
     isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => null,
   } as any;
@@ -91,6 +92,7 @@ test("[第三层] session:messages 会话不存在返回空数组", async () => 
     disposeSession: async () => {},
     disposeAll: async () => {},
     isSessionBusy: (_sid: string) => false,
+    isSessionActive: (_sid: string, _pq: boolean) => false,
     isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => null,
   } as any;
@@ -152,6 +154,7 @@ test("[第三层] session:messages 文件直读快速路径", async () => {
     disposeSession: async () => {},
     disposeAll: async () => {},
     isSessionBusy: (_sid: string) => false,
+    isSessionActive: (_sid: string, _pq: boolean) => false,
     isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => null,
   } as any;
@@ -206,6 +209,7 @@ test("[第三层] session:messages 文件缺失（ENOENT）返回空数组", asy
     disposeSession: async () => {},
     disposeAll: async () => {},
     isSessionBusy: (_sid: string) => false,
+    isSessionActive: (_sid: string, _pq: boolean) => false,
     isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => null,
   } as any;
@@ -250,6 +254,7 @@ test("[第三层] session:messages 会话 busy 时返回 isActive:true", async (
   const agentManager = {
     ensureStarted: async (_pid: string, _an: string, _sid: string) => fakeSession,
     isSessionBusy: (_sid: string) => true,
+    isSessionActive: (_sid: string, _pq: boolean) => true,
     isSessionAlive: (_sid: string) => false,
     getThinkingSince: (_sid: string) => 1720000000000,
     prompt: async () => {},
@@ -270,5 +275,74 @@ test("[第三层] session:messages 会话 busy 时返回 isActive:true", async (
     await server.stop();
     rmSync(cfgDir, { recursive: true, force: true });
     rmSync(projFile, { force: true });
+  }
+});
+
+test("[第三层] session:messages 的 isActive 传递 _promptLocks 信号（prompt 排队中 true / 空闲 false）", async () => {
+  const calls: { sid: string; pq: boolean }[] = [];
+  let releaseStart: () => void = () => {};
+  const startGate = new Promise<void>((r) => { releaseStart = r; });
+  const agentManager = {
+    ensureStarted: async (_p: string, _a: string, _s: string) => {
+      await startGate;
+      return { messages: [] };
+    },
+    getCommands: async () => [],
+    prompt: async () => {},
+    abort: async () => {},
+    isSessionBusy: () => false,
+    isSessionActive: (sid: string, pq: boolean) => {
+      calls.push({ sid, pq });
+      return pq;
+    },
+    isSessionAlive: () => false,
+    getThinkingSince: () => null,
+    getMessages: () => [],
+    disposeSession: async () => {},
+    disposeAll: async () => {},
+  } as any;
+  const server = new WSServer({
+    projectStore: {
+      load: async () => ({ projects: [], sessions: [] }),
+      createSession: async (s: any) => s,
+      touchSession: async () => {},
+      setSessionAgent: async () => {},
+      fillSessionTitleIfEmpty: async () => false,
+    },
+    configStore: { getAgent: async () => ({ displayName: "dev" }) },
+    agentManager,
+    channelManager: null,
+  } as any);
+  (server as any).broadcast = () => {};
+
+  try {
+    // 1. 发起 agent:prompt：ensureStarted 挂起 → currentLock 未完成 → _promptLocks 持有该 sessionId
+    const promptPromise = server.callApi({
+      type: "agent:prompt",
+      sessionId: "s1",
+      projectId: "p1",
+      agentName: "dev",
+      model: "m",
+      text: "你好",
+    } as any);
+    await new Promise((r) => setTimeout(r, 20)); // 让 currentLock 进入 ensureStarted、_promptLocks 已 set
+
+    // 2. 冷启动中 + prompt 排队 → GET /messages 应传 promptQueued=true，isActive=true
+    const res1 = await server.callApi({ type: "session:messages", sessionId: "s1" } as any);
+    const body1 = await res1.json();
+    expect(body1.isActive).toBe(true);
+    expect(calls[calls.length - 1]).toEqual({ sid: "s1", pq: true });
+
+    // 3. 释放冷启动 → agent:prompt 完成 → _promptLocks 删除
+    releaseStart();
+    await promptPromise;
+
+    // 4. 无 prompt 排队 → GET /messages 应传 promptQueued=false，isActive=false
+    const res2 = await server.callApi({ type: "session:messages", sessionId: "s1" } as any);
+    const body2 = await res2.json();
+    expect(body2.isActive).toBe(false);
+    expect(calls[calls.length - 1]).toEqual({ sid: "s1", pq: false });
+  } finally {
+    await server.stop();
   }
 });

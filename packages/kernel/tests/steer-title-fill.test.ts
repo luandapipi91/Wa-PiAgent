@@ -35,6 +35,7 @@ function makeAgentManager(steerLog: string[]) {
 		disposeSession: async () => {},
 		disposeAll: async () => {},
 		isSessionBusy: () => false,
+		isSessionActive: () => false,
 		getThinkingSince: () => null,
 	} as any;
 }
