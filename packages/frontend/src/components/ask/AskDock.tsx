@@ -61,9 +61,7 @@ export function AskDock({ sessionId }: { sessionId: string }) {
 					fetchPending()
 						.then((pending2) => {
 							if (cancelled) return;
-							setStaleIds(
-								new Set(missing.filter((id) => !pending2.has(id))),
-							);
+							setStaleIds(new Set(missing.filter((id) => !pending2.has(id))));
 						})
 						.catch(() => {});
 				}, STALE_GRACE_MS);
@@ -84,34 +82,26 @@ export function AskDock({ sessionId }: { sessionId: string }) {
 			data-testid={`ask-dock-${sessionId}`}
 		>
 			{expanded ? (
-				<>
-					<div
-						className="absolute bottom-full left-0 right-0 z-20 pb-3"
-						data-testid="ask-float-layer"
-					>
-						<div className="w-full max-w-[860px] mx-auto space-y-3">
-							{asks.map((a) => (
-								<div key={a.toolCallId} className="relative">
-									<AskFormCard
-										sessionId={sessionId}
-										toolCallId={a.toolCallId}
-										params={a.params}
-										agentName={a.agentName}
-										stale={staleIds.has(a.toolCallId)}
-										initialSelected={a.toolCallId === asks[0].toolCallId ? quickSel : undefined}
-									/>
-								</div>
-							))}
-						</div>
-						<button
-							onClick={() => setExpandedPersist(false)}
-							aria-label={t("ask.collapse")}
-							className="mt-2 ml-auto block text-tertiary hover:text-primary text-[calc(11.5px*var(--font-scale))] px-2 py-0.5 bg-transparent border-0 cursor-pointer"
-						>
-							{t("ask.collapse")} ▾
-						</button>
+				<div
+					className="absolute bottom-0 left-0 right-0 z-20 max-h-[calc(100vh-160px)] overflow-y-auto"
+					data-testid="ask-float-layer"
+				>
+					<div className="w-full max-w-[860px] mx-auto space-y-3">
+						{asks.map((a) => (
+							<div key={a.toolCallId} className="relative">
+								<AskFormCard
+									sessionId={sessionId}
+									toolCallId={a.toolCallId}
+									params={a.params}
+									agentName={a.agentName}
+									stale={staleIds.has(a.toolCallId)}
+									initialSelected={a.toolCallId === asks[0].toolCallId ? quickSel : undefined}
+									onCollapse={() => setExpandedPersist(false)}
+								/>
+							</div>
+						))}
 					</div>
-				</>
+				</div>
 			) : asks.length === 1 ? (
 				// key=toolCallId：折叠态 ask 直接切换（toolCallId 变化）时强制整体重挂载，
 				// AskQuickBar 内部 quickSel 预选随身份变化自然归零，无需在子组件内加 effect。

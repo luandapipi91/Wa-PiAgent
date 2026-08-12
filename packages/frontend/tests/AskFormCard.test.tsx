@@ -74,11 +74,33 @@ describe("AskFormCard", () => {
 		expect(sent[0].path).toContain("/api/sessions/s1/cancel-ask");
 	});
 
-	it("右上角 ✕（终止）→ 发 cancel-ask", () => {
+	it("不再有右上角 ✕（终止提问已移除，取消统一走 footer 取消）", () => {
 		render(<AskFormCard sessionId="s1" toolCallId="tc1" params={params} />);
-		fireEvent.click(screen.getByRole("button", { name: "终止提问" }));
-		expect(sent).toHaveLength(1);
-		expect(sent[0].path).toContain("/api/sessions/s1/cancel-ask");
+		expect(screen.queryByRole("button", { name: "终止提问" })).toBeNull();
+	});
+
+	it("footer 最左侧有「收起」按钮；点击触发 onCollapse（不发 cancel-ask）", () => {
+		let collapsed = false;
+		render(
+			<AskFormCard
+				sessionId="s1"
+				toolCallId="tc1"
+				params={params}
+				onCollapse={() => (collapsed = true)}
+			/>,
+		);
+		const footer = screen
+			.getByRole("button", { name: "收起" })
+			.closest("div");
+		expect(footer?.className).toContain("flex");
+		// 收起按钮应在取消/提交之前（最左）
+		const buttons = Array.from(
+			footer?.querySelectorAll("button") ?? [],
+		).map((b) => b.getAttribute("aria-label") || b.textContent);
+		expect(buttons[0]).toBe("收起");
+		fireEvent.click(screen.getByRole("button", { name: "收起" }));
+		expect(collapsed).toBe(true);
+		expect(sent).toHaveLength(0);
 	});
 
 	it("Other：展开文本框，填入后可提交（kind=custom）", () => {

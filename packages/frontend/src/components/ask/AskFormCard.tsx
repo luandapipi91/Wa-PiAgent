@@ -16,6 +16,8 @@ interface Props {
 	stale?: boolean;
 	/** 便签快捷选择带入的预选（可选）。缺省行为与原来一致。 */
 	initialSelected?: Record<number, Set<string>>;
+	/** 收起弹窗回便签态（仅 UI 折叠，不触发 cancel-ask）。 */
+	onCollapse?: () => void;
 }
 
 interface QState {
@@ -34,6 +36,7 @@ export function AskFormCard({
 	agentName,
 	stale = false,
 	initialSelected,
+	onCollapse,
 }: Props) {
 	const [state, setState] = useState<Record<number, QState>>(() => {
 		const init: Record<number, QState> = {};
@@ -146,15 +149,6 @@ export function AskFormCard({
 		>
 			<div className="flex items-center justify-between px-4 py-2 border-b border-hairline">
 				<span className="text-[calc(11.5px*var(--font-scale))] font-semibold text-accent">{title}</span>
-				<button
-					onClick={handleCancel}
-					disabled={submitting}
-					aria-label={t("ask.ariaAbort")}
-					className="text-tertiary hover:text-primary text-[calc(14px*var(--font-scale))] leading-none px-1.5 py-0.5 bg-transparent border-0 cursor-pointer disabled:opacity-50"
-					data-testid={`ask-collapse-${toolCallId}`}
-				>
-					✕
-				</button>
 			</div>
 			<div className="px-4 py-3 space-y-3 max-h-[50vh] overflow-auto">
 				{params.questions.map((q, qi) => {
@@ -237,6 +231,14 @@ export function AskFormCard({
 				})}
 			</div>
 			<div className="flex justify-end gap-2 px-4 py-2 border-t border-hairline">
+				{onCollapse && (
+					<button
+						onClick={onCollapse}
+						className="text-[calc(12px*var(--font-scale))] px-3 py-1 rounded-pill bg-surface-elevated text-secondary border-0 cursor-pointer mr-auto"
+					>
+						{t("ask.collapse")}
+					</button>
+				)}
 				{stale && (
 					<span
 						className="text-[calc(11.5px*var(--font-scale))] text-danger mr-auto"

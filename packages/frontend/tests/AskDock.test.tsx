@@ -195,7 +195,13 @@ describe("AskDock 折叠便签 + 悬浮展开", () => {
 		expect(localStorage.getItem("wa-pi:ask-dock-expanded")).toBe("1");
 		const dock = screen.getByTestId("ask-dock-s1");
 		expect(dock.className).toContain("relative");
-		expect(dock.querySelector("[data-testid='ask-float-layer']")).toBeTruthy();
+		const layer = dock.querySelector("[data-testid='ask-float-layer']");
+		expect(layer).toBeTruthy();
+		// 弹窗限高：内部滚动，避免顶部超出视口/消息区（紧贴输入框上方）
+		expect((layer as HTMLElement).className).toContain("max-h");
+		expect((layer as HTMLElement).className).toContain("overflow");
+		// 收起入口已移到卡片 footer；弹窗底部不再有独立收起按钮
+		expect(dock.querySelector("[data-testid='ask-float-collapse']")).toBeNull();
 	});
 
 	it("多个 pending ask → 展开显示全部卡片", async () => {
