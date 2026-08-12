@@ -417,7 +417,7 @@ input[type="range"]::-moz-range-thumb {
 	font-size: calc(11px * var(--font-scale));
 	padding: 2px 8px;
 	border-radius: 10px;
-	background: var(--bg-secondary);
+	background: var(--surface-hover);
 	color: var(--text-secondary);
 	white-space: nowrap;
 }
@@ -482,8 +482,8 @@ input[type="range"]::-moz-range-thumb {
 	padding: 0 6px;
 	font-size: calc(12px * var(--font-scale));
 	border-radius: 4px;
-	border: 1px solid var(--border-hairline, var(--border));
-	background: var(--bg-secondary);
+	border: 1px solid var(--hairline);
+	background: var(--surface-elevated);
 	color: var(--text-secondary);
 	cursor: pointer;
 	transition:
@@ -492,7 +492,7 @@ input[type="range"]::-moz-range-thumb {
 		border-color 0.15s;
 }
 .fv-btn:hover {
-	background: var(--bg-tertiary, var(--accent-soft));
+	background: var(--surface-hover);
 	color: var(--text-primary);
 	border-color: var(--accent);
 }
@@ -524,7 +524,7 @@ input[type="range"]::-moz-range-thumb {
 	user-select: none;
 }
 .ep-node:hover {
-	background: var(--bg-secondary);
+	background: var(--surface-hover);
 }
 .ep-node[data-selected="true"] {
 	background: var(--accent-soft);
@@ -582,7 +582,7 @@ input[type="range"]::-moz-range-thumb {
 	position: fixed;
 	z-index: 99999;
 	padding: 4px 8px;
-	background: var(--bg-secondary);
+	background: var(--surface-elevated);
 	border: 1px solid var(--accent);
 	border-radius: 4px;
 	font-size: calc(12px * var(--font-scale));
