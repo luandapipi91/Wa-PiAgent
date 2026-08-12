@@ -11,7 +11,7 @@ import { useTranslation } from "../i18n/useTranslation";
 import { getHome, getRoots, listDir, searchFilesStream, type SearchMatch } from "../fs-client";
 import { Icon } from "./ui/Icon";
 
-// 覆盖 react-complex-tree 默认选中样式：浅色选中背景 + 继承文字颜色
+// 覆盖 react-complex-tree 默认样式：全部使用项目 token，自动跟随深浅色与 6 色主题
 const TREE_STYLES = `
 .rct-tree-item-title-container {
   background: transparent !important;
@@ -19,7 +19,14 @@ const TREE_STYLES = `
 .rct-tree-item-title-container-selected,
 .rct-tree-item-title-container-focused,
 .rct-tree-item-title-container-selected.rct-tree-item-title-container-focused {
-  background: rgba(59, 130, 246, 0.15) !important;
+  background: var(--accent-soft) !important;
+}
+.rct-tree-item-button:hover {
+  background-color: var(--surface-hover) !important;
+  color: inherit !important;
+}
+.rct-tree-item-title-container-selected .rct-tree-item-button::before {
+  background-color: var(--accent) !important;
 }
 .rct-tree-item-button,
 .rct-tree-item-arrow {
@@ -513,16 +520,16 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
     <>
       <style>{TREE_STYLES}</style>
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" data-testid="dir-picker">
-      <div className="bg-surface w-[600px] max-h-[80vh] rounded-lg flex flex-col border border-hairline shadow-lg" style={{ background: "#FFFFFF" }}>
-        <div className="p-4 border-b border-surface0 flex items-center justify-between gap-3">
-          <div className="text-text font-medium truncate">
+      <div className="bg-surface w-[600px] max-h-[80vh] rounded-lg flex flex-col border border-hairline shadow-lg">
+        <div className="p-4 border-b border-hairline flex items-center justify-between gap-3">
+          <div className="text-primary font-medium truncate">
             {t("dirPicker.title")}
-            {selectedPath && <span className="ml-3 text-xs text-blue font-mono">{selectedPath}</span>}
+            {selectedPath && <span className="ml-3 text-xs text-brand font-mono">{selectedPath}</span>}
           </div>
           <div className="relative flex items-center">
             <input
               type="text"
-              className="w-48 px-3 py-1.5 text-sm border border-hairline rounded bg-surface0 text-text placeholder:text-tertiary focus:outline-none focus:border-blue pr-8"
+              className="w-48 px-3 py-1.5 text-sm border border-hairline rounded bg-surface-elevated text-primary placeholder:text-tertiary focus:outline-none focus:border-brand pr-8"
               placeholder={t("filePicker.searchPlaceholder")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -530,13 +537,13 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
             />
             {searchLoading && (
               <span
-                className="absolute right-2 w-3.5 h-3.5 border-2 border-hairline border-t-blue rounded-full animate-spin"
+                className="absolute right-2 w-3.5 h-3.5 border-2 border-hairline border-t-brand rounded-full animate-spin"
                 data-testid="dir-search-loading"
               />
             )}
           </div>
         </div>
-        <div className="flex-1 overflow-auto p-2 text-text" style={{ minHeight: 320 }}>
+        <div className="flex-1 overflow-auto p-2 text-primary" style={{ minHeight: 320 }}>
           {isSearching && searchLoading && !hasSearchResults ? (
             <div className="flex items-center justify-center h-32 text-sm text-tertiary">{t("filePicker.searching")}</div>
           ) : isSearching && !hasSearchResults ? (
@@ -562,7 +569,7 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
           </ControlledTreeEnvironment>
           )}
         </div>
-        <div className="p-3 border-t border-surface0 flex gap-2 justify-between items-center">
+        <div className="p-3 border-t border-hairline flex gap-2 justify-between items-center">
           <label className="flex items-center gap-2 text-xs text-tertiary cursor-pointer select-none">
             <input
               type="checkbox"
@@ -586,12 +593,11 @@ export function DirTreePicker({ onPick, onCancel, showFiles = false }: Props) {
             {t("filePicker.showHidden")}
           </label>
           <div className="flex gap-2">
-          <button onClick={onCancel} className="px-3 py-1 text-sm text-subtext hover:text-text" data-testid="dir-cancel">{t("common.cancel")}</button>
+          <button onClick={onCancel} className="px-3 py-1 text-sm text-secondary hover:text-primary" data-testid="dir-cancel">{t("common.cancel")}</button>
           <button
             onClick={() => selectedPath && onPick(selectedPath)}
             disabled={!selectedPath}
-            className="px-3 py-1 text-sm rounded disabled:opacity-40"
-            style={{ background: "#1D1D1F", color: "#FFFFFF" }}
+            className="px-3 py-1 text-sm rounded bg-brand text-white disabled:opacity-40"
             data-testid="dir-pick"
           >{t("dirPicker.pick")}</button>
           </div>
