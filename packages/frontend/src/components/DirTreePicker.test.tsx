@@ -64,6 +64,19 @@ test("死类已清理：标题/取消/搜索框不再含 text-text、text-subtex
 	expect(screen.getByTestId("dir-cancel").className).not.toContain("text-subtext");
 });
 
+test("TREE_STYLES 覆盖库选中/聚焦按钮背景为 transparent（暗色适配关键）", async () => {
+	mockTransport();
+	render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
+	await waitFor(() => expect(screen.getByTestId("dir-pick")).toBeTruthy());
+	const styles = Array.from(document.querySelectorAll("style"))
+		.map((s) => s.textContent ?? "")
+		.join("\n");
+	expect(styles).toContain(
+		".rct-tree-item-title-container-selected .rct-tree-item-button",
+	);
+	expect(styles).toContain("background-color: transparent !important");
+});
+
 test("树节点正常渲染（默认 showFiles=false：只显示目录，文件被过滤）", async () => {
 	mockTransport();
 	render(<DirTreePicker onPick={() => {}} onCancel={() => {}} />);
