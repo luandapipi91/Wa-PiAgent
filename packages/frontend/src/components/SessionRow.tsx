@@ -13,9 +13,11 @@ interface Props {
   onSelect: (id: string) => void;
   // 右键菜单回调：阻止默认行为后把坐标和 session 交给父组件
   onContextMenu?: (e: MouseEvent, session: SessionEntity) => void;
+  // 标题下方次级标注（如「最近」视图的项目名）；缺省不渲染
+  subtitle?: string;
 }
 
-export function SessionRow({ session, selected, onSelect, onContextMenu }: Props) {
+export function SessionRow({ session, selected, onSelect, onContextMenu, subtitle }: Props) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const { t } = useTranslation();
   // 该会话是否有未读新回复（后台收到回复完成时置位，进入会话清掉）
@@ -53,7 +55,17 @@ export function SessionRow({ session, selected, onSelect, onContextMenu }: Props
       data-testid={`session-${session.id}`}
     >
       <span className="text-sm">{agentEmoji(session.primaryAgent)}</span>
-      <span className="flex-1 min-w-0 truncate">{session.title}</span>
+      <span className="flex-1 min-w-0 flex flex-col justify-center">
+        <span className="truncate">{session.title}</span>
+        {subtitle && (
+          <span
+            className="text-[calc(11px*var(--font-scale))] text-tertiary truncate"
+            data-testid={`session-subtitle-${session.id}`}
+          >
+            {subtitle}
+          </span>
+        )}
+      </span>
       {/* 右侧：pending ask 显示问号；运行中显示 loading 转圈；否则显示相对时间 */}
       {hasPendingAsk ? (
         <span

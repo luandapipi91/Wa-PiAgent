@@ -130,3 +130,18 @@ test("thinking 且无 pending ask → 仍显示 spinner", () => {
   expect(screen.getByTestId("session-running-s1")).toBeTruthy();
   expect(screen.queryByTestId("session-awaiting-s1")).toBeNull();
 });
+
+test("subtitle 存在时渲染在标题下方", () => {
+  render(
+    <table><tbody>
+      <SessionRow session={session} selected={false} onSelect={() => {}} subtitle="HiAgent" />
+    </tbody></table>,
+  );
+  expect(screen.getByText("HiAgent")).toBeTruthy();
+  expect(screen.getByTestId("session-subtitle-s1")).toBeTruthy();
+});
+
+test("subtitle 缺省时不渲染 meta 行", () => {
+  const { container } = render(<table><tbody><SessionRow session={session} selected={false} onSelect={() => {}} /></tbody></table>);
+  expect(container.querySelector("[data-testid='session-subtitle-s1']")).toBeNull();
+});
