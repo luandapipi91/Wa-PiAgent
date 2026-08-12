@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <title>链接</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --border: #e2e2e7;
+        --input-bg: #f4f4f5;
+        --btn-bg: #f4f4f5;
+        --btn-hover: #e9e9ec;
+        --text: #1f2328;
+        --accent: #3b82f6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1e1f22;
+          --border: #3a3b3f;
+          --input-bg: #2a2b2f;
+          --btn-bg: #2a2b2f;
+          --btn-hover: #34353a;
+          --text: #e8e8ea;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Microsoft YaHei", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      #bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 44px;
+        padding: 0 10px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
+        user-select: none;
+      }
+      #url {
+        flex: 1;
+        min-width: 0;
+        height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--input-bg);
+        color: var(--text);
+        font-size: 13px;
+        outline: none;
+      }
+      #url:focus {
+        border-color: var(--accent);
+      }
+      button {
+        height: 28px;
+        padding: 0 12px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--btn-bg);
+        color: var(--text);
+        font-size: 13px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      button:hover {
+        background: var(--btn-hover);
+      }
+      #copy.copied {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <input
+        id="url"
+        placeholder="输入网址，回车访问"
+        autofocus
+        spellcheck="false"
+        autocomplete="off"
+      />
+      <button id="copy" title="复制地址">复制</button>
+      <button id="go" title="前往">前往</button>
+    </div>
+    <script>
+      const input = document.getElementById("url");
+      const copyBtn = document.getElementById("copy");
+      const goBtn = document.getElementById("go");
+      // 用户是否编辑过地址：autofocus 不算编辑，导航结果需回显；
+      // 一旦用户真正输入/修改，后续导航不再覆盖输入框
+      let edited = false;
+      input.addEventListener("input", () => {
+        edited = true;
+      });
+
+      const load = () => {
+        const v = input.value.trim();
+        if (v) {
+          edited = false; // 允许导航结果（含协议补全）回显
+          window.waPiLinkWin?.load(v);
+        }
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") load();
+      });
+      goBtn.addEventListener("click", load);
+      copyBtn.addEventListener("click", () => {
+        const v = input.value.trim();
+        if (v) window.waPiClipboard?.writeText(v);
+        copyBtn.textContent = "已复制";
+        copyBtn.classList.add("copied");
+        setTimeout(() => {
+          copyBtn.textContent = "复制";
+          copyBtn.classList.remove("copied");
+        }, 1200);
+      });
+      // 页面内导航后同步地址；用户正在编辑输入框时不覆盖
+      window.waPiLinkWin?.onUrlChanged((url) => {
+        if (url && !edited) input.value = url;
+      });
+      window.waPiLinkWin?.ready();
+    </script>
+  </body>
+</html>

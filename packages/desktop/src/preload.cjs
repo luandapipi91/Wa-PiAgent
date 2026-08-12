@@ -30,6 +30,18 @@ contextBridge.exposeInMainWorld("waPiApp", {
 	setLoginItem: (enabled) => ipcRenderer.invoke("app:set-login-item", enabled),
 });
 
+// 外链子窗口地址栏（link-window.html）专用：加载/同步地址。
+// 仅子窗口壳页面调用；主窗口/splash 页面不会触发这些 IPC。
+contextBridge.exposeInMainWorld("waPiLinkWin", {
+	load: (url) => ipcRenderer.send("linkwin:load", String(url)),
+	ready: () => ipcRenderer.send("linkwin:ready"),
+	onUrlChanged: (callback) => {
+		const listener = (_event, url) => callback(url);
+		ipcRenderer.on("linkwin:url-changed", listener);
+		return () => ipcRenderer.removeListener("linkwin:url-changed", listener);
+	},
+});
+
 // 自动更新桥接：暴露给渲染进程（系统设置 → 关于 页签）
 // IPC 通道由 updater/updater.cjs 的 setupUpdater 注册。
 contextBridge.exposeInMainWorld("waPiUpdater", {
