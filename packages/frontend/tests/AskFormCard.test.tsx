@@ -89,14 +89,12 @@ describe("AskFormCard", () => {
 				onCollapse={() => (collapsed = true)}
 			/>,
 		);
-		const footer = screen
-			.getByRole("button", { name: "收起" })
-			.closest("div");
+		const footer = screen.getByRole("button", { name: "收起" }).closest("div");
 		expect(footer?.className).toContain("flex");
 		// 收起按钮应在取消/提交之前（最左）
-		const buttons = Array.from(
-			footer?.querySelectorAll("button") ?? [],
-		).map((b) => b.getAttribute("aria-label") || b.textContent);
+		const buttons = Array.from(footer?.querySelectorAll("button") ?? []).map(
+			(b) => b.getAttribute("aria-label") || b.textContent,
+		);
 		expect(buttons[0]).toBe("收起");
 		fireEvent.click(screen.getByRole("button", { name: "收起" }));
 		expect(collapsed).toBe(true);
