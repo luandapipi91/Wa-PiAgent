@@ -16,7 +16,13 @@ interface Props {
 /** 单行便签（折叠态）：内嵌快捷选项 + 提交 icon。
  *  全部问题选齐后手动点提交（不自动提交，避免误触）。
  *  只处理单个 ask；多 ask 场景由 AskDock 决定降级为纯提示。 */
-export function AskQuickBar({ sessionId, ask, stale, onExpand, onSelectedChange }: Props) {
+export function AskQuickBar({
+	sessionId,
+	ask,
+	stale,
+	onExpand,
+	onSelectedChange,
+}: Props) {
 	const { t } = useTranslation();
 	const [quickSel, setQuickSel] = useState<Record<number, Set<string>>>({});
 	const [submitting, setSubmitting] = useState(false);
@@ -39,8 +45,7 @@ export function AskQuickBar({ sessionId, ask, stale, onExpand, onSelectedChange 
 	};
 
 	const allAnswered =
-		!stale &&
-		params.questions.every((_, i) => (quickSel[i]?.size ?? 0) > 0);
+		!stale && params.questions.every((_, i) => (quickSel[i]?.size ?? 0) > 0);
 
 	const handleSubmit = async () => {
 		if (!allAnswered || submitting) return;
@@ -49,10 +54,10 @@ export function AskQuickBar({ sessionId, ask, stale, onExpand, onSelectedChange 
 		setSubmitting(true);
 		setError(null);
 		try {
-			await api.post(
-				`/api/sessions/${encodeURIComponent(sessionId)}/answer`,
-				{ toolCallId: ask.toolCallId, reply },
-			);
+			await api.post(`/api/sessions/${encodeURIComponent(sessionId)}/answer`, {
+				toolCallId: ask.toolCallId,
+				reply,
+			});
 			// 提交成功：便签保持 pending 直到 toolResult 到达使 pendingAsks 移除它
 		} catch (err) {
 			const staleErr = (err as { status?: number })?.status === 400;
@@ -81,14 +86,14 @@ export function AskQuickBar({ sessionId, ask, stale, onExpand, onSelectedChange 
 					{stale ? t("ask.errorStale") : error}
 				</span>
 			)}
-			<div className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto whitespace-nowrap scrollbar-thin">
+			<div className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto whitespace-nowrap scrollbar-none">
 				{params.questions.map((q, qi) => (
 					<span key={qi} className="flex items-center gap-1 flex-shrink-0">
 						<span className="text-tertiary text-[calc(11px*var(--font-scale))] mx-0.5">
 							Q{totalQuestions > 1 ? qi + 1 : ""}
 						</span>
 						{q.options.map((o) => {
-							const checked = (quickSel[qi]?.has(o.label) ?? false);
+							const checked = quickSel[qi]?.has(o.label) ?? false;
 							return (
 								<button
 									key={o.label}
@@ -115,9 +120,10 @@ export function AskQuickBar({ sessionId, ask, stale, onExpand, onSelectedChange 
 				aria-label={t("ask.submit")}
 				className="w-[22px] h-[22px] rounded-full border-0 flex items-center justify-center flex-shrink-0 cursor-pointer disabled:cursor-not-allowed"
 				style={{
-					background: allAnswered && !submitting
-						? "var(--accent)"
-						: "var(--hairline-strong)",
+					background:
+						allAnswered && !submitting
+							? "var(--accent)"
+							: "var(--hairline-strong)",
 					color: "var(--on-accent)",
 				}}
 				data-testid="ask-quick-submit"
