@@ -122,137 +122,7 @@ function createSplash() {
 // packaged 下运行时只有 wa-pi-kernel(=bun)，PATH 上缺少 node/npm/bun/npx。
 // 动态插件可能需要 bun 来装 npm 包，装好的 bin 脚本 shebang 又需要 node。
 // 因此在 WA_PI_DIR/bin 下创建 bun / node 符号链接指向 wa-pi-kernel，
-// 并把该目录追加到 sidecar 的 PATH。
-// npx 需要特殊处理：bun x 等价于 npx，创建包装脚本去除 -y/--yes（bun x 自动确认）。
-// node：优先搜索系统真实 Node.js（MCP 服务器大多是 Node 包，bun 不完全兼容），
-// 找不到才回退到 wa-pi-kernel。
-
-/** 搜索系统上的真实 Node.js 安装路径 */
-function findSystemNode() {
-	const candidates =
-		process.platform === "win32"
-			? [
-					path.join(
-						process.env.ProgramFiles || "C:\\Program Files",
-						"nodejs",
-						"node.exe",
-					),
-				]
-			: [
-					"/opt/homebrew/bin/node", // Apple Silicon Homebrew
-					"/usr/local/bin/node", // Intel Homebrew / manual install
-					"/usr/bin/node", // Xcode CLT / system
-				];
-	// also check common nvm paths
-	const home = os.homedir();
-	const nvmDir = process.env.NVM_DIR || path.join(home, ".nvm");
-	try {
-		const versionsDir = path.join(nvmDir, "versions", "node");
-		if (fs.existsSync(versionsDir)) {
-			const versions = fs.readdirSync(versionsDir).sort().reverse();
-			for (const v of versions) {
-				const p = path.join(versionsDir, v, "bin", "node");
-				if (fs.existsSync(p)) candidates.push(p);
-			}
-		}
-	} catch {}
-	// fnm
-	try {
-		const fnmDir = process.env.FNM_DIR || path.join(home, ".fnm");
-		if (fs.existsSync(fnmDir)) {
-			const aliasDefault = path.join(fnmDir, "aliases", "default");
-			if (fs.existsSync(aliasDefault)) {
-				const ver = fs.readFileSync(aliasDefault, "utf8").trim();
-				const p = path.join(
-					fnmDir,
-					"node-versions",
-					ver,
-					"installation",
-					"bin",
-					"node",
-				);
-				if (fs.existsSync(p)) candidates.push(p);
-			}
-		}
-	} catch {}
-	for (const c of candidates) {
-		if (fs.existsSync(c)) return c;
-	}
-	return null;
-}
-
-async function ensureRuntimeBinLinks({ kernelExe, waPiDir, log }) {
-	if (!app.isPackaged) return null;
-	const binDir = path.join(waPiDir, "bin");
-	// 使用 seedDir 中的真实内核二进制路径（wa-pi-kernel 不会被复制到 runtimeDir）
-	const target = kernelExe;
-	await fsp.mkdir(binDir, { recursive: true });
-	if (process.platform === "win32") {
-		// Windows 下符号链接需要权限/开发模式，改用 .cmd 包装脚本
-		const t = target;
-		await fsp.writeFile(
-			path.join(binDir, "npx.cmd"),
-			`@echo off\r\n"${t}" x %*\r\n`,
-		);
-		await fsp.writeFile(
-			path.join(binDir, "bun.cmd"),
-			`@echo off\r\n"${t}" %*\r\n`,
-		);
-		const sysNode = findSystemNode();
-		if (sysNode) {
-			await fsp.writeFile(
-				path.join(binDir, "node.cmd"),
-				`@echo off\r\n"${sysNode}" %*\r\n`,
-			);
-			log.info(`[runtime-bin] Windows node.cmd -> ${sysNode} (system)`);
-		} else {
-			await fsp.writeFile(
-				path.join(binDir, "node.cmd"),
-				`@echo off\r\n"${t}" %*\r\n`,
-			);
-			log.info(`[runtime-bin] Windows node.cmd -> ${t} (bun fallback)`);
-		}
-		await fsp.writeFile(
-			path.join(binDir, "npm.cmd"),
-			`@echo off\r\nif /i "%~1"=="exec" (shift & "${t}" x %*) else "${t}" %*\r\n`,
-		);
-		log.info(`[runtime-bin] Windows: npx/bun/node/npm.cmd -> ${t}`);
-		return binDir;
-	}
-	const bunLink = path.join(binDir, "bun");
-	const nodeLink = path.join(binDir, "node");
-	const npxPath = path.join(binDir, "npx");
-	const npmPath = path.join(binDir, "npm");
-	await fsp.rm(bunLink, { force: true });
-	await fsp.rm(nodeLink, { force: true });
-	await fsp.rm(npxPath, { force: true });
-	await fsp.rm(npmPath, { force: true });
-	await fsp.symlink(target, bunLink);
-	// node：优先系统真实 Node.js，MCP 服务器通常是 Node 包需要原生支持
-	const systemNode = findSystemNode();
-	if (systemNode) {
-		await fsp.symlink(systemNode, nodeLink);
-		log.info(`[runtime-bin] node -> ${systemNode} (system)`);
-	} else {
-		await fsp.symlink(target, nodeLink);
-		log.info(`[runtime-bin] node -> ${target} (bun fallback)`);
-	}
-	// npx 包装脚本：直接透传到 bun x（bun x 自动确认安装，忽略 -y/--yes）
-	const npxScript = `#!/bin/sh
-exec "${target}" x "$@"
-`;
-	await fsp.writeFile(npxPath, npxScript);
-	await fsp.chmod(npxPath, 0o755);
-	// npm exec -> bun x wrapper
-	const npmScript = `#!/bin/sh
-if [ "$1" = "exec" ]; then shift; exec "${target}" x "$@"; fi
-exec "${target}" "$@"
-`;
-	await fsp.writeFile(npmPath, npmScript);
-	await fsp.chmod(npmPath, 0o755);
-	log.info(`[runtime-bin] bun/node/npx/npm -> ${target}`);
-	return binDir;
-}
+// findSystemNode + ensureRuntimeBinLinks 已提取到 ./util/runtime-bin.cjs（可独立测试）
 
 // 更新启动页进度条与文案（p<0 表示错误态：文案红色）
 function setProgress(pct, text, isError = false) {
@@ -675,6 +545,29 @@ app.whenReady().then(async () => {
 	}
 	log.info(`kernel 端口固定为 ${actualPort}`);
 
+	// 2b+) 首启 Node.js 运行时检测/下载（packaged）。
+	// 打包版只捆绑 bun，但 MCP 服务器（npx -y <package>）等场景需要真实 node + npm。
+	// 无系统 node 时自动下载 node LTS（IP 检测选源：国内 npmmirror，国外 nodejs.org）。
+	let nodeExe = null;
+	let nodeDir = null;
+	if (app.isPackaged) {
+		try {
+			const { ensureNodeRuntime } = require("./util/node-runtime.cjs");
+			setProgress(8, "正在检测 Node.js…");
+			nodeExe = await ensureNodeRuntime({
+				waPiDir: WA_PI_DIR,
+				log,
+				onStatus: (t) => setProgress(10, t),
+			});
+			if (nodeExe) {
+				nodeDir = path.dirname(nodeExe);
+				log.info(`[node-runtime] 使用 Node.js: ${nodeExe}`);
+			}
+		} catch (e) {
+			log.error("[node-runtime] Node.js 检测/下载失败", e);
+		}
+	}
+
 	// 2c) 首启依赖检测/动态安装（packaged：WA_PI_DIR/runtime 下用阿里源装原生 addon 等）
 	let runDir = seedDir;
 	if (app.isPackaged) {
@@ -714,15 +607,22 @@ app.whenReady().then(async () => {
 	// 打包版只有 wa-pi-kernel(=bun)，部分 npm 包脚本的 shebang 需要 node。
 	if (app.isPackaged) {
 		try {
+			const { ensureRuntimeBinLinks } = require("./util/runtime-bin.cjs");
 			const binDir = await ensureRuntimeBinLinks({
 				kernelExe,
 				waPiDir: WA_PI_DIR,
 				log,
+				nodeExe,
+				isPackaged: true,
 			});
 			if (binDir) {
 				const sep = process.platform === "win32" ? ";" : ":";
-				process.env.PATH = (process.env.PATH || "") + sep + binDir;
-				log.info(`[runtime-bin] PATH 追加 ${binDir}`);
+				// 追加 binDir 和 nodeDir（下载的 node 自带 npm/npx 需要 PATH）
+				const extraPaths = [binDir];
+				if (nodeDir) extraPaths.push(nodeDir);
+				process.env.PATH =
+					(process.env.PATH || "") + sep + extraPaths.join(sep);
+				log.info(`[runtime-bin] PATH 追加 ${extraPaths.join(sep)}`);
 			}
 		} catch (e) {
 			log.error("[runtime-bin] 创建符号链接失败", e);
