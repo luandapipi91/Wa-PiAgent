@@ -113,11 +113,13 @@ interface SessionState {
 	setHistoryLoading: (sessionId: string, loading: boolean) => void;
 	setPendingPromptAt: (sessionId: string, at: number) => void;
 	setPromptError: (sessionId: string, msg: string) => void;
-	/** 根据后端 isActive 设置会话 thinking/idle 状态；isActive 缺省（undefined）时不干预 */
+	/** 根据后端 isActive 设置会话 thinking/idle 状态；isActive 缺省（undefined）时不干预。
+	 * force=true：权威对齐（SSE 断线重连 / kernel 重启），跳过乐观回显保护强制复位。 */
 	setActiveStatus: (
 		sessionId: string,
 		isActive: boolean | undefined,
 		thinkingSince?: number | null,
+		force?: boolean,
 	) => void;
 	/** 原地重试用：保留 messages[0, fromIndex)，丢弃 [fromIndex, end)。
 	 *  重发失败回合前调用——裁掉失败的用户消息及其后所有行，
@@ -427,11 +429,13 @@ export const useSessionStore = create<SessionState>((set) => {
 			}
 		},
 
-		/** 根据 isActive 设置会话状态（历史加载/重连时调用） */
+		/** 根据 isActive 设置会话状态（历史加载/重连时调用）。
+		 * force=true：权威对齐（SSE 断线重连 / kernel 重启），跳过乐观回显保护强制复位。 */
 		setActiveStatus: (
 			sessionId: string,
 			isActive: boolean | undefined,
 			thinkingSince?: number | null,
+			force = false,
 		) =>
 			set((s) => {
 				if (isActive) {
@@ -448,6 +452,15 @@ export const useSessionStore = create<SessionState>((set) => {
 				}
 				// 仅显式 false 才对齐复位；undefined 说明响应缺省/不可信，保持现状不干预
 				if (isActive !== false) return {};
+				// 乐观发送等待回显中（optimisticEchoBySession=true）：用户刚发出消息、SDK
+				// 回显（message_start/agent_start）尚未到达。此时 GET /messages 返回的
+				// isActive=false 可能是竞态误报——kernel 冷启动由 getCommands/prewarm 触发时
+				// starting.has 为 true 但 _promptLocks 尚未命中（POST /prompt 还在路上），
+				// isActive 被判为 false。若照常复位会清掉乐观 thinking，导致新建会话发送后
+				// 「正在思考」闪退（回归自 da7acb15 用 starting.has 一刀切 / 再收窄为
+				// starting && promptQueued 后的窗口）。回显到达后标记清除，复位逻辑恢复。
+				// 重连/重启（force=true）不走此保护：kernel 权威快照，残留标记必须复位。
+				if (!force && s.optimisticEchoBySession?.[sessionId]) return {};
 				// isActive=false：以 kernel 为权威对齐——SSE 断线窗口漏掉终态事件
 				// （agent_end / auto_retry_end / error 不重放）或 kernel 重启后，本地残留的
 				// thinking / loading 占位 / 重试条必须复位，否则永远停在"对话中"。
@@ -1146,6 +1159,11 @@ export const useSessionStore = create<SessionState>((set) => {
 								...s.thinkingSinceBySession,
 								[sessionId]: null,
 							},
+							// 终态兜底复位：清乐观回显标记，防止残留遮蔽后续 isActive=false 的复位语义
+							optimisticEchoBySession: {
+								...s.optimisticEchoBySession,
+								[sessionId]: false,
+							},
 						};
 					});
 					break;
@@ -1389,6 +1407,11 @@ export const useSessionStore = create<SessionState>((set) => {
 							thinkingSinceBySession: {
 								...s.thinkingSinceBySession,
 								[sessionId]: null,
+							},
+							// 终态兜底复位：清乐观回显标记，防止残留遮蔽后续 isActive=false 的复位语义
+							optimisticEchoBySession: {
+								...s.optimisticEchoBySession,
+								[sessionId]: false,
 							},
 						};
 					});
