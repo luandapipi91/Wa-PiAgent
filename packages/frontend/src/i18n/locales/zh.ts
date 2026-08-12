@@ -445,6 +445,9 @@ const zh = {
 		errorSubmit: "提交失败，请重试",
 		submitting: "提交中…",
 		submit: "提交",
+		stickyPrompt: "Agent 有 {{n}} 个问题待回答",
+		expand: "展开",
+		collapse: "收起",
 	},
 	dirPicker: {
 		title: "选择项目目录",
@@ -601,6 +604,7 @@ const zh = {
 		hasNewReply: "有新回复",
 		justNow: "刚刚",
 		yesterday: "昨天",
+		awaitingAnswer: "等待回答",
 	},
 	projectList: {
 		sectionTitle: "项目",
