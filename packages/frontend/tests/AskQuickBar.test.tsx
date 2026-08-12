@@ -407,4 +407,42 @@ describe("AskQuickBar", () => {
 		fireEvent.scroll(optsRow);
 		expect(screen.getByRole("button", { name: "向右滚动" })).toBeTruthy();
 	});
+
+	it("wheel 监听器用原生绑定且 passive:false（可 preventDefault 拦页面滚动）", () => {
+		// 回归：React 合成 onWheel 是 passive 监听器，preventDefault 无效且控制台报
+		// "Unable to preventDefault inside passive event listener invocation"。
+		// 正确做法是 useEffect 里 addEventListener("wheel", handler, { passive: false })。
+		const addCalls: Array<{ type: string; opts: any }> = [];
+		const origAdd = HTMLElement.prototype.addEventListener;
+		HTMLElement.prototype.addEventListener = function (
+			type: string,
+			listener: any,
+			opts?: any,
+		) {
+			addCalls.push({ type, opts });
+			return origAdd.call(this, type, listener, opts);
+		};
+		try {
+			render(
+				<AskQuickBar
+					sessionId="s1"
+					ask={{ toolCallId: "tc1", agentName: "dev", params }}
+					stale={false}
+					onExpand={() => {}}
+				/>,
+			);
+			const wheelCall = addCalls.find((c) => c.type === "wheel");
+			expect(wheelCall).toBeTruthy();
+			// passive 不能是 true——React 合成 onWheel 是 passive，preventDefault 无效且报警告。
+			// happy-dom 会把 { passive: false } 规范化成布尔 false（等价非 passive），两者都接受。
+			const opts = wheelCall!.opts;
+			if (opts && typeof opts === "object") {
+				expect((opts as { passive?: boolean }).passive).not.toBe(true);
+			} else {
+				expect(opts).not.toBe(true); // 布尔 false 合法（非 passive）
+			}
+		} finally {
+			HTMLElement.prototype.addEventListener = origAdd;
+		}
+	});
 });
