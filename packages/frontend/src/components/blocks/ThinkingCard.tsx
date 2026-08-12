@@ -1,5 +1,6 @@
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
+import { Linkify } from "./linkify";
 import { useTranslation } from "../../i18n/useTranslation";
 import { Icon } from "../ui/Icon";
 
@@ -18,7 +19,9 @@ export function ThinkingCard({ thinking, isStreaming }: { thinking: string; isSt
       muted={!isStreaming}
       testId="thinking-panel"
     >
-      <div className="italic text-tertiary whitespace-pre-wrap break-words">{thinking}</div>
+      <div className="italic text-tertiary whitespace-pre-wrap break-words">
+        <Linkify text={thinking} />
+      </div>
     </ProcessCard>
   );
 }

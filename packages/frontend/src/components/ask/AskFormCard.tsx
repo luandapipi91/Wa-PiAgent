@@ -5,6 +5,7 @@ import { api } from "../../api-client";
 import { useTranslation } from "../../i18n/useTranslation";
 // 项目现有代码（TextBlock.tsx / MessageList.tsx）统一用默认导入；保持一致。
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { MarkdownLink } from "../blocks/markdown-components";
 
 interface Props {
@@ -190,7 +191,10 @@ export function AskFormCard({
 									className="ml-6 bg-[#0d1117] text-[#c9d1d9] rounded-sm px-2.5 py-1.5 text-[calc(11px*var(--font-scale))] font-mono overflow-auto"
 									data-testid={`ask-preview-${toolCallId}-${qi}`}
 								>
-									<ReactMarkdown components={{ a: MarkdownLink }}>
+									<ReactMarkdown
+										remarkPlugins={[remarkGfm]}
+										components={{ a: MarkdownLink }}
+									>
 										{selPreview}
 									</ReactMarkdown>
 								</div>

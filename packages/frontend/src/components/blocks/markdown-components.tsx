@@ -15,14 +15,25 @@ import { parseFilePath } from "./file-path";
  * 导出供所有 ReactMarkdown 渲染点（聊天区 / fleet / delegate / ask 选项 preview）复用。
  */
 export function MarkdownLink({ className, ...props }: any) {
-  return (
-    <a
-      {...props}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={`text-accent underline underline-offset-2 hover:opacity-80 ${className ?? ""}`.trim()}
-    />
-  );
+	return (
+		<a
+			{...props}
+			target="_blank"
+			rel="noopener noreferrer"
+			className={`text-accent underline underline-offset-2 hover:opacity-80 ${className ?? ""}`.trim()}
+		/>
+	);
+}
+
+/**
+ * 行内代码内容是否为裸 http/https URL（trim 后整体匹配）。
+ * 只允许 http/https 协议，拒绝 javascript: 等注入协议。
+ * 用途：remark-gfm 的 autolink 不解析 code 构造内的文本，
+ * AI 常用反引号包裹 URL，需在此补一层链接化。
+ */
+function isLinkText(text: string): boolean {
+	const t = text.trim();
+	return /^https?:\/\/\S+$/.test(t);
 }
 
 /**
@@ -30,25 +41,29 @@ export function MarkdownLink({ className, ...props }: any) {
  * pre → CodeBlockCard / MermaidBlock；形似路径的内联 code → FilePill（块级 code 已被 pre 接管，不会走到这里）；a → 新标签页打开。
  */
 export function createMarkdownComponents(sessionId: string): Components {
-  return {
-    a: MarkdownLink,
-    pre: (props: any) => {
-      const codeEl = props.children;
-      const className: string = codeEl?.props?.className ?? "";
-      const m = /language-([\w+-]+)/.exec(className);
-      const code = String(codeEl?.props?.children ?? "");
-      // mermaid 代码块用 MermaidBlock 渲染为可视图表
-      if (m?.[1] === "mermaid") {
-        return <MermaidBlock code={code} />;
-      }
-      return <CodeBlockCard language={m?.[1] ?? ""} code={code} />;
-    },
-    code: (props: any) => {
-      const text = String(props.children ?? "");
-      if (!props.className && parseFilePath(text)) {
-        return <FilePill rawText={text} sessionId={sessionId} />;
-      }
-      return <code>{props.children}</code>;
-    },
-  };
+	return {
+		a: MarkdownLink,
+		pre: (props: any) => {
+			const codeEl = props.children;
+			const className: string = codeEl?.props?.className ?? "";
+			const m = /language-([\w+-]+)/.exec(className);
+			const code = String(codeEl?.props?.children ?? "");
+			// mermaid 代码块用 MermaidBlock 渲染为可视图表
+			if (m?.[1] === "mermaid") {
+				return <MermaidBlock code={code} />;
+			}
+			return <CodeBlockCard language={m?.[1] ?? ""} code={code} />;
+		},
+		code: (props: any) => {
+			const text = String(props.children ?? "");
+			if (!props.className && parseFilePath(text)) {
+				return <FilePill rawText={text} sessionId={sessionId} />;
+			}
+			// 反引号包裹的裸 URL：渲染为可点击链接（autolink 不进入 code 构造）
+			if (!props.className && isLinkText(text)) {
+				return <MarkdownLink href={text.trim()}>{text}</MarkdownLink>;
+			}
+			return <code>{props.children}</code>;
+		},
+	};
 }
