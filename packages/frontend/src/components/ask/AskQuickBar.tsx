@@ -63,7 +63,7 @@ export function AskQuickBar({ sessionId, ask, stale, onExpand, onSelectedChange 
 
 	return (
 		<div
-			className="flex items-center gap-2 h-[34px] px-3 rounded-md border border-hairline bg-surface shadow-sm"
+			className="flex items-center gap-2 h-[42px] px-3 rounded-md border border-hairline bg-surface shadow-sm"
 			data-testid="ask-quick-bar"
 		>
 			<span className="rounded-full bg-accent-soft text-accent text-[calc(11px*var(--font-scale))] px-1.5 leading-4 flex-shrink-0">
@@ -81,7 +81,7 @@ export function AskQuickBar({ sessionId, ask, stale, onExpand, onSelectedChange 
 					{stale ? t("ask.errorStale") : error}
 				</span>
 			)}
-			<div className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto whitespace-nowrap">
+			<div className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto whitespace-nowrap scrollbar-thin">
 				{params.questions.map((q, qi) => (
 					<span key={qi} className="flex items-center gap-1 flex-shrink-0">
 						<span className="text-tertiary text-[calc(11px*var(--font-scale))] mx-0.5">

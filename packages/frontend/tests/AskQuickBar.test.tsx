@@ -191,6 +191,36 @@ describe("AskQuickBar", () => {
 		expect(optsRow.scrollWidth).toBeGreaterThan(optsRow.clientWidth);
 	});
 
+	it("便签容器高度容纳横向滚动条（chip 不被顶起）", () => {
+		const wideParams: AskParams = {
+			questions: [
+				{
+					question: "周几开会?",
+					header: "h",
+					options: Array.from({ length: 30 }, (_, i) => ({
+						label: `选项${i + 1}`,
+						description: "x",
+					})),
+				},
+			],
+		};
+		render(
+			<AskQuickBar
+				sessionId="s1"
+				ask={{ toolCallId: "tc1", agentName: "dev", params: wideParams }}
+				stale={false}
+				onExpand={() => {}}
+			/>,
+		);
+		const bar = screen.getByTestId("ask-quick-bar");
+		// 便签高度足够容纳 chip + 滚动条（不再 h-[34px] 挤压）
+		expect(bar.className).not.toContain("h-[34px]");
+		expect(bar.className).toMatch(/h-\[4[0-9]px\]/);
+		// 选项区自定义滚动条（细胶囊，避免默认滚动条挤压）
+		const optsRow = bar.querySelector(".overflow-x-auto") as HTMLElement;
+		expect(optsRow.className).toContain("scrollbar-thin");
+	});
+
 	it("选项少、不超出 → 选项区不产生横向滚动需求", () => {
 		renderBar();
 		const bar = screen.getByTestId("ask-quick-bar");
