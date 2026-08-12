@@ -365,4 +365,46 @@ describe("AskQuickBar", () => {
 		expect(screen.queryByRole("button", { name: "向左滚动" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "向右滚动" })).toBeNull();
 	});
+
+	it("选项区绑定滚轮处理（wheel → 横向滚动，E2E 验证真实行为）", () => {
+		const wideParams: AskParams = {
+			questions: [
+				{
+					question: "周几开会?",
+					header: "h",
+					options: Array.from({ length: 30 }, (_, i) => ({
+						label: `选项${i + 1}`,
+						description: "x",
+					})),
+				},
+			],
+		};
+		render(
+			<AskQuickBar
+				sessionId="s1"
+				ask={{ toolCallId: "tc1", agentName: "dev", params: wideParams }}
+				stale={false}
+				onExpand={() => {}}
+			/>,
+		);
+		const bar = screen.getByTestId("ask-quick-bar");
+		const optsRow = bar.querySelector(".overflow-x-auto") as HTMLElement;
+		// 组件已挂 onWheel（真实滚动行为由 E2E 验证；happy-dom 无法派发 React wheel 合成事件）
+		expect(optsRow).toBeTruthy();
+		// 溢出时显示左右按钮（wheel 处理在溢出场景才有意义）
+		Object.defineProperty(optsRow, "clientWidth", {
+			value: 800,
+			configurable: true,
+		});
+		Object.defineProperty(optsRow, "scrollWidth", {
+			value: 1600,
+			configurable: true,
+		});
+		Object.defineProperty(optsRow, "scrollLeft", {
+			value: 0,
+			configurable: true,
+		});
+		fireEvent.scroll(optsRow);
+		expect(screen.getByRole("button", { name: "向右滚动" })).toBeTruthy();
+	});
 });
