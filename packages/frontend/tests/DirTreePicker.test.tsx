@@ -147,7 +147,7 @@ test("点击盘符选中后「选择」可点且触发 onPick", async () => {
   fireEvent.click(treeItem("D:\\"));
   // 等待 selectedPath 更新为 D:\
   await waitFor(() => {
-    const headerEl = document.querySelector('.text-blue.font-mono');
+    const headerEl = document.querySelector('.text-brand.font-mono');
     expect(headerEl?.textContent).toBe("D:\\");
   }, { timeout: 3000 });
   fireEvent.click(screen.getByTestId("dir-pick"));
@@ -334,7 +334,7 @@ test("showFiles=true 时点击文件节点选中其父目录", async () => {
 
   // 顶部路径应显示文件所在目录
   await waitFor(() => {
-    const headerEl = document.querySelector('.text-blue.font-mono');
+    const headerEl = document.querySelector('.text-brand.font-mono');
     expect(headerEl?.textContent).toBe("C:\\Users");
   }, { timeout: 3000 });
 
@@ -436,7 +436,7 @@ test("开启显示隐藏目录后，隐藏目录可被选择", async () => {
 
   // 选择按钮应可用并触发 onPick
   await waitFor(() => {
-    const headerEl = document.querySelector('.text-blue.font-mono');
+    const headerEl = document.querySelector('.text-brand.font-mono');
     expect(headerEl?.textContent).toBe("C:\\.hidden-root");
   }, { timeout: 3000 });
 
@@ -528,7 +528,7 @@ test("搜索结果中的目录可继续展开，懒加载真实子目录", async
     // 点击下钻出的 inner 目录 → 选中路径应更新，「选择」返回该目录
     fireEvent.click(treeItem("inner"));
     await waitFor(() => {
-      expect(document.querySelector(".text-blue.font-mono")?.textContent).toBe("C:\\Users\\test\\subdir\\inner");
+      expect(document.querySelector(".text-brand.font-mono")?.textContent).toBe("C:\\Users\\test\\subdir\\inner");
     }, { timeout: 3000 });
   } finally {
     _setFsTransport(fsTransport); // 恢复共享 transport
@@ -544,7 +544,7 @@ test("搜索限定到当前选中文件夹的子树，而非所有盘符根", as
   // 选中 D:\ 作为当前文件夹
   fireEvent.click(treeItem("D:\\"));
   await waitFor(() => {
-    expect(document.querySelector(".text-blue.font-mono")?.textContent).toBe("D:\\");
+    expect(document.querySelector(".text-brand.font-mono")?.textContent).toBe("D:\\");
   }, { timeout: 3000 });
 
   // 只观察搜索请求
@@ -586,7 +586,7 @@ test("搜索增量结果更新时，用户已折叠的节点保持折叠", async
       expect(treeItem("Windows")).toBeTruthy();
     }, { timeout: 3000 });
     // selectedPath 默认 = home = C:\Users\test
-    expect(document.querySelector(".text-blue.font-mono")?.textContent).toBe("C:\\Users\\test");
+    expect(document.querySelector(".text-brand.font-mono")?.textContent).toBe("C:\\Users\\test");
 
     fireEvent.change(screen.getByTestId("dir-search"), { target: { value: "sub" } });
 
