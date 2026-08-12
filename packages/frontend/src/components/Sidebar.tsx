@@ -7,6 +7,7 @@ import { SettingsButton } from "./SettingsButton";
 import { RecycleBinButton } from "./RecycleBinButton";
 import { RecycleBinModal } from "./RecycleBinModal";
 import { ImConversationList } from "./ImConversationList";
+import { RecentSessionsList } from "./RecentSessionsList";
 import { useSettingsStore } from "../store/settings";
 import { useSidebarStore } from "../store/sidebar";
 import { useTrashStore } from "../store/trash";
@@ -29,6 +30,8 @@ export function Sidebar(props: Props) {
 	const { t } = useTranslation();
 	// 侧边栏页签：任务（默认）| IM。切换只切换内容区，SettingsButton 始终可见。
 	const [tab, setTab] = useState<"tasks" | "im">("tasks");
+	// 任务视图内次级维度：项目（按项目分组，默认）| 最近（时间线）
+	const [sessionScope, setSessionScope] = useState<"project" | "recent">("project");
 	const [showTrash, setShowTrash] = useState(false);
 	const trashCount = useTrashStore((s) => s.badgeCount);
 	const refreshBadge = useTrashStore((s) => s.refreshBadge);
@@ -82,20 +85,54 @@ export function Sidebar(props: Props) {
 			{tab === "tasks" ? (
 				<>
 					<NewSessionButton onNewSession={props.onNewSession} />
+					{/* 任务 5 将把 AgentListSection 改为仅传 onMore；此处保持现有 3 个 props 不动 */}
 					<AgentListSection
 						onChatWith={props.onChatWith}
 						onEdit={props.onEdit}
 						onMore={props.onMore}
 					/>
-
-					{/* 默认工作区已合并到 ProjectList 顶部，与普通项目共用同一滚动容器 */}
-					<ProjectList
-						onSelectSession={props.onSelectSession}
-						onNewSessionInProject={props.onNewSessionInProject}
-						onSelectProject={props.onSelectProject}
-						onNewProject={props.onNewProject}
-						currentView={props.currentView}
-					/>
+					{/* 任务视图内查看维度：项目分组 | 最近时间线 */}
+					<div
+						className="flex rounded-md p-0.5"
+						style={{ background: "var(--surface-hover)" }}
+					>
+						{(["project", "recent"] as const).map((scopeKey) => (
+							<button
+								key={scopeKey}
+								onClick={() => setSessionScope(scopeKey)}
+								className="flex-1 text-xs font-medium py-1 rounded-sm border-0 cursor-pointer"
+								style={
+									sessionScope === scopeKey
+										? {
+												background: "var(--surface)",
+												color: "var(--text-primary)",
+												boxShadow: "var(--shadow-sm)",
+											}
+										: { background: "transparent", color: "var(--text-secondary)" }
+								}
+								data-testid={
+									scopeKey === "project"
+										? "session-scope-project"
+										: "session-scope-recent"
+								}
+							>
+								{scopeKey === "project"
+									? t("sidebar.scopeProject")
+									: t("sidebar.scopeRecent")}
+							</button>
+						))}
+					</div>
+					{sessionScope === "project" ? (
+						<ProjectList
+							onSelectSession={props.onSelectSession}
+							onNewSessionInProject={props.onNewSessionInProject}
+							onSelectProject={props.onSelectProject}
+							onNewProject={props.onNewProject}
+							currentView={props.currentView}
+						/>
+					) : (
+						<RecentSessionsList onSelectSession={props.onSelectSession} />
+					)}
 				</>
 			) : (
 				<ImConversationList onSelectSession={props.onSelectSession} />

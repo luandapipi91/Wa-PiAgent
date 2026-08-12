@@ -570,6 +570,8 @@ const zh = {
 		tabTasks: "任务",
 		tabIm: "IM",
 		newSession: "＋ 新建会话",
+		scopeProject: "项目",
+		scopeRecent: "最近",
 	},
 	trash: {
 		title: "回收站",
