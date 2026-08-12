@@ -77,6 +77,7 @@ const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
 describe("AskDock double check", () => {
 	beforeEach(() => {
+		localStorage.clear();
 		useSessionStore.setState({ messagesBySession: {} });
 		pendingIds = [];
 		getCalls.length = 0;
@@ -142,5 +143,86 @@ describe("AskDock double check", () => {
 			(screen.getByRole("button", { name: "提交" }) as HTMLButtonElement)
 				.disabled,
 		).toBe(false);
+	});
+});
+
+describe("AskDock 折叠便签 + 悬浮展开", () => {
+	beforeEach(() => {
+		localStorage.clear();
+		useSessionStore.setState({ messagesBySession: {} });
+		pendingIds = ["tc1"];
+		getCalls.length = 0;
+		flipAfterFirstCall = false;
+	});
+
+	it("默认展开（无 localStorage 记录）：渲染 AskFormCard 悬浮弹窗", async () => {
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		await flush();
+		expect(screen.getByTestId("ask-card-tc1")).toBeTruthy();
+		expect(screen.queryByTestId("ask-quick-bar")).toBeNull();
+	});
+
+	it("点「收起」回便签态，并写入 localStorage（全局持久化）", async () => {
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		await flush();
+		fireEvent.click(screen.getByRole("button", { name: "收起" }));
+		expect(screen.getByTestId("ask-quick-bar")).toBeTruthy();
+		expect(screen.queryByTestId("ask-card-tc1")).toBeNull();
+		expect(localStorage.getItem("wa-pi:ask-dock-expanded")).toBe("0");
+	});
+
+	it("localStorage 记录为收起 → 重挂载仍收起（记住上次状态）", async () => {
+		localStorage.setItem("wa-pi:ask-dock-expanded", "0");
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		await flush();
+		expect(screen.getByTestId("ask-quick-bar")).toBeTruthy();
+		expect(screen.queryByTestId("ask-card-tc1")).toBeNull();
+	});
+
+	it("点「展开」→ 悬浮弹窗容器有 absolute 类（不挤压文档流）", async () => {
+		localStorage.setItem("wa-pi:ask-dock-expanded", "0");
+		seedPendingAsk("s1");
+		render(<AskDock sessionId="s1" />);
+		await flush();
+		fireEvent.click(screen.getByRole("button", { name: "展开" }));
+		await waitFor(
+			() => expect(screen.getByTestId("ask-card-tc1")).toBeTruthy(),
+			{ timeout: 1000 },
+		);
+		expect(localStorage.getItem("wa-pi:ask-dock-expanded")).toBe("1");
+		const dock = screen.getByTestId("ask-dock-s1");
+		expect(dock.className).toContain("relative");
+		expect(dock.querySelector("[data-testid='ask-float-layer']")).toBeTruthy();
+	});
+
+	it("多个 pending ask → 展开显示全部卡片", async () => {
+		const askCall2 = {
+			type: "toolCall",
+			id: "tc2",
+			name: "ask_user_question",
+			arguments: {
+				questions: [
+					{
+						question: "另一个问题?",
+						header: "h",
+						options: [
+							{ label: "X", description: "x" },
+							{ label: "Y", description: "y" },
+
+						],
+					},
+				],
+			},
+		};
+		seedPendingAsk("s1", [askCall, askCall2]);
+		render(<AskDock sessionId="s1" />); // 默认展开 → 直接显示两个卡片
+		await flush();
+		await waitFor(
+			() => expect(screen.getByTestId("ask-card-tc2")).toBeTruthy(),
+			{ timeout: 1000 },
+		);
 	});
 });
