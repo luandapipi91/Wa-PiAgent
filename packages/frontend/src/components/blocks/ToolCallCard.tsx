@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import type { ToolCall, ToolResultMessage } from "@wa-pi/shared";
 import { ProcessCard, Spinner } from "./ProcessCard";
 import { useAutoCollapse } from "./useAutoCollapse";
+import { Linkify } from "./linkify";
 import { useTranslation } from "../../i18n/useTranslation";
 import { Icon } from "../ui/Icon";
 
@@ -246,7 +247,11 @@ export function ToolCallCard({
 				>
 					{result.content.map(
 						(c: any, i: number) =>
-							c?.type === "text" && <div key={i}>{c.text}</div>,
+							c?.type === "text" && (
+								<div key={i}>
+									<Linkify text={c.text} />
+								</div>
+							),
 					)}
 				</div>
 			)}

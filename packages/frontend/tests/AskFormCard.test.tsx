@@ -161,6 +161,31 @@ describe("AskFormCard", () => {
 		expect(link.getAttribute("rel")).toBe("noopener noreferrer");
 	});
 
+	it("选项 preview 中的裸 URL 也可点击（remark-gfm 自动链接）", () => {
+		const p: AskParams = {
+			questions: [
+				{
+					question: "选一个?",
+					header: "h",
+					options: [
+						{
+							label: "A",
+							description: "x",
+							preview: "请在浏览器打开 http://localhost:53213/?key=abc",
+						},
+					],
+				},
+			],
+		};
+		render(<AskFormCard sessionId="s1" toolCallId="tc1" params={p} />);
+		fireEvent.click(screen.getByText("A"));
+		const link = screen.getByRole("link", {
+			name: "http://localhost:53213/?key=abc",
+		}) as HTMLAnchorElement;
+		expect(link.getAttribute("href")).toBe("http://localhost:53213/?key=abc");
+		expect(link.getAttribute("target")).toBe("_blank");
+	});
+
 	it("选「其他」取消普通选项选择；未输入文字时提交禁用；输入后可提交", () => {
 		render(<AskFormCard sessionId="s1" toolCallId="tc1" params={params} />);
 		fireEvent.click(screen.getByText("PostgreSQL"));

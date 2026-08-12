@@ -2,6 +2,7 @@ import { memo, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createMarkdownComponents } from "./markdown-components";
+import { Linkify } from "./linkify";
 import { useSettled } from "./useSettled";
 
 /**
@@ -34,7 +35,7 @@ export const StreamingOutput = memo(function StreamingOutput({
         data-testid="streaming-output-plain"
         className="whitespace-pre-wrap break-words"
       >
-        {text}
+        <Linkify text={text} />
       </div>
     );
   }
