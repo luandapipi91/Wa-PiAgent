@@ -881,7 +881,16 @@ export class WSServer {
 			case "session:messages": {
 				const { sessions } = await this.opts.projectStore.load();
 				const session = sessions.find((s) => s.id === event.sessionId);
-				const isActive = this.opts.agentManager.isSessionBusy(event.sessionId);
+				// isActive 供前端恢复/保留会话状态：仅当会话真正在处理中
+				// （handle.busy）或冷启动中且有 prompt 排队（agent:prompt 的
+				// _promptLocks 命中）才为 true。冷启动但无 prompt（getCommands /
+				// prewarm 预热，打开历史会话仅查看）不视为 busy——否则前端
+				// setActiveStatus(true) 会把 idle 历史会话误标 thinking，且冷启动
+				// 完成后无 agent 事件复位，列表项一直转圈（回归自 da7acb15）。
+				const isActive = this.opts.agentManager.isSessionActive(
+					event.sessionId,
+					this._promptLocks.has(event.sessionId),
+				);
 				const thinkingSince = this.opts.agentManager.getThinkingSince(
 					event.sessionId,
 				);

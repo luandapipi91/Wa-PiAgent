@@ -74,6 +74,7 @@ beforeEach(async () => {
 			},
 			getMessages: (sid: string) => messagesBySession[sid] ?? [],
 			isSessionBusy: () => false,
+			isSessionActive: () => false,
 			markAllDirty: () => {},
 		} as any,
 		broadcast: (e: any) => broadcasted.push(e.type),
