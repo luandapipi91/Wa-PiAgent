@@ -2,6 +2,73 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-13 — fix(kernel/shared): /mcp 等扩展命令导致会话卡死（RPC 模式 custom() 不支持）
+
+### 变更
+
+- **问题**：输入 `/mcp`（无参数）、`/mcp setup`、`/mcp-auth`（无参数）后会话卡死 60 秒，报 `RPC 命令超时 (60000ms): prompt`。
+- **根因**：pi-mcp-adapter 这些命令调用 `ctx.ui.custom()` 想打开 TUI 面板，但 pi RPC 模式的 `custom()` 返回 `undefined` 不触发 renderer 回调，Promise 永久挂起。`_sendPromptNow` 中 `await handle.client.prompt()` 一直卡到 RPC 默认 60s 超时。
+- **修复（两层）**：
+  1. **kernel 拦截**（主要）：`shared/commands.ts` 新增 `matchTuiPanelCommand`（匹配 `/mcp`（无参数/setup）、`/mcp-auth`（无参数），排除有子命令的 `/mcp tools` 等）；`_sendPromptNow` 命中后不发 prompt，合成 `extension_notify`（warning 提示「需要终端界面，不支持」）+ `agent_end`（前端退出思考态）。与 pi `ctx.ui.notify()` 同链路，前端 session store 已对接。
+  2. **kernel 兜底超时**（防御）：`_sendPromptNow` 给 `handle.client.prompt()` 加 `Promise.race` 超时守护（`promptGuardMs` 默认 30s），任何未知的扩展命令 `custom()` 挂起都不会卡死会话。
+- 影响范围：packages/shared/src/commands.ts、packages/kernel/src/agent-manager.ts 及对应测试。
+
+## 2026-08-12 — feat(frontend/kernel): 文件不支持预览时新增「默认方式打开」按钮（系统默认应用打开文件）
+
+### 变更
+
+- **需求**：文件预览器不支持预览时，在「在访达中打开」旁新增「默认方式打开」按钮，点击后用系统默认应用打开文件本身（等同双击）。
+- **实现**：
+  - kernel `routes/fs.ts` 新增 `POST /api/fs/open-with-default-app`（expandTilde + ENOENT 回退搜索，与 reveal-file 一致；打开文件本身而非目录）；提取 `defaultOpenCommand`（mac open / win start / linux xdg-open）。
+  - 安全修复：`spawnOpen` 替代 `spawn(..., { shell: true })`——参数数组传递不经 shell（用户路径含特殊字符无注入风险），Windows `start` 经 `cmd /c` 调用；reveal-file 同步收敛。
+  - 前端 `fs-client.ts` 新增 `openFileWithDefaultApp`；`FileViewer.tsx` unsupported 分支新增按钮（testid `fv-open-default`）；i18n `common.openWithDefaultApp`（zh 默认方式打开 / en Open with Default App）。
+- **验证**：TDD 三红灯（kernel defaultOpenCommand、fs-client 请求、FileViewer 按钮）→ 绿灯；真实 HTTP 路由验证（缺 path 400、不存在 ENOENT，不触发真实 open）；typecheck 通过；前端全量 1415 测试（顺带修复 VersionTimeline 测试断言数据过期，pre-existing）。
+- 影响范围：packages/kernel/src/routes/fs.ts、packages/frontend/src/{fs-client.ts,components/blocks/FileViewer.tsx,i18n/locales/{zh,en}.ts} 及对应测试。
+
+## 2026-08-12 — fix(frontend): 系统设置>文字大小不生效于聊天窗口 markdown 正文（.prose-sm 固定字号覆盖）
+
+### 变更
+
+- **根因**：设置值写入 localStorage（wa-pi-ui-prefs）与 CSS 变量 `--font-scale` 更新均正常，但聊天窗口 assistant 消息正文走 `@tailwindcss/typography` 的 `.prose-sm`，插件声明固定 `font-size: .875rem`（不引用 `--font-scale`），覆盖了外层气泡的缩放字号。用户消息气泡/输入框均正常，唯独 markdown 正文不跟随。
+- **修复**：styles.css「文字大小缩放」区新增 `.prose-sm { font-size: calc(0.875rem * var(--font-scale)); }`（layer 外、后出现，覆盖插件规则）。只覆盖 `.prose-sm` 不动 `.prose` 基类——TextBlock（ask 预览，prose 无 prose-sm）靠 `.text-sm` 覆盖缩放，避免字号从 14px 变 16px。
+- **影响面**：聊天窗口 markdown 正文、文件预览器、回收站查看器、导出图片（prose-sm 均跟随）；TextBlock/输入框不受影响。
+- **验证**：TDD——新增 styles-font-scale.test.ts 字符串断言（修复前红）；前端全量 1328 pass / 0 fail；vite build 产物确认覆盖规则位于插件规则之后（层叠胜出）；happy-dom 层叠验证 `--font-scale=1.25` 时字号计算为 `calc(.875rem * 1.25)`。
+- 影响范围：packages/frontend/src/styles.css、tests/styles-font-scale.test.ts。
+
+## 2026-08-12 — feat(desktop): 外链子窗口加地址栏（显示/复制/修改地址后导航）
+
+### 变更
+
+- **背景**：外链在应用内新窗口打开后，用户无法看到当前地址、无法复制或修改跳转。
+- **实现**（packages/desktop）：
+  - 新增 `src/assets/link-window.html` 地址栏壳页面：地址输入框（回车/前往导航）、复制按钮（waPiClipboard）、导航结果回显；用户编辑过地址后不再被导航覆盖（edited 标记）。
+  - `main.cjs` 的 `openInChildWindow` 改为 BrowserWindow 壳（加载地址栏 HTML，挂 preload）+ `WebContentsView` 承载网页内容（sandbox 开启、不挂 preload，外部内容保持隔离）；resize 时同步内容区 bounds；`did-navigate`/`did-navigate-in-page` → 地址栏回显；IPC `linkwin:load/ready/url-changed`，多子窗口并发按 sender 隔离；`normalizeUrl` 补协议并只放行 http/https（防 javascript:/file: 注入）。
+  - `preload.cjs` 新增 `waPiLinkWin`（load/ready/onUrlChanged）。
+- **验证**：桌面测试 116 pass（新增 3 个字符串断言：WebContentsView 隔离、壳+view 结构、地址栏页面交互；剩余 1 个 mac-sign 失败为既有问题）；Electron 冒烟实测全链路——初始加载同步地址、地址栏输入 → IPC → 内容导航 → 地址回显。
+- 影响范围：packages/desktop/src/{main.cjs,preload.cjs,assets/link-window.html}、tests/web-preferences.test.ts。
+
+## 2026-08-12 — fix(desktop): 外链在应用内新窗口打开；localhost 服务链接不再被拦截；子窗口统一安全配置
+
+### 变更
+
+- **根因**：Electron 主进程 `setWindowOpenHandler` 用 `isSelfUrl` 拦截了所有 localhost 链接，用户/agent 提供的本地服务链接（如视觉伴侣页面 `http://localhost:53213/...`）点击后被 deny、无反应；外链打开方式与产品预期不符。
+- **修复**（packages/desktop/src/main.cjs）：
+  - `target=_blank` / `window.open` 不再按 isSelfUrl 拦截，一律在应用内新窗口（BrowserWindow 子窗口）打开；`will-navigate` 保留 isSelfUrl 防御（无 target 导航被应用自身地址劫持时阻止，FileViewer 相对路径仍由前端拦截）。
+  - 子窗口 webPreferences 补齐 `sandbox: false` + `preload`（与 splash/main 统一，修复 web-preferences 既有断言失败）。
+  - 顺带清理 `ensureRuntimeBinLinks` 未使用的 runtimeDir/seedDir 参数。
+- **验证**：桌面测试 114 pass（剩余 1 个 mac-sign 失败为既有问题，原实现即失败）；前端 tests/blocks + FileViewer 66 pass / 0 fail；main.cjs `node --check` 通过。
+- 影响范围：packages/desktop/src/main.cjs、packages/desktop/tests/web-preferences.test.ts、packages/frontend/src/components/blocks/FileViewer.tsx（注释）。
+
+## 2026-08-12 — fix(frontend): 主回复中反引号包裹的裸 URL 渲染为可点击链接；顺带统一 agent 消息纯文本位置的 URL 链接化
+
+### 变更
+
+- **根因**：主回复走 ReactMarkdown + remark-gfm，autolink 不解析行内代码（code 构造）内的文本；而 `createMarkdownComponents` 的 code 分支只处理 FilePill、其余原样渲染 `<code>`。AI 习惯用反引号包裹 URL（如 `` `http://localhost:53213/?key=...` ``），导致这类链接不可点击。
+- **修复**：markdown-components.tsx 的 code 分支新增 `isLinkText`（trim 后整体匹配 `^https?://\S+$`，协议白名单防 javascript: 注入），行内代码内容是裸 http/https URL 时渲染为 MarkdownLink（新标签页 + 蓝色下划线）。
+- **顺带**：新建 `blocks/linkify.tsx`（轻量 URL 链接化，不跑完整 markdown 管线），应用于 agent 消息中不走 ReactMarkdown 的纯文本位置——StreamingOutput 流式预览、ThinkingCard、ToolCallCard 工具结果；AskFormCard 选项 preview 补 remarkGfm（裸 URL 自动链接）。
+- **验证**：TDD——新增 markdown-links 反引号 URL 用例（修复前失败）、linkify 8 用例、StreamingOutput 流式 URL 用例、AskFormCard 裸 URL 用例；tests/blocks 56 pass / 0 fail。
+- 影响范围：packages/frontend/src/components/blocks/{markdown-components,linkify,StreamingOutput,ThinkingCard,ToolCallCard}.tsx、components/ask/AskFormCard.tsx，及对应测试。
+
 ## 2026-08-12 — fix(frontend): AskQuickBar 滚轮横向滚动改用原生 passive:false 绑定，消除 preventDefault 警告
 
 ### 变更
