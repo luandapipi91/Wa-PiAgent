@@ -2,6 +2,7 @@
 const {
 	app,
 	BrowserWindow,
+	WebContentsView,
 	Menu,
 	session,
 	desktopCapturer,
@@ -180,7 +181,7 @@ function findSystemNode() {
 	return null;
 }
 
-async function ensureRuntimeBinLinks({ runtimeDir, seedDir, kernelExe, waPiDir, log }) {
+async function ensureRuntimeBinLinks({ kernelExe, waPiDir, log }) {
 	if (!app.isPackaged) return null;
 	const binDir = path.join(waPiDir, "bin");
 	// 使用 seedDir 中的真实内核二进制路径（wa-pi-kernel 不会被复制到 runtimeDir）
@@ -290,12 +291,27 @@ function createWindow() {
 	mainWindow.on("closed", () => {
 		mainWindow = null;
 	});
-	// 链接处理：外部链接在内置浏览器窗口打开（标题默认为应用名），不用系统浏览器。
-	// 应用自身本地服务地址（相对路径被浏览器解析为 localhost URL）不打开——
-	// FileViewer 里的相对路径链接由前端 onClick 拦截在预览器内打开，不走到这里。
+	// 链接处理：外部链接在应用内新窗口（BrowserWindow 子窗口）打开，不劫持主窗口。
+	// 浏览器（web）端 target="_blank" 天然新窗口/新标签页，Electron 端由这里统一接管。
+	// isSelfUrl 仅用于防御「无 target=_blank 的当前窗口导航」被应用自身地址（相对路径
+	// 被解析为 localhost URL）劫持——FileViewer 里的相对路径链接由前端 onClick 拦截在
+	// 预览器内打开，不走到这里；用户/agent 提供的 localhost 服务链接（如视觉伴侣页面）
+	// 是显式 target=_blank 点击，应放行到应用内新窗口。
 	const isSelfUrl = (url) =>
 		/^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/i.test(url);
+	// 地址栏规范化为可导航 URL：无协议时补 https://；只放行 http/https（防 javascript:/file: 注入）
+	const normalizeUrl = (raw) => {
+		const t = String(raw || "").trim();
+		if (!t) return null;
+		const withProto = /^[a-z][a-z0-9+.-]*:/i.test(t) ? t : `https://${t}`;
+		if (!/^https?:\/\//i.test(withProto)) return null;
+		return withProto;
+	};
+
+	// 外链子窗口：BrowserWindow 壳（本地地址栏页面）+ WebContentsView 承载网页内容。
+	// 地址栏支持显示当前地址 / 复制地址 / 修改地址后导航；网页内容不挂 preload、sandbox 开启。
 	const openInChildWindow = (url) => {
+		const BAR_HEIGHT = 44;
 		const child = new BrowserWindow({
 			parent: mainWindow,
 			title: "WA PI Agent",
@@ -305,22 +321,76 @@ function createWindow() {
 			webPreferences: {
 				nodeIntegration: false,
 				contextIsolation: true,
+				sandbox: false,
+				preload: path.join(__dirname, "preload.cjs"),
 			},
 		});
-		child.loadURL(url);
-		// 子窗口里的链接也用内置窗口打开，不创建裸 Electron 窗口
-		child.webContents.setWindowOpenHandler(({ url: childUrl }) => {
+		child.loadFile(path.join(__dirname, "assets", "link-window.html"));
+
+		// 网页内容视图：外部内容，保持最强隔离（不挂 preload）
+		const view = new WebContentsView({
+			webPreferences: {
+				nodeIntegration: false,
+				contextIsolation: true,
+				sandbox: true,
+			},
+		});
+		child.contentView.addChildView(view);
+		const updateViewBounds = () => {
+			const [w, h] = child.getContentSize();
+			view.setBounds({
+				x: 0,
+				y: BAR_HEIGHT,
+				width: w,
+				height: Math.max(h - BAR_HEIGHT, 0),
+			});
+		};
+		updateViewBounds();
+		child.on("resize", updateViewBounds);
+
+		view.webContents.loadURL(url);
+
+		// 内容导航 → 地址栏同步
+		const sendCurrentUrl = () => {
+			if (child.isDestroyed()) return;
+			const cur = view.webContents.getURL();
+			if (cur) child.webContents.send("linkwin:url-changed", cur);
+		};
+		view.webContents.on("did-navigate", sendCurrentUrl);
+		view.webContents.on("did-navigate-in-page", sendCurrentUrl);
+
+		// 地址栏 → 内容导航（仅响应本子窗口的地址栏请求，多窗口并发不串）
+		const onLoad = (event, rawUrl) => {
+			if (event.sender !== child.webContents) return;
+			const target = normalizeUrl(rawUrl);
+			if (target) view.webContents.loadURL(target);
+		};
+		const onReady = (event) => {
+			if (event.sender === child.webContents) sendCurrentUrl();
+		};
+		ipcMain.on("linkwin:load", onLoad);
+		ipcMain.on("linkwin:ready", onReady);
+
+		// 内容里 target=_blank / window.open → 递归新开子窗口
+		view.webContents.setWindowOpenHandler(({ url: childUrl }) => {
 			openInChildWindow(childUrl);
 			return { action: "deny" };
 		});
+
+		child.on("closed", () => {
+			ipcMain.removeListener("linkwin:load", onLoad);
+			ipcMain.removeListener("linkwin:ready", onReady);
+		});
 	};
+	// target=_blank / window.open：用户明确要新开，一律应用内新窗口
 	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-		if (!isSelfUrl(url) && /^(https?:|mailto:|tel:)/i.test(url)) {
+		if (/^(https?:|mailto:|tel:)/i.test(url)) {
 			openInChildWindow(url);
 		}
 		return { action: "deny" };
 	});
-	// 防御：无 target=_blank 的链接会在当前窗口导航，阻止主窗口被外部地址劫持
+	// 防御：无 target=_blank 的链接会在当前窗口导航，阻止主窗口被外部地址劫持；
+	// 非应用自身地址转应用内新窗口
 	mainWindow.webContents.on("will-navigate", (event, url) => {
 		if (!isSelfUrl(url)) {
 			event.preventDefault();
@@ -645,8 +715,6 @@ app.whenReady().then(async () => {
 	if (app.isPackaged) {
 		try {
 			const binDir = await ensureRuntimeBinLinks({
-				runtimeDir,
-				seedDir,
 				kernelExe,
 				waPiDir: WA_PI_DIR,
 				log,
