@@ -2,16 +2,19 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
-## 2026-08-13 — fix(kernel/shared): /mcp 等扩展命令导致会话卡死（RPC 模式 custom() 不支持）
+## 2026-08-13 — fix(kernel): RPC 模式 custom() 挂根治——bridge 扩展 session_start patch
 
 ### 变更
 
-- **问题**：输入 `/mcp`（无参数）、`/mcp setup`、`/mcp-auth`（无参数）后会话卡死 60 秒，报 `RPC 命令超时 (60000ms): prompt`。
-- **根因**：pi-mcp-adapter 这些命令调用 `ctx.ui.custom()` 想打开 TUI 面板，但 pi RPC 模式的 `custom()` 返回 `undefined` 不触发 renderer 回调，Promise 永久挂起。`_sendPromptNow` 中 `await handle.client.prompt()` 一直卡到 RPC 默认 60s 超时。
-- **修复（两层）**：
-  1. **kernel 拦截**（主要）：`shared/commands.ts` 新增 `matchTuiPanelCommand`（匹配 `/mcp`（无参数/setup）、`/mcp-auth`（无参数），排除有子命令的 `/mcp tools` 等）；`_sendPromptNow` 命中后不发 prompt，合成 `extension_notify`（warning 提示「需要终端界面，不支持」）+ `agent_end`（前端退出思考态）。与 pi `ctx.ui.notify()` 同链路，前端 session store 已对接。
-  2. **kernel 兜底超时**（防御）：`_sendPromptNow` 给 `handle.client.prompt()` 加 `Promise.race` 超时守护（`promptGuardMs` 默认 30s），任何未知的扩展命令 `custom()` 挂起都不会卡死会话。
-- 影响范围：packages/shared/src/commands.ts、packages/kernel/src/agent-manager.ts 及对应测试。
+- **问题**：输入 `/mcp`（或任何调用 `ctx.ui.custom()` 的扩展命令）后 pi 进程永久挂起——不回 response、不发事件，wa-pi 无限等待直到 60s RPC 超时。此问题影响所有用 custom() 全屏面板的插件，非 pi-mcp-adapter 个例。
+- **根因**：pi RPC 模式的 `ctx.ui.custom()` 原生实现返回 `undefined` 且不调用 factory 回调。扩展命令 handler（如 openMcpPanel）在 `await new Promise(resolve => ctx.ui.custom(factory))` 中永久挂起。
+- **修复**：wa-pi-bridge 扩展在 `session_start`（bindExtensions 设好共享 uiContext 之后触发）时，将 `uiContext.custom()` 替换为**先 notify 再同步抛出**。效果链：
+  - `custom()` 调用时先 `ui.notify(msg, "warning")` → 前端 extension_notify 已对接：**聊天窗口中间居中显示，30s 后自动消失**
+  - 再同步 `throw` → handler throws → `_tryExecuteExtensionCommand` catch → `extension_error` 事件（补充提示）
+  - 同时 `preflightResult(true)` 正常触发 → prompt 成功返回
+  - `session_start` 在每次 bindExtensions（启动/new_session/switch_session/reload）后都触发，patch 自动重应用
+- **设计原则**：零超时（同步 throw，ms 级反馈）、零白名单（覆盖所有插件的 custom() 调用）、零第三方源码修改（仅 wa-pi 自有 bridge 扩展运行时 patch）。
+- 影响范围：packages/kernel/src/wa-pi-bridge.extension.ts、packages/kernel/tests/bridge-extension.test.ts。
 
 ## 2026-08-12 — feat(frontend/kernel): 文件不支持预览时新增「默认方式打开」按钮（系统默认应用打开文件）
 
