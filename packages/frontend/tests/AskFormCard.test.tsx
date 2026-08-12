@@ -207,4 +207,30 @@ describe("AskFormCard", () => {
 		expect(submit.disabled).toBe(true);
 		expect(screen.getByText("提问已失效", { exact: false })).toBeTruthy();
 	});
+
+	it("initialSelected：预选中普通选项；提交时带过去", () => {
+		render(
+			<AskFormCard
+				sessionId="s1"
+				toolCallId="tc1"
+				params={params}
+				initialSelected={{ 0: new Set(["PostgreSQL"]) }}
+			/>,
+		);
+		// 预选后直接可提交
+		const submit = screen.getByRole("button", {
+			name: "提交",
+		}) as HTMLButtonElement;
+		expect(submit.disabled).toBe(false);
+		fireEvent.click(screen.getByRole("button", { name: "提交" }));
+		expect(sent[0].body.reply.replies[0].selected).toEqual(["PostgreSQL"]);
+	});
+
+	it("initialSelected 缺省 → 行为与原来一致（未选禁用）", () => {
+		render(<AskFormCard sessionId="s1" toolCallId="tc1" params={params} />);
+		const submit = screen.getByRole("button", {
+			name: "提交",
+		}) as HTMLButtonElement;
+		expect(submit.disabled).toBe(true);
+	});
 });
