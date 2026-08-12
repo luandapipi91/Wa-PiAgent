@@ -284,6 +284,67 @@ describe("AskQuickBar", () => {
 		expect(screen.getByRole("button", { name: "向左滚动" })).toBeTruthy();
 	});
 
+	it("滚动到最左 → 「<」置灰；滚动到最右 → 「>」置灰", () => {
+		const wideParams: AskParams = {
+			questions: [
+				{
+					question: "周几开会?",
+					header: "h",
+					options: Array.from({ length: 30 }, (_, i) => ({
+						label: `选项${i + 1}`,
+						description: "x",
+					})),
+				},
+			],
+		};
+		render(
+			<AskQuickBar
+				sessionId="s1"
+				ask={{ toolCallId: "tc1", agentName: "dev", params: wideParams }}
+				stale={false}
+				onExpand={() => {}}
+			/>,
+		);
+		const bar = screen.getByTestId("ask-quick-bar");
+		const optsRow = bar.querySelector(".overflow-x-auto") as HTMLElement;
+		Object.defineProperty(optsRow, "clientWidth", {
+			value: 800,
+			configurable: true,
+		});
+		Object.defineProperty(optsRow, "scrollWidth", {
+			value: 1600,
+			configurable: true,
+		});
+		// 最左：scrollLeft=0 → 向左按钮 disabled，向右按钮可用
+		Object.defineProperty(optsRow, "scrollLeft", {
+			value: 0,
+			configurable: true,
+		});
+		fireEvent.scroll(optsRow);
+		expect(
+			(screen.getByRole("button", { name: "向左滚动" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(true);
+		expect(
+			(screen.getByRole("button", { name: "向右滚动" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(false);
+		// 最右：scrollLeft=800 → 向右按钮 disabled，向左按钮可用
+		Object.defineProperty(optsRow, "scrollLeft", {
+			value: 800,
+			configurable: true,
+		});
+		fireEvent.scroll(optsRow);
+		expect(
+			(screen.getByRole("button", { name: "向右滚动" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(true);
+		expect(
+			(screen.getByRole("button", { name: "向左滚动" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(false);
+	});
+
 	it("无溢出时：不显示左右滚动按钮", () => {
 		renderBar();
 		const bar = screen.getByTestId("ask-quick-bar");

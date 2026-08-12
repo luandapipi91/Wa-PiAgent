@@ -28,8 +28,10 @@ export function AskQuickBar({
 	const [quickSel, setQuickSel] = useState<Record<number, Set<string>>>({});
 	const [submitting, setSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	// 选项是否溢出（需要左右按钮）；由滚动事件时按尺寸判定
+	// 选项是否溢出（需要左右按钮）；以及各方向是否可滚（边界置灰）
 	const [hasOverflow, setHasOverflow] = useState(false);
+	const [canLeft, setCanLeft] = useState(false);
+	const [canRight, setCanRight] = useState(false);
 	const optsRowRef = useRef<HTMLDivElement>(null);
 
 	const params = ask.params;
@@ -70,17 +72,19 @@ export function AskQuickBar({
 		}
 	};
 
-	const handleScroll = () => {
+	const syncScroll = () => {
 		const el = optsRowRef.current;
 		if (!el) return;
 		setHasOverflow(el.scrollWidth > el.clientWidth);
+		setCanLeft(el.scrollLeft > 0);
+		setCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth);
 	};
 
-	// 挂载及参数变化时初始检测：溢出则显示左右按钮（无需用户先滚动）
+	const handleScroll = () => syncScroll();
+
+	// 挂载及参数变化时初始检测：溢出方向决定左右按钮显示与置灰
 	useEffect(() => {
-		const el = optsRowRef.current;
-		if (!el) return;
-		setHasOverflow(el.scrollWidth > el.clientWidth);
+		syncScroll();
 	}, [params]);
 
 	const scrollBy = (delta: number) => {
@@ -94,7 +98,7 @@ export function AskQuickBar({
 		} catch {
 			// 测试环境（happy-dom 无布局引擎）scrollLeft 赋值可能抛错，静默
 		}
-		setHasOverflow(el.scrollWidth > el.clientWidth);
+		syncScroll();
 	};
 
 	return (
@@ -118,11 +122,18 @@ export function AskQuickBar({
 				<button
 					onClick={() => scrollBy(-120)}
 					aria-label="向左滚动"
-					className="w-[20px] h-[20px] rounded-full border border-hairline bg-surface text-secondary hover:text-primary hover:border-accent flex-shrink-0 flex items-center justify-center cursor-pointer"
+					disabled={!canLeft}
+					className="w-[20px] h-[20px] rounded-full border border-hairline bg-surface text-secondary hover:text-primary hover:border-accent flex-shrink-0 flex items-center justify-center cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
 					data-testid="ask-quick-scroll-left"
 				>
 					<svg width="10" height="10" viewBox="0 0 16 16" fill="none">
-						<path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+						<path
+							d="M10 3L5 8l5 5"
+							stroke="currentColor"
+							strokeWidth="1.6"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+						/>
 					</svg>
 				</button>
 			)}
@@ -164,11 +175,18 @@ export function AskQuickBar({
 				<button
 					onClick={() => scrollBy(120)}
 					aria-label="向右滚动"
-					className="w-[20px] h-[20px] rounded-full border border-hairline bg-surface text-secondary hover:text-primary hover:border-accent flex-shrink-0 flex items-center justify-center cursor-pointer"
+					disabled={!canRight}
+					className="w-[20px] h-[20px] rounded-full border border-hairline bg-surface text-secondary hover:text-primary hover:border-accent flex-shrink-0 flex items-center justify-center cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
 					data-testid="ask-quick-scroll-right"
 				>
 					<svg width="10" height="10" viewBox="0 0 16 16" fill="none">
-						<path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+						<path
+							d="M6 3l5 5-5 5"
+							stroke="currentColor"
+							strokeWidth="1.6"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+						/>
 					</svg>
 				</button>
 			)}
