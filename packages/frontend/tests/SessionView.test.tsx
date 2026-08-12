@@ -23,15 +23,23 @@ const apiCalls: { method: string; path: string; body?: any }[] = [];
 
 // 控制 /messages GET 的异步解析，用于验证加载指示的显隐。
 let messagesDeferred: {
-	promise: Promise<{ messages: SessionMessage[] }>;
-	resolve: (value: { messages: SessionMessage[] }) => void;
+	promise: Promise<{ messages: SessionMessage[]; isActive?: boolean; thinkingSince?: number | null }>;
+	resolve: (value: {
+		messages: SessionMessage[];
+		isActive?: boolean;
+		thinkingSince?: number | null;
+	}) => void;
 	reject: (reason?: any) => void;
 } | null = null;
 
 function deferMessages() {
-	let resolve!: (value: { messages: SessionMessage[] }) => void;
+	let resolve!: (value: {
+		messages: SessionMessage[];
+		isActive?: boolean;
+		thinkingSince?: number | null;
+	}) => void;
 	let reject!: (reason?: any) => void;
-	const promise = new Promise<{ messages: SessionMessage[] }>((res, rej) => {
+	const promise = new Promise<{ messages: SessionMessage[]; isActive?: boolean; thinkingSince?: number | null }>((res, rej) => {
 		resolve = res;
 		reject = rej;
 	});
@@ -357,6 +365,61 @@ test("点击清空排队按钮立即清空 followUp 列表", async () => {
 	expect(state.queueBySession["s1"]!.followUp).toEqual([]);
 	expect(state.queueBySession["s1"]!.steering).toEqual(["引导中消息"]);
 });
+test("GET /messages 返回 isActive=false 时不清除本地乐观 thinking（核心回归测试）", async () => {
+	// 场景：新建会话发送消息 → echo_user 已到 → optimisticSend 设 status=thinking。
+	// 随后 SessionView mount 的 GET /messages 因冷启动竞态返回 isActive=false。
+	// 旧逻辑 setActiveStatus(false) 会清除乐观 thinking → 「正在思考」闪退。
+	// 正确行为：isActive=false 不干预 thinking（清除由 SDK 事件 agent_end/failTurn 驱动）。
+	useSessionStore.setState({
+		statusBySession: { s1: "thinking" },
+		thinkingSinceBySession: { s1: 123 },
+	});
+	const deferred = deferMessages();
+	await renderSessionView("s1");
+
+	await act(async () => {
+		deferred.resolve({ messages: [], isActive: false, thinkingSince: null });
+	});
+
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("thinking");
+	expect(s.thinkingSinceBySession["s1"]).toBe(123);
+});
+
+test("GET /messages 返回 isActive=true 时补设 thinking（打开正在跑的会话）", async () => {
+	// 场景：打开一个 agent 正在处理的会话（用户之前发了消息在另一个会话页），
+	// GET /messages 返回 isActive=true → 应设 thinking。
+	useSessionStore.setState({}); // status 未设（idle）
+	const deferred = deferMessages();
+	await renderSessionView("s1");
+
+	await act(async () => {
+		deferred.resolve({
+			messages: [],
+			isActive: true,
+			thinkingSince: 999,
+		});
+	});
+
+	const s = useSessionStore.getState();
+	expect(s.statusBySession["s1"]).toBe("thinking");
+	expect(s.thinkingSinceBySession["s1"]).toBe(999);
+});
+
+test("GET /messages 返回 isActive=false 且本地无 thinking 时不新增状态（打开历史会话）", async () => {
+	// 场景：打开历史会话（未发消息、无 thinking）→ isActive=false → 不干预
+	useSessionStore.setState({ statusBySession: {} }); // 显式清除残留
+	const deferred = deferMessages();
+	await renderSessionView("s1");
+
+	await act(async () => {
+		deferred.resolve({ messages: [], isActive: false, thinkingSince: null });
+	});
+
+	// status 未被设（不新增 idle 键，也不设 thinking）
+	expect(useSessionStore.getState().statusBySession["s1"]).toBeUndefined();
+});
+
 test("切换会话后思考计时显示对应会话的已思考时长（不重置、不沿用旧会话）", async () => {
 	const now = Date.now();
 	useProjectsStore.setState({
