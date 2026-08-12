@@ -21,6 +21,10 @@ const TREE_STYLES = `
 .rct-tree-item-title-container-selected.rct-tree-item-title-container-focused {
   background: var(--accent-soft) !important;
 }
+.rct-tree-item-title-container-selected .rct-tree-item-button,
+.rct-tree-item-title-container-focused .rct-tree-item-button {
+  background-color: transparent !important;
+}
 .rct-tree-item-button:hover {
   background-color: var(--surface-hover) !important;
   color: inherit !important;
