@@ -368,12 +368,14 @@ export default function (pi: ExtensionAPI) {
 		if (ctx.mode !== "rpc") return;
 		const ui = ctx.ui;
 		if (!ui || typeof ui.custom !== "function") return;
-		const msg = "此命令需要终端全屏面板（TUI），在当前图形界面模式下不支持";
+		const msg =
+			"此命令需要终端全屏面板（TUI），在当前图形界面模式下不支持";
 		// 先 notify（前端 extension_notify 已对接：聊天窗口中间居中显示，30s 自动消失），
-		// 再同步 throw 解除 Promise 挂起。两者消息一致，notify 为主要用户提示。
+		// 再同步 throw 解除 Promise 挂起。throw 带 [custom-unsupported] 标记：
+		// 前端 extension_error 处理识别此标记后跳过 toast（notify 已提示，不重复）。
 		ui.custom = function custom() {
 			ui.notify(msg, "warning");
-			throw new Error(msg);
+			throw new Error("[custom-unsupported] " + msg);
 		};
 	});
 }

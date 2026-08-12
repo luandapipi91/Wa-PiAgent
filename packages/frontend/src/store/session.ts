@@ -1408,6 +1408,10 @@ export const useSessionStore = create<SessionState>((set) => {
 						event: event.event,
 						error: event.error,
 					});
+					// custom() 不支持的错误已通过 extension_notify 居中提示（30s），
+					// 跳过重复 toast。[custom-unsupported] 标记由 wa-pi-bridge 扩展生成。
+					if (event.error?.includes("[custom-unsupported]"))
+						break;
 					useToastStore.getState().add(
 						i18n.t("message.extensionError", {
 							ext: extension,
