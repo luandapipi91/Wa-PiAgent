@@ -37,12 +37,9 @@ test("稳定顺序：保持 lastOrder 相对顺序，新会话按 lastActivity �
 	const lastOrder = ["new", "mid", "old"];
 	const withNewcomer = [...list, mk("fresh", 1500)];
 	// fresh(1500) 应插到 mid(2000) 之后、old(1000) 之前
-	expect(orderSessions(withNewcomer, lastOrder, false).map((s) => s.id)).toEqual([
-		"new",
-		"mid",
-		"fresh",
-		"old",
-	]);
+	expect(
+		orderSessions(withNewcomer, lastOrder, false).map((s) => s.id),
+	).toEqual(["new", "mid", "fresh", "old"]);
 });
 
 test("稳定顺序：lastOrder 中已删除的会话被剔除", () => {

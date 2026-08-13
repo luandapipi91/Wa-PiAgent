@@ -1,5 +1,11 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
+import {
+	render,
+	screen,
+	fireEvent,
+	cleanup,
+	act,
+} from "@testing-library/react";
 import { ProjectItem } from "../src/components/ProjectItem";
 import { useProjectUiStore } from "../src/store/project-ui";
 import type { SessionEntity } from "@wa-pi/shared";
@@ -12,7 +18,11 @@ mock.module("@formkit/auto-animate/react", () => ({
 
 const project = { id: "p1", name: "项目A", cwd: "/a", createdAt: 0 };
 
-const mk = (id: string, title: string, lastActivity: number): SessionEntity => ({
+const mk = (
+	id: string,
+	title: string,
+	lastActivity: number,
+): SessionEntity => ({
 	id,
 	projectId: "p1",
 	primaryAgent: "dev",

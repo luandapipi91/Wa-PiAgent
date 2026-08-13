@@ -2,6 +2,29 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-13 — feat(frontend): 侧边栏会话列表位置动画（最近视图 + 项目视图）
+
+### 变更
+
+- 引入 `@formkit/auto-animate`：侧边栏会话重排时播放位置过渡动画（250ms ease-out），替代 DOM 瞬间换位的「闪一下」。默认禁用，仅在用户点击触发的重排时启用（后台 SSE 推送不动画）。
+- **「最近」时间线**：点击会话触发重排时动画；日期刻度提升为动画容器直接子元素（稳定 key），避免刻度在重排时瞬移闪烁。
+- **项目视图**：重排时机从「折叠→展开」改为「点击项目名」（含折叠时点击展开、已展开时点击选中），点击会话仍保持稳定顺序不重排；提取 `orderSessions` 纯函数（稳定顺序 + 新会话插入 + 强制重排）。
+- 清理 `agentList` 死 i18n 键（折叠后仅保留 sectionTitle）。
+- 影响范围：RecentSessionsList.tsx、ProjectItem.tsx、src/util/projectOrder.ts、SessionRow.tsx、i18n locales，及对应测试。
+
+---
+
+## 2026-08-13 — fix(frontend): 新建页选模型发送后会话界面显示旧模型（existed 分支模型丢失）
+
+### 变更
+
+- **问题**：在新建会话界面选了模型 A，发送消息跳转到会话界面后，会话界面的模型选择器显示的是上一次使用的模型 B（而非 A），但实际发送请求用的却是 A。
+- **根因**：`NewSessionPane` 选模型时通过 `setSessionPrefs(草稿id, { model })` 把模型写入草稿 sessionId。发送时若草稿 id 残留了一个已发送过的会话 id（`existed` 分支触发），`finalId` 会分叉成全新随机 id，模型 A 留在 `bySession[草稿id]` 下；而详情页 `Composer` 读的是 `bySession[finalId]`（为空），只能回退到全局 `defaults.model`——一旦 defaults 是上一次的模型 B，就会显示 B。
+- **修复**：`handleSend` 发送时在 `setDefaults` 之后，把用户选的模型显式落到 `finalId` 的会话级 prefs（`setSessionPrefs(finalId, { model })`），消除对 defaults 回退的依赖，确保详情页直接读到 A。
+- **影响范围**：`packages/frontend/src/components/NewSessionPane.tsx`、`packages/frontend/tests/NewSessionPane.test.tsx`（新增 existed 分支回归测试）。
+
+---
+
 ## 2026-08-13 — fix(kernel): RPC 模式 custom() 挂根治——bridge 扩展 session_start patch
 
 ### 变更
