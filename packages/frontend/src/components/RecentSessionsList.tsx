@@ -170,16 +170,36 @@ export function RecentSessionsList({ onSelectSession, onNewSession }: Props) {
 			) : (
 				<>
 					{items.flatMap((item, i): ReactNode[] => {
-					const isToday = item.dayKey === todayKey;
-					// 今天的刻度已在顶部渲染，非今天的才渲染自己的刻度；
-					// 刻度与会话行均加 motion.div layout="position"，重排时做 FLIP 位移动画（刻度不再跟着跳）。
-					const showSep =
-						!isToday && (i === 0 || item.dayKey !== items[i - 1].dayKey);
-					const nodes: ReactNode[] = [];
-					if (showSep) {
+						const isToday = item.dayKey === todayKey;
+						// 今天的刻度已在顶部渲染，非今天的才渲染自己的刻度；
+						// 刻度与会话行均加 motion.div layout="position"，重排时做 FLIP 位移动画（刻度不再跟着跳）。
+						const showSep =
+							!isToday && (i === 0 || item.dayKey !== items[i - 1].dayKey);
+						const nodes: ReactNode[] = [];
+						if (showSep) {
+							nodes.push(
+								<motion.div
+									key={`sep-${item.dayKey}`}
+									layout="position"
+									transition={{
+										layout: {
+											duration: LAYOUT_ANIM_DURATION,
+											ease: "easeOut",
+										},
+									}}
+								>
+									<div
+										className="px-2 pt-2 pb-1 text-[calc(11px*var(--font-scale))] font-semibold text-tertiary"
+										data-testid={`day-sep-${item.dayKey}`}
+									>
+										{item.dayLabel}
+									</div>
+								</motion.div>,
+							);
+						}
 						nodes.push(
 							<motion.div
-								key={`sep-${item.dayKey}`}
+								key={item.session.id}
 								layout="position"
 								transition={{
 									layout: {
@@ -188,36 +208,16 @@ export function RecentSessionsList({ onSelectSession, onNewSession }: Props) {
 									},
 								}}
 							>
-								<div
-									className="px-2 pt-2 pb-1 text-[calc(11px*var(--font-scale))] font-semibold text-tertiary"
-									data-testid={`day-sep-${item.dayKey}`}
-								>
-									{item.dayLabel}
-								</div>
+								<SessionRow
+									session={item.session}
+									selected={item.session.id === currentSessionId}
+									onSelect={handleClick}
+									onContextMenu={handleSessionContextMenu}
+									subtitle={item.projectName}
+								/>
 							</motion.div>,
 						);
-					}
-					nodes.push(
-						<motion.div
-							key={item.session.id}
-							layout="position"
-							transition={{
-								layout: {
-									duration: LAYOUT_ANIM_DURATION,
-									ease: "easeOut",
-								},
-							}}
-						>
-							<SessionRow
-								session={item.session}
-								selected={item.session.id === currentSessionId}
-								onSelect={handleClick}
-								onContextMenu={handleSessionContextMenu}
-								subtitle={item.projectName}
-							/>
-						</motion.div>,
-					);
-					return nodes;
+						return nodes;
 					})}
 				</>
 			)}

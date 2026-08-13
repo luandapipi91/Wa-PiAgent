@@ -8,7 +8,8 @@
 
 - 新增 `PathBar` 组件：文件预览底部地址栏（完整路径 + 复制 icon）。点击复制路径到剪贴板，复用 `copyToClipboard` + toast 反馈（与 CodeBlockCard 一致）。
 - 三处接入：代码预览、markdown 预览、unsupported 不支持预览页。unsupported 分支结构调整（外层 flex-col h-full + 内层居中内容 + 底部贴 PathBar），使地址栏贴底全宽。
-- 影响范围：FileViewer.tsx（新增 PathBar + 三处接入 + unsupported 结构）、FileViewer.test.tsx（+2 复制用例：代码预览复制路径、unsupported 也有复制按钮）。
+- unsupported 页操作按钮顺序调整：「关闭」移到最右（用默认应用打开 → 在访达中显示 → 关闭）。
+- 影响范围：FileViewer.tsx（新增 PathBar + 三处接入 + unsupported 结构 + 按钮顺序）、FileViewer.test.tsx（+2 复制用例：代码预览复制路径、unsupported 也有复制按钮）。
 
 ---
 
