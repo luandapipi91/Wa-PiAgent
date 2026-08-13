@@ -27,7 +27,8 @@ body{background:${canvasBg};display:flex;flex-direction:column;align-items:cente
 .fill{height:100%;width:8%;border-radius:99px;background:${brandGreen};transition:width .45s cubic-bezier(.4,0,.2,1)}
 .status{margin-top:16px;font-size:12px;color:#86868b;min-height:16px;text-align:center;padding:0 24px}
 .err{color:#d9404d}
-.btn{display:none;margin-top:12px;padding:8px 20px;border:0;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;-webkit-app-region:no-drag}
+.actions{display:flex;flex-direction:column;gap:10px;margin-top:20px;-webkit-app-region:no-drag}
+.btn{display:none;min-width:132px;padding:8px 20px;border:0;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
 .btn:active{opacity:.85}
 #switch-port-btn{background:${brandGreen};color:#fff}
 #quit-btn{background:#e5e5ea;color:#1d1d1f}
@@ -36,8 +37,10 @@ ${logoSrc ? `<img class="logo" src="${logoSrc}" alt="WA PI Agent"/>` : `<div cla
 <div class="name">WA PI Agent</div>
 <div class="bar"><div class="fill" id="fill"></div></div>
 <div class="status" id="status">正在启动…</div>
+<div class="actions">
 <button id="switch-port-btn" class="btn" type="button">换端口启动</button>
 <button id="quit-btn" class="btn" type="button">退出</button>
+</div>
 <script>
 window.__setProgress=function(p,t){var f=document.getElementById('fill');if(f)f.style.width=Math.max(5,Math.min(100,p))+'%';var s=document.getElementById('status');if(s){if(t){s.textContent=t;s.className='status';}if(p<0){s.className='status err';}}};
 window.__showActions=function(opts){var sb=document.getElementById('switch-port-btn'),qb=document.getElementById('quit-btn');if(sb)sb.style.display=opts&&opts.switchPort?'block':'none';if(qb)qb.style.display=opts&&opts.quit?'block':'none';};

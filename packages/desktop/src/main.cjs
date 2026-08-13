@@ -50,10 +50,13 @@ let sidecar = null;
 let isQuitting = false;
 let isUpdating = false;
 let trayInstance = null;
-// kernel 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
-// 因此固定端口，被占用时由启动页「重启应用」一键清理
-const FIXED_PORT =
-	Number(process.env.WA_PI_WS_PORT) > 0
+// kernel 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见）。
+// 换端口启动时通过命令行参数 --wa-pi-port 传递新端口（Windows 上 app.relaunch 的 env 替换不可靠），
+// 优先级：--wa-pi-port 参数 > WA_PI_WS_PORT 环境变量 > 默认 9778。
+const PORT_ARG = process.argv.find((a) => a.startsWith("--wa-pi-port="));
+const FIXED_PORT = PORT_ARG
+	? Number(PORT_ARG.split("=")[1])
+	: Number(process.env.WA_PI_WS_PORT) > 0
 		? Number(process.env.WA_PI_WS_PORT)
 		: 9778;
 // 内核是否就绪（mainWindow 是否已加载真实页面）。未就绪时点托盘/Dock 应聚焦启动页，而非弹出空白主窗口。
@@ -414,7 +417,9 @@ app.whenReady().then(async () => {
 	ipcMain.handle("app:switch-port-start", async () => {
 		const { findAvailablePort } = require("./util/port.cjs");
 		const { pickSwitchPort } = require("./util/port-switch.cjs");
-		const newPort = await pickSwitchPort(FIXED_PORT, { findAvailablePort });
+		const newPort = await pickSwitchPort(FIXED_PORT, {
+			findAvailablePort,
+		});
 		if (!newPort) {
 			log.error(`[port-switch] 找不到可用端口（从 ${FIXED_PORT + 1} 起）`);
 			setProgress(-1, "未找到可用端口，请检查网络或重启电脑后再试。");
@@ -423,7 +428,13 @@ app.whenReady().then(async () => {
 		log.info(
 			`[port-switch] 端口 ${FIXED_PORT} 被占用，换端口启动 → ${newPort}`,
 		);
+		// 用命令行参数传端口（Windows 上 app.relaunch 的 env 替换不可靠），env 双保险。
+		// 先过滤掉旧的 --wa-pi-port 参数，避免重复 relaunch 时残留旧值
+		const cleanArgs = process.argv
+			.slice(1)
+			.filter((a) => !a.startsWith("--wa-pi-port="));
 		app.relaunch({
+			args: [...cleanArgs, `--wa-pi-port=${newPort}`],
 			env: { ...process.env, WA_PI_WS_PORT: String(newPort) },
 		});
 		app.exit(0);
