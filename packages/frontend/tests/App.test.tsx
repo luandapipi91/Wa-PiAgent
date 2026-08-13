@@ -145,7 +145,9 @@ test("侧栏点智能体 → 新建会话视图且下拉预选该智能体", asy
 	await act(async () => {});
 	// 初始默认第一项
 	expect(screen.getByTestId("agent-select").textContent).toContain("技术实现");
-	fireEvent.click(screen.getByTestId("agent-代码审查"));
+	// 侧栏已折叠为「智能体 n ›」：点开宫格再点卡片完成预选
+	fireEvent.click(screen.getByTestId("agent-collapsed"));
+	fireEvent.click(screen.getByTestId("gallery-card-代码审查"));
 	await waitFor(() => {
 		expect(screen.getByTestId("agent-select").textContent).toContain(
 			"代码审查",
@@ -153,13 +155,15 @@ test("侧栏点智能体 → 新建会话视图且下拉预选该智能体", asy
 	});
 });
 
-test("侧栏「更多智能体」→ 打开宫格；点卡片 → 关宫格并预选", async () => {
+test("侧栏折叠栏 → 打开宫格；点卡片 → 关宫格并预选", async () => {
 	useAgentsStore.setState({
 		list: [agent("a1"), agent("a2"), agent("a3"), agent("代码审查")],
 	});
 	render(<App />);
 	await act(async () => {});
-	fireEvent.click(screen.getByTestId("agent-more"));
+	// 旧「更多智能体」入口已随折叠移除，统一走折叠栏
+	expect(screen.queryByTestId("agent-more")).toBeNull();
+	fireEvent.click(screen.getByTestId("agent-collapsed"));
 	expect(screen.getByTestId("agent-gallery")).toBeTruthy();
 	fireEvent.click(screen.getByTestId("gallery-card-代码审查"));
 	await waitFor(() => {
@@ -168,12 +172,14 @@ test("侧栏「更多智能体」→ 打开宫格；点卡片 → 关宫格并�
 	expect(screen.getByTestId("agent-select").textContent).toContain("代码审查");
 });
 
-test("侧栏右键「编辑智能体」→ 打开 AgentConfig 弹窗", async () => {
+test("宫格右键「编辑智能体」→ 打开 AgentConfig 弹窗", async () => {
 	useAgentsStore.setState({ list: [agent("技术实现")] });
 	render(<App />);
 	await act(async () => {});
-	fireEvent.contextMenu(screen.getByTestId("agent-技术实现"));
-	fireEvent.click(screen.getByTestId("agent-ctx-edit"));
+	// 侧栏右键入口已随折叠移除，编辑统一在宫格里触发
+	fireEvent.click(screen.getByTestId("agent-collapsed"));
+	fireEvent.contextMenu(screen.getByTestId("gallery-card-技术实现"));
+	fireEvent.click(screen.getByTestId("gallery-ctx-edit"));
 	await waitFor(() => expect(screen.getByTestId("agent-config")).toBeTruthy());
 });
 
@@ -183,7 +189,7 @@ test("宫格新建成功 → 编辑弹窗叠加打开，列表保持显示（不
 	});
 	render(<App />);
 	await act(async () => {});
-	fireEvent.click(screen.getByTestId("agent-more"));
+	fireEvent.click(screen.getByTestId("agent-collapsed"));
 	fireEvent.click(screen.getByTestId("gallery-create"));
 	// 新建流程走 AgentCreatePicker（宫格场景默认预设 Tab，切到空白创建）
 	fireEvent.click(await screen.findByTestId("picker-tab-blank"));
@@ -206,7 +212,7 @@ test("宫格里编辑智能体 → 编辑弹窗叠加显示，列表保持打开
 	});
 	render(<App />);
 	await act(async () => {});
-	fireEvent.click(screen.getByTestId("agent-more"));
+	fireEvent.click(screen.getByTestId("agent-collapsed"));
 	await act(async () => {});
 	expect(screen.getByTestId("agent-gallery")).toBeTruthy();
 
@@ -225,8 +231,9 @@ test("pendingAgent 首次消费后清除：离开再进新建页不再预选旧�
 	useProjectsStore.setState({ projects: [], currentProjectId: null });
 	render(<App />);
 	await act(async () => {});
-	// empty 视图点侧栏智能体 → 切新建页，pane 首次挂载并消费 pendingAgent
-	fireEvent.click(screen.getByTestId("agent-代码审查"));
+	// empty 视图点侧栏折叠栏 → 宫格 → 点卡片预选，切新建页，pane 首次挂载并消费 pendingAgent
+	fireEvent.click(screen.getByTestId("agent-collapsed"));
+	fireEvent.click(screen.getByTestId("gallery-card-代码审查"));
 	await waitFor(() => {
 		expect(screen.getByTestId("agent-select").textContent).toContain(
 			"代码审查",

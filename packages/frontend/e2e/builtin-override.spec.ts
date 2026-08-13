@@ -10,7 +10,7 @@ import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { E2E_WA_PI_DIR, E2E_WS_PORT } from "../playwright.config";
-import { createAgent, deleteAgentQuiet, saveProvider } from "./helpers";
+import { saveProvider } from "./helpers";
 
 const OVERRIDES_FILE = join(E2E_WA_PI_DIR, "subagent-overrides.json");
 
@@ -27,19 +27,9 @@ function readOverride(
 
 test.describe
 	.serial("通用智能体 model/思考强度 保存生效", () => {
-		const created: string[] = [];
-
 		test.beforeAll(async () => {
-			// 侧栏需 >3 个智能体才出现「更多智能体」入口（重复跑容忍已存在）
-			for (const n of ["e2e-b1", "e2e-b2", "e2e-b3"]) {
-				try {
-					await createAgent(n);
-					created.push(n);
-				} catch {
-					/* 已存在 */
-				}
-			}
-			// 预置 provider，让 model 下拉有真实选项（slug 由 name 派生：E2E-B → e2e-b）
+			// 折叠栏常驻后无需凑 >3 个智能体解锁入口（旧 e2e-b1/b2/b3 凑数智能体已删）；
+			// 仅预置 provider，让 model 下拉有真实选项（slug 由 name 派生：E2E-B → e2e-b）
 			try {
 				await saveProvider({
 					id: "e2e-b-provider",
@@ -54,10 +44,6 @@ test.describe
 			}
 		});
 
-		test.afterAll(async () => {
-			for (const n of created) await deleteAgentQuiet(n);
-		});
-
 		test.beforeEach(async ({ page }) => {
 			test.setTimeout(120_000);
 			await page.goto("/", { timeout: 60_000 });
@@ -66,7 +52,7 @@ test.describe
 		test("浅色修复：内置 subagent 面板内容区无 opacity-60", async ({
 			page,
 		}) => {
-			await page.getByTestId("agent-more").click();
+			await page.getByTestId("agent-collapsed").click();
 			await expect(page.getByTestId("agent-gallery")).toBeVisible({
 				timeout: 10_000,
 			});
@@ -84,8 +70,8 @@ test.describe
 		test("保存 model/思考强度 → 文件写入 + kernel 读取 + 重开面板显示", async ({
 			page,
 		}) => {
-			// 打开「更多智能体」→ 通用智能体
-			await page.getByTestId("agent-more").click();
+			// 打开折叠栏宫格 → 通用智能体
+			await page.getByTestId("agent-collapsed").click();
 			await expect(page.getByTestId("agent-gallery")).toBeVisible({
 				timeout: 10_000,
 			});
@@ -137,8 +123,12 @@ test.describe
 				)
 				.toBe(true);
 
-			// 3) 重开面板显示保存值（前端 store 已刷新——保存后 UI 生效的直接证据）
-			await page.getByTestId("agent-more").click();
+			// 3) 重开面板显示保存值（前端 store 已刷新——保存后 UI 生效的直接证据）。
+			// 保存后面板关闭但宫格仍开着（App.tsx galleryOpen 保持 true），先 ESC 关宫格再经折叠栏重开，
+			// 验证完整重开链路（不能直接点 agent-collapsed，会被宫格 overlay 拦截）。
+			await page.keyboard.press("Escape");
+			await expect(page.getByTestId("agent-gallery")).toHaveCount(0);
+			await page.getByTestId("agent-collapsed").click();
 			await expect(page.getByTestId("agent-gallery")).toBeVisible({
 				timeout: 10_000,
 			});
@@ -154,7 +144,7 @@ test.describe
 		});
 
 		test("通用智能体工具 tab 显示工具列表（不卡加载中）", async ({ page }) => {
-			await page.getByTestId("agent-more").click();
+			await page.getByTestId("agent-collapsed").click();
 			await expect(page.getByTestId("agent-gallery")).toBeVisible({
 				timeout: 10_000,
 			});
