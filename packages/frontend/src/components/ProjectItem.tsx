@@ -6,7 +6,7 @@ import {
 	type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { useAutoAnimate } from "@formkit/auto-animate/react";
+import { motion, LayoutGroup, AnimatePresence } from "motion/react";
 import {
 	SYSTEM_PROJECT_ID,
 	type ProjectEntity,
@@ -64,7 +64,7 @@ export function clampMenuPos(
 }
 
 /** 浮层渲染后（paint 前）测量尺寸并钳制坐标到视口内 */
-function useClampMenu(
+export function useClampMenu(
 	ref: React.RefObject<HTMLDivElement | null>,
 	pos: { x: number; y: number } | null,
 ) {
@@ -123,11 +123,6 @@ export function ProjectItem(props: Props) {
 	// 重排信号（state）：点击项目名 +1 触发重渲染，mySessions 检测到变化时重排一次
 	const [reorderSignal, setReorderSignal] = useState(0);
 	const reorderConsumedRef = useRef(0);
-	// auto-animate：始终启用，重排 FLIP / enter / remove 动画均正常播放（避免 disable cancel 导致元素残留）
-	const [sessionListRef] = useAutoAnimate<HTMLDivElement>({
-		duration: 250,
-		easing: "ease-out",
-	});
 
 	const mySessions = (() => {
 		// IM 渠道会话（im- 前缀）归属 IM 页签，不在任务列表显示
@@ -293,7 +288,7 @@ export function ProjectItem(props: Props) {
 					onClick={() => {
 						// 项目处于折叠状态时，点击一次同时进入新建会话并展开列表；
 						// 已展开时，在新会话界面且当前项目已被选中才展开/折叠，否则进入新建会话。
-						// 展开/选中项目时触发一次会话重排（按 lastActivity），auto-animate 播放位置动画。
+						// 展开/选中项目时触发一次会话重排（按 lastActivity），motion layout 播放位置动画。
 						if (!expanded) {
 							setReorderSignal((s) => s + 1);
 							setExpanded(project.id, true);
@@ -314,21 +309,31 @@ export function ProjectItem(props: Props) {
 				</button>
 			</div>
 
-			{/* 会话列表容器：始终挂载以保持 auto-animate controller 存活（折叠时 hidden）。
-			 * 否则折叠→展开时 controller 销毁重建，展开瞬间会话「新增」未被 MutationObserver 捕获，
-			 * 无 enter 动画直接闪现（闪一下）。 */}
-			<div ref={sessionListRef} className={expanded ? undefined : "hidden"}>
-				{expanded &&
-					mySessions.map((s) => (
-						<SessionRow
-							key={s.id}
-							session={s}
-							selected={s.id === currentSessionId}
-							onSelect={props.onSelectSession}
-							onContextMenu={handleSessionContextMenu}
-						/>
-					))}
-			</div>
+			{/* 会话列表：LayoutGroup + motion.div layout 做重排 FLIP 动画，AnimatePresence 做 enter/exit */}
+			<LayoutGroup>
+				<AnimatePresence initial={false}>
+					{expanded &&
+						mySessions.map((s) => (
+							<motion.div
+								key={s.id}
+								layout
+								initial={{ opacity: 0 }}
+								animate={{ opacity: 1 }}
+								exit={{ opacity: 0 }}
+								transition={{
+									layout: { duration: 0.25, ease: "easeOut" },
+								}}
+							>
+								<SessionRow
+									session={s}
+									selected={s.id === currentSessionId}
+									onSelect={props.onSelectSession}
+									onContextMenu={handleSessionContextMenu}
+								/>
+							</motion.div>
+						))}
+				</AnimatePresence>
+			</LayoutGroup>
 
 			{/* 会话右键菜单 */}
 			{sessionMenu &&

@@ -1,6 +1,5 @@
 {
   "name": "wa-pi",
-  "license": "MIT",
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.11.2",
     "@types/bun": "^1.3.14",
@@ -8,6 +7,10 @@
     "ali-oss": "^6.23.0",
     "happy-dom": "^20.11.2",
     "typescript": "^5.9.3"
+  },
+  "license": "MIT",
+  "patchedDependencies": {
+    "pi-mcp-adapter@2.17.0": "patches/pi-mcp-adapter@2.17.0.patch"
   },
   "private": true,
   "scripts": {
@@ -24,11 +27,5 @@
   },
   "workspaces": [
     "packages/*"
-  ],
-  "patchedDependencies": {
-    "pi-mcp-adapter@2.17.0": "patches/pi-mcp-adapter@2.17.0.patch"
-  },
-  "dependencies": {
-    "@formkit/auto-animate": "^0.10.0"
-  }
+  ]
 }
