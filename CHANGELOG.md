@@ -25,6 +25,43 @@
 
 ---
 
+## 2026-08-13 — fix(desktop): 换端口启动按钮两个 bug——端口未切换 + 按钮并排
+
+### 变更
+
+- **Bug 1（换端口未生效）**：`app.relaunch({ env })` 在 Windows 上环境变量替换不可靠，新进程仍读到旧端口。修复：改用命令行参数 `--wa-pi-port=<port>` 传递新端口（env 双保险），`FIXED_PORT` 解析优先级改为 `--wa-pi-port 参数 > WA_PI_WS_PORT env > 默认 9778`；重复 relaunch 时先过滤旧参数避免残留旧值。
+- **Bug 2（按钮并排）**：错误态两个按钮在 flex column 容器里仍可能横向排列。修复：包 `.actions` flex column 容器 + `gap:10px` 明确上下排列。
+- **测试**：port-switch.test.ts 新增 4 个（resolveFixedPort 参数/env/默认/重复过滤），splash-html 回归通过；全套 146 pass（2 fail 为预先存在的打包签名测试）。
+
+## 2026-08-13 — feat(desktop): 端口自愈失败时提供「换端口启动」+「退出」选项
+
+### 变更
+
+- **问题**：启动时固定端口 9778 被占用且自动清理失效时，splash 错误态只有「重启应用」按钮；若清理后仍被占用（幽灵句柄），用户无任何操作途径（splash 无边框、无标题栏，只能任务管理器强杀）。
+- **方案**：把「重启应用」替换为「换端口启动」（从 9778 下一个端口找可用端口，relaunch 带 WA_PI_WS_PORT 环境变量），并新增「退出」按钮。
+- **改动**：
+  - 新增 `util/splash-html.cjs`：启动页 HTML 生成提取为纯函数（buildSplashHTML），错误态按钮改为 switch-port-btn + quit-btn，__showRestart 替换为__showActions({switchPort, quit})
+  - 新增 `util/port-switch.cjs`：pickSwitchPort（从 basePort+1 找可用端口，纯函数）
+  - `main.cjs`：buildSplashURL 改用 buildSplashHTML；新增 ipc handler `app:switch-port-start`（findAvailablePort + relaunch 带 env）与 `app:quit`；selfHealFailed 与 restart-after-port-kill 清理后仍占用分支均显示换端口/退出按钮
+  - `preload.cjs`：waPiApp 新增 switchPortStart / quit
+  - 前端零改动（同源相对路径，换端口后 loadURL 指向新端口即可）
+- **注意**：换端口后 IndexedDB origin 改变，跨 origin 数据不可见（沿用原有固定端口注释的说明）。
+- **测试**：splash-html.test.ts 6 个（按钮存在性/替换语义/__showActions/点击绑定）+ port-switch.test.ts 2 个（从 basePort+1 找端口/找不到返回 null），全通过；startup-heal / port.cjs 回归 18 个通过。
+
+## 2026-08-13 — feat(desktop): 首启按需下载 Node.js 运行时，解决无 node 环境 MCP npx 报错
+
+### 变更
+
+- **问题**：打包版只捆绑 bun（wa-pi-kernel.exe），从不捆绑 node。用户未安装 node 时，MCP 服务器通过 `npx -y <package>` 启动会报错（`"node" is not recognized` / npx-resolver 30s 卡顿 / POSIX shim 无法执行等）——MCP 服务器是第三方进程，其内部对 node 运行时的依赖无法通过 bun 兼容性兜底解决。
+- **方案**：首启时检测系统 node，无系统 node 则自动下载 Node.js LTS（v22.23.2）到 `~/.pi/agent/node/`。通过 IP 地理位置检测（api.country.is）自动选择下载源：国内用户优先 npmmirror，国外用户优先 nodejs.org。下载的 node 自带完整 npm/npx。
+- **改动**：
+  - 新增 `packages/desktop/src/util/node-runtime.cjs`：IP 检测（detectIsCN）+ 下载源选择 + node LTS 下载/解压/版本管理（ensureNodeRuntime）
+  - `main.cjs` 启动流程新增 2b+) 步骤：在首启依赖安装（2c）前检测/下载 node，splash 显示进度
+  - `ensureRuntimeBinLinks` 改造：有真实 node 时 binDir 只生成 bun.cmd（避免 bun x 包装脚本遮蔽 node 自带的 npm/npx），node/npm/npx 由下载的 node 目录自带，PATH 追加 binDir + nodeDir
+  - 无 node（下载失败）时保持现有 bun fallback 行为不变
+- **影响范围**：`packages/desktop/src/util/node-runtime.cjs`（新增）、`packages/desktop/src/main.cjs`（ensureRuntimeBinLinks + 启动流程）
+- **验证**：单元测试 21/21 + E2E 2/2 全通过——IP 检测 CN → npmmirror 下载 34MB → 解压 → node v22.23.2 / npm 10.9.8 / npx 10.9.8 全部可用；端到端 `npx -y @modelcontextprotocol/server-filesystem` 成功启动
+
 ## 2026-08-13 — fix(kernel): RPC 模式 custom() 挂根治——bridge 扩展 session_start patch
 
 ### 变更

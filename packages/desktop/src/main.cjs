@@ -50,10 +50,13 @@ let sidecar = null;
 let isQuitting = false;
 let isUpdating = false;
 let trayInstance = null;
-// kernel 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
-// 因此固定端口，被占用时由启动页「重启应用」一键清理
-const FIXED_PORT =
-	Number(process.env.WA_PI_WS_PORT) > 0
+// kernel 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见）。
+// 换端口启动时通过命令行参数 --wa-pi-port 传递新端口（Windows 上 app.relaunch 的 env 替换不可靠），
+// 优先级：--wa-pi-port 参数 > WA_PI_WS_PORT 环境变量 > 默认 9778。
+const PORT_ARG = process.argv.find((a) => a.startsWith("--wa-pi-port="));
+const FIXED_PORT = PORT_ARG
+	? Number(PORT_ARG.split("=")[1])
+	: Number(process.env.WA_PI_WS_PORT) > 0
 		? Number(process.env.WA_PI_WS_PORT)
 		: 9778;
 // 内核是否就绪（mainWindow 是否已加载真实页面）。未就绪时点托盘/Dock 应聚焦启动页，而非弹出空白主窗口。
@@ -65,34 +68,14 @@ function buildSplashURL() {
 	const logoB64 = fs.existsSync(logoPath)
 		? fs.readFileSync(logoPath).toString("base64")
 		: "";
-	const logoSrc = logoB64 ? `data:image/png;base64,${logoB64}` : "";
-	const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8"/><style>
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{height:100%}
-body{background:${CANVAS_BG};display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;color:#1d1d1f;user-select:none;overflow:hidden;-webkit-app-region:drag}
-.logo{width:96px;height:96px;border-radius:22px;box-shadow:0 8px 24px rgba(0,0,0,.12);margin-bottom:24px}
-.name{font-size:20px;font-weight:600;letter-spacing:.5px;margin-bottom:34px}
-.bar{width:200px;height:4px;border-radius:99px;background:#e5e5ea;overflow:hidden}
-.fill{height:100%;width:8%;border-radius:99px;background:${BRAND_GREEN};transition:width .45s cubic-bezier(.4,0,.2,1)}
-.status{margin-top:16px;font-size:12px;color:#86868b;min-height:16px;text-align:center;padding:0 24px}
-.err{color:#d9404d}
-#restart-btn{display:none;margin-top:20px;padding:8px 20px;border:0;border-radius:8px;background:${BRAND_GREEN};color:#fff;font-size:13px;font-weight:600;cursor:pointer;-webkit-app-region:no-drag}
-#restart-btn:active{opacity:.85}
-</style></head><body>
-${logoSrc ? `<img class="logo" src="${logoSrc}" alt="WA PI Agent"/>` : `<div class="logo" style="background:${BRAND_GREEN}"></div>`}
-<div class="name">WA PI Agent</div>
-<div class="bar"><div class="fill" id="fill"></div></div>
-<div class="status" id="status">正在启动…</div>
-<button id="restart-btn" type="button">重启应用</button>
-<script>
-window.__setProgress=function(p,t){var f=document.getElementById('fill');if(f)f.style.width=Math.max(5,Math.min(100,p))+'%';var s=document.getElementById('status');if(s){if(t){s.textContent=t;s.className='status';}if(p<0){s.className='status err';}}};
-window.__showRestart=function(){var b=document.getElementById('restart-btn');if(b)b.style.display='block';};
-document.getElementById('restart-btn').addEventListener('click',function(){this.disabled=true;this.textContent='正在重启…';if(window.waPiApp)window.waPiApp.restartAfterPortKill();});
-</script>
-</body></html>`;
+	const { buildSplashHTML } = require("./util/splash-html.cjs");
+	const html = buildSplashHTML({
+		logoB64,
+		canvasBg: CANVAS_BG,
+		brandGreen: BRAND_GREEN,
+	});
 	return "data:text/html;charset=utf-8," + encodeURIComponent(html);
 }
-
 function createSplash() {
 	splashWindow = new BrowserWindow({
 		width: 360,
@@ -122,137 +105,7 @@ function createSplash() {
 // packaged 下运行时只有 wa-pi-kernel(=bun)，PATH 上缺少 node/npm/bun/npx。
 // 动态插件可能需要 bun 来装 npm 包，装好的 bin 脚本 shebang 又需要 node。
 // 因此在 WA_PI_DIR/bin 下创建 bun / node 符号链接指向 wa-pi-kernel，
-// 并把该目录追加到 sidecar 的 PATH。
-// npx 需要特殊处理：bun x 等价于 npx，创建包装脚本去除 -y/--yes（bun x 自动确认）。
-// node：优先搜索系统真实 Node.js（MCP 服务器大多是 Node 包，bun 不完全兼容），
-// 找不到才回退到 wa-pi-kernel。
-
-/** 搜索系统上的真实 Node.js 安装路径 */
-function findSystemNode() {
-	const candidates =
-		process.platform === "win32"
-			? [
-					path.join(
-						process.env.ProgramFiles || "C:\\Program Files",
-						"nodejs",
-						"node.exe",
-					),
-				]
-			: [
-					"/opt/homebrew/bin/node", // Apple Silicon Homebrew
-					"/usr/local/bin/node", // Intel Homebrew / manual install
-					"/usr/bin/node", // Xcode CLT / system
-				];
-	// also check common nvm paths
-	const home = os.homedir();
-	const nvmDir = process.env.NVM_DIR || path.join(home, ".nvm");
-	try {
-		const versionsDir = path.join(nvmDir, "versions", "node");
-		if (fs.existsSync(versionsDir)) {
-			const versions = fs.readdirSync(versionsDir).sort().reverse();
-			for (const v of versions) {
-				const p = path.join(versionsDir, v, "bin", "node");
-				if (fs.existsSync(p)) candidates.push(p);
-			}
-		}
-	} catch {}
-	// fnm
-	try {
-		const fnmDir = process.env.FNM_DIR || path.join(home, ".fnm");
-		if (fs.existsSync(fnmDir)) {
-			const aliasDefault = path.join(fnmDir, "aliases", "default");
-			if (fs.existsSync(aliasDefault)) {
-				const ver = fs.readFileSync(aliasDefault, "utf8").trim();
-				const p = path.join(
-					fnmDir,
-					"node-versions",
-					ver,
-					"installation",
-					"bin",
-					"node",
-				);
-				if (fs.existsSync(p)) candidates.push(p);
-			}
-		}
-	} catch {}
-	for (const c of candidates) {
-		if (fs.existsSync(c)) return c;
-	}
-	return null;
-}
-
-async function ensureRuntimeBinLinks({ kernelExe, waPiDir, log }) {
-	if (!app.isPackaged) return null;
-	const binDir = path.join(waPiDir, "bin");
-	// 使用 seedDir 中的真实内核二进制路径（wa-pi-kernel 不会被复制到 runtimeDir）
-	const target = kernelExe;
-	await fsp.mkdir(binDir, { recursive: true });
-	if (process.platform === "win32") {
-		// Windows 下符号链接需要权限/开发模式，改用 .cmd 包装脚本
-		const t = target;
-		await fsp.writeFile(
-			path.join(binDir, "npx.cmd"),
-			`@echo off\r\n"${t}" x %*\r\n`,
-		);
-		await fsp.writeFile(
-			path.join(binDir, "bun.cmd"),
-			`@echo off\r\n"${t}" %*\r\n`,
-		);
-		const sysNode = findSystemNode();
-		if (sysNode) {
-			await fsp.writeFile(
-				path.join(binDir, "node.cmd"),
-				`@echo off\r\n"${sysNode}" %*\r\n`,
-			);
-			log.info(`[runtime-bin] Windows node.cmd -> ${sysNode} (system)`);
-		} else {
-			await fsp.writeFile(
-				path.join(binDir, "node.cmd"),
-				`@echo off\r\n"${t}" %*\r\n`,
-			);
-			log.info(`[runtime-bin] Windows node.cmd -> ${t} (bun fallback)`);
-		}
-		await fsp.writeFile(
-			path.join(binDir, "npm.cmd"),
-			`@echo off\r\nif /i "%~1"=="exec" (shift & "${t}" x %*) else "${t}" %*\r\n`,
-		);
-		log.info(`[runtime-bin] Windows: npx/bun/node/npm.cmd -> ${t}`);
-		return binDir;
-	}
-	const bunLink = path.join(binDir, "bun");
-	const nodeLink = path.join(binDir, "node");
-	const npxPath = path.join(binDir, "npx");
-	const npmPath = path.join(binDir, "npm");
-	await fsp.rm(bunLink, { force: true });
-	await fsp.rm(nodeLink, { force: true });
-	await fsp.rm(npxPath, { force: true });
-	await fsp.rm(npmPath, { force: true });
-	await fsp.symlink(target, bunLink);
-	// node：优先系统真实 Node.js，MCP 服务器通常是 Node 包需要原生支持
-	const systemNode = findSystemNode();
-	if (systemNode) {
-		await fsp.symlink(systemNode, nodeLink);
-		log.info(`[runtime-bin] node -> ${systemNode} (system)`);
-	} else {
-		await fsp.symlink(target, nodeLink);
-		log.info(`[runtime-bin] node -> ${target} (bun fallback)`);
-	}
-	// npx 包装脚本：直接透传到 bun x（bun x 自动确认安装，忽略 -y/--yes）
-	const npxScript = `#!/bin/sh
-exec "${target}" x "$@"
-`;
-	await fsp.writeFile(npxPath, npxScript);
-	await fsp.chmod(npxPath, 0o755);
-	// npm exec -> bun x wrapper
-	const npmScript = `#!/bin/sh
-if [ "$1" = "exec" ]; then shift; exec "${target}" x "$@"; fi
-exec "${target}" "$@"
-`;
-	await fsp.writeFile(npmPath, npmScript);
-	await fsp.chmod(npmPath, 0o755);
-	log.info(`[runtime-bin] bun/node/npx/npm -> ${target}`);
-	return binDir;
-}
+// findSystemNode + ensureRuntimeBinLinks 已提取到 ./util/runtime-bin.cjs（可独立测试）
 
 // 更新启动页进度条与文案（p<0 表示错误态：文案红色）
 function setProgress(pct, text, isError = false) {
@@ -530,7 +383,8 @@ app.whenReady().then(async () => {
 		},
 	});
 
-	// 端口被占用时启动页「重启应用」按钮的处理：杀掉占用 9778 的进程后重启本应用
+	// 端口被占用时启动页「换端口启动」按钮的处理：杀掉占用进程后重启本应用（保留；
+	// 与 switch-port-start 并存，重启仍优先清理占用端口）
 	ipcMain.handle("app:restart-after-port-kill", async () => {
 		const pids = await killPortOccupants(FIXED_PORT, undefined, (m) =>
 			log.info(m),
@@ -541,17 +395,54 @@ app.whenReady().then(async () => {
 		// 短暂等待端口真正释放
 		await new Promise((r) => setTimeout(r, 500));
 		// 清理后仍占用：幽灵句柄由无我方特征的进程持有（如 agent 帮用户起的 dev server），
-		// 自动清理无能为力——诚实提示，不再 relaunch 进同一个死循环
+		// 自动清理无能为力——诚实提示，提供换端口启动/退出，不再 relaunch 进同一个死循环
 		if (await isPortInUse(FIXED_PORT)) {
 			log.error(`[port-kill] 端口 ${FIXED_PORT} 清理后仍被占用，放弃重启`);
 			setProgress(
 				-1,
-				`端口 ${FIXED_PORT} 仍被占用，自动清理失败。请在任务管理器中结束残留的 bun / wa-pi 进程，或重启电脑后再试。`,
+				`端口 ${FIXED_PORT} 仍被占用，自动清理失败。可换端口启动，或在任务管理器中结束残留进程后再试。`,
 			);
+			splashWindow?.webContents
+				?.executeJavaScript(
+					"window.__showActions&&window.__showActions({switchPort:true,quit:true})",
+				)
+				.catch(() => {});
 			return;
 		}
 		app.relaunch();
 		app.exit(0);
+	});
+
+	// 端口自愈失败后「换端口启动」：从下一个端口开始找可用端口，relaunch 带新端口
+	ipcMain.handle("app:switch-port-start", async () => {
+		const { findAvailablePort } = require("./util/port.cjs");
+		const { pickSwitchPort } = require("./util/port-switch.cjs");
+		const newPort = await pickSwitchPort(FIXED_PORT, {
+			findAvailablePort,
+		});
+		if (!newPort) {
+			log.error(`[port-switch] 找不到可用端口（从 ${FIXED_PORT + 1} 起）`);
+			setProgress(-1, "未找到可用端口，请检查网络或重启电脑后再试。");
+			return;
+		}
+		log.info(
+			`[port-switch] 端口 ${FIXED_PORT} 被占用，换端口启动 → ${newPort}`,
+		);
+		// 用命令行参数传端口（Windows 上 app.relaunch 的 env 替换不可靠），env 双保险。
+		// 先过滤掉旧的 --wa-pi-port 参数，避免重复 relaunch 时残留旧值
+		const cleanArgs = process.argv
+			.slice(1)
+			.filter((a) => !a.startsWith("--wa-pi-port="));
+		app.relaunch({
+			args: [...cleanArgs, `--wa-pi-port=${newPort}`],
+			env: { ...process.env, WA_PI_WS_PORT: String(newPort) },
+		});
+		app.exit(0);
+	});
+
+	// 启动页错误态「退出」按钮：直接退出应用（splash 无边框，这是错误态唯一主动退出途径）
+	ipcMain.handle("app:quit", () => {
+		app.quit();
 	});
 
 	// 开机自启：读取/设置系统登录项
@@ -632,19 +523,21 @@ app.whenReady().then(async () => {
 
 	// 2b) 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
 	// 因此固定 FIXED_PORT，不再自动后移。被占用时先静默自愈（最多 3 轮：杀占用+登记簿清扫），
-	// 自愈失败才弹错误页提供「重启应用」一键清理（80% 的占用自动清理就能好，无需用户介入）。
+	// 自愈失败才弹错误页提供「换端口启动」+「退出」选项（80% 的占用自动清理就能好，无需用户介入）。
 	const actualPort = FIXED_PORT;
-	// 自愈失败统一出口：弹错误页 + 显示「重启应用」按钮。自愈内部异常（taskkill ENOENT、
+	// 自愈失败统一出口：弹错误页 + 显示「换端口启动 / 退出」按钮。自愈内部异常（taskkill ENOENT、
 	// fs 异常等）同样走这里——若直接抛出，whenReady 的 promise 链断裂、splash 永久卡在
 	// "正在自动清理…"，变成死端（全包无 unhandledRejection 兜底，必须就地接住）。
 	const selfHealFailed = (err) => {
 		if (err) log.error(`端口 ${FIXED_PORT} 自动清理异常`, err);
 		setProgress(
 			-1,
-			`端口 ${FIXED_PORT} 被占用，可能是上次未正常退出。点击下方按钮自动清理并重启。`,
+			`端口 ${FIXED_PORT} 被占用，自动清理失败。可换端口启动，或退出后检查占用进程。`,
 		);
 		splashWindow?.webContents
-			?.executeJavaScript("window.__showRestart&&window.__showRestart()")
+			?.executeJavaScript(
+				"window.__showActions&&window.__showActions({switchPort:true,quit:true})",
+			)
 			.catch(() => {});
 	};
 	try {
@@ -674,6 +567,29 @@ app.whenReady().then(async () => {
 		return;
 	}
 	log.info(`kernel 端口固定为 ${actualPort}`);
+
+	// 2b+) 首启 Node.js 运行时检测/下载（packaged）。
+	// 打包版只捆绑 bun，但 MCP 服务器（npx -y <package>）等场景需要真实 node + npm。
+	// 无系统 node 时自动下载 node LTS（IP 检测选源：国内 npmmirror，国外 nodejs.org）。
+	let nodeExe = null;
+	let nodeDir = null;
+	if (app.isPackaged) {
+		try {
+			const { ensureNodeRuntime } = require("./util/node-runtime.cjs");
+			setProgress(8, "正在检测 Node.js…");
+			nodeExe = await ensureNodeRuntime({
+				waPiDir: WA_PI_DIR,
+				log,
+				onStatus: (t) => setProgress(10, t),
+			});
+			if (nodeExe) {
+				nodeDir = path.dirname(nodeExe);
+				log.info(`[node-runtime] 使用 Node.js: ${nodeExe}`);
+			}
+		} catch (e) {
+			log.error("[node-runtime] Node.js 检测/下载失败", e);
+		}
+	}
 
 	// 2c) 首启依赖检测/动态安装（packaged：WA_PI_DIR/runtime 下用阿里源装原生 addon 等）
 	let runDir = seedDir;
@@ -714,15 +630,22 @@ app.whenReady().then(async () => {
 	// 打包版只有 wa-pi-kernel(=bun)，部分 npm 包脚本的 shebang 需要 node。
 	if (app.isPackaged) {
 		try {
+			const { ensureRuntimeBinLinks } = require("./util/runtime-bin.cjs");
 			const binDir = await ensureRuntimeBinLinks({
 				kernelExe,
 				waPiDir: WA_PI_DIR,
 				log,
+				nodeExe,
+				isPackaged: true,
 			});
 			if (binDir) {
 				const sep = process.platform === "win32" ? ";" : ":";
-				process.env.PATH = (process.env.PATH || "") + sep + binDir;
-				log.info(`[runtime-bin] PATH 追加 ${binDir}`);
+				// 追加 binDir 和 nodeDir（下载的 node 自带 npm/npx 需要 PATH）
+				const extraPaths = [binDir];
+				if (nodeDir) extraPaths.push(nodeDir);
+				process.env.PATH =
+					(process.env.PATH || "") + sep + extraPaths.join(sep);
+				log.info(`[runtime-bin] PATH 追加 ${extraPaths.join(sep)}`);
 			}
 		} catch (e) {
 			log.error("[runtime-bin] 创建符号链接失败", e);
