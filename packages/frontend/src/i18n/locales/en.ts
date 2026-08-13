@@ -587,6 +587,8 @@ const en = {
 		tabTasks: "Tasks",
 		tabIm: "IM",
 		newSession: "＋ New session",
+		scopeProject: "Projects",
+		scopeRecent: "Recent",
 	},
 	trash: {
 		title: "Recycle Bin",
@@ -629,6 +631,11 @@ const en = {
 		newProject: "＋ New project",
 		newProjectHint: "New project",
 		systemProjectName: "Default workspace",
+	},
+	recentSessions: {
+		today: "Today",
+		yesterday: "Yesterday",
+		empty: "No sessions yet. Click ＋ to start one.",
 	},
 	store: {
 		duplicateProjectCwd: "A project with this directory already exists",

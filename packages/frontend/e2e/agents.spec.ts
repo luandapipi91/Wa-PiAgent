@@ -17,7 +17,7 @@ import {
 // Task 18: 多智能体矩阵关键链路 E2E
 //
 // 覆盖（串行连贯流）：
-// 1. 侧边栏默认 ≤3 个智能体 + 第 4 个出现后出「更多智能体」入口
+// 1. 侧边栏智能体折叠为一行（agent-collapsed），计数随智能体数更新，点击打开宫格
 // 2. 宫格弹窗：打开 → 卡片 → UI 新建 → 右键【编辑智能体】进详情弹窗
 // 3. 详情弹窗：改简介 + 加关键词 + 关系网勾选 + 保存 → 宫格卡片简介更新（并重开验证持久化）
 // 4. 左键智能体 → 新建会话页预选 → 发消息 → 会话出现且顶部 pill 为该智能体
@@ -28,8 +28,8 @@ import {
 // 环境说明（与简报的偏差）：
 // - global-setup 在 kernel 启动前预置了 agents/dev.md，并以 WA_PI_SKIP_AGENT_SEED=1 启动 kernel，
 //   隔离环境初始只有 1 个智能体（dev），不会 seed 11 个内置角色。
-// - 因此场景 1 的「第 4 个智能体」经 REST POST /api/agents 补数据（UI 新建入口此时不可达：
-//   侧栏空态新建仅 0 个智能体时出现，宫格入口 agent-more 要 >3 个才显示，存在先有鸡先有蛋问题）；
+// - 因此场景 1 的「第 4 个智能体」经 REST POST /api/agents 补数据（侧栏已折叠为 agent-collapsed
+//   一行、不展示具体智能体，UI 新建入口在宫格内 gallery-create，先打开宫格即可到达）；
 //   UI 新建路径在场景 2 经宫格 gallery-create 完整覆盖。
 // - 假 provider（localhost:9999）无法产出 assistant 回复：相关断言只落在不依赖模型回复的 UI 状态
 //   （pill / 分隔行 / 弹窗），发送失败产生的错误消息不影响断言。
@@ -77,27 +77,28 @@ test.describe.serial("多智能体矩阵关键链路", () => {
     for (const name of [A1, A2, A3, UI_AGENT]) await deleteAgentQuiet(name);
   });
 
-  test("1 侧边栏默认 ≤3 个智能体，第 4 个出现后有「更多智能体」入口", async ({ page }) => {
-    // 初始仅 dev（global-setup 预置，displayName=研发），无更多入口
-    await expect(page.getByTestId("agent-研发")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("agent-more")).toHaveCount(0);
+  test("1 侧边栏智能体折叠为一行：计数随智能体数更新，点击打开宫格", async ({ page }) => {
+    // 初始仅 dev（global-setup 预置，displayName=研发），折叠栏计数为 1
+    await expect(page.getByTestId("agent-collapsed")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("agent-collapsed")).toContainText("1", { timeout: 10_000 });
 
-    // 经 REST 补足到 4 个（UI 新建入口此时不可达，见文件头说明）；广播 agent:list 驱动侧栏刷新
+    // 经 REST 补足到 4 个（UI 新建入口在宫格内，见文件头说明）；广播 agent:list 驱动侧栏刷新
     await createAgent(A1);
     await createAgent(A2);
     await createAgent(A3);
 
-    // 侧栏只展示前 3 个（无会话时按名称 locale 排序：e2e-a1/a2/a3 在前，中文「研发」排最后进「更多智能体」）
-    await expect(page.getByTestId(`agent-${A1}`)).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId(`agent-${A2}`)).toBeVisible();
-    await expect(page.getByTestId(`agent-${A3}`)).toBeVisible();
-    await expect(page.getByTestId("agent-more")).toBeVisible();
-    await expect(page.getByTestId("agent-more")).toContainText("(1)");
+    // 折叠栏计数更新为 4；点击打开宫格，卡片齐全（含初始 dev 与全部新建）
+    await expect(page.getByTestId("agent-collapsed")).toContainText("4", { timeout: 10_000 });
+    await page.getByTestId("agent-collapsed").click();
+    await expect(page.getByTestId("agent-gallery")).toBeVisible();
+    await expect(page.getByTestId("gallery-card-研发")).toBeVisible();
+    await expect(page.getByTestId(`gallery-card-${A1}`)).toBeVisible();
+    await expect(page.getByTestId(`gallery-card-${A3}`)).toBeVisible();
   });
 
   test("2 宫格弹窗：打开 → 卡片 → UI 新建 → 右键编辑进详情弹窗", async ({ page }) => {
     try {
-      await page.getByTestId("agent-more").click();
+      await page.getByTestId("agent-collapsed").click();
       await expect(page.getByTestId("agent-gallery")).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId("gallery-card-研发")).toBeVisible();
       await expect(page.getByTestId(`gallery-card-${A1}`)).toBeVisible();
@@ -113,7 +114,7 @@ test.describe.serial("多智能体矩阵关键链路", () => {
       await page.getByTestId("agent-config").getByRole("button", { name: "关闭" }).click();
 
       // 新建契约是「宫格保持打开，编辑弹窗叠加」（App.tsx onCreated 不关列表），
-      // 关闭编辑弹窗后宫格仍在，直接断言新卡片出现（不能再点 agent-more，会被宫格 overlay 拦截）
+      // 关闭编辑弹窗后宫格仍在，直接断言新卡片出现（不能再点 agent-collapsed，会被宫格 overlay 拦截）
       await expect(page.getByTestId(`gallery-card-${UI_AGENT}`)).toBeVisible({ timeout: 10_000 });
 
       // 右键卡片 →【编辑智能体】→ 详情弹窗
@@ -129,7 +130,7 @@ test.describe.serial("多智能体矩阵关键链路", () => {
 
   test("3 详情弹窗：改简介 + 关系网 + 保存 → 宫格卡片简介更新", async ({ page }) => {
     const cfg = page.getByTestId("agent-config");
-    await page.getByTestId("agent-more").click();
+    await page.getByTestId("agent-collapsed").click();
     await page.getByTestId(`gallery-card-${A1}`).click({ button: "right" });
     await page.getByTestId("gallery-ctx-edit").click();
     await expect(cfg).toBeVisible();
@@ -153,7 +154,7 @@ test.describe.serial("多智能体矩阵关键链路", () => {
 
     // config:save 保存后 kernel 广播 agent:list（含非改名路径），store 实时刷新：
     // 不 reload；编辑弹窗是叠加在宫格上的（App.tsx onEdit 列表保持打开），
-    // 关闭编辑弹窗后宫格仍在，直接断言卡片简介已变为新值（不能再点 agent-more，会被宫格 overlay 拦截）
+    // 关闭编辑弹窗后宫格仍在，直接断言卡片简介已变为新值（不能再点 agent-collapsed，会被宫格 overlay 拦截）
     await expect(page.getByTestId(`gallery-card-${A1}`)).toContainText("E2E 矩阵简介", { timeout: 10_000 });
 
     // 重开详情弹窗验证保存已持久化到 kernel（agent:config:get 重取文件）
@@ -167,8 +168,10 @@ test.describe.serial("多智能体矩阵关键链路", () => {
   });
 
   test("4 左键智能体 → 新建会话页预选 → 发消息 → pill 为该智能体", async ({ page }) => {
-    await expect(page.getByTestId(`agent-${A1}`)).toBeVisible({ timeout: 10_000 });
-    await page.getByTestId(`agent-${A1}`).click();
+    // 侧栏已折叠：打开宫格，左键卡片 = 与该智能体对话（预选并跳到新建会话页）
+    await page.getByTestId("agent-collapsed").click();
+    await expect(page.getByTestId("agent-gallery")).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId(`gallery-card-${A1}`).click();
     await expect(page.getByTestId("new-session-pane")).toBeVisible();
     await expect(page.getByTestId("agent-select")).toContainText(A1);
 
@@ -253,16 +256,20 @@ test.describe.serial("多智能体矩阵关键链路", () => {
       await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId("agent-switcher")).toContainText(A2);
 
-      // 侧栏右键删除 A2（A2 名下有会话，按 recency 排第一，必定在侧栏前 3）
-      await page.getByTestId(`agent-${A2}`).click({ button: "right" });
-      await page.getByTestId("agent-ctx-delete").click();
-      // agent-delete-confirm 包装 div 的子元素是 fixed 定位 Modal，自身塌缩 0 尺寸会被判 hidden，
+      // 侧栏已折叠：打开宫格，右键卡片删除 A2（卡片在宫格内按列表序渲染，必定存在）
+      await page.getByTestId("agent-collapsed").click();
+      await expect(page.getByTestId("agent-gallery")).toBeVisible({ timeout: 10_000 });
+      await page.getByTestId(`gallery-card-${A2}`).click({ button: "right" });
+      await page.getByTestId("gallery-ctx-delete").click();
+      // gallery-delete-confirm 包装 div 的子元素是 fixed 定位 Modal，自身塌缩 0 尺寸会被判 hidden，
       // 故断言内部 ConfirmDialog 本体（confirm-dialog 即删除二次确认框）
       await expect(page.getByTestId("confirm-dialog")).toBeVisible();
       await page.getByTestId("confirm-ok").click();
-      await expect(page.getByTestId(`agent-${A2}`)).toHaveCount(0, { timeout: 10_000 });
+      await expect(page.getByTestId(`gallery-card-${A2}`)).toHaveCount(0, { timeout: 10_000 });
 
-      // 会话保留，pill 变 missing 警示
+      // 关闭宫格回到侧栏（ESC 关闭 Modal overlay）；会话保留，pill 变 missing 警示
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("agent-gallery")).toHaveCount(0);
       await expect(page.getByTestId(`session-${sessionId}`)).toBeVisible();
       await expect(page.getByTestId("switcher-missing")).toBeVisible({ timeout: 10_000 });
 
@@ -288,12 +295,9 @@ test.describe.serial("多智能体矩阵关键链路", () => {
 });
 
 // 编辑智能体 - 技能 tab：全部勾选开关（支持全不选）+ 技能名不换行 + 描述点击气泡
-// 独立 describe：自包含地注入测试技能目录 + 凑齐宫格入口所需智能体，不依赖上方串行状态
+// 独立 describe：自包含地注入测试技能目录 + 预置目标智能体，不依赖上方串行状态
 test.describe.serial("技能 tab：全部勾选开关与描述气泡", () => {
   const SK_AGENT = "e2e-skill-agent";
-  const SK_FILLER1 = "e2e-skill-f1";
-  const SK_FILLER2 = "e2e-skill-f2";
-  const SK_FILLER3 = "e2e-skill-f3";
   // 测试技能目录（含一个长描述技能用于气泡验证）
   const e2eSkillDir = join(E2E_WA_PI_DIR, "e2e-skill-tab-skills");
   const longDesc = "这是一段很长的技能描述用于验证超长省略与点击气泡显示完整内容的功能，需要足够长才能触发省略号".repeat(2);
@@ -313,19 +317,15 @@ test.describe.serial("技能 tab：全部勾选开关与描述气泡", () => {
       `---\nname: e2e-skill-short\ndescription: 短技能\n---\n# e2e-skill-short`,
     );
     await addSkillDir(e2eSkillDir);
-    // 凑齐宫格入口（agent-more 需 >3 个智能体）：dev(研发) + 目标 + 3 个 filler
+    // 宫格入口（agent-collapsed）随时可点、无需凑数；预置目标智能体即可
     await createAgent(SK_AGENT);
-    await createAgent(SK_FILLER1);
-    await createAgent(SK_FILLER2);
-    await createAgent(SK_FILLER3);
   });
 
   test.afterAll(async () => {
     // 清理测试技能目录与智能体
     await removeSkillDir(e2eSkillDir).catch(() => {});
     rmSync(e2eSkillDir, { recursive: true, force: true });
-    for (const n of [SK_AGENT, SK_FILLER1, SK_FILLER2, SK_FILLER3])
-      await deleteAgentQuiet(n);
+    await deleteAgentQuiet(SK_AGENT);
   });
 
   test("全部勾选开关：默认 ON → 点击全不选 → 再次点击恢复全选；描述点击气泡", async ({ page }) => {
@@ -333,7 +333,7 @@ test.describe.serial("技能 tab：全部勾选开关与描述气泡", () => {
     test.setTimeout(120_000);
 
     // 打开宫格 → 右键目标 agent → 编辑
-    await page.getByTestId("agent-more").click();
+    await page.getByTestId("agent-collapsed").click();
     await page.getByTestId(`gallery-card-${SK_AGENT}`).click({ button: "right" });
     await page.getByTestId("gallery-ctx-edit").click();
     await expect(page.getByTestId("agent-config")).toBeVisible();
@@ -365,7 +365,7 @@ test.describe.serial("技能 tab：全部勾选开关与描述气泡", () => {
 
     // 重开验证：全不选态应持久化（开关 OFF）。刷新页面重置所有 modal 状态再重开
     await page.goto("/", { timeout: 60_000 });
-    await page.getByTestId("agent-more").click();
+    await page.getByTestId("agent-collapsed").click();
     await page.getByTestId(`gallery-card-${SK_AGENT}`).click({ button: "right" });
     await page.getByTestId("gallery-ctx-edit").click();
     await expect(page.getByTestId("agent-config")).toBeVisible();

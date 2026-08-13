@@ -82,6 +82,14 @@
 - **验证**：TDD——新增 markdown-links 反引号 URL 用例（修复前失败）、linkify 8 用例、StreamingOutput 流式 URL 用例、AskFormCard 裸 URL 用例；tests/blocks 56 pass / 0 fail。
 - 影响范围：packages/frontend/src/components/blocks/{markdown-components,linkify,StreamingOutput,ThinkingCard,ToolCallCard}.tsx、components/ask/AskFormCard.tsx，及对应测试。
 
+## 2026-08-12
+
+### 新增
+
+- 侧边栏「任务」视图内新增「项目 | 最近」分段切换：「最近」按时间线汇总全部项目会话（按天刻度分组、标注项目名、上限 100 条、点击后停留在最近视图）
+- 智能体列表折叠为一行「智能体 n ›」，点击打开智能体宫格弹窗
+- `SessionRow` 支持可选 `subtitle` 次级标注
+
 ## 2026-08-12 — fix(frontend): AskQuickBar 滚轮横向滚动改用原生 passive:false 绑定，消除 preventDefault 警告
 
 ### 变更

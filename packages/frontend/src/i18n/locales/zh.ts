@@ -571,6 +571,8 @@ const zh = {
 		tabTasks: "任务",
 		tabIm: "IM",
 		newSession: "＋ 新建会话",
+		scopeProject: "项目",
+		scopeRecent: "最近",
 	},
 	trash: {
 		title: "回收站",
@@ -613,6 +615,11 @@ const zh = {
 		newProject: "＋ 新建项目",
 		newProjectHint: "新建项目",
 		systemProjectName: "默认工作区",
+	},
+	recentSessions: {
+		today: "今天",
+		yesterday: "昨天",
+		empty: "暂无会话，点击上方 ＋ 新建",
 	},
 	store: {
 		duplicateProjectCwd: "相同目录的项目已存在",
