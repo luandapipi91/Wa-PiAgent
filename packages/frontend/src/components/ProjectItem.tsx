@@ -6,7 +6,7 @@ import {
 	type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { motion, LayoutGroup, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import {
 	SYSTEM_PROJECT_ID,
 	type ProjectEntity,
@@ -309,31 +309,29 @@ export function ProjectItem(props: Props) {
 				</button>
 			</div>
 
-			{/* 会话列表：LayoutGroup + motion.div layout 做重排 FLIP 动画，AnimatePresence 做 enter/exit */}
-			<LayoutGroup>
-				<AnimatePresence initial={false}>
-					{expanded &&
-						mySessions.map((s) => (
-							<motion.div
-								key={s.id}
-								layout
-								initial={{ opacity: 0 }}
-								animate={{ opacity: 1 }}
-								exit={{ opacity: 0 }}
-								transition={{
-									layout: { duration: 0.25, ease: "easeOut" },
-								}}
-							>
-								<SessionRow
-									session={s}
-									selected={s.id === currentSessionId}
-									onSelect={props.onSelectSession}
-									onContextMenu={handleSessionContextMenu}
-								/>
-							</motion.div>
-						))}
-				</AnimatePresence>
-			</LayoutGroup>
+			{/* 会话列表：motion.div layout="position" 做重排 FLIP 动画，AnimatePresence 做 enter/exit */}
+			<AnimatePresence initial={false}>
+				{expanded &&
+					mySessions.map((s) => (
+						<motion.div
+							key={s.id}
+							layout="position"
+							initial={{ opacity: 0 }}
+							animate={{ opacity: 1 }}
+							exit={{ opacity: 0 }}
+							transition={{
+								layout: { duration: 0.25, ease: "easeOut" },
+							}}
+						>
+							<SessionRow
+								session={s}
+								selected={s.id === currentSessionId}
+								onSelect={props.onSelectSession}
+								onContextMenu={handleSessionContextMenu}
+							/>
+						</motion.div>
+					))}
+			</AnimatePresence>
 
 			{/* 会话右键菜单 */}
 			{sessionMenu &&

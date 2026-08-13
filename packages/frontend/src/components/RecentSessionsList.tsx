@@ -7,7 +7,7 @@ import {
 	type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { motion, LayoutGroup } from "motion/react";
+import { motion } from "motion/react";
 import type { SessionEntity } from "@wa-pi/shared";
 import { useProjectsStore } from "../store/projects";
 import { useTranslation } from "../i18n/useTranslation";
@@ -168,39 +168,19 @@ export function RecentSessionsList({ onSelectSession, onNewSession }: Props) {
 					</span>
 				</div>
 			) : (
-				<LayoutGroup>
+				<>
 					{items.flatMap((item, i): ReactNode[] => {
-						const isToday = item.dayKey === todayKey;
-						// 今天的刻度已在顶部渲染，非今天的才渲染自己的刻度；
-						// 刻度与会话行均加 motion.div layout，重排时统一做 FLIP 位移动画（刻度不再跟着跳）。
-						const showSep =
-							!isToday && (i === 0 || item.dayKey !== items[i - 1].dayKey);
-						const nodes: ReactNode[] = [];
-						if (showSep) {
-							nodes.push(
-								<motion.div
-									key={`sep-${item.dayKey}`}
-									layout
-									transition={{
-										layout: {
-											duration: LAYOUT_ANIM_DURATION,
-											ease: "easeOut",
-										},
-									}}
-								>
-									<div
-										className="px-2 pt-2 pb-1 text-[calc(11px*var(--font-scale))] font-semibold text-tertiary"
-										data-testid={`day-sep-${item.dayKey}`}
-									>
-										{item.dayLabel}
-									</div>
-								</motion.div>,
-							);
-						}
+					const isToday = item.dayKey === todayKey;
+					// 今天的刻度已在顶部渲染，非今天的才渲染自己的刻度；
+					// 刻度与会话行均加 motion.div layout="position"，重排时做 FLIP 位移动画（刻度不再跟着跳）。
+					const showSep =
+						!isToday && (i === 0 || item.dayKey !== items[i - 1].dayKey);
+					const nodes: ReactNode[] = [];
+					if (showSep) {
 						nodes.push(
 							<motion.div
-								key={item.session.id}
-								layout
+								key={`sep-${item.dayKey}`}
+								layout="position"
 								transition={{
 									layout: {
 										duration: LAYOUT_ANIM_DURATION,
@@ -208,18 +188,38 @@ export function RecentSessionsList({ onSelectSession, onNewSession }: Props) {
 									},
 								}}
 							>
-								<SessionRow
-									session={item.session}
-									selected={item.session.id === currentSessionId}
-									onSelect={handleClick}
-									onContextMenu={handleSessionContextMenu}
-									subtitle={item.projectName}
-								/>
+								<div
+									className="px-2 pt-2 pb-1 text-[calc(11px*var(--font-scale))] font-semibold text-tertiary"
+									data-testid={`day-sep-${item.dayKey}`}
+								>
+									{item.dayLabel}
+								</div>
 							</motion.div>,
 						);
-						return nodes;
+					}
+					nodes.push(
+						<motion.div
+							key={item.session.id}
+							layout="position"
+							transition={{
+								layout: {
+									duration: LAYOUT_ANIM_DURATION,
+									ease: "easeOut",
+								},
+							}}
+						>
+							<SessionRow
+								session={item.session}
+								selected={item.session.id === currentSessionId}
+								onSelect={handleClick}
+								onContextMenu={handleSessionContextMenu}
+								subtitle={item.projectName}
+							/>
+						</motion.div>,
+					);
+					return nodes;
 					})}
-				</LayoutGroup>
+				</>
 			)}
 
 			{/* 会话右键菜单 */}
