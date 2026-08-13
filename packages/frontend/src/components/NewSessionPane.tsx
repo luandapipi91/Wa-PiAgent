@@ -267,6 +267,10 @@ export function NewSessionPane({
 		useComposerPrefsStore.getState().setSessionPrefs(sessionId, { text: "" });
 		setAttachments([]);
 		setDefaults({ model, thinking });
+		// existed 分支下 finalId 与草稿 sessionId 分叉（草稿 id 残留已发送会话）：
+		// 选模型时写入的是草稿 id，详情页 Composer 读 bySession[finalId] 会拿到空值、
+		// 回退 defaults 显示上一次使用的旧模型。这里把用户选的模型显式落到 finalId 的会话级 prefs。
+		useComposerPrefsStore.getState().setSessionPrefs(finalId, { model });
 		setTimeout(() => {
 			sendingRef.current = false;
 		}, 500);
