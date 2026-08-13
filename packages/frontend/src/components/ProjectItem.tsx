@@ -123,16 +123,11 @@ export function ProjectItem(props: Props) {
 	// 重排信号（state）：点击项目名 +1 触发重渲染，mySessions 检测到变化时重排一次
 	const [reorderSignal, setReorderSignal] = useState(0);
 	const reorderConsumedRef = useRef(0);
-	// auto-animate：默认禁用，仅点击项目名触发重排时临时启用（后台 SSE 推送不动画）。
-	// 延迟 disable 让 coords 先记录（disable 会 clearTimeout 掉 updatePos 的 setTimeout，否则首点无基线误判为 enter）
-	const [sessionListRef, setAnimateEnabled] = useAutoAnimate<HTMLDivElement>({
+	// auto-animate：始终启用，重排 FLIP / enter / remove 动画均正常播放（避免 disable cancel 导致元素残留）
+	const [sessionListRef] = useAutoAnimate<HTMLDivElement>({
 		duration: 250,
 		easing: "ease-out",
 	});
-	useEffect(() => {
-		const t = setTimeout(() => setAnimateEnabled(false), 300);
-		return () => clearTimeout(t);
-	}, [setAnimateEnabled]);
 
 	const mySessions = (() => {
 		// IM 渠道会话（im- 前缀）归属 IM 页签，不在任务列表显示
@@ -298,10 +293,9 @@ export function ProjectItem(props: Props) {
 					onClick={() => {
 						// 项目处于折叠状态时，点击一次同时进入新建会话并展开列表；
 						// 已展开时，在新会话界面且当前项目已被选中才展开/折叠，否则进入新建会话。
-						// 展开/选中项目时触发一次会话重排（按 lastActivity）并播放位置动画。
+						// 展开/选中项目时触发一次会话重排（按 lastActivity），auto-animate 播放位置动画。
 						if (!expanded) {
 							setReorderSignal((s) => s + 1);
-							setAnimateEnabled(true);
 							setExpanded(project.id, true);
 							props.onSelectProject(project.id);
 						} else if (isNewSessionView && selected) {
@@ -309,11 +303,8 @@ export function ProjectItem(props: Props) {
 							return;
 						} else {
 							setReorderSignal((s) => s + 1);
-							setAnimateEnabled(true);
 							props.onSelectProject(project.id);
 						}
-						// 动画最长是 enter（duration*1.5=375ms），用 2 倍 duration 覆盖，避免提前 disable cancel 未完成的动画导致闪现
-						window.setTimeout(() => setAnimateEnabled(false), 500);
 					}}
 					className="text-sm text-primary flex-1 min-w-0 truncate text-left transition-colors hover:text-brand"
 					data-testid={`project-name-${project.id}`}
