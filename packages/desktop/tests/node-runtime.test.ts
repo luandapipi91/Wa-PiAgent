@@ -147,7 +147,6 @@ test("ensureNodeRuntime: 已下载且版本匹配 → 跳过下载（fetch 不�
 test("ensureNodeRuntime: 已下载但版本不匹配 → 触发重新下载", async () => {
 	const base = await mkdtemp(join(tmpdir(), "node-rt-test-"));
 	let fetchCalled = false;
-	const savedPath = process.env.PATH;
 	try {
 		const nodeDir = join(base, "node");
 		await mkdir(nodeDir, { recursive: true });
@@ -159,9 +158,6 @@ test("ensureNodeRuntime: 已下载但版本不匹配 → 触发重新下载", as
 		}
 		// marker 版本不匹配
 		await writeFile(join(nodeDir, ".installed-version"), "v0.0.0");
-
-		// 临时清空 PATH，模拟无系统 node（否则 PATH 检测会找到本机 node 直接返回）
-		process.env.PATH = "";
 
 		mockFetch({
 			json: () => Promise.resolve({ country: "CN" }),
@@ -183,11 +179,12 @@ test("ensureNodeRuntime: 已下载但版本不匹配 → 触发重新下载", as
 			waPiDir: base,
 			log: noopLog,
 			forceDownload: false,
+			// 注入无系统 node，绕过本机 PATH/固定路径兑底命中真实 node（否则提前 return）
+			findSystemNodeFn: () => null,
 		} as any);
 		expect(fetchCalled).toBe(true);
 		expect(result).toBeNull(); // 下载失败
 	} finally {
-		process.env.PATH = savedPath;
 		await rm(base, { recursive: true, force: true });
 	}
 });

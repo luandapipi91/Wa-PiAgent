@@ -164,12 +164,13 @@ async function ensureNodeRuntime({
 	log = console,
 	onStatus,
 	forceDownload = false,
+	findSystemNodeFn = findSystemNode,
 } = {}) {
 	const dir = waPiDir || path.join(os.homedir(), ".pi", "agent");
 
 	// 1. 检测系统 node（forceDownload 时跳过，用于强制重装/POC 测试）
 	if (!forceDownload) {
-		const sysNode = findSystemNode();
+		const sysNode = findSystemNodeFn();
 		if (sysNode) {
 			log.info(`[node-runtime] 检测到系统 Node.js: ${sysNode}`);
 			return sysNode;
