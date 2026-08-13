@@ -2,6 +2,14 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-13 — fix(desktop): 换端口启动按钮两个 bug——端口未切换 + 按钮并排
+
+### 变更
+
+- **Bug 1（换端口未生效）**：`app.relaunch({ env })` 在 Windows 上环境变量替换不可靠，新进程仍读到旧端口。修复：改用命令行参数 `--wa-pi-port=<port>` 传递新端口（env 双保险），`FIXED_PORT` 解析优先级改为 `--wa-pi-port 参数 > WA_PI_WS_PORT env > 默认 9778`；重复 relaunch 时先过滤旧参数避免残留旧值。
+- **Bug 2（按钮并排）**：错误态两个按钮在 flex column 容器里仍可能横向排列。修复：包 `.actions` flex column 容器 + `gap:10px` 明确上下排列。
+- **测试**：port-switch.test.ts 新增 4 个（resolveFixedPort 参数/env/默认/重复过滤），splash-html 回归通过；全套 146 pass（2 fail 为预先存在的打包签名测试）。
+
 ## 2026-08-13 — feat(desktop): 端口自愈失败时提供「换端口启动」+「退出」选项
 
 ### 变更
