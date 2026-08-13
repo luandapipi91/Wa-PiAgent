@@ -123,13 +123,15 @@ export function ProjectItem(props: Props) {
 	// 重排信号（state）：点击项目名 +1 触发重渲染，mySessions 检测到变化时重排一次
 	const [reorderSignal, setReorderSignal] = useState(0);
 	const reorderConsumedRef = useRef(0);
-	// auto-animate：默认禁用，仅点击项目名触发重排时临时启用（后台 SSE 推送不动画）
+	// auto-animate：默认禁用，仅点击项目名触发重排时临时启用（后台 SSE 推送不动画）。
+	// 延迟 disable 让 coords 先记录（disable 会 clearTimeout 掉 updatePos 的 setTimeout，否则首点无基线误判为 enter）
 	const [sessionListRef, setAnimateEnabled] = useAutoAnimate<HTMLDivElement>({
 		duration: 250,
 		easing: "ease-out",
 	});
 	useEffect(() => {
-		setAnimateEnabled(false);
+		const t = setTimeout(() => setAnimateEnabled(false), 300);
+		return () => clearTimeout(t);
 	}, [setAnimateEnabled]);
 
 	const mySessions = (() => {
