@@ -32,9 +32,9 @@ function resolveFixedPort(argv: string[], env: Record<string, string>) {
 
 test("resolveFixedPort: 有 --wa-pi-port 参数 → 用参数值（换端口启动后生效）", () => {
 	expect(resolveFixedPort(["--wa-pi-port=9779"], {})).toBe(9779);
-	expect(resolveFixedPort(["--wa-pi-port=9780"], { WA_PI_WS_PORT: "9778" })).toBe(
-		9780,
-	);
+	expect(
+		resolveFixedPort(["--wa-pi-port=9780"], { WA_PI_WS_PORT: "9778" }),
+	).toBe(9780);
 });
 
 test("resolveFixedPort: 无参数但有 env → 用 env", () => {
