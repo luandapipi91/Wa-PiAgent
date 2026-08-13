@@ -521,6 +521,28 @@ input[type="range"]::-moz-range-thumb {
 	color: var(--accent);
 	border-color: var(--accent);
 }
+/* 空状态页操作按钮：无边框幽灵风格，hover 浅灰底。
+   区别于顶栏紧凑 fv-btn（24px 工具按钮）——空状态页需要正常尺寸、轻盈无框的按钮。 */
+.fv-empty-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 32px;
+	padding: 0 14px;
+	font-size: calc(13px * var(--font-scale));
+	border-radius: 8px;
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--text-secondary);
+	cursor: pointer;
+	transition:
+		background 0.15s,
+		color 0.15s;
+}
+.fv-empty-btn:hover {
+	background: var(--surface-hover);
+	color: var(--text-primary);
+}
 
 /* ── ExplorerPanel 文件树 ── */
 .ep-tree {

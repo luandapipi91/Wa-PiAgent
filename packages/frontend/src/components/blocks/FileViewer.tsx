@@ -9,7 +9,9 @@ import { readFile, revealFile, openFileWithDefaultApp } from "../../fs-client";
 import { useTranslation } from "../../i18n/useTranslation";
 import { createMarkdownComponents } from "./markdown-components";
 import { openInFileManagerLabel } from "../../util/platform";
+import { copyToClipboard } from "../../util/clipboard";
 import { useSessionStore } from "../../store/session";
+import { useToastStore } from "../../store/toast";
 import { Icon } from "../ui/Icon";
 import { useIsDarkMode } from "../../theme/use-is-dark-mode";
 
@@ -335,6 +337,37 @@ function ImageViewer({
 }
 
 /** 文件预览器：文本/代码用 Prism 高亮，图片用 ImageViewer */
+/** 文件预览底部地址栏：完整路径 + 复制按钮（点击复制路径，toast 反馈） */
+const PathBar = memo(function PathBar({ path }: { path: string }) {
+	const { t } = useTranslation();
+	const addToast = useToastStore((s) => s.add);
+	const copy = async () => {
+		try {
+			await copyToClipboard(path);
+			addToast(t("common.copiedToClipboard"), "success");
+		} catch {
+			addToast(t("common.copyFailed"), "error");
+		}
+	};
+	return (
+		<div className="flex items-center gap-1 px-3 py-1 text-[calc(10.5px*var(--font-scale))] text-tertiary border-t border-hairline bg-surface">
+			<span className="flex-1 truncate" title={path}>
+				{path}
+			</span>
+			<button
+				type="button"
+				onClick={copy}
+				title={t("common.copy")}
+				aria-label={t("common.copy")}
+				data-testid="fv-copy-path"
+				className="shrink-0 inline-flex items-center text-tertiary hover:text-primary transition-colors cursor-pointer"
+			>
+				<Icon name="clipboard" size={13} />
+			</button>
+		</div>
+	);
+});
+
 export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 	const [content, setContent] = useState<string | null>(null);
 	const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -440,42 +473,42 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 
 	if (unsupported) {
 		return (
-			<div
-				className="flex flex-col items-center justify-center h-full gap-3"
-				data-testid="fv-unsupported"
-			>
-				<span className="text-[calc(32px*var(--font-scale))] inline-flex text-tertiary">
-					<Icon name="file" size={32} />
-				</span>
-				<span className="text-[calc(13px*var(--font-scale))] text-secondary">
-					{t("blocks.fileViewer.unsupported")}
-				</span>
-				<span className="text-[calc(11px*var(--font-scale))] text-tertiary">
-					{unsupported}
-				</span>
-				<div className="flex items-center gap-2">
-					<button className="fv-btn" onClick={onClose}>
-						{t("common.close")}
-					</button>
-					<button
-						className="fv-btn"
-						onClick={() => void openFileWithDefaultApp(path)}
-						data-testid="fv-open-default"
-					>
-						{t("common.openWithDefaultApp")}
-					</button>
-					<button
-						className="fv-btn fv-btn-accent"
-						onClick={() => void revealFile(path)}
-						data-testid="fv-reveal"
-					>
-						{openInFileManagerLabel({
-							mac: t("common.openInFinder"),
-							windows: t("common.openInExplorer"),
-							linux: t("common.openInFileManager"),
-						})}
-					</button>
+			<div className="flex flex-col h-full" data-testid="fv-unsupported">
+				<div className="flex-1 flex flex-col items-center justify-center gap-3">
+					<span className="text-[calc(32px*var(--font-scale))] inline-flex text-tertiary">
+						<Icon name="file" size={32} />
+					</span>
+					<span className="text-[calc(13px*var(--font-scale))] text-secondary">
+						{t("blocks.fileViewer.unsupported")}
+					</span>
+					<span className="text-[calc(11px*var(--font-scale))] text-tertiary">
+						{unsupported}
+					</span>
+					<div className="flex items-center gap-2">
+						<button className="fv-empty-btn" onClick={onClose}>
+							{t("common.close")}
+						</button>
+						<button
+							className="fv-empty-btn"
+							onClick={() => void openFileWithDefaultApp(path)}
+							data-testid="fv-open-default"
+						>
+							{t("common.openWithDefaultApp")}
+						</button>
+						<button
+							className="fv-empty-btn"
+							onClick={() => void revealFile(path)}
+							data-testid="fv-reveal"
+						>
+							{openInFileManagerLabel({
+								mac: t("common.openInFinder"),
+								windows: t("common.openInExplorer"),
+								linux: t("common.openInFileManager"),
+							})}
+						</button>
+					</div>
 				</div>
+				<PathBar path={displayPath} />
 			</div>
 		);
 	}
@@ -489,7 +522,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				<span className="text-[calc(13px*var(--font-scale))] text-danger">
 					{error}
 				</span>
-				<button className="fv-btn" onClick={onClose}>
+				<button className="fv-empty-btn" onClick={onClose}>
 					{t("common.close")}
 				</button>
 			</div>
@@ -528,12 +561,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 						}
 					/>
 				</div>
-				<div
-					className="px-3 py-1 text-[calc(10.5px*var(--font-scale))] text-tertiary border-t border-hairline bg-surface truncate"
-					title={displayPath}
-				>
-					{displayPath}
-				</div>
+				<PathBar path={displayPath} />
 			</div>
 		);
 	}
@@ -585,12 +613,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 					)}
 				</Highlight>
 			</div>
-			<div
-				className="px-3 py-1 text-[calc(10.5px*var(--font-scale))] text-tertiary border-t border-hairline bg-surface truncate"
-				title={displayPath}
-			>
-				{displayPath}
-			</div>
+			<PathBar path={displayPath} />
 		</div>
 	);
 }
