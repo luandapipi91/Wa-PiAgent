@@ -496,6 +496,20 @@ input[type="range"]::-moz-range-thumb {
 	color: var(--text-primary);
 	border-color: var(--accent);
 }
+/* 纯图标按钮：无边框（对话界面 header 的文件树开关等），激活态用浅色背景高亮 */
+.fv-btn--icon {
+	border-color: transparent;
+}
+.fv-btn--icon:hover {
+	background: var(--surface-hover);
+	color: var(--text-primary);
+	border-color: transparent;
+}
+.fv-btn--icon[data-active="true"] {
+	background: var(--accent-soft);
+	color: var(--accent);
+	border-color: transparent;
+}
 /* 深色文字变体：无底色，仅深色文字 + 细边框，hover 浅紫底紫字 */
 .fv-btn-accent {
 	background: transparent;
