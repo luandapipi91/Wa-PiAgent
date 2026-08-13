@@ -524,16 +524,7 @@ const en = {
 			'"{{name}}" has joined your team and been set as the default agent',
 	},
 	agentList: {
-		usageHint:
-			"Note: this agent is used by {{count}} bot(s) ({{names}}). Deleting it will make them fall back to the default agent.",
 		sectionTitle: "Agents",
-		more: "⋯ More agents ({{count}})",
-		namePlaceholder: "Agent name",
-		createAgent: "＋ New agent",
-		ctxEdit: " Edit agent",
-		deleteTitle: "Delete agent",
-		deleteConfirmMsg:
-			'Delete agent "{{name}}"? This cannot be undone. {{usageHint}}',
 	},
 	projectItem: {
 		renamePromptTitle: "Rename session",

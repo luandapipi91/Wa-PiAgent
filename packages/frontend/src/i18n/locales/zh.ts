@@ -508,16 +508,7 @@ const zh = {
 		agentCreated: "「{{name}}」已加入你的团队，并设为默认智能体",
 	},
 	agentList: {
-		usageHint:
-			"注意：该智能体正被 {{count}} 个机器人（{{names}}）使用，删除后这些机器人将改用默认智能体。",
 		sectionTitle: "智能体",
-		more: "⋯ 更多智能体 ({{count}})",
-		namePlaceholder: "智能体名称",
-		createAgent: "＋ 新增智能体",
-		ctxEdit: " 编辑智能体",
-		deleteTitle: "删除智能体",
-		deleteConfirmMsg:
-			"确定删除智能体「{{name}}」吗？此操作不可撤销。{{usageHint}}",
 	},
 	projectItem: {
 		renamePromptTitle: "重命名会话",
