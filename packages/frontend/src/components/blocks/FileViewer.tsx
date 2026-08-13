@@ -485,9 +485,6 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 						{unsupported}
 					</span>
 					<div className="flex items-center gap-2">
-						<button className="fv-empty-btn" onClick={onClose}>
-							{t("common.close")}
-						</button>
 						<button
 							className="fv-empty-btn"
 							onClick={() => void openFileWithDefaultApp(path)}
@@ -505,6 +502,9 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 								windows: t("common.openInExplorer"),
 								linux: t("common.openInFileManager"),
 							})}
+						</button>
+						<button className="fv-empty-btn" onClick={onClose}>
+							{t("common.close")}
 						</button>
 					</div>
 				</div>
