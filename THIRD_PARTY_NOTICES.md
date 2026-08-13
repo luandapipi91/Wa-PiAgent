@@ -10,14 +10,14 @@ wa-pi 遵循各依赖自身的开源许可证。所有直接运行时依赖均�
 
 | 包 | 版本 | 许可证 | 版权 / 作者 |
 | ---- | ------ | -------- | ------------- |
-| @amaster.ai/pi-memory | ^0.1.7 | Apache-2.0 | 未声明 |
-| @earendil-works/pi-ai | ^0.83.0 | MIT | Mario Zechner |
-| @earendil-works/pi-coding-agent | ^0.83.0 | MIT | Mario Zechner |
+| @amaster.ai/pi-memory | ^0.1.8 | Apache-2.0 | 未声明 |
+| @earendil-works/pi-ai | ^0.84.1 | MIT | Mario Zechner |
+| @earendil-works/pi-coding-agent | ^0.84.1 | MIT | Mario Zechner |
 | @modelcontextprotocol/sdk | ^1.30.0 | MIT | Copyright (c) 2024 Anthropic, PBC |
+| @wecom/aibot-node-sdk | ^1.0.7 | MIT | 未声明 |
 | pi-mcp-adapter | 2.17.0 | MIT | Copyright (c) 2026 Nico Bailon |
-| pi-web-access | ^0.17.1 | MIT | Copyright (c) 2025 Nico Bailon |
-| pi-cache-optimizer | ^2.6.25 | MIT | Copyright (c) 2026 freescheme |
-| typebox | ^1.3.10 | MIT | Copyright (c) 2017-2026 Haydn Paterson |
+| pi-web-access | ^0.19.0 | MIT | Copyright (c) 2025 Nico Bailon |
+| typebox | ^1.3.11 | MIT | Copyright (c) 2017-2026 Haydn Paterson |
 
 **说明**：`pi-mcp-adapter` 经 `patchedDependencies` 应用补丁（`patches/pi-mcp-adapter@2.17.0.patch`），修改其 exports 子路径与内部类型签名。补丁属 MIT 许可下的合法修改；修改版代码随本产品分发，本声明即为 MIT 要求的版权与许可声明。
 
