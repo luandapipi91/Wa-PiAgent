@@ -310,7 +310,8 @@ export function ProjectItem(props: Props) {
 							setAnimateEnabled(true);
 							props.onSelectProject(project.id);
 						}
-						window.setTimeout(() => setAnimateEnabled(false), 330);
+						// 动画最长是 enter（duration*1.5=375ms），用 2 倍 duration 覆盖，避免提前 disable cancel 未完成的动画导致闪现
+						window.setTimeout(() => setAnimateEnabled(false), 500);
 					}}
 					className="text-sm text-primary flex-1 min-w-0 truncate text-left transition-colors hover:text-brand"
 					data-testid={`project-name-${project.id}`}
@@ -320,10 +321,12 @@ export function ProjectItem(props: Props) {
 				</button>
 			</div>
 
-			{/* 会话列表（auto-animate 容器：点击项目名重排时播放位置动画） */}
-			{expanded && (
-				<div ref={sessionListRef}>
-					{mySessions.map((s) => (
+			{/* 会话列表容器：始终挂载以保持 auto-animate controller 存活（折叠时 hidden）。
+			 * 否则折叠→展开时 controller 销毁重建，展开瞬间会话「新增」未被 MutationObserver 捕获，
+			 * 无 enter 动画直接闪现（闪一下）。 */}
+			<div ref={sessionListRef} className={expanded ? undefined : "hidden"}>
+				{expanded &&
+					mySessions.map((s) => (
 						<SessionRow
 							key={s.id}
 							session={s}
@@ -332,8 +335,7 @@ export function ProjectItem(props: Props) {
 							onContextMenu={handleSessionContextMenu}
 						/>
 					))}
-				</div>
-			)}
+			</div>
 
 			{/* 会话右键菜单 */}
 			{sessionMenu &&
