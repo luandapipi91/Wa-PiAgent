@@ -626,7 +626,8 @@ const en = {
 	recentSessions: {
 		today: "Today",
 		yesterday: "Yesterday",
-		empty: "No sessions yet. Click ＋ to start one.",
+		newSession: "＋ New session",
+		empty: "No sessions yet.",
 	},
 	store: {
 		duplicateProjectCwd: "A project with this directory already exists",

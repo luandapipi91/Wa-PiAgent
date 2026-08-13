@@ -610,7 +610,8 @@ const zh = {
 	recentSessions: {
 		today: "今天",
 		yesterday: "昨天",
-		empty: "暂无会话，点击上方 ＋ 新建",
+		newSession: "＋ 新建会话",
+		empty: "暂无会话",
 	},
 	store: {
 		duplicateProjectCwd: "相同目录的项目已存在",

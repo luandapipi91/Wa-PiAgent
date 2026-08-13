@@ -2,6 +2,19 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-13 — feat(frontend): 侧边栏重构——智能体置顶、最近视图新建入口、项目/最近虚线分段
+
+### 变更
+
+- **布局重排**：侧边栏顶部顺序调整为「智能体折叠项 → 任务|IM 页签」，将智能体折叠项移出页签分支、置于页签控件之上（跨任务/IM 两页签始终可见）。
+- **移除独立新建会话按钮**：删除 `NewSessionButton` 组件（含测试），新建会话入口迁入「最近」视图。
+- **「最近」视图新建入口**：时间线顶部「今天」刻度改为**始终显示**（即使当天无会话），右侧放「＋ 新建会话」文字入口（右对齐），点击触发 `onNewSession`，与原按钮行为一致。
+- **项目/最近虚线分段**：「项目 | 最近」次级分段控件由实心灰底改为虚线边框（`1px dashed var(--hairline-strong)`），中间虚线竖线分割，选中态用文字加粗（无底色），与「任务 | IM」实心分段形成视觉层级区分。
+- **i18n**：`recentSessions` 新增 `newSession` 键、精简 `empty` 文案（中英）。
+- 影响范围：Sidebar.tsx、RecentSessionsList.tsx、src/util/recentSessions.ts（导出 startOfDay）、i18n locales，删除 NewSessionButton.tsx / NewSessionButton.test.tsx，及对应测试。
+
+---
+
 ## 2026-08-13 — feat(frontend): 侧边栏会话列表位置动画（最近视图 + 项目视图）
 
 ### 变更
