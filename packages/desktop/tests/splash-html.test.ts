@@ -35,3 +35,9 @@ test("splash HTML script 的退出按钮点击走 waPiApp.quit", () => {
 	const html = buildSplashHTML({});
 	expect(html).toContain("quit");
 });
+
+test("splash HTML 按钮并排（flex-direction:row，不换行）", () => {
+	const html = buildSplashHTML({});
+	expect(html).toMatch(/\.actions\{[^}]*flex-direction:row/);
+	expect(html).not.toMatch(/\.actions\{[^}]*flex-direction:column/);
+});

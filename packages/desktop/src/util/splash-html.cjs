@@ -27,7 +27,7 @@ body{background:${canvasBg};display:flex;flex-direction:column;align-items:cente
 .fill{height:100%;width:8%;border-radius:99px;background:${brandGreen};transition:width .45s cubic-bezier(.4,0,.2,1)}
 .status{margin-top:16px;font-size:12px;color:#86868b;min-height:16px;text-align:center;padding:0 24px}
 .err{color:#d9404d}
-.actions{display:flex;flex-direction:column;gap:10px;margin-top:20px;-webkit-app-region:no-drag}
+.actions{display:flex;flex-direction:row;gap:10px;margin-top:20px;-webkit-app-region:no-drag}
 .btn{display:none;min-width:132px;padding:8px 20px;border:0;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
 .btn:active{opacity:.85}
 #switch-port-btn{background:${brandGreen};color:#fff}
