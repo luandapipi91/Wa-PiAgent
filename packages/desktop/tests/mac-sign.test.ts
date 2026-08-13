@@ -72,14 +72,18 @@ describe("hasCert", () => {
 });
 
 describe("buildSignArgs", () => {
-	test("构造 codesign 参数（--force --sign，无 --deep）", () => {
+	test("构造 codesign 参数（--force --deep --sign）", () => {
 		expect(buildSignArgs("/tmp/WA PI Agent.app", "-")).toEqual([
 			"--force",
+			"--deep",
 			"--sign",
 			"-",
 			"/tmp/WA PI Agent.app",
 		]);
-		expect(buildSignArgs("/tmp/A.app", "my-cert").slice(2)).toEqual([
+		expect(buildSignArgs("/tmp/A.app", "my-cert")).toEqual([
+			"--force",
+			"--deep",
+			"--sign",
 			"my-cert",
 			"/tmp/A.app",
 		]);
