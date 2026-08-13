@@ -51,31 +51,31 @@ let isUpdating = false;
 let trayInstance = null;
 // kernel 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见）。
 // 换端口启动时通过命令行参数 --wa-pi-port 传递新端口（Windows 上 app.relaunch 的 env 替换不可靠），
-// 但 Windows packaged 应用 app.relaunch 的 args 也可能丢失——用持久化配置文件记住端口。
-// 优先级：port-config.json（持久化）> --wa-pi-port 参数 > WA_PI_WS_PORT 环境变量 > 默认 9778。
+// 但 Windows packaged 应用 app.relaunch 的 args 也可能丢失（Electron #33686）——临时文件兑底。
+// 不持久化：临时文件读取后即删除，下次启动回到默认端口。
+// 优先级：临时文件(.switch-port，一次性) > --wa-pi-port 参数 > WA_PI_WS_PORT 环境变量 > 默认 9778。
 // 前端无需适配：API/SSE 走相对路径，自动跟随 loadURL 的端口。
-// 注意：换端口后 IndexedDB origin 会变（如 9778→9780），旧本地数据不可见——换端口是特殊操作，仅一次。
-const PORT_CONFIG_FILE = path.join(WA_PI_DIR, "port-config.json");
-function readPortConfig() {
+const SWITCH_PORT_FILE = path.join(WA_PI_DIR, ".switch-port");
+function readSwitchPort() {
 	try {
-		const data = JSON.parse(fs.readFileSync(PORT_CONFIG_FILE, "utf8"));
-		const n = Number(data?.port);
+		const n = Number(fs.readFileSync(SWITCH_PORT_FILE, "utf8").trim());
+		fs.unlinkSync(SWITCH_PORT_FILE); // 一次性：读取后删除，下次启动回到默认
 		return Number.isFinite(n) && n > 0 ? n : null;
 	} catch {
 		return null;
 	}
 }
-function writePortConfig(port) {
+function writeSwitchPort(port) {
 	try {
-		fs.writeFileSync(PORT_CONFIG_FILE, JSON.stringify({ port }), "utf8");
+		fs.writeFileSync(SWITCH_PORT_FILE, String(port), "utf8");
 	} catch (e) {
-		console.error("[port-config] 写入失败", e);
+		console.error("[switch-port] 写入失败", e);
 	}
 }
-const CONFIG_PORT = readPortConfig();
+const SWITCH_PORT = readSwitchPort();
 const PORT_ARG = process.argv.find((a) => a.startsWith("--wa-pi-port="));
 function resolveFixedPort() {
-	if (CONFIG_PORT) return CONFIG_PORT;
+	if (SWITCH_PORT) return SWITCH_PORT;
 	if (PORT_ARG) {
 		const n = Number(PORT_ARG.split("=")[1]);
 		if (n > 0) return n;
@@ -458,7 +458,7 @@ app.whenReady().then(async () => {
 		// 三重保险传端口：持久化配置文件 > 命令行参数 > env。
 		// Windows packaged 应用 app.relaunch 的 args/env 都可能丢失（Electron #33686），
 		// 配置文件是最可靠的跨平台传递方式。
-		writePortConfig(newPort);
+		writeSwitchPort(newPort);
 		// 命令行参数 + env 双保险
 		const cleanArgs = process.argv
 			.slice(1)
