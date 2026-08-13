@@ -11,6 +11,7 @@ import { FileViewer } from "../src/components/blocks/FileViewer";
 import { _setFsTransport } from "../src/fs-client";
 import { makeFakeFsTransport } from "./fs-transport";
 import { useSessionStore } from "../src/store/session";
+import { useToastStore } from "../src/store/toast";
 
 const fake = makeFakeFsTransport();
 
@@ -19,6 +20,7 @@ beforeEach(() => {
 	fake.calls.length = 0;
 	fake.sent.length = 0;
 	fake.responses.clear();
+	useToastStore.setState({ toasts: [] });
 });
 afterEach(() => cleanup());
 
@@ -82,8 +84,8 @@ test("unsupported 文件：显示在文件管理器中打开按钮，点击调�
 	// 按钮文案随平台变化（测试环境 happy-dom UA 含 Win → 在资源管理器中打开）；
 	// 用 testId 定位避免绑定具体平台文案
 	const btn = screen.getByTestId("fv-reveal");
-	// 深色文字变体：带 fv-btn-accent 类（区别于灰「关闭」按钮）
-	expect(btn.className).toContain("fv-btn-accent");
+	// 空状态页操作按钮统一无边框幽灵风格（fv-empty-btn）
+	expect(btn.className).toContain("fv-empty-btn");
 	fireEvent.click(btn);
 
 	const call = fake.calls.find((c) => c.path === "/api/fs/reveal-file");
@@ -104,7 +106,7 @@ test("unsupported 文件：显示默认方式打开按钮，点击调用 openFil
 	);
 
 	const btn = screen.getByTestId("fv-open-default");
-	expect(btn.className).toContain("fv-btn");
+	expect(btn.className).toContain("fv-empty-btn");
 	fireEvent.click(btn);
 
 	const call = fake.calls.find(
@@ -298,4 +300,40 @@ test("md 链接：相对路径点击在预览器内打开、外部链接 target=
 	expect(externalLink.getAttribute("target")).toBe("_blank");
 
 	openSpy.mockRestore();
+});
+
+test("底部地址栏：代码预览点击复制按钮复制文件路径", async () => {
+	let copied = "";
+	Object.defineProperty(navigator, "clipboard", {
+		value: {
+			writeText: async (t: string) => {
+				copied = t;
+			},
+		},
+		configurable: true,
+	});
+	fake.setResponse("fs:readFile", {
+		content: btoa("hello"),
+		mimeType: "text/plain",
+	});
+	render(<FileViewer path="/work/demo/index.ts" onClose={() => {}} />);
+	await waitFor(() =>
+		expect(screen.getByTestId("file-viewer").textContent).toContain("hello"),
+	);
+	fireEvent.click(screen.getByTestId("fv-copy-path"));
+	await waitFor(() => expect(copied).toBe("/work/demo/index.ts"));
+});
+
+test("底部地址栏：unsupported 预览也有复制路径按钮", async () => {
+	fake.setResponse("fs:readFile", {
+		type: "fs:unsupported",
+		reason: "不支持的文件类型: application/zip",
+	});
+	render(<FileViewer path="/work/demo/a.zip" onClose={() => {}} />);
+	await waitFor(() =>
+		expect(screen.getByTestId("fv-unsupported").textContent).toContain(
+			"不支持预览该文件",
+		),
+	);
+	expect(screen.getByTestId("fv-copy-path")).toBeTruthy();
 });

@@ -2,6 +2,37 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-13 — feat(frontend): 文件预览底部地址栏增加复制按钮
+
+### 变更
+
+- 新增 `PathBar` 组件：文件预览底部地址栏（完整路径 + 复制 icon）。点击复制路径到剪贴板，复用 `copyToClipboard` + toast 反馈（与 CodeBlockCard 一致）。
+- 三处接入：代码预览、markdown 预览、unsupported 不支持预览页。unsupported 分支结构调整（外层 flex-col h-full + 内层居中内容 + 底部贴 PathBar），使地址栏贴底全宽。
+- 影响范围：FileViewer.tsx（新增 PathBar + 三处接入 + unsupported 结构）、FileViewer.test.tsx（+2 复制用例：代码预览复制路径、unsupported 也有复制按钮）。
+
+---
+
+## 2026-08-13 — style(frontend): 「不支持预览/读取失败」空状态页按钮改为无边框幽灵风格
+
+### 变更
+
+- FileViewer 的 unsupported / error 空状态页操作按钮原复用顶栏紧凑 `fv-btn`（24px 工具按钮、细灰边框），在空状态页显丑。新增 `fv-empty-btn` 类：32px 高、圆角 8px、无边框透明底，hover 显浅灰底；三按钮统一无主次（方案 B，用户选定）。
+- 顶栏工具栏、会话视图等处的 `fv-btn` 不受影响（仍为紧凑工具按钮）。
+- 影响范围：styles.css（新增 `.fv-empty-btn`）、FileViewer.tsx（unsupported 3 按钮 + error 1 按钮换 class）、FileViewer.test.tsx（2 处 className 断言同步更新）。
+
+---
+
+## 2026-08-13 — feat(frontend): 最近视图补齐会话右键菜单（重命名/删除/打开目录）
+
+### 变更
+
+- 「最近」视图的会话行补上与项目视图一致的右键菜单：重命名、删除、打开目录（所有会话均可「在访达/文件管理器中打开」，非系统项目打开项目根目录、系统项目打开会话子目录）。
+- 复用 ProjectItem 的 `useClampMenu`（由私有改为导出）做菜单坐标钳制，复用 `project-menu-close` 事件做跨组件菜单互斥。
+- RecentSessionsList 增加重命名弹窗（Modal）与删除确认框（ConfirmDialog），删除时同步清理 composer 草稿与会话内存态（removeSessionPrefs + removeSession）。
+- 影响范围：RecentSessionsList.tsx、ProjectItem.tsx（导出 useClampMenu），及 RecentSessionsList.test.tsx（新增 5 个右键菜单用例，含 api mock）。
+
+---
+
 ## 2026-08-13 — feat(frontend): 侧边栏重构——智能体置顶、最近视图新建入口、项目/最近虚线分段
 
 ### 变更
