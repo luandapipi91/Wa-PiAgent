@@ -51,28 +51,40 @@ let isUpdating = false;
 let trayInstance = null;
 // kernel 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见）。
 // 换端口启动时通过命令行参数 --wa-pi-port 传递新端口（Windows 上 app.relaunch 的 env 替换不可靠），
-// 但 Windows packaged 应用 app.relaunch 的 args 也可能丢失——用临时文件兜底。
-// 优先级：临时文件(.switch-port) > --wa-pi-port 参数 > WA_PI_WS_PORT 环境变量 > 默认 9778。
-const SWITCH_PORT_FILE = path.join(WA_PI_DIR, ".switch-port");
-function readSwitchPortFile() {
+// 但 Windows packaged 应用 app.relaunch 的 args 也可能丢失——用持久化配置文件记住端口。
+// 优先级：port-config.json（持久化）> --wa-pi-port 参数 > WA_PI_WS_PORT 环境变量 > 默认 9778。
+// 前端无需适配：API/SSE 走相对路径，自动跟随 loadURL 的端口。
+// 注意：换端口后 IndexedDB origin 会变（如 9778→9780），旧本地数据不可见——换端口是特殊操作，仅一次。
+const PORT_CONFIG_FILE = path.join(WA_PI_DIR, "port-config.json");
+function readPortConfig() {
 	try {
-		const raw = fs.readFileSync(SWITCH_PORT_FILE, "utf8").trim();
-		fs.unlinkSync(SWITCH_PORT_FILE); // 读取后删除（一次性）
-		const n = Number(raw);
+		const data = JSON.parse(fs.readFileSync(PORT_CONFIG_FILE, "utf8"));
+		const n = Number(data?.port);
 		return Number.isFinite(n) && n > 0 ? n : null;
 	} catch {
 		return null;
 	}
 }
-const SWITCH_PORT = readSwitchPortFile();
+function writePortConfig(port) {
+	try {
+		fs.writeFileSync(PORT_CONFIG_FILE, JSON.stringify({ port }), "utf8");
+	} catch (e) {
+		console.error("[port-config] 写入失败", e);
+	}
+}
+const CONFIG_PORT = readPortConfig();
 const PORT_ARG = process.argv.find((a) => a.startsWith("--wa-pi-port="));
-const FIXED_PORT =
-	SWITCH_PORT ??
-	(PORT_ARG
-		? Number(PORT_ARG.split("=")[1])
-		: Number(process.env.WA_PI_WS_PORT) > 0
-			? Number(process.env.WA_PI_WS_PORT)
-			: 9778);
+function resolveFixedPort() {
+	if (CONFIG_PORT) return CONFIG_PORT;
+	if (PORT_ARG) {
+		const n = Number(PORT_ARG.split("=")[1]);
+		if (n > 0) return n;
+	}
+	const envPort = Number(process.env.WA_PI_WS_PORT);
+	if (envPort > 0) return envPort;
+	return 9778;
+}
+const FIXED_PORT = resolveFixedPort();
 // 内核是否就绪（mainWindow 是否已加载真实页面）。未就绪时点托盘/Dock 应聚焦启动页，而非弹出空白主窗口。
 let kernelReady = false;
 
@@ -442,13 +454,11 @@ app.whenReady().then(async () => {
 		log.info(
 			`[port-switch] 端口 ${FIXED_PORT} 被占用，换端口启动 → ${newPort}`,
 		);
-		// 三重保险传端口：文件 > 命令行参数 > env。Windows packaged 应用 app.relaunch 的
-		// args/env 都可能丢失，文件是最可靠的跨平台传递方式（读取后自删）。
-		try {
-			fs.writeFileSync(SWITCH_PORT_FILE, String(newPort), "utf8");
-		} catch (e) {
-			log.error(`[port-switch] 写入 .switch-port 文件失败`, e);
-		}
+		// 持久化记住新端口：后续启动直接用新端口，不再反复冲突。
+		// 三重保险传端口：持久化配置文件 > 命令行参数 > env。
+		// Windows packaged 应用 app.relaunch 的 args/env 都可能丢失（Electron #33686），
+		// 配置文件是最可靠的跨平台传递方式。
+		writePortConfig(newPort);
 		// 命令行参数 + env 双保险
 		const cleanArgs = process.argv
 			.slice(1)
