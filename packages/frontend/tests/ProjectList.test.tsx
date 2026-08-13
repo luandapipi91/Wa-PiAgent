@@ -493,7 +493,7 @@ test("点击会话不改变列表顺序：离开当前项目后原项目保持�
 	expect(titles[1]).toContain("会话1");
 });
 
-test("项目从折叠到展开时，按最近活跃重排会话", () => {
+test("点击项目名时，按最近活跃重排会话", () => {
 	const now = Date.now();
 	useProjectsStore.setState({
 		projects: [{ id: "p1", name: "项目A", cwd: "/a", createdAt: 0 }],
@@ -539,12 +539,8 @@ test("项目从折叠到展开时，按最近活跃重排会话", () => {
 	expect(titles()[0]).toContain("会话2");
 	expect(titles()[1]).toContain("会话1");
 
-	// 折叠 p1 → 会话列表隐藏
-	fireEvent.click(screen.getByTestId("project-toggle-p1"));
-	expect(screen.queryByText("会话1")).toBeNull();
-
-	// 展开 p1 → 按最近活跃重排：s1 已是最新，排到最顶
-	fireEvent.click(screen.getByTestId("project-toggle-p1"));
+	// 点击项目名 p1 → 按最近活跃重排：s1 已是最新，排到最顶
+	fireEvent.click(screen.getByTestId("project-name-p1"));
 	expect(titles()[0]).toContain("会话1");
 	expect(titles()[1]).toContain("会话2");
 });
