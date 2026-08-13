@@ -6,6 +6,7 @@ import {
 	type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import {
 	SYSTEM_PROJECT_ID,
 	type ProjectEntity,
@@ -19,6 +20,7 @@ import { api } from "../api-client";
 import { useProjectUiStore } from "../store/project-ui";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { openInFileManagerLabel } from "../util/platform";
+import { orderSessions } from "../util/projectOrder";
 import { useTranslation } from "../i18n/useTranslation";
 import { useSessionStore } from "../store/session";
 
@@ -114,46 +116,30 @@ export function ProjectItem(props: Props) {
 		props;
 	// 系统项目（默认工作区虚拟项目）：差异化图标/菜单
 	const isSystem = project.id === SYSTEM_PROJECT_ID;
-	// 会话列表稳定顺序：点击会话（selectSession 更新 lastActivity）不改变列表顺序；
-	// 仅当项目从折叠到展开时，按最近活跃 lastActivity 重排一次。
+	// 会话列表顺序：点击项目名时按最近活跃 lastActivity 重排一次（带动画），
+	// 其余时间保持稳定顺序（点击会话 selectSession 更新 lastActivity 不改变顺序）；
+	// 新会话（SSE 推送/后台创建）按 lastActivity 倒序插入。
 	const lastOrderRef = useRef<string[] | null>(null);
-	const prevExpandedRef = useRef<boolean>(expanded);
+	// 重排信号（state）：点击项目名 +1 触发重渲染，mySessions 检测到变化时重排一次
+	const [reorderSignal, setReorderSignal] = useState(0);
+	const reorderConsumedRef = useRef(0);
+	// auto-animate：默认禁用，仅点击项目名触发重排时临时启用（后台 SSE 推送不动画）
+	const [sessionListRef, setAnimateEnabled] = useAutoAnimate<HTMLDivElement>({
+		duration: 250,
+		easing: "ease-out",
+	});
+	useEffect(() => {
+		setAnimateEnabled(false);
+	}, [setAnimateEnabled]);
+
 	const mySessions = (() => {
 		// IM 渠道会话（im- 前缀）归属 IM 页签，不在任务列表显示
 		const list = sessions.filter(
 			(s) => s.projectId === project.id && !s.id.startsWith("im-"),
 		);
-		// 折叠 → 展开：重新按 lastActivity 倒序重排
-		if (expanded && !prevExpandedRef.current) {
-			lastOrderRef.current = [...list]
-				.sort((a, b) => b.lastActivity - a.lastActivity)
-				.map((s) => s.id);
-		}
-		prevExpandedRef.current = expanded;
-
-		if (!lastOrderRef.current) {
-			lastOrderRef.current = [...list]
-				.sort((a, b) => b.lastActivity - a.lastActivity)
-				.map((s) => s.id);
-			return [...list].sort((a, b) => b.lastActivity - a.lastActivity);
-		}
-
-		// 稳定顺序：按 lastOrderRef 输出；新会话（不在缓存顺序中）按 lastActivity 倒序插入
-		const byId = new Map(list.map((s) => [s.id, s]));
-		const ordered: SessionEntity[] = [];
-		for (const id of lastOrderRef.current) {
-			const s = byId.get(id);
-			if (s) ordered.push(s);
-		}
-		const known = new Set(lastOrderRef.current);
-		const newcomers = list
-			.filter((s) => !known.has(s.id))
-			.sort((a, b) => b.lastActivity - a.lastActivity);
-		for (const n of newcomers) {
-			const idx = ordered.findIndex((s) => s.lastActivity < n.lastActivity);
-			if (idx === -1) ordered.push(n);
-			else ordered.splice(idx, 0, n);
-		}
+		const shouldReorder = reorderSignal !== reorderConsumedRef.current;
+		const ordered = orderSessions(list, lastOrderRef.current, shouldReorder);
+		reorderConsumedRef.current = reorderSignal;
 		lastOrderRef.current = ordered.map((s) => s.id);
 		return ordered;
 	})();
@@ -310,14 +296,21 @@ export function ProjectItem(props: Props) {
 					onClick={() => {
 						// 项目处于折叠状态时，点击一次同时进入新建会话并展开列表；
 						// 已展开时，在新会话界面且当前项目已被选中才展开/折叠，否则进入新建会话。
+						// 展开/选中项目时触发一次会话重排（按 lastActivity）并播放位置动画。
 						if (!expanded) {
+							setReorderSignal((s) => s + 1);
+							setAnimateEnabled(true);
 							setExpanded(project.id, true);
 							props.onSelectProject(project.id);
 						} else if (isNewSessionView && selected) {
 							toggleProject(project.id);
+							return;
 						} else {
+							setReorderSignal((s) => s + 1);
+							setAnimateEnabled(true);
 							props.onSelectProject(project.id);
 						}
+						window.setTimeout(() => setAnimateEnabled(false), 330);
 					}}
 					className="text-sm text-primary flex-1 min-w-0 truncate text-left transition-colors hover:text-brand"
 					data-testid={`project-name-${project.id}`}
@@ -327,17 +320,20 @@ export function ProjectItem(props: Props) {
 				</button>
 			</div>
 
-			{/* 会话列表 */}
-			{expanded &&
-				mySessions.map((s) => (
-					<SessionRow
-						key={s.id}
-						session={s}
-						selected={s.id === currentSessionId}
-						onSelect={props.onSelectSession}
-						onContextMenu={handleSessionContextMenu}
-					/>
-				))}
+			{/* 会话列表（auto-animate 容器：点击项目名重排时播放位置动画） */}
+			{expanded && (
+				<div ref={sessionListRef}>
+					{mySessions.map((s) => (
+						<SessionRow
+							key={s.id}
+							session={s}
+							selected={s.id === currentSessionId}
+							onSelect={props.onSelectSession}
+							onContextMenu={handleSessionContextMenu}
+						/>
+					))}
+				</div>
+			)}
 
 			{/* 会话右键菜单 */}
 			{sessionMenu &&
