@@ -37,7 +37,8 @@ export function RecentSessionsList({ onSelectSession }: Props) {
 	const handleClick = (id: string) => {
 		setAnimateEnabled(true);
 		onSelectSession(id);
-		window.setTimeout(() => setAnimateEnabled(false), ANIM_DURATION + 80);
+		// 动画最长是 enter（duration*1.5=375ms），用 2 倍 duration 覆盖，避免提前 disable cancel 未完成的动画导致闪现
+		window.setTimeout(() => setAnimateEnabled(false), ANIM_DURATION * 2);
 	};
 
 	if (items.length === 0) {
