@@ -316,14 +316,14 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 					{/* 文件树面板开关按钮 */}
 					<button
 						type="button"
-						className="fv-btn"
+						className="fv-btn fv-btn--icon"
 						data-testid="btn-explorer"
 						data-active={explorerOpen ? "true" : "false"}
 						onClick={() => useExplorerStore.getState().toggle()}
 						title={t("session.projectFiles")}
 						style={
 							explorerOpen
-								? { borderColor: "var(--accent)", color: "var(--accent)" }
+								? { color: "var(--accent)" }
 								: { color: "var(--text-tertiary)" }
 						}
 					>

@@ -412,12 +412,11 @@ input[type="range"]::-moz-range-thumb {
 	display: inline;
 }
 
-/* Token 胶囊标签（SessionView header 右侧） */
+/* Token 胶囊标签（SessionView header 右侧）——除缓存外无底色，仅文字 */
 .token-capsule {
 	font-size: calc(11px * var(--font-scale));
 	padding: 2px 8px;
 	border-radius: 10px;
-	background: var(--surface-hover);
 	color: var(--text-secondary);
 	white-space: nowrap;
 }
@@ -496,8 +495,9 @@ input[type="range"]::-moz-range-thumb {
 	color: var(--text-primary);
 	border-color: var(--accent);
 }
-/* 纯图标按钮：无边框（对话界面 header 的文件树开关等），激活态用浅色背景高亮 */
+/* 纯图标按钮：无边框无底色（对话界面 header 的文件树开关等），激活态用浅色背景高亮 */
 .fv-btn--icon {
+	background: transparent;
 	border-color: transparent;
 }
 .fv-btn--icon:hover {
