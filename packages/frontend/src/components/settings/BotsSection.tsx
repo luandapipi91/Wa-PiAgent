@@ -10,6 +10,7 @@ import { AgentDropdown } from "../ui/AgentDropdown";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { SkillSuggestTextarea } from "../ui/SkillSuggestTextarea";
 import { NewBotDialog } from "./NewBotDialog";
+import ContactsPanel from "./ContactsPanel";
 
 const STATUS_DOT: Record<string, string> = {
 	connected: "var(--success)",
@@ -47,6 +48,7 @@ export function BotsSection() {
 	const [draft, setDraft] = useState<ChannelInput | null>(null); // 非 null = 新建/编辑中的表单
 	const [showNew, setShowNew] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
+	const [contactsOpen, setContactsOpen] = useState(false);
 
 	useEffect(() => { void loadBots(); void useProjectsStore.getState().load(); }, []);
 
@@ -163,6 +165,13 @@ export function BotsSection() {
 				{!draft && <div className="text-sm text-tertiary p-4">{t("settings.bot.emptyForm")}</div>}
 				{draft && (
 					<>
+						<button
+							onClick={() => setContactsOpen(true)}
+							className="self-end px-3 py-1.5 rounded-sm text-sm border border-hairline cursor-pointer"
+							data-testid="bot-contacts-btn"
+						>
+							通讯录
+						</button>
 						<label className="flex flex-col gap-1 w-72">
 							<span className="text-xs text-secondary">{t("settings.bot.nameLabel")}</span>
 							<input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })}
@@ -298,6 +307,9 @@ export function BotsSection() {
 						});
 					}}
 				/>
+			)}
+			{contactsOpen && selectedId && (
+				<ContactsPanel channelId={selectedId} onClose={() => setContactsOpen(false)} />
 			)}
 		</div>
 	);

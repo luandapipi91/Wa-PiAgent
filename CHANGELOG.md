@@ -2,6 +2,17 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-14 — feat(frontend): 通讯录滑出面板 + 行内展开重命名 + BotsSection 入口
+
+### 变更
+
+- 新增 `ContactsPanel` 组件：通讯录滑出面板，按 channelId 过滤当前机器人的联系人，分「人/群」两类展示；点击行内展开输入框，保存调用 `renameContact(id, remark)`，失败用 toast 提示。
+- `BotsSection` 集成：编辑表单顶部新增「通讯录」按钮（`contactsOpen` state），选中机器人时打开对应面板。
+- 新增组件测试 `ContactsPanel.test.tsx`（mock `useContactsStore`，覆盖渲染人/群两类 + 行内展开重命名保存）。
+- 影响范围：ContactsPanel.tsx（新增）、BotsSection.tsx（+4 处）、ContactsPanel.test.tsx（新增）。
+
+---
+
 ## 2026-08-14 — fix(kernel): contacts:rename 空值保护 + 事件级测试
 
 ### 变更
