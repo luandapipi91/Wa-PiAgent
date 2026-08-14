@@ -18,6 +18,20 @@ async function writeJson(file: string, data: unknown): Promise<void> {
 	await writeFile(file, JSON.stringify(data, null, 2), "utf8");
 }
 
+// 模块级写队列：所有文件写操作串行化。多个任务 cron 指向同一时刻时并发触发
+// append/update，无锁的 load→push→save 会互相覆盖丢记录；统一经 promise 链排队。
+// 注意：入队 op 内部不得再调用入队版函数（嵌套等待自身前置 → 死锁），
+// 原子读-改-写内部直接用 writeJson。
+let writeChain: Promise<void> = Promise.resolve();
+function enqueueWrite<T>(op: () => Promise<T>): Promise<T> {
+	const result = writeChain.then(op);
+	writeChain = result.then(
+		() => undefined,
+		() => undefined,
+	);
+	return result;
+}
+
 export async function loadScheduledTasks(
 	file: string,
 ): Promise<ScheduledTask[]> {
@@ -25,11 +39,11 @@ export async function loadScheduledTasks(
 	return Array.isArray(raw.tasks) ? raw.tasks : [];
 }
 
-export async function saveScheduledTasks(
+export function saveScheduledTasks(
 	file: string,
 	tasks: ScheduledTask[],
 ): Promise<void> {
-	await writeJson(file, { schemaVersion: 1, tasks });
+	return enqueueWrite(() => writeJson(file, { schemaVersion: 1, tasks }));
 }
 
 export async function loadExecutionRecords(
@@ -46,29 +60,34 @@ export async function saveExecutionRecords(
 	await writeJson(file, { schemaVersion: 1, records });
 }
 
-export async function appendExecutionRecord(
+export function appendExecutionRecord(
 	file: string,
 	record: ExecutionRecord,
 ): Promise<void> {
-	const existing = await loadExecutionRecords(file);
-	existing.push(record);
-	await saveExecutionRecords(file, existing);
+	// 整个读-改-写作为原子单元入队
+	return enqueueWrite(async () => {
+		const existing = await loadExecutionRecords(file);
+		existing.push(record);
+		await writeJson(file, { schemaVersion: 1, records: existing });
+	});
 }
 
 /**
  * 按 id 更新已存在的执行记录（用于 running 态记录在任务完成后回写终态）。
  * 不存在时退化为追加，保证记录不丢。
  */
-export async function updateExecutionRecord(
+export function updateExecutionRecord(
 	file: string,
 	record: ExecutionRecord,
 ): Promise<void> {
-	const existing = await loadExecutionRecords(file);
-	const idx = existing.findIndex((r) => r.id === record.id);
-	if (idx >= 0) {
-		existing[idx] = record;
-	} else {
-		existing.push(record);
-	}
-	await saveExecutionRecords(file, existing);
+	return enqueueWrite(async () => {
+		const existing = await loadExecutionRecords(file);
+		const idx = existing.findIndex((r) => r.id === record.id);
+		if (idx >= 0) {
+				existing[idx] = record;
+		} else {
+				existing.push(record);
+		}
+		await writeJson(file, { schemaVersion: 1, records: existing });
+	});
 }

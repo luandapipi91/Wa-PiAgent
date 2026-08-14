@@ -569,13 +569,15 @@ export function App() {
 						}}
 					/>
 				) : null}
-				{view === "new-session" && (
+				{/* automation 页签独占主内容区：互斥渲染 new-session/session（view state 不动，切回 tasks 恢复原视图） */}
+				{view === "new-session" && sidebarTab !== "automation" && (
 					<NewSessionPane
 						pendingAgent={pendingAgent}
 						onConsumePendingAgent={() => setPendingAgent(null)}
 					/>
 				)}
 				{view === "session" &&
+					sidebarTab !== "automation" &&
 					currentSessionId &&
 					(() => {
 						// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined。
