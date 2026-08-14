@@ -56,7 +56,7 @@ interface ContactsFile {
 
 ## 5. 采集逻辑
 
-在 `packages/kernel/src/channel-manager.ts` 的 `handleInbound()` 中，拿到进站消息 `msg` 后：
+在 `packages/kernel/src/channel-manager.ts` 的 `handleInbound()` 中，拿到进站消息 `msg` 后**立即采集**（在 `handleInbound` 顶部、`unsupported` 检查与消息类型/指令拦截、mapping 查找之前）：
 
 - `msg.chatType === "single"` → `contactStore.upsert({ channelId: channel.id, kind: "person", userId: msg.fromUserId })`
 - `msg.chatType === "group"` → `contactStore.upsert({ channelId: channel.id, kind: "group", chatId: msg.chatId })`
@@ -64,12 +64,14 @@ interface ContactsFile {
 约束：
 - 只记新对话，不做历史回填。
 - upsert 失败只记日志，**不阻断消息处理**（消息照常流转到智能体）。
-- 采集点在「新建/更新 mapping」之后、消息入智能体之前，保证不因通讯录写入失败影响对话。
+- 任何进站消息（含不支持的消息类型）都视为「对话过」并收录其发送者/群。
 
 ## 6. API（kernel，仿 `routes/channels.ts`）
 
-- `GET /api/contacts?channelId=ch_xxx` → `{ persons: Contact[], groups: Contact[] }`
-- `PUT /api/contacts/:id` → body `{ remark: string }`；成功返回更新后的 contact；id 不存在返回 404
+- `GET /api/contacts` → `{ contacts: Contact[] }`（平铺全量；可选 `channelId` 查询参数用于按机器人过滤）
+- `PUT /api/contacts/:id` → body `{ remark: string }`；成功返回 `{ contacts: Contact[] }` 全量；id 不存在返回 404
+
+> `GET` 与 `PUT` 都返回 `{ contacts }` 全量——rename 返回全量，前端 store 整体替换，避免「子集覆盖全量」的契约陷阱；前端拿到全量后按 `channelId` 客户端过滤/分组。
 
 配套 `ws-server.ts` 增加事件处理 + 广播 `contacts:changed`（仿 `channel-conversations:changed`），前端 SSE 刷新。
 
@@ -100,15 +102,15 @@ interface ContactsFile {
 - 单聊会话（`chatType === "single"`）：优先显示该 `channelId + userId` 的 remark，回退 userid
 - 群聊会话（`chatType === "group"`）：优先显示该 `channelId + chatId` 的 remark，回退 `群聊(chatId前8) · 发送者` 原逻辑
 
-前端 store 新增 `store/contacts.ts`（Zustand，仿 `store/channels.ts`）：`loadContacts(channelId)`、`renameContact(id, remark)`；监听 `contacts:changed` SSE 刷新。
+前端 store 新增 `store/contacts.ts`（Zustand，仿 `store/channels.ts`）：`loadContacts()`（无参拉全部通讯录）、`renameContact(id, remark)`（rename 后拿到全量并整体替换 store）；监听 `contacts:changed` SSE 刷新。前端拿到全量后按 `channelId` 客户端过滤/分组（人/群）。
 
 ## 8. 数据流
 
 ```
 企微长连接 → wecom-adapter.normalizeInbound (拿到 fromUserId/chatId)
   → channel-manager.handleInbound
+      ├─ contactStore.upsert（新增：人/群入通讯录，进站即采集）
       ├─ 新建/更新 ChannelSessionMapping（现有逻辑）
-      ├─ contactStore.upsert（新增：人/群入通讯录）
       └─ agentManager.prompt（现有逻辑）
 ```
 

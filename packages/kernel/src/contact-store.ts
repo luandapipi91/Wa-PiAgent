@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { CONTACTS_FILE, type ContactEntity } from "@wa-pi/shared";
@@ -13,7 +13,9 @@ async function readJson<T>(file: string, fallback: T): Promise<T> {
 
 async function writeJson(file: string, data: unknown): Promise<void> {
 	await mkdir(dirname(file), { recursive: true });
-	await writeFile(file, JSON.stringify(data, null, 2), "utf8");
+	const tmp = `${file}.tmp-${process.pid}`;
+	await writeFile(tmp, JSON.stringify(data, null, 2), "utf8");
+	await rename(tmp, file); // 同目录 rename 原子，崩溃最多残留 .tmp，不破坏正式文件
 }
 
 // 进程内 per-file 串行队列：避免并发 read-modify-write 丢更新
