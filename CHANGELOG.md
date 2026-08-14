@@ -2,6 +2,15 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-14 — feat(scheduler): robot_push 工具 + @channel 解析 + ChannelManager.pushToChannel
+
+### 变更
+
+- 新建 `packages/kernel/src/tools/robot-push.ts`：`parseChannelMentions(prompt)` 纯函数（正则 `/@bot_[a-zA-Z0-9_-]+/g` 提取 @bot_xxx 渠道 ID、去重、不误匹配邮箱）+ `createRobotPushTool(deps)` 工厂（构建 robot_push 工具定义，动态填充 channel enum；execute 校验渠道、调用 pushToChannel、经 onPushResult 回调上报结果）。
+- 修改 `packages/kernel/src/channel-manager.ts`：新增 `pushToChannel(botId, message)` 方法——按 credentials.botId 反查 channelId 再取 adapter，主动推送 sendText 的 replyFrame 传 null。
+- 新建 `packages/kernel/tests/robot-push.test.ts`：16 个测试覆盖 parseChannelMentions（单/多/去重/邮箱/连字符下划线）、工具定义（name/description/enum/required）、execute（成功/渠道不存在/推送失败）、pushToChannel 集成（replyFrame=null/botId 不存在/渠道未连接）。
+- 影响范围：定时任务系统的主动推送能力；纯新增工具 + ChannelManager 新增方法，不改已有业务逻辑。
+
 ## 2026-08-14 — feat(scheduler): REST API 路由（CRUD + 立即执行 + 执行记录查询）
 
 ### 变更
