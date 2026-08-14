@@ -241,8 +241,8 @@ const [tab, setTab] = useState<'tasks' | 'im' | 'automation'>('tasks');
     properties: {
       channel: {
         type: "string",
-        enum: ["企微群", "飞书群", ...],  // 动态填充：从 prompt @ 标记解析出的渠道名
-        description: "目标推送渠道名称"
+        enum: ["bot_xxxx", "bot_yyyy", ...],  // 动态填充：从 prompt @ 标记解析出的渠道 ID
+        description: "目标推送渠道 ID"
       },
       message: {
         type: "string",
@@ -256,9 +256,9 @@ const [tab, setTab] = useState<'tasks' | 'im' | 'automation'>('tasks');
 
 执行逻辑：
 
-1. 从 prompt 中解析所有 `@channelId` 标记，提取可用渠道列表
-2. 将渠道列表注入工具的 `channel` 枚举参数
-3. Agent 根据指令上下文选择渠道并调用工具
+1. 从 prompt 中解析所有 `@bot_xxxx` 标记，提取可用渠道 ID 列表
+2. 将渠道 ID 列表注入工具的 `channel` 枚举参数
+3. Agent 根据指令上下文选择渠道 ID 并调用工具
 4. 调用 `ChannelManager` 的出站消息接口发送消息
 5. 返回推送结果（成功/失败）给 Agent
 6. 记录推送结果到 ExecutionRecord
