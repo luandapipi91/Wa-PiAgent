@@ -182,7 +182,9 @@ export function projectNameFromCwd(cwd: string): string {
 function createStore(dir: string): AmasterStore {
   // MemoryStore 自身保证 add/replace/remove 经 withFileLock + drift 校验后落盘，
   // 无需调用方先 loadFromDisk；但同步的 getEntries / formatForSystemPrompt 需先 load。
-  const store = new MemoryStore({ dir });
+  // 字符上限覆盖 amaster 默认（user 1375 / memory 2200）：放宽到 user 1800 / memory 3200，
+  // 避免实际使用常触顶导致写入被拒；幅度有限以维持每条记忆的信噪比。
+  const store = new MemoryStore({ dir, userCharLimit: 1800, memoryCharLimit: 3200 });
 
   return {
     dir,
