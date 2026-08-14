@@ -264,9 +264,7 @@ describe("robot_push 会话注入", () => {
 		}
 	});
 
-	async function setupAgent(opts?: {
-		configStore?: unknown;
-	}): Promise<{
+	async function setupAgent(opts?: { configStore?: unknown }): Promise<{
 		project: { id: string };
 		session: { id: string };
 		am: AgentManager;
@@ -275,7 +273,10 @@ describe("robot_push 会话注入", () => {
 		const tmpFile = `/tmp/wa-pi-robot-push-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
 		tmpFiles.push(tmpFile);
 		const projectStore = new ProjectStore(tmpFile);
-		const project = await projectStore.createProject({ name: "测试", cwd: "/tmp" });
+		const project = await projectStore.createProject({
+			name: "测试",
+			cwd: "/tmp",
+		});
 		const session = await projectStore.createSession({
 			projectId: project.id,
 			primaryAgent: "dev",
@@ -303,7 +304,9 @@ describe("robot_push 会话注入", () => {
 			},
 		});
 		expect(fakes).toHaveLength(1);
-		expect(fakes[0].opts.env?.WA_PI_ROBOT_PUSH_CHANNELS).toBe("bot_aaa,bot_bbb");
+		expect(fakes[0].opts.env?.WA_PI_ROBOT_PUSH_CHANNELS).toBe(
+			"bot_aaa,bot_bbb",
+		);
 		// 未显式配置 tools：不传 --tools（排除式放行，扩展注册的 robot_push 可用）
 		expect(fakes[0].opts.args ?? []).not.toContain("--tools");
 	});

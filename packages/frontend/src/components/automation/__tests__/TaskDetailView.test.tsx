@@ -132,12 +132,16 @@ describe("TaskDetailView", () => {
 		fireEvent.click(screen.getByText(/立即执行/));
 		// onClick async：等微任务排空后 toast 已弹
 		await new Promise((r) => setTimeout(r, 0));
-		const toast = useToastStore.getState().toasts.find((t) => t.message === "已触发执行");
+		const toast = useToastStore
+			.getState()
+			.toasts.find((t) => t.message === "已触发执行");
 		expect(toast?.type).toBe("success");
 	});
 
 	test("runTaskNow 失败时不弹成功 toast", async () => {
-		runTaskNowMock.mockImplementation(() => Promise.reject(new Error("网络错误")));
+		runTaskNowMock.mockImplementation(() =>
+			Promise.reject(new Error("网络错误")),
+		);
 		schedulerState.tasks = [
 			{
 				id: "t1",

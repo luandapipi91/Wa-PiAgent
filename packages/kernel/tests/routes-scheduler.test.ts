@@ -281,11 +281,7 @@ describe("POST/PUT 校验", () => {
 
 	test("POST 缺 name/agentId/prompt → 400 + 错误信息，不落盘", async () => {
 		await withServer(async (base) => {
-			for (const patch of [
-				{ name: "" },
-				{ agentId: "" },
-				{ prompt: "" },
-			]) {
+			for (const patch of [{ name: "" }, { agentId: "" }, { prompt: "" }]) {
 				const { status, body } = await json(base, "/api/scheduled-tasks", {
 					method: "POST",
 					body: JSON.stringify({ ...validTask, ...patch }),
@@ -343,7 +339,11 @@ describe("POST/PUT 校验", () => {
 				method: "POST",
 				body: JSON.stringify({
 					...validTask,
-					schedule: { type: "custom", time: "09:30", cronExpression: "*/5 * * * *" },
+					schedule: {
+						type: "custom",
+						time: "09:30",
+						cronExpression: "*/5 * * * *",
+					},
 				}),
 			});
 			expect(ok.status).toBe(200);

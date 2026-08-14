@@ -345,7 +345,8 @@ export default function (pi: ExtensionAPI) {
 			description: `推送消息到 IM 渠道。可用渠道：${ROBOT_PUSH_CHANNELS}。任务指令中以 @ 标记的渠道即推送目标，任务完成后必须调用本工具推送结果。`,
 			parameters: Type.Object({
 				channel: Type.String({
-					description: "目标推送渠道 ID（任务指令中 @ 标记的 botId，如 bot_xxx）",
+					description:
+						"目标推送渠道 ID（任务指令中 @ 标记的 botId，如 bot_xxx）",
 				}),
 				message: Type.String({
 					description: "要推送的消息内容，支持纯文本和 Markdown",

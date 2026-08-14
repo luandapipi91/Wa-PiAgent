@@ -76,9 +76,7 @@ export async function saveExecutionRecords(
 	records: ExecutionRecord[],
 ): Promise<void> {
 	// 与 saveScheduledTasks 同模式入队：避免与入队的 append/update 交错覆盖
-	await enqueueWrite(() =>
-		writeJson(file, { schemaVersion: 1, records }),
-	);
+	await enqueueWrite(() => writeJson(file, { schemaVersion: 1, records }));
 }
 
 export function appendExecutionRecord(
@@ -105,9 +103,9 @@ export function updateExecutionRecord(
 		const existing = await loadExecutionRecords(file);
 		const idx = existing.findIndex((r) => r.id === record.id);
 		if (idx >= 0) {
-				existing[idx] = record;
+			existing[idx] = record;
 		} else {
-				existing.push(record);
+			existing.push(record);
 		}
 		await writeJson(file, { schemaVersion: 1, records: existing });
 	});

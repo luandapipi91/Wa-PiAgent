@@ -820,22 +820,20 @@ export class AgentManager {
 		// 不再经 -e；-e 只传内置（PKG_EXTENSIONS）+ provider-extension + wa-pi-bridge。
 		const extensionPaths = buildAdditionalExtensionPaths();
 
-			const restricted = !!config?.tools?.length;
-			const toolArgs: { tools?: string[]; excludeTools?: string[] } = restricted
-				? {
-							tools: [
-								// 受限 agent 白名单中并入 robot_push：定时任务 agent 若显式配置了
-								// tools，不并入会被白名单挡掉推送工具（bridge 注册了但不在名单）
-								...(robotPush?.channels?.length
-									? ["robot_push"]
-								: []),
-								...resolveAgentTools(
-										config!.tools!,
-										await this.getMcpDirectToolNames(),
-									),
-							],
-						}
-				: { excludeTools: [...ALWAYS_EXCLUDED_TOOLS] };
+		const restricted = !!config?.tools?.length;
+		const toolArgs: { tools?: string[]; excludeTools?: string[] } = restricted
+			? {
+					tools: [
+						// 受限 agent 白名单中并入 robot_push：定时任务 agent 若显式配置了
+						// tools，不并入会被白名单挡掉推送工具（bridge 注册了但不在名单）
+						...(robotPush?.channels?.length ? ["robot_push"] : []),
+						...resolveAgentTools(
+							config!.tools!,
+							await this.getMcpDirectToolNames(),
+						),
+					],
+				}
+			: { excludeTools: [...ALWAYS_EXCLUDED_TOOLS] };
 
 		// 注册 bridge 上下文（pi 进程内 wa-pi-bridge 扩展回调用）
 		registerBridgeSession(sessionId, bridgeCtx);
@@ -893,7 +891,7 @@ export class AgentManager {
 				...(robotPush?.channels?.length
 					? {
 							WA_PI_ROBOT_PUSH_CHANNELS: robotPush.channels.join(","),
-					}
+						}
 					: {}),
 			},
 			onEvent: (e) => this._onSessionEvent(sessionId, e),

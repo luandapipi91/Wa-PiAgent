@@ -40,11 +40,7 @@ import {
 	SCHEDULED_TASKS_FILE,
 	EXECUTION_RECORDS_FILE,
 } from "@wa-pi/shared";
-import type {
-	ExecutionRecord,
-	ScheduledTask,
-	PushResult,
-} from "@wa-pi/shared";
+import type { ExecutionRecord, ScheduledTask, PushResult } from "@wa-pi/shared";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -388,7 +384,8 @@ export async function startKernel(opts?: {
 					});
 					robotPush = {
 						channels: channelIds,
-						execute: (channel, message) => robotPushTool.execute({ channel, message }),
+						execute: (channel, message) =>
+							robotPushTool.execute({ channel, message }),
 					};
 				}
 
@@ -405,9 +402,7 @@ export async function startKernel(opts?: {
 				const firstProvider = providers[0];
 				const firstModel = firstProvider?.models?.[0];
 				if (!firstProvider || !firstModel) {
-					throw new Error(
-						"无可用的模型供应商，请先在设置中配置至少一个供应商",
-					);
+					throw new Error("无可用的模型供应商，请先在设置中配置至少一个供应商");
 				}
 				const model = `${firstProvider.slug ?? firstProvider.name}/${firstModel.id}`;
 
@@ -464,8 +459,7 @@ export async function startKernel(opts?: {
 				record.status = "failed";
 				record.finishedAt = Date.now();
 				record.durationMs = record.finishedAt - record.startedAt;
-				record.error =
-					err instanceof Error ? err.message : String(err);
+				record.error = err instanceof Error ? err.message : String(err);
 			}
 
 			// 更新执行记录（覆盖 running 态的初始记录）
