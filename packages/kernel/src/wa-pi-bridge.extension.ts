@@ -333,6 +333,36 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	// robot_push：仅定时任务会话注入（kernel spawn 时设 WA_PI_ROBOT_PUSH_CHANNELS，
+	// 逗号分隔的 botId 列表；普通会话不设 → 工具不注册，不污染工具面板）。
+	// 渠道列表在环境变量里（每会话不同），故不能用静态 enum——kernel 侧 handleTool
+	// 再校验 channel 合法性。execute 经 callBridge 回调 kernel /bridge/tool 分发。
+	const ROBOT_PUSH_CHANNELS = process.env.WA_PI_ROBOT_PUSH_CHANNELS;
+	if (ROBOT_PUSH_CHANNELS) {
+		pi.registerTool({
+			name: "robot_push",
+			label: "Robot Push",
+			description: `推送消息到 IM 渠道。可用渠道：${ROBOT_PUSH_CHANNELS}。任务指令中以 @ 标记的渠道即推送目标，任务完成后必须调用本工具推送结果。`,
+			parameters: Type.Object({
+				channel: Type.String({
+					description: "目标推送渠道 ID（任务指令中 @ 标记的 botId，如 bot_xxx）",
+				}),
+				message: Type.String({
+					description: "要推送的消息内容，支持纯文本和 Markdown",
+				}),
+			}),
+			async execute(toolCallId, params, signal) {
+				return callBridge(
+					"robot_push",
+					toolCallId,
+					params,
+					signal,
+					DEFAULT_TIMEOUT_MS,
+				);
+			},
+		});
+	}
+
 	// 内部热重载触发点：kernel 装卸插件后经 prompt("/__!wa_pi_reload") 触发，
 	// 调 ctx.reload() → session.reload()（重读 settings.json packages + 重放 session_start，
 	// 让活跃扩展重发 widget/status 恢复 UI）。动态扩展走 pi 官方 packages 机制，

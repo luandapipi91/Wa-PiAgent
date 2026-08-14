@@ -27,7 +27,8 @@ import {
 	appendExecutionRecord,
 	updateExecutionRecord,
 } from "./scheduler-store";
-import { parseChannelMentions } from "./tools/robot-push";
+import { parseChannelMentions, createRobotPushTool } from "./tools/robot-push";
+import type { RobotPushInjection } from "./agent-manager";
 import {
 	WS_PORT,
 	WA_PI_DIR,
@@ -39,7 +40,11 @@ import {
 	SCHEDULED_TASKS_FILE,
 	EXECUTION_RECORDS_FILE,
 } from "@wa-pi/shared";
-import type { ExecutionRecord, ScheduledTask } from "@wa-pi/shared";
+import type {
+	ExecutionRecord,
+	ScheduledTask,
+	PushResult,
+} from "@wa-pi/shared";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -361,14 +366,38 @@ export async function startKernel(opts?: {
 				});
 				record.sessionId = sessionId;
 
-				// 2. 解析 @bot_xxx 渠道标记（用于执行记录，工具注入见 TODO）
+				// 2. 解析 @bot_xxx 渠道标记：非空时构造 robot_push 工具注入该会话
+				// （pi 进程内 bridge 扩展经 env 注册工具，execute 经 /bridge/tool 回调到
+				// agentManager.handleTool → 此处 pushToChannel），推送结果回填执行记录。
 				const channelIds = parseChannelMentions(task.prompt);
+				const pushResults: PushResult[] = [];
+				let robotPush: RobotPushInjection | undefined;
+				if (channelIds.length > 0) {
+					// channelName 用 botId 占位（渠道名需另查渠道配置；后续优化点，不影响推送本身）
+					const robotPushTool = createRobotPushTool({
+						channelManager,
+						availableChannelIds: channelIds,
+						onPushResult: (r) => {
+							pushResults.push({
+								channelId: r.channelId,
+								channelName: r.channelId,
+								success: r.success,
+								error: r.error,
+							});
+						},
+					});
+					robotPush = {
+						channels: channelIds,
+						execute: (channel, message) => robotPushTool.execute({ channel, message }),
+					};
+				}
 
-				// 3. 启动 agent 进程
+				// 3. 启动 agent 进程（robotPush 非空时注入推送工具）
 				await agentManager.ensureStarted(
 					projectId,
 					task.agentId as any,
 					sessionId,
+					robotPush ? { robotPush } : undefined,
 				);
 
 				// 4. 解析默认模型（取第一个 provider 的第一个模型）
@@ -382,12 +411,16 @@ export async function startKernel(opts?: {
 				}
 				const model = `${firstProvider.slug ?? firstProvider.name}/${firstModel.id}`;
 
-				// 5. 发送 prompt（prompt 内含任务指令 + 可选的 @bot_xxx 标记）
-				await agentManager.prompt(sessionId, task.prompt, { model });
+				// 5. 发送 prompt（prompt 内含任务指令 + 可选的 @bot_xxx 标记）。
+				// 带 @ 标记时追加引导：明确告知 agent 用 robot_push 推送到标记渠道
+				// （否则 LLM 可能把 @bot_xxx 当普通文本，只回复不推送）。
+				const promptToSend =
+					channelIds.length > 0
+						? `${task.prompt}\n\n（系统提示：任务指令中的 @bot_xxx 渠道标记表示推送目标，请完成任务后用 robot_push 工具把结果推送到这些渠道。）`
+						: task.prompt;
+				await agentManager.prompt(sessionId, promptToSend, { model });
 
 				// 6. 等待 agent 执行完成（轮询 isSessionBusy，agent_settled 后 busy=false）
-				// TODO: robot_push 工具注入——当前 agent 无法直接调用渠道推送工具。
-				// 后续通过 bridge 扩展注册 robot_push 工具，让 agent 能在执行中主动推送到 @bot_xxx 渠道。
 				const POLL_INTERVAL_MS = 500;
 				const MAX_WAIT_MS = 5 * 60 * 1000; // 单次任务最长等待 5 分钟
 				const deadline = Date.now() + MAX_WAIT_MS;
@@ -418,9 +451,13 @@ export async function startKernel(opts?: {
 							.slice(0, 500);
 					}
 				}
-				if (channelIds.length > 0) {
+				// 8. 推送结果回填执行记录（robot_push 调用后由 onPushResult 收集）
+				if (pushResults.length > 0) {
+					record.pushResults = pushResults;
 					console.log(
-						`[scheduler] 任务 ${task.name} 引用渠道 ${channelIds.join(", ")}（robot_push 工具注入待实现）`,
+						`[scheduler] 任务 ${task.name} 推送结果: ${pushResults
+							.map((p) => `${p.channelId}=${p.success ? "ok" : p.error}`)
+							.join(", ")}`,
 					);
 				}
 			} catch (err) {

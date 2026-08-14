@@ -298,6 +298,14 @@ export function App() {
 					void useSchedulerStore.getState().loadTasks();
 					void useSchedulerStore.getState().loadRecords();
 					break;
+				// 调度注册失败（cron 非法等）：toast 提示 + 刷新任务列表
+				case "scheduled-task:error":
+					useToastStore.getState().add(
+						`定时任务调度失败：${e.error ?? "未知错误"}`,
+						"error",
+					);
+					void useSchedulerStore.getState().loadTasks();
+					break;
 			}
 		});
 		return () => {

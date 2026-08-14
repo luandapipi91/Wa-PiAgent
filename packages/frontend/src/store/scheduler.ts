@@ -68,8 +68,7 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 		await api.post(`/api/scheduled-tasks/${id}/run`, {});
 	},
 
-	selectTask: (id) =>
-		set({ selectedTaskId: id, view: id ? "detail" : "detail" }),
+	selectTask: (id) => set({ selectedTaskId: id, view: "detail" }),
 
 	setView: (view) => set({ view }),
 
