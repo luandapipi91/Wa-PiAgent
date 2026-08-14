@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useChannelsStore } from "../store/channels";
-import { useContactsStore } from "../store/contacts";
+import { useContactsStore, remarkOf } from "../store/contacts";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import type { ChannelConversationInfo } from "@wa-pi/shared";
 import { api } from "../api-client";
@@ -38,13 +38,12 @@ export function ImConversationList({ onSelectSession }: Props) {
 	/** 列表项标题：单聊显示备注名(回退 userid)；群聊显示备注名(回退 群聊(chatId前8)·发送者) */
 	const contacts = useContactsStore((s) => s.contacts);
 	const titleOf = (c: ChannelConversationInfo) => {
-		const remark = contacts.find(
-			(x) =>
-				x.channelId === c.channelId &&
-				(c.chatType === "group"
-					? x.kind === "group" && x.chatId === c.chatId
-					: x.kind === "person" && x.userId === c.fromUserId),
-		)?.remark;
+		const remark = remarkOf(
+			contacts,
+			c.channelId,
+			c.chatType === "group" ? "group" : "person",
+			c.chatType === "group" ? c.chatId : c.fromUserId,
+		);
 		if (remark) return remark;
 		return c.chatType === "group"
 			? t("im.groupTitle", { chatId: c.chatId.slice(0, 8), from: c.fromUserId })
