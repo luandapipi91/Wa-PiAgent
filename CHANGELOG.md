@@ -2,6 +2,15 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-14 — feat(scheduler): REST API 路由（CRUD + 立即执行 + 执行记录查询）
+
+### 变更
+
+- 新建 `packages/kernel/src/routes/scheduler.ts`：闭包工厂 `createSchedulerRoutes(tasksFile, recordsFile, onTaskChanged, onTaskDeleted, onRunNow)` 返回 `RouteRegistrar`，注册 6 个端点（GET/POST/PUT/DELETE `/api/scheduled-tasks`、POST `/:id/run`、GET `/api/execution-records`）。直接读写 scheduler-store JSON 文件，不走 callApi 适配器（scheduler 域无 WSClientEvent）。GET records 支持 taskId/status 筛选、startedAt 倒序、最多 200 条。
+- 修改 `packages/kernel/src/ws-server.ts`：导入常量与 createSchedulerRoutes；新增 `scheduler: TaskScheduler | null` 属性（后续任务注入实例）；在 `registerRoutes()` 中注册路由，回调使用可选链（`this.scheduler?.`），scheduler 为 null 时 CRUD 仍正常（数据持久化不受影响），仅跳过 cron 同步。清理两个预存未使用导入（AgentName / WA_PI_DIR）。
+- 新建 `packages/kernel/tests/routes-scheduler.test.ts`：7 个测试覆盖空列表、完整 CRUD、404、三个回调触发、执行记录筛选/倒序/200 上限。
+- 影响范围：定时任务 REST API 层；纯新增路由 + ws-server 注册，不改已有业务逻辑。
+
 ## 2026-08-14 — feat(scheduler): 定时任务类型定义 + 数据持久化层 + Bun.cron 调度引擎
 
 ### 变更
