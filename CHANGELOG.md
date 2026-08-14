@@ -2,6 +2,17 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-14 — fix(frontend): 任务 7 审查修复（onReconnect 补 loadContacts + titleOf 复用 remarkOf + 补测试）
+
+### 变更
+
+- `App.tsx` 的 `onReconnect` 回调补 `useContactsStore.getState().loadContacts()`，对齐「mount 加载集 == 重连刷新集」不变量，避免 SSE 断线期间 contacts:changed 丢失导致重连后备注名陈旧。
+- `ImConversationList.titleOf` 复用 `store/contacts` 的 `remarkOf` 纯函数，删除内联重复的 `.find(...)`。
+- 新增 `ImConversationList.test.tsx`，覆盖单聊命中 remark / 群聊命中 remark / 未命中回退三场景。
+- 影响范围：App.tsx、ImConversationList.tsx、ImConversationList.test.tsx（新增）。
+
+---
+
 ## 2026-08-14 — feat(frontend): IM 会话列表备注名回显 + contacts:changed SSE 刷新
 
 ### 变更

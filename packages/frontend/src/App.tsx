@@ -110,6 +110,7 @@ export function App() {
 			useExtensionsStore.getState().load();
 			useAgentsStore.getState().loadAll();
 			useSubagentsStore.getState().load();
+			useContactsStore.getState().loadContacts();
 			const sid = useProjectsStore.getState().currentSessionId;
 			if (sid) useSessionStore.getState().setHistoryLoading(sid, true);
 			if (sid)
