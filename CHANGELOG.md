@@ -2,6 +2,16 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-14 — fix(kernel): contacts:rename 空值保护 + 事件级测试
+
+### 变更
+
+- ws-server `contacts:rename` 去除 `channelManager!` 非空断言：channelManager 为 null 时返回 error + 400「通讯录未启用」，对齐 channels 写操作的空值兜底，避免 `PUT /api/contacts/:id` 在通讯录未启用时 500。
+- 新增 ws-server 事件级测试 `ws-server-contacts.test.ts`：覆盖 rename 空值 400 / id 不存在 404 / 成功广播 `contacts:changed` + reply `contacts:current`（且只含该机器人的 contacts）三条路径。
+- 影响范围：ws-server.ts（contacts:rename case）、ws-server-contacts.test.ts（新增）。
+
+---
+
 ## 2026-08-14 — feat(kernel): 进站采集通讯录 + ChannelManager 暴露 listContacts/renameContact
 
 ### 变更

@@ -2371,7 +2371,11 @@ export class WSServer {
 				break;
 			}
 			case "contacts:rename": {
-				const c = await this.opts.channelManager!.renameContact(
+				if (!this.opts.channelManager) {
+					reply({ type: "error", message: "通讯录未启用", status: 400 });
+					break;
+				}
+				const c = await this.opts.channelManager.renameContact(
 					event.id,
 					event.remark,
 				);
@@ -2382,7 +2386,7 @@ export class WSServer {
 				this.broadcast({ type: "contacts:changed" });
 				reply({
 					type: "contacts:current",
-					contacts: await this.opts.channelManager!.listContacts(c.channelId),
+					contacts: await this.opts.channelManager.listContacts(c.channelId),
 				});
 				break;
 			}
