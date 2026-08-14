@@ -2,6 +2,16 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(scheduler): TaskEditForm + TaskPromptComposer 审查修复 3 项
+
+### 变更
+
+- **渠道选择器可关闭**：`TaskPromptComposer.tsx` 增加 `onKeyDown` 处理 Escape 关闭 + `useEffect` + `document.mousedown` 监听点击外部关闭（containerRef 判断），新增 `containerRef`。原先用户误按 @ 后唯一关闭方式是选中渠道，现支持 Escape 和点击外部。
+- **handleSave 错误处理**：`TaskEditForm.tsx` 的 `handleSave` 包 try-catch，网络失败时调用 `useToastStore.getState().add("保存任务失败，请稍后重试", "error")` 提示用户，避免 unhandled promise rejection。
+- **custom cron 校验**：`canSave` 增加条件 `scheduleType !== "custom" || cronExpression.trim() !== ""`，选「自定义 Cron」但未填表达式时保存按钮禁用。
+- 测试新增 4 例：Escape 关闭渠道选择器、点击外部关闭、custom 未填 cron 禁用/填写启用、保存失败弹出错误 toast。
+- 影响范围：仅修改 2 个组件文件 + 2 个测试文件，不改已有业务逻辑。
+
 ## 2026-08-15 — feat(scheduler): TaskPromptComposer + TaskEditForm 任务编辑表单
 
 ### 变更

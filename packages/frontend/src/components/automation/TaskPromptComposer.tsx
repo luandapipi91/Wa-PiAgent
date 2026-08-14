@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useChannelsStore } from "../../store/channels";
 
 interface Props {
@@ -15,7 +15,26 @@ interface Props {
 export function TaskPromptComposer({ value, onChange }: Props) {
 	const [showChannelPicker, setShowChannelPicker] = useState(false);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const containerRef = useRef<HTMLDivElement>(null);
 	const { bots } = useChannelsStore();
+
+	// Escape 关闭 / 点击外部关闭渠道选择器
+	const closePicker = useCallback(() => setShowChannelPicker(false), []);
+
+	useEffect(() => {
+		if (!showChannelPicker) return;
+		const handleClickOutside = (e: MouseEvent) => {
+			if (
+				containerRef.current &&
+				!containerRef.current.contains(e.target as Node)
+			) {
+				setShowChannelPicker(false);
+			}
+		};
+		document.addEventListener("mousedown", handleClickOutside);
+		return () =>
+			document.removeEventListener("mousedown", handleClickOutside);
+	}, [showChannelPicker]);
 
 	const handleKeyUp = useCallback(
 		(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -25,6 +44,16 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 			}
 		},
 		[],
+	);
+
+	const handleKeyDown = useCallback(
+		(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+			if (e.key === "Escape" && showChannelPicker) {
+				e.preventDefault();
+				closePicker();
+			}
+		},
+		[showChannelPicker, closePicker],
 	);
 
 	const handleSelectChannel = useCallback(
@@ -47,12 +76,13 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 	const connectedBots = bots.filter((b) => b.status === "connected");
 
 	return (
-		<div className="relative">
+		<div className="relative" ref={containerRef}>
 			<textarea
 				ref={textareaRef}
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
 				onKeyUp={handleKeyUp}
+				onKeyDown={handleKeyDown}
 				placeholder="让智能体帮你做什么...（$ 插入技能，@ 关联 IM 渠道）"
 				className="w-full rounded-lg p-2.5 text-xs resize-none outline-none border"
 				style={{
