@@ -267,40 +267,76 @@ const [tab, setTab] = useState<'tasks' | 'im' | 'automation'>('tasks');
 
 **新建文件：** `packages/kernel/src/scheduler.ts`
 
-在 kernel 进程内运行，不依赖外部 cron：
+使用 **Bun 内置 `Bun.cron` API**（v1.3.11+，项目当前 1.3.14），无需引入第三方框架：
 
 ```typescript
+import type { CronJob } from "bun";
+
+// schedule 类型 → cron 表达式转换
+function toCronExpression(schedule: ScheduledTask['schedule']): string {
+  const [h, m] = schedule.time.split(':');
+  switch (schedule.type) {
+    case 'daily':    return `${m} ${h} * * *`;
+    case 'weekdays': return `${m} ${h} * * 1-5`;
+    case 'weekly':   return `${m} ${h} * * ${schedule.dayOfWeek ?? 1}`;
+    case 'monthly':  return `${m} ${h} ${schedule.dayOfMonth ?? 1} * *`;
+    case 'custom':   return schedule.cronExpression ?? '* * * * *';
+  }
+}
+
 class TaskScheduler {
-  private timers: Map<string, NodeJS.Timeout>;
+  private jobs: Map<string, CronJob> = new Map();
 
-  // 启动时加载所有 enabled 任务，计算下次执行时间
-  start(): void;
+  // 启动时加载所有 enabled 任务
+  start(): void {
+    for (const task of this.loadEnabledTasks()) {
+      this.scheduleTask(task);
+    }
+  }
 
-  // 注册/更新单个任务的定时器
-  scheduleTask(task: ScheduledTask): void;
+  // 使用 Bun.cron 注册任务
+  scheduleTask(task: ScheduledTask): void {
+    this.cancelTask(task.id); // 先取消旧的
+    const expr = toCronExpression(task.schedule);
+    const job = Bun.cron(expr, async () => {
+      await this.executeTask(task);
+    });
+    this.jobs.set(task.id, job);
+    // 计算下次执行时间用于展示
+    task.nextRunAt = Bun.cron.parse(expr)?.getTime() ?? undefined;
+  }
 
-  // 取消定时器
-  cancelTask(taskId: string): void;
+  // 取消任务
+  cancelTask(taskId: string): void {
+    this.jobs.get(taskId)?.stop();
+    this.jobs.delete(taskId);
+  }
 
-  // 到达时间时执行
   private async executeTask(task: ScheduledTask): Promise<void> {
     // 1. 创建执行记录（status: running）
     // 2. 通过 AgentManager 创建新会话（指定 agentId + projectId）
-    // 3. 从 prompt 解析 @channel 标记，提取渠道列表
+    // 3. 从 prompt 解析 @bot_xxxx 标记，提取渠道 ID 列表
     // 4. 若渠道列表非空，注入 robot_push 工具（携带渠道枚举）
     // 5. 发送 prompt（含 $skill 和 @channel 上下文）
-    // 5. 等待执行完成
-    // 6. 更新执行记录（status: success/failed + pushResults）
-    // 7. 计算并设置下次执行时间
+    // 6. 等待执行完成
+    // 7. 更新执行记录（status: success/failed + pushResults）
   }
 }
 ```
 
-调度策略：
+`Bun.cron` 关键特性：
 
-- 每个任务使用 `setTimeout` 定时到下次触发时间，触发后重新计算下次
-- 启动时检查错过的任务（应用关闭期间），可选择补执行或跳过
-- 「保持系统唤醒」开关通过 `caffeinate`（macOS）/ 电源管理 API 实现（可选，后期迭代）
+- **不重叠保证**：下一次触发在 handler（含 Promise）完成后才计算，不会叠加执行
+- **`Bun.cron.parse(expr)`**：计算下次触发时间，用于 UI 展示「下次执行」
+- **`CronJob.stop()`**：取消单个任务
+- **标准 5 字段 cron**：支持 `*/15`、`1-5`、`JAN-DEC` 等，以及 `@daily`/`@weekly` 预定义
+- **本地时区**：按系统本地时间调度
+- **`bun --hot` 兼容**：热重载时自动停止旧 job 并重新注册
+- **测试友好**：支持 `jest.useFakeTimers()` / `setSystemTime()`
+
+启动时检查错过的任务（应用关闭期间），可选择补执行或跳过。
+
+「保持系统唤醒」开关通过 `caffeinate`（macOS）/ 电源管理 API 实现（可选，后期迭代）。
 
 ### 8. 数据持久化
 
