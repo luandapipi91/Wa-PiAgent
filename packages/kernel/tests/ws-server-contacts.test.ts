@@ -4,7 +4,7 @@
 // - contacts:rename 空 channelManager → error + 400（通讯录未启用）
 // - contacts:rename id 不存在 → error + 404
 // - contacts:rename renameContact 抛错 → error + 500
-// - contacts:rename 成功 → broadcast contacts:changed + reply contacts:current（且只含该机器人的 contacts）
+// - contacts:rename 成功 → broadcast contacts:changed + reply contacts:current（返回全量）
 import { test, expect } from "bun:test";
 import { WSServer } from "../src/ws-server";
 
@@ -101,7 +101,7 @@ test("contacts:rename renameContact 抛错 → HTTP 500 + err.message", async ()
 	expect(((await res.json()) as any).error).toBe("存储 I/O 失败");
 });
 
-test("contacts:rename 成功 → broadcast contacts:changed + reply contacts:current（仅该机器人）", async () => {
+test("contacts:rename 成功 → broadcast contacts:changed + reply contacts:current（返回全量）", async () => {
 	const listedChannelIds: (string | undefined)[] = [];
 	const server = makeServer({
 		renameContact: async (id: string, remark: string) => ({
@@ -111,7 +111,10 @@ test("contacts:rename 成功 → broadcast contacts:changed + reply contacts:cur
 		}),
 		listContacts: async (channelId?: string) => {
 			listedChannelIds.push(channelId);
-			return [{ ...baseContact, remark: "张三" }];
+			return [
+				{ ...baseContact, remark: "张三" },
+				{ ...baseContact, id: "ct_2", channelId: "ch_2", remark: "王五" },
+			];
 		},
 	});
 
@@ -130,8 +133,11 @@ test("contacts:rename 成功 → broadcast contacts:changed + reply contacts:cur
 	expect(res.status).toBe(200);
 	const body = (await res.json()) as any;
 	expect(body.type).toBe("contacts:current");
-	expect(body.contacts).toEqual([{ ...baseContact, remark: "张三" }]);
-	// 广播 contacts:changed 且 listContacts 只拿到该机器人的 channelId
+	expect(body.contacts).toEqual([
+		{ ...baseContact, remark: "张三" },
+		{ ...baseContact, id: "ct_2", channelId: "ch_2", remark: "王五" },
+	]);
+	// 广播 contacts:changed 且 listContacts 以无参（全量）调用
 	expect(broadcasted.some((e) => e.type === "contacts:changed")).toBe(true);
-	expect(listedChannelIds).toEqual(["ch_1"]);
+	expect(listedChannelIds).toEqual([undefined]);
 });
