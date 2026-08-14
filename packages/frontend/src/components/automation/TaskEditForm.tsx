@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useSchedulerStore } from "../../store/scheduler";
 import { useAgentsStore } from "../../store/agents";
 import { useProjectsStore } from "../../store/projects";
+import { useToastStore } from "../../store/toast";
 import { TaskPromptComposer } from "./TaskPromptComposer";
 import type { TaskSchedule } from "@wa-pi/shared";
 
@@ -57,14 +58,23 @@ export function TaskEditForm() {
 			prompt,
 			projectId: projectId || undefined,
 		};
-		if (editingTask) {
-			await updateTask(editingTask.id, data);
-		} else {
-			await createTask(data);
+		try {
+			if (editingTask) {
+				await updateTask(editingTask.id, data);
+			} else {
+				await createTask(data);
+			}
+		} catch {
+			useToastStore.getState().add("保存任务失败，请稍后重试", "error");
 		}
 	};
 
-	const canSave = Boolean(name && agentId && prompt);
+	const canSave = Boolean(
+		name &&
+			agentId &&
+			prompt &&
+			(scheduleType !== "custom" || cronExpression.trim() !== ""),
+	);
 	const inputStyle: React.CSSProperties = {
 		background: "var(--surface-hover)",
 		borderColor: "var(--hairline)",
@@ -179,15 +189,11 @@ export function TaskEditForm() {
 								onClick={() => setAgentId(agent.displayName)}
 								className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] cursor-pointer border"
 								style={{
-									borderColor: selected
-										? "var(--accent)"
-										: "var(--hairline)",
+									borderColor: selected ? "var(--accent)" : "var(--hairline)",
 									background: selected
 										? "var(--accent-soft)"
 										: "var(--surface-hover)",
-									color: selected
-										? "var(--accent)"
-										: "var(--text-secondary)",
+									color: selected ? "var(--accent)" : "var(--text-secondary)",
 								}}
 							>
 								<span>{agent.avatar || "🤖"}</span>

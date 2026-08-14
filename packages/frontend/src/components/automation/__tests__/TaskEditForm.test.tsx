@@ -5,6 +5,7 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { TaskEditForm } from "../TaskEditForm";
+import { useToastStore } from "../../../store/toast";
 
 const createTaskMock = mock();
 const updateTaskMock = mock();
@@ -75,6 +76,8 @@ beforeEach(() => {
 	updateTaskMock.mockReset();
 	setViewMock.mockReset();
 	schedulerState.editingTask = null;
+	// 清空 toast store 避免用例间泄露
+	useToastStore.setState({ toasts: [] });
 	cleanup();
 });
 
@@ -161,5 +164,49 @@ describe("TaskEditForm", () => {
 		render(<TaskEditForm />);
 		fireEvent.click(screen.getByText("取消"));
 		expect(setViewMock).toHaveBeenCalledWith("detail");
+	});
+
+	test("custom 调度类型未填 cron 时保存按钮禁用，填写后启用", () => {
+		render(<TaskEditForm />);
+		fireEvent.change(screen.getByTestId("task-name-input"), {
+			target: { value: "测试任务" },
+		});
+		fireEvent.click(screen.getByText("小助手"));
+		fireEvent.change(screen.getByTestId("task-prompt-input"), {
+			target: { value: "执行指令" },
+		});
+		// 切到「自定义 Cron」
+		const scheduleSelect = screen.getAllByRole("combobox")[0];
+		fireEvent.change(scheduleSelect, { target: { value: "custom" } });
+		expect(
+			(screen.getByTestId("task-save-btn") as HTMLButtonElement).disabled,
+		).toBe(true);
+		// 填写 cron 表达式后启用
+		const cronInput = screen.getByPlaceholderText("*/15 * * * *");
+		fireEvent.change(cronInput, { target: { value: "0 9 * * *" } });
+		expect(
+			(screen.getByTestId("task-save-btn") as HTMLButtonElement).disabled,
+		).toBe(false);
+	});
+
+	test("保存失败时弹出错误 toast", async () => {
+		createTaskMock.mockRejectedValue(new Error("network"));
+		render(<TaskEditForm />);
+		fireEvent.change(screen.getByTestId("task-name-input"), {
+			target: { value: "测试任务" },
+		});
+		fireEvent.click(screen.getByText("小助手"));
+		fireEvent.change(screen.getByTestId("task-prompt-input"), {
+			target: { value: "执行指令" },
+		});
+		fireEvent.click(screen.getByTestId("task-save-btn"));
+		// 等待异步 catch 完成
+		await new Promise((r) => setTimeout(r, 10));
+		expect(createTaskMock).toHaveBeenCalled();
+		expect(
+			useToastStore
+				.getState()
+				.toasts.some((t) => t.message.includes("保存任务失败")),
+		).toBe(true);
 	});
 });

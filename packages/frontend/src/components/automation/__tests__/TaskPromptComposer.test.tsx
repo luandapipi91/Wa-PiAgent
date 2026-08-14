@@ -51,4 +51,23 @@ describe("TaskPromptComposer", () => {
 		fireEvent.click(screen.getByText("企微群"));
 		expect(onChange).toHaveBeenCalledWith("推送 @bot_aaa ");
 	});
+
+	test("Escape 键关闭渠道选择器", () => {
+		render(<TaskPromptComposer value="" onChange={() => {}} />);
+		const textarea = screen.getByRole("textbox");
+		fireEvent.keyUp(textarea, { key: "@" });
+		expect(screen.getByTestId("channel-picker")).toBeTruthy();
+		fireEvent.keyDown(textarea, { key: "Escape" });
+		expect(screen.queryByTestId("channel-picker")).toBeNull();
+	});
+
+	test("点击外部关闭渠道选择器", () => {
+		render(<TaskPromptComposer value="" onChange={() => {}} />);
+		const textarea = screen.getByRole("textbox");
+		fireEvent.keyUp(textarea, { key: "@" });
+		expect(screen.getByTestId("channel-picker")).toBeTruthy();
+		// 模拟点击容器外部
+		fireEvent.mouseDown(document.body);
+		expect(screen.queryByTestId("channel-picker")).toBeNull();
+	});
 });
