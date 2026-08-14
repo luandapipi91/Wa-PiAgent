@@ -2,6 +2,16 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-14 — fix(frontend): ContactsPanel 打开时加载通讯录 + 补充备注名优先/失败 toast 测试
+
+### 变更
+
+- `ContactsPanel` 新增 `useEffect`，打开面板（或 channelId 变化）时调用 `loadContacts()`，修复 store 初始为空导致面板恒显示「暂无对话过的人/群」的问题（此前 `loadContacts` 解构后从未调用）。
+- `ContactsPanel.test.tsx` 补两个用例：「备注名优先显示（remark 覆盖原始 userId）」与「重命名失败 toast 收到 error 消息」；新增 `useToastStore` 的 `mock.module` 以便断言失败 toast。
+- 影响范围：ContactsPanel.tsx（+useEffect）、ContactsPanel.test.tsx（+2 用例 + toast mock）。
+
+---
+
 ## 2026-08-14 — feat(frontend): 通讯录滑出面板 + 行内展开重命名 + BotsSection 入口
 
 ### 变更

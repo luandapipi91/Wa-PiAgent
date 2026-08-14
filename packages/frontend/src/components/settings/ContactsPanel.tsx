@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useContactsStore } from "../../store/contacts";
 import { useToastStore } from "../../store/toast";
 import type { ContactEntity } from "@wa-pi/shared";
@@ -15,6 +15,11 @@ export default function ContactsPanel({
 	const { renameContact, loadContacts } = useContactsStore.getState();
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [value, setValue] = useState("");
+
+	// 打开面板（或切换 channelId）时拉取通讯录，否则 store 初始为空、面板恒显示「暂无」
+	useEffect(() => {
+		void loadContacts();
+	}, [channelId]);
 
 	const { persons, groups } = useMemo(() => {
 		const mine = contacts.filter((c) => c.channelId === channelId);
