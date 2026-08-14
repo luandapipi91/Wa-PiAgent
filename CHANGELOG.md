@@ -2,6 +2,18 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(frontend): 通讯录侧滑面板覆盖式定位 + 行内编辑回填/按钮溢出修复
+
+### 变更
+
+- **覆盖式定位**：原 `ContactsPanel` 根节点是普通文档流元素（`w-64` 无定位），作为 `BotsSection` 横向 flex 行的第三个子项参与空间分配，打开后把右侧编辑表单挤窄 256px。改为全仓库浮层范式（Modal/FilePicker 均 fixed/absolute + z-index）——根改 `absolute inset-y-0 right-0 z-40`（低于 Modal 的 z-50，不遮删除确认弹窗）+ 不透明背景 `var(--surface)` + `var(--shadow-lg)`；`BotsSection` 根容器补 `relative` 作定位上下文。
+- **行内编辑回填与替换**：点击人/群名展开编辑时，原为 `setValue(c.remark ?? "")`，remark 为空时输入框空白且名字行仍占位（叠加两行）。改为：① 回填当前显示名 `label(c)`（人→userId，群→chatId 前 8 位）；② 编辑态用输入框行**替换**名字行（三元切换，非叠加），取消/保存后名字行恢复；③ `label` 返回类型收紧为 `string`（`userId` 可选字段 `?? ""`）。
+- **保存/取消按钮溢出**：行内编辑 input 为 `flex-1` 但无 `min-w-0`，flex item 默认 `min-width:auto` 使 input 固有宽度（~200px）不可收缩，256px 面板内 input+两按钮总宽溢出~50px，按钮被外层 `overflow-auto` 裁剪不可见。input 补 `min-w-0` 允许收缩，按钮恒在视口内。
+- 测试：新增 5 个契约/行为用例（覆盖定位、人名回填、编辑态行内替换+取消恢复、群名回填、input 可收缩），既有用例 + BotsSection 12 例回归全过。
+- 影响范围：`packages/frontend/src/components/settings/ContactsPanel.tsx`、`BotsSection.tsx`、`ContactsPanel.test.tsx`。
+
+---
+
 ## 2026-08-15 — fix(scheduler): 审查终修复——robot_push 真实注入 + 触发即返回 + 入口校验 + 原子读改写
 
 ### 变更

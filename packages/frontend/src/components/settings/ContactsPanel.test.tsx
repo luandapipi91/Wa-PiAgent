@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+} from "@testing-library/react";
 
 // mock store：返回固定 contacts + renameContact（组件里用了 useContactsStore((s)=>s.contacts)
 // 和 useContactsStore.getState()，所以 mock 需同时支持 selector 调用与 getState()）
@@ -8,8 +14,22 @@ const loadContacts = mock(async () => {});
 const toastAdd = mock(() => {});
 
 const baseContacts = (): any[] => [
-	{ id: "ct_1", channelId: "ch_a", kind: "person", userId: "u1", firstChatAt: 1, lastChatAt: 2 },
-	{ id: "ct_2", channelId: "ch_a", kind: "group", chatId: "g1", firstChatAt: 1, lastChatAt: 2 },
+	{
+		id: "ct_1",
+		channelId: "ch_a",
+		kind: "person",
+		userId: "u1",
+		firstChatAt: 1,
+		lastChatAt: 2,
+	},
+	{
+		id: "ct_2",
+		channelId: "ch_a",
+		kind: "group",
+		chatId: "g1",
+		firstChatAt: 1,
+		lastChatAt: 2,
+	},
 ];
 
 const state = {
@@ -18,7 +38,8 @@ const state = {
 	loadContacts,
 };
 
-const useContactsStore = (selector: (s: typeof state) => unknown) => selector(state);
+const useContactsStore = (selector: (s: typeof state) => unknown) =>
+	selector(state);
 (useContactsStore as any).getState = () => state;
 
 mock.module("../../store/contacts", () => ({
@@ -39,6 +60,17 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 
+test("侧滑为覆盖式定位：absolute 贴右缘 + 不透明背景，不占布局流", () => {
+	render(<ContactsPanel channelId="ch_a" onClose={() => {}} />);
+	const panel = screen.getByTestId("contacts-panel");
+	// 覆盖式：脱离文档流，贴容器右缘，高于内容但低于 Modal(z-50)
+	expect(panel.className).toContain("absolute");
+	expect(panel.className).toContain("right-0");
+	expect(panel.className).toContain("z-40");
+	// 覆盖后须有不透明背景，防透出底层表单
+	expect(panel.style.background).toBe("var(--surface)");
+});
+
 test("渲染人/群两类列表", () => {
 	render(<ContactsPanel channelId="ch_a" onClose={() => {}} />);
 	expect(screen.getByText(/人/)).toBeTruthy();
@@ -46,7 +78,7 @@ test("渲染人/群两类列表", () => {
 	expect(screen.getByText("u1")).toBeTruthy();
 });
 
-test("点行展开输入框，保存调用 renameContact", async () => {
+test("点击行展开输入框，保存调用 renameContact", async () => {
 	render(<ContactsPanel channelId="ch_a" onClose={() => {}} />);
 	fireEvent.click(screen.getByText("u1"));
 	const input = screen.getByRole("textbox");
@@ -55,6 +87,38 @@ test("点行展开输入框，保存调用 renameContact", async () => {
 	expect(renameContact).toHaveBeenCalledWith("ct_1", "张三");
 	// 等待 save 异步完成（setEditingId(null) 收起输入框），消除异步状态更新的 act 警告
 	await act(async () => {});
+});
+
+test("点人名展开编辑：输入框回填当前显示名（无 remark 时回填 userId），名字不丢", () => {
+	render(<ContactsPanel channelId="ch_a" onClose={() => {}} />);
+	fireEvent.click(screen.getByText("u1"));
+	// remark 为空 → 应回填行上显示的名字，而不是空输入框
+	expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("u1");
+});
+
+test("编辑态为行内替换：名字行消失只留输入框，取消后名字行恢复", () => {
+	render(<ContactsPanel channelId="ch_a" onClose={() => {}} />);
+	fireEvent.click(screen.getByText("u1"));
+	// 进入编辑：名字行消失（u1 文本不在 DOM，input 的 value 不算 text 节点）
+	expect(screen.queryByText("u1")).toBeNull();
+	expect(screen.getByRole("textbox")).toBeTruthy();
+	// 取消：输入框消失，名字行恢复
+	fireEvent.click(screen.getByText("取消"));
+	expect(screen.queryByRole("textbox")).toBeNull();
+	expect(screen.getByText("u1")).toBeTruthy();
+});
+
+test("点群名展开编辑：输入框回填 chatId 前 8 位显示名", () => {
+	render(<ContactsPanel channelId="ch_a" onClose={() => {}} />);
+	fireEvent.click(screen.getByText("g1"));
+	expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("g1");
+});
+
+test("行内编辑 input 可收缩（min-w-0）：窄面板内保存/取消按钮不被挤出去", () => {
+	render(<ContactsPanel channelId="ch_a" onClose={() => {}} />);
+	fireEvent.click(screen.getByText("u1"));
+	// flex item 默认 min-width:auto，input 固有宽度不可收缩会把按钮溢出裁剪区外
+	expect(screen.getByRole("textbox").className).toContain("min-w-0");
 });
 
 test("备注名优先显示，而非原始 userId", () => {
