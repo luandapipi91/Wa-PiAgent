@@ -247,6 +247,19 @@ export class ChannelManager {
 		}
 	}
 
+	/** 主动推送消息到指定渠道（用于定时任务的 robot_push 工具）。
+	 *  按 botId 查找渠道：adapters 以 channelId（ch_xxx）为键，而 robot_push 传入的是
+	 *  prompt 中 @bot_xxx 解析出的 botId，故先从持久化配置反查 channelId 再取 adapter。
+	 *  主动推送无对应进站消息 → sendText 的 replyFrame 传 null。 */
+	async pushToChannel(botId: string, message: string): Promise<void> {
+		const channels = await loadChannels(this.channelsFile);
+		const channel = channels.find((c) => c.credentials.botId === botId);
+		if (!channel) throw new Error(`渠道 ${botId} 未连接`);
+		const adapter = this.adapters.get(channel.id);
+		if (!adapter) throw new Error(`渠道 ${botId} 未连接`);
+		await adapter.sendText(null, message);
+	}
+
 	/** 智能体被渠道引用的统计（删除智能体确认提示用） */
 	async agentUsage(
 		agentName: string,
