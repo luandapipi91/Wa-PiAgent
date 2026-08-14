@@ -1,0 +1,97 @@
+import type { TaskSchedule, ScheduledTask, ExecutionRecord } from "@wa-pi/shared";
+import { loadScheduledTasks } from "./scheduler-store";
+
+/** 将 schedule 配置转换为标准 5 字段 cron 表达式（分 时 日 月 周） */
+export function toCronExpression(schedule: TaskSchedule): string {
+	// .map(Number) 归一化：去除 "09"/"00" 的前导零，使输出为标准 cron 字段（如 9、0）
+	const [h, m] = schedule.time.split(":").map(Number);
+	switch (schedule.type) {
+		case "daily":
+			return `${m} ${h} * * *`;
+		case "weekdays":
+			return `${m} ${h} * * 1-5`;
+		case "weekly":
+			return `${m} ${h} * * ${schedule.dayOfWeek ?? 1}`;
+		case "monthly":
+			return `${m} ${h} ${schedule.dayOfMonth ?? 1} * *`;
+		case "custom":
+			return schedule.cronExpression ?? "* * * * *";
+	}
+}
+
+export interface SchedulerDeps {
+	tasksFile: string;
+	recordsFile: string;
+	dataDir: string;
+	// 执行回调（由 index.ts 注入，避免循环依赖）
+	executeTask: (task: ScheduledTask) => Promise<ExecutionRecord>;
+	broadcast: (event: { type: string; [key: string]: unknown }) => void;
+}
+
+/** Bun.cron 返回的 CronJob 句柄（我们只用 stop()，故用最小结构类型） */
+interface CronJobHandle {
+	stop(): void;
+}
+
+export class TaskScheduler {
+	private deps: SchedulerDeps;
+	private jobs: Map<string, CronJobHandle> = new Map();
+
+	constructor(deps: SchedulerDeps) {
+		this.deps = deps;
+	}
+
+	/** 启动时加载所有 enabled 任务 */
+	async start(): Promise<void> {
+		const tasks = await loadScheduledTasks(this.deps.tasksFile);
+		for (const task of tasks) {
+			if (task.enabled) {
+				this.scheduleTask(task);
+			}
+		}
+	}
+
+	/** 注册/更新单个任务（重新调度同一 id 会先停止旧 job） */
+	scheduleTask(task: ScheduledTask): void {
+		this.cancelTask(task.id);
+		if (!task.enabled) return;
+
+		const expr = toCronExpression(task.schedule);
+		const job = Bun.cron(expr, async () => {
+			try {
+				const record = await this.deps.executeTask(task);
+				this.deps.broadcast({
+					type: "scheduled-task:completed",
+					taskId: task.id,
+					recordId: record.id,
+					status: record.status,
+				});
+			} catch (err) {
+				this.deps.broadcast({
+					type: "scheduled-task:completed",
+					taskId: task.id,
+					status: "failed",
+					error: String(err),
+				});
+			}
+		});
+		this.jobs.set(task.id, job);
+	}
+
+	/** 取消任务 */
+	cancelTask(taskId: string): void {
+		const job = this.jobs.get(taskId);
+		if (job) {
+			job.stop();
+			this.jobs.delete(taskId);
+		}
+	}
+
+	/** 停止所有任务 */
+	stopAll(): void {
+		for (const job of this.jobs.values()) {
+			job.stop();
+		}
+		this.jobs.clear();
+	}
+}
