@@ -2,6 +2,16 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-14 — feat(scheduler): 侧边栏自动化 Tab + AutomationSidebar 任务列表组件
+
+### 变更
+
+- 修改 `packages/frontend/src/components/Sidebar.tsx`：tab 类型从 `"tasks" | "im"` 扩展为 `"tasks" | "im" | "automation"`；分段控件由 2 个按钮改为遍历 3 个 tabKey 渲染（testid 统一为 `sidebar-tab-${tabKey}`）；条件渲染新增 `tab === "automation"` 分支挂载 `<AutomationSidebar />`。
+- 新建 `packages/frontend/src/components/automation/AutomationSidebar.tsx`：紧凑任务卡片列表组件。useEffect 调用 `loadTasks` 拉取任务；工具栏显示任务数 + 「+ 新建」按钮（startCreate）；列表项为 TaskCard（选中态高亮、启用/禁用圆点、调度文案、含 @bot_ 的任务显示 📨 角标）；空态「暂无定时任务」；`formatSchedule` 支持 daily/weekdays/weekly/monthly/custom 五种调度文案。全部走项目既有 CSS 变量设计 token。
+- 新建 `packages/frontend/src/components/automation/__tests__/AutomationSidebar.test.tsx`：3 个组件测试（渲染任务列表、点击卡片调用 selectTask、点击新建调用 startCreate）。注：简报原文用 vitest + jest-dom，本仓库统一用 bun:test（14 个既有组件测试约定）且未装 jest-dom，故断言改用 `toBeTruthy()`。
+- 修改 `packages/frontend/src/i18n/locales/{zh,en}.ts`：新增 `sidebar.tabAutomation`（中文「自动化」/ 英文「Automation」），与既有 tabTasks/tabIm 结构一致。
+- 影响范围：定时任务系统的前端入口；纯新增组件 + Sidebar 加一个 tab + 两条 i18n key，不改已有业务逻辑。
+
 ## 2026-08-14 — feat(scheduler): robot_push 工具 + @channel 解析 + ChannelManager.pushToChannel
 
 ### 变更

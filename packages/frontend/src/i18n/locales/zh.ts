@@ -561,6 +561,7 @@ const zh = {
 	sidebar: {
 		tabTasks: "任务",
 		tabIm: "IM",
+		tabAutomation: "自动化",
 		newSession: "＋ 新建会话",
 		scopeProject: "项目",
 		scopeRecent: "最近",
