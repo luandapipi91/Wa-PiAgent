@@ -10,6 +10,7 @@ import {
 	saveExecutionRecords,
 	appendExecutionRecord,
 	updateExecutionRecord,
+	mutateScheduledTasks,
 } from "../src/scheduler-store";
 import type { ScheduledTask, ExecutionRecord } from "@wa-pi/shared";
 
@@ -156,5 +157,79 @@ describe("scheduler-store", () => {
 			"rec-d",
 		]);
 		expect(loaded.find((r) => r.id === "rec-a")?.status).toBe("success");
+	});
+
+	// 审查发现 I4：REST 路由的读改写窗口在写队列外，与入队写并发丢任务。
+	// mutateScheduledTasks 把整个 load→改→save 原子入队后，并发互不覆盖。
+	test("并发 mutateScheduledTasks：串行化后任务不丢", async () => {
+		const file = join(dir, "tasks.json");
+		const mk = (i: number): ScheduledTask => ({
+			id: `task-${i}`,
+			name: `任务${i}`,
+			schedule: { type: "daily", time: "09:00" },
+			agentId: "agent-1",
+			prompt: `指令${i}`,
+			enabled: true,
+			createdAt: i,
+			updatedAt: i,
+		});
+		// 20 个并发 mutate，各自读取当前列表追加一条（旧裸 load→push→save 会互相覆盖只剩 1 条）
+		await Promise.all(
+			Array.from({ length: 20 }, (_, i) =>
+				mutateScheduledTasks(file, (tasks) => [...tasks, mk(i)]),
+			),
+		);
+		const loaded = await loadScheduledTasks(file);
+		expect(loaded).toHaveLength(20);
+		expect(new Set(loaded.map((t) => t.id)).size).toBe(20);
+	});
+
+	// mutate（任务文件）与 append（记录文件）共享同一模块级写队列：跨文件并发也不交错
+	test("mutateScheduledTasks 与 appendExecutionRecord 并发：任务与记录都不丢", async () => {
+		const tasksFile = join(dir, "tasks.json");
+		const recordsFile = join(dir, "records.json");
+		const mkTask = (i: number): ScheduledTask => ({
+			id: `task-${i}`,
+			name: `任务${i}`,
+			schedule: { type: "daily", time: "09:00" },
+			agentId: "a",
+			prompt: "x",
+			enabled: true,
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		const mkRec = (i: number): ExecutionRecord => ({
+			id: `rec-${i}`,
+			taskId: `task-${i}`,
+			taskName: `任务${i}`,
+			status: "success",
+			startedAt: i,
+		});
+		await Promise.all([
+			...Array.from({ length: 10 }, (_, i) =>
+				mutateScheduledTasks(tasksFile, (tasks) => [...tasks, mkTask(i)]),
+			),
+			...Array.from({ length: 10 }, (_, i) =>
+				appendExecutionRecord(recordsFile, mkRec(i)),
+			),
+		]);
+		expect(await loadScheduledTasks(tasksFile)).toHaveLength(10);
+		expect(await loadExecutionRecords(recordsFile)).toHaveLength(10);
+	});
+
+	// M14：saveExecutionRecords 入队后与 append 串行化，不再裸写交错
+	test("saveExecutionRecords 与 appendExecutionRecords 顺序共存：结果一致", async () => {
+		const file = join(dir, "records.json");
+		const rec = (id: string): ExecutionRecord => ({
+			id,
+			taskId: "task-1",
+			taskName: "共存",
+			status: "success",
+			startedAt: 0,
+		});
+		await saveExecutionRecords(file, [rec("rec-a")]);
+		await appendExecutionRecord(file, rec("rec-b"));
+		const loaded = await loadExecutionRecords(file);
+		expect(loaded.map((r) => r.id)).toEqual(["rec-a", "rec-b"]);
 	});
 });

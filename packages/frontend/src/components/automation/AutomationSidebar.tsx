@@ -140,7 +140,7 @@ function formatSchedule(schedule: ScheduledTask["schedule"]): string {
 				["日", "一", "二", "三", "四", "五", "六"][schedule.dayOfWeek ?? 1]
 			} ${time}`;
 		case "monthly":
-			return `每月${schedule.dayOfMonth}日 ${time}`;
+			return `每月${schedule.dayOfMonth ?? 1}日 ${time}`;
 		case "custom":
 			return schedule.cronExpression ?? "自定义";
 	}

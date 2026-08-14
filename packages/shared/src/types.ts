@@ -1335,7 +1335,8 @@ export type WSServerEvent =
 	| TrashListResult
 	| TrashOpResult
 	| ScheduledTasksChangedEvent
-	| ScheduledTaskCompletedEvent;
+	| ScheduledTaskCompletedEvent
+	| ScheduledTaskErrorEvent;
 
 // ============ 定时任务 SSE 事件 ============
 
@@ -1351,6 +1352,13 @@ export interface ScheduledTaskCompletedEvent {
 	recordId?: string;
 	status: ExecutionStatus;
 	error?: string;
+}
+
+/** 任务调度注册失败（cron 非法等，任务已落盘但无法被调度）后广播 */
+export interface ScheduledTaskErrorEvent {
+	type: "scheduled-task:error";
+	taskId: string;
+	error: string;
 }
 
 // ============ 定时任务数据模型 ============

@@ -505,7 +505,21 @@ export class WSServer {
 			SCHEDULED_TASKS_FILE,
 			EXECUTION_RECORDS_FILE,
 			(task) => {
-				this.scheduler?.scheduleTask(task);
+				// 调度注册失败（cron 非法等）不让已落盘的 CRUD 返回 500：
+				// 记日志 + 广播 error 事件让前端感知，任务本身已保存
+				try {
+					this.scheduler?.scheduleTask(task);
+				} catch (err) {
+					console.warn(
+						`[scheduler] 任务 ${task.id}（${task.name}）调度注册失败:`,
+						err,
+					);
+					this.broadcast({
+						type: "scheduled-task:error",
+						taskId: task.id,
+						error: err instanceof Error ? err.message : String(err),
+					});
+				}
 				// 任务变更后广播通知前端刷新列表
 				this.broadcast({ type: "scheduled-tasks:changed" });
 			},
@@ -527,7 +541,12 @@ export class WSServer {
 			// Bun 默认 10s 空闲断连，SSE 长连接会被杀；放宽到 255s（心跳 30s 保活）
 			idleTimeout: 255,
 			fetch: async (req) => {
-				const url = new URL(req.url);
+				let url: URL;
+				try {
+					url = new URL(req.url);
+				} catch {
+					return new Response("Invalid URL", { status: 400 });
+				}
 				// SSE 事件总线：所有 kernel→前端推送经此一条流广播（去 WS 化）
 				if (url.pathname === "/api/events") {
 					const bus = this.sseBus;

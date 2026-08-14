@@ -4,6 +4,7 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { TaskDetailView } from "../TaskDetailView";
+import { useToastStore } from "../../../store/toast";
 
 const runTaskNowMock = mock();
 const startEditMock = mock();
@@ -37,6 +38,8 @@ beforeEach(() => {
 	schedulerState.tasks = [];
 	schedulerState.records = [];
 	schedulerState.selectedTaskId = null;
+	// toast store 是真实单例：清空上一用例残留（避免 3s 自动消失定时器干扰断言）
+	useToastStore.setState({ toasts: [] });
 	cleanup();
 });
 
@@ -111,6 +114,46 @@ describe("TaskDetailView", () => {
 		render(<TaskDetailView />);
 		fireEvent.click(screen.getByText(/立即执行/));
 		expect(runTaskNowMock).toHaveBeenCalledWith("t1");
+	});
+
+	// I1：run 触发即返回，成功后用 toast 反馈（不再等执行完成）
+	test("点击「立即执行」成功后弹 toast「已触发执行」", async () => {
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		render(<TaskDetailView />);
+		fireEvent.click(screen.getByText(/立即执行/));
+		// onClick async：等微任务排空后 toast 已弹
+		await new Promise((r) => setTimeout(r, 0));
+		const toast = useToastStore.getState().toasts.find((t) => t.message === "已触发执行");
+		expect(toast?.type).toBe("success");
+	});
+
+	test("runTaskNow 失败时不弹成功 toast", async () => {
+		runTaskNowMock.mockImplementation(() => Promise.reject(new Error("网络错误")));
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		render(<TaskDetailView />);
+		fireEvent.click(screen.getByText(/立即执行/));
+		await new Promise((r) => setTimeout(r, 0));
+		expect(
+			useToastStore.getState().toasts.find((t) => t.message === "已触发执行"),
+		).toBeUndefined();
 	});
 
 	test("点击「编辑」调用 startEdit(task)", () => {

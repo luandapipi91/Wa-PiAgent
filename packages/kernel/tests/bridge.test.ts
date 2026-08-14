@@ -771,3 +771,39 @@ test("handleBridgeStream 静默期间周期性输出 ping 心跳帧（子代理�
 		frames.map((f) => JSON.parse(f).type).filter((t) => t === "ping").length,
 	).toBe(pings);
 });
+
+// ── C1：robot_push 条件注册（仅定时任务会话注入 WA_PI_ROBOT_PUSH_CHANNELS）──
+
+test("robot_push：未设 env 时不注册（7 工具不变，普通会话不受影响）", async () => {
+	const prev = process.env.WA_PI_ROBOT_PUSH_CHANNELS;
+	delete process.env.WA_PI_ROBOT_PUSH_CHANNELS;
+	try {
+		const tools = await loadBridgeTools();
+		expect(tools.map((t: any) => t.name).sort()).toEqual(
+			[...SEVEN_TOOLS].sort(),
+		);
+		expect(tools.some((t: any) => t.name === "robot_push")).toBe(false);
+	} finally {
+		if (prev !== undefined) process.env.WA_PI_ROBOT_PUSH_CHANNELS = prev;
+	}
+});
+
+test("robot_push：设 env 后注册为第 8 个工具，description 含渠道列表", async () => {
+	const prev = process.env.WA_PI_ROBOT_PUSH_CHANNELS;
+	process.env.WA_PI_ROBOT_PUSH_CHANNELS = "bot_aaa,bot_bbb";
+	try {
+		const tools = await loadBridgeTools();
+		expect(tools).toHaveLength(8);
+		const robotPush = tools.find((t: any) => t.name === "robot_push");
+		expect(robotPush).toBeTruthy();
+		expect(robotPush.description).toContain("bot_aaa,bot_bbb");
+		// schema：channel + message 两个必填参数
+		const params = JSON.parse(JSON.stringify(robotPush.parameters));
+		expect(params.properties.channel).toBeTruthy();
+		expect(params.properties.message).toBeTruthy();
+		expect(params.required).toEqual(["channel", "message"]);
+	} finally {
+		if (prev !== undefined) process.env.WA_PI_ROBOT_PUSH_CHANNELS = prev;
+		else delete process.env.WA_PI_ROBOT_PUSH_CHANNELS;
+	}
+});

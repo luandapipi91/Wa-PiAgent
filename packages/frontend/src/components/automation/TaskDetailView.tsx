@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { useSchedulerStore } from "../../store/scheduler";
+import { useToastStore } from "../../store/toast";
 import type { ScheduledTask, ExecutionRecord } from "@wa-pi/shared";
 import { parseChannelMentions } from "../../utils/channel-mentions";
 
@@ -34,8 +35,18 @@ export function TaskDetailView() {
 		<div data-testid="task-detail-view">
 			{/* 操作按钮 */}
 			<div className="flex justify-end gap-2 mb-4">
-				<button
-					onClick={() => runTaskNow(task.id)}
+			<button
+				onClick={async () => {
+					// 触发即返回（执行结果经 scheduled-task:completed SSE 刷新）
+					try {
+						await runTaskNow(task.id);
+						useToastStore.getState().add("已触发执行", "success");
+					} catch {
+						useToastStore
+							.getState()
+							.add("触发执行失败，请稍后重试", "error");
+					}
+				}}
 					className="text-[10px] px-2 py-1 rounded cursor-pointer border"
 					style={{
 						background: "var(--surface-hover)",
@@ -208,8 +219,9 @@ function formatSchedule(schedule: ScheduledTask["schedule"]): string {
 				["日", "一", "二", "三", "四", "五", "六"][schedule.dayOfWeek ?? 1]
 			} ${time}`;
 		case "monthly":
-			return `每月${schedule.dayOfMonth}日 ${time}`;
+			return `每月${schedule.dayOfMonth ?? 1}日 ${time}`;
 		case "custom":
 			return schedule.cronExpression ?? "自定义";
 	}
 }
+// （AutomationSidebar 的 formatSchedule 同样修正，两处保持一致）

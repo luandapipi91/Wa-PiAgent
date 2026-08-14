@@ -2,6 +2,19 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(scheduler): 审查终修复——robot_push 真实注入 + 触发即返回 + 入口校验 + 原子读改写
+
+### 变更
+
+- **C1 robot_push 工具真实注入（不再 TODO）**：复用 bridge 扩展机制——`wa-pi-bridge.extension.ts` 读 `WA_PI_ROBOT_PUSH_CHANNELS` env 条件注册第 8 个工具（普通会话不设 env 不注册，零污染）；`agent-manager.ensureStarted` 新增 `robotPush` opts（spawn 注入 env + 受限 agent 白名单并入 robot_push + `bridgeCtx.handleTool` 分发）；`index.ts executeTask` 解析到 @bot_xxx 时用 `createRobotPushTool` 构造执行体，pushResults 回填执行记录，prompt 追加推送引导。
+- **I1 run 触发即返回**：POST /:id/run 不再 await 执行链（旧实现最长挂 5 分钟被 idleTimeout 255s 掐断），改 fire-and-forget + catch 记错；前端「立即执行」成功后 toast「已触发执行」（失败弹错误提示）。
+- **I2 入口校验 + 容错**：POST/PUT 校验 name/agentId/prompt 非空、schedule.type 限 5 合法值、time 限 HH:MM（含 00-23/00-59 范围）、custom 必填 cronExpression，不合法 400；ws-server 的 onTaskChanged 调度注册失败 try-catch（不再假 500，记日志 + 广播）；`scheduled-task:error` 事件补入 WSServerEvent 联合类型，App.tsx 处理（toast + 刷新列表）。
+- **I4/M14 原子读改写**：`scheduler-store.mutateScheduledTasks(fn)` 把 load→改→save 整体入写队列，routes 的 POST/PUT/DELETE 全部改走；`saveExecutionRecords` 同模式入队。
+- **M2/M5 顺手修**：store/scheduler.ts 恒等三元删除；两处 formatSchedule monthly 分支 `dayOfMonth ?? 1`。
+- 影响范围：kernel（agent-manager/index/ws-server/routes/scheduler-store/bridge 扩展）、shared types、前端（App/TaskDetailView/AutomationSidebar/store）；kernel 全量 994 测试全过、前端 automation 35 例全过、三包 typecheck 0 错。
+
+---
+
 ## 2026-08-15 — test(scheduler): 定时任务 E2E 完整流程测试 + 补执行记录 UI 入口
 
 ### 变更

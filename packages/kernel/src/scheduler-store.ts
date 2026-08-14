@@ -46,6 +46,24 @@ export function saveScheduledTasks(
 	return enqueueWrite(() => writeJson(file, { schemaVersion: 1, tasks }));
 }
 
+/**
+ * 原子读-改-写：整个 load→fn→save 作为单元入写队列。
+ * REST 路由的 POST/PUT/DELETE 必须走这里——裸 load→改→save 在写队列外读，
+ * 与入队的 appendExecutionRecord 等并发时会丢失对方的写入（丢任务/丢记录）。
+ * fn 返回新数组（不可原地修改后返回 undefined）；入队 op 内部不得再入队。
+ */
+export function mutateScheduledTasks(
+	file: string,
+	fn: (tasks: ScheduledTask[]) => ScheduledTask[] | Promise<ScheduledTask[]>,
+): Promise<ScheduledTask[]> {
+	return enqueueWrite(async () => {
+		const tasks = await loadScheduledTasks(file);
+		const next = await fn(tasks);
+		await writeJson(file, { schemaVersion: 1, tasks: next });
+		return next;
+	});
+}
+
 export async function loadExecutionRecords(
 	file: string,
 ): Promise<ExecutionRecord[]> {
@@ -57,7 +75,10 @@ export async function saveExecutionRecords(
 	file: string,
 	records: ExecutionRecord[],
 ): Promise<void> {
-	await writeJson(file, { schemaVersion: 1, records });
+	// 与 saveScheduledTasks 同模式入队：避免与入队的 append/update 交错覆盖
+	await enqueueWrite(() =>
+		writeJson(file, { schemaVersion: 1, records }),
+	);
 }
 
 export function appendExecutionRecord(
