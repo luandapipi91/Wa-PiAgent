@@ -25,6 +25,7 @@ import { useCommandsStore } from "./store/commands";
 import { useMcpStore } from "./store/mcp";
 import { useMemoryStore } from "./store/memory";
 import { useChannelsStore } from "./store/channels";
+import { useContactsStore } from "./store/contacts";
 import { useToastStore } from "./store/toast";
 import { useComposerPrefsStore } from "./store/composer-prefs";
 import { useSubagentsStore } from "./store/subagents";
@@ -95,6 +96,7 @@ export function App() {
 		useExtensionsStore.getState().load();
 		useAgentsStore.getState().loadAll();
 		useSubagentsStore.getState().load();
+		useContactsStore.getState().loadContacts();
 		// 应用更新 IPC 桥接：desktop 下订阅 updater 事件并拉取版本信息；浏览器 dev 下无 waPiUpdater 直接返回
 		initUpdater();
 		const offReconnect = onReconnect(() => {
@@ -275,6 +277,9 @@ export function App() {
 					break;
 				case "channel-conversations:changed":
 					void useChannelsStore.getState().loadConversations();
+					break;
+				case "contacts:changed":
+					void useContactsStore.getState().loadContacts();
 					break;
 			}
 		});
