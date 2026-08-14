@@ -62,7 +62,12 @@ export function createSchedulerRoutes(
 			const tasks = await loadScheduledTasks(tasksFile);
 			const idx = tasks.findIndex((t) => t.id === params.id);
 			if (idx < 0) return new Response("Not found", { status: 404 });
-			tasks[idx] = { ...tasks[idx], ...body, id: params.id, updatedAt: Date.now() };
+			tasks[idx] = {
+				...tasks[idx],
+				...body,
+				id: params.id,
+				updatedAt: Date.now(),
+			};
 			await saveScheduledTasks(tasksFile, tasks);
 			onTaskChanged(tasks[idx]);
 			return new Response(JSON.stringify({ task: tasks[idx] }), {

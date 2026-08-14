@@ -145,7 +145,11 @@ describe("createRobotPushTool: execute", () => {
 			onPushResult: (r) => results.push(r),
 		} as Pick<RobotPushToolDeps, "availableChannelIds"> & {
 			channelManager: RobotPushToolDeps["channelManager"];
-			onPushResult: (r: { channelId: string; success: boolean; error?: string }) => void;
+			onPushResult: (r: {
+				channelId: string;
+				success: boolean;
+				error?: string;
+			}) => void;
 		};
 		const tool = createRobotPushTool(deps);
 		const ret = await tool.execute({ channel: "bot_aaa", message: "hi" });

@@ -1166,6 +1166,33 @@ test("switchAgent: 会话不存在时抛错", async () => {
 	await expect(am.switchAgent("nope", "pm")).rejects.toThrow("会话不存在");
 });
 
+test("switchAgent: 持久化更新在拆除前完成，挂起期间 sessions 不为空（消除并发 ensureStarted 竞态）", async () => {
+	const { projectStore, project, session, am } = await setup();
+
+	await am.ensureStarted(project.id, "dev", session.id);
+	expect((am as any).sessions.get(session.id)).toBeDefined();
+
+	// 用 deferred 挂起 setSessionAgent，复现「切换角色后立即发消息」的竞态窗口
+	let resolveSetAgent!: () => void;
+	const deferred = new Promise<void>((r) => {
+		resolveSetAgent = r;
+	});
+	(projectStore as any).setSessionAgent = mock(async () => {
+		await deferred;
+	});
+
+	// 不 await：switchAgent 同步执行到 setSessionAgent 挂起点
+	const switchPromise = am.switchAgent(session.id, "pm");
+
+	// 修复后：setSessionAgent 移到 teardown 之前，挂起期间旧 handle 仍在 sessions；
+	// 修复前：teardown 已同步删除 sessions，此处拿到 undefined → 并发 ensureStarted 会二次创建
+	expect((am as any).sessions.get(session.id)).toBeDefined();
+
+	resolveSetAgent();
+	await switchPromise;
+	expect((am as any).sessions.get(session.id).meta.agentName).toBe("pm");
+});
+
 test("renameAgentSessions: meta 更新 + 标 skillDirty，下次 ensureStarted 用新名重建", async () => {
 	const { project, session, am, fakes } = await setup({ agentName: "旧名" });
 	await am.ensureStarted(project.id, "旧名", session.id);

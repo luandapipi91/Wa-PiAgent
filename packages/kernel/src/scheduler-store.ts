@@ -54,3 +54,21 @@ export async function appendExecutionRecord(
 	existing.push(record);
 	await saveExecutionRecords(file, existing);
 }
+
+/**
+ * 按 id 更新已存在的执行记录（用于 running 态记录在任务完成后回写终态）。
+ * 不存在时退化为追加，保证记录不丢。
+ */
+export async function updateExecutionRecord(
+	file: string,
+	record: ExecutionRecord,
+): Promise<void> {
+	const existing = await loadExecutionRecords(file);
+	const idx = existing.findIndex((r) => r.id === record.id);
+	if (idx >= 0) {
+		existing[idx] = record;
+	} else {
+		existing.push(record);
+	}
+	await saveExecutionRecords(file, existing);
+}

@@ -35,9 +35,7 @@ describe("ExecutionRecords", () => {
 	});
 
 	test("渲染记录列表（taskName + 状态图标）", () => {
-		schedulerState.tasks = [
-			{ id: "t1", name: "每日报表" },
-		];
+		schedulerState.tasks = [{ id: "t1", name: "每日报表" }];
 		schedulerState.records = [
 			{
 				id: "r1",
@@ -159,9 +157,7 @@ describe("ExecutionRecords", () => {
 				taskName: "报表",
 				status: "success",
 				startedAt: Date.now() - 1000,
-				pushResults: [
-					{ channelId: "c1", channelName: "群A", success: true },
-				],
+				pushResults: [{ channelId: "c1", channelName: "群A", success: true }],
 			},
 		];
 		render(<ExecutionRecords />);

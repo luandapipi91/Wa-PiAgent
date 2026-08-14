@@ -190,7 +190,11 @@ test("POST /:id/run 触发 onRunNow 回调", async () => {
 			expect(result.ok).toBe(true);
 			expect(runId).toBe(created.task.id);
 		},
-		{ onRunNow: async (id) => { runId = id; } },
+		{
+			onRunNow: async (id) => {
+				runId = id;
+			},
+		},
 	);
 });
 
@@ -203,9 +207,27 @@ test("GET /api/execution-records — 空 + 筛选 + 倒序 + 200 上限", async 
 		// 写入测试记录（绕过路由，直接写文件）
 		const { saveExecutionRecords } = await import("../src/scheduler-store");
 		await saveExecutionRecords(recordsFile, [
-			{ id: "r1", taskId: "t1", taskName: "A", status: "success", startedAt: 100 },
-			{ id: "r2", taskId: "t1", taskName: "A", status: "failed", startedAt: 300 },
-			{ id: "r3", taskId: "t2", taskName: "B", status: "success", startedAt: 200 },
+			{
+				id: "r1",
+				taskId: "t1",
+				taskName: "A",
+				status: "success",
+				startedAt: 100,
+			},
+			{
+				id: "r2",
+				taskId: "t1",
+				taskName: "A",
+				status: "failed",
+				startedAt: 300,
+			},
+			{
+				id: "r3",
+				taskId: "t2",
+				taskName: "B",
+				status: "success",
+				startedAt: 200,
+			},
 		]);
 
 		// 全量（倒序：r2 > r3 > r1）

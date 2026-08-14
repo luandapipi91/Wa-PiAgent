@@ -2,6 +2,22 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — feat(scheduler): 主内容区视图路由 + SSE 事件 + kernel 调度集成
+
+### 变更
+
+- **主内容区自动化路由**：`Sidebar.tsx` 的 tab（tasks/im/automation）由内部 state 改为受控 props（`SidebarTab` 类型导出），状态提升到 `App.tsx`；`App.tsx` 在 `sidebarTab === "automation"` 时渲染 `AutomationMain`（新增内联组件），按 `useSchedulerStore.view` 切换 TaskEditForm / ExecutionRecords / TaskDetailView，header 显示对应标题。
+- **SSE 事件监听**：`App.tsx` 新增 `scheduled-tasks:changed`（重拉任务列表）与 `scheduled-task:completed`（重拉任务 + 记录）处理；初始连接回调中同步 `loadTasks` + `loadRecords`。
+- **SSE 事件类型**：`packages/shared/src/types.ts` 新增 `ScheduledTasksChangedEvent` / `ScheduledTaskCompletedEvent` 并挂入 `WSServerEvent` 联合类型。
+- **kernel 调度集成**：`index.ts` 创建 `TaskScheduler` 实例并 `server.setScheduler()` 注入；`executeTask` 实现：写 running 态执行记录 → 创建会话（默认工作区先 mkdir workdir 子目录，与 agent:prompt 行为一致）→ `ensureStarted` → 解析默认模型（取首个供应商首模型，缺失则 fail）→ `prompt` → 轮询 `isSessionBusy`（500ms 间隔，5 分钟超时 abort）→ 收集末条 assistant 文本为摘要（截 500 字）→ `updateExecutionRecord` 回写终态；shutdown 时 `scheduler.stopAll()`。
+- **scheduler 扩展**：`TaskScheduler.runTaskNow()` 手动立即执行（REST run 端点委托）；`scheduler-store.updateExecutionRecord()` 按 id 回写记录（不存在退化追加）。
+- **ws-server 路由回调接通**：scheduler 路由的 onSchedule/onCancel 回调现在同时广播 `scheduled-tasks:changed`；onRunNow 委托 `scheduler.runTaskNow`（原占位）。
+- **附带修复（agent-manager）**：`switchAgent` 中把 `setSessionAgent` 持久化移到 `_teardownSession` 之前，消除「teardown 后、starting.set 前」异步竞态窗口——否则切换角色后立即发消息会触发并发 `ensureStarted` 二次创建 pi 进程导致 jsonl 冲突。新增专项测试覆盖（挂起 setSessionAgent 期间 sessions 不为空）。
+- 与简报的关键偏差：① 主内容区路由在 `App.tsx` 而非 `Sidebar.tsx`（架构上主内容区本就由 App 渲染，Sidebar 仅侧栏）；② 简报的 `scheduled-task:started` 事件未实现，running 态记录创建时广播 `scheduled-tasks:changed` 替代（shared types 未定义 started 事件，保持类型自洽）；③ robot_push 工具注入仍为 TODO（简报即标注 TODO，待 bridge 扩展机制实现）。
+- 影响范围：前端 App/Sidebar/store、kernel index/scheduler/scheduler-store/ws-server/routes、shared types、agent-manager 竞态修复；kernel 977 测试全过、前端相关组件测试全过（2 个预先存在的失败与本次无关，基线复现）。
+
+---
+
 ## 2026-08-15 — feat(kernel): 记忆字符上限放宽 user 1800 / memory 3200
 
 ### 变更

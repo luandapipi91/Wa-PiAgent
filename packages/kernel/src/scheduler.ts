@@ -98,6 +98,29 @@ export class TaskScheduler {
 		}
 	}
 
+	/** 手动立即执行指定任务（不受 cron 调度控制）*/
+	async runTaskNow(taskId: string): Promise<void> {
+		const tasks = await loadScheduledTasks(this.deps.tasksFile);
+		const task = tasks.find((t) => t.id === taskId);
+		if (!task) throw new Error(`任务不存在: ${taskId}`);
+		try {
+			const record = await this.deps.executeTask(task);
+			this.deps.broadcast({
+				type: "scheduled-task:completed",
+				taskId: task.id,
+				recordId: record.id,
+				status: record.status,
+			});
+		} catch (err) {
+			this.deps.broadcast({
+				type: "scheduled-task:completed",
+				taskId: task.id,
+				status: "failed",
+				error: String(err),
+			});
+		}
+	}
+
 	/** 停止所有任务 */
 	stopAll(): void {
 		for (const job of this.jobs.values()) {

@@ -321,7 +321,10 @@ export class AgentManager {
 			}
 		}
 		const meta = old?.meta;
-		this._teardownSession(sessionId);
+		// 先解析 projectId（old 存在时取 meta，无额外 I/O；old 为 null 时读盘兜底），
+		// 并把持久化更新移到 teardown 之前：消除「teardown 后、starting.set 前」的异步竞态窗口。
+		// 否则用户切换角色后立即发消息，ensureStarted 会因 sessions/starting 均为空而
+		// 启动第二个 _createSession，两个 pi 进程并发创建同一 jsonl → 冲突失败 → 会话未启动。
 		const projectId =
 			meta?.projectId ??
 			(await this.opts.projectStore.load()).sessions.find(
@@ -329,6 +332,8 @@ export class AgentManager {
 			)?.projectId;
 		if (!projectId) throw new Error(`会话不存在: ${sessionId}`);
 		await this.opts.projectStore.setSessionAgent(sessionId, agentName);
+		// 拆除 + 重建为连续同步段（无 await）：并发 ensureStarted 会命中 starting 复用同一创建 promise
+		this._teardownSession(sessionId);
 		const promise = this._createSession(projectId, agentName, sessionId);
 		this.starting.set(sessionId, promise);
 		try {

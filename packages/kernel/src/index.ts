@@ -22,15 +22,26 @@ import { createCrashLogger, installCrashHandlers } from "./crash-logger";
 import { ChannelManager } from "./channel-manager";
 import { WecomAdapter } from "./channels/wecom-adapter";
 import { MockAdapter } from "./channels/mock-adapter";
+import { TaskScheduler } from "./scheduler";
+import {
+	appendExecutionRecord,
+	updateExecutionRecord,
+} from "./scheduler-store";
+import { parseChannelMentions } from "./tools/robot-push";
 import {
 	WS_PORT,
 	WA_PI_DIR,
 	BUILTIN_SKILLS_DIR,
 	SYSTEM_PROJECT_CWD,
+	SYSTEM_PROJECT_ID,
 	PROMPTS_FILE,
 	SUBAGENT_OVERRIDES_FILE,
+	SCHEDULED_TASKS_FILE,
+	EXECUTION_RECORDS_FILE,
 } from "@wa-pi/shared";
+import type { ExecutionRecord, ScheduledTask } from "@wa-pi/shared";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { WSServerEvent } from "@wa-pi/shared";
 
@@ -308,6 +319,127 @@ export async function startKernel(opts?: {
 	// 放在 server.start() 之后：渠道进站会触发 ensureStarted/broadcast，HTTP 已就绪。
 	await channelManager.start();
 
+	// —— 定时任务调度器 ——
+	// 在 agentManager/channelManager 就绪后创建：executeTask 闭包依赖它们。
+	// scheduler 实例注入 ws-server 后，REST 路由的 onRunNow/onTaskChanged 回调生效。
+	const scheduler = new TaskScheduler({
+		tasksFile: SCHEDULED_TASKS_FILE,
+		recordsFile: EXECUTION_RECORDS_FILE,
+		dataDir: WA_PI_DIR,
+		broadcast: (event) => broadcast(event as WSServerEvent),
+		executeTask: async (task: ScheduledTask): Promise<ExecutionRecord> => {
+			const record: ExecutionRecord = {
+				id: randomUUID(),
+				taskId: task.id,
+				taskName: task.name,
+				status: "running",
+				startedAt: Date.now(),
+			};
+			await appendExecutionRecord(EXECUTION_RECORDS_FILE, record);
+			broadcast({
+				type: "scheduled-tasks:changed",
+			} as WSServerEvent);
+
+			const sessionId = `sched-${task.id}-${Date.now()}`;
+			const projectId = task.projectId ?? SYSTEM_PROJECT_ID;
+
+			try {
+				// 1. 创建会话记录（默认工作区需先生成 workdir 子目录）
+				let createdAt: number | undefined;
+				if (projectId === SYSTEM_PROJECT_ID) {
+					createdAt = Date.now();
+					await mkdir(join(SYSTEM_PROJECT_CWD, String(createdAt)), {
+						recursive: true,
+					});
+				}
+				await projectStore.createSession({
+					projectId,
+					primaryAgent: task.agentId as any,
+					title: `定时任务 · ${task.name}`,
+					id: sessionId,
+					createdAt,
+				});
+				record.sessionId = sessionId;
+
+				// 2. 解析 @bot_xxx 渠道标记（用于执行记录，工具注入见 TODO）
+				const channelIds = parseChannelMentions(task.prompt);
+
+				// 3. 启动 agent 进程
+				await agentManager.ensureStarted(
+					projectId,
+					task.agentId as any,
+					sessionId,
+				);
+
+				// 4. 解析默认模型（取第一个 provider 的第一个模型）
+				const providers = await providerStore.load();
+				const firstProvider = providers[0];
+				const firstModel = firstProvider?.models?.[0];
+				if (!firstProvider || !firstModel) {
+					throw new Error(
+						"无可用的模型供应商，请先在设置中配置至少一个供应商",
+					);
+				}
+				const model = `${firstProvider.slug ?? firstProvider.name}/${firstModel.id}`;
+
+				// 5. 发送 prompt（prompt 内含任务指令 + 可选的 @bot_xxx 标记）
+				await agentManager.prompt(sessionId, task.prompt, { model });
+
+				// 6. 等待 agent 执行完成（轮询 isSessionBusy，agent_settled 后 busy=false）
+				// TODO: robot_push 工具注入——当前 agent 无法直接调用渠道推送工具。
+				// 后续通过 bridge 扩展注册 robot_push 工具，让 agent 能在执行中主动推送到 @bot_xxx 渠道。
+				const POLL_INTERVAL_MS = 500;
+				const MAX_WAIT_MS = 5 * 60 * 1000; // 单次任务最长等待 5 分钟
+				const deadline = Date.now() + MAX_WAIT_MS;
+				while (agentManager.isSessionBusy(sessionId)) {
+					if (Date.now() > deadline) {
+						await agentManager.abort(sessionId).catch(() => {});
+						throw new Error("任务执行超时（5 分钟）");
+					}
+					await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+				}
+
+				// 7. 收集最后一条 assistant 消息作为摘要
+				const messages = agentManager.getMessages(sessionId);
+				const lastAssistant = [...messages]
+					.reverse()
+					.find((m: any) => m?.role === "assistant");
+				record.status = "success";
+				record.finishedAt = Date.now();
+				record.durationMs = record.finishedAt - record.startedAt;
+				if (lastAssistant) {
+					const textBlocks = (lastAssistant as any).content?.filter(
+						(c: any) => c.type === "text",
+					);
+					if (textBlocks?.length > 0) {
+						record.summary = textBlocks
+							.map((c: any) => c.text)
+							.join("\n")
+							.slice(0, 500);
+					}
+				}
+				if (channelIds.length > 0) {
+					console.log(
+						`[scheduler] 任务 ${task.name} 引用渠道 ${channelIds.join(", ")}（robot_push 工具注入待实现）`,
+					);
+				}
+			} catch (err) {
+				record.status = "failed";
+				record.finishedAt = Date.now();
+				record.durationMs = record.finishedAt - record.startedAt;
+				record.error =
+					err instanceof Error ? err.message : String(err);
+			}
+
+			// 更新执行记录（覆盖 running 态的初始记录）
+			await updateExecutionRecord(EXECUTION_RECORDS_FILE, record);
+			return record;
+		},
+	});
+	server.setScheduler(scheduler);
+	await scheduler.start();
+	console.log("[kernel] 定时任务调度器已启动");
+
 	// 空闲会话子进程回收：每 30s 扫描，回收 lastActivity 超过 1 分钟且非 busy 的会话进程。
 	// dispose 只杀进程、保留会话记录与 jsonl 历史，用户再点开时冷启动恢复。
 	const IDLE_REAP_INTERVAL_MS = 30 * 1000;
@@ -373,6 +505,7 @@ export async function startKernel(opts?: {
 		clearInterval(reapTimer);
 		clearInterval(archiveTimer); // 回收站自动归档
 		eventThrottle.dispose();
+		scheduler.stopAll(); // 停止全部 cron 调度（避免退出期再触发新执行）
 		// 先断渠道长连接（避免关闭期收到新进站再触发 agent 调用），再回收 pi 子进程
 		await channelManager.stop().catch(() => {});
 		await agentManager.disposeAll().catch(() => {});

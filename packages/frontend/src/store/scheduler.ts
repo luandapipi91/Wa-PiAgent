@@ -37,7 +37,9 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 	},
 
 	loadRecords: async (taskId) => {
-		const url = taskId ? `/api/execution-records?taskId=${taskId}` : "/api/execution-records";
+		const url = taskId
+			? `/api/execution-records?taskId=${taskId}`
+			: "/api/execution-records";
 		const res = (await api.get(url)) as any;
 		set({ records: res?.records ?? [] });
 	},
@@ -66,11 +68,14 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 		await api.post(`/api/scheduled-tasks/${id}/run`, {});
 	},
 
-	selectTask: (id) => set({ selectedTaskId: id, view: id ? "detail" : "detail" }),
+	selectTask: (id) =>
+		set({ selectedTaskId: id, view: id ? "detail" : "detail" }),
 
 	setView: (view) => set({ view }),
 
-	startCreate: () => set({ view: "edit", editingTask: null, selectedTaskId: null }),
+	startCreate: () =>
+		set({ view: "edit", editingTask: null, selectedTaskId: null }),
 
-	startEdit: (task) => set({ view: "edit", editingTask: task, selectedTaskId: task.id }),
+	startEdit: (task) =>
+		set({ view: "edit", editingTask: task, selectedTaskId: task.id }),
 }));
