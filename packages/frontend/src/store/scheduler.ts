@@ -1,0 +1,76 @@
+import { create } from "zustand";
+import { api } from "../api-client";
+import type { ScheduledTask, ExecutionRecord } from "@wa-pi/shared";
+
+type AutoView = "detail" | "edit" | "records";
+
+interface SchedulerState {
+	tasks: ScheduledTask[];
+	records: ExecutionRecord[];
+	selectedTaskId: string | null;
+	view: AutoView;
+	editingTask: ScheduledTask | null; // null = 新建
+
+	// Actions
+	loadTasks: () => Promise<void>;
+	loadRecords: (taskId?: string) => Promise<void>;
+	createTask: (data: Partial<ScheduledTask>) => Promise<void>;
+	updateTask: (id: string, data: Partial<ScheduledTask>) => Promise<void>;
+	deleteTask: (id: string) => Promise<void>;
+	runTaskNow: (id: string) => Promise<void>;
+	selectTask: (id: string | null) => void;
+	setView: (view: AutoView) => void;
+	startCreate: () => void;
+	startEdit: (task: ScheduledTask) => void;
+}
+
+export const useSchedulerStore = create<SchedulerState>((set, get) => ({
+	tasks: [],
+	records: [],
+	selectedTaskId: null,
+	view: "detail",
+	editingTask: null,
+
+	loadTasks: async () => {
+		const res = (await api.get("/api/scheduled-tasks")) as any;
+		set({ tasks: res?.tasks ?? [] });
+	},
+
+	loadRecords: async (taskId) => {
+		const url = taskId ? `/api/execution-records?taskId=${taskId}` : "/api/execution-records";
+		const res = (await api.get(url)) as any;
+		set({ records: res?.records ?? [] });
+	},
+
+	createTask: async (data) => {
+		await api.post("/api/scheduled-tasks", data);
+		await get().loadTasks();
+		set({ view: "detail", selectedTaskId: null });
+	},
+
+	updateTask: async (id, data) => {
+		await api.put(`/api/scheduled-tasks/${id}`, data);
+		await get().loadTasks();
+		set({ view: "detail" });
+	},
+
+	deleteTask: async (id) => {
+		await api.del(`/api/scheduled-tasks/${id}`);
+		await get().loadTasks();
+		if (get().selectedTaskId === id) {
+			set({ selectedTaskId: null, view: "detail" });
+		}
+	},
+
+	runTaskNow: async (id) => {
+		await api.post(`/api/scheduled-tasks/${id}/run`, {});
+	},
+
+	selectTask: (id) => set({ selectedTaskId: id, view: id ? "detail" : "detail" }),
+
+	setView: (view) => set({ view }),
+
+	startCreate: () => set({ view: "edit", editingTask: null, selectedTaskId: null }),
+
+	startEdit: (task) => set({ view: "edit", editingTask: task, selectedTaskId: task.id }),
+}));
