@@ -77,7 +77,7 @@ function TaskCard({
 			onClick={onClick}
 			className="rounded-md p-2.5 cursor-pointer transition-colors border"
 			style={{
-				background: selected ? "var(--accent-bg)" : "var(--surface-hover)",
+				background: selected ? "var(--accent-soft)" : "var(--surface-hover)",
 				borderColor: selected ? "var(--accent)" : "transparent",
 			}}
 			data-testid={`automation-task-${task.id}`}
@@ -106,7 +106,7 @@ function TaskCard({
 					<span
 						className="text-[8px] px-1 rounded"
 						style={{
-							background: "var(--success-bg)",
+							background: "var(--success-soft)",
 							color: "var(--success)",
 						}}
 					>

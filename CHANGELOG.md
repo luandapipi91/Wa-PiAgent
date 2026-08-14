@@ -2,6 +2,16 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-14 — fix(kernel): 切换智能体后立即发消息报「会话未启动」
+
+### 变更
+
+- 根因：`switchAgent` 里 `_teardownSession`（删除 sessions 条目）之后、`starting.set`（并发创建锁）之前，夹着 `await setSessionAgent` 的异步文件 I/O。该窗口内 sessions/starting 均为空，用户切换角色后立即发消息会触发 `ensureStarted` 启动第二个 `_createSession`，两个 pi 进程并发创建同一 jsonl 冲突失败，最终 `prompt` 报「会话未启动」。
+- 修复：把 `setSessionAgent` 移到 `_teardownSession` 之前，使 teardown → `_createSession` → `starting.set` 成为连续同步段（原子），并发 `ensureStarted` 命中 `starting` 复用同一创建 promise。
+- 影响范围：`agent-manager.ts`（switchAgent 顺序调整）、`agent-manager.test.ts`（+1 竞态回归用例）。
+
+---
+
 ## 2026-08-14 — feat(scheduler): 侧边栏自动化 Tab + AutomationSidebar 任务列表组件
 
 ### 变更
@@ -10,6 +20,7 @@
 - 新建 `packages/frontend/src/components/automation/AutomationSidebar.tsx`：紧凑任务卡片列表组件。useEffect 调用 `loadTasks` 拉取任务；工具栏显示任务数 + 「+ 新建」按钮（startCreate）；列表项为 TaskCard（选中态高亮、启用/禁用圆点、调度文案、含 @bot_ 的任务显示 📨 角标）；空态「暂无定时任务」；`formatSchedule` 支持 daily/weekdays/weekly/monthly/custom 五种调度文案。全部走项目既有 CSS 变量设计 token。
 - 新建 `packages/frontend/src/components/automation/__tests__/AutomationSidebar.test.tsx`：3 个组件测试（渲染任务列表、点击卡片调用 selectTask、点击新建调用 startCreate）。注：简报原文用 vitest + jest-dom，本仓库统一用 bun:test（14 个既有组件测试约定）且未装 jest-dom，故断言改用 `toBeTruthy()`。
 - 修改 `packages/frontend/src/i18n/locales/{zh,en}.ts`：新增 `sidebar.tabAutomation`（中文「自动化」/ 英文「Automation」），与既有 tabTasks/tabIm 结构一致。
+- 修复 `AutomationSidebar.tsx` CSS 变量名（代码审查反馈）：`--accent-bg` → `--accent-soft`、`--success-bg` → `--success-soft`，与项目设计 token 一致（styles.css 定义的是 `*-soft` 后缀，`*-bg` 不存在会导致选中态高亮与 IM 角标背景回退 transparent）。
 - 影响范围：定时任务系统的前端入口；纯新增组件 + Sidebar 加一个 tab + 两条 i18n key，不改已有业务逻辑。
 
 ## 2026-08-14 — feat(scheduler): robot_push 工具 + @channel 解析 + ChannelManager.pushToChannel
