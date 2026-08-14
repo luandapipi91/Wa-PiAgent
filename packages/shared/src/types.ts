@@ -1335,4 +1335,56 @@ export type WSServerEvent =
 	| TrashListResult
 	| TrashOpResult;
 
+// ============ 定时任务 ============
+
+/** 定时任务调度配置 */
+export interface TaskSchedule {
+	type: "daily" | "weekdays" | "weekly" | "monthly" | "custom";
+	time: string; // "09:30"
+	dayOfWeek?: number; // weekly: 0-6 (0=周日)
+	dayOfMonth?: number; // monthly: 1-31
+	cronExpression?: string; // custom: 5 字段 cron
+}
+
+/** 定时任务 */
+export interface ScheduledTask {
+	id: string;
+	name: string;
+	schedule: TaskSchedule;
+	agentId: string; // 执行角色（已有智能体 ID）
+	prompt: string; // 任务指令（含 $skill 和 @bot_xxx 标记）
+	projectId?: string; // 工作目录（项目 ID）
+	enabled: boolean;
+	createdAt: number;
+	updatedAt: number;
+	lastRunAt?: number;
+	nextRunAt?: number;
+}
+
+/** 执行状态 */
+export type ExecutionStatus = "running" | "success" | "failed";
+
+/** 渠道推送结果 */
+export interface PushResult {
+	channelId: string;
+	channelName: string;
+	success: boolean;
+	error?: string;
+}
+
+/** 执行记录 */
+export interface ExecutionRecord {
+	id: string;
+	taskId: string;
+	taskName: string;
+	status: ExecutionStatus;
+	startedAt: number;
+	finishedAt?: number;
+	durationMs?: number;
+	sessionId?: string;
+	pushResults?: PushResult[];
+	error?: string;
+	summary?: string;
+}
+
 export type WSEvent = WSClientEvent | WSServerEvent;
