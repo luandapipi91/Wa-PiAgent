@@ -648,6 +648,15 @@ export interface ChannelAgentUsageRequest {
 export interface ChannelConversationsListRequest {
 	type: "channel-conversations:list";
 }
+export interface ContactsListRequest {
+	type: "contacts:list";
+	channelId: string; // 空 = 全部机器人
+}
+export interface ContactsRenameRequest {
+	type: "contacts:rename";
+	id: string;
+	remark: string;
+}
 export interface ChannelsCurrentResult {
 	type: "channels:current";
 	channels: ChannelStatusInfo[];
@@ -671,6 +680,10 @@ export interface ChannelConversationsChangedEvent {
 }
 export interface ContactsChangedEvent {
 	type: "contacts:changed";
+}
+export interface ContactsCurrentResult {
+	type: "contacts:current";
+	contacts: ContactEntity[];
 }
 
 export type WSClientEvent =
@@ -756,6 +769,8 @@ export type WSClientEvent =
 	| ChannelsDeleteRequest
 	| ChannelAgentUsageRequest
 	| ChannelConversationsListRequest
+	| ContactsListRequest
+	| ContactsRenameRequest
 	| TrashListRequest
 	| TrashRestoreEvent
 	| TrashDeleteEvent
@@ -1347,6 +1362,7 @@ export type WSServerEvent =
 	| ChannelsChangedEvent
 	| ChannelConversationsChangedEvent
 	| ContactsChangedEvent
+	| ContactsCurrentResult
 	| TrashListResult
 	| TrashOpResult;
 
