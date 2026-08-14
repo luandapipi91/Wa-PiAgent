@@ -76,6 +76,17 @@ test("user target 写入 USER.md 而非 MEMORY.md", async () => {
   expect(await store.entries("user")).toContain("用户喜欢深色主题");
 });
 
+test("字符上限覆盖：user 1800 / memory 3200（amaster 默认 1375/2200）", async () => {
+  const store = getGlobalMemoryStore(tmpDir);
+  // 1400 字符：超过 amaster 默认 user 上限（1375）但低于覆盖后的 1800，应写入成功
+  await store.add("user", "u".repeat(1400));
+  expect(await store.entries("user")).toContain("u".repeat(1400));
+
+  // 2300 字符：超过 amaster 默认 memory 上限（2200）但低于覆盖后的 3200，应写入成功
+  await store.add("memory", "m".repeat(2300));
+  expect(await store.entries("memory")).toContain("m".repeat(2300));
+});
+
 test("replace 按 oldText 精确匹配并更新", async () => {
   const store = getGlobalMemoryStore(tmpDir);
   await store.add("memory", "旧内容");
