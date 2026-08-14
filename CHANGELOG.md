@@ -2,6 +2,17 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-14 — feat(kernel): 进站采集通讯录 + ChannelManager 暴露 listContacts/renameContact
+
+### 变更
+
+- ChannelManager 进站（handleInbound）采集通讯录：单聊记 person（fromUserId）、群聊记 group（chatId），失败仅 warn 不阻断消息处理。
+- deps 新增 `contactsFile` 字段 + `contactsFile` getter（缺省回落 CONTACTS_FILE）。
+- 新增公开方法 `listContacts(channelId?)` / `renameContact(id, remark)`，代理 contact-store 的 list/rename。
+- 影响范围：channel-manager.ts（+5 处）、channel-manager.test.ts（+1 采集用例，复用 mock deps 构造）。
+
+---
+
 ## 2026-08-14 — fix(desktop): 外链子窗口移除 parent，修复 macOS 多屏拖动消失
 
 ### 变更
