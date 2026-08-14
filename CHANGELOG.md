@@ -2,15 +2,17 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
-## 2026-08-14 — feat(scheduler): 定时任务类型定义 + 数据持久化层
+## 2026-08-14 — feat(scheduler): 定时任务类型定义 + 数据持久化层 + Bun.cron 调度引擎
 
 ### 变更
 
 - 新增定时任务核心类型（ScheduledTask / TaskSchedule / ExecutionRecord / ExecutionStatus / PushResult）于 `packages/shared/src/types.ts`。
 - 新增路径常量 `SCHEDULED_TASKS_FILE` / `EXECUTION_RECORDS_FILE` 于 `packages/shared/src/constants.ts`（参照 CHANNELS_FILE 模式，带 WA_PI_DIR 前缀）。
 - 新建 `packages/kernel/src/scheduler-store.ts`：JSON 文件读写持久化层（load/save scheduledTasks + executionRecords，appendExecutionRecord），参照 channel-store.ts 的 readJson/writeJson 模式，文件缺失/损坏回退空值不抛错。
-- 新增 `packages/kernel/tests/scheduler-store.test.ts`：4 个测试覆盖空文件回退、往返一致、追加记录。
-- 影响范围：定时任务系统基础层（后续任务的地基）；纯新增，不改已有业务逻辑。
+- 新建 `packages/kernel/tests/scheduler-store.test.ts`：6 个测试覆盖空文件回退、往返一致、追加记录。
+- 新建 `packages/kernel/src/scheduler.ts`：调度引擎。`toCronExpression` 将 TaskSchedule 转标准 5 字段 cron 表达式（`.map(Number)` 归一化前导零）；`TaskScheduler` 类封装 Bun.cron 任务的注册/取消/停止，handler 内捕获执行异常并广播 `scheduled-task:completed` 事件。
+- 新建 `packages/kernel/tests/scheduler.test.ts`：14 个测试覆盖 toCronExpression 五种类型 + TaskScheduler 注册/取消/重新调度/批量停止/启动加载/disabled 跳过/执行成功与失败广播。
+- 影响范围：定时任务系统基础层与调度引擎（后续任务的地基）；纯新增，不改已有业务逻辑。
 
 ---
 
