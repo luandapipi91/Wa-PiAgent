@@ -2,6 +2,15 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — feat(kernel): 记忆字符上限放宽 user 1800 / memory 3200
+
+### 变更
+
+- amaster-memory 的 `createStore` 构造 `MemoryStore` 时覆盖默认上限（user 1375 / memory 2200）→ **user 1800 / memory 3200**：实际使用常触顶导致 `memory_add` 被拒，放宽后全局与项目 store 统一生效。
+- 影响范围：amaster-memory.ts（createStore 传 userCharLimit/memoryCharLimit）、amaster-memory.test.ts（+1 用例：1400 字符 user / 2300 字符 memory 写入成功验证覆盖生效）。
+
+---
+
 ## 2026-08-14 — fix(desktop): 外链子窗口移除 parent，修复 macOS 多屏拖动消失
 
 ### 变更
