@@ -2434,7 +2434,9 @@ export class WSServer {
 			}
 			case "contacts:list": {
 				const contacts = this.opts.channelManager
-					? await this.opts.channelManager.listContacts(event.channelId || undefined)
+					? await this.opts.channelManager.listContacts(
+							event.channelId || undefined,
+						)
 					: [];
 				reply({ type: "contacts:current", contacts });
 				break;
