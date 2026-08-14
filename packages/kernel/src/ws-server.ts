@@ -2375,19 +2375,27 @@ export class WSServer {
 					reply({ type: "error", message: "通讯录未启用", status: 400 });
 					break;
 				}
-				const c = await this.opts.channelManager.renameContact(
-					event.id,
-					event.remark,
-				);
-				if (!c) {
-					reply({ type: "error", message: "联系人不存在", status: 404 });
-					break;
+				try {
+					const c = await this.opts.channelManager.renameContact(
+						event.id,
+						event.remark,
+					);
+					if (!c) {
+						reply({ type: "error", message: "联系人不存在", status: 404 });
+						break;
+					}
+					this.broadcast({ type: "contacts:changed" });
+					reply({
+						type: "contacts:current",
+						contacts: await this.opts.channelManager.listContacts(c.channelId),
+					});
+				} catch (err) {
+					reply({
+						type: "error",
+						message: (err as Error).message,
+						status: 500,
+					});
 				}
-				this.broadcast({ type: "contacts:changed" });
-				reply({
-					type: "contacts:current",
-					contacts: await this.opts.channelManager.listContacts(c.channelId),
-				});
 				break;
 			}
 			// mock 端点（测试专用，事件类型未进 WSClientEvent 联合，用 as any 兜底）
