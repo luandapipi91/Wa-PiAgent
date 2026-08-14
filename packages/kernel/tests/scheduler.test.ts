@@ -8,7 +8,11 @@ import {
 	type SchedulerDeps,
 } from "../src/scheduler";
 import { saveScheduledTasks } from "../src/scheduler-store";
-import type { ScheduledTask, ExecutionRecord, TaskSchedule } from "@wa-pi/shared";
+import type {
+	ScheduledTask,
+	ExecutionRecord,
+	TaskSchedule,
+} from "@wa-pi/shared";
 
 // ===== 简报约定的 toCronExpression 用例（契约测试，原样保留）=====
 
@@ -221,7 +225,10 @@ describe("TaskScheduler", () => {
 			const scheduler = new TaskScheduler(makeDeps());
 			scheduler.scheduleTask(makeTask({ id: "t1" }));
 			scheduler.scheduleTask(
-				makeTask({ id: "t1", schedule: { type: "monthly", time: "09:00", dayOfMonth: 15 } }),
+				makeTask({
+					id: "t1",
+					schedule: { type: "monthly", time: "09:00", dayOfMonth: 15 },
+				}),
 			);
 			expect(cronCalls).toHaveLength(2);
 			expect(cronCalls[1].expr).toBe("0 9 15 * *"); // 新表达式生效
@@ -261,6 +268,56 @@ describe("TaskScheduler", () => {
 			expect(cronCalls[0].expr).toBe("30 9 * * *");
 		} finally {
 			restore();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("start: 某任务注册失败（cron 抛错）→ 广播 error，其余任务仍正常注册", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "wa-pi-sched-"));
+		const tasksFile = join(dir, "tasks.json");
+		const tasks: ScheduledTask[] = [
+			makeTask({
+				id: "bad",
+				schedule: {
+					type: "custom",
+					time: "00:00",
+					cronExpression: "bad-expr",
+				},
+			}),
+			makeTask({ id: "good", schedule: { type: "daily", time: "09:30" } }),
+		];
+		await saveScheduledTasks(tasksFile, tasks);
+		const broadcasts: { type: string; [k: string]: unknown }[] = [];
+		// 桩 Bun.cron：对非法表达式同步抛错，模拟格式错误的 custom 任务
+		const original = Bun.cron;
+		const cronCalls: { expr: string }[] = [];
+		const mutableBun = Bun as unknown as { cron: typeof Bun.cron };
+		mutableBun.cron = ((expr: string) => {
+			cronCalls.push({ expr });
+			if (expr === "bad-expr") {
+				throw new Error("invalid cron expression");
+			}
+			return { stop: mock(() => {}) };
+		}) as unknown as typeof Bun.cron;
+		try {
+			const scheduler = new TaskScheduler(
+				makeDeps({ tasksFile, broadcast: (e) => void broadcasts.push(e) }),
+			);
+			await scheduler.start();
+			// 两个 enabled 任务都被尝试调用 Bun.cron
+			expect(cronCalls).toHaveLength(2);
+			// bad 任务广播了 error 事件
+			expect(broadcasts).toContainEqual(
+				expect.objectContaining({
+					type: "scheduled-task:error",
+					taskId: "bad",
+					error: expect.stringContaining("invalid cron"),
+				}),
+			);
+			// good 任务不受影响，仍被注册
+			expect(cronCalls[1].expr).toBe("30 9 * * *");
+		} finally {
+			mutableBun.cron = original;
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
