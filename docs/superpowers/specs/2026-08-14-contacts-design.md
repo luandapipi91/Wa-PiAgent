@@ -48,9 +48,9 @@ interface ContactsFile {
 
 新增 `packages/kernel/src/contact-store.ts`，仿 `channel-store.ts` 的 `readJson/writeJson` + `schemaVersion` 模式：
 
-- `list(channelId)`：返回某机器人的通讯录（按 kind 分组，组内按 `lastChatAt` 倒序）
-- `upsert(input)`：按去重键新增或更新（更新 `lastChatAt`；首次设置 `firstChatAt`）
-- `rename(id, remark)`：设置备注名，不存在返回 null
+- `listContacts(channelId?)`：平铺返回通讯录（`channelId` 缺省返回全部），整体按 `lastChatAt` 倒序；人/群分组职责在前端
+- `upsertContact(input)`：按去重键新增或更新（更新 `lastChatAt`；首次设置 `firstChatAt`）
+- `renameContact(id, remark)`：设置备注名，不存在返回 null
 
 文件损坏/读取失败 → 返回空列表 + 记日志，不抛异常阻断主链路。
 
