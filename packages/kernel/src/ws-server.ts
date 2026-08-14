@@ -72,6 +72,7 @@ import { registerMcpRoutes } from "./routes/mcp";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerChannelRoutes } from "./routes/channels";
 import { createSchedulerRoutes } from "./routes/scheduler";
+import { registerContactRoutes } from "./routes/contacts";
 import { ChannelConflictError } from "./channel-manager";
 import { registerFileRoutes } from "./routes/files";
 import type { TaskScheduler } from "./scheduler";
@@ -498,6 +499,7 @@ export class WSServer {
 		registerMcpRoutes(this.router, callApi, ctx);
 		registerSettingsRoutes(this.router, callApi, ctx);
 		registerChannelRoutes(this.router, callApi, ctx);
+		registerContactRoutes(this.router, callApi, ctx);
 		registerFileRoutes(this.router, callApi, ctx);
 
 		// 定时任务路由：直接读写 JSON 文件，不走 callApi 适配器
@@ -2428,6 +2430,41 @@ export class WSServer {
 					? await this.opts.channelManager.listConversations()
 					: [];
 				reply({ type: "channel-conversations:current", conversations });
+				break;
+			}
+			case "contacts:list": {
+				const contacts = this.opts.channelManager
+					? await this.opts.channelManager.listContacts(event.channelId || undefined)
+					: [];
+				reply({ type: "contacts:current", contacts });
+				break;
+			}
+			case "contacts:rename": {
+				if (!this.opts.channelManager) {
+					reply({ type: "error", message: "通讯录未启用", status: 400 });
+					break;
+				}
+				try {
+					const c = await this.opts.channelManager.renameContact(
+						event.id,
+						event.remark,
+					);
+					if (!c) {
+						reply({ type: "error", message: "联系人不存在", status: 404 });
+						break;
+					}
+					this.broadcast({ type: "contacts:changed" });
+					reply({
+						type: "contacts:current",
+						contacts: await this.opts.channelManager.listContacts(),
+					});
+				} catch (err) {
+					reply({
+						type: "error",
+						message: (err as Error).message,
+						status: 500,
+					});
+				}
 				break;
 			}
 			// mock 端点（测试专用，事件类型未进 WSClientEvent 联合，用 as any 兜底）

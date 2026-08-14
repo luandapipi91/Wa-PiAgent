@@ -25,6 +25,7 @@ import { useCommandsStore } from "./store/commands";
 import { useMcpStore } from "./store/mcp";
 import { useMemoryStore } from "./store/memory";
 import { useChannelsStore } from "./store/channels";
+import { useContactsStore } from "./store/contacts";
 import { useToastStore } from "./store/toast";
 import { useComposerPrefsStore } from "./store/composer-prefs";
 import { useSubagentsStore } from "./store/subagents";
@@ -106,6 +107,7 @@ export function App() {
 		useExtensionsStore.getState().load();
 		useAgentsStore.getState().loadAll();
 		useSubagentsStore.getState().load();
+		useContactsStore.getState().loadContacts();
 		// 应用更新 IPC 桥接：desktop 下订阅 updater 事件并拉取版本信息；浏览器 dev 下无 waPiUpdater 直接返回
 		initUpdater();
 		const offReconnect = onReconnect(() => {
@@ -122,6 +124,7 @@ export function App() {
 			// 定时任务：重连后刷新任务列表 + 执行记录
 			void useSchedulerStore.getState().loadTasks();
 			void useSchedulerStore.getState().loadRecords();
+			useContactsStore.getState().loadContacts();
 			const sid = useProjectsStore.getState().currentSessionId;
 			if (sid) useSessionStore.getState().setHistoryLoading(sid, true);
 			if (sid)
@@ -304,6 +307,9 @@ export function App() {
 						.getState()
 						.add(`定时任务调度失败：${e.error ?? "未知错误"}`, "error");
 					void useSchedulerStore.getState().loadTasks();
+					break;
+				case "contacts:changed":
+					void useContactsStore.getState().loadContacts();
 					break;
 			}
 		});
