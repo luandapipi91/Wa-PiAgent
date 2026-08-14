@@ -15,10 +15,7 @@ export function AutomationSidebar() {
 	}, [loadTasks]);
 
 	return (
-		<div
-			className="flex flex-col h-full"
-			data-testid="automation-sidebar"
-		>
+		<div className="flex flex-col h-full" data-testid="automation-sidebar">
 			{/* 工具栏 */}
 			<div className="flex items-center justify-between px-2 py-1.5">
 				<span

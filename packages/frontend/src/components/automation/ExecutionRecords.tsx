@@ -48,9 +48,7 @@ export function ExecutionRecords() {
 							style={{
 								background: period === k ? "var(--surface)" : "transparent",
 								color:
-									period === k
-										? "var(--text-primary)"
-										: "var(--text-tertiary)",
+									period === k ? "var(--text-primary)" : "var(--text-tertiary)",
 							}}
 						>
 							{label}
@@ -147,13 +145,9 @@ export function ExecutionRecords() {
 									className="text-[10px] flex gap-2 mt-0.5"
 									style={{ color: "var(--text-tertiary)" }}
 								>
-									<span>
-										{new Date(r.startedAt).toLocaleString("zh-CN")}
-									</span>
+									<span>{new Date(r.startedAt).toLocaleString("zh-CN")}</span>
 									{r.durationMs && (
-										<span>
-											耗时 {(r.durationMs / 1000).toFixed(0)}s
-										</span>
+										<span>耗时 {(r.durationMs / 1000).toFixed(0)}s</span>
 									)}
 									{r.pushResults?.some((p) => p.success) && (
 										<span

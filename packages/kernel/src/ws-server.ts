@@ -48,7 +48,11 @@ import { extname, basename, join, resolve, sep } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
 import { extUiRegistry } from "./ext-ui-registry";
-import { handleBridgeRequest, handleBridgeStream, isBridgeStreamTool } from "./bridge-registry";
+import {
+	handleBridgeRequest,
+	handleBridgeStream,
+	isBridgeStreamTool,
+} from "./bridge-registry";
 import {
 	appendChunk,
 	finalizeRecording,
@@ -406,6 +410,11 @@ export class WSServer {
 		this.registerRoutes();
 	}
 
+	/** 注入定时任务调度器实例（index.ts 在 AgentManager/ChannelManager 就绪后调用） */
+	setScheduler(scheduler: TaskScheduler): void {
+		this.scheduler = scheduler;
+	}
+
 	// 广播给所有客户端（AgentManager.onEvent 在 index.ts 里直接调此方法）
 	// 去 WS 化后只走 SSE 事件总线。
 	broadcast(e: WSServerEvent): void {
@@ -495,10 +504,18 @@ export class WSServer {
 		const schedulerRoutes = createSchedulerRoutes(
 			SCHEDULED_TASKS_FILE,
 			EXECUTION_RECORDS_FILE,
-			(task) => this.scheduler?.scheduleTask(task),
-			(taskId) => this.scheduler?.cancelTask(taskId),
-			async (_taskId) => {
-				// 立即执行：scheduler 实例由后续任务注入，此处暂为占位
+			(task) => {
+				this.scheduler?.scheduleTask(task);
+				// 任务变更后广播通知前端刷新列表
+				this.broadcast({ type: "scheduled-tasks:changed" });
+			},
+			(taskId) => {
+				this.scheduler?.cancelTask(taskId);
+				this.broadcast({ type: "scheduled-tasks:changed" });
+			},
+			async (taskId) => {
+				// 立即执行：委托 scheduler 执行并广播结果
+				await this.scheduler?.runTaskNow(taskId);
 			},
 		);
 		schedulerRoutes(this.router, callApi, ctx);
@@ -605,7 +622,9 @@ export class WSServer {
 						// 关键时序：不 await，后台执行。立即 return Response 让消费方拿到响应头
 						// （满足 headersTimeout），handleBridgeStream 边跑边 enqueue 进度帧
 						// （消费方边读边收到，重置 bodyTimeout，避免 undici idle 空闲断连）。
-						void handleBridgeStream(body, writeLine, { signal: streamAbort.signal })
+						void handleBridgeStream(body, writeLine, {
+							signal: streamAbort.signal,
+						})
 							.then((r) => {
 								if (r) {
 									// 流式工具返回了非 null：说明 handleBridgeStream 在写帧前
@@ -950,7 +969,9 @@ export class WSServer {
 						.catch((err) => {
 							// dispose 竞态（session:delete / 空闲回收与预热并发）导致 ensureStarted
 							// 抛「会话已清理」是预期控制流，静默不打印；其他启动失败仍打 error。
-							if ((err as Error & { code?: string })?.code === "SESSION_DISPOSED")
+							if (
+								(err as Error & { code?: string })?.code === "SESSION_DISPOSED"
+							)
 								return;
 							console.error(
 								`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`,
@@ -1360,7 +1381,11 @@ export class WSServer {
 				// 单个预设完整内容（含 body 正文），供「查看提示词」按需获取
 				const preset = getPreset(event.id);
 				if (!preset) {
-					reply({ type: "error", message: `预设不存在: ${event.id}`, status: 404 });
+					reply({
+						type: "error",
+						message: `预设不存在: ${event.id}`,
+						status: 404,
+					});
 				} else {
 					reply({ type: "agent:preset", preset });
 				}
@@ -1373,7 +1398,11 @@ export class WSServer {
 					event.displayName,
 				);
 				if (!result.ok) {
-					reply({ type: "error", message: result.error, status: result.status });
+					reply({
+						type: "error",
+						message: result.error,
+						status: result.status,
+					});
 				} else {
 					reply({ type: "agent:created", agent: result.agent });
 					this.broadcast({
@@ -2351,7 +2380,10 @@ export class WSServer {
 					else if (event.type === "channels:update")
 						await cm.update(event.id, event.channel);
 					else await cm.remove(event.id);
-					reply({ type: "channels:current", channels: await cm.listWithStatus() });
+					reply({
+						type: "channels:current",
+						channels: await cm.listWithStatus(),
+					});
 				} catch (err) {
 					reply({
 						type: "error",
@@ -2362,7 +2394,9 @@ export class WSServer {
 				break;
 			}
 			case "channels:agent-usage": {
-				const usage = await this.opts.channelManager!.agentUsage(event.agentName);
+				const usage = await this.opts.channelManager!.agentUsage(
+					event.agentName,
+				);
 				reply({
 					type: "channels:agent-usage-result",
 					agentName: event.agentName,
@@ -2392,7 +2426,8 @@ export class WSServer {
 				break;
 			}
 			case "channels:mock-outbox" as any: {
-				const messages = this.opts.channelManager?.mockOutbox((event as any).id) ?? [];
+				const messages =
+					this.opts.channelManager?.mockOutbox((event as any).id) ?? [];
 				reply({ type: "ok", messages } as any);
 				break;
 			}

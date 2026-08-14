@@ -32,8 +32,7 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 			}
 		};
 		document.addEventListener("mousedown", handleClickOutside);
-		return () =>
-			document.removeEventListener("mousedown", handleClickOutside);
+		return () => document.removeEventListener("mousedown", handleClickOutside);
 	}, [showChannelPicker]);
 
 	const handleKeyUp = useCallback(

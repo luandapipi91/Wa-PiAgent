@@ -1333,9 +1333,27 @@ export type WSServerEvent =
 	| ChannelsChangedEvent
 	| ChannelConversationsChangedEvent
 	| TrashListResult
-	| TrashOpResult;
+	| TrashOpResult
+	| ScheduledTasksChangedEvent
+	| ScheduledTaskCompletedEvent;
 
-// ============ 定时任务 ============
+// ============ 定时任务 SSE 事件 ============
+
+/** 任务列表变更（新建/更新/删除后广播，前端重新拉取） */
+export interface ScheduledTasksChangedEvent {
+	type: "scheduled-tasks:changed";
+}
+
+/** 单次执行完成（cron 触发或手动 run 后广播） */
+export interface ScheduledTaskCompletedEvent {
+	type: "scheduled-task:completed";
+	taskId: string;
+	recordId?: string;
+	status: ExecutionStatus;
+	error?: string;
+}
+
+// ============ 定时任务数据模型 ============
 
 /** 定时任务调度配置 */
 export interface TaskSchedule {

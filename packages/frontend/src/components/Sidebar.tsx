@@ -13,6 +13,9 @@ import { useSidebarStore } from "../store/sidebar";
 import { useTrashStore } from "../store/trash";
 import { useTranslation } from "../i18n/useTranslation";
 
+/** 侧边栏分段标签 */
+export type SidebarTab = "tasks" | "im" | "automation";
+
 interface Props {
 	onNewSession: () => void;
 	onMore: () => void;
@@ -21,13 +24,16 @@ interface Props {
 	onSelectProject: (projectId: string) => void;
 	onNewProject: () => void;
 	currentView?: View;
+	/** 当前激活的分段标签（受控，由 App.tsx 管理以驱动主内容区路由） */
+	tab: SidebarTab;
+	onTabChange: (tab: SidebarTab) => void;
 }
 
 export function Sidebar(props: Props) {
 	const width = useSidebarStore((s) => s.width);
 	const { t } = useTranslation();
-	// 侧边栏页签：任务（默认）| IM | 自动化。切换只切换内容区，SettingsButton 始终可见。
-	const [tab, setTab] = useState<"tasks" | "im" | "automation">("tasks");
+	// tab 由 App.tsx 控制（主内容区需据此切换自动化视图）
+	const { tab, onTabChange: setTab } = props;
 	// 任务视图内次级维度：项目（按项目分组，默认）| 最近（时间线）
 	const [sessionScope, setSessionScope] = useState<"project" | "recent">(
 		"project",

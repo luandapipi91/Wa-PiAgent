@@ -28,9 +28,7 @@ export function TaskDetailView() {
 	}
 
 	const channelIds = parseChannelMentions(task.prompt);
-	const recentRecords = records
-		.filter((r) => r.taskId === task.id)
-		.slice(0, 3);
+	const recentRecords = records.filter((r) => r.taskId === task.id).slice(0, 3);
 
 	return (
 		<div data-testid="task-detail-view">
@@ -69,16 +67,9 @@ export function TaskDetailView() {
 				<InfoCard label="执行角色" value={`🤖 ${task.agentId}`} />
 				<InfoCard
 					label="推送渠道"
-					value={
-						channelIds.length > 0
-							? `📨 ${channelIds.join(", ")}`
-							: "无"
-					}
+					value={channelIds.length > 0 ? `📨 ${channelIds.join(", ")}` : "无"}
 				/>
-				<InfoCard
-					label="工作目录"
-					value={`📂 ${task.projectId ?? "默认"}`}
-				/>
+				<InfoCard label="工作目录" value={`📂 ${task.projectId ?? "默认"}`} />
 			</div>
 
 			{/* 任务指令 */}
@@ -139,11 +130,7 @@ function InfoCard({ label, value }: { label: string; value: string }) {
 
 function RecordRow({ record }: { record: ExecutionRecord }) {
 	const icon =
-		record.status === "success"
-			? "✓"
-			: record.status === "failed"
-				? "✕"
-				: "⟳";
+		record.status === "success" ? "✓" : record.status === "failed" ? "✕" : "⟳";
 	const color =
 		record.status === "success"
 			? "#4ade80"

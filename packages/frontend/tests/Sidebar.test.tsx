@@ -1,15 +1,28 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { Sidebar } from "../src/components/Sidebar";
+import { useState } from "react";
+import { Sidebar, type SidebarTab } from "../src/components/Sidebar";
 import { useProjectsStore } from "../src/store/projects";
 import { useChannelsStore } from "../src/store/channels";
 
 const noop = () => {};
+
+/**
+ * 有状态包装器：Sidebar 的 tab 现为受控组件（App.tsx 管理），
+ * 测试中用 useState 模拟 App 级行为，点击页签可真实切换。
+ */
+function StatefulSidebar(
+	props: Omit<Parameters<typeof Sidebar>[0], "tab" | "onTabChange">,
+) {
+	const [tab, setTab] = useState<SidebarTab>("tasks");
+	return <Sidebar {...props} tab={tab} onTabChange={setTab} />;
+}
+
 const renderSidebar = (
 	overrides: Partial<Parameters<typeof Sidebar>[0]> = {},
 ) =>
 	render(
-		<Sidebar
+		<StatefulSidebar
 			onNewSession={noop}
 			onMore={noop}
 			onSelectSession={noop}
@@ -34,7 +47,7 @@ beforeEach(() => {
 
 test("渲染侧边栏基础结构", () => {
 	render(
-		<Sidebar
+		<StatefulSidebar
 			onNewSession={() => {}}
 			onMore={() => {}}
 			onSelectSession={() => {}}
