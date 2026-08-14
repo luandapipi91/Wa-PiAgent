@@ -159,11 +159,17 @@ function createWindow() {
 			preload: path.join(__dirname, "preload.cjs"),
 		},
 	});
+	// 外链子窗口集合：移除 parent 后，主窗口收起时需手动同步隐藏子窗口
+	const childWindows = new Set();
 	// 点关闭按钮 → 最小化到托盘，不退出
 	mainWindow.on("close", (event) => {
 		if (!isQuitting) {
 			event.preventDefault();
 			mainWindow.hide();
+			// 主窗口收起时同步隐藏所有外链子窗口（原先靠 parent owned-window 行为自动跟随）
+			for (const w of childWindows) {
+				if (!w.isDestroyed()) w.hide();
+			}
 			if (process.platform === "darwin") app.dock.hide();
 		}
 	});
@@ -191,8 +197,8 @@ function createWindow() {
 	// 地址栏支持显示当前地址 / 复制地址 / 修改地址后导航；网页内容不挂 preload、sandbox 开启。
 	const openInChildWindow = (url) => {
 		const BAR_HEIGHT = 44;
+		// 不设置 parent：macOS 上带 parent 的 child window 拖到不同缩放的扩展显示器会消失（Electron #31815）
 		const child = new BrowserWindow({
-			parent: mainWindow,
 			title: "WA PI Agent",
 			width: 1000,
 			height: 700,
@@ -204,6 +210,7 @@ function createWindow() {
 				preload: path.join(__dirname, "preload.cjs"),
 			},
 		});
+		childWindows.add(child);
 		child.loadFile(path.join(__dirname, "assets", "link-window.html"));
 
 		// 网页内容视图：外部内容，保持最强隔离（不挂 preload）
@@ -257,6 +264,7 @@ function createWindow() {
 		});
 
 		child.on("closed", () => {
+			childWindows.delete(child);
 			ipcMain.removeListener("linkwin:load", onLoad);
 			ipcMain.removeListener("linkwin:ready", onReady);
 		});

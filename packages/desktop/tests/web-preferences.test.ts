@@ -48,6 +48,18 @@ test("外链子窗口使用本地地址栏壳 + WebContentsView 承载内容", (
 	expect(src).toContain("normalizeUrl");
 });
 
+test("外链子窗口不设置 parent: mainWindow（macOS 多屏拖动消失防回归）", () => {
+	// Electron #31815：macOS 上带 parent 的 child window 拖到不同缩放的扩展显示器会消失。
+	// 移除 parent 后需确保不回归。
+	expect(src).not.toContain("parent: mainWindow");
+});
+
+test("主窗口收起时同步隐藏所有外链子窗口（补偿移除 parent 后的 owned-window 跟随行为）", () => {
+	// 移除 parent 后，主窗口 hide 不再自动隐藏子窗口，需手动同步隐藏。
+	expect(src).toContain("childWindows");
+	expect(src).toContain("if (!w.isDestroyed()) w.hide();");
+});
+
 test("地址栏壳页面包含地址输入/复制/导航交互", () => {
 	const html = readFileSync(
 		join(import.meta.dir, "..", "src", "assets", "link-window.html"),
