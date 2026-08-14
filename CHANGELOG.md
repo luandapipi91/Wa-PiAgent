@@ -2,6 +2,17 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — feat(scheduler): TaskDetailView 任务详情视图 + ExecutionRecords 执行记录列表
+
+### 变更
+
+- 新建 `packages/frontend/src/components/automation/TaskDetailView.tsx`：任务详情视图。选中任务时渲染四宫格信息（计划时间/执行角色/推送渠道/工作目录）+ 任务指令（`$/skill` 渲染为紫色标签、`@bot_xxx` 渲染为绿色标签）+ 最近执行记录（该任务前 3 条）；未选中时显示空态提示；含「立即执行」「编辑」操作按钮，分别调用 `runTaskNow`/`startEdit`；选中任务变化时 `useEffect` 拉取该任务的 `loadRecords(taskId)`。
+- 新建 `packages/frontend/src/components/automation/ExecutionRecords.tsx`：执行记录列表。顶部筛选栏（按天/周/月时间筛选 + 任务下拉 + 状态下拉），记录卡片显示状态图标（✓/✕/⟳）、taskName、耗时、推送标记、错误信息；空态友好提示；挂载时 `loadRecords()` 拉取全部记录。
+- 新建 `packages/frontend/src/utils/channel-mentions.ts`：前端版 `parseChannelMentions` 纯函数，从 prompt 提取 `@bot_xxx` 并去重返回 bot ID 列表，与后端 `packages/kernel/src/tools/robot-push.ts` 保持相同契约。
+- 新增测试：`channel-mentions.test.ts`（7 例单元测试，镜像后端用例）、`TaskDetailView.test.tsx`（8 例组件测试）、`ExecutionRecords.test.tsx`（8 例组件测试），均用 bun:test + @testing-library/react，mock 全部 store。
+- 与简报的关键偏差（均已校正）：① CSS 变量 `--border-color` 在 styles.css 中不存在，项目用 `--hairline`，按钮/下拉框边框已替换；② `React.ReactNode` 在 `jsx: react-jsx` 下需显式导入，改用 `import type { ReactNode }`；③ 移除未使用的 `setView` 解构；④ `RecordRow` 的 `record` 参数用 `ExecutionRecord` 类型替代 `any`。
+- 影响范围：纯新增 3 个源文件 + 3 个测试文件，不改已有业务逻辑；组件尚未挂载到父视图（挂载属后续任务）。
+
 ## 2026-08-15 — fix(scheduler): TaskEditForm + TaskPromptComposer 审查修复 3 项
 
 ### 变更
