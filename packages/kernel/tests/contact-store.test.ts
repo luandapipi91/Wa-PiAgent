@@ -1,5 +1,6 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -64,4 +65,27 @@ test("文件损坏/不存在 → 空列表不抛错", async () => {
 		fs.writeFile(file, "{invalid json", "utf8"),
 	);
 	await expect(listContacts("ch_a", file)).resolves.toEqual([]);
+});
+
+test("listContacts 空 channelId 返回全部", async () => {
+	await upsertContact({ channelId: "ch_a", kind: "person", userId: "u1" }, file);
+	await upsertContact({ channelId: "ch_b", kind: "person", userId: "u2" }, file);
+	const list = await listContacts(undefined, file);
+	expect(list).toHaveLength(2); // 无 channelId → 不过滤，返回全部
+});
+
+test("upsert 写盘 schemaVersion:1 且 contacts 为数组", async () => {
+	await upsertContact({ channelId: "ch_a", kind: "person", userId: "u1" }, file);
+	const raw = JSON.parse(await readFile(file, "utf8"));
+	expect(raw.schemaVersion).toBe(1);
+	expect(Array.isArray(raw.contacts)).toBe(true);
+});
+
+test("listContacts 按 lastChatAt 倒序排序", async () => {
+	await upsertContact({ channelId: "ch_a", kind: "person", userId: "u_a" }, file);
+	await new Promise((r) => setTimeout(r, 5));
+	await upsertContact({ channelId: "ch_a", kind: "person", userId: "u_b" }, file);
+	const list = await listContacts("ch_a", file);
+	expect(list).toHaveLength(2);
+	expect(list[0].userId).toBe("u_b"); // lastChatAt 更大的（后插入）在前
 });
