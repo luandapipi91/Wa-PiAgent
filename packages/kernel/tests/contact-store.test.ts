@@ -81,6 +81,16 @@ test("upsert 写盘 schemaVersion:1 且 contacts 为数组", async () => {
 	expect(Array.isArray(raw.contacts)).toBe(true);
 });
 
+test("并发 upsert 不丢更新", async () => {
+	await Promise.all([
+		upsertContact({ channelId: "ch_a", kind: "person", userId: "u1" }, file),
+		upsertContact({ channelId: "ch_a", kind: "person", userId: "u2" }, file),
+		upsertContact({ channelId: "ch_a", kind: "person", userId: "u3" }, file),
+	]);
+	const list = await listContacts("ch_a", file);
+	expect(list).toHaveLength(3); // 3 条都不丢
+});
+
 test("listContacts 按 lastChatAt 倒序排序", async () => {
 	await upsertContact({ channelId: "ch_a", kind: "person", userId: "u_a" }, file);
 	await new Promise((r) => setTimeout(r, 5));
