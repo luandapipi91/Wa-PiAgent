@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -27,6 +28,13 @@ describe("scheduler-store", () => {
 		expect(tasks).toEqual([]);
 	});
 
+	test("loadScheduledTasks：文件损坏 → 空数组（不抛错）", async () => {
+		const file = join(dir, "tasks.json");
+		await writeFile(file, "}}invalid json{{", "utf8");
+		const tasks = await loadScheduledTasks(file);
+		expect(tasks).toEqual([]);
+	});
+
 	test("saveScheduledTasks/loadScheduledTasks：往返一致", async () => {
 		const tasks: ScheduledTask[] = [
 			{
@@ -44,6 +52,13 @@ describe("scheduler-store", () => {
 		const loaded = await loadScheduledTasks(join(dir, "tasks.json"));
 		expect(loaded).toHaveLength(1);
 		expect(loaded[0].name).toBe("测试任务");
+	});
+
+	test("loadExecutionRecords：文件损坏 → 空数组（不抛错）", async () => {
+		const file = join(dir, "records.json");
+		await writeFile(file, "}}invalid json{{", "utf8");
+		const records = await loadExecutionRecords(file);
+		expect(records).toEqual([]);
 	});
 
 	test("appendExecutionRecord：逐条追加到现有记录", async () => {
