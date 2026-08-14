@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useChannelsStore } from "../store/channels";
+import { useContactsStore } from "../store/contacts";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import type { ChannelConversationInfo } from "@wa-pi/shared";
 import { api } from "../api-client";
@@ -34,11 +35,21 @@ export function ImConversationList({ onSelectSession }: Props) {
 	useEffect(() => {
 		void useChannelsStore.getState().loadConversations();
 	}, []);
-	/** 列表项标题：单聊显示 userid；群聊显示 群聊(chatId 前8位) · 发送者（v1 拿不到用户昵称，用 userid 区分） */
-	const titleOf = (c: ChannelConversationInfo) =>
-		c.chatType === "group"
+	/** 列表项标题：单聊显示备注名(回退 userid)；群聊显示备注名(回退 群聊(chatId前8)·发送者) */
+	const contacts = useContactsStore((s) => s.contacts);
+	const titleOf = (c: ChannelConversationInfo) => {
+		const remark = contacts.find(
+			(x) =>
+				x.channelId === c.channelId &&
+				(c.chatType === "group"
+					? x.kind === "group" && x.chatId === c.chatId
+					: x.kind === "person" && x.userId === c.fromUserId),
+		)?.remark;
+		if (remark) return remark;
+		return c.chatType === "group"
 			? t("im.groupTitle", { chatId: c.chatId.slice(0, 8), from: c.fromUserId })
 			: c.chatId;
+	};
 
 	// 右键菜单 + 删除确认
 	const [menu, setMenu] = useState<MenuState | null>(null);
