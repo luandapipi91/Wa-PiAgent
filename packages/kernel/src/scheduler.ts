@@ -1,4 +1,8 @@
-import type { TaskSchedule, ScheduledTask, ExecutionRecord } from "@wa-pi/shared";
+import type {
+	TaskSchedule,
+	ScheduledTask,
+	ExecutionRecord,
+} from "@wa-pi/shared";
 import { loadScheduledTasks } from "./scheduler-store";
 
 /** 将 schedule 配置转换为标准 5 字段 cron 表达式（分 时 日 月 周） */
@@ -45,8 +49,15 @@ export class TaskScheduler {
 	async start(): Promise<void> {
 		const tasks = await loadScheduledTasks(this.deps.tasksFile);
 		for (const task of tasks) {
-			if (task.enabled) {
+			if (!task.enabled) continue;
+			try {
 				this.scheduleTask(task);
+			} catch (err) {
+				this.deps.broadcast({
+					type: "scheduled-task:error",
+					taskId: task.id,
+					error: String(err),
+				});
 			}
 		}
 	}
