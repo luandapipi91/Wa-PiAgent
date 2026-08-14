@@ -577,6 +577,7 @@ const en = {
 	sidebar: {
 		tabTasks: "Tasks",
 		tabIm: "IM",
+		tabAutomation: "Automation",
 		newSession: "＋ New session",
 		scopeProject: "Projects",
 		scopeRecent: "Recent",
