@@ -2387,7 +2387,7 @@ export class WSServer {
 					this.broadcast({ type: "contacts:changed" });
 					reply({
 						type: "contacts:current",
-						contacts: await this.opts.channelManager.listContacts(c.channelId),
+						contacts: await this.opts.channelManager.listContacts(),
 					});
 				} catch (err) {
 					reply({
