@@ -614,6 +614,17 @@ export interface ChannelConversationInfo {
 	lastMessagePreview: string;
 	updatedAt: number;
 }
+/** 通讯录条目：一个机器人下对话过的人（person）或群（group）。kind=person 用 userId，kind=group 用 chatId */
+export interface ContactEntity {
+	id: string; // ct_xxx
+	channelId: string; // 所属机器人 ch_xxx
+	kind: "person" | "group";
+	userId?: string; // kind=person：企微 userid（单聊的 fromUserId）
+	chatId?: string; // kind=group：群 chatid
+	remark?: string; // 备注名（用户重命名结果）
+	firstChatAt: number; // 首次对话时间戳 ms
+	lastChatAt: number; // 最近对话时间戳 ms
+}
 export interface ChannelsListRequest {
 	type: "channels:list";
 }
@@ -657,6 +668,9 @@ export interface ChannelsChangedEvent {
 }
 export interface ChannelConversationsChangedEvent {
 	type: "channel-conversations:changed";
+}
+export interface ContactsChangedEvent {
+	type: "contacts:changed";
 }
 
 export type WSClientEvent =
@@ -1332,6 +1346,7 @@ export type WSServerEvent =
 	| ChannelConversationsResult
 	| ChannelsChangedEvent
 	| ChannelConversationsChangedEvent
+	| ContactsChangedEvent
 	| TrashListResult
 	| TrashOpResult;
 
