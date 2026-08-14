@@ -1,7 +1,6 @@
 import type {
 	WSClientEvent,
 	WSServerEvent,
-	AgentName,
 	McpServerStatus,
 	McpToolSummary,
 	TokenUsageSummary,
@@ -11,7 +10,8 @@ import {
 	SYSTEM_PROJECT_ID,
 	SYSTEM_PROJECT_CWD,
 	resolveSessionCwd,
-	WA_PI_DIR,
+	SCHEDULED_TASKS_FILE,
+	EXECUTION_RECORDS_FILE,
 } from "@wa-pi/shared";
 import type { DirEntry } from "@wa-pi/shared";
 import type { ConfigStore } from "./config-store";
@@ -67,8 +67,10 @@ import { registerMemoryRoutes } from "./routes/memory";
 import { registerMcpRoutes } from "./routes/mcp";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerChannelRoutes } from "./routes/channels";
+import { createSchedulerRoutes } from "./routes/scheduler";
 import { ChannelConflictError } from "./channel-manager";
 import { registerFileRoutes } from "./routes/files";
+import type { TaskScheduler } from "./scheduler";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
 import { listPresets, getPreset, createAgentFromPreset } from "./preset-store";
 
@@ -394,6 +396,8 @@ export class WSServer {
 	private sseBus = new SseBus();
 	private router = new HttpRouter();
 	private sseHeartbeat: ReturnType<typeof setInterval> | null = null;
+	/** 定时任务调度器（后续任务注入实例；null 时路由 CRUD 仍可用，仅跳过 cron 同步） */
+	private scheduler: TaskScheduler | null = null;
 	private _promptLocks = new Map<string, Promise<void>>();
 	private _abortVersions = new Map<string, number>();
 	private _pendingAbortOnStart = new Set<string>(); // abort 时 agent 未启动则标记，agent_start 时执行 // abort 时递增，旧链 handler 版本不匹配则跳过
@@ -486,6 +490,18 @@ export class WSServer {
 		registerSettingsRoutes(this.router, callApi, ctx);
 		registerChannelRoutes(this.router, callApi, ctx);
 		registerFileRoutes(this.router, callApi, ctx);
+
+		// 定时任务路由：直接读写 JSON 文件，不走 callApi 适配器
+		const schedulerRoutes = createSchedulerRoutes(
+			SCHEDULED_TASKS_FILE,
+			EXECUTION_RECORDS_FILE,
+			(task) => this.scheduler?.scheduleTask(task),
+			(taskId) => this.scheduler?.cancelTask(taskId),
+			async (_taskId) => {
+				// 立即执行：scheduler 实例由后续任务注入，此处暂为占位
+			},
+		);
+		schedulerRoutes(this.router, callApi, ctx);
 	}
 
 	async start(): Promise<void> {
