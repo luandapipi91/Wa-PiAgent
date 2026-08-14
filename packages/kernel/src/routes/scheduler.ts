@@ -53,9 +53,10 @@ function validateTaskBody(body: {
 	if (typeof body.prompt !== "string" || !body.prompt.trim())
 		return "prompt 不能为空";
 	const schedule = body.schedule as Partial<TaskSchedule> | undefined;
-	if (!schedule || typeof schedule !== "object")
-		return "schedule 不能为空";
-	if (!SCHEDULE_TYPES.includes(schedule.type as (typeof SCHEDULE_TYPES)[number]))
+	if (!schedule || typeof schedule !== "object") return "schedule 不能为空";
+	if (
+		!SCHEDULE_TYPES.includes(schedule.type as (typeof SCHEDULE_TYPES)[number])
+	)
 		return `schedule.type 必须是 ${SCHEDULE_TYPES.join("/")} 之一`;
 	if (typeof schedule.time !== "string" || !isValidTime(schedule.time))
 		return "schedule.time 必须是 HH:MM 格式（如 09:30，00-23:00-59）";
@@ -121,7 +122,11 @@ export function createSchedulerRoutes(
 			const tasks = await loadScheduledTasks(tasksFile);
 			const existing = tasks.find((t) => t.id === params.id);
 			if (!existing) return new Response("Not found", { status: 404 });
-			const merged = { ...existing, ...body, schedule: body.schedule ?? existing.schedule };
+			const merged = {
+				...existing,
+				...body,
+				schedule: body.schedule ?? existing.schedule,
+			};
 			const error = validateTaskBody(merged);
 			if (error)
 				return new Response(JSON.stringify({ error }), {
@@ -158,10 +163,7 @@ export function createSchedulerRoutes(
 		// 执行结果经 scheduled-task:completed SSE 广播，前端收到后刷新列表/记录。
 		r.add("POST", "/api/scheduled-tasks/:id/run", async (_req, params) => {
 			void onRunNow(params.id).catch((err) => {
-				console.error(
-					`[scheduler] 立即执行任务 ${params.id} 失败:`,
-					err,
-				);
+				console.error(`[scheduler] 立即执行任务 ${params.id} 失败:`, err);
 			});
 			return new Response(JSON.stringify({ ok: true }), {
 				headers: { "Content-Type": "application/json" },

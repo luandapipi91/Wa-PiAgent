@@ -300,10 +300,9 @@ export function App() {
 					break;
 				// 调度注册失败（cron 非法等）：toast 提示 + 刷新任务列表
 				case "scheduled-task:error":
-					useToastStore.getState().add(
-						`定时任务调度失败：${e.error ?? "未知错误"}`,
-						"error",
-					);
+					useToastStore
+						.getState()
+						.add(`定时任务调度失败：${e.error ?? "未知错误"}`, "error");
 					void useSchedulerStore.getState().loadTasks();
 					break;
 			}
@@ -565,8 +564,7 @@ export function App() {
 					<AutomationMain
 						autoView={autoView}
 						selectedTask={
-							schedulerTasks.find((t) => t.id === selectedTaskId) ??
-							null
+							schedulerTasks.find((t) => t.id === selectedTaskId) ?? null
 						}
 						editingTaskName={editingTask?.name ?? null}
 					/>

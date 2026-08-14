@@ -35,18 +35,16 @@ export function TaskDetailView() {
 		<div data-testid="task-detail-view">
 			{/* 操作按钮 */}
 			<div className="flex justify-end gap-2 mb-4">
-			<button
-				onClick={async () => {
-					// 触发即返回（执行结果经 scheduled-task:completed SSE 刷新）
-					try {
-						await runTaskNow(task.id);
-						useToastStore.getState().add("已触发执行", "success");
-					} catch {
-						useToastStore
-							.getState()
-							.add("触发执行失败，请稍后重试", "error");
-					}
-				}}
+				<button
+					onClick={async () => {
+						// 触发即返回（执行结果经 scheduled-task:completed SSE 刷新）
+						try {
+							await runTaskNow(task.id);
+							useToastStore.getState().add("已触发执行", "success");
+						} catch {
+							useToastStore.getState().add("触发执行失败，请稍后重试", "error");
+						}
+					}}
 					className="text-[10px] px-2 py-1 rounded cursor-pointer border"
 					style={{
 						background: "var(--surface-hover)",
