@@ -2,6 +2,16 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — feat(scheduler): TaskPromptComposer + TaskEditForm 任务编辑表单
+
+### 变更
+
+- 新建 `packages/frontend/src/components/automation/TaskPromptComposer.tsx`：任务指令富文本输入框。按下 `@` 键弹出已连接 IM 渠道列表（从 `useChannelsStore` 的 bots 按 status=="connected" 过滤），选中后把光标前最近一个 `@` 替换为 `@botId`（与后端 `@bot_xxx` 解析约定一致）；`$ 插入技能` / `@ 关联 IM 渠道` 提示行。
+- 新建 `packages/frontend/src/components/automation/TaskEditForm.tsx`：定时任务新建/编辑完整表单。editingTask===null 为新建、否则回填字段；含任务名、计划时间（daily/weekdays/weekly/monthly/custom 五种调度 + 对应 time/dayOfWeek/dayOfMonth/cron 控件）、执行角色（智能体，从 `useAgentsStore.list` 渲染，选中态高亮）、任务指令（内嵌 TaskPromptComposer）、工作目录（从 `useProjectsStore.projects` 渲染）；必填项（名称/智能体/指令）齐全后保存按钮才启用；保存调用 store 的 createTask/updateTask，取消调用 setView("detail")。
+- 新建测试 `TaskPromptComposer.test.tsx`（3 例）、`TaskEditForm.test.tsx`（6 例）：bun:test + @testing-library/react，mock 全部 store，覆盖渲染、@ 弹渠道、选中插入、新建/编辑保存、禁用态、取消。
+- 与简报的关键偏差（均已校正）：① 简报用 `useAgentsStore().agents` + `agent.id`，实际 store 字段为 `list` 且 `AgentConfig` 以 `displayName` 为唯一标识（无 id），故 agentId 取 `agent.displayName`；② CSS 变量 `--border-color`/`--accent-bg` 在 styles.css 中不存在，项目用 `--hairline`/`--accent-soft`，已替换；③ 简报测试用 vitest+jest-dom，本仓库统一 bun:test，沿用 AutomationSidebar.test.tsx 约定；④ 工作目录 select 简报为占位，实际接入 `useProjectsStore`。
+- 影响范围：纯新增两个组件 + 测试，不改已有业务逻辑；组件尚未挂载到父视图（挂载属后续任务）。
+
 ## 2026-08-14 — fix(kernel): 切换智能体后立即发消息报「会话未启动」
 
 ### 变更
