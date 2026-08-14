@@ -2,12 +2,12 @@
 
 ## 概述
 
-在 HiAgent 中新增「自动化」功能模块，允许用户创建定时任务，按计划自动触发智能体执行，并支持将执行结果推送到已绑定的 IM 渠道。
+在 HiAgent 中新增「自动化」功能模块，允许用户创建定时任务，按计划自动触发智能体执行。任务指令中通过 `@` 标记 IM 渠道，Agent 执行时根据指令自主决定推送内容和推送目标。
 
 ## 设计决策
 
 | 决策项 | 选择 | 理由 |
-|--------|------|------|
+| -------- | ------ | ------ |
 | 入口位置 | 侧边栏新 Tab（任务 \| IM \| **自动化**） | 与现有导航同级，切换便捷 |
 | 角色选择 | 复用已有智能体（Agent） | 无需新建角色体系 |
 | 快捷命令 | `$` 插入技能，`@` 关联 IM 渠道 | `$` 与现有触发符一致；`@` 在任务上下文中指向 IM 而非智能体 |
@@ -18,19 +18,23 @@
 ### 整体流程
 
 ```
-用户创建任务（选择智能体 + 设定时间 + 编写指令 + @IM渠道）
+用户创建任务（选择智能体 + 设定时间 + 编写指令）
+  指令中用 @企微群 @飞书群 标记可推送的 IM 渠道
        │
        ▼
   定时调度引擎（kernel 进程内 cron）
        │  到达计划时间
        ▼
-  创建新会话（使用选中智能体 + 工作目录）
-       │  注入 robot_push 工具（若绑定了 IM 渠道）
-       ▼
-  发送任务指令（解析 $技能 调用、@渠道 绑定）
+  解析指令中的 @ 标记 → 提取可用渠道列表
        │
        ▼
-  智能体执行 ──→ 自主调用 robot_push 工具推送消息
+  创建新会话（使用选中智能体 + 工作目录）
+       │  注入 robot_push 工具（携带可用渠道列表）
+       ▼
+  发送任务指令（含 @渠道 上下文）
+       │
+       ▼
+  智能体执行 ──→ 根据 @ 提示自主选择渠道调用 robot_push
        │
        ▼
   记录执行结果（成功/失败 + 推送状态）
@@ -68,8 +72,6 @@ interface ScheduledTask {
   agentId: string;               // 执行角色（已有智能体 ID）
   prompt: string;                // 任务指令（含 $skill 标记和 @channel 标记）
   projectId?: string;            // 工作目录（项目 ID）
-  channelId?: string;            // 关联的 IM 渠道 ID（机器人推送目标）
-  channelName?: string;          // IM 渠道显示名（冗余，用于卡片展示）
   enabled: boolean;              // 启用/禁用开关
   createdAt: number;
   updatedAt: number;
@@ -123,12 +125,14 @@ const [tab, setTab] = useState<'tasks' | 'im' | 'automation'>('tasks');
 **新建文件：** `packages/frontend/src/components/automation/AutomationSidebar.tsx`
 
 紧凑任务卡片列表，每张卡片包含：
+
 - 任务标题 + 启用开关（toggle）
 - 计划时间（如「每天 09:30」）
 - IM 推送标记（绿色 📨 徽章，仅绑定了渠道时显示）
 - 选中态高亮（蓝色边框 + 背景）
 
 顶部工具栏：
+
 - 任务计数 `定时任务 (n)`
 - `+ 新建` 按钮
 
@@ -140,19 +144,23 @@ const [tab, setTab] = useState<'tasks' | 'im' | 'automation'>('tasks');
 **新建文件：** `packages/frontend/src/components/automation/TaskDetailView.tsx`
 
 四宫格信息卡片：
+
 - **计划时间**：🕐 每天 09:30
 - **执行角色**：🤖 智能体名称
 - **推送渠道**：📨 IM 渠道名（无绑定则显示「无」）
 - **工作目录**：📂 项目名
 
 任务指令区域：
+
 - 展示 prompt 原文，`$技能` 显示为紫色标签，`@渠道` 显示为绿色标签
 
 操作按钮：
+
 - `▶ 立即执行`：手动触发一次（不等计划时间）
 - `✏️ 编辑`：切换到编辑表单
 
 最近执行（最近 3 条）：
+
 - 成功 ✓ / 失败 ✕ / 运行中 ⟳
 - 时间 + 耗时 + 推送状态
 
@@ -163,7 +171,7 @@ const [tab, setTab] = useState<'tasks' | 'im' | 'automation'>('tasks');
 表单字段：
 
 | 字段 | 类型 | 说明 |
-|------|------|------|
+| ------ | ------ | ------ |
 | 任务名称 | text input | 必填 |
 | 计划时间 | select + time picker | 频率下拉（每天/工作日/每周/每月/自定义 Cron）+ 时间输入 |
 | 执行角色 | 智能体选项卡 | 从已有智能体列表中选择，单选 |
@@ -179,18 +187,20 @@ const [tab, setTab] = useState<'tasks' | 'im' | 'automation'>('tasks');
 复用现有 `quick-invoke/trigger.ts` 的检测逻辑，但行为调整：
 
 | 触发符 | 现有行为（聊天） | 任务指令行为 |
-|--------|------------------|-------------|
+| -------- | ------------------ | ------------- |
 | `$` | 插入技能 | **插入技能**（不变） |
 | `@` | 插入智能体 | **关联 IM 渠道**（改为渠道列表） |
 | `#` | 插入文件 | 插入文件（不变） |
 | `/` | 插入命令 | 不启用 |
 
 输入框底部提示行：
+
 ```
 ⌨️ $ 插入技能    @ 关联 IM 渠道
 ```
 
 选中后在文本中插入标签：
+
 - `$daily-report` → `<span class="chip-skill">$/daily-report</span>`
 - `@企微群` → `<span class="chip-im">@企微群</span>`
 
@@ -201,11 +211,13 @@ const [tab, setTab] = useState<'tasks' | 'im' | 'automation'>('tasks');
 **新建文件：** `packages/frontend/src/components/automation/ExecutionRecords.tsx`
 
 筛选栏：
+
 - 时间维度：按天 / 按周 / 按月（按钮组）
 - 任务筛选：全部任务 / 指定任务（下拉）
 - 状态筛选：全部状态 / 成功 / 失败 / 运行中（下拉）
 
 记录列表，每条记录：
+
 - 状态图标（✓ 绿 / ✕ 红 / ⟳ 蓝）
 - 任务名称
 - 执行时间 + 耗时
@@ -217,31 +229,39 @@ const [tab, setTab] = useState<'tasks' | 'im' | 'automation'>('tasks');
 
 **新建文件：** `packages/kernel/src/tools/robot-push.ts`
 
-当定时任务绑定了 IM 渠道时，在创建执行会话时注入此工具：
+当任务指令中包含 `@渠道` 标记时，解析出可用渠道列表，在创建执行会话时注入此工具。Agent 根据指令中的 `@` 上下文自主决定推送什么、推送给谁：
 
 ```typescript
 // 工具定义
 {
   name: "robot_push",
-  description: "推送消息到已绑定的 IM 渠道（企微/飞书等）。在任务执行过程中，当你需要向用户推送结果、通知或提醒时调用此工具。",
+  description: "推送消息到 IM 渠道。根据任务指令中 @ 标记的渠道，选择目标渠道发送消息。",
   parameters: {
     type: "object",
     properties: {
+      channel: {
+        type: "string",
+        enum: ["企微群", "飞书群", ...],  // 动态填充：从 prompt @ 标记解析出的渠道名
+        description: "目标推送渠道名称"
+      },
       message: {
         type: "string",
         description: "要推送的消息内容，支持纯文本和 Markdown"
       }
     },
-    required: ["message"]
+    required: ["channel", "message"]
   }
 }
 ```
 
 执行逻辑：
-1. 获取当前任务绑定的 `channelId`
-2. 调用 `ChannelManager` 的出站消息接口发送消息
-3. 返回推送结果（成功/失败）给 Agent
-4. 记录推送结果到 ExecutionRecord
+
+1. 从 prompt 中解析所有 `@channelId` 标记，提取可用渠道列表
+2. 将渠道列表注入工具的 `channel` 枚举参数
+3. Agent 根据指令上下文选择渠道并调用工具
+4. 调用 `ChannelManager` 的出站消息接口发送消息
+5. 返回推送结果（成功/失败）给 Agent
+6. 记录推送结果到 ExecutionRecord
 
 ### 7. 定时调度引擎
 
@@ -266,8 +286,9 @@ class TaskScheduler {
   private async executeTask(task: ScheduledTask): Promise<void> {
     // 1. 创建执行记录（status: running）
     // 2. 通过 AgentManager 创建新会话（指定 agentId + projectId）
-    // 3. 若绑定 channelId，注入 robot_push 工具
-    // 4. 发送 prompt（解析 $skill 和 @channel 标记）
+    // 3. 从 prompt 解析 @channel 标记，提取渠道列表
+    // 4. 若渠道列表非空，注入 robot_push 工具（携带渠道枚举）
+    // 5. 发送 prompt（含 $skill 和 @channel 上下文）
     // 5. 等待执行完成
     // 6. 更新执行记录（status: success/failed + pushResults）
     // 7. 计算并设置下次执行时间
@@ -276,6 +297,7 @@ class TaskScheduler {
 ```
 
 调度策略：
+
 - 每个任务使用 `setTimeout` 定时到下次触发时间，触发后重新计算下次
 - 启动时检查错过的任务（应用关闭期间），可选择补执行或跳过
 - 「保持系统唤醒」开关通过 `caffeinate`（macOS）/ 电源管理 API 实现（可选，后期迭代）
@@ -299,7 +321,7 @@ class TaskScheduler {
 **新建文件：** `packages/kernel/src/routes/scheduler.ts`
 
 | 方法 | 路径 | 说明 |
-|------|------|------|
+| ------ | ------ | ------ |
 | GET | `/api/scheduled-tasks` | 获取所有定时任务 |
 | POST | `/api/scheduled-tasks` | 创建定时任务 |
 | PUT | `/api/scheduled-tasks/:id` | 更新定时任务 |
@@ -311,7 +333,7 @@ class TaskScheduler {
 ### SSE 事件
 
 | 事件 | 触发时机 | 数据 |
-|------|----------|------|
+| ------ | ---------- | ------ |
 | `scheduled-task:started` | 任务开始执行 | taskId, recordId |
 | `scheduled-task:completed` | 任务执行完成 | taskId, recordId, status |
 | `scheduled-task:pushed` | 消息推送完成 | taskId, channelId, success |
