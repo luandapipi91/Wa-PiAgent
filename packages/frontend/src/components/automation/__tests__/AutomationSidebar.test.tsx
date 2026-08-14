@@ -9,6 +9,7 @@ import { AutomationSidebar } from "../AutomationSidebar";
 const selectTaskMock = mock();
 const startCreateMock = mock();
 const loadTasksMock = mock();
+const setViewMock = mock();
 
 mock.module("../../../store/scheduler", () => ({
 	useSchedulerStore: () => ({
@@ -32,6 +33,7 @@ mock.module("../../../store/scheduler", () => ({
 		selectTask: selectTaskMock,
 		startCreate: startCreateMock,
 		loadTasks: loadTasksMock,
+		setView: setViewMock,
 	}),
 }));
 
@@ -39,6 +41,7 @@ beforeEach(() => {
 	selectTaskMock.mockReset();
 	startCreateMock.mockReset();
 	loadTasksMock.mockReset();
+	setViewMock.mockReset();
 	cleanup();
 });
 
@@ -57,7 +60,13 @@ describe("AutomationSidebar", () => {
 
 	test("点击新建按钮调用 startCreate", () => {
 		render(<AutomationSidebar />);
-		fireEvent.click(screen.getByText(/新建/));
+		fireEvent.click(screen.getByTestId("automation-new-btn"));
 		expect(startCreateMock).toHaveBeenCalled();
+	});
+
+	test("点击执行记录按钮调用 setView(records)", () => {
+		render(<AutomationSidebar />);
+		fireEvent.click(screen.getByTestId("automation-records-btn"));
+		expect(setViewMock).toHaveBeenCalledWith("records");
 	});
 });

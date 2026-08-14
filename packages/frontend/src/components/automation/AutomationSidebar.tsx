@@ -7,7 +7,7 @@ import type { ScheduledTask } from "@wa-pi/shared";
  * 在 useEffect 中调用 loadTasks 拉取最新任务；点击卡片选中，点击「+ 新建」进入新建态。
  */
 export function AutomationSidebar() {
-	const { tasks, selectedTaskId, selectTask, startCreate, loadTasks } =
+	const { tasks, selectedTaskId, selectTask, startCreate, loadTasks, setView } =
 		useSchedulerStore();
 
 	useEffect(() => {
@@ -24,14 +24,27 @@ export function AutomationSidebar() {
 				>
 					定时任务 ({tasks.length})
 				</span>
-				<button
-					onClick={startCreate}
-					className="text-[10px] px-2 py-0.5 rounded border-0 cursor-pointer"
-					style={{ background: "var(--accent)", color: "white" }}
-					data-testid="automation-new-btn"
-				>
-					+ 新建
-				</button>
+				<div className="flex gap-1">
+					<button
+						onClick={() => setView("records")}
+						className="text-[10px] px-2 py-0.5 rounded border-0 cursor-pointer"
+						style={{
+							background: "var(--surface-hover)",
+							color: "var(--text-secondary)",
+						}}
+						data-testid="automation-records-btn"
+					>
+						执行记录
+					</button>
+					<button
+						onClick={startCreate}
+						className="text-[10px] px-2 py-0.5 rounded border-0 cursor-pointer"
+						style={{ background: "var(--accent)", color: "white" }}
+						data-testid="automation-new-btn"
+					>
+						+ 新建
+					</button>
+				</div>
 			</div>
 
 			{/* 任务列表 */}
