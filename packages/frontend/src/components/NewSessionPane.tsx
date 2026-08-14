@@ -10,11 +10,15 @@ import { useAgentsStore, topAgentsByRecency } from "../store/agents";
 import { useProvidersStore } from "../store/providers";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { useSessionStore } from "../store/session";
+import { useNewSessionExplorerStore } from "../store/new-session-explorer";
 import { useUiPrefsStore } from "../store/ui-prefs";
 import { api } from "../api-client";
 import { expandTokens } from "../quick-invoke/tokens";
 import { ComposerInput } from "./ui/ComposerInput";
 import { AgentDropdown } from "./ui/AgentDropdown";
+import { ExplorerPanel } from "./ExplorerPanel";
+import { SidebarResizer } from "./SidebarResizer";
+import { Icon } from "./ui/Icon";
 import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
@@ -50,6 +54,8 @@ export function NewSessionPane({
 	const { projects, currentProjectId, sessions } = useProjectsStore();
 	const agents = useAgentsStore((s) => s.list);
 	const defaultAgent = useUiPrefsStore((s) => s.defaultAgent);
+	const explorerOpen = useNewSessionExplorerStore((s) => s.open);
+	const explorerWidth = useNewSessionExplorerStore((s) => s.width);
 	// 默认选中最近使用的智能体（pendingAgent 优先）；空列表时为 null（发送前置条件拦截）
 	const [agentName, setAgentName] = useState<AgentName | null>(
 		pickDefaultAgent(agents, sessions, pendingAgent, defaultAgent),
@@ -61,6 +67,8 @@ export function NewSessionPane({
 		projects[0]?.id ??
 		null;
 	const [projectId, setProjectId] = useState<string | null>(initialProject);
+	// 文件浏览侧栏根目录：跟随当前选中项目的 cwd（未选项目为空 → 入口禁用 + 空态兜底）
+	const workspaceDir = projects.find((p) => p.id === projectId)?.cwd ?? "";
 	// currentProjectId 变化时同步（点项目旁 + 号时可能已在新建页，不会重新挂载）
 	useEffect(() => {
 		if (currentProjectId) setProjectId(currentProjectId);
@@ -277,66 +285,139 @@ export function NewSessionPane({
 	};
 
 	return (
-		<div
-			className="flex-1 flex flex-col items-center justify-center p-10"
-			data-testid="new-session-pane"
-		>
-			<h2 className="text-[calc(26px*var(--font-scale))] font-extrabold tracking-tight text-primary mb-2">
-				{t("newSession.title")}
-			</h2>
-			<p className="text-sm text-secondary mb-7">{t("newSession.subtitle")}</p>
-			<div className="w-full max-w-2xl mb-4 flex gap-2 items-center">
-				<select
-					value={projectId ?? ""}
-					onChange={(e) => setProjectId(e.target.value || null)}
-					className="flex-1 min-w-0 bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[calc(12.5px*var(--font-scale))]"
-					data-testid="project-select"
+		<div className="flex-1 flex min-w-0" data-testid="new-session-pane">
+			{/* 主列：居中内容 + 右上角文件树开关 */}
+			<div className="relative flex-1 flex flex-col items-center justify-center p-10 min-w-0">
+				<button
+					type="button"
+					className="fv-btn fv-btn--icon absolute top-4 right-4 disabled:opacity-40 disabled:cursor-not-allowed"
+					data-testid="btn-new-session-explorer"
+					data-active={explorerOpen ? "true" : "false"}
+					aria-expanded={explorerOpen}
+					aria-label={t("session.projectFiles")}
+					onClick={() => useNewSessionExplorerStore.getState().toggle()}
+					disabled={!projectId}
+					title={
+						projectId
+							? t("session.projectFiles")
+							: t("newSession.noProjectOption")
+					}
+					style={
+						explorerOpen
+							? { color: "var(--accent)" }
+							: { color: "var(--text-tertiary)" }
+					}
 				>
-					{projects.length === 0 && (
-						<option value="">{t("newSession.noProjectOption")}</option>
-					)}
-					{projects.map((p) => (
-						<option key={p.id} value={p.id}>
-							{p.id === SYSTEM_PROJECT_ID
-								? `🏠 ${t("projectList.systemProjectName")}`
-								: `${p.name} ${p.cwd}`}
-						</option>
-					))}
-				</select>
-				<AgentDropdown
-					agents={agents}
-					value={agentName}
-					onPick={(name) => setAgentName(name)}
+					<Icon
+						name="folder"
+						size="1em"
+						className="text-[calc(18px*var(--font-scale))]"
+					/>
+				</button>
+
+				<h2 className="text-[calc(26px*var(--font-scale))] font-extrabold tracking-tight text-primary mb-2">
+					{t("newSession.title")}
+				</h2>
+				<p className="text-sm text-secondary mb-7">
+					{t("newSession.subtitle")}
+				</p>
+				<div className="w-full max-w-2xl mb-4 flex gap-2 items-center">
+					<select
+						value={projectId ?? ""}
+						onChange={(e) => setProjectId(e.target.value || null)}
+						className="flex-1 min-w-0 bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[calc(12.5px*var(--font-scale))]"
+						data-testid="project-select"
+					>
+						{projects.length === 0 && (
+							<option value="">{t("newSession.noProjectOption")}</option>
+						)}
+						{projects.map((p) => (
+							<option key={p.id} value={p.id}>
+								{p.id === SYSTEM_PROJECT_ID
+									? `🏠 ${t("projectList.systemProjectName")}`
+									: `${p.name} ${p.cwd}`}
+							</option>
+						))}
+					</select>
+					<AgentDropdown
+						agents={agents}
+						value={agentName}
+						onPick={(name) => setAgentName(name)}
+					/>
+				</div>
+				<ComposerInput
+					text={text}
+					setText={handleTextChange}
+					model={model}
+					setModel={(m) => {
+						setModel(m);
+						useComposerPrefsStore
+							.getState()
+							.setSessionPrefs(sessionId, { model: m });
+					}}
+					thinking={thinking}
+					setThinking={(t) => {
+						setThinking(t);
+						setDefaults({ thinking: t });
+					}}
+					attachments={attachments}
+					setAttachments={setAttachments}
+					projectId={projectId ?? undefined}
+					sessionId={sessionId}
+					onSend={handleSend}
+					sendDisabled={!projectId || !agentName}
+					placeholder={t("newSession.placeholder", {
+						agent: agentName ?? t("newSession.defaultAgent"),
+					})}
+					currentAgentName={agentName ?? undefined}
+					isRunning={false}
+					isNewSession={true}
 				/>
 			</div>
-			<ComposerInput
-				text={text}
-				setText={handleTextChange}
-				model={model}
-				setModel={(m) => {
-					setModel(m);
-					useComposerPrefsStore
-						.getState()
-						.setSessionPrefs(sessionId, { model: m });
-				}}
-				thinking={thinking}
-				setThinking={(t) => {
-					setThinking(t);
-					setDefaults({ thinking: t });
-				}}
-				attachments={attachments}
-				setAttachments={setAttachments}
-				projectId={projectId ?? undefined}
-				sessionId={sessionId}
-				onSend={handleSend}
-				sendDisabled={!projectId || !agentName}
-				placeholder={t("newSession.placeholder", {
-					agent: agentName ?? t("newSession.defaultAgent"),
-				})}
-				currentAgentName={agentName ?? undefined}
-				isRunning={false}
-				isNewSession={true}
-			/>
+
+			{/* 右侧文件树侧栏：开关由 new-session-explorer store 控制；双击文件弹窗预览 */}
+			{explorerOpen && (
+				<>
+					<SidebarResizer
+						side="right"
+						onResize={(w) => useNewSessionExplorerStore.getState().setWidth(w)}
+						testId="new-session-explorer-resizer"
+					/>
+					<aside
+						className="flex flex-col border-l border-hairline bg-surface"
+						style={{ width: explorerWidth, flexShrink: 0 }}
+						data-testid="new-session-explorer-aside"
+					>
+						<div className="flex items-center gap-1 px-3 py-2 border-b border-hairline">
+							<span className="text-[calc(12px*var(--font-scale))] font-semibold text-primary flex-1">
+								{t("session.projectFiles")}
+							</span>
+							<button
+								className="fv-btn"
+								onClick={() => useNewSessionExplorerStore.getState().toggle()}
+								title={t("session.collapsePanel")}
+								aria-label={t("session.collapsePanel")}
+							>
+								›
+							</button>
+						</div>
+						<div className="flex-1 overflow-auto">
+							{workspaceDir ? (
+								<ExplorerPanel
+									workspaceDir={workspaceDir}
+									onOpenFile={(path) =>
+										useSessionStore.getState().openFilePreview(path, sessionId)
+									}
+								/>
+							) : (
+								<div className="ep-empty">
+									{t("newSession.noProjectOption")}
+								</div>
+							)}
+						</div>
+					</aside>
+				</>
+			)}
 		</div>
 	);
 }

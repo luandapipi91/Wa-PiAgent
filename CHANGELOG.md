@@ -2,6 +2,27 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-14 — fix(desktop): 外链子窗口移除 parent，修复 macOS 多屏拖动消失
+
+### 变更
+
+- 外链子窗口（openInChildWindow）创建时移除 `parent: mainWindow`：macOS 上带 parent 的 child window 拖到不同缩放的扩展显示器会消失（Electron #31815，官方 workaround 即移除 parent）。
+- 补偿移除 parent 后缺失的 owned-window 跟随行为：新增 `childWindows` 集合追踪所有子窗口，主窗口收起（关闭→隐藏到托盘）时同步隐藏所有子窗口，子窗口关闭时从集合移除。
+- 影响范围：main.cjs（openInChildWindow + close 处理器）、web-preferences.test.ts（+2 防回归用例：不再出现 parent、主窗口收起时同步隐藏子窗口）。
+
+---
+
+## 2026-08-14 — feat(frontend): 新建会话页新增右侧文件浏览侧栏
+
+### 变更
+
+- 新建会话页（NewSessionPane）新增右侧文件树侧栏：复用 ExplorerPanel（文件浏览/双击预览/拖拽 @提及），右侧可拖拽宽度（SidebarResizer），主列居中内容与侧栏并排。
+- 双入口 toggle：主列右上角 folder 图标开关（未选项目时禁用）+ 侧栏标题栏 › 折叠按钮，与会话页文件树开关行为一致；状态独立持久化（localStorage `wa-pi:new-session-explorer-open/width`），默认收起。
+- 侧栏根目录跟随当前选中项目 cwd；未选项目时入口禁用 + 空态兜底。
+- 影响范围：NewSessionPane.tsx（布局改造 + 开关/侧栏）、新增 store/new-session-explorer.ts、新增 new-session-explorer.test.tsx（4 用例）。
+
+---
+
 ## 2026-08-13 — feat(frontend): 文件预览底部地址栏增加复制按钮
 
 ### 变更
