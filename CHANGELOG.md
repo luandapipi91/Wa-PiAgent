@@ -2,6 +2,18 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-14 — feat(scheduler): 定时任务类型定义 + 数据持久化层
+
+### 变更
+
+- 新增定时任务核心类型（ScheduledTask / TaskSchedule / ExecutionRecord / ExecutionStatus / PushResult）于 `packages/shared/src/types.ts`。
+- 新增路径常量 `SCHEDULED_TASKS_FILE` / `EXECUTION_RECORDS_FILE` 于 `packages/shared/src/constants.ts`（参照 CHANNELS_FILE 模式，带 WA_PI_DIR 前缀）。
+- 新建 `packages/kernel/src/scheduler-store.ts`：JSON 文件读写持久化层（load/save scheduledTasks + executionRecords，appendExecutionRecord），参照 channel-store.ts 的 readJson/writeJson 模式，文件缺失/损坏回退空值不抛错。
+- 新增 `packages/kernel/tests/scheduler-store.test.ts`：4 个测试覆盖空文件回退、往返一致、追加记录。
+- 影响范围：定时任务系统基础层（后续任务的地基）；纯新增，不改已有业务逻辑。
+
+---
+
 ## 2026-08-14 — fix(desktop): 外链子窗口移除 parent，修复 macOS 多屏拖动消失
 
 ### 变更
