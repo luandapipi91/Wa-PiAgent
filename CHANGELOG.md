@@ -2,6 +2,16 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — test(scheduler): 定时任务 E2E 完整流程测试 + 补执行记录 UI 入口
+
+### 变更
+
+- **E2E 测试**：新增 `packages/frontend/e2e/automation.spec.ts`（5 用例 serial 连贯流）——切 automation 页签验证列表/空态、新建完整流程（填表单+选每周计划+选「研发」角色+保存→列表展示）、任务卡片→详情四宫格与指令、「执行记录」入口→空态渲染→点卡片回详情、REST 删除→SSE 驱动列表恢复空态（顺带验证 scheduled-tasks:changed 刷新链路）。环境前置：假 provider 规避首启 onboarding 弹窗；本机真实 kernel/dev 占用 9776/5180 时用 WA_PI_E2E_WS_PORT/WA_PI_E2E_WEB_PORT/WA_PI_WEB_PORT 偏移端口；npx 会解析到全局 1.59.1 与项目 1.62.1 混载报错，须用 `./node_modules/.bin/playwright`。
+- **补 UI 缺口（TDD 驱动）**：E2E 发现 ExecutionRecords 视图无任何 UI 入口（store 的 view=records 无组件可达，死代码）。`AutomationSidebar` 工具栏补「执行记录」按钮（`automation-records-btn`，setView("records")），点任务卡片自然回 detail（selectTask 已置 view）。组件测试补「点击执行记录按钮调用 setView(records)」用例。
+- 影响范围：`packages/frontend/e2e/automation.spec.ts`（新增）、`AutomationSidebar.tsx`、`AutomationSidebar.test.tsx`；四层验证全过——kernel scheduler 相关 30 例（scheduler-store/scheduler/routes-scheduler）、automation 组件 33 例、typecheck 三包 0 错、E2E 5/5。
+
+---
+
 ## 2026-08-15 — feat(scheduler): 主内容区视图路由 + SSE 事件 + kernel 调度集成
 
 ### 变更
