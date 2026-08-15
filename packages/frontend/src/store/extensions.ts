@@ -60,8 +60,7 @@ export const useExtensionsStore = create<ExtensionsState>((set) => ({
 
   // extension:changed / extension:list 回复：更新真实列表，保留占位 installs；
   // changed 由 kernel 在操作（含升级/卸载）成功后推送 → 清除 upgrading/uninstalling 标记
-  // （extension:changed 在修复成功后先于 repair:done 到达 → 同时清 repairing）
-  setAll: (data) => set({ packages: data.packages, upgrading: {}, uninstalling: {}, repairing: null, error: null }),
+  setAll: (data) => set({ packages: data.packages, upgrading: {}, uninstalling: {}, error: null }),
 
   // extension:error：若对应占位条目存在则标记 failed，否则落到全局 error（卸载/升级失败等）
   setError: (data) =>
