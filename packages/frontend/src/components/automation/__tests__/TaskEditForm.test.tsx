@@ -153,7 +153,9 @@ describe("TaskEditForm", () => {
 
 	test("点击时间输入框任意位置弹出时间选择器（showPicker）", () => {
 		render(<TaskEditForm />);
-		const timeInput = screen.getByTestId("task-time-input") as HTMLInputElement & {
+		const timeInput = screen.getByTestId(
+			"task-time-input",
+		) as HTMLInputElement & {
 			showPicker?: () => void;
 		};
 		const showPicker = mock();

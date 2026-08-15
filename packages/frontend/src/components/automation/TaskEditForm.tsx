@@ -129,38 +129,38 @@ export function TaskEditForm() {
 						<input
 							value={cronExpression}
 							onChange={(e) => setCronExpression(e.target.value)}
-						placeholder="*/15 * * * *"
-						className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border"
-						style={inputStyle}
-					/>
-				) : scheduleType === "minute" ? (
-					// 每分钟：无需附加输入，说明文案占位保持行高一致
-					<div
-						className="flex-1 rounded-md px-2.5 py-1.5 text-xs border flex items-center"
-						style={{ ...inputStyle, color: "var(--text-tertiary)" }}
-					>
-						每分钟自动执行
-					</div>
-				) : scheduleType === "hourly" ? (
-					// 每小时：仅取分钟段（小时忽略），分钟下拉更直观；存回 time 侜 kernel 复用
-					<select
-						value={time.split(":")[1] ?? "00"}
-						onChange={(e) => setTime(`00:${e.target.value}`)}
-						data-testid="task-minute-input"
-						className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
-						style={inputStyle}
-					>
-						{Array.from({ length: 60 }, (_, i) =>
-							String(i).padStart(2, "0"),
-						).map((mm) => (
-							<option key={mm} value={mm}>
-								第 {mm} 分钟
-							</option>
-						))}
-					</select>
-				) : (
-					<input
-						type="time"
+							placeholder="*/15 * * * *"
+							className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border"
+							style={inputStyle}
+						/>
+					) : scheduleType === "minute" ? (
+						// 每分钟：无需附加输入，说明文案占位保持行高一致
+						<div
+							className="flex-1 rounded-md px-2.5 py-1.5 text-xs border flex items-center"
+							style={{ ...inputStyle, color: "var(--text-tertiary)" }}
+						>
+							每分钟自动执行
+						</div>
+					) : scheduleType === "hourly" ? (
+						// 每小时：仅取分钟段（小时忽略），分钟下拉更直观；存回 time 侜 kernel 复用
+						<select
+							value={time.split(":")[1] ?? "00"}
+							onChange={(e) => setTime(`00:${e.target.value}`)}
+							data-testid="task-minute-input"
+							className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
+							style={inputStyle}
+						>
+							{Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0")).map(
+								(mm) => (
+									<option key={mm} value={mm}>
+										第 {mm} 分钟
+									</option>
+								),
+							)}
+						</select>
+					) : (
+						<input
+							type="time"
 							value={time}
 							onChange={(e) => setTime(e.target.value)}
 							// 原生 time 输入只点右侧时钟图标才弹选择器；点击任意位置都调 showPicker 弹出
