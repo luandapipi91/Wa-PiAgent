@@ -8,8 +8,10 @@ import {
 import { createPortal } from "react-dom";
 import { useChannelsStore } from "../../store/channels";
 import { useContactsStore } from "../../store/contacts";
+import { useSkillsStore } from "../../store/skills";
 import type { ContactEntity } from "@wa-pi/shared";
-import { SkillSuggestTextarea } from "../ui/SkillSuggestTextarea";
+import { ComposerTextarea } from "../ui/ComposerTextarea";
+import { imPushToken, toPromptHtml } from "./prompt-tokens";
 
 interface Props {
 	value: string;
@@ -17,122 +19,148 @@ interface Props {
 }
 
 /**
- * 任务指令输入框：@ 选择联系人 + $ 插入技能。
+ * 任务指令输入框（contenteditable chip 版，复用聊天 ComposerTextarea 的 chip 机制）：
+ * - @ 联系人：chip 显示人名，存储形态 @im-push-to(bot,ct)（执行时 kernel 解析注入 im_push_to）
+ * - $ 技能：chip 显示技能名，存储形态 $[技能名]（执行时 kernel expandSkillTokens 任意位置展开）
+ * - 联系人已删除：chip 灰化显示 id，不报错（存储 token 原样保留）
  *
- * $ 技能：复用公共组件 SkillSuggestTextarea（输入框本身 + 技能弹窗全内建：
- * portal 挂 body、fixed 定位、不透明背景、方向键导航、token 替换，与「机器
- * 设置」里的技能输入框同一套）。不再手搓技能弹窗。
- *
- * @ 联系人：SkillSuggestTextarea 不暴露键盘事件，但 keyup 会冒泡到本组件容器
- * div——容器上监听 keyup 检测 @ 弹出该 IM 渠道通讯录里的「人」（kind=person），
- * 按渠道分组展示，选中后把光标前最近一个 @ 替换为 @ct_xxx（联系人 id）。
- * 任务执行时 kernel 经 pushToContact 主动推送到该联系人（单聊 userid），
- * 而不是渠道本身——否则推送无法到达具体的人。弹窗 portal 挂 body（逃逸 Modal
- * 裁剪），锚定容器矩形；打开时主动 loadContacts()（新联系人采集无广播兜底）。
+ * 双弹窗触发为派生状态（value 末尾触发符），插入走「末尾替换」模式
+ * （对齐聊天 ComposerInput.handleSelect：替换末尾触发符为 token + 空格，
+ * fallback 直接追加）；插入后 ComposerTextarea 的同步 effect 自动聚焦末尾。
  */
 export function TaskPromptComposer({ value, onChange }: Props) {
-	const [dismissed, setDismissed] = useState(false);
+	const [dismissedContact, setDismissedContact] = useState(false);
+	const [dismissedSkill, setDismissedSkill] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
-	const channelPopRef = useRef<HTMLDivElement>(null);
+	const contactPopRef = useRef<HTMLDivElement>(null);
+	const skillPopRef = useRef<HTMLDivElement>(null);
 	const { bots } = useChannelsStore();
 	const { contacts, loadContacts } = useContactsStore();
+	const skills = useSkillsStore((s) => s.skills);
+	const loadSkills = useSkillsStore((s) => s.load);
 
-	// @ 触发为派生状态：光标前（value 末尾）出现 @ 时显示联系人选择器，
-	// dismissed 用于 Escape/外点/滚动主动收起；value 变化（@ 被删除/继续输入）时重置。
-	const showChannelPicker = /@$/.test(value) && !dismissed;
+	const showContactPicker = /@$/.test(value) && !dismissedContact;
+	const showSkillPicker = /[$¥]$/.test(value) && !dismissedSkill;
 
+	// value 变化重置 dismissed（触发符被删/继续输入后允许再次弹出）
 	useEffect(() => {
-		setDismissed(false);
+		setDismissedContact(false);
+		setDismissedSkill(false);
 	}, [value]);
 
-	// 渠道弹窗定位：portal 挂 body（fixed）逃逸 Modal 内容区 overflow 裁剪，锚定容器矩形。
+	// 打开时兜底拉取（联系人采集无广播；技能列表懒加载）
+	useEffect(() => {
+		if (showContactPicker) void loadContacts();
+	}, [showContactPicker, loadContacts]);
+	useEffect(() => {
+		if (showSkillPicker && skills.length === 0) loadSkills();
+	}, [showSkillPicker, skills.length, loadSkills]);
+
+	// 弹窗定位：portal 挂 body（fixed）逃逸 Modal 内容区 overflow 裁剪，锚定容器矩形。
 	// 底部空间不足向上翻，右溢出左移钳制；happy-dom 零尺寸（测试环境）不定位。
-	useLayoutEffect(() => {
-		if (!showChannelPicker || !channelPopRef.current || !containerRef.current)
-			return;
-		const pr = containerRef.current.getBoundingClientRect();
-		if (pr.width === 0 && pr.height === 0) return;
-		const pop = channelPopRef.current;
-		pop.style.left = `${pr.left}px`;
-		pop.style.top = `${pr.bottom + 4}px`;
-		pop.style.minWidth = `${pr.width}px`;
-		const r = pop.getBoundingClientRect();
-		if (r.width === 0 && r.height === 0) return;
-		if (pr.bottom + 4 + r.height > window.innerHeight - 8) {
-			pop.style.top = `${Math.max(8, pr.top - r.height - 4)}px`;
-		}
-		if (pr.left + r.width > window.innerWidth - 8) {
-			pop.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
-		}
-	});
-
-	// @ 触发时主动拉取通讯录（新联系人采集无 contacts:changed 广播，打开时拉取兜底）
-	useEffect(() => {
-		if (showChannelPicker) void loadContacts();
-	}, [showChannelPicker, loadContacts]);
-
-	const closePicker = useCallback(() => setDismissed(true), []);
-
-	// 点击外部关闭联系人选择器（portal 面板挂 body，需判 container + pop 的 ref 内部）
-	useEffect(() => {
-		if (!showChannelPicker) return;
-		const handleClickOutside = (e: MouseEvent) => {
-			const t = e.target as Node;
-			if (containerRef.current?.contains(t)) return;
-			if (channelPopRef.current?.contains(t)) return;
-			setDismissed(true);
-		};
-		document.addEventListener("mousedown", handleClickOutside);
-		return () => document.removeEventListener("mousedown", handleClickOutside);
-	}, [showChannelPicker]);
-
-	// 滚动关闭联系人面板（fixed 浮层不随容器位移脱锚；技能面板由 SkillSuggestTextarea 自行处理）
-	useEffect(() => {
-		if (!showChannelPicker) return;
-		const onScroll = (ev: Event) => {
-			const t = ev.target as Node | null;
-			if (t instanceof Node && channelPopRef.current?.contains(t)) return;
-			setDismissed(true);
-		};
-		window.addEventListener("scroll", onScroll, true);
-		return () => window.removeEventListener("scroll", onScroll, true);
-	}, [showChannelPicker]);
-
-	// @ 触发：keyup 冒泡到容器 div（SkillSuggestTextarea 内建 $，不暴露键盘事件）。
-	// 显示与否由派生状态决定（value 末尾 @），此处只负责清除 dismissed 让选择器重新出现
-	const handleContainerKeyUp = useCallback(
-		(e: React.KeyboardEvent<HTMLDivElement>) => {
-			// 按下 @ 即触发联系人选择器（粘贴 @ct_xxx 不会触发 keyup，避免误弹）
-			if (e.key === "@") setDismissed(false);
+	const positionPop = useCallback(
+		(pop: HTMLDivElement | null) => {
+			if (!pop || !containerRef.current) return;
+			const pr = containerRef.current.getBoundingClientRect();
+			if (pr.width === 0 && pr.height === 0) return;
+			pop.style.left = `${pr.left}px`;
+			pop.style.top = `${pr.bottom + 4}px`;
+			pop.style.minWidth = `${pr.width}px`;
+			const r = pop.getBoundingClientRect();
+			if (r.width === 0 && r.height === 0) return;
+			if (pr.bottom + 4 + r.height > window.innerHeight - 8) {
+				pop.style.top = `${Math.max(8, pr.top - r.height - 4)}px`;
+			}
+			if (pr.left + r.width > window.innerWidth - 8) {
+				pop.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
+			}
 		},
 		[],
 	);
+	useLayoutEffect(() => {
+		if (showContactPicker) positionPop(contactPopRef.current);
+	}, [showContactPicker, positionPop]);
+	useLayoutEffect(() => {
+		if (showSkillPicker) positionPop(skillPopRef.current);
+	}, [showSkillPicker, positionPop]);
+
+	// 点击外部关闭（portal 面板挂 body，需判 container + 两个 pop 的 ref 内部）
+	useEffect(() => {
+		if (!showContactPicker && !showSkillPicker) return;
+		const handleClickOutside = (e: MouseEvent) => {
+			const t = e.target as Node;
+			if (containerRef.current?.contains(t)) return;
+			if (contactPopRef.current?.contains(t)) return;
+			if (skillPopRef.current?.contains(t)) return;
+			setDismissedContact(true);
+			setDismissedSkill(true);
+		};
+		document.addEventListener("mousedown", handleClickOutside);
+		return () =>
+			document.removeEventListener("mousedown", handleClickOutside);
+	}, [showContactPicker, showSkillPicker]);
+
+	// 滚动关闭弹窗（fixed 浮层不随容器位移脱锚）
+	useEffect(() => {
+		if (!showContactPicker && !showSkillPicker) return;
+		const onScroll = (ev: Event) => {
+			const t = ev.target as Node | null;
+			if (t instanceof Node && contactPopRef.current?.contains(t)) return;
+			if (t instanceof Node && skillPopRef.current?.contains(t)) return;
+			setDismissedContact(true);
+			setDismissedSkill(true);
+		};
+		window.addEventListener("scroll", onScroll, true);
+		return () => window.removeEventListener("scroll", onScroll, true);
+	}, [showContactPicker, showSkillPicker]);
 
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent<HTMLDivElement>) => {
-			if (e.key === "Escape" && showChannelPicker) {
-				e.preventDefault();
-				closePicker();
+			if (e.key === "Escape") {
+				if (showContactPicker || showSkillPicker) {
+					e.preventDefault();
+					setDismissedContact(true);
+					setDismissedSkill(true);
+				}
 			}
 		},
-		[showChannelPicker, closePicker],
+		[showContactPicker, showSkillPicker],
 	);
 
-	const handleSelectContact = useCallback(
-		(contactId: string) => {
-			const ta = containerRef.current?.querySelector("textarea");
-			const cursorPos = ta?.selectionStart ?? value.length;
-			const before = value.slice(0, cursorPos);
-			const after = value.slice(cursorPos);
-			// 替换光标前最近一个 @ 为 @ct_xxx（联系人 id，若无则直接插入）
-			const atIdx = before.lastIndexOf("@");
-			const head = atIdx >= 0 ? before.slice(0, atIdx) : before;
-			const newValue = `${head}@${contactId} ${after}`;
-			onChange(newValue);
-			setDismissed(true);
-			requestAnimationFrame(() => ta?.focus());
+	// 插入：替换 value 末尾触发符为 token + 空格（无触发符时直接追加兜底）
+	const insertContact = useCallback(
+		(c: ContactEntity) => {
+			const token = imPushToken(c.channelId, c.id);
+			const next = /@$/.test(value)
+				? value.replace(/@$/, `${token} `)
+				: `${value}${token} `;
+			onChange(next);
+			setDismissedContact(true);
 		},
 		[value, onChange],
+	);
+
+	const insertSkill = useCallback(
+		(name: string) => {
+			const token = `$[${name}]`;
+			const next = /[$¥]$/.test(value)
+				? value.replace(/[$¥]$/, `${token} `)
+				: `${value}${token} `;
+			onChange(next);
+			setDismissedSkill(true);
+		},
+		[value, onChange],
+	);
+
+	// chip 元数据：查通讯录显人名；查无灰化显示 id（联系人已删除，不报错）
+	const contactMeta = useCallback(
+		(contactId: string) => {
+			const c = contacts.find((x) => x.id === contactId);
+			return c
+				? { label: c.remark || c.userId || contactId, valid: true }
+				: { label: contactId, valid: false };
+		},
+		[contacts],
 	);
 
 	// 联系人按渠道分组（person 才可 @；渠道名经 bots 映射，找不到回退渠道 id）
@@ -162,19 +190,25 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 	const grouped = personsByChannel();
 	const totalPersons = grouped.reduce((n, g) => n + g.persons.length, 0);
 
+	const popStyle = {
+		left: -9999,
+		top: -9999,
+		background: "var(--surface)",
+		boxShadow: "var(--shadow-md)",
+	};
+	const popClass =
+		"fixed z-[1000] rounded-md border border-hairline overflow-hidden py-1 max-h-48 overflow-y-auto";
+
 	return (
-		<div
-			className="relative"
-			ref={containerRef}
-			onKeyUp={handleContainerKeyUp}
-			onKeyDown={handleKeyDown}
-		>
-			<SkillSuggestTextarea
-				value={value}
-				onChange={onChange}
-				rows={3}
+		<div className="relative" ref={containerRef}>
+			<ComposerTextarea
+				text={value}
+				onTextChange={onChange}
+				onKeyDown={handleKeyDown}
+				onPaste={() => {}}
+				toHtml={(t) => toPromptHtml(t, contactMeta)}
+				testId="task-prompt-input"
 				placeholder="让智能体帮你做什么...（$ 插入技能，@ 选择联系人）"
-				data-testid="task-prompt-input"
 			/>
 			{/* 提示行 */}
 			<div
@@ -189,19 +223,13 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 				</span>
 			</div>
 			{/* 联系人选择器（portal 挂 body，逃逸 Modal 裁剪） */}
-			{showChannelPicker &&
+			{showContactPicker &&
 				createPortal(
 					<div
-						ref={channelPopRef}
-						// 初始藏屏外，layout effect 按容器矩形定位；测试环境（零尺寸）不定位
-						style={{
-							left: -9999,
-							top: -9999,
-							background: "var(--surface)",
-							boxShadow: "var(--shadow-md)",
-						}}
-						className="fixed z-[1000] rounded-md border border-hairline overflow-hidden py-1 max-h-48 overflow-y-auto"
-						data-testid="channel-picker"
+						ref={contactPopRef}
+						style={popStyle}
+						className={popClass}
+						data-testid="contact-picker"
 					>
 						{totalPersons === 0 && (
 							<div
@@ -222,7 +250,7 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 								{group.persons.map((c) => (
 									<div
 										key={c.id}
-										onClick={() => handleSelectContact(c.id)}
+										onClick={() => insertContact(c)}
 										className="px-3 py-1.5 text-xs cursor-pointer hover:bg-white/5 flex items-center gap-1"
 										style={{ color: "var(--text-primary)" }}
 										data-testid={`contact-item-${c.id}`}
@@ -231,6 +259,46 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 										<span>{c.remark || c.userId}</span>
 									</div>
 								))}
+							</div>
+						))}
+					</div>,
+					document.body,
+				)}
+			{/* 技能选择器（portal 挂 body，与联系人选择器同款定位/关闭逻辑） */}
+			{showSkillPicker &&
+				createPortal(
+					<div
+						ref={skillPopRef}
+						style={popStyle}
+						className={popClass}
+						data-testid="skill-picker"
+					>
+						{skills.length === 0 && (
+							<div
+								className="px-3 py-2 text-[10px]"
+								style={{ color: "var(--text-tertiary)" }}
+							>
+								暂无技能
+							</div>
+						)}
+						{skills.map((s: { name: string; description?: string }) => (
+							<div
+								key={s.name}
+								onClick={() => insertSkill(s.name)}
+								className="px-3 py-1.5 text-xs cursor-pointer hover:bg-white/5 flex items-center gap-1"
+								style={{ color: "var(--text-primary)" }}
+								data-testid={`skill-item-${s.name}`}
+							>
+								<span>⚡</span>
+								<span className="truncate">{s.name}</span>
+								{s.description && (
+									<span
+										className="truncate text-[9px]"
+										style={{ color: "var(--text-tertiary)" }}
+									>
+										{s.description}
+									</span>
+								)}
 							</div>
 						))}
 					</div>,

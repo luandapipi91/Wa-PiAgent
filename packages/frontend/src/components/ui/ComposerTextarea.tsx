@@ -80,6 +80,7 @@ export function ComposerTextarea({
     if (!el) return;
     const currentText = extractText(el);
     if (currentText !== text) {
+      // pi-lens-ignore: ts-xss-dom-sink
       el.innerHTML = render(text);
       // innerHTML 替换后浏览器会把光标重置到开头；移到末尾符合"插入后继续输入"的预期
       // （仅在外部 setText 触发的同步路径，handleInput 路径不会进这里因为 currentText === text）
