@@ -16,4 +16,15 @@ export const registerContactRoutes: RouteRegistrar = (r, callApi) => {
 		const b = await readJsonBody(req);
 		return callApi({ type: "contacts:rename", id: p.id, remark: b.remark });
 	});
+	// 确保存在（顶部铅笔「自动补建后编辑」）
+	r.add("POST", "/api/contacts/ensure", async (req) => {
+		const b = await readJsonBody(req);
+		return callApi({
+			type: "contacts:ensure",
+			channelId: b.channelId,
+			kind: b.kind,
+			userId: b.userId,
+			chatId: b.chatId,
+		});
+	});
 };

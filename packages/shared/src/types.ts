@@ -664,6 +664,13 @@ export interface ContactsRenameRequest {
 	id: string;
 	remark: string;
 }
+export interface ContactsEnsureRequest {
+	type: "contacts:ensure";
+	channelId: string;
+	kind: "person" | "group";
+	userId?: string; // kind=person 时必填
+	chatId?: string; // kind=group 时必填
+}
 export interface ChannelsCurrentResult {
 	type: "channels:current";
 	channels: ChannelStatusInfo[];
@@ -691,6 +698,10 @@ export interface ContactsChangedEvent {
 export interface ContactsCurrentResult {
 	type: "contacts:current";
 	contacts: ContactEntity[];
+}
+export interface ContactsEnsureResult {
+	type: "contacts:ensured";
+	contact: ContactEntity;
 }
 
 export type WSClientEvent =
@@ -779,6 +790,7 @@ export type WSClientEvent =
 	| ChannelConversationsListRequest
 	| ContactsListRequest
 	| ContactsRenameRequest
+	| ContactsEnsureRequest
 	| TrashListRequest
 	| TrashRestoreEvent
 	| TrashDeleteEvent
@@ -1373,6 +1385,7 @@ export type WSServerEvent =
 	| ChannelConversationsChangedEvent
 	| ContactsChangedEvent
 	| ContactsCurrentResult
+	| ContactsEnsureResult
 	| TrashListResult
 	| TrashOpResult
 	| ScheduledTasksChangedEvent

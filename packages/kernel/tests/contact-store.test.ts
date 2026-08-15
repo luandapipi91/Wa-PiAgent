@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+	ensureContact,
 	listContacts,
 	renameContact,
 	upsertContact,
@@ -89,6 +90,40 @@ test("并发 upsert 不丢更新", async () => {
 	]);
 	const list = await listContacts("ch_a", file);
 	expect(list).toHaveLength(3); // 3 条都不丢
+});
+
+test("ensureContact 命中返回现有联系人（不新建、不覆盖 remark）", async () => {
+	await upsertContact({ channelId: "ch_a", kind: "person", userId: "u1" }, file);
+	const existing = (await listContacts("ch_a", file))[0];
+	await renameContact(existing.id, "张三", file);
+	const ensured = await ensureContact(
+		{ channelId: "ch_a", kind: "person", userId: "u1" },
+		file,
+	);
+	expect(ensured.id).toBe(existing.id);
+	expect(ensured.remark).toBe("张三");
+	// 未新建重复条目
+	expect(await listContacts("ch_a", file)).toHaveLength(1);
+});
+
+test("ensureContact 未命中创建并返回含 id（group 维度）", async () => {
+	const ensured = await ensureContact(
+		{ channelId: "ch_a", kind: "group", chatId: "g1" },
+		file,
+	);
+	expect(ensured.id).toMatch(/^ct_/);
+	expect(ensured.kind).toBe("group");
+	expect(ensured.chatId).toBe("g1");
+	expect(await listContacts("ch_a", file)).toHaveLength(1);
+});
+
+test("ensureContact 并发同键只建一条", async () => {
+	const results = await Promise.all([
+		ensureContact({ channelId: "ch_a", kind: "person", userId: "u1" }, file),
+		ensureContact({ channelId: "ch_a", kind: "person", userId: "u1" }, file),
+	]);
+	expect(results[0].id).toBe(results[1].id);
+	expect(await listContacts("ch_a", file)).toHaveLength(1);
 });
 
 test("listContacts 按 lastChatAt 倒序排序", async () => {

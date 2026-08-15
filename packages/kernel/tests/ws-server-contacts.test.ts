@@ -141,3 +141,52 @@ test("contacts:rename 成功 → broadcast contacts:changed + reply contacts:cur
 	expect(broadcasted.some((e) => e.type === "contacts:changed")).toBe(true);
 	expect(listedChannelIds).toEqual([undefined]);
 });
+
+test("contacts:ensure channelManager 为 null → HTTP 400（通讯录未启用）", async () => {
+	const server = makeServer(null);
+	const res = await server.callApi({
+		type: "contacts:ensure",
+		channelId: "ch_1",
+		kind: "person",
+		userId: "u1",
+	} as any);
+	expect(res.status).toBe(400);
+	expect(((await res.json()) as any).error).toBe("通讯录未启用");
+});
+
+test("contacts:ensure 成功 → 透传匹配键给 ensureContact + reply contacts:ensured", async () => {
+	const ensuredInputs: any[] = [];
+	const server = makeServer({
+		ensureContact: async (input: any) => {
+			ensuredInputs.push(input);
+			return { ...baseContact, id: "ct_new", kind: "group", chatId: "g1" };
+		},
+	});
+	const res = await server.callApi({
+		type: "contacts:ensure",
+		channelId: "ch_1",
+		kind: "group",
+		chatId: "g1",
+	} as any);
+	expect(res.status).toBe(200);
+	const body = (await res.json()) as any;
+	expect(body.type).toBe("contacts:ensured");
+	expect(body.contact.id).toBe("ct_new");
+	expect(ensuredInputs).toEqual([{ channelId: "ch_1", kind: "group", chatId: "g1" }]);
+});
+
+test("contacts:ensure ensureContact 抛错 → HTTP 500 + err.message", async () => {
+	const server = makeServer({
+		ensureContact: async () => {
+			throw new Error("存储 I/O 失败");
+		},
+	});
+	const res = await server.callApi({
+		type: "contacts:ensure",
+		channelId: "ch_1",
+		kind: "person",
+		userId: "u1",
+	} as any);
+	expect(res.status).toBe(500);
+	expect(((await res.json()) as any).error).toBe("存储 I/O 失败");
+});

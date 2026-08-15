@@ -2492,6 +2492,27 @@ export class WSServer {
 				}
 				break;
 			}
+			case "contacts:ensure": {
+				if (!this.opts.channelManager) {
+					reply({ type: "error", message: "通讯录未启用", status: 400 });
+					break;
+				}
+				try {
+					const c = await this.opts.channelManager.ensureContact(
+						event.kind === "person"
+							? { channelId: event.channelId, kind: "person", userId: event.userId! }
+							: { channelId: event.channelId, kind: "group", chatId: event.chatId! },
+					);
+					reply({ type: "contacts:ensured", contact: c });
+				} catch (err) {
+					reply({
+						type: "error",
+						message: (err as Error).message,
+						status: 500,
+					});
+				}
+				break;
+			}
 			// mock 端点（测试专用，事件类型未进 WSClientEvent 联合，用 as any 兜底）
 			case "channels:mock-inbound" as any: {
 				this.opts.channelManager?.mockInbound(
