@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AgentName } from "@wa-pi/shared";
+import i18n from "i18next";
 import { useTranslation } from "./i18n/useTranslation";
 import { Sidebar, type SidebarTab } from "./components/Sidebar";
 import { SidebarResizer } from "./components/SidebarResizer";
@@ -266,6 +267,13 @@ export function App() {
 					break;
 				case "extension:install:done":
 					useExtensionsStore.getState().completeInstall(e);
+					break;
+				case "extension:repair:progress":
+					useExtensionsStore.getState().applyRepairProgress(e);
+					break;
+				case "extension:repair:done":
+					useExtensionsStore.getState().completeRepair();
+					useToastStore.getState().add(i18n.t("settings.extension.repairDone"), "success");
 					break;
 				case "memory:list":
 				case "memory:changed":

@@ -801,6 +801,11 @@ const en = {
 		},
 		extension: {
 			installTitle: "Install new plugin",
+			repairBtn: "Repair dependencies",
+			confirmRepairTitle: "Repair dependencies",
+			confirmRepairMessage: "This will delete and reinstall all extension dependencies (~1 min). Consider closing sessions that use extensions first.",
+			repairing: "Repairing dependencies…",
+			repairDone: "Dependencies repaired",
 			installPlaceholder:
 				"npm package name (e.g. superpowers-zh or npm:superpowers-zh)…",
 			install: "Install",
