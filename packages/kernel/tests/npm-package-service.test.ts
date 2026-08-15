@@ -1,6 +1,6 @@
 // packages/kernel/tests/npm-package-service.test.ts
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { drainLines, NpmPackageService } from "../src/npm-package-service";
@@ -162,3 +162,82 @@ test("install 超时：子进程挂起时按 opTimeoutMs 终止并报超时错�
 	await expect(svc.install("some-pkg")).rejects.toThrow("超时");
 	expect(Date.now() - startedAt).toBeLessThan(5_000);
 }, 10_000);
+
+// ===== repair: 全量重建依赖目录 =====
+
+test("repair 先删 node_modules/bun.lock 再安装：spawn 前删除已生效", async () => {
+  writeFileSync(join(dir, "bun.lock"), "");
+  writeFileSync(join(dir, "node_modules", ".marker"), "x");
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module" }));
+  // 不存在的命令：Bun.spawn 同步抛 not-found（同上方既有测试的模式），
+  // 捕获到它即证明删除阶段已完成、流程到达 spawn
+  const svc = new NpmPackageService(dir, { npmCommand: ["this-cmd-does-not-exist-xyz"] });
+  try {
+    await svc.repair();
+    expect.unreachable("expected spawn to throw");
+  } catch (err) {
+    expect((err as Error).message).toContain("this-cmd-does-not-exist-xyz");
+  }
+  expect(existsSync(join(dir, "node_modules"))).toBe(false);
+  expect(existsSync(join(dir, "bun.lock"))).toBe(false);
+});
+
+test("repair 幂等：目录/lockfile 不存在时跳过删除直接到达 spawn", async () => {
+  // beforeEach 已建 node_modules，先删掉模拟不存在的场景
+  rmSync(join(dir, "node_modules"), { recursive: true, force: true });
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module" }));
+  const svc = new NpmPackageService(dir, { npmCommand: ["this-cmd-does-not-exist-xyz"] });
+  try {
+    await svc.repair();
+    expect.unreachable("expected spawn to throw");
+  } catch (err) {
+    // 到达 spawn（而非删除阶段抛错）即证明幂等跳过删除成立
+    expect((err as Error).message).toContain("this-cmd-does-not-exist-xyz");
+  }
+});
+
+test("repair 安装退出非 0 时抛「修复失败」", async () => {
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module" }));
+  const svc = new NpmPackageService(dir, { npmCommand: [process.execPath, "-e", "process.exit(1)"] });
+  try {
+    await svc.repair();
+    expect.unreachable("expected repair to fail");
+  } catch (err) {
+    expect((err as Error).message).toContain("修复失败");
+  }
+});
+
+test("repair 成功路径：spawn 重建依赖后校验通过", async () => {
+  // 关键：node_modules 会被 repair 先删，所以 spawn 命令必须真实重建 fake-dep
+  // （模拟 bun install 的产出），校验才能通过。路径经 JSON.stringify 转义（Windows 反斜杠）。
+  const depDir = join(dir, "node_modules", "fake-dep");
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module", dependencies: { "fake-dep": "^1.0.0" } }),
+  );
+  const script =
+    `require('node:fs').mkdirSync(${JSON.stringify(depDir)},{recursive:true});` +
+    `require('node:fs').writeFileSync(${JSON.stringify(join(depDir, "package.json"))},JSON.stringify({name:'fake-dep',version:'1.0.0'}))`;
+  // spawn 实际执行 `bun -e <script> install`：install 成为脚本 argv，不影响脚本执行，退出 0
+  const svc = new NpmPackageService(dir, { npmCommand: [process.execPath, "-e", script] });
+  await svc.repair(); // 不抛即通过
+});
+
+test("repair 校验失败：install 成功但依赖缺失时列出缺失包", async () => {
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({ name: "wa-pi-runtime", private: true, type: "module", dependencies: { "missing-a": "^1.0.0", "missing-b": "^2.0.0" } }),
+  );
+  // 注：-e 脚本必须非空（用 no-op "0"）：当前 Bun 对空 -e 脚本会把位置参数 install
+  // 当作 package.json script 名去 run，exit 1「Script not found」到不了校验分支
+  const svc = new NpmPackageService(dir, { npmCommand: [process.execPath, "-e", "0"] });
+  try {
+    await svc.repair();
+    expect.unreachable("expected repair to fail on missing deps");
+  } catch (err) {
+    const msg = (err as Error).message;
+    expect(msg).toContain("修复后仍缺少依赖");
+    expect(msg).toContain("missing-a");
+    expect(msg).toContain("missing-b");
+  }
+});
