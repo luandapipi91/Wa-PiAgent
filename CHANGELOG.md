@@ -2,6 +2,15 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix/feat(automation): 上述重构的验收反馈修复批次 + 计划类型扩展
+
+- **标记前缀修正（解析全链路失效根因）**：标记第一段用真实渠道前缀 `ch_`（原实现误写 `bot_`，与 channel-manager 生成的 `ch_xxx` 不符，插入端与解析端前缀不一致导致 chip 原文直出、联系人卡恒显「无」）；kernel `robot-push.ts`、前端 `prompt-tokens.ts` 及全部 fixture 同步。
+- **联系人 chip 视觉**：人形 SVG 图标 + 人名（Icon 表无人形图标，模块私有自造，currentColor 继承），不再显示原文标记/emoji；详情页 prompt 渲染改复用 `toPromptHtml`（与输入框 chip 一致）。
+- **技能弹窗通用化**：列表体换聊天通用 `QuickInvokeMenu`（新增 `positionClassName` 定位覆写 prop，聊天侧零影响），补 ↑↓/Enter 键盘导航。
+- **弹窗定位修复**：portal 容器显式宽度解除 fixed+w-full 循环依赖（宽度约束失效导致横向撑满屏幕）；锚点收窄到输入框（弹窗紧贴光标下方）；e2e 加宽度/位置断言锁回归。
+- **表单可用性**：指令输入框补边框（裸 contenteditable 浅色下与背景融合看不出可输入）；时间输入框点击任意位置 `showPicker()` 弹选择器；AgentDropdown pill ▾ 图标 `ml-auto` 右对齐。
+- **计划类型扩展（feat）**：`TaskSchedule.type` 新增 `minute`（`* * * * *`）/`hourly`（`m * * * *` 每小时第 m 分钟，复用 time 分钟段）；表单下拉/分钟选择器、详情页与侧边栏 formatSchedule 同步；周几/日期选择器 `w-full` 与上方同宽。
+
 ## 2026-08-15 — refactor(kernel/frontend)!: 自动化任务 @im-push-to 标记与技能 chip 重构
 
 ### 变更
