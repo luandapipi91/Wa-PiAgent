@@ -6,7 +6,7 @@ import { useSchedulerStore } from "../../store/scheduler";
  * 挂载时拉取全部执行记录，按选定条件过滤后渲染。
  */
 export function ExecutionRecords() {
-	const { tasks, records, loadRecords } = useSchedulerStore();
+	const { tasks, records, loadRecords, openRecordDetail } = useSchedulerStore();
 	const [period, setPeriod] = useState<"day" | "week" | "month">("day");
 	const [taskFilter, setTaskFilter] = useState("");
 	const [statusFilter, setStatusFilter] = useState("");
@@ -108,8 +108,10 @@ export function ExecutionRecords() {
 					{filtered.map((r) => (
 						<div
 							key={r.id}
-							className="flex gap-2.5 p-2.5 rounded-md"
+							className="flex gap-2.5 p-2.5 rounded-md cursor-pointer"
 							style={{ background: "var(--surface-hover)" }}
+						onClick={() => openRecordDetail(r.id, "records")}
+						data-testid={`execution-record-row-${r.id}`}
 						>
 							<div
 								className="w-7 h-7 rounded-full flex items-center justify-center text-xs flex-shrink-0"
@@ -165,6 +167,18 @@ export function ExecutionRecords() {
 									)}
 								</div>
 							</div>
+							{/* 详情入口：与整行 onClick 同效，给习惯找按钮的用户 */}
+							<button
+								onClick={() => openRecordDetail(r.id, "records")}
+								className="text-[10px] px-2 py-1 rounded border cursor-pointer flex-shrink-0 self-center"
+								style={{
+									background: "var(--surface)",
+									borderColor: "var(--hairline)",
+									color: "var(--text-secondary)",
+								}}
+							>
+								详情
+							</button>
 						</div>
 					))}
 				</div>

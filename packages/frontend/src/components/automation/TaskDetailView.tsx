@@ -14,8 +14,15 @@ import {
  * 选中任务变化时拉取该任务的执行记录。
  */
 export function TaskDetailView() {
-	const { tasks, selectedTaskId, records, loadRecords, startEdit, runTaskNow } =
-		useSchedulerStore();
+	const {
+		tasks,
+		selectedTaskId,
+		records,
+		loadRecords,
+		startEdit,
+		runTaskNow,
+		openRecordDetail,
+	} = useSchedulerStore();
 	const { contacts } = useContactsStore();
 	const task = tasks.find((t) => t.id === selectedTaskId);
 
@@ -125,7 +132,7 @@ export function TaskDetailView() {
 						最近执行
 					</div>
 					{recentRecords.map((r) => (
-						<RecordRow key={r.id} record={r} />
+						<RecordRow key={r.id} record={r} onOpenDetail={openRecordDetail} />
 					))}
 				</div>
 			)}
@@ -152,7 +159,13 @@ function InfoCard({ label, value }: { label: string; value: string }) {
 	);
 }
 
-function RecordRow({ record }: { record: ExecutionRecord }) {
+function RecordRow({
+	record,
+	onOpenDetail,
+}: {
+	record: ExecutionRecord;
+	onOpenDetail: (recordId: string, from: "records" | "detail") => void;
+}) {
 	const icon =
 		record.status === "success" ? "✓" : record.status === "failed" ? "✕" : "⟳";
 	const color =
@@ -183,6 +196,17 @@ function RecordRow({ record }: { record: ExecutionRecord }) {
 					)}
 					{record.error && <span style={{ color: "#f87171" }}>{record.error}</span>}
 				</div>
+				<button
+					onClick={() => onOpenDetail(record.id, "detail")}
+					className="text-[10px] px-2 py-1 rounded border cursor-pointer flex-shrink-0 self-center"
+					style={{
+						background: "var(--surface)",
+						borderColor: "var(--hairline)",
+						color: "var(--text-secondary)",
+					}}
+				>
+					详情
+				</button>
 			</div>
 		</div>
 	);
