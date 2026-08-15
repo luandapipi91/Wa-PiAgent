@@ -805,6 +805,7 @@ const en = {
 			confirmRepairTitle: "Repair dependencies",
 			confirmRepairMessage: "This will delete and reinstall all extension dependencies (~1 min). Consider closing sessions that use extensions first.",
 			repairing: "Repairing dependencies…",
+			repairingBtn: "Repairing…",
 			repairDone: "Dependencies repaired",
 			installPlaceholder:
 				"npm package name (e.g. superpowers-zh or npm:superpowers-zh)…",

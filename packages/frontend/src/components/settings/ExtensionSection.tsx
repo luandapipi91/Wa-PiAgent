@@ -46,7 +46,9 @@ export function ExtensionSection() {
     <div className="flex flex-col gap-4 p-4 overflow-auto">
       {/* 安装区域 */}
       <div>
-        <span className="text-xs font-bold text-tertiary uppercase tracking-wide">{t("settings.extension.installTitle")}</span>
+        <span className="text-xs font-bold text-tertiary uppercase tracking-wide">
+          {t("settings.extension.installTitle")}
+        </span>
         <div className="flex gap-2 mt-2">
           <input
             className="flex-1 px-3 py-2 text-sm border border-hairline rounded-sm bg-surface text-primary placeholder:text-tertiary focus:outline-none focus:border-accent"
@@ -87,7 +89,10 @@ export function ExtensionSection() {
 
       {/* 错误提示（卸载/升级等非安装失败的兜底提示） */}
       {error && (
-        <div className="px-3 py-2 rounded-sm text-sm" style={{ background: "var(--danger-soft)", color: "var(--danger)" }}>
+        <div
+          className="px-3 py-2 rounded-sm text-sm"
+          style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
+        >
           {error}
         </div>
       )}
@@ -99,7 +104,9 @@ export function ExtensionSection() {
         </span>
 
         {packages.length === 0 && installEntries.length === 0 && (
-          <p className="text-sm text-tertiary py-4">{t("settings.extension.empty")}</p>
+          <p className="text-sm text-tertiary py-4">
+            {t("settings.extension.empty")}
+          </p>
         )}
 
         <div className="flex flex-col gap-2 mt-2">
@@ -123,25 +130,43 @@ export function ExtensionSection() {
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-semibold text-primary">{pkg.name}</span>
+                  <span className="text-sm font-semibold text-primary">
+                    {pkg.name}
+                  </span>
                   {pkg.version && (
-                    <span className="text-xs px-1.5 py-0.5 rounded text-secondary" style={{ background: "var(--surface-elevated)" }}>
+                    <span
+                      className="text-xs px-1.5 py-0.5 rounded text-secondary"
+                      style={{ background: "var(--surface-elevated)" }}
+                    >
                       v{pkg.version}
                     </span>
                   )}
                   {pkg.latestVersion && pkg.enabled && (
-                    <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ background: "var(--warning-soft)", color: "var(--warning)" }}>
-                      {t("settings.extension.versionAvailable", { version: pkg.latestVersion })}
+                    <span
+                      className="text-xs px-1.5 py-0.5 rounded font-medium"
+                      style={{
+                        background: "var(--warning-soft)",
+                        color: "var(--warning)",
+                      }}
+                    >
+                      {t("settings.extension.versionAvailable", {
+                        version: pkg.latestVersion,
+                      })}
                     </span>
                   )}
                   {pkg.source !== "npm" && (
-                    <span className="text-xs px-1.5 py-0.5 rounded text-secondary" style={{ background: "var(--surface-elevated)" }}>
+                    <span
+                      className="text-xs px-1.5 py-0.5 rounded text-secondary"
+                      style={{ background: "var(--surface-elevated)" }}
+                    >
                       {pkg.source}
                     </span>
                   )}
                 </div>
                 {pkg.description && (
-                  <p className="text-xs text-secondary mt-1 line-clamp-1">{pkg.description}</p>
+                  <p className="text-xs text-secondary mt-1 line-clamp-1">
+                    {pkg.description}
+                  </p>
                 )}
 
                 {/* 升级中：流式显示包管理器进度行 */}
@@ -167,7 +192,9 @@ export function ExtensionSection() {
                     style={{
                       width: 38,
                       height: 22,
-                      background: pkg.enabled ? "var(--brand)" : "var(--hairline-strong)",
+                      background: pkg.enabled
+                        ? "var(--brand)"
+                        : "var(--hairline-strong)",
                     }}
                   >
                     <span
@@ -183,9 +210,15 @@ export function ExtensionSection() {
                   </span>
                   <span
                     className="text-xs"
-                    style={{ color: pkg.enabled ? "var(--success)" : "var(--text-tertiary)" }}
+                    style={{
+                      color: pkg.enabled
+                        ? "var(--success)"
+                        : "var(--text-tertiary)",
+                    }}
                   >
-                    {pkg.enabled ? t("settings.extension.enabled") : t("settings.extension.disabled")}
+                    {pkg.enabled
+                      ? t("settings.extension.enabled")
+                      : t("settings.extension.disabled")}
                   </span>
                 </label>
               </div>
@@ -195,17 +228,27 @@ export function ExtensionSection() {
                 {pkg.enabled && pkg.latestVersion && pkg.source === "npm" && (
                   <button
                     className="px-2 py-1 text-xs rounded-sm font-medium disabled:opacity-60"
-                    style={{ background: "var(--warning-soft)", color: "var(--warning)", border: "1px solid #fcd34d" }}
+                    style={{
+                      background: "var(--warning-soft)",
+                      color: "var(--warning)",
+                      border: "1px solid #fcd34d",
+                    }}
                     onClick={() => upgradePackage(pkg.name)}
                     disabled={upgrading[pkg.name] !== undefined}
                     data-testid={`ext-upgrade-${pkg.name}`}
                   >
-                    {upgrading[pkg.name] === undefined ? t("settings.extension.upgrade") : t("settings.extension.upgradingBtn")}
+                    {upgrading[pkg.name] === undefined
+                      ? t("settings.extension.upgrade")
+                      : t("settings.extension.upgradingBtn")}
                   </button>
                 )}
                 <button
                   className="px-2 py-1 text-xs rounded-sm font-medium"
-                  style={{ background: "var(--surface-elevated)", color: "var(--text-primary)", border: "1px solid var(--hairline)" }}
+                  style={{
+                    background: "var(--surface-elevated)",
+                    color: "var(--text-primary)",
+                    border: "1px solid var(--hairline)",
+                  }}
                   onClick={() => setCommandModalPkg(pkg.name)}
                   data-testid={`ext-commands-${pkg.name}`}
                 >
@@ -213,7 +256,11 @@ export function ExtensionSection() {
                 </button>
                 <button
                   className="px-2 py-1 text-xs rounded-sm font-medium disabled:opacity-60"
-                  style={{ background: "#fff", color: "var(--danger)", border: "1px solid var(--danger)" }}
+                  style={{
+                    background: "#fff",
+                    color: "var(--danger)",
+                    border: "1px solid var(--danger)",
+                  }}
                   onClick={() => setConfirmUninstall(pkg.name)}
                   disabled={uninstalling[pkg.name] === true}
                   data-testid={`ext-uninstall-${pkg.name}`}
@@ -241,26 +288,39 @@ export function ExtensionSection() {
       </div>
 
       {/* 底部提示 + 修复依赖按钮（右对齐） */}
-      <div className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-sm text-xs text-secondary" style={{ background: "var(--surface-elevated)", border: "1px solid var(--hairline)" }}>
+      <div
+        className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-sm text-xs text-secondary"
+        style={{
+          background: "var(--surface-elevated)",
+          border: "1px solid var(--hairline)",
+        }}
+      >
         <span className="min-w-0">
-          {t("settings.extension.hintPrefix")}<strong>{t("settings.extension.hintHighlight")}</strong>{t("settings.extension.hintSuffix")}
+          {t("settings.extension.hintPrefix")}
+          <strong>{t("settings.extension.hintHighlight")}</strong>
+          {t("settings.extension.hintSuffix")}
         </span>
-        <span className="flex items-center gap-2 shrink-0">
-          {repairing !== null && (
-            <span className="text-tertiary truncate" data-testid="ext-repair-progress" style={{ maxWidth: "10rem" }}>
-              {repairing || t("settings.extension.repairing")}
-            </span>
-          )}
-          <button
-            className="px-3 py-1 text-xs rounded-sm border border-hairline text-tertiary hover:text-primary hover:border-accent disabled:opacity-50"
-            onClick={() => setConfirmRepair(true)}
-            disabled={repairing !== null}
-            data-testid="ext-repair-btn"
-          >
-            {repairing === null ? t("settings.extension.repairBtn") : t("settings.extension.repairing")}
-          </button>
-        </span>
+        <button
+          className="px-3 py-1 text-xs rounded-sm border border-hairline text-tertiary hover:text-primary hover:border-accent disabled:opacity-50"
+          onClick={() => setConfirmRepair(true)}
+          disabled={repairing !== null}
+          data-testid="ext-repair-btn"
+        >
+          {repairing === null
+            ? t("settings.extension.repairBtn")
+            : t("settings.extension.repairingBtn")}
+        </button>
       </div>
+
+      {/* 修复进度：按钮正下方，右对齐 */}
+      {repairing !== null && (
+        <p
+          className="text-right text-xs mt-1 truncate font-mono text-tertiary"
+          data-testid="ext-repair-progress"
+        >
+          {repairing || t("settings.extension.repairing")}
+        </p>
+      )}
 
       {/* 附加命令弹窗 */}
       {commandModalPkg && (
@@ -274,7 +334,9 @@ export function ExtensionSection() {
       {confirmUninstall && (
         <ConfirmDialog
           title={t("settings.extension.confirmUninstallTitle")}
-          message={t("settings.extension.confirmUninstallMessage", { name: confirmUninstall })}
+          message={t("settings.extension.confirmUninstallMessage", {
+            name: confirmUninstall,
+          })}
           confirmText={t("settings.extension.confirmUninstall")}
           danger
           onConfirm={() => {

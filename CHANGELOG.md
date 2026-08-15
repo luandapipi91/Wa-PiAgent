@@ -2,6 +2,17 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — refactor(kernel/frontend)!: 自动化任务 @im-push-to 标记与技能 chip 重构
+
+### 变更
+
+- **联系人标记函数式化（功能未发布，无兼容负担）**：任务指令中 IM 推送标记由裸 `@ct_xxx`/`@bot_xxx` 改为 `@im-push-to(bot_xxx,ct_xxx)`（bot 段为联系人所属渠道，信息性保留，路由以联系人自身 channelId 为准）。带 `@` 前缀与 `@agentName`（delegate 智能体引用）区分，工具描述与系统提示文案均含「不要对其调用 delegate」澄清。
+- **kernel 链路**：`robot-push.ts` 重写（`parseImPushMentions` 只认函数式标记；`buildSchedulerPrompt(prompt, contactIds)` 新签名；`createImPushTool` 工具名 `im_push_to`、参数 `contact`、仅走 `pushToContact`）；`agent-manager.ts` `RobotPushInjection`→`ImPushInjection`（`channels`→`targets`）、env `WA_PI_ROBOT_PUSH_CHANNELS`→`WA_PI_IM_PUSH_TARGETS`、handleTool 分发/受限白名单同步；`wa-pi-bridge.extension.ts` 注册段同步；**移除渠道绑定链路**（`pushToChannel`、`parseChannelMentions`、`pushMessage` 外旧分支）；`PushResult.channelId/channelName`→`targetId/targetName`。
+- **技能标记 kernel 侧展开**：executeTask 对含 `$` 的提示词调 `channelManager.loadSkillContents()`（改 public）+ `expandSkillTokens`，`$[技能名]` 任意位置生效（SDK 只展开消息开头的 `/skill:`，定时任务不受限）。
+- **前端 chip 化（复用聊天 chip 机制）**：新建 `automation/prompt-tokens.ts`（标记解析 + `toPromptHtml` chip 渲染，失效联系人灰化显示 id 不报错）；`ComposerTextarea` 加 `toHtml`/`testId` 可选 prop 零侵入复用；`TaskPromptComposer` 重写为 contenteditable（联系人/技能双 chip + 双弹窗 `contact-picker`/`skill-picker`，插入走末尾替换模式，存储形态 `@im-push-to(...)`/`$[名]`）；`TaskDetailView` 四宫格「推送渠道」→「推送联系人」（人名解析），高亮新格式；`AutomationSidebar.hasIM` 改 `HAS_IM_PUSH_RE`；删除 `utils/channel-mentions.ts`。tokens.ts 新增 `.chip-im`/`.chip-im-invalid` 样式。
+- 测试：kernel robot-push 重写至新契约（parseImPushMentions 6 + 工具定义/execute 5 + 会话注入 5 + buildSchedulerPrompt 2）、bridge.test im_push_to 注册断言；frontend 新增 prompt-tokens 9 + TaskPromptComposer 重写 10 + TaskDetailView 新契约 + TaskEditForm 适配 contenteditable 交互；e2e automation.spec testid 同步。
+- 影响范围：`kernel/src/{tools/robot-push,agent-manager,channel-manager,index,wa-pi-bridge.extension}.ts`、`shared/src/types.ts`、`frontend/src/components/automation/{prompt-tokens(新),TaskPromptComposer,TaskDetailView,AutomationSidebar}.tsx`、`frontend/src/quick-invoke/tokens.ts`、`frontend/src/components/ui/ComposerTextarea.tsx`、删除 `frontend/src/utils/channel-mentions{,.test}.ts`。
+
 ## 2026-08-15 — feat(kernel): extension:repair 事件链路（ws + HTTP 路由 + 广播）
 
 ### 变更
@@ -17,7 +28,7 @@
 
 ### 扩展区「修复依赖」一键自愈 + E2E
 
-- **UI 调整**：修复依赖按钮从安装区下方独立行移至底部提示条（「安装、卸载、升级操作在当前对话立即生效…」）右侧右对齐，进度文案随按钮同行；组件测试 5/5 回归通过。
+- **UI 调整**：修复依赖按钮从安装区下方独立行移至底部提示条（「安装、卸载、升级操作在当前对话立即生效…」）右侧右对齐；进度文案独立显示在按钮正下方（右对齐）——按钮「修复中…」与进度行「正在修复依赖…」拆分 i18n key（repairingBtn/repairing），消除修复中双「正在修复依赖…」重复显示；真实修复流程 22s 复现验证设置窗口全程存活（无代码路径关闭）；组件测试 5/5 + E2E 2/2 回归通过。
 - **新增功能**：设置面板扩展区新增「修复依赖」动作（extension:repair）——全量重建扩展依赖目录（删 node_modules + bun.lock 后按 package.json 重装），为版本漂移/半安装导致的扩展硬崩溃提供一键自愈。背景：pi-tui 0.82.1 与其余 @earendil-works 包 0.84.1 错配导致 /goal 崩溃，且现有链路无任何依赖树检查。涉及 kernel（NpmPackageService.repair + ws 事件 + HTTP 路由）、shared（3 个事件类型）、frontend（store 修复态 + ExtensionSection 按钮/确认弹窗/进度 + i18n）。
 - **E2E 测试**：新增 `packages/frontend/e2e/extension-repair.spec.ts`（2 用例：确认弹窗流程——取消不发请求/确认后发出 POST /api/extensions/repair（route 拦截，SSE 终态由组件/单测层覆盖）；按钮存在且可见）。导航照抄 plugin-command-toggles 既有路径（假 provider 规避 onboarding 弹窗 + 按钮文本「插件」精确匹配），语言用 addInitScript 预置 wa-pi-ui-prefs 锁定中文（language-switch.spec.ts 同款，规避 E2E chromium 默认 en-US 导致的文案断言漂移）。本机真实 kernel 占用 9776 时用 WA_PI_E2E_WS_PORT/WA_PI_E2E_WEB_PORT/WA_PI_WEB_PORT 偏移端口运行。
 
