@@ -25,11 +25,16 @@ const BASE = `http://127.0.0.1:${E2E_WS_PORT}`;
 const TASK_NAME = "E2E 测试任务";
 
 /** 底层 REST 调用：非 2xx 抛错，返回解析后的 body（风格对齐 e2e/helpers.ts） */
-async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+async function api<T = any>(
+	method: string,
+	path: string,
+	body?: unknown,
+): Promise<T> {
 	const res = await fetch(`${BASE}${path}`, {
 		method,
-		headers: body !== undefined ? { "content-type": "application/json" } : undefined,
-		body: body !== undefined ? JSON.stringify(body) : undefined,
+		headers:
+			body === undefined ? undefined : { "content-type": "application/json" },
+		body: body === undefined ? undefined : JSON.stringify(body),
 	});
 	const data: any = await res.json().catch(() => ({}));
 	if (!res.ok) {
@@ -232,9 +237,7 @@ test.describe
 			taskId = ""; // 已删，跳过 afterAll 兜底
 		});
 
-		test("5 执行记录详情：点详情回放该次执行的会话消息", async ({
-			page,
-		}) => {
+		test("5 执行记录详情：点详情回放该次执行的会话消息", async ({ page }) => {
 			// 前置：用例 4 已删任务，本用例 REST 重建（agent 用 global-setup 预置 dev.md）
 			await api("POST", "/api/scheduled-tasks", {
 				name: TASK_NAME,
@@ -278,17 +281,17 @@ test.describe
 					JSON.stringify({ type: "session", version: 3, id: record.sessionId }),
 					JSON.stringify({
 						type: "message",
-					id: "m1",
-					parentId: null,
-					message: {
-						role: "user",
-						content: [{ type: "text", text: "E2E定时任务指令" }],
-						timestamp: 1,
-					},
+						id: "m1",
+						parentId: null,
+						message: {
+							role: "user",
+							content: [{ type: "text", text: "E2E定时任务指令" }],
+							timestamp: 1,
+						},
 					}),
 					JSON.stringify({
 						type: "message",
-					id: "m2",
+						id: "m2",
 						parentId: "m1",
 						message: {
 							role: "assistant",
@@ -309,6 +312,14 @@ test.describe
 				timeout: 15_000,
 			});
 			await expect(page.getByText("E2E执行完成回复")).toBeVisible();
+
+			// 消息列表容器高度非零：锁住 flex 塌陷回归（父容器非 flex 时 MessageList
+			// 根 div 的 flex-1 失效，Virtuoso absolute inset-0 高度塌陷为 0，消息不可见）
+			const listBox = await page.getByTestId("message-list").boundingBox();
+			expect(
+				listBox?.height ?? 0,
+				"消息列表容器高度应 > 0（flex 塌陷回归）",
+			).toBeGreaterThan(0);
 
 			// 返回 → 按来源快照回执行记录页
 			await page.getByTestId("execution-detail-back").click();

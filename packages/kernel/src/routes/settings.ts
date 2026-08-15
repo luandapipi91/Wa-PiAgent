@@ -3,9 +3,15 @@
  */
 import type { RouteRegistrar } from "./types";
 import { readJsonBody } from "./types";
-import { loadTrashSettings, saveTrashSettings } from "../settings-store";
+import {
+	loadTrashSettings,
+	saveTrashSettings,
+	loadProxySettings,
+	saveProxySettings,
+	applySystemProxy,
+} from "../settings-store";
 
-export const registerSettingsRoutes: RouteRegistrar = (r, callApi) => {
+export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 	r.add("GET", "/api/settings/retry", async () =>
 		callApi({ type: "settings:get" }),
 	);
@@ -26,5 +32,17 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi) => {
 		const b = await readJsonBody(req);
 		const saved = await saveTrashSettings(b.trash);
 		return Response.json({ trash: saved });
+	});
+	// 系统代理设置（直接读写 settings.json + 立即应用环境变量 + 标脏重建 pi 进程）
+	r.add("GET", "/api/settings/proxy", async () => {
+		const proxy = await loadProxySettings();
+		return Response.json({ proxy });
+	});
+	r.add("PUT", "/api/settings/proxy", async (req) => {
+		const b = await readJsonBody(req);
+		const saved = await saveProxySettings(b.proxy);
+		await applySystemProxy();
+		ctx.markAllDirty?.();
+		return Response.json({ proxy: saved });
 	});
 };

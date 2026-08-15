@@ -16,7 +16,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { WA_PI_DIR } from "@wa-pi/shared";
-import type { RetrySettings, TrashSettings } from "@wa-pi/shared";
+import type { RetrySettings, TrashSettings, ProxySettings } from "@wa-pi/shared";
 
 /** 与 pi settings-manager 的默认值对齐（未配置时的回退） */
 export const RETRY_DEFAULTS: RetrySettings = {
@@ -193,4 +193,62 @@ export async function ensureHttpIdleTimeout(
 	settings.httpIdleTimeoutMs = DEFAULT_HTTP_IDLE_TIMEOUT_MS;
 	await mkdir(dirname(file), { recursive: true });
 	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
+}
+
+/** 系统代理默认值（未配置时：关闭 + 空代理 = 直连） */
+export const PROXY_DEFAULTS: ProxySettings = {
+	useSystemProxy: false,
+	httpProxy: "",
+};
+
+/** 读取系统代理设置（useSystemProxy + httpProxy），字段缺失逐项回退默认 */
+export async function loadProxySettings(
+	file: string = SETTINGS_FILE,
+): Promise<ProxySettings> {
+	const raw = await readSettingsJson(file);
+	return {
+		useSystemProxy:
+			typeof raw.useSystemProxy === "boolean"
+				? raw.useSystemProxy
+				: PROXY_DEFAULTS.useSystemProxy,
+		httpProxy:
+			typeof raw.httpProxy === "string"
+				? raw.httpProxy
+				: PROXY_DEFAULTS.httpProxy,
+	};
+}
+
+/** 保存系统代理设置（read-modify-write，保留其他字段） */
+export async function saveProxySettings(
+	proxy: ProxySettings,
+	file: string = SETTINGS_FILE,
+): Promise<ProxySettings> {
+	const normalized: ProxySettings = {
+		useSystemProxy: proxy.useSystemProxy === true,
+		httpProxy: typeof proxy.httpProxy === "string" ? proxy.httpProxy : "",
+	};
+	const settings = await readSettingsJson(file);
+	settings.useSystemProxy = normalized.useSystemProxy;
+	settings.httpProxy = normalized.httpProxy;
+	await mkdir(dirname(file), { recursive: true });
+	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
+	return normalized;
+}
+
+/**
+ * 应用系统代理到进程环境变量（HTTP_PROXY/HTTPS_PROXY）。
+ * 开启且有代理 → 设置；关闭，或开启但读不到代理（DIRECT）→ 清空恢复直连。
+ * Bun 的 fetch 与 pi 子进程（继承 env）的 undici EnvHttpProxyAgent 都会读这两个变量。
+ */
+export async function applySystemProxy(
+	file: string = SETTINGS_FILE,
+): Promise<void> {
+	const { useSystemProxy, httpProxy } = await loadProxySettings(file);
+	if (useSystemProxy && httpProxy) {
+		process.env.HTTP_PROXY = httpProxy;
+		process.env.HTTPS_PROXY = httpProxy;
+	} else {
+		delete process.env.HTTP_PROXY;
+		delete process.env.HTTPS_PROXY;
+	}
 }

@@ -2,7 +2,13 @@
 // 覆盖：header 元信息渲染、消息拉取并写入 sessionStore 后渲染 MessageList、
 // 无 sessionId 空态、返回按钮触发快照回退、API 失败重试。
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import {
+	render,
+	screen,
+	fireEvent,
+	waitFor,
+	cleanup,
+} from "@testing-library/react";
 import { ExecutionDetailView } from "../ExecutionDetailView";
 
 // —— mocks ——
@@ -45,9 +51,14 @@ beforeEach(() => {
 	apiGetMock.mockReset();
 	schedulerState.records = [
 		{
-			id: "r1", taskId: "t1", taskName: "日报推送", status: "success",
-			startedAt: 1750000000000, durationMs: 34000,
-			sessionId: "sess-1", summary: "日报已生成",
+			id: "r1",
+			taskId: "t1",
+			taskName: "日报推送",
+			status: "success",
+			startedAt: 1750000000000,
+			durationMs: 34000,
+			sessionId: "sess-1",
+			summary: "日报已生成",
 		},
 	];
 	cleanup();
@@ -75,6 +86,24 @@ describe("ExecutionDetailView", () => {
 		});
 	});
 
+	test("header 显示执行角色和使用模型", () => {
+		schedulerState.records = [
+			{
+				id: "r1",
+				taskId: "t1",
+				taskName: "日报推送",
+				status: "success",
+				startedAt: 1750000000000,
+				durationMs: 34000,
+				agentId: "小助手",
+				model: "deepseek/deepseek-v4-flash",
+			},
+		];
+		render(<ExecutionDetailView />);
+		expect(screen.getByText(/小助手/)).toBeTruthy();
+		expect(screen.getByText(/deepseek\/deepseek-v4-flash/)).toBeTruthy();
+	});
+
 	test("返回按钮触发 closeRecordDetail", () => {
 		apiGetMock.mockResolvedValueOnce({ messages: [] });
 		render(<ExecutionDetailView />);
@@ -85,8 +114,12 @@ describe("ExecutionDetailView", () => {
 	test("无 sessionId（旧记录/会话创建前失败）：不拉接口，显示空态与错误摘要", async () => {
 		schedulerState.records = [
 			{
-				id: "r1", taskId: "t1", taskName: "失败任务", status: "failed",
-				startedAt: 1750000000000, error: "无可用的模型供应商",
+				id: "r1",
+				taskId: "t1",
+				taskName: "失败任务",
+				status: "failed",
+				startedAt: 1750000000000,
+				error: "无可用的模型供应商",
 			},
 		];
 		render(<ExecutionDetailView />);

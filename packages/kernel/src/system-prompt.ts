@@ -58,7 +58,10 @@ export const DYNAMIC_SEGMENT_IDS = new Set([
 ]);
 
 /** 静态段 id 集合（content 完全由 prompts.json 决定，无运行时兜底） */
-export const STATIC_SEGMENT_IDS = new Set(["delegate-mechanism", "self-protection"]);
+export const STATIC_SEGMENT_IDS = new Set([
+	"delegate-mechanism",
+	"self-protection",
+]);
 
 /**
  * 默认 base 段提示词（被 prompts.json 的 base.content 覆盖；
@@ -119,7 +122,9 @@ export const DEFAULT_SELF_PROTECTION_PROMPT =
  *  非空时先 trim 掉前后空白再拼接（避免前导空白破坏首段）。 */
 export function composeSubagentPrompt(systemPrompt: string): string {
 	const trimmed = systemPrompt.trim();
-	return trimmed ? `${trimmed}\n\n${DEFAULT_SELF_PROTECTION_PROMPT}` : DEFAULT_SELF_PROTECTION_PROMPT;
+	return trimmed
+		? `${trimmed}\n\n${DEFAULT_SELF_PROTECTION_PROMPT}`
+		: DEFAULT_SELF_PROTECTION_PROMPT;
 }
 
 /** 默认 delegate-mechanism 段（委托机制：首动作规则 + 路由 + @ 语法 + fleet；正文中文，贴合中文用户请求、字符更省） */

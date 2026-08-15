@@ -144,9 +144,7 @@ export function App() {
 					break;
 				case "session:created":
 					ps.addSession(e.session);
-					useComposerPrefsStore
-						.getState()
-						.clearNewSessionId(e.session.projectId);
+					useComposerPrefsStore.getState().clearNewSessionId(e.session.projectId);
 					useCommandsStore.getState().load(e.session.id);
 					break;
 				// 插件命令开关切换成功后：刷新当前会话的 / 菜单命令列表（开启/关闭立即生效）
@@ -182,8 +180,7 @@ export function App() {
 				case "error": {
 					// kernel/pi 错误：注入出错的会话作为系统错误消息（红色显示）。
 					// 优先用事件携带的 sessionId 精确路由；缺省回落 currentSessionId。
-					const sid =
-						e.sessionId ?? useProjectsStore.getState().currentSessionId;
+					const sid = e.sessionId ?? useProjectsStore.getState().currentSessionId;
 					// 会话主智能体已删除：打开重选弹窗（错误消息照常注入，提示用户重发）
 					if (e.message === "agent_missing" && e.sessionId)
 						setAgentMissingSessionId(e.sessionId);
@@ -215,8 +212,7 @@ export function App() {
 					// 改设 degraded 状态驱动顶部状态条提示「模型连接异常」。
 					// 不调用 failTurn：transient 后 pi 会发 agent_end 自然复位 thinking，
 					// 让 pi 内部重试期间（busy=true）新消息继续排队（现有机制）。
-					const sid =
-						e.sessionId ?? useProjectsStore.getState().currentSessionId;
+					const sid = e.sessionId ?? useProjectsStore.getState().currentSessionId;
 					if (sid) {
 						useSessionStore.getState().setNetStatus(sid, "degraded");
 					} else {
@@ -266,7 +262,9 @@ export function App() {
 					break;
 				case "extension:repair:done":
 					useExtensionsStore.getState().completeRepair();
-					useToastStore.getState().add(i18n.t("settings.extension.repairDone"), "success");
+					useToastStore
+						.getState()
+						.add(i18n.t("settings.extension.repairDone"), "success");
 					break;
 				case "memory:list":
 				case "memory:changed":
@@ -294,9 +292,10 @@ export function App() {
 				case "channel-conversations:changed":
 					void useChannelsStore.getState().loadConversations();
 					break;
-				// 定时任务变更/执行完成：重新拉取任务列表；执行完成时同时刷新记录
+				// 定时任务变更/执行记录追加：重新拉取任务列表 + 执行记录（running 态需即时展示）
 				case "scheduled-tasks:changed":
 					void useSchedulerStore.getState().loadTasks();
+					void useSchedulerStore.getState().loadRecords();
 					break;
 				case "scheduled-task:completed":
 					void useSchedulerStore.getState().loadTasks();
@@ -471,10 +470,7 @@ export function App() {
 			for (const [event, handler] of Object.entries(handlers)) {
 				window.removeEventListener(event, handler);
 			}
-			window.removeEventListener(
-				"wa-pi:pi-command",
-				onPiCommand as EventListener,
-			);
+			window.removeEventListener("wa-pi:pi-command", onPiCommand as EventListener);
 		};
 	}, []);
 
@@ -485,14 +481,12 @@ export function App() {
 				onMore={() => setGalleryOpen(true)}
 				onSelectSession={(id) => {
 					const st = useProjectsStore.getState();
-					if (!st.sessions.some((x) => x.id === id)) {
+					if (st.sessions.some((x) => x.id === id)) {
+						st.selectSession(id);
+					} else {
 						// 兜底：会话不在本地列表（如 kernel 侧建的 IM 接入会话尚未同步）时先重拉再选中，
 						// 否则 SessionView 找不到 session 渲染空白
-						void st
-							.load()
-							.then(() => useProjectsStore.getState().selectSession(id));
-					} else {
-						st.selectSession(id);
+						void st.load().then(() => useProjectsStore.getState().selectSession(id));
 					}
 					setView("session");
 				}}
@@ -628,10 +622,7 @@ export function App() {
 				/>
 			)}
 			{configAgent && (
-				<AgentConfig
-					agentName={configAgent}
-					onClose={() => setConfigAgent(null)}
-				/>
+				<AgentConfig agentName={configAgent} onClose={() => setConfigAgent(null)} />
 			)}
 			{agentMissingSessionId && (
 				<AgentMissingModal
@@ -641,9 +632,7 @@ export function App() {
 			)}
 			{useProjectsStore((s) => s.dirPickerOpen) && (
 				<DirTreePicker
-					onPick={(cwd) =>
-						useProjectsStore.getState().createProjectFromPath(cwd)
-					}
+					onPick={(cwd) => useProjectsStore.getState().createProjectFromPath(cwd)}
 					onCancel={() => useProjectsStore.getState().closeDirPicker()}
 				/>
 			)}
@@ -656,10 +645,7 @@ export function App() {
 				/>
 			)}
 			{paletteOpen && (
-				<CommandPalette
-					open={paletteOpen}
-					onClose={() => setPaletteOpen(false)}
-				/>
+				<CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 			)}
 			<FilePreviewModal />
 			<ExtensionDialog />

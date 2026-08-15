@@ -18,6 +18,8 @@ import {
 
 /** 合法的 schedule.type 值（与 shared/types.ts TaskSchedule 联合类型一致） */
 const SCHEDULE_TYPES = [
+	"minute",
+	"hourly",
 	"daily",
 	"weekdays",
 	"weekly",
@@ -46,17 +48,14 @@ function validateTaskBody(body: {
 	prompt?: unknown;
 	schedule?: unknown;
 }): string | null {
-	if (typeof body.name !== "string" || !body.name.trim())
-		return "name 不能为空";
+	if (typeof body.name !== "string" || !body.name.trim()) return "name 不能为空";
 	if (typeof body.agentId !== "string" || !body.agentId.trim())
 		return "agentId 不能为空";
 	if (typeof body.prompt !== "string" || !body.prompt.trim())
 		return "prompt 不能为空";
 	const schedule = body.schedule as Partial<TaskSchedule> | undefined;
 	if (!schedule || typeof schedule !== "object") return "schedule 不能为空";
-	if (
-		!SCHEDULE_TYPES.includes(schedule.type as (typeof SCHEDULE_TYPES)[number])
-	)
+	if (!SCHEDULE_TYPES.includes(schedule.type as (typeof SCHEDULE_TYPES)[number]))
 		return `schedule.type 必须是 ${SCHEDULE_TYPES.join("/")} 之一`;
 	if (typeof schedule.time !== "string" || !isValidTime(schedule.time))
 		return "schedule.time 必须是 HH:MM 格式（如 09:30，00-23:00-59）";

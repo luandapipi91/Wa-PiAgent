@@ -174,10 +174,13 @@ function RecordRow({
 			: record.status === "failed"
 				? "#f87171"
 				: "#60a5fa";
+	const open = () => onOpenDetail(record.id, "detail");
 	return (
 		<div
-			className="flex gap-2.5 p-2.5 rounded-md mb-1.5"
+			className="flex gap-2.5 p-2.5 rounded-md mb-1.5 cursor-pointer"
 			style={{ background: "var(--surface-hover)" }}
+			onClick={open}
+			data-testid={`record-row-${record.id}`}
 		>
 			<span style={{ color }}>{icon}</span>
 			<div className="flex-1">
@@ -192,22 +195,25 @@ function RecordRow({
 						<span>耗时 {(record.durationMs / 1000).toFixed(0)}s</span>
 					)}
 					{record.pushResults?.some((p) => p.success) && (
-						<span style={{ color: "#4ade80" }}>📨 已推送</span>
+						<span style={{ color: "#4ade80" }}>已推送</span>
 					)}
 					{record.error && <span style={{ color: "#f87171" }}>{record.error}</span>}
 				</div>
-				<button
-					onClick={() => onOpenDetail(record.id, "detail")}
-					className="text-[10px] px-2 py-1 rounded border cursor-pointer flex-shrink-0 self-center"
-					style={{
-						background: "var(--surface)",
-						borderColor: "var(--hairline)",
-						color: "var(--text-secondary)",
-					}}
-				>
-					详情
-				</button>
 			</div>
+			<button
+				onClick={(e) => {
+					e.stopPropagation();
+					open();
+				}}
+				className="text-[10px] px-2 py-1 rounded border cursor-pointer flex-shrink-0 self-center"
+				style={{
+					background: "var(--surface)",
+					borderColor: "var(--hairline)",
+					color: "var(--text-secondary)",
+				}}
+			>
+				详情
+			</button>
 		</div>
 	);
 }
@@ -232,7 +238,9 @@ function formatSchedule(schedule: ScheduledTask["schedule"]): string {
 		case "minute":
 			return "每分钟";
 		case "hourly":
-			return `每小时第 ${time.split(":")[1] ?? "00"} 分`;
+			return `每 ${schedule.intervalHours ?? 1} 小时${
+				schedule.startTime ? `，从 ${schedule.startTime} 开始` : ""
+			}`;
 		case "daily":
 			return `每天 ${time}`;
 		case "weekdays":

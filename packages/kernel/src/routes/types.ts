@@ -13,6 +13,8 @@ export type CallApiFn = (event: WSClientEvent, opts?: { responseTypes?: string[]
 
 export interface RouteContext {
   projectStore: ProjectStore;
+  /** 可选：设置保存后重建活跃 pi 进程（如系统代理变更需重建进程继承新环境变量） */
+  markAllDirty?: () => void;
 }
 
 export type RouteRegistrar = (router: HttpRouter, callApi: CallApiFn, ctx: RouteContext) => void;

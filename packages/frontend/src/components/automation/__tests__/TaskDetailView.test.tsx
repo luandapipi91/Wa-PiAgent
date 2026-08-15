@@ -29,6 +29,7 @@ mock.module("../../../store/contacts", () => {
 const runTaskNowMock = mock();
 const startEditMock = mock();
 const loadRecordsMock = mock();
+const openRecordDetailMock = mock();
 
 // 可在用例中切换的共享假状态
 const schedulerState: {
@@ -38,6 +39,7 @@ const schedulerState: {
 	runTaskNow: typeof runTaskNowMock;
 	startEdit: typeof startEditMock;
 	loadRecords: typeof loadRecordsMock;
+	openRecordDetail: typeof openRecordDetailMock;
 } = {
 	tasks: [],
 	records: [],
@@ -45,6 +47,7 @@ const schedulerState: {
 	runTaskNow: runTaskNowMock,
 	startEdit: startEditMock,
 	loadRecords: loadRecordsMock,
+	openRecordDetail: openRecordDetailMock,
 };
 
 mock.module("../../../store/scheduler", () => ({
@@ -55,6 +58,7 @@ beforeEach(() => {
 	runTaskNowMock.mockReset();
 	startEditMock.mockReset();
 	loadRecordsMock.mockReset();
+	openRecordDetailMock.mockReset();
 	schedulerState.tasks = [];
 	schedulerState.records = [];
 	schedulerState.selectedTaskId = null;
@@ -86,6 +90,32 @@ describe("TaskDetailView", () => {
 		expect(screen.getByText(/每天 09:30/)).toBeTruthy();
 		expect(screen.getByText(/🤖 小助手/)).toBeTruthy();
 		expect(screen.getByText(/📂 p1/)).toBeTruthy();
+	});
+
+	test("每小时任务：显示「每 N 小时，从 HH:MM 开始」，未设开始时间则省略后缀", () => {
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "定时抓取",
+				schedule: { type: "hourly", intervalHours: 3, startTime: "07:30" },
+				agentId: "a",
+				prompt: "x",
+			},
+			{
+				id: "t2",
+				name: "整点执行",
+				schedule: { type: "hourly", intervalHours: 1 },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		const { rerender } = render(<TaskDetailView />);
+		expect(screen.getByText(/每 3 小时，从 07:30 开始/)).toBeTruthy();
+		// 切到未设开始时间的任务：省略后缀
+		schedulerState.selectedTaskId = "t2";
+		rerender(<TaskDetailView />);
+		expect(screen.getByText(/每 1 小时/)).toBeTruthy();
 	});
 
 	test("prompt 中的 $[技能名] 渲染为紫色标签", () => {
@@ -270,6 +300,32 @@ describe("TaskDetailView", () => {
 		expect(screen.getByText("超时")).toBeTruthy();
 		// 其他任务（other）的记录无 distinguishing 文本，
 		// 仅通过 filter 已排除——上两条断言即证明筛选生效。
+	});
+
+	test("最近执行记录：点击整条记录行进入详情", () => {
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		schedulerState.records = [
+			{
+				id: "r1",
+				taskId: "t1",
+				taskName: "任务",
+				status: "success",
+				startedAt: Date.now() - 1000,
+				durationMs: 3000,
+			},
+		];
+		render(<TaskDetailView />);
+		fireEvent.click(screen.getByTestId("record-row-r1"));
+		expect(openRecordDetailMock).toHaveBeenCalledWith("r1", "detail");
 	});
 
 	test("选中任务变化时调用 loadRecords(taskId)", () => {

@@ -253,10 +253,7 @@ test("GET /api/execution-records — 空 + 筛选 + 倒序 + 200 上限", async 
 		expect(all.records.map((r: any) => r.id)).toEqual(["r2", "r3", "r1"]);
 
 		// taskId 筛选
-		const { body: byTask } = await json(
-			base,
-			"/api/execution-records?taskId=t1",
-		);
+		const { body: byTask } = await json(base, "/api/execution-records?taskId=t1");
 		expect(byTask.records).toHaveLength(2);
 		expect(byTask.records.map((r: any) => r.id)).toEqual(["r2", "r1"]);
 
@@ -305,6 +302,22 @@ describe("POST/PUT 校验", () => {
 				}),
 			});
 			expect(status).toBe(400);
+		});
+	});
+
+	test("POST schedule.type 支持 minute / hourly → 200", async () => {
+		await withServer(async (base) => {
+			for (const schedule of [
+				{ type: "minute", time: "09:30", intervalMinutes: 5 },
+				{ type: "hourly", time: "09:30", intervalHours: 3, startTime: "07:30" },
+			]) {
+				const { status, body } = await json(base, "/api/scheduled-tasks", {
+					method: "POST",
+					body: JSON.stringify({ ...validTask, schedule }),
+				});
+				expect(status).toBe(200);
+				expect(body.task.schedule.type).toBe(schedule.type);
+			}
 		});
 	});
 

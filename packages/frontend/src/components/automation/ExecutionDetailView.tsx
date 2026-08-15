@@ -85,13 +85,15 @@ export function ExecutionDetailView() {
 						className="text-xs font-medium truncate"
 						style={{ color: "var(--text-primary)" }}
 					>
-						<span style={{ color: statusColor }}>{statusIcon}</span>{" "}
-						{record.taskName} · 执行详情
+						<span style={{ color: statusColor }}>{statusIcon}</span> {record.taskName}{" "}
+						· 执行详情
 					</div>
 					<div
 						className="text-[10px] flex gap-2"
 						style={{ color: "var(--text-tertiary)" }}
 					>
+						{record.agentId && <span>🤖 {record.agentId}</span>}
+						{record.model && <span>🧠 {record.model}</span>}
 						<span>{new Date(record.startedAt).toLocaleString("zh-CN")}</span>
 						{record.durationMs && (
 							<span>耗时 {(record.durationMs / 1000).toFixed(0)}s</span>
@@ -110,43 +112,45 @@ export function ExecutionDetailView() {
 				</div>
 			)}
 
-			{/* 消息区 */}
-			<div className="flex-1 min-h-0">
-				{!record.sessionId ? (
+			{/* 消息区：flex-col 容器（MessageList 根 div 依赖 flex-1 撑满高度，非 flex 父容器会致 Virtuoso 高度塌陷为 0） */}
+			<div className="flex-1 min-h-0 flex flex-col">
+				{record.sessionId ? (
+					error ? (
+						<div
+							className="flex flex-col items-center justify-center h-full gap-2"
+							style={{ color: "var(--text-tertiary)" }}
+						>
+							<span className="text-sm">加载失败</span>
+							<button
+								data-testid="execution-detail-retry"
+								onClick={() => void loadMessages(record.sessionId!)}
+								className="text-[11px] px-3 py-1 rounded cursor-pointer border"
+								style={{
+									background: "var(--surface-hover)",
+									borderColor: "var(--hairline)",
+									color: "var(--text-secondary)",
+								}}
+							>
+								重试
+							</button>
+						</div>
+					) : loading ? (
+						<div
+							className="flex items-center justify-center h-full text-sm"
+							style={{ color: "var(--text-tertiary)" }}
+						>
+							加载中…
+						</div>
+					) : (
+						<MessageList sessionId={record.sessionId} />
+					)
+				) : (
 					<div
 						className="flex items-center justify-center h-full text-sm"
 						style={{ color: "var(--text-tertiary)" }}
 					>
 						该记录无执行过程（旧版记录或会话创建前失败）
 					</div>
-				) : error ? (
-					<div
-						className="flex flex-col items-center justify-center h-full gap-2"
-						style={{ color: "var(--text-tertiary)" }}
-					>
-						<span className="text-sm">加载失败</span>
-						<button
-							data-testid="execution-detail-retry"
-							onClick={() => void loadMessages(record.sessionId!)}
-							className="text-[11px] px-3 py-1 rounded cursor-pointer border"
-							style={{
-								background: "var(--surface-hover)",
-								borderColor: "var(--hairline)",
-								color: "var(--text-secondary)",
-							}}
-						>
-							重试
-						</button>
-					</div>
-				) : loading ? (
-					<div
-						className="flex items-center justify-center h-full text-sm"
-						style={{ color: "var(--text-tertiary)" }}
-					>
-						加载中…
-					</div>
-				) : (
-					<MessageList sessionId={record.sessionId} />
 				)}
 			</div>
 		</div>

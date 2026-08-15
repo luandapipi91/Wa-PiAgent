@@ -27,10 +27,7 @@ import {
 	appendExecutionRecord,
 	updateExecutionRecord,
 } from "./scheduler-store";
-import {
-	parseImPushMentions,
-	createImPushTool,
-} from "./tools/robot-push";
+import { parseImPushMentions, createImPushTool } from "./tools/robot-push";
 import type { ImPushInjection } from "./agent-manager";
 import { expandSkillTokens } from "./channels/skill-expand";
 import {
@@ -337,6 +334,7 @@ export async function startKernel(opts?: {
 				id: randomUUID(),
 				taskId: task.id,
 				taskName: task.name,
+				agentId: task.agentId,
 				status: "running",
 				startedAt: Date.now(),
 			};
@@ -409,6 +407,7 @@ export async function startKernel(opts?: {
 					throw new Error("无可用的模型供应商，请先在设置中配置至少一个供应商");
 				}
 				const model = `${firstProvider.slug ?? firstProvider.name}/${firstModel.id}`;
+				record.model = model;
 
 				// 5. 发送 prompt（任务指令 + 可选的 $[技能名] 技能标记）。
 				// @im-push-to 推送引导不再拼进 prompt——已在 ensureStarted 时注入 system prompt

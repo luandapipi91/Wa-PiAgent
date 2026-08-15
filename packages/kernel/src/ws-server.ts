@@ -487,7 +487,10 @@ export class WSServer {
 	private registerRoutes(): void {
 		const callApi = (e: WSClientEvent, o?: { responseTypes?: string[] }) =>
 			this.callApi(e, o);
-		const ctx = { projectStore: this.opts.projectStore };
+		const ctx = {
+			projectStore: this.opts.projectStore,
+			markAllDirty: () => this.opts.agentManager.markAllDirty(),
+		};
 		registerProjectSessionRoutes(this.router, callApi, ctx);
 		registerChatRoutes(this.router, callApi, ctx);
 		registerFsRoutes(this.router, callApi, ctx);
@@ -1406,14 +1409,14 @@ export class WSServer {
 			case "agent:preset:get": {
 				// 单个预设完整内容（含 body 正文），供「查看提示词」按需获取
 				const preset = getPreset(event.id);
-				if (!preset) {
+				if (preset) {
+					reply({ type: "agent:preset", preset });
+				} else {
 					reply({
 						type: "error",
 						message: `预设不存在: ${event.id}`,
 						status: 404,
 					});
-				} else {
-					reply({ type: "agent:preset", preset });
 				}
 				break;
 			}
@@ -1423,17 +1426,17 @@ export class WSServer {
 					event.id,
 					event.displayName,
 				);
-				if (!result.ok) {
-					reply({
-						type: "error",
-						message: result.error,
-						status: result.status,
-					});
-				} else {
+				if (result.ok) {
 					reply({ type: "agent:created", agent: result.agent });
 					this.broadcast({
 						type: "agent:list",
 						agents: await this.opts.configStore.listAgents(),
+					});
+				} else {
+					reply({
+						type: "error",
+						message: result.error,
+						status: result.status,
 					});
 				}
 				break;
