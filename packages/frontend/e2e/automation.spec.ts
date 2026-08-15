@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { E2E_WS_PORT } from "../playwright.config";
+import { E2E_WS_PORT, E2E_WA_PI_DIR } from "../playwright.config";
 import { saveProvider } from "./helpers";
 
 // 定时任务系统 E2E：任务 10（规格场景 ①⑤ 的浏览器端全链路）
@@ -10,6 +10,7 @@ import { saveProvider } from "./helpers";
 //    → 弹窗关闭，有任务未选中 → 默认执行记录页
 // 3. 点击任务卡片 → 详情四宫格；再点同一卡片取消选中 → 回执行记录页
 // 4. 右键任务卡 → 删除确认弹窗 → 确认删除 → SSE 驱动列表恢复空态引导页
+// 5. 执行记录行点击 → record-detail 页签回放该次执行的会话消息（写 jsonl → MessageList 渲染）→ 返回执行记录页
 //
 // 环境说明：
 // - 执行角色「研发」由 global-setup 预置（agents/dev.md，displayName=研发）；
@@ -24,8 +25,12 @@ const BASE = `http://127.0.0.1:${E2E_WS_PORT}`;
 const TASK_NAME = "E2E 测试任务";
 
 /** 底层 REST 调用：非 2xx 抛错，返回解析后的 body（风格对齐 e2e/helpers.ts） */
-async function api<T = any>(method: string, path: string): Promise<T> {
-	const res = await fetch(`${BASE}${path}`, { method });
+async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+	const res = await fetch(`${BASE}${path}`, {
+		method,
+		headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+		body: body !== undefined ? JSON.stringify(body) : undefined,
+	});
 	const data: any = await res.json().catch(() => ({}));
 	if (!res.ok) {
 		throw new Error(
@@ -225,5 +230,89 @@ test.describe
 				timeout: 10_000,
 			});
 			taskId = ""; // 已删，跳过 afterAll 兜底
+		});
+
+		test("5 执行记录详情：点详情回放该次执行的会话消息", async ({
+			page,
+		}) => {
+			// 前置：用例 4 已删任务，本用例 REST 重建（agent 用 global-setup 预置 dev.md）
+			await api("POST", "/api/scheduled-tasks", {
+				name: TASK_NAME,
+				agentId: "dev",
+				prompt: "E2E：请整理今日文件",
+				schedule: { type: "daily", time: "09:00" },
+			});
+			const task = await findTaskByName(TASK_NAME);
+			taskId = task.id;
+
+			// SSE scheduled-tasks:changed → App 重拉 → 空态引导页让位执行记录页（有任务未选中）
+			await expect(page.getByTestId("execution-records")).toBeVisible({
+				timeout: 10_000,
+			});
+
+			// 触发立即执行（fire-and-forget）→ 轮询执行记录直到 sessionId 回填
+			// （E2E 假 provider：agent 回合会失败，但会话已创建、sessionId 已回填 record）
+			await api("POST", `/api/scheduled-tasks/${taskId}/run`);
+			let record: any;
+			const deadline = Date.now() + 30_000;
+			for (;;) {
+				const data = await api<{ records: any[] }>(
+					"GET",
+					`/api/execution-records?taskId=${taskId}`,
+				);
+				record = (data.records ?? []).find((r) => r.sessionId);
+				if (record || Date.now() > deadline) break;
+				await new Promise((r) => setTimeout(r, 300));
+			}
+			expect(record, "执行记录未出现或 sessionId 未回填").toBeTruthy();
+
+			// 直接写会话 jsonl（piSessionFile = <WA_PI_DIR>/sessions/<id>.jsonl）：
+			// 让回放有内容可读（真实执行在假 provider 环境必然失败、消息为空）
+			const { writeFileSync } = await import("node:fs");
+			const jsonl = [E2E_WA_PI_DIR, "sessions", `${record.sessionId}.jsonl`].join(
+				"/",
+			);
+			writeFileSync(
+				jsonl,
+				[
+					JSON.stringify({ type: "session", version: 3, id: record.sessionId }),
+					JSON.stringify({
+						type: "message",
+					id: "m1",
+					parentId: null,
+					message: {
+						role: "user",
+						content: [{ type: "text", text: "E2E定时任务指令" }],
+						timestamp: 1,
+					},
+					}),
+					JSON.stringify({
+						type: "message",
+					id: "m2",
+						parentId: "m1",
+						message: {
+							role: "assistant",
+							content: [{ type: "text", text: "E2E执行完成回复" }],
+							timestamp: 2,
+						},
+					}),
+				].join("\n") + "\n",
+				"utf8",
+			);
+
+			// 点记录行 → record-detail 页签：MessageList 复用渲染 jsonl 回放
+			await page.getByTestId(`execution-record-row-${record.id}`).click();
+			await expect(page.getByTestId("execution-detail-view")).toBeVisible({
+				timeout: 10_000,
+			});
+			await expect(page.getByText("E2E定时任务指令")).toBeVisible({
+				timeout: 15_000,
+			});
+			await expect(page.getByText("E2E执行完成回复")).toBeVisible();
+
+			// 返回 → 按来源快照回执行记录页
+			await page.getByTestId("execution-detail-back").click();
+			await expect(page.getByTestId("execution-records")).toBeVisible();
+			await expect(page.getByTestId("execution-detail-view")).toBeHidden();
 		});
 	});
