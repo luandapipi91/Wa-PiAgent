@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
-	buildSchedulerPrompt,
+	buildImPushSystemPrompt,
 	parseImPushMentions,
 	createImPushTool,
 } from "../src/tools/robot-push";
@@ -259,18 +259,15 @@ function rmSyncStub(f: string) {
 	rmSync(f, { force: true });
 }
 
-// ===== buildSchedulerPrompt（executeTask 发送给 agent 的 prompt 构造）=====
+// ===== buildImPushSystemPrompt（注入 system prompt 的推送目标引导，不拼进 prompt）=====
 
-describe("buildSchedulerPrompt（@im-push-to 版）", () => {
-	test("无标记原样返回", () => {
-		expect(buildSchedulerPrompt("普通指令", [])).toBe("普通指令");
+describe("buildImPushSystemPrompt（@im-push-to 版）", () => {
+	test("无联系人 → 空串（段不出现）", () => {
+		expect(buildImPushSystemPrompt([])).toBe("");
 	});
 
-	test("有联系人标记：追加系统提示，含 id、工具名与 delegate 澄清", () => {
-		const out = buildSchedulerPrompt("整理日报 @im-push-to(ch_aaa,ct_p01)", [
-			"ct_p01",
-		]);
-		expect(out.startsWith("整理日报 @im-push-to(ch_aaa,ct_p01)")).toBe(true);
+	test("有联系人：含 id、工具名与 delegate 澄清", () => {
+		const out = buildImPushSystemPrompt(["ct_p01"]);
 		expect(out).toContain("ct_p01");
 		expect(out).toContain("im_push_to");
 		expect(out).toContain("不要对其调用 delegate");

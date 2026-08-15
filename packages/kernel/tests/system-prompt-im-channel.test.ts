@@ -95,6 +95,6 @@ test("savePromptSegments 剔除 im-channel 段（不落盘）；loadPromptSegmen
 	}
 });
 
-test("PROMPTS_SCHEMA_VERSION 已升到 25", () => {
-	expect(PROMPTS_SCHEMA_VERSION).toBe(25);
+test("PROMPTS_SCHEMA_VERSION 已升到 26", () => {
+	expect(PROMPTS_SCHEMA_VERSION).toBe(26);
 });

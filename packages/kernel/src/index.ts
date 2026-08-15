@@ -30,7 +30,6 @@ import {
 import {
 	parseImPushMentions,
 	createImPushTool,
-	buildSchedulerPrompt,
 } from "./tools/robot-push";
 import type { ImPushInjection } from "./agent-manager";
 import { expandSkillTokens } from "./channels/skill-expand";
@@ -411,12 +410,12 @@ export async function startKernel(opts?: {
 				}
 				const model = `${firstProvider.slug ?? firstProvider.name}/${firstModel.id}`;
 
-				// 5. 发送 prompt（任务指令 + 可选的 @im-push-to 推送标记 / $[技能名] 技能标记）。
-				// 带推送标记时追加引导：明确告知 agent 用 im_push_to 推送给标记联系人
-				// （否则 LLM 把标记当普通文本，只回复不推送）。
+				// 5. 发送 prompt（任务指令 + 可选的 $[技能名] 技能标记）。
+				// @im-push-to 推送引导不再拼进 prompt——已在 ensureStarted 时注入 system prompt
+				// 的 im-push 段（buildImPushSystemPrompt，agent 系统提示词里明确标记语义与工具用法）。
 				// 技能标记在 kernel 侧展开：SDK 只展开消息开头的 /skill:，定时任务的
 				// $[技能名] 可在任意位置，复用渠道提示词的展开逻辑（未知技能保留原文）。
-				let promptToSend = buildSchedulerPrompt(task.prompt, contactIds);
+				let promptToSend = task.prompt;
 				if (promptToSend.includes("$")) {
 					const skills = await channelManager.loadSkillContents();
 					promptToSend = expandSkillTokens(promptToSend, skills);

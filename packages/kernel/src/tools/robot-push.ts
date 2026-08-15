@@ -18,14 +18,12 @@ export function parseImPushMentions(prompt: string): string[] {
 	return [...new Set(ids)];
 }
 
-/** 有 @im-push-to 标记时追加引导：明确标记语义（非智能体引用，防 delegate 误判）+ 推送工具用法。
+/** 定时任务推送目标的系统提示（注入 system prompt 的 im-push 段，而非拼进 prompt）。
+ *  有 @im-push-to 标记时返回引导：明确标记语义（非智能体引用，防 delegate 误判）+ 推送工具用法。
  *  LLM 不会天然理解 @im-push-to(...) 是推送目标，不加提示会把它当普通文本。 */
-export function buildSchedulerPrompt(
-	prompt: string,
-	contactIds: string[],
-): string {
-	if (contactIds.length === 0) return prompt;
-	return `${prompt}\n\n（系统提示：任务指令中的 @im-push-to(渠道,联系人) 标记（如 ${contactIds[0]}）表示推送目标联系人，它们不是智能体引用，不要对其调用 delegate。请完成任务后用 im_push_to 工具把结果推送给这些联系人。）`;
+export function buildImPushSystemPrompt(contactIds: string[]): string {
+	if (contactIds.length === 0) return "";
+	return `任务指令中的 @im-push-to(渠道,联系人) 标记（如 ${contactIds[0]}）表示推送目标联系人，它们不是智能体引用，不要对其调用 delegate。请完成任务后用 im_push_to 工具把结果推送给这些联系人。`;
 }
 
 interface ImPushResultPayload {

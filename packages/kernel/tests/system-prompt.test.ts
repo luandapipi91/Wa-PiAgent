@@ -264,7 +264,7 @@ test("ensurePromptsConfig 首次调用写入默认配置", async () => {
 	expect(existsSync(f)).toBe(true);
 	const loaded = await loadPromptSegments(f);
 	// im-channel 为运行时注入段，不落盘
-	expect(loaded).toEqual(DEFAULT_PROMPT_SEGMENTS.filter((s) => s.id !== "im-channel"));
+	expect(loaded).toEqual(DEFAULT_PROMPT_SEGMENTS.filter((s) => s.id !== "im-channel" && s.id !== "im-push"));
 	rmSync(f, { force: true });
 });
 
@@ -393,7 +393,7 @@ test("ensurePromptsConfig 全新机器首次写入含 schemaVersion + 最新静�
 	expect(raw.schemaVersion).toBe(PROMPTS_SCHEMA_VERSION);
 	// im-channel 为运行时注入段，不落盘
 	expect(raw.segments).toEqual(
-		DEFAULT_PROMPT_SEGMENTS.filter((s) => s.id !== "im-channel"),
+		DEFAULT_PROMPT_SEGMENTS.filter((s) => s.id !== "im-channel" && s.id !== "im-push"),
 	);
 	rmSync(f, { force: true });
 });
