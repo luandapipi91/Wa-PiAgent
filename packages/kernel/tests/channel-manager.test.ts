@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ChannelManager } from "../src/channel-manager";
+import { listContacts } from "../src/contact-store";
 import { MockAdapter } from "../src/channels/mock-adapter";
 import type { ChannelConfig } from "@wa-pi/shared";
 
@@ -41,6 +42,7 @@ beforeEach(async () => {
 	manager = new ChannelManager({
 		channelsFile: join(dir, "channels.json"),
 		mappingsFile: join(dir, "mappings.json"),
+		contactsFile: join(dir, "contacts.json"),
 		tmpDir: join(dir, "tmp"),
 		configStore: {
 			listAgents: async () => [
@@ -100,6 +102,37 @@ test("create：校验失败抛中文错；成功则落盘并连接", async () =>
 	expect(list).toHaveLength(1);
 	expect(list[0].credentials.secret).toBe("****"); // 脱敏（"s" 长度<4 → ****）
 	expect(list[0].status).toBe("connected");
+});
+
+test("handleInbound 采集：单聊记人、群聊记群（listContacts 可查）", async () => {
+	await manager.create(channel);
+	const channelId = (await manager.listWithStatus())[0].id;
+	// 单聊进站 → 记 person（fromUserId）
+	adapter!.inject({ chatId: "user-1", text: "hi" });
+	await new Promise((r) => setTimeout(r, 50));
+	// 群聊进站 → 记 group（chatId）
+	adapter!.inject({
+		chatId: "group-1",
+		fromUserId: "user-1",
+		chatType: "group",
+		text: "hi",
+	});
+	await new Promise((r) => setTimeout(r, 50));
+	const contacts = await listContacts(channelId, join(dir, "contacts.json"));
+	expect(
+		contacts.some((c) => c.kind === "person" && c.userId === "user-1"),
+	).toBe(true);
+	expect(contacts.some((c) => c.kind === "group" && c.chatId === "group-1")).toBe(
+		true,
+	);
+	// 公开方法 listContacts 走 contactsFile getter，同样可查
+	const viaManager = await manager.listContacts(channelId);
+	expect(
+		viaManager.some((c) => c.kind === "person" && c.userId === "user-1"),
+	).toBe(true);
+	expect(
+		viaManager.some((c) => c.kind === "group" && c.chatId === "group-1"),
+	).toBe(true);
 });
 
 test("进站文本：建映射、建会话、ensureStarted 携带渠道提示词、prompt 带模型", async () => {

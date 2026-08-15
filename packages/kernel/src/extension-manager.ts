@@ -381,6 +381,11 @@ export class ExtensionManager {
     };
   }
 
+  /** 修复依赖目录：全量重建 node_modules（版本漂移/半安装的自愈入口） */
+  async repair(onProgress?: (line: string) => void): Promise<void> {
+    await this.pkgService.repair(onProgress);
+  }
+
   async enable(name: string): Promise<void> {
     let settings = await this.readSettings();
     settings = await this.ensureNpmCommand(settings);

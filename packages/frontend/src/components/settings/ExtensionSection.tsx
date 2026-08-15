@@ -13,18 +13,21 @@ export function ExtensionSection() {
     upgrading,
     uninstalling,
     error,
+    repairing,
     installPackage,
     uninstallPackage,
     upgradePackage,
     togglePackage,
     retryInstall,
     removeInstall,
+    repairExtensions,
   } = useExtensionsStore();
   const { t } = useTranslation();
 
   const [inputValue, setInputValue] = useState("");
   const [confirmUninstall, setConfirmUninstall] = useState<string | null>(null);
   const [commandModalPkg, setCommandModalPkg] = useState<string | null>(null);
+  const [confirmRepair, setConfirmRepair] = useState(false);
 
   const handleInstall = () => {
     const name = inputValue.trim();
@@ -67,6 +70,37 @@ export function ExtensionSection() {
       </div>
 
       <div style={{ height: "1px", background: "var(--hairline)" }} />
+
+      {/* 修复依赖（全量重建 node_modules，解决版本漂移/半安装） */}
+      <div className="flex items-center justify-end gap-2">
+        {repairing !== null && (
+          <span className="text-xs text-tertiary truncate" data-testid="ext-repair-progress">
+            {repairing || t("settings.extension.repairing")}
+          </span>
+        )}
+        <button
+          className="px-3 py-1 text-xs rounded-sm border border-hairline text-tertiary hover:text-primary hover:border-accent disabled:opacity-50"
+          onClick={() => setConfirmRepair(true)}
+          disabled={repairing !== null}
+          data-testid="ext-repair-btn"
+        >
+          {repairing !== null ? t("settings.extension.repairing") : t("settings.extension.repairBtn")}
+        </button>
+      </div>
+
+      {/* 修复确认弹窗 */}
+      {confirmRepair && (
+        <ConfirmDialog
+          title={t("settings.extension.confirmRepairTitle")}
+          message={t("settings.extension.confirmRepairMessage")}
+          confirmText={t("settings.extension.repairBtn")}
+          onConfirm={() => {
+            repairExtensions();
+            setConfirmRepair(false);
+          }}
+          onCancel={() => setConfirmRepair(false)}
+        />
+      )}
 
       {/* 错误提示（卸载/升级等非安装失败的兜底提示） */}
       {error && (

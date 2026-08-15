@@ -5,11 +5,13 @@ import {
 	CHANNELS_FILE,
 	CHANNEL_SESSIONS_FILE,
 	CHANNEL_TMP_DIR,
+	CONTACTS_FILE,
 	SYSTEM_PROJECT_CWD,
 	SYSTEM_PROJECT_ID,
 	type AgentConfig,
 	type ChannelConfig,
 	type ChannelConversationInfo,
+	type ContactEntity,
 	type ChannelStatus,
 	type ChannelStatusInfo,
 	type ChannelType,
@@ -24,6 +26,11 @@ import {
 	validateChannelInput,
 	type ChannelSessionMapping,
 } from "./channel-store";
+import {
+	listContacts as loadContacts,
+	renameContact as renameContactById,
+	upsertContact,
+} from "./contact-store";
 import { parseCommand } from "./channels/commands";
 import {
 	chunkByBytes,
@@ -51,6 +58,7 @@ export interface ChannelManagerDeps {
 	adapterFactories?: Partial<Record<ChannelType, AdapterFactory>>;
 	channelsFile?: string;
 	mappingsFile?: string;
+	contactsFile?: string;
 	tmpDir?: string;
 	/** 技能管理器（结构子集）：用于展开渠道提示词里的 $[技能名] token；缺省不展开 */
 	skillManager?: {
@@ -98,6 +106,9 @@ export class ChannelManager {
 	}
 	private get mappingsFile() {
 		return this.deps.mappingsFile ?? CHANNEL_SESSIONS_FILE;
+	}
+	private get contactsFile() {
+		return this.deps.contactsFile ?? CONTACTS_FILE;
 	}
 	private get tmpDir() {
 		return this.deps.tmpDir ?? CHANNEL_TMP_DIR;
@@ -247,6 +258,19 @@ export class ChannelManager {
 		}
 	}
 
+	/** 主动推送消息到指定渠道（用于定时任务的 robot_push 工具）。
+	 *  按 botId 查找渠道：adapters 以 channelId（ch_xxx）为键，而 robot_push 传入的是
+	 *  prompt 中 @bot_xxx 解析出的 botId，故先从持久化配置反查 channelId 再取 adapter。
+	 *  主动推送无对应进站消息 → sendText 的 replyFrame 传 null。 */
+	async pushToChannel(botId: string, message: string): Promise<void> {
+		const channels = await loadChannels(this.channelsFile);
+		const channel = channels.find((c) => c.credentials.botId === botId);
+		if (!channel) throw new Error(`渠道 ${botId} 未连接`);
+		const adapter = this.adapters.get(channel.id);
+		if (!adapter) throw new Error(`渠道 ${botId} 未连接`);
+		await adapter.sendText(null, message);
+	}
+
 	/** 智能体被渠道引用的统计（删除智能体确认提示用） */
 	async agentUsage(
 		agentName: string,
@@ -309,6 +333,16 @@ export class ChannelManager {
 			}
 		}
 		return result.sort((a, b) => b.updatedAt - a.updatedAt);
+	}
+
+	/** 某机器人的通讯录（channelId 空 = 全部），按 lastChatAt 倒序 */
+	async listContacts(channelId?: string): Promise<ContactEntity[]> {
+		return loadContacts(channelId, this.contactsFile);
+	}
+
+	/** 重命名通讯录条目（备注名）；id 不存在返回 null */
+	async renameContact(id: string, remark: string): Promise<ContactEntity | null> {
+		return renameContactById(id, remark, this.contactsFile);
 	}
 
 	/** 由 index.ts 的 AgentManager onEvent 挂钩（throttle 之前调用，agent_settled 不可被节流丢弃） */
@@ -503,6 +537,22 @@ export class ChannelManager {
 	): Promise<void> {
 		const key = `${channel.id}:${msg.chatId}:${msg.fromUserId}`;
 		this.lastFrames.set(key, msg.replyFrame);
+		// 采集通讯录：单聊记人、群聊记群（只记新对话，失败不阻断消息处理）
+		try {
+			if (msg.chatType === "group") {
+				await upsertContact(
+					{ channelId: channel.id, kind: "group", chatId: msg.chatId },
+					this.contactsFile,
+				);
+			} else {
+				await upsertContact(
+					{ channelId: channel.id, kind: "person", userId: msg.fromUserId },
+					this.contactsFile,
+				);
+			}
+		} catch (e) {
+			console.warn("[channel-manager] 通讯录采集失败:", e);
+		}
 		const reply = async (text: string) => {
 			for (const chunk of chunkByBytes(text)) {
 				await adapter.sendText(msg.replyFrame, chunk);

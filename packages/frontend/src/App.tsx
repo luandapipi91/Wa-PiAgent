@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { AgentName } from "@wa-pi/shared";
+import i18n from "i18next";
 import { useTranslation } from "./i18n/useTranslation";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar, type SidebarTab } from "./components/Sidebar";
 import { SidebarResizer } from "./components/SidebarResizer";
 import { useSidebarStore } from "./store/sidebar";
 import { NewSessionPane } from "./components/NewSessionPane";
@@ -25,6 +26,7 @@ import { useCommandsStore } from "./store/commands";
 import { useMcpStore } from "./store/mcp";
 import { useMemoryStore } from "./store/memory";
 import { useChannelsStore } from "./store/channels";
+import { useContactsStore } from "./store/contacts";
 import { useToastStore } from "./store/toast";
 import { useComposerPrefsStore } from "./store/composer-prefs";
 import { useSubagentsStore } from "./store/subagents";
@@ -45,6 +47,10 @@ import { FilePreviewModal } from "./components/blocks/FilePreviewModal";
 import { ExtensionDialog } from "./components/ExtensionDialog";
 import { AnsiText } from "./components/ui/AnsiText";
 import { useTrashStore } from "./store/trash";
+import { useSchedulerStore } from "./store/scheduler";
+import { TaskDetailView } from "./components/automation/TaskDetailView";
+import { TaskEditForm } from "./components/automation/TaskEditForm";
+import { ExecutionRecords } from "./components/automation/ExecutionRecords";
 
 export type View = "empty" | "new-session" | "session";
 
@@ -56,6 +62,8 @@ export function App() {
 	// 订阅 IM 会话列表，用于判定当前 session 是否来自 IM 接入（决定 SessionView 是否传 sourceLabel）
 	const conversations = useChannelsStore((s) => s.conversations);
 	const [view, setView] = useState<View>("empty");
+	// 侧边栏分段标签：tasks | im | automation。提升到 App 级以驱动主内容区路由。
+	const [sidebarTab, setSidebarTab] = useState<SidebarTab>("tasks");
 	const [configAgent, setConfigAgent] = useState<AgentName | null>(null);
 	const [galleryOpen, setGalleryOpen] = useState(false);
 	const [paletteOpen, setPaletteOpen] = useState(false);
@@ -77,6 +85,11 @@ export function App() {
 	const retryInfo = useSessionStore((s) =>
 		currentSessionId ? (s.retryBySession[currentSessionId] ?? null) : null,
 	);
+	// 自动化视图路由：scheduler store 的 view 控制子视图（detail/edit/records）
+	const autoView = useSchedulerStore((s) => s.view);
+	const selectedTaskId = useSchedulerStore((s) => s.selectedTaskId);
+	const schedulerTasks = useSchedulerStore((s) => s.tasks);
+	const editingTask = useSchedulerStore((s) => s.editingTask);
 	// 扩展 setTitle：会话级标题，聊天窗顶部状态条展示（不写 document.title）。
 	const extTitle = useSessionStore((s) =>
 		currentSessionId ? (s.extTitleBySession[currentSessionId] ?? null) : null,
@@ -95,6 +108,7 @@ export function App() {
 		useExtensionsStore.getState().load();
 		useAgentsStore.getState().loadAll();
 		useSubagentsStore.getState().load();
+		useContactsStore.getState().loadContacts();
 		// 应用更新 IPC 桥接：desktop 下订阅 updater 事件并拉取版本信息；浏览器 dev 下无 waPiUpdater 直接返回
 		initUpdater();
 		const offReconnect = onReconnect(() => {
@@ -108,6 +122,10 @@ export function App() {
 			useExtensionsStore.getState().load();
 			useAgentsStore.getState().loadAll();
 			useSubagentsStore.getState().load();
+			// 定时任务：重连后刷新任务列表 + 执行记录
+			void useSchedulerStore.getState().loadTasks();
+			void useSchedulerStore.getState().loadRecords();
+			useContactsStore.getState().loadContacts();
 			const sid = useProjectsStore.getState().currentSessionId;
 			if (sid) useSessionStore.getState().setHistoryLoading(sid, true);
 			if (sid)
@@ -250,6 +268,13 @@ export function App() {
 				case "extension:install:done":
 					useExtensionsStore.getState().completeInstall(e);
 					break;
+				case "extension:repair:progress":
+					useExtensionsStore.getState().applyRepairProgress(e);
+					break;
+				case "extension:repair:done":
+					useExtensionsStore.getState().completeRepair();
+					useToastStore.getState().add(i18n.t("settings.extension.repairDone"), "success");
+					break;
 				case "memory:list":
 				case "memory:changed":
 					useMemoryStore.getState().setMemories(e as any);
@@ -275,6 +300,24 @@ export function App() {
 					break;
 				case "channel-conversations:changed":
 					void useChannelsStore.getState().loadConversations();
+					break;
+				// 定时任务变更/执行完成：重新拉取任务列表；执行完成时同时刷新记录
+				case "scheduled-tasks:changed":
+					void useSchedulerStore.getState().loadTasks();
+					break;
+				case "scheduled-task:completed":
+					void useSchedulerStore.getState().loadTasks();
+					void useSchedulerStore.getState().loadRecords();
+					break;
+				// 调度注册失败（cron 非法等）：toast 提示 + 刷新任务列表
+				case "scheduled-task:error":
+					useToastStore
+						.getState()
+						.add(`定时任务调度失败：${e.error ?? "未知错误"}`, "error");
+					void useSchedulerStore.getState().loadTasks();
+					break;
+				case "contacts:changed":
+					void useContactsStore.getState().loadContacts();
 					break;
 			}
 		});
@@ -474,6 +517,8 @@ export function App() {
 					void useProjectsStore.getState().createProjectFromDir();
 				}}
 				currentView={view}
+				tab={sidebarTab}
+				onTabChange={setSidebarTab}
 			/>
 			<SidebarResizer
 				side="left"
@@ -529,20 +574,30 @@ export function App() {
 						<AnsiText text={extTitle} />
 					</div>
 				)}
-				{view === "empty" && (
+				{sidebarTab === "automation" ? (
+					<AutomationMain
+						autoView={autoView}
+						selectedTask={
+							schedulerTasks.find((t) => t.id === selectedTaskId) ?? null
+						}
+						editingTaskName={editingTask?.name ?? null}
+					/>
+				) : view === "empty" ? (
 					<EmptyState
 						onNewProject={() => {
 							void useProjectsStore.getState().createProjectFromDir();
 						}}
 					/>
-				)}
-				{view === "new-session" && (
+				) : null}
+				{/* automation 页签独占主内容区：互斥渲染 new-session/session（view state 不动，切回 tasks 恢复原视图） */}
+				{view === "new-session" && sidebarTab !== "automation" && (
 					<NewSessionPane
 						pendingAgent={pendingAgent}
 						onConsumePendingAgent={() => setPendingAgent(null)}
 					/>
 				)}
 				{view === "session" &&
+					sidebarTab !== "automation" &&
 					currentSessionId &&
 					(() => {
 						// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined。
@@ -620,5 +675,47 @@ export function App() {
 			<ToastContainer />
 			<RecordingCapsule />
 		</div>
+	);
+}
+
+/**
+ * 自动化主内容区：根据 scheduler store 的 view 切换详情/编辑/记录视图。
+ * 由 App 级 sidebarTab==="automation" 驱动渲染。
+ */
+function AutomationMain({
+	autoView,
+	selectedTask,
+	editingTaskName,
+}: {
+	autoView: "detail" | "edit" | "records";
+	selectedTask: { name: string } | null;
+	editingTaskName: string | null;
+}) {
+	const header =
+		autoView === "edit"
+			? editingTaskName
+				? `⚡ 编辑定时任务`
+				: `⚡ 新建定时任务`
+			: autoView === "records"
+				? `⚡ 执行记录`
+				: `⚡ ${selectedTask?.name ?? "定时任务"}`;
+	return (
+		<>
+			<div
+				className="flex items-center px-4 py-3 border-b border-hairline"
+				data-testid="automation-main-header"
+			>
+				<span className="text-sm font-semibold text-primary">{header}</span>
+			</div>
+			<div className="flex-1 overflow-y-auto p-4">
+				{autoView === "edit" ? (
+					<TaskEditForm />
+				) : autoView === "records" ? (
+					<ExecutionRecords />
+				) : (
+					<TaskDetailView />
+				)}
+			</div>
+		</>
 	);
 }

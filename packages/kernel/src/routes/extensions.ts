@@ -31,6 +31,10 @@ export const registerExtensionRoutes: RouteRegistrar = (r, callApi, ctx: RouteCo
     return callApi({ type: "extension:upgrade", name: b.name });
   });
 
+  r.add("POST", "/api/extensions/repair", async () =>
+    callApi({ type: "extension:repair" })
+  );
+
   r.add("GET", "/api/extensions/commands", async () =>
     callApi({ type: "extension:commands:list" })
   );

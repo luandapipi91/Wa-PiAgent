@@ -30,6 +30,10 @@ export interface ExtensionUpgradeEvent {
 	type: "extension:upgrade";
 	name: string;
 }
+/** 全量重建扩展依赖目录（删 node_modules+bun.lock 后重装） */
+export interface ExtensionRepairEvent {
+	type: "extension:repair";
+}
 export interface ExtensionToggleEvent {
 	type: "extension:toggle";
 	name: string;
@@ -60,6 +64,15 @@ export interface ExtensionProgressEvent {
 export interface ExtensionInstallDoneEvent {
 	type: "extension:install:done";
 	name: string;
+}
+/** 修复期间流式推送的包管理器日志行（与 extension:progress 同广播机制） */
+export interface ExtensionRepairProgressEvent {
+	type: "extension:repair:progress";
+	message: string;
+}
+/** 修复成功终态信号 */
+export interface ExtensionRepairDoneEvent {
+	type: "extension:repair:done";
 }
 /** pi 扩展 ctx.ui.notify 反馈（如 /lens-toggle 的执行结果）：kernel 转发为事件，前端 toast 展示 */
 export interface ExtensionNotifyEvent {

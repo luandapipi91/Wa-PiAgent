@@ -7,10 +7,14 @@ import { RecycleBinButton } from "./RecycleBinButton";
 import { RecycleBinModal } from "./RecycleBinModal";
 import { ImConversationList } from "./ImConversationList";
 import { RecentSessionsList } from "./RecentSessionsList";
+import { AutomationSidebar } from "./automation/AutomationSidebar";
 import { useSettingsStore } from "../store/settings";
 import { useSidebarStore } from "../store/sidebar";
 import { useTrashStore } from "../store/trash";
 import { useTranslation } from "../i18n/useTranslation";
+
+/** 侧边栏分段标签 */
+export type SidebarTab = "tasks" | "im" | "automation";
 
 interface Props {
 	onNewSession: () => void;
@@ -20,13 +24,16 @@ interface Props {
 	onSelectProject: (projectId: string) => void;
 	onNewProject: () => void;
 	currentView?: View;
+	/** 当前激活的分段标签（受控，由 App.tsx 管理以驱动主内容区路由） */
+	tab: SidebarTab;
+	onTabChange: (tab: SidebarTab) => void;
 }
 
 export function Sidebar(props: Props) {
 	const width = useSidebarStore((s) => s.width);
 	const { t } = useTranslation();
-	// 侧边栏页签：任务（默认）| IM。切换只切换内容区，SettingsButton 始终可见。
-	const [tab, setTab] = useState<"tasks" | "im">("tasks");
+	// tab 由 App.tsx 控制（主内容区需据此切换自动化视图）
+	const { tab, onTabChange: setTab } = props;
 	// 任务视图内次级维度：项目（按项目分组，默认）| 最近（时间线）
 	const [sessionScope, setSessionScope] = useState<"project" | "recent">(
 		"project",
@@ -55,12 +62,12 @@ export function Sidebar(props: Props) {
 				</span>
 			</div>
 			<AgentListSection onMore={props.onMore} />
-			{/* 任务 | IM 分段控件 */}
+			{/* 任务 | IM | 自动化 分段控件 */}
 			<div
 				className="flex rounded-md p-0.5"
 				style={{ background: "var(--surface-hover)" }}
 			>
-				{(["tasks", "im"] as const).map((tabKey) => (
+				{(["tasks", "im", "automation"] as const).map((tabKey) => (
 					<button
 						key={tabKey}
 						onClick={() => setTab(tabKey)}
@@ -74,15 +81,19 @@ export function Sidebar(props: Props) {
 									}
 								: { background: "transparent", color: "var(--text-secondary)" }
 						}
-						data-testid={
-							tabKey === "tasks" ? "sidebar-tab-tasks" : "sidebar-tab-im"
-						}
+						data-testid={`sidebar-tab-${tabKey}`}
 					>
-						{tabKey === "tasks" ? t("sidebar.tabTasks") : t("sidebar.tabIm")}
+						{tabKey === "tasks"
+							? t("sidebar.tabTasks")
+							: tabKey === "im"
+								? t("sidebar.tabIm")
+								: t("sidebar.tabAutomation")}
 					</button>
 				))}
 			</div>
-			{tab === "tasks" ? (
+			{tab === "automation" ? (
+				<AutomationSidebar />
+			) : tab === "tasks" ? (
 				<>
 					{/* 任务视图内查看维度：项目分组 | 最近时间线（虚线样式，区分于上方任务|IM 实心分段） */}
 					<div
