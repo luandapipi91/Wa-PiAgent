@@ -1,18 +1,89 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSchedulerStore } from "../../store/scheduler";
-import type { ScheduledTask } from "@wa-pi/shared";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { useClampMenu } from "../ProjectItem";
+import type { ScheduledTask, ExecutionStatus } from "@wa-pi/shared";
+
+/** 右键菜单打开状态：屏幕坐标 + 目标任务 */
+interface TaskMenuState {
+	x: number;
+	y: number;
+	task: ScheduledTask;
+}
 
 /**
  * 自动化侧边栏：紧凑的任务卡片列表。
- * 在 useEffect 中调用 loadTasks 拉取最新任务；点击卡片选中，点击「+ 新建」进入新建态。
+ * 点击卡片选中（再点取消），「+ 新建」进入新建弹窗；右键卡片弹上下文菜单
+ * （立即执行 / 删除，删除需二次确认）——菜单模式对齐会话列表（portal + 视口钳制）。
+ * 卡片右侧显示该任务最近一次执行状态（✓/✕/⟳，由执行记录推导）。
  */
 export function AutomationSidebar() {
-	const { tasks, selectedTaskId, selectTask, startCreate, loadTasks, setView } =
-		useSchedulerStore();
+	const {
+		tasks,
+		records,
+		selectedTaskId,
+		selectTask,
+		startCreate,
+		loadTasks,
+		loadRecords,
+		deleteTask,
+		runTaskNow,
+	} = useSchedulerStore();
+	// 右键上下文菜单（taskMenu 非空时 portal 渲染）
+	const [taskMenu, setTaskMenu] = useState<TaskMenuState | null>(null);
+	// 删除确认（菜单点「删除」后弹 ConfirmDialog）
+	const [deletingTask, setDeletingTask] = useState<ScheduledTask | null>(null);
+	const menuRef = useRef<HTMLDivElement>(null);
+	useClampMenu(menuRef, taskMenu);
+
+	// 每任务最近一条执行记录的状态（✓/✕ 状态点数据源；records 无序保证，取 startedAt 最大）
+	const lastStatusByTask = useMemo(() => {
+		const latest = new Map<
+			string,
+			{ status: ExecutionStatus; startedAt: number }
+		>();
+		for (const r of records) {
+			const prev = latest.get(r.taskId);
+			if (!prev || r.startedAt > prev.startedAt) {
+				latest.set(r.taskId, { status: r.status, startedAt: r.startedAt });
+			}
+		}
+		const result = new Map<string, ExecutionStatus>();
+		for (const [taskId, v] of latest) result.set(taskId, v.status);
+		return result;
+	}, [records]);
 
 	useEffect(() => {
 		void loadTasks();
-	}, [loadTasks]);
+		// 状态点需要全量执行记录（不限任务）；loadRecords 无参 = 全部
+		void loadRecords();
+	}, [loadTasks, loadRecords]);
+
+	// 菜单关闭：点任意处 / ESC（延迟注册，避免右键当次事件立即关闭）
+	useEffect(() => {
+		if (!taskMenu) return;
+		const close = () => setTaskMenu(null);
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape") close();
+		};
+		const id = setTimeout(() => {
+			document.addEventListener("click", close);
+			document.addEventListener("keydown", onKey);
+		}, 0);
+		return () => {
+			clearTimeout(id);
+			document.removeEventListener("click", close);
+			document.removeEventListener("keydown", onKey);
+		};
+	}, [taskMenu]);
+
+	// 跨组件菜单互斥：其他组件（会话/项目右键菜单）打开时关闭自己的
+	useEffect(() => {
+		const onCloseAll = () => setTaskMenu(null);
+		window.addEventListener("project-menu-close", onCloseAll);
+		return () => window.removeEventListener("project-menu-close", onCloseAll);
+	}, []);
 
 	return (
 		<div className="flex flex-col h-full" data-testid="automation-sidebar">
@@ -26,23 +97,12 @@ export function AutomationSidebar() {
 				</span>
 				<div className="flex gap-1">
 					<button
-						onClick={() => setView("records")}
-						className="text-[10px] px-2 py-0.5 rounded border-0 cursor-pointer"
-						style={{
-							background: "var(--surface-hover)",
-							color: "var(--text-secondary)",
-						}}
-						data-testid="automation-records-btn"
-					>
-						执行记录
-					</button>
-					<button
 						onClick={startCreate}
 						className="text-[10px] px-2 py-0.5 rounded border-0 cursor-pointer"
 						style={{ background: "var(--accent)", color: "white" }}
 						data-testid="automation-new-btn"
 					>
-						+ 新建
+						+ 新建自动化
 					</button>
 				</div>
 			</div>
@@ -54,7 +114,13 @@ export function AutomationSidebar() {
 						key={task.id}
 						task={task}
 						selected={task.id === selectedTaskId}
+						lastStatus={lastStatusByTask.get(task.id)}
 						onClick={() => selectTask(task.id)}
+						onContextMenu={(e) => {
+							e.preventDefault();
+							window.dispatchEvent(new CustomEvent("project-menu-close"));
+							setTaskMenu({ x: e.clientX, y: e.clientY, task });
+						}}
 					/>
 				))}
 				{tasks.length === 0 && (
@@ -66,18 +132,86 @@ export function AutomationSidebar() {
 					</div>
 				)}
 			</div>
+
+			{/* 右键上下文菜单（portal 到 body，模式对齐会话列表右键菜单） */}
+			{taskMenu &&
+				createPortal(
+					<div
+						ref={menuRef}
+						className="fixed z-50 rounded-md py-1 text-sm border border-hairline"
+						style={{
+							left: taskMenu.x,
+							top: taskMenu.y,
+							background: "var(--surface)",
+							boxShadow: "var(--shadow-lg)",
+							minWidth: 140,
+						}}
+						onClick={(e) => e.stopPropagation()}
+						data-testid="task-context-menu"
+					>
+						<button
+							onClick={() => {
+								void runTaskNow(taskMenu.task.id);
+								setTaskMenu(null);
+							}}
+							className="w-full text-left px-3 py-1.5 text-primary transition-colors hover:bg-surface-hover text-xs"
+							data-testid="task-menu-run"
+						>
+							▶ 立即执行
+						</button>
+						<button
+							onClick={() => {
+								setDeletingTask(taskMenu.task);
+								setTaskMenu(null);
+							}}
+							className="w-full text-left px-3 py-1.5 text-danger transition-colors hover:bg-danger-soft text-xs"
+							data-testid="task-menu-delete"
+						>
+							🗑 删除
+						</button>
+					</div>,
+					document.body,
+				)}
+
+			{/* 删除确认弹窗（菜单「删除」后二次确认） */}
+			{deletingTask && (
+				<ConfirmDialog
+					title="删除自动化任务"
+					message={`确定删除「${deletingTask.name}」？删除后不可恢复。`}
+					confirmText="删除"
+					danger
+					onCancel={() => setDeletingTask(null)}
+					onConfirm={() => {
+						void deleteTask(deletingTask.id);
+						setDeletingTask(null);
+					}}
+				/>
+			)}
 		</div>
 	);
+}
+
+/** 状态点颜色（与 ExecutionRecords 页面三色映射一致） */
+function statusStyle(status: ExecutionStatus) {
+	return status === "success"
+		? { color: "#4ade80", title: "上次执行：成功" }
+		: status === "failed"
+			? { color: "#f87171", title: "上次执行：失败" }
+			: { color: "#60a5fa", title: "执行中" };
 }
 
 function TaskCard({
 	task,
 	selected,
+	lastStatus,
 	onClick,
+	onContextMenu,
 }: {
 	task: ScheduledTask;
 	selected: boolean;
+	lastStatus?: ExecutionStatus;
 	onClick: () => void;
+	onContextMenu: (e: React.MouseEvent) => void;
 }) {
 	const hasIM = task.prompt.includes("@bot_");
 	const scheduleText = formatSchedule(task.schedule);
@@ -85,6 +219,7 @@ function TaskCard({
 	return (
 		<div
 			onClick={onClick}
+			onContextMenu={onContextMenu}
 			className="rounded-md p-2.5 cursor-pointer transition-colors border"
 			style={{
 				background: selected ? "var(--accent-soft)" : "var(--surface-hover)",
@@ -99,13 +234,29 @@ function TaskCard({
 				>
 					{task.name}
 				</span>
-				<span
-					className="text-[10px]"
-					style={{
-						color: task.enabled ? "var(--accent)" : "var(--text-tertiary)",
-					}}
-				>
-					{task.enabled ? "●" : "○"}
+				<span className="flex items-center gap-1 shrink-0">
+					{/* 最近执行状态点（执行记录推导，无记录不显示） */}
+					{lastStatus && (
+						<span
+							className="text-[10px] font-bold"
+							style={statusStyle(lastStatus)}
+							data-testid={`task-last-status-${task.id}`}
+						>
+							{lastStatus === "success"
+								? "✓"
+								: lastStatus === "failed"
+									? "✕"
+									: "⟳"}
+						</span>
+					)}
+					<span
+						className="text-[10px]"
+						style={{
+							color: task.enabled ? "var(--accent)" : "var(--text-tertiary)",
+						}}
+					>
+						{task.enabled ? "●" : "○"}
+					</span>
 				</span>
 			</div>
 			<div className="flex items-center justify-between">

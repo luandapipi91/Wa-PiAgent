@@ -296,6 +296,62 @@ test("placeholder 会话：loadActive 过滤、load 保留", async () => {
 	rmSync(f, { force: true });
 });
 
+// 定时任务执行会话隔离：不进侧栏列表（loadActive 过滤 source=scheduler + 存量 sched- 前缀兑底），
+// load 全量保留（executeTask 执行链、回写执行记录依赖记录存在）
+test("scheduler 会话：loadActive 过滤（source 字段 + 存量 sched- 前缀兑底），load 保留", async () => {
+	const f = tempFile();
+	const store = new ProjectStore(f);
+	const p = await store.createProject({ name: "P", cwd: "/p" });
+	// 新建定时任务执行会话：带 source 标记
+	await store.createSession({
+		projectId: p.id,
+		primaryAgent: "dev",
+		title: "定时任务 · 每日报表",
+		id: "sched-t1-123",
+		source: "scheduler",
+	});
+	// 存量数据：无 source 字段，只有 id 前缀约定
+	await store.createSession({
+		projectId: p.id,
+		primaryAgent: "dev",
+		title: "定时任务 · 旧任务",
+		id: "sched-t2-456",
+	});
+	await store.createSession({
+		projectId: p.id,
+		primaryAgent: "dev",
+		title: "正常会话",
+		id: "s-normal",
+	});
+	// load 全量保留（执行记录回填/会话查看依赖）
+	const { sessions } = await store.load();
+	expect(sessions.length).toBe(3);
+	// loadActive：source=scheduler 与存量 sched- 前缀均过滤，正常会话不受影响
+	const active = await store.loadActive();
+	expect(active.sessions.find((x) => x.id === "sched-t1-123")).toBeUndefined();
+	expect(active.sessions.find((x) => x.id === "sched-t2-456")).toBeUndefined();
+	expect(active.sessions.find((x) => x.id === "s-normal")).toBeTruthy();
+	rmSync(f, { force: true });
+});
+
+// IM 会话标记：source=im 显式化（原靠 id 前缀约定），loadActive 不受影响（IM 有独立列表，侧栏项目视图仍需展示）
+test("IM 会话 source=im：loadActive 保留（侧栏项目分组原有 im- 前缀过滤不变）", async () => {
+	const f = tempFile();
+	const store = new ProjectStore(f);
+	const p = await store.createProject({ name: "P", cwd: "/p" });
+	await store.createSession({
+		projectId: p.id,
+		primaryAgent: "dev",
+		title: "IM · u1",
+		id: "im-ch1-p1-1",
+		source: "im",
+	});
+	const active = await store.loadActive();
+	// kernel 层不过滤 IM 会话（前端项目视图用 im- 前缀排除，历史约定保持）
+	expect(active.sessions.find((x) => x.id === "im-ch1-p1-1")).toBeTruthy();
+	rmSync(f, { force: true });
+});
+
 test("placeholder 会话首次发消息转正：fillSessionTitleIfEmpty 填标题并清除 placeholder", async () => {
 	const f = tempFile();
 	const store = new ProjectStore(f);

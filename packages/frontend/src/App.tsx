@@ -47,9 +47,7 @@ import { ExtensionDialog } from "./components/ExtensionDialog";
 import { AnsiText } from "./components/ui/AnsiText";
 import { useTrashStore } from "./store/trash";
 import { useSchedulerStore } from "./store/scheduler";
-import { TaskDetailView } from "./components/automation/TaskDetailView";
-import { TaskEditForm } from "./components/automation/TaskEditForm";
-import { ExecutionRecords } from "./components/automation/ExecutionRecords";
+import { AutomationMain } from "./components/automation/AutomationMain";
 
 export type View = "empty" | "new-session" | "session";
 
@@ -84,11 +82,6 @@ export function App() {
 	const retryInfo = useSessionStore((s) =>
 		currentSessionId ? (s.retryBySession[currentSessionId] ?? null) : null,
 	);
-	// 自动化视图路由：scheduler store 的 view 控制子视图（detail/edit/records）
-	const autoView = useSchedulerStore((s) => s.view);
-	const selectedTaskId = useSchedulerStore((s) => s.selectedTaskId);
-	const schedulerTasks = useSchedulerStore((s) => s.tasks);
-	const editingTask = useSchedulerStore((s) => s.editingTask);
 	// 扩展 setTitle：会话级标题，聊天窗顶部状态条展示（不写 document.title）。
 	const extTitle = useSessionStore((s) =>
 		currentSessionId ? (s.extTitleBySession[currentSessionId] ?? null) : null,
@@ -567,13 +560,7 @@ export function App() {
 					</div>
 				)}
 				{sidebarTab === "automation" ? (
-					<AutomationMain
-						autoView={autoView}
-						selectedTask={
-							schedulerTasks.find((t) => t.id === selectedTaskId) ?? null
-						}
-						editingTaskName={editingTask?.name ?? null}
-					/>
+					<AutomationMain />
 				) : view === "empty" ? (
 					<EmptyState
 						onNewProject={() => {
@@ -667,47 +654,5 @@ export function App() {
 			<ToastContainer />
 			<RecordingCapsule />
 		</div>
-	);
-}
-
-/**
- * 自动化主内容区：根据 scheduler store 的 view 切换详情/编辑/记录视图。
- * 由 App 级 sidebarTab==="automation" 驱动渲染。
- */
-function AutomationMain({
-	autoView,
-	selectedTask,
-	editingTaskName,
-}: {
-	autoView: "detail" | "edit" | "records";
-	selectedTask: { name: string } | null;
-	editingTaskName: string | null;
-}) {
-	const header =
-		autoView === "edit"
-			? editingTaskName
-				? `⚡ 编辑定时任务`
-				: `⚡ 新建定时任务`
-			: autoView === "records"
-				? `⚡ 执行记录`
-				: `⚡ ${selectedTask?.name ?? "定时任务"}`;
-	return (
-		<>
-			<div
-				className="flex items-center px-4 py-3 border-b border-hairline"
-				data-testid="automation-main-header"
-			>
-				<span className="text-sm font-semibold text-primary">{header}</span>
-			</div>
-			<div className="flex-1 overflow-y-auto p-4">
-				{autoView === "edit" ? (
-					<TaskEditForm />
-				) : autoView === "records" ? (
-					<ExecutionRecords />
-				) : (
-					<TaskDetailView />
-				)}
-			</div>
-		</>
 	);
 }

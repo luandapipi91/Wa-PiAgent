@@ -53,6 +53,9 @@
 	/* 文字大小缩放系数（系统设置 > 通用 > 文字大小）：只作用于字号，不动布局 */
 	--font-scale: 1;
 
+	/* UA 原生控件（时间/日期选择器、滚动条、select 箭头、input 内部图标）按应用浅色主题绘制 */
+	color-scheme: light;
+
 	/* —— 品牌与强调 —— */
 	/* brand 用青蛙绿 #4BA26F（与 logo.svg / desktop BRAND_GREEN 统一） */
 	--brand: #4ba26f;
@@ -145,6 +148,9 @@
 
 /* ===== 深色模式基础色板（覆盖 :root 默认值） ===== */
 :root[data-theme="dark"] {
+	/* UA 原生控件（时间/日期选择器、滚动条、select 箭头、input 内部图标）按应用深色主题绘制 */
+	color-scheme: dark;
+
 	--canvas: #1a1a1e;
 	--canvas-grad-end: #131315;
 	--surface: #2c2c2e;
