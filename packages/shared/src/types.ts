@@ -26,11 +26,14 @@ import type {
 	ExtensionInstallEvent,
 	ExtensionUninstallEvent,
 	ExtensionUpgradeEvent,
+	ExtensionRepairEvent,
 	ExtensionListResult,
 	ExtensionChangedEvent,
 	ExtensionErrorEvent,
 	ExtensionProgressEvent,
 	ExtensionInstallDoneEvent,
+	ExtensionRepairProgressEvent,
+	ExtensionRepairDoneEvent,
 	ExtensionNotifyEvent,
 	ExtensionCommandsListEvent,
 	ExtensionCommandToggleEvent,
@@ -730,6 +733,7 @@ export type WSClientEvent =
 	| ExtensionInstallEvent
 	| ExtensionUninstallEvent
 	| ExtensionUpgradeEvent
+	| ExtensionRepairEvent
 	| ExtensionCommandsListEvent
 	| ExtensionCommandToggleEvent
 	| ExtensionDialogRespondEvent
@@ -1326,6 +1330,8 @@ export type WSServerEvent =
 	| ExtensionErrorEvent
 	| ExtensionProgressEvent
 	| ExtensionInstallDoneEvent
+	| ExtensionRepairProgressEvent
+	| ExtensionRepairDoneEvent
 	| ExtensionNotifyEvent
 	| ExtensionCommandsListResult
 	| ExtensionCommandToggleResult

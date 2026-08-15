@@ -98,6 +98,7 @@ const mockPkgService = {
     onProgress?.("mock upgrade progress");
     return { version: "9.9.9" };
   },
+  repair: async (_onProgress?: (line: string) => void) => {},
   getInstalledVersion: (_name: string) => "9.9.9" as string | undefined,
   getLatestVersion: async (_name: string) => "9.9.10" as string | undefined,
   getDescription: (_name: string) => "Mock description" as string | undefined,
@@ -593,6 +594,7 @@ test("listEnabledPackageNames 不触碰 pkgService（无版本/registry 查询�
     install: async () => { throw new Error("不应调用 install"); },
     uninstall: async () => { throw new Error("不应调用 uninstall"); },
     upgrade: async () => { throw new Error("不应调用 upgrade"); },
+    repair: async () => { throw new Error("不应调用 repair"); },
     getInstalledVersion: () => { throw new Error("不应调用 getInstalledVersion"); },
     getLatestVersion: async () => { throw new Error("不应调用 getLatestVersion"); },
     getDescription: () => { throw new Error("不应调用 getDescription"); },
