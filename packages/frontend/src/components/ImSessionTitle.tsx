@@ -36,7 +36,7 @@ export default function ImSessionTitle({ sessionTitle, imConv }: Props) {
 			kind === "group"
 				? (contact?.chatId ?? imConv.chatId ?? "").slice(0, 8)
 				: (contact?.userId ?? imConv.chatId ?? imConv.fromUserId ?? "");
-		setValue(contact?.remark ?? fallback);
+		setValue(contact?.remark || fallback);
 		setEditing(true);
 	};
 

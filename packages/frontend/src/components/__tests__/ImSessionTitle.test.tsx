@@ -149,6 +149,15 @@ test("联系人 userId 为空（异常数据）：兑底回填 chatId（与 titl
 	).toBe("u1");
 });
 
+test("联系人备注为空字符串：回填联系人标识（非空）", () => {
+	state.contacts = [contact({ remark: "" })]; // person，remark 空字符串
+	render(<ImSessionTitle sessionTitle="IM · u1" imConv={imConv()} />);
+	fireEvent.click(screen.getByTestId("im-session-title-edit"));
+	expect(
+		(screen.getByTestId("im-session-title-input") as HTMLInputElement).value,
+	).toBe("u1");
+});
+
 test("群聊联系人无备注：点铅笔回填 chatId 前 8 位", () => {
 	state.contacts = [
 		contact({ kind: "group", userId: undefined, chatId: "g12345678" }),
