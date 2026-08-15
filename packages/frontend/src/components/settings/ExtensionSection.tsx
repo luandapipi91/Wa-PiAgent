@@ -71,24 +71,7 @@ export function ExtensionSection() {
 
       <div style={{ height: "1px", background: "var(--hairline)" }} />
 
-      {/* 修复依赖（全量重建 node_modules，解决版本漂移/半安装） */}
-      <div className="flex items-center justify-end gap-2">
-        {repairing !== null && (
-          <span className="text-xs text-tertiary truncate" data-testid="ext-repair-progress">
-            {repairing || t("settings.extension.repairing")}
-          </span>
-        )}
-        <button
-          className="px-3 py-1 text-xs rounded-sm border border-hairline text-tertiary hover:text-primary hover:border-accent disabled:opacity-50"
-          onClick={() => setConfirmRepair(true)}
-          disabled={repairing !== null}
-          data-testid="ext-repair-btn"
-        >
-          {repairing !== null ? t("settings.extension.repairing") : t("settings.extension.repairBtn")}
-        </button>
-      </div>
-
-      {/* 修复确认弹窗 */}
+      {/* 修复确认弹窗（按钮在底部提示条右侧） */}
       {confirmRepair && (
         <ConfirmDialog
           title={t("settings.extension.confirmRepairTitle")}
@@ -217,7 +200,7 @@ export function ExtensionSection() {
                     disabled={upgrading[pkg.name] !== undefined}
                     data-testid={`ext-upgrade-${pkg.name}`}
                   >
-                    {upgrading[pkg.name] !== undefined ? t("settings.extension.upgradingBtn") : t("settings.extension.upgrade")}
+                    {upgrading[pkg.name] === undefined ? t("settings.extension.upgrade") : t("settings.extension.upgradingBtn")}
                   </button>
                 )}
                 <button
@@ -257,9 +240,26 @@ export function ExtensionSection() {
         </div>
       </div>
 
-      {/* 底部提示 */}
-      <div className="px-3 py-2.5 rounded-sm text-xs text-secondary" style={{ background: "var(--surface-elevated)", border: "1px solid var(--hairline)" }}>
-        {t("settings.extension.hintPrefix")}<strong>{t("settings.extension.hintHighlight")}</strong>{t("settings.extension.hintSuffix")}
+      {/* 底部提示 + 修复依赖按钮（右对齐） */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-sm text-xs text-secondary" style={{ background: "var(--surface-elevated)", border: "1px solid var(--hairline)" }}>
+        <span className="min-w-0">
+          {t("settings.extension.hintPrefix")}<strong>{t("settings.extension.hintHighlight")}</strong>{t("settings.extension.hintSuffix")}
+        </span>
+        <span className="flex items-center gap-2 shrink-0">
+          {repairing !== null && (
+            <span className="text-tertiary truncate" data-testid="ext-repair-progress" style={{ maxWidth: "10rem" }}>
+              {repairing || t("settings.extension.repairing")}
+            </span>
+          )}
+          <button
+            className="px-3 py-1 text-xs rounded-sm border border-hairline text-tertiary hover:text-primary hover:border-accent disabled:opacity-50"
+            onClick={() => setConfirmRepair(true)}
+            disabled={repairing !== null}
+            data-testid="ext-repair-btn"
+          >
+            {repairing === null ? t("settings.extension.repairBtn") : t("settings.extension.repairing")}
+          </button>
+        </span>
       </div>
 
       {/* 附加命令弹窗 */}
