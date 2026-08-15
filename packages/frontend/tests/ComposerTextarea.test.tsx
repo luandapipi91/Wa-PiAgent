@@ -160,3 +160,39 @@ test("bug 复现：chip 后同行文字被 Chrome 包进 <div> → 不应补换�
   // 期望：chip 和文字在同一行，无 \n
   expect(onTextChange).toHaveBeenCalledWith("$[brainstorming]帮我设计这个功能");
 });
+
+// ===== toHtml / testId props（自动化任务编辑器复用扩展）=====
+
+test("toHtml prop：自定义渲染生效，data-token 提取仍还原原文", () => {
+  const onTextChange = mock();
+  render(
+    <ComposerTextarea
+      text="推给 @x(token1)"
+      onTextChange={onTextChange}
+      onKeyDown={mock()}
+      onPaste={mock()}
+      toHtml={(t) =>
+        t.replace(
+          "@x(token1)",
+          '<span class="chip" contenteditable="false" data-token="@x(token1)">芯片</span>',
+        )
+      }
+      testId="custom-ta"
+    />,
+  );
+  expect(screen.getByTestId("custom-ta")).toBeTruthy();
+  expect(screen.getByText("芯片")).toBeTruthy();
+  // extractText 只认 data-token → 输入事件提取值还原为存储形态
+  const el = screen.getByTestId("custom-ta") as HTMLElement;
+  el.focus();
+  el.appendChild(document.createTextNode(" more"));
+  fireEvent.input(el);
+  expect(onTextChange).toHaveBeenCalledWith("推给 @x(token1) more");
+});
+
+test("不传 toHtml 时默认走聊天 textToHtml（$[技能] 渲染为 chip）", () => {
+  render(
+    <ComposerTextarea text="用 $[日报]" onTextChange={mock()} onKeyDown={mock()} onPaste={mock()} />,
+  );
+  expect(document.querySelector(".chip-skill")).toBeTruthy();
+});

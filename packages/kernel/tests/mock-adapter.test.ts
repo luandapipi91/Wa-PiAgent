@@ -1,3 +1,5 @@
+// MockAdapter 单元测试：inject 进站、sendText/pushMessage 出站、流式、图片下载。
+// pushMessage 为主动推送（定时任务 @联系人 用），记录 chatId + replyFrame=null。
 import { expect, test } from "bun:test";
 import { MockAdapter } from "../src/channels/mock-adapter";
 import type { ChannelConfig } from "@wa-pi/shared";
@@ -38,4 +40,14 @@ test("MockAdapter：inject 触发 onMessage，sendText 记录 outbox", async () 
 
 	await a.disconnect();
 	expect(a.status).toBe("disconnected");
+});
+
+test("MockAdapter：pushMessage 主动推送记录 outbox（含 chatId）", async () => {
+	const a = new MockAdapter(channel);
+	await a.connect();
+	await a.pushMessage?.("zhangsan", "**定时任务推送**");
+	expect(a.outbox).toHaveLength(1);
+	expect(a.outbox[0].text).toBe("**定时任务推送**");
+	expect(a.outbox[0]).toHaveProperty("chatId", "zhangsan");
+	expect(a.outbox[0].replyFrame).toBeNull(); // 主动推送无回复帧
 });

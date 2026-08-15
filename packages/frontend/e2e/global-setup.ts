@@ -59,6 +59,24 @@ async function globalSetup() {
 	mkdirSync(join(E2E_WA_PI_DIR, "agents"), { recursive: true });
 	writeFileSync(join(E2E_WA_PI_DIR, "agents", "dev.md"), DEV_AGENT_MD, "utf8");
 
+	// 预置一个内置技能（dataDir/skills，kernel 启动扫描）：供自动化任务指令输入框的
+	// $ 技能弹窗（公共组件 SkillSuggestTextarea，仅技能非空时渲染）在真实浏览器验证
+	mkdirSync(join(E2E_WA_PI_DIR, "skills", "e2e-skill"), { recursive: true });
+	writeFileSync(
+		join(E2E_WA_PI_DIR, "skills", "e2e-skill", "SKILL.md"),
+		[
+			"---",
+			"name: E2E技能",
+			"description: E2E 测试技能",
+			"---",
+			"",
+			"# E2E技能",
+			"用于 E2E 验证 $ 技能弹窗。",
+			"",
+		].join("\n"),
+		"utf8",
+	);
+
 	// 预置记忆测试数据（memory.spec.ts 依赖）
 	mkdirSync(join(E2E_WA_PI_DIR, "memories", "global"), { recursive: true });
 	writeFileSync(
@@ -158,7 +176,9 @@ async function globalSetup() {
 		detached: process.platform !== "win32",
 	});
 	// kernel 日志落盘：失败排查用（e2e/kernel.log，teardown 不删，下次运行覆盖）
-	const kernelLog = createWriteStream(join(process.cwd(), "e2e", ".kernel-e2e.log"));
+	const kernelLog = createWriteStream(
+		join(process.cwd(), "e2e", ".kernel-e2e.log"),
+	);
 	child.stdout?.pipe(kernelLog, { end: false });
 	child.stderr?.pipe(kernelLog, { end: false });
 
