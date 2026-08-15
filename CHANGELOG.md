@@ -2,6 +2,17 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — feat(kernel/frontend): 定时任务执行记录详情页（执行过程回放）
+
+### 变更
+
+- **kernel 只读回放**：`ws-server.ts` `session:messages` 处理器对 `source === "scheduler"` 的会话跳过 `touchSession` 与 `prewarm()`（事后回放不再拉起 pi 进程、不污染最近会话排序），jsonl 文件直读链路不变。
+- **store 导航**：`scheduler.ts` `AutoView` 加 `"record-detail"`；新增 `selectedRecordId`/`recordDetailBackTo` 与 `openRecordDetail(id, from)`/`closeRecordDetail()`（来源快照回退：从执行记录页打开返回执行记录页，从任务详情打开返回详情）；`selectTask`/`startCreate`/`startEdit` 均重置 `selectedRecordId`。
+- **ExecutionDetailView 组件**：拉取 `GET /api/sessions/:id/messages` 写入 session store，复用聊天 `MessageList` 同款渲染回放；边界态：无 sessionId「该记录无执行过程」（附执行错误）、会话不存在同文案、加载失败错误提示+重试。
+- **两处入口**：`ExecutionRecords` 记录行整行可点+行尾「详情」按钮；`TaskDetailView` 最近执行 `RecordRow` 加「详情」按钮。`AutomationMain` 主区路由 `record-detail`（不套 overflow 容器，MessageList 自带虚拟滚动）。
+- 测试：kernel `session-messages.test.ts` 新增 scheduler 会话只读 3 用例；frontend store 导航 6 用例 + 组件 4 用例；e2e automation 用例 5（REST 造任务+run 触发、写会话 jsonl、点详情断言回放与返回）。E2E 5/5 过（偏移端口 9796/5190）。
+- 影响范围：`kernel/src/ws-server.ts`、`frontend/src/store/scheduler.ts`、`frontend/src/components/automation/{ExecutionDetailView(新),AutomationMain,ExecutionRecords,TaskDetailView}.tsx`、`frontend/e2e/automation.spec.ts`。
+
 ## 2026-08-15 — refactor(kernel/frontend)!: 自动化任务 @im-push-to 标记与技能 chip 重构
 
 ### 变更
