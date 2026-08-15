@@ -26,6 +26,9 @@ export function TaskEditForm() {
 	const [scheduleType, setScheduleType] =
 		useState<TaskSchedule["type"]>("daily");
 	const [time, setTime] = useState("09:00");
+	const [intervalMinutes, setIntervalMinutes] = useState(5);
+	const [intervalHours, setIntervalHours] = useState(1);
+	const [startTime, setStartTime] = useState("");
 	const [dayOfWeek, setDayOfWeek] = useState(1);
 	const [dayOfMonth, setDayOfMonth] = useState(1);
 	const [cronExpression, setCronExpression] = useState("");
@@ -38,6 +41,9 @@ export function TaskEditForm() {
 		setName(editingTask.name);
 		setScheduleType(editingTask.schedule.type);
 		setTime(editingTask.schedule.time);
+		setIntervalMinutes(editingTask.schedule.intervalMinutes ?? 5);
+		setIntervalHours(editingTask.schedule.intervalHours ?? 1);
+		setStartTime(editingTask.schedule.startTime ?? "");
 		setDayOfWeek(editingTask.schedule.dayOfWeek ?? 1);
 		setDayOfMonth(editingTask.schedule.dayOfMonth ?? 1);
 		setCronExpression(editingTask.schedule.cronExpression ?? "");
@@ -48,6 +54,11 @@ export function TaskEditForm() {
 
 	const handleSave = async () => {
 		const schedule: TaskSchedule = { type: scheduleType, time };
+		if (scheduleType === "minute") schedule.intervalMinutes = intervalMinutes;
+		if (scheduleType === "hourly") {
+			schedule.intervalHours = intervalHours;
+			if (startTime) schedule.startTime = startTime;
+		}
 		if (scheduleType === "weekly") schedule.dayOfWeek = dayOfWeek;
 		if (scheduleType === "monthly") schedule.dayOfMonth = dayOfMonth;
 		if (scheduleType === "custom") schedule.cronExpression = cronExpression;
@@ -125,40 +136,66 @@ export function TaskEditForm() {
 						<option value="monthly">每月</option>
 						<option value="custom">自定义 Cron</option>
 					</select>
-					{scheduleType === "custom" ? (
-						<input
-							value={cronExpression}
-							onChange={(e) => setCronExpression(e.target.value)}
-							placeholder="*/15 * * * *"
-							className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border"
-							style={inputStyle}
-						/>
-					) : scheduleType === "minute" ? (
-						// 每分钟：无需附加输入，说明文案占位保持行高一致
-						<div
-							className="flex-1 rounded-md px-2.5 py-1.5 text-xs border flex items-center"
-							style={{ ...inputStyle, color: "var(--text-tertiary)" }}
-						>
-							每分钟自动执行
-						</div>
-					) : scheduleType === "hourly" ? (
-						// 每小时：仅取分钟段（小时忽略），分钟下拉更直观；存回 time 侜 kernel 复用
+				{scheduleType === "custom" ? (
+					<input
+						value={cronExpression}
+						onChange={(e) => setCronExpression(e.target.value)}
+						placeholder="*/15 * * * *"
+						className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border"
+						style={inputStyle}
+					/>
+				) : scheduleType === "minute" ? (
+					// 每隔 N 分钟：间隔下拉（1-59）
+					<select
+						value={intervalMinutes}
+						onChange={(e) => setIntervalMinutes(Number(e.target.value))}
+						data-testid="task-interval-minutes"
+						className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
+						style={inputStyle}
+					>
+						{[1, 2, 3, 5, 10, 15, 20, 30, 45, 59].map((n) => (
+							<option key={n} value={n}>
+								每隔 {n} 分钟
+							</option>
+						))}
+					</select>
+				) : scheduleType === "hourly" ? (
+					// 每隔 N 小时：间隔下拉（1-23）+ 可选开始时间（空 = 整点对齐）
+					<>
 						<select
-							value={time.split(":")[1] ?? "00"}
-							onChange={(e) => setTime(`00:${e.target.value}`)}
-							data-testid="task-minute-input"
+							value={intervalHours}
+							onChange={(e) => setIntervalHours(Number(e.target.value))}
+							data-testid="task-interval-hours"
 							className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
 							style={inputStyle}
 						>
-							{Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0")).map(
-								(mm) => (
-									<option key={mm} value={mm}>
-										第 {mm} 分钟
-									</option>
-								),
-							)}
+							{[1, 2, 3, 4, 6, 8, 12, 24].map((n) => (
+								<option key={n} value={n}>
+									每隔 {n} 小时
+								</option>
+							))}
 						</select>
-					) : (
+						<input
+							type="time"
+							value={startTime}
+							onChange={(e) => setStartTime(e.target.value)}
+							placeholder="可选"
+							onClick={(e) => {
+								const el = e.currentTarget;
+								if (typeof el.showPicker === "function") {
+									try {
+										el.showPicker();
+									} catch {
+										// showPicker 需用户手势且已聚焦，异常时忽略（原生点击行为兑底）
+									}
+								}
+							}}
+							data-testid="task-hourly-start"
+							className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
+							style={inputStyle}
+						/>
+					</>
+				) : (
 						<input
 							type="time"
 							value={time}

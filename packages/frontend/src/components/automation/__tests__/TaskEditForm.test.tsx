@@ -130,6 +130,59 @@ describe("TaskEditForm", () => {
 		);
 	});
 
+	test("每分钟：间隔写入 schedule.intervalMinutes", () => {
+		render(<TaskEditForm />);
+		fireEvent.change(screen.getByTestId("task-name-input"), {
+			target: { value: "监控" },
+		});
+		fireEvent.click(screen.getByTestId("task-agent-select"));
+		fireEvent.click(screen.getByTestId("task-agent-item-小助手"));
+		setPrompt("检查");
+		// 计划类型切「每分钟」→ 间隔下拉选 10
+		const typeSelect = screen.getAllByRole("combobox")[0];
+		fireEvent.change(typeSelect, { target: { value: "minute" } });
+		fireEvent.change(screen.getByTestId("task-interval-minutes"), {
+			target: { value: "10" },
+		});
+		fireEvent.click(screen.getByTestId("task-save-btn"));
+		expect(createTaskMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				schedule: expect.objectContaining({
+					type: "minute",
+					intervalMinutes: 10,
+				}),
+			}),
+		);
+	});
+
+	test("每小时：间隔 + 开始时间写入 schedule", () => {
+		render(<TaskEditForm />);
+		fireEvent.change(screen.getByTestId("task-name-input"), {
+			target: { value: "整点巡检" },
+		});
+		fireEvent.click(screen.getByTestId("task-agent-select"));
+		fireEvent.click(screen.getByTestId("task-agent-item-小助手"));
+		setPrompt("巡检");
+		const typeSelect = screen.getAllByRole("combobox")[0];
+		fireEvent.change(typeSelect, { target: { value: "hourly" } });
+		fireEvent.change(screen.getByTestId("task-interval-hours"), {
+			target: { value: "3" },
+		});
+		fireEvent.change(screen.getByTestId("task-hourly-start"), {
+			target: { value: "07:30" },
+		});
+		fireEvent.click(screen.getByTestId("task-save-btn"));
+		expect(createTaskMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				schedule: expect.objectContaining({
+					type: "hourly",
+					intervalHours: 3,
+					startTime: "07:30",
+				}),
+			}),
+		);
+	});
+
 	test("编辑模式：回填已有任务字段", () => {
 		schedulerState.editingTask = {
 			id: "t1",

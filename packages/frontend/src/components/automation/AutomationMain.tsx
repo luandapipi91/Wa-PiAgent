@@ -3,6 +3,7 @@ import { useSchedulerStore } from "../../store/scheduler";
 import { TaskDetailView } from "./TaskDetailView";
 import { TaskEditForm } from "./TaskEditForm";
 import { ExecutionRecords } from "./ExecutionRecords";
+import { ExecutionDetailView } from "./ExecutionDetailView";
 
 /**
  * 自动化主内容区（store 驱动，无 props）。
@@ -19,7 +20,9 @@ export function AutomationMain() {
 
 	// 主区 header 反映主区内容（edit 表单在弹窗中，不占主区标题）
 	const mainHeader =
-		view === "records"
+		view === "record-detail"
+			? "⚡ 执行详情"
+			: view === "records"
 			? "⚡ 执行记录"
 			: selectedTask
 				? `⚡ ${selectedTask.name}`
@@ -35,6 +38,12 @@ export function AutomationMain() {
 			>
 				<span className="text-sm font-semibold text-primary">{mainHeader}</span>
 			</div>
+			{/* record-detail：MessageList 自带虚拟滚动，不用外层 overflow 容器包裹 */}
+			{view === "record-detail" ? (
+				<div className="flex-1 min-h-0">
+					<ExecutionDetailView />
+				</div>
+			) : (
 			<div className="flex-1 overflow-y-auto p-4">
 				{view === "records" ? (
 					<ExecutionRecords />
@@ -62,6 +71,7 @@ export function AutomationMain() {
 					</div>
 				)}
 			</div>
+			)}
 			{view === "edit" && (
 				<Modal
 					onClose={() => setView("detail")}

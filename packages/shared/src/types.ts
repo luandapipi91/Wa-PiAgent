@@ -1414,7 +1414,10 @@ export interface TaskSchedule {
 		| "weekly"
 		| "monthly"
 		| "custom";
-	time: string; // "09:30"（minute 忽略；hourly 仅取分钟段）
+	time: string; // "09:30"（minute/hourly 忽略）
+	intervalMinutes?: number; // minute: 每隔 N 分钟（1-59，缺省 1）
+	intervalHours?: number; // hourly: 每隔 N 小时（1-23，缺省 1）
+	startTime?: string; // hourly 可选：开始时间 "HH:MM"（缺省 = 整点对齐 0 */N * * *）
 	dayOfWeek?: number; // weekly: 0-6 (0=周日)
 	dayOfMonth?: number; // monthly: 1-31
 	cronExpression?: string; // custom: 5 字段 cron

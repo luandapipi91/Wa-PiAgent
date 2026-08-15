@@ -10,11 +10,20 @@ export function toCronExpression(schedule: TaskSchedule): string {
 	// .map(Number) 归一化：去除 "09"/"00" 的前导零，使输出为标准 cron 字段（如 9、0）
 	const [h, m] = schedule.time.split(":").map(Number);
 	switch (schedule.type) {
-		case "minute":
-			return "* * * * *";
-		case "hourly":
-			// 每小时的第 m 分钟（time 仅取分钟段，小时忽略）
-			return `${m} * * * *`;
+		case "minute": {
+			const n = schedule.intervalMinutes ?? 1;
+			return `${n === 1 ? "*" : `*/${n}`} * * * *`;
+		}
+		case "hourly": {
+			const n = schedule.intervalHours ?? 1;
+			if (schedule.startTime) {
+				// 指定开始时间：当天从 H:M 起每 n 小时（H-23/n 步进）
+				const [sh, sm] = schedule.startTime.split(":").map(Number);
+				return `${sm} ${sh}-23/${n} * * *`;
+			}
+			// 不指定：整点对齐（午夜起每 n 小时）
+			return `0 ${n === 1 ? "*" : `*/${n}`} * * *`;
+		}
 		case "daily":
 			return `${m} ${h} * * *`;
 		case "weekdays":
