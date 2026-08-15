@@ -535,6 +535,11 @@ export interface TrashSettings {
 	autoPurgeEnabled: boolean;
 	autoPurgeDays: number;
 }
+/** 系统代理设置（持久化在 settings.json 顶层 useSystemProxy + httpProxy） */
+export interface ProxySettings {
+	useSystemProxy: boolean; // 是否使用系统代理
+	httpProxy: string; // 代理地址（如 http://127.0.0.1:7890），空 = 直连
+}
 /** 读取通用设置 */
 export interface SettingsGetRequest {
 	type: "settings:get";
@@ -1467,6 +1472,8 @@ export interface ExecutionRecord {
 	id: string;
 	taskId: string;
 	taskName: string;
+	agentId?: string; // 执行角色（智能体 displayName）
+	model?: string; // 实际使用的模型（provider/modelId）
 	status: ExecutionStatus;
 	startedAt: number;
 	finishedAt?: number;

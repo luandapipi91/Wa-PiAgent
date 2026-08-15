@@ -82,6 +82,10 @@ export function createImPushTool(deps: ImPushToolDeps): ImPushTool {
 				return `错误：联系人 ${contact} 不在可用列表中`;
 			}
 			try {
+				// 诊断：定位推送乱码发生在 kernel 之前还是之后（记录实际收到的 message 原文+字节长）
+				console.log(
+					`[im-push-diagnose] contact=${contact} message=${JSON.stringify(message)} byteLength=${Buffer.byteLength(message, "utf8")}`,
+				);
 				await deps.channelManager.pushToContact(contact, message);
 				deps.onPushResult({ targetId: contact, success: true });
 				return `已成功推送给 ${contact}`;

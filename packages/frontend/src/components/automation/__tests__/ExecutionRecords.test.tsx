@@ -149,7 +149,7 @@ describe("ExecutionRecords", () => {
 		expect(screen.queryByText("成功记录")).toBeNull();
 	});
 
-	test("已推送记录显示「📨 已推送」标记", () => {
+	test("已推送记录显示「已推送」标记", () => {
 		schedulerState.records = [
 			{
 				id: "r1",
@@ -161,7 +161,7 @@ describe("ExecutionRecords", () => {
 			},
 		];
 		render(<ExecutionRecords />);
-		expect(screen.getByText("📨 已推送")).toBeTruthy();
+		expect(screen.getByText("已推送")).toBeTruthy();
 	});
 
 	test("挂载时调用 loadRecords 拉取全部记录", () => {

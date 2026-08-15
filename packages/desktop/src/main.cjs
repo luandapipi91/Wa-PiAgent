@@ -493,6 +493,22 @@ app.whenReady().then(async () => {
 		return app.getLoginItemSettings().openAtLogin;
 	});
 
+	// 读系统代理：session.resolveProxy 返回 "DIRECT" 或 "PROXY host:port" / "SOCKS5 host:port"。
+	// 无代理/读失败 → 返回空串（前端按「直连」处理，静默降级）。
+	ipcMain.handle("app:resolve-system-proxy", async () => {
+		try {
+			const result = await session.defaultSession.resolveProxy(
+				"https://example.com",
+			);
+			const m = result.match(/(?:PROXY|HTTPS|SOCKS5?)\s+([^\s;]+)/);
+			if (!m) return "";
+			const host = m[1];
+			return host.startsWith("http") ? host : `http://${host}`;
+		} catch {
+			return "";
+		}
+	});
+
 	// 托盘 + 菜单
 	const { startTray } = require("./tray.cjs");
 	const trayIconName =

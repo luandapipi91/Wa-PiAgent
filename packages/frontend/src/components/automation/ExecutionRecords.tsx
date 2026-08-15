@@ -17,8 +17,7 @@ export function ExecutionRecords() {
 
 	let filtered = records;
 	if (taskFilter) filtered = filtered.filter((r) => r.taskId === taskFilter);
-	if (statusFilter)
-		filtered = filtered.filter((r) => r.status === statusFilter);
+	if (statusFilter) filtered = filtered.filter((r) => r.status === statusFilter);
 
 	// 时间过滤
 	const now = Date.now();
@@ -47,8 +46,7 @@ export function ExecutionRecords() {
 							className="text-[10px] px-2 py-0.5 rounded cursor-pointer"
 							style={{
 								background: period === k ? "var(--surface)" : "transparent",
-								color:
-									period === k ? "var(--text-primary)" : "var(--text-tertiary)",
+								color: period === k ? "var(--text-primary)" : "var(--text-tertiary)",
 							}}
 						>
 							{label}
@@ -110,8 +108,8 @@ export function ExecutionRecords() {
 							key={r.id}
 							className="flex gap-2.5 p-2.5 rounded-md cursor-pointer"
 							style={{ background: "var(--surface-hover)" }}
-						onClick={() => openRecordDetail(r.id, "records")}
-						data-testid={`execution-record-row-${r.id}`}
+							onClick={() => openRecordDetail(r.id, "records")}
+							data-testid={`execution-record-row-${r.id}`}
 						>
 							<div
 								className="w-7 h-7 rounded-full flex items-center justify-center text-xs flex-shrink-0"
@@ -130,17 +128,10 @@ export function ExecutionRecords() {
 												: "#60a5fa",
 								}}
 							>
-								{r.status === "success"
-									? "✓"
-									: r.status === "failed"
-										? "✕"
-										: "⟳"}
+								{r.status === "success" ? "✓" : r.status === "failed" ? "✕" : "⟳"}
 							</div>
 							<div className="flex-1">
-								<div
-									className="text-xs"
-									style={{ color: "var(--text-primary)" }}
-								>
+								<div className="text-xs" style={{ color: "var(--text-primary)" }}>
 									{r.taskName}
 								</div>
 								<div
@@ -148,9 +139,7 @@ export function ExecutionRecords() {
 									style={{ color: "var(--text-tertiary)" }}
 								>
 									<span>{new Date(r.startedAt).toLocaleString("zh-CN")}</span>
-									{r.durationMs && (
-										<span>耗时 {(r.durationMs / 1000).toFixed(0)}s</span>
-									)}
+									{r.durationMs && <span>耗时 {(r.durationMs / 1000).toFixed(0)}s</span>}
 									{r.pushResults?.some((p) => p.success) && (
 										<span
 											className="px-1 rounded"
@@ -159,12 +148,10 @@ export function ExecutionRecords() {
 												color: "#4ade80",
 											}}
 										>
-											📨 已推送
+											已推送
 										</span>
 									)}
-									{r.error && (
-										<span style={{ color: "#f87171" }}>{r.error}</span>
-									)}
+									{r.error && <span style={{ color: "#f87171" }}>{r.error}</span>}
 								</div>
 							</div>
 							{/* 详情入口：与整行 onClick 同效，给习惯找按钮的用户 */}

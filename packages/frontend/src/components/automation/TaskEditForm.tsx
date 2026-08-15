@@ -3,9 +3,14 @@ import { useSchedulerStore } from "../../store/scheduler";
 import { useAgentsStore } from "../../store/agents";
 import { useProjectsStore } from "../../store/projects";
 import { useToastStore } from "../../store/toast";
+import { useUiPrefsStore } from "../../store/ui-prefs";
 import { AgentDropdown } from "../ui/AgentDropdown";
 import { TaskPromptComposer } from "./TaskPromptComposer";
+import { pickDefaultAgent } from "../NewSessionPane";
 import type { TaskSchedule } from "@wa-pi/shared";
+
+/** 每小时间隔预设选项；预设之外的值通过「自定义」输入（范围 1-23） */
+const HOURLY_INTERVAL_PRESETS = [1, 2, 3, 4, 6, 8, 12, 24];
 
 /**
  * 定时任务新建/编辑表单。
@@ -20,7 +25,8 @@ import type { TaskSchedule } from "@wa-pi/shared";
 export function TaskEditForm() {
 	const { editingTask, createTask, updateTask, setView } = useSchedulerStore();
 	const { list: agents } = useAgentsStore();
-	const { projects } = useProjectsStore();
+	const { projects, sessions } = useProjectsStore();
+	const defaultAgent = useUiPrefsStore((s) => s.defaultAgent);
 
 	const [name, setName] = useState("");
 	const [scheduleType, setScheduleType] =
@@ -28,11 +34,14 @@ export function TaskEditForm() {
 	const [time, setTime] = useState("09:00");
 	const [intervalMinutes, setIntervalMinutes] = useState(5);
 	const [intervalHours, setIntervalHours] = useState(1);
+	const [intervalHoursCustom, setIntervalHoursCustom] = useState(false);
 	const [startTime, setStartTime] = useState("");
 	const [dayOfWeek, setDayOfWeek] = useState(1);
 	const [dayOfMonth, setDayOfMonth] = useState(1);
 	const [cronExpression, setCronExpression] = useState("");
-	const [agentId, setAgentId] = useState("");
+	const [agentId, setAgentId] = useState<string>(
+		() => pickDefaultAgent(agents, sessions, undefined, defaultAgent) ?? "",
+	);
 	const [prompt, setPrompt] = useState("");
 	const [projectId, setProjectId] = useState("");
 
@@ -42,7 +51,9 @@ export function TaskEditForm() {
 		setScheduleType(editingTask.schedule.type);
 		setTime(editingTask.schedule.time);
 		setIntervalMinutes(editingTask.schedule.intervalMinutes ?? 5);
-		setIntervalHours(editingTask.schedule.intervalHours ?? 1);
+		const iv = editingTask.schedule.intervalHours ?? 1;
+		setIntervalHours(iv);
+		setIntervalHoursCustom(!HOURLY_INTERVAL_PRESETS.includes(iv));
 		setStartTime(editingTask.schedule.startTime ?? "");
 		setDayOfWeek(editingTask.schedule.dayOfWeek ?? 1);
 		setDayOfMonth(editingTask.schedule.dayOfMonth ?? 1);
@@ -51,6 +62,15 @@ export function TaskEditForm() {
 		setPrompt(editingTask.prompt);
 		setProjectId(editingTask.projectId ?? "");
 	}, [editingTask]);
+
+	// 新建模式：agent 列表晚于挂载回包时回填默认智能体；已选中（编辑回填）则不干预
+	useEffect(() => {
+		if (!editingTask && !agentId && agents.length > 0) {
+			setAgentId(
+				pickDefaultAgent(agents, sessions, undefined, defaultAgent) ?? "",
+			);
+		}
+	}, [editingTask, agentId, agents, sessions, defaultAgent]);
 
 	const handleSave = async () => {
 		const schedule: TaskSchedule = { type: scheduleType, time };
@@ -81,11 +101,29 @@ export function TaskEditForm() {
 		}
 	};
 
+	// 自定义每小时间隔必须为 1-23 的整数（非法值会生成非法 cron 导致调度注册失败）
+	const validIntervalHours =
+		scheduleType !== "hourly" ||
+		!intervalHoursCustom ||
+		(Number.isInteger(intervalHours) &&
+			intervalHours >= 1 &&
+			intervalHours <= 23);
+
+	// 自定义间隔输入了非法值 → 输入框标红提示（仅 hourly + 自定义时可能为 true）
+	const invalidIntervalHours =
+		intervalHoursCustom &&
+		!(
+			Number.isInteger(intervalHours) &&
+			intervalHours >= 1 &&
+			intervalHours <= 23
+		);
+
 	const canSave = Boolean(
 		name &&
 			agentId &&
 			prompt &&
-			(scheduleType !== "custom" || cronExpression.trim() !== ""),
+			(scheduleType !== "custom" || cronExpression.trim() !== "") &&
+			validIntervalHours,
 	);
 	const inputStyle: React.CSSProperties = {
 		background: "var(--surface-hover)",
@@ -136,66 +174,92 @@ export function TaskEditForm() {
 						<option value="monthly">每月</option>
 						<option value="custom">自定义 Cron</option>
 					</select>
-				{scheduleType === "custom" ? (
-					<input
-						value={cronExpression}
-						onChange={(e) => setCronExpression(e.target.value)}
-						placeholder="*/15 * * * *"
-						className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border"
-						style={inputStyle}
-					/>
-				) : scheduleType === "minute" ? (
-					// 每隔 N 分钟：间隔下拉（1-59）
-					<select
-						value={intervalMinutes}
-						onChange={(e) => setIntervalMinutes(Number(e.target.value))}
-						data-testid="task-interval-minutes"
-						className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
-						style={inputStyle}
-					>
-						{[1, 2, 3, 5, 10, 15, 20, 30, 45, 59].map((n) => (
-							<option key={n} value={n}>
-								每隔 {n} 分钟
-							</option>
-						))}
-					</select>
-				) : scheduleType === "hourly" ? (
-					// 每隔 N 小时：间隔下拉（1-23）+ 可选开始时间（空 = 整点对齐）
-					<>
+					{scheduleType === "custom" ? (
+						<input
+							value={cronExpression}
+							onChange={(e) => setCronExpression(e.target.value)}
+							placeholder="*/15 * * * *"
+							className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border"
+							style={inputStyle}
+						/>
+					) : scheduleType === "minute" ? (
+						// 每隔 N 分钟：间隔下拉（1-59）
 						<select
-							value={intervalHours}
-							onChange={(e) => setIntervalHours(Number(e.target.value))}
-							data-testid="task-interval-hours"
+							value={intervalMinutes}
+							onChange={(e) => setIntervalMinutes(Number(e.target.value))}
+							data-testid="task-interval-minutes"
 							className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
 							style={inputStyle}
 						>
-							{[1, 2, 3, 4, 6, 8, 12, 24].map((n) => (
+							{[1, 2, 3, 5, 10, 15, 20, 30, 45, 59].map((n) => (
 								<option key={n} value={n}>
-									每隔 {n} 小时
+									每隔 {n} 分钟
 								</option>
 							))}
 						</select>
-						<input
-							type="time"
-							value={startTime}
-							onChange={(e) => setStartTime(e.target.value)}
-							placeholder="可选"
-							onClick={(e) => {
-								const el = e.currentTarget;
-								if (typeof el.showPicker === "function") {
-									try {
-										el.showPicker();
-									} catch {
-										// showPicker 需用户手势且已聚焦，异常时忽略（原生点击行为兑底）
+					) : scheduleType === "hourly" ? (
+						// 每隔 N 小时：间隔下拉（1-23）+ 可选开始时间（空 = 整点对齐）
+						<>
+							<select
+								value={intervalHoursCustom ? "custom" : intervalHours}
+								onChange={(e) => {
+									const v = e.target.value;
+									if (v === "custom") {
+										setIntervalHoursCustom(true);
+									} else {
+										setIntervalHoursCustom(false);
+										setIntervalHours(Number(v));
 									}
-								}
-							}}
-							data-testid="task-hourly-start"
-							className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
-							style={inputStyle}
-						/>
-					</>
-				) : (
+								}}
+								data-testid="task-interval-hours"
+								className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
+								style={inputStyle}
+							>
+								{HOURLY_INTERVAL_PRESETS.map((n) => (
+									<option key={n} value={n}>
+										每隔 {n} 小时
+									</option>
+								))}
+								<option value="custom">自定义</option>
+							</select>
+							{intervalHoursCustom && (
+								<input
+									type="number"
+									value={intervalHours}
+									onChange={(e) => setIntervalHours(Number(e.target.value))}
+									min={1}
+									max={23}
+									placeholder="输入小时数"
+									data-testid="task-interval-hours-custom"
+									aria-invalid={invalidIntervalHours || undefined}
+									className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border"
+									style={{
+										...inputStyle,
+										borderColor: invalidIntervalHours ? "var(--danger)" : undefined,
+									}}
+								/>
+							)}
+							<input
+								type="time"
+								value={startTime}
+								onChange={(e) => setStartTime(e.target.value)}
+								placeholder="可选"
+								onClick={(e) => {
+									const el = e.currentTarget;
+									if (typeof el.showPicker === "function") {
+										try {
+											el.showPicker();
+										} catch {
+											// showPicker 需用户手势且已聚焦，异常时忽略（原生点击行为兑底）
+										}
+									}
+								}}
+								data-testid="task-hourly-start"
+								className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
+								style={inputStyle}
+							/>
+						</>
+					) : (
 						<input
 							type="time"
 							value={time}
@@ -273,8 +337,7 @@ export function TaskEditForm() {
 					className="text-[11px] block mb-1.5"
 					style={{ color: "var(--text-secondary)" }}
 				>
-					任务指令{" "}
-					<span style={{ color: "var(--text-tertiary)" }}>（$ 技能，@ 联系人）</span>
+					任务指令
 				</label>
 				<TaskPromptComposer value={prompt} onChange={setPrompt} />
 			</div>

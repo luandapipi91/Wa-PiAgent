@@ -292,7 +292,7 @@ function formatSchedule(schedule: ScheduledTask["schedule"]): string {
 			return `每 ${schedule.intervalMinutes ?? 1} 分钟`;
 		case "hourly":
 			return `每 ${schedule.intervalHours ?? 1} 小时${
-				schedule.startTime ? `（从 ${schedule.startTime} 起）` : ""
+				schedule.startTime ? ` · ${schedule.startTime} 起` : ""
 			}`;
 		case "daily":
 			return `每天 ${time}`;

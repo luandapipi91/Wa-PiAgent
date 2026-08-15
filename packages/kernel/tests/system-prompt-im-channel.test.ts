@@ -63,7 +63,11 @@ test("im-channel 段运行时值优先：段 content 被忽略，不覆盖渠道
 });
 
 test("ensureImChannelSegment：缺失时插到 memory-policy 之前；残留 content 被剥掉", () => {
-	const segs = [{ id: "base" }, { id: "memory-policy" }, { id: "memory-snapshot" }];
+	const segs = [
+		{ id: "base" },
+		{ id: "memory-policy" },
+		{ id: "memory-snapshot" },
+	];
 	const withSeg = ensureImChannelSegment(segs as any);
 	expect(withSeg.map((s) => s.id)).toEqual([
 		"base",
