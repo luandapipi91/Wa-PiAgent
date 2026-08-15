@@ -1,13 +1,13 @@
 import type { ChannelManager } from "../channel-manager";
 
 // ---------------------------------------------------------------------------
-// @im-push-to(bot_xxx,ct_xxx) 函数式标记（唯一格式；旧 @bot_/@ct_ 裸标记已废弃）。
+// @im-push-to(ch_xxx,ct_xxx) 函数式标记（唯一格式；旧 @ch_/@ct_ 裸标记已废弃）。
 // bot 段为联系人所属渠道，信息性保留；推送路由以联系人自身 channelId 为准。
 // ---------------------------------------------------------------------------
 
-/** 匹配完整的 @im-push-to(bot_xxx,ct_xxx) 标记 */
+/** 匹配完整的 @im-push-to(ch_xxx,ct_xxx) 标记 */
 const IM_PUSH_MENTION_RE =
-	/@im-push-to\(bot_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)/g;
+	/@im-push-to\(ch_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)/g;
 
 /** 提取 prompt 中全部 @im-push-to 标记的联系人 id（去重，只取 ct_ 段） */
 export function parseImPushMentions(prompt: string): string[] {

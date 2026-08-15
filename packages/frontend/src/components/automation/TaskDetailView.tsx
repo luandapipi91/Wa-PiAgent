@@ -3,7 +3,7 @@ import { useSchedulerStore } from "../../store/scheduler";
 import { useToastStore } from "../../store/toast";
 import { useContactsStore } from "../../store/contacts";
 import type { ScheduledTask, ExecutionRecord } from "@wa-pi/shared";
-import { parseImPushTokens } from "./prompt-tokens";
+import { parseImPushTokens, toPromptHtml, type ContactChipMeta } from "./prompt-tokens";
 
 /**
  * 任务详情视图：四宫格信息（计划/角色/联系人/目录）+ 任务指令高亮 + 最近执行记录。
@@ -31,10 +31,14 @@ export function TaskDetailView() {
 	}
 
 	const imTokens = parseImPushTokens(task.prompt);
-	const contactLabel = (ctId: string) => {
+	// 查通讯录显人名；查无（联系人已删除）灰化显示 id，不报错
+	const contactMeta = (ctId: string): ContactChipMeta => {
 		const c = contacts.find((x) => x.id === ctId);
-		return c ? c.remark || c.userId || ctId : ctId;
+		return c
+			? { label: c.remark || c.userId || ctId, valid: true }
+			: { label: ctId, valid: false };
 	};
+	const contactLabel = (ctId: string) => contactMeta(ctId).label;
 	const recentRecords = records.filter((r) => r.taskId === task.id).slice(0, 3);
 
 	return (
@@ -75,10 +79,7 @@ export function TaskDetailView() {
 
 			{/* 四宫格信息 */}
 			<div className="grid grid-cols-2 gap-3 mb-4">
-				<InfoCard
-					label="计划时间"
-					value={`🕐 ${formatSchedule(task.schedule)}`}
-				/>
+				<InfoCard label="计划时间" value={`🕐 ${formatSchedule(task.schedule)}`} />
 				<InfoCard label="执行角色" value={`🤖 ${task.agentId}`} />
 				<InfoCard
 					label="推送联系人"
@@ -106,7 +107,7 @@ export function TaskDetailView() {
 					className="text-xs leading-relaxed"
 					style={{ color: "var(--text-primary)" }}
 				>
-					{renderPrompt(task.prompt)}
+					{renderPrompt(task.prompt, contactMeta)}
 				</div>
 			</div>
 
@@ -176,43 +177,23 @@ function RecordRow({ record }: { record: ExecutionRecord }) {
 					{record.pushResults?.some((p) => p.success) && (
 						<span style={{ color: "#4ade80" }}>📨 已推送</span>
 					)}
-					{record.error && (
-						<span style={{ color: "#f87171" }}>{record.error}</span>
-					)}
+					{record.error && <span style={{ color: "#f87171" }}>{record.error}</span>}
 				</div>
 			</div>
 		</div>
 	);
 }
 
-// 渲染 prompt 时高亮 $[技能名] 为紫色标签，@im-push-to(...) 为绿色标签
-function renderPrompt(prompt: string): ReactNode {
-	const parts = prompt.split(/(@im-push-to\([^)]+\)|\$\[[^\]]+\])/g);
-	return parts.map((part, i) => {
-		if (part.startsWith("$[")) {
-			return (
-				<span
-					key={i}
-					className="px-1 rounded text-[10px]"
-					style={{ background: "rgba(168,85,247,0.12)", color: "#c084fc" }}
-				>
-					{part}
-				</span>
-			);
-		}
-		if (part.startsWith("@im-push-to(")) {
-			return (
-				<span
-					key={i}
-					className="px-1 rounded text-[10px]"
-					style={{ background: "rgba(34,197,94,0.12)", color: "#4ade80" }}
-				>
-					{part}
-				</span>
-			);
-		}
-		return <span key={i}>{part}</span>;
-	});
+// 渲染 prompt：复用 toPromptHtml（技能 chip + 联系人 chip，与输入框一致），
+// 转义链完整（escapeHtmlLocal + textToHtml 全量转义）
+function renderPrompt(
+	prompt: string,
+	contactMeta: (contactId: string) => ContactChipMeta,
+): ReactNode {
+	// pi-lens-ignore: ts-xss-dom-sink
+	return (
+		<div dangerouslySetInnerHTML={{ __html: toPromptHtml(prompt, contactMeta) }} />
+	);
 }
 
 function formatSchedule(schedule: ScheduledTask["schedule"]): string {

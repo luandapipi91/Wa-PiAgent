@@ -11,7 +11,7 @@ mock.module("../../../store/contacts", () => {
 	const contacts = [
 		{
 			id: "ct_p01",
-			channelId: "bot_aaa",
+			channelId: "ch_aaa",
 			kind: "person",
 			userId: "zhangsan",
 			remark: "张三",
@@ -21,7 +21,7 @@ mock.module("../../../store/contacts", () => {
 	];
 	const store = { contacts, loadContacts: mock(async () => {}) };
 	const useContactsStore = (sel?: (s: typeof store) => unknown) =>
-		 sel ? sel(store) : store;
+		sel ? sel(store) : store;
 	useContactsStore.getState = () => store;
 	return { useContactsStore };
 });
@@ -100,7 +100,8 @@ describe("TaskDetailView", () => {
 		];
 		schedulerState.selectedTaskId = "t1";
 		render(<TaskDetailView />);
-		expect(screen.getByText("$[日报生成]")).toBeTruthy();
+		// chip 显示名（图标 svg 无文本，textContent 归一化后为技能名）
+		expect(screen.getByText("日报生成")).toBeTruthy();
 	});
 
 	test("prompt 中的 @im-push-to 标记渲染为绿色标签，联系人卡显示人名", () => {
@@ -110,14 +111,15 @@ describe("TaskDetailView", () => {
 				name: "任务",
 				schedule: { type: "daily", time: "09:00" },
 				agentId: "a",
-				prompt: "推送 @im-push-to(bot_aaa,ct_p01) 日报",
+				prompt: "推送 @im-push-to(ch_aaa,ct_p01) 日报",
 			},
 		];
 		schedulerState.selectedTaskId = "t1";
 		render(<TaskDetailView />);
-		expect(screen.getByText("@im-push-to(bot_aaa,ct_p01)")).toBeTruthy();
-		// 推送联系人卡显示人名（contacts store 解析 ct_p01 → 张三）
-		expect(screen.getByText(/张三/)).toBeTruthy();
+		// chip 显示人名（非原文 token）
+		expect(screen.getByText("张三")).toBeTruthy();
+		// 推送联系人卡也显示人名（contacts store 解析 ct_p01 → 张三）
+		expect(screen.getByText(/📨 张三/)).toBeTruthy();
 	});
 
 	test("推送联系人卡：失效联系人显示原始 id，无标记时显示无", () => {
@@ -127,7 +129,7 @@ describe("TaskDetailView", () => {
 				name: "任务",
 				schedule: { type: "daily", time: "09:00" },
 				agentId: "a",
-				prompt: "推送 @im-push-to(bot_aaa,ct_gone) 日报",
+				prompt: "推送 @im-push-to(ch_aaa,ct_gone) 日报",
 			},
 			{
 				id: "t2",
