@@ -1406,8 +1406,15 @@ export interface ScheduledTaskErrorEvent {
 
 /** 定时任务调度配置 */
 export interface TaskSchedule {
-	type: "daily" | "weekdays" | "weekly" | "monthly" | "custom";
-	time: string; // "09:30"
+	type:
+		| "minute"
+		| "hourly"
+		| "daily"
+		| "weekdays"
+		| "weekly"
+		| "monthly"
+		| "custom";
+	time: string; // "09:30"（minute 忽略；hourly 仅取分钟段）
 	dayOfWeek?: number; // weekly: 0-6 (0=周日)
 	dayOfMonth?: number; // monthly: 1-31
 	cronExpression?: string; // custom: 5 字段 cron

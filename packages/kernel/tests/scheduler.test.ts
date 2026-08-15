@@ -45,6 +45,16 @@ describe("toCronExpression", () => {
 		};
 		expect(toCronExpression(s)).toBe("*/15 * * * *");
 	});
+
+	test("hourly at minute 30（每小时第 30 分）", () => {
+		const s: TaskSchedule = { type: "hourly", time: "00:30" };
+		expect(toCronExpression(s)).toBe("30 * * * *");
+	});
+
+	test("everyMinute（每分钟）", () => {
+		const s: TaskSchedule = { type: "minute", time: "00:00" };
+		expect(toCronExpression(s)).toBe("* * * * *");
+	});
 });
 
 // ===== TaskScheduler 接线单测（桩 Bun.cron，无需真实计时）=====
