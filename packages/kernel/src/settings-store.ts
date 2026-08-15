@@ -244,12 +244,21 @@ export async function saveProxySettings(
  */
 export async function readSystemProxy(): Promise<string> {
 	const env = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
-	if (env) return env;
+	if (env) {
+		console.log(`[proxy] 环境变量已有代理: ${env}`);
+		return env;
+	}
 	try {
 		const proxy = await getSystemProxy();
 		const url = proxy?.proxyUrl ?? "";
+		console.log(
+			`[proxy] os-proxy-config 读到: proxyUrl=${url || "(无)"} noProxy=${JSON.stringify(proxy?.noProxy ?? [])}`,
+		);
 		return url.startsWith("http://") || url.startsWith("https://") ? url : "";
-	} catch {
+	} catch (e) {
+		console.log(
+			`[proxy] 读系统代理失败: ${e instanceof Error ? e.message : String(e)}`,
+		);
 		return "";
 	}
 }
@@ -267,6 +276,9 @@ export async function applySystemProxy(
 ): Promise<void> {
 	const { useSystemProxy, httpProxy } = await loadProxySettings(file);
 	const effective = useSystemProxy ? httpProxy || (await readProxy()) : "";
+	console.log(
+		`[proxy] applySystemProxy: useSystemProxy=${useSystemProxy} 保存的 httpProxy=${httpProxy || "(空)"} → 最终代理=${effective || "(直连)"}`,
+	);
 	if (effective) {
 		process.env.HTTP_PROXY = effective;
 		process.env.HTTPS_PROXY = effective;
