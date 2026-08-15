@@ -346,3 +346,89 @@ test("[第三层] session:messages 的 isActive 传递 _promptLocks 信号（pro
     await server.stop();
   }
 });
+
+// scheduler 会话只读回放：session:messages 跳过 touchSession + prewarm
+// （定时任务执行存档仅查看，不该拉起 pi 进程，也不刷新 lastActivity 排序）
+test("[第三层] session:messages scheduler 会话跳过 touch 与 prewarm", async () => {
+  const tmp = (s: string) => join(import.meta.dir, ".tmp-sm5-" + s + Math.random().toString(36).slice(2));
+  const cfgDir = tmp("cfg");
+  const projFile = tmp("proj.json");
+
+  const configStore = new ConfigStore(cfgDir);
+  const projectStore = new ProjectStore(projFile);
+  const providerStore = new ProviderStore(join(projFile, "..", "providers.json"));
+  const skillManager = new SkillManager(join(projFile, "..", "skills"));
+
+  const project = await projectStore.createProject({ name: "P", cwd: "/tmp" });
+  const session = await projectStore.createSession({
+    projectId: project.id, primaryAgent: "dev", title: "定时任务 · 日报",
+    source: "scheduler",
+  });
+
+  // 写入 JSONL 历史（走文件直读路径即可返回）
+  const line = (id: string, parentId: string | null, role: string, text: string, ts: number) =>
+    JSON.stringify({ type: "message", id, parentId, message: { role, content: [{ type: "text", text }], timestamp: ts } });
+  mkdirSync(dirname(session.piSessionFile), { recursive: true });
+  writeFileSync(session.piSessionFile, [
+    JSON.stringify({ type: "session", version: 3, id: "uuid-sched" }),
+    line("m1", null, "user", "定时任务指令", 1),
+    line("m2", "m1", "assistant", "任务执行结果", 2),
+  ].join("\n"));
+
+  // 探针：ensureStarted 若被调（prewarm）则记录；touchSession 若被调则记录
+  const started: string[] = [];
+  const touched: string[] = [];
+  const agentManager = {
+    ensureStarted: async (_pid: string, _an: string, sid: string) => {
+      started.push(sid);
+      return { messages: [], prompt: async () => {}, abort: async () => {}, dispose: () => {} };
+    },
+    prompt: async () => {},
+    abort: async () => {},
+    disposeSession: async () => {},
+    disposeAll: async () => {},
+    isSessionBusy: (_sid: string) => false,
+    isSessionActive: (_sid: string, _pq: boolean) => false,
+    isSessionAlive: (_sid: string) => false,
+    getThinkingSince: (_sid: string) => null,
+  } as any;
+  const server = new WSServer({ configStore, projectStore, providerStore, skillManager, extensionManager: new ExtensionManager(join(projFile, "..")), memoryStore: null as any, mcpStore: null as any, agentManager, channelManager: null, port: 0 });
+  // 包装 projectStore.touchSession 探针（server 内部持有同一引用，包装其方法即可）
+  const origTouch = projectStore.touchSession.bind(projectStore);
+  (projectStore as any).touchSession = async (sid: string) => {
+    touched.push(sid);
+    return origTouch(sid);
+  };
+  await server.start();
+  const base = `http://127.0.0.1:${server.actualPort}`;
+
+  try {
+    const res = await fetch(`${base}/api/sessions/${encodeURIComponent(session.id)}/messages`);
+    const msgResp = await res.json();
+
+    // 消息正常返回（只读不牺牲功能）
+    expect(res.status).toBe(200);
+    expect(msgResp.messages).toHaveLength(2);
+    expect((msgResp.messages[0].message as any).content[0].text).toBe("定时任务指令");
+
+    // 关键断言：不 touch、不 prewarm
+    expect(touched).toEqual([]);
+    expect(started).toEqual([]);
+
+    // 对比：非 scheduler 会话照常 touch（防止改过头）
+    const session2 = await projectStore.createSession({
+      projectId: project.id, primaryAgent: "dev", title: "普通会话",
+    });
+    mkdirSync(dirname(session2.piSessionFile), { recursive: true });
+    writeFileSync(session2.piSessionFile, [
+      JSON.stringify({ type: "session", version: 3, id: "uuid-normal" }),
+      line("m1", null, "user", "普通问题", 1),
+    ].join("\n"));
+    await fetch(`${base}/api/sessions/${encodeURIComponent(session2.id)}/messages`);
+    expect(touched).toEqual([session2.id]);
+  } finally {
+    await server.stop();
+    rmSync(cfgDir, { recursive: true, force: true });
+    rmSync(projFile, { force: true });
+  }
+});

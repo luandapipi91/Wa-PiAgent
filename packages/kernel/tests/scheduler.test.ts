@@ -46,14 +46,42 @@ describe("toCronExpression", () => {
 		expect(toCronExpression(s)).toBe("*/15 * * * *");
 	});
 
-	test("hourly at minute 30（每小时第 30 分）", () => {
-		const s: TaskSchedule = { type: "hourly", time: "00:30" };
-		expect(toCronExpression(s)).toBe("30 * * * *");
+	test("minute interval（每隔 5 分钟）", () => {
+		const s: TaskSchedule = {
+			type: "minute",
+			time: "00:00",
+			intervalMinutes: 5,
+		};
+		expect(toCronExpression(s)).toBe("*/5 * * * *");
 	});
 
-	test("everyMinute（每分钟）", () => {
+	test("minute interval 缺省时默认每隔 1 分钟", () => {
 		const s: TaskSchedule = { type: "minute", time: "00:00" };
 		expect(toCronExpression(s)).toBe("* * * * *");
+	});
+
+	test("hourly interval（每隔 3 小时整点）", () => {
+		const s: TaskSchedule = {
+			type: "hourly",
+			time: "00:00",
+			intervalHours: 3,
+		};
+		expect(toCronExpression(s)).toBe("0 */3 * * *");
+	});
+
+	test("hourly interval 缺省时默认每隔 1 小时整点", () => {
+		const s: TaskSchedule = { type: "hourly", time: "00:00" };
+		expect(toCronExpression(s)).toBe("0 * * * *");
+	});
+
+	test("hourly 指定开始时间 07:30 每 3 小时（当天 7 点起步进）", () => {
+		const s: TaskSchedule = {
+			type: "hourly",
+			time: "00:00",
+			intervalHours: 3,
+			startTime: "07:30",
+		};
+		expect(toCronExpression(s)).toBe("30 7-23/3 * * *");
 	});
 });
 

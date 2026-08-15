@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { useSchedulerStore } from "../../store/scheduler";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useClampMenu } from "../ProjectItem";
-import { HAS_IM_PUSH_RE } from "./prompt-tokens";
 import type { ScheduledTask, ExecutionStatus } from "@wa-pi/shared";
 
 /** 右键菜单打开状态：屏幕坐标 + 目标任务 */
@@ -38,8 +37,8 @@ export function AutomationSidebar() {
 	const menuRef = useRef<HTMLDivElement>(null);
 	useClampMenu(menuRef, taskMenu);
 
-	// 每任务最近一条执行记录的状态（✓/✕ 状态点数据源；records 无序保证，取 startedAt 最大）
-	const lastStatusByTask = useMemo(() => {
+	// 每任务最近一条执行记录（状态点 + 上次执行时间数据源；records 无序保证，取 startedAt 最大）
+	const lastRunByTask = useMemo(() => {
 		const latest = new Map<
 			string,
 			{ status: ExecutionStatus; startedAt: number }
@@ -50,9 +49,7 @@ export function AutomationSidebar() {
 				latest.set(r.taskId, { status: r.status, startedAt: r.startedAt });
 			}
 		}
-		const result = new Map<string, ExecutionStatus>();
-		for (const [taskId, v] of latest) result.set(taskId, v.status);
-		return result;
+		return latest;
 	}, [records]);
 
 	useEffect(() => {
@@ -112,7 +109,7 @@ export function AutomationSidebar() {
 						key={task.id}
 						task={task}
 						selected={task.id === selectedTaskId}
-						lastStatus={lastStatusByTask.get(task.id)}
+						lastRun={lastRunByTask.get(task.id)}
 						onClick={() => selectTask(task.id)}
 						onContextMenu={(e) => {
 							e.preventDefault();
@@ -201,17 +198,16 @@ function statusStyle(status: ExecutionStatus) {
 function TaskCard({
 	task,
 	selected,
-	lastStatus,
+	lastRun,
 	onClick,
 	onContextMenu,
 }: {
 	task: ScheduledTask;
 	selected: boolean;
-	lastStatus?: ExecutionStatus;
+	lastRun?: { status: ExecutionStatus; startedAt: number };
 	onClick: () => void;
 	onContextMenu: (e: React.MouseEvent) => void;
 }) {
-	const hasIM = HAS_IM_PUSH_RE.test(task.prompt);
 	const scheduleText = formatSchedule(task.schedule);
 
 	return (
@@ -234,13 +230,17 @@ function TaskCard({
 				</span>
 				<span className="flex items-center gap-1 shrink-0">
 					{/* 最近执行状态点（执行记录推导，无记录不显示） */}
-					{lastStatus && (
+					{lastRun && (
 						<span
 							className="text-[10px] font-bold"
-							style={statusStyle(lastStatus)}
+							style={statusStyle(lastRun.status)}
 							data-testid={`task-last-status-${task.id}`}
 						>
-							{lastStatus === "success" ? "✓" : lastStatus === "failed" ? "✕" : "⟳"}
+							{lastRun.status === "success"
+								? "✓"
+								: lastRun.status === "failed"
+									? "✕"
+									: "⟳"}
 						</span>
 					)}
 					<span
@@ -257,15 +257,15 @@ function TaskCard({
 				<span className="text-[10px]" style={{ color: "var(--accent)" }}>
 					🕐 {scheduleText}
 				</span>
-				{hasIM && (
+				{/* 上次执行时间（执行记录推导，无记录不显示） */}
+				{lastRun && (
 					<span
-						className="text-[8px] px-1 rounded"
-						style={{
-							background: "var(--success-soft)",
-							color: "var(--success)",
-						}}
+						className="text-[10px] shrink-0"
+						style={{ color: "var(--text-tertiary)" }}
+						title={new Date(lastRun.startedAt).toLocaleString("zh-CN")}
+						data-testid={`task-last-run-${task.id}`}
 					>
-						📨
+						{lastRunTimeOf(lastRun.startedAt)}
 					</span>
 				)}
 			</div>
@@ -273,13 +273,27 @@ function TaskCard({
 	);
 }
 
+/** 上次执行时间格式化：当天 HH:mm，非当天 M-D HH:mm（now 供测试注入）。 */
+export function lastRunTimeOf(ts: number, now = Date.now()): string {
+	const d = new Date(ts);
+	const today = new Date(now);
+	const hh = String(d.getHours()).padStart(2, "0");
+	const mm = String(d.getMinutes()).padStart(2, "0");
+	if (d.toDateString() === today.toDateString()) {
+		return `${hh}:${mm}`;
+	}
+	return `${d.getMonth() + 1}-${d.getDate()} ${hh}:${mm}`;
+}
+
 function formatSchedule(schedule: ScheduledTask["schedule"]): string {
 	const time = schedule.time;
 	switch (schedule.type) {
 		case "minute":
-			return "每分钟";
+			return `每 ${schedule.intervalMinutes ?? 1} 分钟`;
 		case "hourly":
-			return `每小时第 ${time.split(":")[1] ?? "00"} 分`;
+			return `每 ${schedule.intervalHours ?? 1} 小时${
+				schedule.startTime ? `（从 ${schedule.startTime} 起）` : ""
+			}`;
 		case "daily":
 			return `每天 ${time}`;
 		case "weekdays":

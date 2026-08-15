@@ -7,7 +7,7 @@ import {
 	cleanup,
 	act,
 } from "@testing-library/react";
-import { AutomationSidebar } from "../AutomationSidebar";
+import { AutomationSidebar, lastRunTimeOf } from "../AutomationSidebar";
 
 // 把 store 替换成返回固定任务列表的假实现，断言组件渲染与交互。
 // records 提供每任务最近执行状态（t1=success / t2=failed），供 TaskCard 状态点渲染。
@@ -32,6 +32,13 @@ const baseTasks = () => [
 		name: "下载清理",
 		schedule: { type: "daily", time: "18:30" },
 		enabled: false,
+		prompt: "test",
+	},
+	{
+		id: "t3",
+		name: "无记录任务",
+		schedule: { type: "weekly", dayOfWeek: 1, time: "10:00" },
+		enabled: true,
 		prompt: "test",
 	},
 ];
@@ -119,6 +126,30 @@ describe("AutomationSidebar", () => {
 		expect(
 			card2.querySelector('[data-testid="task-last-status-t2"]')?.textContent,
 		).toBe("✕");
+	});
+
+	test("任务卡右下角显示上次执行时间（有记录的任务）", () => {
+		render(<AutomationSidebar />);
+		const el = screen.getByTestId("task-last-run-t1");
+		expect(el).toBeTruthy();
+		expect(el.textContent).not.toBe("");
+	});
+
+	test("无执行记录的任务不显示上次执行时间", () => {
+		render(<AutomationSidebar />);
+		expect(screen.queryByTestId("task-last-run-t3")).toBeNull();
+	});
+
+	test("lastRunTimeOf 当天显示 HH:mm", () => {
+		const now = new Date(2026, 0, 15, 12, 0, 0).getTime();
+		const ts = new Date(2026, 0, 15, 9, 30, 0).getTime();
+		expect(lastRunTimeOf(ts, now)).toBe("09:30");
+	});
+
+	test("lastRunTimeOf 非当天显示 M-D HH:mm", () => {
+		const now = new Date(2026, 0, 15, 12, 0, 0).getTime();
+		const ts = new Date(2026, 0, 14, 9, 30, 0).getTime();
+		expect(lastRunTimeOf(ts, now)).toBe("1-14 09:30");
 	});
 
 	test("右键任务卡弹出上下文菜单（不直接弹删除确认）", () => {
