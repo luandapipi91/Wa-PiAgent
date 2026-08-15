@@ -151,6 +151,18 @@ describe("TaskEditForm", () => {
 		).toBe("旧指令");
 	});
 
+	test("点击时间输入框任意位置弹出时间选择器（showPicker）", () => {
+		render(<TaskEditForm />);
+		const timeInput = screen.getByTestId("task-time-input") as HTMLInputElement & {
+			showPicker?: () => void;
+		};
+		const showPicker = mock();
+		timeInput.showPicker = showPicker;
+		// 点击输入框任意位置（非右侧时钟图标）也应弹出 picker
+		fireEvent.click(timeInput);
+		expect(showPicker).toHaveBeenCalledTimes(1);
+	});
+
 	test("编辑模式：保存调用 updateTask(taskId, data)", () => {
 		schedulerState.editingTask = {
 			id: "t1",

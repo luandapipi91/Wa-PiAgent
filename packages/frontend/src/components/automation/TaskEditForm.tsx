@@ -132,13 +132,25 @@ export function TaskEditForm() {
 							style={inputStyle}
 						/>
 					) : (
-						<input
-							type="time"
-							value={time}
-							onChange={(e) => setTime(e.target.value)}
-							className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border"
-							style={inputStyle}
-						/>
+					<input
+						type="time"
+						value={time}
+						onChange={(e) => setTime(e.target.value)}
+						// 原生 time 输入只点右侧时钟图标才弹选择器；点击任意位置都调 showPicker 弹出
+						onClick={(e) => {
+							const el = e.currentTarget;
+							if (typeof el.showPicker === "function") {
+								try {
+									el.showPicker();
+								} catch {
+									// showPicker 需用户手势且已聚焦，异常时忽略（原生点击行为兜底）
+								}
+							}
+						}}
+						data-testid="task-time-input"
+						className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
+						style={inputStyle}
+					/>
 					)}
 				</div>
 				{scheduleType === "weekly" && (
