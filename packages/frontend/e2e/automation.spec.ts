@@ -126,6 +126,15 @@ test.describe
 			await page.getByTestId("task-agent-select").click();
 			await page.getByTestId("task-agent-item-研发").click();
 			await expect(page.getByTestId("task-agent-select")).toContainText("研发");
+			// ▾ 图标右对齐：最后一个 span 右缘贴近 pill 按钮右缘（间距仅 padding）
+			const agentPill = page.getByTestId("task-agent-select");
+			const caretBox = await agentPill.locator("span").last().boundingBox();
+			const pillBox = await agentPill.boundingBox();
+			expect(caretBox).toBeTruthy();
+			expect(pillBox).toBeTruthy();
+			expect(
+				pillBox!.x + pillBox!.width - (caretBox!.x + caretBox!.width),
+			).toBeLessThanOrEqual(16);
 
 			// 填任务指令：先验证 $ 触发技能弹窗（真实浏览器，contenteditable chip 输入框）
 			const promptInput = page.getByTestId("task-prompt-input");
@@ -137,7 +146,9 @@ test.describe
 			expect(skillBox).toBeTruthy();
 			expect(inputBox).toBeTruthy();
 			expect(skillBox!.width).toBeLessThanOrEqual(inputBox!.width + 2);
-			expect(skillBox!.y).toBeGreaterThanOrEqual(inputBox!.y + inputBox!.height - 2);
+			expect(skillBox!.y).toBeGreaterThanOrEqual(
+				inputBox!.y + inputBox!.height - 2,
+			);
 			await promptInput.fill("E2E：请整理今日文件");
 			await expect(page.getByTestId("skill-picker")).toBeHidden();
 
@@ -145,9 +156,7 @@ test.describe
 			await promptInput.fill("推送 @");
 			await expect(page.getByTestId("contact-picker")).toBeVisible();
 			// 联系人弹窗同样：宽度受限且贴输入框下方
-			const contactBox = await page
-				.getByTestId("contact-picker")
-				.boundingBox();
+			const contactBox = await page.getByTestId("contact-picker").boundingBox();
 			expect(contactBox!.width).toBeLessThanOrEqual(inputBox!.width + 2);
 			expect(contactBox!.y).toBeGreaterThanOrEqual(
 				inputBox!.y + inputBox!.height - 2,
