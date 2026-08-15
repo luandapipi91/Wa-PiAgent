@@ -158,9 +158,7 @@ test("ensureBridgeExtension 生成文件存在且包含 7 个工具名，幂等�
 
 test("契约：扩展工具的 name/description/schema 与现有实现一致", async () => {
 	const bridgeTools = await loadBridgeTools();
-	expect(bridgeTools.map((t) => t.name).sort()).toEqual(
-		[...SEVEN_TOOLS].sort(),
-	);
+	expect(bridgeTools.map((t) => t.name).sort()).toEqual([...SEVEN_TOOLS].sort());
 
 	// ask：name/label/description/promptGuidelines/parameters 全等
 	const askReal = makeAskTool("s1") as any;
@@ -174,10 +172,7 @@ test("契约：扩展工具的 name/description/schema 与现有实现一致", a
 
 	// memory_*：4 个工具逐一比对（含 promptSnippet）
 	const stores = makeMemoryStores();
-	const memReal = createAgentMemoryTools(
-		stores.global,
-		stores.project,
-	) as any[];
+	const memReal = createAgentMemoryTools(stores.global, stores.project) as any[];
 	for (const real of memReal) {
 		const bridge = bridgeTools.find((t) => t.name === real.name);
 		expect(bridge, `缺少 ${real.name}`).toBeTruthy();
@@ -222,11 +217,7 @@ test("真实 pi --mode rpc 加载 bridge 扩展不崩（get_state / get_commands
 		}),
 		cwd: import.meta.dir,
 		env: {
-			PI_CODING_AGENT_DIR: join(
-				import.meta.dir,
-				"fixtures",
-				"pi-agent-dir-test",
-			),
+			PI_CODING_AGENT_DIR: join(import.meta.dir, "fixtures", "pi-agent-dir-test"),
 		},
 		onEvent: () => {},
 	});
@@ -772,38 +763,36 @@ test("handleBridgeStream 静默期间周期性输出 ping 心跳帧（子代理�
 	).toBe(pings);
 });
 
-// ── C1：robot_push 条件注册（仅定时任务会话注入 WA_PI_ROBOT_PUSH_CHANNELS）──
+// ── C1：im_push_to 条件注册（仅定时任务会话注入 WA_PI_IM_PUSH_TARGETS）──
 
-test("robot_push：未设 env 时不注册（7 工具不变，普通会话不受影响）", async () => {
-	const prev = process.env.WA_PI_ROBOT_PUSH_CHANNELS;
-	delete process.env.WA_PI_ROBOT_PUSH_CHANNELS;
+test("im_push_to：未设 env 时不注册（7 工具不变，普通会话不受影响）", async () => {
+	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
+	delete process.env.WA_PI_IM_PUSH_TARGETS;
 	try {
 		const tools = await loadBridgeTools();
-		expect(tools.map((t: any) => t.name).sort()).toEqual(
-			[...SEVEN_TOOLS].sort(),
-		);
-		expect(tools.some((t: any) => t.name === "robot_push")).toBe(false);
+		expect(tools.map((t: any) => t.name).sort()).toEqual([...SEVEN_TOOLS].sort());
+		expect(tools.some((t: any) => t.name === "im_push_to")).toBe(false);
 	} finally {
-		if (prev !== undefined) process.env.WA_PI_ROBOT_PUSH_CHANNELS = prev;
+		if (prev !== undefined) process.env.WA_PI_IM_PUSH_TARGETS = prev;
 	}
 });
 
-test("robot_push：设 env 后注册为第 8 个工具，description 含渠道列表", async () => {
-	const prev = process.env.WA_PI_ROBOT_PUSH_CHANNELS;
-	process.env.WA_PI_ROBOT_PUSH_CHANNELS = "bot_aaa,bot_bbb";
+test("im_push_to：设 env 后注册为第 8 个工具，description 含联系人列表", async () => {
+	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
+	process.env.WA_PI_IM_PUSH_TARGETS = "ct_aaa,ct_bbb";
 	try {
 		const tools = await loadBridgeTools();
 		expect(tools).toHaveLength(8);
-		const robotPush = tools.find((t: any) => t.name === "robot_push");
-		expect(robotPush).toBeTruthy();
-		expect(robotPush.description).toContain("bot_aaa,bot_bbb");
-		// schema：channel + message 两个必填参数
-		const params = JSON.parse(JSON.stringify(robotPush.parameters));
-		expect(params.properties.channel).toBeTruthy();
+		const imPush = tools.find((t: any) => t.name === "im_push_to");
+		expect(imPush).toBeTruthy();
+		expect(imPush.description).toContain("ct_aaa,ct_bbb");
+		// schema：contact + message 两个必填参数
+		const params = JSON.parse(JSON.stringify(imPush.parameters));
+		expect(params.properties.contact).toBeTruthy();
 		expect(params.properties.message).toBeTruthy();
-		expect(params.required).toEqual(["channel", "message"]);
+		expect(params.required).toEqual(["contact", "message"]);
 	} finally {
-		if (prev !== undefined) process.env.WA_PI_ROBOT_PUSH_CHANNELS = prev;
-		else delete process.env.WA_PI_ROBOT_PUSH_CHANNELS;
+		if (prev === undefined) delete process.env.WA_PI_IM_PUSH_TARGETS;
+		else process.env.WA_PI_IM_PUSH_TARGETS = prev;
 	}
 });
