@@ -102,12 +102,12 @@ import {
 /** 可注入的 client 工厂（测试用假 client 替换；生产 new RpcClient） */
 export type CreateClientFn = (opts: RpcClientOpts) => RpcClient;
 
-/** 定时任务会话注入的 robot_push 能力（ensureStarted 传入，经 bridge 分发执行）。
- *  channels：任务 prompt 中 @ 标记的 botId 列表（写入子进程 env 供扩展注册工具）；
- *  execute：kernel 侧推送实现（index.ts 用 createRobotPushTool 构造），返回结果文本。 */
-export interface RobotPushInjection {
-	channels: string[];
-	execute: (channel: string, message: string) => Promise<string>;
+/** 定时任务会话注入的 im_push_to 能力（ensureStarted 传入，经 bridge 分发执行）。
+ *  targets：任务 prompt 中 @im-push-to 标记的联系人 id 列表（写入子进程 env 供扩展注册工具）；
+ *  execute：kernel 侧推送实现（index.ts 用 createImPushTool 构造），返回结果文本。 */
+export interface ImPushInjection {
+	targets: string[];
+	execute: (contact: string, message: string) => Promise<string>;
 }
 
 /** 上层事件回调携带的事件类型：pi RPC 事件 + kernel 合成的 queue_update */
@@ -248,7 +248,7 @@ export class AgentManager {
 		projectId: string,
 		agentName: AgentName,
 		sessionId: string,
-		opts?: { imChannelContext?: string; robotPush?: RobotPushInjection },
+		opts?: { imChannelContext?: string; imPush?: ImPushInjection },
 	): Promise<SessionHandle> {
 		// 命中缓存：进程已崩溃则拆除重建；agentName 不一致也拆除（新会话页 getCommands
 		// 兜底已用默认 agent 启动进程，用户切换后发送若复用会把消息交给旧 agent）；
@@ -280,7 +280,7 @@ export class AgentManager {
 			agentName,
 			sessionId,
 			opts?.imChannelContext,
-			opts?.robotPush,
+			opts?.imPush,
 		);
 		this.starting.set(sessionId, promise);
 		try {
@@ -473,7 +473,7 @@ export class AgentManager {
 		agentName: AgentName,
 		sessionId: string,
 		imChannelContext?: string,
-		robotPush?: RobotPushInjection,
+		imPush?: ImPushInjection,
 	): Promise<SessionHandle> {
 		// 启动时写入内置 subagent 的 .md 定义文件（~/.pi/agent/agents/*.md），已存在不覆盖
 		const agentsDir = join(WA_PI_DIR, "agents");
@@ -534,9 +534,7 @@ export class AgentManager {
 		// 关系网调起：delegate/fleet 工具的可用名单与 roster（与迁移前一致，内置 subagent 类型始终可调用）
 		const askToNames = config?.partners?.askTo ?? [];
 		const askToConfigs = (
-			await Promise.all(
-				askToNames.map((n) => this.opts.configStore!.getAgent(n)),
-			)
+			await Promise.all(askToNames.map((n) => this.opts.configStore!.getAgent(n)))
 		).filter((c): c is NonNullable<typeof c> => c != null);
 		// 加载系统提示词段落配置（首次加载后缓存）
 		const promptSegments = await this.getPromptSegments();
@@ -581,9 +579,7 @@ export class AgentManager {
 							override?.thinking ??
 							this.sessions.get(sessionId)?.currentThinking ??
 							null,
-						tools: builtin.readOnly
-							? ["read", "bash", "grep", "find", "ls"]
-							: [],
+						tools: builtin.readOnly ? ["read", "bash", "grep", "find", "ls"] : [],
 						skills: [],
 					};
 				}
@@ -745,12 +741,12 @@ export class AgentManager {
 						currentCallSignal = undefined;
 					}
 				}
-				// robot_push：定时任务会话注入（普通会话无 robotPush → pi 进程未注册该工具，
-				// 走不到这里）。校验渠道合法后执行推送，返回文本结果给 pi。
-				if (tool === "robot_push" && robotPush) {
-					const p = params as { channel: string; message: string };
+				// im_push_to：定时任务会话注入（普通会话无 imPush → pi 进程未注册该工具，
+				// 走不到这里）。校验联系人合法后执行推送，返回文本结果给 pi。
+				if (tool === "im_push_to" && imPush) {
+					const p = params as { contact: string; message: string };
 					try {
-						const text = await robotPush.execute(p.channel, p.message);
+						const text = await imPush.execute(p.contact, p.message);
 						return { content: [{ type: "text", text }], details: {} };
 					} catch (err) {
 						const error = err instanceof Error ? err.message : String(err);
@@ -776,9 +772,9 @@ export class AgentManager {
 		// 角色提示词（agent.md 正文 systemPromptBody）非空时替代默认 base 提示词。
 		// 注意：prompts.json 的 base.content（用户全局覆盖）优先级最高——
 		// renderSegment 里 segment.content 非空时直接使用，不看 defaultBasePrompt。
-		const defaultBasePrompt = !config?.systemPromptBody
-			? WA_PI_DEFAULT_BASE_PROMPT
-			: config.systemPromptBody;
+		const defaultBasePrompt = config?.systemPromptBody
+			? config.systemPromptBody
+			: WA_PI_DEFAULT_BASE_PROMPT;
 		const composedPrompt = composePrompt(promptSegments, {
 			defaultBasePrompt,
 			delegateRoster,
@@ -824,13 +820,10 @@ export class AgentManager {
 		const toolArgs: { tools?: string[]; excludeTools?: string[] } = restricted
 			? {
 					tools: [
-						// 受限 agent 白名单中并入 robot_push：定时任务 agent 若显式配置了
+						// 受限 agent 白名单中并入 im_push_to：定时任务 agent 若显式配置了
 						// tools，不并入会被白名单挡掉推送工具（bridge 注册了但不在名单）
-						...(robotPush?.channels?.length ? ["robot_push"] : []),
-						...resolveAgentTools(
-							config!.tools!,
-							await this.getMcpDirectToolNames(),
-						),
+						...(imPush?.targets?.length ? ["im_push_to"] : []),
+						...resolveAgentTools(config!.tools!, await this.getMcpDirectToolNames()),
 					],
 				}
 			: { excludeTools: [...ALWAYS_EXCLUDED_TOOLS] };
@@ -887,10 +880,10 @@ export class AgentManager {
 				WA_PI_BRIDGE_URL: this.opts.bridgeBaseUrl?.() ?? "",
 				WA_PI_BRIDGE_TOKEN: getBridgeToken(),
 				WA_PI_SESSION_ID: sessionId,
-				// 定时任务会话：channel 列表注入 env，bridge 扩展读到才注册 robot_push
-				...(robotPush?.channels?.length
+				// 定时任务会话：联系人列表注入 env，bridge 扩展读到才注册 im_push_to
+				...(imPush?.targets?.length
 					? {
-							WA_PI_ROBOT_PUSH_CHANNELS: robotPush.channels.join(","),
+							WA_PI_IM_PUSH_TARGETS: imPush.targets.join(","),
 						}
 					: {}),
 			},
@@ -965,8 +958,7 @@ export class AgentManager {
 				// 本轮 user 落盘时刻（≈ jsonl 行级落盘）：整轮耗时的起点。
 				// 不能用 message.timestamp——Pi 单块轮 assistant 消息对象在 prompt 时预创建，
 				// message.timestamp ≈ user 时刻，算出的时长≈0；真实耗时看落盘时刻。
-				if ((event.message as any)?.role === "user")
-					handle.turnUserAt = Date.now();
+				if ((event.message as any)?.role === "user") handle.turnUserAt = Date.now();
 				// agent 回复完成视为活跃（与磁盘 touchSession 同步），刷新空闲回收计时
 				handle.lastActiveAt = Date.now();
 				break;
@@ -1002,32 +994,20 @@ export class AgentManager {
 					const text = handle.steerList.shift()!;
 					this._emitLocalQueueUpdate(sessionId, handle);
 					void this._sendPromptNow(sessionId, handle, text).catch((err) => {
-						console.error(
-							`[kernel] session ${sessionId} steer drain 失败:`,
-							err,
-						);
+						console.error(`[kernel] session ${sessionId} steer drain 失败:`, err);
 					});
 				} else if (handle.followUpList.length > 0) {
 					// 无引导消息时才 drain 排队消息
 					const text = handle.followUpList.shift()!;
 					this._emitLocalQueueUpdate(sessionId, handle);
 					void this._sendPromptNow(sessionId, handle, text).catch((err) => {
-						console.error(
-							`[kernel] session ${sessionId} followUp drain 失败:`,
-							err,
-						);
+						console.error(`[kernel] session ${sessionId} followUp drain 失败:`, err);
 					});
-				} else if (
-					this.skillDirty.has(sessionId) ||
-					this.dirty.has(sessionId)
-				) {
+				} else if (this.skillDirty.has(sessionId) || this.dirty.has(sessionId)) {
 					// 真正 idle（无排队/引导消息）且有 dirty：补重载。对话中装卸插件被 busy 挡住
 					// （保留 dirty），对话结束（agent_settled）且队列空时补热重载/重建。
 					void this._reloadIfDirty(sessionId, handle).catch((err) => {
-						console.error(
-							`[kernel] session ${sessionId} idle 后补重载失败:`,
-							err,
-						);
+						console.error(`[kernel] session ${sessionId} idle 后补重载失败:`, err);
 					});
 				}
 				break;
@@ -1073,9 +1053,7 @@ export class AgentManager {
 			);
 			void this.opts.projectStore
 				.deleteSession(sessionId)
-				.catch((e) =>
-					console.error(`[kernel] 孤儿回滚删除失败 ${sessionId}:`, e),
-				);
+				.catch((e) => console.error(`[kernel] 孤儿回滚删除失败 ${sessionId}:`, e));
 			this.opts.onSessionRollback?.(sessionId);
 			return;
 		}
@@ -1161,14 +1139,9 @@ export class AgentManager {
 				handle.busy = false;
 				// 扩展命令不产生任何 agent 事件：前端 optimisticSend 的 thinking/loading
 				// 占位等不到终态事件，会一直转圈。合成 agent_end 让前端退出思考态。
-				this.opts.onEvent(
-					sessionId,
-					handle.meta.projectId,
-					handle.meta.agentName,
-					{
-						type: "agent_end",
-					},
-				);
+				this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
+					type: "agent_end",
+				});
 			}
 		}, 50);
 	}
@@ -1201,12 +1174,9 @@ export class AgentManager {
 			// 压缩失败（如会话太小 / 已压缩过）：pi 已 emit compaction_end{errorMessage}，
 			// 前端 compaction_end case 负责展示失败文案（单一来源，避免与 message_end 重复）。
 			// 这里只合成 agent_end 让前端退出思考态（压缩不产生 agent 事件）。
-			this.opts.onEvent(
-				sessionId,
-				handle.meta.projectId,
-				handle.meta.agentName,
-				{ type: "agent_end" },
-			);
+			this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
+				type: "agent_end",
+			});
 			return;
 		}
 		handle.busy = false;
@@ -1222,10 +1192,7 @@ export class AgentManager {
 	}
 
 	/** 推送本地队列快照给前端（补充 pi queue_update 缺失的 followUpList） */
-	private _emitLocalQueueUpdate(
-		sessionId: string,
-		handle: SessionHandle,
-	): void {
+	private _emitLocalQueueUpdate(sessionId: string, handle: SessionHandle): void {
 		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
 			type: "queue_update",
 			steering: [...handle.steerList],
@@ -1322,14 +1289,9 @@ export class AgentManager {
 		// 不中止的话主会话停了子代理仍跑到完成，成孤儿且结果无人消费。
 		for (const c of handle.subagentAborts) c.abort();
 		handle.subagentAborts.clear();
-		console.log(
-			`[agent-manager] abort session=${sessionId} busy=${handle.busy}`,
-		);
+		console.log(`[agent-manager] abort session=${sessionId} busy=${handle.busy}`);
 		await handle.client.abort().catch((err) => {
-			console.error(
-				`[agent-manager] abort 命令失败 session=${sessionId}:`,
-				err,
-			);
+			console.error(`[agent-manager] abort 命令失败 session=${sessionId}:`, err);
 		});
 		handle.busy = false;
 		handle.thinkingSince = null;
@@ -1679,20 +1641,15 @@ export class AgentManager {
 		}
 		try {
 			const data = await client.command({ type: "get_available_models" });
-			const models: Array<{ id: string; provider: string }> =
-				data?.models ?? [];
+			const models: Array<{ id: string; provider: string }> = data?.models ?? [];
 			const exact = models.find((m) => m.id === pattern);
 			if (exact) return { provider: exact.provider, modelId: exact.id };
-			const ci = models.find(
-				(m) => m.id.toLowerCase() === pattern.toLowerCase(),
-			);
+			const ci = models.find((m) => m.id.toLowerCase() === pattern.toLowerCase());
 			if (ci) return { provider: ci.provider, modelId: ci.id };
 		} catch {
 			/* 查询失败走下面的错误 */
 		}
-		throw new Error(
-			`模型解析失败 (${pattern}): 请使用 "provider/modelId" 形式`,
-		);
+		throw new Error(`模型解析失败 (${pattern}): 请使用 "provider/modelId" 形式`);
 	}
 }
 

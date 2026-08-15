@@ -131,8 +131,7 @@ export class ChannelManager {
 	}
 
 	async stop(): Promise<void> {
-		for (const a of this.adapters.values())
-			await a.disconnect().catch(() => {});
+		for (const a of this.adapters.values()) await a.disconnect().catch(() => {});
 		this.adapters.clear();
 	}
 
@@ -246,9 +245,7 @@ export class ChannelManager {
 			}
 			if (m.historySessionIds?.length) {
 				const before = m.historySessionIds.length;
-				m.historySessionIds = m.historySessionIds.filter(
-					(id) => id !== sessionId,
-				);
+				m.historySessionIds = m.historySessionIds.filter((id) => id !== sessionId);
 				if (m.historySessionIds.length !== before) changed = true;
 			}
 		}
@@ -258,17 +255,21 @@ export class ChannelManager {
 		}
 	}
 
-	/** 主动推送消息到指定渠道（用于定时任务的 robot_push 工具）。
-	 *  按 botId 查找渠道：adapters 以 channelId（ch_xxx）为键，而 robot_push 传入的是
-	 *  prompt 中 @bot_xxx 解析出的 botId，故先从持久化配置反查 channelId 再取 adapter。
-	 *  主动推送无对应进站消息 → sendText 的 replyFrame 传 null。 */
-	async pushToChannel(botId: string, message: string): Promise<void> {
-		const channels = await loadChannels(this.channelsFile);
-		const channel = channels.find((c) => c.credentials.botId === botId);
-		if (!channel) throw new Error(`渠道 ${botId} 未连接`);
-		const adapter = this.adapters.get(channel.id);
-		if (!adapter) throw new Error(`渠道 ${botId} 未连接`);
-		await adapter.sendText(null, message);
+	/** 主动推送消息到指定联系人（定时任务 @im-push-to 标记用）。
+	 *  按联系人 id 查通讯录：person → userId（单聊 userid），group → chatId（群 chatid）；
+	 *  经所属渠道 adapter 的 pushMessage 主动发送（走平台主动通道，无需进站 replyFrame）。 */
+	async pushToContact(contactId: string, message: string): Promise<void> {
+		const contacts = await loadContacts(undefined, this.contactsFile);
+		const contact = contacts.find((c) => c.id === contactId);
+		if (!contact) throw new Error(`联系人 ${contactId} 不存在`);
+		const chatId = contact.kind === "group" ? contact.chatId : contact.userId;
+		if (!chatId) throw new Error(`联系人 ${contactId} 缺少会话标识`);
+		const adapter = this.adapters.get(contact.channelId);
+		if (!adapter) throw new Error(`联系人 ${contactId} 所在渠道未连接`);
+		if (!adapter.pushMessage) {
+			throw new Error(`渠道 ${contact.channelId} 不支持主动推送`);
+		}
+		await adapter.pushMessage(chatId, message);
 	}
 
 	/** 智能体被渠道引用的统计（删除智能体确认提示用） */
@@ -341,7 +342,10 @@ export class ChannelManager {
 	}
 
 	/** 重命名通讯录条目（备注名）；id 不存在返回 null */
-	async renameContact(id: string, remark: string): Promise<ContactEntity | null> {
+	async renameContact(
+		id: string,
+		remark: string,
+	): Promise<ContactEntity | null> {
 		return renameContactById(id, remark, this.contactsFile);
 	}
 
@@ -427,9 +431,7 @@ export class ChannelManager {
 					.join("\n")
 			: "";
 		const baseline = this.replyBaseline.get(sessionId) ?? 0;
-		const settled = this.deps.agentManager
-			.getMessages(sessionId)
-			.slice(baseline);
+		const settled = this.deps.agentManager.getMessages(sessionId).slice(baseline);
 		const settledText = extractAssistantText(settled);
 		const text = [settledText, partialText].filter(Boolean).join("\n");
 		if (!text) return;
@@ -560,9 +562,7 @@ export class ChannelManager {
 		};
 
 		if (msg.unsupported) {
-			await reply(
-				`暂不支持该消息类型（${msg.unsupported}），请发送文本或图片。`,
-			);
+			await reply(`暂不支持该消息类型（${msg.unsupported}），请发送文本或图片。`);
 			return;
 		}
 
@@ -700,7 +700,9 @@ export class ChannelManager {
 	}
 
 	/** 读取全部已启用技能的 name + SKILL.md 内容（读失败的技能跳过，不阻塞入站） */
-	private async loadSkillContents(): Promise<
+	/** 扫描技能目录并读取 SKILL.md 内容（渠道附加提示词 $[技能名] 展开 +
+	 *  定时任务执行链路复用：executeTask 里 $[技能名] 任意位置展开） */
+	public async loadSkillContents(): Promise<
 		{ name: string; content: string; location: string }[]
 	> {
 		if (!this.deps.skillManager) return [];
@@ -783,6 +785,7 @@ export class ChannelManager {
 					: `IM · ${mapping.chatId.slice(0, 12)}`,
 			id: `im-${mapping.channelId}-${mapping.currentProjectId}-${createdAt}`,
 			createdAt,
+			source: "im", // IM 渠道会话（原靠 id 前缀约定，显式化）
 		});
 		mapping.sessions[mapping.currentProjectId] = session.id;
 		// 广播 session:created：前端侧边栏会话列表增量感知（本路径不经 ws-server，不广播则

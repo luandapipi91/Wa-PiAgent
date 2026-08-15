@@ -27,8 +27,13 @@ import {
 	appendExecutionRecord,
 	updateExecutionRecord,
 } from "./scheduler-store";
-import { parseChannelMentions, createRobotPushTool } from "./tools/robot-push";
-import type { RobotPushInjection } from "./agent-manager";
+import {
+	parseImPushMentions,
+	createImPushTool,
+	buildSchedulerPrompt,
+} from "./tools/robot-push";
+import type { ImPushInjection } from "./agent-manager";
+import { expandSkillTokens } from "./channels/skill-expand";
 import {
 	WS_PORT,
 	WA_PI_DIR,
@@ -359,42 +364,42 @@ export async function startKernel(opts?: {
 					title: `定时任务 · ${task.name}`,
 					id: sessionId,
 					createdAt,
+					source: "scheduler", // 执行会话独立于侧栏列表，只在执行记录里查看
 				});
 				record.sessionId = sessionId;
 
-				// 2. 解析 @bot_xxx 渠道标记：非空时构造 robot_push 工具注入该会话
+				// 2. 解析 @im-push-to(bot_xxx,ct_xxx) 标记：非空时构造 im_push_to 工具注入该会话
 				// （pi 进程内 bridge 扩展经 env 注册工具，execute 经 /bridge/tool 回调到
-				// agentManager.handleTool → 此处 pushToChannel），推送结果回填执行记录。
-				const channelIds = parseChannelMentions(task.prompt);
+				// agentManager.handleTool → pushToContact 主动推送），推送结果回填执行记录。
+				const contactIds = parseImPushMentions(task.prompt);
 				const pushResults: PushResult[] = [];
-				let robotPush: RobotPushInjection | undefined;
-				if (channelIds.length > 0) {
-					// channelName 用 botId 占位（渠道名需另查渠道配置；后续优化点，不影响推送本身）
-					const robotPushTool = createRobotPushTool({
+				let imPush: ImPushInjection | undefined;
+				if (contactIds.length > 0) {
+					// targetName 用联系人 id 占位（联系人名需查通讯录；后续优化点，不影响推送本身）
+					const imPushTool = createImPushTool({
 						channelManager,
-						availableChannelIds: channelIds,
+						contactIds,
 						onPushResult: (r) => {
 							pushResults.push({
-								channelId: r.channelId,
-								channelName: r.channelId,
+								targetId: r.targetId,
+								targetName: r.targetId,
 								success: r.success,
 								error: r.error,
 							});
 						},
 					});
-					robotPush = {
-						channels: channelIds,
-						execute: (channel, message) =>
-							robotPushTool.execute({ channel, message }),
+					imPush = {
+						targets: contactIds,
+						execute: (contact, message) => imPushTool.execute({ contact, message }),
 					};
 				}
 
-				// 3. 启动 agent 进程（robotPush 非空时注入推送工具）
+				// 3. 启动 agent 进程（imPush 非空时注入推送工具）
 				await agentManager.ensureStarted(
 					projectId,
 					task.agentId as any,
 					sessionId,
-					robotPush ? { robotPush } : undefined,
+					imPush ? { imPush } : undefined,
 				);
 
 				// 4. 解析默认模型（取第一个 provider 的第一个模型）
@@ -406,13 +411,16 @@ export async function startKernel(opts?: {
 				}
 				const model = `${firstProvider.slug ?? firstProvider.name}/${firstModel.id}`;
 
-				// 5. 发送 prompt（prompt 内含任务指令 + 可选的 @bot_xxx 标记）。
-				// 带 @ 标记时追加引导：明确告知 agent 用 robot_push 推送到标记渠道
-				// （否则 LLM 可能把 @bot_xxx 当普通文本，只回复不推送）。
-				const promptToSend =
-					channelIds.length > 0
-						? `${task.prompt}\n\n（系统提示：任务指令中的 @bot_xxx 渠道标记表示推送目标，请完成任务后用 robot_push 工具把结果推送到这些渠道。）`
-						: task.prompt;
+				// 5. 发送 prompt（任务指令 + 可选的 @im-push-to 推送标记 / $[技能名] 技能标记）。
+				// 带推送标记时追加引导：明确告知 agent 用 im_push_to 推送给标记联系人
+				// （否则 LLM 把标记当普通文本，只回复不推送）。
+				// 技能标记在 kernel 侧展开：SDK 只展开消息开头的 /skill:，定时任务的
+				// $[技能名] 可在任意位置，复用渠道提示词的展开逻辑（未知技能保留原文）。
+				let promptToSend = buildSchedulerPrompt(task.prompt, contactIds);
+				if (promptToSend.includes("$")) {
+					const skills = await channelManager.loadSkillContents();
+					promptToSend = expandSkillTokens(promptToSend, skills);
+				}
 				await agentManager.prompt(sessionId, promptToSend, { model });
 
 				// 6. 等待 agent 执行完成（轮询 isSessionBusy，agent_settled 后 busy=false）
@@ -446,12 +454,12 @@ export async function startKernel(opts?: {
 							.slice(0, 500);
 					}
 				}
-				// 8. 推送结果回填执行记录（robot_push 调用后由 onPushResult 收集）
+				// 8. 推送结果回填执行记录（im_push_to 调用后由 onPushResult 收集）
 				if (pushResults.length > 0) {
 					record.pushResults = pushResults;
 					console.log(
 						`[scheduler] 任务 ${task.name} 推送结果: ${pushResults
-							.map((p) => `${p.channelId}=${p.success ? "ok" : p.error}`)
+							.map((p) => `${p.targetId}=${p.success ? "ok" : p.error}`)
 							.join(", ")}`,
 					);
 				}
@@ -503,9 +511,7 @@ export async function startKernel(opts?: {
 			const thresholdMs = settings.autoArchiveDays * DAY_MS;
 			const archived = await projectStore.archiveStaleSessions(thresholdMs);
 			if (archived.length > 0) {
-				console.log(
-					`[kernel] 自动归档了 ${archived.length} 个未活动会话到回收站`,
-				);
+				console.log(`[kernel] 自动归档了 ${archived.length} 个未活动会话到回收站`);
 				await server.broadcastProjectsList();
 			}
 

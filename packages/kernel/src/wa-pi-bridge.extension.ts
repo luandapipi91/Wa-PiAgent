@@ -114,9 +114,7 @@ async function callBridge(
 		// 流式协议：delegate/fleet 返回 NDJSON，逐帧解析 started/progress/ping/final。
 		// started/progress/ping 帧仅证明存活（刷新空闲超时），进度已由 kernel SSE 直推前端，
 		// 这里只关心 final 帧来组装结果。
-		const isStream = (res.headers.get("content-type") ?? "").includes(
-			"x-ndjson",
-		);
+		const isStream = (res.headers.get("content-type") ?? "").includes("x-ndjson");
 		if (isStream && res.body) {
 			const reader = res.body.getReader();
 			const dec = new TextDecoder();
@@ -169,9 +167,7 @@ async function callBridge(
 		const data = (await res.json().catch(() => null)) as any;
 		if (!res.ok) {
 			const errMsg =
-				data && typeof data.error === "string"
-					? data.error
-					: "http_" + res.status;
+				data && typeof data.error === "string" ? data.error : "http_" + res.status;
 			return failResult("bridge 调用失败: " + errMsg, errMsg);
 		}
 		if (!data || !Array.isArray(data.content)) {
@@ -239,8 +235,7 @@ export default function (pi: ExtensionAPI) {
 			target: MemoryTargetSchema,
 			scope: Type.Optional(MemoryScopeSchema),
 			oldText: Type.String({
-				description:
-					"A short substring uniquely identifying the entry to replace.",
+				description: "A short substring uniquely identifying the entry to replace.",
 			}),
 			newContent: Type.String({
 				description: "The replacement entry content.",
@@ -266,8 +261,7 @@ export default function (pi: ExtensionAPI) {
 			target: MemoryTargetSchema,
 			scope: Type.Optional(MemoryScopeSchema),
 			oldText: Type.String({
-				description:
-					"A short substring uniquely identifying the entry to remove.",
+				description: "A short substring uniquely identifying the entry to remove.",
 			}),
 		}),
 		async execute(toolCallId, params, signal) {
@@ -323,30 +317,23 @@ export default function (pi: ExtensionAPI) {
 		description: FLEET_DESCRIPTION,
 		parameters: FleetParamsSchema,
 		async execute(toolCallId, params, signal) {
-			return callBridge(
-				"fleet",
-				toolCallId,
-				params,
-				signal,
-				DELEGATE_TIMEOUT_MS,
-			);
+			return callBridge("fleet", toolCallId, params, signal, DELEGATE_TIMEOUT_MS);
 		},
 	});
 
-	// robot_push：仅定时任务会话注入（kernel spawn 时设 WA_PI_ROBOT_PUSH_CHANNELS，
-	// 逗号分隔的 botId 列表；普通会话不设 → 工具不注册，不污染工具面板）。
-	// 渠道列表在环境变量里（每会话不同），故不能用静态 enum——kernel 侧 handleTool
-	// 再校验 channel 合法性。execute 经 callBridge 回调 kernel /bridge/tool 分发。
-	const ROBOT_PUSH_CHANNELS = process.env.WA_PI_ROBOT_PUSH_CHANNELS;
-	if (ROBOT_PUSH_CHANNELS) {
+	// im_push_to：仅定时任务会话注入（kernel spawn 时设 WA_PI_IM_PUSH_TARGETS，
+	// 逗号分隔的联系人 ID 列表；普通会话不设 → 工具不注册，不污染工具面板）。
+	// 目标列表在环境变量里（每会话不同），故不能用静态 enum——kernel 侧 handleTool
+	// 再校验合法性。execute 经 callBridge 回调 kernel /bridge/tool 分发。
+	const IM_PUSH_TARGETS = process.env.WA_PI_IM_PUSH_TARGETS;
+	if (IM_PUSH_TARGETS) {
 		pi.registerTool({
-			name: "robot_push",
-			label: "Robot Push",
-			description: `推送消息到 IM 渠道。可用渠道：${ROBOT_PUSH_CHANNELS}。任务指令中以 @ 标记的渠道即推送目标，任务完成后必须调用本工具推送结果。`,
+			name: "im_push_to",
+			label: "IM Push",
+			description: `推送消息给 IM 联系人。可用联系人：${IM_PUSH_TARGETS}。任务指令中 @im-push-to(渠道,联系人) 标记的联系人即推送目标，任务完成后必须调用本工具推送结果。`,
 			parameters: Type.Object({
-				channel: Type.String({
-					description:
-						"目标推送渠道 ID（任务指令中 @ 标记的 botId，如 bot_xxx）",
+				contact: Type.String({
+					description: "目标联系人 ID（任务指令中 @im-push-to 标记里的 ct_xxx）",
 				}),
 				message: Type.String({
 					description: "要推送的消息内容，支持纯文本和 Markdown",
@@ -354,7 +341,7 @@ export default function (pi: ExtensionAPI) {
 			}),
 			async execute(toolCallId, params, signal) {
 				return callBridge(
-					"robot_push",
+					"im_push_to",
 					toolCallId,
 					params,
 					signal,
@@ -370,8 +357,7 @@ export default function (pi: ExtensionAPI) {
 	// reload 重读 packages 让装卸立即生效；内置扩展走 -e（实例属性，reload 保留不失效）。
 	// __! 前缀：wa-pi 内部专用命令命名空间，前端命令面板过滤不显示。
 	pi.registerCommand("__!wa_pi_reload", {
-		description:
-			"wa-pi internal: hot-reload extensions without process restart",
+		description: "wa-pi internal: hot-reload extensions without process restart",
 		handler: async (_args, ctx) => {
 			await ctx.reload();
 		},

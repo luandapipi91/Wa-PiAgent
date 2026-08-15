@@ -157,7 +157,7 @@ describe("ExecutionRecords", () => {
 				taskName: "报表",
 				status: "success",
 				startedAt: Date.now() - 1000,
-				pushResults: [{ channelId: "c1", channelName: "群A", success: true }],
+				pushResults: [{ targetId: "ct_p01", targetName: "张三", success: true }],
 			},
 		];
 		render(<ExecutionRecords />);
