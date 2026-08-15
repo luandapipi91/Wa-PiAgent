@@ -42,3 +42,14 @@ test("PUT /api/contacts/:id → contacts:rename", async () => {
 	expect(e.id).toBe("ct_123");
 	expect(e.remark).toBe("张三");
 });
+
+test("POST /api/contacts/ensure → contacts:ensure（group 匹配键）", async () => {
+	const e = await capture("/api/contacts/ensure", {
+		method: "POST",
+		body: JSON.stringify({ channelId: "ch_abc", kind: "group", chatId: "g1" }),
+	});
+	expect(e.type).toBe("contacts:ensure");
+	expect(e.channelId).toBe("ch_abc");
+	expect(e.kind).toBe("group");
+	expect(e.chatId).toBe("g1");
+});

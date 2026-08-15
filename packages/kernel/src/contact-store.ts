@@ -87,6 +87,33 @@ export async function upsertContact(
 	});
 }
 
+/** 确保联系人存在并返回（含 id）：命中返回现有（不动 lastChatAt/remark），未命中创建 */
+export async function ensureContact(
+	input: ContactUpsertInput,
+	file: string = CONTACTS_FILE,
+): Promise<ContactEntity> {
+	return serialize(file, async () => {
+		const raw = await readJson<{ contacts?: ContactEntity[] }>(file, {});
+		const contacts = Array.isArray(raw.contacts) ? raw.contacts : [];
+		const key = dedupKey(input);
+		const existing = contacts.find((c) => dedupKey(c) === key);
+		if (existing) return existing;
+		const now = Date.now();
+		const created: ContactEntity = {
+			id: `ct_${randomUUID().slice(0, 8)}`,
+			channelId: input.channelId,
+			kind: input.kind,
+			userId: input.kind === "person" ? input.userId : undefined,
+			chatId: input.kind === "group" ? input.chatId : undefined,
+			firstChatAt: now,
+			lastChatAt: now,
+		};
+		contacts.push(created);
+		await writeJson(file, { schemaVersion: 1, contacts });
+		return created;
+	});
+}
+
 /** 重命名；id 不存在返回 null */
 export async function renameContact(
 	id: string,

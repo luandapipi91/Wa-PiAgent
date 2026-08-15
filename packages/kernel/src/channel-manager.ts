@@ -28,8 +28,10 @@ import {
 } from "./channel-store";
 import {
 	listContacts as loadContacts,
+	ensureContact as ensureContactById,
 	renameContact as renameContactById,
 	upsertContact,
+	type ContactUpsertInput,
 } from "./contact-store";
 import { parseCommand } from "./channels/commands";
 import {
@@ -347,6 +349,11 @@ export class ChannelManager {
 		remark: string,
 	): Promise<ContactEntity | null> {
 		return renameContactById(id, remark, this.contactsFile);
+	}
+
+	/** 确保通讯录条目存在并返回（含 id）：供顶部铅笔「自动补建后编辑」使用 */
+	async ensureContact(input: ContactUpsertInput): Promise<ContactEntity> {
+		return ensureContactById(input, this.contactsFile);
 	}
 
 	/** 由 index.ts 的 AgentManager onEvent 挂钩（throttle 之前调用，agent_settled 不可被节流丢弃） */
