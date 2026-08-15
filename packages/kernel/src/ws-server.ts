@@ -2099,6 +2099,24 @@ export class WSServer {
 				}
 				break;
 			}
+			case "extension:repair": {
+				try {
+					// 类型含 "progress" → callApi 自动 SSE 广播，reply 即可（与 install/upgrade 一致）
+					const onProgress = (message: string) =>
+						reply({ type: "extension:repair:progress", message });
+					await this.opts.extensionManager.repair(onProgress);
+					this.opts.agentManager.markAllDirty();
+					const { packages } = await this.opts.extensionManager.list();
+					this.broadcast({ type: "extension:changed", packages });
+					this.broadcast({ type: "extension:repair:done" });
+					const skillResult = await this.scanSkillsWithExtensions();
+					this.broadcast({ type: "skill:changed", ...skillResult });
+				} catch (err) {
+					// name=repair 不匹配任何 installs/upgrading → 前端落全局 error 区
+					this.broadcast({ type: "extension:error", name: "repair", error: (err as Error).message });
+				}
+				break;
+			}
 			case "extension:commands:list": {
 				// 插件命令页无 session 上下文：传空 sessionId，getCommands 会借用任意
 				// 活跃 pi 进程实时拉取命令（无活跃进程返回空数组，不创建孤儿进程）。

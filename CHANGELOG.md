@@ -2,6 +2,18 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — feat(kernel): extension:repair 事件链路（ws + HTTP 路由 + 广播）
+
+### 变更
+
+- **shared 事件类型**：`packages/shared/src/extensions.ts` 新增 `ExtensionRepairEvent`（前端→kernel，全量重建依赖目录）、`ExtensionRepairProgressEvent`（修复日志行）、`ExtensionRepairDoneEvent`（成功终态），并同步补入 `types.ts` 的 import 区、`WSClientEvent` 与 `WSServerEvent` 两个 union。
+- **ExtensionManager.repair()**：封装任务 1 的 `NpmPackageService.repair(onProgress?)`，签名与 install/upgrade 的进度回调一致。
+- **ws-server case "extension:repair"**：progress 经 reply（callApi 自动 SSE 广播）、成功后广播 `extension:changed` → `extension:repair:done` → `skill:changed`（含 markAllDirty + 重扫技能），失败广播 `extension:error`（name=repair，fire-and-forget 语义）。
+- **HTTP 路由**：`POST /api/extensions/repair` → `callApi({ type: "extension:repair" })`，前端将来可直接触发。
+- 测试：新建 `ws-extension-repair.test.ts`（真实服务模式，2 用例：成功帧序列/失败 error 广播）；修复参考 helper `readSseFrame` 的残留帧缺陷（buffer 提为 WeakMap 跨调用共享 + 先解析残留帧再 read，否则密集帧场景挂死超时）；补齐 `extension-manager.test.ts` 两处 pkgService stub 缺失的 `repair`（任务 1 遗留的类型破坏）。
+- 影响范围：`packages/shared/src/extensions.ts`、`types.ts`，`packages/kernel/src/extension-manager.ts`、`ws-server.ts`、`routes/extensions.ts`，`packages/kernel/tests/ws-extension-repair.test.ts`（新）、`extension-manager.test.ts`；kernel 全量 1020 测试全过、shared 97 全过、四包 typecheck 0 错。
+
+---
 ## 2026-08-15 — fix(frontend): 通讯录侧滑面板覆盖式定位 + 行内编辑回填/按钮溢出修复
 
 ### 变更
