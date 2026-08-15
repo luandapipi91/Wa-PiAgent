@@ -2,6 +2,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — refactor(kernel): 定时任务推送引导改注入 system prompt（不拼进任务指令）
+
+- **引导位置迁移**：`@im-push-to` 标记的语义澄清（非智能体引用勿 delegate + 用 im_push_to 工具推送）原由 `buildSchedulerPrompt` 拼进任务指令（prompt）末尾，现改为在 agent 启动时注入 **system prompt 的 im-push 段**。
+- **新段机制**：`system-prompt.ts` 新增 `im-push` 动态段（模仿 im-channel 段：运行时注入、不落盘、savePromptSegments 剔除、ensureImPushSegment 运行时补回、位置在 im-channel 之后 / memory-policy 之前）；`PROMPTS_SCHEMA_VERSION` 25→26。
+- **接线**：`agent-manager._createSession` 当 `imPush.targets` 非空时用 `buildImPushSystemPrompt(targets)` 填充 `imPushContext` 注入 composePrompt；`index.ts` executeTask 不再拼 prompt，直接发 `task.prompt`（技能展开逻辑保留）。`buildSchedulerPrompt` 更名 `buildImPushSystemPrompt`（返回系统提示文本，空目标返回空串）。
+- 影响范围：`kernel/src/{system-prompt,agent-manager,tools/robot-push,index}.ts`；测试 `robot-push.test.ts`（buildImPushSystemPrompt 新契约）、`system-prompt-im-push.test.ts`（新段 5 用例）、`system-prompt.test.ts`（落盘过滤加 im-push）、`system-prompt-im-channel.test.ts`（schema 26）。
+
 ## 2026-08-15 — feat(kernel/frontend): IM 会话顶部铅笔编辑通讯录备注名
 
 ### 变更

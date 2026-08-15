@@ -92,12 +92,14 @@ import {
 	composePrompt,
 	loadPromptSegments,
 	ensureImChannelSegment,
+	ensureImPushSegment,
 	DEFAULT_PROMPT_SEGMENTS,
 	DEFAULT_MEMORY_POLICY_PROMPT,
 	COMPACT_MEMORY_POLICY_PROMPT,
 	WA_PI_DEFAULT_BASE_PROMPT,
 	type PromptSegment,
 } from "./system-prompt";
+import { buildImPushSystemPrompt } from "./tools/robot-push";
 
 /** 可注入的 client 工厂（测试用假 client 替换；生产 new RpcClient） */
 export type CreateClientFn = (opts: RpcClientOpts) => RpcClient;
@@ -236,6 +238,8 @@ export class AgentManager {
 		this.promptSegments = ensureImChannelSegment(
 			loaded ?? DEFAULT_PROMPT_SEGMENTS,
 		);
+		// im-push 段同样不落盘，运行时补回（im-channel 之后、memory-policy 之前）
+		this.promptSegments = ensureImPushSegment(this.promptSegments);
 		return this.promptSegments;
 	}
 
@@ -793,6 +797,10 @@ export class AgentManager {
 			// IM 渠道附加提示词（仅渠道会话传入，非渠道会话为空 → im-channel 段不出现）。
 			// 渠道提示词变更后由调用方 markAllDirty() 触发下次 ensureStarted 重建生效。
 			imChannelContext: imChannelContext ?? "",
+			// IM 推送目标引导（定时任务带 @im-push-to 标记时注入 im-push 段；普通会话为空不出现）
+			imPushContext: imPush?.targets?.length
+				? buildImPushSystemPrompt(imPush.targets)
+				: "",
 		});
 		const tmpDir = join(WA_PI_DIR, "tmp", "sysprompts");
 		await mkdir(tmpDir, { recursive: true });
