@@ -30,7 +30,13 @@ export default function ImSessionTitle({ sessionTitle, imConv }: Props) {
 
 	const startEdit = () => {
 		cancelled.current = false;
-		setValue(contact?.remark ?? "");
+		// 回填：备注名 → 联系人标识（person=userId / group=chatId 前 8）→ 空（首次自动补建）
+		const fallback = contact
+			? contact.kind === "group"
+				? (contact.chatId ?? "").slice(0, 8)
+				: (contact.userId ?? "")
+			: "";
+		setValue(contact?.remark ?? fallback);
 		setEditing(true);
 	};
 

@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(frontend): IM 会话顶部铅笔编辑无备注时回填联系人标识
+
+- 点铅笔进入行内编辑时，联系人存在但无备注名的情况下，输入框原回填为空，改为回填联系人标识（person=userId / group=chatId 前 8 位），与通讯录面板 `ContactsPanel` 的回填逻辑一致。
+- 影响范围：`packages/frontend/src/components/ImSessionTitle.tsx`、`__tests__/ImSessionTitle.test.tsx`。
+
 ## 2026-08-15 — refactor(kernel): 定时任务推送引导改注入 system prompt（不拼进任务指令）
 
 - **引导位置迁移**：`@im-push-to` 标记的语义澄清（非智能体引用勿 delegate + 用 im_push_to 工具推送）原由 `buildSchedulerPrompt` 拼进任务指令（prompt）末尾，现改为在 agent 启动时注入 **system prompt 的 im-push 段**。

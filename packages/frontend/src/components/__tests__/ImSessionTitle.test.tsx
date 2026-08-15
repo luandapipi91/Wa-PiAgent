@@ -104,12 +104,37 @@ test("点铅笔进入行内编辑：输入框预填当前备注名", () => {
 	expect(input.value).toBe("张总");
 });
 
-test("点铅笔（无备注）输入框为空", () => {
+test("点铅笔（无联系人）输入框为空", () => {
 	render(<ImSessionTitle sessionTitle="IM · u1" imConv={imConv()} />);
 	fireEvent.click(screen.getByTestId("im-session-title-edit"));
 	expect(
 		(screen.getByTestId("im-session-title-input") as HTMLInputElement).value,
 	).toBe("");
+});
+
+test("联系人存在但无备注：点铅笔回填联系人标识（userId）", () => {
+	state.contacts = [contact({})]; // person，无 remark
+	render(<ImSessionTitle sessionTitle="IM · u1" imConv={imConv()} />);
+	fireEvent.click(screen.getByTestId("im-session-title-edit"));
+	expect(
+		(screen.getByTestId("im-session-title-input") as HTMLInputElement).value,
+	).toBe("u1");
+});
+
+test("群聊联系人无备注：点铅笔回填 chatId 前 8 位", () => {
+	state.contacts = [
+		contact({ kind: "group", userId: undefined, chatId: "g12345678" }),
+	];
+	render(
+		<ImSessionTitle
+			sessionTitle="IM · 群g1234567 · bob"
+			imConv={imConv({ chatType: "group", chatId: "g12345678", fromUserId: "bob" })}
+		/>,
+	);
+	fireEvent.click(screen.getByTestId("im-session-title-edit"));
+	expect(
+		(screen.getByTestId("im-session-title-input") as HTMLInputElement).value,
+	).toBe("g1234567");
 });
 
 test("已有联系人：输入 + Enter 保存调用 renameContact", async () => {
