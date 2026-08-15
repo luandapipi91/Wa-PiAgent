@@ -2,6 +2,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(kernel): provider extension 用内置目录 baseUrl（修 opencode-go 缺 /v1 且同名模型互相污染）
+
+- **根因**：①opencode-go 的 `openai-completions` 模型（deepseek-v4-flash/pro 等）正确 baseUrl 是 `https://opencode.ai/zen/go/v1`（带 /v1），但 providers.json 里存的是不带 /v1 的 `https://opencode.ai/zen/go`（那是 anthropic-messages 模型的 baseUrl，被套用了）→ OpenAI SDK 拼 /chat/completions 后打 404；②`sdkModelMap` 原按 model id 建键，`deepseek-v4-flash` 同时存在于 deepseek 和 opencode-go，会匹配到错误 provider 的 baseUrl（opencode-go 被污染成 api.deepseek.com）。
+- **修复**：`provider-extension.ts` extension 生成时优先用内置目录（按 provider slug 精确匹配）的 baseUrl，纠正 providers.json 里缺后缀的旧值；`sdkModelMap` 改用 `${slug}/${modelId}` 复合键避免同名模型跨 provider 冲突。
+- **测试（TDD）**：`provider-extension.test.ts` 新增 2 用例（内置 baseUrl 优先纠正 /1v1、同名模型跨 provider 不污染），19/19 过；typecheck 通过；实测生成 opencode-go baseUrl = `https://opencode.ai/zen/go/v1`。
+- 影响范围：`packages/kernel/src/provider-extension.ts`、`packages/kernel/tests/provider-extension.test.ts`。
+
 ## 2026-08-15 — fix(kernel): 修复 pi 子进程拿不到系统代理（Bun process.env 展开丢失代理变量）
 
 - **根因**：Bun 的 `process.env` 对代理变量（`HTTP_PROXY`/`HTTPS_PROXY` 等）是 getter/setter，不在 `Object.keys(process.env)` 里，导致 `rpc-client` spawn pi 子进程时用 `{ ...process.env }` 展开丢掉了代理变量 → pi 引擎 `EnvHttpProxyAgent` 读不到 `HTTP_PROXY` → LLM 请求直连超时（被墙时）。

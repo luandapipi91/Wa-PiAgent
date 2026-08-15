@@ -12,7 +12,7 @@ import { getAllCatalogModels, type CatalogModel } from "./pi-catalog";
 /** 从目录查询到的模型详细信息 */
 type SdkModelInfo = Pick<
 	CatalogModel,
-	"contextWindow" | "maxTokens" | "reasoning" | "input" | "cost" | "name"
+	"contextWindow" | "maxTokens" | "reasoning" | "input" | "cost" | "name" | "baseUrl"
 >;
 
 /** 默认模型参数（目录查询失败时的 fallback） */
@@ -23,6 +23,7 @@ const DEFAULT_SDK_MODEL: SdkModelInfo = {
 	input: ["text"],
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 	name: "",
+	baseUrl: "",
 };
 
 /**
@@ -50,20 +51,25 @@ export function extensionCoversProvider(
 }
 
 /**
- * 在内置模型目录中按 model ID 查找匹配模型。
- * 支持精确匹配和大小写不敏感匹配，返回第一个匹配的模型信息。
+ * 在内置模型目录中按 provider + model ID 查找匹配模型。
+ * 支持精确匹配和大小写不敏感匹配。
+ * providerKey 传空时忽略 provider 过滤（仅按 model id 匹配）。
  */
 function lookupSdkModel(
 	modelId: string,
 	allModels: CatalogModel[],
+	providerKey?: string,
 ): SdkModelInfo | null {
+	const matches = providerKey
+		? allModels.filter((m) => m.provider === providerKey)
+		: allModels;
 	// 精确匹配
-	const exact = allModels.find((m) => m.id === modelId);
+	const exact = matches.find((m) => m.id === modelId);
 	if (exact) return modelToInfo(exact);
 
 	// 大小写不敏感匹配
 	const lower = modelId.toLowerCase();
-	const ci = allModels.find((m) => m.id.toLowerCase() === lower);
+	const ci = matches.find((m) => m.id.toLowerCase() === lower);
 	if (ci) return modelToInfo(ci);
 
 	return null;
@@ -82,6 +88,7 @@ function modelToInfo(m: CatalogModel): SdkModelInfo {
 			cacheWrite: m.cost.cacheWrite,
 		},
 		name: m.name,
+		baseUrl: m.baseUrl,
 	};
 }
 
@@ -116,9 +123,18 @@ export function generateProviderExtension(
 	const entries = slugifyProviders(providers);
 	const registrations = entries
 		.map(({ provider, slug }) => {
+			// baseUrl 优先用内置目录（含正确 /v1 后缀等），纠正 providers.json 里可能缺后缀的旧值；
+			// 按 slug 定位该 provider 的模型，避免同名模型跨 provider 冲突。
+			const firstSdk = provider.models
+				.map((m) => sdkModelMap.get(`${slug}/${m.id}`) ?? sdkModelMap.get(m.id))
+				.find((s) => s?.baseUrl);
+			const baseUrl = (firstSdk?.baseUrl || provider.baseUrl).replace(/\/+$/, "");
 			const modelsCode = provider.models
 				.map((m) => {
-					const sdk = sdkModelMap.get(m.id) ?? DEFAULT_SDK_MODEL;
+					const sdk =
+						sdkModelMap.get(`${slug}/${m.id}`) ??
+						sdkModelMap.get(m.id) ??
+						DEFAULT_SDK_MODEL;
 					const name = sdk.name || m.id;
 					const reasoning = sdk.reasoning;
 					const input = sdk.input;
@@ -137,7 +153,7 @@ export function generateProviderExtension(
 				.join(",\n");
 			return `  pi.registerProvider(${JSON.stringify(slug)}, {
     name: ${JSON.stringify(provider.name)},
-    baseUrl: ${JSON.stringify(provider.baseUrl.replace(/\/+$/, ""))},
+    baseUrl: ${JSON.stringify(baseUrl)},
     apiKey: ${JSON.stringify(provider.apiKey)},
     api: ${JSON.stringify(provider.api)},
     models: [
@@ -177,15 +193,19 @@ export async function ensureProviderExtensionRegistered(
 ): Promise<void> {
 	const providers = await store.load();
 
-	// 查询内置模型目录
+	// 查询内置模型目录（key = `${slug}/${modelId}` 复合键，避免同名模型跨 provider 冲突）
 	const sdkModelMap = new Map<string, SdkModelInfo>();
 	try {
 		const allModels = await getAllCatalogModels();
 		for (const p of providers) {
+			// 按 provider slug 精确匹配内置 provider，避免同名模型（如 deepseek-v4-flash
+			// 同时存在于 deepseek 和 opencode-go）匹配到错误 provider 的 baseUrl。
+			const slug = resolveProviderSlug(p, []);
 			for (const m of p.models) {
-				if (!sdkModelMap.has(m.id)) {
-					const info = lookupSdkModel(m.id, allModels);
-					if (info) sdkModelMap.set(m.id, info);
+				const key = `${slug}/${m.id}`;
+				if (!sdkModelMap.has(key)) {
+					const info = lookupSdkModel(m.id, allModels, slug);
+					if (info) sdkModelMap.set(key, info);
 				}
 			}
 		}
