@@ -265,7 +265,11 @@ export function ProjectItem(props: Props) {
 	};
 
 	return (
-		<div data-testid={`project-${project.id}`}>
+		<motion.div
+			layout="position"
+			transition={{ layout: { duration: 0.25, ease: "easeOut" } }}
+			data-testid={`project-${project.id}`}
+		>
 			{/* 项目头部 */}
 			<div
 				className={`flex items-center gap-1 px-2 py-1.5 rounded-sm transition-colors ${selected ? "bg-accent-soft" : "hover:bg-surface-hover"}`}
@@ -313,16 +317,13 @@ export function ProjectItem(props: Props) {
 				</button>
 			</div>
 
-			{/* 会话列表：motion.div layout="position" 做重排 FLIP 动画，AnimatePresence 做 enter/exit */}
+			{/* 会话列表：motion.div layout="position" 做重排 FLIP 动画（与「最近」视图一致，不叠加 opacity 淡入，避免展开时半透明与项目名叠透重叠） */}
 			<AnimatePresence initial={false}>
 				{expanded &&
 					mySessions.map((s) => (
 						<motion.div
 							key={s.id}
 							layout="position"
-							initial={{ opacity: 0 }}
-							animate={{ opacity: 1 }}
-							exit={{ opacity: 0 }}
 							transition={{
 								layout: { duration: 0.25, ease: "easeOut" },
 							}}
@@ -511,6 +512,6 @@ export function ProjectItem(props: Props) {
 					}}
 				/>
 			)}
-		</div>
+		</motion.div>
 	);
 }

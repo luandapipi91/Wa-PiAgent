@@ -2,6 +2,18 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(frontend): 项目列表展开时消除项目名与会话动画不一致导致的短暂重叠
+
+- 会话列表原叠加 opacity 淡入（initial/animate/exit），展开时半透明会话项与实色项目名叠透，配合下方项目瞬时跳位，产生短暂重叠。改为与「最近」视图一致：会话项只保留 layout FLIP 位移动画，去掉 opacity 淡入淡出。
+- 项目项根节点（含项目名）改 `motion.div layout="position"`，展开/折叠时下方项目 FLIP 平滑位移，消除「瞬时跳位」的突兀。
+- 影响范围：`packages/frontend/src/components/ProjectItem.tsx`。
+
+## 2026-08-15 — fix(frontend): 点击「立即执行」后执行记录列表/状态点不即时刷新
+
+- **根因**：点「立即执行」后，kernel `executeTask` 一开始就写入 running 态执行记录并广播 `scheduled-tasks:changed`，但前端该事件只刷新任务列表（loadTasks），不刷新执行记录（loadRecords）——只有执行完成广播 `scheduled-task:completed` 时才刷新。导致 running 态记录、侧边栏状态点（⟳）都不即时显示。
+- **修复**：`scheduled-tasks:changed` 事件处理补上 `loadRecords()`，与 `scheduled-task:completed` 一致，执行开始即可见 running 态。
+- 影响范围：`packages/frontend/src/App.tsx`。
+
 ## 2026-08-15 — fix(frontend): IM 会话顶部铅笔编辑无备注时回填联系人标识
 
 - 点铅笔进入行内编辑时，联系人存在但无备注名的情况下，输入框原回填为空，改为回填联系人标识（person=userId / group=chatId 前 8 位），与通讯录面板 `ContactsPanel` 的回填逻辑一致。
