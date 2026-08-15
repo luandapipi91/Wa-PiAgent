@@ -143,6 +143,15 @@ export function ensureChipStyles() {
       color: var(--warning);
       border: 1px solid var(--warning-soft);
     }
+    .chip-im {
+      background-color: var(--success-soft);
+      color: var(--success);
+      border: 1px solid var(--success-soft);
+    }
+    .chip-im-invalid {
+      opacity: 0.6;
+      text-decoration: line-through;
+    }
     [contenteditable][data-placeholder]:empty::before {
       content: attr(data-placeholder);
       color: var(--text-tertiary, #A1A1A6);
