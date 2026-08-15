@@ -7,6 +7,7 @@ import type {
   ExtensionErrorEvent,
   ExtensionProgressEvent,
   ExtensionInstallDoneEvent,
+  ExtensionRepairProgressEvent,
 } from "@wa-pi/shared";
 import { api } from "../api-client";
 
@@ -29,12 +30,16 @@ interface ExtensionsState {
   installs: Record<string, InstallEntry>;
   upgrading: UpgradingMap;
   uninstalling: Record<string, boolean>;
+  repairing: string | null; // 修复中：最新进度行（null = 未在修复）
   error: string | null;
   load: () => void;
   setAll: (data: ExtensionListResult | ExtensionChangedEvent) => void;
   setError: (data: ExtensionErrorEvent) => void;
   applyProgress: (data: ExtensionProgressEvent) => void;
   completeInstall: (data: ExtensionInstallDoneEvent) => void;
+  applyRepairProgress: (data: ExtensionRepairProgressEvent) => void;
+  completeRepair: () => void;
+  repairExtensions: () => void;
   installPackage: (name: string) => void;
   uninstallPackage: (name: string) => void;
   upgradePackage: (name: string) => void;
@@ -48,17 +53,24 @@ export const useExtensionsStore = create<ExtensionsState>((set) => ({
   installs: {},
   upgrading: {},
   uninstalling: {},
+  repairing: null,
   error: null,
 
   load: () => { api.get("/api/extensions").then((data: any) => { if (data) set({ packages: data.packages ?? [], error: null }); }).catch(() => {}); },
 
   // extension:changed / extension:list 回复：更新真实列表，保留占位 installs；
   // changed 由 kernel 在操作（含升级/卸载）成功后推送 → 清除 upgrading/uninstalling 标记
-  setAll: (data) => set({ packages: data.packages, upgrading: {}, uninstalling: {}, error: null }),
+  // （extension:changed 在修复成功后先于 repair:done 到达 → 同时清 repairing）
+  setAll: (data) => set({ packages: data.packages, upgrading: {}, uninstalling: {}, repairing: null, error: null }),
 
   // extension:error：若对应占位条目存在则标记 failed，否则落到全局 error（卸载/升级失败等）
   setError: (data) =>
     set((s) => {
+      // 修复失败（name=repair）：清 repairing 解除按钮禁用 + 落全局 error。
+      // repairing !== null 条件防御：用户真的装了叫 "repair" 的包时不受干扰
+      if (data.name === "repair" && s.repairing !== null) {
+        return { repairing: null, error: data.error };
+      }
       const entry = s.installs[data.name];
       if (entry && entry.status === "installing") {
         return {
@@ -116,6 +128,18 @@ export const useExtensionsStore = create<ExtensionsState>((set) => ({
   upgradePackage: (name) => {
     set((s) => ({ error: null, upgrading: { ...s.upgrading, [name]: "" } }));
     void api.post("/api/extensions/upgrade", { name });
+  },
+
+  // extension:repair:progress：更新修复进度行
+  applyRepairProgress: (data) => set({ repairing: data.message }),
+
+  // extension:repair:done：清除修复态并 toast 成功（错误走全局 error 不经此处）
+  completeRepair: () => set({ repairing: null }),
+
+  // 触发修复：fire-and-forget（与 install 同模式，结果经 SSE 事件回流）
+  repairExtensions: () => {
+    set({ error: null, repairing: "" });
+    void api.post("/api/extensions/repair", {});
   },
 
   togglePackage: (name, enabled) => {
