@@ -126,3 +126,21 @@ test("设置项顺序：自动重试 → 提示音 → 回收站 → 导出轮�
 		).toBeTruthy();
 	}
 });
+
+test("系统代理开关渲染，默认关闭", async () => {
+	render(<GeneralSection />);
+	await screen.findByTestId("retry-max-input");
+	const toggle = screen.getByTestId("use-system-proxy-toggle");
+	expect(toggle.getAttribute("data-on")).toBe("false");
+});
+
+test("开启系统代理并保存 → PUT /api/settings/proxy（httpProxy 由 kernel 兜底）", async () => {
+	render(<GeneralSection />);
+	await screen.findByTestId("retry-max-input");
+	fireEvent.click(screen.getByTestId("use-system-proxy-toggle"));
+	fireEvent.click(screen.getByTestId("retry-save-btn"));
+	await new Promise((r) => setTimeout(r, 10));
+	expect(putMock).toHaveBeenCalledWith("/api/settings/proxy", {
+		proxy: { useSystemProxy: true, httpProxy: "" },
+	});
+});

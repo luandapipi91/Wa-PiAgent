@@ -15,8 +15,13 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { getSystemProxy } from "os-proxy-config";
 import { WA_PI_DIR } from "@wa-pi/shared";
-import type { RetrySettings, TrashSettings, ProxySettings } from "@wa-pi/shared";
+import type {
+	RetrySettings,
+	TrashSettings,
+	ProxySettings,
+} from "@wa-pi/shared";
 
 /** 与 pi settings-manager 的默认值对齐（未配置时的回退） */
 export const RETRY_DEFAULTS: RetrySettings = {
@@ -138,7 +143,10 @@ export async function saveTrashSettings(
 	// clamp 到合理范围（保存边界是权威边界）
 	const clamped: TrashSettings = {
 		autoArchiveEnabled: trash.autoArchiveEnabled,
-		autoArchiveDays: Math.max(1, Math.min(365, Math.floor(trash.autoArchiveDays))),
+		autoArchiveDays: Math.max(
+			1,
+			Math.min(365, Math.floor(trash.autoArchiveDays)),
+		),
 		autoPurgeEnabled: trash.autoPurgeEnabled,
 		autoPurgeDays: Math.max(1, Math.min(365, Math.floor(trash.autoPurgeDays))),
 	};
@@ -164,13 +172,8 @@ export async function saveHttpIdleTimeoutMs(
 	timeoutMs: number,
 	file: string = SETTINGS_FILE,
 ): Promise<number> {
-	if (
-		!Number.isInteger(timeoutMs) ||
-		timeoutMs < HTTP_IDLE_TIMEOUT_MIN_MS
-	) {
-		throw new Error(
-			`HTTP 空闲超时需为 ≥${HTTP_IDLE_TIMEOUT_MIN_MS}ms 的整数`,
-		);
+	if (!Number.isInteger(timeoutMs) || timeoutMs < HTTP_IDLE_TIMEOUT_MIN_MS) {
+		throw new Error(`HTTP 空闲超时需为 ≥${HTTP_IDLE_TIMEOUT_MIN_MS}ms 的整数`);
 	}
 	const settings = await readSettingsJson(file);
 	settings.httpIdleTimeoutMs = timeoutMs;
@@ -212,9 +215,7 @@ export async function loadProxySettings(
 				? raw.useSystemProxy
 				: PROXY_DEFAULTS.useSystemProxy,
 		httpProxy:
-			typeof raw.httpProxy === "string"
-				? raw.httpProxy
-				: PROXY_DEFAULTS.httpProxy,
+			typeof raw.httpProxy === "string" ? raw.httpProxy : PROXY_DEFAULTS.httpProxy,
 	};
 }
 
@@ -236,19 +237,45 @@ export async function saveProxySettings(
 }
 
 /**
- * 应用系统代理到进程环境变量（HTTP_PROXY/HTTPS_PROXY）。
- * 开启且有代理 → 设置；关闭，或开启但读不到代理（DIRECT）→ 清空恢复直连。
- * Bun 的 fetch 与 pi 子进程（继承 env）的 undici EnvHttpProxyAgent 都会读这两个变量。
+ * 读系统代理地址（跨平台，网页端可用——不依赖 Electron）。
+ * 用 os-proxy-config：Windows 读注册表 / macOS 读 scutil / Linux 读 *_PROXY 环境变量。
+ * 只支持 http/https 代理（SOCKS/PAC 的 proxyUrl 不适合直接塞 HTTP_PROXY，暂视为直连）。
+ * 读不到返回空串（表示直连）。
+ */
+export async function readSystemProxy(): Promise<string> {
+	const env = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
+	if (env) return env;
+	try {
+		const proxy = await getSystemProxy();
+		const url = proxy?.proxyUrl ?? "";
+		return url.startsWith("http://") || url.startsWith("https://") ? url : "";
+	} catch {
+		return "";
+	}
+}
+
+/**
+ * 应用系统代理到进程环境变量（同时设置大小写，覆盖 undici/Bun fetch 与 curl/wget）。
+ * 开启时优先用保存的 httpProxy；为空则从系统（readProxy）兜底读当前系统代理。
+ * 关闭，或开启但读不到代理 → 清空恢复直连。
+ * Bun 的 fetch 与 pi 子进程（继承 env）的 undici EnvHttpProxyAgent 读大写；
+ * curl/wget 读小写 http_proxy/https_proxy。
  */
 export async function applySystemProxy(
 	file: string = SETTINGS_FILE,
+	readProxy: () => string | Promise<string> = readSystemProxy,
 ): Promise<void> {
 	const { useSystemProxy, httpProxy } = await loadProxySettings(file);
-	if (useSystemProxy && httpProxy) {
-		process.env.HTTP_PROXY = httpProxy;
-		process.env.HTTPS_PROXY = httpProxy;
+	const effective = useSystemProxy ? httpProxy || (await readProxy()) : "";
+	if (effective) {
+		process.env.HTTP_PROXY = effective;
+		process.env.HTTPS_PROXY = effective;
+		process.env.http_proxy = effective;
+		process.env.https_proxy = effective;
 	} else {
 		delete process.env.HTTP_PROXY;
 		delete process.env.HTTPS_PROXY;
+		delete process.env.http_proxy;
+		delete process.env.https_proxy;
 	}
 }

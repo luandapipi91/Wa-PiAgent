@@ -695,6 +695,9 @@ const en = {
 				httpTimeoutHint:
 					"Timeout for a single model request with no response (on disconnect, fetch waits this long before triggering auto retry). Default 120s; too short may misfire on network jitter, too long feels stuck when offline.",
 			},
+			proxy: {
+				label: "Use system proxy",
+			},
 			language: {
 				label: "Language",
 				desc:

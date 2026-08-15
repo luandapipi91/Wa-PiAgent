@@ -459,9 +459,7 @@ app.whenReady().then(async () => {
 			setProgress(-1, "未找到可用端口，请检查网络或重启电脑后再试。");
 			return;
 		}
-		log.info(
-			`[port-switch] 端口 ${FIXED_PORT} 被占用，换端口启动 → ${newPort}`,
-		);
+		log.info(`[port-switch] 端口 ${FIXED_PORT} 被占用，换端口启动 → ${newPort}`);
 		// 持久化记住新端口：后续启动直接用新端口，不再反复冲突。
 		// 三重保险传端口：持久化配置文件 > 命令行参数 > env。
 		// Windows packaged 应用 app.relaunch 的 args/env 都可能丢失（Electron #33686），
@@ -491,22 +489,6 @@ app.whenReady().then(async () => {
 	ipcMain.handle("app:set-login-item", (_e, enabled) => {
 		app.setLoginItemSettings({ openAtLogin: enabled });
 		return app.getLoginItemSettings().openAtLogin;
-	});
-
-	// 读系统代理：session.resolveProxy 返回 "DIRECT" 或 "PROXY host:port" / "SOCKS5 host:port"。
-	// 无代理/读失败 → 返回空串（前端按「直连」处理，静默降级）。
-	ipcMain.handle("app:resolve-system-proxy", async () => {
-		try {
-			const result = await session.defaultSession.resolveProxy(
-				"https://example.com",
-			);
-			const m = result.match(/(?:PROXY|HTTPS|SOCKS5?)\s+([^\s;]+)/);
-			if (!m) return "";
-			const host = m[1];
-			return host.startsWith("http") ? host : `http://${host}`;
-		} catch {
-			return "";
-		}
 	});
 
 	// 托盘 + 菜单
@@ -697,8 +679,7 @@ app.whenReady().then(async () => {
 				// 追加 binDir 和 nodeDir（下载的 node 自带 npm/npx 需要 PATH）
 				const extraPaths = [binDir];
 				if (nodeDir) extraPaths.push(nodeDir);
-				process.env.PATH =
-					(process.env.PATH || "") + sep + extraPaths.join(sep);
+				process.env.PATH = (process.env.PATH || "") + sep + extraPaths.join(sep);
 				log.info(`[runtime-bin] PATH 追加 ${extraPaths.join(sep)}`);
 			}
 		} catch (e) {

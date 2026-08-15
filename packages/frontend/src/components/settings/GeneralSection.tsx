@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "../../i18n/useTranslation";
 import { api } from "../../api-client";
-import type { RetrySettings, TrashSettings } from "@wa-pi/shared";
+import type {
+	RetrySettings,
+	TrashSettings,
+	ProxySettings,
+} from "@wa-pi/shared";
 import {
 	EXPORT_TURNS_MAX,
 	EXPORT_TURNS_MIN,
@@ -85,6 +89,8 @@ export function GeneralSection() {
 	const [maxRetries, setMaxRetries] = useState("3");
 	const [delaySeconds, setDelaySeconds] = useState("2");
 	const [httpTimeoutSeconds, setHttpTimeoutSeconds] = useState("120");
+	const [useSystemProxy, setUseSystemProxy] = useState(false);
+	const [httpProxy, setHttpProxy] = useState("");
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -125,9 +131,7 @@ export function GeneralSection() {
 					setMaxRetries(String(retry.maxRetries));
 					setDelaySeconds(String(retry.baseDelayMs / 1000));
 				}
-				const httpIdleMs = (res as any)?.httpIdleTimeoutMs as
-					| number
-					| undefined;
+				const httpIdleMs = (res as any)?.httpIdleTimeoutMs as number | undefined;
 				if (typeof httpIdleMs === "number") {
 					setHttpTimeoutSeconds(String(Math.round(httpIdleMs / 1000)));
 				}
@@ -146,6 +150,19 @@ export function GeneralSection() {
 					setArchiveDays(String(trash.autoArchiveDays));
 					setAutoPurge(trash.autoPurgeEnabled);
 					setPurgeDays(String(trash.autoPurgeDays));
+				}
+			})
+			.catch(() => {});
+	}, []);
+	// 系统代理设置单独加载（GET /api/settings/proxy），失败静默、沿用默认值
+	useEffect(() => {
+		api
+			.get("/api/settings/proxy")
+			.then((res) => {
+				const proxy = (res as { proxy?: ProxySettings })?.proxy;
+				if (proxy) {
+					setUseSystemProxy(proxy.useSystemProxy);
+					setHttpProxy(proxy.httpProxy);
 				}
 			})
 			.catch(() => {});
@@ -179,6 +196,10 @@ export function GeneralSection() {
 				httpIdleTimeoutMs: httpIdleMs,
 			});
 			await saveTrashSettings();
+			// 系统代理：httpProxy 由 kernel 读系统代理兑底（网页端无 Electron IPC）
+			await api.put("/api/settings/proxy", {
+				proxy: { useSystemProxy, httpProxy: "" },
+			});
 			// 导出轮数草稿生效（仅当与当前值不同时才写入）
 			if (draftExportTurns !== exportTurns) setExportTurns(draftExportTurns);
 			// 图片导出范围草稿生效（仅当与当前值不同时才写入）
@@ -199,9 +220,7 @@ export function GeneralSection() {
 	};
 
 	if (loading) {
-		return (
-			<div className="p-4 text-sm text-tertiary">{t("common.loading")}</div>
-		);
+		return <div className="p-4 text-sm text-tertiary">{t("common.loading")}</div>;
 	}
 
 	return (
@@ -274,6 +293,20 @@ export function GeneralSection() {
 			<span className="text-xs text-tertiary -mt-1">
 				{t("settings.general.retry.httpTimeoutHint")}
 			</span>
+			{/* 系统代理：草稿态，点保存才生效 */}
+			<div className="flex items-center justify-between">
+				<span className="text-sm text-primary" style={{ marginRight: 15 }}>
+					{t("settings.general.proxy.label")}
+				</span>
+				<SoundSwitch
+					on={useSystemProxy}
+					onToggle={() => {
+						setUseSystemProxy(!useSystemProxy);
+						setSaved(false);
+					}}
+					testId="use-system-proxy-toggle"
+				/>
+			</div>
 			<div className="border-t border-hairline" />
 			{/* 提示音：即时生效，不参与上面的草稿 + 保存流程 */}
 			<div className="flex flex-col gap-1">
@@ -376,9 +409,7 @@ export function GeneralSection() {
 						testId="trash-auto-purge-toggle"
 					/>
 				</div>
-				<div
-					className={`flex items-center gap-2 ${autoPurge ? "" : "opacity-40"}`}
-				>
+				<div className={`flex items-center gap-2 ${autoPurge ? "" : "opacity-40"}`}>
 					<input
 						type="number"
 						min={1}
@@ -455,9 +486,7 @@ export function GeneralSection() {
 								setSaved(false);
 							}}
 							data-testid={`export-include-user-${opt.value ? "both" : "agent-only"}`}
-							data-active={
-								draftExportIncludeUser === opt.value ? "true" : "false"
-							}
+							data-active={draftExportIncludeUser === opt.value ? "true" : "false"}
 							className="px-3 py-1.5 rounded-sm text-sm transition-all"
 							style={
 								draftExportIncludeUser === opt.value
