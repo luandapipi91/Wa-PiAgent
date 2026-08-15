@@ -17,6 +17,31 @@ import { dirname, join } from "node:path";
 import { existsSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 
+/**
+ * Bun 的 process.env 对代理变量（HTTP_PROXY/HTTPS_PROXY/NO_PROXY 等）有特殊处理：
+ * 直接读 process.env.HTTP_PROXY 能拿到值，但这些变量是 getter/setter，不在
+ * Object.keys(process.env) 里，导致 { ...process.env } 展开时丢失。
+ * spawn 子进程时若用展开构造 env，代理变量就传不过去 → pi 子进程拿不到代理、
+ * LLM 请求直连超时。故此处显式读取代理变量，补进 spawn 的 env。
+ */
+export function collectProxyEnv(): Record<string, string> {
+	const out: Record<string, string> = {};
+	for (const key of [
+		"HTTP_PROXY",
+		"HTTPS_PROXY",
+		"NO_PROXY",
+		"http_proxy",
+		"https_proxy",
+		"no_proxy",
+		"ALL_PROXY",
+		"all_proxy",
+	]) {
+		const v = process.env[key];
+		if (v !== undefined) out[key] = v;
+	}
+	return out;
+}
+
 export interface RpcEvent {
 	type: string;
 	[k: string]: any;
@@ -113,7 +138,11 @@ export class RpcClient {
 					stderr: "pipe",
 					windowsHide: true,
 				}));
-		const env = { ...process.env, ...this.opts.env } as Record<string, string>;
+		const env = {
+			...process.env,
+			...this.opts.env,
+			...collectProxyEnv(),
+		} as Record<string, string>;
 		let proc: Subprocess;
 		try {
 			proc = spawnFn(
@@ -426,7 +455,7 @@ export class RpcClient {
 	private dispatch(msg: any): void {
 		if (msg?.type === "response") {
 			const id = msg.id;
-			const p = id != null ? this.pending.get(id) : undefined;
+			const p = id == null ? undefined : this.pending.get(id);
 			if (p) {
 				clearTimeout(p.timer);
 				this.pending.delete(id);

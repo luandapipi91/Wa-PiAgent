@@ -14,7 +14,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [start] bun ready, starting wa-pi...
+echo [start] bun ready, installing dependencies...
+call bun install
+if errorlevel 1 (
+  echo [start] dependency install failed, please retry
+  pause
+  exit /b 1
+)
+
+echo [start] starting wa-pi (kernel auto-recompiles latest source on every start)...
 echo [start] browser will open http://localhost:5180
 echo [start] press R to reload frontend and backend code, press Ctrl+C to stop
 echo.

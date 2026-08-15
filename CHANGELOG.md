@@ -2,6 +2,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(kernel): 修复 pi 子进程拿不到系统代理（Bun process.env 展开丢失代理变量）
+
+- **根因**：Bun 的 `process.env` 对代理变量（`HTTP_PROXY`/`HTTPS_PROXY` 等）是 getter/setter，不在 `Object.keys(process.env)` 里，导致 `rpc-client` spawn pi 子进程时用 `{ ...process.env }` 展开丢掉了代理变量 → pi 引擎 `EnvHttpProxyAgent` 读不到 `HTTP_PROXY` → LLM 请求直连超时（被墙时）。
+- **修复**：`rpc-client.ts` 新增 `collectProxyEnv()`，显式从 `process.env` 读取 8 个代理变量（大小写各 4 个）补进 spawn 的 `env`。
+- **测试**：`tests/rpc-client.test.ts` 新增 3 用例（显式收集/未设置/大小写）；agent-manager/bridge/idle-reap 125 用例全过；typecheck 通过。
+- 影响范围：`packages/kernel/src/rpc-client.ts`、`packages/kernel/tests/rpc-client.test.ts`。
+
 ## 2026-08-15 — feat(settings): 新增「使用系统代理」开关，全软件请求统一走系统代理
 
 - 系统设置 > 通用 > 请求超时下新增「使用系统代理」开关：开启后 kernel 用 `os-proxy-config` 跨平台读系统代理（Windows 注册表 / macOS scutil / Linux 环境变量），设置大小写 `HTTP_PROXY/HTTPS_PROXY` 环境变量；关闭则清空恢复直连；读不到代理（DIRECT）静默直连。
