@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(frontend): IM 会话顶部铅笔无联系人记录时也回填原始标识
+
+- 上一条 fix 仅在联系人已存在时回填 userId/chatId，首次对话（无联系人记录）时仍回填空。改为无联系人时也从 imConv 兑底回填（person=fromUserId / group=chatId 前 8），与顶部显示的技术标题一致。
+- 测试：新增 2 用例（无联系人单聊回填 fromUserId / 群聊回填 chatId 前 8）；「清空输入后失焦不创建联系人」用例同步调整。
+- 影响范围：`packages/frontend/src/components/ImSessionTitle.tsx`、`__tests__/ImSessionTitle.test.tsx`。
+
 ## 2026-08-15 — fix(frontend): 项目列表展开时消除项目名与会话动画不一致导致的短暂重叠
 
 - 会话列表原叠加 opacity 淡入（initial/animate/exit），展开时半透明会话项与实色项目名叠透，配合下方项目瞬时跳位，产生短暂重叠。改为与「最近」视图一致：会话项只保留 layout FLIP 位移动画，去掉 opacity 淡入淡出。
