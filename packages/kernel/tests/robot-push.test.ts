@@ -4,21 +4,122 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	parseChannelMentions,
+	parseContactMentions,
 	createRobotPushTool,
+	buildSchedulerPrompt,
+	parseImPushMentions,
+	createImPushTool,
 	type RobotPushToolDeps,
 } from "../src/tools/robot-push";
 import { ChannelManager } from "../src/channel-manager";
 import { MockAdapter } from "../src/channels/mock-adapter";
 import type { ChannelConfig } from "@wa-pi/shared";
 
-// ===== parseChannelMentions（纯函数）=====
+// ===== parseImPushMentions（@im-push-to 函数式标记，重构后唯一格式）=====
+
+describe("parseImPushMentions", () => {
+	test("提取单个标记的联系人 id", () => {
+		expect(
+			parseImPushMentions("推送结果给 @im-push-to(bot_aaa,ct_p01) 谢谢"),
+		).toEqual(["ct_p01"]);
+	});
+
+	test("多个标记去重", () => {
+		const prompt =
+			"@im-push-to(bot_aaa,ct_p01) 和 @im-push-to(bot_bbb,ct_p02) 再推 @im-push-to(bot_aaa,ct_p01)";
+		expect(parseImPushMentions(prompt)).toEqual(["ct_p01", "ct_p02"]);
+	});
+
+	test("无标记返回空数组", () => {
+		expect(parseImPushMentions("普通指令没有标记")).toEqual([]);
+	});
+
+	test("旧 @ct_xxx / @bot_xxx 裸格式不再被识别（已废弃）", () => {
+		expect(parseImPushMentions("推送 @ct_p01 @bot_aaa")).toEqual([]);
+	});
+
+	test("标记格式残缺不匹配（缺括号/缺 bot 段）", () => {
+		expect(
+			parseImPushMentions("@im-push-to(bot_aaa) 和 @im-push-to ct_p01"),
+		).toEqual([]);
+	});
+
+	test("带连字符的 id 正常提取", () => {
+		expect(parseImPushMentions("@im-push-to(bot_wecom-2,ct_li-4-5)")).toEqual([
+			"ct_li-4-5",
+		]);
+	});
+});
+
+// ===== createImPushTool（联系人推送工具，任务 2 接入链路后替换 robot_push）=====
+
+describe("createImPushTool：工具定义", () => {
+	test("名称为 im_push_to，enum 为联系人 id 列表，参数名 contact", () => {
+		const tool = createImPushTool({
+			channelManager: { pushToContact: mock(async () => {}) } as any,
+			contactIds: ["ct_p01", "ct_p02"],
+			onPushResult: mock(),
+		});
+		expect(tool.name).toBe("im_push_to");
+		expect(
+			(tool.inputSchema as any).properties.contact.enum,
+		).toEqual(["ct_p01", "ct_p02"]);
+		expect((tool.inputSchema as any).required).toEqual(["contact", "message"]);
+		expect(tool.description).toContain("ct_p01");
+		expect(tool.description).toContain("@im-push-to");
+	});
+});
+
+describe("createImPushTool：execute", () => {
+	test("成功推送：走 pushToContact 且回调成功结果", async () => {
+		const pushToContact = mock(async () => {});
+		const onPushResult = mock();
+		const tool = createImPushTool({
+			channelManager: { pushToContact } as any,
+			contactIds: ["ct_p01"],
+			onPushResult,
+		});
+		const ret = await tool.execute({ contact: "ct_p01", message: "hi" });
+		expect(ret).toContain("已成功推送给 ct_p01");
+		expect(pushToContact).toHaveBeenCalledWith("ct_p01", "hi");
+		expect(onPushResult).toHaveBeenCalledWith({
+			targetId: "ct_p01",
+			success: true,
+		});
+	});
+
+	test("目标不在列表：拒绝且不推送", async () => {
+		const pushToContact = mock(async () => {});
+		const tool = createImPushTool({
+			channelManager: { pushToContact } as any,
+			contactIds: ["ct_p01"],
+			onPushResult: mock(),
+		});
+		const ret = await tool.execute({ contact: "ct_其他", message: "hi" });
+		expect(ret).toContain("不在可用列表中");
+		expect(pushToContact).not.toHaveBeenCalled();
+	});
+
+	test("pushToContact 抛错：返回失败文本并回填失败结果", async () => {
+		const tool = createImPushTool({
+			channelManager: {
+				pushToContact: mock(async () => {
+					throw new Error("未连接");
+			}),
+			} as any,
+			contactIds: ["ct_p01"],
+		onPushResult: mock(),
+		});
+		const ret = await tool.execute({ contact: "ct_p01", message: "hi" });
+		expect(ret).toContain("推送失败：未连接");
+	});
+});
 
 describe("parseChannelMentions", () => {
 	test("提取单个 @bot_xxx", () => {
 		const prompt = "请把结果通过 @bot_abc123 推送给我";
 		expect(parseChannelMentions(prompt)).toEqual(["bot_abc123"]);
 	});
-
 	test("提取多个 @bot_xxx", () => {
 		const prompt = "通过 @bot_aaa 推送日报，@bot_bbb 推送周报";
 		expect(parseChannelMentions(prompt)).toEqual(["bot_aaa", "bot_bbb"]);
@@ -47,6 +148,26 @@ describe("parseChannelMentions", () => {
 	test("不匹配纯 @ 开头非 bot_ 前缀", () => {
 		const prompt = "@username 你好，@bot_real 来一下";
 		expect(parseChannelMentions(prompt)).toEqual(["bot_real"]);
+	});
+});
+
+// ===== parseContactMentions（联系人 @ct_xxx 解析）=====
+
+describe("parseContactMentions", () => {
+	test("提取单个 @ct_xxx", () => {
+		const prompt = "请把结果推送给 @ct_person01";
+		expect(parseContactMentions(prompt)).toEqual(["ct_person01"]);
+	});
+
+	test("提取多个并去重，混合 @bot_ 不影响", () => {
+		const prompt =
+			"@ct_aaa 日报，@ct_bbb 周报，再 @ct_aaa 月报，渠道 @bot_x 备用";
+		expect(parseContactMentions(prompt)).toEqual(["ct_aaa", "ct_bbb"]);
+	});
+
+	test("无 @ct_ 返回空数组；不误匹配邮箱", () => {
+		expect(parseContactMentions("请整理文件")).toEqual([]);
+		expect(parseContactMentions("发邮件 user@example.com")).toEqual([]);
 	});
 });
 
@@ -81,10 +202,7 @@ describe("createRobotPushTool: 工具定义", () => {
 			onPushResult: () => {},
 		};
 		const tool = createRobotPushTool(deps);
-		expect(tool.inputSchema.properties.channel.enum).toEqual([
-			"bot_x",
-			"bot_y",
-		]);
+		expect(tool.inputSchema.properties.channel.enum).toEqual(["bot_x", "bot_y"]);
 		expect(tool.inputSchema.required).toEqual(["channel", "message"]);
 	});
 
@@ -102,8 +220,7 @@ describe("createRobotPushTool: 工具定义", () => {
 describe("createRobotPushTool: execute", () => {
 	test("推送成功 → 调用 channelManager.pushToChannel + onPushResult(success)", async () => {
 		const pushToChannel = mock(async (_ch: string, _msg: string) => {});
-		const results: { channelId: string; success: boolean; error?: string }[] =
-			[];
+		const results: { channelId: string; success: boolean; error?: string }[] = [];
 		const deps: RobotPushToolDeps = {
 			channelManager: { pushToChannel } as any,
 			availableChannelIds: ["bot_aaa"],
@@ -116,6 +233,40 @@ describe("createRobotPushTool: execute", () => {
 		expect(ret).toContain("已成功推送");
 		expect(ret).toContain("bot_aaa");
 		expect(results).toEqual([{ channelId: "bot_aaa", success: true }]);
+	});
+
+	test("ct_ 联系人目标 → 调用 pushToContact（非 pushToChannel）", async () => {
+		const pushToChannel = mock(async (_ch: string, _msg: string) => {});
+		const pushToContact = mock(async (_cid: string, _msg: string) => {});
+		const deps: RobotPushToolDeps = {
+			channelManager: { pushToChannel, pushToContact } as any,
+			availableChannelIds: ["bot_aaa"],
+			availableContactIds: ["ct_p01"],
+			onPushResult: () => {},
+		};
+		const tool = createRobotPushTool(deps);
+		const ret = await tool.execute({
+			channel: "ct_p01",
+			message: "定时日报",
+		});
+		expect(pushToContact).toHaveBeenCalledTimes(1);
+		expect(pushToContact.mock.calls[0]).toEqual(["ct_p01", "定时日报"]);
+		expect(pushToChannel).not.toHaveBeenCalled();
+		expect(ret).toContain("已成功推送到 ct_p01");
+	});
+
+	test("联系人目标不在可用列表 → 返回错误不推送", async () => {
+		const pushToContact = mock(async () => {});
+		const deps: RobotPushToolDeps = {
+			channelManager: { pushToContact } as any,
+			availableChannelIds: [],
+			availableContactIds: ["ct_p01"],
+			onPushResult: () => {},
+		};
+		const tool = createRobotPushTool(deps);
+		const ret = await tool.execute({ channel: "ct_unknown", message: "x" });
+		expect(pushToContact).not.toHaveBeenCalled();
+		expect(ret).toContain("不在可用列表");
 	});
 
 	test("渠道不在可用列表 → 不推送，返回错误", async () => {
@@ -135,8 +286,7 @@ describe("createRobotPushTool: execute", () => {
 	});
 
 	test("pushToChannel 抛错 → onPushResult(failure) + 返回错误信息", async () => {
-		const results: { channelId: string; success: boolean; error?: string }[] =
-			[];
+		const results: { channelId: string; success: boolean; error?: string }[] = [];
 		const deps: RobotPushToolDeps = {
 			channelManager: makeMockChannelManager(async () => {
 				throw new Error("渠道未连接");
@@ -304,9 +454,7 @@ describe("robot_push 会话注入", () => {
 			},
 		});
 		expect(fakes).toHaveLength(1);
-		expect(fakes[0].opts.env?.WA_PI_ROBOT_PUSH_CHANNELS).toBe(
-			"bot_aaa,bot_bbb",
-		);
+		expect(fakes[0].opts.env?.WA_PI_ROBOT_PUSH_CHANNELS).toBe("bot_aaa,bot_bbb");
 		// 未显式配置 tools：不传 --tools（排除式放行，扩展注册的 robot_push 可用）
 		expect(fakes[0].opts.args ?? []).not.toContain("--tools");
 	});
@@ -391,3 +539,36 @@ import { rmSync } from "node:fs";
 function rmSyncStub(f: string) {
 	rmSync(f, { force: true });
 }
+
+// ===== buildSchedulerPrompt（executeTask 发送给 agent 的 prompt 构造）=====
+
+describe("buildSchedulerPrompt", () => {
+	test("无渠道无联系人 → 原样返回（不追加系统提示）", () => {
+		expect(buildSchedulerPrompt("请整理文件", [], [])).toBe("请整理文件");
+	});
+
+	test("有 @bot_xxx 渠道 → 追加渠道推送系统提示", () => {
+		const out = buildSchedulerPrompt("推送 @bot_aaa", ["bot_aaa"], []);
+		expect(out).toContain("@bot_aaa");
+		expect(out).toContain("系统提示");
+		expect(out).toContain("@bot_xxx");
+	});
+
+	test("有 @ct_xxx 联系人 → 追加联系人推送系统提示（旧文案只提 @bot_ 导致 LLM 不识别）", () => {
+		const out = buildSchedulerPrompt("@ct_p01 说hi", [], ["ct_p01"]);
+		expect(out).toContain("@ct_p01");
+		expect(out).toContain("系统提示");
+		expect(out).toContain("@ct_xxx"); // 必须让 LLM 知道 @ct_ 是联系人推送目标
+		expect(out).toContain("联系人");
+	});
+
+	test("渠道+联系人混合 → 提示同时覆盖两种标记", () => {
+		const out = buildSchedulerPrompt(
+			"@bot_aaa 日报 @ct_p01 也发一份",
+			["bot_aaa"],
+			["ct_p01"],
+		);
+		expect(out).toContain("@bot_xxx");
+		expect(out).toContain("@ct_xxx");
+	});
+});
