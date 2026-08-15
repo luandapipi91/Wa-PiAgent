@@ -118,7 +118,11 @@ test("群聊无联系人：点铅笔回填 chatId 前 8 位", () => {
 	render(
 		<ImSessionTitle
 			sessionTitle="IM · 群g1234567 · bob"
-			imConv={imConv({ chatType: "group", chatId: "g12345678", fromUserId: "bob" })}
+			imConv={imConv({
+				chatType: "group",
+				chatId: "g12345678",
+				fromUserId: "bob",
+			})}
 		/>,
 	);
 	fireEvent.click(screen.getByTestId("im-session-title-edit"));
@@ -129,6 +133,15 @@ test("群聊无联系人：点铅笔回填 chatId 前 8 位", () => {
 
 test("联系人存在但无备注：点铅笔回填联系人标识（userId）", () => {
 	state.contacts = [contact({})]; // person，无 remark
+	render(<ImSessionTitle sessionTitle="IM · u1" imConv={imConv()} />);
+	fireEvent.click(screen.getByTestId("im-session-title-edit"));
+	expect(
+		(screen.getByTestId("im-session-title-input") as HTMLInputElement).value,
+	).toBe("u1");
+});
+
+test("联系人 userId 为空（异常数据）：兑底回填 chatId（与 title 同源）", () => {
+	state.contacts = [contact({ userId: undefined })]; // person，userId 空
 	render(<ImSessionTitle sessionTitle="IM · u1" imConv={imConv()} />);
 	fireEvent.click(screen.getByTestId("im-session-title-edit"));
 	expect(
