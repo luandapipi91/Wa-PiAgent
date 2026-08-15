@@ -108,6 +108,7 @@ export class ProjectStore {
 		id?: string;
 		createdAt?: number; // 默认工作区用：让 mkdir 用的 ts 与 session.createdAt 严格一致
 		placeholder?: boolean; // getCommands 预热兜底用：标记为占位记录，loadActive 过滤
+		source?: "im" | "scheduler"; // 会话来源：scheduler 不进侧栏（loadActive 过滤）
 	}): Promise<SessionEntity> {
 		const data = await this.load();
 		const id = input.id ?? randomUUID();
@@ -125,6 +126,7 @@ export class ProjectStore {
 			lastActivity: now,
 			piSessionFile: `${WA_PI_DIR}/sessions/${id}.jsonl`,
 			...(input.placeholder ? { placeholder: true } : {}),
+			...(input.source ? { source: input.source } : {}),
 		};
 		data.sessions.push(session);
 		await this.save(data);
@@ -183,7 +185,14 @@ export class ProjectStore {
 		return {
 			projects: data.projects,
 			// 过滤软删除 + 预热占位记录（getCommands 兜底创建、尚无消息的会话）
-			sessions: data.sessions.filter((s) => !s.deletedAt && !s.placeholder),
+			// + 定时任务执行会话（独立于侧栏，只在执行记录里查看；存量数据靠 sched- 前缀兑底）
+			sessions: data.sessions.filter(
+				(s) =>
+					!s.deletedAt &&
+					!s.placeholder &&
+					s.source !== "scheduler" &&
+					!s.id.startsWith("sched-"),
+			),
 		};
 	}
 

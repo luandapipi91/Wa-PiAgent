@@ -50,7 +50,10 @@ export function buildRecentSessions(
 	const tsOf = (s: SessionEntity) => s.lastActivity || s.createdAt || 0;
 
 	return sessions
-		.filter((s) => !s.deletedAt && !s.id.startsWith("im-"))
+		.filter(
+			(s) =>
+				!s.deletedAt && !s.id.startsWith("im-") && !s.id.startsWith("sched-"),
+		)
 		.sort((a, b) => tsOf(b) - tsOf(a))
 		.slice(0, MAX_RECENT_SESSIONS)
 		.map((s) => ({

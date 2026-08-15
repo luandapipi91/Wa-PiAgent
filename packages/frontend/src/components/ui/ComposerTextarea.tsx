@@ -8,6 +8,10 @@ interface Props {
   disabled?: boolean;
   onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
   onPaste: (e: React.ClipboardEvent<HTMLDivElement>) => void;
+  /** 自定义 token→HTML 渲染（默认聊天 tokens 的 textToHtml；自动化编辑器传联系人 chip 版） */
+  toHtml?: (text: string) => string;
+  /** 透传 data-testid（自动化编辑器 e2e 定位用） */
+  testId?: string;
 }
 
 /**
@@ -64,10 +68,11 @@ function extractText(el: HTMLElement): string {
  * 采用半受控模式：text 作为目标值，仅在 DOM 与 text 不一致时同步 DOM。
  */
 export function ComposerTextarea({
-  text, onTextChange, placeholder, disabled, onKeyDown, onPaste,
+  text, onTextChange, placeholder, disabled, onKeyDown, onPaste, toHtml, testId,
 }: Props) {
   ensureChipStyles();
   const elRef = useRef<HTMLDivElement>(null);
+  const render = toHtml ?? textToHtml;
 
   // 半受控同步：仅在 text 与 DOM 当前内容不一致时更新 DOM（如外部清空 / chip 插入）
   useEffect(() => {
@@ -75,7 +80,7 @@ export function ComposerTextarea({
     if (!el) return;
     const currentText = extractText(el);
     if (currentText !== text) {
-      el.innerHTML = textToHtml(text);
+      el.innerHTML = render(text);
       // innerHTML 替换后浏览器会把光标重置到开头；移到末尾符合"插入后继续输入"的预期
       // （仅在外部 setText 触发的同步路径，handleInput 路径不会进这里因为 currentText === text）
       const range = document.createRange();
@@ -86,7 +91,7 @@ export function ComposerTextarea({
       sel?.addRange(range);
       el.focus();
     }
-  }, [text]);
+  }, [text, render]);
 
   const handleInput = useCallback(() => {
     const el = elRef.current;
@@ -103,6 +108,7 @@ export function ComposerTextarea({
       onInput={handleInput}
       onKeyDown={onKeyDown}
       onPaste={onPaste}
+      data-testid={testId}
       data-placeholder={placeholder}
       className="w-full bg-transparent text-primary outline-none resize-none text-sm px-4 py-4 placeholder:text-tertiary overflow-y-auto"
       style={{ maxHeight: 300, minHeight: 60, whiteSpace: "pre-wrap", wordBreak: "break-word" }}

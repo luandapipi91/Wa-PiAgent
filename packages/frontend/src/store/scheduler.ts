@@ -68,7 +68,12 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 		await api.post(`/api/scheduled-tasks/${id}/run`, {});
 	},
 
-	selectTask: (id) => set({ selectedTaskId: id, view: "detail" }),
+	// 再点同一张卡片取消选中；点不同卡片切换选中
+	selectTask: (id) =>
+		set((s) => ({
+			selectedTaskId: s.selectedTaskId === id ? null : id,
+			view: "detail",
+		})),
 
 	setView: (view) => set({ view }),
 

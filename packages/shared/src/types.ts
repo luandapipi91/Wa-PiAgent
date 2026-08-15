@@ -160,6 +160,10 @@ export interface SessionEntity {
 	 * 尚无用户消息。loadActive（侧栏列表）过滤此类记录；首次发送消息时由
 	 * fillSessionTitleIfEmpty 填标题并清除该标记（转正）。 */
 	placeholder?: boolean;
+	/** 会话来源：手动交互缺省；im=IM 渠道进站；scheduler=定时任务执行
+	 * （独立于侧栏列表，只在执行记录里查看；loadActive 过滤 scheduler，
+	 * 存量数据靠 id sched- 前缀兑底）。 */
+	source?: "im" | "scheduler";
 }
 
 // ===== Pi 原生消息类型（镜像 @mariozechner/pi-ai，避免运行时依赖）=====
@@ -1415,7 +1419,7 @@ export interface ScheduledTask {
 	name: string;
 	schedule: TaskSchedule;
 	agentId: string; // 执行角色（已有智能体 ID）
-	prompt: string; // 任务指令（含 $skill 和 @bot_xxx 标记）
+	prompt: string; // 任务指令（含 $[技能名] 技能标记与 @im-push-to(bot,联系人) 推送标记）
 	projectId?: string; // 工作目录（项目 ID）
 	enabled: boolean;
 	createdAt: number;
@@ -1427,10 +1431,10 @@ export interface ScheduledTask {
 /** 执行状态 */
 export type ExecutionStatus = "running" | "success" | "failed";
 
-/** 渠道推送结果 */
+/** 定时任务推送结果（目标为 IM 联系人） */
 export interface PushResult {
-	channelId: string;
-	channelName: string;
+	targetId: string;
+	targetName: string;
 	success: boolean;
 	error?: string;
 }

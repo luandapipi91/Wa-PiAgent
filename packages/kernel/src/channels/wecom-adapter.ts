@@ -1,14 +1,6 @@
-import {
-	generateReqId,
-	WSClient,
-	type WsFrame,
-} from "@wecom/aibot-node-sdk";
+import { generateReqId, WSClient, type WsFrame } from "@wecom/aibot-node-sdk";
 import type { ChannelConfig, ChannelStatus } from "@wa-pi/shared";
-import type {
-	ChannelAdapter,
-	ChannelImageRef,
-	InboundMessage,
-} from "./types";
+import type { ChannelAdapter, ChannelImageRef, InboundMessage } from "./types";
 
 /** 企微帧的 body 形状子集（仅 normalizeInbound 关心的字段，宽松以兼容 SDK 各 msgtype） */
 interface WecomFrameBody {
@@ -28,7 +20,8 @@ interface WecomFrameBody {
  */
 export function normalizeInbound(frame: WsFrame): InboundMessage | null {
 	const body = (frame.body ?? {}) as WecomFrameBody;
-	const chatType: "single" | "group" = body.chattype === "group" ? "group" : "single";
+	const chatType: "single" | "group" =
+		body.chattype === "group" ? "group" : "single";
 	const chatId = chatType === "group" ? body.chatid : body.from?.userid;
 	if (!chatId) return null;
 	const base = {
@@ -92,7 +85,9 @@ export class WecomAdapter implements ChannelAdapter {
 		this.client.on("event.disconnected_event", () =>
 			this.statusCb?.("error", "连接被顶替：同一 Bot ID 已在别处连接"),
 		);
-		this.client.on("error", (err: Error) => this.statusCb?.("error", err.message));
+		this.client.on("error", (err: Error) =>
+			this.statusCb?.("error", err.message),
+		);
 		this.client.connect();
 	}
 
@@ -111,10 +106,24 @@ export class WecomAdapter implements ChannelAdapter {
 		);
 	}
 
+	/** 主动推送消息到指定会话（定时任务 @联系人 用）：走 SDK 主动发送通道，
+	 *  chatId = 单聊 userid 或群聊 chatid，无需进站消息 replyFrame。 */
+	async pushMessage(chatId: string, markdown: string): Promise<void> {
+		await this.client.sendMessage(chatId, {
+			msgtype: "markdown",
+			markdown: { content: markdown },
+		});
+	}
+
 	/** 流式增量回复：同 streamId 复用更新同一条消息。
 	 *  用 replyStreamNonBlocking：上一帧 ack 未返回时中间帧自动 skip（返回 'skipped'），
 	 *  避免 token 生成快于企微 ack 时中间帧排队积压。 */
-	async streamReply(replyFrame: unknown, streamId: string, content: string, finish: boolean): Promise<void> {
+	async streamReply(
+		replyFrame: unknown,
+		streamId: string,
+		content: string,
+		finish: boolean,
+	): Promise<void> {
 		await this.client.replyStreamNonBlocking(
 			replyFrame as WsFrame,
 			streamId,

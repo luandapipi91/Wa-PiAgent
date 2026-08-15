@@ -1,0 +1,74 @@
+import { describe, test, expect } from "bun:test";
+import {
+	parseImPushTokens,
+	imPushToken,
+	toPromptHtml,
+	HAS_IM_PUSH_RE,
+} from "../prompt-tokens";
+
+describe("parseImPushTokens", () => {
+	test("解析 bot/ct 两段", () => {
+		expect(
+			parseImPushTokens(
+				"推给 @im-push-to(bot_aaa,ct_p01) 和 @im-push-to(bot_bbb,ct_p02)",
+			),
+		).toEqual([
+			{ botId: "bot_aaa", contactId: "ct_p01" },
+			{ botId: "bot_bbb", contactId: "ct_p02" },
+		]);
+	});
+
+	test("无标记空数组", () => {
+		expect(parseImPushTokens("无标记")).toEqual([]);
+	});
+
+	test("旧 @ct_ 裸格式不匹配（已废弃）", () => {
+		expect(parseImPushTokens("@ct_p01")).toEqual([]);
+	});
+});
+
+describe("imPushToken", () => {
+	test("构造存储形态", () => {
+		expect(imPushToken("bot_aaa", "ct_p01")).toBe(
+			"@im-push-to(bot_aaa,ct_p01)",
+		);
+	});
+});
+
+describe("HAS_IM_PUSH_RE（无 g，可安全 .test）", () => {
+	test("连续调用无 lastIndex 状态污染", () => {
+		expect(HAS_IM_PUSH_RE.test("x @im-push-to(bot_a,ct_b)")).toBe(true);
+		expect(HAS_IM_PUSH_RE.test("x @im-push-to(bot_a,ct_b)")).toBe(true);
+		expect(HAS_IM_PUSH_RE.test("无")).toBe(false);
+	});
+});
+
+describe("toPromptHtml", () => {
+	const meta = (id: string) =>
+		id === "ct_p01" ? { label: "张三", valid: true } : { label: id, valid: false };
+
+	test("联系人标记渲染为 data-token chip，显示联系人名", () => {
+		const html = toPromptHtml("推给 @im-push-to(bot_aaa,ct_p01)", meta);
+		expect(html).toContain('data-token="@im-push-to(bot_aaa,ct_p01)"');
+		expect(html).toContain("张三");
+		expect(html).toContain("chip-im");
+		expect(html).toContain('contenteditable="false"');
+	});
+
+	test("失效联系人灰化：显示 id 且带 invalid 类", () => {
+		const html = toPromptHtml("推给 @im-push-to(bot_aaa,ct_gone)", meta);
+		expect(html).toContain("chip-im-invalid");
+		expect(html).toContain("ct_gone");
+	});
+
+	test("技能 chip 复用聊天渲染：$[名] 变 chip-skill", () => {
+		const html = toPromptHtml("执行 $[日报生成] 任务", meta);
+		expect(html).toContain('data-token="$[日报生成]"');
+		expect(html).toContain("chip-skill");
+	});
+
+	test("普通文本转义", () => {
+		const html = toPromptHtml("a<b>&c", meta);
+		expect(html).toContain("&lt;b&gt;");
+	});
+});

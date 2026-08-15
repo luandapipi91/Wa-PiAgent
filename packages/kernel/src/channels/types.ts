@@ -29,11 +29,20 @@ export interface ChannelAdapter {
 	/** 发送 markdown 文本（被动回复；replyFrame 来自最近一条进站消息）。
 	 *  整轮一次性发送，用于错误回复、非流式渠道、或流式关闭时的兜底。 */
 	sendText(replyFrame: unknown, markdown: string): Promise<void>;
+	/** 主动推送消息到指定会话（定时任务 @联系人 用）：chatId = 单聊 userid 或群聊 chatid，
+	 *  走平台主动发送通道（不需要进站消息的 replyFrame）。
+	 *  适配器不实现此方法 = 不支持主动推送（channel-manager 抛错降级）。 */
+	pushMessage?(chatId: string, markdown: string): Promise<void>;
 	/** 流式增量回复（可选）：同一 streamId 复用可增量更新同一条消息。
 	 *  - 首帧及中间帧 finish=false，content 为截至当前的累计文本
 	 *  - 终帧 finish=true 锁定消息
 	 *  适配器不实现此方法 = 不支持流式（channel-manager 自动降级为 sendText 整轮发送） */
-	streamReply?(replyFrame: unknown, streamId: string, content: string, finish: boolean): Promise<void>;
+	streamReply?(
+		replyFrame: unknown,
+		streamId: string,
+		content: string,
+		finish: boolean,
+	): Promise<void>;
 	onMessage(cb: (msg: InboundMessage) => void): void;
 	onStatus(cb: (status: ChannelStatus, detail?: string) => void): void;
 	/** 下载并解密图片（无图片能力的适配器可不实现） */
