@@ -6,7 +6,7 @@ import {
 	type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import {
 	SYSTEM_PROJECT_ID,
 	type ProjectEntity,
@@ -233,10 +233,7 @@ export function ProjectItem(props: Props) {
 
 	const handleOpenDir = () => {
 		setProjectMenu(null);
-		void api.post(
-			`/api/projects/${encodeURIComponent(project.id)}/open-dir`,
-			{},
-		);
+		void api.post(`/api/projects/${encodeURIComponent(project.id)}/open-dir`, {});
 	};
 
 	// 系统项目下的会话专属「在文件管理器中打开」：带 sessionId 让 main 打开会话所在目录
@@ -265,11 +262,7 @@ export function ProjectItem(props: Props) {
 	};
 
 	return (
-		<motion.div
-			layout="position"
-			transition={{ layout: { duration: 0.25, ease: "easeOut" } }}
-			data-testid={`project-${project.id}`}
-		>
+		<div data-testid={`project-${project.id}`}>
 			{/* 项目头部 */}
 			<div
 				className={`flex items-center gap-1 px-2 py-1.5 rounded-sm transition-colors ${selected ? "bg-accent-soft" : "hover:bg-surface-hover"}`}
@@ -283,11 +276,7 @@ export function ProjectItem(props: Props) {
 					{isSystem ? (
 						<Icon name="home" size="1em" testId="project-icon-home" />
 					) : expanded ? (
-						<Icon
-							name="folder-open"
-							size="1em"
-							testId="project-icon-folder-open"
-						/>
+						<Icon name="folder-open" size="1em" testId="project-icon-folder-open" />
 					) : (
 						<Icon name="folder" size="1em" testId="project-icon-folder" />
 					)}
@@ -317,10 +306,16 @@ export function ProjectItem(props: Props) {
 				</button>
 			</div>
 
-			{/* 会话列表：motion.div layout="position" 做重排 FLIP 动画（与「最近」视图一致，不叠加 opacity 淡入，避免展开时半透明与项目名叠透重叠） */}
-			<AnimatePresence initial={false}>
-				{expanded &&
-					mySessions.map((s) => (
+			{/* 会话列表：grid-template-rows 高度展开动画（平滑展开/折叠）+ motion layout 重排 FLIP */}
+			<div
+				className="grid"
+				style={{
+					gridTemplateRows: expanded ? "1fr" : "0fr",
+					transition: "grid-template-rows 250ms ease-out",
+				}}
+			>
+				<div className="overflow-hidden min-h-0">
+					{mySessions.map((s) => (
 						<motion.div
 							key={s.id}
 							layout="position"
@@ -336,7 +331,8 @@ export function ProjectItem(props: Props) {
 							/>
 						</motion.div>
 					))}
-			</AnimatePresence>
+				</div>
+			</div>
 
 			{/* 会话右键菜单 */}
 			{sessionMenu &&
@@ -512,6 +508,6 @@ export function ProjectItem(props: Props) {
 					}}
 				/>
 			)}
-		</motion.div>
+		</div>
 	);
 }

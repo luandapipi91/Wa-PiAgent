@@ -2,6 +2,31 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(frontend): 项目列表展开改用 grid 高度动画（平滑展开，不再瞬间插入）
+
+- 上一条 fix 去掉会话 opacity + 根节点 layout，但「项目名瞬间出现」未解决（会话列表仍瞬间插入占据高度）。改为给会话列表容器加 `grid-template-rows` 0fr→1fr 高度展开动画（250ms），展开/折叠时高度渐变、下方项目随之逐渐位移，消除「瞬间插入」。
+- 去掉 `AnimatePresence`（grid 动画替代 enter/exit）；会话项保留 `layout` FLIP 重排动画；根节点恢复普通 div。
+- 影响范围：`packages/frontend/src/components/ProjectItem.tsx`。
+
+## 2026-08-15 — fix(frontend): IM 会话顶部铅笔回填与顶部标题同源（单聊用 chatId）
+
+- 顶部标题（title）单聊用 `chatId`（`IM · ${chatId.slice(0,12)}`），但回填之前用 `fromUserId`，两者在 fromUserId 为空（如 mock 注入未传 fromUserId）时不一致，导致标题显示 xiaoxiaolu 但回填空。改为回填与 title 同源：单聊兑底 `contact.userId ?? imConv.chatId ?? fromUserId`，群聊 `chatId 前 8`。
+- 测试：新增「联系人 userId 为空时兑底回填 chatId」用例，14/14 过。
+- 影响范围：`packages/frontend/src/components/ImSessionTitle.tsx`、`__tests__/ImSessionTitle.test.tsx`。
+
+## 2026-08-15 — feat(frontend): 任务详情「最近执行」列表整行可点进详情 + 详情按钮移到最后
+
+- `RecordRow` 整行加 `onClick` 进详情（`cursor-pointer` + `data-testid`），「详情」按钮从内容区移到行末（最右），点击时 `stopPropagation` 避免重复触发。
+- 测试（TDD）：`TaskDetailView.test.tsx` 新增 1 用例（点击整行触发 openRecordDetail），13/13 过。
+- 影响范围：`packages/frontend/src/components/automation/TaskDetailView.tsx`、`__tests__/TaskDetailView.test.tsx`。
+
+## 2026-08-15 — feat(automation): 执行详情显示执行角色与使用模型
+
+- 执行记录（`ExecutionRecord`）新增 `agentId`（执行角色/智能体）与 `model`（实际使用模型 provider/modelId）字段；`executeTask` 落盘时写入两者。
+- 执行详情页 header 元信息展示 🤖 角色 + 🧠 模型（旧记录无该字段则不显示）。
+- 测试（TDD）：`ExecutionDetailView.test.tsx` 新增 1 用例（显示角色+模型），5/5 过；后端 scheduler 33/33 过；frontend/kernel typecheck 均过。
+- 影响范围：`shared/src/types.ts`、`kernel/src/index.ts`、`frontend/src/components/automation/ExecutionDetailView.tsx`、`__tests__/ExecutionDetailView.test.tsx`。
+
 ## 2026-08-15 — fix(frontend): IM 会话顶部铅笔无联系人记录时也回填原始标识
 
 - 上一条 fix 仅在联系人已存在时回填 userId/chatId，首次对话（无联系人记录）时仍回填空。改为无联系人时也从 imConv 兑底回填（person=fromUserId / group=chatId 前 8），与顶部显示的技术标题一致。
