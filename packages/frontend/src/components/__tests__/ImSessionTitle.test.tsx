@@ -88,7 +88,11 @@ test("群聊有备注名：按 chatId 匹配显示 IM · remark", () => {
 	render(
 		<ImSessionTitle
 			sessionTitle="IM · 群g1234567 · user_bob"
-			imConv={imConv({ chatType: "group", chatId: "g12345678", fromUserId: "user_bob" })}
+			imConv={imConv({
+				chatType: "group",
+				chatId: "g12345678",
+				fromUserId: "user_bob",
+			})}
 		/>,
 	);
 	expect(screen.getByText("IM · 项目群")).toBeTruthy();
@@ -98,18 +102,29 @@ test("点铅笔进入行内编辑：输入框预填当前备注名", () => {
 	state.contacts = [contact({ remark: "张总" })];
 	render(<ImSessionTitle sessionTitle="IM · u1" imConv={imConv()} />);
 	fireEvent.click(screen.getByTestId("im-session-title-edit"));
-	const input = screen.getByTestId(
-		"im-session-title-input",
-	) as HTMLInputElement;
+	const input = screen.getByTestId("im-session-title-input") as HTMLInputElement;
 	expect(input.value).toBe("张总");
 });
 
-test("点铅笔（无联系人）输入框为空", () => {
+test("点铅笔（无联系人）回填 fromUserId", () => {
 	render(<ImSessionTitle sessionTitle="IM · u1" imConv={imConv()} />);
 	fireEvent.click(screen.getByTestId("im-session-title-edit"));
 	expect(
 		(screen.getByTestId("im-session-title-input") as HTMLInputElement).value,
-	).toBe("");
+	).toBe("u1");
+});
+
+test("群聊无联系人：点铅笔回填 chatId 前 8 位", () => {
+	render(
+		<ImSessionTitle
+			sessionTitle="IM · 群g1234567 · bob"
+			imConv={imConv({ chatType: "group", chatId: "g12345678", fromUserId: "bob" })}
+		/>,
+	);
+	fireEvent.click(screen.getByTestId("im-session-title-edit"));
+	expect(
+		(screen.getByTestId("im-session-title-input") as HTMLInputElement).value,
+	).toBe("g1234567");
 });
 
 test("联系人存在但无备注：点铅笔回填联系人标识（userId）", () => {
@@ -128,7 +143,11 @@ test("群聊联系人无备注：点铅笔回填 chatId 前 8 位", () => {
 	render(
 		<ImSessionTitle
 			sessionTitle="IM · 群g1234567 · bob"
-			imConv={imConv({ chatType: "group", chatId: "g12345678", fromUserId: "bob" })}
+			imConv={imConv({
+				chatType: "group",
+				chatId: "g12345678",
+				fromUserId: "bob",
+			})}
 		/>,
 	);
 	fireEvent.click(screen.getByTestId("im-session-title-edit"));
@@ -186,10 +205,12 @@ test("无联系人：保存先 ensureContact 再 renameContact（自动补建）
 	expect(renameContact).toHaveBeenCalledWith("ct_auto", "新朋友");
 });
 
-test("无联系人且输入为空：不创建联系人", async () => {
+test("无联系人且清空输入：不创建联系人", async () => {
 	render(<ImSessionTitle sessionTitle="IM · u1" imConv={imConv()} />);
 	fireEvent.click(screen.getByTestId("im-session-title-edit"));
 	const input = screen.getByTestId("im-session-title-input");
+	// 回填了 fromUserId，清空后失焦 → 视为取消，不创建联系人
+	fireEvent.change(input, { target: { value: "" } });
 	fireEvent.blur(input);
 	await act(async () => {});
 	expect(ensureContact).not.toHaveBeenCalled();
