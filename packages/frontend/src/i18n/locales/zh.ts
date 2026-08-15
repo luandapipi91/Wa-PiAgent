@@ -561,6 +561,7 @@ const zh = {
 	sidebar: {
 		tabTasks: "任务",
 		tabIm: "IM",
+		tabAutomation: "自动化",
 		newSession: "＋ 新建会话",
 		scopeProject: "项目",
 		scopeRecent: "最近",
@@ -781,6 +782,11 @@ const zh = {
 		},
 		extension: {
 			installTitle: "安装新插件",
+			repairBtn: "修复依赖",
+			confirmRepairTitle: "确认修复依赖",
+			confirmRepairMessage: "将删除并重装全部扩展依赖（约 1 分钟），建议先关闭正在使用扩展的会话。",
+			repairing: "正在修复依赖…",
+			repairDone: "依赖修复完成",
 			installPlaceholder: "npm 包名 (如 superpowers-zh 或 npm:superpowers-zh)…",
 			install: "安装",
 			installedTitle: "已安装插件 · {{count}}",

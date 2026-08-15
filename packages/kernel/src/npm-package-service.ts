@@ -1,6 +1,6 @@
 // packages/kernel/src/npm-package-service.ts
 import { join } from "node:path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
 export interface NpmPackageServiceOpts {
   /** 包管理器命令，默认 ["bun"]，从 settings.json.npmCommand 读取 */
@@ -111,6 +111,43 @@ export class NpmPackageService {
     const actualVersion = this.getInstalledVersion(name);
     if (!actualVersion) throw new Error(`升级后未找到包: ${name}`);
     return { version: actualVersion };
+  }
+
+  /** 全量重建依赖目录：删 node_modules + bun.lock 后按 package.json 重装。
+   *  解决 bun install 按 lockfile 幂等复现无法修复的依赖树损坏（版本漂移、半安装）。
+   *  删除 node_modules 遇 Windows 文件锁（会话占用扩展文件）重试 3 次×1s，
+   *  仍失败抛错提示关闭会话；安装后校验 package.json 每个直接依赖可读到版本。 */
+  async repair(onProgress?: (line: string) => void): Promise<void> {
+    const nodeModules = join(this.runtimeDir, "node_modules");
+    const lockfile = join(this.runtimeDir, "bun.lock");
+    if (existsSync(nodeModules)) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          rmSync(nodeModules, { recursive: true, force: true });
+          break;
+        } catch (err) {
+          if (attempt === 2) {
+            throw new Error(
+              `删除 node_modules 失败（可能有会话正在使用扩展）：${(err as Error).message}。请关闭正在使用扩展的会话后重试`,
+            );
+          }
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+    }
+    if (existsSync(lockfile)) rmSync(lockfile, { force: true });
+
+    const { exitCode, stderr } = await this.spawn(["install"], onProgress);
+    if (exitCode !== 0) {
+      throw new Error(`修复失败: ${stderr || `exit code ${exitCode}`}`);
+    }
+
+    // 校验：package.json 每个直接依赖都能在 node_modules 读到版本
+    const deps = JSON.parse(readFileSync(join(this.runtimeDir, "package.json"), "utf8")).dependencies ?? {};
+    const missing = Object.keys(deps).filter((name) => !this.getInstalledVersion(name));
+    if (missing.length > 0) {
+      throw new Error(`修复后仍缺少依赖: ${missing.join(", ")}`);
+    }
   }
 
   /** 查询 npm registry 最新版本 */

@@ -2,12 +2,227 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — feat(kernel): extension:repair 事件链路（ws + HTTP 路由 + 广播）
+
+### 变更
+
+- **shared 事件类型**：`packages/shared/src/extensions.ts` 新增 `ExtensionRepairEvent`（前端→kernel，全量重建依赖目录）、`ExtensionRepairProgressEvent`（修复日志行）、`ExtensionRepairDoneEvent`（成功终态），并同步补入 `types.ts` 的 import 区、`WSClientEvent` 与 `WSServerEvent` 两个 union。
+- **ExtensionManager.repair()**：封装任务 1 的 `NpmPackageService.repair(onProgress?)`，签名与 install/upgrade 的进度回调一致。
+- **ws-server case "extension:repair"**：progress 经 reply（callApi 自动 SSE 广播）、成功后广播 `extension:changed` → `extension:repair:done` → `skill:changed`（含 markAllDirty + 重扫技能），失败广播 `extension:error`（name=repair，fire-and-forget 语义）。
+- **HTTP 路由**：`POST /api/extensions/repair` → `callApi({ type: "extension:repair" })`，前端将来可直接触发。
+- 测试：新建 `ws-extension-repair.test.ts`（真实服务模式，2 用例：成功帧序列/失败 error 广播）；修复参考 helper `readSseFrame` 的残留帧缺陷（buffer 提为 WeakMap 跨调用共享 + 先解析残留帧再 read，否则密集帧场景挂死超时）；补齐 `extension-manager.test.ts` 两处 pkgService stub 缺失的 `repair`（任务 1 遗留的类型破坏）。
+- 影响范围：`packages/shared/src/extensions.ts`、`types.ts`，`packages/kernel/src/extension-manager.ts`、`ws-server.ts`、`routes/extensions.ts`，`packages/kernel/tests/ws-extension-repair.test.ts`（新）、`extension-manager.test.ts`；kernel 全量 1020 测试全过、shared 97 全过、四包 typecheck 0 错。
+
+---
+
+### 扩展区「修复依赖」一键自愈 + E2E
+
+- **新增功能**：设置面板扩展区新增「修复依赖」动作（extension:repair）——全量重建扩展依赖目录（删 node_modules + bun.lock 后按 package.json 重装），为版本漂移/半安装导致的扩展硬崩溃提供一键自愈。背景：pi-tui 0.82.1 与其余 @earendil-works 包 0.84.1 错配导致 /goal 崩溃，且现有链路无任何依赖树检查。涉及 kernel（NpmPackageService.repair + ws 事件 + HTTP 路由）、shared（3 个事件类型）、frontend（store 修复态 + ExtensionSection 按钮/确认弹窗/进度 + i18n）。
+- **E2E 测试**：新增 `packages/frontend/e2e/extension-repair.spec.ts`（2 用例：确认弹窗流程——取消不发请求/确认后发出 POST /api/extensions/repair（route 拦截，SSE 终态由组件/单测层覆盖）；按钮存在且可见）。导航照抄 plugin-command-toggles 既有路径（假 provider 规避 onboarding 弹窗 + 按钮文本「插件」精确匹配），语言用 addInitScript 预置 wa-pi-ui-prefs 锁定中文（language-switch.spec.ts 同款，规避 E2E chromium 默认 en-US 导致的文案断言漂移）。本机真实 kernel 占用 9776 时用 WA_PI_E2E_WS_PORT/WA_PI_E2E_WEB_PORT/WA_PI_WEB_PORT 偏移端口运行。
+
+---
+## 2026-08-15 — fix(frontend): 通讯录侧滑面板覆盖式定位 + 行内编辑回填/按钮溢出修复
+
+### 变更
+
+- **覆盖式定位**：原 `ContactsPanel` 根节点是普通文档流元素（`w-64` 无定位），作为 `BotsSection` 横向 flex 行的第三个子项参与空间分配，打开后把右侧编辑表单挤窄 256px。改为全仓库浮层范式（Modal/FilePicker 均 fixed/absolute + z-index）——根改 `absolute inset-y-0 right-0 z-40`（低于 Modal 的 z-50，不遮删除确认弹窗）+ 不透明背景 `var(--surface)` + `var(--shadow-lg)`；`BotsSection` 根容器补 `relative` 作定位上下文。
+- **行内编辑回填与替换**：点击人/群名展开编辑时，原为 `setValue(c.remark ?? "")`，remark 为空时输入框空白且名字行仍占位（叠加两行）。改为：① 回填当前显示名 `label(c)`（人→userId，群→chatId 前 8 位）；② 编辑态用输入框行**替换**名字行（三元切换，非叠加），取消/保存后名字行恢复；③ `label` 返回类型收紧为 `string`（`userId` 可选字段 `?? ""`）。
+- **保存/取消按钮溢出**：行内编辑 input 为 `flex-1` 但无 `min-w-0`，flex item 默认 `min-width:auto` 使 input 固有宽度（~200px）不可收缩，256px 面板内 input+两按钮总宽溢出~50px，按钮被外层 `overflow-auto` 裁剪不可见。input 补 `min-w-0` 允许收缩，按钮恒在视口内。
+- 测试：新增 5 个契约/行为用例（覆盖定位、人名回填、编辑态行内替换+取消恢复、群名回填、input 可收缩），既有用例 + BotsSection 12 例回归全过。
+- 影响范围：`packages/frontend/src/components/settings/ContactsPanel.tsx`、`BotsSection.tsx`、`ContactsPanel.test.tsx`。
+
+---
+
+## 2026-08-15 — fix(scheduler): 审查终修复——robot_push 真实注入 + 触发即返回 + 入口校验 + 原子读改写
+
+### 变更
+
+- **C1 robot_push 工具真实注入（不再 TODO）**：复用 bridge 扩展机制——`wa-pi-bridge.extension.ts` 读 `WA_PI_ROBOT_PUSH_CHANNELS` env 条件注册第 8 个工具（普通会话不设 env 不注册，零污染）；`agent-manager.ensureStarted` 新增 `robotPush` opts（spawn 注入 env + 受限 agent 白名单并入 robot_push + `bridgeCtx.handleTool` 分发）；`index.ts executeTask` 解析到 @bot_xxx 时用 `createRobotPushTool` 构造执行体，pushResults 回填执行记录，prompt 追加推送引导。
+- **I1 run 触发即返回**：POST /:id/run 不再 await 执行链（旧实现最长挂 5 分钟被 idleTimeout 255s 掐断），改 fire-and-forget + catch 记错；前端「立即执行」成功后 toast「已触发执行」（失败弹错误提示）。
+- **I2 入口校验 + 容错**：POST/PUT 校验 name/agentId/prompt 非空、schedule.type 限 5 合法值、time 限 HH:MM（含 00-23/00-59 范围）、custom 必填 cronExpression，不合法 400；ws-server 的 onTaskChanged 调度注册失败 try-catch（不再假 500，记日志 + 广播）；`scheduled-task:error` 事件补入 WSServerEvent 联合类型，App.tsx 处理（toast + 刷新列表）。
+- **I4/M14 原子读改写**：`scheduler-store.mutateScheduledTasks(fn)` 把 load→改→save 整体入写队列，routes 的 POST/PUT/DELETE 全部改走；`saveExecutionRecords` 同模式入队。
+- **M2/M5 顺手修**：store/scheduler.ts 恒等三元删除；两处 formatSchedule monthly 分支 `dayOfMonth ?? 1`。
+- 影响范围：kernel（agent-manager/index/ws-server/routes/scheduler-store/bridge 扩展）、shared types、前端（App/TaskDetailView/AutomationSidebar/store）；kernel 全量 994 测试全过、前端 automation 35 例全过、三包 typecheck 0 错。
+
+---
+
+## 2026-08-15 — test(scheduler): 定时任务 E2E 完整流程测试 + 补执行记录 UI 入口
+
+### 变更
+
+- **E2E 测试**：新增 `packages/frontend/e2e/automation.spec.ts`（5 用例 serial 连贯流）——切 automation 页签验证列表/空态、新建完整流程（填表单+选每周计划+选「研发」角色+保存→列表展示）、任务卡片→详情四宫格与指令、「执行记录」入口→空态渲染→点卡片回详情、REST 删除→SSE 驱动列表恢复空态（顺带验证 scheduled-tasks:changed 刷新链路）。环境前置：假 provider 规避首启 onboarding 弹窗；本机真实 kernel/dev 占用 9776/5180 时用 WA_PI_E2E_WS_PORT/WA_PI_E2E_WEB_PORT/WA_PI_WEB_PORT 偏移端口；npx 会解析到全局 1.59.1 与项目 1.62.1 混载报错，须用 `./node_modules/.bin/playwright`。
+- **补 UI 缺口（TDD 驱动）**：E2E 发现 ExecutionRecords 视图无任何 UI 入口（store 的 view=records 无组件可达，死代码）。`AutomationSidebar` 工具栏补「执行记录」按钮（`automation-records-btn`，setView("records")），点任务卡片自然回 detail（selectTask 已置 view）。组件测试补「点击执行记录按钮调用 setView(records)」用例。
+- 影响范围：`packages/frontend/e2e/automation.spec.ts`（新增）、`AutomationSidebar.tsx`、`AutomationSidebar.test.tsx`；四层验证全过——kernel scheduler 相关 30 例（scheduler-store/scheduler/routes-scheduler）、automation 组件 33 例、typecheck 三包 0 错、E2E 5/5。
+
+---
+
+## 2026-08-15 — feat(scheduler): 主内容区视图路由 + SSE 事件 + kernel 调度集成
+
+### 变更
+
+- **主内容区自动化路由**：`Sidebar.tsx` 的 tab（tasks/im/automation）由内部 state 改为受控 props（`SidebarTab` 类型导出），状态提升到 `App.tsx`；`App.tsx` 在 `sidebarTab === "automation"` 时渲染 `AutomationMain`（新增内联组件），按 `useSchedulerStore.view` 切换 TaskEditForm / ExecutionRecords / TaskDetailView，header 显示对应标题。
+- **SSE 事件监听**：`App.tsx` 新增 `scheduled-tasks:changed`（重拉任务列表）与 `scheduled-task:completed`（重拉任务 + 记录）处理；初始连接回调中同步 `loadTasks` + `loadRecords`。
+- **SSE 事件类型**：`packages/shared/src/types.ts` 新增 `ScheduledTasksChangedEvent` / `ScheduledTaskCompletedEvent` 并挂入 `WSServerEvent` 联合类型。
+- **kernel 调度集成**：`index.ts` 创建 `TaskScheduler` 实例并 `server.setScheduler()` 注入；`executeTask` 实现：写 running 态执行记录 → 创建会话（默认工作区先 mkdir workdir 子目录，与 agent:prompt 行为一致）→ `ensureStarted` → 解析默认模型（取首个供应商首模型，缺失则 fail）→ `prompt` → 轮询 `isSessionBusy`（500ms 间隔，5 分钟超时 abort）→ 收集末条 assistant 文本为摘要（截 500 字）→ `updateExecutionRecord` 回写终态；shutdown 时 `scheduler.stopAll()`。
+- **scheduler 扩展**：`TaskScheduler.runTaskNow()` 手动立即执行（REST run 端点委托）；`scheduler-store.updateExecutionRecord()` 按 id 回写记录（不存在退化追加）。
+- **ws-server 路由回调接通**：scheduler 路由的 onSchedule/onCancel 回调现在同时广播 `scheduled-tasks:changed`；onRunNow 委托 `scheduler.runTaskNow`（原占位）。
+- **附带修复（agent-manager）**：`switchAgent` 中把 `setSessionAgent` 持久化移到 `_teardownSession` 之前，消除「teardown 后、starting.set 前」异步竞态窗口——否则切换角色后立即发消息会触发并发 `ensureStarted` 二次创建 pi 进程导致 jsonl 冲突。新增专项测试覆盖（挂起 setSessionAgent 期间 sessions 不为空）。
+- 与简报的关键偏差：① 主内容区路由在 `App.tsx` 而非 `Sidebar.tsx`（架构上主内容区本就由 App 渲染，Sidebar 仅侧栏）；② 简报的 `scheduled-task:started` 事件未实现，running 态记录创建时广播 `scheduled-tasks:changed` 替代（shared types 未定义 started 事件，保持类型自洽）；③ robot_push 工具注入仍为 TODO（简报即标注 TODO，待 bridge 扩展机制实现）。
+- 影响范围：前端 App/Sidebar/store、kernel index/scheduler/scheduler-store/ws-server/routes、shared types、agent-manager 竞态修复；kernel 977 测试全过、前端相关组件测试全过（2 个预先存在的失败与本次无关，基线复现）。
+
+---
+
 ## 2026-08-15 — feat(kernel): 记忆字符上限放宽 user 1800 / memory 3200
 
 ### 变更
 
 - amaster-memory 的 `createStore` 构造 `MemoryStore` 时覆盖默认上限（user 1375 / memory 2200）→ **user 1800 / memory 3200**：实际使用常触顶导致 `memory_add` 被拒，放宽后全局与项目 store 统一生效。
 - 影响范围：amaster-memory.ts（createStore 传 userCharLimit/memoryCharLimit）、amaster-memory.test.ts（+1 用例：1400 字符 user / 2300 字符 memory 写入成功验证覆盖生效）。
+
+---
+
+## 2026-08-15 — feat(scheduler): TaskDetailView 任务详情视图 + ExecutionRecords 执行记录列表
+
+### 变更
+
+- 新建 `packages/frontend/src/components/automation/TaskDetailView.tsx`：任务详情视图。选中任务时渲染四宫格信息（计划时间/执行角色/推送渠道/工作目录）+ 任务指令（`$/skill` 渲染为紫色标签、`@bot_xxx` 渲染为绿色标签）+ 最近执行记录（该任务前 3 条）；未选中时显示空态提示；含「立即执行」「编辑」操作按钮，分别调用 `runTaskNow`/`startEdit`；选中任务变化时 `useEffect` 拉取该任务的 `loadRecords(taskId)`。
+- 新建 `packages/frontend/src/components/automation/ExecutionRecords.tsx`：执行记录列表。顶部筛选栏（按天/周/月时间筛选 + 任务下拉 + 状态下拉），记录卡片显示状态图标（✓/✕/⟳）、taskName、耗时、推送标记、错误信息；空态友好提示；挂载时 `loadRecords()` 拉取全部记录。
+- 新建 `packages/frontend/src/utils/channel-mentions.ts`：前端版 `parseChannelMentions` 纯函数，从 prompt 提取 `@bot_xxx` 并去重返回 bot ID 列表，与后端 `packages/kernel/src/tools/robot-push.ts` 保持相同契约。
+- 新增测试：`channel-mentions.test.ts`（7 例单元测试，镜像后端用例）、`TaskDetailView.test.tsx`（8 例组件测试）、`ExecutionRecords.test.tsx`（8 例组件测试），均用 bun:test + @testing-library/react，mock 全部 store。
+- 与简报的关键偏差（均已校正）：① CSS 变量 `--border-color` 在 styles.css 中不存在，项目用 `--hairline`，按钮/下拉框边框已替换；② `React.ReactNode` 在 `jsx: react-jsx` 下需显式导入，改用 `import type { ReactNode }`；③ 移除未使用的 `setView` 解构；④ `RecordRow` 的 `record` 参数用 `ExecutionRecord` 类型替代 `any`。
+- 影响范围：纯新增 3 个源文件 + 3 个测试文件，不改已有业务逻辑；组件尚未挂载到父视图（挂载属后续任务）。
+
+## 2026-08-15 — fix(scheduler): TaskEditForm + TaskPromptComposer 审查修复 3 项
+
+### 变更
+
+- **渠道选择器可关闭**：`TaskPromptComposer.tsx` 增加 `onKeyDown` 处理 Escape 关闭 + `useEffect` + `document.mousedown` 监听点击外部关闭（containerRef 判断），新增 `containerRef`。原先用户误按 @ 后唯一关闭方式是选中渠道，现支持 Escape 和点击外部。
+- **handleSave 错误处理**：`TaskEditForm.tsx` 的 `handleSave` 包 try-catch，网络失败时调用 `useToastStore.getState().add("保存任务失败，请稍后重试", "error")` 提示用户，避免 unhandled promise rejection。
+- **custom cron 校验**：`canSave` 增加条件 `scheduleType !== "custom" || cronExpression.trim() !== ""`，选「自定义 Cron」但未填表达式时保存按钮禁用。
+- 测试新增 4 例：Escape 关闭渠道选择器、点击外部关闭、custom 未填 cron 禁用/填写启用、保存失败弹出错误 toast。
+- 影响范围：仅修改 2 个组件文件 + 2 个测试文件，不改已有业务逻辑。
+
+## 2026-08-15 — feat(scheduler): TaskPromptComposer + TaskEditForm 任务编辑表单
+
+### 变更
+
+- 新建 `packages/frontend/src/components/automation/TaskPromptComposer.tsx`：任务指令富文本输入框。按下 `@` 键弹出已连接 IM 渠道列表（从 `useChannelsStore` 的 bots 按 status=="connected" 过滤），选中后把光标前最近一个 `@` 替换为 `@botId`（与后端 `@bot_xxx` 解析约定一致）；`$ 插入技能` / `@ 关联 IM 渠道` 提示行。
+- 新建 `packages/frontend/src/components/automation/TaskEditForm.tsx`：定时任务新建/编辑完整表单。editingTask===null 为新建、否则回填字段；含任务名、计划时间（daily/weekdays/weekly/monthly/custom 五种调度 + 对应 time/dayOfWeek/dayOfMonth/cron 控件）、执行角色（智能体，从 `useAgentsStore.list` 渲染，选中态高亮）、任务指令（内嵌 TaskPromptComposer）、工作目录（从 `useProjectsStore.projects` 渲染）；必填项（名称/智能体/指令）齐全后保存按钮才启用；保存调用 store 的 createTask/updateTask，取消调用 setView("detail")。
+- 新建测试 `TaskPromptComposer.test.tsx`（3 例）、`TaskEditForm.test.tsx`（6 例）：bun:test + @testing-library/react，mock 全部 store，覆盖渲染、@ 弹渠道、选中插入、新建/编辑保存、禁用态、取消。
+- 与简报的关键偏差（均已校正）：① 简报用 `useAgentsStore().agents` + `agent.id`，实际 store 字段为 `list` 且 `AgentConfig` 以 `displayName` 为唯一标识（无 id），故 agentId 取 `agent.displayName`；② CSS 变量 `--border-color`/`--accent-bg` 在 styles.css 中不存在，项目用 `--hairline`/`--accent-soft`，已替换；③ 简报测试用 vitest+jest-dom，本仓库统一 bun:test，沿用 AutomationSidebar.test.tsx 约定；④ 工作目录 select 简报为占位，实际接入 `useProjectsStore`。
+- 影响范围：纯新增两个组件 + 测试，不改已有业务逻辑；组件尚未挂载到父视图（挂载属后续任务）。
+
+## 2026-08-14 — fix(kernel): 切换智能体后立即发消息报「会话未启动」
+
+### 变更
+
+- 根因：`switchAgent` 里 `_teardownSession`（删除 sessions 条目）之后、`starting.set`（并发创建锁）之前，夹着 `await setSessionAgent` 的异步文件 I/O。该窗口内 sessions/starting 均为空，用户切换角色后立即发消息会触发 `ensureStarted` 启动第二个 `_createSession`，两个 pi 进程并发创建同一 jsonl 冲突失败，最终 `prompt` 报「会话未启动」。
+- 修复：把 `setSessionAgent` 移到 `_teardownSession` 之前，使 teardown → `_createSession` → `starting.set` 成为连续同步段（原子），并发 `ensureStarted` 命中 `starting` 复用同一创建 promise。
+- 影响范围：`agent-manager.ts`（switchAgent 顺序调整）、`agent-manager.test.ts`（+1 竞态回归用例）。
+
+---
+
+## 2026-08-14 — feat(scheduler): 侧边栏自动化 Tab + AutomationSidebar 任务列表组件
+
+### 变更
+
+- 修改 `packages/frontend/src/components/Sidebar.tsx`：tab 类型从 `"tasks" | "im"` 扩展为 `"tasks" | "im" | "automation"`；分段控件由 2 个按钮改为遍历 3 个 tabKey 渲染（testid 统一为 `sidebar-tab-${tabKey}`）；条件渲染新增 `tab === "automation"` 分支挂载 `<AutomationSidebar />`。
+- 新建 `packages/frontend/src/components/automation/AutomationSidebar.tsx`：紧凑任务卡片列表组件。useEffect 调用 `loadTasks` 拉取任务；工具栏显示任务数 + 「+ 新建」按钮（startCreate）；列表项为 TaskCard（选中态高亮、启用/禁用圆点、调度文案、含 @bot_ 的任务显示 📨 角标）；空态「暂无定时任务」；`formatSchedule` 支持 daily/weekdays/weekly/monthly/custom 五种调度文案。全部走项目既有 CSS 变量设计 token。
+- 新建 `packages/frontend/src/components/automation/__tests__/AutomationSidebar.test.tsx`：3 个组件测试（渲染任务列表、点击卡片调用 selectTask、点击新建调用 startCreate）。注：简报原文用 vitest + jest-dom，本仓库统一用 bun:test（14 个既有组件测试约定）且未装 jest-dom，故断言改用 `toBeTruthy()`。
+- 修改 `packages/frontend/src/i18n/locales/{zh,en}.ts`：新增 `sidebar.tabAutomation`（中文「自动化」/ 英文「Automation」），与既有 tabTasks/tabIm 结构一致。
+- 修复 `AutomationSidebar.tsx` CSS 变量名（代码审查反馈）：`--accent-bg` → `--accent-soft`、`--success-bg` → `--success-soft`，与项目设计 token 一致（styles.css 定义的是 `*-soft` 后缀，`*-bg` 不存在会导致选中态高亮与 IM 角标背景回退 transparent）。
+- 影响范围：定时任务系统的前端入口；纯新增组件 + Sidebar 加一个 tab + 两条 i18n key，不改已有业务逻辑。
+
+## 2026-08-14 — feat(scheduler): robot_push 工具 + @channel 解析 + ChannelManager.pushToChannel
+
+### 变更
+
+- 新建 `packages/kernel/src/tools/robot-push.ts`：`parseChannelMentions(prompt)` 纯函数（正则 `/@bot_[a-zA-Z0-9_-]+/g` 提取 @bot_xxx 渠道 ID、去重、不误匹配邮箱）+ `createRobotPushTool(deps)` 工厂（构建 robot_push 工具定义，动态填充 channel enum；execute 校验渠道、调用 pushToChannel、经 onPushResult 回调上报结果）。
+- 修改 `packages/kernel/src/channel-manager.ts`：新增 `pushToChannel(botId, message)` 方法——按 credentials.botId 反查 channelId 再取 adapter，主动推送 sendText 的 replyFrame 传 null。
+- 新建 `packages/kernel/tests/robot-push.test.ts`：16 个测试覆盖 parseChannelMentions（单/多/去重/邮箱/连字符下划线）、工具定义（name/description/enum/required）、execute（成功/渠道不存在/推送失败）、pushToChannel 集成（replyFrame=null/botId 不存在/渠道未连接）。
+- 影响范围：定时任务系统的主动推送能力；纯新增工具 + ChannelManager 新增方法，不改已有业务逻辑。
+
+## 2026-08-14 — feat(scheduler): REST API 路由（CRUD + 立即执行 + 执行记录查询）
+
+### 变更
+
+- 新建 `packages/kernel/src/routes/scheduler.ts`：闭包工厂 `createSchedulerRoutes(tasksFile, recordsFile, onTaskChanged, onTaskDeleted, onRunNow)` 返回 `RouteRegistrar`，注册 6 个端点（GET/POST/PUT/DELETE `/api/scheduled-tasks`、POST `/:id/run`、GET `/api/execution-records`）。直接读写 scheduler-store JSON 文件，不走 callApi 适配器（scheduler 域无 WSClientEvent）。GET records 支持 taskId/status 筛选、startedAt 倒序、最多 200 条。
+- 修改 `packages/kernel/src/ws-server.ts`：导入常量与 createSchedulerRoutes；新增 `scheduler: TaskScheduler | null` 属性（后续任务注入实例）；在 `registerRoutes()` 中注册路由，回调使用可选链（`this.scheduler?.`），scheduler 为 null 时 CRUD 仍正常（数据持久化不受影响），仅跳过 cron 同步。清理两个预存未使用导入（AgentName / WA_PI_DIR）。
+- 新建 `packages/kernel/tests/routes-scheduler.test.ts`：7 个测试覆盖空列表、完整 CRUD、404、三个回调触发、执行记录筛选/倒序/200 上限。
+- 影响范围：定时任务 REST API 层；纯新增路由 + ws-server 注册，不改已有业务逻辑。
+
+## 2026-08-14 — feat(scheduler): 定时任务类型定义 + 数据持久化层 + Bun.cron 调度引擎
+
+### 变更
+
+- 新增定时任务核心类型（ScheduledTask / TaskSchedule / ExecutionRecord / ExecutionStatus / PushResult）于 `packages/shared/src/types.ts`。
+- 新增路径常量 `SCHEDULED_TASKS_FILE` / `EXECUTION_RECORDS_FILE` 于 `packages/shared/src/constants.ts`（参照 CHANNELS_FILE 模式，带 WA_PI_DIR 前缀）。
+- 新建 `packages/kernel/src/scheduler-store.ts`：JSON 文件读写持久化层（load/save scheduledTasks + executionRecords，appendExecutionRecord），参照 channel-store.ts 的 readJson/writeJson 模式，文件缺失/损坏回退空值不抛错。
+- 新建 `packages/kernel/tests/scheduler-store.test.ts`：6 个测试覆盖空文件回退、往返一致、追加记录。
+- 新建 `packages/kernel/src/scheduler.ts`：调度引擎。`toCronExpression` 将 TaskSchedule 转标准 5 字段 cron 表达式（`.map(Number)` 归一化前导零）；`TaskScheduler` 类封装 Bun.cron 任务的注册/取消/停止，handler 内捕获执行异常并广播 `scheduled-task:completed` 事件。
+- 新建 `packages/kernel/tests/scheduler.test.ts`：14 个测试覆盖 toCronExpression 五种类型 + TaskScheduler 注册/取消/重新调度/批量停止/启动加载/disabled 跳过/执行成功与失败广播。
+- 影响范围：定时任务系统基础层与调度引擎（后续任务的地基）；纯新增，不改已有业务逻辑。
+
+## 2026-08-14 — fix(frontend): 任务 7 审查修复（onReconnect 补 loadContacts + titleOf 复用 remarkOf + 补测试）
+
+### 变更
+
+- `App.tsx` 的 `onReconnect` 回调补 `useContactsStore.getState().loadContacts()`，对齐「mount 加载集 == 重连刷新集」不变量，避免 SSE 断线期间 contacts:changed 丢失导致重连后备注名陈旧。
+- `ImConversationList.titleOf` 复用 `store/contacts` 的 `remarkOf` 纯函数，删除内联重复的 `.find(...)`。
+- 新增 `ImConversationList.test.tsx`，覆盖单聊命中 remark / 群聊命中 remark / 未命中回退三场景。
+- 影响范围：App.tsx、ImConversationList.tsx、ImConversationList.test.tsx（新增）。
+
+---
+
+## 2026-08-14 — feat(frontend): IM 会话列表备注名回显 + contacts:changed SSE 刷新
+
+### 变更
+
+- `ImConversationList` 的 `titleOf` 改为备注名优先：单聊按 person(userId=fromUserId)、群聊按 group(chatId=chatId) 查找对应 `ContactEntity` 的 remark，命中则显示备注名，否则回退原逻辑（群聊「群聊(chatId前8)·发送者」/ 单聊 userid）。
+- `App.tsx` 启动加载 effect 补 `loadContacts()`（供会话列表回显）；`onMessage` switch 在 `channel-conversations:changed` 后新增 `contacts:changed` case，触发重拉通讯录。
+- 影响范围：ImConversationList.tsx（titleOf + import useContactsStore）、App.tsx（启动加载 + SSE case）。
+
+---
+
+## 2026-08-14 — fix(frontend): ContactsPanel 打开时加载通讯录 + 补充备注名优先/失败 toast 测试
+
+### 变更
+
+- `ContactsPanel` 新增 `useEffect`，打开面板（或 channelId 变化）时调用 `loadContacts()`，修复 store 初始为空导致面板恒显示「暂无对话过的人/群」的问题（此前 `loadContacts` 解构后从未调用）。
+- `ContactsPanel.test.tsx` 补两个用例：「备注名优先显示（remark 覆盖原始 userId）」与「重命名失败 toast 收到 error 消息」；新增 `useToastStore` 的 `mock.module` 以便断言失败 toast。
+- 影响范围：ContactsPanel.tsx（+useEffect）、ContactsPanel.test.tsx（+2 用例 + toast mock）。
+
+---
+
+## 2026-08-14 — feat(frontend): 通讯录滑出面板 + 行内展开重命名 + BotsSection 入口
+
+### 变更
+
+- 新增 `ContactsPanel` 组件：通讯录滑出面板，按 channelId 过滤当前机器人的联系人，分「人/群」两类展示；点击行内展开输入框，保存调用 `renameContact(id, remark)`，失败用 toast 提示。
+- `BotsSection` 集成：编辑表单顶部新增「通讯录」按钮（`contactsOpen` state），选中机器人时打开对应面板。
+- 新增组件测试 `ContactsPanel.test.tsx`（mock `useContactsStore`，覆盖渲染人/群两类 + 行内展开重命名保存）。
+- 影响范围：ContactsPanel.tsx（新增）、BotsSection.tsx（+4 处）、ContactsPanel.test.tsx（新增）。
+
+---
+
+## 2026-08-14 — fix(kernel): contacts:rename 空值保护 + 事件级测试
+
+### 变更
+
+- ws-server `contacts:rename` 去除 `channelManager!` 非空断言：channelManager 为 null 时返回 error + 400「通讯录未启用」，对齐 channels 写操作的空值兜底，避免 `PUT /api/contacts/:id` 在通讯录未启用时 500。
+- 新增 ws-server 事件级测试 `ws-server-contacts.test.ts`：覆盖 rename 空值 400 / id 不存在 404 / 成功广播 `contacts:changed` + reply `contacts:current`（且只含该机器人的 contacts）三条路径。
+- 影响范围：ws-server.ts（contacts:rename case）、ws-server-contacts.test.ts（新增）。
+
+---
+
+## 2026-08-14 — feat(kernel): 进站采集通讯录 + ChannelManager 暴露 listContacts/renameContact
+
+### 变更
+
+- ChannelManager 进站（handleInbound）采集通讯录：单聊记 person（fromUserId）、群聊记 group（chatId），失败仅 warn 不阻断消息处理。
+- deps 新增 `contactsFile` 字段 + `contactsFile` getter（缺省回落 CONTACTS_FILE）。
+- 新增公开方法 `listContacts(channelId?)` / `renameContact(id, remark)`，代理 contact-store 的 list/rename。
+- 影响范围：channel-manager.ts（+5 处）、channel-manager.test.ts（+1 采集用例，复用 mock deps 构造）。
 
 ---
 

@@ -26,11 +26,14 @@ import type {
 	ExtensionInstallEvent,
 	ExtensionUninstallEvent,
 	ExtensionUpgradeEvent,
+	ExtensionRepairEvent,
 	ExtensionListResult,
 	ExtensionChangedEvent,
 	ExtensionErrorEvent,
 	ExtensionProgressEvent,
 	ExtensionInstallDoneEvent,
+	ExtensionRepairProgressEvent,
+	ExtensionRepairDoneEvent,
 	ExtensionNotifyEvent,
 	ExtensionCommandsListEvent,
 	ExtensionCommandToggleEvent,
@@ -614,6 +617,17 @@ export interface ChannelConversationInfo {
 	lastMessagePreview: string;
 	updatedAt: number;
 }
+/** 通讯录条目：一个机器人下对话过的人（person）或群（group）。kind=person 用 userId，kind=group 用 chatId */
+export interface ContactEntity {
+	id: string; // ct_xxx
+	channelId: string; // 所属机器人 ch_xxx
+	kind: "person" | "group";
+	userId?: string; // kind=person：企微 userid（单聊的 fromUserId）
+	chatId?: string; // kind=group：群 chatid
+	remark?: string; // 备注名（用户重命名结果）
+	firstChatAt: number; // 首次对话时间戳 ms
+	lastChatAt: number; // 最近对话时间戳 ms
+}
 export interface ChannelsListRequest {
 	type: "channels:list";
 }
@@ -637,6 +651,15 @@ export interface ChannelAgentUsageRequest {
 export interface ChannelConversationsListRequest {
 	type: "channel-conversations:list";
 }
+export interface ContactsListRequest {
+	type: "contacts:list";
+	channelId: string; // 空 = 全部机器人
+}
+export interface ContactsRenameRequest {
+	type: "contacts:rename";
+	id: string;
+	remark: string;
+}
 export interface ChannelsCurrentResult {
 	type: "channels:current";
 	channels: ChannelStatusInfo[];
@@ -657,6 +680,13 @@ export interface ChannelsChangedEvent {
 }
 export interface ChannelConversationsChangedEvent {
 	type: "channel-conversations:changed";
+}
+export interface ContactsChangedEvent {
+	type: "contacts:changed";
+}
+export interface ContactsCurrentResult {
+	type: "contacts:current";
+	contacts: ContactEntity[];
 }
 
 export type WSClientEvent =
@@ -703,6 +733,7 @@ export type WSClientEvent =
 	| ExtensionInstallEvent
 	| ExtensionUninstallEvent
 	| ExtensionUpgradeEvent
+	| ExtensionRepairEvent
 	| ExtensionCommandsListEvent
 	| ExtensionCommandToggleEvent
 	| ExtensionDialogRespondEvent
@@ -742,6 +773,8 @@ export type WSClientEvent =
 	| ChannelsDeleteRequest
 	| ChannelAgentUsageRequest
 	| ChannelConversationsListRequest
+	| ContactsListRequest
+	| ContactsRenameRequest
 	| TrashListRequest
 	| TrashRestoreEvent
 	| TrashDeleteEvent
@@ -1297,6 +1330,8 @@ export type WSServerEvent =
 	| ExtensionErrorEvent
 	| ExtensionProgressEvent
 	| ExtensionInstallDoneEvent
+	| ExtensionRepairProgressEvent
+	| ExtensionRepairDoneEvent
 	| ExtensionNotifyEvent
 	| ExtensionCommandsListResult
 	| ExtensionCommandToggleResult
@@ -1332,7 +1367,87 @@ export type WSServerEvent =
 	| ChannelConversationsResult
 	| ChannelsChangedEvent
 	| ChannelConversationsChangedEvent
+	| ContactsChangedEvent
+	| ContactsCurrentResult
 	| TrashListResult
-	| TrashOpResult;
+	| TrashOpResult
+	| ScheduledTasksChangedEvent
+	| ScheduledTaskCompletedEvent
+	| ScheduledTaskErrorEvent;
+
+// ============ 定时任务 SSE 事件 ============
+
+/** 任务列表变更（新建/更新/删除后广播，前端重新拉取） */
+export interface ScheduledTasksChangedEvent {
+	type: "scheduled-tasks:changed";
+}
+
+/** 单次执行完成（cron 触发或手动 run 后广播） */
+export interface ScheduledTaskCompletedEvent {
+	type: "scheduled-task:completed";
+	taskId: string;
+	recordId?: string;
+	status: ExecutionStatus;
+	error?: string;
+}
+
+/** 任务调度注册失败（cron 非法等，任务已落盘但无法被调度）后广播 */
+export interface ScheduledTaskErrorEvent {
+	type: "scheduled-task:error";
+	taskId: string;
+	error: string;
+}
+
+// ============ 定时任务数据模型 ============
+
+/** 定时任务调度配置 */
+export interface TaskSchedule {
+	type: "daily" | "weekdays" | "weekly" | "monthly" | "custom";
+	time: string; // "09:30"
+	dayOfWeek?: number; // weekly: 0-6 (0=周日)
+	dayOfMonth?: number; // monthly: 1-31
+	cronExpression?: string; // custom: 5 字段 cron
+}
+
+/** 定时任务 */
+export interface ScheduledTask {
+	id: string;
+	name: string;
+	schedule: TaskSchedule;
+	agentId: string; // 执行角色（已有智能体 ID）
+	prompt: string; // 任务指令（含 $skill 和 @bot_xxx 标记）
+	projectId?: string; // 工作目录（项目 ID）
+	enabled: boolean;
+	createdAt: number;
+	updatedAt: number;
+	lastRunAt?: number;
+	nextRunAt?: number;
+}
+
+/** 执行状态 */
+export type ExecutionStatus = "running" | "success" | "failed";
+
+/** 渠道推送结果 */
+export interface PushResult {
+	channelId: string;
+	channelName: string;
+	success: boolean;
+	error?: string;
+}
+
+/** 执行记录 */
+export interface ExecutionRecord {
+	id: string;
+	taskId: string;
+	taskName: string;
+	status: ExecutionStatus;
+	startedAt: number;
+	finishedAt?: number;
+	durationMs?: number;
+	sessionId?: string;
+	pushResults?: PushResult[];
+	error?: string;
+	summary?: string;
+}
 
 export type WSEvent = WSClientEvent | WSServerEvent;

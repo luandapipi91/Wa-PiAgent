@@ -102,6 +102,14 @@ import {
 /** 可注入的 client 工厂（测试用假 client 替换；生产 new RpcClient） */
 export type CreateClientFn = (opts: RpcClientOpts) => RpcClient;
 
+/** 定时任务会话注入的 robot_push 能力（ensureStarted 传入，经 bridge 分发执行）。
+ *  channels：任务 prompt 中 @ 标记的 botId 列表（写入子进程 env 供扩展注册工具）；
+ *  execute：kernel 侧推送实现（index.ts 用 createRobotPushTool 构造），返回结果文本。 */
+export interface RobotPushInjection {
+	channels: string[];
+	execute: (channel: string, message: string) => Promise<string>;
+}
+
 /** 上层事件回调携带的事件类型：pi RPC 事件 + kernel 合成的 queue_update */
 export type AgentManagerEvent = RpcEvent;
 
@@ -240,7 +248,7 @@ export class AgentManager {
 		projectId: string,
 		agentName: AgentName,
 		sessionId: string,
-		opts?: { imChannelContext?: string },
+		opts?: { imChannelContext?: string; robotPush?: RobotPushInjection },
 	): Promise<SessionHandle> {
 		// 命中缓存：进程已崩溃则拆除重建；agentName 不一致也拆除（新会话页 getCommands
 		// 兜底已用默认 agent 启动进程，用户切换后发送若复用会把消息交给旧 agent）；
@@ -272,6 +280,7 @@ export class AgentManager {
 			agentName,
 			sessionId,
 			opts?.imChannelContext,
+			opts?.robotPush,
 		);
 		this.starting.set(sessionId, promise);
 		try {
@@ -321,7 +330,10 @@ export class AgentManager {
 			}
 		}
 		const meta = old?.meta;
-		this._teardownSession(sessionId);
+		// 先解析 projectId（old 存在时取 meta，无额外 I/O；old 为 null 时读盘兜底），
+		// 并把持久化更新移到 teardown 之前：消除「teardown 后、starting.set 前」的异步竞态窗口。
+		// 否则用户切换角色后立即发消息，ensureStarted 会因 sessions/starting 均为空而
+		// 启动第二个 _createSession，两个 pi 进程并发创建同一 jsonl → 冲突失败 → 会话未启动。
 		const projectId =
 			meta?.projectId ??
 			(await this.opts.projectStore.load()).sessions.find(
@@ -329,6 +341,8 @@ export class AgentManager {
 			)?.projectId;
 		if (!projectId) throw new Error(`会话不存在: ${sessionId}`);
 		await this.opts.projectStore.setSessionAgent(sessionId, agentName);
+		// 拆除 + 重建为连续同步段（无 await）：并发 ensureStarted 会命中 starting 复用同一创建 promise
+		this._teardownSession(sessionId);
 		const promise = this._createSession(projectId, agentName, sessionId);
 		this.starting.set(sessionId, promise);
 		try {
@@ -459,6 +473,7 @@ export class AgentManager {
 		agentName: AgentName,
 		sessionId: string,
 		imChannelContext?: string,
+		robotPush?: RobotPushInjection,
 	): Promise<SessionHandle> {
 		// 启动时写入内置 subagent 的 .md 定义文件（~/.pi/agent/agents/*.md），已存在不覆盖
 		const agentsDir = join(WA_PI_DIR, "agents");
@@ -730,6 +745,21 @@ export class AgentManager {
 						currentCallSignal = undefined;
 					}
 				}
+				// robot_push：定时任务会话注入（普通会话无 robotPush → pi 进程未注册该工具，
+				// 走不到这里）。校验渠道合法后执行推送，返回文本结果给 pi。
+				if (tool === "robot_push" && robotPush) {
+					const p = params as { channel: string; message: string };
+					try {
+						const text = await robotPush.execute(p.channel, p.message);
+						return { content: [{ type: "text", text }], details: {} };
+					} catch (err) {
+						const error = err instanceof Error ? err.message : String(err);
+						return {
+							content: [{ type: "text", text: `推送失败：${error}` }],
+							details: { error },
+						};
+					}
+				}
 				if (!memoryEnabled && tool.startsWith("memory_")) {
 					return {
 						content: [
@@ -793,10 +823,15 @@ export class AgentManager {
 		const restricted = !!config?.tools?.length;
 		const toolArgs: { tools?: string[]; excludeTools?: string[] } = restricted
 			? {
-					tools: resolveAgentTools(
-						config!.tools!,
-						await this.getMcpDirectToolNames(),
-					),
+					tools: [
+						// 受限 agent 白名单中并入 robot_push：定时任务 agent 若显式配置了
+						// tools，不并入会被白名单挡掉推送工具（bridge 注册了但不在名单）
+						...(robotPush?.channels?.length ? ["robot_push"] : []),
+						...resolveAgentTools(
+							config!.tools!,
+							await this.getMcpDirectToolNames(),
+						),
+					],
 				}
 			: { excludeTools: [...ALWAYS_EXCLUDED_TOOLS] };
 
@@ -852,6 +887,12 @@ export class AgentManager {
 				WA_PI_BRIDGE_URL: this.opts.bridgeBaseUrl?.() ?? "",
 				WA_PI_BRIDGE_TOKEN: getBridgeToken(),
 				WA_PI_SESSION_ID: sessionId,
+				// 定时任务会话：channel 列表注入 env，bridge 扩展读到才注册 robot_push
+				...(robotPush?.channels?.length
+					? {
+							WA_PI_ROBOT_PUSH_CHANNELS: robotPush.channels.join(","),
+						}
+					: {}),
 			},
 			onEvent: (e) => this._onSessionEvent(sessionId, e),
 			onUiRequest: (req) =>

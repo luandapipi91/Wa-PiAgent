@@ -1,7 +1,6 @@
 import type {
 	WSClientEvent,
 	WSServerEvent,
-	AgentName,
 	McpServerStatus,
 	McpToolSummary,
 	TokenUsageSummary,
@@ -11,7 +10,8 @@ import {
 	SYSTEM_PROJECT_ID,
 	SYSTEM_PROJECT_CWD,
 	resolveSessionCwd,
-	WA_PI_DIR,
+	SCHEDULED_TASKS_FILE,
+	EXECUTION_RECORDS_FILE,
 } from "@wa-pi/shared";
 import type { DirEntry } from "@wa-pi/shared";
 import type { ConfigStore } from "./config-store";
@@ -48,7 +48,11 @@ import { extname, basename, join, resolve, sep } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
 import { extUiRegistry } from "./ext-ui-registry";
-import { handleBridgeRequest, handleBridgeStream, isBridgeStreamTool } from "./bridge-registry";
+import {
+	handleBridgeRequest,
+	handleBridgeStream,
+	isBridgeStreamTool,
+} from "./bridge-registry";
 import {
 	appendChunk,
 	finalizeRecording,
@@ -67,8 +71,11 @@ import { registerMemoryRoutes } from "./routes/memory";
 import { registerMcpRoutes } from "./routes/mcp";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerChannelRoutes } from "./routes/channels";
+import { createSchedulerRoutes } from "./routes/scheduler";
+import { registerContactRoutes } from "./routes/contacts";
 import { ChannelConflictError } from "./channel-manager";
 import { registerFileRoutes } from "./routes/files";
+import type { TaskScheduler } from "./scheduler";
 import { readSessionHistory, computeSessionUsage } from "./session-history";
 import { listPresets, getPreset, createAgentFromPreset } from "./preset-store";
 
@@ -394,12 +401,19 @@ export class WSServer {
 	private sseBus = new SseBus();
 	private router = new HttpRouter();
 	private sseHeartbeat: ReturnType<typeof setInterval> | null = null;
+	/** 定时任务调度器（后续任务注入实例；null 时路由 CRUD 仍可用，仅跳过 cron 同步） */
+	private scheduler: TaskScheduler | null = null;
 	private _promptLocks = new Map<string, Promise<void>>();
 	private _abortVersions = new Map<string, number>();
 	private _pendingAbortOnStart = new Set<string>(); // abort 时 agent 未启动则标记，agent_start 时执行 // abort 时递增，旧链 handler 版本不匹配则跳过
 
 	constructor(private opts: WSServerOpts) {
 		this.registerRoutes();
+	}
+
+	/** 注入定时任务调度器实例（index.ts 在 AgentManager/ChannelManager 就绪后调用） */
+	setScheduler(scheduler: TaskScheduler): void {
+		this.scheduler = scheduler;
 	}
 
 	// 广播给所有客户端（AgentManager.onEvent 在 index.ts 里直接调此方法）
@@ -485,7 +499,42 @@ export class WSServer {
 		registerMcpRoutes(this.router, callApi, ctx);
 		registerSettingsRoutes(this.router, callApi, ctx);
 		registerChannelRoutes(this.router, callApi, ctx);
+		registerContactRoutes(this.router, callApi, ctx);
 		registerFileRoutes(this.router, callApi, ctx);
+
+		// 定时任务路由：直接读写 JSON 文件，不走 callApi 适配器
+		const schedulerRoutes = createSchedulerRoutes(
+			SCHEDULED_TASKS_FILE,
+			EXECUTION_RECORDS_FILE,
+			(task) => {
+				// 调度注册失败（cron 非法等）不让已落盘的 CRUD 返回 500：
+				// 记日志 + 广播 error 事件让前端感知，任务本身已保存
+				try {
+					this.scheduler?.scheduleTask(task);
+				} catch (err) {
+					console.warn(
+						`[scheduler] 任务 ${task.id}（${task.name}）调度注册失败:`,
+						err,
+					);
+					this.broadcast({
+						type: "scheduled-task:error",
+						taskId: task.id,
+						error: err instanceof Error ? err.message : String(err),
+					});
+				}
+				// 任务变更后广播通知前端刷新列表
+				this.broadcast({ type: "scheduled-tasks:changed" });
+			},
+			(taskId) => {
+				this.scheduler?.cancelTask(taskId);
+				this.broadcast({ type: "scheduled-tasks:changed" });
+			},
+			async (taskId) => {
+				// 立即执行：委托 scheduler 执行并广播结果
+				await this.scheduler?.runTaskNow(taskId);
+			},
+		);
+		schedulerRoutes(this.router, callApi, ctx);
 	}
 
 	async start(): Promise<void> {
@@ -494,7 +543,12 @@ export class WSServer {
 			// Bun 默认 10s 空闲断连，SSE 长连接会被杀；放宽到 255s（心跳 30s 保活）
 			idleTimeout: 255,
 			fetch: async (req) => {
-				const url = new URL(req.url);
+				let url: URL;
+				try {
+					url = new URL(req.url);
+				} catch {
+					return new Response("Invalid URL", { status: 400 });
+				}
 				// SSE 事件总线：所有 kernel→前端推送经此一条流广播（去 WS 化）
 				if (url.pathname === "/api/events") {
 					const bus = this.sseBus;
@@ -589,7 +643,9 @@ export class WSServer {
 						// 关键时序：不 await，后台执行。立即 return Response 让消费方拿到响应头
 						// （满足 headersTimeout），handleBridgeStream 边跑边 enqueue 进度帧
 						// （消费方边读边收到，重置 bodyTimeout，避免 undici idle 空闲断连）。
-						void handleBridgeStream(body, writeLine, { signal: streamAbort.signal })
+						void handleBridgeStream(body, writeLine, {
+							signal: streamAbort.signal,
+						})
 							.then((r) => {
 								if (r) {
 									// 流式工具返回了非 null：说明 handleBridgeStream 在写帧前
@@ -934,7 +990,9 @@ export class WSServer {
 						.catch((err) => {
 							// dispose 竞态（session:delete / 空闲回收与预热并发）导致 ensureStarted
 							// 抛「会话已清理」是预期控制流，静默不打印；其他启动失败仍打 error。
-							if ((err as Error & { code?: string })?.code === "SESSION_DISPOSED")
+							if (
+								(err as Error & { code?: string })?.code === "SESSION_DISPOSED"
+							)
 								return;
 							console.error(
 								`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`,
@@ -1344,7 +1402,11 @@ export class WSServer {
 				// 单个预设完整内容（含 body 正文），供「查看提示词」按需获取
 				const preset = getPreset(event.id);
 				if (!preset) {
-					reply({ type: "error", message: `预设不存在: ${event.id}`, status: 404 });
+					reply({
+						type: "error",
+						message: `预设不存在: ${event.id}`,
+						status: 404,
+					});
 				} else {
 					reply({ type: "agent:preset", preset });
 				}
@@ -1357,7 +1419,11 @@ export class WSServer {
 					event.displayName,
 				);
 				if (!result.ok) {
-					reply({ type: "error", message: result.error, status: result.status });
+					reply({
+						type: "error",
+						message: result.error,
+						status: result.status,
+					});
 				} else {
 					reply({ type: "agent:created", agent: result.agent });
 					this.broadcast({
@@ -2033,6 +2099,24 @@ export class WSServer {
 				}
 				break;
 			}
+			case "extension:repair": {
+				try {
+					// 类型含 "progress" → callApi 自动 SSE 广播，reply 即可（与 install/upgrade 一致）
+					const onProgress = (message: string) =>
+						reply({ type: "extension:repair:progress", message });
+					await this.opts.extensionManager.repair(onProgress);
+					this.opts.agentManager.markAllDirty();
+					const { packages } = await this.opts.extensionManager.list();
+					this.broadcast({ type: "extension:changed", packages });
+					this.broadcast({ type: "extension:repair:done" });
+					const skillResult = await this.scanSkillsWithExtensions();
+					this.broadcast({ type: "skill:changed", ...skillResult });
+				} catch (err) {
+					// name=repair 不匹配任何 installs/upgrading → 前端落全局 error 区
+					this.broadcast({ type: "extension:error", name: "repair", error: (err as Error).message });
+				}
+				break;
+			}
 			case "extension:commands:list": {
 				// 插件命令页无 session 上下文：传空 sessionId，getCommands 会借用任意
 				// 活跃 pi 进程实时拉取命令（无活跃进程返回空数组，不创建孤儿进程）。
@@ -2335,7 +2419,10 @@ export class WSServer {
 					else if (event.type === "channels:update")
 						await cm.update(event.id, event.channel);
 					else await cm.remove(event.id);
-					reply({ type: "channels:current", channels: await cm.listWithStatus() });
+					reply({
+						type: "channels:current",
+						channels: await cm.listWithStatus(),
+					});
 				} catch (err) {
 					reply({
 						type: "error",
@@ -2346,7 +2433,9 @@ export class WSServer {
 				break;
 			}
 			case "channels:agent-usage": {
-				const usage = await this.opts.channelManager!.agentUsage(event.agentName);
+				const usage = await this.opts.channelManager!.agentUsage(
+					event.agentName,
+				);
 				reply({
 					type: "channels:agent-usage-result",
 					agentName: event.agentName,
@@ -2359,6 +2448,43 @@ export class WSServer {
 					? await this.opts.channelManager.listConversations()
 					: [];
 				reply({ type: "channel-conversations:current", conversations });
+				break;
+			}
+			case "contacts:list": {
+				const contacts = this.opts.channelManager
+					? await this.opts.channelManager.listContacts(
+							event.channelId || undefined,
+						)
+					: [];
+				reply({ type: "contacts:current", contacts });
+				break;
+			}
+			case "contacts:rename": {
+				if (!this.opts.channelManager) {
+					reply({ type: "error", message: "通讯录未启用", status: 400 });
+					break;
+				}
+				try {
+					const c = await this.opts.channelManager.renameContact(
+						event.id,
+						event.remark,
+					);
+					if (!c) {
+						reply({ type: "error", message: "联系人不存在", status: 404 });
+						break;
+					}
+					this.broadcast({ type: "contacts:changed" });
+					reply({
+						type: "contacts:current",
+						contacts: await this.opts.channelManager.listContacts(),
+					});
+				} catch (err) {
+					reply({
+						type: "error",
+						message: (err as Error).message,
+						status: 500,
+					});
+				}
 				break;
 			}
 			// mock 端点（测试专用，事件类型未进 WSClientEvent 联合，用 as any 兜底）
@@ -2376,7 +2502,8 @@ export class WSServer {
 				break;
 			}
 			case "channels:mock-outbox" as any: {
-				const messages = this.opts.channelManager?.mockOutbox((event as any).id) ?? [];
+				const messages =
+					this.opts.channelManager?.mockOutbox((event as any).id) ?? [];
 				reply({ type: "ok", messages } as any);
 				break;
 			}
