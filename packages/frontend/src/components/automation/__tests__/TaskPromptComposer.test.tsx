@@ -59,8 +59,14 @@ mock.module("../../../store/contacts", () => {
 // skills store：$ 技能弹窗数据源（与 SkillSuggestTextarea 同源；非空才渲染弹窗）
 mock.module("../../../store/skills", () => {
 	const store = {
-		skills: [{ name: "日报生成", description: "生成日报" }],
-		allSkills: [{ name: "日报生成", description: "生成日报" }],
+		skills: [
+			{ name: "日报生成", description: "生成日报" },
+			{ name: "周报生成", description: "生成周报" },
+		],
+		allSkills: [
+			{ name: "日报生成", description: "生成日报" },
+			{ name: "周报生成", description: "生成周报" },
+		],
 		load: () => {},
 	};
 	const useSkillsStore = (sel: (s: any) => unknown) => sel(store);
@@ -102,12 +108,23 @@ describe("TaskPromptComposer", () => {
 		expect(onChange).toHaveBeenCalledWith("推送 @im-push-to(ch_aaa,ct_p01) ");
 	});
 
-	test("value 末尾 $ → 弹出技能列表（testid=skill-picker），选中插入 $[技能名]", () => {
+	test("value 末尾 $ → 弹出技能弹窗（testid=skill-picker，通用 QuickInvokeMenu 渲染），点击选中插入 $[技能名]", () => {
 		const onChange = mock();
 		render(<TaskPromptComposer value="执行 $" onChange={onChange} />);
 		expect(screen.getByTestId("skill-picker")).toBeTruthy();
-		fireEvent.click(screen.getByTestId("skill-item-日报生成"));
+		// 列表体为通用 QuickInvokeMenu：按技能名文本定位点击
+		fireEvent.click(screen.getByText("日报生成"));
 		expect(onChange).toHaveBeenCalledWith("执行 $[日报生成] ");
+	});
+
+	test("技能弹窗键盘导航：ArrowDown 移高亮、Enter 选中插入", () => {
+		const onChange = mock();
+		render(<TaskPromptComposer value="执行 $" onChange={onChange} />);
+		const input = screen.getByTestId("task-prompt-input");
+		// 第二项（ArrowDown 一次）→ Enter 选中
+		fireEvent.keyDown(input, { key: "ArrowDown" });
+		fireEvent.keyDown(input, { key: "Enter" });
+		expect(onChange).toHaveBeenCalledWith("执行 $[周报生成] ");
 	});
 
 	test("存储形态的联系人标记渲染为 chip（显示人名）", () => {
