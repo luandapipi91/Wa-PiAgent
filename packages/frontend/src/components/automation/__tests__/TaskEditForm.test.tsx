@@ -7,6 +7,13 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { TaskEditForm } from "../TaskEditForm";
 import { useToastStore } from "../../../store/toast";
 
+/** contenteditable 指令输入：设文本并派发 input（extractText → onTextChange 链路） */
+function setPrompt(text: string) {
+	const el = screen.getByTestId("task-prompt-input") as HTMLElement;
+	el.textContent = text;
+	fireEvent.input(el);
+}
+
 const createTaskMock = mock();
 const updateTaskMock = mock();
 const setViewMock = mock();
@@ -111,9 +118,7 @@ describe("TaskEditForm", () => {
 		fireEvent.click(screen.getByTestId("task-agent-select"));
 		fireEvent.click(screen.getByTestId("task-agent-item-小助手"));
 		// 任务指令
-		fireEvent.change(screen.getByTestId("task-prompt-input"), {
-			target: { value: "生成今日报表" },
-		});
+		setPrompt("生成今日报表");
 		// 保存
 		fireEvent.click(screen.getByTestId("task-save-btn"));
 		expect(createTaskMock).toHaveBeenCalledWith(
@@ -142,7 +147,7 @@ describe("TaskEditForm", () => {
 			(screen.getByTestId("task-name-input") as HTMLInputElement).value,
 		).toBe("旧任务");
 		expect(
-			(screen.getByTestId("task-prompt-input") as HTMLTextAreaElement).value,
+			(screen.getByTestId("task-prompt-input") as HTMLElement).textContent,
 		).toBe("旧指令");
 	});
 
@@ -179,9 +184,7 @@ describe("TaskEditForm", () => {
 		// AgentDropdown 收起态：先点 pill 展开菜单再点智能体项
 		fireEvent.click(screen.getByTestId("task-agent-select"));
 		fireEvent.click(screen.getByTestId("task-agent-item-小助手"));
-		fireEvent.change(screen.getByTestId("task-prompt-input"), {
-			target: { value: "执行指令" },
-		});
+		setPrompt("执行指令");
 		// 切到「自定义 Cron」
 		const scheduleSelect = screen.getAllByRole("combobox")[0];
 		fireEvent.change(scheduleSelect, { target: { value: "custom" } });
@@ -205,9 +208,7 @@ describe("TaskEditForm", () => {
 		// AgentDropdown 收起态：先点 pill 展开菜单再点智能体项
 		fireEvent.click(screen.getByTestId("task-agent-select"));
 		fireEvent.click(screen.getByTestId("task-agent-item-小助手"));
-		fireEvent.change(screen.getByTestId("task-prompt-input"), {
-			target: { value: "执行指令" },
-		});
+		setPrompt("执行指令");
 		fireEvent.click(screen.getByTestId("task-save-btn"));
 		// 等待异步 catch 完成
 		await new Promise((r) => setTimeout(r, 10));

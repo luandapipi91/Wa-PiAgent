@@ -6,6 +6,26 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { TaskDetailView } from "../TaskDetailView";
 import { useToastStore } from "../../../store/toast";
 
+// contacts store：推送联系人卡的人名解析（ct_p01 → 张三）
+mock.module("../../../store/contacts", () => {
+	const contacts = [
+		{
+			id: "ct_p01",
+			channelId: "bot_aaa",
+			kind: "person",
+			userId: "zhangsan",
+			remark: "张三",
+			firstChatAt: 1,
+			lastChatAt: 2,
+		},
+	];
+	const store = { contacts, loadContacts: mock(async () => {}) };
+	const useContactsStore = (sel?: (s: typeof store) => unknown) =>
+		 sel ? sel(store) : store;
+	useContactsStore.getState = () => store;
+	return { useContactsStore };
+});
+
 const runTaskNowMock = mock();
 const startEditMock = mock();
 const loadRecordsMock = mock();
@@ -68,36 +88,63 @@ describe("TaskDetailView", () => {
 		expect(screen.getByText(/📂 p1/)).toBeTruthy();
 	});
 
-	test("prompt 中的 $/skill 渲染为紫色标签", () => {
+	test("prompt 中的 $[技能名] 渲染为紫色标签", () => {
 		schedulerState.tasks = [
 			{
 				id: "t1",
 				name: "任务",
 				schedule: { type: "daily", time: "09:00" },
 				agentId: "a",
-				prompt: "运行 $/report 生成报表",
+				prompt: "运行 $[日报生成] 生成报表",
 			},
 		];
 		schedulerState.selectedTaskId = "t1";
 		render(<TaskDetailView />);
-		// $/report 文本节点存在
-		expect(screen.getByText("$/report")).toBeTruthy();
+		expect(screen.getByText("$[日报生成]")).toBeTruthy();
 	});
 
-	test("prompt 中的 @bot_xxx 渲染为绿色标签并计入推送渠道", () => {
+	test("prompt 中的 @im-push-to 标记渲染为绿色标签，联系人卡显示人名", () => {
 		schedulerState.tasks = [
 			{
 				id: "t1",
 				name: "任务",
 				schedule: { type: "daily", time: "09:00" },
 				agentId: "a",
-				prompt: "推送到 @bot_abc123",
+				prompt: "推送 @im-push-to(bot_aaa,ct_p01) 日报",
 			},
 		];
 		schedulerState.selectedTaskId = "t1";
 		render(<TaskDetailView />);
-		expect(screen.getByText("@bot_abc123")).toBeTruthy();
-		expect(screen.getByText(/📨 bot_abc123/)).toBeTruthy();
+		expect(screen.getByText("@im-push-to(bot_aaa,ct_p01)")).toBeTruthy();
+		// 推送联系人卡显示人名（contacts store 解析 ct_p01 → 张三）
+		expect(screen.getByText(/张三/)).toBeTruthy();
+	});
+
+	test("推送联系人卡：失效联系人显示原始 id，无标记时显示无", () => {
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "推送 @im-push-to(bot_aaa,ct_gone) 日报",
+			},
+			{
+				id: "t2",
+				name: "无标记任务",
+				schedule: { type: "daily", time: "10:00" },
+				agentId: "a",
+				prompt: "普通指令",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		const { rerender } = render(<TaskDetailView />);
+		// 联系人卡：📨 前缀限定，避开 prompt 高亮标签里的同名 id
+		expect(screen.getByText(/📨 ct_gone/)).toBeTruthy();
+		// 切到无标记任务 → 卡片显示无
+		schedulerState.selectedTaskId = "t2";
+		rerender(<TaskDetailView />);
+		expect(screen.getByText(/无/)).toBeTruthy();
 	});
 
 	test("点击「立即执行」调用 runTaskNow(taskId)", () => {

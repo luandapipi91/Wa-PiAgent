@@ -1,16 +1,18 @@
 import { useEffect, type ReactNode } from "react";
 import { useSchedulerStore } from "../../store/scheduler";
 import { useToastStore } from "../../store/toast";
+import { useContactsStore } from "../../store/contacts";
 import type { ScheduledTask, ExecutionRecord } from "@wa-pi/shared";
-import { parseChannelMentions } from "../../utils/channel-mentions";
+import { parseImPushTokens } from "./prompt-tokens";
 
 /**
- * 任务详情视图：四宫格信息（计划/角色/渠道/目录）+ 任务指令高亮 + 最近执行记录。
+ * 任务详情视图：四宫格信息（计划/角色/联系人/目录）+ 任务指令高亮 + 最近执行记录。
  * 选中任务变化时拉取该任务的执行记录。
  */
 export function TaskDetailView() {
 	const { tasks, selectedTaskId, records, loadRecords, startEdit, runTaskNow } =
 		useSchedulerStore();
+	const { contacts } = useContactsStore();
 	const task = tasks.find((t) => t.id === selectedTaskId);
 
 	useEffect(() => {
@@ -28,7 +30,11 @@ export function TaskDetailView() {
 		);
 	}
 
-	const channelIds = parseChannelMentions(task.prompt);
+	const imTokens = parseImPushTokens(task.prompt);
+	const contactLabel = (ctId: string) => {
+		const c = contacts.find((x) => x.id === ctId);
+		return c ? c.remark || c.userId || ctId : ctId;
+	};
 	const recentRecords = records.filter((r) => r.taskId === task.id).slice(0, 3);
 
 	return (
@@ -75,8 +81,12 @@ export function TaskDetailView() {
 				/>
 				<InfoCard label="执行角色" value={`🤖 ${task.agentId}`} />
 				<InfoCard
-					label="推送渠道"
-					value={channelIds.length > 0 ? `📨 ${channelIds.join(", ")}` : "无"}
+					label="推送联系人"
+					value={
+						imTokens.length > 0
+							? `📨 ${imTokens.map((t) => contactLabel(t.contactId)).join("、")}`
+							: "无"
+					}
 				/>
 				<InfoCard label="工作目录" value={`📂 ${task.projectId ?? "默认"}`} />
 			</div>
@@ -175,11 +185,11 @@ function RecordRow({ record }: { record: ExecutionRecord }) {
 	);
 }
 
-// 渲染 prompt 时高亮 $/skill 为紫色标签，@bot_xxx 为绿色标签
+// 渲染 prompt 时高亮 $[技能名] 为紫色标签，@im-push-to(...) 为绿色标签
 function renderPrompt(prompt: string): ReactNode {
-	const parts = prompt.split(/(\$\/[a-zA-Z0-9_-]+|@bot_[a-zA-Z0-9_-]+)/g);
+	const parts = prompt.split(/(@im-push-to\([^)]+\)|\$\[[^\]]+\])/g);
 	return parts.map((part, i) => {
-		if (part.startsWith("$/")) {
+		if (part.startsWith("$[")) {
 			return (
 				<span
 					key={i}
@@ -190,7 +200,7 @@ function renderPrompt(prompt: string): ReactNode {
 				</span>
 			);
 		}
-		if (part.startsWith("@bot_")) {
+		if (part.startsWith("@im-push-to(")) {
 			return (
 				<span
 					key={i}

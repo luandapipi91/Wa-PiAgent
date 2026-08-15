@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useSchedulerStore } from "../../store/scheduler";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useClampMenu } from "../ProjectItem";
+import { HAS_IM_PUSH_RE } from "./prompt-tokens";
 import type { ScheduledTask, ExecutionStatus } from "@wa-pi/shared";
 
 /** 右键菜单打开状态：屏幕坐标 + 目标任务 */
@@ -213,7 +214,7 @@ function TaskCard({
 	onClick: () => void;
 	onContextMenu: (e: React.MouseEvent) => void;
 }) {
-	const hasIM = task.prompt.includes("@bot_");
+	const hasIM = HAS_IM_PUSH_RE.test(task.prompt);
 	const scheduleText = formatSchedule(task.schedule);
 
 	return (
