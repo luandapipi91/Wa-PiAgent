@@ -167,7 +167,10 @@ export function AgentDropdown({
 						<span className="max-w-[180px] truncate">
 							{current.displayName}
 						</span>
-						<span style={{ fontSize: "calc(10px * var(--font-scale))" }}>
+						<span
+							className="ml-auto flex-none"
+							style={{ fontSize: "calc(10px * var(--font-scale))" }}
+						>
 							▾
 						</span>
 					</>
@@ -176,7 +179,10 @@ export function AgentDropdown({
 						<span className="text-tertiary">
 							{placeholder ?? t("ui.agentDropdown.placeholderDefault")}
 						</span>
-						<span style={{ fontSize: "calc(10px * var(--font-scale))" }}>
+						<span
+							className="ml-auto flex-none"
+							style={{ fontSize: "calc(10px * var(--font-scale))" }}
+						>
 							▾
 						</span>
 					</>
