@@ -2,6 +2,18 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — feat(kernel/frontend): IM 会话顶部铅笔编辑通讯录备注名
+
+### 变更
+
+- **交互**：IM 会话聊天顶部标题（原为「IM · u1」技术标题）右侧新增铅笔图标，点击进入行内编辑通讯录备注名；默认显示技术标题，编辑后显示「IM · 备注名」（清空备注则回退技术标题）。
+- **自动补建**：当前正在聊的联系人若尚未进通讯录，点铅笔保存时自动 `ensureContact` 补建后再 `renameContact`；无联系人且输入为空则不创建（避免点开又关产生空条目）。
+- **kernel 链路**：`contact-store.ts` 新增 `ensureContact`（按 `channelId+kind+匹配键` 命中返回/未命中创建含 id，并发同键只建一条）；`channel-manager` 暴露 `ensureContact`；`ws-server` 新增 `contacts:ensure` 事件（空 channelManager→400、抛错→500、成功→reply `contacts:ensured`）；`routes/contacts.ts` 新增 `POST /api/contacts/ensure`；`shared/types.ts` 新增 `ContactsEnsureRequest`/`ContactsEnsureResult`。
+- **前端 store**：`contacts.ts` 新增 `ensureContact` 方法 + `contactOf` 纯函数（按 channelId+kind+key 查完整联系人），`remarkOf` 改为复用 `contactOf`。
+- **SessionView 集成**：`SessionView` 新增 `imConv` prop（IM 会话传入 `ChannelConversationInfo`），顶部标题 IM 会话时改用新 `ImSessionTitle` 组件；`App.tsx` 把 `imConv` 传入。
+- 测试：kernel `contact-store` 3 用例 + `ws-server-contacts` 3 用例 + `routes-contacts` 1 用例；frontend `ImSessionTitle` 组件 10 用例；e2e `channels.spec.ts` 新增「铅笔编辑备注名（自动补建+持久化）」用例，并给首用例补 `saveProvider` 规避 onboarding 向导遮挡（既有 flaky）。
+- 影响范围：`kernel/src/{contact-store,channel-manager,routes/contacts,ws-server}.ts`、`shared/src/types.ts`、`frontend/src/{store/contacts.ts,components/ImSessionTitle.tsx(新),components/SessionView.tsx,App.tsx}`、`frontend/e2e/channels.spec.ts`。
+
 ## 2026-08-15 — feat(kernel/frontend): 定时任务执行记录详情页（执行过程回放）
 
 ### 变更
