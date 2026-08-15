@@ -602,7 +602,11 @@ export function App() {
 								: t("app.imSourceSingle", { channel: imConv.channelName })
 							: undefined;
 						return (
-							<SessionView sessionId={currentSessionId} sourceLabel={label} />
+							<SessionView
+								sessionId={currentSessionId}
+								sourceLabel={label}
+								imConv={imConv}
+							/>
 						);
 					})()}
 			</main>

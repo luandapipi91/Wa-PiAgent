@@ -25,6 +25,16 @@ test.describe.serial("IM 渠道机器人", () => {
 	let channelId: string;
 
 	test("设置页创建机器人（企微表单，假凭据）", async ({ page, request }) => {
+		// 无供应商时 App 首启会弹 onboarding 向导遮挡点击，预置假 provider 规避
+		await saveProvider({
+			id: "e2e-channels-setup",
+			name: "E2E Channels Setup",
+			slug: "e2e-channels-setup",
+			baseUrl: "http://localhost:9999/v1",
+			apiKey: "sk-e2e",
+			api: "openai-completions",
+			models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+		});
 		await page.goto("/");
 		await page.getByTestId("settings-btn").click();
 		await page.getByTestId("settings-nav-bots").click();
@@ -245,6 +255,84 @@ test.describe.serial("IM 渠道机器人", () => {
 				.count();
 			return gone === 0 ? true : null;
 		}, 10_000);
+	});
+
+	test("IM 会话顶部铅笔编辑通讯录备注名（自动补建 + 持久化）", async ({ page }) => {
+		// 假 provider 的连接失败会走内核自动重试，留足超时
+		test.setTimeout(120_000);
+		// 无供应商时 App 首启会弹 onboarding 向导遮挡点击，预置假 provider 规避
+		await saveProvider({
+			id: "e2e-rename-provider",
+			name: "E2E Rename",
+			slug: "e2e-rename",
+			baseUrl: "http://localhost:9999/v1",
+			apiKey: "sk-e2e",
+			api: "openai-completions",
+			models: [{ id: "model-a", contextWindow: 128000, maxTokens: 4096 }],
+		});
+		await page.goto("/");
+		// 建独立 mock 渠道
+		const res = await page.request.post(`${KERNEL}/api/channels`, {
+			data: {
+				channel: {
+					type: "mock",
+					name: "E2E-Rename",
+					enabled: true,
+					credentials: { botId: "mock-r", secret: "mock-s" },
+					agentName: "dev",
+					model: null,
+					extraSystemPrompt: "",
+					replyGranularity: "standard",
+				},
+			},
+		});
+		expect(res.ok()).toBeTruthy();
+		const renameChannelId = ((await res.json()) as any).channels[0].id;
+
+		try {
+			// 注入进站消息（单聊 u-rename），触发会话 + 通讯录采集
+			await page.request.post(
+				`${KERNEL}/api/channels/${renameChannelId}/mock-inbound`,
+				{ data: { chatId: "u-rename", text: "你好" } },
+			);
+			await pollUntil(async () => {
+				const r = await page.request.get(
+					`${KERNEL}/api/channels/${renameChannelId}/mock-outbox`,
+				);
+				const body = (await r.json()) as any;
+				return body.messages?.length > 0 ? body : null;
+			});
+
+			// 打开会话：顶部显示技术标题 + 铅笔图标
+			await page.getByTestId("sidebar-tab-im").click();
+			await expect(page.getByTestId("im-conv-list")).toBeVisible({ timeout: 5000 });
+			await page
+				.locator('button[data-testid^="im-conv-"]', { hasText: "u-rename" })
+				.click();
+			await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 5000 });
+			await expect(page.getByTestId("session-view")).toContainText("IM · u-rename");
+			await expect(page.getByTestId("im-session-title-edit")).toBeVisible();
+
+			// 点铅笔 → 输入框 → 输入备注名 → Enter 保存
+			await page.getByTestId("im-session-title-edit").click();
+			const input = page.getByTestId("im-session-title-input");
+			await expect(input).toBeVisible();
+			await input.fill("李四");
+			await input.press("Enter");
+			// 顶部标题变为 IM · 备注名
+			await expect(page.getByTestId("session-view")).toContainText("IM · 李四");
+
+			// 刷新验证持久化（remark 已落盘，重新打开会话仍显示备注名）
+			await page.reload();
+			await page.getByTestId("sidebar-tab-im").click();
+			await expect(page.getByTestId("im-conv-list")).toBeVisible({ timeout: 5000 });
+			await page
+				.locator('button[data-testid^="im-conv-"]', { hasText: "李四" })
+				.click();
+			await expect(page.getByTestId("session-view")).toContainText("IM · 李四");
+		} finally {
+			await page.request.delete(`${KERNEL}/api/channels/${renameChannelId}`);
+		}
 	});
 
 	test("群聊隔离：同群不同用户 → IM 列表出现两个独立会话，标题可区分", async ({

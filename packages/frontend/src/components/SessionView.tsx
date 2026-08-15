@@ -3,6 +3,7 @@ import {
 	SYSTEM_PROJECT_ID,
 	resolveSessionCwd,
 	type AgentStatus,
+	type ChannelConversationInfo,
 } from "@wa-pi/shared";
 import { useTranslation } from "../i18n/useTranslation";
 import { useProjectsStore } from "../store/projects";
@@ -14,6 +15,7 @@ import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
 import { AskDock } from "./ask/AskDock";
 import { AgentSwitcher } from "./AgentSwitcher";
+import ImSessionTitle from "./ImSessionTitle";
 import { ExplorerPanel } from "./ExplorerPanel";
 import { STATUS_COLORS } from "../theme/colors";
 import { AnsiText } from "./ui/AnsiText";
@@ -25,6 +27,8 @@ interface Props {
 	sessionId: string;
 	/** 来源文案（IM 接入会话显示，拼到 header 状态行末尾，如「经『客服机器人』接入」） */
 	sourceLabel?: string;
+	/** IM 会话信息：存在则顶部标题改为可编辑通讯录名（ImSessionTitle），否则普通标题 */
+	imConv?: ChannelConversationInfo;
 }
 
 // agent 全局状态的 i18n key（header 直接展示给用户，不暴露英文枚举值）
@@ -34,7 +38,7 @@ const AGENT_STATE_KEY: Record<AgentStatus, string> = {
 	blocked: "session.stateBlocked",
 };
 
-export function SessionView({ sessionId, sourceLabel }: Props) {
+export function SessionView({ sessionId, sourceLabel, imConv }: Props) {
 	const { t } = useTranslation();
 	const session = useProjectsStore((s) =>
 		s.sessions.find((x) => x.id === sessionId),
@@ -208,9 +212,13 @@ export function SessionView({ sessionId, sourceLabel }: Props) {
 				<header className="flex items-center gap-3 px-5 py-3 border-b border-hairline bg-surface">
 					<div className="flex-1">
 						<div className="flex items-center gap-2">
-							<span className="text-[calc(14px*var(--font-scale))] font-bold text-primary">
-								{session.title}
-							</span>
+							{imConv ? (
+								<ImSessionTitle sessionTitle={session.title} imConv={imConv} />
+							) : (
+								<span className="text-[calc(14px*var(--font-scale))] font-bold text-primary">
+									{session.title}
+								</span>
+							)}
 							{/* IM 接入会话：智能体由机器人配置锁定，不暴露切换入口；普通会话保留 */}
 							{!sourceLabel && <AgentSwitcher sessionId={sessionId} />}
 						</div>
