@@ -1,15 +1,13 @@
 // TaskPromptComposer 组件测试（bun:test，匹配本项目既有组件测试约定）。
-// 输入框本体与 $ 技能弹窗由公共组件 SkillSuggestTextarea 提供（其行为由
-// tests/SkillSuggestTextarea.test.tsx 覆盖），本文件只测 TaskPromptComposer
-// 自己的职责：@ 联系人选择器触发/替换/关闭，以及提示行渲染。
-//
-// @ 语义：选择 IM 渠道通讯录里的「某个人」（kind=person），插入 @ct_xxx
-// （联系人 id），任务执行时经 kernel 主动推送到该联系人——而不是渠道本身。
+// v2：contenteditable chip 输入框（ComposerTextarea + toPromptHtml）。
+// - @ 联系人：chip 显示人名，存储形态 @im-push-to(bot,ct)（kernel 执行时解析）
+// - $ 技能：chip 显示技能名，存储形态 $[技能名]（kernel 执行时任意位置展开）
+// 本文件测 TaskPromptComposer 自己的职责：双弹窗触发/插入/关闭、chip 渲染、失效联系人灰化。
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { TaskPromptComposer } from "../TaskPromptComposer";
 
-// channels store：提供渠道名（供 @ 弹窗按渠道分组展示），不再作为弹窗数据源
+// channels store：提供渠道名（供 @ 弹窗按渠道分组展示）
 mock.module("../../../store/channels", () => ({
 	useChannelsStore: () => ({
 		bots: [
@@ -19,7 +17,7 @@ mock.module("../../../store/channels", () => ({
 	}),
 }));
 
-// contacts store：提供 person 联系人（通讯录），供 @ 弹窗选择。
+// contacts store：提供 person 联系人（通讯录），供 @ 弹窗选择与 chip 名字解析。
 // 组件无参调用 useContactsStore() 取整个 state，也按 zustand selector 取子集，mock 需两者都支持。
 mock.module("../../../store/contacts", () => {
 	const contacts = [
@@ -58,13 +56,11 @@ mock.module("../../../store/contacts", () => {
 	return { useContactsStore };
 });
 
-// 渲染 SkillSuggestTextarea 需要 skills store；提供空列表即可（$ 弹窗不开时用不到）。
-// 组件按 zustand selector 用法取 s.skills，mock 需透传 sel 参数；
-// SkillSuggestTextarea 的 useEffect 还会调 useSkillsStore.getState().load()。
+// skills store：$ 技能弹窗数据源（与 SkillSuggestTextarea 同源；非空才渲染弹窗）
 mock.module("../../../store/skills", () => {
 	const store = {
-		skills: [],
-		allSkills: [],
+		skills: [{ name: "日报生成", description: "生成日报" }],
+		allSkills: [{ name: "日报生成", description: "生成日报" }],
 		load: () => {},
 	};
 	const useSkillsStore = (sel: (s: any) => unknown) => sel(store);
@@ -79,53 +75,102 @@ beforeEach(() => {
 describe("TaskPromptComposer", () => {
 	test("渲染输入框与 $ / @ 提示", () => {
 		render(<TaskPromptComposer value="" onChange={() => {}} />);
-		expect(screen.getByPlaceholderText(/让智能体/)).toBeTruthy();
-		// 提示行中的 $ 与 @ 标记（各自独立 <strong>，文本严格匹配）
+		expect(screen.getByTestId("task-prompt-input")).toBeTruthy();
+		// placeholder 为 CSS 伪元素（contenteditable 无 placeholder 属性），断言 data 属性
+		expect(
+			screen
+				.getByTestId("task-prompt-input")
+				.getAttribute("data-placeholder"),
+		).toContain("让智能体");
 		expect(screen.getByText("$")).toBeTruthy();
 		expect(screen.getByText("@")).toBeTruthy();
 	});
 
-	test("输入 @ 弹出联系人列表（仅 person，按渠道分组显示渠道名）", () => {
+	test("value 末尾 @ → 弹出联系人列表（仅 person，按渠道分组，testid=contact-picker）", () => {
 		render(<TaskPromptComposer value="推送 @" onChange={() => {}} />);
+		expect(screen.getByTestId("contact-picker")).toBeTruthy();
 		expect(screen.getByText("张三")).toBeTruthy();
 		expect(screen.getByText("李四")).toBeTruthy();
-		// 渠道名分组展示（分组标题含 emoji，用正则匹配）
 		expect(screen.getByText(/企微/)).toBeTruthy();
 		expect(screen.getByText(/飞书/)).toBeTruthy();
 		// 群聊联系人（kind=group）不展示——@ 目标是人
 		expect(screen.queryByText("wr_group01")).toBeNull();
 	});
 
-	test("选中联系人后把光标前的 @ 替换为 @ct_xxx（联系人 id）", () => {
+	test("选中联系人后末尾 @ 替换为 @im-push-to(bot,ct) 标记", () => {
 		const onChange = mock();
 		render(<TaskPromptComposer value="推送 @" onChange={onChange} />);
-		const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
-		// 光标置于末尾（@ 之后），模拟真实输入
-		textarea.setSelectionRange(4, 4);
-		fireEvent.keyUp(textarea, { key: "@" });
-		fireEvent.click(screen.getByText("张三"));
-		expect(onChange).toHaveBeenCalledWith("推送 @ct_p01 ");
+		fireEvent.click(screen.getByTestId("contact-item-ct_p01"));
+		expect(onChange).toHaveBeenCalledWith(
+			"推送 @im-push-to(bot_aaa,ct_p01) ",
+		);
 	});
 
-	test("Escape 键关闭联系人选择器", () => {
+	test("value 末尾 $ → 弹出技能列表（testid=skill-picker），选中插入 $[技能名]", () => {
+		const onChange = mock();
+		render(<TaskPromptComposer value="执行 $" onChange={onChange} />);
+		expect(screen.getByTestId("skill-picker")).toBeTruthy();
+		fireEvent.click(screen.getByTestId("skill-item-日报生成"));
+		expect(onChange).toHaveBeenCalledWith("执行 $[日报生成] ");
+	});
+
+	test("存储形态的联系人标记渲染为 chip（显示人名）", () => {
+		render(
+			<TaskPromptComposer
+				value="推给 @im-push-to(bot_aaa,ct_p01) 完成"
+				onChange={() => {}}
+			/>,
+		);
+		const chip = document.querySelector(
+			'[data-token="@im-push-to(bot_aaa,ct_p01)"]',
+		);
+		expect(chip).toBeTruthy();
+		expect(chip!.textContent).toContain("张三");
+		expect(chip!.className).toContain("chip-im");
+	});
+
+	test("存储形态的技能标记渲染为 chip-skill", () => {
+		render(
+			<TaskPromptComposer value="执行 $[日报生成] 跑" onChange={() => {}} />,
+		);
+		const chip = document.querySelector('[data-token="$[日报生成]"]');
+		expect(chip).toBeTruthy();
+		expect(chip!.className).toContain("chip-skill");
+	});
+
+	test("失效联系人（store 查无）灰化显示 id", () => {
+		render(
+			<TaskPromptComposer
+				value="推给 @im-push-to(bot_aaa,ct_gone)"
+				onChange={() => {}}
+			/>,
+		);
+		const chip = document.querySelector('[data-token^="@im-push-to"]');
+		expect(chip!.className).toContain("chip-im-invalid");
+		expect(chip!.textContent).toContain("ct_gone");
+	});
+
+	test("Escape 关闭联系人选择器", () => {
 		render(<TaskPromptComposer value="推送 @" onChange={() => {}} />);
-		const textarea = screen.getByRole("textbox");
-		expect(screen.getByTestId("channel-picker")).toBeTruthy();
-		fireEvent.keyDown(textarea, { key: "Escape" });
-		expect(screen.queryByTestId("channel-picker")).toBeNull();
+		expect(screen.getByTestId("contact-picker")).toBeTruthy();
+		fireEvent.keyDown(screen.getByTestId("task-prompt-input"), {
+			key: "Escape",
+		});
+		expect(screen.queryByTestId("contact-picker")).toBeNull();
 	});
 
 	test("点击外部关闭联系人选择器", () => {
 		render(<TaskPromptComposer value="推送 @" onChange={() => {}} />);
-		expect(screen.getByTestId("channel-picker")).toBeTruthy();
-		// 模拟点击容器外部
+		expect(screen.getByTestId("contact-picker")).toBeTruthy();
 		fireEvent.mouseDown(document.body);
-		expect(screen.queryByTestId("channel-picker")).toBeNull();
+		expect(screen.queryByTestId("contact-picker")).toBeNull();
 	});
 
-	test("继续输入（@ 后追加文本）自动收起选择器", () => {
-		render(<TaskPromptComposer value="推送 @张" onChange={() => {}} />);
-		// value 末尾不再是 @ → 派生状态自动收起
-		expect(screen.queryByTestId("channel-picker")).toBeNull();
+	test("value 末尾非触发符 → 双弹窗均不显示", () => {
+		render(
+			<TaskPromptComposer value="推送 @张 执行 $日" onChange={() => {}} />,
+		);
+		expect(screen.queryByTestId("contact-picker")).toBeNull();
+		expect(screen.queryByTestId("skill-picker")).toBeNull();
 	});
 });

@@ -127,19 +127,18 @@ test.describe
 			await page.getByTestId("task-agent-item-研发").click();
 			await expect(page.getByTestId("task-agent-select")).toContainText("研发");
 
-			// 填任务指令：先验证 $ 触发技能窗口（真实浏览器，公共组件 SkillSuggestTextarea 的弹窗）
+			// 填任务指令：先验证 $ 触发技能弹窗（真实浏览器，contenteditable chip 输入框）
 			const promptInput = page.getByTestId("task-prompt-input");
 			await promptInput.fill("整理一下 $");
-			await expect(page.getByTestId("skill-suggest-list")).toBeVisible();
+			await expect(page.getByTestId("skill-picker")).toBeVisible();
 			await promptInput.fill("E2E：请整理今日文件");
-			await expect(page.getByTestId("skill-suggest-list")).toBeHidden();
+			await expect(page.getByTestId("skill-picker")).toBeHidden();
 
-			// 验证 @ 触发联系人选择器（真实浏览器：输入 @ 弹通讯录人列表）
+			// 验证 @ 触发联系人选择器（派生状态：value 末尾 @ 即弹出，无需按键）
 			await promptInput.fill("推送 @");
-			await page.keyboard.press("@");
-			await expect(page.getByTestId("channel-picker")).toBeVisible();
+			await expect(page.getByTestId("contact-picker")).toBeVisible();
 			await promptInput.fill("E2E：请整理今日文件");
-			await expect(page.getByTestId("channel-picker")).toBeHidden();
+			await expect(page.getByTestId("contact-picker")).toBeHidden();
 
 			// 必填齐全后保存按钮可用 → 点击保存
 			const save = page.getByTestId("task-save-btn");
