@@ -3,6 +3,7 @@ import { useSchedulerStore } from "../../store/scheduler";
 import { useAgentsStore } from "../../store/agents";
 import { useProjectsStore } from "../../store/projects";
 import { useToastStore } from "../../store/toast";
+import { AgentDropdown } from "../ui/AgentDropdown";
 import { TaskPromptComposer } from "./TaskPromptComposer";
 import type { TaskSchedule } from "@wa-pi/shared";
 
@@ -82,7 +83,7 @@ export function TaskEditForm() {
 	};
 
 	return (
-		<div className="max-w-[560px]" data-testid="task-edit-form">
+		<div className="max-w-[560px] mx-auto" data-testid="task-edit-form">
 			{/* 任务名称 */}
 			<div className="mb-3.5">
 				<label
@@ -112,9 +113,7 @@ export function TaskEditForm() {
 				<div className="flex gap-2">
 					<select
 						value={scheduleType}
-						onChange={(e) =>
-							setScheduleType(e.target.value as TaskSchedule["type"])
-						}
+						onChange={(e) => setScheduleType(e.target.value as TaskSchedule["type"])}
 						className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
 						style={inputStyle}
 					>
@@ -180,36 +179,14 @@ export function TaskEditForm() {
 				>
 					执行角色（智能体）
 				</label>
-				<div className="flex gap-1.5 flex-wrap">
-					{agents.map((agent) => {
-						const selected = agentId === agent.displayName;
-						return (
-							<div
-								key={agent.displayName}
-								onClick={() => setAgentId(agent.displayName)}
-								className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] cursor-pointer border"
-								style={{
-									borderColor: selected ? "var(--accent)" : "var(--hairline)",
-									background: selected
-										? "var(--accent-soft)"
-										: "var(--surface-hover)",
-									color: selected ? "var(--accent)" : "var(--text-secondary)",
-								}}
-							>
-								<span>{agent.avatar || "🤖"}</span>
-								<span>{agent.displayName}</span>
-							</div>
-						);
-					})}
-					{agents.length === 0 && (
-						<span
-							className="text-[10px]"
-							style={{ color: "var(--text-tertiary)" }}
-						>
-							暂无智能体
-						</span>
-					)}
-				</div>
+				{/* 执行角色（智能体）：复用通用 AgentDropdown（搜索 + 头像 + 描述） */}
+				<AgentDropdown
+					agents={agents}
+					value={agentId || null}
+					onPick={(name) => setAgentId(name)}
+					pillTestId="task-agent-select"
+					itemTestIdPrefix="task-agent"
+				/>
 			</div>
 
 			{/* 任务指令 */}
@@ -219,9 +196,7 @@ export function TaskEditForm() {
 					style={{ color: "var(--text-secondary)" }}
 				>
 					任务指令{" "}
-					<span style={{ color: "var(--text-tertiary)" }}>
-						（$ 技能，@ 渠道）
-					</span>
+					<span style={{ color: "var(--text-tertiary)" }}>（$ 技能，@ 联系人）</span>
 				</label>
 				<TaskPromptComposer value={prompt} onChange={setPrompt} />
 			</div>

@@ -125,9 +125,13 @@ export function ProjectItem(props: Props) {
 	const reorderConsumedRef = useRef(0);
 
 	const mySessions = (() => {
-		// IM 渠道会话（im- 前缀）归属 IM 页签，不在任务列表显示
+		// IM 渠道会话（im- 前缀）归属 IM 页签；定时任务执行会话（sched- 前缀）独立于侧栏，
+		// 均不在任务列表显示（kernel loadActive 已过滤，此处防御存量/竞态数据）
 		const list = sessions.filter(
-			(s) => s.projectId === project.id && !s.id.startsWith("im-"),
+			(s) =>
+				s.projectId === project.id &&
+				!s.id.startsWith("im-") &&
+				!s.id.startsWith("sched-"),
 		);
 		const shouldReorder = reorderSignal !== reorderConsumedRef.current;
 		const ordered = orderSessions(list, lastOrderRef.current, shouldReorder);

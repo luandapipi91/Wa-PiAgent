@@ -82,10 +82,13 @@ beforeEach(() => {
 });
 
 describe("TaskEditForm", () => {
-	test("渲染表单：任务名、保存按钮、智能体列表", () => {
+	test("渲染表单：任务名、保存按钮、智能体选择器", () => {
 		render(<TaskEditForm />);
 		expect(screen.getByTestId("task-name-input")).toBeTruthy();
 		expect(screen.getByTestId("task-save-btn")).toBeTruthy();
+		// 通用智能体选择器（AgentDropdown）：pill 存在，展开后可看到智能体列表
+		expect(screen.getByTestId("task-agent-select")).toBeTruthy();
+		fireEvent.click(screen.getByTestId("task-agent-select"));
 		expect(screen.getByText("小助手")).toBeTruthy();
 		expect(screen.getByText("研究员")).toBeTruthy();
 	});
@@ -104,7 +107,9 @@ describe("TaskEditForm", () => {
 			target: { value: "每日报表" },
 		});
 		// 选择智能体
-		fireEvent.click(screen.getByText("小助手"));
+		// AgentDropdown 收起态：先点 pill 展开菜单再点智能体项
+		fireEvent.click(screen.getByTestId("task-agent-select"));
+		fireEvent.click(screen.getByTestId("task-agent-item-小助手"));
 		// 任务指令
 		fireEvent.change(screen.getByTestId("task-prompt-input"), {
 			target: { value: "生成今日报表" },
@@ -171,7 +176,9 @@ describe("TaskEditForm", () => {
 		fireEvent.change(screen.getByTestId("task-name-input"), {
 			target: { value: "测试任务" },
 		});
-		fireEvent.click(screen.getByText("小助手"));
+		// AgentDropdown 收起态：先点 pill 展开菜单再点智能体项
+		fireEvent.click(screen.getByTestId("task-agent-select"));
+		fireEvent.click(screen.getByTestId("task-agent-item-小助手"));
 		fireEvent.change(screen.getByTestId("task-prompt-input"), {
 			target: { value: "执行指令" },
 		});
@@ -195,7 +202,9 @@ describe("TaskEditForm", () => {
 		fireEvent.change(screen.getByTestId("task-name-input"), {
 			target: { value: "测试任务" },
 		});
-		fireEvent.click(screen.getByText("小助手"));
+		// AgentDropdown 收起态：先点 pill 展开菜单再点智能体项
+		fireEvent.click(screen.getByTestId("task-agent-select"));
+		fireEvent.click(screen.getByTestId("task-agent-item-小助手"));
 		fireEvent.change(screen.getByTestId("task-prompt-input"), {
 			target: { value: "执行指令" },
 		});

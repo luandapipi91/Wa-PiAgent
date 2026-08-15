@@ -2,6 +2,94 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — feat(kernel/frontend): 任务指令 @ 改为选联系人 + kernel 主动推送能力
+
+### 变更
+
+- **业务修正**：任务指令 `@` 原来选 IM 渠道本身（`@bot_xxx`）——但渠道是被动回复（`sendText(null)` 需要进站帧），且无法指定接收人，任务结果根本推不到具体的人（用户反馈）。改为 `@` 选**渠道通讯录里的人**（`@ct_xxx` 联系人 id），任务执行时主动推送到该联系人。
+- **kernel 主动推送能力（新）**：`ChannelAdapter` 新增 `pushMessage?(chatId, markdown)`（主动发送，无需进站 replyFrame）；wecom-adapter 用 SDK `client.sendMessage(chatId, {msgtype:'markdown', markdown:{content}})`（aibot_send_msg 主动通道），mock-adapter 记录 outbox（含 chatId）。`ChannelManager.pushToContact(contactId, message)`：按联系人 id 查通讯录 → person 用 userId（单聊）/group 用 chatId（群）→ 经所属渠道 adapter 主动推送；联系人/渠道不存在、adapter 不支持主动推送均抛错。
+- **@ 解析扩展**：`robot-push.ts` 新增 `parseContactMentions`（解析 `@ct_xxx`）；`createRobotPushTool` 支持联系人目标（`ct_` 前缀走 pushToContact，`bot_` 走 pushToChannel），deps 增加 `availableContactIds`；`index.ts` executeTask 同时解析渠道+联系人注入 robot_push。
+- **前端选择器改为联系人**：TaskPromptComposer `@` 数据源从 `useChannelsStore().bots`（渠道）换成 `useContactsStore().contacts`（通讯录），弹窗按渠道分组展示 person 联系人（渠道名 + remark||userId），选中插入 `@ct_xxx`；群聊联系人（kind=group）不展示；空态提示「暂无联系人（先在 IM 里发起会话后自动收录）」；打开时主动 `loadContacts()`（新联系人采集无广播兜底）。触发改为派生状态（value 末尾 `@` 时显示，Escape/外点/滚动 dismiss，继续输入自动收起），修复旧实现 fill 后不关闭的问题。文案同步：「@ 关联 IM 渠道」→「@ 选择联系人」。
+- 测试：kernel robot-push 26 例（parseContactMentions 3 + execute ct_ 2）、channel-manager 31 例（pushToContact 2）、mock-adapter 2 例（pushMessage）全绿；kernel 全量 1023 pass；frontend TaskPromptComposer 6 例全绿、全量 1519 pass（2 fail 既有）；E2E automation 4/4（test2 真实浏览器验证 @ 联系人选择器弹出/自动收起）。
+- 影响范围：`kernel/src/channels/{types,wecom-adapter,mock-adapter}.ts`、`channel-manager.ts`、`tools/robot-push.ts`、`index.ts`、`frontend/src/components/automation/{TaskPromptComposer,TaskEditForm}.tsx`、对应测试、`e2e/automation.spec.ts`。
+
+---
+
+## 2026-08-15 — feat/fix(frontend): 新建文案改自动化 + 表单居中 + 任务指令 $ 技能窗口
+
+### 变更
+
+- **文案统一「自动化」**：新建/编辑弹窗标题 `新建定时任务`→`新建自动化`、`编辑定时任务`→`编辑自动化`；侧边栏与空态引导页的「+ 新建」按钮 →「+ 新建自动化」。分组名「定时任务」保留。
+- **新建弹窗表单居中**：TaskEditForm 顶层 `max-w-[560px]` 加 `mx-auto`——在 Modal 内容区（640 宽 − 32 padding = 608px）里由靠左改水平居中，左右留白对称。
+- **任务指令输入框 $ 技能窗口（复用公共组件）**：初版手搓技能弹窗（absolute 定位被 Modal 裁剪、portal 化后仍自维护）→ 用户反馈「太大、透明背景、参考机器设置用公用组件」→ 改为直接复用公共组件 `SkillSuggestTextarea`（设置页 BotsSection 同款）：输入框本体 + $ 技能弹窗全部内建（portal 挂 body、fixed 定位、`background: var(--surface)` 不透明、宽度=输入框宽、maxHeight 240、方向键导航、token 替换）。TaskPromptComposer 只保留 @ 渠道职责（keyup 冒泡到容器 div 检测 @，渠道弹窗 portal 挂 body 锚定容器矩形，背景补齐 `var(--surface)` + `boxShadow`）。行为差异：公共组件用 `s.skills`（仅启用技能）、技能为空不渲染弹窗——比初版更合理。
+- **E2E 预置技能**：公共组件仅技能非空时渲染弹窗，E2E 独立 WA_PI_DIR 无技能 → global-setup 预置 `skills/e2e-skill/SKILL.md`（frontmatter 格式匹配 kernel skill-utils 扫描），真实浏览器验证 $ 弹窗（`skill-suggest-list`）。
+- **新建/编辑弹窗仅取消/保存可关**：Modal 默认点阴影关闭，新建自动化表单误点阴影会丢输入 → AutomationMain 传 `closeOnOverlayClick={false}`，点阴影不再关闭（ESC 仍可关），只有「取消/保存」按钮关闭。测试：AutomationMain 用例改为「点遮罩不关闭」；取消按钮关闭由 TaskEditForm 既有用例覆盖。
+- 测试/已知：前端全量 1518 pass（2 fail 既有：maxEntries/项目名折叠）；automation 组件 50 例全绿（TaskPromptComposer 保留 5 例 @渠道职责，$ 由 SkillSuggestTextarea 自带测试覆盖）；typecheck 0 错；E2E automation+agents 12/12（automation test2 真实浏览器验证公共组件 $ 技能弹窗 `skill-suggest-list`：fill "整理一下 $" → 可见 → fill 正式指令 → 收起）。
+- 影响范围：`automation/{AutomationMain,AutomationSidebar,TaskEditForm,TaskPromptComposer}.tsx`、`e2e/automation.spec.ts`、对应测试。
+
+---
+
+## 2026-08-15 — fix(frontend): 原生控件（时间选择/滚动条）跟随深浅主题
+
+### 变更
+
+- **根因**：styles.css 从未设置 `color-scheme`。应用用 `<html data-theme>` 切深浅主题，但由 UA 绘制的原生控件（`<input type="time">` 的时钟图标、日期/时间选择器、滚动条、select 箭头等）默认跟随 OS `prefers-color-scheme`，不跟随应用 `data-theme`——应用手动切深色（或 OS 与 app 不一致）时，深色背景上是浅色 UA 的深色图标，看不见。
+- **修复**：浅色 `:root` 补 `color-scheme: light`，深色 `:root[data-theme="dark"]` 补 `color-scheme: dark`。UA 用与 `data-theme` 一致的颜色方案渲染所有原生控件，时间 icon 等自动跟随主题。TaskEditForm 新建自动化表单的时间输入即受益。仓库内无内联 `colorScheme` 与此冲突；表单输入均已显式覆盖背景/文字色，不受 UA 默认色影响。
+- 影响范围：仅 `src/styles.css`（两个根块加声明）。验证：前端全量 1517 pass（3 fail 既有）、E2E automation+agents 12/12 无回归。
+
+---
+
+## 2026-08-15 — fix(frontend): 任务卡右键菜单 + 最近执行状态点 + AgentDropdown 弹窗内裁剪
+
+### 变更
+
+- **右键菜单（对齐会话列表模式）**：任务卡右键不再直接弹删除确认，改弹上下文菜单（createPortal + fixed z-50 + useClampMenu 视口钳制，复用 ProjectItem 导出 hook）：菜单项「▶ 立即执行」「🗑 删除」，点删除才弹 ConfirmDialog 二次确认；点外部/ESC 关菜单（setTimeout(0) 延迟注册防误关）；project-menu-close 跨组件菜单互斥。
+- **最近执行状态点**：任务卡右上角显示该任务最近一次执行结果（✓ 绿成功 / ✕ 红 / ⟳ 蓝执行中，颜色映射与执行记录页一致），由 records 按 startedAt 取每任务最新一条推导；侧栏挂载时同步 loadRecords()。执行记录页/详情页原有状态展示不变。
+- **AgentDropdown 弹窗内裁剪**：菜单从组件内 absolute 改 createPortal 挂 body（fixed z-50）——逃逸新建任务弹窗内容区（overflow-y-auto + maxHeight 70vh）的 overflow 裁剪；按 pill 矩形定位（左对齐/顶部+4px），底部溢出向上翻转，右溢出左移钳制（取代原 translateX 方案）；外点关闭补 menuRef 判定（portal 后菜单不在 rootRef 子树）。NewSessionPane/AgentSwitcher/TaskEditForm 三个使用方同时受益。
+- **AgentDropdown 滚动收起修复**：初版「捕获阶段监听任意 scroll 即关菜单」误伤菜单自身列表滚动（智能体多时一滚就收起）；改为 scroll target 在 menuRef 内部不关闭、仅外部容器滚动关闭（防 fixed 脱锚）。补 2 用例（内滚不关/外滚关闭）。
+- 测试：AutomationSidebar 重写 9 用例（右键菜单/立即执行/删除确认链/外点关闭/状态点推导）；AgentDropdown 定位 3 用例重写到 fixed 定位契约（含新增向上翻转用例，mock 需同时覆盖 button+div 两类原型）；E2E automation test4 改右键菜单流程。⚠️ automation.spec 中途被并行格式化改过，edit 工具 oldText 匹配失败 → python 字节级替换完成。
+- 影响范围：`automation/AutomationSidebar.tsx`、`ui/AgentDropdown.tsx`、对应测试、`e2e/automation.spec.ts`。验证：AgentDropdown 14 例 + Sidebar 9 例全绿、前端全量 1515 pass（3 fail 既有）、typecheck 0 错、E2E automation+agents 12/12（真实浏览器验证菜单/下拉/翻转）。
+
+---
+
+## 2026-08-15 — fix(kernel/frontend): 定时任务执行会话隔离，不进侧栏会话列表
+
+### 变更
+
+- **根因**：executeTask 创建的 sched 会话直接写入 projects.json，无任何隔离标记，loadActive 不过滤、前端只排 im- 前缀 → 出现在项目列表与最近会话列表（本机实测存有 1 条泄漏会话）。
+- **shared**：`SessionEntity` 新增可选 `source?: "im" | "scheduler"` 字段，显式化会话来源（原靠 id 前缀隐式约定）；`createSession` 入参透传。
+- **kernel**：① executeTask 传 `source: "scheduler"`，IM ensureSession 传 `source: "im"`（收编前缀约定）；② `loadActive` 过滤 `source === "scheduler"` + 存量 `sched-` 前缀兑底；③ IM 会话列表数据源（channel-sessions mapping）经查与 projects.json 独立，sched 会话不会写入，无需防御。
+- **前端防御**：`ProjectItem` / `recentSessions` 过滤条件补 `!startsWith("sched-")`（kernel 未升级/事件竞态时自洽）。
+- 执行记录独立性：`ExecutionRecord.sessionId` 已回填，会话查看走 `load()` 不受 loadActive 过滤影响，TaskDetailView 执行记录仍可正常查看。
+- 测试：project-store 新增 3 用例（scheduler 过滤+存量兑底、load 全量保留、IM source=im 不过滤）；真实数据实证（本机 projects.json 存量 sched 会话 loadActive 过滤为 0）；kernel channel-manager/routes 45 例回归全过；前端 16 例 + E2E recent-sessions 过；三包 typecheck 0 错。
+- 影响范围：`shared/src/types.ts`、`kernel/src/{project-store,index,channel-manager}.ts`、`frontend/src/{components/ProjectItem,util/recentSessions}.ts`。
+
+---
+
+## 2026-08-15 — feat(frontend): 自动化默认页规则 + 点选切换 + 通用智能体选择器 + 右键删除
+
+### 变更
+
+- **默认页规则**（AutomationMain store 驱动化，props 全部内化）：选中任务→详情；有任务未选中→默认执行记录页；无任务→新建引导页（⚡ + 暂无文案 + 「+ 新建」直达按钮）。App.tsx 调用简化为 `<AutomationMain />`，删除四个孤立 store 订阅。
+- **点选切换**：`selectTask` 改 toggle——再点同一张卡片取消选中（selectedTaskId 回 null，主区回默认页），点不同卡片切换。新增 `tests/scheduler-store.test.ts` 3 用例。
+- **通用智能体选择器**：TaskEditForm 执行角色从自研按钮组换成 `ui/AgentDropdown`（AgentSwitcher/NewSessionPane 同款：搜索 + 头像 + 描述 + 视口钳制），pill/列表 testid 前缀 task-agent。
+- **右键删除**：TaskCard onContextMenu 弹 `ui/ConfirmDialog`（danger 红色确认，任务名回显），确认调 deleteTask，SSE 驱动列表刷新。
+- 测试：AutomationMain.test 重写为 7 用例（引导页/默认记录页/详情/弹窗/遮罩关闭）；AutomationSidebar 补右键删除确认+取消 2 用例；TaskEditForm 4 用例适配 AgentDropdown 交互；E2E automation.spec 重构——test1 引导页断言、test2 AgentDropdown 交互+保存后默认记录页、test3 详情后再点取消、test4 右键删除 UI 流程（替代 REST 删除，SSE 链路同验）。
+- 影响范围：`automation/{AutomationMain,AutomationSidebar,TaskEditForm}.tsx`、`store/scheduler.ts`、`App.tsx`、`tests/scheduler-store.test.ts`（新）、e2e/automation.spec.ts。验证：automation 组件 44 例 + store 3 例全绿、前端全量 1511 pass（3 fail 既有）、typecheck 0 错、E2E 4/4（偏移端口 9876/5280）。
+
+---
+
+## 2026-08-15 — refactor(frontend): 新建/编辑任务弹窗化 + 侧栏去「执行记录」按钮
+
+### 变更
+
+- **新建任务弹窗化**：`AutomationMain` 从 App.tsx 移入 `automation/AutomationMain.tsx` 并弹窗化——edit 态不再整页替换主区，改用 `ui/Modal`（width 640，内容区 maxHeight 70vh 滚动）叠加表单，主区始终保持任务详情。关闭路径统一：ESC/遮罩/取消/保存均走 `setView("detail")`（取消与保存已有行为不变，ESC/遮罩免费获得）。弹窗标题区分新建/编辑。App.tsx 同步清理三个孤立 import。
+- **侧栏去「执行记录」按钮**：工具栏只留「+ 新建」。执行记录仍可从任务详情页查看（每任务最近 3 条）；ExecutionRecords 全量视图暂无 UI 入口（按需求移除，后续如需可从详情页加链接）。
+- **测试**：新增 `AutomationMain.test.tsx`（5 用例：弹窗呈现/主区不被替换、编辑标题、detail 无弹窗、records 视图、遮罩关闭回 detail）；AutomationSidebar 补「无执行记录按钮」断言；E2E automation.spec 适配——test2 改弹窗断言（弹窗标题+主区 header 保持），删除引用已删按钮的执行记录用例（4 用例 serial 连贯流）。⚠️ 仓库裸跑 `bun test` 有 mock.module 跨文件串扰（automation 目录 26 fail 系既有现象，与本次无关），须用官方 `bun --env-file=.env.test test --isolate`。
+- 影响范围：`App.tsx`、`automation/AutomationMain.tsx`（新）、`AutomationSidebar.tsx`、`__tests__/AutomationMain.test.tsx`（新）、`__tests__/AutomationSidebar.test.tsx`、`e2e/automation.spec.ts`。验证：automation 40 例全绿、前端全量 1504 pass（3 fail 为既有）、typecheck 0 错、E2E 4/4（偏移端口 9876/5280）。
+
+---
+
 ## 2026-08-15 — fix(frontend): 通讯录侧滑面板覆盖式定位 + 行内编辑回填/按钮溢出修复
 
 ### 变更

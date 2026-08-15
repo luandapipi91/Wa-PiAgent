@@ -807,3 +807,33 @@ test("defaultProjectId 指向已删除项目 → ensureSession 降级为 __syste
 		console.warn = origWarn;
 	}
 });
+
+test("pushToContact：按联系人 id 主动推送到对应会话（单聊 userid）", async () => {
+	await manager.create(channel);
+	// 注入进站消息产生 person 联系人（user-1）
+	adapter!.inject({ chatId: "user-1", text: "hi" });
+	await new Promise((r) => setTimeout(r, 50));
+	const contacts = await manager.listContacts();
+	const person = contacts.find((c) => c.kind === "person" && c.userId === "user-1");
+	expect(person).toBeTruthy();
+
+	await manager.pushToContact(person!.id, "**定时任务推送**");
+	const last = adapter!.outbox.at(-1)!;
+	expect(last.text).toBe("**定时任务推送**");
+	expect(last.chatId).toBe("user-1"); // 单聊 → chatId = userid
+	expect(last.replyFrame).toBeNull(); // 主动推送无回复帧
+});
+
+test("pushToContact：群联系人 → chatId = chatid；联系人不存在 → 抛错", async () => {
+	await manager.create(channel);
+	adapter!.inject({ chatId: "group-1", chatType: "group", text: "hi" });
+	await new Promise((r) => setTimeout(r, 50));
+	const contacts = await manager.listContacts();
+	const group = contacts.find((c) => c.kind === "group" && c.chatId === "group-1");
+	expect(group).toBeTruthy();
+
+	await manager.pushToContact(group!.id, "群消息");
+	expect(adapter!.outbox.at(-1)!.chatId).toBe("group-1");
+
+	await expect(manager.pushToContact("ct_not_exist", "x")).rejects.toThrow();
+});
