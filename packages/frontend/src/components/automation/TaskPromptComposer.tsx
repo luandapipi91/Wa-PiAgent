@@ -236,6 +236,8 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 					toHtml={(t) => toPromptHtml(t, contactMeta)}
 					testId="task-prompt-input"
 					placeholder="让智能体帮你做什么...（$ 插入技能，@ 选择联系人）"
+					// 边框与表单其他输入框一致（浅色模式下裸 contenteditable 与背景融合，看不出可输入）
+					className="rounded-md border border-hairline focus-within:border-accent px-3 py-2 min-h-[80px]"
 				/>
 			</div>
 			{/* 提示行 */}
