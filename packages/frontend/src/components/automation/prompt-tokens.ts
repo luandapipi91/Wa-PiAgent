@@ -7,8 +7,7 @@ import { textToHtml } from "../../quick-invoke/tokens";
 
 /** 完整标记正则（模块内部用；.test 判定请用下方导出的无 g 版）。
  *  第一段为联系人所属渠道 id（真实生成 ch_ 前缀，见 kernel channel-manager.ts） */
-const IM_PUSH_TOKEN_RE =
-	/@im-push-to\(ch_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)/g;
+const IM_PUSH_TOKEN_RE = /@im-push-to\(ch_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)/g;
 /** 侧边栏徽标等 .test() 判定用（无 g，避免 lastIndex 状态污染） */
 export const HAS_IM_PUSH_RE =
 	/@im-push-to\(ch_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)/;

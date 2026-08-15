@@ -90,10 +90,7 @@ export function AutomationSidebar() {
 		<div className="flex flex-col h-full" data-testid="automation-sidebar">
 			{/* 工具栏 */}
 			<div className="flex items-center justify-between px-2 py-1.5">
-				<span
-					className="text-[10px]"
-					style={{ color: "var(--text-secondary)" }}
-				>
+				<span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>
 					定时任务 ({tasks.length})
 				</span>
 				<div className="flex gap-1">
@@ -243,11 +240,7 @@ function TaskCard({
 							style={statusStyle(lastStatus)}
 							data-testid={`task-last-status-${task.id}`}
 						>
-							{lastStatus === "success"
-								? "✓"
-								: lastStatus === "failed"
-									? "✕"
-									: "⟳"}
+							{lastStatus === "success" ? "✓" : lastStatus === "failed" ? "✕" : "⟳"}
 						</span>
 					)}
 					<span

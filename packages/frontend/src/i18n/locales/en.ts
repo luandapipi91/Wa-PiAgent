@@ -498,8 +498,7 @@ const en = {
 		nameTaken: "This name is taken",
 		creating: "Creating…",
 		create: "Create",
-		searchPlaceholder:
-			"🔍 Search {{count}} preset agents (name / description)…",
+		searchPlaceholder: "🔍 Search {{count}} preset agents (name / description)…",
 		noMatch: "No matching presets",
 		roleLine: "Role: {{name}} · {{department}}",
 		saving: "Saving…",
@@ -676,7 +675,8 @@ const en = {
 		general: {
 			exportTurns: {
 				label: "Export conversation turns",
-				desc: "When exporting to image, how many turns of dialogue before the current AI reply to include ({{min}}-{{max}} turns). Takes effect immediately.",
+				desc:
+					"When exporting to image, how many turns of dialogue before the current AI reply to include ({{min}}-{{max}} turns). Takes effect immediately.",
 				unit: "turns",
 			},
 			exportIncludeUser: {
@@ -687,7 +687,8 @@ const en = {
 			},
 			retry: {
 				label: "Auto retry",
-				desc: "Automatically retry model requests on network error / timeout / 5xx / rate limit. Retry interval grows as interval × 2ⁿ. Applies to new requests after saving.",
+				desc:
+					"Automatically retry model requests on network error / timeout / 5xx / rate limit. Retry interval grows as interval × 2ⁿ. Applies to new requests after saving.",
 				maxLabel: "Max retries (0-{{max}})",
 				delayLabel: "Base retry interval (seconds, {{min}}-{{max}})",
 				httpTimeoutLabel: "Request timeout (seconds)",
@@ -696,13 +697,15 @@ const en = {
 			},
 			language: {
 				label: "Language",
-				desc: "Choose the interface language. Takes effect immediately. On first launch it is auto-selected based on your browser language.",
+				desc:
+					"Choose the interface language. Takes effect immediately. On first launch it is auto-selected based on your browser language.",
 				zh: "中文",
 				en: "English",
 			},
 			sound: {
 				label: "Sound",
-				desc: "Play a sound when a task finishes or needs your action. Effective immediately.",
+				desc:
+					"Play a sound when a task finishes or needs your action. Effective immediately.",
 				taskDone: "Task complete",
 				needsAction: "Action required",
 				preview: "Preview",
@@ -723,7 +726,8 @@ const en = {
 			},
 			fontSize: {
 				label: "Font size",
-				desc: "Drag the slider to adjust text size ({{min}}-{{max}}px). Only scales text, not layout. Takes effect immediately.",
+				desc:
+					"Drag the slider to adjust text size ({{min}}-{{max}}px). Only scales text, not layout. Takes effect immediately.",
 			},
 		},
 		diagnostics: {
@@ -803,7 +807,8 @@ const en = {
 			installTitle: "Install new plugin",
 			repairBtn: "Repair dependencies",
 			confirmRepairTitle: "Repair dependencies",
-			confirmRepairMessage: "This will delete and reinstall all extension dependencies (~1 min). Consider closing sessions that use extensions first.",
+			confirmRepairMessage:
+				"This will delete and reinstall all extension dependencies (~1 min). Consider closing sessions that use extensions first.",
 			repairing: "Repairing dependencies…",
 			repairingBtn: "Repairing…",
 			repairDone: "Dependencies repaired",

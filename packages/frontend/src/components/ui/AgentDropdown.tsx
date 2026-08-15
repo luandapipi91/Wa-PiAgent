@@ -143,10 +143,7 @@ export function AgentDropdown({
 				}`}
 			>
 				{showMissing ? (
-					<span
-						data-testid={`${itemTestIdPrefix}-missing`}
-						className="truncate"
-					>
+					<span data-testid={`${itemTestIdPrefix}-missing`} className="truncate">
 						{t("ui.agentDropdown.missingHint")}
 					</span>
 				) : current ? (
@@ -164,9 +161,7 @@ export function AgentDropdown({
 						>
 							{current.avatar}
 						</span>
-						<span className="max-w-[180px] truncate">
-							{current.displayName}
-						</span>
+						<span className="max-w-[180px] truncate">{current.displayName}</span>
 						<span
 							className="ml-auto flex-none"
 							style={{ fontSize: "calc(10px * var(--font-scale))" }}
