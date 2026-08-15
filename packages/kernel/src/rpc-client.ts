@@ -235,9 +235,7 @@ export class RpcClient {
 	}
 
 	getMessages(): Promise<any[]> {
-		return this.command({ type: "get_messages" }).then(
-			(d) => d?.messages ?? [],
-		);
+		return this.command({ type: "get_messages" }).then((d) => d?.messages ?? []);
 	}
 
 	/** 拉取当前会话可用的 slash 命令（extension/prompt/skill 三类，由 pi 运行时决定） */
@@ -396,10 +394,7 @@ export class RpcClient {
 			} catch {
 				/* 已退出 */
 			}
-			await Promise.race([
-				exitPromise,
-				new Promise((r) => setTimeout(r, 1000)),
-			]);
+			await Promise.race([exitPromise, new Promise((r) => setTimeout(r, 1000))]);
 		}
 		this.proc = null;
 	}
@@ -492,8 +487,7 @@ export class RpcClient {
 			this.opts.onEvent({
 				type: "extension_status",
 				statusKey: req.statusKey,
-				statusText:
-					typeof req.statusText === "string" ? req.statusText : undefined,
+				statusText: typeof req.statusText === "string" ? req.statusText : undefined,
 			} as RpcEvent);
 		}
 		if (req.method === "setWidget" && typeof req.widgetKey === "string") {
@@ -610,8 +604,7 @@ export function buildPiArgs(spec: PiLaunchSpec): string[] {
 	const args: string[] = [];
 	if (spec.sessionFile) args.push("--session", spec.sessionFile);
 	if (spec.noSession) args.push("--no-session");
-	if (spec.systemPromptFile)
-		args.push("--system-prompt", spec.systemPromptFile);
+	if (spec.systemPromptFile) args.push("--system-prompt", spec.systemPromptFile);
 	for (const p of spec.extensionPaths ?? []) args.push("-e", p);
 	if (spec.noSkills) args.push("--no-skills");
 	for (const s of spec.skillPaths ?? []) args.push("--skill", s);

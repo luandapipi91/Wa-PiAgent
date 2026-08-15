@@ -38,7 +38,7 @@ test("slugifyProviders 分配唯一 slug", () => {
 test("slugifyProviders 同名冲突加后缀", () => {
   const result = slugifyProviders([
     sampleProvider({ id: "p1", name: "My DeepSeek" }),
-    sampleProvider({ id: "p2", name: "My DeepSeek" }),  // 同名
+    sampleProvider({ id: "p2", name: "My DeepSeek" }), // 同名
   ]);
   expect(result[0].slug).toBe("my-deepseek");
   expect(result[1].slug).toBe("my-deepseek-2");
@@ -62,7 +62,9 @@ test("generateProviderExtension：内置目录有 baseUrl 时优先用内置（�
       name: "OpenCode Zen Go",
       slug: "opencode-go",
       baseUrl: "https://opencode.ai/zen/go",
-      models: [{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 }],
+      models: [
+        { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+      ],
     }),
   ];
   const sdkModelMap = new Map([
@@ -88,18 +90,48 @@ test("generateProviderExtension：内置目录有 baseUrl 时优先用内置（�
 test("generateProviderExtension：同名模型跨 provider 不互相污染 baseUrl", () => {
   // deepseek 和 opencode-go 都有 deepseek-v4-flash，但 baseUrl 不同
   const deepseek = sampleProvider({
-    id: "p1", name: "DeepSeek", slug: "deepseek",
+    id: "p1",
+    name: "DeepSeek",
+    slug: "deepseek",
     baseUrl: "https://api.deepseek.com/v1",
-    models: [{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 }],
+    models: [
+      { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+    ],
   });
   const opencode = sampleProvider({
-    id: "p2", name: "OpenCode Zen Go", slug: "opencode-go",
+    id: "p2",
+    name: "OpenCode Zen Go",
+    slug: "opencode-go",
     baseUrl: "https://opencode.ai/zen/go",
-    models: [{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 }],
+    models: [
+      { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+    ],
   });
   const sdkModelMap = new Map([
-    ["deepseek/deepseek-v4-flash", { contextWindow: 1000000, maxTokens: 384000, reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, name: "DeepSeek V4 Flash", baseUrl: "https://api.deepseek.com" }],
-    ["opencode-go/deepseek-v4-flash", { contextWindow: 1000000, maxTokens: 384000, reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, name: "DeepSeek V4 Flash", baseUrl: "https://opencode.ai/zen/go/v1" }],
+    [
+      "deepseek/deepseek-v4-flash",
+      {
+        contextWindow: 1000000,
+        maxTokens: 384000,
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "DeepSeek V4 Flash",
+        baseUrl: "https://api.deepseek.com",
+      },
+    ],
+    [
+      "opencode-go/deepseek-v4-flash",
+      {
+        contextWindow: 1000000,
+        maxTokens: 384000,
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "DeepSeek V4 Flash",
+        baseUrl: "https://opencode.ai/zen/go/v1",
+      },
+    ],
   ]);
   const code = generateProviderExtension([deepseek, opencode], sdkModelMap);
   // 各自用各自的 baseUrl
@@ -136,7 +168,10 @@ test("generateProviderExtension 空列表生成空工厂", () => {
 });
 
 test("generateProviderExtension anthropic 格式正确映射", () => {
-  const code = generateProviderExtension([sampleProvider({ api: "anthropic-messages" })], new Map());
+  const code = generateProviderExtension(
+    [sampleProvider({ api: "anthropic-messages" })],
+    new Map(),
+  );
   expect(code).toContain('api: "anthropic-messages"');
 });
 
@@ -147,7 +182,10 @@ test("generateProviderExtension SDK 查不到模型时 reasoning 默认 false", 
 });
 
 test("ensureProviderExtensionRegistered 写 extension 文件到指定目录", async () => {
-  const dir = join(import.meta.dir, ".tmp-ext-" + Math.random().toString(36).slice(2));
+  const dir = join(
+    import.meta.dir,
+    ".tmp-ext-" + Math.random().toString(36).slice(2),
+  );
   const generatedDir = join(dir, "generated");
   try {
     const { ProviderStore } = await import("../src/provider-store");
@@ -172,11 +210,22 @@ test("ensureProviderExtensionRegistered 写 extension 文件到指定目录", as
 // ---- extensionCoversProvider：校验 extension 文件是否覆盖了子智能体所需的 provider slug ----
 
 test("extensionCoversProvider: 文件不存在返回 false", () => {
-  expect(extensionCoversProvider(join(GENERATED_DIR, "nonexistent-" + Math.random().toString(36).slice(2) + ".ts"), "deepseek")).toBe(false);
+  expect(
+    extensionCoversProvider(
+      join(
+        GENERATED_DIR,
+        "nonexistent-" + Math.random().toString(36).slice(2) + ".ts",
+      ),
+      "deepseek",
+    ),
+  ).toBe(false);
 });
 
 test("extensionCoversProvider: 空壳 extension（无 registerProvider）对任意 slug 返回 false", async () => {
-  const dir = join(import.meta.dir, ".tmp-cover-" + Math.random().toString(36).slice(2));
+  const dir = join(
+    import.meta.dir,
+    ".tmp-cover-" + Math.random().toString(36).slice(2),
+  );
   try {
     const emptyExt = join(dir, "empty.ts");
     await mkdir(dir, { recursive: true });
@@ -188,8 +237,11 @@ test("extensionCoversProvider: 空壳 extension（无 registerProvider）对任�
 });
 
 test("extensionCoversProvider: 含目标 slug 的 registerProvider 返回 true", async () => {
-  const code = generateProviderExtension([sampleProvider()], new Map());  // slug = my-deepseek
-  const dir = join(import.meta.dir, ".tmp-cover2-" + Math.random().toString(36).slice(2));
+  const code = generateProviderExtension([sampleProvider()], new Map()); // slug = my-deepseek
+  const dir = join(
+    import.meta.dir,
+    ".tmp-cover2-" + Math.random().toString(36).slice(2),
+  );
   try {
     const extFile = join(dir, "ext.ts");
     await mkdir(dir, { recursive: true });
@@ -203,7 +255,10 @@ test("extensionCoversProvider: 含目标 slug 的 registerProvider 返回 true",
 });
 
 test("ensureProviderExtensionRegistered 多次调用覆盖式重写并反映最新 providers", async () => {
-  const dir = join(import.meta.dir, ".tmp-ext2-" + Math.random().toString(36).slice(2));
+  const dir = join(
+    import.meta.dir,
+    ".tmp-ext2-" + Math.random().toString(36).slice(2),
+  );
   const generatedDir = join(dir, "generated");
   try {
     const { ProviderStore } = await import("../src/provider-store");
@@ -211,7 +266,7 @@ test("ensureProviderExtensionRegistered 多次调用覆盖式重写并反映最�
     await store.save(sampleProvider({ name: "First Provider" }));
 
     await ensureProviderExtensionRegistered(store, generatedDir);
-    await ensureProviderExtensionRegistered(store, generatedDir);  // 二次调用（覆盖，不报错）
+    await ensureProviderExtensionRegistered(store, generatedDir); // 二次调用（覆盖，不报错）
 
     // 更新 provider 后再调用，文件内容应反映最新 providers
     await store.delete("p1");
@@ -246,7 +301,9 @@ test("generateProviderExtension: 带 slug 的 provider 生成的 extension 用 s
       name: "OpenCode Zen Go",
       slug: "opencode-go",
       baseUrl: "https://opencode.ai/zen/go/v1",
-      models: [{ id: "deepseek-v4-pro", contextWindow: 1000000, maxTokens: 384000 }],
+      models: [
+        { id: "deepseek-v4-pro", contextWindow: 1000000, maxTokens: 384000 },
+      ],
     }),
   ];
   const code = generateProviderExtension(providers, new Map());
@@ -268,7 +325,7 @@ test("slugifyProviders: 两个预设指向同一内置 slug 时第二个加后�
 
 test("slugifyProviders: slug 为 undefined 时 fallback 到 name 派生（向后兼容）", () => {
   const result = slugifyProviders([
-    sampleProvider({ id: "p1", name: "My Custom Provider" }),  // 无 slug 字段
+    sampleProvider({ id: "p1", name: "My Custom Provider" }), // 无 slug 字段
   ]);
   expect(result[0].slug).toBe("my-custom-provider");
 });
