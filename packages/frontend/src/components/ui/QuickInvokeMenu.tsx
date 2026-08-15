@@ -22,9 +22,11 @@ interface Props {
   onSelect: (item: MenuItem) => void;
   onHover: (index: number) => void;
   emptyText?: string;
+  /** 定位类覆写：默认为聊天输入框上方居中弹层；其他宿主（如自动化任务弹窗的 fixed 容器）可覆写 */
+  positionClassName?: string;
 }
 
-export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHover, emptyText }: Props) {
+export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHover, emptyText, positionClassName }: Props) {
   const highlightedElRef = useRef<HTMLElement | null>(null);
   const { t } = useTranslation();
   /** 来源标签文本 */
@@ -47,7 +49,7 @@ export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHov
   return (
     <div
       data-testid="quick-invoke-menu"
-      className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-[560px] max-w-[calc(100vw-2rem)] max-h-[320px] overflow-y-auto bg-surface border border-hairline rounded-xl shadow-xl z-50 p-1.5"
+      className={positionClassName ?? "absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-[560px] max-w-[calc(100vw-2rem)]" + " max-h-[320px] overflow-y-auto bg-surface border border-hairline rounded-xl shadow-xl z-50 p-1.5"}
     >
       {items.length === 0 ? (
         <div className="px-4 py-3 text-sm text-tertiary text-center">
@@ -81,7 +83,7 @@ export function QuickInvokeMenu({ type, items, highlightedIndex, onSelect, onHov
               className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
                 item.disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"
               } ${
-                i === highlightedIndex && !item.disabled ? "bg-accent-soft" : !item.disabled ? "hover:bg-surface-hover" : ""
+                i === highlightedIndex && !item.disabled ? "bg-accent-soft" : item.disabled ? "" : "hover:bg-surface-hover"
               }`}
               onClick={item.disabled ? undefined : () => onSelect(item)}
               onMouseEnter={() => onHover(i)}

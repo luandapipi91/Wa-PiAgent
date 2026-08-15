@@ -11,6 +11,7 @@ import { useContactsStore } from "../../store/contacts";
 import { useSkillsStore } from "../../store/skills";
 import type { ContactEntity } from "@wa-pi/shared";
 import { ComposerTextarea } from "../ui/ComposerTextarea";
+import { QuickInvokeMenu, type MenuItem } from "../ui/QuickInvokeMenu";
 import { imPushToken, toPromptHtml } from "./prompt-tokens";
 
 interface Props {
@@ -31,6 +32,7 @@ interface Props {
 export function TaskPromptComposer({ value, onChange }: Props) {
 	const [dismissedContact, setDismissedContact] = useState(false);
 	const [dismissedSkill, setDismissedSkill] = useState(false);
+	const [skillIdx, setSkillIdx] = useState(0);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const contactPopRef = useRef<HTMLDivElement>(null);
 	const skillPopRef = useRef<HTMLDivElement>(null);
@@ -41,11 +43,19 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 
 	const showContactPicker = /@$/.test(value) && !dismissedContact;
 	const showSkillPicker = /[$¥]$/.test(value) && !dismissedSkill;
+	// 技能弹窗列表（通用 QuickInvokeMenu）：与聊天输入框同源同渲染
+	const skillItems: MenuItem[] = skills.map((s) => ({
+		id: s.name,
+		name: s.name,
+		description: s.description,
+		source: s.source,
+	}));
 
 	// value 变化重置 dismissed（触发符被删/继续输入后允许再次弹出）
 	useEffect(() => {
 		setDismissedContact(false);
 		setDismissedSkill(false);
+		setSkillIdx(0);
 	}, [value]);
 
 	// 打开时兜底拉取（联系人采集无广播；技能列表懒加载）
@@ -58,25 +68,22 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 
 	// 弹窗定位：portal 挂 body（fixed）逃逸 Modal 内容区 overflow 裁剪，锚定容器矩形。
 	// 底部空间不足向上翻，右溢出左移钳制；happy-dom 零尺寸（测试环境）不定位。
-	const positionPop = useCallback(
-		(pop: HTMLDivElement | null) => {
-			if (!pop || !containerRef.current) return;
-			const pr = containerRef.current.getBoundingClientRect();
-			if (pr.width === 0 && pr.height === 0) return;
-			pop.style.left = `${pr.left}px`;
-			pop.style.top = `${pr.bottom + 4}px`;
-			pop.style.minWidth = `${pr.width}px`;
-			const r = pop.getBoundingClientRect();
-			if (r.width === 0 && r.height === 0) return;
-			if (pr.bottom + 4 + r.height > window.innerHeight - 8) {
-				pop.style.top = `${Math.max(8, pr.top - r.height - 4)}px`;
-			}
-			if (pr.left + r.width > window.innerWidth - 8) {
-				pop.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
-			}
-		},
-		[],
-	);
+	const positionPop = useCallback((pop: HTMLDivElement | null) => {
+		if (!pop || !containerRef.current) return;
+		const pr = containerRef.current.getBoundingClientRect();
+		if (pr.width === 0 && pr.height === 0) return;
+		pop.style.left = `${pr.left}px`;
+		pop.style.top = `${pr.bottom + 4}px`;
+		pop.style.minWidth = `${pr.width}px`;
+		const r = pop.getBoundingClientRect();
+		if (r.width === 0 && r.height === 0) return;
+		if (pr.bottom + 4 + r.height > window.innerHeight - 8) {
+			pop.style.top = `${Math.max(8, pr.top - r.height - 4)}px`;
+		}
+		if (pr.left + r.width > window.innerWidth - 8) {
+			pop.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
+		}
+	}, []);
 	useLayoutEffect(() => {
 		if (showContactPicker) positionPop(contactPopRef.current);
 	}, [showContactPicker, positionPop]);
@@ -96,8 +103,7 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 			setDismissedSkill(true);
 		};
 		document.addEventListener("mousedown", handleClickOutside);
-		return () =>
-			document.removeEventListener("mousedown", handleClickOutside);
+		return () => document.removeEventListener("mousedown", handleClickOutside);
 	}, [showContactPicker, showSkillPicker]);
 
 	// 滚动关闭弹窗（fixed 浮层不随容器位移脱锚）
@@ -113,19 +119,6 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 		window.addEventListener("scroll", onScroll, true);
 		return () => window.removeEventListener("scroll", onScroll, true);
 	}, [showContactPicker, showSkillPicker]);
-
-	const handleKeyDown = useCallback(
-		(e: React.KeyboardEvent<HTMLDivElement>) => {
-			if (e.key === "Escape") {
-				if (showContactPicker || showSkillPicker) {
-					e.preventDefault();
-					setDismissedContact(true);
-					setDismissedSkill(true);
-				}
-			}
-		},
-		[showContactPicker, showSkillPicker],
-	);
 
 	// 插入：替换 value 末尾触发符为 token + 空格（无触发符时直接追加兜底）
 	const insertContact = useCallback(
@@ -150,6 +143,45 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 			setDismissedSkill(true);
 		},
 		[value, onChange],
+	);
+
+	const handleKeyDown = useCallback(
+		(e: React.KeyboardEvent<HTMLDivElement>) => {
+			if (e.key === "Escape") {
+				if (showContactPicker || showSkillPicker) {
+					e.preventDefault();
+					setDismissedContact(true);
+					setDismissedSkill(true);
+				}
+				return;
+			}
+			// 技能弹窗打开：↑↓ 导航、Enter 选中（与聊天 ComposerInput 一致的交互）
+			if (showSkillPicker && skillItems.length > 0) {
+				if (e.key === "ArrowDown") {
+					e.preventDefault();
+					setSkillIdx((i) => (i + 1) % skillItems.length);
+					return;
+				}
+				if (e.key === "ArrowUp") {
+					e.preventDefault();
+					setSkillIdx(
+						(i) => (i - 1 + skillItems.length) % skillItems.length,
+					);
+					return;
+				}
+				if (e.key === "Enter") {
+					e.preventDefault();
+					insertSkill(skillItems[skillIdx]?.name ?? "");
+				}
+			}
+		},
+		[
+			showContactPicker,
+			showSkillPicker,
+			skillItems,
+			skillIdx,
+			insertSkill,
+		],
 	);
 
 	// chip 元数据：查通讯录显人名；查无灰化显示 id（联系人已删除，不报错）
@@ -264,46 +296,28 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 					</div>,
 					document.body,
 				)}
-			{/* 技能选择器（portal 挂 body，与联系人选择器同款定位/关闭逻辑） */}
+			{/* 技能选择器（portal 挂 body，定位/关闭与联系人选择器同款；
+			    列表体复用聊天通用 QuickInvokeMenu，键盘 ↑↓/Enter 可导航选中） */}
 			{showSkillPicker &&
 				createPortal(
-					<div
-						ref={skillPopRef}
-						style={popStyle}
-						className={popClass}
-						data-testid="skill-picker"
-					>
-						{skills.length === 0 && (
-							<div
-								className="px-3 py-2 text-[10px]"
-								style={{ color: "var(--text-tertiary)" }}
-							>
-								暂无技能
-							</div>
-						)}
-						{skills.map((s: { name: string; description?: string }) => (
-							<div
-								key={s.name}
-								onClick={() => insertSkill(s.name)}
-								className="px-3 py-1.5 text-xs cursor-pointer hover:bg-white/5 flex items-center gap-1"
-								style={{ color: "var(--text-primary)" }}
-								data-testid={`skill-item-${s.name}`}
-							>
-								<span>⚡</span>
-								<span className="truncate">{s.name}</span>
-								{s.description && (
-									<span
-										className="truncate text-[9px]"
-										style={{ color: "var(--text-tertiary)" }}
-									>
-										{s.description}
-									</span>
-								)}
-							</div>
-						))}
-					</div>,
-					document.body,
-				)}
+				<div
+					ref={skillPopRef}
+					style={popStyle}
+					className={popClass}
+					data-testid="skill-picker"
+				>
+					<QuickInvokeMenu
+						type="skill"
+						items={skillItems}
+						highlightedIndex={skillIdx}
+						onSelect={(it) => insertSkill(it.name)}
+						onHover={setSkillIdx}
+						emptyText="暂无技能"
+						positionClassName="relative w-full"
+					/>
+				</div>,
+				document.body,
+			)}
 		</div>
 	);
 }
