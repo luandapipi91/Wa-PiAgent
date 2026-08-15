@@ -681,8 +681,7 @@ export class WSServer {
 					// 透传 req.signal：客户端断连（pi 侧空闲超时/进程退出）时 abort，
 					// 让 askRegistry 里的 pending ask 以 cancelled 解决，防僵尸提问。
 					const r = await handleBridgeRequest(body, req.signal);
-					if (!r.ok)
-						return Response.json({ error: r.error }, { status: r.status });
+					if (!r.ok) return Response.json({ error: r.error }, { status: r.status });
 					return Response.json(r.result, { status: 200 });
 				}
 				if (url.pathname === "/file") {
@@ -699,10 +698,7 @@ export class WSServer {
 				}
 				if (this.opts.staticDir) {
 					const urlPath = url.pathname;
-					const staticFilePath = resolveStaticPath(
-						urlPath,
-						this.opts.staticDir,
-					);
+					const staticFilePath = resolveStaticPath(urlPath, this.opts.staticDir);
 					const file = Bun.file(staticFilePath);
 					if (file.size > 0) {
 						return new Response(file, {
@@ -748,8 +744,7 @@ export class WSServer {
 	): Promise<void> {
 		switch (event.type) {
 			case "projects:list": {
-				const { projects, sessions } =
-					await this.opts.projectStore.loadActive();
+				const { projects, sessions } = await this.opts.projectStore.loadActive();
 				reply({ type: "projects:list", projects, sessions }); // 定向回请求者
 				break;
 			}
@@ -806,10 +801,7 @@ export class WSServer {
 				break;
 			}
 			case "session:rename": {
-				await this.opts.projectStore.renameSession(
-					event.sessionId,
-					event.title,
-				);
+				await this.opts.projectStore.renameSession(event.sessionId, event.title);
 				await this.broadcastProjectsList();
 				break;
 			}
@@ -825,10 +817,7 @@ export class WSServer {
 					break;
 				}
 				try {
-					await this.opts.agentManager.switchAgent(
-						event.sessionId,
-						event.agentName,
-					);
+					await this.opts.agentManager.switchAgent(event.sessionId, event.agentName);
 					this.broadcast({
 						type: "session:updated",
 						sessionId: event.sessionId,
@@ -916,9 +905,7 @@ export class WSServer {
 				break;
 			}
 			case "trash:delete": {
-				await this.opts.projectStore.permanentlyDeleteSessions(
-					event.sessionIds,
-				);
+				await this.opts.projectStore.permanentlyDeleteSessions(event.sessionIds);
 				reply({ type: "trash:op", success: true });
 				break;
 			}
@@ -962,9 +949,7 @@ export class WSServer {
 				// 并与 AgentManager 内存 lastActiveAt 一致）。fire-and-forget，不阻塞历史读取。
 				// 但已软删除的会话不 touch——避免从回收站查看时刷新 lastActivity 导致排序异常。
 				if (session && !isDeleted && !isScheduler) {
-					void this.opts.projectStore
-						.touchSession(event.sessionId)
-						.catch(() => {});
+					void this.opts.projectStore.touchSession(event.sessionId).catch(() => {});
 				}
 				if (!session) {
 					reply({
@@ -998,9 +983,7 @@ export class WSServer {
 						.catch((err) => {
 							// dispose 竞态（session:delete / 空闲回收与预热并发）导致 ensureStarted
 							// 抛「会话已清理」是预期控制流，静默不打印；其他启动失败仍打 error。
-							if (
-								(err as Error & { code?: string })?.code === "SESSION_DISPOSED"
-							)
+							if ((err as Error & { code?: string })?.code === "SESSION_DISPOSED")
 								return;
 							console.error(
 								`[ws-server] 后台预热会话进程失败 ${event.sessionId}:`,
@@ -1190,11 +1173,10 @@ export class WSServer {
 							}
 							// 已有会话但标题为空（如 getCommands 兜底创建的会话）：
 							// 首次发送消息时用消息内容自动命名，刷新侧栏标题
-							const filled =
-								await this.opts.projectStore.fillSessionTitleIfEmpty(
-									session.id,
-									event.text.slice(0, 20),
-								);
+							const filled = await this.opts.projectStore.fillSessionTitleIfEmpty(
+								session.id,
+								event.text.slice(0, 20),
+							);
 							if (agentChanged || filled) {
 								await this.broadcastProjectsList();
 							}
@@ -1230,9 +1212,7 @@ export class WSServer {
 								// 查询失败时兜底回显（宁可多显示一条，不丢用户消息）。
 								try {
 									const cmdName = event.text.slice(1).split(/\s/, 1)[0];
-									const commands = await this.opts.agentManager.getCommands(
-										session.id,
-									);
+									const commands = await this.opts.agentManager.getCommands(session.id);
 									const hit = commands.find((c) => c.name === cmdName);
 									if (hit?.source !== "extension") {
 										reply({
@@ -1305,9 +1285,7 @@ export class WSServer {
 						`[ws-server] PENDING abort on agent_start sessionId=${event.sessionId}`,
 					);
 				}
-				console.log(
-					`[ws-server] agent:abort DONE sessionId=${event.sessionId}`,
-				);
+				console.log(`[ws-server] agent:abort DONE sessionId=${event.sessionId}`);
 				break;
 			}
 			case "agent:answer": {
@@ -1334,10 +1312,7 @@ export class WSServer {
 			}
 			case "steer:message": {
 				try {
-					await this.opts.agentManager.steerMessage(
-						event.sessionId,
-						event.text,
-					);
+					await this.opts.agentManager.steerMessage(event.sessionId, event.text);
 				} catch (err) {
 					this.broadcast({
 						type: "error",
@@ -1352,10 +1327,7 @@ export class WSServer {
 			case "steer:immediate-message": {
 				try {
 					await this.opts.agentManager.abort(event.sessionId);
-					await this.opts.agentManager.steerMessage(
-						event.sessionId,
-						event.text,
-					);
+					await this.opts.agentManager.steerMessage(event.sessionId, event.text);
 				} catch (err) {
 					this.broadcast({
 						type: "error",
@@ -1381,9 +1353,7 @@ export class WSServer {
 			}
 			case "agent:create": {
 				try {
-					const agent = await this.opts.configStore.createAgent(
-						event.displayName,
-					);
+					const agent = await this.opts.configStore.createAgent(event.displayName);
 					reply({ type: "agent:created", agent });
 					this.broadcast({
 						type: "agent:list",
@@ -1535,9 +1505,7 @@ export class WSServer {
 					const { loadSubagentOverrides } = await import("./subagent-store");
 					const { getSubagentInfo } = await import("./subagent-info");
 					const { SUBAGENT_OVERRIDES_FILE } = await import("@wa-pi/shared");
-					const overrides = await loadSubagentOverrides(
-						SUBAGENT_OVERRIDES_FILE,
-					);
+					const overrides = await loadSubagentOverrides(SUBAGENT_OVERRIDES_FILE);
 					const subagents = await getSubagentInfo(overrides);
 					reply({ type: "subagent:list", subagents });
 				} catch (err) {
@@ -1556,9 +1524,7 @@ export class WSServer {
 					const { getSubagentInfo } = await import("./subagent-info");
 					const { SUBAGENT_OVERRIDES_FILE } = await import("@wa-pi/shared");
 					await saveSubagentOverride(SUBAGENT_OVERRIDES_FILE, event.override);
-					const overrides = await loadSubagentOverrides(
-						SUBAGENT_OVERRIDES_FILE,
-					);
+					const overrides = await loadSubagentOverrides(SUBAGENT_OVERRIDES_FILE);
 					const subagents = await getSubagentInfo(overrides);
 					// 保存后广播更新列表给所有前端
 					reply({ type: "subagent:list", subagents });
@@ -1692,9 +1658,7 @@ export class WSServer {
 					);
 					const buffer = Buffer.from(event.content, "base64");
 					if (buffer.byteLength > MAX_UPLOAD_BYTES) {
-						throw new Error(
-							`文件超过 ${MAX_UPLOAD_BYTES / 1024 / 1024}MB 上限`,
-						);
+						throw new Error(`文件超过 ${MAX_UPLOAD_BYTES / 1024 / 1024}MB 上限`);
 					}
 					const uploadDir = join(cwd, ".wa-pi", "uploads");
 					await mkdir(uploadDir, { recursive: true });
@@ -1988,10 +1952,7 @@ export class WSServer {
 				break;
 			}
 			case "skill:toggle": {
-				await this.opts.skillManager.toggleSkill(
-					event.skillName,
-					event.disabled,
-				);
+				await this.opts.skillManager.toggleSkill(event.skillName, event.disabled);
 				// reload 所有会话让禁用/启用热生效
 				this.opts.agentManager.markSkillsDirty();
 				const result = await this.scanSkillsWithExtensions();
@@ -2121,7 +2082,11 @@ export class WSServer {
 					this.broadcast({ type: "skill:changed", ...skillResult });
 				} catch (err) {
 					// name=repair 不匹配任何 installs/upgrading → 前端落全局 error 区
-					this.broadcast({ type: "extension:error", name: "repair", error: (err as Error).message });
+					this.broadcast({
+						type: "extension:error",
+						name: "repair",
+						error: (err as Error).message,
+					});
 				}
 				break;
 			}
@@ -2223,11 +2188,7 @@ export class WSServer {
 			}
 			case "memory:add": {
 				try {
-					await this.opts.memoryStore.add(
-						event.scope,
-						event.text,
-						event.projectId,
-					);
+					await this.opts.memoryStore.add(event.scope, event.text, event.projectId);
 					const result = await this.opts.memoryStore.list(event.projectId);
 					this.broadcast({ type: "memory:changed", ...result });
 				} catch (err) {
@@ -2352,9 +2313,7 @@ export class WSServer {
 			case "mcp:listTools": {
 				// 与 mcp:test 同理：mcp:tools 只走 SSE 广播，不 reply。
 				// 前端 listTools 用 fire-and-forget 丢弃 HTTP 响应体，仅靠 SSE 事件填充 toolsCache。
-				const emitToolsResult = (
-					tools: McpToolSummary[] | { error: string },
-				) => {
+				const emitToolsResult = (tools: McpToolSummary[] | { error: string }) => {
 					this.broadcast({
 						type: "mcp:tools",
 						serverName: event.serverName,
@@ -2441,9 +2400,7 @@ export class WSServer {
 				break;
 			}
 			case "channels:agent-usage": {
-				const usage = await this.opts.channelManager!.agentUsage(
-					event.agentName,
-				);
+				const usage = await this.opts.channelManager!.agentUsage(event.agentName);
 				reply({
 					type: "channels:agent-usage-result",
 					agentName: event.agentName,
@@ -2460,9 +2417,7 @@ export class WSServer {
 			}
 			case "contacts:list": {
 				const contacts = this.opts.channelManager
-					? await this.opts.channelManager.listContacts(
-							event.channelId || undefined,
-						)
+					? await this.opts.channelManager.listContacts(event.channelId || undefined)
 					: [];
 				reply({ type: "contacts:current", contacts });
 				break;

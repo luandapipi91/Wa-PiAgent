@@ -12,7 +12,13 @@ import { getAllCatalogModels, type CatalogModel } from "./pi-catalog";
 /** 从目录查询到的模型详细信息 */
 type SdkModelInfo = Pick<
 	CatalogModel,
-	"contextWindow" | "maxTokens" | "reasoning" | "input" | "cost" | "name" | "baseUrl"
+	| "contextWindow"
+	| "maxTokens"
+	| "reasoning"
+	| "input"
+	| "cost"
+	| "name"
+	| "baseUrl"
 >;
 
 /** 默认模型参数（目录查询失败时的 fallback） */
