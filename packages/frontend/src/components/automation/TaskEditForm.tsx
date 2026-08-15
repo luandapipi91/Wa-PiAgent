@@ -117,6 +117,8 @@ export function TaskEditForm() {
 						className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
 						style={inputStyle}
 					>
+						<option value="minute">每分钟</option>
+						<option value="hourly">每小时</option>
 						<option value="daily">每天</option>
 						<option value="weekdays">工作日</option>
 						<option value="weekly">每周</option>
@@ -127,37 +129,63 @@ export function TaskEditForm() {
 						<input
 							value={cronExpression}
 							onChange={(e) => setCronExpression(e.target.value)}
-							placeholder="*/15 * * * *"
-							className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border"
-							style={inputStyle}
-						/>
-					) : (
-					<input
-						type="time"
-						value={time}
-						onChange={(e) => setTime(e.target.value)}
-						// 原生 time 输入只点右侧时钟图标才弹选择器；点击任意位置都调 showPicker 弹出
-						onClick={(e) => {
-							const el = e.currentTarget;
-							if (typeof el.showPicker === "function") {
-								try {
-									el.showPicker();
-								} catch {
-									// showPicker 需用户手势且已聚焦，异常时忽略（原生点击行为兜底）
-								}
-							}
-						}}
-						data-testid="task-time-input"
-						className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
+						placeholder="*/15 * * * *"
+						className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border"
 						style={inputStyle}
 					/>
+				) : scheduleType === "minute" ? (
+					// 每分钟：无需附加输入，说明文案占位保持行高一致
+					<div
+						className="flex-1 rounded-md px-2.5 py-1.5 text-xs border flex items-center"
+						style={{ ...inputStyle, color: "var(--text-tertiary)" }}
+					>
+						每分钟自动执行
+					</div>
+				) : scheduleType === "hourly" ? (
+					// 每小时：仅取分钟段（小时忽略），分钟下拉更直观；存回 time 侜 kernel 复用
+					<select
+						value={time.split(":")[1] ?? "00"}
+						onChange={(e) => setTime(`00:${e.target.value}`)}
+						data-testid="task-minute-input"
+						className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
+						style={inputStyle}
+					>
+						{Array.from({ length: 60 }, (_, i) =>
+							String(i).padStart(2, "0"),
+						).map((mm) => (
+							<option key={mm} value={mm}>
+								第 {mm} 分钟
+							</option>
+						))}
+					</select>
+				) : (
+					<input
+						type="time"
+							value={time}
+							onChange={(e) => setTime(e.target.value)}
+							// 原生 time 输入只点右侧时钟图标才弹选择器；点击任意位置都调 showPicker 弹出
+							onClick={(e) => {
+								const el = e.currentTarget;
+								if (typeof el.showPicker === "function") {
+									try {
+										el.showPicker();
+									} catch {
+										// showPicker 需用户手势且已聚焦，异常时忽略（原生点击行为兜底）
+									}
+								}
+							}}
+							data-testid="task-time-input"
+							className="flex-1 rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
+							style={inputStyle}
+						/>
 					)}
 				</div>
 				{scheduleType === "weekly" && (
 					<select
 						value={dayOfWeek}
 						onChange={(e) => setDayOfWeek(Number(e.target.value))}
-						className="mt-1.5 rounded-md px-2.5 py-1 text-[10px] outline-none border cursor-pointer"
+						// w-full：与上方选择器同宽（原收缩为内容宽，视觉不齐）
+						className="mt-1.5 w-full rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
 						style={inputStyle}
 					>
 						{["日", "一", "二", "三", "四", "五", "六"].map((d, i) => (
@@ -171,7 +199,8 @@ export function TaskEditForm() {
 					<select
 						value={dayOfMonth}
 						onChange={(e) => setDayOfMonth(Number(e.target.value))}
-						className="mt-1.5 rounded-md px-2.5 py-1 text-[10px] outline-none border cursor-pointer"
+						// w-full：与上方选择器同宽
+						className="mt-1.5 w-full rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
 						style={inputStyle}
 					>
 						{Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (

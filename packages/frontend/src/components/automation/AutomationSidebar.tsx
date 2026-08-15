@@ -276,6 +276,10 @@ function TaskCard({
 function formatSchedule(schedule: ScheduledTask["schedule"]): string {
 	const time = schedule.time;
 	switch (schedule.type) {
+		case "minute":
+			return "每分钟";
+		case "hourly":
+			return `每小时第 ${time.split(":")[1] ?? "00"} 分`;
 		case "daily":
 			return `每天 ${time}`;
 		case "weekdays":
