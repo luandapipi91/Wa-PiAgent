@@ -3,7 +3,11 @@ import { useSchedulerStore } from "../../store/scheduler";
 import { useToastStore } from "../../store/toast";
 import { useContactsStore } from "../../store/contacts";
 import type { ScheduledTask, ExecutionRecord } from "@wa-pi/shared";
-import { parseImPushTokens, toPromptHtml, type ContactChipMeta } from "./prompt-tokens";
+import {
+	parseImPushTokens,
+	toPromptHtml,
+	type ContactChipMeta,
+} from "./prompt-tokens";
 
 /**
  * 任务详情视图：四宫格信息（计划/角色/联系人/目录）+ 任务指令高亮 + 最近执行记录。
@@ -192,7 +196,9 @@ function renderPrompt(
 ): ReactNode {
 	// pi-lens-ignore: ts-xss-dom-sink
 	return (
-		<div dangerouslySetInnerHTML={{ __html: toPromptHtml(prompt, contactMeta) }} />
+		<div
+			dangerouslySetInnerHTML={{ __html: toPromptHtml(prompt, contactMeta) }}
+		/>
 	);
 }
 

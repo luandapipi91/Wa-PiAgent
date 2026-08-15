@@ -61,8 +61,7 @@ const zh = {
 		cmdCompactDesc: "压缩会话历史释放 token（可附带自定义压缩指令）",
 		sourceCommand: "命令",
 		sourcePlugin: "插件",
-		emptyAgentNoAskTo:
-			"当前智能体无可调起的子智能体，请在智能体配置中设置关系网",
+		emptyAgentNoAskTo: "当前智能体无可调起的子智能体，请在智能体配置中设置关系网",
 		emptyAgent: "无匹配智能体",
 		emptyFile: "无匹配文件",
 		emptySkill: "无匹配技能",
@@ -301,8 +300,7 @@ const zh = {
 			systemOption: "🖥 系统音频",
 			titleWithCurrent: "录音（当前：{{current}}，右键/长按切换）",
 			startFailed: "录音启动失败",
-			busyConflict:
-				"{{owner}} 正在录音，需要等到上一个录音结束才能开始新的录音",
+			busyConflict: "{{owner}} 正在录音，需要等到上一个录音结束才能开始新的录音",
 			beforeunloadWarn: "正在录音，退出将丢失未保存录音",
 			defaultProject: "项目",
 			defaultSession: "会话",
@@ -541,8 +539,7 @@ const zh = {
 		loadFailed: "加载失败：{{error}}",
 	},
 	im: {
-		emptyHint:
-			"暂无 IM 会话。在设置页配置机器人后，来自 IM 的对话会出现在这里。",
+		emptyHint: "暂无 IM 会话。在设置页配置机器人后，来自 IM 的对话会出现在这里。",
 		groupTitle: "群聊({{chatId}}) · {{from}}",
 		deleteChat: "删除聊天",
 		deleteConfirmMessage: "确定删除会话「{{title}}」吗？此操作不可撤销。",
@@ -658,7 +655,8 @@ const zh = {
 		general: {
 			exportTurns: {
 				label: "对话导出轮数",
-				desc: "导出为图片时，包含当条 AI 回复往前多少轮对话（{{min}}-{{max}} 轮），即时生效。",
+				desc:
+					"导出为图片时，包含当条 AI 回复往前多少轮对话（{{min}}-{{max}} 轮），即时生效。",
 				unit: "轮",
 			},
 			exportIncludeUser: {
@@ -669,7 +667,8 @@ const zh = {
 			},
 			retry: {
 				label: "自动重试",
-				desc: "模型请求遇到网络错误 / 超时 / 5xx / 限流时自动重试，重试间隔按「间隔 × 2ⁿ」递增。保存后对新请求生效。",
+				desc:
+					"模型请求遇到网络错误 / 超时 / 5xx / 限流时自动重试，重试间隔按「间隔 × 2ⁿ」递增。保存后对新请求生效。",
 				maxLabel: "重试次数（0-{{max}}）",
 				delayLabel: "重试间隔基数（秒，{{min}}-{{max}}）",
 				httpTimeoutLabel: "请求超时（秒）",
@@ -705,7 +704,8 @@ const zh = {
 			},
 			fontSize: {
 				label: "文字大小",
-				desc: "拖动滑块调整文字大小（{{min}}-{{max}}px），只缩放文字、不改变布局，即时生效。",
+				desc:
+					"拖动滑块调整文字大小（{{min}}-{{max}}px），只缩放文字、不改变布局，即时生效。",
 			},
 		},
 		diagnostics: {
@@ -784,7 +784,8 @@ const zh = {
 			installTitle: "安装新插件",
 			repairBtn: "修复依赖",
 			confirmRepairTitle: "确认修复依赖",
-			confirmRepairMessage: "将删除并重装全部扩展依赖（约 1 分钟），建议先关闭正在使用扩展的会话。",
+			confirmRepairMessage:
+				"将删除并重装全部扩展依赖（约 1 分钟），建议先关闭正在使用扩展的会话。",
 			repairing: "正在修复依赖…",
 			repairingBtn: "修复中…",
 			repairDone: "依赖修复完成",
@@ -838,8 +839,7 @@ const zh = {
 			modelLabel: "模型",
 			modelFollowAgent: "跟随智能体",
 			promptLabel: "额外系统提示词",
-			promptHint:
-				"追加拼接到系统提示词中，位于记忆内容之前。输入 $ 可引用技能。",
+			promptHint: "追加拼接到系统提示词中，位于记忆内容之前。输入 $ 可引用技能。",
 			granularityLabel: "回复粒度",
 			granularityStandard: "标准回复 · 正文 + 文件变更",
 			granularitySimple: "简洁回复 · 仅正文",
@@ -847,13 +847,11 @@ const zh = {
 			defaultProjectLabel: "默认工作目录",
 			defaultProjectHint: "IM 会话默认落在该工作区。",
 			allowSwitchLabel: "允许切换工作目录",
-			allowSwitchHint:
-				"开启后 IM 侧可通过 /use、/projects 指令查看并切换工作区。",
+			allowSwitchHint: "开启后 IM 侧可通过 /use、/projects 指令查看并切换工作区。",
 			deleteBot: "删除机器人",
 			save: "保存",
 			deleteTitle: "删除机器人",
-			deleteMessage:
-				"确定删除「{{name}}」吗？历史会话保留，但机器人将断开连接。",
+			deleteMessage: "确定删除「{{name}}」吗？历史会话保留，但机器人将断开连接。",
 			delete: "删除",
 			selectChannelType: "选择渠道类型",
 			channelWecom: "企业微信",
