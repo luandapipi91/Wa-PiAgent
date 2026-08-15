@@ -32,8 +32,6 @@ contextBridge.exposeInMainWorld("waPiApp", {
 	// 开机自启：读取/设置系统登录项
 	getLoginItem: () => ipcRenderer.invoke("app:get-login-item"),
 	setLoginItem: (enabled) => ipcRenderer.invoke("app:set-login-item", enabled),
-	// 读系统代理：返回代理地址（如 http://127.0.0.1:7890），无代理/DIRECT 返回空串
-	resolveSystemProxy: () => ipcRenderer.invoke("app:resolve-system-proxy"),
 });
 
 // 外链子窗口地址栏（link-window.html）专用：加载/同步地址。

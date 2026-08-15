@@ -2,6 +2,16 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — feat(settings): 新增「使用系统代理」开关，全软件请求统一走系统代理
+
+- 系统设置 > 通用 > 请求超时下新增「使用系统代理」开关：开启后 kernel 用 `os-proxy-config` 跨平台读系统代理（Windows 注册表 / macOS scutil / Linux 环境变量），设置大小写 `HTTP_PROXY/HTTPS_PROXY` 环境变量；关闭则清空恢复直连；读不到代理（DIRECT）静默直连。
+- 覆盖所有请求无例外：pi 引擎 undici `EnvHttpProxyAgent`（LLM 请求）、kernel 的 Bun `fetch`（读大写环境变量）、`curl/wget`（读小写环境变量）均走代理。
+- 后端：`settings-store` 加 `loadProxySettings/saveProxySettings/applySystemProxy/readSystemProxy`（基于 `os-proxy-config`）；`routes/settings` 加 `GET/PUT /api/settings/proxy`（保存即 `applySystemProxy` + `markAllDirty` 重建 pi 进程）；`index.ts` 启动时 `applySystemProxy`。
+- 网页端兼容：读系统代理在 kernel 端完成（`os-proxy-config` 是纯 Node API + native addon，实测 Bun 可加载），不再依赖 Electron IPC——前端只传开关 `useSystemProxy`，`httpProxy` 由 kernel 兑底读系统代理。
+- 依赖：kernel 新增 `os-proxy-config@^1.1.2`（HTTP Toolkit 出品，跨平台读系统代理）。
+- 测试（TDD）：`settings-proxy.test.ts` 7 用例（默认/持久化/保留字段/大小写设置/清空/DIRECT/readProxy 兑底）；`GeneralSection.test.tsx` 新增 2 用例。kernel + frontend typecheck 均过。
+- 影响范围：`shared/types.ts`、`kernel/settings-store.ts`、`kernel/routes/settings.ts`、`kernel/routes/types.ts`、`kernel/ws-server.ts`、`kernel/index.ts`、`kernel/package.json`、`frontend/GeneralSection.tsx`、`i18n/zh.ts`、`i18n/en.ts` 及对应测试。
+
 ## 2026-08-15 — fix(frontend): IM 会话顶部回填修复备注空字符串时不回退的 bug
 
 - 回填用 `??`（nullish），备注为空字符串 `""`（清空过备注）时不会回退到联系人标识，导致回填空；改为 `||`（truthy），与顶部 display 判断一致（空字符串视为无备注）。

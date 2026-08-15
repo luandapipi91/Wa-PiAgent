@@ -17,6 +17,8 @@ describe("Proxy settings", () => {
 		await rm(TEST_FILE, { force: true });
 		delete process.env.HTTP_PROXY;
 		delete process.env.HTTPS_PROXY;
+		delete process.env.http_proxy;
+		delete process.env.https_proxy;
 	});
 
 	test("loadProxySettings 无文件时返回默认值（关闭 + 空代理）", async () => {
@@ -47,29 +49,44 @@ describe("Proxy settings", () => {
 		expect(raw.httpProxy).toBe("http://x");
 	});
 
-	test("applySystemProxy：开启且有代理 → 设置 HTTP_PROXY/HTTPS_PROXY", async () => {
+	test("applySystemProxy：开启且有代理 → 同时设置大小写 HTTP_PROXY/HTTPS_PROXY", async () => {
 		await saveProxySettings(
 			{ useSystemProxy: true, httpProxy: "http://127.0.0.1:7890" },
 			TEST_FILE,
 		);
-		await applySystemProxy(TEST_FILE);
+		await applySystemProxy(TEST_FILE, () => "");
 		expect(process.env.HTTP_PROXY).toBe("http://127.0.0.1:7890");
 		expect(process.env.HTTPS_PROXY).toBe("http://127.0.0.1:7890");
+		expect(process.env.http_proxy).toBe("http://127.0.0.1:7890");
+		expect(process.env.https_proxy).toBe("http://127.0.0.1:7890");
 	});
 
-	test("applySystemProxy：关闭 → 清空代理恢复直连", async () => {
+	test("applySystemProxy：关闭 → 清空大小写代理恢复直连", async () => {
 		await saveProxySettings({ useSystemProxy: false, httpProxy: "" }, TEST_FILE);
 		process.env.HTTP_PROXY = "http://stale";
 		process.env.HTTPS_PROXY = "http://stale";
-		await applySystemProxy(TEST_FILE);
+		process.env.http_proxy = "http://stale";
+		process.env.https_proxy = "http://stale";
+		await applySystemProxy(TEST_FILE, () => "");
 		expect(process.env.HTTP_PROXY).toBeUndefined();
 		expect(process.env.HTTPS_PROXY).toBeUndefined();
+		expect(process.env.http_proxy).toBeUndefined();
+		expect(process.env.https_proxy).toBeUndefined();
 	});
 
-	test("applySystemProxy：开启但读不到代理（DIRECT）→ 静默直连（清空环境变量）", async () => {
+	test("applySystemProxy：开启但 httpProxy 空且读不到（DIRECT）→ 静默直连", async () => {
 		await saveProxySettings({ useSystemProxy: true, httpProxy: "" }, TEST_FILE);
 		process.env.HTTP_PROXY = "http://stale";
-		await applySystemProxy(TEST_FILE);
+		process.env.http_proxy = "http://stale";
+		await applySystemProxy(TEST_FILE, () => "");
 		expect(process.env.HTTP_PROXY).toBeUndefined();
+		expect(process.env.http_proxy).toBeUndefined();
+	});
+
+	test("applySystemProxy：开启但 httpProxy 空 → readProxy 兜底读系统代理", async () => {
+		await saveProxySettings({ useSystemProxy: true, httpProxy: "" }, TEST_FILE);
+		await applySystemProxy(TEST_FILE, () => "http://127.0.0.1:7890");
+		expect(process.env.HTTP_PROXY).toBe("http://127.0.0.1:7890");
+		expect(process.env.http_proxy).toBe("http://127.0.0.1:7890");
 	});
 });
