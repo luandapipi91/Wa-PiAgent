@@ -217,8 +217,8 @@ export async function buildSidecar(
 					"pi-mcp-adapter@2.17.0": "patches/pi-mcp-adapter@2.17.0.patch",
 				},
 				dependencies: {
-					"@earendil-works/pi-coding-agent": "^0.83.0",
-					"@earendil-works/pi-ai": "^0.83.0",
+					"@earendil-works/pi-coding-agent": "^0.84.2",
+					"@earendil-works/pi-ai": "^0.84.2",
 					"pi-web-access": "^0.17.1",
 					"@amaster.ai/pi-memory": "^0.1.5",
 					"pi-mcp-adapter": "^2.13.0",
