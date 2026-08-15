@@ -131,12 +131,27 @@ test.describe
 			const promptInput = page.getByTestId("task-prompt-input");
 			await promptInput.fill("整理一下 $");
 			await expect(page.getByTestId("skill-picker")).toBeVisible();
+			// 弹窗宽度 = 输入框宽度（不横向撑满屏幕），顶部贴输入框底部（光标下方）
+			const skillBox = await page.getByTestId("skill-picker").boundingBox();
+			const inputBox = await promptInput.boundingBox();
+			expect(skillBox).toBeTruthy();
+			expect(inputBox).toBeTruthy();
+			expect(skillBox!.width).toBeLessThanOrEqual(inputBox!.width + 2);
+			expect(skillBox!.y).toBeGreaterThanOrEqual(inputBox!.y + inputBox!.height - 2);
 			await promptInput.fill("E2E：请整理今日文件");
 			await expect(page.getByTestId("skill-picker")).toBeHidden();
 
 			// 验证 @ 触发联系人选择器（派生状态：value 末尾 @ 即弹出，无需按键）
 			await promptInput.fill("推送 @");
 			await expect(page.getByTestId("contact-picker")).toBeVisible();
+			// 联系人弹窗同样：宽度受限且贴输入框下方
+			const contactBox = await page
+				.getByTestId("contact-picker")
+				.boundingBox();
+			expect(contactBox!.width).toBeLessThanOrEqual(inputBox!.width + 2);
+			expect(contactBox!.y).toBeGreaterThanOrEqual(
+				inputBox!.y + inputBox!.height - 2,
+			);
 			await promptInput.fill("E2E：请整理今日文件");
 			await expect(page.getByTestId("contact-picker")).toBeHidden();
 
