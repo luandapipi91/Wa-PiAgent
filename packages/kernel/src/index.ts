@@ -85,6 +85,11 @@ export async function startKernel(opts?: {
 	// 这里保留进程级设置供 kernel 内部的 pi 扩展包代码使用。
 	process.env.PI_CODING_AGENT_DIR = WA_PI_DIR;
 
+	// 启用 pi 0.84.2+ 的实验性严格 JSON-schema 约束采样
+	// （对内置 read/bash/edit/write 工具的输出做约束解码，提升工具调用稳定性）。
+	// 经 rpc-client 的 process.env 展开，自动覆盖主会话与子代理 spawn 的 pi 进程。
+	process.env.PI_EXPERIMENTAL = "1";
+
 	// 全局异常兜底（尽早注册）：任何未捕获异常/unhandledRejection 写入崩溃日志 +
 	// 广播 error 给前端，绝不退出进程。bun 默认对未捕获 rejection 终止进程，
 	// 历史中曾因此杀死 kernel（发消息回复部分内容后 SSE 断开，日志仅 code=null 无堆栈）。

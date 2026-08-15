@@ -118,6 +118,8 @@ const TRANSIENT_ERROR_PATTERN = new RegExp(
 		"ended without",
 		"stream ended",
 		"http2 request did not get a response",
+		// pi-ai 0.84.2 新增：上游请求缓冲失败（pi 内核会自动重试此类错误，属临时性）
+		"exceeded request buffer limit",
 	].join("|"),
 	"i",
 );
@@ -241,13 +243,13 @@ export function classifySdkError(event: SDKEvent): ClassifiedError | null {
 	const message = detail ? sanitizeErrorMessage(detail) : FALLBACK_MESSAGE;
 
 	// 无具体文案时无法判别，保守归 fatal
-	const category: ErrorCategory = !detail
-		? "fatal"
-		: FATAL_ERROR_PATTERN.test(detail)
+	const category: ErrorCategory = detail
+		? FATAL_ERROR_PATTERN.test(detail)
 			? "fatal"
 			: TRANSIENT_ERROR_PATTERN.test(detail)
 				? "transient"
-				: "fatal";
+				: "fatal"
+		: "fatal";
 
 	return { category, message };
 }

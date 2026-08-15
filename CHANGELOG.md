@@ -2,6 +2,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — chore(kernel): 升级 pi 0.84.2 + 启用 PI_EXPERIMENTAL
+
+- **变更**：①`@earendil-works/pi-*` 全系升级 0.84.1 → 0.84.2（kernel/package.json + sidecar 打包脚本 build-kernel-sidecar.ts，消除 sidecar `^0.83.0` 滞后债）；kernel 显式声明 `pi-agent-core` 修复顶层版本分裂（此前 pi-memory 的 peer 解析到顶层 0.84.1，而 pi-coding-agent 嵌套 0.84.2）。②启用 pi 0.84.2 实验性严格 JSON-schema 约束采样（`process.env.PI_EXPERIMENTAL="1"`，index.ts 注入，经 rpc-client 的 process.env 展开自动覆盖主会话 + 子代理）。③sdk-errors.ts 同步 pi-ai 0.84.2 新增 retryable 文案 `exceeded request buffer limit`。
+- **收益**：JSON/RPC message_update 流式 usage 累积修复、DeepSeek max_tokens 字段修复（v4-flash 新增 low 思考档）、Kimi 请求 UA 行为对齐、扩展工具结果长输出折叠、nanoid DoS 安全修复。
+- **验证**：0.84.1 vs 0.84.2 双版本对比——kernel 全量测试失败数随机漂移（10→1，失败文件单跑全过，为既有并发 flaky）；frontend 1580/1580 全过；kernel typecheck 通过；E2E channels.spec 两版本结果一致（mock 全链路为既有失败，非回归）；E2E settings-provider 首用例为 onboarding 遮挡既有问题。
+- 影响范围：`packages/kernel/package.json`、`packages/desktop/scripts/build-kernel-sidecar.ts`、`packages/kernel/src/index.ts`、`packages/kernel/src/sdk-errors.ts`。
+
 ## 2026-08-15 — fix(frontend): 修复 5 个既有测试失败（项目折叠断言 + font-scale 行尾 + maxEntries 版本号）
 
 - **根因**：①「项目折叠」3 个失败——产品用 CSS `gridTemplateRows:0fr` 做折叠动画（DOM 始终存在），但测试用 `queryByText("会话1").toBeNull()` 断言「折叠不可见」，happy-dom 不做 CSS 布局、`0fr` 不隐藏 DOM → 断言失败；motion 动画 250ms transition/rAF 在 happy-dom 下 pending，掩盖为 timeout。②`styles-font-scale`——`styles.css` 是 CRLF 行尾，测试断言硬编码 LF，`toContain` 不匹配。③`maxEntries`——数据已推进到 0.1.27，测试写死旧版本号 0.1.24。
