@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(frontend): IM 会话顶部回填修复备注空字符串时不回退的 bug
+
+- 回填用 `??`（nullish），备注为空字符串 `""`（清空过备注）时不会回退到联系人标识，导致回填空；改为 `||`（truthy），与顶部 display 判断一致（空字符串视为无备注）。
+- 测试：新增「备注空字符串回填联系人标识」用例（15/15 过）；e2e 铅笔编辑用例加断言「点铅笔回填原始标识（chatId）」，单聊回填验证通过。
+- 影响范围：`packages/frontend/src/components/ImSessionTitle.tsx`、`__tests__/ImSessionTitle.test.tsx`、`e2e/channels.spec.ts`。
+
 ## 2026-08-15 — fix(frontend): 项目列表展开改用 grid 高度动画（平滑展开，不再瞬间插入）
 
 - 上一条 fix 去掉会话 opacity + 根节点 layout，但「项目名瞬间出现」未解决（会话列表仍瞬间插入占据高度）。改为给会话列表容器加 `grid-template-rows` 0fr→1fr 高度展开动画（250ms），展开/折叠时高度渐变、下方项目随之逐渐位移，消除「瞬间插入」。

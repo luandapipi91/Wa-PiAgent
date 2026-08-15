@@ -317,6 +317,8 @@ test.describe.serial("IM 渠道机器人", () => {
 			await page.getByTestId("im-session-title-edit").click();
 			const input = page.getByTestId("im-session-title-input");
 			await expect(input).toBeVisible();
+			// 断言回填了原始标识（单聊标题同源 chatId = u-rename，而非空）
+			await expect(input).toHaveValue("u-rename");
 			await input.fill("李四");
 			await input.press("Enter");
 			// 顶部标题变为 IM · 备注名
