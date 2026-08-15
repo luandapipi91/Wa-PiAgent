@@ -1,17 +1,20 @@
 import { textToHtml } from "../../quick-invoke/tokens";
 
 /**
- * 自动化任务指令的 @im-push-to(bot_xxx,ct_xxx) 标记体系（自动化模块私有，
+ * 自动化任务指令的 @im-push-to(ch_xxx,ct_xxx) 标记体系（自动化模块私有，
  * 不并入聊天 tokens：避免联系人 chip 语义泄漏进主聊天的消息渲染）。
  */
 
-/** 完整标记正则（/g 用于 split/match；.test 判定请用下方无 g 版） */
-export const IM_PUSH_TOKEN_RE = /@im-push-to\(bot_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)/g;
+/** 完整标记正则（模块内部用；.test 判定请用下方导出的无 g 版）。
+ *  第一段为联系人所属渠道 id（真实生成 ch_ 前缀，见 kernel channel-manager.ts） */
+const IM_PUSH_TOKEN_RE =
+	/@im-push-to\(ch_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)/g;
 /** 侧边栏徽标等 .test() 判定用（无 g，避免 lastIndex 状态污染） */
-export const HAS_IM_PUSH_RE = /@im-push-to\(bot_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)/;
+export const HAS_IM_PUSH_RE =
+	/@im-push-to\(ch_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)/;
 
 export interface ImPushToken {
-	botId: string;
+	channelId: string;
 	contactId: string;
 }
 
@@ -20,7 +23,7 @@ export function parseImPushTokens(text: string): ImPushToken[] {
 	const out: ImPushToken[] = [];
 	for (const m of text.match(IM_PUSH_TOKEN_RE) ?? []) {
 		out.push({
-			botId: m.match(/bot_[a-zA-Z0-9_-]+/)?.[0] ?? "",
+			channelId: m.match(/ch_[a-zA-Z0-9_-]+/)?.[0] ?? "",
 			contactId: m.match(/ct_[a-zA-Z0-9_-]+/)?.[0] ?? "",
 		});
 	}
@@ -28,8 +31,8 @@ export function parseImPushTokens(text: string): ImPushToken[] {
 }
 
 /** 构造存储形态标记 */
-export function imPushToken(botId: string, contactId: string): string {
-	return `@im-push-to(${botId},${contactId})`;
+export function imPushToken(channelId: string, contactId: string): string {
+	return `@im-push-to(${channelId},${contactId})`;
 }
 
 export interface ContactChipMeta {
@@ -37,9 +40,17 @@ export interface ContactChipMeta {
 	valid: boolean;
 }
 
+/** 联系人 chip 图标：人形剪影（Icon.tsx 无人形图标，模块私有自造；currentColor 继承文字色） */
+const PERSON_ICON_SVG =
+	'<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="3.8"/><path d="M4.5 20c1-3.6 4-5.5 7.5-5.5s6.5 1.9 7.5 5.5z"/></svg>';
+
 function escapeHtmlLocal(s: string): string {
-	return s.replace(/[&<>"']/g, (c) =>
-		({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c,
+	return s.replace(
+		/[&<>"']/g,
+		(c) =>
+			({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+				c
+			] ?? c,
 	);
 }
 
@@ -63,7 +74,7 @@ export function toPromptHtml(
 		const contactId = token.match(/ct_[a-zA-Z0-9_-]+/)?.[0] ?? "";
 		const meta = contactMeta(contactId);
 		const cls = meta.valid ? "chip chip-im" : "chip chip-im chip-im-invalid";
-		html += `<span class="${cls}" contenteditable="false" data-token="${escapeHtmlLocal(token)}">📨 ${escapeHtmlLocal(meta.label)}</span>`;
+		html += `<span class="${cls}" contenteditable="false" data-token="${escapeHtmlLocal(token)}">${PERSON_ICON_SVG} ${escapeHtmlLocal(meta.label)}</span>`;
 	}
 	return html;
 }

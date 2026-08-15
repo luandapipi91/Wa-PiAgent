@@ -10,13 +10,13 @@ import {
 describe("parseImPushMentions", () => {
 	test("提取单个标记的联系人 id", () => {
 		expect(
-			parseImPushMentions("推送结果给 @im-push-to(bot_aaa,ct_p01) 谢谢"),
+			parseImPushMentions("推送结果给 @im-push-to(ch_aaa,ct_p01) 谢谢"),
 		).toEqual(["ct_p01"]);
 	});
 
 	test("多个标记去重", () => {
 		const prompt =
-			"@im-push-to(bot_aaa,ct_p01) 和 @im-push-to(bot_bbb,ct_p02) 再推 @im-push-to(bot_aaa,ct_p01)";
+			"@im-push-to(ch_aaa,ct_p01) 和 @im-push-to(ch_bbb,ct_p02) 再推 @im-push-to(ch_aaa,ct_p01)";
 		expect(parseImPushMentions(prompt)).toEqual(["ct_p01", "ct_p02"]);
 	});
 
@@ -24,24 +24,24 @@ describe("parseImPushMentions", () => {
 		expect(parseImPushMentions("普通指令没有标记")).toEqual([]);
 	});
 
-	test("旧 @ct_xxx / @bot_xxx 裸格式不再被识别（已废弃）", () => {
-		expect(parseImPushMentions("推送 @ct_p01 @bot_aaa")).toEqual([]);
+	test("旧 @ct_xxx / @ch_xxx 裸格式不再被识别（已废弃）", () => {
+		expect(parseImPushMentions("推送 @ct_p01 @ch_aaa")).toEqual([]);
 	});
 
 	test("标记格式残缺不匹配（缺括号/缺 bot 段）", () => {
 		expect(
-			parseImPushMentions("@im-push-to(bot_aaa) 和 @im-push-to ct_p01"),
+			parseImPushMentions("@im-push-to(ch_aaa) 和 @im-push-to ct_p01"),
 		).toEqual([]);
 	});
 
 	test("带连字符的 id 正常提取", () => {
-		expect(parseImPushMentions("@im-push-to(bot_wecom-2,ct_li-4-5)")).toEqual([
+		expect(parseImPushMentions("@im-push-to(ch_wecom-2,ct_li-4-5)")).toEqual([
 			"ct_li-4-5",
 		]);
 	});
 });
 
-// ===== createImPushTool（联系人推送工具，任务 2 接入链路后替换 robot_push）=====
+// ===== createImPushTool（联系人推送工具，任务 2 接入链路后替换 roch_push）=====
 
 describe("createImPushTool：工具定义", () => {
 	test("名称为 im_push_to，enum 为联系人 id 列表，参数名 contact", () => {
@@ -267,10 +267,10 @@ describe("buildSchedulerPrompt（@im-push-to 版）", () => {
 	});
 
 	test("有联系人标记：追加系统提示，含 id、工具名与 delegate 澄清", () => {
-		const out = buildSchedulerPrompt("整理日报 @im-push-to(bot_aaa,ct_p01)", [
+		const out = buildSchedulerPrompt("整理日报 @im-push-to(ch_aaa,ct_p01)", [
 			"ct_p01",
 		]);
-		expect(out.startsWith("整理日报 @im-push-to(bot_aaa,ct_p01)")).toBe(true);
+		expect(out.startsWith("整理日报 @im-push-to(ch_aaa,ct_p01)")).toBe(true);
 		expect(out).toContain("ct_p01");
 		expect(out).toContain("im_push_to");
 		expect(out).toContain("不要对其调用 delegate");

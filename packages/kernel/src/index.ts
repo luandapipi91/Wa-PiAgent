@@ -368,7 +368,7 @@ export async function startKernel(opts?: {
 				});
 				record.sessionId = sessionId;
 
-				// 2. 解析 @im-push-to(bot_xxx,ct_xxx) 标记：非空时构造 im_push_to 工具注入该会话
+				// 2. 解析 @im-push-to(ch_xxx,ct_xxx) 标记：非空时构造 im_push_to 工具注入该会话
 				// （pi 进程内 bridge 扩展经 env 注册工具，execute 经 /bridge/tool 回调到
 				// agentManager.handleTool → pushToContact 主动推送），推送结果回填执行记录。
 				const contactIds = parseImPushMentions(task.prompt);

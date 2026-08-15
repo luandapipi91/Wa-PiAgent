@@ -11,8 +11,8 @@ import { TaskPromptComposer } from "../TaskPromptComposer";
 mock.module("../../../store/channels", () => ({
 	useChannelsStore: () => ({
 		bots: [
-			{ id: "bot_aaa", name: "企微", status: "connected" },
-			{ id: "bot_bbb", name: "飞书", status: "connected" },
+			{ id: "ch_aaa", name: "企微", status: "connected" },
+			{ id: "ch_bbb", name: "飞书", status: "connected" },
 		],
 	}),
 }));
@@ -23,7 +23,7 @@ mock.module("../../../store/contacts", () => {
 	const contacts = [
 		{
 			id: "ct_p01",
-			channelId: "bot_aaa",
+			channelId: "ch_aaa",
 			kind: "person",
 			userId: "zhangsan",
 			remark: "张三",
@@ -32,7 +32,7 @@ mock.module("../../../store/contacts", () => {
 		},
 		{
 			id: "ct_p02",
-			channelId: "bot_bbb",
+			channelId: "ch_bbb",
 			kind: "person",
 			userId: "lisi",
 			remark: "李四",
@@ -41,7 +41,7 @@ mock.module("../../../store/contacts", () => {
 		},
 		{
 			id: "ct_g01",
-			channelId: "bot_aaa",
+			channelId: "ch_aaa",
 			kind: "group",
 			chatId: "wr_group01",
 			firstChatAt: 1,
@@ -78,9 +78,7 @@ describe("TaskPromptComposer", () => {
 		expect(screen.getByTestId("task-prompt-input")).toBeTruthy();
 		// placeholder 为 CSS 伪元素（contenteditable 无 placeholder 属性），断言 data 属性
 		expect(
-			screen
-				.getByTestId("task-prompt-input")
-				.getAttribute("data-placeholder"),
+			screen.getByTestId("task-prompt-input").getAttribute("data-placeholder"),
 		).toContain("让智能体");
 		expect(screen.getByText("$")).toBeTruthy();
 		expect(screen.getByText("@")).toBeTruthy();
@@ -101,9 +99,7 @@ describe("TaskPromptComposer", () => {
 		const onChange = mock();
 		render(<TaskPromptComposer value="推送 @" onChange={onChange} />);
 		fireEvent.click(screen.getByTestId("contact-item-ct_p01"));
-		expect(onChange).toHaveBeenCalledWith(
-			"推送 @im-push-to(bot_aaa,ct_p01) ",
-		);
+		expect(onChange).toHaveBeenCalledWith("推送 @im-push-to(ch_aaa,ct_p01) ");
 	});
 
 	test("value 末尾 $ → 弹出技能列表（testid=skill-picker），选中插入 $[技能名]", () => {
@@ -117,12 +113,12 @@ describe("TaskPromptComposer", () => {
 	test("存储形态的联系人标记渲染为 chip（显示人名）", () => {
 		render(
 			<TaskPromptComposer
-				value="推给 @im-push-to(bot_aaa,ct_p01) 完成"
+				value="推给 @im-push-to(ch_aaa,ct_p01) 完成"
 				onChange={() => {}}
 			/>,
 		);
 		const chip = document.querySelector(
-			'[data-token="@im-push-to(bot_aaa,ct_p01)"]',
+			'[data-token="@im-push-to(ch_aaa,ct_p01)"]',
 		);
 		expect(chip).toBeTruthy();
 		expect(chip!.textContent).toContain("张三");
@@ -141,7 +137,7 @@ describe("TaskPromptComposer", () => {
 	test("失效联系人（store 查无）灰化显示 id", () => {
 		render(
 			<TaskPromptComposer
-				value="推给 @im-push-to(bot_aaa,ct_gone)"
+				value="推给 @im-push-to(ch_aaa,ct_gone)"
 				onChange={() => {}}
 			/>,
 		);
@@ -167,9 +163,7 @@ describe("TaskPromptComposer", () => {
 	});
 
 	test("value 末尾非触发符 → 双弹窗均不显示", () => {
-		render(
-			<TaskPromptComposer value="推送 @张 执行 $日" onChange={() => {}} />,
-		);
+		render(<TaskPromptComposer value="推送 @张 执行 $日" onChange={() => {}} />);
 		expect(screen.queryByTestId("contact-picker")).toBeNull();
 		expect(screen.queryByTestId("skill-picker")).toBeNull();
 	});
