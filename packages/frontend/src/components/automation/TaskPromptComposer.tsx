@@ -66,7 +66,8 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 		if (showSkillPicker && skills.length === 0) loadSkills();
 	}, [showSkillPicker, skills.length, loadSkills]);
 
-	// 弹窗定位：portal 挂 body（fixed）逃逸 Modal 内容区 overflow 裁剪，锚定容器矩形。
+	// 弹窗定位：portal 挂 body（fixed）逃逸 Modal 内容区 overflow 裁剪，锚定输入框矩形（光标下方）。
+	// 显式设置宽度：fixed 容器默认 shrink-to-fit，与子元素 w-percent 循环依赖会导致宽度约束失效（横向撑满屏幕）。
 	// 底部空间不足向上翻，右溢出左移钳制；happy-dom 零尺寸（测试环境）不定位。
 	const positionPop = useCallback((pop: HTMLDivElement | null) => {
 		if (!pop || !containerRef.current) return;
@@ -74,7 +75,7 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 		if (pr.width === 0 && pr.height === 0) return;
 		pop.style.left = `${pr.left}px`;
 		pop.style.top = `${pr.bottom + 4}px`;
-		pop.style.minWidth = `${pr.width}px`;
+		pop.style.width = `${pr.width}px`;
 		const r = pop.getBoundingClientRect();
 		if (r.width === 0 && r.height === 0) return;
 		if (pr.bottom + 4 + r.height > window.innerHeight - 8) {
@@ -164,9 +165,7 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 				}
 				if (e.key === "ArrowUp") {
 					e.preventDefault();
-					setSkillIdx(
-						(i) => (i - 1 + skillItems.length) % skillItems.length,
-					);
+					setSkillIdx((i) => (i - 1 + skillItems.length) % skillItems.length);
 					return;
 				}
 				if (e.key === "Enter") {
@@ -175,13 +174,7 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 				}
 			}
 		},
-		[
-			showContactPicker,
-			showSkillPicker,
-			skillItems,
-			skillIdx,
-			insertSkill,
-		],
+		[showContactPicker, showSkillPicker, skillItems, skillIdx, insertSkill],
 	);
 
 	// chip 元数据：查通讯录显人名；查无灰化显示 id（联系人已删除，不报错）
@@ -232,16 +225,19 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 		"fixed z-[1000] rounded-md border border-hairline overflow-hidden py-1 max-h-48 overflow-y-auto";
 
 	return (
-		<div className="relative" ref={containerRef}>
-			<ComposerTextarea
-				text={value}
-				onTextChange={onChange}
-				onKeyDown={handleKeyDown}
-				onPaste={() => {}}
-				toHtml={(t) => toPromptHtml(t, contactMeta)}
-				testId="task-prompt-input"
-				placeholder="让智能体帮你做什么...（$ 插入技能，@ 选择联系人）"
-			/>
+		<div className="relative">
+			{/* 定位锚点：仅包输入框（弹窗紧贴输入框/光标正下方，不含提示行） */}
+			<div ref={containerRef}>
+				<ComposerTextarea
+					text={value}
+					onTextChange={onChange}
+					onKeyDown={handleKeyDown}
+					onPaste={() => {}}
+					toHtml={(t) => toPromptHtml(t, contactMeta)}
+					testId="task-prompt-input"
+					placeholder="让智能体帮你做什么...（$ 插入技能，@ 选择联系人）"
+				/>
+			</div>
 			{/* 提示行 */}
 			<div
 				className="flex gap-3 mt-1 text-[9px]"
@@ -300,24 +296,24 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 			    列表体复用聊天通用 QuickInvokeMenu，键盘 ↑↓/Enter 可导航选中） */}
 			{showSkillPicker &&
 				createPortal(
-				<div
-					ref={skillPopRef}
-					style={popStyle}
-					className={popClass}
-					data-testid="skill-picker"
-				>
-					<QuickInvokeMenu
-						type="skill"
-						items={skillItems}
-						highlightedIndex={skillIdx}
-						onSelect={(it) => insertSkill(it.name)}
-						onHover={setSkillIdx}
-						emptyText="暂无技能"
-						positionClassName="relative w-full"
-					/>
-				</div>,
-				document.body,
-			)}
+					<div
+						ref={skillPopRef}
+						style={popStyle}
+						className={popClass}
+						data-testid="skill-picker"
+					>
+						<QuickInvokeMenu
+							type="skill"
+							items={skillItems}
+							highlightedIndex={skillIdx}
+							onSelect={(it) => insertSkill(it.name)}
+							onHover={setSkillIdx}
+							emptyText="暂无技能"
+							positionClassName="relative w-full"
+						/>
+					</div>,
+					document.body,
+				)}
 		</div>
 	);
 }
