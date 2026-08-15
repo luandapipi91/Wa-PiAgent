@@ -309,6 +309,8 @@ export function ProjectItem(props: Props) {
 			{/* 会话列表：grid-template-rows 高度展开动画（平滑展开/折叠）+ motion layout 重排 FLIP */}
 			<div
 				className="grid"
+				aria-expanded={expanded}
+				data-testid={`project-sessions-${project.id}`}
 				style={{
 					gridTemplateRows: expanded ? "1fr" : "0fr",
 					transition: "grid-template-rows 250ms ease-out",
