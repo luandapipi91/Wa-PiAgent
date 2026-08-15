@@ -54,6 +54,72 @@ test("generateProviderExtension 包含 registerProvider 调用", () => {
   expect(code).toContain('api: "openai-completions"');
 });
 
+test("generateProviderExtension：内置目录有 baseUrl 时优先用内置（纠正缺 /v1 的脏数据）", () => {
+  // 模拟 opencode-go：provider.baseUrl 不带 /v1，但内置目录里该模型带 /v1
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      name: "OpenCode Zen Go",
+      slug: "opencode-go",
+      baseUrl: "https://opencode.ai/zen/go",
+      models: [{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 }],
+    }),
+  ];
+  const sdkModelMap = new Map([
+    [
+      "opencode-go/deepseek-v4-flash",
+      {
+        contextWindow: 1000000,
+        maxTokens: 384000,
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "deepseek-v4-flash",
+        baseUrl: "https://opencode.ai/zen/go/v1",
+      },
+    ],
+  ]);
+  const code = generateProviderExtension(providers, sdkModelMap);
+  // 应使用内置目录的 /v1 baseUrl，而非 provider.baseUrl 的不带 /v1
+  expect(code).toContain('baseUrl: "https://opencode.ai/zen/go/v1"');
+  expect(code).not.toContain('baseUrl: "https://opencode.ai/zen/go"');
+});
+
+test("generateProviderExtension：同名模型跨 provider 不互相污染 baseUrl", () => {
+  // deepseek 和 opencode-go 都有 deepseek-v4-flash，但 baseUrl 不同
+  const deepseek = sampleProvider({
+    id: "p1", name: "DeepSeek", slug: "deepseek",
+    baseUrl: "https://api.deepseek.com/v1",
+    models: [{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 }],
+  });
+  const opencode = sampleProvider({
+    id: "p2", name: "OpenCode Zen Go", slug: "opencode-go",
+    baseUrl: "https://opencode.ai/zen/go",
+    models: [{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 }],
+  });
+  const sdkModelMap = new Map([
+    ["deepseek/deepseek-v4-flash", { contextWindow: 1000000, maxTokens: 384000, reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, name: "DeepSeek V4 Flash", baseUrl: "https://api.deepseek.com" }],
+    ["opencode-go/deepseek-v4-flash", { contextWindow: 1000000, maxTokens: 384000, reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, name: "DeepSeek V4 Flash", baseUrl: "https://opencode.ai/zen/go/v1" }],
+  ]);
+  const code = generateProviderExtension([deepseek, opencode], sdkModelMap);
+  // 各自用各自的 baseUrl
+  expect(code).toContain('baseUrl: "https://api.deepseek.com"');
+  expect(code).toContain('baseUrl: "https://opencode.ai/zen/go/v1"');
+});
+
+test("generateProviderExtension：内置目录无该模型时回退 provider.baseUrl", () => {
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      name: "自定义",
+      baseUrl: "https://my.custom.com/v1",
+      models: [{ id: "custom-model", contextWindow: 64000, maxTokens: 4096 }],
+    }),
+  ];
+  const code = generateProviderExtension(providers, new Map());
+  expect(code).toContain('baseUrl: "https://my.custom.com/v1"');
+});
+
 test("generateProviderExtension 包含所有模型（SDK 查找不到时使用默认参数）", () => {
   const code = generateProviderExtension([sampleProvider()], new Map());
   expect(code).toContain('id: "deepseek-chat"');
