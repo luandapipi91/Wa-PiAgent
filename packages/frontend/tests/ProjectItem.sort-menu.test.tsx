@@ -220,7 +220,10 @@ test("项目折叠状态会持久化：折叠后重新挂载仍保持折叠", ()
 
 	// 重新挂载组件，模拟刷新页面后恢复持久化状态
 	renderIt();
-	expect(screen.queryByTestId("session-new")).toBeNull();
+	// 折叠后容器 aria-expanded=false（会话 DOM 仍在，CSS 动画折叠，happy-dom 不隐藏）
+	expect(
+		screen.getByTestId("project-sessions-p1").getAttribute("aria-expanded"),
+	).toBe("false");
 
 	fireEvent.click(screen.getByTestId("project-toggle-p1"));
 	expect(screen.getByTestId("session-new")).toBeTruthy();

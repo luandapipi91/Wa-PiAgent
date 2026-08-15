@@ -2,6 +2,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(frontend): 修复 5 个既有测试失败（项目折叠断言 + font-scale 行尾 + maxEntries 版本号）
+
+- **根因**：①「项目折叠」3 个失败——产品用 CSS `gridTemplateRows:0fr` 做折叠动画（DOM 始终存在），但测试用 `queryByText("会话1").toBeNull()` 断言「折叠不可见」，happy-dom 不做 CSS 布局、`0fr` 不隐藏 DOM → 断言失败；motion 动画 250ms transition/rAF 在 happy-dom 下 pending，掩盖为 timeout。②`styles-font-scale`——`styles.css` 是 CRLF 行尾，测试断言硬编码 LF，`toContain` 不匹配。③`maxEntries`——数据已推进到 0.1.27，测试写死旧版本号 0.1.24。
+- **修复**：①`ProjectItem` 折叠容器加 `aria-expanded={expanded}` + `data-testid="project-sessions-{id}"`（同时改善可访问性），测试改断言该属性而非查 DOM 内容。②`styles-font-scale.test.ts` 读 CSS 后 `.replace(/\r\n/g,"\n")` 归一化行尾。③`VersionTimeline.test.tsx` 断言版本号对齐当前数据（0.1.27 + 0.1.26）。
+- **验证**：frontend 全量 1580/1580 通过（0 失败）、typecheck 通过。
+- 影响范围：`frontend/src/components/ProjectItem.tsx`、`frontend/tests/{ProjectList,ProjectItem.sort-menu,styles-font-scale}.test.tsx`、`frontend/src/components/settings/VersionTimeline.test.tsx`。
+
 ## 2026-08-15 — fix(kernel): provider extension 用内置目录 baseUrl（修 opencode-go 缺 /v1 且同名模型互相污染）
 
 - **根因**：①opencode-go 的 `openai-completions` 模型（deepseek-v4-flash/pro 等）正确 baseUrl 是 `https://opencode.ai/zen/go/v1`（带 /v1），但 providers.json 里存的是不带 /v1 的 `https://opencode.ai/zen/go`（那是 anthropic-messages 模型的 baseUrl，被套用了）→ OpenAI SDK 拼 /chat/completions 后打 404；②`sdkModelMap` 原按 model id 建键，`deepseek-v4-flash` 同时存在于 deepseek 和 opencode-go，会匹配到错误 provider 的 baseUrl（opencode-go 被污染成 api.deepseek.com）。

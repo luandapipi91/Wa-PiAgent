@@ -9,7 +9,7 @@ import { join } from "node:path";
 const css = readFileSync(
 	join(import.meta.dir, "..", "src", "styles.css"),
 	"utf8",
-);
+).replace(/\r\n/g, "\n"); // 归一化 CRLF→LF：仓库 styles.css 可能是 CRLF，断言用 LF，避免行尾差异导致误判
 
 test(".prose-sm（markdown 正文）字号跟随 --font-scale", () => {
 	expect(css).toContain(

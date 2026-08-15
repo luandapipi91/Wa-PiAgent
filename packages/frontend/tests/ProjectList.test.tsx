@@ -239,9 +239,14 @@ test("在新会话界面且已选中该项目时，点击项目名展开/折叠"
 	);
 	fireEvent.click(screen.getByText("项目A"));
 	expect(onSelectProject).not.toHaveBeenCalled();
-	expect(screen.queryByText("会话1")).toBeNull();
+	// 折叠后会话 DOM 仍存在（CSS 动画折叠），但容器 aria-expanded 应为 false
+	expect(
+		screen.getByTestId("project-sessions-p1").getAttribute("aria-expanded"),
+	).toBe("false");
 	fireEvent.click(screen.getByText("项目A"));
-	expect(screen.getByText("会话1")).toBeTruthy();
+	expect(
+		screen.getByTestId("project-sessions-p1").getAttribute("aria-expanded"),
+	).toBe("true");
 });
 
 test("项目处于折叠状态时，点击项目名同时跳转新建会话并展开列表", () => {
@@ -272,8 +277,10 @@ test("项目处于折叠状态时，点击项目名同时跳转新建会话并�
 			currentView="session"
 		/>,
 	);
-	// 折叠状态看不到会话
-	expect(screen.queryByText("会话1")).toBeNull();
+	// 折叠状态：容器 aria-expanded=false（会话 DOM 仍在，CSS 动画折叠，happy-dom 不隐藏）
+	expect(
+		screen.getByTestId("project-sessions-p1").getAttribute("aria-expanded"),
+	).toBe("false");
 	fireEvent.click(screen.getByText("项目A"));
 	// 一次点击同时：跳转新建会话 + 展开列表
 	expect(onSelectProject).toHaveBeenCalledWith("p1");
