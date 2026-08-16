@@ -155,7 +155,7 @@ test("流中断（无 final）退化为错误结果", async () => {
 	} finally {
 		restore();
 	}
-});
+}, 10_000);
 
 test("fetch init 携带 timeout:false（禁用 Bun 原生 300s 硬超时）", async () => {
 	let capturedInit: any = null;
@@ -291,11 +291,9 @@ test("无任何帧超过空闲阈值 → 报空闲超时", async () => {
 			},
 			pull() {
 				return new Promise((_resolve, reject) => {
-					init.signal.addEventListener(
-						"abort",
-						() => reject(init.signal.reason),
-						{ once: true },
-					);
+					init.signal.addEventListener("abort", () => reject(init.signal.reason), {
+						once: true,
+					});
 				});
 			},
 		}),
@@ -446,3 +444,123 @@ test("session_start 在 RPC 模式将 custom() 替换为同步抛出（解除 cu
 		),
 	).not.toThrow();
 });
+
+test("ask execute：bridge socket 断开后自动重试并成功", async () => {
+	injectBridgeEnv();
+	let calls = 0;
+	const orig = globalThis.fetch;
+	globalThis.fetch = (async () => {
+		calls++;
+		if (calls === 1) {
+			// 模拟偶发断开：Bun fetch 在 socket 被对端关闭时的报错
+			throw new Error("The socket connection was closed unexpectedly.");
+		}
+		return {
+			ok: true,
+			status: 200,
+			headers: new Headers({ "content-type": "application/x-ndjson" }),
+			body: ndjsonStream([
+				JSON.stringify({
+					type: "started",
+					protocol: 1,
+					tool: "ask_user_question",
+					toolCallId: "tc_ask",
+				}),
+				JSON.stringify({
+					type: "final",
+					tool: "ask_user_question",
+					toolCallId: "tc_ask",
+					ok: true,
+					result: {
+						content: [{ type: "text", text: "用户回答了" }],
+						details: {},
+					},
+				}),
+			]),
+			json: async () => ({}),
+		};
+	}) as any;
+
+	try {
+		const tools = await loadTools();
+		const askTool = tools.find((t) => t.name === "ask_user_question");
+		const res = await askTool.execute(
+			"tc_ask",
+			{
+				questions: [
+					{
+						question: "Q?",
+						header: "h",
+						options: [
+							{ label: "A", description: "a" },
+							{ label: "B", description: "b" },
+						],
+					},
+				],
+			},
+			new AbortController().signal,
+		);
+		expect(calls).toBe(2);
+		expect(res.content[0].text).toBe("用户回答了");
+	} finally {
+		globalThis.fetch = orig;
+	}
+}, 10_000);
+
+const askRetryParams = {
+	questions: [
+		{
+			question: "Q?",
+			header: "h",
+			options: [
+				{ label: "A", description: "a" },
+				{ label: "B", description: "b" },
+			],
+		},
+	],
+};
+
+test("ask execute：断开重试最多 5 次后放弃", async () => {
+	injectBridgeEnv();
+	let calls = 0;
+	const orig = globalThis.fetch;
+	globalThis.fetch = (async () => {
+		calls++;
+		throw new Error("The socket connection was closed unexpectedly.");
+	}) as any;
+
+	try {
+		const tools = await loadTools();
+		const askTool = tools.find((t) => t.name === "ask_user_question");
+		const res = await askTool.execute(
+			"tc_ask",
+			askRetryParams,
+			new AbortController().signal,
+		);
+		expect(calls).toBe(6); // 首次 + 5 次重试
+		expect(res.details?.error).toContain("socket connection was closed");
+	} finally {
+		globalThis.fetch = orig;
+	}
+}, 15_000);
+
+test("ask execute：signal 已 abort 时不重试（ask 已失效）", async () => {
+	injectBridgeEnv();
+	let calls = 0;
+	const orig = globalThis.fetch;
+	globalThis.fetch = (async () => {
+		calls++;
+		throw new Error("The socket connection was closed unexpectedly.");
+	}) as any;
+
+	try {
+		const tools = await loadTools();
+		const askTool = tools.find((t) => t.name === "ask_user_question");
+		const ctrl = new AbortController();
+		ctrl.abort(); // ask 已失效
+		await askTool.execute("tc_ask", askRetryParams, ctrl.signal);
+		expect(calls).toBe(1); // 不重试
+	} finally {
+		globalThis.fetch = orig;
+	}
+}, 10_000);

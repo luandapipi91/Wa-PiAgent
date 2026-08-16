@@ -23,24 +23,49 @@ interface Entry {
 	resolve: (o: AskOutcome) => void;
 	onAbort: () => void;
 	done: boolean;
+	/** 断开标记：bridge 连接断开（signal abort）时置 true，条目保留供重试复用 */
+	disconnected: boolean;
 }
 
 export class AskRegistry {
 	private bySession = new Map<string, Map<string, Entry>>();
 
-	/** 注册一个 pending 提问并返回阻塞 promise。signal abort 时以 cancelled 解决。 */
+	/**
+	 * 注册一个 pending 提问并返回阻塞 promise。signal abort 时以 cancelled 解决。
+	 * 断开（signal abort）时条目保留（disconnected 标记），供 bridge 偶发断开后重试复用；
+	 * 只有用户回答（resolve）/取消（cancel）才真正移除条目。
+	 */
 	ask(
 		sessionId: string,
 		toolCallId: string,
 		params: AskParams,
 		signal: AbortSignal,
 	): Promise<AskOutcome> {
-		const entry: Entry = {
-			params,
-			resolve: () => {},
-			onAbort: () => {},
-			done: false,
-		};
+		const existing = this.bySession.get(sessionId)?.get(toolCallId);
+		let entry: Entry;
+		if (existing?.disconnected) {
+			// 复用断开条目：重试继续等同一个提问的用户回答，不重复弹卡片
+			entry = existing;
+			entry.disconnected = false;
+			entry.done = false;
+		} else {
+			// 首次注册（existing 为 undefined；同 toolCallId 的 pending 重复调用正常不会发生）
+			entry = {
+				params,
+				resolve: () => {},
+				onAbort: () => {},
+				done: false,
+				disconnected: false,
+			};
+			let inner = this.bySession.get(sessionId);
+			if (!inner) {
+				inner = new Map();
+				this.bySession.set(sessionId, inner);
+			}
+			inner.set(toolCallId, entry);
+		}
+		// 先插入 entry 到 map，再检查 signal.aborted：否则预 aborted 时 resolve() 触发的
+		// remove() 是 no-op（entry 尚未插入），会把一个 done:true 的 entry 永久留在 map 里。
 		const promise = new Promise<AskOutcome>((resolve) => {
 			entry.resolve = (o) => {
 				if (entry.done) return;
@@ -48,18 +73,16 @@ export class AskRegistry {
 				this.remove(sessionId, toolCallId);
 				resolve(o);
 			};
-			entry.onAbort = () => entry.resolve({ cancelled: true });
+			entry.onAbort = () => {
+				// 断开：标记 disconnected 并保留条目（供重试复用），不 remove
+				if (entry.done) return;
+				entry.done = true;
+				entry.disconnected = true;
+				resolve({ cancelled: true });
+			};
 		});
-		// 先插入 entry 到 map，再检查 signal.aborted：否则预 aborted 时 resolve() 触发的
-		// remove() 是 no-op（entry 尚未插入），会把一个 done:true 的 entry 永久留在 map 里。
-		let inner = this.bySession.get(sessionId);
-		if (!inner) {
-			inner = new Map();
-			this.bySession.set(sessionId, inner);
-		}
-		inner.set(toolCallId, entry);
 
-		if (signal.aborted) entry.resolve({ cancelled: true });
+		if (signal.aborted) entry.onAbort();
 		else signal.addEventListener("abort", entry.onAbort, { once: true });
 		return promise;
 	}
@@ -83,10 +106,13 @@ export class AskRegistry {
 		return true;
 	}
 
-	/** 该 session 当前真实 pending 的 toolCallId 列表（前端 double check 用）。 */
+	/** 该 session 当前真实 pending 的 toolCallId 列表（前端 double check 用）。断开保留的 disconnected 不算 pending。 */
 	pendingToolCallIds(sessionId: string): string[] {
 		const inner = this.bySession.get(sessionId);
-		return inner ? [...inner.keys()] : [];
+		if (!inner) return [];
+		return [...inner.entries()]
+			.filter(([, entry]) => !entry.disconnected)
+			.map(([id]) => id);
 	}
 
 	/** 取消该 session 全部 pending（abort / immediate / dispose 用）。其它 session 不受影响。 */
@@ -94,6 +120,20 @@ export class AskRegistry {
 		const inner = this.bySession.get(sessionId);
 		if (!inner) return;
 		for (const entry of [...inner.values()]) entry.resolve({ cancelled: true });
+	}
+
+	/** 清空该 session 全部 ask 条目（含断开保留的 disconnected）。一轮对话结束（agent_settled）用。 */
+	clearSession(sessionId: string): void {
+		const inner = this.bySession.get(sessionId);
+		if (!inner) return;
+		this.bySession.delete(sessionId);
+		for (const entry of inner.values()) {
+			entry.onAbort = () => {}; // 解除监听引用
+			if (!entry.done) {
+				entry.done = true;
+				entry.resolve({ cancelled: true }); // 残留 pending 也一并解决，避免 runAskTool 永久阻塞
+			}
+		}
 	}
 
 	/** 测试用：清空全部状态。 */

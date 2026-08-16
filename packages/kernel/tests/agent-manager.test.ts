@@ -85,6 +85,15 @@ function readSysprompt(sessionId: string): string {
 	return readFileSync(syspromptPath(sessionId), "utf8");
 }
 
+/** 轮询等待条件满足（发送前自动压缩检查引入异步延迟，drain 需异步等待） */
+async function waitFor(fn: () => boolean, timeoutMs = 2000): Promise<void> {
+	const start = Date.now();
+	while (!fn()) {
+		if (Date.now() - start > timeoutMs) throw new Error("waitFor 超时");
+		await new Promise((r) => setTimeout(r, 5));
+	}
+}
+
 type CapturedEvent = {
 	sessionId: string;
 	projectId: string;
@@ -126,9 +135,7 @@ async function setup(opts: SetupOpts = {}) {
 		createClientFn: opts.createClientFn ?? fakeClientFactory(fakes),
 		...(opts.memoryStore ? { memoryStore: opts.memoryStore } : {}),
 		...(opts.skillManager ? { skillManager: opts.skillManager } : {}),
-		...(opts.extensionManager
-			? { extensionManager: opts.extensionManager }
-			: {}),
+		...(opts.extensionManager ? { extensionManager: opts.extensionManager } : {}),
 	});
 	managers.push(am);
 	syspromptSessionIds.push(session.id);
@@ -485,9 +492,7 @@ test("prompt — /compact 带自定义指令 → customInstructions 透传", asy
 	await am.prompt(session.id, "/compact 只保留关键决策", { model: MODEL });
 
 	expect(fakes[0].prompted).toEqual([]);
-	expect(fakes[0].compacted).toEqual([
-		{ customInstructions: "只保留关键决策" },
-	]);
+	expect(fakes[0].compacted).toEqual([{ customInstructions: "只保留关键决策" }]);
 });
 
 test("prompt — 非 /compact 前缀（如 /compactify）不受影响，正常走 prompt", async () => {
@@ -511,6 +516,8 @@ test("prompt — 压缩完成后 drain 压缩期间排队消息（合成 agent_s
 	const p1 = am.prompt(session.id, "/compact", { model: MODEL });
 	await am.prompt(session.id, "压缩完再答", { model: MODEL });
 	await p1;
+	// 压缩完成后合成 agent_settled 触发 drain（发送前自动压缩检查引入异步延迟，轮询等待）
+	await waitFor(() => fake.prompted.length === 2);
 
 	expect(fake.compacted).toEqual([{ customInstructions: undefined }]);
 	expect(fake.prompted).toEqual(["预热", "压缩完再答"]);
@@ -624,9 +631,7 @@ test("prompt — snippet 附件内容直接内联", async () => {
 
 	await am.prompt(session.id, "总结这段代码", {
 		model: MODEL,
-		attachments: [
-			{ kind: "snippet", name: "代码片段", content: "const x = 1;" },
-		],
+		attachments: [{ kind: "snippet", name: "代码片段", content: "const x = 1;" }],
 	});
 
 	expect(fakes[0].prompted).toHaveLength(1);
@@ -649,8 +654,9 @@ test("prompt — agent 运行中 → 进本地 followUpList，agent_settled 后 
 	// busy 中不直接 prompt，进本地 followUpList
 	expect(fake.prompted).toEqual(["第一条"]);
 
-	// agent_settled → drain 一条
+	// agent_settled → drain 一条（发送前自动压缩检查引入异步延迟，轮询等待）
 	fake.emit({ type: "agent_settled" });
+	await waitFor(() => fake.prompted.length === 2);
 	expect(fake.prompted).toEqual(["第一条", "第二条"]);
 });
 
@@ -965,9 +971,7 @@ test("markAllDirty 后 idle 命中缓存 → 热重载（不重建进程、调 r
 	const { project, session, am, fakes } = await setup();
 	const first = await am.ensureStarted(project.id, "dev", session.id);
 	expect(fakes).toHaveLength(1);
-	fakes[0].commandsToReturn = [
-		{ name: "__!wa_pi_reload", source: "extension" },
-	];
+	fakes[0].commandsToReturn = [{ name: "__!wa_pi_reload", source: "extension" }];
 
 	am.markAllDirty();
 	const second = await am.ensureStarted(project.id, "dev", session.id);
@@ -1031,9 +1035,7 @@ test("扩展 dirty 热重载前发 extension_ui_reset 清前端残留（活跃�
 	const events: CapturedEvent[] = [];
 	const { project, session, am, fakes } = await setup({ events });
 	await am.ensureStarted(project.id, "dev", session.id);
-	fakes[0].commandsToReturn = [
-		{ name: "__!wa_pi_reload", source: "extension" },
-	];
+	fakes[0].commandsToReturn = [{ name: "__!wa_pi_reload", source: "extension" }];
 	events.length = 0;
 
 	am.markAllDirty();
@@ -1092,9 +1094,7 @@ test("__!wa_pi_reload 命令已注册时 → 走热重载（不重建进程）",
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
 	// 模拟命令已注册
-	fakes[0].commandsToReturn = [
-		{ name: "__!wa_pi_reload", source: "extension" },
-	];
+	fakes[0].commandsToReturn = [{ name: "__!wa_pi_reload", source: "extension" }];
 
 	am.markAllDirty();
 	await am.ensureStarted(project.id, "dev", session.id);
@@ -1330,9 +1330,7 @@ test("注入提示关闭（memoryPolicyStyle=none）时系统提示词不追加�
 		const prompt = readSysprompt(session.id);
 		expect(prompt).not.toContain(unique);
 		// memory-snapshot 段为空被过滤，env-constraints 成为最后一段
-		expect(prompt.trimEnd().endsWith("plain, user-facing language.")).toBe(
-			true,
-		);
+		expect(prompt.trimEnd().endsWith("plain, user-facing language.")).toBe(true);
 	} finally {
 		await globalStore.remove("memory", unique).catch(() => {});
 	}
@@ -1824,7 +1822,8 @@ test("agent_settled 自动 drain followUpList", async () => {
 	fakes[0].prompted = [];
 	fakes[0].emit({ type: "agent_settled" });
 
-	// 第一条消息已被 drain（_sendPromptNow 重设 busy=true）
+	// 第一条消息已被 drain（_sendPromptNow 重设 busy=true；发送前自动压缩检查引入异步延迟，轮询等待）
+	await waitFor(() => fakes[0].prompted.length === 1);
 	expect(fakes[0].prompted).toHaveLength(1);
 	expect(fakes[0].prompted[0]).toBe("消息1");
 
@@ -2087,9 +2086,7 @@ test("getCommands 附加 packageName 且不产生 tuiOnly 字段", async () => {
 		"plain-ext",
 	);
 	// 无 sourceInfo 的命令原样返回（不附加 packageName）
-	expect(
-		commands.find((c) => c.name === "orphan")?.packageName,
-	).toBeUndefined();
+	expect(commands.find((c) => c.name === "orphan")?.packageName).toBeUndefined();
 	// tuiOnly 静态扫描已删除：不再产生 tuiOnly 字段
 	expect(commands.every((c) => !("tuiOnly" in c))).toBe(true);
 });

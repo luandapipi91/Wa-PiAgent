@@ -43,6 +43,12 @@ const DEFAULT_TIMEOUT_MS = 60_000; // 普通工具 60s
 const ASK_TIMEOUT_MS = 600_000; // ask 等用户回答，放宽到 10 分钟
 const DELEGATE_TIMEOUT_MS = 600_000; // delegate/fleet：10 分钟无任何帧才判死（流式后"无帧"才是真卡死）
 
+// bridge 偶发断开重试：pi 侧 fetch 的 socket 可能被 Bun 非确定性清理（GC/keep-alive），
+// 断开后重试能恢复长连接（ask 等用户回答期间尤其需要）。重试前校验 signal 未 abort
+// （ask 仍有效），避免用户已取消/工具已中止时无谓重试。
+const MAX_BRIDGE_RETRIES = 5;
+const BRIDGE_RETRY_DELAY_MS = 1_000;
+
 type BridgeToolResult = {
 	content: Array<{ type: "text"; text: string }>;
 	// pi 0.82 起 AgentToolResult.details 为必填（类型层面对齐；运行期 undefined 行为不变）
@@ -60,6 +66,14 @@ function failResult(text: string, error: string): BridgeToolResult {
 	return { content: [{ type: "text", text }], details: { error } };
 }
 
+/** 判断错误是否属于可重试的"连接断开"（区别于 token 错误、参数错误等永久失败）。 */
+function isRetryableDisconnect(msg: string): boolean {
+	return (
+		msg.includes("socket connection was closed unexpectedly") ||
+		msg.includes("socket hang up")
+	);
+}
+
 // 经 HTTP 回调 kernel /bridge/tool。任何失败（网络/非 2xx/超时/格式非法）都转成
 // 文本结果返回，绝不抛出——避免异常导致 pi 进程崩溃。
 async function callBridge(
@@ -70,6 +84,7 @@ async function callBridge(
 	// 默认 60s 空闲兜底：下面 timeout:false 已关掉 Bun 300s 原生硬超时，
 	// 若允许省略，未来新增工具忘传时将无任何兜底、永久挂起。传 0 可显式关闭。
 	timeoutMs: number = DEFAULT_TIMEOUT_MS,
+	retryCount: number = 0,
 ): Promise<BridgeToolResult> {
 	const missing = missingEnvError();
 	if (missing) return failResult(missing, "missing_env");
@@ -157,7 +172,18 @@ async function callBridge(
 				const err = finalFrame.error ?? "unknown";
 				return failResult("bridge 调用失败: " + err, err);
 			}
-			// 流结束但无 final 帧：连接中断
+			// 流结束但无 final 帧：连接中断（kernel 侧异常关闭流，可能是偶发断开）
+			if (retryCount < MAX_BRIDGE_RETRIES && !signal?.aborted) {
+				await new Promise((r) => setTimeout(r, BRIDGE_RETRY_DELAY_MS));
+				return callBridge(
+					tool,
+					toolCallId,
+					params,
+					signal,
+					timeoutMs,
+					retryCount + 1,
+				);
+			}
 			return failResult(
 				"bridge 调用失败: 连接中断（未收到 final 帧）",
 				"stream_interrupted",
@@ -176,6 +202,23 @@ async function callBridge(
 		return { content: data.content, details: data.details };
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
+		// 偶发断开（socket 被对端关闭）+ 还有重试次数 + ask 仍有效（signal 未 abort）
+		// → 间隔 1 秒后递归重试，让长连接（ask 等用户）在偶发断开后能续上。
+		if (
+			retryCount < MAX_BRIDGE_RETRIES &&
+			isRetryableDisconnect(msg) &&
+			!signal?.aborted
+		) {
+			await new Promise((r) => setTimeout(r, BRIDGE_RETRY_DELAY_MS));
+			return callBridge(
+				tool,
+				toolCallId,
+				params,
+				signal,
+				timeoutMs,
+				retryCount + 1,
+			);
+		}
 		return failResult("bridge 调用失败: " + msg, msg);
 	} finally {
 		if (timer !== undefined) clearTimeout(timer);

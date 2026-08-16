@@ -79,6 +79,13 @@ export class FakeSessionClient {
 		return this.messagesToReturn;
 	}
 
+	/** get_session_stats 返回的 contextUsage（默认 undefined = 不触发自动压缩） */
+	contextUsageToReturn: any = undefined;
+
+	async getSessionStats(): Promise<any> {
+		return { contextUsage: this.contextUsageToReturn };
+	}
+
 	async getCommands(): Promise<{ commands: any[] }> {
 		return { commands: this.commandsToReturn };
 	}

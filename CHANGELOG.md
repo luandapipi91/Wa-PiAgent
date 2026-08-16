@@ -2,6 +2,18 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-16 — fix(kernel): ask bridge 偶发断开后自动重试（最多 5 次、间隔 1 秒）
+
+- pi 侧 fetch 的 socket 可能被 Bun 非确定性清理（GC/keep-alive），导致 ask 的 bridge 长连接偶发断开（报 "socket connection was closed unexpectedly" 或 "连接中断（未收到 final 帧）"），提问提前失败——此问题自 ask 功能引入起一直存在。修复：callBridge 对可重试的断开（socket closed / socket hang up / 连接中断）自动重试，最多 5 次、间隔 1 秒；重试前校验 signal 未 abort（ask 仍有效），用户取消/工具中止时不无谓重试。
+- 配套：ask 断开后条目保留（disconnected 标记）供重试复用，避免重试时重复弹卡片；用户回答/取消才真正移除条目；一轮对话结束（agent_settled）清空会话 ask 条目防泄漏。`pendingToolCallIds` 只返回真实 pending（过滤 disconnected），前端 double-check 不看到失效卡片。
+- 影响范围：`packages/kernel/src/wa-pi-bridge.extension.ts`（callBridge 加重试 + isRetryableDisconnect + 常量）、`ask-registry.ts`（断开保留 + 复用 + clearSession + pendingToolCallIds 过滤）、`agent-manager.ts`（agent_settled 清空会话 ask）；测试 `bridge-extension.test.ts`（3 个用例）、`ask-registry.test.ts`（3 个用例）。
+
+## 2026-08-16 — feat(kernel): 发送前自动压缩防护 POC（超限自动 compact 后继续发送）
+
+- DeepSeek 等「输入+输出共用上下文窗口」的模型，maxTokens（如 deepseek-v4-flash 的 384000）会作为每次请求的输出预留，与输入 token 叠加超过窗口时（如 748k + 384k > 1M）触发 400。而 pi 的 auto-compaction 用 reserveTokens=16384 判断，触发太晚，中间存在「压缩不触发但已超限」的危险区间。
+- POC：`_sendPromptNow` 发送 prompt 前，查当前模型 contextWindow/maxTokens（进程内缓存）+ get_session_stats.contextUsage，若 `used + maxTokens > contextWindow` 先自动 `compact()` 再继续发送。压缩失败不阻断发送（退回现状，让原消息走正常错误渲染）。
+- 影响范围：`packages/kernel/src/agent-manager.ts`（新增 `_autoCompactIfNeeded` + 模块级 modelMetaCache，`_sendPromptNow` 插入调用）；测试 `agent-manager.test.ts`（drain 用例改异步等待）+ `fixtures/fake-session-client.ts`（补 getSessionStats）。
+
 ## 2026-08-15 — fix(desktop): publish-oss 清代理改为 --no-proxy 参数（默认保留代理）
 
 - 上一条无条件清代理会让想走代理的环境也用不了；改为加 `--no-proxy` 参数时才清代理（默认保留代理，向后兼容）。OSS 国内节点直连、走代理分片上传会 socket 关闭。
