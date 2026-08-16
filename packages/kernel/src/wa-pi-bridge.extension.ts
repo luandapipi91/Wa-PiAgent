@@ -8,6 +8,8 @@
 // 不再动态生成——文案统一来源，kernel 侧与 bridge 侧引用同一份定义。
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { Type } from "typebox";
 import {
 	ASK_DESCRIPTION,
@@ -30,6 +32,13 @@ import {
 	FLEET_DESCRIPTION,
 	FleetParamsSchema,
 } from "./tool-schemas.ts";
+import {
+	applySizeLimit,
+	recordAfter,
+	recordBefore,
+	serializeSnapshots,
+} from "./file-snapshot.ts";
+import type { FileSnapshotRecord, SnapshotReadResult } from "./file-snapshot.ts";
 
 // =========================================================================
 // kernel spawn pi 时注入的三个环境变量
@@ -424,6 +433,47 @@ export default function (pi: ExtensionAPI) {
 	//
 	// 零超时、零白名单、对所有插件通用。session_start 在每次 bindExtensions
 	// （启动 / new_session / switch_session / reload）后都触发，patch 自动重应用。
+	// ===== 文件修改清单：采集本轮 edit/write 的文件前后快照 =====
+	const snapshots = new Map<string, FileSnapshotRecord>();
+	const toolCallIdToPath = new Map<string, string>();
+	const readSnapshot = (p: string): SnapshotReadResult => {
+		try {
+			return { kind: "content", content: readFileSync(p, "utf8") };
+		} catch (err: any) {
+			return err?.code === "ENOENT" ? { kind: "missing" } : { kind: "error" };
+		}
+	};
+
+	pi.on("tool_call", (event: any) => {
+		if (event.toolName !== "edit" && event.toolName !== "write") return;
+		const path = event.input?.path;
+		if (typeof path !== "string") return;
+		recordBefore(snapshots, toolCallIdToPath, event.toolCallId, resolve(path), readSnapshot);
+	});
+
+	pi.on("tool_execution_end", (event: any) => {
+		if (event.toolName !== "edit" && event.toolName !== "write") return;
+		recordAfter(snapshots, toolCallIdToPath, event.toolCallId, readSnapshot);
+	});
+
+	pi.on("agent_end", async () => {
+		if (snapshots.size === 0) return;
+		applySizeLimit(snapshots);
+		const files = serializeSnapshots(snapshots);
+		snapshots.clear();
+		toolCallIdToPath.clear();
+		if (!BRIDGE_URL || !BRIDGE_TOKEN || !BRIDGE_SESSION_ID) return;
+		try {
+			await fetch(BRIDGE_URL + "/bridge/file-changes", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ token: BRIDGE_TOKEN, sessionId: BRIDGE_SESSION_ID, files }),
+			});
+		} catch {
+			/* 上报失败静默：不影响对话主流程 */
+		}
+	});
+
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "rpc") return;
 		const ui = ctx.ui;

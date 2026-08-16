@@ -106,6 +106,8 @@ interface SessionState {
 	// toolCallId → 所属 sessionId：供 MessageList 按会话过滤「本会话是否有 running 子代理」
 	// （progressByToolCall 本身不区分 session，多会话并存时避免串扰滚动/状态）。
 	progressSessionByToolCall: Record<string, string>;
+	/** 每轮对话结束后的文件修改清单（按 sessionId 分组） */
+	fileChangesBySession: Record<string, import("@wa-pi/shared").FileChangeSnapshot[]>;
 	// 原有方法保留：append 用于 error 兜底、setMessages 用于 session:messages 历史
 	append: (sessionId: string, msg: SessionMessage) => void;
 	setMessages: (sessionId: string, messages: SessionMessage[]) => void;
@@ -298,6 +300,7 @@ export const useSessionStore = create<SessionState>((set) => {
 		editorTextInjection: {},
 		progressByToolCall: {},
 		progressSessionByToolCall: {},
+		fileChangesBySession: {},
 		filePreview: null,
 
 		seedTokenTotal: (sessionId, messages, stats) => {
@@ -557,6 +560,7 @@ export const useSessionStore = create<SessionState>((set) => {
 					editorTextInjection: prune(s.editorTextInjection),
 					progressByToolCall: nextProg,
 					progressSessionByToolCall: nextProgSess,
+					fileChangesBySession: prune(s.fileChangesBySession),
 				};
 			});
 		},
@@ -582,6 +586,7 @@ export const useSessionStore = create<SessionState>((set) => {
 				contextUsageBySession: {},
 				progressByToolCall: {},
 				progressSessionByToolCall: {},
+				fileChangesBySession: {},
 				editorTextInjection: {},
 				filePreview: null,
 			}),
@@ -1487,6 +1492,13 @@ export const useSessionStore = create<SessionState>((set) => {
 						},
 					}));
 					break;
+				case "file_changes": {
+					const files = (event as any).files ?? [];
+					set((s) => ({
+						fileChangesBySession: { ...s.fileChangesBySession, [sessionId]: files },
+					}));
+					break;
+				}
 				// tool_execution_* 等其他透传事件：渲染层不消费
 				default:
 					break;

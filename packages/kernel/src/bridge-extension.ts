@@ -24,6 +24,9 @@ export const BRIDGE_EXTENSION_PATH = join(GENERATED_DIR, "wa-pi-bridge.ts");
 /** tool-schemas.ts 在 GENERATED_DIR 的路径（bridge 扩展的相对 import 目标） */
 const TOOL_SCHEMAS_TARGET = join(GENERATED_DIR, "tool-schemas.ts");
 
+/** file-snapshot.ts 在 GENERATED_DIR 的路径（bridge 扩展的相对 import 目标） */
+const FILE_SNAPSHOT_TARGET = join(GENERATED_DIR, "file-snapshot.ts");
+
 /**
  * 静态 bridge 扩展源文件。
  * - packaged：build-kernel-sidecar 将 wa-pi-bridge.extension.ts 复制到 kernel.js 同级 → 优先取。
@@ -46,8 +49,18 @@ function resolveToolSchemasSource(): string {
   return join(__dirname, "..", "..", "shared", "src", "tool-schemas.ts");
 }
 
+/**
+ * file-snapshot 源文件（与 wa-pi-bridge.extension.ts 同目录，位于 kernel/src）。
+ * - packaged：build-kernel-sidecar 将 file-snapshot.ts 复制到 kernel.js 同级 → 优先取。
+ * - dev：同路径即可。
+ */
+function resolveFileSnapshotSource(): string {
+  return join(__dirname, "file-snapshot.ts");
+}
+
 const BRIDGE_EXTENSION_SOURCE = resolveBridgeExtensionSource();
 const TOOL_SCHEMAS_SOURCE = resolveToolSchemasSource();
+const FILE_SNAPSHOT_SOURCE = resolveFileSnapshotSource();
 
 /**
  * 部署 bridge 扩展到 GENERATED_DIR：复制静态扩展文件 + tool-schemas 依赖。
@@ -56,6 +69,7 @@ const TOOL_SCHEMAS_SOURCE = resolveToolSchemasSource();
 export async function ensureBridgeExtension(): Promise<string> {
   await mkdir(GENERATED_DIR, { recursive: true });
   await copyFile(TOOL_SCHEMAS_SOURCE, TOOL_SCHEMAS_TARGET);
+  await copyFile(FILE_SNAPSHOT_SOURCE, FILE_SNAPSHOT_TARGET);
   await copyFile(BRIDGE_EXTENSION_SOURCE, BRIDGE_EXTENSION_PATH);
   return BRIDGE_EXTENSION_PATH;
 }

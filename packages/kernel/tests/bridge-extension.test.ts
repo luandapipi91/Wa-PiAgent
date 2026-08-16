@@ -38,6 +38,10 @@ async function loadTools(transform?: (src: string) => string): Promise<any[]> {
 	);
 	copyFileSync(schemasSrc, schemasFile);
 	tmpFiles.push(schemasFile);
+	const snapshotFile = join(import.meta.dir, "file-snapshot.ts");
+	const snapshotSrc = join(import.meta.dir, "..", "src", "file-snapshot.ts");
+	copyFileSync(snapshotSrc, snapshotFile);
+	tmpFiles.push(snapshotFile);
 	let src = generateBridgeExtension();
 	if (transform) src = transform(src);
 	writeFileSync(file, src, "utf8");
@@ -369,6 +373,10 @@ test("session_start 在 RPC 模式将 custom() 替换为同步抛出（解除 cu
 	);
 	copyFileSync(schemasSrc, schemasFile);
 	tmpFiles.push(schemasFile);
+	const snapshotFile = join(import.meta.dir, "file-snapshot.ts");
+	const snapshotSrc = join(import.meta.dir, "..", "src", "file-snapshot.ts");
+	copyFileSync(snapshotSrc, snapshotFile);
+	tmpFiles.push(snapshotFile);
 	const src = generateBridgeExtension();
 	writeFileSync(file, src, "utf8");
 	tmpFiles.push(file);

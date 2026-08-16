@@ -24,6 +24,7 @@ import { copyToClipboard } from "../util/clipboard";
 import { useAgentsStore } from "../store/agents";
 import { DelegateCard } from "./blocks/DelegateCard";
 import { ExportButton } from "./blocks/ExportButton";
+import { FileChangeSummary } from "./blocks/FileChangeSummary";
 import { FleetCard } from "./blocks/FleetCard";
 import { createMarkdownComponents } from "./blocks/markdown-components";
 import { ThinkingCard } from "./blocks/ThinkingCard";
@@ -37,6 +38,7 @@ import {
 } from "../quick-invoke/tokens";
 
 const EMPTY: SessionMessage[] = [];
+const EMPTY_FILE_CHANGES: import("@wa-pi/shared").FileChangeSnapshot[] = [];
 
 /** 会话新建中加载页窗口（ms）：发送 prompt 后超过该时长无回调则自动隐藏（兜底，防扩展命令无 agent turn 永久悬挂）。 */
 export const INITIALIZING_WINDOW_MS = 20_000;
@@ -643,6 +645,7 @@ export function MessageList({ sessionId }: Props) {
 								}
 								isStreaming={isMergedStreamingRow}
 								isActiveTurnRow={isActiveTurnRow && i === displayRows.length - 1}
+								isLastMessage={i === displayRows.length - 1}
 							/>
 						</div>
 					);
@@ -921,6 +924,7 @@ export const MessageRow = memo(function MessageRow({
 	onResend,
 	isStreaming,
 	isActiveTurnRow,
+	isLastMessage,
 }: {
 	row: RenderedRow;
 	sessionId: string;
@@ -928,8 +932,10 @@ export const MessageRow = memo(function MessageRow({
 	onResend?: (text: string) => void;
 	isStreaming?: boolean;
 	isActiveTurnRow?: boolean;
+	isLastMessage?: boolean;
 }) {
 	const m = row.main.message as any;
+	const fileChanges = useSessionStore((s) => s.fileChangesBySession[sessionId]) ?? EMPTY_FILE_CHANGES;
 	// hook 须在顶层、任何 early return 之前
 	const { t } = useTranslation();
 	// 技能名集合：用于过滤 /skill:xxx 纯文本渲染——只有已启用技能列表里真实存在的技能名
@@ -1123,10 +1129,13 @@ export const MessageRow = memo(function MessageRow({
 					))}
 				</div>
 				{seg === segments[lastTextSegIdx] && !isStreaming && !isActiveTurnRow && (
-					<div className="flex justify-end items-center">
-						<ExportButton sessionId={sessionId} uptoTimestamp={m.timestamp} />
-						<CopyButton text={fullText} testId={`copy-${sessionId}-${m.timestamp}`} />
-					</div>
+					<>
+						<div className="flex justify-end items-center">
+							<ExportButton sessionId={sessionId} uptoTimestamp={m.timestamp} />
+							<CopyButton text={fullText} testId={`copy-${sessionId}-${m.timestamp}`} />
+						</div>
+						{isLastMessage && <FileChangeSummary sessionId={sessionId} files={fileChanges} />}
+					</>
 				)}
 			</div>
 		);

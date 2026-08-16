@@ -1402,6 +1402,12 @@ export class AgentManager {
 		return this.sessions.get(sessionId)?.messages ?? [];
 	}
 
+	/** 查询会话元信息（projectId/agentName）；未注册返回 undefined */
+	getSessionMeta(sessionId: string): { projectId: string; agentName: AgentName } | undefined {
+		const h = this.sessions.get(sessionId);
+		return h ? { projectId: h.meta.projectId, agentName: h.meta.agentName } : undefined;
+	}
+
 	/** 检查 session 是否正在运行（供外部判断 abort 时 agent 是否已启动） */
 	isSessionStreaming(sessionId: string): boolean {
 		return this.sessions.get(sessionId)?.busy ?? false;
