@@ -596,6 +596,20 @@ export function MessageList({ sessionId }: Props) {
 		!!lastDisplayRow &&
 		(lastDisplayRow.main.message as any).role === "assistant";
 
+	// 整轮折叠（isActiveTurnRow true→false）：agent_end 到达、status 归 idle，进行中的轮
+	// 的过程卡片（thinking/toolCalls/delegate/fleet）折叠成 TurnSummary，末行高度骤减。
+	// Virtuoso 虚拟化行高测量有延迟，折叠瞬间 scrollTop 停在旧位置（用户看到的内容不在
+	// 底部）；且此时 autoScrollActive 已变 false，200ms interval 停止兑底。故在折叠时刻
+	// 主动 scrollToEnd 一次，抵消高度骤减，保持贴底。
+	const prevActiveTurnRef = useRef(false);
+	useEffect(() => {
+		const wasActive = prevActiveTurnRef.current;
+		prevActiveTurnRef.current = isActiveTurnRow;
+		if (wasActive && !isActiveTurnRow && stickBottomRef.current) {
+			scrollToEnd();
+		}
+	}, [isActiveTurnRow, scrollToEnd]);
+
 	return (
 		<div className="relative flex-1 min-h-0 overflow-hidden">
 			<Virtuoso
