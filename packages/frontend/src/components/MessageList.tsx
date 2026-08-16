@@ -155,9 +155,7 @@ export function MessageList({ sessionId }: Props) {
 	const lastMsg = rows[rows.length - 1]?.main.message as any;
 	const turnEnded = !streaming && status !== "thinking";
 	const isFatalErrorTurn =
-		turnEnded &&
-		lastMsg?.role === "assistant" &&
-		lastMsg?.stopReason === "error";
+		turnEnded && lastMsg?.role === "assistant" && lastMsg?.stopReason === "error";
 	// transient 错误后 streaming 占位已被清掉，末条是 user 消息
 	const isTransientErrorTurn =
 		turnEnded && netDegraded && lastMsg?.role === "user";
@@ -174,9 +172,7 @@ export function MessageList({ sessionId }: Props) {
 			// 过期模型（provider 已删、prefs 残留）直接放弃重发：不裁剪、不发送，
 			// 否则消息被裁掉后后端才报模型解析失败，用户丢了原消息。
 			const prefs = useComposerPrefsStore.getState().bySession[sessionId];
-			if (
-				!isModelAvailable(prefs?.model, useProvidersStore.getState().providers)
-			)
+			if (!isModelAvailable(prefs?.model, useProvidersStore.getState().providers))
 				return;
 			// 原地重试：先裁掉该用户消息及之后所有行（失败的 assistant/错误），
 			// 再乐观重建用户消息 + loading（与首次发送一致，不等 SDK 回声），最后发 prompt。
@@ -300,10 +296,7 @@ export function MessageList({ sessionId }: Props) {
 				agentName: lastRow.main.agentName,
 				message: {
 					...lastMain,
-					content: [
-						...(lastMain.content ?? []),
-						...(streamingMain.content ?? []),
-					],
+					content: [...(lastMain.content ?? []), ...(streamingMain.content ?? [])],
 				},
 			},
 			toolResults: lastRow.toolResults,
@@ -646,14 +639,10 @@ export function MessageList({ sessionId }: Props) {
 								sessionId={sessionId}
 								showResend={showResend}
 								onResend={
-									showResend
-										? (text: string) => handleResend(text, vr.index)
-										: undefined
+									showResend ? (text: string) => handleResend(text, vr.index) : undefined
 								}
 								isStreaming={isMergedStreamingRow}
-								isActiveTurnRow={
-									isActiveTurnRow && i === displayRows.length - 1
-								}
+								isActiveTurnRow={isActiveTurnRow && i === displayRows.length - 1}
 							/>
 						</div>
 					);
@@ -996,9 +985,7 @@ export const MessageRow = memo(function MessageRow({
 	if (isUser) {
 		const displayText = formatSkillBlocks(
 			stripAttachmentRefs(
-				typeof m.content === "string"
-					? m.content
-					: (m.content?.[0]?.text ?? ""),
+				typeof m.content === "string" ? m.content : (m.content?.[0]?.text ?? ""),
 			),
 			knownSkills,
 		);
@@ -1132,33 +1119,21 @@ export const MessageRow = memo(function MessageRow({
 					style={{ lineHeight: 1.55, borderRadius: "4px 14px 14px 14px" }}
 				>
 					{seg.texts.map((text, i) => (
-						<MarkdownBlock
-							key={seg.blockIdxs[i]}
-							text={text}
-							sessionId={sessionId}
-						/>
+						<MarkdownBlock key={seg.blockIdxs[i]} text={text} sessionId={sessionId} />
 					))}
 				</div>
-				{seg === segments[lastTextSegIdx] &&
-					!isStreaming &&
-					!isActiveTurnRow && (
-						<div className="flex justify-end items-center">
-							<ExportButton sessionId={sessionId} uptoTimestamp={m.timestamp} />
-							<CopyButton
-								text={fullText}
-								testId={`copy-${sessionId}-${m.timestamp}`}
-							/>
-						</div>
-					)}
+				{seg === segments[lastTextSegIdx] && !isStreaming && !isActiveTurnRow && (
+					<div className="flex justify-end items-center">
+						<ExportButton sessionId={sessionId} uptoTimestamp={m.timestamp} />
+						<CopyButton text={fullText} testId={`copy-${sessionId}-${m.timestamp}`} />
+					</div>
+				)}
 			</div>
 		);
 	};
 
 	return (
-		<div
-			className="flex gap-2.5"
-			data-testid={`msg-${sessionId}-${m.timestamp}`}
-		>
+		<div className="flex gap-2.5" data-testid={`msg-${sessionId}-${m.timestamp}`}>
 			<div className={`${hasProcessCard ? "w-[90%]" : "max-w-[90%]"} min-w-0`}>
 				<div className="text-[calc(11px*var(--font-scale))] text-tertiary mb-0.5 font-semibold">
 					{row.main.agentName ?? t("message.defaultAgent")} ·{" "}
@@ -1171,8 +1146,7 @@ export const MessageRow = memo(function MessageRow({
 							<TurnSummary steps={processSteps} elapsedMs={m.turnElapsedMs}>
 								{processSegs.map((seg, si) => renderSeg(seg, si, false))}
 							</TurnSummary>
-							{finalTextSeg &&
-								renderSeg(finalTextSeg, processSegs.length, false)}
+							{finalTextSeg && renderSeg(finalTextSeg, processSegs.length, false)}
 						</>
 					) : (
 						segments.map((seg, si) =>

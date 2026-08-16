@@ -361,7 +361,10 @@ test("resolveProviderBaseUrl：slug 匹配内置目录，返回带 /v1 的 baseU
 test("resolveProviderBaseUrl：同名模型跨 provider 不污染（按 slug 过滤）", () => {
   const allModels = [
     catalogModel({ provider: "deepseek", baseUrl: "https://api.deepseek.com" }),
-    catalogModel({ provider: "opencode-go", baseUrl: "https://opencode.ai/zen/go/v1" }),
+    catalogModel({
+      provider: "opencode-go",
+      baseUrl: "https://opencode.ai/zen/go/v1",
+    }),
   ];
   const url = resolveProviderBaseUrl(
     "opencode-go",

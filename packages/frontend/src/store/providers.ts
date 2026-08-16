@@ -26,12 +26,31 @@ export const useProvidersStore = create<ProvidersState>((set) => ({
   providers: [],
   loading: false,
   loaded: false,
-  load: () => { api.get("/api/providers").then((data: any) => { if (data) set({ providers: data.providers ?? [], loading: false, loaded: Array.isArray(data.providers) }); }).catch(() => set({ loading: false })); },
-  save: (p) => { void api.post("/api/providers", { provider: p }); },
-  remove: (id) => { void api.del(`/api/providers/${encodeURIComponent(id)}`); },
+  load: () => {
+    api
+      .get("/api/providers")
+      .then((data: any) => {
+        if (data)
+          set({
+            providers: data.providers ?? [],
+            loading: false,
+            loaded: Array.isArray(data.providers),
+          });
+      })
+      .catch(() => set({ loading: false }));
+  },
+  save: (p) => {
+    void api.post("/api/providers", { provider: p });
+  },
+  remove: (id) => {
+    void api.del(`/api/providers/${encodeURIComponent(id)}`);
+  },
   setProviders: (ps) => set({ providers: ps, loading: false }),
   test: async (input) => {
-    const res = (await api.post("/api/providers/test", input)) as { ok: boolean; error?: string };
+    const res = (await api.post("/api/providers/test", input)) as {
+      ok: boolean;
+      error?: string;
+    };
     return { ok: res.ok, error: res.error };
   },
 }));

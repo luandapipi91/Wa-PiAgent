@@ -5,12 +5,17 @@ import { TagInput } from "../ui/TagInput";
 import { useProvidersStore } from "../../store/providers";
 import { useToastStore } from "../../store/toast";
 import { api } from "../../api-client";
-import type { ModelProvider, ProviderApi, ProviderModel, ModelPreset } from "@wa-pi/shared";
+import type {
+  ModelProvider,
+  ProviderApi,
+  ProviderModel,
+  ModelPreset,
+} from "@wa-pi/shared";
 
 interface Props {
-  initial?: ModelProvider;   // 编辑时传，新增时不传
-  onSaved: () => void;       // 保存成功后回调
-  onCancel?: () => void;     // 不传则不渲染「取消」按钮（向导场景）
+  initial?: ModelProvider; // 编辑时传，新增时不传
+  onSaved: () => void; // 保存成功后回调
+  onCancel?: () => void; // 不传则不渲染「取消」按钮（向导场景）
 }
 
 const DEFAULT_CONTEXT = 128000;
@@ -18,20 +23,27 @@ const DEFAULT_MAX_TOKENS = 4096;
 
 /** 供应商表单主体（预设/字段/模型/测试/保存），供设置弹窗与初始化向导复用 */
 export function ProviderForm({ initial, onSaved, onCancel }: Props) {
-  const save = useProvidersStore(s => s.save);
-  const test = useProvidersStore(s => s.test);
+  const save = useProvidersStore((s) => s.save);
+  const test = useProvidersStore((s) => s.test);
   const { t } = useTranslation();
 
   const [name, setName] = useState(initial?.name ?? "");
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
   const [apiKey, setApiKey] = useState(initial?.apiKey ?? "");
-  const [providerApi, setProviderApi] = useState<ProviderApi>(initial?.api ?? "openai-completions");
-  const [modelIds, setModelIds] = useState<string[]>(initial?.models.map(m => m.id) ?? []);
-  // 模型长度配置：key = modelId
-  const [modelConfigs, setModelConfigs] = useState<Record<string, ProviderModel>>(
-    Object.fromEntries((initial?.models ?? []).map(m => [m.id, m]))
+  const [providerApi, setProviderApi] = useState<ProviderApi>(
+    initial?.api ?? "openai-completions",
   );
-  const [testStatus, setTestStatus] = useState<{ state: "idle" | "testing" | "ok" | "fail"; error?: string }>({ state: "idle" });
+  const [modelIds, setModelIds] = useState<string[]>(
+    initial?.models.map((m) => m.id) ?? [],
+  );
+  // 模型长度配置：key = modelId
+  const [modelConfigs, setModelConfigs] = useState<
+    Record<string, ProviderModel>
+  >(Object.fromEntries((initial?.models ?? []).map((m) => [m.id, m])));
+  const [testStatus, setTestStatus] = useState<{
+    state: "idle" | "testing" | "ok" | "fail";
+    error?: string;
+  }>({ state: "idle" });
 
   // provider slug：对齐内置 provider id（如 opencode-go）。
   // 选预设时 = preset.key；自定义/清除预设时为空，由 kernel fallback 到 name 派生。
@@ -44,25 +56,35 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
   const [showPresetDropdown, setShowPresetDropdown] = useState(false);
   const presetContainerRef = useRef<HTMLDivElement>(null);
   const filteredPresets = presetSearch
-    ? presets.filter(p => p.name.toLowerCase().includes(presetSearch.toLowerCase()) || p.key.toLowerCase().includes(presetSearch.toLowerCase()))
+    ? presets.filter(
+        (p) =>
+          p.name.toLowerCase().includes(presetSearch.toLowerCase()) ||
+          p.key.toLowerCase().includes(presetSearch.toLowerCase()),
+      )
     : presets;
-  const selectedPreset = presets.find(p => p.key === selectedPresetKey);
+  const selectedPreset = presets.find((p) => p.key === selectedPresetKey);
 
   // 模型快捷搜索
   const [modelSearch, setModelSearch] = useState("");
   const tagContainerRef = useRef<HTMLDivElement>(null);
-  const [dropPos, setDropPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [dropPos, setDropPos] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
   const [tagKey, setTagKey] = useState(0);
 
   // 组件挂载时从 kernel 获取供应商预设列表，编辑时自动匹配预设
   useEffect(() => {
     void (async () => {
-      const res = (await api.get("/api/models/presets")) as { presets?: ModelPreset[] };
+      const res = (await api.get("/api/models/presets")) as {
+        presets?: ModelPreset[];
+      };
       const list = res.presets ?? [];
       setPresets(list);
       // 编辑模式：用 baseUrl 匹配对应的预设
       if (initial && initial.baseUrl) {
-        const matched = list.find(p => p.baseUrl === initial.baseUrl);
+        const matched = list.find((p) => p.baseUrl === initial.baseUrl);
         if (matched) setSelectedPresetKey(matched.key);
       }
     })();
@@ -84,10 +106,14 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
   // tag 变化 → 同步 modelConfigs（新增的用默认值，删除的移除）
   const handleTagsChange = (tags: string[]) => {
     setModelIds(tags);
-    setModelConfigs(prev => {
+    setModelConfigs((prev) => {
       const next: Record<string, ProviderModel> = {};
       for (const id of tags) {
-        next[id] = prev[id] ?? { id, contextWindow: DEFAULT_CONTEXT, maxTokens: DEFAULT_MAX_TOKENS };
+        next[id] = prev[id] ?? {
+          id,
+          contextWindow: DEFAULT_CONTEXT,
+          maxTokens: DEFAULT_MAX_TOKENS,
+        };
       }
       return next;
     });
@@ -99,12 +125,14 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
     setPresetSearch("");
     setShowPresetDropdown(false);
     if (!key) {
-      setModelIds([]); setModelConfigs({}); setShowPresetDropdown(true);
+      setModelIds([]);
+      setModelConfigs({});
+      setShowPresetDropdown(true);
       // 清除预设 → slug 归空，后续由 kernel fallback 到 name 派生
       setSlug(undefined);
       return;
     }
-    const preset = presets.find(p => p.key === key);
+    const preset = presets.find((p) => p.key === key);
     if (!preset) return;
     setName(preset.name);
     setBaseUrl(preset.baseUrl);
@@ -117,27 +145,33 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
     setModelConfigs({});
     setModelSearch("");
     setDropPos(null);
-    setTagKey(k => k + 1);
+    setTagKey((k) => k + 1);
     // apiKey 不动（新增时为空）
   };
 
   // 从选中的供应商快捷添加一个模型（带预设参数）
   const addModelFromPreset = (modelId: string): void => {
     if (!modelId || !selectedPreset) return;
-    const m = selectedPreset.models.find(x => x.id === modelId);
+    const m = selectedPreset.models.find((x) => x.id === modelId);
     if (!m) return;
     if (modelIds.includes(m.id)) return;
-    setModelIds(prev => [...prev, m.id]);
-    setModelConfigs(prev => ({
+    setModelIds((prev) => [...prev, m.id]);
+    setModelConfigs((prev) => ({
       ...prev,
-      [m.id]: { id: m.id, contextWindow: m.contextWindow, maxTokens: m.maxTokens, supportsVision: m.supportsVision },
+      [m.id]: {
+        id: m.id,
+        contextWindow: m.contextWindow,
+        maxTokens: m.maxTokens,
+        supportsVision: m.supportsVision,
+      },
     }));
     setModelSearch("");
     setDropPos(null);
-    setTagKey(k => k + 1);  // 强制 TagInput 重挂载清空输入
+    setTagKey((k) => k + 1); // 强制 TagInput 重挂载清空输入
   };
 
-  const valid = name.trim() && baseUrl.trim() && apiKey.trim() && modelIds.length > 0;
+  const valid =
+    name.trim() && baseUrl.trim() && apiKey.trim() && modelIds.length > 0;
 
   const handleSave = () => {
     if (!valid) return;
@@ -147,7 +181,7 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
       baseUrl: baseUrl.trim(),
       apiKey: apiKey.trim(),
       api: providerApi,
-      models: modelIds.map(id => modelConfigs[id]),
+      models: modelIds.map((id) => modelConfigs[id]),
       // slug：预设来源 = 内置 provider id（对齐 extension 注册）；自定义时 undefined
       ...(slug ? { slug } : {}),
     };
@@ -157,63 +191,108 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
 
   const handleTest = async () => {
     setTestStatus({ state: "testing" });
-    const result = await test({ baseUrl, apiKey, api: providerApi, models: modelIds.map(id => modelConfigs[id]), slug });
+    const result = await test({
+      baseUrl,
+      apiKey,
+      api: providerApi,
+      models: modelIds.map((id) => modelConfigs[id]),
+      slug,
+    });
     if (result.ok) {
       setTestStatus({ state: "ok" });
     } else {
       // 连接失败：用 toast 提示，不再 inline 显示失败文案（成功仍 inline「✓ 连接成功」）
       setTestStatus({ state: "idle" });
-      useToastStore.getState().add(result.error ?? t("settings.provider.connectFailed"), "error");
+      useToastStore
+        .getState()
+        .add(result.error ?? t("settings.provider.connectFailed"), "error");
     }
   };
 
   return (
     <>
-      <div className="p-4 flex flex-col gap-3 overflow-auto" style={{ maxHeight: "70vh" }}>
+      <div
+        className="p-4 flex flex-col gap-3 overflow-auto"
+        style={{ maxHeight: "70vh" }}
+      >
         <div className="flex flex-col gap-1" ref={presetContainerRef}>
-          <span className="text-xs text-secondary">{t("settings.provider.presetLabel")}</span>
+          <span className="text-xs text-secondary">
+            {t("settings.provider.presetLabel")}
+          </span>
           <div className="relative">
             <div className="relative">
-            <input
-              data-testid="preset-search"
-              type="text"
-              value={selectedPresetKey ? (selectedPreset?.name ?? selectedPresetKey) : presetSearch}
-              placeholder={t("settings.provider.presetPlaceholder")}
-              onChange={e => { setPresetSearch(e.target.value); setShowPresetDropdown(true); if (selectedPresetKey) applyPreset(""); }}
-              onFocus={() => setShowPresetDropdown(true)}
-              onBlur={() => setTimeout(() => setShowPresetDropdown(false), 150)}
-              className="px-2 py-1.5 pr-7 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-full"
-            />
-            {selectedPresetKey && (
-              <button
-                data-testid="preset-clear"
-                onClick={() => applyPreset("")}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-tertiary hover:text-danger text-sm leading-none px-0.5"
-                tabIndex={-1}
-              >×</button>
-            )}
+              <input
+                data-testid="preset-search"
+                type="text"
+                value={
+                  selectedPresetKey
+                    ? (selectedPreset?.name ?? selectedPresetKey)
+                    : presetSearch
+                }
+                placeholder={t("settings.provider.presetPlaceholder")}
+                onChange={(e) => {
+                  setPresetSearch(e.target.value);
+                  setShowPresetDropdown(true);
+                  if (selectedPresetKey) applyPreset("");
+                }}
+                onFocus={() => setShowPresetDropdown(true)}
+                onBlur={() =>
+                  setTimeout(() => setShowPresetDropdown(false), 150)
+                }
+                className="px-2 py-1.5 pr-7 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-full"
+              />
+              {selectedPresetKey && (
+                <button
+                  data-testid="preset-clear"
+                  onClick={() => applyPreset("")}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-tertiary hover:text-danger text-sm leading-none px-0.5"
+                  tabIndex={-1}
+                >
+                  ×
+                </button>
+              )}
             </div>
             {showPresetDropdown && filteredPresets.length > 0 && (
-              <div className="absolute left-0 right-0 mt-0.5 max-h-48 overflow-y-auto rounded-sm border border-hairline bg-surface shadow-lg z-20"
-                data-testid="preset-dropdown">
-                {filteredPresets.map(p => (
-                  <div key={p.key}
-                    data-testid="preset-option" data-key={p.key}
+              <div
+                className="absolute left-0 right-0 mt-0.5 max-h-48 overflow-y-auto rounded-sm border border-hairline bg-surface shadow-lg z-20"
+                data-testid="preset-dropdown"
+              >
+                {filteredPresets.map((p) => (
+                  <div
+                    key={p.key}
+                    data-testid="preset-option"
+                    data-key={p.key}
                     className={`px-2 py-1.5 text-sm cursor-pointer border-b border-hairline last:border-b-0 hover:bg-surface-hover ${p.key === selectedPresetKey ? "font-bold" : "text-primary"}`}
-                    onMouseDown={e => { e.preventDefault(); applyPreset(p.key); }}
-                  >{p.name} <span className="text-tertiary text-xs">{t("settings.provider.presetModelCount", { count: p.models.length })}</span></div>
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applyPreset(p.key);
+                    }}
+                  >
+                    {p.name}{" "}
+                    <span className="text-tertiary text-xs">
+                      {t("settings.provider.presetModelCount", {
+                        count: p.models.length,
+                      })}
+                    </span>
+                  </div>
                 ))}
               </div>
             )}
           </div>
-          {initial && <span className="text-xs" style={{ color: "var(--danger)" }}>{t("settings.provider.presetOverwriteWarn")}</span>}
+          {initial && (
+            <span className="text-xs" style={{ color: "var(--danger)" }}>
+              {t("settings.provider.presetOverwriteWarn")}
+            </span>
+          )}
         </div>
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-secondary">{t("settings.provider.nameFieldLabel")}</span>
+          <span className="text-xs text-secondary">
+            {t("settings.provider.nameFieldLabel")}
+          </span>
           <input
             data-testid="field-name"
             value={name}
-            onChange={e => setName(e.target.value)}
+            onChange={(e) => setName(e.target.value)}
             className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
           />
         </label>
@@ -222,7 +301,7 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
           <input
             data-testid="field-baseUrl"
             value={baseUrl}
-            onChange={e => setBaseUrl(e.target.value)}
+            onChange={(e) => setBaseUrl(e.target.value)}
             placeholder="https://api.example.com/v1"
             className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
           />
@@ -233,57 +312,90 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
             data-testid="field-apiKey"
             type="password"
             value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
+            onChange={(e) => setApiKey(e.target.value)}
             className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
           />
         </label>
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-secondary">{t("settings.provider.apiFormatLabel")}</span>
+          <span className="text-xs text-secondary">
+            {t("settings.provider.apiFormatLabel")}
+          </span>
           <div className="flex gap-4">
             <label className="flex items-center gap-1.5 text-sm text-primary cursor-pointer">
-              <input type="radio" checked={providerApi === "openai-completions"} onChange={() => setProviderApi("openai-completions")} />
+              <input
+                type="radio"
+                checked={providerApi === "openai-completions"}
+                onChange={() => setProviderApi("openai-completions")}
+              />
               {t("settings.provider.openaiCompatible")}
             </label>
             <label className="flex items-center gap-1.5 text-sm text-primary cursor-pointer">
-              <input type="radio" checked={providerApi === "anthropic-messages"} onChange={() => setProviderApi("anthropic-messages")} />
+              <input
+                type="radio"
+                checked={providerApi === "anthropic-messages"}
+                onChange={() => setProviderApi("anthropic-messages")}
+              />
               Anthropic
             </label>
           </div>
         </div>
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-secondary">{t("settings.provider.modelIdFieldLabel")}</span>
+          <span className="text-xs text-secondary">
+            {t("settings.provider.modelIdFieldLabel")}
+          </span>
           <div ref={tagContainerRef}>
-          <TagInput key={tagKey} value={modelIds} onChange={handleTagsChange}
-            placeholder={t("settings.provider.modelTagPlaceholder")}
-            onFocus={() => {
-              if (selectedPreset && tagContainerRef.current) {
-                const r = tagContainerRef.current.getBoundingClientRect();
-                setDropPos({ top: r.bottom + 2, left: r.left, width: r.width });
-              }
-            }}
-            onInputText={text => {
-              setModelSearch(text);
-              if (tagContainerRef.current) {
-                const r = tagContainerRef.current.getBoundingClientRect();
-                setDropPos({ top: r.bottom + 2, left: r.left, width: r.width });
-              }
-            }}
-            onSubmit={() => setDropPos(null)}
-            onBlur={() => setTimeout(() => setDropPos(null), 150)}
-          />
+            <TagInput
+              key={tagKey}
+              value={modelIds}
+              onChange={handleTagsChange}
+              placeholder={t("settings.provider.modelTagPlaceholder")}
+              onFocus={() => {
+                if (selectedPreset && tagContainerRef.current) {
+                  const r = tagContainerRef.current.getBoundingClientRect();
+                  setDropPos({
+                    top: r.bottom + 2,
+                    left: r.left,
+                    width: r.width,
+                  });
+                }
+              }}
+              onInputText={(text) => {
+                setModelSearch(text);
+                if (tagContainerRef.current) {
+                  const r = tagContainerRef.current.getBoundingClientRect();
+                  setDropPos({
+                    top: r.bottom + 2,
+                    left: r.left,
+                    width: r.width,
+                  });
+                }
+              }}
+              onSubmit={() => setDropPos(null)}
+              onBlur={() => setTimeout(() => setDropPos(null), 150)}
+            />
           </div>
         </div>
         {modelIds.length > 0 && (
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-secondary">{t("settings.provider.modelListLabel")}</span>
+            <span className="text-xs text-secondary">
+              {t("settings.provider.modelListLabel")}
+            </span>
             <div className="rounded-sm border border-hairline overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-surface-hover text-tertiary">
                   <tr>
-                    <th className="text-left px-2 py-1 font-normal">{t("settings.provider.modelIdCol")}</th>
-                    <th className="text-left px-2 py-1 font-normal">{t("settings.provider.contextWindowCol")}</th>
-                    <th className="text-left px-2 py-1 font-normal">{t("settings.provider.maxTokensCol")}</th>
-                    <th className="text-left px-2 py-1 font-normal">{t("settings.provider.visionCol")}</th>
+                    <th className="text-left px-2 py-1 font-normal">
+                      {t("settings.provider.modelIdCol")}
+                    </th>
+                    <th className="text-left px-2 py-1 font-normal">
+                      {t("settings.provider.contextWindowCol")}
+                    </th>
+                    <th className="text-left px-2 py-1 font-normal">
+                      {t("settings.provider.maxTokensCol")}
+                    </th>
+                    <th className="text-left px-2 py-1 font-normal">
+                      {t("settings.provider.visionCol")}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -294,11 +406,18 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
                         <input
                           data-testid={`model-contextWindow-${i}`}
                           type="number"
-                          value={modelConfigs[id]?.contextWindow ?? DEFAULT_CONTEXT}
-                          onChange={e => setModelConfigs(prev => ({
-                            ...prev,
-                            [id]: { ...prev[id], contextWindow: Number(e.target.value) || 0 },
-                          }))}
+                          value={
+                            modelConfigs[id]?.contextWindow ?? DEFAULT_CONTEXT
+                          }
+                          onChange={(e) =>
+                            setModelConfigs((prev) => ({
+                              ...prev,
+                              [id]: {
+                                ...prev[id],
+                                contextWindow: Number(e.target.value) || 0,
+                              },
+                            }))
+                          }
                           className="w-24 px-1 py-0.5 rounded-sm border border-hairline bg-surface text-primary outline-none"
                         />
                       </td>
@@ -306,11 +425,18 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
                         <input
                           data-testid={`model-maxTokens-${i}`}
                           type="number"
-                          value={modelConfigs[id]?.maxTokens ?? DEFAULT_MAX_TOKENS}
-                          onChange={e => setModelConfigs(prev => ({
-                            ...prev,
-                            [id]: { ...prev[id], maxTokens: Number(e.target.value) || 0 },
-                          }))}
+                          value={
+                            modelConfigs[id]?.maxTokens ?? DEFAULT_MAX_TOKENS
+                          }
+                          onChange={(e) =>
+                            setModelConfigs((prev) => ({
+                              ...prev,
+                              [id]: {
+                                ...prev[id],
+                                maxTokens: Number(e.target.value) || 0,
+                              },
+                            }))
+                          }
                           className="w-24 px-1 py-0.5 rounded-sm border border-hairline bg-surface text-primary outline-none"
                         />
                       </td>
@@ -319,10 +445,15 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
                           data-testid={`model-vision-${i}`}
                           type="checkbox"
                           checked={modelConfigs[id]?.supportsVision ?? false}
-                          onChange={e => setModelConfigs(prev => ({
-                            ...prev,
-                            [id]: { ...prev[id], supportsVision: e.target.checked },
-                          }))}
+                          onChange={(e) =>
+                            setModelConfigs((prev) => ({
+                              ...prev,
+                              [id]: {
+                                ...prev[id],
+                                supportsVision: e.target.checked,
+                              },
+                            }))
+                          }
                         />
                       </td>
                     </tr>
@@ -333,47 +464,88 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
           </div>
         )}
         {/* 测试连接结果（失败改用 toast，这里只保留测试中/成功的 inline 提示） */}
-        {testStatus.state === "testing" && <span className="text-xs text-secondary">{t("settings.provider.testing")}</span>}
-        {testStatus.state === "ok" && <span className="text-xs" style={{ color: "var(--success)" }}>{t("settings.provider.ok")}</span>}
+        {testStatus.state === "testing" && (
+          <span className="text-xs text-secondary">
+            {t("settings.provider.testing")}
+          </span>
+        )}
+        {testStatus.state === "ok" && (
+          <span className="text-xs" style={{ color: "var(--success)" }}>
+            {t("settings.provider.ok")}
+          </span>
+        )}
       </div>
-      {dropPos && selectedPreset && createPortal(
-        (() => {
-          const q = modelSearch.toLowerCase();
-          const available = selectedPreset.models.filter(m =>
-            !modelIds.includes(m.id) && m.id.toLowerCase().includes(q)
-          );
-          if (available.length === 0) return null;
-          return (
-            <div className="fixed max-h-48 overflow-y-auto rounded-sm border border-hairline bg-surface shadow-lg z-50"
-              style={{ top: dropPos.top, left: dropPos.left, width: dropPos.width }}
-              data-testid="model-quick-dropdown">
-              {available.map(m => (
-                <div key={m.id}
-                  data-testid="model-quick-option"
-                  className="px-2 py-1.5 text-sm text-primary hover:bg-surface-hover cursor-pointer border-b border-hairline last:border-b-0"
-                  onMouseDown={e => { e.preventDefault(); addModelFromPreset(m.id); }}
-                >{m.id} <span className="text-tertiary text-xs">({m.contextWindow.toLocaleString()} ctx, {m.maxTokens.toLocaleString()} out{m.supportsVision ? `, ${t("settings.provider.visionTag")}` : ""})</span></div>
-              ))}
-            </div>
-          );
-        })(),
-        document.body
-      )}
+      {dropPos &&
+        selectedPreset &&
+        createPortal(
+          (() => {
+            const q = modelSearch.toLowerCase();
+            const available = selectedPreset.models.filter(
+              (m) => !modelIds.includes(m.id) && m.id.toLowerCase().includes(q),
+            );
+            if (available.length === 0) return null;
+            return (
+              <div
+                className="fixed max-h-48 overflow-y-auto rounded-sm border border-hairline bg-surface shadow-lg z-50"
+                style={{
+                  top: dropPos.top,
+                  left: dropPos.left,
+                  width: dropPos.width,
+                }}
+                data-testid="model-quick-dropdown"
+              >
+                {available.map((m) => (
+                  <div
+                    key={m.id}
+                    data-testid="model-quick-option"
+                    className="px-2 py-1.5 text-sm text-primary hover:bg-surface-hover cursor-pointer border-b border-hairline last:border-b-0"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      addModelFromPreset(m.id);
+                    }}
+                  >
+                    {m.id}{" "}
+                    <span className="text-tertiary text-xs">
+                      ({m.contextWindow.toLocaleString()} ctx,{" "}
+                      {m.maxTokens.toLocaleString()} out
+                      {m.supportsVision
+                        ? `, ${t("settings.provider.visionTag")}`
+                        : ""}
+                      )
+                    </span>
+                  </div>
+                ))}
+              </div>
+            );
+          })(),
+          document.body,
+        )}
       <div className="flex justify-between items-center p-3 border-t border-hairline">
         <button
           onClick={handleTest}
           disabled={!baseUrl || !apiKey}
           className="px-3 py-1.5 rounded-sm text-sm border border-hairline text-secondary hover:text-primary disabled:opacity-50"
-        >{t("settings.provider.testConnection")}</button>
+        >
+          {t("settings.provider.testConnection")}
+        </button>
         <div className="flex gap-2">
-          {onCancel && <button onClick={onCancel} className="px-3 py-1.5 rounded-sm text-sm bg-surface-hover text-secondary border border-hairline hover:text-primary">{t("settings.provider.cancel")}</button>}
+          {onCancel && (
+            <button
+              onClick={onCancel}
+              className="px-3 py-1.5 rounded-sm text-sm bg-surface-hover text-secondary border border-hairline hover:text-primary"
+            >
+              {t("settings.provider.cancel")}
+            </button>
+          )}
           <button
             onClick={handleSave}
             disabled={!valid}
             data-testid="provider-save-btn"
             className="px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ background: "var(--brand)", color: "var(--on-brand)" }}
-          >{t("common.save")}</button>
+          >
+            {t("common.save")}
+          </button>
         </div>
       </div>
     </>
