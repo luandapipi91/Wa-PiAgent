@@ -157,7 +157,7 @@ export function ProviderForm({ initial, onSaved, onCancel }: Props) {
 
   const handleTest = async () => {
     setTestStatus({ state: "testing" });
-    const result = await test({ baseUrl, apiKey, api: providerApi, models: modelIds.map(id => modelConfigs[id]) });
+    const result = await test({ baseUrl, apiKey, api: providerApi, models: modelIds.map(id => modelConfigs[id]), slug });
     if (result.ok) {
       setTestStatus({ state: "ok" });
     } else {

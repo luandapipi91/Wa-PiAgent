@@ -7,6 +7,7 @@ interface TestInput {
   apiKey: string;
   api: ProviderApi;
   models: ProviderModel[];
+  slug?: string;
 }
 
 interface ProvidersState {

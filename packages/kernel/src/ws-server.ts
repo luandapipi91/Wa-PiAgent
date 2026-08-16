@@ -30,7 +30,7 @@ import {
 	saveHttpIdleTimeoutMs,
 	DEFAULT_HTTP_IDLE_TIMEOUT_MS,
 } from "./settings-store";
-import { ensureProviderExtensionRegistered } from "./provider-extension";
+import { ensureProviderExtensionRegistered, resolveProviderBaseUrl } from "./provider-extension";
 import { testConnection, listTools, clearAuth } from "./mcp-connector";
 import { getAllCatalogModels, getProviderDisplayName } from "./pi-catalog";
 import {
@@ -1872,8 +1872,25 @@ export class WSServer {
 				break;
 			}
 			case "provider:test": {
+				// openai-completions 的 baseUrl 需要带 /v1（拼 /models），用内置目录的正确 baseUrl
+				// 纠正 providers.json 里缺后缀的旧值；按 slug 过滤避免同名模型跨 provider 污染。
+				// anthropic-messages 的 baseUrl 不带 /v1（testProviderConnection 自己拼 /v1/messages），不覆盖。
+				let testBaseUrl = event.baseUrl;
+				if (event.api === "openai-completions") {
+					try {
+						const allModels = await getAllCatalogModels();
+						testBaseUrl = resolveProviderBaseUrl(
+							event.slug,
+							(event.models ?? []).map((m) => m.id),
+							event.baseUrl,
+							allModels,
+						);
+					} catch (err) {
+						// 目录查询失败：回退用户配置的 baseUrl，不阻断测试
+					}
+				}
 				const result = await testProviderConnection({
-					baseUrl: event.baseUrl,
+					baseUrl: testBaseUrl,
 					apiKey: event.apiKey,
 					api: event.api,
 					models: event.models,

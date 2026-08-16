@@ -46,6 +46,7 @@ export interface ProviderTestEvent {
   apiKey: string;
   api: ProviderApi;
   models: ProviderModel[];   // anthropic 探测需用真实 model id
+  slug?: string;             // 内置 provider id（opencode-go 等），用于定位内置目录的正确 baseUrl
 }
 
 // kernel → 前端
