@@ -267,9 +267,11 @@ export async function readSystemProxy(): Promise<string> {
  * 读 Windows 系统主题（SystemUsesLightTheme 注册表键，区分「系统主题」与「应用主题」）。
  * 网页/浏览器端 prefers-color-scheme 只能跟随「应用主题」（AppsUseLightTheme），
  * 而「跟随系统」用户期望的是「系统主题」——故 kernel 直接读注册表 SystemUsesLightTheme。
- * 非 Windows 或读失败兑底 light。
+ * 仅 Windows 有「系统主题 vs 应用主题」的分离；macOS/Linux 无分离，prefers-color-scheme
+ * 即系统主题，无需 kernel 读 → 返回 null（前端保持 prefers-color-scheme 不覆盖）。
  */
-export async function readSystemTheme(): Promise<"light" | "dark"> {
+export async function readSystemTheme(): Promise<"light" | "dark" | null> {
+	if (process.platform !== "win32") return null;
 	try {
 		const { execFileSync } = await import("node:child_process");
 		const out = execFileSync(
@@ -286,9 +288,9 @@ export async function readSystemTheme(): Promise<"light" | "dark"> {
 		if (/0x0\b/i.test(out)) return "dark";
 		if (/0x1\b/i.test(out)) return "light";
 	} catch {
-		// 非 Windows 或读注册表失败：兑底浅色
+		// 读注册表失败：返回 null，前端保持 prefers-color-scheme 兑底
 	}
-	return "light";
+	return null;
 }
 
 /**

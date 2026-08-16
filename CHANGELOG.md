@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(kernel): readSystemTheme 跨平台——仅 Windows 读注册表，macOS/Linux 返回 null
+
+- 上一条 `readSystemTheme` 非 Windows 兑底 light，会导致 macOS/Linux 系统深色时被错误覆盖成浅色。改为：仅 Windows 读 `SystemUsesLightTheme`；macOS/Linux 无「系统/应用」分离（prefers-color-scheme 即系统主题）返回 null，前端保持 prefers-color-scheme 不覆盖。
+- 影响范围：`kernel/src/settings-store.ts`。
+
 ## 2026-08-15 — fix(kernel/frontend): 网页端「跟随系统」主题读系统主题（SystemUsesLightTheme）
 
 - 上一条只修了 Electron 端（nativeTheme），但网页端（浏览器）prefers-color-scheme 同样只跟随「应用主题」，需 kernel 读 Windows 系统主题注册表键 SystemUsesLightTheme 通过 API 给前端。
