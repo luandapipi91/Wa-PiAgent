@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-16 — chore(release): 发布版本 0.2.2
+
+- 打包发布 0.2.2：ask bridge 偶发断开重试修复 + 发送前自动压缩防护。产物 `WaPi-Setup-0.2.2.exe` 已上传 OSS（latest.yml 注入 releaseNotes）。
+- 影响范围：版本号（`packages/desktop/package.json`、`packages/frontend/package.json`、`version-history.json`）、`RELEASE_NOTES.md`。
+
 ## 2026-08-16 — fix(kernel): ask bridge 偶发断开后自动重试（最多 5 次、间隔 1 秒）
 
 - pi 侧 fetch 的 socket 可能被 Bun 非确定性清理（GC/keep-alive），导致 ask 的 bridge 长连接偶发断开（报 "socket connection was closed unexpectedly" 或 "连接中断（未收到 final 帧）"），提问提前失败——此问题自 ask 功能引入起一直存在。修复：callBridge 对可重试的断开（socket closed / socket hang up / 连接中断）自动重试，最多 5 次、间隔 1 秒；重试前校验 signal 未 abort（ask 仍有效），用户取消/工具中止时不无谓重试。
