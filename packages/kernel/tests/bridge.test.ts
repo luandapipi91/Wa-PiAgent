@@ -118,6 +118,11 @@ async function loadBridgeTools(env?: Record<string, string>) {
 	const { copyFileSync } = await import("node:fs");
 	copyFileSync(schemasSrc, schemasFile);
 	tmpFiles.push(schemasFile);
+	// 静态 bridge 扩展 import "./file-snapshot.ts"，需把 file-snapshot 复制到同目录
+	const snapshotFile = join(import.meta.dir, "file-snapshot.ts");
+	const snapshotSrc = join(import.meta.dir, "..", "src", "file-snapshot.ts");
+	copyFileSync(snapshotSrc, snapshotFile);
+	tmpFiles.push(snapshotFile);
 	writeFileSync(file, generateBridgeExtension(), "utf8");
 	tmpFiles.push(file);
 	const mod = await import(pathToFileURL(file).href);
