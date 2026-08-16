@@ -21,6 +21,7 @@
     "prism-react-renderer": "^2.4.1",
     "react": "^19.2.8",
     "react-complex-tree": "^2.6.2",
+    "react-diff-viewer-continued": "^4.4.0",
     "react-dom": "^19.2.8",
     "react-i18next": "^17.0.11",
     "react-markdown": "^10.1.0",
