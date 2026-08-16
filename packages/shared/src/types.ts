@@ -1137,6 +1137,21 @@ export interface FSRecordingDiscardResult {
 }
 
 // 镜像 SDK AgentSessionEvent 联合类型，作为 WS 透传事件
+
+/** 单个文件在本轮对话中的内容快照（用于「文件修改清单」diff） */
+export interface FileChangeSnapshot {
+	/** 绝对路径（扩展侧已用 path.resolve 归一化） */
+	path: string;
+	/** 本轮第一次编辑前的完整内容；null = 本轮前文件不存在（新增） */
+	before: string | null;
+	/** 本轮最后一次编辑后的完整内容；null = 本轮后文件不存在（预留，当前无删除工具） */
+	after: string | null;
+	/** 过大降级标记：超过阈值不存内容，前端不渲染 diff */
+	oversized?: boolean;
+	/** 快照读取失败标记：权限/二进制等，前端不渲染 diff */
+	error?: boolean;
+}
+
 export type SDKEvent =
 	| { type: "agent_start" }
 	| {
@@ -1309,6 +1324,10 @@ export type SDKEvent =
 			// 旧进程发射的扩展 UI（status/widget/title）全部失效，前端据此清空残留
 			// （进程 resume 不重放扩展的 session_start 钩子，UI 是否重发由扩展自身决定）。
 			type: "extension_ui_reset";
+	  }
+	| {
+			type: "file_changes";
+			files: FileChangeSnapshot[];
 	  };
 
 // WS 事件信封：包裹 sessionId 上下文，原始 SDK 事件原样透传
