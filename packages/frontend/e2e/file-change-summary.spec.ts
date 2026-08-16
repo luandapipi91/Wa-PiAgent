@@ -65,12 +65,14 @@ test("文件修改清单：edit 改文件 → 回复底部渲染清单 → 展�
   await summary.locator("button").first().click();
   await expect(summary.getByText(/PREVIEW\.md/)).toBeVisible({ timeout: 10_000 });
 
-  // 7. 修改态：点击条目右侧 ▸ 展开按钮 → 断言 diff 容器出现（data-testid="diff-<path>"）
-  await summary.getByText("▸").first().click();
-  await expect(page.locator("[data-testid^='diff-']").first()).toBeVisible({ timeout: 30_000 });
+  // 7. 修改态：点击条目右侧展开按钮（aria-expanded=false 的条目内按钮）→ 断言 diff 容器出现
+  await summary.locator("button[aria-expanded='false']").first().click();
+  const diff = page.locator("[data-testid^='diff-']").first();
+  await expect(diff).toBeVisible({ timeout: 30_000 });
+  await expect(diff).toContainText("已更新");
 
   // 8. 点击文件名 → 断言全局文件预览弹窗出现
-  await summary.getByText(/PREVIEW\.md/).click();
+  await summary.getByText(/PREVIEW\.md/).first().click();
   await expect(page.getByTestId("file-preview-modal")).toBeVisible({ timeout: 10_000 });
 
   // 9. 留证截图（读完即删，AGENTS.md 截图清理规则）
