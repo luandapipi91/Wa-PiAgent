@@ -5,7 +5,8 @@ npmRebuild: false
 afterPack: scripts/after-pack.cjs
 afterAllArtifactBuild: scripts/after-all-artifact-build.cjs
 # 自动更新源：阿里云 OSS（公开读）。打包时据此生成 latest.yml（含 version/sha512/path）。
-# releaseNotes 由 publish-oss.ts 上传前从 RELEASE_NOTES.md 读取注入 latest.yml（electron-builder 26 不支持 releaseNotesFile）。
+# releaseNotes 由 publish-oss.ts 上传前从 RELEASE_NOTES.md 读取注入 latest.yml
+# （electron-builder 26 不支持 releaseNotesFile）。
 publish:
   provider: generic
   url: https://coaicom.oss-cn-heyuan.aliyuncs.com/releases/
