@@ -2,6 +2,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(frontend): 长任务完成整轮折叠时滚动位置跳动（看到的内容不在底部）
+
+- **根因**：长任务执行中，进行中的轮（`isActiveTurnRow`=true，status=thinking 的末行 assistant）过程卡片展开，用户贴底看实时过程。agent_end 到达、status 归 idle → `isActiveTurnRow` 变 false → `canCollapse` 变 true → 过程卡片（thinking/toolCalls/delegate/fleet）折叠成 `TurnSummary`，末行高度骤减；Virtuoso 虚拟化行高测量有延迟，折叠瞬间 scrollTop 停在旧位置，且此时 `autoScrollActive` 已 false、200ms interval 停止兑底 → 用户看到的内容不在底部。
+- **修复**：`MessageList` 在 `isActiveTurnRow` true→false（整轮折叠时刻）时，若用户贴底（`stickBottom`）则主动 `scrollToEnd()` 一次，抵消高度骤减、保持贴底。
+- **测试（TDD）**：`MessageList.subagent-scroll.test.tsx` 新增 1 用例（整轮结束主动滚动到底部），先写失败测试（修复 stash 后 1 fail）、修复后 12/12 过；frontend 全量 1581/1581 过、typecheck 过。
+- 影响范围：`frontend/src/components/MessageList.tsx`、`frontend/tests/MessageList.subagent-scroll.test.tsx`。
+
 ## 2026-08-15 — fix(kernel/frontend): opencode-go 测试连接 404（测试连接未用内置目录 baseUrl）
 
 - e1e20c2b 只修了 extension 的 baseUrl（内置目录带 /v1），但「测试连接」仍用 providers.json 里不带 /v1 的旧值 → openai-completions 的 `GET {baseUrl}/models` 打 404。

@@ -629,3 +629,36 @@ test("触摸惯性滚动（无输入事件但 scrollTop 减小、maxScrollTop �
 	await new Promise((r) => setTimeout(r, 600));
 	expect(scrollToIndexCalls.length).toBe(countBeforeScroll);
 });
+
+// ============================================================================
+// 整轮折叠（isActiveTurnRow true→false）→ 主动滚回底部
+// 背景：长任务执行中，进行中的轮（status=thinking 的末行 assistant）过程卡片展开，
+// 用户贴底看实时过程。agent_end 到达、status 归 idle → isActiveTurnRow false →
+// canCollapse true → 过程卡片折叠成 TurnSummary，末行高度骤减。Virtuoso 虚拟化行高
+// 测量有延迟，折叠瞬间 scrollTop 停在旧位置（用户看到的内容不在底部）；且此时
+// autoScrollActive 已 false，200ms interval 停止兑底。修复：折叠时刻主动 scrollToEnd。
+// ============================================================================
+test("整轮结束（isActiveTurnRow true→false）时主动滚动到底部", async () => {
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [userMsg(1, "帮我查一下"), assistantMsg(2, "好的，委派子代理")],
+		},
+		statusBySession: { s1: "thinking" },
+	});
+	render(<MessageList sessionId="s1" />);
+	// 等初始进入会话滚动完成（含 thinking 期间 interval 强制贴底）
+	await waitFor(() => expect(scrollToIndexCalls.length).toBeGreaterThan(0));
+	// 清空，观察「整轮结束」时刻是否新增一次 scrollToEnd
+	scrollToIndexCalls.length = 0;
+
+	// 整轮结束：status 归 idle → isActiveTurnRow true→false → 折叠 → 主动滚动
+	useSessionStore.setState({ statusBySession: { s1: "idle" } });
+
+	// 修复后：折叠时刻主动 scrollToEnd 一次（scrollToIndex 被调用）
+	await waitFor(() => {
+		expect(scrollToIndexCalls.length).toBeGreaterThan(0);
+	});
+	const last = scrollToIndexCalls[scrollToIndexCalls.length - 1];
+	expect(last.index).toBe(1); // 末行
+	expect(last.align).toBe("end");
+});
