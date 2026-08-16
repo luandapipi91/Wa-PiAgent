@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(desktop): 「跟随系统」主题在 Windows 上跟随系统主题（而非应用主题）
+
+- 前端 `prefers-color-scheme` 在 Windows 上跟随「应用主题」（AppsUseLightTheme），用户「跟随系统」实际跟随了应用主题（深色），而非系统主题（浅色）→ 点跟随基本都是暗色。
+- 修复：Electron 主进程用 `nativeTheme.shouldUseDarkColorsForSystemIntegratedUI`（Windows 上区分系统/应用主题）同步 `themeSource`，使 prefers-color-scheme 对齐系统主题；监听 `updated` 持续同步。
+- 影响范围：`packages/desktop/src/main.cjs`。
+
 ## 2026-08-15 — fix(frontend): 列表「测试连接」补传 slug（此前只修了弹窗入口）
 
 - 76231a03 的 baseUrl 解析修复只改了编辑弹窗（ProviderForm）传 slug，漏了列表入口（ProviderSection.handleTest）→ 列表测试连接拿不到 slug，按 model id 匹配跨 provider 污染 baseUrl，仍 401/404。
