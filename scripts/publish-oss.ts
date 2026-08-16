@@ -14,6 +14,14 @@ import { join } from "node:path";
 // @ts-expect-error ali-oss 无内置类型声明
 import OSS from "ali-oss";
 
+// OSS 是国内节点（oss-cn-heyuan），直连即可；系统代理（Clash 等）对大文件分片上传
+// 不稳定，会导致 socket 连接被意外关闭（ali-oss 的 urllib 在代理下上传大 body 失败）。
+// 上传前清除代理环境变量，确保直连 OSS。
+delete process.env.HTTPS_PROXY;
+delete process.env.HTTP_PROXY;
+delete process.env.https_proxy;
+delete process.env.http_proxy;
+
 const version = process.argv[2];
 if (!version) {
 	console.error(
@@ -150,9 +158,7 @@ async function main() {
 		) {
 			// 安装包较大（142~166MB），用分片上传支持进度与断点续传
 			const size = statSync(a.path).size;
-			console.log(
-				`↑ 分片上传 ${a.key}（${(size / 1024 / 1024).toFixed(1)} MB）…`,
-			);
+			console.log(`↑ 分片上传 ${a.key}（${(size / 1024 / 1024).toFixed(1)} MB）…`);
 			await store.multipartUpload(a.key, a.path, {
 				headers,
 				partSize: 5 * 1024 * 1024,
