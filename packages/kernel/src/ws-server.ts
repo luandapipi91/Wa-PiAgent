@@ -55,6 +55,7 @@ import {
 	handleBridgeRequest,
 	handleBridgeStream,
 	isBridgeStreamTool,
+	verifyBridgeToken,
 } from "./bridge-registry";
 import {
 	appendChunk,
@@ -686,6 +687,34 @@ export class WSServer {
 					const r = await handleBridgeRequest(body, req.signal);
 					if (!r.ok) return Response.json({ error: r.error }, { status: r.status });
 					return Response.json(r.result, { status: 200 });
+				}
+				// pi 进程内 bridge 扩展上报本轮文件修改快照（文件修改清单）
+				if (url.pathname === "/bridge/file-changes") {
+					if (req.method !== "POST")
+						return new Response("Method Not Allowed", { status: 405 });
+					let body: any;
+					try {
+						body = await req.json();
+					} catch {
+						return Response.json({ error: "invalid_json" }, { status: 400 });
+					}
+					if (!verifyBridgeToken(body?.token))
+						return Response.json({ error: "forbidden" }, { status: 403 });
+					const sessionId = body?.sessionId;
+					const files = body?.files;
+					if (typeof sessionId !== "string" || !Array.isArray(files))
+						return Response.json({ error: "bad_request" }, { status: 400 });
+					const meta = this.opts.agentManager.getSessionMeta(sessionId);
+					if (meta) {
+						this.broadcast({
+							type: "sdk:event",
+							projectId: meta.projectId,
+							sessionId,
+							agentName: meta.agentName,
+							event: { type: "file_changes", files } as any,
+						});
+					}
+					return Response.json({ ok: true }, { status: 200 });
 				}
 				if (url.pathname === "/file") {
 					const { projects } = await this.opts.projectStore.load();
