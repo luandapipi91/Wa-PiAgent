@@ -18,6 +18,9 @@ import OSS from "ali-oss";
 // 加 --no-proxy 参数：OSS 是国内节点（oss-cn-heyuan）直连即可；系统代理（Clash 等）对
 // 大文件分片上传不稳定，会导致 socket 连接被意外关闭。默认保留代理（向后兼容），
 // 加 --no-proxy 时清除代理直连 OSS。
+// 注意：ali-oss 是静态 import（早于清代理执行），Bun 下脚本内 delete 对已缓存的代理配置
+// 不生效；如需直连，推荐命令行清代理：
+//   HTTPS_PROXY= HTTP_PROXY= https_proxy= http_proxy= bun run --env-file=.env scripts/publish-oss.ts <version>
 const { values: cliArgs, positionals } = parseArgs({
 	options: { "no-proxy": { type: "boolean" } },
 	allowPositionals: true,
