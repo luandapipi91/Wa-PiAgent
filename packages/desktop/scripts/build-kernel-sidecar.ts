@@ -263,8 +263,16 @@ export async function buildSidecar(
 		"src",
 		"tool-schemas.ts",
 	);
+	const fileSnapshotSrc = join(
+		ROOT,
+		"packages",
+		"kernel",
+		"src",
+		"file-snapshot.ts",
+	);
 	await cp(bridgeExtSrc, join(kernelDir, "wa-pi-bridge.extension.ts"));
 	await cp(toolSchemasSrc, join(kernelDir, "tool-schemas.ts"));
+	await cp(fileSnapshotSrc, join(kernelDir, "file-snapshot.ts"));
 
 	// 5. bun 运行时（下载 TARGET 平台 bun；不再无条件复制 host bun，避免 Linux CI 误把 Linux bun 当 bun.exe 发出去）
 	await fetchTargetBun(target, kernelDir);
