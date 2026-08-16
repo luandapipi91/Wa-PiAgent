@@ -73,19 +73,31 @@ function FileChangeItem({
         <button
           type="button"
           className="font-mono text-[12px] text-accent hover:underline text-left"
-          onClick={() => useSessionStore.getState().openFilePreview(abs, sessionId)}
+          onClick={() => {
+            if (canDiff) setOpen((v) => !v);
+            else useSessionStore.getState().openFilePreview(abs, sessionId);
+          }}
         >
           {file.path}
         </button>
         {canDiff && (
-          <button
-            type="button"
-            aria-expanded={open}
-            onClick={() => setOpen((v) => !v)}
-            className="ml-auto text-tertiary text-[10px] select-none"
-          >
-            {open ? "▾" : "▸"}
-          </button>
+          <span className="ml-auto flex items-center gap-2 text-tertiary text-[11px] select-none">
+            <button
+              type="button"
+              className="hover:text-accent"
+              onClick={() => useSessionStore.getState().openFilePreview(abs, sessionId)}
+            >
+              {t("blocks.fileChanges.preview")}
+            </button>
+            <button
+              type="button"
+              aria-expanded={open}
+              onClick={() => setOpen((v) => !v)}
+              className="hover:text-accent"
+            >
+              {open ? t("blocks.fileChanges.collapse") : t("blocks.fileChanges.expand")}
+            </button>
+          </span>
         )}
       </div>
       {open && canDiff && (

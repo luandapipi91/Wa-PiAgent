@@ -192,6 +192,9 @@ const en = {
 			modified: "Modified",
 			tooLarge: "Too large",
 			readError: "Read error",
+			preview: "Preview",
+			expand: "Expand",
+			collapse: "Collapse",
 		},
 		codeBlock: {
 			copy: "Copy",

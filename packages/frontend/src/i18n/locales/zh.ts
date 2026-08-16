@@ -183,6 +183,9 @@ const zh = {
 			modified: "修改",
 			tooLarge: "过大",
 			readError: "读取失败",
+			preview: "预览",
+			expand: "展开",
+			collapse: "收起",
 		},
 		codeBlock: {
 			copy: "复制",
