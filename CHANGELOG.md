@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(desktop): publish-oss 上传前清除代理（OSS 直连）
+
+- 系统代理（Clash 等）会拦截 ali-oss 上传，大文件分片上传时 socket 被意外关闭。OSS 是国内节点（oss-cn-heyuan），直连即可；脚本上传前清除 HTTP(S)_PROXY 环境变量。
+- 影响范围：`scripts/publish-oss.ts`。
+
 ## 2026-08-15 — fix(desktop): linux AppImage 可执行文件名修复
 
 - desktop 包名 `@wa-pi/desktop` 归一化成 `@wa-pidesktop`，AppImage 可执行文件名含 `@`/`-` 不合法；显式指定 `linux.executableName=wa-pi-desktop`。
