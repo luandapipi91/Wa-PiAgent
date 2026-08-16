@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-16 — chore(release): 发布版本 0.2.3
+
+- 打包发布 0.2.3：文件修改清单新功能 + 文件预览路径解析修复。产物 `WaPi-Setup-0.2.3.exe` 已上传 OSS（latest.yml 注入 releaseNotes）。
+- 影响范围：版本号（`packages/desktop/package.json`、`packages/frontend/package.json`、`version-history.json`）、`RELEASE_NOTES.md`。
+
 ## 2026-08-16 — fix(desktop): publish-oss 注明 --no-proxy 在 Bun 下不生效
 
 - ali-oss 静态 import 早于清代理执行，脚本内 delete 对已缓存代理配置不生效；动态 import 在 Bun 顶层 await 下分片上传会超时。保留静态 import + --no-proxy（尽力而为），注释说明推荐命令行清代理（HTTPS_PROXY= HTTP_PROXY= ... bun run ...）。
