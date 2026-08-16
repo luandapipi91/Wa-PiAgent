@@ -186,6 +186,13 @@ const en = {
 			seconds: "{{sec}}s",
 			minutesSeconds: "{{min}}m {{sec}}s",
 		},
+		fileChanges: {
+			title: "File changes · {{count}}",
+			added: "Added",
+			modified: "Modified",
+			tooLarge: "Too large",
+			readError: "Read error",
+		},
 		codeBlock: {
 			copy: "Copy",
 			collapse: "Collapse",
