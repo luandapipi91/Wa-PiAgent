@@ -7,6 +7,7 @@ import {
   generateProviderExtension,
   ensureProviderExtensionRegistered,
   extensionCoversProvider,
+  resolveProviderBaseUrl,
 } from "../src/provider-extension";
 import { GENERATED_DIR } from "@wa-pi/shared";
 import type { ModelProvider } from "@wa-pi/shared";
@@ -328,4 +329,55 @@ test("slugifyProviders: slug 为 undefined 时 fallback 到 name 派生（向后
     sampleProvider({ id: "p1", name: "My Custom Provider" }), // 无 slug 字段
   ]);
   expect(result[0].slug).toBe("my-custom-provider");
+});
+
+// ---- resolveProviderBaseUrl：测试连接用内置目录 baseUrl 纠正缺 /v1 的旧值 ----
+
+function catalogModel(overrides: Record<string, unknown> = {}): any {
+  return {
+    provider: "opencode-go",
+    id: "deepseek-v4-flash",
+    baseUrl: "https://opencode.ai/zen/go/v1",
+    contextWindow: 1000000,
+    maxTokens: 384000,
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    name: "deepseek-v4-flash",
+    ...overrides,
+  };
+}
+
+test("resolveProviderBaseUrl：slug 匹配内置目录，返回带 /v1 的 baseUrl（纠正缺后缀旧值）", () => {
+  const url = resolveProviderBaseUrl(
+    "opencode-go",
+    ["deepseek-v4-flash"],
+    "https://opencode.ai/zen/go",
+    [catalogModel()],
+  );
+  expect(url).toBe("https://opencode.ai/zen/go/v1");
+});
+
+test("resolveProviderBaseUrl：同名模型跨 provider 不污染（按 slug 过滤）", () => {
+  const allModels = [
+    catalogModel({ provider: "deepseek", baseUrl: "https://api.deepseek.com" }),
+    catalogModel({ provider: "opencode-go", baseUrl: "https://opencode.ai/zen/go/v1" }),
+  ];
+  const url = resolveProviderBaseUrl(
+    "opencode-go",
+    ["deepseek-v4-flash"],
+    "https://opencode.ai/zen/go",
+    allModels,
+  );
+  expect(url).toBe("https://opencode.ai/zen/go/v1");
+});
+
+test("resolveProviderBaseUrl：找不到则回退用户配置的 baseUrl（去尾斜杠）", () => {
+  const url = resolveProviderBaseUrl(
+    "unknown-provider",
+    ["unknown-model"],
+    "https://example.com/api/",
+    [],
+  );
+  expect(url).toBe("https://example.com/api");
 });

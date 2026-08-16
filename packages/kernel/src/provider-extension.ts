@@ -98,6 +98,30 @@ function modelToInfo(m: CatalogModel): SdkModelInfo {
 	};
 }
 
+/**
+ * 解析测试连接用的 baseUrl。
+ * 优先用内置目录里该 provider（按 slug 过滤）匹配模型的 baseUrl（含正确 /v1 后缀），
+ * 纠正 providers.json 里可能缺后缀的旧值；找不到则回退用户配置的 baseUrl。
+ * allModels 由调用方注入（便于测试），生产传 getAllCatalogModels() 的结果。
+ */
+export function resolveProviderBaseUrl(
+	slug: string | undefined,
+	modelIds: string[],
+	fallbackBaseUrl: string,
+	allModels: CatalogModel[],
+): string {
+	const matches = slug
+		? allModels.filter((m) => m.provider === slug)
+		: allModels;
+	for (const id of modelIds) {
+		const exact = matches.find((m) => m.id === id);
+		if (exact?.baseUrl) return exact.baseUrl.replace(/\/+$/, "");
+		const ci = matches.find((m) => m.id.toLowerCase() === id.toLowerCase());
+		if (ci?.baseUrl) return ci.baseUrl.replace(/\/+$/, "");
+	}
+	return fallbackBaseUrl.replace(/\/+$/, "");
+}
+
 // ---- Extension 代码生成 ----
 
 /**

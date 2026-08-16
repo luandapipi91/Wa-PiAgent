@@ -16,7 +16,7 @@ export const registerProviderRoutes: RouteRegistrar = (r, callApi, ctx: RouteCon
     const b = await readJsonBody(req);
     return callApi({
       type: "provider:test",
-      baseUrl: b.baseUrl, apiKey: b.apiKey, api: b.api, models: b.models,
+      baseUrl: b.baseUrl, apiKey: b.apiKey, api: b.api, models: b.models, slug: b.slug,
     });
   });
   r.add("GET", "/api/models/presets", async () => callApi({ type: "model:presets" }));

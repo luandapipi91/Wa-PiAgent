@@ -2,6 +2,22 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(kernel/frontend): opencode-go 测试连接 404（测试连接未用内置目录 baseUrl）
+
+- e1e20c2b 只修了 extension 的 baseUrl（内置目录带 /v1），但「测试连接」仍用 providers.json 里不带 /v1 的旧值 → openai-completions 的 `GET {baseUrl}/models` 打 404。
+- 修复：`provider:test` 对 openai-completions 用内置目录解析 baseUrl（新增 `resolveProviderBaseUrl` 纯函数，按 slug 过滤避免同名模型跨 provider 污染）；前端测试连接时传 slug。
+- anthropic-messages 保持原样（baseUrl 不带 /v1，`testProviderConnection` 自己拼 /v1/messages）。
+- 测试：`provider-extension.test.ts` 新增 `resolveProviderBaseUrl` 3 用例，33 过。
+- 影响范围：`kernel/src/{provider-extension,routes/providers,ws-server}.ts`、`shared/src/providers.ts`、`frontend/src/{store/providers.ts,components/settings/ProviderForm.tsx}`。
+
+## 2026-08-15 — chore(release): 发布版本号 0.1.27 → 0.2.1
+
+- desktop 0.1.27 → 0.2.1，frontend 0.1.26 → 0.2.1（统一「关于」页与自动更新版本）
+- version-history.json 时间线最新条目 0.1.27 → 0.2.1（latest.yml releaseNotes 实际注入源）
+- RELEASE_NOTES.md 与 version-history.json 补全 0.2.1 完整发布说明（定时任务/通讯录/IM 推送/扩展修复/代理设置等 08-14~08-15 全部变更）
+- VersionTimeline.test.tsx 断言同步 v0.2.1
+- 影响范围：desktop/package.json、frontend/package.json、frontend/src/data/version-history.json、desktop/RELEASE_NOTES.md、VersionTimeline.test.tsx
+
 ## 2026-08-15 — chore(kernel): 升级 pi 0.84.2 + 启用 PI_EXPERIMENTAL
 
 - **变更**：①`@earendil-works/pi-*` 全系升级 0.84.1 → 0.84.2（kernel/package.json + sidecar 打包脚本 build-kernel-sidecar.ts，消除 sidecar `^0.83.0` 滞后债）；kernel 显式声明 `pi-agent-core` 修复顶层版本分裂（此前 pi-memory 的 peer 解析到顶层 0.84.1，而 pi-coding-agent 嵌套 0.84.2）。②启用 pi 0.84.2 实验性严格 JSON-schema 约束采样（`process.env.PI_EXPERIMENTAL="1"`，index.ts 注入，经 rpc-client 的 process.env 展开自动覆盖主会话 + 子代理）。③sdk-errors.ts 同步 pi-ai 0.84.2 新增 retryable 文案 `exceeded request buffer limit`。
