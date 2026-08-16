@@ -10,7 +10,7 @@ const path = require("node:path");
 
 const DEFAULT_REGISTRY = "https://registry.npmmirror.com";
 const FALLBACK_REGISTRY = "https://registry.npmjs.org";
-const SEED_FILES = ["kernel.js", "package.json", "bun.lock", "tool-schemas.ts", "wa-pi-bridge.extension.ts"];
+const SEED_FILES = ["kernel.js", "package.json", "bun.lock", "tool-schemas.ts", "wa-pi-bridge.extension.ts", "file-snapshot.ts"];
 
 async function exists(p) {
 	try {

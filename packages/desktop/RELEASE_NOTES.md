@@ -7,3 +7,4 @@ WA PI Agent 0.2.3 更新内容：
 【修复】
 
 - 文件预览路径解析：Windows 盘符被误当相对路径
+- 安装后打不开（白屏）：kernel 启动时 file-snapshot.ts 未随 seed 同步到 runtime 目录导致启动崩溃，已补全同步清单
