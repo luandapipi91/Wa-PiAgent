@@ -60,6 +60,7 @@ import {
 	extensionCoversProvider,
 } from "./provider-extension";
 import { SubagentTelemetry } from "./subagent-telemetry";
+import { lookupCatalogModel } from "./pi-catalog";
 import type { WaPiSpawnConfig } from "./subagent-runner";
 import { seedBuiltinAgents } from "./builtin-agents";
 import { readBuiltinAgentPrompt } from "./subagent-info";
@@ -204,6 +205,12 @@ interface SessionHandle {
 	 *  供 reapIdleSessions 判断是否回收该会话子进程，避免每轮读盘。 */
 	lastActiveAt: number;
 }
+
+/** 模型元数据缓存（modelId → contextWindow/maxTokens），避免每次发送都读 pi-ai 目录 */
+const modelMetaCache = new Map<
+	string,
+	{ contextWindow: number; maxTokens: number }
+>();
 
 export class AgentManager {
 	// sessionId → SessionHandle（核心数据结构，一个 WaPi 会话对应一个 pi rpc 子进程）
@@ -992,6 +999,8 @@ export class AgentManager {
 			case "agent_settled":
 				handle.busy = false;
 				handle.thinkingSince = null;
+				// 一轮对话结束：清空该会话残留的 ask 条目（含断开保留的 disconnected，防泄漏）
+				askRegistry.clearSession(sessionId);
 				// transient 网络错误期间跳过 drain：此时网络仍不可用，
 				// 自动发送排队/引导消息会再失败。队列保留，等用户重发恢复。
 				if (handle.netDegraded) {
@@ -1126,6 +1135,8 @@ export class AgentManager {
 			await this._runCompactCommand(sessionId, handle, text);
 			return;
 		}
+		// 发送前自动压缩防护：上下文将超限时先 compact 再继续，避免 400
+		await this._autoCompactIfNeeded(sessionId, handle);
 		handle.busy = true;
 		// 用户重发触发直接 prompt：网络已恢复，清除 transient degraded 标记，恢复 drain。
 		if (handle.netDegraded) handle.netDegraded = false;
@@ -1197,6 +1208,66 @@ export class AgentManager {
 		// 合成 agent_settled：走内部事件入口（复位 busy + drain 压缩期间排队的
 		// steer/followUp 消息），尾部转发 opts.onEvent 通知前端
 		this._onSessionEvent(sessionId, { type: "agent_settled" } as RpcEvent);
+	}
+
+	/**
+	 * 发送前自动压缩防护。
+	 * 当前上下文占用 + 模型输出预留超过上下文窗口时，先 compact 再继续发送，
+	 * 避免 DeepSeek 等「输入+输出共用窗口」模型在 auto-compaction 触发前就 400。
+	 * 压缩失败不阻断发送（退回现状，让原消息走正常错误渲染）。
+	 */
+	private async _autoCompactIfNeeded(
+		sessionId: string,
+		handle: SessionHandle,
+	): Promise<void> {
+		try {
+			// 1. 解析当前模型 id（"provider/modelId" → modelId）
+			const currentModel = handle.currentModel;
+			if (!currentModel) return;
+			const slash = currentModel.indexOf("/");
+			const modelId = slash >= 0 ? currentModel.slice(slash + 1) : currentModel;
+
+			// 2. 查模型元数据（contextWindow / maxTokens），带进程内缓存
+			let meta = modelMetaCache.get(modelId);
+			if (!meta) {
+				const catalogModel = await lookupCatalogModel(modelId);
+				if (!catalogModel) return;
+				meta = {
+					contextWindow: catalogModel.contextWindow,
+					maxTokens: catalogModel.maxTokens,
+				};
+				modelMetaCache.set(modelId, meta);
+			}
+			const { contextWindow, maxTokens } = meta;
+			if (contextWindow <= 0 || maxTokens <= 0) return;
+
+			// 3. 读当前上下文占用（pi get_session_stats.contextUsage）
+			const stats = await handle.client.getSessionStats();
+			const cu = stats?.contextUsage;
+			if (!cu || typeof cu !== "object") return;
+			const used = (cu as any).used ?? (cu as any).tokens;
+			if (typeof used !== "number" || used <= 0) return;
+
+			// 4. 判断是否超限：输入占用 + 输出预留 > 窗口
+			if (used + maxTokens <= contextWindow) return;
+
+			// 5. 自动 compact（busy 防并发；完成后由 _sendPromptNow 继续设 busy 发 prompt）
+			console.log(
+				`[kernel] session ${sessionId} 自动压缩：used=${used} + maxTokens=${maxTokens} > contextWindow=${contextWindow}`,
+			);
+			handle.busy = true;
+			try {
+				await handle.client.compact();
+			} finally {
+				handle.busy = false;
+			}
+			console.log(`[kernel] session ${sessionId} 自动压缩完成`);
+		} catch (err) {
+			console.error(
+				`[kernel] session ${sessionId} 自动压缩失败（继续发送）:`,
+				err,
+			);
+		}
 	}
 
 	/** 推送本地队列快照给前端（补充 pi queue_update 缺失的 followUpList） */

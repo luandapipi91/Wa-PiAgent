@@ -134,3 +134,43 @@ test("预 aborted signal：ask 立即返回 cancelled 且不留残留 entry", as
 	askRegistry.resolve("s1", "tc1", reply);
 	expect((await p2).cancelled).toBe(false);
 });
+
+test("断开（abort）后 pending 列表不含该条目，但条目保留供重试复用", async () => {
+	const ctrl = new AbortController();
+	const p = askRegistry.ask("s1", "tc1", params, ctrl.signal);
+	ctrl.abort(); // 断开
+	expect((await p).cancelled).toBe(true);
+	// 断开后条目 disconnected（保留），但不计入"真实 pending"
+	expect(askRegistry.pendingToolCallIds("s1")).toEqual([]);
+});
+
+test("断开后重试复用同 toolCallId：继续等用户回答，不重复注册", async () => {
+	const c1 = new AbortController();
+	const p1 = askRegistry.ask("s1", "tc1", params, c1.signal);
+	c1.abort(); // 断开
+	expect((await p1).cancelled).toBe(true);
+
+	// 重试：再次 ask 同 toolCallId，复用断开条目
+	const c2 = new AbortController();
+	const p2 = askRegistry.ask("s1", "tc1", params, c2.signal);
+	// 复用后 resolve 能命中同 toolCallId
+	expect(askRegistry.resolve("s1", "tc1", reply)).toBe(true);
+	const r = await p2;
+	expect(r.cancelled).toBe(false);
+	expect(r.answers).toHaveLength(1);
+	// 回答后条目清空
+	expect(askRegistry.pendingToolCallIds("s1")).toEqual([]);
+});
+
+test("clearSession 清空会话全部条目（含断开保留的 disconnected）", async () => {
+	const c1 = new AbortController();
+	const p1 = askRegistry.ask("s1", "tc1", params, c1.signal);
+	c1.abort(); // 断开保留
+	expect((await p1).cancelled).toBe(true);
+	expect(askRegistry.pendingToolCallIds("s1")).toEqual([]);
+
+	// 一轮对话结束：清空会话（含断开保留的 disconnected）
+	askRegistry.clearSession("s1");
+	// 清空后 resolve 同 id 是 no-op（断开条目已彻底清空，而非被复用命中）
+	expect(askRegistry.resolve("s1", "tc1", reply)).toBe(false);
+});
