@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — revert(kernel/frontend): 撤销「网页端读注册表系统主题」实现
+
+- 读 Windows 注册表（SystemUsesLightTheme）的方案被否决，撤销 kernel `readSystemTheme` + `GET /api/system-theme` + 前端轮询，回到浏览器原生 `prefers-color-scheme`（跟随应用主题）。
+- Electron 端的 nativeTheme 修复保留（桌面版生效）。
+- 影响范围：`kernel/src/{settings-store.ts,routes/settings.ts}`、`frontend/src/store/ui-prefs.ts`。
+
 ## 2026-08-15 — fix(kernel): readSystemTheme 跨平台——仅 Windows 读注册表，macOS/Linux 返回 null
 
 - 上一条 `readSystemTheme` 非 Windows 兑底 light，会导致 macOS/Linux 系统深色时被错误覆盖成浅色。改为：仅 Windows 读 `SystemUsesLightTheme`；macOS/Linux 无「系统/应用」分离（prefers-color-scheme 即系统主题）返回 null，前端保持 prefers-color-scheme 不覆盖。
