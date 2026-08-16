@@ -7,6 +7,7 @@ const {
 	session,
 	desktopCapturer,
 	ipcMain,
+	nativeTheme,
 } = require("electron");
 const path = require("node:path");
 const os = require("node:os");
@@ -42,6 +43,20 @@ const registryOpts = {
 // 与前端 --canvas 对齐：主窗口/启动页用同色底，消除首帧白屏闪烁
 const CANVAS_BG = "#F5F5F7";
 const BRAND_GREEN = "#4BA26F";
+
+// 「跟随系统」在 Windows 上需区分「系统主题」与「应用主题」：
+// 前端 prefers-color-scheme 默认跟随「应用主题」（AppsUseLightTheme），而用户期望跟随
+// 「系统主题」（SystemUsesLightTheme）。用 shouldUseDarkColorsForSystemIntegratedUI
+// （Windows 上区分两者）显式同步 themeSource，使 prefers-color-scheme 对齐系统主题。
+function syncThemeSource() {
+	try {
+		const sysDark = nativeTheme.shouldUseDarkColorsForSystemIntegratedUI;
+		const target = sysDark ? "dark" : "light";
+		if (nativeTheme.themeSource !== target) {
+			nativeTheme.themeSource = target;
+		}
+	} catch {}
+}
 
 let splashWindow = null;
 let mainWindow = null;
@@ -334,6 +349,11 @@ app.commandLine.appendSwitch("use-angle", "d3d11");
 app.commandLine.appendSwitch("ignore-gpu-blocklist");
 
 app.whenReady().then(async () => {
+	// 「跟随系统」主题：同步系统主题到 themeSource（Windows 区分系统/应用主题），
+	// 并监听系统主题变化（nativeTheme updated）持续同步。
+	syncThemeSource();
+	nativeTheme.on("updated", syncThemeSource);
+
 	// GPU 信息取证：记录实际 GPU 后端，便于确认合成是否走了硬件加速（vs 软件渲染）。
 	app
 		.getGPUInfo("complete")
