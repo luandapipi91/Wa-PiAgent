@@ -10,7 +10,14 @@ const path = require("node:path");
 
 const DEFAULT_REGISTRY = "https://registry.npmmirror.com";
 const FALLBACK_REGISTRY = "https://registry.npmjs.org";
-const SEED_FILES = ["kernel.js", "package.json", "bun.lock", "tool-schemas.ts", "wa-pi-bridge.extension.ts", "file-snapshot.ts"];
+const SEED_FILES = [
+	"kernel.js",
+	"package.json",
+	"bun.lock",
+	"tool-schemas.ts",
+	"wa-pi-bridge.extension.ts",
+	"file-snapshot.ts",
+];
 
 async function exists(p) {
 	try {
@@ -34,8 +41,13 @@ async function syncSeed(seedDir, runtimeDir, log) {
 	// seedDir 无 patches 时静默跳过（老 seed / dev 场景）。
 	const patchesSrc = path.join(seedDir, "patches");
 	if (await exists(patchesSrc)) {
-		await fsp.rm(path.join(runtimeDir, "patches"), { recursive: true, force: true });
-		await fsp.cp(patchesSrc, path.join(runtimeDir, "patches"), { recursive: true });
+		await fsp.rm(path.join(runtimeDir, "patches"), {
+			recursive: true,
+			force: true,
+		});
+		await fsp.cp(patchesSrc, path.join(runtimeDir, "patches"), {
+			recursive: true,
+		});
 	}
 	log.info(`[deps] seed → ${runtimeDir}`);
 }
@@ -138,4 +150,9 @@ async function ensureRuntimeDeps({
 	return runtimeDir;
 }
 
-module.exports = { ensureRuntimeDeps, syncSeed, DEFAULT_REGISTRY, FALLBACK_REGISTRY };
+module.exports = {
+	ensureRuntimeDeps,
+	syncSeed,
+	DEFAULT_REGISTRY,
+	FALLBACK_REGISTRY,
+};

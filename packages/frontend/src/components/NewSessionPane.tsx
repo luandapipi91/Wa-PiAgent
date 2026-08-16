@@ -67,8 +67,14 @@ export function NewSessionPane({
 		projects[0]?.id ??
 		null;
 	const [projectId, setProjectId] = useState<string | null>(initialProject);
-	// 文件浏览侧栏根目录：跟随当前选中项目的 cwd（未选项目为空 → 入口禁用 + 空态兜底）
-	const workspaceDir = projects.find((p) => p.id === projectId)?.cwd ?? "";
+	// 文件浏览侧栏根目录：跟随当前选中项目的 cwd（未选项目为空 → 入口禁用 + 空态兜底）。
+	// 默认工作区（__system__）的 cwd 是 workdir 父目录——存放每个会话的独立内部目录，
+	// 可能积累数千个子目录；既非用户可用的「项目文件」，一次性列出还会卡死 UI。
+	// 因此对默认工作区返回空，让侧栏走空态（空态文案按 projectId 有无区分）。
+	const workspaceDir =
+		projectId === SYSTEM_PROJECT_ID
+			? ""
+			: (projects.find((p) => p.id === projectId)?.cwd ?? "");
 	// currentProjectId 变化时同步（点项目旁 + 号时可能已在新建页，不会重新挂载）
 	useEffect(() => {
 		if (currentProjectId) setProjectId(currentProjectId);
@@ -80,9 +86,7 @@ export function NewSessionPane({
 	// 首载 agent:list 回包晚于挂载：list 空转非空且 agentName 仍为 null 时回填（沿用 pendingAgent 优先级 + recency）；已选中则不干预
 	useEffect(() => {
 		if (!agentName && agents.length > 0)
-			setAgentName(
-				pickDefaultAgent(agents, sessions, pendingAgent, defaultAgent),
-			);
+			setAgentName(pickDefaultAgent(agents, sessions, pendingAgent, defaultAgent));
 	}, [agents, agentName, pendingAgent, sessions, defaultAgent]);
 	// 向导重设默认智能体后同步已挂载面板的选择（defaultAgent 只有向导会写，覆盖当前选择语义正确）
 	useEffect(() => {
@@ -177,9 +181,7 @@ export function NewSessionPane({
 		if (debounceRef.current) clearTimeout(debounceRef.current);
 		debounceRef.current = setTimeout(() => {
 			debounceRef.current = null;
-			useComposerPrefsStore
-				.getState()
-				.setSessionPrefs(sessionId, { text: next });
+			useComposerPrefsStore.getState().setSessionPrefs(sessionId, { text: next });
 		}, 300);
 	};
 
@@ -263,9 +265,7 @@ export function NewSessionPane({
 				// 服务器后续若仍有事件到达（echoUser/handleSDKEvent）会自动清错误，
 				// 避免 HTTP 超时但 pi 实际继续处理时的误报。
 				const msg = err instanceof Error ? err.message : String(err);
-				useSessionStore
-					.getState()
-					.setPromptError(finalId, msg || "request failed");
+				useSessionStore.getState().setPromptError(finalId, msg || "request failed");
 			});
 		if (debounceRef.current) {
 			clearTimeout(debounceRef.current);
@@ -298,9 +298,7 @@ export function NewSessionPane({
 					onClick={() => useNewSessionExplorerStore.getState().toggle()}
 					disabled={!projectId}
 					title={
-						projectId
-							? t("session.projectFiles")
-							: t("newSession.noProjectOption")
+						projectId ? t("session.projectFiles") : t("newSession.noProjectOption")
 					}
 					style={
 						explorerOpen
@@ -318,9 +316,7 @@ export function NewSessionPane({
 				<h2 className="text-[calc(26px*var(--font-scale))] font-extrabold tracking-tight text-primary mb-2">
 					{t("newSession.title")}
 				</h2>
-				<p className="text-sm text-secondary mb-7">
-					{t("newSession.subtitle")}
-				</p>
+				<p className="text-sm text-secondary mb-7">{t("newSession.subtitle")}</p>
 				<div className="w-full max-w-2xl mb-4 flex gap-2 items-center">
 					<select
 						value={projectId ?? ""}
@@ -351,9 +347,7 @@ export function NewSessionPane({
 					model={model}
 					setModel={(m) => {
 						setModel(m);
-						useComposerPrefsStore
-							.getState()
-							.setSessionPrefs(sessionId, { model: m });
+						useComposerPrefsStore.getState().setSessionPrefs(sessionId, { model: m });
 					}}
 					thinking={thinking}
 					setThinking={(t) => {
@@ -411,7 +405,9 @@ export function NewSessionPane({
 								/>
 							) : (
 								<div className="ep-empty">
-									{t("newSession.noProjectOption")}
+									{projectId
+										? t("explorer.emptyNoWorkspace")
+										: t("newSession.noProjectOption")}
 								</div>
 							)}
 						</div>
