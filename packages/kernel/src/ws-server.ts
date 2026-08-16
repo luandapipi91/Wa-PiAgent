@@ -30,7 +30,10 @@ import {
 	saveHttpIdleTimeoutMs,
 	DEFAULT_HTTP_IDLE_TIMEOUT_MS,
 } from "./settings-store";
-import { ensureProviderExtensionRegistered, resolveProviderBaseUrl } from "./provider-extension";
+import {
+	ensureProviderExtensionRegistered,
+	resolveProviderBaseUrl,
+} from "./provider-extension";
 import { testConnection, listTools, clearAuth } from "./mcp-connector";
 import { getAllCatalogModels, getProviderDisplayName } from "./pi-catalog";
 import {

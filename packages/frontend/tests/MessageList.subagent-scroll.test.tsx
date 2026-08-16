@@ -613,14 +613,26 @@ test("触摸惯性滚动（无输入事件但 scrollTop 减小、maxScrollTop �
 
 	expect(mockScrollerEl).not.toBeNull();
 	// 贴底基线（程序化贴底：scrollTop 增大，仅建立滚动基线）
-	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 1600, writable: true });
-	Object.defineProperty(mockScrollerEl!, "scrollHeight", { value: 2000, writable: true });
-	Object.defineProperty(mockScrollerEl!, "clientHeight", { value: 400, writable: true });
+	Object.defineProperty(mockScrollerEl!, "scrollTop", {
+		value: 1600,
+		writable: true,
+	});
+	Object.defineProperty(mockScrollerEl!, "scrollHeight", {
+		value: 2000,
+		writable: true,
+	});
+	Object.defineProperty(mockScrollerEl!, "clientHeight", {
+		value: 400,
+		writable: true,
+	});
 	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
 
 	// 触摸惯性上翻：无任何输入事件（无 wheel/touch/pointer/keydown），
 	// 仅原生 scroll——scrollTop 减小、maxScrollTop 不变（内容高度没变）
-	Object.defineProperty(mockScrollerEl!, "scrollTop", { value: 500, writable: true });
+	Object.defineProperty(mockScrollerEl!, "scrollTop", {
+		value: 500,
+		writable: true,
+	});
 	mockScrollerEl!.dispatchEvent(new Event("scroll", { bubbles: true }));
 	// Virtuoso 检测到离底（与真实浏览器一致：scroll 事件后回调）
 	mockAtBottomStateChange!(false);

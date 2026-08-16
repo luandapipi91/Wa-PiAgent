@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+} from "@testing-library/react";
 
 // 列表「测试连接」走 ProviderSection.handleTest → store.test；
 // 必须把 provider.slug 传给后端，否则 kernel 按 model id 匹配会污染 baseUrl（同名模型跨 provider）。
@@ -13,7 +19,9 @@ const provider = {
 	baseUrl: "https://opencode.ai/zen/go",
 	apiKey: "sk-test",
 	api: "openai-completions",
-	models: [{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 }],
+	models: [
+		{ id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+	],
 };
 
 const state = {
