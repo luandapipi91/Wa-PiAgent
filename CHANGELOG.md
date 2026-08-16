@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(desktop): publish-oss 清代理改为 --no-proxy 参数（默认保留代理）
+
+- 上一条无条件清代理会让想走代理的环境也用不了；改为加 `--no-proxy` 参数时才清代理（默认保留代理，向后兼容）。OSS 国内节点直连、走代理分片上传会 socket 关闭。
+- 影响范围：`scripts/publish-oss.ts`。
+
 ## 2026-08-15 — fix(desktop): publish-oss 上传前清除代理（OSS 直连）
 
 - 系统代理（Clash 等）会拦截 ali-oss 上传，大文件分片上传时 socket 被意外关闭。OSS 是国内节点（oss-cn-heyuan），直连即可；脚本上传前清除 HTTP(S)_PROXY 环境变量。

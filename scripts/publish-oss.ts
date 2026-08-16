@@ -11,21 +11,28 @@
 // 若未提供 OSS_AK/OSS_SK，打印手动上传指引后退出（不失败）。
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { parseArgs } from "node:util";
 // @ts-expect-error ali-oss 无内置类型声明
 import OSS from "ali-oss";
 
-// OSS 是国内节点（oss-cn-heyuan），直连即可；系统代理（Clash 等）对大文件分片上传
-// 不稳定，会导致 socket 连接被意外关闭（ali-oss 的 urllib 在代理下上传大 body 失败）。
-// 上传前清除代理环境变量，确保直连 OSS。
-delete process.env.HTTPS_PROXY;
-delete process.env.HTTP_PROXY;
-delete process.env.https_proxy;
-delete process.env.http_proxy;
+// 加 --no-proxy 参数：OSS 是国内节点（oss-cn-heyuan）直连即可；系统代理（Clash 等）对
+// 大文件分片上传不稳定，会导致 socket 连接被意外关闭。默认保留代理（向后兼容），
+// 加 --no-proxy 时清除代理直连 OSS。
+const { values: cliArgs, positionals } = parseArgs({
+	options: { "no-proxy": { type: "boolean" } },
+	allowPositionals: true,
+});
+if (cliArgs["no-proxy"]) {
+	delete process.env.HTTPS_PROXY;
+	delete process.env.HTTP_PROXY;
+	delete process.env.https_proxy;
+	delete process.env.http_proxy;
+}
 
-const version = process.argv[2];
+const version = positionals[0];
 if (!version) {
 	console.error(
-		"用法: OSS_AK=<id> OSS_SK=<secret> bun run scripts/publish-oss.ts <version>",
+		"用法: OSS_AK=<id> OSS_SK=<secret> bun run scripts/publish-oss.ts <version> [--no-proxy]",
 	);
 	process.exit(1);
 }
