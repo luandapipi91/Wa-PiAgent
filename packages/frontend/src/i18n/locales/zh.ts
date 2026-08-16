@@ -177,6 +177,13 @@ const zh = {
 			seconds: "{{sec}} 秒",
 			minutesSeconds: "{{min}} 分 {{sec}} 秒",
 		},
+		fileChanges: {
+			title: "文件修改 · {{count}} 个",
+			added: "新增",
+			modified: "修改",
+			tooLarge: "过大",
+			readError: "读取失败",
+		},
 		codeBlock: {
 			copy: "复制",
 			collapse: "收起",
