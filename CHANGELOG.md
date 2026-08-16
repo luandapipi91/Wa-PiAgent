@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(desktop): 打包修复 registry-js 原生模块导致 sidecar 构建失败
+
+- bun build 把读注册表的原生 addon `registry-js`（`os-proxy-config → windows-system-proxy → registry-js`）当 asset 输出，`--outfile` 报「多个输出文件」导致打包失败。
+- 修复：kernel.js 构建加 `--external=registry-js`（不内联）；依赖清单加 `registry-js`（首启动态安装 .node）。
+- 影响范围：`packages/desktop/scripts/build-kernel-sidecar.ts`。
+
 ## 2026-08-15 — revert(kernel/frontend): 撤销「网页端读注册表系统主题」实现
 
 - 读 Windows 注册表（SystemUsesLightTheme）的方案被否决，撤销 kernel `readSystemTheme` + `GET /api/system-theme` + 前端轮询，回到浏览器原生 `prefers-color-scheme`（跟随应用主题）。

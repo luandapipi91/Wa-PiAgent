@@ -192,11 +192,16 @@ export async function buildSidecar(
 	await mkdir(kernelDir, { recursive: true });
 
 	// 1. kernel.js（解释 bundle；--target bun，平台中立，一次构建）
+	// --external registry-js：读 Windows 注册表的原生 addon（os-proxy-config→windows-system-proxy→registry-js），
+	// 无法内联，若不用 external 会被 bun build 当 asset 输出导致 --outfile 报「多个输出文件」。
+	// 标记 external 后，运行时从首启动态安装的 node_modules 加载（依赖清单里已加 registry-js）。
 	run("bun", [
 		"build",
 		join(ROOT, "packages", "kernel", "src", "desktop-server.ts"),
 		"--target",
 		"bun",
+		"--external",
+		"registry-js",
 		"--outfile",
 		join(kernelDir, "kernel.js"),
 	]);
@@ -224,6 +229,9 @@ export async function buildSidecar(
 					"pi-mcp-adapter": "^2.13.0",
 					"@modelcontextprotocol/sdk": "^1.29.0",
 					typebox: "^1.3.6",
+					// 读系统代理的注册表原生 addon（os-proxy-config 间接依赖），kernel.js 里标记 external，
+					// 需随依赖清单首启动态安装 .node 供运行时加载。
+					"registry-js": "^1.16.1",
 				},
 			},
 			null,
