@@ -645,6 +645,7 @@ export function MessageList({ sessionId }: Props) {
 								}
 								isStreaming={isMergedStreamingRow}
 								isActiveTurnRow={isActiveTurnRow && i === displayRows.length - 1}
+								isLastMessage={i === displayRows.length - 1}
 							/>
 						</div>
 					);
@@ -923,6 +924,7 @@ export const MessageRow = memo(function MessageRow({
 	onResend,
 	isStreaming,
 	isActiveTurnRow,
+	isLastMessage,
 }: {
 	row: RenderedRow;
 	sessionId: string;
@@ -930,6 +932,7 @@ export const MessageRow = memo(function MessageRow({
 	onResend?: (text: string) => void;
 	isStreaming?: boolean;
 	isActiveTurnRow?: boolean;
+	isLastMessage?: boolean;
 }) {
 	const m = row.main.message as any;
 	const fileChanges = useSessionStore((s) => s.fileChangesBySession[sessionId]) ?? EMPTY_FILE_CHANGES;
@@ -1131,7 +1134,7 @@ export const MessageRow = memo(function MessageRow({
 							<ExportButton sessionId={sessionId} uptoTimestamp={m.timestamp} />
 							<CopyButton text={fullText} testId={`copy-${sessionId}-${m.timestamp}`} />
 						</div>
-						<FileChangeSummary sessionId={sessionId} files={fileChanges} />
+						{isLastMessage && <FileChangeSummary sessionId={sessionId} files={fileChanges} />}
 					</>
 				)}
 			</div>
