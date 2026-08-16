@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(desktop): linux AppImage 可执行文件名修复
+
+- desktop 包名 `@wa-pi/desktop` 归一化成 `@wa-pidesktop`，AppImage 可执行文件名含 `@`/`-` 不合法；显式指定 `linux.executableName=wa-pi-desktop`。
+- 注：Windows 上打 AppImage 仍缺 mksquashfs（appimage 工具仅 Linux 版），全平台需在对应平台打包。
+- 影响范围：`packages/desktop/electron-builder.yml`。
+
 ## 2026-08-15 — fix(desktop): 打包修复 registry-js 原生模块导致 sidecar 构建失败
 
 - bun build 把读注册表的原生 addon `registry-js`（`os-proxy-config → windows-system-proxy → registry-js`）当 asset 输出，`--outfile` 报「多个输出文件」导致打包失败。
