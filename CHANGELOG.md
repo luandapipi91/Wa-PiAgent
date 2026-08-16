@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-16 — feat: 回复底部新增文件修改清单
+
+- 每轮对话结束后，assistant 回复底部追加「文件修改清单」：按文件去重、标注新增/修改、点击文件名打开内置预览、展开显示本轮「首次编辑前 → 末次编辑后」的整文件行级 diff（同一行多次修改自动合并为一次净变化）。新增/过大/失败三种情况降级为只显示文件名 + 点击预览。
+- 实现：pi 扩展经 tool_call/tool_execution_end/agent_end 钩子采集文件前后快照 → POST /bridge/file-changes → kernel 广播 file_changes 事件 → 前端 FileChangeSummary 组件（react-diff-viewer-continued 渲染 diff）。仅最后一条消息渲染，避免多轮重复错位。
+- 影响范围：shared/types.ts、kernel wa-pi-bridge.extension.ts + file-snapshot.ts + bridge-extension.ts + agent-manager.ts + ws-server.ts、desktop build-kernel-sidecar.ts、前端 session.ts + FileChangeSummary.tsx + MessageList.tsx + i18n/locales。
+
 ## 2026-08-15 — fix(desktop): publish-oss 清代理改为 --no-proxy 参数（默认保留代理）
 
 - 上一条无条件清代理会让想走代理的环境也用不了；改为加 `--no-proxy` 参数时才清代理（默认保留代理，向后兼容）。OSS 国内节点直连、走代理分片上传会 socket 关闭。
