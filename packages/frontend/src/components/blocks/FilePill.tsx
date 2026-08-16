@@ -19,7 +19,11 @@ function normalizeSlashes(p: string): string {
 }
 
 export function resolveAbsolutePath(path: string, sessionId: string): string {
-  if (path.startsWith("/") || path.startsWith("~")) return path;
+  // 已是绝对路径（Windows 盘符 C:\、H:/ 或 Unix /、~）→ 直接返回并归一化正斜杠；
+  // 否则视为相对路径，拼项目 cwd。
+  if (/^[a-zA-Z]:[\\/]/.test(path) || path.startsWith("/") || path.startsWith("~")) {
+    return normalizeSlashes(path);
+  }
   const cwd = resolveSessionCwd(sessionId);
   if (!cwd) return path;
   return normalizeSlashes(cwd.replace(/\/+$/, "") + "/" + path);
@@ -55,7 +59,7 @@ export function FilePill({ rawText, sessionId }: { rawText: string; sessionId: s
       className="inline-flex items-center gap-1 px-1.5 py-0 rounded-md border border-hairline bg-surface-elevated text-[calc(12px*var(--font-scale))] font-mono text-accent hover:border-accent transition-colors align-baseline"
       style={{ cursor: "pointer" }}
     >
-      <Icon name="file" size={12} /> {base}{parsed.line != null ? `:${parsed.line}` : ""}
+      <Icon name="file" size={12} /> {base}{parsed.line == null ? "" : `:${parsed.line}`}
     </button>
   );
 }
