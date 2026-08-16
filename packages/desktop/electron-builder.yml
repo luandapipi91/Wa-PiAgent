@@ -41,6 +41,8 @@ nsis:
 linux:
   target: [AppImage]
   icon: src/assets/icon.png
+  # scope 包名 @wa-pi/desktop 归一化后含 @/-，AppImage 可执行文件名不合法；显式指定合法名
+  executableName: wa-pi-desktop
 mac:
   target:
     - dmg
