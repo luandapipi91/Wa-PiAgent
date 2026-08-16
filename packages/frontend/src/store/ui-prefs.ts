@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { AppLanguage } from "../i18n/detect";
 import { changeLanguage } from "../i18n";
+import { api } from "../api-client";
 
 /** 界面主题模式 */
 export type ThemeMode = "system" | "light" | "dark";
@@ -85,9 +86,23 @@ export function resolveActualTheme(mode: ThemeMode): "light" | "dark" {
 }
 
 /** 应用明暗模式到 <html data-theme> */
+/** 异步读 kernel 的系统主题（SystemUsesLightTheme），覆盖 prefers-color-scheme（应用主题） */
+async function refreshSystemTheme() {
+	try {
+		const res = (await api.get("/api/system-theme")) as { theme?: string };
+		if (res?.theme === "dark" || res?.theme === "light") {
+			document.documentElement.dataset.theme = res.theme;
+		}
+	} catch {
+		/* kernel 不可达或非系统环境：保持 prefers-color-scheme 兑底 */
+	}
+}
+
 function applyThemeMode(mode: ThemeMode) {
 	try {
 		document.documentElement.dataset.theme = resolveActualTheme(mode);
+		// system 模式：异步问 kernel 读「系统主题」（而非应用主题）覆盖
+		if (mode === "system") void refreshSystemTheme();
 	} catch {
 		/* 非浏览器环境静默降级 */
 	}
@@ -184,4 +199,14 @@ if (typeof window !== "undefined" && window.matchMedia) {
 			applyThemeMode("system");
 		}
 	});
+}
+
+// 网页端「跟随系统」：定时轮询 kernel 读系统主题（SystemUsesLightTheme，区别于应用主题），
+// 系统主题变化时自动更新（prefers-color-scheme 只跟随应用主题，无法感知系统主题变化）。
+if (typeof window !== "undefined") {
+	setInterval(() => {
+		if (useUiPrefsStore.getState().themeMode === "system") {
+			void refreshSystemTheme();
+		}
+	}, 30000);
 }

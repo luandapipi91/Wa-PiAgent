@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(kernel/frontend): 网页端「跟随系统」主题读系统主题（SystemUsesLightTheme）
+
+- 上一条只修了 Electron 端（nativeTheme），但网页端（浏览器）prefers-color-scheme 同样只跟随「应用主题」，需 kernel 读 Windows 系统主题注册表键 SystemUsesLightTheme 通过 API 给前端。
+- kernel 新增 `readSystemTheme`（reg 读 SystemUsesLightTheme）+ `GET /api/system-theme`；前端 `applyThemeMode(system)` 异步问 kernel 覆盖 prefers-color-scheme，并定时轮询跟随系统主题变化。
+- 影响范围：`kernel/src/{settings-store.ts,routes/settings.ts}`、`frontend/src/store/ui-prefs.ts`。
+
 ## 2026-08-15 — fix(desktop): 「跟随系统」主题在 Windows 上跟随系统主题（而非应用主题）
 
 - 前端 `prefers-color-scheme` 在 Windows 上跟随「应用主题」（AppsUseLightTheme），用户「跟随系统」实际跟随了应用主题（深色），而非系统主题（浅色）→ 点跟随基本都是暗色。

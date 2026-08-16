@@ -9,6 +9,7 @@ import {
 	loadProxySettings,
 	saveProxySettings,
 	applySystemProxy,
+	readSystemTheme,
 } from "../settings-store";
 
 export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
@@ -44,5 +45,10 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 		await applySystemProxy();
 		ctx.markAllDirty?.();
 		return Response.json({ proxy: saved });
+	});
+	// 系统主题（网页端「跟随系统」读 Windows 系统主题，区分系统/应用主题）
+	r.add("GET", "/api/system-theme", async () => {
+		const theme = await readSystemTheme();
+		return Response.json({ theme });
 	});
 };

@@ -264,6 +264,34 @@ export async function readSystemProxy(): Promise<string> {
 }
 
 /**
+ * 读 Windows 系统主题（SystemUsesLightTheme 注册表键，区分「系统主题」与「应用主题」）。
+ * 网页/浏览器端 prefers-color-scheme 只能跟随「应用主题」（AppsUseLightTheme），
+ * 而「跟随系统」用户期望的是「系统主题」——故 kernel 直接读注册表 SystemUsesLightTheme。
+ * 非 Windows 或读失败兑底 light。
+ */
+export async function readSystemTheme(): Promise<"light" | "dark"> {
+	try {
+		const { execFileSync } = await import("node:child_process");
+		const out = execFileSync(
+			"reg",
+			[
+				"Query",
+				"HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+				"/v",
+				"SystemUsesLightTheme",
+			],
+			{ encoding: "utf8" },
+		);
+		// SystemUsesLightTheme: 0x0 = 系统深色，0x1 = 系统浅色
+		if (/0x0\b/i.test(out)) return "dark";
+		if (/0x1\b/i.test(out)) return "light";
+	} catch {
+		// 非 Windows 或读注册表失败：兑底浅色
+	}
+	return "light";
+}
+
+/**
  * 应用系统代理到进程环境变量（同时设置大小写，覆盖 undici/Bun fetch 与 curl/wget）。
  * 开启时优先用保存的 httpProxy；为空则从系统（readProxy）兜底读当前系统代理。
  * 关闭，或开启但读不到代理 → 清空恢复直连。
