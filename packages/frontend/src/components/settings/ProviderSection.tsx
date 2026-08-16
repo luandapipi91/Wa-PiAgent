@@ -16,7 +16,7 @@ export function ProviderSection() {
 
   const handleTest = async (p: ModelProvider) => {
     setTestStatuses(prev => ({ ...prev, [p.id]: { state: "testing" } }));
-    const result = await test({ baseUrl: p.baseUrl, apiKey: p.apiKey, api: p.api, models: p.models });
+    const result = await test({ baseUrl: p.baseUrl, apiKey: p.apiKey, api: p.api, models: p.models, slug: p.slug });
     setTestStatuses(prev => ({
       ...prev,
       [p.id]: result.ok ? { state: "ok" } : { state: "fail", error: result.error },

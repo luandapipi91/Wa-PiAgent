@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-15 — fix(frontend): 列表「测试连接」补传 slug（此前只修了弹窗入口）
+
+- 76231a03 的 baseUrl 解析修复只改了编辑弹窗（ProviderForm）传 slug，漏了列表入口（ProviderSection.handleTest）→ 列表测试连接拿不到 slug，按 model id 匹配跨 provider 污染 baseUrl，仍 401/404。
+- 修复：`ProviderSection.handleTest` 也传 `p.slug`；新增 `ProviderSection.test.tsx` 锁定两个入口一致。
+- 影响范围：`frontend/src/components/settings/ProviderSection.tsx`、`ProviderSection.test.tsx(新)`。
+
 ## 2026-08-15 — fix(frontend): 长任务完成整轮折叠时滚动位置跳动（看到的内容不在底部）
 
 - **根因**：长任务执行中，进行中的轮（`isActiveTurnRow`=true，status=thinking 的末行 assistant）过程卡片展开，用户贴底看实时过程。agent_end 到达、status 归 idle → `isActiveTurnRow` 变 false → `canCollapse` 变 true → 过程卡片（thinking/toolCalls/delegate/fleet）折叠成 `TurnSummary`，末行高度骤减；Virtuoso 虚拟化行高测量有延迟，折叠瞬间 scrollTop 停在旧位置，且此时 `autoScrollActive` 已 false、200ms interval 停止兑底 → 用户看到的内容不在底部。
