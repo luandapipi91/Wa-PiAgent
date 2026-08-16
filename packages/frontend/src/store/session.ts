@@ -88,10 +88,7 @@ interface SessionState {
 	// 扩展 ctx.ui.setWidget 文本块：sessionId → widgetKey → 内容与位置，驱动 Composer 上/下 widget。
 	extWidgetBySession: Record<
 		string,
-		Record<
-			string,
-			{ lines: string[]; placement: "aboveEditor" | "belowEditor" }
-		>
+		Record<string, { lines: string[]; placement: "aboveEditor" | "belowEditor" }>
 	>;
 	// 扩展 ctx.ui.setTitle：会话级标题，聊天窗顶部状态条展示（不写 document.title）。
 	extTitleBySession: Record<string, string | null>;
@@ -107,7 +104,10 @@ interface SessionState {
 	// （progressByToolCall 本身不区分 session，多会话并存时避免串扰滚动/状态）。
 	progressSessionByToolCall: Record<string, string>;
 	/** 每轮对话结束后的文件修改清单（按 sessionId 分组） */
-	fileChangesBySession: Record<string, import("@wa-pi/shared").FileChangeSnapshot[]>;
+	fileChangesBySession: Record<
+		string,
+		import("@wa-pi/shared").FileChangeSnapshot[]
+	>;
 	// 原有方法保留：append 用于 error 兜底、setMessages 用于 session:messages 历史
 	append: (sessionId: string, msg: SessionMessage) => void;
 	setMessages: (sessionId: string, messages: SessionMessage[]) => void;
@@ -262,13 +262,13 @@ export const useSessionStore = create<SessionState>((set) => {
 	// 调用（this=batcher 实例），触发原生 rAF 的 "Illegal invocation"，导致真实浏览器
 	// 流式预览失效。箭头内裸调用 rAF，this 绑定回 globalThis/window。
 	const raf: (fn: () => void) => unknown =
-		typeof requestAnimationFrame !== "undefined"
-			? (fn) => requestAnimationFrame(fn)
-			: (fn) => setTimeout(fn, 16);
+		typeof requestAnimationFrame === "undefined"
+			? (fn) => setTimeout(fn, 16)
+			: (fn) => requestAnimationFrame(fn);
 	const caf: (h: unknown) => void =
-		typeof cancelAnimationFrame !== "undefined"
-			? (h) => cancelAnimationFrame(h as number)
-			: (h) => clearTimeout(h as any);
+		typeof cancelAnimationFrame === "undefined"
+			? (h) => clearTimeout(h as any)
+			: (h) => cancelAnimationFrame(h as number);
 	const streamingBatcher = new StreamingBatcher<SessionMessage>(
 		(sessionId, value) =>
 			set((s) => ({
@@ -327,10 +327,7 @@ export const useSessionStore = create<SessionState>((set) => {
 				const res = await api
 					.get(`/api/sessions/${encodeURIComponent(sessionId)}/stats`)
 					.catch(() => null);
-				const stats = (res as any)?.stats as
-					| SessionStatsPayload
-					| null
-					| undefined;
+				const stats = (res as any)?.stats as SessionStatsPayload | null | undefined;
 				if (!stats) return;
 				set((s) => statsPatch(s, sessionId, stats));
 			} catch {
@@ -354,9 +351,7 @@ export const useSessionStore = create<SessionState>((set) => {
 			set((s) => {
 				const existing = s.messagesBySession[sessionId] ?? [];
 				const existingKeys = new Set(existing.map(msgKey));
-				const newFromHistory = messages.filter(
-					(m) => !existingKeys.has(msgKey(m)),
-				);
+				const newFromHistory = messages.filter((m) => !existingKeys.has(msgKey(m)));
 				const all = [...existing, ...newFromHistory].sort(
 					(a: any, b: any) => a.message.timestamp - b.message.timestamp,
 				);
@@ -404,8 +399,7 @@ export const useSessionStore = create<SessionState>((set) => {
 				// 保留本地 compaction_status 中的「进行中/取消/失败」消息：它们不在服务端历史里，
 				// 整表覆盖会把它冲掉。成功的压缩（「已压缩…」）不保留——服务端历史会渲染
 				// compactionSummary 节点（同一文案），保留本地这条会出现重复提示。
-				const prev =
-					useSessionStore.getState().messagesBySession[sessionId] ?? [];
+				const prev = useSessionStore.getState().messagesBySession[sessionId] ?? [];
 				const localStatus = prev.filter((m: any) => {
 					const mm = m.message as any;
 					if (mm?.customType !== "compaction_status") return false;
@@ -422,9 +416,7 @@ export const useSessionStore = create<SessionState>((set) => {
 					| SessionStatsPayload
 					| null
 					| undefined;
-				useSessionStore
-					.getState()
-					.seedTokenTotal(sessionId, res.messages, stats);
+				useSessionStore.getState().seedTokenTotal(sessionId, res.messages, stats);
 			} catch {
 				// 刷新失败不影响主流程，静默忽略
 			}
@@ -502,8 +494,7 @@ export const useSessionStore = create<SessionState>((set) => {
 		setHistoryLoading: (sessionId, loading) =>
 			set((s) => {
 				// 状态相同则不触发重渲染
-				if (Boolean(s.historyLoadingBySession[sessionId]) === loading)
-					return {};
+				if (Boolean(s.historyLoadingBySession[sessionId]) === loading) return {};
 				return {
 					historyLoadingBySession: {
 						...s.historyLoadingBySession,
@@ -772,10 +763,7 @@ export const useSessionStore = create<SessionState>((set) => {
 		// 解析 cwd。幂等：同一文件重复打开不产生状态变更。
 		openFilePreview: (path, sessionId) => {
 			set((s) => {
-				if (
-					s.filePreview?.path === path &&
-					s.filePreview.sessionId === sessionId
-				)
+				if (s.filePreview?.path === path && s.filePreview.sessionId === sessionId)
 					return {};
 				return { filePreview: { path, sessionId } };
 			});
@@ -926,8 +914,7 @@ export const useSessionStore = create<SessionState>((set) => {
 						!sessionId.startsWith("im-") &&
 						Array.isArray(msg.content) &&
 						msg.content.some(
-							(b: any) =>
-								b?.type === "toolCall" && b.name === "ask_user_question",
+							(b: any) => b?.type === "toolCall" && b.name === "ask_user_question",
 						)
 					) {
 						playNeedsAction();
@@ -984,10 +971,7 @@ export const useSessionStore = create<SessionState>((set) => {
 						) {
 							const merged = {
 								...(last.message as any),
-								content: [
-									...(last.message as any).content,
-									...(msg.content ?? []),
-								],
+								content: [...(last.message as any).content, ...(msg.content ?? [])],
 							};
 							list[list.length - 1] = { ...last, message: merged };
 						} else {
@@ -1043,13 +1027,10 @@ export const useSessionStore = create<SessionState>((set) => {
 					// 任务完成提示音：仅终态播放（自动重试中间态上面已 break）；
 					// IM 渠道会话（sessionId 以 im- 开头）不播放提示音。
 					if (!sessionId.startsWith("im-")) playTaskDone();
-					const away =
-						sessionId !== useProjectsStore.getState().currentSessionId;
+					const away = sessionId !== useProjectsStore.getState().currentSessionId;
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 复活
 					streamingBatcher.drop(sessionId);
-					const elapsedMs = (envelope.event as any).elapsedMs as
-						| number
-						| undefined;
+					const elapsedMs = (envelope.event as any).elapsedMs as number | undefined;
 					set((s) => {
 						// 扩展命令（如 /mcp-auth）无 agent turn：optimisticSend 的 loading 占位
 						// （stopReason==="pending"）需要在此清掉，否则气泡一直转圈。
@@ -1098,11 +1079,7 @@ export const useSessionStore = create<SessionState>((set) => {
 								};
 								result.messagesBySession = {
 									...s.messagesBySession,
-									[sessionId]: [
-										...list.slice(0, i),
-										updated,
-										...list.slice(i + 1),
-									],
+									[sessionId]: [...list.slice(0, i), updated, ...list.slice(i + 1)],
 								};
 							}
 						}
@@ -1269,8 +1246,7 @@ export const useSessionStore = create<SessionState>((set) => {
 						const idx = [...list]
 							.reverse()
 							.findIndex(
-								(m: any) =>
-									(m.message as any)?.customType === "compaction_status",
+								(m: any) => (m.message as any)?.customType === "compaction_status",
 							);
 						if (idx === -1) {
 							return {
