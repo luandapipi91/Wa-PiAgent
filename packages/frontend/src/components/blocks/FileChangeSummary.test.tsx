@@ -1,10 +1,10 @@
 // FileChangeSummary 组件测试：空清单不渲染、清单折叠行展开显示文件条目、
-// 修改条目点击展开切换（▸）渲染 diff（ReactDiffViewer）。
+// 修改条目点击文件名展开 diff（ReactDiffViewer）。
 //
 // 注：简报提供的测试代码导入自 "vitest"，但本仓前端测试统一用 bun:test
 // （package.json 的 test 脚本为 `bun test --isolate`，无 vitest 依赖）；且
-// 组件清单折叠行默认折叠（open=false），文件条目需先展开清单行才渲染，
-// 文件名按钮的点击是打开预览而非展开 diff——故按组件实际结构校正交互序列。
+// 组件清单折叠行默认折叠（open=false），文件条目需先展开清单行才渲染。
+// 修改态：点击文件名展开 diff；新增/过大/失败态：点击文件名打开预览。
 import { describe, expect, test } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { FileChangeSummary } from "./FileChangeSummary";
@@ -35,8 +35,8 @@ describe("FileChangeSummary", () => {
     fireEvent.click(screen.getByTestId("file-change-summary").querySelector("button")!);
     // 默认折叠，diff 未挂载
     expect(document.querySelector("[data-testid='diff-/a.ts']")).toBeNull();
-    // 点击修改条目的展开切换按钮（▸）——文件名按钮点击是打开预览，不展开 diff
-    fireEvent.click(screen.getByText("▸"));
+    // 点击文件名展开 diff（修改态）
+    fireEvent.click(screen.getByText("/a.ts"));
     // 展开后渲染 diff 容器（ReactDiffViewer）
     expect(document.querySelector("[data-testid='diff-/a.ts']")).toBeTruthy();
   });
