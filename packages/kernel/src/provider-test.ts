@@ -35,7 +35,8 @@ export async function testProviderConnection(
 				signal: controller.signal,
 			});
 			if (res.ok) return { ok: true };
-			return { ok: false, error: `HTTP ${res.status}` };
+			const body = await res.text().catch(() => "");
+			return { ok: false, error: `HTTP ${res.status} ${body.slice(0, 200)}` };
 		} else {
 			// anthropic-messages：发最小请求（路径与 Anthropic SDK 一致，用 /v1/messages）
 			const modelId = input.models[0]?.id ?? "test";
