@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — feat(kernel): EdgeOne REST 客户端（探测/项目/encipher）
+
+- 产物分享功能：新增 share/edgeone-client.ts（从 POC 移植的可单测纯函数）——detectBaseUrl 遍历 china/global 端点取首个 Code===0 的可用地址；apiCall 统一 POST + Bearer token 校验 HTTP 状态与业务 Code；getOrCreateProject 按名查询、存在即返回、否则 CreatePagesProject 后返回 ProjectId（重查兑底）；getPresetDomain 取项目的预设域名；encipherUrl 用 DescribePagesEncipherToken 拼 eo_token/eo_time 分享链接。分享总入口 deployShare（上传/部署/轮询）留待任务 5。
+- 影响范围：`packages/kernel/src/share/edgeone-client.ts`、`packages/kernel/tests/edgeone-client.test.ts`（mock 全局 fetch，3 用例）。
+
 ## 2026-08-17 — feat(kernel): 多选路径 zip 打包 + path hash
 
 - 产物分享功能：新增 share/pack.ts（多选路径用 fflate 打包 zip、文件夹递归展开、路径相对 root 保持；hashPaths 生成 sha256 hex 前 12 位作为项目名后缀）；引入 fflate 依赖。
