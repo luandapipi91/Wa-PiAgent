@@ -61,6 +61,10 @@ import {
 } from "./provider-extension";
 import { SubagentTelemetry } from "./subagent-telemetry";
 import { lookupCatalogModel } from "./pi-catalog";
+import {
+	AUTO_COMPACT_RESERVE_TOKENS,
+	shouldCompactBeforeSend,
+} from "./auto-compact";
 import type { WaPiSpawnConfig } from "./subagent-runner";
 import { seedBuiltinAgents } from "./builtin-agents";
 import { readBuiltinAgentPrompt } from "./subagent-info";
@@ -206,11 +210,8 @@ interface SessionHandle {
 	lastActiveAt: number;
 }
 
-/** 模型元数据缓存（modelId → contextWindow/maxTokens），避免每次发送都读 pi-ai 目录 */
-const modelMetaCache = new Map<
-	string,
-	{ contextWindow: number; maxTokens: number }
->();
+/** 模型上下文窗口缓存（modelId → contextWindow），避免每次发送都读 pi-ai 目录 */
+const modelContextWindowCache = new Map<string, number>();
 
 export class AgentManager {
 	// sessionId → SessionHandle（核心数据结构，一个 WaPi 会话对应一个 pi rpc 子进程）
@@ -1212,8 +1213,8 @@ export class AgentManager {
 
 	/**
 	 * 发送前自动压缩防护。
-	 * 当前上下文占用 + 模型输出预留超过上下文窗口时，先 compact 再继续发送，
-	 * 避免 DeepSeek 等「输入+输出共用窗口」模型在 auto-compaction 触发前就 400。
+	 * 当前上下文占用 + 固定预留（33K，社区做法）超过上下文窗口时，先 compact 再继续发送，
+	 * 作为 pi「turn 结束后阈值压缩 + 请求层 max_tokens clamp」之外的发送前提前量。
 	 * 压缩失败不阻断发送（退回现状，让原消息走正常错误渲染）。
 	 */
 	private async _autoCompactIfNeeded(
@@ -1227,19 +1228,15 @@ export class AgentManager {
 			const slash = currentModel.indexOf("/");
 			const modelId = slash >= 0 ? currentModel.slice(slash + 1) : currentModel;
 
-			// 2. 查模型元数据（contextWindow / maxTokens），带进程内缓存
-			let meta = modelMetaCache.get(modelId);
-			if (!meta) {
+			// 2. 查模型上下文窗口，带进程内缓存
+			let contextWindow = modelContextWindowCache.get(modelId);
+			if (contextWindow === undefined) {
 				const catalogModel = await lookupCatalogModel(modelId);
 				if (!catalogModel) return;
-				meta = {
-					contextWindow: catalogModel.contextWindow,
-					maxTokens: catalogModel.maxTokens,
-				};
-				modelMetaCache.set(modelId, meta);
+				contextWindow = catalogModel.contextWindow;
+				modelContextWindowCache.set(modelId, contextWindow);
 			}
-			const { contextWindow, maxTokens } = meta;
-			if (contextWindow <= 0 || maxTokens <= 0) return;
+			if (contextWindow <= 0) return;
 
 			// 3. 读当前上下文占用（pi get_session_stats.contextUsage）
 			const stats = await handle.client.getSessionStats();
@@ -1248,12 +1245,12 @@ export class AgentManager {
 			const used = (cu as any).used ?? (cu as any).tokens;
 			if (typeof used !== "number" || used <= 0) return;
 
-			// 4. 判断是否超限：输入占用 + 输出预留 > 窗口
-			if (used + maxTokens <= contextWindow) return;
+			// 4. 判断是否超限：输入占用 + 固定预留 > 窗口
+			if (!shouldCompactBeforeSend(used, contextWindow)) return;
 
 			// 5. 自动 compact（busy 防并发；完成后由 _sendPromptNow 继续设 busy 发 prompt）
 			console.log(
-				`[kernel] session ${sessionId} 自动压缩：used=${used} + maxTokens=${maxTokens} > contextWindow=${contextWindow}`,
+				`[kernel] session ${sessionId} 自动压缩：used=${used} + reserve=${AUTO_COMPACT_RESERVE_TOKENS} > contextWindow=${contextWindow}`,
 			);
 			handle.busy = true;
 			try {

@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — fix(kernel): 发送前自动压缩预留改为固定 33K（社区做法）
+
+- `_autoCompactIfNeeded` 原按「占用 + 模型 catalog maxTokens > 窗口」触发压缩，deepseek-v4（maxTokens=384K）在 1M 窗口下 61.6% 占用就被提前压缩，浪费长上下文。经查证 pi 自身（reserveTokens 固定 16384）与 Claude Code（固定 33K autocompact buffer）均为固定小预留，且 pi-ai 请求层已把 max_tokens clamp 到「窗口 − 占用 − 4096」，输出空间无需 kernel 按上限预留。改为固定预留 33K，判断逻辑抽为纯函数 `shouldCompactBeforeSend`；缓存简化为 modelId → contextWindow。
+- 影响范围：`packages/kernel/src/auto-compact.ts`（新增）、`packages/kernel/src/agent-manager.ts`；测试 `src/__tests__/auto-compact.test.ts`（新增 5 用例，含「不再按 maxTokens 预留」回归）。
+
 ## 2026-08-17 — feat(kernel): /api/settings/share 读写路由（产物分享任务 6）
 
 - kernel settings 路由新增 GET/PUT `/api/settings/share`：GET 返回 `{ share }`（未配置时回退默认 `token:""`、`channel:"edgeone"`），PUT 读 `body.share` 经 `saveShareSettings` 写盘（read-modify-write 保留其他字段）。复用既有 `loadShareSettings`/`saveShareSettings`；RouteContext 新增可选 `settingsFile` 供测试注入 tmpdir 隔离真实 settings.json（生产缺省仍走真实文件）。
