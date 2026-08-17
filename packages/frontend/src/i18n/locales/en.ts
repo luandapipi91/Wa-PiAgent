@@ -674,14 +674,21 @@ const en = {
 			mcp: "MCP Connectors",
 			bots: "Bots",
 			diagnostics: "Diagnostics",
+			share: "Share",
 			about: "About",
 		},
 		trashSection: "Session Recycle Bin",
 		exportSection: "Export conversation",
 		trashAutoArchive: "Auto-archive inactive sessions",
 		trashArchiveDays: "After {{days}} days inactive",
-		trashAutoPurge: "Auto-purge recycle bin",
-		trashPurgeDays: "After {{days}} days in trash",
+			trashAutoPurge: "Auto-purge recycle bin",
+			trashPurgeDays: "After {{days}} days in trash",
+		share: {
+			channel: "Share channel",
+			token: "API Token",
+			modify: "Modify",
+			saved: "Share settings saved",
+		},
 		general: {
 			exportTurns: {
 				label: "Export conversation turns",

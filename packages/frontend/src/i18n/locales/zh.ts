@@ -654,14 +654,21 @@ const zh = {
 			mcp: "MCP 连接器",
 			bots: "机器人",
 			diagnostics: "诊断",
+			share: "分享",
 			about: "关于",
 		},
 		trashSection: "会话回收站",
 		exportSection: "对话导出",
 		trashAutoArchive: "自动归档未活动的会话",
 		trashArchiveDays: "超过 {{days}} 天未活动",
-		trashAutoPurge: "自动清理回收站",
-		trashPurgeDays: "超过 {{days}} 天自动删除",
+			trashAutoPurge: "自动清理回收站",
+			trashPurgeDays: "超过 {{days}} 天自动删除",
+		share: {
+			channel: "分享渠道",
+			token: "API Token",
+			modify: "修改",
+			saved: "分享设置已保存",
+		},
 		general: {
 			exportTurns: {
 				label: "对话导出轮数",

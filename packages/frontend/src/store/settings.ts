@@ -9,6 +9,7 @@ export type SettingsSection =
 	| "memory"
 	| "mcp"
 	| "bots"
+	| "share"
 	| "diagnostics"
 	| "about";
 

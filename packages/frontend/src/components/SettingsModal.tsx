@@ -11,6 +11,7 @@ import { ExtensionSection } from "./settings/ExtensionSection";
 import { MemorySection } from "./settings/MemorySection";
 import { McpSection } from "./settings/McpSection";
 import { BotsSection } from "./settings/BotsSection";
+import { ShareSection } from "./settings/ShareSection";
 import { AboutSection } from "./settings/AboutSection";
 import { useSettingsStore } from "../store/settings";
 import { useUpdaterStore } from "../store/updater";
@@ -168,6 +169,18 @@ export function SettingsModal({ onClose }: Props) {
 						{t("settings.nav.diagnostics")}
 					</button>
 					<button
+						onClick={() => setSection("share")}
+						className="px-2 py-1.5 rounded-sm text-sm font-medium text-left"
+						style={
+							activeSection === "share"
+								? { background: "var(--accent-soft)", color: "var(--accent)" }
+								: { color: "var(--secondary)" }
+						}
+						data-testid="settings-nav-share"
+					>
+						{t("settings.nav.share")}
+					</button>
+					<button
 						onClick={() => setSection("about")}
 						className="relative px-2 py-1.5 rounded-sm text-sm font-medium text-left"
 						style={
@@ -198,6 +211,7 @@ export function SettingsModal({ onClose }: Props) {
 					{activeSection === "mcp" && <McpSection />}
 					{activeSection === "bots" && <BotsSection />}
 					{activeSection === "diagnostics" && <DiagnosticsSection />}
+					{activeSection === "share" && <ShareSection />}
 					{activeSection === "about" && <AboutSection />}
 				</div>
 			</div>
