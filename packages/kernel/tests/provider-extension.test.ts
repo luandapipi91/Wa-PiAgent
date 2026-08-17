@@ -79,6 +79,7 @@ test("generateProviderExtension：内置目录有 baseUrl 时优先用内置（�
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         name: "deepseek-v4-flash",
         baseUrl: "https://opencode.ai/zen/go/v1",
+        api: "openai-completions",
       },
     ],
   ]);
@@ -86,6 +87,45 @@ test("generateProviderExtension：内置目录有 baseUrl 时优先用内置（�
   // 应使用内置目录的 /v1 baseUrl，而非 provider.baseUrl 的不带 /v1
   expect(code).toContain('baseUrl: "https://opencode.ai/zen/go/v1"');
   expect(code).not.toContain('baseUrl: "https://opencode.ai/zen/go"');
+});
+
+test("generateProviderExtension：anthropic-messages provider 不采用其他 api 分节的目录 baseUrl", () => {
+  // 回归：opencode-go 的 deepseek-v4-flash 在内置目录里只挂在 openai-completions 分节
+  // （baseUrl 带 /v1），provider 配的是 anthropic-messages——Anthropic SDK 会自己拼
+  // /v1/messages，若沿用目录的 /v1 baseUrl 会打成 /v1/v1/messages 404。
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      name: "OpenCode Zen Go",
+      slug: "opencode-go",
+      baseUrl: "https://opencode.ai/zen/go",
+      api: "anthropic-messages",
+      models: [
+        { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+      ],
+    }),
+  ];
+  const sdkModelMap = new Map([
+    [
+      "opencode-go/deepseek-v4-flash",
+      {
+        contextWindow: 1000000,
+        maxTokens: 384000,
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "DeepSeek V4 Flash",
+        baseUrl: "https://opencode.ai/zen/go/v1",
+        api: "openai-completions",
+      },
+    ],
+  ]);
+  const code = generateProviderExtension(providers, sdkModelMap);
+  // api 不匹配 → 回退 provider.baseUrl（不带 /v1）
+  expect(code).toContain('baseUrl: "https://opencode.ai/zen/go"');
+  expect(code).not.toContain('baseUrl: "https://opencode.ai/zen/go/v1"');
+  // 元数据（contextWindow 等）不受 api 过滤影响，仍可用目录值
+  expect(code).toContain("contextWindow: 1000000");
 });
 
 test("generateProviderExtension：同名模型跨 provider 不互相污染 baseUrl", () => {
@@ -119,6 +159,7 @@ test("generateProviderExtension：同名模型跨 provider 不互相污染 baseU
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         name: "DeepSeek V4 Flash",
         baseUrl: "https://api.deepseek.com",
+        api: "openai-completions",
       },
     ],
     [
@@ -131,6 +172,7 @@ test("generateProviderExtension：同名模型跨 provider 不互相污染 baseU
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         name: "DeepSeek V4 Flash",
         baseUrl: "https://opencode.ai/zen/go/v1",
+        api: "openai-completions",
       },
     ],
   ]);
@@ -383,4 +425,48 @@ test("resolveProviderBaseUrl：找不到则回退用户配置的 baseUrl（去�
     [],
   );
   expect(url).toBe("https://example.com/api");
+});
+
+test("resolveProviderBaseUrl：传 api 时忽略其他 api 分节的目录条目", () => {
+  // 内置目录按 api 分节：同 slug 下 anthropic-messages 不带 /v1、openai-completions 带 /v1
+  const allModels = [
+    catalogModel({
+      api: "anthropic-messages",
+      baseUrl: "https://opencode.ai/zen/go",
+    }),
+    catalogModel({
+      api: "openai-completions",
+      baseUrl: "https://opencode.ai/zen/go/v1",
+    }),
+  ];
+  // openai-completions 只认带 /v1 的条目
+  expect(
+    resolveProviderBaseUrl(
+      "opencode-go",
+      ["deepseek-v4-flash"],
+      "https://opencode.ai/zen/go",
+      allModels,
+      "openai-completions",
+    ),
+  ).toBe("https://opencode.ai/zen/go/v1");
+  // anthropic-messages 只认不带 /v1 的条目
+  expect(
+    resolveProviderBaseUrl(
+      "opencode-go",
+      ["deepseek-v4-flash"],
+      "https://fallback.example.com",
+      allModels,
+      "anthropic-messages",
+    ),
+  ).toBe("https://opencode.ai/zen/go");
+  // 该 api 分节没有此模型时回退用户配置
+  expect(
+    resolveProviderBaseUrl(
+      "opencode-go",
+      ["deepseek-v4-flash"],
+      "https://fallback.example.com",
+      [catalogModel({ api: "openai-completions" })],
+      "anthropic-messages",
+    ),
+  ).toBe("https://fallback.example.com");
 });

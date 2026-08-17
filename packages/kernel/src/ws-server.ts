@@ -1916,6 +1916,7 @@ export class WSServer {
 							(event.models ?? []).map((m) => m.id),
 							event.baseUrl,
 							allModels,
+							event.api,
 						);
 					} catch (err) {
 						// 目录查询失败：回退用户配置的 baseUrl，不阻断测试
