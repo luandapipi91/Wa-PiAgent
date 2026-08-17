@@ -61,26 +61,28 @@ export function extensionCoversProvider(
 /**
  * 在内置模型目录中按 provider + model ID 查找匹配模型。
  * 支持精确匹配和大小写不敏感匹配。
- * providerKey 传空时忽略 provider 过滤（仅按 model id 匹配）。
+ * providerKey 过滤未命中时回退忽略 provider 按裸 id 匹配——重名去重出的派生 slug
+ * （如 opencode-go-2）在目录中不存在，不回退的话元数据会整体落默认值。
  */
 function lookupSdkModel(
 	modelId: string,
 	allModels: CatalogModel[],
 	providerKey?: string,
 ): SdkModelInfo | null {
-	const matches = providerKey
-		? allModels.filter((m) => m.provider === providerKey)
-		: allModels;
-	// 精确匹配
-	const exact = matches.find((m) => m.id === modelId);
-	if (exact) return modelToInfo(exact);
-
-	// 大小写不敏感匹配
-	const lower = modelId.toLowerCase();
-	const ci = matches.find((m) => m.id.toLowerCase() === lower);
-	if (ci) return modelToInfo(ci);
-
-	return null;
+	const byId = (list: CatalogModel[]): CatalogModel | null => {
+		// 精确匹配
+		const exact = list.find((m) => m.id === modelId);
+		if (exact) return exact;
+		// 大小写不敏感匹配
+		const lower = modelId.toLowerCase();
+		return list.find((m) => m.id.toLowerCase() === lower) ?? null;
+	};
+	if (providerKey) {
+		const scoped = byId(allModels.filter((m) => m.provider === providerKey));
+		if (scoped) return modelToInfo(scoped);
+	}
+	const hit = byId(allModels);
+	return hit ? modelToInfo(hit) : null;
 }
 
 function modelToInfo(m: CatalogModel): SdkModelInfo {
@@ -171,13 +173,22 @@ export function generateProviderExtension(
 			const modelsCode = provider.models
 				.map((m) => {
 					const sdk =
-						sdkModelMap.get(`${slug}/${m.id}`) ??
-						sdkModelMap.get(m.id) ??
-						DEFAULT_SDK_MODEL;
-					const name = sdk.name || m.id;
-					const reasoning = sdk.reasoning;
-					const input = sdk.input;
-					const cost = sdk.cost;
+						sdkModelMap.get(`${slug}/${m.id}`) ?? sdkModelMap.get(m.id);
+					const name = sdk?.name || m.id;
+					const reasoning = sdk?.reasoning ?? DEFAULT_SDK_MODEL.reasoning;
+					const input = sdk?.input ?? DEFAULT_SDK_MODEL.input;
+					const cost = sdk?.cost ?? DEFAULT_SDK_MODEL.cost;
+					// contextWindow / maxTokens：内置目录优先，其次用户配置，最后默认值。
+					// 目录缺失（含派生 slug 错位）时若静默落 128000，pi 会按错误窗口
+					// 提前触发自动压缩（回归：用户配置 1M 却在 ~122K 被压缩）。
+					const contextWindow =
+						sdk?.contextWindow ??
+						(m.contextWindow > 0
+							? m.contextWindow
+							: DEFAULT_SDK_MODEL.contextWindow);
+					const maxTokens =
+						sdk?.maxTokens ??
+						(m.maxTokens > 0 ? m.maxTokens : DEFAULT_SDK_MODEL.maxTokens);
 					return `      {
         id: ${JSON.stringify(m.id)},
         name: ${JSON.stringify(name)},
@@ -185,8 +196,8 @@ export function generateProviderExtension(
         reasoning: ${reasoning},
         input: ${JSON.stringify(input)},
         cost: ${JSON.stringify(cost)},
-        contextWindow: ${sdk.contextWindow},
-        maxTokens: ${sdk.maxTokens},
+        contextWindow: ${contextWindow},
+        maxTokens: ${maxTokens},
       }`;
 				})
 				.join(",\n");
@@ -221,7 +232,8 @@ ${registrations}
  * 新创建的 session 会读到最新内容（热更新机制不变）。
  *
  * 生成前从 pi 内置模型目录（pi-catalog.ts）查询每个模型的参数
- * （contextWindow / maxTokens / cost 等），目录中找不到的模型使用默认值。
+ * （contextWindow / maxTokens / cost 等），目录中找不到的回退用户在
+ * providers.json 里配置的 contextWindow / maxTokens，最后才用默认值。
  *
  * generatedDir 可注入输出目录（默认 GENERATED_DIR）：测试必须传临时目录，
  * 否则会覆盖真实 ~/.pi/agent/.generated/provider-extension.ts。
@@ -236,10 +248,9 @@ export async function ensureProviderExtensionRegistered(
 	const sdkModelMap = new Map<string, SdkModelInfo>();
 	try {
 		const allModels = await getAllCatalogModels();
-		for (const p of providers) {
-			// 按 provider slug 精确匹配内置 provider，避免同名模型（如 deepseek-v4-flash
-			// 同时存在于 deepseek 和 opencode-go）匹配到错误 provider 的 baseUrl。
-			const slug = resolveProviderSlug(p, []);
+		// slug 必须与 generateProviderExtension 内部的 slugifyProviders 一致（重名去重），
+		// 否则第二个重名 provider（如 opencode-go-2）的模型查询全部落空、元数据落默认值
+		for (const { provider: p, slug } of slugifyProviders(providers)) {
 			for (const m of p.models) {
 				const key = `${slug}/${m.id}`;
 				if (!sdkModelMap.has(key)) {

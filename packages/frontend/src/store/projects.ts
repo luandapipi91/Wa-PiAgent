@@ -55,9 +55,15 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
 	createProject: (name, cwd) => {
 		void api.post("/api/projects", { name, cwd });
 	},
-	// 新建项目：打开目录树选择器（DirTreePicker），用户点选目录后走 createProjectFromPath
-	createProjectFromDir: () => {
-		set({ dirPickerOpen: true });
+	// 新建项目：Electron 下用系统目录选择对话框（原生），浏览器回退目录树选择器（DirTreePicker）
+	createProjectFromDir: async () => {
+		const show = window.waPiApp?.showOpenDirectoryDialog;
+		if (!show) {
+			set({ dirPickerOpen: true });
+			return;
+		}
+		const dir = await show();
+		if (dir) useProjectsStore.getState().createProjectFromPath(dir);
 	},
 	closeDirPicker: () => set({ dirPickerOpen: false }),
 	// 目录树点选后：项目名取 basename，发 project:create（cwd 重复时 toast 提示）

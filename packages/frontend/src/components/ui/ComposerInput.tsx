@@ -13,6 +13,7 @@ import { ModelSelector } from "./ModelSelector";
 import { ThinkingSelector } from "./ThinkingSelector";
 import { AttachmentChip } from "./AttachmentChip";
 import { FilePicker, type FilePickerSelection } from "./FilePicker";
+import { Icon } from "./Icon";
 import { RecordButton } from "./RecordButton";
 import { ComposerTextarea } from "./ComposerTextarea";
 import { QuickInvokeMenu, type MenuItem } from "./QuickInvokeMenu";
@@ -774,11 +775,11 @@ export function ComposerInput({
 						<button
 							onClick={() => void handlePickFiles()}
 							disabled={uploading}
-							className="text-lg text-secondary hover:text-primary disabled:opacity-50"
+							className="text-lg inline-flex items-center justify-center text-secondary hover:text-primary disabled:opacity-50"
 							title={t("composer.addAttachment")}
 							data-testid="composer-attach-btn"
 						>
-							📎
+							<Icon name="paperclip" size={28} />
 						</button>
 						<RecordButton sessionId={sessionId} projectId={projectId} />
 						<input
