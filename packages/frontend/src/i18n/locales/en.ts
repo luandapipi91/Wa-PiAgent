@@ -912,6 +912,18 @@ const en = {
 			comingSoon: "Coming soon",
 		},
 	},
+	share: {
+		share: "Share",
+		title: "Share files",
+		files: "{{count}} files",
+		generate: "Generate share link",
+		generating: "Generating…",
+		link: "Share link",
+		copyLink: "Copy link",
+		copied: "Copied",
+		expiresIn: "Link valid for {{hours}} hours",
+		noToken: "Configure a Token first in Settings → Share",
+	},
 };
 
 export default en;

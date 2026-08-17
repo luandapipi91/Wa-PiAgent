@@ -883,6 +883,18 @@ const zh = {
 			comingSoon: "敬请期待",
 		},
 	},
+	share: {
+		share: "分享",
+		title: "分享文件",
+		files: "{{count}} 个文件",
+		generate: "生成分享链接",
+		generating: "生成中…",
+		link: "分享链接",
+		copyLink: "复制链接",
+		copied: "已复制",
+		expiresIn: "链接 {{hours}} 小时内有效",
+		noToken: "请先在 设置 → 分享 配置 Token",
+	},
 };
 
 export default zh;
