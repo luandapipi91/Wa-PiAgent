@@ -176,10 +176,7 @@ const MarkdownPreview = memo(function MarkdownPreview({
 			// - 外部链接（http/https/mailto 等）→ MarkdownLink target=_blank → setWindowOpenHandler → 应用内新窗口打开
 			a: (props: any) => {
 				const href = props.href ?? "";
-				if (
-					href &&
-					!/^(https?:|mailto:|tel:|#|data:|blob:|file:)/i.test(href)
-				) {
+				if (href && !/^(https?:|mailto:|tel:|#|data:|blob:|file:)/i.test(href)) {
 					const abs =
 						`${baseDir.replace(/\\/g, "/").replace(/\/$/, "")}/${href.replace(/^\.\//, "")}`.replace(
 							/\/+/g,
@@ -415,9 +412,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				setError(
 					t("blocks.fileViewer.readError", {
 						message:
-							err instanceof Error
-								? err.message
-								: t("blocks.fileViewer.unknownError"),
+							err instanceof Error ? err.message : t("blocks.fileViewer.unknownError"),
 					}),
 				);
 				setLoading(false);
@@ -542,30 +537,21 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 						<Icon name="file" size={12} /> {fileName}
 					</span>
 					<ShareButton
-						paths={[path]}
+						paths={[resolvedPath ?? path]}
 						sessionId={sessionId}
 						className="fv-btn"
 						testId="share-file-btn"
 					/>
-					<button
-						className="fv-btn"
-						onClick={onClose}
-						title={t("common.close")}
-					>
+					<button className="fv-btn" onClick={onClose} title={t("common.close")}>
 						<Icon name="x" size={12} />
 					</button>
 				</div>
 				{/* markdown 预览：左右内间距 20px（px-5），上下 10px（py-2.5） */}
-				<div
-					ref={bodyRef}
-					className="flex-1 overflow-auto bg-surface px-5 py-2.5"
-				>
+				<div ref={bodyRef} className="flex-1 overflow-auto bg-surface px-5 py-2.5">
 					<MarkdownPreview
 						content={content}
 						sessionId={sessionId ?? ""}
-						baseDir={
-							displayPath.replace(/\\/g, "/").replace(/\/[^/]*$/, "") ?? ""
-						}
+						baseDir={displayPath.replace(/\\/g, "/").replace(/\/[^/]*$/, "") ?? ""}
 					/>
 				</div>
 				<PathBar path={displayPath} />
@@ -580,7 +566,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 					<Icon name="file" size={12} /> {fileName}
 				</span>
 				<ShareButton
-					paths={[path]}
+					paths={[resolvedPath ?? path]}
 					sessionId={sessionId}
 					className="fv-btn"
 					testId="share-file-btn"
@@ -613,10 +599,7 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 										</span>
 										<span className="table-cell whitespace-pre">
 											{line.map((token, tKey) => (
-												<span
-													{...getTokenProps({ token, key: tKey })}
-													key={tKey}
-												/>
+												<span {...getTokenProps({ token, key: tKey })} key={tKey} />
 											))}
 										</span>
 									</div>
