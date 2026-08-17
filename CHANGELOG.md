@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — feat(kernel): 子代理委托超时 30→60 分钟，工具执行看门狗 5→10 分钟
+
+- 超长子代理委托场景：将子代理委托整体硬上限（RPC 命令超时 + settle 兜底超时）由 30 分钟调至 60 分钟，支持特别久的子代理任务；并把重复的字面量 `1_800_000` 抽成命名常量 `COMMAND_TIMEOUT_MS = 60 * 60_000`（与 `LIVENESS_IDLE_MS`/`ABORT_GRACE_MS` 风格一致，避免将来两处漏改）。
+- 工具执行看门狗（无进展探活）默认超时由 5 分钟调至 10 分钟（`LIVENESS_IDLE_MS = 10 * 60_000`），降低长工具静默等待（如等外部 API / 长编译）被误判卡死的概率；工具执行中仍不豁免，持续流式输出刷新计时逻辑不变。
+- 影响范围：`packages/kernel/src/subagent-runner.ts`（`COMMAND_TIMEOUT_MS` 常量 + `LIVENESS_IDLE_MS` 值 + 接口/注释同步）；测试 `tests/subagent-runner.test.ts`、`tests/delegate-tool.test.ts` 全部通过（57 例，行为测试均注入短超时值驱动，不受默认值影响）。
+
 ## 2026-08-17 — feat(kernel): settings 支持 shareToken/shareChannel
 
 - 产物分享功能的基础配置：settings-store 新增 share 配置段的读写（token + channel，默认 channel=edgeone，token 为空），read-modify-write 保留 settings.json 内其他字段；补 writeSettingsJson helper（带 mkdir recursive）。
