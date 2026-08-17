@@ -2,6 +2,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — feat(frontend): 文件树多选 + 右键分态 + 分享所选（产物分享任务 11）
+
+- ExplorerPanel 自研文件树从单路径选中升级为多选：`selectedPath` → `selectedPaths: Set<string>`；Ctrl/Cmd+点击 toggle 进出选中集、Shift+点击按 flatList 索引区间连选；节点 `data-selected` 改用 `selectedPaths.has(path)`。目录普通点击仍走展开/折叠，拖拽/双击/5s 轮询不受影响。
+- 右键菜单分态：多选（>1）时只显示「分享所选」（`ep-ctx-share-multi`，paths=选中项列表，含文件夹）；单选时保留复制路径/默认应用打开/在访达显示并新增「分享」（`ep-ctx-share`）。
+- 分享弹层：ExplorerPanel 新增 `sharePaths` state，右键「分享 / 分享所选」置位后直接渲染 `ShareResultModal`（从 `ui/ShareButton` 导出复用，share-client 走注入 transport）。
+- 影响范围：`packages/frontend/src/components/ExplorerPanel.tsx`、`ui/ShareButton.tsx`（导出 ShareResultModal）、i18n zh/en（`explorer.ctxShare` / `ctxShareMulti`）、`ExplorerPanel.test.tsx`（新增 5 用例：Ctrl/Cmd 多选、Shift 连选、多选右键分态、单选含分享、分享 paths 正确）。
+
 ## 2026-08-17 — fix(kernel): 用户自定义 baseUrl 不再被内置模型目录覆盖（tokenhub 401）
 
 - 用户把预设 provider（如 DeepSeek，模型 deepseek-v4-flash 在 pi 目录中存在）的 baseUrl 改成自建网关（tokenhub.tencentmaas.com）后，`resolveProviderBaseUrl`（连通测试）与 `generateProviderExtension`（真实聊天）都无条件用目录值 `https://api.deepseek.com` 覆盖，导致网关 key 被发到 DeepSeek 官网 → 401 "Authentication Fails, Your api key: ****xxxx is invalid"。

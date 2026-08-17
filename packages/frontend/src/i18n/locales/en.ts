@@ -561,6 +561,8 @@ const en = {
 	},
 	explorer: {
 		ctxCopyPath: "Copy path",
+		ctxShare: "Share",
+		ctxShareMulti: "Share selected",
 		revealFailed: "Failed to open",
 		emptyNoWorkspace: "No working directory set",
 		loadFailed: "Load failed: {{error}}",

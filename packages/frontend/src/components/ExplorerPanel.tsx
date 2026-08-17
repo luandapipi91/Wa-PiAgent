@@ -9,6 +9,7 @@ import { openInFileManagerLabel } from "../util/platform";
 import { useToastStore } from "../store/toast";
 import { useTranslation } from "../i18n/useTranslation";
 import { Icon } from "./ui/Icon";
+import { ShareResultModal } from "./ui/ShareButton";
 
 type Entry = { name: string; path: string; isDir: boolean };
 
@@ -26,20 +27,24 @@ function joinPath(parent: string, name: string): string {
 		: parent + "/" + name;
 }
 
-/** 右键菜单 */
+/** 右键菜单：多选（sel.length > 1）时只显示「分享所选」，单选时显示原菜单 + 「分享」 */
 function ExplorerContextMenu({
 	x,
 	y,
 	entry,
+	sel,
 	onClose,
 	onReveal,
+	onShare,
 	t,
 }: {
 	x: number;
 	y: number;
 	entry: Entry;
+	sel: string[];
 	onClose: () => void;
 	onReveal: (path: string) => void;
+	onShare: (paths: string[]) => void;
 	t: TFunction;
 }) {
 	useEffect(() => {
@@ -59,8 +64,35 @@ function ExplorerContextMenu({
 		};
 	}, [onClose]);
 
+	// 多选（>1）：复制路径/默认应用打开/在访达显示对多个条目无意义，只保留「分享所选」
+	if (sel.length > 1) {
+		return (
+			<div className="ep-ctx-menu" data-ctx-menu="" style={{ left: x, top: y }}>
+				<button
+					className="ep-ctx-item"
+					data-testid="ep-ctx-share-multi"
+					onClick={() => {
+						onShare(sel);
+						onClose();
+					}}
+				>
+					{t("explorer.ctxShareMulti")}
+				</button>
+			</div>
+		);
+	}
 	return (
 		<div className="ep-ctx-menu" data-ctx-menu="" style={{ left: x, top: y }}>
+			<button
+				className="ep-ctx-item"
+				data-testid="ep-ctx-share"
+				onClick={() => {
+					onShare([entry.path]);
+					onClose();
+				}}
+			>
+				{t("explorer.ctxShare")}
+			</button>
 			<button
 				className="ep-ctx-item"
 				onClick={() => {
@@ -107,16 +139,22 @@ export function ExplorerPanel({
 }) {
 	const { t } = useTranslation();
 	const [flatList, setFlatList] = useState<FlatNode[]>([]);
-	const [selectedPath, setSelectedPath] = useState<string | null>(null);
+	// 多选：Ctrl/Cmd+点击 toggle、Shift+点击区间连选；单选时集合只含一个 path
+	const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
 	const [ctxMenu, setCtxMenu] = useState<{
 		x: number;
 		y: number;
 		entry: Entry;
+		sel: string[];
 	} | null>(null);
+	// 分享弹层挂载：右键「分享 / 分享所选」置位后渲染 ShareResultModal
+	const [sharePaths, setSharePaths] = useState<string[] | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const expandedRef = useRef<Set<string>>(new Set());
 	const togglingRef = useRef(false);
+	// Shift 连选锚点：最近一次单选/Ctrl 点击的节点 path
+	const lastSelectedRef = useRef<string | null>(null);
 	const addToast = useToastStore((s) => s.add);
 
 	// 加载单层目录：WaPi 的 listDir 返回 DirEntry{name,isDir}，前端补 path
@@ -274,11 +312,42 @@ export function ExplorerPanel({
 	);
 
 	const handleClick = useCallback(
-		(node: FlatNode) => {
+		(node: FlatNode, e: React.MouseEvent) => {
+			// Ctrl/Cmd+点击：toggle 进出选中集（目录不展开，避免与多选冲突）
+			if (e.metaKey || e.ctrlKey) {
+				setSelectedPaths((prev) => {
+					const next = new Set(prev);
+					if (next.has(node.entry.path)) next.delete(node.entry.path);
+					else next.add(node.entry.path);
+					return next;
+				});
+				lastSelectedRef.current = node.entry.path;
+				return;
+			}
+			// Shift+点击：从锚点到当前节点按 flatList 索引区间连选
+			if (e.shiftKey) {
+				const anchor = lastSelectedRef.current;
+				const startIdx = anchor
+					? flatList.findIndex((n) => n.entry.path === anchor)
+					: flatList.findIndex((n) => n.entry.path === node.entry.path);
+				const endIdx = flatList.findIndex((n) => n.entry.path === node.entry.path);
+				if (startIdx !== -1 && endIdx !== -1) {
+					const [lo, hi] =
+						startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+					setSelectedPaths(
+						new Set(flatList.slice(lo, hi + 1).map((n) => n.entry.path)),
+					);
+				}
+				return;
+			}
+			// 无修饰键：目录仍走展开/折叠；文件单选
 			if (node.entry.isDir) toggleDir(node);
-			else setSelectedPath(node.entry.path);
+			else {
+				setSelectedPaths(new Set([node.entry.path]));
+				lastSelectedRef.current = node.entry.path;
+			}
 		},
-		[toggleDir],
+		[toggleDir, flatList],
 	);
 
 	const handleDoubleClick = useCallback(
@@ -292,10 +361,23 @@ export function ExplorerPanel({
 		(e: React.MouseEvent, node: FlatNode) => {
 			e.preventDefault();
 			e.stopPropagation();
-			if (!node.entry.isDir) setSelectedPath(node.entry.path);
-			setCtxMenu({ x: e.clientX, y: e.clientY, entry: node.entry });
+			// 多选（>1）时右键分享所选；否则沿用原行为：单选该节点并显示单文件菜单
+			if (selectedPaths.size > 1) {
+				setCtxMenu({
+					x: e.clientX,
+					y: e.clientY,
+					entry: node.entry,
+					sel: [...selectedPaths],
+				});
+				return;
+			}
+			if (!node.entry.isDir) {
+				setSelectedPaths(new Set([node.entry.path]));
+				lastSelectedRef.current = node.entry.path;
+			}
+			setCtxMenu({ x: e.clientX, y: e.clientY, entry: node.entry, sel: [node.entry.path] });
 		},
-		[],
+		[selectedPaths],
 	);
 
 	const handleReveal = useCallback(
@@ -384,7 +466,7 @@ export function ExplorerPanel({
 			data-testid="explorer-panel"
 		>
 			{flatList.map((node) => {
-				const isSelected = node.entry.path === selectedPath;
+				const isSelected = selectedPaths.has(node.entry.path);
 				return (
 					<div
 						key={node.key}
@@ -393,7 +475,7 @@ export function ExplorerPanel({
 						data-selected={isSelected ? "true" : "false"}
 						style={{ paddingLeft: 8 + node.depth * 16 }}
 						onPointerDown={(e) => startDrag(e, node)}
-						onClick={() => handleClick(node)}
+						onClick={(e) => handleClick(node, e)}
 						onDoubleClick={() => handleDoubleClick(node)}
 						onContextMenu={(e) => handleContextMenu(e, node)}
 					>
@@ -417,10 +499,15 @@ export function ExplorerPanel({
 					x={ctxMenu.x}
 					y={ctxMenu.y}
 					entry={ctxMenu.entry}
+					sel={ctxMenu.sel}
 					onClose={() => setCtxMenu(null)}
 					onReveal={handleReveal}
+					onShare={(paths) => setSharePaths(paths)}
 					t={t}
 				/>
+			)}
+			{sharePaths && (
+				<ShareResultModal paths={sharePaths} onClose={() => setSharePaths(null)} />
 			)}
 		</div>
 	);
