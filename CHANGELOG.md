@@ -2,6 +2,14 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — feat(frontend): share-client + 分享按钮与结果弹层（产物分享任务 8）
+
+- 新增 `share-client.ts`（照 fs-client 的 transport 注入模式，`_setShareTransport` 测试注入）：`shareUpload(paths, sessionId?)` → POST /api/share/upload（返回 { url, expiresAt, projectName, channel }）、`shareSettings()` → GET /api/settings/share、`saveShareSettings(share)` → PUT /api/settings/share。
+- 新增 `ShareButton`（`paths: string[]` + 可选 sessionId/className/testId）：点击打开 `ShareResultModal`（同文件内）——挂载时检查分享 token（shareSettings），未配置显示「请先在 设置 → 分享 配置 Token」引导；已配置显示待分享文件列表（文件数 + 首 3 个 basename）+「生成分享链接」→ shareUpload → 成功展示分享 URL + 复制按钮（copyToClipboard）+「链接 N 小时内有效」（由 expiresAt 计算）。testid：share-btn / share-result-modal / share-generate-btn / share-copy-btn / share-url / share-no-token / share-files。
+- i18n 补顶层 `share.*`（zh + en）：share/share/title/files/generate/generating/link/copyLink/copied/expiresIn/noToken。
+- 测试：`share-client.test.ts`（upload 成功/400 抛错/settings 读写 4 用例）、`ShareButton.test.tsx`（打开弹层/生成显示 URL/未配置 token 引导/复制调用 4 用例，mock share-client + clipboard）。
+- 影响范围：`packages/frontend/src/share-client.ts`（新增）、`packages/frontend/src/components/ui/ShareButton.tsx`（新增）、`src/i18n/locales/zh.ts`、`en.ts`；测试 `src/share-client.test.ts`、`src/components/ui/ShareButton.test.tsx`（新增）。
+
 ## 2026-08-17 — feat(frontend): 设置页「分享」Tab（产物分享任务 7）
 
 - 设置页新增「分享」Tab：设置 store 的 SettingsSection 联合类型增加 `"share"`；SettingsModal 导航区加「分享」入口与渲染分支；新增 ShareSection 面板（挂载时 GET /api/settings/share 回填，保存 PUT /api/settings/share，渠道「腾讯 EdgeOne」只读展示，API Token 用 password 输入且已保存时脱敏展示「•••」+「修改」切换），i18n 补 settings.share.* / nav.share（zh + en）。
