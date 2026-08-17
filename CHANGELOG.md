@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — chore(release): 发布版本 0.2.4
+
+- 打包发布 0.2.4（mac + win 完整覆盖 OSS）：修复模型不可用（404）baseUrl 匹配（Provider 缺 /v1 + 同名模型污染，含测试连接）+ 新建会话页默认工作区隐藏文件浏览按钮。
+- 影响范围：版本号（`packages/desktop/package.json`、`packages/frontend/package.json`、`version-history.json`）、`RELEASE_NOTES.md`。
+
 ## 2026-08-17 — fix(frontend): 新建会话页默认工作区隐藏文件浏览按钮
 
 - 修正 2026-08-16 的空态方案：默认工作区（__system__）的 cwd 是 workdir 父目录（内部会话目录，非项目文件），原「走空态」仍保留右上角可点击的文件夹按钮，点击后展开空态反而误导用户。改为对默认工作区直接隐藏入口按钮（而非禁用），与「无项目」场景区分。
