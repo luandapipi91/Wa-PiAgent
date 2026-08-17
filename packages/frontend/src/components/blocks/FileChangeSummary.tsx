@@ -3,6 +3,7 @@ import ReactDiffViewer from "react-diff-viewer-continued";
 import { useTranslation } from "../../i18n/useTranslation";
 import { useSessionStore } from "../../store/session";
 import { resolveAbsolutePath } from "./FilePill";
+import { ShareButton } from "../ui/ShareButton";
 import type { FileChangeSnapshot } from "@wa-pi/shared";
 
 export function FileChangeSummary({
@@ -80,23 +81,32 @@ function FileChangeItem({
         >
           {file.path}
         </button>
-        {canDiff && (
+        {!file.error && !file.oversized && (
           <span className="ml-auto flex items-center gap-2 text-tertiary text-[11px] select-none">
-            <button
-              type="button"
-              className="hover:text-accent"
-              onClick={() => useSessionStore.getState().openFilePreview(abs, sessionId)}
-            >
-              {t("blocks.fileChanges.preview")}
-            </button>
-            <button
-              type="button"
-              aria-expanded={open}
-              onClick={() => setOpen((v) => !v)}
-              className="hover:text-accent"
-            >
-              {open ? t("blocks.fileChanges.collapse") : t("blocks.fileChanges.expand")}
-            </button>
+            {canDiff && (
+              <button
+                type="button"
+                className="hover:text-accent"
+                onClick={() => useSessionStore.getState().openFilePreview(abs, sessionId)}
+              >
+                {t("blocks.fileChanges.preview")}
+              </button>
+            )}
+            {canDiff && (
+              <button
+                type="button"
+                aria-expanded={open}
+                onClick={() => setOpen((v) => !v)}
+                className="hover:text-accent"
+              >
+                {open ? t("blocks.fileChanges.collapse") : t("blocks.fileChanges.expand")}
+              </button>
+            )}
+            <ShareButton
+              paths={[abs]}
+              sessionId={sessionId}
+              testId={`file-change-share-${file.path}`}
+            />
           </span>
         )}
       </div>

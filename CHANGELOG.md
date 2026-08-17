@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — feat(frontend): 文件修改清单每项分享按钮（产物分享任务 9）
+
+- FileChangeSummary 的 FileChangeItem 右侧按钮区（原仅 canDiff 时渲染的 ml-auto 区域）改为对 `!file.error && !file.oversized` 渲染：预览/展开按钮保持仅 canDiff（修改态），新增 ShareButton（`paths=[resolveAbsolutePath(file.path, sessionId)]`，testid `file-change-share-<path>`）——新增（added）与修改（modified）文件都可分享，error/oversized 不显示。i18n 复用已有 `share.share` 文案（任务 8 已加），无新增文案。
+- 影响范围：`packages/frontend/src/components/blocks/FileChangeSummary.tsx`；测试 `src/components/blocks/FileChangeSummary.test.tsx`（新增：正常文件显示分享按钮 + error/oversized 不显示、点击渲染分享弹层 2 用例，mock share-client）。
+
 ## 2026-08-17 — feat(frontend): share-client + 分享按钮与结果弹层（产物分享任务 8）
 
 - 新增 `share-client.ts`（照 fs-client 的 transport 注入模式，`_setShareTransport` 测试注入）：`shareUpload(paths, sessionId?)` → POST /api/share/upload（返回 { url, expiresAt, projectName, channel }）、`shareSettings()` → GET /api/settings/share、`saveShareSettings(share)` → PUT /api/settings/share。
