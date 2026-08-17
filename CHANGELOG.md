@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — feat(kernel): 多选路径 zip 打包 + path hash
+
+- 产物分享功能：新增 share/pack.ts（多选路径用 fflate 打包 zip、文件夹递归展开、路径相对 root 保持；hashPaths 生成 sha256 hex 前 12 位作为项目名后缀）；引入 fflate 依赖。
+- 影响范围：`packages/kernel/src/share/pack.ts`、`packages/kernel/tests/share-pack.test.ts`、`packages/kernel/package.json`（新增 fflate）。
+
 ## 2026-08-17 — feat(kernel): 子代理委托超时 30→60 分钟，工具执行看门狗 5→10 分钟
 
 - 超长子代理委托场景：将子代理委托整体硬上限（RPC 命令超时 + settle 兜底超时）由 30 分钟调至 60 分钟，支持特别久的子代理任务；并把重复的字面量 `1_800_000` 抽成命名常量 `COMMAND_TIMEOUT_MS = 60 * 60_000`（与 `LIVENESS_IDLE_MS`/`ABORT_GRACE_MS` 风格一致，避免将来两处漏改）。

@@ -23,6 +23,8 @@ export function collectZipEntries(paths: string[], root: string): ZipEntry[] {
       for (const name of readdirSync(p)) walk(join(p, name));
     } else {
       const rel = relative(root, p).split(sep).join("/");
+      // 越界防护：剔除 root 外的路径（含 ../ 前缀或绝对路径），避免 zip-slip
+      if (rel.startsWith("..") || rel.startsWith("/")) return;
       entries.push({ name: rel, data: new Uint8Array(readFileSync(p)) });
     }
   };
