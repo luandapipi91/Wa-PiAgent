@@ -23,6 +23,21 @@ test("hashPaths：相同集合（任意顺序）同 hash，不同集合不同 ha
   expect(a).toMatch(/^[0-9a-f]{12}$/);
 });
 
+test("buildZip：root 外路径被剔除，不含 ../ 开头条目", () => {
+  const outside = mkdtempSync(join(tmpdir(), "pack-out-"));
+  writeFileSync(join(outside, "evil.txt"), "boom");
+  try {
+    const zip = buildZip([join(dir, "index.html"), join(outside, "evil.txt")], dir);
+    const files = unzipSync(zip);
+    const keys = Object.keys(files);
+    expect(keys).toContain("index.html");
+    expect(keys).not.toContain("../evil.txt");
+    expect(keys.some((k) => k.startsWith("../") || k.startsWith("/"))).toBe(false);
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test("buildZip：文件夹递归展开、保持相对路径，可解压还原", () => {
   const zip = buildZip([join(dir, "index.html"), join(dir, "assets")], dir);
   const files = unzipSync(zip);
