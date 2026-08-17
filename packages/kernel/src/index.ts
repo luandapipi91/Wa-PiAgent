@@ -26,7 +26,7 @@ import { createCrashLogger, installCrashHandlers } from "./crash-logger";
 import { ChannelManager } from "./channel-manager";
 import { WecomAdapter } from "./channels/wecom-adapter";
 import { MockAdapter } from "./channels/mock-adapter";
-import { TaskScheduler } from "./scheduler";
+import { TaskScheduler, resolveTaskModel } from "./scheduler";
 import {
 	appendExecutionRecord,
 	updateExecutionRecord,
@@ -411,14 +411,9 @@ export async function startKernel(opts?: {
 					imPush ? { imPush } : undefined,
 				);
 
-				// 4. 解析默认模型（取第一个 provider 的第一个模型）
+				// 4. 解析任务模型：task.model 优先，缺省回退到第一个 provider 的第一个模型
 				const providers = await providerStore.load();
-				const firstProvider = providers[0];
-				const firstModel = firstProvider?.models?.[0];
-				if (!firstProvider || !firstModel) {
-					throw new Error("无可用的模型供应商，请先在设置中配置至少一个供应商");
-				}
-				const model = `${firstProvider.slug ?? firstProvider.name}/${firstModel.id}`;
+				const model = resolveTaskModel(task.model, providers);
 				record.model = model;
 
 				// 5. 发送 prompt（任务指令 + 可选的 $[技能名] 技能标记）。
@@ -435,12 +430,12 @@ export async function startKernel(opts?: {
 
 				// 6. 等待 agent 执行完成（轮询 isSessionBusy，agent_settled 后 busy=false）
 				const POLL_INTERVAL_MS = 500;
-				const MAX_WAIT_MS = 5 * 60 * 1000; // 单次任务最长等待 5 分钟
+				const MAX_WAIT_MS = 30 * 60 * 1000; // 单次任务最长等待 30 分钟
 				const deadline = Date.now() + MAX_WAIT_MS;
 				while (agentManager.isSessionBusy(sessionId)) {
 					if (Date.now() > deadline) {
 						await agentManager.abort(sessionId).catch(() => {});
-						throw new Error("任务执行超时（5 分钟）");
+						throw new Error("任务执行超时（30 分钟）");
 					}
 					await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 				}

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useTranslation } from "../i18n/useTranslation";
 import { Modal } from "./ui/Modal";
+import { Icon } from "./ui/Icon";
 import { GeneralSection } from "./settings/GeneralSection";
 import { AppearanceSection } from "./settings/AppearanceSection";
 import { DiagnosticsSection } from "./settings/DiagnosticsSection";
@@ -25,10 +26,10 @@ export function SettingsModal({ onClose }: Props) {
 
 	// 每次打开设置都检查更新（仅桌面版）；showSettings false→true 时触发，
 	// 无论当前是否最新版本都重新查一次。
-	const showSettings = useSettingsStore(s => s.showSettings);
-	const isDesktop = useUpdaterStore(s => s.isDesktop);
-	const updaterStatus = useUpdaterStore(s => s.status);
-	const checkForUpdates = useUpdaterStore(s => s.checkForUpdates);
+	const showSettings = useSettingsStore((s) => s.showSettings);
+	const isDesktop = useUpdaterStore((s) => s.isDesktop);
+	const updaterStatus = useUpdaterStore((s) => s.status);
+	const checkForUpdates = useUpdaterStore((s) => s.checkForUpdates);
 	useEffect(() => {
 		if (showSettings && isDesktop) void checkForUpdates();
 	}, [showSettings, isDesktop, checkForUpdates]);
@@ -45,10 +46,18 @@ export function SettingsModal({ onClose }: Props) {
 			height="80vh"
 			data-testid="settings-modal"
 		>
-			<div className="p-4 border-b border-hairline">
+			<div className="flex items-center justify-between p-4 border-b border-hairline">
 				<span className="text-primary font-bold text-base">
 					{t("settings.title")}
 				</span>
+				<button
+					onClick={onClose}
+					aria-label={t("common.close")}
+					className="w-8 h-8 rounded text-tertiary hover:text-primary inline-flex items-center justify-center"
+					data-testid="settings-close"
+				>
+					<Icon name="x" size={16} />
+				</button>
 			</div>
 			<div className="flex flex-1 min-h-0">
 				{/* 左侧导航：通用 + 外观 + 模型管理 + 技能 */}

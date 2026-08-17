@@ -64,6 +64,17 @@ describe("toPromptHtml", () => {
 		expect(html).toContain("ct_gone");
 	});
 
+	test("联系人 chip 图标区分人/群：person 用 user（1 path），group 用 users（3 path）", () => {
+		const meta2 = (id: string) =>
+			id === "ct_g01"
+				? { label: "wr_group", valid: true, kind: "group" as const }
+				: { label: "张三", valid: true, kind: "person" as const };
+		const personHtml = toPromptHtml("@im-push-to(ch_aaa,ct_p01)", meta2);
+		const groupHtml = toPromptHtml("@im-push-to(ch_aaa,ct_g01)", meta2);
+		expect(personHtml.match(/<path/g)?.length).toBe(1);
+		expect(groupHtml.match(/<path/g)?.length).toBe(3);
+	});
+
 	test("技能 chip 复用聊天渲染：$[名] 变 chip-skill", () => {
 		const html = toPromptHtml("执行 $[日报生成] 任务", meta);
 		expect(html).toContain('data-token="$[日报生成]"');

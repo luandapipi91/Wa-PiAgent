@@ -79,6 +79,17 @@ export function SkillSection() {
 		});
 	};
 
+	// 添加技能目录：Electron 下用系统目录选择对话框，浏览器回退到内置目录树
+	const handleAddDir = async () => {
+		const show = window.waPiApp?.showOpenDirectoryDialog;
+		if (!show) {
+			setShowDirPicker(true);
+			return;
+		}
+		const dir = await show();
+		if (dir) addDir(dir);
+	};
+
 	// 搜索过滤：按技能名称匹配（大小写不敏感）
 	const keyword = search.trim().toLowerCase();
 	const filteredSkills = keyword
@@ -116,7 +127,7 @@ export function SkillSection() {
 					</button>
 					<div className="flex items-center gap-1">
 						<button
-							onClick={() => setShowDirPicker(true)}
+							onClick={() => void handleAddDir()}
 							className="p-1 text-secondary hover:text-primary"
 							title={t("settings.skill.addDir")}
 							aria-label={t("settings.skill.addDir")}
@@ -167,21 +178,44 @@ export function SkillSection() {
 				{dirExpanded && (
 					<div className="flex flex-col gap-1 pl-4">
 						{dirs.map((dir) => (
-							<div key={dir} className="flex items-center justify-between py-1">
-								<span className="text-sm text-secondary">{dir}</span>
-								{dir === builtinDir ? (
-									<span className="text-xs text-tertiary">
-										{t("settings.skill.builtinTag")}
-									</span>
-								) : (
+							<div key={dir} className="flex items-center justify-between py-1 gap-2">
+								<span className="text-sm text-secondary truncate">{dir}</span>
+								<div className="flex items-center gap-1 shrink-0">
 									<button
-										onClick={() => removeDir(dir)}
-										className="text-xs text-secondary hover:text-danger"
-										data-testid={`skill-dir-remove-${dir}`}
+										onClick={() => void window.waPiApp?.showItemInFolder?.(dir)}
+										className="p-1 text-secondary hover:text-primary"
+										title={t("settings.skill.openDir")}
+										aria-label={t("settings.skill.openDir")}
+										data-testid={`skill-dir-open-${dir}`}
 									>
-										{t("settings.skill.deleteDir")}
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											width="14"
+											height="14"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											strokeWidth="2"
+											strokeLinecap="round"
+											strokeLinejoin="round"
+										>
+											<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+										</svg>
 									</button>
-								)}
+									{dir === builtinDir ? (
+										<span className="text-xs text-tertiary">
+											{t("settings.skill.builtinTag")}
+										</span>
+									) : (
+										<button
+											onClick={() => removeDir(dir)}
+											className="text-xs text-secondary hover:text-danger"
+											data-testid={`skill-dir-remove-${dir}`}
+										>
+											{t("settings.skill.deleteDir")}
+										</button>
+									)}
+								</div>
 							</div>
 						))}
 					</div>
@@ -274,9 +308,7 @@ export function SkillSection() {
 												width: 38,
 												height: 22,
 												borderRadius: 9999,
-												background: disabled
-													? "var(--hairline-strong)"
-													: "var(--brand)",
+												background: disabled ? "var(--hairline-strong)" : "var(--brand)",
 												transition: "background 0.2s",
 											}}
 											data-testid={`skill-switch-${skill.name}`}

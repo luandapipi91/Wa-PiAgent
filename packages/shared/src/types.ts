@@ -1468,6 +1468,7 @@ export interface ScheduledTask {
 	agentId: string; // 执行角色（已有智能体 ID）
 	prompt: string; // 任务指令（含 $[技能名] 技能标记与 @im-push-to(bot,联系人) 推送标记）
 	projectId?: string; // 工作目录（项目 ID）
+	model?: string | null; // 使用的模型（providerSlug/modelId）；null/undefined = 跟随默认（第一个 provider 的第一个模型）
 	enabled: boolean;
 	createdAt: number;
 	updatedAt: number;

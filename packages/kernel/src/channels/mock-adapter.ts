@@ -65,8 +65,9 @@ export class MockAdapter implements ChannelAdapter {
 		} as InboundMessage);
 	}
 
-	private setStatus(s: ChannelStatus): void {
+	/** 测试注入：模拟连接状态变化（触发 onStatus 回调），用于验证推送前等待重连 */
+	setStatus(s: ChannelStatus, detail?: string): void {
 		this.status = s;
-		this.statusCb?.(s);
+		this.statusCb?.(s, detail);
 	}
 }

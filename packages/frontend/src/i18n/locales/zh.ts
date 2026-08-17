@@ -780,6 +780,7 @@ const zh = {
 			groupExtension: "Plugin 技能",
 			dirTitle: "技能目录",
 			addDir: "添加技能目录",
+			openDir: "打开文件夹",
 			refresh: "刷新技能",
 			builtinTag: "[内置]",
 			deleteDir: "删除",

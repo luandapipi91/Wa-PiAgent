@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
 	toCronExpression,
+	resolveTaskModel,
 	TaskScheduler,
 	type SchedulerDeps,
 } from "../src/scheduler";
@@ -12,6 +13,7 @@ import type {
 	ScheduledTask,
 	ExecutionRecord,
 	TaskSchedule,
+	ModelProvider,
 } from "@wa-pi/shared";
 
 // ===== 简报约定的 toCronExpression 用例（契约测试，原样保留）=====
@@ -82,6 +84,49 @@ describe("toCronExpression", () => {
 			startTime: "07:30",
 		};
 		expect(toCronExpression(s)).toBe("30 7-23/3 * * *");
+	});
+});
+
+// ===== 任务运行时模型解析（task.model 优先，缺省回退默认） =====
+
+/** 构造一个最小可用 ModelProvider（只关心 resolveTaskModel 用到的字段） */
+function makeProvider(overrides: Partial<ModelProvider> = {}): ModelProvider {
+	return {
+		id: "p1",
+		name: "My Provider",
+		baseUrl: "",
+		apiKey: "",
+		api: "openai-completions",
+		models: [{ id: "gpt-4", contextWindow: 128000, maxTokens: 4096 }],
+		...overrides,
+	};
+}
+
+describe("resolveTaskModel", () => {
+	test("task.model 有值 → 直接返回，忽略 providers", () => {
+		expect(resolveTaskModel("openai/gpt-4", [])).toBe("openai/gpt-4");
+	});
+
+	test("无 task.model → 取第一个 provider 第一个模型（slug 优先）", () => {
+		expect(resolveTaskModel(undefined, [makeProvider({ slug: "openai" })])).toBe(
+			"openai/gpt-4",
+		);
+	});
+
+	test("无 task.model 且 provider 无 slug → 用 name 派生", () => {
+		expect(resolveTaskModel(undefined, [makeProvider()])).toBe(
+			"My Provider/gpt-4",
+		);
+	});
+
+	test("无 task.model 且无 provider → 抛错", () => {
+		expect(() => resolveTaskModel(undefined, [])).toThrow("无可用的模型供应商");
+	});
+
+	test("无 task.model 且 provider 无模型 → 抛错", () => {
+		expect(() =>
+			resolveTaskModel(undefined, [makeProvider({ models: [] })]),
+		).toThrow("无可用的模型供应商");
 	});
 });
 

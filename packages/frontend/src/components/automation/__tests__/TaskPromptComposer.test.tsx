@@ -90,22 +90,34 @@ describe("TaskPromptComposer", () => {
 		expect(screen.getByText("@")).toBeTruthy();
 	});
 
-	test("value 末尾 @ → 弹出联系人列表（仅 person，按渠道分组，testid=contact-picker）", () => {
+	test("value 末尾 @ → 弹出联系人列表（person + group，按渠道分组，testid=contact-picker）", () => {
 		render(<TaskPromptComposer value="推送 @" onChange={() => {}} />);
 		expect(screen.getByTestId("contact-picker")).toBeTruthy();
 		expect(screen.getByText("张三")).toBeTruthy();
 		expect(screen.getByText("李四")).toBeTruthy();
 		expect(screen.getByText(/企微/)).toBeTruthy();
 		expect(screen.getByText(/飞书/)).toBeTruthy();
-		// 群聊联系人（kind=group）不展示——@ 目标是人
-		expect(screen.queryByText("wr_group01")).toBeNull();
+		// 群聊联系人（kind=group）也展示，群名取 chatId 前 8 位
+		expect(screen.getByText("wr_group")).toBeTruthy();
+		// 人/群图标为 SVG（user/users），非 emoji
+		expect(screen.getByTestId("contact-kind-group")).toBeTruthy();
+		expect(screen.getAllByTestId("contact-kind-person").length).toBeGreaterThan(
+			0,
+		);
 	});
 
-	test("选中联系人后末尾 @ 替换为 @im-push-to(bot,ct) 标记", () => {
+	test("选中联系人（person）后末尾 @ 替换为 @im-push-to(bot,ct) 标记", () => {
 		const onChange = mock();
 		render(<TaskPromptComposer value="推送 @" onChange={onChange} />);
 		fireEvent.click(screen.getByTestId("contact-item-ct_p01"));
 		expect(onChange).toHaveBeenCalledWith("推送 @im-push-to(ch_aaa,ct_p01) ");
+	});
+
+	test("选中群联系人后末尾 @ 替换为 @im-push-to(bot,ct) 标记", () => {
+		const onChange = mock();
+		render(<TaskPromptComposer value="推送 @" onChange={onChange} />);
+		fireEvent.click(screen.getByTestId("contact-item-ct_g01"));
+		expect(onChange).toHaveBeenCalledWith("推送 @im-push-to(ch_aaa,ct_g01) ");
 	});
 
 	test("value 末尾 $ → 弹出技能弹窗（testid=skill-picker，通用 QuickInvokeMenu 渲染），点击选中插入 $[技能名]", () => {
@@ -140,6 +152,25 @@ describe("TaskPromptComposer", () => {
 		expect(chip).toBeTruthy();
 		expect(chip!.textContent).toContain("张三");
 		expect(chip!.className).toContain("chip-im");
+		// 单人图标（user：1 个 path）
+		expect(chip!.querySelectorAll("svg path").length).toBe(1);
+	});
+
+	test("存储形态的群联系人标记渲染为 chip（显示 chatId 前 8 位）", () => {
+		render(
+			<TaskPromptComposer
+				value="推给 @im-push-to(ch_aaa,ct_g01) 完成"
+				onChange={() => {}}
+			/>,
+		);
+		const chip = document.querySelector(
+			'[data-token="@im-push-to(ch_aaa,ct_g01)"]',
+		);
+		expect(chip).toBeTruthy();
+		expect(chip!.textContent).toContain("wr_group");
+		expect(chip!.className).toContain("chip-im");
+		// 多人图标（users：3 个 path）
+		expect(chip!.querySelectorAll("svg path").length).toBe(3);
 	});
 
 	test("存储形态的技能标记渲染为 chip-skill", () => {

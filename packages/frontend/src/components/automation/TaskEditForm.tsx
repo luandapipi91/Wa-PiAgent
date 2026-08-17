@@ -7,7 +7,8 @@ import { useUiPrefsStore } from "../../store/ui-prefs";
 import { AgentDropdown } from "../ui/AgentDropdown";
 import { TaskPromptComposer } from "./TaskPromptComposer";
 import { pickDefaultAgent } from "../NewSessionPane";
-import type { TaskSchedule } from "@wa-pi/shared";
+import { resolveProviderSlug, type TaskSchedule } from "@wa-pi/shared";
+import { useProvidersStore } from "../../store/providers";
 
 /** 每小时间隔预设选项；预设之外的值通过「自定义」输入（范围 1-23） */
 const HOURLY_INTERVAL_PRESETS = [1, 2, 3, 4, 6, 8, 12, 24];
@@ -27,6 +28,7 @@ export function TaskEditForm() {
 	const { list: agents } = useAgentsStore();
 	const { projects, sessions } = useProjectsStore();
 	const defaultAgent = useUiPrefsStore((s) => s.defaultAgent);
+	const providers = useProvidersStore((s) => s.providers);
 
 	const [name, setName] = useState("");
 	const [scheduleType, setScheduleType] =
@@ -44,6 +46,7 @@ export function TaskEditForm() {
 	);
 	const [prompt, setPrompt] = useState("");
 	const [projectId, setProjectId] = useState("");
+	const [model, setModel] = useState("");
 
 	useEffect(() => {
 		if (!editingTask) return;
@@ -61,6 +64,7 @@ export function TaskEditForm() {
 		setAgentId(editingTask.agentId);
 		setPrompt(editingTask.prompt);
 		setProjectId(editingTask.projectId ?? "");
+		setModel(editingTask.model ?? "");
 	}, [editingTask]);
 
 	// 新建模式：agent 列表晚于挂载回包时回填默认智能体；已选中（编辑回填）则不干预
@@ -89,6 +93,8 @@ export function TaskEditForm() {
 			agentId,
 			prompt,
 			projectId: projectId || undefined,
+			// 空（跟随默认）显式传 null，让后端能清空已设置的 model
+			model: model || null,
 		};
 		try {
 			if (editingTask) {
@@ -125,6 +131,18 @@ export function TaskEditForm() {
 			(scheduleType !== "custom" || cronExpression.trim() !== "") &&
 			validIntervalHours,
 	);
+	// 模型选项（providerSlug/modelId），首项「跟随默认」空值；与 BotsSection 同源
+	const modelOptions = (() => {
+		const slugs: string[] = [];
+		return providers.flatMap((p) => {
+			const slug = resolveProviderSlug(p, slugs);
+			slugs.push(slug);
+			return p.models.map((m) => ({
+				value: `${slug}/${m.id}`,
+				label: `${p.name} / ${m.id}`,
+			}));
+		});
+	})();
 	const inputStyle: React.CSSProperties = {
 		background: "var(--surface-hover)",
 		borderColor: "var(--hairline)",
@@ -360,6 +378,30 @@ export function TaskEditForm() {
 					{projects.map((p) => (
 						<option key={p.id} value={p.id}>
 							{p.name}
+						</option>
+					))}
+				</select>
+			</div>
+
+			{/* 使用的模型（可选，跟随默认） */}
+			<div className="mb-3.5">
+				<label
+					className="text-[11px] block mb-1.5"
+					style={{ color: "var(--text-secondary)" }}
+				>
+					使用的模型
+				</label>
+				<select
+					value={model}
+					onChange={(e) => setModel(e.target.value)}
+					className="w-full rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
+					style={inputStyle}
+					data-testid="task-model-select"
+				>
+					<option value="">跟随默认</option>
+					{modelOptions.map((m) => (
+						<option key={m.value} value={m.value}>
+							{m.label}
 						</option>
 					))}
 				</select>

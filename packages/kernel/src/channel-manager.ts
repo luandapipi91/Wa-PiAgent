@@ -66,6 +66,8 @@ export interface ChannelManagerDeps {
 	skillManager?: {
 		scan(): Promise<{ skills: { name: string; path: string }[] }>;
 	};
+	/** 主动推送前等待渠道重连就绪的超时（ms）；缺省 60s（覆盖 SDK 最坏 30s 退避 + 认证握手）。测试注入小值 */
+	pushConnectTimeoutMs?: number;
 }
 
 export class ChannelManager {
@@ -74,6 +76,8 @@ export class ChannelManager {
 		string,
 		{ status: ChannelStatus; detail?: string }
 	>();
+	/** channelId → 等待连接就绪的释放函数（推送前等待重连用；status 变 connected 时逐个 resolve） */
+	private statusWaiters = new Map<string, Set<() => void>>();
 	/** channelId:chatId:fromUserId → 最近一条进站帧（被动回复必须携带） */
 	private lastFrames = new Map<string, unknown>();
 	/** sessionId → 回复基线（getMessages 下标），agent_end 后更新，避免排队回合重复回复 */
@@ -94,6 +98,8 @@ export class ChannelManager {
 	private streamingDeltas = new Map<string, Map<number, string>>();
 	/** 流式节流最小间隔（ms）：避免每个 token 一次 WS 往返打爆企微 */
 	private static readonly STREAM_THROTTLE_MS = 500;
+	/** 主动推送前等待渠道重连就绪的默认超时（ms） */
+	private static readonly DEFAULT_PUSH_CONNECT_TIMEOUT_MS = 60_000;
 	private factories: Partial<Record<ChannelType, AdapterFactory>>;
 
 	constructor(private deps: ChannelManagerDeps) {
@@ -271,7 +277,59 @@ export class ChannelManager {
 		if (!adapter.pushMessage) {
 			throw new Error(`渠道 ${contact.channelId} 不支持主动推送`);
 		}
+		// 推送前校验连接状态：断线则等待 SDK 自动重连（超时失败），
+		// 避免断线窗口内推送被 SDK 直接丢弃（ws.readyState !== OPEN 抛错）。
+		if (this.statuses.get(contact.channelId)?.status !== "connected") {
+			await this.waitForConnected(
+				contact.channelId,
+				this.deps.pushConnectTimeoutMs ??
+					ChannelManager.DEFAULT_PUSH_CONNECT_TIMEOUT_MS,
+			);
+		}
 		await adapter.pushMessage(chatId, message);
+	}
+
+	/** 推送前等待某渠道重连就绪（status 变 connected）；已就绪立即返回，超时抛错。
+	 *  断线后 SDK 自动无限重连（指数退避），本方法不主动触发重连，只等待其成功。 */
+	private waitForConnected(channelId: string, timeoutMs: number): Promise<void> {
+		if (this.statuses.get(channelId)?.status === "connected") {
+			return Promise.resolve();
+		}
+		return new Promise<void>((resolve, reject) => {
+			let settled = false;
+			const settle = (fn: () => void) => {
+				if (settled) return;
+				settled = true;
+				fn();
+			};
+			const release = () => settle(resolve);
+			const waiters = this.statusWaiters.get(channelId) ?? new Set<() => void>();
+			waiters.add(release);
+			this.statusWaiters.set(channelId, waiters);
+			setTimeout(() => {
+				if (settled) return;
+				waiters.delete(release);
+				if (waiters.size === 0) this.statusWaiters.delete(channelId);
+				const s = this.statuses.get(channelId);
+				settle(() =>
+					reject(
+						new Error(
+							`渠道未连接，等待 ${Math.round(timeoutMs / 1000)} 秒后仍未恢复` +
+								(s?.detail ? `（${s.detail}）` : ""),
+						),
+					),
+				);
+			}, timeoutMs);
+		});
+	}
+
+	/** 连接状态分发：连接就绪时唤醒所有等待者（推送前等待重连用） */
+	private notifyStatusWaiters(channelId: string, status: ChannelStatus): void {
+		if (status !== "connected") return;
+		const waiters = this.statusWaiters.get(channelId);
+		if (!waiters || waiters.size === 0) return;
+		this.statusWaiters.delete(channelId);
+		for (const release of waiters) release();
 	}
 
 	/** 智能体被渠道引用的统计（删除智能体确认提示用） */
@@ -529,6 +587,7 @@ export class ChannelManager {
 		this.statuses.set(channel.id, { status: "connecting" });
 		adapter.onStatus((status, detail) => {
 			this.statuses.set(channel.id, { status, detail });
+			this.notifyStatusWaiters(channel.id, status);
 			this.deps.broadcast({ type: "channels:changed" });
 		});
 		adapter.onMessage((msg) => {

@@ -32,6 +32,13 @@ contextBridge.exposeInMainWorld("waPiApp", {
 	// 开机自启：读取/设置系统登录项
 	getLoginItem: () => ipcRenderer.invoke("app:get-login-item"),
 	setLoginItem: (enabled) => ipcRenderer.invoke("app:set-login-item", enabled),
+	// 原生系统文件选择对话框：附件「选择要发送的文件」（多选，返回路径数组，取消返回 []）
+	showOpenFileDialog: () => ipcRenderer.invoke("dialog:open-files"),
+	// 原生系统目录选择对话框：技能「添加目录」（返回目录路径，取消返回 null）
+	showOpenDirectoryDialog: () => ipcRenderer.invoke("dialog:open-directory"),
+	// 在系统文件管理器定位路径：技能「打开技能文件夹」
+	showItemInFolder: (filePath) =>
+		ipcRenderer.invoke("shell:show-item-in-folder", filePath),
 });
 
 // 外链子窗口地址栏（link-window.html）专用：加载/同步地址。

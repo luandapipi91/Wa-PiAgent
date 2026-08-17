@@ -47,12 +47,15 @@ function validateTaskBody(body: {
 	agentId?: unknown;
 	prompt?: unknown;
 	schedule?: unknown;
+	model?: unknown;
 }): string | null {
 	if (typeof body.name !== "string" || !body.name.trim()) return "name 不能为空";
 	if (typeof body.agentId !== "string" || !body.agentId.trim())
 		return "agentId 不能为空";
 	if (typeof body.prompt !== "string" || !body.prompt.trim())
 		return "prompt 不能为空";
+	if (body.model != null && typeof body.model !== "string")
+		return "model 必须是字符串（providerSlug/modelId）";
 	const schedule = body.schedule as Partial<TaskSchedule> | undefined;
 	if (!schedule || typeof schedule !== "object") return "schedule 不能为空";
 	if (!SCHEDULE_TYPES.includes(schedule.type as (typeof SCHEDULE_TYPES)[number]))
@@ -102,6 +105,7 @@ export function createSchedulerRoutes(
 				agentId: body.agentId ?? "",
 				prompt: body.prompt ?? "",
 				projectId: body.projectId,
+				model: typeof body.model === "string" ? body.model : undefined,
 				enabled: body.enabled ?? true,
 				createdAt: now,
 				updatedAt: now,
@@ -135,6 +139,8 @@ export function createSchedulerRoutes(
 			const updated: ScheduledTask = {
 				...merged,
 				id: params.id,
+				// model null（前端「跟随默认」）归一为 undefined，保持存储里 model 仅 string|undefined
+				model: typeof merged.model === "string" ? merged.model : undefined,
 				updatedAt: Date.now(),
 			};
 			await mutateScheduledTasks(tasksFile, (list) =>
@@ -158,7 +164,7 @@ export function createSchedulerRoutes(
 		});
 
 		// POST /api/scheduled-tasks/:id/run — 立即执行（触发即返回）
-		// 不 await 执行链（最长 5 分钟）：Bun.serve idleTimeout 255s 会先掐断连接；
+		// 不 await 执行链（最长 30 分钟）：Bun.serve idleTimeout 255s 会先掐断连接；
 		// 执行结果经 scheduled-task:completed SSE 广播，前端收到后刷新列表/记录。
 		r.add("POST", "/api/scheduled-tasks/:id/run", async (_req, params) => {
 			void onRunNow(params.id).catch((err) => {

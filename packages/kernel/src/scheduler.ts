@@ -2,6 +2,7 @@ import type {
 	TaskSchedule,
 	ScheduledTask,
 	ExecutionRecord,
+	ModelProvider,
 } from "@wa-pi/shared";
 import { loadScheduledTasks } from "./scheduler-store";
 
@@ -35,6 +36,20 @@ export function toCronExpression(schedule: TaskSchedule): string {
 		case "custom":
 			return schedule.cronExpression ?? "* * * * *";
 	}
+}
+
+/** 解析任务运行时模型：task.model 优先，缺省回退到第一个 provider 的第一个模型 */
+export function resolveTaskModel(
+	taskModel: string | null | undefined,
+	providers: ModelProvider[],
+): string {
+	if (taskModel) return taskModel;
+	const first = providers[0];
+	const firstModel = first?.models?.[0];
+	if (!first || !firstModel) {
+		throw new Error("无可用的模型供应商，请先在设置中配置至少一个供应商");
+	}
+	return `${first.slug ?? first.name}/${firstModel.id}`;
 }
 
 export interface SchedulerDeps {
