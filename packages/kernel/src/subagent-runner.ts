@@ -71,9 +71,9 @@ export interface SubagentRunOpts {
 	/** 测试覆盖：pi CLI 入口 / 运行时 */
 	cliPath?: string;
 	runtime?: string;
-	/** RPC 命令超时毫秒数，默认 30 分钟（1800000）；设为 Infinity 关闭超时（settle 兜底同样跳过） */
+	/** RPC 命令超时毫秒数，默认 60 分钟（3600000）；设为 Infinity 关闭超时（settle 兜底同样跳过） */
 	commandTimeoutMs?: number;
-	/** 无进展探活超时毫秒数，默认 5 分钟（300000）。进程存活但无任何业务事件
+	/** 无进展探活超时毫秒数，默认 10 分钟（600000）。进程存活但无任何业务事件
 	 *  （message_update / tool_execution_* / agent_start|end / thinking_delta）
 	 *  超过该时长判定卡死。工具执行中同样不豁免：正常长工具（bash 等）会持续发
 	 *  tool_execution_update 流式输出刷新计时；完全静默（含等工具返回）超时判死——
@@ -88,8 +88,11 @@ export interface SubagentRunOpts {
  *  到期不再等待 settle，走 finally dispose 强杀（防用户停止后子代理后台再活满 settle 超时） */
 export const ABORT_GRACE_MS = 10_000;
 
-/** 无进展探活默认超时：子代理进程存活但 5 分钟无任何业务事件判定卡死。 */
-export const LIVENESS_IDLE_MS = 5 * 60_000;
+/** RPC 命令 / settle 兜底默认超时：子代理委托整体硬上限，默认 60 分钟。 */
+export const COMMAND_TIMEOUT_MS = 60 * 60_000;
+
+/** 无进展探活默认超时：子代理进程存活但 10 分钟无任何业务事件判定卡死。 */
+export const LIVENESS_IDLE_MS = 10 * 60_000;
 
 /**
  * thinking → pi CLI thinking level 映射。
@@ -248,7 +251,7 @@ export async function runSubagentAgent(
 			}),
 			cwd,
 			env: { PI_CODING_AGENT_DIR: WA_PI_DIR },
-			commandTimeoutMs: opts?.commandTimeoutMs ?? 1_800_000,
+			commandTimeoutMs: opts?.commandTimeoutMs ?? COMMAND_TIMEOUT_MS,
 			onEvent,
 			onExit: (code) => {
 				// agent_settled 前退出视为失败（settled 后 dispose 的正常退出不走这里：
@@ -270,7 +273,7 @@ export async function runSubagentAgent(
 			// 进程泄漏累积 → macOS SIGKILL（历史 bug）。
 			// Infinity 显式关闭超时：setTimeout(Infinity) 在 Node/Bun 溢出按 1ms 处理，
 			// 会直接误超时，必须 Number.isFinite 特判跳过。
-			const settleTimeoutMs = opts?.commandTimeoutMs ?? 1_800_000;
+			const settleTimeoutMs = opts?.commandTimeoutMs ?? COMMAND_TIMEOUT_MS;
 			const abortGraceMs = opts?.abortGraceMs ?? ABORT_GRACE_MS;
 			let settleTimer: ReturnType<typeof setTimeout> | undefined;
 			let graceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -279,10 +282,7 @@ export async function runSubagentAgent(
 				racers.push(
 					new Promise<never>((_, reject) => {
 						settleTimer = setTimeout(
-							() =>
-								reject(
-									new Error(`子智能体 settle 超时 (${settleTimeoutMs}ms)`),
-								),
+							() => reject(new Error(`子智能体 settle 超时 (${settleTimeoutMs}ms)`)),
 							settleTimeoutMs,
 						);
 					}),
@@ -296,7 +296,7 @@ export async function runSubagentAgent(
 				);
 			}
 			// abort 短路：子代理可能卡在不可中断的工具里收不到 abort RPC，若仍等
-			// settle 超时（默认 30 分钟），用户点停止后子代理进程在后台继续存活烧配额。
+			// settle 超时（默认 60 分钟），用户点停止后子代理进程在后台继续存活烧配额。
 			// 宽限 abortGraceMs 等子代理响应 abort，到期 resolve —— 走下方
 			// signal.aborted 分支返回「子智能体已被中止」，finally dispose 强杀进程。
 			if (opts?.signal) {
@@ -357,9 +357,7 @@ export async function runSubagentAgent(
 					},
 					// pi SessionStats.cost 可能是数值或 { total } 对象，防御性兼容
 					costTotal:
-						typeof stats?.cost === "number"
-							? stats.cost
-							: (stats?.cost?.total ?? 0),
+						typeof stats?.cost === "number" ? stats.cost : (stats?.cost?.total ?? 0),
 				};
 			}
 		} catch {
