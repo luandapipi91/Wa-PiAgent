@@ -219,16 +219,16 @@ const ICONS = {
 	),
 	mic: (
 		<>
-			<rect x="9" y="3" width="6" height="11" rx="3" />
-			<path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
-			<path d="M12 17.5V21" />
+			<rect x="9" y="5" width="6" height="7" rx="3" />
+			<path d="M18 9v2a6 6 0 0 1-12 0v-2" />
+			<path d="M12 17V19" />
 		</>
 	),
 	"mic-solid": (
 		<>
-			<rect x="9" y="3" width="6" height="11" rx="3" {...F} />
-			<path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
-			<path d="M12 17.5V21" />
+			<rect x="9" y="5" width="6" height="7" rx="3" {...F} />
+			<path d="M18 9v2a6 6 0 0 1-12 0v-2" />
+			<path d="M12 17V19" />
 		</>
 	),
 	monitor: (
