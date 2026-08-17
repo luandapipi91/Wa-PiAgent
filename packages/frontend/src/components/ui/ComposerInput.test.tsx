@@ -111,3 +111,10 @@ test("非 Electron 环境点击附件按钮打开内置文件选择器", async (
 	expect(await screen.findByTestId("file-picker")).toBeTruthy();
 	expect(showOpenFileDialog).not.toHaveBeenCalled();
 });
+
+test("附件按钮渲染 SVG 图标而非 emoji", () => {
+	renderComposer();
+	const btn = screen.getByTestId("composer-attach-btn");
+	expect(btn.querySelector("svg")).toBeTruthy();
+	expect(btn.textContent).not.toContain("📎");
+});

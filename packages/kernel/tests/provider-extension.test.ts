@@ -195,13 +195,55 @@ test("generateProviderExtension：内置目录无该模型时回退 provider.bas
   expect(code).toContain('baseUrl: "https://my.custom.com/v1"');
 });
 
-test("generateProviderExtension 包含所有模型（SDK 查找不到时使用默认参数）", () => {
+test("generateProviderExtension 包含所有模型（SDK 查找不到时回退用户配置参数）", () => {
   const code = generateProviderExtension([sampleProvider()], new Map());
   expect(code).toContain('id: "deepseek-chat"');
   expect(code).toContain('id: "deepseek-reasoner"');
-  // SDK 找不到模型时使用默认值 128000 / 16384
-  expect(code).toContain("contextWindow: 128000");
-  expect(code).toContain("maxTokens: 16384");
+  // SDK 找不到模型时回退用户配置的 contextWindow / maxTokens（不再静默落 128000 默认值，
+  // 否则 pi 会按错误窗口提前触发自动压缩）
+  expect(code).toContain("contextWindow: 64000");
+  expect(code).toContain("maxTokens: 4096");
+});
+
+test("generateProviderExtension：重名 slug 的第二个 provider 回退用户配置（回归：默认 128000 窗口误触发自动压缩）", () => {
+  // providers.json 里两个 provider 都解析为 opencode-go，第二个去重为 opencode-go-2；
+  // sdkModelMap 只含第一个 provider 的复合键时，第二个 provider 的模型查询落空，
+  // 必须回退用户配置（1M）而非 DEFAULT_SDK_MODEL（128000）。
+  const p1 = sampleProvider({
+    id: "p1",
+    name: "OpenCode Zen Go",
+    slug: "opencode-go",
+    models: [
+      { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+    ],
+  });
+  const p2 = sampleProvider({
+    id: "p2",
+    name: "OpenCode Go 1",
+    slug: "opencode-go",
+    models: [
+      { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+    ],
+  });
+  const sdkModelMap = new Map([
+    [
+      "opencode-go/deepseek-v4-flash",
+      {
+        contextWindow: 1000000,
+        maxTokens: 384000,
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "DeepSeek V4 Flash",
+        baseUrl: "https://opencode.ai/zen/go/v1",
+        api: "openai-completions",
+      },
+    ],
+  ]);
+  const code = generateProviderExtension([p1, p2], sdkModelMap);
+  const second = code.slice(code.indexOf('registerProvider("opencode-go-2"'));
+  expect(second).toContain("contextWindow: 1000000");
+  expect(second).toContain("maxTokens: 384000");
 });
 
 test("generateProviderExtension 空列表生成空工厂", () => {
@@ -245,6 +287,54 @@ test("ensureProviderExtensionRegistered 写 extension 文件到指定目录", as
 
     // 不再写 settings.json.packages（迁移后改由 additionalExtensionPaths 注入）
     expect(existsSync(join(dir, "settings.json"))).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureProviderExtensionRegistered：重名 slug provider 从目录裸 id 回退命中（回归：opencode-go-2 落默认 128000 窗口）", async () => {
+  // 真实目录回归：两个 provider 同 slug（opencode-go），第二个去重为 opencode-go-2。
+  // 目录按 opencode-go-2 过滤必然落空，应回退裸 id 匹配命中 opencode-go 的目录条目
+  // （deepseek-v4-flash：contextWindow 1000000 / maxTokens 384000 / reasoning true）。
+  const dir = join(
+    import.meta.dir,
+    ".tmp-ext-" + Math.random().toString(36).slice(2),
+  );
+  const generatedDir = join(dir, "generated");
+  try {
+    const { ProviderStore } = await import("../src/provider-store");
+    const store = new ProviderStore(join(dir, "providers.json"));
+    await store.save(
+      sampleProvider({
+        id: "p1",
+        name: "OpenCode Zen Go",
+        slug: "opencode-go",
+        models: [
+          { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+        ],
+      }),
+    );
+    await store.save(
+      sampleProvider({
+        id: "p2",
+        name: "OpenCode Go 1",
+        slug: "opencode-go",
+        models: [
+          { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+        ],
+      }),
+    );
+
+    await ensureProviderExtensionRegistered(store, generatedDir);
+
+    const code = readFileSync(
+      join(generatedDir, "provider-extension.ts"),
+      "utf8",
+    );
+    const second = code.slice(code.indexOf('registerProvider("opencode-go-2"'));
+    expect(second).toContain("contextWindow: 1000000");
+    expect(second).toContain("maxTokens: 384000");
+    expect(second).toContain("reasoning: true");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
