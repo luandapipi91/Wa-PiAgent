@@ -1,5 +1,18 @@
 // FileViewer 组件测试：文本高亮渲染、图片 data URI、unsupported、loading、error 态、关闭回调。
-import { test, expect, beforeEach, afterEach, spyOn } from "bun:test";
+// 头部分享按钮（ShareButton）依赖 share-client，整模块 mock（bun mock.module 路径须与组件 import 一致）。
+import { test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
+
+const shareSettingsMock = mock(async () => ({
+	token: "edgeone-token",
+	channel: "edgeone",
+}));
+const shareUploadMock = mock(async () => ({}));
+
+mock.module("../src/share-client", () => ({
+	shareSettings: shareSettingsMock,
+	shareUpload: shareUploadMock,
+	saveShareSettings: async () => {},
+}));
 import {
 	render,
 	screen,
@@ -336,4 +349,43 @@ test("底部地址栏：unsupported 预览也有复制路径按钮", async () =>
 		),
 	);
 	expect(screen.getByTestId("fv-copy-path")).toBeTruthy();
+});
+
+// ===== 头部分享按钮 =====
+
+test("md 预览头部：出现分享按钮 share-file-btn", async () => {
+	fake.setResponse("fs:readFile", {
+		content: btoa("# T\n"),
+		mimeType: "text/markdown",
+	});
+	render(<FileViewer path="/work/demo/README.md" onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByTestId("text-block")).toBeTruthy());
+	expect(screen.getByTestId("share-file-btn")).toBeTruthy();
+});
+
+test("代码预览头部：出现分享按钮 share-file-btn", async () => {
+	fake.setResponse("fs:readFile", {
+		content: btoa("const a = 1;"),
+		mimeType: "text/plain",
+	});
+	render(<FileViewer path="/work/demo/index.ts" onClose={() => {}} />);
+	await waitFor(() => expect(screen.getByTestId("file-viewer")).toBeTruthy());
+	expect(screen.getByTestId("share-file-btn")).toBeTruthy();
+});
+
+test("点击分享按钮：打开分享弹层（share-result-modal）", async () => {
+	fake.setResponse("fs:readFile", {
+		content: btoa("# T\n"),
+		mimeType: "text/markdown",
+	});
+	render(
+		<FileViewer path="/work/demo/README.md" onClose={() => {}} sessionId="s1" />,
+	);
+	await waitFor(() => expect(screen.getByTestId("text-block")).toBeTruthy());
+	fireEvent.click(screen.getByTestId("share-file-btn"));
+	await waitFor(() =>
+		expect(screen.getByTestId("share-result-modal")).toBeTruthy(),
+	);
+	// 弹层内展示待分享文件（README.md 文件名）
+	expect(screen.getByTestId("share-files")).toBeTruthy();
 });
