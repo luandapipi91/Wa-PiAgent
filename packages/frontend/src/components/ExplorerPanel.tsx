@@ -214,6 +214,12 @@ export function ExplorerPanel({
 		[loadDir],
 	);
 
+	// workspaceDir 切换：重置选中集与 Shift 连选锚点
+	useEffect(() => {
+		setSelectedPaths(new Set());
+		lastSelectedRef.current = null;
+	}, [workspaceDir]);
+
 	// 初始加载 + 5s 轮询
 	useEffect(() => {
 		if (!workspaceDir) return;
@@ -361,8 +367,9 @@ export function ExplorerPanel({
 		(e: React.MouseEvent, node: FlatNode) => {
 			e.preventDefault();
 			e.stopPropagation();
-			// 多选（>1）时右键分享所选；否则沿用原行为：单选该节点并显示单文件菜单
-			if (selectedPaths.size > 1) {
+			// 右键节点在选中集内且 >1 项：分享所选；
+			// 否则（含右键未选中节点）：按文件树惯例单选该节点并弹单文件菜单
+			if (selectedPaths.size > 1 && selectedPaths.has(node.entry.path)) {
 				setCtxMenu({
 					x: e.clientX,
 					y: e.clientY,
@@ -371,11 +378,14 @@ export function ExplorerPanel({
 				});
 				return;
 			}
-			if (!node.entry.isDir) {
-				setSelectedPaths(new Set([node.entry.path]));
-				lastSelectedRef.current = node.entry.path;
-			}
-			setCtxMenu({ x: e.clientX, y: e.clientY, entry: node.entry, sel: [node.entry.path] });
+			setSelectedPaths(new Set([node.entry.path]));
+			lastSelectedRef.current = node.entry.path;
+			setCtxMenu({
+				x: e.clientX,
+				y: e.clientY,
+				entry: node.entry,
+				sel: [node.entry.path],
+			});
 		},
 		[selectedPaths],
 	);

@@ -8,6 +8,7 @@
 - 右键菜单分态：多选（>1）时只显示「分享所选」（`ep-ctx-share-multi`，paths=选中项列表，含文件夹）；单选时保留复制路径/默认应用打开/在访达显示并新增「分享」（`ep-ctx-share`）。
 - 分享弹层：ExplorerPanel 新增 `sharePaths` state，右键「分享 / 分享所选」置位后直接渲染 `ShareResultModal`（从 `ui/ShareButton` 导出复用，share-client 走注入 transport）。
 - 影响范围：`packages/frontend/src/components/ExplorerPanel.tsx`、`ui/ShareButton.tsx`（导出 ShareResultModal）、i18n zh/en（`explorer.ctxShare` / `ctxShareMulti`）、`ExplorerPanel.test.tsx`（新增 5 用例：Ctrl/Cmd 多选、Shift 连选、多选右键分态、单选含分享、分享 paths 正确）。
+- 审查修复：右键分态增加归属校验（右键节点必须在选中集内才走「分享所选」，否则单选该节点弹单文件菜单）；workspaceDir 切换时重置选中集与 Shift 锚点；分享弹层关闭即清空 sharePaths；测试补「文件+目录混合多选分享」「弹层关闭卸载」2 用例。
 
 ## 2026-08-17 — fix(kernel): 用户自定义 baseUrl 不再被内置模型目录覆盖（tokenhub 401）
 

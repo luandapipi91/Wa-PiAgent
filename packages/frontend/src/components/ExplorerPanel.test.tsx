@@ -244,6 +244,60 @@ test("多选右键「分享所选」：打开分享弹层且上传 paths 为选�
 		paths: ["/proj/a.ts", "/proj/b.ts"],
 		sessionId: undefined,
 	});
+
+	// 关闭分享弹层：sharePaths 被清空，弹层卸载
+	fireEvent.click(screen.getByTestId("share-close"));
+	await waitFor(() =>
+		expect(screen.queryByTestId("share-result-modal")).toBeNull(),
+	);
+});
+
+test("多选右键分享：文件 + 目录混合选中，分享 paths 含文件与目录路径", async () => {
+	const uploads: Array<{ path: string; body?: unknown }> = [];
+	_setShareTransport({
+		get: async () => ({
+			share: { token: "edgeone-token", channel: "edgeone" },
+		}),
+		post: async (path: string, body?: unknown) => {
+			uploads.push({ path, body });
+			if (path === "/api/share/upload")
+				return {
+					url: "https://share.edgeone.app/s/abc",
+					expiresAt: Date.now() + 3 * 3600 * 1000,
+					projectName: "proj",
+					channel: "edgeone",
+				};
+			return {};
+		},
+		put: async () => ({}),
+	});
+	mockListDir([
+		{ name: "src", isDir: true },
+		{ name: "a.ts", isDir: false },
+	]);
+	render(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
+	await waitFor(() => expect(screen.getByText("a.ts")).toBeTruthy());
+	const file = nodeOf("a.ts");
+	const dir = nodeOf("src");
+
+	fireEvent.click(file); // 单选文件
+	fireEvent.click(dir, { ctrlKey: true }); // Ctrl+点击目录加入选中集（不展开）
+	fireEvent.contextMenu(dir); // 右键选中集内目录 → 分享所选
+	fireEvent.click(screen.getByTestId("ep-ctx-share-multi"));
+
+	// 分享弹层打开并生成
+	await waitFor(() =>
+		expect(screen.getByTestId("share-result-modal")).toBeTruthy(),
+	);
+	fireEvent.click(screen.getByTestId("share-generate-btn"));
+	await waitFor(() =>
+		expect(uploads.some((c) => c.path === "/api/share/upload")).toBe(true),
+	);
+	const upload = uploads.find((c) => c.path === "/api/share/upload");
+	expect(upload?.body).toEqual({
+		paths: ["/proj/a.ts", "/proj/src"],
+		sessionId: undefined,
+	});
 });
 
 test("右键目录菜单不含「默认方式打开」", async () => {
