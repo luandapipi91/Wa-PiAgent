@@ -13,6 +13,7 @@ import { copyToClipboard } from "../../util/clipboard";
 import { useSessionStore } from "../../store/session";
 import { useToastStore } from "../../store/toast";
 import { Icon } from "../ui/Icon";
+import { ShareButton } from "../ui/ShareButton";
 import { useIsDarkMode } from "../../theme/use-is-dark-mode";
 
 // 图片扩展名集合（与 kernel checkPreviewable 放行的 image/* 对齐）
@@ -540,6 +541,12 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 					<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono inline-flex items-center gap-1">
 						<Icon name="file" size={12} /> {fileName}
 					</span>
+					<ShareButton
+						paths={[path]}
+						sessionId={sessionId}
+						className="fv-btn"
+						testId="share-file-btn"
+					/>
 					<button
 						className="fv-btn"
 						onClick={onClose}
@@ -572,6 +579,12 @@ export function FileViewer({ path, onClose, sessionId }: FileViewerProps) {
 				<span className="text-[calc(12px*var(--font-scale))] text-secondary flex-1 truncate font-mono inline-flex items-center gap-1">
 					<Icon name="file" size={12} /> {fileName}
 				</span>
+				<ShareButton
+					paths={[path]}
+					sessionId={sessionId}
+					className="fv-btn"
+					testId="share-file-btn"
+				/>
 				<button className="fv-btn" onClick={onClose} title={t("common.close")}>
 					<Icon name="x" size={12} />
 				</button>
