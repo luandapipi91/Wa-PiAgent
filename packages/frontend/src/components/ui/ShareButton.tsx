@@ -54,7 +54,7 @@ interface ShareResultModalProps {
 }
 
 /** 分享结果弹层：检查 token → 生成分享链接 → 展示 URL / 复制 / 有效期 */
-function ShareResultModal({
+export function ShareResultModal({
 	paths,
 	sessionId,
 	onClose,

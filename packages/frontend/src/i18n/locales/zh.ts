@@ -544,6 +544,8 @@ const zh = {
 	},
 	explorer: {
 		ctxCopyPath: "复制路径",
+		ctxShare: "分享",
+		ctxShareMulti: "分享所选",
 		revealFailed: "打开失败",
 		emptyNoWorkspace: "未设置工作目录",
 		loadFailed: "加载失败：{{error}}",
