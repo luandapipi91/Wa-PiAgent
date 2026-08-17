@@ -2,6 +2,48 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — chore(release): 发布版本 0.2.5
+
+- 打包发布 0.2.5（mac + win）：原生系统对话框（附件选文件/技能目录/打开文件夹）、任务模型与超时改进、IM 推送重连等待、文件树默认打开、设置弹窗关闭按钮等。
+- 影响范围：版本号（`packages/desktop/package.json`、`packages/frontend/package.json`、`version-history.json`）、`RELEASE_NOTES.md`。
+
+## 2026-08-17 — feat(kernel): 自动化任务执行超时 5 分钟 → 30 分钟
+
+- 定时任务单次执行最长等待由 5 分钟调至 30 分钟（index.ts executeTask 的 MAX_WAIT_MS），超时仍 abort 会话进程并记录「任务执行超时（30 分钟）」。
+- 影响范围：`packages/kernel/src/index.ts`（MAX_WAIT_MS + 错误文案）、`packages/kernel/src/routes/scheduler.ts`（立即执行接口注释同步）。
+
+## 2026-08-17 — feat(frontend): 项目文件树右键文件增加「默认方式打开」
+
+- 项目文件树（ExplorerPanel）右键文件弹出的菜单新增「默认方式打开」项，用系统默认应用打开该文件（macOS open / Windows start / Linux xdg-open），仅对文件显示、目录不显示。能力复用已有的 fs-client `openFileWithDefaultApp`（POST `/api/fs/open-with-default-app`），无需改 kernel/desktop。
+- 影响范围：`packages/frontend/src/components/ExplorerPanel.tsx`；新增测试 `ExplorerPanel.test.tsx`（右键文件点击调用 + 目录不显示两项断言）。
+
+## 2026-08-17 — fix(kernel): IM 推送前校验连接状态，断线时等待重连
+
+- 定时任务 @im-push-to 主动推送此前只校验 adapter 对象是否存在，不校验实时连接状态；IM 掉线时推送照发，SDK 因 ws.readyState !== OPEN 直接抛错导致推送失败。现推送前校验 `statuses` 实时状态，非 connected 则等待 SDK 自动重连（默认 60s 超时，超时判失败并回填执行记录）。
+- 影响范围：`packages/kernel/src/channel-manager.ts`（新增 statusWaiters/waitForConnected/notifyStatusWaiters，pushToContact 加校验）、`packages/kernel/src/channels/mock-adapter.ts`（setStatus 改 public 供测试模拟断线）；测试 `channel-manager.test.ts`（新增断线等待重连、超时抛错 2 用例）。
+
+## 2026-08-17 — feat: 自动化任务新增「使用的模型」配置项
+
+- 新建/编辑自动化任务时可指定运行时模型（下拉：首项「跟随默认」+ 具体 providerSlug/modelId），参考 IM 渠道机器人设置的模型下拉。留空（null/undefined）= 跟随默认（第一个 provider 的第一个模型）。
+- 数据链路：`ScheduledTask.model?: string | null`（shared/types.ts）→ 路由校验/透传（routes/scheduler.ts，model 非字符串→400，null 归一为 undefined 存储）→ 执行时 `resolveTaskModel(task.model, providers)` 优先用任务模型（scheduler.ts 新纯函数，index.ts executeTask 调用）。
+- 影响范围：`packages/shared/src/types.ts`、`packages/kernel/src/routes/scheduler.ts`、`packages/kernel/src/scheduler.ts`、`packages/kernel/src/index.ts`、`packages/frontend/src/components/automation/TaskEditForm.tsx`；测试 `routes-scheduler.test.ts`、`scheduler.test.ts`、`TaskEditForm.test.tsx`。
+
+## 2026-08-17 — fix(frontend): 设置弹框补充显式关闭按钮
+
+- 设置弹框（SettingsModal）标题栏此前只有标题文字，关闭只能靠点击遮罩或 ESC，不符合用户常识。在标题栏右侧补一个 X 关闭按钮（`<Icon name="x">`，`aria-label` 走 `common.close`，`data-testid="settings-close"`），与回收站弹框（RecycleBinModal）标题栏风格一致。
+- 影响范围：`packages/frontend/src/components/SettingsModal.tsx`；新增测试 `packages/frontend/src/components/SettingsModal.test.tsx`（断言关闭按钮渲染 + 点击触发 onClose）。
+
+## 2026-08-17 — feat(desktop+frontend): 附件与技能文件夹改用系统原生对话框
+
+- 附件「选择要发送的文件」与技能「添加目录」在 Electron 下改用系统原生对话框（`dialog.showOpenDialog`，前者多选文件、后者选目录），浏览器环境回退到内置文件/目录树；技能目录新增「打开技能文件夹」按钮（`shell.showItemInFolder` 在系统文件管理器定位）。此前 Electron 层完全未封装 `dialog`/`shell`，文件选择走 web 控件、定位走 kernel spawn 系统命令。
+- 影响范围：新增 `packages/desktop/src/util/native-dialogs.cjs`（依赖注入封装，注册 `dialog:open-files`/`dialog:open-directory`/`shell:show-item-in-folder` 三个 IPC）；`packages/desktop/src/main.cjs`（require dialog/shell 并调用）、`packages/desktop/src/preload.cjs`（暴露 `waPiApp.showOpenFileDialog`/`showOpenDirectoryDialog`/`showItemInFolder`）；`packages/frontend/src/util/clipboard.ts`（waPiApp 类型声明）；`packages/frontend/src/components/ui/ComposerInput.tsx`（📎 原生优先回退）、`packages/frontend/src/components/settings/SkillSection.tsx`（添加目录原生优先回退 + 打开文件夹按钮）、`packages/frontend/src/i18n/locales/zh.ts`/`en.ts`（新增 skill.openDir）。测试：`native-dialogs.test.ts`、`SkillSection.test.tsx`、`ComposerInput.test.tsx`（均为新增）。
+
+## 2026-08-17 — feat(frontend): 自动化任务新建弹窗 @IM联系人 支持群
+
+- 「自动化 → 任务 → 新建任务弹窗」的 @联系人选择器此前只展示 person（`TaskPromptComposer.tsx` 中 `if (c.kind !== "person") continue` 过滤掉了群），现放开为 person + group 均可 @；群名取 chatId 前 8 位展示（对齐通讯录面板 ContactsPanel 的 label）。后端推送链路（pushToContact / im_push_to）本就支持群，无需改动。
+- 联系人/群图标统一改 SVG：弹窗列表用 `<Icon name="user|users">`（Icon 库新增 `user` / `users` 两个图形），输入框内已插入的联系人 chip 也从硬编码的「人形剪影」改为 `iconSvg("user"|`users`)` 区分人/群（`prompt-tokens.ts` 的 `ContactChipMeta` 新增 `kind` 字段，删除 `PERSON_ICON_SVG`）。
+- 影响范围：`packages/frontend/src/components/automation/TaskPromptComposer.tsx`、`packages/frontend/src/components/automation/prompt-tokens.ts`、`packages/frontend/src/components/ui/Icon.tsx`；测试 `TaskPromptComposer.test.tsx`、`prompt-tokens.test.ts`（新增群展示/选中/群 chip 名/图标 SVG 断言）。
+
 ## 2026-08-17 — chore(release): 发布版本 0.2.4
 
 - 打包发布 0.2.4（mac + win 完整覆盖 OSS）：修复模型不可用（404）baseUrl 匹配（Provider 缺 /v1 + 同名模型污染，含测试连接）+ 新建会话页默认工作区隐藏文件浏览按钮。
