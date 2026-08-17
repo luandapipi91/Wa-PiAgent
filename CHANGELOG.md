@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — fix(kernel): 分享部署失败感知 + 轮询间隔注入 + upload 错误处理
+
+- 产物分享任务 5 修复：deployShare 轮询改为轮询至终态后校验最终 Status 必须为 Success，Failed/Error 等失败终态抛错（EdgeOne 部署失败: Status），不再返回失败链接；新增可选 pollIntervalMs（缺省 5000ms）注入轮询间隔，测试传 1 让单测毫秒级完成；POST /api/share/upload handler 包 try/catch 兜底返回结构化 { error } + 500（避免裸 500）。
+- 影响范围：packages/kernel/src/share/edgeone-client.ts、packages/kernel/src/routes/share.ts；测试 tests/share-routes.test.ts（新增 delete、zip 多选 2 用例，各用例注入 pollIntervalMs=1）。
+
 ## 2026-08-17 — fix(kernel): 发送前自动压缩预留改为固定 33K（社区做法）
 
 - `_autoCompactIfNeeded` 原按「占用 + 模型 catalog maxTokens > 窗口」触发压缩，deepseek-v4（maxTokens=384K）在 1M 窗口下 61.6% 占用就被提前压缩，浪费长上下文。经查证 pi 自身（reserveTokens 固定 16384）与 Claude Code（固定 33K autocompact buffer）均为固定小预留，且 pi-ai 请求层已把 max_tokens clamp 到「窗口 − 占用 − 4096」，输出空间无需 kernel 按上限预留。改为固定预留 33K，判断逻辑抽为纯函数 `shouldCompactBeforeSend`；缓存简化为 modelId → contextWindow。

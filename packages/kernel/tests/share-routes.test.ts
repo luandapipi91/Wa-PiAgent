@@ -25,7 +25,10 @@ function edgeOneFetch() {
     if (body.Action === "DescribePagesProjects")
       return Response.json({ Code: 0, Data: { Response: { Projects: [] } } });
     if (body.Action === "CreatePagesProject")
-      return Response.json({ Code: 0, Data: { Response: { ProjectId: "p1" } } });
+      return Response.json({
+        Code: 0,
+        Data: { Response: { ProjectId: "p1" } },
+      });
     if (body.Action === "DescribePagesCosTempToken")
       return Response.json({
         Code: 0,
@@ -43,7 +46,10 @@ function edgeOneFetch() {
         },
       });
     if (body.Action === "CreatePagesDeployment")
-      return Response.json({ Code: 0, Data: { Response: { DeploymentId: "d1" } } });
+      return Response.json({
+        Code: 0,
+        Data: { Response: { DeploymentId: "d1" } },
+      });
     if (body.Action === "DescribePagesDeployments")
       return Response.json({
         Code: 0,
@@ -56,7 +62,10 @@ function edgeOneFetch() {
         },
       });
     if (body.Action === "DescribePagesEncipherToken")
-      return Response.json({ Code: 0, Data: { Response: { Token: "et", Timestamp: 1 } } });
+      return Response.json({
+        Code: 0,
+        Data: { Response: { Token: "et", Timestamp: 1 } },
+      });
     return Response.json({ Code: 0, Data: { Response: {} } });
   });
 }
@@ -73,6 +82,7 @@ test("POST /api/share/upload 成功返回 { url, expiresAt, projectName, channel
       cosFactory: () => ({ putObject }) as any,
       // 隔离测试 settings：不存在 → token 为空 → 走 cfg.token
       settingsFile: join(dir, "settings.json"),
+      pollIntervalMs: 1,
     },
     historyFile,
     join(dir, "prod"),
@@ -107,6 +117,7 @@ test("paths 为空返回 400", async () => {
       channel: "edgeone",
       cosFactory: () => ({ putObject }) as any,
       settingsFile: join(dir, "settings.json"),
+      pollIntervalMs: 1,
     },
     historyFile,
     join(dir, "prod"),
@@ -130,6 +141,7 @@ test("token 为空返回 400", async () => {
       channel: "edgeone",
       cosFactory: () => ({ putObject }) as any,
       settingsFile: join(dir, "settings.json"),
+      pollIntervalMs: 1,
     },
     historyFile,
     join(dir, "prod"),
@@ -157,3 +169,131 @@ test("GET /api/share/list 返回 shares 列表", async () => {
   expect(res!.status).toBe(200);
   expect(Array.isArray(data.shares)).toBe(true);
 });
+
+test("POST /api/share/delete 删除记录并返回 { ok: true }", async () => {
+  // 预置一条记录到 history
+  writeFileSync(
+    historyFile,
+    JSON.stringify({
+      shares: [
+        {
+          id: "rec-1",
+          url: "https://x",
+          projectName: "share-abc",
+          channel: "edgeone",
+          createdAt: 1,
+          expiresAt: 2,
+          paths: ["/a"],
+        },
+      ],
+    }),
+  );
+  const router = new HttpRouter();
+  createShareRoutes(
+    router,
+    {
+      token: "",
+      channel: "edgeone",
+      settingsFile: join(dir, "settings.json"),
+      pollIntervalMs: 1,
+    },
+    historyFile,
+    join(dir, "prod"),
+  );
+  const res = await router.handle(
+    new Request("http://x/api/share/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "rec-1" }),
+    }),
+  );
+  const data = await res!.json();
+  expect(res!.status).toBe(200);
+  expect(data).toEqual({ ok: true });
+  const shares = JSON.parse(await Bun.file(historyFile).text()).shares;
+  expect(shares).toHaveLength(0);
+});
+
+test("POST /api/share/upload 多选：putObject 传 bundle.zip，部署 DistType=Zip", async () => {
+  let deploymentBody: any;
+  globalThis.fetch = (mock(async (_url: string, init?: any) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.Action === "DescribePagesProjects")
+      return Response.json({ Code: 0, Data: { Response: { Projects: [] } } });
+    if (body.Action === "CreatePagesProject")
+      return Response.json({
+        Code: 0,
+        Data: { Response: { ProjectId: "p1" } },
+      });
+    if (body.Action === "DescribePagesCosTempToken")
+      return Response.json({
+        Code: 0,
+        Data: {
+          Response: {
+            Bucket: "b",
+            Region: "ap-guangzhou",
+            TargetPath: "t",
+            Credentials: {
+              TmpSecretId: "i",
+              TmpSecretKey: "k",
+              Token: "tok",
+            },
+          },
+        },
+      });
+    if (body.Action === "CreatePagesDeployment") {
+      deploymentBody = body;
+      return Response.json({
+        Code: 0,
+        Data: { Response: { DeploymentId: "d1" } },
+      });
+    }
+    if (body.Action === "DescribePagesDeployments")
+      return Response.json({
+        Code: 0,
+        Data: {
+          Response: {
+            Deployments: [
+              { DeploymentId: "d1", Status: "Success", PreviewUrl: "" },
+            ],
+          },
+        },
+      });
+    if (body.Action === "DescribePagesEncipherToken")
+      return Response.json({
+        Code: 0,
+        Data: { Response: { Token: "et", Timestamp: 1 } },
+      });
+    return Response.json({ Code: 0, Data: { Response: {} } });
+  }) as any);
+  const router = new HttpRouter();
+  createShareRoutes(
+    router,
+    {
+      token: "tk_test",
+      channel: "edgeone",
+      cosFactory: () => ({ putObject }) as any,
+      settingsFile: join(dir, "settings.json"),
+      pollIntervalMs: 1,
+    },
+    historyFile,
+    join(dir, "prod"),
+  );
+  writeFileSync(join(dir, "prod", "a.html"), "<h1>a</h1>");
+  writeFileSync(join(dir, "prod", "b.css"), "body{}");
+  const res = await router.handle(
+    new Request("http://x/api/share/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paths: [join(dir, "prod", "a.html"), join(dir, "prod", "b.css")],
+      }),
+    }),
+  );
+  const data = await res!.json();
+  expect(res!.status).toBe(200);
+  expect(typeof data.url).toBe("string");
+  const putArgs = putObject.mock.calls.map((c: any) => c[0] as any);
+  expect(putArgs.some((a: any) => a.Key.endsWith("/bundle.zip"))).toBe(true);
+  expect(deploymentBody.DistType).toBe("Zip");
+}, 15000);
