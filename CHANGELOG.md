@@ -2,6 +2,17 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — fix(kernel): 重名 slug provider 模型窗口落默认值导致 ~122K 误触发自动压缩
+
+- providers.json 中两个 provider 解析为同一 slug（如两个 opencode-go）时，`ensureProviderExtensionRegistered` 构建目录查询 map 用未去重的 `resolveProviderSlug(p, [])`，与 `generateProviderExtension` 内部的 `slugifyProviders`（去重为 opencode-go-2）不一致，第二个 provider 的模型查询全部落空；且 `generateProviderExtension` 的 fallback 是写死的 DEFAULT_SDK_MODEL（128000/16384）而非用户配置——注释宣称"找不到则 fallback 到用户配置"，代码从未如此。结果：用户配置 1M 窗口的模型（OpenCode Go 1 / deepseek-v4-flash）在生成的 extension 里落成 128000，pi 按 `128000 − 16384` 阈值在 ~122K 提前自动压缩（线上证据：会话 s-b99bc7fa 于 121972 tokens 触发）。
+- 修复：`ensureProviderExtensionRegistered` 改用 `slugifyProviders` 的去重 slug 构建 map；`lookupSdkModel` provider 过滤未命中时回退裸 id 匹配（派生 slug 在目录中不存在）；`generateProviderExtension` 的 contextWindow/maxTokens 回退链改为 目录 → 用户配置 → 默认值。修复后 opencode-go-2 正确生成 1000000/384000/reasoning: true（此前 128000/16384/false，cost 也全 0）。
+- 影响范围：`packages/kernel/src/provider-extension.ts`；测试 `tests/provider-extension.test.ts`（更新"SDK 查找不到"断言为用户配置兜底，新增重名 slug 单元回归 + 真实目录集成回归 2 用例）。
+
+## 2026-08-17 — refactor(frontend): 附件/录音按钮 emoji 改为 SVG 图标
+
+- 输入框底部的附件按钮 📎 与录音按钮 🎙 由 emoji 文本改为统一 SVG 图标（复用 Icon 库已有 `paperclip` / `mic` 图形），视觉与全局图标体系对齐、避免 emoji 跨平台渲染差异。颜色/hover/disabled 态仍由外层 className 控制（Icon 继承 currentColor）。
+- 影响范围：`packages/frontend/src/components/ui/ComposerInput.tsx`、`packages/frontend/src/components/ui/RecordButton.tsx`；测试 `ComposerInput.test.tsx`、`tests/RecordButton.test.tsx`（新增 SVG 图标渲染断言）。
+
 ## 2026-08-17 — chore(release): 发布版本 0.2.5
 
 - 打包发布 0.2.5（mac + win）：原生系统对话框（附件选文件/技能目录/打开文件夹）、任务模型与超时改进、IM 推送重连等待、文件树默认打开、设置弹窗关闭按钮等。
@@ -33,10 +44,10 @@
 - 设置弹框（SettingsModal）标题栏此前只有标题文字，关闭只能靠点击遮罩或 ESC，不符合用户常识。在标题栏右侧补一个 X 关闭按钮（`<Icon name="x">`，`aria-label` 走 `common.close`，`data-testid="settings-close"`），与回收站弹框（RecycleBinModal）标题栏风格一致。
 - 影响范围：`packages/frontend/src/components/SettingsModal.tsx`；新增测试 `packages/frontend/src/components/SettingsModal.test.tsx`（断言关闭按钮渲染 + 点击触发 onClose）。
 
-## 2026-08-17 — feat(desktop+frontend): 附件与技能文件夹改用系统原生对话框
+## 2026-08-17 — feat(desktop+frontend): 附件/技能目录/新建项目改用系统原生对话框
 
-- 附件「选择要发送的文件」与技能「添加目录」在 Electron 下改用系统原生对话框（`dialog.showOpenDialog`，前者多选文件、后者选目录），浏览器环境回退到内置文件/目录树；技能目录新增「打开技能文件夹」按钮（`shell.showItemInFolder` 在系统文件管理器定位）。此前 Electron 层完全未封装 `dialog`/`shell`，文件选择走 web 控件、定位走 kernel spawn 系统命令。
-- 影响范围：新增 `packages/desktop/src/util/native-dialogs.cjs`（依赖注入封装，注册 `dialog:open-files`/`dialog:open-directory`/`shell:show-item-in-folder` 三个 IPC）；`packages/desktop/src/main.cjs`（require dialog/shell 并调用）、`packages/desktop/src/preload.cjs`（暴露 `waPiApp.showOpenFileDialog`/`showOpenDirectoryDialog`/`showItemInFolder`）；`packages/frontend/src/util/clipboard.ts`（waPiApp 类型声明）；`packages/frontend/src/components/ui/ComposerInput.tsx`（📎 原生优先回退）、`packages/frontend/src/components/settings/SkillSection.tsx`（添加目录原生优先回退 + 打开文件夹按钮）、`packages/frontend/src/i18n/locales/zh.ts`/`en.ts`（新增 skill.openDir）。测试：`native-dialogs.test.ts`、`SkillSection.test.tsx`、`ComposerInput.test.tsx`（均为新增）。
+- 三处目录/文件选择在 Electron 下改用系统原生对话框：① 附件「选择要发送的文件」（`dialog.showOpenDialog` 多选文件）；② 技能「添加目录」（选目录）；③ 新建项目选工作目录（选目录，两入口 ProjectList/EmptyState 均生效）。浏览器环境全部回退到内置文件/目录树。另：技能目录新增「打开技能文件夹」按钮（`shell.showItemInFolder` 在系统文件管理器定位）。此前 Electron 层完全未封装 `dialog`/`shell`，文件选择走 web 控件、定位走 kernel spawn 系统命令。
+- 影响范围：新增 `packages/desktop/src/util/native-dialogs.cjs`（依赖注入封装，注册 `dialog:open-files`/`dialog:open-directory`/`shell:show-item-in-folder` 三个 IPC）；`packages/desktop/src/main.cjs`（require dialog/shell 并调用）、`packages/desktop/src/preload.cjs`（暴露 `waPiApp.showOpenFileDialog`/`showOpenDirectoryDialog`/`showItemInFolder`）；`packages/frontend/src/util/clipboard.ts`（waPiApp 类型声明）；`packages/frontend/src/components/ui/ComposerInput.tsx`（📎 原生优先回退）、`packages/frontend/src/components/settings/SkillSection.tsx`（添加目录原生优先回退 + 打开文件夹按钮）、`packages/frontend/src/store/projects.ts`（createProjectFromDir 原生优先回退）、`packages/frontend/src/i18n/locales/zh.ts`/`en.ts`（新增 skill.openDir）。测试：`native-dialogs.test.ts`、`SkillSection.test.tsx`、`ComposerInput.test.tsx`（新增）；`store-projects.test.ts`（新增 createProjectFromDir 原生/回退/取消三用例）。
 
 ## 2026-08-17 — feat(frontend): 自动化任务新建弹窗 @IM联系人 支持群
 
