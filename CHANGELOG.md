@@ -2,6 +2,17 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — fix(kernel): 发送前自动压缩预留改为固定 33K（社区做法）
+
+- `_autoCompactIfNeeded` 原按「占用 + 模型 catalog maxTokens > 窗口」触发压缩，deepseek-v4（maxTokens=384K）在 1M 窗口下 61.6% 占用就被提前压缩，浪费长上下文。经查证 pi 自身（reserveTokens 固定 16384）与 Claude Code（固定 33K autocompact buffer）均为固定小预留，且 pi-ai 请求层已把 max_tokens clamp 到「窗口 − 占用 − 4096」，输出空间无需 kernel 按上限预留。改为固定预留 33K，判断逻辑抽为纯函数 `shouldCompactBeforeSend`；缓存简化为 modelId → contextWindow。
+- 影响范围：`packages/kernel/src/auto-compact.ts`（新增）、`packages/kernel/src/agent-manager.ts`；测试 `src/__tests__/auto-compact.test.ts`（新增 5 用例，含「不再按 maxTokens 预留」回归）。
+
+## 2026-08-17 — feat(kernel): 分享上传编排（deployShare）+ /api/share/* 路由
+
+- 产物分享功能：补全 share/edgeone-client.ts 的 deployShare 总入口（探测端点 → 建/取项目 → DescribePagesCosTempToken 拿 COS 临时凭证 → 上传 zip（多选）或单文件 → CreatePagesDeployment（DistType Zip|Folder）→ DescribePagesDeployments 轮询至非 Process（每 5s，最多 40 次）→ getPresetDomain + encipherUrl 拼分享链接，返回 { url, projectName, projectId, expiresAt: now+3h }）。COS 客户端经 cosFactory 注入（测试传 fake），否则 new cos-nodejs-sdk-v5 实构；新增 cos-nodejs-sdk-v5 依赖。
+- 新增 routes/share.ts：createShareRoutes 工厂（POST /api/share/upload 校验 paths/token 非空、多选 buildZip、调 deployShare、appendShare 写 history；GET /api/share/list；POST /api/share/delete；导出 commonRoot）。handler 内每次请求 loadShareSettings 读最新 token/channel（保存后无需重启），cfg 作 fallback/测试注入，并支持 cosFactory/settingsFile 注入。ws-server registerRoutes 注册分享路由（share-history.json 落 WA_PI_DIR）。
+- 影响范围：`packages/kernel/src/share/edgeone-client.ts`、`packages/kernel/src/routes/share.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/package.json`（新增 cos-nodejs-sdk-v5）；测试 `tests/share-routes.test.ts`（mock 全局 fetch + cosFactory fake，上传全链路/空 paths/token 空/list 4 用例）。
+
 ## 2026-08-17 — feat(kernel): EdgeOne REST 客户端（探测/项目/encipher）
 
 - 产物分享功能：新增 share/edgeone-client.ts（从 POC 移植的可单测纯函数）——detectBaseUrl 遍历 china/global 端点取首个 Code===0 的可用地址；apiCall 统一 POST + Bearer token 校验 HTTP 状态与业务 Code；getOrCreateProject 按名查询、存在即返回、否则 CreatePagesProject 后返回 ProjectId（重查兑底）；getPresetDomain 取项目的预设域名；encipherUrl 用 DescribePagesEncipherToken 拼 eo_token/eo_time 分享链接。分享总入口 deployShare（上传/部署/轮询）留待任务 5。

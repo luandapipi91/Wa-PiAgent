@@ -12,6 +12,7 @@ import {
 	resolveSessionCwd,
 	SCHEDULED_TASKS_FILE,
 	EXECUTION_RECORDS_FILE,
+	WA_PI_DIR,
 } from "@wa-pi/shared";
 import type { DirEntry } from "@wa-pi/shared";
 import type { ConfigStore } from "./config-store";
@@ -76,6 +77,7 @@ import { registerMcpRoutes } from "./routes/mcp";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerChannelRoutes } from "./routes/channels";
 import { createSchedulerRoutes } from "./routes/scheduler";
+import { createShareRoutes } from "./routes/share";
 import { registerContactRoutes } from "./routes/contacts";
 import { ChannelConflictError } from "./channel-manager";
 import { registerFileRoutes } from "./routes/files";
@@ -508,6 +510,11 @@ export class WSServer {
 		registerChannelRoutes(this.router, callApi, ctx);
 		registerContactRoutes(this.router, callApi, ctx);
 		registerFileRoutes(this.router, callApi, ctx);
+
+		// 产物分享路由：token 在 handler 内每次读取最新分享设置（保存后无需重启），
+		// 静态注入 token 占位为空，仅作 fallback/测试注入。
+		const shareHistoryFile = join(WA_PI_DIR, "share-history.json");
+		createShareRoutes(this.router, { token: "", channel: "edgeone" }, shareHistoryFile, "");
 
 		// 定时任务路由：直接读写 JSON 文件，不走 callApi 适配器
 		const schedulerRoutes = createSchedulerRoutes(
@@ -972,17 +979,12 @@ export class WSServer {
 				const thinkingSince = this.opts.agentManager.getThinkingSince(
 					event.sessionId,
 				);
-				// 已软删除的会话只读模式：不 touch、不 prewarm（仅做只读 jsonl 读取）
+				// 已软删除的会话只读模式：不 prewarm（仅做只读 jsonl 读取）
 				const isDeleted = !!session?.deletedAt;
-				// 定时任务执行存档同样只读回放：不 touch（不刷 lastActivity 排序）、
-				// 不 prewarm（详情页纯回放，不拉起 pi 进程白占空闲回收周期）
+				// 定时任务执行存档同样只读回放：不 prewarm（详情页纯回放，不拉起 pi 进程白占空闲回收周期）
 				const isScheduler = session?.source === "scheduler";
-				// 打开会话查看消息视为活跃：同步刷新磁盘 lastActivity（保持会话列表排序反映最近查看，
-				// 并与 AgentManager 内存 lastActiveAt 一致）。fire-and-forget，不阻塞历史读取。
-				// 但已软删除的会话不 touch——避免从回收站查看时刷新 lastActivity 导致排序异常。
-				if (session && !isDeleted && !isScheduler) {
-					void this.opts.projectStore.touchSession(event.sessionId).catch(() => {});
-				}
+				// 打开会话查看不再视为活跃：不 touch lastActivity（点击查看不更新最后激活时间，
+				// 只有发送消息 agent:prompt / 收到回复 message_end 才更新——见 agent:prompt 处理与 index.ts message_end）。
 				if (!session) {
 					reply({
 						type: "session:messages",
