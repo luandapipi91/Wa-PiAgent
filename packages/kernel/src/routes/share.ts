@@ -32,6 +32,8 @@ export interface ShareRouteCfg {
 	}) => CosClient;
 	/** 测试注入隔离的 settings 文件；缺省用真实的 ~/.pi/agent/settings.json */
 	settingsFile?: string;
+	/** 部署状态轮询间隔（ms），测试传小值让单测秒级完成 */
+	pollIntervalMs?: number;
 }
 
 export function createShareRoutes(
@@ -41,6 +43,18 @@ export function createShareRoutes(
 	rootBase: string,
 ): void {
 	router.add("POST", "/api/share/upload", async (req) => {
+		try {
+			return await handleUpload(req);
+		} catch (e: any) {
+			// 兜底：避免裸 500，返回结构化错误 + 5xx
+			return Response.json(
+				{ error: e?.message ?? String(e) },
+				{ status: 500 },
+			);
+		}
+	});
+
+	async function handleUpload(req: Request): Promise<Response> {
 		const b = await readJsonBody(req);
 		const paths: string[] = b.paths ?? [];
 		if (paths.length === 0)
@@ -67,6 +81,7 @@ export function createShareRoutes(
 			isZip,
 			channel,
 			cosFactory: cfg.cosFactory,
+			pollIntervalMs: cfg.pollIntervalMs,
 		});
 
 		const rec: ShareRecord = {
@@ -85,12 +100,10 @@ export function createShareRoutes(
 			projectName: result.projectName,
 			channel,
 		});
-	});
+	}
 
-	router.add(
-		"GET",
-		"/api/share/list",
-		async () => Response.json({ shares: await loadShares(historyFile) }),
+	router.add("GET", "/api/share/list", async () =>
+		Response.json({ shares: await loadShares(historyFile) }),
 	);
 
 	router.add("POST", "/api/share/delete", async (req) => {

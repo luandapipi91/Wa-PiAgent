@@ -134,6 +134,8 @@ export interface DeployShareOptions {
     SecretKey: string;
     Token: string;
   }) => CosClient;
+  /** 部署状态轮询间隔（ms）。测试可传小值让单测秒级完成；缺省 5000 */
+  pollIntervalMs?: number;
 }
 
 export interface DeployShareResult {
@@ -156,14 +158,20 @@ export async function deployShare(
   opts: DeployShareOptions,
 ): Promise<DeployShareResult> {
   const { token, paths, zip, isZip } = opts;
+  const pollIntervalMs = opts.pollIntervalMs ?? 5000;
   const projectName = `share-${hashPaths(paths)}`;
   const baseUrl = await detectBaseUrl(token);
   const projectId = await getOrCreateProject(baseUrl, token, projectName);
 
   // 1) COS 临时上传凭证
-  const tokenRes = await apiCall<any>(baseUrl, token, "DescribePagesCosTempToken", {
-    ProjectId: projectId,
-  });
+  const tokenRes = await apiCall<any>(
+    baseUrl,
+    token,
+    "DescribePagesCosTempToken",
+    {
+      ProjectId: projectId,
+    },
+  );
   const resp = tokenRes.Data.Response;
   const cos = opts.cosFactory
     ? opts.cosFactory({
@@ -220,22 +228,34 @@ export async function deployShare(
   });
   const deploymentId = dep.Data.Response.DeploymentId;
 
-  // 4) 轮询部署状态至非 Process（每 5s，最多 40 次）
+  // 4) 轮询部署状态至终态（每 pollIntervalMs，最多 40 次）
+  //    终态必须为 Success，Failed/Error 等失败终态一律抛错，不返回失败链接
+  let finalStatus: string | undefined;
   for (let i = 0; i < 40; i++) {
-    await sleep(5000);
-    const list = await apiCall<any>(baseUrl, token, "DescribePagesDeployments", {
-      ProjectId: projectId,
-      Offset: 0,
-      Limit: 50,
-      OrderBy: "CreatedOn",
-      Order: "Desc",
-    });
+    await sleep(pollIntervalMs);
+    const list = await apiCall<any>(
+      baseUrl,
+      token,
+      "DescribePagesDeployments",
+      {
+        ProjectId: projectId,
+        Offset: 0,
+        Limit: 50,
+        OrderBy: "CreatedOn",
+        Order: "Desc",
+      },
+    );
     const d = (list?.Data?.Response?.Deployments ?? []).find(
       (x: any) => x.DeploymentId === deploymentId,
     );
-    if (d && d.Status !== "Process") break;
+    if (d) {
+      finalStatus = d.Status;
+      if (d.Status !== "Process") break;
+    }
     if (i === 39) throw new Error("EdgeOne 部署超时");
   }
+  if (finalStatus !== "Success")
+    throw new Error(`EdgeOne 部署失败: ${finalStatus}`);
 
   // 5) 项目域名 + encipher 分享链接
   const domain = await getPresetDomain(baseUrl, token, projectId);
