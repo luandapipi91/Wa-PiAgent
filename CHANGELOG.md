@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — feat(kernel): settings 支持 shareToken/shareChannel
+
+- 产物分享功能的基础配置：settings-store 新增 share 配置段的读写（token + channel，默认 channel=edgeone，token 为空），read-modify-write 保留 settings.json 内其他字段；补 writeSettingsJson helper（带 mkdir recursive）。
+- 影响范围：`packages/kernel/src/settings-store.ts`；测试 `tests/settings-share.test.ts`（默认值 + save/load 往返一致 2 用例）。
+
 ## 2026-08-17 — fix(kernel): 重名 slug provider 模型窗口落默认值导致 ~122K 误触发自动压缩
 
 - providers.json 中两个 provider 解析为同一 slug（如两个 opencode-go）时，`ensureProviderExtensionRegistered` 构建目录查询 map 用未去重的 `resolveProviderSlug(p, [])`，与 `generateProviderExtension` 内部的 `slugifyProviders`（去重为 opencode-go-2）不一致，第二个 provider 的模型查询全部落空；且 `generateProviderExtension` 的 fallback 是写死的 DEFAULT_SDK_MODEL（128000/16384）而非用户配置——注释宣称"找不到则 fallback 到用户配置"，代码从未如此。结果：用户配置 1M 窗口的模型（OpenCode Go 1 / deepseek-v4-flash）在生成的 extension 里落成 128000，pi 按 `128000 − 16384` 阈值在 ~122K 提前自动压缩（线上证据：会话 s-b99bc7fa 于 121972 tokens 触发）。
