@@ -54,7 +54,11 @@ interface ShareResultModalProps {
 }
 
 /** 分享结果弹层：检查 token → 生成分享链接 → 展示 URL / 复制 / 有效期 */
-function ShareResultModal({ paths, sessionId, onClose }: ShareResultModalProps) {
+function ShareResultModal({
+	paths,
+	sessionId,
+	onClose,
+}: ShareResultModalProps) {
 	const { t } = useTranslation();
 	// 挂载时检查 token：checking 完成前显示加载；token 为空 → 引导配置
 	const [checking, setChecking] = useState(true);
@@ -107,7 +111,9 @@ function ShareResultModal({ paths, sessionId, onClose }: ShareResultModalProps) 
 		try {
 			await copyToClipboard(result.url);
 			setCopied(true);
+			setError(null);
 		} catch {
+			// 复制失败：copied 保持 false，错误展示在结果分支内（复制按钮下方）
 			setError(t("common.copyFailed"));
 		}
 	};
@@ -162,13 +168,19 @@ function ShareResultModal({ paths, sessionId, onClose }: ShareResultModalProps) 
 							>
 								{copied ? t("share.copied") : t("share.copyLink")}
 							</button>
-							<span
-								className="text-xs text-secondary"
-								data-testid="share-expires"
-							>
+							<span className="text-xs text-secondary" data-testid="share-expires">
 								{t("share.expiresIn", { hours: hoursLeft })}
 							</span>
 						</div>
+						{error && (
+							<div
+								className="text-xs"
+								style={{ color: "var(--danger)" }}
+								data-testid="share-error"
+							>
+								{error}
+							</div>
+						)}
 					</>
 				) : (
 					<>

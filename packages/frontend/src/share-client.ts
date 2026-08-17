@@ -19,7 +19,7 @@ export interface ShareSettings {
 
 /**
  * 底层传输抽象。默认走真实 api-client；单测可通过 `_setShareTransport` 注入伪传输。
- * put/get 可选：本轮实现三个方法都用，但保持与 fs-client 一致的可注入形态。
+ * put/get 必选：接口中已声明为必选方法，与 fs-client 一致的可注入形态。
  */
 export interface ShareTransport {
 	post: (path: string, body?: unknown) => Promise<unknown>;
@@ -59,8 +59,6 @@ export async function shareSettings(): Promise<ShareSettings> {
 }
 
 /** 保存分享设置（token/channel）。 */
-export async function saveShareSettings(
-	share: ShareSettings,
-): Promise<void> {
+export async function saveShareSettings(share: ShareSettings): Promise<void> {
 	await transport.put("/api/settings/share", { share });
 }

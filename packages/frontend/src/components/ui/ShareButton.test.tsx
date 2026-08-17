@@ -4,9 +4,10 @@
 import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 
-const shareSettingsMock = mock(
-	async () => ({ token: "edgeone-token", channel: "edgeone" }),
-);
+const shareSettingsMock = mock(async () => ({
+	token: "edgeone-token",
+	channel: "edgeone",
+}));
 const shareUploadMock = mock(async () => ({}));
 const copyMock = mock(async (..._args: any[]) => {});
 
@@ -75,13 +76,26 @@ test("未配置 token：显示「请先在 设置 → 分享 配置 Token」且�
 	expect(screen.queryByTestId("share-generate-btn")).toBeNull();
 });
 
-test("复制链接：copyToClipboard 收到分享 URL", async () => {
+test("复制链接：copyToClipboard 收到分享 URL 且按钮显示「已复制」", async () => {
 	render(<ShareButton paths={PATHS} />);
 	fireEvent.click(screen.getByTestId("share-btn"));
 	await screen.findByTestId("share-files");
 	fireEvent.click(screen.getByTestId("share-generate-btn"));
 	await screen.findByTestId("share-copy-btn");
 	fireEvent.click(screen.getByTestId("share-copy-btn"));
-	await new Promise((r) => setTimeout(r, 10));
+	await screen.findByText("已复制");
 	expect(copyMock).toHaveBeenCalledWith(URL);
+});
+
+test("复制失败：显示「复制失败」提示且按钮仍为「复制链接」", async () => {
+	copyMock.mockRejectedValue(new Error("clipboard blocked"));
+	render(<ShareButton paths={PATHS} />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	await screen.findByTestId("share-files");
+	fireEvent.click(screen.getByTestId("share-generate-btn"));
+	await screen.findByTestId("share-copy-btn");
+	fireEvent.click(screen.getByTestId("share-copy-btn"));
+	await screen.findByTestId("share-error");
+	expect(screen.getByTestId("share-error").textContent).toContain("复制失败");
+	expect(screen.getByTestId("share-copy-btn").textContent).toBe("复制链接");
 });
