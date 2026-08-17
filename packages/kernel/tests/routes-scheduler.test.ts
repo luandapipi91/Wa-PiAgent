@@ -379,4 +379,56 @@ describe("POST/PUT 校验", () => {
 			expect(list.tasks[0].name).toBe("合法任务");
 		});
 	});
+
+	test("POST 带 model → 透传保存；不带 → undefined（跟随默认）", async () => {
+		await withServer(async (base) => {
+			const withModel = await json(base, "/api/scheduled-tasks", {
+				method: "POST",
+				body: JSON.stringify({ ...validTask, model: "openai/gpt-4" }),
+			});
+			expect(withModel.status).toBe(200);
+			expect(withModel.body.task.model).toBe("openai/gpt-4");
+
+			const noModel = await json(base, "/api/scheduled-tasks", {
+				method: "POST",
+				body: JSON.stringify(validTask),
+			});
+			expect(noModel.body.task.model).toBeUndefined();
+		});
+	});
+
+	test("POST model 非字符串（非 null）→ 400", async () => {
+		await withServer(async (base) => {
+			for (const bad of [123, {}, [], true]) {
+				const { status } = await json(base, "/api/scheduled-tasks", {
+					method: "POST",
+					body: JSON.stringify({ ...validTask, model: bad }),
+				});
+				expect(status).toBe(400);
+			}
+		});
+	});
+
+	test("PUT 更新 model；传 null 清空 model（回跟随默认）", async () => {
+		await withServer(async (base) => {
+			const { body: created } = await json(base, "/api/scheduled-tasks", {
+				method: "POST",
+				body: JSON.stringify({ ...validTask, model: "openai/gpt-4" }),
+			});
+			const { body: updated } = await json(
+				base,
+				`/api/scheduled-tasks/${created.task.id}`,
+				{ method: "PUT", body: JSON.stringify({ model: "anthropic/claude" }) },
+			);
+			expect(updated.task.model).toBe("anthropic/claude");
+
+			// 传 null 清空（前端「跟随默认」选项）
+			const { body: cleared } = await json(
+				base,
+				`/api/scheduled-tasks/${created.task.id}`,
+				{ method: "PUT", body: JSON.stringify({ model: null }) },
+			);
+			expect(cleared.task.model).toBeUndefined();
+		});
+	});
 });

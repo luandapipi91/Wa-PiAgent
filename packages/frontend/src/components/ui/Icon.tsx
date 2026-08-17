@@ -178,6 +178,21 @@ const ICONS = {
 		</>
 	),
 	bolt: <path d="M13 2L4.5 13.5H11l-1 8.5L18.5 10.5H12l1-8.5z" />,
+	// ── 人/群 ──
+	user: (
+		<>
+			<circle cx="12" cy="8" r="4" />
+			<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+		</>
+	),
+	users: (
+		<>
+			<circle cx="9" cy="7" r="4" />
+			<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+			<path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+			<path d="M16 3.13a4 4 0 0 1 0 7.75" />
+		</>
+	),
 	robot: (
 		<>
 			<rect x="5" y="9" width="14" height="10" rx="2.5" />
@@ -354,8 +369,7 @@ export function iconSvg(name: IconName, size = 12, strokeWidth = 1.8): string {
 	const render = (n: any): string => {
 		if (n == null || typeof n === "boolean") return "";
 		if (Array.isArray(n)) return n.map(render).join("");
-		if (n.type === Symbol.for("react.fragment"))
-			return render(n.props.children);
+		if (n.type === Symbol.for("react.fragment")) return render(n.props.children);
 		const p = n.props ?? {};
 		const attrs = Object.entries(p)
 			.filter(([k]) => k !== "children")

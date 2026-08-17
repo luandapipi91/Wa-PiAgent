@@ -80,6 +80,7 @@ beforeEach(async () => {
 			markAllDirty: () => {},
 		} as any,
 		broadcast: (e: any) => broadcasted.push(e.type),
+		pushConnectTimeoutMs: 500, // 推送前等待重连超时（测试用小值，避免真实等 60s）
 		adapterFactories: {
 			mock: (c) => {
 				adapter = new MockAdapter(c);
@@ -122,9 +123,9 @@ test("handleInbound 采集：单聊记人、群聊记群（listContacts 可查�
 	expect(
 		contacts.some((c) => c.kind === "person" && c.userId === "user-1"),
 	).toBe(true);
-	expect(contacts.some((c) => c.kind === "group" && c.chatId === "group-1")).toBe(
-		true,
-	);
+	expect(
+		contacts.some((c) => c.kind === "group" && c.chatId === "group-1"),
+	).toBe(true);
 	// 公开方法 listContacts 走 contactsFile getter，同样可查
 	const viaManager = await manager.listContacts(channelId);
 	expect(
@@ -470,9 +471,7 @@ test("映射缓存的会话已被删除 → 兜底新建会话，不抛'会话�
 	const staleSid = sessionsCreated[0].id;
 	expect(staleSid.startsWith("im-")).toBe(true);
 	// 用户未收到"会话不存在"错误
-	expect(adapter!.outbox.some((m) => m.text.includes("会话不存在"))).toBe(
-		false,
-	);
+	expect(adapter!.outbox.some((m) => m.text.includes("会话不存在"))).toBe(false);
 
 	// 模拟会话被删除（前端删会话 / 数据清理）：project-store 里不再有该 session
 	// projectSessions 本来就是 []（createSession 是独立 mock 不回填 load），无需改动
@@ -488,9 +487,7 @@ test("映射缓存的会话已被删除 → 兜底新建会话，不抛'会话�
 	// ensureStarted 用的是新会话 id（兜底成功，未阻断）
 	expect(ensured[1][2]).toBe(newSid);
 	// 用户没有收到任何"会话不存在"错误回复
-	expect(adapter!.outbox.some((m) => m.text.includes("会话不存在"))).toBe(
-		false,
-	);
+	expect(adapter!.outbox.some((m) => m.text.includes("会话不存在"))).toBe(false);
 	// prompt 在新会话里执行
 	expect(prompted[1].sessionId).toBe(newSid);
 });
@@ -814,7 +811,9 @@ test("pushToContact：按联系人 id 主动推送到对应会话（单聊 useri
 	adapter!.inject({ chatId: "user-1", text: "hi" });
 	await new Promise((r) => setTimeout(r, 50));
 	const contacts = await manager.listContacts();
-	const person = contacts.find((c) => c.kind === "person" && c.userId === "user-1");
+	const person = contacts.find(
+		(c) => c.kind === "person" && c.userId === "user-1",
+	);
 	expect(person).toBeTruthy();
 
 	await manager.pushToContact(person!.id, "**定时任务推送**");
@@ -829,11 +828,52 @@ test("pushToContact：群联系人 → chatId = chatid；联系人不存在 → 
 	adapter!.inject({ chatId: "group-1", chatType: "group", text: "hi" });
 	await new Promise((r) => setTimeout(r, 50));
 	const contacts = await manager.listContacts();
-	const group = contacts.find((c) => c.kind === "group" && c.chatId === "group-1");
+	const group = contacts.find(
+		(c) => c.kind === "group" && c.chatId === "group-1",
+	);
 	expect(group).toBeTruthy();
 
 	await manager.pushToContact(group!.id, "群消息");
 	expect(adapter!.outbox.at(-1)!.chatId).toBe("group-1");
 
 	await expect(manager.pushToContact("ct_not_exist", "x")).rejects.toThrow();
+});
+
+test("pushToContact：断线时等待重连就绪后再推送", async () => {
+	await manager.create(channel);
+	adapter!.inject({ chatId: "user-1", text: "hi" });
+	await new Promise((r) => setTimeout(r, 50));
+	const contacts = await manager.listContacts();
+	const person = contacts.find(
+		(c) => c.kind === "person" && c.userId === "user-1",
+	);
+	expect(person).toBeTruthy();
+
+	// 模拟断线：渠道状态变为 connecting（推送前应挂起等待重连）
+	adapter!.setStatus("connecting");
+	const pushPromise = manager.pushToContact(person!.id, "**定时任务推送**");
+	// 等 pushToContact 走到等待分支（已注册 waiter）后重连成功
+	await new Promise((r) => setTimeout(r, 100));
+	adapter!.setStatus("connected");
+	await pushPromise;
+
+	const last = adapter!.outbox.at(-1)!;
+	expect(last.text).toBe("**定时任务推送**");
+	expect(last.chatId).toBe("user-1");
+});
+
+test("pushToContact：断线超时未恢复 → 抛错（含未连接提示与 detail）", async () => {
+	await manager.create(channel);
+	adapter!.inject({ chatId: "user-1", text: "hi" });
+	await new Promise((r) => setTimeout(r, 50));
+	const contacts = await manager.listContacts();
+	const person = contacts.find(
+		(c) => c.kind === "person" && c.userId === "user-1",
+	);
+	expect(person).toBeTruthy();
+
+	adapter!.setStatus("connecting", "模拟断线");
+	await expect(manager.pushToContact(person!.id, "x")).rejects.toThrow(
+		/未连接.*模拟断线/,
+	);
 });

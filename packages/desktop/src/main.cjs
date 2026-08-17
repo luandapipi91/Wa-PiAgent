@@ -8,6 +8,8 @@ const {
 	desktopCapturer,
 	ipcMain,
 	nativeTheme,
+	dialog,
+	shell,
 } = require("electron");
 const path = require("node:path");
 const os = require("node:os");
@@ -510,6 +512,10 @@ app.whenReady().then(async () => {
 		app.setLoginItemSettings({ openAtLogin: enabled });
 		return app.getLoginItemSettings().openAtLogin;
 	});
+
+	// 原生文件对话框与 shell 定位（附件选文件 / 技能目录 / 打开技能文件夹）
+	const { setupNativeDialogs } = require("./util/native-dialogs.cjs");
+	setupNativeDialogs({ dialog, shell, ipcMain, BrowserWindow });
 
 	// 托盘 + 菜单
 	const { startTray } = require("./tray.cjs");

@@ -12,6 +12,9 @@ declare global {
 			getPathForFile?: (file: File) => string;
 			getLoginItem?: () => Promise<boolean>;
 			setLoginItem?: (enabled: boolean) => Promise<boolean>;
+			showOpenFileDialog?: () => Promise<string[]>;
+			showOpenDirectoryDialog?: () => Promise<string | null>;
+			showItemInFolder?: (filePath: string) => Promise<boolean>;
 		};
 	}
 }

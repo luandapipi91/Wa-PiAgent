@@ -803,6 +803,7 @@ const en = {
 			groupExtension: "Plugin skills",
 			dirTitle: "Skill directories",
 			addDir: "Add skill directory",
+			openDir: "Open folder",
 			refresh: "Refresh skills",
 			builtinTag: "[built-in]",
 			deleteDir: "Remove",

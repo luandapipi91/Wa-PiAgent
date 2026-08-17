@@ -86,6 +86,28 @@ mock.module("../../../store/channels", () => ({
 	useChannelsStore: () => ({ bots: [] }),
 }));
 
+// providers store：模型下拉数据源（providerSlug/modelId）
+mock.module("../../../store/providers", () => {
+	const store = {
+		providers: [
+			{
+				id: "p1",
+				name: "OpenAI",
+				baseUrl: "",
+				apiKey: "",
+				api: "openai-completions",
+				slug: "openai",
+				models: [{ id: "gpt-4", contextWindow: 128000, maxTokens: 4096 }],
+			},
+		],
+		load: () => {},
+	};
+	const useProvidersStore = (sel?: (s: typeof store) => unknown) =>
+		sel ? sel(store) : store;
+	useProvidersStore.getState = () => store;
+	return { useProvidersStore };
+});
+
 beforeEach(() => {
 	createTaskMock.mockReset();
 	updateTaskMock.mockReset();
@@ -373,6 +395,65 @@ describe("TaskEditForm", () => {
 			"t1",
 			expect.objectContaining({ name: "旧任务", agentId: "研究员" }),
 		);
+	});
+
+	test("渲染模型下拉：默认「跟随默认」（空值）", () => {
+		render(<TaskEditForm />);
+		const select = screen.getByTestId("task-model-select") as HTMLSelectElement;
+		expect(select).toBeTruthy();
+		expect(select.value).toBe("");
+		// 含「跟随默认」首项 + 具体模型项
+		expect(select.options.length).toBe(2);
+		expect(select.options[0].text).toBe("跟随默认");
+	});
+
+	test("新建模式：选择模型后保存 → payload 带 model", () => {
+		render(<TaskEditForm />);
+		fireEvent.change(screen.getByTestId("task-name-input"), {
+			target: { value: "任务" },
+		});
+		fireEvent.click(screen.getByTestId("task-agent-select"));
+		fireEvent.click(screen.getByTestId("task-agent-item-小助手"));
+		setPrompt("执行");
+		fireEvent.change(screen.getByTestId("task-model-select"), {
+			target: { value: "openai/gpt-4" },
+		});
+		fireEvent.click(screen.getByTestId("task-save-btn"));
+		expect(createTaskMock).toHaveBeenCalledWith(
+			expect.objectContaining({ model: "openai/gpt-4" }),
+		);
+	});
+
+	test("新建模式：不选模型 → payload model 为 null（跟随默认）", () => {
+		render(<TaskEditForm />);
+		fireEvent.change(screen.getByTestId("task-name-input"), {
+			target: { value: "任务" },
+		});
+		fireEvent.click(screen.getByTestId("task-agent-select"));
+		fireEvent.click(screen.getByTestId("task-agent-item-小助手"));
+		setPrompt("执行");
+		fireEvent.click(screen.getByTestId("task-save-btn"));
+		expect(createTaskMock).toHaveBeenCalledWith(
+			expect.objectContaining({ model: null }),
+		);
+	});
+
+	test("编辑模式：回填 model", () => {
+		schedulerState.editingTask = {
+			id: "t1",
+			name: "旧任务",
+			schedule: { type: "daily", time: "08:00" },
+			agentId: "研究员",
+			prompt: "旧指令",
+			model: "openai/gpt-4",
+			enabled: true,
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		render(<TaskEditForm />);
+		expect(
+			(screen.getByTestId("task-model-select") as HTMLSelectElement).value,
+		).toBe("openai/gpt-4");
 	});
 
 	test("取消按钮调用 setView('detail')", () => {

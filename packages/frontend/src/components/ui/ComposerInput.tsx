@@ -402,15 +402,31 @@ export function ComposerInput({
 				} as AttachmentDraft);
 			} catch (err) {
 				setUploadError(
-					err instanceof Error
-						? err.message
-						: t("composer.addAttachmentFailed"),
+					err instanceof Error ? err.message : t("composer.addAttachmentFailed"),
 				);
 			} finally {
 				setPendingUploads((n) => n - 1);
 			}
 		}
 		setPickerOpen(false);
+	};
+
+	// 附件「选择要发送的文件」：Electron 下用系统多选文件对话框，浏览器回退到内置文件树
+	const handlePickFiles = async () => {
+		if (!projectId) return;
+		const show = window.waPiApp?.showOpenFileDialog;
+		if (!show) {
+			setPickerOpen(true);
+			return;
+		}
+		const paths = await show();
+		if (!paths || paths.length === 0) return;
+		const selections: FilePickerSelection[] = paths.map((p) => ({
+			path: p,
+			isDir: false,
+			name: p.split(/[\\/]/).pop() || p,
+		}));
+		await handlePick(selections);
 	};
 
 	const uploadFiles = async (files: FileList | File[] | null) => {
@@ -455,12 +471,7 @@ export function ComposerInput({
 		setPendingUploads((n) => n + normal.length);
 		for (const file of normal) {
 			try {
-				const { path } = await uploadFile(
-					projectId,
-					file.name,
-					file,
-					sessionId,
-				);
+				const { path } = await uploadFile(projectId, file.name, file, sessionId);
 				const kind = file.type.startsWith("image/") ? "image" : "file";
 				setAttachments((prev) => [
 					...prev,
@@ -678,9 +689,7 @@ export function ComposerInput({
 				}
 				if (e.key === "ArrowUp") {
 					e.preventDefault();
-					setHighlightedIndex(
-						(i) => (i - 1 + menuItems.length) % menuItems.length,
-					);
+					setHighlightedIndex((i) => (i - 1 + menuItems.length) % menuItems.length);
 					return;
 				}
 				if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
@@ -763,10 +772,11 @@ export function ComposerInput({
 				<div className="flex items-center justify-between px-3 py-2 border-t border-hairline">
 					<div className="flex items-center gap-3">
 						<button
-							onClick={() => setPickerOpen(true)}
+							onClick={() => void handlePickFiles()}
 							disabled={uploading}
 							className="text-lg text-secondary hover:text-primary disabled:opacity-50"
 							title={t("composer.addAttachment")}
+							data-testid="composer-attach-btn"
 						>
 							📎
 						</button>
@@ -792,10 +802,7 @@ export function ComposerInput({
 						/>
 						<ThinkingSelector value={thinking} onChange={setThinking} />
 						{uploading && (
-							<span
-								className="text-xs text-tertiary"
-								data-testid="upload-spinner"
-							>
+							<span className="text-xs text-tertiary" data-testid="upload-spinner">
 								{t("composer.uploading")}
 							</span>
 						)}
@@ -815,10 +822,7 @@ export function ComposerInput({
 				</div>
 			</div>
 			{uploadError && (
-				<div
-					className="text-xs text-danger mt-2 px-1"
-					data-testid="upload-error"
-				>
+				<div className="text-xs text-danger mt-2 px-1" data-testid="upload-error">
 					{uploadError}
 				</div>
 			)}
@@ -834,10 +838,7 @@ export function ComposerInput({
 							onRemove={() => removeAttachment(i)}
 							onClick={
 								a.kind !== "snippet" && a.path
-									? () =>
-											useSessionStore
-												.getState()
-												.openFilePreview(a.path, sessionId)
+									? () => useSessionStore.getState().openFilePreview(a.path, sessionId)
 									: undefined
 							}
 						/>

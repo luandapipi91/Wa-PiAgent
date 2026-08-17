@@ -12,12 +12,18 @@ import { useSkillsStore } from "../../store/skills";
 import type { ContactEntity } from "@wa-pi/shared";
 import { ComposerTextarea } from "../ui/ComposerTextarea";
 import { QuickInvokeMenu, type MenuItem } from "../ui/QuickInvokeMenu";
+import { Icon } from "../ui/Icon";
 import { imPushToken, toPromptHtml } from "./prompt-tokens";
 
 interface Props {
 	value: string;
 	onChange: (value: string) => void;
 }
+
+/** 联系人显示名：备注 > 群名（chatId 前 8 位）/ 人名（userId），对齐通讯录面板 ContactsPanel 的 label */
+const contactLabel = (c: ContactEntity): string =>
+	c.remark ||
+	(c.kind === "group" ? (c.chatId ?? "").slice(0, 8) : (c.userId ?? ""));
 
 /**
  * 任务指令输入框（contenteditable chip 版，复用聊天 ComposerTextarea 的 chip 机制）：
@@ -177,43 +183,42 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 		[showContactPicker, showSkillPicker, skillItems, skillIdx, insertSkill],
 	);
 
-	// chip 元数据：查通讯录显人名；查无灰化显示 id（联系人已删除，不报错）
+	// chip 元数据：查通讯录显名；查无灰化显示 id（联系人已删除，不报错）
 	const contactMeta = useCallback(
 		(contactId: string) => {
 			const c = contacts.find((x) => x.id === contactId);
 			return c
-				? { label: c.remark || c.userId || contactId, valid: true }
+				? { label: contactLabel(c), valid: true, kind: c.kind }
 				: { label: contactId, valid: false };
 		},
 		[contacts],
 	);
 
-	// 联系人按渠道分组（person 才可 @；渠道名经 bots 映射，找不到回退渠道 id）
+	// 联系人按渠道分组（person + group 均可 @；渠道名经 bots 映射，找不到回退渠道 id）
 	const channelNameOf = useCallback(
 		(channelId: string): string =>
 			bots.find((b) => b.id === channelId)?.name ?? channelId,
 		[bots],
 	);
-	const personsByChannel = useCallback((): Array<{
+	const contactsByChannel = useCallback((): Array<{
 		channelId: string;
 		channelName: string;
-		persons: ContactEntity[];
+		items: ContactEntity[];
 	}> => {
 		const map = new Map<string, ContactEntity[]>();
 		for (const c of contacts) {
-			if (c.kind !== "person") continue;
 			const list = map.get(c.channelId) ?? [];
 			list.push(c);
 			map.set(c.channelId, list);
 		}
-		return [...map.entries()].map(([channelId, persons]) => ({
+		return [...map.entries()].map(([channelId, items]) => ({
 			channelId,
 			channelName: channelNameOf(channelId),
-			persons,
+			items,
 		}));
 	}, [contacts, channelNameOf]);
-	const grouped = personsByChannel();
-	const totalPersons = grouped.reduce((n, g) => n + g.persons.length, 0);
+	const grouped = contactsByChannel();
+	const totalContacts = grouped.reduce((n, g) => n + g.items.length, 0);
 
 	const popStyle = {
 		left: -9999,
@@ -261,7 +266,7 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 						className={popClass}
 						data-testid="contact-picker"
 					>
-						{totalPersons === 0 && (
+						{totalContacts === 0 && (
 							<div
 								className="px-3 py-2 text-[10px]"
 								style={{ color: "var(--text-tertiary)" }}
@@ -277,7 +282,7 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 								>
 									📨 {group.channelName}
 								</div>
-								{group.persons.map((c) => (
+								{group.items.map((c) => (
 									<div
 										key={c.id}
 										onClick={() => insertContact(c)}
@@ -285,8 +290,12 @@ export function TaskPromptComposer({ value, onChange }: Props) {
 										style={{ color: "var(--text-primary)" }}
 										data-testid={`contact-item-${c.id}`}
 									>
-										<span>👤</span>
-										<span>{c.remark || c.userId}</span>
+										<Icon
+											name={c.kind === "group" ? "users" : "user"}
+											size={14}
+											testId={`contact-kind-${c.kind}`}
+										/>
+										<span>{contactLabel(c)}</span>
 									</div>
 								))}
 							</div>

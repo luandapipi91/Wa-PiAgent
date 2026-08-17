@@ -3,7 +3,7 @@
 // WaPi 的 listDir 返回 DirEntry{name,isDir}（无 path），前端按父目录拼接绝对路径。
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
-import { listDir, revealFile } from "../fs-client";
+import { listDir, revealFile, openFileWithDefaultApp } from "../fs-client";
 import { copyToClipboard } from "../util/clipboard";
 import { openInFileManagerLabel } from "../util/platform";
 import { useToastStore } from "../store/toast";
@@ -70,6 +70,17 @@ function ExplorerContextMenu({
 			>
 				{t("explorer.ctxCopyPath")}
 			</button>
+			{!entry.isDir && (
+				<button
+					className="ep-ctx-item"
+					onClick={() => {
+						void openFileWithDefaultApp(entry.path);
+						onClose();
+					}}
+				>
+					{t("common.openWithDefaultApp")}
+				</button>
+			)}
 			<button
 				className="ep-ctx-item"
 				onClick={() => {
@@ -149,11 +160,7 @@ export function ExplorerPanel({
 						entry: e,
 						depth: node.depth + 1,
 						expanded: expandedSet.has(e.path),
-						hasChildren: e.isDir
-							? expandedSet.has(e.path)
-								? true
-								: null
-							: null,
+						hasChildren: e.isDir ? (expandedSet.has(e.path) ? true : null) : null,
 					}));
 					result[result.length - 1] = {
 						...result[result.length - 1]!,
@@ -364,9 +371,7 @@ export function ExplorerPanel({
 		return <div className="ep-empty">{t("explorer.emptyNoWorkspace")}</div>;
 	}
 	if (error) {
-		return (
-			<div className="ep-empty">{t("explorer.loadFailed", { error })}</div>
-		);
+		return <div className="ep-empty">{t("explorer.loadFailed", { error })}</div>;
 	}
 	if (loading && flatList.length === 0) {
 		return <div className="ep-empty">{t("common.loading")}</div>;

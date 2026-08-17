@@ -1,4 +1,5 @@
 import { textToHtml } from "../../quick-invoke/tokens";
+import { iconSvg } from "../ui/Icon";
 
 /**
  * 自动化任务指令的 @im-push-to(ch_xxx,ct_xxx) 标记体系（自动化模块私有，
@@ -37,11 +38,9 @@ export function imPushToken(channelId: string, contactId: string): string {
 export interface ContactChipMeta {
 	label: string;
 	valid: boolean;
+	/** 联系人类型（决定 chip 图标 user / users）；失效联系人无此字段 */
+	kind?: "person" | "group";
 }
-
-/** 联系人 chip 图标：人形剪影（Icon.tsx 无人形图标，模块私有自造；currentColor 继承文字色） */
-const PERSON_ICON_SVG =
-	'<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="3.8"/><path d="M4.5 20c1-3.6 4-5.5 7.5-5.5s6.5 1.9 7.5 5.5z"/></svg>';
 
 function escapeHtmlLocal(s: string): string {
 	return s.replace(
@@ -73,7 +72,8 @@ export function toPromptHtml(
 		const contactId = token.match(/ct_[a-zA-Z0-9_-]+/)?.[0] ?? "";
 		const meta = contactMeta(contactId);
 		const cls = meta.valid ? "chip chip-im" : "chip chip-im chip-im-invalid";
-		html += `<span class="${cls}" contenteditable="false" data-token="${escapeHtmlLocal(token)}">${PERSON_ICON_SVG} ${escapeHtmlLocal(meta.label)}</span>`;
+		const icon = meta.kind === "group" ? iconSvg("users") : iconSvg("user");
+		html += `<span class="${cls}" contenteditable="false" data-token="${escapeHtmlLocal(token)}">${icon} ${escapeHtmlLocal(meta.label)}</span>`;
 	}
 	return html;
 }
