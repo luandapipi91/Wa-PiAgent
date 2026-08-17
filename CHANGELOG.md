@@ -2,6 +2,16 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — fix(frontend): 新建会话页默认工作区隐藏文件浏览按钮
+
+- 修正 2026-08-16 的空态方案：默认工作区（__system__）的 cwd 是 workdir 父目录（内部会话目录，非项目文件），原「走空态」仍保留右上角可点击的文件夹按钮，点击后展开空态反而误导用户。改为对默认工作区直接隐藏入口按钮（而非禁用），与「无项目」场景区分。
+- 影响范围：`packages/frontend/src/components/NewSessionPane.tsx`；测试 `new-session-explorer.test.tsx`（默认工作区用例由「空态」改为「隐藏按钮」）。
+
+## 2026-08-17 — test(frontend): VersionTimeline maxEntries 断言跟随 version-history 推进
+
+- 发版 0.2.3 时 version-history.json 已推进到 0.2.3，但 maxEntries 截断测试仍硬编码旧版本号（0.2.1 + 0.1.26），导致前端全量测试 1 例失败。更新断言为当前最新 2 条（0.2.3 + 0.2.2），第 3 条（0.2.1）不渲染。
+- 影响范围：`packages/frontend/src/components/settings/VersionTimeline.test.tsx`。
+
 ## 2026-08-16 — fix(frontend): 新建会话页文件侧栏对默认工作区不再列出 workdir 内部目录
 
 - 根因：默认工作区（__system__）项目的 cwd 是 `~/.pi/agent/workdir` 父目录（存放每个会话的独立内部目录，可积累数千个子目录）。新建页点右上角「项目文件」开关展开侧栏时，ExplorerPanel 一次性 listDir + 排序 + 渲染全部子目录，主线程长时间阻塞、界面卡死空白（用户感知为「窗口消失」），5 秒轮询反复触发。会话页（SessionView）不受影响——其文件树根目录是 `workdir/<会话时间戳>` 具体会话目录。

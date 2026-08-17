@@ -86,7 +86,9 @@ export function NewSessionPane({
 	// 首载 agent:list 回包晚于挂载：list 空转非空且 agentName 仍为 null 时回填（沿用 pendingAgent 优先级 + recency）；已选中则不干预
 	useEffect(() => {
 		if (!agentName && agents.length > 0)
-			setAgentName(pickDefaultAgent(agents, sessions, pendingAgent, defaultAgent));
+			setAgentName(
+				pickDefaultAgent(agents, sessions, pendingAgent, defaultAgent),
+			);
 	}, [agents, agentName, pendingAgent, sessions, defaultAgent]);
 	// 向导重设默认智能体后同步已挂载面板的选择（defaultAgent 只有向导会写，覆盖当前选择语义正确）
 	useEffect(() => {
@@ -181,7 +183,9 @@ export function NewSessionPane({
 		if (debounceRef.current) clearTimeout(debounceRef.current);
 		debounceRef.current = setTimeout(() => {
 			debounceRef.current = null;
-			useComposerPrefsStore.getState().setSessionPrefs(sessionId, { text: next });
+			useComposerPrefsStore
+				.getState()
+				.setSessionPrefs(sessionId, { text: next });
 		}, 300);
 	};
 
@@ -265,7 +269,9 @@ export function NewSessionPane({
 				// 服务器后续若仍有事件到达（echoUser/handleSDKEvent）会自动清错误，
 				// 避免 HTTP 超时但 pi 实际继续处理时的误报。
 				const msg = err instanceof Error ? err.message : String(err);
-				useSessionStore.getState().setPromptError(finalId, msg || "request failed");
+				useSessionStore
+					.getState()
+					.setPromptError(finalId, msg || "request failed");
 			});
 		if (debounceRef.current) {
 			clearTimeout(debounceRef.current);
@@ -288,35 +294,43 @@ export function NewSessionPane({
 		<div className="flex-1 flex min-w-0" data-testid="new-session-pane">
 			{/* 主列：居中内容 + 右上角文件树开关 */}
 			<div className="relative flex-1 flex flex-col items-center justify-center p-10 min-w-0">
-				<button
-					type="button"
-					className="fv-btn fv-btn--icon absolute top-4 right-4 disabled:opacity-40 disabled:cursor-not-allowed"
-					data-testid="btn-new-session-explorer"
-					data-active={explorerOpen ? "true" : "false"}
-					aria-expanded={explorerOpen}
-					aria-label={t("session.projectFiles")}
-					onClick={() => useNewSessionExplorerStore.getState().toggle()}
-					disabled={!projectId}
-					title={
-						projectId ? t("session.projectFiles") : t("newSession.noProjectOption")
-					}
-					style={
-						explorerOpen
-							? { color: "var(--accent)" }
-							: { color: "var(--text-tertiary)" }
-					}
-				>
-					<Icon
-						name="folder"
-						size="1em"
-						className="text-[calc(18px*var(--font-scale))]"
-					/>
-				</button>
+				{/* 默认工作区（__system__）的 cwd 是 workdir 父目录（内部会话目录，非项目文件），
+				    无文件可浏览 → 隐藏入口按钮（而非禁用），避免误导点击展开空态。 */}
+				{projectId !== SYSTEM_PROJECT_ID && (
+					<button
+						type="button"
+						className="fv-btn fv-btn--icon absolute top-4 right-4 disabled:opacity-40 disabled:cursor-not-allowed"
+						data-testid="btn-new-session-explorer"
+						data-active={explorerOpen ? "true" : "false"}
+						aria-expanded={explorerOpen}
+						aria-label={t("session.projectFiles")}
+						onClick={() => useNewSessionExplorerStore.getState().toggle()}
+						disabled={!projectId}
+						title={
+							projectId
+								? t("session.projectFiles")
+								: t("newSession.noProjectOption")
+						}
+						style={
+							explorerOpen
+								? { color: "var(--accent)" }
+								: { color: "var(--text-tertiary)" }
+						}
+					>
+						<Icon
+							name="folder"
+							size="1em"
+							className="text-[calc(18px*var(--font-scale))]"
+						/>
+					</button>
+				)}
 
 				<h2 className="text-[calc(26px*var(--font-scale))] font-extrabold tracking-tight text-primary mb-2">
 					{t("newSession.title")}
 				</h2>
-				<p className="text-sm text-secondary mb-7">{t("newSession.subtitle")}</p>
+				<p className="text-sm text-secondary mb-7">
+					{t("newSession.subtitle")}
+				</p>
 				<div className="w-full max-w-2xl mb-4 flex gap-2 items-center">
 					<select
 						value={projectId ?? ""}
@@ -347,7 +361,9 @@ export function NewSessionPane({
 					model={model}
 					setModel={(m) => {
 						setModel(m);
-						useComposerPrefsStore.getState().setSessionPrefs(sessionId, { model: m });
+						useComposerPrefsStore
+							.getState()
+							.setSessionPrefs(sessionId, { model: m });
 					}}
 					thinking={thinking}
 					setThinking={(t) => {

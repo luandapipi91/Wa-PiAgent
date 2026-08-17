@@ -101,15 +101,13 @@ test("无项目时开关禁用，无法展开", () => {
 	expect((btn as HTMLButtonElement).disabled).toBe(true);
 });
 
-test("默认工作区项目：展开侧栏显示空态而非列出 workdir 父目录", () => {
+test("默认工作区项目：隐藏文件浏览按钮（workdir 是内部会话目录，非项目文件）", () => {
 	// 默认工作区的 cwd 是 workdir 父目录（存放海量内部会话目录），
-	// 一次性列出会卡死 UI —— 修复后走空态，不渲染文件树。
+	// 既非用户可浏览的项目文件，一次性列出还会卡死 UI —— 直接隐藏入口按钮。
 	setupProjects([
 		{ id: "__system__", name: "默认工作区", cwd: "/workdir", createdAt: 0 },
 	]);
 	render(<NewSessionPane />);
-	fireEvent.click(screen.getByTestId("btn-new-session-explorer"));
-	expect(screen.getByTestId("new-session-explorer-aside")).toBeTruthy();
-	expect(screen.queryByTestId("mock-explorer")).toBeNull();
-	expect(screen.getByText("未设置工作目录")).toBeTruthy();
+	expect(screen.queryByTestId("btn-new-session-explorer")).toBeNull();
+	expect(screen.queryByTestId("new-session-explorer-aside")).toBeNull();
 });
