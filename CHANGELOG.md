@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — feat(frontend): 设置页「分享」Tab（产物分享任务 7）
+
+- 设置页新增「分享」Tab：设置 store 的 SettingsSection 联合类型增加 `"share"`；SettingsModal 导航区加「分享」入口与渲染分支；新增 ShareSection 面板（挂载时 GET /api/settings/share 回填，保存 PUT /api/settings/share，渠道「腾讯 EdgeOne」只读展示，API Token 用 password 输入且已保存时脱敏展示「•••」+「修改」切换），i18n 补 settings.share.* / nav.share（zh + en）。
+- 影响范围：`packages/frontend/src/store/settings.ts`、`packages/frontend/src/components/settings/ShareSection.tsx`（新增）、`packages/frontend/src/components/SettingsModal.tsx`、`packages/frontend/src/i18n/locales/zh.ts`、`en.ts`；测试 `src/components/settings/ShareSection.test.tsx`（默认渲染/保存 PUT/脱敏展示 3 用例）。
+
 ## 2026-08-17 — fix(kernel): 发送前自动压缩预留改为固定 33K（社区做法）
 
 - `_autoCompactIfNeeded` 原按「占用 + 模型 catalog maxTokens > 窗口」触发压缩，deepseek-v4（maxTokens=384K）在 1M 窗口下 61.6% 占用就被提前压缩，浪费长上下文。经查证 pi 自身（reserveTokens 固定 16384）与 Claude Code（固定 33K autocompact buffer）均为固定小预留，且 pi-ai 请求层已把 max_tokens clamp 到「窗口 − 占用 − 4096」，输出空间无需 kernel 按上限预留。改为固定预留 33K，判断逻辑抽为纯函数 `shouldCompactBeforeSend`；缓存简化为 modelId → contextWindow。
