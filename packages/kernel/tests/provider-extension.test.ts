@@ -539,7 +539,7 @@ test("resolveProviderBaseUrl：传 api 时忽略其他 api 分节的目录条目
       "openai-completions",
     ),
   ).toBe("https://opencode.ai/zen/go/v1");
-  // anthropic-messages 只认不带 /v1 的条目
+  // anthropic-messages 分节条目与用户配置的 baseUrl 无关时，尊重用户配置
   expect(
     resolveProviderBaseUrl(
       "opencode-go",
@@ -548,7 +548,7 @@ test("resolveProviderBaseUrl：传 api 时忽略其他 api 分节的目录条目
       allModels,
       "anthropic-messages",
     ),
-  ).toBe("https://opencode.ai/zen/go");
+  ).toBe("https://fallback.example.com");
   // 该 api 分节没有此模型时回退用户配置
   expect(
     resolveProviderBaseUrl(
@@ -559,4 +559,142 @@ test("resolveProviderBaseUrl：传 api 时忽略其他 api 分节的目录条目
       "anthropic-messages",
     ),
   ).toBe("https://fallback.example.com");
+});
+
+// ---- 回归：用户把预设 provider 的 baseUrl 改成自建网关（tokenhub）时不得被目录覆盖 ----
+
+test("resolveProviderBaseUrl：用户改成无关网关地址时保留用户配置（tokenhub 401 回归）", () => {
+  // 用户选 DeepSeek 预设（slug=deepseek，模型 deepseek-v4-flash 在目录中存在），
+  // 但把 baseUrl 改成 tokenhub 自建网关。目录值 https://api.deepseek.com 与用户地址
+  // 无关，若覆盖会把 tokenhub 的 key 发到 DeepSeek → 401 Authentication Fails。
+  const allModels = [
+    catalogModel({
+      provider: "deepseek",
+      baseUrl: "https://api.deepseek.com",
+      api: "openai-completions",
+    }),
+  ];
+  const url = resolveProviderBaseUrl(
+    "deepseek",
+    ["deepseek-v4-flash"],
+    "https://tokenhub.tencentmaas.com/v1",
+    allModels,
+    "openai-completions",
+  );
+  expect(url).toBe("https://tokenhub.tencentmaas.com/v1");
+});
+
+test("resolveProviderBaseUrl：用户配置仅缺 /v1 后缀时仍用目录值纠正", () => {
+  const allModels = [
+    catalogModel({
+      provider: "deepseek",
+      baseUrl: "https://api.deepseek.com/v1",
+      api: "openai-completions",
+    }),
+  ];
+  const url = resolveProviderBaseUrl(
+    "deepseek",
+    ["deepseek-v4-flash"],
+    "https://api.deepseek.com",
+    allModels,
+    "openai-completions",
+  );
+  expect(url).toBe("https://api.deepseek.com/v1");
+});
+
+test("generateProviderExtension：用户改成无关网关地址时生成的 extension 保留用户 baseUrl", () => {
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      name: "DeepSeek",
+      slug: "deepseek",
+      baseUrl: "https://tokenhub.tencentmaas.com/v1",
+      models: [
+        { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+      ],
+    }),
+  ];
+  const sdkModelMap = new Map([
+    [
+      "deepseek/deepseek-v4-flash",
+      {
+        contextWindow: 1000000,
+        maxTokens: 384000,
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "DeepSeek V4 Flash",
+        baseUrl: "https://api.deepseek.com",
+        api: "openai-completions",
+      },
+    ],
+  ]);
+  const code = generateProviderExtension(providers, sdkModelMap);
+  // 真实聊天请求也必须打到 tokenhub，而不是目录里的 api.deepseek.com
+  expect(code).toContain('baseUrl: "https://tokenhub.tencentmaas.com/v1"');
+  expect(code).not.toContain('baseUrl: "https://api.deepseek.com"');
+});
+
+test("generateProviderExtension：自建网关端点的 reasoning 模型显式关闭 developer role（tokenhub 400 回归）", () => {
+  // pi 的 detectCompat 只识别已知 provider/baseUrl；tokenhub 等自建网关被当作标准
+  // OpenAI 端点 → reasoning 模型的 system prompt 以 developer role 发送 → 网关 400。
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      name: "腾讯云",
+      slug: "deepseek",
+      baseUrl: "https://tokenhub.tencentmaas.com/v1",
+      models: [
+        { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+      ],
+    }),
+  ];
+  const sdkModelMap = new Map([
+    [
+      "deepseek/deepseek-v4-flash",
+      {
+        contextWindow: 1000000,
+        maxTokens: 384000,
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "DeepSeek V4 Flash",
+        baseUrl: "https://api.deepseek.com",
+        api: "openai-completions",
+      },
+    ],
+  ]);
+  const code = generateProviderExtension(providers, sdkModelMap);
+  expect(code).toContain("compat: { supportsDeveloperRole: false }");
+});
+
+test("generateProviderExtension：官方目录端点不追加 compat（保持 pi 自动探测）", () => {
+  const providers = [
+    sampleProvider({
+      id: "p1",
+      name: "DeepSeek",
+      slug: "deepseek",
+      baseUrl: "https://api.deepseek.com/v1",
+      models: [
+        { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000 },
+      ],
+    }),
+  ];
+  const sdkModelMap = new Map([
+    [
+      "deepseek/deepseek-v4-flash",
+      {
+        contextWindow: 1000000,
+        maxTokens: 384000,
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        name: "DeepSeek V4 Flash",
+        baseUrl: "https://api.deepseek.com",
+        api: "openai-completions",
+      },
+    ],
+  ]);
+  const code = generateProviderExtension(providers, sdkModelMap);
+  expect(code).not.toContain("supportsDeveloperRole");
 });

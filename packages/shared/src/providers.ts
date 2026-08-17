@@ -98,7 +98,9 @@ export interface ModelPresetsResult {
 /**
  * 把供应商显示名转成 Pi provider 名（slug）。
  * 规则：小写、空格转 -、移除非 [a-z0-9-]、collapse 连续 -。
- * 结果为空（如纯中文/符号）则 fallback provider-<6位随机>。
+ * 结果为空（如纯中文/符号）则 fallback provider-<6位名字哈希>——必须确定性：
+ * 随机值会让每次调用产出不同 slug，选中模型标识（slug/id）下一刻就失配，
+ * isModelAvailable 变 false → 发送按钮置灰（回归：腾讯云等纯中文名 provider）。
  * 冲突（slug 已在 existingSlugs 中）则加 -2/-3 后缀。
  */
 export function slugifyProviderName(
@@ -113,10 +115,14 @@ export function slugifyProviderName(
   .replace(/-+/g, "-") // collapse 连续 -
   .replace(/^-|-$/g, ""); // 去首尾 -
 
- // slug 为空（纯非 ASCII）→ fallback
+ // slug 为空（纯非 ASCII）→ 按名字哈希生成稳定 fallback（djb2 → base36）
  if (!slug) {
-  const rand = Math.random().toString(36).slice(2, 8);
-  slug = `provider-${rand}`;
+  let h = 5381;
+  const trimmed = name.trim();
+  for (let i = 0; i < trimmed.length; i++) {
+   h = ((h << 5) + h + trimmed.charCodeAt(i)) >>> 0;
+  }
+  slug = `provider-${h.toString(36).slice(0, 6).padStart(6, "0")}`;
  }
 
  // 冲突检测：若 slug 在 existingSlugs 中，加 -2/-3/...
