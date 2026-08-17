@@ -12,7 +12,11 @@ export interface ShareRecord {
 }
 
 async function readJson(file: string): Promise<{ shares?: ShareRecord[] }> {
-  try { return JSON.parse(await readFile(file, "utf8")); } catch { return {}; }
+  try {
+    return JSON.parse(await readFile(file, "utf8"));
+  } catch {
+    return {};
+  }
 }
 async function writeJson(file: string, data: unknown): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
@@ -22,7 +26,10 @@ async function writeJson(file: string, data: unknown): Promise<void> {
 export async function loadShares(file: string): Promise<ShareRecord[]> {
   return (await readJson(file)).shares ?? [];
 }
-export async function appendShare(file: string, rec: ShareRecord): Promise<void> {
+export async function appendShare(
+  file: string,
+  rec: ShareRecord,
+): Promise<void> {
   const shares = await loadShares(file);
   await writeJson(file, { shares: [...shares, rec] });
 }
