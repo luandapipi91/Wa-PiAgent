@@ -9,6 +9,8 @@ import {
 	loadProxySettings,
 	saveProxySettings,
 	applySystemProxy,
+	loadShareSettings,
+	saveShareSettings,
 } from "../settings-store";
 
 export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
@@ -44,5 +46,15 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 		await applySystemProxy();
 		ctx.markAllDirty?.();
 		return Response.json({ proxy: saved });
+	});
+	// 产物分享配置（直接读写 settings.json，不走 WS callApi；ctx.settingsFile 供测试注入隔离文件）
+	r.add("GET", "/api/settings/share", async () => {
+		const share = await loadShareSettings(ctx.settingsFile);
+		return Response.json({ share });
+	});
+	r.add("PUT", "/api/settings/share", async (req) => {
+		const b = await readJsonBody(req);
+		const saved = await saveShareSettings(b.share, ctx.settingsFile);
+		return Response.json({ share: saved });
 	});
 };

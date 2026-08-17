@@ -2,10 +2,25 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — feat(kernel): /api/settings/share 读写路由（产物分享任务 6）
+
+- kernel settings 路由新增 GET/PUT `/api/settings/share`：GET 返回 `{ share }`（未配置时回退默认 `token:""`、`channel:"edgeone"`），PUT 读 `body.share` 经 `saveShareSettings` 写盘（read-modify-write 保留其他字段）。复用既有 `loadShareSettings`/`saveShareSettings`；RouteContext 新增可选 `settingsFile` 供测试注入 tmpdir 隔离真实 settings.json（生产缺省仍走真实文件）。
+- 影响范围：`packages/kernel/src/routes/settings.ts`、`packages/kernel/src/routes/types.ts`；测试 `tests/settings-share-route.test.ts`（GET 默认值、PUT 往返、PUT 后 loadShareSettings 生效）。
+
+## 2026-08-17 — fix(frontend): 发送消息/收到回复后 lastActivity 未刷新（回归）
+
+- 上一条「点击查看不再更新 lastActivity」仅删除了前端 `selectSession` 乐观更新，但未补上「发消息/收回复时同步」的机制：kernel 始终正确 touch 磁盘（agent:prompt 与 message_end），但 `touchSession` 只落盘不广播，前端 store 收不到新值，界面时间/排序停滞。修复：新增 `useProjectsStore.touchSession(id)`（置 Date.now()），在 `Composer.doSend`（发送 agent:prompt）与 `session.ts` 的 `message_end` 分支（收到回复结束）调用。
+- 影响范围：`packages/frontend/src/store/projects.ts`、`packages/frontend/src/store/session.ts`、`packages/frontend/src/components/Composer.tsx`；测试 `tests/store-projects.test.ts`（touchSession 更新/不存在 id 安全 2 用例）、`tests/session-message-update-batcher.test.ts`（message_end 触发 lastActivity 更新）。
+
 ## 2026-08-17 — fix(kernel): 分享部署失败感知 + 轮询间隔注入 + upload 错误处理
 
-- 产物分享任务 5 修复：deployShare 轮询改为轮询至终态后校验最终 Status 必须为 Success，Failed/Error 等失败终态抛错（EdgeOne 部署失败: Status），不再返回失败链接；新增可选 pollIntervalMs（缺省 5000ms）注入轮询间隔，测试传 1 让单测毫秒级完成；POST /api/share/upload handler 包 try/catch 兜底返回结构化 { error } + 500（避免裸 500）。
-- 影响范围：packages/kernel/src/share/edgeone-client.ts、packages/kernel/src/routes/share.ts；测试 tests/share-routes.test.ts（新增 delete、zip 多选 2 用例，各用例注入 pollIntervalMs=1）。
+- 产物分享任务 5 修复：deployShare 轮询改为轮询至终态后校验最终 Status 必须为 Success，Failed/Error 等失败终态抛错（`EdgeOne 部署失败: <Status>`），不再返回失败链接；新增可选 `pollIntervalMs`（缺省 5000ms）注入轮询间隔，测试传 1 让单测毫秒级完成；POST /api/share/upload handler 包 try/catch 兜底返回结构化 `{ error }` + 500（避免裸 500）。
+- 影响范围：`packages/kernel/src/share/edgeone-client.ts`、`packages/kernel/src/routes/share.ts`；测试 `tests/share-routes.test.ts`（新增 delete、zip 多选 2 用例，各用例注入 pollIntervalMs=1）。
+
+## 2026-08-17 — feat(kernel+frontend): 点击查看会话不再更新最后激活时间（只有发消息/收回复才算活跃）
+
+- 需求：查看会话不应把「最后激活时间」顶到当前。移除两处「点击/打开即 touch lastActivity」的逻辑：前端 `selectSession` 的乐观更新（projects.ts，仅保留选中切换）、kernel `session:messages` 里的 `touchSession`（ws-server.ts）。发消息 `agent:prompt` 与收回复 `message_end` 的 touch 更新保留。`session:messages` 的 `isDeleted`/`isScheduler` 守卫仍用于 `prewarm`（拉起 pi 进程），未删。
+- 影响范围：`packages/frontend/src/store/projects.ts`、`packages/kernel/src/ws-server.ts`；测试 `tests/store-projects.test.ts`（selectSession 断言改为不更新）、`tests/session-messages.test.ts`（普通会话查看也不再 touch）。
 
 ## 2026-08-17 — fix(kernel): 发送前自动压缩预留改为固定 33K（社区做法）
 
