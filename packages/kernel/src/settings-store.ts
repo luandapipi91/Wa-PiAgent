@@ -50,6 +50,14 @@ async function readSettingsJson(file: string): Promise<Record<string, any>> {
 	}
 }
 
+async function writeSettingsJson(
+	file: string,
+	settings: Record<string, any>,
+): Promise<void> {
+	await mkdir(dirname(file), { recursive: true });
+	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
+}
+
 export async function loadRetrySettings(
 	file: string = SETTINGS_FILE,
 ): Promise<RetrySettings> {
@@ -290,4 +298,36 @@ export async function applySystemProxy(
 		delete process.env.http_proxy;
 		delete process.env.https_proxy;
 	}
+}
+
+/** 产物分享默认配置（未配置时：无 token + 默认渠道 edgeone） */
+export const SHARE_DEFAULTS = { token: "", channel: "edgeone" } as const;
+export interface ShareSettings {
+	token: string;
+	channel: string;
+}
+
+/** 读取产物分享配置（shareToken/shareChannel）；字段缺失逐项回退默认值 */
+export async function loadShareSettings(
+	file: string = SETTINGS_FILE,
+): Promise<ShareSettings> {
+	const raw = (await readSettingsJson(file)).share ?? {};
+	return {
+		token: raw.token ?? SHARE_DEFAULTS.token,
+		channel: raw.channel ?? SHARE_DEFAULTS.channel,
+	};
+}
+
+/** 保存产物分享配置（read-modify-write，保留 settings.json 内其他字段） */
+export async function saveShareSettings(
+	share: ShareSettings,
+	file: string = SETTINGS_FILE,
+): Promise<ShareSettings> {
+	const settings = await readSettingsJson(file);
+	settings.share = {
+		token: share.token ?? "",
+		channel: share.channel ?? SHARE_DEFAULTS.channel,
+	};
+	await writeSettingsJson(file, settings);
+	return { token: settings.share.token, channel: settings.share.channel };
 }
