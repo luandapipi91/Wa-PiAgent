@@ -104,9 +104,32 @@ function modelToInfo(m: CatalogModel): SdkModelInfo {
 }
 
 /**
+ * 决定最终生效的 baseUrl：用户显式配置优先。
+ * 仅当用户未配置、或与内置目录值同源（相等 / 互为前缀，仅差 /v1 等后缀）时
+ * 才采用目录值——用于纠正 providers.json 里缺后缀的旧数据；
+ * 用户把 baseUrl 改成无关地址（如自建网关 tokenhub）时尊重用户配置，
+ * 否则 key 会被发到目录里的官方端点导致 401。
+ */
+export function resolveEffectiveBaseUrl(
+	userBaseUrl: string,
+	catalogBaseUrl?: string,
+): string {
+	const user = userBaseUrl.replace(/\/+$/, "");
+	const catalog = catalogBaseUrl?.replace(/\/+$/, "") ?? "";
+	if (!catalog) return user;
+	if (!user) return catalog;
+	const sameOrigin =
+		catalog === user ||
+		catalog.startsWith(`${user}/`) ||
+		user.startsWith(`${catalog}/`);
+	return sameOrigin ? catalog : user;
+}
+
+/**
  * 解析测试连接用的 baseUrl。
- * 优先用内置目录里该 provider（按 slug 过滤）匹配模型的 baseUrl（含正确 /v1 后缀），
- * 纠正 providers.json 里可能缺后缀的旧值；找不到则回退用户配置的 baseUrl。
+ * 在内置目录里按 slug（+ api 分节）定位匹配模型，找到后用 resolveEffectiveBaseUrl
+ * 裁决：同源时采用目录值（含正确 /v1 后缀），用户改成无关地址时保留用户配置；
+ * 找不到则回退用户配置的 baseUrl。
  * 内置目录按 api 分节（同 slug 下 anthropic-messages 与 openai-completions 的 baseUrl
  * 可能不同，如 opencode-go 相差 /v1），传 api 时只认同 api 的目录条目，避免拿错前缀。
  * allModels 由调用方注入（便于测试），生产传 getAllCatalogModels() 的结果。
@@ -124,9 +147,11 @@ export function resolveProviderBaseUrl(
 	if (api) matches = matches.filter((m) => m.api === api);
 	for (const id of modelIds) {
 		const exact = matches.find((m) => m.id === id);
-		if (exact?.baseUrl) return exact.baseUrl.replace(/\/+$/, "");
+		if (exact?.baseUrl)
+			return resolveEffectiveBaseUrl(fallbackBaseUrl, exact.baseUrl);
 		const ci = matches.find((m) => m.id.toLowerCase() === id.toLowerCase());
-		if (ci?.baseUrl) return ci.baseUrl.replace(/\/+$/, "");
+		if (ci?.baseUrl)
+			return resolveEffectiveBaseUrl(fallbackBaseUrl, ci.baseUrl);
 	}
 	return fallbackBaseUrl.replace(/\/+$/, "");
 }
@@ -162,14 +187,24 @@ export function generateProviderExtension(
 	const entries = slugifyProviders(providers);
 	const registrations = entries
 		.map(({ provider, slug }) => {
-			// baseUrl 优先用内置目录（含正确 /v1 后缀等），纠正 providers.json 里可能缺后缀的旧值；
-			// 按 slug 定位该 provider 的模型，避免同名模型跨 provider 冲突。
+			// baseUrl 由 resolveEffectiveBaseUrl 裁决：与内置目录同源（仅差 /v1 等后缀）时
+			// 采用目录值纠正 providers.json 缺后缀的旧值；用户显式改成无关地址（自建网关等）
+			// 时尊重用户配置，否则 key 会被发到目录里的官方端点导致 401。
 			// 内置目录按 api 分节：只认同 api 的条目，否则 anthropic-messages provider 可能拿到
 			// openai-completions 的 /v1 baseUrl，Anthropic SDK 再拼 /v1/messages → /v1/v1/messages 404。
 			const firstSdk = provider.models
 				.map((m) => sdkModelMap.get(`${slug}/${m.id}`) ?? sdkModelMap.get(m.id))
 				.find((s) => s?.baseUrl && s.api === provider.api);
-			const baseUrl = (firstSdk?.baseUrl || provider.baseUrl).replace(/\/+$/, "");
+			const baseUrl = resolveEffectiveBaseUrl(
+				provider.baseUrl,
+				firstSdk?.baseUrl,
+			);
+			// 自建网关（生效 baseUrl 与目录值不同）无法被 pi 的 detectCompat 识别，会被当作
+			// 标准 OpenAI 端点：reasoning 模型的 system prompt 以 developer role 发送，
+			// tokenhub 等网关直接 400（developer is not one of [system, ...]）。
+			// 对这类端点的 reasoning 模型显式关闭 developer role（回退 system，普适）。
+			const catalogBaseUrl = firstSdk?.baseUrl?.replace(/\/+$/, "");
+			const customEndpoint = !!catalogBaseUrl && baseUrl !== catalogBaseUrl;
 			const modelsCode = provider.models
 				.map((m) => {
 					const sdk =
@@ -197,7 +232,8 @@ export function generateProviderExtension(
         input: ${JSON.stringify(input)},
         cost: ${JSON.stringify(cost)},
         contextWindow: ${contextWindow},
-        maxTokens: ${maxTokens},
+        maxTokens: ${maxTokens},${customEndpoint && reasoning ? `
+        compat: { supportsDeveloperRole: false },` : ""}
       }`;
 				})
 				.join(",\n");

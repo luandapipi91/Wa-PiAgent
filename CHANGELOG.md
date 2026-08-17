@@ -2,6 +2,20 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — fix(kernel): 用户自定义 baseUrl 不再被内置模型目录覆盖（tokenhub 401）
+
+- 用户把预设 provider（如 DeepSeek，模型 deepseek-v4-flash 在 pi 目录中存在）的 baseUrl 改成自建网关（tokenhub.tencentmaas.com）后，`resolveProviderBaseUrl`（连通测试）与 `generateProviderExtension`（真实聊天）都无条件用目录值 `https://api.deepseek.com` 覆盖，导致网关 key 被发到 DeepSeek 官网 → 401 "Authentication Fails, Your api key: ****xxxx is invalid"。
+- 新增 `resolveEffectiveBaseUrl`：用户显式配置优先；仅当用户未配置、或与目录值同源（相等/互为前缀，仅差 /v1 等后缀）时才采用目录值，保留「纠正缺 /v1 旧数据」的原有能力。
+- 影响范围：`packages/kernel/src/provider-extension.ts`；测试 `packages/kernel/tests/provider-extension.test.ts`（新增 tokenhub 回归 3 用例，调整 api 分节 1 用例预期）。
+- 顺带：连通测试报错不再附加「【直连：未检测到 HTTP(S)_PROXY 环境变量】」噪音文案，仅在检测到代理时附加【代理: xxx】；`packages/kernel/src/provider-test.ts`。
+- 后续：自建网关端点的 reasoning 模型在生成的 extension 里显式写 `compat: { supportsDeveloperRole: false }`——pi 的 detectCompat 识别不了 tokenhub 等未知网关，会按标准 OpenAI 端点把 system prompt 以 developer role 发送，网关 400（developer is not one of [system, ...]）。判定规则：生效 baseUrl 与目录值不同即为自建端点。
+
+## 2026-08-17 — fix(shared): 纯中文名 provider 的 slug fallback 改为确定性哈希（发送按钮置灰）
+
+- `slugifyProviderName` 对纯中文名（如「腾讯云」）派生不出 slug 时原用 `Math.random()` 生成 `provider-xxxxxx`，每次调用结果不同：选中模型标识（slug/id）下一刻即失配，`isModelAvailable` 恒为 false → 聊天界面发送按钮永远置灰；kernel 侧 extension 注册 slug 同样不稳定。
+- 改为 djb2 名字哈希（base36 取 6 位），同一名字跨调用/跨进程产出一致 slug；冲突加后缀逻辑不变。
+- 影响范围：`packages/shared/src/providers.ts`；测试 `packages/shared/tests/providers.test.ts`（新增确定性回归 2 用例，调整中文 fallback 注释）。注意：修复前用随机 slug 选中过模型的会话需重新选择一次模型。
+
 ## 2026-08-17 — feat(frontend): 文件预览面板头部分享按钮（产物分享任务 10）
 
 - FileViewer 的 Markdown 预览头部与代码预览头部（fv-btn 关闭按钮左侧）新增 ShareButton：`paths=[当前文件 path]`、透传 sessionId、testId `share-file-btn`，class 复用 `fv-btn` 与关闭按钮风格一致。图片预览（ImageViewer 头部结构不同）不在此列。

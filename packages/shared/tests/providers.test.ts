@@ -26,10 +26,26 @@ test("slugifyProviderName 移除特殊字符", () => {
 });
 
 test("slugifyProviderName 中文移除后 fallback", () => {
-  // 纯中文移除后为空，fallback provider-<前6位随机>，这里只断言前缀
+  // 纯中文移除后为空，fallback provider-<6位名字哈希>，这里只断言前缀
   const slug = slugifyProviderName("测试供应商", []);
   expect(slug.startsWith("provider-")).toBe(true);
   expect(slug.length).toBeGreaterThan("provider-".length);
+});
+
+test("slugifyProviderName 纯中文名 fallback 必须确定性（回归：随机 slug 导致发送按钮置灰）", () => {
+  // 随机 fallback 会让选中模型标识（slug/id）在下次派生时失配，
+  // isModelAvailable 变 false → 发送按钮永远置灰（腾讯云等纯中文名 provider）
+  const a = slugifyProviderName("腾讯云", []);
+  const b = slugifyProviderName("腾讯云", []);
+  expect(a).toBe(b);
+  // 不同名字应得到不同 fallback（哈希区分）
+  expect(slugifyProviderName("阿里云", [])).not.toBe(a);
+});
+
+test("isModelAvailable: 纯中文名 provider 选中模型后可发送（回归：随机 slug 置灰）", () => {
+  const providers = [makeProvider("腾讯云", ["deepseek-v4-flash"])];
+  const slug = slugifyProviderName("腾讯云", []);
+  expect(isModelAvailable(`${slug}/deepseek-v4-flash`, providers)).toBe(true);
 });
 
 test("slugifyProviderName 冲突加后缀", () => {

@@ -15,12 +15,10 @@ export interface TestResult {
 /** 超时 10 秒 */
 const TIMEOUT_MS = 10000;
 
-/** 当前代理环境变量诊断（帮助定位「没走代理」导致的 401/超时） */
+/** 当前代理环境变量诊断（仅在检测到代理时附加，帮助定位「走没走代理」问题） */
 function proxyDiagnostic(): string {
 	const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-	return proxy
-		? `【代理: ${proxy}】`
-		: "【直连：未检测到 HTTP(S)_PROXY 环境变量】";
+	return proxy ? `【代理: ${proxy}】` : "";
 }
 
 /**
@@ -46,7 +44,7 @@ export async function testProviderConnection(
 			const body = await res.text().catch(() => "");
 			return {
 				ok: false,
-				error: `HTTP ${res.status} ${body.slice(0, 200)} ${proxyDiagnostic()}`,
+				error: `HTTP ${res.status} ${body.slice(0, 200)} ${proxyDiagnostic()}`.trim(),
 			};
 		} else {
 			// anthropic-messages：发最小请求（路径与 Anthropic SDK 一致，用 /v1/messages）
@@ -69,7 +67,7 @@ export async function testProviderConnection(
 			const body = await res.text().catch(() => "");
 			return {
 				ok: false,
-				error: `HTTP ${res.status} ${body.slice(0, 200)} ${proxyDiagnostic()}`,
+				error: `HTTP ${res.status} ${body.slice(0, 200)} ${proxyDiagnostic()}`.trim(),
 			};
 		}
 	} catch (err) {
@@ -77,8 +75,8 @@ export async function testProviderConnection(
 		return {
 			ok: false,
 			error: controller.signal.aborted
-				? `超时（${TIMEOUT_MS}ms）${proxyDiagnostic()}`
-				: `${msg} ${proxyDiagnostic()}`,
+				? `超时（${TIMEOUT_MS}ms）${proxyDiagnostic()}`.trim()
+				: `${msg} ${proxyDiagnostic()}`.trim(),
 		};
 	} finally {
 		clearTimeout(timer);
