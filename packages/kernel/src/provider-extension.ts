@@ -19,6 +19,7 @@ type SdkModelInfo = Pick<
 	| "cost"
 	| "name"
 	| "baseUrl"
+	| "api"
 >;
 
 /** 默认模型参数（目录查询失败时的 fallback） */
@@ -30,6 +31,7 @@ const DEFAULT_SDK_MODEL: SdkModelInfo = {
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 	name: "",
 	baseUrl: "",
+	api: "",
 };
 
 /**
@@ -95,6 +97,7 @@ function modelToInfo(m: CatalogModel): SdkModelInfo {
 		},
 		name: m.name,
 		baseUrl: m.baseUrl,
+		api: m.api,
 	};
 }
 
@@ -102,6 +105,8 @@ function modelToInfo(m: CatalogModel): SdkModelInfo {
  * 解析测试连接用的 baseUrl。
  * 优先用内置目录里该 provider（按 slug 过滤）匹配模型的 baseUrl（含正确 /v1 后缀），
  * 纠正 providers.json 里可能缺后缀的旧值；找不到则回退用户配置的 baseUrl。
+ * 内置目录按 api 分节（同 slug 下 anthropic-messages 与 openai-completions 的 baseUrl
+ * 可能不同，如 opencode-go 相差 /v1），传 api 时只认同 api 的目录条目，避免拿错前缀。
  * allModels 由调用方注入（便于测试），生产传 getAllCatalogModels() 的结果。
  */
 export function resolveProviderBaseUrl(
@@ -109,10 +114,12 @@ export function resolveProviderBaseUrl(
 	modelIds: string[],
 	fallbackBaseUrl: string,
 	allModels: CatalogModel[],
+	api?: string,
 ): string {
-	const matches = slug
+	let matches = slug
 		? allModels.filter((m) => m.provider === slug)
 		: allModels;
+	if (api) matches = matches.filter((m) => m.api === api);
 	for (const id of modelIds) {
 		const exact = matches.find((m) => m.id === id);
 		if (exact?.baseUrl) return exact.baseUrl.replace(/\/+$/, "");
@@ -155,9 +162,11 @@ export function generateProviderExtension(
 		.map(({ provider, slug }) => {
 			// baseUrl 优先用内置目录（含正确 /v1 后缀等），纠正 providers.json 里可能缺后缀的旧值；
 			// 按 slug 定位该 provider 的模型，避免同名模型跨 provider 冲突。
+			// 内置目录按 api 分节：只认同 api 的条目，否则 anthropic-messages provider 可能拿到
+			// openai-completions 的 /v1 baseUrl，Anthropic SDK 再拼 /v1/messages → /v1/v1/messages 404。
 			const firstSdk = provider.models
 				.map((m) => sdkModelMap.get(`${slug}/${m.id}`) ?? sdkModelMap.get(m.id))
-				.find((s) => s?.baseUrl);
+				.find((s) => s?.baseUrl && s.api === provider.api);
 			const baseUrl = (firstSdk?.baseUrl || provider.baseUrl).replace(/\/+$/, "");
 			const modelsCode = provider.models
 				.map((m) => {
