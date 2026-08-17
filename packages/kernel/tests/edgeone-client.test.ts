@@ -2,7 +2,9 @@ import { test, expect, mock } from "bun:test";
 import {
   detectBaseUrl,
   getOrCreateProject,
+  getPresetDomain,
   encipherUrl,
+  apiCall,
 } from "../src/share/edgeone-client";
 
 const fetchMock = mock(
@@ -42,7 +44,7 @@ test("getOrCreateProject：不存在则创建，返回 ProjectId", async () => {
   expect(calls).toContain("CreatePagesProject");
 });
 
-test("buildShareUrl：用项目域名 + encipher token 拼 URL", async () => {
+test("encipherUrl：用项目域名 + encipher token 拼 URL", async () => {
   fetchMock.mockImplementation(async (_url: string, init?: any) => {
     const body = JSON.parse(String(init?.body ?? "{}"));
     if (body.Action === "DescribePagesEncipherToken")
@@ -57,5 +59,94 @@ test("buildShareUrl：用项目域名 + encipher token 拼 URL", async () => {
     "tk",
     "wa-pi-share-abc.edgeone.cool",
   );
-  expect(url).toBe("https://wa-pi-share-abc.edgeone.cool?eo_token=tok&eo_time=123");
+  expect(url).toBe(
+    "https://wa-pi-share-abc.edgeone.cool?eo_token=tok&eo_time=123",
+  );
+});
+
+test("apiCall：非 2xx 状态码抛 HTTP 错误", async () => {
+  fetchMock.mockImplementation(async (_url: string, _init?: any) => {
+    return new Response("oops", { status: 500 });
+  });
+  await expect(apiCall("https://api", "tk", "SomeAction")).rejects.toThrow(
+    "[SomeAction] HTTP 500",
+  );
+});
+
+test("apiCall：业务 Code!==0 抛业务错误", async () => {
+  fetchMock.mockImplementation(async (_url: string, _init?: any) => {
+    return JSON_RES({ Code: 4000, Message: "bad request" });
+  });
+  await expect(
+    apiCall("https://api", "tk", "SomeAction"),
+  ).rejects.toThrow("[SomeAction] Code 4000: bad request");
+});
+
+test("getOrCreateProject：已存在则直接返回 ProjectId", async () => {
+  fetchMock.mockImplementation(async (_url: string, _init?: any) => {
+    return JSON_RES({
+      Code: 0,
+      Data: { Response: { Projects: [{ ProjectId: "p-exist" }] } },
+    });
+  });
+  const pid = await getOrCreateProject("https://api", "tk", "share-abc");
+  expect(pid).toBe("p-exist");
+});
+
+test("getOrCreateProject：创建未回带 ProjectId 时重查兜底", async () => {
+  let describeCalls = 0;
+  fetchMock.mockImplementation(async (_url: string, init?: any) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (body.Action === "CreatePagesProject")
+      return JSON_RES({ Code: 0, Data: { Response: {} } });
+    describeCalls += 1;
+    // 首次查询为空 → 触发创建；重查（第二次 Describe）返回项目
+    return describeCalls === 1
+      ? JSON_RES({ Code: 0, Data: { Response: { Projects: [] } } })
+      : JSON_RES({
+          Code: 0,
+          Data: { Response: { Projects: [{ ProjectId: "p-requery" }] } },
+        });
+  });
+  const pid = await getOrCreateProject("https://api", "tk", "share-abc");
+  expect(pid).toBe("p-requery");
+  expect(describeCalls).toBe(2);
+});
+
+test("detectBaseUrl：china 失败则回退 global 成功", async () => {
+  fetchMock.mockImplementation(async (url: string, _init?: any) => {
+    if (String(url).includes("cloud.tencent.com"))
+      return new Response("{}", { status: 500 });
+    if (String(url).includes("edgeone.ai"))
+      return JSON_RES({ Code: 0, Data: { Response: {} } });
+    return new Response("{}", { status: 500 });
+  });
+  const base = await detectBaseUrl("tk");
+  expect(base).toContain("edgeone.ai");
+});
+
+test("detectBaseUrl：两端点全失败则抛错", async () => {
+  fetchMock.mockImplementation(async (_url: string, _init?: any) => {
+    return new Response("{}", { status: 500 });
+  });
+  await expect(detectBaseUrl("tk")).rejects.toThrow(
+    "EdgeOne API 端点均不可用",
+  );
+});
+
+test("getPresetDomain：返回项目 PresetDomain", async () => {
+  fetchMock.mockImplementation(async (_url: string, init?: any) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    expect(body.Action).toBe("DescribePagesProjects");
+    expect(body.Filters[0].Name).toBe("ProjectId");
+    expect(body.Filters[0].Values).toEqual(["p1"]);
+    return JSON_RES({
+      Code: 0,
+      Data: {
+        Response: { Projects: [{ ProjectId: "p1", PresetDomain: "dom.example" }] },
+      },
+    });
+  });
+  const domain = await getPresetDomain("https://api", "tk", "p1");
+  expect(domain).toBe("dom.example");
 });
