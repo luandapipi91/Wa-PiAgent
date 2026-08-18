@@ -18,6 +18,7 @@ const PER_SESSION_KEYS = [
 	"lastUsageBySession",
 	"contextUsageBySession",
 	"netStatusBySession",
+	"netMessageBySession",
 	"retryBySession",
 	"extStatusBySession",
 	"extWidgetBySession",

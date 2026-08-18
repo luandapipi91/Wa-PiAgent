@@ -79,6 +79,10 @@ export function App() {
 	const netDegraded = useSessionStore((s) =>
 		currentSessionId ? !!s.netStatusBySession[currentSessionId] : false,
 	);
+	// degraded 的具体原因（kernel classifySdkError 清洗后的 message），状态条优先展示。
+	const netMessage = useSessionStore((s) =>
+		currentSessionId ? (s.netMessageBySession[currentSessionId] ?? null) : null,
+	);
 	// pi 自动重试进度：重试期间黄色状态条「正在自动重试 (n/m)」优先于红色 degraded 条。
 	const retryInfo = useSessionStore((s) =>
 		currentSessionId ? (s.retryBySession[currentSessionId] ?? null) : null,
@@ -214,7 +218,7 @@ export function App() {
 					// 让 pi 内部重试期间（busy=true）新消息继续排队（现有机制）。
 					const sid = e.sessionId ?? useProjectsStore.getState().currentSessionId;
 					if (sid) {
-						useSessionStore.getState().setNetStatus(sid, "degraded");
+						useSessionStore.getState().setNetStatus(sid, "degraded", e.message);
 					} else {
 						useToastStore.getState().add(e.message);
 					}
@@ -550,7 +554,7 @@ export function App() {
 						className="flex items-center justify-center px-4 py-1.5 text-xs bg-danger-soft text-danger border-b border-danger/20"
 						data-testid="net-status-bar"
 					>
-						{t("app.netDegraded")}
+						{netMessage ?? t("app.netDegraded")}
 					</div>
 				)}
 				{extTitle && (
