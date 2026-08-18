@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — fix(frontend): 分享弹窗点击阴影不关闭（closeOnOverlayClick=false 防误触丢输入）
+
+- 分享弹窗（ShareResultModal）点击阴影不关闭——弹窗里可能正在输入分享名/生成链接，点阴影误关会丢输入；关闭走 X 按钮或 ESC。Modal 通用组件支持 closeOnOverlayClick 开关（其他弹窗仍默认点阴影关闭）。
+- 影响范围：`packages/frontend/src/components/ui/ShareButton.tsx`（closeOnOverlayClick={false}）；测试 ShareButton（点遮罩不关 + X 关）、Modal（closeOnOverlayClick=false 用例）。
+
 ## 2026-08-18 — fix(frontend): toast 层级提到弹窗之上（z-50 → z-[60]，不再被分享弹窗阴影遮挡）
 
 - 分享名称重复等 toast（ToastContainer z-50）与 Modal 遮罩同为 z-50，Modal portal 到 body 末尾同层后渲染在上，toast 被阴影盖住。toast 改 z-[60]（与 CommandPalette 同级，高于所有弹窗遮罩），始终可见。

@@ -126,14 +126,17 @@ export function ShareResultModal({
 		setError(null);
 		setCopied(false);
 		try {
-			const res = await shareUpload(paths, sessionId, shareName.trim() || undefined);
+			const res = await shareUpload(
+				paths,
+				sessionId,
+				shareName.trim() || undefined,
+			);
 			setResult(res);
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
 			setError(msg);
 			// 名称重复等业务错误：toast 提示（用户要求「已有分享名称重复，请使用其他名字」）
-			if (/重复|非法字符/.test(msg))
-				useToastStore.getState().add(msg, "error");
+			if (/重复|非法字符/.test(msg)) useToastStore.getState().add(msg, "error");
 		} finally {
 			setGenerating(false);
 		}
@@ -158,7 +161,14 @@ export function ShareResultModal({
 		: 0;
 
 	return (
-		<Modal onClose={onClose} width={480} data-testid="share-result-modal">
+		<Modal
+			onClose={onClose}
+			width={480}
+			data-testid="share-result-modal"
+			// 点击阴影不关闭：分享弹窗里可能正在输入分享名/生成链接，防止误触丢输入；
+			// 关闭走 X 按钮或 ESC（Modal 默认 closeOnEsc=true）
+			closeOnOverlayClick={false}
+		>
 			<div className="p-4 border-b border-hairline flex items-center justify-between">
 				<div className="text-primary font-bold text-sm">{t("share.title")}</div>
 				<button

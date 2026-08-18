@@ -31,3 +31,14 @@ test("ESC 触发 onClose", () => {
 	fireEvent.keyDown(window, { key: "Escape" });
 	expect(closed).toBe(1);
 });
+
+test("closeOnOverlayClick=false 时点击遮罩不关闭", () => {
+	let closed = 0;
+	render(
+		<Modal onClose={() => closed++} closeOnOverlayClick={false}>
+			内容
+		</Modal>,
+	);
+	fireEvent.click(screen.getByTestId("modal-overlay"));
+	expect(closed).toBe(0);
+});
