@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — fix: 聊天卡死自愈链路补全（SSE 假活看门狗 + 崩溃现场日志）
+
+- 背景：上一提交修复了"kernel 崩溃后 respawn 无限 EADDRINUSE"，但前端仍有两个盲区：① kernel 崩溃瞬间 SSE 连接可能假活（TCP 未收到 RST，EventSource.onerror 不触发），后端被 sidecar 拉起后前端仍抱着僵尸连接，卡死状态永不复位；② kernel 静默 exit code=1 无错误输出，崩溃首因无从定位。
+- 修复：① kernel 心跳从 ": ping" 注释帧改为真实 data 帧（浏览器 EventSource 对注释帧不触发事件，前端不可观测）且间隔 30s→5s（`sse-bus.ts`、`ws-server.ts`）；前端 `events.ts` 加假活看门狗——任何帧刷新存活时间，OPEN 状态超过 10s 无帧则主动断连走既有重连+快照复位链路，心跳帧不进业务分发；② `kernel-sidecar.cjs` 崩溃退出时把 stderr 末尾 50 条（Bun panic/段错误的唯一现场）随 code/signal 写入 `<WA_PI_DIR>/logs/kernel-crash.log`。
+- 影响范围：`packages/kernel/src/sse-bus.ts`、`ws-server.ts`、`tests/sse-bus.test.ts`（新增心跳帧断言）；`packages/frontend/src/events.ts`、`events.test.ts`（新增 4 条：假活判死/心跳保活/心跳不分发/CONNECTING 不误判）；`packages/desktop/src/kernel-sidecar.cjs`、`tests/kernel-sidecar.test.ts`（新增 2 条：崩溃写现场/正常退出不写）。
+
 ## 2026-08-18 — fix(desktop): 聊天中"卡死"（kernel 崩溃后 respawn 无限 EADDRINUSE 循环）
 
 - 根因（desktop.log 实证，8/14、8/18 多次复现）：聊天中 kernel 进程崩溃退出（exit code=1，首因待查），其监听 socket 句柄被 pi 子进程/子代理继承，kernel 死后端口 9778 以"死 PID 占 LISTENING"的幽灵形态持续被占（现场抓到 netstat 显示 PID 2284 监听但该进程已不存在）。sidecar 的 `scheduleRespawn` 直接 respawn，新 kernel `Bun.serve` 必然 EADDRINUSE → 退出 → 再 respawn → 无限崩溃循环，后端永久不可用，前端表现为卡死、停止/发送全无效。
