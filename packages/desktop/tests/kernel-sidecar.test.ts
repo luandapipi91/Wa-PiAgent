@@ -40,6 +40,8 @@ async function startSidecarHarness(spawnPids: (number | undefined)[]) {
       checkPortFn,
       killFn,
       respawnDelayMs: 5,
+      isPortInUseFn: (async () => false), // 永不真探端口（本机 9778 可能真被占）
+      killPortOccupantsFn: (async () => []), // 绝不真杀进程
     },
   });
   return { sidecar, children, killed, spawnFn };
@@ -156,4 +158,73 @@ test("waitForPort 未就绪 → 杀当前 pid 后抛 kernel not ready（killFn �
     }),
   ).rejects.toThrow("kernel not ready");
   expect(killed).toEqual([777]);
+});
+
+test("scheduleRespawn: 重启前清理端口占用（崩溃后幽灵句柄占端口 → 否则 EADDRINUSE 无限崩溃循环）", async () => {
+  // 事故还原：kernel 聊天中崩溃退出，但监听 socket 句柄被 pi 子进程继承，
+  // 端口 9778 以死 PID 幽灵形态持续被占；respawn 若直接 spawn → Bun.serve
+  // EADDRINUSE → 退出 → 再 respawn → 无限循环，前端永久连不上（停止/发送全无效）。
+  const children = [fakeChild(111), fakeChild(222)];
+  let i = 0;
+  const order: string[] = [];
+  const killedPorts: number[] = [];
+  await startSidecar({
+    isPackaged: false,
+    kernelDir: "/fake/kernel",
+    webDir: "/fake/web",
+    kernelExe: "/fake/kernel/wa-pi-kernel",
+    port: 9778,
+    log: { info() {}, error() {} },
+    deps: {
+      spawnFn: (() => {
+        order.push("spawn");
+        return children[Math.min(i++, children.length - 1)];
+      }) as any,
+      waitForPortFn: (async () => true) as any,
+      checkPortFn: (async () => true) as any,
+      killFn: (() => {}) as any,
+      respawnDelayMs: 5,
+      isPortInUseFn: (async () => true) as any, // 端口被幽灵占用
+      killPortOccupantsFn: (async (p: number) => {
+        order.push("killPort");
+        killedPorts.push(p);
+        return [];
+      }) as any,
+    },
+  });
+  order.length = 0; // 清掉首次启动的 spawn 记录，只观察 respawn
+  children[0].emit("exit", 1, null); // Windows 强杀/崩溃退出 code=1
+  await new Promise((r) => setTimeout(r, 30)); // 等 respawn 定时器 + 清理跑完
+  expect(killedPorts).toEqual([9778]); // 清的是 sidecar 端口
+  expect(order).toEqual(["killPort", "spawn"]); // 先清端口再 respawn
+});
+
+test("scheduleRespawn: 端口空闲时不做多余清理，直接 respawn", async () => {
+  const children = [fakeChild(111), fakeChild(222)];
+  let i = 0;
+  let killCalls = 0;
+  await startSidecar({
+    isPackaged: false,
+    kernelDir: "/fake/kernel",
+    webDir: "/fake/web",
+    kernelExe: "/fake/kernel/wa-pi-kernel",
+    port: 9778,
+    log: { info() {}, error() {} },
+    deps: {
+      spawnFn: (() => children[Math.min(i++, children.length - 1)]) as any,
+      waitForPortFn: (async () => true) as any,
+      checkPortFn: (async () => true) as any,
+      killFn: (() => {}) as any,
+      respawnDelayMs: 5,
+      isPortInUseFn: (async () => false) as any, // 端口已正常释放
+      killPortOccupantsFn: (async () => {
+        killCalls++;
+        return [];
+      }) as any,
+    },
+  });
+  children[0].emit("exit", 1, null);
+  await new Promise((r) => setTimeout(r, 30));
+  expect(killCalls).toBe(0); // 空闲端口不做多余清理（netstat/幽灵扫描有成本）
+  expect(i).toBe(2); // 已正常 respawn
 });
