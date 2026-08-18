@@ -33,9 +33,9 @@ test("旧版本默认收起，点击版本号展开", () => {
 test("maxEntries 截断：超出部分不渲染", () => {
 	const { container } = render(<VersionTimeline maxEntries={2} />);
 	const timeline = within(container).getByTestId("version-timeline");
-	// 只渲染最新 2 条（数据已推进到 0.2.5，故渲染 0.2.5 + 0.2.4），其余不出现
+	// 只渲染最新 2 条（数据已推进到 0.2.6，故渲染 0.2.6 + 0.2.5），其余不出现
+	expect(within(timeline).getByText("v0.2.6")).toBeTruthy();
 	expect(within(timeline).getByText("v0.2.5")).toBeTruthy();
-	expect(within(timeline).getByText("v0.2.4")).toBeTruthy();
 	// 第 3 条及以后不应渲染
-	expect(within(timeline).queryByText("v0.2.3")).toBeNull();
+	expect(within(timeline).queryByText("v0.2.4")).toBeNull();
 });
