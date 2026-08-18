@@ -1,4 +1,4 @@
-import { test, expect, mock, afterEach } from "bun:test";
+import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import {
   detectBaseUrl,
   getOrCreateProject,
@@ -14,7 +14,12 @@ import {
 const fetchMock = mock(
   async (_url: string, _init?: any) => new Response("{}", { status: 200 }),
 );
-globalThis.fetch = fetchMock as any;
+// 真实 fetch 必须在任何劫持之前捕获；劫持/恢复按用例维度进行（beforeEach/afterEach），
+// 避免模块加载即劫持全局 fetch，污染非 isolate 模式下同进程的其他测试文件。
+const originalFetch = globalThis.fetch;
+beforeEach(() => {
+  globalThis.fetch = fetchMock as any;
+});
 
 const JSON_RES = (data: any) =>
   new Response(JSON.stringify(data), {
@@ -174,7 +179,6 @@ test("getPresetDomain：PresetDomain 为空时抛错，不静默降级用 Name�
   );
 });
 
-const originalFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = originalFetch;
 });
