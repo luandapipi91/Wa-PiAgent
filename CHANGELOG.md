@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — fix(frontend): toast 层级提到弹窗之上（z-50 → z-[60]，不再被分享弹窗阴影遮挡）
+
+- 分享名称重复等 toast（ToastContainer z-50）与 Modal 遮罩同为 z-50，Modal portal 到 body 末尾同层后渲染在上，toast 被阴影盖住。toast 改 z-[60]（与 CommandPalette 同级，高于所有弹窗遮罩），始终可见。
+- 影响范围：`packages/frontend/src/components/ui/Toast.tsx`。
+
 ## 2026-08-18 — feat(kernel+frontend): 重命名提示需部署生效（pendingCount 签名含 name）
 
 - 分享重命名后线上（EdgeOne 部署）仍是旧名，需「立即部署」才生效。pendingCount 签名加入 name（重命名计为未部署变更，列表显示「N 项变更未部署」）；重命名成功 toast 提示「已重命名，需部署后生效」。
