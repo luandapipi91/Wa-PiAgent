@@ -2,6 +2,14 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — test(kernel): 修复套件互染与 6 个真失败，test 脚本加 --isolate
+
+- 排查 kernel 全量测试 38 fail（单文件跑全过）：32 个为跨文件互染 + 6 个为 HEAD 真失败。
+- 互染根因：`tests/edgeone-client.test.ts` 模块顶层即执行 `globalThis.fetch = fetchMock`，且"原始 fetch"捕获在劫持之后、afterEach 恢复无效——非 isolate 同进程下劫持所有并发文件的 HTTP 请求。修复：真实 fetch 在劫持前捕获，劫持挪入 `beforeEach`、afterEach 正确恢复。
+- 真失败根因：`a2fa15b9`（发送前自动压缩防护）在 `_sendPromptNow` 的 `client.prompt` 前插入 `await _autoCompactIfNeeded`，drain 变异步；`tests/steer-queue-poc.test.ts` 6 个用例仍在 `fake.emit(agent_settled)` 后同步断言 `fake.prompted`，永远缺最后一条。修复：新增 `flushDrain()`（让出一个宏任务），emit 后、断言前等待。
+- 预防复发：`packages/kernel/package.json` test 脚本改为 `bun test --isolate`（对齐 frontend）。
+- 影响范围：`packages/kernel/tests/edgeone-client.test.ts`、`packages/kernel/tests/steer-queue-poc.test.ts`、`packages/kernel/package.json`。
+
 ## 2026-08-18 — feat(frontend): 分享面板 tab 拆分 + 打开分享文件夹；fix: 多选分享超时
 
 - 设置-分享拆为「分享设置 / 我的分享」两个 tab；「我的分享」存储用量旁新增文件夹 icon（`window.waPiApp.showItemInFolder` 打开工作区目录，kernel `GET /api/share/list` 响应新增 `workspaceDir`）。

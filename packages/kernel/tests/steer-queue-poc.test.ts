@@ -56,6 +56,10 @@ async function setup(events?: CapturedEvent[]) {
   return { project, session, am, fake: fakes[0] };
 }
 
+// drain 走 _sendPromptNow（发送前有 await _autoCompactIfNeeded），prompt 在微任务之后才发生；
+// fake.emit(agent_settled) 后需让出一个宏任务再断言 fake.prompted，否则永远缺最后一条。
+const flushDrain = () => new Promise((r) => setTimeout(r, 0));
+
 test("busy 时 prompt 追加到 followUpList，不直接发给 client", async () => {
   const { session, am, fake } = await setup();
   fake.autoSettle = false; // prompt 后不自动 settled → 保持 busy
@@ -78,11 +82,13 @@ test("agent_settled 后 followUp 逐条 drain（一次一条）", async () => {
 
   // 第一次 settled：只 drain F1，F2 仍排队
   fake.emit({ type: "agent_settled" });
+  await flushDrain();
   expect(fake.prompted).toEqual(["第一条", "F1"]);
   // F2 还未被 prompt（仍在 followUpList 中）
 
   // 第二次 settled：drain F2，队列清空
   fake.emit({ type: "agent_settled" });
+  await flushDrain();
   expect(fake.prompted).toEqual(["第一条", "F1", "F2"]);
 });
 
@@ -148,14 +154,17 @@ test("agent_settled 优先 drain steerList（引导优先级高于排队）", as
 
   // 第一次 settled：drain steerList 第一条（引导B）
   fake.emit({ type: "agent_settled" });
+  await flushDrain();
   expect(fake.prompted).toEqual(["第一条", "引导B"]);
 
   // 第二次 settled：drain steerList 第二条（引导C）
   fake.emit({ type: "agent_settled" });
+  await flushDrain();
   expect(fake.prompted).toEqual(["第一条", "引导B", "引导C"]);
 
   // 第三次 settled：drain followUpList（排队A）
   fake.emit({ type: "agent_settled" });
+  await flushDrain();
   expect(fake.prompted).toEqual(["第一条", "引导B", "引导C", "排队A"]);
 });
 
@@ -187,6 +196,7 @@ test("E2 — 多次 agent_settled 不重复 drain", async () => {
 
   // 第一次 settled：drain F1
   fake.emit({ type: "agent_settled" });
+  await flushDrain();
   expect(fake.prompted).toEqual(["第一条", "F1"]);
 
   // 第二次 settled：队列已空，不发 prompt
@@ -213,6 +223,7 @@ test("E3 — followUp drain 中 prompt 失败不阻塞后续 drain", async () =>
 
   // 第二次 settled：应 drain 下一条
   fake.emit({ type: "agent_settled" });
+  await flushDrain();
   expect(fake.prompted.length).toBeGreaterThanOrEqual(2); // 第一条 + 至少一个 drain
 });
 
@@ -299,10 +310,12 @@ test("BUG: 从排队提升为引导后，排队列表仍保留原消息", async 
   // 【期望】：followUpList 不应再含"排队A"
 
   fake.emit({ type: "agent_settled" });
+  await flushDrain();
   // 第一次 drain：steerList 里的"排队A"
   expect(fake.prompted).toEqual(["第一条", "排队A"]);
 
   fake.emit({ type: "agent_settled" });
+  await flushDrain();
   // 第二次 drain：followUpList 里的"排队B"（"排队A"不应出现）
   expect(fake.prompted).toEqual(["第一条", "排队A", "排队B"]);
   // 不应出现第三个"排队A"
@@ -424,5 +437,6 @@ test("用户重发（prompt 直接发送）后清除 netDegraded，恢复正常 
 
   // 重发后 degraded 已清除，后续 settled 恢复正常 drain
   fake.emit({ type: "agent_settled" });
+  await flushDrain();
   expect(fake.prompted).toEqual(["进行中", "进行中", "排队A"]);
 });
