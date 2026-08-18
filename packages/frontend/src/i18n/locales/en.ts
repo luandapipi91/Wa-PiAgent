@@ -701,7 +701,7 @@ const en = {
 			deploy: "Deploy now",
 			deploying: "Deploying…",
 			deployed: "Published",
-			clearAll: "Clear all",
+			clearAll: "Clear shares",
 			pending: "{{count}} change(s) not deployed",
 			usage: "Storage {{used}} / {{limit}}",
 			copyLink: "Copy link",
