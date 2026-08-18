@@ -1,9 +1,10 @@
 // ShareSection 设置面板测试：
-// 1. 默认渲染：渠道「腾讯 EdgeOne」（只读）+ Token 输入框
-// 2. 输入 Token 保存 → PUT /api/settings/share（断言 body.share.token / customDomain）
+// 1. 默认渲染：渠道选择（edgeone 选中）+ Token 输入框
+// 2. 输入 Token 保存 → PUT /api/settings/share（断言 body.share.token / channel / accountId / customDomain）
 // 3. 已保存 Token 时输入框脱敏展示（•••）+ 「修改」切换
 // 4. 注册入口链接按语言分流（zh → /zh/products/pages；en → /products/pages）
-// 5. 我的分享：列表渲染 / 删除 / 复制链接 / 立即部署 / pending 提示
+// 5. 切换到 Cloudflare 渠道：显示 Account ID 输入框 + 注册链接 + 提示文案，保存带 accountId
+// 6. 我的分享：列表渲染 / 删除 / 复制链接 / 立即部署 / pending 提示
 import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ShareSection } from "./ShareSection";
@@ -106,7 +107,12 @@ test("输入 Token 保存 → PUT /api/settings/share（body.share.token）", as
 	fireEvent.click(screen.getByTestId("share-token-save"));
 	await new Promise((r) => setTimeout(r, 10));
 	expect(putMock).toHaveBeenCalledWith("/api/settings/share", {
-		share: { token: "edgeone-token-xyz", channel: "edgeone", customDomain: "" },
+		share: {
+			token: "edgeone-token-xyz",
+			channel: "edgeone",
+			accountId: "",
+			customDomain: "",
+		},
 	});
 });
 
@@ -265,7 +271,12 @@ test("保存带 customDomain：输入域名点保存 → PUT body 含 customDoma
 	fireEvent.click(screen.getByTestId("share-token-save"));
 	await new Promise((r) => setTimeout(r, 10));
 	expect(putMock).toHaveBeenCalledWith("/api/settings/share", {
-		share: { token: "", channel: "edgeone", customDomain: "share.example.com" },
+		share: {
+			token: "",
+			channel: "edgeone",
+			accountId: "",
+			customDomain: "share.example.com",
+		},
 	});
 });
 
@@ -395,6 +406,48 @@ test("我的分享：铅笔重命名 → 变 input → 回车保存调 shareRena
 	fireEvent.keyDown(input, { key: "Enter" });
 	expect(shareRenameMock).toHaveBeenCalledWith("s1", "新名字");
 	unmount();
+});
+
+test("可切换到 Cloudflare 渠道，显示 token 与 Account ID 输入，保存时带 accountId", async () => {
+	render(<ShareSection />);
+	await screen.findByTestId("share-section");
+	// 渠道单选存在：edgeone（默认选中）与 cloudflare
+	const edgeoneRadio = screen.getByTestId(
+		"share-channel-edgeone",
+	) as HTMLInputElement;
+	const cfRadio = screen.getByTestId(
+		"share-channel-cloudflare",
+	) as HTMLInputElement;
+	expect(edgeoneRadio.checked).toBe(true);
+	expect(cfRadio.checked).toBe(false);
+	// 默认 edgeone：无 Account ID 输入框
+	expect(screen.queryByTestId("share-account-id-input")).toBeNull();
+	// 切到 Cloudflare → 出现 Account ID 输入框 + 注册链接 + 提示文案
+	fireEvent.click(cfRadio);
+	expect(screen.getByTestId("share-account-id-input")).toBeTruthy();
+	const cfLink = screen.getByTestId("share-cf-register-link");
+	expect(cfLink.getAttribute("href")).toBe(
+		"https://dash.cloudflare.com/sign-up",
+	);
+	expect(cfLink.textContent).toContain("注册 Cloudflare");
+	expect(screen.getByText(/Cloudflare 分享链接永久公开/)).toBeTruthy();
+	// 输入 token 与 accountId，保存 → PUT body 含 channel/token/accountId/customDomain
+	fireEvent.change(screen.getByTestId("share-token-input"), {
+		target: { value: "cf-token-abc" },
+	});
+	fireEvent.change(screen.getByTestId("share-account-id-input"), {
+		target: { value: "cf-account-123" },
+	});
+	fireEvent.click(screen.getByTestId("share-token-save"));
+	await new Promise((r) => setTimeout(r, 10));
+	expect(putMock).toHaveBeenCalledWith("/api/settings/share", {
+		share: {
+			channel: "cloudflare",
+			token: "cf-token-abc",
+			accountId: "cf-account-123",
+			customDomain: "",
+		},
+	});
 });
 
 test("我的分享：有未部署变更时按钮下方提示需部署生效", async () => {
