@@ -2,6 +2,17 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — chore(env): 开发环境独立数据目录（隔离 start.bat/start.command 与打包版）
+
+- start.bat/start.command（浏览器版 dev，kernel 9776 + Vite 5180）与打包版桌面（Electron 9778）默认共用 `~/.pi/agent` 数据目录，两个独立 kernel 并发读写同一批 JSON 文件（projects/providers/settings/会话/记忆/日志/进程登记簿），互相覆盖、日志交错、登记簿互清。端口本就错开（9776 vs 9778），隔离数据目录才是根治。
+- 修复：`.env` 增加 `WA_PI_DIR=${HOME}/.pi/agent-dev`，dev 的所有数据落到独立目录，与打包版 `~/.pi/agent` 完全隔离；打包版不带 `.env` 不受影响。`.env.example` 同步补充说明（支持 `${HOME}` 插值，勿写 `~`，Node 不展开 tilde；用真实数据调试时注释本行即可）。
+- 影响范围：`/.env`（已被 gitignore，仅本地生效）、`.env.example`（模板）
+
+## 2026-08-18 — fix(frontend): 自动重试的新回答替换 error 消息而非拼接
+
+- 排查「重试时把做到一半的内容重新发送、任务快结束又重来」：根因链为上游网关抖动（503/断流）→ pi auto-retry → pi 将含部分文本的失败消息移出上下文让模型重写整段（LLM API 无状态，重试必发全量历史，不可避免）→ 前端 message_end 合并逻辑把重试新回答 concat 在 error 消息残留的部分文本后，同一内容在气泡里出现两遍。本次修显示层：上一条是同 agent 的 error 消息时，新回答整体替换而非合并。
+- 影响范围：`packages/frontend/src/store/session.ts`（message_end 合并分支）；测试 `tests/store-session.test.ts` 新增回归用例（替换不拼接），79 例全过。
+
 ## 2026-08-17 — fix(kernel,frontend): 产物分享最终审查修复（token 脱敏 + 死循环防护 + 域名兜底 + 路径规范化）
 
 - I1 安全（合并前必改）：GET/PUT `/api/settings/share` 不再下发 token 明文，share 字段改为 `{ hasToken, channel }`（PUT 仍接收明文输入、回包同样脱敏）；前端 `shareSettings()` 返回结构同步改为 `{ hasToken, channel }`，调用方 ShareButton/ShareSection 用 `hasToken` 判断是否已配置。
