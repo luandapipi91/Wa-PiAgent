@@ -57,6 +57,7 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 				hasToken: share.token !== "",
 				channel: share.channel,
 				customDomain: share.customDomain,
+				accountId: share.accountId,
 			},
 		});
 	});
@@ -68,6 +69,7 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 				hasToken: saved.token !== "",
 				channel: saved.channel,
 				customDomain: saved.customDomain,
+				accountId: saved.accountId,
 			},
 		});
 	});
