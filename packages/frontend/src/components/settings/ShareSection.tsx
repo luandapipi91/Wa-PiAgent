@@ -108,6 +108,7 @@ export function ShareSection() {
 			const { url } = await shareRefreshLink(id);
 			await copyToClipboard(url);
 			setCopiedId(id);
+			useToastStore.getState().add(t("settings.share.copied"), "success");
 			setTimeout(() => setCopiedId(null), 1500);
 		} catch (e) {
 			useToastStore

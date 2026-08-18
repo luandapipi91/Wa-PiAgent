@@ -228,6 +228,11 @@ test("复制链接：点击 share-copy-<id> → shareRefreshLink 被调 + copyTo
 	await new Promise((r) => setTimeout(r, 10));
 	expect(shareRefreshLinkMock).toHaveBeenCalledWith("s1");
 	expect(copyMock).toHaveBeenCalledWith("https://share.edgeone.app/s/xyz789");
+	// 复制成功 toast 提示
+	const { useToastStore } = await import("../../store/toast");
+	expect(
+		useToastStore.getState().toasts.some((t) => t.message === "已复制"),
+	).toBe(true);
 });
 
 test("立即部署：pending > 0 显示提示；点击 share-deploy → shareDeploy 被调", async () => {
