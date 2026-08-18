@@ -194,13 +194,20 @@ test.describe.serial("分享管理（设置-分享 tab）", () => {
 		await expect(page.getByTestId("share-pending")).toHaveCount(0);
 	});
 
-	test("点击清空 → clear 接口被调 → 列表回到暂无分享", async ({ page }) => {
+	test("点击清空 → 二次确认弹窗 → 确认后 clear 接口被调 → 列表回到暂无分享", async ({ page }) => {
 		const state = makeState();
 		await mockShareApi(page, state);
 		await openShareManageTab(page);
 		await expect(page.getByTestId("share-item-aaa111")).toBeVisible();
 
 		await page.getByTestId("share-clear").click();
+		// 二次确认弹窗：点取消不触发 clear
+		await expect(page.getByTestId("confirm-dialog")).toBeVisible();
+		await page.getByTestId("confirm-cancel").click();
+		await expect.poll(() => state.calls.clear).toBe(0);
+
+		await page.getByTestId("share-clear").click();
+		await page.getByTestId("confirm-ok").click();
 
 		await expect.poll(() => state.calls.clear).toBe(1);
 		await expect(page.getByTestId("share-item-aaa111")).toHaveCount(0);

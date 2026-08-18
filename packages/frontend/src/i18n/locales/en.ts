@@ -702,6 +702,7 @@ const en = {
 			deploying: "Deploying…",
 			deployed: "Published",
 			clearAll: "Clear shares",
+			clearConfirm: "Clear all shares? Online content is removed only after you click \"Deploy now\".",
 			pending: "{{count}} change(s) not deployed",
 			usage: "Storage {{used}} / {{limit}}",
 			copyLink: "Copy link",

@@ -14,6 +14,7 @@ import {
 import { copyToClipboard } from "../../util/clipboard";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 import { ProgressBar } from "../ui/ProgressBar";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useShareProgressStore } from "../../store/share-progress";
 
 /**
@@ -35,6 +36,8 @@ export function ShareSection() {
 	const [workspaceDir, setWorkspaceDir] = useState("");
 	const [deploying, setDeploying] = useState(false);
 	const [copiedId, setCopiedId] = useState<string | null>(null);
+	// 「清空分享」二次确认弹窗
+	const [confirmClear, setConfirmClear] = useState(false);
 	// kernel SSE 广播的上传/部署进度（部署阶段无真实百分比 → indeterminate）
 	const progress = useShareProgressStore();
 
@@ -130,6 +133,7 @@ export function ShareSection() {
 	};
 
 	const onClear = async () => {
+		setConfirmClear(false);
 		try {
 			await shareClear();
 			await refresh();
@@ -368,7 +372,7 @@ export function ShareSection() {
 						</button>
 						{items.length > 0 && (
 							<button
-								onClick={() => void onClear()}
+								onClick={() => setConfirmClear(true)}
 								className="px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer"
 								style={{ background: "var(--danger)", color: "#fff" }}
 								data-testid="share-clear"
@@ -408,6 +412,16 @@ export function ShareSection() {
 						</div>
 					)}
 				</div>
+			)}
+			{confirmClear && (
+				<ConfirmDialog
+					title={t("settings.share.clearAll")}
+					message={t("settings.share.clearConfirm")}
+					confirmText={t("settings.share.clearAll")}
+					danger
+					onConfirm={() => void onClear()}
+					onCancel={() => setConfirmClear(false)}
+				/>
 			)}
 		</div>
 	);
