@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — feat(frontend): 清空分享加二次确认弹窗
+
+- 「清空分享」点击后弹 ConfirmDialog（danger 红钮），确认才执行本地清空；文案注明线上内容需「立即部署」后移除。E2E 清空用例同步覆盖确认/取消两条路径。
+- 影响范围：`packages/frontend/src/components/settings/ShareSection.tsx`、i18n zh/en、`e2e/share-management.spec.ts`。
+
 ## 2026-08-18 — fix: 分享三问题修复（打开文件夹兜底/单文件夹去嵌套/删除验证）
 
 - 打开分享文件夹：dev 浏览器端无 `window.waPiApp`（Electron 能力）导致点击无反应；新增 kernel `POST /api/share/open-folder`（按平台 spawn open/explorer/xdg-open，cfg.opener 供测试注入），前端无 Electron 能力时走该兜底。

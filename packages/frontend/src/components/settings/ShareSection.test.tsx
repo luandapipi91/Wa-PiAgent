@@ -326,3 +326,35 @@ test("打开分享文件夹兜底：无 Electron 能力时调 kernel shareOpenFo
 	await new Promise((r) => setTimeout(r, 10));
 	expect(shareOpenFolderMock).toHaveBeenCalledTimes(1);
 });
+
+test("清空分享二次确认：弹窗确认后才调 shareClear", async () => {
+	shareListMock.mockImplementation(async () => ({
+		...emptyList,
+		items: [
+			{
+				id: "s1",
+				name: "proj-a",
+				files: ["index.html"],
+				size: 2048,
+				createdAt: 1780000000000,
+			},
+		],
+		totalSize: 2048,
+	}));
+	await renderSharesTab();
+	await screen.findByTestId("share-item-s1");
+	// 点击清空 → 弹确认框，shareClear 未调
+	fireEvent.click(screen.getByTestId("share-clear"));
+	await screen.findByTestId("confirm-dialog");
+	expect(shareClearMock).not.toHaveBeenCalled();
+	// 取消 → 关闭弹窗不调
+	fireEvent.click(screen.getByTestId("confirm-cancel"));
+	await new Promise((r) => setTimeout(r, 10));
+	expect(screen.queryByTestId("confirm-dialog")).toBeNull();
+	expect(shareClearMock).not.toHaveBeenCalled();
+	// 确认 → 调用并刷新
+	fireEvent.click(screen.getByTestId("share-clear"));
+	fireEvent.click(await screen.findByTestId("confirm-ok"));
+	await new Promise((r) => setTimeout(r, 10));
+	expect(shareClearMock).toHaveBeenCalledTimes(1);
+});
