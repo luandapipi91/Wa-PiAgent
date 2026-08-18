@@ -300,14 +300,20 @@ export async function applySystemProxy(
 	}
 }
 
-/** 产物分享默认配置（未配置时：无 token + 默认渠道 edgeone） */
-export const SHARE_DEFAULTS = { token: "", channel: "edgeone" } as const;
+/** 产物分享默认配置（未配置时：无 token + 默认渠道 edgeone + 无自定义域名） */
+export const SHARE_DEFAULTS = {
+	token: "",
+	channel: "edgeone",
+	customDomain: "",
+} as const;
 export interface ShareSettings {
 	token: string;
 	channel: string;
+	/** 自定义加速域名（可选）；空 = 用项目预设域名 */
+	customDomain: string;
 }
 
-/** 读取产物分享配置（shareToken/shareChannel）；字段缺失逐项回退默认值 */
+/** 读取产物分享配置；字段缺失逐项回退默认值 */
 export async function loadShareSettings(
 	file: string = SETTINGS_FILE,
 ): Promise<ShareSettings> {
@@ -315,19 +321,27 @@ export async function loadShareSettings(
 	return {
 		token: raw.token ?? SHARE_DEFAULTS.token,
 		channel: raw.channel ?? SHARE_DEFAULTS.channel,
+		customDomain: raw.customDomain ?? SHARE_DEFAULTS.customDomain,
 	};
 }
 
-/** 保存产物分享配置（read-modify-write，保留 settings.json 内其他字段） */
+/** 保存产物分享配置（read-modify-write）。token 传空串时保留已保存值：
+ * 前端编辑自定义域名等字段时不会把 token 冲掉。 */
 export async function saveShareSettings(
 	share: ShareSettings,
 	file: string = SETTINGS_FILE,
 ): Promise<ShareSettings> {
 	const settings = await readSettingsJson(file);
+	const prevToken = settings.share?.token ?? "";
 	settings.share = {
-		token: share.token ?? "",
+		token: share.token !== "" ? share.token : prevToken,
 		channel: share.channel ?? SHARE_DEFAULTS.channel,
+		customDomain: share.customDomain ?? SHARE_DEFAULTS.customDomain,
 	};
 	await writeSettingsJson(file, settings);
-	return { token: settings.share.token, channel: settings.share.channel };
+	return {
+		token: settings.share.token,
+		channel: settings.share.channel,
+		customDomain: settings.share.customDomain,
+	};
 }

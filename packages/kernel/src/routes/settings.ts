@@ -53,14 +53,22 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 	r.add("GET", "/api/settings/share", async () => {
 		const share = await loadShareSettings(ctx.settingsFile);
 		return Response.json({
-			share: { hasToken: share.token !== "", channel: share.channel },
+			share: {
+				hasToken: share.token !== "",
+				channel: share.channel,
+				customDomain: share.customDomain,
+			},
 		});
 	});
 	r.add("PUT", "/api/settings/share", async (req) => {
 		const b = await readJsonBody(req);
 		const saved = await saveShareSettings(b.share, ctx.settingsFile);
 		return Response.json({
-			share: { hasToken: saved.token !== "", channel: saved.channel },
+			share: {
+				hasToken: saved.token !== "",
+				channel: saved.channel,
+				customDomain: saved.customDomain,
+			},
 		});
 	});
 };
