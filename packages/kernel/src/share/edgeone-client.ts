@@ -90,7 +90,7 @@ export async function getOrCreateProject(
   return requery?.Data?.Response?.Projects?.[0]?.ProjectId;
 }
 
-/** 取项目的预设域名（PresetDomain，兜底用项目名） */
+/** 取项目的预设域名（PresetDomain）。拿不到就抛错，不再静默降级用项目名 */
 export async function getPresetDomain(
   baseUrl: string,
   token: string,
@@ -102,7 +102,10 @@ export async function getPresetDomain(
     Limit: 10,
   });
   const p = res?.Data?.Response?.Projects?.[0];
-  return p?.PresetDomain ?? p?.Name ?? "";
+  // PresetDomain 为空（如项目创建后尚未分配）时 Name 不是域名，拼不出可访问链接
+  // → 直接抛错，让上层返回明确失败，而不是产出打不开的分享链接
+  if (!p?.PresetDomain) throw new Error("无法获取项目域名");
+  return p.PresetDomain;
 }
 
 /** 用 encipher token 拼接可分享 URL */

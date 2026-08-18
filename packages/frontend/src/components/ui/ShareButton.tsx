@@ -77,7 +77,7 @@ export function ShareResultModal({
 		shareSettings()
 			.then((s) => {
 				if (cancelled) return;
-				if (!s.token) setNoToken(true);
+				if (!s.hasToken) setNoToken(true);
 			})
 			.catch(() => {
 				// 读不到配置按未配置处理，引导用户去设置

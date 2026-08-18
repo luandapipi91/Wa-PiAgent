@@ -2,6 +2,14 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-17 — fix(kernel,frontend): 产物分享最终审查修复（token 脱敏 + 死循环防护 + 域名兜底 + 路径规范化）
+
+- I1 安全（合并前必改）：GET/PUT `/api/settings/share` 不再下发 token 明文，share 字段改为 `{ hasToken, channel }`（PUT 仍接收明文输入、回包同样脱敏）；前端 `shareSettings()` 返回结构同步改为 `{ hasToken, channel }`，调用方 ShareButton/ShareSection 用 `hasToken` 判断是否已配置。
+- I2（合并前必改）：`commonRoot` 循环加护栏 `if (parent === root) break`，防 Windows 跨盘时盘符根处 `dirname` 恒等导致死循环。
+- I3（强烈建议）：`getPresetDomain` 在 PresetDomain 为空时抛错「无法获取项目域名」，不再静默降级返回项目名（Name 不是域名，会拼出打不开的链接）。
+- I4（强烈建议）：`hashPaths` 输入路径先统一分隔符（反斜杠 `\` → `/`）再排序拼接，避免 Windows 上同一文件正/反斜杠入口 hash 不同被当作不同项目。
+- 影响范围：`packages/kernel/src/routes/{settings,share}.ts`、`packages/kernel/src/share/{edgeone-client,pack}.ts`、`packages/frontend/src/{share-client.ts,components/ui/ShareButton.tsx,components/settings/ShareSection.tsx}` 及对应测试（settings-share-route / share-routes / edgeone-client / share-pack / share-client / ShareButton / ShareSection）。
+
 ## 2026-08-17 — feat(frontend): 文件树多选 + 右键分态 + 分享所选（产物分享任务 11）
 
 - ExplorerPanel 自研文件树从单路径选中升级为多选：`selectedPath` → `selectedPaths: Set<string>`；Ctrl/Cmd+点击 toggle 进出选中集、Shift+点击按 flatList 索引区间连选；节点 `data-selected` 改用 `selectedPaths.has(path)`。目录普通点击仍走展开/折叠，拖拽/双击/5s 轮询不受影响。

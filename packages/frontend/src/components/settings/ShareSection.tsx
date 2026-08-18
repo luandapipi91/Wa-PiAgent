@@ -14,13 +14,13 @@ export function ShareSection() {
 	const [saved, setSaved] = useState(false);
 	const [saving, setSaving] = useState(false);
 
-	// mount：回填已保存的分享配置。有 token 时进入脱敏展示态。
+	// mount：回填已保存的分享配置。hasToken 为 true 时进入脱敏展示态（token 不下发明文）。
 	useEffect(() => {
 		api
 			.get("/api/settings/share")
 			.then((res) => {
-				const share = (res as { share?: { token?: string } })?.share;
-				if (share?.token) setSaved(true);
+				const share = (res as { share?: { hasToken?: boolean } })?.share;
+				if (share?.hasToken) setSaved(true);
 			})
 			.catch(() => {});
 	}, []);
@@ -47,7 +47,10 @@ export function ShareSection() {
 	};
 
 	return (
-		<div className="flex flex-col gap-4 p-4 overflow-auto" data-testid="share-section">
+		<div
+			className="flex flex-col gap-4 p-4 overflow-auto"
+			data-testid="share-section"
+		>
 			<div className="flex flex-col gap-1">
 				<span className="text-sm font-medium text-primary">
 					{t("settings.share.channel")}
@@ -55,7 +58,10 @@ export function ShareSection() {
 				<span className="text-xs text-secondary">腾讯 EdgeOne</span>
 			</div>
 			{masked ? (
-				<div className="flex items-center gap-3 w-72" data-testid="share-token-mask">
+				<div
+					className="flex items-center gap-3 w-72"
+					data-testid="share-token-mask"
+				>
 					<span className="text-sm text-secondary tracking-widest">••••••••</span>
 					<button
 						onClick={() => setSaved(false)}
@@ -67,9 +73,7 @@ export function ShareSection() {
 				</div>
 			) : (
 				<label className="flex flex-col gap-1 w-72">
-					<span className="text-xs text-secondary">
-						{t("settings.share.token")}
-					</span>
+					<span className="text-xs text-secondary">{t("settings.share.token")}</span>
 					<input
 						type="password"
 						value={token}
