@@ -307,3 +307,47 @@ test("部署失败广播 error 阶段（含错误信息）", async () => {
   expect(events.at(-1)).toMatchObject({ phase: "error" });
   expect(events.at(-1).error).toContain("boom");
 });
+
+test("open-folder：200 + opener 收到 workspaceDir + 目录被创建", async () => {
+  const opened: string[] = [];
+  const router = new HttpRouter();
+  const ws2 = join(dir, "ws-not-exist-yet");
+  createShareRoutes(
+    router,
+    {
+      token: "tk_test",
+      channel: "edgeone",
+      cosFactory: () => ({ putObject }) as any,
+      settingsFile: join(dir, "settings.json"),
+      pollIntervalMs: 1,
+      opener: (d) => opened.push(d),
+    },
+    ws2,
+  );
+  const res = await post(router, "/api/share/open-folder", {});
+  expect(res!.status).toBe(200);
+  expect(opened).toEqual([ws2]);
+  const { statSync } = await import("node:fs");
+  expect(statSync(ws2).isDirectory()).toBe(true);
+});
+
+test("upload 单个文件夹：内容平铺不嵌套，名称为文件夹名", async () => {
+  mockEdgeOne();
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  await mkdir(join(dir, "dist", "assets"), { recursive: true });
+  await writeFile(join(dir, "dist", "index.html"), "<h1>i</h1>");
+  await writeFile(join(dir, "dist", "assets", "a.js"), "x");
+  const router = setup();
+  const res = await post(router, "/api/share/upload", {
+    paths: [join(dir, "dist")],
+  });
+  expect(res!.status).toBe(200);
+  const data = await res!.json();
+  expect(data.projectName).toBe("wapi-shares");
+  // 列表条目：文件路径不带 dist/ 前缀，名称为文件夹名
+  const { loadItems } = await import("../src/share/workspace");
+  const items = await loadItems(workspaceDir);
+  const item = items.find((i) => i.id === data.id);
+  expect(item?.files.sort()).toEqual(["assets/a.js", "index.html"]);
+  expect(item?.name).toBe("dist");
+});

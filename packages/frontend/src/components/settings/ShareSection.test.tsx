@@ -27,12 +27,14 @@ const shareDeleteMock = mock();
 const shareClearMock = mock();
 const shareDeployMock = mock();
 const shareRefreshLinkMock = mock();
+const shareOpenFolderMock = mock();
 mock.module("../../share-client", () => ({
 	shareList: shareListMock,
 	shareDelete: shareDeleteMock,
 	shareClear: shareClearMock,
 	shareDeploy: shareDeployMock,
 	shareRefreshLink: shareRefreshLinkMock,
+	shareOpenFolder: shareOpenFolderMock,
 }));
 
 const copyMock = mock();
@@ -68,11 +70,13 @@ beforeEach(() => {
 	shareClearMock.mockReset();
 	shareDeployMock.mockReset();
 	shareRefreshLinkMock.mockReset();
+	shareOpenFolderMock.mockReset();
 	copyMock.mockReset();
 	shareListMock.mockImplementation(async () => emptyList);
 	shareDeleteMock.mockImplementation(async () => {});
 	shareClearMock.mockImplementation(async () => {});
 	shareDeployMock.mockImplementation(async () => {});
+	shareOpenFolderMock.mockImplementation(async () => {});
 	copyMock.mockImplementation(async () => {});
 	useUiPrefsStore.setState({ language: "zh" });
 	useShareProgressStore.setState({ phase: "idle", percent: 0 });
@@ -308,4 +312,17 @@ test("立即部署中显示进度条（uploading 阶段显示百分比文案）"
 		screen.getByTestId("share-deploy-progress-text").textContent,
 	).toContain("30%");
 	expect(screen.getByTestId("progress-bar-fill").style.width).toBe("30%");
+});
+
+test("打开分享文件夹兜底：无 Electron 能力时调 kernel shareOpenFolder", async () => {
+	// 不设置 window.waPiApp（浏览器/dev 场景）
+	delete (window as any).waPiApp;
+	shareListMock.mockImplementation(async () => ({
+		...emptyList,
+		workspaceDir: "/tmp/ws-test",
+	}));
+	await renderSharesTab();
+	fireEvent.click(screen.getByTestId("share-open-folder"));
+	await new Promise((r) => setTimeout(r, 10));
+	expect(shareOpenFolderMock).toHaveBeenCalledTimes(1);
 });
