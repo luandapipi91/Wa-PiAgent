@@ -3,6 +3,7 @@
 // message_end 定稿不受挂起帧影响（event.message 权威）。
 import { test, expect, beforeEach } from "bun:test";
 import { useSessionStore } from "../src/store/session";
+import { useProjectsStore } from "../src/store/projects";
 
 // batcher 用 requestAnimationFrame 合帧（happy-dom 下 rAF 为宏任务），嵌套两帧确保冲刷
 const flushFrames = () =>
@@ -46,10 +47,12 @@ test("同帧多个 text_delta 不逐条同步提交，帧末一次性提交且�
   h("s1", updateEnv("好"));
   h("s1", updateEnv("啊"));
   // 合帧中：store 仍是 message_start 的骨架（content 空）
-  const pending = useSessionStore.getState().streamingBySession["s1"]!.message as any;
+  const pending = useSessionStore.getState().streamingBySession["s1"]!
+    .message as any;
   expect(pending.content).toHaveLength(0);
   await flushFrames();
-  const committed = useSessionStore.getState().streamingBySession["s1"]!.message as any;
+  const committed = useSessionStore.getState().streamingBySession["s1"]!
+    .message as any;
   expect(committed.content[0]).toEqual({ type: "text", text: "你好啊" });
 });
 
@@ -88,4 +91,44 @@ test("setActiveStatus(false) 复位丢弃挂起帧：streaming 保持 null，旧
   // 下一帧 flush 不得把挂起的旧 partial 提交回来
   await flushFrames();
   expect(useSessionStore.getState().streamingBySession["s1"]).toBeNull();
+});
+
+test("message_end 收到回复后刷新该会话 lastActivity（对话结束视为活跃）", async () => {
+  const before = Date.now() - 10_000;
+  // 预置一个会话到 projects store（beforeEach 只 reset session store）
+  useProjectsStore.setState({
+    projects: [],
+    sessions: [
+      {
+        id: "s1",
+        projectId: "p1",
+        primaryAgent: "dev" as const,
+        title: "t",
+        createdAt: 0,
+        lastActivity: before,
+        piSessionFile: "",
+      },
+    ],
+    currentProjectId: null,
+    currentSessionId: null,
+    dirPickerOpen: false,
+  });
+  const h = useSessionStore.getState().handleSDKEvent;
+  h("s1", {
+    event: {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        model: "m",
+        stopReason: "end_turn",
+        timestamp: 2,
+      },
+    },
+    agentName: "dev",
+  } as any);
+  const s1 = useProjectsStore.getState().sessions.find((x) => x.id === "s1")!;
+  // 对话结束视为活跃：lastActivity 被刷新（若 message_end 未 touch 则保持 before）
+  expect(s1.lastActivity).toBeGreaterThan(before + 5000);
+  expect(s1.lastActivity).toBeLessThanOrEqual(Date.now() + 1000);
 });

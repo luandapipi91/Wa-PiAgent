@@ -26,7 +26,9 @@ export function FileChangeSummary({
         className="w-full flex items-center gap-2 text-[calc(11px*var(--font-scale))] text-tertiary select-none"
       >
         <span className="flex-1 border-t border-hairline" />
-        <span className="whitespace-nowrap">📄 {t("blocks.fileChanges.title", { count: files.length })}</span>
+        <span className="whitespace-nowrap">
+          📄 {t("blocks.fileChanges.title", { count: files.length })}
+        </span>
         <span className="whitespace-nowrap">{open ? "▾" : "▸"}</span>
         <span className="flex-1 border-t border-hairline" />
       </button>
@@ -66,7 +68,9 @@ function FileChangeItem({
       <div className="flex items-center gap-2 px-1 py-1">
         <span
           className={`text-[11px] font-semibold rounded px-1 ${
-            isAdded ? "bg-success-soft text-success" : "bg-warning-soft text-warning"
+            isAdded
+              ? "bg-success-soft text-success"
+              : "bg-warning-soft text-warning"
           }`}
         >
           {label}
@@ -87,7 +91,9 @@ function FileChangeItem({
               <button
                 type="button"
                 className="hover:text-accent"
-                onClick={() => useSessionStore.getState().openFilePreview(abs, sessionId)}
+                onClick={() =>
+                  useSessionStore.getState().openFilePreview(abs, sessionId)
+                }
               >
                 {t("blocks.fileChanges.preview")}
               </button>
@@ -99,7 +105,9 @@ function FileChangeItem({
                 onClick={() => setOpen((v) => !v)}
                 className="hover:text-accent"
               >
-                {open ? t("blocks.fileChanges.collapse") : t("blocks.fileChanges.expand")}
+                {open
+                  ? t("blocks.fileChanges.collapse")
+                  : t("blocks.fileChanges.expand")}
               </button>
             )}
             <ShareButton
