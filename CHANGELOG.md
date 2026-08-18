@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — feat(desktop): 桌面端日志文件 5MB 上限 + FIFO 裁剪
+
+- 打包版 desktop.log 只增不减会一直膨胀；现超过 5MB 时丢弃最旧的行、只保留最新 4MB（按换行对齐，不留半截行），所有文件操作串行化避免裁剪与追加并发冲突。重启后首次写入会 stat 存量计入上限。
+- 影响范围：`packages/desktop/src/util/log.cjs`（createLogger 新增可选 maxBytes/keepBytes 参数，默认 5MB/4MB，调用方 main.cjs 不变）、`packages/desktop/tests/log.cjs.test.ts`（新增）。
+
 ## 2026-08-18 — fix(kernel): 代理中途失效自动回退直连（本地代理中继）
 
 - 问题：开启系统代理后若代理软件在会话进行中被关掉，pi 子进程 env 里的代理地址仍指向死端口（运行中进程 env 改不了），LLM 请求重试后全部 Connection error，且无法自动恢复。
