@@ -88,10 +88,10 @@ test("commonRoot：多选路径取公共父目录；跨盘输入正常终止不�
   expect(commonRoot(["/a/b/c.txt", "/a/b/d.txt"])).toBe("/a/b");
   expect(commonRoot(["/a/b/c.txt", "/a/e.txt"])).toBe("/a");
   // Windows 跨盘（C: vs D:）：盘符根处 dirname 恒等，护栏必须截断而非死循环。
-  // Windows 上无公共根 → 兜底保留首个路径的父目录；非 Windows 平台反斜杠不是
-  // 分隔符，dirname 返回 "."（相对路径），同样验证能正常终止。
+  // 无公共根时停在盘符根（C:\）；非 Windows 平台反斜杠不是分隔符，
+  // dirname 返回 "."（相对路径），同样验证能正常终止。
   const cross = commonRoot(["C:\\proj\\a.txt", "D:\\proj\\b.txt"]);
-  if (process.platform === "win32") expect(cross).toBe("C:\\proj");
+  if (process.platform === "win32") expect(cross).toBe("C:\\");
   else expect(cross).toBe(".");
 });
 
