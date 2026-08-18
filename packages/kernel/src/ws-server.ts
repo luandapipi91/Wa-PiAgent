@@ -511,13 +511,12 @@ export class WSServer {
 		registerContactRoutes(this.router, callApi, ctx);
 		registerFileRoutes(this.router, callApi, ctx);
 
-		// 产物分享路由：工作区目录为本地事实源；token 在 handler 内每次读取
-		// 最新分享设置（保存后无需重启），静态注入 token 占位为空。
+		// 产物分享路由：工作区目录为本地事实源；token 与 channel 均由 handler 内
+		// 每次读取最新分享设置（保存后无需重启），注册处不传死值。
 		createShareRoutes(
 			this.router,
 			{
 				token: "",
-				channel: "edgeone",
 				// 上传/部署进度经 SSE 广播给前端进度条
 				broadcast: (e) => this.broadcast(e),
 			},
