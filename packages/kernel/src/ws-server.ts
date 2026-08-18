@@ -514,7 +514,12 @@ export class WSServer {
 		// 产物分享路由：token 在 handler 内每次读取最新分享设置（保存后无需重启），
 		// 静态注入 token 占位为空，仅作 fallback/测试注入。
 		const shareHistoryFile = join(WA_PI_DIR, "share-history.json");
-		createShareRoutes(this.router, { token: "", channel: "edgeone" }, shareHistoryFile, "");
+		createShareRoutes(
+			this.router,
+			{ token: "", channel: "edgeone", customDomain: "" },
+			shareHistoryFile,
+			"",
+		);
 
 		// 定时任务路由：直接读写 JSON 文件，不走 callApi 适配器
 		const schedulerRoutes = createSchedulerRoutes(

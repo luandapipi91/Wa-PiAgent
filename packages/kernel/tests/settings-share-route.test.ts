@@ -37,7 +37,7 @@ describe("GET /api/settings/share", () => {
 		);
 		expect(res?.status).toBe(200);
 		expect(await res?.json()).toEqual({
-			share: { hasToken: false, channel: "edgeone" },
+			share: { hasToken: false, channel: "edgeone", customDomain: "" },
 		});
 	});
 });
@@ -54,12 +54,13 @@ describe("PUT /api/settings/share", () => {
 		expect(res?.status).toBe(200);
 		// 回包不再带 token 明文（脱敏为 hasToken）
 		expect(await res?.json()).toEqual({
-			share: { hasToken: true, channel: "edgeone" },
+			share: { hasToken: true, channel: "edgeone", customDomain: "" },
 		});
 		// 路由写盘到隔离文件后，store 层再读该文件也应看到新值（明文仍在落盘侧）
 		expect(await loadShareSettings(file)).toEqual({
 			token: "tk_abc",
 			channel: "edgeone",
+			customDomain: "",
 		});
 	});
 
@@ -77,7 +78,52 @@ describe("PUT /api/settings/share", () => {
 			new Request("http://localhost/api/settings/share", { method: "GET" }),
 		);
 		expect(await res?.json()).toEqual({
-			share: { hasToken: true, channel: "edgeone" },
+			share: { hasToken: true, channel: "edgeone", customDomain: "" },
 		});
+	});
+
+	it("customDomain 读写 + token 空串保留原值", async () => {
+		// PUT 完整值
+		const put1 = await router.handle(
+			new Request("http://localhost/api/settings/share", {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					share: {
+						token: "t-1",
+						channel: "edgeone",
+						customDomain: "share.example.com",
+					},
+				}),
+			}),
+		);
+		expect((await put1?.json()).share.customDomain).toBe("share.example.com");
+		// GET 回读（token 仍脱敏）
+		const got = await router.handle(
+			new Request("http://localhost/api/settings/share", { method: "GET" }),
+		);
+		expect(await got?.json()).toEqual({
+			share: {
+				hasToken: true,
+				channel: "edgeone",
+				customDomain: "share.example.com",
+			},
+		});
+		// PUT 只改域名（token 传空串）→ 原 token 保留
+		await router.handle(
+			new Request("http://localhost/api/settings/share", {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					share: { token: "", channel: "edgeone", customDomain: "cdn.example.com" },
+				}),
+			}),
+		);
+		const got2 = await router.handle(
+			new Request("http://localhost/api/settings/share", { method: "GET" }),
+		);
+		const share2 = (await got2?.json()).share;
+		expect(share2.hasToken).toBe(true);
+		expect(share2.customDomain).toBe("cdn.example.com");
 	});
 });
