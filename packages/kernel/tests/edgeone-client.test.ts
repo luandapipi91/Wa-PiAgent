@@ -194,20 +194,32 @@ function mockEdgeOne(presetDomain = "wapi-abc.edgeone.run") {
       });
     switch (action) {
       case "DescribePagesProjects":
-        return respond({ Projects: [{ ProjectId: "prj-1", PresetDomain: presetDomain }] });
+        return respond({
+          Projects: [{ ProjectId: "prj-1", PresetDomain: presetDomain }],
+        });
       case "DescribePagesCosTempToken":
         return respond({
-          Credentials: { TmpSecretId: "sid", TmpSecretKey: "skey", Token: "tk" },
-          Bucket: "bkt", Region: "ap-gz", TargetPath: "tmp/xyz",
+          Credentials: {
+            TmpSecretId: "sid",
+            TmpSecretKey: "skey",
+            Token: "tk",
+          },
+          Bucket: "bkt",
+          Region: "ap-gz",
+          TargetPath: "tmp/xyz",
         });
       case "CreatePagesDeployment":
         return respond({ DeploymentId: "dep-1" });
       case "DescribePagesDeployments":
-        return respond({ Deployments: [{ DeploymentId: "dep-1", Status: "Success" }] });
+        return respond({
+          Deployments: [{ DeploymentId: "dep-1", Status: "Success" }],
+        });
       case "DescribePagesEncipherToken":
         return respond({ Token: "ET", Timestamp: 111 });
       default:
-        return new Response(JSON.stringify({ Code: -1, Message: action }), { status: 200 });
+        return new Response(JSON.stringify({ Code: -1, Message: action }), {
+          status: 200,
+        });
     }
   }) as any;
 }
@@ -228,7 +240,9 @@ test("deployWorkspace：固定项目 wapi + 预设域名 + 3h 过期", async () 
   });
   expect(r.projectName).toBe(SHARE_PROJECT_NAME);
   expect(r.domain).toBe("wapi-abc.edgeone.run");
-  expect(r.rootUrl).toBe("https://wapi-abc.edgeone.run?eo_token=ET&eo_time=111");
+  expect(r.rootUrl).toBe(
+    "https://wapi-abc.edgeone.run?eo_token=ET&eo_time=111",
+  );
   expect(r.expiresAt).toBeGreaterThan(Date.now());
 });
 
@@ -246,7 +260,9 @@ test("deployWorkspace：自定义域名优先于预设域名", async () => {
 });
 
 test("normalizeDomain：去协议与尾斜杠", () => {
-  expect(normalizeDomain("https://share.example.com/")).toBe("share.example.com");
+  expect(normalizeDomain("https://share.example.com/")).toBe(
+    "share.example.com",
+  );
   expect(normalizeDomain("  http://a.b/c/ ")).toBe("a.b/c");
   expect(normalizeDomain(undefined)).toBe("");
   expect(normalizeDomain("")).toBe("");
@@ -255,7 +271,9 @@ test("normalizeDomain：去协议与尾斜杠", () => {
 test("itemShareUrl：单文件带文件名，多文件带目录尾斜杠（子路径用分享名，中文 URL 编码）", () => {
   const root = "https://d.example.com?eo_token=T&eo_time=1";
   // 中文名在 URL 路径里被 percent-encode（正常 URL 行为）
-  expect(itemShareUrl(root, { id: "abc", name: "报告", files: ["a.html"] })).toBe(
+  expect(
+    itemShareUrl(root, { id: "abc", name: "报告", files: ["a.html"] }),
+  ).toBe(
     "https://d.example.com/%E6%8A%A5%E5%91%8A/a.html?eo_token=T&eo_time=1",
   );
   expect(
@@ -271,18 +289,35 @@ test("deployWorkspace：部署失败终态抛错", async () => {
   globalThis.fetch = (async (_url: any, init: any) => {
     const action = JSON.parse(init.body).Action as string;
     const respond = (data: unknown) =>
-      new Response(JSON.stringify({ Code: 0, Data: { Response: data } }), { status: 200 });
+      new Response(JSON.stringify({ Code: 0, Data: { Response: data } }), {
+        status: 200,
+      });
     if (action === "DescribePagesProjects")
-      return respond({ Projects: [{ ProjectId: "p", PresetDomain: "d.edgeone.run" }] });
+      return respond({
+        Projects: [{ ProjectId: "p", PresetDomain: "d.edgeone.run" }],
+      });
     if (action === "DescribePagesCosTempToken")
-      return respond({ Credentials: { TmpSecretId: "a", TmpSecretKey: "b", Token: "c" }, Bucket: "b", Region: "r", TargetPath: "t" });
-    if (action === "CreatePagesDeployment") return respond({ DeploymentId: "dep-1" });
+      return respond({
+        Credentials: { TmpSecretId: "a", TmpSecretKey: "b", Token: "c" },
+        Bucket: "b",
+        Region: "r",
+        TargetPath: "t",
+      });
+    if (action === "CreatePagesDeployment")
+      return respond({ DeploymentId: "dep-1" });
     if (action === "DescribePagesDeployments")
-      return respond({ Deployments: [{ DeploymentId: "dep-1", Status: "Failed" }] });
+      return respond({
+        Deployments: [{ DeploymentId: "dep-1", Status: "Failed" }],
+      });
     return respond({});
   }) as any;
   await expect(
-    deployWorkspace({ token: "t", zip: new Uint8Array([1]), cosFactory: fakeCos, pollIntervalMs: 1 }),
+    deployWorkspace({
+      token: "t",
+      zip: new Uint8Array([1]),
+      cosFactory: fakeCos,
+      pollIntervalMs: 1,
+    }),
   ).rejects.toThrow("部署失败");
 });
 
@@ -293,14 +328,17 @@ test("apiCall：顶层 Code=0 但 Data.Response.Error 嵌套错误时抛错（�
         Code: 0,
         Data: {
           Response: {
-            Error: { Code: "InvalidParameter.Security", Message: "Name ranges from 5 to 63 length" },
+            Error: {
+              Code: "InvalidParameter.Security",
+              Message: "Name ranges from 5 to 63 length",
+            },
           },
         },
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     )) as any;
   const { apiCall } = await import("../src/share/edgeone-client");
-  await expect(apiCall("https://x", "t", "CreatePagesProject", {})).rejects.toThrow(
-    "Name ranges from 5 to 63 length",
-  );
+  await expect(
+    apiCall("https://x", "t", "CreatePagesProject", {}),
+  ).rejects.toThrow("Name ranges from 5 to 63 length");
 });

@@ -20,11 +20,21 @@ interface ModalProps {
   "data-testid"?: string;
 }
 
-export function Modal({ children, onClose, width = 480, height, closeOnOverlayClick = true, closeOnEsc = true, ...rest }: ModalProps) {
+export function Modal({
+  children,
+  onClose,
+  width = 480,
+  height,
+  closeOnOverlayClick = true,
+  closeOnEsc = true,
+  ...rest
+}: ModalProps) {
   // ESC 关闭
   useEffect(() => {
     if (!closeOnEsc) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, closeOnEsc]);
@@ -38,8 +48,13 @@ export function Modal({ children, onClose, width = 480, height, closeOnOverlayCl
     >
       <div
         className="rounded-lg flex flex-col border border-hairline"
-        style={{ background: "var(--surface)", width, height, boxShadow: "var(--shadow-lg)" }}
-        onClick={e => e.stopPropagation()}
+        style={{
+          background: "var(--surface)",
+          width,
+          height,
+          boxShadow: "var(--shadow-lg)",
+        }}
+        onClick={(e) => e.stopPropagation()}
         data-testid={rest["data-testid"] ?? "modal-content"}
       >
         {children}
