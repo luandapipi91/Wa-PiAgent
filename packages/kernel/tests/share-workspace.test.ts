@@ -217,7 +217,10 @@ test("loadItems 孤儿恢复：state 已空但 items/<id>/ 还在（旧分享）
 
 test("renameItem 重命名：文件夹原子改名、文件保留、state 更新", async () => {
   const d = await tmp();
-  await addItem(d, "abc123abc123", "旧名", [entry("a.txt", "1"), entry("sub/b.txt", "2")]);
+  await addItem(d, "abc123abc123", "旧名", [
+    entry("a.txt", "1"),
+    entry("sub/b.txt", "2"),
+  ]);
   const renamed = await renameItem(d, "abc123abc123", "新名");
   expect(renamed.name).toBe("新名");
   // 文件保留在新文件夹（旧文件夹已移走）
@@ -236,5 +239,17 @@ test("renameItem 重名拒绝：不同 id 同名抛错", async () => {
   await addItem(d, "bbbbbbbbbbbb", "乙", [entry("b.txt", "2")]);
   await expect(renameItem(d, "aaaaaaaaaaaa", "乙")).rejects.toThrow("重复");
   // 未改动
-  expect((await loadItems(d)).find((i) => i.id === "aaaaaaaaaaaa")?.name).toBe("甲");
+  expect((await loadItems(d)).find((i) => i.id === "aaaaaaaaaaaa")?.name).toBe(
+    "甲",
+  );
+});
+
+test("pendingCount：重命名后计为未部署变更（签名含 name）", async () => {
+  const d = await tmp();
+  await addItem(d, "abc123abc123", "旧名", [entry("a.txt", "1")]);
+  await saveLastDeployed(d, await loadItems(d));
+  expect(await pendingCount(d)).toBe(0);
+  // 重命名 → 内容未变但名称变了 → 线上需重新部署才能生效
+  await renameItem(d, "abc123abc123", "新名");
+  expect(await pendingCount(d)).toBe(1);
 });

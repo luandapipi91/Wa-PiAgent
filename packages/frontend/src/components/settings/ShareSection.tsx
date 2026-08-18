@@ -132,7 +132,7 @@ export function ShareSection() {
 		try {
 			await shareRename(id, name);
 			setEditingId(null);
-			useToastStore.getState().add(t("settings.share.renamed"), "success");
+			useToastStore.getState().add(t("settings.share.renamedDeploy"), "success");
 			await refresh();
 		} catch (e) {
 			useToastStore
@@ -184,9 +184,7 @@ export function ShareSection() {
 		setDeploying(true);
 		try {
 			await shareDeploy();
-			useToastStore
-				.getState()
-				.add(t("settings.share.deployed"), "success");
+			useToastStore.getState().add(t("settings.share.deployed"), "success");
 			await refresh();
 		} catch (e) {
 			useToastStore
@@ -250,9 +248,7 @@ export function ShareSection() {
 							className="flex items-center gap-3 w-72"
 							data-testid="share-token-mask"
 						>
-							<span className="text-sm text-secondary tracking-widest">
-								••••••••
-							</span>
+							<span className="text-sm text-secondary tracking-widest">••••••••</span>
 							<button
 								onClick={() => setSaved(false)}
 								className="px-2 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
@@ -370,7 +366,10 @@ export function ShareSection() {
 										/>
 									) : (
 										<span className="flex items-center gap-1">
-											<span className="text-primary" data-testid={`share-item-name-${it.id}`}>
+											<span
+												className="text-primary"
+												data-testid={`share-item-name-${it.id}`}
+											>
 												{it.name}
 											</span>
 											<button
@@ -420,9 +419,7 @@ export function ShareSection() {
 							style={{ background: "var(--brand)", color: "var(--on-brand)" }}
 							data-testid="share-deploy"
 						>
-							{deploying
-								? t("settings.share.deploying")
-								: t("settings.share.deploy")}
+							{deploying ? t("settings.share.deploying") : t("settings.share.deploy")}
 						</button>
 						{items.length > 0 && (
 							<button

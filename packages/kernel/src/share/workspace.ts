@@ -307,7 +307,9 @@ export async function saveLastDeployed(
 export async function pendingCount(dir: string): Promise<number> {
 	const cur = await loadItems(dir);
 	const last = await loadLastDeployed(dir);
-	const sig = (i: ShareItem) => `${i.id}:${i.size}:${i.files.join(",")}`;
+	// 签名含 name：重命名（内容不变但名称变）也算未部署变更——线上路径/文件夹名需重新部署生效
+	const sig = (i: ShareItem) =>
+		`${i.id}:${i.name}:${i.size}:${i.files.join(",")}`;
 	const curSet = new Map(cur.map((i) => [i.id, sig(i)]));
 	const lastSet = new Map(last.map((i) => [i.id, sig(i)]));
 	let n = 0;

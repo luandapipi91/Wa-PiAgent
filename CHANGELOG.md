@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — feat(kernel+frontend): 重命名提示需部署生效（pendingCount 签名含 name）
+
+- 分享重命名后线上（EdgeOne 部署）仍是旧名，需「立即部署」才生效。pendingCount 签名加入 name（重命名计为未部署变更，列表显示「N 项变更未部署」）；重命名成功 toast 提示「已重命名，需部署后生效」。
+- 影响范围：`packages/kernel/src/share/workspace.ts`（pendingCount 签名）；frontend `ShareSection.tsx`（toast 文案）、i18n zh/en（renamedDeploy）；测试 `share-workspace.test.ts`（重命名后 pending=1）。
+
 ## 2026-08-18 — fix(frontend): Modal 改用 createPortal 渲染到 body（点击阴影可靠关闭）
 
 - 分享弹窗点击阴影不关闭：Modal 的 fixed 遮罩若挂载在有 transform/overflow 的祖先内（如文件预览面板等），fixed 退化为相对祖先定位、遮罩不覆盖全屏，点击阴影落在遮罩之外不触发 onClose。Modal 改用 createPortal 渲染到 document.body，脱离挂载点布局/层叠上下文，保证遮罩全屏覆盖、点击阴影可靠关闭（影响所有 Modal 弹窗：分享/文件预览/AgentConfig/确认框等）。

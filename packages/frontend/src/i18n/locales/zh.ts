@@ -672,6 +672,7 @@ const zh = {
 			saved: "分享设置已保存",
 			rename: "重命名",
 			renamed: "已重命名",
+			renamedDeploy: "已重命名，需部署后生效",
 			register: "注册入口",
 			customDomain: "自定义域名（可选）",
 			customDomainHint: "绑定后分享链接使用该域名；留空用平台预设域名",
