@@ -962,13 +962,23 @@ export const useSessionStore = create<SessionState>((set) => {
 					set((s) => {
 						const list = [...(s.messagesBySession[sessionId] ?? [])];
 						const last = list[list.length - 1];
-						// SDK 对同 turn 的每个 block（thinking/text/toolCall）发独立 message_start/end；
-						// 检查最后一条是否也是同一 agent 的 assistant，是则合并 content 数组
+						// 自动重试的新回答：上一条是同 agent 的 error 消息（断流时可能含部分文本，
+						// pi 重试会把它移出上下文让模型重写整段）——整体替换而非合并，
+						// 避免「半截旧文 + 重写全文」同一段内容在气泡里出现两遍。
 						if (
+							last &&
+							last.agentName === agentName &&
+							(last.message as any).role === "assistant" &&
+							(last.message as any).stopReason === "error"
+						) {
+							list[list.length - 1] = { ...last, message: msg };
+						} else if (
 							last &&
 							last.agentName === agentName &&
 							(last.message as any).role === "assistant"
 						) {
+							// SDK 对同 turn 的每个 block（thinking/text/toolCall）发独立 message_start/end；
+							// 检查最后一条是否也是同一 agent 的 assistant，是则合并 content 数组
 							const merged = {
 								...(last.message as any),
 								content: [...(last.message as any).content, ...(msg.content ?? [])],

@@ -818,6 +818,50 @@ test("message_end 失败但有部分内容 → 照常合并（保留部分回复
 	expect(useSessionStore.getState().messagesBySession["s1"]).toHaveLength(2);
 });
 
+test("自动重试的新回答替换上一条 error 消息，而非拼接（避免半截旧文 + 重写全文显示两遍）", () => {
+	// 断流场景：error 消息含已生成的部分文本（pi 重试时把它从上下文移除，模型重写整段）
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: "dev",
+					message: { role: "user", content: "写个报告", timestamp: 1 },
+				},
+				{
+					agentName: "dev",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "报告如下：一、" }],
+						model: "m",
+						stopReason: "error",
+						timestamp: 2,
+					},
+				},
+			],
+		},
+	});
+	// 自动重试成功：新一轮 message_end 带来重新生成的完整回答
+	useSessionStore.getState().handleSDKEvent(
+		"s1",
+		envelope({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "报告如下：一、……二、……" }],
+				model: "m",
+				stopReason: "stop",
+				timestamp: 3,
+			},
+		}),
+	);
+	const list = useSessionStore.getState().messagesBySession["s1"];
+	// 仍只有 user + 1 条 assistant；内容为替换后的完整回答，不含旧的部分文本
+	expect(list).toHaveLength(2);
+	const content = (list[1].message as any).content;
+	expect(content).toHaveLength(1);
+	expect(content[0].text).toBe("报告如下：一、……二、……");
+});
+
 test("truncate(sessionId, fromIndex) 保留 [0, fromIndex)，丢弃其后所有行（重发原地重试用）", () => {
 	useSessionStore.setState({
 		messagesBySession: {
