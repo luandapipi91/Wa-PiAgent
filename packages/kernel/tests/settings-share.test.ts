@@ -21,9 +21,13 @@ test("默认值：channel=edgeone, token 为空", async () => {
 });
 test("save 后 load 往返一致（token 脱敏无关，原样存取）", async () => {
   const file = join(dir, "settings.json");
-  await saveShareSettings({ token: "tk_abc", channel: "edgeone" }, file);
+  await saveShareSettings(
+    { token: "tk_abc", channel: "edgeone", customDomain: "" },
+    file,
+  );
   expect(await loadShareSettings(file)).toEqual({
     token: "tk_abc",
     channel: "edgeone",
+    customDomain: "",
   });
 });

@@ -208,10 +208,11 @@ function mockEdgeOne(presetDomain = "wapi-abc.edgeone.run") {
   }) as any;
 }
 
-const fakeCos = () => ({
-  putObject: (_o: any, cb: (e: any) => void) => cb(null),
-  uploadFiles: (_o: any, cb: (e: any) => void) => cb(null),
-});
+const fakeCos = () =>
+  ({
+    putObject: (_o: any, cb: (e: any) => void) => cb(null),
+    uploadFiles: (_o: any, cb: (e: any) => void) => cb(null),
+  }) as any;
 
 test("deployWorkspace：固定项目 wapi + 预设域名 + 3h 过期", async () => {
   mockEdgeOne();
