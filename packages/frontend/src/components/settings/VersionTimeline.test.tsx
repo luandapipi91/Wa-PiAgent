@@ -1,16 +1,24 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { render, fireEvent, cleanup, within } from "@testing-library/react";
 import { VersionTimeline } from "./VersionTimeline";
+import versionHistory from "../../data/version-history.json";
 
 beforeEach(() => cleanup());
 afterEach(() => cleanup());
 
 test("渲染时间线：最新版本默认展开，显示分类标签", () => {
+	// 数据驱动：断言跟随 version-history.json 首条，发新版后不会腐坏
+	const latest = versionHistory[0] as {
+		version: string;
+		sections: Record<string, string[]>;
+	};
 	const { container } = render(<VersionTimeline />);
 	const timeline = within(container).getByTestId("version-timeline");
 	expect(timeline).toBeTruthy();
-	expect(within(timeline).getByText("修复")).toBeTruthy();
-	expect(within(timeline).getByText("v0.1.21")).toBeTruthy();
+	expect(within(timeline).getByText(`v${latest.version}`)).toBeTruthy();
+	for (const category of Object.keys(latest.sections)) {
+		expect(within(timeline).getByText(category)).toBeTruthy();
+	}
 });
 
 test("旧版本默认收起，点击版本号展开", () => {
