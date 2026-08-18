@@ -325,7 +325,7 @@ export async function loadShareSettings(
 	};
 }
 
-/** 保存产物分享配置（read-modify-write）。token 传空串时保留已保存值：
+/** 保存产物分享配置（read-modify-write）。token 传空串或缺省（undefined）时保留已保存值：
  * 前端编辑自定义域名等字段时不会把 token 冲掉。 */
 export async function saveShareSettings(
 	share: ShareSettings,
@@ -334,7 +334,7 @@ export async function saveShareSettings(
 	const settings = await readSettingsJson(file);
 	const prevToken = settings.share?.token ?? "";
 	settings.share = {
-		token: share.token !== "" ? share.token : prevToken,
+		token: share.token ? share.token : prevToken,
 		channel: share.channel ?? SHARE_DEFAULTS.channel,
 		customDomain: share.customDomain ?? SHARE_DEFAULTS.customDomain,
 	};

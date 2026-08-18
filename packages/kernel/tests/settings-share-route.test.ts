@@ -126,4 +126,25 @@ describe("PUT /api/settings/share", () => {
 		expect(share2.hasToken).toBe(true);
 		expect(share2.customDomain).toBe("cdn.example.com");
 	});
+
+	it("token 字段缺省（undefined）同样保留原值", async () => {
+		await router.handle(
+			new Request("http://localhost/api/settings/share", {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ share: { token: "t-keep", channel: "edgeone" } }),
+			}),
+		);
+		// PUT 不带 token 字段 → 原 token 保留
+		await router.handle(
+			new Request("http://localhost/api/settings/share", {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					share: { channel: "edgeone", customDomain: "x.example.com" },
+				}),
+			}),
+		);
+		expect((await loadShareSettings(file)).token).toBe("t-keep");
+	});
 });
