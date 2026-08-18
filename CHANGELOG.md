@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — chore(release): 发布版本 0.2.6（文件分享全链路）
+
+- 版本推进 0.2.5 → 0.2.6：desktop/frontend package.json、bun.lock、version-history.json（新增 0.2.6 条目）、RELEASE_NOTES.md（重写为当次内容）、VersionTimeline 测试 maxEntries 断言同步（0.2.6+0.2.5）。
+- 本版本核心：文件分享（文件树多选/预览面板/修改清单三处入口 → EdgeOne 部署 → 公开链接）、分享名称与重命名、分享管理面板（Token 脱敏/自定义域名/立即部署/清空/用量）、部署进度条；修复部署超时、重命名原子化、路径穿越校验、会话活跃口径、Provider 链接链路等。
+- 影响范围：packages/desktop、packages/frontend（分享 UI/workflow/version 数据）、packages/kernel（share 工作区/路由/edgeone-client）。
+
 ## 2026-08-18 — feat(frontend): 按钮下方提示明确「需部署生效」（与 toast 呼应）
 
 - 重命名/新增/删除等本地变更后，「立即部署」按钮下方常驻提示文案由「N 项变更未部署」改为「N 项变更未部署，需点击立即部署生效」，与重命名 toast「已重命名，需部署后生效」呼应，双处提示。
