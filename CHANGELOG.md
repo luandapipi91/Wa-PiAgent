@@ -2,6 +2,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — fix(desktop): 聊天中"卡死"（kernel 崩溃后 respawn 无限 EADDRINUSE 循环）
+
+- 根因（desktop.log 实证，8/14、8/18 多次复现）：聊天中 kernel 进程崩溃退出（exit code=1，首因待查），其监听 socket 句柄被 pi 子进程/子代理继承，kernel 死后端口 9778 以"死 PID 占 LISTENING"的幽灵形态持续被占（现场抓到 netstat 显示 PID 2284 监听但该进程已不存在）。sidecar 的 `scheduleRespawn` 直接 respawn，新 kernel `Bun.serve` 必然 EADDRINUSE → 退出 → 再 respawn → 无限崩溃循环，后端永久不可用，前端表现为卡死、停止/发送全无效。
+- 修复：respawn 前检测端口占用，被占则先调 `killPortOccupants`（含既有的幽灵扫描兜底：按数据目录特征 + 进程树子孙链圈定清理）再 spawn；端口空闲则跳过。
+- 影响范围：`packages/desktop/src/kernel-sidecar.cjs`（新增 isPortInUseFn/killPortOccupantsFn 依赖注入 + respawn 前清理）、`packages/desktop/tests/kernel-sidecar.test.ts`（新增 2 条：先清端口再 respawn 的顺序断言、空闲不清理；夹具补注入避免测试真杀进程）。
+- 遗留：kernel 崩溃首因（静默 exit code=1）未定位，本次只修复"崩溃后永远起不来"；前端 SSE 假活无看门狗、停止按钮无失败兜底为已知的次要自愈缺口，另行处理。
+
 ## 2026-08-18 — feat(desktop): 桌面端日志文件 10MB 上限 + FIFO 裁剪 + 磁盘空间自适应
 
 - 打包版 desktop.log 只增不减会一直膨胀；现超过 10MB 时丢弃最旧的行、只保留最新 8MB（按换行对齐，不留半截行），所有文件操作串行化避免裁剪与追加并发冲突。重启后首次写入会 stat 存量计入上限。

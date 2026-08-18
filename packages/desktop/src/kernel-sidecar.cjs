@@ -3,7 +3,7 @@
 // 守护策略：无限自动重启（固定间隔 2s）+ 端口健康探活（5s 间隔，连续 3 次失败强杀重启）。
 const { spawn, spawnSync } = require("node:child_process");
 const path = require("node:path");
-const { waitForPort } = require("./util/port.cjs");
+const { waitForPort, isPortInUse, killPortOccupants } = require("./util/port.cjs");
 const { shouldRespawn, RESPAWN_DELAY_MS } = require("./util/auto-respawn.cjs");
 const {
   checkPort,
@@ -38,6 +38,8 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
   //   killFn         替换 killTree（测试记录被杀 pid，绝不真杀进程）
   //   respawnDelayMs 替换重启间隔（测试缩短，避免真等 2s）
   //   now            替换时钟（测试可控 createdAt，避免真时间不确定）
+  //   isPortInUseFn      替换端口占用检测（测试注入，避免真探端口）
+  //   killPortOccupantsFn 替换端口清理（测试注入，绝不真杀进程）
   const {
     spawnFn = spawn,
     waitForPortFn = waitForPort,
@@ -45,6 +47,8 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
     killFn = killTree,
     respawnDelayMs = RESPAWN_DELAY_MS,
     now = Date.now,
+    isPortInUseFn = isPortInUse,
+    killPortOccupantsFn = (p) => killPortOccupants(p, undefined, (m) => log.info(m)),
   } = deps;
   // dev: repo 下用 bun 跑 kernel 源码入口；packaged: kernelDir 里 wa-pi-kernel(.exe) run kernel.js
   // Windows dev 路径上 "bun" 是 .cmd shim——Node 20+ 出于 CVE-2024-27980 默认拒绝 spawn
@@ -83,15 +87,30 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
     log.info(`[kernel] ${reason} → 第 ${respawnState.attempts} 次自动重启，${respawnDelayMs}ms 后 respawn...`);
     setTimeout(() => {
       if (respawnState.stopped) return; // 退避期间用户退出了
-      current = spawnOnce();
-      // 重启后等待端口就绪（不就绪则下次 exit/error 会再触发）
-      waitForPortFn(wsPort, 30000).then((ready) => {
-        if (ready) {
-          log.info(`[kernel] 重启就绪 @${wsPort}`);
-          respawnState.attempts = 0;
-          respawnState.failures = 0;
-        } else log.error(`[kernel] 重启后 30s 未就绪`);
-      });
+      void (async () => {
+        // 重启前先清端口：kernel 崩溃退出后，监听 socket 句柄可能被继承了它的
+        // pi 子进程/子代理捏住（Windows 上以死 PID 幽灵形态残留），此时直接 respawn
+        // 必然 Bun.serve EADDRINUSE → 退出 → 再 respawn → 无限崩溃循环，前端永久
+        // 连不上（聊天中"卡死"、停止/发送全无效的根因）。端口空闲则跳过（清理有成本）。
+        try {
+          if (await isPortInUseFn(wsPort)) {
+            log.info(`[kernel] 端口 ${wsPort} 仍被占用，先清理再 respawn`);
+            await killPortOccupantsFn(wsPort);
+          }
+        } catch (e) {
+          log.error(`[kernel] 重启前端口清理失败: ${e?.message ?? e}`);
+        }
+        if (respawnState.stopped) return; // 清理期间用户退出了
+        current = spawnOnce();
+        // 重启后等待端口就绪（不就绪则下次 exit/error 会再触发）
+        waitForPortFn(wsPort, 30000).then((ready) => {
+          if (ready) {
+            log.info(`[kernel] 重启就绪 @${wsPort}`);
+            respawnState.attempts = 0;
+            respawnState.failures = 0;
+          } else log.error(`[kernel] 重启后 30s 未就绪`);
+        });
+      })();
     }, respawnDelayMs);
   }
 
