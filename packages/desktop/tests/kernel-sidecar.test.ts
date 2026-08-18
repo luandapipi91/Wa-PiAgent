@@ -228,3 +228,64 @@ test("scheduleRespawn: 端口空闲时不做多余清理，直接 respawn", asyn
   expect(killCalls).toBe(0); // 空闲端口不做多余清理（netstat/幽灵扫描有成本）
   expect(i).toBe(2); // 已正常 respawn
 });
+
+test("kernel 崩溃退出 → stderr 末尾现场写入 kernel-crash.log（crashLogFn）", async () => {
+  // 背景：8/14、8/18 事故中 kernel 聊天中静默 exit code=1，desktop.log 无任何错误输出，
+  // 首因无从定位。sidecar 需把崩溃前的 stderr 末尾（Bun panic/未捕获异常通常打在这里）
+  // 随退出写入 kernel-crash.log。
+  const children = [fakeChild(111)];
+  const crashLogs: string[] = [];
+  await startSidecar({
+    isPackaged: false,
+    kernelDir: "/fake/kernel",
+    webDir: "/fake/web",
+    kernelExe: "/fake/kernel/wa-pi-kernel",
+    port: 9778,
+    log: { info() {}, error() {} },
+    deps: {
+      spawnFn: (() => children[0]) as any,
+      waitForPortFn: (async () => true) as any,
+      checkPortFn: (async () => true) as any,
+      killFn: (() => {}) as any,
+      respawnDelayMs: 5,
+      isPortInUseFn: (async () => false) as any,
+      killPortOccupantsFn: (async () => []) as any,
+      crashLogFn: ((text: string) => {
+        crashLogs.push(text);
+      }) as any,
+    },
+  });
+  children[0].stderr.emit("data", Buffer.from("panic(main thread): Segmentation fault\n"));
+  children[0].emit("exit", 1, null); // 崩溃
+  expect(crashLogs).toHaveLength(1);
+  expect(crashLogs[0]).toContain("Segmentation fault");
+  expect(crashLogs[0]).toContain("code=1");
+});
+
+test("kernel 正常退出 code=0 → 不写崩溃日志", async () => {
+  const children = [fakeChild(111)];
+  const crashLogs: string[] = [];
+  await startSidecar({
+    isPackaged: false,
+    kernelDir: "/fake/kernel",
+    webDir: "/fake/web",
+    kernelExe: "/fake/kernel/wa-pi-kernel",
+    port: 9778,
+    log: { info() {}, error() {} },
+    deps: {
+      spawnFn: (() => children[0]) as any,
+      waitForPortFn: (async () => true) as any,
+      checkPortFn: (async () => true) as any,
+      killFn: (() => {}) as any,
+      respawnDelayMs: 5,
+      isPortInUseFn: (async () => false) as any,
+      killPortOccupantsFn: (async () => []) as any,
+      crashLogFn: ((text: string) => {
+        crashLogs.push(text);
+      }) as any,
+    },
+  });
+  children[0].stderr.emit("data", Buffer.from("some warning\n"));
+  children[0].emit("exit", 0, null); // 优雅退出
+  expect(crashLogs).toHaveLength(0);
+});

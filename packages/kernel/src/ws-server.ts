@@ -764,8 +764,8 @@ export class WSServer {
 			},
 		});
 		this.actualPort = this.server.port;
-		// SSE 心跳：30s 注释帧，防代理/空闲断连
-		this.sseHeartbeat = setInterval(() => this.sseBus.heartbeat(), 30_000);
+		// SSE 心跳：5s 真实 data 帧，防代理/空闲断连 + 前端假活看门狗（10s 无帧判死重连）
+		this.sseHeartbeat = setInterval(() => this.sseBus.heartbeat(), 5_000);
 	}
 
 	async stop(): Promise<void> {

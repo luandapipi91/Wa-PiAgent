@@ -3,7 +3,8 @@
 // 守护策略：无限自动重启（固定间隔 2s）+ 端口健康探活（5s 间隔，连续 3 次失败强杀重启）。
 const { spawn, spawnSync } = require("node:child_process");
 const path = require("node:path");
-const { waitForPort, isPortInUse, killPortOccupants } = require("./util/port.cjs");
+const { appendFile, mkdir } = require("node:fs/promises");
+const { waitForPort, isPortInUse, killPortOccupants, resolveWaPiDir } = require("./util/port.cjs");
 const { shouldRespawn, RESPAWN_DELAY_MS } = require("./util/auto-respawn.cjs");
 const {
   checkPort,
@@ -49,6 +50,13 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
     now = Date.now,
     isPortInUseFn = isPortInUse,
     killPortOccupantsFn = (p) => killPortOccupants(p, undefined, (m) => log.info(m)),
+    // 崩溃现场落盘：默认追加到 <WA_PI_DIR>/logs/kernel-crash.log；测试注入收集
+    crashLogFn = (text) => {
+      const p = path.join(resolveWaPiDir(), "logs", "kernel-crash.log");
+      return mkdir(path.dirname(p), { recursive: true })
+        .then(() => appendFile(p, text))
+        .catch(() => {});
+    },
   } = deps;
   // dev: repo 下用 bun 跑 kernel 源码入口；packaged: kernelDir 里 wa-pi-kernel(.exe) run kernel.js
   // Windows dev 路径上 "bun" 是 .cmd shim——Node 20+ 出于 CVE-2024-27980 默认拒绝 spawn
@@ -133,6 +141,14 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
     });
     child.stdout.on("data", (d) => log.info(`[kernel] ${d.toString().trim()}`));
     child.stderr.on("data", (d) => log.error(`[kernel] ${d.toString().trim()}`));
+    // stderr 环形缓冲：Bun 级崩溃（panic/段错误）不进 JS 的 crash-logger，现场只打在
+    // stderr。留存末尾 50 条，崩溃退出时随 code/signal 写入 kernel-crash.log 供定位首因
+    // （8/14、8/18 事故静默 exit code=1、desktop.log 无错误输出，首因无从查起）。
+    const stderrTail = [];
+    child.stderr.on("data", (d) => {
+      stderrTail.push(d.toString().trim().slice(0, 500));
+      if (stderrTail.length > 50) stderrTail.shift();
+    });
     child.on("exit", (code, signal) => {
       childExited = true;
       // code=null 表示被信号杀；signal 才是定位根因的关键（SIGTERM=被主动杀，
@@ -140,7 +156,13 @@ async function startSidecar({ isPackaged, kernelDir, webDir, kernelExe, log, por
       // 信号杀死不进 JS，故这里必须记录 signal。
       log.info(`[kernel] 退出 code=${code} signal=${signal ?? "none"}`);
       // 崩溃（被信号杀 code=null / Windows 强杀 code=1）且非用户主动退出 → 统一重启入口
-      if (shouldRespawn(code, respawnState)) scheduleRespawn("崩溃");
+      if (shouldRespawn(code, respawnState)) {
+        void crashLogFn(
+          `\n===== ${new Date().toISOString()} kernel 崩溃退出 pid=${child.pid} code=${code} signal=${signal ?? "none"} =====\n` +
+          `最近 stderr（末 ${stderrTail.length} 条）：\n${stderrTail.join("\n") || "(无)"}\n`,
+        );
+        scheduleRespawn("崩溃");
+      }
     });
     return child;
   }
