@@ -515,7 +515,12 @@ export class WSServer {
 		// 最新分享设置（保存后无需重启），静态注入 token 占位为空。
 		createShareRoutes(
 			this.router,
-			{ token: "", channel: "edgeone" },
+			{
+				token: "",
+				channel: "edgeone",
+				// 上传/部署进度经 SSE 广播给前端进度条
+				broadcast: (e) => this.broadcast(e),
+			},
 			join(WA_PI_DIR, "share-workspace"),
 		);
 

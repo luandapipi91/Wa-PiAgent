@@ -22,6 +22,7 @@ mock.module("../../util/clipboard", () => ({
 }));
 
 import { ShareButton } from "./ShareButton";
+import { useShareProgressStore } from "../../store/share-progress";
 
 const PATHS = ["/proj/a.txt", "/proj/b.txt", "/proj/c.txt"];
 const URL = "https://share.edgeone.app/s/xyz789";
@@ -30,6 +31,7 @@ beforeEach(() => {
 	shareSettingsMock.mockReset();
 	shareUploadMock.mockReset();
 	copyMock.mockReset();
+	useShareProgressStore.setState({ phase: "idle", percent: 0 });
 	shareSettingsMock.mockResolvedValue({
 		hasToken: true,
 		channel: "edgeone",
@@ -98,4 +100,29 @@ test("复制失败：显示「复制失败」提示且按钮仍为「复制链�
 	await screen.findByTestId("share-error");
 	expect(screen.getByTestId("share-error").textContent).toContain("复制失败");
 	expect(screen.getByTestId("share-copy-btn").textContent).toBe("复制链接");
+});
+
+test("生成中显示进度条：uploading 阶段显示真实百分比", async () => {
+	// shareUpload 挂起保持 generating 态；模拟 kernel SSE 推送的 uploading 进度
+	shareUploadMock.mockImplementation(() => new Promise(() => {}));
+	useShareProgressStore.setState({ phase: "uploading", percent: 42 });
+	render(<ShareButton paths={PATHS} />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	await screen.findByTestId("share-files");
+	fireEvent.click(screen.getByTestId("share-generate-btn"));
+	await screen.findByTestId("share-progress");
+	expect(screen.getByTestId("share-progress-text").textContent).toContain("42%");
+	expect(screen.getByTestId("progress-bar-fill").style.width).toBe("42%");
+});
+
+test("生成中 deploying 阶段显示 indeterminate 进度条", async () => {
+	shareUploadMock.mockImplementation(() => new Promise(() => {}));
+	useShareProgressStore.setState({ phase: "deploying", percent: 100 });
+	render(<ShareButton paths={PATHS} />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	await screen.findByTestId("share-files");
+	fireEvent.click(screen.getByTestId("share-generate-btn"));
+	await screen.findByTestId("share-progress");
+	expect(screen.getByTestId("progress-bar-indeterminate")).toBeTruthy();
+	expect(screen.getByTestId("share-progress-text").textContent).toContain("部署中");
 });

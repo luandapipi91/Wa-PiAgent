@@ -12,6 +12,8 @@ import {
 } from "../../share-client";
 import { copyToClipboard } from "../../util/clipboard";
 import { useUiPrefsStore } from "../../store/ui-prefs";
+import { ProgressBar } from "../ui/ProgressBar";
+import { useShareProgressStore } from "../../store/share-progress";
 
 /**
  * 分享面板：「分享设置」与「我的分享」两个 tab。
@@ -32,6 +34,8 @@ export function ShareSection() {
 	const [workspaceDir, setWorkspaceDir] = useState("");
 	const [deploying, setDeploying] = useState(false);
 	const [copiedId, setCopiedId] = useState<string | null>(null);
+	// kernel SSE 广播的上传/部署进度（部署阶段无真实百分比 → indeterminate）
+	const progress = useShareProgressStore();
 
 	// 注册入口按界面语言分流到中/英文产品页
 	const language = useUiPrefsStore((s) => s.language);
@@ -366,6 +370,27 @@ export function ShareSection() {
 							</button>
 						)}
 					</div>
+					{deploying && (
+						<div
+							className="flex flex-col gap-1.5 w-72"
+							data-testid="share-deploy-progress"
+						>
+							<ProgressBar
+								percent={progress.percent}
+								indeterminate={progress.phase !== "uploading"}
+							/>
+							<span
+								className="text-xs text-secondary"
+								data-testid="share-deploy-progress-text"
+							>
+								{progress.phase === "uploading"
+									? t("share.uploading", { percent: progress.percent })
+									: progress.phase === "packing"
+										? t("share.packing")
+										: t("share.deploying")}
+							</span>
+						</div>
+					)}
 				</div>
 			)}
 		</div>

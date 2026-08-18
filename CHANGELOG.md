@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — feat: 分享上传/部署进度条（SSE 广播 + COS 真实百分比）
+
+- shared 新增 `ShareProgressEvent`（`share:progress`：packing → uploading（0-100 真实百分比）→ deploying → done/error）；kernel `deployWorkspace` 接 COS `onProgress`，share 路由经 SSE 全程广播（含 error 阶段）。
+- 前端新增 `store/share-progress.ts`（订阅广播）与 `components/ui/ProgressBar.tsx`（determinate/indeterminate）；ShareResultModal 生成中与「我的分享」立即部署均显示进度条（部署阶段 EdgeOne 无百分比，用 indeterminate 动画）。
+- 影响范围：`packages/shared/src/types.ts`、`packages/kernel/src/share/edgeone-client.ts`、`routes/share.ts`、`ws-server.ts`；`packages/frontend/src/store/share-progress.ts`、`components/ui/ProgressBar.tsx`、`ShareButton.tsx`、`settings/ShareSection.tsx`、i18n zh/en；测试同步新增（路由广播序列/错误阶段、ProgressBar、两处 UI 进度用例）。
+
 ## 2026-08-18 — fix(kernel): 分享部署必现超时/失败修复（项目名长度 + Zip 部署路径）
 
 - 固定项目名 `wapi` 仅 4 字符被 EdgeOne 项目名 5-63 长度校验拒绝，错误嵌套在 `Data.Response.Error`（顶层 Code=0）未识别 → ProjectId undefined → 轮询永不命中 → 恒报「部署超时」。修为 `wapi-shares`；apiCall 识别嵌套错误；getOrCreateProject 拿不到 ProjectId 显式抛错。

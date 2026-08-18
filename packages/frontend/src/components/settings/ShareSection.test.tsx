@@ -8,6 +8,7 @@ import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ShareSection } from "./ShareSection";
 import { useUiPrefsStore } from "../../store/ui-prefs";
+import { useShareProgressStore } from "../../store/share-progress";
 
 const getMock = mock();
 const putMock = mock();
@@ -74,6 +75,7 @@ beforeEach(() => {
 	shareDeployMock.mockImplementation(async () => {});
 	copyMock.mockImplementation(async () => {});
 	useUiPrefsStore.setState({ language: "zh" });
+	useShareProgressStore.setState({ phase: "idle", percent: 0 });
 });
 
 test("默认渲染渠道「腾讯 EdgeOne」（只读）与 Token 输入框", async () => {
@@ -288,4 +290,17 @@ test("打开分享文件夹：点击文件夹 icon → showItemInFolder 收到 w
 	} finally {
 		delete (window as any).waPiApp;
 	}
+});
+
+test("立即部署中显示进度条（uploading 阶段显示百分比文案）", async () => {
+	// shareDeploy 挂起保持 deploying 态；模拟 kernel SSE 推送的 uploading 进度
+	shareDeployMock.mockImplementation(() => new Promise(() => {}));
+	useShareProgressStore.setState({ phase: "uploading", percent: 30 });
+	await renderSharesTab();
+	fireEvent.click(screen.getByTestId("share-deploy"));
+	await screen.findByTestId("share-deploy-progress");
+	expect(
+		screen.getByTestId("share-deploy-progress-text").textContent,
+	).toContain("30%");
+	expect(screen.getByTestId("progress-bar-fill").style.width).toBe("30%");
 });

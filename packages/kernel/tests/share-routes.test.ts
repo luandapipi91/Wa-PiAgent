@@ -240,3 +240,70 @@ test("7b. refresh-link：本地有记录但从未成功部署 → 409", async ()
   expect(res!.status).toBe(409);
   expect((await res!.json()).error).toContain("尚未部署");
 });
+
+test("upload 全程广播进度：packing → uploading(百分比) → deploying → done", async () => {
+  mockEdgeOne();
+  const events: any[] = [];
+  const router = new HttpRouter();
+  createShareRoutes(
+    router,
+    {
+      token: "tk_test",
+      channel: "edgeone",
+      // fake COS：触发一次 onProgress（50%）再回调成功
+      cosFactory: () =>
+        ({
+          putObject: (o: any, cb: any) => {
+            o.onProgress?.({ loaded: 50, total: 100, percent: 0.5 });
+            cb(null);
+          },
+        }) as any,
+      settingsFile: join(dir, "settings.json"),
+      pollIntervalMs: 1,
+      broadcast: (e) => events.push(e),
+    },
+    workspaceDir,
+  );
+  await uploadOne(router);
+  const phases = events.map((e) => e.phase);
+  expect(phases).toEqual(["packing", "uploading", "deploying", "done"]);
+  expect(events[0].type).toBe("share:progress");
+  expect(events[1]).toMatchObject({ phase: "uploading", percent: 50, loaded: 50, total: 100 });
+});
+
+test("部署失败广播 error 阶段（含错误信息）", async () => {
+  // 探测与列举正常，CreatePagesDeployment 返回业务错误 → deployNow 走 error 广播
+  globalThis.fetch = (async (_url: any, init: any) => {
+    const action = JSON.parse(init.body).Action as string;
+    if (action === "CreatePagesDeployment")
+      return new Response(JSON.stringify({ Code: -1, Message: "boom" }), {
+        status: 200,
+      });
+    return new Response(
+      JSON.stringify({ Code: 0, Data: { Response: {
+        Projects: [{ ProjectId: "prj-1", PresetDomain: "d.edgeone.run" }],
+        Credentials: { TmpSecretId: "a", TmpSecretKey: "b", Token: "c" },
+        Bucket: "b", Region: "r", TargetPath: "t",
+      } } }),
+      { status: 200 },
+    );
+  }) as any;
+  const events: any[] = [];
+  const router = new HttpRouter();
+  createShareRoutes(
+    router,
+    {
+      token: "tk_test",
+      channel: "edgeone",
+      cosFactory: () => ({ putObject: (_o: any, cb: any) => cb(null) }) as any,
+      settingsFile: join(dir, "settings.json"),
+      pollIntervalMs: 1,
+      broadcast: (e) => events.push(e),
+    },
+    workspaceDir,
+  );
+  const res = await post(router, "/api/share/deploy", {});
+  expect(res!.status).toBe(500);
+  expect(events.at(-1)).toMatchObject({ phase: "error" });
+  expect(events.at(-1).error).toContain("boom");
+});
