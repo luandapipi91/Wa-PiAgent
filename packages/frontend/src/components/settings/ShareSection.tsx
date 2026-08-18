@@ -21,8 +21,10 @@ import { useShareProgressStore } from "../../store/share-progress";
 
 /**
  * 分享面板：「分享设置」与「我的分享」两个 tab。
- * 分享设置：渠道（腾讯 EdgeOne，只读 + 注册入口）、API Token、自定义域名；
- * 保存 PUT /api/settings/share（token 空串时 kernel 保留原值），token 已保存时脱敏展示。
+ * 分享设置：渠道切换（edgeone / cloudflare）；edgeone 展示注册入口 + API Token + 自定义域名，
+ * cloudflare 展示 API Token + Account ID + 注册链接 + 提示文案；
+ * 保存 PUT /api/settings/share 全量提交 { channel, token, accountId, customDomain }
+ * （token 空串时 kernel 保留原值），token 已保存时脱敏展示。
  * 我的分享：列表 / 复制链接 / 删除 / 清空 / 立即部署 / 存储用量 / 打开分享文件夹。
  */
 export function ShareSection() {
@@ -32,6 +34,9 @@ export function ShareSection() {
 	const [saved, setSaved] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [customDomain, setCustomDomain] = useState("");
+	// 分享渠道：edgeone（腾讯 EdgeOne）/ cloudflare（Cloudflare Pages）
+	const [channel, setChannel] = useState<"edgeone" | "cloudflare">("edgeone");
+	const [accountId, setAccountId] = useState("");
 	const [items, setItems] = useState<ShareItemInfo[]>([]);
 	const [pending, setPending] = useState(0);
 	const [usage, setUsage] = useState({ totalSize: 0, totalLimit: 0 });
@@ -59,10 +64,19 @@ export function ShareSection() {
 			.get("/api/settings/share")
 			.then((res) => {
 				const share = (
-					res as { share?: { hasToken?: boolean; customDomain?: string } }
+					res as {
+						share?: {
+							hasToken?: boolean;
+							channel?: string;
+							customDomain?: string;
+							accountId?: string;
+						};
+					}
 				)?.share;
 				if (share?.hasToken) setSaved(true);
+				setChannel(share?.channel === "cloudflare" ? "cloudflare" : "edgeone");
 				setCustomDomain(share?.customDomain ?? "");
+				setAccountId(share?.accountId ?? "");
 			})
 			.catch(() => {});
 	}, []);
@@ -74,7 +88,7 @@ export function ShareSection() {
 		setSaving(true);
 		try {
 			await api.put("/api/settings/share", {
-				share: { token, channel: "edgeone", customDomain },
+				share: { token, channel, accountId, customDomain },
 			});
 			setToken("");
 			setSaved(true);
@@ -210,6 +224,48 @@ export function ShareSection() {
 		</button>
 	);
 
+	// Token 字段：按渠道显示不同 label/placeholder；已保存 token 时统一脱敏展示
+	const tokenField = masked ? (
+		<div
+			className="flex items-center gap-3 w-72"
+			data-testid="share-token-mask"
+		>
+			<span className="text-sm text-secondary tracking-widest">••••••••</span>
+			<button
+				onClick={() => setSaved(false)}
+				className="px-2 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
+				data-testid="share-token-modify"
+			>
+				{t("settings.share.modify")}
+			</button>
+		</div>
+	) : (
+		<label className="flex flex-col gap-1 w-72">
+			<span className="text-xs text-secondary">
+				{channel === "cloudflare"
+					? "Cloudflare API Token"
+					: t("settings.share.token")}
+			</span>
+			<input
+				type="password"
+				value={token}
+				onChange={(e) => {
+					setToken(e.target.value);
+					setSaved(false);
+				}}
+				placeholder={
+					channel === "cloudflare"
+						? "在 Cloudflare 控制台创建，权限 Account → Cloudflare Pages → Edit"
+						: undefined
+				}
+				autoComplete="off"
+				spellCheck={false}
+				className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
+				data-testid="share-token-input"
+			/>
+		</label>
+	);
+
 	return (
 		<div
 			className="flex flex-col gap-4 p-4 overflow-auto"
@@ -229,70 +285,96 @@ export function ShareSection() {
 						<span className="text-sm font-medium text-primary">
 							{t("settings.share.channel")}
 						</span>
-						<div className="flex items-center gap-2">
-							<span className="text-xs text-secondary">腾讯 EdgeOne</span>
+						<div className="flex items-center gap-4">
+							<label className="flex items-center gap-1.5 cursor-pointer">
+								<input
+									type="radio"
+									name="share-channel"
+									checked={channel === "edgeone"}
+									onChange={() => setChannel("edgeone")}
+									data-testid="share-channel-edgeone"
+								/>
+								<span className="text-xs text-secondary">腾讯 EdgeOne</span>
+							</label>
+							<label className="flex items-center gap-1.5 cursor-pointer">
+								<input
+									type="radio"
+									name="share-channel"
+									checked={channel === "cloudflare"}
+									onChange={() => setChannel("cloudflare")}
+									data-testid="share-channel-cloudflare"
+								/>
+								<span className="text-xs text-secondary">Cloudflare</span>
+							</label>
+						</div>
+					</div>
+
+					{channel === "edgeone" && (
+						<>
+							<div className="flex items-center gap-2">
+								<a
+									href={registerUrl}
+									target="_blank"
+									rel="noreferrer"
+									className="text-xs cursor-pointer hover:underline"
+									style={{ color: "var(--brand)" }}
+									data-testid="share-register-link"
+								>
+									{t("settings.share.register")} &gt;
+								</a>
+							</div>
+							{tokenField}
+							<label className="flex flex-col gap-1 w-72">
+								<span className="text-xs text-secondary">
+									{t("settings.share.customDomain")}
+								</span>
+								<input
+									type="text"
+									value={customDomain}
+									onChange={(e) => setCustomDomain(e.target.value)}
+									placeholder="share.example.com"
+									spellCheck={false}
+									className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
+									data-testid="share-domain-input"
+								/>
+								<span className="text-xs text-secondary">
+									{t("settings.share.customDomainHint")}
+								</span>
+							</label>
+						</>
+					)}
+
+					{channel === "cloudflare" && (
+						<>
+							{tokenField}
+							<label className="flex flex-col gap-1 w-72">
+								<span className="text-xs text-secondary">Account ID</span>
+								<input
+									type="text"
+									value={accountId}
+									onChange={(e) => setAccountId(e.target.value)}
+									placeholder="在 dash.cloudflare.com URL 中找到"
+									spellCheck={false}
+									className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
+									data-testid="share-account-id-input"
+								/>
+							</label>
 							<a
-								href={registerUrl}
+								href="https://dash.cloudflare.com/sign-up"
 								target="_blank"
 								rel="noreferrer"
 								className="text-xs cursor-pointer hover:underline"
 								style={{ color: "var(--brand)" }}
-								data-testid="share-register-link"
+								data-testid="share-cf-register-link"
 							>
-								{t("settings.share.register")} &gt;
+								注册 Cloudflare &gt;
 							</a>
-						</div>
-					</div>
-					{masked ? (
-						<div
-							className="flex items-center gap-3 w-72"
-							data-testid="share-token-mask"
-						>
-							<span className="text-sm text-secondary tracking-widest">••••••••</span>
-							<button
-								onClick={() => setSaved(false)}
-								className="px-2 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
-								data-testid="share-token-modify"
-							>
-								{t("settings.share.modify")}
-							</button>
-						</div>
-					) : (
-						<label className="flex flex-col gap-1 w-72">
 							<span className="text-xs text-secondary">
-								{t("settings.share.token")}
+								Cloudflare 分享链接永久公开，国内访问速度约 0.5~2s；单文件 ≤ 25MB
 							</span>
-							<input
-								type="password"
-								value={token}
-								onChange={(e) => {
-									setToken(e.target.value);
-									setSaved(false);
-								}}
-								autoComplete="off"
-								spellCheck={false}
-								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
-								data-testid="share-token-input"
-							/>
-						</label>
+						</>
 					)}
-					<label className="flex flex-col gap-1 w-72">
-						<span className="text-xs text-secondary">
-							{t("settings.share.customDomain")}
-						</span>
-						<input
-							type="text"
-							value={customDomain}
-							onChange={(e) => setCustomDomain(e.target.value)}
-							placeholder="share.example.com"
-							spellCheck={false}
-							className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
-							data-testid="share-domain-input"
-						/>
-						<span className="text-xs text-secondary">
-							{t("settings.share.customDomainHint")}
-						</span>
-					</label>
+
 					{/* 保存按钮始终渲染：域名随时可改；token 为空串时 kernel 保留原 token */}
 					<button
 						onClick={() => void save()}
