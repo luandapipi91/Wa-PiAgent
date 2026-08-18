@@ -99,11 +99,18 @@ async function uploadFiles(
 
   // 3. check-missing（跳过已上传的）
   const hashes = [...byHash.keys()];
-  const missing = await fetch(`${CF_API_BASE}/pages/assets/check-missing`, {
+  const missingRes = await fetch(`${CF_API_BASE}/pages/assets/check-missing`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
     body: JSON.stringify({ hashes }),
-  }).then((r) => r.json()) as string[];
+  });
+  const missingJson: any = await missingRes.json().catch(() => ({}));
+  if (!missingRes.ok) {
+    // JWT 失效或 4xx 时，错误 JSON 不能被当成 string[] 用，抛出带状态/信息的错误
+    const msg = missingJson.errors?.[0]?.message;
+    throw new Error(`check-missing failed: HTTP ${missingRes.status}${msg ? ` ${msg}` : ""}`);
+  }
+  const missing = missingJson as string[];
 
   // 4. 分桶上传（单桶 ≤ 40MiB / ≤ 2000 文件，串行即可，分享文件量小）
   const uploadHashes = hashes.filter((h) => missing.includes(h));
@@ -118,13 +125,17 @@ async function uploadFiles(
       metadata: { contentType: contentTypeFor(byHash.get(h)!.path) },
       base64: true,
     }];
-    await fetch(`${CF_API_BASE}/pages/assets/upload`, {
+    const upRes = await fetch(`${CF_API_BASE}/pages/assets/upload`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
       body: JSON.stringify(payload),
-    }).then((r) => {
-      if (!r.ok) throw new Error(`upload failed: HTTP ${r.status}`);
     });
+    const upJson: any = await upRes.json().catch(() => ({}));
+    if (!upRes.ok || upJson.success === false) {
+      // 同时校验 HTTP 状态与业务 success 字段，避免 success:false 被当作成功静默跳过
+      const msg = upJson.errors?.[0]?.message;
+      throw new Error(`upload failed: HTTP ${upRes.status}${msg ? ` ${msg}` : ""}`);
+    }
     uploadedBytes += content.byteLength;
     onProgress?.({
       phase: "uploading",
