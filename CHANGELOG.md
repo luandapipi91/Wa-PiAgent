@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — fix(build): 打包版默认工作区会话文件树空白（前端注入 dev WA_PI_DIR）
+
+- 根因：`vite.config.ts` 的 loadEnv 把 `.env`（dev 专用 `WA_PI_DIR=${HOME}/.pi/agent-dev`）注入生产 bundle；打包版 kernel 运行时无 .env、默认 `~/.pi/agent`。前端 `resolveSessionCwd` 拼出的会话目录查 `~/.pi/agent-dev/workdir/<createdAt>`，而实际在 `~/.pi/agent/workdir/<createdAt>` → `list-dir` 返回 `fs:error` → `ExplorerPanel` 静默 `[]` → 默认工作区会话右侧文件树空白。dev 正常是因为 dev kernel（bun --env-file=.env）与前端都用 agent-dev。
+- 修复：`vite.config.ts` 提取 `resolveInjectedValue` 纯函数，生产构建（打包版）恒不注入 `WA_PI_DIR`（bun run 会自动加载 .env 到 process.env，无法与显式 env 区分），前端回退默认 `~/.pi/agent` 与 kernel 一致；HOME/USERPROFILE 仍注入。dev/E2E（development 分支）不受影响。
+- 影响范围：`packages/frontend/vite.config.ts`（新增 `resolveInjectedValue` + 对 L8 JSON.parse 补 try/catch）；新增测试 `packages/frontend/vite.config.test.ts`（development 注入 / production 不注入 / HOME 注入 4 断言）。需重新打包发布后生效。
+
 ## 2026-08-18 — chore(release): 发布版本 0.2.6（文件分享全链路）
 
 - 版本推进 0.2.5 → 0.2.6：desktop/frontend package.json、bun.lock、version-history.json（新增 0.2.6 条目）、RELEASE_NOTES.md（重写为当次内容）、VersionTimeline 测试 maxEntries 断言同步（0.2.6+0.2.5）。
