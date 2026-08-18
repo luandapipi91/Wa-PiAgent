@@ -300,17 +300,20 @@ export async function applySystemProxy(
 	}
 }
 
-/** 产物分享默认配置（未配置时：无 token + 默认渠道 edgeone + 无自定义域名） */
+/** 产物分享默认配置（未配置时：无 token + 默认渠道 edgeone + 无自定义域名 + 无 accountId） */
 export const SHARE_DEFAULTS = {
 	token: "",
-	channel: "edgeone",
+	channel: "edgeone" as "edgeone" | "cloudflare",
 	customDomain: "",
+	accountId: "",
 } as const;
 export interface ShareSettings {
 	token: string;
-	channel: string;
+	channel: "edgeone" | "cloudflare";
 	/** 自定义加速域名（可选）；空 = 用项目预设域名 */
 	customDomain: string;
+	/** Cloudflare Pages 账号 ID（channel=cloudflare 时使用）；空 = 未配置 */
+	accountId?: string;
 }
 
 /** 读取产物分享配置；字段缺失逐项回退默认值 */
@@ -322,6 +325,7 @@ export async function loadShareSettings(
 		token: raw.token ?? SHARE_DEFAULTS.token,
 		channel: raw.channel ?? SHARE_DEFAULTS.channel,
 		customDomain: raw.customDomain ?? SHARE_DEFAULTS.customDomain,
+		accountId: raw.accountId ?? SHARE_DEFAULTS.accountId,
 	};
 }
 
@@ -337,11 +341,13 @@ export async function saveShareSettings(
 		token: share.token ? share.token : prevToken,
 		channel: share.channel ?? SHARE_DEFAULTS.channel,
 		customDomain: share.customDomain ?? SHARE_DEFAULTS.customDomain,
+		accountId: share.accountId ?? SHARE_DEFAULTS.accountId,
 	};
 	await writeSettingsJson(file, settings);
 	return {
 		token: settings.share.token,
 		channel: settings.share.channel,
 		customDomain: settings.share.customDomain,
+		accountId: settings.share.accountId,
 	};
 }
