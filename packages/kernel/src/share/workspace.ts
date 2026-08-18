@@ -8,7 +8,15 @@
 // 不变量：state.json 是唯一事实源。手动塞进 items/ 的文件不部署不显示；
 // 手动删 items/<id>/ 后，loadItems 读时自动对账剔除记录。
 
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	readFile,
+	readdir,
+	rename,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { strToU8, zipSync } from "fflate";
 
@@ -62,10 +70,7 @@ async function dirExists(p: string): Promise<boolean> {
 }
 
 /** 递归列目录下相对路径（/ 分隔），按名称排序保证确定性 */
-async function listFilesRecursive(
-	root: string,
-	base = "",
-): Promise<string[]> {
+async function listFilesRecursive(root: string, base = ""): Promise<string[]> {
 	let out: string[] = [];
 	let entries: string[] = [];
 	try {
@@ -222,14 +227,11 @@ export async function renameItem(
 	if (item.name === newName) return item;
 	const dup = items.find((i) => i.name === newName && i.id !== id);
 	if (dup) throw new Error("已有分享名称重复，请使用其他名字");
-	await rm(join(itemsDir(dir), item.name), { recursive: true, force: true });
-	await mkdir(join(itemsDir(dir), newName), { recursive: true });
-	for (const rel of item.files) {
-		const src = join(itemsDir(dir), item.name, ...rel.split("/"));
-		const dst = join(itemsDir(dir), newName, ...rel.split("/"));
-		await mkdir(dirname(dst), { recursive: true });
-		await writeFile(dst, await readFile(src));
-	}
+	// 磁盘上同名文件夹残留（孤儿/迁移残留）也视为重名，避免 rename 覆盖
+	if (await dirExists(join(itemsDir(dir), newName)))
+		throw new Error("已有分享名称重复，请使用其他名字");
+	// 原子移动整个目录（items/ 同盘 rename），避免逐文件复制失败导致数据丢失
+	await rename(join(itemsDir(dir), item.name), join(itemsDir(dir), newName));
 	const renamed: ShareItem = { ...item, name: newName };
 	await writeState(
 		stateFile(dir),

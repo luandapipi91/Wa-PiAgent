@@ -1,5 +1,6 @@
 import { test, expect, afterEach } from "bun:test";
 import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unzipSync, strFromU8 } from "fflate";
@@ -10,6 +11,7 @@ import {
   loadItems,
   pendingCount,
   removeItem,
+  renameItem,
   saveLastDeployed,
   totalSize,
 } from "../src/share/workspace";
@@ -153,16 +155,34 @@ test("loadItems 旧格式迁移：state 记录指向 items/<id>/（穿透改造�
   const itemsDirPath = join(d, "items");
   // 模拟旧格式：文件夹 = items/<id>/（穿透改造前），state 记录 name 是展示名
   await mkdir(join(itemsDirPath, "abc123abc123"), { recursive: true });
-  await writeFile(join(itemsDirPath, "abc123abc123", "index.html"), "A", "utf8");
-  await writeFile(join(d, "state.json"), JSON.stringify({
-    items: [{ id: "abc123abc123", name: "旧名", files: ["index.html"], size: 1, createdAt: 100 }],
-  }), "utf8");
+  await writeFile(
+    join(itemsDirPath, "abc123abc123", "index.html"),
+    "A",
+    "utf8",
+  );
+  await writeFile(
+    join(d, "state.json"),
+    JSON.stringify({
+      items: [
+        {
+          id: "abc123abc123",
+          name: "旧名",
+          files: ["index.html"],
+          size: 1,
+          createdAt: 100,
+        },
+      ],
+    }),
+    "utf8",
+  );
   const items = await loadItems(d);
   // 记录保留，name 由内容推断（单文件 → index.html），文件夹已迁移
   expect(items).toHaveLength(1);
   expect(items[0].id).toBe("abc123abc123");
   expect(items[0].name).toBe("index.html");
-  expect(await readFile(join(itemsDirPath, "index.html", "index.html"), "utf8")).toBe("A");
+  expect(
+    await readFile(join(itemsDirPath, "index.html", "index.html"), "utf8"),
+  ).toBe("A");
   // 迁移已落盘
   const saved = JSON.parse(await readFile(join(d, "state.json"), "utf8"));
   expect(saved.items[0].name).toBe("index.html");
@@ -176,12 +196,45 @@ test("loadItems 孤儿恢复：state 已空但 items/<id>/ 还在（旧分享）
   await mkdir(join(itemsDirPath, "aaaaaaaaaaaa"), { recursive: true });
   await writeFile(join(itemsDirPath, "aaaaaaaaaaaa", "a.txt"), "1", "utf8");
   await mkdir(join(itemsDirPath, "bbbbbbbbbbbb", "sub"), { recursive: true });
-  await writeFile(join(itemsDirPath, "bbbbbbbbbbbb", "sub", "b.js"), "2", "utf8");
+  await writeFile(
+    join(itemsDirPath, "bbbbbbbbbbbb", "sub", "b.js"),
+    "2",
+    "utf8",
+  );
   const items = await loadItems(d);
-  expect(items.map((i) => i.id).sort()).toEqual(["aaaaaaaaaaaa", "bbbbbbbbbbbb"]);
+  expect(items.map((i) => i.id).sort()).toEqual([
+    "aaaaaaaaaaaa",
+    "bbbbbbbbbbbb",
+  ]);
   expect(items.find((i) => i.id === "aaaaaaaaaaaa")?.name).toBe("a.txt");
   // bbbbbbbbbb 只有一个文件（sub/b.js）→ 单文件取文件名 b.js
   expect(items.find((i) => i.id === "bbbbbbbbbbbb")?.name).toBe("b.js");
   // 文件夹已迁移为新格式
-  expect(await readFile(join(itemsDirPath, "a.txt", "a.txt"), "utf8")).toBe("1");
+  expect(await readFile(join(itemsDirPath, "a.txt", "a.txt"), "utf8")).toBe(
+    "1",
+  );
+});
+
+test("renameItem 重命名：文件夹原子改名、文件保留、state 更新", async () => {
+  const d = await tmp();
+  await addItem(d, "abc123abc123", "旧名", [entry("a.txt", "1"), entry("sub/b.txt", "2")]);
+  const renamed = await renameItem(d, "abc123abc123", "新名");
+  expect(renamed.name).toBe("新名");
+  // 文件保留在新文件夹（旧文件夹已移走）
+  expect(await readFile(join(d, "items/新名/a.txt"), "utf8")).toBe("1");
+  expect(await readFile(join(d, "items/新名/sub/b.txt"), "utf8")).toBe("2");
+  // 旧文件夹不存在
+  expect(existsSync(join(d, "items/旧名"))).toBe(false);
+  // state 更新
+  const items = await loadItems(d);
+  expect(items[0].name).toBe("新名");
+});
+
+test("renameItem 重名拒绝：不同 id 同名抛错", async () => {
+  const d = await tmp();
+  await addItem(d, "aaaaaaaaaaaa", "甲", [entry("a.txt", "1")]);
+  await addItem(d, "bbbbbbbbbbbb", "乙", [entry("b.txt", "2")]);
+  await expect(renameItem(d, "aaaaaaaaaaaa", "乙")).rejects.toThrow("重复");
+  // 未改动
+  expect((await loadItems(d)).find((i) => i.id === "aaaaaaaaaaaa")?.name).toBe("甲");
 });

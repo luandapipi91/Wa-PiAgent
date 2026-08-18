@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — fix(kernel): 分享重命名改用原子 rename（原先删旧目录再复制导致 ENOENT 报错）
+
+- renameItem 原先先 rm 旧目录再逐文件读旧目录复制到新目录——旧目录已删导致 readFile ENOENT 报错且数据有丢失风险。改为 rename() 原子移动整个目录（items/ 同盘），并补磁盘同名残留检查防覆盖。
+- 影响范围：`packages/kernel/src/share/workspace.ts`；测试 `share-workspace.test.ts`（重命名成功/文件保留 + 重名拒绝 2 用例）。
+
 ## 2026-08-18 — fix(kernel): 分享名穿透兼容旧数据（items/<id>/ 自动迁移恢复）
 
 - 穿透改造后 loadItems 对账检查 items/<name>/，旧分享（文件夹 = items/<id>/）被误判目录丢失剔除，导致「我的分享」列表清空。新增旧格式自动迁移：items/<name>/ 缺失时回退检查 items/<id>/（推断 name：单文件=文件名、多=N 个文件，重名加后缀）重命名文件夹并恢复记录；同时扫描 items/ 下孤儿 id 文件夹（state 已空的旧分享）恢复。
