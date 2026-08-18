@@ -2,6 +2,18 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — fix(kernel): 代理中途失效自动回退直连（本地代理中继）
+
+- 问题：开启系统代理后若代理软件在会话进行中被关掉，pi 子进程 env 里的代理地址仍指向死端口（运行中进程 env 改不了），LLM 请求重试后全部 Connection error，且无法自动恢复。
+- 修复：新增本地 HTTP 代理中继 `proxy-relay.ts`（127.0.0.1 环回）。`applySystemProxy` 无论开关代理都把 `HTTP_PROXY/HTTPS_PROXY`（大小写）指向中继：开代理时中继每条连接先试上游代理、连不通/超时/被拒则自动回退直连（含 15s 失败冷却，上游恢复后自动切回）；关代理时中继上游清空、全部直连。开关代理只改中继上游，存量/新建子进程 env 不用变。支持上游 http/https 代理与 user:pass 鉴权头注入；中继启动失败退化为旧行为（直接写上游地址）。
+- 影响范围：`packages/kernel/src/proxy-relay.ts`（新增）、`settings-store.ts`（applySystemProxy 统一走中继）、`__tests__/proxy-relay.test.ts`（新增 9 例：CONNECT 隧道/鉴权注入/上游死亡回退/冷却与恢复/关代理切直连/502/普通 HTTP 转发）、`__tests__/settings-proxy.test.ts`（断言改为 env 恒指向中继）。
+
+## 2026-08-18 — fix: 打包版默认工作区文件树空白（HOME/USERPROFILE 注入 + resolveSessionCwd 未用持久化 cwd）
+
+- 根因：v0.2.7 只拦截 `WA_PI_DIR` 注入，漏掉 `HOME`/`USERPROFILE`：打包机（macOS）构建时 `HOME=/Users/pipi` 进入前端 bundle，`constants.ts` 用 `${HOME}/.pi/agent` 回退拼出 `/Users/pipi/.pi/agent/workdir`；而 `resolveSessionCwd` 对默认工作区（`__system__`）会话直接用该常量，忽略 kernel 持久化的 `__system__.cwd`（运行时本机路径，Windows 上为 `C:\Users\co\.pi\agent\workdir`）。非构建机（Windows）上请求 macOS 路径 → `list-dir` 返回 `fs:error` → `ExplorerPanel` 静默 `[]` → 默认工作区文件树空白。
+- 修复：① `packages/frontend/vite.config.ts` 生产构建恒不注入打包机 env——机器路径（WA_PI_DIR/HOME/USERPROFILE）补上 v0.2.7 漏网，`WA_PI_WS_PORT` 也恒注入默认 9776 不读打包机 process.env/.env；② `packages/shared/src/pure.ts` `resolveSessionCwd` 默认工作区分支只用持久化 `project.cwd`（前端已从 `/api/projects` 拿到 `__system__.cwd`），绝不回退常量（空 cwd 返回空串，前端 ExplorerPanel 空串渲染空态不请求；kernel 调用点均有 `!project.cwd` 前置校验，行为不变）。
+- 影响范围：`packages/frontend/vite.config.ts`、`vite.config.test.ts`（HOME/USERPROFILE/WS_PORT 不注入断言）、`packages/shared/src/pure.ts`、`tests/pure.test.ts`（新增 project.cwd 优先 + 空串断言）。需重新打包发布后生效。
+
 ## 2026-08-18 — chore(release): 发布版本 0.2.7（修复打包版默认工作区文件树空白）
 
 - 打包发布 0.2.7（mac + win 完整覆盖 OSS）：修复打包版默认工作区会话右侧文件树空白（前端构建误注入 dev 数据目录 ~/.pi/agent-dev，与 kernel 实际 ~/.pi/agent 不一致）。

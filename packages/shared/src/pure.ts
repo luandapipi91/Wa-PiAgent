@@ -50,18 +50,26 @@ export function randomSessionId(): string {
  *
  * - 普通项目会话：返回 project.cwd（行为不变）
  * - 默认工作区会话（projectId === SYSTEM_PROJECT_ID）：返回
- *   ${SYSTEM_PROJECT_CWD}/${session.createdAt}，即 ~/.pi/agent/workdir/<时间戳>
+ *   ${project.cwd}/${session.createdAt}，即 <默认工作区根>/<时间戳>
  *
- * 这是**纯函数**，从 session.createdAt 推导，不依赖任何持久化的 cwd 字段。
- * 因此 kernel 启动时 mkdir 用的 ts 必须与 createSession 写入的 createdAt 严格一致
- * （详见 ws-server.ts 的 agent:prompt handler）。
+ * 默认工作区根目录**只**用持久化的 project.cwd（kernel 运行时本机路径，/api/projects
+ * 返回的 __system__ 项目记录，kernel 启动时 ensureSystemProject 写入），绝不回退
+ * SYSTEM_PROJECT_CWD 常量——前端 bundle 里的该常量来自构建机注入的
+ * HOME/USERPROFILE/WA_PI_DIR，一旦被污染（如 Windows 上跑 macOS 构建的包，常量是
+ * /Users/pipi/.pi/agent/workdir），回退就等于稳定地请求错误路径（listDir 返回
+ * fs:error → 默认工作区文件树空白）。project.cwd 缺失时返回空串，由调用方处理
+ * （前端 ExplorerPanel 空串渲染空态不请求；kernel 调用点均有 !project.cwd 前置校验）。
+ *
+ * 目录名仍由 session.createdAt 推导，kernel 启动时 mkdir 用的 ts 必须与
+ * createSession 写入的 createdAt 严格一致（详见 ws-server.ts 的 agent:prompt handler）。
  */
 export function resolveSessionCwd(
   session: { projectId: string; createdAt: number },
   project: { cwd: string },
 ): string {
   if (session.projectId === SYSTEM_PROJECT_ID) {
-    return `${SYSTEM_PROJECT_CWD}/${session.createdAt}`;
+    // 绝不回退常量：空 cwd 时返回空串，宁可不出文件树也不请求错误路径
+    return project.cwd ? `${project.cwd}/${session.createdAt}` : "";
   }
   return project.cwd;
 }
