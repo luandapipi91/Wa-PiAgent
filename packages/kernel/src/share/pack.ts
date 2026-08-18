@@ -5,7 +5,10 @@ import { zipSync, strToU8 } from "fflate";
 
 /** 排序后路径拼接 → sha256 hex 前 12 位（项目名后缀） */
 export function hashPaths(paths: string[]): string {
-  const joined = [...paths].sort().join("\n");
+  // 输入路径先统一分隔符（反斜杠 \ → 正斜杠 /）：Windows 上同一文件可经
+  // 正/反斜杠两种入口进入，不规范化会得到不同 hash → 被当作不同项目反复建站
+  const normalized = paths.map((p) => p.replace(/\\/g, "/"));
+  const joined = [...normalized].sort().join("\n");
   return createHash("sha256").update(joined).digest("hex").slice(0, 12);
 }
 

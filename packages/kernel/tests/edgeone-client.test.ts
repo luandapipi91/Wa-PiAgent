@@ -77,9 +77,9 @@ test("apiCall：业务 Code!==0 抛业务错误", async () => {
   fetchMock.mockImplementation(async (_url: string, _init?: any) => {
     return JSON_RES({ Code: 4000, Message: "bad request" });
   });
-  await expect(
-    apiCall("https://api", "tk", "SomeAction"),
-  ).rejects.toThrow("[SomeAction] Code 4000: bad request");
+  await expect(apiCall("https://api", "tk", "SomeAction")).rejects.toThrow(
+    "[SomeAction] Code 4000: bad request",
+  );
 });
 
 test("getOrCreateProject：已存在则直接返回 ProjectId", async () => {
@@ -129,9 +129,7 @@ test("detectBaseUrl：两端点全失败则抛错", async () => {
   fetchMock.mockImplementation(async (_url: string, _init?: any) => {
     return new Response("{}", { status: 500 });
   });
-  await expect(detectBaseUrl("tk")).rejects.toThrow(
-    "EdgeOne API 端点均不可用",
-  );
+  await expect(detectBaseUrl("tk")).rejects.toThrow("EdgeOne API 端点均不可用");
 });
 
 test("getPresetDomain：返回项目 PresetDomain", async () => {
@@ -143,10 +141,31 @@ test("getPresetDomain：返回项目 PresetDomain", async () => {
     return JSON_RES({
       Code: 0,
       Data: {
-        Response: { Projects: [{ ProjectId: "p1", PresetDomain: "dom.example" }] },
+        Response: {
+          Projects: [{ ProjectId: "p1", PresetDomain: "dom.example" }],
+        },
       },
     });
   });
   const domain = await getPresetDomain("https://api", "tk", "p1");
   expect(domain).toBe("dom.example");
+});
+
+test("getPresetDomain：PresetDomain 为空时抛错，不静默降级用 Name（Name 不是域名）", async () => {
+  fetchMock.mockImplementation(async (_url: string, init?: any) => {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    expect(body.Action).toBe("DescribePagesProjects");
+    return JSON_RES({
+      Code: 0,
+      Data: {
+        Response: {
+          // 仅有 Name（项目名），没有 PresetDomain
+          Projects: [{ ProjectId: "p1", Name: "share-abc" }],
+        },
+      },
+    });
+  });
+  await expect(getPresetDomain("https://api", "tk", "p1")).rejects.toThrow(
+    "无法获取项目域名",
+  );
 });

@@ -5,7 +5,7 @@ import { test, expect, beforeEach, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 const shareSettingsMock = mock(async () => ({
-	token: "edgeone-token",
+	hasToken: true,
 	channel: "edgeone",
 }));
 const shareUploadMock = mock(async () => ({}));
@@ -31,7 +31,7 @@ beforeEach(() => {
 	shareUploadMock.mockReset();
 	copyMock.mockReset();
 	shareSettingsMock.mockResolvedValue({
-		token: "edgeone-token",
+		hasToken: true,
 		channel: "edgeone",
 	});
 	shareUploadMock.mockResolvedValue({
@@ -68,7 +68,7 @@ test("生成分享链接：显示 URL + 复制按钮 + 「3 小时内有效」",
 });
 
 test("未配置 token：显示「请先在 设置 → 分享 配置 Token」且无生成按钮", async () => {
-	shareSettingsMock.mockResolvedValue({ token: "", channel: "edgeone" });
+	shareSettingsMock.mockResolvedValue({ hasToken: false, channel: "edgeone" });
 	render(<ShareButton paths={PATHS} />);
 	fireEvent.click(screen.getByTestId("share-btn"));
 	await screen.findByTestId("share-no-token");

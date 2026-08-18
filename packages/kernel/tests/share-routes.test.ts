@@ -2,7 +2,7 @@ import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "os";
 import { join } from "path";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "fs";
-import { createShareRoutes } from "../src/routes/share";
+import { createShareRoutes, commonRoot } from "../src/routes/share";
 import { HttpRouter } from "../src/http-router";
 
 let dir: string;
@@ -23,7 +23,21 @@ function edgeOneFetch() {
   return mock(async (_url: string, init?: any) => {
     const body = JSON.parse(String(init?.body ?? "{}"));
     if (body.Action === "DescribePagesProjects")
-      return Response.json({ Code: 0, Data: { Response: { Projects: [] } } });
+      return Response.json({
+        Code: 0,
+        Data: {
+          Response: {
+            // 项目须带 PresetDomain：getPresetDomain 拿不到会抛错（不再降级用 Name）
+            Projects: [
+              {
+                ProjectId: "p1",
+                Name: "share-x",
+                PresetDomain: "share-x.edgeone.cool",
+              },
+            ],
+          },
+        },
+      });
     if (body.Action === "CreatePagesProject")
       return Response.json({
         Code: 0,
@@ -69,6 +83,17 @@ function edgeOneFetch() {
     return Response.json({ Code: 0, Data: { Response: {} } });
   });
 }
+
+test("commonRoot：多选路径取公共父目录；跨盘输入正常终止不陷入死循环", () => {
+  expect(commonRoot(["/a/b/c.txt", "/a/b/d.txt"])).toBe("/a/b");
+  expect(commonRoot(["/a/b/c.txt", "/a/e.txt"])).toBe("/a");
+  // Windows 跨盘（C: vs D:）：盘符根处 dirname 恒等，护栏必须截断而非死循环。
+  // Windows 上无公共根 → 兜底保留首个路径的父目录；非 Windows 平台反斜杠不是
+  // 分隔符，dirname 返回 "."（相对路径），同样验证能正常终止。
+  const cross = commonRoot(["C:\\proj\\a.txt", "D:\\proj\\b.txt"]);
+  if (process.platform === "win32") expect(cross).toBe("C:\\proj");
+  else expect(cross).toBe(".");
+});
 
 test("POST /api/share/upload 成功返回 { url, expiresAt, projectName, channel }", async () => {
   const fetchMock = edgeOneFetch();
@@ -216,10 +241,24 @@ test("POST /api/share/delete 删除记录并返回 { ok: true }", async () => {
 
 test("POST /api/share/upload 多选：putObject 传 bundle.zip，部署 DistType=Zip", async () => {
   let deploymentBody: any;
-  globalThis.fetch = (mock(async (_url: string, init?: any) => {
+  globalThis.fetch = mock(async (_url: string, init?: any) => {
     const body = JSON.parse(String(init?.body ?? "{}"));
     if (body.Action === "DescribePagesProjects")
-      return Response.json({ Code: 0, Data: { Response: { Projects: [] } } });
+      return Response.json({
+        Code: 0,
+        Data: {
+          Response: {
+            // 项目须带 PresetDomain：getPresetDomain 拿不到会抛错（不再降级用 Name）
+            Projects: [
+              {
+                ProjectId: "p1",
+                Name: "share-x",
+                PresetDomain: "share-x.edgeone.cool",
+              },
+            ],
+          },
+        },
+      });
     if (body.Action === "CreatePagesProject")
       return Response.json({
         Code: 0,
@@ -265,7 +304,7 @@ test("POST /api/share/upload 多选：putObject 传 bundle.zip，部署 DistType
         Data: { Response: { Token: "et", Timestamp: 1 } },
       });
     return Response.json({ Code: 0, Data: { Response: {} } });
-  }) as any);
+  }) as any;
   const router = new HttpRouter();
   createShareRoutes(
     router,

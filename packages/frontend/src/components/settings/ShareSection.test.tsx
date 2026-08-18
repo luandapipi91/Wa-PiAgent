@@ -50,9 +50,9 @@ test("输入 Token 保存 → PUT /api/settings/share（body.share.token）", as
 });
 
 test("已保存 Token 时输入框脱敏展示（•••）+「修改」切换", async () => {
-	// mount 回填：GET /api/settings/share 返回已保存 token
+	// mount 回填：GET /api/settings/share 返回 hasToken: true（token 不明文下发）
 	getMock.mockImplementation(async () => ({
-		share: { token: "saved-secret-token", channel: "edgeone" },
+		share: { hasToken: true, channel: "edgeone" },
 	}));
 	render(<ShareSection />);
 	// 有已保存 token → 显示掩码而非输入框

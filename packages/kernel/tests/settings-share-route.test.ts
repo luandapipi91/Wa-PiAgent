@@ -20,7 +20,10 @@ beforeEach(() => {
 	file = join(dir, "settings.json");
 	const callApi = mock(async () => Response.json({}));
 	router = new HttpRouter();
-	registerSettingsRoutes(router, callApi, { projectStore: {} as any, settingsFile: file });
+	registerSettingsRoutes(router, callApi, {
+		projectStore: {} as any,
+		settingsFile: file,
+	});
 });
 
 afterEach(async () => {
@@ -28,19 +31,19 @@ afterEach(async () => {
 });
 
 describe("GET /api/settings/share", () => {
-	it("未配置时返回默认值 { token: '', channel: 'edgeone' }", async () => {
+	it("未配置时返回脱敏默认值 { hasToken: false, channel: 'edgeone' }，不下发 token 明文", async () => {
 		const res = await router.handle(
 			new Request("http://localhost/api/settings/share", { method: "GET" }),
 		);
 		expect(res?.status).toBe(200);
 		expect(await res?.json()).toEqual({
-			share: { token: "", channel: "edgeone" },
+			share: { hasToken: false, channel: "edgeone" },
 		});
 	});
 });
 
 describe("PUT /api/settings/share", () => {
-	it("写入 share 后接口返回保存值，且 loadShareSettings 生效", async () => {
+	it("写入 share 后接口返回脱敏值（hasToken: true），且 loadShareSettings 生效", async () => {
 		const res = await router.handle(
 			new Request("http://localhost/api/settings/share", {
 				method: "PUT",
@@ -49,29 +52,32 @@ describe("PUT /api/settings/share", () => {
 			}),
 		);
 		expect(res?.status).toBe(200);
+		// 回包不再带 token 明文（脱敏为 hasToken）
 		expect(await res?.json()).toEqual({
-			share: { token: "tk_abc", channel: "edgeone" },
+			share: { hasToken: true, channel: "edgeone" },
 		});
-		// 路由写盘到隔离文件后，store 层再读该文件也应看到新值
+		// 路由写盘到隔离文件后，store 层再读该文件也应看到新值（明文仍在落盘侧）
 		expect(await loadShareSettings(file)).toEqual({
 			token: "tk_abc",
 			channel: "edgeone",
 		});
 	});
 
-	it("再 GET 一次能往返读到刚 PUT 的 share", async () => {
+	it("再 GET 一次能往返读到刚 PUT 的 share（hasToken: true）", async () => {
 		await router.handle(
 			new Request("http://localhost/api/settings/share", {
 				method: "PUT",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ share: { token: "tk_roundtrip", channel: "edgeone" } }),
+				body: JSON.stringify({
+					share: { token: "tk_roundtrip", channel: "edgeone" },
+				}),
 			}),
 		);
 		const res = await router.handle(
 			new Request("http://localhost/api/settings/share", { method: "GET" }),
 		);
 		expect(await res?.json()).toEqual({
-			share: { token: "tk_roundtrip", channel: "edgeone" },
+			share: { hasToken: true, channel: "edgeone" },
 		});
 	});
 });

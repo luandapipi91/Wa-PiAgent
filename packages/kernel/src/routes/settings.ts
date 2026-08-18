@@ -48,13 +48,19 @@ export const registerSettingsRoutes: RouteRegistrar = (r, callApi, ctx) => {
 		return Response.json({ proxy: saved });
 	});
 	// 产物分享配置（直接读写 settings.json，不走 WS callApi；ctx.settingsFile 供测试注入隔离文件）
+	// 安全：GET 不下发 token 明文，脱敏为 hasToken 布尔（渲染进程拿不到凭据）；
+	// PUT 仍接收明文 token（用户输入），但回包同样脱敏。
 	r.add("GET", "/api/settings/share", async () => {
 		const share = await loadShareSettings(ctx.settingsFile);
-		return Response.json({ share });
+		return Response.json({
+			share: { hasToken: share.token !== "", channel: share.channel },
+		});
 	});
 	r.add("PUT", "/api/settings/share", async (req) => {
 		const b = await readJsonBody(req);
 		const saved = await saveShareSettings(b.share, ctx.settingsFile);
-		return Response.json({ share: saved });
+		return Response.json({
+			share: { hasToken: saved.token !== "", channel: saved.channel },
+		});
 	});
 };

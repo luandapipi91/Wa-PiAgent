@@ -11,8 +11,14 @@ export interface ShareUploadResult {
 	channel: string;
 }
 
-/** 分享设置（GET/PUT /api/settings/share 的 share 字段） */
-export interface ShareSettings {
+/** 分享设置读取结果（GET /api/settings/share 的 share 字段；token 脱敏为 hasToken，不下发明文） */
+export interface ShareSettingsInfo {
+	hasToken: boolean;
+	channel: string;
+}
+
+/** 分享设置保存入参（PUT /api/settings/share 的 share 字段；token 为用户明文输入） */
+export interface ShareSettingsInput {
 	token: string;
 	channel: string;
 }
@@ -50,15 +56,20 @@ export async function shareUpload(
 	})) as ShareUploadResult;
 }
 
-/** 读取分享设置（token/channel）。token 为空串表示未配置。 */
-export async function shareSettings(): Promise<ShareSettings> {
+/** 读取分享设置（是否已配置 token + 渠道）。token 不明文下发，只有 hasToken 布尔。 */
+export async function shareSettings(): Promise<ShareSettingsInfo> {
 	const res = (await transport.get("/api/settings/share")) as {
-		share?: ShareSettings;
+		share?: Partial<ShareSettingsInfo>;
 	};
-	return res.share ?? { token: "", channel: "" };
+	return {
+		hasToken: res.share?.hasToken === true,
+		channel: res.share?.channel ?? "",
+	};
 }
 
-/** 保存分享设置（token/channel）。 */
-export async function saveShareSettings(share: ShareSettings): Promise<void> {
+/** 保存分享设置（token 明文仅 PUT 上行，回包不落盘读取）。 */
+export async function saveShareSettings(
+	share: ShareSettingsInput,
+): Promise<void> {
 	await transport.put("/api/settings/share", { share });
 }

@@ -43,23 +43,29 @@ test("shareUpload 未配置 token：400 抛错", async () => {
 	postMock.mockRejectedValue(
 		new ApiError("未配置分享 Token（设置 → 分享）", 400),
 	);
-	await expect(shareUpload(["/proj/a.txt"])).rejects.toThrow(
-		"未配置分享 Token",
-	);
+	await expect(shareUpload(["/proj/a.txt"])).rejects.toThrow("未配置分享 Token");
 });
 
-test("shareSettings：GET /api/settings/share 返回 token/channel", async () => {
+test("shareSettings：GET /api/settings/share 返回脱敏结构 { hasToken, channel }，不下发 token 明文", async () => {
 	getMock.mockResolvedValue({
-		share: { token: "edgeone-token", channel: "edgeone" },
+		share: { hasToken: true, channel: "edgeone" },
 	});
 	const s = await shareSettings();
 	expect(getMock).toHaveBeenCalledWith("/api/settings/share");
-	expect(s.token).toBe("edgeone-token");
+	expect(s.hasToken).toBe(true);
 	expect(s.channel).toBe("edgeone");
+	expect("token" in (s as object)).toBe(false);
 });
 
-test("saveShareSettings：PUT /api/settings/share（body.share）", async () => {
-	putMock.mockResolvedValue({ share: { token: "t", channel: "edgeone" } });
+test("shareSettings：未配置时 hasToken 为 false（响应缺省字段也按未配置处理）", async () => {
+	getMock.mockResolvedValue({ share: {} });
+	const s = await shareSettings();
+	expect(s.hasToken).toBe(false);
+	expect(s.channel).toBe("");
+});
+
+test("saveShareSettings：PUT /api/settings/share（body.share 仍为明文 token，仅上行）", async () => {
+	putMock.mockResolvedValue({ share: { hasToken: true, channel: "edgeone" } });
 	await saveShareSettings({ token: "t", channel: "edgeone" });
 	expect(putMock).toHaveBeenCalledWith("/api/settings/share", {
 		share: { token: "t", channel: "edgeone" },

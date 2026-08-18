@@ -47,10 +47,7 @@ export function createShareRoutes(
 			return await handleUpload(req);
 		} catch (e: any) {
 			// 兜底：避免裸 500，返回结构化错误 + 5xx
-			return Response.json(
-				{ error: e?.message ?? String(e) },
-				{ status: 500 },
-			);
+			return Response.json({ error: e?.message ?? String(e) }, { status: 500 });
 		}
 	});
 
@@ -117,7 +114,13 @@ export function createShareRoutes(
 export function commonRoot(paths: string[]): string {
 	let root = dirname(paths[0]);
 	for (const p of paths.slice(1)) {
-		while (root.length > 1 && !p.startsWith(root + sep)) root = dirname(root);
+		while (root.length > 1 && !p.startsWith(root + sep)) {
+			const parent = dirname(root);
+			// 兜底：Windows 跨盘时 dirname("D:\\") 恒等于自身（盘符根），
+			// 不退出会死循环；此场景无公共根，保留当前 root 继续处理后续路径。
+			if (parent === root) break;
+			root = parent;
+		}
 	}
 	return root;
 }
