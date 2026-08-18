@@ -84,4 +84,56 @@ describe("deployToCloudflare", () => {
       deployToCloudflare({ token: "tk", accountId: "", files: {} }),
     ).rejects.toThrow("Account ID");
   });
+
+  test("check-missing 返回 401 时抛出带状态/信息的错误", async () => {
+    globalThis.fetch = (async (url: any, init?: any) => {
+      const u = String(url);
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+      if (u.includes("/upload-token")) return json({ result: { jwt: "JWT_TEST" }, success: true });
+      if (u.includes("/pages/assets/check-missing")) {
+        return json({ success: false, errors: [{ message: "Invalid access token" }] }, 401);
+      }
+      if (u.endsWith("/pages/projects/wapi-shares")) {
+        return json({ result: { id: "proj-1" }, success: true });
+      }
+      throw new Error(`unhandled mock URL: ${u}`);
+    }) as typeof fetch;
+
+    await expect(
+      deployToCloudflare({
+        token: "tk",
+        accountId: "acc-1",
+        files: { "index.html": new TextEncoder().encode("<h1>hi</h1>") },
+      }),
+    ).rejects.toThrow("check-missing failed: HTTP 401");
+  });
+
+  test("upload 返回 success:false 时抛出带信息的错误", async () => {
+    globalThis.fetch = (async (url: any, init?: any) => {
+      const u = String(url);
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+      if (u.includes("/upload-token")) return json({ result: { jwt: "JWT_TEST" }, success: true });
+      if (u.includes("/pages/assets/check-missing")) {
+        const body = JSON.parse(String(init?.body));
+        return json(body.hashes as string[]);
+      }
+      if (u.includes("/pages/assets/upload")) {
+        return json({ success: false, errors: [{ message: "bucket quota exceeded" }] });
+      }
+      if (u.endsWith("/pages/projects/wapi-shares")) {
+        return json({ result: { id: "proj-1" }, success: true });
+      }
+      throw new Error(`unhandled mock URL: ${u}`);
+    }) as typeof fetch;
+
+    await expect(
+      deployToCloudflare({
+        token: "tk",
+        accountId: "acc-1",
+        files: { "index.html": new TextEncoder().encode("<h1>hi</h1>") },
+      }),
+    ).rejects.toThrow("upload failed: HTTP 200");
+  });
 });
