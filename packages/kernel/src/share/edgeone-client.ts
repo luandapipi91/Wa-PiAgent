@@ -1,9 +1,6 @@
 // EdgeOne REST 客户端（产物分享用）：纯 REST + API Token 注入，无 CLI/浏览器登录。
 // 从 POC（~/poc-edgeone-share/poc-share.mjs）移植的可单测纯函数。
 import COS from "cos-nodejs-sdk-v5";
-import { basename } from "node:path";
-import { readFileSync } from "node:fs";
-import { hashPaths } from "./pack";
 export const API_ENDPOINTS = {
   china: "https://pages-api.cloud.tencent.com/v1",
   global: "https://pages-api.edgeone.ai/v1",
@@ -124,57 +121,67 @@ export async function encipherUrl(
 /** COS 客户端最小接口（putObject/uploadFiles），供 cosFactory 注入的 fake 实现 */
 export type CosClient = Pick<COS, "putObject" | "uploadFiles">;
 
-export interface DeployShareOptions {
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** 固定分享项目名：所有分享共存于该项目的子路径，规避 40 个项目上限 */
+export const SHARE_PROJECT_NAME = "wapi";
+
+/** 规范化用户配置的自定义域名：去空白、去协议、去尾斜杠 */
+export function normalizeDomain(input: string | undefined): string {
+  return (input ?? "")
+    .trim()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
+}
+
+export interface DeployWorkspaceOptions {
   token: string;
-  paths: string[];
-  baseDir: string;
-  zip?: Uint8Array;
-  isZip: boolean;
-  channel?: string;
+  /** 工作区整体 zip（workspace.buildDeployZip 产物） */
+  zip: Uint8Array;
+  /** 设置里的自定义域名（可选，优先于预设域名） */
+  customDomain?: string;
   /** 测试注入：替代 new COS(...) 构造真实客户端 */
   cosFactory?: (creds: {
     SecretId: string;
     SecretKey: string;
     Token: string;
   }) => CosClient;
-  /** 部署状态轮询间隔（ms）。测试可传小值让单测秒级完成；缺省 5000 */
+  /** 部署状态轮询间隔（ms）。测试可传小值；缺省 5000 */
   pollIntervalMs?: number;
 }
 
-export interface DeployShareResult {
-  url: string;
+export interface DeployWorkspaceResult {
+  /** 最终使用的域名（自定义优先，否则预设域名） */
+  domain: string;
+  /** 根链接（含 eo_token），各分享子路径由 itemShareUrl 拼接 */
+  rootUrl: string;
   projectName: string;
   projectId: string;
   expiresAt: number;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 /**
- * 分享总入口：探测端点 → 建/取项目 → 拿 COS 临时凭证 → 上传（zip/单文件）
- * → 创建部署 → 轮询至非 Process → 拼分享 URL。
- * 可单测：EdgeOne API 走全局 fetch，COS 客户端经 cosFactory 注入 fake。
+ * 部署工作区到固定项目：探测端点 → 建/取 wapi 项目 → COS 传 zip →
+ * 创建部署 → 轮询终态 → 自定义/预设域名 → encipher 根链接。
  */
-export async function deployShare(
-  opts: DeployShareOptions,
-): Promise<DeployShareResult> {
-  const { token, paths, zip, isZip } = opts;
+export async function deployWorkspace(
+  opts: DeployWorkspaceOptions,
+): Promise<DeployWorkspaceResult> {
+  const { token, zip } = opts;
   const pollIntervalMs = opts.pollIntervalMs ?? 5000;
-  const projectName = `share-${hashPaths(paths)}`;
   const baseUrl = await detectBaseUrl(token);
-  const projectId = await getOrCreateProject(baseUrl, token, projectName);
-
-  // 1) COS 临时上传凭证
-  const tokenRes = await apiCall<any>(
+  const projectId = await getOrCreateProject(
     baseUrl,
     token,
-    "DescribePagesCosTempToken",
-    {
-      ProjectId: projectId,
-    },
+    SHARE_PROJECT_NAME,
   );
+
+  // COS 临时上传凭证
+  const tokenRes = await apiCall<any>(baseUrl, token, "DescribePagesCosTempToken", {
+    ProjectId: projectId,
+  });
   const resp = tokenRes.Data.Response;
   const cos = opts.cosFactory
     ? opts.cosFactory({
@@ -188,66 +195,40 @@ export async function deployShare(
         SecurityToken: resp.Credentials.Token,
       });
 
-  // 2) 上传 zip 或单文件到目标路径
-  const targetPath = resp.TargetPath;
-  if (isZip) {
-    await new Promise<void>((res, rej) =>
-      cos.putObject(
-        {
-          Bucket: resp.Bucket,
-          Region: resp.Region,
-          Key: `${targetPath}/bundle.zip`,
-          Body: Buffer.from(zip!),
-          ContentLength: zip!.byteLength,
-        },
-        (e) => (e ? rej(e) : res()),
-      ),
-    );
-  } else {
-    const single = paths[0];
-    const name = basename(single);
-    const data = readFileSync(single);
-    await new Promise<void>((res, rej) =>
-      cos.putObject(
-        {
-          Bucket: resp.Bucket,
-          Region: resp.Region,
-          Key: `${targetPath}/${name}`,
-          Body: data,
-        },
-        (e) => (e ? rej(e) : res()),
-      ),
-    );
-  }
+  await new Promise<void>((res, rej) =>
+    cos.putObject(
+      {
+        Bucket: resp.Bucket,
+        Region: resp.Region,
+        Key: `${resp.TargetPath}/bundle.zip`,
+        Body: Buffer.from(zip),
+        ContentLength: zip.byteLength,
+      },
+      (e) => (e ? rej(e) : res()),
+    ),
+  );
 
-  // 3) 创建部署
   const dep = await apiCall<any>(baseUrl, token, "CreatePagesDeployment", {
     ProjectId: projectId,
     ViaMeta: "Upload",
     Provider: "Upload",
     Env: "Production",
-    DistType: isZip ? "Zip" : "Folder",
-    TempBucketPath: targetPath,
+    DistType: "Zip",
+    TempBucketPath: resp.TargetPath,
   });
   const deploymentId = dep.Data.Response.DeploymentId;
 
-  // 4) 轮询部署状态至终态（每 pollIntervalMs，最多 40 次）
-  //    终态必须为 Success，Failed/Error 等失败终态一律抛错，不返回失败链接
+  // 轮询部署状态至终态；终态必须为 Success
   let finalStatus: string | undefined;
   for (let i = 0; i < 40; i++) {
     await sleep(pollIntervalMs);
-    const list = await apiCall<any>(
-      baseUrl,
-      token,
-      "DescribePagesDeployments",
-      {
-        ProjectId: projectId,
-        Offset: 0,
-        Limit: 50,
-        OrderBy: "CreatedOn",
-        Order: "Desc",
-      },
-    );
+    const list = await apiCall<any>(baseUrl, token, "DescribePagesDeployments", {
+      ProjectId: projectId,
+      Offset: 0,
+      Limit: 50,
+      OrderBy: "CreatedOn",
+      Order: "Desc",
+    });
     const d = (list?.Data?.Response?.Deployments ?? []).find(
       (x: any) => x.DeploymentId === deploymentId,
     );
@@ -260,16 +241,25 @@ export async function deployShare(
   if (finalStatus !== "Success")
     throw new Error(`EdgeOne 部署失败: ${finalStatus}`);
 
-  // 5) 项目域名 + encipher 分享链接
-  const domain = await getPresetDomain(baseUrl, token, projectId);
-  const url = await encipherUrl(baseUrl, token, domain);
+  const preset = await getPresetDomain(baseUrl, token, projectId);
+  const domain = normalizeDomain(opts.customDomain) || preset;
+  const rootUrl = await encipherUrl(baseUrl, token, domain);
   return {
-    url,
-    projectName,
+    domain,
+    rootUrl,
+    projectName: SHARE_PROJECT_NAME,
     projectId,
     expiresAt: Date.now() + 3 * 3600_000,
   };
 }
 
-// 分享总入口 deployShare（上传/部署/轮询，复用 POC 的 COS 逻辑）已在本文件实现。
-// 本文件同时落地可单测纯函数（detectBaseUrl/getOrCreateProject/getPresetDomain/encipherUrl/apiCall）。
+/** 拼单条分享链接：rootUrl（含 eo_token）+ 子路径；多文件条目指向目录（静态托管目录索引） */
+export function itemShareUrl(
+  rootUrl: string,
+  item: { id: string; files: string[] },
+): string {
+  const u = new URL(rootUrl);
+  u.pathname =
+    item.files.length === 1 ? `/${item.id}/${item.files[0]}` : `/${item.id}/`;
+  return u.toString();
+}

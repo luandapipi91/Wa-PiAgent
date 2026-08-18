@@ -1,10 +1,14 @@
-import { test, expect, mock } from "bun:test";
+import { test, expect, mock, afterEach } from "bun:test";
 import {
   detectBaseUrl,
   getOrCreateProject,
   getPresetDomain,
   encipherUrl,
   apiCall,
+  deployWorkspace,
+  itemShareUrl,
+  normalizeDomain,
+  SHARE_PROJECT_NAME,
 } from "../src/share/edgeone-client";
 
 const fetchMock = mock(
@@ -168,4 +172,106 @@ test("getPresetDomain：PresetDomain 为空时抛错，不静默降级用 Name�
   await expect(getPresetDomain("https://api", "tk", "p1")).rejects.toThrow(
     "无法获取项目域名",
   );
+});
+
+const originalFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+/** 按 Action 模拟 EdgeOne API：项目不存在→创建；COS 凭证→固定值；部署→Success；域名→预设域名 */
+function mockEdgeOne(presetDomain = "wapi-abc.edgeone.run") {
+  globalThis.fetch = (async (_url: any, init: any) => {
+    const action = JSON.parse(init.body).Action as string;
+    const respond = (data: unknown) =>
+      new Response(JSON.stringify({ Code: 0, Data: { Response: data } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    switch (action) {
+      case "DescribePagesProjects":
+        return respond({ Projects: [{ ProjectId: "prj-1", PresetDomain: presetDomain }] });
+      case "DescribePagesCosTempToken":
+        return respond({
+          Credentials: { TmpSecretId: "sid", TmpSecretKey: "skey", Token: "tk" },
+          Bucket: "bkt", Region: "ap-gz", TargetPath: "tmp/xyz",
+        });
+      case "CreatePagesDeployment":
+        return respond({ DeploymentId: "dep-1" });
+      case "DescribePagesDeployments":
+        return respond({ Deployments: [{ DeploymentId: "dep-1", Status: "Success" }] });
+      case "DescribePagesEncipherToken":
+        return respond({ Token: "ET", Timestamp: 111 });
+      default:
+        return new Response(JSON.stringify({ Code: -1, Message: action }), { status: 200 });
+    }
+  }) as any;
+}
+
+const fakeCos = () => ({
+  putObject: (_o: any, cb: (e: any) => void) => cb(null),
+  uploadFiles: (_o: any, cb: (e: any) => void) => cb(null),
+});
+
+test("deployWorkspace：固定项目 wapi + 预设域名 + 3h 过期", async () => {
+  mockEdgeOne();
+  const r = await deployWorkspace({
+    token: "t",
+    zip: new Uint8Array([1, 2]),
+    cosFactory: fakeCos,
+    pollIntervalMs: 1,
+  });
+  expect(r.projectName).toBe(SHARE_PROJECT_NAME);
+  expect(r.domain).toBe("wapi-abc.edgeone.run");
+  expect(r.rootUrl).toBe("https://wapi-abc.edgeone.run?eo_token=ET&eo_time=111");
+  expect(r.expiresAt).toBeGreaterThan(Date.now());
+});
+
+test("deployWorkspace：自定义域名优先于预设域名", async () => {
+  mockEdgeOne();
+  const r = await deployWorkspace({
+    token: "t",
+    zip: new Uint8Array([1]),
+    customDomain: "https://share.example.com/",
+    cosFactory: fakeCos,
+    pollIntervalMs: 1,
+  });
+  expect(r.domain).toBe("share.example.com");
+  expect(r.rootUrl).toBe("https://share.example.com?eo_token=ET&eo_time=111");
+});
+
+test("normalizeDomain：去协议与尾斜杠", () => {
+  expect(normalizeDomain("https://share.example.com/")).toBe("share.example.com");
+  expect(normalizeDomain("  http://a.b/c/ ")).toBe("a.b/c");
+  expect(normalizeDomain(undefined)).toBe("");
+  expect(normalizeDomain("")).toBe("");
+});
+
+test("itemShareUrl：单文件带文件名，多文件带目录尾斜杠", () => {
+  const root = "https://d.example.com?eo_token=T&eo_time=1";
+  expect(itemShareUrl(root, { id: "abc", files: ["a.html"] })).toBe(
+    "https://d.example.com/abc/a.html?eo_token=T&eo_time=1",
+  );
+  expect(itemShareUrl(root, { id: "abc", files: ["index.html", "x.js"] })).toBe(
+    "https://d.example.com/abc/?eo_token=T&eo_time=1",
+  );
+});
+
+test("deployWorkspace：部署失败终态抛错", async () => {
+  globalThis.fetch = (async (_url: any, init: any) => {
+    const action = JSON.parse(init.body).Action as string;
+    const respond = (data: unknown) =>
+      new Response(JSON.stringify({ Code: 0, Data: { Response: data } }), { status: 200 });
+    if (action === "DescribePagesProjects")
+      return respond({ Projects: [{ ProjectId: "p", PresetDomain: "d.edgeone.run" }] });
+    if (action === "DescribePagesCosTempToken")
+      return respond({ Credentials: { TmpSecretId: "a", TmpSecretKey: "b", Token: "c" }, Bucket: "b", Region: "r", TargetPath: "t" });
+    if (action === "CreatePagesDeployment") return respond({ DeploymentId: "dep-1" });
+    if (action === "DescribePagesDeployments")
+      return respond({ Deployments: [{ DeploymentId: "dep-1", Status: "Failed" }] });
+    return respond({});
+  }) as any;
+  await expect(
+    deployWorkspace({ token: "t", zip: new Uint8Array([1]), cosFactory: fakeCos, pollIntervalMs: 1 }),
+  ).rejects.toThrow("部署失败");
 });
