@@ -60,3 +60,29 @@ test("已有日志文件启动后继续追加：把存量大小计入上限", as
     expect(content).toContain("new-line");
   });
 });
+
+test("resolveEffectiveLimits：剩余空间自适应上限", () => {
+  // @ts-ignore 无类型的 cjs 模块
+  const { resolveEffectiveLimits } = require("../src/util/log.cjs");
+  // 剩余空间大（10GB）→ 用配置上限
+  expect(resolveEffectiveLimits(200, 100, 10 * 1024 ** 3)).toEqual({ max: 200, keep: 100 });
+  // 剩余空间 10000B → 1% = 100 → 上限收紧到 100，keep 随动为 80%
+  expect(resolveEffectiveLimits(200, 100, 10000)).toEqual({ max: 100, keep: 80 });
+  // 剩余空间极小（100B → 1% = 1B）→ 不低于下限 maxBytes*10%（20）
+  expect(resolveEffectiveLimits(200, 100, 100)).toEqual({ max: 20, keep: 16 });
+  // statfs 不可用（Infinity/NaN）→ 按配置上限
+  expect(resolveEffectiveLimits(200, 100, Infinity)).toEqual({ max: 200, keep: 100 });
+  expect(resolveEffectiveLimits(200, 100, NaN)).toEqual({ max: 200, keep: 100 });
+});
+
+test("剩余空间紧张时日志文件被收紧到自适应上限", async () => {
+  await withTempLog(async (logPath) => {
+    // 配置上限 200B，但剩余空间 10000B → 1% = 100B → 实际上限 100B
+    const log = createLogger(logPath, 200, 100, async () => 10000);
+    for (let i = 0; i < 20; i++) log.info(`line-${String(i).padStart(2, "0")}`);
+    await log.flush();
+    const content = await readFile(logPath, "utf8");
+    expect(content.length).toBeLessThanOrEqual(100);
+    expect(content).toContain("line-19");
+  });
+});
