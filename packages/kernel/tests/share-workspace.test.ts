@@ -37,7 +37,7 @@ test("addItem 写文件并记录状态，loadItems 读回", async () => {
   expect(items.length).toBe(1);
   expect(items[0].id).toBe("abc123abc123");
   expect(items[0].size).toBe(10);
-  expect(await readFile(join(d, "items/abc123abc123/a.html"), "utf8")).toBe("<h1>A</h1>");
+  expect(await readFile(join(d, "items/a.html/a.html"), "utf8")).toBe("<h1>A</h1>");
 });
 
 test("addItem 同 id 覆盖不产生重复记录", async () => {
@@ -54,7 +54,7 @@ test("addItem 支持子目录条目", async () => {
   await addItem(d, "a1b2c3d4e5f6", "站点", [entry("index.html", "x"), entry("css/a.css", "y")]);
   const items = await loadItems(d);
   expect(items[0].files).toEqual(["index.html", "css/a.css"]);
-  expect(await readFile(join(d, "items/a1b2c3d4e5f6/css/a.css"), "utf8")).toBe("y");
+  expect(await readFile(join(d, "items/站点/css/a.css"), "utf8")).toBe("y");
 });
 
 test("removeItem 删目录与记录；clearItems 清空", async () => {
@@ -82,7 +82,7 @@ test("loadItems 读时对账：手动删目录的记录被剔除", async () => {
   const d = await tmp();
   await addItem(d, "aaaaaaaaaaaa", "a", [entry("a.txt", "1")]);
   await addItem(d, "bbbbbbbbbbbb", "b", [entry("b.txt", "2")]);
-  await rm(join(d, "items/aaaaaaaaaaaa"), { recursive: true });
+  await rm(join(d, "items/a"), { recursive: true });
   const items = await loadItems(d);
   expect(items.map((i) => i.id)).toEqual(["bbbbbbbbbbbb"]);
   // 对账结果已落盘
@@ -103,18 +103,18 @@ test("loadItems 对账剔除非法 id 记录并落盘", async () => {
   expect(after.items.map((i: { id: string }) => i.id)).toEqual(["aaaaaaaaaaaa"]);
 });
 
-test("buildDeployZip 含 index.html 与全部条目前缀路径", async () => {
+test("buildDeployZip 含 index.html 与全部条目前缀路径（文件夹名 = 分享名）", async () => {
   const d = await tmp();
   await addItem(d, "a1b2c3d4e5f6", "a.html", [entry("a.html", "A")]);
   await addItem(d, "f6e5d4c3b2a1", "站点", [entry("index.html", "B"), entry("x/y.js", "C")]);
   const files = unzipSync(await buildDeployZip(d));
   expect(Object.keys(files).sort()).toEqual([
-    "a1b2c3d4e5f6/a.html",
-    "f6e5d4c3b2a1/index.html",
-    "f6e5d4c3b2a1/x/y.js",
+    "a.html/a.html",
     "index.html",
+    "站点/index.html",
+    "站点/x/y.js",
   ]);
-  expect(strFromU8(files["f6e5d4c3b2a1/x/y.js"])).toBe("C");
+  expect(strFromU8(files["站点/x/y.js"])).toBe("C");
   const indexHtml = strFromU8(files["index.html"]);
   expect(indexHtml).toContain("WaPi Shares");
   // 索引页去列表化：只渲染静态说明，不公开分享清单

@@ -252,14 +252,19 @@ test("normalizeDomain：去协议与尾斜杠", () => {
   expect(normalizeDomain("")).toBe("");
 });
 
-test("itemShareUrl：单文件带文件名，多文件带目录尾斜杠", () => {
+test("itemShareUrl：单文件带文件名，多文件带目录尾斜杠（子路径用分享名，中文 URL 编码）", () => {
   const root = "https://d.example.com?eo_token=T&eo_time=1";
-  expect(itemShareUrl(root, { id: "abc", files: ["a.html"] })).toBe(
-    "https://d.example.com/abc/a.html?eo_token=T&eo_time=1",
+  // 中文名在 URL 路径里被 percent-encode（正常 URL 行为）
+  expect(itemShareUrl(root, { id: "abc", name: "报告", files: ["a.html"] })).toBe(
+    "https://d.example.com/%E6%8A%A5%E5%91%8A/a.html?eo_token=T&eo_time=1",
   );
-  expect(itemShareUrl(root, { id: "abc", files: ["index.html", "x.js"] })).toBe(
-    "https://d.example.com/abc/?eo_token=T&eo_time=1",
-  );
+  expect(
+    itemShareUrl(root, {
+      id: "abc",
+      name: "报告",
+      files: ["index.html", "x.js"],
+    }),
+  ).toBe("https://d.example.com/%E6%8A%A5%E5%91%8A/?eo_token=T&eo_time=1");
 });
 
 test("deployWorkspace：部署失败终态抛错", async () => {
