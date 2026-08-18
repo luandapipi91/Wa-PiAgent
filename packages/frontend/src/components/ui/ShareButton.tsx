@@ -10,6 +10,7 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { shareSettings, shareUpload } from "../../share-client";
 import { copyToClipboard } from "../../util/clipboard";
 import { useShareProgressStore } from "../../store/share-progress";
+import { useToastStore } from "../../store/toast";
 
 interface ShareButtonProps {
 	paths: string[];
@@ -126,6 +127,7 @@ export function ShareResultModal({
 			await copyToClipboard(result.url);
 			setCopied(true);
 			setError(null);
+			useToastStore.getState().add(t("share.copied"), "success");
 		} catch {
 			// 复制失败：copied 保持 false，错误展示在结果分支内（复制按钮下方）
 			setError(t("common.copyFailed"));
