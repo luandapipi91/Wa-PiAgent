@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — feat(share): 分享渠道增加 Cloudflare Pages（前端设置 UI）
+
+- ShareSection 渠道从「腾讯 EdgeOne（只读）」改为可切换控件（edgeone / cloudflare）：edgeone 保留注册入口 + API Token + 自定义域名；cloudflare 渲染 Cloudflare API Token + Account ID + 注册链接（dash.cloudflare.com/sign-up）+ 提示文案（链接永久公开、国内访问约 0.5~2s、单文件 ≤25MB）。
+- 保存 PUT /api/settings/share 全量提交 { channel, token, accountId, customDomain }（token 空串沿用 kernel 保留原值）；share-client 类型补 accountId（GET 已返回、PUT 已接受）。
+- 影响范围：`packages/frontend/src/components/settings/ShareSection.tsx`、`packages/frontend/src/share-client.ts`；测试 `ShareSection.test.tsx`（新增 Cloudflare 渠道用例）、`share-client.test.ts`。
+
 ## 2026-08-18 — chore(release): 发布版本 0.2.7（修复打包版默认工作区文件树空白）
 
 - 打包发布 0.2.7（mac + win 完整覆盖 OSS）：修复打包版默认工作区会话右侧文件树空白（前端构建误注入 dev 数据目录 ~/.pi/agent-dev，与 kernel 实际 ~/.pi/agent 不一致）。
