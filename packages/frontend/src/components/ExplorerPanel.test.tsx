@@ -317,3 +317,25 @@ test("右键目录菜单不含「默认方式打开」", async () => {
 
 	expect(screen.queryByText("默认方式打开")).toBeNull();
 });
+
+test("多选后无修饰键点击目录：清除多选、单选该目录（原多选不残留）", async () => {
+	mockListDir([
+		{ name: "src", isDir: true },
+		{ name: "a.ts", isDir: false },
+	]);
+	render(<ExplorerPanel workspaceDir="/proj" onOpenFile={() => {}} />);
+	await waitFor(() => expect(screen.getByText("src")).toBeTruthy());
+	const src = nodeOf("src");
+	const a = nodeOf("a.ts");
+
+	// Ctrl+点击 a 和 src 形成多选
+	fireEvent.click(a, { ctrlKey: true });
+	fireEvent.click(src, { ctrlKey: true });
+	expect(a.dataset.selected).toBe("true");
+	expect(src.dataset.selected).toBe("true");
+
+	// 无修饰键点击另一个目录（此处点击 src 本身即可验证：多选应被清除、单选 src）
+	fireEvent.click(src);
+	expect(a.dataset.selected).toBe("false");
+	expect(src.dataset.selected).toBe("true");
+});

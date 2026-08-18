@@ -346,12 +346,10 @@ export function ExplorerPanel({
 				}
 				return;
 			}
-			// 无修饰键：目录仍走展开/折叠；文件单选
+			// 无修饰键：清除多选、单选当前节点；目录同时展开/折叠（保留文件树展开语义）
+			setSelectedPaths(new Set([node.entry.path]));
+			lastSelectedRef.current = node.entry.path;
 			if (node.entry.isDir) toggleDir(node);
-			else {
-				setSelectedPaths(new Set([node.entry.path]));
-				lastSelectedRef.current = node.entry.path;
-			}
 		},
 		[toggleDir, flatList],
 	);
