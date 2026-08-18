@@ -61,7 +61,7 @@ test("生成分享链接：显示 URL + 复制按钮 + 「3 小时内有效」",
 	await screen.findByTestId("share-files");
 	fireEvent.click(screen.getByTestId("share-generate-btn"));
 	await screen.findByTestId("share-url");
-	expect(shareUploadMock).toHaveBeenCalledWith(PATHS, undefined);
+	expect(shareUploadMock).toHaveBeenCalledWith(PATHS, undefined, "3 个文件");
 	expect(screen.getByTestId("share-url").textContent).toContain(URL);
 	expect(screen.getByTestId("share-copy-btn")).toBeTruthy();
 	expect(screen.getByTestId("share-expires").textContent).toContain(
@@ -125,4 +125,34 @@ test("生成中 deploying 阶段显示 indeterminate 进度条", async () => {
 	await screen.findByTestId("share-progress");
 	expect(screen.getByTestId("progress-bar-indeterminate")).toBeTruthy();
 	expect(screen.getByTestId("share-progress-text").textContent).toContain("部署中");
+});
+
+test("分享名称：默认自动名（多文件 = N 个文件），可修改并传给 shareUpload", async () => {
+	render(<ShareButton paths={PATHS} />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	await screen.findByTestId("share-name-input");
+	// 默认名
+	expect((screen.getByTestId("share-name-input") as HTMLInputElement).value).toBe(
+		"3 个文件",
+	);
+	// 修改
+	fireEvent.change(screen.getByTestId("share-name-input"), {
+		target: { value: "周报" },
+	});
+	fireEvent.click(screen.getByTestId("share-generate-btn"));
+	await screen.findByTestId("share-url");
+	expect(shareUploadMock).toHaveBeenCalledWith(PATHS, undefined, "周报");
+});
+
+test("分享名称重复：kernel 409 时提示「已有分享名称重复」且不显示 URL", async () => {
+	shareUploadMock.mockRejectedValue(new Error("已有分享名称重复，请使用其他名字"));
+	render(<ShareButton paths={PATHS} />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	await screen.findByTestId("share-name-input");
+	fireEvent.click(screen.getByTestId("share-generate-btn"));
+	await screen.findByTestId("share-error");
+	expect(screen.getByTestId("share-error").textContent).toContain(
+		"已有分享名称重复",
+	);
+	expect(screen.queryByTestId("share-url")).toBeNull();
 });

@@ -670,6 +670,8 @@ const zh = {
 			token: "API Token",
 			modify: "修改",
 			saved: "分享设置已保存",
+			rename: "重命名",
+			renamed: "已重命名",
 			register: "注册入口",
 			customDomain: "自定义域名（可选）",
 			customDomainHint: "绑定后分享链接使用该域名；留空用平台预设域名",
@@ -906,6 +908,8 @@ const zh = {
 	share: {
 		share: "分享",
 		title: "分享文件",
+		name: "分享名称",
+		namePlaceholder: "输入分享名称（作为文件夹名与链接路径）",
 		files: "{{count}} 个文件",
 		generate: "生成分享链接",
 		generating: "生成中…",

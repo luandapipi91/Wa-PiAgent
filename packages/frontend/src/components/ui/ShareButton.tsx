@@ -19,6 +19,18 @@ interface ShareButtonProps {
 	testId?: string;
 }
 
+/** 默认分享名（与 kernel 自动名规则一致）：单文件=文件名、单目录=目录名、多=N 个文件 */
+export function defaultShareName(paths: string[]): string {
+	if (paths.length === 0) return "";
+	if (paths.length === 1) {
+		const p = paths[0];
+		// 以 / 或 \ 结尾视为目录，取去尾分隔符后的 basename
+		const clean = p.replace(/[\\/]+$/, "");
+		return clean.split(/[\\/]/).pop() ?? clean;
+	}
+	return `${paths.length} 个文件`;
+}
+
 export function ShareButton({
 	paths,
 	sessionId,
@@ -66,6 +78,8 @@ export function ShareResultModal({
 	// 挂载时检查 token：checking 完成前显示加载；token 为空 → 引导配置
 	const [checking, setChecking] = useState(true);
 	const [noToken, setNoToken] = useState(false);
+	// 分享名（文件夹名/URL 子路径）：默认自动生成，可修改；重复时 kernel 409
+	const [shareName, setShareName] = useState(() => defaultShareName(paths));
 	// 生成流程状态
 	const [generating, setGenerating] = useState(false);
 	const [result, setResult] = useState<{
@@ -112,10 +126,14 @@ export function ShareResultModal({
 		setError(null);
 		setCopied(false);
 		try {
-			const res = await shareUpload(paths, sessionId);
+			const res = await shareUpload(paths, sessionId, shareName.trim() || undefined);
 			setResult(res);
 		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
+			const msg = e instanceof Error ? e.message : String(e);
+			setError(msg);
+			// 名称重复等业务错误：toast 提示（用户要求「已有分享名称重复，请使用其他名字」）
+			if (/重复|非法字符/.test(msg))
+				useToastStore.getState().add(msg, "error");
 		} finally {
 			setGenerating(false);
 		}
@@ -200,6 +218,18 @@ export function ShareResultModal({
 					</>
 				) : (
 					<>
+						<div className="flex flex-col gap-1" data-testid="share-name-field">
+							<span className="text-xs text-secondary">{t("share.name")}</span>
+							<input
+								type="text"
+								value={shareName}
+								onChange={(e) => setShareName(e.target.value)}
+								placeholder={t("share.namePlaceholder")}
+								spellCheck={false}
+								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
+								data-testid="share-name-input"
+							/>
+						</div>
 						<div className="flex flex-col gap-1" data-testid="share-files">
 							<span className="text-sm text-primary">
 								{t("share.files", { count: paths.length })}

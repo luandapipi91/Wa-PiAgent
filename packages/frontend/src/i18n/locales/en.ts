@@ -690,6 +690,8 @@ const en = {
 			token: "API Token",
 			modify: "Change",
 			saved: "Share settings saved",
+			rename: "Rename",
+			renamed: "Renamed",
 			register: "Sign up",
 			customDomain: "Custom domain (optional)",
 			customDomainHint: "Share links use this domain once bound; leave empty for the platform preset domain",
@@ -935,6 +937,8 @@ const en = {
 	share: {
 		share: "Share",
 		title: "Share files",
+		name: "Share name",
+		namePlaceholder: "Share name (folder name & link path)",
 		files: "{{count}} files",
 		generate: "Generate share link",
 		generating: "Generating…",

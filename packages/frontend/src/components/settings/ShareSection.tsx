@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "../../i18n/useTranslation";
 import { api } from "../../api-client";
 import { useToastStore } from "../../store/toast";
+import { Icon } from "../ui/Icon";
 import {
 	shareList,
 	shareDelete,
 	shareClear,
 	shareDeploy,
 	shareRefreshLink,
+	shareRename,
 	shareOpenFolder,
 	type ShareItemInfo,
 } from "../../share-client";
@@ -36,6 +38,9 @@ export function ShareSection() {
 	const [workspaceDir, setWorkspaceDir] = useState("");
 	const [deploying, setDeploying] = useState(false);
 	const [copiedId, setCopiedId] = useState<string | null>(null);
+	// 重命名：editingId 非空时该条 name 变 input（预填 renameDraft）
+	const [editingId, setEditingId] = useState<string | null>(null);
+	const [renameDraft, setRenameDraft] = useState("");
 	// 「清空分享」二次确认弹窗
 	const [confirmClear, setConfirmClear] = useState(false);
 	// kernel SSE 广播的上传/部署进度（部署阶段无真实百分比 → indeterminate）
@@ -114,6 +119,21 @@ export function ShareSection() {
 			setCopiedId(id);
 			useToastStore.getState().add(t("settings.share.copied"), "success");
 			setTimeout(() => setCopiedId(null), 1500);
+		} catch (e) {
+			useToastStore
+				.getState()
+				.add(e instanceof Error ? e.message : String(e), "error");
+		}
+	};
+
+	const onRename = async (id: string) => {
+		const name = renameDraft.trim();
+		if (!name) return;
+		try {
+			await shareRename(id, name);
+			setEditingId(null);
+			useToastStore.getState().add(t("settings.share.renamed"), "success");
+			await refresh();
 		} catch (e) {
 			useToastStore
 				.getState()
@@ -333,7 +353,41 @@ export function ShareSection() {
 									className="flex items-center gap-2 text-xs"
 									data-testid={`share-item-${it.id}`}
 								>
-									<span className="text-primary">{it.name}</span>
+									{editingId === it.id ? (
+										<input
+											type="text"
+											value={renameDraft}
+											onChange={(e) => setRenameDraft(e.target.value)}
+											onKeyDown={(e) => {
+												if (e.key === "Enter") void onRename(it.id);
+												if (e.key === "Escape") setEditingId(null);
+											}}
+											onBlur={() => void onRename(it.id)}
+											autoFocus
+											spellCheck={false}
+											className="px-1.5 py-0.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none w-40"
+											data-testid={`share-rename-input-${it.id}`}
+										/>
+									) : (
+										<span className="flex items-center gap-1">
+											<span className="text-primary" data-testid={`share-item-name-${it.id}`}>
+												{it.name}
+											</span>
+											<button
+												type="button"
+												onClick={() => {
+													setEditingId(it.id);
+													setRenameDraft(it.name);
+												}}
+												className="p-0.5 text-secondary hover:text-primary cursor-pointer border-0 bg-transparent"
+												title={t("settings.share.rename")}
+												aria-label={t("settings.share.rename")}
+												data-testid={`share-rename-${it.id}`}
+											>
+												<Icon name="edit" size={12} />
+											</button>
+										</span>
+									)}
 									<span className="text-secondary">{formatSize(it.size)}</span>
 									<span className="text-secondary">
 										{new Date(it.createdAt).toLocaleString()}

@@ -28,6 +28,7 @@ const shareClearMock = mock();
 const shareDeployMock = mock();
 const shareRefreshLinkMock = mock();
 const shareOpenFolderMock = mock();
+const shareRenameMock = mock();
 mock.module("../../share-client", () => ({
 	shareList: shareListMock,
 	shareDelete: shareDeleteMock,
@@ -35,6 +36,7 @@ mock.module("../../share-client", () => ({
 	shareDeploy: shareDeployMock,
 	shareRefreshLink: shareRefreshLinkMock,
 	shareOpenFolder: shareOpenFolderMock,
+	shareRename: shareRenameMock,
 }));
 
 const copyMock = mock();
@@ -68,6 +70,7 @@ beforeEach(() => {
 	shareListMock.mockReset();
 	shareDeleteMock.mockReset();
 	shareClearMock.mockReset();
+	shareRenameMock.mockReset();
 	shareDeployMock.mockReset();
 	shareRefreshLinkMock.mockReset();
 	shareOpenFolderMock.mockReset();
@@ -357,4 +360,41 @@ test("清空分享二次确认：弹窗确认后才调 shareClear", async () => 
 	fireEvent.click(await screen.findByTestId("confirm-ok"));
 	await new Promise((r) => setTimeout(r, 10));
 	expect(shareClearMock).toHaveBeenCalledTimes(1);
+});
+
+test("我的分享：铅笔重命名 → 变 input → 回车保存调 shareRename", async () => {
+	shareListMock.mockImplementation(async () => ({
+		items: [
+			{
+				id: "s1",
+				name: "proj-a",
+				files: ["index.html"],
+				size: 2048,
+				createdAt: 1780000000000,
+			},
+		],
+		pending: 0,
+		totalSize: 2048,
+		totalLimit: 104857600,
+	}));
+	shareRenameMock.mockImplementation(async () => ({
+		id: "s1",
+		name: "新名字",
+		files: ["index.html"],
+		size: 2048,
+		createdAt: 1780000000000,
+	}));
+	const { unmount } = await renderSharesTab();
+	await screen.findByTestId("share-item-s1");
+
+	// 点击铅笔 → input 出现（预填旧名）
+	fireEvent.click(screen.getByTestId("share-rename-s1"));
+	const input = screen.getByTestId("share-rename-input-s1") as HTMLInputElement;
+	expect(input.value).toBe("proj-a");
+
+	// 改值 + 回车 → 调 shareRename
+	fireEvent.change(input, { target: { value: "新名字" } });
+	fireEvent.keyDown(input, { key: "Enter" });
+	expect(shareRenameMock).toHaveBeenCalledWith("s1", "新名字");
+	unmount();
 });
