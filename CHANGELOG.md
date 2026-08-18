@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — fix(kernel): 分享部署必现超时/失败修复（项目名长度 + Zip 部署路径）
+
+- 固定项目名 `wapi` 仅 4 字符被 EdgeOne 项目名 5-63 长度校验拒绝，错误嵌套在 `Data.Response.Error`（顶层 Code=0）未识别 → ProjectId undefined → 轮询永不命中 → 恒报「部署超时」。修为 `wapi-shares`；apiCall 识别嵌套错误；getOrCreateProject 拿不到 ProjectId 显式抛错。
+- DistType=Zip 时 TempBucketPath 必须指向 zip 文件本身（只给目录 → Failed Code 26）。已用真实账号端到端验证部署 Success。
+- 影响范围：`packages/kernel/src/share/edgeone-client.ts`；测试 `tests/edgeone-client.test.ts`（嵌套错误回归用例）、`tests/share-routes.test.ts`。
+
 ## 2026-08-18 — test(kernel): 修复套件互染与 6 个真失败，test 脚本加 --isolate
 
 - 排查 kernel 全量测试 38 fail（单文件跑全过）：32 个为跨文件互染 + 6 个为 HEAD 真失败。
