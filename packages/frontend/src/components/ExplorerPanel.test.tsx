@@ -243,6 +243,7 @@ test("多选右键「分享所选」：打开分享弹层且上传 paths 为选�
 	expect(upload?.body).toEqual({
 		paths: ["/proj/a.ts", "/proj/b.ts"],
 		sessionId: undefined,
+		name: "2 个文件",
 	});
 
 	// 关闭分享弹层：sharePaths 被清空，弹层卸载
@@ -297,6 +298,7 @@ test("多选右键分享：文件 + 目录混合选中，分享 paths 含文件�
 	expect(upload?.body).toEqual({
 		paths: ["/proj/a.ts", "/proj/src"],
 		sessionId: undefined,
+		name: "2 个文件",
 	});
 });
 

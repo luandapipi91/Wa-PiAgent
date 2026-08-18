@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — feat(kernel+frontend): 分享名穿透为文件夹名与 URL 子路径（命名/查重/重命名）
+
+- 分享名（ShareItem.name）穿透为本地文件夹名（items/<name>/）与线上 URL 子路径（/<name>/），全库唯一；分享弹窗新增「分享名称」输入（默认自动名：文件夹名/文件名/N 个文件，可改），重名返回 409「已有分享名称重复，请使用其他名字」并 toast 提示；系统设置 → 我的分享 每条右侧加铅笔重命名（点击变 input，回车/失焦保存，Esc 取消）。
+- 影响范围：kernel `share/workspace.ts`（name 目录/查重/renameItem）、`share/edgeone-client.ts`（itemShareUrl 子路径用 name）、`routes/share.ts`（upload 收 name + rename 端点）；frontend `share-client.ts`（shareUpload 加 name、shareRename）、`ShareButton.tsx`（名称输入 + 409 toast）、`ShareSection.tsx`（铅笔重命名）、i18n zh/en；测试同步更新。
+
 ## 2026-08-18 — feat(frontend): 清空分享加二次确认弹窗
 
 - 「清空分享」点击后弹 ConfirmDialog（danger 红钮），确认才执行本地清空；文案注明线上内容需「立即部署」后移除。E2E 清空用例同步覆盖确认/取消两条路径。

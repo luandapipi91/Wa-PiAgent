@@ -5,6 +5,9 @@ import { api } from "./api-client";
 
 /** 产物分享上传返回（与 kernel POST /api/share/upload 契约一致） */
 export interface ShareUploadResult {
+	id: string;
+	/** 分享名（文件夹名/URL 子路径） */
+	name: string;
 	url: string;
 	expiresAt: number;
 	projectName: string;
@@ -48,17 +51,20 @@ export function _setShareTransport(t: ShareTransport | null): void {
 }
 
 /** 上传产物生成分享链接。未配置 token 时 kernel 返回 400（ApiError）。
- * 上传含 COS 传输 + 部署轮询（最坏 40×5s），多文件/大文件远超默认 30s 超时，
- * 故用 10 分钟长超时（多选分享 signal timed out 回归）。 */
+ *  name 为分享名（缺省 kernel 自动生成）；重复时 kernel 返回 409。
+ *  上传含 COS 传输 + 部署轮询（最坏 40×5s），多文件/大文件远超默认 30s 超时，
+ *  故用 10 分钟长超时（多选分享 signal timed out 回归）。 */
 export async function shareUpload(
 	paths: string[],
 	sessionId?: string,
+	name?: string,
 ): Promise<ShareUploadResult> {
 	return (await transport.post(
 		"/api/share/upload",
 		{
 			paths,
 			sessionId,
+			name,
 		},
 		600_000,
 	)) as ShareUploadResult;
@@ -106,6 +112,17 @@ export interface ShareListResult {
 /** 读取分享列表（kernel 读时自动对账：目录丢失的记录被剔除） */
 export async function shareList(): Promise<ShareListResult> {
 	return (await transport.get("/api/share/list")) as ShareListResult;
+}
+
+/** 重命名分享（分享名 = 文件夹名/URL 子路径）。重复时 kernel 返回 409。 */
+export async function shareRename(
+	id: string,
+	name: string,
+): Promise<ShareItemInfo> {
+	const res = (await transport.post("/api/share/rename", { id, name })) as {
+		item: ShareItemInfo;
+	};
+	return res.item;
 }
 
 /** 删除单条分享（仅本地；线上待「立即部署」生效） */
