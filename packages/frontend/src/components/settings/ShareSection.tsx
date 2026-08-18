@@ -110,13 +110,25 @@ export function ShareSection() {
 	};
 
 	const onDelete = async (id: string) => {
-		await shareDelete(id);
-		await refresh();
+		try {
+			await shareDelete(id);
+			await refresh();
+		} catch (e) {
+			useToastStore
+				.getState()
+				.add(e instanceof Error ? e.message : String(e), "error");
+		}
 	};
 
 	const onClear = async () => {
-		await shareClear();
-		await refresh();
+		try {
+			await shareClear();
+			await refresh();
+		} catch (e) {
+			useToastStore
+				.getState()
+				.add(e instanceof Error ? e.message : String(e), "error");
+		}
 	};
 
 	const onDeploy = async () => {

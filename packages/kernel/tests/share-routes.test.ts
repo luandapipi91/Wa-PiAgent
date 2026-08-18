@@ -1,9 +1,9 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "os";
 import { join } from "path";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "fs";
 import { createShareRoutes, commonRoot } from "../src/routes/share";
-import { MAX_FILE_BYTES } from "../src/share/workspace";
+import { addItem, MAX_FILE_BYTES } from "../src/share/workspace";
 import { HttpRouter } from "../src/http-router";
 
 let dir: string;
@@ -214,3 +214,29 @@ test("7. refresh-link：存在 id 返回新 url；不存在 → 404", async () =
   const missing = await post(router, "/api/share/refresh-link", { id: "nope" });
   expect(missing!.status).toBe(404);
 }, 15000);
+
+test("5c. delete id 非法（路径穿越）→ 400 且不删任何文件", async () => {
+  mockEdgeOne();
+  const router = setup();
+  const up = await uploadOne(router);
+
+  const res = await post(router, "/api/share/delete", { id: "../.." });
+  expect(res!.status).toBe(400);
+  expect((await res!.json()).error).toBe("id 非法");
+  // 记录与目录都还在
+  const list = await (await router.handle(new Request("http://x/api/share/list")))!.json();
+  expect(list.items).toHaveLength(1);
+  expect(existsSync(join(workspaceDir, "items", up.id))).toBe(true);
+}, 15000);
+
+test("7b. refresh-link：本地有记录但从未成功部署 → 409", async () => {
+  mockEdgeOne();
+  const router = setup();
+  // 直接写本地工作区（不经过 upload → 不在部署快照里，线上是 404）
+  await addItem(workspaceDir, "abcdef123456", "a.html", [
+    { name: "a.html", data: new TextEncoder().encode("x") },
+  ]);
+  const res = await post(router, "/api/share/refresh-link", { id: "abcdef123456" });
+  expect(res!.status).toBe(409);
+  expect((await res!.json()).error).toContain("尚未部署");
+});

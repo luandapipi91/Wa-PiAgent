@@ -25,10 +25,12 @@ import {
 	buildDeployZip,
 	clearItems,
 	loadItems,
+	loadLastDeployed,
 	MAX_FILE_BYTES,
 	pendingCount,
 	removeItem,
 	saveLastDeployed,
+	SHARE_ID_RE,
 	totalSize,
 	TOTAL_STORAGE_BYTES,
 } from "../share/workspace";
@@ -165,6 +167,9 @@ export function createShareRoutes(
 		"/api/share/delete",
 		wrap(async (req) => {
 			const b = await readJsonBody(req);
+			// id 直接拼进文件路径，必须严格校验格式防路径穿越
+			if (typeof b.id !== "string" || !SHARE_ID_RE.test(b.id))
+				return Response.json({ error: "id 非法" }, { status: 400 });
 			await removeItem(workspaceDir, b.id);
 			return Response.json({ ok: true });
 		}),
@@ -198,6 +203,13 @@ export function createShareRoutes(
 			const item = (await loadItems(workspaceDir)).find((i) => i.id === b.id);
 			if (!item)
 				return Response.json({ error: "分享不存在" }, { status: 404 });
+			// 本地有记录但从未成功部署（不在部署快照里）→ 线上是 404，不出链接
+			const deployed = await loadLastDeployed(workspaceDir);
+			if (!deployed.some((i) => i.id === item.id))
+				return Response.json(
+					{ error: "内容尚未部署，请先立即部署" },
+					{ status: 409 },
+				);
 			const auth = await requireToken();
 			if (auth instanceof Response) return auth;
 			const baseUrl = await detectBaseUrl(auth.token);
