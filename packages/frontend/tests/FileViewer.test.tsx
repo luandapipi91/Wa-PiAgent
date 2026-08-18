@@ -135,9 +135,7 @@ test("读取失败：显示错误态 + 关闭按钮", async () => {
 	render(<FileViewer path="/work/demo/x.txt" onClose={() => {}} />);
 
 	await waitFor(() =>
-		expect(screen.getByTestId("fv-error").textContent).toContain(
-			"无法读取文件",
-		),
+		expect(screen.getByTestId("fv-error").textContent).toContain("无法读取文件"),
 	);
 });
 
@@ -218,11 +216,7 @@ test("md 文件：内联路径复用聊天区渲染为文件胶囊", async () =>
 	});
 	fake.setResponse("fs:stat", { exists: true });
 	render(
-		<FileViewer
-			path="/work/demo/README.md"
-			onClose={() => {}}
-			sessionId="s1"
-		/>,
+		<FileViewer path="/work/demo/README.md" onClose={() => {}} sessionId="s1" />,
 	);
 
 	await waitFor(() => expect(screen.getByTestId("file-pill")).toBeTruthy());
@@ -295,11 +289,7 @@ test("md 链接：相对路径点击在预览器内打开、外部链接 target=
 		"openFilePreview",
 	).mockImplementation(() => {});
 	render(
-		<FileViewer
-			path="/work/demo/README.md"
-			sessionId="s1"
-			onClose={() => {}}
-		/>,
+		<FileViewer path="/work/demo/README.md" sessionId="s1" onClose={() => {}} />,
 	);
 
 	await waitFor(() => expect(screen.getByText("文档")).toBeTruthy());

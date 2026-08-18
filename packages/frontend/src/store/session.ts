@@ -905,6 +905,9 @@ export const useSessionStore = create<SessionState>((set) => {
 				case "message_end": {
 					// 终态到达：丢弃挂起的 streaming 帧，防止旧 partial 在定稿后复活
 					streamingBatcher.drop(sessionId);
+					// 收到回复/工具结果视为活跃：刷新该会话 lastActivity
+					// （点击查看不更新，发消息 agent:prompt 也已 touch）
+					useProjectsStore.getState().touchSession(sessionId);
 					const msg = event.message as any;
 					if (msg.role === "toolResult") {
 						set((s) => {

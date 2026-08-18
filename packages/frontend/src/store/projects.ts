@@ -21,6 +21,7 @@ interface ProjectsState {
 	addSession: (s: SessionEntity) => void;
 	selectProject: (id: string) => void;
 	selectSession: (id: string) => void;
+	touchSession: (id: string) => void;
 	setCurrentSessionId: (id: string | null) => void;
 }
 
@@ -93,18 +94,23 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
 	selectProject: (id) => set({ currentProjectId: id }),
 	selectSession: (id) =>
 		set((s) => {
-			// 激活会话视为活跃：乐观更新该会话 lastActivity，驱动会话列表时间显示与排序
-			// （ProjectItem 按 lastActivity 倒序、SessionRow 显示相对时间、topAgentsByRecency）。
-			// 后端 ws-server 在 session:messages 时已 touchSession 同步磁盘，此处保证前端立即一致。
+			// 仅切换当前选中会话，不更新 lastActivity：点击查看不再视为活跃，
+			// 只有发送消息（agent:prompt）或收到回复（message_end）才刷新 lastActivity
+			// （驱动会话列表排序、时间显示、topAgentsByRecency）。
 			const target = s.sessions.find((x) => x.id === id);
 			if (!target) return { currentSessionId: id };
 			return {
 				currentSessionId: id,
 				currentProjectId: target.projectId,
-				sessions: s.sessions.map((x) =>
-					x.id === id ? { ...x, lastActivity: Date.now() } : x,
-				),
 			};
 		}),
 	setCurrentSessionId: (id) => set({ currentSessionId: id }),
+	touchSession: (id) =>
+		set((s) => ({
+			// 发消息/收到回复视为活跃：刷新该会话 lastActivity（驱动会话列表排序、时间显示、
+			// topAgentsByRecency）。只在发送 agent:prompt 与 message_end 时调用，点击查看不再调用。
+			sessions: s.sessions.map((x) =>
+				x.id === id ? { ...x, lastActivity: Date.now() } : x,
+			),
+		})),
 }));
