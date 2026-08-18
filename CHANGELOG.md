@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — feat(frontend): 按钮下方提示明确「需部署生效」（与 toast 呼应）
+
+- 重命名/新增/删除等本地变更后，「立即部署」按钮下方常驻提示文案由「N 项变更未部署」改为「N 项变更未部署，需点击立即部署生效」，与重命名 toast「已重命名，需部署后生效」呼应，双处提示。
+- 影响范围：i18n zh/en（settings.share.pending）；测试 ShareSection（未部署提示用例）。
+
 ## 2026-08-18 — fix(frontend): 分享弹窗点击阴影不关闭（closeOnOverlayClick=false 防误触丢输入）
 
 - 分享弹窗（ShareResultModal）点击阴影不关闭——弹窗里可能正在输入分享名/生成链接，点阴影误关会丢输入；关闭走 X 按钮或 ESC。Modal 通用组件支持 closeOnOverlayClick 开关（其他弹窗仍默认点阴影关闭）。

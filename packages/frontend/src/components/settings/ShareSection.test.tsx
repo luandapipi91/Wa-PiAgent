@@ -138,9 +138,7 @@ test("注册入口链接按语言分流：zh → /zh/products/pages；en → /pr
 	useUiPrefsStore.setState({ language: "en" });
 	render(<ShareSection />);
 	const enLink = await screen.findByTestId("share-register-link");
-	expect(enLink.getAttribute("href")).toBe(
-		"https://edgeone.ai/products/pages",
-	);
+	expect(enLink.getAttribute("href")).toBe("https://edgeone.ai/products/pages");
 });
 
 test("我的分享：shareList 返回 2 条 → 渲染名称/大小；空列表显示 empty 文案", async () => {
@@ -311,9 +309,9 @@ test("立即部署中显示进度条（uploading 阶段显示百分比文案）"
 	await renderSharesTab();
 	fireEvent.click(screen.getByTestId("share-deploy"));
 	await screen.findByTestId("share-deploy-progress");
-	expect(
-		screen.getByTestId("share-deploy-progress-text").textContent,
-	).toContain("30%");
+	expect(screen.getByTestId("share-deploy-progress-text").textContent).toContain(
+		"30%",
+	);
 	expect(screen.getByTestId("progress-bar-fill").style.width).toBe("30%");
 });
 
@@ -396,5 +394,27 @@ test("我的分享：铅笔重命名 → 变 input → 回车保存调 shareRena
 	fireEvent.change(input, { target: { value: "新名字" } });
 	fireEvent.keyDown(input, { key: "Enter" });
 	expect(shareRenameMock).toHaveBeenCalledWith("s1", "新名字");
+	unmount();
+});
+
+test("我的分享：有未部署变更时按钮下方提示需部署生效", async () => {
+	shareListMock.mockImplementation(async () => ({
+		items: [
+			{
+				id: "s1",
+				name: "proj-a",
+				files: ["index.html"],
+				size: 2048,
+				createdAt: 1780000000000,
+			},
+		],
+		pending: 1,
+		totalSize: 2048,
+		totalLimit: 104857600,
+	}));
+	const { unmount } = await renderSharesTab();
+	await screen.findByTestId("share-pending");
+	// 按钮下方提示明确含「需部署生效」语义
+	expect(screen.getByTestId("share-pending").textContent).toContain("未部署");
 	unmount();
 });
