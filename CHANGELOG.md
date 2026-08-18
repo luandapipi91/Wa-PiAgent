@@ -2,11 +2,25 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — feat: 产物分享改为固定项目 wapi + 分享管理（spec: docs/superpowers/specs/2026-08-17-share-project-management-design.md）
+
+- kernel 新增 share/workspace.ts（state.json 事实源 + 读时对账 + 部署快照 diff）；edgeone-client 部署入口改为 deployWorkspace（固定项目 wapi、自定义域名优先、itemShareUrl 子路径链接）；分享路由六端点（upload/list/delete/clear/deploy/refresh-link）；share-store/share-history 模型下线。
+- 分享设置增加 customDomain（token 空串保留语义，改域名不冲 token）。
+- 前端设置-分享 tab：注册入口链接（zh/en 分流）、自定义域名输入、「我的分享」列表（复制链接/删除/清空/立即部署 + 未部署变更提示 + 存储用量）。
+- 影响范围：`packages/kernel/src/share/`、`packages/kernel/src/routes/share.ts`、`settings.ts`、`settings-store.ts`、`ws-server.ts`；`packages/frontend/src/share-client.ts`、`components/settings/ShareSection.tsx`、i18n；测试同步更新 + e2e/share-management.spec.ts。
+
+## 2026-08-18 — fix(frontend): transient 网络错误状态条显示具体原因（不再只有通用文案）
+
+- 问题：模型调用被网关断流/限流（socket closed、429 等）时，kernel `classifySdkError` 已把错误清洗成具体文案并随 `net:status` 广播，但前端 `App.tsx` 收到后丢弃 `e.message`，顶部红条只显示通用文案「模型连接异常，请检查网络或 Provider 配置后重试」——用户分不清是网络抖动还是限额打满，表现为"突然断掉，没有任何提示"。
+- 修复：session store 新增 `netMessageBySession` 保存具体原因（与 `netStatusBySession` 同生命周期：setNetStatus/clearNetStatus/agent_start/正常 message_end/removeSession/clear 同步清理）；`net:status` 事件把 `e.message` 传入 `setNetStatus`；红条优先显示具体原因，无原因时回落通用文案。
+- 影响范围：`packages/frontend/src/store/session.ts`、`packages/frontend/src/App.tsx`；测试 `tests/App.test.tsx`（红条显示具体原因 + 无原因回落通用文案 2 用例，TDD 先红后绿）、`tests/store-session.test.ts`（message 存取/清除/联动 4 用例）、`src/store/session-memory-leak.test.ts`（per-session key 补 netMessageBySession）。
+
 ## 2026-08-18 — chore(env): 开发环境独立数据目录（隔离 start.bat/start.command 与打包版）
 
 - start.bat/start.command（浏览器版 dev，kernel 9776 + Vite 5180）与打包版桌面（Electron 9778）默认共用 `~/.pi/agent` 数据目录，两个独立 kernel 并发读写同一批 JSON 文件（projects/providers/settings/会话/记忆/日志/进程登记簿），互相覆盖、日志交错、登记簿互清。端口本就错开（9776 vs 9778），隔离数据目录才是根治。
 - 修复：`.env` 增加 `WA_PI_DIR=${HOME}/.pi/agent-dev`，dev 的所有数据落到独立目录，与打包版 `~/.pi/agent` 完全隔离；打包版不带 `.env` 不受影响。`.env.example` 同步补充说明（支持 `${HOME}` 插值，勿写 `~`，Node 不展开 tilde；用真实数据调试时注释本行即可）。
 - 影响范围：`/.env`（已被 gitignore，仅本地生效）、`.env.example`（模板）
+- 全量核查（覆盖 kernel/shared/desktop/frontend/scripts 所有 WA_PI_DIR 消费点与硬编码路径）：生产代码无可执行路径绕过 WA_PI_DIR——所有 `~/.pi/agent` 字面量均为「先读 env/waPiDir 的默认值兜底」（constants.ts:25、port.cjs:56、node-runtime.cjs:169、main.cjs:33）；E2E 硬编码的 `~/.pi/agent/auth.json`（chat-blocks/chat-export/rpc-session/file-change-summary）为刻意读真实 LLM 凭证（只读不落盘），非数据目录写入，属有意例外。无绝对路径硬编码、无对新隔离目录 `agent-dev` 的代码误引用。
 
 ## 2026-08-18 — fix(frontend): 自动重试的新回答替换 error 消息而非拼接
 
