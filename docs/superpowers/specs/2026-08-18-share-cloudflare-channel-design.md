@@ -41,12 +41,12 @@ routes/share.ts deployNow()
   ├─ deployToCloudflare({ token, accountId, files, onProgress, pollIntervalMs })
   │   ├─ 1. getOrCreateProject()
   │   │      GET  /accounts/{accountId}/pages/projects/wapi-shares
-  │   │      404 → POST 同路径创建（production_branch=main）
+  │   │      GET 失败（通常 404）→ POST 同路径创建（production_branch=main）
   │   ├─ 2. uploadFiles()（内容寻址）
   │   │      a. 逐文件 hashFileContent() → manifest { path: hash }（blake3，见 §4）
   │   │      b. POST /accounts/{accountId}/pages/projects/{project}/upload-token → JWT
   │   │      c. POST /pages/assets/check-missing { hashes } → 跳过已上传 hash
-  │   │      d. 对 missing 的 hash 逐个 POST /pages/assets/upload（单桶 ≤40MiB / ≤2000 文件）
+  │   │      d. 对 missing 的 hash 逐个 POST /pages/assets/upload（实现为逐文件串行，不做并发分桶；CF API 单桶 ≤40MiB / ≤2000 文件为兜底约束，分享文件量小不触界）
   │   │         进度回调 onProgress({ phase:"uploading", percent, loaded, total })
   │   ├─ 3. createDeployment()
   │   │      POST /accounts/{accountId}/pages/projects/{project}/deployments
@@ -86,7 +86,7 @@ hash = blake3( base64(文件内容) + 扩展名 ).hex.slice(0, 32)
 
 | 限制项 | 数值 | 说明 |
 |--------|------|------|
-| 单文件大小 | ≤ 25MB | Cloudflare Pages Direct Upload 硬限制，超限上传报错 |
+| 单文件大小 | ≤ 25MB | 应用层统一单文件上限：`POST /api/share/upload` 对所有渠道入口 413 拦截（`MAX_FILE_BYTES`）；CF Pages Direct Upload 另有同量级硬限制作为兜底 |
 | 带宽/流量 | 无限（免费） | pages.dev 静态托管不计流量费 |
 | 构建数 | 不限 | Direct Upload 走 API 上传，不占免费构建次数 |
 
@@ -100,22 +100,32 @@ hash = blake3( base64(文件内容) + 扩展名 ).hex.slice(0, 32)
 | 访问鉴权 | 链接内含签名 token，过期即 403 | 无需任何 token，直接 HTTP 200 |
 | 部署协议 | 私有 API + COS 上传（edgeone-client） | CF API Direct Upload（内容寻址 + multipart） |
 | 项目/域名 | edgeone 固定项目 + 应用内自定义域名设置 | `wapi-shares` 项目，默认 `*.pages.dev`；customDomain 需在 CF 控制台配置 |
-| 单文件上限 | 无 25MB 限制（COS） | 单文件 ≤ 25MB |
+| 单文件上限 | 应用层统一 ≤ 25MB（全渠道入口 413 拦截） | 应用层统一 ≤ 25MB + CF Direct Upload 同量级硬限制兜底 |
 | 带宽成本 | COS 流量计费 | pages.dev 免费无限 |
 | 国内访问 | 快（腾讯边缘） | 0.5~2s（跨境边缘，无国内直连优化） |
 | refresh-link | 重签 token 返回新链接（3h） | 幂等返回条目子路径（不重签） |
 | 进度事件 | packing → uploading（COS 百分比）→ deploying → done | packing → uploading（资产上传百分比）→ deploying → done |
 
-**`expiresAt = 0` 语义（全链路约定）**：0 表示「永久 / 无过期时间」，非「epoch 起点」；前端据此渲染「永久有效」而非倒计时，后端两处返回（deployNow / refresh-link）与 `deployToCloudflare` 返回值 `{ url, expiresAt: 0, channel: "cloudflare" }` 对齐 routes 返回类型。
+**`expiresAt = 0` 语义（全链路约定）**：0 表示「永久 / 无过期时间」，非「epoch 起点」。后端约定 CF 渠道返回 `expiresAt: 0`（deployNow / refresh-link 两处与 `deployToCloudflare` 返回值 `{ url, expiresAt: 0, channel: "cloudflare" }` 对齐 routes 返回类型）；前端弹窗对 `expiresAt === 0` 渲染「永久有效」而非小时倒计时（任务 7 修复前曾因 `Math.max(1, …)` 兜底显示「1 小时」，已修正——前端直接按 0 判断，不依赖 channel 字段）。
 
 ## 7. 已知取舍（决策留痕）
 
 1. **国内访问速度 0.5~2s**：CF 边缘节点无国内直连优化，首次访问可能有跨境延迟；换取永久公开 + 免费带宽。可接受——目标用户是「要长期公开链接」而非「要极速」的场景。
 2. **customDomain 不在应用内配置**：CF 自定义域名是 Pages 项目级配置（需在 CF 控制台绑定 + DNS 校验），应用内不提供入口；CF 渠道下设置页不渲染自定义域名输入框。用户如需自有域名，在 CF 控制台配置即可，链接域名随之变化。
-3. **单文件 ≤ 25MB 硬限制**：超过 25MB 的文件在 CF 渠道上传失败（edgeone 无此限制）；不做分片规避，前端仅提示限制文案，超限错误原样透出。
+3. **单文件 ≤ 25MB 硬限制**：25MB 是应用层统一单文件上限——`POST /api/share/upload` 对所有渠道（含 EdgeOne/COS）统一用 `MAX_FILE_BYTES` 检查、超限返回 413；CF Pages Direct Upload 另有同量级硬限制作为兜底（应用层未拦截到的情况）。不做分片规避，前端仅提示限制文案，超限错误原样透出。
 4. **E2E 不跑真实部署**：CF Direct Upload 需要真实 API Token + Account ID，E2E 只覆盖 UI 渠道切换（任务 7）；真实部署链路留手动验证清单（见 task-7-brief）。
 
-## 8. 文件清单（本次变更）
+## 8. 手动验证清单（需要真实 CF 凭证，上线前执行）
+
+1. 在 Cloudflare 控制台创建 API Token（权限 `Account → Cloudflare Pages → Edit`），取得 Account ID。
+2. 应用内「设置 → 分享」切到 Cloudflare，填入 token + accountId，保存。
+3. 分享一个文件 → 拿到 `https://wapi-shares.pages.dev/<name>/...` 链接，弹窗应显示「永久有效」而非小时倒计时。
+4. 无痕窗口直接打开链接，确认 **HTTP 200、无需任何 token、内容正确**。
+5. 分享一个多文件条目，确认 `<name>/` 目录能渲染 `index.html`。
+6. 再切回 EdgeOne 渠道，确认原 token 分享链路不受影响。
+7. 用 wrangler 上传过同内容的资产后，`check-missing` 应命中（验证 hash 算法与 wrangler `hashFile` 一致）。
+
+## 9. 文件清单（本次变更）
 
 | 文件 | 变更 |
 |------|------|

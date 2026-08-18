@@ -155,10 +155,14 @@ export function ShareResultModal({
 		}
 	};
 
-	// 有效期（小时）：kernel 固定 3 小时，由 expiresAt 计算，至少 1
-	const hoursLeft = result
-		? Math.max(1, Math.round((result.expiresAt - Date.now()) / 3_600_000))
-		: 0;
+	// 有效期（小时）：edgeone 固定 3 小时，由 expiresAt 计算，至少 1。
+	// expiresAt === 0 表示永久（后端约定 CF 渠道返回 0）：渲染「永久有效」而非小时倒计时，
+	// 不做 Math.max(1, …) 兜底（否则永久链接会被误显示成「1 小时」）。
+	const isPermanent = result?.expiresAt === 0;
+	const hoursLeft =
+		result && !isPermanent
+			? Math.max(1, Math.round((result.expiresAt - Date.now()) / 3_600_000))
+			: 0;
 
 	return (
 		<Modal
@@ -213,7 +217,10 @@ export function ShareResultModal({
 								{copied ? t("share.copied") : t("share.copyLink")}
 							</button>
 							<span className="text-xs text-secondary" data-testid="share-expires">
-								{t("share.expiresIn", { hours: hoursLeft })}
+								{isPermanent
+									// 「永久有效」文案：i18n 暂无该 key，用 defaultValue 兜底（CF 渠道分享固定永久）
+									? t("share.permanent", { defaultValue: "永久有效" })
+									: t("share.expiresIn", { hours: hoursLeft })}
 							</span>
 						</div>
 						{error && (
