@@ -211,12 +211,9 @@ export function createShareRoutes(
 			return Response.json({
 				id: item.id,
 				name: item.name,
-				// cloudflare：Pages 项目根 + <name>/（工作区全量部署，条目指向目录索引）；
-				// edgeone：rootUrl + 子路径（多文件条目指向目录，单文件指向文件）
-				url:
-					channel === "cloudflare"
-						? `${url}/${item.name}/`
-						: itemShareUrl(url, item),
+				// 两渠道共用同一 buildDeployZip 布局（{name}/{rel}），统一复用 itemShareUrl：
+				// 多文件条目指向目录，单文件条目指向真实文件（且 new URL 自动 percent-encode 分享名）
+				url: itemShareUrl(url, item),
 				expiresAt,
 				projectName: SHARE_PROJECT_NAME,
 				channel,
@@ -336,11 +333,14 @@ export function createShareRoutes(
 					{ status: 409 },
 				);
 			// 当前渠道实时读取设置；CF 渠道链接公开恒定，幂等返回条目子路径（不重签 token），
-			// 拼法与 upload 端点 CF 分支一致：https://{project}.pages.dev/{item.name}/
+			// 拼法与 upload 端点 CF 分支一致：itemShareUrl 复用（单文件指向真实文件、分享名自动编码）
 			const settings = await loadShareSettings(cfg.settingsFile);
 			if (settings.channel === "cloudflare") {
 				return Response.json({
-					url: `https://${CF_SHARE_PROJECT_NAME}.pages.dev/${item.name}/`,
+					url: itemShareUrl(
+						`https://${CF_SHARE_PROJECT_NAME}.pages.dev`,
+						item,
+					),
 					expiresAt: 0,
 					channel: "cloudflare",
 				});

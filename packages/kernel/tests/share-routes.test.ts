@@ -191,8 +191,8 @@ test("1b. channel=cloudflare 时部署走 CF 客户端，返回公开 URL 且 ex
     expect(res!.status).toBe(200);
     const body = await res!.json();
     expect(body.channel).toBe("cloudflare");
-    // Pages 项目根 + <name>/（CF 全量部署工作区，条目指向目录索引）
-    expect(body.url).toBe("https://wapi-shares.pages.dev/index.html/");
+    // itemShareUrl 统一拼法：单文件条目指向真实文件（CF 与 edgeone 同布局 {name}/{rel}）
+    expect(body.url).toBe("https://wapi-shares.pages.dev/index.html/index.html");
     expect(body.expiresAt).toBe(0);
 }, 15000);
 
@@ -339,8 +339,8 @@ test("7c. refresh-link：channel=cloudflare 时返回 CF 公开根 URL 且 expir
     const res = await post(router, "/api/share/refresh-link", { id: up.id });
     expect(res!.status).toBe(200);
     const data = await res!.json();
-    // CF 条目子路径：https://{CF_SHARE_PROJECT_NAME}.pages.dev/{item.name}/（与 upload 端点 CF 分支一致）；expiresAt=0 表示永久
-    expect(data.url).toBe("https://wapi-shares.pages.dev/index.html/");
+    // CF 条目子路径：itemShareUrl 统一拼法，单文件指向真实文件（与 upload 端点 CF 分支一致）；expiresAt=0 表示永久
+    expect(data.url).toBe("https://wapi-shares.pages.dev/index.html/index.html");
     expect(data.expiresAt).toBe(0);
     expect(data.channel).toBe("cloudflare");
 }, 15000);
