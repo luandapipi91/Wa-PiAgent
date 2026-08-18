@@ -385,7 +385,7 @@ test("默认工作区在 DOM 顺序上排在'项目'小标题之前 + 与项目�
 	);
 });
 
-test("点击会话激活：时间显示刷新为“刚刚”，但列表保持原位不立即重排", () => {
+test("点击会话激活：不刷新活跃时间、列表保持原位（仅发消息/收到回复才算活跃）", () => {
 	const now = Date.now();
 	useProjectsStore.setState({
 		projects: [{ id: "p1", name: "项目A", cwd: "/a", createdAt: 0 }],
@@ -396,7 +396,7 @@ test("点击会话激活：时间显示刷新为“刚刚”，但列表保持�
 				primaryAgent: "dev",
 				title: "会话1",
 				createdAt: 0,
-				lastActivity: now - 10_000,
+				lastActivity: now - 10 * 60_000,
 				piSessionFile: "",
 			},
 			{
@@ -405,14 +405,14 @@ test("点击会话激活：时间显示刷新为“刚刚”，但列表保持�
 				primaryAgent: "pm",
 				title: "会话2",
 				createdAt: 0,
-				lastActivity: now - 5_000,
+				lastActivity: now - 5 * 60_000,
 				piSessionFile: "",
 			},
 		],
 		currentProjectId: "p1",
 		currentSessionId: null,
 	});
-	// 用真实 store action 走完整链路：点击 → selectSession → lastActivity 更新 → 渲染
+	// 用真实 store action 走完整链路：点击 → selectSession → 渲染
 	render(
 		<ProjectList
 			onSelectSession={useProjectsStore.getState().selectSession}
@@ -427,14 +427,18 @@ test("点击会话激活：时间显示刷新为“刚刚”，但列表保持�
 	// 初始：会话2（较新）在会话1（较旧）之上
 	expect(titles()[0]).toContain("会话2");
 
-	// 点击较旧会话 → 激活：时间显示更新为“刚刚”，但列表保持原位不立即重排（避免点错感）
+	// 点击较旧会话 → 激活：列表保持原位不重排，且 lastActivity 不更新（点击查看不算活跃）
 	fireEvent.click(screen.getByText("会话1"));
 	expect(titles()[0]).toContain("会话2");
 	expect(titles()[1]).toContain("会话1");
-	expect(screen.getByTestId("session-s1").textContent).toContain("刚刚");
-	// 数据层 lastActivity 已更新（离开该会话后重排依据就绪）
-	const s1 = useProjectsStore.getState().sessions.find((x) => x.id === "s1")!;
-	expect(s1.lastActivity).toBeGreaterThan(now - 1000);
+	expect(screen.getByTestId("session-s1").textContent).toContain("10m");
+	const s1Before = useProjectsStore.getState().sessions.find((x) => x.id === "s1")!;
+	expect(s1Before.lastActivity).toBe(now - 10 * 60_000);
+
+	// 新的活跃触发路径：touchSession（发消息/收到回复时调用）才刷新 lastActivity
+	useProjectsStore.getState().touchSession("s1");
+	const s1After = useProjectsStore.getState().sessions.find((x) => x.id === "s1")!;
+	expect(s1After.lastActivity).toBeGreaterThan(now - 1000);
 });
 
 test("点击会话不改变列表顺序：离开当前项目后原项目保持原位（重排仅发生在折叠→展开）", () => {
@@ -541,12 +545,13 @@ test("点击项目名时，按最近活跃重排会话", () => {
 	// 初始：会话2（较新）在会话1（较旧）之上
 	expect(titles()[0]).toContain("会话2");
 
-	// 点击旧会话 s1 → 时间刷新但列表顺序保持
+	// 点击旧会话 s1 → 列表顺序保持，且不刷新活跃时间（点击查看不算活跃）
 	fireEvent.click(screen.getByText("会话1"));
 	expect(titles()[0]).toContain("会话2");
 	expect(titles()[1]).toContain("会话1");
 
-	// 点击项目名 p1 → 按最近活跃重排：s1 已是最新，排到最顶
+	// s1 收到回复（touchSession）→ 成为最近活跃；点击项目名 p1 → 按最近活跃重排：s1 排到最顶
+	useProjectsStore.getState().touchSession("s1");
 	fireEvent.click(screen.getByTestId("project-name-p1"));
 	expect(titles()[0]).toContain("会话1");
 	expect(titles()[1]).toContain("会话2");
