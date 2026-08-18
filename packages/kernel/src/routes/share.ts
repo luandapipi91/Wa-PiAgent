@@ -69,10 +69,7 @@ export function createShareRoutes(
 			try {
 				return await fn(req);
 			} catch (e: any) {
-				return Response.json(
-					{ error: e?.message ?? String(e) },
-					{ status: 500 },
-				);
+				return Response.json({ error: e?.message ?? String(e) }, { status: 500 });
 			}
 		};
 	};
@@ -142,9 +139,7 @@ export function createShareRoutes(
 			// 单个文件夹分享：以文件夹本身为根，内容平铺到 /<id>/ 下
 			// （否则 commonRoot 取父目录，条目会多套一层文件夹名）
 			const singleDir =
-				paths.length === 1 && statSync(paths[0]).isDirectory()
-					? paths[0]
-					: null;
+				paths.length === 1 && statSync(paths[0]).isDirectory() ? paths[0] : null;
 			const entries = collectZipEntries(paths, singleDir ?? commonRoot(paths));
 			if (entries.length === 0)
 				return Response.json({ error: "paths 为空" }, { status: 400 });
@@ -163,9 +158,8 @@ export function createShareRoutes(
 					: `${entries.length} 个文件`;
 			// 用户指定分享名（文件夹名/URL 子路径，穿透）；缺省用自动名。
 			// 查重由 addItem 内置（不同 id 同名抛错），此处统一转 409。
-			const name = typeof b.name === "string" && b.name.trim()
-				? b.name.trim()
-				: autoName;
+			const name =
+				typeof b.name === "string" && b.name.trim() ? b.name.trim() : autoName;
 			let item;
 			try {
 				item = await addItem(workspaceDir, id, name, entries);
@@ -293,8 +287,7 @@ export function createShareRoutes(
 		wrap(async (req) => {
 			const b = await readJsonBody(req);
 			const item = (await loadItems(workspaceDir)).find((i) => i.id === b.id);
-			if (!item)
-				return Response.json({ error: "分享不存在" }, { status: 404 });
+			if (!item) return Response.json({ error: "分享不存在" }, { status: 404 });
 			// 本地有记录但从未成功部署（不在部署快照里）→ 线上是 404，不出链接
 			const deployed = await loadLastDeployed(workspaceDir);
 			if (!deployed.some((i) => i.id === item.id))

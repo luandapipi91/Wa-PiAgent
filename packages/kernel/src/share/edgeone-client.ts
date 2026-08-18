@@ -55,8 +55,7 @@ export async function apiCall<T = any>(
   // （如 CreatePagesProject 名称长度校验失败）。不拦截会静默流向下游，
   // 表现为 ProjectId/DeploymentId undefined → 轮询永不命中 → 部署超时。
   const nested = json?.Data?.Response?.Error;
-  if (nested)
-    throw new Error(`[${action}] ${nested.Code}: ${nested.Message}`);
+  if (nested) throw new Error(`[${action}] ${nested.Code}: ${nested.Message}`);
   return json;
 }
 
@@ -93,8 +92,7 @@ export async function getOrCreateProject(
   const requeryId = requery?.Data?.Response?.Projects?.[0]?.ProjectId;
   // 拿不到 ProjectId 必须抛错：静默返回 undefined 会让下游 COS 路径/部署
   // 全部带 undefined，最终表现为「部署超时」而不是真实原因
-  if (!requeryId)
-    throw new Error(`获取/创建 Pages 项目失败: ${projectName}`);
+  if (!requeryId) throw new Error(`获取/创建 Pages 项目失败: ${projectName}`);
   return requeryId;
 }
 
@@ -198,9 +196,14 @@ export async function deployWorkspace(
   );
 
   // COS 临时上传凭证
-  const tokenRes = await apiCall<any>(baseUrl, token, "DescribePagesCosTempToken", {
-    ProjectId: projectId,
-  });
+  const tokenRes = await apiCall<any>(
+    baseUrl,
+    token,
+    "DescribePagesCosTempToken",
+    {
+      ProjectId: projectId,
+    },
+  );
   const resp = tokenRes.Data.Response;
   const cos = opts.cosFactory
     ? opts.cosFactory({
@@ -224,7 +227,11 @@ export async function deployWorkspace(
         Body: Buffer.from(zip),
         ContentLength: zip.byteLength,
         // COS 的 percent 是 0-1 小数，换算成 0-100
-        onProgress: (d: { loaded?: number; total?: number; percent?: number }) =>
+        onProgress: (d: {
+          loaded?: number;
+          total?: number;
+          percent?: number;
+        }) =>
           opts.onProgress?.({
             phase: "uploading",
             percent: Math.round((d.percent ?? 0) * 100),
@@ -252,13 +259,18 @@ export async function deployWorkspace(
   let finalStatus: string | undefined;
   for (let i = 0; i < 40; i++) {
     await sleep(pollIntervalMs);
-    const list = await apiCall<any>(baseUrl, token, "DescribePagesDeployments", {
-      ProjectId: projectId,
-      Offset: 0,
-      Limit: 50,
-      OrderBy: "CreatedOn",
-      Order: "Desc",
-    });
+    const list = await apiCall<any>(
+      baseUrl,
+      token,
+      "DescribePagesDeployments",
+      {
+        ProjectId: projectId,
+        Offset: 0,
+        Limit: 50,
+        OrderBy: "CreatedOn",
+        Order: "Desc",
+      },
+    );
     const d = (list?.Data?.Response?.Deployments ?? []).find(
       (x: any) => x.DeploymentId === deploymentId,
     );
