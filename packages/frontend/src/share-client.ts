@@ -15,12 +15,14 @@ export interface ShareUploadResult {
 export interface ShareSettingsInfo {
 	hasToken: boolean;
 	channel: string;
+	customDomain: string;
 }
 
 /** 分享设置保存入参（PUT /api/settings/share 的 share 字段；token 为用户明文输入） */
 export interface ShareSettingsInput {
 	token: string;
 	channel: string;
+	customDomain: string;
 }
 
 /**
@@ -64,6 +66,7 @@ export async function shareSettings(): Promise<ShareSettingsInfo> {
 	return {
 		hasToken: res.share?.hasToken === true,
 		channel: res.share?.channel ?? "",
+		customDomain: res.share?.customDomain ?? "",
 	};
 }
 
@@ -72,4 +75,52 @@ export async function saveShareSettings(
 	share: ShareSettingsInput,
 ): Promise<void> {
 	await transport.put("/api/settings/share", { share });
+}
+
+/** 分享条目（GET /api/share/list 的 items 元素） */
+export interface ShareItemInfo {
+	id: string;
+	name: string;
+	files: string[];
+	size: number;
+	createdAt: number;
+}
+
+/** 分享列表结果 */
+export interface ShareListResult {
+	items: ShareItemInfo[];
+	/** 未部署变更数（本地 state 与上次部署快照的差集） */
+	pending: number;
+	totalSize: number;
+	totalLimit: number;
+}
+
+/** 读取分享列表（kernel 读时自动对账：目录丢失的记录被剔除） */
+export async function shareList(): Promise<ShareListResult> {
+	return (await transport.get("/api/share/list")) as ShareListResult;
+}
+
+/** 删除单条分享（仅本地；线上待「立即部署」生效） */
+export async function shareDelete(id: string): Promise<void> {
+	await transport.post("/api/share/delete", { id });
+}
+
+/** 清空全部分享（仅本地） */
+export async function shareClear(): Promise<void> {
+	await transport.post("/api/share/clear");
+}
+
+/** 立即部署：把当前本地状态全量发布到线上 */
+export async function shareDeploy(): Promise<void> {
+	await transport.post("/api/share/deploy");
+}
+
+/** 重新生成某条分享的 3h 时效链接 */
+export async function shareRefreshLink(
+	id: string,
+): Promise<{ url: string; expiresAt: number }> {
+	return (await transport.post("/api/share/refresh-link", { id })) as {
+		url: string;
+		expiresAt: number;
+	};
 }
