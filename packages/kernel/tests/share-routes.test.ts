@@ -73,6 +73,37 @@ function mockEdgeOne(presetDomain = "wapi-abc.edgeone.run") {
     }) as any;
 }
 
+/** 按 URL 段模拟 Cloudflare Pages API（同 cloudflare-pages-client.test.ts 模式）
+ *  注意分支顺序：轮询 GET .../deployments/{id}（含尾部 id）需先于创建部署分支命中；
+ *  check-missing 回显请求体 hashes，模拟「全部缺失」确保走通上传路径。 */
+function mockCloudflare() {
+    const handler = async (url: string | URL | Request, init?: RequestInit) => {
+        const u = String(url);
+        const json = (body: unknown) =>
+            new Response(JSON.stringify(body), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+            });
+        if (u.includes("/upload-token")) return json({ result: { jwt: "J" }, success: true });
+        if (u.includes("/pages/assets/check-missing")) {
+            const body = JSON.parse(String(init?.body));
+            return json(body.hashes as string[]);
+        }
+        if (u.includes("/pages/assets/upload")) return json({ success: true });
+        if (u.includes("/deployments/")) {
+            return json({ result: { latest_stage: { name: "deploy", status: "success" } }, success: true });
+        }
+        if (u.endsWith("/deployments")) {
+            return json({ result: { id: "dep-cf", url: "https://abc.wapi-shares.pages.dev", environment: "production" }, success: true });
+        }
+        if (u.endsWith("/pages/projects/wapi-shares")) return json({ result: { id: "proj-cf" }, success: true });
+        if (u.endsWith("/pages/projects") && init?.method === "POST") return json({ result: { id: "proj-cf" }, success: true });
+        throw new Error(`unhandled CF mock: ${u}`);
+    };
+    // @ts-ignore 覆盖全局 fetch
+    globalThis.fetch = handler as typeof fetch;
+}
+
 /** 建路由：tmpdir 隔离 workspaceDir 与 settingsFile（settings 不存在 → 走 cfg.token） */
 function setup(token = "tk_test") {
     const router = new HttpRouter();
@@ -142,6 +173,27 @@ test("1. upload 单文件 → 200，url 指向 <name>/<file>，list 出现条目
     expect(list.pending).toBe(0);
     expect(list.totalSize).toBeGreaterThan(0);
     expect(list.totalLimit).toBeGreaterThan(list.totalSize);
+}, 15000);
+
+test("1b. channel=cloudflare 时部署走 CF 客户端，返回公开 URL 且 expiresAt=0", async () => {
+    // 前提：settings.json 里 share.channel = "cloudflare"、accountId = "acc-cf"
+    writeFileSync(
+        join(dir, "settings.json"),
+        JSON.stringify({
+            share: { token: "tk_cf", channel: "cloudflare", accountId: "acc-cf" },
+        }),
+    );
+    mockCloudflare();
+    const router = setup("tk_test"); // cfg.token 兜底；requireToken 读到 settings 的 cloudflare 渠道
+    const res = await post(router, "/api/share/upload", {
+        paths: [join(dir, "prod", "index.html")],
+    });
+    expect(res!.status).toBe(200);
+    const body = await res!.json();
+    expect(body.channel).toBe("cloudflare");
+    // Pages 项目根 + <name>/（CF 全量部署工作区，条目指向目录索引）
+    expect(body.url).toBe("https://wapi-shares.pages.dev/index.html/");
+    expect(body.expiresAt).toBe(0);
 }, 15000);
 
 test("2. upload 未配 token → 400", async () => {

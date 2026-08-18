@@ -7,9 +7,11 @@
 
 import { basename, dirname, sep } from "node:path";
 import { statSync } from "node:fs";
+import { unzipSync } from "fflate";
 import type { HttpRouter } from "../http-router";
 import type { ShareProgressEvent } from "@wa-pi/shared";
 import { readJsonBody } from "./types";
+import { deployToCloudflare } from "../share/cloudflare-pages-client";
 import {
 	deployWorkspace,
 	detectBaseUrl,
@@ -96,14 +98,32 @@ export function createShareRoutes(
 	const emit = (e: Omit<ShareProgressEvent, "type">) =>
 		cfg.broadcast?.({ type: "share:progress", ...e });
 
-	/** 部署当前工作区到线上，成功写部署快照；全程广播进度 */
+	/** 部署当前工作区到线上（按 settings.channel 分派：cloudflare → CF Pages，否则 edgeone）；
+	 *  成功写部署快照；全程广播进度。 */
 	async function deployNow(
 		token: string,
 		customDomain: string,
-	): Promise<{ rootUrl: string; expiresAt: number }> {
+	): Promise<{ url: string; expiresAt: number; channel: string }> {
+		const settings = await loadShareSettings(cfg.settingsFile);
 		emit({ phase: "packing" });
 		const zip = await buildDeployZip(workspaceDir);
 		try {
+			if (settings.channel === "cloudflare") {
+				const files = unzipToFiles(zip);
+				const result = await deployToCloudflare({
+					token,
+					accountId: settings.accountId ?? "",
+					files,
+					onProgress: (p) => emit(p),
+					pollIntervalMs: cfg.pollIntervalMs,
+				});
+				await saveLastDeployed(workspaceDir, await loadItems(workspaceDir));
+				emit({ phase: "done" });
+				// expiresAt=0 表示永久（前端按此渲染）；CF 渠道无过期时间
+				return { url: result.url, expiresAt: 0, channel: "cloudflare" };
+			}
+
+			// 原 edgeone 逻辑不变
 			const r = await deployWorkspace({
 				token,
 				zip,
@@ -114,7 +134,7 @@ export function createShareRoutes(
 			});
 			await saveLastDeployed(workspaceDir, await loadItems(workspaceDir));
 			emit({ phase: "done" });
-			return { rootUrl: r.rootUrl, expiresAt: r.expiresAt };
+			return { url: r.rootUrl, expiresAt: r.expiresAt, channel: "edgeone" };
 		} catch (e) {
 			emit({
 				phase: "error",
@@ -122,6 +142,17 @@ export function createShareRoutes(
 			});
 			throw e;
 		}
+	}
+
+	/** fflate 解压 zip 为 路径 -> Uint8Array（过滤目录条目） */
+	function unzipToFiles(zip: Uint8Array): Record<string, Uint8Array> {
+		const unzipped = unzipSync(zip);
+		const files: Record<string, Uint8Array> = {};
+		for (const [path, data] of Object.entries(unzipped)) {
+			if (path.endsWith("/")) continue; // 目录
+			files[path] = data;
+		}
+		return files;
 	}
 
 	router.add(
@@ -169,17 +200,22 @@ export function createShareRoutes(
 				throw e;
 			}
 
-			const { rootUrl, expiresAt } = await deployNow(
+			const { url, expiresAt, channel } = await deployNow(
 				auth.token,
 				auth.customDomain,
 			);
 			return Response.json({
 				id: item.id,
 				name: item.name,
-				url: itemShareUrl(rootUrl, item),
+				// cloudflare：Pages 项目根 + <name>/（工作区全量部署，条目指向目录索引）；
+				// edgeone：rootUrl + 子路径（多文件条目指向目录，单文件指向文件）
+				url:
+					channel === "cloudflare"
+						? `${url}/${item.name}/`
+						: itemShareUrl(url, item),
 				expiresAt,
 				projectName: SHARE_PROJECT_NAME,
-				channel: auth.channel,
+				channel,
 			});
 		}),
 	);
