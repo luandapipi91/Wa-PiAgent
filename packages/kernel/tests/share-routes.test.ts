@@ -106,15 +106,15 @@ test("commonRoot：多选路径取公共父目录；跨盘输入正常终止不�
   else expect(cross).toBe(".");
 });
 
-test("1. upload 单文件 → 200，url 指向 <id>/<file>，list 出现条目且 pending=0", async () => {
+test("1. upload 单文件 → 200，url 指向 <name>/<file>，list 出现条目且 pending=0", async () => {
   mockEdgeOne();
   const router = setup();
   const data = await uploadOne(router);
-  // url 形如 https://<domain>/<id>/<file>?eo_token=..
+  // url 形如 https://<domain>/<name>/<file>?eo_token=..（分享名穿透为子路径）
   expect(data.url).toMatch(
-    /^https:\/\/wapi-abc\.edgeone\.run\/[0-9a-f]{12}\/index\.html\?eo_token=ET/,
+    /^https:\/\/wapi-abc\.edgeone\.run\/index\.html\/index\.html\?eo_token=ET/,
   );
-  expect(data.projectName).toBe("wapi-shares");
+  expect(data.name).toBe("index.html");
   expect(data.channel).toBe("edgeone");
   expect(typeof data.id).toBe("string");
   expect(typeof data.expiresAt).toBe("number");
@@ -207,7 +207,7 @@ test("7. refresh-link：存在 id 返回新 url；不存在 → 404", async () =
   const res = await post(router, "/api/share/refresh-link", { id: up.id });
   const data = await res!.json();
   expect(res!.status).toBe(200);
-  expect(data.url).toContain(`/${up.id}/index.html`);
+  expect(data.url).toContain(`/${up.name}/index.html`);
   expect(data.url).toContain("eo_token=ET");
   expect(typeof data.expiresAt).toBe("number");
 
@@ -226,7 +226,7 @@ test("5c. delete id 非法（路径穿越）→ 400 且不删任何文件", asyn
   // 记录与目录都还在
   const list = await (await router.handle(new Request("http://x/api/share/list")))!.json();
   expect(list.items).toHaveLength(1);
-  expect(existsSync(join(workspaceDir, "items", up.id))).toBe(true);
+  expect(existsSync(join(workspaceDir, "items", up.name))).toBe(true);
 }, 15000);
 
 test("7b. refresh-link：本地有记录但从未成功部署 → 409", async () => {

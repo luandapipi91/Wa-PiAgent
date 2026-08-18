@@ -31,6 +31,7 @@ import {
 	MAX_FILE_BYTES,
 	pendingCount,
 	removeItem,
+	renameItem,
 	saveLastDeployed,
 	SHARE_ID_RE,
 	totalSize,
@@ -155,12 +156,24 @@ export function createShareRoutes(
 				);
 
 			const id = hashPaths(paths);
-			const name = singleDir
+			const autoName = singleDir
 				? basename(singleDir)
 				: entries.length === 1
 					? (entries[0].name.split("/").pop() ?? entries[0].name)
 					: `${entries.length} 个文件`;
-			const item = await addItem(workspaceDir, id, name, entries);
+			// 用户指定分享名（文件夹名/URL 子路径，穿透）；缺省用自动名。
+			// 查重由 addItem 内置（不同 id 同名抛错），此处统一转 409。
+			const name = typeof b.name === "string" && b.name.trim()
+				? b.name.trim()
+				: autoName;
+			let item;
+			try {
+				item = await addItem(workspaceDir, id, name, entries);
+			} catch (e: any) {
+				if (/重复|非法字符/.test(e?.message ?? ""))
+					return Response.json({ error: e.message }, { status: 409 });
+				throw e;
+			}
 
 			const { rootUrl, expiresAt } = await deployNow(
 				auth.token,
@@ -168,6 +181,7 @@ export function createShareRoutes(
 			);
 			return Response.json({
 				id: item.id,
+				name: item.name,
 				url: itemShareUrl(rootUrl, item),
 				expiresAt,
 				projectName: SHARE_PROJECT_NAME,
@@ -202,6 +216,26 @@ export function createShareRoutes(
 				return Response.json({ error: "id 非法" }, { status: 400 });
 			await removeItem(workspaceDir, b.id);
 			return Response.json({ ok: true });
+		}),
+	);
+
+	router.add(
+		"POST",
+		"/api/share/rename",
+		wrap(async (req) => {
+			const b = await readJsonBody(req);
+			if (typeof b.id !== "string" || !SHARE_ID_RE.test(b.id))
+				return Response.json({ error: "id 非法" }, { status: 400 });
+			if (typeof b.name !== "string" || !b.name.trim())
+				return Response.json({ error: "名称不能为空" }, { status: 400 });
+			try {
+				const item = await renameItem(workspaceDir, b.id, b.name.trim());
+				return Response.json({ ok: true, item });
+			} catch (e: any) {
+				if (/重复|非法字符|不存在/.test(e?.message ?? ""))
+					return Response.json({ error: e.message }, { status: 409 });
+				throw e;
+			}
 		}),
 	);
 

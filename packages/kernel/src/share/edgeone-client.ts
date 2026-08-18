@@ -283,13 +283,22 @@ export async function deployWorkspace(
   };
 }
 
-/** 拼单条分享链接：rootUrl（含 eo_token）+ 子路径；多文件条目指向目录（静态托管目录索引） */
+/** 拼单条分享链接：rootUrl（含 eo_token）+ 子路径；多文件条目指向目录（静态托管目录索引）。
+ *  子路径用分享名（<name>/），与文件夹名穿透一致。 */
 export function itemShareUrl(
   rootUrl: string,
-  item: { id: string; files: string[] },
+  item: { id: string; name: string; files: string[] },
 ): string {
-  const u = new URL(rootUrl);
+  let u: URL;
+  try {
+    u = new URL(rootUrl);
+  } catch {
+    // rootUrl 由内部 encipherUrl 生成，正常不会非法；异常时兜底避免裸抛
+    throw new Error(`无法解析分享链接: ${rootUrl}`);
+  }
   u.pathname =
-    item.files.length === 1 ? `/${item.id}/${item.files[0]}` : `/${item.id}/`;
+    item.files.length === 1
+      ? `/${item.name}/${item.files[0]}`
+      : `/${item.name}/`;
   return u.toString();
 }
