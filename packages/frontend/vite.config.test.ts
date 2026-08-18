@@ -4,7 +4,7 @@
 // 运行时无 .env、用默认 ~/.pi/agent → 前端 resolveSessionCwd 拼出的会话目录查错位置 →
 // listDir 返回 fs:error → ExplorerPanel 静默 [] → 文件树空白。
 import { test, expect } from "bun:test";
-import { resolveInjectedValue } from "./vite.config";
+import { resolveInjectedValue, resolveWsPortDefine } from "./vite.config";
 
 const devEnvVars = {
   WA_PI_DIR: "${HOME}/.pi/agent-dev",
@@ -34,13 +34,54 @@ test("production：即使 process.env 被 bun 自动加载 .env 污染（值为 
   ).toBeUndefined();
 });
 
-test("HOME：production 也注入（来自 process.env，shared 用它拼默认 ~/.pi/agent）", () => {
+test("production：机器相关路径（HOME/USERPROFILE/WA_PI_DIR）全部不注入（打包版 bundle 不得携带构建机家目录）", () => {
+  // v0.2.7 只挡了 WA_PI_DIR，漏掉 HOME/USERPROFILE：打包机是 macOS（HOME=/Users/pipi）时，
+  // 前端 constants.ts 用 `${HOME}/.pi/agent` 回退拼出 /Users/pipi/.pi/agent/workdir，
+  // 在 Windows 上请求该路径 → listDir ENOENT → 默认工作区文件树空白。
+  // 前端应使用 kernel 持久化的 __system__.cwd（运行时本机路径），故机器路径一律不注入。
   expect(
     resolveInjectedValue(
       "HOME",
       "production",
-      { HOME: "/Users/pipi" },
+      { HOME: "/Users/pipi", USERPROFILE: "C:\\Users\\co" },
       devEnvVars,
     ),
-  ).toBe("/Users/pipi");
+  ).toBeUndefined();
+  expect(
+    resolveInjectedValue(
+      "USERPROFILE",
+      "production",
+      { HOME: "/Users/pipi", USERPROFILE: "C:\\Users\\co" },
+      devEnvVars,
+    ),
+  ).toBeUndefined();
+  expect(
+    resolveInjectedValue(
+      "WA_PI_DIR",
+      "production",
+      { WA_PI_DIR: "/Users/pipi/.pi/agent-dev" },
+      devEnvVars,
+    ),
+  ).toBeUndefined();
+});
+
+test("production：WA_PI_WS_PORT 恒注入默认 9776，不读打包机 process.env / .env", () => {
+  // 打包机 .env 里的 dev 端口若进 bundle，安装版前端会连错端口。
+  expect(
+    resolveWsPortDefine(
+      "production",
+      { WA_PI_WS_PORT: "19976" },
+      { WA_PI_WS_PORT: "29976" },
+    ),
+  ).toBe("9776");
+});
+
+test("development：WA_PI_WS_PORT 优先 process.env，其次 .env，兜底 9776", () => {
+  expect(
+    resolveWsPortDefine("development", { WA_PI_WS_PORT: "19976" }, {}),
+  ).toBe("19976");
+  expect(
+    resolveWsPortDefine("development", {}, { WA_PI_WS_PORT: "29976" }),
+  ).toBe("29976");
+  expect(resolveWsPortDefine("development", {}, {})).toBe("9776");
 });
