@@ -8,7 +8,7 @@
 // 不变量：state.json 是唯一事实源。手动塞进 items/ 的文件不部署不显示；
 // 手动删 items/<id>/ 后，loadItems 读时自动对账剔除记录。
 
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { strToU8, zipSync } from "fflate";
 
@@ -18,8 +18,7 @@ export const SHARE_ID_RE = /^[0-9a-f]{12}$/;
 
 /** 分享名（文件夹名/URL 子路径）合法字符：字母数字、中文、-_. 与空格；
  *  禁止路径分隔符与 . / ..（防路径穿越）。文件夹名与 URL 子路径共用此名。 */
-export const SHARE_NAME_RE =
-	/^[a-zA-Z0-9\u4e00-\u9fa5\-_. ]{1,64}$/;
+export const SHARE_NAME_RE = /^[a-zA-Z0-9\u4e00-\u9fa5\-_. ]{1,64}$/;
 
 /** EdgeOne Pages 单文件上限 25MB */
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -62,21 +61,115 @@ async function dirExists(p: string): Promise<boolean> {
 	}
 }
 
-/** 读取分享记录（读时对账：目录已丢失或 id 非法的记录自动剔除并落盘） */
+/** 递归列目录下相对路径（/ 分隔），按名称排序保证确定性 */
+async function listFilesRecursive(
+	root: string,
+	base = "",
+): Promise<string[]> {
+	let out: string[] = [];
+	let entries: string[] = [];
+	try {
+		entries = await readdir(root);
+	} catch {
+		return out;
+	}
+	entries.sort();
+	for (const name of entries) {
+		const p = join(root, name);
+		const st = await stat(p).catch(() => null);
+		if (!st) continue;
+		if (st.isDirectory()) {
+			out = out.concat(
+				await listFilesRecursive(p, base ? `${base}/${name}` : name),
+			);
+		} else {
+			out.push(base ? `${base}/${name}` : name);
+		}
+	}
+	return out;
+}
+
+/** 旧格式（穿透改造前，文件夹 = items/<id>/）迁移：
+ *  推断 name（单文件=文件名、多=N 个文件，与自动名规则一致；重名加后缀）、
+ *  把文件夹重命名为 items/<name>/、重建 ShareItem。
+ *  返回 null 表示 items/<id>/ 不存在（非旧格式）。 */
+async function migrateLegacyItem(
+	dir: string,
+	id: string,
+	existing: ShareItem[],
+): Promise<ShareItem | null> {
+	const legacyDir = join(itemsDir(dir), id);
+	if (!(await dirExists(legacyDir))) return null;
+	const files = await listFilesRecursive(legacyDir);
+	const baseName =
+		files.length === 1
+			? (files[0].split("/").pop() ?? files[0])
+			: `${files.length} 个文件`;
+	let name = baseName;
+	let n = 2;
+	while (
+		existing.some((i) => i.name === name) ||
+		(await dirExists(join(itemsDir(dir), name)))
+	) {
+		name = `${baseName} ${n++}`;
+	}
+	let size = 0;
+	for (const rel of files) {
+		const fp = join(legacyDir, ...rel.split("/"));
+		size += (await stat(fp).catch(() => ({ size: 0 }))).size ?? 0;
+	}
+	await rename(legacyDir, join(itemsDir(dir), name));
+	return {
+		id,
+		name,
+		files,
+		size,
+		createdAt: Date.now(),
+	};
+}
+
+/** 读取分享记录（读时对账：目录已丢失或 id 非法的记录自动剔除并落盘；
+ *  旧格式 items/<id>/ 文件夹自动迁移到 items/<name>/；items/ 下孤儿 id 文件夹恢复为记录）。 */
 export async function loadItems(dir: string): Promise<ShareItem[]> {
 	const { items } = await readState(stateFile(dir));
 	const alive: ShareItem[] = [];
-	let dropped = false;
+	let changed = false;
 	for (const it of items) {
 		// 非法 id（如 "../.."）直接剔除：既防路径穿越，也防脏数据污染部署包
 		if (!SHARE_ID_RE.test(it.id)) {
-			dropped = true;
+			changed = true;
 			continue;
 		}
-		if (await dirExists(join(itemsDir(dir), it.name))) alive.push(it);
-		else dropped = true;
+		if (await dirExists(join(itemsDir(dir), it.name))) {
+			alive.push(it);
+		} else {
+			// 新格式目录缺失：回退检查旧格式 items/<id>/（穿透改造前的分享）→ 迁移恢复
+			const migrated = await migrateLegacyItem(dir, it.id, alive);
+			if (migrated) {
+				alive.push(migrated);
+				changed = true;
+			} else {
+				changed = true;
+			}
+		}
 	}
-	if (dropped) await writeState(stateFile(dir), alive);
+	// 扫描 items/ 下孤儿 id 文件夹（state 缺失/被清空但文件还在的旧分享）→ 恢复
+	let orphans: string[] = [];
+	try {
+		orphans = await readdir(itemsDir(dir));
+	} catch {
+		orphans = [];
+	}
+	for (const name of orphans) {
+		if (!SHARE_ID_RE.test(name)) continue;
+		if (alive.some((i) => i.id === name)) continue;
+		const recovered = await migrateLegacyItem(dir, name, alive);
+		if (recovered) {
+			alive.push(recovered);
+			changed = true;
+		}
+	}
+	if (changed) await writeState(stateFile(dir), alive);
 	return alive;
 }
 

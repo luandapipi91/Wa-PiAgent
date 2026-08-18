@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — fix(kernel): 分享名穿透兼容旧数据（items/<id>/ 自动迁移恢复）
+
+- 穿透改造后 loadItems 对账检查 items/<name>/，旧分享（文件夹 = items/<id>/）被误判目录丢失剔除，导致「我的分享」列表清空。新增旧格式自动迁移：items/<name>/ 缺失时回退检查 items/<id>/（推断 name：单文件=文件名、多=N 个文件，重名加后缀）重命名文件夹并恢复记录；同时扫描 items/ 下孤儿 id 文件夹（state 已空的旧分享）恢复。
+- 影响范围：`packages/kernel/src/share/workspace.ts`（listFilesRecursive / migrateLegacyItem / loadItems 增强）；测试 `share-workspace.test.ts`（旧格式迁移 + 孤儿恢复 2 用例）。
+
 ## 2026-08-18 — feat(kernel+frontend): 分享名穿透为文件夹名与 URL 子路径（命名/查重/重命名）
 
 - 分享名（ShareItem.name）穿透为本地文件夹名（items/<name>/）与线上 URL 子路径（/<name>/），全库唯一；分享弹窗新增「分享名称」输入（默认自动名：文件夹名/文件名/N 个文件，可改），重名返回 409「已有分享名称重复，请使用其他名字」并 toast 提示；系统设置 → 我的分享 每条右侧加铅笔重命名（点击变 input，回车/失焦保存，Esc 取消）。

@@ -1,5 +1,5 @@
 import { test, expect, afterEach } from "bun:test";
-import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unzipSync, strFromU8 } from "fflate";
@@ -37,7 +37,9 @@ test("addItem 写文件并记录状态，loadItems 读回", async () => {
   expect(items.length).toBe(1);
   expect(items[0].id).toBe("abc123abc123");
   expect(items[0].size).toBe(10);
-  expect(await readFile(join(d, "items/a.html/a.html"), "utf8")).toBe("<h1>A</h1>");
+  expect(await readFile(join(d, "items/a.html/a.html"), "utf8")).toBe(
+    "<h1>A</h1>",
+  );
 });
 
 test("addItem 同 id 覆盖不产生重复记录", async () => {
@@ -51,7 +53,10 @@ test("addItem 同 id 覆盖不产生重复记录", async () => {
 
 test("addItem 支持子目录条目", async () => {
   const d = await tmp();
-  await addItem(d, "a1b2c3d4e5f6", "站点", [entry("index.html", "x"), entry("css/a.css", "y")]);
+  await addItem(d, "a1b2c3d4e5f6", "站点", [
+    entry("index.html", "x"),
+    entry("css/a.css", "y"),
+  ]);
   const items = await loadItems(d);
   expect(items[0].files).toEqual(["index.html", "css/a.css"]);
   expect(await readFile(join(d, "items/站点/css/a.css"), "utf8")).toBe("y");
@@ -100,13 +105,18 @@ test("loadItems 对账剔除非法 id 记录并落盘", async () => {
   expect((await loadItems(d)).map((i) => i.id)).toEqual(["aaaaaaaaaaaa"]);
   // 剔除结果已落盘
   const after = JSON.parse(await readFile(statePath, "utf8"));
-  expect(after.items.map((i: { id: string }) => i.id)).toEqual(["aaaaaaaaaaaa"]);
+  expect(after.items.map((i: { id: string }) => i.id)).toEqual([
+    "aaaaaaaaaaaa",
+  ]);
 });
 
 test("buildDeployZip 含 index.html 与全部条目前缀路径（文件夹名 = 分享名）", async () => {
   const d = await tmp();
   await addItem(d, "a1b2c3d4e5f6", "a.html", [entry("a.html", "A")]);
-  await addItem(d, "f6e5d4c3b2a1", "站点", [entry("index.html", "B"), entry("x/y.js", "C")]);
+  await addItem(d, "f6e5d4c3b2a1", "站点", [
+    entry("index.html", "B"),
+    entry("x/y.js", "C"),
+  ]);
   const files = unzipSync(await buildDeployZip(d));
   expect(Object.keys(files).sort()).toEqual([
     "a.html/a.html",
@@ -136,4 +146,42 @@ test("totalSize 汇总记录大小", async () => {
   const d = await tmp();
   await addItem(d, "aaaaaaaaaaaa", "a", [entry("a.txt", "12345")]);
   expect(totalSize(await loadItems(d))).toBe(5);
+});
+
+test("loadItems 旧格式迁移：state 记录指向 items/<id>/（穿透改造前）→ 自动迁移为 items/<name>/", async () => {
+  const d = await tmp();
+  const itemsDirPath = join(d, "items");
+  // 模拟旧格式：文件夹 = items/<id>/（穿透改造前），state 记录 name 是展示名
+  await mkdir(join(itemsDirPath, "abc123abc123"), { recursive: true });
+  await writeFile(join(itemsDirPath, "abc123abc123", "index.html"), "A", "utf8");
+  await writeFile(join(d, "state.json"), JSON.stringify({
+    items: [{ id: "abc123abc123", name: "旧名", files: ["index.html"], size: 1, createdAt: 100 }],
+  }), "utf8");
+  const items = await loadItems(d);
+  // 记录保留，name 由内容推断（单文件 → index.html），文件夹已迁移
+  expect(items).toHaveLength(1);
+  expect(items[0].id).toBe("abc123abc123");
+  expect(items[0].name).toBe("index.html");
+  expect(await readFile(join(itemsDirPath, "index.html", "index.html"), "utf8")).toBe("A");
+  // 迁移已落盘
+  const saved = JSON.parse(await readFile(join(d, "state.json"), "utf8"));
+  expect(saved.items[0].name).toBe("index.html");
+});
+
+test("loadItems 孤儿恢复：state 已空但 items/<id>/ 还在（旧分享）→ 扫描恢复为记录", async () => {
+  const d = await tmp();
+  const itemsDirPath = join(d, "items");
+  // state 空 + 两个旧格式 id 文件夹
+  await writeFile(join(d, "state.json"), JSON.stringify({ items: [] }), "utf8");
+  await mkdir(join(itemsDirPath, "aaaaaaaaaaaa"), { recursive: true });
+  await writeFile(join(itemsDirPath, "aaaaaaaaaaaa", "a.txt"), "1", "utf8");
+  await mkdir(join(itemsDirPath, "bbbbbbbbbbbb", "sub"), { recursive: true });
+  await writeFile(join(itemsDirPath, "bbbbbbbbbbbb", "sub", "b.js"), "2", "utf8");
+  const items = await loadItems(d);
+  expect(items.map((i) => i.id).sort()).toEqual(["aaaaaaaaaaaa", "bbbbbbbbbbbb"]);
+  expect(items.find((i) => i.id === "aaaaaaaaaaaa")?.name).toBe("a.txt");
+  // bbbbbbbbbb 只有一个文件（sub/b.js）→ 单文件取文件名 b.js
+  expect(items.find((i) => i.id === "bbbbbbbbbbbb")?.name).toBe("b.js");
+  // 文件夹已迁移为新格式
+  expect(await readFile(join(itemsDirPath, "a.txt", "a.txt"), "utf8")).toBe("1");
 });
