@@ -354,6 +354,35 @@ test("重试期间顶部显示黄色重试条（优先于红色异常条），�
 	expect(screen.getByTestId("net-status-bar")).toBeTruthy();
 });
 
+test("net:status 携带具体原因时红色状态条显示该原因（而非通用文案）", async () => {
+	useProjectsStore.setState({ currentSessionId: "s1" });
+	render(<App />);
+	await act(async () => {});
+	act(() => {
+		emitEvent({
+			type: "net:status",
+			status: "degraded",
+			message: "请求过于频繁（429），请稍后重试",
+			sessionId: "s1",
+		});
+	});
+	const bar = screen.getByTestId("net-status-bar");
+	expect(bar.textContent).toContain("请求过于频繁（429），请稍后重试");
+});
+
+test("net:status 无具体原因时红色状态条回落通用文案", async () => {
+	useProjectsStore.setState({ currentSessionId: "s1" });
+	useSessionStore.setState({
+		netStatusBySession: { s1: "degraded" },
+		netMessageBySession: {},
+	});
+	render(<App />);
+	await act(async () => {});
+	expect(screen.getByTestId("net-status-bar").textContent).toContain(
+		"模型连接异常",
+	);
+});
+
 test("扩展 setTitle → 聊天窗顶部标题条", async () => {
 	useProjectsStore.setState({ currentSessionId: "s1" });
 	useSessionStore.setState({

@@ -76,6 +76,9 @@ interface SessionState {
 	// 顶部状态条提示「模型连接异常」；下次成功回复（message_end 正常）或重连后清除。
 	// 与 events.ts 的 ConnectionState（SSE 推送通道）区分——那是 kernel→前端通道。
 	netStatusBySession: Record<string, "degraded" | null>;
+	// 与 netStatusBySession 配套的具体原因文案（kernel classifySdkError 清洗后的 message，
+	// 如「请求过于频繁（429）」），供状态条展示具体原因；无则回落通用文案。
+	netMessageBySession: Record<string, string | null>;
 	// 会话级 pi 自动重试状态：auto_retry_start 时置 {attempt, maxAttempts}，
 	// 顶部黄色状态条提示「正在自动重试 (n/m)」（优先于红色 degraded 条）；
 	// auto_retry_end（成功/耗尽/中止）或 agent_end{willRetry:false} 时清除。
@@ -149,7 +152,7 @@ interface SessionState {
 	 *  agent_end，需手动把 status 归 idle、清 streaming 占位与思考计时，否则 UI 永远卡 thinking。 */
 	failTurn: (sessionId: string) => void;
 	/** 设置会话的 Provider 连接状态（transient 网络错误 → degraded，驱动状态条）。 */
-	setNetStatus: (sessionId: string, status: "degraded" | null) => void;
+	setNetStatus: (sessionId: string, status: "degraded" | null, message?: string) => void;
 	/** 清除会话的 Provider 连接异常标记（重连成功 / 正常回复后）。 */
 	clearNetStatus: (sessionId: string) => void;
 	// 新增：处理 sdk:event 信封事件（流式两态管理核心入口）
@@ -293,6 +296,7 @@ export const useSessionStore = create<SessionState>((set) => {
 		lastUsageBySession: {},
 		contextUsageBySession: {},
 		netStatusBySession: {},
+		netMessageBySession: {},
 		retryBySession: {},
 		extStatusBySession: {},
 		extWidgetBySession: {},
@@ -544,6 +548,7 @@ export const useSessionStore = create<SessionState>((set) => {
 					lastUsageBySession: prune(s.lastUsageBySession),
 					contextUsageBySession: prune(s.contextUsageBySession),
 					netStatusBySession: prune(s.netStatusBySession),
+					netMessageBySession: prune(s.netMessageBySession),
 					retryBySession: prune(s.retryBySession),
 					extStatusBySession: prune(s.extStatusBySession),
 					extWidgetBySession: prune(s.extWidgetBySession),
@@ -567,6 +572,7 @@ export const useSessionStore = create<SessionState>((set) => {
 				promptErrorBySession: {},
 				unreadBySession: {},
 				netStatusBySession: {},
+				netMessageBySession: {},
 				retryBySession: {},
 				extStatusBySession: {},
 				extWidgetBySession: {},
@@ -611,14 +617,21 @@ export const useSessionStore = create<SessionState>((set) => {
 			}));
 		},
 
-		setNetStatus: (sessionId, status) =>
+		setNetStatus: (sessionId, status, message) =>
 			set((s) => {
-				// 状态相同不触发重渲染
-				if (s.netStatusBySession[sessionId] === status) return {};
+				// 状态与原因都相同不触发重渲染
+				if (
+					s.netStatusBySession[sessionId] === status &&
+					(s.netMessageBySession[sessionId] ?? null) === (message ?? null)
+				)
+					return {};
 				const next = { ...s.netStatusBySession };
+				const nextMsg = { ...s.netMessageBySession };
 				if (status === null) delete next[sessionId];
 				else next[sessionId] = status;
-				return { netStatusBySession: next };
+				if (message == null) delete nextMsg[sessionId];
+				else nextMsg[sessionId] = message;
+				return { netStatusBySession: next, netMessageBySession: nextMsg };
 			}),
 
 		clearNetStatus: (sessionId) =>
@@ -626,7 +639,9 @@ export const useSessionStore = create<SessionState>((set) => {
 				if (!s.netStatusBySession[sessionId]) return {};
 				const next = { ...s.netStatusBySession };
 				delete next[sessionId];
-				return { netStatusBySession: next };
+				const nextMsg = { ...s.netMessageBySession };
+				delete nextMsg[sessionId];
+				return { netStatusBySession: next, netMessageBySession: nextMsg };
 			}),
 
 		optimisticSend: (sessionId, text, agentName) =>
@@ -989,9 +1004,12 @@ export const useSessionStore = create<SessionState>((set) => {
 						}
 						// 正常回复到达 → 网络已恢复，清除 transient 错误的 degraded 标记
 						let netStatusBySession = s.netStatusBySession;
+						let netMessageBySession = s.netMessageBySession;
 						if (msg.stopReason !== "error" && s.netStatusBySession[sessionId]) {
 							netStatusBySession = { ...s.netStatusBySession };
 							delete netStatusBySession[sessionId];
+							netMessageBySession = { ...s.netMessageBySession };
+							delete netMessageBySession[sessionId];
 						}
 						return {
 							streamingBySession: {
@@ -1000,6 +1018,7 @@ export const useSessionStore = create<SessionState>((set) => {
 							},
 							messagesBySession: { ...s.messagesBySession, [sessionId]: list },
 							netStatusBySession,
+							netMessageBySession,
 						};
 					});
 					break;
@@ -1010,9 +1029,12 @@ export const useSessionStore = create<SessionState>((set) => {
 						// agent turn 开始 = 请求已成功送达 provider = 网络已恢复，
 						// 立即清除 transient degraded 标记（不等 message_end，避免整轮回复期间状态条残留）。
 						let netStatusBySession = s.netStatusBySession;
+						let netMessageBySession = s.netMessageBySession;
 						if (s.netStatusBySession[sessionId]) {
 							netStatusBySession = { ...s.netStatusBySession };
 							delete netStatusBySession[sessionId];
+							netMessageBySession = { ...s.netMessageBySession };
+							delete netMessageBySession[sessionId];
 						}
 						return {
 							statusBySession: {
@@ -1024,6 +1046,7 @@ export const useSessionStore = create<SessionState>((set) => {
 								[sessionId]: s.thinkingSinceBySession[sessionId] ?? Date.now(),
 							},
 							netStatusBySession,
+							netMessageBySession,
 						};
 					});
 					break;

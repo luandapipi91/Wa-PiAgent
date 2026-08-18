@@ -1483,6 +1483,70 @@ test("error message_end 不清除 degraded（fatal 错误仍属异常态）", ()
 	expect(useSessionStore.getState().netStatusBySession["s1"]).toBe("degraded");
 });
 
+test("setNetStatus 携带 message 时存入 netMessageBySession，clearNetStatus 一并清除", () => {
+	useSessionStore
+		.getState()
+		.setNetStatus("s1", "degraded", "请求过于频繁（429）");
+	expect(useSessionStore.getState().netMessageBySession["s1"]).toBe(
+		"请求过于频繁（429）",
+	);
+	useSessionStore.getState().clearNetStatus("s1");
+	expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
+	expect(useSessionStore.getState().netMessageBySession["s1"]).toBeUndefined();
+});
+
+test("setNetStatus 不带 message 时清除该会话已有原因文案", () => {
+	useSessionStore
+		.getState()
+		.setNetStatus("s1", "degraded", "请求过于频繁（429）");
+	useSessionStore.getState().setNetStatus("s1", "degraded");
+	expect(useSessionStore.getState().netMessageBySession["s1"]).toBeUndefined();
+});
+
+test("agent_start 清除 degraded 时一并清除原因文案", () => {
+	useSessionStore.setState({
+		netStatusBySession: { s1: "degraded" },
+		netMessageBySession: { s1: "Connection error" },
+	});
+	useSessionStore
+		.getState()
+		.handleSDKEvent("s1", envelope({ type: "agent_start" }));
+	expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
+	expect(useSessionStore.getState().netMessageBySession["s1"]).toBeUndefined();
+});
+
+test("正常 message_end(stop) 清除 degraded 时一并清除原因文案", () => {
+	useSessionStore.setState({
+		netStatusBySession: { s1: "degraded" },
+		netMessageBySession: { s1: "Connection error" },
+		streamingBySession: {
+			s1: {
+				message: {
+					role: "assistant",
+					content: [],
+					model: "m",
+					stopReason: "stop",
+					timestamp: 2,
+				},
+				agentName: "dev",
+			},
+		},
+	});
+	const env = envelope({
+		type: "message_end",
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "回复" }],
+			model: "m",
+			stopReason: "stop",
+			timestamp: 2,
+		},
+	});
+	useSessionStore.getState().handleSDKEvent("s1", env);
+	expect(useSessionStore.getState().netStatusBySession["s1"]).toBeUndefined();
+	expect(useSessionStore.getState().netMessageBySession["s1"]).toBeUndefined();
+});
+
 test("agent_end 携带 elapsedMs 时写回最后一条 assistant 消息 turnElapsedMs", () => {
 	useSessionStore.getState().setMessages("s1", [
 		{
