@@ -11,7 +11,10 @@ import { unzipSync } from "fflate";
 import type { HttpRouter } from "../http-router";
 import type { ShareProgressEvent } from "@wa-pi/shared";
 import { readJsonBody } from "./types";
-import { deployToCloudflare } from "../share/cloudflare-pages-client";
+import {
+	CF_SHARE_PROJECT_NAME,
+	deployToCloudflare,
+} from "../share/cloudflare-pages-client";
 import {
 	deployWorkspace,
 	detectBaseUrl,
@@ -44,7 +47,8 @@ import { loadShareSettings } from "../settings-store";
 export interface ShareRouteCfg {
 	/** 静态 token（测试注入）；为空的场景由 handler 内 loadShareSettings 读取最新值 */
 	token: string;
-	channel: string;
+	/** 渠道兜底（测试注入）；生产注册处不再传死值，handler 内 loadShareSettings 恒有默认值 edgeone */
+	channel?: string;
 	/** 测试注入 fake COS 客户端 */
 	cosFactory?: (creds: {
 		SecretId: string;
@@ -89,7 +93,7 @@ export function createShareRoutes(
 			);
 		return {
 			token,
-			channel: latest.channel || cfg.channel,
+			channel: latest.channel || cfg.channel || "edgeone",
 			customDomain: latest.customDomain,
 		};
 	}
@@ -331,6 +335,15 @@ export function createShareRoutes(
 					{ error: "内容尚未部署，请先立即部署" },
 					{ status: 409 },
 				);
+			// 当前渠道实时读取设置；CF 渠道链接公开恒定，幂等返回根 URL（不重签 token）
+			const settings = await loadShareSettings(cfg.settingsFile);
+			if (settings.channel === "cloudflare") {
+				return Response.json({
+					url: `https://${CF_SHARE_PROJECT_NAME}.pages.dev`,
+					expiresAt: 0,
+					channel: "cloudflare",
+				});
+			}
 			const auth = await requireToken();
 			if (auth instanceof Response) return auth;
 			const baseUrl = await detectBaseUrl(auth.token);

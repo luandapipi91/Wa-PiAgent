@@ -321,6 +321,30 @@ test("7b. refresh-link：本地有记录但从未成功部署 → 409", async ()
     expect((await res!.json()).error).toContain("尚未部署");
 });
 
+test("7c. refresh-link：channel=cloudflare 时返回 CF 公开根 URL 且 expiresAt=0（幂等，不重签 token）", async () => {
+    // 前提：settings.json 里 share.channel = "cloudflare"、accountId = "acc-cf"
+    writeFileSync(
+        join(dir, "settings.json"),
+        JSON.stringify({
+            share: { token: "tk_cf", channel: "cloudflare", accountId: "acc-cf" },
+        }),
+    );
+    mockCloudflare();
+    const router = setup("tk_test");
+    // 先走一次 CF 部署写入快照（refresh-link 的 409 检查需命中部署记录）；
+    // 该端点不发起新部署——CF 分支早退，mockCloudflare 未覆盖的 CF 分支若被走到会直接抛错
+    const up = await uploadOne(router);
+    expect(up.channel).toBe("cloudflare");
+
+    const res = await post(router, "/api/share/refresh-link", { id: up.id });
+    expect(res!.status).toBe(200);
+    const data = await res!.json();
+    // CF 根 URL：https://{CF_SHARE_PROJECT_NAME}.pages.dev；expiresAt=0 表示永久
+    expect(data.url).toBe("https://wapi-shares.pages.dev");
+    expect(data.expiresAt).toBe(0);
+    expect(data.channel).toBe("cloudflare");
+}, 15000);
+
 test("upload 全程广播进度：packing → uploading(百分比) → deploying → done", async () => {
     mockEdgeOne();
     const events: any[] = [];
