@@ -5,7 +5,8 @@
 // cfg.token 为静态注入（生产置空，handler 内每次读最新分享设置，保存后无需重启）；
 // cfg.cosFactory / pollIntervalMs 供测试注入。
 
-import { dirname, sep } from "node:path";
+import { basename, dirname, sep } from "node:path";
+import { statSync } from "node:fs";
 import type { HttpRouter } from "../http-router";
 import type { ShareProgressEvent } from "@wa-pi/shared";
 import { readJsonBody } from "./types";
@@ -53,6 +54,8 @@ export interface ShareRouteCfg {
 	pollIntervalMs?: number;
 	/** 进度广播（SSE），ws-server 注入 this.broadcast；测试可注入 spy */
 	broadcast?: (e: ShareProgressEvent) => void;
+	/** 打开分享文件夹的系统打开器（测试注入 spy，避免真实弹 Finder）；缺省按平台 spawn */
+	opener?: (dir: string) => void;
 }
 
 export function createShareRoutes(
@@ -135,7 +138,13 @@ export function createShareRoutes(
 			const auth = await requireToken();
 			if (auth instanceof Response) return auth;
 
-			const entries = collectZipEntries(paths, commonRoot(paths));
+			// 单个文件夹分享：以文件夹本身为根，内容平铺到 /<id>/ 下
+			// （否则 commonRoot 取父目录，条目会多套一层文件夹名）
+			const singleDir =
+				paths.length === 1 && statSync(paths[0]).isDirectory()
+					? paths[0]
+					: null;
+			const entries = collectZipEntries(paths, singleDir ?? commonRoot(paths));
 			if (entries.length === 0)
 				return Response.json({ error: "paths 为空" }, { status: 400 });
 			const oversized = entries.find((e) => e.data.byteLength > MAX_FILE_BYTES);
@@ -146,8 +155,9 @@ export function createShareRoutes(
 				);
 
 			const id = hashPaths(paths);
-			const name =
-				entries.length === 1
+			const name = singleDir
+				? basename(singleDir)
+				: entries.length === 1
 					? (entries[0].name.split("/").pop() ?? entries[0].name)
 					: `${entries.length} 个文件`;
 			const item = await addItem(workspaceDir, id, name, entries);
@@ -200,6 +210,34 @@ export function createShareRoutes(
 		"/api/share/clear",
 		wrap(async () => {
 			await clearItems(workspaceDir);
+			return Response.json({ ok: true });
+		}),
+	);
+
+	// 打开分享文件夹：浏览器端（dev）没有 Electron 的 showItemInFolder，
+	// 由 kernel 直接调系统打开器兜底（macOS open / Windows explorer / Linux xdg-open）
+	router.add(
+		"POST",
+		"/api/share/open-folder",
+		wrap(async () => {
+			const { mkdir } = await import("node:fs/promises");
+			await mkdir(workspaceDir, { recursive: true });
+			if (cfg.opener) {
+				cfg.opener(workspaceDir);
+				return Response.json({ ok: true });
+			}
+			const { spawn } = await import("node:child_process");
+			const cmd =
+				process.platform === "darwin"
+					? "open"
+					: process.platform === "win32"
+						? "explorer"
+						: "xdg-open";
+			const child = spawn(cmd, [workspaceDir], {
+				detached: true,
+				stdio: "ignore",
+			});
+			child.unref();
 			return Response.json({ ok: true });
 		}),
 	);

@@ -156,3 +156,10 @@ test("shareSettings：解析 customDomain（缺省为空串）", async () => {
 	const s2 = await shareSettings();
 	expect(s2.customDomain).toBe("");
 });
+
+test("shareOpenFolder：POST /api/share/open-folder", async () => {
+	postMock.mockResolvedValue({ ok: true });
+	const { shareOpenFolder } = await import("./share-client");
+	await shareOpenFolder();
+	expect(postMock).toHaveBeenCalledWith("/api/share/open-folder");
+});

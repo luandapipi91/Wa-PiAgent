@@ -8,6 +8,7 @@ import {
 	shareClear,
 	shareDeploy,
 	shareRefreshLink,
+	shareOpenFolder,
 	type ShareItemInfo,
 } from "../../share-client";
 import { copyToClipboard } from "../../util/clipboard";
@@ -132,6 +133,22 @@ export function ShareSection() {
 		try {
 			await shareClear();
 			await refresh();
+		} catch (e) {
+			useToastStore
+				.getState()
+				.add(e instanceof Error ? e.message : String(e), "error");
+		}
+	};
+
+	// 打开分享文件夹：桌面端走 Electron 原生能力；浏览器（dev）走 kernel 系统打开器兜底
+	const onOpenFolder = async () => {
+		if (!workspaceDir) return;
+		if (window.waPiApp?.showItemInFolder) {
+			void window.waPiApp.showItemInFolder(workspaceDir);
+			return;
+		}
+		try {
+			await shareOpenFolder();
 		} catch (e) {
 			useToastStore
 				.getState()
@@ -279,10 +296,7 @@ export function ShareSection() {
 							})}
 						</span>
 						<button
-							onClick={() =>
-								workspaceDir &&
-								void window.waPiApp?.showItemInFolder?.(workspaceDir)
-							}
+							onClick={() => void onOpenFolder()}
 							className="p-1 text-secondary hover:text-primary cursor-pointer border-0 bg-transparent"
 							title={t("settings.share.openFolder")}
 							aria-label={t("settings.share.openFolder")}

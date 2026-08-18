@@ -132,3 +132,8 @@ export async function shareRefreshLink(
 		expiresAt: number;
 	};
 }
+
+/** 打开分享文件夹（浏览器/dev 端无 Electron 能力时由 kernel 调系统打开器） */
+export async function shareOpenFolder(): Promise<void> {
+	await transport.post("/api/share/open-folder");
+}

@@ -2,6 +2,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — fix: 分享三问题修复（打开文件夹兜底/单文件夹去嵌套/删除验证）
+
+- 打开分享文件夹：dev 浏览器端无 `window.waPiApp`（Electron 能力）导致点击无反应；新增 kernel `POST /api/share/open-folder`（按平台 spawn open/explorer/xdg-open，cfg.opener 供测试注入），前端无 Electron 能力时走该兜底。
+- 单文件夹分享去嵌套：原 commonRoot 取父目录导致内容多套一层文件夹名；单个文件夹分享时以文件夹本身为根，内容平铺到 `/<id>/`，条目名称取文件夹名。
+- 「删除分享删文件」经链路验证（upload → delete → items 目录清空）当前代码无问题；若复现需确认 dev kernel 已重启加载新代码。
+- 影响范围：`packages/kernel/src/routes/share.ts`；`packages/frontend/src/share-client.ts`、`components/settings/ShareSection.tsx`；测试同步新增（open-folder/文件夹平铺/前端兜底 3 用例）。
+
 ## 2026-08-18 — style(frontend): 「我的分享」按钮区调整（清空分享红色按钮 + 提示下移）
 
 - 「清空」改名「清空分享」（行为不变：仅本地清空，立即部署后线上生效），改为红色实心按钮并固定在「立即部署」右侧；「N 项变更未部署」提示移到按钮行下方。
