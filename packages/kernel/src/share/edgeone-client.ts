@@ -51,6 +51,12 @@ export async function apiCall<T = any>(
   const json = await res.json();
   if (json.Code !== 0)
     throw new Error(`[${action}] Code ${json.Code}: ${json.Message}`);
+  // Pages API 的另一套错误形态：顶层 Code=0，错误嵌在 Data.Response.Error
+  // （如 CreatePagesProject 名称长度校验失败）。不拦截会静默流向下游，
+  // 表现为 ProjectId/DeploymentId undefined → 轮询永不命中 → 部署超时。
+  const nested = json?.Data?.Response?.Error;
+  if (nested)
+    throw new Error(`[${action}] ${nested.Code}: ${nested.Message}`);
   return json;
 }
 
@@ -84,7 +90,12 @@ export async function getOrCreateProject(
     Offset: 0,
     Limit: 10,
   });
-  return requery?.Data?.Response?.Projects?.[0]?.ProjectId;
+  const requeryId = requery?.Data?.Response?.Projects?.[0]?.ProjectId;
+  // 拿不到 ProjectId 必须抛错：静默返回 undefined 会让下游 COS 路径/部署
+  // 全部带 undefined，最终表现为「部署超时」而不是真实原因
+  if (!requeryId)
+    throw new Error(`获取/创建 Pages 项目失败: ${projectName}`);
+  return requeryId;
 }
 
 /** 取项目的预设域名（PresetDomain）。拿不到就抛错，不再静默降级用项目名 */
@@ -125,8 +136,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** 固定分享项目名：所有分享共存于该项目的子路径，规避 40 个项目上限 */
-export const SHARE_PROJECT_NAME = "wapi";
+/** 固定分享项目名：所有分享共存于该项目的子路径，规避 40 个项目上限。
+ * 注意 EdgeOne 项目名长度限制 5-63（"wapi" 4 字符会被 InvalidParameter.Security 拒绝） */
+export const SHARE_PROJECT_NAME = "wapi-shares";
 
 /** 规范化用户配置的自定义域名：去空白、去协议、去尾斜杠 */
 export function normalizeDomain(input: string | undefined): string {
@@ -195,12 +207,13 @@ export async function deployWorkspace(
         SecurityToken: resp.Credentials.Token,
       });
 
+  const zipKey = `${resp.TargetPath}/bundle.zip`;
   await new Promise<void>((res, rej) =>
     cos.putObject(
       {
         Bucket: resp.Bucket,
         Region: resp.Region,
-        Key: `${resp.TargetPath}/bundle.zip`,
+        Key: zipKey,
         Body: Buffer.from(zip),
         ContentLength: zip.byteLength,
       },
@@ -214,7 +227,8 @@ export async function deployWorkspace(
     Provider: "Upload",
     Env: "Production",
     DistType: "Zip",
-    TempBucketPath: resp.TargetPath,
+    // DistType=Zip 时 TempBucketPath 必须指向 zip 文件本身（只给目录会 Failed Code 26）
+    TempBucketPath: zipKey,
   });
   const deploymentId = dep.Data.Response.DeploymentId;
 

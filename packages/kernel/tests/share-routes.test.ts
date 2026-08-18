@@ -114,7 +114,7 @@ test("1. upload 单文件 → 200，url 指向 <id>/<file>，list 出现条目�
   expect(data.url).toMatch(
     /^https:\/\/wapi-abc\.edgeone\.run\/[0-9a-f]{12}\/index\.html\?eo_token=ET/,
   );
-  expect(data.projectName).toBe("wapi");
+  expect(data.projectName).toBe("wapi-shares");
   expect(data.channel).toBe("edgeone");
   expect(typeof data.id).toBe("string");
   expect(typeof data.expiresAt).toBe("number");

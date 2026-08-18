@@ -280,3 +280,22 @@ test("deployWorkspace：部署失败终态抛错", async () => {
     deployWorkspace({ token: "t", zip: new Uint8Array([1]), cosFactory: fakeCos, pollIntervalMs: 1 }),
   ).rejects.toThrow("部署失败");
 });
+
+test("apiCall：顶层 Code=0 但 Data.Response.Error 嵌套错误时抛错（回归：项目名过短静默失败→部署超时）", async () => {
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        Code: 0,
+        Data: {
+          Response: {
+            Error: { Code: "InvalidParameter.Security", Message: "Name ranges from 5 to 63 length" },
+          },
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )) as any;
+  const { apiCall } = await import("../src/share/edgeone-client");
+  await expect(apiCall("https://x", "t", "CreatePagesProject", {})).rejects.toThrow(
+    "Name ranges from 5 to 63 length",
+  );
+});
