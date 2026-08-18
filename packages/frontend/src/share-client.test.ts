@@ -34,10 +34,15 @@ test("shareUpload 成功：POST /api/share/upload 返回 { url, expiresAt, proje
 		channel: "edgeone",
 	});
 	const res = await shareUpload(["/proj/a.txt", "/proj/b.txt"], "sess-1");
-	expect(postMock).toHaveBeenCalledWith("/api/share/upload", {
-		paths: ["/proj/a.txt", "/proj/b.txt"],
-		sessionId: "sess-1",
-	});
+	// 第三参为长超时（上传含 COS 传输 + 部署轮询，默认 30s 不够）
+	expect(postMock).toHaveBeenCalledWith(
+		"/api/share/upload",
+		{
+			paths: ["/proj/a.txt", "/proj/b.txt"],
+			sessionId: "sess-1",
+		},
+		600_000,
+	);
 	expect(res.url).toBe("https://share.edgeone.app/s/abc123");
 	expect(res.expiresAt).toBe(1780000000000);
 	expect(res.projectName).toBe("my-project");
@@ -117,10 +122,14 @@ test("shareClear：POST /api/share/clear", async () => {
 	expect(postMock).toHaveBeenCalledWith("/api/share/clear");
 });
 
-test("shareDeploy：POST /api/share/deploy", async () => {
+test("shareDeploy：POST /api/share/deploy（长超时）", async () => {
 	postMock.mockResolvedValue({ ok: true, expiresAt: 1780000000000 });
 	await shareDeploy();
-	expect(postMock).toHaveBeenCalledWith("/api/share/deploy");
+	expect(postMock).toHaveBeenCalledWith(
+		"/api/share/deploy",
+		undefined,
+		600_000,
+	);
 });
 
 test("shareRefreshLink：POST /api/share/refresh-link 返回 { url, expiresAt }", async () => {

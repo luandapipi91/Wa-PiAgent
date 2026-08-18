@@ -30,13 +30,13 @@ export interface ShareSettingsInput {
  * put/get 必选：接口中已声明为必选方法，与 fs-client 一致的可注入形态。
  */
 export interface ShareTransport {
-	post: (path: string, body?: unknown) => Promise<unknown>;
+	post: (path: string, body?: unknown, timeoutMs?: number) => Promise<unknown>;
 	put: (path: string, body?: unknown) => Promise<unknown>;
 	get: (path: string) => Promise<unknown>;
 }
 
 const defaultTransport: ShareTransport = {
-	post: (path, body) => api.post(path, body),
+	post: (path, body, timeoutMs) => api.post(path, body, timeoutMs),
 	put: (path, body) => api.put(path, body),
 	get: (path) => api.get(path),
 };
@@ -47,15 +47,21 @@ export function _setShareTransport(t: ShareTransport | null): void {
 	transport = t ?? defaultTransport;
 }
 
-/** 上传产物生成分享链接。未配置 token 时 kernel 返回 400（ApiError）。 */
+/** 上传产物生成分享链接。未配置 token 时 kernel 返回 400（ApiError）。
+ * 上传含 COS 传输 + 部署轮询（最坏 40×5s），多文件/大文件远超默认 30s 超时，
+ * 故用 10 分钟长超时（多选分享 signal timed out 回归）。 */
 export async function shareUpload(
 	paths: string[],
 	sessionId?: string,
 ): Promise<ShareUploadResult> {
-	return (await transport.post("/api/share/upload", {
-		paths,
-		sessionId,
-	})) as ShareUploadResult;
+	return (await transport.post(
+		"/api/share/upload",
+		{
+			paths,
+			sessionId,
+		},
+		600_000,
+	)) as ShareUploadResult;
 }
 
 /** 读取分享设置（是否已配置 token + 渠道）。token 不明文下发，只有 hasToken 布尔。 */
@@ -93,6 +99,8 @@ export interface ShareListResult {
 	pending: number;
 	totalSize: number;
 	totalLimit: number;
+	/** 分享工作区目录（「打开分享文件夹」入口用） */
+	workspaceDir: string;
 }
 
 /** 读取分享列表（kernel 读时自动对账：目录丢失的记录被剔除） */
@@ -110,9 +118,9 @@ export async function shareClear(): Promise<void> {
 	await transport.post("/api/share/clear");
 }
 
-/** 立即部署：把当前本地状态全量发布到线上 */
+/** 立即部署：把当前本地状态全量发布到线上。含 COS 传输 + 部署轮询，用 10 分钟长超时 */
 export async function shareDeploy(): Promise<void> {
-	await transport.post("/api/share/deploy");
+	await transport.post("/api/share/deploy", undefined, 600_000);
 }
 
 /** 重新生成某条分享的 3h 时效链接 */

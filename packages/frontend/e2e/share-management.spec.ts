@@ -68,6 +68,7 @@ async function mockShareApi(page: import("@playwright/test").Page, state: MockSh
 			pending: state.pending,
 			totalSize: state.items.reduce((s, i) => s + i.size, 0),
 			totalLimit: 1024 * 1024 * 1024,
+			workspaceDir: "/tmp/e2e-share-workspace",
 		}),
 	);
 	await page.route("**/api/share/delete", async (route) => {
@@ -108,6 +109,13 @@ async function openShareSection(page: import("@playwright/test").Page) {
 	await expect(page.getByTestId("share-section")).toBeVisible();
 }
 
+// 打开并切到「我的分享」tab（设置区与管理区已拆为两个 tab，管理元素只在该 tab 渲染）
+async function openShareManageTab(page: import("@playwright/test").Page) {
+	await openShareSection(page);
+	await page.getByTestId("share-tab-shares").click();
+	await expect(page.getByTestId("share-manage")).toBeVisible();
+}
+
 test.describe.serial("分享管理（设置-分享 tab）", () => {
 	// 共享 kernel 可能处于无 provider 状态（onboarding-wizard 用例会清空），
 	// 此时初始化向导自动弹出（modal-overlay）会挡住 settings-btn；
@@ -132,15 +140,18 @@ test.describe.serial("分享管理（设置-分享 tab）", () => {
 		const link = page.getByTestId("share-register-link");
 		await expect(link).toBeVisible();
 		await expect(link).toHaveAttribute("href", "https://edgeone.ai/zh/products/pages");
-		// 自定义域名输入框 + 存储用量一并可见
+		// 自定义域名输入框在分享设置 tab 可见
 		await expect(page.getByTestId("share-domain-input")).toBeVisible();
+		// 切到「我的分享」tab：存储用量与「打开分享文件夹」入口可见
+		await page.getByTestId("share-tab-shares").click();
 		await expect(page.getByTestId("share-usage")).toBeVisible();
+		await expect(page.getByTestId("share-open-folder")).toBeVisible();
 	});
 
 	test("list 返回 2 条 → 列表渲染 2 行", async ({ page }) => {
 		const state = makeState();
 		await mockShareApi(page, state);
-		await openShareSection(page);
+		await openShareManageTab(page);
 
 		await expect(page.getByTestId("share-item-aaa111")).toBeVisible();
 		await expect(page.getByTestId("share-item-bbb222")).toBeVisible();
@@ -155,7 +166,7 @@ test.describe.serial("分享管理（设置-分享 tab）", () => {
 	test("点击删除 → delete 接口被调 → 列表剩 1 行且出现未部署提示", async ({ page }) => {
 		const state = makeState();
 		await mockShareApi(page, state);
-		await openShareSection(page);
+		await openShareManageTab(page);
 		await expect(page.getByTestId("share-item-aaa111")).toBeVisible();
 
 		await page.getByTestId("share-delete-aaa111").click();
@@ -172,7 +183,7 @@ test.describe.serial("分享管理（设置-分享 tab）", () => {
 		const state = makeState();
 		state.pending = 2;
 		await mockShareApi(page, state);
-		await openShareSection(page);
+		await openShareManageTab(page);
 
 		await expect(page.getByTestId("share-pending")).toContainText("2 项变更未部署");
 
@@ -186,7 +197,7 @@ test.describe.serial("分享管理（设置-分享 tab）", () => {
 	test("点击清空 → clear 接口被调 → 列表回到暂无分享", async ({ page }) => {
 		const state = makeState();
 		await mockShareApi(page, state);
-		await openShareSection(page);
+		await openShareManageTab(page);
 		await expect(page.getByTestId("share-item-aaa111")).toBeVisible();
 
 		await page.getByTestId("share-clear").click();
