@@ -1,7 +1,10 @@
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 // 通用弹窗容器：fixed 全屏遮罩 + 居中卡片
-// 沿用 AgentConfig 的写法（fixed inset-0 z-50 + rgba 遮罩），补齐点击遮罩/ESC 关闭
+// 沿用 AgentConfig 的写法（fixed inset-0 z-50 + rgba 遮罩），补齐点击遮罩/ESC 关闭。
+// 用 createPortal 渲染到 document.body：脱离挂载点（可能有 transform/overflow 祖先）的
+// 布局与层叠上下文，保证遮罩真正全屏覆盖、点击阴影可靠触发 onClose。
 interface ModalProps {
   children: ReactNode;
   onClose: () => void;
@@ -26,7 +29,7 @@ export function Modal({ children, onClose, width = 480, height, closeOnOverlayCl
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, closeOnEsc]);
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 flex items-center justify-center z-50"
       style={{ background: "rgba(0,0,0,0.25)" }}
@@ -41,6 +44,7 @@ export function Modal({ children, onClose, width = 480, height, closeOnOverlayCl
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — fix(frontend): Modal 改用 createPortal 渲染到 body（点击阴影可靠关闭）
+
+- 分享弹窗点击阴影不关闭：Modal 的 fixed 遮罩若挂载在有 transform/overflow 的祖先内（如文件预览面板等），fixed 退化为相对祖先定位、遮罩不覆盖全屏，点击阴影落在遮罩之外不触发 onClose。Modal 改用 createPortal 渲染到 document.body，脱离挂载点布局/层叠上下文，保证遮罩全屏覆盖、点击阴影可靠关闭（影响所有 Modal 弹窗：分享/文件预览/AgentConfig/确认框等）。
+- 影响范围：`packages/frontend/src/components/ui/Modal.tsx`；新增测试 `Modal.test.tsx`（遮罩点击/卡片不关/ESC 三用例）。
+
 ## 2026-08-18 — fix(kernel): 分享重命名改用原子 rename（原先删旧目录再复制导致 ENOENT 报错）
 
 - renameItem 原先先 rm 旧目录再逐文件读旧目录复制到新目录——旧目录已删导致 readFile ENOENT 报错且数据有丢失风险。改为 rename() 原子移动整个目录（items/ 同盘），并补磁盘同名残留检查防覆盖。
