@@ -5,6 +5,7 @@ import { saveProvider } from "./helpers";
 //
 // 覆盖（docs/superpowers/specs/2026-08-17-share-project-management-design.md Task 6）：
 // 1. 设置 → 分享：注册入口链接可见且 href 按界面语言（默认 zh）指向中文产品页
+// 1b. 渠道切换：切到 Cloudflare 显示 Account ID 输入框与 CF 注册链接，切回 EdgeOne 注册链接恢复（不跑真实部署）
 // 2. 拦截 GET /api/share/list 返回 2 条 → 「我的分享」列表渲染 2 行
 // 3. 点击删除 → POST /api/share/delete 被调（携带 id）→ 再次 list 返回 1 条 → 列表剩 1 行
 // 4. pending>0 时显示「N 项变更未部署」；点击立即部署 → POST /api/share/deploy 被调 → 提示消失
@@ -146,6 +147,35 @@ test.describe.serial("分享管理（设置-分享 tab）", () => {
 		await page.getByTestId("share-tab-shares").click();
 		await expect(page.getByTestId("share-usage")).toBeVisible();
 		await expect(page.getByTestId("share-open-folder")).toBeVisible();
+	});
+
+	test("渠道切换：切到 Cloudflare 显示 Account ID 输入框与注册链接，切回 EdgeOne 注册链接恢复", async ({
+		page,
+	}) => {
+		const state = makeState();
+		await mockShareApi(page, state);
+		await openShareSection(page);
+
+		// 默认 edgeone：EdgeOne 注册链接可见，Cloudflare 表单元素不存在
+		const edgeoneRegister = page.getByTestId("share-register-link");
+		await expect(edgeoneRegister).toBeVisible();
+		await expect(page.getByTestId("share-account-id-input")).toHaveCount(0);
+
+		// 切到 Cloudflare：Account ID 输入框 + CF 注册链接可见，EdgeOne 注册链接消失
+		await page.getByTestId("share-channel-cloudflare").check();
+		await expect(page.getByTestId("share-account-id-input")).toBeVisible();
+		const cfRegister = page.getByTestId("share-cf-register-link");
+		await expect(cfRegister).toBeVisible();
+		await expect(cfRegister).toHaveAttribute(
+			"href",
+			"https://dash.cloudflare.com/sign-up",
+		);
+		await expect(edgeoneRegister).toHaveCount(0);
+
+		// 切回 EdgeOne：注册链接恢复可见，Cloudflare 表单元素消失（不跑真实部署）
+		await page.getByTestId("share-channel-edgeone").check();
+		await expect(edgeoneRegister).toBeVisible();
+		await expect(page.getByTestId("share-account-id-input")).toHaveCount(0);
 	});
 
 	test("list 返回 2 条 → 列表渲染 2 行", async ({ page }) => {

@@ -2,6 +2,9 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18
+- 新增功能：分享渠道支持 Cloudflare Pages（设置 → 分享 → 渠道切换）。公开链接、无 token 时效；配置 Cloudflare API Token + Account ID 即可部署到 pages.dev。后端新增 cloudflare-pages-client（内容寻址上传 + multipart 部署），部署按 channel 分派。
+
 ## 2026-08-18 — feat(share): 分享渠道增加 Cloudflare Pages（前端设置 UI）
 
 - ShareSection 渠道从「腾讯 EdgeOne（只读）」改为可切换控件（edgeone / cloudflare）：edgeone 保留注册入口 + API Token + 自定义域名；cloudflare 渲染 Cloudflare API Token + Account ID + 注册链接（dash.cloudflare.com/sign-up）+ 提示文案（链接永久公开、国内访问约 0.5~2s、单文件 ≤25MB）。
