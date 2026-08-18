@@ -20,6 +20,7 @@ async function request(
 	method: string,
 	path: string,
 	body?: unknown,
+	timeoutMs = 30_000,
 ): Promise<unknown> {
 	const url = path.startsWith("/api/") ? path : `${API_BASE}${path}`;
 	const init: RequestInit = {
@@ -30,7 +31,7 @@ async function request(
 	};
 	const res = await fetch(url, {
 		...init,
-		signal: AbortSignal.timeout(30_000),
+		signal: AbortSignal.timeout(timeoutMs),
 	});
 	let data: any;
 	try {
@@ -50,8 +51,8 @@ export const api = {
 	get(path: string): Promise<unknown> {
 		return request("GET", path);
 	},
-	post(path: string, body?: unknown): Promise<unknown> {
-		return request("POST", path, body);
+	post(path: string, body?: unknown, timeoutMs?: number): Promise<unknown> {
+		return request("POST", path, body, timeoutMs);
 	},
 	put(path: string, body?: unknown): Promise<unknown> {
 		return request("PUT", path, body);

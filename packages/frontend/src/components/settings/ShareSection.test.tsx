@@ -40,7 +40,22 @@ mock.module("../../util/clipboard", () => ({
 	copyImageToClipboard: () => Promise.resolve(),
 }));
 
-const emptyList = { items: [], pending: 0, totalSize: 0, totalLimit: 0 };
+const emptyList = {
+	items: [],
+	pending: 0,
+	totalSize: 0,
+	totalLimit: 0,
+	workspaceDir: "/tmp/ws-test",
+};
+
+/** 渲染并切到「我的分享」tab（管理类用例的前置） */
+async function renderSharesTab() {
+	const r = render(<ShareSection />);
+	await screen.findByTestId("share-section");
+	fireEvent.click(screen.getByTestId("share-tab-shares"));
+	await screen.findByTestId("share-manage");
+	return r;
+}
 
 beforeEach(() => {
 	getMock.mockReset();
@@ -141,7 +156,7 @@ test("我的分享：shareList 返回 2 条 → 渲染名称/大小；空列表�
 		totalSize: 2099200,
 		totalLimit: 104857600,
 	}));
-	const { unmount } = render(<ShareSection />);
+	const { unmount } = await renderSharesTab();
 	await screen.findByTestId("share-item-s1");
 	expect(screen.getByTestId("share-item-s2")).toBeTruthy();
 	expect(screen.getByText("proj-a")).toBeTruthy();
@@ -155,8 +170,7 @@ test("我的分享：shareList 返回 2 条 → 渲染名称/大小；空列表�
 
 	// 空列表 → empty 文案，无「清空」按钮
 	shareListMock.mockImplementation(async () => emptyList);
-	render(<ShareSection />);
-	await screen.findByTestId("share-manage");
+	await renderSharesTab();
 	expect(screen.getByText("暂无分享")).toBeTruthy();
 	expect(screen.queryByTestId("share-clear")).toBeNull();
 });
@@ -176,7 +190,7 @@ test("删除：点击 share-delete-<id> → shareDelete 被调 + 列表刷新", 
 		totalSize: 2048,
 		totalLimit: 104857600,
 	}));
-	render(<ShareSection />);
+	await renderSharesTab();
 	await screen.findByTestId("share-item-s1");
 	// mount 时已调一次 shareList
 	expect(shareListMock).toHaveBeenCalledTimes(1);
@@ -206,7 +220,7 @@ test("复制链接：点击 share-copy-<id> → shareRefreshLink 被调 + copyTo
 		url: "https://share.edgeone.app/s/xyz789",
 		expiresAt: 1780010800000,
 	}));
-	render(<ShareSection />);
+	await renderSharesTab();
 	await screen.findByTestId("share-item-s1");
 	fireEvent.click(screen.getByTestId("share-copy-s1"));
 	await new Promise((r) => setTimeout(r, 10));
@@ -221,7 +235,7 @@ test("立即部署：pending > 0 显示提示；点击 share-deploy → shareDep
 		totalSize: 0,
 		totalLimit: 104857600,
 	}));
-	render(<ShareSection />);
+	await renderSharesTab();
 	// pending 提示带插值计数
 	const hint = await screen.findByTestId("share-pending");
 	expect(hint.textContent).toContain("2");
@@ -241,4 +255,37 @@ test("保存带 customDomain：输入域名点保存 → PUT body 含 customDoma
 	expect(putMock).toHaveBeenCalledWith("/api/settings/share", {
 		share: { token: "", channel: "edgeone", customDomain: "share.example.com" },
 	});
+});
+
+test("tab 切换：默认分享设置，点「我的分享」切列表，互斥渲染", async () => {
+	render(<ShareSection />);
+	await screen.findByTestId("share-section");
+	// 默认分享设置 tab：token 输入框可见，管理区不可见
+	expect(screen.getByTestId("share-token-input")).toBeTruthy();
+	expect(screen.queryByTestId("share-manage")).toBeNull();
+	// 切到我的分享
+	fireEvent.click(screen.getByTestId("share-tab-shares"));
+	await screen.findByTestId("share-manage");
+	expect(screen.queryByTestId("share-token-input")).toBeNull();
+	// 切回分享设置
+	fireEvent.click(screen.getByTestId("share-tab-settings"));
+	await screen.findByTestId("share-token-input");
+	expect(screen.queryByTestId("share-manage")).toBeNull();
+});
+
+test("打开分享文件夹：点击文件夹 icon → showItemInFolder 收到 workspaceDir", async () => {
+	const showMock = mock(async () => true);
+	(window as any).waPiApp = { showItemInFolder: showMock };
+	try {
+		shareListMock.mockImplementation(async () => ({
+			...emptyList,
+			workspaceDir: "/tmp/ws-test",
+		}));
+		await renderSharesTab();
+		fireEvent.click(screen.getByTestId("share-open-folder"));
+		await new Promise((r) => setTimeout(r, 10));
+		expect(showMock).toHaveBeenCalledWith("/tmp/ws-test");
+	} finally {
+		delete (window as any).waPiApp;
+	}
 });

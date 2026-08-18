@@ -158,6 +158,8 @@ export function createShareRoutes(
 				pending: await pendingCount(workspaceDir),
 				totalSize: totalSize(items),
 				totalLimit: TOTAL_STORAGE_BYTES,
+				// 前端「打开分享文件夹」入口用
+				workspaceDir,
 			});
 		}),
 	);

@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — feat(frontend): 分享面板 tab 拆分 + 打开分享文件夹；fix: 多选分享超时
+
+- 设置-分享拆为「分享设置 / 我的分享」两个 tab；「我的分享」存储用量旁新增文件夹 icon（`window.waPiApp.showItemInFolder` 打开工作区目录，kernel `GET /api/share/list` 响应新增 `workspaceDir`）。
+- fix(frontend)：多文件分享报 "signal timed out"——api-client 默认 30s 超时远低于 COS 上传 + 部署轮询耗时；`api.post` 增加可选 timeoutMs，`shareUpload`/`shareDeploy` 用 10 分钟长超时。
+- 影响范围：`packages/frontend/src/api-client.ts`、`share-client.ts`、`components/settings/ShareSection.tsx`、i18n zh/en；`packages/kernel/src/routes/share.ts`（list 加 workspaceDir）；测试 `ShareSection.test.tsx`（tab 切换/文件夹入口 2 新用例）、`share-client.test.ts`（长超时断言）、`e2e/share-management.spec.ts`（tab 适配）。
+
 ## 2026-08-18 — feat: 产物分享改为固定项目 wapi + 分享管理（spec: docs/superpowers/specs/2026-08-17-share-project-management-design.md）
 
 - kernel 新增 share/workspace.ts（state.json 事实源 + 读时对账 + 部署快照 diff）；edgeone-client 部署入口改为 deployWorkspace（固定项目 wapi、自定义域名优先、itemShareUrl 子路径链接）；分享路由六端点（upload/list/delete/clear/deploy/refresh-link）；share-store/share-history 模型下线。
