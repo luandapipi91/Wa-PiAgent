@@ -2,7 +2,7 @@
 // 显示 URL / 复制按钮 / 有效期；未配置 token 显示引导；复制走 util/clipboard。
 // share-client 与 clipboard 整模块 mock（bun mock.module 路径须与组件 import 一致）。
 import { test, expect, beforeEach, mock } from "bun:test";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 const shareSettingsMock = mock(async () => ({
 	hasToken: true,
@@ -124,7 +124,9 @@ test("生成中 deploying 阶段显示 indeterminate 进度条", async () => {
 	fireEvent.click(screen.getByTestId("share-generate-btn"));
 	await screen.findByTestId("share-progress");
 	expect(screen.getByTestId("progress-bar-indeterminate")).toBeTruthy();
-	expect(screen.getByTestId("share-progress-text").textContent).toContain("部署中");
+	expect(screen.getByTestId("share-progress-text").textContent).toContain(
+		"部署中",
+	);
 });
 
 test("分享名称：默认自动名（多文件 = N 个文件），可修改并传给 shareUpload", async () => {
@@ -132,9 +134,9 @@ test("分享名称：默认自动名（多文件 = N 个文件），可修改并
 	fireEvent.click(screen.getByTestId("share-btn"));
 	await screen.findByTestId("share-name-input");
 	// 默认名
-	expect((screen.getByTestId("share-name-input") as HTMLInputElement).value).toBe(
-		"3 个文件",
-	);
+	expect(
+		(screen.getByTestId("share-name-input") as HTMLInputElement).value,
+	).toBe("3 个文件");
 	// 修改
 	fireEvent.change(screen.getByTestId("share-name-input"), {
 		target: { value: "周报" },
@@ -145,7 +147,9 @@ test("分享名称：默认自动名（多文件 = N 个文件），可修改并
 });
 
 test("分享名称重复：kernel 409 时提示「已有分享名称重复」且不显示 URL", async () => {
-	shareUploadMock.mockRejectedValue(new Error("已有分享名称重复，请使用其他名字"));
+	shareUploadMock.mockRejectedValue(
+		new Error("已有分享名称重复，请使用其他名字"),
+	);
 	render(<ShareButton paths={PATHS} />);
 	fireEvent.click(screen.getByTestId("share-btn"));
 	await screen.findByTestId("share-name-input");
@@ -155,4 +159,18 @@ test("分享名称重复：kernel 409 时提示「已有分享名称重复」且
 		"已有分享名称重复",
 	);
 	expect(screen.queryByTestId("share-url")).toBeNull();
+});
+
+test("分享弹窗点击阴影不关闭（防误触丢输入），X 按钮可关闭", async () => {
+	render(<ShareButton paths={PATHS} />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	await screen.findByTestId("share-result-modal");
+	// 点遮罩 → 弹窗仍在（不关闭）
+	fireEvent.click(screen.getByTestId("modal-overlay"));
+	expect(screen.getByTestId("share-result-modal")).toBeTruthy();
+	// X 按钮 → 关闭
+	fireEvent.click(screen.getByTestId("share-close"));
+	await waitFor(() =>
+		expect(screen.queryByTestId("share-result-modal")).toBeNull(),
+	);
 });
