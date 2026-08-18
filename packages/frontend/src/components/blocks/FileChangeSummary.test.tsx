@@ -10,7 +10,7 @@ import { describe, expect, test, mock } from "bun:test";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 mock.module("../../share-client", () => ({
-	shareSettings: mock(async () => ({ token: "edgeone-token", channel: "edgeone" })),
+	shareSettings: mock(async () => ({ hasToken: true, channel: "edgeone" })),
 	shareUpload: mock(async () => ({})),
 	saveShareSettings: async () => {},
 }));

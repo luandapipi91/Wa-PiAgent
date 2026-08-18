@@ -3,7 +3,7 @@
 import { test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 
 const shareSettingsMock = mock(async () => ({
-	token: "edgeone-token",
+	hasToken: true,
 	channel: "edgeone",
 }));
 const shareUploadMock = mock(async () => ({}));

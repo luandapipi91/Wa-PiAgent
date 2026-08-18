@@ -200,7 +200,7 @@ test("多选右键「分享所选」：打开分享弹层且上传 paths 为选�
 	const uploads: Array<{ path: string; body?: unknown }> = [];
 	_setShareTransport({
 		get: async () => ({
-			share: { token: "edgeone-token", channel: "edgeone" },
+			share: { hasToken: true, channel: "edgeone" },
 		}),
 		post: async (path: string, body?: unknown) => {
 			uploads.push({ path, body });
@@ -256,7 +256,7 @@ test("多选右键分享：文件 + 目录混合选中，分享 paths 含文件�
 	const uploads: Array<{ path: string; body?: unknown }> = [];
 	_setShareTransport({
 		get: async () => ({
-			share: { token: "edgeone-token", channel: "edgeone" },
+			share: { hasToken: true, channel: "edgeone" },
 		}),
 		post: async (path: string, body?: unknown) => {
 			uploads.push({ path, body });
