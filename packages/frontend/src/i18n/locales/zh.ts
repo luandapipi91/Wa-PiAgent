@@ -681,7 +681,7 @@ const zh = {
 			deploy: "立即部署",
 			deploying: "部署中…",
 			deployed: "已发布到线上",
-			clearAll: "清空",
+			clearAll: "清空分享",
 			pending: "{{count}} 项变更未部署",
 			usage: "存储 {{used}} / {{limit}}",
 			copyLink: "复制链接",

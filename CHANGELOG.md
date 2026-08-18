@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — style(frontend): 「我的分享」按钮区调整（清空分享红色按钮 + 提示下移）
+
+- 「清空」改名「清空分享」（行为不变：仅本地清空，立即部署后线上生效），改为红色实心按钮并固定在「立即部署」右侧；「N 项变更未部署」提示移到按钮行下方。
+- 影响范围：`packages/frontend/src/components/settings/ShareSection.tsx`、i18n zh/en。
+
 ## 2026-08-18 — feat: 分享上传/部署进度条（SSE 广播 + COS 真实百分比）
 
 - shared 新增 `ShareProgressEvent`（`share:progress`：packing → uploading（0-100 真实百分比）→ deploying → done/error）；kernel `deployWorkspace` 接 COS `onProgress`，share 路由经 SSE 全程广播（含 error 阶段）。

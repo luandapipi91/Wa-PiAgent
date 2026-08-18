@@ -351,25 +351,26 @@ export function ShareSection() {
 								? t("settings.share.deploying")
 								: t("settings.share.deploy")}
 						</button>
-						{pending > 0 && (
-							<span
-								className="text-xs"
-								style={{ color: "var(--warning, #d97706)" }}
-								data-testid="share-pending"
-							>
-								{t("settings.share.pending", { count: pending })}
-							</span>
-						)}
 						{items.length > 0 && (
 							<button
 								onClick={() => void onClear()}
-								className="px-2 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
+								className="px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer"
+								style={{ background: "var(--danger)", color: "#fff" }}
 								data-testid="share-clear"
 							>
 								{t("settings.share.clearAll")}
 							</button>
 						)}
 					</div>
+					{pending > 0 && (
+						<span
+							className="text-xs"
+							style={{ color: "var(--warning, #d97706)" }}
+							data-testid="share-pending"
+						>
+							{t("settings.share.pending", { count: pending })}
+						</span>
+					)}
 					{deploying && (
 						<div
 							className="flex flex-col gap-1.5 w-72"
