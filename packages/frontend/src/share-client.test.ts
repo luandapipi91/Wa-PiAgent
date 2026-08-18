@@ -7,6 +7,11 @@ import {
 	shareUpload,
 	shareSettings,
 	saveShareSettings,
+	shareList,
+	shareDelete,
+	shareClear,
+	shareDeploy,
+	shareRefreshLink,
 } from "./share-client";
 import { ApiError } from "./api-client";
 
@@ -66,8 +71,79 @@ test("shareSettings：未配置时 hasToken 为 false（响应缺省字段也按
 
 test("saveShareSettings：PUT /api/settings/share（body.share 仍为明文 token，仅上行）", async () => {
 	putMock.mockResolvedValue({ share: { hasToken: true, channel: "edgeone" } });
-	await saveShareSettings({ token: "t", channel: "edgeone" });
+	await saveShareSettings({ token: "t", channel: "edgeone", customDomain: "" });
 	expect(putMock).toHaveBeenCalledWith("/api/settings/share", {
-		share: { token: "t", channel: "edgeone" },
+		share: { token: "t", channel: "edgeone", customDomain: "" },
 	});
+});
+
+test("shareList：GET /api/share/list 返回 items/pending/totalSize/totalLimit", async () => {
+	getMock.mockResolvedValue({
+		items: [
+			{
+				id: "s1",
+				name: "proj-a",
+				files: ["index.html"],
+				size: 2048,
+				createdAt: 1780000000000,
+			},
+		],
+		pending: 2,
+		totalSize: 2048,
+		totalLimit: 104857600,
+	});
+	const r = await shareList();
+	expect(getMock).toHaveBeenCalledWith("/api/share/list");
+	expect(r.items).toHaveLength(1);
+	expect(r.items[0].id).toBe("s1");
+	expect(r.items[0].name).toBe("proj-a");
+	expect(r.items[0].files).toEqual(["index.html"]);
+	expect(r.items[0].size).toBe(2048);
+	expect(r.items[0].createdAt).toBe(1780000000000);
+	expect(r.pending).toBe(2);
+	expect(r.totalSize).toBe(2048);
+	expect(r.totalLimit).toBe(104857600);
+});
+
+test("shareDelete：POST /api/share/delete 带 { id }", async () => {
+	postMock.mockResolvedValue({ ok: true });
+	await shareDelete("s1");
+	expect(postMock).toHaveBeenCalledWith("/api/share/delete", { id: "s1" });
+});
+
+test("shareClear：POST /api/share/clear", async () => {
+	postMock.mockResolvedValue({ ok: true });
+	await shareClear();
+	expect(postMock).toHaveBeenCalledWith("/api/share/clear");
+});
+
+test("shareDeploy：POST /api/share/deploy", async () => {
+	postMock.mockResolvedValue({ ok: true, expiresAt: 1780000000000 });
+	await shareDeploy();
+	expect(postMock).toHaveBeenCalledWith("/api/share/deploy");
+});
+
+test("shareRefreshLink：POST /api/share/refresh-link 返回 { url, expiresAt }", async () => {
+	postMock.mockResolvedValue({
+		url: "https://share.edgeone.app/s/xyz789",
+		expiresAt: 1780010800000,
+	});
+	const r = await shareRefreshLink("s1");
+	expect(postMock).toHaveBeenCalledWith("/api/share/refresh-link", { id: "s1" });
+	expect(r.url).toBe("https://share.edgeone.app/s/xyz789");
+	expect(r.expiresAt).toBe(1780010800000);
+});
+
+test("shareSettings：解析 customDomain（缺省为空串）", async () => {
+	getMock.mockResolvedValue({
+		share: { hasToken: true, channel: "edgeone", customDomain: "share.example.com" },
+	});
+	const s1 = await shareSettings();
+	expect(s1.customDomain).toBe("share.example.com");
+	// 响应缺 customDomain 字段时回落 ""
+	getMock.mockResolvedValue({
+		share: { hasToken: true, channel: "edgeone" },
+	});
+	const s2 = await shareSettings();
+	expect(s2.customDomain).toBe("");
 });
