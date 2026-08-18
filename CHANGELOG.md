@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — chore(release): 发布版本 0.2.7（修复打包版默认工作区文件树空白）
+
+- 打包发布 0.2.7（mac + win 完整覆盖 OSS）：修复打包版默认工作区会话右侧文件树空白（前端构建误注入 dev 数据目录 ~/.pi/agent-dev，与 kernel 实际 ~/.pi/agent 不一致）。
+- 影响范围：版本号（`packages/desktop/package.json`、`packages/frontend/package.json`、`version-history.json`）、`RELEASE_NOTES.md`、`VersionTimeline.test.tsx`（maxEntries 断言推进到 0.2.7+0.2.6）。
+
 ## 2026-08-18 — fix(build): 打包版默认工作区会话文件树空白（前端注入 dev WA_PI_DIR）
 
 - 根因：`vite.config.ts` 的 loadEnv 把 `.env`（dev 专用 `WA_PI_DIR=${HOME}/.pi/agent-dev`）注入生产 bundle；打包版 kernel 运行时无 .env、默认 `~/.pi/agent`。前端 `resolveSessionCwd` 拼出的会话目录查 `~/.pi/agent-dev/workdir/<createdAt>`，而实际在 `~/.pi/agent/workdir/<createdAt>` → `list-dir` 返回 `fs:error` → `ExplorerPanel` 静默 `[]` → 默认工作区会话右侧文件树空白。dev 正常是因为 dev kernel（bun --env-file=.env）与前端都用 agent-dev。
