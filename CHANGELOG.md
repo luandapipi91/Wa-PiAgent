@@ -8,11 +8,13 @@
 - 磁盘兼容：实际上限随剩余空间自适应——`min(10MB, max(上限的 10%, 剩余空间 * 1%))`，小磁盘机器自动收紧（statfs 结果缓存 60s；statfs 不可用时按 10MB 处理）。
 - 影响范围：`packages/desktop/src/util/log.cjs`（createLogger 新增可选 maxBytes/keepBytes/getFreeBytes 参数，调用方 main.cjs 不变）、`packages/desktop/tests/log.cjs.test.ts`（新增）。
 
-## 2026-08-18 — fix(kernel): 代理中途失效自动回退直连（本地代理中继）
+## 2026-08-18 — fix(kernel): 代理中途失效自动回退直连（本地代理中继）+ 网络请求日志
 
 - 问题：开启系统代理后若代理软件在会话进行中被关掉，pi 子进程 env 里的代理地址仍指向死端口（运行中进程 env 改不了），LLM 请求重试后全部 Connection error，且无法自动恢复。
-- 修复：新增本地 HTTP 代理中继 `proxy-relay.ts`（127.0.0.1 环回）。`applySystemProxy` 无论开关代理都把 `HTTP_PROXY/HTTPS_PROXY`（大小写）指向中继：开代理时中继每条连接先试上游代理、连不通/超时/被拒则自动回退直连（含 15s 失败冷却，上游恢复后自动切回）；关代理时中继上游清空、全部直连。开关代理只改中继上游，存量/新建子进程 env 不用变。支持上游 http/https 代理与 user:pass 鉴权头注入；中继启动失败退化为旧行为（直接写上游地址）。
-- 影响范围：`packages/kernel/src/proxy-relay.ts`（新增）、`settings-store.ts`（applySystemProxy 统一走中继）、`__tests__/proxy-relay.test.ts`（新增 9 例：CONNECT 隧道/鉴权注入/上游死亡回退/冷却与恢复/关代理切直连/502/普通 HTTP 转发）、`__tests__/settings-proxy.test.ts`（断言改为 env 恒指向中继）。
+- 修复：新增本地 HTTP 代理中继 `proxy-relay.ts`（127.0.0.1 环回，纯 TCP 实现）。`applySystemProxy` 无论开关代理都把 `HTTP_PROXY/HTTPS_PROXY`（大小写）指向中继：开代理时中继每条连接先试上游代理、连不通/超时/被拒则自动回退直连（含 15s 失败冷却，上游恢复后自动切回）；关代理时中继上游清空、全部直连。开关代理只改中继上游，存量/新建子进程 env 不用变。支持上游 http/https 代理与 user:pass 鉴权头注入；中继启动失败退化为旧行为（直接写上游地址）。
+- 关键实现约束：① 中继出站刻意用裸 net/tls socket 而非 node:http 客户端——Bun 的 node:http 客户端会读 env 代理，而 kernel env 代理正是中继自身，会回环死锁；② Bun 下 pause 的 socket 收不到对端 close 事件，非转发终结路径（400/502）必须先 resume 再 end，否则 server.close() 悬挂；③ Bun 的 process.env 代理变量是特殊 getter/setter，`delete` 清不掉（同进程后续测试文件会被残留代理劫持），测试清理须置空串。
+- 网络请求日志：新增 `net-log.ts`，中继经手的每条请求落盘 `~/.pi/agent/logs/network.log`（滚动：上限 min(50MB, 空闲磁盘 1%)、下限 1MB，到限改名 .1 重开）。每条请求一行：时间/方法与脱敏 URL/路由（upstream、direct、direct(cooldown)、upstream→direct）/result=ok|fail/状态码/耗时/上下行字节/错误原因。CONNECT 隧道在关闭时记一条（durMs = 隧道生命周期 ≈ 请求时长，status 仅建连结果——隧道内 HTTPS 响应码加密不可见）；普通 HTTP 记真实响应码。「上游变更」按值去重。URL 去掉 query/hash/userinfo，不记请求头与 body（防密钥泄漏）。
+- 影响范围：`packages/kernel/src/proxy-relay.ts`（新增，含日志埋点）、`net-log.ts`（新增）、`settings-store.ts`（applySystemProxy 统一走中继）、`__tests__/proxy-relay.test.ts`（新增 9 例：CONNECT 隧道/鉴权注入/上游死亡回退/冷却与恢复/关代理切直连/502/普通 HTTP 转发）、`__tests__/net-log.test.ts`（新增：上限计算/URL 脱敏/滚动/formatBytes/中继日志格式——成功含时长与上下行字节、失败含状态码与错误原因、密钥不泄漏、上游变更去重）、`__tests__/settings-proxy.test.ts`（断言改为 env 恒指向中继 + afterEach 空串清代理变量）。
 
 ## 2026-08-18 — fix: 打包版默认工作区文件树空白（HOME/USERPROFILE 注入 + resolveSessionCwd 未用持久化 cwd）
 
