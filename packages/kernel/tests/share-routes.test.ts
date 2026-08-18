@@ -339,8 +339,8 @@ test("7c. refresh-link：channel=cloudflare 时返回 CF 公开根 URL 且 expir
     const res = await post(router, "/api/share/refresh-link", { id: up.id });
     expect(res!.status).toBe(200);
     const data = await res!.json();
-    // CF 根 URL：https://{CF_SHARE_PROJECT_NAME}.pages.dev；expiresAt=0 表示永久
-    expect(data.url).toBe("https://wapi-shares.pages.dev");
+    // CF 条目子路径：https://{CF_SHARE_PROJECT_NAME}.pages.dev/{item.name}/（与 upload 端点 CF 分支一致）；expiresAt=0 表示永久
+    expect(data.url).toBe("https://wapi-shares.pages.dev/index.html/");
     expect(data.expiresAt).toBe(0);
     expect(data.channel).toBe("cloudflare");
 }, 15000);

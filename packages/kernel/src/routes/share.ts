@@ -335,11 +335,12 @@ export function createShareRoutes(
 					{ error: "内容尚未部署，请先立即部署" },
 					{ status: 409 },
 				);
-			// 当前渠道实时读取设置；CF 渠道链接公开恒定，幂等返回根 URL（不重签 token）
+			// 当前渠道实时读取设置；CF 渠道链接公开恒定，幂等返回条目子路径（不重签 token），
+			// 拼法与 upload 端点 CF 分支一致：https://{project}.pages.dev/{item.name}/
 			const settings = await loadShareSettings(cfg.settingsFile);
 			if (settings.channel === "cloudflare") {
 				return Response.json({
-					url: `https://${CF_SHARE_PROJECT_NAME}.pages.dev`,
+					url: `https://${CF_SHARE_PROJECT_NAME}.pages.dev/${item.name}/`,
 					expiresAt: 0,
 					channel: "cloudflare",
 				});
