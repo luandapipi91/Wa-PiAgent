@@ -692,9 +692,11 @@ const en = {
 			saved: "Share settings saved",
 			rename: "Rename",
 			renamed: "Renamed",
+			renamedDeploy: "Renamed — deploy to take effect",
 			register: "Sign up",
 			customDomain: "Custom domain (optional)",
-			customDomainHint: "Share links use this domain once bound; leave empty for the platform preset domain",
+			customDomainHint:
+				"Share links use this domain once bound; leave empty for the platform preset domain",
 			myShares: "My shares",
 			tabSettings: "Share settings",
 			tabShares: "My shares",
@@ -704,7 +706,8 @@ const en = {
 			deploying: "Deploying…",
 			deployed: "Published",
 			clearAll: "Clear shares",
-			clearConfirm: "Clear all shares? Online content is removed only after you click \"Deploy now\".",
+			clearConfirm:
+				'Clear all shares? Online content is removed only after you click "Deploy now".',
 			pending: "{{count}} change(s) not deployed",
 			usage: "Storage {{used}} / {{limit}}",
 			copyLink: "Copy link",
