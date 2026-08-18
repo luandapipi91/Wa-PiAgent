@@ -1,11 +1,11 @@
 // 文件日志（无控制台 GUI 用）。append，带时间戳；flush 等齐 in-flight 写入。
-// 容量上限：超过 maxBytes（默认 5MB）时做 FIFO 裁剪——丢弃最旧的行，只保留最新
-// keepBytes（默认 4MB，留缓冲避免每次写都裁剪），按换行对齐避免半截行。
+// 容量上限：超过 maxBytes（默认 10MB）时做 FIFO 裁剪——丢弃最旧的行，只保留最新
+// keepBytes（默认 8MB，留缓冲避免每次写都裁剪），按换行对齐避免半截行。
 const { appendFile, mkdir, readFile, stat, writeFile } = require("node:fs/promises");
 const { dirname } = require("node:path");
 
-const MAX_BYTES = 5 * 1024 * 1024;
-const KEEP_BYTES = 4 * 1024 * 1024;
+const MAX_BYTES = 10 * 1024 * 1024;
+const KEEP_BYTES = 8 * 1024 * 1024;
 
 function createLogger(logPath, maxBytes = MAX_BYTES, keepBytes = KEEP_BYTES) {
   // 所有文件操作串行化（trim 读改写不能与 append 并发）；chain 的 resolve 值是
