@@ -154,6 +154,13 @@ export interface DeployWorkspaceOptions {
   zip: Uint8Array;
   /** 设置里的自定义域名（可选，优先于预设域名） */
   customDomain?: string;
+  /** 进度回调：uploading（COS 真实百分比）→ deploying（EdgeOne 无百分比） */
+  onProgress?: (p: {
+    phase: "uploading" | "deploying";
+    percent?: number;
+    loaded?: number;
+    total?: number;
+  }) => void;
   /** 测试注入：替代 new COS(...) 构造真实客户端 */
   cosFactory?: (creds: {
     SecretId: string;
@@ -216,11 +223,20 @@ export async function deployWorkspace(
         Key: zipKey,
         Body: Buffer.from(zip),
         ContentLength: zip.byteLength,
+        // COS 的 percent 是 0-1 小数，换算成 0-100
+        onProgress: (d: { loaded?: number; total?: number; percent?: number }) =>
+          opts.onProgress?.({
+            phase: "uploading",
+            percent: Math.round((d.percent ?? 0) * 100),
+            loaded: d.loaded,
+            total: d.total,
+          }),
       },
       (e) => (e ? rej(e) : res()),
     ),
   );
 
+  opts.onProgress?.({ phase: "deploying" });
   const dep = await apiCall<any>(baseUrl, token, "CreatePagesDeployment", {
     ProjectId: projectId,
     ViaMeta: "Upload",

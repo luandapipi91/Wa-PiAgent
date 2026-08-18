@@ -5,9 +5,11 @@
 import { useEffect, useState } from "react";
 import { Modal } from "./Modal";
 import { Icon } from "./Icon";
+import { ProgressBar } from "./ProgressBar";
 import { useTranslation } from "../../i18n/useTranslation";
 import { shareSettings, shareUpload } from "../../share-client";
 import { copyToClipboard } from "../../util/clipboard";
+import { useShareProgressStore } from "../../store/share-progress";
 
 interface ShareButtonProps {
 	paths: string[];
@@ -71,6 +73,18 @@ export function ShareResultModal({
 	} | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
+	// kernel SSE 广播的上传/部署进度
+	const progress = useShareProgressStore();
+
+	// 阶段文案：packing/deploying 无真实百分比；uploading 有 COS 回调的百分比
+	const phaseText =
+		progress.phase === "packing"
+			? t("share.packing")
+			: progress.phase === "uploading"
+				? t("share.uploading", { percent: progress.percent })
+				: progress.phase === "deploying"
+					? t("share.deploying")
+					: t("share.generating");
 
 	useEffect(() => {
 		let cancelled = false;
@@ -218,16 +232,34 @@ export function ShareResultModal({
 								{error}
 							</div>
 						)}
-						<button
-							type="button"
-							onClick={() => void generate()}
-							disabled={generating}
-							className="self-start px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer disabled:opacity-60"
-							style={{ background: "var(--brand)", color: "var(--on-brand)" }}
-							data-testid="share-generate-btn"
-						>
-							{generating ? t("share.generating") : t("share.generate")}
-						</button>
+						{generating ? (
+							<div
+								className="flex flex-col gap-1.5 w-full"
+								data-testid="share-progress"
+							>
+								<ProgressBar
+									percent={progress.percent}
+									indeterminate={progress.phase !== "uploading"}
+								/>
+								<span
+									className="text-xs text-secondary"
+									data-testid="share-progress-text"
+								>
+									{phaseText}
+								</span>
+							</div>
+						) : (
+							<button
+								type="button"
+								onClick={() => void generate()}
+								disabled={generating}
+								className="self-start px-3 py-1.5 rounded-sm text-sm border-0 cursor-pointer disabled:opacity-60"
+								style={{ background: "var(--brand)", color: "var(--on-brand)" }}
+								data-testid="share-generate-btn"
+							>
+								{t("share.generate")}
+							</button>
+						)}
 					</>
 				)}
 			</div>

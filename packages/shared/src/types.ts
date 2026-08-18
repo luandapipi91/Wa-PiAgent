@@ -1414,7 +1414,21 @@ export type WSServerEvent =
 	| TrashOpResult
 	| ScheduledTasksChangedEvent
 	| ScheduledTaskCompletedEvent
-	| ScheduledTaskErrorEvent;
+	| ScheduledTaskErrorEvent
+	| ShareProgressEvent;
+
+/** 分享上传/部署进度（kernel → 前端广播，SSE） */
+export interface ShareProgressEvent {
+	type: "share:progress";
+	/** packing=打包中 uploading=COS 上传中（有真实百分比）deploying=EdgeOne 部署中 done=完成 error=失败 */
+	phase: "packing" | "uploading" | "deploying" | "done" | "error";
+	/** 0-100，仅 uploading 阶段有值 */
+	percent?: number;
+	loaded?: number;
+	total?: number;
+	/** phase=error 时的错误信息 */
+	error?: string;
+}
 
 // ============ 定时任务 SSE 事件 ============
 

@@ -7,6 +7,7 @@
 
 import { dirname, sep } from "node:path";
 import type { HttpRouter } from "../http-router";
+import type { ShareProgressEvent } from "@wa-pi/shared";
 import { readJsonBody } from "./types";
 import {
 	deployWorkspace,
@@ -50,6 +51,8 @@ export interface ShareRouteCfg {
 	settingsFile?: string;
 	/** 部署状态轮询间隔（ms），测试传小值让单测秒级完成 */
 	pollIntervalMs?: number;
+	/** 进度广播（SSE），ws-server 注入 this.broadcast；测试可注入 spy */
+	broadcast?: (e: ShareProgressEvent) => void;
 }
 
 export function createShareRoutes(
@@ -88,21 +91,36 @@ export function createShareRoutes(
 		};
 	}
 
-	/** 部署当前工作区到线上，成功写部署快照 */
+	/** 进度广播：packing → uploading（真实百分比）→ deploying → done / error */
+	const emit = (e: Omit<ShareProgressEvent, "type">) =>
+		cfg.broadcast?.({ type: "share:progress", ...e });
+
+	/** 部署当前工作区到线上，成功写部署快照；全程广播进度 */
 	async function deployNow(
 		token: string,
 		customDomain: string,
 	): Promise<{ rootUrl: string; expiresAt: number }> {
+		emit({ phase: "packing" });
 		const zip = await buildDeployZip(workspaceDir);
-		const r = await deployWorkspace({
-			token,
-			zip,
-			customDomain,
-			cosFactory: cfg.cosFactory,
-			pollIntervalMs: cfg.pollIntervalMs,
-		});
-		await saveLastDeployed(workspaceDir, await loadItems(workspaceDir));
-		return { rootUrl: r.rootUrl, expiresAt: r.expiresAt };
+		try {
+			const r = await deployWorkspace({
+				token,
+				zip,
+				customDomain,
+				onProgress: (p) => emit(p),
+				cosFactory: cfg.cosFactory,
+				pollIntervalMs: cfg.pollIntervalMs,
+			});
+			await saveLastDeployed(workspaceDir, await loadItems(workspaceDir));
+			emit({ phase: "done" });
+			return { rootUrl: r.rootUrl, expiresAt: r.expiresAt };
+		} catch (e) {
+			emit({
+				phase: "error",
+				error: e instanceof Error ? e.message : String(e),
+			});
+			throw e;
+		}
 	}
 
 	router.add(
