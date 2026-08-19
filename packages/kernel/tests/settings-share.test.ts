@@ -31,7 +31,12 @@ test("默认分享设置含 accountId 且为空", async () => {
 test("save 后 load 往返一致（token 脱敏无关，原样存取）", async () => {
   const file = join(dir, "settings.json");
   await saveShareSettings(
-    { token: "tk_abc", channel: "edgeone", customDomain: "", accountId: "acc-1" },
+    {
+      token: "tk_abc",
+      channel: "edgeone",
+      customDomain: "",
+      accountId: "acc-1",
+    },
     file,
   );
   expect(await loadShareSettings(file)).toEqual({

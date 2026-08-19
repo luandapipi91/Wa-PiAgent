@@ -8,7 +8,7 @@ export const CF_SHARE_PROJECT_NAME = "wapi-shares"; // 与 edgeone 固定项目�
 
 export interface CloudflareShareOptions {
   token: string;      // CF API Token（设置页配置）
-  accountId: string;  // CF Account ID（设置页配置）
+  accountId?: string; // CF Account ID；留空时用 token 调 GET /accounts 自动获取
   files: Record<string, Uint8Array>; // 相对路径 -> 内容（zip 解压产物）
   projectName?: string;              // 默认 CF_SHARE_PROJECT_NAME
   branch?: string;                   // 默认 "main"（生产分支）
@@ -194,12 +194,26 @@ async function pollDeployment(
   throw new Error("Cloudflare 部署超时");
 }
 
+/** 用 API Token 自动获取 Account ID（用户无需手动填写）
+ *  GET /client/v4/accounts 返回当前 token 可访问的账号列表，取第一个。 */
+export async function getCloudflareAccountId(
+  token: string,
+): Promise<string> {
+  const accounts = await cfApi<{ id: string }[]>(
+    token,
+    `/accounts?per_page=5`,
+  );
+  if (!accounts?.length) throw new Error("Cloudflare 账号列表为空，请检查 Token 权限");
+  return accounts[0].id;
+}
+
 export async function deployToCloudflare(
   opts: CloudflareShareOptions,
 ): Promise<CloudflareDeployResult> {
-  const { token, accountId, files } = opts;
+  const { token, files } = opts;
   if (!token) throw new Error("未配置 Cloudflare API Token");
-  if (!accountId) throw new Error("未配置 Cloudflare Account ID");
+  // Account ID 可通过接口获取：未配置时用 token 自动拉取，用户无需手动填写
+  const accountId = opts.accountId || (await getCloudflareAccountId(token));
   const projectName = opts.projectName ?? CF_SHARE_PROJECT_NAME;
   const branch = opts.branch ?? "main";
 

@@ -8,7 +8,7 @@
 - 前端设置 UI：ShareSection 渠道从「腾讯 EdgeOne（只读）」改为可切换控件（edgeone / cloudflare）：edgeone 保留注册入口 + API Token + 自定义域名；cloudflare 渲染 Cloudflare API Token + Account ID + 注册链接（dash.cloudflare.com/sign-up，与 edgeone 注册入口同位置）+ 提示文案（链接永久公开、单文件 ≤25MB）。
 - 保存 PUT /api/settings/share 全量提交 { channel, token, accountId, customDomain }（token 空串沿用 kernel 保留原值）；share-client 类型补 accountId（GET 已返回、PUT 已接受）。
 - 存储用量：云端存储上限无接口可查（EdgeOne/CF 均无法动态获取）→ list 端点恒返回 totalLimit=0，前端只显示已用量「存储 X」，不显示上限（不写死 5GB，买套餐后不失真，也不要求用户填写）。
-- 小白指引：API Token / Account ID 输入框旁新增「?」帮助入口，点击弹窗显示图文步骤指引（EdgeOne 控制台 API 密钥管理 / Cloudflare API Tokens 模板 / Account ID 地址栏位置）。
+- 小白指引：API Token 输入框旁新增「?」帮助入口，点击弹窗显示**图文指引**（SVG 界面示意图 + 数字步骤 + 关键链接），带 ✕ 关闭按钮。EdgeOne：控制台 API 密钥管理路径；Cloudflare：API Tokens 页面 Create Token 模板。
 - 影响范围：`packages/kernel/src/share/cloudflare-pages-client.ts`、`packages/kernel/src/routes/share.ts`（按 channel 分派部署/refresh-link）、`packages/frontend/src/components/settings/ShareSection.tsx`、`packages/frontend/src/share-client.ts`；测试 `ShareSection.test.tsx`（新增 Cloudflare 渠道用例）、`share-client.test.ts`。
 
 ## 2026-08-18 — fix: 聊天卡死自愈链路补全（SSE 假活看门狗 + 崩溃现场日志）

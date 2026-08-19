@@ -43,6 +43,60 @@ function HelpStep({ n, children }: { n: string; children: ReactNode }) {
 	);
 }
 
+/** 帮助弹窗示意图：SVG 简绘浏览器窗口 + 界面关键路径（高亮要点的按钮/菜单） */
+function HelpDiagram({ variant }: { variant: "edgeone" | "cloudflare" }) {
+	return (
+		<svg
+			viewBox="0 0 360 150"
+			className="w-full h-auto rounded-lg border border-hairline"
+			role="img"
+			aria-label={
+				variant === "edgeone"
+					? "EdgeOne 控制台获取 API Token 示意图"
+					: "Cloudflare API Tokens 页面示意图"
+			}
+		>
+			{/* 浏览器窗口外框 + 顶部栏 */}
+			<rect x="2" y="2" width="356" height="146" rx="8" fill="var(--surface)" stroke="var(--hairline)" />
+			<rect x="2" y="2" width="356" height="24" rx="8" fill="var(--hairline)" opacity="0.55" />
+			<circle cx="16" cy="14" r="3" fill="#ff5f57" />
+			<circle cx="28" cy="14" r="3" fill="#febc2e" />
+			<circle cx="40" cy="14" r="3" fill="#28c840" />
+			<rect x="54" y="8" width="150" height="12" rx="6" fill="var(--surface)" stroke="var(--hairline)" />
+
+			{variant === "edgeone" ? (
+				<g>
+					{/* 控制台左侧菜单，高亮「API 密钥管理」 */}
+					<rect x="10" y="32" width="86" height="106" rx="4" fill="var(--surface)" stroke="var(--hairline)" opacity="0.8" />
+					<text x="18" y="48" fontSize="9" fill="#8a8f98">概览</text>
+					<text x="18" y="64" fontSize="9" fill="#8a8f98">站点</text>
+					<rect x="14" y="72" width="78" height="16" rx="3" fill="var(--brand)" opacity="0.15" />
+					<text x="18" y="84" fontSize="9" fontWeight="bold" fill="var(--brand)">API 密钥管理</text>
+					{/* 右上角头像下拉菜单，同样高亮 */}
+					<circle cx="330" cy="40" r="10" fill="var(--hairline)" />
+					<rect x="262" y="48" width="134" height="58" rx="4" fill="var(--surface)" stroke="var(--hairline)" />
+					<text x="270" y="64" fontSize="9" fill="#8a8f98">账号信息</text>
+					<rect x="266" y="70" width="126" height="16" rx="3" fill="var(--brand)" opacity="0.15" />
+					<text x="270" y="82" fontSize="9" fontWeight="bold" fill="var(--brand)">API 密钥管理</text>
+					<text x="270" y="100" fontSize="9" fill="#8a8f98">退出登录</text>
+				</g>
+			) : (
+				<g>
+					{/* API Tokens 页面：标题 + Create Token 按钮高亮 + token 列表 */}
+					<text x="16" y="44" fontSize="11" fontWeight="bold" fill="#333">API Tokens</text>
+					<text x="16" y="60" fontSize="8.5" fill="#8a8f98">Manage API tokens for your account</text>
+					<rect x="16" y="70" width="88" height="20" rx="4" fill="var(--brand)" />
+					<text x="26" y="84" fontSize="9" fontWeight="bold" fill="var(--on-brand)">Create Token</text>
+					<rect x="16" y="98" width="324" height="18" rx="3" fill="var(--surface)" stroke="var(--hairline)" />
+					<rect x="16" y="120" width="324" height="18" rx="3" fill="var(--surface)" stroke="var(--hairline)" />
+					<text x="22" y="111" fontSize="8" fill="#8a8f98">Edit Cloudflare Workers (edit)…</text>
+					<text x="22" y="133" fontSize="8" fill="#8a8f98">Pages deploy token …</text>
+				</g>
+			)}
+		</svg>
+	);
+}
+
 export function ShareSection() {
 	const { t } = useTranslation();
 	const [tab, setTab] = useState<"settings" | "shares">("settings");
@@ -53,9 +107,9 @@ export function ShareSection() {
 	// 分享渠道：edgeone（腾讯 EdgeOne）/ cloudflare（Cloudflare Pages）
 	const [channel, setChannel] = useState<"edgeone" | "cloudflare">("edgeone");
 	const [accountId, setAccountId] = useState("");
-	// 帮助弹窗：token / accountId 获取指引（小白用户找不到入口）
+	// 帮助弹窗：token 获取指引（小白用户找不到入口；Account ID 已改为接口自动获取，无需帮助）
 	const [helpFor, setHelpFor] = useState<
-		"edgeone-token" | "cloudflare-token" | "cloudflare-account" | null
+		"edgeone-token" | "cloudflare-token" | null
 	>(null);
 	const [items, setItems] = useState<ShareItemInfo[]>([]);
 	const [pending, setPending] = useState(0);
@@ -267,7 +321,9 @@ export function ShareSection() {
 				<button
 					type="button"
 					onClick={() =>
-						setHelpFor(channel === "cloudflare" ? "cloudflare-token" : "edgeone-token")
+						setHelpFor(
+							channel === "cloudflare" ? "cloudflare-token" : "edgeone-token",
+						)
 					}
 					className="w-4 h-4 rounded-full border border-hairline text-[10px] leading-none text-secondary hover:text-primary cursor-pointer inline-flex items-center justify-center shrink-0"
 					data-testid="share-token-help"
@@ -377,29 +433,7 @@ export function ShareSection() {
 					{channel === "cloudflare" && (
 						<>
 							{tokenField}
-							<label className="flex flex-col gap-1 w-72">
-								<span className="flex items-center gap-1.5">
-									<span className="text-xs text-secondary">Account ID</span>
-									<button
-										type="button"
-										onClick={() => setHelpFor("cloudflare-account")}
-										className="w-4 h-4 rounded-full border border-hairline text-[10px] leading-none text-secondary hover:text-primary cursor-pointer inline-flex items-center justify-center shrink-0"
-										data-testid="share-account-help"
-										aria-label="获取 Account ID 帮助"
-									>
-										?
-									</button>
-								</span>
-								<input
-									type="text"
-									value={accountId}
-									onChange={(e) => setAccountId(e.target.value)}
-									placeholder="在 dash.cloudflare.com URL 中找到"
-									spellCheck={false}
-									className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
-									data-testid="share-account-id-input"
-								/>
-							</label>
+							{/* Account ID 无需填写：部署时用 token 调 GET /accounts 自动获取 */}
 							<div className="flex items-center gap-2">
 								<a
 									href="https://dash.cloudflare.com/sign-up"
@@ -413,7 +447,7 @@ export function ShareSection() {
 								</a>
 							</div>
 							<span className="text-xs text-secondary">
-								Cloudflare 分享链接永久公开；单文件 ≤ 25MB
+								Cloudflare 分享链接永久公开；单文件 ≤ 25MB；Account ID 无需填写，部署时自动获取
 							</span>
 						</>
 					)}
@@ -605,72 +639,76 @@ export function ShareSection() {
 				/>
 			)}
 			{helpFor && (
-				<Modal onClose={() => setHelpFor(null)} width={520} data-testid="share-help-modal">
-					<div className="flex flex-col gap-3 p-1">
-						<h3 className="text-base font-semibold">
-							{helpFor === "edgeone-token"
-								? "获取 EdgeOne API Token"
-								: helpFor === "cloudflare-token"
-									? "获取 Cloudflare API Token"
-									: "获取 Cloudflare Account ID"}
-						</h3>
+				<Modal
+					onClose={() => setHelpFor(null)}
+					width={560}
+					data-testid="share-help-modal"
+				>
+					<div className="flex flex-col gap-4 p-5">
+						<div className="flex items-center justify-between">
+							<h3 className="text-base font-semibold">
+								{helpFor === "edgeone-token"
+									? "获取 EdgeOne API Token"
+									: "获取 Cloudflare API Token"}
+							</h3>
+							<button
+								type="button"
+								onClick={() => setHelpFor(null)}
+								className="w-7 h-7 rounded-sm flex items-center justify-center text-secondary hover:text-primary hover:bg-surface cursor-pointer text-lg leading-none"
+								data-testid="share-help-close"
+								aria-label="关闭"
+							>
+								✕
+							</button>
+						</div>
 						{helpFor === "edgeone-token" && (
 							<>
-								<HelpStep n="1">
-									打开 EdgeOne 控制台（腾讯云）：{" "}
-									<a
-										href="https://console.cloud.tencent.com/edgeone"
-										target="_blank"
-										rel="noreferrer"
-										className="text-brand underline"
-									>
-										console.cloud.tencent.com/edgeone
-									</a>
-								</HelpStep>
-								<HelpStep n="2">
-									右上角头像 → 「API 密钥管理」→ 新建密钥
-								</HelpStep>
-								<HelpStep n="3">
-									创建 API Token（勾选 Pages 权限），复制粘贴到「API Token」输入框
-								</HelpStep>
+								<HelpDiagram variant="edgeone" />
+								<div className="flex flex-col gap-3">
+									<HelpStep n="1">
+										打开 EdgeOne 控制台（腾讯云）：{" "}
+										<a
+											href="https://console.cloud.tencent.com/edgeone"
+											target="_blank"
+											rel="noreferrer"
+											className="text-brand underline"
+										>
+											console.cloud.tencent.com/edgeone
+										</a>
+									</HelpStep>
+									<HelpStep n="2">右上角头像 → 「API 密钥管理」→ 新建密钥</HelpStep>
+									<HelpStep n="3">
+										创建 API Token（勾选 Pages 权限），复制粘贴到「API Token」输入框
+									</HelpStep>
+								</div>
 							</>
 						)}
 						{helpFor === "cloudflare-token" && (
 							<>
-								<HelpStep n="1">
-									打开 API Token 页面：{" "}
-									<a
-										href="https://dash.cloudflare.com/profile/api-tokens"
-										target="_blank"
-										rel="noreferrer"
-										className="text-brand underline"
-									>
-										dash.cloudflare.com → My Profile → API Tokens
-									</a>
-								</HelpStep>
-								<HelpStep n="2">
-									点「Create Token」，模板选{" "}
-									<code className="px-1 rounded-sm bg-surface text-xs">Edit Cloudflare Workers</code>
-									（或自定义权限：Account → Cloudflare Pages → Edit）
-								</HelpStep>
-								<HelpStep n="3">
-									生成后立即复制（只显示一次），粘贴到「Cloudflare API Token」输入框
-								</HelpStep>
-							</>
-						)}
-						{helpFor === "cloudflare-account" && (
-							<>
-								<HelpStep n="1">登录 https://dash.cloudflare.com</HelpStep>
-								<HelpStep n="2">
-									看浏览器地址栏：
-									<code className="px-1 rounded-sm bg-surface text-xs">dash.cloudflare.com/&lt;Account ID&gt;</code>
-									，其中{" "}
-									<code className="px-1 rounded-sm bg-surface text-xs">32 位字母数字</code>{" "}
-									就是 Account ID
-								</HelpStep>
-								<HelpStep n="3">
-									或右上角头像 → 账号信息里也能看到
-								</HelpStep>
+								<HelpDiagram variant="cloudflare" />
+								<div className="flex flex-col gap-3">
+									<HelpStep n="1">
+										打开 API Token 页面：{" "}
+										<a
+											href="https://dash.cloudflare.com/profile/api-tokens"
+											target="_blank"
+											rel="noreferrer"
+											className="text-brand underline"
+										>
+											dash.cloudflare.com → My Profile → API Tokens
+										</a>
+									</HelpStep>
+									<HelpStep n="2">
+										点「Create Token」，模板选{" "}
+										<code className="px-1 rounded-sm bg-surface text-xs">
+											Edit Cloudflare Workers
+										</code>
+										（或自定义权限：Account → Cloudflare Pages → Edit）
+									</HelpStep>
+									<HelpStep n="3">
+										生成后立即复制（只显示一次），粘贴到「Cloudflare API Token」输入框
+									</HelpStep>
+								</div>
 							</>
 						)}
 					</div>
