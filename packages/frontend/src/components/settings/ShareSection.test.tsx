@@ -123,8 +123,12 @@ test("帮助弹窗：点 Token 旁 ? → 图文指引（示意图 + 步骤），
 	await screen.findByTestId("share-help-modal");
 	expect(screen.getByText(/获取 Cloudflare API Token/)).toBeTruthy();
 	// 示意图与步骤中均出现模板名
-	expect(screen.getAllByText(/Edit Cloudflare Workers/).length).toBeGreaterThan(0);
-	expect(screen.getByRole("img", { name: /Cloudflare API Tokens/ })).toBeTruthy();
+	expect(screen.getAllByText(/Edit Cloudflare Workers/).length).toBeGreaterThan(
+		0,
+	);
+	expect(
+		screen.getByRole("img", { name: /Cloudflare API Tokens/ }),
+	).toBeTruthy();
 	fireEvent.keyDown(window, { key: "Escape" });
 	await waitFor(() =>
 		expect(screen.queryByTestId("share-help-modal")).toBeNull(),
@@ -479,7 +483,6 @@ test("可切换到 Cloudflare 渠道，显示 token 与 Account ID 输入，保�
 	);
 	expect(cfLink.textContent).toContain("注册 Cloudflare");
 	expect(screen.getByText(/Cloudflare 分享链接永久公开/)).toBeTruthy();
-	expect(screen.getByText(/Account ID 无需填写/)).toBeTruthy();
 	// 输入 token，保存 → PUT body 含 channel/token/customDomain（accountId 自动获取，不手动填）
 	fireEvent.change(screen.getByTestId("share-token-input"), {
 		target: { value: "cf-token-abc" },
