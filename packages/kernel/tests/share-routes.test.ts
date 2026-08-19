@@ -108,9 +108,9 @@ function mockCloudflare() {
             });
         }
         if (u.endsWith("/pages/projects/wapi-shares"))
-            return json({ result: { id: "proj-cf" }, success: true });
+            return json({ result: { id: "proj-cf", subdomain: "wapi-shares.pages.dev" }, success: true });
         if (u.endsWith("/pages/projects") && init?.method === "POST")
-            return json({ result: { id: "proj-cf" }, success: true });
+            return json({ result: { id: "proj-cf", subdomain: "wapi-shares.pages.dev" }, success: true });
         throw new Error(`unhandled CF mock: ${u}`);
     };
     globalThis.fetch = handler as typeof fetch;

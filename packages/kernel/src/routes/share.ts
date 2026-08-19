@@ -14,6 +14,8 @@ import { readJsonBody } from "./types";
 import {
 	CF_SHARE_PROJECT_NAME,
 	deployToCloudflare,
+	getCloudflareAccountId,
+	getProjectSubdomain,
 } from "../share/cloudflare-pages-client";
 import {
 	deployWorkspace,
@@ -337,8 +339,17 @@ export function createShareRoutes(
 			// 拼法与 upload 端点 CF 分支一致：itemShareUrl 复用（单文件指向真实文件、分享名自动编码）
 			const settings = await loadShareSettings(cfg.settingsFile);
 			if (settings.channel === "cloudflare") {
+				// .pages.dev 子域全局唯一：用真实项目子域拼链接，不硬编码 wapi-shares.pages.dev
+				const accountId =
+					settings.accountId ||
+					(await getCloudflareAccountId(settings.token));
+				const subdomain = await getProjectSubdomain(
+					settings.token,
+					accountId,
+					CF_SHARE_PROJECT_NAME,
+				);
 				return Response.json({
-					url: itemShareUrl(`https://${CF_SHARE_PROJECT_NAME}.pages.dev`, item),
+					url: itemShareUrl(`https://${subdomain}`, item),
 					expiresAt: 0,
 					channel: "cloudflare",
 				});

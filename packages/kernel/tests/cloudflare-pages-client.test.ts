@@ -4,6 +4,7 @@ import {
   deployToCloudflare,
   getCloudflareAccountId,
   getOrCreateProject,
+  getProjectSubdomain,
 } from "../src/share/cloudflare-pages-client";
 
 // 可配置的 fetch mock：按 URL 段返回预设 JSON
@@ -53,7 +54,7 @@ function installFetchMock() {
         success: true,
       });
     if (u.endsWith("/pages/projects/wapi-shares")) {
-      return json({ result: { id: "proj-1" }, success: true });
+      return json({ result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" }, success: true });
     }
     throw new Error(`unhandled mock URL: ${u}`);
   };
@@ -66,6 +67,114 @@ beforeEach(() => {
 });
 afterEach(() => {
   delete (globalThis as any).fetch;
+});
+
+describe("getProjectSubdomain", () => {
+  test("返回项目真实 pages.dev 子域（同名项目在不同账号子域可不同）", async () => {
+    globalThis.fetch = (async (url: any) => {
+      const u = String(url);
+      if (u.endsWith("/pages/projects/wapi-shares")) {
+        return new Response(
+          JSON.stringify({
+            result: { id: "proj-1", subdomain: "wapi-shares-abc123.pages.dev" },
+            success: true,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      throw new Error(`unhandled: ${u}`);
+    }) as typeof fetch;
+    const sub = await getProjectSubdomain("tk", "acc-1", "wapi-shares");
+    expect(sub).toBe("wapi-shares-abc123.pages.dev");
+  });
+
+  test("subdomain 为空时回退 domains[0]", async () => {
+    globalThis.fetch = (async (url: any) => {
+      const u = String(url);
+      if (u.endsWith("/pages/projects/wapi-shares")) {
+        return new Response(
+          JSON.stringify({
+            result: { id: "proj-1", domains: ["wapi-shares.pages.dev"] },
+            success: true,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      throw new Error(`unhandled: ${u}`);
+    }) as typeof fetch;
+    expect(await getProjectSubdomain("tk", "acc-1", "wapi-shares")).toBe(
+      "wapi-shares.pages.dev",
+    );
+  });
+
+  test("拿不到域名时抛明确错误", async () => {
+    globalThis.fetch = (async (url: any) => {
+      const u = String(url);
+      if (u.endsWith("/pages/projects/wapi-shares")) {
+        return new Response(
+          JSON.stringify({ result: { id: "proj-1" }, success: true }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      throw new Error(`unhandled: ${u}`);
+    }) as typeof fetch;
+    expect(getProjectSubdomain("tk", "acc-1", "wapi-shares")).rejects.toThrow(
+      "无法获取 Cloudflare 项目域名",
+    );
+  });
+});
+
+describe("deployToCloudflare", () => {
+  test("url 用项目真实 subdomain（不硬编码 projectName）", async () => {
+    globalThis.fetch = (async (url: any, init?: any) => {
+      const u = String(url);
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        });
+      if (u.includes("/upload-token"))
+        return json({ result: { jwt: "JWT_TEST" }, success: true });
+      if (u.includes("/pages/assets/check-missing")) {
+        const body = JSON.parse(String(init?.body));
+        return json(body.hashes as string[]);
+      }
+      if (u.includes("/pages/assets/upload")) return json({ success: true });
+      if (u.includes("/pages/assets/upsert-hashes"))
+        return json({ success: true });
+      if (u.includes("/deployments/")) {
+        return json({
+          result: { latest_stage: { name: "deploy", status: "success" } },
+          success: true,
+        });
+      }
+      if (u.includes("/deployments"))
+        return json({
+          result: {
+            id: "dep-1",
+            url: "https://abc.wapi-shares-abc123.pages.dev",
+            environment: "production",
+          },
+          success: true,
+        });
+      if (u.endsWith("/pages/projects/wapi-shares")) {
+        return json({
+          result: { id: "proj-1", subdomain: "wapi-shares-abc123.pages.dev" },
+          success: true,
+        });
+      }
+      throw new Error(`unhandled mock URL: ${u}`);
+    }) as typeof fetch;
+
+    const result = await deployToCloudflare({
+      token: "tk",
+      accountId: "acc-1",
+      files: { "index.html": new TextEncoder().encode("<h1>hi</h1>") },
+      pollIntervalMs: 1,
+    });
+    // 项目真实子域是 wapi-shares-abc123.pages.dev（被占用后的随机后缀），不是硬编码的 wapi-shares.pages.dev
+    expect(result.url).toBe("https://wapi-shares-abc123.pages.dev");
+  });
 });
 
 describe("getOrCreateProject", () => {
@@ -86,7 +195,7 @@ describe("getOrCreateProject", () => {
       }
       if (u.endsWith("/pages/projects") && init?.method === "POST") {
         return new Response(
-          JSON.stringify({ result: { id: "proj-new" }, success: true }),
+          JSON.stringify({ result: { id: "proj-new", subdomain: "wapi-shares.pages.dev" }, success: true }),
         );
       }
       throw new Error(`unhandled: ${u} #${n}`);
@@ -171,7 +280,7 @@ describe("deployToCloudflare", () => {
         );
       }
       if (u.endsWith("/pages/projects/wapi-shares")) {
-        return json({ result: { id: "proj-1" }, success: true });
+        return json({ result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" }, success: true });
       }
       throw new Error(`unhandled mock URL: ${u}`);
     }) as typeof fetch;
@@ -203,7 +312,7 @@ describe("deployToCloudflare", () => {
         });
       }
       if (u.endsWith("/pages/projects/wapi-shares")) {
-        return json({ result: { id: "proj-1" }, success: true });
+        return json({ result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" }, success: true });
       }
       throw new Error(`unhandled mock URL: ${u}`);
     }) as typeof fetch;
@@ -251,7 +360,7 @@ describe("deployToCloudflare", () => {
           success: true,
         });
       if (u.endsWith("/pages/projects/wapi-shares"))
-        return json({ result: { id: "proj-1" }, success: true });
+        return json({ result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" }, success: true });
       throw new Error(`unhandled mock URL: ${u}`);
     }) as typeof fetch;
 
@@ -286,7 +395,7 @@ describe("deployToCloudflare", () => {
         });
       }
       if (u.endsWith("/pages/projects/wapi-shares")) {
-        return json({ result: { id: "proj-1" }, success: true });
+        return json({ result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" }, success: true });
       }
       throw new Error(`unhandled mock URL: ${u}`);
     }) as typeof fetch;
