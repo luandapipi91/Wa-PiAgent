@@ -209,9 +209,16 @@ export async function addItem(
 		await mkdir(dirname(fp), { recursive: true });
 		await writeFile(fp, e.data);
 	}
-	// files 并集去重（旧文件 + 新文件）
+	// files 并集去重（旧文件 + 新文件）。
+	// 旧目录可能被用户改过（删/改名文件）：只保留磁盘上实际存在的旧文件，
+	// 否则 state 引用缺失文件，后续 buildDeployZip 打包会 ENOENT（虽已容错跳过，但记录应自洽）
+	const existingFiles = [];
+	for (const rel of old?.files ?? []) {
+		const fp = join(target, ...rel.split("/"));
+		if (await stat(fp).catch(() => null)) existingFiles.push(rel);
+	}
 	const files = [
-		...new Set([...(old?.files ?? []), ...entries.map((e) => e.name)]),
+		...new Set([...existingFiles, ...entries.map((e) => e.name)]),
 	];
 	const size = await dirSizeOf(target, files);
 	const item: ShareItem = {
@@ -323,8 +330,7 @@ function renderDirIndexHtml(name: string, files: string[]): string {
 		s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 	const items = files
 		.map(
-			(rel) =>
-				`<li><a class="file-link" href="${esc(rel)}">${esc(rel)}</a></li>`,
+			(rel) => `<li><a class="file-link" href="${esc(rel)}">${esc(rel)}</a></li>`,
 		)
 		.join("\n");
 	return `<!doctype html>
@@ -349,9 +355,13 @@ export async function buildDeployZip(dir: string): Promise<Uint8Array> {
 	};
 	for (const it of items) {
 		for (const rel of it.files) {
-			files[`${it.name}/${rel}`] = new Uint8Array(
-				await readFile(join(itemsDir(dir), it.name, ...rel.split("/"))),
-			);
+			// 容错：state 引用的文件在磁盘缺失（用户改过分享目录/手动删）时跳过，
+			// 不崩溃、不进部署包——否则 buildDeployZip 整体失败，部署链路全断
+			const data = await readFile(
+				join(itemsDir(dir), it.name, ...rel.split("/")),
+			).catch(() => null);
+			if (data === null) continue;
+			files[`${it.name}/${rel}`] = new Uint8Array(data);
 		}
 		// 目录索引页：仅当用户分享的文件里没有 index.html 时生成（有则用户文件作目录入口，不覆盖）
 		if (!it.files.includes("index.html")) {
