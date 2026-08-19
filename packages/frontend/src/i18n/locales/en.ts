@@ -703,7 +703,7 @@ const en = {
 			openFolder: "Open share folder",
 			empty: "No shares yet",
 			deploy: "Deploy now",
-			deploying: "Deploying…",
+			deploying: "Deploying, ~1-2 min…",
 			deployed: "Published",
 			clearAll: "Clear shares",
 			clearConfirm:
@@ -948,7 +948,7 @@ const en = {
 		generating: "Generating…",
 		packing: "Packing…",
 		uploading: "Uploading {{percent}}%",
-		deploying: "Deploying…",
+		deploying: "Deploying, ~1-2 min…",
 		link: "Share link",
 		copyLink: "Copy link",
 		copied: "Copied",

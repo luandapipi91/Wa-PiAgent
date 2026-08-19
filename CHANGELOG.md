@@ -2,6 +2,10 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — fix(share): Cloudflare 部署真实链路修复 + 进度条误导修复
+
+- 修复 3（进度条「回退/重置」）：ProgressBar 的 indeterminate 动画原为 30% 滑块往返循环，滑块每次跳回起点被误读为进度回退；改为满宽「呼吸脉冲」动画（透明度渐变，视觉是"处理中"）。实测 kernel uploading percent 单调递增（0→12→…→100 无回退），根因在前端动画。deploying 文案补时长预期「部署中，约需 1-2 分钟…」。
+
 ## 2026-08-19 — fix(share): Cloudflare 部署真实链路修复（真实 API 全流程测试验证通过）
 
 - 修复 1：check-missing 返回 HTTP 200 但响应非数组（业务错误对象/空 body，如 JWT 过期）时，此前被强转 string[] 导致 `missing.includes is not a function` 崩溃；现兼容 CF 真实响应 `{success, result: string[]}`（wrangler fetchResult 解包 result）与裸数组两种形态，均非数组则抛明确错误（含 errors[0].message）。
