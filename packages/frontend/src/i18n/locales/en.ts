@@ -70,6 +70,7 @@ const en = {
 		emptySkill: "No matching skills",
 		emptyCommand: "No matching commands",
 		addAttachment: "Add attachment",
+		resizeHint: "Drag to resize height",
 		uploading: "Uploading...",
 		addAttachmentFailed: "Failed to add attachment",
 		uploadFailed: "Upload failed",
