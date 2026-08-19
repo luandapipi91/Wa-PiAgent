@@ -317,3 +317,45 @@ test("不传 toHtml 时默认走聊天 textToHtml（$[技能] 渲染为 chip）"
     );
     expect(document.querySelector(".chip-skill")).toBeTruthy();
 });
+
+// ===== height / rootElRef props（聊天输入框手动调高）=====
+
+test("height prop 生效：固定高度 + maxHeight，不再设置 minHeight", () => {
+    render(
+        <ComposerTextarea
+            text=""
+            onTextChange={mock()}
+            height={200}
+        />,
+    );
+    const el = screen.getByRole("textbox");
+    expect(el.style.height).toBe("200px");
+    expect(el.style.maxHeight).toBe("200px");
+    expect(el.style.minHeight).toBe("");
+});
+
+test("height 为 null/缺省：保持自然生长（minHeight 60 / maxHeight 300）", () => {
+    render(
+        <ComposerTextarea
+            text=""
+            onTextChange={mock()}
+        />,
+    );
+    const el = screen.getByRole("textbox");
+    expect(el.style.minHeight).toBe("60px");
+    expect(el.style.maxHeight).toBe("300px");
+});
+
+test("rootElRef 透传根元素", () => {
+    const rootElRef = { current: null as HTMLDivElement | null };
+    render(
+        <ComposerTextarea
+            text=""
+            onTextChange={mock()}
+            rootElRef={rootElRef}
+        />,
+    );
+    expect(rootElRef.current).toBe(
+        screen.getByRole("textbox") as HTMLDivElement,
+    );
+});
