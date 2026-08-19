@@ -71,11 +71,7 @@ test("addItem 不同 id 同名 → 合并为一条：旧文件保留、新文件
   expect(items[0].id).toBe("bbbbbbbbbbbb");
   expect(items[0].name).toBe("site");
   // files 为并集（去重）
-  expect(items[0].files.sort()).toEqual([
-    "index.html",
-    "new.js",
-    "old.js",
-  ]);
+  expect(items[0].files.sort()).toEqual(["index.html", "new.js", "old.js"]);
   // 旧文件保留 + 新文件写入 + 同路径 index.html 被新内容覆盖
   expect(await readFile(join(d, "items/site/index.html"), "utf8")).toBe(
     "<h1>new</h1>",
@@ -159,6 +155,8 @@ test("buildDeployZip 含 index.html 与全部条目前缀路径（文件夹名 =
   const files = unzipSync(await buildDeployZip(d));
   expect(Object.keys(files).sort()).toEqual([
     "a.html/a.html",
+    // 无用户 index.html 的目录自动生成索引页（目录 URL 可访问）
+    "a.html/index.html",
     "index.html",
     "站点/index.html",
     "站点/x/y.js",
@@ -166,8 +164,35 @@ test("buildDeployZip 含 index.html 与全部条目前缀路径（文件夹名 =
   expect(strFromU8(files["站点/x/y.js"])).toBe("C");
   const indexHtml = strFromU8(files["index.html"]);
   expect(indexHtml).toContain("WaPi Shares");
-  // 索引页去列表化：只渲染静态说明，不公开分享清单
+  // 根索引页去列表化：只渲染静态说明，不公开分享清单
   expect(indexHtml).not.toContain("<ul>");
+});
+
+test("buildDeployZip：分享目录无 index.html 时生成目录索引页（文件列表 + token 透传）", async () => {
+  const d = await tmp();
+  // 合并后的分享：目录含 a.html + b.html（无用户 index.html）
+  await addItem(d, "a1b2c3d4e5f6", "慧来客", [
+    entry("a.html", "A"),
+    entry("sub/b.js", "B"),
+  ]);
+  const files = unzipSync(await buildDeployZip(d));
+  // 自动生成目录索引页（用户文件无 index.html 时）
+  expect(files["慧来客/index.html"]).toBeTruthy();
+  const page = strFromU8(files["慧来客/index.html"]);
+  // 含文件列表：相对链接（不带 token，运行时脚本补 query）
+  expect(page).toContain('href="a.html"');
+  expect(page).toContain('href="sub/b.js"');
+  // 含 token 透传脚本：从 location.search 读 query 拼到链接，避免 EdgeOne 子链接 401
+  expect(page).toContain("location.search");
+  expect(page).toContain(".file-link");
+});
+
+test("buildDeployZip：用户分享的文件本身是 index.html 时，不生成索引页覆盖用户文件", async () => {
+  const d = await tmp();
+  await addItem(d, "a1b2c3d4e5f6", "站点", [entry("index.html", "USER")]);
+  const files = unzipSync(await buildDeployZip(d));
+  // 用户文件 index.html 原样保留，不被索引页覆盖
+  expect(strFromU8(files["站点/index.html"])).toBe("USER");
 });
 
 test("pendingCount：与上次部署快照对比（新增/删除/变化各计 1）", async () => {

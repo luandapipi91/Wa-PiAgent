@@ -196,9 +196,7 @@ export function createShareRoutes(
 			// 同名不再报错，addItem 内部合并（旧文件保留、新文件追加）；此处探测是否发生合并，供前端提示。
 			const name =
 				typeof b.name === "string" && b.name.trim() ? b.name.trim() : autoName;
-			const existed = (await loadItems(workspaceDir)).some(
-				(i) => i.name === name,
-			);
+			const existed = (await loadItems(workspaceDir)).some((i) => i.name === name);
 			let item;
 			try {
 				item = await addItem(workspaceDir, id, name, entries);
@@ -219,9 +217,15 @@ export function createShareRoutes(
 				merged: existed,
 				// 合并后文件总数（前端「已合并」提示用）
 				filesCount: item.files.length,
-				// 两渠道共用同一 buildDeployZip 布局（{name}/{rel}），统一复用 itemShareUrl：
-				// 多文件条目指向目录，单文件条目指向真实文件（且 new URL 自动 percent-encode 分享名）
-				url: itemShareUrl(url, item),
+				// 两渠道共用同一 buildDeployZip 布局（{name}/{rel}），统一复用 itemShareUrl。
+				// 关键：URL 用「本次分享的文件」而非合并后 item.files 并集计算——
+				// 同名合并后再单文件分享，链接直达当次文件（如 /慧来客/b.html），而非退化为目录；
+				// 本次多文件仍指向目录（目录已由 buildDeployZip 生成索引页，可正常访问）。
+				url: itemShareUrl(url, {
+					id: item.id,
+					name: item.name,
+					files: entries.map((e) => e.name),
+				}),
 				expiresAt,
 				projectName: SHARE_PROJECT_NAME,
 				channel,

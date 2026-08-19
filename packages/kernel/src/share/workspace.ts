@@ -258,9 +258,7 @@ export async function renameItem(
 		}
 		await rm(srcDir, { recursive: true, force: true });
 		const target = items.find((i) => i.name === newName);
-		const files = [
-			...new Set([...(target?.files ?? []), ...item.files]),
-		];
+		const files = [...new Set([...(target?.files ?? []), ...item.files])];
 		const size = await dirSizeOf(dstDir, files);
 		const merged: ShareItem = target
 			? { ...target, files, size }
@@ -317,6 +315,33 @@ export function renderIndexHtml(): string {
 }
 
 /** 按 state.json 记录把工作区打成部署 zip（index.html + <name>/... 全量） */
+/** 分享目录索引页：列出该目录内全部文件（相对链接），供多文件/合并后的目录 URL 直接访问。
+ *  EdgeOne 目录 URL 带 eo_token/eo_time query——点击子链接会丢 query 导致 401，
+ *  故用脚本从 location.search 读取 query 拼到每个链接上（仅本目录，不泄露其他分享）。 */
+function renderDirIndexHtml(name: string, files: string[]): string {
+	const esc = (s: string) =>
+		s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+	const items = files
+		.map(
+			(rel) =>
+				`<li><a class="file-link" href="${esc(rel)}">${esc(rel)}</a></li>`,
+		)
+		.join("\n");
+	return `<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>${esc(name)}</title></head>
+<body><h1>${esc(name)}</h1><ul>
+${items}
+</ul>
+<script>
+// 保留目录 URL 携带的 token query（EdgeOne eo_token/eo_time），否则子文件链接 401
+document.querySelectorAll(".file-link").forEach(function (a) {
+  var href = a.getAttribute("href");
+  if (href && location.search) a.setAttribute("href", href + location.search);
+});
+</script>
+</body></html>`;
+}
+
 export async function buildDeployZip(dir: string): Promise<Uint8Array> {
 	const items = await loadItems(dir);
 	const files: Record<string, Uint8Array> = {
@@ -326,6 +351,12 @@ export async function buildDeployZip(dir: string): Promise<Uint8Array> {
 		for (const rel of it.files) {
 			files[`${it.name}/${rel}`] = new Uint8Array(
 				await readFile(join(itemsDir(dir), it.name, ...rel.split("/"))),
+			);
+		}
+		// 目录索引页：仅当用户分享的文件里没有 index.html 时生成（有则用户文件作目录入口，不覆盖）
+		if (!it.files.includes("index.html")) {
+			files[`${it.name}/index.html`] = strToU8(
+				renderDirIndexHtml(it.name, it.files),
 			);
 		}
 	}
