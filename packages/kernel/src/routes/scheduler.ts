@@ -80,9 +80,11 @@ export function createSchedulerRoutes(
 	onRunNow: (taskId: string) => Promise<void>,
 ): RouteRegistrar {
 	return (r, _callApi) => {
-		// GET /api/scheduled-tasks — 任务列表
+		// GET /api/scheduled-tasks — 任务列表（按 createdAt 倒序：新建任务排最前）
 		r.add("GET", "/api/scheduled-tasks", async () => {
 			const tasks = await loadScheduledTasks(tasksFile);
+			// loadScheduledTasks 每次返回新解析数组，原地 sort 不污染持久化文件
+			tasks.sort((a, b) => b.createdAt - a.createdAt);
 			return new Response(JSON.stringify({ tasks }), {
 				headers: { "Content-Type": "application/json" },
 			});

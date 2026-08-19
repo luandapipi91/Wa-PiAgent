@@ -2,6 +2,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — fix(自动化): 任务列表按创建时间倒序 + 新建后选中新任务
+
+- 背景：新建自动化任务后找不到、看不到——列表按 JSON 存储顺序（追加在末尾）渲染，新建任务永远沉底；且新建后主区不选中新任务，用户误以为没创建成功。
+- 修复：`GET /api/scheduled-tasks` 按 createdAt 倒序返回（新建任务排最前，与执行记录接口同风格）；前端 `createTask` 保存后选中新任务（取 POST 响应 task.id），主区直接显示新任务详情。
+- 影响范围：`packages/kernel/src/routes/scheduler.ts`、`packages/frontend/src/store/scheduler.ts`；测试新增「GET 按 createdAt 倒序」「createTask 后选中新任务」用例。
+
+
 ## 2026-08-19 — fix(automation): 新建自动化工作目录下拉移除「默认」空值项，对齐「默认工作区/项目」产品设定
 
 - 背景：产品设定中工作区只有「默认工作区」（__system__）与「项目」两类，无「默认」概念；新建自动化「工作目录」下拉此前硬编码 `<option value="">默认</option>` 空值占位项，与「默认工作区」选项重复且概念混乱。
