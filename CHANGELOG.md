@@ -2,6 +2,15 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — fix(代理中继): 普通 HTTP 转发上游失败回退直连 + 回环目标绕过上游（聊天 socket 断连修复）
+
+- 背景：会话中代理上游被切成死端口后，本地 bridge 请求（http://127.0.0.1:9778）被送进上游代理且 forwardPlain 无回退，直接 502，pi 侧 fetch 报 "The socket connection was closed unexpectedly"（实测 19,594 次 ECONNREFUSED）。
+- 修复：
+  1. forwardPlain 上游 socket 级失败（连不上/超时）与 CONNECT 隧道同策略——记冷却并回退直连重发（此前直接 502）。
+  2. 回环目标（127.x / localhost / ::1）绕过上游，始终直连。
+- 影响范围：`packages/kernel/src/proxy-relay.ts`；测试新增「上游死端口回退直连」「回环目标不送上游」用例。
+
+
 ## 2026-08-19 — fix(分享): 单文件夹分享复制链接带文件夹名（/<name>/<文件夹名>/）
 
 - 背景：上轮「单文件夹不展开」后，分享名（如慧来客）+ 文件夹 dist，复制链接却是 /慧来客/（根目录，只显示索引页），没有带上 dist/。

@@ -5,7 +5,8 @@
 // LLM 请求仍发往死掉的代理端口，重试全部失败（Connection error.）。
 //
 // 方案：env 里的代理地址不直接指向上游代理，而是指向本中继（127.0.0.1 环回）。
-// 中继对每条 CONNECT 先尝试经上游代理建隧道；上游连不通/超时/拒绝则回退直连。
+// 中继对 CONNECT 隧道与普通 HTTP 转发都先尝试经上游；上游连不通/超时则回退直连
+// （回环目标如本地 bridge 绕过上游，始终直连）。
 // 上游恢复后下一条连接自动切回（有短暂冷却缓存，避免每条请求都付一次失败延迟）。
 //
 // 生命周期：中继随 applySystemProxy 启动后不关停，env 始终指向中继——
@@ -42,6 +43,16 @@ function parseConnectTarget(url: string): { host: string; port: number } | null 
 	const port = Number.parseInt(url.slice(idx + 1), 10);
 	if (!host || !Number.isFinite(port) || port <= 0) return null;
 	return { host, port };
+}
+
+/** 回环目标判定：本地服务（如 bridge）不应经过上游代理 */
+function isLoopbackHost(hostname: string): boolean {
+	return (
+		hostname === "localhost" ||
+		hostname === "::1" ||
+		hostname === "[::1]" ||
+		hostname.startsWith("127.")
+	);
 }
 
 /** 请求头文本 → 行数组里剔除代理专用 hop-by-hop 头，返回剩余行 */
@@ -373,6 +384,8 @@ export class ProxyRelay {
 	 * TCP 级转发：解析目标后重写请求行（直连改 origin-form / 经上游保持 absolute-form），
 	 * 剔除代理专用头，其余原样透传。出站用裸 socket——不经 node:http 客户端，
 	 * 避免 Bun 读 env 代理（env 指向中继自身）造成回环。
+	 * 回环目标（如本地 bridge）绕过上游始终直连；与 CONNECT 隧道同策略：
+	 * 上游 socket 级失败（连不上/超时）记冷却并回退直连重发。
 	 */
 	private forwardPlain(
 		method: string,
@@ -394,79 +407,113 @@ export class ProxyRelay {
 			return;
 		}
 
-		const useUpstream = !!(
-			this.upstream && this.now() >= this.upstreamDownUntil
-		);
 		// 日志脱敏：query/hash 可能携带密钥，只记 scheme://host/path
 		const safeUrl = sanitizeUrlForLog(url);
-		const via = useUpstream ? "upstream" : "direct";
 		const startedAt = Date.now();
-		const finish = (result: "ok" | "fail", status: string | number, err?: string) => {
-			this.log(
-				`${method} ${safeUrl} via=${via} result=${result} status=${status}` +
-					` durMs=${Date.now() - startedAt}${err ? ` err=${JSON.stringify(err)}` : ""}`,
-			);
-		};
-		const upstreamIsTls = useUpstream && this.upstream!.protocol === "https:";
-		const headLines = stripProxyHeaders(headText.split("\r\n").slice(1));
-		const authLine =
-			useUpstream && this.upstreamAuth
-				? [`Proxy-Authorization: ${this.upstreamAuth}`]
-				: [];
-		const outHead = useUpstream
-			? `${method} ${url} HTTP/1.1\r\n${[...headLines, ...authLine].join("\r\n")}\r\n\r\n` // 经上游保持 absolute-form
-			: `${method} ${target.pathname + target.search} HTTP/1.1\r\n${headLines.join("\r\n")}\r\n\r\n`; // 直连改 origin-form
 
-		const outbound: Socket = useUpstream
-			? upstreamIsTls
-				? (tlsConnect({
-						host: this.upstream!.hostname,
-						port: Number.parseInt(this.upstream!.port, 10) || 443,
-						servername: this.upstream!.hostname,
-					}) as Socket)
-				: netConnect(
-						Number.parseInt(this.upstream!.port, 10) || 80,
-						this.upstream!.hostname,
-					)
-			: netConnect(Number.parseInt(target.port, 10) || 80, target.hostname);
+		const attempt = (useUpstream: boolean, via: string): void => {
+			const finish = (
+				result: "ok" | "fail",
+				status: string | number,
+				err?: string,
+			) => {
+				this.log(
+					`${method} ${safeUrl} via=${via} result=${result} status=${status}` +
+						` durMs=${Date.now() - startedAt}${err ? ` err=${JSON.stringify(err)}` : ""}`,
+				);
+			};
+			const upstreamIsTls = useUpstream && this.upstream!.protocol === "https:";
+			const headLines = stripProxyHeaders(headText.split("\r\n").slice(1));
+			const authLine =
+				useUpstream && this.upstreamAuth
+					? [`Proxy-Authorization: ${this.upstreamAuth}`]
+					: [];
+			const outHead = useUpstream
+				? `${method} ${url} HTTP/1.1\r\n${[...headLines, ...authLine].join("\r\n")}\r\n\r\n` // 经上游保持 absolute-form
+				: `${method} ${target.pathname + target.search} HTTP/1.1\r\n${headLines.join("\r\n")}\r\n\r\n`; // 直连改 origin-form
 
-		// TLS socket 先触发 connect 再触发 secureConnect，握手完成才算就绪，
-		// 否则会重复写请求头；按 socket 类型挂对应事件
-		outbound.once(upstreamIsTls ? "secureConnect" : "connect", () => {
-			outbound.write(outHead);
-			if (rest.length) outbound.write(rest);
-			// 先读响应状态行（拿状态码记日志），再双向 pipe
-			let rbuf = Buffer.alloc(0);
-			const onRes = (chunk: Buffer) => {
-				rbuf = Buffer.concat([rbuf, chunk]);
-				const ln = rbuf.indexOf("\r\n");
-				if (ln === -1) {
-					if (rbuf.length > 16 * 1024) {
-						outbound.off("data", onRes);
-						finish("fail", "-", "响应状态行异常");
-						client.write(rbuf);
-						outbound.pipe(client).pipe(outbound);
+			const outbound: Socket = useUpstream
+				? upstreamIsTls
+					? (tlsConnect({
+							host: this.upstream!.hostname,
+							port: Number.parseInt(this.upstream!.port, 10) || 443,
+							servername: this.upstream!.hostname,
+						}) as Socket)
+					: netConnect(
+							Number.parseInt(this.upstream!.port, 10) || 80,
+							this.upstream!.hostname,
+						)
+				: netConnect(Number.parseInt(target.port, 10) || 80, target.hostname);
+
+			// 与 CONNECT 隧道一致：上游连接加超时，死端口/无响应时及时回退；
+			// 连接建立后清除（长响应不受影响）。直连不设超时，保持原有行为。
+			if (useUpstream) outbound.setTimeout(this.connectTimeoutMs);
+			let settled = false; // 已建立连接或已失败回退
+
+			// TLS socket 先触发 connect 再触发 secureConnect，握手完成才算就绪，
+			// 否则会重复写请求头；按 socket 类型挂对应事件
+			outbound.once(upstreamIsTls ? "secureConnect" : "connect", () => {
+				settled = true;
+				outbound.setTimeout(0);
+				outbound.write(outHead);
+				if (rest.length) outbound.write(rest);
+				// 先读响应状态行（拿状态码记日志），再双向 pipe
+				let rbuf = Buffer.alloc(0);
+				const onRes = (chunk: Buffer) => {
+					rbuf = Buffer.concat([rbuf, chunk]);
+					const ln = rbuf.indexOf("\r\n");
+					if (ln === -1) {
+						if (rbuf.length > 16 * 1024) {
+							outbound.off("data", onRes);
+							finish("fail", "-", "响应状态行异常");
+							client.write(rbuf);
+							outbound.pipe(client).pipe(outbound);
+						}
+						return;
 					}
+					outbound.off("data", onRes);
+					const m = rbuf
+						.slice(0, ln)
+						.toString("latin1")
+						.match(/^HTTP\/\d(?:\.\d)?\s+(\d{3})/i);
+					finish("ok", m?.[1] ?? "-");
+					client.write(rbuf);
+					outbound.pipe(client).pipe(outbound);
+				};
+				outbound.on("data", onRes);
+			});
+			const onFail = (reason: string) => {
+				if (useUpstream && !settled) {
+					// 连接建立前的上游 socket 级失败：记冷却并回退直连重发
+					settled = true;
+					this.upstreamDownUntil = this.now() + this.upstreamDownMs;
+					console.warn(
+						`[proxy-relay] 上游代理 ${this.upstream!.origin} 不可用（${reason}），` +
+							`${this.upstreamDownMs}ms 内回退直连`,
+					);
+					finish("fail", 502, reason);
+					outbound.destroy();
+					// 客户端可能已断开，直连前确认可写
+					if (client.destroyed) return;
+					attempt(false, `upstream→direct(${reason})`);
 					return;
 				}
-				outbound.off("data", onRes);
-				const m = rbuf
-					.slice(0, ln)
-					.toString("latin1")
-					.match(/^HTTP\/\d(?:\.\d)?\s+(\d{3})/i);
-				finish("ok", m?.[1] ?? "-");
-				client.write(rbuf);
-				outbound.pipe(client).pipe(outbound);
+				console.warn(
+					`[proxy-relay] 普通 HTTP 转发失败 (${method} ${url}): ${reason}`,
+				);
+				finish("fail", 502, reason);
+				this.endClient(client, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
 			};
-			outbound.on("data", onRes);
-		});
-		outbound.once("error", (err) => {
-			console.warn(
-				`[proxy-relay] 普通 HTTP 转发失败 (${method} ${url}): ${err.message}`,
-			);
-			finish("fail", 502, err.message);
-			this.endClient(client, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
-		});
+			outbound.once("timeout", () => onFail("连接超时"));
+			outbound.once("error", (err) => onFail(err.message));
+		};
+
+		const useUpstream = !!(
+			!isLoopbackHost(target.hostname) &&
+			this.upstream &&
+			this.now() >= this.upstreamDownUntil
+		);
+		attempt(useUpstream, useUpstream ? "upstream" : "direct");
 	}
 }
 

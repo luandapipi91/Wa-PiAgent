@@ -384,4 +384,63 @@ describe("ProxyRelay", () => {
 			`Basic ${Buffer.from("alice:s3cret").toString("base64")}`,
 		);
 	});
+
+	test("普通 HTTP 转发：上游端口无监听（代理软件被关）→ 自动回退直连", async () => {
+		// 真实 HTTP 目标（模拟本地 bridge 服务之外的任意 http 目标）
+		const httpTarget = httpCreateServer((_req, res) => res.end("ok-direct"));
+		await new Promise<void>((r) => httpTarget.listen(0, "127.0.0.1", r));
+		const tPort = (httpTarget.address() as AddressInfo).port;
+		cleanups.push(() => new Promise<void>((r) => httpTarget.close(() => r())));
+
+		// 起一个上游再立刻关掉，拿到一个确定无监听的端口（复现死端口 53517）
+		const dead = await startFakeUpstream();
+		const deadPort = dead.port;
+		await dead.close();
+
+		const relay = new ProxyRelay({
+			upstream: `http://127.0.0.1:${deadPort}`,
+			connectTimeoutMs: 500,
+			upstreamDownMs: 60_000,
+		});
+		await relay.start();
+		cleanups.push(() => relay.close());
+
+		const raw = await rawHttpGet(relay.port, `http://127.0.0.1:${tPort}/api`);
+		expect(raw).toContain("200");
+		expect(raw).toContain("ok-direct");
+	});
+
+	test("普通 HTTP 转发：回环目标（127.0.0.1）不送上上游，始终直连", async () => {
+		// 本地 HTTP 服务（模拟 127.0.0.1:9778 的 bridge）
+		const httpTarget = httpCreateServer((_req, res) => res.end("ok-bridge"));
+		await new Promise<void>((r) => httpTarget.listen(0, "127.0.0.1", r));
+		const tPort = (httpTarget.address() as AddressInfo).port;
+		cleanups.push(() => new Promise<void>((r) => httpTarget.close(() => r())));
+
+		// 上游在线且会记录请求——回环请求不应到达它
+		let upstreamHits = 0;
+		const fakeHttpUpstream = httpCreateServer((_req, res) => {
+			upstreamHits++;
+			res.end("ok-upstream");
+		});
+		await new Promise<void>((r) => fakeHttpUpstream.listen(0, "127.0.0.1", r));
+		const uPort = (fakeHttpUpstream.address() as AddressInfo).port;
+		cleanups.push(
+			() => new Promise<void>((r) => fakeHttpUpstream.close(() => r())),
+		);
+
+		const relay = new ProxyRelay({
+			upstream: `http://127.0.0.1:${uPort}`,
+		});
+		await relay.start();
+		cleanups.push(() => relay.close());
+
+		const raw = await rawHttpGet(
+			relay.port,
+			`http://127.0.0.1:${tPort}/bridge/tool`,
+		);
+		expect(raw).toContain("200");
+		expect(raw).toContain("ok-bridge");
+		expect(upstreamHits).toBe(0);
+	});
 });
