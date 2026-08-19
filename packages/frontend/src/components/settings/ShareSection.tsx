@@ -226,10 +226,7 @@ export function ShareSection() {
 
 	// Token 字段：按渠道显示不同 label/placeholder；已保存 token 时统一脱敏展示
 	const tokenField = masked ? (
-		<div
-			className="flex items-center gap-3 w-72"
-			data-testid="share-token-mask"
-		>
+		<div className="flex items-center gap-3 w-72" data-testid="share-token-mask">
 			<span className="text-sm text-secondary tracking-widest">••••••••</span>
 			<button
 				onClick={() => setSaved(false)}
@@ -311,18 +308,6 @@ export function ShareSection() {
 
 					{channel === "edgeone" && (
 						<>
-							<div className="flex items-center gap-2">
-								<a
-									href={registerUrl}
-									target="_blank"
-									rel="noreferrer"
-									className="text-xs cursor-pointer hover:underline"
-									style={{ color: "var(--brand)" }}
-									data-testid="share-register-link"
-								>
-									{t("settings.share.register")} &gt;
-								</a>
-							</div>
 							{tokenField}
 							<label className="flex flex-col gap-1 w-72">
 								<span className="text-xs text-secondary">
@@ -341,23 +326,23 @@ export function ShareSection() {
 									{t("settings.share.customDomainHint")}
 								</span>
 							</label>
+							<div className="flex items-center gap-2">
+								<a
+									href={registerUrl}
+									target="_blank"
+									rel="noreferrer"
+									className="text-xs cursor-pointer hover:underline"
+									style={{ color: "var(--brand)" }}
+									data-testid="share-register-link"
+								>
+									{t("settings.share.register")} &gt;
+								</a>
+							</div>
 						</>
 					)}
 
 					{channel === "cloudflare" && (
 						<>
-							<div className="flex items-center gap-2">
-								<a
-									href="https://dash.cloudflare.com/sign-up"
-									target="_blank"
-									rel="noreferrer"
-									className="text-xs cursor-pointer hover:underline"
-									style={{ color: "var(--brand)" }}
-									data-testid="share-cf-register-link"
-								>
-									注册 Cloudflare &gt;
-								</a>
-							</div>
 							{tokenField}
 							<label className="flex flex-col gap-1 w-72">
 								<span className="text-xs text-secondary">Account ID</span>
@@ -371,6 +356,18 @@ export function ShareSection() {
 									data-testid="share-account-id-input"
 								/>
 							</label>
+							<div className="flex items-center gap-2">
+								<a
+									href="https://dash.cloudflare.com/sign-up"
+									target="_blank"
+									rel="noreferrer"
+									className="text-xs cursor-pointer hover:underline"
+									style={{ color: "var(--brand)" }}
+									data-testid="share-cf-register-link"
+								>
+									注册 Cloudflare &gt;
+								</a>
+							</div>
 							<span className="text-xs text-secondary">
 								Cloudflare 分享链接永久公开；单文件 ≤ 25MB
 							</span>
