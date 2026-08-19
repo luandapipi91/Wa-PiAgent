@@ -68,12 +68,10 @@ async function cfApi<T = any>(
       ...(init.headers as Record<string, string> | undefined),
     },
   });
-  const json = await res
-    .json()
-    .catch(() => ({
-      success: false,
-      errors: [{ message: "json parse failed" }],
-    }));
+  const json = await res.json().catch(() => ({
+    success: false,
+    errors: [{ message: "json parse failed" }],
+  }));
   if (!res.ok || json.success === false) {
     const msg = (json.errors?.[0]?.message ?? `HTTP ${res.status}`) as string;
     throw new Error(msg);
@@ -140,15 +138,17 @@ async function uploadFiles(
       `check-missing failed: HTTP ${missingRes.status}${msg ? ` ${msg}` : ""}`,
     );
   }
-  // HTTP 200 但响应非数组（业务错误对象/空 body）时同样不能被当成 string[] 用——
-  // 直接抛明确错误，避免下游 missing.includes 报「missing.includes is not a function」
-  if (!Array.isArray(missingJson)) {
+  // HTTP 200：真实 CF API 返回 {success, result: string[]}（wrangler fetchResult 解包 result 字段），
+  // 兼容裸数组两种形态；两者都不是 → 抛明确错误，避免下游 missing.includes TypeError
+  const missing = Array.isArray(missingJson)
+    ? (missingJson as string[])
+    : ((missingJson?.result as unknown) as string[] | undefined);
+  if (!Array.isArray(missing)) {
     const msg = missingJson?.errors?.[0]?.message;
     throw new Error(
       `check-missing failed: 响应格式异常${msg ? ` ${msg}` : ""}`,
     );
   }
-  const missing = missingJson as string[];
 
   // 4. 分桶上传（单桶 ≤ 40MiB / ≤ 2000 文件，串行即可，分享文件量小）
   const uploadHashes = hashes.filter((h) => missing.includes(h));

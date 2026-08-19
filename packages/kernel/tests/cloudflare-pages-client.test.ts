@@ -54,7 +54,6 @@ function installFetchMock() {
     }
     throw new Error(`unhandled mock URL: ${u}`);
   };
-  // @ts-ignore 覆盖全局 fetch
   globalThis.fetch = handler as typeof fetch;
   return calls;
 }
@@ -68,7 +67,6 @@ afterEach(() => {
 
 describe("getOrCreateProject", () => {
   test("项目不存在时创建（POST）", async () => {
-    const calls = installFetchMock();
     // 先让 GET 404，再让 POST 成功
     let n = 0;
     globalThis.fetch = (async (url: any, init?: any) => {
@@ -185,7 +183,7 @@ describe("deployToCloudflare", () => {
   });
 
   test("check-missing 返回 HTTP 200 但响应非数组时抛明确错误（而非 missing.includes TypeError）", async () => {
-    globalThis.fetch = (async (url: any, init?: any) => {
+    globalThis.fetch = (async (url: any, _init?: any) => {
       const u = String(url);
       const json = (body: unknown, status = 200) =>
         new Response(JSON.stringify(body), {
@@ -214,6 +212,52 @@ describe("deployToCloudflare", () => {
         files: { "index.html": new TextEncoder().encode("<h1>hi</h1>") },
       }),
     ).rejects.toThrow("check-missing failed");
+  });
+
+  test("check-missing 返回 {success, result} 包络形态（真实 CF API）时正常走通部署", async () => {
+    globalThis.fetch = (async (url: any, init?: any) => {
+      const u = String(url);
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        });
+      if (u.includes("/upload-token"))
+        return json({ result: { jwt: "JWT_TEST" }, success: true });
+      if (u.includes("/pages/assets/check-missing")) {
+        // 真实 CF API：{ success: true, result: [缺失 hash...] }，wrangler fetchResult 解包 result
+        const body = JSON.parse(String(init?.body));
+        return json({ success: true, result: body.hashes as string[] });
+      }
+      if (u.includes("/pages/assets/upload")) return json({ success: true });
+      if (u.includes("/deployments/")) {
+        return json({
+          result: { latest_stage: { name: "deploy", status: "success" } },
+          success: true,
+        });
+      }
+      if (u.includes("/deployments"))
+        return json({
+          result: {
+            id: "dep-1",
+            url: "https://abc.wapi-shares.pages.dev",
+            environment: "production",
+          },
+          success: true,
+        });
+      if (u.endsWith("/pages/projects/wapi-shares"))
+        return json({ result: { id: "proj-1" }, success: true });
+      throw new Error(`unhandled mock URL: ${u}`);
+    }) as typeof fetch;
+
+    const result = await deployToCloudflare({
+      token: "tk",
+      accountId: "acc-1",
+      files: { "index.html": new TextEncoder().encode("<h1>hi</h1>") },
+      pollIntervalMs: 1,
+    });
+    expect(result.url).toBe("https://wapi-shares.pages.dev");
+    expect(result.deploymentId).toBe("dep-1");
   });
 
   test("upload 返回 success:false 时抛出带信息的错误", async () => {
