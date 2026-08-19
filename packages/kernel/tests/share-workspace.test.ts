@@ -53,8 +53,24 @@ test("addItem 同 id 覆盖不产生重复记录", async () => {
   expect(items[0].size).toBe(9);
 });
 
+test("addItem 合并：旧目录中已被删除的文件不进并集（files 只保留磁盘存在的）", async () => {
+	const d = await tmp();
+	await addItem(d, "aaaaaaaaaaaa", "site", [
+		entry("index.html", "old"),
+		entry("keep.js", "K"),
+	]);
+	// 模拟用户改动分享目录：删除 index.html（磁盘上不存在了）
+	await rm(join(d, "items/site/index.html"));
+	// 再次同名分享（不同内容）→ 合并
+	await addItem(d, "bbbbbbbbbbbb", "site", [entry("new.js", "N")]);
+	const items = await loadItems(d);
+	expect(items.length).toBe(1);
+	// 旧 files 里磁盘已不存在的 index.html 被剔除，只保留 keep.js + new.js
+	expect(items[0].files.sort()).toEqual(["keep.js", "new.js"]);
+});
+
 test("addItem 不同 id 同名 → 合并为一条：旧文件保留、新文件追加、同路径新覆盖旧", async () => {
-  const d = await tmp();
+	const d = await tmp();
   // 第一次分享：id1 名 site，含 index.html + old.js
   await addItem(d, "aaaaaaaaaaaa", "site", [
     entry("index.html", "<h1>old</h1>"),
@@ -193,6 +209,20 @@ test("buildDeployZip：用户分享的文件本身是 index.html 时，不生成
   const files = unzipSync(await buildDeployZip(d));
   // 用户文件 index.html 原样保留，不被索引页覆盖
   expect(strFromU8(files["站点/index.html"])).toBe("USER");
+});
+
+test("buildDeployZip：state 引用的文件在磁盘缺失时跳过，不崩溃（ENOENT 容错）", async () => {
+  const d = await tmp();
+  // 先正常写入两个文件，再手动删除一个（模拟 state 与磁盘不一致）
+  await addItem(d, "a1b2c3d4e5f6", "站点", [
+    entry("index.html", "OLD"),
+    entry("a.js", "A"),
+  ]);
+  await rm(join(d, "items/站点/index.html"));
+  // 不崩溃；缺失的 index.html 不进部署包，存活的 a.js 正常打包
+  const files = unzipSync(await buildDeployZip(d));
+  expect(strFromU8(files["站点/a.js"])).toBe("A");
+  expect(files["站点/index.html"]).toBeUndefined();
 });
 
 test("pendingCount：与上次部署快照对比（新增/删除/变化各计 1）", async () => {

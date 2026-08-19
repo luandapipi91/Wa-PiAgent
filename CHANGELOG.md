@@ -2,6 +2,15 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — fix(分享): buildDeployZip 对缺失文件容错 + addItem 合并剔除已删除文件（ENOENT 崩溃修复）
+
+- 背景：分享目录被用户改过后（如 index.html 改名 index1.html），state.json 的 files 仍引用旧文件；再次部署时 buildDeployZip readFile 抛 ENOENT 崩溃，部署链路全断（实测 ~/.pi/agent-dev/share-workspace/items/默认工作区/index.html）。
+- 修复：
+  1. buildDeployZip：state 引用但磁盘缺失的文件跳过（catch 返回 null 则 continue），不崩溃、不进部署包；存活的文件正常打包。
+  2. addItem 合并：files 并集前先 stat 校验旧文件磁盘存在性，剔除已删除的旧文件（state 记录自洽，不再残留坏引用）。
+- 影响范围：`packages/kernel/src/share/workspace.ts`；测试新增「ENOENT 容错」「合并剔除已删除文件」用例；已清理 dev 数据 state.json（默认工作区剔除缺失 index.html）。
+
+
 ## 2026-08-19 — fix(分享): 合并/多文件分享链接直达问题——目录索引页 + 当次文件直达 URL
 
 - 背景：同名合并后 item.files 变多文件，itemShareUrl 走「目录 URL」分支，而分享目录内无 index.html，访问 https://xxx.pages.dev/慧来客/ 回退到根说明页（「WaPi Shares 托管站点」），分享内容看不到。
