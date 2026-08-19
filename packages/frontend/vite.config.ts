@@ -27,13 +27,36 @@ export function resolveInjectedValue(
   processEnv: Record<string, string | undefined>,
   envVars: Record<string, string | undefined>,
 ): string | undefined {
-  // 生产构建（打包版）绝不注入 WA_PI_DIR：bun run 会自动加载根目录 .env
-  // （dev 隔离目录 ~/.pi/agent-dev）到 process.env，无法与显式 env 区分；
-  // 打包版 kernel 数据目录由运行时决定（默认 ~/.pi/agent），前端应回退默认，
-  // 注入 dev 值会让默认工作区会话的文件树查错目录（listDir 返回 fs:error → 空白）。
-  if (mode === "production" && key === "WA_PI_DIR") return undefined;
+  // 生产构建（打包版）绝不注入机器相关路径（WA_PI_DIR / HOME / USERPROFILE）：
+  // 1) WA_PI_DIR：bun run 会自动加载根目录 .env（dev 隔离目录 ~/.pi/agent-dev）到 process.env，
+  //    无法与显式 env 区分；打包版 kernel 数据目录由运行时决定（默认 ~/.pi/agent）。
+  // 2) HOME / USERPROFILE：打包机家目录一旦进 bundle，非构建机上前端 constants.ts 用
+  //    `${HOME}/.pi/agent` 回退拼出的默认工作区就是错的本机路径（如 Windows 上请求
+  //    /Users/pipi/.pi/agent/workdir/... → listDir 返回 fs:error → 文件树空白）。
+  // 前端默认工作区路径应使用 kernel 持久化的 __system__.cwd（/api/projects 返回的运行时
+  // 本机路径），故机器相关路径一律不注入；WA_PI_WS_PORT 走 resolveWsPortDefine，同样不读打包机 env。
+  if (
+    mode === "production" &&
+    (key === "WA_PI_DIR" || key === "HOME" || key === "USERPROFILE")
+  ) {
+    return undefined;
+  }
   if (mode === "production") return processEnv[key];
   return processEnv[key] ?? envVars[key];
+}
+
+/**
+ * 决定注入 bundle 的 WA_PI_WS_PORT。
+ * production（打包版）恒用默认 9776：打包机的 process.env / .env 是 dev 配置，
+ * 打进 bundle 会让安装版前端连错端口；dev 模式才读 env（E2E 隔离端口用）。
+ */
+export function resolveWsPortDefine(
+  mode: string,
+  processEnv: Record<string, string | undefined>,
+  envVars: Record<string, string | undefined>,
+): string {
+  if (mode === "production") return "9776";
+  return processEnv.WA_PI_WS_PORT ?? envVars.WA_PI_WS_PORT ?? "9776";
 }
 
 export default defineConfig(({ mode }) => {
@@ -42,10 +65,11 @@ export default defineConfig(({ mode }) => {
   // 把进程 env 注入前端 bundle：shared/constants.ts 双源读 process.env 和 import.meta.env。
   // 浏览器 bundle 里 process 是 undefined，靠 vite define 把 import.meta.env.WA_PI_DIR 等
   // 静态替换为构建时字面量。E2E 用 WA_PI_DIR 隔离测试目录；不注入则前端回退用户真实 ~/.wa-pi。
-  // WA_PI_WS_PORT 同理注入，让浏览器 bundle 的 WS_PORT 指向 .env 配置的后端端口。
+  // WA_PI_WS_PORT 同理注入，让浏览器 bundle 的 WS_PORT 指向 .env 配置的后端端口；
+  // production 取值规则见 resolveWsPortDefine（恒 9776，不读打包机 env）。
   const defineEntries: Record<string, string> = {
     "import.meta.env.WA_PI_WS_PORT": JSON.stringify(
-      process.env.WA_PI_WS_PORT ?? envVars.WA_PI_WS_PORT ?? "9776",
+      resolveWsPortDefine(mode, process.env, envVars),
     ),
     "import.meta.env.WA_PI_VERSION": JSON.stringify(appVersion),
   };

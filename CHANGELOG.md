@@ -2,6 +2,39 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-18 — fix: 聊天卡死自愈链路补全（SSE 假活看门狗 + 崩溃现场日志）
+
+- 背景：上一提交修复了"kernel 崩溃后 respawn 无限 EADDRINUSE"，但前端仍有两个盲区：① kernel 崩溃瞬间 SSE 连接可能假活（TCP 未收到 RST，EventSource.onerror 不触发），后端被 sidecar 拉起后前端仍抱着僵尸连接，卡死状态永不复位；② kernel 静默 exit code=1 无错误输出，崩溃首因无从定位。
+- 修复：① kernel 心跳从 ": ping" 注释帧改为真实 data 帧（浏览器 EventSource 对注释帧不触发事件，前端不可观测）且间隔 30s→5s（`sse-bus.ts`、`ws-server.ts`）；前端 `events.ts` 加假活看门狗——任何帧刷新存活时间，OPEN 状态超过 10s 无帧则主动断连走既有重连+快照复位链路，心跳帧不进业务分发；② `kernel-sidecar.cjs` 崩溃退出时把 stderr 末尾 50 条（Bun panic/段错误的唯一现场）随 code/signal 写入 `<WA_PI_DIR>/logs/kernel-crash.log`。
+- 影响范围：`packages/kernel/src/sse-bus.ts`、`ws-server.ts`、`tests/sse-bus.test.ts`（新增心跳帧断言）；`packages/frontend/src/events.ts`、`events.test.ts`（新增 4 条：假活判死/心跳保活/心跳不分发/CONNECTING 不误判）；`packages/desktop/src/kernel-sidecar.cjs`、`tests/kernel-sidecar.test.ts`（新增 2 条：崩溃写现场/正常退出不写）。
+
+## 2026-08-18 — fix(desktop): 聊天中"卡死"（kernel 崩溃后 respawn 无限 EADDRINUSE 循环）
+
+- 根因（desktop.log 实证，8/14、8/18 多次复现）：聊天中 kernel 进程崩溃退出（exit code=1，首因待查），其监听 socket 句柄被 pi 子进程/子代理继承，kernel 死后端口 9778 以"死 PID 占 LISTENING"的幽灵形态持续被占（现场抓到 netstat 显示 PID 2284 监听但该进程已不存在）。sidecar 的 `scheduleRespawn` 直接 respawn，新 kernel `Bun.serve` 必然 EADDRINUSE → 退出 → 再 respawn → 无限崩溃循环，后端永久不可用，前端表现为卡死、停止/发送全无效。
+- 修复：respawn 前检测端口占用，被占则先调 `killPortOccupants`（含既有的幽灵扫描兜底：按数据目录特征 + 进程树子孙链圈定清理）再 spawn；端口空闲则跳过。
+- 影响范围：`packages/desktop/src/kernel-sidecar.cjs`（新增 isPortInUseFn/killPortOccupantsFn 依赖注入 + respawn 前清理）、`packages/desktop/tests/kernel-sidecar.test.ts`（新增 2 条：先清端口再 respawn 的顺序断言、空闲不清理；夹具补注入避免测试真杀进程）。
+- 遗留：kernel 崩溃首因（静默 exit code=1）未定位，本次只修复"崩溃后永远起不来"；前端 SSE 假活无看门狗、停止按钮无失败兜底为已知的次要自愈缺口，另行处理。
+
+## 2026-08-18 — feat(desktop): 桌面端日志文件 10MB 上限 + FIFO 裁剪 + 磁盘空间自适应
+
+- 打包版 desktop.log 只增不减会一直膨胀；现超过 10MB 时丢弃最旧的行、只保留最新 8MB（按换行对齐，不留半截行），所有文件操作串行化避免裁剪与追加并发冲突。重启后首次写入会 stat 存量计入上限。
+- 磁盘兼容：实际上限随剩余空间自适应——`min(10MB, max(上限的 10%, 剩余空间 * 1%))`，小磁盘机器自动收紧（statfs 结果缓存 60s；statfs 不可用时按 10MB 处理）。
+- 影响范围：`packages/desktop/src/util/log.cjs`（createLogger 新增可选 maxBytes/keepBytes/getFreeBytes 参数，调用方 main.cjs 不变）、`packages/desktop/tests/log.cjs.test.ts`（新增）。
+
+## 2026-08-18 — fix(kernel): 代理中途失效自动回退直连（本地代理中继）+ 网络请求日志
+
+- 问题：开启系统代理后若代理软件在会话进行中被关掉，pi 子进程 env 里的代理地址仍指向死端口（运行中进程 env 改不了），LLM 请求重试后全部 Connection error，且无法自动恢复。
+- 修复：新增本地 HTTP 代理中继 `proxy-relay.ts`（127.0.0.1 环回，纯 TCP 实现）。`applySystemProxy` 无论开关代理都把 `HTTP_PROXY/HTTPS_PROXY`（大小写）指向中继：开代理时中继每条连接先试上游代理、连不通/超时/被拒则自动回退直连（含 15s 失败冷却，上游恢复后自动切回）；关代理时中继上游清空、全部直连。开关代理只改中继上游，存量/新建子进程 env 不用变。支持上游 http/https 代理与 user:pass 鉴权头注入；中继启动失败退化为旧行为（直接写上游地址）。
+- 关键实现约束：① 中继出站刻意用裸 net/tls socket 而非 node:http 客户端——Bun 的 node:http 客户端会读 env 代理，而 kernel env 代理正是中继自身，会回环死锁；② Bun 下 pause 的 socket 收不到对端 close 事件，非转发终结路径（400/502）必须先 resume 再 end，否则 server.close() 悬挂；③ Bun 的 process.env 代理变量是特殊 getter/setter，`delete` 清不掉（同进程后续测试文件会被残留代理劫持），测试清理须置空串。
+- 网络请求日志：新增 `net-log.ts`，中继经手的每条请求落盘 `~/.pi/agent/logs/network.log`（滚动：上限 min(50MB, 空闲磁盘 1%)、下限 1MB，到限改名 .1 重开）。每条请求一行：时间/方法与脱敏 URL/路由（upstream、direct、direct(cooldown)、upstream→direct）/result=ok|fail/状态码/耗时/上下行字节/错误原因。CONNECT 隧道在关闭时记一条（durMs = 隧道生命周期 ≈ 请求时长，status 仅建连结果——隧道内 HTTPS 响应码加密不可见）；普通 HTTP 记真实响应码。「上游变更」按值去重。URL 去掉 query/hash/userinfo，不记请求头与 body（防密钥泄漏）。
+- 影响范围：`packages/kernel/src/proxy-relay.ts`（新增，含日志埋点）、`net-log.ts`（新增）、`settings-store.ts`（applySystemProxy 统一走中继）、`__tests__/proxy-relay.test.ts`（新增 9 例：CONNECT 隧道/鉴权注入/上游死亡回退/冷却与恢复/关代理切直连/502/普通 HTTP 转发）、`__tests__/net-log.test.ts`（新增：上限计算/URL 脱敏/滚动/formatBytes/中继日志格式——成功含时长与上下行字节、失败含状态码与错误原因、密钥不泄漏、上游变更去重）、`__tests__/settings-proxy.test.ts`（断言改为 env 恒指向中继 + afterEach 空串清代理变量）。
+
+## 2026-08-18 — fix: 打包版默认工作区文件树空白（HOME/USERPROFILE 注入 + resolveSessionCwd 未用持久化 cwd）
+
+- 根因：v0.2.7 只拦截 `WA_PI_DIR` 注入，漏掉 `HOME`/`USERPROFILE`：打包机（macOS）构建时 `HOME=/Users/pipi` 进入前端 bundle，`constants.ts` 用 `${HOME}/.pi/agent` 回退拼出 `/Users/pipi/.pi/agent/workdir`；而 `resolveSessionCwd` 对默认工作区（`__system__`）会话直接用该常量，忽略 kernel 持久化的 `__system__.cwd`（运行时本机路径，Windows 上为 `C:\Users\co\.pi\agent\workdir`）。非构建机（Windows）上请求 macOS 路径 → `list-dir` 返回 `fs:error` → `ExplorerPanel` 静默 `[]` → 默认工作区文件树空白。
+- 修复：① `packages/frontend/vite.config.ts` 生产构建恒不注入打包机 env——机器路径（WA_PI_DIR/HOME/USERPROFILE）补上 v0.2.7 漏网，`WA_PI_WS_PORT` 也恒注入默认 9776 不读打包机 process.env/.env；② `packages/shared/src/pure.ts` `resolveSessionCwd` 默认工作区分支只用持久化 `project.cwd`（前端已从 `/api/projects` 拿到 `__system__.cwd`），绝不回退常量（空 cwd 返回空串，前端 ExplorerPanel 空串渲染空态不请求；kernel 调用点均有 `!project.cwd` 前置校验，行为不变）。
+- 影响范围：`packages/frontend/vite.config.ts`、`vite.config.test.ts`（HOME/USERPROFILE/WS_PORT 不注入断言）、`packages/shared/src/pure.ts`、`tests/pure.test.ts`（新增 project.cwd 优先 + 空串断言）。需重新打包发布后生效。
+
 ## 2026-08-18 — chore(release): 发布版本 0.2.7（修复打包版默认工作区文件树空白）
 
 - 打包发布 0.2.7（mac + win 完整覆盖 OSS）：修复打包版默认工作区会话右侧文件树空白（前端构建误注入 dev 数据目录 ~/.pi/agent-dev，与 kernel 实际 ~/.pi/agent 不一致）。
