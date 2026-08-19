@@ -922,6 +922,7 @@ const zh = {
 		copied: "已复制",
 		expiresIn: "链接 {{hours}} 小时内有效",
 		noToken: "请先在 设置 → 分享 配置 Token",
+		merged: "已合并到分享 {{name}}（共 {{count}} 个文件），旧文件已保留",
 	},
 };
 

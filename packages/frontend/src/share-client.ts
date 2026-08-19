@@ -8,6 +8,10 @@ export interface ShareUploadResult {
 	id: string;
 	/** 分享名（文件夹名/URL 子路径） */
 	name: string;
+	/** 同名合并标志：true 表示该分享名之前已存在，本次为追加/覆盖合并 */
+	merged?: boolean;
+	/** 合并后分享内的文件总数（提示用） */
+	filesCount?: number;
 	url: string;
 	expiresAt: number;
 	projectName: string;

@@ -193,14 +193,17 @@ export function createShareRoutes(
 					? (entries[0].name.split("/").pop() ?? entries[0].name)
 					: `${entries.length} 个文件`;
 			// 用户指定分享名（文件夹名/URL 子路径，穿透）；缺省用自动名。
-			// 查重由 addItem 内置（不同 id 同名抛错），此处统一转 409。
+			// 同名不再报错，addItem 内部合并（旧文件保留、新文件追加）；此处探测是否发生合并，供前端提示。
 			const name =
 				typeof b.name === "string" && b.name.trim() ? b.name.trim() : autoName;
+			const existed = (await loadItems(workspaceDir)).some(
+				(i) => i.name === name,
+			);
 			let item;
 			try {
 				item = await addItem(workspaceDir, id, name, entries);
 			} catch (e: any) {
-				if (/重复|非法字符/.test(e?.message ?? ""))
+				if (/非法字符/.test(e?.message ?? ""))
 					return Response.json({ error: e.message }, { status: 409 });
 				throw e;
 			}
@@ -212,6 +215,10 @@ export function createShareRoutes(
 			return Response.json({
 				id: item.id,
 				name: item.name,
+				// 同名合并标志：该分享名之前已存在（本次为追加/覆盖合并）
+				merged: existed,
+				// 合并后文件总数（前端「已合并」提示用）
+				filesCount: item.files.length,
 				// 两渠道共用同一 buildDeployZip 布局（{name}/{rel}），统一复用 itemShareUrl：
 				// 多文件条目指向目录，单文件条目指向真实文件（且 new URL 自动 percent-encode 分享名）
 				url: itemShareUrl(url, item),

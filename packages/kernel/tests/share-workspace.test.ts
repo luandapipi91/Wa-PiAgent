@@ -53,6 +53,43 @@ test("addItem 同 id 覆盖不产生重复记录", async () => {
   expect(items[0].size).toBe(9);
 });
 
+test("addItem 不同 id 同名 → 合并为一条：旧文件保留、新文件追加、同路径新覆盖旧", async () => {
+  const d = await tmp();
+  // 第一次分享：id1 名 site，含 index.html + old.js
+  await addItem(d, "aaaaaaaaaaaa", "site", [
+    entry("index.html", "<h1>old</h1>"),
+    entry("old.js", "var a = 1;"),
+  ]);
+  // 第二次分享：id2 名 site（不同内容 → 不同 id），含 index.html（同路径新内容）+ new.js
+  await addItem(d, "bbbbbbbbbbbb", "site", [
+    entry("index.html", "<h1>new</h1>"),
+    entry("new.js", "var b = 2;"),
+  ]);
+  const items = await loadItems(d);
+  // 合并为一条记录，id 为本次（新）id
+  expect(items.length).toBe(1);
+  expect(items[0].id).toBe("bbbbbbbbbbbb");
+  expect(items[0].name).toBe("site");
+  // files 为并集（去重）
+  expect(items[0].files.sort()).toEqual([
+    "index.html",
+    "new.js",
+    "old.js",
+  ]);
+  // 旧文件保留 + 新文件写入 + 同路径 index.html 被新内容覆盖
+  expect(await readFile(join(d, "items/site/index.html"), "utf8")).toBe(
+    "<h1>new</h1>",
+  );
+  expect(await readFile(join(d, "items/site/old.js"), "utf8")).toBe(
+    "var a = 1;",
+  );
+  expect(await readFile(join(d, "items/site/new.js"), "utf8")).toBe(
+    "var b = 2;",
+  );
+  // size 为合并后目录总字节数（<h1>new</h1>=12 + old.js=10 + new.js=10 = 32）
+  expect(items[0].size).toBe(32);
+});
+
 test("addItem 支持子目录条目", async () => {
   const d = await tmp();
   await addItem(d, "a1b2c3d4e5f6", "站点", [
@@ -233,15 +270,23 @@ test("renameItem 重命名：文件夹原子改名、文件保留、state 更新
   expect(items[0].name).toBe("新名");
 });
 
-test("renameItem 重名拒绝：不同 id 同名抛错", async () => {
+test("renameItem 重名 → 合并：目标记录保留 id，源目录文件合并进目标目录，仅一条记录", async () => {
   const d = await tmp();
   await addItem(d, "aaaaaaaaaaaa", "甲", [entry("a.txt", "1")]);
   await addItem(d, "bbbbbbbbbbbb", "乙", [entry("b.txt", "2")]);
-  await expect(renameItem(d, "aaaaaaaaaaaa", "乙")).rejects.toThrow("重复");
-  // 未改动
-  expect((await loadItems(d)).find((i) => i.id === "aaaaaaaaaaaa")?.name).toBe(
-    "甲",
-  );
+  // 把「甲」重命名为「乙」（已存在）→ 合并到乙
+  const renamed = await renameItem(d, "aaaaaaaaaaaa", "乙");
+  expect(renamed.name).toBe("乙");
+  const items = await loadItems(d);
+  // 只剩一条记录，id 保留目标（乙）的 id
+  expect(items.length).toBe(1);
+  expect(items[0].id).toBe("bbbbbbbbbbbb");
+  expect(items[0].name).toBe("乙");
+  expect(items[0].files.sort()).toEqual(["a.txt", "b.txt"]);
+  // 两个文件都在目标目录，源目录已删
+  expect(await readFile(join(d, "items/乙/a.txt"), "utf8")).toBe("1");
+  expect(await readFile(join(d, "items/乙/b.txt"), "utf8")).toBe("2");
+  expect(existsSync(join(d, "items/甲"))).toBe(false);
 });
 
 test("pendingCount：重命名后计为未部署变更（签名含 name）", async () => {
