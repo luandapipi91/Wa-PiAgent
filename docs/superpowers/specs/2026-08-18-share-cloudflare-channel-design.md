@@ -85,7 +85,7 @@ hash = blake3( base64(文件内容) + 扩展名 ).hex.slice(0, 32)
 ## 5. 免费限制
 
 | 限制项 | 数值 | 说明 |
-|--------|------|------|
+| -------- | ------ | ------ |
 | 单文件大小 | ≤ 25MB | 应用层统一单文件上限：`POST /api/share/upload` 对所有渠道入口 413 拦截（`MAX_FILE_BYTES`）；CF Pages Direct Upload 另有同量级硬限制作为兜底 |
 | 带宽/流量 | 无限（免费） | pages.dev 静态托管不计流量费 |
 | 构建数 | 不限 | Direct Upload 走 API 上传，不占免费构建次数 |
@@ -95,7 +95,7 @@ hash = blake3( base64(文件内容) + 扩展名 ).hex.slice(0, 32)
 ## 6. 与 EdgeOne 的差异表
 
 | 维度 | EdgeOne（原渠道） | Cloudflare Pages（新渠道） |
-|------|-------------------|---------------------------|
+| ------ | ------------------- | --------------------------- |
 | 链接时效 | 3 小时 token（`expiresAt = Date.now() + 3*3600_000`） | 永久公开（`expiresAt = 0`） |
 | 访问鉴权 | 链接内含签名 token，过期即 403 | 无需任何 token，直接 HTTP 200 |
 | 部署协议 | 私有 API + COS 上传（edgeone-client） | CF API Direct Upload（内容寻址 + multipart） |
@@ -128,7 +128,7 @@ hash = blake3( base64(文件内容) + 扩展名 ).hex.slice(0, 32)
 ## 9. 文件清单（本次变更）
 
 | 文件 | 变更 |
-|------|------|
+| ------ | ------ |
 | `packages/kernel/src/share/cloudflare-pages-client.ts` | 新增：Direct Upload 客户端（fd97cc02 后经 bf22a19f 加固） |
 | `packages/kernel/src/share/file-hash.ts` | 新增：blake3 内容寻址 hash（5c548c74） |
 | `packages/kernel/src/routes/share.ts` | 部署/刷新链接按 channel 分派；cloudflare 分支返回 expiresAt:0（3b06ad8b / 0fa2e6ce / b245b7e4） |
