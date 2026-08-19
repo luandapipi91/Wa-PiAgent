@@ -83,16 +83,51 @@ export async function getOrCreateProject(
   token: string,
   accountId: string,
   projectName: string,
-): Promise<{ id: string }> {
-  const existing = await cfApi<{ id: string }>(
-    token,
-    `/accounts/${accountId}/pages/projects/${projectName}`,
-  ).catch(() => null);
-  if (existing) return existing;
-  return cfApi<{ id: string }>(token, `/accounts/${accountId}/pages/projects`, {
+): Promise<{ id: string; subdomain: string }> {
+  const existing = await cfApi<{
+    id: string;
+    subdomain?: string;
+    domains?: string[];
+  }>(token, `/accounts/${accountId}/pages/projects/${projectName}`).catch(
+    () => null,
+  );
+  if (existing) {
+    return { id: existing.id, subdomain: resolveSubdomain(existing) };
+  }
+  const created = await cfApi<{
+    id: string;
+    subdomain?: string;
+    domains?: string[];
+  }>(token, `/accounts/${accountId}/pages/projects`, {
     method: "POST",
     body: JSON.stringify({ name: projectName, production_branch: "main" }),
   });
+  return { id: created.id, subdomain: resolveSubdomain(created) };
+}
+
+/** 从项目对象取真实 pages.dev 子域：subdomain 优先，fallback domains[0]。
+ *  .pages.dev 子域全局唯一——同名项目在不同账号可能分到不同子域（如 wapi-shares-abc.pages.dev），
+ *  绝不能硬编码 https://{projectName}.pages.dev 拼链接。 */
+function resolveSubdomain(p: {
+  subdomain?: string;
+  domains?: string[];
+}): string {
+  const sub = p.subdomain || p.domains?.[0];
+  if (!sub) throw new Error("无法获取 Cloudflare 项目域名");
+  return sub;
+}
+
+/** 查询项目真实 pages.dev 子域（refresh-link 等场景复用；与 edgeone getPresetDomain 对齐） */
+export async function getProjectSubdomain(
+  token: string,
+  accountId: string,
+  projectName: string,
+): Promise<string> {
+  const proj = await cfApi<{ subdomain?: string; domains?: string[] }>(
+    token,
+    `/accounts/${accountId}/pages/projects/${projectName}`,
+  );
+  return resolveSubdomain(proj);
 }
 
 // 上传文件（内容寻址，返回 路径 -> hash 的 manifest）
@@ -311,7 +346,8 @@ export async function deployToCloudflare(
   return {
     projectName,
     projectId: project.id,
-    url: `https://${projectName}.pages.dev`,
+    // 用项目真实 pages.dev 子域（全局唯一，同名项目在不同账号子域可能不同），不硬编码 projectName
+    url: `https://${project.subdomain}`,
     deploymentId: deployment.id,
     deploymentUrl: deployment.url,
   };

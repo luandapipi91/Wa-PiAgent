@@ -2,6 +2,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — fix(share): CF 分享链接用项目真实 pages.dev 子域（不再硬编码 wapi-shares.pages.dev）
+
+- 问题：`.pages.dev` 子域全局唯一，同名项目在不同 Cloudflare 账号可能分到不同子域（如 `wapi-shares-abc.pages.dev`）；此前硬编码 `https://wapi-shares.pages.dev` 拼分享链接，账号子域被占用时会生成打不开的链接。
+- 修复：新增 `getProjectSubdomain`（查询项目真实 subdomain，fallback domains[0]）；`getOrCreateProject` 返回真实子域；`deployToCloudflare` 与 refresh-link 的 CF 分支均用真实子域拼 URL（与 edgeone getPresetDomain 对齐）。取不到域名抛明确错误。
+- 验证：真实 API 查询 wapi-shares 项目返回真实子域；单测覆盖「子域带后缀（被占用场景）」「domains fallback」「取不到抛错」。
+- 影响范围：`packages/kernel/src/share/cloudflare-pages-client.ts`、`packages/kernel/src/routes/share.ts`；测试 mock 项目响应补 subdomain。
+
 ## 2026-08-19 — chore(release): 发布版本 0.2.8（Cloudflare Pages 分享渠道 + 稳定性修复）
 
 - 版本 0.2.7 → 0.2.8：desktop/frontend package.json、version-history.json（新增 0.2.8 条目）、VersionTimeline maxEntries 断言同步、RELEASE_NOTES.md 重写为当次内容。
