@@ -142,7 +142,7 @@ export function ExecutionDetailView() {
 							加载中…
 						</div>
 					) : (
-						<MessageList sessionId={record.sessionId} />
+						<MessageList sessionId={record.sessionId} readOnly />
 					)
 				) : (
 					<div

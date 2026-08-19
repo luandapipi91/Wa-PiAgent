@@ -2,6 +2,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — fix(自动化): 执行详情回放隐藏「重新发送」按钮（只读）
+
+- 背景：任务执行详情页复用聊天 MessageList 渲染执行过程回放，若该次执行以模型错误结束（stopReason:error），回放会命中聊天的「重新发送」按钮逻辑，在最后一条 user 消息下方渲染重发按钮；点击会把消息重新 POST 到已结束的 scheduler 会话——执行详情是只读回放，不该有重发入口。
+- 修复：MessageList 新增 `readOnly` prop（默认 false），只读时不计算「重新发送」触发条件；ExecutionDetailView 传 `readOnly`。
+- 影响范围：`packages/frontend/src/components/MessageList.tsx`、`automation/ExecutionDetailView.tsx`；测试新增「readOnly 不渲染重新发送」「ExecutionDetailView 透传 readOnly」用例。
+
+
 ## 2026-08-19 — fix(自动化): 任务列表按创建时间倒序 + 新建后选中新任务
 
 - 背景：新建自动化任务后找不到、看不到——列表按 JSON 存储顺序（追加在末尾）渲染，新建任务永远沉底；且新建后主区不选中新任务，用户误以为没创建成功。

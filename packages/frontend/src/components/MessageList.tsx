@@ -45,6 +45,8 @@ export const INITIALIZING_WINDOW_MS = 20_000;
 
 interface Props {
 	sessionId: string;
+	/** 只读回放（如任务执行详情）：隐藏「重新发送」等交互按钮 */
+	readOnly?: boolean;
 }
 
 interface RenderedRow {
@@ -59,7 +61,7 @@ type VirtuosoRow =
 	| { kind: "message"; key: string; row: RenderedRow; index: number }
 	| { kind: "streaming"; key: string; streaming: SessionMessage };
 
-export function MessageList({ sessionId }: Props) {
+export function MessageList({ sessionId, readOnly = false }: Props) {
 	const { t } = useTranslation();
 	const messages = useSessionStore(
 		(s) => s.messagesBySession[sessionId] ?? EMPTY,
@@ -161,7 +163,10 @@ export function MessageList({ sessionId }: Props) {
 	// transient 错误后 streaming 占位已被清掉，末条是 user 消息
 	const isTransientErrorTurn =
 		turnEnded && netDegraded && lastMsg?.role === "user";
-	if (isFatalErrorTurn || isTransientErrorTurn) {
+	if (
+		!readOnly &&
+		(isFatalErrorTurn || isTransientErrorTurn)
+	) {
 		for (let i = rows.length - 1; i >= 0; i--) {
 			if ((rows[i].main.message as any).role === "user") {
 				resendUserIdx = i;

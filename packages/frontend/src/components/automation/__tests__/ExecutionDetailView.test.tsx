@@ -36,10 +36,12 @@ mock.module("../../../store/session", () => ({
 mock.module("../../../api-client", () => ({
 	api: { get: apiGetMock },
 }));
-// MessageList mock：轻量替身，断言收到正确 sessionId
+// MessageList mock：轻量替身，断言收到正确 sessionId 与只读标记
 mock.module("../../MessageList", () => ({
-	MessageList: ({ sessionId }: { sessionId: string }) => (
-		<div data-testid="message-list-mock">{sessionId}</div>
+	MessageList: ({ sessionId, readOnly }: { sessionId: string; readOnly?: boolean }) => (
+		<div data-testid="message-list-mock" data-readonly={readOnly ? "true" : undefined}>
+			{sessionId}
+		</div>
 	),
 }));
 
