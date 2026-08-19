@@ -46,5 +46,14 @@ export function useComposerHeight() {
             /* localStorage 不可用时静默降级 */
         }
     }, []);
-    return { height, setHeight };
+    // 双击手柄重置：清除手动高度，回到自然生长（minHeight 60 / maxHeight 300）
+    const resetHeight = useCallback(() => {
+        setHeightState(null);
+        try {
+            localStorage.removeItem(COMPOSER_HEIGHT_KEY);
+        } catch {
+            /* localStorage 不可用时静默降级 */
+        }
+    }, []);
+    return { height, setHeight, resetHeight };
 }

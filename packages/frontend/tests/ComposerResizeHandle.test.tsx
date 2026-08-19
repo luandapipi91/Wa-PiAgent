@@ -12,7 +12,7 @@ afterEach(() => {
     document.body.style.cursor = "";
 });
 
-function renderHandle() {
+function renderHandle(opts: { onReset?: () => void } = {}) {
     const targetRef = createRef<HTMLDivElement>();
     const target = document.createElement("div");
     // happy-dom 下 getBoundingClientRect 恒为 0，mock 成起始高度 100
@@ -20,10 +20,10 @@ function renderHandle() {
         ({ height: 100, top: 0, left: 0, right: 0, bottom: 100, width: 600, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
     (targetRef as { current: HTMLDivElement | null }).current = target;
     const onResize = mock(() => {});
-    render(
-        <ComposerResizeHandle targetRef={targetRef} onResize={onResize} testId="resize-handle" />,
+    const { unmount } = render(
+        <ComposerResizeHandle targetRef={targetRef} onResize={onResize} onReset={opts.onReset} testId="resize-handle" />,
     );
-    return { onResize };
+    return { onResize, unmount };
 }
 
 test("渲染手柄（row-resize 光标 + data-testid）", () => {
@@ -60,4 +60,22 @@ test("mouseup 后继续移动不再触发 onResize", () => {
     onResize.mockClear();
     fireEvent.mouseMove(window, { clientY: 100 });
     expect(onResize).not.toHaveBeenCalled();
+});
+
+test("拖拽中卸载：body 样式兜底恢复，mousemove 不再触发 onResize", () => {
+    const { onResize, unmount } = renderHandle();
+    const handle = screen.getByTestId("resize-handle");
+    fireEvent.mouseDown(handle, { clientY: 300 });
+    unmount();
+    expect(document.body.style.userSelect).toBe("");
+    expect(document.body.style.cursor).toBe("");
+    fireEvent.mouseMove(window, { clientY: 100 });
+    expect(onResize).not.toHaveBeenCalled();
+});
+
+test("双击手柄触发 onReset", () => {
+    const onReset = mock(() => {});
+    renderHandle({ onReset });
+    fireEvent.doubleClick(screen.getByTestId("resize-handle"));
+    expect(onReset).toHaveBeenCalledTimes(1);
 });

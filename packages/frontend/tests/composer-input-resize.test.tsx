@@ -90,3 +90,14 @@ test("localStorage 已有记录：初始即固定高度", () => {
     renderComposer();
     expect(screen.getByRole("textbox").style.height).toBe("200px");
 });
+
+test("双击手柄重置：回到自然生长并移除 localStorage 记录", () => {
+    localStorage.setItem(COMPOSER_HEIGHT_KEY, "200");
+    renderComposer();
+    const textbox = screen.getByRole("textbox");
+    expect(textbox.style.height).toBe("200px");
+    fireEvent.doubleClick(screen.getByTestId("composer-resize-handle"));
+    expect(textbox.style.height).toBe("");
+    expect(textbox.style.minHeight).toBe("60px");
+    expect(localStorage.getItem(COMPOSER_HEIGHT_KEY)).toBeNull();
+});
