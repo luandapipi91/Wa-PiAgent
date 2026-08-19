@@ -14,6 +14,8 @@ import type { RouteRegistrar } from "../routes/types";
 
 const TEST_DIR = join(tmpdir(), `test-trash-msg-${Date.now()}`);
 const TEST_PROJECTS = join(TEST_DIR, "projects.json");
+// bun test 进程从 .env 加载了 WA_PI_DIR，delete 会清掉它（不是恢复原值）
+const ORIG_WA_PI_DIR = process.env.WA_PI_DIR;
 
 // 最小化的 callApi mock（不需要真实 WS server）
 const mockCallApi = (async (_event: any) => Response.json({ ok: true })) as any;
@@ -94,7 +96,8 @@ describe("Trash messages endpoint", () => {
 	});
 
 	afterEach(async () => {
-		delete process.env.WA_PI_DIR;
+		// 恢复原值而非 delete（避免清掉 bun 从 .env 加载的 WA_PI_DIR）
+		process.env.WA_PI_DIR = ORIG_WA_PI_DIR ?? "";
 		await rm(TEST_DIR, { force: true, recursive: true });
 	});
 

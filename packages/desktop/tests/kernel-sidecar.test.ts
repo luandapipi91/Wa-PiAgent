@@ -107,6 +107,9 @@ test("startSidecar: 返回 createdAt 为 spawn 时刻（非端口就绪时刻）
       checkPortFn: (async () => true) as any,
       killFn: (() => {}) as any,
       respawnDelayMs: 5,
+      // 必须注入：默认 isPortInUse/killPortOccupants 会真实清理 9778 → 杀宿主 kernel
+      isPortInUseFn: (async () => false) as any,
+      killPortOccupantsFn: (async () => []) as any,
     },
   });
   expect(sidecar.createdAt).toBe(2000); // spawn 时刻，而非端口就绪时刻 9999
@@ -128,6 +131,10 @@ test("scheduleRespawn: 日志用注入的 respawnDelayMs（非硬编码常量）
       checkPortFn: (async () => true) as any,
       killFn: (() => {}) as any,
       respawnDelayMs: 7,
+      // 必须注入：该测试会触发崩溃→respawn，默认 isPortInUse/killPortOccupants
+      // 会真实清理 9778 端口占用 → 杀掉正在运行的宿主 kernel（曾经真实事故）
+      isPortInUseFn: (async () => false) as any,
+      killPortOccupantsFn: (async () => []) as any,
     },
   });
   children[0].emit("exit", null, "SIGKILL"); // 崩溃 → scheduleRespawn 记日志
