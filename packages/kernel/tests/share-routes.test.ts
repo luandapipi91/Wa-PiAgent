@@ -521,7 +521,7 @@ test("open-folder：200 + opener 收到 workspaceDir + 目录被创建", async (
     expect(statSync(ws2).isDirectory()).toBe(true);
 });
 
-test("upload 单个文件夹：内容平铺不嵌套，名称为文件夹名", async () => {
+test("upload 单个文件夹：保留文件夹层级（不展开），名称为文件夹名", async () => {
     mockEdgeOne();
     const { mkdir, writeFile } = await import("node:fs/promises");
     await mkdir(join(dir, "dist", "assets"), { recursive: true });
@@ -534,11 +534,14 @@ test("upload 单个文件夹：内容平铺不嵌套，名称为文件夹名", a
     expect(res!.status).toBe(200);
     const data = await res!.json();
     expect(data.projectName).toBe("wapi-shares");
-    // 列表条目：文件路径不带 dist/ 前缀，名称为文件夹名
+    // 列表条目：文件路径带 dist/ 前缀（文件夹本身作为一层保留，不展开平铺），名称为文件夹名
     const { loadItems } = await import("../src/share/workspace");
     const items = await loadItems(workspaceDir);
     const item = items.find((i) => i.id === data.id);
-    expect(item?.files.sort()).toEqual(["assets/a.js", "index.html"]);
+    expect(item?.files.sort()).toEqual([
+        "dist/assets/a.js",
+        "dist/index.html",
+    ]);
     expect(item?.name).toBe("dist");
 });
 

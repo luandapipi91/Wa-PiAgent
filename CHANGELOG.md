@@ -2,6 +2,14 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — feat(分享): 单文件夹分享不展开——文件夹本身作为一层保留
+
+- 需求：右键分享文件夹时，之前是内容平铺展开（/慧来客/ 下直接是该文件夹内文件），改为不展开——文件夹本身作为一层保留（/慧来客/dist/index.html，访问 /慧来客/ 看到 dist 目录）。
+- 实现：share.ts upload 打包 root 由 `singleDir ?? commonRoot` 改为恒用 `commonRoot`（单文件夹分享时 root=父目录，条目带文件夹名前缀）；`singleDir` 保留用于 autoName（分享名=文件夹名）。
+- 影响：单文件/多文件/多文件夹分享行为不变（本就走 commonRoot）；前端无需改动。
+- 影响范围：`packages/kernel/src/routes/share.ts`；测试「upload 单个文件夹」断言更新为带 dist/ 前缀。
+
+
 ## 2026-08-19 — fix(分享): buildDeployZip 对缺失文件容错 + addItem 合并剔除已删除文件（ENOENT 崩溃修复）
 
 - 背景：分享目录被用户改过后（如 index.html 改名 index1.html），state.json 的 files 仍引用旧文件；再次部署时 buildDeployZip readFile 抛 ENOENT 崩溃，部署链路全断（实测 ~/.pi/agent-dev/share-workspace/items/默认工作区/index.html）。

@@ -172,11 +172,11 @@ export function createShareRoutes(
 			const auth = await requireToken();
 			if (auth instanceof Response) return auth;
 
-			// 单个文件夹分享：以文件夹本身为根，内容平铺到 /<id>/ 下
-			// （否则 commonRoot 取父目录，条目会多套一层文件夹名）
+			// 单文件夹分享：autoName 取文件夹名（下方 L190），但打包 root 统一用 commonRoot——
+			// 文件夹本身作为一层保留（/慧来客/dist/...），不展开平铺
 			const singleDir =
 				paths.length === 1 && statSync(paths[0]).isDirectory() ? paths[0] : null;
-			const entries = collectZipEntries(paths, singleDir ?? commonRoot(paths));
+			const entries = collectZipEntries(paths, commonRoot(paths));
 			if (entries.length === 0)
 				return Response.json({ error: "paths 为空" }, { status: 400 });
 			const oversized = entries.find((e) => e.data.byteLength > MAX_FILE_BYTES);
