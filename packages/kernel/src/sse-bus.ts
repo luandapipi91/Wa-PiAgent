@@ -61,14 +61,12 @@ export class SseBus {
     }
   }
 
-  /** 心跳注释帧：防代理/空闲断连，前端可感知存活 */
+  /**
+   * 心跳帧：防代理/空闲断连，前端看门狗靠它判定存活。
+   * 必须发真实 data 帧而非 ": ping" 注释帧——浏览器 EventSource 对注释帧
+   * 不触发 onmessage，注释心跳前端完全不可观测，假活检测无从实现。
+   */
   heartbeat(): void {
-    for (const write of [...this.clients]) {
-      try {
-        write(": ping\n\n");
-      } catch {
-        this.clients.delete(write);
-      }
-    }
+    this.broadcast("heartbeat", { type: "heartbeat", ts: Date.now() });
   }
 }

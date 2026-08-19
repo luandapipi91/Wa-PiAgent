@@ -17,6 +17,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getSystemProxy } from "os-proxy-config";
 import { WA_PI_DIR } from "@wa-pi/shared";
+import { ensureProxyRelay } from "./proxy-relay";
 import type {
 	RetrySettings,
 	TrashSettings,
@@ -274,9 +275,16 @@ export async function readSystemProxy(): Promise<string> {
 /**
  * 应用系统代理到进程环境变量（同时设置大小写，覆盖 undici/Bun fetch 与 curl/wget）。
  * 开启时优先用保存的 httpProxy；为空则从系统（readProxy）兜底读当前系统代理。
- * 关闭，或开启但读不到代理 → 清空恢复直连。
  * Bun 的 fetch 与 pi 子进程（继承 env）的 undici EnvHttpProxyAgent 读大写；
  * curl/wget 读小写 http_proxy/https_proxy。
+ *
+ * 无论开不开代理，env 始终写入本地中继地址（proxy-relay.ts），逻辑统一：
+ * - 开代理：中继上游 = effective，每条连接先试上游、不通则直连——
+ *   「代理软件中途被关掉」时存量子进程自动回退直连（运行中的进程 env 改不了，
+ *   只能靠中继在连接层兜底）；代理恢复后自动切回。
+ * - 不开代理：中继上游 = 空，全部直连。
+ * 开关代理只需改中继上游，存量/新建子进程 env 都不用变。
+ * 中继启动失败时退化：开代理写上游地址（旧行为），不开代理删 env 直连。
  */
 export async function applySystemProxy(
 	file: string = SETTINGS_FILE,
@@ -284,14 +292,23 @@ export async function applySystemProxy(
 ): Promise<void> {
 	const { useSystemProxy, httpProxy } = await loadProxySettings(file);
 	const effective = useSystemProxy ? httpProxy || (await readProxy()) : "";
+	let relayUrl: string | null = null;
+	try {
+		relayUrl = await ensureProxyRelay(effective);
+	} catch (e) {
+		console.warn(
+			`[proxy] 中继启动失败，退化为旧行为: ${e instanceof Error ? e.message : String(e)}`,
+		);
+	}
+	const envProxy = relayUrl ?? effective; // 中继不可用且 effective 为空 → "" → 删 env
 	console.log(
-		`[proxy] applySystemProxy: useSystemProxy=${useSystemProxy} 保存的 httpProxy=${httpProxy || "(空)"} → 最终代理=${effective || "(直连)"}`,
+		`[proxy] applySystemProxy: 上游=${effective || "(直连)"} → env 代理=${envProxy || "(清空)"}`,
 	);
-	if (effective) {
-		process.env.HTTP_PROXY = effective;
-		process.env.HTTPS_PROXY = effective;
-		process.env.http_proxy = effective;
-		process.env.https_proxy = effective;
+	if (envProxy) {
+		process.env.HTTP_PROXY = envProxy;
+		process.env.HTTPS_PROXY = envProxy;
+		process.env.http_proxy = envProxy;
+		process.env.https_proxy = envProxy;
 	} else {
 		delete process.env.HTTP_PROXY;
 		delete process.env.HTTPS_PROXY;

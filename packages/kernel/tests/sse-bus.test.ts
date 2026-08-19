@@ -47,3 +47,15 @@ test("broadcast: 序列化失败不影响后续正常帧", () => {
   expect(frames.length).toBe(1);
   expect(frames[0]).toContain('"good"');
 });
+
+test("heartbeat: 发真实 data 帧而非注释帧（EventSource 对 : 注释不触发 onmessage，前端看门狗无从感知存活）", () => {
+  // 根因：kernel 卡死/假死时 TCP 不断、SSE OPEN 假活，前端 EventSource.onerror 不触发，
+  // 永不重连。前端需要观测心跳来判断存活，而注释帧 ": ping" 在浏览器里不可观测。
+  const bus = new SseBus();
+  const frames: string[] = [];
+  bus.add((c) => frames.push(c));
+  bus.heartbeat();
+  expect(frames.length).toBe(1);
+  expect(frames[0].startsWith("data: ")).toBe(true);
+  expect(frames[0]).toContain('"type":"heartbeat"');
+});
