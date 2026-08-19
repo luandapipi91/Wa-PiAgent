@@ -687,7 +687,7 @@ const zh = {
 			clearConfirm: "确定要清空全部分享吗？线上内容需在「立即部署」后才会移除。",
 			pending: "{{count}} 项变更未部署，需点击立即部署生效",
 			usage: "存储 {{used}} / {{limit}}",
-			unlimited: "不限",
+			usageOnly: "存储 {{used}}",
 			copyLink: "复制链接",
 			copied: "已复制",
 			remove: "删除",

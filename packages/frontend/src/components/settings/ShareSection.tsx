@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "../../i18n/useTranslation";
 import { api } from "../../api-client";
 import { useToastStore } from "../../store/toast";
@@ -17,6 +17,7 @@ import { copyToClipboard } from "../../util/clipboard";
 import { useUiPrefsStore } from "../../store/ui-prefs";
 import { ProgressBar } from "../ui/ProgressBar";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { Modal } from "../ui/Modal";
 import { useShareProgressStore } from "../../store/share-progress";
 
 /**
@@ -27,6 +28,21 @@ import { useShareProgressStore } from "../../store/share-progress";
  * （token 空串时 kernel 保留原值），token 已保存时脱敏展示。
  * 我的分享：列表 / 复制链接 / 删除 / 清空 / 立即部署 / 存储用量 / 打开分享文件夹。
  */
+/** 帮助弹窗里的图文步骤：数字圆圈 + 内容 */
+function HelpStep({ n, children }: { n: string; children: ReactNode }) {
+	return (
+		<div className="flex items-start gap-2 text-sm">
+			<span
+				className="inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-medium shrink-0 mt-0.5"
+				style={{ background: "var(--brand)", color: "var(--on-brand)" }}
+			>
+				{n}
+			</span>
+			<span className="text-secondary leading-relaxed">{children}</span>
+		</div>
+	);
+}
+
 export function ShareSection() {
 	const { t } = useTranslation();
 	const [tab, setTab] = useState<"settings" | "shares">("settings");
@@ -37,6 +53,10 @@ export function ShareSection() {
 	// 分享渠道：edgeone（腾讯 EdgeOne）/ cloudflare（Cloudflare Pages）
 	const [channel, setChannel] = useState<"edgeone" | "cloudflare">("edgeone");
 	const [accountId, setAccountId] = useState("");
+	// 帮助弹窗：token / accountId 获取指引（小白用户找不到入口）
+	const [helpFor, setHelpFor] = useState<
+		"edgeone-token" | "cloudflare-token" | "cloudflare-account" | null
+	>(null);
 	const [items, setItems] = useState<ShareItemInfo[]>([]);
 	const [pending, setPending] = useState(0);
 	const [usage, setUsage] = useState({ totalSize: 0, totalLimit: 0 });
@@ -238,10 +258,23 @@ export function ShareSection() {
 		</div>
 	) : (
 		<label className="flex flex-col gap-1 w-72">
-			<span className="text-xs text-secondary">
-				{channel === "cloudflare"
-					? "Cloudflare API Token"
-					: t("settings.share.token")}
+			<span className="flex items-center gap-1.5">
+				<span className="text-xs text-secondary">
+					{channel === "cloudflare"
+						? "Cloudflare API Token"
+						: t("settings.share.token")}
+				</span>
+				<button
+					type="button"
+					onClick={() =>
+						setHelpFor(channel === "cloudflare" ? "cloudflare-token" : "edgeone-token")
+					}
+					className="w-4 h-4 rounded-full border border-hairline text-[10px] leading-none text-secondary hover:text-primary cursor-pointer inline-flex items-center justify-center shrink-0"
+					data-testid="share-token-help"
+					aria-label="获取 API Token 帮助"
+				>
+					?
+				</button>
 			</span>
 			<input
 				type="password"
@@ -345,7 +378,18 @@ export function ShareSection() {
 						<>
 							{tokenField}
 							<label className="flex flex-col gap-1 w-72">
-								<span className="text-xs text-secondary">Account ID</span>
+								<span className="flex items-center gap-1.5">
+									<span className="text-xs text-secondary">Account ID</span>
+									<button
+										type="button"
+										onClick={() => setHelpFor("cloudflare-account")}
+										className="w-4 h-4 rounded-full border border-hairline text-[10px] leading-none text-secondary hover:text-primary cursor-pointer inline-flex items-center justify-center shrink-0"
+										data-testid="share-account-help"
+										aria-label="获取 Account ID 帮助"
+									>
+										?
+									</button>
+								</span>
 								<input
 									type="text"
 									value={accountId}
@@ -391,13 +435,15 @@ export function ShareSection() {
 				<div className="flex flex-col gap-2" data-testid="share-manage">
 					<div className="flex items-center gap-2">
 						<span className="text-xs text-secondary" data-testid="share-usage">
-							{t("settings.share.usage", {
-								used: formatSize(usage.totalSize),
-								limit:
-									usage.totalLimit > 0
-										? formatSize(usage.totalLimit)
-										: t("settings.share.unlimited", { defaultValue: "不限" }),
-							})}
+							{usage.totalLimit > 0
+								? t("settings.share.usage", {
+										used: formatSize(usage.totalSize),
+										limit: formatSize(usage.totalLimit),
+									})
+								: // 云端存储上限无接口可查 → 不显示上限，只显示已用量
+									t("settings.share.usageOnly", {
+										used: formatSize(usage.totalSize),
+									})}
 						</span>
 						<button
 							onClick={() => void onOpenFolder()}
@@ -557,6 +603,78 @@ export function ShareSection() {
 					onConfirm={() => void onClear()}
 					onCancel={() => setConfirmClear(false)}
 				/>
+			)}
+			{helpFor && (
+				<Modal onClose={() => setHelpFor(null)} width={520} data-testid="share-help-modal">
+					<div className="flex flex-col gap-3 p-1">
+						<h3 className="text-base font-semibold">
+							{helpFor === "edgeone-token"
+								? "获取 EdgeOne API Token"
+								: helpFor === "cloudflare-token"
+									? "获取 Cloudflare API Token"
+									: "获取 Cloudflare Account ID"}
+						</h3>
+						{helpFor === "edgeone-token" && (
+							<>
+								<HelpStep n="1">
+									打开 EdgeOne 控制台（腾讯云）：{" "}
+									<a
+										href="https://console.cloud.tencent.com/edgeone"
+										target="_blank"
+										rel="noreferrer"
+										className="text-brand underline"
+									>
+										console.cloud.tencent.com/edgeone
+									</a>
+								</HelpStep>
+								<HelpStep n="2">
+									右上角头像 → 「API 密钥管理」→ 新建密钥
+								</HelpStep>
+								<HelpStep n="3">
+									创建 API Token（勾选 Pages 权限），复制粘贴到「API Token」输入框
+								</HelpStep>
+							</>
+						)}
+						{helpFor === "cloudflare-token" && (
+							<>
+								<HelpStep n="1">
+									打开 API Token 页面：{" "}
+									<a
+										href="https://dash.cloudflare.com/profile/api-tokens"
+										target="_blank"
+										rel="noreferrer"
+										className="text-brand underline"
+									>
+										dash.cloudflare.com → My Profile → API Tokens
+									</a>
+								</HelpStep>
+								<HelpStep n="2">
+									点「Create Token」，模板选{" "}
+									<code className="px-1 rounded-sm bg-surface text-xs">Edit Cloudflare Workers</code>
+									（或自定义权限：Account → Cloudflare Pages → Edit）
+								</HelpStep>
+								<HelpStep n="3">
+									生成后立即复制（只显示一次），粘贴到「Cloudflare API Token」输入框
+								</HelpStep>
+							</>
+						)}
+						{helpFor === "cloudflare-account" && (
+							<>
+								<HelpStep n="1">登录 https://dash.cloudflare.com</HelpStep>
+								<HelpStep n="2">
+									看浏览器地址栏：
+									<code className="px-1 rounded-sm bg-surface text-xs">dash.cloudflare.com/&lt;Account ID&gt;</code>
+									，其中{" "}
+									<code className="px-1 rounded-sm bg-surface text-xs">32 位字母数字</code>{" "}
+									就是 Account ID
+								</HelpStep>
+								<HelpStep n="3">
+									或右上角头像 → 账号信息里也能看到
+								</HelpStep>
+							</>
+						)}
+					</div>
+				</Modal>
 			)}
 		</div>
 	);

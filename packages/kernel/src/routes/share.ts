@@ -40,7 +40,6 @@ import {
 	saveLastDeployed,
 	SHARE_ID_RE,
 	totalSize,
-	TOTAL_STORAGE_BYTES,
 } from "../share/workspace";
 import { loadShareSettings } from "../settings-store";
 
@@ -226,15 +225,13 @@ export function createShareRoutes(
 		"/api/share/list",
 		wrap(async () => {
 			const items = await loadItems(workspaceDir);
-			const settings = await loadShareSettings(cfg.settingsFile);
-			// 存储上限按渠道动态：edgeone 5GB（Pages 免费版硬限）；cloudflare 不限（CF 免费版无硬性存储上限，fair use）
-			const totalLimit =
-				settings.channel === "cloudflare" ? 0 : TOTAL_STORAGE_BYTES;
+			// 存储上限：云端真实配额无接口可查（EdgeOne/CF 均不可动态获取）→ 不显示，恒 0
+			// （此前写死 5GB 会在买套餐后失真；前端对 0 只显示已用量）
 			return Response.json({
 				items,
 				pending: await pendingCount(workspaceDir),
 				totalSize: totalSize(items),
-				totalLimit,
+				totalLimit: 0,
 				// 前端「打开分享文件夹」入口用
 				workspaceDir,
 			});
@@ -341,10 +338,7 @@ export function createShareRoutes(
 			const settings = await loadShareSettings(cfg.settingsFile);
 			if (settings.channel === "cloudflare") {
 				return Response.json({
-					url: itemShareUrl(
-						`https://${CF_SHARE_PROJECT_NAME}.pages.dev`,
-						item,
-					),
+					url: itemShareUrl(`https://${CF_SHARE_PROJECT_NAME}.pages.dev`, item),
 					expiresAt: 0,
 					channel: "cloudflare",
 				});
