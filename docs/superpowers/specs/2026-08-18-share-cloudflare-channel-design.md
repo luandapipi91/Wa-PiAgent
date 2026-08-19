@@ -90,7 +90,7 @@ hash = blake3( base64(文件内容) + 扩展名 ).hex.slice(0, 32)
 | 带宽/流量 | 无限（免费） | pages.dev 静态托管不计流量费 |
 | 构建数 | 不限 | Direct Upload 走 API 上传，不占免费构建次数 |
 
-前端设置页提示文案已固化：**「Cloudflare 分享链接永久公开，国内访问速度约 0.5~2s；单文件 ≤ 25MB」**（任务 6，`ShareSection.tsx`）。
+前端设置页提示文案已固化：**「Cloudflare 分享链接永久公开；单文件 ≤ 25MB」**（任务 6，`ShareSection.tsx`）。
 
 ## 6. 与 EdgeOne 的差异表
 

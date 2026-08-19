@@ -346,6 +346,18 @@ export function ShareSection() {
 
 					{channel === "cloudflare" && (
 						<>
+							<div className="flex items-center gap-2">
+								<a
+									href="https://dash.cloudflare.com/sign-up"
+									target="_blank"
+									rel="noreferrer"
+									className="text-xs cursor-pointer hover:underline"
+									style={{ color: "var(--brand)" }}
+									data-testid="share-cf-register-link"
+								>
+									注册 Cloudflare &gt;
+								</a>
+							</div>
 							{tokenField}
 							<label className="flex flex-col gap-1 w-72">
 								<span className="text-xs text-secondary">Account ID</span>
@@ -359,18 +371,8 @@ export function ShareSection() {
 									data-testid="share-account-id-input"
 								/>
 							</label>
-							<a
-								href="https://dash.cloudflare.com/sign-up"
-								target="_blank"
-								rel="noreferrer"
-								className="text-xs cursor-pointer hover:underline"
-								style={{ color: "var(--brand)" }}
-								data-testid="share-cf-register-link"
-							>
-								注册 Cloudflare &gt;
-							</a>
 							<span className="text-xs text-secondary">
-								Cloudflare 分享链接永久公开，国内访问速度约 0.5~2s；单文件 ≤ 25MB
+								Cloudflare 分享链接永久公开；单文件 ≤ 25MB
 							</span>
 						</>
 					)}
