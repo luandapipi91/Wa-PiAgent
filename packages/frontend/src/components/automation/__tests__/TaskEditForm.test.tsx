@@ -69,7 +69,11 @@ mock.module("../../../store/agents", () => ({
 
 mock.module("../../../store/projects", () => ({
 	useProjectsStore: () => ({
-		projects: [{ id: "p1", name: "HiAgent", cwd: "/x", createdAt: 0 }],
+		projects: [
+			// 系统项目（默认工作区）：与后端 seed 保持一致，id 为 __system__
+			{ id: "__system__", name: "默认工作区", cwd: "/x", createdAt: 0 },
+			{ id: "p1", name: "HiAgent", cwd: "/x", createdAt: 0 },
+		],
 		sessions: [],
 	}),
 }));
@@ -395,6 +399,50 @@ describe("TaskEditForm", () => {
 			"t1",
 			expect.objectContaining({ name: "旧任务", agentId: "研究员" }),
 		);
+	});
+
+	test("新建模式：工作目录下拉只有「默认工作区」和项目，无「默认」空值项", () => {
+		render(<TaskEditForm />);
+		const select = screen.getByTestId("task-workdir-select") as HTMLSelectElement;
+		// 首项是「默认工作区」（__system__），无空值「默认」占位项
+		expect(select.options[0].value).toBe("__system__");
+		expect(select.options[0].text).toBe("默认工作区");
+		// 下拉不含空值「默认」项
+		expect(
+			Array.from(select.options).some((o) => o.value === "" && o.text === "默认"),
+		).toBe(false);
+		// 默认选中「默认工作区」
+		expect(select.value).toBe("__system__");
+	});
+
+	test("新建模式：默认选中默认工作区，保存 payload projectId = __system__", () => {
+		render(<TaskEditForm />);
+		fireEvent.change(screen.getByTestId("task-name-input"), {
+			target: { value: "任务" },
+		});
+		fireEvent.click(screen.getByTestId("task-agent-select"));
+		fireEvent.click(screen.getByTestId("task-agent-item-小助手"));
+		setPrompt("执行指令");
+		fireEvent.click(screen.getByTestId("task-save-btn"));
+		expect(createTaskMock).toHaveBeenCalledWith(
+			expect.objectContaining({ projectId: "__system__" }),
+		);
+	});
+
+	test("编辑模式：无 projectId 的旧任务回填为默认工作区", () => {
+		schedulerState.editingTask = {
+			id: "t1",
+			name: "旧任务",
+			schedule: { type: "daily", time: "08:00" },
+			agentId: "研究员",
+			prompt: "旧指令",
+			enabled: true,
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		render(<TaskEditForm />);
+		const select = screen.getByTestId("task-workdir-select") as HTMLSelectElement;
+		expect(select.value).toBe("__system__");
 	});
 
 	test("渲染模型下拉：默认「跟随默认」（空值）", () => {

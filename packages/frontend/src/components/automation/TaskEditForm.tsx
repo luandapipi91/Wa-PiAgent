@@ -7,7 +7,11 @@ import { useUiPrefsStore } from "../../store/ui-prefs";
 import { AgentDropdown } from "../ui/AgentDropdown";
 import { TaskPromptComposer } from "./TaskPromptComposer";
 import { pickDefaultAgent } from "../NewSessionPane";
-import { resolveProviderSlug, type TaskSchedule } from "@wa-pi/shared";
+import {
+	resolveProviderSlug,
+	SYSTEM_PROJECT_ID,
+	type TaskSchedule,
+} from "@wa-pi/shared";
 import { useProvidersStore } from "../../store/providers";
 
 /** 每小时间隔预设选项；预设之外的值通过「自定义」输入（范围 1-23） */
@@ -45,7 +49,8 @@ export function TaskEditForm() {
 		() => pickDefaultAgent(agents, sessions, undefined, defaultAgent) ?? "",
 	);
 	const [prompt, setPrompt] = useState("");
-	const [projectId, setProjectId] = useState("");
+	// 工作目录默认选中「默认工作区」（__system__）；产品中工作区只有默认工作区与项目，无「默认」概念
+	const [projectId, setProjectId] = useState(SYSTEM_PROJECT_ID);
 	const [model, setModel] = useState("");
 
 	useEffect(() => {
@@ -63,7 +68,7 @@ export function TaskEditForm() {
 		setCronExpression(editingTask.schedule.cronExpression ?? "");
 		setAgentId(editingTask.agentId);
 		setPrompt(editingTask.prompt);
-		setProjectId(editingTask.projectId ?? "");
+		setProjectId(editingTask.projectId ?? SYSTEM_PROJECT_ID);
 		setModel(editingTask.model ?? "");
 	}, [editingTask]);
 
@@ -373,8 +378,8 @@ export function TaskEditForm() {
 					onChange={(e) => setProjectId(e.target.value)}
 					className="w-full rounded-md px-2.5 py-1.5 text-xs outline-none border cursor-pointer"
 					style={inputStyle}
+					data-testid="task-workdir-select"
 				>
-					<option value="">默认</option>
 					{projects.map((p) => (
 						<option key={p.id} value={p.id}>
 							{p.name}
