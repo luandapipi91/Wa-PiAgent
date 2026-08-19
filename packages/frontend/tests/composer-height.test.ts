@@ -10,7 +10,7 @@ beforeEach(() => {
     localStorage.clear();
 });
 
-test("clamp：低于最小值回到 120", () => {
+test("clamp：低于最小值回到 60", () => {
     expect(clampComposerHeight(10, 1000)).toBe(COMPOSER_MIN_HEIGHT);
 });
 
@@ -20,6 +20,12 @@ test("clamp：高于视口一半回到 50vh", () => {
 
 test("clamp：范围内取整保留", () => {
     expect(clampComposerHeight(200.6, 1000)).toBe(201);
+});
+
+// 回归：初始高度约 60px（自然生长 minHeight），首次小幅拖动必须连续、不跳变
+// （此前下限 120px，第一次拖动会被钳到 120 导致输入框瞬间跳高）
+test("clamp：从自然生长高度小幅拖动不跳变", () => {
+    expect(clampComposerHeight(61, 1000)).toBe(61);
 });
 
 test("load：无记录返回 null", () => {

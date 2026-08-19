@@ -2,6 +2,20 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — feat(多模态): 图片内联按大小硬限制（单张 3.5MB / 累计 10MB），超出回退为附件
+
+- 背景：图片附件已能真正发给大模型后，需按业界标准限制图片大小——原先单张 8MB（base64 ≈10.7MB）超 Anthropic 5MB base64 上限会直接报错；无累计限制会撑爆 RPC payload。
+- 业界调研：Anthropic base64 5MB（最严）；OpenAI 原始 20MB；Gemini 内联 7MB/单请求 3600 张（宽松）。取最严约束对齐。
+- 实现：单张上限 8MB → 3.5MB（base64 ≈4.67MB < 5MB，pi 生态 4.5MB 同量级）；新增累计上限 10MB——超过累计上限的图片回退为附件（@路径 文本引用），不阻塞发送。readImageContent 返回字节数供预算累计。
+- 影响范围：`packages/kernel/src/agent-manager.ts`；测试新增「单张超 3.5MB 回退」「累计超 10MB 超出部分回退」用例。
+
+## 2026-08-19 — fix(多模态): 图片附件真正发给大模型（此前仅降级为 @路径 文本引用）
+
+- 背景：选择支持视觉的模型后发送图片附件，LLM 收到的只是 `Attachments:[@.wa-pi/uploads/xxx.png]` 文本路径，图片从未转为多模态 content part，视觉模型看不到像素。
+- 根因：kernel `buildPromptContent` 把 `kind:"image"` 附件统一降级为文本引用；`_sendPromptNow` 调 `client.prompt(text)` 只传文本，不传 pi RPC 已支持的 `images` 参数（pi 侧 session.prompt 会把 images 组装为 user content 的 image part → image_url）。
+- 修复：kernel 读取图片文件 → 按扩展名推断 mime → base64 编码为 `ImageContent { type:"image", mimeType, data }`，经 `client.prompt(text, { images })` 发给 pi；文本部分保留 @路径 引用供上下文理解。非图片扩展名/读取失败/超大（>8MB）降级为纯文本引用，不阻塞发送。排队消息（followUpList）随图片一起 drain。
+- 影响范围：`packages/kernel/src/agent-manager.ts`（buildPromptContent 改 async + 新增 readImageContent、_sendPromptNow/prompt/队列携带 images、queue_update 推送仍为文本数组）；测试「图片附件转为 ImageContent 发送」「读取失败降级」「排队携带图片」新增，旧「图片统一用 @路径」断言改为新行为。
+
 ## 2026-08-19 — fix(代理中继): 普通 HTTP 转发上游失败回退直连 + 回环目标绕过上游（聊天 socket 断连修复）
 
 - 背景：会话中代理上游被切成死端口后，本地 bridge 请求（http://127.0.0.1:9778）被送进上游代理且 forwardPlain 无回退，直接 502，pi 侧 fetch 报 "The socket connection was closed unexpectedly"（实测 19,594 次 ECONNREFUSED）。
@@ -27,7 +41,7 @@
 
 ## 2026-08-19 — feat(frontend): 聊天输入框支持手动拖拽调整高度
 
-- 新增功能：聊天输入框顶部胶囊手柄可拖拽调整高度（120px ~ 50vh），双击手柄恢复默认高度；全局 localStorage 持久化 `wa-pi:composer-height`，刷新后保持；AskDock、QuickInvokeMenu 等贴输入框定位的浮层自动跟随上沿。
+- 新增功能：聊天输入框顶部胶囊手柄可拖拽调整高度（60px ~ 50vh，下限与自然生长 minHeight 一致，首次拖动连续不跳变），双击手柄恢复默认高度；全局 localStorage 持久化 `wa-pi:composer-height`，刷新后保持；AskDock、QuickInvokeMenu 等贴输入框定位的浮层自动跟随上沿。
 - 影响范围：`packages/frontend/src/components/ui/{ComposerInput,ComposerTextarea,ComposerResizeHandle,useComposerHeight}`、i18n locales、E2E 新增 `e2e/composer-resize.spec.ts`。
 
 
