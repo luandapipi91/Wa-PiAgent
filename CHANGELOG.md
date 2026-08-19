@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — feat(frontend): 聊天输入框支持手动拖拽调整高度
+
+- 新增功能：聊天输入框顶部胶囊手柄可拖拽调整高度（120px ~ 50vh），全局 localStorage 持久化 `wa-pi:composer-height`，刷新后保持；AskDock、QuickInvokeMenu 等贴输入框定位的浮层自动跟随上沿。
+- 影响范围：`packages/frontend/src/components/ui/{ComposerInput,ComposerTextarea,ComposerResizeHandle,useComposerHeight}`、i18n locales、E2E 新增 `e2e/composer-resize.spec.ts`。
+
+
 ## 2026-08-19 — fix(分享): buildDeployZip 对缺失文件容错 + addItem 合并剔除已删除文件（ENOENT 崩溃修复）
 
 - 背景：分享目录被用户改过后（如 index.html 改名 index1.html），state.json 的 files 仍引用旧文件；再次部署时 buildDeployZip readFile 抛 ENOENT 崩溃，部署链路全断（实测 ~/.pi/agent-dev/share-workspace/items/默认工作区/index.html）。
