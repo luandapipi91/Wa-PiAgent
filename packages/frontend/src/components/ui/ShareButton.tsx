@@ -161,11 +161,17 @@ export function ShareResultModal({
 				shareName.trim() || undefined,
 			);
 			setResult(res);
+			// 同名合并：明确提示（旧文件保留、新文件追加），避免用户以为覆盖丢失了旧内容
+			if (res.merged) {
+				useToastStore
+					.getState()
+					.add(t("share.merged", { name: res.name, count: res.filesCount ?? 0 }), "success");
+			}
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
 			setError(msg);
-			// 名称重复等业务错误：toast 提示（用户要求「已有分享名称重复，请使用其他名字」）
-			if (/重复|非法字符/.test(msg)) useToastStore.getState().add(msg, "error");
+			// 非法字符等业务错误：toast 提示
+			if (/非法字符/.test(msg)) useToastStore.getState().add(msg, "error");
 		} finally {
 			setGenerating(false);
 		}

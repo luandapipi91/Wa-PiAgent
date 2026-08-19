@@ -178,8 +178,19 @@ export async function loadItems(dir: string): Promise<ShareItem[]> {
 	return alive;
 }
 
-/** 新增/覆盖一个分享：entries 写入 items/<name>/（name 为文件夹名，全库唯一）。
- *  同 id（同内容）同名 → 覆盖更新；不同 id 同名 → 抛错（名称重复）。 */
+/** 统计目录下给定相对文件列表的总字节数（stat 失败的文件计 0，不抛错） */
+async function dirSizeOf(dir: string, files: string[]): Promise<number> {
+	let size = 0;
+	for (const rel of files) {
+		const fp = join(dir, ...rel.split("/"));
+		size += (await stat(fp).catch(() => ({ size: 0 }))).size ?? 0;
+	}
+	return size;
+}
+
+/** 新增/合并一个分享：entries 写入 items/<name>/（name 为文件夹名）。
+ *  同名（同 id 或不同 id）→ 合并：旧文件保留、新文件追加、同路径新覆盖旧；
+ *  记录合并为一条（files 并集、size 重算、createdAt=本次时间）。 */
 export async function addItem(
 	dir: string,
 	id: string,
@@ -189,31 +200,36 @@ export async function addItem(
 	if (!SHARE_NAME_RE.test(name))
 		throw new Error("分享名称含非法字符（仅限字母/数字/中文/-_./空格）");
 	const existing = await loadItems(dir);
-	const dup = existing.find((i) => i.name === name && i.id !== id);
-	if (dup) throw new Error("已有分享名称重复，请使用其他名字");
+	const old = existing.find((i) => i.name === name);
 	const target = join(itemsDir(dir), name);
-	await rm(target, { recursive: true, force: true });
-	let size = 0;
+	// 合并语义：不删旧目录，旧文件保留；新文件写入（同路径 writeFile 自然覆盖）
+	await mkdir(target, { recursive: true });
 	for (const e of entries) {
 		const fp = join(target, ...e.name.split("/"));
 		await mkdir(dirname(fp), { recursive: true });
 		await writeFile(fp, e.data);
-		size += e.data.byteLength;
 	}
+	// files 并集去重（旧文件 + 新文件）
+	const files = [
+		...new Set([...(old?.files ?? []), ...entries.map((e) => e.name)]),
+	];
+	const size = await dirSizeOf(target, files);
 	const item: ShareItem = {
 		id,
 		name,
-		files: entries.map((e) => e.name),
+		files,
 		size,
 		createdAt: Date.now(),
 	};
-	const items = existing.filter((i) => i.id !== id);
+	// 去掉旧记录（同 id 覆盖更新，或同 name 合并）
+	const items = existing.filter((i) => i.id !== id && i.name !== name);
 	items.unshift(item);
 	await writeState(stateFile(dir), items);
 	return item;
 }
 
-/** 重命名分享：校验新名合法 + 全库唯一（不同 id 同名拒绝），文件夹同步改名 */
+/** 重命名分享：校验新名合法；目标同名时合并（源目录文件移动进目标目录，同路径覆盖），
+ *  目标记录保留 id，files 并集；目标不存在则原子改名。 */
 export async function renameItem(
 	dir: string,
 	id: string,
@@ -225,13 +241,38 @@ export async function renameItem(
 	const item = items.find((i) => i.id === id);
 	if (!item) throw new Error("分享不存在");
 	if (item.name === newName) return item;
-	const dup = items.find((i) => i.name === newName && i.id !== id);
-	if (dup) throw new Error("已有分享名称重复，请使用其他名字");
-	// 磁盘上同名文件夹残留（孤儿/迁移残留）也视为重名，避免 rename 覆盖
-	if (await dirExists(join(itemsDir(dir), newName)))
-		throw new Error("已有分享名称重复，请使用其他名字");
-	// 原子移动整个目录（items/ 同盘 rename），避免逐文件复制失败导致数据丢失
-	await rename(join(itemsDir(dir), item.name), join(itemsDir(dir), newName));
+	const srcDir = join(itemsDir(dir), item.name);
+	const dstDir = join(itemsDir(dir), newName);
+	if (await dirExists(dstDir)) {
+		// 合并：把源目录文件逐个移入目标目录（同路径覆盖），再删源目录
+		for (const rel of item.files) {
+			const s = join(srcDir, ...rel.split("/"));
+			const d = join(dstDir, ...rel.split("/"));
+			await mkdir(dirname(d), { recursive: true });
+			await rename(s, d).catch(async () => {
+				// 跨设备/目标已存在且平台不支持覆盖时退化为复制
+				const data = await readFile(s);
+				await writeFile(d, data);
+				await rm(s, { force: true });
+			});
+		}
+		await rm(srcDir, { recursive: true, force: true });
+		const target = items.find((i) => i.name === newName);
+		const files = [
+			...new Set([...(target?.files ?? []), ...item.files]),
+		];
+		const size = await dirSizeOf(dstDir, files);
+		const merged: ShareItem = target
+			? { ...target, files, size }
+			: { ...item, name: newName, files, size };
+		await writeState(
+			stateFile(dir),
+			items.filter((i) => i.id !== id && i.name !== newName).concat([merged]),
+		);
+		return merged;
+	}
+	// 目标目录不存在：原子改名（同盘 rename）
+	await rename(srcDir, dstDir);
 	const renamed: ShareItem = { ...item, name: newName };
 	await writeState(
 		stateFile(dir),

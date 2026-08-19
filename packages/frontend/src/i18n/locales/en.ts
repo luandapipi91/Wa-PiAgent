@@ -954,6 +954,7 @@ const en = {
 		copied: "Copied",
 		expiresIn: "Link valid for {{hours}} hours",
 		noToken: "Configure a Token first in Settings → Share",
+		merged: "Merged into share {{name}} ({{count}} files total), old files kept",
 	},
 };
 

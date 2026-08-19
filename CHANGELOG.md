@@ -2,6 +2,14 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — feat(分享): 同名分享改为合并（旧文件保留、新文件追加），不再报「名称重复」
+
+- 需求：分享名相同时不再 409 报错，改为合并——新旧文件进入同一 items/<name>/ 目录，旧文件保留、新文件追加、同路径新覆盖旧；记录合并为一条（files 并集、size 重算）。
+- kernel：workspace.ts `addItem` 由「不同 id 同名抛错」改为合并（不删目录 + files 并集 + dirSizeOf 重算）；`renameItem` 重名也合并（目标记录保留 id，源目录文件移入目标，同路径覆盖）；routes/share.ts 去掉上传「重复」409（保留非法字符 409），响应加 `merged`/`filesCount`。
+- frontend：share-client `ShareUploadResult` 加 `merged`/`filesCount`；ShareButton 成功且 merged 时 toast「已合并到分享 xxx（共 N 个文件），旧文件已保留」。
+- 影响范围：`packages/kernel/src/share/workspace.ts`、`routes/share.ts`；`packages/frontend/src/share-client.ts`、`components/ui/ShareButton.tsx`、i18n zh/en；测试新增「addItem 不同 id 同名合并」「renameItem 重名合并」「upload 同名 merged 标志」「ShareButton 合并提示」用例。
+
+
 ## 2026-08-19 — chore(release): 发布版本 0.2.9（修复 CF 分享链接子域硬编码）
 
 - 版本 0.2.8 → 0.2.9：desktop/frontend package.json、version-history.json（新增 0.2.9 条目）、VersionTimeline maxEntries 断言同步、RELEASE_NOTES.md 重写为当次内容。

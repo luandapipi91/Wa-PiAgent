@@ -23,6 +23,7 @@ mock.module("../../util/clipboard", () => ({
 
 import { ShareButton } from "./ShareButton";
 import { useShareProgressStore } from "../../store/share-progress";
+import { useToastStore } from "../../store/toast";
 
 const PATHS = ["/proj/a.txt", "/proj/b.txt", "/proj/c.txt"];
 const URL = "https://share.edgeone.app/s/xyz789";
@@ -183,18 +184,41 @@ test("分享名称：传入空白 projectName 时回退自动名", async () => {
 	).toBe("3 个文件");
 });
 
-test("分享名称重复：kernel 409 时提示「已有分享名称重复」且不显示 URL", async () => {
+test("分享同名：返回 merged 标志时 toast 提示「已合并到分享」，URL 正常显示", async () => {
+	// kernel 现在同名合并（不再 409）：upload 返回 merged=true + filesCount
+	shareUploadMock.mockResolvedValue({
+		url: URL,
+		expiresAt: Date.now() + 3 * 3600 * 1000,
+		projectName: "proj",
+		channel: "edgeone",
+		merged: true,
+		filesCount: 5,
+	});
+	render(<ShareButton paths={PATHS} />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	await screen.findByTestId("share-name-input");
+	fireEvent.click(screen.getByTestId("share-generate-btn"));
+	await screen.findByTestId("share-url");
+	// URL 正常显示（合并不是失败）
+	expect(screen.queryByTestId("share-error")).toBeNull();
+	// 合并 toast 提示
+	const toast = useToastStore
+		.getState()
+		.toasts.find((t) => t.message.includes("已合并到分享"));
+	expect(toast?.type).toBe("success");
+	expect(toast?.message).toContain("5");
+});
+
+test("分享名称非法字符：kernel 409 时提示错误且不显示 URL", async () => {
 	shareUploadMock.mockRejectedValue(
-		new Error("已有分享名称重复，请使用其他名字"),
+		new Error("分享名称含非法字符（仅限字母/数字/中文/-_./空格）"),
 	);
 	render(<ShareButton paths={PATHS} />);
 	fireEvent.click(screen.getByTestId("share-btn"));
 	await screen.findByTestId("share-name-input");
 	fireEvent.click(screen.getByTestId("share-generate-btn"));
 	await screen.findByTestId("share-error");
-	expect(screen.getByTestId("share-error").textContent).toContain(
-		"已有分享名称重复",
-	);
+	expect(screen.getByTestId("share-error").textContent).toContain("非法字符");
 	expect(screen.queryByTestId("share-url")).toBeNull();
 });
 
