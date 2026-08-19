@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   CF_API_BASE,
   deployToCloudflare,
+  getCloudflareAccountId,
   getOrCreateProject,
 } from "../src/share/cloudflare-pages-client";
 
@@ -21,6 +22,10 @@ function installFetchMock() {
       return json(body.hashes as string[]);
     }
     if (u.includes("/pages/assets/upload")) return json({ success: true });
+    // Account ID 自动获取：GET /accounts（token 可访问的账号列表）
+    if (u.includes("/accounts?per_page=5")) {
+      return json({ result: [{ id: "acc-auto", name: "Auto Account" }], success: true });
+    }
     // 轮询 GET .../deployments/{id}（含尾部 id，需先于创建分支命中）
     if (u.includes("/deployments/")) {
       return json({ result: { latest_stage: { name: "deploy", status: "success" } }, success: true });
@@ -79,14 +84,36 @@ describe("deployToCloudflare", () => {
     expect(urls.some((u) => u.endsWith("/deployments") && !u.includes("/deployments/"))).toBe(true);
   });
 
-  test("缺少 accountId 抛错", async () => {
-    expect(
-      deployToCloudflare({ token: "tk", accountId: "", files: {} }),
-    ).rejects.toThrow("Account ID");
+  test("accountId 留空时自动获取（GET /accounts），无需手动填写", async () => {
+    const calls = installFetchMock();
+    const result = await deployToCloudflare({
+      token: "tk",
+      files: { "index.html": new TextEncoder().encode("<h1>hi</h1>") },
+      pollIntervalMs: 1,
+    });
+    expect(result.projectId).toBe("proj-1");
+    // 自动获取 accountId 后部署成功
+    expect(calls.some((c) => c.url.includes("/accounts?per_page=5"))).toBe(true);
+  });
+
+  test("getCloudflareAccountId 直接返回账号 ID；无账号时抛错", async () => {
+    expect(await getCloudflareAccountId("tk")).toBe("acc-auto");
+
+    globalThis.fetch = (async (url: any) => {
+      const u = String(url);
+      if (u.includes("/accounts?per_page=5")) {
+        return new Response(JSON.stringify({ result: [], success: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unhandled: ${u}`);
+    }) as typeof fetch;
+    expect(getCloudflareAccountId("tk")).rejects.toThrow("账号列表为空");
   });
 
   test("check-missing 返回 401 时抛出带状态/信息的错误", async () => {
-    globalThis.fetch = (async (url: any, init?: any) => {
+    globalThis.fetch = (async (url: any, _init?: any) => {
       const u = String(url);
       const json = (body: unknown, status = 200) =>
         new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });

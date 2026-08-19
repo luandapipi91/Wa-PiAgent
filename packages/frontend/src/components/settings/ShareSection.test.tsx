@@ -99,36 +99,36 @@ test("默认渲染渠道「腾讯 EdgeOne」（只读）与 Token 输入框", as
 	expect(screen.queryByTestId("share-token-mask")).toBeNull();
 });
 
-test("帮助弹窗：点 Token 旁 ? → EdgeOne 图文指引；切 Cloudflare 后 Account ID 帮助可打开并关闭", async () => {
+test("帮助弹窗：点 Token 旁 ? → 图文指引（示意图 + 步骤），✕ 按钮与 ESC 均可关闭", async () => {
 	render(<ShareSection />);
 	await screen.findByTestId("share-section");
 
-	// 默认 edgeone 渠道：Token 帮助 → EdgeOne 指引
+	// 默认 edgeone 渠道：Token 帮助 → EdgeOne 指引（含示意图 + 步骤 + 关闭按钮）
 	fireEvent.click(screen.getByTestId("share-token-help"));
 	await screen.findByTestId("share-help-modal");
 	expect(screen.getByText(/获取 EdgeOne API Token/)).toBeTruthy();
-	expect(screen.getByText(/API 密钥管理/)).toBeTruthy();
-	// ESC 关闭
-	fireEvent.keyDown(window, { key: "Escape" });
+	// 示意图与步骤中多处出现「API 密钥管理」（左侧菜单 + 头像下拉 + 步骤文案）
+	expect(screen.getAllByText(/API 密钥管理/).length).toBeGreaterThan(0);
+	expect(screen.getByRole("img", { name: /EdgeOne 控制台/ })).toBeTruthy();
+	// 关闭按钮 ✕
+	expect(screen.getByTestId("share-help-close")).toBeTruthy();
+	fireEvent.click(screen.getByTestId("share-help-close"));
 	await waitFor(() =>
 		expect(screen.queryByTestId("share-help-modal")).toBeNull(),
 	);
 
-	// 切 Cloudflare：Token 帮助 → Cloudflare 指引；Account ID 帮助可打开
+	// 切 Cloudflare：Token 帮助 → Cloudflare 指引（示意图 + 步骤）；ESC 关闭
 	fireEvent.click(screen.getByTestId("share-channel-cloudflare"));
 	fireEvent.click(screen.getByTestId("share-token-help"));
 	await screen.findByTestId("share-help-modal");
 	expect(screen.getByText(/获取 Cloudflare API Token/)).toBeTruthy();
-	expect(screen.getByText(/Edit Cloudflare Workers/)).toBeTruthy();
+	// 示意图与步骤中均出现模板名
+	expect(screen.getAllByText(/Edit Cloudflare Workers/).length).toBeGreaterThan(0);
+	expect(screen.getByRole("img", { name: /Cloudflare API Tokens/ })).toBeTruthy();
 	fireEvent.keyDown(window, { key: "Escape" });
 	await waitFor(() =>
 		expect(screen.queryByTestId("share-help-modal")).toBeNull(),
 	);
-
-	fireEvent.click(screen.getByTestId("share-account-help"));
-	await screen.findByTestId("share-help-modal");
-	expect(screen.getByText(/获取 Cloudflare Account ID/)).toBeTruthy();
-	expect(screen.getByText(/32 位字母数字/)).toBeTruthy();
 });
 
 test("输入 Token 保存 → PUT /api/settings/share（body.share.token）", async () => {
@@ -469,21 +469,20 @@ test("可切换到 Cloudflare 渠道，显示 token 与 Account ID 输入，保�
 	expect(cfRadio.checked).toBe(false);
 	// 默认 edgeone：无 Account ID 输入框
 	expect(screen.queryByTestId("share-account-id-input")).toBeNull();
-	// 切到 Cloudflare → 出现 Account ID 输入框 + 注册链接 + 提示文案
+	// 切到 Cloudflare → 注册链接 + 提示文案（Account ID 不显示，自动获取）
 	fireEvent.click(cfRadio);
-	expect(screen.getByTestId("share-account-id-input")).toBeTruthy();
+	expect(screen.queryByTestId("share-account-id-input")).toBeNull();
+	expect(screen.queryByTestId("share-account-help")).toBeNull();
 	const cfLink = screen.getByTestId("share-cf-register-link");
 	expect(cfLink.getAttribute("href")).toBe(
 		"https://dash.cloudflare.com/sign-up",
 	);
 	expect(cfLink.textContent).toContain("注册 Cloudflare");
 	expect(screen.getByText(/Cloudflare 分享链接永久公开/)).toBeTruthy();
-	// 输入 token 与 accountId，保存 → PUT body 含 channel/token/accountId/customDomain
+	expect(screen.getByText(/Account ID 无需填写/)).toBeTruthy();
+	// 输入 token，保存 → PUT body 含 channel/token/customDomain（accountId 自动获取，不手动填）
 	fireEvent.change(screen.getByTestId("share-token-input"), {
 		target: { value: "cf-token-abc" },
-	});
-	fireEvent.change(screen.getByTestId("share-account-id-input"), {
-		target: { value: "cf-account-123" },
 	});
 	fireEvent.click(screen.getByTestId("share-token-save"));
 	await new Promise((r) => setTimeout(r, 10));
@@ -491,7 +490,7 @@ test("可切换到 Cloudflare 渠道，显示 token 与 Account ID 输入，保�
 		share: {
 			channel: "cloudflare",
 			token: "cf-token-abc",
-			accountId: "cf-account-123",
+			accountId: "",
 			customDomain: "",
 		},
 	});
