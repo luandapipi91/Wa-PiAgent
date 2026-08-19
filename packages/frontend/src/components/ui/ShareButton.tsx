@@ -247,8 +247,8 @@ export function ShareResultModal({
 							</button>
 							<span className="text-xs text-secondary" data-testid="share-expires">
 								{isPermanent
-									// 「永久有效」文案：i18n 暂无该 key，用 defaultValue 兜底（CF 渠道分享固定永久）
-									? t("share.permanent", { defaultValue: "永久有效" })
+									? // 「永久有效」文案：i18n 暂无该 key，用 defaultValue 兜底（CF 渠道分享固定永久）
+										t("share.permanent", { defaultValue: "永久有效" })
 									: t("share.expiresIn", { hours: hoursLeft })}
 							</span>
 						</div>

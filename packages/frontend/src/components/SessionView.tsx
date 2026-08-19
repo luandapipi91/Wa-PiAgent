@@ -238,10 +238,7 @@ export function SessionView({ sessionId, sourceLabel, imConv }: Props) {
 					</div>
 					{/* Token 胶囊标签组 */}
 					{lastUsage && (
-						<div
-							className="flex items-center gap-2"
-							data-testid="token-capsules"
-						>
+						<div className="flex items-center gap-2" data-testid="token-capsules">
 							<span className="token-capsule">
 								{t("session.thisTurn", {
 									input: fmtTok(lastUsage.input),
@@ -259,22 +256,13 @@ export function SessionView({ sessionId, sourceLabel, imConv }: Props) {
 									const w = Math.max(Math.round(pct), 2);
 									return (
 										<span className="token-capsule token-capsule--stack">
-											<span
-												className="token-occupied"
-												data-testid="token-occupied"
-											>
+											<span className="token-occupied" data-testid="token-occupied">
 												{t("session.occupied", {
 													used: fmtTok(contextUsage.used),
 												})}
 											</span>
-											<span
-												className="token-progress"
-												data-testid="token-progress"
-											>
-												<span
-													className="token-progress-fill"
-													style={{ width: `${w}%` }}
-												/>
+											<span className="token-progress" data-testid="token-progress">
+												<span className="token-progress-fill" style={{ width: `${w}%` }} />
 											</span>
 										</span>
 									);
@@ -290,8 +278,7 @@ export function SessionView({ sessionId, sourceLabel, imConv }: Props) {
 										<span className="token-split" data-testid="token-split">
 											{t("session.totalSplitMain", {
 												main: fmtTok(
-													tokenTotal.main ??
-														tokenTotal.total - tokenTotal.subagent,
+													tokenTotal.main ?? tokenTotal.total - tokenTotal.subagent,
 												),
 											})}{" "}
 											·{" "}
@@ -306,9 +293,7 @@ export function SessionView({ sessionId, sourceLabel, imConv }: Props) {
 								(() => {
 									const rate =
 										(lastUsage.cacheRead /
-											(lastUsage.input +
-												lastUsage.cacheRead +
-												lastUsage.cacheWrite)) *
+											(lastUsage.input + lastUsage.cacheRead + lastUsage.cacheWrite)) *
 										100;
 									const danger = rate < 90;
 									return (
@@ -718,15 +703,10 @@ function ExtWidgetDock({
 										>
 											<span
 												style={{
-													color: isAbove
-														? "var(--accent)"
-														: "var(--hairline-strong)",
+													color: isAbove ? "var(--accent)" : "var(--hairline-strong)",
 												}}
 											>
-												<Icon
-													name={isAbove ? "arrow-up" : "arrow-down"}
-													size={11}
-												/>
+												<Icon name={isAbove ? "arrow-up" : "arrow-down"} size={11} />
 											</span>
 											<span className="truncate">
 												{key} · <AnsiText text={w.lines[0]} />

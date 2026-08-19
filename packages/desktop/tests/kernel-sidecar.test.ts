@@ -40,8 +40,8 @@ async function startSidecarHarness(spawnPids: (number | undefined)[]) {
       checkPortFn,
       killFn,
       respawnDelayMs: 5,
-      isPortInUseFn: (async () => false), // 永不真探端口（本机 9778 可能真被占）
-      killPortOccupantsFn: (async () => []), // 绝不真杀进程
+      isPortInUseFn: async () => false, // 永不真探端口（本机 9778 可能真被占）
+      killPortOccupantsFn: async () => [], // 绝不真杀进程
     },
   });
   return { sidecar, children, killed, spawnFn };
@@ -54,7 +54,10 @@ async function crashAndRespawn(children: any[]) {
 }
 
 test("stop(): current 无有效 pid（spawn 失败）但 lastPid 有值 → 用 lastPid 兜底杀进程树", async () => {
-  const { sidecar, children, killed } = await startSidecarHarness([1234, undefined]);
+  const { sidecar, children, killed } = await startSidecarHarness([
+    1234,
+    undefined,
+  ]);
   await crashAndRespawn(children); // 重启后 current.pid 为 undefined（第二次 spawn 失败）
   sidecar.stop();
   expect(killed).toHaveLength(1); // bun 的 toEqual 会把 [undefined] 与 [] 判等，须用精确断言
@@ -262,7 +265,10 @@ test("kernel 崩溃退出 → stderr 末尾现场写入 kernel-crash.log（crash
       }) as any,
     },
   });
-  children[0].stderr.emit("data", Buffer.from("panic(main thread): Segmentation fault\n"));
+  children[0].stderr.emit(
+    "data",
+    Buffer.from("panic(main thread): Segmentation fault\n"),
+  );
   children[0].emit("exit", 1, null); // 崩溃
   expect(crashLogs).toHaveLength(1);
   expect(crashLogs[0]).toContain("Segmentation fault");

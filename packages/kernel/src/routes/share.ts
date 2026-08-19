@@ -341,8 +341,7 @@ export function createShareRoutes(
 			if (settings.channel === "cloudflare") {
 				// .pages.dev 子域全局唯一：用真实项目子域拼链接，不硬编码 wapi-shares.pages.dev
 				const accountId =
-					settings.accountId ||
-					(await getCloudflareAccountId(settings.token));
+					settings.accountId || (await getCloudflareAccountId(settings.token));
 				const subdomain = await getProjectSubdomain(
 					settings.token,
 					accountId,
