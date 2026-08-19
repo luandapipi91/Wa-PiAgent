@@ -220,12 +220,25 @@ export function createShareRoutes(
 				// 两渠道共用同一 buildDeployZip 布局（{name}/{rel}），统一复用 itemShareUrl。
 				// 关键：URL 用「本次分享的文件」而非合并后 item.files 并集计算——
 				// 同名合并后再单文件分享，链接直达当次文件（如 /慧来客/b.html），而非退化为目录；
+				// 单文件夹分享（不展开）链接带文件夹名：/<name>/<文件夹名>/（否则指向根目录无内容）；
 				// 本次多文件仍指向目录（目录已由 buildDeployZip 生成索引页，可正常访问）。
-				url: itemShareUrl(url, {
-					id: item.id,
-					name: item.name,
-					files: entries.map((e) => e.name),
-				}),
+				url: singleDir
+					? (() => {
+							let u: URL;
+							try {
+								u = new URL(url);
+							} catch {
+								// 与 itemShareUrl 同款兜底：url 由内部 encipherUrl 生成，正常不会非法
+								throw new Error(`无法解析分享链接: ${url}`);
+							}
+							u.pathname = `/${item.name}/${basename(singleDir)}/`;
+							return u.toString();
+						})()
+					: itemShareUrl(url, {
+							id: item.id,
+							name: item.name,
+							files: entries.map((e) => e.name),
+						}),
 				expiresAt,
 				projectName: SHARE_PROJECT_NAME,
 				channel,
