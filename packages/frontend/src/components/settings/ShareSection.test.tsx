@@ -188,7 +188,7 @@ test("我的分享：shareList 返回 2 条 → 渲染名称/大小；空列表�
 	expect(screen.queryByTestId("share-clear")).toBeNull();
 });
 
-test("存储上限：totalLimit=0（cloudflare 不限）时显示「不限」而非 0 B", async () => {
+test("存储用量：totalLimit=0（云端无接口可查）时只显示已用量，不显示上限", async () => {
 	shareListMock.mockImplementation(async () => ({
 		items: [],
 		pending: 0,
@@ -197,8 +197,10 @@ test("存储上限：totalLimit=0（cloudflare 不限）时显示「不限」而
 		workspaceDir: "/tmp/ws-test",
 	}));
 	await renderSharesTab();
-	expect(screen.getByText(/存储/)).toBeTruthy();
-	expect(screen.getByText(/不限/)).toBeTruthy();
+	// 只显示已用量「存储 418 KB」，不出现「/」上限或「不限」
+	expect(screen.getByText(/存储 418 KB/)).toBeTruthy();
+	expect(screen.queryByText(/不限/)).toBeNull();
+	expect(screen.queryByText(/5.0 GB|100 MB/)).toBeNull();
 });
 
 test("删除：点击 share-delete-<id> → shareDelete 被调 + 列表刷新", async () => {

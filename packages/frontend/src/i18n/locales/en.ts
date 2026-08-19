@@ -710,7 +710,7 @@ const en = {
 				'Clear all shares? Online content is removed only after you click "Deploy now".',
 			pending: "{{count}} change(s) not deployed — deploy to take effect",
 			usage: "Storage {{used}} / {{limit}}",
-			unlimited: "Unlimited",
+			usageOnly: "Storage {{used}}",
 			copyLink: "Copy link",
 			copied: "Copied",
 			remove: "Delete",

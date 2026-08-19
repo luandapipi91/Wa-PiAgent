@@ -84,23 +84,35 @@ function mockCloudflare() {
                 status: 200,
                 headers: { "Content-Type": "application/json" },
             });
-        if (u.includes("/upload-token")) return json({ result: { jwt: "J" }, success: true });
+        if (u.includes("/upload-token"))
+            return json({ result: { jwt: "J" }, success: true });
         if (u.includes("/pages/assets/check-missing")) {
             const body = JSON.parse(String(init?.body));
             return json(body.hashes as string[]);
         }
         if (u.includes("/pages/assets/upload")) return json({ success: true });
         if (u.includes("/deployments/")) {
-            return json({ result: { latest_stage: { name: "deploy", status: "success" } }, success: true });
+            return json({
+                result: { latest_stage: { name: "deploy", status: "success" } },
+                success: true,
+            });
         }
         if (u.endsWith("/deployments")) {
-            return json({ result: { id: "dep-cf", url: "https://abc.wapi-shares.pages.dev", environment: "production" }, success: true });
+            return json({
+                result: {
+                    id: "dep-cf",
+                    url: "https://abc.wapi-shares.pages.dev",
+                    environment: "production",
+                },
+                success: true,
+            });
         }
-        if (u.endsWith("/pages/projects/wapi-shares")) return json({ result: { id: "proj-cf" }, success: true });
-        if (u.endsWith("/pages/projects") && init?.method === "POST") return json({ result: { id: "proj-cf" }, success: true });
+        if (u.endsWith("/pages/projects/wapi-shares"))
+            return json({ result: { id: "proj-cf" }, success: true });
+        if (u.endsWith("/pages/projects") && init?.method === "POST")
+            return json({ result: { id: "proj-cf" }, success: true });
         throw new Error(`unhandled CF mock: ${u}`);
     };
-    // @ts-ignore 覆盖全局 fetch
     globalThis.fetch = handler as typeof fetch;
 }
 
@@ -172,7 +184,8 @@ test("1. upload 单文件 → 200，url 指向 <name>/<file>，list 出现条目
     // upload 已立即部署 → 无未部署变更
     expect(list.pending).toBe(0);
     expect(list.totalSize).toBeGreaterThan(0);
-    expect(list.totalLimit).toBeGreaterThan(list.totalSize);
+    // 云端存储上限无接口可查 → 恒 0（前端只显示已用量）
+    expect(list.totalLimit).toBe(0);
 }, 15000);
 
 test("1b. channel=cloudflare 时部署走 CF 客户端，返回公开 URL 且 expiresAt=0", async () => {
@@ -180,7 +193,11 @@ test("1b. channel=cloudflare 时部署走 CF 客户端，返回公开 URL 且 ex
     writeFileSync(
         join(dir, "settings.json"),
         JSON.stringify({
-            share: { token: "tk_cf", channel: "cloudflare", accountId: "acc-cf" },
+            share: {
+                token: "tk_cf",
+                channel: "cloudflare",
+                accountId: "acc-cf",
+            },
         }),
     );
     mockCloudflare();
@@ -192,16 +209,22 @@ test("1b. channel=cloudflare 时部署走 CF 客户端，返回公开 URL 且 ex
     const body = await res!.json();
     expect(body.channel).toBe("cloudflare");
     // itemShareUrl 统一拼法：单文件条目指向真实文件（CF 与 edgeone 同布局 {name}/{rel}）
-    expect(body.url).toBe("https://wapi-shares.pages.dev/index.html/index.html");
+    expect(body.url).toBe(
+        "https://wapi-shares.pages.dev/index.html/index.html",
+    );
     expect(body.expiresAt).toBe(0);
 }, 15000);
 
-test("1c. list：channel=cloudflare 时 totalLimit=0（不限），edgeone 保持 5GB", async () => {
-    // cloudflare：不限存储（CF 免费版无 5GB 硬限，fair use）
+test("1c. list：云端存储上限无接口可查，恒 0（前端不显示上限，只显示已用量）", async () => {
+    // cloudflare：无可用配额接口 → 0
     writeFileSync(
         join(dir, "settings.json"),
         JSON.stringify({
-            share: { token: "tk_cf", channel: "cloudflare", accountId: "acc-cf" },
+            share: {
+                token: "tk_cf",
+                channel: "cloudflare",
+                accountId: "acc-cf",
+            },
         }),
     );
     mockCloudflare();
@@ -211,14 +234,14 @@ test("1c. list：channel=cloudflare 时 totalLimit=0（不限），edgeone 保�
     ))!.json();
     expect(list.totalLimit).toBe(0);
 
-    // edgeone（默认无 settings）：保持 5GB
+    // edgeone（默认无 settings）：同样 0（不写死 5GB，买套餐后不失真）
     rmSync(join(dir, "settings.json"), { force: true });
     mockEdgeOne();
     const router2 = setup();
     const list2 = await (await router2.handle(
         new Request("http://x/api/share/list"),
     ))!.json();
-    expect(list2.totalLimit).toBe(5 * 1024 * 1024 * 1024);
+    expect(list2.totalLimit).toBe(0);
 });
 
 test("2. upload 未配 token → 400", async () => {
@@ -351,7 +374,11 @@ test("7c. refresh-link：channel=cloudflare 时返回 CF 公开根 URL 且 expir
     writeFileSync(
         join(dir, "settings.json"),
         JSON.stringify({
-            share: { token: "tk_cf", channel: "cloudflare", accountId: "acc-cf" },
+            share: {
+                token: "tk_cf",
+                channel: "cloudflare",
+                accountId: "acc-cf",
+            },
         }),
     );
     mockCloudflare();
@@ -365,7 +392,9 @@ test("7c. refresh-link：channel=cloudflare 时返回 CF 公开根 URL 且 expir
     expect(res!.status).toBe(200);
     const data = await res!.json();
     // CF 条目子路径：itemShareUrl 统一拼法，单文件指向真实文件（与 upload 端点 CF 分支一致）；expiresAt=0 表示永久
-    expect(data.url).toBe("https://wapi-shares.pages.dev/index.html/index.html");
+    expect(data.url).toBe(
+        "https://wapi-shares.pages.dev/index.html/index.html",
+    );
     expect(data.expiresAt).toBe(0);
     expect(data.channel).toBe("cloudflare");
 }, 15000);
