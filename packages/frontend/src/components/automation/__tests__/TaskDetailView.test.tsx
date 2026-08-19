@@ -257,6 +257,39 @@ describe("TaskDetailView", () => {
 		);
 	});
 
+	test("工作目录：projectId 为 __system__ 时显示「默认工作区」", () => {
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+				projectId: "__system__",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		render(<TaskDetailView />);
+		expect(screen.getByText(/📂 默认工作区/)).toBeTruthy();
+	});
+
+	test("工作目录：projectId 为空时显示「默认工作区」（无「默认」概念）", () => {
+		schedulerState.tasks = [
+			{
+				id: "t1",
+				name: "任务",
+				schedule: { type: "daily", time: "09:00" },
+				agentId: "a",
+				prompt: "x",
+			},
+		];
+		schedulerState.selectedTaskId = "t1";
+		render(<TaskDetailView />);
+		expect(screen.getByText(/📂 默认工作区/)).toBeTruthy();
+		// 不再出现「默认」结尾文案
+		expect(screen.queryByText(/📂 默认$/)).toBeNull();
+	});
+
 	test("最近执行记录：仅显示该任务的前 3 条", () => {
 		schedulerState.tasks = [
 			{

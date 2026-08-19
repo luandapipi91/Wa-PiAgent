@@ -2,7 +2,11 @@ import { useEffect, type ReactNode } from "react";
 import { useSchedulerStore } from "../../store/scheduler";
 import { useToastStore } from "../../store/toast";
 import { useContactsStore } from "../../store/contacts";
-import type { ScheduledTask, ExecutionRecord } from "@wa-pi/shared";
+import {
+	SYSTEM_PROJECT_ID,
+	type ScheduledTask,
+	type ExecutionRecord,
+} from "@wa-pi/shared";
 import {
 	parseImPushTokens,
 	toPromptHtml,
@@ -51,6 +55,12 @@ export function TaskDetailView() {
 	};
 	const contactLabel = (ctId: string) => contactMeta(ctId).label;
 	const recentRecords = records.filter((r) => r.taskId === task.id).slice(0, 3);
+	// 工作目录展示：未绑定或绑定默认工作区（__system__）都显示「默认工作区」
+	// （产品概念中工作区只有默认工作区与项目，不存在「默认」）
+	const projectLabel =
+		!task.projectId || task.projectId === SYSTEM_PROJECT_ID
+			? "默认工作区"
+			: task.projectId;
 
 	return (
 		<div data-testid="task-detail-view">
@@ -100,7 +110,7 @@ export function TaskDetailView() {
 							: "无"
 					}
 				/>
-				<InfoCard label="工作目录" value={`📂 ${task.projectId ?? "默认"}`} />
+				<InfoCard label="工作目录" value={`📂 ${projectLabel}`} />
 			</div>
 
 			{/* 任务指令 */}

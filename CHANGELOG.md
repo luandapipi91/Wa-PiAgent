@@ -2,6 +2,16 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — fix(automation): 新建自动化工作目录下拉移除「默认」空值项，对齐「默认工作区/项目」产品设定
+
+- 背景：产品设定中工作区只有「默认工作区」（__system__）与「项目」两类，无「默认」概念；新建自动化「工作目录」下拉此前硬编码 `<option value="">默认</option>` 空值占位项，与「默认工作区」选项重复且概念混乱。
+
+- 修复：移除空值「默认」项；新建默认选中「默认工作区」（__system__），编辑回填时无 projectId 的旧任务同样兜底为默认工作区；保存 payload 由 projectId 显式携带（__system__ 或具体项目 id），后端行为不变。
+
+- 详情页同步：任务详情「工作目录」卡，未绑定或绑定默认工作区时显示「默认工作区」（原为「默认」），不再出现裸 id __system__。
+
+- 影响范围：`packages/frontend/src/components/automation/TaskEditForm.tsx`、`TaskDetailView.tsx`；测试新增「下拉无默认空值项且默认选中默认工作区」「保存 payload projectId=__system__」「旧任务回填默认工作区」「详情 __system__/空值显示默认工作区」用例。
+
 ## 2026-08-19 — fix(share): Cloudflare 部署真实链路修复 + 进度条误导修复
 
 - 修复 3（进度条「回退/重置」）：ProgressBar 的 indeterminate 动画原为 30% 滑块往返循环，滑块每次跳回起点被误读为进度回退；改为满宽「呼吸脉冲」动画（透明度渐变，视觉是"处理中"）。实测 kernel uploading percent 单调递增（0→12→…→100 无回退），根因在前端动画。deploying 文案补时长预期「部署中，约需 1-2 分钟…」。
