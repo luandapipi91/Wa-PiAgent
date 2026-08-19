@@ -5,7 +5,7 @@
 ## 2026-08-18 — feat(share): 分享渠道支持 Cloudflare Pages
 
 - 新增功能：分享渠道支持 Cloudflare Pages（设置 → 分享 → 渠道切换）。公开链接、无 token 时效；配置 Cloudflare API Token + Account ID 即可部署到 pages.dev。后端新增 cloudflare-pages-client（内容寻址上传 + multipart 部署），部署按 channel 分派。
-- 前端设置 UI：ShareSection 渠道从「腾讯 EdgeOne（只读）」改为可切换控件（edgeone / cloudflare）：edgeone 保留注册入口 + API Token + 自定义域名；cloudflare 渲染 Cloudflare API Token + Account ID + 注册链接（dash.cloudflare.com/sign-up）+ 提示文案（链接永久公开、国内访问约 0.5~2s、单文件 ≤25MB）。
+- 前端设置 UI：ShareSection 渠道从「腾讯 EdgeOne（只读）」改为可切换控件（edgeone / cloudflare）：edgeone 保留注册入口 + API Token + 自定义域名；cloudflare 渲染 Cloudflare API Token + Account ID + 注册链接（dash.cloudflare.com/sign-up，与 edgeone 注册入口同位置）+ 提示文案（链接永久公开、单文件 ≤25MB）。
 - 保存 PUT /api/settings/share 全量提交 { channel, token, accountId, customDomain }（token 空串沿用 kernel 保留原值）；share-client 类型补 accountId（GET 已返回、PUT 已接受）。
 - 影响范围：`packages/kernel/src/share/cloudflare-pages-client.ts`、`packages/kernel/src/routes/share.ts`（按 channel 分派部署/refresh-link）、`packages/frontend/src/components/settings/ShareSection.tsx`、`packages/frontend/src/share-client.ts`；测试 `ShareSection.test.tsx`（新增 Cloudflare 渠道用例）、`share-client.test.ts`。
 
@@ -41,6 +41,7 @@
 - 根因：v0.2.7 只拦截 `WA_PI_DIR` 注入，漏掉 `HOME`/`USERPROFILE`：打包机（macOS）构建时 `HOME=/Users/pipi` 进入前端 bundle，`constants.ts` 用 `${HOME}/.pi/agent` 回退拼出 `/Users/pipi/.pi/agent/workdir`；而 `resolveSessionCwd` 对默认工作区（`__system__`）会话直接用该常量，忽略 kernel 持久化的 `__system__.cwd`（运行时本机路径，Windows 上为 `C:\Users\co\.pi\agent\workdir`）。非构建机（Windows）上请求 macOS 路径 → `list-dir` 返回 `fs:error` → `ExplorerPanel` 静默 `[]` → 默认工作区文件树空白。
 - 修复：① `packages/frontend/vite.config.ts` 生产构建恒不注入打包机 env——机器路径（WA_PI_DIR/HOME/USERPROFILE）补上 v0.2.7 漏网，`WA_PI_WS_PORT` 也恒注入默认 9776 不读打包机 process.env/.env；② `packages/shared/src/pure.ts` `resolveSessionCwd` 默认工作区分支只用持久化 `project.cwd`（前端已从 `/api/projects` 拿到 `__system__.cwd`），绝不回退常量（空 cwd 返回空串，前端 ExplorerPanel 空串渲染空态不请求；kernel 调用点均有 `!project.cwd` 前置校验，行为不变）。
 - 影响范围：`packages/frontend/vite.config.ts`、`vite.config.test.ts`（HOME/USERPROFILE/WS_PORT 不注入断言）、`packages/shared/src/pure.ts`、`tests/pure.test.ts`（新增 project.cwd 优先 + 空串断言）。需重新打包发布后生效。
+
 ## 2026-08-18 — chore(release): 发布版本 0.2.7（修复打包版默认工作区文件树空白）
 
 - 打包发布 0.2.7（mac + win 完整覆盖 OSS）：修复打包版默认工作区会话右侧文件树空白（前端构建误注入 dev 数据目录 ~/.pi/agent-dev，与 kernel 实际 ~/.pi/agent 不一致）。
