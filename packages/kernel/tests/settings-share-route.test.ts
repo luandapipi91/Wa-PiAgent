@@ -37,7 +37,7 @@ describe("GET /api/settings/share", () => {
 		);
 		expect(res?.status).toBe(200);
 		expect(await res?.json()).toEqual({
-			share: { hasToken: false, channel: "edgeone", customDomain: "" },
+			share: { hasToken: false, channel: "edgeone", customDomain: "", accountId: "" },
 		});
 	});
 });
@@ -54,13 +54,14 @@ describe("PUT /api/settings/share", () => {
 		expect(res?.status).toBe(200);
 		// 回包不再带 token 明文（脱敏为 hasToken）
 		expect(await res?.json()).toEqual({
-			share: { hasToken: true, channel: "edgeone", customDomain: "" },
+			share: { hasToken: true, channel: "edgeone", customDomain: "", accountId: "" },
 		});
 		// 路由写盘到隔离文件后，store 层再读该文件也应看到新值（明文仍在落盘侧）
 		expect(await loadShareSettings(file)).toEqual({
 			token: "tk_abc",
 			channel: "edgeone",
 			customDomain: "",
+			accountId: "",
 		});
 	});
 
@@ -78,7 +79,43 @@ describe("PUT /api/settings/share", () => {
 			new Request("http://localhost/api/settings/share", { method: "GET" }),
 		);
 		expect(await res?.json()).toEqual({
-			share: { hasToken: true, channel: "edgeone", customDomain: "" },
+			share: { hasToken: true, channel: "edgeone", customDomain: "", accountId: "" },
+		});
+	});
+
+	it("accountId 与 customDomain 一样透传（PUT 收明文、GET 下发）", async () => {
+		const res = await router.handle(
+			new Request("http://localhost/api/settings/share", {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					share: {
+						token: "t-acc",
+						channel: "cloudflare",
+						customDomain: "cf.example.com",
+						accountId: "acc-123",
+					},
+				}),
+			}),
+		);
+		expect(res?.status).toBe(200);
+		expect((await res?.json()).share).toEqual({
+			hasToken: true,
+			channel: "cloudflare",
+			customDomain: "cf.example.com",
+			accountId: "acc-123",
+		});
+		// GET 回读同样下发 accountId（token 仍脱敏）
+		const got = await router.handle(
+			new Request("http://localhost/api/settings/share", { method: "GET" }),
+		);
+		expect(await got?.json()).toEqual({
+			share: {
+				hasToken: true,
+				channel: "cloudflare",
+				customDomain: "cf.example.com",
+				accountId: "acc-123",
+			},
 		});
 	});
 
@@ -107,6 +144,7 @@ describe("PUT /api/settings/share", () => {
 				hasToken: true,
 				channel: "edgeone",
 				customDomain: "share.example.com",
+				accountId: "",
 			},
 		});
 		// PUT 只改域名（token 传空串）→ 原 token 保留

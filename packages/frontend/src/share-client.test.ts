@@ -76,9 +76,14 @@ test("shareSettings：未配置时 hasToken 为 false（响应缺省字段也按
 
 test("saveShareSettings：PUT /api/settings/share（body.share 仍为明文 token，仅上行）", async () => {
 	putMock.mockResolvedValue({ share: { hasToken: true, channel: "edgeone" } });
-	await saveShareSettings({ token: "t", channel: "edgeone", customDomain: "" });
+	await saveShareSettings({
+		token: "t",
+		channel: "edgeone",
+		accountId: "",
+		customDomain: "",
+	});
 	expect(putMock).toHaveBeenCalledWith("/api/settings/share", {
-		share: { token: "t", channel: "edgeone", customDomain: "" },
+		share: { token: "t", channel: "edgeone", accountId: "", customDomain: "" },
 	});
 });
 

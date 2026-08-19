@@ -69,6 +69,22 @@ test("生成分享链接：显示 URL + 复制按钮 + 「3 小时内有效」",
 	);
 });
 
+test("expiresAt=0（CF 渠道永久分享）：显示「永久有效」而非小时倒计时", async () => {
+	shareUploadMock.mockResolvedValue({
+		url: "https://wapi-shares.pages.dev/foo/",
+		expiresAt: 0,
+		projectName: "wapi-shares",
+		channel: "cloudflare",
+	});
+	render(<ShareButton paths={PATHS} />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	await screen.findByTestId("share-files");
+	fireEvent.click(screen.getByTestId("share-generate-btn"));
+	await screen.findByTestId("share-url");
+	expect(screen.getByTestId("share-expires").textContent).toContain("永久有效");
+	expect(screen.getByTestId("share-expires").textContent).not.toContain("小时");
+});
+
 test("未配置 token：显示「请先在 设置 → 分享 配置 Token」且无生成按钮", async () => {
 	shareSettingsMock.mockResolvedValue({ hasToken: false, channel: "edgeone" });
 	render(<ShareButton paths={PATHS} />);
