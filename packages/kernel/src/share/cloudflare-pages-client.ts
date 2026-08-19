@@ -103,14 +103,14 @@ async function uploadFiles(
   files: Record<string, Uint8Array>,
   onProgress?: CloudflareShareOptions["onProgress"],
 ): Promise<Record<string, string>> {
-  // 1. 计算每个文件的 hash 与 manifest
+  // 1. 计算每个文件的 hash 与 manifest（key 带前导 /，与 wrangler manifest 格式一致）
   const entries = Object.entries(files);
   const manifest: Record<string, string> = {};
   const byHash = new Map<string, { path: string; content: Uint8Array }>();
   for (const [path, content] of entries) {
     const ext = path.includes(".") ? path.split(".").pop()! : "";
     const h = hashFileContent(content, ext);
-    manifest[path] = h;
+    manifest[`/${path}`] = h;
     if (!byHash.has(h)) byHash.set(h, { path, content });
   }
 
@@ -192,6 +192,26 @@ async function uploadFiles(
       loaded: uploadedBytes,
       total: totalBytes,
     });
+  }
+
+  // 4.5 上传后 upsert hashes（把 hash 注册到项目，部署时 manifest 才能引用；wrangler 同款）
+  // 失败不致命（仅影响下次部署去重），警告后继续
+  try {
+    const upsertRes = await fetch(`${CF_API_BASE}/pages/assets/upsert-hashes`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${jwt}`,
+      },
+      body: JSON.stringify({ hashes }),
+    });
+    if (!upsertRes.ok) {
+      console.warn(
+        `[cloudflare] upsert-hashes failed: HTTP ${upsertRes.status}（仅影响下次部署去重）`,
+      );
+    }
+  } catch (e) {
+    console.warn(`[cloudflare] upsert-hashes 异常: ${e instanceof Error ? e.message : String(e)}`);
   }
   return manifest;
 }

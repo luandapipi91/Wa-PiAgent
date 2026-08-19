@@ -2,10 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
-## 2026-08-19 — fix(share): Cloudflare check-missing 响应格式校验
+## 2026-08-19 — fix(share): Cloudflare 部署真实链路修复（真实 API 全流程测试验证通过）
 
-- 修复：check-missing 返回 HTTP 200 但响应非数组（业务错误对象/空 body，如 JWT 过期）时，此前被强转 string[] 导致 `missing.includes is not a function` 崩溃；现先校验 Array.isArray，非数组抛明确错误（含 errors[0].message），不再静默 TypeError。
-- 影响范围：`packages/kernel/src/share/cloudflare-pages-client.ts`；测试新增「HTTP 200 非数组响应抛明确错误」用例。
+- 修复 1：check-missing 返回 HTTP 200 但响应非数组（业务错误对象/空 body，如 JWT 过期）时，此前被强转 string[] 导致 `missing.includes is not a function` 崩溃；现兼容 CF 真实响应 `{success, result: string[]}`（wrangler fetchResult 解包 result）与裸数组两种形态，均非数组则抛明确错误（含 errors[0].message）。
+- 修复 2（真实 404 根因）：部署 manifest 的 key 必须带前导 `/`（`"/index.html"` 而非 `"index.html"`，与 wrangler manifest 格式一致）；upload 后补 `/pages/assets/upsert-hashes` 把 hash 注册到项目（wrangler 同款流程），否则部署成功但访问恒 404。
+- 验证：用真实 Cloudflare API Token 跑全流程（Account ID 自动获取 → 创建项目 → 内容寻址上传 → upsert-hashes → multipart 部署 → 轮询 → 访问），独立测试项目 `wapi-share-poc-*` 部署后 `/index.html` 与 `/demo/hello.txt` 均 HTTP 200、内容正确，测试后已清理。
+- 影响范围：`packages/kernel/src/share/cloudflare-pages-client.ts`；测试新增「HTTP 200 非数组抛明确错误」「{success,result} 包络形态正常走通」用例 + upsert-hashes mock。
 
 ## 2026-08-18 — feat(share): 分享渠道支持 Cloudflare Pages
 

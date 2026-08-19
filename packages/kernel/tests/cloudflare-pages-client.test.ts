@@ -26,6 +26,9 @@ function installFetchMock() {
       return json(body.hashes as string[]);
     }
     if (u.includes("/pages/assets/upload")) return json({ success: true });
+    // upload 后注册 hash（wrangler 同款流程）
+    if (u.includes("/pages/assets/upsert-hashes"))
+      return json({ success: true });
     // Account ID 自动获取：GET /accounts（token 可访问的账号列表）
     if (u.includes("/accounts?per_page=5")) {
       return json({
@@ -230,6 +233,8 @@ describe("deployToCloudflare", () => {
         return json({ success: true, result: body.hashes as string[] });
       }
       if (u.includes("/pages/assets/upload")) return json({ success: true });
+      if (u.includes("/pages/assets/upsert-hashes"))
+        return json({ success: true });
       if (u.includes("/deployments/")) {
         return json({
           result: { latest_stage: { name: "deploy", status: "success" } },
