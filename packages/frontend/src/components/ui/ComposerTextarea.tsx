@@ -14,6 +14,10 @@ interface Props {
     testId?: string;
     /** 追加到根元素的类（如自动化表单的边框；聊天侧边框在外层 ComposerInput 容器上，不传） */
     className?: string;
+    /** 手动固定高度（px）；null/缺省保持自然生长（minHeight 60 / maxHeight 300） */
+    height?: number | null;
+    /** 额外透传根元素引用（输入框拖拽手柄读取起始高度用），不影响内部 elRef */
+    rootElRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 /**
@@ -94,6 +98,8 @@ export function ComposerTextarea({
     toHtml,
     testId,
     className,
+    height,
+    rootElRef,
 }: Props) {
     ensureChipStyles();
     const elRef = useRef<HTMLDivElement>(null);
@@ -127,7 +133,10 @@ export function ComposerTextarea({
 
     return (
         <div
-            ref={elRef}
+            ref={(el) => {
+                elRef.current = el;
+                if (rootElRef) rootElRef.current = el;
+            }}
             role="textbox"
             contentEditable={!disabled}
             suppressContentEditableWarning
@@ -137,12 +146,21 @@ export function ComposerTextarea({
             data-testid={testId}
             data-placeholder={placeholder}
             className={`w-full bg-transparent text-primary outline-none resize-none text-sm px-4 py-4 placeholder:text-tertiary overflow-y-auto ${className ?? ""}`}
-            style={{
-                maxHeight: 300,
-                minHeight: 60,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-            }}
+            style={
+                height != null
+                    ? {
+                          height,
+                          maxHeight: height,
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                      }
+                    : {
+                          maxHeight: 300,
+                          minHeight: 60,
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                      }
+            }
         />
     );
 }
