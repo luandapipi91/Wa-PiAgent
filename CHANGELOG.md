@@ -2,6 +2,15 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — fix(分享): 合并/多文件分享链接直达问题——目录索引页 + 当次文件直达 URL
+
+- 背景：同名合并后 item.files 变多文件，itemShareUrl 走「目录 URL」分支，而分享目录内无 index.html，访问 https://xxx.pages.dev/慧来客/ 回退到根说明页（「WaPi Shares 托管站点」），分享内容看不到。
+- 修复：
+  1. 目录索引页：buildDeployZip 对每个分享目录（用户文件不含 index.html 时）生成 index.html 文件列表页（仅列本目录文件，不泄露其他分享）；EdgeOne token 透传——脚本从 location.search 读 query 拼到子链接，避免 eo_token 丢失 401；用户分享的文件本身是 index.html 时不覆盖。
+  2. 当次文件直达：upload 响应 URL 用「本次分享的文件」而非合并后并集计算——同名合并后再单文件分享，链接直达当次文件（如 /慧来客/b.html），不再退化为目录；本次多文件仍指向目录（此时目录有索引页可访问）。
+- 影响范围：`packages/kernel/src/share/workspace.ts`（renderDirIndexHtml + buildDeployZip）、`routes/share.ts`（URL 计算）；测试新增「目录索引页生成」「用户 index.html 不覆盖」「合并后 URL 带当次文件名」用例。
+
+
 ## 2026-08-19 — fix(kernel): 已知运行时 bug 不广播 error（Bun autoSelectFamily 竞态）
 
 - 问题：聊天过程中偶发「内核异常 (uncaughtException) : null is not an object (evaluating 'context')」——Bun node:net autoSelectFamily（Happy Eyeballs）连接超时回调访问已置 null 的 context（oven-sh/bun#25633，1.3.15+ 修复）。crash handler 此前一律广播 error，前端会把它注入对话流并 failTurn，打断进行中的回复。

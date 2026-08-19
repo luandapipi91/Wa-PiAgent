@@ -535,3 +535,36 @@ test("upload 单个文件夹：内容平铺不嵌套，名称为文件夹名", a
     expect(item?.files.sort()).toEqual(["assets/a.js", "index.html"]);
     expect(item?.name).toBe("dist");
 });
+
+test("upload 同名合并后再次单文件分享：URL 带当次文件名而非目录（merged 标志 true）", async () => {
+    mockEdgeOne();
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    // 第一次分享：目录 share1 含 a.html（名=慧来客）
+    await mkdir(join(dir, "share1"), { recursive: true });
+    await writeFile(join(dir, "share1", "a.html"), "A");
+    const router = setup();
+    const r1 = await post(router, "/api/share/upload", {
+        paths: [join(dir, "share1")],
+        name: "慧来客",
+    });
+    expect(r1!.status).toBe(200);
+    const d1 = await r1!.json();
+    expect(d1.merged).toBe(false);
+    // 多文件目录 → 目录 URL
+    expect(d1.url).toContain("/%E6%85%A7%E6%9D%A5%E5%AE%A2/");
+
+    // 第二次分享：单文件 b.html（同名慧来客 → 合并）
+    await mkdir(join(dir, "share2"), { recursive: true });
+    await writeFile(join(dir, "share2", "b.html"), "B");
+    const r2 = await post(router, "/api/share/upload", {
+        paths: [join(dir, "share2", "b.html")],
+        name: "慧来客",
+    });
+    expect(r2!.status).toBe(200);
+    const d2 = await r2!.json();
+    expect(d2.merged).toBe(true);
+    // 关键：URL 带当次文件名 b.html，而不是合并后的目录
+    expect(d2.url).toContain("/%E6%85%A7%E6%9D%A5%E5%AE%A2/b.html");
+    // 合并后文件数 = a.html + b.html
+    expect(d2.filesCount).toBe(2);
+});
