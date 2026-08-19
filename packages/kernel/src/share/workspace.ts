@@ -217,9 +217,7 @@ export async function addItem(
 		const fp = join(target, ...rel.split("/"));
 		if (await stat(fp).catch(() => null)) existingFiles.push(rel);
 	}
-	const files = [
-		...new Set([...existingFiles, ...entries.map((e) => e.name)]),
-	];
+	const files = [...new Set([...existingFiles, ...entries.map((e) => e.name)])];
 	const size = await dirSizeOf(target, files);
 	const item: ShareItem = {
 		id,
