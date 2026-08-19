@@ -54,7 +54,10 @@ function installFetchMock() {
         success: true,
       });
     if (u.endsWith("/pages/projects/wapi-shares")) {
-      return json({ result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" }, success: true });
+      return json({
+        result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" },
+        success: true,
+      });
     }
     throw new Error(`unhandled mock URL: ${u}`);
   };
@@ -195,7 +198,10 @@ describe("getOrCreateProject", () => {
       }
       if (u.endsWith("/pages/projects") && init?.method === "POST") {
         return new Response(
-          JSON.stringify({ result: { id: "proj-new", subdomain: "wapi-shares.pages.dev" }, success: true }),
+          JSON.stringify({
+            result: { id: "proj-new", subdomain: "wapi-shares.pages.dev" },
+            success: true,
+          }),
         );
       }
       throw new Error(`unhandled: ${u} #${n}`);
@@ -280,7 +286,10 @@ describe("deployToCloudflare", () => {
         );
       }
       if (u.endsWith("/pages/projects/wapi-shares")) {
-        return json({ result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" }, success: true });
+        return json({
+          result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" },
+          success: true,
+        });
       }
       throw new Error(`unhandled mock URL: ${u}`);
     }) as typeof fetch;
@@ -312,7 +321,10 @@ describe("deployToCloudflare", () => {
         });
       }
       if (u.endsWith("/pages/projects/wapi-shares")) {
-        return json({ result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" }, success: true });
+        return json({
+          result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" },
+          success: true,
+        });
       }
       throw new Error(`unhandled mock URL: ${u}`);
     }) as typeof fetch;
@@ -360,7 +372,10 @@ describe("deployToCloudflare", () => {
           success: true,
         });
       if (u.endsWith("/pages/projects/wapi-shares"))
-        return json({ result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" }, success: true });
+        return json({
+          result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" },
+          success: true,
+        });
       throw new Error(`unhandled mock URL: ${u}`);
     }) as typeof fetch;
 
@@ -395,7 +410,10 @@ describe("deployToCloudflare", () => {
         });
       }
       if (u.endsWith("/pages/projects/wapi-shares")) {
-        return json({ result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" }, success: true });
+        return json({
+          result: { id: "proj-1", subdomain: "wapi-shares.pages.dev" },
+          success: true,
+        });
       }
       throw new Error(`unhandled mock URL: ${u}`);
     }) as typeof fetch;

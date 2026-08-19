@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.2.9",
+    "date": "2026-08-19",
+    "sections": {
+      "修复": [
+        "文件分享（Cloudflare Pages 渠道）：分享链接改用项目真实 .pages.dev 子域生成，此前子域被占用时生成的链接打不开"
+      ]
+    }
+  },
+  {
     "version": "0.2.8",
     "date": "2026-08-19",
     "sections": {

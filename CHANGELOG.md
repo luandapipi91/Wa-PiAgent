@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — chore(release): 发布版本 0.2.9（修复 CF 分享链接子域硬编码）
+
+- 版本 0.2.8 → 0.2.9：desktop/frontend package.json、version-history.json（新增 0.2.9 条目）、VersionTimeline maxEntries 断言同步、RELEASE_NOTES.md 重写为当次内容。
+- 内容：修复 Cloudflare Pages 分享链接硬编码 wapi-shares.pages.dev 的问题——改用项目真实 .pages.dev 子域生成链接（子域全局唯一，被占用时旧链接打不开）。
+
 ## 2026-08-19 — feat(分享): 分享名称默认值改为项目名称
 
 - 需求：分享弹窗「分享名称」输入框默认值由「文件名/文件夹名/N 个文件」改为当前项目名称。

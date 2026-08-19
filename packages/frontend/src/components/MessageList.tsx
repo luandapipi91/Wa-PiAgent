@@ -163,10 +163,7 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 	// transient 错误后 streaming 占位已被清掉，末条是 user 消息
 	const isTransientErrorTurn =
 		turnEnded && netDegraded && lastMsg?.role === "user";
-	if (
-		!readOnly &&
-		(isFatalErrorTurn || isTransientErrorTurn)
-	) {
+	if (!readOnly && (isFatalErrorTurn || isTransientErrorTurn)) {
 		for (let i = rows.length - 1; i >= 0; i--) {
 			if ((rows[i].main.message as any).role === "user") {
 				resendUserIdx = i;
@@ -940,7 +937,9 @@ export const MessageRow = memo(function MessageRow({
 	isLastMessage?: boolean;
 }) {
 	const m = row.main.message as any;
-	const fileChanges = useSessionStore((s) => s.fileChangesBySession[sessionId]) ?? EMPTY_FILE_CHANGES;
+	const fileChanges =
+		useSessionStore((s) => s.fileChangesBySession[sessionId]) ??
+		EMPTY_FILE_CHANGES;
 	// hook 须在顶层、任何 early return 之前
 	const { t } = useTranslation();
 	// 技能名集合：用于过滤 /skill:xxx 纯文本渲染——只有已启用技能列表里真实存在的技能名
@@ -1137,9 +1136,14 @@ export const MessageRow = memo(function MessageRow({
 					<>
 						<div className="flex justify-end items-center">
 							<ExportButton sessionId={sessionId} uptoTimestamp={m.timestamp} />
-							<CopyButton text={fullText} testId={`copy-${sessionId}-${m.timestamp}`} />
+							<CopyButton
+								text={fullText}
+								testId={`copy-${sessionId}-${m.timestamp}`}
+							/>
 						</div>
-						{isLastMessage && <FileChangeSummary sessionId={sessionId} files={fileChanges} />}
+						{isLastMessage && (
+							<FileChangeSummary sessionId={sessionId} files={fileChanges} />
+						)}
 					</>
 				)}
 			</div>

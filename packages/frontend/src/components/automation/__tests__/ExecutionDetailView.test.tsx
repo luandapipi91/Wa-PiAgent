@@ -38,8 +38,17 @@ mock.module("../../../api-client", () => ({
 }));
 // MessageList mock：轻量替身，断言收到正确 sessionId 与只读标记
 mock.module("../../MessageList", () => ({
-	MessageList: ({ sessionId, readOnly }: { sessionId: string; readOnly?: boolean }) => (
-		<div data-testid="message-list-mock" data-readonly={readOnly ? "true" : undefined}>
+	MessageList: ({
+		sessionId,
+		readOnly,
+	}: {
+		sessionId: string;
+		readOnly?: boolean;
+	}) => (
+		<div
+			data-testid="message-list-mock"
+			data-readonly={readOnly ? "true" : undefined}
+		>
 			{sessionId}
 		</div>
 	),

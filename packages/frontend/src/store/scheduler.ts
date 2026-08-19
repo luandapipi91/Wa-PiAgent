@@ -87,10 +87,20 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 	setView: (view) => set({ view }),
 
 	startCreate: () =>
-		set({ view: "edit", editingTask: null, selectedTaskId: null, selectedRecordId: null }),
+		set({
+			view: "edit",
+			editingTask: null,
+			selectedTaskId: null,
+			selectedRecordId: null,
+		}),
 
 	startEdit: (task) =>
-		set({ view: "edit", editingTask: task, selectedTaskId: task.id, selectedRecordId: null }),
+		set({
+			view: "edit",
+			editingTask: task,
+			selectedTaskId: task.id,
+			selectedRecordId: null,
+		}),
 
 	// 打开执行记录详情：from 快照来源视图，返回时回退
 	openRecordDetail: (recordId, from) =>
