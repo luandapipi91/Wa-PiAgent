@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — feat(分享): 分享名称默认值改为项目名称
+
+- 需求：分享弹窗「分享名称」输入框默认值由「文件名/文件夹名/N 个文件」改为当前项目名称。
+- 实现：ShareResultModal 默认值优先级 = 显式 projectName prop → 按 sessionId 反查项目名（session.projectId → project.name，默认工作区显示「默认工作区」）→ 回退原自动名；ExplorerPanel 新增 projectName prop（右键分享入口无 sessionId，由 SessionView/NewSessionPane 传入项目名）；FileViewer/FileChangeSummary 走 sessionId 反查自动生效。
+- 影响范围：`packages/frontend/src/components/ui/ShareButton.tsx`、`ExplorerPanel.tsx`、`SessionView.tsx`、`NewSessionPane.tsx`；测试新增「projectName 默认值」「空白 projectName 回退自动名」用例。
+
 ## 2026-08-19 — fix(share): CF 分享链接用项目真实 pages.dev 子域（不再硬编码 wapi-shares.pages.dev）
 
 - 问题：`.pages.dev` 子域全局唯一，同名项目在不同 Cloudflare 账号可能分到不同子域（如 `wapi-shares-abc.pages.dev`）；此前硬编码 `https://wapi-shares.pages.dev` 拼分享链接，账号子域被占用时会生成打不开的链接。

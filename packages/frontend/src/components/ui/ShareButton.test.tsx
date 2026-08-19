@@ -162,6 +162,27 @@ test("分享名称：默认自动名（多文件 = N 个文件），可修改并
 	expect(shareUploadMock).toHaveBeenCalledWith(PATHS, undefined, "周报");
 });
 
+test("分享名称：传入 projectName 时默认值 = 项目名，生成时传给 shareUpload", async () => {
+	render(<ShareButton paths={PATHS} projectName="HiAgent" />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	await screen.findByTestId("share-name-input");
+	expect(
+		(screen.getByTestId("share-name-input") as HTMLInputElement).value,
+	).toBe("HiAgent");
+	fireEvent.click(screen.getByTestId("share-generate-btn"));
+	await screen.findByTestId("share-url");
+	expect(shareUploadMock).toHaveBeenCalledWith(PATHS, undefined, "HiAgent");
+});
+
+test("分享名称：传入空白 projectName 时回退自动名", async () => {
+	render(<ShareButton paths={PATHS} projectName="   " />);
+	fireEvent.click(screen.getByTestId("share-btn"));
+	await screen.findByTestId("share-name-input");
+	expect(
+		(screen.getByTestId("share-name-input") as HTMLInputElement).value,
+	).toBe("3 个文件");
+});
+
 test("分享名称重复：kernel 409 时提示「已有分享名称重复」且不显示 URL", async () => {
 	shareUploadMock.mockRejectedValue(
 		new Error("已有分享名称重复，请使用其他名字"),

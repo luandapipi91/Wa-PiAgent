@@ -415,6 +415,9 @@ export function NewSessionPane({
 							{workspaceDir ? (
 								<ExplorerPanel
 									workspaceDir={workspaceDir}
+									projectName={
+										projects.find((p) => p.id === projectId)?.name
+									}
 									onOpenFile={(path) =>
 										useSessionStore.getState().openFilePreview(path, sessionId)
 									}
