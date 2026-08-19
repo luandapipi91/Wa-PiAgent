@@ -57,40 +57,135 @@ function HelpDiagram({ variant }: { variant: "edgeone" | "cloudflare" }) {
 			}
 		>
 			{/* 浏览器窗口外框 + 顶部栏 */}
-			<rect x="2" y="2" width="356" height="146" rx="8" fill="var(--surface)" stroke="var(--hairline)" />
-			<rect x="2" y="2" width="356" height="24" rx="8" fill="var(--hairline)" opacity="0.55" />
+			<rect
+				x="2"
+				y="2"
+				width="356"
+				height="146"
+				rx="8"
+				fill="var(--surface)"
+				stroke="var(--hairline)"
+			/>
+			<rect
+				x="2"
+				y="2"
+				width="356"
+				height="24"
+				rx="8"
+				fill="var(--hairline)"
+				opacity="0.55"
+			/>
 			<circle cx="16" cy="14" r="3" fill="#ff5f57" />
 			<circle cx="28" cy="14" r="3" fill="#febc2e" />
 			<circle cx="40" cy="14" r="3" fill="#28c840" />
-			<rect x="54" y="8" width="150" height="12" rx="6" fill="var(--surface)" stroke="var(--hairline)" />
+			<rect
+				x="54"
+				y="8"
+				width="150"
+				height="12"
+				rx="6"
+				fill="var(--surface)"
+				stroke="var(--hairline)"
+			/>
 
 			{variant === "edgeone" ? (
 				<g>
 					{/* 控制台左侧菜单，高亮「API 密钥管理」 */}
-					<rect x="10" y="32" width="86" height="106" rx="4" fill="var(--surface)" stroke="var(--hairline)" opacity="0.8" />
-					<text x="18" y="48" fontSize="9" fill="#8a8f98">概览</text>
-					<text x="18" y="64" fontSize="9" fill="#8a8f98">站点</text>
-					<rect x="14" y="72" width="78" height="16" rx="3" fill="var(--brand)" opacity="0.15" />
-					<text x="18" y="84" fontSize="9" fontWeight="bold" fill="var(--brand)">API 密钥管理</text>
+					<rect
+						x="10"
+						y="32"
+						width="86"
+						height="106"
+						rx="4"
+						fill="var(--surface)"
+						stroke="var(--hairline)"
+						opacity="0.8"
+					/>
+					<text x="18" y="48" fontSize="9" fill="#8a8f98">
+						概览
+					</text>
+					<text x="18" y="64" fontSize="9" fill="#8a8f98">
+						站点
+					</text>
+					<rect
+						x="14"
+						y="72"
+						width="78"
+						height="16"
+						rx="3"
+						fill="var(--brand)"
+						opacity="0.15"
+					/>
+					<text x="18" y="84" fontSize="9" fontWeight="bold" fill="var(--brand)">
+						API 密钥管理
+					</text>
 					{/* 右上角头像下拉菜单，同样高亮 */}
 					<circle cx="330" cy="40" r="10" fill="var(--hairline)" />
-					<rect x="262" y="48" width="134" height="58" rx="4" fill="var(--surface)" stroke="var(--hairline)" />
-					<text x="270" y="64" fontSize="9" fill="#8a8f98">账号信息</text>
-					<rect x="266" y="70" width="126" height="16" rx="3" fill="var(--brand)" opacity="0.15" />
-					<text x="270" y="82" fontSize="9" fontWeight="bold" fill="var(--brand)">API 密钥管理</text>
-					<text x="270" y="100" fontSize="9" fill="#8a8f98">退出登录</text>
+					<rect
+						x="262"
+						y="48"
+						width="134"
+						height="58"
+						rx="4"
+						fill="var(--surface)"
+						stroke="var(--hairline)"
+					/>
+					<text x="270" y="64" fontSize="9" fill="#8a8f98">
+						账号信息
+					</text>
+					<rect
+						x="266"
+						y="70"
+						width="126"
+						height="16"
+						rx="3"
+						fill="var(--brand)"
+						opacity="0.15"
+					/>
+					<text x="270" y="82" fontSize="9" fontWeight="bold" fill="var(--brand)">
+						API 密钥管理
+					</text>
+					<text x="270" y="100" fontSize="9" fill="#8a8f98">
+						退出登录
+					</text>
 				</g>
 			) : (
 				<g>
 					{/* API Tokens 页面：标题 + Create Token 按钮高亮 + token 列表 */}
-					<text x="16" y="44" fontSize="11" fontWeight="bold" fill="#333">API Tokens</text>
-					<text x="16" y="60" fontSize="8.5" fill="#8a8f98">Manage API tokens for your account</text>
+					<text x="16" y="44" fontSize="11" fontWeight="bold" fill="#333">
+						API Tokens
+					</text>
+					<text x="16" y="60" fontSize="8.5" fill="#8a8f98">
+						Manage API tokens for your account
+					</text>
 					<rect x="16" y="70" width="88" height="20" rx="4" fill="var(--brand)" />
-					<text x="26" y="84" fontSize="9" fontWeight="bold" fill="var(--on-brand)">Create Token</text>
-					<rect x="16" y="98" width="324" height="18" rx="3" fill="var(--surface)" stroke="var(--hairline)" />
-					<rect x="16" y="120" width="324" height="18" rx="3" fill="var(--surface)" stroke="var(--hairline)" />
-					<text x="22" y="111" fontSize="8" fill="#8a8f98">Edit Cloudflare Workers (edit)…</text>
-					<text x="22" y="133" fontSize="8" fill="#8a8f98">Pages deploy token …</text>
+					<text x="26" y="84" fontSize="9" fontWeight="bold" fill="var(--on-brand)">
+						Create Token
+					</text>
+					<rect
+						x="16"
+						y="98"
+						width="324"
+						height="18"
+						rx="3"
+						fill="var(--surface)"
+						stroke="var(--hairline)"
+					/>
+					<rect
+						x="16"
+						y="120"
+						width="324"
+						height="18"
+						rx="3"
+						fill="var(--surface)"
+						stroke="var(--hairline)"
+					/>
+					<text x="22" y="111" fontSize="8" fill="#8a8f98">
+						Edit Cloudflare Workers (edit)…
+					</text>
+					<text x="22" y="133" fontSize="8" fill="#8a8f98">
+						Pages deploy token …
+					</text>
 				</g>
 			)}
 		</svg>
@@ -447,7 +542,7 @@ export function ShareSection() {
 								</a>
 							</div>
 							<span className="text-xs text-secondary">
-								Cloudflare 分享链接永久公开；单文件 ≤ 25MB；Account ID 无需填写，部署时自动获取
+								Cloudflare 分享链接永久公开；单文件 ≤ 25MB
 							</span>
 						</>
 					)}
