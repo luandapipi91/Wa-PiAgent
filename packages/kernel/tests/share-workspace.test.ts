@@ -54,23 +54,23 @@ test("addItem 同 id 覆盖不产生重复记录", async () => {
 });
 
 test("addItem 合并：旧目录中已被删除的文件不进并集（files 只保留磁盘存在的）", async () => {
-	const d = await tmp();
-	await addItem(d, "aaaaaaaaaaaa", "site", [
-		entry("index.html", "old"),
-		entry("keep.js", "K"),
-	]);
-	// 模拟用户改动分享目录：删除 index.html（磁盘上不存在了）
-	await rm(join(d, "items/site/index.html"));
-	// 再次同名分享（不同内容）→ 合并
-	await addItem(d, "bbbbbbbbbbbb", "site", [entry("new.js", "N")]);
-	const items = await loadItems(d);
-	expect(items.length).toBe(1);
-	// 旧 files 里磁盘已不存在的 index.html 被剔除，只保留 keep.js + new.js
-	expect(items[0].files.sort()).toEqual(["keep.js", "new.js"]);
+  const d = await tmp();
+  await addItem(d, "aaaaaaaaaaaa", "site", [
+    entry("index.html", "old"),
+    entry("keep.js", "K"),
+  ]);
+  // 模拟用户改动分享目录：删除 index.html（磁盘上不存在了）
+  await rm(join(d, "items/site/index.html"));
+  // 再次同名分享（不同内容）→ 合并
+  await addItem(d, "bbbbbbbbbbbb", "site", [entry("new.js", "N")]);
+  const items = await loadItems(d);
+  expect(items.length).toBe(1);
+  // 旧 files 里磁盘已不存在的 index.html 被剔除，只保留 keep.js + new.js
+  expect(items[0].files.sort()).toEqual(["keep.js", "new.js"]);
 });
 
 test("addItem 不同 id 同名 → 合并为一条：旧文件保留、新文件追加、同路径新覆盖旧", async () => {
-	const d = await tmp();
+  const d = await tmp();
   // 第一次分享：id1 名 site，含 index.html + old.js
   await addItem(d, "aaaaaaaaaaaa", "site", [
     entry("index.html", "<h1>old</h1>"),

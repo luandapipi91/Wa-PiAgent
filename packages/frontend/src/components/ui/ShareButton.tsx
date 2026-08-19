@@ -165,7 +165,10 @@ export function ShareResultModal({
 			if (res.merged) {
 				useToastStore
 					.getState()
-					.add(t("share.merged", { name: res.name, count: res.filesCount ?? 0 }), "success");
+					.add(
+						t("share.merged", { name: res.name, count: res.filesCount ?? 0 }),
+						"success",
+					);
 			}
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);

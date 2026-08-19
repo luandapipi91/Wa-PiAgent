@@ -104,8 +104,7 @@ test("handleBridgeStream 透传 opts.signal：abort 后 delegate 执行收到中
 			return new Promise((resolve) => {
 				signal.addEventListener(
 					"abort",
-					() =>
-						resolve({ content: [{ type: "text" as const, text: "aborted" }] }),
+					() => resolve({ content: [{ type: "text" as const, text: "aborted" }] }),
 					{ once: true },
 				);
 			});
@@ -238,15 +237,13 @@ test(
 								/* 已关闭 */
 							}
 						};
-						void handleBridgeStream(body, write, { heartbeatMs: 100 }).then(
-							() => {
-								try {
-									controller.close();
-								} catch {
-									/* 已关闭 */
-								}
-							},
-						);
+						void handleBridgeStream(body, write, { heartbeatMs: 100 }).then(() => {
+							try {
+								controller.close();
+							} catch {
+								/* 已关闭 */
+							}
+						});
 					},
 				});
 				return new Response(stream, {
