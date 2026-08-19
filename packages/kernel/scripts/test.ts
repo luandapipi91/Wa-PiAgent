@@ -29,13 +29,21 @@ function run(args: string[]): boolean {
 
 let ok = true;
 
+// 全局 preload：包装 fetch 规避 Bun 连接池同 host 多 server 错误复用（见 tests/setup.ts）
+const PRELOAD = "--preload=./tests/setup.ts";
+
 // 1. 全量测试（排除启动完整 kernel 的集成测试）
-const ignorePatterns = INTEGRATION_TESTS.join(",");
-ok = run(["test", "--isolate", `--path-ignore-patterns=${ignorePatterns}`]) && ok;
+// 注意：--path-ignore-patterns 逗号分隔不生效（会把整个字符串当单个 glob 匹配），
+// 必须每个文件单独传一次参数（实测多次传参才真正排除）。
+const ignoreArgs = INTEGRATION_TESTS.flatMap((f) => [
+	"--path-ignore-patterns",
+	f,
+]);
+ok = run(["test", "--isolate", PRELOAD, ...ignoreArgs]) && ok;
 
 // 2. 独立进程单独补跑集成测试（与其他测试隔离，验证 kernel 启动链路）
 for (const file of INTEGRATION_TESTS) {
-	ok = run(["test", "--isolate", file]) && ok;
+	ok = run(["test", "--isolate", PRELOAD, file]) && ok;
 }
 
 if (!ok) {
