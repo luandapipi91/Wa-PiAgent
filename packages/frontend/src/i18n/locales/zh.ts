@@ -67,6 +67,7 @@ const zh = {
 		emptySkill: "无匹配技能",
 		emptyCommand: "无匹配命令",
 		addAttachment: "添加附件",
+		resizeHint: "拖拽调整高度，双击恢复默认",
 		uploading: "上传中...",
 		addAttachmentFailed: "添加附件失败",
 		uploadFailed: "上传失败",

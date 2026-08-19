@@ -25,6 +25,11 @@
 - 影响：单文件/多文件/多文件夹分享行为不变（本就走 commonRoot）；前端无需改动。
 - 影响范围：`packages/kernel/src/routes/share.ts`；测试「upload 单个文件夹」断言更新为带 dist/ 前缀。
 
+## 2026-08-19 — feat(frontend): 聊天输入框支持手动拖拽调整高度
+
+- 新增功能：聊天输入框顶部胶囊手柄可拖拽调整高度（120px ~ 50vh），双击手柄恢复默认高度；全局 localStorage 持久化 `wa-pi:composer-height`，刷新后保持；AskDock、QuickInvokeMenu 等贴输入框定位的浮层自动跟随上沿。
+- 影响范围：`packages/frontend/src/components/ui/{ComposerInput,ComposerTextarea,ComposerResizeHandle,useComposerHeight}`、i18n locales、E2E 新增 `e2e/composer-resize.spec.ts`。
+
 
 ## 2026-08-19 — fix(分享): buildDeployZip 对缺失文件容错 + addItem 合并剔除已删除文件（ENOENT 崩溃修复）
 
