@@ -477,8 +477,7 @@ const zh = {
 		titleAllCount: "全部智能体 {{count}} 个",
 		createAgent: "＋ 新建智能体",
 		builtinBadge: "内置",
-		footerHint:
-			"左键：新建会话（内置仅查看）· 右键：编辑 / 删除 · 右上：新建智能体",
+		footerHint: "左键：新建会话（内置仅查看）· 右键：编辑 / 删除",
 		ctxView: " 查看",
 		ctxEdit: " 编辑智能体",
 		deleteTitle: "删除智能体",
@@ -688,6 +687,7 @@ const zh = {
 			clearConfirm: "确定要清空全部分享吗？线上内容需在「立即部署」后才会移除。",
 			pending: "{{count}} 项变更未部署，需点击立即部署生效",
 			usage: "存储 {{used}} / {{limit}}",
+			unlimited: "不限",
 			copyLink: "复制链接",
 			copied: "已复制",
 			remove: "删除",

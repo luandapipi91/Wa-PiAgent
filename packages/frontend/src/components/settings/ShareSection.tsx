@@ -393,7 +393,10 @@ export function ShareSection() {
 						<span className="text-xs text-secondary" data-testid="share-usage">
 							{t("settings.share.usage", {
 								used: formatSize(usage.totalSize),
-								limit: formatSize(usage.totalLimit),
+								limit:
+									usage.totalLimit > 0
+										? formatSize(usage.totalLimit)
+										: t("settings.share.unlimited", { defaultValue: "不限" }),
 							})}
 						</span>
 						<button

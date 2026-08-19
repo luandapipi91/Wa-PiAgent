@@ -188,6 +188,19 @@ test("我的分享：shareList 返回 2 条 → 渲染名称/大小；空列表�
 	expect(screen.queryByTestId("share-clear")).toBeNull();
 });
 
+test("存储上限：totalLimit=0（cloudflare 不限）时显示「不限」而非 0 B", async () => {
+	shareListMock.mockImplementation(async () => ({
+		items: [],
+		pending: 0,
+		totalSize: 428000,
+		totalLimit: 0,
+		workspaceDir: "/tmp/ws-test",
+	}));
+	await renderSharesTab();
+	expect(screen.getByText(/存储/)).toBeTruthy();
+	expect(screen.getByText(/不限/)).toBeTruthy();
+});
+
 test("删除：点击 share-delete-<id> → shareDelete 被调 + 列表刷新", async () => {
 	shareListMock.mockImplementation(async () => ({
 		items: [

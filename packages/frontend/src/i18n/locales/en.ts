@@ -493,7 +493,7 @@ const en = {
 		createAgent: "＋ New agent",
 		builtinBadge: "Built-in",
 		footerHint:
-			"Left-click: new session (built-in is view-only) · Right-click: edit / delete · Top-right: new agent",
+			"Left-click: new session (built-in is view-only) · Right-click: edit / delete",
 		ctxView: " View",
 		ctxEdit: " Edit agent",
 		deleteTitle: "Delete agent",
@@ -710,6 +710,7 @@ const en = {
 				'Clear all shares? Online content is removed only after you click "Deploy now".',
 			pending: "{{count}} change(s) not deployed — deploy to take effect",
 			usage: "Storage {{used}} / {{limit}}",
+			unlimited: "Unlimited",
 			copyLink: "Copy link",
 			copied: "Copied",
 			remove: "Delete",
