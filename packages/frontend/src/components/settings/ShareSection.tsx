@@ -150,15 +150,14 @@ function HelpDiagram({ variant }: { variant: "edgeone" | "cloudflare" }) {
 					<text x="236" y="44" fontSize="8.5" fill="#8a8f98">
 						使用文档
 					</text>
-					<rect
-						x="104"
-						y="56"
-						width="100"
-						height="18"
-						rx="3"
-						fill="var(--brand)"
-					/>
-					<text x="112" y="69" fontSize="8.5" fontWeight="bold" fill="var(--on-brand)">
+					<rect x="104" y="56" width="100" height="18" rx="3" fill="var(--brand)" />
+					<text
+						x="112"
+						y="69"
+						fontSize="8.5"
+						fontWeight="bold"
+						fill="var(--on-brand)"
+					>
 						创建 API Token
 					</text>
 					<rect
