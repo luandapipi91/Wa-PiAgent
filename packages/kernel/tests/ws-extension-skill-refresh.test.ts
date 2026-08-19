@@ -74,7 +74,11 @@ function stubExtensionManager(packages: PackageInfo[] = []) {
 async function connectSse(
 	base: string,
 ): Promise<ReadableStreamDefaultReader<Uint8Array>> {
-	const res = await fetch(`${base}/api/events`);
+	// connection: close 规避 Bun fetch 连接池同 host 多 server 时错误复用连接
+	// （SSE/POST 被路由到先前测试的 server，导致广播收不到）
+	const res = await fetch(`${base}/api/events`, {
+		headers: { connection: "close" },
+	});
 	if (!res.ok || !res.body) throw new Error(`SSE 连接失败: ${res.status}`);
 	const reader = res.body.getReader();
 	// 首读触发 stream.start → bus.add(write)，确保后续广播能送达本连接
@@ -203,12 +207,12 @@ test("extension:install 成功后应广播 skill:changed", async () => {
 		// 触发安装
 		await fetch(`${ctx.base}/api/extensions/install`, {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: { "content-type": "application/json", connection: "close" },
 			body: JSON.stringify({ name: "test-plugin" }),
 		});
 
 		// 断言：应收到 skill:changed 事件
-		const evt = await waitForSseEvent(sse, "skill:changed", 3000);
+		const evt = await waitForSseEvent(sse, "skill:changed", 10_000);
 		expect(evt).not.toBeNull();
 	} finally {
 		await ctx.cleanup();
@@ -221,11 +225,11 @@ test("extension:uninstall 成功后应广播 skill:changed", async () => {
 	try {
 		await fetch(`${ctx.base}/api/extensions/uninstall`, {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: { "content-type": "application/json", connection: "close" },
 			body: JSON.stringify({ name: "test-plugin" }),
 		});
 
-		const evt = await waitForSseEvent(sse, "skill:changed", 3000);
+		const evt = await waitForSseEvent(sse, "skill:changed", 10_000);
 		expect(evt).not.toBeNull();
 	} finally {
 		await ctx.cleanup();
@@ -238,11 +242,11 @@ test("extension:upgrade 成功后应广播 skill:changed", async () => {
 	try {
 		await fetch(`${ctx.base}/api/extensions/upgrade`, {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: { "content-type": "application/json", connection: "close" },
 			body: JSON.stringify({ name: "test-plugin" }),
 		});
 
-		const evt = await waitForSseEvent(sse, "skill:changed", 3000);
+		const evt = await waitForSseEvent(sse, "skill:changed", 10_000);
 		expect(evt).not.toBeNull();
 	} finally {
 		await ctx.cleanup();
@@ -255,11 +259,11 @@ test("extension:toggle 成功后应广播 skill:changed", async () => {
 	try {
 		await fetch(`${ctx.base}/api/extensions/toggle`, {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: { "content-type": "application/json", connection: "close" },
 			body: JSON.stringify({ name: "test-plugin", enabled: false }),
 		});
 
-		const evt = await waitForSseEvent(sse, "skill:changed", 3000);
+		const evt = await waitForSseEvent(sse, "skill:changed", 10_000);
 		expect(evt).not.toBeNull();
 	} finally {
 		await ctx.cleanup();
@@ -273,7 +277,7 @@ test("扩展操作成功后 scanSkillsWithExtensions 应被调用（间接验证
 
 		await fetch(`${ctx.base}/api/extensions/install`, {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: { "content-type": "application/json", connection: "close" },
 			body: JSON.stringify({ name: "test-plugin" }),
 		});
 

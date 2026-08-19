@@ -2,6 +2,12 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — fix(kernel): 已知运行时 bug 不广播 error（Bun autoSelectFamily 竞态）
+
+- 问题：聊天过程中偶发「内核异常 (uncaughtException) : null is not an object (evaluating 'context')」——Bun node:net autoSelectFamily（Happy Eyeballs）连接超时回调访问已置 null 的 context（oven-sh/bun#25633，1.3.15+ 修复）。crash handler 此前一律广播 error，前端会把它注入对话流并 failTurn，打断进行中的回复。
+- 修复：crash-logger 增加已知运行时无害 bug 白名单（message + stack 双重匹配 `internalConnectMultipleTimeout`）；命中只写日志 + stderr warn 留痕，不广播 error；同堆栈真实网络错误照常广播，不误伤。
+- 影响范围：`packages/kernel/src/crash-logger.ts`；测试新增「已知 bug 不广播」「同堆栈不同 message 照常广播」用例。
+
 ## 2026-08-19 — feat(分享): 同名分享改为合并（旧文件保留、新文件追加），不再报「名称重复」
 
 - 需求：分享名相同时不再 409 报错，改为合并——新旧文件进入同一 items/<name>/ 目录，旧文件保留、新文件追加、同路径新覆盖旧；记录合并为一条（files 并集、size 重算）。
@@ -9,11 +15,11 @@
 - frontend：share-client `ShareUploadResult` 加 `merged`/`filesCount`；ShareButton 成功且 merged 时 toast「已合并到分享 xxx（共 N 个文件），旧文件已保留」。
 - 影响范围：`packages/kernel/src/share/workspace.ts`、`routes/share.ts`；`packages/frontend/src/share-client.ts`、`components/ui/ShareButton.tsx`、i18n zh/en；测试新增「addItem 不同 id 同名合并」「renameItem 重名合并」「upload 同名 merged 标志」「ShareButton 合并提示」用例。
 
-
 ## 2026-08-19 — chore(release): 发布版本 0.2.9（修复 CF 分享链接子域硬编码）
 
 - 版本 0.2.8 → 0.2.9：desktop/frontend package.json、version-history.json（新增 0.2.9 条目）、VersionTimeline maxEntries 断言同步、RELEASE_NOTES.md 重写为当次内容。
 - 内容：修复 Cloudflare Pages 分享链接硬编码 wapi-shares.pages.dev 的问题——改用项目真实 .pages.dev 子域生成链接（子域全局唯一，被占用时旧链接打不开）。
+- 测试基建：kernel 测试入口加 --preload=./tests/setup.ts（新增：fetch 包装规避 Bun 连接池同 host 多 server 错误复用连接 + 清除宿主中继代理 env 让测试直连）；--path-ignore-patterns 改为多次传参（逗号分隔实测不生效）；ws-extension-skill-refresh 的 SSE/POST 加 connection: close；bridge-disconnect abort 探针改轮询等待（Bun abort 传播有延迟）。
 
 ## 2026-08-19 — feat(分享): 分享名称默认值改为项目名称
 

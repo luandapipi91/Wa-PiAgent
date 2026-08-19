@@ -82,7 +82,12 @@ test("Bun.serve：客户端 abort fetch → 服务端 req.signal 触发 abort", 
 		await new Promise((r) => setTimeout(r, 100));
 		ctrl.abort();
 		await clientP;
-		await new Promise((r) => setTimeout(r, 300));
+		// Bun 的 abort 传播到服务端 req.signal 有延迟（重负载下 >1.5s），
+		// 固定 sleep 不可靠：轮询等待事件，最多 8s
+		const deadline = Date.now() + 8000;
+		while (!serverSawAbort && Date.now() < deadline) {
+			await new Promise((r) => setTimeout(r, 100));
+		}
 		expect(serverSawAbort).toBe(true);
 	} finally {
 		server.stop(true);
@@ -161,7 +166,7 @@ test("Bun.serve 探针：客户端 abort NDJSON 流式 fetch → 服务端 strea
 		await new Promise((r) => setTimeout(r, 200));
 		ctrl.abort();
 		await clientP;
-		await new Promise((r) => setTimeout(r, 300));
+		await new Promise((r) => setTimeout(r, 1500));
 		expect(serverSawCancel).toBe(true);
 	} finally {
 		server.stop(true);
