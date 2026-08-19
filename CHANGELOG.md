@@ -4,7 +4,7 @@
 
 ## 2026-08-19 — feat(frontend): 聊天输入框支持手动拖拽调整高度
 
-- 新增功能：聊天输入框顶部胶囊手柄可拖拽调整高度（120px ~ 50vh），全局 localStorage 持久化 `wa-pi:composer-height`，刷新后保持；AskDock、QuickInvokeMenu 等贴输入框定位的浮层自动跟随上沿。
+- 新增功能：聊天输入框顶部胶囊手柄可拖拽调整高度（120px ~ 50vh），双击手柄恢复默认高度；全局 localStorage 持久化 `wa-pi:composer-height`，刷新后保持；AskDock、QuickInvokeMenu 等贴输入框定位的浮层自动跟随上沿。
 - 影响范围：`packages/frontend/src/components/ui/{ComposerInput,ComposerTextarea,ComposerResizeHandle,useComposerHeight}`、i18n locales、E2E 新增 `e2e/composer-resize.spec.ts`。
 
 

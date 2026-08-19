@@ -79,7 +79,7 @@ export function ComposerInput({
 }: Props) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const textareaRef = useRef<HTMLDivElement | null>(null);
-	const { height: composerHeight, setHeight: setComposerHeight } = useComposerHeight();
+	const { height: composerHeight, setHeight: setComposerHeight, resetHeight } = useComposerHeight();
 	const [pendingUploads, setPendingUploads] = useState(0);
 	const [uploadError, setUploadError] = useState<string | null>(null);
 	const [pickerOpen, setPickerOpen] = useState(false);
@@ -740,6 +740,7 @@ export function ComposerInput({
 		<div
 			className="w-full max-w-[860px] mx-auto relative"
 			data-testid="composer-input"
+			// 拖放监听挂根容器而非圆角盒：手柄/菜单也在容器内，拖文件到这些区域同样触发上传
 			onDragOver={(e) => e.preventDefault()}
 			onDrop={handleDrop}
 		>
@@ -766,6 +767,7 @@ export function ComposerInput({
 			<ComposerResizeHandle
 				targetRef={textareaRef}
 				onResize={setComposerHeight}
+				onReset={resetHeight}
 				testId="composer-resize-handle"
 			/>
 			<div
