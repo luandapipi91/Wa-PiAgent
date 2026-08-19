@@ -126,24 +126,14 @@ export function AgentGalleryModal({
         <div className="text-sm font-bold text-primary">
           {t("agentGallery.titleAllCount", { count: agents.length })}
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setCreating(true)}
-            className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer"
-            style={{ background: "var(--accent)", color: "#fff" }}
-            data-testid="gallery-create"
-          >
-            {t("agentGallery.createAgent")}
-          </button>
-          <button
-            onClick={onClose}
-            className="text-tertiary text-xs"
-            data-testid="agent-gallery-close"
-            aria-label={t("common.close")}
-          >
-            ✕
-          </button>
-        </div>
+        <button
+          onClick={onClose}
+          className="text-tertiary text-xs"
+          data-testid="agent-gallery-close"
+          aria-label={t("common.close")}
+        >
+          ✕
+        </button>
       </div>
 
       <div className="grid grid-cols-3 gap-3 px-5 py-4 max-h-[440px] overflow-y-auto">
@@ -232,8 +222,18 @@ export function AgentGalleryModal({
         ))}
       </div>
 
-      <div className="px-5 py-2.5 text-[calc(11px*var(--font-scale))] text-tertiary border-t border-hairline">
-        {t("agentGallery.footerHint")}
+      <div className="flex items-center justify-between px-5 py-2.5 border-t border-hairline">
+        <div className="text-[calc(11px*var(--font-scale))] text-tertiary">
+          {t("agentGallery.footerHint")}
+        </div>
+        <button
+          onClick={() => setCreating(true)}
+          className="px-3 py-1.5 rounded-sm text-xs border-0 cursor-pointer"
+          style={{ background: "var(--accent)", color: "#fff" }}
+          data-testid="gallery-create"
+        >
+          {t("agentGallery.createAgent")}
+        </button>
       </div>
 
       {/* agent 右键菜单 */}
