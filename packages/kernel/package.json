@@ -10,7 +10,7 @@
     "dev": "bun run src/index.ts",
     "build": "bun build src/index.ts --compile --target bun --outfile dist/wa-pi-kernel",
     "build:bundle": "bun build src/index.ts --target bun --outfile dist/kernel.js",
-    "test": "bun test --isolate",
+    "test": "bun ./scripts/test.ts",
     "typecheck": "tsc --noEmit",
     "eval:delegate": "bun run scripts/eval-delegate-trigger.ts"
   },

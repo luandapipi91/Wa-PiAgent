@@ -9,6 +9,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 
+// 保存原始 env：startKernel/本文件会修改 process.env（WA_PI_DIR、HTTP_PROXY 等），
+// bun test --isolate 只隔离 global object 不隔离 process.env，不恢复会污染同一
+// worker 进程后续测试文件（后续测试的 fetch 会走死代理/错误 WA_PI_DIR）。
+const ORIG_ENV = {
+	WA_PI_DIR: process.env.WA_PI_DIR,
+	HTTP_PROXY: process.env.HTTP_PROXY,
+	HTTPS_PROXY: process.env.HTTPS_PROXY,
+	http_proxy: process.env.http_proxy,
+	https_proxy: process.env.https_proxy,
+	PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR,
+	PI_EXPERIMENTAL: process.env.PI_EXPERIMENTAL,
+};
+
 const TMP_ROOT = await mkdtemp(join(tmpdir(), "wa-pi-static-"));
 process.env.WA_PI_DIR = TMP_ROOT;
 
@@ -40,8 +53,16 @@ let usedPort = 0;
 let stopHandle: (() => Promise<void>) | null = null;
 
 afterAll(async () => {
-  // 尽力关 server，避免端口残留
-  try { if (stopHandle) await stopHandle(); } catch {}
+  // 尽力关 server，避免端口残留（关闭失败不阻塞清理）
+  try { if (stopHandle) await stopHandle(); } catch { /* 忽略关闭失败 */ }
+  // 恢复被污染的 env（Bun 的代理变量 delete 清不掉，统一赋回原值或空串）
+  process.env.WA_PI_DIR = ORIG_ENV.WA_PI_DIR ?? "";
+  process.env.HTTP_PROXY = ORIG_ENV.HTTP_PROXY ?? "";
+  process.env.HTTPS_PROXY = ORIG_ENV.HTTPS_PROXY ?? "";
+  process.env.http_proxy = ORIG_ENV.http_proxy ?? "";
+  process.env.https_proxy = ORIG_ENV.https_proxy ?? "";
+  process.env.PI_CODING_AGENT_DIR = ORIG_ENV.PI_CODING_AGENT_DIR ?? "";
+  process.env.PI_EXPERIMENTAL = ORIG_ENV.PI_EXPERIMENTAL ?? "";
   await rm(TMP_STATIC, { recursive: true, force: true });
   await rm(TMP_ROOT, { recursive: true, force: true });
 });
