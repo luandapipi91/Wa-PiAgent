@@ -536,6 +536,7 @@ export function SessionView({ sessionId, sourceLabel, imConv }: Props) {
 						<div className="flex-1 overflow-auto">
 							<ExplorerPanel
 								workspaceDir={workspaceDir}
+								projectName={project?.name}
 								onOpenFile={(path) =>
 									useSessionStore.getState().openFilePreview(path, sessionId)
 								}

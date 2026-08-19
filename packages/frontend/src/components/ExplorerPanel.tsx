@@ -133,9 +133,12 @@ function ExplorerContextMenu({
 export function ExplorerPanel({
 	workspaceDir,
 	onOpenFile,
+	projectName,
 }: {
 	workspaceDir: string;
 	onOpenFile: (path: string) => void;
+	/** 项目名称：分享名称默认值（右键分享入口无 sessionId，由父组件传入） */
+	projectName?: string;
 }) {
 	const { t } = useTranslation();
 	const [flatList, setFlatList] = useState<FlatNode[]>([]);
@@ -515,7 +518,11 @@ export function ExplorerPanel({
 				/>
 			)}
 			{sharePaths && (
-				<ShareResultModal paths={sharePaths} onClose={() => setSharePaths(null)} />
+				<ShareResultModal
+					paths={sharePaths}
+					projectName={projectName}
+					onClose={() => setSharePaths(null)}
+				/>
 			)}
 		</div>
 	);

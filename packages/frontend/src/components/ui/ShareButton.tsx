@@ -10,11 +10,15 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { shareSettings, shareUpload } from "../../share-client";
 import { copyToClipboard } from "../../util/clipboard";
 import { useShareProgressStore } from "../../store/share-progress";
+import { useProjectsStore } from "../../store/projects";
 import { useToastStore } from "../../store/toast";
+import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 
 interface ShareButtonProps {
 	paths: string[];
 	sessionId?: string;
+	/** 项目名称：分享名称输入框默认值（缺省回退文件/目录名自动名） */
+	projectName?: string;
 	className?: string;
 	testId?: string;
 }
@@ -34,6 +38,7 @@ export function defaultShareName(paths: string[]): string {
 export function ShareButton({
 	paths,
 	sessionId,
+	projectName,
 	className,
 	testId,
 }: ShareButtonProps) {
@@ -55,6 +60,7 @@ export function ShareButton({
 				<ShareResultModal
 					paths={paths}
 					sessionId={sessionId}
+					projectName={projectName}
 					onClose={() => setOpen(false)}
 				/>
 			)}
@@ -65,21 +71,44 @@ export function ShareButton({
 interface ShareResultModalProps {
 	paths: string[];
 	sessionId?: string;
+	/** 项目名称：分享名称输入框默认值（缺省回退文件/目录名自动名） */
+	projectName?: string;
 	onClose: () => void;
 }
 
 /** 分享结果弹层：检查 token → 生成分享链接 → 展示 URL / 复制 / 有效期 */
+/** 按会话反查项目名：sessionId → session.projectId → project.name；默认工作区显示其名称，查不到返回空串 */
+function projectNameOfSession(
+	sessionId: string | undefined,
+	projects: { id: string; name: string }[],
+	sessions: { id: string; projectId: string }[],
+): string {
+	if (!sessionId) return "";
+	const pid = sessions.find((s) => s.id === sessionId)?.projectId;
+	if (!pid) return "";
+	const p = projects.find((x) => x.id === pid);
+	return p?.name ?? (pid === SYSTEM_PROJECT_ID ? "默认工作区" : "");
+}
+
 export function ShareResultModal({
 	paths,
 	sessionId,
+	projectName,
 	onClose,
 }: ShareResultModalProps) {
 	const { t } = useTranslation();
+	const { projects, sessions } = useProjectsStore();
 	// 挂载时检查 token：checking 完成前显示加载；token 为空 → 引导配置
 	const [checking, setChecking] = useState(true);
 	const [noToken, setNoToken] = useState(false);
-	// 分享名（文件夹名/URL 子路径）：默认自动生成，可修改；重复时 kernel 409
-	const [shareName, setShareName] = useState(() => defaultShareName(paths));
+	// 分享名（文件夹名/URL 子路径）：默认项目名（用户要求，优先显式传入，否则按会话反查），
+	// 缺省回退文件/目录自动名；可修改；重复时 kernel 409
+	const [shareName, setShareName] = useState(
+		() =>
+			projectName?.trim() ||
+			projectNameOfSession(sessionId, projects, sessions) ||
+			defaultShareName(paths),
+	);
 	// 生成流程状态
 	const [generating, setGenerating] = useState(false);
 	const [result, setResult] = useState<{
