@@ -2,8 +2,8 @@ import { useState, useCallback } from "react";
 
 /** localStorage 键：手动调整后的输入框高度（全局，所有会话共用） */
 export const COMPOSER_HEIGHT_KEY = "wa-pi:composer-height";
-/** 手动高度下限（px），避免误拖成一条缝 */
-export const COMPOSER_MIN_HEIGHT = 120;
+/** 手动高度下限（px），与自然生长的 minHeight 一致——首次拖动从当前高度连续变化，不跳变 */
+export const COMPOSER_MIN_HEIGHT = 60;
 /** 手动高度上限占视口比例（保证消息区与 ask 浮层始终可见） */
 export const COMPOSER_MAX_RATIO = 0.5;
 
