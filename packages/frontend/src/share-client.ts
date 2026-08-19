@@ -19,6 +19,7 @@ export interface ShareSettingsInfo {
 	hasToken: boolean;
 	channel: string;
 	customDomain: string;
+	accountId: string;
 }
 
 /** 分享设置保存入参（PUT /api/settings/share 的 share 字段；token 为用户明文输入） */
@@ -26,6 +27,7 @@ export interface ShareSettingsInput {
 	token: string;
 	channel: string;
 	customDomain: string;
+	accountId: string;
 }
 
 /**
@@ -79,6 +81,7 @@ export async function shareSettings(): Promise<ShareSettingsInfo> {
 		hasToken: res.share?.hasToken === true,
 		channel: res.share?.channel ?? "",
 		customDomain: res.share?.customDomain ?? "",
+		accountId: res.share?.accountId ?? "",
 	};
 }
 
