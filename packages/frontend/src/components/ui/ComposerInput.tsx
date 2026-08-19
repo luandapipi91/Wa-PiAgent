@@ -16,6 +16,8 @@ import { FilePicker, type FilePickerSelection } from "./FilePicker";
 import { Icon } from "./Icon";
 import { RecordButton } from "./RecordButton";
 import { ComposerTextarea } from "./ComposerTextarea";
+import { ComposerResizeHandle } from "./ComposerResizeHandle";
+import { useComposerHeight } from "./useComposerHeight";
 import { QuickInvokeMenu, type MenuItem } from "./QuickInvokeMenu";
 import {
 	detectTrigger,
@@ -76,6 +78,8 @@ export function ComposerInput({
 	modelAutoSelectEnabled,
 }: Props) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const textareaRef = useRef<HTMLDivElement | null>(null);
+	const { height: composerHeight, setHeight: setComposerHeight } = useComposerHeight();
 	const [pendingUploads, setPendingUploads] = useState(0);
 	const [uploadError, setUploadError] = useState<string | null>(null);
 	const [pickerOpen, setPickerOpen] = useState(false);
@@ -736,6 +740,8 @@ export function ComposerInput({
 		<div
 			className="w-full max-w-[860px] mx-auto relative"
 			data-testid="composer-input"
+			onDragOver={(e) => e.preventDefault()}
+			onDrop={handleDrop}
 		>
 			{menuOpen && (
 				<QuickInvokeMenu
@@ -757,10 +763,13 @@ export function ComposerInput({
 					}
 				/>
 			)}
+			<ComposerResizeHandle
+				targetRef={textareaRef}
+				onResize={setComposerHeight}
+				testId="composer-resize-handle"
+			/>
 			<div
 				className="rounded-2xl bg-surface border border-hairline shadow-md overflow-hidden focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--accent-soft),var(--shadow-md)] transition-all duration-150"
-				onDragOver={(e) => e.preventDefault()}
-				onDrop={handleDrop}
 			>
 				<ComposerTextarea
 					text={text}
@@ -769,6 +778,8 @@ export function ComposerInput({
 					onPaste={handlePaste}
 					placeholder={placeholder}
 					disabled={disabled}
+					height={composerHeight}
+					rootElRef={textareaRef}
 				/>
 				<div className="flex items-center justify-between px-3 py-2 border-t border-hairline">
 					<div className="flex items-center gap-3">
