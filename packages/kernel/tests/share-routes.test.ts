@@ -530,19 +530,19 @@ test("upload 单个文件夹：保留文件夹层级（不展开），名称为�
     const router = setup();
     const res = await post(router, "/api/share/upload", {
         paths: [join(dir, "dist")],
+        name: "慧来客",
     });
     expect(res!.status).toBe(200);
     const data = await res!.json();
     expect(data.projectName).toBe("wapi-shares");
-    // 列表条目：文件路径带 dist/ 前缀（文件夹本身作为一层保留，不展开平铺），名称为文件夹名
+    // 复制链接带文件夹名：指向 /<name>/dist/（而非 /<name>/ 根目录）
+    expect(data.url).toContain("/%E6%85%A7%E6%9D%A5%E5%AE%A2/dist/");
+    // 列表条目：文件路径带 dist/ 前缀（文件夹本身作为一层保留，不展开平铺），名称为指定分享名
     const { loadItems } = await import("../src/share/workspace");
     const items = await loadItems(workspaceDir);
     const item = items.find((i) => i.id === data.id);
-    expect(item?.files.sort()).toEqual([
-        "dist/assets/a.js",
-        "dist/index.html",
-    ]);
-    expect(item?.name).toBe("dist");
+    expect(item?.files.sort()).toEqual(["dist/assets/a.js", "dist/index.html"]);
+    expect(item?.name).toBe("慧来客");
 });
 
 test("upload 同名合并后再次单文件分享：URL 带当次文件名而非目录（merged 标志 true）", async () => {
