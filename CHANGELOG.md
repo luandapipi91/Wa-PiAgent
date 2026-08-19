@@ -2,6 +2,11 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — fix(share): Cloudflare check-missing 响应格式校验
+
+- 修复：check-missing 返回 HTTP 200 但响应非数组（业务错误对象/空 body，如 JWT 过期）时，此前被强转 string[] 导致 `missing.includes is not a function` 崩溃；现先校验 Array.isArray，非数组抛明确错误（含 errors[0].message），不再静默 TypeError。
+- 影响范围：`packages/kernel/src/share/cloudflare-pages-client.ts`；测试新增「HTTP 200 非数组响应抛明确错误」用例。
+
 ## 2026-08-18 — feat(share): 分享渠道支持 Cloudflare Pages
 
 - 新增功能：分享渠道支持 Cloudflare Pages（设置 → 分享 → 渠道切换）。公开链接、无 token 时效；配置 Cloudflare API Token + Account ID 即可部署到 pages.dev。后端新增 cloudflare-pages-client（内容寻址上传 + multipart 部署），部署按 channel 分派。

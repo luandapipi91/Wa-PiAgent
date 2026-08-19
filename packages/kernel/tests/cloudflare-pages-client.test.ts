@@ -13,9 +13,13 @@ function installFetchMock() {
     const u = String(url);
     calls.push({ url: u, init });
     const json = (body: unknown) =>
-      new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
 
-    if (u.includes("/upload-token")) return json({ result: { jwt: "JWT_TEST" }, success: true });
+    if (u.includes("/upload-token"))
+      return json({ result: { jwt: "JWT_TEST" }, success: true });
     if (u.includes("/pages/assets/check-missing")) {
       // 回显请求中的 hashes，模拟“全部缺失”，确保走通上传路径
       const body = JSON.parse(String(init?.body));
@@ -24,13 +28,27 @@ function installFetchMock() {
     if (u.includes("/pages/assets/upload")) return json({ success: true });
     // Account ID 自动获取：GET /accounts（token 可访问的账号列表）
     if (u.includes("/accounts?per_page=5")) {
-      return json({ result: [{ id: "acc-auto", name: "Auto Account" }], success: true });
+      return json({
+        result: [{ id: "acc-auto", name: "Auto Account" }],
+        success: true,
+      });
     }
     // 轮询 GET .../deployments/{id}（含尾部 id，需先于创建分支命中）
     if (u.includes("/deployments/")) {
-      return json({ result: { latest_stage: { name: "deploy", status: "success" } }, success: true });
+      return json({
+        result: { latest_stage: { name: "deploy", status: "success" } },
+        success: true,
+      });
     }
-    if (u.includes("/deployments")) return json({ result: { id: "dep-1", url: "https://abc.wapi-shares.pages.dev", environment: "production" }, success: true });
+    if (u.includes("/deployments"))
+      return json({
+        result: {
+          id: "dep-1",
+          url: "https://abc.wapi-shares.pages.dev",
+          environment: "production",
+        },
+        success: true,
+      });
     if (u.endsWith("/pages/projects/wapi-shares")) {
       return json({ result: { id: "proj-1" }, success: true });
     }
@@ -41,8 +59,12 @@ function installFetchMock() {
   return calls;
 }
 
-beforeEach(() => { installFetchMock(); });
-afterEach(() => { delete (globalThis as any).fetch; });
+beforeEach(() => {
+  installFetchMock();
+});
+afterEach(() => {
+  delete (globalThis as any).fetch;
+});
 
 describe("getOrCreateProject", () => {
   test("项目不存在时创建（POST）", async () => {
@@ -53,10 +75,18 @@ describe("getOrCreateProject", () => {
       n++;
       const u = String(url);
       if (u.endsWith("/pages/projects/wapi-shares") && n === 1) {
-        return new Response(JSON.stringify({ success: false, errors: [{ message: "not found" }] }), { status: 404 });
+        return new Response(
+          JSON.stringify({
+            success: false,
+            errors: [{ message: "not found" }],
+          }),
+          { status: 404 },
+        );
       }
       if (u.endsWith("/pages/projects") && init?.method === "POST") {
-        return new Response(JSON.stringify({ result: { id: "proj-new" }, success: true }));
+        return new Response(
+          JSON.stringify({ result: { id: "proj-new" }, success: true }),
+        );
       }
       throw new Error(`unhandled: ${u} #${n}`);
     }) as typeof fetch;
@@ -71,7 +101,10 @@ describe("deployToCloudflare", () => {
     const result = await deployToCloudflare({
       token: "tk",
       accountId: "acc-1",
-      files: { "index.html": new TextEncoder().encode("<h1>hi</h1>"), "demo/app.js": new TextEncoder().encode("console.log(1)") },
+      files: {
+        "index.html": new TextEncoder().encode("<h1>hi</h1>"),
+        "demo/app.js": new TextEncoder().encode("console.log(1)"),
+      },
       pollIntervalMs: 1,
     });
     expect(result.url).toBe("https://wapi-shares.pages.dev");
@@ -79,9 +112,15 @@ describe("deployToCloudflare", () => {
     // 上传流程按顺序发生
     const urls = calls.map((c) => c.url);
     expect(urls.some((u) => u.includes("/upload-token"))).toBe(true);
-    expect(urls.some((u) => u.includes("/pages/assets/check-missing"))).toBe(true);
+    expect(urls.some((u) => u.includes("/pages/assets/check-missing"))).toBe(
+      true,
+    );
     expect(urls.some((u) => u.includes("/pages/assets/upload"))).toBe(true);
-    expect(urls.some((u) => u.endsWith("/deployments") && !u.includes("/deployments/"))).toBe(true);
+    expect(
+      urls.some(
+        (u) => u.endsWith("/deployments") && !u.includes("/deployments/"),
+      ),
+    ).toBe(true);
   });
 
   test("accountId 留空时自动获取（GET /accounts），无需手动填写", async () => {
@@ -93,7 +132,9 @@ describe("deployToCloudflare", () => {
     });
     expect(result.projectId).toBe("proj-1");
     // 自动获取 accountId 后部署成功
-    expect(calls.some((c) => c.url.includes("/accounts?per_page=5"))).toBe(true);
+    expect(calls.some((c) => c.url.includes("/accounts?per_page=5"))).toBe(
+      true,
+    );
   });
 
   test("getCloudflareAccountId 直接返回账号 ID；无账号时抛错", async () => {
@@ -116,10 +157,17 @@ describe("deployToCloudflare", () => {
     globalThis.fetch = (async (url: any, _init?: any) => {
       const u = String(url);
       const json = (body: unknown, status = 200) =>
-        new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-      if (u.includes("/upload-token")) return json({ result: { jwt: "JWT_TEST" }, success: true });
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        });
+      if (u.includes("/upload-token"))
+        return json({ result: { jwt: "JWT_TEST" }, success: true });
       if (u.includes("/pages/assets/check-missing")) {
-        return json({ success: false, errors: [{ message: "Invalid access token" }] }, 401);
+        return json(
+          { success: false, errors: [{ message: "Invalid access token" }] },
+          401,
+        );
       }
       if (u.endsWith("/pages/projects/wapi-shares")) {
         return json({ result: { id: "proj-1" }, success: true });
@@ -136,18 +184,57 @@ describe("deployToCloudflare", () => {
     ).rejects.toThrow("check-missing failed: HTTP 401");
   });
 
+  test("check-missing 返回 HTTP 200 但响应非数组时抛明确错误（而非 missing.includes TypeError）", async () => {
+    globalThis.fetch = (async (url: any, init?: any) => {
+      const u = String(url);
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        });
+      if (u.includes("/upload-token"))
+        return json({ result: { jwt: "JWT_TEST" }, success: true });
+      if (u.includes("/pages/assets/check-missing")) {
+        // HTTP 200 但业务失败：返回错误对象而非 string[]（JWT 过期/服务端异常的真实形态）
+        return json({
+          success: false,
+          errors: [{ message: "jwt expired" }],
+        });
+      }
+      if (u.endsWith("/pages/projects/wapi-shares")) {
+        return json({ result: { id: "proj-1" }, success: true });
+      }
+      throw new Error(`unhandled mock URL: ${u}`);
+    }) as typeof fetch;
+
+    await expect(
+      deployToCloudflare({
+        token: "tk",
+        accountId: "acc-1",
+        files: { "index.html": new TextEncoder().encode("<h1>hi</h1>") },
+      }),
+    ).rejects.toThrow("check-missing failed");
+  });
+
   test("upload 返回 success:false 时抛出带信息的错误", async () => {
     globalThis.fetch = (async (url: any, init?: any) => {
       const u = String(url);
       const json = (body: unknown, status = 200) =>
-        new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-      if (u.includes("/upload-token")) return json({ result: { jwt: "JWT_TEST" }, success: true });
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        });
+      if (u.includes("/upload-token"))
+        return json({ result: { jwt: "JWT_TEST" }, success: true });
       if (u.includes("/pages/assets/check-missing")) {
         const body = JSON.parse(String(init?.body));
         return json(body.hashes as string[]);
       }
       if (u.includes("/pages/assets/upload")) {
-        return json({ success: false, errors: [{ message: "bucket quota exceeded" }] });
+        return json({
+          success: false,
+          errors: [{ message: "bucket quota exceeded" }],
+        });
       }
       if (u.endsWith("/pages/projects/wapi-shares")) {
         return json({ result: { id: "proj-1" }, success: true });
