@@ -196,6 +196,31 @@ test("1b. channel=cloudflare 时部署走 CF 客户端，返回公开 URL 且 ex
     expect(body.expiresAt).toBe(0);
 }, 15000);
 
+test("1c. list：channel=cloudflare 时 totalLimit=0（不限），edgeone 保持 5GB", async () => {
+    // cloudflare：不限存储（CF 免费版无 5GB 硬限，fair use）
+    writeFileSync(
+        join(dir, "settings.json"),
+        JSON.stringify({
+            share: { token: "tk_cf", channel: "cloudflare", accountId: "acc-cf" },
+        }),
+    );
+    mockCloudflare();
+    const router = setup("tk_test");
+    const list = await (await router.handle(
+        new Request("http://x/api/share/list"),
+    ))!.json();
+    expect(list.totalLimit).toBe(0);
+
+    // edgeone（默认无 settings）：保持 5GB
+    rmSync(join(dir, "settings.json"), { force: true });
+    mockEdgeOne();
+    const router2 = setup();
+    const list2 = await (await router2.handle(
+        new Request("http://x/api/share/list"),
+    ))!.json();
+    expect(list2.totalLimit).toBe(5 * 1024 * 1024 * 1024);
+});
+
 test("2. upload 未配 token → 400", async () => {
     mockEdgeOne();
     const router = setup(""); // cfg.token 空 + settings 文件不存在 → 无 token

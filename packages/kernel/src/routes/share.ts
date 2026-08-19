@@ -226,11 +226,15 @@ export function createShareRoutes(
 		"/api/share/list",
 		wrap(async () => {
 			const items = await loadItems(workspaceDir);
+			const settings = await loadShareSettings(cfg.settingsFile);
+			// 存储上限按渠道动态：edgeone 5GB（Pages 免费版硬限）；cloudflare 不限（CF 免费版无硬性存储上限，fair use）
+			const totalLimit =
+				settings.channel === "cloudflare" ? 0 : TOTAL_STORAGE_BYTES;
 			return Response.json({
 				items,
 				pending: await pendingCount(workspaceDir),
 				totalSize: totalSize(items),
-				totalLimit: TOTAL_STORAGE_BYTES,
+				totalLimit,
 				// 前端「打开分享文件夹」入口用
 				workspaceDir,
 			});

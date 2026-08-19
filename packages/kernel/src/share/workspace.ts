@@ -28,9 +28,9 @@ export const SHARE_ID_RE = /^[0-9a-f]{12}$/;
  *  禁止路径分隔符与 . / ..（防路径穿越）。文件夹名与 URL 子路径共用此名。 */
 export const SHARE_NAME_RE = /^[a-zA-Z0-9\u4e00-\u9fa5\-_. ]{1,64}$/;
 
-/** EdgeOne Pages 单文件上限 25MB */
+/** EdgeOne Pages 单文件上限 25MB（应用层全渠道入口拦截，CF 亦有同量级硬限） */
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
-/** EdgeOne 免费版总存储上限 5GB */
+/** EdgeOne 免费版总存储上限 5GB（仅 edgeone 渠道；cloudflare 渠道不限，list 端点按 channel 动态返回 0） */
 export const TOTAL_STORAGE_BYTES = 5 * 1024 * 1024 * 1024;
 
 export interface ShareItem {
