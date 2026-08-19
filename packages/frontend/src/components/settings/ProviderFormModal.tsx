@@ -4,7 +4,7 @@ import { ProviderForm } from "./ProviderForm";
 import type { ModelProvider } from "@wa-pi/shared";
 
 interface Props {
-  initial?: ModelProvider;   // 编辑时传，新增时不传
+  initial?: ModelProvider; // 编辑时传，新增时不传
   onClose: () => void;
 }
 
@@ -12,9 +12,26 @@ interface Props {
 export function ProviderFormModal({ initial, onClose }: Props) {
   const { t } = useTranslation();
   return (
-    <Modal onClose={onClose} width={640} closeOnOverlayClick={false} data-testid="provider-form-modal">
-      <div className="p-4 border-b border-hairline">
-        <span className="text-primary font-bold text-sm">{initial ? t("settings.provider.editTitle") : t("settings.provider.addTitle")}</span>
+    <Modal
+      onClose={onClose}
+      width={640}
+      closeOnOverlayClick={false}
+      data-testid="provider-form-modal"
+    >
+      <div className="p-4 border-b border-hairline flex items-center justify-between">
+        <span className="text-primary font-bold text-sm">
+          {initial
+            ? t("settings.provider.editTitle")
+            : t("settings.provider.addTitle")}
+        </span>
+        <button
+          onClick={onClose}
+          className="text-tertiary text-xs"
+          data-testid="provider-form-modal-close"
+          aria-label={t("common.close")}
+        >
+          ✕
+        </button>
       </div>
       <ProviderForm initial={initial} onSaved={onClose} onCancel={onClose} />
     </Modal>

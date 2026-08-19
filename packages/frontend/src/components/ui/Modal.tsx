@@ -12,7 +12,8 @@ interface ModalProps {
   width?: number | string;
   // 卡片高度，默认由内容撑开；可传 "80vh" 等固定高度
   height?: number | string;
-  // 点击遮罩层是否关闭弹窗，默认 true
+  // 点击遮罩层是否关闭弹窗，默认 false：弹窗内可能正在输入/操作，点阴影误关会丢内容；
+  // 需要点阴影关闭的弹窗（如简单确认框）显式传 true
   closeOnOverlayClick?: boolean;
   // 按 ESC 是否关闭弹窗，默认 true
   closeOnEsc?: boolean;
@@ -25,7 +26,7 @@ export function Modal({
   onClose,
   width = 480,
   height,
-  closeOnOverlayClick = true,
+  closeOnOverlayClick = false,
   closeOnEsc = true,
   ...rest
 }: ModalProps) {
