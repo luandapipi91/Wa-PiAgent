@@ -107,9 +107,9 @@ test("帮助弹窗：点 Token 旁 ? → 图文指引（示意图 + 步骤），
 	fireEvent.click(screen.getByTestId("share-token-help"));
 	await screen.findByTestId("share-help-modal");
 	expect(screen.getByText(/获取 EdgeOne API Token/)).toBeTruthy();
-	// 示意图与步骤中多处出现「API 密钥管理」（左侧菜单 + 头像下拉 + 步骤文案）
-	expect(screen.getAllByText(/API 密钥管理/).length).toBeGreaterThan(0);
-	expect(screen.getByRole("img", { name: /EdgeOne 控制台/ })).toBeTruthy();
+	// 示意图与步骤中多处出现「API Token」（Tab + 创建按钮 + 步骤文案）
+	expect(screen.getAllByText(/API Token/).length).toBeGreaterThan(0);
+	expect(screen.getByRole("img", { name: /Makers 控制台/ })).toBeTruthy();
 	// 关闭按钮 ✕
 	expect(screen.getByTestId("share-help-close")).toBeTruthy();
 	fireEvent.click(screen.getByTestId("share-help-close"));

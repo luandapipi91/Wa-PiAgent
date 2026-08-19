@@ -52,7 +52,7 @@ function HelpDiagram({ variant }: { variant: "edgeone" | "cloudflare" }) {
 			role="img"
 			aria-label={
 				variant === "edgeone"
-					? "EdgeOne 控制台获取 API Token 示意图"
+					? "Makers 控制台获取 API Token 示意图"
 					: "Cloudflare API Tokens 页面示意图"
 			}
 		>
@@ -90,7 +90,7 @@ function HelpDiagram({ variant }: { variant: "edgeone" | "cloudflare" }) {
 
 			{variant === "edgeone" ? (
 				<g>
-					{/* 控制台左侧菜单，高亮「API 密钥管理」 */}
+					{/* Makers 控制台左侧菜单，高亮「设置」 */}
 					<rect
 						x="10"
 						y="32"
@@ -102,51 +102,85 @@ function HelpDiagram({ variant }: { variant: "edgeone" | "cloudflare" }) {
 						opacity="0.8"
 					/>
 					<text x="18" y="48" fontSize="9" fill="#8a8f98">
-						概览
+						项目
 					</text>
 					<text x="18" y="64" fontSize="9" fill="#8a8f98">
-						站点
+						Agents
+					</text>
+					<text x="18" y="80" fontSize="9" fill="#8a8f98">
+						Models
+					</text>
+					<text x="18" y="96" fontSize="9" fill="#8a8f98">
+						存储
 					</text>
 					<rect
 						x="14"
-						y="72"
+						y="102"
 						width="78"
 						height="16"
 						rx="3"
 						fill="var(--brand)"
 						opacity="0.15"
 					/>
-					<text x="18" y="84" fontSize="9" fontWeight="bold" fill="var(--brand)">
-						API 密钥管理
+					<text x="18" y="114" fontSize="9" fontWeight="bold" fill="var(--brand)">
+						设置
 					</text>
-					{/* 右上角头像下拉菜单，同样高亮 */}
-					<circle cx="330" cy="40" r="10" fill="var(--hairline)" />
+					{/* 右侧：API Token Tab + 创建按钮 + token 列表 */}
 					<rect
-						x="262"
-						y="48"
-						width="134"
-						height="58"
-						rx="4"
-						fill="var(--surface)"
-						stroke="var(--hairline)"
-					/>
-					<text x="270" y="64" fontSize="9" fill="#8a8f98">
-						账号信息
-					</text>
-					<rect
-						x="266"
-						y="70"
-						width="126"
+						x="104"
+						y="32"
+						width="80"
 						height="16"
 						rx="3"
 						fill="var(--brand)"
 						opacity="0.15"
 					/>
-					<text x="270" y="82" fontSize="9" fontWeight="bold" fill="var(--brand)">
-						API 密钥管理
+					<text x="110" y="44" fontSize="9" fontWeight="bold" fill="var(--brand)">
+						API Token
 					</text>
-					<text x="270" y="100" fontSize="9" fill="#8a8f98">
-						退出登录
+					<rect
+						x="230"
+						y="32"
+						width="110"
+						height="16"
+						rx="3"
+						fill="var(--hairline)"
+						opacity="0.5"
+					/>
+					<text x="236" y="44" fontSize="8.5" fill="#8a8f98">
+						使用文档
+					</text>
+					<rect
+						x="104"
+						y="56"
+						width="100"
+						height="18"
+						rx="3"
+						fill="var(--brand)"
+					/>
+					<text x="112" y="69" fontSize="8.5" fontWeight="bold" fill="var(--on-brand)">
+						创建 API Token
+					</text>
+					<rect
+						x="104"
+						y="84"
+						width="242"
+						height="16"
+						rx="3"
+						fill="var(--surface)"
+						stroke="var(--hairline)"
+					/>
+					<rect
+						x="104"
+						y="104"
+						width="242"
+						height="16"
+						rx="3"
+						fill="var(--surface)"
+						stroke="var(--hairline)"
+					/>
+					<text x="110" y="95" fontSize="8" fill="#8a8f98">
+						我的测试上传
 					</text>
 				</g>
 			) : (
@@ -761,19 +795,20 @@ export function ShareSection() {
 								<HelpDiagram variant="edgeone" />
 								<div className="flex flex-col gap-3">
 									<HelpStep n="1">
-										打开 EdgeOne 控制台（腾讯云）：{" "}
+										打开 Makers 控制台：{" "}
 										<a
-											href="https://console.cloud.tencent.com/edgeone"
+											href="https://console.tencentcloud.com/edgeone/pages"
 											target="_blank"
 											rel="noreferrer"
 											className="text-brand underline"
 										>
-											console.cloud.tencent.com/edgeone
+											console.tencentcloud.com/edgeone/pages
 										</a>
 									</HelpStep>
-									<HelpStep n="2">右上角头像 → 「API 密钥管理」→ 新建密钥</HelpStep>
+									<HelpStep n="2">左侧「设置」→ 切到「API Token」Tab</HelpStep>
 									<HelpStep n="3">
-										创建 API Token（勾选 Pages 权限），复制粘贴到「API Token」输入框
+										点「创建 API Token」→ 填描述 + 选过期时间 → 提交，复制 Token
+										粘贴到「API Token」输入框
 									</HelpStep>
 								</div>
 							</>
