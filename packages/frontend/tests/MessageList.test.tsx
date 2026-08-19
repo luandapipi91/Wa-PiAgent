@@ -771,6 +771,39 @@ test("最后一条为失败 assistant → 其前一条用户消息下方出现�
 	expect(screen.getByTestId("resend-s1-1")).toBeTruthy();
 });
 
+test("readOnly 时即使末条是失败 assistant 也不渲染「重新发送」（执行详情回放场景）", () => {
+	// 与上例完全相同的失败场景，但传入 readOnly → 按钮不应出现
+	useSessionStore.setState({
+		messagesBySession: {
+			s1: [
+				{
+					agentName: undefined,
+					message: { role: "user", content: "失败的那条", timestamp: 1 },
+				},
+				{
+					agentName: "dev",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "⚠️ 模型调用失败" }],
+						model: "system",
+						stopReason: "error",
+						timestamp: 2,
+					},
+				},
+			],
+		},
+		streamingBySession: {},
+	});
+	render(
+		<VirtuosoMockContext.Provider
+			value={{ viewportHeight: 800, itemHeight: 60 }}
+		>
+			<MessageList sessionId="s1" readOnly />
+		</VirtuosoMockContext.Provider>,
+	);
+	expect(screen.queryByTestId("resend-s1-1")).toBeNull();
+});
+
 test("最后一条为正常 assistant → 无「重新发送」按钮", () => {
 	useSessionStore.setState({
 		messagesBySession: {
