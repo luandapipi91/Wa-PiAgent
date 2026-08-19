@@ -7,12 +7,22 @@ import { FileViewer } from "./FileViewer";
  *  轮级折叠段）在流式结束/折叠/卸载时销毁，预览窗不会被连带关闭；
  *  只有用户手动关闭（✕ / ESC / 遮罩点击）才消失。 */
 export function FilePreviewModal() {
-  const preview = useSessionStore((s) => s.filePreview);
-  if (!preview) return null;
-  const close = () => useSessionStore.getState().closeFilePreview();
-  return (
-    <Modal onClose={close} width="80vw" height="80vh" data-testid="file-preview-modal">
-      <FileViewer path={preview.path} sessionId={preview.sessionId} onClose={close} />
-    </Modal>
-  );
+ const preview = useSessionStore((s) => s.filePreview);
+ if (!preview) return null;
+ const close = () => useSessionStore.getState().closeFilePreview();
+ return (
+  <Modal
+   onClose={close}
+   width="80vw"
+   height="80vh"
+   closeOnOverlayClick
+   data-testid="file-preview-modal"
+  >
+   <FileViewer
+    path={preview.path}
+    sessionId={preview.sessionId}
+    onClose={close}
+   />
+  </Modal>
+ );
 }

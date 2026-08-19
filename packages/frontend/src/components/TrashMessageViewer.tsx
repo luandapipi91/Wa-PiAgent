@@ -10,6 +10,7 @@ import type { AgentMessage } from "@wa-pi/shared";
 interface Props {
 	sessionId: string;
 	onBack: () => void;
+	onClose: () => void;
 }
 
 interface LoadedMessage {
@@ -19,7 +20,7 @@ interface LoadedMessage {
 	agentName?: string;
 }
 
-export function TrashMessageViewer({ sessionId, onBack }: Props) {
+export function TrashMessageViewer({ sessionId, onBack, onClose }: Props) {
 	const { t } = useTranslation();
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -44,8 +45,7 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 					return {
 						role: msg.role ?? "unknown",
 						content: msg.content ?? "",
-						timestamp:
-							typeof msg.timestamp === "number" ? msg.timestamp : undefined,
+						timestamp: typeof msg.timestamp === "number" ? msg.timestamp : undefined,
 						agentName: m.agentName,
 					};
 				});
@@ -99,6 +99,14 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 					<button onClick={onBack} className="text-brand text-sm">
 						‹ {t("trash.viewerBack")}
 					</button>
+					<button
+						onClick={onClose}
+						className="ml-auto text-tertiary text-xs"
+						data-testid="trash-viewer-close"
+						aria-label={t("common.close")}
+					>
+						✕
+					</button>
 				</div>
 				<div className="flex-1 flex flex-col items-center justify-center text-tertiary gap-2">
 					<Icon name="warning" size={30} />
@@ -119,6 +127,14 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 					data-testid="trash-viewer-back"
 				>
 					‹ {t("trash.viewerBack")}
+				</button>
+				<button
+					onClick={onClose}
+					className="ml-auto text-tertiary text-xs"
+					data-testid="trash-viewer-close"
+					aria-label={t("common.close")}
+				>
+					✕
 				</button>
 			</div>
 
@@ -175,9 +191,7 @@ export function TrashMessageViewer({ sessionId, onBack }: Props) {
 											</div>
 										)}
 										<div className="prose prose-sm max-w-none break-words [&_pre]:bg-black/5 [&_pre]:rounded [&_pre]:overflow-x-auto [&_code]:text-brand [&_code]:bg-brand/10 [&_code]:px-1 [&_code]:rounded">
-											<ReactMarkdown remarkPlugins={[remarkGfm]}>
-												{text}
-											</ReactMarkdown>
+											<ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
 										</div>
 									</div>
 								</div>

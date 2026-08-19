@@ -78,7 +78,9 @@ test("点击 + 手动添加 在模态弹窗中打开空表单", () => {
   fireEvent.click(screen.getByTestId("mcp-add-button"));
   const modal = screen.getByTestId("mcp-form-modal");
   expect(within(modal).getByTestId("mcp-form")).toBeTruthy();
-  expect((screen.getByTestId("mcp-form-name") as HTMLInputElement).value).toBe("");
+  expect((screen.getByTestId("mcp-form-name") as HTMLInputElement).value).toBe(
+    "",
+  );
 });
 
 test("点击编辑在模态弹窗中打开表单并预填服务器配置", () => {
@@ -90,15 +92,17 @@ test("点击编辑在模态弹窗中打开表单并预填服务器配置", () =>
   fireEvent.click(screen.getByTestId("mcp-edit-dbx"));
   const modal = screen.getByTestId("mcp-form-modal");
   expect(within(modal).getByTestId("mcp-form")).toBeTruthy();
-  expect((screen.getByTestId("mcp-form-name") as HTMLInputElement).value).toBe("dbx");
+  expect((screen.getByTestId("mcp-form-name") as HTMLInputElement).value).toBe(
+    "dbx",
+  );
 });
 
-test("点击遮罩关闭表单弹窗", () => {
+test("点击遮罩不关闭表单弹窗（防误触丢输入）", () => {
   render(<McpPage />);
   fireEvent.click(screen.getByTestId("mcp-add-button"));
   expect(screen.getByTestId("mcp-form-modal")).toBeTruthy();
   fireEvent.click(screen.getByTestId("modal-overlay"));
-  expect(screen.queryByTestId("mcp-form")).toBeNull();
+  expect(screen.getByTestId("mcp-form")).toBeTruthy();
 });
 
 test("编辑/新增未打开时页面不渲染表单（不再是内联常驻）", () => {

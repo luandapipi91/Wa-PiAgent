@@ -440,12 +440,20 @@ export function ProjectItem(props: Props) {
 					closeOnOverlayClick={false}
 					data-testid="rename-dialog"
 				>
-					<div className="p-4 border-b border-hairline">
+					<div className="p-4 border-b border-hairline flex items-center justify-between">
 						<div className="text-primary font-bold text-sm">
 							{"cwd" in renameTarget
 								? t("projectItem.renameProjectTitle")
 								: t("projectItem.renamePromptTitle")}
 						</div>
+						<button
+							onClick={handleRenameCancel}
+							className="text-tertiary text-xs"
+							data-testid="rename-close"
+							aria-label={t("common.close")}
+						>
+							✕
+						</button>
 					</div>
 					<div className="p-4">
 						<input

@@ -184,6 +184,14 @@ export function AgentConfig({ agentName, onClose }: Props) {
 						{draft?.displayName ?? agentName}
 					</div>
 				</div>
+				<button
+					onClick={onClose}
+					className="text-tertiary text-xs"
+					data-testid="agent-config-close"
+					aria-label={t("common.close")}
+				>
+					✕
+				</button>
 			</header>
 			<nav className="flex gap-1 px-4 pt-2 border-b border-hairline">
 				{TABS.map((tb) => (
@@ -215,11 +223,7 @@ export function AgentConfig({ agentName, onClose }: Props) {
 					<SkillsTab draft={draft} onChange={handleChange} />
 				)}
 				{draft && tab === "partners" && (
-					<PartnersTab
-						draft={draft}
-						onChange={handleChange}
-						selfName={agentName}
-					/>
+					<PartnersTab draft={draft} onChange={handleChange} selfName={agentName} />
 				)}
 			</div>
 			<footer className="flex justify-end gap-2 px-5 py-3 border-t border-hairline">
@@ -334,9 +338,7 @@ function BasicTab({ draft, onChange }: TabProps) {
 			<Row label={t("agentConfig.labelModel")}>
 				<select
 					value={effectiveModel}
-					onChange={(e) =>
-						onChange({ ...draft, model: e.target.value || null })
-					}
+					onChange={(e) => onChange({ ...draft, model: e.target.value || null })}
 					className={inp}
 					data-testid="cfg-model-select"
 				>
@@ -374,9 +376,7 @@ function BasicTab({ draft, onChange }: TabProps) {
 			<Sec>{t("agentConfig.secPrompt")}</Sec>
 			<textarea
 				value={draft.systemPromptBody ?? ""}
-				onChange={(e) =>
-					onChange({ ...draft, systemPromptBody: e.target.value })
-				}
+				onChange={(e) => onChange({ ...draft, systemPromptBody: e.target.value })}
 				className={`${inp} w-full min-h-[300px] resize-y leading-relaxed`}
 				rows={4}
 			/>
@@ -679,8 +679,7 @@ function PartnersTab({
 				)}
 				{filtered.map((a) => {
 					const isSelf = a.displayName === selfName;
-					const checked =
-						!isSelf && draft.partners.askTo.includes(a.displayName);
+					const checked = !isSelf && draft.partners.askTo.includes(a.displayName);
 					return (
 						<label
 							key={a.displayName}

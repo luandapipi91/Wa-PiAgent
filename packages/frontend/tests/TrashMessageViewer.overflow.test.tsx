@@ -61,7 +61,9 @@ beforeEach(() => {
 });
 
 test("长 URL 消息气泡含 break-words + overflow-hidden 防止横向溢出", async () => {
-	render(<TrashMessageViewer sessionId="s1" onBack={() => {}} />);
+	render(
+		<TrashMessageViewer sessionId="s1" onBack={() => {}} onClose={() => {}} />,
+	);
 
 	// 等待消息加载完成
 	await waitFor(() => {
@@ -98,7 +100,8 @@ test("代码块容器含 overflow-x-auto（内部滚动而非撑破）", async (
 					content: [
 						{
 							type: "text",
-							text: "```js\nconst x = 'very_long_string_that_exceeds_container_width_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';\n```",
+							text:
+								"```js\nconst x = 'very_long_string_that_exceeds_container_width_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';\n```",
 						},
 					],
 					timestamp: 1,
@@ -113,7 +116,9 @@ test("代码块容器含 overflow-x-auto（内部滚动而非撑破）", async (
 	const { api } = await import("../src/api-client");
 	(api.get as any) = async () => codeMessages;
 
-	render(<TrashMessageViewer sessionId="s2" onBack={() => {}} />);
+	render(
+		<TrashMessageViewer sessionId="s2" onBack={() => {}} onClose={() => {}} />,
+	);
 
 	await waitFor(() => {
 		expect(screen.getByText(/very_long_string/)).toBeTruthy();

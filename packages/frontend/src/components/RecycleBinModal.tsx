@@ -33,6 +33,7 @@ export function RecycleBinModal({ onClose }: Props) {
 				<TrashMessageViewer
 					sessionId={store.viewerSessionId}
 					onBack={() => store.closeViewer()}
+					onClose={() => store.closeViewer()}
 				/>
 			</Modal>
 		);
@@ -150,8 +151,8 @@ export function RecycleBinModal({ onClose }: Props) {
 				{store.total > store.pageSize && (
 					<div className="flex items-center justify-between px-5 py-2 border-t border-hairline text-xs text-tertiary">
 						<span>
-							{t("trash.total", { count: store.total })} ·{" "}
-							{store.currentPage + 1}/{totalPages}
+							{t("trash.total", { count: store.total })} · {store.currentPage + 1}/
+							{totalPages}
 						</span>
 						<div className="flex gap-2">
 							<button
@@ -185,11 +186,7 @@ export function RecycleBinModal({ onClose }: Props) {
 						style={{ background: "var(--brand)", color: "var(--on-brand)" }}
 						data-testid="trash-restore-btn"
 					>
-						<Icon
-							name="reply"
-							size={14}
-							className="inline-block align-[-0.125em]"
-						/>{" "}
+						<Icon name="reply" size={14} className="inline-block align-[-0.125em]" />{" "}
 						{selectedCount > 0
 							? t("trash.restoreCount", { count: selectedCount })
 							: t("trash.restore")}
@@ -200,11 +197,7 @@ export function RecycleBinModal({ onClose }: Props) {
 						className="px-4 py-2 rounded border border-danger text-danger text-sm disabled:opacity-40"
 						data-testid="trash-delete-btn"
 					>
-						<Icon
-							name="trash"
-							size={14}
-							className="inline-block align-[-0.125em]"
-						/>{" "}
+						<Icon name="trash" size={14} className="inline-block align-[-0.125em]" />{" "}
 						{t("trash.delete")}
 					</button>
 					<button
@@ -213,11 +206,7 @@ export function RecycleBinModal({ onClose }: Props) {
 						className="ml-auto px-4 py-2 rounded border border-hairline text-tertiary hover:border-danger hover:text-danger text-sm disabled:opacity-40"
 						data-testid="trash-empty-btn"
 					>
-						<Icon
-							name="bolt"
-							size={14}
-							className="inline-block align-[-0.125em]"
-						/>{" "}
+						<Icon name="bolt" size={14} className="inline-block align-[-0.125em]" />{" "}
 						{t("trash.emptyAll")}
 					</button>
 				</div>

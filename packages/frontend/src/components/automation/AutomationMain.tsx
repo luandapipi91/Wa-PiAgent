@@ -1,5 +1,6 @@
 import { Modal } from "../ui/Modal";
 import { useSchedulerStore } from "../../store/scheduler";
+import { useTranslation } from "../../i18n/useTranslation";
 import { TaskDetailView } from "./TaskDetailView";
 import { TaskEditForm } from "./TaskEditForm";
 import { ExecutionRecords } from "./ExecutionRecords";
@@ -14,6 +15,7 @@ import { ExecutionDetailView } from "./ExecutionDetailView";
  * edit 态以 Modal 弹窗叠加表单（新建/编辑共用），关闭统一走 setView("detail")。
  */
 export function AutomationMain() {
+	const { t } = useTranslation();
 	const { view, tasks, selectedTaskId, editingTask, setView, startCreate } =
 		useSchedulerStore();
 	const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null;
@@ -23,12 +25,12 @@ export function AutomationMain() {
 		view === "record-detail"
 			? "⚡ 执行详情"
 			: view === "records"
-			? "⚡ 执行记录"
-			: selectedTask
-				? `⚡ ${selectedTask.name}`
-				: tasks.length > 0
-					? "⚡ 执行记录"
-					: "⚡ 定时任务";
+				? "⚡ 执行记录"
+				: selectedTask
+					? `⚡ ${selectedTask.name}`
+					: tasks.length > 0
+						? "⚡ 执行记录"
+						: "⚡ 定时任务";
 
 	return (
 		<>
@@ -44,33 +46,33 @@ export function AutomationMain() {
 					<ExecutionDetailView />
 				</div>
 			) : (
-			<div className="flex-1 overflow-y-auto p-4">
-				{view === "records" ? (
-					<ExecutionRecords />
-				) : selectedTask ? (
-					<TaskDetailView />
-				) : tasks.length > 0 ? (
-					<ExecutionRecords />
-				) : (
-					<div
-						className="flex flex-col items-center justify-center h-full gap-3"
-						data-testid="automation-empty-guide"
-					>
-						<span className="text-3xl">⚡</span>
-						<span className="text-sm" style={{ color: "var(--text-secondary)" }}>
-							暂无定时任务
-						</span>
-						<button
-							onClick={startCreate}
-							className="text-[11px] px-3.5 py-1.5 rounded border-0 cursor-pointer font-medium"
-							style={{ background: "var(--accent)", color: "white" }}
-							data-testid="automation-guide-new-btn"
+				<div className="flex-1 overflow-y-auto p-4">
+					{view === "records" ? (
+						<ExecutionRecords />
+					) : selectedTask ? (
+						<TaskDetailView />
+					) : tasks.length > 0 ? (
+						<ExecutionRecords />
+					) : (
+						<div
+							className="flex flex-col items-center justify-center h-full gap-3"
+							data-testid="automation-empty-guide"
 						>
-							+ 新建自动化
-						</button>
-					</div>
-				)}
-			</div>
+							<span className="text-3xl">⚡</span>
+							<span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+								暂无定时任务
+							</span>
+							<button
+								onClick={startCreate}
+								className="text-[11px] px-3.5 py-1.5 rounded border-0 cursor-pointer font-medium"
+								style={{ background: "var(--accent)", color: "white" }}
+								data-testid="automation-guide-new-btn"
+							>
+								+ 新建自动化
+							</button>
+						</div>
+					)}
+				</div>
 			)}
 			{view === "edit" && (
 				<Modal
@@ -81,12 +83,20 @@ export function AutomationMain() {
 					data-testid="task-edit-modal"
 				>
 					<div
-						className="flex items-center px-4 py-3 border-b border-hairline"
+						className="flex items-center justify-between px-4 py-3 border-b border-hairline"
 						data-testid="task-edit-modal-title"
 					>
 						<span className="text-sm font-semibold text-primary">
 							{editingTask ? "编辑自动化" : "新建自动化"}
 						</span>
+						<button
+							onClick={() => setView("detail")}
+							className="text-tertiary text-xs"
+							data-testid="task-edit-modal-close"
+							aria-label={t("common.close")}
+						>
+							✕
+						</button>
 					</div>
 					<div className="overflow-y-auto p-4" style={{ maxHeight: "70vh" }}>
 						<TaskEditForm />
