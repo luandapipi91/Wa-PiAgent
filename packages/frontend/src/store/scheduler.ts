@@ -51,9 +51,11 @@ export const useSchedulerStore = create<SchedulerState>((set, get) => ({
 	},
 
 	createTask: async (data) => {
-		await api.post("/api/scheduled-tasks", data);
+		const res = (await api.post("/api/scheduled-tasks", data)) as any;
+		// 新建后选中新任务（列表按 createdAt 倒序也会排最前），避免用户误以为没创建成功
+		const taskId = res?.task?.id ?? null;
 		await get().loadTasks();
-		set({ view: "detail", selectedTaskId: null });
+		set({ view: "detail", selectedTaskId: taskId });
 	},
 
 	updateTask: async (id, data) => {

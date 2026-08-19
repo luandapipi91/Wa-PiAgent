@@ -42,3 +42,11 @@ test("点不同任务切换选中", () => {
 	useSchedulerStore.getState().selectTask("t2");
 	expect(useSchedulerStore.getState().selectedTaskId).toBe("t2");
 });
+
+test("createTask 成功后选中新任务（selectedTaskId = 新任务 id）", async () => {
+	const { api } = await import("../src/api-client");
+	api.post = async () => ({ task: { id: "new-1" } });
+	await useSchedulerStore.getState().createTask({ name: "新任务" });
+	expect(useSchedulerStore.getState().selectedTaskId).toBe("new-1");
+	expect(useSchedulerStore.getState().view).toBe("detail");
+});

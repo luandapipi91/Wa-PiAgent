@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HttpRouter } from "../src/http-router";
 import { createSchedulerRoutes } from "../src/routes/scheduler";
+import { saveScheduledTasks } from "../src/scheduler-store";
 import type { ScheduledTask } from "@wa-pi/shared";
 
 let dir: string;
@@ -75,6 +76,33 @@ test("GET /api/scheduled-tasks — 空列表", async () => {
 		const { status, body } = await json(base, "/api/scheduled-tasks");
 		expect(status).toBe(200);
 		expect(body.tasks).toEqual([]);
+	});
+});
+
+test("GET /api/scheduled-tasks — 按 createdAt 倒序（新建任务排最前）", async () => {
+	// 直接写临时文件造乱序数据（绕过 POST 的 Date.now 同毫秒不确定）
+	const mk = (id: string, name: string, createdAt: number): ScheduledTask => ({
+		id,
+		name,
+		schedule: { type: "daily", time: "09:00" },
+		agentId: "agent-1",
+		prompt: "x",
+		enabled: true,
+		createdAt,
+		updatedAt: createdAt,
+	});
+	await saveScheduledTasks(tasksFile, [
+		mk("old", "旧任务", 1000),
+		mk("new", "新任务", 3000),
+		mk("mid", "中任务", 2000),
+	]);
+	await withServer(async (base) => {
+		const { body } = await json(base, "/api/scheduled-tasks");
+		expect(body.tasks.map((t: ScheduledTask) => t.id)).toEqual([
+			"new",
+			"mid",
+			"old",
+		]);
 	});
 });
 
