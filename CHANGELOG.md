@@ -1,3 +1,8 @@
+## 2026-08-20 — fix(UI): 系统设置 compact 图标 32→27px
+
+- 调整：系统设置图标 compact（仅图标）32→27px；常规 20px、垃圾桶（compact 24px / 常规 16px）不变。
+- 影响范围：`packages/frontend/src/components/SettingsButton.tsx`；测试：SettingsButton compact 尺寸断言更新。
+
 ## 2026-08-20 — fix(UI): 系统设置图标尺寸调整（常规 20px，compact 32px）
 
 - 调整：系统设置图标非 compact 18→20px；compact（仅图标）27→32px。回收站图标不变（compact 24px / 常规 16px）。
