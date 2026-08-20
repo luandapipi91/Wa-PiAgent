@@ -12,9 +12,9 @@ import { parseArgs } from "node:util";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 
-const ENDPOINT = "https://<ACCOUNT_ID>.r2.cloudflarestorage.com";
+const ENDPOINT = "https://8aa0e20f654f0fe3f8ac5f2d6be9da2c.r2.cloudflarestorage.com";
 const REGION = "auto"; // R2 固定
-const BUCKET = "<BUCKET_NAME>";
+const BUCKET = "wapioss";
 const PREFIX = "releases";
 const repoRoot = join(import.meta.dir, "..");
 
@@ -195,7 +195,7 @@ if (import.meta.main) {
 		}
 
 		console.log(
-			`\n✅ 发布完成: https://pub-<HASH>.r2.dev/${PREFIX}/latest.yml`,
+			`\n✅ 发布完成: https://pub-e95b90586cd84a6390a4422c5e756456.r2.dev/${PREFIX}/latest.yml`,
 		);
 	}
 

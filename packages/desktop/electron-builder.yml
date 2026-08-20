@@ -9,7 +9,7 @@ afterAllArtifactBuild: scripts/after-all-artifact-build.cjs
 # （electron-builder 26 不支持 releaseNotesFile）。
 publish:
   provider: generic
-  url: https://pub-<HASH>.r2.dev/releases/
+  url: https://pub-e95b90586cd84a6390a4422c5e756456.r2.dev/releases/
 directories:
   output: release
 files:

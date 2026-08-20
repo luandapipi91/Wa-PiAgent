@@ -154,7 +154,7 @@ function setupUpdater({
 	updater.setFeedURL({
 		provider: "generic",
 		url:
-			config.feedUrl || "https://pub-<HASH>.r2.dev/releases/",
+			config.feedUrl || "https://pub-e95b90586cd84a6390a4422c5e756456.r2.dev/releases/",
 	});
 
 	// 注册事件监听：把 electron-updater 原生事件翻译成前端 phase 载荷并广播
