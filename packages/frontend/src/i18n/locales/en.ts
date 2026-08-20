@@ -61,6 +61,8 @@ const en = {
 		cmdCompact: "Compact context",
 		cmdCompactDesc:
 			"Compact session history to free tokens (custom compact instruction allowed)",
+		cmdSendIm: "Send to IM contact",
+		cmdSendImDesc: "Choose an IM contact to push task results to",
 		sourceCommand: "Command",
 		sourcePlugin: "Plugin",
 		emptyAgentNoAskTo:

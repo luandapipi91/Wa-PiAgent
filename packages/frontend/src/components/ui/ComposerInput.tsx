@@ -24,7 +24,10 @@ import {
 	filterItems,
 	type TriggerResult,
 } from "../../quick-invoke/trigger";
-import { registerAgentMeta } from "../../quick-invoke/tokens";
+import { registerAgentMeta, registerContactMeta } from "../../quick-invoke/tokens";
+import { imPushToken } from "../automation/prompt-tokens";
+import { ContactPickerDialog, type ImPushTarget } from "./ContactPickerDialog";
+import { useContactsStore } from "../../store/contacts";
 
 interface Props {
 	text: string;
@@ -83,6 +86,7 @@ export function ComposerInput({
 	const [pendingUploads, setPendingUploads] = useState(0);
 	const [uploadError, setUploadError] = useState<string | null>(null);
 	const [pickerOpen, setPickerOpen] = useState(false);
+	const [sendImOpen, setSendImOpen] = useState(false);
 	const uploading = pendingUploads > 0;
 	const { t } = useTranslation();
 	// 附件选择器默认定位到当前项目目录（cwd），方便就近选取项目内文件
@@ -109,6 +113,12 @@ export function ComposerInput({
 				.getState()
 				.load(sessionId, projectId || undefined, currentAgentName || undefined);
 	}, [sessionId, projectId, currentAgentName]);
+
+	// 挂载时拉取联系人并注册 chip 渲染 meta（历史消息里的 chip-im 依赖注册表；
+	// store 内部做 loadContacts → 注册，重复调用幂等）
+	useEffect(() => {
+		void useContactsStore.getState().loadContacts();
+	}, []);
 
 	// 检测当前 text 的触发状态
 	const trigger: TriggerResult | null = useMemo(
@@ -264,6 +274,13 @@ export function ComposerInput({
 				id: "cmd:compact",
 				name: t("composer.cmdCompact"),
 				description: t("composer.cmdCompactDesc"),
+				source: { type: "builtin", name: t("composer.sourceCommand") },
+				disabled: isRunning || isNewSession,
+			},
+			{
+				id: "cmd:send-im",
+				name: t("composer.cmdSendIm"),
+				description: t("composer.cmdSendImDesc"),
 				source: { type: "builtin", name: t("composer.sourceCommand") },
 				disabled: isRunning || isNewSession,
 			},
@@ -604,6 +621,10 @@ export function ComposerInput({
 					window.dispatchEvent(new CustomEvent("wa-pi:open-settings-skills"));
 				} else if (cmd === "reload") {
 					window.dispatchEvent(new CustomEvent("wa-pi:reload-config"));
+				} else if (cmd === "send-im") {
+					// 打开联系人选择弹窗（本地 state，不走 window 事件）；
+					// / 触发文本已在上方统一清除
+					setSendImOpen(true);
 				}
 				return;
 			}
@@ -676,6 +697,21 @@ export function ComposerInput({
 			if (triggerType === "agent") onAgentMention?.(item.id);
 		},
 		[triggerType, trigger, text, setText, onAgentMention],
+	);
+
+	// 联系人弹窗确认：注册 chip 渲染 meta + 插入 @im-push-to token（与自动化任务同构）
+	const handleSendImPick = useCallback(
+		(target: ImPushTarget) => {
+			registerContactMeta(target.contactId, {
+				label: target.label,
+				kind: target.kind,
+			});
+			const token = imPushToken(target.channelId, target.contactId);
+			const sep = text.length > 0 && !text.endsWith(" ") ? " " : "";
+			setText(`${text}${sep}${token} `);
+			setSendImOpen(false);
+		},
+		[text, setText],
 	);
 
 	// 键盘事件处理（面板打开时拦截导航键）
@@ -807,6 +843,12 @@ export function ComposerInput({
 								onCancel={() => setPickerOpen(false)}
 								multiSelect
 								defaultPath={projectCwd}
+							/>
+						)}
+						{sendImOpen && (
+							<ContactPickerDialog
+								onPick={handleSendImPick}
+								onCancel={() => setSendImOpen(false)}
 							/>
 						)}
 						<ModelSelector
