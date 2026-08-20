@@ -46,8 +46,7 @@ test.describe("发送给 IM 联系人", () => {
 			expect(contact).toBeTruthy();
 		}).toPass({ timeout: 10_000 });
 
-		// 2. 项目 + 假 provider + 打开主聊天（新会话：命令在 isNewSession 下禁用，
-		//    故先发一条消息建立会话）
+		// 2. 项目 + 假 provider + 打开主聊天（新建会话直接可用：命令不因 isNewSession 禁用）
 		const project = await createProject("e2e-send-im", "/tmp/e2e-send-im");
 		await saveProvider({
 			id: "e2e-sendim-provider",
@@ -63,19 +62,9 @@ test.describe("发送给 IM 联系人", () => {
 		await page.getByTestId("model-selector").selectOption({ label: "E2E SendIm/model-a" });
 		await page.getByTestId("thinking-selector").selectOption("disabled");
 		const textbox = page.locator('[data-testid="composer-input"] [role="textbox"]');
-		await textbox.fill("先建立会话");
-		await page.getByTestId("composer-send").click();
-		await expect(page.getByTestId("session-view")).toBeVisible({ timeout: 10_000 });
 
-		// 假 provider 连接失败会走内核自动重试（指数退避，默认 3 次 ≈ 20s），
-		// 期间会话「运行中」：cmd:send-im 在 isRunning 下禁用，须等会话空闲再继续。
-		// 两步等待防竞态：会话行可能晚于 send 点击渲染——先等 running 出现再等其消失；
-		// 若从未出现（重试极快/行未渲染）则 catch 吞掉直接 proceed。
-		const running = page.locator('[data-testid^="session-running-"]');
-		await expect(running.first()).toBeVisible({ timeout: 10_000 }).catch(() => {});
-		await expect(running).toHaveCount(0, { timeout: 60_000 });
-
-		// 3. 输入 / → 选中「发送给 IM 联系人」→ 弹窗选人 → 确认
+		// 3. 新建会话直接输入 / → 选中「发送给 IM 联系人」→ 弹窗选人 → 确认
+		//（命令不再因 isNewSession 禁用：推送走全局执行器，不依赖会话状态）
 		await textbox.fill("/");
 		const menu = page.getByTestId("quick-invoke-menu");
 		await expect(menu).toBeVisible({ timeout: 5000 });
@@ -101,10 +90,10 @@ test.describe("发送给 IM 联系人", () => {
 
 		// 6. 刷新页面 → 历史消息 chip 仍正常渲染（联系人 meta 由 loadContacts 注册，不灰化）
 		await page.reload();
-		// 刷新后应用回到默认视图，需点击会话行重新打开
+		// 刷新后应用回到默认视图，需点击会话行重新打开（会话标题 = 首条消息的 chip token）
 		const row = page
 			.locator('[data-testid^="session-"]')
-			.filter({ hasText: "先建立会话" })
+			.filter({ hasText: "@im-push-to(" })
 			.first();
 		await expect(row).toBeVisible({ timeout: 10_000 });
 		await row.click();

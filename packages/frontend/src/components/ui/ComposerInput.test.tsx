@@ -169,6 +169,43 @@ function ControlledComposer() {
 	);
 }
 
+function NewSessionComposer() {
+	const [text, setText] = useState("/");
+	return (
+		<ComposerInput
+			text={text}
+			setText={setText}
+			model={null}
+			setModel={() => {}}
+			thinking="high"
+			setThinking={() => {}}
+			attachments={[]}
+			setAttachments={() => {}}
+			projectId="proj-1"
+			sessionId="s1"
+			onSend={() => {}}
+			isNewSession
+			modelAutoSelectEnabled
+		/>
+	);
+}
+
+test("新建会话（isNewSession）时「发送给 IM 联系人」命令也可用，点击弹出联系人弹窗", async () => {
+	getMock.mockImplementation(async (path: string) => {
+		if (path === "/api/contacts") return { contacts: [e2eContact] };
+		return {};
+	});
+	seedImStores();
+	render(<NewSessionComposer />);
+
+	const menu = await screen.findByTestId("quick-invoke-menu");
+	expect(menu.textContent).toContain("发送给 IM 联系人");
+	// 命令未禁用：点击应弹出联系人弹窗（全局推送不依赖会话状态）
+	fireEvent.click(screen.getByText("发送给 IM 联系人"));
+	const dialog = await screen.findByTestId("contact-picker-dialog");
+	expect(dialog.textContent).toContain("张三");
+});
+
 test("/ 命令菜单含「发送给 IM 联系人」；选中 → 弹窗多选 → 插入多个 @im-push-to chip", async () => {
 	// loadContacts 会重置 store：让 api mock 返回联系人（覆盖 beforeEach 的默认 {}）
 	getMock.mockImplementation(async (path: string) => {

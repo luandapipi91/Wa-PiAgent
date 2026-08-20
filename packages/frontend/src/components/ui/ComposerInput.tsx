@@ -251,7 +251,9 @@ export function ComposerInput({
 				name: t("composer.cmdSendIm"),
 				description: t("composer.cmdSendImDesc"),
 				source: { type: "builtin", name: t("composer.sourceCommand") },
-				disabled: isRunning || isNewSession,
+				// 新建会话也可用：推送走全局执行器（channelManager 长连接），不依赖会话状态；
+				// 仅运行中禁用（与 reload/compact 一致，避免运行中插入命令干扰）
+				disabled: isRunning,
 			},
 			{
 				id: "cmd:settings",
