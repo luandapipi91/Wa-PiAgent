@@ -1482,8 +1482,9 @@ test("注入提示关闭（memoryPolicyStyle=none）时系统提示词不追加�
 
 		const prompt = readSysprompt(session.id);
 		expect(prompt).not.toContain(unique);
-		// memory-snapshot 段为空被过滤，env-constraints 成为最后一段
-		expect(prompt.trimEnd().endsWith("plain, user-facing language.")).toBe(true);
+		// memory-snapshot 段为空被过滤；im-push 通用常驻段（工具始终注册后对所有
+		// 普通会话注入，本功能有意变更）成为最后一段，不再以 env-constraints 结尾
+		expect(prompt.trimEnd().endsWith("不要调用 im_push_to。")).toBe(true);
 	} finally {
 		await globalStore.remove("memory", unique).catch(() => {});
 	}

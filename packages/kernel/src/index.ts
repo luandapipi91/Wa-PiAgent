@@ -326,6 +326,21 @@ export async function startKernel(opts?: {
 	});
 	(server as any).opts.channelManager = channelManager; // 与 agentManager 同模式回填
 
+	// 主聊天 @im-push-to 推送注入工厂后绑定：AgentManager 构造时 channelManager 尚未存在，
+	// 沿用 bridgeBaseUrl 的惰性模式，在 channelManager 就绪后注入（会话注册表见 agent-manager）。
+	agentManager.setImPushFactory((contactIds) => {
+		const imPushTool = createImPushTool({
+			channelManager,
+			contactIds,
+			// 主聊天无任务结果收集（定时任务的 pushResults 只属于 executeTask），推送结果直接回给 agent
+			onPushResult: () => {},
+		});
+		return {
+			targets: contactIds,
+			execute: (contact, message) => imPushTool.execute({ contact, message }),
+		};
+	});
+
 	await server.start();
 	console.log(`[kernel] HTTP 监听 http://127.0.0.1:${server.actualPort}`);
 
