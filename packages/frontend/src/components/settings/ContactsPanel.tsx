@@ -18,8 +18,7 @@ export default function ContactsPanel({
 		useContactsStore.getState();
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [value, setValue] = useState("");
-	// 企微通讯录同步：按钮展开输入框 → 输入关键词 → 同步 → toast + 刷新
-	const [syncOpen, setSyncOpen] = useState(false);
+	// 企微通讯录搜索：搜索框常驻（wecom 渠道），输入关键词点「搜索好友」→ 同步 → toast + 刷新
 	const [syncKeyword, setSyncKeyword] = useState("");
 	const [syncing, setSyncing] = useState(false);
 
@@ -36,10 +35,7 @@ export default function ContactsPanel({
 		setSyncing(true);
 		try {
 			const { added } = await syncWecomContacts(channelId, [keyword]);
-			useToastStore
-				.getState()
-				.add(`同步完成：新增 ${added} 人`, "success");
-			setSyncOpen(false);
+			useToastStore.getState().add(`搜索完成：新增 ${added} 人`, "success");
 			setSyncKeyword("");
 			void loadContacts(); // 同步后刷新列表
 		} catch (e) {
@@ -81,18 +77,7 @@ export default function ContactsPanel({
 			data-testid="contacts-panel"
 		>
 			<div className="flex items-center justify-between px-3 py-2 border-b border-hairline">
-				<div className="flex items-center gap-2 min-w-0">
-					<span className="text-sm text-primary">通讯录</span>
-					{isWecom && (
-						<button
-							onClick={() => setSyncOpen((v) => !v)}
-							className="px-2 py-0.5 rounded-sm text-xs border border-hairline cursor-pointer"
-							data-testid="contacts-sync-wecom-btn"
-						>
-							同步企微通讯录好友
-						</button>
-					)}
-				</div>
+				<span className="text-sm text-primary">通讯录</span>
 				<button
 					onClick={onClose}
 					className="text-tertiary cursor-pointer"
@@ -101,10 +86,9 @@ export default function ContactsPanel({
 					✕
 				</button>
 			</div>
-			{isWecom && syncOpen && (
+			{isWecom && (
 				<div className="flex gap-1 px-3 py-2 border-b border-hairline">
 					<input
-						autoFocus
 						value={syncKeyword}
 						onChange={(e) => setSyncKeyword(e.target.value)}
 						onKeyDown={(e) => e.key === "Enter" && !syncing && void doSync()}
@@ -122,7 +106,7 @@ export default function ContactsPanel({
 						}}
 						data-testid="contacts-sync-wecom-confirm"
 					>
-						{syncing ? "同步中…" : "同步"}
+						{syncing ? "搜索中…" : "搜索好友"}
 					</button>
 				</div>
 			)}
@@ -171,7 +155,9 @@ export default function ContactsPanel({
 									setValue(c.remark ?? label(c));
 								}}
 							>
-								<span className="text-sm text-primary flex-1 min-w-0 truncate">{label(c)}</span>
+								<span className="text-sm text-primary flex-1 min-w-0 truncate">
+									{label(c)}
+								</span>
 								<span className="text-xs text-tertiary flex-shrink-0">⋯</span>
 							</div>
 						)}
@@ -216,7 +202,9 @@ export default function ContactsPanel({
 									setValue(c.remark ?? label(c));
 								}}
 							>
-								<span className="text-sm text-primary flex-1 min-w-0 truncate">{label(c)}</span>
+								<span className="text-sm text-primary flex-1 min-w-0 truncate">
+									{label(c)}
+								</span>
 								<span className="text-xs text-tertiary flex-shrink-0">⋯</span>
 							</div>
 						)}

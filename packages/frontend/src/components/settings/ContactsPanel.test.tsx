@@ -176,35 +176,34 @@ test("重命名失败时 toast 收到 error 消息", async () => {
 	expect(toastAdd).toHaveBeenCalledWith("boom", "error");
 });
 
-// ===== 企微通讯录同步 =====
+// ===== 企微通讯录搜索同步 =====
 
-test("wecom 渠道显示「同步企微通讯录好友」按钮，非 wecom 不显示", () => {
+test("wecom 渠道显示常驻搜索框 + 「搜索好友」按钮，非 wecom 不显示", () => {
 	const { rerender } = render(
 		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
 	);
-	expect(screen.getByTestId("contacts-sync-wecom-btn")).toBeTruthy();
+	// 搜索框常驻（不需要点按钮展开）
+	expect(screen.getByTestId("contacts-sync-wecom-input")).toBeTruthy();
+	expect(screen.getByText("搜索好友")).toBeTruthy();
+	expect(screen.queryByText("同步企微通讯录好友")).toBeNull();
 	rerender(
 		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="mock" />,
 	);
-	expect(screen.queryByTestId("contacts-sync-wecom-btn")).toBeNull();
+	expect(screen.queryByTestId("contacts-sync-wecom-input")).toBeNull();
 });
 
-test("点击同步按钮展开输入框，输入关键词确认 → 调 syncWecomContacts + toast", async () => {
+test("输入关键词点「搜索好友」→ 调 syncWecomContacts + toast", async () => {
 	syncWecomContacts.mockResolvedValue({ added: 2, updated: 0 });
 	render(
 		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
 	);
-	fireEvent.click(screen.getByTestId("contacts-sync-wecom-btn"));
 	const input = screen.getByTestId("contacts-sync-wecom-input");
 	fireEvent.change(input, { target: { value: "张" } });
-	fireEvent.click(screen.getByTestId("contacts-sync-wecom-confirm"));
+	fireEvent.click(screen.getByText("搜索好友"));
 	await act(async () => {});
 	expect(syncWecomContacts).toHaveBeenCalledWith("ch_a", ["张"]);
 	// 同步成功后 toast 提示新增人数
-	expect(toastAdd).toHaveBeenCalledWith(
-		expect.stringContaining("2"),
-		"success",
-	);
+	expect(toastAdd).toHaveBeenCalledWith(expect.stringContaining("2"), "success");
 });
 
 test("同步失败 → toast 收到 error 消息", async () => {
@@ -212,14 +211,10 @@ test("同步失败 → toast 收到 error 消息", async () => {
 	render(
 		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
 	);
-	fireEvent.click(screen.getByTestId("contacts-sync-wecom-btn"));
 	fireEvent.change(screen.getByTestId("contacts-sync-wecom-input"), {
 		target: { value: "张" },
 	});
-	fireEvent.click(screen.getByTestId("contacts-sync-wecom-confirm"));
+	fireEvent.click(screen.getByText("搜索好友"));
 	await act(async () => {});
-	expect(toastAdd).toHaveBeenCalledWith(
-		"该机器人不是企业微信机器人",
-		"error",
-	);
+	expect(toastAdd).toHaveBeenCalledWith("该机器人不是企业微信机器人", "error");
 });

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ContactEntity } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
 import { useContactsStore, contactLabel } from "../../store/contacts";
+import { useChannelsStore } from "../../store/channels";
 import { Modal } from "./Modal";
 import { Icon } from "./Icon";
 
@@ -21,16 +22,39 @@ interface Props {
 
 /** 选择 IM 联系人弹窗：统一通讯录列表（标题显示总数）、按名字搜索、多选（person/group 均可选）。
  *  数据来自 contacts store，打开时主动拉取（store 初始为空）。 */
+/** 搜索输入防抖（ms）：停止输入后触发企微异步同步 */
+const SEARCH_DEBOUNCE_MS = 400;
+
 export function ContactPickerDialog({ onPick, onCancel }: Props) {
 	const { t } = useTranslation();
 	const contacts = useContactsStore((s) => s.contacts);
 	const loadContacts = useContactsStore((s) => s.loadContacts);
+	const syncWecomContacts = useContactsStore((s) => s.syncWecomContacts);
+	const bots = useChannelsStore((s) => s.bots);
 	const [query, setQuery] = useState("");
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
 	useEffect(() => {
 		void loadContacts();
 	}, [loadContacts]);
+
+	// 企微异步搜索同步：输入关键词（防抖）时，若有 wecom 渠道（有权限）就同步企微成员
+	// 到本地通讯录并刷新；无 wecom 渠道（没权限）静默不做，不提示。同步失败也静默忽略。
+	const wecomChannels = useMemo(
+		() => bots.filter((b) => b.type === "wecom"),
+		[bots],
+	);
+	useEffect(() => {
+		const keyword = query.trim();
+		if (!keyword || wecomChannels.length === 0) return;
+		const timer = setTimeout(() => {
+			// 逐个同步 wecom 渠道；全部失败也不 toast（无权限/过期均静默）
+			void Promise.allSettled(
+				wecomChannels.map((b) => syncWecomContacts(b.id, [keyword])),
+			).then(() => void loadContacts());
+		}, SEARCH_DEBOUNCE_MS);
+		return () => clearTimeout(timer);
+	}, [query, wecomChannels, syncWecomContacts, loadContacts]);
 
 	// 按名字搜索过滤（contactLabel 即显示名：remark 优先 / group chatId 前 8 位 / userId / id）
 	const visible = useMemo(() => {

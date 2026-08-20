@@ -1,9 +1,10 @@
-## 2026-08-20 — feat(企微通讯录同步): 通讯录面板支持搜索式同步企微成员
+## 2026-08-20 — feat(企微通讯录同步): 通讯录搜索式同步企微成员
 
-- 新增：系统设置 → 机器人 → 通讯录面板（wecom 渠道）标题右侧「同步企微通讯录好友」按钮，点击展开输入框输入关键词（姓名/部门）搜索企微通讯录成员并合入本地通讯录；toast 提示新增人数 + 自动刷新。
+- 新增：系统设置 → 机器人 → 通讯录面板（wecom 渠道）顶部常驻搜索框，输入关键词（姓名/部门）点「搜索好友」搜索企微通讯录成员并合入本地通讯录；toast 提示新增人数 + 自动刷新。
+- 新增：发送给 IM 联系人弹窗（ContactPickerDialog）搜索输入时异步同步企微成员到本地（防抖 400ms；有 wecom 渠道才同步，无权限/失败均静默不提示）；同步后本地列表自动更新。
 - 鉴权：复用机器人已有 Bot ID+Secret，签名（sha256_hex(secret+botId+time+nonce)）调 `get_cli_config` 换取 Bearer token（无需 apikey）；token 失效（853004）自动换新重试，用户无感。后端新 `WecomCliClient`（`packages/kernel/src/channels/wecom-cli-client.ts`）封装企微 CLI 网关 `contact/users/search`。
 - 接口：`POST /api/contacts/sync-wecom`（body `{channelId, keywords}`）→ `contacts:sync-wecom` → `ChannelManager.syncWecomContacts`（按成员 ensureContact + remark 为空才填姓名，不覆盖手动备注）→ 广播 `contacts:changed`。
-- 影响范围：`packages/kernel/src/channels/wecom-cli-client.ts`（新）、`packages/kernel/src/channel-manager.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/src/routes/contacts.ts`、`packages/shared/src/types.ts`（新增 `ContactsSyncWecomRequest`/`ContactsSyncWecomResult`）、`packages/frontend/src/store/contacts.ts`、`packages/frontend/src/components/settings/ContactsPanel.tsx`、`packages/frontend/src/components/settings/BotsSection.tsx`；测试：kernel 新增 wecom-cli-client / channel-manager-wecom-sync 单测 + ws-server/routes 用例，前端 ContactsPanel 新增 3 个同步用例。
+- 影响范围：`packages/kernel/src/channels/wecom-cli-client.ts`（新）、`packages/kernel/src/channel-manager.ts`、`packages/kernel/src/ws-server.ts`、`packages/kernel/src/routes/contacts.ts`、`packages/shared/src/types.ts`（新增 `ContactsSyncWecomRequest`/`ContactsSyncWecomResult`）、`packages/frontend/src/store/contacts.ts`、`packages/frontend/src/components/settings/ContactsPanel.tsx`、`packages/frontend/src/components/settings/BotsSection.tsx`、`packages/frontend/src/components/ui/ContactPickerDialog.tsx`；测试：kernel 新增 wecom-cli-client / channel-manager-wecom-sync 单测 + ws-server/routes 用例，前端 ContactsPanel 3 个搜索同步用例 + ContactPickerDialog 4 个异步同步用例。
 
 ## 2026-08-20 — fix(通讯录): 联系人长名截断（设置-机器人-通讯录面板 + 发送给IM联系人弹窗）
 
