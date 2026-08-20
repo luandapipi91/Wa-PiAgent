@@ -1,3 +1,8 @@
+## 2026-08-20 — fix(UI): 侧边栏 compact 模式图标放大
+
+- 调整：窄侧栏（compact）仅显示图标时「回收站」16→18px、「系统设置」18→20px（随 --font-scale 缩放），视觉更清晰；非 compact 保持原尺寸。
+- 影响范围：`packages/frontend/src/components/RecycleBinButton.tsx`、`SettingsButton.tsx`；测试：两按钮 compact 用例补放大尺寸断言。
+
 ## 2026-08-20 — fix(UI): 侧边栏 compact 模式图标居中
 
 - 修复：窄侧栏（compact）隐藏文字后，「回收站/系统设置」图标默认靠左——按钮加 `justify-center`，仅 icon 时居中对齐；非 compact 保持靠左。
