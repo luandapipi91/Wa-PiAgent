@@ -1,3 +1,9 @@
+## 2026-08-20 — fix(发送给IM联系人): 推送注册表持久化 + / 命令置顶
+
+- 修复：im-push 推送注册表从进程级 SessionHandle 提升为 AgentManager 级持久层——bridge 空闲回收（60s）/崩溃重建会拆进程删 handle，旧实现注册表随之丢失，agent 重试报「本会话未配置推送目标」；现在仅会话真正删除时清理，空闲回收重建后推送目标继续生效。
+- 体验：「发送给 IM 联系人」命令移到 / 命令列表第一位（默认高亮即它，输入 / 直接可达）。
+- 影响范围：`packages/kernel/src/agent-manager.ts`（imPushBySession 持久层 + disposeSession keepImPush 选项）、`packages/frontend/src/components/ui/ComposerInput.tsx`；测试：robot-push 新增「空闲回收重建后注册表仍生效」「会话删除后注册表清理」用例、ComposerInput 断言命令首位。
+
 ## 2026-08-20 — feat(发送给IM联系人): 主聊天「发送给 IM 联系人」命令
 
 - 新增功能：主聊天界面「发送给 IM 联系人」命令（/ 菜单 → 弹窗选联系人 → 插入 @im-push-to chip），agent 执行中自主调用 im_push_to 实时推送结果给 IM 联系人。kernel 侧 im_push_to 工具改为始终注册 + 会话级推送注册表（消息标记惰性激活）；系统提示词 im-push 段对普通会话注入通用常驻引导（替代原设计不可行的消息级拼接——会污染 transcript）。定时任务路径零改动。
