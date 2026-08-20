@@ -22,6 +22,7 @@ import remarkGfm from "remark-gfm";
 import { useToastStore } from "../store/toast";
 import { copyToClipboard } from "../util/clipboard";
 import { useAgentsStore } from "../store/agents";
+import { useContactsStore } from "../store/contacts";
 import { DelegateCard } from "./blocks/DelegateCard";
 import { ExportButton } from "./blocks/ExportButton";
 import { FileChangeSummary } from "./blocks/FileChangeSummary";
@@ -127,6 +128,9 @@ export function MessageList({ sessionId, readOnly = false }: Props) {
 		s.sessions.find((x) => x.id === sessionId),
 	);
 	const agents = useAgentsStore((s) => s.list);
+	// 订阅仅为触发重渲染：loadContacts 注册 chip-im 渲染 meta 完成后，
+	// 历史消息里的 @im-push-to chip 从「未注册灰化」恢复为正常显示（与上方 agents 订阅同理）
+	useContactsStore((s) => s.contacts);
 
 	// 确保 chip 样式注入（幂等，只在首次注入；document 可能为 undefined 时跳过）
 	ensureChipStyles();

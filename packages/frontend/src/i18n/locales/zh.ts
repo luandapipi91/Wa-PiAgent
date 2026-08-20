@@ -59,6 +59,8 @@ const zh = {
 		cmdReloadDesc: "重建 AI 进程使技能/扩展变更生效",
 		cmdCompact: "压缩上下文",
 		cmdCompactDesc: "压缩会话历史释放 token（可附带自定义压缩指令）",
+		cmdSendIm: "发送给 IM 联系人",
+		cmdSendImDesc: "选择 IM 联系人作为任务结果推送目标",
 		sourceCommand: "命令",
 		sourcePlugin: "插件",
 		emptyAgentNoAskTo: "当前智能体无可调起的子智能体，请在智能体配置中设置关系网",
