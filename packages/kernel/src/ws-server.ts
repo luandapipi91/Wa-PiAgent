@@ -152,10 +152,16 @@ export type PreviewPathResult =
 
 /**
  * 解析 /preview/<rootEnc>/<relpath...> 为磁盘真实绝对路径（防穿越）。
+ * V1 静态浏览语义：只允许浏览项目根目录内的文件。
  * 第一段是 encodeURIComponent 后的根目录绝对路径，剩余段是相对路径。
+ * root（realpath 后）必须落在某项目 cwd（同样 realpath 后）内，
+ * 否则 forbidden——防止客户端指定任意绝对路径根（如 /etc）读取主机任意文件。
  * 越权/非法 → forbidden；文件/根目录不存在 → notfound。
  */
-export function resolvePreviewPath(urlPath: string): PreviewPathResult {
+export function resolvePreviewPath(
+	urlPath: string,
+	projects: { cwd: string }[],
+): PreviewPathResult {
 	const prefix = "/preview/";
 	if (!urlPath.startsWith(prefix)) return { ok: false, reason: "forbidden" };
 	const rest = urlPath.slice(prefix.length);
@@ -177,6 +183,23 @@ export function resolvePreviewPath(urlPath: string): PreviewPathResult {
 	} catch {
 		return { ok: false, reason: "notfound" };
 	}
+	// allowlist：realRoot 必须等于某项目 cwd（同样 realpath 后）或其子目录。
+	// 双方都 realpath 后比较，避免 symlink 绕过；项目目录不存在则跳过该项目。
+	let allowed = false;
+	for (const p of projects) {
+		if (!p.cwd) continue;
+		let projectReal: string;
+		try {
+			projectReal = realpathSync(p.cwd);
+		} catch {
+			continue;
+		}
+		if (realRoot === projectReal || realRoot.startsWith(projectReal + sep)) {
+			allowed = true;
+			break;
+		}
+	}
+	if (!allowed) return { ok: false, reason: "forbidden" };
 	let realCandidate: string;
 	try {
 		realCandidate = realpathSync(candidate);
@@ -786,7 +809,8 @@ export class WSServer {
 					return new Response("Not found", { status: 404 });
 				}
 				if (url.pathname.startsWith("/preview/")) {
-					const r = resolvePreviewPath(url.pathname);
+					const { projects } = await this.opts.projectStore.load();
+					const r = resolvePreviewPath(url.pathname, projects);
 					if (!r.ok) {
 						return new Response(
 							r.reason === "forbidden" ? "Forbidden" : "Not found",
