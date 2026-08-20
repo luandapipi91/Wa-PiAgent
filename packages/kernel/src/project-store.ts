@@ -166,6 +166,16 @@ export class ProjectStore {
 		await this.save(data);
 	}
 
+	/** 纠正会话归属项目（agent:prompt 一致性：占位会话被另一项目接管时以请求为准）。
+	 *  仅用于无真实内容的占位会话；真实会话跨项目由上层拒绝，不调用本方法。 */
+	async setSessionProjectId(id: string, projectId: string): Promise<void> {
+		const data = await this.load();
+		const s = data.sessions.find((x) => x.id === id);
+		if (!s) throw new Error(`会话不存在: ${id}`);
+		s.projectId = projectId;
+		await this.save(data);
+	}
+
 	async deleteSession(id: string): Promise<void> {
 		const data = await this.load();
 		const session = data.sessions.find((s) => s.id === id);

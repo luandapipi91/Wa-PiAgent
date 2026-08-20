@@ -1269,6 +1269,28 @@ export class WSServer {
 							return;
 						}
 						const isNew = !existing;
+						// 会话归属一致性：existing 复用时不校验 projectId 会导致会话记录归属与
+						// 实际工作目录错位（ensureStarted 用 event.projectId 启动进程，而顶栏
+						// 显示 existing 项目 cwd）。分情况：
+						// - 占位会话（getCommands 预热创建，无真实消息）：以本次请求为准纠正归属
+						//   （占位无内容，纠正无损失；防预热竞态把会话钉在错误项目）
+						// - 真实会话：projectId 不一致说明前端项目上下文错乱 → 拒绝，防静默移动历史
+						if (existing && existing.projectId !== event.projectId) {
+							if (existing.placeholder) {
+								await this.opts.projectStore.setSessionProjectId(
+									existing.id,
+									event.projectId,
+								);
+								existing.projectId = event.projectId;
+							} else {
+								reply({
+									type: "error",
+									message: "会话属于其他项目，不能跨项目发送消息；请切换到会话所属项目后再试",
+									sessionId: event.sessionId,
+								});
+								return;
+							}
+						}
 						// 默认工作区：先生成 ts 作为子目录名 + session.createdAt，确保两者严格一致
 						// （后续 resolveSessionCwd 从 session.createdAt 推导 cwd，必须与实际目录名对齐）
 						// 执行顺序：先 mkdir 子目录，成功后再 createSession 写记录——
