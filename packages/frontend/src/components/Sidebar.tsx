@@ -50,15 +50,21 @@ export function Sidebar(props: Props) {
 			style={{ width, background: "var(--surface-elevated)" }}
 			data-testid="sidebar"
 		>
-			<div className="flex items-center gap-2 px-2 pb-2.5">
+			<div className="flex items-center gap-2 px-2 pb-2.5 min-w-0">
 				<img
 					src="/logo.svg"
 					alt="WA PI Agent"
-					className="w-[38px] h-[38px]"
+					className="w-[38px] h-[38px] flex-shrink-0"
 					style={{ borderRadius: 9.5 }}
 				/>
-				<span className="font-extrabold text-[calc(18px*var(--font-scale))] tracking-tight text-primary">
-					WA PI Agent
+				<span
+					className="font-extrabold text-[calc(18px*var(--font-scale))] tracking-tight text-primary whitespace-nowrap truncate shrink"
+					data-testid="sidebar-title"
+				>
+					WA PI
+					{width >= 240 && (
+						<span data-testid="sidebar-title-agent"> Agent</span>
+					)}
 				</span>
 			</div>
 			<AgentListSection onMore={props.onMore} />

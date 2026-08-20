@@ -173,3 +173,24 @@ test("侧栏宽（≥240）→ 回收站/系统设置显示文字", () => {
 	expect(screen.getByTestId("recycle-bin-btn").textContent).toContain("回收站");
 	expect(screen.getByTestId("settings-btn").textContent).toContain("系统设置");
 });
+
+test("侧栏宽（≥240）→ 顶部标题显示完整「WA PI Agent」", () => {
+	const { useSidebarStore } = require("../src/store/sidebar");
+	useSidebarStore.setState({ width: 264 });
+	renderSidebar();
+	const title = screen.getByTestId("sidebar-title");
+	expect(title.textContent).toContain("WA PI Agent");
+	// Agent 部分可见
+	expect(screen.getByTestId("sidebar-title-agent").textContent).toContain(
+		"Agent",
+	);
+});
+
+test("侧栏窄宽（<240）→ 顶部标题只显示「WA PI」隐藏 Agent", () => {
+	const { useSidebarStore } = require("../src/store/sidebar");
+	useSidebarStore.setState({ width: 200 });
+	renderSidebar();
+	expect(screen.getByTestId("sidebar-title").textContent).toContain("WA PI");
+	// Agent 隐藏（不渲染）
+	expect(screen.queryByTestId("sidebar-title-agent")).toBeNull();
+});
