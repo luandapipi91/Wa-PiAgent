@@ -1,4 +1,4 @@
-// 自动更新装配层：创建 NsisUpdater、配置 GenericProvider（OSS 公开读）、注册 IPC、事件翻译广播。
+// 自动更新装配层：创建 NsisUpdater、配置 GenericProvider（R2 公开读）、注册 IPC、事件翻译广播。
 // translateUpdaterEvent / updaterPhases 为纯函数（可单测）；setupUpdater 依赖 Electron 环境（main 进程调用）。
 
 const updaterPhases = [
@@ -149,12 +149,12 @@ function setupUpdater({
 		error: (m) => log(`[updater] ${m}`),
 		debug: (m) => log(`[updater] ${m}`),
 	};
-	// 配置更新源：GenericProvider 从 OSS 公开读拉 latest.yml + 安装包。
+	// 配置更新源：GenericProvider 从 R2 公开读拉 latest.yml + 安装包。
 	// setFeedURL 是官方注入路径（内部自动构造 GenericProvider + clientPromise）。
 	updater.setFeedURL({
 		provider: "generic",
 		url:
-			config.feedUrl || "https://coaicom.oss-cn-heyuan.aliyuncs.com/releases/",
+			config.feedUrl || "https://pub-<HASH>.r2.dev/releases/",
 	});
 
 	// 注册事件监听：把 electron-updater 原生事件翻译成前端 phase 载荷并广播
