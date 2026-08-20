@@ -398,4 +398,65 @@ describe("主聊天 im_push_to 会话注册表", () => {
 		expect(content).toContain("im_push_to");
 		expect(content).toContain("delegate");
 	});
+
+	test("空闲回收（keepImPush）重建后注册表仍生效：handleTool 继续可推送", async () => {
+		const calls: Array<{ contact: string; message: string }> = [];
+		const { project, session, am } = await setupAgent();
+		am.setImPushFactory((contactIds) => ({
+			targets: contactIds,
+			execute: async (contact, message) => {
+				calls.push({ contact, message });
+				return `已推送给 ${contact}`;
+			},
+		}));
+		await am.ensureStarted(project.id, "dev", session.id);
+		await am.prompt(session.id, "推送 @im-push-to(ch_x1,ct_aaa)", {
+			model: "p/m",
+		});
+
+		// 模拟 bridge 空闲回收：拆进程但保留会话记录（reapIdleSessions 的 keepImPush 语义）
+		await am.disposeSession(session.id, { keepImPush: true });
+		// 用户重开会话 → 重建进程
+		await am.ensureStarted(project.id, "dev", session.id);
+
+		const ctx = getBridgeSession(session.id);
+		const result = await ctx!.handleTool(
+			"im_push_to",
+			"tc-11",
+			{ contact: "ct_aaa", message: "重建后推送" },
+			new AbortController().signal,
+		);
+		expect(calls).toEqual([{ contact: "ct_aaa", message: "重建后推送" }]);
+		expect(result.content[0]).toEqual({
+			type: "text",
+			text: "已推送给 ct_aaa",
+		});
+	});
+
+	test("会话真正删除（disposeSession 默认）→ 注册表清理，重建后无目标报错", async () => {
+		const { project, session, am } = await setupAgent();
+		am.setImPushFactory((contactIds) => ({
+			targets: contactIds,
+			execute: async () => "不应被调用",
+		}));
+		await am.ensureStarted(project.id, "dev", session.id);
+		await am.prompt(session.id, "推送 @im-push-to(ch_x1,ct_aaa)", {
+			model: "p/m",
+		});
+
+		// 真正删除会话：disposeSession 默认分支清理注册表
+		await am.disposeSession(session.id);
+		await am.ensureStarted(project.id, "dev", session.id);
+
+		const ctx = getBridgeSession(session.id);
+		const result = await ctx!.handleTool(
+			"im_push_to",
+			"tc-12",
+			{ contact: "ct_aaa", message: "x" },
+			new AbortController().signal,
+		);
+		expect((result.content[0] as { text: string }).text).toContain(
+			"未配置推送目标",
+		);
+	});
 });
