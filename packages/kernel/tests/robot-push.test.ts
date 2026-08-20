@@ -5,6 +5,9 @@ import {
 	parseImPushMentions,
 	createImPushTool,
 } from "../src/tools/robot-push";
+import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { WA_PI_DIR } from "@wa-pi/shared";
 
 // ===== parseImPushMentions（@im-push-to 函数式标记，重构后唯一格式）=====
 
@@ -280,4 +283,119 @@ test("GENERIC_IM_PUSH_PROMPT 常驻引导：含标记语义 / 工具名 / 防 de
 	expect(GENERIC_IM_PUSH_PROMPT).toContain("im_push_to");
 	expect(GENERIC_IM_PUSH_PROMPT).toContain("delegate");
 	expect(GENERIC_IM_PUSH_PROMPT).toContain("ct_xxx");
+});
+
+// ===== C2：主聊天 @im-push-to 会话注册表（prompt 标记激活 → handleTool 回退分发）=====
+
+describe("主聊天 im_push_to 会话注册表", () => {
+	const tmpFiles: string[] = [];
+	const managers: AgentManager[] = [];
+
+	afterEach(async () => {
+		for (const am of managers.splice(0)) {
+			await am.disposeAll().catch(() => {});
+		}
+		for (const f of tmpFiles.splice(0)) {
+			try {
+				rmSyncStub(f);
+			} catch {
+				/* 尽力清理 */
+			}
+		}
+	});
+
+	async function setupAgent(opts?: { configStore?: unknown }): Promise<{
+		project: { id: string };
+		session: { id: string };
+		am: AgentManager;
+		fakes: FakeSessionClient[];
+	}> {
+		const tmpFile = `/tmp/wa-pi-robot-push-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
+		tmpFiles.push(tmpFile);
+		const projectStore = new ProjectStore(tmpFile);
+		const project = await projectStore.createProject({
+			name: "测试",
+			cwd: "/tmp",
+		});
+		const session = await projectStore.createSession({
+			projectId: project.id,
+			primaryAgent: "dev",
+			title: "测试",
+		});
+		const fakes: FakeSessionClient[] = [];
+		const am = new AgentManager({
+			projectStore,
+			configStore: (opts?.configStore ?? null) as any,
+			onEvent: () => {},
+			createClientFn: fakeClientFactory(fakes) as any,
+		});
+		managers.push(am);
+		return { project: project as { id: string }, session, am, fakes };
+	}
+
+	test("prompt 含 @im-push-to 标记 → 注册表激活，handleTool 经注册表执行推送", async () => {
+		const calls: Array<{ contact: string; message: string }> = [];
+		const { project, session, am } = await setupAgent();
+		am.setImPushFactory((contactIds) => ({
+			targets: contactIds,
+			execute: async (contact, message) => {
+				calls.push({ contact, message });
+				return `已推送给 ${contact}`;
+			},
+		}));
+		await am.ensureStarted(project.id, "dev", session.id);
+		await am.prompt(session.id, "写完日报后汇报 @im-push-to(ch_x1,ct_aaa)", {
+			model: "p/m",
+		});
+		const ctx = getBridgeSession(session.id);
+		expect(ctx).toBeTruthy();
+		const result = await ctx!.handleTool(
+			"im_push_to",
+			"tc-9",
+			{ contact: "ct_aaa", message: "日报完成" },
+			new AbortController().signal,
+		);
+		expect(calls).toEqual([{ contact: "ct_aaa", message: "日报完成" }]);
+		expect(result.content[0]).toEqual({ type: "text", text: "已推送给 ct_aaa" });
+	});
+
+	test("无标记会话调用 im_push_to → 返回明确错误（不崩溃、不推送）", async () => {
+		const { project, session, am } = await setupAgent();
+		am.setImPushFactory((contactIds) => ({
+			targets: contactIds,
+			execute: async () => "不应被调用",
+		}));
+		await am.ensureStarted(project.id, "dev", session.id);
+		await am.prompt(session.id, "普通消息", { model: "p/m" });
+		const ctx = getBridgeSession(session.id);
+		const result = await ctx!.handleTool(
+			"im_push_to",
+			"tc-10",
+			{ contact: "ct_aaa", message: "x" },
+			new AbortController().signal,
+		);
+		expect((result.content[0] as { text: string }).text).toContain("未配置推送目标");
+		expect((result.details as { error?: string }).error).toBeTruthy();
+	});
+
+	test("受限 agent（显式 tools 白名单）不带 imPush → 白名单仍并入 im_push_to", async () => {
+		const configStore = {
+			getAgent: async () => ({ displayName: "dev", tools: ["read"] }),
+		};
+		const { project, session, am, fakes } = await setupAgent({ configStore });
+		await am.ensureStarted(project.id, "dev", session.id);
+		const args = fakes[0].opts.args ?? [];
+		const i = args.indexOf("--tools");
+		expect(i).toBeGreaterThan(-1);
+		expect(args[i + 1].split(",")).toContain("im_push_to");
+	});
+
+	test("普通会话系统提示词含通用 im-push 常驻引导", async () => {
+		const { project, session, am } = await setupAgent();
+		await am.ensureStarted(project.id, "dev", session.id);
+		const promptFile = join(WA_PI_DIR, "tmp", "sysprompts", `${session.id}.md`);
+		const content = readFileSync(promptFile, "utf8");
+		expect(content).toContain("im_push_to");
+		expect(content).toContain("delegate");
+	});
 });
