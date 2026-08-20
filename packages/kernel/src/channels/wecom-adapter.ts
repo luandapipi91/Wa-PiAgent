@@ -107,12 +107,23 @@ export class WecomAdapter implements ChannelAdapter {
 	}
 
 	/** 主动推送消息到指定会话（定时任务 @联系人 用）：走 SDK 主动发送通道，
-	 *  chatId = 单聊 userid 或群聊 chatid，无需进站消息 replyFrame。 */
+	 *  chatId = 单聊 userid 或群聊 chatid，无需进站消息 replyFrame。
+	 *  SDK 在企微返回 errcode!=0 时 reject 原始帧对象（非 Error），这里转成可读 Error
+	 *  （带 errcode/errmsg），避免上层 String(frame) 序列化成 [object Object] 吞掉真实原因。 */
 	async pushMessage(chatId: string, markdown: string): Promise<void> {
-		await this.client.sendMessage(chatId, {
-			msgtype: "markdown",
-			markdown: { content: markdown },
-		});
+		try {
+			await this.client.sendMessage(chatId, {
+				msgtype: "markdown",
+				markdown: { content: markdown },
+			});
+		} catch (err) {
+			if (err instanceof Error) throw err;
+			// SDK reject 的 WsFrame：{headers, errcode, errmsg, body}
+			const frame = err as { errcode?: number; errmsg?: string };
+			throw new Error(
+				`企微推送失败${frame.errcode != null ? `（errcode=${frame.errcode}）` : ""}${frame.errmsg ? `：${frame.errmsg}` : ""}`,
+			);
+		}
 	}
 
 	/** 流式增量回复：同 streamId 复用更新同一条消息。

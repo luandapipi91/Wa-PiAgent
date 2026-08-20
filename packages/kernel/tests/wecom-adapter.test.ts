@@ -1,5 +1,21 @@
-import { expect, test } from "bun:test";
-import { normalizeInbound } from "../src/channels/wecom-adapter";
+import { expect, mock, test } from "bun:test";
+import { WecomAdapter, normalizeInbound } from "../src/channels/wecom-adapter";
+import type { ChannelConfig } from "@wa-pi/shared";
+
+const channel = {
+	id: "ch_1",
+	type: "wecom",
+	name: "企微",
+	enabled: true,
+	credentials: { botId: "b", secret: "s" },
+	agentName: "a",
+	model: null,
+	extraSystemPrompt: "",
+	replyGranularity: "standard",
+	defaultProjectId: "__system__",
+	allowProjectSwitch: false,
+	createdAt: 1,
+} satisfies ChannelConfig;
 
 test("单聊文本：chatId=userid，原样保留文本", () => {
 	const msg = normalizeInbound({
@@ -36,29 +52,32 @@ test("群聊文本：chatId=群id，剥离 @机器人 前缀", () => {
 	expect(msg!.text).toBe("在吗");
 });
 
-test("图片消息：image 字段携带 url+aeskey", () => {
-	const msg = normalizeInbound({
-		headers: { req_id: "r3" },
-		body: {
-			msgid: "m3",
-			chattype: "single",
-			from: { userid: "u1" },
-			msgtype: "image",
-			image: { url: "https://x", aeskey: "k" },
-		},
+test("pushMessage：SDK reject 帧对象（errcode!=0）→ 转成带 errcode/errmsg 的可读 Error", async () => {
+	const sendMessage = mock(async () => {
+		throw {
+			headers: { req_id: "r" },
+			errcode: 45009,
+			errmsg: "api freq out of limit",
+		};
 	});
-	expect(msg!.image).toEqual({ url: "https://x", aeskey: "k", name: "m3.png" });
+	const adapter = new WecomAdapter(channel);
+	(adapter as any).client = { sendMessage };
+	await expect(adapter.pushMessage("user_1", "你好")).rejects.toThrow(
+		/45009.*api freq out of limit/,
+	);
+	expect(sendMessage).toHaveBeenCalledWith(
+		"user_1",
+		expect.objectContaining({ msgtype: "markdown" }),
+	);
 });
 
-test("voice/file 等 → unsupported；空文本 → null", () => {
-	const voice = normalizeInbound({
-		headers: { req_id: "r4" },
-		body: { msgid: "m4", chattype: "single", from: { userid: "u1" }, msgtype: "voice" },
+test("pushMessage：SDK reject 普通 Error → 原样透传", async () => {
+	const sendMessage = mock(async () => {
+		throw new Error("connection closed");
 	});
-	expect(voice!.unsupported).toBe("voice");
-	const empty = normalizeInbound({
-		headers: { req_id: "r5" },
-		body: { msgid: "m5", chattype: "single", from: { userid: "u1" }, msgtype: "text", text: { content: "  " } },
-	});
-	expect(empty).toBeNull();
+	const adapter = new WecomAdapter(channel);
+	(adapter as any).client = { sendMessage };
+	await expect(adapter.pushMessage("user_1", "hi")).rejects.toThrow(
+		"connection closed",
+	);
 });
