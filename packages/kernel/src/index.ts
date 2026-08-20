@@ -31,8 +31,7 @@ import {
 	appendExecutionRecord,
 	updateExecutionRecord,
 } from "./scheduler-store";
-import { parseImPushMentions, createImPushTool } from "./tools/robot-push";
-import type { ImPushInjection } from "./agent-manager";
+import { parseImPushMentions, buildScheduledImPush } from "./tools/robot-push";
 import { expandSkillTokens } from "./channels/skill-expand";
 import {
 	WS_PORT,
@@ -386,39 +385,26 @@ export async function startKernel(opts?: {
 				});
 				record.sessionId = sessionId;
 
-				// 2. 解析 @im-push-to(ch_xxx,ct_xxx) 标记：非空时构造 im_push_to 工具注入该会话
-				// （pi 进程内 bridge 扩展经 env 注册工具，execute 经 /bridge/tool 回调到
-				// agentManager.handleTool → pushToContact 主动推送），推送结果回填执行记录。
+				// 2. 解析 @im-push-to(ch_xxx,ct_xxx) 标记：有标记 → 白名单 + 结果收集；
+				// 无标记 → 拒绝型注入（无人值守任务必须显式声明推送目标，防止误调落到全局 executor）
 				const contactIds = parseImPushMentions(task.prompt);
 				const pushResults: PushResult[] = [];
-				let imPush: ImPushInjection | undefined;
-				if (contactIds.length > 0) {
-					// targetName 用联系人 id 占位（联系人名需查通讯录；后续优化点，不影响推送本身）
-					const imPushTool = createImPushTool({
-						channelManager,
-						contactIds,
-						onPushResult: (r) => {
-							pushResults.push({
-								targetId: r.targetId,
-								targetName: r.targetId,
-								success: r.success,
-								error: r.error,
-							});
-						},
-					});
-					imPush = {
-						targets: contactIds,
-						execute: (contact, message) => imPushTool.execute({ contact, message }),
-					};
-				}
+				const imPush = buildScheduledImPush(contactIds, {
+					channelManager,
+					onPushResult: (r) => {
+						pushResults.push({
+							targetId: r.targetId,
+							targetName: r.targetId,
+							success: r.success,
+							error: r.error,
+						});
+					},
+				});
 
-				// 3. 启动 agent 进程（imPush 非空时注入推送工具）
-				await agentManager.ensureStarted(
-					projectId,
-					task.agentId as any,
-					sessionId,
-					imPush ? { imPush } : undefined,
-				);
+				// 3. 启动 agent 进程（始终注入 imPush：有标记白名单 / 无标记拒绝型）
+				await agentManager.ensureStarted(projectId, task.agentId as any, sessionId, {
+					imPush,
+				});
 
 				// 4. 解析任务模型：task.model 优先，缺省回退到第一个 provider 的第一个模型
 				const providers = await providerStore.load();
