@@ -24,6 +24,7 @@ mock.module("../../util/clipboard", () => ({
 import { ShareButton } from "./ShareButton";
 import { useShareProgressStore } from "../../store/share-progress";
 import { useToastStore } from "../../store/toast";
+import { useSettingsStore } from "../../store/settings";
 
 const PATHS = ["/proj/a.txt", "/proj/b.txt", "/proj/c.txt"];
 const URL = "https://share.edgeone.app/s/xyz789";
@@ -33,6 +34,7 @@ beforeEach(() => {
 	shareUploadMock.mockReset();
 	copyMock.mockReset();
 	useShareProgressStore.setState({ phase: "idle", percent: 0 });
+	useSettingsStore.setState({ showSettings: false, activeSection: "general" });
 	shareSettingsMock.mockResolvedValue({
 		hasToken: true,
 		channel: "edgeone",
@@ -86,13 +88,19 @@ test("expiresAt=0（CF 渠道永久分享）：显示「永久有效」而非小
 	expect(screen.getByTestId("share-expires").textContent).not.toContain("小时");
 });
 
-test("未配置 token：显示「请先在 设置 → 分享 配置 Token」且无生成按钮", async () => {
+test("未配置 token：点击分享自动打开设置弹窗并切到「分享」tab，关闭分享弹窗", async () => {
 	shareSettingsMock.mockResolvedValue({ hasToken: false, channel: "edgeone" });
 	render(<ShareButton paths={PATHS} />);
 	fireEvent.click(screen.getByTestId("share-btn"));
-	await screen.findByTestId("share-no-token");
-	expect(screen.getByText("请先在 设置 → 分享 配置 Token")).toBeTruthy();
-	expect(screen.queryByTestId("share-generate-btn")).toBeNull();
+	// 检查到未配置分享参数 → 自动打开设置并定位到分享 tab（配 token 的地方）
+	await waitFor(() =>
+		expect(useSettingsStore.getState().showSettings).toBe(true),
+	);
+	expect(useSettingsStore.getState().activeSection).toBe("share");
+	// 分享弹窗自动关闭，让位给设置弹窗
+	await waitFor(() =>
+		expect(screen.queryByTestId("share-result-modal")).toBeNull(),
+	);
 });
 
 test("复制链接：copyToClipboard 收到分享 URL 且按钮显示「已复制」", async () => {

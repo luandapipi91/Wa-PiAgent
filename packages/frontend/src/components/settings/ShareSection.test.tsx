@@ -459,6 +459,49 @@ test("我的分享：铅笔重命名 → 变 input → 回车保存调 shareRena
 	unmount();
 });
 
+test("切换渠道后 Token 需重新填写：已保存掩码态切渠道 → 清空并回到输入框", async () => {
+	// mount 回填：已保存 token（edgeone）→ 掩码展示
+	getMock.mockImplementation(async () => ({
+		share: { hasToken: true, channel: "edgeone" },
+	}));
+	render(<ShareSection />);
+	await screen.findByTestId("share-token-mask");
+	// 切到 Cloudflare → 掩码消失，出现空输入框（旧渠道 token 不复用，需重新填写）
+	fireEvent.click(screen.getByTestId("share-channel-cloudflare"));
+	// 布尔包装：避免 bun 打印巨型 DOM 卡死（happy-dom 大对象 inspect 问题）
+	expect(Boolean(screen.queryByTestId("share-token-mask"))).toBe(false);
+	const input = screen.getByTestId("share-token-input") as HTMLInputElement;
+	expect(input.value).toBe("");
+});
+
+test("切换渠道再切回：已保存的 token 掩码恢复，不清空已保存状态", async () => {
+	// mount 回填：已保存 token（edgeone）→ 掩码展示
+	getMock.mockImplementation(async () => ({
+		share: { hasToken: true, channel: "edgeone" },
+	}));
+	render(<ShareSection />);
+	await screen.findByTestId("share-token-mask");
+	// 切到 Cloudflare → 需重新填写（输入框）
+	fireEvent.click(screen.getByTestId("share-channel-cloudflare"));
+	expect(Boolean(screen.queryByTestId("share-token-mask"))).toBe(false);
+	expect(screen.getByTestId("share-token-input")).toBeTruthy();
+	// 切回 EdgeOne → 恢复已保存掩码（不因切走被清空）
+	fireEvent.click(screen.getByTestId("share-channel-edgeone"));
+	expect(screen.getByTestId("share-token-mask")).toBeTruthy();
+	expect(Boolean(screen.queryByTestId("share-token-input"))).toBe(false);
+});
+
+test("切换渠道清空已输入的 Token（编辑态）", async () => {
+	render(<ShareSection />);
+	await screen.findByTestId("share-section");
+	fireEvent.change(screen.getByTestId("share-token-input"), {
+		target: { value: "edgeone-token-xyz" },
+	});
+	fireEvent.click(screen.getByTestId("share-channel-cloudflare"));
+	const input = screen.getByTestId("share-token-input") as HTMLInputElement;
+	expect(input.value).toBe("");
+});
+
 test("可切换到 Cloudflare 渠道，显示 token 与 Account ID 输入，保存时带 accountId", async () => {
 	render(<ShareSection />);
 	await screen.findByTestId("share-section");

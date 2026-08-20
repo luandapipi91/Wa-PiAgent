@@ -1,8 +1,8 @@
 // ShareButton — 产物分享按钮（文件旁分享入口）。
 // 点击打开 ShareResultModal：挂载时检查分享 token 是否已配置（shareSettings），
-// 未配置 → 引导去 设置 → 分享 配置 Token；已配置 → 显示待分享文件列表 +
+// 未配置 → 自动打开 设置 → 分享 tab 引导配置 Token；已配置 → 显示待分享文件列表 +
 // 「生成分享链接」（shareUpload），成功后展示分享 URL + 复制按钮 + 有效期提示。
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal } from "./Modal";
 import { Icon } from "./Icon";
 import { ProgressBar } from "./ProgressBar";
@@ -12,6 +12,7 @@ import { copyToClipboard } from "../../util/clipboard";
 import { useShareProgressStore } from "../../store/share-progress";
 import { useProjectsStore } from "../../store/projects";
 import { useToastStore } from "../../store/toast";
+import { useSettingsStore } from "../../store/settings";
 import { SYSTEM_PROJECT_ID } from "@wa-pi/shared";
 
 interface ShareButtonProps {
@@ -148,6 +149,18 @@ export function ShareResultModal({
 			cancelled = true;
 		};
 	}, []);
+
+	// 未配置分享参数（token）→ 自动打开 设置 → 分享 tab 引导配置，并关闭分享弹窗。
+	// redirectedRef 防止 onClose 引用变化导致 effect 重跑时重复跳转。
+	const redirectedRef = useRef(false);
+	useEffect(() => {
+		if (!checking && noToken && !redirectedRef.current) {
+			redirectedRef.current = true;
+			useSettingsStore.getState().open();
+			useSettingsStore.getState().setSection("share");
+			onClose();
+		}
+	}, [checking, noToken, onClose]);
 
 	const generate = async () => {
 		if (generating) return;
