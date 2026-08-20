@@ -43,12 +43,20 @@ test("toExternalUrl 保留 http/https 原样", () => {
 
 test("toExternalUrl 域名自动补 https://", () => {
 	expect(toExternalUrl("baidu.com")).toBe("https://baidu.com");
-	expect(toExternalUrl("www.taobao.com/path")).toBe("https://www.taobao.com/path");
+	expect(toExternalUrl("www.taobao.com/path")).toBe(
+		"https://www.taobao.com/path",
+	);
 });
 
 test("toExternalUrl 识别 localhost / IP（含端口，回环补 http://）", () => {
 	expect(toExternalUrl("localhost:3000")).toBe("http://localhost:3000");
 	expect(toExternalUrl("127.0.0.1:9776")).toBe("http://127.0.0.1:9776");
+});
+
+test("toExternalUrl 识别 IPv6（[::1] 回环补 http，其余补 https）", () => {
+	expect(toExternalUrl("[::1]:8080")).toBe("http://[::1]:8080");
+	expect(toExternalUrl("[2001:db8::1]")).toBe("https://[2001:db8::1]");
+	expect(toExternalUrl("[fe80::1]:3000/x")).toBe("https://[fe80::1]:3000/x");
 });
 
 test("toExternalUrl 无协议 .html 单段（index.html）视为本地文件返回 null", () => {
