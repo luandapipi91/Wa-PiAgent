@@ -17,6 +17,7 @@ import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { Modal } from "./ui/Modal";
 import { Icon } from "./ui/Icon";
 import { api } from "../api-client";
+import { useProjectsStore } from "../store/projects";
 import { useProjectUiStore } from "../store/project-ui";
 import { useComposerPrefsStore } from "../store/composer-prefs";
 import { openInFileManagerLabel } from "../util/platform";
@@ -252,6 +253,11 @@ export function ProjectItem(props: Props) {
 			// 同步清理该会话的 composer 草稿（IndexedDB + store 内存）
 			useComposerPrefsStore.getState().removeSessionPrefs(sid);
 			useSessionStore.getState().removeSession(sid);
+			// 删除的是当前会话：显式清空 currentSessionId（setAll 现在保留旧 store 有的会话，
+			// 真删除必须在此清掉，否则视图停在已删除会话页）
+			if (sid === useProjectsStore.getState().currentSessionId) {
+				useProjectsStore.getState().setCurrentSessionId(null);
+			}
 		} else {
 			void api.del(
 				`/api/projects/${encodeURIComponent((deleteTarget as ProjectEntity).id)}`,

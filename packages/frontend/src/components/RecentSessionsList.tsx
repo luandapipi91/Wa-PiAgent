@@ -126,6 +126,10 @@ export function RecentSessionsList({ onSelectSession, onNewSession }: Props) {
 		// 同步清理该会话的 composer 草稿（IndexedDB + store 内存）
 		useComposerPrefsStore.getState().removeSessionPrefs(sid);
 		useSessionStore.getState().removeSession(sid);
+		// 删除的是当前会话：显式清空 currentSessionId（setAll 保留旧 store 会话，真删除须在此清）
+		if (sid === useProjectsStore.getState().currentSessionId) {
+			useProjectsStore.getState().setCurrentSessionId(null);
+		}
 		setDeleteTarget(null);
 	};
 
