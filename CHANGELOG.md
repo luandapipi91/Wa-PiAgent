@@ -26,7 +26,6 @@
 - 修复：`AgentManager.abort` 对 abort RPC 加 5s 超时（`abortTimeoutMs` 可注入）；超时后合成 message_end 错误（⚠️ 播报「agent 无响应，已强制停止」）+ agent_end（前端退出思考态），再走 `_teardownSession` 强杀进程——会话记录与 jsonl 保留，下次使用 ensureStarted 自动重建。并发/重复 abort 有守卫不重复处理。
 - 影响范围：`packages/kernel/src/agent-manager.ts`；测试新增「abort 无响应超时 → 强杀进程兜底」用例（fake client 新增 hangAbort 开关）。
 
-
 ## 2026-08-19 — feat(多模态): 图片内联按大小硬限制（单张 3.5MB / 累计 10MB），超出回退为附件
 
 - 背景：图片附件已能真正发给大模型后，需按业界标准限制图片大小——原先单张 8MB（base64 ≈10.7MB）超 Anthropic 5MB base64 上限会直接报错；无累计限制会撑爆 RPC payload。
@@ -43,19 +42,17 @@
 
 ## 2026-08-19 — fix(代理中继): 普通 HTTP 转发上游失败回退直连 + 回环目标绕过上游（聊天 socket 断连修复）
 
-- 背景：会话中代理上游被切成死端口后，本地 bridge 请求（http://127.0.0.1:9778）被送进上游代理且 forwardPlain 无回退，直接 502，pi 侧 fetch 报 "The socket connection was closed unexpectedly"（实测 19,594 次 ECONNREFUSED）。
+- 背景：会话中代理上游被切成死端口后，本地 bridge 请求（<http://127.0.0.1:9778）被送进上游代理且> forwardPlain 无回退，直接 502，pi 侧 fetch 报 "The socket connection was closed unexpectedly"（实测 19,594 次 ECONNREFUSED）。
 - 修复：
   1. forwardPlain 上游 socket 级失败（连不上/超时）与 CONNECT 隧道同策略——记冷却并回退直连重发（此前直接 502）。
   2. 回环目标（127.x / localhost / ::1）绕过上游，始终直连。
 - 影响范围：`packages/kernel/src/proxy-relay.ts`；测试新增「上游死端口回退直连」「回环目标不送上游」用例。
-
 
 ## 2026-08-19 — fix(分享): 单文件夹分享复制链接带文件夹名（/<name>/<文件夹名>/）
 
 - 背景：上轮「单文件夹不展开」后，分享名（如慧来客）+ 文件夹 dist，复制链接却是 /慧来客/（根目录，只显示索引页），没有带上 dist/。
 - 修复：upload 端点 URL 计算——单文件夹分享时指向 /<name>/<文件夹名>/（如 /慧来客/dist/），访问直达文件夹内容；其他场景（单文件/多文件/合并）保持 itemShareUrl 逻辑不变。
 - 影响范围：`packages/kernel/src/routes/share.ts`；测试「upload 单个文件夹」新增 URL 断言（含 /慧来客/dist/）。
-
 
 ## 2026-08-19 — feat(分享): 单文件夹分享不展开——文件夹本身作为一层保留
 
@@ -69,7 +66,6 @@
 - 新增功能：聊天输入框顶部胶囊手柄可拖拽调整高度（60px ~ 50vh，下限与自然生长 minHeight 一致，首次拖动连续不跳变），双击手柄恢复默认高度；全局 localStorage 持久化 `wa-pi:composer-height`，刷新后保持；AskDock、QuickInvokeMenu 等贴输入框定位的浮层自动跟随上沿。
 - 影响范围：`packages/frontend/src/components/ui/{ComposerInput,ComposerTextarea,ComposerResizeHandle,useComposerHeight}`、i18n locales、E2E 新增 `e2e/composer-resize.spec.ts`。
 
-
 ## 2026-08-19 — fix(分享): buildDeployZip 对缺失文件容错 + addItem 合并剔除已删除文件（ENOENT 崩溃修复）
 
 - 背景：分享目录被用户改过后（如 index.html 改名 index1.html），state.json 的 files 仍引用旧文件；再次部署时 buildDeployZip readFile 抛 ENOENT 崩溃，部署链路全断（实测 ~/.pi/agent-dev/share-workspace/items/默认工作区/index.html）。
@@ -78,15 +74,13 @@
   2. addItem 合并：files 并集前先 stat 校验旧文件磁盘存在性，剔除已删除的旧文件（state 记录自洽，不再残留坏引用）。
 - 影响范围：`packages/kernel/src/share/workspace.ts`；测试新增「ENOENT 容错」「合并剔除已删除文件」用例；已清理 dev 数据 state.json（默认工作区剔除缺失 index.html）。
 
-
 ## 2026-08-19 — fix(分享): 合并/多文件分享链接直达问题——目录索引页 + 当次文件直达 URL
 
-- 背景：同名合并后 item.files 变多文件，itemShareUrl 走「目录 URL」分支，而分享目录内无 index.html，访问 https://xxx.pages.dev/慧来客/ 回退到根说明页（「WaPi Shares 托管站点」），分享内容看不到。
+- 背景：同名合并后 item.files 变多文件，itemShareUrl 走「目录 URL」分支，而分享目录内无 index.html，访问 <https://xxx.pages.dev/慧来客/> 回退到根说明页（「WaPi Shares 托管站点」），分享内容看不到。
 - 修复：
   1. 目录索引页：buildDeployZip 对每个分享目录（用户文件不含 index.html 时）生成 index.html 文件列表页（仅列本目录文件，不泄露其他分享）；EdgeOne token 透传——脚本从 location.search 读 query 拼到子链接，避免 eo_token 丢失 401；用户分享的文件本身是 index.html 时不覆盖。
   2. 当次文件直达：upload 响应 URL 用「本次分享的文件」而非合并后并集计算——同名合并后再单文件分享，链接直达当次文件（如 /慧来客/b.html），不再退化为目录；本次多文件仍指向目录（此时目录有索引页可访问）。
 - 影响范围：`packages/kernel/src/share/workspace.ts`（renderDirIndexHtml + buildDeployZip）、`routes/share.ts`（URL 计算）；测试新增「目录索引页生成」「用户 index.html 不覆盖」「合并后 URL 带当次文件名」用例。
-
 
 ## 2026-08-19 — fix(kernel): 已知运行时 bug 不广播 error（Bun autoSelectFamily 竞态）
 
