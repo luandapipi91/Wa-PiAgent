@@ -34,6 +34,7 @@ import {
 	type ContactUpsertInput,
 } from "./contact-store";
 import { parseCommand } from "./channels/commands";
+import { WecomCliClient } from "./channels/wecom-cli-client";
 import {
 	chunkByBytes,
 	composeReply,
@@ -68,6 +69,10 @@ export interface ChannelManagerDeps {
 	};
 	/** 主动推送前等待渠道重连就绪的超时（ms）；缺省 60s（覆盖 SDK 最坏 30s 退避 + 认证握手）。测试注入小值 */
 	pushConnectTimeoutMs?: number;
+	/** 企微 CLI 客户端工厂（通讯录同步用）；缺省用真实 WecomCliClient。测试注入 fake */
+	wecomCliFactory?: (opts: { botId: string; secret: string }) => {
+		searchContacts(keywords: string[], searchMode?: string): Promise<import("./channels/wecom-cli-client").WecomContactUser[]>;
+	};
 }
 
 export class ChannelManager {
@@ -412,6 +417,50 @@ export class ChannelManager {
 	/** 确保通讯录条目存在并返回（含 id）：供顶部铅笔「自动补建后编辑」使用 */
 	async ensureContact(input: ContactUpsertInput): Promise<ContactEntity> {
 		return ensureContactById(input, this.contactsFile);
+	}
+
+	/**
+	 * 同步企微通讯录：用机器人 Bot ID+Secret 换 token → 搜索成员 → 逐个建/取联系人。
+	 * 返回 { added, updated }：added=新创建人数，updated=补写姓名数（remark 为空才写，不覆盖手动备注）。
+	 */
+	async syncWecomContacts(
+		channelId: string,
+		keywords: string[],
+	): Promise<{ added: number; updated: number }> {
+		const channels = await loadChannels(this.channelsFile);
+		const channel = channels.find((c) => c.id === channelId);
+		if (!channel || channel.type !== "wecom") {
+			throw new Error("该机器人不是企业微信机器人");
+		}
+		const { botId, secret } = channel.credentials;
+		if (!botId || !secret) throw new Error("该机器人未配置企微 Bot ID/Secret");
+
+		const client = this.deps.wecomCliFactory
+			? this.deps.wecomCliFactory({ botId, secret })
+			: new WecomCliClient({ botId, secret });
+		const users = await client.searchContacts(keywords, "list");
+
+		// 现有 person 集合：统计新增（ensureContact 命中不区分新建/已有）
+		const existing = await loadContacts(channelId, this.contactsFile);
+		const existingIds = new Set(
+			existing.filter((c) => c.kind === "person").map((c) => c.userId),
+		);
+
+		let added = 0;
+		let updated = 0;
+		for (const u of users) {
+			const contact = await ensureContactById(
+				{ channelId, kind: "person", userId: u.userid },
+				this.contactsFile,
+			);
+			if (!existingIds.has(u.userid)) added++;
+			// remark 为空才写企微姓名（不覆盖用户手动备注）
+			if (!contact.remark && u.name) {
+				await renameContactById(contact.id, u.name, this.contactsFile);
+				updated++;
+			}
+		}
+		return { added, updated };
 	}
 
 	/** 由 index.ts 的 AgentManager onEvent 挂钩（throttle 之前调用，agent_settled 不可被节流丢弃） */
@@ -864,7 +913,7 @@ export class ChannelManager {
 	private async replyTurn(
 		sessionId: string,
 		key: string,
-		event: { [k: string]: any },
+		_event: { [k: string]: any },
 	): Promise<void> {
 		const sep = key.indexOf(":");
 		const channelId = key.slice(0, sep);

@@ -676,6 +676,16 @@ export interface ContactsEnsureRequest {
 	userId?: string; // kind=person 时必填
 	chatId?: string; // kind=group 时必填
 }
+export interface ContactsSyncWecomRequest {
+	type: "contacts:sync-wecom";
+	channelId: string;
+	keywords: string[];
+}
+export interface ContactsSyncWecomResult {
+	type: "contacts:sync-wecom-result";
+	added: number;
+	updated: number;
+}
 export interface ChannelsCurrentResult {
 	type: "channels:current";
 	channels: ChannelStatusInfo[];
@@ -796,6 +806,7 @@ export type WSClientEvent =
 	| ContactsListRequest
 	| ContactsRenameRequest
 	| ContactsEnsureRequest
+	| ContactsSyncWecomRequest
 	| TrashListRequest
 	| TrashRestoreEvent
 	| TrashDeleteEvent
@@ -1410,6 +1421,7 @@ export type WSServerEvent =
 	| ContactsChangedEvent
 	| ContactsCurrentResult
 	| ContactsEnsureResult
+	| ContactsSyncWecomResult
 	| TrashListResult
 	| TrashOpResult
 	| ScheduledTasksChangedEvent
