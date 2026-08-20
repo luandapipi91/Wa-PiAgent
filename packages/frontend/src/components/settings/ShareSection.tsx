@@ -229,7 +229,11 @@ export function ShareSection() {
 	const { t } = useTranslation();
 	const [tab, setTab] = useState<"settings" | "shares">("settings");
 	const [token, setToken] = useState("");
-	const [saved, setSaved] = useState(false);
+	// 每个渠道的已保存标记：切渠道时按目标渠道恢复，不把已保存渠道的状态一刀切清空
+	const [savedByChannel, setSavedByChannel] = useState<{
+		edgeone: boolean;
+		cloudflare: boolean;
+	}>({ edgeone: false, cloudflare: false });
 	const [saving, setSaving] = useState(false);
 	const [customDomain, setCustomDomain] = useState("");
 	// 分享渠道：edgeone（腾讯 EdgeOne）/ cloudflare（Cloudflare Pages）
@@ -275,7 +279,11 @@ export function ShareSection() {
 						};
 					}
 				)?.share;
-				if (share?.hasToken) setSaved(true);
+				if (share?.hasToken)
+					setSavedByChannel((prev) => ({
+						...prev,
+						[share.channel === "cloudflare" ? "cloudflare" : "edgeone"]: true,
+					}));
 				setChannel(share?.channel === "cloudflare" ? "cloudflare" : "edgeone");
 				setCustomDomain(share?.customDomain ?? "");
 				setAccountId(share?.accountId ?? "");
@@ -283,7 +291,15 @@ export function ShareSection() {
 			.catch(() => {});
 	}, []);
 
+	// 切换渠道：不同渠道的 API Token 不通用，切过去后必须重新填写（清空输入）；
+	// 已保存状态按渠道记录——切到已保存的渠道恢复掩码，切到未保存渠道显示空输入框。
+	const switchChannel = (next: "edgeone" | "cloudflare") => {
+		setChannel(next);
+		setToken("");
+	};
+
 	// 已保存且有值 → 脱敏展示（掩码 + 「修改」）；否则显示输入框
+	const saved = savedByChannel[channel];
 	const masked = saved && token === "";
 
 	const save = async () => {
@@ -293,7 +309,7 @@ export function ShareSection() {
 				share: { token, channel, accountId, customDomain },
 			});
 			setToken("");
-			setSaved(true);
+			setSavedByChannel((prev) => ({ ...prev, [channel]: true }));
 			useToastStore.getState().add(t("settings.share.saved"), "success");
 		} catch (e) {
 			useToastStore
@@ -431,7 +447,7 @@ export function ShareSection() {
 		<div className="flex items-center gap-3 w-72" data-testid="share-token-mask">
 			<span className="text-sm text-secondary tracking-widest">••••••••</span>
 			<button
-				onClick={() => setSaved(false)}
+				onClick={() => setSavedByChannel((prev) => ({ ...prev, [channel]: false }))}
 				className="px-2 py-1 rounded-sm border border-hairline bg-surface text-xs text-secondary cursor-pointer hover:text-primary transition-colors"
 				data-testid="share-token-modify"
 			>
@@ -465,7 +481,7 @@ export function ShareSection() {
 				value={token}
 				onChange={(e) => {
 					setToken(e.target.value);
-					setSaved(false);
+					setSavedByChannel((prev) => ({ ...prev, [channel]: false }));
 				}}
 				placeholder={
 					channel === "cloudflare"
@@ -505,7 +521,7 @@ export function ShareSection() {
 									type="radio"
 									name="share-channel"
 									checked={channel === "edgeone"}
-									onChange={() => setChannel("edgeone")}
+									onChange={() => switchChannel("edgeone")}
 									data-testid="share-channel-edgeone"
 								/>
 								<span className="text-xs text-secondary">腾讯 EdgeOne</span>
@@ -515,7 +531,7 @@ export function ShareSection() {
 									type="radio"
 									name="share-channel"
 									checked={channel === "cloudflare"}
-									onChange={() => setChannel("cloudflare")}
+									onChange={() => switchChannel("cloudflare")}
 									data-testid="share-channel-cloudflare"
 								/>
 								<span className="text-xs text-secondary">Cloudflare</span>
