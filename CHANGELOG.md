@@ -1,3 +1,9 @@
+## 2026-08-20 — feat(HTML预览): 地址栏支持外部 URL（iframe 内嵌外部站点）
+
+- 新增功能：预览窗口地址栏可输入外部网址（http/https，或域名/IP/localhost 自动补 https://），iframe 直接加载外部站点，站内链接正常跳转（target=_blank 允许开新标签）。受对方站点 X-Frame-Options/CSP frame-ancestors 限制（禁止被嵌入的站点白屏，无法绕过）。外部 URL 时「查看源码」「分享」按钮禁用（仅本地 html 可用）。本地 html 预览仍走 /preview allowlist + 独特源 sandbox，语义不变。
+- 实现：`preview-url.ts` 新增 `toExternalUrl`（域名/IP/localhost 识别 + 补 https://）；`HtmlPreview` 支持 externalUrl 模式（sandbox 放开 allow-same-origin/allow-popups）；`BrowserPanel` 状态改为判别联合（local/external），openPath 分流外部 URL；相对 html 路径（如 index.html）仍拒绝。
+- 影响范围：`packages/frontend/src/preview-url.ts`、`packages/frontend/src/components/blocks/HtmlPreview.tsx`、`packages/frontend/src/components/BrowserPanel.tsx`、i18n zh/en；测试：preview-url toExternalUrl 4 例、HtmlPreview external 模式、BrowserPanel 外部 URL 4 例。
+
 ## 2026-08-20 — feat(提示音): 任务完成提示音改为真实青蛙叫声「呱 呱～」
 
 - 背景：原任务完成提示音为 Web Audio 合成上行两音（880→1320Hz），用户反馈不好听；振荡器合成始终像电子音，改用真实录音。

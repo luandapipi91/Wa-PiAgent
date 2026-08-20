@@ -20,3 +20,12 @@ test("refreshKey 变化重新挂载（key 不同）", () => {
 	const second = screen.getByTestId("html-preview-iframe") as HTMLIFrameElement;
 	expect(second).not.toBe(first);
 });
+
+test("externalUrl 模式：src 原样 + sandbox 放开 allow-same-origin/allow-popups", () => {
+	render(<HtmlPreview externalUrl="https://baidu.com" />);
+	const iframe = screen.getByTestId("html-preview-iframe") as HTMLIFrameElement;
+	expect(iframe.getAttribute("src")).toBe("https://baidu.com");
+	expect(iframe.getAttribute("sandbox")).toBe(
+		"allow-scripts allow-same-origin allow-popups allow-modals",
+	);
+});

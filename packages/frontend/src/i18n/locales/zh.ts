@@ -173,10 +173,10 @@ const zh = {
 		browserPreview: "浏览器预览",
 	},
 	browser: {
-		placeholder: "输入 html 文件路径…",
-		invalidPath: "请输入 .html 文件路径",
+		placeholder: "输入 html 路径或网址…",
+		invalidPath: "请输入 .html 文件路径或网址",
 		empty: "双击文件树里的 .html，或在上方输入路径",
-		copy: "复制路径",
+		copy: "复制路径/网址",
 		copied: "已复制",
 		refresh: "刷新",
 		code: "查看源码",
