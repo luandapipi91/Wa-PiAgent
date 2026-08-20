@@ -700,16 +700,20 @@ export function ComposerInput({
 		[triggerType, trigger, text, setText, onAgentMention],
 	);
 
-	// 联系人弹窗确认：注册 chip 渲染 meta + 插入 @im-push-to token（与自动化任务同构）
+	// 联系人弹窗确认：注册全部 chip 渲染 meta + 插入多个 @im-push-to token（与自动化任务同构）
 	const handleSendImPick = useCallback(
-		(target: ImPushTarget) => {
-			registerContactMeta(target.contactId, {
-				label: target.label,
-				kind: target.kind,
-			});
-			const token = imPushToken(target.channelId, target.contactId);
+		(targets: ImPushTarget[]) => {
+			for (const target of targets) {
+				registerContactMeta(target.contactId, {
+					label: target.label,
+					kind: target.kind,
+				});
+			}
+			const tokens = targets
+				.map((target) => imPushToken(target.channelId, target.contactId))
+				.join(" ");
 			const sep = text.length > 0 && !text.endsWith(" ") ? " " : "";
-			setText(`${text}${sep}${token} `);
+			setText(`${text}${sep}${tokens} `);
 			setSendImOpen(false);
 		},
 		[text, setText],

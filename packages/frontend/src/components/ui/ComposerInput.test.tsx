@@ -134,9 +134,18 @@ const e2eContact = {
 	firstChatAt: 0,
 	lastChatAt: 0,
 };
+const e2eContact2 = {
+	id: "ct_ui2",
+	channelId: "ch_ui1",
+	kind: "person",
+	userId: "LiSi",
+	remark: "李四",
+	firstChatAt: 0,
+	lastChatAt: 0,
+};
 
 function seedImStores() {
-	useContactsStore.setState({ contacts: [e2eContact] } as any);
+	useContactsStore.setState({ contacts: [e2eContact, e2eContact2] } as any);
 	useChannelsStore.setState({ bots: [{ id: "ch_ui1", name: "企微机器人" }] } as any);
 }
 
@@ -160,10 +169,10 @@ function ControlledComposer() {
 	);
 }
 
-test("/ 命令菜单含「发送给 IM 联系人」；选中 → 弹窗选人 → 插入 @im-push-to chip", async () => {
+test("/ 命令菜单含「发送给 IM 联系人」；选中 → 弹窗多选 → 插入多个 @im-push-to chip", async () => {
 	// loadContacts 会重置 store：让 api mock 返回联系人（覆盖 beforeEach 的默认 {}）
 	getMock.mockImplementation(async (path: string) => {
-		if (path === "/api/contacts") return { contacts: [e2eContact] };
+		if (path === "/api/contacts") return { contacts: [e2eContact, e2eContact2] };
 		if (path === "/api/channels") return { channels: [{ id: "ch_ui1", name: "企微机器人" }] };
 		return {};
 	});
@@ -182,12 +191,17 @@ test("/ 命令菜单含「发送给 IM 联系人」；选中 → 弹窗选人 �
 	const dialog = await screen.findByTestId("contact-picker-dialog");
 	expect(dialog.textContent).toContain("张三");
 
-	// 选人 → 确认 → 输入框插入 chip（data-token 为 @im-push-to 标记）
+	// 多选两人 → 确认 → 输入框插入两个 chip（data-token 为 @im-push-to 标记）
 	fireEvent.click(screen.getByTestId("contact-picker-item-ct_ui1"));
+	fireEvent.click(screen.getByTestId("contact-picker-item-ct_ui2"));
 	await new Promise((r) => setTimeout(r, 0));
 	fireEvent.click(screen.getByTestId("contact-picker-ok"));
-	const chip = await screen.findByText("发送给：张三");
-	expect(chip.closest("[data-token]")?.getAttribute("data-token")).toBe(
+	const chip1 = await screen.findByText("发送给：张三");
+	const chip2 = screen.getByText("发送给：李四");
+	expect(chip1.closest("[data-token]")?.getAttribute("data-token")).toBe(
 		"@im-push-to(ch_ui1,ct_ui1)",
+	);
+	expect(chip2.closest("[data-token]")?.getAttribute("data-token")).toBe(
+		"@im-push-to(ch_ui1,ct_ui2)",
 	);
 });

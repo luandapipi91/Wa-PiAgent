@@ -80,8 +80,10 @@ const en = {
 		oversized: "Attachment exceeds {{max}}MB limit: {{names}}",
 	},
 	sendIm: {
-		dialogTitle: "Select IM contact",
+		dialogTitle: "My contacts ({{count}})",
 		sendTo: "Send to: ",
+		searchPlaceholder: "Search contacts",
+		noMatch: "No matching contacts",
 		empty: "No IM contacts yet. Configure a channel on the IM settings page and start a conversation first.",
 	},
 	app: {
