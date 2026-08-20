@@ -23,7 +23,11 @@ export function RecycleBinButton({ onClick, count, compact }: Props) {
 			<Icon
 				name="trash"
 				size="1em"
-				className={`text-[calc(${compact ? 24 : 16}px*var(--font-scale))] flex-shrink-0`}
+				className={
+					compact
+						? "text-[calc(24px*var(--font-scale))] flex-shrink-0"
+						: "text-[calc(16px*var(--font-scale))] flex-shrink-0"
+				}
 			/>
 			{!compact && (
 				<span className="whitespace-nowrap truncate shrink">
