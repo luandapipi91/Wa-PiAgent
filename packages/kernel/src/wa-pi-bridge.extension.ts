@@ -383,7 +383,7 @@ export default function (pi: ExtensionAPI) {
 		name: "im_push_to",
 		label: "IM Push",
 		description:
-			"推送消息给 IM 联系人。仅当任务指令包含 @im-push-to(渠道,联系人) 标记时使用；无标记会话调用将返回错误。contact 填标记中的 ct_xxx 联系人 id。",
+			"推送消息给 IM 联系人。contact 填任务指令中 @im-push-to(渠道,联系人) 标记里的 ct_xxx 联系人 id；仅当消息含该标记时调用。",
 		parameters: Type.Object({
 			contact: Type.String({
 				description: "目标联系人 ID（任务指令中 @im-push-to 标记里的 ct_xxx）",

@@ -1,8 +1,8 @@
-## 2026-08-20 — fix(发送给IM联系人): 推送注册表持久化 + / 命令置顶
+## 2026-08-20 — refactor(发送给IM联系人): im_push_to 改全局执行器（实时解析联系人推送）+ / 命令置顶
 
-- 修复：im-push 推送注册表从进程级 SessionHandle 提升为 AgentManager 级持久层——bridge 空闲回收（60s）/崩溃重建会拆进程删 handle，旧实现注册表随之丢失，agent 重试报「本会话未配置推送目标」；现在仅会话真正删除时清理，空闲回收重建后推送目标继续生效。
+- 重构：主聊天 im_push_to 不再依赖会话级推送注册表（此前方案：消息 @im-push-to 标记预激活注册表，空闲回收/崩溃重建后注册表随进程丢失，重试报「本会话未配置推送目标」）。改为全局执行器——工具调用时实时按联系人 id 解析，直接走 channelManager 全局长连接（kernel 启动即建立，pushToContact 按 contact.channelId 路由 + 校验联系人存在），无会话级状态，重建后天然可用。定时任务路径不变（executeTask 的 imPush 注入优先）。
 - 体验：「发送给 IM 联系人」命令移到 / 命令列表第一位（默认高亮即它，输入 / 直接可达）。
-- 影响范围：`packages/kernel/src/agent-manager.ts`（imPushBySession 持久层 + disposeSession keepImPush 选项）、`packages/frontend/src/components/ui/ComposerInput.tsx`；测试：robot-push 新增「空闲回收重建后注册表仍生效」「会话删除后注册表清理」用例、ComposerInput 断言命令首位。
+- 影响范围：`packages/kernel/src/agent-manager.ts`（handleTool 改 imPushExecutor 全局执行器，删除注册表/setImPushFactory）、`packages/kernel/src/index.ts`（setImPushExecutor 直接 pushToContact）、`packages/kernel/src/wa-pi-bridge.extension.ts`（工具描述去「无标记报错」）；测试：robot-push 新增「任意会话实时推送」「定时任务注入优先」「未接线报错」「executor 抛错回退」用例。
 
 ## 2026-08-20 — feat(发送给IM联系人): 主聊天「发送给 IM 联系人」命令
 
