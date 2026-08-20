@@ -97,6 +97,10 @@ export default defineConfig(({ mode }) => {
           target: `http://127.0.0.1:${wsPort}`,
           changeOrigin: true,
         },
+        "/preview": {
+          target: `http://127.0.0.1:${wsPort}`,
+          changeOrigin: true,
+        },
       },
     },
     define: defineEntries,

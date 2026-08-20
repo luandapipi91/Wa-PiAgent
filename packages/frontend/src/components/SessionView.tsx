@@ -8,6 +8,7 @@ import {
 import { useTranslation } from "../i18n/useTranslation";
 import { useProjectsStore } from "../store/projects";
 import { useSessionStore } from "../store/session";
+import { useBrowserStore } from "../store/browser";
 import { useIsBlocked } from "../store/ask";
 import { useExplorerStore } from "../store/explorer";
 import { SidebarResizer } from "./SidebarResizer";
@@ -22,6 +23,7 @@ import { AnsiText } from "./ui/AnsiText";
 import { api } from "../api-client";
 import { fmtTok } from "../util/format";
 import { Icon } from "./ui/Icon";
+import { isHtmlPath } from "../preview-url";
 
 interface Props {
 	sessionId: string;
@@ -327,6 +329,23 @@ export function SessionView({ sessionId, sourceLabel, imConv }: Props) {
 							className="text-[calc(18px*var(--font-scale))]"
 						/>
 					</button>
+					{/* 浏览器预览入口（打开空预览窗口） */}
+					<button
+						type="button"
+						className="fv-btn fv-btn--icon"
+						data-testid="btn-browser-preview"
+						onClick={() =>
+							useBrowserStore.getState().openBrowser(undefined, sessionId)
+						}
+						title={t("session.browserPreview")}
+						style={{ color: "var(--text-tertiary)" }}
+					>
+						<Icon
+							name="globe"
+							size="1em"
+							className="text-[calc(18px*var(--font-scale))]"
+						/>
+					</button>
 				</header>
 
 				{/* 队列面板：agent 运行中或有队列时显示 */}
@@ -523,7 +542,9 @@ export function SessionView({ sessionId, sourceLabel, imConv }: Props) {
 								workspaceDir={workspaceDir}
 								projectName={project?.name}
 								onOpenFile={(path) =>
-									useSessionStore.getState().openFilePreview(path, sessionId)
+									isHtmlPath(path)
+										? useBrowserStore.getState().openBrowser(path, sessionId)
+										: useSessionStore.getState().openFilePreview(path, sessionId)
 								}
 							/>
 						</div>

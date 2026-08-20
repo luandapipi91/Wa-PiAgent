@@ -19,6 +19,8 @@ import { AgentDropdown } from "./ui/AgentDropdown";
 import { ExplorerPanel } from "./ExplorerPanel";
 import { SidebarResizer } from "./SidebarResizer";
 import { Icon } from "./ui/Icon";
+import { useBrowserStore } from "../store/browser";
+import { isHtmlPath } from "../preview-url";
 import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
@@ -405,7 +407,9 @@ export function NewSessionPane({
 									workspaceDir={workspaceDir}
 									projectName={projects.find((p) => p.id === projectId)?.name}
 									onOpenFile={(path) =>
-										useSessionStore.getState().openFilePreview(path, sessionId)
+										isHtmlPath(path)
+											? useBrowserStore.getState().openBrowser(path)
+											: useSessionStore.getState().openFilePreview(path, sessionId)
 									}
 								/>
 							) : (
