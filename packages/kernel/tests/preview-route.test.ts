@@ -36,6 +36,17 @@ test("解析子目录相对资源", () => {
 	if (r.ok) expect(r.path).toBe(realpathSync(join(root, "dist", "app.js")));
 });
 
+test("中文/空格文件名解析 ok（前端编码、服务端解码配对）", () => {
+	const cnFile = join(root, "dist", "报告 2026.html");
+	writeFileSync(cnFile, "<h1>中文</h1>");
+	const r = resolvePreviewPath(
+		`/preview/${enc}/dist/${encodeURIComponent("报告 2026.html")}`,
+		projects,
+	);
+	expect(r.ok).toBe(true);
+	if (r.ok) expect(r.path).toBe(realpathSync(cnFile));
+});
+
 test(".. 穿越返回 forbidden", () => {
 	// 目标必须真实存在于 root 之外：realpath 越界才会被 forbidden 拦截
 	// （指向 root 内不存在路径会先因 ENOENT 返回 notfound）

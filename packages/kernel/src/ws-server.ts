@@ -156,6 +156,7 @@ export type PreviewPathResult =
  * 第一段是 encodeURIComponent 后的根目录绝对路径，剩余段是相对路径。
  * root（realpath 后）必须落在某项目 cwd（同样 realpath 后）内，
  * 否则 forbidden——防止客户端指定任意绝对路径根（如 /etc）读取主机任意文件。
+ * HTTP 入口因 WHATWG URL 规范化到不了 `..` 段，本检查防护直接调用方与防御纵深。
  * 越权/非法 → forbidden；文件/根目录不存在 → notfound。
  */
 export function resolvePreviewPath(
@@ -176,7 +177,15 @@ export function resolvePreviewPath(
 		return { ok: false, reason: "forbidden" };
 	}
 	if (!isAbsolute(root)) return { ok: false, reason: "forbidden" };
-	const candidate = join(root, rel);
+	// rel 是文件名（可含中文/空格/#/? 等），同样需要解码才能映射到磁盘；解码失败（非法 % 序列）→ forbidden。
+	let relPath: string;
+	try {
+		relPath = decodeURIComponent(rel);
+	} catch {
+		return { ok: false, reason: "forbidden" };
+	}
+	// 解码后可能拼出多层路径（%2F→/、%2E%2E→..），由下方 realpath + allowlist 双重校验兑底，不会越权。
+	const candidate = join(root, relPath);
 	let realRoot: string;
 	try {
 		realRoot = realpathSync(root);

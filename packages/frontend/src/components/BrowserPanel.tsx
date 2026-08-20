@@ -7,6 +7,7 @@ import { ShareResultModal } from "./ui/ShareButton";
 import { isHtmlPath } from "../preview-url";
 import { copyToClipboard } from "../util/clipboard";
 import { useToastStore } from "../store/toast";
+import { useProjectsStore } from "../store/projects";
 import { useTranslation } from "../i18n/useTranslation";
 
 export function BrowserPanel() {
@@ -18,7 +19,27 @@ export function BrowserPanel() {
 	const { t } = useTranslation();
 	const addToast = useToastStore((s) => s.add);
 
-	const openPath = (p: string) => {
+	const openPath = (raw: string) => {
+		const p = raw.trim();
+		// 非绝对路径（不以 / 开头、Windows 盘符同样不处理）→ 拒绝
+		if (!p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p)) {
+			addToast(t("browser.invalidPath"), "error");
+			return;
+		}
+		// 项目内校验：已有项目时路径必须落在某项目 cwd 下，避免加载项目外任意文件
+		const cwdList = useProjectsStore
+			.getState()
+			.projects.map((p) => p.cwd)
+			.filter(Boolean);
+		if (cwdList.length > 0) {
+			const inside = cwdList.some(
+				(cwd) => p === cwd || p.startsWith(cwd + "/") || p.startsWith(cwd + "\\"),
+			);
+			if (!inside) {
+				addToast(t("browser.invalidPath"), "error");
+				return;
+			}
+		}
 		if (!isHtmlPath(p)) {
 			addToast(t("browser.invalidPath"), "error");
 			return;

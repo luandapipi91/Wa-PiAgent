@@ -97,7 +97,7 @@ export function App() {
 	const providers = useProvidersStore((s) => s.providers);
 	const providersLoaded = useProvidersStore((s) => s.loaded);
 
-	// 浏览器预览：打开时主内容区互斥切换为 BrowserPanel（不保留原视图状态）
+	// 浏览器预览：打开时主内容区互斥切换为 BrowserPanel，关闭后按 view state 恢复原分支（会话视图会重新挂载）
 	const browserOpen = useBrowserStore((s) => s.open);
 
 	useEffect(() => onConnectionChange(setConnState), []);

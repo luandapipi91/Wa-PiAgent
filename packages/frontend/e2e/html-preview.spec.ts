@@ -150,4 +150,23 @@ test.describe
 			// 弹窗内展示 index.html 源码内容
 			await expect(modal).toContainText("HTML 预览 E2E", { timeout: 10_000 });
 		});
+
+		test("预览窗口点分享按钮 → 分享弹窗出现（未配 token 则跳设置分享引导）", async ({
+			page,
+		}) => {
+			test.setTimeout(60_000);
+			await openSession(page);
+			await openHtmlPreview(page);
+
+			// 点「分享」→ ShareResultModal 挂载检查 token：
+			// - 已配置 → 分享弹窗停留（share-result-modal）
+			// - 未配置 → 自动跳「设置 → 分享」引导（share-section）
+			// E2E 环境不预置分享 token，实际走后者；两者任一出现即断言通过。
+			await page.getByTestId("browser-share").click();
+			await expect(
+				page
+					.getByTestId("share-result-modal")
+					.or(page.getByTestId("share-section")),
+			).toBeVisible({ timeout: 5000 });
+		});
 	});
