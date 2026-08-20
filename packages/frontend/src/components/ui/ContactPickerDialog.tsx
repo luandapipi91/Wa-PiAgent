@@ -22,7 +22,7 @@ interface Props {
 
 /** 选择 IM 联系人弹窗：统一通讯录列表（标题显示总数）、按名字搜索、多选（person/group 均可选）。
  *  数据来自 contacts store，打开时主动拉取（store 初始为空）。
- *  有 wecom 渠道时显示「搜索」按钮：点击按关键词同步企微成员到本地并刷新；无权限静默不显示。 */
+ *  输入仅更新草稿，点「搜索好友」才应用本地过滤；有 wecom 渠道时顺带同步企微成员到本地并刷新，无权限则仅本地过滤（静默）。 */
 export function ContactPickerDialog({ onPick, onCancel }: Props) {
 	const { t } = useTranslation();
 	const contacts = useContactsStore((s) => s.contacts);
@@ -30,22 +30,27 @@ export function ContactPickerDialog({ onPick, onCancel }: Props) {
 	const syncWecomContacts = useContactsStore((s) => s.syncWecomContacts);
 	const bots = useChannelsStore((s) => s.bots);
 	const [query, setQuery] = useState("");
+	// 已应用的关键词：点「搜索好友」才更新，驱动本地过滤
+	const [appliedQuery, setAppliedQuery] = useState("");
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
 	useEffect(() => {
 		void loadContacts();
 	}, [loadContacts]);
 
-	// 有 wecom 渠道（有权限）才显示「搜索」按钮；同步失败静默忽略（无 toast）
+	// 有 wecom 渠道（有权限）才同步企微；同步失败静默忽略（无 toast）
 	const wecomChannels = useMemo(
 		() => bots.filter((b) => b.type === "wecom"),
 		[bots],
 	);
 	const [searching, setSearching] = useState(false);
 
-	const doWecomSearch = async () => {
+	const doSearch = async () => {
 		const keyword = query.trim();
-		if (!keyword || wecomChannels.length === 0) return;
+		if (!keyword) return;
+		// 先应用本地过滤（无论有无权限）
+		setAppliedQuery(keyword);
+		if (wecomChannels.length === 0) return;
 		setSearching(true);
 		try {
 			// 逐个同步 wecom 渠道；全部失败也不 toast（无权限/过期均静默）
@@ -58,12 +63,12 @@ export function ContactPickerDialog({ onPick, onCancel }: Props) {
 		}
 	};
 
-	// 按名字搜索过滤（contactLabel 即显示名：remark 优先 / group chatId 前 8 位 / userId / id）
+	// 按「已应用关键词」过滤（contactLabel 即显示名：remark 优先 / group chatId 前 8 位 / userId / id）
 	const visible = useMemo(() => {
-		const q = query.trim().toLowerCase();
+		const q = appliedQuery.toLowerCase();
 		if (!q) return contacts;
 		return contacts.filter((c) => contactLabel(c).toLowerCase().includes(q));
-	}, [contacts, query]);
+	}, [contacts, appliedQuery]);
 
 	// 多选切换；确认返回按通讯录原始顺序排列的选中项
 	const toggle = (c: ContactEntity) => {
@@ -108,25 +113,23 @@ export function ContactPickerDialog({ onPick, onCancel }: Props) {
 								value={query}
 								onChange={(e) => setQuery(e.target.value)}
 								onKeyDown={(e) =>
-									e.key === "Enter" && !searching && void doWecomSearch()
+									e.key === "Enter" && !searching && void doSearch()
 							}
 								placeholder={t("sendIm.searchPlaceholder")}
 								className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md border border-hairline bg-surface text-primary text-sm outline-none focus:border-accent"
 							/>
-							{wecomChannels.length > 0 && (
-								<button
-									data-testid="contact-picker-wecom-search"
-									onClick={() => void doWecomSearch()}
-									disabled={searching}
-									className="px-3 py-1.5 rounded-md text-sm disabled:opacity-50"
-									style={{
-										background: "var(--brand)",
-										color: "var(--on-brand)",
-									}}
-								>
-									{searching ? "搜索中…" : "搜索"}
-								</button>
-							)}
+							<button
+								data-testid="contact-picker-search-btn"
+								onClick={() => void doSearch()}
+								disabled={searching}
+								className="px-3 py-1.5 rounded-md text-sm disabled:opacity-50"
+								style={{
+									background: "var(--brand)",
+									color: "var(--on-brand)",
+								}}
+							>
+								{searching ? "搜索中…" : "搜索好友"}
+							</button>
 						</div>
 						{visible.length === 0 ? (
 							<div

@@ -18,8 +18,10 @@ export default function ContactsPanel({
 		useContactsStore.getState();
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [value, setValue] = useState("");
-	// 企微通讯录搜索：搜索框常驻（wecom 渠道），输入关键词点「搜索好友」→ 同步 → toast + 刷新
+	// 企微通讯录搜索：搜索框常驻（wecom 渠道），输入仅更新草稿，点「搜索好友」才应用过滤 + 同步
 	const [syncKeyword, setSyncKeyword] = useState("");
+	// 已应用的关键词：点「搜索好友」才更新，驱动本地过滤
+	const [appliedKeyword, setAppliedKeyword] = useState("");
 	const [syncing, setSyncing] = useState(false);
 
 	// 打开面板（或切换 channelId）时拉取通讯录，否则 store 初始为空、面板恒显示「暂无」
@@ -34,6 +36,8 @@ export default function ContactsPanel({
 		if (!keyword) return;
 		setSyncing(true);
 		try {
+			// 先应用本地过滤（无论同步结果如何）
+			setAppliedKeyword(keyword);
 			const { added } = await syncWecomContacts(channelId, [keyword]);
 			// 只有新增了人才提示，无新增（已全部在通讯录）不打扰
 			if (added > 0) {
@@ -56,8 +60,8 @@ export default function ContactsPanel({
 
 	const { persons, groups } = useMemo(() => {
 		const mine = contacts.filter((c) => c.channelId === channelId);
-		const q = syncKeyword.trim().toLowerCase();
-		// 真搜索：关键词非空时按显示名过滤本地通讯录（人/群统一），同步搜索框同时承担过滤
+		const q = appliedKeyword.trim().toLowerCase();
+		// 按「已应用关键词」过滤：输入仅草稿，点「搜索好友」后才按显示名过滤（人/群统一）
 		const filtered = q
 			? mine.filter((c) => label(c).toLowerCase().includes(q))
 			: mine;
@@ -65,7 +69,7 @@ export default function ContactsPanel({
 			persons: filtered.filter((c) => c.kind === "person"),
 			groups: filtered.filter((c) => c.kind === "group"),
 		};
-	}, [contacts, channelId, syncKeyword]);
+	}, [contacts, channelId, appliedKeyword]);
 
 	const save = async (c: ContactEntity) => {
 		try {

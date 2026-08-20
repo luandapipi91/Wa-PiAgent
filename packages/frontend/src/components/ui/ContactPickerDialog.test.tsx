@@ -77,25 +77,24 @@ test("标题显示「我的通讯录（x）」，x 为联系人总数", () => {
 	expect(screen.getByText("我的通讯录（3）")).toBeTruthy();
 });
 
-test("按名字搜索过滤联系人", () => {
+test("按名字搜索过滤联系人：输入不过滤，点搜索后才过滤", () => {
 	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
-	fireEvent.change(screen.getByTestId("contact-picker-search"), {
-		target: { value: "李" },
-	});
+	const input = screen.getByTestId("contact-picker-search");
+	// 输入「李」：尚未点搜索，列表不过滤（张三仍在）
+	fireEvent.change(input, { target: { value: "李" } });
+	expect(screen.getByText("张三")).toBeTruthy();
+	// 点搜索：按关键词过滤，只显示李四
+	fireEvent.click(screen.getByTestId("contact-picker-search-btn"));
 	expect(screen.getByText("李四")).toBeTruthy();
 	expect(screen.queryByText("张三")).toBeNull();
-	// group 无 remark → chatId 前 8 位，也按该显示名可搜
-	fireEvent.change(screen.getByTestId("contact-picker-search"), {
-		target: { value: "wrabcde1" },
-	});
-	expect(screen.getByText("wrabcde1")).toBeTruthy();
 });
 
-test("搜索无结果 → 显示无匹配文案", () => {
+test("搜索无结果 → 显示无匹配文案（点搜索后）", () => {
 	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
 	fireEvent.change(screen.getByTestId("contact-picker-search"), {
 		target: { value: "zzz" },
 	});
+	fireEvent.click(screen.getByTestId("contact-picker-search-btn"));
 	expect(screen.getByTestId("contact-picker-empty").textContent).toContain(
 		"无匹配",
 	);
@@ -162,18 +161,18 @@ test("联系人名字过长时截断，不溢出弹窗", () => {
 	expect(name.className).toContain("min-w-0");
 });
 
-// ===== 企微搜索按钮同步（有权限显示按钮并同步，无权限静默）=====
+// ===== 企微搜索好友同步（有权限同步，无权限仅本地过滤）=====
 
-test("有 wecom 渠道：显示「搜索」按钮，点击后同步企微成员并刷新本地", async () => {
+test("有 wecom 渠道：按钮显示「搜索好友」，点击后同步企微成员并刷新本地", async () => {
 	channelsState.bots = [
 		{ id: "ch_wecom", type: "wecom", name: "企微机器人" },
 		{ id: "ch_other", type: "mock", name: "其它" },
 	];
 	contactState.syncWecomContacts.mockResolvedValue({ added: 3, updated: 0 });
 	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
-	// 搜索按钮在输入后可用
 	const input = screen.getByTestId("contact-picker-search");
-	const searchBtn = screen.getByTestId("contact-picker-wecom-search");
+	const searchBtn = screen.getByTestId("contact-picker-search-btn");
+	expect(screen.getByText("搜索好友")).toBeTruthy();
 	fireEvent.change(input, { target: { value: "张" } });
 	fireEvent.click(searchBtn);
 	await act(async () => {});
@@ -185,16 +184,26 @@ test("有 wecom 渠道：显示「搜索」按钮，点击后同步企微成员�
 	expect(contactState.loadContacts).toHaveBeenCalled();
 });
 
-test("无 wecom 渠道（无权限）→ 不显示搜索按钮", () => {
+test("无 wecom 渠道（无权限）→ 按钮仍显示「搜索好友」，点击仅本地过滤不触发同步", async () => {
 	channelsState.bots = [{ id: "ch_other", type: "mock", name: "其它" }];
 	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
-	expect(screen.queryByTestId("contact-picker-wecom-search")).toBeNull();
+	const searchBtn = screen.getByTestId("contact-picker-search-btn");
+	expect(screen.getByText("搜索好友")).toBeTruthy();
+	const input = screen.getByTestId("contact-picker-search");
+	fireEvent.change(input, { target: { value: "李" } });
+	fireEvent.click(searchBtn);
+	await act(async () => {});
+	// 不触发同步
+	expect(contactState.syncWecomContacts).not.toHaveBeenCalled();
+	// 本地过滤仍生效
+	expect(screen.getByText("李四")).toBeTruthy();
+	expect(screen.queryByText("张三")).toBeNull();
 });
 
-test("搜索词为空 → 点搜索按钮不触发同步", async () => {
+test("搜索词为空 → 点搜索好友不触发同步", async () => {
 	channelsState.bots = [{ id: "ch_wecom", type: "wecom", name: "企微机器人" }];
 	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
-	const searchBtn = screen.getByTestId("contact-picker-wecom-search");
+	const searchBtn = screen.getByTestId("contact-picker-search-btn");
 	fireEvent.change(screen.getByTestId("contact-picker-search"), {
 		target: { value: "  " },
 	});
@@ -210,7 +219,7 @@ test("同步失败（如已过期）→ 静默忽略，不 toast 不阻塞本地
 	fireEvent.change(screen.getByTestId("contact-picker-search"), {
 		target: { value: "张" },
 	});
-	fireEvent.click(screen.getByTestId("contact-picker-wecom-search"));
+	fireEvent.click(screen.getByTestId("contact-picker-search-btn"));
 	// 同步失败不应让本地过滤出错
 	await act(async () => {});
 	expect(screen.getByText("张三")).toBeTruthy();
