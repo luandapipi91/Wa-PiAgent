@@ -33,11 +33,12 @@ export function toExternalUrl(raw: string): string | null {
 	if (/\.html?$/i.test(p.split(/[/?#]/)[0])) return null;
 	const hostish =
 		/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?([/?#].*)?$/i.test(p) ||
+		/^\[[0-9a-fA-F:]+\](:\d+)?([/?#].*)?$/.test(p) ||
 		/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+(:\d+)?([/?#].*)?$/.test(
 			p,
 		);
 	if (!hostish) return null;
-	// 回环 host（localhost/IP）多为本地 http dev server，补 http；其余补 https
+	// 回环 host（localhost/IP/IPv6 ::1）多为本地 http dev server，补 http；其余补 https
 	const loopback = /^(localhost|127\.0\.0\.1|\[::1\])/i.test(p);
 	return (loopback ? "http://" : "https://") + p;
 }

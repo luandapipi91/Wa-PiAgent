@@ -119,6 +119,48 @@ test("根目录项目（cwd=/）放行任意绝对路径", () => {
   expect(screen.getByTestId("html-preview-iframe")).toBeTruthy();
 });
 
+test("Windows 盘符分隔符混用（cwd 反斜杠 + 输入正斜杠）可加载", () => {
+  useProjectsStore.setState({
+    projects: [{ id: "p1", name: "P1", cwd: "C:\\proj\\dist", createdAt: 1 }],
+  });
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "C:/proj/dist/index.html" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("html-preview-iframe")).toBeTruthy();
+});
+
+test("Windows 盘符大小写不一致（cwd 大写 + 输入小写）可加载", () => {
+  useProjectsStore.setState({
+    projects: [{ id: "p1", name: "P1", cwd: "C:\\Proj\\Dist", createdAt: 1 }],
+  });
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "c:\\proj\\dist\\index.html" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("html-preview-iframe")).toBeTruthy();
+});
+
+test("UNC 路径（cwd 在共享目录）可加载", () => {
+  useProjectsStore.setState({
+    projects: [
+      {
+        id: "p1",
+        name: "P1",
+        cwd: "\\\\server\\share\\proj",
+        createdAt: 1,
+      },
+    ],
+  });
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, {
+    target: { value: "\\\\server\\share\\proj\\dist\\index.html" },
+  });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("html-preview-iframe")).toBeTruthy();
+});
+
 test("关闭按钮调用 closeBrowser", () => {
   render(<BrowserPanel />);
   fireEvent.click(screen.getByTestId("browser-close"));
@@ -170,15 +212,15 @@ test("外部 URL 时代码/分享按钮禁用，复制可用", () => {
   const input = screen.getByTestId("browser-input") as HTMLInputElement;
   fireEvent.change(input, { target: { value: "baidu.com" } });
   fireEvent.keyDown(input, { key: "Enter" });
-  expect((screen.getByTestId("browser-code") as HTMLButtonElement).disabled).toBe(
-    true,
-  );
-  expect((screen.getByTestId("browser-share") as HTMLButtonElement).disabled).toBe(
-    true,
-  );
-  expect((screen.getByTestId("browser-copy") as HTMLButtonElement).disabled).toBe(
-    false,
-  );
+  expect(
+    (screen.getByTestId("browser-code") as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByTestId("browser-share") as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByTestId("browser-copy") as HTMLButtonElement).disabled,
+  ).toBe(false);
 });
 
 test("相对 html 路径（index.html）→ toast 拒绝不加载", () => {

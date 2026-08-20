@@ -30,8 +30,9 @@ export function BrowserPanel() {
 
 	const openPath = (raw: string) => {
 		const p = raw.trim();
-		// 绝对路径判定：POSIX（/ 开头）或 Windows 盘符（C:\ 或 C:/ 开头）均放行
-		const isAbs = p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p);
+		// 绝对路径判定：POSIX（/ 开头）、Windows 盘符（C:\ 或 C:/ 开头）、UNC（\\server\share）均放行
+		const isAbs =
+			p.startsWith("/") || p.startsWith("\\\\") || /^[A-Za-z]:[\\/]/.test(p);
 		if (!isAbs) {
 			// 先尝试外部 URL（http/https 或域名/IP/localhost，自动补协议）
 			const external = toExternalUrl(p);
@@ -59,19 +60,21 @@ export function BrowserPanel() {
 			addToast(t("browser.invalidPath"), "error");
 			return;
 		}
-		// 项目内校验：已有项目时路径必须落在某项目 cwd 下，避免加载项目外任意文件
+		// 项目内校验：已有项目时路径必须落在某项目 cwd 下，避免加载项目外任意文件。
+		// 比较前规范化：统一分隔符为 /、统一小写、去尾斜杠（Windows 盘符大小写/分隔符混用兼容）
 		const cwdList = useProjectsStore
 			.getState()
 			.projects.map((p) => p.cwd)
 			.filter(Boolean);
 		if (cwdList.length > 0) {
-			// cwd 规范化：去尾斜杠（保留根 `/`），避免 `/a/` 等尾斜杠导致 startsWith 不命中
-			const normCwd = (cwd: string) => cwd.replace(/[\\/]+$/, "") || "/";
+			const norm = (s: string) =>
+				s.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase() || "/";
+			const pp = norm(p);
 			const inside = cwdList.some((cwd) => {
-				const c = normCwd(cwd);
+				const c = norm(cwd);
 				// 根目录项目：任意绝对路径都在项目内（p 已通过上面的绝对路径判定）
 				if (c === "/") return true;
-				return p === c || p.startsWith(c + "/") || p.startsWith(c + "\\");
+				return pp === c || pp.startsWith(c + "/");
 			});
 			if (!inside) {
 				addToast(t("browser.invalidPath"), "error");
@@ -88,9 +91,9 @@ export function BrowserPanel() {
 
 	const copyCurrent = () => {
 		if (!current) return;
-		void copyToClipboard(current.kind === "local" ? current.path : current.url).then(
-			() => addToast(t("browser.copied"), "success"),
-		);
+		void copyToClipboard(
+			current.kind === "local" ? current.path : current.url,
+		).then(() => addToast(t("browser.copied"), "success"));
 	};
 
 	const canCodeShare = loadedPath !== null;
