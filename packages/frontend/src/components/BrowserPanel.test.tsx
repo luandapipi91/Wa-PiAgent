@@ -30,7 +30,12 @@ test("空窗口显示引导", () => {
   render(<BrowserPanel />);
   expect(screen.getByTestId("browser-empty")).toBeTruthy();
   // 未加载路径：4 个动作按钮均 disabled
-  for (const id of ["browser-copy", "browser-refresh", "browser-code", "browser-share"]) {
+  for (const id of [
+    "browser-copy",
+    "browser-refresh",
+    "browser-code",
+    "browser-share",
+  ]) {
     expect((screen.getByTestId(id) as HTMLButtonElement).disabled).toBe(true);
   }
 });
@@ -59,6 +64,59 @@ test("项目外 html 路径拒绝加载", () => {
   fireEvent.keyDown(input, { key: "Enter" });
   expect(screen.getByTestId("browser-empty")).toBeTruthy(); // 未加载
   expect(useToastStore.getState().toasts[0]?.type).toBe("error");
+});
+
+test("Windows 盘符绝对路径（反斜杠）匹配项目 cwd 可加载", () => {
+  useProjectsStore.setState({
+    projects: [{ id: "p1", name: "P1", cwd: "C:\\proj\\dist", createdAt: 1 }],
+  });
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "C:\\proj\\dist\\index.html" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("html-preview-iframe")).toBeTruthy();
+});
+
+test("Windows 盘符绝对路径（正斜杠）匹配项目 cwd 可加载", () => {
+  useProjectsStore.setState({
+    projects: [{ id: "p1", name: "P1", cwd: "C:/proj/dist", createdAt: 1 }],
+  });
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "C:/proj/dist/index.html" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("html-preview-iframe")).toBeTruthy();
+});
+
+test("Windows 盘符路径与 POSIX 项目 cwd 不匹配 → toast 拒绝", () => {
+  render(<BrowserPanel />); // beforeEach 项目 cwd = /a
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "C:\\proj\\dist\\index.html" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("browser-empty")).toBeTruthy(); // 未加载
+  expect(useToastStore.getState().toasts[0]?.type).toBe("error");
+});
+
+test("项目 cwd 尾斜杠（/a/）不误拒项目内路径", () => {
+  useProjectsStore.setState({
+    projects: [{ id: "p1", name: "P1", cwd: "/a/", createdAt: 1 }],
+  });
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "/a/index.html" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("html-preview-iframe")).toBeTruthy();
+});
+
+test("根目录项目（cwd=/）放行任意绝对路径", () => {
+  useProjectsStore.setState({
+    projects: [{ id: "p1", name: "P1", cwd: "/", createdAt: 1 }],
+  });
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "/x/index.html" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("html-preview-iframe")).toBeTruthy();
 });
 
 test("关闭按钮调用 closeBrowser", () => {
