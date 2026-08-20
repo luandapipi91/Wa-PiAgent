@@ -8,9 +8,7 @@ afterEach(() => {
 
 test("正常显示回收站文字", () => {
 	render(<RecycleBinButton onClick={() => {}} />);
-	expect(screen.getByTestId("recycle-bin-btn").textContent).toContain(
-		"回收站",
-	);
+	expect(screen.getByTestId("recycle-bin-btn").textContent).toContain("回收站");
 });
 
 test("compact 模式：隐藏文字只保留图标", () => {
@@ -20,6 +18,14 @@ test("compact 模式：隐藏文字只保留图标", () => {
 	expect(btn.querySelector("span")).toBeNull();
 	expect(btn.querySelector("svg")).toBeTruthy();
 	expect(btn.textContent).toBe("");
+	// 仅 icon 时居中对齐（flex justify-center）
+	expect(btn.className).toContain("justify-center");
+});
+
+test("非 compact：icon 靠左不居中", () => {
+	render(<RecycleBinButton onClick={() => {}} compact={false} />);
+	const btn = screen.getByTestId("recycle-bin-btn");
+	expect(btn.className).not.toContain("justify-center");
 });
 
 test("compact 模式仍显示未读角标", () => {
@@ -30,8 +36,6 @@ test("compact 模式仍显示未读角标", () => {
 
 test("compact=false 正常显示文字与角标", () => {
 	render(<RecycleBinButton onClick={() => {}} count={5} compact={false} />);
-	expect(screen.getByTestId("recycle-bin-btn").textContent).toContain(
-		"回收站",
-	);
+	expect(screen.getByTestId("recycle-bin-btn").textContent).toContain("回收站");
 	expect(screen.getByTestId("recycle-bin-badge").textContent).toBe("5");
 });

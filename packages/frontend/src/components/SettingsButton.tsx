@@ -14,7 +14,9 @@ export function SettingsButton({ onClick, compact }: Props) {
 			onClick={onClick}
 			aria-label={t("settings.title")}
 			title={t("settings.title")}
-			className="flex-1 min-w-0 flex items-center gap-1 px-2 py-1.5 text-xs text-tertiary transition-colors hover:text-brand overflow-hidden"
+			className={`flex-1 min-w-0 flex items-center gap-1 px-2 py-1.5 text-xs text-tertiary transition-colors hover:text-brand overflow-hidden ${
+				compact ? "justify-center" : ""
+			}`}
 			data-testid="settings-btn"
 		>
 			<Icon
