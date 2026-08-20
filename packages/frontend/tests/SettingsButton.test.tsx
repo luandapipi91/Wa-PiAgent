@@ -6,15 +6,15 @@ afterEach(() => {
 	cleanup();
 });
 
-test("系统设置图标基础尺寸 18px 且随 --font-scale 缩放", () => {
+test("系统设置图标基础尺寸 20px 且随 --font-scale 缩放", () => {
 	render(<SettingsButton onClick={() => {}} />);
 	const icon = screen.getByTestId("settings-btn").querySelector("svg");
 	expect(icon).toBeTruthy();
-	// 尺寸用 em：相对自身 font-size（基础 18px × var(--font-scale)），字体缩放时图标同步缩放
+	// 尺寸用 em：相对自身 font-size（基础 20px × var(--font-scale)），字体缩放时图标同步缩放
 	expect(icon!.getAttribute("width")).toBe("1em");
 	expect(icon!.getAttribute("height")).toBe("1em");
 	expect(icon!.getAttribute("class")).toContain(
-		"text-[calc(18px*var(--font-scale))]",
+		"text-[calc(20px*var(--font-scale))]",
 	);
 });
 
@@ -43,10 +43,10 @@ test("compact 模式：隐藏文字只保留图标", () => {
 	expect(btn.textContent).toBe("");
 	// 仅 icon 时居中对齐（flex justify-center）
 	expect(btn.className).toContain("justify-center");
-	// 仅 icon 时图标放大（compact 用 20px，非 compact 18px）
+	// 仅 icon 时图标放大到 32px（非 compact 20px）
 	const icon = btn.querySelector("svg")!;
 	expect(icon.getAttribute("class")).toContain(
-		"text-[calc(20px*var(--font-scale))]",
+		"text-[calc(32px*var(--font-scale))]",
 	);
 });
 
@@ -57,6 +57,6 @@ test("compact=false 正常显示文字且图标为常规尺寸", () => {
 	expect(btn.className).not.toContain("justify-center");
 	const icon = btn.querySelector("svg")!;
 	expect(icon.getAttribute("class")).toContain(
-		"text-[calc(18px*var(--font-scale))]",
+		"text-[calc(20px*var(--font-scale))]",
 	);
 });
