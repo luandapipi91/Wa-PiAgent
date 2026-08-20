@@ -12,7 +12,11 @@ type HtmlPreviewProps = { refreshKey?: number } & (
  *   让其以自己的源运行、可开新标签；受对方站点 X-Frame-Options/CSP 限制）
  * refreshKey 变化重挂载实现刷新。
  */
-export function HtmlPreview({ path, externalUrl, refreshKey }: HtmlPreviewProps) {
+export function HtmlPreview({
+	path,
+	externalUrl,
+	refreshKey,
+}: HtmlPreviewProps) {
 	const src = externalUrl ?? buildPreviewUrl(path!);
 	const sandbox = externalUrl
 		? "allow-scripts allow-same-origin allow-popups allow-modals"
