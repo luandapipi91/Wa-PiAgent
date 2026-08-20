@@ -49,6 +49,7 @@ const BRIDGE_TOKEN = process.env.WA_PI_BRIDGE_TOKEN;
 const BRIDGE_SESSION_ID = process.env.WA_PI_SESSION_ID;
 
 const DEFAULT_TIMEOUT_MS = 60_000; // 普通工具 60s
+const AGENT_END_REPORT_TIMEOUT_MS = 10_000; // agent_end 文件修改上报：本地请求，10s 足够
 const ASK_TIMEOUT_MS = 600_000; // ask 等用户回答，放宽到 10 分钟
 const DELEGATE_TIMEOUT_MS = 600_000; // delegate/fleet：10 分钟无任何帧才判死（流式后"无帧"才是真卡死）
 
@@ -464,10 +465,13 @@ export default function (pi: ExtensionAPI) {
 		toolCallIdToPath.clear();
 		if (!BRIDGE_URL || !BRIDGE_TOKEN || !BRIDGE_SESSION_ID) return;
 		try {
+			// 必须带超时：pi 在把 agent_end 写 RPC stdout 前会 await 本钩子，
+			// fetch 挂起（如代理链路异常）会让整轮对话一直"思考中"直到系统级超时。
 			await fetch(BRIDGE_URL + "/bridge/file-changes", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ token: BRIDGE_TOKEN, sessionId: BRIDGE_SESSION_ID, files }),
+				signal: AbortSignal.timeout(AGENT_END_REPORT_TIMEOUT_MS),
 			});
 		} catch {
 			/* 上报失败静默：不影响对话主流程 */

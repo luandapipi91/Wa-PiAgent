@@ -6,6 +6,7 @@ import {
 	loadProxySettings,
 	saveProxySettings,
 	applySystemProxy,
+	mergeNoProxy,
 	PROXY_DEFAULTS,
 } from "../settings-store";
 import { stopProxyRelay } from "../proxy-relay";
@@ -25,6 +26,8 @@ describe("Proxy settings", () => {
 		process.env.HTTPS_PROXY = "";
 		process.env.http_proxy = "";
 		process.env.https_proxy = "";
+		process.env.NO_PROXY = "";
+		process.env.no_proxy = "";
 		await stopProxyRelay();
 	});
 
@@ -103,5 +106,47 @@ describe("Proxy settings", () => {
 		await applySystemProxy(TEST_FILE, () => "http://127.0.0.1:7890");
 		expect(process.env.HTTP_PROXY).toMatch(RELAY_URL_PATTERN);
 		expect(process.env.http_proxy).toMatch(RELAY_URL_PATTERN);
+	});
+
+	test("applySystemProxy：写入 env 代理时同时设置 NO_PROXY 回环/内网绕过", async () => {
+		await saveProxySettings(
+			{ useSystemProxy: true, httpProxy: "http://127.0.0.1:7890" },
+			TEST_FILE,
+		);
+		await applySystemProxy(TEST_FILE, () => "");
+		// undici（pi 子进程的 HTTP 客户端）只认完全匹配/子域通配，不认 CIDR 网段；
+		// 内网 IP 绕过由中继侧 isDirectHost 兜底（proxy-relay.ts），NO_PROXY 不写无效网段。
+		for (const key of ["NO_PROXY", "no_proxy"]) {
+			for (const host of [
+				"127.0.0.1",
+				"localhost",
+				"::1",
+				".local",
+				".internal",
+			]) {
+				expect(process.env[key]).toContain(host);
+			}
+			// 不含 CIDR 网段（undici 不认，写了无效还误导）
+			for (const cidr of [
+				"10.0.0.0/8",
+				"172.16.0.0/12",
+				"192.168.0.0/16",
+				"169.254.0.0/16",
+			]) {
+				expect(process.env[key]).not.toContain(cidr);
+			}
+		}
+	});
+
+	test("mergeNoProxy：保留已有条目、追加回环/内网域名、重复调用不重复", () => {
+		const once = mergeNoProxy("corp.example.com, 8.8.8.8");
+		expect(once).toContain("corp.example.com");
+		expect(once).toContain("8.8.8.8");
+		expect(once).toContain("127.0.0.1");
+		expect(once).toContain(".internal");
+		expect(once).not.toContain("192.168.0.0/16");
+		const twice = mergeNoProxy(once);
+		expect(twice.split(",").length).toBe(once.split(",").length);
+		expect(mergeNoProxy(undefined)).toContain("localhost");
 	});
 });

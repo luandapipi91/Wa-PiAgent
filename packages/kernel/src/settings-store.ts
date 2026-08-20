@@ -273,6 +273,30 @@ export async function readSystemProxy(): Promise<string> {
 }
 
 /**
+ * 回环 + 本地域名必须绕过代理（本地 bridge/中继始终直连），与已有 NO_PROXY 合并去重。
+ * 注意：pi 子进程的 HTTP 客户端是 undici EnvHttpProxyAgent，no_proxy 只认完全匹配 /
+ * 子域通配（.local/.internal），**不认 CIDR 网段**——内网 IP 段（10/8、172.16/12、192.168/16
+ * 等）由中继路由层 isDirectHost 兜底直连（proxy-relay.ts），NO_PROXY 不写无效网段。
+ */
+const DIRECT_NO_PROXY = [
+	"127.0.0.1",
+	"localhost",
+	"::1",
+	".local",
+	".internal",
+];
+export function mergeNoProxy(existing: string | undefined): string {
+	const items = new Set(
+		(existing ?? "")
+			.split(",")
+			.map((s) => s.trim())
+			.filter(Boolean),
+	);
+	for (const h of DIRECT_NO_PROXY) items.add(h);
+	return [...items].join(",");
+}
+
+/**
  * 应用系统代理到进程环境变量（同时设置大小写，覆盖 undici/Bun fetch 与 curl/wget）。
  * 开启时优先用保存的 httpProxy；为空则从系统（readProxy）兜底读当前系统代理。
  * Bun 的 fetch 与 pi 子进程（继承 env）的 undici EnvHttpProxyAgent 读大写；
@@ -309,6 +333,12 @@ export async function applySystemProxy(
 		process.env.HTTPS_PROXY = envProxy;
 		process.env.http_proxy = envProxy;
 		process.env.https_proxy = envProxy;
+		// 回环/内网地址绕过代理：env 代理指向本地中继，不设 NO_PROXY 时 pi 子进程连
+		// 127.0.0.1 的 bridge 或内网服务的请求也走代理链路——上游代理异常时 agent_end 的
+		// file-changes 上报会挂住，表现为对话回复完后仍长时间"思考中"。
+		const noProxy = mergeNoProxy(process.env.NO_PROXY);
+		process.env.NO_PROXY = noProxy;
+		process.env.no_proxy = noProxy;
 	} else {
 		delete process.env.HTTP_PROXY;
 		delete process.env.HTTPS_PROXY;
