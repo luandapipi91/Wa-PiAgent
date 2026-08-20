@@ -8,6 +8,7 @@ import { api } from "../api-client";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { useTranslation } from "../i18n/useTranslation";
 import { useSessionStore } from "../store/session";
+import { useProjectsStore } from "../store/projects";
 
 interface Props {
 	onSelectSession: (id: string) => void;
@@ -92,6 +93,10 @@ export function ImConversationList({ onSelectSession }: Props) {
 		// 同步清理该会话的 composer 草稿（与任务侧删除一致）
 		useComposerPrefsStore.getState().removeSessionPrefs(sid);
 		useSessionStore.getState().removeSession(sid);
+		// 删除的是当前会话：显式清空 currentSessionId（setAll 保留旧 store 会话，真删除须在此清）
+		if (sid === useProjectsStore.getState().currentSessionId) {
+			useProjectsStore.getState().setCurrentSessionId(null);
+		}
 		setDeleteTarget(null);
 	};
 

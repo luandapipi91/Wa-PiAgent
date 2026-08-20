@@ -44,9 +44,14 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
 			// 防御性过滤：剥离软删除会话，确保当前列表只展示活跃会话。
 			// 后端 trash:list 单独返回回收站会话，主列表不应混入 deletedAt 项。
 			const active = sessions.filter((x) => !x.deletedAt);
-			// 当前选中的会话若已从列表中删除，则清空 currentSessionId，触发视图切换到新建会话页
+			// 当前选中的会话若已从列表中删除，则清空 currentSessionId，触发视图切换到新建会话页。
+			// 但仅当「新列表和旧 store 都没有」才清——kernel projects:list 快照可能滞后
+			// （新会话乐观添加后 placeholder 尚未转正），旧 store 有该会话说明是暂时不可见，
+			// 清了会让新会话首次发送闪回新建页（输入丢失）。真删除由删除 handler 显式清。
 			const stillExists =
-				s.currentSessionId && active.some((x) => x.id === s.currentSessionId);
+				s.currentSessionId &&
+				(active.some((x) => x.id === s.currentSessionId) ||
+			s.sessions.some((x) => x.id === s.currentSessionId));
 			return {
 				projects,
 				sessions: active,
