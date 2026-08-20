@@ -1,3 +1,8 @@
+## 2026-08-20 — feat(发送给IM联系人): 新建会话也可用推送命令
+
+- 体验：「发送给 IM 联系人」命令不再因 isNewSession 置灰——推送走全局执行器（channelManager 长连接），不依赖会话状态，新建会话首条消息即可带 chip 发送推送。仅运行中禁用（与 reload/compact 一致）。
+- 影响范围：`packages/frontend/src/components/ui/ComposerInput.tsx`（disabled 去掉 isNewSession）、`packages/frontend/e2e/send-im.spec.ts`（改为新建会话直接走完整流程，不再先建会话）；测试：ComposerInput 新增新建会话命令可用用例。
+
 ## 2026-08-20 — feat(发送给IM联系人): 联系人弹窗搜索 + 多选多 chip
 
 - 体验：联系人选择弹窗改版——标题显示「我的通讯录（x）」（x=联系人总数，去掉渠道分组标题）；顶部新增按名字搜索框（支持备注名/群 chatId 前 8 位/userId）；支持多选，确认后一次性插入多个 @im-push-to chip。
