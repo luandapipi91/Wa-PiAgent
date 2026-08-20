@@ -78,6 +78,23 @@ test("渲染人/群两类列表", () => {
 	expect(screen.getByText("u1")).toBeTruthy();
 });
 
+test("联系人名字过长时截断（truncate + min-w-0），不溢出面板", () => {
+	state.contacts = [
+		{
+			id: "ct_long",
+			channelId: "ch_a",
+			kind: "person",
+			userId: "wmQzBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+			firstChatAt: 1,
+			lastChatAt: 2,
+		},
+	];
+	render(<ContactsPanel channelId="ch_a" onClose={() => {}} />);
+	const name = screen.getByText(/wmQzB/);
+	expect(name.className).toContain("truncate");
+	expect(name.className).toContain("min-w-0");
+});
+
 test("点击行展开输入框，保存调用 renameContact", async () => {
 	render(<ContactsPanel channelId="ch_a" onClose={() => {}} />);
 	fireEvent.click(screen.getByText("u1"));

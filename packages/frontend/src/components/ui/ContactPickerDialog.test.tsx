@@ -91,3 +91,20 @@ test("无联系人时显示空态引导", () => {
 	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
 	expect(screen.getByTestId("contact-picker-empty").textContent).toContain("IM");
 });
+
+test("联系人名字过长时截断，不溢出弹窗", () => {
+	contactState.contacts = [
+		{
+			id: "ct_long",
+			channelId: "ch_1",
+			kind: "person",
+			userId: "wmQzBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+			firstChatAt: 0,
+			lastChatAt: 0,
+		},
+	];
+	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
+	const name = screen.getByText(/wmQzB/);
+	expect(name.className).toContain("truncate");
+	expect(name.className).toContain("min-w-0");
+});
