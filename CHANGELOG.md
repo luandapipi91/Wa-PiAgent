@@ -1,3 +1,10 @@
+## 2026-08-20 — fix(UI): 修复侧边栏 compact 图标回落到 12px（Tailwind 扫不到模板拼接类名）
+
+- 根因：`text-[calc(${compact ? 24 : 16}px*var(--font-scale))]` 把尺寸数字放进模板插值，Tailwind content 扫描拿不到完整类名字面量 → 不生成对应 CSS → 图标 font-size 回落到按钮 `text-xs`（12px），看起来「没放大」。
+- 修复：改为完整类名字面量三元表达式（`compact ? "text-[calc(24px*var(--font-scale))] flex-shrink-0" : "..."`），Tailwind 可扫描生成；验证 tailwindcss 产出 CSS 含 24/16/27/20px 四个类。
+- 附带：重新构建前端 dist（旧产物缺这些类）。尺寸最终：垃圾桶 compact 24px/常规 16px；系统设置 compact 27px/常规 20px。
+- 影响范围：`packages/frontend/src/components/RecycleBinButton.tsx`、`SettingsButton.tsx`、`dist/`（重新构建）。
+
 ## 2026-08-20 — fix(UI): 系统设置 compact 图标 32→27px
 
 - 调整：系统设置图标 compact（仅图标）32→27px；常规 20px、垃圾桶（compact 24px / 常规 16px）不变。
