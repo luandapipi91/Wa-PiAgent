@@ -1,4 +1,11 @@
-## 2026-08-20 — feat(企微通讯录同步): 通讯录搜索式同步企微成员
+## 2026-08-20 — feat(通讯录搜索): 两处通讯录搜索改为纯本地过滤（不再同步企微）
+
+- 调整：系统设置 → 机器人 → 通讯录面板（wecom 渠道）与发送给 IM 联系人弹窗（ContactPickerDialog）的「搜索好友」均为**纯本地过滤**——输入仅草稿，点搜索才按显示名过滤本地列表（人/群统一），清空再点可重置恢复全量；**不再调用企微同步接口**。
+- 原因：企微主动推送仅允许推送给「主动给机器人发过消息」的会话；此前搜索同步进来的企微成员（未对话）推送会报 846607 频率/会话限制，同步功能无法带来可推送好友，故前端移除同步调用。
+- 保留：后端 `POST /api/contacts/sync-wecom` + `WecomCliClient`（企微 CLI 网关 `contact/users/search`，Bot ID+Secret 签名换 token、853004 自动刷新）接口与测试完整保留，供后续需要时接入。
+- 影响范围：`packages/frontend/src/store/contacts.ts`（移除 `syncWecomContacts`）、`packages/frontend/src/components/settings/ContactsPanel.tsx`、`packages/frontend/src/components/ui/ContactPickerDialog.tsx`（移除同步逻辑 + channels store 依赖）；测试：两组件搜索用例改为纯过滤语义（不调同步、无 toast）。
+
+## 2026-08-20 — feat(企微通讯录同步): 通讯录搜索式同步企微成员（已下线）
 
 - 新增：系统设置 → 机器人 → 通讯录面板（wecom 渠道）顶部常驻搜索框，点「搜索好友」按关键词（姓名/部门）搜索企微通讯录成员并合入本地通讯录；输入仅草稿，点搜索才按显示名过滤本地列表（人/群统一）；仅新增 > 0 时 toast 提示，无新增不打扰；同步后保留关键词不清空，过滤继续生效；清空输入框再点「搜索好友」可重置过滤恢复全量。
 - 新增：发送给 IM 联系人弹窗（ContactPickerDialog）搜索框旁「搜索好友」按钮（始终显示），输入仅草稿、点搜索才按关键词过滤本地列表；有 wecom 渠道时顺带同步企微成员到本地并刷新，无权限则仅本地过滤（静默），回车同样触发。

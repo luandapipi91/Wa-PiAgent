@@ -3,7 +3,7 @@ import { useContactsStore } from "../../store/contacts";
 import { useToastStore } from "../../store/toast";
 import type { ChannelType, ContactEntity } from "@wa-pi/shared";
 
-/** 通讯录滑出面板：人/群两类 + 行内展开重命名 + 企微通讯录同步（wecom 渠道） */
+/** 通讯录滑出面板：人/群两类 + 行内展开重命名 + 本地搜索过滤（wecom 渠道展示搜索框） */
 export default function ContactsPanel({
 	channelId,
 	channelType,
@@ -14,15 +14,12 @@ export default function ContactsPanel({
 	onClose: () => void;
 }) {
 	const contacts = useContactsStore((s) => s.contacts);
-	const { renameContact, loadContacts, syncWecomContacts } =
-		useContactsStore.getState();
+	const { renameContact, loadContacts } = useContactsStore.getState();
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [value, setValue] = useState("");
-	// 企微通讯录搜索：搜索框常驻（wecom 渠道），输入仅更新草稿，点「搜索好友」才应用过滤 + 同步
+	// 本地搜索：输入仅更新草稿，点「搜索好友」才应用过滤（不调企微同步接口）
 	const [syncKeyword, setSyncKeyword] = useState("");
-	// 已应用的关键词：点「搜索好友」才更新，驱动本地过滤
 	const [appliedKeyword, setAppliedKeyword] = useState("");
-	const [syncing, setSyncing] = useState(false);
 
 	// 打开面板（或切换 channelId）时拉取通讯录，否则 store 初始为空、面板恒显示「暂无」
 	useEffect(() => {
@@ -31,29 +28,9 @@ export default function ContactsPanel({
 
 	const isWecom = channelType === "wecom";
 
-	const doSync = async () => {
-		const keyword = syncKeyword.trim();
-		// 先应用本地过滤（含空关键词 = 重置恢复全量）
-		setAppliedKeyword(keyword);
-		if (!keyword) return;
-		setSyncing(true);
-		try {
-			// 先应用本地过滤（无论同步结果如何）
-			setAppliedKeyword(keyword);
-			const { added } = await syncWecomContacts(channelId, [keyword]);
-			// 只有新增了人才提示，无新增（已全部在通讯录）不打扰
-			if (added > 0) {
-				useToastStore.getState().add(`搜索完成：新增 ${added} 人`, "success");
-			}
-			// 保留关键词：不清空输入框，本地过滤继续生效
-			void loadContacts(); // 同步后刷新列表
-		} catch (e) {
-			useToastStore
-				.getState()
-				.add(e instanceof Error ? e.message : String(e), "error");
-		} finally {
-			setSyncing(false);
-		}
+	/** 点「搜索好友」：仅应用本地过滤（含空关键词 = 重置恢复全量） */
+	const doSearch = () => {
+		setAppliedKeyword(syncKeyword.trim());
 	};
 
 	const label = (c: ContactEntity): string =>
@@ -105,14 +82,13 @@ export default function ContactsPanel({
 					<input
 						value={syncKeyword}
 						onChange={(e) => setSyncKeyword(e.target.value)}
-						onKeyDown={(e) => e.key === "Enter" && !syncing && void doSync()}
+						onKeyDown={(e) => e.key === "Enter" && doSearch()}
 						placeholder="输入姓名/部门关键词搜索"
 						className="flex-1 min-w-0 px-2 py-1 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
 						data-testid="contacts-sync-wecom-input"
 					/>
 					<button
-						onClick={() => void doSync()}
-						disabled={syncing}
+						onClick={() => doSearch()}
 						className="px-2 py-1 rounded-sm text-xs flex-shrink-0"
 						style={{
 							background: "var(--brand)",
@@ -120,7 +96,7 @@ export default function ContactsPanel({
 						}}
 						data-testid="contacts-sync-wecom-confirm"
 					>
-						{syncing ? "搜索中…" : "搜索好友"}
+						搜索好友
 					</button>
 				</div>
 			)}

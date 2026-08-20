@@ -40,7 +40,6 @@ const baseContacts = () => [
 const contactState = {
 	contacts: baseContacts() as any[],
 	loadContacts: mock(async () => {}),
-	syncWecomContacts: mock(async () => ({ added: 0, updated: 0 })),
 };
 const useContactsStore = (selector: (s: typeof contactState) => unknown) =>
 	selector(contactState);
@@ -51,24 +50,11 @@ mock.module("../../store/contacts", () => ({
 		c.remark || (c.kind === "group" ? c.chatId?.slice(0, 8) : c.userId) || c.id,
 }));
 
-// channels store：可配置 wecom 渠道列表（有 wecom = 有同步权限）
-const channelsState = {
-	bots: [] as any[],
-};
-const useChannelsStore = (selector: (s: typeof channelsState) => unknown) =>
-	selector(channelsState);
-(useChannelsStore as any).getState = () => channelsState;
-mock.module("../../store/channels", () => ({
-	useChannelsStore,
-}));
-
 const { ContactPickerDialog } = await import("./ContactPickerDialog");
 
 beforeEach(() => {
 	contactState.contacts = baseContacts() as any[];
 	contactState.loadContacts.mockReset();
-	contactState.syncWecomContacts.mockReset();
-	channelsState.bots = [];
 });
 afterEach(() => cleanup());
 
@@ -161,58 +147,21 @@ test("联系人名字过长时截断，不溢出弹窗", () => {
 	expect(name.className).toContain("min-w-0");
 });
 
-// ===== 企微搜索好友同步（有权限同步，无权限仅本地过滤）=====
+// ===== 搜索好友（纯本地过滤，不调企微同步）=====
 
-test("有 wecom 渠道：按钮显示「搜索好友」，点击后同步企微成员并刷新本地", async () => {
-	channelsState.bots = [
-		{ id: "ch_wecom", type: "wecom", name: "企微机器人" },
-		{ id: "ch_other", type: "mock", name: "其它" },
-	];
-	contactState.syncWecomContacts.mockResolvedValue({ added: 3, updated: 0 });
+test("按钮显示「搜索好友」，点击后仅本地过滤", () => {
 	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
 	const input = screen.getByTestId("contact-picker-search");
 	const searchBtn = screen.getByTestId("contact-picker-search-btn");
 	expect(screen.getByText("搜索好友")).toBeTruthy();
-	fireEvent.change(input, { target: { value: "张" } });
-	fireEvent.click(searchBtn);
-	await act(async () => {});
-	// 仅同步 wecom 渠道，跳过非 wecom
-	expect(contactState.syncWecomContacts).toHaveBeenCalledTimes(1);
-	expect(contactState.syncWecomContacts).toHaveBeenCalledWith("ch_wecom", [
-		"张",
-	]);
-	expect(contactState.loadContacts).toHaveBeenCalled();
-});
-
-test("无 wecom 渠道（无权限）→ 按钮仍显示「搜索好友」，点击仅本地过滤不触发同步", async () => {
-	channelsState.bots = [{ id: "ch_other", type: "mock", name: "其它" }];
-	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
-	const searchBtn = screen.getByTestId("contact-picker-search-btn");
-	expect(screen.getByText("搜索好友")).toBeTruthy();
-	const input = screen.getByTestId("contact-picker-search");
 	fireEvent.change(input, { target: { value: "李" } });
 	fireEvent.click(searchBtn);
-	await act(async () => {});
-	// 不触发同步
-	expect(contactState.syncWecomContacts).not.toHaveBeenCalled();
-	// 本地过滤仍生效
+	// 本地过滤生效：只显示李四
 	expect(screen.getByText("李四")).toBeTruthy();
 	expect(screen.queryByText("张三")).toBeNull();
 });
 
-test("搜索词为空 → 点搜索好友不触发同步", async () => {
-	channelsState.bots = [{ id: "ch_wecom", type: "wecom", name: "企微机器人" }];
-	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
-	const searchBtn = screen.getByTestId("contact-picker-search-btn");
-	fireEvent.change(screen.getByTestId("contact-picker-search"), {
-		target: { value: "  " },
-	});
-	fireEvent.click(searchBtn);
-	await act(async () => {});
-	expect(contactState.syncWecomContacts).not.toHaveBeenCalled();
-});
-
-test("清空输入框后点「搜索好友」→ 重置过滤恢复全量", async () => {
+test("清空输入框后点「搜索好友」→ 重置过滤恢复全量", () => {
 	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
 	const searchBtn = screen.getByTestId("contact-picker-search-btn");
 	const input = screen.getByTestId("contact-picker-search");
@@ -225,17 +174,4 @@ test("清空输入框后点「搜索好友」→ 重置过滤恢复全量", asyn
 	fireEvent.click(searchBtn);
 	expect(screen.getByText("张三")).toBeTruthy();
 	expect(screen.getByText("李四")).toBeTruthy();
-});
-
-test("同步失败（如已过期）→ 静默忽略，不 toast 不阻塞本地搜索", async () => {
-	channelsState.bots = [{ id: "ch_wecom", type: "wecom", name: "企微机器人" }];
-	contactState.syncWecomContacts.mockRejectedValue(new Error("token 过期"));
-	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
-	fireEvent.change(screen.getByTestId("contact-picker-search"), {
-		target: { value: "张" },
-	});
-	fireEvent.click(screen.getByTestId("contact-picker-search-btn"));
-	// 同步失败不应让本地过滤出错
-	await act(async () => {});
-	expect(screen.getByText("张三")).toBeTruthy();
 });
