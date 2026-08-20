@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### 重构
+- 发版存储从阿里云 OSS 迁移到 Cloudflare R2：publish-oss 脚本改 S3 兼容 SDK（@aws-sdk/client-s3 + lib-storage），更新 URL 与凭证键名（R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY）同步切换（scripts/publish-oss.ts、electron-builder.yml、updater.cjs、.env.example）
+
 ## 2026-08-20 — fix(UI): 系统设置 compact 图标 32→27px
 
 - 调整：系统设置图标 compact（仅图标）32→27px；常规 20px、垃圾桶（compact 24px / 常规 16px）不变。
