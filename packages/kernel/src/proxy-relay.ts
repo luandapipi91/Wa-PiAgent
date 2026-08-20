@@ -6,7 +6,7 @@
 //
 // 方案：env 里的代理地址不直接指向上游代理，而是指向本中继（127.0.0.1 环回）。
 // 中继对 CONNECT 隧道与普通 HTTP 转发都先尝试经上游；上游连不通/超时则回退直连
-// （回环目标如本地 bridge 绕过上游，始终直连）。
+// （回环/内网目标如本地 bridge、私网服务绕过上游，始终直连——见 isDirectHost）。
 // 上游恢复后下一条连接自动切回（有短暂冷却缓存，避免每条请求都付一次失败延迟）。
 //
 // 生命周期：中继随 applySystemProxy 启动后不关停，env 始终指向中继——
@@ -36,7 +36,9 @@ export interface ProxyRelayOpts {
 }
 
 /** 解析 host:port 形式的 CONNECT 目标（IPv6 形如 [::1]:443 暂不支持，LLM API 用不到） */
-function parseConnectTarget(url: string): { host: string; port: number } | null {
+function parseConnectTarget(
+	url: string,
+): { host: string; port: number } | null {
 	const idx = url.lastIndexOf(":");
 	if (idx <= 0) return null;
 	const host = url.slice(0, idx);
@@ -45,14 +47,35 @@ function parseConnectTarget(url: string): { host: string; port: number } | null 
 	return { host, port };
 }
 
-/** 回环目标判定：本地服务（如 bridge）不应经过上游代理 */
-function isLoopbackHost(hostname: string): boolean {
-	return (
-		hostname === "localhost" ||
-		hostname === "::1" ||
-		hostname === "[::1]" ||
-		hostname.startsWith("127.")
-	);
+/**
+ * 直连目标判定：回环 / 内网地址不应经过上游代理——本地服务（如 bridge）和
+ * 内网资源走代理既慢又可能被代理软件直接拒绝（CONNECT 隧道与普通 HTTP 共用）。
+ */
+export function isDirectHost(hostname: string): boolean {
+	const h = hostname.toLowerCase();
+	if (
+		h === "localhost" ||
+		h === "::1" ||
+		h === "[::1]" ||
+		h.endsWith(".local") ||
+		h.endsWith(".internal")
+	) {
+		return true;
+	}
+	// 仅当整体是 IPv4 字面量时按网段判断（避免误伤 "10.example.com" 这类域名）
+	const ipv4 = h.match(/^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+	if (ipv4) {
+		const a = Number(ipv4[1]);
+		const b = Number(ipv4[2]);
+		if (a === 127 || a === 10) return true;
+		if (a === 192 && b === 168) return true;
+		if (a === 169 && b === 254) return true; // 链路本地
+		if (a === 172 && b >= 16 && b <= 31) return true;
+	}
+	// IPv6 ULA（fc00::/7）/ 链路本地（fe80::/10），host 可能带方括号
+	const v6 = h.replace(/^\[|\]$/g, "");
+	if (/^f[cd]/.test(v6) || v6.startsWith("fe80")) return true;
+	return false;
 }
 
 /** 请求头文本 → 行数组里剔除代理专用 hop-by-hop 头，返回剩余行 */
@@ -101,15 +124,22 @@ export class ProxyRelay {
 			this.upstream = null;
 			this.upstreamAuth = null;
 		} else {
-			const url = new URL(
-				upstream.includes("://") ? upstream : `http://${upstream}`,
-			);
-			this.upstream = url;
-			this.upstreamAuth = url.username
-				? `Basic ${Buffer.from(
-						`${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`,
-					).toString("base64")}`
-				: null;
+			try {
+				const url = new URL(
+					upstream.includes("://") ? upstream : `http://${upstream}`,
+				);
+				this.upstream = url;
+				this.upstreamAuth = url.username
+					? `Basic ${Buffer.from(
+							`${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`,
+						).toString("base64")}`
+					: null;
+			} catch {
+				// 上游地址无效：按直连处理，不抛异常（与「上游不可达回退直连」同一语义）
+				console.warn(`[proxy-relay] 上游地址无效，按直连处理: ${upstream}`);
+				this.upstream = null;
+				this.upstreamAuth = null;
+			}
 		}
 		// 换上游后清掉旧冷却，让新上游立刻被尝试
 		this.upstreamDownUntil = 0;
@@ -206,19 +236,21 @@ export class ProxyRelay {
 				`CONNECT ${tag} via=${via} result=fail status=${status}` +
 					` durMs=${Date.now() - startedAt} err=${JSON.stringify(err)}`,
 			);
-		const ok =
-			(via: string) =>
-			(s: TunnelStats) =>
-				this.log(
-					`CONNECT ${tag} via=${via} result=ok durMs=${s.durMs}` +
-						` up=${formatBytes(s.upBytes)} down=${formatBytes(s.downBytes)}`,
-				);
+		const ok = (via: string) => (s: TunnelStats) =>
+			this.log(
+				`CONNECT ${tag} via=${via} result=ok durMs=${s.durMs}` +
+					` up=${formatBytes(s.upBytes)} down=${formatBytes(s.downBytes)}`,
+			);
 		const direct = (via: string) =>
 			this.tunnelDirect(target.host, target.port, client, head, {
 				onFail: (status, err) => fail(via, status, err),
 				onClose: ok(via),
 			});
 
+		if (isDirectHost(target.host)) {
+			direct("direct");
+			return;
+		}
 		if (!this.upstream) {
 			direct("direct");
 			return;
@@ -281,10 +313,20 @@ export class ProxyRelay {
 		},
 	): void {
 		const target = netConnect(port, host);
-		target.once("connect", () =>
-			this.establishTunnel(client, target, head, hooks.onClose),
-		);
+		// 直连同样受 connectTimeoutMs 约束：无超时的话，内网目标不可达时连接会无限挂起，
+		// 且 client 处于 pause 状态收不到 FIN → relay server.close() 永远等待（连接泄漏）。
+		const timer = setTimeout(() => {
+			target.destroy();
+			console.warn(`[proxy-relay] 直连 ${host}:${port} 超时`);
+			hooks.onFail(502, "连接超时");
+			this.endClient(client, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
+		}, this.connectTimeoutMs);
+		target.once("connect", () => {
+			clearTimeout(timer);
+			this.establishTunnel(client, target, head, hooks.onClose);
+		});
 		target.once("error", (err) => {
+			clearTimeout(timer);
 			console.warn(`[proxy-relay] 直连 ${host}:${port} 失败: ${err.message}`);
 			hooks.onFail(502, err.message);
 			this.endClient(client, "HTTP/1.1 502 Bad Gateway\r\n\r\n");
@@ -509,7 +551,7 @@ export class ProxyRelay {
 		};
 
 		const useUpstream = !!(
-			!isLoopbackHost(target.hostname) &&
+			!isDirectHost(target.hostname) &&
 			this.upstream &&
 			this.now() >= this.upstreamDownUntil
 		);

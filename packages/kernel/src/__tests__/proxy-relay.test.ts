@@ -4,12 +4,16 @@
 //   client → relay(127.0.0.1:R) → [upstream 假代理(127.0.0.1:U)] → target 回显服务(127.0.0.1:T)
 // 假代理收到 CONNECT 后记录请求行/鉴权头，回 200 并把隧道 pipe 到 target；
 // target 是 TCP 回显服务。client 发 "ping" 应收 "ping"（经谁转发由假代理的记录判断）。
+//
+// isDirectHost 语义：回环/内网目标（127.0.0.1、localhost、私网段）始终直连、不送上游。
+// 因此「经上游」用例的 CONNECT 目标用公网保留地址 203.0.113.1（RFC 5737），
+// 假代理回连统一重写到 127.0.0.1（真实目标服务都在本机）。
 
 import { describe, test, expect, afterEach } from "bun:test";
 import { createServer, Socket, type Server } from "node:net";
 import { createServer as httpCreateServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { ProxyRelay } from "../proxy-relay";
+import { ProxyRelay, isDirectHost } from "../proxy-relay";
 
 interface FakeUpstream {
 	server: Server;
@@ -37,8 +41,7 @@ async function startTarget(): Promise<RunningTarget> {
 	const server = createServer((sock) => sock.pipe(sock));
 	await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
 	const port = (server.address() as AddressInfo).port;
-	const close = () =>
-		new Promise<void>((r) => server.close(() => r()));
+	const close = () => new Promise<void>((r) => server.close(() => r()));
 	cleanups.push(close);
 	return { server, port, close };
 }
@@ -46,6 +49,9 @@ async function startTarget(): Promise<RunningTarget> {
 /**
  * 假 HTTP 代理：记录 CONNECT 请求，回 200 后把隧道 pipe 到真实目标。
  * port 传 0 = 随机端口；传固定端口用于「先关后开」模拟代理恢复。
+ * 测试替身约定：CONNECT 目标 host 只用于断言中继是否把请求送上游
+ * （经上游用例用公网保留地址 203.0.113.1，绕开 isDirectHost 内网直连判定）；
+ * 真实目标服务都在本机 127.0.0.1，回连统一重写到这里。
  */
 async function startFakeUpstream(port = 0): Promise<FakeUpstream> {
 	const state: FakeUpstream = {
@@ -71,7 +77,7 @@ async function startFakeUpstream(port = 0): Promise<FakeUpstream> {
 				return;
 			}
 			const target = new Socket();
-			target.connect(Number(m[2]), m[1], () => {
+			target.connect(Number(m[2]), "127.0.0.1", () => {
 				client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
 				const rest = buf.slice(end + 4);
 				if (rest.length) target.write(rest);
@@ -90,15 +96,20 @@ async function startFakeUpstream(port = 0): Promise<FakeUpstream> {
 	return state;
 }
 
-/** 向中继发 CONNECT，返回 { statusLine, socket }（已建立隧道） */
+/** 向中继发 CONNECT，返回 { statusLine, socket }（已建立隧道）。timeoutMs 兜底防止挂起。 */
 function connectViaRelay(
 	relayPort: number,
 	targetHost: string,
 	targetPort: number,
+	timeoutMs = 5000,
 ): Promise<{ statusLine: string; socket: Socket }> {
 	return new Promise((resolve, reject) => {
 		const socket = new Socket();
 		let buf = Buffer.alloc(0);
+		const timer = setTimeout(() => {
+			socket.destroy();
+			reject(new Error(`connectViaRelay timeout ${timeoutMs}ms`));
+		}, timeoutMs);
 		socket.connect(relayPort, "127.0.0.1", () => {
 			socket.write(
 				`CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\n\r\n`,
@@ -108,12 +119,16 @@ function connectViaRelay(
 			buf = Buffer.concat([buf, chunk]);
 			const end = buf.indexOf("\r\n\r\n");
 			if (end === -1) return;
+			clearTimeout(timer);
 			socket.off("data", onData);
 			const statusLine = buf.slice(0, end).toString("latin1").split("\r\n")[0];
 			resolve({ statusLine, socket });
 		};
 		socket.on("data", onData);
-		socket.on("error", reject);
+		socket.on("error", (e) => {
+			clearTimeout(timer);
+			reject(e);
+		});
 	});
 }
 
@@ -149,9 +164,7 @@ function rawHttpGet(relayPort: number, absoluteUrl: string): Promise<string> {
 			}
 			if (buf.length >= expected) {
 				socket.off("data", onData);
-				const statusLine = buf
-					.slice(0, buf.indexOf("\r\n"))
-					.toString("latin1");
+				const statusLine = buf.slice(0, buf.indexOf("\r\n")).toString("latin1");
 				const body = buf.slice(headEnd + 4, expected).toString("utf8");
 				socket.destroy();
 				resolve(`${statusLine} ${body}`);
@@ -177,16 +190,17 @@ describe("ProxyRelay", () => {
 		await relay.start();
 		cleanups.push(() => relay.close());
 
+		// 公网保留地址：isDirectHost=false → 经上游
 		const { statusLine, socket } = await connectViaRelay(
 			relay.port,
-			"127.0.0.1",
+			"203.0.113.1",
 			target.port,
 		);
 		expect(statusLine).toContain("200");
 		expect(await echo(socket, "ping")).toBe("ping");
 		expect(upstream.connectRequests.length).toBe(1);
 		expect(upstream.connectRequests[0]).toContain(
-			`CONNECT 127.0.0.1:${target.port}`,
+			`CONNECT 203.0.113.1:${target.port}`,
 		);
 		socket.destroy();
 	});
@@ -200,7 +214,11 @@ describe("ProxyRelay", () => {
 		await relay.start();
 		cleanups.push(() => relay.close());
 
-		const { socket } = await connectViaRelay(relay.port, "127.0.0.1", target.port);
+		const { socket } = await connectViaRelay(
+			relay.port,
+			"203.0.113.1",
+			target.port,
+		);
 		expect(await echo(socket, "ping")).toBe("ping");
 		const expected = `Basic ${Buffer.from("alice:s3cret").toString("base64")}`;
 		expect(upstream.connectRequests[0]).toContain(
@@ -209,7 +227,7 @@ describe("ProxyRelay", () => {
 		socket.destroy();
 	});
 
-	test("上游端口无监听（代理软件被关）→ 自动回退直连", async () => {
+	test("上游端口无监听：回环目标直连不受影响", async () => {
 		const target = await startTarget();
 		// 起一个上游再立刻关掉，拿到一个确定无监听的端口
 		const dead = await startFakeUpstream();
@@ -224,6 +242,7 @@ describe("ProxyRelay", () => {
 		await relay.start();
 		cleanups.push(() => relay.close());
 
+		// 回环目标被 isDirectHost 判定直连，根本不经上游——死上游不影响本机请求
 		const { statusLine, socket } = await connectViaRelay(
 			relay.port,
 			"127.0.0.1",
@@ -252,23 +271,23 @@ describe("ProxyRelay", () => {
 		await relay.start();
 		cleanups.push(() => relay.close());
 
-		// 第一次：上游死 → 失败回退直连（触发冷却）
-		const first = await connectViaRelay(relay.port, "127.0.0.1", target.port);
-		expect(await echo(first.socket, "a")).toBe("a");
+		// 第一次：公网目标 → 尝试死上游失败（触发冷却）→ 回退直连超时 502
+		const first = await connectViaRelay(relay.port, "203.0.113.1", target.port);
+		expect(first.statusLine).toContain("502");
 		first.socket.destroy();
 
 		// 同端口复活假代理（模拟代理软件重新打开）
 		const alive = await startFakeUpstream(port);
 
-		// 冷却期内：不尝试上游，直接直连
-		const second = await connectViaRelay(relay.port, "127.0.0.1", target.port);
-		expect(await echo(second.socket, "b")).toBe("b");
+		// 冷却期内：公网目标不再尝试上游（直连超时 502），上游零连接
+		const second = await connectViaRelay(relay.port, "203.0.113.1", target.port);
+		expect(second.statusLine).toContain("502");
 		second.socket.destroy();
 		expect(alive.attempts).toBe(0);
 
-		// 冷却过期：重新尝试上游并成功走回代理
+		// 冷却过期：重新尝试上游并成功走回代理（fake 回连本机 target）
 		fakeNow += 61_000;
-		const third = await connectViaRelay(relay.port, "127.0.0.1", target.port);
+		const third = await connectViaRelay(relay.port, "203.0.113.1", target.port);
 		expect(await echo(third.socket, "c")).toBe("c");
 		third.socket.destroy();
 		expect(alive.connectRequests.length).toBe(1);
@@ -290,7 +309,7 @@ describe("ProxyRelay", () => {
 		socket.destroy();
 	});
 
-	test("setUpstream(\"\") 切直连：模拟用户关闭代理后存量进程继续可用", async () => {
+	test('setUpstream("") 切直连：模拟用户关闭代理后存量进程继续可用', async () => {
 		const target = await startTarget();
 		const upstream = await startFakeUpstream();
 		const relay = new ProxyRelay({
@@ -299,13 +318,13 @@ describe("ProxyRelay", () => {
 		await relay.start();
 		cleanups.push(() => relay.close());
 
-		// 关闭代理前：经上游
-		const before = await connectViaRelay(relay.port, "127.0.0.1", target.port);
+		// 关闭代理前：公网目标经上游
+		const before = await connectViaRelay(relay.port, "203.0.113.1", target.port);
 		expect(await echo(before.socket, "x")).toBe("x");
 		before.socket.destroy();
 		expect(upstream.connectRequests.length).toBe(1);
 
-		// 用户关闭代理 → 清上游 → 后续连接直连（不再碰上游）
+		// 用户关闭代理 → 清上游 → 后续回环请求直连（不再碰上游）
 		relay.setUpstream("");
 		const after = await connectViaRelay(relay.port, "127.0.0.1", target.port);
 		expect(await echo(after.socket, "y")).toBe("y");
@@ -442,5 +461,71 @@ describe("ProxyRelay", () => {
 		expect(raw).toContain("200");
 		expect(raw).toContain("ok-bridge");
 		expect(upstreamHits).toBe(0);
+	});
+
+	test("CONNECT 隧道：内网目标（localhost）不送上上游，始终直连", async () => {
+		const target = await startTarget();
+		const upstream = await startFakeUpstream();
+
+		const relay = new ProxyRelay({
+			upstream: `http://127.0.0.1:${upstream.port}`,
+		});
+		await relay.start();
+		cleanups.push(() => relay.close());
+
+		// localhost 是内网判定的一种：隧道应直接建立，上游零记录
+		const { statusLine, socket } = await connectViaRelay(
+			relay.port,
+			"localhost",
+			target.port,
+		);
+		expect(statusLine).toContain("200");
+		socket.write("ping");
+		const echoed = await new Promise<string>((r) =>
+			socket.once("data", (d) => r(d.toString())),
+		);
+		expect(echoed).toBe("ping");
+		socket.destroy();
+		expect(upstream.attempts).toBe(0);
+	});
+});
+
+describe("isDirectHost 内网/回环判定", () => {
+	test("回环与内网地址 → 直连", () => {
+		for (const h of [
+			"localhost",
+			"127.0.0.1",
+			"127.0.0.2",
+			"::1",
+			"[::1]",
+			"10.0.0.1",
+			"10.255.255.254",
+			"172.16.0.1",
+			"172.31.255.254",
+			"192.168.1.1",
+			"169.254.0.1",
+			"nas.local",
+			"git.internal",
+			"fd00::1",
+			"fe80::1",
+		]) {
+			expect(isDirectHost(h)).toBe(true);
+		}
+	});
+
+	test("公网地址与形似内网的域名 → 走上游", () => {
+		for (const h of [
+			"example.com",
+			"api.deepseek.com",
+			"8.8.8.8",
+			"172.15.0.1",
+			"172.32.0.1",
+			"192.167.1.1",
+			"10.example.com",
+			"192.168.example.com",
+			"mylocal.com",
+		]) {
+			expect(isDirectHost(h)).toBe(false);
+		}
 	});
 });
