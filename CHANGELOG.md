@@ -1,3 +1,9 @@
+## 2026-08-20 — feat(HTML预览): 内置浏览器预览 HTML 产物
+
+- 新增功能：内置浏览器预览 HTML 产物——双击 .html 或点会话页右上角 🌐 图标，在占满主内容区的预览窗口渲染页面（相对 js/css/图片完整加载），支持复制路径/刷新/查看源码/分享/关闭。
+- 实现：kernel 新增 /preview 同源静态浏览路由（allowlist 仅放行项目根内文件、realpath 防穿越、sandbox iframe 隔离）；前端 preview-url 工具（isHtmlPath/buildPreviewUrl）、browser store（openBrowser/closeBrowser）、HtmlPreview iframe 组件、BrowserPanel 单预览窗口（输入路径/复制/刷新/查看源码/分享/关闭），App/SessionView/NewSessionPane 入口接线 + vite /preview 代理 + i18n。
+- 影响范围：`packages/kernel/src/ws-server.ts`、`packages/frontend/src/preview-url.ts`、`packages/frontend/src/store/browser.ts`、`packages/frontend/src/components/blocks/HtmlPreview.tsx`、`packages/frontend/src/components/BrowserPanel.tsx`、`packages/frontend/src/App.tsx`、`packages/frontend/src/components/SessionView.tsx`、`packages/frontend/src/components/NewSessionPane.tsx`、`packages/frontend/vite.config.ts`、i18n；测试：kernel preview-route 单测/集成、组件测试、E2E `packages/frontend/e2e/html-preview.spec.ts`。
+
 # 变更日志
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
