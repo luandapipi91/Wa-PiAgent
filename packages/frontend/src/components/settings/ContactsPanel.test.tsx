@@ -274,6 +274,42 @@ test("搜索无匹配 → 列表区显示暂无，不报错", () => {
 	expect(screen.getByText("暂无对话过的人/群")).toBeTruthy();
 });
 
+test("同步成功后输入框不清空，过滤继续生效", async () => {
+	state.contacts = [
+		{
+			id: "ct_1",
+			channelId: "ch_a",
+			kind: "person",
+			userId: "u1",
+			remark: "张文明",
+			firstChatAt: 1,
+			lastChatAt: 2,
+		},
+		{
+			id: "ct_2",
+			channelId: "ch_a",
+			kind: "person",
+			userId: "u2",
+			remark: "李四",
+			firstChatAt: 1,
+			lastChatAt: 2,
+		},
+	];
+	syncWecomContacts.mockResolvedValue({ added: 1, updated: 0 });
+	render(
+		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
+	);
+	const input = screen.getByTestId("contacts-sync-wecom-input");
+	fireEvent.change(input, { target: { value: "张" } });
+	fireEvent.click(screen.getByText("搜索好友"));
+	await act(async () => {});
+	// 同步后输入框仍保留关键词
+	expect((input as HTMLInputElement).value).toBe("张");
+	// 本地过滤继续生效：只显示张文明
+	expect(screen.getByText("张文明")).toBeTruthy();
+	expect(screen.queryByText("李四")).toBeNull();
+});
+
 test("同步失败 → toast 收到 error 消息", async () => {
 	syncWecomContacts.mockRejectedValue(new Error("该机器人不是企业微信机器人"));
 	render(
