@@ -4,10 +4,10 @@ export function isHtmlPath(path: string): boolean {
 	return clean.endsWith(".html") || clean.endsWith(".htm");
 }
 
-/** 构造 /preview 同源预览 URL：/preview/<编码后的目录>/<文件名> */
+/** 构造 /preview 同源预览 URL：/preview/<编码后的目录>/<编码后的文件名> */
 export function buildPreviewUrl(absPath: string): string {
 	const slash = Math.max(absPath.lastIndexOf("/"), absPath.lastIndexOf("\\"));
 	const dir = slash === -1 ? "" : absPath.slice(0, slash);
 	const base = slash === -1 ? absPath : absPath.slice(slash + 1);
-	return `/preview/${encodeURIComponent(dir)}/${base}`;
+	return `/preview/${encodeURIComponent(dir)}/${encodeURIComponent(base)}`;
 }
