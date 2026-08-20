@@ -27,6 +27,16 @@ process.env.WA_PI_DIR = TMP_ROOT;
 
 const { startKernel } = await import("../src/index");
 
+// 预置 projects.json：让 /preview 的 allowlist 放行 TMP_ROOT 内的请求
+// （ensureSystemProject 是追加式写入，不会覆盖本文件）
+await writeFile(
+	join(TMP_ROOT, "projects.json"),
+	JSON.stringify({
+		projects: [{ id: "preview-test", name: "t", cwd: TMP_ROOT, createdAt: 0 }],
+		sessions: [],
+	}),
+);
+
 // root 之外的「机密文件」：验证 symlink 逃逸出 root 被 forbidden 拦截。
 // 不能用 /preview/<enc>/../x 这类路径做 HTTP 穿越用例——WHATWG URL 会把
 // .. 与 %2E%2E 段规范化掉，服务端根本收不到 ..，真实 HTTP 下的越权只能靠链接。
@@ -115,5 +125,17 @@ maybeTest(
 		// 3) 不存在：404
 		const miss = await fetch(`${base}/preview/${enc}/dist/nope.html`);
 		expect(miss.status).toBe(404);
+
+		// 4) root 指向非项目目录（不在 projects.json 列表）：403
+		const outsideDir = join(tmpdir(), `not-a-project-${basename(TMP_ROOT)}`);
+		await mkdir(outsideDir, { recursive: true });
+		await writeFile(join(outsideDir, "x.txt"), "secret");
+		try {
+			const outsideEnc = encodeURIComponent(outsideDir);
+			const out = await fetch(`${base}/preview/${outsideEnc}/x.txt`);
+			expect(out.status).toBe(403);
+		} finally {
+			await rm(outsideDir, { recursive: true, force: true });
+		}
 	},
 );
