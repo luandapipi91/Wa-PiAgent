@@ -1,5 +1,5 @@
-// WebAudio 提示音：任务完成 / 需要操作。无音频资源文件，代码生成蜂鸣。
-// 浏览器自动播放策略阻止（AudioContext 创建失败/挂起）时静默降级，不报错。
+// WebAudio 提示音：任务完成（真实音频）/ 需要操作（代码生成蜂鸣）。
+// 浏览器自动播放策略阻止（AudioContext 创建失败/挂起、audio.play() 被拒）时静默降级，不报错。
 import { useUiPrefsStore } from "../store/ui-prefs";
 
 let ctx: AudioContext | null = null;
@@ -44,13 +44,15 @@ function beep(
 	osc.stop(t0 + durationSec + 0.05);
 }
 
-/** 任务完成音色：上行两音（880 → 1320Hz，各 120ms）。 */
+/** 任务完成提示音音频：真实青蛙叫声「呱 呱～」（截取 1.8s，public/ 资源）。 */
+const TASK_DONE_SOUND_URL = "/sounds/frog-croak.mp3";
+
+/** 任务完成音色：播放真实青蛙叫音频（受自动播放策略影响时静默降级）。 */
 function taskDoneSound() {
-	const ac = getCtx();
-	if (!ac) return;
 	try {
-		beep(ac, 880, 0, 0.12);
-		beep(ac, 1320, 0.14, 0.12);
+		const audio = new Audio(TASK_DONE_SOUND_URL);
+		audio.volume = 0.8;
+		void audio.play().catch(() => {});
 	} catch {
 		/* 静默降级 */
 	}

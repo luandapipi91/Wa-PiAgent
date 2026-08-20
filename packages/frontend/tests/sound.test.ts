@@ -8,7 +8,26 @@ import {
 } from "../src/util/sound";
 import { useUiPrefsStore } from "../src/store/ui-prefs";
 
-// 假 AudioContext：记录 oscillator 的频率与启停时刻
+// --- Fake Audio：任务完成提示音改为播放真实 mp3（HTMLAudioElement）---
+let audioCalls: { url: string; volume: number }[] = [];
+// 模拟自动播放策略阻止 play() 返回的 promise reject
+let fakePlayRejects = false;
+class FakeAudio {
+	url: string;
+	volume = 0;
+	constructor(url: string) {
+		this.url = url;
+		audioCalls.push({ url, volume: this.volume });
+	}
+	play() {
+		if (fakePlayRejects) {
+			return Promise.reject(new Error("mock: 自动播放策略阻止 play"));
+		}
+		return Promise.resolve();
+	}
+}
+
+// --- Fake AudioContext：需要操作提示音仍用 Web Audio 合成 ---
 interface BeepRecord {
 	freq: number;
 	startSec: number;
@@ -81,6 +100,8 @@ class FakeAudioContext {
 }
 
 beforeEach(() => {
+	audioCalls = [];
+	fakePlayRejects = false;
 	beeps.length = 0;
 	fakeState = "running";
 	fakeResumeRejects = false;
@@ -88,33 +109,42 @@ beforeEach(() => {
 	fakeCtx = null;
 	resumeCatchCalled = false;
 	resetSoundForTests();
+	(globalThis as any).Audio = FakeAudio;
 	(globalThis as any).AudioContext = FakeAudioContext;
 	useUiPrefsStore.setState({ soundTaskDone: true, soundNeedsAction: true });
 });
 
 afterEach(() => {
+	delete (globalThis as any).Audio;
 	delete (globalThis as any).AudioContext;
 });
 
-test("playTaskDone：开关开 → 播放上行两音（880 → 1320Hz）", () => {
+// --- 任务完成提示音：播放青蛙叫 mp3 ---
+test("playTaskDone：开关开 → 播放青蛙叫音频（frog-croak.mp3）", () => {
 	playTaskDone();
-	expect(beeps).toHaveLength(2);
-	expect(beeps[0].freq).toBe(880);
-	expect(beeps[1].freq).toBe(1320);
+	expect(audioCalls).toHaveLength(1);
+	expect(audioCalls[0].url).toContain("frog-croak.mp3");
 });
 
 test("playTaskDone：开关关 → 不播放", () => {
 	useUiPrefsStore.getState().setSoundTaskDone(false);
 	playTaskDone();
-	expect(beeps).toHaveLength(0);
+	expect(audioCalls).toHaveLength(0);
 });
 
 test("previewTaskDone：开关关也能试听", () => {
 	useUiPrefsStore.getState().setSoundTaskDone(false);
 	previewTaskDone();
-	expect(beeps).toHaveLength(2);
+	expect(audioCalls).toHaveLength(1);
 });
 
+test("playTaskDone：play() 被自动播放策略拒绝 → 静默不抛错", () => {
+	fakePlayRejects = true;
+	expect(() => playTaskDone()).not.toThrow();
+	expect(audioCalls).toHaveLength(1);
+});
+
+// --- 需要操作提示音：Web Audio 合成 ---
 test("playNeedsAction：开关开 → 660Hz 短音两次", () => {
 	playNeedsAction();
 	expect(beeps).toHaveLength(2);
@@ -141,15 +171,16 @@ test("previewNeedsAction：开关关也能试听，且不受去抖影响", () =>
 	expect(beeps).toHaveLength(4);
 });
 
+// --- 异常降级 ---
 test("AudioContext 不存在（老环境/策略阻止）→ 静默不抛错", () => {
 	delete (globalThis as any).AudioContext;
 	expect(() => playTaskDone()).not.toThrow();
 	expect(() => playNeedsAction()).not.toThrow();
 });
 
-test("state=suspended → 调用 resume 且播放不抛错", () => {
+test("state=suspended → 调用 resume 且 needsAction 播放不抛错", () => {
 	fakeState = "suspended";
-	expect(() => playTaskDone()).not.toThrow();
+	expect(() => playNeedsAction()).not.toThrow();
 	expect(fakeCtx!.resumeCalls).toBe(1);
 	expect(beeps).toHaveLength(2);
 });
@@ -157,16 +188,15 @@ test("state=suspended → 调用 resume 且播放不抛错", () => {
 test("resume 被自动播放策略拒绝 → sound.ts 捕获其 rejection，静默降级不抛错", () => {
 	fakeState = "suspended";
 	fakeResumeRejects = true;
-	expect(() => playTaskDone()).not.toThrow();
+	expect(() => playNeedsAction()).not.toThrow();
 	expect(fakeCtx!.resumeCalls).toBe(1);
 	// 锁定修复：必须对 resume() 的 promise 调用 .catch，否则控制台会报 unhandled rejection
 	expect(resumeCatchCalled).toBe(true);
 	expect(beeps).toHaveLength(2);
 });
 
-test("createOscillator 抛错 → playTaskDone/playNeedsAction 静默降级不抛错", () => {
+test("createOscillator 抛错 → playNeedsAction 静默降级不抛错", () => {
 	fakeThrowOnCreateOscillator = true;
-	expect(() => playTaskDone()).not.toThrow();
 	expect(() => playNeedsAction()).not.toThrow();
 	expect(beeps).toHaveLength(0);
 });
