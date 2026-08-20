@@ -31,11 +31,14 @@ test("旧版本默认收起，点击版本号展开", () => {
 });
 
 test("maxEntries 截断：超出部分不渲染", () => {
+	// 数据驱动：跟随 version-history.json 前三条，发新版后不会腐坏
+	const latest = versionHistory[0] as { version: string };
+	const second = versionHistory[1] as { version: string };
+	const third = versionHistory[2] as { version: string };
 	const { container } = render(<VersionTimeline maxEntries={2} />);
 	const timeline = within(container).getByTestId("version-timeline");
-	// 只渲染最新 2 条（数据已推进到 0.2.10，故渲染 0.2.10 + 0.2.9），其余不出现
-	expect(within(timeline).getByText("v0.2.10")).toBeTruthy();
-	expect(within(timeline).getByText("v0.2.9")).toBeTruthy();
-	// 第 3 条及以后不应渲染
-	expect(within(timeline).queryByText("v0.2.8")).toBeNull();
+	// 只渲染最新 2 条，其余不出现
+	expect(within(timeline).getByText(`v${latest.version}`)).toBeTruthy();
+	expect(within(timeline).getByText(`v${second.version}`)).toBeTruthy();
+	expect(within(timeline).queryByText(`v${third.version}`)).toBeNull();
 });
