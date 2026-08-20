@@ -160,7 +160,7 @@ export function Sidebar(props: Props) {
 			) : (
 				<ImConversationList onSelectSession={props.onSelectSession} />
 			)}
-			<div className="flex items-center gap-1">
+			<div className="flex items-center gap-1 min-w-0">
 				<RecycleBinButton
 					onClick={() => setShowTrash(true)}
 					count={trashCount}

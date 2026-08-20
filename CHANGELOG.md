@@ -1,3 +1,9 @@
+## 2026-08-20 — fix(UI): 点会话自动关闭浏览器预览；侧边栏窄宽时底部按钮只显示 icon
+
+- 修复：浏览器预览（BrowserPanel）打开后，点击侧边栏任意会话自动关闭预览并回到会话视图（App onSelectSession 调 closeBrowser）。
+- 修复：侧边栏拖窄后「回收站 / 系统设置」按钮文字换行、溢出——按钮改为 flex + min-w-0 + overflow-hidden，文字 span whitespace-nowrap + truncate + shrink（可收缩），icon flex-shrink-0；极限窄宽时文字隐藏只显示 icon。
+- 影响范围：`packages/frontend/src/App.tsx`、`RecycleBinButton.tsx`、`SettingsButton.tsx`、`Sidebar.tsx`、`e2e/html-preview.spec.ts`（新增点会话关预览 E2E 用例，当前 E2E 环境预存在问题无法运行）；测试：SettingsButton 新增窄宽收缩结构断言。
+
 ## 2026-08-20 — feat(文件预览): 聊天中点击 html 文件标签优先用浏览器预览打开
 
 - 调整：会话聊天中点击文件标签（FilePill 路径胶囊 / 发送附件 chip / file_changes 修改清单）时，**html/htm 文件优先打开浏览器预览（BrowserPanel）**，其余文件仍走内置文件预览器——与文件树双击行为一致。

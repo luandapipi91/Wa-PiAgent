@@ -489,6 +489,8 @@ export function App() {
 				onNewSession={() => setView("new-session")}
 				onMore={() => setGalleryOpen(true)}
 				onSelectSession={(id) => {
+					// 点会话 = 回到会话视图：关闭浏览器预览（若有）
+					useBrowserStore.getState().closeBrowser();
 					const st = useProjectsStore.getState();
 					if (st.sessions.some((x) => x.id === id)) {
 						st.selectSession(id);

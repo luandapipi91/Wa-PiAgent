@@ -169,4 +169,26 @@ test.describe
 					.or(page.getByTestId("share-section")),
 			).toBeVisible({ timeout: 5000 });
 		});
+
+		test("预览打开后点侧边栏会话 → 预览窗口自动关闭，回到会话视图", async ({
+			page,
+		}) => {
+			test.setTimeout(60_000);
+			await openSession(page);
+			await openHtmlPreview(page);
+
+			// 预览窗口已打开、会话视图卸载
+			await expect(page.getByTestId("browser-panel")).toBeVisible({
+				timeout: 5000,
+			});
+			await expect(page.getByTestId("session-view")).toHaveCount(0);
+
+			// 点侧边栏会话行 → 预览关闭、会话视图恢复
+			const sessionRow = page.locator("[data-testid^='session-']").first();
+			await sessionRow.click();
+			await expect(page.getByTestId("browser-panel")).toHaveCount(0);
+			await expect(page.getByTestId("session-view")).toBeVisible({
+				timeout: 5000,
+			});
+		});
 	});
