@@ -1,3 +1,8 @@
+## 2026-08-20 — fix(UI): 侧边栏窄宽时底部按钮真正隐藏文字只留图标（compact 模式）
+
+- 修复：上一版仅 truncate 显示省略号、文字未真正隐藏——现改为 Sidebar 宽度 < 240px 时传 `compact` 给「回收站/系统设置」按钮，隐藏文字 span 只保留图标；≥240px 正常显示文字。回收站未读角标（badge）始终保留（功能信息非文字）。
+- 影响范围：`packages/frontend/src/components/RecycleBinButton.tsx`、`SettingsButton.tsx`、`Sidebar.tsx`；测试：RecycleBinButton 新增 4 用例（compact 隐藏/角标保留）、SettingsButton 新增 compact 2 用例、Sidebar 新增宽度驱动 2 用例。
+
 ## 2026-08-20 — fix(UI): 点会话自动关闭浏览器预览；侧边栏窄宽时底部按钮只显示 icon
 
 - 修复：浏览器预览（BrowserPanel）打开后，点击侧边栏任意会话自动关闭预览并回到会话视图（App onSelectSession 调 closeBrowser）。

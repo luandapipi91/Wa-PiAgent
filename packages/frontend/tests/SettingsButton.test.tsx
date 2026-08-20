@@ -33,3 +33,18 @@ test("窄侧栏时文字可收缩（truncate + shrink），图标固定不换行
 	const icon = btn.querySelector("svg")!;
 	expect(icon.getAttribute("class")).toContain("flex-shrink-0");
 });
+
+test("compact 模式：隐藏文字只保留图标", () => {
+	render(<SettingsButton onClick={() => {}} compact />);
+	const btn = screen.getByTestId("settings-btn");
+	// 文字 span 不渲染，仅 icon 保留
+	expect(btn.querySelector("span")).toBeNull();
+	expect(btn.querySelector("svg")).toBeTruthy();
+	expect(btn.textContent).toBe("");
+});
+
+test("compact=false 正常显示文字", () => {
+	render(<SettingsButton onClick={() => {}} compact={false} />);
+	const btn = screen.getByTestId("settings-btn");
+	expect(btn.textContent).toContain("系统设置");
+});

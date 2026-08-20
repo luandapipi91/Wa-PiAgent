@@ -164,8 +164,12 @@ export function Sidebar(props: Props) {
 				<RecycleBinButton
 					onClick={() => setShowTrash(true)}
 					count={trashCount}
+					compact={width < 240}
 				/>
-				<SettingsButton onClick={() => useSettingsStore.getState().open()} />
+				<SettingsButton
+					onClick={() => useSettingsStore.getState().open()}
+					compact={width < 240}
+				/>
 			</div>
 			{showTrash && (
 				<RecycleBinModal
