@@ -501,6 +501,12 @@ input[type="range"]::-moz-range-thumb {
 	color: var(--text-primary);
 	border-color: var(--accent);
 }
+/* disabled：整体降透明 + 禁止 hover 反馈（不触发 :hover 变色） */
+.fv-btn:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+	pointer-events: none;
+}
 /* 纯图标按钮：无边框无底色（对话界面 header 的文件树开关等），激活态用浅色背景高亮 */
 .fv-btn--icon {
 	background: transparent;
