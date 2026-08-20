@@ -109,7 +109,9 @@ export function ContactPickerDialog({ onPick, onCancel }: Props) {
 											name={c.kind === "group" ? "users" : "user"}
 											size={14}
 										/>
-										<span className="text-primary">{contactLabel(c)}</span>
+										<span className="text-primary min-w-0 truncate">
+											{contactLabel(c)}
+										</span>
 									</button>
 								))}
 							</div>

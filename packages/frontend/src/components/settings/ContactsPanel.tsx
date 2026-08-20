@@ -105,8 +105,8 @@ export default function ContactsPanel({
 									setValue(c.remark ?? label(c));
 								}}
 							>
-								<span className="text-sm text-primary">{label(c)}</span>
-								<span className="text-xs text-tertiary">⋯</span>
+								<span className="text-sm text-primary flex-1 min-w-0 truncate">{label(c)}</span>
+								<span className="text-xs text-tertiary flex-shrink-0">⋯</span>
 							</div>
 						)}
 					</div>
@@ -150,8 +150,8 @@ export default function ContactsPanel({
 									setValue(c.remark ?? label(c));
 								}}
 							>
-								<span className="text-sm text-primary">{label(c)}</span>
-								<span className="text-xs text-tertiary">⋯</span>
+								<span className="text-sm text-primary flex-1 min-w-0 truncate">{label(c)}</span>
+								<span className="text-xs text-tertiary flex-shrink-0">⋯</span>
 							</div>
 						)}
 					</div>
