@@ -47,10 +47,9 @@ export function ContactPickerDialog({ onPick, onCancel }: Props) {
 
 	const doSearch = async () => {
 		const keyword = query.trim();
-		if (!keyword) return;
-		// 先应用本地过滤（无论有无权限）
+		// 先应用本地过滤（含空关键词 = 重置恢复全量；无 wecom 渠道也走本地过滤）
 		setAppliedQuery(keyword);
-		if (wecomChannels.length === 0) return;
+		if (!keyword || wecomChannels.length === 0) return;
 		setSearching(true);
 		try {
 			// 逐个同步 wecom 渠道；全部失败也不 toast（无权限/过期均静默）
@@ -112,9 +111,7 @@ export function ContactPickerDialog({ onPick, onCancel }: Props) {
 								data-testid="contact-picker-search"
 								value={query}
 								onChange={(e) => setQuery(e.target.value)}
-								onKeyDown={(e) =>
-									e.key === "Enter" && !searching && void doSearch()
-							}
+								onKeyDown={(e) => e.key === "Enter" && !searching && void doSearch()}
 								placeholder={t("sendIm.searchPlaceholder")}
 								className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md border border-hairline bg-surface text-primary text-sm outline-none focus:border-accent"
 							/>

@@ -327,3 +327,42 @@ test("同步失败 → toast 收到 error 消息", async () => {
 	await act(async () => {});
 	expect(toastAdd).toHaveBeenCalledWith("该机器人不是企业微信机器人", "error");
 });
+
+test("清空输入框后点「搜索好友」→ 重置过滤恢复全量", async () => {
+	state.contacts = [
+		{
+			id: "ct_1",
+			channelId: "ch_a",
+			kind: "person",
+			userId: "u1",
+			remark: "张文明",
+			firstChatAt: 1,
+			lastChatAt: 2,
+		},
+		{
+			id: "ct_2",
+			channelId: "ch_a",
+			kind: "person",
+			userId: "u2",
+			remark: "李四",
+			firstChatAt: 1,
+			lastChatAt: 2,
+		},
+	];
+	syncWecomContacts.mockResolvedValue({ added: 0, updated: 0 });
+	render(
+		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
+	);
+	const input = screen.getByTestId("contacts-sync-wecom-input");
+	// 先搜索「张」：只剩张文明
+	fireEvent.change(input, { target: { value: "张" } });
+	fireEvent.click(screen.getByText("搜索好友"));
+	await act(async () => {});
+	expect(screen.queryByText("李四")).toBeNull();
+	// 清空输入框再点搜索：恢复全量
+	fireEvent.change(input, { target: { value: "" } });
+	fireEvent.click(screen.getByText("搜索好友"));
+	await act(async () => {});
+	expect(screen.getByText("张文明")).toBeTruthy();
+	expect(screen.getByText("李四")).toBeTruthy();
+});

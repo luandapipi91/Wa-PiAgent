@@ -33,6 +33,8 @@ export default function ContactsPanel({
 
 	const doSync = async () => {
 		const keyword = syncKeyword.trim();
+		// 先应用本地过滤（含空关键词 = 重置恢复全量）
+		setAppliedKeyword(keyword);
 		if (!keyword) return;
 		setSyncing(true);
 		try {
