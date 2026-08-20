@@ -206,6 +206,74 @@ test("输入关键词点「搜索好友」→ 调 syncWecomContacts + toast", as
 	expect(toastAdd).toHaveBeenCalledWith(expect.stringContaining("2"), "success");
 });
 
+test("同步后无新增（added=0）→ 不弹 toast", async () => {
+	syncWecomContacts.mockResolvedValue({ added: 0, updated: 0 });
+	render(
+		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
+	);
+	fireEvent.change(screen.getByTestId("contacts-sync-wecom-input"), {
+		target: { value: "张" },
+	});
+	fireEvent.click(screen.getByText("搜索好友"));
+	await act(async () => {});
+	expect(syncWecomContacts).toHaveBeenCalledWith("ch_a", ["张"]);
+	expect(toastAdd).not.toHaveBeenCalled();
+});
+
+test("搜索框输入关键词 → 本地通讯录列表按显示名过滤", () => {
+	state.contacts = [
+		{
+			id: "ct_1",
+			channelId: "ch_a",
+			kind: "person",
+			userId: "u1",
+			remark: "张文明",
+			firstChatAt: 1,
+			lastChatAt: 2,
+		},
+		{
+			id: "ct_2",
+			channelId: "ch_a",
+			kind: "person",
+			userId: "u2",
+			remark: "李四",
+			firstChatAt: 1,
+			lastChatAt: 2,
+		},
+		{
+			id: "ct_3",
+			channelId: "ch_a",
+			kind: "group",
+			chatId: "g1",
+			firstChatAt: 1,
+			lastChatAt: 2,
+		},
+	];
+	render(
+		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
+	);
+	const input = screen.getByTestId("contacts-sync-wecom-input");
+	// 输入前：三人都在
+	expect(screen.getByText("张文明")).toBeTruthy();
+	expect(screen.getByText("李四")).toBeTruthy();
+	// 输入「张」：只显示张文明（按显示名过滤，人/群统一过滤）
+	fireEvent.change(input, { target: { value: "张" } });
+	expect(screen.getByText("张文明")).toBeTruthy();
+	expect(screen.queryByText("李四")).toBeNull();
+	expect(screen.queryByText("g1")).toBeNull();
+});
+
+test("搜索无匹配 → 列表区显示暂无，不报错", () => {
+	render(
+		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
+	);
+	fireEvent.change(screen.getByTestId("contacts-sync-wecom-input"), {
+		target: { value: "不存在的关键词" },
+	});
+	// 无匹配时显示「暂无对话过的人/群」空态
+	expect(screen.getByText("暂无对话过的人/群")).toBeTruthy();
+});
+
 test("同步失败 → toast 收到 error 消息", async () => {
 	syncWecomContacts.mockRejectedValue(new Error("该机器人不是企业微信机器人"));
 	render(

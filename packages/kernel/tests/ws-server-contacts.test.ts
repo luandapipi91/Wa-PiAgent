@@ -172,7 +172,9 @@ test("contacts:ensure 成功 → 透传匹配键给 ensureContact + reply contac
 	const body = (await res.json()) as any;
 	expect(body.type).toBe("contacts:ensured");
 	expect(body.contact.id).toBe("ct_new");
-	expect(ensuredInputs).toEqual([{ channelId: "ch_1", kind: "group", chatId: "g1" }]);
+	expect(ensuredInputs).toEqual([
+		{ channelId: "ch_1", kind: "group", chatId: "g1" },
+	]);
 });
 
 test("contacts:ensure ensureContact 抛错 → HTTP 500 + err.message", async () => {

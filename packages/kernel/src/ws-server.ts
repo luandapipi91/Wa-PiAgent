@@ -1285,7 +1285,8 @@ export class WSServer {
 							} else {
 								reply({
 									type: "error",
-									message: "会话属于其他项目，不能跨项目发送消息；请切换到会话所属项目后再试",
+									message:
+										"会话属于其他项目，不能跨项目发送消息；请切换到会话所属项目后再试",
 									sessionId: event.sessionId,
 								});
 								return;
