@@ -1,3 +1,9 @@
+## 2026-08-20 — feat(提示音): 任务完成提示音改为真实青蛙叫声「呱 呱～」
+
+- 背景：原任务完成提示音为 Web Audio 合成上行两音（880→1320Hz），用户反馈不好听；振荡器合成始终像电子音，改用真实录音。
+- 实现：下载免费青蛙叫声音效，裁剪开头 428ms 静音后取 1s（完整第一声「呱」）→ 新增 `packages/frontend/public/sounds/frog-croak.mp3`（17KB）；`taskDoneSound` 从 Web Audio 合成改为 `new Audio().play()` 播放 mp3（volume 0.8，自动播放策略拒绝时静默降级）；「需要操作」提示音保持 Web Audio 合成不变。
+- 影响范围：`packages/frontend/src/util/sound.ts`、新增 `packages/frontend/public/sounds/frog-croak.mp3`；测试重写 `packages/frontend/tests/sound.test.ts`（taskDone 改为断言 mp3 播放，needsAction 保留 660Hz 断言）。
+
 ## 2026-08-20 — feat(HTML预览): 内置浏览器预览 HTML 产物
 
 - 新增功能：内置浏览器预览 HTML 产物——双击 .html 或点会话页右上角 🌐 图标，在占满主内容区的预览窗口渲染页面（相对 js/css/图片完整加载），支持复制路径/刷新/查看源码/分享/关闭。
