@@ -326,19 +326,13 @@ export async function startKernel(opts?: {
 	});
 	(server as any).opts.channelManager = channelManager; // 与 agentManager 同模式回填
 
-	// 主聊天 @im-push-to 推送注入工厂后绑定：AgentManager 构造时 channelManager 尚未存在，
-	// 沿用 bridgeBaseUrl 的惰性模式，在 channelManager 就绪后注入（会话注册表见 agent-manager）。
-	agentManager.setImPushFactory((contactIds) => {
-		const imPushTool = createImPushTool({
-			channelManager,
-			contactIds,
-			// 主聊天无任务结果收集（定时任务的 pushResults 只属于 executeTask），推送结果直接回给 agent
-			onPushResult: () => {},
-		});
-		return {
-			targets: contactIds,
-			execute: (contact, message) => imPushTool.execute({ contact, message }),
-		};
+	// 主聊天 im_push_to 全局执行器后绑定：channelManager 构造晚于 AgentManager（循环依赖），
+	// 沿用 bridgeBaseUrl 惰性模式。im_push_to 调用时实时按联系人 id 解析——联系人 id 全局唯一，
+	// pushToContact 内部按 contact.channelId 路由到渠道长连接（kernel 启动即建立），无需每会话注册表。
+	// 定时任务的 imPush 注入（executeTask）优先，不受影响。
+	agentManager.setImPushExecutor(async (contact, message) => {
+		await channelManager.pushToContact(contact, message);
+		return `已成功推送给 ${contact}`;
 	});
 
 	await server.start();

@@ -104,7 +104,7 @@ import {
 	WA_PI_DEFAULT_BASE_PROMPT,
 	type PromptSegment,
 } from "./system-prompt";
-import { buildImPushSystemPrompt, GENERIC_IM_PUSH_PROMPT, parseImPushMentions } from "./tools/robot-push";
+import { buildImPushSystemPrompt, GENERIC_IM_PUSH_PROMPT } from "./tools/robot-push";
 
 /** 可注入的 client 工厂（测试用假 client 替换；生产 new RpcClient） */
 export type CreateClientFn = (opts: RpcClientOpts) => RpcClient;
@@ -151,9 +151,10 @@ export interface AgentManagerOpts {
 	mcpStore?: McpStore;
 	// 惰性取 bridge 回调地址（kernel WS 端口在 AgentManager 构造后才确定）
 	bridgeBaseUrl?: () => string;
-	/** 主聊天会话 @im-push-to 标记的推送注入工厂。
-	 *  channelManager 构造晚于 AgentManager（循环依赖），由 index.ts 经 setImPushFactory 后绑定。 */
-	imPushFactory?: (contactIds: string[]) => ImPushInjection;
+	/** 主聊天 im_push_to 全局执行器：调用时实时按联系人 id 走 channelManager 全局长连接推送。
+	 *  channelManager 构造晚于 AgentManager（循环依赖），由 index.ts 经 setImPushExecutor 后绑定；
+	 *  定时任务会话仍用 ensureStarted 的 imPush 注入（优先于本执行器）。 */
+	imPushExecutor?: (contact: string, message: string) => Promise<string>;
 	// 测试注入 mock；生产留空 → 真实 RpcClient
 	createClientFn?: CreateClientFn;
 	// abort RPC 无响应的兜底超时（ms）：超时强杀 pi 进程，保证「停止」一定生效。
@@ -211,9 +212,6 @@ interface SessionHandle {
 	/** transient 网络错误标记：true 时 agent_settled 跳过 followUp/steer drain，
 	 *  避免网络不可用时自动发送排队消息（会再失败）。用户重发后清除。 */
 	netDegraded: boolean;
-	/** 主聊天会话推送注册表条目：消息含 @im-push-to 标记时由 _sendPromptNow 惰性激活。
-	 *  与定时任务的 _createSession imPush 注入互补（handleTool 优先用注入值）。 */
-	imPush?: ImPushInjection;
 	/** 最近一次活跃时间戳（ms）：prompt / message_end / steer / 打开会话时刷新。
 	 *  供 reapIdleSessions 判断是否回收该会话子进程，避免每轮读盘。 */
 	lastActiveAt: number;
@@ -228,11 +226,6 @@ const ABORT_RPC_TIMEOUT_MS = 5_000;
 export class AgentManager {
 	// sessionId → SessionHandle（核心数据结构，一个 WaPi 会话对应一个 pi rpc 子进程）
 	private sessions = new Map<string, SessionHandle>();
-	// 会话级 im_push_to 推送注册表（持久层）：与 SessionHandle.imPush 同步写入，但独立于
-	// 进程生命周期——bridge 空闲回收/崩溃重建会 _teardownSession 删除 handle，若只挂在 handle 上
-	// 注册表会随进程一起丢失（agent 重试时报「本会话未配置推送目标」）。
-	// 清理：仅会话被真正删除（session:delete → disposeSession 默认分支）；空闲回收保留。
-	private imPushBySession = new Map<string, ImPushInjection>();
 	// 并发创建锁：同 sessionId 同时只创建一次，防止快速连发导致重复初始化同一 jsonl
 	private starting = new Map<string, Promise<SessionHandle>>();
 	// 标记在创建过程中被 dispose 的 sessionId，防止已清理的会话在创建完成后重新泄漏回 Map
@@ -268,9 +261,11 @@ export class AgentManager {
 		return this.promptSegments;
 	}
 
-	/** 后绑定 im_push_to 推送注入工厂（index.ts 在 channelManager 构造后调用）。 */
-	setImPushFactory(factory: (contactIds: string[]) => ImPushInjection): void {
-		this.opts.imPushFactory = factory;
+	/** 后绑定 im_push_to 全局执行器（index.ts 在 channelManager 构造后调用）。 */
+	setImPushExecutor(
+		executor: (contact: string, message: string) => Promise<string>,
+	): void {
+		this.opts.imPushExecutor = executor;
 	}
 
 	/**
@@ -776,27 +771,24 @@ export class AgentManager {
 						currentCallSignal = undefined;
 					}
 				}
-				// im_push_to：定时任务会话注入优先；其次主聊天会话注册表——handle 字段（存活时）
-				// 或持久层 imPushBySession（进程重建后仍保留）。工具始终注册，普通会话误调返回明确错误。
+				// im_push_to：定时任务会话注入优先；主聊天走全局 executor（channelManager
+				// 全局长连接，调用时实时按 contact 解析路由，无会话级注册状态）。工具始终注册。
 				if (tool === "im_push_to") {
-					const effectiveImPush =
-						imPush ??
-						am.sessions.get(sessionId)?.imPush ??
-						am.imPushBySession.get(sessionId);
-					if (!effectiveImPush) {
+					const execute = imPush?.execute ?? am.opts.imPushExecutor;
+					if (!execute) {
 						return {
 							content: [
 								{
 									type: "text",
-									text: "本会话未配置推送目标：请让用户在消息中用 @im-push-to(渠道,联系人) 标记指定联系人后再调用本工具。",
+									text: "IM 推送功能未就绪（kernel 未接线 channelManager）",
 								},
 							],
-							details: { error: "no im push targets" },
+							details: { error: "im push unavailable" },
 						};
 					}
 					const p = params as { contact: string; message: string };
 					try {
-						const text = await effectiveImPush.execute(p.contact, p.message);
+						const text = await execute(p.contact, p.message);
 						return { content: [{ type: "text", text }], details: {} };
 					} catch (err) {
 						const error = err instanceof Error ? err.message : String(err);
@@ -1179,15 +1171,6 @@ export class AgentManager {
 		}
 		// 发送前自动压缩防护：上下文将超限时先 compact 再继续，避免 400
 		await this._autoCompactIfNeeded(sessionId, handle);
-		// 主聊天 @im-push-to 标记 → 惰性激活会话推送注册表（每条消息重检，目标随最新标记更新；
-		// 定时任务会话的 imPush 在 _createSession 注入，handleTool 优先用注入值，互不干扰）
-		const imPushIds = parseImPushMentions(text);
-		if (imPushIds.length > 0 && this.opts.imPushFactory) {
-			const injection = this.opts.imPushFactory(imPushIds);
-			handle.imPush = injection;
-			// 同步写入持久层：handle 会在 bridge 空闲回收/崩溃重建时被删，注册表必须存活
-			this.imPushBySession.set(sessionId, injection);
-		}
 		handle.busy = true;
 		// 用户重发触发直接 prompt：网络已恢复，清除 transient degraded 标记，恢复 drain。
 		if (handle.netDegraded) handle.netDegraded = false;
@@ -1753,18 +1736,10 @@ export class AgentManager {
 	}
 
 	/** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */
-	async disposeSession(
-		sessionId: string,
-		opts?: { keepImPush?: boolean },
-	): Promise<void> {
+	async disposeSession(sessionId: string): Promise<void> {
 		// 标记已被 dispose：若创建仍在进行中，_createSession 完成时会据此清理并放弃
 		this.disposed.add(sessionId);
 		this._teardownSession(sessionId);
-		// 默认清理 im-push 注册表（会话真正删除时）；空闲回收（reapIdleSessions）传
-		// keepImPush=true 保留——进程没了但会话记录在，重建后推送目标仍需生效
-		if (!opts?.keepImPush) {
-			this.imPushBySession.delete(sessionId);
-		}
 	}
 
 	/** 清理所有会话（进程退出 / 测试 teardown 用） */
@@ -1792,9 +1767,7 @@ export class AgentManager {
 			// 正在思考/跑工具的会话绝不回收，留到下一轮
 			if (handle.busy) continue;
 			if (now - handle.lastActiveAt > thresholdMs) {
-				// 保留 im-push 注册表：空闲回收只杀进程，会话记录与 jsonl 仍在，
-				// 用户重开会话重建进程后推送目标应继续生效（不能报「未配置推送目标」）
-				await this.disposeSession(id, { keepImPush: true });
+				await this.disposeSession(id);
 				reaped.push(id);
 			}
 		}

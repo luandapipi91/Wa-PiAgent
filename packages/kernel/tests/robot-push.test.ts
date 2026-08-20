@@ -285,9 +285,12 @@ test("GENERIC_IM_PUSH_PROMPT 常驻引导：含标记语义 / 工具名 / 防 de
 	expect(GENERIC_IM_PUSH_PROMPT).toContain("ct_xxx");
 });
 
-// ===== C2：主聊天 @im-push-to 会话注册表（prompt 标记激活 → handleTool 回退分发）=====
+// ===== C2：主聊天 im_push_to 全局执行器（channelManager 全局长连接，无需每会话注册）=====
+// 设计：im_push_to 调用时实时按联系人 id 解析，直接走 channelManager 全局长连接推送
+// （pushToContact 内部按 contact.channelId 路由 + 校验联系人存在）；不再需要消息标记
+// 预激活的会话注册表——进程重建/空闲回收后推送目标天然可用，无生命周期状态。
 
-describe("主聊天 im_push_to 会话注册表", () => {
+describe("主聊天 im_push_to 全局执行器", () => {
 	const tmpFiles: string[] = [];
 	const managers: AgentManager[] = [];
 
@@ -333,20 +336,16 @@ describe("主聊天 im_push_to 会话注册表", () => {
 		return { project: project as { id: string }, session, am, fakes };
 	}
 
-	test("prompt 含 @im-push-to 标记 → 注册表激活，handleTool 经注册表执行推送", async () => {
+	test("任意会话调用 im_push_to → 经全局 executor 推送（无需消息标记预注册）", async () => {
 		const calls: Array<{ contact: string; message: string }> = [];
 		const { project, session, am } = await setupAgent();
-		am.setImPushFactory((contactIds) => ({
-			targets: contactIds,
-			execute: async (contact, message) => {
-				calls.push({ contact, message });
-				return `已推送给 ${contact}`;
-			},
-		}));
-		await am.ensureStarted(project.id, "dev", session.id);
-		await am.prompt(session.id, "写完日报后汇报 @im-push-to(ch_x1,ct_aaa)", {
-			model: "p/m",
+		am.setImPushExecutor(async (contact, message) => {
+			calls.push({ contact, message });
+			return `已推送给 ${contact}`;
 		});
+		await am.ensureStarted(project.id, "dev", session.id);
+		// 消息不含 @im-push-to 标记也能推：目标由调用时 contact 实时解析（pushToContact 全局路由）
+		await am.prompt(session.id, "普通消息", { model: "p/m" });
 		const ctx = getBridgeSession(session.id);
 		expect(ctx).toBeTruthy();
 		const result = await ctx!.handleTool(
@@ -359,14 +358,23 @@ describe("主聊天 im_push_to 会话注册表", () => {
 		expect(result.content[0]).toEqual({ type: "text", text: "已推送给 ct_aaa" });
 	});
 
-	test("无标记会话调用 im_push_to → 返回明确错误（不崩溃、不推送）", async () => {
+	test("定时任务注入（imPush）优先于全局 executor", async () => {
+		const globalCalls: string[] = [];
+		const taskCalls: string[] = [];
 		const { project, session, am } = await setupAgent();
-		am.setImPushFactory((contactIds) => ({
-			targets: contactIds,
-			execute: async () => "不应被调用",
-		}));
-		await am.ensureStarted(project.id, "dev", session.id);
-		await am.prompt(session.id, "普通消息", { model: "p/m" });
+		am.setImPushExecutor(async (contact) => {
+			globalCalls.push(contact);
+			return "global";
+		});
+		await am.ensureStarted(project.id, "dev", session.id, {
+			imPush: {
+				targets: ["ct_aaa"],
+				execute: async (contact) => {
+					taskCalls.push(contact);
+					return "task";
+				},
+			},
+		});
 		const ctx = getBridgeSession(session.id);
 		const result = await ctx!.handleTool(
 			"im_push_to",
@@ -374,8 +382,40 @@ describe("主聊天 im_push_to 会话注册表", () => {
 			{ contact: "ct_aaa", message: "x" },
 			new AbortController().signal,
 		);
-		expect((result.content[0] as { text: string }).text).toContain("未配置推送目标");
+		expect(taskCalls).toEqual(["ct_aaa"]);
+		expect(globalCalls).toEqual([]);
+		expect(result.content[0]).toEqual({ type: "text", text: "task" });
+	});
+
+	test("未接线 executor → 返回明确错误（不崩溃）", async () => {
+		const { project, session, am } = await setupAgent();
+		await am.ensureStarted(project.id, "dev", session.id);
+		const ctx = getBridgeSession(session.id);
+		const result = await ctx!.handleTool(
+			"im_push_to",
+			"tc-11",
+			{ contact: "ct_aaa", message: "x" },
+			new AbortController().signal,
+		);
+		expect((result.content[0] as { text: string }).text).toContain("未就绪");
 		expect((result.details as { error?: string }).error).toBeTruthy();
+	});
+
+	test("全局 executor 抛错 → 返回失败文本（不向 pi 进程抛异常）", async () => {
+		const { project, session, am } = await setupAgent();
+		am.setImPushExecutor(async () => {
+			throw new Error("渠道未连接");
+		});
+		await am.ensureStarted(project.id, "dev", session.id);
+		const ctx = getBridgeSession(session.id);
+		const result = await ctx!.handleTool(
+			"im_push_to",
+			"tc-12",
+			{ contact: "ct_aaa", message: "x" },
+			new AbortController().signal,
+		);
+		expect((result.content[0] as { text: string }).text).toBe("推送失败：渠道未连接");
+		expect((result.details as { error?: string }).error).toBe("渠道未连接");
 	});
 
 	test("受限 agent（显式 tools 白名单）不带 imPush → 白名单仍并入 im_push_to", async () => {
@@ -397,66 +437,5 @@ describe("主聊天 im_push_to 会话注册表", () => {
 		const content = readFileSync(promptFile, "utf8");
 		expect(content).toContain("im_push_to");
 		expect(content).toContain("delegate");
-	});
-
-	test("空闲回收（keepImPush）重建后注册表仍生效：handleTool 继续可推送", async () => {
-		const calls: Array<{ contact: string; message: string }> = [];
-		const { project, session, am } = await setupAgent();
-		am.setImPushFactory((contactIds) => ({
-			targets: contactIds,
-			execute: async (contact, message) => {
-				calls.push({ contact, message });
-				return `已推送给 ${contact}`;
-			},
-		}));
-		await am.ensureStarted(project.id, "dev", session.id);
-		await am.prompt(session.id, "推送 @im-push-to(ch_x1,ct_aaa)", {
-			model: "p/m",
-		});
-
-		// 模拟 bridge 空闲回收：拆进程但保留会话记录（reapIdleSessions 的 keepImPush 语义）
-		await am.disposeSession(session.id, { keepImPush: true });
-		// 用户重开会话 → 重建进程
-		await am.ensureStarted(project.id, "dev", session.id);
-
-		const ctx = getBridgeSession(session.id);
-		const result = await ctx!.handleTool(
-			"im_push_to",
-			"tc-11",
-			{ contact: "ct_aaa", message: "重建后推送" },
-			new AbortController().signal,
-		);
-		expect(calls).toEqual([{ contact: "ct_aaa", message: "重建后推送" }]);
-		expect(result.content[0]).toEqual({
-			type: "text",
-			text: "已推送给 ct_aaa",
-		});
-	});
-
-	test("会话真正删除（disposeSession 默认）→ 注册表清理，重建后无目标报错", async () => {
-		const { project, session, am } = await setupAgent();
-		am.setImPushFactory((contactIds) => ({
-			targets: contactIds,
-			execute: async () => "不应被调用",
-		}));
-		await am.ensureStarted(project.id, "dev", session.id);
-		await am.prompt(session.id, "推送 @im-push-to(ch_x1,ct_aaa)", {
-			model: "p/m",
-		});
-
-		// 真正删除会话：disposeSession 默认分支清理注册表
-		await am.disposeSession(session.id);
-		await am.ensureStarted(project.id, "dev", session.id);
-
-		const ctx = getBridgeSession(session.id);
-		const result = await ctx!.handleTool(
-			"im_push_to",
-			"tc-12",
-			{ contact: "ct_aaa", message: "x" },
-			new AbortController().signal,
-		);
-		expect((result.content[0] as { text: string }).text).toContain(
-			"未配置推送目标",
-		);
 	});
 });
