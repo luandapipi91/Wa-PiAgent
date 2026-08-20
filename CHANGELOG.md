@@ -1,3 +1,8 @@
+## 2026-08-20 — fix(UI): 侧边栏 compact 模式图标居中
+
+- 修复：窄侧栏（compact）隐藏文字后，「回收站/系统设置」图标默认靠左——按钮加 `justify-center`，仅 icon 时居中对齐；非 compact 保持靠左。
+- 影响范围：`packages/frontend/src/components/RecycleBinButton.tsx`、`SettingsButton.tsx`；测试：两按钮各新增 compact 居中 / 非 compact 靠左断言。
+
 ## 2026-08-20 — fix(UI): 侧边栏窄宽时底部按钮真正隐藏文字只留图标（compact 模式）
 
 - 修复：上一版仅 truncate 显示省略号、文字未真正隐藏——现改为 Sidebar 宽度 < 240px 时传 `compact` 给「回收站/系统设置」按钮，隐藏文字 span 只保留图标；≥240px 正常显示文字。回收站未读角标（badge）始终保留（功能信息非文字）。

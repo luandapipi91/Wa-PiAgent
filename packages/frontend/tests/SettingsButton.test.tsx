@@ -41,10 +41,13 @@ test("compact 模式：隐藏文字只保留图标", () => {
 	expect(btn.querySelector("span")).toBeNull();
 	expect(btn.querySelector("svg")).toBeTruthy();
 	expect(btn.textContent).toBe("");
+	// 仅 icon 时居中对齐（flex justify-center）
+	expect(btn.className).toContain("justify-center");
 });
 
 test("compact=false 正常显示文字", () => {
 	render(<SettingsButton onClick={() => {}} compact={false} />);
 	const btn = screen.getByTestId("settings-btn");
 	expect(btn.textContent).toContain("系统设置");
+	expect(btn.className).not.toContain("justify-center");
 });
