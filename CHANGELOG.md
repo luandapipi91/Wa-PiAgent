@@ -1,3 +1,8 @@
+## 2026-08-20 — fix(UI): 系统设置图标尺寸调整（常规 20px，compact 32px）
+
+- 调整：系统设置图标非 compact 18→20px；compact（仅图标）27→32px。回收站图标不变（compact 24px / 常规 16px）。
+- 影响范围：`packages/frontend/src/components/SettingsButton.tsx`；测试：SettingsButton 尺寸断言更新。
+
 ## 2026-08-20 — fix(UI): 侧边栏 compact 模式图标放大
 
 - 调整：窄侧栏（compact）仅显示图标时「回收站」16→18px、「系统设置」18→20px（随 --font-scale 缩放），视觉更清晰；非 compact 保持原尺寸。
