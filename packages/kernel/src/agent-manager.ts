@@ -42,8 +42,8 @@ import {
 import type { ProjectStore } from "./project-store";
 import type { ConfigStore } from "./config-store";
 import type { ProviderStore } from "./provider-store";
-import { relative, join } from "node:path";
-import { mkdir, writeFile, rm, appendFile } from "node:fs/promises";
+import { relative, join, extname } from "node:path";
+import { mkdir, writeFile, rm, appendFile, readFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { buildAdditionalExtensionPaths } from "./extensions";
 import { attachPackageName, type RawCommandInfo } from "./tui-command-filter";
@@ -153,6 +153,9 @@ export interface AgentManagerOpts {
 	bridgeBaseUrl?: () => string;
 	// 测试注入 mock；生产留空 → 真实 RpcClient
 	createClientFn?: CreateClientFn;
+	// abort RPC 无响应的兜底超时（ms）：超时强杀 pi 进程，保证「停止」一定生效。
+	// 默认 5000；测试注入小值。
+	abortTimeoutMs?: number;
 	// 记忆配置读取（reviewEnabled 自动学习开关 / memoryPolicyStyle 注入提示开关）。
 	// 可空：测试场景不传视为全开（与历史行为一致）；生产注入 MemoryStore。
 	memoryStore?: { getConfig(): Promise<MemoryConfig> };
@@ -180,7 +183,7 @@ interface SessionHandle {
 	/** 历史消息快照（创建时经 get_messages 拉取 + message_end 增量追加） */
 	messages: any[];
 	/** 排队消息列表（agent_settled 时逐条 drain） */
-	followUpList: string[];
+	followUpList: Array<{ text: string; images?: ImageContent[] }>;
 	/** 引导消息列表（优先级高于 followUpList，agent_settled 时优先 drain） */
 	steerList: string[];
 	/** 系统提示词临时文件（dispose 时清理） */
@@ -212,6 +215,9 @@ interface SessionHandle {
 
 /** 模型上下文窗口缓存（modelId → contextWindow），避免每次发送都读 pi-ai 目录 */
 const modelContextWindowCache = new Map<string, number>();
+
+/** abort RPC 无响应的默认兜底超时（ms）：pi agent loop 卡死时强杀进程，保证停止生效 */
+const ABORT_RPC_TIMEOUT_MS = 5_000;
 
 export class AgentManager {
 	// sessionId → SessionHandle（核心数据结构，一个 WaPi 会话对应一个 pi rpc 子进程）
@@ -1016,9 +1022,9 @@ export class AgentManager {
 					});
 				} else if (handle.followUpList.length > 0) {
 					// 无引导消息时才 drain 排队消息
-					const text = handle.followUpList.shift()!;
+					const entry = handle.followUpList.shift()!;
 					this._emitLocalQueueUpdate(sessionId, handle);
-					void this._sendPromptNow(sessionId, handle, text).catch((err) => {
+					void this._sendPromptNow(sessionId, handle, entry.text, entry.images).catch((err) => {
 						console.error(`[kernel] session ${sessionId} followUp drain 失败:`, err);
 					});
 				} else if (this.skillDirty.has(sessionId) || this.dirty.has(sessionId)) {
@@ -1043,7 +1049,7 @@ export class AgentManager {
 			event = {
 				...event,
 				steering: [...handle.steerList],
-				followUp: [...handle.followUpList],
+				followUp: handle.followUpList.map((e) => e.text),
 			};
 		}
 
@@ -1126,6 +1132,7 @@ export class AgentManager {
 		sessionId: string,
 		handle: SessionHandle,
 		text: string,
+		images?: ImageContent[],
 	): Promise<void> {
 		// pi RPC 模式不解析内置斜杠命令（仅交互模式解析，见 pi.dev/docs/latest/rpc：
 		// builtin TUI 命令不会通过 prompt 执行），文本若按普通 prompt 发出会被当作
@@ -1142,7 +1149,10 @@ export class AgentManager {
 		// 用户重发触发直接 prompt：网络已恢复，清除 transient degraded 标记，恢复 drain。
 		if (handle.netDegraded) handle.netDegraded = false;
 		try {
-			await handle.client.prompt(text);
+			await handle.client.prompt(
+				text,
+				images && images.length > 0 ? { images } : undefined,
+			);
 		} catch (err) {
 			handle.busy = false;
 			handle.thinkingSince = null;
@@ -1272,7 +1282,7 @@ export class AgentManager {
 		this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
 			type: "queue_update",
 			steering: [...handle.steerList],
-			followUp: [...handle.followUpList],
+			followUp: handle.followUpList.map((e) => e.text),
 		});
 	}
 
@@ -1309,20 +1319,21 @@ export class AgentManager {
 			handle.currentThinking = opts.thinking;
 		}
 
-		// 构建最终 prompt 文本：snippet 直接内联，文件/图片统一用 @相对路径 引用
-		const { text: finalText } = buildPromptContent(
+		// 构建最终 prompt 文本：snippet 直接内联，文件统一用 @相对路径 引用，
+		// 图片额外读取为 ImageContent（多模态），随 prompt 一起发给 pi。
+		const { text: finalText, images } = await buildPromptContent(
 			text,
 			opts?.attachments ?? [],
 			handle.cwd,
 		);
 
 		if (handle.busy) {
-			// agent 运行中 → 追加到本地排队列表
-			handle.followUpList.push(finalText);
+			// agent 运行中 → 追加到本地排队列表（图片随文本一并排队，settled 后 drain）
+			handle.followUpList.push({ text: finalText, images });
 			this._emitLocalQueueUpdate(sessionId, handle);
 			return;
 		}
-		await this._sendPromptNow(sessionId, handle, finalText);
+		await this._sendPromptNow(sessionId, handle, finalText, images);
 	}
 
 	/** 发送引导消息。运行中优先调 pi steer()（mid-loop 投递），同时存本地兜底 */
@@ -1338,7 +1349,7 @@ export class AgentManager {
 		// 双保险：pi steer() 尝试 mid-loop 投递 + 本地 steerList 兜底
 		handle.steerList.push(text);
 		// 如果该消息来自排队列表，则移除（避免 settled 时重复发送）
-		const fi = handle.followUpList.indexOf(text);
+		const fi = handle.followUpList.findIndex((e) => e.text === text);
 		if (fi >= 0) handle.followUpList.splice(fi, 1);
 		this._emitLocalQueueUpdate(sessionId, handle);
 		// 用户发送引导消息视为活跃，刷新空闲回收计时
@@ -1366,9 +1377,41 @@ export class AgentManager {
 		for (const c of handle.subagentAborts) c.abort();
 		handle.subagentAborts.clear();
 		console.log(`[agent-manager] abort session=${sessionId} busy=${handle.busy}`);
-		await handle.client.abort().catch((err) => {
+		const abortRpc = handle.client.abort().catch((err) => {
 			console.error(`[agent-manager] abort 命令失败 session=${sessionId}:`, err);
 		});
+		// pi agent loop 卡死时（如实测等挂起的 LLM 响应）abort RPC 无人应答，
+		// 停在这里用户永远停不下聊天——加超时兜底，超时强杀进程。
+		const timeoutMs = this.opts.abortTimeoutMs ?? ABORT_RPC_TIMEOUT_MS;
+		const timedOut = await Promise.race([
+			abortRpc.then(() => false as const),
+			new Promise<true>((r) => setTimeout(() => r(true), timeoutMs)),
+		]);
+		if (timedOut) {
+			// 并发/重复 abort：会话已被先到的 abort 拆除则不再重复处理
+			if (this.sessions.get(sessionId) !== handle) return;
+			console.warn(
+				`[agent-manager] abort 无响应（${timeoutMs}ms），强杀 pi 进程 session=${sessionId}`,
+			);
+			// 进程被强杀后 pi 不会再发任何 agent 事件：合成 message_end 错误（⚠️ 播报）
+			// + agent_end（前端退出思考态），否则界面永远转圈。
+			this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [],
+					stopReason: "error",
+					errorMessage: "agent 无响应，已强制停止（进程已终止），可重新发送消息",
+					timestamp: Date.now(),
+				},
+			});
+			this.opts.onEvent(sessionId, handle.meta.projectId, handle.meta.agentName, {
+				type: "agent_end",
+			});
+			// 拆除进程与资源：会话记录与 jsonl 保留，下次使用时 ensureStarted 自动重建
+			this._teardownSession(sessionId);
+			return;
+		}
 		handle.busy = false;
 		handle.thinkingSince = null;
 		console.log(`[agent-manager] abort DONE session=${sessionId}`);
@@ -1744,22 +1787,96 @@ function mapThinkingLevel(thinking: string): string {
 			: thinking;
 }
 
-/** 构建 prompt 最终文本。snippet 直接内联；文件/图片统一用项目相对路径 @引用。 */
-interface PromptContent {
-	text: string;
+/** pi RPC prompt 命令的图片内容块（与 @earendil-works/pi-ai ImageContent 同形）。
+ *  data 为 base64，pi 侧会组装为 user content 的 image part 并转成
+ *  { type: "image_url", image_url: { url: "data:<mimeType>;base64,<data>" } }。 */
+export interface ImageContent {
+	type: "image";
+	mimeType: string;
+	data: string;
 }
 
-function buildPromptContent(
+/** 支持内联发送的图片扩展名 → mime 映射（与 pi detectSupportedImageMimeTypeFromFile 对齐） */
+const IMAGE_MIME_BY_EXT: Record<string, string> = {
+	png: "image/png",
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	gif: "image/gif",
+	webp: "image/webp",
+	bmp: "image/bmp",
+	svg: "image/svg+xml",
+	ico: "image/x-icon",
+};
+
+/** 原始图片字节上限：单张超出则跳过内联（仅保留 @路径 文本引用）。
+ *  3.5MB 原始 ≈ 4.67MB base64，对齐业界最严的 Anthropic 5MB base64 限制（pi 生态用 4.5MB 留余量）。 */
+const MAX_IMAGE_INLINE_BYTES = 3.5 * 1024 * 1024;
+
+/** 单次请求图片累计字节上限：超出部分回退为附件（@路径 引用），避免 RPC payload 过大（≈10MB base64 13.3MB）。 */
+const MAX_TOTAL_IMAGE_INLINE_BYTES = 10 * 1024 * 1024;
+
+/** 读取图片文件并转为 pi ImageContent（base64）。非图片扩展名/读取失败/超大时返回 null，不阻塞发送。
+ *  maxBytes 为单张允许的最大原始字节数（调用方取「单张上限」与「累计剩余预算」的较小值）。 */
+async function readImageContent(
+	path: string,
+	maxBytes: number,
+): Promise<{ content: ImageContent; bytes: number } | null> {
+	try {
+		const st = await stat(path);
+		if (!st.isFile() || st.size <= 0 || st.size > maxBytes) {
+			return null;
+		}
+		const ext = extname(path).slice(1).toLowerCase();
+		const mimeType = IMAGE_MIME_BY_EXT[ext];
+		if (!mimeType) return null;
+		const buf = await readFile(path);
+		return {
+			content: { type: "image", mimeType, data: buf.toString("base64") },
+			bytes: st.size,
+		};
+	} catch {
+		return null;
+	}
+}
+
+/** 构建 prompt 最终文本。snippet 直接内联；文件统一用项目相对路径 @引用；图片额外读取为 ImageContent 供多模态发送。 */
+interface PromptContent {
+	text: string;
+	images: ImageContent[];
+}
+
+async function buildPromptContent(
 	text: string,
 	attachments: AttachmentRef[],
 	cwd?: string,
-): PromptContent {
+): Promise<PromptContent> {
 	const textParts: string[] = [];
 	const fileRefs: string[] = [];
+	const images: ImageContent[] = [];
+	let usedBytes = 0; // 已内联图片累计原始字节数（预算控制）
 
 	for (const a of attachments) {
 		if (a.kind === "snippet") {
 			textParts.push(`[片段: ${a.name}]\n${a.content}`);
+		} else if (a.kind === "image") {
+			const rel = cwd ? relative(cwd, a.path).replace(/\\/g, "/") : a.path;
+			fileRefs.push(`@${rel}`);
+			// 图片同时作为多模态 content part 发给 pi：
+			// - 单张超过 MAX_IMAGE_INLINE_BYTES（对齐业界最严 Anthropic 5MB base64）→ 不内联
+			// - 累计超过 MAX_TOTAL_IMAGE_INLINE_BYTES → 超出部分不内联
+			// - 读取失败/非图片扩展名 → 不内联
+			// 以上均降级为纯文本 @路径 引用，不阻塞发送。
+			const remaining = MAX_TOTAL_IMAGE_INLINE_BYTES - usedBytes;
+			if (remaining > 0) {
+				const img = await readImageContent(
+					a.path,
+					Math.min(MAX_IMAGE_INLINE_BYTES, remaining),
+				);
+				if (img) {
+					images.push(img.content);
+					usedBytes += img.bytes;
+				}
+			}
 		} else {
 			const rel = cwd ? relative(cwd, a.path).replace(/\\/g, "/") : a.path;
 			fileRefs.push(`@${rel}`);
@@ -1773,7 +1890,7 @@ function buildPromptContent(
 		textParts.push(`Attachments:\n${refsText}`);
 	}
 
-	return { text: textParts.join("\n\n") };
+	return { text: textParts.join("\n\n"), images };
 }
 
 /**

@@ -15,6 +15,8 @@ export class FakeSessionClient {
 	autoSettle = true;
 
 	prompted: string[] = [];
+	/** prompt 时传入的 images 数组（opts.images），与 prompted 同步记录 */
+	promptImages: any[][] = [];
 	steered: string[] = [];
 	followUps: string[] = [];
 	/** compact 调用记录（customInstructions 未传时为 undefined） */
@@ -90,13 +92,17 @@ export class FakeSessionClient {
 		return { commands: this.commandsToReturn };
 	}
 
-	async prompt(text: string): Promise<void> {
+	async prompt(
+		text: string,
+		opts?: { images?: any[]; streamingBehavior?: "steer" | "followUp" },
+	): Promise<void> {
 		if (this.nextPromptError) {
 			const err = this.nextPromptError;
 			this.nextPromptError = null;
 			throw err;
 		}
 		this.prompted.push(text);
+		this.promptImages.push(opts?.images ?? []);
 		for (const e of this.onPromptEvents) this.emit(e);
 		this.onPromptEvents = [];
 		if (this.autoSettle) {
@@ -138,8 +144,12 @@ export class FakeSessionClient {
 		this.compacted.push({ customInstructions });
 	}
 
+	/** abort 挂起开关（模拟 pi agent loop 卡死：abort RPC 永不响应） */
+	hangAbort = false;
+
 	async abort(): Promise<void> {
 		this.aborts++;
+		if (this.hangAbort) await new Promise(() => {});
 	}
 
 	async setModel(provider: string, modelId: string): Promise<void> {

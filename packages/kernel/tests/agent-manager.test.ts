@@ -37,6 +37,9 @@ import {
 	rmSync,
 	mkdirSync,
 	writeFileSync,
+	openSync,
+	ftruncateSync,
+	closeSync,
 } from "node:fs";
 import { join } from "node:path";
 
@@ -110,6 +113,8 @@ interface SetupOpts {
 	events?: CapturedEvent[];
 	/** 覆盖默认 fakeClientFactory（如慢启动 / 启动失败 / 预置消息） */
 	createClientFn?: (opts: RpcClientOpts) => RpcClient;
+	/** abort RPC 无响应的兜底超时（ms），透传 AgentManagerOpts.abortTimeoutMs */
+	abortTimeoutMs?: number;
 	agentName?: string;
 }
 
@@ -136,6 +141,9 @@ async function setup(opts: SetupOpts = {}) {
 		...(opts.memoryStore ? { memoryStore: opts.memoryStore } : {}),
 		...(opts.skillManager ? { skillManager: opts.skillManager } : {}),
 		...(opts.extensionManager ? { extensionManager: opts.extensionManager } : {}),
+		...(opts.abortTimeoutMs !== undefined
+			? { abortTimeoutMs: opts.abortTimeoutMs }
+			: {}),
 	});
 	managers.push(am);
 	syspromptSessionIds.push(session.id);
@@ -605,13 +613,13 @@ test("prompt — thinking level 映射（disabled→off，max→xhigh，其余�
 
 // ─── 附件构建 prompt 文本 ───────────────────────────────────────────────────
 
-test("prompt — 图片附件统一用 @相对路径引用", async () => {
+test("prompt — 图片附件转为 ImageContent 并经 client.prompt(text, { images }) 发送", async () => {
 	const { project, session, am, fakes } = await setup();
 	await am.ensureStarted(project.id, "dev", session.id);
 
 	const imgPath = `/tmp/wa-pi-img-${Date.now()}.png`;
 	tmpPaths.push(imgPath);
-	writeFileSync(imgPath, Buffer.from("fake-image"));
+	writeFileSync(imgPath, Buffer.from("fake-image-bytes"));
 
 	await am.prompt(session.id, "描述这张图", {
 		model: MODEL,
@@ -623,6 +631,126 @@ test("prompt — 图片附件统一用 @相对路径引用", async () => {
 	expect(text).toContain("描述这张图");
 	expect(text).toContain("Attachments:");
 	expect(text).toMatch(/@wa-pi-img-\d+\.png/);
+	// 图片必须真正发给 pi：作为 ImageContent 传给 client.prompt(text, { images })
+	expect(fakes[0].promptImages).toHaveLength(1);
+	expect(fakes[0].promptImages[0]).toEqual([
+		{
+			type: "image",
+			mimeType: "image/png",
+			data: Buffer.from("fake-image-bytes").toString("base64"),
+		},
+	]);
+});
+
+test("prompt — 图片附件读取失败时降级为纯文本引用，不阻塞发送", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	const imgPath = `/tmp/wa-pi-img-missing-${Date.now()}.png`;
+	tmpPaths.push(imgPath);
+
+	await am.prompt(session.id, "描述这张图", {
+		model: MODEL,
+		attachments: [{ kind: "image", path: imgPath, name: "示例.png", size: 0 }],
+	});
+
+	expect(fakes[0].prompted).toHaveLength(1);
+	// 文件不存在：images 为空数组（不传图片），但消息正常发送
+	expect(fakes[0].promptImages[0]).toEqual([]);
+});
+
+test("prompt — 单张图片超过 3.5MB 上限回退为附件，不内联", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// 一张 4MB 的图：超过单张 3.5MB 上限
+	const imgPath = `/tmp/wa-pi-img-oversize-${Date.now()}.png`;
+	tmpPaths.push(imgPath);
+	const fd = openSync(imgPath, "w");
+	ftruncateSync(fd, 4 * 1024 * 1024);
+	closeSync(fd);
+
+	await am.prompt(session.id, "描述这张图", {
+		model: MODEL,
+		attachments: [{ kind: "image", path: imgPath, name: "大图.png", size: 4 * 1024 * 1024 }],
+	});
+
+	expect(fakes[0].prompted).toHaveLength(1);
+	// 文本引用保留，但 images 为空（不内联）
+	expect(fakes[0].prompted[0]).toContain("@wa-pi-img-oversize");
+	expect(fakes[0].promptImages[0]).toEqual([]);
+});
+
+test("prompt — 图片累计大小超过上限时，超出部分回退为附件（@路径 引用）", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+
+	// 4 张 3MB 的图：单张 < 3.5MB 上限通过，但累计 12MB > 10MB 总量上限
+	const mkImg = (tag: string) => {
+		const p = `/tmp/wa-pi-img-${tag}-${Date.now()}.png`;
+		tmpPaths.push(p);
+		const fd = openSync(p, "w");
+		ftruncateSync(fd, 3 * 1024 * 1024);
+		closeSync(fd);
+		return p;
+	};
+	const paths = [mkImg("a"), mkImg("b"), mkImg("c"), mkImg("d")];
+
+	await am.prompt(session.id, "看这些图", {
+		model: MODEL,
+		attachments: paths.map((path, i) => ({
+			kind: "image" as const,
+			path,
+			name: `图${i + 1}.png`,
+			size: 3 * 1024 * 1024,
+		})),
+	});
+
+	expect(fakes[0].prompted).toHaveLength(1);
+	// 4 张图全部保留 @路径 文本引用（无论是否内联）
+	const text = fakes[0].prompted[0];
+	for (const p of paths) {
+		expect(text).toMatch(new RegExp(`@${p.split("/").pop()}`));
+	}
+	// 前三张（9MB ≤ 10MB）内联为 ImageContent，第四张超累计上限回退为附件
+	expect(fakes[0].promptImages[0]).toHaveLength(3);
+	for (const img of fakes[0].promptImages[0]) {
+		expect(img).toEqual({
+			type: "image",
+			mimeType: "image/png",
+			data: expect.any(String),
+		});
+	}
+});
+
+test("prompt — agent 运行中排队消息携带图片，agent_settled 后 drain 仍携带 images", async () => {
+	const { project, session, am, fakes } = await setup();
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.autoSettle = false;
+
+	await am.prompt(session.id, "第一条", { model: MODEL });
+	expect(fake.prompted).toEqual(["第一条"]);
+
+	const imgPath = `/tmp/wa-pi-img-queue-${Date.now()}.png`;
+	tmpPaths.push(imgPath);
+	writeFileSync(imgPath, Buffer.from("queue-image"));
+	await am.prompt(session.id, "第二条", {
+		model: MODEL,
+		attachments: [{ kind: "image", path: imgPath, name: "队列图.png", size: 0 }],
+	});
+	expect(fake.prompted).toEqual(["第一条"]); // busy 中不直接 prompt，进队列
+
+	fake.emit({ type: "agent_settled" });
+	await waitFor(() => fake.prompted.length === 2);
+	expect(fake.prompted[1]).toContain("第二条");
+	expect(fake.promptImages[1]).toEqual([
+		{
+			type: "image",
+			mimeType: "image/png",
+			data: Buffer.from("queue-image").toString("base64"),
+		},
+	]);
 });
 
 test("prompt — snippet 附件内容直接内联", async () => {
@@ -745,6 +873,31 @@ test("abort 清空 followUpList 并中断当前运行", async () => {
 	// 新版 abort 清空本地 followUpList
 	const handle = (am as any).sessions.get(session.id);
 	expect(handle.followUpList).toEqual([]);
+});
+
+test("abort 无响应超时 → 强杀进程兜底：会话拆除、前端收到终态事件", async () => {
+	const events: CapturedEvent[] = [];
+	const { project, session, am, fakes } = await setup({
+		events,
+		abortTimeoutMs: 50,
+	});
+	await am.ensureStarted(project.id, "dev", session.id);
+	const fake = fakes[0];
+	fake.autoSettle = false;
+	fake.hangAbort = true; // 模拟 pi agent loop 卡死：abort RPC 永不响应
+
+	await am.prompt(session.id, "进行中", { model: MODEL });
+	expect(am.isSessionStreaming(session.id)).toBe(true);
+
+	await am.abort(session.id); // 应在 abortTimeoutMs 后兜底返回，不挂死
+
+	expect(fake.aborts).toBe(1);
+	// 进程被强杀 + 会话从 Map 拆除（下次 ensureStarted 由 jsonl 重建）
+	expect(fake.alive).toBe(false);
+	expect((am as any).sessions.has(session.id)).toBe(false);
+	expect(am.isSessionStreaming(session.id)).toBe(false);
+	// 前端收到终态事件退出思考态（强杀后 pi 不会再发任何 agent 事件）
+	expect(events.map((c) => c.e.type)).toContain("agent_end");
 });
 
 // ─── 事件转发 ───────────────────────────────────────────────────────────────
@@ -1803,9 +1956,9 @@ test("prompt 在 busy 时追加到 followUpList（不直接发送）", async () 
 	// busy 状态时追加到本地列表，不调 prompt
 	expect(fakes[0].prompted).toHaveLength(0);
 
-	// 验证 followUpList 内容
+	// 验证 followUpList 内容（对象条目，含文本与可选 images）
 	const handle = (am as any).sessions.get(session.id);
-	expect(handle.followUpList).toEqual(["排队消息2"]);
+	expect(handle.followUpList).toEqual([{ text: "排队消息2", images: [] }]);
 });
 
 test("agent_settled 自动 drain followUpList", async () => {
@@ -1814,7 +1967,10 @@ test("agent_settled 自动 drain followUpList", async () => {
 
 	// 手动设置 followUpList 内容
 	const handle = (am as any).sessions.get(session.id);
-	handle.followUpList = ["消息1", "消息2"];
+	handle.followUpList = [
+		{ text: "消息1", images: [] },
+		{ text: "消息2", images: [] },
+	];
 	handle.busy = true;
 	fakes[0].autoSettle = false;
 
@@ -1828,7 +1984,7 @@ test("agent_settled 自动 drain followUpList", async () => {
 	expect(fakes[0].prompted[0]).toBe("消息1");
 
 	// 第二条还在列表
-	expect(handle.followUpList).toEqual(["消息2"]);
+	expect(handle.followUpList).toEqual([{ text: "消息2", images: [] }]);
 });
 
 test("steerMessage 空闲时降级为 prompt", async () => {

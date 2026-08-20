@@ -2,6 +2,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — fix(会话): abort 无响应兜底——超时强杀 pi 进程（「停不下聊天」修复）
+
+- 背景：agent 等挂起的 LLM 响应时 pi agent loop 卡死，abort RPC 无人应答，kernel 永远等 `client.abort()`，用户点停止无效只能重启 app（desktop.log 实测：两次 abort 只有进场日志、无 abort DONE）。
+- 修复：`AgentManager.abort` 对 abort RPC 加 5s 超时（`abortTimeoutMs` 可注入）；超时后合成 message_end 错误（⚠️ 播报「agent 无响应，已强制停止」）+ agent_end（前端退出思考态），再走 `_teardownSession` 强杀进程——会话记录与 jsonl 保留，下次使用 ensureStarted 自动重建。并发/重复 abort 有守卫不重复处理。
+- 影响范围：`packages/kernel/src/agent-manager.ts`；测试新增「abort 无响应超时 → 强杀进程兜底」用例（fake client 新增 hangAbort 开关）。
+
+
 ## 2026-08-19 — feat(多模态): 图片内联按大小硬限制（单张 3.5MB / 累计 10MB），超出回退为附件
 
 - 背景：图片附件已能真正发给大模型后，需按业界标准限制图片大小——原先单张 8MB（base64 ≈10.7MB）超 Anthropic 5MB base64 上限会直接报错；无累计限制会撑爆 RPC payload。
