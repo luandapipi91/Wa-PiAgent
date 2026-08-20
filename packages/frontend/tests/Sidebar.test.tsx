@@ -152,3 +152,24 @@ test("任务视图内分段控件：默认项目视角，切最近渲染 RecentS
 	fireEvent.click(recentBtn);
 	expect(screen.getByTestId("recent-sessions-list")).toBeTruthy();
 });
+
+test("侧栏窄宽（<240）→ 回收站/系统设置按钮 compact：隐藏文字只保留图标", () => {
+	const { useSidebarStore } = require("../src/store/sidebar");
+	useSidebarStore.setState({ width: 200 });
+	renderSidebar();
+	const trashBtn = screen.getByTestId("recycle-bin-btn");
+	const settingsBtn = screen.getByTestId("settings-btn");
+	// compact：文字 span 隐藏，仅 icon
+	expect(trashBtn.querySelector("span")).toBeNull();
+	expect(settingsBtn.querySelector("span")).toBeNull();
+	expect(trashBtn.querySelector("svg")).toBeTruthy();
+	expect(settingsBtn.querySelector("svg")).toBeTruthy();
+});
+
+test("侧栏宽（≥240）→ 回收站/系统设置显示文字", () => {
+	const { useSidebarStore } = require("../src/store/sidebar");
+	useSidebarStore.setState({ width: 264 });
+	renderSidebar();
+	expect(screen.getByTestId("recycle-bin-btn").textContent).toContain("回收站");
+	expect(screen.getByTestId("settings-btn").textContent).toContain("系统设置");
+});

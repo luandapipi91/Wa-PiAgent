@@ -3,9 +3,11 @@ import { useTranslation } from "../i18n/useTranslation";
 
 interface Props {
 	onClick: () => void;
+	/** 窄侧栏模式：隐藏文字只保留图标 */
+	compact?: boolean;
 }
 
-export function SettingsButton({ onClick }: Props) {
+export function SettingsButton({ onClick, compact }: Props) {
 	const { t } = useTranslation();
 	return (
 		<button
@@ -20,9 +22,11 @@ export function SettingsButton({ onClick }: Props) {
 				size="1em"
 				className="text-[calc(18px*var(--font-scale))] flex-shrink-0"
 			/>
-			<span className="whitespace-nowrap truncate shrink">
-				{t("settings.title")}
-			</span>
+			{!compact && (
+				<span className="whitespace-nowrap truncate shrink">
+					{t("settings.title")}
+				</span>
+			)}
 		</button>
 	);
 }
