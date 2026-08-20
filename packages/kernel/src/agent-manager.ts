@@ -228,6 +228,11 @@ const ABORT_RPC_TIMEOUT_MS = 5_000;
 export class AgentManager {
 	// sessionId → SessionHandle（核心数据结构，一个 WaPi 会话对应一个 pi rpc 子进程）
 	private sessions = new Map<string, SessionHandle>();
+	// 会话级 im_push_to 推送注册表（持久层）：与 SessionHandle.imPush 同步写入，但独立于
+	// 进程生命周期——bridge 空闲回收/崩溃重建会 _teardownSession 删除 handle，若只挂在 handle 上
+	// 注册表会随进程一起丢失（agent 重试时报「本会话未配置推送目标」）。
+	// 清理：仅会话被真正删除（session:delete → disposeSession 默认分支）；空闲回收保留。
+	private imPushBySession = new Map<string, ImPushInjection>();
 	// 并发创建锁：同 sessionId 同时只创建一次，防止快速连发导致重复初始化同一 jsonl
 	private starting = new Map<string, Promise<SessionHandle>>();
 	// 标记在创建过程中被 dispose 的 sessionId，防止已清理的会话在创建完成后重新泄漏回 Map
@@ -771,10 +776,13 @@ export class AgentManager {
 						currentCallSignal = undefined;
 					}
 				}
-				// im_push_to：定时任务会话注入优先；其次主聊天会话注册表（@im-push-to 标记
-				// 激活的 SessionHandle.imPush）。工具始终注册，普通会话误调返回明确错误。
+				// im_push_to：定时任务会话注入优先；其次主聊天会话注册表——handle 字段（存活时）
+				// 或持久层 imPushBySession（进程重建后仍保留）。工具始终注册，普通会话误调返回明确错误。
 				if (tool === "im_push_to") {
-					const effectiveImPush = imPush ?? am.sessions.get(sessionId)?.imPush;
+					const effectiveImPush =
+						imPush ??
+						am.sessions.get(sessionId)?.imPush ??
+						am.imPushBySession.get(sessionId);
 					if (!effectiveImPush) {
 						return {
 							content: [
@@ -1175,7 +1183,10 @@ export class AgentManager {
 		// 定时任务会话的 imPush 在 _createSession 注入，handleTool 优先用注入值，互不干扰）
 		const imPushIds = parseImPushMentions(text);
 		if (imPushIds.length > 0 && this.opts.imPushFactory) {
-			handle.imPush = this.opts.imPushFactory(imPushIds);
+			const injection = this.opts.imPushFactory(imPushIds);
+			handle.imPush = injection;
+			// 同步写入持久层：handle 会在 bridge 空闲回收/崩溃重建时被删，注册表必须存活
+			this.imPushBySession.set(sessionId, injection);
 		}
 		handle.busy = true;
 		// 用户重发触发直接 prompt：网络已恢复，清除 transient degraded 标记，恢复 drain。
@@ -1742,10 +1753,18 @@ export class AgentManager {
 	}
 
 	/** 清理单个会话：标记 disposed（防创建中被复用）+ 拆除资源 */
-	async disposeSession(sessionId: string): Promise<void> {
+	async disposeSession(
+		sessionId: string,
+		opts?: { keepImPush?: boolean },
+	): Promise<void> {
 		// 标记已被 dispose：若创建仍在进行中，_createSession 完成时会据此清理并放弃
 		this.disposed.add(sessionId);
 		this._teardownSession(sessionId);
+		// 默认清理 im-push 注册表（会话真正删除时）；空闲回收（reapIdleSessions）传
+		// keepImPush=true 保留——进程没了但会话记录在，重建后推送目标仍需生效
+		if (!opts?.keepImPush) {
+			this.imPushBySession.delete(sessionId);
+		}
 	}
 
 	/** 清理所有会话（进程退出 / 测试 teardown 用） */
@@ -1773,7 +1792,9 @@ export class AgentManager {
 			// 正在思考/跑工具的会话绝不回收，留到下一轮
 			if (handle.busy) continue;
 			if (now - handle.lastActiveAt > thresholdMs) {
-				await this.disposeSession(id);
+				// 保留 im-push 注册表：空闲回收只杀进程，会话记录与 jsonl 仍在，
+				// 用户重开会话重建进程后推送目标应继续生效（不能报「未配置推送目标」）
+				await this.disposeSession(id, { keepImPush: true });
 				reaped.push(id);
 			}
 		}
