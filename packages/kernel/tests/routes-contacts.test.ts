@@ -14,7 +14,8 @@ async function capture(path: string, init?: RequestInit) {
 	registerContactRoutes(router, callApi as any, {} as any);
 	const server = Bun.serve({
 		port: 0,
-		fetch: async (req) => (await router.handle(req)) ?? new Response("nf", { status: 404 }),
+		fetch: async (req) =>
+			(await router.handle(req)) ?? new Response("nf", { status: 404 }),
 	});
 	try {
 		await fetch(`http://localhost:${server.port}${path}`, {

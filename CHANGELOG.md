@@ -1,6 +1,6 @@
 ## 2026-08-20 — feat(企微通讯录同步): 通讯录搜索式同步企微成员
 
-- 新增：系统设置 → 机器人 → 通讯录面板（wecom 渠道）顶部常驻搜索框，输入关键词（姓名/部门）点「搜索好友」搜索企微通讯录成员并合入本地通讯录；toast 提示新增人数 + 自动刷新。
+- 新增：系统设置 → 机器人 → 通讯录面板（wecom 渠道）顶部常驻搜索框，输入关键词（姓名/部门）点「搜索好友」搜索企微通讯录成员并合入本地通讯录；搜索框同时是**真搜索**——输入即按显示名实时过滤本地通讯录列表（人/群统一）；仅新增 > 0 时 toast 提示，无新增不打扰。
 - 新增：发送给 IM 联系人弹窗（ContactPickerDialog）搜索输入时异步同步企微成员到本地（防抖 400ms；有 wecom 渠道才同步，无权限/失败均静默不提示）；同步后本地列表自动更新。
 - 鉴权：复用机器人已有 Bot ID+Secret，签名（sha256_hex(secret+botId+time+nonce)）调 `get_cli_config` 换取 Bearer token（无需 apikey）；token 失效（853004）自动换新重试，用户无感。后端新 `WecomCliClient`（`packages/kernel/src/channels/wecom-cli-client.ts`）封装企微 CLI 网关 `contact/users/search`。
 - 接口：`POST /api/contacts/sync-wecom`（body `{channelId, keywords}`）→ `contacts:sync-wecom` → `ChannelManager.syncWecomContacts`（按成员 ensureContact + remark 为空才填姓名，不覆盖手动备注）→ 广播 `contacts:changed`。

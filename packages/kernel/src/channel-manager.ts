@@ -71,7 +71,10 @@ export interface ChannelManagerDeps {
 	pushConnectTimeoutMs?: number;
 	/** 企微 CLI 客户端工厂（通讯录同步用）；缺省用真实 WecomCliClient。测试注入 fake */
 	wecomCliFactory?: (opts: { botId: string; secret: string }) => {
-		searchContacts(keywords: string[], searchMode?: string): Promise<import("./channels/wecom-cli-client").WecomContactUser[]>;
+		searchContacts(
+			keywords: string[],
+			searchMode?: string,
+		): Promise<import("./channels/wecom-cli-client").WecomContactUser[]>;
 	};
 }
 

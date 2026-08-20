@@ -129,10 +129,7 @@ export function ContactPickerDialog({ onPick, onCancel }: Props) {
 												: "border-hairline hover:bg-surface-hover"
 										}`}
 									>
-										<Icon
-											name={c.kind === "group" ? "users" : "user"}
-											size={14}
-										/>
+										<Icon name={c.kind === "group" ? "users" : "user"} size={14} />
 										<span className="text-primary min-w-0 truncate">
 											{contactLabel(c)}
 										</span>

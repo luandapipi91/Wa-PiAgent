@@ -35,7 +35,10 @@ export default function ContactsPanel({
 		setSyncing(true);
 		try {
 			const { added } = await syncWecomContacts(channelId, [keyword]);
-			useToastStore.getState().add(`搜索完成：新增 ${added} 人`, "success");
+			// 只有新增了人才提示，无新增（已全部在通讯录）不打扰
+			if (added > 0) {
+				useToastStore.getState().add(`搜索完成：新增 ${added} 人`, "success");
+			}
 			setSyncKeyword("");
 			void loadContacts(); // 同步后刷新列表
 		} catch (e) {
@@ -47,17 +50,22 @@ export default function ContactsPanel({
 		}
 	};
 
-	const { persons, groups } = useMemo(() => {
-		const mine = contacts.filter((c) => c.channelId === channelId);
-		return {
-			persons: mine.filter((c) => c.kind === "person"),
-			groups: mine.filter((c) => c.kind === "group"),
-		};
-	}, [contacts, channelId]);
-
 	const label = (c: ContactEntity): string =>
 		c.remark ||
 		(c.kind === "group" ? (c.chatId ?? "").slice(0, 8) : (c.userId ?? ""));
+
+	const { persons, groups } = useMemo(() => {
+		const mine = contacts.filter((c) => c.channelId === channelId);
+		const q = syncKeyword.trim().toLowerCase();
+		// 真搜索：关键词非空时按显示名过滤本地通讯录（人/群统一），同步搜索框同时承担过滤
+		const filtered = q
+			? mine.filter((c) => label(c).toLowerCase().includes(q))
+			: mine;
+		return {
+			persons: filtered.filter((c) => c.kind === "person"),
+			groups: filtered.filter((c) => c.kind === "group"),
+		};
+	}, [contacts, channelId, syncKeyword]);
 
 	const save = async (c: ContactEntity) => {
 		try {

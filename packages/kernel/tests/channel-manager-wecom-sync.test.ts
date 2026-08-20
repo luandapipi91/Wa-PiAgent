@@ -11,10 +11,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ChannelManager } from "../src/channel-manager";
-import {
-	listContacts,
-	renameContact,
-} from "../src/contact-store";
+import { listContacts, renameContact } from "../src/contact-store";
 import type { WecomContactUser } from "../src/channels/wecom-cli-client";
 import type { ChannelConfig } from "@wa-pi/shared";
 
@@ -46,7 +43,10 @@ beforeEach(async () => {
 		mappingsFile: join(dir, "mappings.json"),
 		contactsFile: join(dir, "contacts.json"),
 		tmpDir: join(dir, "tmp"),
-		configStore: { listAgents: async () => [], getAgent: async () => null } as any,
+		configStore: {
+			listAgents: async () => [],
+			getAgent: async () => null,
+		} as any,
 		projectStore: {
 			load: async () => ({ projects: [], sessions: [] }),
 			createSession: async (input: any) => ({ id: input.id, ...input }),
@@ -70,9 +70,9 @@ function makeUser(userid: string, name: string): WecomContactUser {
 }
 
 test("非 wecom 渠道 → 抛错", async () => {
-	await expect(
-		manager.syncWecomContacts("not_exist", ["张"]),
-	).rejects.toThrow(/不是企业微信机器人/);
+	await expect(manager.syncWecomContacts("not_exist", ["张"])).rejects.toThrow(
+		/不是企业微信机器人/,
+	);
 });
 
 test("搜索成员 → 每个成员建联系人并填姓名，返回 added/updated", async () => {
@@ -115,7 +115,7 @@ test("已有手动备注 → 同步不覆盖 remark", async () => {
 
 test("搜索接口抛错 → 透传错误", async () => {
 	searchContacts.mockRejectedValue(new Error("通讯录搜索失败"));
-	await expect(
-		manager.syncWecomContacts(channelId, ["张"]),
-	).rejects.toThrow(/通讯录搜索失败/);
+	await expect(manager.syncWecomContacts(channelId, ["张"])).rejects.toThrow(
+		/通讯录搜索失败/,
+	);
 });

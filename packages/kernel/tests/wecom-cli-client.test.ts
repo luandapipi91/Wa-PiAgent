@@ -37,7 +37,7 @@ const RESP_OK = { errcode: 0, errmsg: "ok" };
 test("getToken 用 botId+secret 签名请求 get_cli_config 并返回 token", async () => {
 	let called: any = null;
 	const restore = mockFetch({
-		"get_cli_config": (url, init) => {
+		get_cli_config: (url, init) => {
 			called = { url, init };
 			return { token: "tok_abc", ...RESP_OK };
 		},
@@ -46,7 +46,9 @@ test("getToken 用 botId+secret 签名请求 get_cli_config 并返回 token", as
 		const client = new WecomCliClient({ botId: "bot_1", secret: "sec_1" });
 		const token = await client.getToken();
 		expect(token).toBe("tok_abc");
-		expect(called.url).toContain("qyapi.weixin.qq.com/cgi-bin/aibot/cli/get_cli_config");
+		expect(called.url).toContain(
+			"qyapi.weixin.qq.com/cgi-bin/aibot/cli/get_cli_config",
+		);
 		const body = JSON.parse(called.init.body);
 		expect(body.bot_id).toBe("bot_1");
 		expect(typeof body.time).toBe("number");
@@ -61,7 +63,7 @@ test("getToken 用 botId+secret 签名请求 get_cli_config 并返回 token", as
 test("getToken 重复调用复用缓存（只请求一次）", async () => {
 	let count = 0;
 	const restore = mockFetch({
-		"get_cli_config": () => {
+		get_cli_config: () => {
 			count++;
 			return { token: "tok_abc", ...RESP_OK };
 		},
@@ -78,7 +80,7 @@ test("getToken 重复调用复用缓存（只请求一次）", async () => {
 
 test("getToken 返回 errcode!=0 → 抛中文错误", async () => {
 	const restore = mockFetch({
-		"get_cli_config": () => ({ errcode: 40001, errmsg: "secret 错误" }),
+		get_cli_config: () => ({ errcode: 40001, errmsg: "secret 错误" }),
 	});
 	try {
 		const client = new WecomCliClient({ botId: "bot_1", secret: "bad" });
@@ -91,7 +93,7 @@ test("getToken 返回 errcode!=0 → 抛中文错误", async () => {
 test("searchContacts 请求带 payload 信封 + Bearer token，解析三层 JSON 返回 users", async () => {
 	let called: any = null;
 	const restore = mockFetch({
-		"get_cli_config": () => ({ token: "tok_abc", ...RESP_OK }),
+		get_cli_config: () => ({ token: "tok_abc", ...RESP_OK }),
 		"contact/users/search": (url, init) => {
 			called = { url, init };
 			return {
@@ -134,10 +136,13 @@ test("searchContacts 请求带 payload 信封 + Bearer token，解析三层 JSON
 test("searchContacts 传 search_mode 透传", async () => {
 	let outer: any = null;
 	const restore = mockFetch({
-		"get_cli_config": () => ({ token: "tok", ...RESP_OK }),
+		get_cli_config: () => ({ token: "tok", ...RESP_OK }),
 		"contact/users/search": (_url, init) => {
 			outer = JSON.parse(init.body);
-			return { ...RESP_OK, results_json: JSON.stringify({ result: JSON.stringify({ users: [] }) }) };
+			return {
+				...RESP_OK,
+				results_json: JSON.stringify({ result: JSON.stringify({ users: [] }) }),
+			};
 		},
 	});
 	try {
@@ -153,7 +158,7 @@ test("searchContacts 遇 853004（token 失效）→ 换新 token 重试一次�
 	const urls: string[] = [];
 	let tokenIssueCount = 0;
 	const restore = mockFetch({
-		"get_cli_config": () => {
+		get_cli_config: () => {
 			tokenIssueCount++;
 			return { token: `tok_${tokenIssueCount}`, ...RESP_OK };
 		},
@@ -162,7 +167,12 @@ test("searchContacts 遇 853004（token 失效）→ 换新 token 重试一次�
 			if (init.headers.Authorization === "Bearer tok_1") {
 				return { errcode: 853004, errmsg: "token expired" };
 			}
-			return { ...RESP_OK, results_json: JSON.stringify({ result: JSON.stringify({ users: [{ userid: "u1", name: "张三" }] }) }) };
+			return {
+				...RESP_OK,
+				results_json: JSON.stringify({
+					result: JSON.stringify({ users: [{ userid: "u1", name: "张三" }] }),
+				}),
+			};
 		},
 	});
 	try {
@@ -178,8 +188,11 @@ test("searchContacts 遇 853004（token 失效）→ 换新 token 重试一次�
 
 test("searchContacts 非 853004 业务错误 → 抛 errmsg", async () => {
 	const restore = mockFetch({
-		"get_cli_config": () => ({ token: "tok", ...RESP_OK }),
-		"contact/users/search": () => ({ errcode: 40058, errmsg: "'keywords' 不合法" }),
+		get_cli_config: () => ({ token: "tok", ...RESP_OK }),
+		"contact/users/search": () => ({
+			errcode: 40058,
+			errmsg: "'keywords' 不合法",
+		}),
 	});
 	try {
 		const client = new WecomCliClient({ botId: "b", secret: "s" });

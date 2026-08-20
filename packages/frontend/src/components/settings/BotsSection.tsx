@@ -153,9 +153,7 @@ export function BotsSection() {
 						className="text-left px-2.5 py-2 rounded-md border cursor-pointer"
 						style={{
 							borderColor:
-								selectedId === b.id
-									? "var(--hairline-strong)"
-									: "var(--hairline)",
+								selectedId === b.id ? "var(--hairline-strong)" : "var(--hairline)",
 							background: "var(--surface)",
 						}}
 						data-testid={`bot-card-${b.id}`}
@@ -177,10 +175,7 @@ export function BotsSection() {
 									void updateBot(b.id, { enabled: !b.enabled }).catch((err) =>
 										useToastStore
 											.getState()
-											.add(
-												err instanceof Error ? err.message : String(err),
-												"error",
-											),
+											.add(err instanceof Error ? err.message : String(err), "error"),
 									);
 								}}
 								title={
@@ -194,9 +189,7 @@ export function BotsSection() {
 								<span
 									className="relative inline-block w-7 h-4 rounded-full align-middle"
 									style={{
-										background: b.enabled
-											? "var(--brand)"
-											: "var(--hairline-strong)",
+										background: b.enabled ? "var(--brand)" : "var(--hairline-strong)",
 									}}
 								>
 									<span
@@ -214,9 +207,7 @@ export function BotsSection() {
 								className="inline-block w-1.5 h-1.5 rounded-full"
 								style={{ background: STATUS_DOT[b.status] }}
 							/>
-							{t(
-								STATUS_TEXT_KEY[b.status] ?? "settings.bot.statusDisconnected",
-							)}
+							{t(STATUS_TEXT_KEY[b.status] ?? "settings.bot.statusDisconnected")}
 							{b.statusDetail ? ` · ${b.statusDetail}` : ""}
 						</div>
 					</div>
@@ -327,9 +318,7 @@ export function BotsSection() {
 							</span>
 							<select
 								value={draft.model ?? ""}
-								onChange={(e) =>
-									setDraft({ ...draft, model: e.target.value || null })
-								}
+								onChange={(e) => setDraft({ ...draft, model: e.target.value || null })}
 								className="px-2 py-1.5 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
 								data-testid="bot-model-select"
 							>
@@ -373,12 +362,8 @@ export function BotsSection() {
 								<option value="standard">
 									{t("settings.bot.granularityStandard")}
 								</option>
-								<option value="simple">
-									{t("settings.bot.granularitySimple")}
-								</option>
-								<option value="minimal">
-									{t("settings.bot.granularityMinimal")}
-								</option>
+								<option value="simple">{t("settings.bot.granularitySimple")}</option>
+								<option value="minimal">{t("settings.bot.granularityMinimal")}</option>
 							</select>
 						</label>
 						<label className="flex flex-col gap-1 w-72">

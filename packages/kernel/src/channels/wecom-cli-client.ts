@@ -28,7 +28,8 @@ export interface WecomContactUser {
 /** token 失效错误码（官方 CLI 用 853004 触发静默刷新） */
 const TOKEN_STALE_ERRCODE = 853004;
 
-const AUTH_ENDPOINT = "https://qyapi.weixin.qq.com/cgi-bin/aibot/cli/get_cli_config";
+const AUTH_ENDPOINT =
+	"https://qyapi.weixin.qq.com/cgi-bin/aibot/cli/get_cli_config";
 const BASE_URL = "https://qyapi.weixin.qq.com/cli";
 
 /** sha256_hex(secret + bot_id + time + nonce) */

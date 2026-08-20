@@ -1,11 +1,40 @@
 // ContactPickerDialog 组件测试：标题通讯录数量 / 按名字搜索 / 多选确认 / 取消 / 空态
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+} from "@testing-library/react";
 
 const baseContacts = () => [
-	{ id: "ct_1", channelId: "ch_1", kind: "person", userId: "ZhangSan", remark: "张三", firstChatAt: 0, lastChatAt: 0 },
-	{ id: "ct_2", channelId: "ch_1", kind: "group", chatId: "wrabcde123456789", firstChatAt: 0, lastChatAt: 0 },
-	{ id: "ct_3", channelId: "ch_2", kind: "person", userId: "LiSi", remark: "李四", firstChatAt: 0, lastChatAt: 0 },
+	{
+		id: "ct_1",
+		channelId: "ch_1",
+		kind: "person",
+		userId: "ZhangSan",
+		remark: "张三",
+		firstChatAt: 0,
+		lastChatAt: 0,
+	},
+	{
+		id: "ct_2",
+		channelId: "ch_1",
+		kind: "group",
+		chatId: "wrabcde123456789",
+		firstChatAt: 0,
+		lastChatAt: 0,
+	},
+	{
+		id: "ct_3",
+		channelId: "ch_2",
+		kind: "person",
+		userId: "LiSi",
+		remark: "李四",
+		firstChatAt: 0,
+		lastChatAt: 0,
+	},
 ];
 
 const contactState = {
@@ -13,18 +42,21 @@ const contactState = {
 	loadContacts: mock(async () => {}),
 	syncWecomContacts: mock(async () => ({ added: 0, updated: 0 })),
 };
-const useContactsStore = (selector: (s: typeof contactState) => unknown) => selector(contactState);
+const useContactsStore = (selector: (s: typeof contactState) => unknown) =>
+	selector(contactState);
 (useContactsStore as any).getState = () => contactState;
 mock.module("../../store/contacts", () => ({
 	useContactsStore,
-	contactLabel: (c: any) => c.remark || (c.kind === "group" ? c.chatId?.slice(0, 8) : c.userId) || c.id,
+	contactLabel: (c: any) =>
+		c.remark || (c.kind === "group" ? c.chatId?.slice(0, 8) : c.userId) || c.id,
 }));
 
 // channels store：可配置 wecom 渠道列表（有 wecom = 有同步权限）
 const channelsState = {
 	bots: [] as any[],
 };
-const useChannelsStore = (selector: (s: typeof channelsState) => unknown) => selector(channelsState);
+const useChannelsStore = (selector: (s: typeof channelsState) => unknown) =>
+	selector(channelsState);
 (useChannelsStore as any).getState = () => channelsState;
 mock.module("../../store/channels", () => ({
 	useChannelsStore,
@@ -64,12 +96,19 @@ test("搜索无结果 → 显示无匹配文案", () => {
 	fireEvent.change(screen.getByTestId("contact-picker-search"), {
 		target: { value: "zzz" },
 	});
-	expect(screen.getByTestId("contact-picker-empty").textContent).toContain("无匹配");
+	expect(screen.getByTestId("contact-picker-empty").textContent).toContain(
+		"无匹配",
+	);
 });
 
 test("未选中时确认按钮禁用；多选后确认回调返回全部目标（按通讯录顺序）", async () => {
 	const picks: any[] = [];
-	render(<ContactPickerDialog onPick={(ts) => picks.push(...ts)} onCancel={() => {}} />);
+	render(
+		<ContactPickerDialog
+			onPick={(ts) => picks.push(...ts)}
+			onCancel={() => {}}
+		/>,
+	);
 	const ok = screen.getByTestId("contact-picker-ok") as HTMLButtonElement;
 	expect(ok.disabled).toBe(true);
 	fireEvent.click(screen.getByTestId("contact-picker-item-ct_1"));
@@ -135,47 +174,51 @@ test("有 wecom 渠道：搜索输入触发异步同步企微成员并刷新本�
 	const input = screen.getByTestId("contact-picker-search");
 	// 防抖 400ms 后触发同步
 	fireEvent.change(input, { target: { value: "张" } });
-	await act(async () => { await new Promise((r) => setTimeout(r, 500)); });
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 500));
+	});
 	// 仅同步 wecom 渠道，跳过非 wecom
 	expect(contactState.syncWecomContacts).toHaveBeenCalledTimes(1);
-	expect(contactState.syncWecomContacts).toHaveBeenCalledWith("ch_wecom", ["张"]);
+	expect(contactState.syncWecomContacts).toHaveBeenCalledWith("ch_wecom", [
+		"张",
+	]);
 	expect(contactState.loadContacts).toHaveBeenCalled();
 });
 
 test("无 wecom 渠道（无权限）→ 搜索不触发同步、不报错", async () => {
-	channelsState.bots = [
-		{ id: "ch_other", type: "mock", name: "其它" },
-	];
+	channelsState.bots = [{ id: "ch_other", type: "mock", name: "其它" }];
 	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
 	fireEvent.change(screen.getByTestId("contact-picker-search"), {
 		target: { value: "张" },
 	});
-	await act(async () => { await new Promise((r) => setTimeout(r, 500)); });
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 500));
+	});
 	expect(contactState.syncWecomContacts).not.toHaveBeenCalled();
 });
 
 test("搜索词为空 → 不触发同步", async () => {
-	channelsState.bots = [
-		{ id: "ch_wecom", type: "wecom", name: "企微机器人" },
-	];
+	channelsState.bots = [{ id: "ch_wecom", type: "wecom", name: "企微机器人" }];
 	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
 	fireEvent.change(screen.getByTestId("contact-picker-search"), {
 		target: { value: "  " },
 	});
-	await act(async () => { await new Promise((r) => setTimeout(r, 500)); });
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 500));
+	});
 	expect(contactState.syncWecomContacts).not.toHaveBeenCalled();
 });
 
 test("同步失败（如已过期）→ 静默忽略，不 toast 不阻塞本地搜索", async () => {
-	channelsState.bots = [
-		{ id: "ch_wecom", type: "wecom", name: "企微机器人" },
-	];
+	channelsState.bots = [{ id: "ch_wecom", type: "wecom", name: "企微机器人" }];
 	contactState.syncWecomContacts.mockRejectedValue(new Error("token 过期"));
 	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
 	fireEvent.change(screen.getByTestId("contact-picker-search"), {
 		target: { value: "张" },
 	});
 	// 同步失败不应让本地过滤出错
-	await act(async () => { await new Promise((r) => setTimeout(r, 500)); });
+	await act(async () => {
+		await new Promise((r) => setTimeout(r, 500));
+	});
 	expect(screen.getByText("张三")).toBeTruthy();
 });

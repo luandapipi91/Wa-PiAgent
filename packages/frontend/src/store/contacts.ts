@@ -7,7 +7,9 @@ interface ContactsState {
 	contacts: ContactEntity[];
 	loadContacts: () => Promise<void>;
 	renameContact: (id: string, remark: string) => Promise<void>;
-	ensureContact: (input: ContactEnsureInput) => Promise<ContactEntity | undefined>;
+	ensureContact: (
+		input: ContactEnsureInput,
+	) => Promise<ContactEntity | undefined>;
 	syncWecomContacts: (
 		channelId: string,
 		keywords: string[],
@@ -52,9 +54,7 @@ export const useContactsStore = create<ContactsState>((set) => ({
 /** 联系人显示名：remark 优先；group 退 chatId 前 8 位、person 退 userId；兜底 id */
 export function contactLabel(c: ContactEntity): string {
 	return (
-		c.remark ||
-		(c.kind === "group" ? c.chatId?.slice(0, 8) : c.userId) ||
-		c.id
+		c.remark || (c.kind === "group" ? c.chatId?.slice(0, 8) : c.userId) || c.id
 	);
 }
 
