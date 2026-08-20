@@ -1,3 +1,8 @@
+## 2026-08-20 — fix(UI): 侧边栏窄宽时顶部标题只显示「WA PI」隐藏 Agent
+
+- 调整：顶部标题「WA PI Agent」在侧边栏宽度 < 240px 时只显示「WA PI」、隐藏「Agent」（与回收站/系统设置 compact 同一阈值），避免换行/截断；宽时显示完整标题。
+- 影响范围：`packages/frontend/src/components/Sidebar.tsx`；测试：Sidebar 新增宽/窄标题显示用例。
+
 ## 2026-08-20 — fix(UI): 修复侧边栏 compact 图标回落到 12px（Tailwind 扫不到模板拼接类名）
 
 - 根因：`text-[calc(${compact ? 24 : 16}px*var(--font-scale))]` 把尺寸数字放进模板插值，Tailwind content 扫描拿不到完整类名字面量 → 不生成对应 CSS → 图标 font-size 回落到按钮 `text-xs`（12px），看起来「没放大」。
