@@ -1,25 +1,55 @@
 import { useEffect, useMemo, useState } from "react";
 import { useContactsStore } from "../../store/contacts";
 import { useToastStore } from "../../store/toast";
-import type { ContactEntity } from "@wa-pi/shared";
+import type { ChannelType, ContactEntity } from "@wa-pi/shared";
 
-/** 通讯录滑出面板：人/群两类 + 行内展开重命名 */
+/** 通讯录滑出面板：人/群两类 + 行内展开重命名 + 企微通讯录同步（wecom 渠道） */
 export default function ContactsPanel({
 	channelId,
+	channelType,
 	onClose,
 }: {
 	channelId: string;
+	channelType?: ChannelType;
 	onClose: () => void;
 }) {
 	const contacts = useContactsStore((s) => s.contacts);
-	const { renameContact, loadContacts } = useContactsStore.getState();
+	const { renameContact, loadContacts, syncWecomContacts } =
+		useContactsStore.getState();
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [value, setValue] = useState("");
+	// 企微通讯录同步：按钮展开输入框 → 输入关键词 → 同步 → toast + 刷新
+	const [syncOpen, setSyncOpen] = useState(false);
+	const [syncKeyword, setSyncKeyword] = useState("");
+	const [syncing, setSyncing] = useState(false);
 
 	// 打开面板（或切换 channelId）时拉取通讯录，否则 store 初始为空、面板恒显示「暂无」
 	useEffect(() => {
 		void loadContacts();
 	}, [channelId]);
+
+	const isWecom = channelType === "wecom";
+
+	const doSync = async () => {
+		const keyword = syncKeyword.trim();
+		if (!keyword) return;
+		setSyncing(true);
+		try {
+			const { added } = await syncWecomContacts(channelId, [keyword]);
+			useToastStore
+				.getState()
+				.add(`同步完成：新增 ${added} 人`, "success");
+			setSyncOpen(false);
+			setSyncKeyword("");
+			void loadContacts(); // 同步后刷新列表
+		} catch (e) {
+			useToastStore
+				.getState()
+				.add(e instanceof Error ? e.message : String(e), "error");
+		} finally {
+			setSyncing(false);
+		}
+	};
 
 	const { persons, groups } = useMemo(() => {
 		const mine = contacts.filter((c) => c.channelId === channelId);
@@ -51,7 +81,18 @@ export default function ContactsPanel({
 			data-testid="contacts-panel"
 		>
 			<div className="flex items-center justify-between px-3 py-2 border-b border-hairline">
-				<span className="text-sm text-primary">通讯录</span>
+				<div className="flex items-center gap-2 min-w-0">
+					<span className="text-sm text-primary">通讯录</span>
+					{isWecom && (
+						<button
+							onClick={() => setSyncOpen((v) => !v)}
+							className="px-2 py-0.5 rounded-sm text-xs border border-hairline cursor-pointer"
+							data-testid="contacts-sync-wecom-btn"
+						>
+							同步企微通讯录好友
+						</button>
+					)}
+				</div>
 				<button
 					onClick={onClose}
 					className="text-tertiary cursor-pointer"
@@ -60,6 +101,31 @@ export default function ContactsPanel({
 					✕
 				</button>
 			</div>
+			{isWecom && syncOpen && (
+				<div className="flex gap-1 px-3 py-2 border-b border-hairline">
+					<input
+						autoFocus
+						value={syncKeyword}
+						onChange={(e) => setSyncKeyword(e.target.value)}
+						onKeyDown={(e) => e.key === "Enter" && !syncing && void doSync()}
+						placeholder="输入姓名/部门关键词搜索"
+						className="flex-1 min-w-0 px-2 py-1 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
+						data-testid="contacts-sync-wecom-input"
+					/>
+					<button
+						onClick={() => void doSync()}
+						disabled={syncing}
+						className="px-2 py-1 rounded-sm text-xs flex-shrink-0"
+						style={{
+							background: "var(--brand)",
+							color: "var(--on-brand)",
+						}}
+						data-testid="contacts-sync-wecom-confirm"
+					>
+						{syncing ? "同步中…" : "同步"}
+					</button>
+				</div>
+			)}
 			<div className="flex-1 overflow-auto p-3 flex flex-col gap-1">
 				{persons.length === 0 && groups.length === 0 && (
 					<div className="text-xs text-tertiary text-center py-4">

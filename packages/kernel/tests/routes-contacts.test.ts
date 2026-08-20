@@ -53,3 +53,13 @@ test("POST /api/contacts/ensure → contacts:ensure（group 匹配键）", async
 	expect(e.kind).toBe("group");
 	expect(e.chatId).toBe("g1");
 });
+
+test("POST /api/contacts/sync-wecom → contacts:sync-wecom（透传 channelId + keywords）", async () => {
+	const e = await capture("/api/contacts/sync-wecom", {
+		method: "POST",
+		body: JSON.stringify({ channelId: "ch_abc", keywords: ["张", "李"] }),
+	});
+	expect(e.type).toBe("contacts:sync-wecom");
+	expect(e.channelId).toBe("ch_abc");
+	expect(e.keywords).toEqual(["张", "李"]);
+});

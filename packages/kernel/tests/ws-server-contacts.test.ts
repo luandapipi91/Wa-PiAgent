@@ -190,3 +190,57 @@ test("contacts:ensure ensureContact 抛错 → HTTP 500 + err.message", async ()
 	expect(res.status).toBe(500);
 	expect(((await res.json()) as any).error).toBe("存储 I/O 失败");
 });
+
+test("contacts:sync-wecom 成功 → broadcast contacts:changed + reply sync-wecom-result（返回 added/updated）", async () => {
+	const server = makeServer({
+		syncWecomContacts: async (channelId: string, keywords: string[]) => ({
+			added: 2,
+			updated: 1,
+		}),
+	});
+
+	const broadcasted: any[] = [];
+	const origBroadcast = server.broadcast.bind(server);
+	server.broadcast = (e: any) => {
+		broadcasted.push(e);
+		origBroadcast(e);
+	};
+
+	const res = await server.callApi({
+		type: "contacts:sync-wecom",
+		channelId: "ch_1",
+		keywords: ["张"],
+	} as any);
+	expect(res.status).toBe(200);
+	const body = (await res.json()) as any;
+	expect(body.type).toBe("contacts:sync-wecom-result");
+	expect(body.added).toBe(2);
+	expect(body.updated).toBe(1);
+	expect(broadcasted.some((e) => e.type === "contacts:changed")).toBe(true);
+});
+
+test("contacts:sync-wecom channelManager 为 null → HTTP 400（通讯录未启用）", async () => {
+	const server = makeServer(null);
+	const res = await server.callApi({
+		type: "contacts:sync-wecom",
+		channelId: "ch_1",
+		keywords: ["张"],
+	} as any);
+	expect(res.status).toBe(400);
+	expect(((await res.json()) as any).error).toBe("通讯录未启用");
+});
+
+test("contacts:sync-wecom syncWecomContacts 抛错 → HTTP 500 + err.message", async () => {
+	const server = makeServer({
+		syncWecomContacts: async () => {
+			throw new Error("该机器人不是企业微信机器人");
+		},
+	});
+	const res = await server.callApi({
+		type: "contacts:sync-wecom",
+		channelId: "ch_1",
+		keywords: ["张"],
+	} as any);
+	expect(res.status).toBe(500);
+	expect(((await res.json()) as any).error).toBe("该机器人不是企业微信机器人");
+});

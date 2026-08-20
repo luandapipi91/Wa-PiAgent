@@ -11,6 +11,7 @@ import {
 // 和 useContactsStore.getState()，所以 mock 需同时支持 selector 调用与 getState()）
 const renameContact = mock(async () => {});
 const loadContacts = mock(async () => {});
+const syncWecomContacts = mock(async () => ({ added: 2, updated: 0 }));
 const toastAdd = mock(() => {});
 
 const baseContacts = (): any[] => [
@@ -36,6 +37,7 @@ const state = {
 	contacts: baseContacts(),
 	renameContact,
 	loadContacts,
+	syncWecomContacts,
 };
 
 const useContactsStore = (selector: (s: typeof state) => unknown) =>
@@ -55,6 +57,7 @@ const { default: ContactsPanel } = await import("./ContactsPanel");
 beforeEach(() => {
 	renameContact.mockReset();
 	loadContacts.mockReset();
+	syncWecomContacts.mockReset();
 	toastAdd.mockReset();
 	state.contacts = baseContacts();
 });
@@ -171,4 +174,52 @@ test("重命名失败时 toast 收到 error 消息", async () => {
 	fireEvent.click(screen.getByText("保存"));
 	await act(async () => {});
 	expect(toastAdd).toHaveBeenCalledWith("boom", "error");
+});
+
+// ===== 企微通讯录同步 =====
+
+test("wecom 渠道显示「同步企微通讯录好友」按钮，非 wecom 不显示", () => {
+	const { rerender } = render(
+		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
+	);
+	expect(screen.getByTestId("contacts-sync-wecom-btn")).toBeTruthy();
+	rerender(
+		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="mock" />,
+	);
+	expect(screen.queryByTestId("contacts-sync-wecom-btn")).toBeNull();
+});
+
+test("点击同步按钮展开输入框，输入关键词确认 → 调 syncWecomContacts + toast", async () => {
+	syncWecomContacts.mockResolvedValue({ added: 2, updated: 0 });
+	render(
+		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
+	);
+	fireEvent.click(screen.getByTestId("contacts-sync-wecom-btn"));
+	const input = screen.getByTestId("contacts-sync-wecom-input");
+	fireEvent.change(input, { target: { value: "张" } });
+	fireEvent.click(screen.getByTestId("contacts-sync-wecom-confirm"));
+	await act(async () => {});
+	expect(syncWecomContacts).toHaveBeenCalledWith("ch_a", ["张"]);
+	// 同步成功后 toast 提示新增人数
+	expect(toastAdd).toHaveBeenCalledWith(
+		expect.stringContaining("2"),
+		"success",
+	);
+});
+
+test("同步失败 → toast 收到 error 消息", async () => {
+	syncWecomContacts.mockRejectedValue(new Error("该机器人不是企业微信机器人"));
+	render(
+		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
+	);
+	fireEvent.click(screen.getByTestId("contacts-sync-wecom-btn"));
+	fireEvent.change(screen.getByTestId("contacts-sync-wecom-input"), {
+		target: { value: "张" },
+	});
+	fireEvent.click(screen.getByTestId("contacts-sync-wecom-confirm"));
+	await act(async () => {});
+	expect(toastAdd).toHaveBeenCalledWith(
+		"该机器人不是企业微信机器人",
+		"error",
+	);
 });

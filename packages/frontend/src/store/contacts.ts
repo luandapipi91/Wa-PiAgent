@@ -8,6 +8,10 @@ interface ContactsState {
 	loadContacts: () => Promise<void>;
 	renameContact: (id: string, remark: string) => Promise<void>;
 	ensureContact: (input: ContactEnsureInput) => Promise<ContactEntity | undefined>;
+	syncWecomContacts: (
+		channelId: string,
+		keywords: string[],
+	) => Promise<{ added: number; updated: number }>;
 }
 
 /** ensureContact 入参：按 channelId + kind + 匹配键确保联系人存在 */
@@ -35,6 +39,13 @@ export const useContactsStore = create<ContactsState>((set) => ({
 	ensureContact: async (input) => {
 		const res = (await api.post("/api/contacts/ensure", input)) as any;
 		return res?.contact as ContactEntity | undefined;
+	},
+	syncWecomContacts: async (channelId, keywords) => {
+		const res = (await api.post("/api/contacts/sync-wecom", {
+			channelId,
+			keywords,
+		})) as any;
+		return { added: res?.added ?? 0, updated: res?.updated ?? 0 };
 	},
 }));
 

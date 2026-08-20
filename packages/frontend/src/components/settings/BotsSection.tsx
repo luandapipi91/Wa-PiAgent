@@ -489,6 +489,7 @@ export function BotsSection() {
 			{contactsOpen && selectedId && (
 				<ContactsPanel
 					channelId={selectedId}
+					channelType={selected?.type}
 					onClose={() => setContactsOpen(false)}
 				/>
 			)}

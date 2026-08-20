@@ -27,4 +27,13 @@ export const registerContactRoutes: RouteRegistrar = (r, callApi) => {
 			chatId: b.chatId,
 		});
 	});
+	// 同步企微通讯录（搜索式）：用机器人 Bot ID+Secret 换 token 搜索成员合入通讯录
+	r.add("POST", "/api/contacts/sync-wecom", async (req) => {
+		const b = await readJsonBody(req);
+		return callApi({
+			type: "contacts:sync-wecom",
+			channelId: b.channelId,
+			keywords: Array.isArray(b.keywords) ? b.keywords : [],
+		});
+	});
 };
