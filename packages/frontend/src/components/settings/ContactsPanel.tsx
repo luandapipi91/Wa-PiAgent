@@ -78,11 +78,11 @@ export default function ContactsPanel({
 									value={value}
 									onChange={(e) => setValue(e.target.value)}
 									onKeyDown={(e) => e.key === "Enter" && void save(c)}
-									className="flex-1 min-w-0 px-2 py-1 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
+									className="flex-1 min-w-0 px-2 py-1 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none text-ellipsis"
 								/>
 								<button
 									onClick={() => void save(c)}
-									className="px-2 py-1 rounded-sm text-xs"
+									className="px-2 py-1 rounded-sm text-xs flex-shrink-0"
 									style={{
 										background: "var(--brand)",
 										color: "var(--on-brand)",
@@ -92,7 +92,7 @@ export default function ContactsPanel({
 								</button>
 								<button
 									onClick={() => setEditingId(null)}
-									className="px-2 py-1 rounded-sm text-xs border border-hairline"
+									className="px-2 py-1 rounded-sm text-xs border border-hairline flex-shrink-0"
 								>
 									取消
 								</button>
@@ -123,11 +123,11 @@ export default function ContactsPanel({
 									value={value}
 									onChange={(e) => setValue(e.target.value)}
 									onKeyDown={(e) => e.key === "Enter" && void save(c)}
-									className="flex-1 min-w-0 px-2 py-1 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none"
+									className="flex-1 min-w-0 px-2 py-1 rounded-sm border border-hairline bg-surface text-sm text-primary outline-none text-ellipsis"
 								/>
 								<button
 									onClick={() => void save(c)}
-									className="px-2 py-1 rounded-sm text-xs"
+									className="px-2 py-1 rounded-sm text-xs flex-shrink-0"
 									style={{
 										background: "var(--brand)",
 										color: "var(--on-brand)",
@@ -137,7 +137,7 @@ export default function ContactsPanel({
 								</button>
 								<button
 									onClick={() => setEditingId(null)}
-									className="px-2 py-1 rounded-sm text-xs border border-hairline"
+									className="px-2 py-1 rounded-sm text-xs border border-hairline flex-shrink-0"
 								>
 									取消
 								</button>

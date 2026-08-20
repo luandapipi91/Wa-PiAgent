@@ -131,6 +131,23 @@ test("点群名展开编辑：输入框回填 chatId 前 8 位显示名", () => 
 	expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("g1");
 });
 
+test("编辑态 input 长名显示省略号（text-ellipsis），不横向撑开", () => {
+	state.contacts = [
+		{
+			id: "ct_long",
+			channelId: "ch_a",
+			kind: "person",
+			userId: "wmQzBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+			firstChatAt: 1,
+			lastChatAt: 2,
+		},
+	];
+	render(<ContactsPanel channelId="ch_a" onClose={() => {}} />);
+	fireEvent.click(screen.getByText(/wmQzB/));
+	const input = screen.getByRole("textbox") as HTMLInputElement;
+	expect(input.className).toContain("text-ellipsis");
+});
+
 test("行内编辑 input 可收缩（min-w-0）：窄面板内保存/取消按钮不被挤出去", () => {
 	render(<ContactsPanel channelId="ch_a" onClose={() => {}} />);
 	fireEvent.click(screen.getByText("u1"));

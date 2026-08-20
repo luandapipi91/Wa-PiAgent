@@ -1,6 +1,6 @@
 ## 2026-08-20 — fix(通讯录): 联系人长名截断（设置-机器人-通讯录面板 + 发送给IM联系人弹窗）
 
-- 修复：通讯录面板（系统设置 → 机器人 → 通讯录）与联系人选择弹窗中，名字过长的联系人（长备注名/长 userId/群 chatId）不再溢出容器——名字 span 加 truncate + min-w-0（flex 内可收缩 + 省略号），右侧 ⋯ 加 flex-shrink-0 防挤压。
+- 修复：通讯录面板（系统设置 → 机器人 → 通讯录）与联系人选择弹窗中，名字过长的联系人（长备注名/长 userId/群 chatId）不再溢出容器——名字 span 加 truncate + min-w-0（flex 内可收缩 + 省略号），右侧 ⋯ 加 flex-shrink-0 防挤压；编辑态 input 加 text-ellipsis（长名显示省略号）+ 保存/取消按钮 flex-shrink-0。
 - 影响范围：`packages/frontend/src/components/settings/ContactsPanel.tsx`、`packages/frontend/src/components/ui/ContactPickerDialog.tsx`；测试：两个组件各新增长名截断用例。
 
 ## 2026-08-20 — feat(发送给IM联系人): 新建会话也可用推送命令
