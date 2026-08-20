@@ -1,3 +1,9 @@
+## 2026-08-20 — feat(文件预览): 聊天中点击 html 文件标签优先用浏览器预览打开
+
+- 调整：会话聊天中点击文件标签（FilePill 路径胶囊 / 发送附件 chip / file_changes 修改清单）时，**html/htm 文件优先打开浏览器预览（BrowserPanel）**，其余文件仍走内置文件预览器——与文件树双击行为一致。
+- 实现：新增 `openFileOrPreview(path, sessionId)` 统一分发（`packages/frontend/src/open-file-preview.ts`）：`isHtmlPath` → `useBrowserStore.openBrowser`（kernel `/preview` 同源静态浏览），否则 `useSessionStore.openFilePreview`；三处调用点（FilePill/ComposerInput 附件/FileChangeSummary）替换。
+- 影响范围：`packages/frontend/src/open-file-preview.ts`（新）、`open-file-preview.test.ts`（新）、`FilePill.tsx`、`ComposerInput.tsx`、`FileChangeSummary.tsx`、`tests/FilePill.test.tsx`（新增 html 分发用例）；测试：全量前端 1798 个全绿。
+
 ## 2026-08-20 — feat(通讯录搜索): 两处通讯录搜索改为纯本地过滤（不再同步企微）
 
 - 调整：系统设置 → 机器人 → 通讯录面板（wecom 渠道）与发送给 IM 联系人弹窗（ContactPickerDialog）的「搜索好友」均为**纯本地过滤**——输入仅草稿，点搜索才按显示名过滤本地列表（人/群统一），清空再点可重置恢复全量；**不再调用企微同步接口**。

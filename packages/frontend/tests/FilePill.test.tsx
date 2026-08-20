@@ -17,6 +17,7 @@ import { FilePreviewModal } from "../src/components/blocks/FilePreviewModal";
 import { _setFsTransport } from "../src/fs-client";
 import { useProjectsStore } from "../src/store/projects";
 import { useSessionStore } from "../src/store/session";
+import { useBrowserStore } from "../src/store/browser";
 import { useToastStore } from "../src/store/toast";
 import { makeFakeFsTransport } from "./fs-transport";
 
@@ -150,5 +151,23 @@ test("用户手动关闭（ESC）后预览消失且 store 清空", async () => {
 	await waitFor(() =>
 		expect(screen.queryByTestId("file-preview-modal")).toBeNull(),
 	);
+	expect(useSessionStore.getState().filePreview).toBeNull();
+});
+
+test("html 文件点击 → 打开浏览器预览（browser store），不走文件预览", async () => {
+	fake.setResponse("fs:stat", { exists: true });
+	fake.setResponse("fs:readFile", {
+		content: btoa("<html></html>"),
+		mimeType: "text/html",
+	});
+	useBrowserStore.setState({ open: false, path: null, sessionId: null });
+	render(<FilePill rawText="dist/index.html" sessionId="s1" />);
+	await waitFor(() =>
+		expect(screen.getByTestId("file-pill").textContent).toContain("index.html"),
+	);
+	fireEvent.click(screen.getByTestId("file-pill"));
+	// html → 浏览器预览（BrowserPanel 由 browser store 驱动）
+	expect(useBrowserStore.getState().open).toBe(true);
+	expect(useBrowserStore.getState().path).toBe("/work/demo/dist/index.html");
 	expect(useSessionStore.getState().filePreview).toBeNull();
 });

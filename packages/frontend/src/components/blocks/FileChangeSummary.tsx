@@ -1,9 +1,9 @@
 import { useState } from "react";
 import ReactDiffViewer from "react-diff-viewer-continued";
 import { useTranslation } from "../../i18n/useTranslation";
-import { useSessionStore } from "../../store/session";
 import { resolveAbsolutePath } from "./FilePill";
 import { ShareButton } from "../ui/ShareButton";
+import { openFileOrPreview } from "../../open-file-preview";
 import type { FileChangeSnapshot } from "@wa-pi/shared";
 
 export function FileChangeSummary({
@@ -80,7 +80,7 @@ function FileChangeItem({
           className="font-mono text-[12px] text-accent hover:underline text-left"
           onClick={() => {
             if (canDiff) setOpen((v) => !v);
-            else useSessionStore.getState().openFilePreview(abs, sessionId);
+            else openFileOrPreview(abs, sessionId);
           }}
         >
           {file.path}
@@ -91,9 +91,7 @@ function FileChangeItem({
               <button
                 type="button"
                 className="hover:text-accent"
-                onClick={() =>
-                  useSessionStore.getState().openFilePreview(abs, sessionId)
-                }
+                onClick={() => openFileOrPreview(abs, sessionId)}
               >
                 {t("blocks.fileChanges.preview")}
               </button>
