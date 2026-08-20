@@ -220,7 +220,7 @@ test("同步后无新增（added=0）→ 不弹 toast", async () => {
 	expect(toastAdd).not.toHaveBeenCalled();
 });
 
-test("搜索框输入关键词 → 本地通讯录列表按显示名过滤", () => {
+test("搜索框输入关键词不过滤，点「搜索好友」后才按显示名过滤", () => {
 	state.contacts = [
 		{
 			id: "ct_1",
@@ -249,27 +249,32 @@ test("搜索框输入关键词 → 本地通讯录列表按显示名过滤", () 
 			lastChatAt: 2,
 		},
 	];
+	// 无 wecom 渠道也应有搜索框（本地过滤）——这里给 wecom 场景：点搜索后过滤
 	render(
 		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
 	);
 	const input = screen.getByTestId("contacts-sync-wecom-input");
-	// 输入前：三人都在
+	// 输入「张」：未点搜索，不过滤（三人都在）
+	fireEvent.change(input, { target: { value: "张" } });
 	expect(screen.getByText("张文明")).toBeTruthy();
 	expect(screen.getByText("李四")).toBeTruthy();
-	// 输入「张」：只显示张文明（按显示名过滤，人/群统一过滤）
-	fireEvent.change(input, { target: { value: "张" } });
+	expect(screen.getByText("g1")).toBeTruthy();
+	// 点「搜索好友」：只显示张文明（按显示名过滤，人/群统一过滤）
+	fireEvent.click(screen.getByText("搜索好友"));
 	expect(screen.getByText("张文明")).toBeTruthy();
 	expect(screen.queryByText("李四")).toBeNull();
 	expect(screen.queryByText("g1")).toBeNull();
 });
 
-test("搜索无匹配 → 列表区显示暂无，不报错", () => {
+test("搜索无匹配 → 列表区显示暂无，不报错（点搜索后）", async () => {
 	render(
 		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
 	);
 	fireEvent.change(screen.getByTestId("contacts-sync-wecom-input"), {
 		target: { value: "不存在的关键词" },
 	});
+	fireEvent.click(screen.getByText("搜索好友"));
+	await act(async () => {});
 	// 无匹配时显示「暂无对话过的人/群」空态
 	expect(screen.getByText("暂无对话过的人/群")).toBeTruthy();
 });
