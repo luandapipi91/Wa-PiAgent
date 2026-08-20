@@ -182,10 +182,10 @@ const en = {
 		browserPreview: "Browser preview",
 	},
 	browser: {
-		placeholder: "Enter html file path…",
-		invalidPath: "Please enter a .html file path",
+		placeholder: "Enter html path or URL…",
+		invalidPath: "Please enter a .html file path or URL",
 		empty: "Double-click a .html file in the file tree, or enter a path above",
-		copy: "Copy path",
+		copy: "Copy path or URL",
 		copied: "Copied",
 		refresh: "Refresh",
 		code: "View source",

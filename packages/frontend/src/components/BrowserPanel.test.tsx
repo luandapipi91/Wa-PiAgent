@@ -124,3 +124,68 @@ test("关闭按钮调用 closeBrowser", () => {
   fireEvent.click(screen.getByTestId("browser-close"));
   expect(useBrowserStore.getState().open).toBe(false);
 });
+
+test("输入域名（baidu.com）→ 外部 URL 渲染，自动补 https://", () => {
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "baidu.com" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  const iframe = screen.getByTestId("html-preview-iframe") as HTMLIFrameElement;
+  expect(iframe.getAttribute("src")).toBe("https://baidu.com");
+  expect(iframe.getAttribute("sandbox")).toContain("allow-same-origin");
+});
+
+test("输入完整 http URL 原样渲染", () => {
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "http://localhost:3000/x" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  const iframe = screen.getByTestId("html-preview-iframe") as HTMLIFrameElement;
+  expect(iframe.getAttribute("src")).toBe("http://localhost:3000/x");
+});
+
+test(".html 结尾的外部 URL 不被误拒", () => {
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, {
+    target: { value: "https://example.com/about.html" },
+  });
+  fireEvent.keyDown(input, { key: "Enter" });
+  const iframe = screen.getByTestId("html-preview-iframe") as HTMLIFrameElement;
+  expect(iframe.getAttribute("src")).toBe("https://example.com/about.html");
+});
+
+test("同源 URL 被拒绝（外部模式 allow-same-origin 下禁止加载宿主自身源）", () => {
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  const sameOrigin = window.location.origin + "/preview/x/index.html";
+  fireEvent.change(input, { target: { value: sameOrigin } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("browser-empty")).toBeTruthy(); // 未加载
+  expect(useToastStore.getState().toasts[0]?.type).toBe("error");
+});
+
+test("外部 URL 时代码/分享按钮禁用，复制可用", () => {
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "baidu.com" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect((screen.getByTestId("browser-code") as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  expect((screen.getByTestId("browser-share") as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  expect((screen.getByTestId("browser-copy") as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+});
+
+test("相对 html 路径（index.html）→ toast 拒绝不加载", () => {
+  render(<BrowserPanel />);
+  const input = screen.getByTestId("browser-input") as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "index.html" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("browser-empty")).toBeTruthy();
+  expect(useToastStore.getState().toasts[0]?.type).toBe("error");
+});

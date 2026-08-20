@@ -4,26 +4,58 @@ import { useBrowserStore } from "../store/browser";
 import { useSessionStore } from "../store/session";
 import { HtmlPreview } from "./blocks/HtmlPreview";
 import { ShareResultModal } from "./ui/ShareButton";
-import { isHtmlPath } from "../preview-url";
+import { isHtmlPath, toExternalUrl } from "../preview-url";
 import { copyToClipboard } from "../util/clipboard";
 import { useToastStore } from "../store/toast";
 import { useProjectsStore } from "../store/projects";
 import { useTranslation } from "../i18n/useTranslation";
 
+type Current =
+	| { kind: "local"; path: string }
+	| { kind: "external"; url: string };
+
 export function BrowserPanel() {
 	const { path, sessionId, closeBrowser } = useBrowserStore();
-	const [loadedPath, setLoadedPath] = useState<string | null>(path);
+	const [current, setCurrent] = useState<Current | null>(
+		path ? { kind: "local", path } : null,
+	);
 	const [input, setInput] = useState(path ?? "");
 	const [refreshKey, setRefreshKey] = useState(0);
 	const [shareOpen, setShareOpen] = useState(false);
 	const { t } = useTranslation();
 	const addToast = useToastStore((s) => s.add);
 
+	const loadedPath = current?.kind === "local" ? current.path : null;
+	const externalUrl = current?.kind === "external" ? current.url : null;
+
 	const openPath = (raw: string) => {
 		const p = raw.trim();
-		// 绝对路径判定：POSIX（/ 开头）或 Windows 盘符（C:\ 或 C:/ 开头）均放行，其余 → 拒绝
+		// 绝对路径判定：POSIX（/ 开头）或 Windows 盘符（C:\ 或 C:/ 开头）均放行
 		const isAbs = p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p);
 		if (!isAbs) {
+			// 先尝试外部 URL（http/https 或域名/IP/localhost，自动补协议）
+			const external = toExternalUrl(p);
+			if (external) {
+				// 同源拒绝：外部模式带 allow-same-origin，禁止加载宿主自身源
+				// （否则内嵌页面可读写父页面 DOM、以同源身份访问 kernel API）
+				try {
+					const u = new URL(external);
+					if (u.origin === window.location.origin) {
+						addToast(t("browser.invalidPath"), "error");
+						return;
+					}
+				} catch {
+					/* 解析失败走正常外部加载 */
+				}
+				setCurrent({ kind: "external", url: external });
+				setInput(p);
+				return;
+			}
+			// 相对 html 路径暂不支持（地址栏只接受绝对路径或网址）
+			if (isHtmlPath(p)) {
+				addToast(t("browser.invalidPath"), "error");
+				return;
+			}
 			addToast(t("browser.invalidPath"), "error");
 			return;
 		}
@@ -50,9 +82,18 @@ export function BrowserPanel() {
 			addToast(t("browser.invalidPath"), "error");
 			return;
 		}
-		setLoadedPath(p);
+		setCurrent({ kind: "local", path: p });
 		setInput(p);
 	};
+
+	const copyCurrent = () => {
+		if (!current) return;
+		void copyToClipboard(current.kind === "local" ? current.path : current.url).then(
+			() => addToast(t("browser.copied"), "success"),
+		);
+	};
+
+	const canCodeShare = loadedPath !== null;
 
 	return (
 		<div className="flex flex-col h-full bg-surface" data-testid="browser-panel">
@@ -75,13 +116,8 @@ export function BrowserPanel() {
 					className="fv-btn fv-btn--icon"
 					title={t("browser.copy")}
 					data-testid="browser-copy"
-					disabled={!loadedPath}
-					onClick={() =>
-						loadedPath &&
-						void copyToClipboard(loadedPath).then(() =>
-							addToast(t("browser.copied"), "success"),
-						)
-					}
+					disabled={!current}
+					onClick={copyCurrent}
 				>
 					<Icon
 						name="clipboard"
@@ -94,7 +130,7 @@ export function BrowserPanel() {
 					className="fv-btn fv-btn--icon"
 					title={t("browser.refresh")}
 					data-testid="browser-refresh"
-					disabled={!loadedPath}
+					disabled={!current}
 					onClick={() => setRefreshKey((k) => k + 1)}
 				>
 					<Icon
@@ -108,7 +144,7 @@ export function BrowserPanel() {
 					className="fv-btn fv-btn--icon"
 					title={t("browser.code")}
 					data-testid="browser-code"
-					disabled={!loadedPath}
+					disabled={!canCodeShare}
 					onClick={() =>
 						loadedPath &&
 						useSessionStore.getState().openFilePreview(loadedPath, sessionId ?? "")
@@ -125,7 +161,7 @@ export function BrowserPanel() {
 					className="fv-btn fv-btn--icon"
 					title={t("browser.share")}
 					data-testid="browser-share"
-					disabled={!loadedPath}
+					disabled={!canCodeShare}
 					onClick={() => setShareOpen(true)}
 				>
 					<Icon
@@ -152,8 +188,12 @@ export function BrowserPanel() {
 
 			{/* 内容区 */}
 			<div className="flex-1 overflow-hidden">
-				{loadedPath ? (
-					<HtmlPreview path={loadedPath} refreshKey={refreshKey} />
+				{current ? (
+					current.kind === "local" ? (
+						<HtmlPreview path={current.path} refreshKey={refreshKey} />
+					) : (
+						<HtmlPreview externalUrl={current.url} refreshKey={refreshKey} />
+					)
 				) : (
 					<div
 						className="h-full flex flex-col items-center justify-center gap-3 text-secondary"
@@ -165,7 +205,7 @@ export function BrowserPanel() {
 				)}
 			</div>
 
-			{/* 分享弹窗（复用现有） */}
+			{/* 分享弹窗（复用现有；仅本地文件可分享） */}
 			{shareOpen && loadedPath && (
 				<ShareResultModal
 					paths={[loadedPath]}
