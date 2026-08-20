@@ -13,6 +13,7 @@ import { spawnSync } from "node:child_process";
 const INTEGRATION_TESTS = [
 	"tests/static-serve.integration.test.ts",
 	"tests/file-route.integration.test.ts",
+	"tests/preview-route.integration.test.ts",
 ];
 
 function run(args: string[]): boolean {

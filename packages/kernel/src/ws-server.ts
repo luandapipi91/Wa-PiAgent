@@ -45,10 +45,10 @@ import {
 	copyFile,
 	stat,
 } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawn } from "node:child_process";
-import { extname, basename, join, resolve, sep } from "node:path";
+import { extname, basename, join, resolve, sep, isAbsolute } from "node:path";
 import { makeDefaultAgentConfig } from "./agent-md";
 import { askRegistry } from "./ask-registry";
 import { extUiRegistry } from "./ext-ui-registry";
@@ -144,6 +144,49 @@ export function resolveStaticPath(urlPath: string, staticDir: string): string {
 		return `${staticDir}/index.html`;
 	if (clean.includes("..")) return `${staticDir}/index.html`;
 	return `${staticDir}${clean}`;
+}
+
+export type PreviewPathResult =
+	| { ok: true; path: string }
+	| { ok: false; reason: "forbidden" | "notfound" };
+
+/**
+ * 解析 /preview/<rootEnc>/<relpath...> 为磁盘真实绝对路径（防穿越）。
+ * 第一段是 encodeURIComponent 后的根目录绝对路径，剩余段是相对路径。
+ * 越权/非法 → forbidden；文件/根目录不存在 → notfound。
+ */
+export function resolvePreviewPath(urlPath: string): PreviewPathResult {
+	const prefix = "/preview/";
+	if (!urlPath.startsWith(prefix)) return { ok: false, reason: "forbidden" };
+	const rest = urlPath.slice(prefix.length);
+	const slash = rest.indexOf("/");
+	const rootEnc = slash === -1 ? rest : rest.slice(0, slash);
+	const rel = slash === -1 ? "" : rest.slice(slash + 1);
+	if (!rel) return { ok: false, reason: "forbidden" }; // V1 只支持文件
+	let root: string;
+	try {
+		root = decodeURIComponent(rootEnc);
+	} catch {
+		return { ok: false, reason: "forbidden" };
+	}
+	if (!isAbsolute(root)) return { ok: false, reason: "forbidden" };
+	const candidate = join(root, rel);
+	let realRoot: string;
+	try {
+		realRoot = realpathSync(root);
+	} catch {
+		return { ok: false, reason: "notfound" };
+	}
+	let realCandidate: string;
+	try {
+		realCandidate = realpathSync(candidate);
+	} catch {
+		return { ok: false, reason: "notfound" };
+	}
+	if (realCandidate !== realRoot && !realCandidate.startsWith(realRoot + sep)) {
+		return { ok: false, reason: "forbidden" };
+	}
+	return { ok: true, path: realCandidate };
 }
 
 export function getMimeType(filePath: string): string {
@@ -738,6 +781,27 @@ export class WSServer {
 					if (file.size > 0) {
 						return new Response(file, {
 							headers: { "content-type": getMimeType(filePath) },
+						});
+					}
+					return new Response("Not found", { status: 404 });
+				}
+				if (url.pathname.startsWith("/preview/")) {
+					const r = resolvePreviewPath(url.pathname);
+					if (!r.ok) {
+						return new Response(
+							r.reason === "forbidden" ? "Forbidden" : "Not found",
+							{
+								status: r.reason === "forbidden" ? 403 : 404,
+							},
+						);
+					}
+					const file = Bun.file(r.path);
+					if (file.size > 0) {
+						return new Response(file, {
+							headers: {
+								"content-type": getMimeType(r.path),
+								"cache-control": "no-store",
+							},
 						});
 					}
 					return new Response("Not found", { status: 404 });
