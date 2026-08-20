@@ -26,6 +26,14 @@ export function buildImPushSystemPrompt(contactIds: string[]): string {
 	return `任务指令中的 @im-push-to(渠道,联系人) 标记（如 ${contactIds[0]}）表示推送目标联系人，它们不是智能体引用，不要对其调用 delegate。请完成任务后用 im_push_to 工具把结果推送给这些联系人。`;
 }
 
+/** 通用 IM 推送引导：注入所有非定时任务会话 system prompt 的 im-push 段（常驻）。
+ *  背景：im_push_to 工具始终注册后，主聊天会话消息里也可能出现 @im-push-to 标记；
+ *  系统提示词在进程 spawn 时定死、无法预知联系人，故引导不含具体目标——
+ *  联系人 id 由消息中的标记自描述，kernel 会话注册表按标记动态激活推送能力。
+ *  定时任务会话仍用 buildImPushSystemPrompt（含具体目标），优先级高于本通用文案。 */
+export const GENERIC_IM_PUSH_PROMPT =
+	"用户消息中可能出现 @im-push-to(渠道,联系人) 标记，它们表示任务结果的 IM 推送目标联系人，不是智能体引用，不要对其调用 delegate。出现该标记时，完成任务后调用 im_push_to 工具把结果推送给标记中的联系人（contact 参数填标记里的 ct_xxx）；消息中没有该标记时不要调用 im_push_to。";
+
 interface ImPushResultPayload {
 	targetId: string;
 	success: boolean;
