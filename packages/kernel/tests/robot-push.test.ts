@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
 	buildImPushSystemPrompt,
-	buildScheduledImPush,
 	GENERIC_IM_PUSH_PROMPT,
 	parseImPushMentions,
 	createImPushTool,
@@ -110,55 +109,7 @@ describe("createImPushTool：execute", () => {
 		expect(ret).toContain("推送失败：未连接");
 	});
 });
-// ===== C0.5：buildScheduledImPush（定时任务注入构造：有标记白名单+收集 / 无标记拒绝型）=====
-
-describe("buildScheduledImPush（定时任务注入构造）", () => {
-	test("无标记 → 拒绝型注入：targets 空，execute 返回未配置提示", async () => {
-		const inj = buildScheduledImPush([], {
-			channelManager: {} as any,
-			onPushResult: () => {},
-		});
-		expect(inj.targets).toEqual([]);
-		const text = await inj.execute("ct_aaa", "x");
-		expect(text).toContain("未配置推送目标");
-	});
-
-	test("有标记 → 白名单 + 结果收集：execute 走 pushToContact 且回调成功结果", async () => {
-		const results: any[] = [];
-		const pushMock = mock(async () => {});
-		const inj = buildScheduledImPush(["ct_p01"], {
-			channelManager: { pushToContact: pushMock } as any,
-			onPushResult: (r) => results.push(r),
-		});
-		expect(inj.targets).toEqual(["ct_p01"]);
-		const ok = await inj.execute("ct_p01", "hi");
-		expect(ok).toContain("已成功推送给 ct_p01");
-		expect(pushMock).toHaveBeenCalledWith("ct_p01", "hi");
-		expect(results).toEqual([{ targetId: "ct_p01", success: true }]);
-		// 白名单外联系人：拒绝且不推送
-		const rejected = await inj.execute("ct_other", "x");
-		expect(rejected).toContain("不在可用列表");
-		expect(pushMock).toHaveBeenCalledTimes(1);
-	});
-
-	test("有标记但推送抛错 → 结果收集失败项", async () => {
-		const results: any[] = [];
-		const inj = buildScheduledImPush(["ct_p01"], {
-			channelManager: {
-				pushToContact: async () => {
-					throw new Error("渠道未连接");
-				},
-			} as any,
-			onPushResult: (r) => results.push(r),
-		});
-		const text = await inj.execute("ct_p01", "x");
-		expect(text).toContain("推送失败：渠道未连接");
-		expect(results).toEqual([
-			{ targetId: "ct_p01", success: false, error: "渠道未连接" },
-		]);
-	});
-});
-
+// ===== C1：im_push_to 会话注入（ensureStarted opts → spawn env / bridge 分发）=====
 
 import { AgentManager } from "../src/agent-manager";
 import { ProjectStore } from "../src/project-store";
@@ -168,8 +119,6 @@ import {
 } from "./fixtures/fake-session-client";
 import { getBridgeSession } from "../src/bridge-registry";
 import type { RpcClient } from "../src/rpc-client";
-
-// ===== C1：im_push_to 会话注入（ensureStarted opts → spawn env / bridge 分发）=====
 
 describe("im_push_to 会话注入", () => {
 	const tmpFiles: string[] = [];
