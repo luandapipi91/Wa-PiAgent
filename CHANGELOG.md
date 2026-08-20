@@ -1,3 +1,9 @@
+## 2026-08-20 — feat(发送给IM联系人): 主聊天「发送给 IM 联系人」命令
+
+- 新增功能：主聊天界面「发送给 IM 联系人」命令（/ 菜单 → 弹窗选联系人 → 插入 @im-push-to chip），agent 执行中自主调用 im_push_to 实时推送结果给 IM 联系人。kernel 侧 im_push_to 工具改为始终注册 + 会话级推送注册表（消息标记惰性激活）；系统提示词 im-push 段对普通会话注入通用常驻引导（替代原设计不可行的消息级拼接——会污染 transcript）。定时任务路径零改动。
+- 实现：kernel（wa-pi-bridge.extension / agent-manager / index / robot-push）——工具始终注册、`SessionHandle.imPush` 注册表（`_sendPromptNow` 解析 @im-push-to 标记惰性激活）、`GENERIC_IM_PUSH_PROMPT` 常驻引导、index.ts 后绑定 `setImPushFactory`；frontend（ComposerInput / ContactPickerDialog / tokens / store/contacts / MessageList / i18n）——`cmd:send-im` 命令、联系人选择弹窗、chip-im 渲染（未注册灰化）、contacts store 批量注册 chip meta、历史消息 chip 刷新后不灰化。
+- 影响范围：`packages/kernel/src/wa-pi-bridge.extension.ts`、`packages/kernel/src/agent-manager.ts`、`packages/kernel/src/index.ts`、`packages/kernel/src/tools/robot-push.ts`、`packages/frontend/src/quick-invoke/tokens.ts`、`packages/frontend/src/store/contacts.ts`、`packages/frontend/src/components/ui/ContactPickerDialog.tsx`、`packages/frontend/src/components/ui/ComposerInput.tsx`、`packages/frontend/src/components/MessageList.tsx`、i18n；测试：kernel 单元/集成（robot-push / agent-manager / bridge）、前端组件测试、E2E `packages/frontend/e2e/send-im.spec.ts`。
+
 ## 2026-08-20 — feat(HTML预览): 地址栏支持外部 URL（iframe 内嵌外部站点）
 
 - 新增功能：预览窗口地址栏可输入外部网址（http/https，或域名/IP/localhost 自动补 https://），iframe 直接加载外部站点，站内链接正常跳转（target=_blank 允许开新标签）。受对方站点 X-Frame-Options/CSP frame-ancestors 限制（禁止被嵌入的站点白屏，无法绕过）。外部 URL 时「查看源码」「分享」按钮禁用（仅本地 html 可用）。本地 html 预览仍走 /preview allowlist + 独特源 sandbox，语义不变。

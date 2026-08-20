@@ -374,35 +374,34 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// im_push_to：仅定时任务会话注入（kernel spawn 时设 WA_PI_IM_PUSH_TARGETS，
-	// 逗号分隔的联系人 ID 列表；普通会话不设 → 工具不注册，不污染工具面板）。
-	// 目标列表在环境变量里（每会话不同），故不能用静态 enum——kernel 侧 handleTool
-	// 再校验合法性。execute 经 callBridge 回调 kernel /bridge/tool 分发。
-	const IM_PUSH_TARGETS = process.env.WA_PI_IM_PUSH_TARGETS;
-	if (IM_PUSH_TARGETS) {
-		pi.registerTool({
-			name: "im_push_to",
-			label: "IM Push",
-			description: `推送消息给 IM 联系人。可用联系人：${IM_PUSH_TARGETS}。任务指令中 @im-push-to(渠道,联系人) 标记的联系人即推送目标，任务完成后必须调用本工具推送结果。`,
-			parameters: Type.Object({
-				contact: Type.String({
-					description: "目标联系人 ID（任务指令中 @im-push-to 标记里的 ct_xxx）",
-				}),
-				message: Type.String({
-					description: "要推送的消息内容，支持纯文本和 Markdown",
-				}),
+	// im_push_to：始终注册。目标列表由 kernel 会话注册表按消息中的 @im-push-to
+	// 标记动态维护（每会话不同、随消息变化），无法写进工具 description；
+	// 无目标会话调用时 kernel 侧 handleTool 返回明确错误，不崩溃。
+	// 定时任务会话的 WA_PI_IM_PUSH_TARGETS env 注入保留（agent-manager spawn env），
+	// 仅作诊断用途，不再作为注册开关。
+	pi.registerTool({
+		name: "im_push_to",
+		label: "IM Push",
+		description:
+			"推送消息给 IM 联系人。仅当任务指令包含 @im-push-to(渠道,联系人) 标记时使用；无标记会话调用将返回错误。contact 填标记中的 ct_xxx 联系人 id。",
+		parameters: Type.Object({
+			contact: Type.String({
+				description: "目标联系人 ID（任务指令中 @im-push-to 标记里的 ct_xxx）",
 			}),
-			async execute(toolCallId, params, signal) {
-				return callBridge(
-					"im_push_to",
-					toolCallId,
-					params,
-					signal,
-					DEFAULT_TIMEOUT_MS,
-				);
-			},
-		});
-	}
+			message: Type.String({
+				description: "要推送的消息内容，支持纯文本和 Markdown",
+			}),
+		}),
+		async execute(toolCallId, params, signal) {
+			return callBridge(
+				"im_push_to",
+				toolCallId,
+				params,
+				signal,
+				DEFAULT_TIMEOUT_MS,
+			);
+		},
+	});
 
 	// 内部热重载触发点：kernel 装卸插件后经 prompt("/__!wa_pi_reload") 触发，
 	// 调 ctx.reload() → session.reload()（重读 settings.json packages + 重放 session_start，

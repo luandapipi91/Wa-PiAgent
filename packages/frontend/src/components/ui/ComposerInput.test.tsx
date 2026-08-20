@@ -118,3 +118,73 @@ test("附件按钮渲染 SVG 图标而非 emoji", () => {
 	expect(btn.querySelector("svg")).toBeTruthy();
 	expect(btn.textContent).not.toContain("📎");
 });
+
+// ===== /发送给 IM 联系人 命令 → 弹窗 → 插入 chip token =====
+
+import { useState } from "react";
+import { useContactsStore } from "../../store/contacts";
+import { useChannelsStore } from "../../store/channels";
+
+const e2eContact = {
+	id: "ct_ui1",
+	channelId: "ch_ui1",
+	kind: "person",
+	userId: "ZhangSan",
+	remark: "张三",
+	firstChatAt: 0,
+	lastChatAt: 0,
+};
+
+function seedImStores() {
+	useContactsStore.setState({ contacts: [e2eContact] } as any);
+	useChannelsStore.setState({ bots: [{ id: "ch_ui1", name: "企微机器人" }] } as any);
+}
+
+function ControlledComposer() {
+	const [text, setText] = useState("/");
+	return (
+		<ComposerInput
+			text={text}
+			setText={setText}
+			model={null}
+			setModel={() => {}}
+			thinking="high"
+			setThinking={() => {}}
+			attachments={[]}
+			setAttachments={() => {}}
+			projectId="proj-1"
+			sessionId="s1"
+			onSend={() => {}}
+			modelAutoSelectEnabled
+		/>
+	);
+}
+
+test("/ 命令菜单含「发送给 IM 联系人」；选中 → 弹窗选人 → 插入 @im-push-to chip", async () => {
+	// loadContacts 会重置 store：让 api mock 返回联系人（覆盖 beforeEach 的默认 {}）
+	getMock.mockImplementation(async (path: string) => {
+		if (path === "/api/contacts") return { contacts: [e2eContact] };
+		if (path === "/api/channels") return { channels: [{ id: "ch_ui1", name: "企微机器人" }] };
+		return {};
+	});
+	seedImStores();
+	render(<ControlledComposer />);
+
+	// text="/" → 命令菜单打开，含目标命令
+	const menu = await screen.findByTestId("quick-invoke-menu");
+	expect(menu.textContent).toContain("发送给 IM 联系人");
+
+	// 选中命令 → 打开联系人弹窗（/ 触发文本被清除）
+	fireEvent.click(screen.getByText("发送给 IM 联系人"));
+	const dialog = await screen.findByTestId("contact-picker-dialog");
+	expect(dialog.textContent).toContain("张三");
+
+	// 选人 → 确认 → 输入框插入 chip（data-token 为 @im-push-to 标记）
+	fireEvent.click(screen.getByTestId("contact-picker-item-ct_ui1"));
+	await new Promise((r) => setTimeout(r, 0));
+	fireEvent.click(screen.getByTestId("contact-picker-ok"));
+	const chip = await screen.findByText("发送给：张三");
+	expect(chip.closest("[data-token]")?.getAttribute("data-token")).toBe(
+		"@im-push-to(ch_ui1,ct_ui1)",
+	);
+});

@@ -61,6 +61,8 @@ const en = {
 		cmdCompact: "Compact context",
 		cmdCompactDesc:
 			"Compact session history to free tokens (custom compact instruction allowed)",
+		cmdSendIm: "Send to IM contact",
+		cmdSendImDesc: "Choose an IM contact to push task results to",
 		sourceCommand: "Command",
 		sourcePlugin: "Plugin",
 		emptyAgentNoAskTo:
@@ -76,6 +78,11 @@ const en = {
 		uploadFailed: "Upload failed",
 		getPathFailed: "Cannot get file path: {{name}}",
 		oversized: "Attachment exceeds {{max}}MB limit: {{names}}",
+	},
+	sendIm: {
+		dialogTitle: "Select IM contact",
+		sendTo: "Send to: ",
+		empty: "No IM contacts yet. Configure a channel on the IM settings page and start a conversation first.",
 	},
 	app: {
 		reconnecting: "Disconnected, reconnecting…",
