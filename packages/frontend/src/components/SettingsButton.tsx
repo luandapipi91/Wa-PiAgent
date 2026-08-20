@@ -22,7 +22,7 @@ export function SettingsButton({ onClick, compact }: Props) {
 			<Icon
 				name="settings"
 				size="1em"
-				className="text-[calc(18px*var(--font-scale))] flex-shrink-0"
+				className={`text-[calc(${compact ? 20 : 18}px*var(--font-scale))] flex-shrink-0`}
 			/>
 			{!compact && (
 				<span className="whitespace-nowrap truncate shrink">

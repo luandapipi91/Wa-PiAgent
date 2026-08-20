@@ -43,11 +43,20 @@ test("compact 模式：隐藏文字只保留图标", () => {
 	expect(btn.textContent).toBe("");
 	// 仅 icon 时居中对齐（flex justify-center）
 	expect(btn.className).toContain("justify-center");
+	// 仅 icon 时图标放大（compact 用 20px，非 compact 18px）
+	const icon = btn.querySelector("svg")!;
+	expect(icon.getAttribute("class")).toContain(
+		"text-[calc(20px*var(--font-scale))]",
+	);
 });
 
-test("compact=false 正常显示文字", () => {
+test("compact=false 正常显示文字且图标为常规尺寸", () => {
 	render(<SettingsButton onClick={() => {}} compact={false} />);
 	const btn = screen.getByTestId("settings-btn");
 	expect(btn.textContent).toContain("系统设置");
 	expect(btn.className).not.toContain("justify-center");
+	const icon = btn.querySelector("svg")!;
+	expect(icon.getAttribute("class")).toContain(
+		"text-[calc(18px*var(--font-scale))]",
+	);
 });

@@ -20,12 +20,21 @@ test("compact 模式：隐藏文字只保留图标", () => {
 	expect(btn.textContent).toBe("");
 	// 仅 icon 时居中对齐（flex justify-center）
 	expect(btn.className).toContain("justify-center");
+	// 仅 icon 时图标放大（compact 用 18px，非 compact 16px）
+	const icon = btn.querySelector("svg")!;
+	expect(icon.getAttribute("class")).toContain(
+		"text-[calc(18px*var(--font-scale))]",
+	);
 });
 
-test("非 compact：icon 靠左不居中", () => {
+test("非 compact：icon 靠左不居中且为常规尺寸", () => {
 	render(<RecycleBinButton onClick={() => {}} compact={false} />);
 	const btn = screen.getByTestId("recycle-bin-btn");
 	expect(btn.className).not.toContain("justify-center");
+	const icon = btn.querySelector("svg")!;
+	expect(icon.getAttribute("class")).toContain(
+		"text-[calc(16px*var(--font-scale))]",
+	);
 });
 
 test("compact 模式仍显示未读角标", () => {
