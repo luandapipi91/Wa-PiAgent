@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { ContactEntity } from "@wa-pi/shared";
 import { useTranslation } from "../../i18n/useTranslation";
 import { useContactsStore, contactLabel } from "../../store/contacts";
-import { useChannelsStore } from "../../store/channels";
 import { Modal } from "./Modal";
 import { Icon } from "./Icon";
 
@@ -22,13 +21,11 @@ interface Props {
 
 /** 选择 IM 联系人弹窗：统一通讯录列表（标题显示总数）、按名字搜索、多选（person/group 均可选）。
  *  数据来自 contacts store，打开时主动拉取（store 初始为空）。
- *  输入仅更新草稿，点「搜索好友」才应用本地过滤；有 wecom 渠道时顺带同步企微成员到本地并刷新，无权限则仅本地过滤（静默）。 */
+ *  输入仅更新草稿，点「搜索好友」才应用本地过滤（不调企微同步接口）。 */
 export function ContactPickerDialog({ onPick, onCancel }: Props) {
 	const { t } = useTranslation();
 	const contacts = useContactsStore((s) => s.contacts);
 	const loadContacts = useContactsStore((s) => s.loadContacts);
-	const syncWecomContacts = useContactsStore((s) => s.syncWecomContacts);
-	const bots = useChannelsStore((s) => s.bots);
 	const [query, setQuery] = useState("");
 	// 已应用的关键词：点「搜索好友」才更新，驱动本地过滤
 	const [appliedQuery, setAppliedQuery] = useState("");
@@ -38,28 +35,9 @@ export function ContactPickerDialog({ onPick, onCancel }: Props) {
 		void loadContacts();
 	}, [loadContacts]);
 
-	// 有 wecom 渠道（有权限）才同步企微；同步失败静默忽略（无 toast）
-	const wecomChannels = useMemo(
-		() => bots.filter((b) => b.type === "wecom"),
-		[bots],
-	);
-	const [searching, setSearching] = useState(false);
-
-	const doSearch = async () => {
-		const keyword = query.trim();
-		// 先应用本地过滤（含空关键词 = 重置恢复全量；无 wecom 渠道也走本地过滤）
-		setAppliedQuery(keyword);
-		if (!keyword || wecomChannels.length === 0) return;
-		setSearching(true);
-		try {
-			// 逐个同步 wecom 渠道；全部失败也不 toast（无权限/过期均静默）
-			await Promise.allSettled(
-				wecomChannels.map((b) => syncWecomContacts(b.id, [keyword])),
-			);
-			await loadContacts();
-		} finally {
-			setSearching(false);
-		}
+	/** 点「搜索好友」：仅应用本地过滤（含空关键词 = 重置恢复全量） */
+	const doSearch = () => {
+		setAppliedQuery(query.trim());
 	};
 
 	// 按「已应用关键词」过滤（contactLabel 即显示名：remark 优先 / group chatId 前 8 位 / userId / id）
@@ -111,21 +89,20 @@ export function ContactPickerDialog({ onPick, onCancel }: Props) {
 								data-testid="contact-picker-search"
 								value={query}
 								onChange={(e) => setQuery(e.target.value)}
-								onKeyDown={(e) => e.key === "Enter" && !searching && void doSearch()}
+								onKeyDown={(e) => e.key === "Enter" && doSearch()}
 								placeholder={t("sendIm.searchPlaceholder")}
 								className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md border border-hairline bg-surface text-primary text-sm outline-none focus:border-accent"
 							/>
 							<button
 								data-testid="contact-picker-search-btn"
-								onClick={() => void doSearch()}
-								disabled={searching}
-								className="px-3 py-1.5 rounded-md text-sm disabled:opacity-50"
+								onClick={() => doSearch()}
+								className="px-3 py-1.5 rounded-md text-sm"
 								style={{
 									background: "var(--brand)",
 									color: "var(--on-brand)",
 								}}
 							>
-								{searching ? "搜索中…" : "搜索好友"}
+								搜索好友
 							</button>
 						</div>
 						{visible.length === 0 ? (

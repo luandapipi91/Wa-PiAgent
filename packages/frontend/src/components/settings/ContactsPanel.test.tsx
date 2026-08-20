@@ -11,7 +11,6 @@ import {
 // 和 useContactsStore.getState()，所以 mock 需同时支持 selector 调用与 getState()）
 const renameContact = mock(async () => {});
 const loadContacts = mock(async () => {});
-const syncWecomContacts = mock(async () => ({ added: 2, updated: 0 }));
 const toastAdd = mock(() => {});
 
 const baseContacts = (): any[] => [
@@ -37,7 +36,6 @@ const state = {
 	contacts: baseContacts(),
 	renameContact,
 	loadContacts,
-	syncWecomContacts,
 };
 
 const useContactsStore = (selector: (s: typeof state) => unknown) =>
@@ -57,7 +55,6 @@ const { default: ContactsPanel } = await import("./ContactsPanel");
 beforeEach(() => {
 	renameContact.mockReset();
 	loadContacts.mockReset();
-	syncWecomContacts.mockReset();
 	toastAdd.mockReset();
 	state.contacts = baseContacts();
 });
@@ -192,8 +189,7 @@ test("wecom 渠道显示常驻搜索框 + 「搜索好友」按钮，非 wecom �
 	expect(screen.queryByTestId("contacts-sync-wecom-input")).toBeNull();
 });
 
-test("输入关键词点「搜索好友」→ 调 syncWecomContacts + toast", async () => {
-	syncWecomContacts.mockResolvedValue({ added: 2, updated: 0 });
+test("输入关键词点「搜索好友」→ 仅本地过滤，不调同步接口", async () => {
 	render(
 		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
 	);
@@ -201,22 +197,7 @@ test("输入关键词点「搜索好友」→ 调 syncWecomContacts + toast", as
 	fireEvent.change(input, { target: { value: "张" } });
 	fireEvent.click(screen.getByText("搜索好友"));
 	await act(async () => {});
-	expect(syncWecomContacts).toHaveBeenCalledWith("ch_a", ["张"]);
-	// 同步成功后 toast 提示新增人数
-	expect(toastAdd).toHaveBeenCalledWith(expect.stringContaining("2"), "success");
-});
-
-test("同步后无新增（added=0）→ 不弹 toast", async () => {
-	syncWecomContacts.mockResolvedValue({ added: 0, updated: 0 });
-	render(
-		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
-	);
-	fireEvent.change(screen.getByTestId("contacts-sync-wecom-input"), {
-		target: { value: "张" },
-	});
-	fireEvent.click(screen.getByText("搜索好友"));
-	await act(async () => {});
-	expect(syncWecomContacts).toHaveBeenCalledWith("ch_a", ["张"]);
+	// 纯本地过滤：不弹 toast（无同步结果）
 	expect(toastAdd).not.toHaveBeenCalled();
 });
 
@@ -279,7 +260,7 @@ test("搜索无匹配 → 列表区显示暂无，不报错（点搜索后）", 
 	expect(screen.getByText("暂无对话过的人/群")).toBeTruthy();
 });
 
-test("同步成功后输入框不清空，过滤继续生效", async () => {
+test("搜索后输入框保留关键词，过滤继续生效", () => {
 	state.contacts = [
 		{
 			id: "ct_1",
@@ -300,32 +281,17 @@ test("同步成功后输入框不清空，过滤继续生效", async () => {
 			lastChatAt: 2,
 		},
 	];
-	syncWecomContacts.mockResolvedValue({ added: 1, updated: 0 });
 	render(
 		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
 	);
 	const input = screen.getByTestId("contacts-sync-wecom-input");
 	fireEvent.change(input, { target: { value: "张" } });
 	fireEvent.click(screen.getByText("搜索好友"));
-	await act(async () => {});
-	// 同步后输入框仍保留关键词
+	// 输入框仍保留关键词
 	expect((input as HTMLInputElement).value).toBe("张");
 	// 本地过滤继续生效：只显示张文明
 	expect(screen.getByText("张文明")).toBeTruthy();
 	expect(screen.queryByText("李四")).toBeNull();
-});
-
-test("同步失败 → toast 收到 error 消息", async () => {
-	syncWecomContacts.mockRejectedValue(new Error("该机器人不是企业微信机器人"));
-	render(
-		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
-	);
-	fireEvent.change(screen.getByTestId("contacts-sync-wecom-input"), {
-		target: { value: "张" },
-	});
-	fireEvent.click(screen.getByText("搜索好友"));
-	await act(async () => {});
-	expect(toastAdd).toHaveBeenCalledWith("该机器人不是企业微信机器人", "error");
 });
 
 test("清空输入框后点「搜索好友」→ 重置过滤恢复全量", async () => {
@@ -349,7 +315,6 @@ test("清空输入框后点「搜索好友」→ 重置过滤恢复全量", asyn
 			lastChatAt: 2,
 		},
 	];
-	syncWecomContacts.mockResolvedValue({ added: 0, updated: 0 });
 	render(
 		<ContactsPanel channelId="ch_a" onClose={() => {}} channelType="wecom" />,
 	);
@@ -357,12 +322,10 @@ test("清空输入框后点「搜索好友」→ 重置过滤恢复全量", asyn
 	// 先搜索「张」：只剩张文明
 	fireEvent.change(input, { target: { value: "张" } });
 	fireEvent.click(screen.getByText("搜索好友"));
-	await act(async () => {});
 	expect(screen.queryByText("李四")).toBeNull();
 	// 清空输入框再点搜索：恢复全量
 	fireEvent.change(input, { target: { value: "" } });
 	fireEvent.click(screen.getByText("搜索好友"));
-	await act(async () => {});
 	expect(screen.getByText("张文明")).toBeTruthy();
 	expect(screen.getByText("李四")).toBeTruthy();
 });

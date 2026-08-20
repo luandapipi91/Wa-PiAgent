@@ -121,7 +121,7 @@ export class WecomAdapter implements ChannelAdapter {
 			// SDK reject 的 WsFrame：{headers, errcode, errmsg, body}
 			const frame = err as { errcode?: number; errmsg?: string };
 			throw new Error(
-				`企微推送失败${frame.errcode != null ? `（errcode=${frame.errcode}）` : ""}${frame.errmsg ? `：${frame.errmsg}` : ""}`,
+				`企微推送失败${frame.errcode == null ? "" : `（errcode=${frame.errcode}）`}${frame.errmsg ? `：${frame.errmsg}` : ""}`,
 			);
 		}
 	}
