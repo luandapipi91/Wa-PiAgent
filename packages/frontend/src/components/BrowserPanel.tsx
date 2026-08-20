@@ -68,7 +68,10 @@ export function BrowserPanel() {
 			.filter(Boolean);
 		if (cwdList.length > 0) {
 			const norm = (s: string) =>
-				s.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase() || "/";
+				s
+					.replace(/[\\/]+$/, "")
+					.replace(/\\/g, "/")
+					.toLowerCase() || "/";
 			const pp = norm(p);
 			const inside = cwdList.some((cwd) => {
 				const c = norm(cwd);
