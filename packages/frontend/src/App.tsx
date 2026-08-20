@@ -49,6 +49,8 @@ import { AnsiText } from "./components/ui/AnsiText";
 import { useTrashStore } from "./store/trash";
 import { useSchedulerStore } from "./store/scheduler";
 import { AutomationMain } from "./components/automation/AutomationMain";
+import { useBrowserStore } from "./store/browser";
+import { BrowserPanel } from "./components/BrowserPanel";
 
 export type View = "empty" | "new-session" | "session";
 
@@ -94,6 +96,9 @@ export function App() {
 	// 首次启动引导：providers 首次加载完成且为空时自动弹出初始化向导
 	const providers = useProvidersStore((s) => s.providers);
 	const providersLoaded = useProvidersStore((s) => s.loaded);
+
+	// 浏览器预览：打开时主内容区互斥切换为 BrowserPanel（不保留原视图状态）
+	const browserOpen = useBrowserStore((s) => s.open);
 
 	useEffect(() => onConnectionChange(setConnState), []);
 
@@ -565,48 +570,54 @@ export function App() {
 						<AnsiText text={extTitle} />
 					</div>
 				)}
-				{sidebarTab === "automation" ? (
-					<AutomationMain />
-				) : view === "empty" ? (
-					<EmptyState
-						onNewProject={() => {
-							void useProjectsStore.getState().createProjectFromDir();
-						}}
-					/>
-				) : null}
-				{/* automation 页签独占主内容区：互斥渲染 new-session/session（view state 不动，切回 tasks 恢复原视图） */}
-				{view === "new-session" && sidebarTab !== "automation" && (
-					<NewSessionPane
-						pendingAgent={pendingAgent}
-						onConsumePendingAgent={() => setPendingAgent(null)}
-					/>
-				)}
-				{view === "session" &&
-					sidebarTab !== "automation" &&
-					currentSessionId &&
-					(() => {
-						// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined。
-						// 群聊会话按「群+用户」隔离，文案追加群与发送者，便于在会话详情区分。
-						const imConv = conversations.find(
-							(c) => c.sessionId === currentSessionId,
-						);
-						const label = imConv
-							? imConv.chatType === "group"
-								? t("app.imSourceGroup", {
-										channel: imConv.channelName,
-										chatId: imConv.chatId.slice(0, 8),
-										from: imConv.fromUserId,
-									})
-								: t("app.imSourceSingle", { channel: imConv.channelName })
-							: undefined;
-						return (
-							<SessionView
-								sessionId={currentSessionId}
-								sourceLabel={label}
-								imConv={imConv}
+				{browserOpen ? (
+					<BrowserPanel />
+				) : (
+					<>
+						{sidebarTab === "automation" ? (
+							<AutomationMain />
+						) : view === "empty" ? (
+							<EmptyState
+								onNewProject={() => {
+									void useProjectsStore.getState().createProjectFromDir();
+								}}
 							/>
-						);
-					})()}
+						) : null}
+						{/* automation 页签独占主内容区：互斥渲染 new-session/session（view state 不动，切回 tasks 恢复原视图） */}
+						{view === "new-session" && sidebarTab !== "automation" && (
+							<NewSessionPane
+								pendingAgent={pendingAgent}
+								onConsumePendingAgent={() => setPendingAgent(null)}
+							/>
+						)}
+						{view === "session" &&
+							sidebarTab !== "automation" &&
+							currentSessionId &&
+							(() => {
+								// IM 接入会话：来源文案拼到 header 状态行末尾；普通本地会话为 undefined。
+								// 群聊会话按「群+用户」隔离，文案追加群与发送者，便于在会话详情区分。
+								const imConv = conversations.find(
+									(c) => c.sessionId === currentSessionId,
+								);
+								const label = imConv
+									? imConv.chatType === "group"
+										? t("app.imSourceGroup", {
+												channel: imConv.channelName,
+												chatId: imConv.chatId.slice(0, 8),
+												from: imConv.fromUserId,
+											})
+										: t("app.imSourceSingle", { channel: imConv.channelName })
+									: undefined;
+								return (
+									<SessionView
+										sessionId={currentSessionId}
+										sourceLabel={label}
+										imConv={imConv}
+									/>
+								);
+							})()}
+					</>
+				)}
 			</main>
 			{galleryOpen && (
 				<AgentGalleryModal

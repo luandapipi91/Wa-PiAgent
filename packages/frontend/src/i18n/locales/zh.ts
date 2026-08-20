@@ -170,6 +170,17 @@ const zh = {
 		scrollRight: "向右滚动",
 		clickExpand: "点击展开 {{key}}",
 		widgetLines: "共{{count}}行",
+		browserPreview: "浏览器预览",
+	},
+	browser: {
+		placeholder: "输入 html 文件路径…",
+		invalidPath: "请输入 .html 文件路径",
+		empty: "双击文件树里的 .html，或在上方输入路径",
+		copy: "复制路径",
+		copied: "已复制",
+		refresh: "刷新",
+		code: "查看源码",
+		share: "分享",
 	},
 	blocks: {
 		turnSummary: {

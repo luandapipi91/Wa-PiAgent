@@ -23,7 +23,11 @@ const apiCalls: { method: string; path: string; body?: any }[] = [];
 
 // 控制 /messages GET 的异步解析，用于验证加载指示的显隐。
 let messagesDeferred: {
-	promise: Promise<{ messages: SessionMessage[]; isActive?: boolean; thinkingSince?: number | null }>;
+	promise: Promise<{
+		messages: SessionMessage[];
+		isActive?: boolean;
+		thinkingSince?: number | null;
+	}>;
 	resolve: (value: {
 		messages: SessionMessage[];
 		isActive?: boolean;
@@ -39,7 +43,11 @@ function deferMessages() {
 		thinkingSince?: number | null;
 	}) => void;
 	let reject!: (reason?: any) => void;
-	const promise = new Promise<{ messages: SessionMessage[]; isActive?: boolean; thinkingSince?: number | null }>((res, rej) => {
+	const promise = new Promise<{
+		messages: SessionMessage[];
+		isActive?: boolean;
+		thinkingSince?: number | null;
+	}>((res, rej) => {
 		resolve = res;
 		reject = rej;
 	});
@@ -126,9 +134,7 @@ beforeEach(() => {
 // 减少 React act 警告。
 async function renderSessionView(sessionId: string) {
 	const result = render(
-		<VirtuosoMockContext.Provider
-			value={{ viewportHeight: 800, itemHeight: 60 }}
-		>
+		<VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 60 }}>
 			<SessionView sessionId={sessionId} />
 		</VirtuosoMockContext.Provider>,
 	);
@@ -185,20 +191,18 @@ test("有 pending ask 时 header 状态显示「等待回复」", async () => {
 			],
 		},
 	};
-	useSessionStore
-		.getState()
-		.setMessages("s1", [
-			{
-				agentName: "dev",
-				message: {
-					role: "assistant",
-					content: [askCall],
-					model: "pi-test",
-					stopReason: "tool_use",
-					timestamp: 1,
-				} as any,
-			},
-		]);
+	useSessionStore.getState().setMessages("s1", [
+		{
+			agentName: "dev",
+			message: {
+				role: "assistant",
+				content: [askCall],
+				model: "pi-test",
+				stopReason: "tool_use",
+				timestamp: 1,
+			} as any,
+		},
+	]);
 	await renderSessionView("s1");
 	expect(screen.getByText(/· 等待回复/)).toBeTruthy();
 	expect(screen.queryByText(/· blocked/)).toBeNull();
@@ -265,14 +269,12 @@ test("首次进入会话历史未到时显示加载指示，响应到达后消�
 
 test("会话已有消息时进入不显示历史加载（避免刷新闪烁）", async () => {
 	// 预置 s1 已有历史消息（模拟再次进入已访问过的会话）
-	useSessionStore
-		.getState()
-		.setMessages("s1", [
-			{
-				agentName: undefined,
-				message: { role: "user", content: "已存在", timestamp: 1 },
-			},
-		]);
+	useSessionStore.getState().setMessages("s1", [
+		{
+			agentName: undefined,
+			message: { role: "user", content: "已存在", timestamp: 1 },
+		},
+	]);
 	await renderSessionView("s1");
 	// 有消息则即便 loading 标志为 true 也不显示加载指示
 	await waitFor(() => {
@@ -574,6 +576,21 @@ test("IM 接入会话：sourceLabel 拼到状态行末尾，不再显示「仅�
 // explorer store 状态在测试间共享，需手动重置
 const { useExplorerStore } = await import("../src/store/explorer");
 
+test("header 右上角有浏览器预览按钮（btn-browser-preview）", async () => {
+	await renderSessionView("s1");
+	const btn = screen.getByTestId("btn-browser-preview");
+	expect(btn).toBeTruthy();
+	// 位于 header 内、btn-explorer 之后
+	const header = screen.getByTestId("session-view").querySelector("header");
+	expect(header).not.toBeNull();
+	expect(header!.contains(btn)).toBe(true);
+	expect(
+		header!
+			.querySelector("button[data-testid='btn-explorer']")!
+			.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING,
+	).toBeTruthy();
+});
+
 test("header 含文件树按钮，点击后展开右侧面板", async () => {
 	useExplorerStore.getState().setOpen(false);
 	await renderSessionView("s1");
@@ -856,20 +873,16 @@ test("token 胶囊：有 contextUsage 时进度条与「占用」用官方口径
 	const fill = progress.querySelector(".token-progress-fill") as HTMLElement;
 	expect(fill.style.width).toBe("50%");
 	// 占用 = contextUsage.used = 64K
-	expect(screen.getByTestId("token-occupied").textContent).toContain(
-		"占用 64K",
-	);
+	expect(screen.getByTestId("token-occupied").textContent).toContain("占用 64K");
 	// 布局：占用胶囊（加强）在前、累计胶囊（弱化，独立一列）在后
 	const occupied = screen.getByTestId("token-occupied");
 	const totalEl = screen.getByTestId("token-total");
 	expect(totalEl.className).toContain("token-capsule--total");
 	expect(
-		occupied.compareDocumentPosition(progress) &
-			Node.DOCUMENT_POSITION_FOLLOWING,
+		occupied.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING,
 	).toBeTruthy();
 	expect(
-		progress.compareDocumentPosition(totalEl) &
-			Node.DOCUMENT_POSITION_FOLLOWING,
+		progress.compareDocumentPosition(totalEl) & Node.DOCUMENT_POSITION_FOLLOWING,
 	).toBeTruthy();
 });
 
@@ -1042,9 +1055,7 @@ test("setStatus/setWidget 的 ANSI 颜色解析为内联样式", async () => {
 	// setStatus：颜色段为带内联样式的 span，ANSI 码不外泄
 	const statusColored = screen.getByText("错误 3 个");
 	expect(statusColored.style.color).toBe("#dc2626");
-	expect(screen.getByTestId("ext-status-bar").textContent).not.toContain(
-		"\x1b",
-	);
+	expect(screen.getByTestId("ext-status-bar").textContent).not.toContain("\x1b");
 
 	// setWidget 收起摘要：首行颜色解析
 	const widget = screen.getByTestId("ext-widget-pi-goal");

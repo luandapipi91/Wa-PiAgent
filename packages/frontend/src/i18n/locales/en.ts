@@ -179,6 +179,17 @@ const en = {
 		scrollRight: "Scroll right",
 		clickExpand: "Click to expand {{key}}",
 		widgetLines: "{{count}} lines",
+		browserPreview: "Browser preview",
+	},
+	browser: {
+		placeholder: "Enter html file path…",
+		invalidPath: "Please enter a .html file path",
+		empty: "Double-click a .html file in the file tree, or enter a path above",
+		copy: "Copy path",
+		copied: "Copied",
+		refresh: "Refresh",
+		code: "View source",
+		share: "Share",
 	},
 	blocks: {
 		turnSummary: {
