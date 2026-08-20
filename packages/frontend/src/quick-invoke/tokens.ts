@@ -5,6 +5,7 @@
 // /[名称] 不在 expandTokens 处理——原样保留为 /名称 发送给 pi 解析执行
 
 import { iconSvg } from "../components/ui/Icon";
+import i18n from "../i18n";
 
 /** 智能体 token 正则：匹配 @[非]字符的名称] */
 export const AGENT_TOKEN_RE = /@\[([^\]]+)\]/g;
@@ -14,6 +15,12 @@ export const FILE_TOKEN_RE = /#\[([^\]]+)\]/g;
 export const SKILL_TOKEN_RE = /[$¥]\[([^\]]+)\]/g;
 /** 命令 token 正则：匹配 /[命令名] */
 export const COMMAND_TOKEN_RE = /\/\[([^\]]+)\]/g;
+
+/** IM 推送 token 正则：匹配完整 @im-push-to(ch_xxx,ct_xxx) 标记。
+ *  与 automation/prompt-tokens.ts 的 IM_PUSH_TOKEN_RE 保持一致——
+ *  那边 import 本文件的 textToHtml，不能反向 import（循环依赖），故此处复制定义。
+ *  不带 g 标志：供 textToSegments 的 .test() 用；split 正则另行内联。 */
+const IM_PUSH_TOKEN_RE = /@im-push-to\(ch_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)/;
 
 /**
  * 全角触发符符号 → 半角映射表。
@@ -52,7 +59,8 @@ export type Segment =
 	| { type: "agent"; value: string }
 	| { type: "file"; value: string }
 	| { type: "skill"; value: string }
-	| { type: "command"; value: string };
+	| { type: "command"; value: string }
+	| { type: "im"; value: string };
 
 /**
  * 发送时把 chip token 展开为纯文本引用标记。
@@ -90,6 +98,27 @@ export function registerAgentMeta(
 /** 清除所有已注册的智能体头像信息（测试用） */
 export function clearAgentMeta() {
 	agentMetaLookup.clear();
+}
+
+// IM 联系人 id -> 显示信息 全局注册表，供 textToHtml 渲染 chip-im 时查找。
+// 数据源：contacts store 的 loadContacts/renameContact 批量注册
+// + ComposerInput 选中联系人时单个注册。未注册（已删除/未加载）→ chip-im-invalid 灰化。
+const contactMetaLookup = new Map<
+	string,
+	{ label: string; kind?: "person" | "group" }
+>();
+
+/** 注册 IM 联系人显示信息（label 为备注名或 id 截断，由调用方构造），供 chip-im 渲染查找 */
+export function registerContactMeta(
+	contactId: string,
+	meta: { label: string; kind?: "person" | "group" },
+) {
+	contactMetaLookup.set(contactId, meta);
+}
+
+/** 清除所有已注册的联系人显示信息（测试用） */
+export function clearContactMeta() {
+	contactMetaLookup.clear();
 }
 
 // chip 内联样式注入
@@ -179,10 +208,15 @@ export function escapeHtml(str: string): string {
  * 也插入结果数组，破坏 segment 划分。
  */
 export function textToSegments(text: string): Segment[] {
-	const combined = /(@\[[^\]]+\]|#\[[^\]]+\]|[$¥]\[[^\]]+\]|\/\[[^\]]+\])/g;
+	const combined =
+		/(@im-push-to\(ch_[a-zA-Z0-9_-]+,ct_[a-zA-Z0-9_-]+\)|@\[[^\]]+\]|#\[[^\]]+\]|[$¥]\[[^\]]+\]|\/\[[^\]]+\])/g;
 	const parts = text.split(combined).filter((p) => p !== "");
 	const segs: Segment[] = [];
 	for (const part of parts) {
+		if (IM_PUSH_TOKEN_RE.test(part)) {
+			segs.push({ type: "im", value: part });
+			continue;
+		}
 		const agentMatch = part.match(/^@\[([^\]]+)\]$/);
 		if (agentMatch) {
 			segs.push({ type: "agent", value: agentMatch[1] });
@@ -212,6 +246,7 @@ export function textToSegments(text: string): Segment[] {
 export function segmentsToText(segs: Segment[]): string {
 	return segs
 		.map((s) => {
+			if (s.type === "im") return s.value;
 			if (s.type === "agent") return `@[${s.value}]`;
 			if (s.type === "file") return `#[${s.value}]`;
 			if (s.type === "skill") return `$[${s.value}]`;
@@ -249,6 +284,16 @@ export function textToHtml(
 	const segs = textToSegments(text);
 	return segs
 		.map((s) => {
+			if (s.type === "im") {
+				const token = s.value;
+				const contactId = token.match(/ct_[a-zA-Z0-9_-]+/)?.[0] ?? "";
+				const meta = contactMetaLookup.get(contactId);
+				const cls = meta ? "chip chip-im" : "chip chip-im chip-im-invalid";
+				const icon = iconSvg(meta?.kind === "group" ? "users" : "user");
+				// 未注册（联系人已删除/未加载）时灰化显示 contactId 原文
+				const label = meta?.label ?? contactId;
+				return `<span class="${cls}" contenteditable="false" data-token="${escapeHtml(token)}">${icon} ${escapeHtml(i18n.t("sendIm.sendTo"))}${escapeHtml(label)}</span>`;
+			}
 			if (s.type === "agent") {
 				const token = `@[${s.value}]`;
 				const meta = agentMetaLookup.get(s.value);

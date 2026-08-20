@@ -77,6 +77,11 @@ const en = {
 		getPathFailed: "Cannot get file path: {{name}}",
 		oversized: "Attachment exceeds {{max}}MB limit: {{names}}",
 	},
+	sendIm: {
+		dialogTitle: "Select IM contact",
+		sendTo: "Send to: ",
+		empty: "No IM contacts yet. Configure a channel on the IM settings page and start a conversation first.",
+	},
 	app: {
 		reconnecting: "Disconnected, reconnecting…",
 		retrying: "Model request failed, auto retrying ({{attempt}}/{{max}})…",

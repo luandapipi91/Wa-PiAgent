@@ -74,6 +74,11 @@ const zh = {
 		getPathFailed: "无法获取文件路径: {{name}}",
 		oversized: "附件超过 {{max}}MB 上限: {{names}}",
 	},
+	sendIm: {
+		dialogTitle: "选择 IM 联系人",
+		sendTo: "发送给：",
+		empty: "暂无 IM 联系人，请先在 IM 设置页配置渠道并产生对话",
+	},
 	app: {
 		reconnecting: "连接已断开，正在重连…",
 		retrying: "模型请求失败，正在自动重试 ({{attempt}}/{{max}})…",
