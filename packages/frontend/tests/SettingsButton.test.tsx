@@ -43,10 +43,10 @@ test("compact 模式：隐藏文字只保留图标", () => {
 	expect(btn.textContent).toBe("");
 	// 仅 icon 时居中对齐（flex justify-center）
 	expect(btn.className).toContain("justify-center");
-	// 仅 icon 时图标放大到 32px（非 compact 20px）
+	// 仅 icon 时图标放大到 27px（非 compact 20px）
 	const icon = btn.querySelector("svg")!;
 	expect(icon.getAttribute("class")).toContain(
-		"text-[calc(32px*var(--font-scale))]",
+		"text-[calc(27px*var(--font-scale))]",
 	);
 });
 
