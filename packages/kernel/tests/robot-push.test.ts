@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
 	buildImPushSystemPrompt,
+	GENERIC_IM_PUSH_PROMPT,
 	parseImPushMentions,
 	createImPushTool,
 } from "../src/tools/robot-push";
@@ -272,4 +273,11 @@ describe("buildImPushSystemPrompt（@im-push-to 版）", () => {
 		expect(out).toContain("im_push_to");
 		expect(out).toContain("不要对其调用 delegate");
 	});
+});
+
+test("GENERIC_IM_PUSH_PROMPT 常驻引导：含标记语义 / 工具名 / 防 delegate 提示", () => {
+	expect(GENERIC_IM_PUSH_PROMPT).toContain("@im-push-to");
+	expect(GENERIC_IM_PUSH_PROMPT).toContain("im_push_to");
+	expect(GENERIC_IM_PUSH_PROMPT).toContain("delegate");
+	expect(GENERIC_IM_PUSH_PROMPT).toContain("ct_xxx");
 });
