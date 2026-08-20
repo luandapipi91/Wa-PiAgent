@@ -223,8 +223,8 @@
 body {
 	margin: 0;
 	font-family:
-		"MiSans", -apple-system, BlinkMacSystemFont, "SF Pro Display",
-		"SF Pro Text", "PingFang SC", "Plus Jakarta Sans", sans-serif;
+		"MiSans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+		"PingFang SC", "Plus Jakarta Sans", sans-serif;
 	background: linear-gradient(
 		160deg,
 		var(--canvas) 0%,
