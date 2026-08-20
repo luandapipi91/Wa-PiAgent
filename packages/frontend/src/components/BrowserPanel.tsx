@@ -21,8 +21,9 @@ export function BrowserPanel() {
 
 	const openPath = (raw: string) => {
 		const p = raw.trim();
-		// 非绝对路径（不以 / 开头、Windows 盘符同样不处理）→ 拒绝
-		if (!p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p)) {
+		// 绝对路径判定：POSIX（/ 开头）或 Windows 盘符（C:\ 或 C:/ 开头）均放行，其余 → 拒绝
+		const isAbs = p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p);
+		if (!isAbs) {
 			addToast(t("browser.invalidPath"), "error");
 			return;
 		}
@@ -32,9 +33,14 @@ export function BrowserPanel() {
 			.projects.map((p) => p.cwd)
 			.filter(Boolean);
 		if (cwdList.length > 0) {
-			const inside = cwdList.some(
-				(cwd) => p === cwd || p.startsWith(cwd + "/") || p.startsWith(cwd + "\\"),
-			);
+			// cwd 规范化：去尾斜杠（保留根 `/`），避免 `/a/` 等尾斜杠导致 startsWith 不命中
+			const normCwd = (cwd: string) => cwd.replace(/[\\/]+$/, "") || "/";
+			const inside = cwdList.some((cwd) => {
+				const c = normCwd(cwd);
+				// 根目录项目：任意绝对路径都在项目内（p 已通过上面的绝对路径判定）
+				if (c === "/") return true;
+				return p === c || p.startsWith(c + "/") || p.startsWith(c + "\\");
+			});
 			if (!inside) {
 				addToast(t("browser.invalidPath"), "error");
 				return;

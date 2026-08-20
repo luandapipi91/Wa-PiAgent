@@ -63,6 +63,23 @@ test(".. 穿越返回 forbidden", () => {
 	}
 });
 
+test("编码穿越（%2E%2E/%2F）返回 forbidden", () => {
+	// %2E%2E 解码后即 ..，%2F 解码后即 /：与字面 .. 穿越走同一条
+	// decodeURIComponent → join → realpath + allowlist 双重校验兑底路径，越界即 forbidden。
+	// （HTTP 入口的 WHATWG URL 规范化到不了 .. 段，本用例覆盖直接调用方的编码形态。）
+	const outside = join(root, "..", `escape-enc-${basename(root)}.txt`);
+	writeFileSync(outside, "secret");
+	try {
+		const r = resolvePreviewPath(
+			`/preview/${enc}/%2E%2E%2Fescape-enc-${basename(root)}.txt`,
+			projects,
+		);
+		expect(r).toEqual({ ok: false, reason: "forbidden" });
+	} finally {
+		rmSync(outside, { force: true });
+	}
+});
+
 test("非绝对路径根返回 forbidden", () => {
 	const r = resolvePreviewPath(
 		`/preview/${encodeURIComponent("relative/path")}/index.html`,
