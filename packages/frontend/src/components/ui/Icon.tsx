@@ -128,6 +128,12 @@ const ICONS = {
 			<path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
 		</>
 	),
+	code: (
+		<>
+			<polyline points="16 18 22 12 16 6" />
+			<polyline points="8 6 2 12 8 18" />
+		</>
+	),
 	edit: (
 		<>
 			<path d="M14.5 5.5l4 4L8 20H4v-4L14.5 5.5z" />
