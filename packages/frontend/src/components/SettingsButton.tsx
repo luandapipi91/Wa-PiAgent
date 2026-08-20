@@ -12,15 +12,17 @@ export function SettingsButton({ onClick }: Props) {
 			onClick={onClick}
 			aria-label={t("settings.title")}
 			title={t("settings.title")}
-			className="w-full text-left px-2 py-1.5 text-xs text-tertiary transition-colors hover:text-brand inline-flex items-center gap-1"
+			className="flex-1 min-w-0 flex items-center gap-1 px-2 py-1.5 text-xs text-tertiary transition-colors hover:text-brand overflow-hidden"
 			data-testid="settings-btn"
 		>
 			<Icon
 				name="settings"
 				size="1em"
-				className="text-[calc(18px*var(--font-scale))]"
-			/>{" "}
-			{t("settings.title")}
+				className="text-[calc(18px*var(--font-scale))] flex-shrink-0"
+			/>
+			<span className="whitespace-nowrap truncate shrink">
+				{t("settings.title")}
+			</span>
 		</button>
 	);
 }

@@ -23,7 +23,10 @@ import {
 	filterItems,
 	type TriggerResult,
 } from "../../quick-invoke/trigger";
-import { registerAgentMeta, registerContactMeta } from "../../quick-invoke/tokens";
+import {
+	registerAgentMeta,
+	registerContactMeta,
+} from "../../quick-invoke/tokens";
 import { imPushToken } from "../automation/prompt-tokens";
 import { ContactPickerDialog, type ImPushTarget } from "./ContactPickerDialog";
 import { openFileOrPreview } from "../../open-file-preview";
@@ -82,7 +85,11 @@ export function ComposerInput({
 }: Props) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const textareaRef = useRef<HTMLDivElement | null>(null);
-	const { height: composerHeight, setHeight: setComposerHeight, resetHeight } = useComposerHeight();
+	const {
+		height: composerHeight,
+		setHeight: setComposerHeight,
+		resetHeight,
+	} = useComposerHeight();
 	const [pendingUploads, setPendingUploads] = useState(0);
 	const [uploadError, setUploadError] = useState<string | null>(null);
 	const [pickerOpen, setPickerOpen] = useState(false);
@@ -813,9 +820,7 @@ export function ComposerInput({
 				onReset={resetHeight}
 				testId="composer-resize-handle"
 			/>
-			<div
-				className="rounded-2xl bg-surface border border-hairline shadow-md overflow-hidden focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--accent-soft),var(--shadow-md)] transition-all duration-150"
-			>
+			<div className="rounded-2xl bg-surface border border-hairline shadow-md overflow-hidden focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--accent-soft),var(--shadow-md)] transition-all duration-150">
 				<ComposerTextarea
 					text={text}
 					onTextChange={setText}
