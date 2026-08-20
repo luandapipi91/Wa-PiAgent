@@ -212,6 +212,21 @@ test("搜索词为空 → 点搜索好友不触发同步", async () => {
 	expect(contactState.syncWecomContacts).not.toHaveBeenCalled();
 });
 
+test("清空输入框后点「搜索好友」→ 重置过滤恢复全量", async () => {
+	render(<ContactPickerDialog onPick={() => {}} onCancel={() => {}} />);
+	const searchBtn = screen.getByTestId("contact-picker-search-btn");
+	const input = screen.getByTestId("contact-picker-search");
+	// 先搜索「李」：只剩李四
+	fireEvent.change(input, { target: { value: "李" } });
+	fireEvent.click(searchBtn);
+	expect(screen.queryByText("张三")).toBeNull();
+	// 清空输入框再点搜索：恢复全量
+	fireEvent.change(input, { target: { value: "" } });
+	fireEvent.click(searchBtn);
+	expect(screen.getByText("张三")).toBeTruthy();
+	expect(screen.getByText("李四")).toBeTruthy();
+});
+
 test("同步失败（如已过期）→ 静默忽略，不 toast 不阻塞本地搜索", async () => {
 	channelsState.bots = [{ id: "ch_wecom", type: "wecom", name: "企微机器人" }];
 	contactState.syncWecomContacts.mockRejectedValue(new Error("token 过期"));
