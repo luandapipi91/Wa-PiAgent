@@ -1,4 +1,5 @@
 import type { ChannelManager } from "../channel-manager";
+import type { ImPushInjection } from "../agent-manager";
 
 // ---------------------------------------------------------------------------
 // @im-push-to(ch_xxx,ct_xxx) 函数式标记（唯一格式；旧 @ch_/@ct_ 裸标记已废弃）。
@@ -39,7 +40,6 @@ interface ImPushResultPayload {
 	success: boolean;
 	error?: string;
 }
-
 export interface ImPushToolDeps {
 	channelManager: ChannelManager;
 	/** 任务 prompt 中解析出的目标联系人（ct_xxx ID 列表） */
@@ -103,5 +103,34 @@ export function createImPushTool(deps: ImPushToolDeps): ImPushTool {
 				return `推送失败：${error}`;
 			}
 		},
+	};
+}
+
+/** 定时任务 im_push_to 注入构造：
+ *  有 @im-push-to 标记 → 白名单（仅标记联系人）+ 结果收集（onPushResult 回填执行记录）；
+ *  无标记 → 拒绝型注入——无人值守任务必须显式声明推送目标才允许推送，
+ *  防止 agent 误调时落到主聊天全局 executor（可推任意联系人）。 */
+export function buildScheduledImPush(
+	contactIds: string[],
+	deps: {
+		channelManager: ChannelManager;
+		onPushResult: (r: ImPushResultPayload) => void;
+	},
+): ImPushInjection {
+	if (contactIds.length === 0) {
+		return {
+			targets: [],
+			execute: async () =>
+				"本任务未配置推送目标：任务指令中需包含 @im-push-to(渠道,联系人) 标记",
+		};
+	}
+	const tool = createImPushTool({
+		channelManager: deps.channelManager,
+		contactIds,
+		onPushResult: deps.onPushResult,
+	});
+	return {
+		targets: contactIds,
+		execute: (contact, message) => tool.execute({ contact, message }),
 	};
 }
