@@ -104,7 +104,7 @@ import {
 	WA_PI_DEFAULT_BASE_PROMPT,
 	type PromptSegment,
 } from "./system-prompt";
-import { buildImPushSystemPrompt } from "./tools/robot-push";
+import { buildImPushSystemPrompt, GENERIC_IM_PUSH_PROMPT, parseImPushMentions } from "./tools/robot-push";
 
 /** 可注入的 client 工厂（测试用假 client 替换；生产 new RpcClient） */
 export type CreateClientFn = (opts: RpcClientOpts) => RpcClient;
@@ -151,6 +151,9 @@ export interface AgentManagerOpts {
 	mcpStore?: McpStore;
 	// 惰性取 bridge 回调地址（kernel WS 端口在 AgentManager 构造后才确定）
 	bridgeBaseUrl?: () => string;
+	/** 主聊天会话 @im-push-to 标记的推送注入工厂。
+	 *  channelManager 构造晚于 AgentManager（循环依赖），由 index.ts 经 setImPushFactory 后绑定。 */
+	imPushFactory?: (contactIds: string[]) => ImPushInjection;
 	// 测试注入 mock；生产留空 → 真实 RpcClient
 	createClientFn?: CreateClientFn;
 	// abort RPC 无响应的兜底超时（ms）：超时强杀 pi 进程，保证「停止」一定生效。
@@ -208,6 +211,9 @@ interface SessionHandle {
 	/** transient 网络错误标记：true 时 agent_settled 跳过 followUp/steer drain，
 	 *  避免网络不可用时自动发送排队消息（会再失败）。用户重发后清除。 */
 	netDegraded: boolean;
+	/** 主聊天会话推送注册表条目：消息含 @im-push-to 标记时由 _sendPromptNow 惰性激活。
+	 *  与定时任务的 _createSession imPush 注入互补（handleTool 优先用注入值）。 */
+	imPush?: ImPushInjection;
 	/** 最近一次活跃时间戳（ms）：prompt / message_end / steer / 打开会话时刷新。
 	 *  供 reapIdleSessions 判断是否回收该会话子进程，避免每轮读盘。 */
 	lastActiveAt: number;
@@ -255,6 +261,11 @@ export class AgentManager {
 		// im-push 段同样不落盘，运行时补回（im-channel 之后、memory-policy 之前）
 		this.promptSegments = ensureImPushSegment(this.promptSegments);
 		return this.promptSegments;
+	}
+
+	/** 后绑定 im_push_to 推送注入工厂（index.ts 在 channelManager 构造后调用）。 */
+	setImPushFactory(factory: (contactIds: string[]) => ImPushInjection): void {
+		this.opts.imPushFactory = factory;
 	}
 
 	/**
@@ -718,6 +729,7 @@ export class AgentManager {
 		// bridge 会话上下文：ask/memory 走默认工厂，delegate/fleet 接宿主实现；
 		// reviewEnabled=false 时记忆工具返回关闭提示（对齐迁移前「不注册记忆工具」的行为）
 		const memoryEnabled = memConfig?.reviewEnabled !== false;
+		const am = this; // handleTool 是对象方法简写，this 指向 bridgeCtx；AgentManager 实例另存
 		const defaultCtx = makeDefaultBridgeContext({
 			sessionId,
 			cwd,
@@ -759,12 +771,24 @@ export class AgentManager {
 						currentCallSignal = undefined;
 					}
 				}
-				// im_push_to：定时任务会话注入（普通会话无 imPush → pi 进程未注册该工具，
-				// 走不到这里）。校验联系人合法后执行推送，返回文本结果给 pi。
-				if (tool === "im_push_to" && imPush) {
+				// im_push_to：定时任务会话注入优先；其次主聊天会话注册表（@im-push-to 标记
+				// 激活的 SessionHandle.imPush）。工具始终注册，普通会话误调返回明确错误。
+				if (tool === "im_push_to") {
+					const effectiveImPush = imPush ?? am.sessions.get(sessionId)?.imPush;
+					if (!effectiveImPush) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "本会话未配置推送目标：请让用户在消息中用 @im-push-to(渠道,联系人) 标记指定联系人后再调用本工具。",
+								},
+							],
+							details: { error: "no im push targets" },
+						};
+					}
 					const p = params as { contact: string; message: string };
 					try {
-						const text = await imPush.execute(p.contact, p.message);
+						const text = await effectiveImPush.execute(p.contact, p.message);
 						return { content: [{ type: "text", text }], details: {} };
 					} catch (err) {
 						const error = err instanceof Error ? err.message : String(err);
@@ -811,10 +835,12 @@ export class AgentManager {
 			// IM 渠道附加提示词（仅渠道会话传入，非渠道会话为空 → im-channel 段不出现）。
 			// 渠道提示词变更后由调用方 markAllDirty() 触发下次 ensureStarted 重建生效。
 			imChannelContext: imChannelContext ?? "",
-			// IM 推送目标引导（定时任务带 @im-push-to 标记时注入 im-push 段；普通会话为空不出现）
+			// IM 推送引导：定时任务会话用具体目标版；其余会话注入通用常驻版——
+			// 工具始终注册后任何会话都可能出现 @im-push-to 标记，引导需常驻说明语义
+			// （参照 delegate-mechanism 常驻段模式；联系人在消息标记中自描述）。
 			imPushContext: imPush?.targets?.length
 				? buildImPushSystemPrompt(imPush.targets)
-				: "",
+				: GENERIC_IM_PUSH_PROMPT,
 		});
 		const tmpDir = join(WA_PI_DIR, "tmp", "sysprompts");
 		await mkdir(tmpDir, { recursive: true });
@@ -842,9 +868,9 @@ export class AgentManager {
 		const toolArgs: { tools?: string[]; excludeTools?: string[] } = restricted
 			? {
 					tools: [
-						// 受限 agent 白名单中并入 im_push_to：定时任务 agent 若显式配置了
-						// tools，不并入会被白名单挡掉推送工具（bridge 注册了但不在名单）
-						...(imPush?.targets?.length ? ["im_push_to"] : []),
+						// 受限 agent 白名单无条件并入 im_push_to：工具始终注册（bridge 扩展），
+						// 不并入会被白名单挡掉（主聊天 @im-push-to 标记会话同样需要推送能力）
+						"im_push_to",
 						...resolveAgentTools(config!.tools!, await this.getMcpDirectToolNames()),
 					],
 				}
@@ -1145,6 +1171,12 @@ export class AgentManager {
 		}
 		// 发送前自动压缩防护：上下文将超限时先 compact 再继续，避免 400
 		await this._autoCompactIfNeeded(sessionId, handle);
+		// 主聊天 @im-push-to 标记 → 惰性激活会话推送注册表（每条消息重检，目标随最新标记更新；
+		// 定时任务会话的 imPush 在 _createSession 注入，handleTool 优先用注入值，互不干扰）
+		const imPushIds = parseImPushMentions(text);
+		if (imPushIds.length > 0 && this.opts.imPushFactory) {
+			handle.imPush = this.opts.imPushFactory(imPushIds);
+		}
 		handle.busy = true;
 		// 用户重发触发直接 prompt：网络已恢复，清除 transient degraded 标记，恢复 drain。
 		if (handle.netDegraded) handle.netDegraded = false;

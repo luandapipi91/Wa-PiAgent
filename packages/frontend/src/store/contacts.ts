@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api } from "../api-client";
+import { registerContactMeta } from "../quick-invoke/tokens";
 import type { ContactEntity } from "@wa-pi/shared";
 
 interface ContactsState {
@@ -21,17 +22,37 @@ export const useContactsStore = create<ContactsState>((set) => ({
 	contacts: [],
 	loadContacts: async () => {
 		const res = (await api.get("/api/contacts")) as any;
-		set({ contacts: res?.contacts ?? [] });
+		const contacts = (res?.contacts ?? []) as ContactEntity[];
+		set({ contacts });
+		registerAllContactMeta(contacts);
 	},
 	renameContact: async (id, remark) => {
 		const res = (await api.put(`/api/contacts/${id}`, { remark })) as any;
-		set({ contacts: res?.contacts ?? [] });
+		const contacts = (res?.contacts ?? []) as ContactEntity[];
+		set({ contacts });
+		registerAllContactMeta(contacts);
 	},
 	ensureContact: async (input) => {
 		const res = (await api.post("/api/contacts/ensure", input)) as any;
 		return res?.contact as ContactEntity | undefined;
 	},
 }));
+
+/** 联系人显示名：remark 优先；group 退 chatId 前 8 位、person 退 userId；兜底 id */
+export function contactLabel(c: ContactEntity): string {
+	return (
+		c.remark ||
+		(c.kind === "group" ? c.chatId?.slice(0, 8) : c.userId) ||
+		c.id
+	);
+}
+
+/** 把联系人列表批量注册进 chip 渲染表（主聊天输入框/历史消息的 chip-im 依赖它） */
+function registerAllContactMeta(contacts: ContactEntity[]) {
+	for (const c of contacts) {
+		registerContactMeta(c.id, { label: contactLabel(c), kind: c.kind });
+	}
+}
 
 /** 按 channelId + kind + key 查完整联系人对象（供顶部铅笔定位联系人 id） */
 export function contactOf(
