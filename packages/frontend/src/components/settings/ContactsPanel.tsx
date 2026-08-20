@@ -39,7 +39,7 @@ export default function ContactsPanel({
 			if (added > 0) {
 				useToastStore.getState().add(`搜索完成：新增 ${added} 人`, "success");
 			}
-			setSyncKeyword("");
+			// 保留关键词：不清空输入框，本地过滤继续生效
 			void loadContacts(); // 同步后刷新列表
 		} catch (e) {
 			useToastStore
