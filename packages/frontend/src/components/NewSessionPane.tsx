@@ -69,6 +69,9 @@ export function NewSessionPane({
 		projects[0]?.id ??
 		null;
 	const [projectId, setProjectId] = useState<string | null>(initialProject);
+	// 用户是否手动改过项目下拉：手动选择后 currentProjectId 变化不再覆盖（
+	// 否则侧栏/导航把用户选的 HiAgent 冲回旧项目，会话归错项目——bug 根因）
+	const [projectTouched, setProjectTouched] = useState(false);
 	// 文件浏览侧栏根目录：跟随当前选中项目的 cwd（未选项目为空 → 入口禁用 + 空态兜底）。
 	// 默认工作区（__system__）的 cwd 是 workdir 父目录——存放每个会话的独立内部目录，
 	// 可能积累数千个子目录；既非用户可用的「项目文件」，一次性列出还会卡死 UI。
@@ -77,10 +80,11 @@ export function NewSessionPane({
 		projectId === SYSTEM_PROJECT_ID
 			? ""
 			: (projects.find((p) => p.id === projectId)?.cwd ?? "");
-	// currentProjectId 变化时同步（点项目旁 + 号时可能已在新建页，不会重新挂载）
+	// currentProjectId 变化时同步（点项目旁 + 号时可能已在新建页，不会重新挂载）；
+	// 用户已手动选择过项目则不再覆盖（保持用户选择）
 	useEffect(() => {
-		if (currentProjectId) setProjectId(currentProjectId);
-	}, [currentProjectId]);
+		if (currentProjectId && !projectTouched) setProjectId(currentProjectId);
+	}, [currentProjectId, projectTouched]);
 	// pendingAgent 变化时同步（已停在新建页再点侧栏/宫格智能体，组件不会重新挂载）
 	useEffect(() => {
 		if (pendingAgent) setAgentName(pendingAgent as AgentName);
@@ -325,8 +329,11 @@ export function NewSessionPane({
 				<p className="text-sm text-secondary mb-7">{t("newSession.subtitle")}</p>
 				<div className="w-full max-w-2xl mb-4 flex gap-2 items-center">
 					<select
-						value={projectId ?? ""}
-						onChange={(e) => setProjectId(e.target.value || null)}
+							value={projectId ?? ""}
+							onChange={(e) => {
+								setProjectTouched(true);
+								setProjectId(e.target.value || null);
+							}}
 						className="flex-1 min-w-0 bg-surface border border-hairline rounded-sm text-primary px-2.5 py-1.5 text-[calc(12.5px*var(--font-scale))]"
 						data-testid="project-select"
 					>
