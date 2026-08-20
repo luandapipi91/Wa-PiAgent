@@ -5,7 +5,6 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { uploadFile, copyToUploads, searchFilesStream } from "../../fs-client";
 import { useProjectsStore } from "../../store/projects";
 import { useProvidersStore } from "../../store/providers";
-import { useSessionStore } from "../../store/session";
 import { useSkillsStore } from "../../store/skills";
 import { useCommandsStore } from "../../store/commands";
 import { useAgentsStore } from "../../store/agents";
@@ -27,6 +26,7 @@ import {
 import { registerAgentMeta, registerContactMeta } from "../../quick-invoke/tokens";
 import { imPushToken } from "../automation/prompt-tokens";
 import { ContactPickerDialog, type ImPushTarget } from "./ContactPickerDialog";
+import { openFileOrPreview } from "../../open-file-preview";
 import { useContactsStore } from "../../store/contacts";
 
 interface Props {
@@ -901,7 +901,7 @@ export function ComposerInput({
 							onRemove={() => removeAttachment(i)}
 							onClick={
 								a.kind !== "snippet" && a.path
-									? () => useSessionStore.getState().openFilePreview(a.path, sessionId)
+									? () => openFileOrPreview(a.path!, sessionId)
 									: undefined
 							}
 						/>
