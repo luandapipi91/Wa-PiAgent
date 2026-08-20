@@ -170,9 +170,12 @@ test("/ 命令菜单含「发送给 IM 联系人」；选中 → 弹窗选人 �
 	seedImStores();
 	render(<ControlledComposer />);
 
-	// text="/" → 命令菜单打开，含目标命令
+	// text="/" → 命令菜单打开，含目标命令且位于首位（需求：/ 菜单第一位）
 	const menu = await screen.findByTestId("quick-invoke-menu");
 	expect(menu.textContent).toContain("发送给 IM 联系人");
+	expect(screen.getByTestId("quick-invoke-item-0").textContent).toContain(
+		"发送给 IM 联系人",
+	);
 
 	// 选中命令 → 打开联系人弹窗（/ 触发文本被清除）
 	fireEvent.click(screen.getByText("发送给 IM 联系人"));

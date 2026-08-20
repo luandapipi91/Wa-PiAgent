@@ -244,7 +244,15 @@ export function ComposerInput({
 		if (triggerType !== "command") return [];
 		const q = trigger!.query;
 		// 前端有 handler 的命令（选中执行动作，优先级最高）
+		// 注：「发送给 IM 联系人」置顶——用户在 / 菜单的第一位即见（需求确认 2026-08-20）
 		const builtinCommands: MenuItem[] = [
+			{
+				id: "cmd:send-im",
+				name: t("composer.cmdSendIm"),
+				description: t("composer.cmdSendImDesc"),
+				source: { type: "builtin", name: t("composer.sourceCommand") },
+				disabled: isRunning || isNewSession,
+			},
 			{
 				id: "cmd:settings",
 				name: t("composer.cmdSettings"),
@@ -274,13 +282,6 @@ export function ComposerInput({
 				id: "cmd:compact",
 				name: t("composer.cmdCompact"),
 				description: t("composer.cmdCompactDesc"),
-				source: { type: "builtin", name: t("composer.sourceCommand") },
-				disabled: isRunning || isNewSession,
-			},
-			{
-				id: "cmd:send-im",
-				name: t("composer.cmdSendIm"),
-				description: t("composer.cmdSendImDesc"),
 				source: { type: "builtin", name: t("composer.sourceCommand") },
 				disabled: isRunning || isNewSession,
 			},
