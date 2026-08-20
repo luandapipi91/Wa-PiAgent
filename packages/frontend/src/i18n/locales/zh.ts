@@ -77,8 +77,10 @@ const zh = {
 		oversized: "附件超过 {{max}}MB 上限: {{names}}",
 	},
 	sendIm: {
-		dialogTitle: "选择 IM 联系人",
+		dialogTitle: "我的通讯录（{{count}}）",
 		sendTo: "发送给：",
+		searchPlaceholder: "搜索联系人",
+		noMatch: "无匹配联系人",
 		empty: "暂无 IM 联系人，请先在 IM 设置页配置渠道并产生对话",
 	},
 	app: {
