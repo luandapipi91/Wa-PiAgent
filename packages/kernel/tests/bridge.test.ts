@@ -163,7 +163,9 @@ test("ensureBridgeExtension 生成文件存在且包含 7 个工具名，幂等�
 
 test("契约：扩展工具的 name/description/schema 与现有实现一致", async () => {
 	const bridgeTools = await loadBridgeTools();
-	expect(bridgeTools.map((t) => t.name).sort()).toEqual([...SEVEN_TOOLS].sort());
+	expect(bridgeTools.map((t) => t.name).sort()).toEqual(
+		[...SEVEN_TOOLS, "im_push_to"].sort(),
+	);
 
 	// ask：name/label/description/promptGuidelines/parameters 全等
 	const askReal = makeAskTool("s1") as any;
@@ -206,6 +208,17 @@ test("契约：扩展工具的 name/description/schema 与现有实现一致", a
 	expect(JSON.parse(JSON.stringify(fleetBridge.parameters))).toEqual(
 		JSON.parse(JSON.stringify(fleetReal.parameters)),
 	);
+
+	// im_push_to：始终注册（不依赖 WA_PI_IM_PUSH_TARGETS env）——label/description/参数 schema 契约
+	const imPushBridge = bridgeTools.find((t) => t.name === "im_push_to");
+	expect(imPushBridge).toBeTruthy();
+	expect(imPushBridge.label).toBe("IM Push");
+	expect(imPushBridge.description).toContain("@im-push-to(渠道,联系人)");
+	expect(imPushBridge.description).toContain("ct_xxx");
+	const imPushParams = JSON.parse(JSON.stringify(imPushBridge.parameters));
+	expect(imPushParams.properties.contact).toBeTruthy();
+	expect(imPushParams.properties.message).toBeTruthy();
+	expect(imPushParams.required).toEqual(["contact", "message"]);
 });
 
 // ---- 真实 pi 加载 ----
@@ -768,21 +781,23 @@ test("handleBridgeStream 静默期间周期性输出 ping 心跳帧（子代理�
 	).toBe(pings);
 });
 
-// ── C1：im_push_to 条件注册（仅定时任务会话注入 WA_PI_IM_PUSH_TARGETS）──
+// ── C1：im_push_to 始终注册（Task 2 变更：不再依赖 WA_PI_IM_PUSH_TARGETS env）──
 
-test("im_push_to：未设 env 时不注册（7 工具不变，普通会话不受影响）", async () => {
+test("im_push_to：未设 env 也注册（8 工具，普通会话工具面板可用）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	delete process.env.WA_PI_IM_PUSH_TARGETS;
 	try {
 		const tools = await loadBridgeTools();
-		expect(tools.map((t: any) => t.name).sort()).toEqual([...SEVEN_TOOLS].sort());
-		expect(tools.some((t: any) => t.name === "im_push_to")).toBe(false);
+		expect(tools.map((t: any) => t.name).sort()).toEqual(
+			[...SEVEN_TOOLS, "im_push_to"].sort(),
+		);
+		expect(tools.some((t: any) => t.name === "im_push_to")).toBe(true);
 	} finally {
 		if (prev !== undefined) process.env.WA_PI_IM_PUSH_TARGETS = prev;
 	}
 });
 
-test("im_push_to：设 env 后注册为第 8 个工具，description 含联系人列表", async () => {
+test("im_push_to：始终注册为第 8 个工具，description 为通用引导（不含联系人列表）", async () => {
 	const prev = process.env.WA_PI_IM_PUSH_TARGETS;
 	process.env.WA_PI_IM_PUSH_TARGETS = "ct_aaa,ct_bbb";
 	try {
@@ -790,7 +805,10 @@ test("im_push_to：设 env 后注册为第 8 个工具，description 含联系�
 		expect(tools).toHaveLength(8);
 		const imPush = tools.find((t: any) => t.name === "im_push_to");
 		expect(imPush).toBeTruthy();
-		expect(imPush.description).toContain("ct_aaa,ct_bbb");
+		// env 仅作诊断用途，不再写入 description（联系人由消息标记自描述）
+		expect(imPush.description).not.toContain("ct_aaa,ct_bbb");
+		expect(imPush.description).toContain("@im-push-to(渠道,联系人)");
+		expect(imPush.description).toContain("ct_xxx");
 		// schema：contact + message 两个必填参数
 		const params = JSON.parse(JSON.stringify(imPush.parameters));
 		expect(params.properties.contact).toBeTruthy();
