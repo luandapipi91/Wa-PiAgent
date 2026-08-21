@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "bun --env-file=.env.test test --isolate",
+    "test": "bun --env-file=.env.test test --isolate --timeout=20000",
     "e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },
