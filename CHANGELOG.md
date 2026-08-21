@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### 修复
+
+- dev 启动：vite 强制用 bun runtime（`bun --bun`）。vite bin 脚本 shebang 为 `#!/usr/bin/env node`，默认解析到系统 node（本机 v14 过旧，不支持 vite 8 的 `??=` 等语法导致启动报 SyntaxError）；`--bun` 把 node 符号链接指向 bun，vite 在 bun runtime 下正常启动，与 Node ≥20 要求解耦（scripts/dev.ts spawnFrontend）。
+
 ### 新增
 
 - 首启依赖安装 100% 成功（根治「依赖装失败 → 后续模型代理请求 404」）

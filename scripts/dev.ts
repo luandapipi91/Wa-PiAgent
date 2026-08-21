@@ -166,7 +166,9 @@ async function stopProc(p: ChildProcess): Promise<void> {
         `k() { for c in $(pgrep -P $1 2>/dev/null); do k $c; done; kill -9 $1 2>/dev/null; }; k ${p.pid}`,
       ]);
     }
-  } catch {}
+  } catch {
+    // 清理失败静默忽略：进程可能已退出/权限不足，不阻塞退出流程。
+  }
 }
 
 /** spawn 一个命令并等其退出(用于清理,忽略输出与失败) */
@@ -195,7 +197,11 @@ function spawnKernel() {
 function spawnFrontend() {
   return spawnProcs({
     label: "web",
-    cmd: ["bun", ["run", "--filter", "@wa-pi/frontend", "dev"]],
+    // --bun：强制 vite 用 bun runtime 执行。vite bin 脚本 shebang 为
+    // #!/usr/bin/env node，默认会解析到系统 node（本机 v14 过旧，不支持
+    // vite 8 的 ??= 等语法）；--bun 会把 node 符号链接指向 bun，vite 在
+    // bun runtime 下正常启动（与 Node ≥20 要求解耦）。
+    cmd: ["bun", ["--bun", "run", "--filter", "@wa-pi/frontend", "dev"]],
   });
 }
 
