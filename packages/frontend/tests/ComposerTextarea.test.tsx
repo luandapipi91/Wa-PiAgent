@@ -4,180 +4,180 @@ import { ComposerTextarea } from "../src/components/ui/ComposerTextarea";
 import { registerAgentMeta, clearAgentMeta } from "../src/quick-invoke/tokens";
 
 beforeEach(() => {
-    document.body.innerHTML = "";
-    clearAgentMeta();
+        document.body.innerHTML = "";
+        clearAgentMeta();
 });
 
 test("渲染初始文本", () => {
-    render(
-        <ComposerTextarea
-            text="hello"
-            onTextChange={mock()}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    expect(screen.getByRole("textbox").textContent).toBe("hello");
+        render(
+                <ComposerTextarea
+                        text="hello"
+                        onTextChange={mock()}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        expect(screen.getByRole("textbox").textContent).toBe("hello");
 });
 
 test("渲染文件 chip（#[...]，绿色 chip-file）", () => {
-    render(
-        <ComposerTextarea
-            text="看 #[App.tsx]"
-            onTextChange={mock()}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    const chip = screen.getByText("#App.tsx");
-    expect(chip.className).toContain("chip-file");
-    expect(chip.getAttribute("data-token")).toBe("#[App.tsx]");
+        render(
+                <ComposerTextarea
+                        text="看 #[App.tsx]"
+                        onTextChange={mock()}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        const chip = screen.getByText("#App.tsx");
+        expect(chip.className).toContain("chip-file");
+        expect(chip.getAttribute("data-token")).toBe("#[App.tsx]");
 });
 
 test("渲染技能 chip（$）", () => {
-    render(
-        <ComposerTextarea
-            text="用 $[brainstorm]"
-            onTextChange={mock()}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    // 技能 chip 的闪电图标已由 Unicode ⚡ 改为内联 svg，文本仅剩技能名；
-    // 按 data-token 定位最稳定（与 agent chip 测试一致）。
-    const chip = document.querySelector('[data-token="$[brainstorm]"]');
-    expect(chip).toBeTruthy();
-    expect(chip!.className).toContain("chip-skill");
+        render(
+                <ComposerTextarea
+                        text="用 $[brainstorm]"
+                        onTextChange={mock()}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        // 技能 chip 的闪电图标已由 Unicode ⚡ 改为内联 svg，文本仅剩技能名；
+        // 按 data-token 定位最稳定（与 agent chip 测试一致）。
+        const chip = document.querySelector('[data-token="$[brainstorm]"]');
+        expect(chip).toBeTruthy();
+        expect(chip!.className).toContain("chip-skill");
 });
 
 test("渲染技能 chip（¥）", () => {
-    render(
-        <ComposerTextarea
-            text="用 ¥[brainstorm]"
-            onTextChange={mock()}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    // ¥ 触发符内部统一归一为 $ token（见 tokens.ts 技能 chip 渲染），data-token 仍为 $[brainstorm]
-    const chip = document.querySelector('[data-token="$[brainstorm]"]');
-    expect(chip).toBeTruthy();
-    expect(chip!.className).toContain("chip-skill");
+        render(
+                <ComposerTextarea
+                        text="用 ¥[brainstorm]"
+                        onTextChange={mock()}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        // ¥ 触发符内部统一归一为 $ token（见 tokens.ts 技能 chip 渲染），data-token 仍为 $[brainstorm]
+        const chip = document.querySelector('[data-token="$[brainstorm]"]');
+        expect(chip).toBeTruthy();
+        expect(chip!.className).toContain("chip-skill");
 });
 
 test("渲染智能体 chip（@[...]，蓝色 chip-agent）", () => {
-    render(
-        <ComposerTextarea
-            text="@[代码审查] 帮我看看"
-            onTextChange={mock()}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    const chip = screen.getByText("@代码审查");
-    expect(chip.className).toContain("chip-agent");
-    expect(chip.getAttribute("data-token")).toBe("@[代码审查]");
+        render(
+                <ComposerTextarea
+                        text="@[代码审查] 帮我看看"
+                        onTextChange={mock()}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        const chip = screen.getByText("@代码审查");
+        expect(chip.className).toContain("chip-agent");
+        expect(chip.getAttribute("data-token")).toBe("@[代码审查]");
 });
 
 test("agent chip 有头像时，@ 在 avatar 之前（最前面）", () => {
-    // 注册智能体头像信息，模拟 ComposerTextarea 中带 avatar 的 chip 渲染
-    registerAgentMeta("代码审查", { avatar: "🔍", avatarColor: "#0891b2" });
-    render(
-        <ComposerTextarea
-            text="@[代码审查]"
-            onTextChange={mock()}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    const chip = document.querySelector(".chip-agent");
-    expect(chip).toBeTruthy();
-    // chip 内部结构应为：@ [avatar span] 名称（@ 在最前面）
-    const html = chip!.innerHTML;
-    // @ 符号在 avatar span 之前
-    const atIdx = html.indexOf("@");
-    const avatarIdx = html.indexOf("chip-agent-avatar");
-    expect(atIdx).toBeGreaterThanOrEqual(0);
-    expect(avatarIdx).toBeGreaterThan(atIdx);
-    // 头像 emoji 在 @ 之后、名称之前
-    const emojiIdx = html.indexOf("🔍");
-    const nameIdx = html.indexOf("代码审查", avatarIdx);
-    expect(emojiIdx).toBeGreaterThan(atIdx);
-    expect(nameIdx).toBeGreaterThan(emojiIdx);
+        // 注册智能体头像信息，模拟 ComposerTextarea 中带 avatar 的 chip 渲染
+        registerAgentMeta("代码审查", { avatar: "🔍", avatarColor: "#0891b2" });
+        render(
+                <ComposerTextarea
+                        text="@[代码审查]"
+                        onTextChange={mock()}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        const chip = document.querySelector(".chip-agent");
+        expect(chip).toBeTruthy();
+        // chip 内部结构应为：@ [avatar span] 名称（@ 在最前面）
+        const html = chip!.innerHTML;
+        // @ 符号在 avatar span 之前
+        const atIdx = html.indexOf("@");
+        const avatarIdx = html.indexOf("chip-agent-avatar");
+        expect(atIdx).toBeGreaterThanOrEqual(0);
+        expect(avatarIdx).toBeGreaterThan(atIdx);
+        // 头像 emoji 在 @ 之后、名称之前
+        const emojiIdx = html.indexOf("🔍");
+        const nameIdx = html.indexOf("代码审查", avatarIdx);
+        expect(emojiIdx).toBeGreaterThan(atIdx);
+        expect(nameIdx).toBeGreaterThan(emojiIdx);
 });
 
 test("输入时回调 onTextChange", () => {
-    const onTextChange = mock();
-    render(
-        <ComposerTextarea
-            text=""
-            onTextChange={onTextChange}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    const el = screen.getByRole("textbox") as HTMLElement;
-    el.focus();
-    el.textContent = "typed";
-    fireEvent.input(el);
-    expect(onTextChange).toHaveBeenCalledWith("typed");
+        const onTextChange = mock();
+        render(
+                <ComposerTextarea
+                        text=""
+                        onTextChange={onTextChange}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        const el = screen.getByRole("textbox") as HTMLElement;
+        el.focus();
+        el.textContent = "typed";
+        fireEvent.input(el);
+        expect(onTextChange).toHaveBeenCalledWith("typed");
 });
 
 test("外部 setText 清空时 DOM 同步更新", async () => {
-    const { rerender } = render(
-        <ComposerTextarea
-            text="hello"
-            onTextChange={mock()}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    expect(screen.getByRole("textbox").textContent).toBe("hello");
-    // 模拟发送后清空
-    rerender(
-        <ComposerTextarea
-            text=""
-            onTextChange={mock()}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    await waitFor(() => {
-        expect(screen.getByRole("textbox").textContent).toBe("");
-    });
+        const { rerender } = render(
+                <ComposerTextarea
+                        text="hello"
+                        onTextChange={mock()}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        expect(screen.getByRole("textbox").textContent).toBe("hello");
+        // 模拟发送后清空
+        rerender(
+                <ComposerTextarea
+                        text=""
+                        onTextChange={mock()}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        await waitFor(() => {
+                expect(screen.getByRole("textbox").textContent).toBe("");
+        });
 });
 
 test("chip 是不可编辑的", () => {
-    render(
-        <ComposerTextarea
-            text="#[file.ts]"
-            onTextChange={mock()}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    const chip = screen.getByText("#file.ts");
-    expect(chip.getAttribute("contenteditable")).toBe("false");
+        render(
+                <ComposerTextarea
+                        text="#[file.ts]"
+                        onTextChange={mock()}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        const chip = screen.getByText("#file.ts");
+        expect(chip.getAttribute("contenteditable")).toBe("false");
 });
 
 test("chip 的 data-token 在 DOM 文本提取时保留", () => {
-    const onTextChange = mock();
-    render(
-        <ComposerTextarea
-            text="#[file.ts] end"
-            onTextChange={onTextChange}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    const el = screen.getByRole("textbox") as HTMLElement;
-    // 模拟在 chip 后输入
-    el.focus();
-    // 在末尾追加文本节点
-    el.appendChild(document.createTextNode(" more"));
-    fireEvent.input(el);
-    // onTextChange 应该收到 token + 新文本
-    expect(onTextChange).toHaveBeenCalledWith("#[file.ts] end more");
+        const onTextChange = mock();
+        render(
+                <ComposerTextarea
+                        text="#[file.ts] end"
+                        onTextChange={onTextChange}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        const el = screen.getByRole("textbox") as HTMLElement;
+        // 模拟在 chip 后输入
+        el.focus();
+        // 在末尾追加文本节点
+        el.appendChild(document.createTextNode(" more"));
+        fireEvent.input(el);
+        // onTextChange 应该收到 token + 新文本
+        expect(onTextChange).toHaveBeenCalledWith("#[file.ts] end more");
 });
 
 // ===== 换行保留：contenteditable 输入侧根因复现 =====
@@ -186,176 +186,194 @@ test("chip 的 data-token 在 DOM 文本提取时保留", () => {
 // extractText 必须把这些块节点转回 \n，否则多行内容发送时换行丢失。
 
 test("换行保留：Chrome 风格 <div> 块 → 提取出 \\n", () => {
-    const onTextChange = mock();
-    render(
-        <ComposerTextarea
-            text=""
-            onTextChange={onTextChange}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    const el = screen.getByRole("textbox") as HTMLElement;
-    // Chrome contenteditable 输入两行的典型 DOM：
-    //   <div>第一行</div><div>第二行</div>
-    el.innerHTML = "<div>第一行</div><div>第二行</div>";
-    fireEvent.input(el);
-    expect(onTextChange).toHaveBeenCalledWith("第一行\n第二行");
+        const onTextChange = mock();
+        render(
+                <ComposerTextarea
+                        text=""
+                        onTextChange={onTextChange}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        const el = screen.getByRole("textbox") as HTMLElement;
+        // Chrome contenteditable 输入两行的典型 DOM：
+        //   <div>第一行</div><div>第二行</div>
+        el.innerHTML = "<div>第一行</div><div>第二行</div>";
+        fireEvent.input(el);
+        expect(onTextChange).toHaveBeenCalledWith("第一行\n第二行");
 });
 
 test("换行保留：首行文本 + <div>（Chrome 默认样式，首行不包 div）", () => {
-    const onTextChange = mock();
-    render(
-        <ComposerTextarea
-            text=""
-            onTextChange={onTextChange}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    const el = screen.getByRole("textbox") as HTMLElement;
-    // Chrome 常见：第一行是裸文本，后续行包在 <div> 里
-    el.innerHTML = "第一行<div>第二行</div>";
-    fireEvent.input(el);
-    expect(onTextChange).toHaveBeenCalledWith("第一行\n第二行");
+        const onTextChange = mock();
+        render(
+                <ComposerTextarea
+                        text=""
+                        onTextChange={onTextChange}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        const el = screen.getByRole("textbox") as HTMLElement;
+        // Chrome 常见：第一行是裸文本，后续行包在 <div> 里
+        el.innerHTML = "第一行<div>第二行</div>";
+        fireEvent.input(el);
+        expect(onTextChange).toHaveBeenCalledWith("第一行\n第二行");
 });
 
 test("换行保留：<br>（Shift+Enter 或 Firefox）→ 提取出 \\n", () => {
-    const onTextChange = mock();
-    render(
-        <ComposerTextarea
-            text=""
-            onTextChange={onTextChange}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    const el = screen.getByRole("textbox") as HTMLElement;
-    el.innerHTML = "第一行<br>第二行";
-    fireEvent.input(el);
-    expect(onTextChange).toHaveBeenCalledWith("第一行\n第二行");
+        const onTextChange = mock();
+        render(
+                <ComposerTextarea
+                        text=""
+                        onTextChange={onTextChange}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        const el = screen.getByRole("textbox") as HTMLElement;
+        el.innerHTML = "第一行<br>第二行";
+        fireEvent.input(el);
+        expect(onTextChange).toHaveBeenCalledWith("第一行\n第二行");
 });
 
 test("换行保留：chip 后真正换行（chip + br + div）→ 保留 \\n", () => {
-    const onTextChange = mock();
-    render(
-        <ComposerTextarea
-            text=""
-            onTextChange={onTextChange}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    const el = screen.getByRole("textbox") as HTMLElement;
-    // 用户按 Enter 换行：chip 后有显式 <br>，再接第二行
-    el.innerHTML =
-        '<span class="chip chip-file" contenteditable="false" data-token="#[App.tsx]">#App.tsx</span><br><div>第二行</div>';
-    fireEvent.input(el);
-    expect(onTextChange).toHaveBeenCalledWith("#[App.tsx]\n第二行");
+        const onTextChange = mock();
+        render(
+                <ComposerTextarea
+                        text=""
+                        onTextChange={onTextChange}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        const el = screen.getByRole("textbox") as HTMLElement;
+        // 用户按 Enter 换行：chip 后有显式 <br>，再接第二行
+        el.innerHTML =
+                '<span class="chip chip-file" contenteditable="false" data-token="#[App.tsx]">#App.tsx</span><br><div>第二行</div>';
+        fireEvent.input(el);
+        expect(onTextChange).toHaveBeenCalledWith("#[App.tsx]\n第二行");
 });
 
 test("bug 复现：chip 后同行文字被 Chrome 包进 <div> → 不应补换行", () => {
-    const onTextChange = mock();
-    render(
-        <ComposerTextarea
-            text=""
-            onTextChange={onTextChange}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    const el = screen.getByRole("textbox") as HTMLElement;
-    // Chrome contenteditable 行为：chip（inline span）后继续输入文字，
-    // 浏览器可能把后续文字包进 <div>。这和"用户按 Enter 换行"产生的 div 无法从结构区分，
-    // 但语义上 chip 后紧跟的 div 是"同行延续"而非"新行"——不应补 \n。
-    el.innerHTML =
-        '<span class="chip chip-skill" contenteditable="false" data-token="$[brainstorming]">⚡ brainstorming</span><div>帮我设计这个功能</div>';
-    fireEvent.input(el);
-    // 期望：chip 和文字在同一行，无 \n
-    expect(onTextChange).toHaveBeenCalledWith(
-        "$[brainstorming]帮我设计这个功能",
-    );
+        const onTextChange = mock();
+        render(
+                <ComposerTextarea
+                        text=""
+                        onTextChange={onTextChange}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        const el = screen.getByRole("textbox") as HTMLElement;
+        // Chrome contenteditable 行为：chip（inline span）后继续输入文字，
+        // 浏览器可能把后续文字包进 <div>。这和"用户按 Enter 换行"产生的 div 无法从结构区分，
+        // 但语义上 chip 后紧跟的 div 是"同行延续"而非"新行"——不应补 \n。
+        el.innerHTML =
+                '<span class="chip chip-skill" contenteditable="false" data-token="$[brainstorming]">⚡ brainstorming</span><div>帮我设计这个功能</div>';
+        fireEvent.input(el);
+        // 期望：chip 和文字在同一行，无 \n
+        expect(onTextChange).toHaveBeenCalledWith(
+                "$[brainstorming]帮我设计这个功能",
+        );
 });
 
 // ===== toHtml / testId props（自动化任务编辑器复用扩展）=====
 
 test("toHtml prop：自定义渲染生效，data-token 提取仍还原原文", () => {
-    const onTextChange = mock();
-    render(
-        <ComposerTextarea
-            text="推给 @x(token1)"
-            onTextChange={onTextChange}
-            onKeyDown={mock()}
-            onPaste={mock()}
-            toHtml={(t) =>
-                t.replace(
-                    "@x(token1)",
-                    '<span class="chip" contenteditable="false" data-token="@x(token1)">芯片</span>',
-                )
-            }
-            testId="custom-ta"
-        />,
-    );
-    expect(screen.getByTestId("custom-ta")).toBeTruthy();
-    expect(screen.getByText("芯片")).toBeTruthy();
-    // extractText 只认 data-token → 输入事件提取值还原为存储形态
-    const el = screen.getByTestId("custom-ta") as HTMLElement;
-    el.focus();
-    el.appendChild(document.createTextNode(" more"));
-    fireEvent.input(el);
-    expect(onTextChange).toHaveBeenCalledWith("推给 @x(token1) more");
+        const onTextChange = mock();
+        render(
+                <ComposerTextarea
+                        text="推给 @x(token1)"
+                        onTextChange={onTextChange}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                        toHtml={(t) =>
+                                t.replace(
+                                        "@x(token1)",
+                                        '<span class="chip" contenteditable="false" data-token="@x(token1)">芯片</span>',
+                                )
+                        }
+                        testId="custom-ta"
+                />,
+        );
+        expect(screen.getByTestId("custom-ta")).toBeTruthy();
+        expect(screen.getByText("芯片")).toBeTruthy();
+        // extractText 只认 data-token → 输入事件提取值还原为存储形态
+        const el = screen.getByTestId("custom-ta") as HTMLElement;
+        el.focus();
+        el.appendChild(document.createTextNode(" more"));
+        fireEvent.input(el);
+        expect(onTextChange).toHaveBeenCalledWith("推给 @x(token1) more");
 });
 
 test("不传 toHtml 时默认走聊天 textToHtml（$[技能] 渲染为 chip）", () => {
-    render(
-        <ComposerTextarea
-            text="用 $[日报]"
-            onTextChange={mock()}
-            onKeyDown={mock()}
-            onPaste={mock()}
-        />,
-    );
-    expect(document.querySelector(".chip-skill")).toBeTruthy();
+        render(
+                <ComposerTextarea
+                        text="用 $[日报]"
+                        onTextChange={mock()}
+                        onKeyDown={mock()}
+                        onPaste={mock()}
+                />,
+        );
+        expect(document.querySelector(".chip-skill")).toBeTruthy();
 });
 
 // ===== height / rootElRef props（聊天输入框手动调高）=====
 
 test("height prop 生效：固定高度 + maxHeight，不再设置 minHeight", () => {
-    render(
-        <ComposerTextarea
-            text=""
-            onTextChange={mock()}
-            height={200}
-        />,
-    );
-    const el = screen.getByRole("textbox");
-    expect(el.style.height).toBe("200px");
-    expect(el.style.maxHeight).toBe("200px");
-    expect(el.style.minHeight).toBe("");
+        render(<ComposerTextarea text="" onTextChange={mock()} height={200} />);
+        const el = screen.getByRole("textbox");
+        expect(el.style.height).toBe("200px");
+        expect(el.style.maxHeight).toBe("200px");
+        expect(el.style.minHeight).toBe("");
 });
 
 test("height 为 null/缺省：保持自然生长（minHeight 60 / maxHeight 300）", () => {
-    render(
-        <ComposerTextarea
-            text=""
-            onTextChange={mock()}
-        />,
-    );
-    const el = screen.getByRole("textbox");
-    expect(el.style.minHeight).toBe("60px");
-    expect(el.style.maxHeight).toBe("300px");
+        render(<ComposerTextarea text="" onTextChange={mock()} />);
+        const el = screen.getByRole("textbox");
+        expect(el.style.minHeight).toBe("60px");
+        expect(el.style.maxHeight).toBe("300px");
 });
 
 test("rootElRef 透传根元素", () => {
-    const rootElRef = { current: null as HTMLDivElement | null };
-    render(
-        <ComposerTextarea
-            text=""
-            onTextChange={mock()}
-            rootElRef={rootElRef}
-        />,
-    );
-    expect(rootElRef.current).toBe(
-        screen.getByRole("textbox") as HTMLDivElement,
-    );
+        const rootElRef = { current: null as HTMLDivElement | null };
+        render(
+                <ComposerTextarea
+                        text=""
+                        onTextChange={mock()}
+                        rootElRef={rootElRef}
+                />,
+        );
+        expect(rootElRef.current).toBe(
+                screen.getByRole("textbox") as HTMLDivElement,
+        );
+});
+
+test("复制含 chip 的内容：剪贴板 text/plain 写入 token 原文（而非显示文本）", () => {
+        render(
+                <ComposerTextarea
+                        text="看 $[日报生成] 这个"
+                        onTextChange={mock()}
+                />,
+        );
+        const box = screen.getByRole("textbox") as HTMLElement;
+        // 选中整块内容
+        const range = document.createRange();
+        range.selectNodeContents(box);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+
+        const setData = mock();
+        const clipboardData = { setData } as unknown as DataTransfer;
+        fireEvent.copy(box, { clipboardData });
+
+        // 剪贴板收到 token 原文（不是 chip 显示文本「⚡ 日报生成」）
+        expect(setData).toHaveBeenCalledWith(
+                "text/plain",
+                "看 $[日报生成] 这个",
+        );
+        expect(
+                setData.mock.calls.some((c: any[]) => c[0] === "text/html"),
+        ).toBe(true);
 });
