@@ -57,7 +57,7 @@ test("多个 URL 依次链接化", () => {
 
 test("查询参数 URL 完整保留（?key= 等不裁剪）", () => {
   const nodes = linkifyText(
-    "key=06f477e7dad44afb7f11c7a81cf422a91ab4e8152000bc4aa5e2403a5dfba998",
+    "key=some-query-param-value-not-a-secret",
   );
   // 无协议前缀，不链接化（非 URL）
   expect(nodes.length).toBe(1);
