@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### 重构
+- 发版存储从阿里云 OSS 迁移到 Cloudflare R2：publish-oss 脚本改 S3 兼容 SDK（@aws-sdk/client-s3 + lib-storage），更新 URL 与凭证键名（R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY）同步切换（scripts/publish-oss.ts、electron-builder.yml、updater.cjs、.env.example）
+
 ## 2026-08-20 — fix(UI): 侧边栏窄宽时顶部标题只显示「WA PI」隐藏 Agent
 
 - 调整：顶部标题「WA PI Agent」在侧边栏宽度 < 240px 时只显示「WA PI」、隐藏「Agent」（与回收站/系统设置 compact 同一阈值），避免换行/截断；宽时显示完整标题。
