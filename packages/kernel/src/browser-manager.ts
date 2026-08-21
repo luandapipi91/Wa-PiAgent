@@ -61,6 +61,7 @@ export class BrowserManager {
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.sweepIntervalMs = opts.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
     this.screenshotDir = opts.screenshotDir ?? join(WA_PI_DIR, "tmp", "browser-screenshots");
+    // SAFETY: Bun.WebView 与 WebViewLike 的方法签名同构；真实类型验证留给 browser_* 接入任务
     this.viewFactory = opts.viewFactory ?? ((o) => new Bun.WebView(o) as unknown as WebViewLike);
     mkdirSync(this.screenshotDir, { recursive: true });
     this.sweepTimer = setInterval(() => this.sweepIdle(), this.sweepIntervalMs);
