@@ -27,6 +27,7 @@ const {
 	sweepRegistry,
 } = require("./util/process-registry.cjs");
 const { attemptSelfHeal } = require("./util/startup-heal.cjs");
+const { switchPortAndRelaunch } = require("./util/port-switch.cjs");
 
 // 与 kernel 侧 WA_PI_DIR 一致（~/.pi/agent，env 可覆盖）：
 const WA_PI_DIR =
@@ -102,6 +103,21 @@ function resolveFixedPort() {
 	return 9778;
 }
 const FIXED_PORT = resolveFixedPort();
+
+// 自动换端口启动：自愈失败/清理失败时静默找下一个可用端口并 relaunch，不打扰用户。
+// 找不到可用端口返回 false（调用方决定提示文案）。依赖注入见 switchPortAndRelaunch。
+async function autoSwitchPortAndRelaunch() {
+	const { findAvailablePort } = require("./util/port.cjs");
+	return switchPortAndRelaunch(FIXED_PORT, {
+		findAvailablePort,
+		writeSwitchPort,
+		relaunch: (opts) => app.relaunch(opts),
+		exit: (code) => app.exit(code),
+		argv: process.argv.slice(1),
+		env: process.env,
+		log: (m) => log.info(m),
+	});
+}
 // 内核是否就绪（mainWindow 是否已加载真实页面）。未就绪时点托盘/Dock 应聚焦启动页，而非弹出空白主窗口。
 let kernelReady = false;
 
@@ -451,51 +467,33 @@ app.whenReady().then(async () => {
 		// 短暂等待端口真正释放
 		await new Promise((r) => setTimeout(r, 500));
 		// 清理后仍占用：幽灵句柄由无我方特征的进程持有（如 agent 帮用户起的 dev server），
-		// 自动清理无能为力——诚实提示，提供换端口启动/退出，不再 relaunch 进同一个死循环
+		// 自动清理无能为力——不再提示用户，静默自动换端口启动
 		if (await isPortInUse(FIXED_PORT)) {
-			log.error(`[port-kill] 端口 ${FIXED_PORT} 清理后仍被占用，放弃重启`);
-			setProgress(
-				-1,
-				`端口 ${FIXED_PORT} 仍被占用，自动清理失败。可换端口启动，或在任务管理器中结束残留进程后再试。`,
-			);
-			splashWindow?.webContents
-				?.executeJavaScript(
-					"window.__showActions&&window.__showActions({switchPort:true,quit:true})",
-				)
-				.catch(() => {});
+			log.error(`[port-kill] 端口 ${FIXED_PORT} 清理后仍被占用，自动换端口启动`);
+			const switched = await autoSwitchPortAndRelaunch();
+			if (!switched) {
+				log.error(`[port-switch] 未找到可用端口（从 ${FIXED_PORT + 1} 起）`);
+				setProgress(-1, "未找到可用端口，请检查网络或重启电脑后再试。");
+				splashWindow?.webContents
+					?.executeJavaScript(
+						"window.__showActions&&window.__showActions({quit:true})",
+					)
+					.catch(() => {});
+			}
 			return;
 		}
 		app.relaunch();
 		app.exit(0);
 	});
 
-	// 端口自愈失败后「换端口启动」：从下一个端口开始找可用端口，relaunch 带新端口
+	// 端口自愈失败后自动换端口启动（splash 不再展示按钮；保留 handler 供 preload/程序化调用）：
+	// 从下一个端口开始找可用端口，relaunch 带新端口
 	ipcMain.handle("app:switch-port-start", async () => {
-		const { findAvailablePort } = require("./util/port.cjs");
-		const { pickSwitchPort } = require("./util/port-switch.cjs");
-		const newPort = await pickSwitchPort(FIXED_PORT, {
-			findAvailablePort,
-		});
-		if (!newPort) {
+		const switched = await autoSwitchPortAndRelaunch();
+		if (!switched) {
 			log.error(`[port-switch] 找不到可用端口（从 ${FIXED_PORT + 1} 起）`);
 			setProgress(-1, "未找到可用端口，请检查网络或重启电脑后再试。");
-			return;
 		}
-		log.info(`[port-switch] 端口 ${FIXED_PORT} 被占用，换端口启动 → ${newPort}`);
-		// 持久化记住新端口：后续启动直接用新端口，不再反复冲突。
-		// 三重保险传端口：持久化配置文件 > 命令行参数 > env。
-		// Windows packaged 应用 app.relaunch 的 args/env 都可能丢失（Electron #33686），
-		// 配置文件是最可靠的跨平台传递方式。
-		writeSwitchPort(newPort);
-		// 命令行参数 + env 双保险
-		const cleanArgs = process.argv
-			.slice(1)
-			.filter((a) => !a.startsWith("--wa-pi-port="));
-		app.relaunch({
-			args: [...cleanArgs, `--wa-pi-port=${newPort}`],
-			env: { ...process.env, WA_PI_WS_PORT: String(newPort) },
-		});
-		app.exit(0);
 	});
 
 	// 启动页错误态「退出」按钮：直接退出应用（splash 无边框，这是错误态唯一主动退出途径）
@@ -585,22 +583,25 @@ app.whenReady().then(async () => {
 
 	// 2b) 固定端口：端口变化会导致前端 IndexedDB origin 改变（跨 origin 数据不可见），
 	// 因此固定 FIXED_PORT，不再自动后移。被占用时先静默自愈（最多 3 轮：杀占用+登记簿清扫），
-	// 自愈失败才弹错误页提供「换端口启动」+「退出」选项（80% 的占用自动清理就能好，无需用户介入）。
+	// 自愈失败也静默自动换端口启动（不打扰用户，自动找可用端口 relaunch）。
 	const actualPort = FIXED_PORT;
-	// 自愈失败统一出口：弹错误页 + 显示「换端口启动 / 退出」按钮。自愈内部异常（taskkill ENOENT、
-	// fs 异常等）同样走这里——若直接抛出，whenReady 的 promise 链断裂、splash 永久卡在
-	// "正在自动清理…"，变成死端（全包无 unhandledRejection 兜底，必须就地接住）。
-	const selfHealFailed = (err) => {
+	// 自愈失败统一出口：不再弹错误页提示用户，而是静默自动换端口启动。
+	// 自愈内部异常（taskkill ENOENT、fs 异常等）同样走这里——若直接抛出，whenReady 的
+	// promise 链断裂、splash 永久卡在"正在自动清理…"，变成死端（全包无 unhandledRejection
+	// 兜底，必须就地接住）。若换端口也找不到可用端口，才落回错误提示。
+	const selfHealFailed = async (err) => {
 		if (err) log.error(`端口 ${FIXED_PORT} 自动清理异常`, err);
-		setProgress(
-			-1,
-			`端口 ${FIXED_PORT} 被占用，自动清理失败。可换端口启动，或退出后检查占用进程。`,
-		);
-		splashWindow?.webContents
-			?.executeJavaScript(
-				"window.__showActions&&window.__showActions({switchPort:true,quit:true})",
-			)
-			.catch(() => {});
+		log.error(`端口 ${FIXED_PORT} 自愈失败，自动换端口启动`);
+		const switched = await autoSwitchPortAndRelaunch();
+		if (!switched) {
+			log.error(`[port-switch] 未找到可用端口（从 ${FIXED_PORT + 1} 起）`);
+			setProgress(-1, "未找到可用端口，请检查网络或重启电脑后再试。");
+			splashWindow?.webContents
+				?.executeJavaScript(
+					"window.__showActions&&window.__showActions({quit:true})",
+				)
+				.catch(() => {});
+		}
 	};
 	try {
 		if (await isPortInUse(FIXED_PORT)) {
@@ -616,16 +617,16 @@ app.whenReady().then(async () => {
 				log: (m) => log.info(m),
 			});
 			if (!healed.healed) {
-				log.error(`端口 ${FIXED_PORT} 自愈失败，等待用户在启动页点击重启`);
-				selfHealFailed();
+				log.error(`端口 ${FIXED_PORT} 自愈失败，自动换端口启动`);
+				await selfHealFailed();
 				return;
 			}
 			log.info(`端口 ${FIXED_PORT} 自动清理成功`);
 		}
 	} catch (e) {
 		// 自愈路径异常兜底（isPortInUse/killPortOccupants/sweepRegistry 裸调可能抛）：
-		// 转成可操作的错误页，不让 splash 卡死
-		selfHealFailed(e);
+		// 转成静默自动换端口，不让 splash 卡死
+		await selfHealFailed(e);
 		return;
 	}
 	log.info(`kernel 端口固定为 ${actualPort}`);
