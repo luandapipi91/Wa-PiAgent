@@ -550,10 +550,12 @@ export function App() {
 								animation: "spin 0.8s linear infinite",
 							}}
 						/>
-						{t("app.retrying", {
-							attempt: retryInfo.attempt,
-							max: retryInfo.maxAttempts,
-						})}
+						{retryInfo.attempt <= 2
+							? t("app.retryWaiting")
+							: t("app.retrying", {
+									attempt: retryInfo.attempt,
+									max: retryInfo.maxAttempts,
+								})}
 					</div>
 				)}
 				{netDegraded && !retryInfo && (
