@@ -350,6 +350,82 @@ test("粘贴多行富文本：纯文本保留换行，丢弃 HTML 结构", async
 	await waitFor(() => expect(setText).toHaveBeenCalledWith("第一行\n第二行"));
 });
 
+test("粘贴含 chip token 的富文本：setText 收到 token 原文（跨输入框复制后重渲染成 chip）", async () => {
+	const setText = mock();
+	renderComposer({ setText, text: "hello" });
+
+	const textbox = screen
+		.getByTestId("composer-input")
+		.querySelector('[role="textbox"]')!;
+	// 模拟从另一输入框复制：text/plain 是 token 原文，text/html 是纯文本 token
+	fireEvent.paste(textbox, {
+		clipboardData: {
+			files: [],
+			getData: (type: string) =>
+				type === "text/html"
+					? "$[using-git-worktrees] 导弹发射地方"
+					: "$[using-git-worktrees] 导弹发射地方",
+		},
+	});
+
+	// setText 收到 token 原文（而非 chip 显示文本），受控层会重渲染成 chip
+	await waitFor(() =>
+		expect(setText).toHaveBeenCalledWith(
+			expect.stringContaining("$[using-git-worktrees]"),
+		),
+	);
+});
+
+test("粘贴含 chip token 后 DOM 渲染出 chip（而非纯文本）", async () => {
+	// 用受控 state 驱动：setText 真实更新 → 重渲染出 chip
+	let currentText = "";
+	const setText = (v: string) => {
+		currentText = v;
+	};
+	const { rerender } = renderComposer({ text: "", setText });
+
+	const textbox = screen
+		.getByTestId("composer-input")
+		.querySelector('[role="textbox"]')!;
+	fireEvent.paste(textbox, {
+		clipboardData: {
+			files: [],
+			getData: (type: string) =>
+				type === "text/html"
+					? "$[using-git-worktrees] 导弹发射地方"
+					: "$[using-git-worktrees] 导弹发射地方",
+		},
+	});
+
+	// 模拟受控层收到 setText 后的重渲染
+	await waitFor(() => expect(currentText).toContain("$[using-git-worktrees]"));
+	rerender(
+		<ComposerInput
+			text={currentText}
+			setText={setText}
+			model="openai/gpt-4o"
+			setModel={mock()}
+			thinking="disabled"
+			setThinking={mock()}
+			attachments={[]}
+			setAttachments={mock() as any}
+			projectId="p1"
+			sessionId="s1"
+			onSend={mock()}
+			placeholder="输入..."
+		/>,
+	);
+
+	// 粘贴后输入框内应出现带 data-token 的 chip span（技能被重渲染成 chip）
+	await waitFor(() => {
+		expect(
+			screen
+				.getByTestId("composer-input")
+				.querySelector('[data-token="$[using-git-worktrees]"]'),
+		).toBeTruthy();
+	});
+});
+
 // === 长文本粘贴自动转附件（>30 行 → 文件上传）===
 
 test("粘贴超过 30 行文本：转为文件附件上传，不插入输入框", async () => {

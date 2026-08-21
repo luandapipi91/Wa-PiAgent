@@ -26,6 +26,7 @@ import {
 import {
 	registerAgentMeta,
 	registerContactMeta,
+	selectionToTokenText,
 } from "../../quick-invoke/tokens";
 import { imPushToken } from "../automation/prompt-tokens";
 import { ContactPickerDialog, type ImPushTarget } from "./ContactPickerDialog";
@@ -524,27 +525,15 @@ export function ComposerInput({
 		e.target.value = "";
 	};
 
-	/** contenteditable 光标处插入纯文本（粘贴净化用），并触发 input 让受控层重新提取 */
-	function insertPlainText(el: HTMLElement, text: string): void {
+	/** 计算光标在 text 中的 token 文本偏移：光标前 DOM → token 文本长度 */
+	function caretTokenOffset(el: HTMLElement): number {
 		const sel = window.getSelection();
-		if (
-			sel &&
-			sel.rangeCount > 0 &&
-			sel.anchorNode &&
-			el.contains(sel.anchorNode)
-		) {
-			const range = sel.getRangeAt(0);
-			range.deleteContents();
-			const node = document.createTextNode(text);
-			range.insertNode(node);
-			range.setStartAfter(node);
-			range.collapse(true);
-			sel.removeAllRanges();
-			sel.addRange(range);
-		} else {
-			el.insertAdjacentText("beforeend", text);
-		}
-		el.dispatchEvent(new InputEvent("input", { bubbles: true }));
+		if (!sel || sel.rangeCount === 0 || !sel.anchorNode || !el.contains(sel.anchorNode))
+			return -1;
+		const range = document.createRange();
+		range.setStart(el, 0);
+		range.setEnd(sel.anchorNode, sel.anchorOffset);
+		return selectionToTokenText(range).length;
 	}
 
 	const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
@@ -568,11 +557,18 @@ export function ComposerInput({
 			void uploadFiles([file]);
 			return;
 		}
-		// 富文本粘贴净化：contenteditable 默认会把剪贴板 HTML（带网页样式）插入 DOM，
-		// 这里拦截只插入纯文本（丢弃样式/标签），再触发受控层重新提取。
+		// 富文本粘贴净化：contenteditable 默认会把剪贴板 HTML（带网页样式）插入 DOM。
+		// 这里拦截，把纯文本 token 合入 text state（而非直接插 DOM）——
+		// 受控层检测 text 变化后用 textToHtml 重渲染，粘贴的 $[技能] / @[智能体] 等会重新 chip 化。
 		if (getData("text/html")) {
 			e.preventDefault();
-			insertPlainText(e.currentTarget, plainText);
+			const el = e.currentTarget;
+			const offset = caretTokenOffset(el);
+			const newText =
+				offset >= 0
+					? text.slice(0, offset) + plainText + text.slice(offset)
+					: text + plainText;
+			setText(newText);
 		}
 	};
 

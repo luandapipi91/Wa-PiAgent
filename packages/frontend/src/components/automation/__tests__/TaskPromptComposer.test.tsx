@@ -216,3 +216,22 @@ describe("TaskPromptComposer", () => {
 		expect(screen.queryByTestId("skill-picker")).toBeNull();
 	});
 });
+
+test("粘贴含 chip token 的富文本：onChange 收到 token 原文（跨输入框复制后重渲染成 chip）", () => {
+    const onChange = mock();
+    render(<TaskPromptComposer value="已有内容" onChange={onChange} />);
+    const textbox = screen.getByTestId("task-prompt-input") as HTMLElement;
+    fireEvent.paste(textbox, {
+        clipboardData: {
+            files: [],
+            getData: (type: string) =>
+                type === "text/html"
+                    ? "$[using-git-worktrees] 导弹发射地方"
+                    : "$[using-git-worktrees] 导弹发射地方",
+        },
+    });
+    // onChange 收到合入 token 的完整文本（受控层会重渲染成 chip）
+    expect(onChange).toHaveBeenCalledWith(
+        "已有内容$[using-git-worktrees] 导弹发射地方",
+    );
+});
