@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+### 新增
+- 端口被占用时静默自动换端口启动，不再弹提示
+  - 调整：kernel 固定端口（默认 9778）被占用、自动清理（3 轮）仍失败时，不再在启动页弹「端口被占用」错误提示 + 「换端口启动」按钮，改为静默自动查找下一个可用端口（findAvailablePort 从被占端口+1 线性探测）并 relaunch 启动；找不到任何可用端口时才落回错误提示。
+  - 同样处理：清理占用进程后仍被占用（幽灵句柄）的分支，不再提示直接换端口。
+  - 重构：抽 `switchPortAndRelaunch`（port-switch.cjs，依赖注入可测）封装「找端口→写 .switch-port→relaunch→exit」；main.cjs 三处（自愈失败/清理后仍占/程序化 handler）复用同一逻辑。
+  - 影响范围：`packages/desktop/src/util/port-switch.cjs`、`packages/desktop/src/main.cjs`；测试：port-switch 新增 switchPortAndRelaunch 3 个用例。
+
 ### 重构
 - 发版存储从阿里云 OSS 迁移到 Cloudflare R2：publish-oss 脚本改 S3 兼容 SDK（@aws-sdk/client-s3 + lib-storage），更新 URL 与凭证键名（R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY）同步切换（scripts/publish-oss.ts、electron-builder.yml、updater.cjs、.env.example）
 
