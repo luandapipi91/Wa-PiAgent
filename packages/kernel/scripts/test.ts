@@ -36,11 +36,21 @@ const PRELOAD = "--preload=./tests/setup.ts";
 // 1. 全量测试（排除启动完整 kernel 的集成测试）
 // 注意：--path-ignore-patterns 逗号分隔不生效（会把整个字符串当单个 glob 匹配），
 // 必须每个文件单独传一次参数（实测多次传参才真正排除）。
+// --parallel=4 + --max-concurrency=8：限制 worker 与并发，避免全量测试 CPU 瞬间满载
+// 饿死同机运行的正式桌面 kernel（曾导致聊天无响应）。
 const ignoreArgs = INTEGRATION_TESTS.flatMap((f) => [
 	"--path-ignore-patterns",
 	f,
 ]);
-ok = run(["test", "--isolate", PRELOAD, ...ignoreArgs]) && ok;
+ok =
+	run([
+		"test",
+		"--isolate",
+		"--parallel=4",
+		"--max-concurrency=8",
+		PRELOAD,
+		...ignoreArgs,
+	]) && ok;
 
 // 2. 独立进程单独补跑集成测试（与其他测试隔离，验证 kernel 启动链路）
 for (const file of INTEGRATION_TESTS) {

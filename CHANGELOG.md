@@ -2,6 +2,13 @@
 
 ### 修复
 
+- kernel 全量测试不再卡死正在运行的正式桌面应用（聊天无响应）
+  - 根因：① kernel 全量测试（bun ./scripts/test.ts）与正式应用共享 `~/.pi/agent`（@wa-pi/shared 的 WA_PI_DIR 默认值），15+ 个测试并发读写同一目录（tmp/sysprompts、settings.json、sessions 等）→ 文件竞争；② bun test 默认 --parallel=CPU 核数 + 每文件内 20 并发 + 各测试 spawn 子进程 → CPU 瞬间满载 → 正式 kernel 事件循环被饿死 → 无响应（真实发生，被迫重启应用）。
+  - 调整（tests/setup.ts）：preload 强制把 WA_PI_DIR / PI_CODING_AGENT_DIR 指向 mkdtemp 临时目录（可用 WA_PI_TEST_DIR 固定），测试读写的都是隔离数据，spawn 的子进程继承隔离 env；预创建 sessions/tmp/sysprompts 等标准目录。
+  - 调整（scripts/test.ts）：全量测试加 `--parallel=4 --max-concurrency=8` 限制 worker 与并发，避免 CPU 满载。
+  - 调整（channel-manager.test.ts）：44 处固定 50ms 等待在负载下不够（flaky），放宽到 500ms；「/new 指令」「智能体删除兜底」改为条件轮询。
+  - 调整（ws-extension-skill-refresh.test.ts）：SSE 等待改 pump 收集模式（消除 Promise.race 悬空读）+ 操作幂等超时重试 + 单测超时 5s→15s（SSE 等待 10s 大于 bun 默认 5s）；历史 flaky 根治。
+  - 影响范围：packages/kernel/tests/setup.ts、scripts/test.ts、channel-manager.test.ts、ws-extension-skill-refresh.test.ts；验证：受限全量 1254 tests / 110 files / 176s 全部通过，正式 ~/.pi/agent 零污染、9778 正常运行。
 - dev 启动：vite 强制用 bun runtime（`bun --bun`）。vite bin 脚本 shebang 为 `#!/usr/bin/env node`，默认解析到系统 node（本机 v14 过旧，不支持 vite 8 的 `??=` 等语法导致启动报 SyntaxError）；`--bun` 把 node 符号链接指向 bun，vite 在 bun runtime 下正常启动，与 Node ≥20 要求解耦（scripts/dev.ts spawnFrontend）。
 
 ### 新增
