@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "./ui/Icon";
 import { useBrowserStore } from "../store/browser";
 import { useSessionStore } from "../store/session";
@@ -9,6 +9,7 @@ import { copyToClipboard } from "../util/clipboard";
 import { useToastStore } from "../store/toast";
 import { useProjectsStore } from "../store/projects";
 import { useTranslation } from "../i18n/useTranslation";
+import { parseInspectMessage, handleElementPicked } from "../element-pick";
 
 type Current =
 	| { kind: "local"; path: string }
@@ -98,6 +99,28 @@ export function BrowserPanel() {
 			current.kind === "local" ? current.path : current.url,
 		).then(() => addToast(t("browser.copied"), "success"));
 	};
+
+	const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+	// inspect 消息监听：仅本地预览；source 必须来自预览 iframe（独特源 origin 为 "null"，
+	// 不能按 origin 校验），消息体经 parseInspectMessage 白名单校验
+	useEffect(() => {
+		if (!loadedPath) return;
+		const path = loadedPath;
+		const onMessage = (e: MessageEvent) => {
+			if (e.source !== iframeRef.current?.contentWindow) return;
+			const picked = parseInspectMessage(e.data);
+			if (!picked) return;
+			const sessionId =
+				useBrowserStore.getState().sessionId ??
+				useProjectsStore.getState().currentSessionId;
+			void handleElementPicked(path, picked, sessionId).then((r) => {
+				if (r === "no-session") addToast(t("browser.noSession"), "error");
+			});
+		};
+		window.addEventListener("message", onMessage);
+		return () => window.removeEventListener("message", onMessage);
+	}, [loadedPath, addToast, t]);
 
 	const canCodeShare = loadedPath !== null;
 
@@ -241,9 +264,9 @@ export function BrowserPanel() {
 			<div className="flex-1 overflow-hidden">
 				{current ? (
 					current.kind === "local" ? (
-						<HtmlPreview path={current.path} refreshKey={refreshKey} />
+						<HtmlPreview ref={iframeRef} path={current.path} refreshKey={refreshKey} />
 					) : (
-						<HtmlPreview externalUrl={current.url} refreshKey={refreshKey} />
+						<HtmlPreview ref={iframeRef} externalUrl={current.url} refreshKey={refreshKey} />
 					)
 				) : (
 					<div
