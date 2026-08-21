@@ -691,7 +691,7 @@ app.whenReady().then(async () => {
 					encodeURIComponent(
 						`<body style='font-family:system-ui;padding:48px;color:#a00'>
 <h2>内核依赖安装失败</h2>
-<p style='color:#444'>已自动重试多次。请检查网络连接后点击重试；若反复失败，可能需要安装 Visual Studio C++ 生成工具（registry-js 原生模块编译依赖）。</p>
+<p style='color:#444'>已自动重试多次。请检查网络连接后点击重试；若反复失败，可能是网络无法访问依赖源（npmmirror / npmjs），请切换网络后重试。</p>
 <pre style='color:#888;font-size:12px;white-space:pre-wrap'>${detail}</pre>
 <div style='margin-top:24px'>
 <button id='retry' style='font-size:16px;padding:8px 24px;margin-right:12px'>重试</button>

@@ -1,11 +1,16 @@
 // runtime-deps.cjs 的安装验证与重试逻辑测试。
-// verifyInstall：产物校验（顶层依赖 + registry-js 原生 .node）
+// verifyInstall：产物校验（顶层依赖 package.json 必须存在）
 // installWithRetry：主源/回退源 2 轮重试、失败清理重装、全败抛错
+// buildInstallArgs：必须带 --ignore-scripts（消除编译环节，保证安装 100% 成功）
 import { describe, test, expect, afterEach } from "bun:test";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { verifyInstall, installWithRetry } from "../runtime-deps.cjs";
+import {
+	verifyInstall,
+	installWithRetry,
+	buildInstallArgs,
+} from "../runtime-deps.cjs";
 
 const TMP = join(tmpdir(), `test-runtime-deps-${Date.now()}`);
 
@@ -18,10 +23,8 @@ const SEED_MANIFEST = {
 	},
 };
 
-// 造一个「安装完成」的 runtime 目录：顶层依赖 + registry-js 原生产物
-async function makeInstalledRuntime(
-	overrides: { noRegistryNode?: boolean } = {},
-) {
+// 造一个「安装完成」的 runtime 目录：顶层依赖 package.json 存在
+async function makeInstalledRuntime() {
 	const dir = join(TMP, "runtime");
 	await mkdir(dir, { recursive: true });
 	await writeFile(
@@ -47,22 +50,6 @@ async function makeInstalledRuntime(
 		join(dir, "node_modules", "registry-js", "package.json"),
 		'{"name":"registry-js","version":"1.16.1"}',
 	);
-	if (!overrides.noRegistryNode) {
-		await mkdir(join(dir, "node_modules", "registry-js", "build", "Release"), {
-			recursive: true,
-		});
-		await writeFile(
-			join(
-				dir,
-				"node_modules",
-				"registry-js",
-				"build",
-				"Release",
-				"registry.node",
-			),
-			"binary-placeholder",
-		);
-	}
 	return dir;
 }
 
@@ -73,14 +60,15 @@ afterEach(async () => {
 });
 
 describe("verifyInstall", () => {
-	test("完整安装（含 registry-js .node 产物）→ 通过", async () => {
+	test("完整安装（顶层依赖齐全）→ 通过", async () => {
 		const dir = await makeInstalledRuntime();
 		await expect(verifyInstall(dir, silentLog)).resolves.toBeUndefined();
 	});
 
-	test("缺少 registry-js 原生产物（postinstall 失败）→ 抛错", async () => {
-		const dir = await makeInstalledRuntime({ noRegistryNode: true });
-		await expect(verifyInstall(dir, silentLog)).rejects.toThrow(/registry-js/);
+	test("registry-js 无 .node 原生产物（--ignore-scripts 安装）→ 仍通过", async () => {
+		// Windows 读系统代理已改为 PowerShell 兜底（settings-store.ts），不再依赖 registry-js 编译产物
+		const dir = await makeInstalledRuntime();
+		await expect(verifyInstall(dir, silentLog)).resolves.toBeUndefined();
 	});
 
 	test("缺少顶层依赖 → 抛错并指出包名", async () => {
@@ -90,6 +78,16 @@ describe("verifyInstall", () => {
 			force: true,
 		});
 		await expect(verifyInstall(dir, silentLog)).rejects.toThrow(/registry-js/);
+	});
+});
+
+describe("buildInstallArgs", () => {
+	test("必须带 --ignore-scripts（消除编译环节，安装 100% 成功的关键）", () => {
+		const args = buildInstallArgs("/tmp/runtime");
+		expect(args).toContain("--ignore-scripts");
+		expect(args).toContain("--production");
+		expect(args).toContain("--cwd");
+		expect(args).toContain("/tmp/runtime");
 	});
 });
 
