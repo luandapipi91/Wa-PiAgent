@@ -178,6 +178,21 @@ export function BrowserPanel() {
 				<button
 					type="button"
 					className="fv-btn fv-btn--icon"
+					title={t("browser.modeFloat")}
+					data-testid="browser-mode-float"
+					aria-pressed={mode === "float"}
+					onClick={() => setMode("float")}
+					style={mode === "float" ? { color: "var(--brand)" } : undefined}
+				>
+					<Icon
+						name="float"
+						size="1em"
+						className="text-[calc(16px*var(--font-scale))]"
+					/>
+				</button>
+				<button
+					type="button"
+					className="fv-btn fv-btn--icon"
 					title={t("browser.code")}
 					data-testid="browser-code"
 					disabled={!canCodeShare}

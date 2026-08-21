@@ -203,6 +203,8 @@ const en = {
 		share: "Share",
 		modeSplit: "Split with chat",
 		modeFull: "Full preview",
+		modeFloat: "Float window",
+		dock: "Dock to split",
 	},
 	blocks: {
 		turnSummary: {

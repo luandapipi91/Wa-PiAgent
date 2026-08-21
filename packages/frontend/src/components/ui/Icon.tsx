@@ -329,6 +329,12 @@ const ICONS = {
 			<circle cx="16" cy="12.5" r="0.6" {...F} />
 		</>
 	),
+	float: (
+		<>
+			<rect x="3.5" y="4.5" width="12" height="9" rx="2" />
+			<rect x="8.5" y="10" width="12" height="9" rx="2" />
+		</>
+	),
 	command: (
 		<path d="M9 9h6v6H9zM9 9H7.5A2.5 2.5 0 1 1 10 6.5V9zM15 9V6.5A2.5 2.5 0 1 1 16.5 9H15zM9 15H7.5A2.5 2.5 0 1 0 10 17.5V15zM15 15v2.5a2.5 2.5 0 1 0 2.5-2.5H15z" />
 	),
