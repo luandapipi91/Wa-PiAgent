@@ -401,7 +401,7 @@ app.whenReady().then(async () => {
 	setProgress(10, "正在初始化…");
 	createWindow();
 
-	// 自动更新：系统设置 → 关于（阿里云 OSS + electron-updater）
+	// 自动更新：系统设置 → 关于（Cloudflare R2 + electron-updater）
 	// WA_PI_UPDATER_FEED_URL 仅供 E2E/测试指向本地 mock，生产默认走 OSS 公开读
 	const { setupUpdater } = require("./updater/updater.cjs");
 	setupUpdater({
