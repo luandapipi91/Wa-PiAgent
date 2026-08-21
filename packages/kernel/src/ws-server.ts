@@ -65,6 +65,7 @@ import {
 } from "./recording-store";
 import { SseBus } from "./sse-bus";
 import { locateElement } from "./preview-locate";
+import { injectInspectScript } from "./preview-inspect";
 import { HttpRouter } from "./http-router";
 import { registerProjectSessionRoutes } from "./routes/projects-sessions";
 import { registerChatRoutes } from "./routes/chat";
@@ -884,6 +885,20 @@ export class WSServer {
 						endLine: loc?.endLine ?? null,
 					});
 				}
+				if (url.pathname === "/preview-inspect.js") {
+					if (req.method !== "GET")
+						return new Response("Method Not Allowed", { status: 405 });
+					// inspect 脚本静态资源：注入本地 html 预览，提供元素选中能力
+					return new Response(
+						Bun.file(new URL("./assets/preview-inspect.js", import.meta.url)),
+						{
+							headers: {
+								"content-type": "text/javascript; charset=utf-8",
+								"cache-control": "no-store",
+							},
+						},
+					);
+				}
 				if (url.pathname.startsWith("/preview/")) {
 					const { projects } = await this.opts.projectStore.load();
 					const r = resolvePreviewPath(url.pathname, projects);
@@ -897,9 +912,19 @@ export class WSServer {
 					}
 					const file = Bun.file(r.path);
 					if (file.size > 0) {
+						const mime = getMimeType(r.path);
+						// 本地 html 预览注入 inspect 脚本（元素选中）；其余资源原样直出
+						if (mime.startsWith("text/html")) {
+							return new Response(injectInspectScript(await file.text()), {
+								headers: {
+									"content-type": "text/html; charset=utf-8",
+									"cache-control": "no-store",
+								},
+							});
+						}
 						return new Response(file, {
 							headers: {
-								"content-type": getMimeType(r.path),
+								"content-type": mime,
 								"cache-control": "no-store",
 							},
 						});
