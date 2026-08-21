@@ -127,6 +127,13 @@
 
 记录所有业务和代码版本修改。新条目始终添加在顶部（时间倒序）。
 
+## 2026-08-19 — feat(输入框): 跨会话复制保留 chip 语义（技能/@智能体/联系人/命令 token）
+
+- 背景：contenteditable 输入框（聊天 ComposerTextarea / 自动化 TaskPromptComposer）中插入技能 $[名]、@智能体 @[名]、IM 联系人 @im-push-to(...)、命令 /[名] chip 后，复制粘贴到别的输入框（跨会话）时渲染和作用失效——浏览器默认复制 chip 的显示文本（如「⚡ 日报生成」），token 标记只存在于 text/html 的 data-token 里，聊天粘贴端丢弃 HTML → 语义丢失。
+- 修复：复制端拦截（ComposerTextarea onCopy）——新增 `selectionToTokenText(range)` 纯函数（tokens.ts），把选中区域里的 chip 还原为 token 原文写入剪贴板 text/plain + text/html；粘贴端无需改（token 文本进来后 textToHtml/toPromptHtml 自动重渲染成 chip）。兼容 user-select:all 原子选区（点击 chip 全选复制也输出完整 token）。
+- 影响范围：`packages/frontend/src/quick-invoke/tokens.ts`（新增 selectionToTokenText）、`components/ui/ComposerTextarea.tsx`（onCopy 拦截）；测试新增「selectionToTokenText 单/多 chip 原子选区」「复制写入 token 剪贴板」用例。
+
+
 ## 2026-08-19 — fix(会话): abort 无响应兜底——超时强杀 pi 进程（「停不下聊天」修复）
 
 - 背景：agent 等挂起的 LLM 响应时 pi agent loop 卡死，abort RPC 无人应答，kernel 永远等 `client.abort()`，用户点停止无效只能重启 app（desktop.log 实测：两次 abort 只有进场日志、无 abort DONE）。

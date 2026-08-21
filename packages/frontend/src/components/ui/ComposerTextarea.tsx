@@ -1,5 +1,9 @@
 import { useRef, useEffect, useCallback } from "react";
-import { textToHtml, ensureChipStyles } from "../../quick-invoke/tokens";
+import {
+    textToHtml,
+    ensureChipStyles,
+    selectionToTokenText,
+} from "../../quick-invoke/tokens";
 
 interface Props {
     text: string;
@@ -131,6 +135,26 @@ export function ComposerTextarea({
         onTextChange(extractText(el));
     }, [onTextChange]);
 
+    // 复制语义保留：选中内容里的 chip 转回 token 原文写入剪贴板（text/plain + text/html），
+    // 跨输入框/跨会话粘贴后 token 语义不丢（粘贴端 textToHtml/toPromptHtml 自动重渲染成 chip）
+    const handleCopy = useCallback(
+        (e: React.ClipboardEvent<HTMLDivElement>) => {
+            const sel = window.getSelection();
+            if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+            const range = sel.getRangeAt(0);
+            // 选区完全在本输入框外（如复制其他元素）时不拦截
+            const el = elRef.current;
+            if (!el || !el.contains(range.commonAncestorContainer)) return;
+            const tokenText = selectionToTokenText(range);
+            if (!tokenText) return;
+            e.preventDefault();
+            e.clipboardData.setData("text/plain", tokenText);
+            // text/html 也写纯文本（token 原文）：粘贴端即使走默认 HTML 路径也不会带入垃圾包装
+            e.clipboardData.setData("text/html", tokenText);
+        },
+        [],
+    );
+
     return (
         <div
             ref={(el) => {
@@ -143,6 +167,7 @@ export function ComposerTextarea({
             onInput={handleInput}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
+            onCopy={handleCopy}
             data-testid={testId}
             data-placeholder={placeholder}
             className={`w-full bg-transparent text-primary outline-none resize-none text-sm px-4 py-4 placeholder:text-tertiary overflow-y-auto ${className ?? ""}`}
