@@ -40,6 +40,9 @@ async function step0TestGate(noTest: boolean) {
   // macOS：用 iconutil 预生成标准 .icns（避免 electron-builder 内置转换产生 JPEG-2000 花屏图标）
   if (target === "mac") run("bash", [join(import.meta.dir, "generate-icons.sh")]);
   console.log(`[build] 步骤2: electron-builder 出 ${target}`);
-  run("npx", ["electron-builder", `--${target}`]);
+  // --bun：electron-builder 依赖 stream/promises（Node 15+），系统 node v14 没有；
+  // 强制 bun runtime 执行（与前端 vite --bun 同理）。env 镜像变量已在上方 process.env 设置，
+  // bun 子进程继承，electron-builder 仍能走 npmmirror 镜像。
+  run("bun", ["--bun", "x", "electron-builder", `--${target}`]);
   console.log("[build] ✅ 完成 → packages/desktop/release/");
 })();
