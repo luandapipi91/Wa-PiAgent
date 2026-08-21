@@ -3,7 +3,7 @@
  * 定位元素在源文件中的起止行号。不执行页面：JS 动态生成的元素定位不到，返回 null。
  * 段生成规则与前端 inspect 脚本 buildSelector 严格一致：
  * - 有 id → `tag#id`；否则 → `tag:nth-of-type(n)`（n 为同标签兄弟序号，从 1 起）
- * - 根元素（无父级，即 <html>）与 <body> → 裸 tag（body 无需 nth 消歧）
+ * - 根元素（无父级，即 <html>）→ 裸 tag（body 有父元素，不特判，用 nth 形式）
  */
 
 const VOID_TAGS = new Set([
@@ -92,11 +92,7 @@ export function locateElement(
 		const nth = (parentCounts.get(tag) ?? 0) + 1;
 		parentCounts.set(tag, nth);
 		const seg =
-			stack.length === 0 || tag === "body"
-				? tag
-				: id
-					? `${tag}#${id}`
-					: `${tag}:nth-of-type(${nth})`;
+			stack.length === 0 ? tag : id ? `${tag}#${id}` : `${tag}:nth-of-type(${nth})`;
 		const parentPath = stack.length > 0 ? stack[stack.length - 1].rec.path : [];
 		const rec: ElRecord = { path: [...parentPath, seg], startLine: line, endLine: line };
 		records.push(rec);
