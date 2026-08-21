@@ -284,7 +284,9 @@ export async function buildSidecar(
 	if (target !== "win") run("chmod", ["+x", join(kernelDir, finalBin)]);
 
 	// 6. web（前端 dist）
-	run("bun", ["run", "--filter", "@wa-pi/frontend", "build"]);
+	// --bun：vite bin shebang 为 #!/usr/bin/env node，系统 node v14 过旧不支持
+	// vite 8 的 ??= 语法（SyntaxError），强制用 bun runtime 执行（与 dev.ts 一致）。
+	run("bun", ["--bun", "run", "--filter", "@wa-pi/frontend", "build"]);
 	await cp(join(ROOT, "packages", "frontend", "dist"), webDir, {
 		recursive: true,
 	});
