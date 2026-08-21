@@ -4,12 +4,13 @@ artifactName: "WaPi-Setup-${version}.${ext}"
 npmRebuild: false
 afterPack: scripts/after-pack.cjs
 afterAllArtifactBuild: scripts/after-all-artifact-build.cjs
-# 自动更新源：Cloudflare R2（r2.dev 公开读）。打包时据此生成 latest.yml（含 version/sha512/path）。
+# 自动更新源：Cloudflare R2 自定义域名（oss.wapiagent.top → R2 bucket 公开读）。
+# 打包时据此生成 latest.yml（含 version/sha512/path）。
 # releaseNotes 由 publish-oss.ts 上传前从 version-history.json 读取注入 latest.yml
 # （electron-builder 26 不支持 releaseNotesFile）。
 publish:
   provider: generic
-  url: https://pub-e95b90586cd84a6390a4422c5e756456.r2.dev/releases/
+  url: https://oss.wapiagent.top/releases/
 directories:
   output: release
 files:

@@ -153,8 +153,7 @@ function setupUpdater({
 	// setFeedURL 是官方注入路径（内部自动构造 GenericProvider + clientPromise）。
 	updater.setFeedURL({
 		provider: "generic",
-		url:
-			config.feedUrl || "https://pub-e95b90586cd84a6390a4422c5e756456.r2.dev/releases/",
+		url: config.feedUrl || "https://oss.wapiagent.top/releases/",
 	});
 
 	// 注册事件监听：把 electron-updater 原生事件翻译成前端 phase 载荷并广播
