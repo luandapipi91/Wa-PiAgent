@@ -6,7 +6,13 @@
 //   releases/WaPi-Setup-<version>.exe.blockmap
 // releaseNotes：electron-builder 26 不支持 releaseNotesFile，故这里上传前把
 // packages/frontend/src/data/version-history.json 第一条内容注入 latest.yml 的 releaseNotes 字段。
-import { readdirSync, readFileSync, statSync, existsSync, createReadStream } from "node:fs";
+import {
+	readdirSync,
+	readFileSync,
+	statSync,
+	existsSync,
+	createReadStream,
+} from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -18,7 +24,8 @@ import {
 	AbortMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
 
-const ENDPOINT = "https://8aa0e20f654f0fe3f8ac5f2d6be9da2c.r2.cloudflarestorage.com";
+const ENDPOINT =
+	"https://8aa0e20f654f0fe3f8ac5f2d6be9da2c.r2.cloudflarestorage.com";
 const REGION = "auto"; // R2 固定
 const BUCKET = "wapioss";
 const PREFIX = "releases";
@@ -67,7 +74,10 @@ function formatReleaseNotes(entry: {
 }
 
 /** 从 version-history.json 提取最新版本内容注入 latest.yml 的 releaseNotes 字段 */
-export function injectReleaseNotes(ymlContent: string, historyFile: string): string {
+export function injectReleaseNotes(
+	ymlContent: string,
+	historyFile: string,
+): string {
 	let yml = ymlContent;
 	if (!existsSync(historyFile)) {
 		console.warn(`⚠ 未找到 ${historyFile}，latest.yml 不注入 releaseNotes`);
@@ -89,7 +99,10 @@ export function injectReleaseNotes(ymlContent: string, historyFile: string): str
 		.map((l) => `  ${l}`)
 		.join("\n")}\n`;
 	if (/^releaseNotes:/m.test(yml)) {
-		yml = yml.replace(/^releaseNotes:[\s\S]*?(?=\n\S|\n(?![\s\S]))/m, block.trimEnd());
+		yml = yml.replace(
+			/^releaseNotes:[\s\S]*?(?=\n\S|\n(?![\s\S]))/m,
+			block.trimEnd(),
+		);
 	} else {
 		yml = yml.trimEnd() + "\n" + block;
 	}
@@ -136,7 +149,8 @@ async function uploadLarge(
 					etag = res.ETag;
 					break;
 				} catch {
-					if (attempt === 2) throw new Error(`part ${i + 1} 上传失败（已重试 3 次）`);
+					if (attempt === 2)
+						throw new Error(`part ${i + 1} 上传失败（已重试 3 次）`);
 					await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
 				}
 			}
@@ -207,7 +221,9 @@ if (import.meta.main) {
 	// 无 AK/SK：打印手动上传指引
 	if (!ak || !sk) {
 		const artifacts = listArtifacts(releaseDir, version);
-		console.log("未提供 R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY，以下产物需要手动上传到 Cloudflare R2：");
+		console.log(
+			"未提供 R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY，以下产物需要手动上传到 Cloudflare R2：",
+		);
 		console.log(`  Bucket: ${BUCKET}（endpoint ${ENDPOINT}，公开读）`);
 		for (const a of artifacts) console.log(`  - ${a.path} → ${a.key}`);
 		console.log(
@@ -270,7 +286,7 @@ if (import.meta.main) {
 		}
 
 		console.log(
-			`\n✅ 发布完成: https://pub-e95b90586cd84a6390a4422c5e756456.r2.dev/${PREFIX}/latest.yml`,
+			`\n✅ 发布完成: https://oss.wapiagent.top/${PREFIX}/latest.yml`,
 		);
 	}
 
