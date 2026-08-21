@@ -19,6 +19,12 @@
 ### 重构
 
 - 发版存储从阿里云 OSS 迁移到 Cloudflare R2：publish-oss 脚本改 S3 兼容 SDK（@aws-sdk/client-s3 + lib-storage），更新 URL 与凭证键名（R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY）同步切换（scripts/publish-oss.ts、electron-builder.yml、updater.cjs、.env.example）
+- 运行时升级 bun 1.4.0 并移除旧版本（1.3.x）bug 兼容：
+  - 发版 sidecar 打包固定下载 bun-v1.4.0（build-kernel-sidecar.ts npmmirror 版本）；darwin 资产名 arm64 → aarch64（bun 资产命名，写 arm64 会 404 回退 host bun 导致版本不可控）；README 前置要求 ≥1.4、@types/bun ^1.4.0。
+  - 反转 Bun.cron 时区换算（scheduler.ts）：bun 1.4 起 Bun.cron 按系统本地时区解析 cron（旧版 1.3.x 固定 UTC，之前的 localToUtc 换算在 1.4 会触发错误时点），改为直接以本地时刻生成 cron；custom 直通语义改为本地时刻。
+  - 移除 bun#25633 autoSelectFamily 竞态白名单（crash-logger，1.3.15+ 修复）；移除 fetch 连接池同 host 多 server 错误复用 workaround（tests/setup.ts fetch 包装 + ws-extension-skill-refresh connection: close，1.4 已修复）。
+  - 保留：fetch timeout:false（bun 1.4 尊重 timeout 参数但默认 300s 硬超时仍在）、process.env 代理变量特殊 getter/setter（1.4 仍 delete 不掉）、publish-oss 手动 multipart（@aws-sdk lib-storage 未确认修复）。
+  - 影响范围：packages/desktop/scripts/build-kernel-sidecar.ts、packages/kernel/src/scheduler.ts、crash-logger.ts、wa-pi-bridge.extension.ts、tests/setup.ts、ws-extension-skill-refresh.test.ts、scheduler.test.ts、crash-handlers.test.ts、README*、package.json；测试：scheduler 33 pass（bun 1.4 实测）。
 
 ## 2026-08-20 — fix(UI): 侧边栏窄宽时顶部标题只显示「WA PI」隐藏 Agent
 

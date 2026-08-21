@@ -30,7 +30,7 @@ function run(args: string[]): boolean {
 
 let ok = true;
 
-// 全局 preload：包装 fetch 规避 Bun 连接池同 host 多 server 错误复用（见 tests/setup.ts）
+// 全局 preload：清除宿主中继代理 env，让测试直连（见 tests/setup.ts）
 const PRELOAD = "--preload=./tests/setup.ts";
 
 // 1. 全量测试（排除启动完整 kernel 的集成测试）

@@ -21,7 +21,7 @@ import type { PackageInfo } from "@wa-pi/shared";
 function tmp(s: string) {
 	return join(
 		import.meta.dir,
-		".tmp-esr-" + s + Math.random().toString(36).slice(2),
+		`.tmp-esr-${s}${Math.random().toString(36).slice(2)}`,
 	);
 }
 
@@ -74,11 +74,9 @@ function stubExtensionManager(packages: PackageInfo[] = []) {
 async function connectSse(
 	base: string,
 ): Promise<ReadableStreamDefaultReader<Uint8Array>> {
-	// connection: close 规避 Bun fetch 连接池同 host 多 server 时错误复用连接
-	// （SSE/POST 被路由到先前测试的 server，导致广播收不到）
-	const res = await fetch(`${base}/api/events`, {
-		headers: { connection: "close" },
-	});
+	// 注：此前这里对本地请求加 connection: close 规避 Bun fetch 连接池同 host 多 server
+	// 错误复用连接（SSE/POST 被路由到先前测试的 server）；该 bug 已在 bun 1.4 修复，已移除。
+	const res = await fetch(`${base}/api/events`);
 	if (!res.ok || !res.body) throw new Error(`SSE 连接失败: ${res.status}`);
 	const reader = res.body.getReader();
 	// 首读触发 stream.start → bus.add(write)，确保后续广播能送达本连接
@@ -207,7 +205,7 @@ test("extension:install 成功后应广播 skill:changed", async () => {
 		// 触发安装
 		await fetch(`${ctx.base}/api/extensions/install`, {
 			method: "POST",
-			headers: { "content-type": "application/json", connection: "close" },
+			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ name: "test-plugin" }),
 		});
 
@@ -225,7 +223,7 @@ test("extension:uninstall 成功后应广播 skill:changed", async () => {
 	try {
 		await fetch(`${ctx.base}/api/extensions/uninstall`, {
 			method: "POST",
-			headers: { "content-type": "application/json", connection: "close" },
+			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ name: "test-plugin" }),
 		});
 
@@ -242,7 +240,7 @@ test("extension:upgrade 成功后应广播 skill:changed", async () => {
 	try {
 		await fetch(`${ctx.base}/api/extensions/upgrade`, {
 			method: "POST",
-			headers: { "content-type": "application/json", connection: "close" },
+			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ name: "test-plugin" }),
 		});
 
@@ -259,7 +257,7 @@ test("extension:toggle 成功后应广播 skill:changed", async () => {
 	try {
 		await fetch(`${ctx.base}/api/extensions/toggle`, {
 			method: "POST",
-			headers: { "content-type": "application/json", connection: "close" },
+			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ name: "test-plugin", enabled: false }),
 		});
 
@@ -277,7 +275,7 @@ test("扩展操作成功后 scanSkillsWithExtensions 应被调用（间接验证
 
 		await fetch(`${ctx.base}/api/extensions/install`, {
 			method: "POST",
-			headers: { "content-type": "application/json", connection: "close" },
+			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ name: "test-plugin" }),
 		});
 
