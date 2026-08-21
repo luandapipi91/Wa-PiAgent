@@ -338,6 +338,13 @@ const ICONS = {
 	command: (
 		<path d="M9 9h6v6H9zM9 9H7.5A2.5 2.5 0 1 1 10 6.5V9zM15 9V6.5A2.5 2.5 0 1 1 16.5 9H15zM9 15H7.5A2.5 2.5 0 1 0 10 17.5V15zM15 15v2.5a2.5 2.5 0 1 0 2.5-2.5H15z" />
 	),
+	// 预览元素附件（inspect 语义）：虚线方框 + 点击光标
+	element: (
+		<>
+			<rect x="3.5" y="3.5" width="13" height="13" rx="2" strokeDasharray="3 2.5" />
+			<path d="M13.5 13.5l7 2.8-2.9.9-.9 2.9-2.2-6.6z" {...F} />
+		</>
+	),
 } as const satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;
