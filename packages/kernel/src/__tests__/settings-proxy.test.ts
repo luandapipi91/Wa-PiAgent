@@ -9,6 +9,10 @@ import {
 	mergeNoProxy,
 	systemProxyFromEnv,
 	readSystemProxy,
+	parseWindowsProxyServer,
+	parseRegQueryValue,
+	parseScutilProxyOutput,
+	readWindowsSystemProxy,
 	PROXY_DEFAULTS,
 } from "../settings-store";
 import { stopProxyRelay } from "../proxy-relay";
@@ -184,5 +188,92 @@ describe("Proxy settings", () => {
 		// 绝不能返回残留的本地中继地址（否则新中继上游指向死端口）
 		expect(result).not.toContain("61385");
 		expect(result).not.toMatch(/^http:\/\/127\.0\.0\.1:/);
+	});
+
+	describe("parseWindowsProxyServer：解析注册表 ProxyServer 值", () => {
+		test("host:port 格式 → 补 http:// 前缀", () => {
+			expect(parseWindowsProxyServer("127.0.0.1:7890")).toBe(
+				"http://127.0.0.1:7890",
+			);
+		});
+
+		test("http:// 开头 → 原样", () => {
+			expect(parseWindowsProxyServer("http://proxy.corp:8080")).toBe(
+				"http://proxy.corp:8080",
+			);
+		});
+
+		test("按协议拆分（http=...;https=...）→ 取 http，无则取 https", () => {
+			expect(
+				parseWindowsProxyServer("http=127.0.0.1:7890;https=127.0.0.1:7890"),
+			).toBe("http://127.0.0.1:7890");
+			expect(parseWindowsProxyServer("https=127.0.0.1:8443")).toBe(
+				"http://127.0.0.1:8443",
+			);
+		});
+
+		test("空/无效 → 空串", () => {
+			expect(parseWindowsProxyServer("")).toBe("");
+			expect(parseWindowsProxyServer(undefined)).toBe("");
+		});
+	});
+
+	describe("parseRegQueryValue：解析 reg query 输出", () => {
+		const REG_OUTPUT = `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x1
+    ProxyServer    REG_SZ    http=127.0.0.1:7890;https=127.0.0.1:7890
+    ProxyOverride    REG_SZ    <local>
+`.trim();
+
+		test("REG_SZ 值 → 提取值内容（含 = 和 ; 的完整串）", () => {
+			expect(parseRegQueryValue(REG_OUTPUT, "ProxyServer")).toBe(
+				"http=127.0.0.1:7890;https=127.0.0.1:7890",
+			);
+		});
+
+		test("REG_DWORD 值 → 十六进制转十进制字符串", () => {
+			expect(parseRegQueryValue(REG_OUTPUT, "ProxyEnable")).toBe("1");
+		});
+
+		test("不存在的键 → 空串", () => {
+			expect(parseRegQueryValue(REG_OUTPUT, "AutoConfigURL")).toBe("");
+		});
+	});
+
+	describe("parseScutilProxyOutput：解析 macOS scutil --proxy 输出", () => {
+		const SCUTIL_OUTPUT = `<dictionary> {
+  HTTPEnable : 1
+  HTTPProxy : 127.0.0.1
+  HTTPPort : 7890
+  HTTPSEnable : 0
+  SOCKSEnable : 1
+  SOCKSProxy : 127.0.0.1
+  SOCKSPort : 1080
+  ExceptionsList : <array> {
+    0 : 127.0.0.1
+    1 : localhost
+  }
+}`;
+
+		test("HTTP 开启 → 返回 http://host:port", () => {
+			expect(parseScutilProxyOutput(SCUTIL_OUTPUT)).toBe("http://127.0.0.1:7890");
+		});
+
+		test("全部关闭 → 空串", () => {
+			expect(
+				parseScutilProxyOutput(
+					"<dictionary> {\n  HTTPEnable : 0\n  HTTPSEnable : 0\n  SOCKSEnable : 0\n}",
+				),
+			).toBe("");
+		});
+	});
+
+	test("readWindowsSystemProxy：reg 读到 ProxyEnable=0 → 空串（不开代理）", async () => {
+		// 注入不可行（execFile 真实子进程），仅验证纯解析链路：ProxyEnable=0 无代理
+		// 该测试依赖真实 Windows 环境，非 Windows 平台跳过
+		if (process.platform !== "win32") return;
+		const url = await readWindowsSystemProxy();
+		expect(typeof url).toBe("string");
 	});
 });

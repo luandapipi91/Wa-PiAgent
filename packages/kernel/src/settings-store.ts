@@ -14,8 +14,8 @@
 // 由 ws-server 的 settings:save handler 调 agentManager.markAllDirty() 保证。
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
-import { getSystemProxy } from "os-proxy-config";
 import { WA_PI_DIR } from "@wa-pi/shared";
 import { ensureProxyRelay } from "./proxy-relay";
 import type {
@@ -43,9 +43,20 @@ export const HTTP_IDLE_TIMEOUT_MIN_MS = 10_000;
 
 const SETTINGS_FILE = join(WA_PI_DIR, "settings.json");
 
-async function readSettingsJson(file: string): Promise<Record<string, any>> {
+/** settings.json 顶层结构：已知字段有类型，未知字段 unknown（JSON 读写的通用容器） */
+interface SettingsJson {
+	retry?: Partial<RetrySettings>;
+	trash?: Partial<TrashSettings>;
+	share?: Partial<ShareSettings>;
+	httpIdleTimeoutMs?: number;
+	useSystemProxy?: boolean;
+	httpProxy?: string;
+	[key: string]: unknown;
+}
+
+async function readSettingsJson(file: string): Promise<SettingsJson> {
 	try {
-		return JSON.parse(await readFile(file, "utf8"));
+		return JSON.parse(await readFile(file, "utf8")) as SettingsJson;
 	} catch {
 		return {};
 	}
@@ -53,7 +64,7 @@ async function readSettingsJson(file: string): Promise<Record<string, any>> {
 
 async function writeSettingsJson(
 	file: string,
-	settings: Record<string, any>,
+	settings: SettingsJson,
 ): Promise<void> {
 	await mkdir(dirname(file), { recursive: true });
 	await writeFile(file, JSON.stringify(settings, null, 2), "utf8");
@@ -267,8 +278,162 @@ export function systemProxyFromEnv(env: string | undefined): string | null {
 }
 
 /**
- * 读系统代理地址（跨平台，网页端可用——不依赖 Electron）。
- * 用 os-proxy-config：Windows 读注册表 / macOS 读 scutil / Linux 读 *_PROXY 环境变量。
+ * 解析 Windows 注册表 ProxyServer 值，返回可用的 http/https 代理 URL（空串=无代理）。
+ * 格式兼容 windows-system-proxy 的解析逻辑：
+ *   http://host:port          → 原样
+ *   host:port                 → http://host:port
+ *   http=host:port;https=...  → 取 http（无则取 https）
+ */
+export function parseWindowsProxyServer(server: string | undefined): string {
+	const s = (server ?? "").trim();
+	if (!s) return "";
+	if (s.startsWith("http://") || s.startsWith("https://")) return s;
+	if (s.includes("=")) {
+		const map: Record<string, string> = {};
+		for (const pair of s.split(";")) {
+			const idx = pair.indexOf("=");
+			if (idx > 0) {
+				map[pair.slice(0, idx).trim().toLowerCase()] = pair.slice(idx + 1).trim();
+			}
+		}
+		const http = map["http"] || map["https"];
+		if (!http) return "";
+		return http.includes("://") ? http : `http://${http}`;
+	}
+	return s.includes("://") ? s : `http://${s}`;
+}
+
+/**
+ * 解析 reg query 输出中指定键名的值。
+ * 输出形如：
+ *   HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
+ *       ProxyServer    REG_SZ    http://127.0.0.1:7890
+ *       ProxyEnable    REG_DWORD    0x1
+ * 支持 REG_SZ / REG_EXPAND_SZ / REG_DWORD（0x 十六进制转十进制字符串）。
+ */
+export function parseRegQueryValue(output: string, valueName: string): string {
+	for (const line of output.split(/\r?\n/)) {
+		const trimmed = line.trim();
+		if (!trimmed.startsWith(valueName)) continue;
+		const parts = trimmed.split(/\s+/);
+		if (parts.length < 3) continue;
+		const type = parts[1];
+		if (type === "REG_DWORD") {
+			const hex = (parts[2] || "0").replace(/^0x/i, "");
+			return String(parseInt(hex, 16) || 0);
+		}
+		if (type === "REG_SZ" || type === "REG_EXPAND_SZ") {
+			return parts.slice(2).join(" ");
+		}
+	}
+	return "";
+}
+
+/** 执行 reg query 读取注册表值（读不到返回空串） */
+async function readRegValue(key: string, value: string): Promise<string> {
+	return new Promise((resolve) => {
+		execFile(
+			"reg",
+			["query", key, "/v", value],
+			{ windowsHide: true, timeout: 5000, maxBuffer: 64 * 1024 },
+			(err, stdout) => {
+				if (err) {
+					console.log(`[proxy] reg query ${value} 失败: ${err.message}`);
+					resolve("");
+					return;
+				}
+				resolve(parseRegQueryValue(stdout, value));
+			},
+		);
+	});
+}
+
+/**
+ * Windows 读系统代理（注册表 HKCU Internet Settings）。
+ * 用系统自带的 reg.exe，不依赖任何第三方/原生模块（彻底绕开 registry-js）。
+ * 读不到或执行失败返回空串（直连兜底）。
+ */
+export async function readWindowsSystemProxy(): Promise<string> {
+	const key =
+		"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
+	const [enable, server] = await Promise.all([
+		readRegValue(key, "ProxyEnable"),
+		readRegValue(key, "ProxyServer"),
+	]);
+	if (enable !== "1" || !server) return "";
+	return parseWindowsProxyServer(server);
+}
+
+/**
+ * 解析 scutil --proxy 输出（macOS），返回 http/https 代理 URL（空串=无代理）。
+ * 输出形如：
+ *   <dictionary> {
+ *     HTTPEnable : 1
+ *     HTTPProxy : 127.0.0.1
+ *     HTTPPort : 7890
+ *     HTTPSEnable : 0
+ *     SOCKSEnable : 1
+ *     SOCKSProxy : 127.0.0.1
+ *     SOCKSPort : 1080
+ *     ExceptionsList : <array> { ... }
+ *   }
+ * 优先 HTTP，其次 HTTPS，最后 SOCKS（SOCKS 统一按 http:// 返回由中继层转发）。
+ */
+export function parseScutilProxyOutput(output: string): string {
+	const get = (key: string) => {
+		const m = output.match(new RegExp(`^\\s*${key}\\s*:\\s*(.+)$`, "m"));
+		return m ? m[1].trim() : "";
+	};
+	const candidates = [
+		{ enable: "HTTPEnable", host: "HTTPProxy", port: "HTTPPort" },
+		{ enable: "HTTPSEnable", host: "HTTPSProxy", port: "HTTPSPort" },
+		{ enable: "SOCKSEnable", host: "SOCKSProxy", port: "SOCKSPort" },
+	];
+	for (const c of candidates) {
+		if (get(c.enable) !== "1") continue;
+		const host = get(c.host);
+		const port = get(c.port);
+		if (!host || !port) continue;
+		return `http://${host}:${port}`;
+	}
+	return "";
+}
+
+/** macOS 读系统代理：scutil --proxy（系统自带命令，纯 JS 子进程） */
+async function readMacSystemProxy(): Promise<string> {
+	return new Promise((resolve) => {
+		execFile(
+			"scutil",
+			["--proxy"],
+			{ timeout: 5000, maxBuffer: 64 * 1024 },
+			(err, stdout) => {
+				if (err) {
+					console.log(`[proxy] scutil 读系统代理失败: ${err.message}`);
+					resolve("");
+					return;
+				}
+				resolve(parseScutilProxyOutput(stdout));
+			},
+		);
+	});
+}
+
+/** Linux 读系统代理：环境变量（无第三方依赖） */
+function readLinuxSystemProxy(): string {
+	const env =
+		process.env.HTTPS_PROXY ||
+		process.env.HTTP_PROXY ||
+		process.env.https_proxy ||
+		process.env.http_proxy ||
+		"";
+	return env.startsWith("http://") || env.startsWith("https://") ? env : "";
+}
+
+/**
+ * 读系统代理地址（跨平台，自研实现，零第三方依赖/零原生模块）：
+ *   Windows：reg.exe 读注册表（系统自带，绕开 registry-js）
+ *   macOS：scutil --proxy（系统自带）
+ *   Linux：环境变量
  * 只支持 http/https 代理（SOCKS/PAC 的 proxyUrl 不适合直接塞 HTTP_PROXY，暂视为直连）。
  * 读不到返回空串（表示直连）。
  */
@@ -281,12 +446,16 @@ export async function readSystemProxy(): Promise<string> {
 		return fromEnv;
 	}
 	try {
-		const proxy = await getSystemProxy();
-		const url = proxy?.proxyUrl ?? "";
-		console.log(
-			`[proxy] os-proxy-config 读到: proxyUrl=${url || "(无)"} noProxy=${JSON.stringify(proxy?.noProxy ?? [])}`,
-		);
-		return url.startsWith("http://") || url.startsWith("https://") ? url : "";
+		let url = "";
+		if (process.platform === "win32") {
+			url = await readWindowsSystemProxy();
+		} else if (process.platform === "darwin") {
+			url = await readMacSystemProxy();
+		} else {
+			url = readLinuxSystemProxy();
+		}
+		console.log(`[proxy] 系统代理读到: proxyUrl=${url || "(无)"}`);
+		return url;
 	} catch (e) {
 		console.log(
 			`[proxy] 读系统代理失败: ${e instanceof Error ? e.message : String(e)}`,
@@ -407,17 +576,13 @@ export async function saveShareSettings(
 ): Promise<ShareSettings> {
 	const settings = await readSettingsJson(file);
 	const prevToken = settings.share?.token ?? "";
-	settings.share = {
+	const next: ShareSettings = {
 		token: share.token ? share.token : prevToken,
 		channel: share.channel ?? SHARE_DEFAULTS.channel,
 		customDomain: share.customDomain ?? SHARE_DEFAULTS.customDomain,
 		accountId: share.accountId ?? SHARE_DEFAULTS.accountId,
 	};
+	settings.share = next;
 	await writeSettingsJson(file, settings);
-	return {
-		token: settings.share.token,
-		channel: settings.share.channel,
-		customDomain: settings.share.customDomain,
-		accountId: settings.share.accountId,
-	};
+	return next;
 }

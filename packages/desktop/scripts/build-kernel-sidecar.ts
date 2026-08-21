@@ -195,25 +195,23 @@ export async function buildSidecar(
 	await mkdir(kernelDir, { recursive: true });
 
 	// 1. kernel.js（解释 bundle；--target bun，平台中立，一次构建）
-	// --external registry-js：读 Windows 注册表的原生 addon（os-proxy-config→windows-system-proxy→registry-js），
-	// 无法内联，若不用 external 会被 bun build 当 asset 输出导致 --outfile 报「多个输出文件」。
-	// 标记 external 后，运行时从首启动态安装的 node_modules 加载（依赖清单里已加 registry-js）。
+	// 不再 external registry-js：读系统代理已改为自研跨平台实现（settings-store.ts，
+	// Windows 用 reg.exe / macOS 用 scutil / Linux 用环境变量），不依赖任何原生 addon。
 	run("bun", [
 		"build",
 		join(ROOT, "packages", "kernel", "src", "desktop-server.ts"),
 		"--target",
 		"bun",
-		"--external",
-		"registry-js",
 		"--outfile",
 		join(kernelDir, "kernel.js"),
 	]);
 
-	// 2. 依赖清单（package.json + bun.lock）：JS 已 bundle 进 kernel.js，但 ast-grep/better-sqlite3/koffi
-	//    等原生 addon 无法内联，运行时需要 node_modules。这里【只产出清单 + 锁文件，不打包 node_modules】——
-	//    首启动态安装到用户可写目录（runtime-deps.cjs），既避免 .app 只读、又减小安装包体积，
-	//    且首启只装用户本机平台的原生预编译。
+	// 2. 依赖清单（package.json + bun.lock）：JS 已 bundle 进 kernel.js，但部分依赖无法内联
+	//    （动态 import / 运行时解析），运行时需要 node_modules。这里【只产出清单 + 锁文件，不打包
+	//    node_modules】——首启动态安装到用户可写目录（runtime-deps.cjs），避免 .app 只读、减小安装包体积。
 	//    ⚠️ bun install --production 不生成锁文件，必须先用无 --production 跑一次产出 bun.lock。
+	//    ⚠️ 全部是纯 JS 包、无原生 addon：首启安装带 --ignore-scripts（runtime-deps.cjs），
+	//    无编译环节 → 网络通即 100% 安装成功。
 	//    带 patchedDependencies 并复制补丁文件：pi-mcp-adapter 的 exports/类型补丁在打包态也需应用。
 	await writeFile(
 		join(kernelDir, "package.json"),
@@ -232,9 +230,6 @@ export async function buildSidecar(
 					"pi-mcp-adapter": "^2.13.0",
 					"@modelcontextprotocol/sdk": "^1.29.0",
 					typebox: "^1.3.6",
-					// 读系统代理的注册表原生 addon（os-proxy-config 间接依赖），kernel.js 里标记 external，
-					// 需随依赖清单首启动态安装 .node 供运行时加载。
-					"registry-js": "^1.16.1",
 				},
 			},
 			null,

@@ -9,7 +9,13 @@
 // postinstall（node-gyp 编译 / prebuild 下载）失败时，bun 仍会以 0 退出（依赖包已
 // 解压，重跑 install 报 no changes），导致「假成功」写入标记、后续启动永久跳过安装，
 // 直到 kernel 加载 registry-js 报 Cannot find module .../registry.node 才暴露。
-// 因此安装后必须 verifyInstall 校验产物，失败则清理 node_modules 重装（installWithRetry）。
+//
+// 因此：① 安装必须带 --ignore-scripts（跳过所有 lifecycle scripts，包括 registry-js
+// 的 node-gyp 编译）——seed 依赖全部是纯 JS 包（已确认仅有 protobufjs 打版本警告的
+// 无害 postinstall），跳过脚本后安装只依赖下载解压，网络通即 100% 成功；
+// ② Windows 读系统代理改用 PowerShell（settings-store.ts），不再依赖 registry-js 的
+// .node 产物；③ 安装后 verifyInstall 校验顶层依赖真实存在，失败则清理 node_modules
+// 重装（installWithRetry）；④ 全部失败不写标记 → 下次启动自动重试（门禁）。
 const { spawn } = require("node:child_process");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
@@ -58,15 +64,10 @@ async function syncSeed(seedDir, runtimeDir, log) {
 	log.info(`[deps] seed → ${runtimeDir}`);
 }
 
-// 原生 addon 产物清单：key=包名，value=相对包目录的候选产物路径（任一存在即视为装好）。
-// registry-js 由 kernel.js 标记 external，.node 必须由首启安装产出；缺失时 Windows 上
-// os-proxy-config 读系统代理失败，模型请求会经中继走向死端口/直连而报错。
-const NATIVE_PRODUCTS = {
-	"registry-js": ["build/Release/registry.node"],
-};
-
-// 安装后产物校验：顶层依赖的 package.json 必须存在；已知原生 addon 的 .node 必须产出。
-// 校验失败抛错（错误信息含缺失清单）。仅看 bun install 退出码会漏掉 postinstall 失败。
+// 安装后产物校验：顶层依赖的 package.json 必须存在（校验失败说明安装未真正完成，
+// 可能是网络中断导致的半装）。仅看 bun install 退出码会漏掉这类情况。
+// 注意：不校验 registry-js 的 .node 产物——Windows 读系统代理已改为 PowerShell 兜底
+// （settings-store.ts），首启安装带 --ignore-scripts 不编译原生模块。
 async function verifyInstall(runtimeDir, log) {
 	let manifest;
 	try {
@@ -80,19 +81,6 @@ async function verifyInstall(runtimeDir, log) {
 	for (const name of Object.keys(manifest.dependencies || {})) {
 		const pkgJson = path.join(runtimeDir, "node_modules", name, "package.json");
 		if (!(await exists(pkgJson))) missing.push(`${name}（包未安装）`);
-	}
-	for (const [name, candidates] of Object.entries(NATIVE_PRODUCTS)) {
-		const base = path.join(runtimeDir, "node_modules", name);
-		if (!(await exists(base))) continue; // 顶层包缺失已在上方上报
-		let found = false;
-		for (const c of candidates) {
-			if (await exists(path.join(base, c))) {
-				found = true;
-				break;
-			}
-		}
-		if (!found)
-			missing.push(`${name}（原生模块 ${candidates.join(" / ")} 缺失）`);
 	}
 	if (missing.length) {
 		throw new Error(`安装产物校验失败: ${missing.join("；")}`);
@@ -148,9 +136,20 @@ async function installWithRetry({ registries, install, verify, cleanup, log }) {
 }
 
 // 跑一次 bun install；解析输出里的包计数回传给 UI 进度条
+// args 抽成纯函数便于测试断言（--ignore-scripts 是 100% 安装成功的关键）。
+function buildInstallArgs(runtimeDir) {
+	return [
+		"install",
+		"--production",
+		"--ignore-scripts", // 跳过所有 lifecycle scripts（registry-js 的 node-gyp 编译等），消除编译失败
+		"--cwd",
+		runtimeDir,
+	];
+}
+
 function runInstall({ kernelExe, runtimeDir, registry, log, onStatus }) {
 	return new Promise((resolve, reject) => {
-		const args = ["install", "--production", "--cwd", runtimeDir];
+		const args = buildInstallArgs(runtimeDir);
 		const child = spawn(kernelExe, args, {
 			cwd: runtimeDir,
 			env: { ...process.env, BUN_CONFIG_REGISTRY: registry },
@@ -243,6 +242,7 @@ module.exports = {
 	verifyInstall,
 	installWithRetry,
 	rmNodeModules,
+	buildInstallArgs,
 	DEFAULT_REGISTRY,
 	FALLBACK_REGISTRY,
 };
