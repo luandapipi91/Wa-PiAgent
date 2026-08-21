@@ -7,6 +7,8 @@ import {
 	saveProxySettings,
 	applySystemProxy,
 	mergeNoProxy,
+	systemProxyFromEnv,
+	readSystemProxy,
 	PROXY_DEFAULTS,
 } from "../settings-store";
 import { stopProxyRelay } from "../proxy-relay";
@@ -148,5 +150,39 @@ describe("Proxy settings", () => {
 		const twice = mergeNoProxy(once);
 		expect(twice.split(",").length).toBe(once.split(",").length);
 		expect(mergeNoProxy(undefined)).toContain("localhost");
+	});
+
+	describe("systemProxyFromEnv：本地中继地址不作为上游", () => {
+		test("无 env 代理 → null（继续读系统代理）", () => {
+			expect(systemProxyFromEnv(undefined)).toBeNull();
+			expect(systemProxyFromEnv("")).toBeNull();
+		});
+
+		test("本地中继地址（127.0.0.1/localhost/::1）→ null（忽略，防止指向死端口/自身回环）", () => {
+			expect(systemProxyFromEnv("http://127.0.0.1:64188")).toBeNull();
+			expect(systemProxyFromEnv("http://localhost:55578")).toBeNull();
+			expect(systemProxyFromEnv("http://[::1]:64188")).toBeNull();
+		});
+
+		test("真实上游代理 → 原样返回", () => {
+			expect(systemProxyFromEnv("http://proxy.example.com:8080")).toBe(
+				"http://proxy.example.com:8080",
+			);
+			expect(systemProxyFromEnv("http://10.0.0.5:7890")).toBe(
+				"http://10.0.0.5:7890",
+			);
+		});
+
+		test("无效 URL → null（交给系统代理读取兜底）", () => {
+			expect(systemProxyFromEnv("not-a-url")).toBeNull();
+		});
+	});
+
+	test("readSystemProxy：env 残留本地中继地址时不当作上游，继续走系统读取", async () => {
+		process.env.HTTP_PROXY = "http://127.0.0.1:61385"; // 上个实例残留的旧中继
+		const result = await readSystemProxy();
+		// 绝不能返回残留的本地中继地址（否则新中继上游指向死端口）
+		expect(result).not.toContain("61385");
+		expect(result).not.toMatch(/^http:\/\/127\.0\.0\.1:/);
 	});
 });

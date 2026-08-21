@@ -133,7 +133,7 @@ function buildSplashURL() {
 		canvasBg: CANVAS_BG,
 		brandGreen: BRAND_GREEN,
 	});
-	return "data:text/html;charset=utf-8," + encodeURIComponent(html);
+	return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 function createSplash() {
 	splashWindow = new BrowserWindow({
@@ -501,6 +501,13 @@ app.whenReady().then(async () => {
 		app.quit();
 	});
 
+	// 依赖安装失败错误页「重试」按钮：重启应用，启动流程会重新执行依赖安装。
+	// （失败时不写 .installed-version 标记，重启即自动重试——这里的按钮省去手动关闭重开）
+	ipcMain.handle("app:retry-install", () => {
+		app.relaunch();
+		app.exit(0);
+	});
+
 	// 开机自启：读取/设置系统登录项
 	ipcMain.handle("app:get-login-item", () => {
 		return app.getLoginItemSettings().openAtLogin;
@@ -517,12 +524,11 @@ app.whenReady().then(async () => {
 
 	// 托盘 + 菜单
 	const { startTray } = require("./tray.cjs");
-	const trayIconName =
-		process.platform === "darwin"
-			? "tray_darwin.png"
-			: process.platform === "win32"
-				? "tray_windows.ico"
-				: "tray_linux.png";
+	const TRAY_ICONS = {
+		darwin: "tray_darwin.png",
+		win32: "tray_windows.ico",
+	};
+	const trayIconName = TRAY_ICONS[process.platform] || "tray_linux.png";
 	trayInstance = startTray({
 		iconPath: path.join(__dirname, "assets", trayIconName),
 		onOpen: activateApp,
@@ -679,10 +685,25 @@ app.whenReady().then(async () => {
 			log.error("依赖安装失败", e);
 			setProgress(-1, "依赖安装失败，请检查网络后重启");
 			mainWindow.webContents.once("did-finish-load", revealMainWindow);
+			const detail = String(e.message || e).replace(/</g, "&lt;");
 			mainWindow.loadURL(
-				"data:text/html;charset=utf-8,<body style='font-family:system-ui;padding:48px;color:#a00'>内核依赖安装失败，请检查网络连接后重启 WA PI Agent。<br/><br/>详情：" +
-					String(e.message || e).replace(/</g, "&lt;") +
-					"</body>",
+				"data:text/html;charset=utf-8," +
+					encodeURIComponent(
+						`<body style='font-family:system-ui;padding:48px;color:#a00'>
+<h2>内核依赖安装失败</h2>
+<p style='color:#444'>已自动重试多次。请检查网络连接后点击重试；若反复失败，可能需要安装 Visual Studio C++ 生成工具（registry-js 原生模块编译依赖）。</p>
+<pre style='color:#888;font-size:12px;white-space:pre-wrap'>${detail}</pre>
+<div style='margin-top:24px'>
+<button id='retry' style='font-size:16px;padding:8px 24px;margin-right:12px'>重试</button>
+<button id='quit' style='font-size:16px;padding:8px 24px'>退出</button>
+</div>
+<script>
+const btn = document.getElementById('retry');
+btn.onclick = () => { btn.disabled = true; btn.textContent = '重启中…'; window.waPiApp.retryInstall(); };
+document.getElementById('quit').onclick = () => window.waPiApp.quit();
+</script>
+</body>`,
+					),
 			);
 			return;
 		}

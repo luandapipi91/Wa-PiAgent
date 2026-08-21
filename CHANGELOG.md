@@ -2,6 +2,12 @@
 
 ### 新增
 
+- 首启依赖安装失败自动重试 + 兜底（修复「装失败但标记成功 → 后续模型请求代理 404」）
+  - 根因：`bun install` 退出码 0 ≠ 依赖可用——registry-js 等原生 addon 的 postinstall（node-gyp 编译/prebuild 下载）失败时 bun 仍以 0 退出（重跑报 no changes），旧逻辑只看退出码就写 `.installed-version` 标记，导致永久跳过安装；kernel 加载 registry-js 报 `Cannot find module .../registry.node`，Windows 读系统代理失败，模型请求经中继走向死端口/直连报 404。
+  - 调整：安装后 `verifyInstall` 校验顶层依赖 package.json + registry-js 的 `build/Release/registry.node` 产物，缺失视为失败；`installWithRetry` 主源→回退源两轮（失败清理 node_modules 重装，参照 npm-package-service.repair 的 Windows 文件锁重试）；全部失败抛错且**不写标记** → 下次启动自动重试（兜底）。
+  - 调整：`readSystemProxy` 不再把 env 里的本地中继地址（`http://127.0.0.1:端口`，applySystemProxy 写入的残留值）当上游——旧值会让新中继上游指向已死端口、自身值造成回环，抽 `systemProxyFromEnv` 纯函数忽略回环代理后继续读系统代理。
+  - 新增：依赖安装失败错误页提供「重试」（IPC `app:retry-install` → relaunch，preload 暴露 `waPiApp.retryInstall`）与「退出」按钮。
+  - 影响范围：`packages/desktop/src/util/runtime-deps.cjs`、`packages/kernel/src/settings-store.ts`、`packages/desktop/src/main.cjs`、`packages/desktop/src/preload.cjs`；测试：runtime-deps 新增 verifyInstall/installWithRetry 8 用例，settings-proxy 新增 systemProxyFromEnv/readSystemProxy 5 用例。
 - 端口被占用时静默自动换端口启动，不再弹提示
   - 调整：kernel 固定端口（默认 9778）被占用、自动清理（3 轮）仍失败时，不再在启动页弹「端口被占用」错误提示 + 「换端口启动」按钮，改为静默自动查找下一个可用端口（findAvailablePort 从被占端口+1 线性探测）并 relaunch 启动；找不到任何可用端口时才落回错误提示。
   - 同样处理：清理占用进程后仍被占用（幽灵句柄）的分支，不再提示直接换端口。

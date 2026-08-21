@@ -246,16 +246,39 @@ export async function saveProxySettings(
 }
 
 /**
+ * 从 env 代理变量提取上游代理。
+ * 本地中继（applySystemProxy 写入的 http://127.0.0.1:随机端口）不能作为中继自己的上游：
+ * 上一实例残留的旧中继地址会让新中继上游指向已死端口（日志里的「上游=旧中继 → 模型请求 404」），
+ * 同实例自身地址则造成回环死循环。返回 null 表示忽略该 env 值（继续读系统代理）。
+ */
+export function systemProxyFromEnv(env: string | undefined): string | null {
+	if (!env) return null;
+	try {
+		const u = new URL(env);
+		// URL.hostname 对 IPv6 保留方括号（[::1]），去掉后统一比较
+		const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+		if (host === "127.0.0.1" || host === "localhost" || host === "::1") {
+			return null;
+		}
+		return env;
+	} catch {
+		return null; // 非法 URL 不作为上游，交给系统代理读取兜底
+	}
+}
+
+/**
  * 读系统代理地址（跨平台，网页端可用——不依赖 Electron）。
  * 用 os-proxy-config：Windows 读注册表 / macOS 读 scutil / Linux 读 *_PROXY 环境变量。
  * 只支持 http/https 代理（SOCKS/PAC 的 proxyUrl 不适合直接塞 HTTP_PROXY，暂视为直连）。
  * 读不到返回空串（表示直连）。
  */
 export async function readSystemProxy(): Promise<string> {
-	const env = process.env.HTTP_PROXY || process.env.HTTPS_PROXY;
-	if (env) {
-		console.log(`[proxy] 环境变量已有代理: ${env}`);
-		return env;
+	const fromEnv = systemProxyFromEnv(
+		process.env.HTTP_PROXY || process.env.HTTPS_PROXY,
+	);
+	if (fromEnv) {
+		console.log(`[proxy] 环境变量已有代理: ${fromEnv}`);
+		return fromEnv;
 	}
 	try {
 		const proxy = await getSystemProxy();

@@ -4,6 +4,12 @@
 //   seed  （.app 只读）：kernel.js + package.json + bun.lock + wa-pi-kernel
 //   runtime（WA_PI_DIR/runtime 可写，默认 ~/.pi/agent/runtime）：复制 seed → bun install 产出 node_modules → 跑 kernel.js
 // 用 .installed-version 标记触发升级重装；默认阿里源(npmmirror)，失败回退官方源。
+//
+// 坑位记录：bun install 退出码 0 不等于依赖可用。registry-js 等原生 addon 的
+// postinstall（node-gyp 编译 / prebuild 下载）失败时，bun 仍会以 0 退出（依赖包已
+// 解压，重跑 install 报 no changes），导致「假成功」写入标记、后续启动永久跳过安装，
+// 直到 kernel 加载 registry-js 报 Cannot find module .../registry.node 才暴露。
+// 因此安装后必须 verifyInstall 校验产物，失败则清理 node_modules 重装（installWithRetry）。
 const { spawn } = require("node:child_process");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
@@ -52,6 +58,95 @@ async function syncSeed(seedDir, runtimeDir, log) {
 	log.info(`[deps] seed → ${runtimeDir}`);
 }
 
+// 原生 addon 产物清单：key=包名，value=相对包目录的候选产物路径（任一存在即视为装好）。
+// registry-js 由 kernel.js 标记 external，.node 必须由首启安装产出；缺失时 Windows 上
+// os-proxy-config 读系统代理失败，模型请求会经中继走向死端口/直连而报错。
+const NATIVE_PRODUCTS = {
+	"registry-js": ["build/Release/registry.node"],
+};
+
+// 安装后产物校验：顶层依赖的 package.json 必须存在；已知原生 addon 的 .node 必须产出。
+// 校验失败抛错（错误信息含缺失清单）。仅看 bun install 退出码会漏掉 postinstall 失败。
+async function verifyInstall(runtimeDir, log) {
+	let manifest;
+	try {
+		manifest = JSON.parse(
+			await fsp.readFile(path.join(runtimeDir, "package.json"), "utf8"),
+		);
+	} catch (e) {
+		throw new Error(`package.json 读取/解析失败: ${e.message}`);
+	}
+	const missing = [];
+	for (const name of Object.keys(manifest.dependencies || {})) {
+		const pkgJson = path.join(runtimeDir, "node_modules", name, "package.json");
+		if (!(await exists(pkgJson))) missing.push(`${name}（包未安装）`);
+	}
+	for (const [name, candidates] of Object.entries(NATIVE_PRODUCTS)) {
+		const base = path.join(runtimeDir, "node_modules", name);
+		if (!(await exists(base))) continue; // 顶层包缺失已在上方上报
+		let found = false;
+		for (const c of candidates) {
+			if (await exists(path.join(base, c))) {
+				found = true;
+				break;
+			}
+		}
+		if (!found)
+			missing.push(`${name}（原生模块 ${candidates.join(" / ")} 缺失）`);
+	}
+	if (missing.length) {
+		throw new Error(`安装产物校验失败: ${missing.join("；")}`);
+	}
+	if (log) log.info("[deps] 安装产物校验通过");
+}
+
+// 删除 node_modules（重装前清理脏状态）。Windows 上会话占用扩展文件会锁目录，
+// 参照 npm-package-service.repair 重试 3 次×1s，仍失败抛错（提示关闭占用）。
+async function rmNodeModules(runtimeDir, log) {
+	const nm = path.join(runtimeDir, "node_modules");
+	if (!(await exists(nm))) return;
+	for (let attempt = 0; attempt < 3; attempt++) {
+		try {
+			await fsp.rm(nm, { recursive: true, force: true });
+			return;
+		} catch (e) {
+			if (attempt === 2) {
+				throw new Error(
+					`删除 node_modules 失败（可能被占用，请关闭 WA PI Agent 其他实例后重试）: ${e.message}`,
+				);
+			}
+			if (log)
+				log.info(`[deps] 删除 node_modules 被占用，1s 后重试 (${attempt + 1}/3)`);
+			await new Promise((r) => setTimeout(r, 1000));
+		}
+	}
+}
+
+// 安装重试：registries 依次尝试，每轮安装后 verify 校验产物；一轮全失败则 cleanup
+// （清理 node_modules）后进入下一轮。返回即成功；两轮（2×registries.length 次）全败抛错。
+async function installWithRetry({ registries, install, verify, cleanup, log }) {
+	let lastErr = null;
+	for (let round = 1; round <= 2; round++) {
+		if (round === 2) {
+			if (log) log.info("[deps] 首轮安装/校验失败，清理 node_modules 后重装…");
+			await cleanup();
+		}
+		for (const registry of registries) {
+			try {
+				await install(registry);
+				await verify();
+				return;
+			} catch (e) {
+				lastErr = e;
+				if (log) log.error(`[deps] 源 ${registry} 安装/校验失败: ${e.message}`);
+			}
+		}
+	}
+	throw new Error(
+		`依赖安装重试 ${2 * registries.length} 次后仍失败: ${lastErr?.message || "未知原因"}`,
+	);
+}
+
 // 跑一次 bun install；解析输出里的包计数回传给 UI 进度条
 function runInstall({ kernelExe, runtimeDir, registry, log, onStatus }) {
 	return new Promise((resolve, reject) => {
@@ -81,7 +176,7 @@ function runInstall({ kernelExe, runtimeDir, registry, log, onStatus }) {
 				? resolve()
 				: reject(
 						new Error(
-							`bun install 退出码 ${code}${errBuf ? "\n" + errBuf.slice(-600) : ""}`,
+							`bun install 退出码 ${code}${errBuf ? `\n${errBuf.slice(-600)}` : ""}`,
 						),
 					),
 		);
@@ -122,29 +217,21 @@ async function ensureRuntimeDeps({
 		`[deps] 需要安装依赖 (version=${version}, installed=${markerVer || "无"})`,
 	);
 
-	const primary = process.env.WA_PI_REGISTRY || DEFAULT_REGISTRY;
+	const registries = [
+		process.env.WA_PI_REGISTRY || DEFAULT_REGISTRY,
+		FALLBACK_REGISTRY,
+	];
 	if (onStatus) onStatus(`正在下载依赖…`);
-	try {
-		await runInstall({
-			kernelExe,
-			runtimeDir,
-			registry: primary,
-			log,
-			onStatus,
-		});
-	} catch (e1) {
-		log.error(
-			`[deps] 主源(${primary})失败，回退 ${FALLBACK_REGISTRY}: ${e1.message}`,
-		);
-		if (onStatus) onStatus(`主源失败，尝试官方源…`);
-		await runInstall({
-			kernelExe,
-			runtimeDir,
-			registry: FALLBACK_REGISTRY,
-			log,
-			onStatus,
-		});
-	}
+	// 主源 → 回退源，安装后校验产物；失败清理 node_modules 再重试一轮。
+	// 全部失败时抛错（main.cjs 显示错误页），不写标记 → 下次启动自动重试（兜底）。
+	await installWithRetry({
+		registries,
+		install: (registry) =>
+			runInstall({ kernelExe, runtimeDir, registry, log, onStatus }),
+		verify: () => verifyInstall(runtimeDir, log),
+		cleanup: () => rmNodeModules(runtimeDir, log),
+		log,
+	});
 	await fsp.writeFile(marker, version, "utf8").catch(() => {});
 	log.info("[deps] ✅ 安装完成");
 	return runtimeDir;
@@ -153,6 +240,9 @@ async function ensureRuntimeDeps({
 module.exports = {
 	ensureRuntimeDeps,
 	syncSeed,
+	verifyInstall,
+	installWithRetry,
+	rmNodeModules,
 	DEFAULT_REGISTRY,
 	FALLBACK_REGISTRY,
 };

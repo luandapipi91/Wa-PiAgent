@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld("waPiApp", {
 	restartAfterPortKill: () => ipcRenderer.invoke("app:restart-after-port-kill"),
 	switchPortStart: () => ipcRenderer.invoke("app:switch-port-start"),
 	quit: () => ipcRenderer.invoke("app:quit"),
+	// 依赖安装失败错误页「重试」：重启应用重新执行依赖安装
+	retryInstall: () => ipcRenderer.invoke("app:retry-install"),
 	// 大文件附件降级用：从渲染进程的 File 对象取真实文件系统路径
 	// （contextIsolation:true 下渲染进程无法直接访问 webUtils）。
 	// Electron 32+ 废弃了 File.path，必须经此 API 获取。
