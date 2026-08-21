@@ -6,6 +6,11 @@
 
 ### 新增
 
+- browser_* 宿主浏览器工具（browser_navigate/evaluate/screenshot/close）
+  - 新增：BrowserManager 会话级 Bun.WebView 实例池（packages/kernel/src/browser-manager.ts）——每个 wa-pi 会话一个 WebView，首次 navigate 隐式创建、之后复用；销毁三层：闲置超时 sweep、会话结束 closeSession、显式 browser_close；视图工厂可注入（测试用 fake）。
+  - 新增：browser-tools.ts 执行逻辑——handleBrowserTool(manager, sessionId, tool, params) 按工具分派返回 BridgeToolResult；超时用 Promise.race 包装（页面加载 120s、操作 60s）、ERR_INVALID_STATE 并发重试（最多 3 次×100ms 递增间隔）、eval 结果超 8000 字符截断、截图默认落盘到截图目录（path 模式）或返回 data URL（base64 模式）、引擎不可用错误提示含 BUN_CHROME_PATH 指引。
+  - 测试：browser-manager 6 用例、browser-tools 9 用例全 PASS（fake view + fake manager 注入）。
+  - 影响范围：packages/kernel/src/browser-manager.ts、packages/kernel/src/browser-tools.ts、packages/kernel/tests/browser-manager.test.ts、packages/kernel/tests/browser-tools.test.ts。
 - 首启依赖安装 100% 成功（根治「依赖装失败 → 后续模型代理请求 404」）
   - 根因：读 Windows 系统代理的 registry-js（os-proxy-config→windows-system-proxy 链）是原生 addon，安装时要 prebuild 下载/ node-gyp 编译；prebuild 下载 ECONNRESET + 机器无 VS C++ 工具链时编译失败 → bun install 退出码 1，且旧逻辑只看退出码就写 `.installed-version` 标记，后续启动永久跳过安装，kernel 加载 registry-js 报 `Cannot find module .../registry.node`，读系统代理失败，模型请求经中继走向死端口/直连报 404。
   - 调整：读系统代理改为自研跨平台实现（settings-store.ts），零第三方依赖、零原生模块——Windows 用系统自带 reg.exe 读注册表（ProxyEnable/ProxyServer），macOS 用 scutil --proxy，Linux 用环境变量；删除 os-proxy-config 依赖链。
